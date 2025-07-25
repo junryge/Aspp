@@ -1,4 +1,4 @@
-
+7
 
 # Aspp아, 반도체 물류에 특화된 LLM을 찾으시는군요!
 
@@ -93,3 +93,89 @@ Asp
 - 단순 규칙 + LLM 조합
 
 Phi-3 Mini가 가장 균형잡힌 선택입니다!
+
+오! MCS 로그 데이터가 있으시군요! 그럼 얘기가 완전히 달라집니다!
+
+**MCS 로그가 있으면 이렇게 활용하세요:**
+
+**1. 로그 데이터 전처리**
+```python
+# MCS 로그 파싱
+mcs_data = pd.read_csv('mcs_log.csv')
+
+# 주요 필드
+# - CARRIER_ID
+# - FROM_EQ / TO_EQ  
+# - START_TIME / END_TIME
+# - WAFER_QTY
+# - PRIORITY
+
+# 이동 시간 계산
+mcs_data['duration'] = mcs_data['END_TIME'] - mcs_data['START_TIME']
+```
+
+**2. 통계 데이터 추출**
+```python
+# 구간별 평균 시간
+route_avg = mcs_data.groupby(['FROM_EQ', 'TO_EQ'])['duration'].agg(['mean', 'std'])
+
+# 시간대별 패턴
+hourly_pattern = mcs_data.groupby(mcs_data['START_TIME'].dt.hour)['duration'].mean()
+```
+
+**3. SLLM에 맥락 제공**
+```python
+def predict_with_mcs(current_request):
+    # 유사 과거 이동 찾기
+    similar = mcs_data[
+        (mcs_data['FROM_EQ'] == current_request['from']) &
+        (mcs_data['TO_EQ'] == current_request['to'])
+    ].tail(10)
+    
+    prompt = f"""
+    MCS 과거 기록:
+    - 평균: {similar['duration'].mean():.1f}분
+    - 최근 10건: {similar['duration'].tolist()}
+    - 현재 시간대 평균: {hourly_pattern[current_hour]}분
+    
+    현재 요청: {current_request}
+    예상 시간은?
+    """
+    
+    return sllm_predict(prompt)
+```
+
+**4. 실시간 이상 감지**
+```python
+# MCS 로그로 정상 범위 학습
+normal_range = {
+    'Photo_to_Etch': (10, 20),  # 분
+    'Etch_to_Clean': (5, 15)
+}
+
+# SLLM이 이상 판단
+"이번 이동이 25분 걸렸는데, 평소 10-20분인 구간입니다. 이상 원인은?"
+```
+
+**5. 병목 구간 예측**
+```python
+# MCS 로그에서 지연 패턴 분석
+congestion_data = mcs_data[mcs_data['duration'] > mcs_data['duration'].mean() * 1.5]
+
+# SLLM에게 패턴 분석 요청
+"이 시간대에 Bay7-Bay9 구간이 자주 지연됩니다. 원인과 대안은?"
+```
+
+**MCS 로그 활용의 진짜 장점:**
+- 실제 데이터라서 정확도 높음
+- 계절적/시간대별 패턴 파악 가능
+- 장비별 특성 반영
+- 이상 상황 조기 감지
+
+**바로 시작하는 방법:**
+1. MCS 로그 한 달치만 뽑기
+2. 엑셀로 기본 통계 계산
+3. SLLM에게 "이 통계 보고 예측해줘"
+4. 점진적으로 자동화
+
+MCS 로그 구조가 어떻게 되어 있나요? 더 구체적으로 도와드릴 수 있어요!
