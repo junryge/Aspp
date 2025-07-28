@@ -1,4 +1,4 @@
-2사용자가 파인튜닝의 필요성에 대해 다시 물어보고 있다. 앞서 파인튜닝을 추천하지 않았는데, 사용자는 여전히 의구심이 있는 것 같다. 이번엔 좀 더 균형잡힌 시각으로 파인튜닝이 필요한 경우와 필요없는 경우를 명확히 구분해서 설명해야겠다.
+22사용자가 파인튜닝의 필요성에 대해 다시 물어보고 있다. 앞서 파인튜닝을 추천하지 않았는데, 사용자는 여전히 의구심이 있는 것 같다. 이번엔 좀 더 균형잡힌 시각으로 파인튜닝이 필요한 경우와 필요없는 경우를 명확히 구분해서 설명해야겠다.
 
 **파인튜닝, 솔직히 말씀드릴게요!**
 
@@ -262,3 +262,92 @@ LLM: "하지만 PM 작업으로 우회 필요, 18분 예상"
 ```
 
 어떤 시계열 모델을 염두에 두고 계신가요?
+
+
+graph TB
+    subgraph "데이터 수집 계층"
+        MCS[MCS 로그<br/>실시간 물류 데이터]
+        SENSOR[센서 데이터<br/>온도/습도/진동]
+        ERP[ERP/MES<br/>생산 일정]
+    end
+
+    subgraph "데이터 처리 계층"
+        PREPROCESS[데이터 전처리<br/>- 이상치 제거<br/>- 시간대 구분<br/>- 경로별 분류]
+        
+        subgraph "RAG 구성"
+            EMBEDDING[텍스트 임베딩<br/>BGE-small 모델]
+            VECTORDB[(벡터 DB<br/>ChromaDB)]
+        end
+        
+        subgraph "시계열 모델"
+            PROPHET[Prophet<br/>주간/일간 패턴]
+            ARIMA[ARIMA<br/>단기 예측]
+            LSTM[LSTM<br/>복잡 패턴]
+        end
+    end
+
+    subgraph "AI 추론 계층"
+        RETRIEVER[유사 사례 검색<br/>Top-5 과거 패턴]
+        TSFORECAST[시계열 예측<br/>향후 24시간]
+        
+        LLM[Phi-3 Mini 4B<br/>종합 판단 및 추론]
+        
+        PROMPT[프롬프트 생성기<br/>- RAG 결과<br/>- 시계열 예측<br/>- 현재 상황]
+    end
+
+    subgraph "애플리케이션 계층"
+        API[예측 API<br/>REST/WebSocket]
+        DASHBOARD[실시간 대시보드<br/>- 경로별 예측<br/>- 병목 구간 표시]
+        ALERT[알림 시스템<br/>지연/이상 감지]
+    end
+
+    subgraph "사용자"
+        OPERATOR[물류 운영자]
+        MANAGER[관리자]
+        AGV[AGV/OHT]
+    end
+
+    %% 데이터 플로우
+    MCS --> PREPROCESS
+    SENSOR --> PREPROCESS
+    ERP --> PREPROCESS
+    
+    PREPROCESS --> EMBEDDING
+    EMBEDDING --> VECTORDB
+    
+    PREPROCESS --> PROPHET
+    PREPROCESS --> ARIMA
+    PREPROCESS --> LSTM
+    
+    VECTORDB --> RETRIEVER
+    PROPHET --> TSFORECAST
+    ARIMA --> TSFORECAST
+    LSTM --> TSFORECAST
+    
+    RETRIEVER --> PROMPT
+    TSFORECAST --> PROMPT
+    PROMPT --> LLM
+    
+    LLM --> API
+    API --> DASHBOARD
+    API --> ALERT
+    
+    DASHBOARD --> OPERATOR
+    DASHBOARD --> MANAGER
+    API --> AGV
+    
+    %% 피드백 루프
+    OPERATOR -.피드백.-> MCS
+    AGV -.실행 결과.-> MCS
+
+    classDef dataLayer fill:#e1f5fe,stroke:#01579b,stroke-width:2px
+    classDef processLayer fill:#f3e5f5,stroke:#4a148c,stroke-width:2px
+    classDef aiLayer fill:#e8f5e9,stroke:#1b5e20,stroke-width:2px
+    classDef appLayer fill:#fff3e0,stroke:#e65100,stroke-width:2px
+    classDef userLayer fill:#fce4ec,stroke:#880e4f,stroke-width:2px
+    
+    class MCS,SENSOR,ERP dataLayer
+    class PREPROCESS,EMBEDDING,VECTORDB,PROPHET,ARIMA,LSTM processLayer
+    class RETRIEVER,TSFORECAST,LLM,PROMPT aiLayer
+    class API,DASHBOARD,ALERT appLayer
+    class OPERATOR,MANAGER,AGV userLayer
