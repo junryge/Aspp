@@ -1,4 +1,4 @@
-사용자가 파인튜닝의 필요성에 대해 다시 물어보고 있다. 앞서 파인튜닝을 추천하지 않았는데, 사용자는 여전히 의구심이 있는 것 같다. 이번엔 좀 더 균형잡힌 시각으로 파인튜닝이 필요한 경우와 필요없는 경우를 명확히 구분해서 설명해야겠다.
+2사용자가 파인튜닝의 필요성에 대해 다시 물어보고 있다. 앞서 파인튜닝을 추천하지 않았는데, 사용자는 여전히 의구심이 있는 것 같다. 이번엔 좀 더 균형잡힌 시각으로 파인튜닝이 필요한 경우와 필요없는 경우를 명확히 구분해서 설명해야겠다.
 
 **파인튜닝, 솔직히 말씀드릴게요!**
 
@@ -108,3 +108,157 @@ template = """
 "MCS 로그 + 좋은 프롬프트 + 약간의 RAG면 충분해요!"
 
 혹시 특수한 요구사항이 있으신가요?
+
+사용자가 시계열 데이터와 LLM을 함께 사용하고 싶어한다. 반도체 물류 예측에서 시계열 분석은 매우 중요한 부분이다. MCS 로그 데이터는 시계열 데이터이고, 이를 LLM과 결합하는 방법을 알려드려야 한다.
+
+**시계열 + 4B LLM 조합, 아주 좋은 생각이에요!**
+
+## **반도체 물류 시계열 + LLM 통합 방법**
+
+### **1. 시계열 분석 → LLM 해석**
+```python
+import pandas as pd
+from statsmodels.tsa.arima.model import ARIMA
+
+# 1단계: 시계열 분석
+mcs_time_series = mcs_data.set_index('timestamp')['duration']
+model = ARIMA(mcs_time_series, order=(1,1,1))
+forecast = model.fit().forecast(steps=24)
+
+# 2단계: LLM이 해석
+prompt = f"""
+ARIMA 예측 결과:
+- 다음 24시간 예측값: {forecast.tolist()}
+- 현재 트렌드: {'상승' if forecast.mean() > mcs_time_series.mean() else '하락'}
+- 피크 시간: {forecast.idxmax()}
+
+이 패턴을 분석하고 물류 담당자에게 조언해주세요.
+"""
+```
+
+### **2. 하이브리드 예측 파이프라인**
+```python
+class HybridPredictor:
+    def __init__(self):
+        self.llm = "phi3:mini"
+        self.time_series_model = None
+    
+    def predict(self, route, timestamp):
+        # 1. 시계열로 기본 예측
+        base_prediction = self.time_series_forecast(route, timestamp)
+        
+        # 2. 컨텍스트 수집
+        context = {
+            'weather': get_weather(),
+            'events': get_fab_events(),
+            'maintenance': get_pm_schedule()
+        }
+        
+        # 3. LLM이 조정
+        prompt = f"""
+        시계열 예측: {base_prediction}분
+        
+        추가 고려사항:
+        - 날씨: {context['weather']}
+        - 이벤트: {context['events']}
+        - PM일정: {context['maintenance']}
+        
+        최종 예측 시간과 이유는?
+        """
+        
+        return llm_adjust(prompt)
+```
+
+### **3. 이상 탐지 + LLM 진단**
+```python
+# Prophet으로 이상치 탐지
+from prophet import Prophet
+
+# 정상 패턴 학습
+df = pd.DataFrame({
+    'ds': mcs_data['timestamp'],
+    'y': mcs_data['duration']
+})
+prophet_model = Prophet()
+prophet_model.fit(df)
+
+# 이상치 발견 시 LLM 진단
+anomalies = detect_anomalies(prophet_model, new_data)
+
+if anomalies:
+    prompt = f"""
+    이상 패턴 감지:
+    - 구간: {anomalies['route']}
+    - 정상범위: 10-15분
+    - 실제: {anomalies['actual']}분
+    - 발생시각: {anomalies['time']}
+    
+    MCS 로그: {anomalies['log_snippet']}
+    
+    가능한 원인 3가지와 대응방안은?
+    """
+```
+
+### **4. 실시간 예측 대시보드**
+```python
+# Streamlit으로 구현
+import streamlit as st
+
+# 시계열 차트
+st.line_chart(time_series_data)
+
+# LLM 인사이트
+if st.button("AI 분석"):
+    insight = llm_analyze(f"""
+    최근 7일 패턴:
+    - 평균: {week_avg}
+    - 표준편차: {week_std}
+    - 피크시간: {peak_hours}
+    
+    다음 주 물류 운영 조언은?
+    """)
+    st.write(insight)
+```
+
+### **5. 계절성 패턴 + LLM**
+```python
+# 계절성 분해
+from statsmodels.tsa.seasonal import seasonal_decompose
+
+decomposition = seasonal_decompose(mcs_time_series, period=24*7)
+
+# LLM이 패턴 설명
+prompt = f"""
+주간 패턴 분석:
+- 월요일 오전: {monday_morning_pattern}
+- 금요일 오후: {friday_afternoon_pattern}
+- 심야시간: {night_pattern}
+
+이 패턴들의 비즈니스적 의미와 
+최적화 방안을 설명해주세요.
+"""
+```
+
+## **실전 구현 순서**
+
+**1단계: 기본 시계열 (1주)**
+- ARIMA로 단순 예측
+- 정확도 75%
+
+**2단계: LLM 보정 (2주)**
+- 시계열 + 컨텍스트
+- 정확도 85%
+
+**3단계: 고급 통합 (1개월)**
+- Prophet + LLM
+- 이상 탐지 자동화
+- 정확도 90%+
+
+## **핵심 조합**
+```
+시계열: "다음 시간 15.3분 예상"
+LLM: "하지만 PM 작업으로 우회 필요, 18분 예상"
+최종: 통합된 지능형 예측!
+```
+
+어떤 시계열 모델을 염두에 두고 계신가요?
