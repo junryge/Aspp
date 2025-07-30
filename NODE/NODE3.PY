@@ -1,9 +1,9 @@
 import sys
 import json
+import math
 from typing import Dict, List, Optional, Tuple
 from dataclasses import dataclass
 from enum import Enum
-import math
 
 from PyQt5.QtWidgets import *
 from PyQt5.QtCore import *
@@ -191,10 +191,16 @@ class Connection(QGraphicsPathItem):
         dy = end.y() - start.y()
         
         # 오프셋 거리
-        offset = 60
+        offset = 50
         
+        # 거리가 가까우면 그냥 직선 연결
+        distance = math.sqrt(dx * dx + dy * dy)
+        if distance < 150:
+            path.lineTo(end)
+            return path
+            
         # Case 1: 정방향 연결 (왼쪽에서 오른쪽으로)
-        if dx > offset * 2:
+        if dx > offset:
             # 중간 지점에서 꺾기
             mid_x = start.x() + dx / 2
             path.lineTo(mid_x, start.y())
@@ -202,35 +208,16 @@ class Connection(QGraphicsPathItem):
             path.lineTo(end)
             
         # Case 2: 역방향 연결 (오른쪽에서 왼쪽으로)
-        elif dx < -offset:
-            # 위아래로 우회
-            if abs(dy) > 100:
-                # 수직 거리가 충분하면 중간에서 우회
-                mid_y = start.y() + dy / 2
-                path.lineTo(start.x() + offset, start.y())
-                path.lineTo(start.x() + offset, mid_y)
-                path.lineTo(end.x() - offset, mid_y)
-                path.lineTo(end.x() - offset, end.y())
-                path.lineTo(end)
-            else:
-                # 수직 거리가 부족하면 더 크게 우회
-                detour_y = 80 if dy >= 0 else -80
-                path.lineTo(start.x() + offset, start.y())
-                path.lineTo(start.x() + offset, start.y() + detour_y)
-                path.lineTo(end.x() - offset, start.y() + detour_y)
-                path.lineTo(end.x() - offset, end.y())
-                path.lineTo(end)
-                
-        # Case 3: 수평으로 너무 가까운 경우
         else:
-            # 아래로 크게 우회
-            detour_y = max(80, abs(dy) / 2)
-            if dy < 0:
-                detour_y = -detour_y
-                
+            # S자 연결
+            mid_y = (start.y() + end.y()) / 2
             path.lineTo(start.x() + offset, start.y())
-            path.lineTo(start.x() + offset, start.y() + detour_y)
-            path.lineTo(end.x() - offset, start.y() + detour_y)
+            path.lineTo(start.x() + offset, mid_y)
+            path.lineTo(end.x() - offset, mid_y)
+            path.lineTo(end.x() - offset, end.y())
+            path.lineTo(end)
+        
+        return path(end.x() - offset, start.y() + detour_y)
             path.lineTo(end.x() - offset, end.y())
             path.lineTo(end)
         
