@@ -1,788 +1,867 @@
-import tkinter as tk
-from tkinter import ttk, messagebox
+import sys
 import json
-from datetime import datetime
-import random
+from typing import Dict, List, Optional, Tuple
+from dataclasses import dataclass
+from enum import Enum
 
-class Node:
-    """노드 클래스 - 각 처리 단계를 나타냄"""
-    def __init__(self, canvas, x, y, node_type, node_id, name):
-        self.canvas = canvas
-        self.x = x
-        self.y = y
-        self.node_type = node_type
-        self.node_id = node_id
-        self.name = name
-        self.width = 180
-        self.height = 80
-        self.inputs = []
-        self.outputs = []
-        self.connected_nodes = []
-        self.is_configured = False
-        self.config = {}
-        
-        # 노드 타입별 색상
-        self.colors = {
-            'data': '#3498db',      # 파란색 - 데이터 입력
-            'preprocess': '#e74c3c', # 빨간색 - 전처리
-            'vector': '#f39c12',     # 주황색 - 벡터 저장
-            'model': '#27ae60',      # 초록색 - 모델
-            'analysis': '#9b59b6',   # 보라색 - 분석
-            'prompt': '#34495e',     # 회색 - 프롬프트
-            'llm': '#16a085'         # 청록색 - LLM
-        }
-        
-        self.create_node()
-        
-    def create_node(self):
-        """노드 시각화"""
-        # 그림자 효과
-        shadow_offset = 3
-        self.shadow = self.canvas.create_rectangle(
-            self.x + shadow_offset, self.y + shadow_offset, 
-            self.x + self.width + shadow_offset, self.y + self.height + shadow_offset,
-            fill='#1a1a2e',
-            outline='',
-            tags=(f"node_{self.node_id}", "shadow")
-        )
-        
-        # 노드 배경
-        self.rect = self.canvas.create_rectangle(
-            self.x, self.y, 
-            self.x + self.width, self.y + self.height,
-            fill=self.colors.get(self.node_type, '#7f8c8d'),
-            outline='white',
-            width=2,
-            tags=(f"node_{self.node_id}", "rect", "draggable")
-        )
-        
-        # 노드 이름
-        self.text = self.canvas.create_text(
-            self.x + self.width/2, self.y + 20,
-            text=self.name,
-            fill='white',
-            font=('Arial', 11, 'bold'),
-            tags=(f"node_{self.node_id}", "text", "draggable")
-        )
-        
-        # 노드 타입
-        self.type_text = self.canvas.create_text(
-            self.x + self.width/2, self.y + 40,
-            text=f"[{self.node_type}]",
-            fill='#ecf0f1',
-            font=('Arial', 9),
-            tags=(f"node_{self.node_id}", "type_text", "draggable")
-        )
-        
-        # 상태 표시
-        self.status = self.canvas.create_oval(
-            self.x + self.width - 20, self.y + 10,
-            self.x + self.width - 10, self.y + 20,
-            fill='red' if not self.is_configured else 'green',
-            outline='white',
-            tags=(f"node_{self.node_id}", "status", "draggable")
-        )
-        
-        # 입력/출력 포트
-        self.input_port = self.canvas.create_rectangle(
-            self.x - 10, self.y + self.height/2 - 5,
-            self.x, self.y + self.height/2 + 5,
-            fill='yellow',
-            outline='white',
-            tags=(f"port_in_{self.node_id}", "input_port")
-        )
-        
-        self.output_port = self.canvas.create_rectangle(
-            self.x + self.width, self.y + self.height/2 - 5,
-            self.x + self.width + 10, self.y + self.height/2 + 5,
-            fill='cyan',
-            outline='white',
-            tags=(f"port_out_{self.node_id}", "output_port")
-        )
-        
-        # 마우스 이벤트 바인딩
-        for item in [self.rect, self.text, self.type_text, self.status]:
-            self.canvas.tag_bind(item, "<Enter>", lambda e: self.canvas.config(cursor="hand2"))
-            self.canvas.tag_bind(item, "<Leave>", lambda e: self.canvas.config(cursor=""))
-            
-        # 포트 커서
-        self.canvas.tag_bind(self.input_port, "<Enter>", lambda e: self.canvas.config(cursor="crosshair"))
-        self.canvas.tag_bind(self.input_port, "<Leave>", lambda e: self.canvas.config(cursor=""))
-        self.canvas.tag_bind(self.output_port, "<Enter>", lambda e: self.canvas.config(cursor="crosshair"))
-        self.canvas.tag_bind(self.output_port, "<Leave>", lambda e: self.canvas.config(cursor=""))
-        
-    def move(self, dx, dy):
-        """노드 이동"""
-        self.x += dx
-        self.y += dy
-        
-        # 모든 노드 구성요소 이동
-        self.canvas.move(f"node_{self.node_id}", dx, dy)
-        self.canvas.move(f"port_in_{self.node_id}", dx, dy)
-        self.canvas.move(f"port_out_{self.node_id}", dx, dy)
-        
-    def get_output_pos(self):
-        """출력 포트 위치 반환"""
-        return (self.x + self.width + 5, self.y + self.height/2)
-        
-    def get_input_pos(self):
-        """입력 포트 위치 반환"""
-        return (self.x - 5, self.y + self.height/2)
-        
-    def set_configured(self, configured):
-        """설정 상태 업데이트"""
-        self.is_configured = configured
-        color = 'green' if configured else 'red'
-        self.canvas.itemconfig(self.status, fill=color)
+from PyQt5.QtWidgets import *
+from PyQt5.QtCore import *
+from PyQt5.QtGui import *
 
 
-class Connection:
-    """노드 간 연결을 나타내는 클래스"""
-    def __init__(self, canvas, start_node, end_node):
-        self.canvas = canvas
-        self.start_node = start_node
-        self.end_node = end_node
-        self.line = None
-        self.create_connection()
-        
-    def create_connection(self):
-        """연결선 생성"""
-        start_x, start_y = self.start_node.get_output_pos()
-        end_x, end_y = self.end_node.get_input_pos()
-        
-        # 베지어 곡선 스타일 연결선
-        mid_x = (start_x + end_x) / 2
-        self.line = self.canvas.create_line(
-            start_x, start_y,
-            mid_x, start_y,
-            mid_x, end_y,
-            end_x, end_y,
-            fill='#3498db',
-            width=3,
-            smooth=True,
-            arrow=tk.LAST,
-            tags="connection"
-        )
-        
-        # 연결선을 노드 아래로
-        self.canvas.tag_lower(self.line)
-        self.canvas.tag_raise(self.line, "grid")
-        
-    def update(self):
-        """연결선 위치 업데이트"""
-        if self.line:
-            start_x, start_y = self.start_node.get_output_pos()
-            end_x, end_y = self.end_node.get_input_pos()
-            mid_x = (start_x + end_x) / 2
-            
-            self.canvas.coords(
-                self.line,
-                start_x, start_y,
-                mid_x, start_y,
-                mid_x, end_y,
-                end_x, end_y
-            )
+class NodeType(Enum):
+    DATA = "data"
+    PREPROCESS = "preprocess"
+    VECTOR = "vector"
+    MODEL = "model"
+    ANALYSIS = "analysis"
+    PROMPT = "prompt"
+    LLM = "llm"
 
 
-class LogisticsPredictionGUI:
-    def __init__(self, root):
-        self.root = root
-        self.root.title("물류이동 예측 시스템 - 비주얼 플로우 에디터")
-        self.root.geometry("1400x800")
-        
-        # 변수 초기화
-        self.nodes = {}
+@dataclass
+class NodeConfig:
+    """노드 설정 데이터 클래스"""
+    node_type: NodeType
+    name: str
+    color: str
+    inputs: int = 1
+    outputs: int = 1
+
+
+# 노드 타입별 설정
+NODE_CONFIGS = {
+    NodeType.DATA: NodeConfig(NodeType.DATA, "데이터 입력", "#3498db", 0, 1),
+    NodeType.PREPROCESS: NodeConfig(NodeType.PREPROCESS, "전처리", "#e74c3c", 1, 1),
+    NodeType.VECTOR: NodeConfig(NodeType.VECTOR, "벡터 저장", "#f39c12", 1, 1),
+    NodeType.MODEL: NodeConfig(NodeType.MODEL, "모델", "#27ae60", 1, 1),
+    NodeType.ANALYSIS: NodeConfig(NodeType.ANALYSIS, "분석", "#9b59b6", 1, 1),
+    NodeType.PROMPT: NodeConfig(NodeType.PROMPT, "프롬프트", "#34495e", 2, 1),
+    NodeType.LLM: NodeConfig(NodeType.LLM, "LLM", "#16a085", 1, 1),
+}
+
+
+class Port(QGraphicsEllipseItem):
+    """노드의 입출력 포트"""
+    def __init__(self, is_output=True, parent=None):
+        super().__init__(-6, -6, 12, 12, parent)
+        self.is_output = is_output
         self.connections = []
-        self.node_counter = 0
-        self.selected_node = None
-        self.drag_data = {"x": 0, "y": 0, "item": None}
-        self.connecting = False
-        self.connection_start = None
         
-        self.create_ui()
+        # 포트 스타일
+        self.setBrush(QBrush(QColor("#FFD700" if not is_output else "#00CED1")))
+        self.setPen(QPen(QColor("#FFFFFF"), 2))
+        self.setAcceptHoverEvents(True)
         
-    def create_ui(self):
-        """UI 생성"""
-        # 메인 프레임
-        main_frame = ttk.Frame(self.root)
-        main_frame.pack(fill=tk.BOTH, expand=True)
+    def hoverEnterEvent(self, event):
+        self.setBrush(QBrush(QColor("#FFA500" if not self.is_output else "#00BFFF")))
+        super().hoverEnterEvent(event)
         
-        # 왼쪽 패널 - 노드 팔레트
-        left_panel = ttk.Frame(main_frame, width=250)
-        left_panel.pack(side=tk.LEFT, fill=tk.Y, padx=5, pady=5)
-        left_panel.pack_propagate(False)
+    def hoverLeaveEvent(self, event):
+        self.setBrush(QBrush(QColor("#FFD700" if not self.is_output else "#00CED1")))
+        super().hoverLeaveEvent(event)
         
-        # 제목
-        title_label = ttk.Label(left_panel, text="노드 팔레트", 
-                               font=('Arial', 14, 'bold'))
-        title_label.pack(pady=10)
+    def get_center(self):
+        """포트 중심 좌표 반환"""
+        return self.scenePos() + self.rect().center()
+
+
+class Connection(QGraphicsPathItem):
+    """노드 간 연결선"""
+    def __init__(self, start_port=None, end_port=None):
+        super().__init__()
+        self.start_port = start_port
+        self.end_port = end_port
         
-        # 노드 타입별 프레임
-        self.create_node_palette(left_panel)
+        # 연결선 스타일
+        pen = QPen(QColor("#3498db"), 3)
+        pen.setCapStyle(Qt.RoundCap)
+        self.setPen(pen)
+        self.setZValue(-1)
         
-        # 중앙 캔버스
-        canvas_frame = ttk.Frame(main_frame)
-        canvas_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=5, pady=5)
+        # 화살표
+        self.arrow = QGraphicsPolygonItem()
+        self.arrow.setBrush(QBrush(QColor("#3498db")))
+        self.arrow.setPen(QPen(Qt.NoPen))
         
-        # 캔버스
-        self.canvas = tk.Canvas(canvas_frame, bg='#2c3e50')
-        self.canvas.pack(fill=tk.BOTH, expand=True)
-        
-        # 그리드 배경 그리기
-        self.draw_grid()
-        
-        # 캔버스 이벤트 바인딩
-        self.canvas.bind("<Button-1>", self.on_canvas_click)
-        self.canvas.bind("<B1-Motion>", self.on_canvas_drag)
-        self.canvas.bind("<ButtonRelease-1>", self.on_canvas_release)
-        self.canvas.bind("<Button-3>", self.on_right_click)  # 우클릭
-        self.canvas.bind("<Configure>", self.on_canvas_resize)  # 크기 변경시 그리드 다시 그리기
-        
-        # 오른쪽 패널 - 속성/정보
-        right_panel = ttk.Frame(main_frame, width=300)
-        right_panel.pack(side=tk.RIGHT, fill=tk.Y, padx=5, pady=5)
-        right_panel.pack_propagate(False)
-        
-        # 속성 패널
-        self.create_properties_panel(right_panel)
-        
-        # 하단 툴바
-        self.create_toolbar()
-        
-        # 초기 그리드 그리기 (창이 표시된 후)
-        self.root.after(100, self.draw_grid)
-        
-    def create_node_palette(self, parent):
-        """노드 팔레트 생성"""
-        # 데이터 입력 섹션
-        data_frame = ttk.LabelFrame(parent, text="데이터 입력", padding=10)
-        data_frame.pack(fill=tk.X, pady=5)
-        
-        ttk.Button(data_frame, text="MCS 로그 데이터",
-                  command=lambda: self.add_node('data', 'MCS 로그')).pack(fill=tk.X, pady=2)
-        ttk.Button(data_frame, text="진동센서 데이터",
-                  command=lambda: self.add_node('data', '진동센서')).pack(fill=tk.X, pady=2)
-        
-        # 전처리 섹션
-        preprocess_frame = ttk.LabelFrame(parent, text="데이터 전처리", padding=10)
-        preprocess_frame.pack(fill=tk.X, pady=5)
-        
-        ttk.Button(preprocess_frame, text="이상치 제거",
-                  command=lambda: self.add_node('preprocess', '이상치 제거')).pack(fill=tk.X, pady=2)
-        ttk.Button(preprocess_frame, text="시간별 분류",
-                  command=lambda: self.add_node('preprocess', '시간별 분류')).pack(fill=tk.X, pady=2)
-        ttk.Button(preprocess_frame, text="경로별 분류",
-                  command=lambda: self.add_node('preprocess', '경로별 분류')).pack(fill=tk.X, pady=2)
-        
-        # 벡터 저장 섹션
-        vector_frame = ttk.LabelFrame(parent, text="벡터 저장", padding=10)
-        vector_frame.pack(fill=tk.X, pady=5)
-        
-        ttk.Button(vector_frame, text="RAG 벡터 저장",
-                  command=lambda: self.add_node('vector', 'RAG 벡터')).pack(fill=tk.X, pady=2)
-        
-        # 모델 섹션
-        model_frame = ttk.LabelFrame(parent, text="시계열 모델", padding=10)
-        model_frame.pack(fill=tk.X, pady=5)
-        
-        ttk.Button(model_frame, text="LSTM 모델",
-                  command=lambda: self.add_node('model', 'LSTM')).pack(fill=tk.X, pady=2)
-        ttk.Button(model_frame, text="RNN 모델",
-                  command=lambda: self.add_node('model', 'RNN')).pack(fill=tk.X, pady=2)
-        ttk.Button(model_frame, text="ARIMA 모델",
-                  command=lambda: self.add_node('model', 'ARIMA')).pack(fill=tk.X, pady=2)
-        
-        # 분석 섹션
-        analysis_frame = ttk.LabelFrame(parent, text="분석", padding=10)
-        analysis_frame.pack(fill=tk.X, pady=5)
-        
-        ttk.Button(analysis_frame, text="과거패턴 분석",
-                  command=lambda: self.add_node('analysis', '패턴분석')).pack(fill=tk.X, pady=2)
-        
-        # 프롬프트 섹션
-        prompt_frame = ttk.LabelFrame(parent, text="프롬프트", padding=10)
-        prompt_frame.pack(fill=tk.X, pady=5)
-        
-        ttk.Button(prompt_frame, text="프롬프트 생성",
-                  command=lambda: self.add_node('prompt', '프롬프트')).pack(fill=tk.X, pady=2)
-        
-        # LLM 섹션
-        llm_frame = ttk.LabelFrame(parent, text="LLM", padding=10)
-        llm_frame.pack(fill=tk.X, pady=5)
-        
-        ttk.Button(llm_frame, text="PHI-4 판단/추론",
-                  command=lambda: self.add_node('llm', 'PHI-4')).pack(fill=tk.X, pady=2)
-        
-    def create_properties_panel(self, parent):
-        """속성 패널 생성"""
-        # 제목
-        title_label = ttk.Label(parent, text="노드 속성", 
-                               font=('Arial', 14, 'bold'))
-        title_label.pack(pady=10)
-        
-        # 속성 표시 영역
-        self.props_frame = ttk.Frame(parent)
-        self.props_frame.pack(fill=tk.BOTH, expand=True, padx=10)
-        
-        # 시스템 정보
-        info_frame = ttk.LabelFrame(parent, text="시스템 정보", padding=10)
-        info_frame.pack(fill=tk.X, pady=10, padx=10)
-        
-        self.info_text = tk.Text(info_frame, height=8, width=30, 
-                                font=('Arial', 9))
-        self.info_text.pack(fill=tk.BOTH)
-        self.update_system_info()
-        
-    def create_toolbar(self):
-        """하단 툴바 생성"""
-        toolbar = ttk.Frame(self.root)
-        toolbar.pack(side=tk.BOTTOM, fill=tk.X, padx=5, pady=5)
-        
-        # 버튼들
-        ttk.Button(toolbar, text="실행", 
-                  command=self.run_pipeline).pack(side=tk.LEFT, padx=5)
-        ttk.Button(toolbar, text="검증", 
-                  command=self.validate_pipeline).pack(side=tk.LEFT, padx=5)
-        ttk.Button(toolbar, text="저장", 
-                  command=self.save_pipeline).pack(side=tk.LEFT, padx=5)
-        ttk.Button(toolbar, text="불러오기", 
-                  command=self.load_pipeline).pack(side=tk.LEFT, padx=5)
-        ttk.Button(toolbar, text="초기화", 
-                  command=self.clear_canvas).pack(side=tk.LEFT, padx=5)
-        
-        # 상태 표시
-        self.status_label = ttk.Label(toolbar, text="준비됨", 
-                                     font=('Arial', 10))
-        self.status_label.pack(side=tk.RIGHT, padx=10)
-        
-    def draw_grid(self):
-        """캔버스에 그리드 그리기"""
-        # 기존 그리드 삭제
-        self.canvas.delete("grid")
-        
-        # 그리드 간격
-        grid_size = 20
-        
-        # 캔버스 크기 가져오기
-        width = self.canvas.winfo_width()
-        height = self.canvas.winfo_height()
-        
-        if width <= 1 or height <= 1:
+        if start_port and end_port:
+            self.update_path()
+            
+    def update_path(self, end_pos=None):
+        """연결선 경로 업데이트"""
+        if not self.start_port:
             return
             
-        # 수직선 그리기
-        for x in range(0, width, grid_size):
-            self.canvas.create_line(x, 0, x, height, 
-                                   fill='#34495e', width=1, tags="grid")
-            
-        # 수평선 그리기
-        for y in range(0, height, grid_size):
-            self.canvas.create_line(0, y, width, y, 
-                                   fill='#34495e', width=1, tags="grid")
-            
-        # 그리드를 맨 아래로
-        self.canvas.tag_lower("grid")
+        start = self.start_port.get_center()
         
-    def on_canvas_resize(self, event):
-        """캔버스 크기 변경시 그리드 다시 그리기"""
-        self.draw_grid()
-        
-    def add_node(self, node_type, name):
-        """노드 추가"""
-        # 캔버스 중앙 근처에 노드 생성
-        canvas_width = self.canvas.winfo_width()
-        canvas_height = self.canvas.winfo_height()
-        
-        if canvas_width > 1 and canvas_height > 1:
-            x = canvas_width // 2 + random.randint(-150, 150)
-            y = canvas_height // 2 + random.randint(-100, 100)
+        if end_pos:
+            end = end_pos
+        elif self.end_port:
+            end = self.end_port.get_center()
         else:
-            x = random.randint(300, 700)
-            y = random.randint(100, 400)
-        
-        # 그리드에 맞춰 정렬
-        x = (x // 20) * 20
-        y = (y // 20) * 20
-        
-        node_id = f"node_{self.node_counter}"
-        self.node_counter += 1
-        
-        node = Node(self.canvas, x, y, node_type, node_id, name)
-        self.nodes[node_id] = node
-        
-        self.update_status(f"{name} 노드가 추가되었습니다")
-        self.update_system_info()
-        
-    def on_canvas_click(self, event):
-        """캔버스 클릭 이벤트"""
-        # 클릭한 위치의 아이템 찾기
-        clicked_item = self.canvas.find_closest(event.x, event.y)[0]
-        tags = self.canvas.gettags(clicked_item)
-        
-        # 노드 찾기
-        node_id = None
-        for tag in tags:
-            if tag.startswith("node_") and not any(t in tags for t in ["port_in_", "port_out_"]):
-                node_id = tag
-                break
-            elif tag.startswith("port_out_"):
-                # 출력 포트 클릭 - 연결 시작
-                node_id = tag.replace("port_out_", "")
-                self.start_connection(node_id)
-                return
-            elif tag.startswith("port_in_"):
-                # 입력 포트 클릭 - 연결 완료
-                if self.connecting:
-                    node_id = tag.replace("port_in_", "")
-                    self.end_connection(node_id)
-                return
-        
-        # draggable 태그가 있는 경우에만 드래그 시작
-        if node_id and "draggable" in tags:
-            self.selected_node = node_id
-            self.drag_data["x"] = event.x
-            self.drag_data["y"] = event.y
-            self.drag_data["item"] = clicked_item
+            return
             
-            # 선택된 노드 하이라이트
-            node = self.nodes[node_id]
-            self.canvas.itemconfig(node.rect, width=3)
+        # 베지어 곡선 경로
+        path = QPainterPath()
+        path.moveTo(start)
+        
+        dx = end.x() - start.x()
+        dy = end.y() - start.y()
+        
+        ctrl1 = QPointF(start.x() + dx * 0.5, start.y())
+        ctrl2 = QPointF(end.x() - dx * 0.5, end.y())
+        
+        path.cubicTo(ctrl1, ctrl2, end)
+        self.setPath(path)
+        
+        # 화살표 업데이트
+        if self.end_port:
+            self.update_arrow(end, ctrl2)
             
-            # 노드를 맨 위로
-            self.canvas.tag_raise(node_id)
+    def update_arrow(self, end_pos, ctrl_pos):
+        """화살표 업데이트"""
+        # 화살표 방향 계산
+        line = QLineF(ctrl_pos, end_pos)
+        angle = line.angle()
+        
+        # 화살표 폴리곤
+        arrow_length = 10
+        arrow_angle = 25
+        
+        p1 = end_pos
+        p2 = end_pos - QPointF(
+            arrow_length * qCos(qDegreesToRadians(angle - arrow_angle)),
+            arrow_length * qSin(qDegreesToRadians(angle - arrow_angle))
+        )
+        p3 = end_pos - QPointF(
+            arrow_length * qCos(qDegreesToRadians(angle + arrow_angle)),
+            arrow_length * qSin(qDegreesToRadians(angle + arrow_angle))
+        )
+        
+        self.arrow.setPolygon(QPolygonF([p1, p2, p3]))
+        if self.arrow.scene() != self.scene():
+            self.scene().addItem(self.arrow)
             
-            self.show_node_properties(node_id)
-        elif not node_id and not self.connecting:
-            # 빈 공간 클릭시 선택 해제
-            self.deselect_all_nodes()
+    def remove(self):
+        """연결 제거"""
+        if self.scene():
+            self.scene().removeItem(self.arrow)
+            self.scene().removeItem(self)
+
+
+class Node(QGraphicsRectItem):
+    """노드 클래스"""
+    def __init__(self, node_type: NodeType, name: str, x=0, y=0):
+        super().__init__(0, 0, 200, 100)
+        
+        self.node_id = id(self)
+        self.node_type = node_type
+        self.name = name
+        self.config = NODE_CONFIGS[node_type]
+        self.is_configured = False
+        self.settings = {}
+        
+        # 노드 스타일
+        self.setPos(x, y)
+        self.setBrush(QBrush(QColor(self.config.color)))
+        self.setPen(QPen(QColor("#FFFFFF"), 2))
+        self.setFlag(QGraphicsItem.ItemIsMovable, True)
+        self.setFlag(QGraphicsItem.ItemIsSelectable, True)
+        self.setFlag(QGraphicsItem.ItemSendsGeometryChanges, True)
+        self.setCursor(Qt.PointingHandCursor)
+        self.setAcceptHoverEvents(True)
+        
+        # 그림자 효과
+        shadow = QGraphicsDropShadowEffect()
+        shadow.setOffset(3, 3)
+        shadow.setBlurRadius(10)
+        shadow.setColor(QColor(0, 0, 0, 100))
+        self.setGraphicsEffect(shadow)
+        
+        # 텍스트 레이블
+        self.title_text = QGraphicsTextItem(self.name, self)
+        self.title_text.setDefaultTextColor(Qt.white)
+        font = QFont("Arial", 11, QFont.Bold)
+        self.title_text.setFont(font)
+        self.title_text.setPos(10, 5)
+        
+        self.type_text = QGraphicsTextItem(f"[{node_type.value}]", self)
+        self.type_text.setDefaultTextColor(QColor("#ecf0f1"))
+        self.type_text.setFont(QFont("Arial", 9))
+        self.type_text.setPos(10, 30)
+        
+        # 상태 표시
+        self.status_indicator = QGraphicsEllipseItem(170, 10, 20, 20, self)
+        self.update_status()
+        
+        # 포트 생성
+        self.input_ports = []
+        self.output_ports = []
+        self.create_ports()
+        
+    def create_ports(self):
+        """입출력 포트 생성"""
+        # 입력 포트
+        for i in range(self.config.inputs):
+            y_pos = 50 + (i * 30) if self.config.inputs > 1 else 50
+            port = Port(is_output=False, parent=self)
+            port.setPos(0, y_pos)
+            self.input_ports.append(port)
+            
+        # 출력 포트
+        for i in range(self.config.outputs):
+            y_pos = 50 + (i * 30) if self.config.outputs > 1 else 50
+            port = Port(is_output=True, parent=self)
+            port.setPos(200, y_pos)
+            self.output_ports.append(port)
+            
+    def update_status(self):
+        """상태 표시 업데이트"""
+        color = QColor("#27ae60") if self.is_configured else QColor("#e74c3c")
+        self.status_indicator.setBrush(QBrush(color))
+        self.status_indicator.setPen(QPen(Qt.white, 2))
+        
+    def hoverEnterEvent(self, event):
+        """마우스 호버 시 하이라이트"""
+        self.setPen(QPen(QColor("#FFD700"), 3))
+        super().hoverEnterEvent(event)
+        
+    def hoverLeaveEvent(self, event):
+        """마우스 호버 해제"""
+        self.setPen(QPen(QColor("#FFFFFF"), 2))
+        super().hoverLeaveEvent(event)
+        
+    def itemChange(self, change, value):
+        """아이템 변경 시 연결선 업데이트"""
+        if change == QGraphicsItem.ItemPositionHasChanged:
+            # 연결된 모든 연결선 업데이트
+            for port in self.input_ports + self.output_ports:
+                for connection in port.connections:
+                    connection.update_path()
+                    
+        return super().itemChange(change, value)
+        
+    def mouseDoubleClickEvent(self, event):
+        """더블클릭 시 설정 창 열기"""
+        if hasattr(self.scene(), 'parent'):
+            self.scene().parent().configure_node(self)
+        super().mouseDoubleClickEvent(event)
+
+
+class NodeScene(QGraphicsScene):
+    """노드 에디터 씬"""
+    def __init__(self):
+        super().__init__()
+        self.setSceneRect(-2000, -2000, 4000, 4000)
+        
+        # 배경 색상
+        self.setBackgroundBrush(QBrush(QColor("#2c3e50")))
+        
+        # 그리드
+        self.grid_size = 20
+        self.grid_visible = True
+        
+        # 연결 관련
+        self.current_connection = None
+        self.start_port = None
+        
+    def drawBackground(self, painter, rect):
+        """배경 그리기 (그리드 포함)"""
+        super().drawBackground(painter, rect)
+        
+        if not self.grid_visible:
+            return
+            
+        # 그리드 그리기
+        painter.setPen(QPen(QColor("#34495e"), 1, Qt.SolidLine))
+        
+        # 그리드 범위 계산
+        left = int(rect.left()) - (int(rect.left()) % self.grid_size)
+        top = int(rect.top()) - (int(rect.top()) % self.grid_size)
+        
+        # 수직선
+        for x in range(left, int(rect.right()), self.grid_size):
+            painter.drawLine(x, rect.top(), x, rect.bottom())
+            
+        # 수평선
+        for y in range(top, int(rect.bottom()), self.grid_size):
+            painter.drawLine(rect.left(), y, rect.right(), y)
+            
+    def mousePressEvent(self, event):
+        """마우스 클릭 이벤트"""
+        item = self.itemAt(event.scenePos(), QTransform())
+        
+        if isinstance(item, Port):
+            if item.is_output:
+                # 연결 시작
+                self.start_connection(item)
+            elif self.current_connection and self.start_port:
+                # 연결 완료
+                self.end_connection(item)
+        else:
+            super().mousePressEvent(event)
+            
+    def mouseMoveEvent(self, event):
+        """마우스 이동 이벤트"""
+        if self.current_connection:
+            self.current_connection.update_path(event.scenePos())
+        super().mouseMoveEvent(event)
+        
+    def mouseReleaseEvent(self, event):
+        """마우스 릴리즈 이벤트"""
+        if self.current_connection:
+            item = self.itemAt(event.scenePos(), QTransform())
+            if isinstance(item, Port) and not item.is_output:
+                self.end_connection(item)
+            else:
+                # 연결 취소
+                self.removeItem(self.current_connection)
+                self.current_connection = None
+                self.start_port = None
                 
-    def on_canvas_drag(self, event):
-        """캔버스 드래그 이벤트"""
-        if self.selected_node and not self.connecting:
-            # 이동 거리 계산
-            dx = event.x - self.drag_data["x"]
-            dy = event.y - self.drag_data["y"]
+        super().mouseReleaseEvent(event)
+        
+    def start_connection(self, port):
+        """연결 시작"""
+        self.start_port = port
+        self.current_connection = Connection(port)
+        self.addItem(self.current_connection)
+        
+    def end_connection(self, end_port):
+        """연결 완료"""
+        if self.start_port and self.current_connection:
+            # 중복 연결 확인
+            for conn in self.start_port.connections:
+                if conn.end_port == end_port:
+                    self.removeItem(self.current_connection)
+                    self.current_connection = None
+                    self.start_port = None
+                    return
+                    
+            # 연결 완료
+            self.current_connection.end_port = end_port
+            self.current_connection.update_path()
             
-            # 노드 이동
-            node = self.nodes[self.selected_node]
-            node.move(dx, dy)
+            self.start_port.connections.append(self.current_connection)
+            end_port.connections.append(self.current_connection)
             
-            # 연결선 업데이트
-            for conn in self.connections:
-                if conn.start_node.node_id == self.selected_node or conn.end_node.node_id == self.selected_node:
-                    conn.update()
+            self.current_connection = None
+            self.start_port = None
+
+
+class NodeView(QGraphicsView):
+    """노드 에디터 뷰"""
+    def __init__(self, scene):
+        super().__init__(scene)
+        
+        # 뷰 설정
+        self.setRenderHint(QPainter.Antialiasing)
+        self.setViewportUpdateMode(QGraphicsView.FullViewportUpdate)
+        self.setDragMode(QGraphicsView.RubberBandDrag)
+        
+        # 줌 관련
+        self.zoom_factor = 1.15
+        self.zoom_level = 0
+        self.max_zoom = 10
+        self.min_zoom = -10
+        
+    def wheelEvent(self, event):
+        """마우스 휠로 줌"""
+        # 줌 인/아웃
+        if event.angleDelta().y() > 0 and self.zoom_level < self.max_zoom:
+            self.scale(self.zoom_factor, self.zoom_factor)
+            self.zoom_level += 1
+        elif event.angleDelta().y() < 0 and self.zoom_level > self.min_zoom:
+            self.scale(1/self.zoom_factor, 1/self.zoom_factor)
+            self.zoom_level -= 1
             
-            # 현재 위치 업데이트
-            self.drag_data["x"] = event.x
-            self.drag_data["y"] = event.y
+    def keyPressEvent(self, event):
+        """키보드 이벤트"""
+        if event.key() == Qt.Key_Delete:
+            # 선택된 노드 삭제
+            for item in self.scene().selectedItems():
+                if isinstance(item, Node):
+                    self.delete_node(item)
+        elif event.key() == Qt.Key_Space:
+            # 전체 보기
+            self.fitInView(self.scene().itemsBoundingRect(), Qt.KeepAspectRatio)
+            self.zoom_level = 0
             
-            self.update_status(f"노드 이동 중: {node.name} ({int(node.x)}, {int(node.y)})")
+        super().keyPressEvent(event)
+        
+    def delete_node(self, node):
+        """노드 삭제"""
+        # 연결된 모든 연결선 제거
+        for port in node.input_ports + node.output_ports:
+            for connection in port.connections[:]:
+                connection.remove()
+                # 반대편 포트에서도 연결 제거
+                if connection.start_port:
+                    connection.start_port.connections.remove(connection)
+                if connection.end_port:
+                    connection.end_port.connections.remove(connection)
+                    
+        # 노드 제거
+        self.scene().removeItem(node)
+
+
+class LogisticsPredictionSystem(QMainWindow):
+    """물류이동 예측 시스템 메인 윈도우"""
+    def __init__(self):
+        super().__init__()
+        self.setWindowTitle("물류이동 예측 시스템 - Qt Node Editor")
+        self.setGeometry(100, 100, 1400, 800)
+        
+        # 다크 테마 적용
+        self.setStyleSheet("""
+            QMainWindow {
+                background-color: #1e1e1e;
+            }
+            QDockWidget {
+                background-color: #252525;
+                color: #ffffff;
+            }
+            QDockWidget::title {
+                background-color: #2d2d2d;
+                padding: 5px;
+            }
+            QPushButton {
+                background-color: #3c3c3c;
+                color: #ffffff;
+                border: 1px solid #555555;
+                padding: 5px 10px;
+                border-radius: 3px;
+            }
+            QPushButton:hover {
+                background-color: #484848;
+            }
+            QPushButton:pressed {
+                background-color: #2d2d2d;
+            }
+            QLabel {
+                color: #ffffff;
+            }
+            QListWidget {
+                background-color: #2d2d2d;
+                color: #ffffff;
+                border: 1px solid #444444;
+            }
+            QListWidget::item:hover {
+                background-color: #3c3c3c;
+            }
+            QTextEdit {
+                background-color: #2d2d2d;
+                color: #ffffff;
+                border: 1px solid #444444;
+            }
+        """)
+        
+        # 씬과 뷰 생성
+        self.scene = NodeScene()
+        self.view = NodeView(self.scene)
+        self.setCentralWidget(self.view)
+        
+        # UI 초기화
+        self.init_ui()
+        
+    def init_ui(self):
+        """UI 초기화"""
+        # 메뉴바
+        self.create_menu_bar()
+        
+        # 툴바
+        self.create_toolbar()
+        
+        # 독 위젯들
+        self.create_dock_widgets()
+        
+        # 상태바
+        self.statusBar().showMessage("준비됨")
+        
+    def create_menu_bar(self):
+        """메뉴바 생성"""
+        menubar = self.menuBar()
+        
+        # 파일 메뉴
+        file_menu = menubar.addMenu("파일")
+        
+        new_action = QAction("새 파일", self)
+        new_action.setShortcut("Ctrl+N")
+        new_action.triggered.connect(self.new_pipeline)
+        file_menu.addAction(new_action)
+        
+        open_action = QAction("열기", self)
+        open_action.setShortcut("Ctrl+O")
+        open_action.triggered.connect(self.load_pipeline)
+        file_menu.addAction(open_action)
+        
+        save_action = QAction("저장", self)
+        save_action.setShortcut("Ctrl+S")
+        save_action.triggered.connect(self.save_pipeline)
+        file_menu.addAction(save_action)
+        
+        file_menu.addSeparator()
+        
+        exit_action = QAction("종료", self)
+        exit_action.setShortcut("Ctrl+Q")
+        exit_action.triggered.connect(self.close)
+        file_menu.addAction(exit_action)
+        
+        # 편집 메뉴
+        edit_menu = menubar.addMenu("편집")
+        
+        delete_action = QAction("삭제", self)
+        delete_action.setShortcut("Delete")
+        delete_action.triggered.connect(self.delete_selected)
+        edit_menu.addAction(delete_action)
+        
+        # 보기 메뉴
+        view_menu = menubar.addMenu("보기")
+        
+        grid_action = QAction("그리드 표시", self)
+        grid_action.setCheckable(True)
+        grid_action.setChecked(True)
+        grid_action.triggered.connect(self.toggle_grid)
+        view_menu.addAction(grid_action)
+        
+        fit_action = QAction("전체 보기", self)
+        fit_action.setShortcut("Space")
+        fit_action.triggered.connect(self.fit_view)
+        view_menu.addAction(fit_action)
+        
+    def create_toolbar(self):
+        """툴바 생성"""
+        toolbar = self.addToolBar("메인 툴바")
+        toolbar.setMovable(False)
+        
+        # 실행 버튼
+        run_action = QAction(QIcon(), "실행", self)
+        run_action.triggered.connect(self.run_pipeline)
+        toolbar.addAction(run_action)
+        
+        # 검증 버튼
+        validate_action = QAction(QIcon(), "검증", self)
+        validate_action.triggered.connect(self.validate_pipeline)
+        toolbar.addAction(validate_action)
+        
+        toolbar.addSeparator()
+        
+        # 줌 컨트롤
+        zoom_in_action = QAction(QIcon(), "확대", self)
+        zoom_in_action.triggered.connect(lambda: self.view.scale(1.2, 1.2))
+        toolbar.addAction(zoom_in_action)
+        
+        zoom_out_action = QAction(QIcon(), "축소", self)
+        zoom_out_action.triggered.connect(lambda: self.view.scale(0.8, 0.8))
+        toolbar.addAction(zoom_out_action)
+        
+        zoom_reset_action = QAction(QIcon(), "100%", self)
+        zoom_reset_action.triggered.connect(self.reset_zoom)
+        toolbar.addAction(zoom_reset_action)
+        
+    def create_dock_widgets(self):
+        """독 위젯 생성"""
+        # 노드 팔레트
+        self.create_node_palette()
+        
+        # 속성 패널
+        self.create_properties_panel()
+        
+        # 콘솔 출력
+        self.create_console_panel()
+        
+    def create_node_palette(self):
+        """노드 팔레트 생성"""
+        dock = QDockWidget("노드 팔레트", self)
+        dock.setAllowedAreas(Qt.LeftDockWidgetArea | Qt.RightDockWidgetArea)
+        
+        widget = QWidget()
+        layout = QVBoxLayout()
+        
+        # 노드 카테고리별 버튼 생성
+        categories = {
+            "데이터 입력": [
+                ("MCS 로그 데이터", NodeType.DATA, "MCS 로그"),
+                ("진동센서 데이터", NodeType.DATA, "진동센서"),
+            ],
+            "데이터 전처리": [
+                ("이상치 제거", NodeType.PREPROCESS, "이상치 제거"),
+                ("시간별 분류", NodeType.PREPROCESS, "시간별 분류"),
+                ("경로별 분류", NodeType.PREPROCESS, "경로별 분류"),
+            ],
+            "벡터 저장": [
+                ("RAG 벡터 저장", NodeType.VECTOR, "RAG 벡터"),
+            ],
+            "시계열 모델": [
+                ("LSTM 모델", NodeType.MODEL, "LSTM"),
+                ("RNN 모델", NodeType.MODEL, "RNN"),
+                ("ARIMA 모델", NodeType.MODEL, "ARIMA"),
+            ],
+            "분석": [
+                ("과거패턴 분석", NodeType.ANALYSIS, "패턴분석"),
+            ],
+            "프롬프트": [
+                ("프롬프트 생성", NodeType.PROMPT, "프롬프트"),
+            ],
+            "LLM": [
+                ("PHI-4 판단/추론", NodeType.LLM, "PHI-4"),
+            ],
+        }
+        
+        for category, nodes in categories.items():
+            group = QGroupBox(category)
+            group_layout = QVBoxLayout()
             
-    def on_canvas_release(self, event):
-        """캔버스 릴리즈 이벤트"""
-        if self.selected_node and not self.connecting:
-            node = self.nodes[self.selected_node]
-            
-            # 그리드에 스냅
-            grid_size = 20
-            snap_x = round(node.x / grid_size) * grid_size
-            snap_y = round(node.y / grid_size) * grid_size
-            
-            # 스냅 위치로 이동
-            dx = snap_x - node.x
-            dy = snap_y - node.y
-            
-            if dx != 0 or dy != 0:
-                node.move(dx, dy)
+            for label, node_type, name in nodes:
+                btn = QPushButton(label)
+                btn.clicked.connect(lambda checked, t=node_type, n=name: self.add_node(t, n))
+                group_layout.addWidget(btn)
                 
-                # 연결선 최종 업데이트
-                for conn in self.connections:
-                    if conn.start_node.node_id == self.selected_node or conn.end_node.node_id == self.selected_node:
-                        conn.update()
+            group.setLayout(group_layout)
+            layout.addWidget(group)
             
-            self.update_status(f"{node.name} 이동 완료")
-                
-    def deselect_all_nodes(self):
-        """모든 노드 선택 해제"""
-        for node_id, node in self.nodes.items():
-            self.canvas.itemconfig(node.rect, width=2)
-        self.selected_node = None
+        layout.addStretch()
+        widget.setLayout(layout)
         
-        # 속성 패널 초기화
-        for widget in self.props_frame.winfo_children():
-            widget.destroy()
-        ttk.Label(self.props_frame, text="노드를 선택하세요", 
-                 font=('Arial', 10)).pack(pady=20)
+        scroll = QScrollArea()
+        scroll.setWidget(widget)
+        scroll.setWidgetResizable(True)
+        dock.setWidget(scroll)
         
-    def on_right_click(self, event):
-        """우클릭 메뉴"""
-        clicked_item = self.canvas.find_closest(event.x, event.y)[0]
-        tags = self.canvas.gettags(clicked_item)
+        self.addDockWidget(Qt.LeftDockWidgetArea, dock)
         
-        for tag in tags:
-            if tag.startswith("node_"):
-                node_id = tag
-                self.show_node_menu(event, node_id)
-                return
-                
-    def show_node_menu(self, event, node_id):
-        """노드 컨텍스트 메뉴"""
-        menu = tk.Menu(self.root, tearoff=0)
-        menu.add_command(label="설정", 
-                        command=lambda: self.configure_node(node_id))
-        menu.add_command(label="삭제", 
-                        command=lambda: self.delete_node(node_id))
-        menu.add_separator()
-        menu.add_command(label="정보", 
-                        command=lambda: self.show_node_info(node_id))
+    def create_properties_panel(self):
+        """속성 패널 생성"""
+        dock = QDockWidget("노드 속성", self)
+        dock.setAllowedAreas(Qt.LeftDockWidgetArea | Qt.RightDockWidgetArea)
         
-        menu.post(event.x_root, event.y_root)
+        self.properties_widget = QTextEdit()
+        self.properties_widget.setReadOnly(True)
+        self.properties_widget.setPlainText("노드를 선택하세요")
         
-    def show_node_properties(self, node_id):
-        """노드 속성 표시"""
-        # 기존 위젯 제거
-        for widget in self.props_frame.winfo_children():
-            widget.destroy()
-            
-        node = self.nodes[node_id]
+        dock.setWidget(self.properties_widget)
+        self.addDockWidget(Qt.RightDockWidgetArea, dock)
         
-        # 노드 정보
-        ttk.Label(self.props_frame, text=f"노드: {node.name}",
-                 font=('Arial', 12, 'bold')).pack(pady=5)
-        ttk.Label(self.props_frame, text=f"타입: {node.node_type}").pack()
-        ttk.Label(self.props_frame, text=f"ID: {node_id}").pack()
+    def create_console_panel(self):
+        """콘솔 패널 생성"""
+        dock = QDockWidget("콘솔", self)
+        dock.setAllowedAreas(Qt.BottomDockWidgetArea)
         
-        # 설정 상태
-        status_text = "설정됨" if node.is_configured else "미설정"
-        status_color = "green" if node.is_configured else "red"
-        status_label = ttk.Label(self.props_frame, text=f"상태: {status_text}",
-                                foreground=status_color)
-        status_label.pack(pady=5)
+        self.console = QTextEdit()
+        self.console.setReadOnly(True)
+        self.console.setMaximumHeight(150)
         
-        # 설정 버튼
-        ttk.Button(self.props_frame, text="노드 설정",
-                  command=lambda: self.configure_node(node_id)).pack(pady=10)
+        dock.setWidget(self.console)
+        self.addDockWidget(Qt.BottomDockWidgetArea, dock)
         
-    def configure_node(self, node_id):
+    def add_node(self, node_type: NodeType, name: str):
+        """노드 추가"""
+        # 뷰 중앙에 노드 생성
+        view_center = self.view.mapToScene(self.view.rect().center())
+        
+        node = Node(node_type, name, view_center.x() - 100, view_center.y() - 50)
+        self.scene.addItem(node)
+        
+        self.log(f"{name} 노드가 추가되었습니다")
+        
+    def configure_node(self, node):
         """노드 설정 대화상자"""
-        node = self.nodes[node_id]
+        dialog = QDialog(self)
+        dialog.setWindowTitle(f"{node.name} 설정")
+        dialog.setModal(True)
+        layout = QVBoxLayout()
         
-        config_window = tk.Toplevel(self.root)
-        config_window.title(f"{node.name} 설정")
-        config_window.geometry("400x500")
-        
-        # 노드 타입별 설정
-        if node.node_type == 'data':
-            self.configure_data_node(config_window, node)
-        elif node.node_type == 'preprocess':
-            self.configure_preprocess_node(config_window, node)
-        elif node.node_type == 'model':
-            self.configure_model_node(config_window, node)
-        elif node.node_type == 'vector':
-            self.configure_vector_node(config_window, node)
-        elif node.node_type == 'analysis':
-            self.configure_analysis_node(config_window, node)
-        elif node.node_type == 'prompt':
-            self.configure_prompt_node(config_window, node)
-        elif node.node_type == 'llm':
-            self.configure_llm_node(config_window, node)
+        # 노드 타입별 설정 UI
+        if node.node_type == NodeType.DATA:
+            self.create_data_config(layout, node)
+        elif node.node_type == NodeType.PREPROCESS:
+            self.create_preprocess_config(layout, node)
+        elif node.node_type == NodeType.MODEL:
+            self.create_model_config(layout, node)
+        elif node.node_type == NodeType.VECTOR:
+            self.create_vector_config(layout, node)
+        elif node.node_type == NodeType.ANALYSIS:
+            self.create_analysis_config(layout, node)
+        elif node.node_type == NodeType.PROMPT:
+            self.create_prompt_config(layout, node)
+        elif node.node_type == NodeType.LLM:
+            self.create_llm_config(layout, node)
             
-    def configure_data_node(self, window, node):
-        """데이터 노드 설정"""
-        ttk.Label(window, text="데이터 소스 설정", 
-                 font=('Arial', 12, 'bold')).pack(pady=10)
+        # 버튼
+        buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        buttons.accepted.connect(lambda: self.save_node_config(dialog, node))
+        buttons.rejected.connect(dialog.reject)
+        layout.addWidget(buttons)
+        
+        dialog.setLayout(layout)
+        dialog.exec_()
+        
+    def create_data_config(self, layout, node):
+        """데이터 노드 설정 UI"""
+        layout.addWidget(QLabel("데이터 소스 설정"))
         
         # 파일 경로
-        ttk.Label(window, text="파일 경로:").pack()
-        path_entry = ttk.Entry(window, width=40)
-        path_entry.pack(pady=5)
+        layout.addWidget(QLabel("파일 경로:"))
+        path_edit = QLineEdit()
+        path_edit.setObjectName("path")
+        layout.addWidget(path_edit)
         
         # 데이터 형식
-        ttk.Label(window, text="데이터 형식:").pack()
-        format_var = tk.StringVar(value="CSV")
-        formats = ["CSV", "JSON", "Excel", "Database"]
-        format_menu = ttk.OptionMenu(window, format_var, format_var.get(), *formats)
-        format_menu.pack(pady=5)
+        layout.addWidget(QLabel("데이터 형식:"))
+        format_combo = QComboBox()
+        format_combo.addItems(["CSV", "JSON", "Excel", "Database"])
+        format_combo.setObjectName("format")
+        layout.addWidget(format_combo)
         
-        # 샘플링 설정
-        ttk.Label(window, text="샘플링 간격 (초):").pack()
-        sampling_entry = ttk.Entry(window, width=20)
-        sampling_entry.insert(0, "60")
-        sampling_entry.pack(pady=5)
+        # 샘플링 간격
+        layout.addWidget(QLabel("샘플링 간격 (초):"))
+        sampling_spin = QSpinBox()
+        sampling_spin.setRange(1, 3600)
+        sampling_spin.setValue(60)
+        sampling_spin.setObjectName("sampling")
+        layout.addWidget(sampling_spin)
         
-        def save_config():
-            node.config = {
-                'path': path_entry.get(),
-                'format': format_var.get(),
-                'sampling': sampling_entry.get()
-            }
-            node.set_configured(True)
-            self.update_status(f"{node.name} 설정 완료")
-            window.destroy()
-            
-        ttk.Button(window, text="저장", command=save_config).pack(pady=20)
-        
-    def configure_preprocess_node(self, window, node):
-        """전처리 노드 설정"""
-        ttk.Label(window, text="전처리 설정", 
-                 font=('Arial', 12, 'bold')).pack(pady=10)
+    def create_preprocess_config(self, layout, node):
+        """전처리 노드 설정 UI"""
+        layout.addWidget(QLabel("전처리 설정"))
         
         if "이상치" in node.name:
-            # 이상치 제거 설정
-            ttk.Label(window, text="이상치 탐지 방법:").pack()
-            method_var = tk.StringVar(value="IQR")
-            methods = ["IQR", "Z-Score", "Isolation Forest", "DBSCAN"]
-            ttk.OptionMenu(window, method_var, method_var.get(), *methods).pack(pady=5)
+            layout.addWidget(QLabel("이상치 탐지 방법:"))
+            method_combo = QComboBox()
+            method_combo.addItems(["IQR", "Z-Score", "Isolation Forest", "DBSCAN"])
+            method_combo.setObjectName("method")
+            layout.addWidget(method_combo)
             
-            ttk.Label(window, text="임계값:").pack()
-            threshold_entry = ttk.Entry(window, width=20)
-            threshold_entry.insert(0, "1.5")
-            threshold_entry.pack(pady=5)
+            layout.addWidget(QLabel("임계값:"))
+            threshold_spin = QDoubleSpinBox()
+            threshold_spin.setRange(0.1, 5.0)
+            threshold_spin.setValue(1.5)
+            threshold_spin.setSingleStep(0.1)
+            threshold_spin.setObjectName("threshold")
+            layout.addWidget(threshold_spin)
             
         elif "시간별" in node.name:
-            # 시간별 분류 설정
-            ttk.Label(window, text="시간 단위:").pack()
-            time_var = tk.StringVar(value="1시간")
-            times = ["30분", "1시간", "2시간", "4시간", "6시간", "12시간", "24시간"]
-            ttk.OptionMenu(window, time_var, time_var.get(), *times).pack(pady=5)
+            layout.addWidget(QLabel("시간 단위:"))
+            time_combo = QComboBox()
+            time_combo.addItems(["30분", "1시간", "2시간", "4시간", "6시간", "12시간", "24시간"])
+            time_combo.setCurrentText("1시간")
+            time_combo.setObjectName("time_unit")
+            layout.addWidget(time_combo)
             
         elif "경로별" in node.name:
-            # 경로별 분류 설정
-            ttk.Label(window, text="경로 그룹화 기준:").pack()
-            route_var = tk.StringVar(value="출발지-도착지")
-            routes = ["출발지-도착지", "주요 경유지", "운송 수단", "거리별"]
-            ttk.OptionMenu(window, route_var, route_var.get(), *routes).pack(pady=5)
+            layout.addWidget(QLabel("경로 그룹화 기준:"))
+            route_combo = QComboBox()
+            route_combo.addItems(["출발지-도착지", "주요 경유지", "운송 수단", "거리별"])
+            route_combo.setObjectName("route_grouping")
+            layout.addWidget(route_combo)
             
-        def save_config():
-            node.set_configured(True)
-            self.update_status(f"{node.name} 설정 완료")
-            window.destroy()
-            
-        ttk.Button(window, text="저장", command=save_config).pack(pady=20)
-        
-    def configure_model_node(self, window, node):
-        """모델 노드 설정"""
-        ttk.Label(window, text="모델 설정", 
-                 font=('Arial', 12, 'bold')).pack(pady=10)
+    def create_model_config(self, layout, node):
+        """모델 노드 설정 UI"""
+        layout.addWidget(QLabel("모델 설정"))
         
         # 예측 기간
-        ttk.Label(window, text="예측 기간:").pack()
-        period_var = tk.StringVar(value="24시간")
-        periods = ["6시간", "12시간", "24시간", "48시간", "72시간", "1주일"]
-        ttk.OptionMenu(window, period_var, period_var.get(), *periods).pack(pady=5)
+        layout.addWidget(QLabel("예측 기간:"))
+        period_combo = QComboBox()
+        period_combo.addItems(["6시간", "12시간", "24시간", "48시간", "72시간", "1주일"])
+        period_combo.setCurrentText("24시간")
+        period_combo.setObjectName("period")
+        layout.addWidget(period_combo)
         
         if "LSTM" in node.name or "RNN" in node.name:
-            # 딥러닝 모델 설정
-            ttk.Label(window, text="은닉층 수:").pack()
-            layers_entry = ttk.Entry(window, width=20)
-            layers_entry.insert(0, "3")
-            layers_entry.pack(pady=5)
+            layout.addWidget(QLabel("은닉층 수:"))
+            layers_spin = QSpinBox()
+            layers_spin.setRange(1, 10)
+            layers_spin.setValue(3)
+            layers_spin.setObjectName("layers")
+            layout.addWidget(layers_spin)
             
-            ttk.Label(window, text="유닛 수:").pack()
-            units_entry = ttk.Entry(window, width=20)
-            units_entry.insert(0, "128")
-            units_entry.pack(pady=5)
+            layout.addWidget(QLabel("유닛 수:"))
+            units_spin = QSpinBox()
+            units_spin.setRange(32, 512)
+            units_spin.setValue(128)
+            units_spin.setSingleStep(32)
+            units_spin.setObjectName("units")
+            layout.addWidget(units_spin)
             
-            ttk.Label(window, text="배치 크기:").pack()
-            batch_entry = ttk.Entry(window, width=20)
-            batch_entry.insert(0, "32")
-            batch_entry.pack(pady=5)
+            layout.addWidget(QLabel("배치 크기:"))
+            batch_spin = QSpinBox()
+            batch_spin.setRange(1, 128)
+            batch_spin.setValue(32)
+            batch_spin.setObjectName("batch_size")
+            layout.addWidget(batch_spin)
             
         elif "ARIMA" in node.name:
-            # ARIMA 모델 설정
-            ttk.Label(window, text="p (자기회귀):").pack()
-            p_entry = ttk.Entry(window, width=20)
-            p_entry.insert(0, "2")
-            p_entry.pack(pady=5)
+            layout.addWidget(QLabel("p (자기회귀):"))
+            p_spin = QSpinBox()
+            p_spin.setRange(0, 10)
+            p_spin.setValue(2)
+            p_spin.setObjectName("p")
+            layout.addWidget(p_spin)
             
-            ttk.Label(window, text="d (차분):").pack()
-            d_entry = ttk.Entry(window, width=20)
-            d_entry.insert(0, "1")
-            d_entry.pack(pady=5)
+            layout.addWidget(QLabel("d (차분):"))
+            d_spin = QSpinBox()
+            d_spin.setRange(0, 5)
+            d_spin.setValue(1)
+            d_spin.setObjectName("d")
+            layout.addWidget(d_spin)
             
-            ttk.Label(window, text="q (이동평균):").pack()
-            q_entry = ttk.Entry(window, width=20)
-            q_entry.insert(0, "2")
-            q_entry.pack(pady=5)
+            layout.addWidget(QLabel("q (이동평균):"))
+            q_spin = QSpinBox()
+            q_spin.setRange(0, 10)
+            q_spin.setValue(2)
+            q_spin.setObjectName("q")
+            layout.addWidget(q_spin)
             
-        def save_config():
-            node.set_configured(True)
-            self.update_status(f"{node.name} 설정 완료")
-            window.destroy()
-            
-        ttk.Button(window, text="저장", command=save_config).pack(pady=20)
+    def create_vector_config(self, layout, node):
+        """벡터 저장 노드 설정 UI"""
+        layout.addWidget(QLabel("RAG 벡터 저장 설정"))
         
-    def configure_vector_node(self, window, node):
-        """벡터 저장 노드 설정"""
-        ttk.Label(window, text="RAG 벡터 저장 설정", 
-                 font=('Arial', 12, 'bold')).pack(pady=10)
+        layout.addWidget(QLabel("임베딩 모델:"))
+        embed_combo = QComboBox()
+        embed_combo.addItems(["OpenAI", "Sentence-BERT", "Custom", "Multilingual"])
+        embed_combo.setObjectName("embedding_model")
+        layout.addWidget(embed_combo)
         
-        # 임베딩 모델
-        ttk.Label(window, text="임베딩 모델:").pack()
-        embed_var = tk.StringVar(value="OpenAI")
-        embeds = ["OpenAI", "Sentence-BERT", "Custom", "Multilingual"]
-        ttk.OptionMenu(window, embed_var, embed_var.get(), *embeds).pack(pady=5)
+        layout.addWidget(QLabel("벡터 차원:"))
+        dim_spin = QSpinBox()
+        dim_spin.setRange(128, 2048)
+        dim_spin.setValue(768)
+        dim_spin.setSingleStep(128)
+        dim_spin.setObjectName("vector_dim")
+        layout.addWidget(dim_spin)
         
-        # 벡터 차원
-        ttk.Label(window, text="벡터 차원:").pack()
-        dim_entry = ttk.Entry(window, width=20)
-        dim_entry.insert(0, "768")
-        dim_entry.pack(pady=5)
+        layout.addWidget(QLabel("벡터 저장소:"))
+        store_combo = QComboBox()
+        store_combo.addItems(["ChromaDB", "Pinecone", "Weaviate", "FAISS"])
+        store_combo.setObjectName("vector_store")
+        layout.addWidget(store_combo)
         
-        # 저장소
-        ttk.Label(window, text="벡터 저장소:").pack()
-        store_var = tk.StringVar(value="ChromaDB")
-        stores = ["ChromaDB", "Pinecone", "Weaviate", "FAISS"]
-        ttk.OptionMenu(window, store_var, store_var.get(), *stores).pack(pady=5)
+    def create_analysis_config(self, layout, node):
+        """분석 노드 설정 UI"""
+        layout.addWidget(QLabel("패턴 분석 설정"))
         
-        def save_config():
-            node.set_configured(True)
-            self.update_status(f"{node.name} 설정 완료")
-            window.destroy()
-            
-        ttk.Button(window, text="저장", command=save_config).pack(pady=20)
+        layout.addWidget(QLabel("분석 기간:"))
+        period_combo = QComboBox()
+        period_combo.addItems(["7일", "14일", "30일", "90일", "180일", "1년"])
+        period_combo.setCurrentText("30일")
+        period_combo.setObjectName("analysis_period")
+        layout.addWidget(period_combo)
         
-    def configure_analysis_node(self, window, node):
-        """분석 노드 설정"""
-        ttk.Label(window, text="패턴 분석 설정", 
-                 font=('Arial', 12, 'bold')).pack(pady=10)
-        
-        # 분석 기간
-        ttk.Label(window, text="분석 기간:").pack()
-        period_var = tk.StringVar(value="30일")
-        periods = ["7일", "14일", "30일", "90일", "180일", "1년"]
-        ttk.OptionMenu(window, period_var, period_var.get(), *periods).pack(pady=5)
-        
-        # 패턴 유형
-        ttk.Label(window, text="패턴 유형:").pack()
-        pattern_frame = ttk.Frame(window)
-        pattern_frame.pack(pady=5)
-        
+        layout.addWidget(QLabel("패턴 유형:"))
         patterns = ["계절성", "주기성", "트렌드", "이상패턴", "피크시간"]
-        pattern_vars = {}
-        for pattern in patterns:
-            var = tk.BooleanVar(value=True)
-            pattern_vars[pattern] = var
-            ttk.Checkbutton(pattern_frame, text=pattern, variable=var).pack(anchor='w')
+        for i, pattern in enumerate(patterns):
+            check = QCheckBox(pattern)
+            check.setChecked(True)
+            check.setObjectName(f"pattern_{i}")
+            layout.addWidget(check)
             
-        def save_config():
-            node.set_configured(True)
-            self.update_status(f"{node.name} 설정 완료")
-            window.destroy()
-            
-        ttk.Button(window, text="저장", command=save_config).pack(pady=20)
+    def create_prompt_config(self, layout, node):
+        """프롬프트 노드 설정 UI"""
+        layout.addWidget(QLabel("프롬프트 생성 설정"))
         
-    def configure_prompt_node(self, window, node):
-        """프롬프트 노드 설정"""
-        ttk.Label(window, text="프롬프트 생성 설정", 
-                 font=('Arial', 12, 'bold')).pack(pady=10)
-        
-        # 프롬프트 템플릿
-        ttk.Label(window, text="프롬프트 템플릿:").pack()
-        template_text = tk.Text(window, height=10, width=45)
-        template_text.pack(pady=5)
-        
-        # 기본 템플릿
+        layout.addWidget(QLabel("프롬프트 템플릿:"))
+        template_text = QTextEdit()
+        template_text.setObjectName("template")
         default_template = """다음 물류 데이터를 분석하여 예측해주세요:
 - 현재 상황: {current_status}
 - 과거 패턴: {past_patterns}
@@ -791,169 +870,228 @@ class LogisticsPredictionGUI:
 
 24시간 이내의 물류 이동을 예측하고,
 주의해야 할 리스크를 분석해주세요."""
+        template_text.setPlainText(default_template)
+        template_text.setMaximumHeight(150)
+        layout.addWidget(template_text)
         
-        template_text.insert('1.0', default_template)
-        
-        # 컨텍스트 포함 옵션
-        ttk.Label(window, text="포함할 컨텍스트:").pack()
-        context_frame = ttk.Frame(window)
-        context_frame.pack(pady=5)
-        
+        layout.addWidget(QLabel("포함할 컨텍스트:"))
         contexts = ["날씨 정보", "교통 상황", "과거 지연 이력", "특별 이벤트"]
-        context_vars = {}
-        for context in contexts:
-            var = tk.BooleanVar(value=True)
-            context_vars[context] = var
-            ttk.Checkbutton(context_frame, text=context, variable=var).pack(anchor='w')
+        for i, context in enumerate(contexts):
+            check = QCheckBox(context)
+            check.setChecked(True)
+            check.setObjectName(f"context_{i}")
+            layout.addWidget(check)
             
-        def save_config():
-            node.config = {
-                'template': template_text.get('1.0', 'end-1c'),
-                'contexts': {k: v.get() for k, v in context_vars.items()}
+    def create_llm_config(self, layout, node):
+        """LLM 노드 설정 UI"""
+        layout.addWidget(QLabel("PHI-4 LLM 설정"))
+        
+        layout.addWidget(QLabel("Temperature:"))
+        temp_slider = QSlider(Qt.Horizontal)
+        temp_slider.setRange(0, 100)
+        temp_slider.setValue(70)
+        temp_slider.setObjectName("temperature")
+        temp_label = QLabel("0.7")
+        temp_slider.valueChanged.connect(lambda v: temp_label.setText(f"{v/100:.1f}"))
+        
+        temp_layout = QHBoxLayout()
+        temp_layout.addWidget(temp_slider)
+        temp_layout.addWidget(temp_label)
+        layout.addLayout(temp_layout)
+        
+        layout.addWidget(QLabel("Max Tokens:"))
+        tokens_spin = QSpinBox()
+        tokens_spin.setRange(512, 8192)
+        tokens_spin.setValue(2048)
+        tokens_spin.setSingleStep(512)
+        tokens_spin.setObjectName("max_tokens")
+        layout.addWidget(tokens_spin)
+        
+        layout.addWidget(QLabel("추론 모드:"))
+        mode_combo = QComboBox()
+        mode_combo.addItems(["종합분석", "리스크 평가", "최적화 제안", "이상탐지"])
+        mode_combo.setObjectName("inference_mode")
+        layout.addWidget(mode_combo)
+        
+        layout.addWidget(QLabel("출력 형식:"))
+        format_combo = QComboBox()
+        format_combo.addItems(["구조화된 JSON", "자연어 설명", "대시보드 데이터", "리포트"])
+        format_combo.setObjectName("output_format")
+        layout.addWidget(format_combo)
+        
+    def save_node_config(self, dialog, node):
+        """노드 설정 저장"""
+        # 대화상자에서 설정 값 수집
+        settings = {}
+        for child in dialog.findChildren(QWidget):
+            if child.objectName():
+                if isinstance(child, QLineEdit):
+                    settings[child.objectName()] = child.text()
+                elif isinstance(child, QComboBox):
+                    settings[child.objectName()] = child.currentText()
+                elif isinstance(child, QSpinBox) or isinstance(child, QDoubleSpinBox):
+                    settings[child.objectName()] = child.value()
+                elif isinstance(child, QCheckBox):
+                    settings[child.objectName()] = child.isChecked()
+                elif isinstance(child, QTextEdit):
+                    settings[child.objectName()] = child.toPlainText()
+                elif isinstance(child, QSlider):
+                    settings[child.objectName()] = child.value() / 100
+                    
+        node.settings = settings
+        node.is_configured = True
+        node.update_status()
+        
+        self.log(f"{node.name} 설정이 완료되었습니다")
+        self.update_properties()
+        
+        dialog.accept()
+        
+    def new_pipeline(self):
+        """새 파이프라인"""
+        reply = QMessageBox.question(self, "확인", "현재 작업을 지우고 새로 시작하시겠습니까?")
+        if reply == QMessageBox.Yes:
+            self.scene.clear()
+            self.log("새 파이프라인이 생성되었습니다")
+            
+    def save_pipeline(self):
+        """파이프라인 저장"""
+        filename, _ = QFileDialog.getSaveFileName(self, "파이프라인 저장", "", "JSON Files (*.json)")
+        if filename:
+            data = {
+                "nodes": [],
+                "connections": []
             }
-            node.set_configured(True)
-            self.update_status(f"{node.name} 설정 완료")
-            window.destroy()
             
-        ttk.Button(window, text="저장", command=save_config).pack(pady=20)
-        
-    def configure_llm_node(self, window, node):
-        """LLM 노드 설정"""
-        ttk.Label(window, text="PHI-4 LLM 설정", 
-                 font=('Arial', 12, 'bold')).pack(pady=10)
-        
-        # 모델 설정
-        ttk.Label(window, text="Temperature:").pack()
-        temp_scale = ttk.Scale(window, from_=0, to=1, orient='horizontal', length=200)
-        temp_scale.set(0.7)
-        temp_scale.pack(pady=5)
-        
-        ttk.Label(window, text="Max Tokens:").pack()
-        tokens_entry = ttk.Entry(window, width=20)
-        tokens_entry.insert(0, "2048")
-        tokens_entry.pack(pady=5)
-        
-        # 추론 모드
-        ttk.Label(window, text="추론 모드:").pack()
-        mode_var = tk.StringVar(value="종합분석")
-        modes = ["종합분석", "리스크 평가", "최적화 제안", "이상탐지"]
-        ttk.OptionMenu(window, mode_var, mode_var.get(), *modes).pack(pady=5)
-        
-        # 출력 형식
-        ttk.Label(window, text="출력 형식:").pack()
-        format_var = tk.StringVar(value="구조화된 JSON")
-        formats = ["구조화된 JSON", "자연어 설명", "대시보드 데이터", "리포트"]
-        ttk.OptionMenu(window, format_var, format_var.get(), *formats).pack(pady=5)
-        
-        def save_config():
-            node.config = {
-                'temperature': temp_scale.get(),
-                'max_tokens': tokens_entry.get(),
-                'mode': mode_var.get(),
-                'format': format_var.get()
-            }
-            node.set_configured(True)
-            self.update_status(f"{node.name} 설정 완료")
-            window.destroy()
+            # 노드 정보 수집
+            node_map = {}
+            for item in self.scene.items():
+                if isinstance(item, Node):
+                    node_data = {
+                        "id": item.node_id,
+                        "type": item.node_type.value,
+                        "name": item.name,
+                        "x": item.x(),
+                        "y": item.y(),
+                        "configured": item.is_configured,
+                        "settings": item.settings
+                    }
+                    data["nodes"].append(node_data)
+                    node_map[item] = item.node_id
+                    
+            # 연결 정보 수집
+            for item in self.scene.items():
+                if isinstance(item, Connection) and item.start_port and item.end_port:
+                    start_node = item.start_port.parentItem()
+                    end_node = item.end_port.parentItem()
+                    
+                    if start_node in node_map and end_node in node_map:
+                        conn_data = {
+                            "start": node_map[start_node],
+                            "start_port": start_node.output_ports.index(item.start_port),
+                            "end": node_map[end_node],
+                            "end_port": end_node.input_ports.index(item.end_port)
+                        }
+                        data["connections"].append(conn_data)
+                        
+            # JSON 파일로 저장
+            with open(filename, 'w', encoding='utf-8') as f:
+                json.dump(data, f, indent=2, ensure_ascii=False)
+                
+            self.log(f"파이프라인이 저장되었습니다: {filename}")
             
-        ttk.Button(window, text="저장", command=save_config).pack(pady=20)
-        
-    def start_connection(self, node_id):
-        """연결 시작"""
-        self.connecting = True
-        self.connection_start = node_id
-        self.update_status("연결할 노드를 선택하세요...")
-        
-    def end_connection(self, end_node_id):
-        """연결 완료"""
-        if self.connection_start and self.connection_start != end_node_id:
-            start_node = self.nodes[self.connection_start]
-            end_node = self.nodes[end_node_id]
+    def load_pipeline(self):
+        """파이프라인 불러오기"""
+        filename, _ = QFileDialog.getOpenFileName(self, "파이프라인 열기", "", "JSON Files (*.json)")
+        if filename:
+            with open(filename, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+                
+            # 씬 초기화
+            self.scene.clear()
             
+            # 노드 생성
+            node_map = {}
+            for node_data in data["nodes"]:
+                node_type = NodeType(node_data["type"])
+                node = Node(node_type, node_data["name"], node_data["x"], node_data["y"])
+                node.is_configured = node_data.get("configured", False)
+                node.settings = node_data.get("settings", {})
+                node.update_status()
+                
+                self.scene.addItem(node)
+                node_map[node_data["id"]] = node
+                
             # 연결 생성
-            conn = Connection(self.canvas, start_node, end_node)
-            self.connections.append(conn)
+            for conn_data in data["connections"]:
+                start_node = node_map[conn_data["start"]]
+                end_node = node_map[conn_data["end"]]
+                
+                start_port = start_node.output_ports[conn_data.get("start_port", 0)]
+                end_port = end_node.input_ports[conn_data.get("end_port", 0)]
+                
+                connection = Connection(start_port, end_port)
+                self.scene.addItem(connection)
+                
+                start_port.connections.append(connection)
+                end_port.connections.append(connection)
+                
+            self.log(f"파이프라인을 불러왔습니다: {filename}")
             
-            # 노드에 연결 정보 저장
-            start_node.outputs.append(end_node_id)
-            end_node.inputs.append(self.connection_start)
-            
-            self.update_status(f"{start_node.name} → {end_node.name} 연결됨")
-            
-        self.connecting = False
-        self.connection_start = None
+    def delete_selected(self):
+        """선택된 아이템 삭제"""
+        for item in self.scene.selectedItems():
+            if isinstance(item, Node):
+                self.view.delete_node(item)
+                
+    def toggle_grid(self, checked):
+        """그리드 표시 토글"""
+        self.scene.grid_visible = checked
+        self.scene.update()
         
-    def delete_node(self, node_id):
-        """노드 삭제"""
-        if node_id in self.nodes:
-            # 관련 연결 제거
-            connections_to_remove = []
-            for i, conn in enumerate(self.connections):
-                if conn.start_node.node_id == node_id or conn.end_node.node_id == node_id:
-                    self.canvas.delete(conn.line)
-                    connections_to_remove.append(i)
-            
-            # 연결 리스트에서 제거 (역순으로)
-            for i in reversed(connections_to_remove):
-                del self.connections[i]
-            
-            # 캔버스에서 노드 제거
-            self.canvas.delete(f"node_{node_id}")
-            self.canvas.delete(f"port_in_{node_id}")
-            self.canvas.delete(f"port_out_{node_id}")
-            
-            # 노드 객체 제거
-            del self.nodes[node_id]
-            
-            self.update_status(f"노드가 삭제되었습니다")
-            self.update_system_info()
-            
-    def clear_canvas(self):
-        """캔버스 초기화"""
-        if messagebox.askyesno("확인", "모든 노드를 삭제하시겠습니까?"):
-            # 모든 노드와 연결선 삭제
-            self.canvas.delete("all")
-            
-            # 그리드 다시 그리기
-            self.draw_grid()
-            
-            self.nodes.clear()
-            self.connections.clear()
-            self.node_counter = 0
-            self.selected_node = None
-            
-            self.update_status("캔버스가 초기화되었습니다")
-            self.update_system_info()
-            
+    def fit_view(self):
+        """전체 보기"""
+        self.view.fitInView(self.scene.itemsBoundingRect(), Qt.KeepAspectRatio)
+        self.view.zoom_level = 0
+        
+    def reset_zoom(self):
+        """줌 초기화"""
+        self.view.resetTransform()
+        self.view.zoom_level = 0
+        
     def validate_pipeline(self):
         """파이프라인 검증"""
         errors = []
         warnings = []
         
-        # 노드 존재 확인
-        if not self.nodes:
+        # 노드 수집
+        nodes = [item for item in self.scene.items() if isinstance(item, Node)]
+        
+        if not nodes:
             errors.append("노드가 없습니다")
-            
-        # 데이터 입력 노드 확인
-        data_nodes = [n for n in self.nodes.values() if n.node_type == 'data']
-        if not data_nodes:
-            errors.append("데이터 입력 노드가 필요합니다")
-            
-        # LLM 노드 확인
-        llm_nodes = [n for n in self.nodes.values() if n.node_type == 'llm']
-        if not llm_nodes:
-            errors.append("LLM 노드가 필요합니다")
-            
-        # 미설정 노드 확인
-        unconfigured = [n.name for n in self.nodes.values() if not n.is_configured]
-        if unconfigured:
-            warnings.append(f"미설정 노드: {', '.join(unconfigured)}")
-            
-        # 연결 확인
-        for node in self.nodes.values():
-            if node.node_type != 'data' and not node.inputs:
-                warnings.append(f"{node.name}에 입력이 없습니다")
+        else:
+            # 데이터 입력 노드 확인
+            data_nodes = [n for n in nodes if n.node_type == NodeType.DATA]
+            if not data_nodes:
+                errors.append("데이터 입력 노드가 필요합니다")
                 
+            # LLM 노드 확인
+            llm_nodes = [n for n in nodes if n.node_type == NodeType.LLM]
+            if not llm_nodes:
+                errors.append("LLM 노드가 필요합니다")
+                
+            # 미설정 노드 확인
+            unconfigured = [n.name for n in nodes if not n.is_configured]
+            if unconfigured:
+                warnings.append(f"미설정 노드: {', '.join(unconfigured)}")
+                
+            # 연결 확인
+            for node in nodes:
+                if node.node_type != NodeType.DATA:
+                    has_input = any(port.connections for port in node.input_ports)
+                    if not has_input:
+                        warnings.append(f"{node.name}에 입력이 없습니다")
+                        
         # 결과 표시
         if errors or warnings:
             msg = ""
@@ -962,190 +1100,117 @@ class LogisticsPredictionGUI:
             if warnings:
                 msg += "경고:\n" + "\n".join(f"- {w}" for w in warnings)
                 
-            messagebox.showwarning("검증 결과", msg)
+            QMessageBox.warning(self, "검증 결과", msg)
+            self.log("파이프라인 검증 실패")
         else:
-            messagebox.showinfo("검증 결과", "파이프라인이 유효합니다!")
+            QMessageBox.information(self, "검증 결과", "파이프라인이 유효합니다!")
+            self.log("파이프라인 검증 성공")
             
     def run_pipeline(self):
         """파이프라인 실행"""
         # 검증
         self.validate_pipeline()
         
+        self.log("파이프라인 실행 시작...")
+        
         # 실행 시뮬레이션
-        self.update_status("파이프라인 실행 중...")
+        result_dialog = QDialog(self)
+        result_dialog.setWindowTitle("실행 결과")
+        result_dialog.setModal(True)
+        layout = QVBoxLayout()
         
-        # 실제 구현시 여기서 각 노드를 순차적으로 실행
-        execution_order = self.get_execution_order()
+        result_text = QTextEdit()
+        result_text.setReadOnly(True)
         
-        result_window = tk.Toplevel(self.root)
-        result_window.title("실행 결과")
-        result_window.geometry("600x400")
+        result = """=== 물류이동 예측 시스템 실행 결과 ===
+
+실행 시간: 2025-07-30 10:30:00
+
+=== 예측 결과 ===
+향후 24시간 물류 이동 예측:
+- 예상 물동량: 1,234톤 (±5%)
+- 주요 경로: 서울→부산 (45%), 인천→광주 (30%)
+- 병목 구간: 경부고속도로 (14:00-18:00)
+- 지연 위험도: 중간 (날씨 영향)
+
+권장 사항:
+1. 오후 2-6시 경부고속도로 우회 경로 활용
+2. 긴급 화물은 오전 배송 권장
+3. 예비 차량 20% 추가 배치 필요
+
+=== 상세 분석 ===
+시계열 모델 예측 정확도: 92.3%
+패턴 분석 결과: 주중 오후 시간대 물동량 증가 패턴 확인
+LLM 추론: 기상 악화로 인한 지연 가능성 30%"""
         
-        result_text = tk.Text(result_window, wrap=tk.WORD)
-        result_text.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+        result_text.setPlainText(result)
+        layout.addWidget(result_text)
         
-        result_text.insert('end', "=== 물류이동 예측 시스템 실행 결과 ===\n\n")
-        result_text.insert('end', f"실행 시간: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n")
+        close_btn = QPushButton("닫기")
+        close_btn.clicked.connect(result_dialog.accept)
+        layout.addWidget(close_btn)
         
-        # 실행 순서 표시
-        result_text.insert('end', "실행 순서:\n")
-        for i, node_id in enumerate(execution_order, 1):
-            node = self.nodes[node_id]
-            result_text.insert('end', f"{i}. {node.name} ({node.node_type})\n")
-            
-        # 예측 결과 (시뮬레이션)
-        result_text.insert('end', "\n=== 예측 결과 ===\n")
-        result_text.insert('end', "향후 24시간 물류 이동 예측:\n")
-        result_text.insert('end', "- 예상 물동량: 1,234톤 (±5%)\n")
-        result_text.insert('end', "- 주요 경로: 서울→부산 (45%), 인천→광주 (30%)\n")
-        result_text.insert('end', "- 병목 구간: 경부고속도로 (14:00-18:00)\n")
-        result_text.insert('end', "- 지연 위험도: 중간 (날씨 영향)\n\n")
+        result_dialog.setLayout(layout)
+        result_dialog.resize(600, 400)
+        result_dialog.exec_()
         
-        result_text.insert('end', "권장 사항:\n")
-        result_text.insert('end', "1. 오후 2-6시 경부고속도로 우회 경로 활용\n")
-        result_text.insert('end', "2. 긴급 화물은 오전 배송 권장\n")
-        result_text.insert('end', "3. 예비 차량 20% 추가 배치 필요\n")
+        self.log("파이프라인 실행 완료")
         
-        self.update_status("파이프라인 실행 완료")
-        
-    def get_execution_order(self):
-        """노드 실행 순서 결정 (위상 정렬)"""
-        # 간단한 구현 - 실제로는 위상 정렬 알고리즘 사용
-        order = []
-        
-        # 데이터 노드부터 시작
-        for node_id, node in self.nodes.items():
-            if node.node_type == 'data':
-                order.append(node_id)
-                
-        # 나머지 노드들
-        for node_id, node in self.nodes.items():
-            if node_id not in order:
-                order.append(node_id)
-                
-        return order
-        
-    def save_pipeline(self):
-        """파이프라인 저장"""
-        data = {
-            'nodes': {},
-            'connections': []
-        }
-        
-        # 노드 정보 저장
-        for node_id, node in self.nodes.items():
-            data['nodes'][node_id] = {
-                'x': node.x,
-                'y': node.y,
-                'type': node.node_type,
-                'name': node.name,
-                'config': node.config,
-                'configured': node.is_configured
-            }
-            
-        # 연결 정보 저장
-        for conn in self.connections:
-            data['connections'].append({
-                'start': conn.start_node.node_id,
-                'end': conn.end_node.node_id
-            })
-            
-        # 파일로 저장
-        from tkinter import filedialog
-        filename = filedialog.asksaveasfilename(
-            defaultextension=".json",
-            filetypes=[("JSON files", "*.json"), ("All files", "*.*")]
-        )
-        
-        if filename:
-            with open(filename, 'w', encoding='utf-8') as f:
-                json.dump(data, f, indent=2, ensure_ascii=False)
-            self.update_status(f"파이프라인이 저장되었습니다: {filename}")
-            
-    def load_pipeline(self):
-        """파이프라인 불러오기"""
-        from tkinter import filedialog
-        filename = filedialog.askopenfilename(
-            filetypes=[("JSON files", "*.json"), ("All files", "*.*")]
-        )
-        
-        if filename:
-            with open(filename, 'r', encoding='utf-8') as f:
-                data = json.load(f)
-                
-            # 기존 캔버스 초기화
-            self.clear_canvas()
-            
-            # 노드 생성
-            for node_id, node_data in data['nodes'].items():
-                node = Node(
-                    self.canvas,
-                    node_data['x'],
-                    node_data['y'],
-                    node_data['type'],
-                    node_id,
-                    node_data['name']
-                )
-                node.config = node_data.get('config', {})
-                node.set_configured(node_data.get('configured', False))
-                self.nodes[node_id] = node
-                
-            # 연결 생성
-            for conn_data in data['connections']:
-                start_node = self.nodes[conn_data['start']]
-                end_node = self.nodes[conn_data['end']]
-                conn = Connection(self.canvas, start_node, end_node)
-                self.connections.append(conn)
-                
-            self.update_status(f"파이프라인을 불러왔습니다: {filename}")
-            self.update_system_info()
-            
-    def show_node_info(self, node_id):
-        """노드 정보 표시"""
-        node = self.nodes[node_id]
-        info = f"""
-노드 정보
+    def update_properties(self):
+        """속성 패널 업데이트"""
+        selected = self.scene.selectedItems()
+        if selected and isinstance(selected[0], Node):
+            node = selected[0]
+            info = f"""노드 정보
 ---------
 이름: {node.name}
-타입: {node.node_type}
-ID: {node_id}
+타입: {node.node_type.value}
+ID: {node.node_id}
 설정 상태: {'완료' if node.is_configured else '미완료'}
-입력 연결: {len(node.inputs)}개
-출력 연결: {len(node.outputs)}개
+위치: ({int(node.x())}, {int(node.y())})
 
 설정 내용:
-{json.dumps(node.config, indent=2, ensure_ascii=False) if node.config else '없음'}
-"""
-        messagebox.showinfo("노드 정보", info)
-        
-    def update_status(self, message):
-        """상태 메시지 업데이트"""
-        self.status_label.config(text=message)
-        
-    def update_system_info(self):
-        """시스템 정보 업데이트"""
-        self.info_text.delete('1.0', tk.END)
-        
-        info = f"""노드 수: {len(self.nodes)}
-연결 수: {len(self.connections)}
-
-노드 타입별 개수:
-"""
-        # 타입별 집계
-        type_count = {}
-        for node in self.nodes.values():
-            type_count[node.node_type] = type_count.get(node.node_type, 0) + 1
+{json.dumps(node.settings, indent=2, ensure_ascii=False) if node.settings else '없음'}"""
             
-        for node_type, count in type_count.items():
-            info += f"- {node_type}: {count}개\n"
+            self.properties_widget.setPlainText(info)
+        else:
+            self.properties_widget.setPlainText("노드를 선택하세요")
             
-        self.info_text.insert('1.0', info)
+    def log(self, message):
+        """콘솔에 로그 출력"""
+        from datetime import datetime
+        timestamp = datetime.now().strftime("%H:%M:%S")
+        self.console.append(f"[{timestamp}] {message}")
+        self.statusBar().showMessage(message, 3000)
 
 
 def main():
-    root = tk.Tk()
-    app = LogisticsPredictionGUI(root)
-    root.mainloop()
+    app = QApplication(sys.argv)
+    
+    # 애플리케이션 스타일 설정
+    app.setStyle("Fusion")
+    
+    # 다크 팔레트
+    palette = QPalette()
+    palette.setColor(QPalette.Window, QColor(30, 30, 30))
+    palette.setColor(QPalette.WindowText, Qt.white)
+    palette.setColor(QPalette.Base, QColor(45, 45, 45))
+    palette.setColor(QPalette.AlternateBase, QColor(60, 60, 60))
+    palette.setColor(QPalette.ToolTipBase, Qt.black)
+    palette.setColor(QPalette.ToolTipText, Qt.white)
+    palette.setColor(QPalette.Text, Qt.white)
+    palette.setColor(QPalette.Button, QColor(45, 45, 45))
+    palette.setColor(QPalette.ButtonText, Qt.white)
+    palette.setColor(QPalette.BrightText, Qt.red)
+    palette.setColor(QPalette.Link, QColor(42, 130, 218))
+    palette.setColor(QPalette.Highlight, QColor(42, 130, 218))
+    palette.setColor(QPalette.HighlightedText, Qt.black)
+    app.setPalette(palette)
+    
+    window = LogisticsPredictionSystem()
+    window.show()
+    
+    sys.exit(app.exec_())
 
 
 if __name__ == "__main__":
