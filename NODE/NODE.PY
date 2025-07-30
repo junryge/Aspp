@@ -1,3 +1,31 @@
+"""수정
+	class Connection(QGraphicsPathItem):
+    """노드 간 연결선"""
+    def __init__(self, start_port=None, end_port=None):
+        super().__init__()
+        self.start_port = start_port
+        self.end_port = end_port
+        
+        # 연결선 스타일
+        pen = QPen(QColor("#3498db"), 3)
+        pen.setCapStyle(Qt.RoundCap)
+        self.setPen(pen)
+        self.setZValue(-1)
+        
+        # 선택 가능하도록 설정
+        self.setFlag(QGraphicsItem.ItemIsSelectable, True)
+        self.setAcceptHoverEvents(True)
+        
+        # 화살표
+        self.arrow = QGraphicsPolygonItem()
+        self.arrow.setBrush(QBrush(QColor("#3498db")))
+        self.arrow.setPen(QPen(Qt.NoPen))
+        
+        if start_port and end_port:
+            self.update_path()"""
+
+
+
 import sys
 import json
 from typing import Dict, List, Optional, Tuple
