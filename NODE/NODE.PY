@@ -43,7 +43,7 @@ class Node:
             self.x + self.width + shadow_offset, self.y + self.height + shadow_offset,
             fill='#1a1a2e',
             outline='',
-            tags=f"node_{self.node_id}"
+            tags=(f"node_{self.node_id}", "shadow")
         )
         
         # 노드 배경
@@ -53,7 +53,7 @@ class Node:
             fill=self.colors.get(self.node_type, '#7f8c8d'),
             outline='white',
             width=2,
-            tags=f"node_{self.node_id}"
+            tags=(f"node_{self.node_id}", "rect", "draggable")
         )
         
         # 노드 이름
@@ -62,7 +62,7 @@ class Node:
             text=self.name,
             fill='white',
             font=('Arial', 11, 'bold'),
-            tags=f"node_{self.node_id}"
+            tags=(f"node_{self.node_id}", "text", "draggable")
         )
         
         # 노드 타입
@@ -71,7 +71,7 @@ class Node:
             text=f"[{self.node_type}]",
             fill='#ecf0f1',
             font=('Arial', 9),
-            tags=f"node_{self.node_id}"
+            tags=(f"node_{self.node_id}", "type_text", "draggable")
         )
         
         # 상태 표시
@@ -80,7 +80,7 @@ class Node:
             self.x + self.width - 10, self.y + 20,
             fill='red' if not self.is_configured else 'green',
             outline='white',
-            tags=f"node_{self.node_id}"
+            tags=(f"node_{self.node_id}", "status", "draggable")
         )
         
         # 입력/출력 포트
@@ -89,7 +89,7 @@ class Node:
             self.x, self.y + self.height/2 + 5,
             fill='yellow',
             outline='white',
-            tags=f"port_in_{self.node_id}"
+            tags=(f"port_in_{self.node_id}", "input_port")
         )
         
         self.output_port = self.canvas.create_rectangle(
@@ -97,11 +97,11 @@ class Node:
             self.x + self.width + 10, self.y + self.height/2 + 5,
             fill='cyan',
             outline='white',
-            tags=f"port_out_{self.node_id}"
+            tags=(f"port_out_{self.node_id}", "output_port")
         )
         
-        # 마우스 이벤트 바인딩 - 커서 변경
-        for item in [self.shadow, self.rect, self.text, self.type_text, self.status]:
+        # 마우스 이벤트 바인딩
+        for item in [self.rect, self.text, self.type_text, self.status]:
             self.canvas.tag_bind(item, "<Enter>", lambda e: self.canvas.config(cursor="hand2"))
             self.canvas.tag_bind(item, "<Leave>", lambda e: self.canvas.config(cursor=""))
             
@@ -117,10 +117,9 @@ class Node:
         self.y += dy
         
         # 모든 노드 구성요소 이동
-        for tag in [f"node_{self.node_id}", f"port_in_{self.node_id}", f"port_out_{self.node_id}"]:
-            items = self.canvas.find_withtag(tag)
-            for item in items:
-                self.canvas.move(item, dx, dy)
+        self.canvas.move(f"node_{self.node_id}", dx, dy)
+        self.canvas.move(f"port_in_{self.node_id}", dx, dy)
+        self.canvas.move(f"port_out_{self.node_id}", dx, dy)
         
     def get_output_pos(self):
         """출력 포트 위치 반환"""
@@ -196,7 +195,7 @@ class LogisticsPredictionGUI:
         self.connections = []
         self.node_counter = 0
         self.selected_node = None
-        self.drag_data = {"x": 0, "y": 0}
+        self.drag_data = {"x": 0, "y": 0, "item": None}
         self.connecting = False
         self.connection_start = None
         
@@ -416,71 +415,50 @@ class LogisticsPredictionGUI:
         
     def on_canvas_click(self, event):
         """캔버스 클릭 이벤트"""
-        # 클릭한 위치의 모든 아이템 가져오기
-        clicked_items = self.canvas.find_overlapping(event.x-2, event.y-2, event.x+2, event.y+2)
+        # 클릭한 위치의 아이템 찾기
+        clicked_item = self.canvas.find_closest(event.x, event.y)[0]
+        tags = self.canvas.gettags(clicked_item)
         
-        # 노드를 찾기 위해 태그 확인
-        node_found = False
-        for item in clicked_items:
-            tags = self.canvas.gettags(item)
-            
-            for tag in tags:
-                # 노드 클릭 - 드래그 시작
-                if tag.startswith("node_") and not tag.startswith("node_text"):
-                    node_id = tag
-                    self.selected_node = node_id
-                    self.drag_data["x"] = event.x
-                    self.drag_data["y"] = event.y
-                    self.drag_data["dragging"] = True
-                    
-                    # 선택된 노드 하이라이트
-                    node = self.nodes[node_id]
-                    self.canvas.itemconfig(node.rect, width=3)
-                    
-                    # 드래그 시작시 노드 투명도 조정
-                    current_color = self.canvas.itemcget(node.rect, "fill")
-                    self.drag_data["original_color"] = current_color
-                    # 색상에 투명도 효과를 주기 위해 더 밝게
-                    lighter_color = self.lighten_color(current_color)
-                    self.canvas.itemconfig(node.rect, fill=lighter_color)
-                    
-                    # 캔버스에서 노드를 맨 위로 올림
-                    self.canvas.tag_raise(f"node_{node_id}")
-                    self.canvas.tag_raise(f"port_in_{node_id}")
-                    self.canvas.tag_raise(f"port_out_{node_id}")
-                    
-                    # 마우스 커서 변경
-                    self.canvas.config(cursor="fleur")
-                    
-                    node_found = True
-                    self.show_node_properties(node_id)
-                    break
-                    
-                # 출력 포트 클릭 - 연결 시작
-                elif tag.startswith("port_out_"):
-                    node_id = tag.replace("port_out_", "")
-                    self.start_connection(node_id)
-                    node_found = True
-                    break
-                    
-                # 입력 포트 클릭 - 연결 완료
-                elif tag.startswith("port_in_"):
-                    if self.connecting:
-                        node_id = tag.replace("port_in_", "")
-                        self.end_connection(node_id)
-                    node_found = True
-                    break
-                    
-            if node_found:
+        # 노드 찾기
+        node_id = None
+        for tag in tags:
+            if tag.startswith("node_") and not any(t in tags for t in ["port_in_", "port_out_"]):
+                node_id = tag
                 break
-                
-        # 빈 공간 클릭시 선택 해제
-        if not node_found and not self.connecting:
+            elif tag.startswith("port_out_"):
+                # 출력 포트 클릭 - 연결 시작
+                node_id = tag.replace("port_out_", "")
+                self.start_connection(node_id)
+                return
+            elif tag.startswith("port_in_"):
+                # 입력 포트 클릭 - 연결 완료
+                if self.connecting:
+                    node_id = tag.replace("port_in_", "")
+                    self.end_connection(node_id)
+                return
+        
+        # draggable 태그가 있는 경우에만 드래그 시작
+        if node_id and "draggable" in tags:
+            self.selected_node = node_id
+            self.drag_data["x"] = event.x
+            self.drag_data["y"] = event.y
+            self.drag_data["item"] = clicked_item
+            
+            # 선택된 노드 하이라이트
+            node = self.nodes[node_id]
+            self.canvas.itemconfig(node.rect, width=3)
+            
+            # 노드를 맨 위로
+            self.canvas.tag_raise(node_id)
+            
+            self.show_node_properties(node_id)
+        elif not node_id and not self.connecting:
+            # 빈 공간 클릭시 선택 해제
             self.deselect_all_nodes()
                 
     def on_canvas_drag(self, event):
         """캔버스 드래그 이벤트"""
-        if self.selected_node and self.drag_data.get("dragging", False) and not self.connecting:
+        if self.selected_node and not self.connecting:
             # 이동 거리 계산
             dx = event.x - self.drag_data["x"]
             dy = event.y - self.drag_data["y"]
@@ -489,78 +467,40 @@ class LogisticsPredictionGUI:
             node = self.nodes[self.selected_node]
             node.move(dx, dy)
             
-            # 연결선 실시간 업데이트
+            # 연결선 업데이트
             for conn in self.connections:
                 if conn.start_node.node_id == self.selected_node or conn.end_node.node_id == self.selected_node:
                     conn.update()
-                    
+            
             # 현재 위치 업데이트
             self.drag_data["x"] = event.x
             self.drag_data["y"] = event.y
             
-            # 상태 표시
             self.update_status(f"노드 이동 중: {node.name} ({int(node.x)}, {int(node.y)})")
             
     def on_canvas_release(self, event):
         """캔버스 릴리즈 이벤트"""
-        if self.drag_data.get("dragging", False):
-            self.drag_data["dragging"] = False
-            if self.selected_node:
-                node = self.nodes[self.selected_node]
-                
-                # 그리드에 스냅
-                grid_size = 20
-                node.x = round(node.x / grid_size) * grid_size
-                node.y = round(node.y / grid_size) * grid_size
-                
-                # 최종 위치로 이동
-                self.canvas.coords(node.shadow, 
-                                 node.x + 3, node.y + 3,
-                                 node.x + node.width + 3, node.y + node.height + 3)
-                self.canvas.coords(node.rect, 
-                                 node.x, node.y,
-                                 node.x + node.width, node.y + node.height)
-                self.canvas.coords(node.text,
-                                 node.x + node.width/2, node.y + 20)
-                self.canvas.coords(node.type_text,
-                                 node.x + node.width/2, node.y + 40)
-                self.canvas.coords(node.status,
-                                 node.x + node.width - 20, node.y + 10,
-                                 node.x + node.width - 10, node.y + 20)
-                self.canvas.coords(node.input_port,
-                                 node.x - 10, node.y + node.height/2 - 5,
-                                 node.x, node.y + node.height/2 + 5)
-                self.canvas.coords(node.output_port,
-                                 node.x + node.width, node.y + node.height/2 - 5,
-                                 node.x + node.width + 10, node.y + node.height/2 + 5)
-                
-                # 원래 색상으로 복원
-                if "original_color" in self.drag_data:
-                    self.canvas.itemconfig(node.rect, fill=self.drag_data["original_color"])
+        if self.selected_node and not self.connecting:
+            node = self.nodes[self.selected_node]
+            
+            # 그리드에 스냅
+            grid_size = 20
+            snap_x = round(node.x / grid_size) * grid_size
+            snap_y = round(node.y / grid_size) * grid_size
+            
+            # 스냅 위치로 이동
+            dx = snap_x - node.x
+            dy = snap_y - node.y
+            
+            if dx != 0 or dy != 0:
+                node.move(dx, dy)
                 
                 # 연결선 최종 업데이트
                 for conn in self.connections:
                     if conn.start_node.node_id == self.selected_node or conn.end_node.node_id == self.selected_node:
                         conn.update()
-                
-                # 커서 복원
-                self.canvas.config(cursor="")
-                
-                self.update_status(f"{node.name} 이동 완료")
-                
-    def lighten_color(self, color):
-        """색상을 밝게 만들기"""
-        # 간단한 구현 - 실제로는 더 정교한 색상 변환 필요
-        color_map = {
-            '#3498db': '#5faee3',  # 파란색
-            '#e74c3c': '#ec7063',  # 빨간색
-            '#f39c12': '#f5b041',  # 주황색
-            '#27ae60': '#52be80',  # 초록색
-            '#9b59b6': '#af7ac5',  # 보라색
-            '#34495e': '#5d6d7e',  # 회색
-            '#16a085': '#48c9b0'   # 청록색
-        }
-        return color_map.get(color, color)
+            
+            self.update_status(f"{node.name} 이동 완료")
                 
     def deselect_all_nodes(self):
         """모든 노드 선택 해제"""
@@ -597,11 +537,6 @@ class LogisticsPredictionGUI:
                         command=lambda: self.show_node_info(node_id))
         
         menu.post(event.x_root, event.y_root)
-        
-    def select_node(self, node_id):
-        """노드 선택"""
-        self.selected_node = node_id
-        self.show_node_properties(node_id)
         
     def show_node_properties(self, node_id):
         """노드 속성 표시"""
@@ -970,24 +905,17 @@ class LogisticsPredictionGUI:
             # 노드 객체 제거
             del self.nodes[node_id]
             
-            # 선택 상태 초기화
-            if self.selected_node == node_id:
-                self.selected_node = None
-                self.deselect_all_nodes()
-            
             self.update_status(f"노드가 삭제되었습니다")
             self.update_system_info()
             
     def clear_canvas(self):
         """캔버스 초기화"""
         if messagebox.askyesno("확인", "모든 노드를 삭제하시겠습니까?"):
-            # 노드와 연결선만 삭제 (그리드는 유지)
-            for node_id in list(self.nodes.keys()):
-                self.canvas.delete(f"node_{node_id}")
-                self.canvas.delete(f"port_in_{node_id}")
-                self.canvas.delete(f"port_out_{node_id}")
+            # 모든 노드와 연결선 삭제
+            self.canvas.delete("all")
             
-            self.canvas.delete("connection")
+            # 그리드 다시 그리기
+            self.draw_grid()
             
             self.nodes.clear()
             self.connections.clear()
@@ -1147,9 +1075,6 @@ class LogisticsPredictionGUI:
                 
             # 기존 캔버스 초기화
             self.clear_canvas()
-            
-            # 그리드 다시 그리기
-            self.draw_grid()
             
             # 노드 생성
             for node_id, node_data in data['nodes'].items():
