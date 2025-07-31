@@ -216,7 +216,10 @@ class Connection(QGraphicsPathItem):
             path.lineTo(end.x() - offset, mid_y)
             path.lineTo(end.x() - offset, end.y())
             path.lineTo(end)
-     
+        
+        return path(end.x() - offset, start.y() + detour_y)
+            path.lineTo(end.x() - offset, end.y())
+            path.lineTo(end)
         
         return path
         
@@ -373,159 +376,24 @@ class Node(QGraphicsRectItem):
                     
         return super().itemChange(change, value)
         
+    def mousePressEvent(self, event):
+        """마우스 클릭 시 포커스 설정"""
+        # 뷰에 포커스 설정하여 키보드 입력을 받을 수 있도록 함
+        if self.scene() and self.scene().views():
+            self.scene().views()[0].setFocus()
+        super().mousePressEvent(event)
+        
     def mouseDoubleClickEvent(self, event):
         """더블클릭 시 설정 창 열기"""
-        if hasattr(self.scene(), 'main_window') and self.scene().main_window:
-            self.scene().main_window.configure_node(self)
+        if hasattr(self.scene(), 'parent'):
+            self.scene().parent().configure_node(self)
         super().mouseDoubleClickEvent(event)
-        
-    def contextMenuEvent(self, event):
-        """마우스 오른쪽 클릭 컨텍스트 메뉴"""
-        menu = QMenu()
-        
-        # 모든 노드에 공통으로 적용되는 메뉴
-        configure_action = QAction("⚙️ 노드 설정", None)
-        configure_action.triggered.connect(lambda: self.scene().main_window.configure_node(self) if hasattr(self.scene(), 'main_window') and self.scene().main_window else None)
-        menu.addAction(configure_action)
-        
-        # 프롬프트 노드 전용 메뉴
-        if self.node_type == NodeType.PROMPT:
-            if self.is_configured and 'template' in self.settings:
-                preview_action = QAction("👁️ 프롬프트 미리보기", None)
-                preview_action.triggered.connect(lambda: self.show_prompt_preview())
-                menu.addAction(preview_action)
-                
-                menu.addSeparator()
-                
-                # 프롬프트 복사
-                copy_prompt_action = QAction("📋 프롬프트 복사", None)
-                copy_prompt_action.triggered.connect(lambda: self.copy_prompt_to_clipboard())
-                menu.addAction(copy_prompt_action)
-        
-        # 데이터 노드 전용 메뉴
-        elif self.node_type == NodeType.DATA:
-            if self.is_configured and 'path' in self.settings:
-                open_file_action = QAction("📁 파일 위치 열기", None)
-                open_file_action.triggered.connect(lambda: self.open_file_location())
-                menu.addAction(open_file_action)
-        
-        # 모델 노드 전용 메뉴
-        elif self.node_type == NodeType.MODEL:
-            if self.is_configured:
-                show_params_action = QAction("📊 모델 파라미터 보기", None)
-                show_params_action.triggered.connect(lambda: self.show_model_params())
-                menu.addAction(show_params_action)
-        
-        menu.addSeparator()
-        
-        # 노드 복제
-        duplicate_action = QAction("📑 노드 복제", None)
-        duplicate_action.triggered.connect(lambda: self.duplicate_node())
-        menu.addAction(duplicate_action)
-        
-        # 노드 삭제
-        delete_action = QAction("🗑️ 노드 삭제", None)
-        delete_action.triggered.connect(lambda: self.delete_self())
-        menu.addAction(delete_action)
-        
-        # 메뉴 표시
-        menu.exec_(event.screenPos())
-            
-    def show_prompt_preview(self):
-        """프롬프트 미리보기"""
-        if 'template' in self.settings:
-            dialog = QDialog()
-            dialog.setWindowTitle("프롬프트 템플릿 미리보기")
-            dialog.setModal(True)
-            layout = QVBoxLayout()
-            
-            # 프롬프트 내용
-            text_edit = QTextEdit()
-            text_edit.setPlainText(self.settings['template'])
-            text_edit.setReadOnly(True)
-            text_edit.setMinimumSize(500, 300)
-            layout.addWidget(text_edit)
-            
-            # 포함된 컨텍스트 표시
-            contexts = []
-            for i in range(4):  # 최대 4개의 컨텍스트
-                key = f'context_{i}'
-                if key in self.settings and self.settings[key]:
-                    contexts.append(['날씨 정보', '교통 상황', '과거 지연 이력', '특별 이벤트'][i])
-            
-            if contexts:
-                context_label = QLabel(f"포함된 컨텍스트: {', '.join(contexts)}")
-                layout.addWidget(context_label)
-            
-            # 닫기 버튼
-            close_btn = QPushButton("닫기")
-            close_btn.clicked.connect(dialog.accept)
-            layout.addWidget(close_btn)
-            
-            dialog.setLayout(layout)
-            dialog.exec_()
-            
-    def copy_prompt_to_clipboard(self):
-        """프롬프트를 클립보드에 복사"""
-        if 'template' in self.settings:
-            clipboard = QApplication.clipboard()
-            clipboard.setText(self.settings['template'])
-            
-            # 복사 완료 메시지
-            if hasattr(self.scene(), 'main_window') and self.scene().main_window:
-                self.scene().main_window.log("프롬프트가 클립보드에 복사되었습니다")
-                
-    def open_file_location(self):
-        """파일 위치 열기"""
-        if 'path' in self.settings:
-            import os
-            path = self.settings['path']
-            if os.path.exists(path):
-                if os.path.isfile(path):
-                    os.startfile(os.path.dirname(path))
-                else:
-                    os.startfile(path)
-                    
-    def show_model_params(self):
-        """모델 파라미터 표시"""
-        params = []
-        for key, value in self.settings.items():
-            params.append(f"{key}: {value}")
-            
-        msg = QMessageBox()
-        msg.setWindowTitle(f"{self.name} 파라미터")
-        msg.setText("현재 설정된 모델 파라미터:")
-        msg.setDetailedText('\n'.join(params))
-        msg.setIcon(QMessageBox.Information)
-        msg.exec_()
-        
-    def duplicate_node(self):
-        """노드 복제"""
-        if hasattr(self.scene(), 'main_window') and self.scene().main_window:
-            # 새 노드 생성
-            new_node = Node(self.node_type, self.name, self.x() + 50, self.y() + 50)
-            new_node.settings = self.settings.copy()
-            new_node.is_configured = self.is_configured
-            new_node.update_status()
-            
-            self.scene().addItem(new_node)
-            self.scene().main_window.log(f"{self.name} 노드가 복제되었습니다")
-            
-    def delete_self(self):
-        """자신을 삭제"""
-        if hasattr(self.scene(), 'main_window') and self.scene().main_window:
-            reply = QMessageBox.question(None, "확인", 
-                                       f"{self.name} 노드를 삭제하시겠습니까?",
-                                       QMessageBox.Yes | QMessageBox.No)
-            if reply == QMessageBox.Yes:
-                self.scene().main_window.view.delete_node(self)
 
 
 class NodeScene(QGraphicsScene):
     """노드 에디터 씬"""
-    def __init__(self, parent=None):
-        super().__init__(parent)
-        self.main_window = parent  # 메인 윈도우 참조 저장
+    def __init__(self):
+        super().__init__()
         self.setSceneRect(-2000, -2000, 4000, 4000)
         
         # 배경 색상
@@ -685,6 +553,9 @@ class NodeView(QGraphicsView):
         self.setViewportUpdateMode(QGraphicsView.FullViewportUpdate)
         self.setDragMode(QGraphicsView.RubberBandDrag)
         
+        # 포커스 정책 설정 (클릭하면 포커스 받음)
+        self.setFocusPolicy(Qt.ClickFocus)
+        
         # 줌 관련
         self.zoom_factor = 1.15
         self.zoom_level = 0
@@ -714,7 +585,45 @@ class NodeView(QGraphicsView):
             # 전체 보기
             self.fitInView(self.scene().itemsBoundingRect(), Qt.KeepAspectRatio)
             self.zoom_level = 0
+        # 방향키로 노드 이동
+        elif event.key() in [Qt.Key_Left, Qt.Key_Right, Qt.Key_Up, Qt.Key_Down]:
+            grid_size = self.scene().grid_size  # 그리드 크기에 맞춰 이동
+            move_distance = grid_size
             
+            if event.modifiers() & Qt.ShiftModifier:
+                move_distance = grid_size * 5  # Shift: 빠르게 이동
+            elif event.modifiers() & Qt.ControlModifier:
+                move_distance = 1   # Ctrl: 미세 조정 (그리드 무시)
+                
+            dx, dy = 0, 0
+            if event.key() == Qt.Key_Left:
+                dx = -move_distance
+            elif event.key() == Qt.Key_Right:
+                dx = move_distance
+            elif event.key() == Qt.Key_Up:
+                dy = -move_distance
+            elif event.key() == Qt.Key_Down:
+                dy = move_distance
+                
+            # 선택된 노드들 이동
+            moved = False
+            for item in self.scene().selectedItems():
+                if isinstance(item, Node):
+                    new_x = item.x() + dx
+                    new_y = item.y() + dy
+                    
+                    # Ctrl이 아닌 경우 그리드에 스냅
+                    if not (event.modifiers() & Qt.ControlModifier):
+                        new_x = round(new_x / grid_size) * grid_size
+                        new_y = round(new_y / grid_size) * grid_size
+                        
+                    item.setPos(new_x, new_y)
+                    moved = True
+                    
+            # 노드가 이동했으면 속성 패널 업데이트
+            if moved and hasattr(self.scene(), 'parent'):
+                self.scene().parent().update_properties()
+                    
         super().keyPressEvent(event)
         
     def delete_node(self, node):
@@ -779,8 +688,9 @@ class LogisticsPredictionSystem(QMainWindow):
             }
         """)
         
-        # 씬과 뷰 생성 - parent로 self 전달
-        self.scene = NodeScene(self)
+        # 씬과 뷰 생성
+        self.scene = NodeScene()
+        self.scene.parent = self  # 씬에서 메인 윈도우 접근 가능하도록 설정
         self.view = NodeView(self.scene)
         self.setCentralWidget(self.view)
         
@@ -803,6 +713,11 @@ class LogisticsPredictionSystem(QMainWindow):
         
         # 상태바
         self.statusBar().showMessage("준비됨")
+        
+        # 초기 안내 메시지
+        self.log("물류이동 예측 시스템이 시작되었습니다")
+        self.log("팁: 노드를 선택하고 방향키로 이동 (Shift: 빠르게, Ctrl: 미세조정)")
+        self.log("팁: Delete키로 삭제, Space키로 전체보기")
         
     def create_menu_bar(self):
         """메뉴바 생성"""
@@ -982,100 +897,55 @@ class LogisticsPredictionSystem(QMainWindow):
         
     def add_node(self, node_type: NodeType, name: str):
         """노드 추가"""
-        self.log(f"노드 추가 요청: {name} (타입: {node_type.value})")
-        
         # 뷰 중앙에 노드 생성
         view_center = self.view.mapToScene(self.view.rect().center())
         
-        node = Node(node_type, name, view_center.x() - 100, view_center.y() - 50)
+        # 그리드에 스냅
+        grid_size = self.scene.grid_size
+        x = round((view_center.x() - 100) / grid_size) * grid_size
+        y = round((view_center.y() - 50) / grid_size) * grid_size
+        
+        node = Node(node_type, name, x, y)
         self.scene.addItem(node)
         
-        self.log(f"{name} 노드가 추가되었습니다 (ID: {node.node_id})")
+        # 새로 추가된 노드 자동 선택
+        self.scene.clearSelection()
+        node.setSelected(True)
+        self.view.setFocus()  # 바로 키보드로 이동 가능하도록 포커스 설정
         
-        # 프롬프트 노드인 경우 바로 설정 창 열기
-        if node_type == NodeType.PROMPT:
-            self.log("프롬프트 노드 추가됨 - 설정 창을 여시려면 노드를 더블클릭하거나 오른쪽 클릭하세요")
-            QMessageBox.information(self, "프롬프트 노드", 
-                "프롬프트 노드가 추가되었습니다.\n\n"
-                "설정 방법:\n"
-                "1. 노드를 더블클릭하거나\n"
-                "2. 마우스 오른쪽 클릭 → '⚙️ 노드 설정' 선택\n\n"
-                "프롬프트 템플릿을 작성할 수 있습니다.")
+        self.log(f"{name} 노드가 추가되었습니다")
         
     def configure_node(self, node):
         """노드 설정 대화상자"""
-        self.log(f"노드 설정 시작: {node.name} ({node.node_type.value})")
-        
         dialog = QDialog(self)
         dialog.setWindowTitle(f"{node.name} 설정")
         dialog.setModal(True)
-        dialog.setMinimumWidth(600)  # 최소 너비 설정
-        dialog.setMinimumHeight(500)  # 최소 높이 설정
-        
-        # 다이얼로그 스타일 설정
-        dialog.setStyleSheet("""
-            QDialog {
-                background-color: #2d2d2d;
-                color: #ffffff;
-            }
-            QLabel {
-                color: #ffffff;
-            }
-            QGroupBox {
-                color: #ffffff;
-                border: 1px solid #555555;
-                border-radius: 5px;
-                margin-top: 10px;
-                padding-top: 10px;
-            }
-            QGroupBox::title {
-                subcontrol-origin: margin;
-                left: 10px;
-                padding: 0 5px 0 5px;
-            }
-        """)
-        
-        # 스크롤 가능한 영역 생성
-        scroll = QScrollArea()
-        scroll.setWidgetResizable(True)
-        scroll_widget = QWidget()
-        scroll_layout = QVBoxLayout()
+        layout = QVBoxLayout()
         
         # 노드 타입별 설정 UI
         if node.node_type == NodeType.DATA:
-            self.create_data_config(scroll_layout, node)
+            self.create_data_config(layout, node)
         elif node.node_type == NodeType.PREPROCESS:
-            self.create_preprocess_config(scroll_layout, node)
+            self.create_preprocess_config(layout, node)
         elif node.node_type == NodeType.MODEL:
-            self.create_model_config(scroll_layout, node)
+            self.create_model_config(layout, node)
         elif node.node_type == NodeType.VECTOR:
-            self.create_vector_config(scroll_layout, node)
+            self.create_vector_config(layout, node)
         elif node.node_type == NodeType.ANALYSIS:
-            self.create_analysis_config(scroll_layout, node)
+            self.create_analysis_config(layout, node)
         elif node.node_type == NodeType.PROMPT:
-            self.log("프롬프트 설정 UI 생성 중...")
-            self.create_prompt_config(scroll_layout, node)
+            self.create_prompt_config(layout, node)
         elif node.node_type == NodeType.LLM:
-            self.create_llm_config(scroll_layout, node)
+            self.create_llm_config(layout, node)
             
-        scroll_widget.setLayout(scroll_layout)
-        scroll.setWidget(scroll_widget)
-        
-        # 메인 레이아웃
-        main_layout = QVBoxLayout()
-        main_layout.addWidget(scroll, 1)
-        
         # 버튼
         buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
         buttons.accepted.connect(lambda: self.save_node_config(dialog, node))
         buttons.rejected.connect(dialog.reject)
-        main_layout.addWidget(buttons)
+        layout.addWidget(buttons)
         
-        dialog.setLayout(main_layout)
-        
-        self.log(f"대화상자 표시 중...")
-        result = dialog.exec_()
-        self.log(f"대화상자 결과: {'확인' if result else '취소'}")
+        dialog.setLayout(layout)
+        dialog.exec_()
         
     def create_data_config(self, layout, node):
         """데이터 노드 설정 UI"""
@@ -1238,25 +1108,11 @@ class LogisticsPredictionSystem(QMainWindow):
             
     def create_prompt_config(self, layout, node):
         """프롬프트 노드 설정 UI"""
-        # 제목
-        title_label = QLabel("<h3>프롬프트 생성 설정</h3>")
-        layout.addWidget(title_label)
+        layout.addWidget(QLabel("프롬프트 생성 설정"))
         
-        # 구분선
-        line = QFrame()
-        line.setFrameShape(QFrame.HLine)
-        line.setFrameShadow(QFrame.Sunken)
-        layout.addWidget(line)
-        
-        # 프롬프트 템플릿 섹션
-        template_label = QLabel("<b>프롬프트 템플릿:</b>")
-        layout.addWidget(template_label)
-        
-        # 텍스트 편집기
+        layout.addWidget(QLabel("프롬프트 템플릿:"))
         template_text = QTextEdit()
         template_text.setObjectName("template")
-        
-        # 기본 템플릿
         default_template = """다음 물류 데이터를 분석하여 예측해주세요:
 - 현재 상황: {current_status}
 - 과거 패턴: {past_patterns}
@@ -1265,69 +1121,17 @@ class LogisticsPredictionSystem(QMainWindow):
 
 24시간 이내의 물류 이동을 예측하고,
 주의해야 할 리스크를 분석해주세요."""
-        
-        # 기존 설정이 있으면 불러오기, 없으면 기본 템플릿 사용
-        if 'template' in node.settings:
-            template_text.setPlainText(node.settings['template'])
-        else:
-            template_text.setPlainText(default_template)
-        
-        # 텍스트 편집기 스타일 설정
-        template_text.setStyleSheet("""
-            QTextEdit {
-                background-color: #3c3c3c;
-                color: #ffffff;
-                border: 2px solid #555555;
-                border-radius: 5px;
-                padding: 10px;
-                font-family: Consolas, 'Courier New', monospace;
-                font-size: 12px;
-            }
-        """)
-        template_text.setMinimumHeight(250)
-        template_text.setMaximumHeight(400)
-        
+        template_text.setPlainText(default_template)
+        template_text.setMaximumHeight(150)
         layout.addWidget(template_text)
         
-        # 변수 설명 그룹박스
-        variables_group = QGroupBox("사용 가능한 변수")
-        variables_layout = QVBoxLayout()
-        
-        variables_info = [
-            ("{current_status}", "현재 물류 상황"),
-            ("{past_patterns}", "과거 패턴 분석 결과"),
-            ("{time_series_prediction}", "시계열 예측 결과"),
-            ("{anomalies}", "이상 징후")
-        ]
-        
-        for var, desc in variables_info:
-            var_label = QLabel(f"<code style='background-color: #555555; padding: 2px;'>{var}</code> - {desc}")
-            variables_layout.addWidget(var_label)
-        
-        variables_group.setLayout(variables_layout)
-        layout.addWidget(variables_group)
-        
-        # 컨텍스트 섹션
-        layout.addSpacing(10)
-        context_label = QLabel("<b>포함할 컨텍스트:</b>")
-        layout.addWidget(context_label)
-        
+        layout.addWidget(QLabel("포함할 컨텍스트:"))
         contexts = ["날씨 정보", "교통 상황", "과거 지연 이력", "특별 이벤트"]
         for i, context in enumerate(contexts):
             check = QCheckBox(context)
-            # 기존 설정이 있으면 불러오기
-            if f'context_{i}' in node.settings:
-                check.setChecked(node.settings[f'context_{i}'])
-            else:
-                check.setChecked(True)
+            check.setChecked(True)
             check.setObjectName(f"context_{i}")
-            check.setStyleSheet("QCheckBox { color: #ffffff; }")
             layout.addWidget(check)
-        
-        # 테스트 버튼 추가
-        test_btn = QPushButton("템플릿 테스트")
-        test_btn.clicked.connect(lambda: self.test_prompt_template(template_text.toPlainText()))
-        layout.addWidget(test_btn)
             
     def create_llm_config(self, layout, node):
         """LLM 노드 설정 UI"""
@@ -1365,23 +1169,6 @@ class LogisticsPredictionSystem(QMainWindow):
         format_combo.addItems(["구조화된 JSON", "자연어 설명", "대시보드 데이터", "리포트"])
         format_combo.setObjectName("output_format")
         layout.addWidget(format_combo)
-        
-    def test_prompt_template(self, template):
-        """프롬프트 템플릿 테스트"""
-        # 테스트용 샘플 데이터로 변수 채우기
-        test_prompt = template
-        test_prompt = test_prompt.replace("{current_status}", "정상 운영 중 (테스트)")
-        test_prompt = test_prompt.replace("{past_patterns}", "['주중 오후 피크', '금요일 증가'] (테스트)")
-        test_prompt = test_prompt.replace("{time_series_prediction}", "{'24h': 1234톤} (테스트)")
-        test_prompt = test_prompt.replace("{anomalies}", "['7/15 비정상 증가'] (테스트)")
-        
-        # 결과 표시
-        msg = QMessageBox()
-        msg.setWindowTitle("프롬프트 템플릿 테스트")
-        msg.setText("변수가 채워진 프롬프트 미리보기:")
-        msg.setDetailedText(test_prompt)
-        msg.setIcon(QMessageBox.Information)
-        msg.exec_()
         
     def save_node_config(self, dialog, node):
         """노드 설정 저장"""
@@ -1573,157 +1360,21 @@ class LogisticsPredictionSystem(QMainWindow):
         """파이프라인 실행"""
         # 검증
         self.validate_pipeline()
-
+        
         self.log("파이프라인 실행 시작...")
         
-        # 노드 실행 순서 결정
-        execution_order = self.determine_execution_order()
+        # 실행 시뮬레이션
+        result_dialog = QDialog(self)
+        result_dialog.setWindowTitle("실행 결과")
+        result_dialog.setModal(True)
+        layout = QVBoxLayout()
         
-        # 실행 결과 저장
-        node_outputs = {}
+        result_text = QTextEdit()
+        result_text.setReadOnly(True)
         
-        # 순차적으로 노드 실행
-        for node in execution_order:
-            self.log(f"실행 중: {node.name}")
-            
-            # 입력 데이터 수집
-            input_data = {}
-            for port in node.input_ports:
-                for connection in port.connections:
-                    source_node = connection.start_port.parentItem()
-                    if source_node in node_outputs:
-                        input_data[source_node.node_type.value] = node_outputs[source_node]
-            
-            # 노드 실행
-            output = self.execute_node(node, input_data)
-            node_outputs[node] = output
-        
-        # 최종 결과 표시
-        self.show_execution_results(node_outputs)
-        
-    def determine_execution_order(self):
-        """노드 실행 순서 결정 (위상 정렬)"""
-        nodes = [item for item in self.scene.items() if isinstance(item, Node)]
-        
-        # 진입 차수 계산
-        in_degree = {node: 0 for node in nodes}
-        for node in nodes:
-            for port in node.input_ports:
-                in_degree[node] += len(port.connections)
-        
-        # 진입 차수가 0인 노드부터 시작
-        queue = [node for node in nodes if in_degree[node] == 0]
-        execution_order = []
-        
-        while queue:
-            current = queue.pop(0)
-            execution_order.append(current)
-            
-            # 연결된 다음 노드들의 진입 차수 감소
-            for port in current.output_ports:
-                for connection in port.connections:
-                    next_node = connection.end_port.parentItem()
-                    in_degree[next_node] -= 1
-                    if in_degree[next_node] == 0:
-                        queue.append(next_node)
-        
-        return execution_order
-        
-    def execute_node(self, node, input_data):
-        """개별 노드 실행"""
-        output = {}
-        
-        if node.node_type == NodeType.DATA:
-            # 데이터 로드 시뮬레이션
-            output = {
-                "data": "MCS 로그 데이터 로드됨",
-                "records": 10000,
-                "time_range": "2025-07-01 ~ 2025-07-30"
-            }
-            
-        elif node.node_type == NodeType.PREPROCESS:
-            # 전처리 실행
-            if "이상치" in node.name:
-                output = {
-                    "cleaned_data": "이상치 제거 완료",
-                    "removed": 234,
-                    "method": node.settings.get("method", "IQR")
-                }
-            elif "시간별" in node.name:
-                output = {
-                    "grouped_data": "시간별 분류 완료",
-                    "time_unit": node.settings.get("time_unit", "1시간")
-                }
-                
-        elif node.node_type == NodeType.VECTOR:
-            # RAG 벡터 저장
-            output = {
-                "vector_store": node.settings.get("vector_store", "ChromaDB"),
-                "embeddings": "벡터 저장 완료",
-                "dimension": node.settings.get("vector_dim", 768)
-            }
-            
-        elif node.node_type == NodeType.MODEL:
-            # 시계열 모델 실행
-            output = {
-                "prediction": "향후 24시간 예측 완료",
-                "accuracy": 92.3,
-                "forecast": {
-                    "6h": 1100,
-                    "12h": 1250,
-                    "24h": 1234
-                }
-            }
-            
-        elif node.node_type == NodeType.ANALYSIS:
-            # 패턴 분석
-            output = {
-                "patterns": ["주중 오후 피크", "금요일 증가", "월요일 감소"],
-                "anomalies": ["7/15 비정상 증가", "7/22 급감"],
-                "period": node.settings.get("analysis_period", "30일")
-            }
-            
-        elif node.node_type == NodeType.PROMPT:
-            # 프롬프트 생성
-            template = node.settings.get("template", "")
-            
-            # 입력 데이터로 프롬프트 채우기
-            filled_prompt = template
-            
-            # 컨텍스트 추가
-            contexts = []
-            for i in range(4):
-                if node.settings.get(f"context_{i}", False):
-                    contexts.append(["날씨 정보", "교통 상황", "과거 지연 이력", "특별 이벤트"][i])
-            
-            if "analysis" in input_data:
-                filled_prompt = filled_prompt.replace("{past_patterns}", 
-                    str(input_data["analysis"].get("patterns", [])))
-                filled_prompt = filled_prompt.replace("{anomalies}", 
-                    str(input_data["analysis"].get("anomalies", [])))
-                    
-            if "model" in input_data:
-                filled_prompt = filled_prompt.replace("{time_series_prediction}", 
-                    str(input_data["model"].get("forecast", {})))
-                    
-            filled_prompt = filled_prompt.replace("{current_status}", 
-                "현재 정상 운영 중")
-            
-            output = {
-                "prompt": filled_prompt,
-                "contexts": contexts
-            }
-            
-        elif node.node_type == NodeType.LLM:
-            # LLM 실행
-            prompt_data = input_data.get("prompt", {})
-            prompt_text = prompt_data.get("prompt", "기본 프롬프트")
-            
-            # LLM 응답 시뮬레이션
-            output = {
-                "response": f"""PHI-4 LLM 분석 결과:
-                
-프롬프트: {prompt_text[:100]}...
+        result = """=== 물류이동 예측 시스템 실행 결과 ===
+
+실행 시간: 2025-07-30 10:30:00
 
 === 예측 결과 ===
 향후 24시간 물류 이동 예측:
@@ -1737,60 +1388,24 @@ class LogisticsPredictionSystem(QMainWindow):
 2. 긴급 화물은 오전 배송 권장
 3. 예비 차량 20% 추가 배치 필요
 
-Temperature: {node.settings.get('temperature', 0.7)}
-Max Tokens: {node.settings.get('max_tokens', 2048)}
-추론 모드: {node.settings.get('inference_mode', '종합분석')}""",
-                "settings": node.settings
-            }
-            
-        return output
+=== 상세 분석 ===
+시계열 모델 예측 정확도: 92.3%
+패턴 분석 결과: 주중 오후 시간대 물동량 증가 패턴 확인
+LLM 추론: 기상 악화로 인한 지연 가능성 30%"""
         
-    def show_execution_results(self, node_outputs):
-        """실행 결과 표시"""
-        result_dialog = QDialog(self)
-        result_dialog.setWindowTitle("파이프라인 실행 결과")
-        result_dialog.setModal(True)
-        layout = QVBoxLayout()
+        result_text.setPlainText(result)
+        layout.addWidget(result_text)
         
-        # 탭 위젯으로 결과 표시
-        tabs = QTabWidget()
-        
-        # LLM 결과 찾기
-        llm_result = None
-        for node, output in node_outputs.items():
-            if node.node_type == NodeType.LLM:
-                llm_result = output
-                break
-        
-        # 요약 탭
-        summary_text = QTextEdit()
-        summary_text.setReadOnly(True)
-        if llm_result:
-            summary_text.setPlainText(llm_result.get("response", "결과 없음"))
-        else:
-            summary_text.setPlainText("LLM 노드가 실행되지 않았습니다.")
-        tabs.addTab(summary_text, "최종 결과")
-        
-        # 각 노드별 결과 탭
-        for node, output in node_outputs.items():
-            node_text = QTextEdit()
-            node_text.setReadOnly(True)
-            node_text.setPlainText(json.dumps(output, indent=2, ensure_ascii=False))
-            tabs.addTab(node_text, f"{node.name}")
-        
-        layout.addWidget(tabs)
-        
-        # 닫기 버튼
         close_btn = QPushButton("닫기")
         close_btn.clicked.connect(result_dialog.accept)
         layout.addWidget(close_btn)
         
         result_dialog.setLayout(layout)
-        result_dialog.resize(800, 600)
+        result_dialog.resize(600, 400)
         result_dialog.exec_()
         
         self.log("파이프라인 실행 완료")
-            
+        
     def update_properties(self):
         """속성 패널 업데이트"""
         selected = self.scene.selectedItems()
