@@ -216,10 +216,7 @@ class Connection(QGraphicsPathItem):
             path.lineTo(end.x() - offset, mid_y)
             path.lineTo(end.x() - offset, end.y())
             path.lineTo(end)
-        
-        return path(end.x() - offset, start.y() + detour_y)
-            path.lineTo(end.x() - offset, end.y())
-            path.lineTo(end)
+     
         
         return path
         
