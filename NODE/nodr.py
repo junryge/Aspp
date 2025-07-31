@@ -375,8 +375,8 @@ class Node(QGraphicsRectItem):
         
     def mouseDoubleClickEvent(self, event):
         """더블클릭 시 설정 창 열기"""
-        if hasattr(self.scene(), 'parent'):
-            self.scene().parent().configure_node(self)
+        if hasattr(self.scene(), 'main_window') and self.scene().main_window:
+            self.scene().main_window.configure_node(self)
         super().mouseDoubleClickEvent(event)
         
     def contextMenuEvent(self, event):
@@ -385,7 +385,7 @@ class Node(QGraphicsRectItem):
         
         # 모든 노드에 공통으로 적용되는 메뉴
         configure_action = QAction("⚙️ 노드 설정", None)
-        configure_action.triggered.connect(lambda: self.scene().parent().configure_node(self))
+        configure_action.triggered.connect(lambda: self.scene().main_window.configure_node(self) if hasattr(self.scene(), 'main_window') and self.scene().main_window else None)
         menu.addAction(configure_action)
         
         # 프롬프트 노드 전용 메뉴
@@ -472,8 +472,8 @@ class Node(QGraphicsRectItem):
             clipboard.setText(self.settings['template'])
             
             # 복사 완료 메시지
-            if hasattr(self.scene(), 'parent'):
-                self.scene().parent().log("프롬프트가 클립보드에 복사되었습니다")
+            if hasattr(self.scene(), 'main_window') and self.scene().main_window:
+                self.scene().main_window.log("프롬프트가 클립보드에 복사되었습니다")
                 
     def open_file_location(self):
         """파일 위치 열기"""
@@ -501,7 +501,7 @@ class Node(QGraphicsRectItem):
         
     def duplicate_node(self):
         """노드 복제"""
-        if hasattr(self.scene(), 'parent'):
+        if hasattr(self.scene(), 'main_window') and self.scene().main_window:
             # 새 노드 생성
             new_node = Node(self.node_type, self.name, self.x() + 50, self.y() + 50)
             new_node.settings = self.settings.copy()
@@ -509,22 +509,23 @@ class Node(QGraphicsRectItem):
             new_node.update_status()
             
             self.scene().addItem(new_node)
-            self.scene().parent().log(f"{self.name} 노드가 복제되었습니다")
+            self.scene().main_window.log(f"{self.name} 노드가 복제되었습니다")
             
     def delete_self(self):
         """자신을 삭제"""
-        if hasattr(self.scene(), 'parent'):
+        if hasattr(self.scene(), 'main_window') and self.scene().main_window:
             reply = QMessageBox.question(None, "확인", 
                                        f"{self.name} 노드를 삭제하시겠습니까?",
                                        QMessageBox.Yes | QMessageBox.No)
             if reply == QMessageBox.Yes:
-                self.scene().parent().view.delete_node(self)
+                self.scene().main_window.view.delete_node(self)
 
 
 class NodeScene(QGraphicsScene):
     """노드 에디터 씬"""
-    def __init__(self):
-        super().__init__()
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.main_window = parent  # 메인 윈도우 참조 저장
         self.setSceneRect(-2000, -2000, 4000, 4000)
         
         # 배경 색상
@@ -778,8 +779,8 @@ class LogisticsPredictionSystem(QMainWindow):
             }
         """)
         
-        # 씬과 뷰 생성
-        self.scene = NodeScene()
+        # 씬과 뷰 생성 - parent로 self 전달
+        self.scene = NodeScene(self)
         self.view = NodeView(self.scene)
         self.setCentralWidget(self.view)
         
