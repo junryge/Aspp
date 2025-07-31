@@ -981,19 +981,35 @@ class LogisticsPredictionSystem(QMainWindow):
         
     def add_node(self, node_type: NodeType, name: str):
         """노드 추가"""
+        self.log(f"노드 추가 요청: {name} (타입: {node_type.value})")
+        
         # 뷰 중앙에 노드 생성
         view_center = self.view.mapToScene(self.view.rect().center())
         
         node = Node(node_type, name, view_center.x() - 100, view_center.y() - 50)
         self.scene.addItem(node)
         
-        self.log(f"{name} 노드가 추가되었습니다")
+        self.log(f"{name} 노드가 추가되었습니다 (ID: {node.node_id})")
+        
+        # 프롬프트 노드인 경우 바로 설정 창 열기
+        if node_type == NodeType.PROMPT:
+            self.log("프롬프트 노드 추가됨 - 설정 창을 여시려면 노드를 더블클릭하거나 오른쪽 클릭하세요")
+            QMessageBox.information(self, "프롬프트 노드", 
+                "프롬프트 노드가 추가되었습니다.\n\n"
+                "설정 방법:\n"
+                "1. 노드를 더블클릭하거나\n"
+                "2. 마우스 오른쪽 클릭 → '⚙️ 노드 설정' 선택\n\n"
+                "프롬프트 템플릿을 작성할 수 있습니다.")
         
     def configure_node(self, node):
         """노드 설정 대화상자"""
+        self.log(f"노드 설정 시작: {node.name} ({node.node_type.value})")
+        
         dialog = QDialog(self)
         dialog.setWindowTitle(f"{node.name} 설정")
         dialog.setModal(True)
+        dialog.setMinimumWidth(500)  # 최소 너비 설정
+        
         layout = QVBoxLayout()
         
         # 노드 타입별 설정 UI
@@ -1008,6 +1024,7 @@ class LogisticsPredictionSystem(QMainWindow):
         elif node.node_type == NodeType.ANALYSIS:
             self.create_analysis_config(layout, node)
         elif node.node_type == NodeType.PROMPT:
+            self.log("프롬프트 설정 UI 생성 중...")
             self.create_prompt_config(layout, node)
         elif node.node_type == NodeType.LLM:
             self.create_llm_config(layout, node)
@@ -1019,7 +1036,13 @@ class LogisticsPredictionSystem(QMainWindow):
         layout.addWidget(buttons)
         
         dialog.setLayout(layout)
-        dialog.exec_()
+        
+        # 대화상자 크기 조정
+        dialog.adjustSize()
+        
+        self.log(f"대화상자 표시 중...")
+        result = dialog.exec_()
+        self.log(f"대화상자 결과: {'확인' if result else '취소'}")
         
     def create_data_config(self, layout, node):
         """데이터 노드 설정 UI"""
@@ -1187,6 +1210,8 @@ class LogisticsPredictionSystem(QMainWindow):
         layout.addWidget(QLabel("프롬프트 템플릿:"))
         template_text = QTextEdit()
         template_text.setObjectName("template")
+        
+        # 기본 템플릿
         default_template = """다음 물류 데이터를 분석하여 예측해주세요:
 - 현재 상황: {current_status}
 - 과거 패턴: {past_patterns}
@@ -1195,15 +1220,37 @@ class LogisticsPredictionSystem(QMainWindow):
 
 24시간 이내의 물류 이동을 예측하고,
 주의해야 할 리스크를 분석해주세요."""
-        template_text.setPlainText(default_template)
-        template_text.setMaximumHeight(150)
+        
+        # 기존 설정이 있으면 불러오기, 없으면 기본 템플릿 사용
+        if 'template' in node.settings:
+            template_text.setPlainText(node.settings['template'])
+        else:
+            template_text.setPlainText(default_template)
+            
+        template_text.setMinimumHeight(200)  # 최소 높이 설정
+        template_text.setMaximumHeight(300)  # 최대 높이 설정
         layout.addWidget(template_text)
+        
+        # 변수 설명 추가
+        variables_label = QLabel(
+            "사용 가능한 변수:\n"
+            "• {current_status} - 현재 물류 상황\n"
+            "• {past_patterns} - 과거 패턴 분석 결과\n"
+            "• {time_series_prediction} - 시계열 예측 결과\n"
+            "• {anomalies} - 이상 징후"
+        )
+        variables_label.setStyleSheet("QLabel { background-color: #3c3c3c; padding: 10px; }")
+        layout.addWidget(variables_label)
         
         layout.addWidget(QLabel("포함할 컨텍스트:"))
         contexts = ["날씨 정보", "교통 상황", "과거 지연 이력", "특별 이벤트"]
         for i, context in enumerate(contexts):
             check = QCheckBox(context)
-            check.setChecked(True)
+            # 기존 설정이 있으면 불러오기
+            if f'context_{i}' in node.settings:
+                check.setChecked(node.settings[f'context_{i}'])
+            else:
+                check.setChecked(True)
             check.setObjectName(f"context_{i}")
             layout.addWidget(check)
             
