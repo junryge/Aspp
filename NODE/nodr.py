@@ -1008,37 +1008,69 @@ class LogisticsPredictionSystem(QMainWindow):
         dialog = QDialog(self)
         dialog.setWindowTitle(f"{node.name} 설정")
         dialog.setModal(True)
-        dialog.setMinimumWidth(500)  # 최소 너비 설정
+        dialog.setMinimumWidth(600)  # 최소 너비 설정
+        dialog.setMinimumHeight(500)  # 최소 높이 설정
         
-        layout = QVBoxLayout()
+        # 다이얼로그 스타일 설정
+        dialog.setStyleSheet("""
+            QDialog {
+                background-color: #2d2d2d;
+                color: #ffffff;
+            }
+            QLabel {
+                color: #ffffff;
+            }
+            QGroupBox {
+                color: #ffffff;
+                border: 1px solid #555555;
+                border-radius: 5px;
+                margin-top: 10px;
+                padding-top: 10px;
+            }
+            QGroupBox::title {
+                subcontrol-origin: margin;
+                left: 10px;
+                padding: 0 5px 0 5px;
+            }
+        """)
+        
+        # 스크롤 가능한 영역 생성
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll_widget = QWidget()
+        scroll_layout = QVBoxLayout()
         
         # 노드 타입별 설정 UI
         if node.node_type == NodeType.DATA:
-            self.create_data_config(layout, node)
+            self.create_data_config(scroll_layout, node)
         elif node.node_type == NodeType.PREPROCESS:
-            self.create_preprocess_config(layout, node)
+            self.create_preprocess_config(scroll_layout, node)
         elif node.node_type == NodeType.MODEL:
-            self.create_model_config(layout, node)
+            self.create_model_config(scroll_layout, node)
         elif node.node_type == NodeType.VECTOR:
-            self.create_vector_config(layout, node)
+            self.create_vector_config(scroll_layout, node)
         elif node.node_type == NodeType.ANALYSIS:
-            self.create_analysis_config(layout, node)
+            self.create_analysis_config(scroll_layout, node)
         elif node.node_type == NodeType.PROMPT:
             self.log("프롬프트 설정 UI 생성 중...")
-            self.create_prompt_config(layout, node)
+            self.create_prompt_config(scroll_layout, node)
         elif node.node_type == NodeType.LLM:
-            self.create_llm_config(layout, node)
+            self.create_llm_config(scroll_layout, node)
             
+        scroll_widget.setLayout(scroll_layout)
+        scroll.setWidget(scroll_widget)
+        
+        # 메인 레이아웃
+        main_layout = QVBoxLayout()
+        main_layout.addWidget(scroll, 1)
+        
         # 버튼
         buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
         buttons.accepted.connect(lambda: self.save_node_config(dialog, node))
         buttons.rejected.connect(dialog.reject)
-        layout.addWidget(buttons)
+        main_layout.addWidget(buttons)
         
-        dialog.setLayout(layout)
-        
-        # 대화상자 크기 조정
-        dialog.adjustSize()
+        dialog.setLayout(main_layout)
         
         self.log(f"대화상자 표시 중...")
         result = dialog.exec_()
@@ -1205,9 +1237,21 @@ class LogisticsPredictionSystem(QMainWindow):
             
     def create_prompt_config(self, layout, node):
         """프롬프트 노드 설정 UI"""
-        layout.addWidget(QLabel("프롬프트 생성 설정"))
+        # 제목
+        title_label = QLabel("<h3>프롬프트 생성 설정</h3>")
+        layout.addWidget(title_label)
         
-        layout.addWidget(QLabel("프롬프트 템플릿:"))
+        # 구분선
+        line = QFrame()
+        line.setFrameShape(QFrame.HLine)
+        line.setFrameShadow(QFrame.Sunken)
+        layout.addWidget(line)
+        
+        # 프롬프트 템플릿 섹션
+        template_label = QLabel("<b>프롬프트 템플릿:</b>")
+        layout.addWidget(template_label)
+        
+        # 텍스트 편집기
         template_text = QTextEdit()
         template_text.setObjectName("template")
         
@@ -1226,23 +1270,47 @@ class LogisticsPredictionSystem(QMainWindow):
             template_text.setPlainText(node.settings['template'])
         else:
             template_text.setPlainText(default_template)
-            
-        template_text.setMinimumHeight(200)  # 최소 높이 설정
-        template_text.setMaximumHeight(300)  # 최대 높이 설정
+        
+        # 텍스트 편집기 스타일 설정
+        template_text.setStyleSheet("""
+            QTextEdit {
+                background-color: #3c3c3c;
+                color: #ffffff;
+                border: 2px solid #555555;
+                border-radius: 5px;
+                padding: 10px;
+                font-family: Consolas, 'Courier New', monospace;
+                font-size: 12px;
+            }
+        """)
+        template_text.setMinimumHeight(250)
+        template_text.setMaximumHeight(400)
+        
         layout.addWidget(template_text)
         
-        # 변수 설명 추가
-        variables_label = QLabel(
-            "사용 가능한 변수:\n"
-            "• {current_status} - 현재 물류 상황\n"
-            "• {past_patterns} - 과거 패턴 분석 결과\n"
-            "• {time_series_prediction} - 시계열 예측 결과\n"
-            "• {anomalies} - 이상 징후"
-        )
-        variables_label.setStyleSheet("QLabel { background-color: #3c3c3c; padding: 10px; }")
-        layout.addWidget(variables_label)
+        # 변수 설명 그룹박스
+        variables_group = QGroupBox("사용 가능한 변수")
+        variables_layout = QVBoxLayout()
         
-        layout.addWidget(QLabel("포함할 컨텍스트:"))
+        variables_info = [
+            ("{current_status}", "현재 물류 상황"),
+            ("{past_patterns}", "과거 패턴 분석 결과"),
+            ("{time_series_prediction}", "시계열 예측 결과"),
+            ("{anomalies}", "이상 징후")
+        ]
+        
+        for var, desc in variables_info:
+            var_label = QLabel(f"<code style='background-color: #555555; padding: 2px;'>{var}</code> - {desc}")
+            variables_layout.addWidget(var_label)
+        
+        variables_group.setLayout(variables_layout)
+        layout.addWidget(variables_group)
+        
+        # 컨텍스트 섹션
+        layout.addSpacing(10)
+        context_label = QLabel("<b>포함할 컨텍스트:</b>")
+        layout.addWidget(context_label)
+        
         contexts = ["날씨 정보", "교통 상황", "과거 지연 이력", "특별 이벤트"]
         for i, context in enumerate(contexts):
             check = QCheckBox(context)
@@ -1252,7 +1320,13 @@ class LogisticsPredictionSystem(QMainWindow):
             else:
                 check.setChecked(True)
             check.setObjectName(f"context_{i}")
+            check.setStyleSheet("QCheckBox { color: #ffffff; }")
             layout.addWidget(check)
+        
+        # 테스트 버튼 추가
+        test_btn = QPushButton("템플릿 테스트")
+        test_btn.clicked.connect(lambda: self.test_prompt_template(template_text.toPlainText()))
+        layout.addWidget(test_btn)
             
     def create_llm_config(self, layout, node):
         """LLM 노드 설정 UI"""
@@ -1290,6 +1364,23 @@ class LogisticsPredictionSystem(QMainWindow):
         format_combo.addItems(["구조화된 JSON", "자연어 설명", "대시보드 데이터", "리포트"])
         format_combo.setObjectName("output_format")
         layout.addWidget(format_combo)
+        
+    def test_prompt_template(self, template):
+        """프롬프트 템플릿 테스트"""
+        # 테스트용 샘플 데이터로 변수 채우기
+        test_prompt = template
+        test_prompt = test_prompt.replace("{current_status}", "정상 운영 중 (테스트)")
+        test_prompt = test_prompt.replace("{past_patterns}", "['주중 오후 피크', '금요일 증가'] (테스트)")
+        test_prompt = test_prompt.replace("{time_series_prediction}", "{'24h': 1234톤} (테스트)")
+        test_prompt = test_prompt.replace("{anomalies}", "['7/15 비정상 증가'] (테스트)")
+        
+        # 결과 표시
+        msg = QMessageBox()
+        msg.setWindowTitle("프롬프트 템플릿 테스트")
+        msg.setText("변수가 채워진 프롬프트 미리보기:")
+        msg.setDetailedText(test_prompt)
+        msg.setIcon(QMessageBox.Information)
+        msg.exec_()
         
     def save_node_config(self, dialog, node):
         """노드 설정 저장"""
