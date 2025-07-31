@@ -373,7 +373,7 @@ class Node(QGraphicsRectItem):
                     
         return super().itemChange(change, value)
         
- def mouseDoubleClickEvent(self, event):
+    def mouseDoubleClickEvent(self, event):
         """더블클릭 시 설정 창 열기"""
         if hasattr(self.scene(), 'parent'):
             self.scene().parent().configure_node(self)
@@ -1434,21 +1434,157 @@ class LogisticsPredictionSystem(QMainWindow):
         """파이프라인 실행"""
         # 검증
         self.validate_pipeline()
-        
+
         self.log("파이프라인 실행 시작...")
         
-        # 실행 시뮬레이션
-        result_dialog = QDialog(self)
-        result_dialog.setWindowTitle("실행 결과")
-        result_dialog.setModal(True)
-        layout = QVBoxLayout()
+        # 노드 실행 순서 결정
+        execution_order = self.determine_execution_order()
         
-        result_text = QTextEdit()
-        result_text.setReadOnly(True)
+        # 실행 결과 저장
+        node_outputs = {}
         
-        result = """=== 물류이동 예측 시스템 실행 결과 ===
-
-실행 시간: 2025-07-30 10:30:00
+        # 순차적으로 노드 실행
+        for node in execution_order:
+            self.log(f"실행 중: {node.name}")
+            
+            # 입력 데이터 수집
+            input_data = {}
+            for port in node.input_ports:
+                for connection in port.connections:
+                    source_node = connection.start_port.parentItem()
+                    if source_node in node_outputs:
+                        input_data[source_node.node_type.value] = node_outputs[source_node]
+            
+            # 노드 실행
+            output = self.execute_node(node, input_data)
+            node_outputs[node] = output
+        
+        # 최종 결과 표시
+        self.show_execution_results(node_outputs)
+        
+    def determine_execution_order(self):
+        """노드 실행 순서 결정 (위상 정렬)"""
+        nodes = [item for item in self.scene.items() if isinstance(item, Node)]
+        
+        # 진입 차수 계산
+        in_degree = {node: 0 for node in nodes}
+        for node in nodes:
+            for port in node.input_ports:
+                in_degree[node] += len(port.connections)
+        
+        # 진입 차수가 0인 노드부터 시작
+        queue = [node for node in nodes if in_degree[node] == 0]
+        execution_order = []
+        
+        while queue:
+            current = queue.pop(0)
+            execution_order.append(current)
+            
+            # 연결된 다음 노드들의 진입 차수 감소
+            for port in current.output_ports:
+                for connection in port.connections:
+                    next_node = connection.end_port.parentItem()
+                    in_degree[next_node] -= 1
+                    if in_degree[next_node] == 0:
+                        queue.append(next_node)
+        
+        return execution_order
+        
+    def execute_node(self, node, input_data):
+        """개별 노드 실행"""
+        output = {}
+        
+        if node.node_type == NodeType.DATA:
+            # 데이터 로드 시뮬레이션
+            output = {
+                "data": "MCS 로그 데이터 로드됨",
+                "records": 10000,
+                "time_range": "2025-07-01 ~ 2025-07-30"
+            }
+            
+        elif node.node_type == NodeType.PREPROCESS:
+            # 전처리 실행
+            if "이상치" in node.name:
+                output = {
+                    "cleaned_data": "이상치 제거 완료",
+                    "removed": 234,
+                    "method": node.settings.get("method", "IQR")
+                }
+            elif "시간별" in node.name:
+                output = {
+                    "grouped_data": "시간별 분류 완료",
+                    "time_unit": node.settings.get("time_unit", "1시간")
+                }
+                
+        elif node.node_type == NodeType.VECTOR:
+            # RAG 벡터 저장
+            output = {
+                "vector_store": node.settings.get("vector_store", "ChromaDB"),
+                "embeddings": "벡터 저장 완료",
+                "dimension": node.settings.get("vector_dim", 768)
+            }
+            
+        elif node.node_type == NodeType.MODEL:
+            # 시계열 모델 실행
+            output = {
+                "prediction": "향후 24시간 예측 완료",
+                "accuracy": 92.3,
+                "forecast": {
+                    "6h": 1100,
+                    "12h": 1250,
+                    "24h": 1234
+                }
+            }
+            
+        elif node.node_type == NodeType.ANALYSIS:
+            # 패턴 분석
+            output = {
+                "patterns": ["주중 오후 피크", "금요일 증가", "월요일 감소"],
+                "anomalies": ["7/15 비정상 증가", "7/22 급감"],
+                "period": node.settings.get("analysis_period", "30일")
+            }
+            
+        elif node.node_type == NodeType.PROMPT:
+            # 프롬프트 생성
+            template = node.settings.get("template", "")
+            
+            # 입력 데이터로 프롬프트 채우기
+            filled_prompt = template
+            
+            # 컨텍스트 추가
+            contexts = []
+            for i in range(4):
+                if node.settings.get(f"context_{i}", False):
+                    contexts.append(["날씨 정보", "교통 상황", "과거 지연 이력", "특별 이벤트"][i])
+            
+            if "analysis" in input_data:
+                filled_prompt = filled_prompt.replace("{past_patterns}", 
+                    str(input_data["analysis"].get("patterns", [])))
+                filled_prompt = filled_prompt.replace("{anomalies}", 
+                    str(input_data["analysis"].get("anomalies", [])))
+                    
+            if "model" in input_data:
+                filled_prompt = filled_prompt.replace("{time_series_prediction}", 
+                    str(input_data["model"].get("forecast", {})))
+                    
+            filled_prompt = filled_prompt.replace("{current_status}", 
+                "현재 정상 운영 중")
+            
+            output = {
+                "prompt": filled_prompt,
+                "contexts": contexts
+            }
+            
+        elif node.node_type == NodeType.LLM:
+            # LLM 실행
+            prompt_data = input_data.get("prompt", {})
+            prompt_text = prompt_data.get("prompt", "기본 프롬프트")
+            
+            # LLM 응답 시뮬레이션
+            output = {
+                "response": f"""PHI-4 LLM 분석 결과:
+                
+프롬프트: {prompt_text[:100]}...
 
 === 예측 결과 ===
 향후 24시간 물류 이동 예측:
@@ -1462,24 +1598,60 @@ class LogisticsPredictionSystem(QMainWindow):
 2. 긴급 화물은 오전 배송 권장
 3. 예비 차량 20% 추가 배치 필요
 
-=== 상세 분석 ===
-시계열 모델 예측 정확도: 92.3%
-패턴 분석 결과: 주중 오후 시간대 물동량 증가 패턴 확인
-LLM 추론: 기상 악화로 인한 지연 가능성 30%"""
+Temperature: {node.settings.get('temperature', 0.7)}
+Max Tokens: {node.settings.get('max_tokens', 2048)}
+추론 모드: {node.settings.get('inference_mode', '종합분석')}""",
+                "settings": node.settings
+            }
+            
+        return output
         
-        result_text.setPlainText(result)
-        layout.addWidget(result_text)
+    def show_execution_results(self, node_outputs):
+        """실행 결과 표시"""
+        result_dialog = QDialog(self)
+        result_dialog.setWindowTitle("파이프라인 실행 결과")
+        result_dialog.setModal(True)
+        layout = QVBoxLayout()
         
+        # 탭 위젯으로 결과 표시
+        tabs = QTabWidget()
+        
+        # LLM 결과 찾기
+        llm_result = None
+        for node, output in node_outputs.items():
+            if node.node_type == NodeType.LLM:
+                llm_result = output
+                break
+        
+        # 요약 탭
+        summary_text = QTextEdit()
+        summary_text.setReadOnly(True)
+        if llm_result:
+            summary_text.setPlainText(llm_result.get("response", "결과 없음"))
+        else:
+            summary_text.setPlainText("LLM 노드가 실행되지 않았습니다.")
+        tabs.addTab(summary_text, "최종 결과")
+        
+        # 각 노드별 결과 탭
+        for node, output in node_outputs.items():
+            node_text = QTextEdit()
+            node_text.setReadOnly(True)
+            node_text.setPlainText(json.dumps(output, indent=2, ensure_ascii=False))
+            tabs.addTab(node_text, f"{node.name}")
+        
+        layout.addWidget(tabs)
+        
+        # 닫기 버튼
         close_btn = QPushButton("닫기")
         close_btn.clicked.connect(result_dialog.accept)
         layout.addWidget(close_btn)
         
         result_dialog.setLayout(layout)
-        result_dialog.resize(600, 400)
+        result_dialog.resize(800, 600)
         result_dialog.exec_()
         
         self.log("파이프라인 실행 완료")
-        
+            
     def update_properties(self):
         """속성 패널 업데이트"""
         selected = self.scene.selectedItems()
