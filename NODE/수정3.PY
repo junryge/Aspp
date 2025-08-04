@@ -838,15 +838,26 @@ class NodeScene(QGraphicsScene):
         
     def mousePressEvent(self, event):
         """마우스 클릭 이벤트"""
-        port = self.find_port_at(event.scenePos())
+        # 클릭한 위치의 아이템 확인
+        items = self.items(event.scenePos())
+        port = None
+        
+        # 포트가 있는지 확인
+        for item in items:
+            if isinstance(item, Port):
+                port = item
+                break
         
         if port and port.is_output:
             # 출력 포트에서 연결 시작
             self.start_connection(port)
+            event.accept()  # 이벤트 처리 완료
         elif port and not port.is_output and self.current_connection:
             # 입력 포트에 연결 완료
             self.end_connection(port)
+            event.accept()  # 이벤트 처리 완료
         else:
+            # 포트가 아닌 경우 (노드나 빈 공간) 기본 처리
             super().mousePressEvent(event)
             
     def mouseMoveEvent(self, event):
