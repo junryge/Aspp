@@ -281,19 +281,37 @@ def main(resume=False):
                 sscaler = saved_data['scaler']
                 Modified_Data = saved_data['modified_data']
                 input_shape = saved_data['input_shape']
+                train_size = saved_data.get('train_size', int(0.7 * len(Modified_Data)))
+                val_size = saved_data.get('val_size', int(0.15 * len(Modified_Data)))
+                scaled_list = saved_data.get('scaled_list', [])
+                input_features = saved_data.get('input_features', [])
+                
+                # ARIMA 모델 로드 시도
+                arima_path = 'model/arima_model.pkl'
+                if os.path.exists(arima_path):
+                    arima_fitted = joblib.load(arima_path)
+                    logger.info("저장된 ARIMA 모델을 로드했습니다.")
+                else:
+                    arima_fitted = None
+                    
                 logger.info("저장된 데이터를 성공적으로 로드했습니다.")
             else:
                 logger.warning("저장된 데이터가 없습니다. 데이터 전처리부터 시작합니다.")
                 resume = False
+                arima_fitted = None
         else:
             logger.info("저장된 학습 상태가 없습니다. 처음부터 시작합니다.")
             resume = False
+            arima_fitted = None
     
     # 데이터 전처리 (재시작이 아닌 경우)
     if not resume:
         logger.info("="*60)
         logger.info("반도체 물류 예측 하이브리드 모델 학습 시작")
         logger.info("="*60)
+        
+        # ARIMA 모델 초기화
+        arima_fitted = None
         
         # 데이터 로드 및 전처리
         Full_data_path = 'data/20240201_TO_202507281705.csv'
@@ -355,7 +373,7 @@ def main(resume=False):
         Modified_Data['STD_10'] = Modified_Data['TOTALCNT'].rolling(window=10, min_periods=1).std()
         Modified_Data['change_rate'] = Modified_Data['TOTALCNT'].pct_change()
         Modified_Data['change_rate_5'] = Modified_Data['TOTALCNT'].pct_change(5)
-        Modified_Data = Modified_Data.fillna(method='ffill').fillna(0)
+        Modified_Data = Modified_Data.ffill().fillna(0)
         
         # 데이터 스케일링
         sscaler = StandardScaler()
@@ -434,11 +452,108 @@ def main(resume=False):
             'scaler': sscaler,
             'modified_data': Modified_Data,
             'input_shape': input_shape,
-            'scaled_list': scaled_list
+            'scaled_list': scaled_list,
+            'train_size': train_size,
+            'val_size': val_size,
+            'input_features': input_features
         })
     
+    # ===================================
+    # 하이브리드 모델 클래스 임포트 또는 정의
+    # ===================================
+    
+    # H.py 파일이 있다면 임포트, 없다면 여기서 정의
+    try:
+        from H import HybridModels
+        logger.info("H.py에서 HybridModels 클래스를 임포트했습니다.")
+    except ImportError:
+        logger.warning("H.py를 찾을 수 없습니다. HybridModels 클래스를 직접 정의합니다.")
+        
+        class HybridModels:
+            """LSTM, RNN, GRU 모델을 포함한 하이브리드 예측 시스템"""
+            
+            def __init__(self, input_shape):
+                self.input_shape = input_shape
+                self.models = {}
+                self.histories = {}
+                
+            def build_lstm_model(self):
+                """LSTM 모델 구축"""
+                model = Sequential([
+                    Input(shape=self.input_shape),
+                    
+                    LSTM(units=100, return_sequences=True),
+                    Dropout(0.2),
+                    BatchNormalization(),
+                    
+                    LSTM(units=100, return_sequences=True),
+                    Dropout(0.2),
+                    BatchNormalization(),
+                    
+                    LSTM(units=100, return_sequences=False),
+                    Dropout(0.2),
+                    
+                    Dense(units=50, activation='relu'),
+                    Dense(units=1)
+                ])
+                
+                return model
+            
+            def build_gru_model(self):
+                """GRU 모델 구축"""
+                model = Sequential([
+                    Input(shape=self.input_shape),
+                    
+                    GRU(units=100, return_sequences=True),
+                    Dropout(0.2),
+                    
+                    GRU(units=100, return_sequences=True),
+                    Dropout(0.2),
+                    
+                    GRU(units=50, return_sequences=False),
+                    Dropout(0.2),
+                    
+                    Dense(units=30, activation='relu'),
+                    Dense(units=1)
+                ])
+                
+                return model
+            
+            def build_simple_rnn_model(self):
+                """Simple RNN 모델 구축"""
+                model = Sequential([
+                    Input(shape=self.input_shape),
+                    
+                    SimpleRNN(units=100, return_sequences=True),
+                    Dropout(0.2),
+                    
+                    SimpleRNN(units=50, return_sequences=False),
+                    Dropout(0.2),
+                    
+                    Dense(units=30, activation='relu'),
+                    Dense(units=1)
+                ])
+                
+                return model
+            
+            def build_bidirectional_lstm_model(self):
+                """양방향 LSTM 모델 구축"""
+                model = Sequential([
+                    Input(shape=self.input_shape),
+                    
+                    Bidirectional(LSTM(units=50, return_sequences=True)),
+                    Dropout(0.2),
+                    
+                    Bidirectional(LSTM(units=50, return_sequences=False)),
+                    Dropout(0.2),
+                    
+                    Dense(units=30, activation='relu'),
+                    Dense(units=1)
+                ])
+                
+                return model
+    
     # 하이브리드 모델 초기화
-    from H import HybridModels  # 기존 HybridModels 클래스 임포트
     hybrid_models = HybridModels(input_shape)
     
     # 학습 파라미터
@@ -504,8 +619,352 @@ def main(resume=False):
     logger.info("모든 모델 학습 완료!")
     logger.info("="*60)
     
-    # 최종 평가 및 결과 저장은 기존 코드와 동일...
-    # (평가 코드는 기존 H.PY의 섹션 16-20과 동일)
+    # ===================================
+    # 16. 모델 평가
+    # ===================================
+    
+    logger.info("\n" + "="*60)
+    logger.info("모델 성능 평가")
+    logger.info("="*60)
+    
+    # 앙상블 예측 함수
+    def ensemble_predict(models, X_test, weights=None):
+        """여러 모델의 예측을 앙상블하여 최종 예측 생성"""
+        
+        if weights is None:
+            weights = {
+                'lstm': 0.3,
+                'gru': 0.25,
+                'rnn': 0.15,
+                'bi_lstm': 0.3
+            }
+        
+        individual_preds = {}
+        
+        # 각 모델별 예측
+        for model_name, model in models.items():
+            if model_name != 'arima':  # ARIMA는 별도 처리
+                pred = model.predict(X_test, verbose=0).flatten()
+                individual_preds[model_name] = pred
+        
+        # 가중 평균 계산
+        ensemble_pred = np.zeros_like(list(individual_preds.values())[0])
+        
+        for model_name, pred in individual_preds.items():
+            weight = weights.get(model_name, 0.25)
+            ensemble_pred += weight * pred
+        
+        return ensemble_pred, individual_preds
+    
+    # 앙상블 예측 수행
+    ensemble_pred, individual_preds = ensemble_predict(hybrid_models.models, X_test)
+    
+    # 성능 지표 계산 함수
+    def calculate_metrics(y_true, y_pred, model_name):
+        """모델 성능 지표 계산"""
+        mse = mean_squared_error(y_true, y_pred)
+        mae = mean_absolute_error(y_true, y_pred)
+        rmse = np.sqrt(mse)
+        r2 = r2_score(y_true, y_pred)
+        
+        # 역변환하여 실제 스케일로 변환
+        saved_data = checkpoint_manager.load_data()
+        scaled_list = saved_data['scaled_list']
+        
+        y_true_original = sscaler.inverse_transform(
+            np.column_stack([y_true] + [np.zeros_like(y_true)] * (len(scaled_list) - 1))
+        )[:, 0]
+        
+        y_pred_original = sscaler.inverse_transform(
+            np.column_stack([y_pred] + [np.zeros_like(y_pred)] * (len(scaled_list) - 1))
+        )[:, 0]
+        
+        mae_original = mean_absolute_error(y_true_original, y_pred_original)
+        
+        logger.info(f"\n{model_name} 모델 성능:")
+        logger.info(f"  - MSE: {mse:.4f}")
+        logger.info(f"  - MAE: {mae:.4f}")
+        logger.info(f"  - RMSE: {rmse:.4f}")
+        logger.info(f"  - R²: {r2:.4f}")
+        logger.info(f"  - MAE (원본 스케일): {mae_original:.2f}")
+        
+        return {
+            'mse': mse,
+            'mae': mae,
+            'rmse': rmse,
+            'r2': r2,
+            'mae_original': mae_original
+        }
+    
+    # 개별 모델 평가
+    results = {}
+    for model_name, pred in individual_preds.items():
+        results[model_name] = calculate_metrics(y_test, pred, model_name.upper())
+    
+    # 앙상블 모델 평가
+    results['ensemble'] = calculate_metrics(y_test, ensemble_pred, "ENSEMBLE")
+    
+    # ===================================
+    # 17. 결과 시각화
+    # ===================================
+    
+    logger.info("\n결과 시각화 생성 중...")
+    
+    # 1. 학습 곡선 시각화
+    fig, axes = plt.subplots(2, 2, figsize=(15, 10))
+    axes = axes.ravel()
+    
+    for idx, (model_name, history) in enumerate(hybrid_models.histories.items()):
+        if idx < 4:
+            ax = axes[idx]
+            
+            # 손실 곡선
+            if isinstance(history, dict):
+                ax.plot(history['loss'], label='Training Loss', color='blue')
+                ax.plot(history['val_loss'], label='Validation Loss', color='red')
+            else:
+                ax.plot(history.history['loss'], label='Training Loss', color='blue')
+                ax.plot(history.history['val_loss'], label='Validation Loss', color='red')
+            
+            ax.set_title(f'{model_name.upper()} 학습 곡선')
+            ax.set_xlabel('Epoch')
+            ax.set_ylabel('Loss')
+            ax.legend()
+            ax.grid(True, alpha=0.3)
+    
+    plt.tight_layout()
+    plt.savefig('training_curves.png', dpi=300, bbox_inches='tight')
+    plt.close()
+    
+    # 2. 예측 결과 시각화
+    plt.figure(figsize=(20, 10))
+    
+    # 샘플 구간 선택
+    sample_size = min(200, len(y_test))
+    saved_data = checkpoint_manager.load_data()
+    scaled_list = saved_data['scaled_list']
+    
+    # 실제값을 원본 스케일로 변환
+    y_test_original = sscaler.inverse_transform(
+        np.column_stack([y_test[:sample_size]] + [np.zeros_like(y_test[:sample_size])] * (len(scaled_list) - 1))
+    )[:, 0]
+    
+    # 실제값 플롯
+    plt.plot(y_test_original, label='실제값', color='black', linewidth=2)
+    
+    # 개별 모델 예측값 플롯
+    colors = ['blue', 'green', 'red', 'orange', 'purple']
+    for idx, (model_name, pred) in enumerate(individual_preds.items()):
+        pred_original = sscaler.inverse_transform(
+            np.column_stack([pred[:sample_size]] + [np.zeros_like(pred[:sample_size])] * (len(scaled_list) - 1))
+        )[:, 0]
+        
+        plt.plot(pred_original, label=f'{model_name.upper()} 예측', 
+                 color=colors[idx], alpha=0.7, linewidth=1.5)
+    
+    # 앙상블 예측값 플롯
+    ensemble_original = sscaler.inverse_transform(
+        np.column_stack([ensemble_pred[:sample_size]] + [np.zeros_like(ensemble_pred[:sample_size])] * (len(scaled_list) - 1))
+    )[:, 0]
+    
+    plt.plot(ensemble_original, label='앙상블 예측', 
+             color='darkred', linewidth=2, linestyle='--')
+    
+    plt.title('반도체 물류량 예측 결과 (10분 후)', fontsize=16)
+    plt.xlabel('시간 (분)', fontsize=12)
+    plt.ylabel('물류량 (TOTALCNT)', fontsize=12)
+    plt.legend(loc='upper right')
+    plt.grid(True, alpha=0.3)
+    plt.tight_layout()
+    plt.savefig('prediction_results.png', dpi=300, bbox_inches='tight')
+    plt.close()
+    
+    # 3. 모델별 성능 비교 차트
+    models_list = list(results.keys())
+    mae_values = [results[model]['mae_original'] for model in models_list]
+    r2_values = [results[model]['r2'] for model in models_list]
+    
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(15, 6))
+    
+    # MAE 비교
+    ax1.bar(models_list, mae_values, color=['blue', 'green', 'red', 'orange', 'darkred'])
+    ax1.set_title('모델별 MAE 비교 (낮을수록 좋음)', fontsize=14)
+    ax1.set_ylabel('MAE (원본 스케일)', fontsize=12)
+    ax1.set_xlabel('모델', fontsize=12)
+    
+    # 값 표시
+    for i, v in enumerate(mae_values):
+        ax1.text(i, v + 0.5, f'{v:.1f}', ha='center', va='bottom')
+    
+    # R² 비교
+    ax2.bar(models_list, r2_values, color=['blue', 'green', 'red', 'orange', 'darkred'])
+    ax2.set_title('모델별 R² 비교 (높을수록 좋음)', fontsize=14)
+    ax2.set_ylabel('R² Score', fontsize=12)
+    ax2.set_xlabel('모델', fontsize=12)
+    ax2.set_ylim(0, 1)
+    
+    # 값 표시
+    for i, v in enumerate(r2_values):
+        ax2.text(i, v + 0.01, f'{v:.3f}', ha='center', va='bottom')
+    
+    plt.tight_layout()
+    plt.savefig('model_comparison.png', dpi=300, bbox_inches='tight')
+    plt.close()
+    
+    # ===================================
+    # 18. 병목 구간 예측
+    # ===================================
+    
+    logger.info("\n" + "="*60)
+    logger.info("병목 구간 예측 분석")
+    logger.info("="*60)
+    
+    # 병목 임계값 설정 (상위 15%)
+    bottleneck_threshold = np.percentile(Modified_Data['TOTALCNT'], 85)
+    logger.info(f"병목 임계값: {bottleneck_threshold:.0f}")
+    
+    # 예측값에서 병목 구간 찾기
+    ensemble_original_full = sscaler.inverse_transform(
+        np.column_stack([ensemble_pred] + [np.zeros_like(ensemble_pred)] * (len(scaled_list) - 1))
+    )[:, 0]
+    
+    bottleneck_predictions = ensemble_original_full > bottleneck_threshold
+    bottleneck_count = np.sum(bottleneck_predictions)
+    bottleneck_ratio = bottleneck_count / len(bottleneck_predictions) * 100
+    
+    logger.info(f"예측된 병목 구간: {bottleneck_count}개 ({bottleneck_ratio:.1f}%)")
+    
+    # 병목 구간 시각화
+    plt.figure(figsize=(20, 8))
+    
+    # 실제값과 예측값
+    y_test_original_full = sscaler.inverse_transform(
+        np.column_stack([y_test] + [np.zeros_like(y_test)] * (len(scaled_list) - 1))
+    )[:, 0]
+    
+    plt.subplot(2, 1, 1)
+    plt.plot(y_test_original_full[:500], label='실제 물류량', color='blue')
+    plt.axhline(y=bottleneck_threshold, color='red', linestyle='--', label=f'병목 임계값 ({bottleneck_threshold:.0f})')
+    plt.title('실제 물류량 및 병목 구간', fontsize=14)
+    plt.ylabel('물류량', fontsize=12)
+    plt.legend()
+    plt.grid(True, alpha=0.3)
+    
+    plt.subplot(2, 1, 2)
+    plt.plot(ensemble_original_full[:500], label='예측 물류량', color='green')
+    plt.axhline(y=bottleneck_threshold, color='red', linestyle='--', label=f'병목 임계값 ({bottleneck_threshold:.0f})')
+    
+    # 병목 구간 하이라이트
+    bottleneck_indices = np.where(bottleneck_predictions[:500])[0]
+    if len(bottleneck_indices) > 0:
+        plt.scatter(bottleneck_indices, ensemble_original_full[bottleneck_indices], 
+                    color='red', s=30, label='예측된 병목', zorder=5)
+    
+    plt.title('예측 물류량 및 병목 구간 감지', fontsize=14)
+    plt.xlabel('시간 (분)', fontsize=12)
+    plt.ylabel('물류량', fontsize=12)
+    plt.legend()
+    plt.grid(True, alpha=0.3)
+    
+    plt.tight_layout()
+    plt.savefig('bottleneck_detection.png', dpi=300, bbox_inches='tight')
+    plt.close()
+    
+    # ===================================
+    # 19. 모델 및 결과 저장
+    # ===================================
+    
+    logger.info("\n" + "="*60)
+    logger.info("모델 및 결과 저장")
+    logger.info("="*60)
+    
+    # 저장 디렉토리 생성
+    os.makedirs('model', exist_ok=True)
+    os.makedirs('scaler', exist_ok=True)
+    os.makedirs('results', exist_ok=True)
+    
+    # 1. 딥러닝 모델 저장
+    for model_name, model in hybrid_models.models.items():
+        model_path = f'model/{model_name}_final_hybrid.keras'
+        model.save(model_path)
+        logger.info(f"{model_name.upper()} 모델 저장: {model_path}")
+    
+    # 2. ARIMA 모델 저장
+    if arima_fitted is not None:
+        arima_path = 'model/arima_model.pkl'
+        joblib.dump(arima_fitted, arima_path)
+        logger.info(f"ARIMA 모델 저장: {arima_path}")
+    
+    # 3. 스케일러 저장
+    scaler_path = 'scaler/standard_scaler_hybrid.pkl'
+    joblib.dump(sscaler, scaler_path)
+    logger.info(f"스케일러 저장: {scaler_path}")
+    
+    # 4. 성능 결과 저장
+    results_df = pd.DataFrame(results).T
+    results_df.to_csv('results/model_performance.csv')
+    logger.info("성능 결과 저장: results/model_performance.csv")
+    
+    # 5. 학습 설정 저장
+    config = {
+        'seq_length': 30,
+        'future_minutes': 10,
+        'epochs': EPOCHS,
+        'batch_size': BATCH_SIZE,
+        'learning_rate': LEARNING_RATE,
+        'input_features': input_features,
+        'scaled_columns': scaled_list,
+        'train_size': train_size,
+        'val_size': val_size,
+        'test_size': len(X_test),
+        'bottleneck_threshold': float(bottleneck_threshold),
+        'model_weights': {
+            'lstm': 0.3,
+            'gru': 0.25,
+            'rnn': 0.15,
+            'bi_lstm': 0.3
+        }
+    }
+    
+    with open('results/training_config.json', 'w') as f:
+        json.dump(config, f, indent=4)
+    logger.info("학습 설정 저장: results/training_config.json")
+    
+    # ===================================
+    # 20. 최종 요약
+    # ===================================
+    
+    logger.info("\n" + "="*60)
+    logger.info("학습 완료 요약")
+    logger.info("="*60)
+    
+    # 최고 성능 모델 찾기
+    best_model = min(results.items(), key=lambda x: x[1]['mae_original'])
+    logger.info(f"\n최고 성능 모델: {best_model[0].upper()}")
+    logger.info(f"  - MAE: {best_model[1]['mae_original']:.2f}")
+    logger.info(f"  - R²: {best_model[1]['r2']:.4f}")
+    
+    # 앙상블 성능
+    logger.info(f"\n앙상블 모델 성능:")
+    logger.info(f"  - MAE: {results['ensemble']['mae_original']:.2f}")
+    logger.info(f"  - R²: {results['ensemble']['r2']:.4f}")
+    
+    # 병목 예측 정확도
+    actual_bottlenecks = y_test_original_full > bottleneck_threshold
+    bottleneck_accuracy = np.mean(bottleneck_predictions == actual_bottlenecks) * 100
+    logger.info(f"\n병목 구간 예측 정확도: {bottleneck_accuracy:.1f}%")
+    
+    # 체크포인트 정리
+    state = checkpoint_manager.load_state()
+    state['training_completed'] = True
+    state['completion_time'] = datetime.now().isoformat()
+    state['final_results'] = {k: {kk: float(vv) for kk, vv in v.items()} for k, v in results.items()}
+    checkpoint_manager.save_state(state)
+    
+    logger.info("\n" + "="*60)
+    logger.info("모든 작업이 완료되었습니다!")
+    logger.info("체크포인트는 checkpoints/ 폴더에 저장되어 있습니다.")
+    logger.info("="*60)
 
 # ===================================
 # 5. 실행
