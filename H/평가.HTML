@@ -193,7 +193,7 @@
         }
         
         .bar {
-            width: 80px;
+            width: 70px;
             background: linear-gradient(to top, #2a5298, #4a7fd8);
             border-radius: 5px 5px 0 0;
             position: relative;
@@ -211,6 +211,7 @@
             transform: translateX(-50%);
             font-size: 14px;
             font-weight: bold;
+            white-space: nowrap;
         }
         
         .bar-value {
@@ -220,6 +221,38 @@
             transform: translateX(-50%);
             font-weight: bold;
             color: #1e3c72;
+        }
+        
+        /* 모델 특징 비교 */
+        .model-comparison {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 20px;
+            margin-top: 30px;
+        }
+        
+        .model-card {
+            background: #fff;
+            border: 2px solid #e0e0e0;
+            border-radius: 10px;
+            padding: 20px;
+            text-align: center;
+            transition: all 0.3s;
+        }
+        
+        .model-card:hover {
+            border-color: #2a5298;
+            box-shadow: 0 5px 15px rgba(0,0,0,0.1);
+        }
+        
+        .model-card h4 {
+            color: #1e3c72;
+            margin-bottom: 10px;
+        }
+        
+        .model-card .model-icon {
+            font-size: 36px;
+            margin-bottom: 10px;
         }
         
         /* 이점 섹션 */
@@ -341,7 +374,7 @@
                 <div class="process-step">
                     <div class="process-number">2</div>
                     <h4>패턴 분석</h4>
-                    <p>4단계 딥러닝<br>분석</p>
+                    <p>5가지 딥러닝<br>모델 분석</p>
                 </div>
                 <div class="process-step">
                     <div class="process-number">3</div>
@@ -378,13 +411,13 @@
                     </tr>
                 </thead>
                 <tbody>
-                    <tr>
+                    <tr style="background: #e8f5e9;">
                         <td><strong>RNN 모델</strong></td>
-                        <td>75.0%</td>
+                        <td><strong>75.0%</strong></td>
                         <td class="grade-b">B (좋음)</td>
-                        <td>4.55%</td>
-                        <td>91.9%</td>
-                        <td>74.9%</td>
+                        <td><strong>4.55%</strong></td>
+                        <td><strong>91.9%</strong></td>
+                        <td><strong>74.9%</strong></td>
                     </tr>
                     <tr>
                         <td><strong>앙상블 모델</strong></td>
@@ -410,6 +443,14 @@
                         <td>90.7%</td>
                         <td>71.9%</td>
                     </tr>
+                    <tr>
+                        <td><strong>Bi-LSTM 모델</strong></td>
+                        <td>72.8%</td>
+                        <td class="grade-c">C+ (양호)</td>
+                        <td>4.74%</td>
+                        <td>90.4%</td>
+                        <td>72.5%</td>
+                    </tr>
                 </tbody>
             </table>
             
@@ -432,6 +473,49 @@
                         <span class="bar-value">73.2%</span>
                         <span class="bar-label">LSTM</span>
                     </div>
+                    <div class="bar" style="height: 72.8%;">
+                        <span class="bar-value">72.8%</span>
+                        <span class="bar-label">Bi-LSTM</span>
+                    </div>
+                </div>
+            </div>
+            
+            <h3>모델별 특징 비교</h3>
+            <div class="model-comparison">
+                <div class="model-card">
+                    <div class="model-icon">🏆</div>
+                    <h4>RNN (최우수)</h4>
+                    <p>• 단순하지만 효과적<br>
+                    • 2층 구조 (100→50)<br>
+                    • 빠른 학습 속도</p>
+                </div>
+                <div class="model-card">
+                    <div class="model-icon">🎯</div>
+                    <h4>앙상블</h4>
+                    <p>• 모든 모델 통합<br>
+                    • 가중 평균 예측<br>
+                    • 안정적인 성능</p>
+                </div>
+                <div class="model-card">
+                    <div class="model-icon">⚡</div>
+                    <h4>GRU</h4>
+                    <p>• LSTM 간소화 버전<br>
+                    • 3층 구조<br>
+                    • 효율적인 연산</p>
+                </div>
+                <div class="model-card">
+                    <div class="model-icon">🧠</div>
+                    <h4>LSTM</h4>
+                    <p>• 깊은 4층 구조<br>
+                    • 각층 100유닛<br>
+                    • 장기 의존성 학습</p>
+                </div>
+                <div class="model-card">
+                    <div class="model-icon">🔄</div>
+                    <h4>Bi-LSTM</h4>
+                    <p>• 양방향 정보 처리<br>
+                    • 2층 × 50유닛 × 2방향<br>
+                    • 복잡한 패턴 포착</p>
                 </div>
             </div>
         </section>
