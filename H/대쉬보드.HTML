@@ -1,0 +1,689 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>H.PY 하이브리드 물류 예측 시스템</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #0a0e27;
+            color: #fff;
+            line-height: 1.6;
+        }
+        
+        /* 헤더 */
+        .header {
+            background: linear-gradient(90deg, #1a1f3a 0%, #2d3561 100%);
+            padding: 20px;
+            border-bottom: 2px solid #3b82f6;
+        }
+        
+        .header-content {
+            max-width: 1400px;
+            margin: 0 auto;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        
+        .logo {
+            font-size: 28px;
+            font-weight: bold;
+            background: linear-gradient(90deg, #3b82f6, #8b5cf6);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+        
+        .live-time {
+            font-size: 18px;
+            color: #94a3b8;
+        }
+        
+        /* 메인 컨테이너 */
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        
+        /* 병목 알림 */
+        .alert {
+            background: linear-gradient(90deg, #dc2626, #ef4444);
+            padding: 15px 25px;
+            border-radius: 10px;
+            margin-bottom: 25px;
+            display: flex;
+            align-items: center;
+            gap: 15px;
+            box-shadow: 0 4px 20px rgba(239, 68, 68, 0.3);
+            animation: alertPulse 2s infinite;
+        }
+        
+        @keyframes alertPulse {
+            0%, 100% { transform: scale(1); }
+            50% { transform: scale(1.02); }
+        }
+        
+        .alert-icon {
+            font-size: 30px;
+            animation: blink 1s infinite;
+        }
+        
+        @keyframes blink {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.3; }
+        }
+        
+        /* 핵심 지표 */
+        .metrics {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+            gap: 20px;
+            margin-bottom: 30px;
+        }
+        
+        .metric-card {
+            background: #1a1f3a;
+            border: 1px solid #2d3561;
+            padding: 25px;
+            border-radius: 15px;
+            position: relative;
+            overflow: hidden;
+            transition: all 0.3s ease;
+        }
+        
+        .metric-card::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 3px;
+            background: linear-gradient(90deg, #3b82f6, #8b5cf6);
+        }
+        
+        .metric-card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 10px 30px rgba(59, 130, 246, 0.2);
+        }
+        
+        .metric-label {
+            font-size: 14px;
+            color: #64748b;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            margin-bottom: 10px;
+        }
+        
+        .metric-value {
+            font-size: 42px;
+            font-weight: bold;
+            margin-bottom: 10px;
+        }
+        
+        .metric-change {
+            font-size: 16px;
+            display: flex;
+            align-items: center;
+            gap: 5px;
+        }
+        
+        .positive { color: #22c55e; }
+        .negative { color: #ef4444; }
+        .warning { color: #f59e0b; }
+        
+        /* 차트 섹션 */
+        .chart-section {
+            background: #1a1f3a;
+            border: 1px solid #2d3561;
+            padding: 30px;
+            border-radius: 15px;
+            margin-bottom: 30px;
+        }
+        
+        .section-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 25px;
+        }
+        
+        .section-title {
+            font-size: 24px;
+            font-weight: bold;
+        }
+        
+        /* 모델 선택 */
+        .model-selector {
+            display: flex;
+            gap: 10px;
+        }
+        
+        .model-btn {
+            padding: 8px 20px;
+            border: 1px solid #3b82f6;
+            background: transparent;
+            color: #3b82f6;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            font-size: 14px;
+        }
+        
+        .model-btn.active {
+            background: #3b82f6;
+            color: white;
+        }
+        
+        /* 간단한 차트 */
+        .simple-chart {
+            position: relative;
+            height: 300px;
+            background: #0a0e27;
+            border-radius: 10px;
+            padding: 20px;
+            overflow: hidden;
+        }
+        
+        .chart-bars {
+            display: flex;
+            align-items: flex-end;
+            justify-content: space-around;
+            height: 250px;
+            position: relative;
+        }
+        
+        .chart-bar {
+            width: 40px;
+            background: #3b82f6;
+            border-radius: 5px 5px 0 0;
+            position: relative;
+            transition: all 0.3s ease;
+        }
+        
+        .chart-bar:hover {
+            background: #60a5fa;
+        }
+        
+        .chart-bar.prediction {
+            background: #22c55e;
+            opacity: 0.8;
+        }
+        
+        .chart-bar-label {
+            position: absolute;
+            bottom: -25px;
+            left: 50%;
+            transform: translateX(-50%);
+            font-size: 12px;
+            color: #94a3b8;
+            white-space: nowrap;
+        }
+        
+        .chart-bar-value {
+            position: absolute;
+            top: -25px;
+            left: 50%;
+            transform: translateX(-50%);
+            font-size: 14px;
+            font-weight: bold;
+            color: #fff;
+        }
+        
+        .threshold-line {
+            position: absolute;
+            left: 0;
+            right: 0;
+            height: 2px;
+            background: #ef4444;
+            border-top: 2px dashed #ef4444;
+            bottom: 40%;
+        }
+        
+        .threshold-label {
+            position: absolute;
+            right: 10px;
+            bottom: 42%;
+            background: #ef4444;
+            color: white;
+            padding: 2px 8px;
+            border-radius: 4px;
+            font-size: 12px;
+        }
+        
+        /* 모델 비교 테이블 */
+        .comparison-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 20px;
+        }
+        
+        .comparison-table th {
+            background: #2d3561;
+            padding: 15px;
+            text-align: left;
+            font-size: 14px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+        
+        .comparison-table td {
+            padding: 15px;
+            border-bottom: 1px solid #2d3561;
+            font-size: 16px;
+        }
+        
+        .comparison-table tr:hover {
+            background: rgba(59, 130, 246, 0.1);
+        }
+        
+        .model-name {
+            font-weight: bold;
+            color: #3b82f6;
+        }
+        
+        .confidence-bar {
+            width: 120px;
+            height: 8px;
+            background: #2d3561;
+            border-radius: 4px;
+            overflow: hidden;
+            display: inline-block;
+            margin-right: 10px;
+        }
+        
+        .confidence-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #22c55e, #3b82f6);
+            transition: width 0.5s ease;
+        }
+        
+        /* 라우트 모니터링 */
+        .routes-section {
+            background: #1a1f3a;
+            border: 1px solid #2d3561;
+            padding: 30px;
+            border-radius: 15px;
+        }
+        
+        .routes-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+            margin-top: 20px;
+        }
+        
+        .route-card {
+            background: #0a0e27;
+            padding: 20px;
+            border-radius: 10px;
+            text-align: center;
+            border: 2px solid #2d3561;
+            transition: all 0.3s ease;
+        }
+        
+        .route-card.danger {
+            border-color: #ef4444;
+            background: rgba(239, 68, 68, 0.1);
+        }
+        
+        .route-card.warning {
+            border-color: #f59e0b;
+            background: rgba(245, 158, 11, 0.1);
+        }
+        
+        .route-name {
+            font-size: 18px;
+            font-weight: bold;
+            margin-bottom: 10px;
+        }
+        
+        .route-current {
+            font-size: 32px;
+            font-weight: bold;
+            margin-bottom: 5px;
+        }
+        
+        .route-prediction {
+            font-size: 14px;
+            color: #94a3b8;
+        }
+        
+        /* 설명 박스 */
+        .info-box {
+            background: linear-gradient(135deg, #1e293b, #334155);
+            border: 1px solid #3b82f6;
+            padding: 25px;
+            border-radius: 15px;
+            margin-top: 30px;
+        }
+        
+        .info-title {
+            font-size: 20px;
+            color: #3b82f6;
+            margin-bottom: 15px;
+            font-weight: bold;
+        }
+        
+        .info-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 20px;
+        }
+        
+        .info-item {
+            padding: 15px;
+            background: rgba(59, 130, 246, 0.1);
+            border-radius: 10px;
+        }
+        
+        .info-item h4 {
+            color: #3b82f6;
+            margin-bottom: 8px;
+            font-size: 18px;
+        }
+        
+        .info-item p {
+            color: #e2e8f0;
+            line-height: 1.6;
+        }
+    </style>
+</head>
+<body>
+    <!-- 헤더 -->
+    <div class="header">
+        <div class="header-content">
+            <h1 class="logo">H.PY 하이브리드 물류 예측 시스템</h1>
+            <div class="live-time" id="currentTime">2024-11-07 14:32:45</div>
+        </div>
+    </div>
+    
+    <div class="container">
+        <!-- 병목 알림 -->
+        <div class="alert">
+            <span class="alert-icon">🚨</span>
+            <div>
+                <strong style="font-size: 20px;">병목 구간 예측!</strong><br>
+                10분 후 M14A→M10A 구간 병목 예상 (예측 정확도: 87%)
+            </div>
+        </div>
+        
+        <!-- 핵심 지표 -->
+        <div class="metrics">
+            <div class="metric-card">
+                <div class="metric-label">현재 총 물류량</div>
+                <div class="metric-value positive">1,234</div>
+                <div class="metric-change positive">
+                    <span>▲</span> 5.2% (전시간 대비)
+                </div>
+            </div>
+            
+            <div class="metric-card">
+                <div class="metric-label">10분 후 예측량</div>
+                <div class="metric-value warning">1,485</div>
+                <div class="metric-change">
+                    앙상블 예측 (5개 모델)
+                </div>
+            </div>
+            
+            <div class="metric-card">
+                <div class="metric-label">병목 위험도</div>
+                <div class="metric-value negative">HIGH</div>
+                <div class="metric-change negative">
+                    임계값 1,450 초과 예상
+                </div>
+            </div>
+            
+            <div class="metric-card">
+                <div class="metric-label">예측 정확도</div>
+                <div class="metric-value positive">94.5%</div>
+                <div class="metric-change">
+                    MAE: 35-45 (개선됨)
+                </div>
+            </div>
+        </div>
+        
+        <!-- 예측 차트 -->
+        <div class="chart-section">
+            <div class="section-header">
+                <h2 class="section-title">실시간 물류량 예측</h2>
+                <div class="model-selector">
+                    <button class="model-btn active" onclick="updateChart('ensemble')">앙상블</button>
+                    <button class="model-btn" onclick="updateChart('lstm')">LSTM</button>
+                    <button class="model-btn" onclick="updateChart('gru')">GRU</button>
+                    <button class="model-btn" onclick="updateChart('bilstm')">Bi-LSTM</button>
+                    <button class="model-btn" onclick="updateChart('rnn')">RNN</button>
+                </div>
+            </div>
+            <div class="simple-chart">
+                <div class="chart-bars" id="chartBars">
+                    <div class="threshold-line"></div>
+                    <div class="threshold-label">병목 임계값: 1,450</div>
+                    
+                    <div class="chart-bar" style="height: 70%">
+                        <div class="chart-bar-value">1,180</div>
+                        <div class="chart-bar-label">-30분</div>
+                    </div>
+                    <div class="chart-bar" style="height: 75%">
+                        <div class="chart-bar-value">1,200</div>
+                        <div class="chart-bar-label">-20분</div>
+                    </div>
+                    <div class="chart-bar" style="height: 78%">
+                        <div class="chart-bar-value">1,210</div>
+                        <div class="chart-bar-label">-10분</div>
+                    </div>
+                    <div class="chart-bar" style="height: 82%">
+                        <div class="chart-bar-value">1,234</div>
+                        <div class="chart-bar-label">현재</div>
+                    </div>
+                    <div class="chart-bar prediction" style="height: 88%">
+                        <div class="chart-bar-value">1,380</div>
+                        <div class="chart-bar-label">+5분</div>
+                    </div>
+                    <div class="chart-bar prediction" style="height: 95%">
+                        <div class="chart-bar-value">1,485</div>
+                        <div class="chart-bar-label">+10분</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- 모델 성능 비교 -->
+        <div class="chart-section">
+            <h2 class="section-title">5개 AI 모델 성능 비교</h2>
+            <table class="comparison-table">
+                <thead>
+                    <tr>
+                        <th>모델</th>
+                        <th>10분 후 예측</th>
+                        <th>MAE</th>
+                        <th>가중치</th>
+                        <th>신뢰도</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td class="model-name">앙상블 (최종)</td>
+                        <td style="color: #22c55e; font-size: 20px; font-weight: bold;">1,485</td>
+                        <td>32.5</td>
+                        <td>통합</td>
+                        <td>
+                            <span class="confidence-bar">
+                                <span class="confidence-fill" style="width: 94%"></span>
+                            </span>
+                            94%
+                        </td>
+                    </tr>
+                    <tr>
+                        <td class="model-name">LSTM</td>
+                        <td>1,478</td>
+                        <td>35.2</td>
+                        <td>30%</td>
+                        <td>
+                            <span class="confidence-bar">
+                                <span class="confidence-fill" style="width: 91%"></span>
+                            </span>
+                            91%
+                        </td>
+                    </tr>
+                    <tr>
+                        <td class="model-name">GRU</td>
+                        <td>1,492</td>
+                        <td>36.8</td>
+                        <td>25%</td>
+                        <td>
+                            <span class="confidence-bar">
+                                <span class="confidence-fill" style="width: 89%"></span>
+                            </span>
+                            89%
+                        </td>
+                    </tr>
+                    <tr>
+                        <td class="model-name">Bi-LSTM</td>
+                        <td>1,481</td>
+                        <td>34.9</td>
+                        <td>30%</td>
+                        <td>
+                            <span class="confidence-bar">
+                                <span class="confidence-fill" style="width: 92%"></span>
+                            </span>
+                            92%
+                        </td>
+                    </tr>
+                    <tr>
+                        <td class="model-name">RNN</td>
+                        <td>1,498</td>
+                        <td>42.1</td>
+                        <td>15%</td>
+                        <td>
+                            <span class="confidence-bar">
+                                <span class="confidence-fill" style="width: 85%"></span>
+                            </span>
+                            85%
+                        </td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+        
+        <!-- 라우트별 모니터링 -->
+        <div class="routes-section">
+            <h2 class="section-title" style="margin-bottom: 0;">팹 간 라우트 실시간 모니터링</h2>
+            <div class="routes-grid">
+                <div class="route-card danger">
+                    <div class="route-name">M14A → M10A</div>
+                    <div class="route-current" style="color: #ef4444;">156</div>
+                    <div class="route-prediction">10분 후: 185 🚨</div>
+                </div>
+                <div class="route-card warning">
+                    <div class="route-name">M14A → M14B</div>
+                    <div class="route-current" style="color: #f59e0b;">142</div>
+                    <div class="route-prediction">10분 후: 158 ⚠️</div>
+                </div>
+                <div class="route-card">
+                    <div class="route-name">M14A → M16</div>
+                    <div class="route-current" style="color: #22c55e;">98</div>
+                    <div class="route-prediction">10분 후: 102 ✅</div>
+                </div>
+                <div class="route-card">
+                    <div class="route-name">M16 → M14A</div>
+                    <div class="route-current" style="color: #22c55e;">95</div>
+                    <div class="route-prediction">10분 후: 97 ✅</div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- 시스템 설명 -->
+        <div class="info-box">
+            <h3 class="info-title">🎯 H.PY 하이브리드 시스템 핵심 특징</h3>
+            <div class="info-grid">
+                <div class="info-item">
+                    <h4>25-30% 예측 정확도 향상</h4>
+                    <p>기존 단일 LSTM (MAE 50-60) 대비 앙상블 모델 (MAE 35-45)로 대폭 개선. 5개 모델의 장점을 결합하여 안정적인 예측 성능 확보</p>
+                </div>
+                <div class="info-item">
+                    <h4>실시간 병목 구간 예측</h4>
+                    <p>10분 전 병목 구간을 85-90% 정확도로 예측. 상위 15% 임계값 자동 설정으로 사전 대응 가능. PM 기간 특별 처리로 정확도 향상</p>
+                </div>
+                <div class="info-item">
+                    <h4>10+ 특징 엔지니어링</h4>
+                    <p>이동평균(MA_5,10,30), 변동성(STD_5,10), 시간패턴(hour, dayofweek), 변화율 등 도메인 지식 기반 파생변수로 예측력 극대화</p>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <script>
+        // 현재 시간 업데이트
+        function updateTime() {
+            const now = new Date();
+            document.getElementById('currentTime').textContent = 
+                now.toLocaleString('ko-KR', { 
+                    year: 'numeric', 
+                    month: '2-digit', 
+                    day: '2-digit', 
+                    hour: '2-digit', 
+                    minute: '2-digit', 
+                    second: '2-digit' 
+                });
+        }
+        setInterval(updateTime, 1000);
+        updateTime();
+        
+        // 모델별 예측값 데이터
+        const modelData = {
+            ensemble: [1180, 1200, 1210, 1234, 1380, 1485],
+            lstm: [1180, 1200, 1210, 1234, 1370, 1478],
+            gru: [1180, 1200, 1210, 1234, 1385, 1492],
+            bilstm: [1180, 1200, 1210, 1234, 1375, 1481],
+            rnn: [1180, 1200, 1210, 1234, 1390, 1498]
+        };
+        
+        // 차트 업데이트 함수
+        function updateChart(model) {
+            // 버튼 활성화 상태 변경
+            document.querySelectorAll('.model-btn').forEach(btn => {
+                btn.classList.remove('active');
+            });
+            event.target.classList.add('active');
+            
+            // 차트 데이터 업데이트
+            const data = modelData[model];
+            const bars = document.querySelectorAll('.chart-bar');
+            
+            bars.forEach((bar, index) => {
+                const value = data[index];
+                const maxValue = 1600;
+                const height = (value / maxValue) * 100;
+                
+                bar.style.height = height + '%';
+                bar.querySelector('.chart-bar-value').textContent = value;
+                
+                // 애니메이션 효과
+                bar.style.transition = 'height 0.5s ease';
+            });
+        }
+        
+        // 실시간 데이터 업데이트 시뮬레이션
+        function updateMetrics() {
+            // 현재 물류량 업데이트
+            const currentVolume = 1200 + Math.floor(Math.random() * 100);
+            document.querySelector('.metrics .metric-value').textContent = currentVolume.toLocaleString();
+            
+            // 예측량 업데이트
+            const predictedVolume = currentVolume + Math.floor(Math.random() * 200) + 100;
+            document.querySelectorAll('.metrics .metric-value')[1].textContent = predictedVolume.toLocaleString();
+        }
+        
+        // 10초마다 메트릭 업데이트
+        setInterval(updateMetrics, 10000);
+    </script>
+</body>
+</html>
