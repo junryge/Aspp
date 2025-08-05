@@ -1,0 +1,467 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>반도체 물류 예측 AI - 수학적 모델링</title>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@300;400;700&display=swap');
+        
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Noto Sans KR', sans-serif;
+            line-height: 1.8;
+            color: #2c3e50;
+            background: #ffffff;
+            padding: 40px;
+            max-width: 1000px;
+            margin: 0 auto;
+        }
+        
+        h1 {
+            color: #1a237e;
+            font-size: 36px;
+            text-align: center;
+            margin-bottom: 20px;
+            padding-bottom: 20px;
+            border-bottom: 3px solid #1a237e;
+        }
+        
+        h2 {
+            color: #283593;
+            font-size: 28px;
+            margin-top: 40px;
+            margin-bottom: 20px;
+            padding: 10px;
+            background: #e8eaf6;
+            border-left: 5px solid #3f51b5;
+        }
+        
+        h3 {
+            color: #3949ab;
+            font-size: 22px;
+            margin-top: 30px;
+            margin-bottom: 15px;
+        }
+        
+        .formula-container {
+            background: #f5f5f5;
+            border: 2px solid #e0e0e0;
+            border-radius: 8px;
+            padding: 20px;
+            margin: 20px 0;
+            font-family: 'Courier New', monospace;
+            font-size: 14px;
+            overflow-x: auto;
+        }
+        
+        .formula-title {
+            font-family: 'Noto Sans KR', sans-serif;
+            font-weight: bold;
+            color: #1a237e;
+            margin-bottom: 10px;
+            font-size: 16px;
+        }
+        
+        .math-notation {
+            background: #fff3e0;
+            padding: 15px;
+            border-left: 4px solid #ff9800;
+            margin: 15px 0;
+        }
+        
+        .parameter-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 20px 0;
+        }
+        
+        .parameter-table th,
+        .parameter-table td {
+            border: 1px solid #ddd;
+            padding: 12px;
+            text-align: left;
+        }
+        
+        .parameter-table th {
+            background: #3f51b5;
+            color: white;
+            font-weight: 600;
+        }
+        
+        .parameter-table tr:nth-child(even) {
+            background: #f5f5f5;
+        }
+        
+        .network-diagram {
+            background: #e3f2fd;
+            padding: 20px;
+            border-radius: 8px;
+            margin: 20px 0;
+            text-align: center;
+        }
+        
+        .layer-box {
+            background: white;
+            border: 2px solid #2196f3;
+            padding: 15px;
+            margin: 10px auto;
+            border-radius: 8px;
+            max-width: 600px;
+        }
+        
+        .arrow {
+            font-size: 24px;
+            color: #2196f3;
+            margin: 10px 0;
+        }
+        
+        .implementation-note {
+            background: #e8f5e9;
+            border: 1px solid #4caf50;
+            padding: 15px;
+            margin: 20px 0;
+            border-radius: 5px;
+        }
+        
+        .complexity-box {
+            background: #fce4ec;
+            border: 1px solid #e91e63;
+            padding: 15px;
+            margin: 20px 0;
+            border-radius: 5px;
+        }
+        
+        @media print {
+            body {
+                padding: 20px;
+            }
+            .formula-container {
+                page-break-inside: avoid;
+            }
+        }
+    </style>
+    <script src="https://polyfill.io/v3/polyfill.min.js?features=es6"></script>
+    <script id="MathJax-script" async src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
+</head>
+<body>
+    <h1>반도체 물류 예측 AI 시스템<br>수학적 모델링 및 알고리즘 구조</h1>
+    
+    <h2>1. 문제 정의 및 수학적 표현</h2>
+    
+    <h3>1.1 시계열 예측 문제</h3>
+    <div class="formula-container">
+        <div class="formula-title">문제 정의</div>
+        <pre>
+주어진 시계열 데이터: {x₁, x₂, ..., xₜ}
+목표: xₜ₊₁₀ 예측 (10분 후 물류량)
+
+여기서:
+- xₜ ∈ ℝ : 시간 t에서의 물류량 (TOTALCNT)
+- t : 분 단위 시간 인덱스
+- 입력 시퀀스 길이: 30 (30분간의 데이터)
+        </pre>
+    </div>
+    
+    <h3>1.2 입출력 구조</h3>
+    <div class="formula-container">
+        <div class="formula-title">수학적 표현</div>
+        <pre>
+입력 텐서: X ∈ ℝⁿˣᵐˣᵈ
+- n: 배치 크기
+- m: 시퀀스 길이 (30)
+- d: 특징 차원 (1)
+
+출력: y ∈ ℝⁿˣ¹
+- 10분 후 예측값
+        </pre>
+    </div>
+    
+    <h2>2. LSTM (Long Short-Term Memory) 수식</h2>
+    
+    <h3>2.1 LSTM 셀 구조</h3>
+    <div class="formula-container">
+        <div class="formula-title">LSTM 게이트 방정식</div>
+        <pre>
+잊기 게이트 (Forget Gate):
+fₜ = σ(Wf · [hₜ₋₁, xₜ] + bf)
+
+입력 게이트 (Input Gate):
+iₜ = σ(Wi · [hₜ₋₁, xₜ] + bi)
+
+후보 셀 상태 (Candidate Cell State):
+C̃ₜ = tanh(WC · [hₜ₋₁, xₜ] + bC)
+
+셀 상태 업데이트 (Cell State Update):
+Cₜ = fₜ ⊙ Cₜ₋₁ + iₜ ⊙ C̃ₜ
+
+출력 게이트 (Output Gate):
+oₜ = σ(Wo · [hₜ₋₁, xₜ] + bo)
+
+히든 상태 (Hidden State):
+hₜ = oₜ ⊙ tanh(Cₜ)
+        </pre>
+    </div>
+    
+    <div class="math-notation">
+        <strong>표기법:</strong><br>
+        • σ: 시그모이드 함수, σ(x) = 1/(1 + e⁻ˣ)<br>
+        • tanh: 하이퍼볼릭 탄젠트 함수<br>
+        • ⊙: 요소별 곱셈 (Hadamard product)<br>
+        • [a, b]: 벡터 연결 (concatenation)
+    </div>
+    
+    <h3>2.2 파라미터 차원</h3>
+    <table class="parameter-table">
+        <tr>
+            <th>파라미터</th>
+            <th>차원</th>
+            <th>설명</th>
+            <th>실제 크기</th>
+        </tr>
+        <tr>
+            <td>Wf, Wi, WC, Wo</td>
+            <td>(hidden_size, input_size + hidden_size)</td>
+            <td>게이트 가중치 행렬</td>
+            <td>(100, 101)</td>
+        </tr>
+        <tr>
+            <td>bf, bi, bC, bo</td>
+            <td>(hidden_size,)</td>
+            <td>게이트 편향 벡터</td>
+            <td>(100,)</td>
+        </tr>
+        <tr>
+            <td>hₜ</td>
+            <td>(batch_size, hidden_size)</td>
+            <td>히든 상태</td>
+            <td>(64, 100)</td>
+        </tr>
+        <tr>
+            <td>Cₜ</td>
+            <td>(batch_size, hidden_size)</td>
+            <td>셀 상태</td>
+            <td>(64, 100)</td>
+        </tr>
+    </table>
+    
+    <h2>3. 다층 LSTM 네트워크 구조</h2>
+    
+    <div class="network-diagram">
+        <h3>4층 LSTM 아키텍처</h3>
+        
+        <div class="layer-box">
+            <strong>입력층</strong><br>
+            X ∈ ℝ⁶⁴ˣ³⁰ˣ¹<br>
+            (배치=64, 시퀀스=30, 특징=1)
+        </div>
+        
+        <div class="arrow">↓</div>
+        
+        <div class="layer-box">
+            <strong>LSTM Layer 1</strong><br>
+            h¹ = LSTM(X, W₁, b₁)<br>
+            출력: ℝ⁶⁴ˣ³⁰ˣ¹⁰⁰<br>
+            Dropout(0.2)
+        </div>
+        
+        <div class="arrow">↓</div>
+        
+        <div class="layer-box">
+            <strong>LSTM Layer 2</strong><br>
+            h² = LSTM(h¹, W₂, b₂)<br>
+            출력: ℝ⁶⁴ˣ³⁰ˣ¹⁰⁰<br>
+            Dropout(0.2)
+        </div>
+        
+        <div class="arrow">↓</div>
+        
+        <div class="layer-box">
+            <strong>LSTM Layer 3</strong><br>
+            h³ = LSTM(h², W₃, b₃)<br>
+            출력: ℝ⁶⁴ˣ³⁰ˣ¹⁰⁰<br>
+            Dropout(0.2)
+        </div>
+        
+        <div class="arrow">↓</div>
+        
+        <div class="layer-box">
+            <strong>LSTM Layer 4</strong><br>
+            h⁴ = LSTM(h³, W₄, b₄)<br>
+            출력: ℝ⁶⁴ˣ¹⁰⁰<br>
+            Dropout(0.2)
+        </div>
+        
+        <div class="arrow">↓</div>
+        
+        <div class="layer-box">
+            <strong>Dense Layer (출력층)</strong><br>
+            y = W₅ · h⁴ + b₅<br>
+            출력: ℝ⁶⁴ˣ¹
+        </div>
+    </div>
+    
+    <h2>4. 데이터 정규화</h2>
+    
+    <h3>4.1 StandardScaler 변환</h3>
+    <div class="formula-container">
+        <div class="formula-title">정규화 수식</div>
+        <pre>
+정규화 (Standardization):
+x_scaled = (x - μ) / σ
+
+역정규화 (Inverse Transform):
+x = x_scaled · σ + μ
+
+여기서:
+- μ: 훈련 데이터의 평균 = 1714
+- σ: 훈련 데이터의 표준편차 = 287
+- 원본 범위: [800, 2500]
+- 정규화 범위: 약 [-3.28, 2.74]
+        </pre>
+    </div>
+    
+    <h2>5. 손실 함수 및 최적화</h2>
+    
+    <h3>5.1 평균 제곱 오차 (MSE)</h3>
+    <div class="formula-container">
+        <div class="formula-title">손실 함수</div>
+        <pre>
+L(θ) = (1/n) Σᵢ₌₁ⁿ (yᵢ - ŷᵢ)²
+
+여기서:
+- θ: 모델 파라미터 집합
+- yᵢ: 실제값
+- ŷᵢ: 예측값
+- n: 배치 크기
+        </pre>
+    </div>
+    
+    <h3>5.2 Adam 옵티마이저</h3>
+    <div class="formula-container">
+        <div class="formula-title">Adam 업데이트 규칙</div>
+        <pre>
+mₜ = β₁ · mₜ₋₁ + (1 - β₁) · gₜ
+vₜ = β₂ · vₜ₋₁ + (1 - β₂) · gₜ²
+
+m̂ₜ = mₜ / (1 - β₁ᵗ)
+v̂ₜ = vₜ / (1 - β₂ᵗ)
+
+θₜ = θₜ₋₁ - α · m̂ₜ / (√v̂ₜ + ε)
+
+하이퍼파라미터:
+- α (학습률) = 0.0005
+- β₁ = 0.9
+- β₂ = 0.999
+- ε = 1e-8
+        </pre>
+    </div>
+    
+    <h2>6. 정규화 기법</h2>
+    
+    <h3>6.1 Dropout</h3>
+    <div class="formula-container">
+        <div class="formula-title">Dropout 수식</div>
+        <pre>
+학습 시:
+h_dropped = h · mask / (1 - p)
+여기서 mask ~ Bernoulli(1 - p)
+
+추론 시:
+h_test = h (dropout 비활성화)
+
+본 모델 설정:
+- p = 0.2 (20% dropout rate)
+- 각 LSTM 층 후에 적용
+        </pre>
+    </div>
+    
+    <h2>7. 시퀀스 생성 알고리즘</h2>
+    
+    <div class="formula-container">
+        <div class="formula-title">슬라이딩 윈도우 방식</div>
+        <pre>
+def create_sequences(data, seq_length=30):
+    X, y = [], []
+    for i in range(len(data) - seq_length):
+        X.append(data[i:i+seq_length])
+        y.append(data[i+seq_length+10])  # 10분 후 예측
+    return np.array(X), np.array(y)
+
+시간 복잡도: O(n · m)
+공간 복잡도: O(n · m)
+여기서 n = 데이터 길이, m = 시퀀스 길이
+        </pre>
+    </div>
+    
+    <h2>8. 모델 복잡도 분석</h2>
+    
+    <div class="complexity-box">
+        <h3>파라미터 수 계산</h3>
+        <pre>
+LSTM 층당 파라미터:
+4 × (hidden_size × (input_size + hidden_size) + hidden_size)
+
+Layer 1: 4 × (100 × (1 + 100) + 100) = 40,800
+Layer 2-4: 4 × (100 × (100 + 100) + 100) = 80,400 × 3 = 241,200
+Dense: 100 × 1 + 1 = 101
+
+총 파라미터: 282,101
+        </pre>
+    </div>
+    
+    <h2>9. 성능 메트릭</h2>
+    
+    <h3>9.1 평가 지표 수식</h3>
+    <div class="formula-container">
+        <div class="formula-title">주요 평가 메트릭</div>
+        <pre>
+MAE (Mean Absolute Error):
+MAE = (1/n) Σᵢ₌₁ⁿ |yᵢ - ŷᵢ|
+
+MAPE (Mean Absolute Percentage Error):
+MAPE = (100/n) Σᵢ₌₁ⁿ |yᵢ - ŷᵢ| / |yᵢ|
+
+R² Score:
+R² = 1 - (Σᵢ(yᵢ - ŷᵢ)²) / (Σᵢ(yᵢ - ȳ)²)
+
+병목 예측 정확도:
+Accuracy = (TP + TN) / (TP + TN + FP + FN)
+여기서 병목 임계값 = 2000
+        </pre>
+    </div>
+    
+    <h2>10. 구현 세부사항</h2>
+    
+    <div class="implementation-note">
+        <h3>주요 구현 사항</h3>
+        <ul>
+            <li><strong>프레임워크:</strong> TensorFlow 2.x (CPU 모드)</li>
+            <li><strong>배치 크기:</strong> 64</li>
+            <li><strong>에폭 수:</strong> 200</li>
+            <li><strong>조기 종료:</strong> patience=20</li>
+            <li><strong>학습률 감소:</strong> ReduceLROnPlateau(factor=0.5, patience=5)</li>
+            <li><strong>랜덤 시드:</strong> 2079936 (재현성 보장)</li>
+        </ul>
+    </div>
+    
+    <div class="formula-container">
+        <div class="formula-title">최종 예측 함수</div>
+        <pre>
+f(X) = Dense(Dropout(LSTM₄(Dropout(LSTM₃(Dropout(LSTM₂(Dropout(LSTM₁(X)))))))))
+
+예측 과정:
+1. X_raw ∈ ℝ³⁰ (원본 30분 데이터)
+2. X_norm = (X_raw - 1714) / 287
+3. ŷ_norm = f(X_norm)
+4. ŷ = ŷ_norm × 287 + 1714
+5. 출력: "10분 후 예상 물류량 = ŷ"
+        </pre>
+    </div>
+</body>
+</html>
