@@ -240,6 +240,10 @@ def train_model_with_checkpoint(model, model_name, X_train, y_train, X_val, y_va
     if model_name not in current_state['completed_models']:
         current_state['completed_models'].append(model_name)
     
+    # 'model_histories' 키가 없으면 생성 (수정된 부분)
+    if 'model_histories' not in current_state:
+        current_state['model_histories'] = {}
+        
     current_state['model_histories'][model_name] = history
     checkpoint_manager.save_state(current_state)
     
