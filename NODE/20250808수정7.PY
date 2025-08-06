@@ -1,905 +1,932 @@
-# -*- coding: utf-8 -*-
 """
-Semiconductor Logistics Prediction System - Professional Dark Theme UI
-======================================================================
-LSTM, RNN, GRU, ARIMA Hybrid Model for FAB Logistics Prediction
+반도체 물류 예측 하이브리드 딥러닝 모델 GUI 애플리케이션
+=======================================================
+LSTM, RNN, GRU, ARIMA를 통합한 하이브리드 모델을 
+사용하기 쉬운 GUI로 제공합니다.
 
-Features:
-1. Data Loading & Preprocessing
-2. Individual Model Training with Checkpoints
-3. Real-time Prediction & Bottleneck Detection
-4. Model Performance Evaluation
+주요 기능:
+1. 데이터 파일 선택 및 로드
+2. 학습 파라미터 설정
+3. 실시간 학습 진행 모니터링
+4. 모델 예측 및 평가
+5. 결과 시각화 및 저장
 
-Version: 2.0 - Dark Professional Edition
-Date: 2024
+개발일: 2024년
+버전: 2.0 GUI
 """
 
-import sys
-import os
-import json
-import pickle
-import traceback
-from datetime import datetime, timedelta
-from typing import Dict, List, Optional, Tuple
+import tkinter as tk
+from tkinter import ttk, filedialog, messagebox, scrolledtext
 import threading
-import time
-
-# Data Processing
+import queue
 import numpy as np
 import pandas as pd
-from sklearn.preprocessing import StandardScaler
-from sklearn.metrics import mean_squared_error, mean_absolute_error, r2_score
-
-# Deep Learning
 import tensorflow as tf
+from sklearn.preprocessing import StandardScaler
 from tensorflow.keras.models import Sequential, load_model
 from tensorflow.keras.layers import Input, LSTM, Dense, Dropout, BatchNormalization, GRU, SimpleRNN, Bidirectional
 from tensorflow.keras.callbacks import EarlyStopping, ReduceLROnPlateau, ModelCheckpoint
 from tensorflow.keras.optimizers import Adam
-
-# GUI
-from PyQt5.QtWidgets import *
-from PyQt5.QtCore import *
-from PyQt5.QtGui import *
-
-# Visualization
+from sklearn.metrics import mean_squared_error, mean_absolute_error, r2_score
 import matplotlib.pyplot as plt
-from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
-from matplotlib.figure import Figure
-
-# Dark theme for matplotlib
-plt.style.use('dark_background')
-
-# Suppress warnings
+from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
+import os
+import json
+import joblib
 import warnings
+from datetime import datetime, timedelta
+import sys
+
+# 경고 메시지 숨기기
 warnings.filterwarnings('ignore')
 
-# CPU mode settings
+# CPU 모드 설정
 os.environ['CUDA_VISIBLE_DEVICES'] = '-1'
 tf.config.set_visible_devices([], 'GPU')
 
-# Random seed
+# 랜덤 시드 고정
 RANDOM_SEED = 2079936
 tf.random.set_seed(RANDOM_SEED)
 np.random.seed(RANDOM_SEED)
 
-
-class DarkPalette:
-    """Dark theme color palette"""
-    # Background colors
-    BG_DARKEST = "#0d1117"
-    BG_DARK = "#161b22"
-    BG_MEDIUM = "#21262d"
-    BG_LIGHT = "#30363d"
-    
-    # Text colors
-    TEXT_PRIMARY = "#c9d1d9"
-    TEXT_SECONDARY = "#8b949e"
-    TEXT_DISABLED = "#484f58"
-    
-    # Accent colors
-    ACCENT_BLUE = "#58a6ff"
-    ACCENT_GREEN = "#3fb950"
-    ACCENT_RED = "#f85149"
-    ACCENT_YELLOW = "#d29922"
-    ACCENT_PURPLE = "#a371f7"
-    
-    # Button colors
-    BTN_PRIMARY = "#238636"
-    BTN_PRIMARY_HOVER = "#2ea043"
-    BTN_SECONDARY = "#21262d"
-    BTN_DANGER = "#da3633"
-
-
-def get_dark_stylesheet():
-    """Get complete dark theme stylesheet"""
-    return f"""
-    /* Main Window */
-    QMainWindow {{
-        background-color: {DarkPalette.BG_DARKEST};
-        color: {DarkPalette.TEXT_PRIMARY};
-    }}
-    
-    /* Central Widget */
-    QWidget {{
-        background-color: {DarkPalette.BG_DARKEST};
-        color: {DarkPalette.TEXT_PRIMARY};
-        font-family: 'Segoe UI', Arial, sans-serif;
-        font-size: 13px;
-    }}
-    
-    /* Tab Widget */
-    QTabWidget::pane {{
-        background-color: {DarkPalette.BG_DARK};
-        border: 1px solid {DarkPalette.BG_LIGHT};
-        border-radius: 8px;
-        padding: 10px;
-    }}
-    
-    QTabBar::tab {{
-        background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
-            stop:0 {DarkPalette.BG_MEDIUM}, stop:1 {DarkPalette.BG_DARK});
-        color: {DarkPalette.TEXT_SECONDARY};
-        padding: 12px 30px;
-        margin-right: 3px;
-        border-top-left-radius: 8px;
-        border-top-right-radius: 8px;
-        font-weight: bold;
-        min-width: 150px;
-    }}
-    
-    QTabBar::tab:selected {{
-        background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
-            stop:0 {DarkPalette.ACCENT_BLUE}, stop:0.5 #1f6feb, stop:1 #0969da);
-        color: white;
-    }}
-    
-    QTabBar::tab:hover:!selected {{
-        background-color: {DarkPalette.BG_LIGHT};
-    }}
-    
-    /* Group Box */
-    QGroupBox {{
-        background-color: {DarkPalette.BG_DARK};
-        border: 2px solid {DarkPalette.BG_LIGHT};
-        border-radius: 10px;
-        margin-top: 15px;
-        padding-top: 20px;
-        font-weight: bold;
-        font-size: 14px;
-    }}
-    
-    QGroupBox::title {{
-        color: {DarkPalette.ACCENT_BLUE};
-        subcontrol-origin: margin;
-        left: 15px;
-        padding: 0 10px;
-        background-color: {DarkPalette.BG_DARK};
-    }}
-    
-    /* Push Button */
-    QPushButton {{
-        background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
-            stop:0 {DarkPalette.BTN_PRIMARY}, stop:1 {DarkPalette.BTN_PRIMARY_HOVER});
-        color: white;
-        border: none;
-        padding: 10px 25px;
-        border-radius: 6px;
-        font-weight: bold;
-        font-size: 13px;
-        min-height: 35px;
-    }}
-    
-    QPushButton:hover {{
-        background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
-            stop:0 {DarkPalette.BTN_PRIMARY_HOVER}, stop:1 {DarkPalette.ACCENT_GREEN});
-    }}
-    
-    QPushButton:pressed {{
-        background: #1a7f37;
-    }}
-    
-    QPushButton:disabled {{
-        background-color: {DarkPalette.BG_MEDIUM};
-        color: {DarkPalette.TEXT_DISABLED};
-    }}
-    
-    /* Input Fields */
-    QLineEdit, QSpinBox, QDoubleSpinBox, QComboBox {{
-        background-color: {DarkPalette.BG_DARKEST};
-        color: {DarkPalette.TEXT_PRIMARY};
-        border: 2px solid {DarkPalette.BG_LIGHT};
-        border-radius: 6px;
-        padding: 8px 12px;
-        selection-background-color: {DarkPalette.ACCENT_BLUE};
-        min-height: 20px;
-    }}
-    
-    QLineEdit:focus, QSpinBox:focus, QDoubleSpinBox:focus, QComboBox:focus {{
-        border: 2px solid {DarkPalette.ACCENT_BLUE};
-        outline: none;
-    }}
-    
-    /* Text Edit */
-    QTextEdit {{
-        background-color: {DarkPalette.BG_DARKEST};
-        color: {DarkPalette.TEXT_PRIMARY};
-        border: 2px solid {DarkPalette.BG_LIGHT};
-        border-radius: 6px;
-        padding: 8px;
-        selection-background-color: {DarkPalette.ACCENT_BLUE};
-    }}
-    
-    /* Progress Bar */
-    QProgressBar {{
-        background-color: {DarkPalette.BG_MEDIUM};
-        border: 2px solid {DarkPalette.BG_LIGHT};
-        border-radius: 6px;
-        text-align: center;
-        color: white;
-        font-weight: bold;
-        min-height: 25px;
-    }}
-    
-    QProgressBar::chunk {{
-        background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
-            stop:0 {DarkPalette.ACCENT_BLUE}, stop:1 {DarkPalette.ACCENT_GREEN});
-        border-radius: 4px;
-    }}
-    
-    /* Check Box */
-    QCheckBox {{
-        color: {DarkPalette.TEXT_PRIMARY};
-        spacing: 8px;
-    }}
-    
-    QCheckBox::indicator {{
-        width: 20px;
-        height: 20px;
-        border: 2px solid {DarkPalette.BG_LIGHT};
-        border-radius: 4px;
-        background-color: {DarkPalette.BG_DARKEST};
-    }}
-    
-    QCheckBox::indicator:checked {{
-        background-color: {DarkPalette.ACCENT_GREEN};
-        border: 2px solid {DarkPalette.ACCENT_GREEN};
-    }}
-    
-    /* Table Widget */
-    QTableWidget {{
-        background-color: {DarkPalette.BG_DARKEST};
-        color: {DarkPalette.TEXT_PRIMARY};
-        border: 1px solid {DarkPalette.BG_LIGHT};
-        gridline-color: {DarkPalette.BG_MEDIUM};
-    }}
-    
-    QHeaderView::section {{
-        background-color: {DarkPalette.BG_DARK};
-        color: {DarkPalette.ACCENT_BLUE};
-        padding: 8px;
-        border: none;
-        font-weight: bold;
-    }}
-    
-    /* Scroll Bar */
-    QScrollBar:vertical {{
-        background: {DarkPalette.BG_DARKEST};
-        width: 12px;
-        border-radius: 6px;
-    }}
-    
-    QScrollBar::handle:vertical {{
-        background: {DarkPalette.BG_LIGHT};
-        border-radius: 6px;
-        min-height: 30px;
-    }}
-    
-    QScrollBar::handle:vertical:hover {{
-        background: {DarkPalette.TEXT_DISABLED};
-    }}
-    
-    /* Label */
-    QLabel {{
-        color: {DarkPalette.TEXT_PRIMARY};
-    }}
-    
-    /* Status Bar */
-    QStatusBar {{
-        background-color: {DarkPalette.BG_DARKEST};
-        color: {DarkPalette.TEXT_SECONDARY};
-        border-top: 1px solid {DarkPalette.BG_LIGHT};
-    }}
-    
-    /* Menu Bar */
-    QMenuBar {{
-        background-color: {DarkPalette.BG_DARKEST};
-        color: {DarkPalette.TEXT_PRIMARY};
-        border-bottom: 1px solid {DarkPalette.BG_LIGHT};
-    }}
-    
-    QMenuBar::item:selected {{
-        background-color: {DarkPalette.BG_DARK};
-    }}
-    
-    QMenu {{
-        background-color: {DarkPalette.BG_DARK};
-        color: {DarkPalette.TEXT_PRIMARY};
-        border: 1px solid {DarkPalette.BG_LIGHT};
-    }}
-    
-    QMenu::item:selected {{
-        background-color: {DarkPalette.ACCENT_BLUE};
-    }}
-    """
-
-
-class WorkerSignals(QObject):
-    """Worker thread signals"""
-    started = pyqtSignal()
-    progress = pyqtSignal(int, str)
-    log = pyqtSignal(str, str)  # message, level
-    result = pyqtSignal(object)
-    error = pyqtSignal(str)
-    finished = pyqtSignal()
-
-
-class ModelCard(QFrame):
-    """Model selection card widget"""
-    toggled = pyqtSignal(str, bool)
-    configure = pyqtSignal(str)
-    
-    def __init__(self, model_info, parent=None):
-        super().__init__(parent)
-        self.model_info = model_info
-        self.is_selected = False
+class HybridModelGUI:
+    def __init__(self, root):
+        self.root = root
+        self.root.title("🚀 반도체 물류 예측 하이브리드 AI 시스템")
+        self.root.geometry("1400x900")
         
-        self.setup_ui()
+        # 다크 테마 스타일 설정
+        self.setup_styles()
         
-    def setup_ui(self):
-        """Setup card UI"""
-        self.setFixedSize(280, 320)
-        self.setStyleSheet(f"""
-            QFrame {{
-                background-color: {DarkPalette.BG_DARK};
-                border: 3px solid {DarkPalette.BG_LIGHT};
-                border-radius: 12px;
-                padding: 15px;
-            }}
-            QFrame:hover {{
-                border: 3px solid {DarkPalette.ACCENT_BLUE};
-            }}
-        """)
+        # 변수 초기화
+        self.data_path = tk.StringVar()
+        self.models = {}
+        self.scaler = None
+        self.data = None
+        self.X_train = None
+        self.y_train = None
+        self.X_val = None
+        self.y_val = None
+        self.X_test = None
+        self.y_test = None
+        self.is_training = False
+        self.log_queue = queue.Queue()
         
-        layout = QVBoxLayout()
+        # UI 구성
+        self.create_widgets()
         
-        # Header with checkbox
-        header_layout = QHBoxLayout()
+        # 로그 업데이트 시작
+        self.update_logs()
         
-        # Model icon
-        icon_label = QLabel(self.model_info['icon'])
-        icon_label.setStyleSheet("font-size: 36px;")
-        header_layout.addWidget(icon_label)
+    def setup_styles(self):
+        """GUI 스타일 설정"""
+        style = ttk.Style()
+        style.theme_use('clam')
         
-        header_layout.addStretch()
+        # 다크 테마 색상
+        bg_color = "#2b2b2b"
+        fg_color = "#ffffff"
+        button_bg = "#4CAF50"
+        button_hover = "#45a049"
         
-        # Selection checkbox
-        self.checkbox = QCheckBox()
-        self.checkbox.setStyleSheet("""
-            QCheckBox::indicator {
-                width: 30px;
-                height: 30px;
-            }
-        """)
-        self.checkbox.toggled.connect(self.on_toggle)
-        header_layout.addWidget(self.checkbox)
+        self.root.configure(bg=bg_color)
         
-        layout.addLayout(header_layout)
+        style.configure("Title.TLabel", background=bg_color, foreground=fg_color, 
+                       font=('Arial', 16, 'bold'))
+        style.configure("Heading.TLabel", background=bg_color, foreground=fg_color,
+                       font=('Arial', 12, 'bold'))
+        style.configure("Dark.TFrame", background=bg_color)
+        style.configure("Success.TButton", font=('Arial', 10, 'bold'))
         
-        # Model name
-        name_label = QLabel(self.model_info['name'])
-        name_label.setStyleSheet(f"""
-            font-size: 20px;
-            font-weight: bold;
-            color: {DarkPalette.ACCENT_BLUE};
-        """)
-        layout.addWidget(name_label)
+    def create_widgets(self):
+        """위젯 생성 및 배치"""
+        # 메인 컨테이너
+        main_container = ttk.Frame(self.root, style="Dark.TFrame")
+        main_container.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
         
-        # Model type badge
-        type_label = QLabel(self.model_info['type'])
-        type_label.setStyleSheet(f"""
-            background-color: {DarkPalette.BG_MEDIUM};
-            color: {DarkPalette.TEXT_SECONDARY};
-            padding: 5px 10px;
-            border-radius: 4px;
-            font-size: 11px;
-        """)
-        type_label.setMaximumWidth(150)
-        layout.addWidget(type_label)
+        # 타이틀
+        title_label = ttk.Label(main_container, 
+                               text="🚀 반도체 물류 예측 하이브리드 AI 시스템",
+                               style="Title.TLabel")
+        title_label.grid(row=0, column=0, columnspan=3, pady=10)
         
-        # Description
-        desc_label = QLabel(self.model_info['description'])
-        desc_label.setWordWrap(True)
-        desc_label.setStyleSheet(f"""
-            color: {DarkPalette.TEXT_PRIMARY};
-            font-size: 12px;
-            margin: 10px 0;
-        """)
-        layout.addWidget(desc_label)
+        # 왼쪽 패널 - 데이터 및 설정
+        left_panel = ttk.Frame(main_container, style="Dark.TFrame")
+        left_panel.grid(row=1, column=0, sticky="nsew", padx=5)
         
-        # Configure button
-        config_btn = QPushButton("Configure")
-        config_btn.setStyleSheet(f"""
-            QPushButton {{
-                background-color: {DarkPalette.BG_MEDIUM};
-                color: {DarkPalette.TEXT_PRIMARY};
-                padding: 8px;
-                font-size: 12px;
-            }}
-            QPushButton:hover {{
-                background-color: {DarkPalette.BG_LIGHT};
-            }}
-        """)
-        config_btn.clicked.connect(lambda: self.configure.emit(self.model_info['name']))
-        layout.addWidget(config_btn)
+        # 데이터 선택 섹션
+        self.create_data_section(left_panel)
         
-        layout.addStretch()
-        self.setLayout(layout)
+        # 파라미터 설정 섹션
+        self.create_parameter_section(left_panel)
         
-    def on_toggle(self, checked):
-        """Handle selection toggle"""
-        self.is_selected = checked
-        if checked:
-            self.setStyleSheet(f"""
-                QFrame {{
-                    background-color: {DarkPalette.BG_DARK};
-                    border: 3px solid {DarkPalette.ACCENT_GREEN};
-                    border-radius: 12px;
-                    padding: 15px;
-                }}
-            """)
-        else:
-            self.setStyleSheet(f"""
-                QFrame {{
-                    background-color: {DarkPalette.BG_DARK};
-                    border: 3px solid {DarkPalette.BG_LIGHT};
-                    border-radius: 12px;
-                    padding: 15px;
-                }}
-            """)
-        self.toggled.emit(self.model_info['name'], checked)
-
-
-class TrainingTab(QWidget):
-    """Training tab widget"""
-    def __init__(self):
-        super().__init__()
-        self.selected_models = {}
-        self.model_configs = {}
-        self.init_ui()
+        # 컨트롤 버튼 섹션
+        self.create_control_section(left_panel)
         
-    def init_ui(self):
-        """Initialize UI"""
-        layout = QVBoxLayout()
+        # 중앙 패널 - 진행 상황 및 로그
+        center_panel = ttk.Frame(main_container, style="Dark.TFrame")
+        center_panel.grid(row=1, column=1, sticky="nsew", padx=5)
         
-        # Title section
-        title_layout = QHBoxLayout()
-        title_label = QLabel("Model Training Center")
-        title_label.setStyleSheet(f"""
-            font-size: 24px;
-            font-weight: bold;
-            color: {DarkPalette.ACCENT_BLUE};
-            padding: 10px;
-        """)
-        title_layout.addWidget(title_label)
-        title_layout.addStretch()
-        layout.addLayout(title_layout)
+        # 진행 상황 섹션
+        self.create_progress_section(center_panel)
         
-        # Model selection section
-        model_group = QGroupBox("Select Models to Train")
-        model_layout = QGridLayout()
+        # 로그 섹션
+        self.create_log_section(center_panel)
         
-        # Model cards
-        self.model_cards = []
-        models = [
-            {
-                'name': 'LSTM',
-                'type': 'Recurrent Neural Network',
-                'icon': '🧠',
-                'description': 'Long Short-Term Memory for time series prediction. Best for transfer time forecasting.'
-            },
-            {
-                'name': 'RNN',
-                'type': 'Recurrent Neural Network',
-                'icon': '🔄',
-                'description': 'Simple RNN for sequential data. Suitable for bottleneck detection patterns.'
-            },
-            {
-                'name': 'GRU',
-                'type': 'Gated Recurrent Unit',
-                'icon': '⚡',
-                'description': 'Faster training than LSTM. Good balance between performance and speed.'
-            },
-            {
-                'name': 'Bi-LSTM',
-                'type': 'Bidirectional LSTM',
-                'icon': '↔️',
-                'description': 'Processes data in both directions. Enhanced pattern recognition.'
-            },
-            {
-                'name': 'ARIMA',
-                'type': 'Statistical Model',
-                'icon': '📊',
-                'description': 'Time series forecasting for production throughput prediction.'
-            },
-            {
-                'name': 'Ensemble',
-                'type': 'Combined Model',
-                'icon': '🎯',
-                'description': 'Combines multiple models for robust predictions.'
-            }
-        ]
+        # 오른쪽 패널 - 결과 및 시각화
+        right_panel = ttk.Frame(main_container, style="Dark.TFrame")
+        right_panel.grid(row=1, column=2, sticky="nsew", padx=5)
         
-        row, col = 0, 0
-        for model_info in models:
-            card = ModelCard(model_info)
-            card.toggled.connect(self.on_model_toggled)
-            card.configure.connect(self.configure_model)
-            self.model_cards.append(card)
-            model_layout.addWidget(card, row, col)
-            col += 1
-            if col > 2:
-                col = 0
-                row += 1
-                
-        model_group.setLayout(model_layout)
+        # 결과 섹션
+        self.create_results_section(right_panel)
         
-        # Scroll area for model cards
-        scroll = QScrollArea()
-        scroll.setWidget(model_group)
-        scroll.setWidgetResizable(True)
-        layout.addWidget(scroll)
+        # 시각화 섹션
+        self.create_visualization_section(right_panel)
         
-        # Training configuration
-        config_group = QGroupBox("Training Configuration")
-        config_layout = QGridLayout()
+        # 그리드 가중치 설정
+        main_container.grid_rowconfigure(1, weight=1)
+        main_container.grid_columnconfigure(0, weight=2)
+        main_container.grid_columnconfigure(1, weight=3)
+        main_container.grid_columnconfigure(2, weight=3)
         
-        # Data settings
-        config_layout.addWidget(QLabel("Data File:"), 0, 0)
-        self.data_path = QLineEdit()
-        self.data_path.setPlaceholderText("Select training data file...")
-        config_layout.addWidget(self.data_path, 0, 1, 1, 2)
+    def create_data_section(self, parent):
+        """데이터 선택 섹션"""
+        frame = ttk.LabelFrame(parent, text="📁 데이터 설정", padding=10)
+        frame.pack(fill=tk.X, pady=5)
         
-        browse_btn = QPushButton("Browse")
-        browse_btn.clicked.connect(self.browse_data)
-        config_layout.addWidget(browse_btn, 0, 3)
+        # 파일 경로 표시
+        ttk.Label(frame, text="데이터 파일:").pack(anchor=tk.W)
+        path_frame = ttk.Frame(frame)
+        path_frame.pack(fill=tk.X, pady=5)
         
-        # Training parameters
-        config_layout.addWidget(QLabel("Epochs:"), 1, 0)
-        self.epochs_spin = QSpinBox()
-        self.epochs_spin.setRange(10, 1000)
-        self.epochs_spin.setValue(100)
-        config_layout.addWidget(self.epochs_spin, 1, 1)
+        self.path_entry = ttk.Entry(path_frame, textvariable=self.data_path, width=30)
+        self.path_entry.pack(side=tk.LEFT, fill=tk.X, expand=True)
         
-        config_layout.addWidget(QLabel("Batch Size:"), 1, 2)
-        self.batch_spin = QSpinBox()
-        self.batch_spin.setRange(16, 512)
-        self.batch_spin.setValue(64)
-        self.batch_spin.setSingleStep(16)
-        config_layout.addWidget(self.batch_spin, 1, 3)
+        ttk.Button(path_frame, text="찾아보기", 
+                  command=self.browse_file).pack(side=tk.LEFT, padx=5)
         
-        config_layout.addWidget(QLabel("Learning Rate:"), 2, 0)
-        self.lr_spin = QDoubleSpinBox()
-        self.lr_spin.setRange(0.0001, 0.1)
-        self.lr_spin.setValue(0.001)
-        self.lr_spin.setSingleStep(0.0001)
-        self.lr_spin.setDecimals(4)
-        config_layout.addWidget(self.lr_spin, 2, 1)
+        # 데이터 정보
+        self.data_info = tk.Text(frame, height=4, width=40, bg="#3c3c3c", fg="white")
+        self.data_info.pack(fill=tk.X, pady=5)
+        self.data_info.insert(tk.END, "데이터를 선택하세요...")
+        self.data_info.config(state=tk.DISABLED)
         
-        config_layout.addWidget(QLabel("Validation Split:"), 2, 2)
-        self.val_spin = QDoubleSpinBox()
-        self.val_spin.setRange(0.1, 0.5)
-        self.val_spin.setValue(0.2)
-        self.val_spin.setSingleStep(0.05)
-        config_layout.addWidget(self.val_spin, 2, 3)
+    def create_parameter_section(self, parent):
+        """파라미터 설정 섹션"""
+        frame = ttk.LabelFrame(parent, text="⚙️ 학습 파라미터", padding=10)
+        frame.pack(fill=tk.X, pady=5)
         
-        # Checkboxes for options
-        self.checkpoint_check = QCheckBox("Use Checkpoints")
-        self.checkpoint_check.setChecked(True)
-        config_layout.addWidget(self.checkpoint_check, 3, 0, 1, 2)
+        # 에폭 수
+        ttk.Label(frame, text="에폭 수:").grid(row=0, column=0, sticky=tk.W, pady=2)
+        self.epochs_var = tk.IntVar(value=100)
+        ttk.Spinbox(frame, from_=10, to=500, textvariable=self.epochs_var,
+                   width=15).grid(row=0, column=1, pady=2)
         
-        self.early_stop_check = QCheckBox("Early Stopping")
-        self.early_stop_check.setChecked(True)
-        config_layout.addWidget(self.early_stop_check, 3, 2, 1, 2)
+        # 배치 크기
+        ttk.Label(frame, text="배치 크기:").grid(row=1, column=0, sticky=tk.W, pady=2)
+        self.batch_var = tk.IntVar(value=64)
+        ttk.Spinbox(frame, from_=16, to=256, increment=16, textvariable=self.batch_var,
+                   width=15).grid(row=1, column=1, pady=2)
         
-        config_group.setLayout(config_layout)
-        layout.addWidget(config_group)
+        # 학습률
+        ttk.Label(frame, text="학습률:").grid(row=2, column=0, sticky=tk.W, pady=2)
+        self.lr_var = tk.DoubleVar(value=0.001)
+        ttk.Entry(frame, textvariable=self.lr_var, width=15).grid(row=2, column=1, pady=2)
         
-        # Progress section
-        progress_group = QGroupBox("Training Progress")
-        progress_layout = QVBoxLayout()
+        # 시퀀스 길이
+        ttk.Label(frame, text="시퀀스 길이:").grid(row=3, column=0, sticky=tk.W, pady=2)
+        self.seq_var = tk.IntVar(value=30)
+        ttk.Spinbox(frame, from_=10, to=100, textvariable=self.seq_var,
+                   width=15).grid(row=3, column=1, pady=2)
         
-        self.progress_bar = QProgressBar()
-        progress_layout.addWidget(self.progress_bar)
+        # 예측 시간
+        ttk.Label(frame, text="예측 시간(분):").grid(row=4, column=0, sticky=tk.W, pady=2)
+        self.future_var = tk.IntVar(value=10)
+        ttk.Spinbox(frame, from_=5, to=60, increment=5, textvariable=self.future_var,
+                   width=15).grid(row=4, column=1, pady=2)
         
-        self.status_label = QLabel("Ready to train")
-        self.status_label.setStyleSheet(f"color: {DarkPalette.TEXT_SECONDARY};")
-        progress_layout.addWidget(self.status_label)
+        # 모델 선택
+        ttk.Label(frame, text="모델 선택:").grid(row=5, column=0, sticky=tk.W, pady=2)
+        model_frame = ttk.Frame(frame)
+        model_frame.grid(row=5, column=1, pady=2)
         
-        self.log_text = QTextEdit()
-        self.log_text.setReadOnly(True)
-        self.log_text.setMaximumHeight(150)
-        progress_layout.addWidget(self.log_text)
+        self.model_vars = {
+            'LSTM': tk.BooleanVar(value=True),
+            'GRU': tk.BooleanVar(value=True),
+            'RNN': tk.BooleanVar(value=True),
+            'Bi-LSTM': tk.BooleanVar(value=True)
+        }
         
-        progress_group.setLayout(progress_layout)
-        layout.addWidget(progress_group)
+        for i, (name, var) in enumerate(self.model_vars.items()):
+            ttk.Checkbutton(model_frame, text=name, variable=var).grid(row=i//2, column=i%2)
         
-        # Control buttons
-        button_layout = QHBoxLayout()
+    def create_control_section(self, parent):
+        """컨트롤 버튼 섹션"""
+        frame = ttk.LabelFrame(parent, text="🎮 컨트롤", padding=10)
+        frame.pack(fill=tk.X, pady=5)
         
-        self.train_btn = QPushButton("Start Training")
-        self.train_btn.setStyleSheet(f"""
-            QPushButton {{
-                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
-                    stop:0 {DarkPalette.ACCENT_GREEN}, stop:1 {DarkPalette.BTN_PRIMARY});
-                font-size: 14px;
-                padding: 12px 30px;
-            }}
-        """)
-        self.train_btn.clicked.connect(self.start_training)
-        button_layout.addWidget(self.train_btn)
+        # 버튼들
+        self.load_btn = ttk.Button(frame, text="📊 데이터 로드", 
+                                  command=self.load_data, style="Success.TButton")
+        self.load_btn.pack(fill=tk.X, pady=2)
         
-        self.stop_btn = QPushButton("Stop")
-        self.stop_btn.setStyleSheet(f"""
-            QPushButton {{
-                background-color: {DarkPalette.ACCENT_RED};
-                font-size: 14px;
-                padding: 12px 30px;
-            }}
-        """)
-        self.stop_btn.setEnabled(False)
-        button_layout.addWidget(self.stop_btn)
+        self.train_btn = ttk.Button(frame, text="🚀 학습 시작", 
+                                   command=self.start_training, style="Success.TButton")
+        self.train_btn.pack(fill=tk.X, pady=2)
+        self.train_btn.config(state=tk.DISABLED)
         
-        button_layout.addStretch()
-        layout.addLayout(button_layout)
+        self.stop_btn = ttk.Button(frame, text="⏹️ 학습 중지", 
+                                  command=self.stop_training)
+        self.stop_btn.pack(fill=tk.X, pady=2)
+        self.stop_btn.config(state=tk.DISABLED)
         
-        self.setLayout(layout)
+        self.predict_btn = ttk.Button(frame, text="🔮 예측 실행", 
+                                     command=self.run_prediction)
+        self.predict_btn.pack(fill=tk.X, pady=2)
+        self.predict_btn.config(state=tk.DISABLED)
         
-    def on_model_toggled(self, model_name, checked):
-        """Handle model selection"""
-        self.selected_models[model_name] = checked
-        count = sum(self.selected_models.values())
-        self.status_label.setText(f"{count} model(s) selected")
+        self.save_btn = ttk.Button(frame, text="💾 모델 저장", 
+                                  command=self.save_models)
+        self.save_btn.pack(fill=tk.X, pady=2)
+        self.save_btn.config(state=tk.DISABLED)
         
-    def configure_model(self, model_name):
-        """Open model configuration dialog"""
-        dialog = QDialog(self)
-        dialog.setWindowTitle(f"Configure {model_name}")
-        dialog.setModal(True)
-        dialog.setStyleSheet(get_dark_stylesheet())
-        dialog.setFixedSize(400, 300)
+        ttk.Separator(frame, orient='horizontal').pack(fill=tk.X, pady=5)
         
-        layout = QVBoxLayout()
-        layout.addWidget(QLabel(f"Configuration for {model_name}"))
+        self.load_model_btn = ttk.Button(frame, text="📂 모델 불러오기", 
+                                        command=self.load_saved_models)
+        self.load_model_btn.pack(fill=tk.X, pady=2)
         
-        # Add model-specific configuration options here
+    def create_progress_section(self, parent):
+        """진행 상황 섹션"""
+        frame = ttk.LabelFrame(parent, text="📈 학습 진행 상황", padding=10)
+        frame.pack(fill=tk.X, pady=5)
         
-        buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
-        buttons.accepted.connect(dialog.accept)
-        buttons.rejected.connect(dialog.reject)
-        layout.addWidget(buttons)
+        # 전체 진행률
+        ttk.Label(frame, text="전체 진행률:").pack(anchor=tk.W)
+        self.overall_progress = ttk.Progressbar(frame, mode='determinate')
+        self.overall_progress.pack(fill=tk.X, pady=2)
         
-        dialog.setLayout(layout)
-        dialog.exec_()
+        # 현재 모델
+        self.current_model_label = ttk.Label(frame, text="대기 중...")
+        self.current_model_label.pack(anchor=tk.W, pady=2)
         
-    def browse_data(self):
-        """Browse for training data file"""
-        filename, _ = QFileDialog.getOpenFileName(
-            self,
-            "Select Training Data",
-            "",
-            "CSV Files (*.csv);;All Files (*.*)"
+        # 에폭 진행률
+        ttk.Label(frame, text="에폭 진행률:").pack(anchor=tk.W)
+        self.epoch_progress = ttk.Progressbar(frame, mode='determinate')
+        self.epoch_progress.pack(fill=tk.X, pady=2)
+        
+        # 현재 에폭
+        self.current_epoch_label = ttk.Label(frame, text="")
+        self.current_epoch_label.pack(anchor=tk.W, pady=2)
+        
+        # 성능 지표
+        self.metrics_frame = ttk.Frame(frame)
+        self.metrics_frame.pack(fill=tk.X, pady=5)
+        
+        metrics_labels = ["Loss:", "Val Loss:", "MAE:", "Val MAE:"]
+        self.metric_labels = {}
+        
+        for i, label in enumerate(metrics_labels):
+            ttk.Label(self.metrics_frame, text=label).grid(row=i//2, column=(i%2)*2, sticky=tk.W)
+            metric_label = ttk.Label(self.metrics_frame, text="--")
+            metric_label.grid(row=i//2, column=(i%2)*2+1, sticky=tk.W, padx=5)
+            self.metric_labels[label] = metric_label
+            
+    def create_log_section(self, parent):
+        """로그 섹션"""
+        frame = ttk.LabelFrame(parent, text="📝 로그", padding=10)
+        frame.pack(fill=tk.BOTH, expand=True, pady=5)
+        
+        # 로그 텍스트
+        self.log_text = scrolledtext.ScrolledText(frame, height=15, width=50,
+                                                  bg="#1e1e1e", fg="#00ff00",
+                                                  font=('Consolas', 9))
+        self.log_text.pack(fill=tk.BOTH, expand=True)
+        
+    def create_results_section(self, parent):
+        """결과 섹션"""
+        frame = ttk.LabelFrame(parent, text="📊 예측 결과", padding=10)
+        frame.pack(fill=tk.X, pady=5)
+        
+        # 결과 텍스트
+        self.results_text = tk.Text(frame, height=10, width=40,
+                                   bg="#3c3c3c", fg="white", font=('Arial', 9))
+        self.results_text.pack(fill=tk.X)
+        self.results_text.insert(tk.END, "학습 후 결과가 여기에 표시됩니다...")
+        self.results_text.config(state=tk.DISABLED)
+        
+    def create_visualization_section(self, parent):
+        """시각화 섹션"""
+        frame = ttk.LabelFrame(parent, text="📈 시각화", padding=10)
+        frame.pack(fill=tk.BOTH, expand=True, pady=5)
+        
+        # 그래프 캔버스
+        self.fig, self.ax = plt.subplots(figsize=(6, 4), facecolor='#2b2b2b')
+        self.ax.set_facecolor('#3c3c3c')
+        self.ax.set_title("학습 진행 상황", color='white')
+        self.ax.set_xlabel("Epoch", color='white')
+        self.ax.set_ylabel("Loss", color='white')
+        self.ax.tick_params(colors='white')
+        self.ax.grid(True, alpha=0.3)
+        
+        self.canvas = FigureCanvasTkAgg(self.fig, master=frame)
+        self.canvas.draw()
+        self.canvas.get_tk_widget().pack(fill=tk.BOTH, expand=True)
+        
+    def browse_file(self):
+        """파일 선택 다이얼로그"""
+        filename = filedialog.askopenfilename(
+            title="데이터 파일 선택",
+            filetypes=[("CSV files", "*.csv"), ("All files", "*.*")]
         )
         if filename:
-            self.data_path.setText(filename)
+            self.data_path.set(filename)
+            self.log("파일 선택: " + os.path.basename(filename))
             
+    def log(self, message):
+        """로그 메시지 추가"""
+        timestamp = datetime.now().strftime("%H:%M:%S")
+        log_message = f"[{timestamp}] {message}\n"
+        self.log_queue.put(log_message)
+        
+    def update_logs(self):
+        """로그 업데이트"""
+        try:
+            while True:
+                message = self.log_queue.get_nowait()
+                self.log_text.insert(tk.END, message)
+                self.log_text.see(tk.END)
+        except queue.Empty:
+            pass
+        finally:
+            self.root.after(100, self.update_logs)
+            
+    def load_data(self):
+        """데이터 로드 및 전처리"""
+        if not self.data_path.get():
+            messagebox.showerror("오류", "데이터 파일을 선택하세요!")
+            return
+            
+        try:
+            self.log("데이터 로딩 시작...")
+            
+            # 데이터 로드
+            self.data = pd.read_csv(self.data_path.get())
+            
+            # 데이터 정보 업데이트
+            self.data_info.config(state=tk.NORMAL)
+            self.data_info.delete(1.0, tk.END)
+            info_text = f"📊 데이터 정보\n"
+            info_text += f"행 수: {len(self.data):,}\n"
+            info_text += f"열 수: {len(self.data.columns)}\n"
+            info_text += f"컬럼: {', '.join(self.data.columns[:5])}..."
+            self.data_info.insert(tk.END, info_text)
+            self.data_info.config(state=tk.DISABLED)
+            
+            # 전처리
+            self.preprocess_data()
+            
+            self.log("✅ 데이터 로드 완료!")
+            self.train_btn.config(state=tk.NORMAL)
+            
+            messagebox.showinfo("성공", "데이터 로드 및 전처리 완료!")
+            
+        except Exception as e:
+            self.log(f"❌ 데이터 로드 실패: {str(e)}")
+            messagebox.showerror("오류", f"데이터 로드 실패:\n{str(e)}")
+            
+    def preprocess_data(self):
+        """데이터 전처리"""
+        self.log("데이터 전처리 중...")
+        
+        # 시간 컬럼 변환
+        self.data['CURRTIME'] = pd.to_datetime(self.data['CURRTIME'], format='%Y%m%d%H%M')
+        self.data['TIME'] = pd.to_datetime(self.data['TIME'], format='%Y%m%d%H%M')
+        
+        # SUM 컬럼 제거
+        columns_to_drop = [col for col in self.data.columns if 'SUM' in col]
+        self.data = self.data.drop(columns=columns_to_drop)
+        
+        # 필요한 컬럼만 선택
+        self.data = self.data[['CURRTIME', 'TOTALCNT', 'TIME']]
+        self.data.set_index('CURRTIME', inplace=True)
+        
+        # FUTURE 컬럼 생성
+        self.data['FUTURE'] = pd.NA
+        future_minutes = self.future_var.get()
+        
+        for i in self.data.index:
+            future_time = i + pd.Timedelta(minutes=future_minutes)
+            if (future_time <= self.data.index.max()) & (future_time in self.data.index):
+                self.data.loc[i, 'FUTURE'] = self.data.loc[future_time, 'TOTALCNT']
+        
+        self.data.dropna(subset=['FUTURE'], inplace=True)
+        
+        # 특징 엔지니어링
+        self.data['hour'] = self.data.index.hour
+        self.data['dayofweek'] = self.data.index.dayofweek
+        self.data['is_weekend'] = (self.data.index.dayofweek >= 5).astype(int)
+        self.data['MA_5'] = self.data['TOTALCNT'].rolling(window=5, min_periods=1).mean()
+        self.data['MA_10'] = self.data['TOTALCNT'].rolling(window=10, min_periods=1).mean()
+        self.data['MA_30'] = self.data['TOTALCNT'].rolling(window=30, min_periods=1).mean()
+        self.data['STD_5'] = self.data['TOTALCNT'].rolling(window=5, min_periods=1).std()
+        self.data['STD_10'] = self.data['TOTALCNT'].rolling(window=10, min_periods=1).std()
+        self.data['change_rate'] = self.data['TOTALCNT'].pct_change()
+        self.data['change_rate_5'] = self.data['TOTALCNT'].pct_change(5)
+        self.data = self.data.ffill().fillna(0)
+        
+        # 스케일링
+        self.scaler = StandardScaler()
+        scaled_list = ['TOTALCNT', 'FUTURE', 'MA_5', 'MA_10', 'MA_30', 'STD_5', 'STD_10']
+        scaled_list = [col for col in scaled_list if col in self.data.columns]
+        
+        scaled_data = self.scaler.fit_transform(self.data[scaled_list])
+        scaled_columns = [f'scaled_{col}' for col in scaled_list]
+        scaled_df = pd.DataFrame(scaled_data, columns=scaled_columns, index=self.data.index)
+        
+        self.data = pd.merge(self.data, scaled_df, left_index=True, right_index=True, how='left')
+        
+        # 시퀀스 생성
+        self.create_sequences()
+        
+        self.log(f"전처리 완료 - 훈련: {len(self.X_train)}, 검증: {len(self.X_val)}, 테스트: {len(self.X_test)}")
+        
+    def create_sequences(self):
+        """시퀀스 데이터 생성"""
+        seq_length = self.seq_var.get()
+        
+        # 연속성 확인하여 데이터 분할
+        time_diff = self.data.index.to_series().diff()
+        split_points = time_diff > pd.Timedelta(minutes=1)
+        segment_ids = split_points.cumsum()
+        
+        input_features = [col for col in self.data.columns if col.startswith('scaled_') and col != 'scaled_FUTURE']
+        
+        all_X, all_y = [], []
+        
+        for segment_id in segment_ids.unique():
+            segment = self.data[segment_ids == segment_id]
+            
+            if len(segment) > seq_length:
+                X_data = segment[input_features].values
+                y_data = segment['scaled_FUTURE'].values
+                
+                for i in range(len(segment) - seq_length):
+                    all_X.append(X_data[i:i+seq_length])
+                    all_y.append(y_data[i+seq_length])
+        
+        X = np.array(all_X)
+        y = np.array(all_y)
+        
+        # 데이터 분할
+        train_size = int(0.7 * len(X))
+        val_size = int(0.15 * len(X))
+        
+        self.X_train = X[:train_size]
+        self.y_train = y[:train_size]
+        self.X_val = X[train_size:train_size+val_size]
+        self.y_val = y[train_size:train_size+val_size]
+        self.X_test = X[train_size+val_size:]
+        self.y_test = y[train_size+val_size:]
+        
     def start_training(self):
-        """Start training selected models"""
-        selected = [name for name, checked in self.selected_models.items() if checked]
-        if not selected:
-            QMessageBox.warning(self, "Warning", "Please select at least one model to train.")
+        """학습 시작"""
+        if self.is_training:
+            messagebox.showwarning("경고", "이미 학습이 진행 중입니다!")
             return
             
-        if not self.data_path.text():
-            QMessageBox.warning(self, "Warning", "Please select training data file.")
+        self.is_training = True
+        self.train_btn.config(state=tk.DISABLED)
+        self.stop_btn.config(state=tk.NORMAL)
+        
+        # 학습 스레드 시작
+        self.training_thread = threading.Thread(target=self.train_models)
+        self.training_thread.start()
+        
+    def stop_training(self):
+        """학습 중지"""
+        self.is_training = False
+        self.log("⏹️ 학습 중지 요청...")
+        
+    def train_models(self):
+        """모델 학습"""
+        try:
+            self.log("🚀 하이브리드 모델 학습 시작")
+            
+            input_shape = (self.X_train.shape[1], self.X_train.shape[2])
+            selected_models = []
+            
+            # 선택된 모델 확인
+            if self.model_vars['LSTM'].get():
+                selected_models.append(('lstm', self.build_lstm_model(input_shape)))
+            if self.model_vars['GRU'].get():
+                selected_models.append(('gru', self.build_gru_model(input_shape)))
+            if self.model_vars['RNN'].get():
+                selected_models.append(('rnn', self.build_rnn_model(input_shape)))
+            if self.model_vars['Bi-LSTM'].get():
+                selected_models.append(('bi_lstm', self.build_bilstm_model(input_shape)))
+            
+            total_models = len(selected_models)
+            
+            for idx, (model_name, model) in enumerate(selected_models):
+                if not self.is_training:
+                    break
+                    
+                self.log(f"\n📊 {model_name.upper()} 모델 학습 시작")
+                self.root.after(0, self.update_current_model, f"{model_name.upper()} 모델 학습 중...")
+                
+                # 전체 진행률 업데이트
+                overall_progress = (idx / total_models) * 100
+                self.root.after(0, self.update_overall_progress, overall_progress)
+                
+                # 모델 컴파일
+                optimizer = Adam(learning_rate=self.lr_var.get())
+                model.compile(optimizer=optimizer, loss='mse', metrics=['mae'])
+                
+                # 콜백 설정
+                early_stop = EarlyStopping(monitor='val_loss', patience=20, restore_best_weights=True)
+                reduce_lr = ReduceLROnPlateau(monitor='val_loss', factor=0.5, patience=5)
+                
+                # 학습
+                epochs = self.epochs_var.get()
+                batch_size = self.batch_var.get()
+                
+                for epoch in range(epochs):
+                    if not self.is_training:
+                        break
+                        
+                    history = model.fit(
+                        self.X_train, self.y_train,
+                        validation_data=(self.X_val, self.y_val),
+                        epochs=1,
+                        batch_size=batch_size,
+                        verbose=0,
+                        callbacks=[early_stop, reduce_lr]
+                    )
+                    
+                    # 진행률 업데이트
+                    epoch_progress = ((epoch + 1) / epochs) * 100
+                    self.root.after(0, self.update_epoch_progress, epoch_progress)
+                    self.root.after(0, self.update_current_epoch, f"에폭: {epoch+1}/{epochs}")
+                    
+                    # 메트릭 업데이트
+                    loss = history.history['loss'][0]
+                    val_loss = history.history['val_loss'][0]
+                    mae = history.history['mae'][0]
+                    val_mae = history.history['val_mae'][0]
+                    
+                    self.root.after(0, self.update_metrics, loss, val_loss, mae, val_mae)
+                    
+                    # 그래프 업데이트
+                    if epoch % 5 == 0:
+                        self.log(f"  에폭 {epoch+1}: Loss={loss:.4f}, Val_Loss={val_loss:.4f}")
+                    
+                    # Early stopping 체크
+                    if early_stop.stopped_epoch > 0:
+                        self.log(f"  조기 종료: 에폭 {epoch+1}")
+                        break
+                
+                self.models[model_name] = model
+                self.log(f"✅ {model_name.upper()} 모델 학습 완료")
+            
+            if self.is_training:
+                self.log("\n🎉 모든 모델 학습 완료!")
+                self.evaluate_models()
+                
+                # 버튼 상태 업데이트
+                self.root.after(0, self.training_completed)
+            else:
+                self.log("⏹️ 학습이 중지되었습니다.")
+                
+        except Exception as e:
+            self.log(f"❌ 학습 중 오류 발생: {str(e)}")
+            messagebox.showerror("오류", f"학습 중 오류 발생:\n{str(e)}")
+        finally:
+            self.is_training = False
+            self.root.after(0, self.reset_buttons)
+            
+    def build_lstm_model(self, input_shape):
+        """LSTM 모델 구축"""
+        model = Sequential([
+            Input(shape=input_shape),
+            LSTM(units=100, return_sequences=True),
+            Dropout(0.2),
+            BatchNormalization(),
+            LSTM(units=100, return_sequences=True),
+            Dropout(0.2),
+            BatchNormalization(),
+            LSTM(units=100, return_sequences=False),
+            Dropout(0.2),
+            Dense(units=50, activation='relu'),
+            Dense(units=1)
+        ])
+        return model
+    
+    def build_gru_model(self, input_shape):
+        """GRU 모델 구축"""
+        model = Sequential([
+            Input(shape=input_shape),
+            GRU(units=100, return_sequences=True),
+            Dropout(0.2),
+            GRU(units=100, return_sequences=True),
+            Dropout(0.2),
+            GRU(units=50, return_sequences=False),
+            Dropout(0.2),
+            Dense(units=30, activation='relu'),
+            Dense(units=1)
+        ])
+        return model
+    
+    def build_rnn_model(self, input_shape):
+        """RNN 모델 구축"""
+        model = Sequential([
+            Input(shape=input_shape),
+            SimpleRNN(units=100, return_sequences=True),
+            Dropout(0.2),
+            SimpleRNN(units=50, return_sequences=False),
+            Dropout(0.2),
+            Dense(units=30, activation='relu'),
+            Dense(units=1)
+        ])
+        return model
+    
+    def build_bilstm_model(self, input_shape):
+        """Bidirectional LSTM 모델 구축"""
+        model = Sequential([
+            Input(shape=input_shape),
+            Bidirectional(LSTM(units=50, return_sequences=True)),
+            Dropout(0.2),
+            Bidirectional(LSTM(units=50, return_sequences=False)),
+            Dropout(0.2),
+            Dense(units=30, activation='relu'),
+            Dense(units=1)
+        ])
+        return model
+    
+    def evaluate_models(self):
+        """모델 평가"""
+        self.log("\n📊 모델 평가 시작...")
+        
+        results_text = "=" * 50 + "\n"
+        results_text += "📊 모델 성능 평가 결과\n"
+        results_text += "=" * 50 + "\n\n"
+        
+        for model_name, model in self.models.items():
+            # 예측
+            y_pred = model.predict(self.X_test, verbose=0).flatten()
+            
+            # 역스케일링
+            y_pred_original = self.inverse_scale(y_pred)
+            y_test_original = self.inverse_scale(self.y_test)
+            
+            # 성능 지표 계산
+            mae = mean_absolute_error(y_test_original, y_pred_original)
+            mse = mean_squared_error(y_test_original, y_pred_original)
+            rmse = np.sqrt(mse)
+            r2 = r2_score(y_test_original, y_pred_original)
+            
+            results_text += f"🔹 {model_name.upper()} 모델\n"
+            results_text += f"  MAE: {mae:.2f}\n"
+            results_text += f"  RMSE: {rmse:.2f}\n"
+            results_text += f"  R²: {r2:.4f}\n\n"
+            
+            self.log(f"{model_name.upper()} - MAE: {mae:.2f}, R²: {r2:.4f}")
+        
+        # 앙상블 예측
+        if len(self.models) > 1:
+            ensemble_pred = self.ensemble_predict(self.X_test)
+            ensemble_pred_original = self.inverse_scale(ensemble_pred)
+            
+            mae = mean_absolute_error(y_test_original, ensemble_pred_original)
+            mse = mean_squared_error(y_test_original, ensemble_pred_original)
+            rmse = np.sqrt(mse)
+            r2 = r2_score(y_test_original, ensemble_pred_original)
+            
+            results_text += f"🔸 앙상블 모델\n"
+            results_text += f"  MAE: {mae:.2f}\n"
+            results_text += f"  RMSE: {rmse:.2f}\n"
+            results_text += f"  R²: {r2:.4f}\n"
+            
+            self.log(f"앙상블 - MAE: {mae:.2f}, R²: {r2:.4f}")
+            
+            # 시각화 업데이트
+            self.update_visualization(y_test_original, ensemble_pred_original)
+        
+        # 결과 텍스트 업데이트
+        self.root.after(0, self.update_results, results_text)
+        
+    def ensemble_predict(self, X):
+        """앙상블 예측"""
+        predictions = []
+        for model in self.models.values():
+            pred = model.predict(X, verbose=0).flatten()
+            predictions.append(pred)
+        return np.mean(predictions, axis=0)
+    
+    def inverse_scale(self, scaled_data):
+        """역스케일링"""
+        n_features = self.scaler.n_features_in_
+        dummy = np.zeros((len(scaled_data), n_features))
+        dummy[:, 0] = scaled_data
+        return self.scaler.inverse_transform(dummy)[:, 0]
+    
+    def run_prediction(self):
+        """예측 실행"""
+        if not self.models:
+            messagebox.showerror("오류", "먼저 모델을 학습하거나 불러오세요!")
             return
             
-        self.train_btn.setEnabled(False)
-        self.stop_btn.setEnabled(True)
-        self.log_text.append(f"Starting training for: {', '.join(selected)}")
+        try:
+            self.log("🔮 예측 실행 중...")
+            
+            # 예측 수행
+            ensemble_pred = self.ensemble_predict(self.X_test[-100:])
+            ensemble_pred_original = self.inverse_scale(ensemble_pred)
+            y_test_original = self.inverse_scale(self.y_test[-100:])
+            
+            # 병목 구간 감지
+            threshold = np.percentile(y_test_original, 85)
+            bottlenecks = ensemble_pred_original > threshold
+            
+            # 결과 출력
+            result_text = "=" * 50 + "\n"
+            result_text += "🔮 예측 결과 (최근 10개)\n"
+            result_text += "=" * 50 + "\n\n"
+            
+            for i in range(-10, 0):
+                actual = y_test_original[i]
+                predicted = ensemble_pred_original[i]
+                error = abs(actual - predicted)
+                is_bottleneck = "⚠️ 병목" if bottlenecks[i] else "정상"
+                
+                result_text += f"실제: {actual:.0f} | 예측: {predicted:.0f}\n"
+                result_text += f"오차: {error:.1f} | 상태: {is_bottleneck}\n"
+                result_text += "-" * 30 + "\n"
+            
+            # 병목 예측 통계
+            n_bottlenecks = np.sum(bottlenecks)
+            bottleneck_ratio = n_bottlenecks / len(bottlenecks) * 100
+            
+            result_text += f"\n📊 병목 예측 통계\n"
+            result_text += f"병목 구간: {n_bottlenecks}개 ({bottleneck_ratio:.1f}%)\n"
+            result_text += f"임계값: {threshold:.0f}\n"
+            
+            self.root.after(0, self.update_results, result_text)
+            self.log("✅ 예측 완료!")
+            
+            # 시각화 업데이트
+            self.update_visualization(y_test_original, ensemble_pred_original)
+            
+        except Exception as e:
+            self.log(f"❌ 예측 실패: {str(e)}")
+            messagebox.showerror("오류", f"예측 실패:\n{str(e)}")
+            
+    def save_models(self):
+        """모델 저장"""
+        if not self.models:
+            messagebox.showerror("오류", "저장할 모델이 없습니다!")
+            return
+            
+        try:
+            # 저장 디렉토리 생성
+            os.makedirs('saved_models', exist_ok=True)
+            
+            # 각 모델 저장
+            for model_name, model in self.models.items():
+                model_path = f'saved_models/{model_name}_model.keras'
+                model.save(model_path)
+                self.log(f"💾 {model_name} 모델 저장: {model_path}")
+            
+            # 스케일러 저장
+            scaler_path = 'saved_models/scaler.pkl'
+            joblib.dump(self.scaler, scaler_path)
+            self.log(f"💾 스케일러 저장: {scaler_path}")
+            
+            # 설정 저장
+            config = {
+                'seq_length': self.seq_var.get(),
+                'future_minutes': self.future_var.get(),
+                'input_shape': (self.X_train.shape[1], self.X_train.shape[2])
+            }
+            
+            with open('saved_models/config.json', 'w') as f:
+                json.dump(config, f)
+            
+            self.log("✅ 모든 모델 저장 완료!")
+            messagebox.showinfo("성공", "모델이 성공적으로 저장되었습니다!")
+            
+        except Exception as e:
+            self.log(f"❌ 모델 저장 실패: {str(e)}")
+            messagebox.showerror("오류", f"모델 저장 실패:\n{str(e)}")
+            
+    def load_saved_models(self):
+        """저장된 모델 불러오기"""
+        try:
+            if not os.path.exists('saved_models'):
+                messagebox.showerror("오류", "저장된 모델이 없습니다!")
+                return
+                
+            self.log("📂 저장된 모델 불러오는 중...")
+            
+            # 모델 파일 찾기
+            model_files = [f for f in os.listdir('saved_models') if f.endswith('.keras')]
+            
+            for model_file in model_files:
+                model_name = model_file.replace('_model.keras', '')
+                model_path = os.path.join('saved_models', model_file)
+                self.models[model_name] = load_model(model_path, compile=False)
+                self.log(f"✅ {model_name} 모델 로드 완료")
+            
+            # 스케일러 로드
+            scaler_path = 'saved_models/scaler.pkl'
+            if os.path.exists(scaler_path):
+                self.scaler = joblib.load(scaler_path)
+                self.log("✅ 스케일러 로드 완료")
+            
+            # 설정 로드
+            config_path = 'saved_models/config.json'
+            if os.path.exists(config_path):
+                with open(config_path, 'r') as f:
+                    config = json.load(f)
+                self.seq_var.set(config.get('seq_length', 30))
+                self.future_var.set(config.get('future_minutes', 10))
+            
+            self.predict_btn.config(state=tk.NORMAL)
+            self.save_btn.config(state=tk.NORMAL)
+            
+            messagebox.showinfo("성공", f"{len(self.models)}개의 모델을 불러왔습니다!")
+            
+        except Exception as e:
+            self.log(f"❌ 모델 불러오기 실패: {str(e)}")
+            messagebox.showerror("오류", f"모델 불러오기 실패:\n{str(e)}")
+            
+    def update_current_model(self, text):
+        """현재 모델 라벨 업데이트"""
+        self.current_model_label.config(text=text)
         
-        # Start training in background thread
-        # Implementation would go here
-
-
-class PredictionTab(QWidget):
-    """Prediction tab widget"""
-    def __init__(self):
-        super().__init__()
-        self.init_ui()
+    def update_overall_progress(self, value):
+        """전체 진행률 업데이트"""
+        self.overall_progress['value'] = value
         
-    def init_ui(self):
-        """Initialize UI"""
-        layout = QVBoxLayout()
+    def update_epoch_progress(self, value):
+        """에폭 진행률 업데이트"""
+        self.epoch_progress['value'] = value
         
-        # Title
-        title_label = QLabel("Real-time Prediction")
-        title_label.setStyleSheet(f"""
-            font-size: 24px;
-            font-weight: bold;
-            color: {DarkPalette.ACCENT_BLUE};
-            padding: 10px;
-        """)
-        layout.addWidget(title_label)
+    def update_current_epoch(self, text):
+        """현재 에폭 라벨 업데이트"""
+        self.current_epoch_label.config(text=text)
         
-        # Content goes here
-        layout.addStretch()
+    def update_metrics(self, loss, val_loss, mae, val_mae):
+        """메트릭 업데이트"""
+        self.metric_labels["Loss:"].config(text=f"{loss:.4f}")
+        self.metric_labels["Val Loss:"].config(text=f"{val_loss:.4f}")
+        self.metric_labels["MAE:"].config(text=f"{mae:.4f}")
+        self.metric_labels["Val MAE:"].config(text=f"{val_mae:.4f}")
         
-        self.setLayout(layout)
-
-
-class EvaluationTab(QWidget):
-    """Evaluation tab widget"""
-    def __init__(self):
-        super().__init__()
-        self.init_ui()
+    def update_results(self, text):
+        """결과 텍스트 업데이트"""
+        self.results_text.config(state=tk.NORMAL)
+        self.results_text.delete(1.0, tk.END)
+        self.results_text.insert(tk.END, text)
+        self.results_text.config(state=tk.DISABLED)
         
-    def init_ui(self):
-        """Initialize UI"""
-        layout = QVBoxLayout()
+    def update_visualization(self, y_true, y_pred):
+        """시각화 업데이트"""
+        self.ax.clear()
+        self.ax.set_facecolor('#3c3c3c')
         
-        # Title
-        title_label = QLabel("Model Evaluation")
-        title_label.setStyleSheet(f"""
-            font-size: 24px;
-            font-weight: bold;
-            color: {DarkPalette.ACCENT_BLUE};
-            padding: 10px;
-        """)
-        layout.addWidget(title_label)
+        # 예측 결과 플롯
+        self.ax.plot(y_true[:100], label='실제값', color='#00ff00', linewidth=2)
+        self.ax.plot(y_pred[:100], label='예측값', color='#ff6b6b', linewidth=1.5, alpha=0.8)
         
-        # Content goes here
-        layout.addStretch()
+        self.ax.set_title("예측 결과 비교", color='white', fontsize=12)
+        self.ax.set_xlabel("시간 인덱스", color='white')
+        self.ax.set_ylabel("물류량", color='white')
+        self.ax.tick_params(colors='white')
+        self.ax.legend(loc='upper right')
+        self.ax.grid(True, alpha=0.3)
         
-        self.setLayout(layout)
-
-
-class MainWindow(QMainWindow):
-    """Main application window"""
-    def __init__(self):
-        super().__init__()
-        self.init_ui()
+        self.canvas.draw()
         
-    def init_ui(self):
-        """Initialize UI"""
-        self.setWindowTitle("Semiconductor Logistics AI System")
-        self.setGeometry(100, 100, 1600, 900)
+    def training_completed(self):
+        """학습 완료 처리"""
+        self.train_btn.config(state=tk.DISABLED)
+        self.stop_btn.config(state=tk.DISABLED)
+        self.predict_btn.config(state=tk.NORMAL)
+        self.save_btn.config(state=tk.NORMAL)
         
-        # Apply dark theme
-        self.setStyleSheet(get_dark_stylesheet())
+        messagebox.showinfo("완료", "모든 모델 학습이 완료되었습니다!")
         
-        # Central widget
-        central_widget = QWidget()
-        self.setCentralWidget(central_widget)
+    def reset_buttons(self):
+        """버튼 상태 리셋"""
+        self.train_btn.config(state=tk.NORMAL if self.data is not None else tk.DISABLED)
+        self.stop_btn.config(state=tk.DISABLED)
         
-        # Main layout
-        main_layout = QVBoxLayout()
-        central_widget.setLayout(main_layout)
-        
-        # Header
-        header_frame = QFrame()
-        header_frame.setStyleSheet(f"""
-            QFrame {{
-                background-color: {DarkPalette.BG_DARK};
-                border-bottom: 2px solid {DarkPalette.BG_LIGHT};
-                padding: 10px;
-            }}
-        """)
-        header_layout = QHBoxLayout()
-        
-        logo_label = QLabel("🚀")
-        logo_label.setStyleSheet("font-size: 32px;")
-        header_layout.addWidget(logo_label)
-        
-        title_label = QLabel("Semiconductor FAB Logistics Prediction System")
-        title_label.setStyleSheet(f"""
-            font-size: 20px;
-            font-weight: bold;
-            color: {DarkPalette.ACCENT_BLUE};
-        """)
-        header_layout.addWidget(title_label)
-        
-        header_layout.addStretch()
-        
-        status_label = QLabel("LSTM/RNN/GRU Hybrid Models")
-        status_label.setStyleSheet(f"""
-            color: {DarkPalette.TEXT_SECONDARY};
-            font-size: 14px;
-        """)
-        header_layout.addWidget(status_label)
-        
-        header_frame.setLayout(header_layout)
-        main_layout.addWidget(header_frame)
-        
-        # Tab widget
-        self.tabs = QTabWidget()
-        
-        # Add tabs
-        self.training_tab = TrainingTab()
-        self.tabs.addTab(self.training_tab, "Training")
-        
-        self.prediction_tab = PredictionTab()
-        self.tabs.addTab(self.prediction_tab, "Prediction")
-        
-        self.evaluation_tab = EvaluationTab()
-        self.tabs.addTab(self.evaluation_tab, "Evaluation")
-        
-        main_layout.addWidget(self.tabs)
-        
-        # Status bar
-        self.statusBar().showMessage("Ready")
-        
-        # Menu bar
-        self.create_menu_bar()
-        
-    def create_menu_bar(self):
-        """Create menu bar"""
-        menubar = self.menuBar()
-        
-        # File menu
-        file_menu = menubar.addMenu("File")
-        
-        new_action = QAction("New Project", self)
-        new_action.setShortcut("Ctrl+N")
-        file_menu.addAction(new_action)
-        
-        open_action = QAction("Open Project", self)
-        open_action.setShortcut("Ctrl+O")
-        file_menu.addAction(open_action)
-        
-        save_action = QAction("Save Project", self)
-        save_action.setShortcut("Ctrl+S")
-        file_menu.addAction(save_action)
-        
-        file_menu.addSeparator()
-        
-        exit_action = QAction("Exit", self)
-        exit_action.setShortcut("Ctrl+Q")
-        exit_action.triggered.connect(self.close)
-        file_menu.addAction(exit_action)
-        
-        # Tools menu
-        tools_menu = menubar.addMenu("Tools")
-        
-        settings_action = QAction("Settings", self)
-        tools_menu.addAction(settings_action)
-        
-        # Help menu
-        help_menu = menubar.addMenu("Help")
-        
-        about_action = QAction("About", self)
-        about_action.triggered.connect(self.show_about)
-        help_menu.addAction(about_action)
-        
-    def show_about(self):
-        """Show about dialog"""
-        QMessageBox.information(
-            self,
-            "About",
-            "Semiconductor Logistics Prediction System\n\n"
-            "Version 2.0\n"
-            "LSTM/RNN/GRU Hybrid Models\n\n"
-            "Developed for FAB logistics optimization"
-        )
-
-
 def main():
-    """Main entry point"""
-    app = QApplication(sys.argv)
-    
-    # Set application info
-    app.setApplicationName("Semiconductor Logistics AI")
-    app.setOrganizationName("FAB Systems")
-    
-    # Set fusion style for better dark theme
-    app.setStyle("Fusion")
-    
-    # Create and show main window
-    window = MainWindow()
-    window.show()
-    
-    sys.exit(app.exec_())
-
+    """메인 함수"""
+    root = tk.Tk()
+    app = HybridModelGUI(root)
+    root.mainloop()
 
 if __name__ == "__main__":
     main()
