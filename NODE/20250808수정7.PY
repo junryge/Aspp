@@ -5,13 +5,13 @@ LSTM, RNN, GRU, ARIMA 모델을 통합한 하이브리드 예측 시스템으로
 반도체 팹 간 물류 이동량과 병목 구간을 예측합니다.
 
 주요 기능:
-1. 노드 기반 파이프라인 구성
+1. 기존 학습된 모델 불러오기 및 선택
 2. 실시간 모델 학습 (재시작 가능)
 3. 앙상블 예측 및 병목 구간 감지
 4. 퍼센트 기반 성능 평가
 5. CPU 기반 실행
 
-버전: 3.0 (통합 버전)
+버전: 3.1 (모델 로드 기능 추가)
 """
 
 import sys
@@ -24,6 +24,7 @@ from typing import Dict, List, Optional, Tuple
 from dataclasses import dataclass
 from enum import Enum
 from datetime import datetime, timedelta
+import glob
 
 import numpy as np
 import pandas as pd
@@ -57,149 +58,102 @@ tf.random.set_seed(RANDOM_SEED)
 np.random.seed(RANDOM_SEED)
 
 
-class NodeType(Enum):
-    """노드 타입 정의"""
-    DATA_LOAD = "data_load"
-    PREPROCESS = "preprocess"
-    TRAIN = "train"
-    PREDICT = "predict"
-    EVALUATE = "evaluate"
-    VISUALIZE = "visualize"
-
-
-@dataclass
-class NodeConfig:
-    """노드 설정 데이터 클래스"""
-    node_type: NodeType
-    name: str
-    color: str
-    inputs: int = 1
-    outputs: int = 1
-
-
-# 노드 타입별 설정
-NODE_CONFIGS = {
-    NodeType.DATA_LOAD: NodeConfig(NodeType.DATA_LOAD, "데이터 로드", "#3498db", 0, 1),
-    NodeType.PREPROCESS: NodeConfig(NodeType.PREPROCESS, "전처리", "#e74c3c", 1, 1),
-    NodeType.TRAIN: NodeConfig(NodeType.TRAIN, "학습", "#27ae60", 1, 1),
-    NodeType.PREDICT: NodeConfig(NodeType.PREDICT, "예측", "#f39c12", 1, 1),
-    NodeType.EVALUATE: NodeConfig(NodeType.EVALUATE, "평가", "#9b59b6", 1, 1),
-    NodeType.VISUALIZE: NodeConfig(NodeType.VISUALIZE, "시각화", "#1abc9c", 1, 0),
-}
-
-
-class CheckpointManager:
-    """학습 상태를 저장하고 복원하는 클래스"""
+class ModelManager:
+    """모델 관리 클래스 - 기존 모델 불러오기 및 관리"""
     
-    def __init__(self, checkpoint_dir='checkpoints'):
-        self.checkpoint_dir = checkpoint_dir
-        os.makedirs(checkpoint_dir, exist_ok=True)
-        self.state_file = os.path.join(checkpoint_dir, 'training_state.json')
-        self.data_file = os.path.join(checkpoint_dir, 'preprocessed_data.pkl')
+    def __init__(self):
+        self.loaded_models = {}
+        self.model_info = {}
+        self.scaler = None
+        self.config = None
         
-    def save_state(self, state_dict):
-        """현재 학습 상태 저장"""
-        with open(self.state_file, 'w') as f:
-            json.dump(state_dict, f, indent=4, default=str)
+    def scan_model_directory(self, directory='model'):
+        """모델 디렉토리 스캔"""
+        models_found = {}
         
-    def load_state(self):
-        """저장된 학습 상태 로드"""
-        if os.path.exists(self.state_file):
-            with open(self.state_file, 'r') as f:
-                return json.load(f)
-        return None
+        if os.path.exists(directory):
+            # .keras 파일 검색
+            keras_files = glob.glob(os.path.join(directory, '*.keras'))
+            
+            for file_path in keras_files:
+                filename = os.path.basename(file_path)
+                model_name = filename.replace('.keras', '')
+                
+                # 모델 타입 추론
+                if 'lstm' in model_name.lower():
+                    model_type = 'LSTM'
+                elif 'gru' in model_name.lower():
+                    model_type = 'GRU'
+                elif 'rnn' in model_name.lower():
+                    model_type = 'RNN'
+                elif 'bi' in model_name.lower():
+                    model_type = 'Bi-LSTM'
+                else:
+                    model_type = 'Unknown'
+                
+                # 파일 정보
+                file_stat = os.stat(file_path)
+                models_found[model_name] = {
+                    'path': file_path,
+                    'type': model_type,
+                    'size': file_stat.st_size / (1024 * 1024),  # MB
+                    'modified': datetime.fromtimestamp(file_stat.st_mtime),
+                    'loaded': False
+                }
         
-    def save_data(self, data_dict):
-        """전처리된 데이터 저장"""
-        with open(self.data_file, 'wb') as f:
-            pickle.dump(data_dict, f)
-        
-    def load_data(self):
-        """저장된 데이터 로드"""
-        if os.path.exists(self.data_file):
-            with open(self.data_file, 'rb') as f:
-                return pickle.load(f)
-        return None
-        
-    def save_model_weights(self, model, model_name, epoch):
-        """모델 가중치 저장"""
-        weights_path = os.path.join(self.checkpoint_dir, f'{model_name}_weights_epoch_{epoch}.h5')
-        model.save_weights(weights_path)
-        return weights_path
-        
-    def load_model_weights(self, model, weights_path):
-        """모델 가중치 로드"""
-        if os.path.exists(weights_path):
-            model.load_weights(weights_path)
+        return models_found
+    
+    def load_model(self, model_path):
+        """모델 로드"""
+        try:
+            model = load_model(model_path, compile=False)
+            # 재컴파일
+            model.compile(optimizer='adam', loss='mse', metrics=['mae'])
+            return model
+        except Exception as e:
+            raise Exception(f"모델 로드 실패: {str(e)}")
+    
+    def load_scaler(self, scaler_path=None):
+        """스케일러 로드"""
+        if scaler_path and os.path.exists(scaler_path):
+            self.scaler = joblib.load(scaler_path)
             return True
-        return False
-
-
-class HybridModels:
-    """LSTM, RNN, GRU 모델을 포함한 하이브리드 예측 시스템"""
-    
-    def __init__(self, input_shape):
-        self.input_shape = input_shape
-        self.models = {}
-        self.histories = {}
         
-    def build_lstm_model(self):
-        """LSTM 모델 구축"""
-        model = Sequential([
-            Input(shape=self.input_shape),
-            LSTM(units=100, return_sequences=True),
-            Dropout(0.2),
-            BatchNormalization(),
-            LSTM(units=100, return_sequences=True),
-            Dropout(0.2),
-            BatchNormalization(),
-            LSTM(units=100, return_sequences=False),
-            Dropout(0.2),
-            Dense(units=50, activation='relu'),
-            Dense(units=1)
-        ])
-        return model
+        # 기본 경로에서 찾기
+        default_paths = [
+            'scaler/standard_scaler_hybrid.pkl',
+            'scaler/StdScaler_s30f10_0731_2079936.save',
+            'scaler/scaler.pkl'
+        ]
+        
+        for path in default_paths:
+            if os.path.exists(path):
+                self.scaler = joblib.load(path)
+                return True
+        
+        return False
     
-    def build_gru_model(self):
-        """GRU 모델 구축"""
-        model = Sequential([
-            Input(shape=self.input_shape),
-            GRU(units=100, return_sequences=True),
-            Dropout(0.2),
-            GRU(units=100, return_sequences=True),
-            Dropout(0.2),
-            GRU(units=50, return_sequences=False),
-            Dropout(0.2),
-            Dense(units=30, activation='relu'),
-            Dense(units=1)
-        ])
-        return model
-    
-    def build_simple_rnn_model(self):
-        """Simple RNN 모델 구축"""
-        model = Sequential([
-            Input(shape=self.input_shape),
-            SimpleRNN(units=100, return_sequences=True),
-            Dropout(0.2),
-            SimpleRNN(units=50, return_sequences=False),
-            Dropout(0.2),
-            Dense(units=30, activation='relu'),
-            Dense(units=1)
-        ])
-        return model
-    
-    def build_bidirectional_lstm_model(self):
-        """양방향 LSTM 모델 구축"""
-        model = Sequential([
-            Input(shape=self.input_shape),
-            Bidirectional(LSTM(units=50, return_sequences=True)),
-            Dropout(0.2),
-            Bidirectional(LSTM(units=50, return_sequences=False)),
-            Dropout(0.2),
-            Dense(units=30, activation='relu'),
-            Dense(units=1)
-        ])
-        return model
+    def load_config(self, config_path=None):
+        """설정 파일 로드"""
+        if config_path and os.path.exists(config_path):
+            with open(config_path, 'r') as f:
+                self.config = json.load(f)
+            return True
+        
+        # 기본 경로에서 찾기
+        default_path = 'results/training_config.json'
+        if os.path.exists(default_path):
+            with open(default_path, 'r') as f:
+                self.config = json.load(f)
+            return True
+        
+        # 기본 설정
+        self.config = {
+            'seq_length': 30,
+            'future_minutes': 10,
+            'bottleneck_threshold': 2000
+        }
+        return False
 
 
 class ModelPercentEvaluator:
@@ -233,254 +187,201 @@ class ModelPercentEvaluator:
         return directional_accuracy
     
     def calculate_bottleneck_accuracy(self, y_true, y_pred, threshold):
-        """병목 구간 예측 정확도
+        """병목 구간 예측 정확도"""
+        true_bottleneck = y_true > threshold
+        pred_bottleneck = y_pred > threshold
         
-        Parameters:
-        -----------
-        y_true : array-like
-            실제 값
-        y_pred : array-like
-            예측 값
-        threshold : float
-            병목 판단 임계값 (예: 2000)
-        
-        Returns:
-        --------
-        dict : 병목 예측 메트릭
-            - accuracy: 전체 정확도 (%)
-            - precision: 정밀도 (%)
-            - recall: 재현율 (%)
-            - f1_score: F1 점수 (%)
-        """
-        
-        # 병목 여부 판단 (임계값 초과 시 병목)
-        true_bottleneck = y_true > threshold  # 실제 병목
-        pred_bottleneck = y_pred > threshold  # 예측 병목
-        
-        # 혼동 행렬 계산
-        # True Positive: 실제 병목이고 병목으로 예측
         tp = np.sum((true_bottleneck == True) & (pred_bottleneck == True))
-        
-        # True Negative: 실제 정상이고 정상으로 예측
         tn = np.sum((true_bottleneck == False) & (pred_bottleneck == False))
-        
-        # False Positive: 실제 정상인데 병목으로 예측 (오탐)
         fp = np.sum((true_bottleneck == False) & (pred_bottleneck == True))
-        
-        # False Negative: 실제 병목인데 정상으로 예측 (미탐)
         fn = np.sum((true_bottleneck == True) & (pred_bottleneck == False))
         
-        # 전체 샘플 수
         total = tp + tn + fp + fn
         
-        # 정확도 (Accuracy): 전체 중 맞춘 비율
         accuracy = (tp + tn) / total * 100 if total > 0 else 0
-        
-        # 정밀도 (Precision): 병목 예측 중 실제 병목 비율
-        # "병목이라고 예측한 것 중 실제로 병목인 비율"
         precision = tp / (tp + fp) * 100 if (tp + fp) > 0 else 0
-        
-        # 재현율 (Recall/Sensitivity): 실제 병목 중 예측 성공 비율
-        # "실제 병목 중 병목으로 예측한 비율"
         recall = tp / (tp + fn) * 100 if (tp + fn) > 0 else 0
-        
-        # F1 Score: 정밀도와 재현율의 조화평균
-        if (precision + recall) > 0:
-            f1 = 2 * (precision * recall) / (precision + recall)
-        else:
-            f1 = 0
+        f1 = 2 * (precision * recall) / (precision + recall) if (precision + recall) > 0 else 0
         
         return {
-            'accuracy': accuracy,      # 전체 정확도
-            'precision': precision,     # 정밀도 (오탐 최소화)
-            'recall': recall,          # 재현율 (미탐 최소화)
-            'f1_score': f1            # F1 점수 (균형 지표)
+            'accuracy': accuracy,
+            'precision': precision,
+            'recall': recall,
+            'f1_score': f1
         }
 
 
-class TrainingThread(QThread):
-    """학습을 별도 스레드에서 실행"""
-    progress_update = pyqtSignal(str)
-    progress_value = pyqtSignal(int)  # 프로그레스바 값
-    training_complete = pyqtSignal(dict)
-    error_occurred = pyqtSignal(str)
+class ModelSelectionDialog(QDialog):
+    """모델 선택 대화상자"""
     
-    def __init__(self, data, config):
-        super().__init__()
-        self.data = data
-        self.config = config
-        self.checkpoint_manager = CheckpointManager()
-        self.is_running = True
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("모델 선택")
+        self.setModal(True)
+        self.setMinimumWidth(800)
+        self.setMinimumHeight(500)
         
-    def run(self):
-        """학습 실행"""
-        try:
-            self.progress_update.emit("="*50)
-            self.progress_update.emit("하이브리드 딥러닝 모델 학습 시작")
-            self.progress_update.emit("="*50)
+        self.model_manager = ModelManager()
+        self.selected_models = []
+        self.selected_scaler = None
+        
+        self.init_ui()
+        self.refresh_models()
+        
+    def init_ui(self):
+        layout = QVBoxLayout()
+        
+        # 모델 디렉토리 선택
+        dir_layout = QHBoxLayout()
+        dir_layout.addWidget(QLabel("모델 디렉토리:"))
+        self.dir_edit = QLineEdit("model")
+        dir_layout.addWidget(self.dir_edit)
+        
+        browse_btn = QPushButton("찾아보기")
+        browse_btn.clicked.connect(self.browse_directory)
+        dir_layout.addWidget(browse_btn)
+        
+        refresh_btn = QPushButton("새로고침")
+        refresh_btn.clicked.connect(self.refresh_models)
+        dir_layout.addWidget(refresh_btn)
+        
+        layout.addLayout(dir_layout)
+        
+        # 모델 목록 테이블
+        self.model_table = QTableWidget()
+        self.model_table.setColumnCount(6)
+        self.model_table.setHorizontalHeaderLabels(['선택', '모델명', '타입', '크기(MB)', '수정일', '경로'])
+        self.model_table.horizontalHeader().setStretchLastSection(True)
+        layout.addWidget(self.model_table)
+        
+        # 스케일러 선택
+        scaler_group = QGroupBox("스케일러 선택")
+        scaler_layout = QHBoxLayout()
+        
+        self.scaler_edit = QLineEdit()
+        self.scaler_edit.setPlaceholderText("스케일러 파일 경로...")
+        scaler_layout.addWidget(self.scaler_edit)
+        
+        scaler_browse_btn = QPushButton("찾아보기")
+        scaler_browse_btn.clicked.connect(self.browse_scaler)
+        scaler_layout.addWidget(scaler_browse_btn)
+        
+        auto_find_btn = QPushButton("자동 찾기")
+        auto_find_btn.clicked.connect(self.auto_find_scaler)
+        scaler_layout.addWidget(auto_find_btn)
+        
+        scaler_group.setLayout(scaler_layout)
+        layout.addWidget(scaler_group)
+        
+        # 버튼
+        button_layout = QHBoxLayout()
+        
+        load_btn = QPushButton("선택한 모델 불러오기")
+        load_btn.clicked.connect(self.load_selected_models)
+        button_layout.addWidget(load_btn)
+        
+        cancel_btn = QPushButton("취소")
+        cancel_btn.clicked.connect(self.reject)
+        button_layout.addWidget(cancel_btn)
+        
+        layout.addLayout(button_layout)
+        
+        self.setLayout(layout)
+        
+    def browse_directory(self):
+        """디렉토리 선택"""
+        directory = QFileDialog.getExistingDirectory(self, "모델 디렉토리 선택")
+        if directory:
+            self.dir_edit.setText(directory)
+            self.refresh_models()
             
-            # 데이터 준비
-            X_train = self.data['X_train']
-            y_train = self.data['y_train']
-            X_val = self.data['X_val']
-            y_val = self.data['y_val']
-            input_shape = (X_train.shape[1], X_train.shape[2])
+    def refresh_models(self):
+        """모델 목록 새로고침"""
+        directory = self.dir_edit.text()
+        models = self.model_manager.scan_model_directory(directory)
+        
+        self.model_table.setRowCount(len(models))
+        
+        for i, (name, info) in enumerate(models.items()):
+            # 체크박스
+            checkbox = QCheckBox()
+            checkbox_widget = QWidget()
+            checkbox_layout = QHBoxLayout(checkbox_widget)
+            checkbox_layout.addWidget(checkbox)
+            checkbox_layout.setAlignment(Qt.AlignCenter)
+            checkbox_layout.setContentsMargins(0, 0, 0, 0)
+            self.model_table.setCellWidget(i, 0, checkbox_widget)
             
-            self.progress_update.emit(f"학습 데이터: {X_train.shape}")
-            self.progress_update.emit(f"검증 데이터: {X_val.shape}")
-            self.progress_update.emit(f"입력 형태: {input_shape}")
-            self.progress_update.emit("-"*50)
+            # 모델 정보
+            self.model_table.setItem(i, 1, QTableWidgetItem(name))
+            self.model_table.setItem(i, 2, QTableWidgetItem(info['type']))
+            self.model_table.setItem(i, 3, QTableWidgetItem(f"{info['size']:.2f}"))
+            self.model_table.setItem(i, 4, QTableWidgetItem(info['modified'].strftime('%Y-%m-%d %H:%M')))
+            self.model_table.setItem(i, 5, QTableWidgetItem(info['path']))
             
-            # 하이브리드 모델 초기화
-            hybrid_models = HybridModels(input_shape)
+    def browse_scaler(self):
+        """스케일러 파일 선택"""
+        filename, _ = QFileDialog.getOpenFileName(
+            self, "스케일러 파일 선택", "",
+            "Pickle Files (*.pkl *.save);;All Files (*.*)"
+        )
+        if filename:
+            self.scaler_edit.setText(filename)
             
-            # 선택된 모델만 학습
-            selected_models = self.config.get('models', ['lstm', 'gru', 'rnn', 'bi_lstm'])
+    def auto_find_scaler(self):
+        """스케일러 자동 찾기"""
+        if self.model_manager.load_scaler():
+            QMessageBox.information(self, "성공", "스케일러를 자동으로 찾았습니다")
+            # 찾은 경로 표시
+            if os.path.exists('scaler/standard_scaler_hybrid.pkl'):
+                self.scaler_edit.setText('scaler/standard_scaler_hybrid.pkl')
+            elif os.path.exists('scaler/StdScaler_s30f10_0731_2079936.save'):
+                self.scaler_edit.setText('scaler/StdScaler_s30f10_0731_2079936.save')
+        else:
+            QMessageBox.warning(self, "실패", "스케일러를 찾을 수 없습니다")
             
-            # 모델 리스트
-            model_configs = {
-                'lstm': ('LSTM', hybrid_models.build_lstm_model),
-                'gru': ('GRU', hybrid_models.build_gru_model),
-                'rnn': ('RNN', hybrid_models.build_simple_rnn_model),
-                'bi_lstm': ('Bi-LSTM', hybrid_models.build_bidirectional_lstm_model)
-            }
+    def load_selected_models(self):
+        """선택한 모델 불러오기"""
+        self.selected_models = []
+        
+        for i in range(self.model_table.rowCount()):
+            checkbox_widget = self.model_table.cellWidget(i, 0)
+            checkbox = checkbox_widget.findChild(QCheckBox)
             
-            results = {}
-            total_models = len(selected_models)
-            current_model_idx = 0
-            
-            # 각 모델 학습
-            for model_key in selected_models:
-                if not self.is_running:
-                    self.progress_update.emit("학습이 중단되었습니다.")
-                    break
+            if checkbox.isChecked():
+                model_name = self.model_table.item(i, 1).text()
+                model_path = self.model_table.item(i, 5).text()
+                model_type = self.model_table.item(i, 2).text()
                 
-                if model_key not in model_configs:
-                    continue
-                    
-                model_name, build_func = model_configs[model_key]
-                current_model_idx += 1
-                
-                self.progress_update.emit(f"\n[{current_model_idx}/{total_models}] {model_name} 모델 학습 시작")
-                self.progress_update.emit("="*50)
-                
-                # 모델 빌드
-                model = build_func()
-                
-                # 컴파일
-                optimizer = Adam(learning_rate=self.config.get('learning_rate', 0.0005))
-                model.compile(optimizer=optimizer, loss='mse', metrics=['mae'])
-                
-                self.progress_update.emit(f"옵티마이저: Adam (lr={self.config.get('learning_rate', 0.0005)})")
-                self.progress_update.emit(f"배치 크기: {self.config.get('batch_size', 64)}")
-                self.progress_update.emit(f"에폭: {self.config.get('epochs', 50)}")
-                
-                # 에폭별 학습 (진행 상황 표시)
-                epochs = self.config.get('epochs', 50)
-                batch_size = self.config.get('batch_size', 64)
-                
-                best_val_loss = float('inf')
-                patience_counter = 0
-                patience = 20
-                history = {'loss': [], 'val_loss': [], 'mae': [], 'val_mae': []}
-                
-                for epoch in range(epochs):
-                    if not self.is_running:
-                        break
-                    
-                    # 한 에폭 학습
-                    hist = model.fit(
-                        X_train, y_train,
-                        validation_data=(X_val, y_val),
-                        epochs=1,
-                        batch_size=batch_size,
-                        verbose=0
-                    )
-                    
-                    # 히스토리 저장
-                    for key in history.keys():
-                        if key in hist.history:
-                            history[key].append(hist.history[key][0])
-                    
-                    # 현재 손실값
-                    train_loss = hist.history['loss'][0]
-                    val_loss = hist.history['val_loss'][0]
-                    train_mae = hist.history.get('mae', [0])[0]
-                    val_mae = hist.history.get('val_mae', [0])[0]
-                    
-                    # 진행 상황 출력 (10 에폭마다 또는 처음/마지막)
-                    if epoch % 10 == 0 or epoch == epochs - 1:
-                        self.progress_update.emit(
-                            f"Epoch {epoch+1:3d}/{epochs} - "
-                            f"loss: {train_loss:.4f} - mae: {train_mae:.4f} - "
-                            f"val_loss: {val_loss:.4f} - val_mae: {val_mae:.4f}"
-                        )
-                    
-                    # 프로그레스바 업데이트
-                    overall_progress = int(
-                        ((current_model_idx - 1) * epochs + epoch + 1) / 
-                        (total_models * epochs) * 100
-                    )
-                    self.progress_value.emit(overall_progress)
-                    
-                    # Early stopping 체크
-                    if val_loss < best_val_loss:
-                        best_val_loss = val_loss
-                        patience_counter = 0
-                        # 최고 모델 저장
-                        model_path = f'model/{model_key}_best.keras'
-                        os.makedirs('model', exist_ok=True)
-                        model.save(model_path)
-                    else:
-                        patience_counter += 1
-                    
-                    if patience_counter >= patience:
-                        self.progress_update.emit(f"Early stopping at epoch {epoch+1}")
-                        break
-                
-                # 최종 모델 저장
-                model_path = f'model/{model_key}_hybrid.keras'
-                os.makedirs('model', exist_ok=True)
-                model.save(model_path)
-                
-                # 결과 저장
-                results[model_key] = {
-                    'model_path': model_path,
-                    'history': history,
-                    'final_loss': history['loss'][-1] if history['loss'] else 0,
-                    'final_val_loss': history['val_loss'][-1] if history['val_loss'] else 0,
-                    'epochs_trained': len(history['loss'])
-                }
-                
-                self.progress_update.emit(f"{model_name} 모델 학습 완료!")
-                self.progress_update.emit(f"최종 Loss: {results[model_key]['final_loss']:.4f}")
-                self.progress_update.emit(f"최종 Val Loss: {results[model_key]['final_val_loss']:.4f}")
-                self.progress_update.emit("-"*50)
-            
-            self.progress_value.emit(100)
-            self.progress_update.emit("\n" + "="*50)
-            self.progress_update.emit("🎉 모든 모델 학습 완료!")
-            self.progress_update.emit("="*50)
-            
-            # 결과 요약
-            self.progress_update.emit("\n📊 학습 결과 요약:")
-            for model_key, info in results.items():
-                model_name = model_configs[model_key][0]
-                self.progress_update.emit(
-                    f"  {model_name}: Loss={info['final_loss']:.4f}, "
-                    f"Val Loss={info['final_val_loss']:.4f}, "
-                    f"Epochs={info['epochs_trained']}"
-                )
-            
-            self.training_complete.emit(results)
-            
-        except Exception as e:
-            self.progress_update.emit(f"❌ 오류 발생: {str(e)}")
-            self.error_occurred.emit(str(e))
-    
-    def stop(self):
-        """학습 중단"""
-        self.is_running = False
+                self.selected_models.append({
+                    'name': model_name,
+                    'path': model_path,
+                    'type': model_type
+                })
+        
+        if not self.selected_models:
+            QMessageBox.warning(self, "경고", "모델을 선택하세요")
+            return
+        
+        # 스케일러 로드
+        scaler_path = self.scaler_edit.text()
+        if scaler_path:
+            self.model_manager.load_scaler(scaler_path)
+        else:
+            self.model_manager.load_scaler()
+        
+        self.selected_scaler = self.model_manager.scaler
+        
+        if self.selected_scaler is None:
+            reply = QMessageBox.question(
+                self, "확인",
+                "스케일러를 찾을 수 없습니다. 계속하시겠습니까?",
+                QMessageBox.Yes | QMessageBox.No
+            )
+            if reply == QMessageBox.No:
+                return
+        
+        self.accept()
 
 
 class PredictionWidget(QWidget):
@@ -495,46 +396,92 @@ class PredictionWidget(QWidget):
         
         # 예측 결과 테이블
         self.result_table = QTableWidget()
-        self.result_table.setColumnCount(5)
-        self.result_table.setHorizontalHeaderLabels(['시간', '현재값', '예측값', '오차', '병목여부'])
+        self.result_table.setColumnCount(6)
+        self.result_table.setHorizontalHeaderLabels(['시간', '현재값', '예측값', '오차', '오차율(%)', '병목여부'])
         layout.addWidget(self.result_table)
         
         # 차트
-        self.figure = Figure(figsize=(10, 6))
+        self.figure = Figure(figsize=(12, 6))
         self.canvas = FigureCanvas(self.figure)
         layout.addWidget(self.canvas)
         
         self.setLayout(layout)
         
-    def update_predictions(self, predictions, actual_values, times):
+    def update_predictions(self, predictions, actual_values, times, threshold=2000):
         """예측 결과 업데이트"""
         # 테이블 업데이트
-        self.result_table.setRowCount(min(20, len(predictions)))
+        n_rows = min(50, len(predictions))
+        self.result_table.setRowCount(n_rows)
         
-        for i in range(min(20, len(predictions))):
-            self.result_table.setItem(i, 0, QTableWidgetItem(str(times[i])))
-            self.result_table.setItem(i, 1, QTableWidgetItem(f"{actual_values[i]:.0f}"))
-            self.result_table.setItem(i, 2, QTableWidgetItem(f"{predictions[i]:.0f}"))
-            self.result_table.setItem(i, 3, QTableWidgetItem(f"{abs(predictions[i] - actual_values[i]):.1f}"))
+        for i in range(n_rows):
+            # 시간
+            if isinstance(times[i], pd.Timestamp):
+                time_str = times[i].strftime('%Y-%m-%d %H:%M')
+            else:
+                time_str = str(times[i])
+            self.result_table.setItem(i, 0, QTableWidgetItem(time_str))
             
-            bottleneck = "예" if predictions[i] > 2000 else "아니오"
-            self.result_table.setItem(i, 4, QTableWidgetItem(bottleneck))
+            # 현재값
+            self.result_table.setItem(i, 1, QTableWidgetItem(f"{actual_values[i]:.0f}"))
+            
+            # 예측값
+            self.result_table.setItem(i, 2, QTableWidgetItem(f"{predictions[i]:.0f}"))
+            
+            # 오차
+            error = abs(predictions[i] - actual_values[i])
+            self.result_table.setItem(i, 3, QTableWidgetItem(f"{error:.1f}"))
+            
+            # 오차율
+            error_rate = (error / actual_values[i] * 100) if actual_values[i] != 0 else 0
+            self.result_table.setItem(i, 4, QTableWidgetItem(f"{error_rate:.1f}%"))
+            
+            # 병목여부
+            bottleneck = "⚠️ 병목" if predictions[i] > threshold else "정상"
+            item = QTableWidgetItem(bottleneck)
+            if predictions[i] > threshold:
+                item.setForeground(QColor('red'))
+            self.result_table.setItem(i, 5, item)
         
         # 차트 업데이트
         self.figure.clear()
-        ax = self.figure.add_subplot(111)
         
+        # 서브플롯 생성
+        ax1 = self.figure.add_subplot(211)
+        ax2 = self.figure.add_subplot(212)
+        
+        # 상단: 예측 vs 실제
         sample_size = min(200, len(predictions))
-        ax.plot(actual_values[:sample_size], label='실제값', color='blue', linewidth=2)
-        ax.plot(predictions[:sample_size], label='예측값', color='red', linewidth=1.5)
-        ax.axhline(y=2000, color='orange', linestyle='--', label='병목 임계값')
+        x_range = range(sample_size)
         
-        ax.set_title('반도체 물류량 예측 결과', fontsize=14)
-        ax.set_xlabel('시간', fontsize=12)
-        ax.set_ylabel('물류량', fontsize=12)
-        ax.legend()
-        ax.grid(True, alpha=0.3)
+        ax1.plot(x_range, actual_values[:sample_size], label='실제값', color='blue', linewidth=2, alpha=0.7)
+        ax1.plot(x_range, predictions[:sample_size], label='예측값', color='red', linewidth=1.5, alpha=0.7)
+        ax1.axhline(y=threshold, color='orange', linestyle='--', label=f'병목 임계값 ({threshold})', alpha=0.5)
         
+        # 병목 구간 하이라이트
+        bottleneck_indices = np.where(predictions[:sample_size] > threshold)[0]
+        if len(bottleneck_indices) > 0:
+            ax1.scatter(bottleneck_indices, predictions[bottleneck_indices], 
+                       color='red', s=30, marker='o', label='병목 예측', zorder=5)
+        
+        ax1.set_title('반도체 물류량 예측 결과 (10분 후)', fontsize=14)
+        ax1.set_xlabel('시간 인덱스', fontsize=12)
+        ax1.set_ylabel('물류량 (TOTALCNT)', fontsize=12)
+        ax1.legend(loc='upper right')
+        ax1.grid(True, alpha=0.3)
+        
+        # 하단: 오차 분포
+        errors = np.abs(predictions[:sample_size] - actual_values[:sample_size])
+        ax2.bar(x_range, errors, color='green', alpha=0.5)
+        ax2.axhline(y=np.mean(errors), color='red', linestyle='--', 
+                   label=f'평균 오차: {np.mean(errors):.1f}')
+        
+        ax2.set_title('예측 오차 분포', fontsize=14)
+        ax2.set_xlabel('시간 인덱스', fontsize=12)
+        ax2.set_ylabel('절대 오차', fontsize=12)
+        ax2.legend(loc='upper right')
+        ax2.grid(True, alpha=0.3)
+        
+        self.figure.tight_layout()
         self.canvas.draw()
 
 
@@ -543,7 +490,7 @@ class MainWindow(QMainWindow):
     
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("반도체 FAB 물류 예측 하이브리드 딥러닝 시스템")
+        self.setWindowTitle("반도체 FAB 물류 예측 하이브리드 딥러닝 시스템 v3.1")
         self.setGeometry(100, 100, 1400, 900)
         
         # 다크 테마 적용
@@ -622,12 +569,12 @@ class MainWindow(QMainWindow):
         # 중앙 위젯
         self.init_ui()
         
-        # 데이터 저장
+        # 데이터 및 모델 저장
         self.current_data = None
-        self.models = {}
+        self.loaded_models = {}  # 불러온 모델들
+        self.trained_models = {}  # 학습한 모델들
         self.scaler = None
-        self.checkpoint_manager = CheckpointManager()
-        self.training_thread = None
+        self.model_manager = ModelManager()
         
     def init_ui(self):
         """UI 초기화"""
@@ -641,13 +588,13 @@ class MainWindow(QMainWindow):
         # 탭 위젯
         self.tabs = QTabWidget()
         
+        # 모델 관리 탭 (새로 추가)
+        self.model_tab = self.create_model_management_tab()
+        self.tabs.addTab(self.model_tab, "🗂️ 모델 관리")
+        
         # 데이터 탭
         self.data_tab = self.create_data_tab()
         self.tabs.addTab(self.data_tab, "📊 데이터")
-        
-        # 학습 탭
-        self.train_tab = self.create_train_tab()
-        self.tabs.addTab(self.train_tab, "🎓 학습")
         
         # 예측 탭
         self.predict_tab = self.create_predict_tab()
@@ -680,15 +627,15 @@ class MainWindow(QMainWindow):
         # 파일 메뉴
         file_menu = menubar.addMenu("파일")
         
-        load_action = QAction("데이터 불러오기", self)
-        load_action.setShortcut("Ctrl+O")
-        load_action.triggered.connect(self.load_data)
-        file_menu.addAction(load_action)
+        load_models_action = QAction("모델 불러오기", self)
+        load_models_action.setShortcut("Ctrl+L")
+        load_models_action.triggered.connect(self.load_existing_models)
+        file_menu.addAction(load_models_action)
         
-        save_action = QAction("모델 저장", self)
-        save_action.setShortcut("Ctrl+S")
-        save_action.triggered.connect(self.save_models)
-        file_menu.addAction(save_action)
+        load_data_action = QAction("데이터 불러오기", self)
+        load_data_action.setShortcut("Ctrl+O")
+        load_data_action.triggered.connect(self.load_data)
+        file_menu.addAction(load_data_action)
         
         file_menu.addSeparator()
         
@@ -697,19 +644,57 @@ class MainWindow(QMainWindow):
         exit_action.triggered.connect(self.close)
         file_menu.addAction(exit_action)
         
-        # 도구 메뉴
-        tools_menu = menubar.addMenu("도구")
-        
-        checkpoint_action = QAction("체크포인트 관리", self)
-        checkpoint_action.triggered.connect(self.manage_checkpoints)
-        tools_menu.addAction(checkpoint_action)
-        
         # 도움말 메뉴
         help_menu = menubar.addMenu("도움말")
         
         about_action = QAction("프로그램 정보", self)
         about_action.triggered.connect(self.show_about)
         help_menu.addAction(about_action)
+        
+    def create_model_management_tab(self):
+        """모델 관리 탭 생성"""
+        widget = QWidget()
+        layout = QVBoxLayout()
+        
+        # 모델 불러오기 섹션
+        load_group = QGroupBox("기존 모델 불러오기")
+        load_layout = QVBoxLayout()
+        
+        load_btn = QPushButton("📁 모델 선택 및 불러오기")
+        load_btn.clicked.connect(self.load_existing_models)
+        load_layout.addWidget(load_btn)
+        
+        load_group.setLayout(load_layout)
+        layout.addWidget(load_group)
+        
+        # 불러온 모델 목록
+        models_group = QGroupBox("불러온 모델 목록")
+        models_layout = QVBoxLayout()
+        
+        self.loaded_models_table = QTableWidget()
+        self.loaded_models_table.setColumnCount(5)
+        self.loaded_models_table.setHorizontalHeaderLabels(['모델명', '타입', '상태', '경로', '작업'])
+        self.loaded_models_table.horizontalHeader().setStretchLastSection(True)
+        models_layout.addWidget(self.loaded_models_table)
+        
+        models_group.setLayout(models_layout)
+        layout.addWidget(models_group)
+        
+        # 모델 정보
+        info_group = QGroupBox("모델 정보")
+        info_layout = QVBoxLayout()
+        
+        self.model_info_text = QTextEdit()
+        self.model_info_text.setReadOnly(True)
+        self.model_info_text.setMaximumHeight(150)
+        info_layout.addWidget(self.model_info_text)
+        
+        info_group.setLayout(info_layout)
+        layout.addWidget(info_group)
+        
+        layout.addStretch()
+        widget.setLayout(layout)
+        return widget
         
     def create_data_tab(self):
         """데이터 탭 생성"""
@@ -767,123 +752,13 @@ class MainWindow(QMainWindow):
         self.end_date_edit.setDate(QDate(2025, 7, 27))
         preprocess_layout.addWidget(self.end_date_edit, 0, 3)
         
-        # 이상치 제거
-        self.remove_outliers_check = QCheckBox("이상치 제거")
-        self.remove_outliers_check.setChecked(True)
-        preprocess_layout.addWidget(self.remove_outliers_check, 1, 0)
-        
-        # 스케일링
-        preprocess_layout.addWidget(QLabel("스케일링:"), 1, 2)
-        self.scaling_combo = QComboBox()
-        self.scaling_combo.addItems(["StandardScaler", "MinMaxScaler", "RobustScaler"])
-        preprocess_layout.addWidget(self.scaling_combo, 1, 3)
-        
         # 전처리 실행 버튼
         preprocess_btn = QPushButton("전처리 실행")
         preprocess_btn.clicked.connect(self.preprocess_data)
-        preprocess_layout.addWidget(preprocess_btn, 2, 0, 1, 4)
+        preprocess_layout.addWidget(preprocess_btn, 1, 0, 1, 4)
         
         preprocess_group.setLayout(preprocess_layout)
         layout.addWidget(preprocess_group)
-        
-        layout.addStretch()
-        widget.setLayout(layout)
-        return widget
-        
-    def create_train_tab(self):
-        """학습 탭 생성"""
-        widget = QWidget()
-        layout = QVBoxLayout()
-        
-        # 학습 설정
-        config_group = QGroupBox("학습 설정")
-        config_layout = QGridLayout()
-        
-        # 에폭
-        config_layout.addWidget(QLabel("에폭:"), 0, 0)
-        self.epochs_spin = QSpinBox()
-        self.epochs_spin.setRange(10, 500)
-        self.epochs_spin.setValue(200)
-        config_layout.addWidget(self.epochs_spin, 0, 1)
-        
-        # 배치 크기
-        config_layout.addWidget(QLabel("배치 크기:"), 0, 2)
-        self.batch_size_spin = QSpinBox()
-        self.batch_size_spin.setRange(16, 256)
-        self.batch_size_spin.setValue(64)
-        self.batch_size_spin.setSingleStep(16)
-        config_layout.addWidget(self.batch_size_spin, 0, 3)
-        
-        # 학습률
-        config_layout.addWidget(QLabel("학습률:"), 1, 0)
-        self.learning_rate_spin = QDoubleSpinBox()
-        self.learning_rate_spin.setRange(0.0001, 0.1)
-        self.learning_rate_spin.setValue(0.0005)
-        self.learning_rate_spin.setSingleStep(0.0001)
-        self.learning_rate_spin.setDecimals(4)
-        config_layout.addWidget(self.learning_rate_spin, 1, 1)
-        
-        # 검증 비율
-        config_layout.addWidget(QLabel("검증 비율:"), 1, 2)
-        self.validation_split_spin = QDoubleSpinBox()
-        self.validation_split_spin.setRange(0.1, 0.5)
-        self.validation_split_spin.setValue(0.3)
-        self.validation_split_spin.setSingleStep(0.05)
-        config_layout.addWidget(self.validation_split_spin, 1, 3)
-        
-        config_group.setLayout(config_layout)
-        layout.addWidget(config_group)
-        
-        # 모델 선택
-        model_group = QGroupBox("모델 선택")
-        model_layout = QVBoxLayout()
-        
-        self.model_checks = {
-            'lstm': QCheckBox("LSTM (Long Short-Term Memory)"),
-            'gru': QCheckBox("GRU (Gated Recurrent Unit)"),
-            'rnn': QCheckBox("RNN (Recurrent Neural Network)"),
-            'bi_lstm': QCheckBox("Bidirectional LSTM")
-        }
-        
-        for check in self.model_checks.values():
-            check.setChecked(True)
-            model_layout.addWidget(check)
-        
-        model_group.setLayout(model_layout)
-        layout.addWidget(model_group)
-        
-        # 학습 제어
-        control_layout = QHBoxLayout()
-        
-        self.train_btn = QPushButton("학습 시작")
-        self.train_btn.clicked.connect(self.start_training)
-        control_layout.addWidget(self.train_btn)
-        
-        self.stop_btn = QPushButton("학습 중단")
-        self.stop_btn.clicked.connect(self.stop_training)
-        self.stop_btn.setEnabled(False)
-        control_layout.addWidget(self.stop_btn)
-        
-        self.resume_btn = QPushButton("이어서 학습")
-        self.resume_btn.clicked.connect(self.resume_training)
-        control_layout.addWidget(self.resume_btn)
-        
-        layout.addLayout(control_layout)
-        
-        # 진행 상황
-        progress_group = QGroupBox("학습 진행 상황")
-        progress_layout = QVBoxLayout()
-        
-        self.progress_bar = QProgressBar()
-        progress_layout.addWidget(self.progress_bar)
-        
-        self.training_log = QTextEdit()
-        self.training_log.setReadOnly(True)
-        self.training_log.setMaximumHeight(200)
-        progress_layout.addWidget(self.training_log)
-        
-        progress_group.setLayout(progress_layout)
-        layout.addWidget(progress_group)
         
         layout.addStretch()
         widget.setLayout(layout)
@@ -902,12 +777,18 @@ class MainWindow(QMainWindow):
         model_select_layout = QHBoxLayout()
         model_select_layout.addWidget(QLabel("예측 모델:"))
         self.predict_model_combo = QComboBox()
-        self.predict_model_combo.addItems(["앙상블 (전체)", "LSTM", "GRU", "RNN", "Bi-LSTM"])
+        self.predict_model_combo.addItems(["앙상블 (전체)", "개별 모델 선택"])
         model_select_layout.addWidget(self.predict_model_combo)
         predict_layout.addLayout(model_select_layout)
         
+        # 개별 모델 선택 리스트
+        self.model_list_widget = QListWidget()
+        self.model_list_widget.setSelectionMode(QAbstractItemView.MultiSelection)
+        self.model_list_widget.setMaximumHeight(100)
+        predict_layout.addWidget(self.model_list_widget)
+        
         # 예측 실행
-        predict_btn = QPushButton("예측 실행")
+        predict_btn = QPushButton("🚀 예측 실행")
         predict_btn.clicked.connect(self.run_prediction)
         predict_layout.addWidget(predict_btn)
         
@@ -927,16 +808,16 @@ class MainWindow(QMainWindow):
         layout = QVBoxLayout()
         
         # 평가 실행
-        eval_btn = QPushButton("모델 평가 실행")
+        eval_btn = QPushButton("📊 모델 평가 실행")
         eval_btn.clicked.connect(self.evaluate_models)
         layout.addWidget(eval_btn)
         
         # 평가 결과
         self.eval_table = QTableWidget()
-        self.eval_table.setColumnCount(8)
+        self.eval_table.setColumnCount(9)
         self.eval_table.setHorizontalHeaderLabels([
             '모델', 'MAPE(%)', '정확도(10%)', 'R² Score', 
-            '방향성 정확도', '병목 정확도', '종합 점수', '등급'
+            '방향성 정확도', '병목 정확도', '병목 F1', '종합 점수', '등급'
         ])
         layout.addWidget(self.eval_table)
         
@@ -945,6 +826,11 @@ class MainWindow(QMainWindow):
         self.eval_detail_text.setReadOnly(True)
         self.eval_detail_text.setMaximumHeight(200)
         layout.addWidget(self.eval_detail_text)
+        
+        # 결과 내보내기
+        export_btn = QPushButton("📥 평가 결과 내보내기")
+        export_btn.clicked.connect(self.export_evaluation_results)
+        layout.addWidget(export_btn)
         
         widget.setLayout(layout)
         return widget
@@ -959,15 +845,19 @@ class MainWindow(QMainWindow):
         
         self.viz_type_combo = QComboBox()
         self.viz_type_combo.addItems([
-            "학습 곡선", "예측 vs 실제", "오차 분포", 
-            "병목 구간 히트맵", "시계열 분해"
+            "예측 vs 실제", "오차 분포", "병목 구간 히트맵", 
+            "모델별 성능 비교", "시계열 분해"
         ])
         viz_options.addWidget(QLabel("차트 유형:"))
         viz_options.addWidget(self.viz_type_combo)
         
-        viz_btn = QPushButton("시각화 생성")
+        viz_btn = QPushButton("📊 시각화 생성")
         viz_btn.clicked.connect(self.create_visualization)
         viz_options.addWidget(viz_btn)
+        
+        save_btn = QPushButton("💾 차트 저장")
+        save_btn.clicked.connect(self.save_visualization)
+        viz_options.addWidget(save_btn)
         
         layout.addLayout(viz_options)
         
@@ -979,6 +869,82 @@ class MainWindow(QMainWindow):
         widget.setLayout(layout)
         return widget
         
+    def load_existing_models(self):
+        """기존 모델 불러오기"""
+        dialog = ModelSelectionDialog(self)
+        
+        if dialog.exec_() == QDialog.Accepted:
+            selected = dialog.selected_models
+            
+            if selected:
+                self.update_status(f"{len(selected)}개 모델 로딩 중...")
+                
+                # 스케일러 저장
+                if dialog.selected_scaler is not None:
+                    self.scaler = dialog.selected_scaler
+                    self.model_manager.scaler = self.scaler
+                
+                # 모델 로드
+                for model_info in selected:
+                    try:
+                        model = dialog.model_manager.load_model(model_info['path'])
+                        
+                        # 모델 저장
+                        self.loaded_models[model_info['name']] = {
+                            'model': model,
+                            'path': model_info['path'],
+                            'type': model_info['type'],
+                            'loaded_time': datetime.now()
+                        }
+                        
+                    except Exception as e:
+                        QMessageBox.warning(self, "경고", f"모델 로드 실패 ({model_info['name']}): {str(e)}")
+                
+                # UI 업데이트
+                self.update_loaded_models_table()
+                self.update_model_list()
+                
+                self.update_status(f"{len(self.loaded_models)}개 모델 로드 완료")
+                
+                # 모델 정보 표시
+                info = f"불러온 모델: {len(self.loaded_models)}개\n"
+                info += f"스케일러: {'로드됨' if self.scaler else '없음'}\n\n"
+                
+                for name, details in self.loaded_models.items():
+                    info += f"• {name} ({details['type']})\n"
+                
+                self.model_info_text.setText(info)
+                
+    def update_loaded_models_table(self):
+        """불러온 모델 테이블 업데이트"""
+        self.loaded_models_table.setRowCount(len(self.loaded_models))
+        
+        for i, (name, details) in enumerate(self.loaded_models.items()):
+            self.loaded_models_table.setItem(i, 0, QTableWidgetItem(name))
+            self.loaded_models_table.setItem(i, 1, QTableWidgetItem(details['type']))
+            self.loaded_models_table.setItem(i, 2, QTableWidgetItem("로드됨"))
+            self.loaded_models_table.setItem(i, 3, QTableWidgetItem(details['path']))
+            
+            # 제거 버튼
+            remove_btn = QPushButton("제거")
+            remove_btn.clicked.connect(lambda checked, n=name: self.remove_model(n))
+            self.loaded_models_table.setCellWidget(i, 4, remove_btn)
+            
+    def update_model_list(self):
+        """예측 탭의 모델 리스트 업데이트"""
+        self.model_list_widget.clear()
+        
+        for name in self.loaded_models.keys():
+            self.model_list_widget.addItem(name)
+            
+    def remove_model(self, model_name):
+        """모델 제거"""
+        if model_name in self.loaded_models:
+            del self.loaded_models[model_name]
+            self.update_loaded_models_table()
+            self.update_model_list()
+            self.update_status(f"{model_name} 모델이 제거되었습니다")
+            
     def browse_data_file(self):
         """데이터 파일 찾아보기"""
         filename, _ = QFileDialog.getOpenFileName(
@@ -993,9 +959,15 @@ class MainWindow(QMainWindow):
         try:
             file_path = self.data_path_edit.text()
             if not file_path:
-                QMessageBox.warning(self, "경고", "데이터 파일을 선택하세요")
-                return
-                
+                # 파일 선택 대화상자
+                file_path, _ = QFileDialog.getOpenFileName(
+                    self, "데이터 파일 선택", "",
+                    "CSV Files (*.csv);;Excel Files (*.xlsx);;All Files (*.*)"
+                )
+                if not file_path:
+                    return
+                self.data_path_edit.setText(file_path)
+            
             self.update_status("데이터 로딩 중...")
             
             # 데이터 로드
@@ -1057,21 +1029,6 @@ class MainWindow(QMainWindow):
             if 'TOTALCNT' in df.columns:
                 df = df[['TOTALCNT', 'TIME'] if 'TIME' in df.columns else ['TOTALCNT']]
             
-            # 이상치 제거
-            if self.remove_outliers_check.isChecked() and 'TOTALCNT' in df.columns:
-                # PM 기간 설정
-                PM_start = pd.to_datetime('2024-10-23')
-                PM_end = pd.to_datetime('2024-10-23 23:59:59')
-                
-                if 'TIME' in df.columns:
-                    within_PM = df[(df['TIME'] >= PM_start) & (df['TIME'] <= PM_end)]
-                    outside_PM = df[(df['TIME'] < PM_start) | (df['TIME'] > PM_end)]
-                    outside_PM_filtered = outside_PM[
-                        (outside_PM['TOTALCNT'] >= 800) & 
-                        (outside_PM['TOTALCNT'] <= 2500)
-                    ]
-                    df = pd.concat([within_PM, outside_PM_filtered]).sort_index()
-            
             # FUTURE 컬럼 생성
             df['FUTURE'] = pd.NA
             future_minutes = 10
@@ -1096,14 +1053,9 @@ class MainWindow(QMainWindow):
             df = df.ffill().fillna(0)
             
             # 스케일링
-            scaling_method = self.scaling_combo.currentText()
-            if scaling_method == "StandardScaler":
+            if self.scaler is None:
                 self.scaler = StandardScaler()
-            elif scaling_method == "MinMaxScaler":
-                self.scaler = MinMaxScaler()
-            else:
-                self.scaler = RobustScaler()
-            
+                
             scale_columns = ['TOTALCNT', 'FUTURE', 'MA_5', 'MA_10', 'MA_30', 'STD_5', 'STD_10']
             scale_columns = [col for col in scale_columns if col in df.columns]
             
@@ -1174,94 +1126,14 @@ class MainWindow(QMainWindow):
             'processed_df': df
         }
         
-    def start_training(self):
-        """학습 시작"""
-        if self.current_data is None or 'X_train' not in self.current_data:
-            QMessageBox.warning(self, "경고", "먼저 데이터를 전처리하세요")
-            return
-            
-        # 선택된 모델 확인
-        selected_models = [name for name, check in self.model_checks.items() if check.isChecked()]
-        if not selected_models:
-            QMessageBox.warning(self, "경고", "최소 하나의 모델을 선택하세요")
-            return
-            
-        # 학습 설정
-        config = {
-            'epochs': self.epochs_spin.value(),
-            'batch_size': self.batch_size_spin.value(),
-            'learning_rate': self.learning_rate_spin.value(),
-            'validation_split': self.validation_split_spin.value(),
-            'models': selected_models  # 선택된 모델 리스트
-        }
-        
-        # UI 업데이트
-        self.train_btn.setEnabled(False)
-        self.stop_btn.setEnabled(True)
-        self.training_log.clear()
-        self.progress_bar.setValue(0)
-        
-        # 학습 스레드 시작
-        self.training_thread = TrainingThread(self.current_data, config)
-        self.training_thread.progress_update.connect(self.update_training_progress)
-        self.training_thread.progress_value.connect(self.progress_bar.setValue)  # 프로그레스바 연결
-        self.training_thread.training_complete.connect(self.on_training_complete)
-        self.training_thread.error_occurred.connect(self.on_training_error)
-        self.training_thread.start()
-        
-    def stop_training(self):
-        """학습 중단"""
-        if self.training_thread:
-            self.training_thread.stop()
-            self.train_btn.setEnabled(True)
-            self.stop_btn.setEnabled(False)
-            self.update_status("학습이 중단되었습니다")
-            
-    def resume_training(self):
-        """학습 재개"""
-        state = self.checkpoint_manager.load_state()
-        if state:
-            QMessageBox.information(self, "정보", "체크포인트에서 학습을 재개합니다")
-            # 재개 로직 구현
-        else:
-            QMessageBox.warning(self, "경고", "저장된 체크포인트가 없습니다")
-            
-    def update_training_progress(self, message):
-        """학습 진행 상황 업데이트"""
-        self.training_log.append(message)
-        self.update_status(message)
-        # 자동 스크롤
-        cursor = self.training_log.textCursor()
-        cursor.movePosition(QTextCursor.End)
-        self.training_log.setTextCursor(cursor)
-            
-    def on_training_complete(self, results):
-        """학습 완료"""
-        self.train_btn.setEnabled(True)
-        self.stop_btn.setEnabled(False)
-        self.progress_bar.setValue(100)
-        
-        self.models = results
-        self.update_status("모든 모델 학습 완료!")
-        
-        # 결과 요약
-        summary = "\n학습 결과 요약:\n"
-        for model_name, info in results.items():
-            summary += f"{model_name.upper()}: Loss={info['final_loss']:.4f}, Val Loss={info['final_val_loss']:.4f}\n"
-        
-        self.training_log.append(summary)
-        
-    def on_training_error(self, error_msg):
-        """학습 오류"""
-        self.train_btn.setEnabled(True)
-        self.stop_btn.setEnabled(False)
-        QMessageBox.critical(self, "학습 오류", error_msg)
-        self.update_status("학습 실패")
-        
     def run_prediction(self):
         """예측 실행"""
-        if not self.models:
-            QMessageBox.warning(self, "경고", "먼저 모델을 학습하세요")
+        if not self.loaded_models:
+            QMessageBox.warning(self, "경고", "먼저 모델을 불러오세요")
+            return
+            
+        if self.current_data is None or 'X_test' not in self.current_data:
+            QMessageBox.warning(self, "경고", "먼저 데이터를 전처리하세요")
             return
             
         try:
@@ -1272,38 +1144,55 @@ class MainWindow(QMainWindow):
             y_test = self.current_data['y_test']
             
             # 선택된 모델
-            model_type = self.predict_model_combo.currentText()
+            if self.predict_model_combo.currentText() == "앙상블 (전체)":
+                # 모든 모델 사용
+                selected_models = list(self.loaded_models.keys())
+            else:
+                # 선택된 모델만 사용
+                selected_items = self.model_list_widget.selectedItems()
+                selected_models = [item.text() for item in selected_items]
+                
+                if not selected_models:
+                    QMessageBox.warning(self, "경고", "예측할 모델을 선택하세요")
+                    return
             
-            if "앙상블" in model_type:
-                # 앙상블 예측
-                predictions = []
-                for model_name in self.models:
-                    model_path = self.models[model_name]['model_path']
-                    model = load_model(model_path, compile=False)
+            # 예측 수행
+            predictions = []
+            
+            for model_name in selected_models:
+                if model_name in self.loaded_models:
+                    model = self.loaded_models[model_name]['model']
                     pred = model.predict(X_test, verbose=0)
                     predictions.append(pred.flatten())
-                
-                # 평균 앙상블
+                    self.update_status(f"{model_name} 예측 완료")
+            
+            # 앙상블 (평균)
+            if len(predictions) > 1:
                 ensemble_pred = np.mean(predictions, axis=0)
+                self.update_status(f"앙상블 예측 완료 ({len(predictions)}개 모델)")
             else:
-                # 개별 모델 예측
-                model_name = model_type.lower().replace('-', '_')
-                model_path = self.models[model_name]['model_path']
-                model = load_model(model_path, compile=False)
-                ensemble_pred = model.predict(X_test, verbose=0).flatten()
+                ensemble_pred = predictions[0]
             
             # 역스케일링
-            n_features = self.scaler.n_features_in_
-            dummy = np.zeros((len(ensemble_pred), n_features))
-            dummy[:, 0] = ensemble_pred
-            pred_original = self.scaler.inverse_transform(dummy)[:, 0]
+            if self.scaler:
+                n_features = self.scaler.n_features_in_
+                dummy = np.zeros((len(ensemble_pred), n_features))
+                dummy[:, 0] = ensemble_pred
+                pred_original = self.scaler.inverse_transform(dummy)[:, 0]
+                
+                dummy_y = np.zeros((len(y_test), n_features))
+                dummy_y[:, 0] = y_test
+                y_original = self.scaler.inverse_transform(dummy_y)[:, 0]
+            else:
+                pred_original = ensemble_pred
+                y_original = y_test
             
-            dummy_y = np.zeros((len(y_test), n_features))
-            dummy_y[:, 0] = y_test
-            y_original = self.scaler.inverse_transform(dummy_y)[:, 0]
-            
-            # 시간 생성 (임시)
-            times = pd.date_range(start='2025-07-01', periods=len(pred_original), freq='T')
+            # 시간 생성
+            if 'processed_df' in self.current_data:
+                df = self.current_data['processed_df']
+                times = df.index[-len(pred_original):]
+            else:
+                times = pd.date_range(start='2025-07-01', periods=len(pred_original), freq='T')
             
             # 예측 결과 업데이트
             self.prediction_widget.update_predictions(pred_original, y_original, times)
@@ -1313,7 +1202,11 @@ class MainWindow(QMainWindow):
             mse = mean_squared_error(y_original, pred_original)
             r2 = r2_score(y_original, pred_original)
             
-            self.update_status(f"예측 완료 - MAE: {mae:.2f}, MSE: {mse:.2f}, R²: {r2:.4f}")
+            # 병목 예측 정확도
+            bottleneck_threshold = 2000
+            bottleneck_accuracy = np.mean((pred_original > bottleneck_threshold) == (y_original > bottleneck_threshold))
+            
+            self.update_status(f"예측 완료 - MAE: {mae:.2f}, R²: {r2:.4f}, 병목정확도: {bottleneck_accuracy:.1%}")
             
         except Exception as e:
             QMessageBox.critical(self, "오류", f"예측 실패: {str(e)}")
@@ -1321,8 +1214,12 @@ class MainWindow(QMainWindow):
             
     def evaluate_models(self):
         """모델 평가"""
-        if not self.models or 'X_test' not in self.current_data:
-            QMessageBox.warning(self, "경고", "먼저 모델을 학습하고 데이터를 준비하세요")
+        if not self.loaded_models:
+            QMessageBox.warning(self, "경고", "먼저 모델을 불러오세요")
+            return
+            
+        if self.current_data is None or 'X_test' not in self.current_data:
+            QMessageBox.warning(self, "경고", "먼저 데이터를 전처리하세요")
             return
             
         try:
@@ -1335,23 +1232,29 @@ class MainWindow(QMainWindow):
             y_test = self.current_data['y_test']
             
             # 역스케일링
-            n_features = self.scaler.n_features_in_
-            dummy_y = np.zeros((len(y_test), n_features))
-            dummy_y[:, 0] = y_test
-            y_original = self.scaler.inverse_transform(dummy_y)[:, 0]
+            if self.scaler:
+                n_features = self.scaler.n_features_in_
+                dummy_y = np.zeros((len(y_test), n_features))
+                dummy_y[:, 0] = y_test
+                y_original = self.scaler.inverse_transform(dummy_y)[:, 0]
+            else:
+                y_original = y_test
             
             # 평가 결과 저장
             results = []
             
-            for model_name in self.models:
-                model_path = self.models[model_name]['model_path']
-                model = load_model(model_path, compile=False)
+            for model_name, model_info in self.loaded_models.items():
+                model = model_info['model']
                 
                 # 예측
                 pred = model.predict(X_test, verbose=0).flatten()
-                dummy_pred = np.zeros((len(pred), n_features))
-                dummy_pred[:, 0] = pred
-                pred_original = self.scaler.inverse_transform(dummy_pred)[:, 0]
+                
+                if self.scaler:
+                    dummy_pred = np.zeros((len(pred), n_features))
+                    dummy_pred[:, 0] = pred
+                    pred_original = self.scaler.inverse_transform(dummy_pred)[:, 0]
+                else:
+                    pred_original = pred
                 
                 # 평가 메트릭
                 mape = evaluator.calculate_mape(y_original, pred_original)
@@ -1387,15 +1290,18 @@ class MainWindow(QMainWindow):
                     grade = "C"
                 
                 results.append({
-                    'model': model_name.upper(),
+                    'model': model_name,
                     'mape': mape,
                     'acc_10': acc_10,
                     'r2': r2,
                     'dir_acc': dir_acc,
                     'bottleneck_acc': bottleneck_metrics['accuracy'],
+                    'bottleneck_f1': bottleneck_metrics['f1_score'],
                     'overall_score': overall_score,
                     'grade': grade
                 })
+                
+                self.update_status(f"{model_name} 평가 완료")
             
             # 테이블 업데이트
             self.eval_table.setRowCount(len(results))
@@ -1406,14 +1312,18 @@ class MainWindow(QMainWindow):
                 self.eval_table.setItem(i, 3, QTableWidgetItem(f"{res['r2']:.1f}"))
                 self.eval_table.setItem(i, 4, QTableWidgetItem(f"{res['dir_acc']:.1f}"))
                 self.eval_table.setItem(i, 5, QTableWidgetItem(f"{res['bottleneck_acc']:.1f}"))
-                self.eval_table.setItem(i, 6, QTableWidgetItem(f"{res['overall_score']:.1f}"))
-                self.eval_table.setItem(i, 7, QTableWidgetItem(res['grade']))
+                self.eval_table.setItem(i, 6, QTableWidgetItem(f"{res['bottleneck_f1']:.1f}"))
+                self.eval_table.setItem(i, 7, QTableWidgetItem(f"{res['overall_score']:.1f}"))
+                self.eval_table.setItem(i, 8, QTableWidgetItem(res['grade']))
             
             # 최고 성능 모델
             best_model = max(results, key=lambda x: x['overall_score'])
-            detail = f"최고 성능 모델: {best_model['model']}\n"
-            detail += f"종합 점수: {best_model['overall_score']:.1f}%\n"
-            detail += f"성능 등급: {best_model['grade']}"
+            detail = f"📊 평가 완료 - {len(results)}개 모델\n\n"
+            detail += f"🏆 최고 성능 모델: {best_model['model']}\n"
+            detail += f"   종합 점수: {best_model['overall_score']:.1f}%\n"
+            detail += f"   성능 등급: {best_model['grade']}\n"
+            detail += f"   MAPE: {best_model['mape']:.2f}%\n"
+            detail += f"   병목 정확도: {best_model['bottleneck_acc']:.1f}%"
             
             self.eval_detail_text.setText(detail)
             self.update_status("모델 평가 완료")
@@ -1428,141 +1338,176 @@ class MainWindow(QMainWindow):
         
         self.viz_figure.clear()
         
-        if viz_type == "학습 곡선" and self.models:
-            # 학습 곡선
-            axes = self.viz_figure.subplots(2, 2)
-            axes = axes.ravel()
-            
-            for idx, (model_name, info) in enumerate(self.models.items()):
-                if idx < 4:
-                    ax = axes[idx]
-                    history = info.get('history', {})
-                    
-                    if 'loss' in history:
-                        ax.plot(history['loss'], label='Training Loss')
-                    if 'val_loss' in history:
-                        ax.plot(history['val_loss'], label='Validation Loss')
-                    
-                    ax.set_title(f'{model_name.upper()}')
-                    ax.set_xlabel('Epoch')
-                    ax.set_ylabel('Loss')
-                    ax.legend()
-                    ax.grid(True, alpha=0.3)
-        
-        elif viz_type == "예측 vs 실제" and 'X_test' in self.current_data:
-            # 예측 vs 실제
+        if viz_type == "예측 vs 실제" and self.current_data and 'X_test' in self.current_data:
+            self.create_prediction_plot()
+        elif viz_type == "오차 분포" and self.current_data and 'X_test' in self.current_data:
+            self.create_error_distribution_plot()
+        elif viz_type == "병목 구간 히트맵" and self.current_data and 'X_test' in self.current_data:
+            self.create_bottleneck_heatmap()
+        elif viz_type == "모델별 성능 비교" and self.loaded_models:
+            self.create_performance_comparison()
+        elif viz_type == "시계열 분해":
+            self.create_time_series_decomposition()
+        else:
             ax = self.viz_figure.add_subplot(111)
-            
-            # 간단한 시각화를 위해 첫 번째 모델만 사용
-            if self.models:
-                model_name = list(self.models.keys())[0]
-                model_path = self.models[model_name]['model_path']
-                model = load_model(model_path, compile=False)
-                
-                X_test = self.current_data['X_test'][:100]  # 샘플
-                y_test = self.current_data['y_test'][:100]
-                
-                pred = model.predict(X_test, verbose=0).flatten()
-                
-                ax.scatter(y_test, pred, alpha=0.5)
-                ax.plot([y_test.min(), y_test.max()], [y_test.min(), y_test.max()], 'r--')
-                ax.set_xlabel('Actual')
-                ax.set_ylabel('Predicted')
-                ax.set_title('Predictions vs Actual')
-                ax.grid(True, alpha=0.3)
+            ax.text(0.5, 0.5, '데이터가 없거나 모델이 로드되지 않았습니다', 
+                   ha='center', va='center', fontsize=12)
         
         self.viz_canvas.draw()
         
-    def save_models(self):
-        """모델 저장"""
-        if not self.models:
-            QMessageBox.warning(self, "경고", "저장할 모델이 없습니다")
+    def create_prediction_plot(self):
+        """예측 vs 실제 플롯"""
+        if not self.loaded_models:
             return
             
-        folder = QFileDialog.getExistingDirectory(self, "모델 저장 폴더 선택")
-        if folder:
-            for model_name, info in self.models.items():
-                src = info['model_path']
-                dst = os.path.join(folder, f"{model_name}_hybrid.keras")
-                
-                import shutil
-                shutil.copy2(src, dst)
+        # 첫 번째 모델 사용
+        model_name = list(self.loaded_models.keys())[0]
+        model = self.loaded_models[model_name]['model']
+        
+        X_test = self.current_data['X_test'][:200]  # 샘플
+        y_test = self.current_data['y_test'][:200]
+        
+        pred = model.predict(X_test, verbose=0).flatten()
+        
+        # 역스케일링
+        if self.scaler:
+            n_features = self.scaler.n_features_in_
             
-            # 스케일러 저장
+            dummy_pred = np.zeros((len(pred), n_features))
+            dummy_pred[:, 0] = pred
+            pred_original = self.scaler.inverse_transform(dummy_pred)[:, 0]
+            
+            dummy_y = np.zeros((len(y_test), n_features))
+            dummy_y[:, 0] = y_test
+            y_original = self.scaler.inverse_transform(dummy_y)[:, 0]
+        else:
+            pred_original = pred
+            y_original = y_test
+        
+        ax = self.viz_figure.add_subplot(111)
+        
+        x_range = range(len(y_original))
+        ax.plot(x_range, y_original, label='실제값', color='blue', linewidth=2, alpha=0.7)
+        ax.plot(x_range, pred_original, label=f'예측값 ({model_name})', color='red', linewidth=1.5, alpha=0.7)
+        ax.axhline(y=2000, color='orange', linestyle='--', label='병목 임계값', alpha=0.5)
+        
+        ax.set_title('예측 vs 실제 비교', fontsize=14)
+        ax.set_xlabel('시간 인덱스', fontsize=12)
+        ax.set_ylabel('물류량', fontsize=12)
+        ax.legend()
+        ax.grid(True, alpha=0.3)
+        
+    def create_error_distribution_plot(self):
+        """오차 분포 플롯"""
+        if not self.loaded_models:
+            return
+            
+        ax = self.viz_figure.add_subplot(111)
+        
+        for model_name, model_info in self.loaded_models.items():
+            model = model_info['model']
+            
+            X_test = self.current_data['X_test']
+            y_test = self.current_data['y_test']
+            
+            pred = model.predict(X_test, verbose=0).flatten()
+            
+            # 역스케일링
             if self.scaler:
-                scaler_path = os.path.join(folder, "scaler.pkl")
-                joblib.dump(self.scaler, scaler_path)
-            
-            QMessageBox.information(self, "완료", "모델이 저장되었습니다")
-            
-    def manage_checkpoints(self):
-        """체크포인트 관리"""
-        dialog = QDialog(self)
-        dialog.setWindowTitle("체크포인트 관리")
-        dialog.setModal(True)
-        
-        layout = QVBoxLayout()
-        
-        # 체크포인트 목록
-        checkpoint_list = QListWidget()
-        checkpoint_dir = self.checkpoint_manager.checkpoint_dir
-        
-        if os.path.exists(checkpoint_dir):
-            files = os.listdir(checkpoint_dir)
-            for file in files:
-                checkpoint_list.addItem(file)
-        
-        layout.addWidget(QLabel("저장된 체크포인트:"))
-        layout.addWidget(checkpoint_list)
-        
-        # 버튼
-        btn_layout = QHBoxLayout()
-        
-        load_btn = QPushButton("불러오기")
-        load_btn.clicked.connect(lambda: self.load_checkpoint(checkpoint_list.currentItem()))
-        btn_layout.addWidget(load_btn)
-        
-        delete_btn = QPushButton("삭제")
-        delete_btn.clicked.connect(lambda: self.delete_checkpoint(checkpoint_list.currentItem()))
-        btn_layout.addWidget(delete_btn)
-        
-        close_btn = QPushButton("닫기")
-        close_btn.clicked.connect(dialog.accept)
-        btn_layout.addWidget(close_btn)
-        
-        layout.addLayout(btn_layout)
-        dialog.setLayout(layout)
-        dialog.exec_()
-        
-    def load_checkpoint(self, item):
-        """체크포인트 불러오기"""
-        if item:
-            # 체크포인트 로드 로직
-            pass
-            
-    def delete_checkpoint(self, item):
-        """체크포인트 삭제"""
-        if item:
-            reply = QMessageBox.question(self, "확인", "이 체크포인트를 삭제하시겠습니까?")
-            if reply == QMessageBox.Yes:
-                # 삭제 로직
-                pass
+                n_features = self.scaler.n_features_in_
                 
+                dummy_pred = np.zeros((len(pred), n_features))
+                dummy_pred[:, 0] = pred
+                pred_original = self.scaler.inverse_transform(dummy_pred)[:, 0]
+                
+                dummy_y = np.zeros((len(y_test), n_features))
+                dummy_y[:, 0] = y_test
+                y_original = self.scaler.inverse_transform(dummy_y)[:, 0]
+            else:
+                pred_original = pred
+                y_original = y_test
+            
+            errors = pred_original - y_original
+            ax.hist(errors, bins=50, alpha=0.5, label=model_name)
+        
+        ax.set_title('모델별 오차 분포', fontsize=14)
+        ax.set_xlabel('오차', fontsize=12)
+        ax.set_ylabel('빈도', fontsize=12)
+        ax.legend()
+        ax.grid(True, alpha=0.3)
+        
+    def create_bottleneck_heatmap(self):
+        """병목 구간 히트맵"""
+        # 구현 예정
+        ax = self.viz_figure.add_subplot(111)
+        ax.text(0.5, 0.5, '병목 구간 히트맵 (구현 예정)', ha='center', va='center')
+        
+    def create_performance_comparison(self):
+        """모델별 성능 비교"""
+        # 구현 예정
+        ax = self.viz_figure.add_subplot(111)
+        ax.text(0.5, 0.5, '모델별 성능 비교 (구현 예정)', ha='center', va='center')
+        
+    def create_time_series_decomposition(self):
+        """시계열 분해"""
+        # 구현 예정
+        ax = self.viz_figure.add_subplot(111)
+        ax.text(0.5, 0.5, '시계열 분해 (구현 예정)', ha='center', va='center')
+        
+    def save_visualization(self):
+        """시각화 저장"""
+        filename, _ = QFileDialog.getSaveFileName(
+            self, "차트 저장", "",
+            "PNG Files (*.png);;JPG Files (*.jpg);;PDF Files (*.pdf)"
+        )
+        if filename:
+            self.viz_figure.savefig(filename, dpi=300, bbox_inches='tight')
+            self.update_status(f"차트 저장 완료: {filename}")
+            
+    def export_evaluation_results(self):
+        """평가 결과 내보내기"""
+        filename, _ = QFileDialog.getSaveFileName(
+            self, "평가 결과 내보내기", "",
+            "CSV Files (*.csv);;Excel Files (*.xlsx)"
+        )
+        
+        if filename:
+            # 테이블 데이터를 DataFrame으로 변환
+            data = []
+            for row in range(self.eval_table.rowCount()):
+                row_data = []
+                for col in range(self.eval_table.columnCount()):
+                    item = self.eval_table.item(row, col)
+                    row_data.append(item.text() if item else "")
+                data.append(row_data)
+            
+            df = pd.DataFrame(data, columns=[
+                '모델', 'MAPE(%)', '정확도(10%)', 'R² Score', 
+                '방향성 정확도', '병목 정확도', '병목 F1', '종합 점수', '등급'
+            ])
+            
+            if filename.endswith('.csv'):
+                df.to_csv(filename, index=False)
+            else:
+                df.to_excel(filename, index=False)
+            
+            self.update_status(f"평가 결과 내보내기 완료: {filename}")
+            
     def show_about(self):
         """프로그램 정보"""
         about_text = """
 반도체 FAB 물류 예측 하이브리드 딥러닝 시스템
 
-버전: 3.0
+버전: 3.1
 개발: 2024
 
 특징:
+- 기존 학습된 모델 불러오기 및 활용
 - LSTM, RNN, GRU, Bi-LSTM 통합 하이브리드 모델
 - CPU 기반 실행 지원
 - 실시간 병목 구간 예측
 - 10분 후 물류량 예측
 - 퍼센트 기반 성능 평가
-- 학습 재시작 기능
 
 본 시스템은 반도체 제조 공정의 물류 흐름을
 딥러닝으로 예측하여 생산성을 향상시킵니다.
