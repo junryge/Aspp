@@ -10,8 +10,9 @@ LSTM, RNN, GRU, ARIMA 모델을 통합한 하이브리드 예측 시스템으로
 3. 앙상블 예측 및 병목 구간 감지
 4. 퍼센트 기반 성능 평가
 5. CPU 기반 실행
+6. 한글 폰트 지원
 
-버전: 3.1 (모델 로드 기능 추가)
+버전: 3.2 (한글 폰트 수정)
 """
 
 import sys
@@ -25,6 +26,7 @@ from dataclasses import dataclass
 from enum import Enum
 from datetime import datetime, timedelta
 import glob
+import platform
 
 import numpy as np
 import pandas as pd
@@ -36,11 +38,16 @@ from tensorflow.keras.layers import Input, LSTM, Dense, Dropout, BatchNormalizat
 from tensorflow.keras.callbacks import EarlyStopping, ReduceLROnPlateau, ModelCheckpoint
 from tensorflow.keras.optimizers import Adam
 import joblib
+
+# Matplotlib 한글 폰트 설정
+import matplotlib
 import matplotlib.pyplot as plt
+import matplotlib.font_manager as fm
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.figure import Figure
 import seaborn as sns
 
+# PyQt5
 from PyQt5.QtWidgets import *
 from PyQt5.QtCore import *
 from PyQt5.QtGui import *
@@ -56,6 +63,126 @@ tf.config.set_visible_devices([], 'GPU')
 RANDOM_SEED = 2079936
 tf.random.set_seed(RANDOM_SEED)
 np.random.seed(RANDOM_SEED)
+
+
+def setup_korean_font():
+    """운영체제별 한글 폰트 자동 설정"""
+    system = platform.system()
+    
+    # 폰트 경로 설정
+    if system == 'Windows':
+        font_paths = [
+            'C:/Windows/Fonts/malgun.ttf',      # 맑은 고딕
+            'C:/Windows/Fonts/malgunbd.ttf',    # 맑은 고딕 Bold
+            'C:/Windows/Fonts/ngulim.ttf',      # 나눔고딕
+            'C:/Windows/Fonts/NanumGothic.ttf',
+            'C:/Windows/Fonts/gulim.ttc',       # 굴림
+        ]
+        font_family = 'Malgun Gothic'
+        
+    elif system == 'Darwin':  # macOS
+        font_paths = [
+            '/System/Library/Fonts/Supplemental/AppleGothic.ttf',
+            '/Library/Fonts/AppleGothic.ttf',
+            '/System/Library/Fonts/AppleSDGothicNeo.ttc',
+            '/Library/Fonts/NanumGothic.ttf',
+            '/Users/*/Library/Fonts/NanumGothic.ttf',
+        ]
+        font_family = 'AppleGothic'
+        
+    else:  # Linux
+        font_paths = [
+            '/usr/share/fonts/truetype/nanum/NanumGothic.ttf',
+            '/usr/share/fonts/truetype/nanum/NanumGothicBold.ttf',
+            '/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf',
+            '/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc',
+            '/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf',
+        ]
+        font_family = 'NanumGothic'
+    
+    # 사용 가능한 폰트 찾기
+    font_set = False
+    for font_path in font_paths:
+        # 와일드카드 처리
+        if '*' in font_path:
+            import glob
+            expanded_paths = glob.glob(os.path.expanduser(font_path))
+            if expanded_paths:
+                font_path = expanded_paths[0]
+        
+        if os.path.exists(font_path):
+            try:
+                # 폰트 매니저에 추가
+                font_prop = fm.FontProperties(fname=font_path)
+                
+                # matplotlib 설정
+                plt.rcParams['font.family'] = font_prop.get_name()
+                plt.rcParams['font.sans-serif'] = [font_prop.get_name()]
+                
+                font_set = True
+                print(f"✓ 한글 폰트 설정 완료: {font_prop.get_name()}")
+                break
+            except:
+                continue
+    
+    # 폰트를 찾지 못한 경우 시스템 기본 폰트 시도
+    if not font_set:
+        try:
+            # 시스템에 설치된 한글 폰트 검색
+            font_list = fm.findSystemFonts(fontpaths=None, fontext='ttf')
+            
+            # 한글 폰트 키워드
+            korean_fonts = ['Malgun', 'malgun', '맑은', 'Nanum', 'nanum', '나눔', 
+                          'Gulim', 'gulim', '굴림', 'Dotum', 'dotum', '돋움',
+                          'Gothic', 'gothic', '고딕', 'Batang', 'batang', '바탕']
+            
+            for font in font_list:
+                font_name = os.path.basename(font).lower()
+                if any(kf.lower() in font_name for kf in korean_fonts):
+                    try:
+                        font_prop = fm.FontProperties(fname=font)
+                        plt.rcParams['font.family'] = font_prop.get_name()
+                        plt.rcParams['font.sans-serif'] = [font_prop.get_name()]
+                        font_set = True
+                        print(f"✓ 한글 폰트 자동 감지: {font_prop.get_name()}")
+                        break
+                    except:
+                        continue
+        except:
+            pass
+    
+    # 최종 폴백: 시스템 기본 폰트 사용
+    if not font_set:
+        if system == 'Windows':
+            plt.rcParams['font.family'] = 'Malgun Gothic'
+        elif system == 'Darwin':
+            plt.rcParams['font.family'] = 'AppleGothic'
+        else:
+            # Linux에서 폰트를 찾지 못한 경우
+            print("⚠ 한글 폰트를 찾을 수 없습니다. 영문으로 표시됩니다.")
+            print("  NanumGothic 폰트 설치를 권장합니다:")
+            print("  Ubuntu/Debian: sudo apt-get install fonts-nanum")
+            print("  CentOS/RHEL: sudo yum install nhn-nanum-fonts")
+            return False
+    
+    # 마이너스 기호 깨짐 방지
+    plt.rcParams['axes.unicode_minus'] = False
+    
+    # 기본 스타일 설정
+    plt.rcParams['figure.figsize'] = (12, 6)
+    plt.rcParams['axes.grid'] = True
+    plt.rcParams['grid.alpha'] = 0.3
+    plt.rcParams['axes.labelsize'] = 12
+    plt.rcParams['axes.titlesize'] = 14
+    plt.rcParams['xtick.labelsize'] = 10
+    plt.rcParams['ytick.labelsize'] = 10
+    plt.rcParams['legend.fontsize'] = 10
+    
+    return True
+
+
+# 프로그램 시작 시 한글 폰트 설정 실행
+KOREAN_FONT_AVAILABLE = setup_korean_font()
 
 
 class ModelManager:
@@ -490,7 +617,7 @@ class MainWindow(QMainWindow):
     
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("반도체 FAB 물류 예측 하이브리드 딥러닝 시스템 v3.1")
+        self.setWindowTitle("반도체 FAB 물류 예측 하이브리드 딥러닝 시스템 v3.2")
         self.setGeometry(100, 100, 1400, 900)
         
         # 다크 테마 적용
@@ -565,6 +692,13 @@ class MainWindow(QMainWindow):
                 border-radius: 3px;
             }
         """)
+        
+        # 한글 폰트 상태 표시
+        if not KOREAN_FONT_AVAILABLE:
+            QMessageBox.warning(self, "폰트 경고", 
+                              "한글 폰트를 찾을 수 없습니다.\n"
+                              "차트에서 한글이 깨질 수 있습니다.\n"
+                              "NanumGothic 폰트 설치를 권장합니다.")
         
         # 중앙 위젯
         self.init_ui()
@@ -650,6 +784,10 @@ class MainWindow(QMainWindow):
         about_action = QAction("프로그램 정보", self)
         about_action.triggered.connect(self.show_about)
         help_menu.addAction(about_action)
+        
+        font_info_action = QAction("폰트 정보", self)
+        font_info_action.triggered.connect(self.show_font_info)
+        help_menu.addAction(font_info_action)
         
     def create_model_management_tab(self):
         """모델 관리 탭 생성"""
@@ -1498,7 +1636,7 @@ class MainWindow(QMainWindow):
         about_text = """
 반도체 FAB 물류 예측 하이브리드 딥러닝 시스템
 
-버전: 3.1
+버전: 3.2 (한글 폰트 지원)
 개발: 2024
 
 특징:
@@ -1508,11 +1646,27 @@ class MainWindow(QMainWindow):
 - 실시간 병목 구간 예측
 - 10분 후 물류량 예측
 - 퍼센트 기반 성능 평가
+- 한글 폰트 자동 감지 및 설정
 
 본 시스템은 반도체 제조 공정의 물류 흐름을
 딥러닝으로 예측하여 생산성을 향상시킵니다.
         """
         QMessageBox.about(self, "프로그램 정보", about_text)
+        
+    def show_font_info(self):
+        """폰트 정보 표시"""
+        font_info = "현재 Matplotlib 폰트 설정:\n\n"
+        font_info += f"Font Family: {plt.rcParams['font.family']}\n"
+        font_info += f"Sans-serif: {plt.rcParams['font.sans-serif']}\n"
+        font_info += f"Unicode Minus: {plt.rcParams['axes.unicode_minus']}\n\n"
+        
+        if KOREAN_FONT_AVAILABLE:
+            font_info += "✓ 한글 폰트가 정상적으로 설정되었습니다."
+        else:
+            font_info += "⚠ 한글 폰트를 찾을 수 없습니다.\n"
+            font_info += "NanumGothic 폰트 설치를 권장합니다."
+        
+        QMessageBox.information(self, "폰트 정보", font_info)
         
     def update_status(self, message):
         """상태 업데이트"""
