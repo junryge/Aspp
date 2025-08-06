@@ -233,44 +233,136 @@ class ModelPercentEvaluator:
         return directional_accuracy
     
     def calculate_bottleneck_accuracy(self, y_true, y_pred, threshold):
-        """병목 구간 예측 정확도"""
-        true_bottleneck = y_true > threshold
-        pred_bottleneck = y_pred > threshold
+        """병목 구간 예측 정확도
         
+        Parameters:
+        -----------
+        y_true : array-like
+            실제 값
+        y_pred : array-like
+            예측 값
+        threshold : float
+            병목 판단 임계값 (예: 2000)
+        
+        Returns:
+        --------
+        dict : 병목 예측 메트릭
+            - accuracy: 전체 정확도 (%)
+            - precision: 정밀도 (%)
+            - recall: 재현율 (%)
+            - f1_score: F1 점수 (%)
+        """
+        
+        # 병목 여부 판단 (임계값 초과 시 병목)
+        true_bottleneck = y_true > threshold  # 실제 병목
+        pred_bottleneck = y_pred > threshold  # 예측 병목
+        
+        # 혼동 행렬 계산
+        # True Positive: 실제 병목이고 병목으로 예측
         tp = np.sum((true_bottleneck == True) & (pred_bottleneck == True))
+        
+        # True Negative: 실제 정상이고 정상으로 예측
         tn = np.sum((true_bottleneck == False) & (pred_bottleneck == False))
+        
+        # False Positive: 실제 정상인데 병목으로 예측 (오탐)
         fp = np.sum((true_bottleneck == False) & (pred_bottleneck == True))
+        
+        # False Negative: 실제 병목인데 정상으로 예측 (미탐)
         fn = np.sum((true_bottleneck == True) & (pred_bottleneck == False))
         
-        accuracy = (tp + tn) / (tp + tn + fp + fn) * 100 if (tp + tn + fp + fn) > 0 else 0
+        # 전체 샘플 수
+        total = tp + tn + fp + fn
+        
+        # 정확도 (Accuracy): 전체 중 맞춘 비율
+        accuracy = (tp + tn) / total * 100 if total > 0 else 0
+        
+        # 정밀도 (Precision): 병목 예측 중 실제 병목 비율
+        # "병목이라고 예측한 것 중 실제로 병목인 비율"
         precision = tp / (tp + fp) * 100 if (tp + fp) > 0 else 0
+        
+        # 재현율 (Recall/Sensitivity): 실제 병목 중 예측 성공 비율
+        # "실제 병목 중 병목으로 예측한 비율"
         recall = tp / (tp + fn) * 100 if (tp + fn) > 0 else 0
-        f1 = 2 * (precision * recall) / (precision + recall) if (precision + recall) > 0 else 0
+        
+        # F1 Score: 정밀도와 재현율의 조화평균
+        if (precision + recall) > 0:
+            f1 = 2 * (precision * recall) / (precision + recall)
+        else:
+            f1 = 0
         
         return {
-            'accuracy': accuracy,
-            'precision': precision,
-            'recall': recall,
-            'f1_score': f1
+            'accuracy': accuracy,      # 전체 정확도
+            'precision': precision,     # 정밀도 (오탐 최소화)
+            'recall': recall,          # 재현율 (미탐 최소화)
+            'f1_score': f1            # F1 점수 (균형 지표)
         }
 
 
-스트
-            model_configs = [
-                ('lstm', hybrid_models.build_lstm_model),
-                ('gru', hybrid_models.build_gru_model),
-                ('rnn', hybrid_models.build_simple_rnn_model),
-                ('bi_lstm', hybrid_models.build_bidirectional_lstm_model)
-            ]
+class TrainingThread(QThread):
+    """학습을 별도 스레드에서 실행"""
+    progress_update = pyqtSignal(str)
+    progress_value = pyqtSignal(int)  # 프로그레스바 값
+    training_complete = pyqtSignal(dict)
+    error_occurred = pyqtSignal(str)
+    
+    def __init__(self, data, config):
+        super().__init__()
+        self.data = data
+        self.config = config
+        self.checkpoint_manager = CheckpointManager()
+        self.is_running = True
+        
+    def run(self):
+        """학습 실행"""
+        try:
+            self.progress_update.emit("="*50)
+            self.progress_update.emit("하이브리드 딥러닝 모델 학습 시작")
+            self.progress_update.emit("="*50)
+            
+            # 데이터 준비
+            X_train = self.data['X_train']
+            y_train = self.data['y_train']
+            X_val = self.data['X_val']
+            y_val = self.data['y_val']
+            input_shape = (X_train.shape[1], X_train.shape[2])
+            
+            self.progress_update.emit(f"학습 데이터: {X_train.shape}")
+            self.progress_update.emit(f"검증 데이터: {X_val.shape}")
+            self.progress_update.emit(f"입력 형태: {input_shape}")
+            self.progress_update.emit("-"*50)
+            
+            # 하이브리드 모델 초기화
+            hybrid_models = HybridModels(input_shape)
+            
+            # 선택된 모델만 학습
+            selected_models = self.config.get('models', ['lstm', 'gru', 'rnn', 'bi_lstm'])
+            
+            # 모델 리스트
+            model_configs = {
+                'lstm': ('LSTM', hybrid_models.build_lstm_model),
+                'gru': ('GRU', hybrid_models.build_gru_model),
+                'rnn': ('RNN', hybrid_models.build_simple_rnn_model),
+                'bi_lstm': ('Bi-LSTM', hybrid_models.build_bidirectional_lstm_model)
+            }
             
             results = {}
+            total_models = len(selected_models)
+            current_model_idx = 0
             
             # 각 모델 학습
-            for model_name, build_func in model_configs:
+            for model_key in selected_models:
                 if not self.is_running:
+                    self.progress_update.emit("학습이 중단되었습니다.")
                     break
+                
+                if model_key not in model_configs:
+                    continue
                     
-                self.progress_update.emit(f"{model_name.upper()} 모델 학습 중...")
+                model_name, build_func = model_configs[model_key]
+                current_model_idx += 1
+                
+                self.progress_update.emit(f"\n[{current_model_idx}/{total_models}] {model_name} 모델 학습 시작")
+                self.progress_update.emit("="*50)
                 
                 # 모델 빌드
                 model = build_func()
@@ -279,38 +371,111 @@ class ModelPercentEvaluator:
                 optimizer = Adam(learning_rate=self.config.get('learning_rate', 0.0005))
                 model.compile(optimizer=optimizer, loss='mse', metrics=['mae'])
                 
-                # 콜백
-                early_stop = EarlyStopping(monitor='val_loss', patience=20, restore_best_weights=True)
-                reduce_lr = ReduceLROnPlateau(monitor='val_loss', factor=0.5, patience=5, verbose=0)
+                self.progress_update.emit(f"옵티마이저: Adam (lr={self.config.get('learning_rate', 0.0005)})")
+                self.progress_update.emit(f"배치 크기: {self.config.get('batch_size', 64)}")
+                self.progress_update.emit(f"에폭: {self.config.get('epochs', 50)}")
                 
-                # 학습
-                history = model.fit(
-                    X_train, y_train,
-                    validation_data=(X_val, y_val),
-                    epochs=self.config.get('epochs', 50),
-                    batch_size=self.config.get('batch_size', 64),
-                    callbacks=[early_stop, reduce_lr],
-                    verbose=0
-                )
+                # 에폭별 학습 (진행 상황 표시)
+                epochs = self.config.get('epochs', 50)
+                batch_size = self.config.get('batch_size', 64)
                 
-                # 모델 저장
-                model_path = f'model/{model_name}_hybrid.keras'
+                best_val_loss = float('inf')
+                patience_counter = 0
+                patience = 20
+                history = {'loss': [], 'val_loss': [], 'mae': [], 'val_mae': []}
+                
+                for epoch in range(epochs):
+                    if not self.is_running:
+                        break
+                    
+                    # 한 에폭 학습
+                    hist = model.fit(
+                        X_train, y_train,
+                        validation_data=(X_val, y_val),
+                        epochs=1,
+                        batch_size=batch_size,
+                        verbose=0
+                    )
+                    
+                    # 히스토리 저장
+                    for key in history.keys():
+                        if key in hist.history:
+                            history[key].append(hist.history[key][0])
+                    
+                    # 현재 손실값
+                    train_loss = hist.history['loss'][0]
+                    val_loss = hist.history['val_loss'][0]
+                    train_mae = hist.history.get('mae', [0])[0]
+                    val_mae = hist.history.get('val_mae', [0])[0]
+                    
+                    # 진행 상황 출력 (10 에폭마다 또는 처음/마지막)
+                    if epoch % 10 == 0 or epoch == epochs - 1:
+                        self.progress_update.emit(
+                            f"Epoch {epoch+1:3d}/{epochs} - "
+                            f"loss: {train_loss:.4f} - mae: {train_mae:.4f} - "
+                            f"val_loss: {val_loss:.4f} - val_mae: {val_mae:.4f}"
+                        )
+                    
+                    # 프로그레스바 업데이트
+                    overall_progress = int(
+                        ((current_model_idx - 1) * epochs + epoch + 1) / 
+                        (total_models * epochs) * 100
+                    )
+                    self.progress_value.emit(overall_progress)
+                    
+                    # Early stopping 체크
+                    if val_loss < best_val_loss:
+                        best_val_loss = val_loss
+                        patience_counter = 0
+                        # 최고 모델 저장
+                        model_path = f'model/{model_key}_best.keras'
+                        os.makedirs('model', exist_ok=True)
+                        model.save(model_path)
+                    else:
+                        patience_counter += 1
+                    
+                    if patience_counter >= patience:
+                        self.progress_update.emit(f"Early stopping at epoch {epoch+1}")
+                        break
+                
+                # 최종 모델 저장
+                model_path = f'model/{model_key}_hybrid.keras'
                 os.makedirs('model', exist_ok=True)
                 model.save(model_path)
                 
-                results[model_name] = {
+                # 결과 저장
+                results[model_key] = {
                     'model_path': model_path,
-                    'history': history.history,
-                    'final_loss': history.history['loss'][-1],
-                    'final_val_loss': history.history['val_loss'][-1]
+                    'history': history,
+                    'final_loss': history['loss'][-1] if history['loss'] else 0,
+                    'final_val_loss': history['val_loss'][-1] if history['val_loss'] else 0,
+                    'epochs_trained': len(history['loss'])
                 }
                 
-                self.progress_update.emit(f"{model_name.upper()} 모델 학습 완료")
+                self.progress_update.emit(f"{model_name} 모델 학습 완료!")
+                self.progress_update.emit(f"최종 Loss: {results[model_key]['final_loss']:.4f}")
+                self.progress_update.emit(f"최종 Val Loss: {results[model_key]['final_val_loss']:.4f}")
+                self.progress_update.emit("-"*50)
             
-            self.progress_update.emit("모든 모델 학습 완료!")
+            self.progress_value.emit(100)
+            self.progress_update.emit("\n" + "="*50)
+            self.progress_update.emit("🎉 모든 모델 학습 완료!")
+            self.progress_update.emit("="*50)
+            
+            # 결과 요약
+            self.progress_update.emit("\n📊 학습 결과 요약:")
+            for model_key, info in results.items():
+                model_name = model_configs[model_key][0]
+                self.progress_update.emit(
+                    f"  {model_name}: Loss={info['final_loss']:.4f}, "
+                    f"Val Loss={info['final_val_loss']:.4f}, "
+                    f"Epochs={info['epochs_trained']}"
+                )
+            
             self.training_complete.emit(results)
             
         except Exception as e:
+            self.progress_update.emit(f"❌ 오류 발생: {str(e)}")
             self.error_occurred.emit(str(e))
     
     def stop(self):
@@ -823,7 +988,26 @@ class MainWindow(QMainWindow):
         if filename:
             self.data_path_edit.setText(filename)
             
- = f"데이터 로드 완료\n"
+    def load_data(self):
+        """데이터 로드"""
+        try:
+            file_path = self.data_path_edit.text()
+            if not file_path:
+                QMessageBox.warning(self, "경고", "데이터 파일을 선택하세요")
+                return
+                
+            self.update_status("데이터 로딩 중...")
+            
+            # 데이터 로드
+            if file_path.endswith('.csv'):
+                df = pd.read_csv(file_path)
+            elif file_path.endswith('.xlsx'):
+                df = pd.read_excel(file_path)
+            else:
+                raise ValueError("지원하지 않는 파일 형식입니다")
+            
+            # 데이터 정보 표시
+            info = f"데이터 로드 완료\n"
             info += f"파일: {os.path.basename(file_path)}\n"
             info += f"크기: {len(df)} × {len(df.columns)}\n"
             info += f"컬럼: {', '.join(df.columns[:10])}"
