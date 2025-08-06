@@ -7,3 +7,15 @@ file = hf_hub_download(
     local_dir="./models"
 )
 print(f"다운로드 완료: {file}")
+
+
+# GitHub에 호스팅된 GGUF 모델들
+
+github_repos = [
+    "ggerganov/llama.cpp",  # releases에 예시 모델
+    "nomic-ai/gpt4all",     # GPT4All 모델들
+    "mudler/LocalAI",       # LocalAI 모델들
+]
+
+# 예시: llama.cpp releases
+url = "https://github.com/ggerganov/llama.cpp/releases/download/b1234/model.gguf"
