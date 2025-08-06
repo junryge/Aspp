@@ -30,7 +30,9 @@ from tensorflow.keras.optimizers import Adam
 from sklearn.metrics import mean_squared_error, mean_absolute_error, r2_score
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
+import matplotlib.font_manager as fm
 import os
+import platform
 import json
 import joblib
 import warnings
@@ -39,6 +41,66 @@ import sys
 
 # 경고 메시지 숨기기
 warnings.filterwarnings('ignore')
+
+# ===================================
+# 한글 폰트 설정
+# ===================================
+def setup_korean_font():
+    """운영체제별 한글 폰트 자동 설정"""
+    system = platform.system()
+    
+    # 폰트 설정 시도
+    if system == 'Windows':
+        # 윈도우
+        font_candidates = ['Malgun Gothic', 'NanumGothic', '맑은 고딕', '나눔고딕']
+    elif system == 'Darwin':
+        # 맥OS
+        font_candidates = ['AppleGothic', 'NanumGothic', 'Apple SD Gothic Neo']
+    else:
+        # 리눅스
+        font_candidates = ['NanumGothic', 'DejaVu Sans']
+    
+    # 사용 가능한 폰트 찾기
+    font_set = False
+    for font_name in font_candidates:
+        if font_name in [f.name for f in fm.fontManager.ttflist]:
+            plt.rcParams['font.family'] = font_name
+            font_set = True
+            print(f"✓ 한글 폰트 설정: {font_name}")
+            break
+    
+    # 폰트를 찾지 못한 경우 직접 경로 설정 시도
+    if not font_set:
+        if system == 'Windows':
+            font_path = 'C:/Windows/Fonts/malgun.ttf'
+            if os.path.exists(font_path):
+                font_prop = fm.FontProperties(fname=font_path)
+                plt.rcParams['font.family'] = font_prop.get_name()
+                font_set = True
+        elif system == 'Darwin':
+            font_path = '/System/Library/Fonts/Supplemental/AppleGothic.ttf'
+            if os.path.exists(font_path):
+                font_prop = fm.FontProperties(fname=font_path)
+                plt.rcParams['font.family'] = font_prop.get_name()
+                font_set = True
+    
+    # 마이너스 기호 깨짐 방지
+    plt.rcParams['axes.unicode_minus'] = False
+    
+    # 폰트 크기 설정
+    plt.rcParams['font.size'] = 10
+    plt.rcParams['axes.titlesize'] = 12
+    plt.rcParams['axes.labelsize'] = 10
+    plt.rcParams['xtick.labelsize'] = 9
+    plt.rcParams['ytick.labelsize'] = 9
+    plt.rcParams['legend.fontsize'] = 9
+    
+    return font_set
+
+# 한글 폰트 설정 실행
+font_initialized = setup_korean_font()
+if not font_initialized:
+    print("⚠ 한글 폰트 설정 실패 - 영문으로 표시됩니다.")
 
 # CPU 모드 설정
 os.environ['CUDA_VISIBLE_DEVICES'] = '-1'
@@ -54,6 +116,36 @@ class HybridModelGUI:
         self.root = root
         self.root.title("🚀 반도체 물류 예측 하이브리드 AI 시스템")
         self.root.geometry("1400x900")
+        
+        # 한글 폰트 확인 및 텍스트 설정
+        if not font_initialized:
+            print("⚠ 한글 폰트가 설정되지 않았습니다. matplotlib 그래프에서 한글이 깨질 수 있습니다.")
+            print("  해결방법: 나눔고딕 또는 맑은 고딕 폰트를 설치하세요.")
+            self.use_korean = False
+            # 영문 텍스트 설정
+            self.text_labels = {
+                'training_progress': 'Training Progress',
+                'epoch': 'Epoch',
+                'loss': 'Loss',
+                'prediction_comparison': 'Prediction vs Actual',
+                'time_index': 'Time Index',
+                'logistics_volume': 'Logistics Volume',
+                'actual': 'Actual',
+                'predicted': 'Predicted'
+            }
+        else:
+            self.use_korean = True
+            # 한글 텍스트 설정
+            self.text_labels = {
+                'training_progress': '학습 진행 상황',
+                'epoch': '에폭',
+                'loss': '손실값',
+                'prediction_comparison': '예측 결과 비교',
+                'time_index': '시간 인덱스',
+                'logistics_volume': '물류량',
+                'actual': '실제값',
+                'predicted': '예측값'
+            }
         
         # 다크 테마 스타일 설정
         self.setup_styles()
@@ -320,15 +412,18 @@ class HybridModelGUI:
         frame = ttk.LabelFrame(parent, text="📈 시각화", padding=10)
         frame.pack(fill=tk.BOTH, expand=True, pady=5)
         
-        # 그래프 캔버스
+        # 그래프 캔버스 (한글/영문 자동 선택)
         self.fig, self.ax = plt.subplots(figsize=(6, 4), facecolor='#2b2b2b')
         self.ax.set_facecolor('#3c3c3c')
-        self.ax.set_title("학습 진행 상황", color='white')
-        self.ax.set_xlabel("Epoch", color='white')
-        self.ax.set_ylabel("Loss", color='white')
-        self.ax.tick_params(colors='white')
+        
+        # 언어에 따른 제목과 라벨 설정
+        self.ax.set_title(self.text_labels['training_progress'], color='white', fontsize=12, pad=10)
+        self.ax.set_xlabel(self.text_labels['epoch'], color='white', fontsize=10)
+        self.ax.set_ylabel(self.text_labels['loss'], color='white', fontsize=10)
+        self.ax.tick_params(colors='white', labelsize=9)
         self.ax.grid(True, alpha=0.3)
         
+        # 캔버스 생성 및 폰트 적용
         self.canvas = FigureCanvasTkAgg(self.fig, master=frame)
         self.canvas.draw()
         self.canvas.get_tk_widget().pack(fill=tk.BOTH, expand=True)
@@ -896,15 +991,19 @@ class HybridModelGUI:
         self.ax.set_facecolor('#3c3c3c')
         
         # 예측 결과 플롯
-        self.ax.plot(y_true[:100], label='실제값', color='#00ff00', linewidth=2)
-        self.ax.plot(y_pred[:100], label='예측값', color='#ff6b6b', linewidth=1.5, alpha=0.8)
+        self.ax.plot(y_true[:100], label=self.text_labels['actual'], color='#00ff00', linewidth=2)
+        self.ax.plot(y_pred[:100], label=self.text_labels['predicted'], color='#ff6b6b', linewidth=1.5, alpha=0.8)
         
-        self.ax.set_title("예측 결과 비교", color='white', fontsize=12)
-        self.ax.set_xlabel("시간 인덱스", color='white')
-        self.ax.set_ylabel("물류량", color='white')
-        self.ax.tick_params(colors='white')
-        self.ax.legend(loc='upper right')
+        # 언어에 따른 제목과 라벨 설정
+        self.ax.set_title(self.text_labels['prediction_comparison'], color='white', fontsize=12, pad=10)
+        self.ax.set_xlabel(self.text_labels['time_index'], color='white', fontsize=10)
+        self.ax.set_ylabel(self.text_labels['logistics_volume'], color='white', fontsize=10)
+        self.ax.tick_params(colors='white', labelsize=9)
+        self.ax.legend(loc='upper right', framealpha=0.9)
         self.ax.grid(True, alpha=0.3)
+        
+        # tight_layout으로 레이아웃 조정
+        self.fig.tight_layout()
         
         self.canvas.draw()
         
@@ -924,6 +1023,36 @@ class HybridModelGUI:
         
 def main():
     """메인 함수"""
+    print("="*60)
+    print("반도체 물류 예측 하이브리드 AI 시스템 시작")
+    print("="*60)
+    
+    # 한글 폰트 체크 및 안내
+    if not font_initialized:
+        print("\n⚠️  한글 폰트 설정 안내:")
+        print("━"*50)
+        
+        system = platform.system()
+        if system == 'Windows':
+            print("Windows 사용자:")
+            print("  1. 나눔고딕 폰트 설치: https://hangeul.naver.com/font")
+            print("  2. 또는 이미 설치된 '맑은 고딕' 사용")
+        elif system == 'Darwin':
+            print("macOS 사용자:")
+            print("  1. 나눔고딕 폰트 설치: https://hangeul.naver.com/font")
+            print("  2. 설치 후 프로그램 재시작")
+        else:
+            print("Linux 사용자:")
+            print("  1. sudo apt-get install fonts-nanum")
+            print("  2. fc-cache -fv")
+        
+        print("\n현재는 영문으로 표시됩니다.")
+        print("━"*50)
+    else:
+        print("✓ 한글 폰트 설정 완료")
+    
+    print("\n프로그램을 시작합니다...\n")
+    
     root = tk.Tk()
     app = HybridModelGUI(root)
     root.mainloop()
