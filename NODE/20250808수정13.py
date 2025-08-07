@@ -1,62 +1,11 @@
 """
-def build_cnn_lstm_multitask_model(input_shape, num_classes=4):  # 3이 아니라 4로 수정
-# 기존 코드
-num_classes = len(np.unique(y_classification))
+CNN-LSTM Multi-Task 기반 반도체 물류 예측 모델 - 오류 수정 완료 버전
+==================================================================
+실제 전체 데이터를 사용하여 모델을 학습시킵니다.
+모든 오류가 수정된 버전입니다.
 
-# 수정 코드
-num_classes = 4  # 0, 1, 2, 3 총 4개 클래스
-
-# 기존 코드
-target_names=['정상', 'M14A-M10A', 'M14A-M14B', 'M14A-M16']
-
-# 수정 코드 (클래스 3을 위한 이름 추가)
-target_names=['정상', 'M14A-M10A', 'M14A-M14B', 'M14A-M16']
-
-unique_classes = np.unique(y_classification)
-num_classes = len(unique_classes)
-logger.info(f"병목 클래스: {unique_classes}, 총 {num_classes}개")
-
-
-
-####안전추가
-# 8. 데이터 분할
-    # 시간 순서 유지를 위해 순차적으로 분할
-    train_size = int(0.7 * len(X))
-    val_size = int(0.15 * len(X))
-    
-    X_train = X[:train_size]
-    X_val = X[train_size:train_size+val_size]
-    X_test = X[train_size+val_size:]
-    
-    y_train_reg = y_regression[:train_size]
-    y_val_reg = y_regression[train_size:train_size+val_size]
-    y_test_reg = y_regression[train_size+val_size:]
-    
-    y_train_cls = y_classification[:train_size]
-    y_val_cls = y_classification[train_size:train_size+val_size]
-    y_test_cls = y_classification[train_size+val_size:]
-    
-    logger.info(f"\n데이터 분할:")
-    logger.info(f"  - Train: {len(X_train)} samples")
-    logger.info(f"  - Validation: {len(X_val)} samples")
-    logger.info(f"  - Test: {len(X_test)} samples")
-    
-    # 9. 모델 생성
-    input_shape = (X_train.shape[1], X_train.shape[2])
-    
-    # ★★★ 여기에 추가! ★★★
-    unique_classes = np.unique(y_classification)
-    num_classes = len(unique_classes)
-    logger.info(f"병목 클래스: {unique_classes}, 총 {num_classes}개")
-    
-    model = build_cnn_lstm_multitask_model(input_shape, num_classes)
-    model.summary()
-
+사용 데이터: data/20240201_TO_202507281705.csv
 """
-
-
-
-
 
 import numpy as np
 import pandas as pd
@@ -180,17 +129,17 @@ def create_features(data):
     features_data['MAX_10'] = features_data['TOTALCNT'].rolling(window=10, min_periods=1).max()
     features_data['MIN_10'] = features_data['TOTALCNT'].rolling(window=10, min_periods=1).min()
     
-    # 팹별 부하율
+    # 팹별 부하율 (0으로 나누기 방지)
+    total_safe = features_data['TOTALCNT'].replace(0, 1)  # 0을 1로 치환
     features_data['load_M14A_out'] = (features_data['M14AM10A'] + features_data['M14AM14B'] + 
-                                      features_data['M14AM16']) / features_data['TOTALCNT']
+                                      features_data['M14AM16']) / total_safe
     features_data['load_M14A_in'] = (features_data['M10AM14A'] + features_data['M14BM14A'] + 
-                                     features_data['M16M14A']) / features_data['TOTALCNT']
+                                     features_data['M16M14A']) / total_safe
     
-    # 경로별 비율
-    total_movement = features_data['TOTALCNT']
-    features_data['ratio_M14A_M10A'] = (features_data['M14AM10A'] + features_data['M10AM14A']) / total_movement
-    features_data['ratio_M14A_M14B'] = (features_data['M14AM14B'] + features_data['M14BM14A']) / total_movement
-    features_data['ratio_M14A_M16'] = (features_data['M14AM16'] + features_data['M16M14A']) / total_movement
+    # 경로별 비율 (0으로 나누기 방지)
+    features_data['ratio_M14A_M10A'] = (features_data['M14AM10A'] + features_data['M10AM14A']) / total_safe
+    features_data['ratio_M14A_M14B'] = (features_data['M14AM14B'] + features_data['M14BM14A']) / total_safe
+    features_data['ratio_M14A_M16'] = (features_data['M14AM16'] + features_data['M16M14A']) / total_safe
     
     # 변화율
     features_data['change_rate'] = features_data['TOTALCNT'].pct_change()
@@ -203,7 +152,21 @@ def create_features(data):
     # 결측값 처리
     features_data = features_data.fillna(method='ffill').fillna(0)
     
+    # 무한대 값 처리
+    features_data = features_data.replace([np.inf, -np.inf], 0)
+    
+    # 이상치 클리핑 (극단적인 값 제한)
+    numeric_columns = features_data.select_dtypes(include=[np.number]).columns
+    for col in numeric_columns:
+        if col not in ['TIME', 'CURRTIME']:  # 시간 컬럼 제외
+            # 99.9 퍼센타일로 클리핑
+            upper_limit = features_data[col].quantile(0.999)
+            lower_limit = features_data[col].quantile(0.001)
+            features_data[col] = features_data[col].clip(lower=lower_limit, upper=upper_limit)
+    
     logger.info(f"특징 생성 완료 - shape: {features_data.shape}")
+    logger.info(f"무한대 값 체크: {np.isinf(features_data.select_dtypes(include=[np.number])).any().any()}")
+    logger.info(f"NaN 값 체크: {features_data.isnull().any().any()}")
     
     return features_data
 
@@ -268,8 +231,22 @@ def scale_features(data, feature_columns):
     # 스케일링할 컬럼 선택
     scale_columns = [col for col in feature_columns if col in data.columns]
     
+    # 스케일링 전 데이터 검증
+    scale_data = data[scale_columns].copy()
+    
+    # 무한대 값 체크 및 처리
+    if np.isinf(scale_data.values).any():
+        logger.warning("무한대 값 발견! 처리 중...")
+        scale_data = scale_data.replace([np.inf, -np.inf], np.nan)
+        scale_data = scale_data.fillna(scale_data.mean())
+    
+    # NaN 값 체크 및 처리
+    if scale_data.isnull().any().any():
+        logger.warning("NaN 값 발견! 처리 중...")
+        scale_data = scale_data.fillna(scale_data.mean())
+    
     # 스케일링
-    scaled_data = scaler.fit_transform(data[scale_columns])
+    scaled_data = scaler.fit_transform(scale_data)
     
     # 스케일링된 데이터프레임 생성
     scaled_df = pd.DataFrame(
@@ -483,7 +460,7 @@ def main():
     data = create_targets(data)
     
     # 4. 특징 선택
-    # 스케일링할 특징 (강화된 특징 포함)
+    # 스케일링할 특징 (문제가 될 수 있는 비율 특징 제외 가능)
     scale_features_list = [
         'TOTALCNT', 'M14AM10A', 'M10AM14A', 'M14AM14B', 'M14BM14A', 'M14AM16', 'M16M14A',
         'imbalance_M14A_M10A', 'imbalance_M14A_M14B', 'imbalance_M14A_M16',
@@ -495,6 +472,10 @@ def main():
         'change_rate', 'change_rate_5', 'change_rate_10',
         'acceleration'
     ]
+    
+    # 실제 존재하는 컬럼만 선택
+    scale_features_list = [col for col in scale_features_list if col in data.columns]
+    logger.info(f"스케일링할 특징 수: {len(scale_features_list)}")
     
     # 5. 스케일링
     data, scaler = scale_features(data, scale_features_list)
@@ -537,7 +518,11 @@ def main():
     
     # 9. 모델 생성
     input_shape = (X_train.shape[1], X_train.shape[2])
-    num_classes = len(np.unique(y_classification))
+    
+    # 실제 클래스 개수 확인
+    unique_classes = np.unique(y_classification)
+    num_classes = len(unique_classes)
+    logger.info(f"병목 클래스: {unique_classes}, 총 {num_classes}개")
     
     model = build_cnn_lstm_multitask_model(input_shape, num_classes)
     model.summary()
@@ -576,8 +561,17 @@ def main():
     logger.info(f"\n병목 위치 예측 성능:")
     logger.info(f"  Accuracy: {accuracy:.2%}")
     logger.info("\n분류 리포트:")
+    
+    # target_names 동적 생성
+    if num_classes == 3:
+        target_names = ['정상', 'M14A-M10A', 'M14A-M14B']
+    elif num_classes == 4:
+        target_names = ['정상', 'M14A-M10A', 'M14A-M14B', 'M14A-M16']
+    else:
+        target_names = [f'Class_{i}' for i in range(num_classes)]
+    
     print(classification_report(y_test_cls, pred_bottleneck_classes, 
-                              target_names=['정상', 'M14A-M10A', 'M14A-M14B', 'M14A-M16']))
+                              target_names=target_names))
     
     # 12. 모델 및 스케일러 저장
     logger.info("\n모델 및 스케일러 저장 중...")
@@ -598,7 +592,7 @@ def main():
     plot_training_history(history)
     
     # 14. 예측 결과 시각화
-    plot_predictions(y_test_reg, pred_logistics, y_test_cls, pred_bottleneck_classes)
+    plot_predictions(y_test_reg, pred_logistics, y_test_cls, pred_bottleneck_classes, num_classes)
     
     logger.info("\n" + "="*60)
     logger.info("학습 완료!")
@@ -654,7 +648,7 @@ def plot_training_history(history):
     plt.savefig('training_history_multitask.png', dpi=300, bbox_inches='tight')
     plt.close()
 
-def plot_predictions(y_true_reg, y_pred_reg, y_true_cls, y_pred_cls):
+def plot_predictions(y_true_reg, y_pred_reg, y_true_cls, y_pred_cls, num_classes):
     """예측 결과 시각화"""
     fig, axes = plt.subplots(2, 2, figsize=(15, 10))
     
@@ -686,8 +680,17 @@ def plot_predictions(y_true_reg, y_pred_reg, y_true_cls, y_pred_cls):
     axes[1, 0].set_title('Bottleneck Prediction Confusion Matrix')
     axes[1, 0].set_xlabel('Predicted')
     axes[1, 0].set_ylabel('Actual')
-    axes[1, 0].set_xticklabels(['Normal', 'M14A-M10A', 'M14A-M14B', 'M14A-M16'])
-    axes[1, 0].set_yticklabels(['Normal', 'M14A-M10A', 'M14A-M14B', 'M14A-M16'])
+    
+    # 동적 라벨 설정
+    if num_classes == 3:
+        labels = ['Normal', 'M14A-M10A', 'M14A-M14B']
+    elif num_classes == 4:
+        labels = ['Normal', 'M14A-M10A', 'M14A-M14B', 'M14A-M16']
+    else:
+        labels = [f'Class_{i}' for i in range(num_classes)]
+    
+    axes[1, 0].set_xticklabels(labels)
+    axes[1, 0].set_yticklabels(labels)
     
     # 병목 발생 시점 표시
     bottleneck_points = np.where(y_true_cls > 0)[0]
