@@ -1,4 +1,270 @@
 """
+###수정
+def main():
+    """메인 실행 함수"""
+    
+    logger.info("="*60)
+    logger.info("CNN-LSTM Multi-Task 모델 학습 시작 (실제 데이터)")
+    logger.info("="*60)
+    
+    # 1. 데이터 로드 및 전처리
+    data_path = 'data/20240201_TO_202507281705.csv'  # 실제 전체 데이터
+    
+    # 파일 존재 확인
+    if not os.path.exists(data_path):
+        logger.error(f"데이터 파일을 찾을 수 없습니다: {data_path}")
+        return None, None, None
+    
+    data = load_and_preprocess_data(data_path)
+    
+    # 2. 특징 생성
+    data = create_features(data)
+    
+    # 3. 타겟 생성
+    data = create_targets(data)
+    
+    # 4. 특징 선택
+    # 스케일링할 특징 (문제가 될 수 있는 비율 특징 제외 가능)
+    scale_features_list = [
+        'TOTALCNT', 'M14AM10A', 'M10AM14A', 'M14AM14B', 'M14BM14A', 'M14AM16', 'M16M14A',
+        'imbalance_M14A_M10A', 'imbalance_M14A_M14B', 'imbalance_M14A_M16',
+        'MA_5', 'MA_10', 'MA_30', 'MA_60',
+        'STD_5', 'STD_10', 'STD_30',
+        'MAX_10', 'MIN_10',
+        'load_M14A_out', 'load_M14A_in',
+        'ratio_M14A_M10A', 'ratio_M14A_M14B', 'ratio_M14A_M16',
+        'change_rate', 'change_rate_5', 'change_rate_10',
+        'acceleration'
+    ]
+    
+    # 실제 존재하는 컬럼만 선택
+    scale_features_list = [col for col in scale_features_list if col in data.columns]
+    logger.info(f"스케일링할 특징 수: {len(scale_features_list)}")
+    
+    # 5. 스케일링
+    data, scaler = scale_features(data, scale_features_list)
+    
+    # 6. 시퀀스용 특징 선택
+    sequence_features = [col for col in data.columns if col.startswith('scaled_')]
+    target_features = ['FUTURE_TOTALCNT', 'BOTTLENECK_LOCATION']
+    
+    # 7. 시퀀스 생성 (60분 시퀀스)
+    X, y_regression, y_classification = create_sequences(
+        data, 
+        sequence_features, 
+        target_features,
+        seq_length=60  # 1시간 시퀀스
+    )
+    
+    # ==================== 클래스 레이블 재매핑 추가! ====================
+    # 클래스 [0, 2, 3]을 [0, 1, 2]로 변경
+    unique_classes = np.unique(y_classification)
+    class_mapping = {old_class: new_class for new_class, old_class in enumerate(unique_classes)}
+    y_classification_mapped = np.array([class_mapping[cls] for cls in y_classification])
+    
+    logger.info(f"원본 클래스: {unique_classes}")
+    logger.info(f"클래스 매핑: {class_mapping}")
+    logger.info(f"시퀀스 shape - X: {X.shape}, y_reg: {y_regression.shape}, y_cls: {y_classification_mapped.shape}")
+    # ====================================================================
+    
+    # 8. 데이터 분할
+    # 시간 순서 유지를 위해 순차적으로 분할
+    train_size = int(0.7 * len(X))
+    val_size = int(0.15 * len(X))
+    
+    X_train = X[:train_size]
+    X_val = X[train_size:train_size+val_size]
+    X_test = X[train_size+val_size:]
+    
+    y_train_reg = y_regression[:train_size]
+    y_val_reg = y_regression[train_size:train_size+val_size]
+    y_test_reg = y_regression[train_size+val_size:]
+    
+    # 매핑된 클래스 사용
+    y_train_cls = y_classification_mapped[:train_size]
+    y_val_cls = y_classification_mapped[train_size:train_size+val_size]
+    y_test_cls = y_classification_mapped[train_size+val_size:]
+    
+    logger.info(f"\n데이터 분할:")
+    logger.info(f"  - Train: {len(X_train)} samples")
+    logger.info(f"  - Validation: {len(X_val)} samples")
+    logger.info(f"  - Test: {len(X_test)} samples")
+    
+    # 9. 모델 생성
+    input_shape = (X_train.shape[1], X_train.shape[2])
+    
+    # 실제 클래스 개수 확인 (매핑된 클래스 기준)
+    unique_classes_mapped = np.unique(y_classification_mapped)
+    num_classes = len(unique_classes_mapped)
+    logger.info(f"매핑된 병목 클래스: {unique_classes_mapped}, 총 {num_classes}개")
+    
+    model = build_cnn_lstm_multitask_model(input_shape, num_classes)
+    model.summary()
+    
+    # 10. 모델 학습
+    logger.info("\n모델 학습 시작...")
+    history = train_model(
+        model, 
+        X_train, y_train_reg, y_train_cls,
+        X_val, y_val_reg, y_val_cls,
+        epochs=200,  # 실제 데이터용
+        batch_size=64
+    )
+    
+    # 11. 모델 평가
+    logger.info("\n모델 평가 중...")
+    
+    # 예측
+    predictions = model.predict(X_test)
+    pred_logistics = predictions[0].flatten()
+    pred_bottleneck = predictions[1]
+    
+    # 물류량 예측 평가
+    mae = mean_absolute_error(y_test_reg, pred_logistics)
+    mse = mean_squared_error(y_test_reg, pred_logistics)
+    
+    logger.info(f"\n물류량 예측 성능:")
+    logger.info(f"  MAE: {mae:.2f}")
+    logger.info(f"  MSE: {mse:.2f}")
+    logger.info(f"  RMSE: {np.sqrt(mse):.2f}")
+    
+    # 병목 예측 평가
+    pred_bottleneck_classes = np.argmax(pred_bottleneck, axis=1)
+    accuracy = accuracy_score(y_test_cls, pred_bottleneck_classes)
+    
+    logger.info(f"\n병목 위치 예측 성능:")
+    logger.info(f"  Accuracy: {accuracy:.2%}")
+    logger.info("\n분류 리포트:")
+    
+    # target_names 설정 (원본 클래스 기준)
+    if set(unique_classes) == {0, 2, 3}:
+        target_names = ['정상', 'M14A-M14B', 'M14A-M16']
+    elif num_classes == 4:
+        target_names = ['정상', 'M14A-M10A', 'M14A-M14B', 'M14A-M16']
+    else:
+        target_names = [f'Class_{i}' for i in range(num_classes)]
+    
+    print(classification_report(y_test_cls, pred_bottleneck_classes, 
+                              target_names=target_names))
+    
+    # 12. 모델 및 스케일러 저장
+    logger.info("\n모델 및 스케일러 저장 중...")
+    
+    # 디렉토리 생성
+    os.makedirs('model', exist_ok=True)
+    os.makedirs('scaler', exist_ok=True)
+    os.makedirs('config', exist_ok=True)
+    
+    # 모델 저장
+    model.save('model/cnn_lstm_multitask_final.keras')
+    logger.info("모델 저장 완료: model/cnn_lstm_multitask_final.keras")
+    
+    # 스케일러 저장
+    joblib.dump(scaler, 'scaler/multitask_scaler.pkl')
+    logger.info("스케일러 저장 완료: scaler/multitask_scaler.pkl")
+    
+    # 클래스 매핑 정보 저장
+    import json
+    with open('config/class_mapping.json', 'w') as f:
+        json.dump(class_mapping, f, indent=4)
+    logger.info("클래스 매핑 저장 완료: config/class_mapping.json")
+    
+    # 13. 학습 곡선 시각화
+    plot_training_history(history)
+    
+    # 14. 예측 결과 시각화
+    plot_predictions(y_test_reg, pred_logistics, y_test_cls, pred_bottleneck_classes, 
+                    num_classes, class_mapping)
+    
+    logger.info("\n" + "="*60)
+    logger.info("학습 완료!")
+    logger.info("="*60)
+    
+    return model, scaler, history
+###매인수정끝
+
+###
+def plot_predictions(y_true_reg, y_pred_reg, y_true_cls, y_pred_cls, num_classes, class_mapping=None):
+    """예측 결과 시각화"""
+    fig, axes = plt.subplots(2, 2, figsize=(15, 10))
+    
+    # 물류량 예측 비교
+    sample_size = min(200, len(y_true_reg))
+    axes[0, 0].plot(y_true_reg[:sample_size], label='Actual', color='blue')
+    axes[0, 0].plot(y_pred_reg[:sample_size], label='Predicted', color='red', alpha=0.7)
+    axes[0, 0].set_title('Logistics Prediction (First 200 samples)')
+    axes[0, 0].set_xlabel('Sample')
+    axes[0, 0].set_ylabel('TOTALCNT')
+    axes[0, 0].legend()
+    axes[0, 0].grid(True)
+    
+    # 물류량 예측 산점도
+    axes[0, 1].scatter(y_true_reg, y_pred_reg, alpha=0.5)
+    axes[0, 1].plot([y_true_reg.min(), y_true_reg.max()], 
+                    [y_true_reg.min(), y_true_reg.max()], 
+                    'r--', lw=2)
+    axes[0, 1].set_title('Logistics Prediction Scatter')
+    axes[0, 1].set_xlabel('Actual')
+    axes[0, 1].set_ylabel('Predicted')
+    axes[0, 1].grid(True)
+    
+    # 병목 예측 혼동 행렬
+    from sklearn.metrics import confusion_matrix
+    cm = confusion_matrix(y_true_cls, y_pred_cls)
+    
+    sns.heatmap(cm, annot=True, fmt='d', cmap='Blues', ax=axes[1, 0])
+    axes[1, 0].set_title('Bottleneck Prediction Confusion Matrix')
+    axes[1, 0].set_xlabel('Predicted')
+    axes[1, 0].set_ylabel('Actual')
+    
+    # 동적 라벨 설정 (클래스 매핑 고려)
+    if class_mapping:
+        # 원본 클래스로 역매핑
+        reverse_mapping = {v: k for k, v in class_mapping.items()}
+        original_classes = sorted([reverse_mapping.get(i, i) for i in range(num_classes)])
+        
+        if set(original_classes) == {0, 2, 3}:
+            labels = ['Normal', 'M14A-M14B', 'M14A-M16']
+        elif set(original_classes) == {0, 1, 2, 3}:
+            labels = ['Normal', 'M14A-M10A', 'M14A-M14B', 'M14A-M16']
+        else:
+            labels = [f'Class_{i}' for i in range(num_classes)]
+    else:
+        if num_classes == 3:
+            labels = ['Normal', 'Route_1', 'Route_2']
+        elif num_classes == 4:
+            labels = ['Normal', 'M14A-M10A', 'M14A-M14B', 'M14A-M16']
+        else:
+            labels = [f'Class_{i}' for i in range(num_classes)]
+    
+    axes[1, 0].set_xticklabels(labels)
+    axes[1, 0].set_yticklabels(labels)
+    
+    # 병목 발생 시점 표시
+    bottleneck_points = np.where(y_true_cls > 0)[0]
+    if len(bottleneck_points) > 0:
+        axes[1, 1].scatter(bottleneck_points[:100], 
+                          y_true_reg[bottleneck_points[:100]], 
+                          color='red', s=50, label='Actual Bottleneck')
+    
+    predicted_bottleneck = np.where(y_pred_cls > 0)[0]
+    if len(predicted_bottleneck) > 0:
+        axes[1, 1].scatter(predicted_bottleneck[:100], 
+                          y_pred_reg[predicted_bottleneck[:100]], 
+                          color='orange', s=30, alpha=0.5, label='Predicted Bottleneck')
+    
+    axes[1, 1].set_title('Bottleneck Detection')
+    axes[1, 1].set_xlabel('Sample')
+    axes[1, 1].set_ylabel('TOTALCNT')
+    axes[1, 1].legend()
+    axes[1, 1].grid(True)
+    
+    plt.tight_layout()
+    plt.savefig('prediction_results_multitask.png', dpi=300, bbox_inches='tight')
+    plt.close()
+###수정완료
+
+
 CNN-LSTM Multi-Task 기반 반도체 물류 예측 모델 - 오류 수정 완료 버전
 ==================================================================
 실제 전체 데이터를 사용하여 모델을 학습시킵니다.
