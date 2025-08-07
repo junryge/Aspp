@@ -1,45 +1,20 @@
 """
+def build_cnn_lstm_multitask_model(input_shape, num_classes=4):  # 3이 아니라 4로 수정
 # 기존 코드
-features_data['load_M14A_out'] = (features_data['M14AM10A'] + features_data['M14AM14B'] + 
-                                  features_data['M14AM16']) / features_data['TOTALCNT']
+num_classes = len(np.unique(y_classification))
 
 # 수정 코드
-features_data['load_M14A_out'] = (features_data['M14AM10A'] + features_data['M14AM14B'] + 
-                                  features_data['M14AM16']) / features_data['TOTALCNT'].replace(0, 1)
-
-
-
-CNN-LSTM Multi-Task 기반 반도체 물류 예측 모델 - 실제 운영 버전
-==========================================================
-실제 전체 데이터를 사용하여 모델을 학습시킵니다.
-
-사용 데이터: data/20240201_TO_202507281705.csv
-
+num_classes = 4  # 0, 1, 2, 3 총 4개 클래스
 
 # 기존 코드
-features_data = features_data.fillna(method='ffill').fillna(0)
+target_names=['정상', 'M14A-M10A', 'M14A-M14B', 'M14A-M16']
 
-# 수정 코드
-features_data = features_data.fillna(method='ffill').fillna(0)
-features_data = features_data.replace([np.inf, -np.inf], 0)
+# 수정 코드 (클래스 3을 위한 이름 추가)
+target_names=['정상', 'M14A-M10A', 'M14A-M14B', 'M14A-M16']
 
-def scale_features(data, feature_columns):
-    """특징 스케일링"""
-    scaler = StandardScaler()
-    
-    # 스케일링할 컬럼 선택
-    scale_columns = [col for col in feature_columns if col in data.columns]
-    
-    # 추가: 무한대 값 체크 및 처리
-    data_to_scale = data[scale_columns].copy()
-    data_to_scale = data_to_scale.replace([np.inf, -np.inf], np.nan)
-    data_to_scale = data_to_scale.fillna(data_to_scale.mean())
-    
-    # 스케일링
-    scaled_data = scaler.fit_transform(data_to_scale)
-    
-    # 나머지는 동일...
-
+unique_classes = np.unique(y_classification)
+num_classes = len(unique_classes)
+logger.info(f"병목 클래스: {unique_classes}, 총 {num_classes}개")
 
 """
 
