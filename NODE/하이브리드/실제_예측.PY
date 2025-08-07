@@ -233,3 +233,20 @@ predicted_dict = {
 }
 
 print([predicted_dict])
+
+
+# 기존 코드 (삭제)
+# predictions = np.round(final_prediction).astype(int)
+# predicted_dict = {
+#     "LSTM": int(round(individual_predictions.get('lstm', predictions))),
+#     "GRU": int(round(individual_predictions.get('gru', predictions))),
+#     "RNN": int(round(individual_predictions.get('rnn', predictions))),
+#     "Bi-LSTM": int(round(individual_predictions.get('bi_lstm', predictions))),
+#     "ENSEMBLE": int(predictions)
+# }
+# print([predicted_dict])
+
+# 새로운 코드 (추가)
+# 앙상블 예측값만 출력
+ensemble_value = int(np.round(final_prediction))
+print(ensemble_value)
