@@ -1,4 +1,10 @@
 """
+
+# 기본 실행 (data/0730to31.csv 사용)
+python evaluation_multitask.py
+
+# 다른 데이터 파일 사용
+python evaluation_multitask.py data/your_data.csv
 CNN-LSTM Multi-Task 모델 종합 평가 시스템
 =========================================
 학습된 CNN-LSTM Multi-Task 모델의 성능을 다각도로 평가합니다.
