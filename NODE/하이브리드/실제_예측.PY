@@ -2,53 +2,21 @@
 
 
 
-# 파일 찾기 부분만 수정
-import sys
-import glob
-
-# 스크립트 디렉토리
+# 스크립트 디렉토리 기준으로
 Script_dir = os.path.dirname(os.path.abspath(__file__))
-print(f"현재 디렉토리: {Script_dir}")
+Full_data_path = os.path.join(Script_dir, "data", "20250807_DATA.CSV")
 
-# CSV 파일 찾기 - 대소문자 구분 없이 검색
-Full_data_path = None
-target_filename = '20250807_DATA.csv'
-
-# 현재 디렉토리와 data 하위 디렉토리에서 검색
-search_dirs = [
-    Script_dir,
-    os.path.join(Script_dir, "data"),
-    os.path.join(Script_dir, "DATA"),
-    os.getcwd()  # 현재 작업 디렉토리도 추가
-]
-
-for search_dir in search_dirs:
-    if os.path.exists(search_dir):
-        # 대소문자 구분 없이 파일 검색
-        files = glob.glob(os.path.join(search_dir, "*"))
-        for file in files:
-            if os.path.basename(file).lower() == target_filename.lower():
-                Full_data_path = file
-                print(f"파일 찾음: {Full_data_path}")
-                break
-    if Full_data_path:
-        break
-
-# 파일을 못 찾은 경우
-if Full_data_path is None:
-    print(f"\n'{target_filename}' 파일을 찾을 수 없습니다.")
-    print("검색한 디렉토리:")
-    for d in search_dirs:
-        print(f"  - {d}")
-    print("\n현재 디렉토리의 CSV 파일 목록:")
-    for f in glob.glob(os.path.join(Script_dir, "*.csv")) + glob.glob(os.path.join(Script_dir, "*.CSV")):
-        print(f"  - {os.path.basename(f)}")
-    sys.exit(1)  # exit() 대신 sys.exit() 사용
+# 파일 존재 확인
+if not os.path.exists(Full_data_path):
+    print(f"파일이 없습니다: {Full_data_path}")
+    # 실제 경로 출력해서 확인
+    print(f"Script_dir: {Script_dir}")
+    print(f"찾는 경로: {Full_data_path}")
+    sys.exit(1)
 
 # 데이터 로드
 Full_Data = pd.read_csv(Full_data_path)
 print(f"데이터 로드 성공: {Full_Data.shape}")
-
 
 
 """
