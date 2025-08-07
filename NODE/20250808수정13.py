@@ -16,6 +16,42 @@ unique_classes = np.unique(y_classification)
 num_classes = len(unique_classes)
 logger.info(f"병목 클래스: {unique_classes}, 총 {num_classes}개")
 
+
+
+####안전추가
+# 8. 데이터 분할
+    # 시간 순서 유지를 위해 순차적으로 분할
+    train_size = int(0.7 * len(X))
+    val_size = int(0.15 * len(X))
+    
+    X_train = X[:train_size]
+    X_val = X[train_size:train_size+val_size]
+    X_test = X[train_size+val_size:]
+    
+    y_train_reg = y_regression[:train_size]
+    y_val_reg = y_regression[train_size:train_size+val_size]
+    y_test_reg = y_regression[train_size+val_size:]
+    
+    y_train_cls = y_classification[:train_size]
+    y_val_cls = y_classification[train_size:train_size+val_size]
+    y_test_cls = y_classification[train_size+val_size:]
+    
+    logger.info(f"\n데이터 분할:")
+    logger.info(f"  - Train: {len(X_train)} samples")
+    logger.info(f"  - Validation: {len(X_val)} samples")
+    logger.info(f"  - Test: {len(X_test)} samples")
+    
+    # 9. 모델 생성
+    input_shape = (X_train.shape[1], X_train.shape[2])
+    
+    # ★★★ 여기에 추가! ★★★
+    unique_classes = np.unique(y_classification)
+    num_classes = len(unique_classes)
+    logger.info(f"병목 클래스: {unique_classes}, 총 {num_classes}개")
+    
+    model = build_cnn_lstm_multitask_model(input_shape, num_classes)
+    model.summary()
+
 """
 
 
