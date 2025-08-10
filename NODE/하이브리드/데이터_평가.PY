@@ -1,7 +1,7 @@
 """
 반도체 물류 예측 평가 시스템
 ================================
-100분간의 실제 데이터를 사용하여 10분 후를 예측하고
+전체 데이터(7월 31일 ~ 8월 5일)를 사용하여 10분 후를 예측하고
 실제값과 비교하여 모델 성능을 평가합니다.
 
 CPU 기반 LSTM, RNN, GRU 하이브리드 모델 사용
@@ -60,7 +60,7 @@ def set_korean_font():
 set_korean_font()
 
 class LogisticsPredictionEvaluator:
-    """100분 데이터로 10분 예측을 평가하는 클래스"""
+    """전체 데이터로 10분 예측을 평가하는 클래스"""
     
     def __init__(self):
         self.models = {}
@@ -257,8 +257,8 @@ class LogisticsPredictionEvaluator:
         dummy_array[0, pred_idx] = scaled_pred
         return self.scaler.inverse_transform(dummy_array)[0, pred_idx]
     
-    def evaluate_100min_predictions(self, data_path):
-        """100분 데이터로 10분 예측 평가"""
+    def evaluate_predictions(self, data_path):
+        """전체 데이터로 10분 예측 평가"""
         # 모델 로드
         self.load_models()
         
@@ -267,14 +267,18 @@ class LogisticsPredictionEvaluator:
         scaled_data, available_columns = self.scale_features(data)
         
         print("\n" + "="*70)
-        print("100분 데이터 → 10분 예측 평가 시작")
+        print("전체 데이터 → 10분 예측 평가 시작")
+        print(f"데이터 기간: {data.index[0].strftime('%Y-%m-%d')} ~ {data.index[-1].strftime('%Y-%m-%d')}")
+        print(f"총 데이터 수: {len(data)}개")
         print("="*70)
         
         # 결과 저장용 리스트
         results = []
         
-        # 100분 데이터로 예측 (0~99분 데이터로 10~109분 예측)
-        for i in range(min(100, len(data) - self.seq_length - 10)):
+        # 전체 데이터로 예측 (30분 시퀀스로 10분 후 예측)
+        # 전체 데이터에서 가능한 모든 예측 수행
+        total_predictions = len(data) - self.seq_length - 10
+        for i in range(total_predictions):
             # 현재 시점
             current_time = data.index[i + self.seq_length - 1]
             current_value = data['TOTALCNT'].iloc[i + self.seq_length - 1]
@@ -356,11 +360,15 @@ class LogisticsPredictionEvaluator:
         
         # 1. 실제값 vs 예측값 (앙상블)
         ax = axes[0, 0]
-        ax.plot(results_df.index[:50], results_df['actual_value'][:50], 
+        # 일별로 샘플링하여 시각화 (너무 많으면 보기 어려우므로)
+        sample_size = min(200, len(results_df))
+        step = max(1, len(results_df) // sample_size)
+        
+        ax.plot(results_df.index[::step], results_df['actual_value'][::step], 
                 label='실제값', color='blue', linewidth=2)
-        ax.plot(results_df.index[:50], results_df['ensemble_pred'][:50], 
+        ax.plot(results_df.index[::step], results_df['ensemble_pred'][::step], 
                 label='예측값 (앙상블)', color='red', linewidth=1.5, linestyle='--')
-        ax.set_title('실제값 vs 예측값 (첫 50개)', fontsize=14)
+        ax.set_title(f'실제값 vs 예측값 (전체 {len(results_df)}개 중 샘플링)', fontsize=14)
         ax.set_xlabel('예측 순서')
         ax.set_ylabel('물류량')
         ax.legend()
@@ -423,7 +431,7 @@ class LogisticsPredictionEvaluator:
         
         # 저장
         timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-        plt.savefig(f'evaluation_100min_{timestamp}.png', dpi=300, bbox_inches='tight')
+        plt.savefig(f'evaluation_results_{timestamp}.png', dpi=300, bbox_inches='tight')
         plt.show()
         
         # 상세 결과 출력
@@ -443,9 +451,27 @@ class LogisticsPredictionEvaluator:
                   f"{row['ensemble_pred']:^8.0f} | "
                   f"{error:^8.1f}")
         
+        # 날짜별 요약
+        print("\n" + "="*70)
+        print("날짜별 예측 성능 요약")
+        print("="*70)
+        
+        results_df['date'] = results_df['current_time'].dt.date
+        daily_summary = results_df.groupby('date').apply(lambda x: pd.Series({
+            '예측수': len(x),
+            'MAE': mean_absolute_error(x['actual_value'], x['ensemble_pred']),
+            'RMSE': np.sqrt(mean_squared_error(x['actual_value'], x['ensemble_pred'])),
+            'R²': r2_score(x['actual_value'], x['ensemble_pred']) if len(x) > 1 else 0
+        }))
+        
+        print(f"{'날짜':^12} | {'예측수':^8} | {'MAE':^8} | {'RMSE':^8} | {'R²':^8}")
+        print("-"*52)
+        for date, row in daily_summary.iterrows():
+            print(f"{str(date):^12} | {row['예측수']:^8.0f} | {row['MAE']:^8.2f} | {row['RMSE']:^8.2f} | {row['R²']:^8.4f}")
+        
         # 결과 저장
-        results_df.to_csv(f'prediction_results_100min_{timestamp}.csv', index=False)
-        print(f"\n결과가 'prediction_results_100min_{timestamp}.csv'에 저장되었습니다.")
+        results_df.to_csv(f'prediction_results_{timestamp}.csv', index=False)
+        print(f"\n결과가 'prediction_results_{timestamp}.csv'에 저장되었습니다.")
         
         return results_df
 
@@ -453,7 +479,7 @@ def main():
     """메인 실행 함수"""
     print("\n" + "="*70)
     print("반도체 물류 예측 평가 시스템")
-    print("100분 데이터 → 10분 예측")
+    print("전체 데이터를 사용한 10분 예측 평가")
     print("="*70)
     
     evaluator = LogisticsPredictionEvaluator()
@@ -486,7 +512,7 @@ def main():
     
     try:
         # 평가 실행
-        results_df = evaluator.evaluate_100min_predictions(actual_path)
+        results_df = evaluator.evaluate_predictions(actual_path)
         
         # 결과 시각화
         evaluator.visualize_results(results_df)
