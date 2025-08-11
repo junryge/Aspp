@@ -47,6 +47,7 @@ import gc
 import traceback
 import signal
 import sys
+import logging
 
 # TensorFlow 2.18.0 설정
 warnings.filterwarnings('ignore')
@@ -77,6 +78,7 @@ class CheckpointManager:
     def __init__(self, checkpoint_dir='checkpoints'):
         self.checkpoint_dir = checkpoint_dir
         os.makedirs(checkpoint_dir, exist_ok=True)
+        os.makedirs('model', exist_ok=True)  # model 디렉토리도 생성
         
         # 경로 설정
         self.state_file = os.path.join(checkpoint_dir, 'training_state.json')
@@ -204,21 +206,54 @@ class CheckpointManager:
     
     def get_model_checkpoint_path(self, model_name):
         """모델별 체크포인트 경로"""
-        return os.path.join(self.checkpoint_dir, f'{model_name}_checkpoint.keras')
+        return os.path.join(self.checkpoint_dir, f'{model_name}_checkpoint.weights.h5')
     
     def save_model_weights(self, model, model_name):
         """모델 가중치 저장"""
-        path = self.get_model_checkpoint_path(model_name)
-        model.save_weights(path)
-        print(f"📁 모델 저장: {model_name}")
+        path = os.path.join(self.checkpoint_dir, f'{model_name}_checkpoint.weights.h5')
+        try:
+            model.save_weights(path)
+            print(f"📁 모델 저장: {model_name}")
+        except Exception as e:
+            print(f"⚠️ 가중치 저장 실패: {e}")
+            # 대체 방법 시도
+            alt_path = os.path.join(self.checkpoint_dir, f'{model_name}_checkpoint')
+            model.save(alt_path)
+            print(f"📁 대체 저장 완료: {alt_path}")
     
     def load_model_weights(self, model, model_name):
         """모델 가중치 로드"""
-        path = self.get_model_checkpoint_path(model_name)
+        # 새 형식 시도
+        path = os.path.join(self.checkpoint_dir, f'{model_name}_checkpoint.weights.h5')
         if os.path.exists(path):
-            model.load_weights(path)
-            print(f"📂 모델 로드: {model_name}")
-            return True
+            try:
+                model.load_weights(path)
+                print(f"📂 모델 로드: {model_name}")
+                return True
+            except:
+                pass
+        
+        # 구 형식 시도
+        old_path = os.path.join(self.checkpoint_dir, f'{model_name}_checkpoint.keras')
+        if os.path.exists(old_path):
+            try:
+                model.load_weights(old_path)
+                print(f"📂 모델 로드 (구 형식): {model_name}")
+                return True
+            except:
+                pass
+        
+        # 전체 모델 로드 시도
+        alt_path = os.path.join(self.checkpoint_dir, f'{model_name}_checkpoint')
+        if os.path.exists(alt_path):
+            try:
+                loaded_model = tf.keras.models.load_model(alt_path, compile=False)
+                model.set_weights(loaded_model.get_weights())
+                print(f"📂 모델 로드 (전체): {model_name}")
+                return True
+            except:
+                pass
+        
         return False
     
     def update_progress(self, model_name, epoch, metrics=None):
@@ -250,27 +285,31 @@ class ProgressCallback(Callback):
         
         # 5 에폭마다 체크포인트 저장
         if self.epoch_count % 5 == 0:
-            metrics = {
-                'loss': logs.get('loss'),
-                'val_loss': logs.get('val_loss'),
-                'mae': logs.get('mae'),
-                'val_mae': logs.get('val_mae')
-            }
-            
-            # 진행 상황 업데이트
-            self.checkpoint_manager.update_progress(
-                self.model_name, 
-                self.epoch_count,
-                metrics
-            )
-            
-            # 모델 가중치 저장
-            self.checkpoint_manager.save_model_weights(
-                self.model, 
-                self.model_name
-            )
-            
-            print(f"\n💾 체크포인트 저장 (Epoch {self.epoch_count})")
+            try:
+                metrics = {
+                    'loss': logs.get('loss'),
+                    'val_loss': logs.get('val_loss'),
+                    'mae': logs.get('mae'),
+                    'val_mae': logs.get('val_mae')
+                }
+                
+                # 진행 상황 업데이트
+                self.checkpoint_manager.update_progress(
+                    self.model_name, 
+                    self.epoch_count,
+                    metrics
+                )
+                
+                # 모델 가중치 저장
+                self.checkpoint_manager.save_model_weights(
+                    self.model, 
+                    self.model_name
+                )
+                
+                print(f"\n💾 체크포인트 저장 (Epoch {self.epoch_count})")
+            except Exception as e:
+                print(f"\n⚠️ 체크포인트 저장 실패: {e}")
+                # 실패해도 학습은 계속
 
 
 # ===================================
@@ -722,8 +761,9 @@ class ResumableTrainer:
                 verbose=1
             ),
             ModelCheckpoint(
-                f'model/{model_name}_best.keras', 
+                f'model/{model_name}_best.weights.h5',  # .weights.h5 확장자
                 save_best_only=True,
+                save_weights_only=True,  # 가중치만 저장
                 monitor='val_loss',
                 verbose=0
             ),
