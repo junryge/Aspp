@@ -1,34 +1,20 @@
 # -*- coding: utf-8 -*-
-
-
-
-# 스크립트 디렉토리 기준으로
-Script_dir = os.path.dirname(os.path.abspath(__file__))
-Full_data_path = os.path.join(Script_dir, "data", "20250807_DATA.CSV")
-
-# 파일 존재 확인
-if not os.path.exists(Full_data_path):
-    print(f"파일이 없습니다: {Full_data_path}")
-    # 실제 경로 출력해서 확인
-    print(f"Script_dir: {Script_dir}")
-    print(f"찾는 경로: {Full_data_path}")
-    sys.exit(1)
-
-# 데이터 로드
-Full_Data = pd.read_csv(Full_data_path)
-print(f"데이터 로드 성공: {Full_Data.shape}")
-
-
 """
-반도체 물류 예측 - 하이브리드 모델 실시간 예측
+반도체 물류 예측 - 하이브리드 모델 실시간 예측 (최종 수정 버전)
 """
+
+import os
+import sys
+
+# CUDA 경고 완전 제거
+os.environ['CUDA_VISIBLE_DEVICES'] = ''
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 
 import numpy as np
 import pandas as pd
 import tensorflow as tf
 from sklearn.preprocessing import StandardScaler
 from tensorflow.keras.models import load_model
-import os
 from datetime import datetime, timedelta
 import joblib
 import logging
@@ -37,12 +23,13 @@ import warnings
 # 경고 메시지 숨기기
 warnings.filterwarnings('ignore')
 os.environ['TF_ENABLE_ONEDNN_OPTS'] = '0'
-os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 tf.get_logger().setLevel(logging.ERROR)
 
-# CPU 모드 설정
-os.environ['CUDA_VISIBLE_DEVICES'] = '-1'
-tf.config.set_visible_devices([], 'GPU')
+# TensorFlow GPU 완전 비활성화
+try:
+    tf.config.set_visible_devices([], 'GPU')
+except:
+    pass
 
 # 랜덤 시드 고정
 tf.random.set_seed(2079936)
@@ -50,25 +37,14 @@ tf.random.set_seed(2079936)
 # 스크립트 디렉토리
 Script_dir = os.path.dirname(os.path.abspath(__file__))
 
-# 데이터 파일 찾기 - 여러 경로 시도
-Full_data_name = '20250807_DATA.csv'
-possible_paths = [
-    os.path.join(Script_dir, Full_data_name),  # 스크립트와 같은 폴더
-    os.path.join(Script_dir, "data", Full_data_name),  # data 폴더
-    Full_data_name  # 현재 디렉토리
-]
+# 데이터 파일 경로 직접 지정
+Full_data_path = os.path.join(Script_dir, "data", "20250807_DATA.CSV")
 
-Full_data_path = None
-for path in possible_paths:
-    if os.path.exists(path):
-        Full_data_path = path
-        break
-
-if Full_data_path is None:
-    print("CSV 파일을 찾을 수 없습니다. 다음 위치에 파일을 놓아주세요:")
-    for path in possible_paths:
-        print(f"  - {path}")
-    exit(1)
+# 파일 존재 확인
+if not os.path.exists(Full_data_path):
+    print(f"파일이 없습니다: {Full_data_path}")
+    print(f"Script_dir: {Script_dir}")
+    sys.exit(1)
 
 # 데이터 로드
 Full_Data = pd.read_csv(Full_data_path)
@@ -123,7 +99,7 @@ for model_name in model_names:
 # 최소 하나의 모델이라도 로드되었는지 확인
 if not models:
     print("로드된 모델이 없습니다!")
-    exit(1)
+    sys.exit(1)
 
 # 스케일러 로드 - 여러 경로 시도
 scaler = None
@@ -143,22 +119,41 @@ for scaler_path in scaler_paths:
 
 if scaler is None:
     print("스케일러를 찾을 수 없습니다!")
-    exit(1)
+    sys.exit(1)
 
-# 스케일링할 컬럼
-scale_columns = ['TOTALCNT', 'MA_5', 'MA_10', 'MA_30', 'STD_5', 'STD_10']
-available_columns = [col for col in scale_columns if col in Modified_Data.columns]
-
-# FUTURE 컬럼 더미로 추가 (스케일러가 기대하는 경우)
-if hasattr(scaler, 'n_features_in_') and scaler.n_features_in_ == 7:
-    Modified_Data['FUTURE'] = Modified_Data['TOTALCNT']
-    available_columns = ['TOTALCNT', 'FUTURE', 'MA_5', 'MA_10', 'MA_30', 'STD_5', 'STD_10']
-    available_columns = [col for col in available_columns if col in Modified_Data.columns]
+# 스케일러가 기대하는 특징 확인 및 처리
+if hasattr(scaler, 'feature_names_in_'):
+    # 스케일러가 기대하는 정확한 컬럼 사용
+    required_columns = list(scaler.feature_names_in_)
+    
+    # 필요한 컬럼이 없으면 생성
+    for col in required_columns:
+        if col not in Modified_Data.columns:
+            if col == 'FUTURE':
+                Modified_Data['FUTURE'] = Modified_Data['TOTALCNT']
+    
+    # 스케일러가 기대하는 순서대로 컬럼 선택
+    available_columns = [col for col in required_columns if col in Modified_Data.columns]
+else:
+    # feature_names_in_이 없는 경우 (구버전 sklearn)
+    if hasattr(scaler, 'n_features_in_'):
+        if scaler.n_features_in_ == 2:
+            available_columns = ['TOTALCNT', 'FUTURE']
+            Modified_Data['FUTURE'] = Modified_Data['TOTALCNT']
+        elif scaler.n_features_in_ == 7:
+            available_columns = ['TOTALCNT', 'FUTURE', 'MA_5', 'MA_10', 'MA_30', 'STD_5', 'STD_10']
+            Modified_Data['FUTURE'] = Modified_Data['TOTALCNT']
+        else:
+            available_columns = ['TOTALCNT', 'MA_5', 'MA_10', 'MA_30', 'STD_5', 'STD_10']
 
 # 스케일링
-scaled_data = scaler.transform(Modified_Data[available_columns])
-scaled_df = pd.DataFrame(scaled_data, columns=[f'scaled_{col}' for col in available_columns])
-scaled_df.index = Modified_Data.index
+try:
+    scaled_data = scaler.transform(Modified_Data[available_columns])
+    scaled_df = pd.DataFrame(scaled_data, columns=[f'scaled_{col}' for col in available_columns])
+    scaled_df.index = Modified_Data.index
+except Exception as e:
+    print(f"스케일링 오류: {e}")
+    sys.exit(1)
 
 Scaled_Data = pd.merge(Modified_Data, scaled_df, left_index=True, right_index=True, how='left')
 
@@ -168,7 +163,7 @@ input_features = [col for col in Scaled_Data.columns if col.startswith('scaled_'
 
 if len(Scaled_Data) < seq_length:
     print(f"데이터가 부족합니다. 최소 {seq_length}개 필요")
-    exit(1)
+    sys.exit(1)
 
 X_seq = Scaled_Data[input_features].iloc[-seq_length:].values
 X_seq = X_seq.reshape(1, seq_length, len(input_features))
@@ -197,7 +192,7 @@ if predictions:
         ensemble_pred = ensemble_pred / total_weight
 else:
     print("예측 실패!")
-    exit(1)
+    sys.exit(1)
 
 # 역스케일링
 n_features = len(available_columns)
@@ -214,22 +209,6 @@ else:
 dummy_array[0, pred_idx] = ensemble_pred
 final_prediction = scaler.inverse_transform(dummy_array)[0, pred_idx]
 
-# 개별 모델 예측값도 역스케일링
-individual_predictions = {}
-for model_name, pred in predictions.items():
-    dummy_array[0, pred_idx] = pred
-    individual_predictions[model_name] = scaler.inverse_transform(dummy_array)[0, pred_idx]
-
-# 결과 출력 (기존 형식과 동일하게)
-predictions = np.round(final_prediction).astype(int)
-
-# 딕셔너리 형태로 출력
-predicted_dict = {
-    "LSTM": int(round(individual_predictions.get('lstm', predictions))),
-    "GRU": int(round(individual_predictions.get('gru', predictions))),
-    "RNN": int(round(individual_predictions.get('rnn', predictions))),
-    "Bi-LSTM": int(round(individual_predictions.get('bi_lstm', predictions))),
-    "ENSEMBLE": int(predictions)
-}
-
-print([predicted_dict])
+# 앙상블 예측값만 출력
+ensemble_value = int(np.round(final_prediction))
+print(ensemble_value)
