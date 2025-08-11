@@ -1,1042 +1,774 @@
 """
-TensorFlow 2.18.0 - 재시작 가능한 반도체 물류 예측 시스템 (오류 수정판)
-========================================================
-학습 데이터: 20240201_TO_202507281705.csv
-학습 중단 시 재시작 기능 완벽 지원
+반도체 물류 예측을 위한 하이브리드 딥러닝 모델 (재시작 가능 버전)
+================================================================
+* 전체 데이터 학습 및 무작위 분할 적용 버전 *
 
-핵심 기능:
-1. 체크포인트 자동 저장
-2. 중단점부터 재시작
-3. 학습 진행 상황 추적
-4. 모델별 개별 관리
-5. 데이터 전처리 상태 보존
+본 시스템은 반도체 팹 간 물류 이동량을 예측하고 병목 구간을 사전에 감지하기 위한 통합 예측 모델입니다.
 
-데이터 전처리:
-- 전체 기간: 2024-02-01 ~ 2025-07-28 (20240201_TO_202507281705.csv)
-- 날짜 필터링: 옵션 (use_date_filter=False 기본값)
-- PM 기간(2024-10-23) 예외 처리
-- 정상 범위: 800 ~ 2500 (PM 기간 제외)
+주요 기능:
+1. LSTM, RNN, GRU, ARIMA 모델을 통합한 앙상블 예측
+2. 실시간 병목 구간 감지 및 알림
+3. 10분 후 물류량 예측
+4. CPU 기반 실행으로 범용성 확보
+5. 학습 중단 시 재시작 기능 지원
 
-구현 완료:
-✅ RobustScaler 사용 (이상치에 강건)
-✅ 변화율 기반 특징 강화
-✅ Attention 메커니즘 추가
-✅ 다단계 예측 + 앙상블
-✅ 동적 임계값 학습
-✅ 재시작 가능한 학습
-
-오류 수정:
-✅ .weights.h5 확장자로 모든 저장 경로 수정
+개발일: 2024년
+버전: 3.0 (전체 데이터 학습 버전)
 """
-
 import numpy as np
 import pandas as pd
 import tensorflow as tf
-from tensorflow import keras
-from tensorflow.keras import layers, Model
-from tensorflow.keras.callbacks import EarlyStopping, ReduceLROnPlateau, ModelCheckpoint, Callback
+from sklearn.preprocessing import StandardScaler, RobustScaler # RobustScaler 추가
+from sklearn.model_selection import train_test_split # train_test_split 추가
+from tensorflow.keras.models import Sequential, load_model, Model
+from tensorflow.keras.layers import Input, LSTM, Dense, Dropout, BatchNormalization, Bidirectional, GRU, SimpleRNN
+from tensorflow.keras.callbacks import EarlyStopping, ReduceLROnPlateau, ModelCheckpoint
 from tensorflow.keras.optimizers import Adam
-from sklearn.preprocessing import RobustScaler, StandardScaler
 from sklearn.metrics import mean_squared_error, mean_absolute_error, r2_score
+from statsmodels.tsa.arima.model import ARIMA
+from statsmodels.tsa.stattools import adfuller
 import matplotlib.pyplot as plt
-import seaborn as sns
+import sys
 import os
+from datetime import datetime, timedelta
+from tensorflow.keras.regularizers import l2
+import joblib
+import logging
+import warnings
 import json
 import pickle
-from datetime import datetime
-import joblib
-import warnings
-import gc
 import traceback
-import signal
-import sys
-import logging
 
-# TensorFlow 2.18.0 설정
+# 경고 메시지 숨기기
 warnings.filterwarnings('ignore')
-os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
-os.environ['TF_ENABLE_ONEDNN_OPTS'] = '0'
+
+# ===================================
+# 1. 환경 설정 및 초기화
+# ===================================
+# CPU 모드 설정 - GPU가 없는 환경에서도 실행 가능하도록 설정
 os.environ['CUDA_VISIBLE_DEVICES'] = '-1'
-tf.config.set_visible_devices([], 'GPU')
+physical_devices = tf.config.list_physical_devices('GPU')
+if physical_devices:
+    tf.config.experimental.set_memory_growth(physical_devices[0], True)
+else:
+    tf.config.set_visible_devices([], 'GPU')
 
-# 메모리 최적화
-tf.config.threading.set_inter_op_parallelism_threads(4)
-tf.config.threading.set_intra_op_parallelism_threads(4)
 
-# 랜덤 시드
+# 랜덤 시드 고정
 RANDOM_SEED = 2079936
 tf.random.set_seed(RANDOM_SEED)
 np.random.seed(RANDOM_SEED)
 
-print(f"TensorFlow Version: {tf.__version__}")
-print("="*70)
+# 로깅 설정
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.FileHandler('training.log'),
+        logging.StreamHandler()
+    ]
+)
+logger = logging.getLogger(__name__)
 
 # ===================================
-# 체크포인트 관리 시스템 (파일 형식 수정)
+# 2. 체크포인트 관리 클래스
 # ===================================
-
 class CheckpointManager:
-    """학습 상태 저장 및 복원 관리"""
-    
+    """학습 상태를 저장하고 복원하는 클래스"""
     def __init__(self, checkpoint_dir='checkpoints'):
         self.checkpoint_dir = checkpoint_dir
         os.makedirs(checkpoint_dir, exist_ok=True)
-        os.makedirs('model', exist_ok=True)
-        
-        # 경로 설정
         self.state_file = os.path.join(checkpoint_dir, 'training_state.json')
         self.data_file = os.path.join(checkpoint_dir, 'preprocessed_data.pkl')
-        self.scaler_file = os.path.join(checkpoint_dir, 'scalers.pkl')
-        self.history_file = os.path.join(checkpoint_dir, 'training_history.pkl')
-        
-        # 상태 초기화
-        self.state = {
-            'current_model': None,
-            'current_epoch': 0,
-            'completed_models': [],
-            'model_histories': {},
-            'best_scores': {},
-            'training_config': {},
-            'timestamp': None
-        }
-        
-        # Ctrl+C 핸들러 등록
-        signal.signal(signal.SIGINT, self.signal_handler)
-        
-    def signal_handler(self, sig, frame):
-        """Ctrl+C 시 자동 저장"""
-        print('\n\n⚠️  학습 중단 감지! 현재 상태를 저장합니다...')
-        self.save_emergency_checkpoint()
-        print('✅ 긴급 체크포인트 저장 완료!')
-        print('다시 시작하려면: python script.py --resume')
-        sys.exit(0)
-    
-    def save_emergency_checkpoint(self):
-        """긴급 체크포인트 저장"""
-        self.state['interrupted'] = True
-        self.state['interrupt_time'] = datetime.now().isoformat()
-        self.save_state()
-    
-    def save_state(self):
+
+    def save_state(self, state_dict):
         """현재 학습 상태 저장"""
-        self.state['timestamp'] = datetime.now().isoformat()
         with open(self.state_file, 'w') as f:
-            json.dump(self.state, f, indent=4)
-        print(f"📁 상태 저장: {self.state_file}")
-    
+            json.dump(state_dict, f, indent=4, default=str)
+        logger.info(f"학습 상태 저장됨: {self.state_file}")
+
     def load_state(self):
         """저장된 학습 상태 로드"""
         if os.path.exists(self.state_file):
             with open(self.state_file, 'r') as f:
-                self.state = json.load(f)
-            print(f"📂 상태 로드: {self.state_file}")
-            return True
-        return False
-    
-    def save_data(self, X_train, y_train, X_val, y_val, X_test, y_test, 
-                  y_train_orig, y_val_orig, y_test_orig, feature_cols):
+                state = json.load(f)
+            logger.info(f"학습 상태 로드됨: {self.state_file}")
+            return state
+        return None
+
+    def save_data(self, data_dict):
         """전처리된 데이터 저장"""
-        data = {
-            'X_train': X_train, 'y_train': y_train,
-            'X_val': X_val, 'y_val': y_val,
-            'X_test': X_test, 'y_test': y_test,
-            'y_train_orig': y_train_orig,
-            'y_val_orig': y_val_orig,
-            'y_test_orig': y_test_orig,
-            'feature_cols': feature_cols,
-            'shape_info': {
-                'train': X_train.shape,
-                'val': X_val.shape,
-                'test': X_test.shape
-            }
-        }
         with open(self.data_file, 'wb') as f:
-            pickle.dump(data, f)
-        print(f"📁 데이터 저장: {self.data_file}")
-    
+            pickle.dump(data_dict, f)
+        logger.info(f"데이터 저장됨: {self.data_file}")
+
     def load_data(self):
         """저장된 데이터 로드"""
         if os.path.exists(self.data_file):
             with open(self.data_file, 'rb') as f:
                 data = pickle.load(f)
-            print(f"📂 데이터 로드: {self.data_file}")
+            logger.info(f"데이터 로드됨: {self.data_file}")
             return data
         return None
-    
-    def save_scalers(self, target_scaler, feature_scaler):
-        """스케일러 저장"""
-        scalers = {
-            'target_scaler': target_scaler,
-            'feature_scaler': feature_scaler
-        }
-        with open(self.scaler_file, 'wb') as f:
-            pickle.dump(scalers, f)
-        print(f"📁 스케일러 저장: {self.scaler_file}")
-    
-    def load_scalers(self):
-        """스케일러 로드"""
-        if os.path.exists(self.scaler_file):
-            with open(self.scaler_file, 'rb') as f:
-                scalers = pickle.load(f)
-            print(f"📂 스케일러 로드: {self.scaler_file}")
-            return scalers
-        return None
-    
-    def save_history(self, model_name, history):
-        """학습 이력 저장"""
-        if os.path.exists(self.history_file):
-            with open(self.history_file, 'rb') as f:
-                all_histories = pickle.load(f)
-        else:
-            all_histories = {}
-        
-        # 기존 이력과 병합
-        if model_name in all_histories:
-            for key in history.history.keys():
-                all_histories[model_name][key].extend(history.history[key])
-        else:
-            all_histories[model_name] = history.history
-        
-        with open(self.history_file, 'wb') as f:
-            pickle.dump(all_histories, f)
-    
-    def load_history(self):
-        """학습 이력 로드"""
-        if os.path.exists(self.history_file):
-            with open(self.history_file, 'rb') as f:
-                return pickle.load(f)
-        return {}
-    
-    def get_model_checkpoint_path(self, model_name):
-        """모델별 체크포인트 경로"""
-        return os.path.join(self.checkpoint_dir, f'{model_name}_checkpoint.weights.h5')
-    
+
     def save_model_weights(self, model, model_name, epoch):
-        """모델 가중치 저장 (수정됨: .weights.h5 확장자 사용)"""
-        # .weights.h5 확장자 사용
-        weights_path = os.path.join(self.checkpoint_dir, f'{model_name}_weights_epoch_{epoch}.weights.h5')
+        """모델 가중치 저장"""
+        weights_path = os.path.join(self.checkpoint_dir, f'{model_name}_weights_epoch_{epoch}.h5')
         model.save_weights(weights_path)
         return weights_path
-    
-    def load_model_weights(self, model, model_name):
+
+    def load_model_weights(self, model, weights_path):
         """모델 가중치 로드"""
-        # 먼저 전체 모델 (.keras) 확인
-        keras_path = f'model/{model_name}_final.keras'
-        if os.path.exists(keras_path):
-            try:
-                loaded_model = keras.models.load_model(keras_path, compile=False)
-                model.set_weights(loaded_model.get_weights())
-                print(f"📂 전체 모델 로드: {model_name} (.keras)")
-                return True
-            except:
-                pass
-        
-        # .weights.h5 파일 시도
-        path = os.path.join(self.checkpoint_dir, f'{model_name}_checkpoint.weights.h5')
-        if os.path.exists(path):
-            try:
-                model.load_weights(path)
-                print(f"📂 모델 가중치 로드: {model_name}")
-                return True
-            except:
-                pass
-        
-        # 에폭별 파일 확인
-        for file in os.listdir(self.checkpoint_dir):
-            if file.startswith(f'{model_name}_weights_epoch_') and file.endswith('.weights.h5'):
-                try:
-                    path = os.path.join(self.checkpoint_dir, file)
-                    model.load_weights(path)
-                    print(f"📂 모델 로드 (에폭 파일): {model_name}")
-                    return True
-                except:
-                    continue
-        
+        if os.path.exists(weights_path):
+            model.load_weights(weights_path)
+            logger.info(f"모델 가중치 로드됨: {weights_path}")
+            return True
         return False
-    
-    def update_progress(self, model_name, epoch, metrics=None):
-        """학습 진행 상황 업데이트"""
-        self.state['current_model'] = model_name
-        self.state['current_epoch'] = epoch
-        if metrics:
-            if model_name not in self.state['best_scores']:
-                self.state['best_scores'][model_name] = {}
-            self.state['best_scores'][model_name].update(metrics)
-        self.save_state()
-
 
 # ===================================
-# 커스텀 콜백
+# 3. 재시작 가능한 학습 함수
 # ===================================
+def train_model_with_checkpoint(model, model_name, X_train, y_train, X_val, y_val, epochs, batch_size, checkpoint_manager, start_epoch=0, initial_lr=0.0005):
+    """체크포인트를 지원하는 모델 학습 함수"""
+    # 옵티마이저 설정 (학습률 조정 가능)
+    optimizer = Adam(learning_rate=initial_lr)
+    model.compile(optimizer=optimizer, loss='mse', metrics=['mae'])
 
-class ProgressCallback(Callback):
-    """학습 진행 상황 추적 콜백"""
-    
-    def __init__(self, checkpoint_manager, model_name):
-        super().__init__()
-        self.checkpoint_manager = checkpoint_manager
-        self.model_name = model_name
-        self.epoch_count = 0
-        
-    def on_epoch_end(self, epoch, logs=None):
-        self.epoch_count += 1
-        
-        # 5 에폭마다 체크포인트 저장
-        if self.epoch_count % 5 == 0:
-            try:
-                metrics = {
-                    'loss': logs.get('loss'),
-                    'val_loss': logs.get('val_loss'),
-                    'mae': logs.get('mae'),
-                    'val_mae': logs.get('val_mae')
-                }
-                
-                # 진행 상황 업데이트
-                self.checkpoint_manager.update_progress(
-                    self.model_name, 
-                    self.epoch_count,
-                    metrics
-                )
-                
-                # 모델 가중치 저장
-                self.checkpoint_manager.save_model_weights(
-                    self.model, 
-                    self.model_name,
-                    self.epoch_count
-                )
-                
-                print(f"\n💾 체크포인트 저장 (Epoch {self.epoch_count})")
-            except Exception as e:
-                print(f"\n⚠️ 체크포인트 저장 실패: {e}")
+    # 학습 이력 초기화
+    history = {'loss': [], 'val_loss': [], 'mae': [], 'val_mae': []}
+    # 기존 이력이 있다면 로드
+    state = checkpoint_manager.load_state()
+    if state and model_name in state.get('model_histories', {}):
+        history = state['model_histories'][model_name]
 
+    best_val_loss = float('inf')
+    patience_counter = 0
+    patience = 20
 
-# ===================================
-# 데이터 전처리 (원본 그대로)
-# ===================================
-
-class AdvancedPreprocessor:
-    """개별 경로 데이터를 활용한 고급 전처리"""
-    
-    def __init__(self):
-        self.target_scaler = RobustScaler()
-        self.feature_scaler = StandardScaler()
-        self.route_scalers = {}
-        self.routes = ['M14AM10A', 'M10AM14A', 'M14AM14B', 
-                      'M14BM14A', 'M14AM16', 'M16M14A']
-        self.is_fitted = False
-        
-    def load_and_process(self, file_path):
-        """데이터 로드 및 전처리"""
-        print("\n[데이터 로딩 및 전처리]")
-        
-        data = pd.read_csv(file_path)
-        print(f"✓ 원본 데이터: {len(data)} 행")
-        
-        # 시간 변환
-        data['CURRTIME'] = pd.to_datetime(data['CURRTIME'], format='%Y%m%d%H%M')
-        data['TIME'] = pd.to_datetime(data['TIME'], format='%Y%m%d%H%M')
-        
-        # SUM 컬럼 제거
-        sum_cols = [col for col in data.columns if 'SUM' in col]
-        data = data.drop(columns=sum_cols, errors='ignore')
-        
-        # 날짜 범위 필터링 (선택적)
-        use_date_filter = False  # True로 설정하면 날짜 필터링 적용
-        
-        if use_date_filter:
-            start_date = pd.to_datetime('2024-02-01 00:00:00')
-            end_date = pd.to_datetime('2024-07-27 23:59:59')
-            data = data[(data['TIME'] >= start_date) & (data['TIME'] <= end_date)].reset_index(drop=True)
-            print(f"✓ 필터링 후: {len(data)} 행 (2024-02-01 ~ 2024-07-27)")
-        else:
-            print(f"✓ 전체 데이터 사용: {len(data)} 행")
-        
-        # 인덱스 설정
-        data.set_index('CURRTIME', inplace=True)
-        
-        # PM 기간 설정 (예외 처리)
-        PM_start_date = pd.to_datetime('2024-10-23 00:00:00')
-        PM_end_date = pd.to_datetime('2024-10-23 23:59:59')
-        
-        # PM 기간 데이터와 정상 범위 데이터 분리
-        within_pm = data[(data['TIME'] >= PM_start_date) & (data['TIME'] <= PM_end_date)]
-        outside_pm = data[(data['TIME'] < PM_start_date) | (data['TIME'] > PM_end_date)]
-        
-        # PM 기간이 아닌 경우 800-2500 범위 필터링
-        outside_pm_filtered = outside_pm[
-            (outside_pm['TOTALCNT'] >= 800) & 
-            (outside_pm['TOTALCNT'] <= 2500)
-        ]
-        
-        # PM 기간 데이터와 필터링된 데이터 병합
-        data = pd.concat([within_pm, outside_pm_filtered])
-        data = data.sort_values(by='TIME')
-        
-        print(f"✓ 이상치 처리 후: {len(data)} 행")
-        print(f"✓ TOTALCNT 범위: {data['TOTALCNT'].min()} ~ {data['TOTALCNT'].max()}")
-        
-        high_count = (data['TOTALCNT'] >= 1400).sum()
-        print(f"✓ 1400 이상: {high_count}개 ({high_count/len(data)*100:.2f}%)")
-        
-        return data
-    
-    def create_all_features(self, data):
-        """모든 특징 생성"""
-        
-        # FUTURE 타겟
-        data['FUTURE'] = data['TOTALCNT'].shift(-10)
-        
-        # 개별 경로 특징
-        for route in self.routes:
-            if route in data.columns:
-                # 변화율
-                data[f'{route}_pct_1'] = data[route].pct_change(1) * 100
-                data[f'{route}_pct_5'] = data[route].pct_change(5) * 100
-                
-                # 이동평균
-                data[f'{route}_ma_5'] = data[route].rolling(5, min_periods=1).mean()
-                data[f'{route}_ma_10'] = data[route].rolling(10, min_periods=1).mean()
-                
-                # 비율
-                data[f'{route}_ratio'] = data[route] / (data['TOTALCNT'] + 1e-10)
-                
-                # 스파이크
-                ma = data[route].rolling(10).mean()
-                data[f'{route}_spike'] = data[route] / (ma + 1e-10)
-        
-        # 양방향 흐름 차이
-        if 'M14AM10A' in data.columns and 'M10AM14A' in data.columns:
-            data['flow_diff_M14A_M10A'] = data['M14AM10A'] - data['M10AM14A']
-        
-        if 'M14AM14B' in data.columns and 'M14BM14A' in data.columns:
-            data['flow_diff_M14A_M14B'] = data['M14AM14B'] - data['M14BM14A']
-        
-        if 'M14AM16' in data.columns and 'M16M14A' in data.columns:
-            data['flow_diff_M14A_M16'] = data['M14AM16'] - data['M16M14A']
-        
-        # TOTALCNT 특징
-        for lag in [1, 2, 3, 5, 10, 15, 20, 30]:
-            data[f'diff_{lag}'] = data['TOTALCNT'].diff(lag)
-            data[f'pct_change_{lag}'] = data['TOTALCNT'].pct_change(lag) * 100
-            data[f'accel_{lag}'] = data[f'diff_{lag}'].diff(1)
-        
-        # 급상승 감지
-        for window in [5, 10, 20, 30]:
-            ma = data['TOTALCNT'].rolling(window).mean()
-            std = data['TOTALCNT'].rolling(window).std()
-            data[f'z_score_{window}'] = (data['TOTALCNT'] - ma) / (std + 1e-10)
-            data[f'spike_ratio_{window}'] = data['TOTALCNT'] / (ma + 1e-10)
-        
-        # 통계 특징
-        for w in [3, 5, 10, 20, 30, 60]:
-            data[f'MA_{w}'] = data['TOTALCNT'].rolling(w, min_periods=1).mean()
-            data[f'STD_{w}'] = data['TOTALCNT'].rolling(w, min_periods=1).std()
-            data[f'MAX_{w}'] = data['TOTALCNT'].rolling(w, min_periods=1).max()
-            data[f'MIN_{w}'] = data['TOTALCNT'].rolling(w, min_periods=1).min()
-            data[f'RANGE_{w}'] = data[f'MAX_{w}'] - data[f'MIN_{w}']
-        
-        # 시간 특징
-        data['hour'] = data.index.hour
-        data['dayofweek'] = data.index.dayofweek
-        data['is_weekend'] = (data.index.dayofweek >= 5).astype(int)
-        data['hour_sin'] = np.sin(2 * np.pi * data['hour'] / 24)
-        data['hour_cos'] = np.cos(2 * np.pi * data['hour'] / 24)
-        
-        # NaN 처리
-        data = data.fillna(method='ffill').fillna(0)
-        data = data.replace([np.inf, -np.inf], 0)
-        data = data.dropna(subset=['FUTURE'])
-        
-        print(f"✓ 특징 생성 완료: {len(data.columns)} 컬럼")
-        
-        return data
-
-
-# ===================================
-# 모델 정의 (원본 그대로)
-# ===================================
-
-class AttentionLSTM(layers.Layer):
-    """커스텀 Attention LSTM 레이어"""
-    
-    def __init__(self, units, **kwargs):
-        super(AttentionLSTM, self).__init__(**kwargs)
-        self.units = units
-        
-    def build(self, input_shape):
-        self.lstm = layers.LSTM(self.units, return_sequences=True, return_state=True)
-        self.attention = layers.MultiHeadAttention(num_heads=4, key_dim=self.units)
-        self.layer_norm = layers.LayerNormalization()
-        super(AttentionLSTM, self).build(input_shape)
-        
-    def call(self, inputs):
-        lstm_output, state_h, state_c = self.lstm(inputs)
-        attention_output = self.attention(lstm_output, lstm_output)
-        normalized = self.layer_norm(lstm_output + attention_output)
-        return normalized, state_h, state_c
-
-
-def build_attention_model(input_shape):
-    """Attention 메커니즘 모델"""
-    
-    inputs = layers.Input(shape=input_shape)
-    
-    # Conv1D
-    conv1 = layers.Conv1D(64, 3, padding='same', activation='relu')(inputs)
-    conv2 = layers.Conv1D(128, 3, padding='same', activation='relu')(conv1)
-    pool1 = layers.MaxPooling1D(2)(conv2)
-    
-    # Bidirectional LSTM
-    lstm1 = layers.Bidirectional(layers.LSTM(128, return_sequences=True))(pool1)
-    dropout1 = layers.Dropout(0.2)(lstm1)
-    
-    lstm2 = layers.Bidirectional(layers.LSTM(256, return_sequences=True))(dropout1)
-    dropout2 = layers.Dropout(0.2)(lstm2)
-    
-    # Multi-Head Attention
-    attention = layers.MultiHeadAttention(
-        num_heads=8, 
-        key_dim=256,
-        dropout=0.1
-    )(dropout2, dropout2)
-    
-    norm1 = layers.LayerNormalization()(attention + dropout2)
-    
-    # Global pooling
-    avg_pool = layers.GlobalAveragePooling1D()(norm1)
-    
-    # Dense layers
-    dense1 = layers.Dense(512, activation='relu')(avg_pool)
-    dropout3 = layers.Dropout(0.3)(dense1)
-    norm2 = layers.BatchNormalization()(dropout3)
-    
-    dense2 = layers.Dense(256, activation='relu')(norm2)
-    dropout4 = layers.Dropout(0.2)(dense2)
-    
-    dense3 = layers.Dense(128, activation='relu')(dropout4)
-    dense4 = layers.Dense(64, activation='relu')(dense3)
-    
-    outputs = layers.Dense(1, activation='linear')(dense4)
-    
-    return Model(inputs=inputs, outputs=outputs)
-
-
-def build_lstm_model(input_shape):
-    """LSTM 모델"""
-    model = keras.Sequential([
-        layers.Input(shape=input_shape),
-        layers.LSTM(128, return_sequences=True),
-        layers.Dropout(0.2),
-        layers.LSTM(256, return_sequences=True),
-        layers.Dropout(0.2),
-        layers.LSTM(128, return_sequences=True),
-        layers.Dropout(0.2),
-        layers.LSTM(64),
-        layers.Dense(256, activation='relu'),
-        layers.BatchNormalization(),
-        layers.Dropout(0.3),
-        layers.Dense(128, activation='relu'),
-        layers.Dense(64, activation='relu'),
-        layers.Dense(1, activation='linear')
-    ])
-    return model
-
-
-def build_gru_model(input_shape):
-    """GRU 모델"""
-    model = keras.Sequential([
-        layers.Input(shape=input_shape),
-        layers.GRU(100, return_sequences=True),
-        layers.Dropout(0.2),
-        layers.GRU(200, return_sequences=True),
-        layers.Dropout(0.2),
-        layers.GRU(100, return_sequences=True),
-        layers.Dropout(0.2),
-        layers.GRU(50),
-        layers.Dense(200, activation='relu'),
-        layers.BatchNormalization(),
-        layers.Dropout(0.3),
-        layers.Dense(100, activation='relu'),
-        layers.Dense(50, activation='relu'),
-        layers.Dense(1, activation='linear')
-    ])
-    return model
-
-
-def build_cnn_lstm_model(input_shape):
-    """CNN-LSTM 하이브리드"""
-    inputs = layers.Input(shape=input_shape)
-    
-    # CNN
-    conv1 = layers.Conv1D(64, 5, padding='same', activation='relu')(inputs)
-    conv2 = layers.Conv1D(128, 3, padding='same', activation='relu')(conv1)
-    pool = layers.MaxPooling1D(2)(conv2)
-    
-    # LSTM
-    lstm = layers.LSTM(128, return_sequences=True)(pool)
-    lstm = layers.LSTM(64)(lstm)
-    
-    # Dense
-    dense = layers.Dense(128, activation='relu')(lstm)
-    dense = layers.Dropout(0.3)(dense)
-    dense = layers.Dense(64, activation='relu')(dense)
-    outputs = layers.Dense(1, activation='linear')(dense)
-    
-    return Model(inputs=inputs, outputs=outputs)
-
-
-# ===================================
-# 손실 함수
-# ===================================
-
-@tf.function
-def custom_loss(y_true, y_pred):
-    """급상승 예측 강화 손실 함수"""
-    
-    # Huber 손실
-    huber = tf.keras.losses.Huber(delta=1.0)
-    base_loss = huber(y_true, y_pred)
-    
-    # 고값 가중치 (정규화된 값 기준)
-    high_mask = tf.cast(y_true > 0.6, tf.float32)
-    
-    # 저평가 페널티
-    underestimate = tf.cast(y_pred < y_true, tf.float32)
-    underestimate_penalty = underestimate * high_mask * 5.0
-    
-    # 최종 손실
-    total_loss = base_loss * (1 + underestimate_penalty)
-    
-    return tf.reduce_mean(total_loss)
-
-
-# ===================================
-# 재시작 가능한 학습 관리자
-# ===================================
-
-class ResumableTrainer:
-    """재시작 가능한 학습 관리"""
-    
-    def __init__(self, checkpoint_dir='checkpoints'):
-        self.checkpoint_manager = CheckpointManager(checkpoint_dir)
-        self.preprocessor = AdvancedPreprocessor()
-        self.models = {}
-        self.histories = {}
-        self.predictions = {}
-        
-    def prepare_data(self, file_path='data/20240201_TO_202507281705.csv', force_reload=False):
-        """데이터 준비 (캐시 활용)"""
-        
-        # 저장된 데이터 확인
-        if not force_reload:
-            saved_data = self.checkpoint_manager.load_data()
-            saved_scalers = self.checkpoint_manager.load_scalers()
-            
-            if saved_data and saved_scalers:
-                print("\n✅ 저장된 데이터 사용")
-                
-                # 스케일러 복원
-                self.preprocessor.target_scaler = saved_scalers['target_scaler']
-                self.preprocessor.feature_scaler = saved_scalers['feature_scaler']
-                self.preprocessor.is_fitted = True
-                
-                return saved_data
-        
-        # 새로 데이터 처리
-        print("\n📊 데이터 새로 처리")
-        
-        # 데이터 로드 및 전처리
-        data = self.preprocessor.load_and_process(file_path)
-        data = self.preprocessor.create_all_features(data)
-        
-        # 시퀀스 생성
-        X, y, y_original, feature_cols = self.create_sequences(data)
-        
-        # 데이터 분할
-        train_size = int(0.7 * len(X))
-        val_size = int(0.15 * len(X))
-        
-        X_train = X[:train_size]
-        y_train = y[:train_size]
-        y_train_orig = y_original[:train_size]
-        
-        X_val = X[train_size:train_size+val_size]
-        y_val = y[train_size:train_size+val_size]
-        y_val_orig = y_original[train_size:train_size+val_size]
-        
-        X_test = X[train_size+val_size:]
-        y_test = y[train_size+val_size:]
-        y_test_orig = y_original[train_size+val_size:]
-        
-        print(f"\n[데이터 분할]")
-        print(f"학습: {len(X_train)}, 검증: {len(X_val)}, 테스트: {len(X_test)}")
-        
-        # 데이터 저장
-        self.checkpoint_manager.save_data(
-            X_train, y_train, X_val, y_val, X_test, y_test,
-            y_train_orig, y_val_orig, y_test_orig, feature_cols
-        )
-        
-        # 스케일러 저장
-        self.checkpoint_manager.save_scalers(
-            self.preprocessor.target_scaler,
-            self.preprocessor.feature_scaler
-        )
-        
-        return {
-            'X_train': X_train, 'y_train': y_train,
-            'X_val': X_val, 'y_val': y_val,
-            'X_test': X_test, 'y_test': y_test,
-            'y_train_orig': y_train_orig,
-            'y_val_orig': y_val_orig,
-            'y_test_orig': y_test_orig,
-            'feature_cols': feature_cols
-        }
-    
-    def create_sequences(self, data, seq_length=30):
-        """시퀀스 생성"""
-        print("\n[시퀀스 생성]")
-        
-        feature_cols = [col for col in data.columns if col not in ['TIME', 'FUTURE']]
-        target_col = 'FUTURE'
-        
-        # 스케일링
-        X_scaled = self.preprocessor.feature_scaler.fit_transform(data[feature_cols])
-        y_scaled = self.preprocessor.target_scaler.fit_transform(data[[target_col]])
-        
-        # 시퀀스 생성
-        X, y, y_original = [], [], []
-        for i in range(len(X_scaled) - seq_length):
-            X.append(X_scaled[i:i+seq_length])
-            y.append(y_scaled[i+seq_length])
-            y_original.append(data[target_col].iloc[i+seq_length])
-        
-        X = np.array(X)
-        y = np.array(y)
-        y_original = np.array(y_original).reshape(-1, 1)
-        
-        print(f"✓ X shape: {X.shape}")
-        print(f"✓ y shape: {y.shape}")
-        
-        return X, y, y_original, feature_cols
-    
-    def train_model(self, model, model_name, X_train, y_train, X_val, y_val, 
-                   initial_epoch=0, epochs=200):
-        """개별 모델 학습 (재시작 지원)"""
-        
-        print(f"\n{'='*50}")
-        print(f"{model_name.upper()} 모델 학습")
-        print(f"시작 에폭: {initial_epoch}")
-        print('='*50)
-        
-        # 저장된 가중치 로드
-        if initial_epoch > 0:
-            loaded = self.checkpoint_manager.load_model_weights(model, model_name)
-            if loaded:
-                print(f"✅ Epoch {initial_epoch}부터 재시작")
-        
-        # 컴파일
-        model.compile(
-            optimizer=Adam(learning_rate=0.001),
-            loss=custom_loss,
-            metrics=['mae', 'mse']
-        )
-        
-        # 콜백 (수정됨: .weights.h5 확장자 사용)
-        callbacks = [
-            EarlyStopping(
-                monitor='val_loss', 
-                patience=30, 
-                restore_best_weights=True,
-                verbose=1
-            ),
-            ReduceLROnPlateau(
-                monitor='val_loss', 
-                factor=0.5, 
-                patience=10, 
-                min_lr=1e-6,
-                verbose=1
-            ),
-            ModelCheckpoint(
-                f'model/{model_name}_best.weights.h5',  # .weights.h5 확장자
-                save_best_only=True,
-                save_weights_only=True,
-                monitor='val_loss',
-                verbose=0
-            ),
-            ProgressCallback(self.checkpoint_manager, model_name)
-        ]
-        
-        # 학습
-        history = model.fit(
-            X_train, y_train,
-            validation_data=(X_val, y_val),
-            initial_epoch=initial_epoch,
-            epochs=epochs,
-            batch_size=32,
-            callbacks=callbacks,
-            verbose=1
-        )
-        
-        # 학습 완료 후 전체 모델 저장 (.keras 형식)
-        model_path = f'model/{model_name}_final.keras'
-        model.save(model_path)
-        print(f"✅ 전체 모델 저장: {model_path}")
-        
-        # 스케일러도 함께 저장
-        scaler_path = f'scaler/{model_name}_scaler.pkl'
-        joblib.dump({
-            'target_scaler': self.preprocessor.target_scaler,
-            'feature_scaler': self.preprocessor.feature_scaler
-        }, scaler_path)
-        print(f"✅ 스케일러 저장: {scaler_path}")
-        
-        # 이력 저장
-        self.checkpoint_manager.save_history(model_name, history)
-        
-        # 완료 모델 기록
-        if model_name not in self.checkpoint_manager.state['completed_models']:
-            self.checkpoint_manager.state['completed_models'].append(model_name)
-            self.checkpoint_manager.save_state()
-        
-        return history
-    
-    def evaluate_model(self, model, X_test, y_test_orig, model_name):
-        """모델 평가"""
-        print(f"\n[{model_name} 평가]")
-        
-        # 예측
-        y_pred = model.predict(X_test, verbose=0)
-        y_pred_orig = self.preprocessor.target_scaler.inverse_transform(y_pred)
-        
-        # 메트릭
-        mae = mean_absolute_error(y_test_orig, y_pred_orig)
-        mse = mean_squared_error(y_test_orig, y_pred_orig)
-        rmse = np.sqrt(mse)
-        r2 = r2_score(y_test_orig, y_pred_orig)
-        
-        print(f"MAE: {mae:.2f}")
-        print(f"RMSE: {rmse:.2f}")
-        print(f"R²: {r2:.4f}")
-        
-        # 1400+ 예측 성능
-        high_mask = y_test_orig.flatten() >= 1400
-        if high_mask.sum() > 0:
-            high_mae = mean_absolute_error(
-                y_test_orig[high_mask],
-                y_pred_orig[high_mask]
-            )
-            high_pred = (y_pred_orig.flatten() >= 1400).sum()
-            high_actual = high_mask.sum()
-            
-            print(f"\n[1400+ 예측]")
-            print(f"MAE: {high_mae:.2f}")
-            print(f"예측/실제: {high_pred}/{high_actual}")
-        
-        return y_pred_orig
-    
-    def train_all(self, data_path='data/20240201_TO_202507281705.csv', resume=False):
-        """전체 학습 파이프라인 (재시작 지원)"""
-        
-        print("\n" + "="*70)
-        if resume:
-            print("📂 이전 학습 재개")
-        else:
-            print("🆕 새로운 학습 시작")
-        print("="*70)
-        
-        # 상태 로드
-        if resume:
-            success = self.checkpoint_manager.load_state()
-            if not success:
-                print("⚠️  저장된 상태가 없습니다. 새로 시작합니다.")
-                resume = False
-        
-        # 데이터 준비
-        data = self.prepare_data(data_path, force_reload=not resume)
-        
-        X_train = data['X_train']
-        y_train = data['y_train']
-        X_val = data['X_val']
-        y_val = data['y_val']
-        X_test = data['X_test']
-        y_test = data['y_test']
-        y_test_orig = data['y_test_orig']
-        
-        input_shape = (X_train.shape[1], X_train.shape[2])
-        
-        # 모델 정의
-        model_configs = [
-            ('lstm', build_lstm_model),
-            ('gru', build_gru_model),
-            ('cnn_lstm', build_cnn_lstm_model),
-            ('attention', build_attention_model)
-        ]
-        
-        # 완료된 모델 확인
-        completed = self.checkpoint_manager.state.get('completed_models', [])
-        
-        # 각 모델 학습
-        for model_name, build_func in model_configs:
-            # 이미 완료된 모델 스킵
-            if model_name in completed:
-                print(f"\n✅ {model_name} 모델은 이미 완료됨")
-                
-                # 모델 로드 및 평가만 수행
-                model = build_func(input_shape)
-                self.checkpoint_manager.load_model_weights(model, model_name)
-                self.models[model_name] = model
-                
-                pred = self.evaluate_model(model, X_test, y_test_orig, model_name)
-                self.predictions[model_name] = pred
-                continue
-            
-            # 시작 에폭 확인
-            initial_epoch = 0
-            if resume and self.checkpoint_manager.state.get('current_model') == model_name:
-                initial_epoch = self.checkpoint_manager.state.get('current_epoch', 0)
-            
-            # 모델 생성 및 학습
-            model = build_func(input_shape)
-            self.models[model_name] = model
-            
-            try:
-                history = self.train_model(
-                    model, model_name, 
-                    X_train, y_train, X_val, y_val,
-                    initial_epoch=initial_epoch
-                )
-                self.histories[model_name] = history
-                
-                # 평가
-                pred = self.evaluate_model(model, X_test, y_test_orig, model_name)
-                self.predictions[model_name] = pred
-                
-            except KeyboardInterrupt:
-                print(f"\n⚠️  {model_name} 학습 중단!")
-                raise
-            except Exception as e:
-                print(f"\n❌ {model_name} 학습 실패: {str(e)}")
-                traceback.print_exc()
-                continue
-        
-        # 앙상블 예측
-        if len(self.predictions) > 0:
-            print("\n" + "="*70)
-            print("앙상블 예측")
-            print("="*70)
-            
-            ensemble_pred = np.mean(list(self.predictions.values()), axis=0)
-            
-            mae = mean_absolute_error(y_test_orig, ensemble_pred)
-            rmse = np.sqrt(mean_squared_error(y_test_orig, ensemble_pred))
-            r2 = r2_score(y_test_orig, ensemble_pred)
-            
-            print(f"앙상블 MAE: {mae:.2f}")
-            print(f"앙상블 RMSE: {rmse:.2f}")
-            print(f"앙상블 R²: {r2:.4f}")
-            
-            self.predictions['ensemble'] = ensemble_pred
-            
-            # 앙상블 예측 결과 저장
-            np.save('model/ensemble_predictions.npy', ensemble_pred)
-            print("✅ 앙상블 예측 결과 저장: model/ensemble_predictions.npy")
-        
-        # 최종 모델들 저장 확인
-        print("\n" + "="*70)
-        print("저장된 모델 확인")
-        print("="*70)
-        for model_name in self.models.keys():
-            keras_path = f'model/{model_name}_final.keras'
-            weights_path = f'model/{model_name}_best.weights.h5'
-            if os.path.exists(keras_path):
-                print(f"✅ {model_name}: {keras_path}")
-            if os.path.exists(weights_path):
-                print(f"✅ {model_name} weights: {weights_path}")
-        
-        print("\n✅ 학습 완료!")
-        
-        return self.models, self.predictions, y_test_orig
-
-
-# ===================================
-# 메인 실행
-# ===================================
-
-def main(resume=False):
-    """메인 실행 함수"""
-    
-    print("="*70)
-    print("TensorFlow 2.18.0 - 재시작 가능한 학습 시스템")
-    print("Ctrl+C로 중단 시 자동 저장")
-    print("="*70)
-    
-    # 학습 관리자 초기화
-    trainer = ResumableTrainer()
-    
-    # 실제 학습 데이터 파일 경로 설정
-    data_file = 'data/20240201_TO_202507281705.csv'
-    
-    # 파일 존재 확인
-    if not os.path.exists(data_file):
-        # 대체 경로 시도
-        alt_paths = [
-            '20240201_TO_202507281705.csv',
-            '../data/20240201_TO_202507281705.csv',
-            './20240201_TO_202507281705.csv'
-        ]
-        
-        for path in alt_paths:
-            if os.path.exists(path):
-                data_file = path
-                break
-        else:
-            print(f"❌ 데이터 파일을 찾을 수 없습니다: {data_file}")
-            print("다음 경로 중 하나에 파일을 배치하세요:")
-            for path in ['data/20240201_TO_202507281705.csv'] + alt_paths:
-                print(f"  - {path}")
-            return None
-    
-    print(f"📁 학습 데이터: {data_file}")
-    
     try:
-        # 학습 실행
-        models, predictions, y_test = trainer.train_all(
-            data_path=data_file,
-            resume=resume
-        )
-        
-        print("\n" + "="*70)
-        print("🎉 모든 학습이 성공적으로 완료되었습니다!")
-        print("="*70)
-        
+        for epoch in range(start_epoch, epochs):
+            logger.info(f"\n{model_name} - Epoch {epoch+1}/{epochs}")
+
+            # 에폭별 학습
+            epoch_history = model.fit(
+                X_train, y_train,
+                validation_data=(X_val, y_val),
+                epochs=1,
+                batch_size=batch_size,
+                verbose=1
+            )
+
+            # 이력 저장
+            for key in history.keys():
+                if key in epoch_history.history:
+                    history[key].append(epoch_history.history[key][0])
+
+            # 현재 검증 손실
+            current_val_loss = epoch_history.history['val_loss'][0]
+
+            # 최고 성능 모델 저장
+            if current_val_loss < best_val_loss:
+                best_val_loss = current_val_loss
+                best_weights_path = checkpoint_manager.save_model_weights(model, model_name, epoch)
+                patience_counter = 0
+                logger.info(f"최고 성능 갱신! Val Loss: {best_val_loss:.4f}")
+            else:
+                patience_counter += 1
+
+            # 조기 종료 확인
+            if patience_counter >= patience:
+                logger.info(f"조기 종료 - {patience}에폭 동안 개선 없음")
+                break
+
+            # 매 5에폭마다 체크포인트 저장
+            if (epoch + 1) % 5 == 0:
+                current_state = checkpoint_manager.load_state() or {}
+                current_state['current_model'] = model_name
+                current_state['current_epoch'] = epoch + 1
+                if 'model_histories' not in current_state:
+                    current_state['model_histories'] = {}
+                current_state['model_histories'][model_name] = history
+                if 'completed_models' not in current_state:
+                    current_state['completed_models'] = []
+                checkpoint_manager.save_state(current_state)
+                checkpoint_manager.save_model_weights(model, f"{model_name}_checkpoint", epoch)
+
     except KeyboardInterrupt:
-        print("\n\n학습이 중단되었습니다.")
-        print("다시 시작하려면: python script.py --resume")
+        logger.warning(f"\n{model_name} 학습이 사용자에 의해 중단되었습니다.")
+        # 중단 시점 상태 저장
+        current_state = checkpoint_manager.load_state() or {}
+        current_state['current_model'] = model_name
+        current_state['current_epoch'] = epoch
+        current_state['interrupted'] = True
+        if 'model_histories' not in current_state:
+            current_state['model_histories'] = {}
+        current_state['model_histories'][model_name] = history
+        checkpoint_manager.save_state(current_state)
+        checkpoint_manager.save_model_weights(model, f"{model_name}_interrupted", epoch)
+        raise
+
     except Exception as e:
-        print(f"\n오류 발생: {str(e)}")
-        traceback.print_exc()
+        logger.error(f"\n{model_name} 학습 중 오류 발생: {str(e)}")
+        logger.error(traceback.format_exc())
+        # 오류 시점 상태 저장
+        current_state = checkpoint_manager.load_state() or {}
+        current_state['current_model'] = model_name
+        current_state['current_epoch'] = epoch
+        current_state['error'] = str(e)
+        if 'model_histories' not in current_state:
+            current_state['model_histories'] = {}
+        current_state['model_histories'][model_name] = history
+        checkpoint_manager.save_state(current_state)
+        raise
+
+    # 학습 완료 상태 저장
+    current_state = checkpoint_manager.load_state() or {}
+    if 'completed_models' not in current_state:
+        current_state['completed_models'] = []
+    if model_name not in current_state['completed_models']:
+        current_state['completed_models'].append(model_name)
+    if 'model_histories' not in current_state:
+        current_state['model_histories'] = {}
+    current_state['model_histories'][model_name] = history
+    checkpoint_manager.save_state(current_state)
+
+    # 최고 성능 가중치 로드
+    if 'best_weights_path' in locals():
+        checkpoint_manager.load_model_weights(model, best_weights_path)
+
+    return history
+
+
+# ===================================
+# 4. 메인 학습 프로세스
+# ===================================
+def main(resume=False):
+    """메인 학습 프로세스"""
+    checkpoint_manager = CheckpointManager()
+
+    # 재시작 모드 확인
+    if resume:
+        state = checkpoint_manager.load_state()
+        if state:
+            logger.info("="*60)
+            logger.info("이전 학습 상태에서 재시작합니다.")
+            logger.info(f"마지막 모델: {state.get('current_model', 'Unknown')}")
+            logger.info(f"마지막 에폭: {state.get('current_epoch', 0)}")
+            logger.info(f"완료된 모델: {state.get('completed_models', [])}")
+            logger.info("="*60)
+
+            # 저장된 데이터 로드
+            saved_data = checkpoint_manager.load_data()
+            if saved_data:
+                X_train = saved_data['X_train']
+                y_train = saved_data['y_train']
+                X_val = saved_data['X_val']
+                y_val = saved_data['y_val']
+                X_test = saved_data['X_test']
+                y_test = saved_data['y_test']
+                sscaler = saved_data['scaler']
+                Modified_Data = saved_data['modified_data']
+                input_shape = saved_data['input_shape']
+                train_size = saved_data.get('train_size', len(X_train))
+                val_size = saved_data.get('val_size', len(X_val))
+                scaled_list = saved_data.get('scaled_list', [])
+                input_features = saved_data.get('input_features', [])
+
+                logger.info("저장된 데이터를 성공적으로 로드했습니다.")
+            else:
+                logger.warning("저장된 데이터가 없습니다. 데이터 전처리부터 시작합니다.")
+                resume = False
+        else:
+            logger.info("저장된 학습 상태가 없습니다. 처음부터 시작합니다.")
+            resume = False
+    else:
+        state = {} # 새로운 시작을 위해 state 초기화
+
+    # 데이터 전처리 (재시작이 아닌 경우)
+    if not resume:
+        logger.info("="*60)
+        logger.info("반도체 물류 예측 하이브리드 모델 학습 시작")
+        logger.info("="*60)
+
+        # 데이터 로드 및 전처리
+        Full_data_path = 'data/20240201_TO_202507281705.csv'
+        logger.info(f"데이터 로딩 중: {Full_data_path}")
+        Full_Data = pd.read_csv(Full_data_path)
+        logger.info(f"원본 데이터 shape: {Full_Data.shape}")
+
+        # 시간 컬럼 변환
+        Full_Data['CURRTIME'] = pd.to_datetime(Full_Data['CURRTIME'], format='%Y%m%d%H%M')
+        Full_Data['TIME'] = pd.to_datetime(Full_Data['TIME'], format='%Y%m%d%H%M')
+
+        # SUM 컬럼 제거
+        columns_to_drop = [col for col in Full_Data.columns if 'SUM' in col]
+        Full_Data = Full_Data.drop(columns=columns_to_drop)
+        
+        # ####################################################################
+        # ### 중요: 날짜 범위 필터링 제거 ###
+        # ####################################################################
+        # logger.info("전체 기간 데이터를 사용합니다 (날짜 필터링 없음).")
+        # # start_date = pd.to_datetime('2024-02-01 00:00:00')
+        # # end_date = pd.to_datetime('2024-07-27 23:59:59')
+        # # Full_Data = Full_Data[(Full_Data['TIME'] >= start_date) & (Full_Data['TIME'] <= end_date)].reset_index(drop=True)
+        
+        # 필요한 컬럼만 선택
+        Full_Data = Full_Data[['CURRTIME', 'TOTALCNT', 'TIME']]
+        Full_Data.set_index('CURRTIME', inplace=True)
+
+        # 이상치 제거 (범위를 넓게 설정하여 대부분의 데이터를 포함)
+        Modified_Data = Full_Data[
+            (Full_Data['TOTALCNT'] >= 500) & (Full_Data['TOTALCNT'] <= 3000)
+        ].copy()
+        Modified_Data = Modified_Data.sort_values(by='TIME')
+        logger.info(f"기본 이상치 제거 후 데이터 shape: {Modified_Data.shape}")
+
+
+        # FUTURE 컬럼 생성
+        Modified_Data['FUTURE'] = pd.NA
+        future_minutes = 10
+        
+        # 인덱스 기반으로 빠르게 미래 값 찾기
+        time_to_totalcnt = pd.Series(Modified_Data['TOTALCNT'].values, index=Modified_Data.index)
+        future_times = Modified_Data.index + pd.Timedelta(minutes=future_minutes)
+        future_values = time_to_totalcnt.reindex(future_times).values
+        Modified_Data['FUTURE'] = future_values
+        
+        Modified_Data.dropna(subset=['FUTURE'], inplace=True)
+        logger.info(f"FUTURE 컬럼 생성 및 결측치 제거 후 데이터 shape: {Modified_Data.shape}")
+
+        # 특징 엔지니어링
+        Modified_Data['hour'] = Modified_Data.index.hour
+        Modified_Data['dayofweek'] = Modified_Data.index.dayofweek
+        Modified_Data['is_weekend'] = (Modified_Data.index.dayofweek >= 5).astype(int)
+        Modified_Data['MA_5'] = Modified_Data['TOTALCNT'].rolling(window=5, min_periods=1).mean()
+        Modified_Data['MA_10'] = Modified_Data['TOTALCNT'].rolling(window=10, min_periods=1).mean()
+        Modified_Data['MA_30'] = Modified_Data['TOTALCNT'].rolling(window=30, min_periods=1).mean()
+        Modified_Data['STD_5'] = Modified_Data['TOTALCNT'].rolling(window=5, min_periods=1).std()
+        Modified_Data['STD_10'] = Modified_Data['TOTALCNT'].rolling(window=10, min_periods=1).std()
+        Modified_Data['change_rate'] = Modified_Data['TOTALCNT'].pct_change()
+        Modified_Data['change_rate_5'] = Modified_Data['TOTALCNT'].pct_change(5)
+        Modified_Data = Modified_Data.ffill().fillna(0) # 앞쪽 값으로 채우고 남은건 0으로
+
+        # 데이터 스케일링 (RobustScaler 사용)
+        sscaler = RobustScaler()
+        scaled_list = ['TOTALCNT', 'FUTURE', 'MA_5', 'MA_10', 'MA_30', 'STD_5', 'STD_10']
+        scaled_list = [col for col in scaled_list if col in Modified_Data.columns]
+        
+        fitted_scaled = sscaler.fit(Modified_Data[scaled_list])
+        scaled_list_data = fitted_scaled.transform(Modified_Data[scaled_list])
+        
+        scaled_columns = [f'scaled_{col}' for col in scaled_list]
+        scaled_list_data = pd.DataFrame(scaled_list_data, columns=scaled_columns)
+        scaled_list_data.index = Modified_Data.index
+        Scaled_Data = pd.merge(Modified_Data, scaled_list_data, left_index=True, right_index=True, how='left')
+
+        # 시퀀스 데이터 생성 (시간 불연속 처리 포함)
+        def split_data_by_continuity(data, max_diff_minutes=1):
+            time_diff = data.index.to_series().diff()
+            split_points = time_diff > pd.Timedelta(minutes=max_diff_minutes)
+            segment_ids = split_points.cumsum()
+            segments = []
+            for segment_id in segment_ids.unique():
+                segment = data[segment_ids == segment_id].copy()
+                if len(segment) > 30: # 시퀀스 길이보다 길어야 함
+                    segments.append(segment)
+            logger.info(f"{len(segments)}개의 연속된 데이터 세그먼트 생성됨.")
+            return segments
+
+        data_segments = split_data_by_continuity(Scaled_Data)
+
+        def create_sequences(data, feature_cols, target_col, seq_length=30):
+            X, y = [], []
+            feature_data = data[feature_cols].values
+            target_data = data[target_col].values
+            for i in range(len(data) - seq_length):
+                X.append(feature_data[i:i+seq_length])
+                y.append(target_data[i+seq_length])
+            return np.array(X), np.array(y)
+
+        SEQ_LENGTH = 30
+        input_features = [col for col in Scaled_Data.columns if col.startswith('scaled_') and col != 'scaled_FUTURE']
+        
+        all_X, all_y = [], []
+        for segment in data_segments:
+            X_seg, y_seg = create_sequences(segment, input_features, 'scaled_FUTURE', SEQ_LENGTH)
+            if len(X_seg) > 0:
+                all_X.append(X_seg)
+                all_y.append(y_seg)
+        
+        X_seq_all = np.concatenate(all_X, axis=0)
+        y_seq_all = np.concatenate(all_y, axis=0)
+
+        # ####################################################################
+        # ### 중요: 데이터를 무작위로 섞어서 분할 ###
+        # ####################################################################
+        # 1. 훈련+검증 세트와 테스트 세트로 분할 (85% vs 15%)
+        X_train_val, X_test, y_train_val, y_test = train_test_split(
+            X_seq_all, y_seq_all, test_size=0.15, random_state=RANDOM_SEED, shuffle=True
+        )
+
+        # 2. 훈련+검증 세트를 다시 훈련 세트와 검증 세트로 분할 (70% vs 15%)
+        train_ratio = 0.70 / (1.0 - 0.15) # 0.7 / 0.85
+        X_train, X_val, y_train, y_val = train_test_split(
+            X_train_val, y_train_val, test_size=(1-train_ratio), random_state=RANDOM_SEED, shuffle=True
+        )
+
+        train_size = len(X_train)
+        val_size = len(X_val)
+        
+        logger.info("데이터 분할 완료 (무작위 셔플 적용):")
+        logger.info(f"Train: {X_train.shape}, Val: {X_val.shape}, Test: {X_test.shape}")
+
+        input_shape = (X_train.shape[1], X_train.shape[2])
+
+        # 전처리된 데이터 저장
+        checkpoint_manager.save_data({
+            'X_train': X_train, 'y_train': y_train, 'X_val': X_val, 'y_val': y_val,
+            'X_test': X_test, 'y_test': y_test, 'scaler': sscaler,
+            'modified_data': Modified_Data, 'input_shape': input_shape,
+            'scaled_list': scaled_list, 'train_size': train_size,
+            'val_size': val_size, 'input_features': input_features
+        })
+
+
+    # 하이브리드 모델 클래스 임포트 또는 정의
+    try:
+        from H import HybridModels
+        logger.info("H.py에서 HybridModels 클래스를 임포트했습니다.")
+    except ImportError:
+        logger.warning("H.py를 찾을 수 없습니다. HybridModels 클래스를 직접 정의합니다.")
+        class HybridModels:
+            def __init__(self, input_shape):
+                self.input_shape = input_shape
+                self.models = {}
+                self.histories = {}
+
+            def build_lstm_model(self):
+                model = Sequential([
+                    Input(shape=self.input_shape),
+                    LSTM(units=100, return_sequences=True), Dropout(0.2), BatchNormalization(),
+                    LSTM(units=100, return_sequences=True), Dropout(0.2), BatchNormalization(),
+                    LSTM(units=100, return_sequences=False), Dropout(0.2),
+                    Dense(units=50, activation='relu'),
+                    Dense(units=1)
+                ])
+                return model
+            
+            def build_gru_model(self):
+                model = Sequential([
+                    Input(shape=self.input_shape),
+                    GRU(units=100, return_sequences=True), Dropout(0.2),
+                    GRU(units=100, return_sequences=True), Dropout(0.2),
+                    GRU(units=50, return_sequences=False), Dropout(0.2),
+                    Dense(units=30, activation='relu'),
+                    Dense(units=1)
+                ])
+                return model
+
+            def build_simple_rnn_model(self):
+                model = Sequential([
+                    Input(shape=self.input_shape),
+                    SimpleRNN(units=100, return_sequences=True), Dropout(0.2),
+                    SimpleRNN(units=50, return_sequences=False), Dropout(0.2),
+                    Dense(units=30, activation='relu'),
+                    Dense(units=1)
+                ])
+                return model
+
+            def build_bidirectional_lstm_model(self):
+                model = Sequential([
+                    Input(shape=self.input_shape),
+                    Bidirectional(LSTM(units=50, return_sequences=True)), Dropout(0.2),
+                    Bidirectional(LSTM(units=50, return_sequences=False)), Dropout(0.2),
+                    Dense(units=30, activation='relu'),
+                    Dense(units=1)
+                ])
+                return model
+
+    # 하이브리드 모델 초기화
+    hybrid_models = HybridModels(input_shape)
+
+    # 학습 파라미터
+    EPOCHS = 200
+    BATCH_SIZE = 64
+    LEARNING_RATE = 0.0005
+
+    # 모델 리스트
+    model_configs = [
+        ('lstm', hybrid_models.build_lstm_model),
+        ('gru', hybrid_models.build_gru_model),
+        ('rnn', hybrid_models.build_simple_rnn_model),
+        ('bi_lstm', hybrid_models.build_bidirectional_lstm_model)
+    ]
+
+    # 재시작 시 완료된 모델 확인
+    completed_models = state.get('completed_models', [])
+
+    # 각 모델 학습
+    for model_name, build_func in model_configs:
+        if model_name in completed_models:
+            logger.info(f"\n{model_name} 모델은 이미 학습이 완료되었습니다. 건너뜁니다.")
+            # 완료된 모델은 로드해야 평가에서 사용 가능
+            try:
+                model_path = f'model/{model_name}_final_hybrid.keras'
+                hybrid_models.models[model_name] = load_model(model_path)
+                hybrid_models.histories[model_name] = state.get('model_histories', {}).get(model_name, {})
+                logger.info(f"완료된 모델 {model_name} 로드 완료.")
+            except Exception as e:
+                logger.error(f"완료된 모델 {model_name} 로드 실패: {e}. 다시 학습합니다.")
+                completed_models.remove(model_name) # 로드 실패 시 재학습
+                
+        if model_name not in completed_models:
+            logger.info(f"\n{'='*60}")
+            logger.info(f"{model_name.upper()} 모델 학습 시작")
+            logger.info(f"{'='*60}")
+
+            model = build_func()
+            start_epoch = 0
+            if resume and state.get('current_model') == model_name:
+                start_epoch = state.get('current_epoch', 0)
+                weights_path = os.path.join(checkpoint_manager.checkpoint_dir, f'{model_name}_checkpoint_weights_epoch_{start_epoch-1}.h5')
+                if checkpoint_manager.load_model_weights(model, weights_path):
+                    logger.info(f"{model_name} 모델 가중치 로드 완료. Epoch {start_epoch}부터 재시작")
+
+            try:
+                history = train_model_with_checkpoint(
+                    model, model_name, X_train, y_train, X_val, y_val,
+                    EPOCHS, BATCH_SIZE, checkpoint_manager,
+                    start_epoch=start_epoch, initial_lr=LEARNING_RATE
+                )
+                hybrid_models.models[model_name] = model
+                hybrid_models.histories[model_name] = history
+
+            except (KeyboardInterrupt, Exception) as e:
+                logger.warning(f"\n학습이 중단/오류 발생: {e}")
+                logger.info("다시 시작하려면 resume=True로 실행하세요.")
+                return
+
+    logger.info("\n" + "="*60)
+    logger.info("모든 모델 학습 완료!")
+    logger.info("="*60)
     
-    return trainer
+    # --- 이하 평가, 시각화, 저장 코드는 이전과 동일하게 사용 ---
+    
+    # ===================================
+    # 16. 모델 평가
+    # ===================================
+    logger.info("\n" + "="*60)
+    logger.info("모델 성능 평가")
+    logger.info("="*60)
+
+    # 앙상블 예측 함수
+    def ensemble_predict(models, X_test, weights=None):
+        if weights is None:
+            weights = {'lstm': 0.3, 'gru': 0.25, 'rnn': 0.15, 'bi_lstm': 0.3}
+        
+        individual_preds = {}
+        for model_name, model in models.items():
+            pred = model.predict(X_test, verbose=0).flatten()
+            individual_preds[model_name] = pred
+            
+        ensemble_pred = np.zeros_like(list(individual_preds.values())[0])
+        for model_name, pred in individual_preds.items():
+            weight = weights.get(model_name, 0)
+            ensemble_pred += weight * pred
+        
+        return ensemble_pred, individual_preds
+
+    # 앙상블 예측 수행
+    ensemble_pred, individual_preds = ensemble_predict(hybrid_models.models, X_test)
+
+    # 성능 지표 계산 함수
+    def calculate_metrics(y_true, y_pred, model_name):
+        mse = mean_squared_error(y_true, y_pred)
+        mae = mean_absolute_error(y_true, y_pred)
+        rmse = np.sqrt(mse)
+        r2 = r2_score(y_true, y_pred)
+
+        # 역변환하여 실제 스케일로 변환
+        saved_data = checkpoint_manager.load_data()
+        scaler_obj = saved_data['scaler']
+        scaled_list_cols = saved_data['scaled_list']
+        
+        y_true_reshaped = np.zeros((len(y_true), len(scaled_list_cols)))
+        y_true_reshaped[:, scaled_list_cols.index('FUTURE')] = y_true
+        y_true_original = scaler_obj.inverse_transform(y_true_reshaped)[:, scaled_list_cols.index('FUTURE')]
+
+        y_pred_reshaped = np.zeros((len(y_pred), len(scaled_list_cols)))
+        y_pred_reshaped[:, scaled_list_cols.index('FUTURE')] = y_pred
+        y_pred_original = scaler_obj.inverse_transform(y_pred_reshaped)[:, scaled_list_cols.index('FUTURE')]
+
+        mae_original = mean_absolute_error(y_true_original, y_pred_original)
+        
+        logger.info(f"\n--- {model_name} 모델 성능 ---")
+        logger.info(f" - MSE (Scaled): {mse:.4f}")
+        logger.info(f" - MAE (Scaled): {mae:.4f}")
+        logger.info(f" - RMSE (Scaled): {rmse:.4f}")
+        logger.info(f" - R² (Scaled): {r2:.4f}")
+        logger.info(f" - MAE (원래 값): {mae_original:.2f}") # 가장 중요한 지표
+        
+        return {'mse': mse, 'mae': mae, 'rmse': rmse, 'r2': r2, 'mae_original': mae_original}
+
+    # 개별 및 앙상블 모델 평가
+    results = {}
+    for model_name, pred in individual_preds.items():
+        results[model_name] = calculate_metrics(y_test, pred, model_name.upper())
+    results['ensemble'] = calculate_metrics(y_test, ensemble_pred, "ENSEMBLE")
 
 
+    # ===================================
+    # 17. 결과 시각화
+    # ===================================
+    logger.info("\n결과 시각화 생성 중...")
+
+    # 1. 학습 곡선 시각화
+    fig, axes = plt.subplots(2, 2, figsize=(15, 10))
+    axes = axes.ravel()
+    for idx, (model_name, history) in enumerate(hybrid_models.histories.items()):
+        if idx < 4:
+            ax = axes[idx]
+            if isinstance(history, dict) and 'loss' in history:
+                ax.plot(history['loss'], label='Training Loss', color='blue')
+                ax.plot(history['val_loss'], label='Validation Loss', color='red')
+            elif hasattr(history, 'history'):
+                ax.plot(history.history['loss'], label='Training Loss', color='blue')
+                ax.plot(history.history['val_loss'], label='Validation Loss', color='red')
+
+            ax.set_title(f'{model_name.upper()} Training & Validation Loss')
+            ax.set_xlabel('Epoch')
+            ax.set_ylabel('Loss')
+            ax.legend()
+            ax.grid(True, alpha=0.3)
+    plt.tight_layout()
+    plt.savefig('training_curves.png', dpi=300)
+    plt.close()
+
+    # 2. 예측 결과 시각화
+    plt.figure(figsize=(20, 10))
+    sample_size = min(300, len(y_test)) # 샘플 사이즈
+    
+    saved_data = checkpoint_manager.load_data()
+    scaler_obj = saved_data['scaler']
+    scaled_list_cols = saved_data['scaled_list']
+
+    # 스케일 역변환 함수
+    def inverse_transform_future(y_scaled):
+        y_reshaped = np.zeros((len(y_scaled), len(scaled_list_cols)))
+        y_reshaped[:, scaled_list_cols.index('FUTURE')] = y_scaled
+        return scaler_obj.inverse_transform(y_reshaped)[:, scaled_list_cols.index('FUTURE')]
+
+    y_test_original = inverse_transform_future(y_test[:sample_size])
+    
+    # 실제값 플롯
+    plt.plot(y_test_original, label='Actual', color='black', linewidth=2, marker='o', markersize=3)
+    
+    # 개별 모델 예측값 플롯
+    colors = ['blue', 'green', 'purple', 'orange']
+    for idx, (model_name, pred) in enumerate(individual_preds.items()):
+        pred_original = inverse_transform_future(pred[:sample_size])
+        plt.plot(pred_original, label=f'{model_name.upper()} Pred.', color=colors[idx], alpha=0.6, linewidth=1.5)
+
+    # 앙상블 예측값 플롯
+    ensemble_original = inverse_transform_future(ensemble_pred[:sample_size])
+    plt.plot(ensemble_original, label='Ensemble Pred.', color='red', linewidth=2, linestyle='--')
+
+    plt.title('Logistics Volume Prediction (10 Minutes Ahead)', fontsize=16)
+    plt.xlabel('Time (Minutes)', fontsize=12)
+    plt.ylabel('Volume (TOTALCNT)', fontsize=12)
+    plt.legend()
+    plt.grid(True, alpha=0.3)
+    plt.tight_layout()
+    plt.savefig('prediction_results.png', dpi=300)
+    plt.close()
+
+    # ===================================
+    # 18. 병목 구간 예측
+    # ===================================
+    logger.info("\n" + "="*60)
+    logger.info("병목 구간 예측 분석")
+    logger.info("="*60)
+
+    bottleneck_threshold = np.percentile(Modified_Data['TOTALCNT'], 85)
+    logger.info(f"병목 임계값 (상위 85%): {bottleneck_threshold:.0f}")
+
+    ensemble_original_full = inverse_transform_future(ensemble_pred)
+    bottleneck_predictions = ensemble_original_full > bottleneck_threshold
+    bottleneck_count = np.sum(bottleneck_predictions)
+    bottleneck_ratio = bottleneck_count / len(bottleneck_predictions) * 100
+    logger.info(f"예측된 병목 구간: {bottleneck_count}개 ({bottleneck_ratio:.1f}%)")
+
+    # ===================================
+    # 19. 모델 및 결과 저장
+    # ===================================
+    logger.info("\n" + "="*60)
+    logger.info("모델 및 결과 저장")
+    logger.info("="*60)
+    os.makedirs('model', exist_ok=True)
+    os.makedirs('scaler', exist_ok=True)
+    os.makedirs('results', exist_ok=True)
+
+    for model_name, model in hybrid_models.models.items():
+        model_path = f'model/{model_name}_final_hybrid.keras'
+        model.save(model_path)
+        logger.info(f"{model_name.upper()} 모델 저장: {model_path}")
+        
+    scaler_path = 'scaler/robust_scaler_hybrid.pkl'
+    joblib.dump(sscaler, scaler_path)
+    logger.info(f"스케일러 저장: {scaler_path}")
+    
+    results_df = pd.DataFrame(results).T
+    results_df.to_csv('results/model_performance.csv')
+    logger.info("성능 결과 저장: results/model_performance.csv")
+    
+    # ===================================
+    # 20. 최종 요약
+    # ===================================
+    logger.info("\n" + "="*60)
+    logger.info("학습 완료 요약")
+    logger.info("="*60)
+    
+    best_model = min(results.items(), key=lambda x: x[1]['mae_original'] if x[0] != 'ensemble' else float('inf'))
+    logger.info(f"최고 성능 개별 모델: {best_model[0].upper()}")
+    logger.info(f" - MAE: {best_model[1]['mae_original']:.2f}")
+    logger.info(f" - R²: {best_model[1]['r2']:.4f}")
+
+    logger.info(f"\n앙상블 모델 성능:")
+    logger.info(f" - MAE: {results['ensemble']['mae_original']:.2f}")
+    logger.info(f" - R²: {results['ensemble']['r2']:.4f}")
+
+    state = checkpoint_manager.load_state() or {}
+    state['training_completed'] = True
+    state['completion_time'] = datetime.now().isoformat()
+    state['final_results'] = {k: {kk: float(vv) for kk, vv in v.items()} for k, v in results.items()}
+    checkpoint_manager.save_state(state)
+
+    logger.info("\n" + "="*60)
+    logger.info("모든 작업이 완료되었습니다!")
+    logger.info("체크포인트는 checkpoints/ 폴더에 저장되어 있습니다.")
+    logger.info("="*60)
+
+# ===================================
+# 5. 실행
+# ===================================
 if __name__ == "__main__":
     import argparse
-    
-    parser = argparse.ArgumentParser(description='재시작 가능한 반도체 물류 예측 학습')
-    parser.add_argument('--resume', action='store_true', help='이전 학습 재개')
-    parser.add_argument('--reset', action='store_true', help='체크포인트 삭제 후 새로 시작')
-    parser.add_argument('--data', type=str, default='data/20240201_TO_202507281705.csv', 
-                       help='학습 데이터 파일 경로')
-    
+    parser = argparse.ArgumentParser(description='반도체 물류 예측 하이브리드 모델 학습')
+    parser.add_argument('--resume', action='store_true', help='이전 학습을 이어서 진행')
+    parser.add_argument('--reset', action='store_true', help='체크포인트를 삭제하고 처음부터 시작')
     args = parser.parse_args()
-    
-    # 리셋 옵션
+
     if args.reset:
         import shutil
         if os.path.exists('checkpoints'):
             shutil.rmtree('checkpoints')
-            print("✅ 체크포인트 삭제 완료")
+        if os.path.exists('model'):
+            shutil.rmtree('model')
+        if os.path.exists('results'):
+            shutil.rmtree('results')
+        if os.path.exists('scaler'):
+            shutil.rmtree('scaler')
+        logger.info("체크포인트와 결과 폴더가 삭제되었습니다. 처음부터 시작합니다.")
     
-    # 학습 실행
-    trainer = main(resume=args.resume)
+    main(resume=args.resume and not args.reset)
+
