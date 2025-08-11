@@ -1,6 +1,7 @@
 """
 TensorFlow 2.18.0 - 재시작 가능한 반도체 물류 예측 시스템
 ========================================================
+학습 데이터: 20240201_TO_202507281705.csv
 학습 중단 시 재시작 기능 완벽 지원
 
 핵심 기능:
@@ -9,6 +10,12 @@ TensorFlow 2.18.0 - 재시작 가능한 반도체 물류 예측 시스템
 3. 학습 진행 상황 추적
 4. 모델별 개별 관리
 5. 데이터 전처리 상태 보존
+
+데이터 전처리:
+- 전체 기간: 2024-02-01 ~ 2025-07-28 (20240201_TO_202507281705.csv)
+- 날짜 필터링: 옵션 (use_date_filter=False 기본값)
+- PM 기간(2024-10-23) 예외 처리
+- 정상 범위: 800 ~ 2500 (PM 기간 제외)
 
 구현 완료:
 ✅ RobustScaler 사용 (이상치에 강건)
@@ -286,18 +293,50 @@ class AdvancedPreprocessor:
         print("\n[데이터 로딩 및 전처리]")
         
         data = pd.read_csv(file_path)
-        print(f"✓ 전체 데이터: {len(data)} 행")
+        print(f"✓ 원본 데이터: {len(data)} 행")
         
         # 시간 변환
         data['CURRTIME'] = pd.to_datetime(data['CURRTIME'], format='%Y%m%d%H%M')
         data['TIME'] = pd.to_datetime(data['TIME'], format='%Y%m%d%H%M')
-        data.set_index('CURRTIME', inplace=True)
         
         # SUM 컬럼 제거
         sum_cols = [col for col in data.columns if 'SUM' in col]
         data = data.drop(columns=sum_cols, errors='ignore')
         
-        print(f"✓ 기간: {data.index.min()} ~ {data.index.max()}")
+        # 날짜 범위 필터링 (선택적 - 필요시 주석 처리)
+        # 주석 처리하면 전체 데이터 사용
+        use_date_filter = False  # True로 설정하면 날짜 필터링 적용
+        
+        if use_date_filter:
+            start_date = pd.to_datetime('2024-02-01 00:00:00')
+            end_date = pd.to_datetime('2024-07-27 23:59:59')
+            data = data[(data['TIME'] >= start_date) & (data['TIME'] <= end_date)].reset_index(drop=True)
+            print(f"✓ 필터링 후: {len(data)} 행 (2024-02-01 ~ 2024-07-27)")
+        else:
+            print(f"✓ 전체 데이터 사용: {len(data)} 행")
+        
+        # 인덱스 설정
+        data.set_index('CURRTIME', inplace=True)
+        
+        # PM 기간 설정 (예외 처리)
+        PM_start_date = pd.to_datetime('2024-10-23 00:00:00')
+        PM_end_date = pd.to_datetime('2024-10-23 23:59:59')
+        
+        # PM 기간 데이터와 정상 범위 데이터 분리
+        within_pm = data[(data['TIME'] >= PM_start_date) & (data['TIME'] <= PM_end_date)]
+        outside_pm = data[(data['TIME'] < PM_start_date) | (data['TIME'] > PM_end_date)]
+        
+        # PM 기간이 아닌 경우 800-2500 범위 필터링
+        outside_pm_filtered = outside_pm[
+            (outside_pm['TOTALCNT'] >= 800) & 
+            (outside_pm['TOTALCNT'] <= 2500)
+        ]
+        
+        # PM 기간 데이터와 필터링된 데이터 병합
+        data = pd.concat([within_pm, outside_pm_filtered])
+        data = data.sort_values(by='TIME')
+        
+        print(f"✓ 이상치 처리 후: {len(data)} 행")
         print(f"✓ TOTALCNT 범위: {data['TOTALCNT'].min()} ~ {data['TOTALCNT'].max()}")
         
         high_count = (data['TOTALCNT'] >= 1400).sum()
@@ -549,7 +588,7 @@ class ResumableTrainer:
         self.histories = {}
         self.predictions = {}
         
-    def prepare_data(self, file_path='TO.csv', force_reload=False):
+    def prepare_data(self, file_path='data/20240201_TO_202507281705.csv', force_reload=False):
         """데이터 준비 (캐시 활용)"""
         
         # 저장된 데이터 확인
@@ -746,7 +785,7 @@ class ResumableTrainer:
         
         return y_pred_orig
     
-    def train_all(self, data_path='TO.csv', resume=False):
+    def train_all(self, data_path='data/20240201_TO_202507281705.csv', resume=False):
         """전체 학습 파이프라인 (재시작 지원)"""
         
         print("\n" + "="*70)
@@ -869,10 +908,35 @@ def main(resume=False):
     # 학습 관리자 초기화
     trainer = ResumableTrainer()
     
+    # 실제 학습 데이터 파일 경로 설정
+    data_file = 'data/20240201_TO_202507281705.csv'
+    
+    # 파일 존재 확인
+    if not os.path.exists(data_file):
+        # 대체 경로 시도
+        alt_paths = [
+            '20240201_TO_202507281705.csv',
+            '../data/20240201_TO_202507281705.csv',
+            './20240201_TO_202507281705.csv'
+        ]
+        
+        for path in alt_paths:
+            if os.path.exists(path):
+                data_file = path
+                break
+        else:
+            print(f"❌ 데이터 파일을 찾을 수 없습니다: {data_file}")
+            print("다음 경로 중 하나에 파일을 배치하세요:")
+            for path in ['data/20240201_TO_202507281705.csv'] + alt_paths:
+                print(f"  - {path}")
+            return None
+    
+    print(f"📁 학습 데이터: {data_file}")
+    
     try:
         # 학습 실행
         models, predictions, y_test = trainer.train_all(
-            data_path='TO.csv',
+            data_path=data_file,
             resume=resume
         )
         
@@ -896,6 +960,8 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='재시작 가능한 반도체 물류 예측 학습')
     parser.add_argument('--resume', action='store_true', help='이전 학습 재개')
     parser.add_argument('--reset', action='store_true', help='체크포인트 삭제 후 새로 시작')
+    parser.add_argument('--data', type=str, default='data/20240201_TO_202507281705.csv', 
+                       help='학습 데이터 파일 경로')
     
     args = parser.parse_args()
     
