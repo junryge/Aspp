@@ -1,5 +1,5 @@
 """
-TensorFlow 2.18.0 - 재시작 가능한 반도체 물류 예측 시스템
+TensorFlow 2.18.0 - 재시작 가능한 반도체 물류 예측 시스템 (오류 수정판)
 ========================================================
 학습 데이터: 20240201_TO_202507281705.csv
 학습 중단 시 재시작 기능 완벽 지원
@@ -24,6 +24,9 @@ TensorFlow 2.18.0 - 재시작 가능한 반도체 물류 예측 시스템
 ✅ 다단계 예측 + 앙상블
 ✅ 동적 임계값 학습
 ✅ 재시작 가능한 학습
+
+오류 수정:
+✅ .weights.h5 확장자로 모든 저장 경로 수정
 """
 
 import numpy as np
@@ -69,7 +72,7 @@ print(f"TensorFlow Version: {tf.__version__}")
 print("="*70)
 
 # ===================================
-# 체크포인트 관리 시스템
+# 체크포인트 관리 시스템 (파일 형식 수정)
 # ===================================
 
 class CheckpointManager:
@@ -78,7 +81,7 @@ class CheckpointManager:
     def __init__(self, checkpoint_dir='checkpoints'):
         self.checkpoint_dir = checkpoint_dir
         os.makedirs(checkpoint_dir, exist_ok=True)
-        os.makedirs('model', exist_ok=True)  # model 디렉토리도 생성
+        os.makedirs('model', exist_ok=True)
         
         # 경로 설정
         self.state_file = os.path.join(checkpoint_dir, 'training_state.json')
@@ -208,51 +211,46 @@ class CheckpointManager:
         """모델별 체크포인트 경로"""
         return os.path.join(self.checkpoint_dir, f'{model_name}_checkpoint.weights.h5')
     
-    def save_model_weights(self, model, model_name):
-        """모델 가중치 저장"""
-        path = os.path.join(self.checkpoint_dir, f'{model_name}_checkpoint.weights.h5')
-        try:
-            model.save_weights(path)
-            print(f"📁 모델 저장: {model_name}")
-        except Exception as e:
-            print(f"⚠️ 가중치 저장 실패: {e}")
-            # 대체 방법 시도
-            alt_path = os.path.join(self.checkpoint_dir, f'{model_name}_checkpoint')
-            model.save(alt_path)
-            print(f"📁 대체 저장 완료: {alt_path}")
+    def save_model_weights(self, model, model_name, epoch):
+        """모델 가중치 저장 (수정됨: .weights.h5 확장자 사용)"""
+        # .weights.h5 확장자 사용
+        weights_path = os.path.join(self.checkpoint_dir, f'{model_name}_weights_epoch_{epoch}.weights.h5')
+        model.save_weights(weights_path)
+        return weights_path
     
     def load_model_weights(self, model, model_name):
         """모델 가중치 로드"""
-        # 새 형식 시도
+        # 먼저 전체 모델 (.keras) 확인
+        keras_path = f'model/{model_name}_final.keras'
+        if os.path.exists(keras_path):
+            try:
+                loaded_model = keras.models.load_model(keras_path, compile=False)
+                model.set_weights(loaded_model.get_weights())
+                print(f"📂 전체 모델 로드: {model_name} (.keras)")
+                return True
+            except:
+                pass
+        
+        # .weights.h5 파일 시도
         path = os.path.join(self.checkpoint_dir, f'{model_name}_checkpoint.weights.h5')
         if os.path.exists(path):
             try:
                 model.load_weights(path)
-                print(f"📂 모델 로드: {model_name}")
+                print(f"📂 모델 가중치 로드: {model_name}")
                 return True
             except:
                 pass
         
-        # 구 형식 시도
-        old_path = os.path.join(self.checkpoint_dir, f'{model_name}_checkpoint.keras')
-        if os.path.exists(old_path):
-            try:
-                model.load_weights(old_path)
-                print(f"📂 모델 로드 (구 형식): {model_name}")
-                return True
-            except:
-                pass
-        
-        # 전체 모델 로드 시도
-        alt_path = os.path.join(self.checkpoint_dir, f'{model_name}_checkpoint')
-        if os.path.exists(alt_path):
-            try:
-                loaded_model = tf.keras.models.load_model(alt_path, compile=False)
-                model.set_weights(loaded_model.get_weights())
-                print(f"📂 모델 로드 (전체): {model_name}")
-                return True
-            except:
-                pass
+        # 에폭별 파일 확인
+        for file in os.listdir(self.checkpoint_dir):
+            if file.startswith(f'{model_name}_weights_epoch_') and file.endswith('.weights.h5'):
+                try:
+                    path = os.path.join(self.checkpoint_dir, file)
+                    model.load_weights(path)
+                    print(f"📂 모델 로드 (에폭 파일): {model_name}")
+                    return True
+                except:
+                    continue
         
         return False
     
@@ -303,17 +301,17 @@ class ProgressCallback(Callback):
                 # 모델 가중치 저장
                 self.checkpoint_manager.save_model_weights(
                     self.model, 
-                    self.model_name
+                    self.model_name,
+                    self.epoch_count
                 )
                 
                 print(f"\n💾 체크포인트 저장 (Epoch {self.epoch_count})")
             except Exception as e:
                 print(f"\n⚠️ 체크포인트 저장 실패: {e}")
-                # 실패해도 학습은 계속
 
 
 # ===================================
-# 데이터 전처리 (동일하지만 상태 저장 추가)
+# 데이터 전처리 (원본 그대로)
 # ===================================
 
 class AdvancedPreprocessor:
@@ -342,8 +340,7 @@ class AdvancedPreprocessor:
         sum_cols = [col for col in data.columns if 'SUM' in col]
         data = data.drop(columns=sum_cols, errors='ignore')
         
-        # 날짜 범위 필터링 (선택적 - 필요시 주석 처리)
-        # 주석 처리하면 전체 데이터 사용
+        # 날짜 범위 필터링 (선택적)
         use_date_filter = False  # True로 설정하면 날짜 필터링 적용
         
         if use_date_filter:
@@ -456,7 +453,7 @@ class AdvancedPreprocessor:
 
 
 # ===================================
-# 모델 정의 (동일)
+# 모델 정의 (원본 그대로)
 # ===================================
 
 class AttentionLSTM(layers.Layer):
@@ -745,7 +742,7 @@ class ResumableTrainer:
             metrics=['mae', 'mse']
         )
         
-        # 콜백
+        # 콜백 (수정됨: .weights.h5 확장자 사용)
         callbacks = [
             EarlyStopping(
                 monitor='val_loss', 
@@ -763,7 +760,7 @@ class ResumableTrainer:
             ModelCheckpoint(
                 f'model/{model_name}_best.weights.h5',  # .weights.h5 확장자
                 save_best_only=True,
-                save_weights_only=True,  # 가중치만 저장
+                save_weights_only=True,
                 monitor='val_loss',
                 verbose=0
             ),
@@ -780,6 +777,19 @@ class ResumableTrainer:
             callbacks=callbacks,
             verbose=1
         )
+        
+        # 학습 완료 후 전체 모델 저장 (.keras 형식)
+        model_path = f'model/{model_name}_final.keras'
+        model.save(model_path)
+        print(f"✅ 전체 모델 저장: {model_path}")
+        
+        # 스케일러도 함께 저장
+        scaler_path = f'scaler/{model_name}_scaler.pkl'
+        joblib.dump({
+            'target_scaler': self.preprocessor.target_scaler,
+            'feature_scaler': self.preprocessor.feature_scaler
+        }, scaler_path)
+        print(f"✅ 스케일러 저장: {scaler_path}")
         
         # 이력 저장
         self.checkpoint_manager.save_history(model_name, history)
@@ -927,6 +937,22 @@ class ResumableTrainer:
             print(f"앙상블 R²: {r2:.4f}")
             
             self.predictions['ensemble'] = ensemble_pred
+            
+            # 앙상블 예측 결과 저장
+            np.save('model/ensemble_predictions.npy', ensemble_pred)
+            print("✅ 앙상블 예측 결과 저장: model/ensemble_predictions.npy")
+        
+        # 최종 모델들 저장 확인
+        print("\n" + "="*70)
+        print("저장된 모델 확인")
+        print("="*70)
+        for model_name in self.models.keys():
+            keras_path = f'model/{model_name}_final.keras'
+            weights_path = f'model/{model_name}_best.weights.h5'
+            if os.path.exists(keras_path):
+                print(f"✅ {model_name}: {keras_path}")
+            if os.path.exists(weights_path):
+                print(f"✅ {model_name} weights: {weights_path}")
         
         print("\n✅ 학습 완료!")
         
