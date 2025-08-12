@@ -1,27 +1,29 @@
 """
-반도체 물류 예측을 위한 하이브리드 딥러닝 모델 v3.0 - 급증 예측 특화
+반도체 물류 예측을 위한 하이브리드 딥러닝 모델 v3.1 - 급증 예측 개선 (안전한 전처리)
 ================================================================
 본 시스템은 반도체 팹 간 물류 이동량을 예측하고 TOTALCNT > 1400 급증을 
 사전에 감지하기 위한 통합 예측 모델입니다.
 
-주요 기능:
-1. 개별 구간 데이터를 활용한 급증 패턴 학습
-2. 이중 출력 모델 (수치 예측 + 급증 확률 예측)
-3. LSTM, RNN, GRU, ARIMA 모델 앙상블
-4. 급증 구간에 최적화된 손실 함수
-5. 10분 후 물류량 예측 및 급증 감지
-6. 학습 중단 시 재시작 기능 지원
+주요 개선사항:
+1. Focal Loss를 통한 클래스 불균형 해결
+2. SMOTE를 통한 급증 데이터 오버샘플링 (안전한 처리)
+3. 더 깊은 모델 구조와 급증 예측 특화 브랜치
+4. 향상된 특징 엔지니어링 (연속 상승 패턴, 복합 신호)
+5. 동적 임계값 조정 및 클래스 가중치 적용
+6. 무한대/NaN 값 안전 처리
 
 개발일: 2024년
-버전: 3.0 (급증 예측 특화 버전)
+버전: 3.1 (급증 예측 개선 + 안전한 전처리)
 """
 
 import numpy as np
 import pandas as pd
 import tensorflow as tf
 from sklearn.preprocessing import StandardScaler
+from sklearn.utils.class_weight import compute_class_weight
+from imblearn.over_sampling import SMOTE
 from tensorflow.keras.models import Sequential, Model
-from tensorflow.keras.layers import Input, LSTM, Dense, Dropout, BatchNormalization, Bidirectional, GRU, SimpleRNN, Concatenate
+from tensorflow.keras.layers import Input, LSTM, Dense, Dropout, BatchNormalization, Bidirectional, GRU, SimpleRNN, Concatenate, Attention
 from tensorflow.keras.callbacks import EarlyStopping, ReduceLROnPlateau, ModelCheckpoint
 from tensorflow.keras.optimizers import Adam
 from sklearn.metrics import mean_squared_error, mean_absolute_error, r2_score, classification_report, confusion_matrix
@@ -58,7 +60,7 @@ logging.basicConfig(
     level=logging.INFO, 
     format='%(asctime)s - %(levelname)s - %(message)s',
     handlers=[
-        logging.FileHandler('training_v3.log'),
+        logging.FileHandler('training_v3.1_safe.log'),
         logging.StreamHandler()
     ]
 )
@@ -122,37 +124,44 @@ class CheckpointManager:
         return False
 
 # ===================================
-# 3. 급증 예측 특화 손실 함수
+# 3. 개선된 손실 함수
 # ===================================
 
-def spike_aware_loss(y_true, y_pred, spike_weight=5.0, spike_threshold=1400):
-    """급증 구간에 가중치를 부여하는 손실 함수"""
-    # y_true의 첫 번째 채널은 TOTALCNT 예측값
-    totalcnt_true = y_true[:, 0]
-    totalcnt_pred = y_pred[:, 0]
+def focal_loss(gamma=2.0, alpha=0.8):
+    """클래스 불균형을 해결하는 Focal Loss"""
+    def focal_loss_fixed(y_true, y_pred):
+        epsilon = tf.keras.backend.epsilon()
+        y_pred = tf.clip_by_value(y_pred, epsilon, 1. - epsilon)
+        
+        # Focal loss 계산
+        p_t = tf.where(tf.equal(y_true, 1), y_pred, 1 - y_pred)
+        alpha_factor = tf.where(tf.equal(y_true, 1), alpha, 1 - alpha)
+        focal_weight = tf.pow((1 - p_t), gamma)
+        
+        cross_entropy = -tf.math.log(p_t)
+        loss = alpha_factor * focal_weight * cross_entropy
+        
+        return tf.reduce_mean(loss)
     
-    # 기본 MSE 손실
-    mse_loss = tf.square(totalcnt_true - totalcnt_pred)
+    return focal_loss_fixed
+
+class WeightedBinaryCrossentropy(tf.keras.losses.Loss):
+    """가중치가 적용된 이진 교차 엔트로피"""
+    def __init__(self, pos_weight=10.0):
+        super().__init__()
+        self.pos_weight = pos_weight
     
-    # 급증 구간 마스크 (원본 스케일로 역변환 필요)
-    # 여기서는 스케일된 값으로 근사적으로 처리
-    spike_mask = tf.cast(totalcnt_true > 0.5, tf.float32)  # 스케일된 임계값
-    
-    # 급증 구간에 가중치 적용
-    weighted_loss = tf.where(spike_mask > 0, mse_loss * spike_weight, mse_loss)
-    
-    # 급증 예측 실패 시 추가 페널티
-    false_negative = tf.cast((totalcnt_true > 0.5) & (totalcnt_pred <= 0.5), tf.float32)
-    penalty = false_negative * 10.0
-    
-    return tf.reduce_mean(weighted_loss + penalty)
+    def call(self, y_true, y_pred):
+        y_pred = tf.clip_by_value(y_pred, 1e-7, 1 - 1e-7)
+        loss = -y_true * tf.math.log(y_pred) * self.pos_weight - (1 - y_true) * tf.math.log(1 - y_pred)
+        return tf.reduce_mean(loss)
 
 # ===================================
-# 4. 이중 출력 모델 클래스
+# 4. 개선된 이중 출력 모델 클래스
 # ===================================
 
-class DualOutputModels:
-    """수치 예측과 급증 확률을 동시에 예측하는 모델"""
+class ImprovedDualOutputModels:
+    """급증 예측 성능이 향상된 이중 출력 모델"""
     
     def __init__(self, input_shape):
         self.input_shape = input_shape
@@ -160,30 +169,36 @@ class DualOutputModels:
         self.histories = {}
         
     def build_dual_lstm_model(self):
-        """이중 출력 LSTM 모델"""
+        """개선된 이중 출력 LSTM 모델"""
         inputs = Input(shape=self.input_shape, name='input')
         
-        # 공통 특징 추출 레이어
-        x = LSTM(units=128, return_sequences=True)(inputs)
-        x = Dropout(0.2)(x)
+        # 더 깊은 네트워크 구조
+        x = LSTM(units=256, return_sequences=True, kernel_regularizer=tf.keras.regularizers.l2(0.001))(inputs)
+        x = Dropout(0.3)(x)
         x = BatchNormalization()(x)
         
-        x = LSTM(units=128, return_sequences=True)(x)
-        x = Dropout(0.2)(x)
+        x = LSTM(units=256, return_sequences=True, kernel_regularizer=tf.keras.regularizers.l2(0.001))(x)
+        x = Dropout(0.3)(x)
         x = BatchNormalization()(x)
         
-        x = LSTM(units=64, return_sequences=False)(x)
-        x = Dropout(0.2)(x)
+        x = LSTM(units=128, return_sequences=False)(x)
+        x = Dropout(0.3)(x)
         
-        # 공유 특징
-        shared_features = Dense(units=32, activation='relu')(x)
+        # 공유 특징 (더 큰 차원)
+        shared_features = Dense(units=64, activation='relu')(x)
+        shared_features = BatchNormalization()(shared_features)
         
         # 수치 예측 브랜치
-        regression_branch = Dense(units=16, activation='relu')(shared_features)
+        regression_branch = Dense(units=32, activation='relu')(shared_features)
+        regression_branch = Dropout(0.2)(regression_branch)
         regression_output = Dense(units=1, name='regression_output')(regression_branch)
         
-        # 급증 분류 브랜치
-        classification_branch = Dense(units=16, activation='relu')(shared_features)
+        # 급증 분류 브랜치 (더 복잡한 구조)
+        classification_branch = Dense(units=64, activation='relu')(shared_features)
+        classification_branch = Dropout(0.3)(classification_branch)
+        classification_branch = BatchNormalization()(classification_branch)
+        classification_branch = Dense(units=32, activation='relu')(classification_branch)
+        classification_branch = Dropout(0.3)(classification_branch)
         classification_output = Dense(units=1, activation='sigmoid', name='spike_output')(classification_branch)
         
         # 모델 생성
@@ -192,68 +207,82 @@ class DualOutputModels:
         return model
     
     def build_dual_gru_model(self):
-        """이중 출력 GRU 모델"""
+        """개선된 이중 출력 GRU 모델"""
         inputs = Input(shape=self.input_shape, name='input')
         
-        # 공통 특징 추출 레이어
-        x = GRU(units=128, return_sequences=True)(inputs)
-        x = Dropout(0.2)(x)
+        # GRU 레이어
+        x = GRU(units=256, return_sequences=True, kernel_regularizer=tf.keras.regularizers.l2(0.001))(inputs)
+        x = Dropout(0.3)(x)
+        x = BatchNormalization()(x)
         
-        x = GRU(units=64, return_sequences=False)(x)
-        x = Dropout(0.2)(x)
+        x = GRU(units=128, return_sequences=False)(x)
+        x = Dropout(0.3)(x)
         
         # 공유 특징
-        shared_features = Dense(units=32, activation='relu')(x)
+        shared_features = Dense(units=64, activation='relu')(x)
         
         # 수치 예측 브랜치
-        regression_output = Dense(units=1, name='regression_output')(shared_features)
+        regression_branch = Dense(units=32, activation='relu')(shared_features)
+        regression_output = Dense(units=1, name='regression_output')(regression_branch)
         
         # 급증 분류 브랜치
-        classification_output = Dense(units=1, activation='sigmoid', name='spike_output')(shared_features)
+        classification_branch = Dense(units=64, activation='relu')(shared_features)
+        classification_branch = Dropout(0.3)(classification_branch)
+        classification_branch = Dense(units=32, activation='relu')(classification_branch)
+        classification_output = Dense(units=1, activation='sigmoid', name='spike_output')(classification_branch)
         
         model = Model(inputs=inputs, outputs=[regression_output, classification_output])
         
         return model
     
     def build_dual_rnn_model(self):
-        """이중 출력 RNN 모델"""
+        """개선된 이중 출력 RNN 모델"""
         inputs = Input(shape=self.input_shape, name='input')
         
-        # 특징 추출
-        x = SimpleRNN(units=100, return_sequences=True)(inputs)
-        x = Dropout(0.2)(x)
+        # RNN 레이어
+        x = SimpleRNN(units=200, return_sequences=True)(inputs)
+        x = Dropout(0.3)(x)
+        x = BatchNormalization()(x)
         
-        x = SimpleRNN(units=50, return_sequences=False)(x)
-        x = Dropout(0.2)(x)
+        x = SimpleRNN(units=100, return_sequences=False)(x)
+        x = Dropout(0.3)(x)
         
         # 공유 특징
-        shared_features = Dense(units=32, activation='relu')(x)
+        shared_features = Dense(units=64, activation='relu')(x)
         
         # 이중 출력
-        regression_output = Dense(units=1, name='regression_output')(shared_features)
-        classification_output = Dense(units=1, activation='sigmoid', name='spike_output')(shared_features)
+        regression_output = Dense(units=1, name='regression_output')(Dense(units=32, activation='relu')(shared_features))
+        classification_output = Dense(units=1, activation='sigmoid', name='spike_output')(
+            Dense(units=32, activation='relu')(Dense(units=64, activation='relu')(shared_features))
+        )
         
         model = Model(inputs=inputs, outputs=[regression_output, classification_output])
         
         return model
     
     def build_dual_bilstm_model(self):
-        """이중 출력 양방향 LSTM 모델"""
+        """개선된 이중 출력 양방향 LSTM 모델"""
         inputs = Input(shape=self.input_shape, name='input')
         
         # 양방향 LSTM
-        x = Bidirectional(LSTM(units=64, return_sequences=True))(inputs)
-        x = Dropout(0.2)(x)
+        x = Bidirectional(LSTM(units=128, return_sequences=True))(inputs)
+        x = Dropout(0.3)(x)
+        x = BatchNormalization()(x)
         
-        x = Bidirectional(LSTM(units=32, return_sequences=False))(x)
-        x = Dropout(0.2)(x)
+        x = Bidirectional(LSTM(units=64, return_sequences=False))(x)
+        x = Dropout(0.3)(x)
         
         # 공유 특징
-        shared_features = Dense(units=32, activation='relu')(x)
+        shared_features = Dense(units=64, activation='relu')(x)
         
         # 이중 출력
-        regression_output = Dense(units=1, name='regression_output')(shared_features)
-        classification_output = Dense(units=1, activation='sigmoid', name='spike_output')(shared_features)
+        regression_branch = Dense(units=32, activation='relu')(shared_features)
+        regression_output = Dense(units=1, name='regression_output')(regression_branch)
+        
+        classification_branch = Dense(units=64, activation='relu')(shared_features)
+        classification_branch = Dropout(0.3)(classification_branch)
+        classification_branch = Dense(units=32, activation='relu')(classification_branch)
+        classification_output = Dense(units=1, activation='sigmoid', name='spike_output')(classification_branch)
         
         model = Model(inputs=inputs, outputs=[regression_output, classification_output])
         
@@ -265,8 +294,9 @@ class DualOutputModels:
 
 def train_dual_model_with_checkpoint(model, model_name, X_train, y_train_reg, y_train_cls, 
                                     X_val, y_val_reg, y_val_cls, epochs, batch_size, 
-                                    checkpoint_manager, start_epoch=0, initial_lr=0.0005):
-    """이중 출력 모델 학습 함수"""
+                                    checkpoint_manager, class_weight_dict=None, 
+                                    start_epoch=0, initial_lr=0.0005):
+    """개선된 이중 출력 모델 학습 함수"""
     
     # 컴파일
     optimizer = Adam(learning_rate=initial_lr)
@@ -274,11 +304,11 @@ def train_dual_model_with_checkpoint(model, model_name, X_train, y_train_reg, y_
         optimizer=optimizer,
         loss={
             'regression_output': 'mse',
-            'spike_output': 'binary_crossentropy'
+            'spike_output': focal_loss(gamma=2.0, alpha=0.8)  # Focal Loss 사용
         },
         loss_weights={
             'regression_output': 1.0,
-            'spike_output': 2.0  # 급증 예측에 더 높은 가중치
+            'spike_output': 15.0  # 급증 예측에 훨씬 높은 가중치
         },
         metrics={
             'regression_output': 'mae',
@@ -286,12 +316,32 @@ def train_dual_model_with_checkpoint(model, model_name, X_train, y_train_reg, y_
         }
     )
     
+    # 콜백 설정
+    callbacks = [
+        ReduceLROnPlateau(
+            monitor='val_spike_output_recall',
+            factor=0.5,
+            patience=10,
+            min_lr=1e-6,
+            mode='max',
+            verbose=1
+        ),
+        EarlyStopping(
+            monitor='val_spike_output_recall',
+            patience=30,
+            mode='max',
+            restore_best_weights=True,
+            verbose=1
+        )
+    ]
+    
     # 학습 이력 초기화
     history = {
         'loss': [], 'val_loss': [],
         'regression_output_loss': [], 'val_regression_output_loss': [],
         'spike_output_loss': [], 'val_spike_output_loss': [],
-        'spike_output_accuracy': [], 'val_spike_output_accuracy': []
+        'spike_output_accuracy': [], 'val_spike_output_accuracy': [],
+        'spike_output_recall': [], 'val_spike_output_recall': []
     }
     
     # 기존 이력 로드
@@ -299,9 +349,10 @@ def train_dual_model_with_checkpoint(model, model_name, X_train, y_train_reg, y_
     if state and model_name in state.get('model_histories', {}):
         history = state['model_histories'][model_name]
     
+    best_spike_recall = 0.0
     best_val_loss = float('inf')
     patience_counter = 0
-    patience = 25
+    patience = 30
     
     try:
         for epoch in range(start_epoch, epochs):
@@ -314,6 +365,8 @@ def train_dual_model_with_checkpoint(model, model_name, X_train, y_train_reg, y_
                 validation_data=(X_val, {'regression_output': y_val_reg, 'spike_output': y_val_cls}),
                 epochs=1,
                 batch_size=batch_size,
+                class_weight={'spike_output': class_weight_dict} if class_weight_dict else None,
+                callbacks=callbacks,
                 verbose=1
             )
             
@@ -322,24 +375,28 @@ def train_dual_model_with_checkpoint(model, model_name, X_train, y_train_reg, y_
                 if key in epoch_history.history:
                     history[key].append(epoch_history.history[key][0])
             
-            # 현재 검증 손실
+            # 현재 성능
             current_val_loss = epoch_history.history['val_loss'][0]
+            current_spike_recall = epoch_history.history.get('val_spike_output_recall', [0])[0]
             
-            # 최고 성능 모델 저장
-            if current_val_loss < best_val_loss:
-                best_val_loss = current_val_loss
+            # 최고 성능 모델 저장 (spike recall 기준)
+            if current_spike_recall > best_spike_recall:
+                best_spike_recall = current_spike_recall
                 best_weights_path = checkpoint_manager.save_model_weights(model, model_name, epoch)
                 patience_counter = 0
                 
-                # 급증 예측 정확도 출력
                 spike_acc = epoch_history.history.get('val_spike_output_accuracy', [0])[0]
-                logger.info(f"최고 성능 갱신! Val Loss: {best_val_loss:.4f}, Spike Acc: {spike_acc:.3f}")
+                spike_precision = epoch_history.history.get('val_spike_output_precision', [0])[0]
+                logger.info(f"최고 급증 예측 성능 갱신!")
+                logger.info(f"  - Recall: {best_spike_recall:.3f}")
+                logger.info(f"  - Precision: {spike_precision:.3f}")
+                logger.info(f"  - Accuracy: {spike_acc:.3f}")
             else:
                 patience_counter += 1
             
-            # 조기 종료
-            if patience_counter >= patience:
-                logger.info(f"조기 종료 - {patience}에폭 동안 개선 없음")
+            # 조기 종료 (spike recall이 개선되지 않을 때)
+            if patience_counter >= patience and best_spike_recall > 0:
+                logger.info(f"조기 종료 - {patience}에폭 동안 spike recall 개선 없음")
                 break
             
             # 매 5에폭마다 체크포인트 저장
@@ -347,6 +404,7 @@ def train_dual_model_with_checkpoint(model, model_name, X_train, y_train_reg, y_
                 current_state = checkpoint_manager.load_state() or {}
                 current_state['current_model'] = model_name
                 current_state['current_epoch'] = epoch + 1
+                current_state['best_spike_recall'] = float(best_spike_recall)
                 
                 if 'model_histories' not in current_state:
                     current_state['model_histories'] = {}
@@ -420,6 +478,7 @@ def main(resume=False):
                 scaler = saved_data['scaler']
                 Modified_Data = saved_data['modified_data']
                 input_shape = saved_data['input_shape']
+                class_weight_dict = saved_data.get('class_weight_dict', None)
                 
                 logger.info("저장된 데이터를 성공적으로 로드했습니다.")
             else:
@@ -432,7 +491,7 @@ def main(resume=False):
     # 데이터 전처리 (재시작이 아닌 경우)
     if not resume:
         logger.info("="*60)
-        logger.info("반도체 물류 예측 모델 v3.0 - 급증 예측 특화")
+        logger.info("반도체 물류 예측 모델 v3.1 - 급증 예측 개선 (안전한 전처리)")
         logger.info("="*60)
         
         # 데이터 로드
@@ -446,12 +505,10 @@ def main(resume=False):
         Full_Data['CURRTIME'] = pd.to_datetime(Full_Data['CURRTIME'], format='%Y%m%d%H%M')
         Full_Data['TIME'] = pd.to_datetime(Full_Data['TIME'], format='%Y%m%d%H%M')
         
-        # SUM 컬럼은 유지 (개별 구간 합계 정보)
         # 필요한 컬럼 선택
         required_columns = ['CURRTIME', 'TOTALCNT', 'M14AM10A', 'M10AM14A', 
                           'M14AM14B', 'M14BM14A', 'M14AM16', 'M16M14A', 'TIME']
         
-        # 존재하는 컬럼만 선택
         available_columns = [col for col in required_columns if col in Full_Data.columns]
         Full_Data = Full_Data[available_columns]
         Full_Data.set_index('CURRTIME', inplace=True)
@@ -484,40 +541,83 @@ def main(resume=False):
         spike_ratio = Modified_Data['future_spike'].mean()
         logger.info(f"급증 구간 비율: {spike_ratio:.2%}")
         
-        # 개별 구간 비율 특징 생성
+        # 개별 구간 비율 특징 생성 (안전한 버전)
         segment_columns = ['M14AM10A', 'M10AM14A', 'M14AM14B', 'M14BM14A', 'M14AM16', 'M16M14A']
         available_segments = [col for col in segment_columns if col in Modified_Data.columns]
         
         for col in available_segments:
-            # 각 구간의 TOTALCNT 대비 비율
+            # 각 구간의 TOTALCNT 대비 비율 (0으로 나누기 방지)
             Modified_Data[f'{col}_ratio'] = Modified_Data[col] / (Modified_Data['TOTALCNT'] + 1e-6)
+            Modified_Data[f'{col}_ratio'] = Modified_Data[f'{col}_ratio'].clip(0, 1)  # 비율은 0~1 사이
             
-            # 10분 변화율
+            # 10분 변화율 (안전한 계산)
             Modified_Data[f'{col}_change_10'] = Modified_Data[col].pct_change(10).fillna(0)
+            Modified_Data[f'{col}_change_10'] = Modified_Data[f'{col}_change_10'].replace([np.inf, -np.inf], 0)
+            Modified_Data[f'{col}_change_10'] = Modified_Data[f'{col}_change_10'].clip(-5, 5)  # -500% ~ 500%로 제한
             
             # 5분 이동평균
             Modified_Data[f'{col}_MA5'] = Modified_Data[col].rolling(window=5, min_periods=1).mean()
+            
+            # 3분 연속 상승 패턴 (안전한 비교)
+            col_shifted1 = Modified_Data[col].shift(1).fillna(Modified_Data[col])
+            col_shifted2 = Modified_Data[col].shift(2).fillna(Modified_Data[col])
+            col_shifted3 = Modified_Data[col].shift(3).fillna(Modified_Data[col])
+            
+            Modified_Data[f'{col}_rising_3'] = (
+                (Modified_Data[col] > col_shifted1) & 
+                (col_shifted1 > col_shifted2) & 
+                (col_shifted2 > col_shifted3)
+            ).astype(int)
+            
+            # 급격한 변화율 (30% 이상)
+            Modified_Data[f'{col}_sharp_rise'] = (
+                Modified_Data[f'{col}_change_10'] > 0.3
+            ).astype(int)
         
-        # 급증 관련 핵심 특징 생성
+        # 급증 관련 핵심 특징 생성 (안전한 버전)
         if 'M14AM14B' in Modified_Data.columns:
             Modified_Data['M14AM14B_spike_signal'] = (Modified_Data['M14AM14B_change_10'] > 0.5).astype(int)
         if 'M16M14A' in Modified_Data.columns:
             Modified_Data['M16M14A_spike_signal'] = (Modified_Data['M16M14A_change_10'] > 0.5).astype(int)
         
-        # 기존 특징 추가
+        # 복합 급증 신호
+        sharp_rise_cols = [f'{col}_sharp_rise' for col in available_segments if f'{col}_sharp_rise' in Modified_Data.columns]
+        if sharp_rise_cols:
+            Modified_Data['complex_spike_signal'] = (Modified_Data[sharp_rise_cols].sum(axis=1) >= 2).astype(int)
+        
+        # 기존 특징 추가 (안전한 버전)
         Modified_Data['hour'] = Modified_Data.index.hour
         Modified_Data['dayofweek'] = Modified_Data.index.dayofweek
         Modified_Data['is_weekend'] = (Modified_Data.index.dayofweek >= 5).astype(int)
         Modified_Data['MA_5'] = Modified_Data['TOTALCNT'].rolling(window=5, min_periods=1).mean()
         Modified_Data['MA_10'] = Modified_Data['TOTALCNT'].rolling(window=10, min_periods=1).mean()
         Modified_Data['MA_30'] = Modified_Data['TOTALCNT'].rolling(window=30, min_periods=1).mean()
-        Modified_Data['STD_5'] = Modified_Data['TOTALCNT'].rolling(window=5, min_periods=1).std()
-        Modified_Data['STD_10'] = Modified_Data['TOTALCNT'].rolling(window=10, min_periods=1).std()
-        Modified_Data['change_rate'] = Modified_Data['TOTALCNT'].pct_change()
-        Modified_Data['change_rate_5'] = Modified_Data['TOTALCNT'].pct_change(5)
+        Modified_Data['STD_5'] = Modified_Data['TOTALCNT'].rolling(window=5, min_periods=1).std().fillna(0)
+        Modified_Data['STD_10'] = Modified_Data['TOTALCNT'].rolling(window=10, min_periods=1).std().fillna(0)
         
-        # 결측값 처리
-        Modified_Data = Modified_Data.ffill().fillna(0)
+        # 변화율 계산 (안전한 버전)
+        Modified_Data['change_rate'] = Modified_Data['TOTALCNT'].pct_change().fillna(0)
+        Modified_Data['change_rate'] = Modified_Data['change_rate'].replace([np.inf, -np.inf], 0)
+        Modified_Data['change_rate'] = Modified_Data['change_rate'].clip(-2, 2)  # -200% ~ 200%
+        
+        Modified_Data['change_rate_5'] = Modified_Data['TOTALCNT'].pct_change(5).fillna(0)
+        Modified_Data['change_rate_5'] = Modified_Data['change_rate_5'].replace([np.inf, -np.inf], 0)
+        Modified_Data['change_rate_5'] = Modified_Data['change_rate_5'].clip(-2, 2)
+        
+        # 결측값 처리 (더 안전한 방법)
+        Modified_Data = Modified_Data.ffill().bfill().fillna(0)
+        
+        # 데이터 검증
+        logger.info("데이터 무결성 검사 중...")
+        inf_count = np.isinf(Modified_Data.select_dtypes(include=[np.number])).sum().sum()
+        nan_count = Modified_Data.isna().sum().sum()
+        logger.info(f"무한대 값: {inf_count}개, NaN 값: {nan_count}개")
+        
+        # 무한대 값이 있다면 제거
+        if inf_count > 0:
+            numeric_cols = Modified_Data.select_dtypes(include=[np.number]).columns
+            for col in numeric_cols:
+                Modified_Data[col] = Modified_Data[col].replace([np.inf, -np.inf], np.nan).fillna(0)
         
         # 스케일링할 컬럼 선택
         scaling_columns = ['TOTALCNT', 'FUTURE'] + available_segments
@@ -535,7 +635,8 @@ def main(resume=False):
         # 비율과 변화율은 스케일링하지 않음
         non_scaled_features = [col for col in Modified_Data.columns 
                              if ('ratio' in col or 'change' in col or 'signal' in col or 
-                                 col in ['hour', 'dayofweek', 'is_weekend'])]
+                                 'rising' in col or 'sharp' in col or
+                                 col in ['hour', 'dayofweek', 'is_weekend', 'complex_spike_signal'])]
         
         # 최종 데이터 결합
         Scaled_Data = pd.concat([Modified_Data[non_scaled_features + ['future_spike']], scaled_df], axis=1)
@@ -602,10 +703,95 @@ def main(resume=False):
         y_test_reg = y_reg_all[train_size+val_size:]
         y_test_cls = y_cls_all[train_size+val_size:]
         
+        # SMOTE 적용 (급증 데이터 오버샘플링)
+        logger.info("SMOTE를 사용한 데이터 증강 중...")
+        X_train_reshaped = X_train.reshape(X_train.shape[0], -1)
+        
+        # 데이터 검증 및 정리
+        logger.info("SMOTE 전 데이터 검증...")
+        
+        # NaN과 무한대 확인
+        nan_mask = np.isnan(X_train_reshaped)
+        inf_mask = np.isinf(X_train_reshaped)
+        
+        if nan_mask.any() or inf_mask.any():
+            logger.warning(f"NaN 개수: {nan_mask.sum()}, Inf 개수: {inf_mask.sum()}")
+            # NaN과 Inf를 안전한 값으로 대체
+            X_train_reshaped = np.nan_to_num(X_train_reshaped, nan=0.0, posinf=10.0, neginf=-10.0)
+        
+        # 극단값 클리핑 (더 보수적으로)
+        percentile_99 = np.percentile(np.abs(X_train_reshaped[~np.isnan(X_train_reshaped)]), 99)
+        X_train_reshaped = np.clip(X_train_reshaped, -percentile_99, percentile_99)
+        
+        # SMOTE 적용
+        try:
+            # 급증 비율이 너무 낮으면 SMOTE 파라미터 조정
+            spike_ratio = y_train_cls.mean()
+            logger.info(f"훈련 데이터 급증 비율 (SMOTE 전): {spike_ratio:.2%}")
+            
+            # 급증 데이터가 너무 적으면 k_neighbors 조정
+            n_spike_samples = y_train_cls.sum()
+            k_neighbors = min(5, n_spike_samples - 1) if n_spike_samples > 1 else 1
+            
+            if spike_ratio < 0.05 and n_spike_samples > 10:  # 5% 미만이고 샘플이 10개 이상일 때만
+                smote = SMOTE(
+                    sampling_strategy=min(0.3, spike_ratio * 3),  # 최대 3배까지만 증가
+                    random_state=RANDOM_SEED, 
+                    k_neighbors=k_neighbors
+                )
+                X_train_resampled, y_train_cls_resampled = smote.fit_resample(X_train_reshaped, y_train_cls)
+                
+                # 리샘플링된 인덱스로 y_train_reg도 복제
+                original_size = len(y_train_cls)
+                resampled_size = len(y_train_cls_resampled)
+                
+                if resampled_size > original_size:
+                    # 새로 생성된 샘플들의 y_train_reg 값은 급증 샘플들의 평균값 사용
+                    spike_indices = np.where(y_train_cls == 1)[0]
+                    spike_reg_mean = y_train_reg[spike_indices].mean()
+                    
+                    y_train_reg_extended = np.concatenate([
+                        y_train_reg,
+                        np.full(resampled_size - original_size, spike_reg_mean)
+                    ])
+                    y_train_reg = y_train_reg_extended
+                
+                # 다시 원래 shape로 변환
+                X_train = X_train_resampled.reshape(-1, SEQ_LENGTH, len(input_features))
+                y_train_cls = y_train_cls_resampled
+                
+                logger.info(f"SMOTE 후 훈련 데이터 급증 비율: {y_train_cls.mean():.2%}")
+                logger.info(f"SMOTE 후 데이터 크기: {len(X_train)}")
+                
+            else:
+                logger.warning(f"급증 비율이 너무 낮거나 샘플이 부족합니다. (비율: {spike_ratio:.2%}, 샘플: {n_spike_samples}개)")
+                logger.warning("SMOTE 없이 진행합니다.")
+                
+        except Exception as e:
+            logger.error(f"SMOTE 적용 실패: {str(e)}")
+            logger.warning("SMOTE 없이 원본 데이터로 진행합니다.")
+        
+        # 최종 데이터 검증
+        logger.info("최종 데이터 검증...")
+        X_train_check = X_train.reshape(X_train.shape[0], -1)
+        if np.isnan(X_train_check).any() or np.isinf(X_train_check).any():
+            logger.warning("여전히 문제가 있는 값이 있습니다. 추가 정리 중...")
+            X_train_check = np.nan_to_num(X_train_check, nan=0.0, posinf=10.0, neginf=-10.0)
+            X_train = X_train_check.reshape(-1, SEQ_LENGTH, len(input_features))
+        
         input_shape = (X_train.shape[1], X_train.shape[2])
         
+        # 클래스 가중치 계산
+        class_weights = compute_class_weight(
+            'balanced',
+            classes=np.unique(y_train_cls),
+            y=y_train_cls
+        )
+        class_weight_dict = {0: class_weights[0], 1: class_weights[1]}
+        logger.info(f"클래스 가중치: {class_weight_dict}")
+        
         # 급증 데이터 분포 확인
-        logger.info(f"훈련 데이터 급증 비율: {y_train_cls.mean():.2%}")
+        logger.info(f"최종 훈련 데이터 급증 비율: {y_train_cls.mean():.2%}")
         logger.info(f"검증 데이터 급증 비율: {y_val_cls.mean():.2%}")
         logger.info(f"테스트 데이터 급증 비율: {y_test_cls.mean():.2%}")
         
@@ -624,16 +810,17 @@ def main(resume=False):
             'modified_data': Modified_Data,
             'input_shape': input_shape,
             'scaling_columns': scaling_columns,
-            'input_features': input_features
+            'input_features': input_features,
+            'class_weight_dict': class_weight_dict
         })
     
-    # 이중 출력 모델 초기화
-    dual_models = DualOutputModels(input_shape)
+    # 개선된 이중 출력 모델 초기화
+    dual_models = ImprovedDualOutputModels(input_shape)
     
     # 학습 파라미터
-    EPOCHS = 250
-    BATCH_SIZE = 64
-    LEARNING_RATE = 0.0003
+    EPOCHS = 300  # 더 많은 에폭
+    BATCH_SIZE = 32  # 더 작은 배치 사이즈
+    LEARNING_RATE = 0.0005
     
     # 모델 리스트
     model_configs = [
@@ -674,6 +861,7 @@ def main(resume=False):
                 model, model_name, X_train, y_train_reg, y_train_cls,
                 X_val, y_val_reg, y_val_cls,
                 EPOCHS, BATCH_SIZE, checkpoint_manager,
+                class_weight_dict=class_weight_dict,
                 start_epoch=start_epoch, initial_lr=LEARNING_RATE
             )
             
@@ -698,7 +886,7 @@ def main(resume=False):
     logger.info("\n모델 성능 평가 시작...")
     
     # 개선된 앙상블 예측 함수
-    def enhanced_ensemble_predict(models, X_test, spike_threshold=0.7):
+    def enhanced_ensemble_predict(models, X_test, spike_threshold=0.3):  # 임계값 낮춤
         """급증 예측을 반영한 앙상블 예측"""
         
         regression_preds = {}
@@ -764,8 +952,8 @@ def main(resume=False):
         
         mae_original = mean_absolute_error(y_true_original, y_pred_original)
         
-        # 분류 성능 (이진 변환)
-        y_pred_cls_binary = (y_pred_cls > 0.5).astype(int)
+        # 분류 성능 (이진 변환) - 낮은 임계값 사용
+        y_pred_cls_binary = (y_pred_cls > 0.3).astype(int)
         
         # 분류 리포트
         cls_report = classification_report(y_true_cls, y_pred_cls_binary, 
@@ -852,7 +1040,7 @@ def main(resume=False):
         plt.text(i + width, precisions[i] + 0.01, f'{precisions[i]:.2f}', ha='center')
     
     plt.tight_layout()
-    plt.savefig('spike_prediction_performance.png', dpi=300)
+    plt.savefig('spike_prediction_performance_v31_safe.png', dpi=300)
     plt.close()
     
     # 2. 예측 결과 시각화 (급증 구간 강조)
@@ -882,7 +1070,7 @@ def main(resume=False):
                color='red', s=50, label='실제 급증', zorder=5)
     
     # 예측된 급증 구간
-    pred_spike_mask = (ensemble_spike[:sample_size] > 0.7)
+    pred_spike_mask = (ensemble_spike[:sample_size] > 0.3)
     plt.scatter(np.where(pred_spike_mask)[0], ensemble_original[pred_spike_mask], 
                color='orange', s=30, marker='^', label='예측 급증', zorder=4)
     
@@ -895,10 +1083,10 @@ def main(resume=False):
     # 서브플롯 2: 급증 확률
     plt.subplot(2, 1, 2)
     plt.plot(ensemble_spike[:sample_size], label='급증 확률', color='red', linewidth=1.5)
-    plt.axhline(y=0.5, color='black', linestyle='--', alpha=0.5, label='결정 임계값')
-    plt.axhline(y=0.7, color='orange', linestyle='--', alpha=0.5, label='조정 임계값')
+    plt.axhline(y=0.3, color='black', linestyle='--', alpha=0.5, label='결정 임계값')
+    plt.axhline(y=0.5, color='orange', linestyle='--', alpha=0.5, label='기본 임계값')
     plt.fill_between(range(sample_size), 0, ensemble_spike[:sample_size], 
-                     where=(ensemble_spike[:sample_size] > 0.7), alpha=0.3, color='red')
+                     where=(ensemble_spike[:sample_size] > 0.3), alpha=0.3, color='red')
     plt.title('급증 확률 예측', fontsize=14)
     plt.xlabel('시간 (분)', fontsize=12)
     plt.ylabel('확률', fontsize=12)
@@ -907,7 +1095,7 @@ def main(resume=False):
     plt.grid(True, alpha=0.3)
     
     plt.tight_layout()
-    plt.savefig('prediction_results_with_spike.png', dpi=300)
+    plt.savefig('prediction_results_with_spike_v31_safe.png', dpi=300)
     plt.close()
     
     # 3. 혼동 행렬 시각화
@@ -925,7 +1113,7 @@ def main(resume=False):
             axes[idx].set_title(f'{model_name.upper()} 혼동 행렬')
     
     plt.tight_layout()
-    plt.savefig('confusion_matrices.png', dpi=300)
+    plt.savefig('confusion_matrices_v31_safe.png', dpi=300)
     plt.close()
     
     # ===================================
@@ -935,25 +1123,25 @@ def main(resume=False):
     logger.info("\n모델 및 결과 저장 중...")
     
     # 저장 디렉토리
-    os.makedirs('model_v3', exist_ok=True)
-    os.makedirs('scaler_v3', exist_ok=True)
-    os.makedirs('results_v3', exist_ok=True)
+    os.makedirs('model_v31_safe', exist_ok=True)
+    os.makedirs('scaler_v31_safe', exist_ok=True)
+    os.makedirs('results_v31_safe', exist_ok=True)
     
     # 1. 모델 저장
     for model_name, model in dual_models.models.items():
-        model_path = f'model_v3/{model_name}_final.keras'
+        model_path = f'model_v31_safe/{model_name}_final.keras'
         model.save(model_path)
         logger.info(f"{model_name} 모델 저장: {model_path}")
     
     # 2. 스케일러 저장
-    scaler_path = 'scaler_v3/scaler_v3.pkl'
+    scaler_path = 'scaler_v31_safe/scaler_v31.pkl'
     joblib.dump(scaler, scaler_path)
     logger.info(f"스케일러 저장: {scaler_path}")
     
     # 3. 성능 결과 저장
     results_df = pd.DataFrame(results).T
-    results_df.to_csv('results_v3/model_performance.csv')
-    logger.info("성능 결과 저장: results_v3/model_performance.csv")
+    results_df.to_csv('results_v31_safe/model_performance.csv')
+    logger.info("성능 결과 저장: results_v31_safe/model_performance.csv")
     
     # 4. 설정 저장
     config = {
@@ -970,11 +1158,15 @@ def main(resume=False):
             'dual_gru': 0.25,
             'dual_rnn': 0.15,
             'dual_bilstm': 0.25
-        }
+        },
+        'spike_decision_threshold': 0.3,
+        'focal_loss_params': {'gamma': 2.0, 'alpha': 0.8},
+        'spike_loss_weight': 15.0,
+        'class_weights': class_weight_dict
     }
     
-    with open('results_v3/training_config.json', 'w') as f:
-        json.dump(config, f, indent=4)
+    with open('results_v31_safe/training_config.json', 'w') as f:
+        json.dump(config, f, indent=4, default=str)
     
     # ===================================
     # 10. 최종 요약
@@ -997,7 +1189,19 @@ def main(resume=False):
     logger.info(f"\n앙상블 모델 성능:")
     logger.info(f"  - MAE: {results['ensemble']['mae_original']:.2f}")
     logger.info(f"  - 급증 예측 정확도: {results['ensemble']['spike_accuracy']:.3f}")
+    logger.info(f"  - 급증 Recall: {results['ensemble']['spike_recall']:.3f}")
+    logger.info(f"  - 급증 Precision: {results['ensemble']['spike_precision']:.3f}")
     logger.info(f"  - 급증 F1-Score: {results['ensemble']['spike_f1']:.3f}")
+    
+    # 혼동 행렬 분석
+    cm = results['ensemble']['confusion_matrix']
+    if len(cm) == 2:
+        tn, fp, fn, tp = cm.ravel()
+        logger.info(f"\n앙상블 혼동 행렬:")
+        logger.info(f"  - True Negatives (정상→정상): {tn}")
+        logger.info(f"  - False Positives (정상→급증): {fp}")
+        logger.info(f"  - False Negatives (급증→정상): {fn}")
+        logger.info(f"  - True Positives (급증→급증): {tp}")
     
     # 목표 달성 여부
     target_recall = 0.7
@@ -1017,7 +1221,7 @@ def main(resume=False):
 if __name__ == "__main__":
     import argparse
     
-    parser = argparse.ArgumentParser(description='반도체 물류 예측 모델 v3.0')
+    parser = argparse.ArgumentParser(description='반도체 물류 예측 모델 v3.1 (안전한 전처리)')
     parser.add_argument('--resume', action='store_true', 
                        help='이전 학습을 이어서 진행')
     parser.add_argument('--reset', action='store_true',
