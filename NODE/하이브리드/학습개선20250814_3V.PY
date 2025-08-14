@@ -1,4 +1,197 @@
 """
+
+def load_and_preprocess_data(data_path, checkpoint_manager, force_reload=False):
+    """데이터 로드 및 전처리 (진행상황 표시 + 최적화)"""
+    
+    # 캐시 확인
+    if not force_reload:
+        cached_data = checkpoint_manager.load_data()
+        if cached_data:
+            logger.info("✅ 캐시된 데이터 사용")
+            return cached_data
+    
+    logger.info(f"📂 데이터 새로 로딩: {data_path}")
+    
+    try:
+        # ========== 1단계: 데이터 로드 ==========
+        logger.info("📊 [1/8] CSV 파일 로딩 중...")
+        data = pd.read_csv(data_path)
+        logger.info(f"   ✓ 원본 데이터 크기: {data.shape}")
+        
+        # ========== 2단계: 시간 변환 ==========
+        logger.info("🕒 [2/8] 시간 데이터 변환 중...")
+        data['CURRTIME'] = pd.to_datetime(data['CURRTIME'], format='%Y%m%d%H%M')
+        data['TIME'] = pd.to_datetime(data['TIME'], format='%Y%m%d%H%M')
+        
+        # 필요 컬럼만 선택
+        data = data[['CURRTIME', 'TOTALCNT', 'TIME']]
+        data.set_index('CURRTIME', inplace=True)
+        logger.info(f"   ✓ 컬럼 선택 완료")
+        
+        # ========== 3단계: 날짜 필터링 ==========
+        logger.info("📅 [3/8] 날짜 범위 필터링 중...")
+        start_date = pd.to_datetime('2024-02-01 00:00:00')
+        end_date = pd.to_datetime('2024-07-27 23:59:59')
+        data = data[(data['TIME'] >= start_date) & (data['TIME'] <= end_date)]
+        logger.info(f"   ✓ 필터링 후 데이터: {data.shape}")
+        
+        # ========== 4단계: 이상치 제거 ==========
+        logger.info("🔍 [4/8] 이상치 제거 중...")
+        before_outlier = len(data)
+        data = data[(data['TOTALCNT'] >= 800) & (data['TOTALCNT'] <= 2500)]
+        logger.info(f"   ✓ 제거된 이상치: {before_outlier - len(data)}개")
+        
+        # ========== 5단계: FUTURE 및 라벨 생성 ==========
+        logger.info("🎯 [5/8] 타겟 변수 생성 중...")
+        data['FUTURE'] = data['TOTALCNT'].shift(-10)
+        data['spike_label'] = (data['FUTURE'] >= 1400).astype(int)
+        data.dropna(inplace=True)
+        
+        logger.info(f"   ✓ 전처리 완료: {data.shape}")
+        logger.info(f"   ✓ 1400+ 비율: {data['spike_label'].mean():.2%}")
+        logger.info(f"   ✓ 1400+ 개수: {data['spike_label'].sum()}개")
+        
+        # ========== 6단계: 특징 생성 (최적화) ==========
+        logger.info("⚙️ [6/8] 특징 엔지니어링 중...")
+        total_features = 12
+        current_feature = 0
+        
+        # 이동평균 계산
+        current_feature += 1
+        logger.info(f"   [{current_feature}/{total_features}] MA_10 계산...")
+        data['MA_10'] = data['TOTALCNT'].rolling(10, min_periods=1).mean()
+        
+        current_feature += 1
+        logger.info(f"   [{current_feature}/{total_features}] MA_30 계산...")
+        data['MA_30'] = data['TOTALCNT'].rolling(30, min_periods=1).mean()
+        
+        current_feature += 1
+        logger.info(f"   [{current_feature}/{total_features}] MA_60 계산...")
+        data['MA_60'] = data['TOTALCNT'].rolling(60, min_periods=1).mean()
+        
+        # 표준편차 계산
+        current_feature += 1
+        logger.info(f"   [{current_feature}/{total_features}] STD_10 계산...")
+        data['STD_10'] = data['TOTALCNT'].rolling(10, min_periods=1).std()
+        
+        current_feature += 1
+        logger.info(f"   [{current_feature}/{total_features}] STD_30 계산...")
+        data['STD_30'] = data['TOTALCNT'].rolling(30, min_periods=1).std()
+        
+        # 변화율 계산
+        current_feature += 1
+        logger.info(f"   [{current_feature}/{total_features}] 변화율 계산...")
+        data['change_rate'] = data['TOTALCNT'].pct_change()
+        
+        current_feature += 1
+        logger.info(f"   [{current_feature}/{total_features}] 10기간 변화율 계산...")
+        data['change_rate_10'] = data['TOTALCNT'].pct_change(10)
+        
+        # 시간 특징
+        current_feature += 1
+        logger.info(f"   [{current_feature}/{total_features}] 시간 특징 추출...")
+        data['hour'] = data.index.hour
+        
+        current_feature += 1
+        logger.info(f"   [{current_feature}/{total_features}] 요일 특징 추출...")
+        data['dayofweek'] = data.index.dayofweek
+        
+        current_feature += 1
+        logger.info(f"   [{current_feature}/{total_features}] 주말 플래그 생성...")
+        data['is_weekend'] = (data.index.dayofweek >= 5).astype(int)
+        
+        # 추세 계산
+        current_feature += 1
+        logger.info(f"   [{current_feature}/{total_features}] 추세 계산...")
+        data['trend'] = data['MA_10'] - data['MA_30']
+        
+        # 결측치 처리
+        current_feature += 1
+        logger.info(f"   [{current_feature}/{total_features}] 결측치 처리...")
+        data.fillna(method='ffill', inplace=True)
+        data.fillna(0, inplace=True)
+        
+        logger.info("   ✓ 특징 생성 완료!")
+        
+        # ========== 7단계: 스케일링 ==========
+        logger.info("📏 [7/8] 데이터 스케일링 중...")
+        scaler = RobustScaler()
+        feature_cols = ['TOTALCNT', 'MA_10', 'MA_30', 'MA_60', 'STD_10', 'STD_30',
+                       'change_rate', 'change_rate_10', 'hour', 'dayofweek', 
+                       'is_weekend', 'trend']
+        
+        data[feature_cols + ['FUTURE']] = scaler.fit_transform(data[feature_cols + ['FUTURE']])
+        logger.info(f"   ✓ {len(feature_cols)} 개 특징 스케일링 완료")
+        
+        # ========== 8단계: 시퀀스 생성 ==========
+        logger.info("🔄 [8/8] 시퀀스 데이터 생성 중...")
+        SEQ_LENGTH = 50
+        X, y, spike_labels = [], [], []
+        
+        # 진행 상황 표시를 위한 총 개수
+        total_sequences = len(data) - SEQ_LENGTH
+        
+        # 배치 처리로 메모리 효율성 향상
+        logger.info(f"   총 {total_sequences}개 시퀀스 생성 중...")
+        
+        for i in range(total_sequences):
+            # 1000개마다 진행상황 표시
+            if i % 1000 == 0:
+                progress = (i / total_sequences) * 100
+                logger.info(f"   진행률: {progress:.1f}% ({i}/{total_sequences})")
+            
+            X.append(data[feature_cols].iloc[i:i+SEQ_LENGTH].values)
+            y.append(data['FUTURE'].iloc[i+SEQ_LENGTH])
+            spike_labels.append(data['spike_label'].iloc[i+SEQ_LENGTH])
+        
+        logger.info("   ✓ 시퀀스 생성 완료! NumPy 배열로 변환 중...")
+        X, y, spike_labels = np.array(X), np.array(y), np.array(spike_labels)
+        
+        logger.info(f"   ✓ 최종 시퀀스 shape: X={X.shape}, y={y.shape}")
+        
+        # ========== 데이터 분할 ==========
+        logger.info("📊 데이터셋 분할 중...")
+        train_size = int(0.7 * len(X))
+        val_size = int(0.15 * len(X))
+        
+        logger.info(f"   ✓ Train: {train_size}개")
+        logger.info(f"   ✓ Val: {val_size}개")
+        logger.info(f"   ✓ Test: {len(X) - train_size - val_size}개")
+        
+        # 딕셔너리 생성
+        data_dict = {
+            'X_train': X[:train_size],
+            'y_train': y[:train_size],
+            'spike_train': spike_labels[:train_size],
+            'X_val': X[train_size:train_size+val_size],
+            'y_val': y[train_size:train_size+val_size],
+            'spike_val': spike_labels[train_size:train_size+val_size],
+            'X_test': X[train_size+val_size:],
+            'y_test': y[train_size+val_size:],
+            'spike_test': spike_labels[train_size+val_size:],
+            'scaler': scaler,
+            'feature_cols': feature_cols,
+            'input_shape': (SEQ_LENGTH, len(feature_cols))
+        }
+        
+        # ========== 캐시 저장 ==========
+        logger.info("💾 전처리된 데이터 캐싱 중...")
+        checkpoint_manager.save_data(data_dict)
+        
+        # ========== 완료 ==========
+        logger.info("✅ 데이터 전처리 완료!")
+        logger.info(f"   - 입력 shape: {data_dict['input_shape']}")
+        logger.info(f"   - Train 1400+ 비율: {spike_labels[:train_size].mean():.2%}")
+        logger.info(f"   - Val 1400+ 비율: {spike_labels[train_size:train_size+val_size].mean():.2%}")
+        logger.info(f"   - Test 1400+ 비율: {spike_labels[train_size+val_size:].mean():.2%}")
+        
+        return data_dict
+        
+    except Exception as e:
+        logger.error(f"❌ 데이터 전처리 중 오류 발생: {str(e)}")
+        logger.error(traceback.format_exc())
+        raise
+
 반도체 물류 예측 ULTIMATE v4.0 - 완전체
 ========================================
 모든 기능 포함 + 재시작 가능 + 오버피팅 해결
