@@ -27,14 +27,26 @@ print(f"TensorFlow Version: {tf.__version__}")
 class ModelEvaluator:
     """학습된 모델을 로드하여 평가"""
     
-    def __init__(self, model_dir='./models', data_path='20250731_to20250806.csv'):
-        self.model_dir = model_dir
-        self.data_path = data_path
+    def __init__(self, model_dir=None, data_path=None):
+        # 절대 경로 설정
+        if model_dir is None:
+            self.model_dir = r'D:\하이닉스\6.연구_항목\CODE\202508051차_POC구축\앙상블_하이브리드v5_150g학습\models_v5'
+        else:
+            self.model_dir = model_dir
+            
+        if data_path is None:
+            self.data_path = r'D:\하이닉스\6.연구_항목\CODE\202508051차_POC구축\앙상블_하이브리드v5_150g학습\data\20250731_to20250806.csv'
+        else:
+            self.data_path = data_path
+            
         self.sequence_length = 100  # 과거 100분
         self.prediction_horizon = 10  # 10분 후 예측
         self.spike_threshold = 1400
         self.models = {}
         self.scaler = None
+        
+        print(f"모델 디렉토리: {self.model_dir}")
+        print(f"데이터 경로: {self.data_path}")
         
     def load_models(self):
         """저장된 모델들 로드"""
@@ -63,14 +75,34 @@ class ModelEvaluator:
             else:
                 print(f"✗ {name} 모델 파일 없음: {filepath}")
         
-        # 스케일러 로드
+        # 스케일러 로드 - 여러 형식 시도
+        scaler_loaded = False
+        
+        # pkl 파일 시도
         scaler_path = os.path.join(self.model_dir, 'scaler.pkl')
         if os.path.exists(scaler_path):
-            with open(scaler_path, 'rb') as f:
-                self.scaler = pickle.load(f)
-                print(f"✓ 스케일러 로드 완료")
-        else:
-            print(f"⚠ 스케일러 파일 없음, 새로 생성 필요")
+            try:
+                with open(scaler_path, 'rb') as f:
+                    self.scaler = pickle.load(f)
+                print(f"✓ 스케일러 로드 완료 (pkl)")
+                scaler_loaded = True
+            except Exception as e:
+                print(f"⚠ pkl 스케일러 로드 실패: {e}")
+        
+        # joblib 파일 시도
+        if not scaler_loaded:
+            scaler_path = os.path.join(self.model_dir, 'scaler.joblib')
+            if os.path.exists(scaler_path):
+                try:
+                    self.scaler = joblib.load(scaler_path)
+                    print(f"✓ 스케일러 로드 완료 (joblib)")
+                    scaler_loaded = True
+                except Exception as e:
+                    print(f"⚠ joblib 스케일러 로드 실패: {e}")
+        
+        # 스케일러가 없으면 새로 생성
+        if not scaler_loaded:
+            print(f"⚠ 스케일러 파일 없음, 새로 생성")
             self.scaler = MinMaxScaler()
         
         print()
@@ -88,18 +120,52 @@ class ModelEvaluator:
         """평가용 데이터 로드 및 전처리"""
         print("평가 데이터 로드 중...")
         
-        # TSV 파일 읽기 (탭 구분)
-        df = pd.read_csv(self.data_path, sep='\t', encoding='utf-8')
+        # 파일 존재 확인
+        if not os.path.exists(self.data_path):
+            print(f"✗ 파일이 존재하지 않습니다: {self.data_path}")
+            return None
+        
+        # TSV 파일 읽기 시도 (탭 구분)
+        try:
+            df = pd.read_csv(self.data_path, sep='\t', encoding='utf-8')
+            print("✓ TSV 형식으로 로드 성공")
+        except:
+            # CSV 파일 읽기 (콤마 구분)
+            try:
+                df = pd.read_csv(self.data_path, encoding='utf-8')
+                print("✓ CSV 형식으로 로드 성공")
+            except Exception as e:
+                print(f"✗ 파일 로드 실패: {e}")
+                return None
         
         print(f"데이터 shape: {df.shape}")
         print(f"컬럼: {df.columns.tolist()}")
+        
+        # 필수 컬럼 확인
+        if 'current_value' not in df.columns and 'TOTALCNT' in df.columns:
+            df['current_value'] = df['TOTALCNT']
+        
+        # 실제값 컬럼 확인
+        if '실제' not in df.columns:
+            # 10분 후 값을 실제값으로 사용
+            df['실제'] = df['current_value'].shift(-self.prediction_horizon)
+        
+        # 시간 컬럼 처리
+        if 'current_time' in df.columns:
+            df['current_time'] = pd.to_datetime(df['current_time'])
+        elif 'datetime' in df.columns:
+            df['current_time'] = pd.to_datetime(df['datetime'])
+        else:
+            # 시간 컬럼이 없으면 인덱스 사용
+            df['current_time'] = pd.date_range(start='2025-07-31', periods=len(df), freq='1min')
+        
+        if 'future_time' not in df.columns:
+            df['future_time'] = df['current_time'] + pd.Timedelta(minutes=self.prediction_horizon)
+        
         print(f"데이터 기간: {df['current_time'].iloc[0]} ~ {df['current_time'].iloc[-1]}")
         
-        # 날짜/시간 처리
-        df['current_time'] = pd.to_datetime(df['current_time'])
-        df['future_time'] = pd.to_datetime(df['future_time'])
-        
         # 데이터 분포 확인
+        df = df.dropna(subset=['실제'])  # NaN 제거
         spike_count = (df['실제'] >= self.spike_threshold).sum()
         print(f"전체 데이터: {len(df):,}개")
         print(f"1400+ 급증 구간: {spike_count:,}개 ({spike_count/len(df)*100:.2f}%)")
@@ -526,11 +592,8 @@ def main():
     print("=" * 60)
     print()
     
-    # 평가기 초기화
-    evaluator = ModelEvaluator(
-        model_dir='./models',  # 학습된 모델이 저장된 디렉토리
-        data_path='aa.csv'  # 평가할 데이터 파일
-    )
+    # 평가기 초기화 - 경로 자동 설정
+    evaluator = ModelEvaluator()
     
     # 1. 학습된 모델 로드
     if not evaluator.load_models():
@@ -540,6 +603,9 @@ def main():
     
     # 2. 평가 데이터 로드
     df = evaluator.load_evaluation_data()
+    if df is None:
+        print("⚠ 데이터를 로드할 수 없습니다.")
+        return None
     
     # 3. 특징 생성
     df = evaluator.create_features(df)
