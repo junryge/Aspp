@@ -210,15 +210,15 @@ class ModelEvaluator:
             print(f"✗ 파일이 존재하지 않습니다: {self.data_path}")
             return None
         
-        # TSV 파일 읽기 시도 (탭 구분)
+        # CSV 파일 읽기 (콤마 구분 먼저 시도)
         try:
-            df = pd.read_csv(self.data_path, sep='\t', encoding='utf-8')
-            print("✓ TSV 형식으로 로드 성공")
+            df = pd.read_csv(self.data_path, encoding='utf-8')
+            print("✓ CSV 형식으로 로드 성공")
         except:
-            # CSV 파일 읽기 (콤마 구분)
+            # TSV 파일 읽기 (탭 구분)
             try:
-                df = pd.read_csv(self.data_path, encoding='utf-8')
-                print("✓ CSV 형식으로 로드 성공")
+                df = pd.read_csv(self.data_path, sep='\t', encoding='utf-8')
+                print("✓ TSV 형식으로 로드 성공")
             except Exception as e:
                 print(f"✗ 파일 로드 실패: {e}")
                 return None
@@ -226,31 +226,38 @@ class ModelEvaluator:
         print(f"데이터 shape: {df.shape}")
         print(f"컬럼: {df.columns.tolist()}")
         
-        # 필수 컬럼 확인
-        if 'current_value' not in df.columns and 'TOTALCNT' in df.columns:
+        # TOTALCNT를 current_value로 매핑
+        if 'TOTALCNT' in df.columns:
             df['current_value'] = df['TOTALCNT']
-        
-        # 실제값 컬럼 확인
-        if '실제' not in df.columns:
-            # 10분 후 값을 실제값으로 사용
-            df['실제'] = df['current_value'].shift(-self.prediction_horizon)
+        elif 'current_value' not in df.columns:
+            print("✗ TOTALCNT 또는 current_value 컬럼이 없습니다!")
+            print(f"사용 가능한 컬럼: {df.columns.tolist()}")
+            return None
         
         # 시간 컬럼 처리
-        if 'current_time' in df.columns:
-            df['current_time'] = pd.to_datetime(df['current_time'])
-        elif 'datetime' in df.columns:
-            df['current_time'] = pd.to_datetime(df['datetime'])
+        if 'CURRTIME' in df.columns:
+            df['current_time'] = pd.to_datetime(df['CURRTIME'], format='%Y%m%d%H%M', errors='coerce')
+        elif 'current_time' in df.columns:
+            df['current_time'] = pd.to_datetime(df['current_time'], errors='coerce')
         else:
-            # 시간 컬럼이 없으면 인덱스 사용
+            print("⚠ 시간 컬럼이 없습니다. 인덱스 사용")
             df['current_time'] = pd.date_range(start='2025-07-31', periods=len(df), freq='1min')
         
-        if 'future_time' not in df.columns:
+        # TIME 컬럼 처리 (미래 시간)
+        if 'TIME' in df.columns:
+            df['future_time'] = pd.to_datetime(df['TIME'], format='%Y%m%d%H%M', errors='coerce')
+        else:
             df['future_time'] = df['current_time'] + pd.Timedelta(minutes=self.prediction_horizon)
+        
+        # 실제값 생성 (10분 후 값)
+        df['실제'] = df['current_value'].shift(-self.prediction_horizon)
+        
+        # NaN 제거
+        df = df.dropna(subset=['current_value', '실제'])
         
         print(f"데이터 기간: {df['current_time'].iloc[0]} ~ {df['current_time'].iloc[-1]}")
         
         # 데이터 분포 확인
-        df = df.dropna(subset=['실제'])  # NaN 제거
         spike_count = (df['실제'] >= self.spike_threshold).sum()
         print(f"전체 데이터: {len(df):,}개")
         print(f"1400+ 급증 구간: {spike_count:,}개 ({spike_count/len(df)*100:.2f}%)")
