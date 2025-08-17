@@ -7,7 +7,12 @@ import pandas as pd
 import numpy as np
 import tensorflow as tf
 from tensorflow import keras
-from sklearn.preprocessing import MinMaxScaler
+from tensorflow.keras.models import Sequential
+from tensorflow.keras.layers import (Input, LSTM, Dense, Dropout, BatchNormalization,
+                                     GRU, Conv1D, MaxPooling1D, GlobalAveragePooling1D,
+                                     Bidirectional)
+from tensorflow.keras.regularizers import l1_l2
+from sklearn.preprocessing import MinMaxScaler, RobustScaler
 from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score, confusion_matrix
 import matplotlib.pyplot as plt
 import seaborn as sns
@@ -47,6 +52,80 @@ class ModelEvaluator:
         
         print(f"모델 디렉토리: {self.model_dir}")
         print(f"데이터 경로: {self.data_path}")
+    
+    def build_improved_lstm(self, input_shape):
+        """개선된 LSTM (학습 코드와 동일)"""
+        model = Sequential([
+            Input(shape=input_shape),
+            LSTM(128, return_sequences=True, kernel_regularizer=l1_l2(l1=0.005, l2=0.005)),
+            Dropout(0.4),
+            BatchNormalization(),
+            LSTM(64, return_sequences=True),
+            Dropout(0.4),
+            LSTM(32, return_sequences=False),
+            Dropout(0.3),
+            Dense(32, activation='relu'),
+            Dropout(0.2),
+            Dense(1)
+        ])
+        return model
+
+    def build_improved_gru(self, input_shape):
+        """개선된 GRU"""
+        model = Sequential([
+            Input(shape=input_shape),
+            GRU(128, return_sequences=True, kernel_regularizer=l1_l2(l1=0.005, l2=0.005)),
+            Dropout(0.4),
+            GRU(64, return_sequences=True),
+            Dropout(0.4),
+            GRU(32, return_sequences=False),
+            Dropout(0.3),
+            Dense(32, activation='relu'),
+            Dropout(0.2),
+            Dense(1)
+        ])
+        return model
+
+    def build_improved_cnn_lstm(self, input_shape):
+        """개선된 CNN-LSTM"""
+        model = Sequential([
+            Input(shape=input_shape),
+            Conv1D(64, 3, activation='relu', padding='same'),
+            BatchNormalization(),
+            Conv1D(64, 3, activation='relu', padding='same'),
+            MaxPooling1D(2),
+            Dropout(0.3),
+            LSTM(64, return_sequences=True),
+            Dropout(0.4),
+            LSTM(32, return_sequences=False),
+            Dropout(0.3),
+            Dense(32, activation='relu'),
+            Dropout(0.2),
+            Dense(1)
+        ])
+        return model
+
+    def build_improved_spike_detector(self, input_shape):
+        """강화된 급변 감지기"""
+        model = Sequential([
+            Input(shape=input_shape),
+            Conv1D(64, 3, activation='relu', padding='same'),
+            BatchNormalization(),
+            Conv1D(64, 3, activation='relu', padding='same'),
+            MaxPooling1D(2),
+            Dropout(0.3),
+            Bidirectional(LSTM(64, return_sequences=True)),
+            Dropout(0.4),
+            Bidirectional(LSTM(32, return_sequences=False)),
+            Dropout(0.3),
+            Dense(64, activation='relu'),
+            BatchNormalization(),
+            Dropout(0.3),
+            Dense(32, activation='relu'),
+            Dropout(0.2),
+            Dense(1, activation='sigmoid')
+        ])
+        return model
         
     def load_models(self):
         """저장된 모델들 로드"""
@@ -54,76 +133,53 @@ class ModelEvaluator:
         print("학습된 모델 로드 중...")
         print("=" * 60)
         
-        # TensorFlow 2.15.0 호환성을 위한 설정
-        tf.config.run_functions_eagerly(True)
+        # 입력 shape (학습 코드와 동일)
+        input_shape = (50, 12)  # SEQ_LENGTH=50, features=12
         
-        model_files = {
-            'lstm': 'lstm_final.h5',
-            'gru': 'gru_final.h5', 
-            'cnn_lstm': 'cnn_lstm_final.h5',
-            'spike_detector': 'spike_detector_final.h5'
+        model_configs = {
+            'lstm': (self.build_improved_lstm, 'lstm_final.h5'),
+            'gru': (self.build_improved_gru, 'gru_final.h5'),
+            'cnn_lstm': (self.build_improved_cnn_lstm, 'cnn_lstm_final.h5'),
+            'spike_detector': (self.build_improved_spike_detector, 'spike_detector_final.h5')
         }
         
-        for name, filename in model_files.items():
+        for name, (build_func, filename) in model_configs.items():
             filepath = os.path.join(self.model_dir, filename)
+            
             if os.path.exists(filepath):
                 try:
-                    # 방법 1: tf.keras 사용
-                    self.models[name] = tf.keras.models.load_model(filepath, compile=False, safe_mode=False)
+                    # 모델 구조 생성
+                    model = build_func(input_shape)
                     
-                    # 모델 다시 컴파일
+                    # 가중치만 로드
+                    model.load_weights(filepath)
+                    
+                    # 컴파일
                     if name == 'spike_detector':
-                        self.models[name].compile(
+                        model.compile(
                             optimizer='adam',
-                            loss='mae',
-                            metrics=['mae']
+                            loss='binary_crossentropy',
+                            metrics=['accuracy']
                         )
                     else:
-                        self.models[name].compile(
+                        model.compile(
                             optimizer='adam',
                             loss='mae',
                             metrics=['mae']
                         )
                     
+                    self.models[name] = model
                     print(f"✓ {name} 모델 로드 완료")
                     
-                except Exception as e1:
-                    # 방법 2: keras.saving 사용
-                    try:
-                        from tensorflow.keras import saving
-                        self.models[name] = saving.load_model(filepath, compile=False)
-                        self.models[name].compile(optimizer='adam', loss='mae', metrics=['mae'])
-                        print(f"✓ {name} 모델 로드 완료 (keras.saving)")
-                        
-                    except Exception as e2:
-                        # 방법 3: h5py로 직접 로드 시도
-                        try:
-                            import h5py
-                            with h5py.File(filepath, 'r') as f:
-                                # 파일 구조 확인
-                                print(f"  {name} H5 파일 구조: {list(f.keys())[:5]}")
-                            
-                            # compile 없이 로드
-                            self.models[name] = tf.keras.models.load_model(
-                                filepath, 
-                                compile=False,
-                                custom_objects={'tf': tf}
-                            )
-                            print(f"✓ {name} 모델 로드 완료 (h5py)")
-                            
-                        except Exception as e3:
-                            print(f"✗ {name} 모델 로드 실패")
-                            print(f"  오류1: {str(e1)[:100]}")
-                            print(f"  오류2: {str(e2)[:100]}")
-                            print(f"  오류3: {str(e3)[:100]}")
+                except Exception as e:
+                    print(f"✗ {name} 모델 로드 실패: {e}")
             else:
                 print(f"✗ {name} 모델 파일 없음: {filepath}")
         
-        # 스케일러 로드
+        # 스케일러 로드 - RobustScaler 사용 (학습 코드와 동일)
         scaler_loaded = False
-        
-        # joblib 먼저 시도 (더 안정적)
         scaler_path = os.path.join(self.model_dir, 'scaler.pkl')
+        
         if os.path.exists(scaler_path):
             try:
                 self.scaler = joblib.load(scaler_path)
@@ -131,19 +187,16 @@ class ModelEvaluator:
                 scaler_loaded = True
             except:
                 try:
-                    # pickle로 재시도
-                    import pickle
                     with open(scaler_path, 'rb') as f:
-                        self.scaler = pickle.load(f, encoding='latin1')  # encoding 추가
+                        self.scaler = pickle.load(f)
                     print(f"✓ 스케일러 로드 완료 (pickle)")
                     scaler_loaded = True
                 except Exception as e:
                     print(f"⚠ 스케일러 로드 실패: {e}")
         
-        # 스케일러가 없으면 새로 생성
         if not scaler_loaded:
-            print(f"⚠ 스케일러 새로 생성")
-            self.scaler = MinMaxScaler()
+            print(f"⚠ 스케일러 새로 생성 (RobustScaler)")
+            self.scaler = RobustScaler()  # 학습 코드와 동일하게 RobustScaler 사용
         
         print()
         return len(self.models) > 0
@@ -211,36 +264,55 @@ class ModelEvaluator:
         
         # 시간 특징
         df['hour'] = df['current_time'].dt.hour
-        df['minute'] = df['current_time'].dt.minute
-        df['day_of_week'] = df['current_time'].dt.dayofweek
+        df['dayofweek'] = df['current_time'].dt.dayofweek
+        df['is_weekend'] = (df['current_time'].dt.dayofweek >= 5).astype(int)
         
-        # 이동평균 및 표준편차
-        for window in [5, 10, 20]:
-            df[f'ma_{window}'] = df['current_value'].rolling(window=window, min_periods=1).mean()
-            df[f'std_{window}'] = df['current_value'].rolling(window=window, min_periods=1).std().fillna(0)
+        # 이동평균 및 표준편차 (학습 코드와 동일)
+        df['MA_10'] = df['current_value'].rolling(10, min_periods=1).mean()
+        df['MA_30'] = df['current_value'].rolling(30, min_periods=1).mean()
+        df['MA_60'] = df['current_value'].rolling(60, min_periods=1).mean()
+        df['STD_10'] = df['current_value'].rolling(10, min_periods=1).std().fillna(0)
+        df['STD_30'] = df['current_value'].rolling(30, min_periods=1).std().fillna(0)
         
         # 변화율
         df['change_rate'] = df['current_value'].pct_change().fillna(0)
+        df['change_rate_10'] = df['current_value'].pct_change(10).fillna(0)
+        
+        # 트렌드
+        df['trend'] = df['MA_10'] - df['MA_30']
+        
+        # NaN 처리
+        df.ffill(inplace=True)
+        df.fillna(0, inplace=True)
         
         return df
     
     def prepare_sequences(self, df):
-        """시퀀스 데이터 준비 (100분 -> 10분 후)"""
+        """시퀀스 데이터 준비 (학습 코드와 동일)"""
         print("시퀀스 데이터 생성 중...")
         
-        # 특징 컬럼 선택
-        feature_cols = ['current_value', 'hour', 'minute', 'day_of_week',
-                       'ma_5', 'ma_10', 'ma_20', 
-                       'std_5', 'std_10', 'std_20',
-                       'change_rate']
+        # 학습 코드와 동일한 특징 순서
+        feature_cols = ['current_value', 'MA_10', 'MA_30', 'MA_60', 'STD_10', 'STD_30',
+                       'change_rate', 'change_rate_10', 'hour', 'dayofweek', 
+                       'is_weekend', 'trend']
+        
+        # current_value를 TOTALCNT로 변경 (학습 코드 호환)
+        if 'TOTALCNT' not in df.columns:
+            df['TOTALCNT'] = df['current_value']
+        
+        # 학습 코드와 동일한 컬럼명 사용
+        feature_cols_mapped = ['TOTALCNT' if col == 'current_value' else col for col in feature_cols]
+        
+        # SEQ_LENGTH = 50 (학습 코드와 동일)
+        self.sequence_length = 50
         
         sequences = []
         actuals = []
         timestamps = []
         
         for i in range(len(df) - self.sequence_length - self.prediction_horizon + 1):
-            # 과거 100분 데이터
-            seq_data = df[feature_cols].iloc[i:i+self.sequence_length].values
+            # 과거 50분 데이터
+            seq_data = df[feature_cols_mapped].iloc[i:i+self.sequence_length].values
             
             # 10분 후 실제 값
             future_idx = i + self.sequence_length + self.prediction_horizon - 1
@@ -250,24 +322,40 @@ class ModelEvaluator:
                 timestamps.append({
                     'start_time': df.iloc[i]['current_time'],
                     'end_time': df.iloc[i+self.sequence_length-1]['current_time'],
-                    'future_time': df.iloc[future_idx]['future_time']
+                    'future_time': df.iloc[future_idx]['future_time'] if 'future_time' in df.columns else df.iloc[future_idx]['current_time']
                 })
         
         X = np.array(sequences)
         y = np.array(actuals)
         
-        # 스케일링 (학습 시 사용한 스케일러 사용)
+        # 스케일링 (FUTURE 컬럼 추가해서 스케일링)
         if self.scaler is not None:
             n_samples, n_timesteps, n_features = X.shape
             X_reshaped = X.reshape(n_samples * n_timesteps, n_features)
             
-            # 스케일러가 학습되지 않았다면 fit
-            try:
-                X_scaled = self.scaler.transform(X_reshaped)
-            except:
-                X_scaled = self.scaler.fit_transform(X_reshaped)
+            # y를 위한 더미 데이터 생성 (학습 코드처럼 FUTURE 컬럼 포함)
+            y_with_features = np.column_stack([np.zeros((len(y), n_features)), y])
             
-            X = X_scaled.reshape(n_samples, n_timesteps, n_features)
+            try:
+                # X 스케일링
+                X_scaled = self.scaler.transform(X_reshaped)
+                X = X_scaled.reshape(n_samples, n_timesteps, n_features)
+                
+                # y 스케일링
+                y_scaled = self.scaler.transform(y_with_features)[:, -1]
+                y = y_scaled
+                
+            except:
+                print("⚠ 스케일러 fit 필요, 새로 학습")
+                # 전체 데이터로 스케일러 학습
+                all_data = np.vstack([X_reshaped, y_with_features[:, :-1]])
+                self.scaler.fit(all_data)
+                
+                X_scaled = self.scaler.transform(X_reshaped)
+                X = X_scaled.reshape(n_samples, n_timesteps, n_features)
+                
+                y_scaled = self.scaler.transform(y_with_features)[:, -1]
+                y = y_scaled
         
         print(f"생성된 시퀀스: {len(X):,}개")
         print(f"입력 shape: {X.shape}")
