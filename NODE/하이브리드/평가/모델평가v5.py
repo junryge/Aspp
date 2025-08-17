@@ -55,10 +55,10 @@ class ModelEvaluator:
         print("=" * 60)
         
         model_files = {
-            'lstm': 'lstm_model.h5',
-            'gru': 'gru_model.h5', 
-            'cnn_lstm': 'cnn_lstm_model.h5',
-            'spike_detector': 'spike_detector_model.h5'
+            'lstm': 'lstm_final.h5',
+            'gru': 'gru_final.h5', 
+            'cnn_lstm': 'cnn_lstm_final.h5',
+            'spike_detector': 'spike_detector_final.h5'
         }
         
         for name, filename in model_files.items():
