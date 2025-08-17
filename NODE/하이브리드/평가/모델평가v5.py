@@ -65,56 +65,63 @@ class ModelEvaluator:
             filepath = os.path.join(self.model_dir, filename)
             if os.path.exists(filepath):
                 try:
-                    self.models[name] = keras.models.load_model(
-                        filepath,
-                        custom_objects={'custom_loss_with_spike_weight': self.custom_loss_with_spike_weight}
-                    )
-                    print(f"✓ {name} 모델 로드 완료: {filepath}")
+                    # compile=False로 로드 (custom_objects 없이)
+                    self.models[name] = keras.models.load_model(filepath, compile=False)
+                    
+                    # 모델 다시 컴파일
+                    if name == 'spike_detector':
+                        # spike_detector는 다중 출력
+                        self.models[name].compile(
+                            optimizer='adam',
+                            loss=['mae', 'binary_crossentropy'],
+                            metrics=['mae', 'accuracy']
+                        )
+                    else:
+                        self.models[name].compile(
+                            optimizer='adam',
+                            loss='mae',
+                            metrics=['mae']
+                        )
+                    
+                    print(f"✓ {name} 모델 로드 완료")
                 except Exception as e:
-                    print(f"✗ {name} 모델 로드 실패: {e}")
+                    # 다른 방법 시도
+                    try:
+                        self.models[name] = tf.saved_model.load(filepath)
+                        print(f"✓ {name} 모델 로드 완료 (saved_model)")
+                    except:
+                        print(f"✗ {name} 모델 로드 실패: {e}")
             else:
                 print(f"✗ {name} 모델 파일 없음: {filepath}")
         
-        # 스케일러 로드 - 여러 형식 시도
+        # 스케일러 로드
         scaler_loaded = False
         
-        # pkl 파일 시도
+        # joblib 먼저 시도 (더 안정적)
         scaler_path = os.path.join(self.model_dir, 'scaler.pkl')
         if os.path.exists(scaler_path):
             try:
-                with open(scaler_path, 'rb') as f:
-                    self.scaler = pickle.load(f)
-                print(f"✓ 스케일러 로드 완료 (pkl)")
+                self.scaler = joblib.load(scaler_path)
+                print(f"✓ 스케일러 로드 완료")
                 scaler_loaded = True
-            except Exception as e:
-                print(f"⚠ pkl 스케일러 로드 실패: {e}")
-        
-        # joblib 파일 시도
-        if not scaler_loaded:
-            scaler_path = os.path.join(self.model_dir, 'scaler.joblib')
-            if os.path.exists(scaler_path):
+            except:
                 try:
-                    self.scaler = joblib.load(scaler_path)
-                    print(f"✓ 스케일러 로드 완료 (joblib)")
+                    # pickle로 재시도
+                    import pickle
+                    with open(scaler_path, 'rb') as f:
+                        self.scaler = pickle.load(f, encoding='latin1')  # encoding 추가
+                    print(f"✓ 스케일러 로드 완료 (pickle)")
                     scaler_loaded = True
                 except Exception as e:
-                    print(f"⚠ joblib 스케일러 로드 실패: {e}")
+                    print(f"⚠ 스케일러 로드 실패: {e}")
         
         # 스케일러가 없으면 새로 생성
         if not scaler_loaded:
-            print(f"⚠ 스케일러 파일 없음, 새로 생성")
+            print(f"⚠ 스케일러 새로 생성")
             self.scaler = MinMaxScaler()
         
         print()
         return len(self.models) > 0
-    
-    def custom_loss_with_spike_weight(self, y_true, y_pred):
-        """급증 구간 가중 손실 함수 (모델 로드용)"""
-        spike_mask = tf.cast(y_true >= self.spike_threshold, tf.float32)
-        mae = tf.abs(y_true - y_pred)
-        weights = 1.0 + spike_mask * 1.0
-        weighted_mae = mae * weights
-        return tf.reduce_mean(weighted_mae)
     
     def load_evaluation_data(self):
         """평가용 데이터 로드 및 전처리"""
@@ -599,13 +606,13 @@ def main():
     if not evaluator.load_models():
         print("⚠ 모델을 로드할 수 없습니다. 모델 디렉토리를 확인하세요.")
         print("학습v5.py를 실행하여 모델을 먼저 학습시켜주세요.")
-        return None
+        return None, None  # 두 개 반환
     
     # 2. 평가 데이터 로드
     df = evaluator.load_evaluation_data()
     if df is None:
         print("⚠ 데이터를 로드할 수 없습니다.")
-        return None
+        return None, None  # 두 개 반환
     
     # 3. 특징 생성
     df = evaluator.create_features(df)
