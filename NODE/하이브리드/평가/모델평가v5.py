@@ -54,6 +54,9 @@ class ModelEvaluator:
         print("학습된 모델 로드 중...")
         print("=" * 60)
         
+        # TensorFlow 2.15.0 호환성을 위한 설정
+        tf.config.run_functions_eagerly(True)
+        
         model_files = {
             'lstm': 'lstm_final.h5',
             'gru': 'gru_final.h5', 
@@ -65,16 +68,15 @@ class ModelEvaluator:
             filepath = os.path.join(self.model_dir, filename)
             if os.path.exists(filepath):
                 try:
-                    # compile=False로 로드 (custom_objects 없이)
-                    self.models[name] = keras.models.load_model(filepath, compile=False)
+                    # 방법 1: tf.keras 사용
+                    self.models[name] = tf.keras.models.load_model(filepath, compile=False, safe_mode=False)
                     
                     # 모델 다시 컴파일
                     if name == 'spike_detector':
-                        # spike_detector는 다중 출력
                         self.models[name].compile(
                             optimizer='adam',
-                            loss=['mae', 'binary_crossentropy'],
-                            metrics=['mae', 'accuracy']
+                            loss='mae',
+                            metrics=['mae']
                         )
                     else:
                         self.models[name].compile(
@@ -84,13 +86,36 @@ class ModelEvaluator:
                         )
                     
                     print(f"✓ {name} 모델 로드 완료")
-                except Exception as e:
-                    # 다른 방법 시도
+                    
+                except Exception as e1:
+                    # 방법 2: keras.saving 사용
                     try:
-                        self.models[name] = tf.saved_model.load(filepath)
-                        print(f"✓ {name} 모델 로드 완료 (saved_model)")
-                    except:
-                        print(f"✗ {name} 모델 로드 실패: {e}")
+                        from tensorflow.keras import saving
+                        self.models[name] = saving.load_model(filepath, compile=False)
+                        self.models[name].compile(optimizer='adam', loss='mae', metrics=['mae'])
+                        print(f"✓ {name} 모델 로드 완료 (keras.saving)")
+                        
+                    except Exception as e2:
+                        # 방법 3: h5py로 직접 로드 시도
+                        try:
+                            import h5py
+                            with h5py.File(filepath, 'r') as f:
+                                # 파일 구조 확인
+                                print(f"  {name} H5 파일 구조: {list(f.keys())[:5]}")
+                            
+                            # compile 없이 로드
+                            self.models[name] = tf.keras.models.load_model(
+                                filepath, 
+                                compile=False,
+                                custom_objects={'tf': tf}
+                            )
+                            print(f"✓ {name} 모델 로드 완료 (h5py)")
+                            
+                        except Exception as e3:
+                            print(f"✗ {name} 모델 로드 실패")
+                            print(f"  오류1: {str(e1)[:100]}")
+                            print(f"  오류2: {str(e2)[:100]}")
+                            print(f"  오류3: {str(e3)[:100]}")
             else:
                 print(f"✗ {name} 모델 파일 없음: {filepath}")
         
