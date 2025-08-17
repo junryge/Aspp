@@ -299,16 +299,13 @@ class ModelEvaluator:
         print("시퀀스 데이터 생성 중...")
         
         # 학습 코드와 동일한 특징 순서
-        feature_cols = ['current_value', 'MA_10', 'MA_30', 'MA_60', 'STD_10', 'STD_30',
+        feature_cols = ['TOTALCNT', 'MA_10', 'MA_30', 'MA_60', 'STD_10', 'STD_30',
                        'change_rate', 'change_rate_10', 'hour', 'dayofweek', 
                        'is_weekend', 'trend']
         
         # current_value를 TOTALCNT로 변경 (학습 코드 호환)
         if 'TOTALCNT' not in df.columns:
             df['TOTALCNT'] = df['current_value']
-        
-        # 학습 코드와 동일한 컬럼명 사용
-        feature_cols_mapped = ['TOTALCNT' if col == 'current_value' else col for col in feature_cols]
         
         # SEQ_LENGTH = 50 (학습 코드와 동일)
         self.sequence_length = 50
@@ -319,7 +316,7 @@ class ModelEvaluator:
         
         for i in range(len(df) - self.sequence_length - self.prediction_horizon + 1):
             # 과거 50분 데이터
-            seq_data = df[feature_cols_mapped].iloc[i:i+self.sequence_length].values
+            seq_data = df[feature_cols].iloc[i:i+self.sequence_length].values
             
             # 10분 후 실제 값
             future_idx = i + self.sequence_length + self.prediction_horizon - 1
@@ -335,32 +332,44 @@ class ModelEvaluator:
         X = np.array(sequences)
         y = np.array(actuals)
         
-        # 스케일링 (FUTURE 컬럼 추가해서 스케일링)
+        # 스케일링 (학습 코드와 동일하게 13개 특징)
         if self.scaler is not None:
             n_samples, n_timesteps, n_features = X.shape
             X_reshaped = X.reshape(n_samples * n_timesteps, n_features)
             
-            # y를 위한 더미 데이터 생성 (학습 코드처럼 FUTURE 컬럼 포함)
-            y_with_features = np.column_stack([np.zeros((len(y), n_features)), y])
-            
             try:
-                # X 스케일링
-                X_scaled = self.scaler.transform(X_reshaped)
+                # X 스케일링 (12개 특징)
+                # 스케일러가 13개를 기대하므로 더미 컬럼 추가
+                dummy_future = np.zeros((X_reshaped.shape[0], 1))
+                X_with_future = np.column_stack([X_reshaped, dummy_future])
+                X_scaled = self.scaler.transform(X_with_future)[:, :-1]  # 마지막 컬럼 제외
                 X = X_scaled.reshape(n_samples, n_timesteps, n_features)
                 
                 # y 스케일링
+                y_reshaped = y.reshape(-1, 1)
+                y_with_features = np.column_stack([np.zeros((len(y), 12)), y_reshaped])
                 y_scaled = self.scaler.transform(y_with_features)[:, -1]
                 y = y_scaled
                 
-            except:
-                print("⚠ 스케일러 fit 필요, 새로 학습")
-                # 전체 데이터로 스케일러 학습
-                all_data = np.vstack([X_reshaped, y_with_features[:, :-1]])
+            except Exception as e:
+                print(f"⚠ 스케일링 오류: {e}")
+                print("⚠ 스케일러 재학습 필요")
+                
+                # 스케일러 재학습 (13개 특징으로)
+                all_features = df[feature_cols].values
+                all_futures = df['실제'].values.reshape(-1, 1)
+                all_data = np.column_stack([all_features, all_futures])
+                
                 self.scaler.fit(all_data)
                 
-                X_scaled = self.scaler.transform(X_reshaped)
+                # 다시 스케일링
+                dummy_future = np.zeros((X_reshaped.shape[0], 1))
+                X_with_future = np.column_stack([X_reshaped, dummy_future])
+                X_scaled = self.scaler.transform(X_with_future)[:, :-1]
                 X = X_scaled.reshape(n_samples, n_timesteps, n_features)
                 
+                y_reshaped = y.reshape(-1, 1)
+                y_with_features = np.column_stack([np.zeros((len(y), 12)), y_reshaped])
                 y_scaled = self.scaler.transform(y_with_features)[:, -1]
                 y = y_scaled
         
