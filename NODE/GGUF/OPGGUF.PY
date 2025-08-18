@@ -1,4 +1,6 @@
 # -*- coding: utf-8 -*-
+
+pip install llama-cpp-python --force-reinstall --no-cache-dir
 """
 에이전틱 AI 시스템 - GGUF 모델 기반 자율 AI 어시스턴트
 Multi-Agent Architecture with GGUF Model Integration
