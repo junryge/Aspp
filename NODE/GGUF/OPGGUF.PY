@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """
-에이전틱 AI 시스템 - 자율 작업 수행 가능한 AI 어시스턴트
-Multi-Agent Architecture with Tool Usage
+에이전틱 AI 시스템 - GGUF 모델 기반 자율 AI 어시스턴트
+Multi-Agent Architecture with GGUF Model Integration
 """
 
 import os
@@ -61,6 +61,101 @@ MODERN_THEME = {
     'gradient_end': '#8B5CF6'
 }
 
+# ============= GGUF 모델 관리자 =============
+class GGUFModelManager:
+    """GGUF 모델 관리자"""
+    
+    def __init__(self):
+        self.model = None
+        self.model_path = ""
+        self.model_loaded = False
+        self.context_size = 2048
+        self.temperature = 0.7
+        self.max_tokens = 1000
+        self.top_p = 0.95
+        self.top_k = 40
+        self.repeat_penalty = 1.1
+        self.n_threads = 4
+        self.n_gpu_layers = 0
+        
+    def load_model(self, model_path: str, **kwargs) -> bool:
+        """GGUF 모델 로드"""
+        if not LLAMA_CPP_AVAILABLE:
+            raise ImportError("llama-cpp-python이 설치되지 않았습니다.")
+        
+        if not os.path.exists(model_path):
+            raise FileNotFoundError(f"모델 파일이 존재하지 않습니다: {model_path}")
+        
+        try:
+            # 기존 모델 정리
+            if self.model:
+                del self.model
+                self.model = None
+            
+            # 설정 업데이트
+            self.context_size = kwargs.get('context_size', self.context_size)
+            self.n_threads = kwargs.get('n_threads', self.n_threads)
+            self.n_gpu_layers = kwargs.get('n_gpu_layers', self.n_gpu_layers)
+            
+            # 모델 로드
+            self.model = Llama(
+                model_path=model_path,
+                n_ctx=self.context_size,
+                n_threads=self.n_threads,
+                n_gpu_layers=self.n_gpu_layers,
+                verbose=False,
+                seed=-1
+            )
+            
+            self.model_path = model_path
+            self.model_loaded = True
+            logger.info(f"GGUF 모델 로드 성공: {model_path}")
+            return True
+            
+        except Exception as e:
+            logger.error(f"모델 로드 오류: {str(e)}")
+            self.model_loaded = False
+            raise
+    
+    def generate(self, prompt: str, **kwargs) -> str:
+        """텍스트 생성"""
+        if not self.model_loaded or not self.model:
+            raise RuntimeError("모델이 로드되지 않았습니다.")
+        
+        # 생성 파라미터
+        temperature = kwargs.get('temperature', self.temperature)
+        max_tokens = kwargs.get('max_tokens', self.max_tokens)
+        top_p = kwargs.get('top_p', self.top_p)
+        top_k = kwargs.get('top_k', self.top_k)
+        repeat_penalty = kwargs.get('repeat_penalty', self.repeat_penalty)
+        
+        try:
+            # 응답 생성
+            response = self.model(
+                prompt,
+                max_tokens=max_tokens,
+                temperature=temperature,
+                top_p=top_p,
+                top_k=top_k,
+                repeat_penalty=repeat_penalty,
+                echo=False,
+                stop=["User:", "Human:", "Assistant:"]
+            )
+            
+            # 텍스트 추출
+            if isinstance(response, dict) and "choices" in response:
+                return response["choices"][0]["text"].strip()
+            else:
+                return str(response).strip()
+                
+        except Exception as e:
+            logger.error(f"텍스트 생성 오류: {str(e)}")
+            raise
+    
+    def is_loaded(self) -> bool:
+        """모델 로드 상태 확인"""
+        return self.model_loaded
+
 # ============= 에이전트 타입 정의 =============
 class AgentType(Enum):
     """에이전트 타입 정의"""
@@ -103,9 +198,10 @@ class WebSearchTool(Tool):
         )
     
     async def execute(self, query: str) -> str:
-        """웹 검색 실행 (시뮬레이션)"""
-        await asyncio.sleep(1)  # 실제로는 API 호출
-        return f"검색 결과: {query}에 대한 정보를 찾았습니다."
+        """웹 검색 실행"""
+        await asyncio.sleep(0.5)
+        # 실제로는 검색 API 호출
+        return f"[웹 검색 결과]\n주제: {query}\n- 관련 정보 1\n- 관련 정보 2\n- 관련 정보 3"
 
 class FileSystemTool(Tool):
     """파일 시스템 도구"""
@@ -126,11 +222,18 @@ class FileSystemTool(Tool):
                 return f"파일 읽기 실패: {str(e)}"
         elif action == "write":
             try:
+                os.makedirs(os.path.dirname(path), exist_ok=True)
                 with open(path, 'w', encoding='utf-8') as f:
                     f.write(content)
                 return f"파일 저장 완료: {path}"
             except Exception as e:
                 return f"파일 쓰기 실패: {str(e)}"
+        elif action == "list":
+            try:
+                files = os.listdir(os.path.dirname(path) or '.')
+                return f"파일 목록: {', '.join(files)}"
+            except Exception as e:
+                return f"디렉토리 읽기 실패: {str(e)}"
         return "지원하지 않는 작업입니다."
 
 class CodeExecutorTool(Tool):
@@ -143,11 +246,14 @@ class CodeExecutorTool(Tool):
         )
     
     async def execute(self, code: str) -> str:
-        """코드 실행 (보안상 제한적으로)"""
+        """코드 실행"""
         try:
-            # 실제 구현시에는 샌드박스 환경 필요
-            result = eval(code) if len(code) < 100 else "코드가 너무 깁니다"
-            return str(result)
+            # 간단한 수식 계산만 허용 (보안상)
+            if len(code) < 100 and not any(danger in code for danger in ['import', 'exec', 'eval', '__']):
+                result = eval(code)
+                return f"실행 결과: {result}"
+            else:
+                return "보안상 실행할 수 없는 코드입니다."
         except Exception as e:
             return f"실행 오류: {str(e)}"
 
@@ -168,26 +274,65 @@ class DatabaseTool(Tool):
         cursor = self.conn.cursor()
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS tasks (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                id TEXT PRIMARY KEY,
                 title TEXT NOT NULL,
                 description TEXT,
                 status TEXT,
+                agent_type TEXT,
+                priority INTEGER,
+                result TEXT,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 completed_at TIMESTAMP
             )
         ''')
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS agent_memory (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                agent_name TEXT,
+                content TEXT,
+                timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        ''')
         self.conn.commit()
     
-    async def execute(self, query: str) -> str:
-        """SQL 쿼리 실행"""
+    async def execute(self, action: str, **kwargs) -> str:
+        """데이터베이스 작업 실행"""
         try:
             cursor = self.conn.cursor()
-            cursor.execute(query)
-            if query.strip().upper().startswith('SELECT'):
-                return str(cursor.fetchall())
-            else:
+            
+            if action == "save_task":
+                cursor.execute(
+                    "INSERT INTO tasks (id, title, description, status, agent_type, priority) VALUES (?, ?, ?, ?, ?, ?)",
+                    (kwargs.get('id'), kwargs.get('title'), kwargs.get('description'), 
+                     kwargs.get('status'), kwargs.get('agent_type'), kwargs.get('priority'))
+                )
                 self.conn.commit()
-                return f"쿼리 실행 완료: {cursor.rowcount}개 행 영향"
+                return "작업이 데이터베이스에 저장되었습니다."
+                
+            elif action == "update_task":
+                cursor.execute(
+                    "UPDATE tasks SET status = ?, result = ?, completed_at = ? WHERE id = ?",
+                    (kwargs.get('status'), kwargs.get('result'), datetime.now(), kwargs.get('id'))
+                )
+                self.conn.commit()
+                return "작업 상태가 업데이트되었습니다."
+                
+            elif action == "get_tasks":
+                cursor.execute("SELECT * FROM tasks ORDER BY created_at DESC LIMIT 10")
+                tasks = cursor.fetchall()
+                return f"최근 작업 {len(tasks)}개를 가져왔습니다."
+                
+            elif action == "save_memory":
+                cursor.execute(
+                    "INSERT INTO agent_memory (agent_name, content) VALUES (?, ?)",
+                    (kwargs.get('agent_name'), kwargs.get('content'))
+                )
+                self.conn.commit()
+                return "메모리가 저장되었습니다."
+                
+            else:
+                return "지원하지 않는 데이터베이스 작업입니다."
+                
         except Exception as e:
             return f"데이터베이스 오류: {str(e)}"
 
@@ -207,14 +352,14 @@ class Task:
     created_at: datetime = field(default_factory=datetime.now)
     completed_at: Optional[datetime] = None
 
-# ============= 에이전트 기본 클래스 =============
+# ============= 에이전트 클래스 =============
 class Agent:
-    """에이전트 기본 클래스"""
+    """GGUF 모델 기반 에이전트"""
     
-    def __init__(self, name: str, agent_type: AgentType, model=None):
+    def __init__(self, name: str, agent_type: AgentType, model_manager: GGUFModelManager = None):
         self.name = name
         self.agent_type = agent_type
-        self.model = model
+        self.model_manager = model_manager
         self.tools: Dict[str, Tool] = {}
         self.memory: List[Dict] = []
         self.current_task: Optional[Task] = None
@@ -222,6 +367,7 @@ class Agent:
     def add_tool(self, tool: Tool):
         """도구 추가"""
         self.tools[tool.name] = tool
+        logger.info(f"도구 추가: {tool.name} -> {self.name}")
         
     async def process_task(self, task: Task) -> Any:
         """작업 처리"""
@@ -229,11 +375,12 @@ class Agent:
         task.status = TaskStatus.IN_PROGRESS
         
         try:
-            # 작업 계획 수립
-            plan = await self.plan_task(task)
-            
-            # 작업 실행
-            result = await self.execute_plan(plan)
+            # 모델이 로드되어 있으면 AI 기반 처리
+            if self.model_manager and self.model_manager.is_loaded():
+                result = await self.process_with_ai(task)
+            else:
+                # 모델이 없으면 기본 처리
+                result = await self.process_without_ai(task)
             
             task.status = TaskStatus.COMPLETED
             task.completed_at = datetime.now()
@@ -246,6 +393,15 @@ class Agent:
                 'timestamp': datetime.now()
             })
             
+            # 데이터베이스에 저장
+            if 'database' in self.tools:
+                await self.tools['database'].execute(
+                    'update_task',
+                    id=task.id,
+                    status='completed',
+                    result=str(result)
+                )
+            
             return result
             
         except Exception as e:
@@ -253,55 +409,101 @@ class Agent:
             task.error = str(e)
             logger.error(f"Agent {self.name} failed: {str(e)}")
             raise
-            
-    async def plan_task(self, task: Task) -> List[Dict]:
-        """작업 계획 수립"""
-        # 모델을 사용하여 작업 계획 생성
-        if self.model:
-            prompt = f"""
-            작업: {task.title}
-            설명: {task.description}
-            
-            이 작업을 수행하기 위한 단계별 계획을 수립하세요.
-            사용 가능한 도구: {', '.join(self.tools.keys())}
-            """
-            
-            # 실제로는 모델 호출
-            plan = [
-                {'step': '정보 수집', 'tool': 'web_search'},
-                {'step': '분석', 'tool': None},
-                {'step': '결과 생성', 'tool': 'file_system'}
-            ]
-        else:
-            plan = [{'step': '기본 실행', 'tool': None}]
-            
-        return plan
+    
+    async def process_with_ai(self, task: Task) -> str:
+        """AI 모델을 사용한 작업 처리"""
+        # 1. 작업 분석 프롬프트 생성
+        analysis_prompt = f"""
+당신은 {self.agent_type.value} 역할을 수행하는 AI 에이전트입니다.
+
+작업: {task.title}
+설명: {task.description}
+
+사용 가능한 도구: {', '.join(self.tools.keys())}
+
+이 작업을 어떻게 수행하시겠습니까? 단계별로 설명해주세요.
+"""
         
-    async def execute_plan(self, plan: List[Dict]) -> Any:
-        """계획 실행"""
-        results = []
+        # 2. AI 모델로 계획 생성
+        try:
+            plan = self.model_manager.generate(analysis_prompt, max_tokens=500)
+            
+            # 3. 도구 실행 여부 결정
+            result_parts = [f"[{self.name}의 분석]\n{plan}\n"]
+            
+            # 4. 필요한 도구 실행
+            for tool_name, tool in self.tools.items():
+                if tool_name in task.description.lower() or tool_name in plan.lower():
+                    if tool_name == "web_search":
+                        search_result = await tool.execute(task.title)
+                        result_parts.append(f"\n{search_result}")
+                    elif tool_name == "file_system":
+                        # 결과를 파일로 저장
+                        file_path = f"outputs/{task.id}.txt"
+                        await tool.execute("write", file_path, plan)
+                        result_parts.append(f"\n결과가 {file_path}에 저장되었습니다.")
+            
+            # 5. 최종 응답 생성
+            final_prompt = f"""
+작업 분석 결과:
+{plan}
+
+위 분석을 바탕으로 사용자에게 제공할 최종 답변을 작성해주세요.
+"""
+            
+            final_response = self.model_manager.generate(final_prompt, max_tokens=500)
+            result_parts.append(f"\n[최종 답변]\n{final_response}")
+            
+            return "\n".join(result_parts)
+            
+        except Exception as e:
+            logger.error(f"AI 처리 중 오류: {str(e)}")
+            return await self.process_without_ai(task)
+    
+    async def process_without_ai(self, task: Task) -> str:
+        """AI 모델 없이 기본 처리"""
+        results = [f"[{self.name}가 작업을 처리중입니다]"]
         
-        for step in plan:
-            if step.get('tool'):
-                tool = self.tools.get(step['tool'])
-                if tool:
-                    result = await tool.execute()
+        # 기본적인 도구 실행
+        if "검색" in task.description or "search" in task.description.lower():
+            if "web_search" in self.tools:
+                result = await self.tools["web_search"].execute(task.title)
+                results.append(result)
+        
+        if "파일" in task.description or "저장" in task.description:
+            if "file_system" in self.tools:
+                file_path = f"outputs/{task.id}.txt"
+                result = await self.tools["file_system"].execute(
+                    "write", file_path, f"작업: {task.title}\n내용: {task.description}"
+                )
+                results.append(result)
+        
+        if "계산" in task.description:
+            if "code_executor" in self.tools:
+                # 간단한 계산 추출 시도
+                import re
+                numbers = re.findall(r'\d+', task.description)
+                if len(numbers) >= 2:
+                    calc = f"{numbers[0]} + {numbers[1]}"
+                    result = await self.tools["code_executor"].execute(calc)
                     results.append(result)
-            else:
-                # 도구 없이 실행
-                results.append(f"Step completed: {step.get('step', 'Unknown')}")
-                
-        return results
+        
+        if len(results) == 1:
+            results.append(f"작업 '{task.title}'을(를) 완료했습니다.")
+        
+        return "\n".join(results)
 
 # ============= 멀티 에이전트 오케스트레이터 =============
 class AgentOrchestrator:
     """멀티 에이전트 시스템 조정자"""
     
-    def __init__(self):
+    def __init__(self, model_manager: GGUFModelManager = None):
+        self.model_manager = model_manager
         self.agents: Dict[str, Agent] = {}
         self.task_queue: queue.Queue = queue.Queue()
         self.completed_tasks: List[Task] = []
         self.running = False
+        self.db_tool = DatabaseTool()
         
     def add_agent(self, agent: Agent):
         """에이전트 추가"""
@@ -311,6 +513,21 @@ class AgentOrchestrator:
     def submit_task(self, task: Task):
         """작업 제출"""
         self.task_queue.put(task)
+        
+        # 데이터베이스에 저장
+        try:
+            asyncio.create_task(self.db_tool.execute(
+                'save_task',
+                id=task.id,
+                title=task.title,
+                description=task.description,
+                status=task.status.value,
+                agent_type=task.agent_type.value,
+                priority=task.priority
+            ))
+        except:
+            pass
+        
         logger.info(f"Task submitted: {task.title}")
         
     async def process_tasks(self):
@@ -338,10 +555,18 @@ class AgentOrchestrator:
             
     def select_agent(self, task: Task) -> Optional[Agent]:
         """작업에 적합한 에이전트 선택"""
+        # 지정된 타입의 에이전트 찾기
         for agent in self.agents.values():
             if agent.agent_type == task.agent_type:
                 return agent
-        return None
+        
+        # 없으면 실행자 에이전트 반환
+        for agent in self.agents.values():
+            if agent.agent_type == AgentType.EXECUTOR:
+                return agent
+                
+        # 그래도 없으면 첫 번째 에이전트
+        return list(self.agents.values())[0] if self.agents else None
         
     def stop(self):
         """오케스트레이터 중지"""
@@ -355,14 +580,17 @@ class AgenticAIApp(ctk.CTk):
         super().__init__()
         
         # 앱 초기화
-        self.title("🤖 Agentic AI System - 자율 AI 어시스턴트")
+        self.title("🤖 Agentic AI System - GGUF 모델 기반 자율 AI")
         self.geometry("1400x900")
         
         # 디렉토리 생성
         self.create_directories()
         
+        # 모델 관리자 초기화
+        self.model_manager = GGUFModelManager()
+        
         # 시스템 초기화
-        self.orchestrator = AgentOrchestrator()
+        self.orchestrator = AgentOrchestrator(self.model_manager)
         self.setup_agents()
         
         # 비동기 이벤트 루프
@@ -375,11 +603,11 @@ class AgenticAIApp(ctk.CTk):
         
         # 시작 메시지
         self.add_system_message("🚀 에이전틱 AI 시스템이 시작되었습니다!")
-        self.add_system_message("📋 작업을 입력하면 AI 에이전트들이 자동으로 처리합니다.")
+        self.add_system_message("⚠️ GGUF 모델을 로드하면 더 강력한 AI 기능을 사용할 수 있습니다.")
         
     def create_directories(self):
         """필요 디렉토리 생성"""
-        dirs = ["agents", "tasks", "outputs", "memory", "tools"]
+        dirs = ["models", "agents", "tasks", "outputs", "memory", "tools", "configs"]
         for dir_path in dirs:
             os.makedirs(dir_path, exist_ok=True)
             
@@ -397,7 +625,7 @@ class AgenticAIApp(ctk.CTk):
         ]
         
         for name, agent_type in agents_config:
-            agent = Agent(name, agent_type)
+            agent = Agent(name, agent_type, self.model_manager)
             
             # 도구 할당
             if agent_type in [AgentType.RESEARCHER, AgentType.EXECUTOR]:
@@ -407,6 +635,13 @@ class AgenticAIApp(ctk.CTk):
             if agent_type == AgentType.EXECUTOR:
                 agent.add_tool(CodeExecutorTool())
                 agent.add_tool(DatabaseTool())
+            
+            if agent_type == AgentType.ANALYZER:
+                agent.add_tool(CodeExecutorTool())
+                agent.add_tool(DatabaseTool())
+            
+            if agent_type == AgentType.CREATOR:
+                agent.add_tool(FileSystemTool())
                 
             self.orchestrator.add_agent(agent)
             
@@ -436,11 +671,11 @@ class AgenticAIApp(ctk.CTk):
         """사이드바 구성"""
         sidebar = ctk.CTkFrame(self, width=280, corner_radius=0, fg_color=MODERN_THEME['dark'])
         sidebar.grid(row=0, column=0, sticky="nsew")
-        sidebar.grid_rowconfigure(6, weight=1)
+        sidebar.grid_rowconfigure(7, weight=1)
         
         # 로고 영역
         logo_frame = ctk.CTkFrame(sidebar, fg_color="transparent")
-        logo_frame.grid(row=0, column=0, padx=20, pady=(20, 30), sticky="ew")
+        logo_frame.grid(row=0, column=0, padx=20, pady=(20, 10), sticky="ew")
         
         ctk.CTkLabel(
             logo_frame,
@@ -451,14 +686,54 @@ class AgenticAIApp(ctk.CTk):
         
         ctk.CTkLabel(
             logo_frame,
-            text="Autonomous Multi-Agent System",
+            text="GGUF Model Powered System",
             font=("SF Pro Text", 12),
             text_color=MODERN_THEME['text_secondary']
         ).pack()
         
+        # 모델 상태
+        self.model_status_frame = ctk.CTkFrame(sidebar, fg_color="#2D3748", corner_radius=10)
+        self.model_status_frame.grid(row=1, column=0, padx=20, pady=10, sticky="ew")
+        
+        ctk.CTkLabel(
+            self.model_status_frame,
+            text="GGUF Model Status",
+            font=("SF Pro Display", 14, "bold"),
+            text_color=MODERN_THEME['light']
+        ).pack(pady=(10, 5))
+        
+        self.model_status_label = ctk.CTkLabel(
+            self.model_status_frame,
+            text="❌ No Model Loaded",
+            font=("SF Pro Text", 12),
+            text_color=MODERN_THEME['error']
+        )
+        self.model_status_label.pack(pady=(0, 5))
+        
+        self.model_name_label = ctk.CTkLabel(
+            self.model_status_frame,
+            text="",
+            font=("SF Pro Text", 10),
+            text_color=MODERN_THEME['text_secondary']
+        )
+        self.model_name_label.pack(pady=(0, 10))
+        
+        # 모델 로드 버튼
+        self.load_model_button = ctk.CTkButton(
+            sidebar,
+            text="📂 Load GGUF Model",
+            command=self.load_model,
+            font=("SF Pro Display", 13, "bold"),
+            height=40,
+            corner_radius=8,
+            fg_color=MODERN_THEME['accent'],
+            hover_color="#D946A6"
+        )
+        self.load_model_button.grid(row=2, column=0, padx=20, pady=10, sticky="ew")
+        
         # 에이전트 상태
         self.agent_status_frame = ctk.CTkFrame(sidebar, fg_color=MODERN_THEME['surface'], corner_radius=10)
-        self.agent_status_frame.grid(row=1, column=0, padx=20, pady=10, sticky="ew")
+        self.agent_status_frame.grid(row=3, column=0, padx=20, pady=10, sticky="ew")
         
         ctk.CTkLabel(
             self.agent_status_frame,
@@ -490,7 +765,7 @@ class AgenticAIApp(ctk.CTk):
         
         # 작업 통계
         stats_frame = ctk.CTkFrame(sidebar, fg_color=MODERN_THEME['surface'], corner_radius=10)
-        stats_frame.grid(row=2, column=0, padx=20, pady=10, sticky="ew")
+        stats_frame.grid(row=4, column=0, padx=20, pady=10, sticky="ew")
         
         ctk.CTkLabel(
             stats_frame,
@@ -527,29 +802,9 @@ class AgenticAIApp(ctk.CTk):
             label.pack(side="right")
             self.stats_labels[stat_key] = label
         
-        # 도구 섹션
-        tools_frame = ctk.CTkFrame(sidebar, fg_color=MODERN_THEME['surface'], corner_radius=10)
-        tools_frame.grid(row=3, column=0, padx=20, pady=10, sticky="ew")
-        
-        ctk.CTkLabel(
-            tools_frame,
-            text="Available Tools",
-            font=("SF Pro Display", 14, "bold"),
-            text_color=MODERN_THEME['text']
-        ).pack(pady=(10, 5))
-        
-        tools = ["🔍 Web Search", "📁 File System", "💻 Code Executor", "🗄️ Database"]
-        for tool in tools:
-            ctk.CTkLabel(
-                tools_frame,
-                text=tool,
-                font=("SF Pro Text", 11),
-                text_color=MODERN_THEME['text_secondary']
-            ).pack(padx=15, pady=2, anchor="w")
-        
         # 액션 버튼들
         action_frame = ctk.CTkFrame(sidebar, fg_color="transparent")
-        action_frame.grid(row=4, column=0, padx=20, pady=20, sticky="ew")
+        action_frame.grid(row=5, column=0, padx=20, pady=10, sticky="ew")
         
         ctk.CTkButton(
             action_frame,
@@ -564,8 +819,8 @@ class AgenticAIApp(ctk.CTk):
         
         ctk.CTkButton(
             action_frame,
-            text="📊 View Reports",
-            command=self.show_reports,
+            text="⚙️ Model Settings",
+            command=self.show_model_settings,
             font=("SF Pro Display", 13, "bold"),
             height=40,
             corner_radius=8,
@@ -573,18 +828,16 @@ class AgenticAIApp(ctk.CTk):
             hover_color=MODERN_THEME['hover']
         ).pack(fill="x", pady=5)
         
-        # 설정 버튼
-        ctk.CTkButton(
-            sidebar,
-            text="⚙️ Settings",
-            command=self.show_settings,
-            font=("SF Pro Display", 12),
-            height=35,
-            corner_radius=8,
-            fg_color="transparent",
-            hover_color=MODERN_THEME['hover'],
+        # 하단 정보
+        info_frame = ctk.CTkFrame(sidebar, fg_color="transparent")
+        info_frame.grid(row=8, column=0, padx=20, pady=(0, 20), sticky="ew")
+        
+        ctk.CTkLabel(
+            info_frame,
+            text="Powered by llama-cpp-python",
+            font=("SF Pro Text", 10),
             text_color=MODERN_THEME['text_secondary']
-        ).grid(row=7, column=0, padx=20, pady=(0, 20), sticky="ew")
+        ).pack()
         
     def setup_main_area(self):
         """메인 영역 구성"""
@@ -690,9 +943,9 @@ class AgenticAIApp(ctk.CTk):
         
         # 컬럼 설정
         columns = [
-            ('ID', 80),
-            ('Title', 250),
-            ('Agent', 150),
+            ('ID', 150),
+            ('Title', 300),
+            ('Agent', 120),
             ('Status', 100),
             ('Priority', 80),
             ('Created', 150)
@@ -722,6 +975,219 @@ class AgenticAIApp(ctk.CTk):
         )
         self.memory_text.grid(row=0, column=0, sticky="nsew", padx=10, pady=10)
         
+    def load_model(self):
+        """GGUF 모델 로드"""
+        model_file = filedialog.askopenfilename(
+            title="GGUF 모델 파일 선택",
+            filetypes=[("GGUF 파일", "*.gguf"), ("모든 파일", "*.*")],
+            initialdir="models"
+        )
+        
+        if not model_file:
+            return
+        
+        # 로딩 대화상자
+        loading_dialog = self.create_loading_dialog("GGUF 모델 로드 중...")
+        
+        # 별도 스레드에서 모델 로드
+        threading.Thread(
+            target=self._load_model_thread,
+            args=(model_file, loading_dialog),
+            daemon=True
+        ).start()
+    
+    def _load_model_thread(self, model_file, loading_dialog):
+        """모델 로드 스레드"""
+        try:
+            # 모델 로드
+            self.model_manager.load_model(
+                model_file,
+                context_size=2048,
+                n_threads=4,
+                n_gpu_layers=0
+            )
+            
+            # UI 업데이트
+            self.after(100, lambda: self._handle_model_load_success(model_file, loading_dialog))
+            
+        except Exception as e:
+            self.after(100, lambda: self._handle_model_load_error(str(e), loading_dialog))
+    
+    def _handle_model_load_success(self, model_file, loading_dialog):
+        """모델 로드 성공 처리"""
+        loading_dialog.destroy()
+        
+        model_name = os.path.basename(model_file)
+        self.model_status_label.configure(
+            text="✅ Model Loaded",
+            text_color=MODERN_THEME['success']
+        )
+        self.model_name_label.configure(text=model_name[:30] + "..." if len(model_name) > 30 else model_name)
+        
+        self.add_system_message(f"✅ GGUF 모델이 성공적으로 로드되었습니다: {model_name}")
+        self.add_system_message("🚀 이제 AI 에이전트들이 강화된 기능을 사용할 수 있습니다!")
+        
+        messagebox.showinfo("성공", f"모델이 성공적으로 로드되었습니다:\n{model_name}")
+    
+    def _handle_model_load_error(self, error_msg, loading_dialog):
+        """모델 로드 실패 처리"""
+        loading_dialog.destroy()
+        
+        self.add_system_message(f"❌ 모델 로드 실패: {error_msg}")
+        messagebox.showerror("오류", f"모델 로드에 실패했습니다:\n{error_msg}")
+    
+    def create_loading_dialog(self, message):
+        """로딩 대화상자 생성"""
+        dialog = ctk.CTkToplevel(self)
+        dialog.title("처리 중")
+        dialog.geometry("300x150")
+        dialog.transient(self)
+        dialog.grab_set()
+        
+        # 중앙 배치
+        dialog.update_idletasks()
+        width = dialog.winfo_width()
+        height = dialog.winfo_height()
+        x = (dialog.winfo_screenwidth() // 2) - (width // 2)
+        y = (dialog.winfo_screenheight() // 2) - (height // 2)
+        dialog.geometry(f'+{x}+{y}')
+        
+        ctk.CTkLabel(
+            dialog,
+            text=message,
+            font=("SF Pro Display", 14, "bold")
+        ).pack(pady=(20, 10))
+        
+        progress = ctk.CTkProgressBar(dialog, width=250)
+        progress.pack(pady=(0, 20))
+        progress.configure(mode="indeterminate")
+        progress.start()
+        
+        return dialog
+    
+    def show_model_settings(self):
+        """모델 설정 대화상자"""
+        dialog = ctk.CTkToplevel(self)
+        dialog.title("Model Settings")
+        dialog.geometry("500x600")
+        dialog.transient(self)
+        dialog.grab_set()
+        
+        # 중앙 배치
+        dialog.update_idletasks()
+        width = dialog.winfo_width()
+        height = dialog.winfo_height()
+        x = (dialog.winfo_screenwidth() // 2) - (width // 2)
+        y = (dialog.winfo_screenheight() // 2) - (height // 2)
+        dialog.geometry(f'+{x}+{y}')
+        
+        # 설정 프레임
+        settings_frame = ctk.CTkScrollableFrame(dialog)
+        settings_frame.pack(fill="both", expand=True, padx=20, pady=20)
+        
+        ctk.CTkLabel(
+            settings_frame,
+            text="GGUF Model Settings",
+            font=("SF Pro Display", 20, "bold")
+        ).pack(pady=(0, 20))
+        
+        # 설정 항목들
+        settings = [
+            ("Context Size", "context_size", self.model_manager.context_size, 512, 8192),
+            ("Temperature", "temperature", self.model_manager.temperature, 0.0, 2.0),
+            ("Max Tokens", "max_tokens", self.model_manager.max_tokens, 100, 4000),
+            ("Top P", "top_p", self.model_manager.top_p, 0.0, 1.0),
+            ("Top K", "top_k", self.model_manager.top_k, 1, 100),
+            ("Repeat Penalty", "repeat_penalty", self.model_manager.repeat_penalty, 0.0, 2.0),
+            ("Threads", "n_threads", self.model_manager.n_threads, 1, 16),
+            ("GPU Layers", "n_gpu_layers", self.model_manager.n_gpu_layers, 0, 100),
+        ]
+        
+        self.setting_vars = {}
+        
+        for label, key, value, min_val, max_val in settings:
+            frame = ctk.CTkFrame(settings_frame, fg_color="transparent")
+            frame.pack(fill="x", pady=10)
+            
+            ctk.CTkLabel(
+                frame,
+                text=label,
+                font=("SF Pro Text", 14),
+                width=150,
+                anchor="w"
+            ).pack(side="left")
+            
+            if key in ["temperature", "top_p", "repeat_penalty"]:
+                slider = ctk.CTkSlider(
+                    frame,
+                    from_=min_val,
+                    to=max_val,
+                    width=200
+                )
+                slider.set(value)
+                slider.pack(side="left", padx=(10, 10))
+                
+                value_label = ctk.CTkLabel(
+                    frame,
+                    text=f"{value:.2f}",
+                    font=("SF Pro Mono", 12),
+                    width=60
+                )
+                value_label.pack(side="left")
+                
+                slider.configure(command=lambda v, l=value_label: l.configure(text=f"{v:.2f}"))
+                self.setting_vars[key] = slider
+            else:
+                entry = ctk.CTkEntry(
+                    frame,
+                    width=100,
+                    font=("SF Pro Mono", 12)
+                )
+                entry.insert(0, str(value))
+                entry.pack(side="left", padx=(10, 0))
+                self.setting_vars[key] = entry
+        
+        # 버튼
+        button_frame = ctk.CTkFrame(dialog, fg_color="transparent")
+        button_frame.pack(fill="x", padx=20, pady=(0, 20))
+        
+        ctk.CTkButton(
+            button_frame,
+            text="Cancel",
+            command=dialog.destroy,
+            width=100,
+            fg_color=MODERN_THEME['error']
+        ).pack(side="left", padx=10)
+        
+        ctk.CTkButton(
+            button_frame,
+            text="Apply",
+            command=lambda: self.apply_model_settings(dialog),
+            width=100,
+            fg_color=MODERN_THEME['success']
+        ).pack(side="right", padx=10)
+    
+    def apply_model_settings(self, dialog):
+        """모델 설정 적용"""
+        try:
+            for key, widget in self.setting_vars.items():
+                if isinstance(widget, ctk.CTkSlider):
+                    value = widget.get()
+                else:
+                    value = widget.get()
+                    if key in ["context_size", "max_tokens", "top_k", "n_threads", "n_gpu_layers"]:
+                        value = int(value)
+                    else:
+                        value = float(value)
+                
+                setattr(self.model_manager, key, value)
+            
+            self.add_system_message("✅ 모델 설정이 업데이트되었습니다.")
+            dialog.destroy()
+            
+        except ValueError as e:
+            messagebox.showerror("오류", "잘못된 값이 입력되었습니다.")
+    
     def add_system_message(self, message):
         """시스템 메시지 추가"""
         container = ctk.CTkFrame(self.chat_frame, fg_color=MODERN_THEME['info'], corner_radius=10)
@@ -735,6 +1201,33 @@ class AgenticAIApp(ctk.CTk):
             wraplength=800,
             justify="left"
         ).pack(padx=15, pady=10, anchor="w")
+        
+        # 스크롤 다운
+        self.chat_frame._parent_canvas.yview_moveto(1.0)
+        
+    def add_user_message(self, message):
+        """사용자 메시지 추가"""
+        container = ctk.CTkFrame(self.chat_frame, fg_color="#D6EAF8", corner_radius=10)
+        container.pack(fill="x", padx=10, pady=5)
+        
+        ctk.CTkLabel(
+            container,
+            text=f"👤 User",
+            font=("SF Pro Display", 12, "bold"),
+            text_color=MODERN_THEME['primary']
+        ).pack(padx=15, pady=(10, 5), anchor="w")
+        
+        ctk.CTkLabel(
+            container,
+            text=message,
+            font=("SF Pro Text", 13),
+            text_color=MODERN_THEME['text'],
+            wraplength=800,
+            justify="left"
+        ).pack(padx=15, pady=(0, 10), anchor="w")
+        
+        # 스크롤 다운
+        self.chat_frame._parent_canvas.yview_moveto(1.0)
         
     def add_agent_message(self, agent_name, message):
         """에이전트 메시지 추가"""
@@ -759,6 +1252,9 @@ class AgenticAIApp(ctk.CTk):
             justify="left"
         ).pack(padx=15, pady=(0, 10), anchor="w")
         
+        # 스크롤 다운
+        self.chat_frame._parent_canvas.yview_moveto(1.0)
+        
     def send_task(self):
         """작업 전송"""
         task_description = self.input_box.get("0.0", "end").strip()
@@ -769,12 +1265,18 @@ class AgenticAIApp(ctk.CTk):
         # 입력 초기화
         self.input_box.delete("0.0", "end")
         
+        # 사용자 메시지 표시
+        self.add_user_message(task_description)
+        
+        # 작업 유형 자동 결정
+        agent_type = self.determine_agent_type(task_description)
+        
         # 작업 생성
         task = Task(
             id=f"TASK-{datetime.now().strftime('%Y%m%d%H%M%S')}",
-            title=task_description[:50],
+            title=task_description[:50] + "..." if len(task_description) > 50 else task_description,
             description=task_description,
-            agent_type=AgentType.EXECUTOR,
+            agent_type=agent_type,
             priority=5
         )
         
@@ -782,9 +1284,56 @@ class AgenticAIApp(ctk.CTk):
         self.orchestrator.submit_task(task)
         
         # UI 업데이트
-        self.add_system_message(f"📋 새 작업 제출: {task.title}")
+        self.add_system_message(f"📋 작업이 {agent_type.value} 에이전트에게 할당되었습니다.")
         self.update_task_monitor(task)
         self.update_stats()
+        
+        # 비동기로 작업 처리 및 결과 표시
+        threading.Thread(
+            target=self._process_task_async,
+            args=(task,),
+            daemon=True
+        ).start()
+    
+    def determine_agent_type(self, description: str) -> AgentType:
+        """작업 설명을 기반으로 적절한 에이전트 타입 결정"""
+        desc_lower = description.lower()
+        
+        if any(word in desc_lower for word in ["계획", "plan", "전략", "strategy"]):
+            return AgentType.PLANNER
+        elif any(word in desc_lower for word in ["검색", "search", "찾", "find", "정보"]):
+            return AgentType.RESEARCHER
+        elif any(word in desc_lower for word in ["분석", "analyze", "통계", "데이터"]):
+            return AgentType.ANALYZER
+        elif any(word in desc_lower for word in ["만들", "create", "작성", "write", "생성"]):
+            return AgentType.CREATOR
+        elif any(word in desc_lower for word in ["검토", "review", "확인", "check"]):
+            return AgentType.REVIEWER
+        else:
+            return AgentType.EXECUTOR
+    
+    def _process_task_async(self, task):
+        """비동기 작업 처리"""
+        # 작업이 처리될 때까지 대기
+        max_wait = 30  # 최대 30초 대기
+        wait_time = 0
+        
+        while wait_time < max_wait:
+            if task.status == TaskStatus.COMPLETED:
+                # 결과 표시
+                agent = self.orchestrator.select_agent(task)
+                if agent and task.result:
+                    self.after(100, lambda: self.add_agent_message(agent.name, str(task.result)))
+                break
+            elif task.status == TaskStatus.FAILED:
+                self.after(100, lambda: self.add_system_message(f"❌ 작업 실패: {task.error}"))
+                break
+            
+            time.sleep(0.5)
+            wait_time += 0.5
+        
+        # 통계 업데이트
+        self.after(100, self.update_stats)
         
     def update_task_monitor(self, task):
         """작업 모니터 업데이트"""
@@ -908,14 +1457,6 @@ class AgenticAIApp(ctk.CTk):
         
         dialog.destroy()
         
-    def show_reports(self):
-        """리포트 보기"""
-        messagebox.showinfo("Reports", "작업 리포트 기능은 개발 중입니다.")
-        
-    def show_settings(self):
-        """설정 보기"""
-        messagebox.showinfo("Settings", "설정 기능은 개발 중입니다.")
-        
     def handle_return(self, event):
         """Enter 키 처리"""
         if event.state & 0x1:  # Shift key
@@ -933,6 +1474,20 @@ class AgenticAIApp(ctk.CTk):
 
 # ============= 메인 실행 =============
 if __name__ == "__main__":
+    if not LLAMA_CPP_AVAILABLE:
+        import tkinter as tk
+        from tkinter import messagebox
+        root = tk.Tk()
+        root.withdraw()
+        messagebox.showerror(
+            "오류", 
+            "llama-cpp-python이 설치되지 않았습니다.\n\n"
+            "다음 명령어로 설치해주세요:\n"
+            "pip install llama-cpp-python"
+        )
+        root.destroy()
+        sys.exit(1)
+    
     try:
         app = AgenticAIApp()
         app.protocol("WM_DELETE_WINDOW", app.on_closing)
