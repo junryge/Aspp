@@ -1,293 +1,591 @@
-import React, { useState, useEffect } from 'react';
-import { LineChart, Line, BarChart, Bar, RadarChart, Radar, PolarGrid, PolarAngleAxis, PolarRadiusAxis, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, Cell, PieChart, Pie } from 'recharts';
-import { TrendingUp, AlertTriangle, CheckCircle, Activity } from 'lucide-react';
-
-const ModelComparisonDashboard = () => {
-  const [activeTab, setActiveTab] = useState('overview');
-
-  // 전체 성능 비교 데이터
-  const performanceData = [
-    { metric: 'MAE', v2: 75.61, v5: 66.22, improvement: 12.4 },
-    { metric: 'RMSE', v2: 92.91, v5: 82.18, improvement: 11.6 },
-    { metric: '정상판정율', v2: 88.9, v5: 93.2, improvement: 4.8 }
-  ];
-
-  // 1400 이상 성능 데이터
-  const highLoadData = [
-    { metric: 'MAE', v2: 103.02, v5: 47.16, improvement: 54.2 },
-    { metric: 'RMSE', v2: 118.33, v5: 59.46, improvement: 49.8 },
-    { metric: '정상판정율', v2: 79.1, v5: 98.7, improvement: 24.8 }
-  ];
-
-  // 오차 분포 데이터
-  const errorDistribution = [
-    { range: '0-50', v2: 37.6, v5: 44.5 },
-    { range: '50-100', v2: 34.0, v5: 32.1 },
-    { range: '100-150', v2: 18.1, v5: 16.3 },
-    { range: '150-200', v2: 7.5, v5: 5.7 },
-    { range: '200+', v2: 2.8, v5: 1.3 }
-  ];
-
-  // 비정상 판정 비교
-  const abnormalData = [
-    { category: '전체', v2_normal: 759, v2_abnormal: 94, v5_normal: 795, v5_abnormal: 58 },
-    { category: '1400+', v2_normal: 295, v2_abnormal: 78, v5_normal: 368, v5_abnormal: 5 }
-  ];
-
-  // Radar 차트용 데이터
-  const radarData = [
-    { subject: '예측정확도', v2: 75, v5: 88, fullMark: 100 },
-    { subject: '안정성', v2: 70, v5: 93, fullMark: 100 },
-    { subject: '고부하처리', v2: 50, v5: 95, fullMark: 100 },
-    { subject: '일관성', v2: 65, v5: 85, fullMark: 100 },
-    { subject: '속도', v2: 80, v5: 80, fullMark: 100 }
-  ];
-
-  const COLORS = {
-    v2: '#FF6B6B',
-    v5: '#4ECDC4',
-    improvement: '#95E77E',
-    warning: '#FFE66D',
-    danger: '#FF6B6B'
-  };
-
-  return (
-    <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100 p-6">
-      <div className="max-w-7xl mx-auto">
-        {/* Header */}
-        <div className="bg-white rounded-xl shadow-lg p-6 mb-6">
-          <h1 className="text-3xl font-bold text-gray-800 mb-2">
-            반도체 물류 예측 모델 성능 비교
-          </h1>
-          <p className="text-gray-600">구형 앙상블 V2.0 vs 신형 앙상블 V5.0</p>
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>반도체 물류 예측 모델 V2 vs V5 비교 분석</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+        
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 20px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+            overflow: hidden;
+        }
+        
+        .header {
+            background: linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%);
+            color: white;
+            padding: 40px;
+            text-align: center;
+        }
+        
+        .header h1 {
+            font-size: 2.5em;
+            margin-bottom: 10px;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.2);
+        }
+        
+        .header p {
+            font-size: 1.2em;
+            opacity: 0.9;
+        }
+        
+        .content {
+            padding: 40px;
+        }
+        
+        .metrics-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 20px;
+            margin-bottom: 40px;
+        }
+        
+        .metric-card {
+            padding: 25px;
+            border-radius: 15px;
+            box-shadow: 0 5px 15px rgba(0,0,0,0.1);
+            transition: transform 0.3s, box-shadow 0.3s;
+        }
+        
+        .metric-card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 10px 25px rgba(0,0,0,0.15);
+        }
+        
+        .metric-card.improvement {
+            background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+            color: white;
+        }
+        
+        .metric-card.high-load {
+            background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
+            color: white;
+        }
+        
+        .metric-card.stability {
+            background: linear-gradient(135deg, #8b5cf6 0%, #7c3aed 100%);
+            color: white;
+        }
+        
+        .metric-card.warning {
+            background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);
+            color: white;
+        }
+        
+        .metric-value {
+            font-size: 2.5em;
+            font-weight: bold;
+            margin-bottom: 10px;
+        }
+        
+        .metric-label {
+            font-size: 1.1em;
+            opacity: 0.9;
+        }
+        
+        .chart-section {
+            margin-bottom: 40px;
+        }
+        
+        .chart-container {
+            background: white;
+            padding: 30px;
+            border-radius: 15px;
+            box-shadow: 0 5px 15px rgba(0,0,0,0.1);
+            margin-bottom: 30px;
+        }
+        
+        .chart-title {
+            font-size: 1.5em;
+            font-weight: bold;
+            margin-bottom: 20px;
+            color: #333;
+            border-bottom: 2px solid #e5e7eb;
+            padding-bottom: 10px;
+        }
+        
+        .comparison-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-bottom: 30px;
+        }
+        
+        .comparison-table th {
+            background: linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%);
+            color: white;
+            padding: 15px;
+            text-align: left;
+            font-weight: 600;
+        }
+        
+        .comparison-table td {
+            padding: 15px;
+            border-bottom: 1px solid #e5e7eb;
+        }
+        
+        .comparison-table tr:hover {
+            background: #f9fafb;
+        }
+        
+        .improvement-badge {
+            display: inline-block;
+            padding: 5px 12px;
+            border-radius: 20px;
+            font-size: 0.9em;
+            font-weight: bold;
+        }
+        
+        .improvement-high {
+            background: #10b981;
+            color: white;
+        }
+        
+        .improvement-medium {
+            background: #3b82f6;
+            color: white;
+        }
+        
+        .improvement-low {
+            background: #f59e0b;
+            color: white;
+        }
+        
+        .summary-section {
+            background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
+            color: white;
+            padding: 30px;
+            border-radius: 15px;
+            margin-top: 40px;
+        }
+        
+        .summary-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 20px;
+            margin-top: 20px;
+        }
+        
+        .summary-item {
+            text-align: center;
+            padding: 20px;
+            background: rgba(255,255,255,0.1);
+            border-radius: 10px;
+        }
+        
+        .summary-value {
+            font-size: 1.8em;
+            font-weight: bold;
+            margin-bottom: 5px;
+        }
+        
+        .summary-label {
+            font-size: 0.9em;
+            opacity: 0.9;
+        }
+        
+        canvas {
+            max-height: 300px !important;
+        }
+        
+        @media print {
+            body {
+                background: white;
+                padding: 0;
+            }
+            
+            .container {
+                box-shadow: none;
+            }
+            
+            .chart-container {
+                page-break-inside: avoid;
+            }
+        }
+        
+        .grid-2 {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(500px, 1fr));
+            gap: 30px;
+        }
+        
+        @media (max-width: 768px) {
+            .grid-2 {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <!-- Header -->
+        <div class="header">
+            <h1>🚀 반도체 물류 예측 모델 성능 비교</h1>
+            <p>구형 앙상블 V2.0 vs 신형 앙상블 V5.0</p>
         </div>
-
-        {/* Tab Navigation */}
-        <div className="bg-white rounded-lg shadow mb-6 p-1">
-          <div className="flex space-x-1">
-            {['overview', 'performance', 'distribution', 'highload'].map((tab) => (
-              <button
-                key={tab}
-                onClick={() => setActiveTab(tab)}
-                className={`flex-1 py-3 px-4 rounded-lg font-medium transition-all ${
-                  activeTab === tab 
-                    ? 'bg-gradient-to-r from-blue-500 to-teal-500 text-white' 
-                    : 'text-gray-600 hover:bg-gray-100'
-                }`}
-              >
-                {tab === 'overview' && '종합 요약'}
-                {tab === 'performance' && '성능 지표'}
-                {tab === 'distribution' && '오차 분포'}
-                {tab === 'highload' && '고부하 구간'}
-              </button>
-            ))}
-          </div>
-        </div>
-
-        {/* Content Area */}
-        {activeTab === 'overview' && (
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            {/* Key Metrics Cards */}
-            <div className="grid grid-cols-2 gap-4">
-              <div className="bg-gradient-to-br from-green-400 to-green-600 rounded-xl p-6 text-white">
-                <div className="flex items-center justify-between mb-2">
-                  <TrendingUp className="w-8 h-8" />
-                  <span className="text-2xl font-bold">12.4%</span>
+        
+        <!-- Content -->
+        <div class="content">
+            <!-- Key Metrics -->
+            <div class="metrics-grid">
+                <div class="metric-card improvement">
+                    <div class="metric-value">12.4%</div>
+                    <div class="metric-label">전체 MAE 개선</div>
                 </div>
-                <p className="text-sm opacity-90">전체 MAE 개선</p>
-              </div>
-              
-              <div className="bg-gradient-to-br from-blue-400 to-blue-600 rounded-xl p-6 text-white">
-                <div className="flex items-center justify-between mb-2">
-                  <Activity className="w-8 h-8" />
-                  <span className="text-2xl font-bold">54.2%</span>
+                
+                <div class="metric-card high-load">
+                    <div class="metric-value">54.2%</div>
+                    <div class="metric-label">1400+ MAE 개선</div>
                 </div>
-                <p className="text-sm opacity-90">1400+ MAE 개선</p>
-              </div>
-              
-              <div className="bg-gradient-to-br from-purple-400 to-purple-600 rounded-xl p-6 text-white">
-                <div className="flex items-center justify-between mb-2">
-                  <CheckCircle className="w-8 h-8" />
-                  <span className="text-2xl font-bold">38.3%</span>
+                
+                <div class="metric-card stability">
+                    <div class="metric-value">38.3%</div>
+                    <div class="metric-label">비정상 판정 감소</div>
                 </div>
-                <p className="text-sm opacity-90">비정상 판정 감소</p>
-              </div>
-              
-              <div className="bg-gradient-to-br from-orange-400 to-orange-600 rounded-xl p-6 text-white">
-                <div className="flex items-center justify-between mb-2">
-                  <AlertTriangle className="w-8 h-8" />
-                  <span className="text-2xl font-bold">93.6%</span>
+                
+                <div class="metric-card warning">
+                    <div class="metric-value">93.6%</div>
+                    <div class="metric-label">1400+ 비정상 감소</div>
                 </div>
-                <p className="text-sm opacity-90">1400+ 비정상 감소</p>
-              </div>
             </div>
-
-            {/* Radar Chart */}
-            <div className="bg-white rounded-xl shadow-lg p-6">
-              <h3 className="text-lg font-semibold mb-4">종합 성능 비교</h3>
-              <ResponsiveContainer width="100%" height={300}>
-                <RadarChart data={radarData}>
-                  <PolarGrid stroke="#e0e0e0" />
-                  <PolarAngleAxis dataKey="subject" />
-                  <PolarRadiusAxis angle={90} domain={[0, 100]} />
-                  <Radar name="V2.0" dataKey="v2" stroke={COLORS.v2} fill={COLORS.v2} fillOpacity={0.3} />
-                  <Radar name="V5.0" dataKey="v5" stroke={COLORS.v5} fill={COLORS.v5} fillOpacity={0.3} />
-                  <Legend />
-                </RadarChart>
-              </ResponsiveContainer>
+            
+            <!-- Performance Comparison Table -->
+            <div class="chart-container">
+                <h2 class="chart-title">📊 전체 성능 지표 비교</h2>
+                <table class="comparison-table">
+                    <thead>
+                        <tr>
+                            <th>지표</th>
+                            <th>구형 V2.0</th>
+                            <th>신형 V5.0</th>
+                            <th>개선율</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td><strong>MAE (평균 절대 오차)</strong></td>
+                            <td>75.61</td>
+                            <td>66.22</td>
+                            <td><span class="improvement-badge improvement-medium">12.4% ↓</span></td>
+                        </tr>
+                        <tr>
+                            <td><strong>RMSE (평균 제곱근 오차)</strong></td>
+                            <td>92.91</td>
+                            <td>82.18</td>
+                            <td><span class="improvement-badge improvement-medium">11.6% ↓</span></td>
+                        </tr>
+                        <tr>
+                            <td><strong>정상 판정 정확도</strong></td>
+                            <td>88.9%</td>
+                            <td>93.2%</td>
+                            <td><span class="improvement-badge improvement-low">4.3%p ↑</span></td>
+                        </tr>
+                        <tr>
+                            <td><strong>비정상 판정 건수</strong></td>
+                            <td>94건</td>
+                            <td>58건</td>
+                            <td><span class="improvement-badge improvement-high">38.3% ↓</span></td>
+                        </tr>
+                    </tbody>
+                </table>
             </div>
-          </div>
-        )}
-
-        {activeTab === 'performance' && (
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            {/* 전체 성능 비교 */}
-            <div className="bg-white rounded-xl shadow-lg p-6">
-              <h3 className="text-lg font-semibold mb-4">전체 데이터 성능 지표</h3>
-              <ResponsiveContainer width="100%" height={300}>
-                <BarChart data={performanceData}>
-                  <CartesianGrid strokeDasharray="3 3" />
-                  <XAxis dataKey="metric" />
-                  <YAxis />
-                  <Tooltip />
-                  <Legend />
-                  <Bar dataKey="v2" name="V2.0" fill={COLORS.v2} />
-                  <Bar dataKey="v5" name="V5.0" fill={COLORS.v5} />
-                </BarChart>
-              </ResponsiveContainer>
+            
+            <!-- High Load Performance -->
+            <div class="chart-container">
+                <h2 class="chart-title">🔥 1400+ 고부하 구간 성능</h2>
+                <table class="comparison-table">
+                    <thead>
+                        <tr>
+                            <th>지표</th>
+                            <th>구형 V2.0</th>
+                            <th>신형 V5.0</th>
+                            <th>개선율</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td><strong>MAE</strong></td>
+                            <td>103.02</td>
+                            <td>47.16</td>
+                            <td><span class="improvement-badge improvement-high">54.2% ↓</span></td>
+                        </tr>
+                        <tr>
+                            <td><strong>RMSE</strong></td>
+                            <td>118.33</td>
+                            <td>59.46</td>
+                            <td><span class="improvement-badge improvement-high">49.8% ↓</span></td>
+                        </tr>
+                        <tr>
+                            <td><strong>정상 판정율</strong></td>
+                            <td>79.1%</td>
+                            <td>98.7%</td>
+                            <td><span class="improvement-badge improvement-high">24.8% ↑</span></td>
+                        </tr>
+                        <tr>
+                            <td><strong>비정상 판정 건수</strong></td>
+                            <td>78건</td>
+                            <td>5건</td>
+                            <td><span class="improvement-badge improvement-high">93.6% ↓</span></td>
+                        </tr>
+                    </tbody>
+                </table>
             </div>
-
-            {/* 개선율 차트 */}
-            <div className="bg-white rounded-xl shadow-lg p-6">
-              <h3 className="text-lg font-semibold mb-4">개선율 (%)</h3>
-              <ResponsiveContainer width="100%" height={300}>
-                <BarChart data={performanceData}>
-                  <CartesianGrid strokeDasharray="3 3" />
-                  <XAxis dataKey="metric" />
-                  <YAxis />
-                  <Tooltip />
-                  <Bar dataKey="improvement" name="개선율" fill={COLORS.improvement}>
-                    {performanceData.map((entry, index) => (
-                      <Cell key={`cell-${index}`} fill={COLORS.improvement} />
-                    ))}
-                  </Bar>
-                </BarChart>
-              </ResponsiveContainer>
+            
+            <!-- Charts -->
+            <div class="grid-2">
+                <div class="chart-container">
+                    <h2 class="chart-title">📈 전체 성능 비교</h2>
+                    <canvas id="performanceChart"></canvas>
+                </div>
+                
+                <div class="chart-container">
+                    <h2 class="chart-title">📊 오차 분포</h2>
+                    <canvas id="errorChart"></canvas>
+                </div>
             </div>
-          </div>
-        )}
-
-        {activeTab === 'distribution' && (
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            {/* 오차 분포 비교 */}
-            <div className="bg-white rounded-xl shadow-lg p-6">
-              <h3 className="text-lg font-semibold mb-4">오차 분포 비교</h3>
-              <ResponsiveContainer width="100%" height={300}>
-                <BarChart data={errorDistribution}>
-                  <CartesianGrid strokeDasharray="3 3" />
-                  <XAxis dataKey="range" />
-                  <YAxis label={{ value: '비율 (%)', angle: -90, position: 'insideLeft' }} />
-                  <Tooltip />
-                  <Legend />
-                  <Bar dataKey="v2" name="V2.0" fill={COLORS.v2} />
-                  <Bar dataKey="v5" name="V5.0" fill={COLORS.v5} />
-                </BarChart>
-              </ResponsiveContainer>
+            
+            <div class="grid-2">
+                <div class="chart-container">
+                    <h2 class="chart-title">🎯 1400+ 구간 성능</h2>
+                    <canvas id="highLoadChart"></canvas>
+                </div>
+                
+                <div class="chart-container">
+                    <h2 class="chart-title">⚡ 개선율 비교</h2>
+                    <canvas id="improvementChart"></canvas>
+                </div>
             </div>
-
-            {/* 정상/비정상 판정 */}
-            <div className="bg-white rounded-xl shadow-lg p-6">
-              <h3 className="text-lg font-semibold mb-4">정상/비정상 판정 현황</h3>
-              <div className="space-y-4">
-                {abnormalData.map((item) => (
-                  <div key={item.category} className="border rounded-lg p-4">
-                    <h4 className="font-medium mb-2">{item.category} 데이터</h4>
-                    <div className="grid grid-cols-2 gap-4">
-                      <div>
-                        <p className="text-sm text-gray-600">V2.0</p>
-                        <div className="flex items-center space-x-2">
-                          <span className="text-green-600">정상: {item.v2_normal}</span>
-                          <span className="text-red-600">비정상: {item.v2_abnormal}</span>
-                        </div>
-                      </div>
-                      <div>
-                        <p className="text-sm text-gray-600">V5.0</p>
-                        <div className="flex items-center space-x-2">
-                          <span className="text-green-600">정상: {item.v5_normal}</span>
-                          <span className="text-red-600">비정상: {item.v5_abnormal}</span>
-                        </div>
-                      </div>
+            
+            <!-- Model Architecture Info -->
+            <div class="chart-container">
+                <h2 class="chart-title">🔧 V5 앙상블 모델 구성</h2>
+                <table class="comparison-table">
+                    <thead>
+                        <tr>
+                            <th>모델</th>
+                            <th>학습 Epochs</th>
+                            <th>Val MAE</th>
+                            <th>주요 역할</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td><strong>LSTM</strong></td>
+                            <td>27</td>
+                            <td>0.4201</td>
+                            <td>시계열 장기 의존성 학습</td>
+                        </tr>
+                        <tr>
+                            <td><strong>GRU</strong></td>
+                            <td>32</td>
+                            <td>0.4227</td>
+                            <td>빠른 학습, 시계열 패턴 포착</td>
+                        </tr>
+                        <tr>
+                            <td><strong>CNN-LSTM</strong></td>
+                            <td>23</td>
+                            <td>0.4142</td>
+                            <td>공간적 + 시간적 특징 결합</td>
+                        </tr>
+                        <tr>
+                            <td><strong>Spike Detector</strong></td>
+                            <td>16</td>
+                            <td>특수</td>
+                            <td>1400+ 급격한 변화 감지 특화</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+            
+            <!-- Summary -->
+            <div class="summary-section">
+                <h2 style="text-align: center; margin-bottom: 20px;">💡 핵심 결론</h2>
+                <div class="summary-grid">
+                    <div class="summary-item">
+                        <div class="summary-value">✅ 12.4%</div>
+                        <div class="summary-label">전체 성능 개선</div>
                     </div>
-                  </div>
-                ))}
-              </div>
+                    <div class="summary-item">
+                        <div class="summary-value">🚀 54.2%</div>
+                        <div class="summary-label">고부하 구간 개선</div>
+                    </div>
+                    <div class="summary-item">
+                        <div class="summary-value">📈 38.3%</div>
+                        <div class="summary-label">시스템 안정성 향상</div>
+                    </div>
+                    <div class="summary-item">
+                        <div class="summary-value">🎯 4개</div>
+                        <div class="summary-label">앙상블 모델</div>
+                    </div>
+                </div>
+                <p style="text-align: center; margin-top: 20px; font-size: 1.1em;">
+                    <strong>신형 V5.0 모델이 모든 지표에서 우수한 성능을 보였으며,<br>
+                    특히 1400 이상 고부하 구간 예측이 획기적으로 개선되었습니다.</strong>
+                </p>
             </div>
-          </div>
-        )}
-
-        {activeTab === 'highload' && (
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            {/* 1400+ 성능 비교 */}
-            <div className="bg-white rounded-xl shadow-lg p-6">
-              <h3 className="text-lg font-semibold mb-4">1400+ 고부하 구간 성능</h3>
-              <ResponsiveContainer width="100%" height={300}>
-                <BarChart data={highLoadData}>
-                  <CartesianGrid strokeDasharray="3 3" />
-                  <XAxis dataKey="metric" />
-                  <YAxis />
-                  <Tooltip />
-                  <Legend />
-                  <Bar dataKey="v2" name="V2.0" fill={COLORS.v2} />
-                  <Bar dataKey="v5" name="V5.0" fill={COLORS.v5} />
-                </BarChart>
-              </ResponsiveContainer>
-            </div>
-
-            {/* 고부하 개선율 */}
-            <div className="bg-white rounded-xl shadow-lg p-6">
-              <h3 className="text-lg font-semibold mb-4">고부하 구간 개선율</h3>
-              <ResponsiveContainer width="100%" height={300}>
-                <BarChart data={highLoadData} layout="horizontal">
-                  <CartesianGrid strokeDasharray="3 3" />
-                  <XAxis type="number" />
-                  <YAxis dataKey="metric" type="category" />
-                  <Tooltip />
-                  <Bar dataKey="improvement" name="개선율 (%)" fill={COLORS.improvement}>
-                    {highLoadData.map((entry, index) => (
-                      <Cell key={`cell-${index}`} fill={
-                        entry.improvement > 50 ? '#10B981' : 
-                        entry.improvement > 30 ? COLORS.improvement : 
-                        COLORS.warning
-                      } />
-                    ))}
-                  </Bar>
-                </BarChart>
-              </ResponsiveContainer>
-            </div>
-          </div>
-        )}
-
-        {/* Summary Box */}
-        <div className="mt-6 bg-gradient-to-r from-blue-600 to-teal-600 rounded-xl shadow-lg p-6 text-white">
-          <h3 className="text-xl font-bold mb-3">💡 핵심 결론</h3>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <div>
-              <p className="text-sm opacity-90">전체 성능</p>
-              <p className="text-lg font-semibold">MAE 12.4% 개선 ✅</p>
-            </div>
-            <div>
-              <p className="text-sm opacity-90">고부하 구간 (1400+)</p>
-              <p className="text-lg font-semibold">MAE 54.2% 개선 🚀</p>
-            </div>
-            <div>
-              <p className="text-sm opacity-90">시스템 안정성</p>
-              <p className="text-lg font-semibold">비정상 38.3% 감소 📈</p>
-            </div>
-          </div>
         </div>
-      </div>
     </div>
-  );
-};
-
-export default ModelComparisonDashboard;
+    
+    <script>
+        // Chart configurations
+        Chart.defaults.font.family = 'Segoe UI';
+        Chart.defaults.font.size = 12;
+        
+        // Performance Comparison Chart
+        const performanceCtx = document.getElementById('performanceChart').getContext('2d');
+        new Chart(performanceCtx, {
+            type: 'bar',
+            data: {
+                labels: ['MAE', 'RMSE', '정상판정율(%)'],
+                datasets: [{
+                    label: 'V2.0',
+                    data: [75.61, 92.91, 88.9],
+                    backgroundColor: 'rgba(255, 107, 107, 0.8)',
+                    borderColor: 'rgba(255, 107, 107, 1)',
+                    borderWidth: 2
+                }, {
+                    label: 'V5.0',
+                    data: [66.22, 82.18, 93.2],
+                    backgroundColor: 'rgba(78, 205, 196, 0.8)',
+                    borderColor: 'rgba(78, 205, 196, 1)',
+                    borderWidth: 2
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: true,
+                scales: {
+                    y: {
+                        beginAtZero: true
+                    }
+                }
+            }
+        });
+        
+        // Error Distribution Chart
+        const errorCtx = document.getElementById('errorChart').getContext('2d');
+        new Chart(errorCtx, {
+            type: 'line',
+            data: {
+                labels: ['0-50', '50-100', '100-150', '150-200', '200+'],
+                datasets: [{
+                    label: 'V2.0',
+                    data: [37.6, 34.0, 18.1, 7.5, 2.8],
+                    borderColor: 'rgba(255, 107, 107, 1)',
+                    backgroundColor: 'rgba(255, 107, 107, 0.2)',
+                    borderWidth: 3,
+                    tension: 0.4
+                }, {
+                    label: 'V5.0',
+                    data: [44.5, 32.1, 16.3, 5.7, 1.3],
+                    borderColor: 'rgba(78, 205, 196, 1)',
+                    backgroundColor: 'rgba(78, 205, 196, 0.2)',
+                    borderWidth: 3,
+                    tension: 0.4
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: true,
+                scales: {
+                    y: {
+                        beginAtZero: true,
+                        title: {
+                            display: true,
+                            text: '비율 (%)'
+                        }
+                    }
+                }
+            }
+        });
+        
+        // High Load Performance Chart
+        const highLoadCtx = document.getElementById('highLoadChart').getContext('2d');
+        new Chart(highLoadCtx, {
+            type: 'bar',
+            data: {
+                labels: ['MAE', 'RMSE', '정상판정율(%)'],
+                datasets: [{
+                    label: 'V2.0',
+                    data: [103.02, 118.33, 79.1],
+                    backgroundColor: 'rgba(255, 107, 107, 0.8)',
+                    borderColor: 'rgba(255, 107, 107, 1)',
+                    borderWidth: 2
+                }, {
+                    label: 'V5.0',
+                    data: [47.16, 59.46, 98.7],
+                    backgroundColor: 'rgba(78, 205, 196, 0.8)',
+                    borderColor: 'rgba(78, 205, 196, 1)',
+                    borderWidth: 2
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: true,
+                scales: {
+                    y: {
+                        beginAtZero: true
+                    }
+                }
+            }
+        });
+        
+        // Improvement Rate Chart
+        const improvementCtx = document.getElementById('improvementChart').getContext('2d');
+        new Chart(improvementCtx, {
+            type: 'doughnut',
+            data: {
+                labels: ['전체 MAE 개선', '1400+ MAE 개선', '비정상 감소', '1400+ 비정상 감소'],
+                datasets: [{
+                    data: [12.4, 54.2, 38.3, 93.6],
+                    backgroundColor: [
+                        'rgba(149, 231, 126, 0.8)',
+                        'rgba(16, 185, 129, 0.8)',
+                        'rgba(59, 130, 246, 0.8)',
+                        'rgba(139, 92, 246, 0.8)'
+                    ],
+                    borderColor: [
+                        'rgba(149, 231, 126, 1)',
+                        'rgba(16, 185, 129, 1)',
+                        'rgba(59, 130, 246, 1)',
+                        'rgba(139, 92, 246, 1)'
+                    ],
+                    borderWidth: 2
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: true,
+                plugins: {
+                    legend: {
+                        position: 'bottom'
+                    },
+                    tooltip: {
+                        callbacks: {
+                            label: function(context) {
+                                return context.label + ': ' + context.parsed + '%';
+                            }
+                        }
+                    }
+                }
+            }
+        });
+    </script>
+</body>
+</html>
