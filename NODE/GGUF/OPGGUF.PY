@@ -10,6 +10,13 @@ pip install https://github.com/abetlen/llama-cpp-python/releases/download/v0.2.9
 
 # 설치 확인 테스트
 python -c "from llama_cpp import Llama; print('✅ 설치 성공!')"
+
+
+# 컴파일 중단: Ctrl + C
+
+# 캐시 삭제 후 재시도
+pip cache purge
+pip install llama-cpp-python --prefer-binary --no-build-isolation
 """
 에이전틱 AI 시스템 - GGUF 모델 기반 자율 AI 어시스턴트
 Multi-Agent Architecture with GGUF Model Integration
