@@ -7,6 +7,9 @@ pip uninstall llama-cpp-python -y
 
 # Python 3.11 Windows CPU 버전 직접 설치
 pip install https://github.com/abetlen/llama-cpp-python/releases/download/v0.2.90/llama_cpp_python-0.2.90-cp311-cp311-win_amd64.whl
+
+# 설치 확인 테스트
+python -c "from llama_cpp import Llama; print('✅ 설치 성공!')"
 """
 에이전틱 AI 시스템 - GGUF 모델 기반 자율 AI 어시스턴트
 Multi-Agent Architecture with GGUF Model Integration
