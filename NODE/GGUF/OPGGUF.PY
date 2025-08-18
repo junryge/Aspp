@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """
-완전한 GGUF 오케스트레이터 LLM 시스템
-로컬 환경에서 다중 AI 모델을 지능적으로 관리하고 조율하는 시스템
+에이전틱 AI 시스템 - 자율 작업 수행 가능한 AI 어시스턴트
+Multi-Agent Architecture with Tool Usage
 """
 
 import os
@@ -9,1396 +9,946 @@ import sys
 import json
 import time
 import threading
-import queue
-import psutil
-import hashlib
+import asyncio
+from typing import Dict, List, Optional, Any, Callable
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional, Any, Tuple, Callable
 from enum import Enum
+import customtkinter as ctk
+from tkinter import filedialog, messagebox, ttk
 from pathlib import Path
 import logging
 from datetime import datetime
 import traceback
-import customtkinter as ctk
-from tkinter import filedialog, messagebox, ttk
-import tkinter as tk
+from abc import ABC, abstractmethod
+import queue
+import subprocess
+import webbrowser
+import sqlite3
 
-# llama-cpp-python import
+# llama-cpp-python 직접 import
 try:
     from llama_cpp import Llama
     LLAMA_CPP_AVAILABLE = True
 except ImportError:
     LLAMA_CPP_AVAILABLE = False
-    print("llama-cpp-python 설치 필요: pip install llama-cpp-python")
+    print("llama-cpp-python가 설치되지 않았습니다. 설치해주세요: pip install llama-cpp-python")
 
 # 로깅 설정
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    handlers=[
-        logging.FileHandler("orchestrator.log", encoding='utf-8'),
-        logging.StreamHandler()
-    ]
+    handlers=[logging.FileHandler("agentic_ai.log"), logging.StreamHandler()]
 )
 logger = logging.getLogger(__name__)
 
-# ==================== 시스템 상수 ====================
-MAX_CONTEXT_LENGTH = 4096
-DEFAULT_MAX_TOKENS = 1024
-MEMORY_SAFETY_MARGIN = 0.8  # 메모리의 80%만 사용
+# 현대적 테마 설정
+MODERN_THEME = {
+    'primary': '#6366F1',      # Indigo
+    'secondary': '#8B5CF6',    # Purple
+    'accent': '#EC4899',       # Pink
+    'success': '#10B981',      # Emerald
+    'warning': '#F59E0B',      # Amber
+    'error': '#EF4444',        # Red
+    'info': '#3B82F6',         # Blue
+    'dark': '#1F2937',         # Gray-800
+    'light': '#F9FAFB',        # Gray-50
+    'surface': '#FFFFFF',
+    'text': '#111827',         # Gray-900
+    'text_secondary': '#6B7280', # Gray-500
+    'border': '#E5E7EB',       # Gray-200
+    'hover': '#4F46E5',        # Indigo-600
+    'gradient_start': '#6366F1',
+    'gradient_end': '#8B5CF6'
+}
 
-# ==================== 1. 에이전트 타입 및 역할 정의 ====================
-class AgentRole(Enum):
-    """에이전트 역할 정의"""
-    ROUTER = "router"              # 작업 분류 및 라우팅
-    ANALYZER = "analyzer"          # 입력 분석
-    CODER = "coder"               # 코드 생성
-    DEBUGGER = "debugger"         # 코드 디버깅
-    WRITER = "writer"             # 문서 작성
-    TRANSLATOR = "translator"     # 번역
-    SUMMARIZER = "summarizer"     # 요약
-    VALIDATOR = "validator"       # 검증
-    CREATIVE = "creative"         # 창작
-    MATH = "math"                 # 수학/계산
-    DATA_ANALYST = "data_analyst" # 데이터 분석
-    GENERAL = "general"           # 일반 대화
-
-class TaskPriority(Enum):
-    """작업 우선순위"""
-    CRITICAL = 1
-    HIGH = 2
-    NORMAL = 3
-    LOW = 4
+# ============= 에이전트 타입 정의 =============
+class AgentType(Enum):
+    """에이전트 타입 정의"""
+    ORCHESTRATOR = "orchestrator"     # 전체 조정자
+    PLANNER = "planner"               # 계획 수립
+    EXECUTOR = "executor"             # 실행 담당
+    RESEARCHER = "researcher"         # 정보 수집
+    ANALYZER = "analyzer"             # 분석 담당
+    CREATOR = "creator"               # 콘텐츠 생성
+    REVIEWER = "reviewer"             # 검토 담당
 
 class TaskStatus(Enum):
     """작업 상태"""
     PENDING = "pending"
-    ANALYZING = "analyzing"
-    ROUTING = "routing"
-    PROCESSING = "processing"
+    IN_PROGRESS = "in_progress"
     COMPLETED = "completed"
     FAILED = "failed"
     CANCELLED = "cancelled"
 
-# ==================== 2. 시스템 모니터링 ====================
-class SystemMonitor:
-    """시스템 리소스 모니터링"""
+# ============= 도구 인터페이스 =============
+class Tool(ABC):
+    """도구 기본 클래스"""
     
-    @staticmethod
-    def get_memory_info() -> Dict[str, float]:
-        """메모리 정보 가져오기"""
-        memory = psutil.virtual_memory()
-        return {
-            "total_gb": memory.total / (1024**3),
-            "available_gb": memory.available / (1024**3),
-            "used_gb": memory.used / (1024**3),
-            "percent": memory.percent
-        }
+    def __init__(self, name: str, description: str):
+        self.name = name
+        self.description = description
     
-    @staticmethod
-    def get_cpu_info() -> Dict[str, float]:
-        """CPU 정보 가져오기"""
-        return {
-            "percent": psutil.cpu_percent(interval=1),
-            "cores": psutil.cpu_count(logical=False),
-            "threads": psutil.cpu_count(logical=True)
-        }
-    
-    @staticmethod
-    def can_load_model(model_size_gb: float) -> bool:
-        """모델 로드 가능 여부 확인"""
-        memory_info = SystemMonitor.get_memory_info()
-        available = memory_info["available_gb"]
-        required = model_size_gb * 1.2  # 20% 여유 공간
-        return available > required
+    @abstractmethod
+    async def execute(self, *args, **kwargs) -> Any:
+        """도구 실행"""
+        pass
 
-# ==================== 3. 작업 정의 ====================
+class WebSearchTool(Tool):
+    """웹 검색 도구"""
+    
+    def __init__(self):
+        super().__init__(
+            name="web_search",
+            description="웹에서 정보를 검색합니다"
+        )
+    
+    async def execute(self, query: str) -> str:
+        """웹 검색 실행 (시뮬레이션)"""
+        await asyncio.sleep(1)  # 실제로는 API 호출
+        return f"검색 결과: {query}에 대한 정보를 찾았습니다."
+
+class FileSystemTool(Tool):
+    """파일 시스템 도구"""
+    
+    def __init__(self):
+        super().__init__(
+            name="file_system",
+            description="파일을 읽고 쓸 수 있습니다"
+        )
+    
+    async def execute(self, action: str, path: str, content: str = None) -> str:
+        """파일 작업 실행"""
+        if action == "read":
+            try:
+                with open(path, 'r', encoding='utf-8') as f:
+                    return f.read()
+            except Exception as e:
+                return f"파일 읽기 실패: {str(e)}"
+        elif action == "write":
+            try:
+                with open(path, 'w', encoding='utf-8') as f:
+                    f.write(content)
+                return f"파일 저장 완료: {path}"
+            except Exception as e:
+                return f"파일 쓰기 실패: {str(e)}"
+        return "지원하지 않는 작업입니다."
+
+class CodeExecutorTool(Tool):
+    """코드 실행 도구"""
+    
+    def __init__(self):
+        super().__init__(
+            name="code_executor",
+            description="Python 코드를 실행합니다"
+        )
+    
+    async def execute(self, code: str) -> str:
+        """코드 실행 (보안상 제한적으로)"""
+        try:
+            # 실제 구현시에는 샌드박스 환경 필요
+            result = eval(code) if len(code) < 100 else "코드가 너무 깁니다"
+            return str(result)
+        except Exception as e:
+            return f"실행 오류: {str(e)}"
+
+class DatabaseTool(Tool):
+    """데이터베이스 도구"""
+    
+    def __init__(self):
+        super().__init__(
+            name="database",
+            description="데이터베이스 작업을 수행합니다"
+        )
+        self.conn = None
+        self.init_db()
+    
+    def init_db(self):
+        """데이터베이스 초기화"""
+        self.conn = sqlite3.connect('agentic_ai.db', check_same_thread=False)
+        cursor = self.conn.cursor()
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS tasks (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                title TEXT NOT NULL,
+                description TEXT,
+                status TEXT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                completed_at TIMESTAMP
+            )
+        ''')
+        self.conn.commit()
+    
+    async def execute(self, query: str) -> str:
+        """SQL 쿼리 실행"""
+        try:
+            cursor = self.conn.cursor()
+            cursor.execute(query)
+            if query.strip().upper().startswith('SELECT'):
+                return str(cursor.fetchall())
+            else:
+                self.conn.commit()
+                return f"쿼리 실행 완료: {cursor.rowcount}개 행 영향"
+        except Exception as e:
+            return f"데이터베이스 오류: {str(e)}"
+
+# ============= 작업 정의 =============
 @dataclass
 class Task:
-    """작업 단위"""
+    """작업 정의"""
     id: str
-    content: str
-    role: Optional[AgentRole] = None
-    priority: TaskPriority = TaskPriority.NORMAL
+    title: str
+    description: str
+    agent_type: AgentType
     status: TaskStatus = TaskStatus.PENDING
-    metadata: Dict[str, Any] = field(default_factory=dict)
+    priority: int = 5
     dependencies: List[str] = field(default_factory=list)
-    result: Optional[str] = None
-    error: Optional[str] = None
+    result: Any = None
+    error: str = None
     created_at: datetime = field(default_factory=datetime.now)
-    started_at: Optional[datetime] = None
     completed_at: Optional[datetime] = None
-    assigned_agent: Optional[str] = None
-    
-    def __lt__(self, other):
-        """우선순위 비교"""
-        return self.priority.value < other.priority.value
 
-# ==================== 4. 에이전트 정의 ====================
-@dataclass
-class AgentProfile:
-    """에이전트 프로필"""
-    name: str
-    role: AgentRole
-    model_path: str
-    model_size_gb: float
-    context_size: int = 2048
-    temperature: float = 0.7
-    max_tokens: int = 1024
-    system_prompt: str = ""
-    capabilities: List[str] = field(default_factory=list)
-    performance_score: float = 1.0  # 성능 점수 (0-1)
-    total_tasks: int = 0
-    successful_tasks: int = 0
-    average_response_time: float = 0.0
-
+# ============= 에이전트 기본 클래스 =============
 class Agent:
-    """지능형 에이전트"""
+    """에이전트 기본 클래스"""
     
-    def __init__(self, profile: AgentProfile):
-        self.profile = profile
-        self.model: Optional[Llama] = None
-        self.is_loaded = False
-        self.is_busy = False
+    def __init__(self, name: str, agent_type: AgentType, model=None):
+        self.name = name
+        self.agent_type = agent_type
+        self.model = model
+        self.tools: Dict[str, Tool] = {}
+        self.memory: List[Dict] = []
         self.current_task: Optional[Task] = None
-        self.history: List[Task] = []
-        self.lock = threading.Lock()
         
-    def load(self) -> bool:
-        """모델 로드"""
-        if self.is_loaded:
-            return True
-            
-        if not SystemMonitor.can_load_model(self.profile.model_size_gb):
-            logger.warning(f"메모리 부족으로 {self.profile.name} 로드 불가")
-            return False
-            
-        try:
-            logger.info(f"에이전트 '{self.profile.name}' 로드 시작...")
-            self.model = Llama(
-                model_path=self.profile.model_path,
-                n_ctx=self.profile.context_size,
-                n_threads=psutil.cpu_count(logical=False),
-                n_gpu_layers=-1 if self._check_gpu() else 0,
-                verbose=False
-            )
-            self.is_loaded = True
-            logger.info(f"에이전트 '{self.profile.name}' 로드 완료")
-            return True
-        except Exception as e:
-            logger.error(f"에이전트 로드 실패: {str(e)}")
-            return False
-    
-    def unload(self):
-        """모델 언로드"""
-        if self.model:
-            del self.model
-            self.model = None
-            self.is_loaded = False
-            logger.info(f"에이전트 '{self.profile.name}' 언로드")
-    
-    def _check_gpu(self) -> bool:
-        """GPU 사용 가능 여부 확인"""
-        # 간단한 GPU 체크 (실제로는 더 정교한 확인 필요)
-        try:
-            import torch
-            return torch.cuda.is_available()
-        except:
-            return False
-    
-    def can_handle(self, task: Task) -> float:
-        """작업 처리 가능 여부 및 적합도 반환 (0-1)"""
-        if not self.is_loaded or self.is_busy:
-            return 0.0
-            
-        # 역할 매칭
-        if task.role and task.role != self.profile.role:
-            return 0.0
-            
-        # 적합도 계산
-        suitability = self.profile.performance_score
+    def add_tool(self, tool: Tool):
+        """도구 추가"""
+        self.tools[tool.name] = tool
         
-        # 작업 내용 분석 (키워드 기반)
-        content_lower = task.content.lower()
-        role_keywords = {
-            AgentRole.CODER: ["code", "코드", "function", "함수", "class", "클래스"],
-            AgentRole.TRANSLATOR: ["translate", "번역", "translation"],
-            AgentRole.SUMMARIZER: ["summarize", "요약", "summary"],
-            AgentRole.MATH: ["calculate", "계산", "math", "수학"],
-            AgentRole.WRITER: ["write", "작성", "document", "문서"],
-        }
-        
-        if self.profile.role in role_keywords:
-            keywords = role_keywords[self.profile.role]
-            if any(keyword in content_lower for keyword in keywords):
-                suitability *= 1.5  # 키워드 매칭시 보너스
-                
-        return min(suitability, 1.0)
-    
-    def process(self, task: Task) -> str:
+    async def process_task(self, task: Task) -> Any:
         """작업 처리"""
-        with self.lock:
-            if not self.is_loaded or self.is_busy:
-                raise RuntimeError(f"에이전트 {self.profile.name}이 사용 불가능")
-                
-            self.is_busy = True
-            self.current_task = task
-            
+        self.current_task = task
+        task.status = TaskStatus.IN_PROGRESS
+        
         try:
-            start_time = time.time()
+            # 작업 계획 수립
+            plan = await self.plan_task(task)
             
-            # 프롬프트 구성
-            prompt = self._build_prompt(task)
+            # 작업 실행
+            result = await self.execute_plan(plan)
             
-            # 모델 실행
-            response = self.model(
-                prompt,
-                max_tokens=self.profile.max_tokens,
-                temperature=self.profile.temperature,
-                top_p=0.95,
-                repeat_penalty=1.1,
-                echo=False
-            )
+            task.status = TaskStatus.COMPLETED
+            task.completed_at = datetime.now()
+            task.result = result
             
-            # 응답 추출
-            if isinstance(response, dict) and "choices" in response:
-                result = response["choices"][0]["text"].strip()
-            else:
-                result = str(response).strip()
-            
-            # 성능 통계 업데이트
-            elapsed_time = time.time() - start_time
-            self._update_performance(task, elapsed_time, success=True)
+            # 메모리에 저장
+            self.memory.append({
+                'task': task.title,
+                'result': result,
+                'timestamp': datetime.now()
+            })
             
             return result
             
         except Exception as e:
-            logger.error(f"작업 처리 실패: {str(e)}")
-            self._update_performance(task, 0, success=False)
+            task.status = TaskStatus.FAILED
+            task.error = str(e)
+            logger.error(f"Agent {self.name} failed: {str(e)}")
             raise
             
-        finally:
-            with self.lock:
-                self.is_busy = False
-                self.current_task = None
-                self.history.append(task)
-    
-    def _build_prompt(self, task: Task) -> str:
-        """프롬프트 구성"""
-        parts = []
-        
-        # 시스템 프롬프트
-        if self.profile.system_prompt:
-            parts.append(f"System: {self.profile.system_prompt}")
-        
-        # 작업 컨텍스트
-        if task.metadata.get("context"):
-            parts.append(f"Context: {task.metadata['context']}")
-        
-        # 이전 결과 참조
-        if task.dependencies:
-            parts.append("Previous Results:")
-            for dep_id in task.dependencies:
-                if dep_id in task.metadata.get("dependency_results", {}):
-                    parts.append(f"- {dep_id}: {task.metadata['dependency_results'][dep_id][:200]}...")
-        
-        # 메인 작업
-        parts.append(f"User: {task.content}")
-        parts.append("Assistant:")
-        
-        return "\n\n".join(parts)
-    
-    def _update_performance(self, task: Task, elapsed_time: float, success: bool):
-        """성능 지표 업데이트"""
-        self.profile.total_tasks += 1
-        if success:
-            self.profile.successful_tasks += 1
+    async def plan_task(self, task: Task) -> List[Dict]:
+        """작업 계획 수립"""
+        # 모델을 사용하여 작업 계획 생성
+        if self.model:
+            prompt = f"""
+            작업: {task.title}
+            설명: {task.description}
             
-        # 평균 응답 시간 업데이트
-        alpha = 0.1  # 지수 이동 평균 가중치
-        if elapsed_time > 0:
-            if self.profile.average_response_time == 0:
-                self.profile.average_response_time = elapsed_time
-            else:
-                self.profile.average_response_time = (
-                    alpha * elapsed_time + 
-                    (1 - alpha) * self.profile.average_response_time
-                )
+            이 작업을 수행하기 위한 단계별 계획을 수립하세요.
+            사용 가능한 도구: {', '.join(self.tools.keys())}
+            """
+            
+            # 실제로는 모델 호출
+            plan = [
+                {'step': '정보 수집', 'tool': 'web_search'},
+                {'step': '분석', 'tool': None},
+                {'step': '결과 생성', 'tool': 'file_system'}
+            ]
+        else:
+            plan = [{'step': '기본 실행', 'tool': None}]
+            
+        return plan
         
-        # 성능 점수 업데이트
-        if self.profile.total_tasks > 0:
-            success_rate = self.profile.successful_tasks / self.profile.total_tasks
-            speed_score = min(1.0, 10.0 / max(self.profile.average_response_time, 0.1))
-            self.profile.performance_score = (success_rate * 0.7 + speed_score * 0.3)
+    async def execute_plan(self, plan: List[Dict]) -> Any:
+        """계획 실행"""
+        results = []
+        
+        for step in plan:
+            if step.get('tool'):
+                tool = self.tools.get(step['tool'])
+                if tool:
+                    result = await tool.execute()
+                    results.append(result)
+            else:
+                # 도구 없이 실행
+                results.append(f"Step completed: {step.get('step', 'Unknown')}")
+                
+        return results
 
-# ==================== 5. 지능형 라우터 ====================
-class IntelligentRouter:
-    """작업을 분석하고 적절한 에이전트로 라우팅"""
+# ============= 멀티 에이전트 오케스트레이터 =============
+class AgentOrchestrator:
+    """멀티 에이전트 시스템 조정자"""
     
     def __init__(self):
-        self.routing_rules = self._init_routing_rules()
-        self.routing_history = []
-        
-    def _init_routing_rules(self) -> Dict[str, AgentRole]:
-        """라우팅 규칙 초기화"""
-        return {
-            # 코딩 관련
-            "code": AgentRole.CODER,
-            "코드": AgentRole.CODER,
-            "function": AgentRole.CODER,
-            "함수": AgentRole.CODER,
-            "debug": AgentRole.DEBUGGER,
-            "디버그": AgentRole.DEBUGGER,
-            "error": AgentRole.DEBUGGER,
-            "에러": AgentRole.DEBUGGER,
-            
-            # 번역
-            "translate": AgentRole.TRANSLATOR,
-            "번역": AgentRole.TRANSLATOR,
-            "translation": AgentRole.TRANSLATOR,
-            
-            # 요약
-            "summarize": AgentRole.SUMMARIZER,
-            "요약": AgentRole.SUMMARIZER,
-            "summary": AgentRole.SUMMARIZER,
-            
-            # 수학
-            "calculate": AgentRole.MATH,
-            "계산": AgentRole.MATH,
-            "math": AgentRole.MATH,
-            "수학": AgentRole.MATH,
-            
-            # 데이터 분석
-            "analyze": AgentRole.DATA_ANALYST,
-            "분석": AgentRole.DATA_ANALYST,
-            "data": AgentRole.DATA_ANALYST,
-            "데이터": AgentRole.DATA_ANALYST,
-            
-            # 작성
-            "write": AgentRole.WRITER,
-            "작성": AgentRole.WRITER,
-            "document": AgentRole.WRITER,
-            "문서": AgentRole.WRITER,
-        }
-    
-    def analyze_task(self, task: Task) -> AgentRole:
-        """작업 분석 및 적절한 역할 결정"""
-        content_lower = task.content.lower()
-        
-        # 키워드 기반 라우팅
-        for keyword, role in self.routing_rules.items():
-            if keyword in content_lower:
-                logger.info(f"작업 '{task.id}'를 {role.value} 역할로 라우팅")
-                return role
-        
-        # 기본값
-        return AgentRole.GENERAL
-    
-    def route(self, task: Task, agents: Dict[str, Agent]) -> Optional[Agent]:
-        """작업을 최적의 에이전트로 라우팅"""
-        
-        # 작업 역할 분석
-        if not task.role:
-            task.role = self.analyze_task(task)
-        
-        # 최적 에이전트 선택
-        best_agent = None
-        best_score = 0.0
-        
-        for agent in agents.values():
-            score = agent.can_handle(task)
-            if score > best_score:
-                best_score = score
-                best_agent = agent
-        
-        if best_agent:
-            logger.info(f"작업 '{task.id}'를 에이전트 '{best_agent.profile.name}'로 할당 (점수: {best_score:.2f})")
-            self.routing_history.append({
-                "task_id": task.id,
-                "agent": best_agent.profile.name,
-                "score": best_score,
-                "timestamp": datetime.now()
-            })
-            
-        return best_agent
-
-# ==================== 6. 파이프라인 매니저 ====================
-class Pipeline:
-    """복잡한 작업을 단계별로 처리하는 파이프라인"""
-    
-    def __init__(self, name: str):
-        self.name = name
-        self.stages: List[Dict[str, Any]] = []
-        self.results: Dict[str, Any] = {}
-        
-    def add_stage(self, name: str, role: AgentRole, 
-                  prompt_template: str, **kwargs):
-        """파이프라인 단계 추가"""
-        stage = {
-            "name": name,
-            "role": role,
-            "prompt_template": prompt_template,
-            "kwargs": kwargs
-        }
-        self.stages.append(stage)
-        logger.info(f"파이프라인 '{self.name}'에 단계 '{name}' 추가")
-        
-    def execute(self, orchestrator, initial_input: str) -> Dict[str, Any]:
-        """파이프라인 실행"""
-        current_input = initial_input
-        
-        for i, stage in enumerate(self.stages):
-            logger.info(f"파이프라인 단계 {i+1}/{len(self.stages)}: {stage['name']}")
-            
-            # 프롬프트 생성
-            prompt = stage["prompt_template"].format(
-                input=current_input,
-                **self.results
-            )
-            
-            # 작업 생성
-            task = Task(
-                id=f"{self.name}_{stage['name']}_{int(time.time())}",
-                content=prompt,
-                role=stage["role"],
-                priority=TaskPriority.HIGH,
-                metadata=stage.get("kwargs", {})
-            )
-            
-            # 의존성 설정
-            if i > 0:
-                task.dependencies = [prev_task_id]
-                task.metadata["dependency_results"] = {prev_task_id: current_input}
-            
-            # 작업 실행
-            result = orchestrator.execute_task_sync(task)
-            
-            if result:
-                self.results[stage["name"]] = result
-                current_input = result
-                prev_task_id = task.id
-            else:
-                raise RuntimeError(f"파이프라인 단계 실패: {stage['name']}")
-        
-        return self.results
-
-# ==================== 7. 메인 오케스트레이터 ====================
-class Orchestrator:
-    """중앙 오케스트레이터 - 모든 에이전트와 작업을 관리"""
-    
-    def __init__(self, max_workers: int = 3):
         self.agents: Dict[str, Agent] = {}
-        self.router = IntelligentRouter()
-        self.task_queue: queue.PriorityQueue = queue.PriorityQueue()
-        self.completed_tasks: Dict[str, Task] = {}
-        self.active_tasks: Dict[str, Task] = {}
-        self.max_workers = max_workers
-        self.workers: List[threading.Thread] = []
+        self.task_queue: queue.Queue = queue.Queue()
+        self.completed_tasks: List[Task] = []
         self.running = False
-        self.lock = threading.Lock()
         
-        # 콜백
-        self.on_task_complete: Optional[Callable] = None
-        self.on_task_error: Optional[Callable] = None
-        self.on_status_update: Optional[Callable] = None
+    def add_agent(self, agent: Agent):
+        """에이전트 추가"""
+        self.agents[agent.name] = agent
+        logger.info(f"Agent added: {agent.name} ({agent.agent_type.value})")
         
-        # 통계
-        self.stats = {
-            "total_tasks": 0,
-            "completed_tasks": 0,
-            "failed_tasks": 0,
-            "average_completion_time": 0.0
-        }
-        
-    def register_agent(self, agent: Agent) -> bool:
-        """에이전트 등록"""
-        if agent.load():
-            self.agents[agent.profile.name] = agent
-            logger.info(f"에이전트 '{agent.profile.name}' 등록 완료")
-            return True
-        return False
-    
-    def unregister_agent(self, agent_name: str):
-        """에이전트 등록 해제"""
-        if agent_name in self.agents:
-            self.agents[agent_name].unload()
-            del self.agents[agent_name]
-            logger.info(f"에이전트 '{agent_name}' 등록 해제")
-    
-    def submit_task(self, task: Task) -> str:
+    def submit_task(self, task: Task):
         """작업 제출"""
-        if not task.id:
-            task.id = f"task_{int(time.time() * 1000)}"
+        self.task_queue.put(task)
+        logger.info(f"Task submitted: {task.title}")
         
-        with self.lock:
-            self.task_queue.put((task.priority.value, time.time(), task))
-            self.active_tasks[task.id] = task
-            self.stats["total_tasks"] += 1
-            
-        logger.info(f"작업 제출: {task.id}")
-        
-        if self.on_status_update:
-            self.on_status_update(f"작업 제출: {task.id}")
-            
-        return task.id
-    
-    def execute_task_sync(self, task: Task, timeout: float = 60) -> Optional[str]:
-        """동기적으로 작업 실행 (파이프라인용)"""
-        task_id = self.submit_task(task)
-        
-        # 작업 완료 대기
-        start_time = time.time()
-        while time.time() - start_time < timeout:
-            if task_id in self.completed_tasks:
-                completed_task = self.completed_tasks[task_id]
-                if completed_task.status == TaskStatus.COMPLETED:
-                    return completed_task.result
-                else:
-                    return None
-            time.sleep(0.1)
-            
-        return None
-    
-    def start(self):
-        """오케스트레이터 시작"""
-        if self.running:
-            return
-            
+    async def process_tasks(self):
+        """작업 처리 루프"""
         self.running = True
         
-        # 워커 스레드 생성
-        for i in range(self.max_workers):
-            worker = threading.Thread(
-                target=self._worker_loop,
-                name=f"Worker-{i+1}",
-                daemon=True
-            )
-            worker.start()
-            self.workers.append(worker)
+        while self.running:
+            if not self.task_queue.empty():
+                task = self.task_queue.get()
+                
+                # 적절한 에이전트 선택
+                agent = self.select_agent(task)
+                
+                if agent:
+                    try:
+                        result = await agent.process_task(task)
+                        self.completed_tasks.append(task)
+                        logger.info(f"Task completed: {task.title}")
+                    except Exception as e:
+                        logger.error(f"Task failed: {task.title} - {str(e)}")
+                else:
+                    logger.warning(f"No suitable agent for task: {task.title}")
+                    
+            await asyncio.sleep(0.1)
             
-        logger.info(f"오케스트레이터 시작 (워커: {self.max_workers}개)")
+    def select_agent(self, task: Task) -> Optional[Agent]:
+        """작업에 적합한 에이전트 선택"""
+        for agent in self.agents.values():
+            if agent.agent_type == task.agent_type:
+                return agent
+        return None
         
-        if self.on_status_update:
-            self.on_status_update(f"오케스트레이터 시작")
-    
     def stop(self):
         """오케스트레이터 중지"""
         self.running = False
-        
-        for worker in self.workers:
-            worker.join(timeout=5)
-            
-        self.workers.clear()
-        logger.info("오케스트레이터 중지")
-        
-        if self.on_status_update:
-            self.on_status_update("오케스트레이터 중지")
-    
-    def _worker_loop(self):
-        """워커 루프"""
-        while self.running:
-            try:
-                # 작업 가져오기
-                priority, timestamp, task = self.task_queue.get(timeout=1)
-                
-                # 작업 처리
-                self._process_task(task)
-                
-            except queue.Empty:
-                continue
-            except Exception as e:
-                logger.error(f"워커 오류: {str(e)}")
-    
-    def _process_task(self, task: Task):
-        """작업 처리"""
-        try:
-            task.status = TaskStatus.ROUTING
-            task.started_at = datetime.now()
-            
-            # 에이전트 선택
-            agent = self.router.route(task, self.agents)
-            
-            if not agent:
-                raise RuntimeError("적합한 에이전트를 찾을 수 없음")
-            
-            task.assigned_agent = agent.profile.name
-            task.status = TaskStatus.PROCESSING
-            
-            if self.on_status_update:
-                self.on_status_update(f"작업 처리 중: {task.id} → {agent.profile.name}")
-            
-            # 작업 실행
-            result = agent.process(task)
-            
-            # 작업 완료
-            task.result = result
-            task.status = TaskStatus.COMPLETED
-            task.completed_at = datetime.now()
-            
-            with self.lock:
-                del self.active_tasks[task.id]
-                self.completed_tasks[task.id] = task
-                self.stats["completed_tasks"] += 1
-                
-                # 평균 완료 시간 업데이트
-                if task.started_at and task.completed_at:
-                    completion_time = (task.completed_at - task.started_at).total_seconds()
-                    alpha = 0.1
-                    if self.stats["average_completion_time"] == 0:
-                        self.stats["average_completion_time"] = completion_time
-                    else:
-                        self.stats["average_completion_time"] = (
-                            alpha * completion_time + 
-                            (1 - alpha) * self.stats["average_completion_time"]
-                        )
-            
-            logger.info(f"작업 완료: {task.id}")
-            
-            if self.on_task_complete:
-                self.on_task_complete(task)
-                
-        except Exception as e:
-            # 작업 실패
-            task.status = TaskStatus.FAILED
-            task.error = str(e)
-            task.completed_at = datetime.now()
-            
-            with self.lock:
-                if task.id in self.active_tasks:
-                    del self.active_tasks[task.id]
-                self.completed_tasks[task.id] = task
-                self.stats["failed_tasks"] += 1
-            
-            logger.error(f"작업 실패: {task.id} - {str(e)}")
-            
-            if self.on_task_error:
-                self.on_task_error(task, e)
-    
-    def get_statistics(self) -> Dict[str, Any]:
-        """통계 정보 반환"""
-        with self.lock:
-            stats = self.stats.copy()
-            stats["active_tasks"] = len(self.active_tasks)
-            stats["queued_tasks"] = self.task_queue.qsize()
-            stats["agents"] = {
-                name: {
-                    "role": agent.profile.role.value,
-                    "loaded": agent.is_loaded,
-                    "busy": agent.is_busy,
-                    "performance": agent.profile.performance_score,
-                    "tasks_completed": agent.profile.successful_tasks
-                }
-                for name, agent in self.agents.items()
-            }
-            return stats
 
-# ==================== 8. 고급 UI ====================
-class OrchestratorUI(ctk.CTk):
-    """오케스트레이터 고급 UI"""
+# ============= 메인 애플리케이션 UI =============
+class AgenticAIApp(ctk.CTk):
+    """에이전틱 AI 시스템 UI"""
     
     def __init__(self):
         super().__init__()
         
-        self.title("GGUF 오케스트레이터 LLM 시스템")
+        # 앱 초기화
+        self.title("🤖 Agentic AI System - 자율 AI 어시스턴트")
         self.geometry("1400x900")
         
+        # 디렉토리 생성
+        self.create_directories()
+        
+        # 시스템 초기화
+        self.orchestrator = AgentOrchestrator()
+        self.setup_agents()
+        
+        # 비동기 이벤트 루프
+        self.loop = asyncio.new_event_loop()
+        self.async_thread = threading.Thread(target=self.run_async_loop, daemon=True)
+        self.async_thread.start()
+        
+        # UI 설정
+        self.setup_modern_ui()
+        
+        # 시작 메시지
+        self.add_system_message("🚀 에이전틱 AI 시스템이 시작되었습니다!")
+        self.add_system_message("📋 작업을 입력하면 AI 에이전트들이 자동으로 처리합니다.")
+        
+    def create_directories(self):
+        """필요 디렉토리 생성"""
+        dirs = ["agents", "tasks", "outputs", "memory", "tools"]
+        for dir_path in dirs:
+            os.makedirs(dir_path, exist_ok=True)
+            
+    def setup_agents(self):
+        """에이전트 설정"""
+        # 다양한 에이전트 생성
+        agents_config = [
+            ("주 조정자", AgentType.ORCHESTRATOR),
+            ("계획 수립자", AgentType.PLANNER),
+            ("실행자", AgentType.EXECUTOR),
+            ("연구원", AgentType.RESEARCHER),
+            ("분석가", AgentType.ANALYZER),
+            ("창작자", AgentType.CREATOR),
+            ("검토자", AgentType.REVIEWER)
+        ]
+        
+        for name, agent_type in agents_config:
+            agent = Agent(name, agent_type)
+            
+            # 도구 할당
+            if agent_type in [AgentType.RESEARCHER, AgentType.EXECUTOR]:
+                agent.add_tool(WebSearchTool())
+                agent.add_tool(FileSystemTool())
+            
+            if agent_type == AgentType.EXECUTOR:
+                agent.add_tool(CodeExecutorTool())
+                agent.add_tool(DatabaseTool())
+                
+            self.orchestrator.add_agent(agent)
+            
+    def run_async_loop(self):
+        """비동기 이벤트 루프 실행"""
+        asyncio.set_event_loop(self.loop)
+        self.loop.run_until_complete(self.orchestrator.process_tasks())
+        
+    def setup_modern_ui(self):
+        """현대적 UI 구성"""
         # 테마 설정
         ctk.set_appearance_mode("dark")
         ctk.set_default_color_theme("blue")
         
-        # 오케스트레이터 초기화
-        self.orchestrator = Orchestrator(max_workers=3)
-        self.orchestrator.on_task_complete = self.on_task_complete
-        self.orchestrator.on_task_error = self.on_task_error
-        self.orchestrator.on_status_update = self.on_status_update
+        # 그리드 설정
+        self.grid_columnconfigure(0, weight=0)  # 사이드바
+        self.grid_columnconfigure(1, weight=1)  # 메인 영역
+        self.grid_rowconfigure(0, weight=1)
         
-        # 파이프라인
-        self.pipelines: Dict[str, Pipeline] = {}
+        # 사이드바
+        self.setup_sidebar()
         
-        # UI 구성
-        self.setup_ui()
+        # 메인 영역
+        self.setup_main_area()
         
-        # 시스템 모니터링 시작
-        self.start_monitoring()
+    def setup_sidebar(self):
+        """사이드바 구성"""
+        sidebar = ctk.CTkFrame(self, width=280, corner_radius=0, fg_color=MODERN_THEME['dark'])
+        sidebar.grid(row=0, column=0, sticky="nsew")
+        sidebar.grid_rowconfigure(6, weight=1)
         
-        # 오케스트레이터 시작
-        self.orchestrator.start()
+        # 로고 영역
+        logo_frame = ctk.CTkFrame(sidebar, fg_color="transparent")
+        logo_frame.grid(row=0, column=0, padx=20, pady=(20, 30), sticky="ew")
         
-    def setup_ui(self):
-        """UI 구성"""
-        # 메인 컨테이너
-        main_container = ctk.CTkFrame(self)
-        main_container.pack(fill="both", expand=True, padx=10, pady=10)
+        ctk.CTkLabel(
+            logo_frame,
+            text="🤖 Agentic AI",
+            font=("SF Pro Display", 28, "bold"),
+            text_color=MODERN_THEME['light']
+        ).pack()
         
-        # 상단 정보 바
-        self.setup_info_bar(main_container)
+        ctk.CTkLabel(
+            logo_frame,
+            text="Autonomous Multi-Agent System",
+            font=("SF Pro Text", 12),
+            text_color=MODERN_THEME['text_secondary']
+        ).pack()
         
-        # 메인 콘텐츠 영역
-        content_frame = ctk.CTkFrame(main_container)
-        content_frame.pack(fill="both", expand=True, pady=(10, 0))
+        # 에이전트 상태
+        self.agent_status_frame = ctk.CTkFrame(sidebar, fg_color=MODERN_THEME['surface'], corner_radius=10)
+        self.agent_status_frame.grid(row=1, column=0, padx=20, pady=10, sticky="ew")
         
-        # 3단 레이아웃
-        # 좌측: 에이전트 관리
-        left_frame = ctk.CTkFrame(content_frame, width=350)
-        left_frame.pack(side="left", fill="y", padx=(0, 5))
-        left_frame.pack_propagate(False)
-        self.setup_agent_panel(left_frame)
+        ctk.CTkLabel(
+            self.agent_status_frame,
+            text="Active Agents",
+            font=("SF Pro Display", 14, "bold"),
+            text_color=MODERN_THEME['text']
+        ).pack(pady=(10, 5))
         
-        # 중앙: 작업 관리
-        center_frame = ctk.CTkFrame(content_frame)
-        center_frame.pack(side="left", fill="both", expand=True, padx=5)
-        self.setup_task_panel(center_frame)
-        
-        # 우측: 모니터링
-        right_frame = ctk.CTkFrame(content_frame, width=350)
-        right_frame.pack(side="right", fill="y", padx=(5, 0))
-        right_frame.pack_propagate(False)
-        self.setup_monitoring_panel(right_frame)
-        
-    def setup_info_bar(self, parent):
-        """상단 정보 바"""
-        info_bar = ctk.CTkFrame(parent, height=80)
-        info_bar.pack(fill="x")
-        info_bar.pack_propagate(False)
-        
-        # 시스템 상태
-        status_frame = ctk.CTkFrame(info_bar)
-        status_frame.pack(side="left", padx=20, pady=10)
-        
-        ctk.CTkLabel(status_frame, text="시스템 상태", 
-                     font=("Helvetica", 14, "bold")).pack()
-        self.status_label = ctk.CTkLabel(status_frame, text="준비", 
-                                         font=("Helvetica", 12))
-        self.status_label.pack()
-        
-        # 메모리 정보
-        memory_frame = ctk.CTkFrame(info_bar)
-        memory_frame.pack(side="left", padx=20, pady=10)
-        
-        ctk.CTkLabel(memory_frame, text="메모리", 
-                     font=("Helvetica", 14, "bold")).pack()
-        self.memory_label = ctk.CTkLabel(memory_frame, text="0.0 GB / 0.0 GB",
-                                        font=("Helvetica", 12))
-        self.memory_label.pack()
-        
-        # CPU 정보
-        cpu_frame = ctk.CTkFrame(info_bar)
-        cpu_frame.pack(side="left", padx=20, pady=10)
-        
-        ctk.CTkLabel(cpu_frame, text="CPU", 
-                     font=("Helvetica", 14, "bold")).pack()
-        self.cpu_label = ctk.CTkLabel(cpu_frame, text="0%",
-                                     font=("Helvetica", 12))
-        self.cpu_label.pack()
+        # 에이전트 리스트
+        for agent_name, agent in self.orchestrator.agents.items():
+            agent_item = ctk.CTkFrame(self.agent_status_frame, fg_color="transparent")
+            agent_item.pack(fill="x", padx=10, pady=2)
+            
+            status_color = MODERN_THEME['success']
+            ctk.CTkLabel(
+                agent_item,
+                text="●",
+                font=("SF Pro Text", 12),
+                text_color=status_color,
+                width=20
+            ).pack(side="left")
+            
+            ctk.CTkLabel(
+                agent_item,
+                text=agent_name,
+                font=("SF Pro Text", 12),
+                text_color=MODERN_THEME['text_secondary']
+            ).pack(side="left", padx=(5, 0))
         
         # 작업 통계
-        stats_frame = ctk.CTkFrame(info_bar)
-        stats_frame.pack(side="left", padx=20, pady=10)
+        stats_frame = ctk.CTkFrame(sidebar, fg_color=MODERN_THEME['surface'], corner_radius=10)
+        stats_frame.grid(row=2, column=0, padx=20, pady=10, sticky="ew")
         
-        ctk.CTkLabel(stats_frame, text="작업 통계", 
-                     font=("Helvetica", 14, "bold")).pack()
-        self.stats_label = ctk.CTkLabel(stats_frame, text="완료: 0 / 실패: 0",
-                                       font=("Helvetica", 12))
-        self.stats_label.pack()
+        ctk.CTkLabel(
+            stats_frame,
+            text="Task Statistics",
+            font=("SF Pro Display", 14, "bold"),
+            text_color=MODERN_THEME['text']
+        ).pack(pady=(10, 5))
         
-    def setup_agent_panel(self, parent):
-        """에이전트 관리 패널"""
-        # 제목
-        ctk.CTkLabel(parent, text="에이전트 관리", 
-                     font=("Helvetica", 18, "bold")).pack(pady=10)
+        self.stats_labels = {}
+        stats = [
+            ("Pending", "pending", MODERN_THEME['warning']),
+            ("In Progress", "progress", MODERN_THEME['info']),
+            ("Completed", "completed", MODERN_THEME['success']),
+            ("Failed", "failed", MODERN_THEME['error'])
+        ]
         
-        # 에이전트 추가 버튼
-        add_agent_btn = ctk.CTkButton(
-            parent, 
-            text="+ 에이전트 추가",
-            command=self.show_add_agent_dialog,
-            height=35
-        )
-        add_agent_btn.pack(padx=10, pady=5)
+        for stat_name, stat_key, color in stats:
+            stat_item = ctk.CTkFrame(stats_frame, fg_color="transparent")
+            stat_item.pack(fill="x", padx=15, pady=2)
+            
+            ctk.CTkLabel(
+                stat_item,
+                text=stat_name,
+                font=("SF Pro Text", 11),
+                text_color=MODERN_THEME['text_secondary']
+            ).pack(side="left")
+            
+            label = ctk.CTkLabel(
+                stat_item,
+                text="0",
+                font=("SF Pro Display", 12, "bold"),
+                text_color=color
+            )
+            label.pack(side="right")
+            self.stats_labels[stat_key] = label
         
-        # 에이전트 목록
-        ctk.CTkLabel(parent, text="활성 에이전트:", 
-                     font=("Helvetica", 14)).pack(anchor="w", padx=10, pady=(10, 5))
+        # 도구 섹션
+        tools_frame = ctk.CTkFrame(sidebar, fg_color=MODERN_THEME['surface'], corner_radius=10)
+        tools_frame.grid(row=3, column=0, padx=20, pady=10, sticky="ew")
         
-        self.agent_listbox = ctk.CTkTextbox(parent, height=300)
-        self.agent_listbox.pack(fill="both", expand=True, padx=10, pady=5)
+        ctk.CTkLabel(
+            tools_frame,
+            text="Available Tools",
+            font=("SF Pro Display", 14, "bold"),
+            text_color=MODERN_THEME['text']
+        ).pack(pady=(10, 5))
         
-        # 빠른 에이전트 추가 (예제)
-        quick_add_frame = ctk.CTkFrame(parent)
-        quick_add_frame.pack(fill="x", padx=10, pady=10)
+        tools = ["🔍 Web Search", "📁 File System", "💻 Code Executor", "🗄️ Database"]
+        for tool in tools:
+            ctk.CTkLabel(
+                tools_frame,
+                text=tool,
+                font=("SF Pro Text", 11),
+                text_color=MODERN_THEME['text_secondary']
+            ).pack(padx=15, pady=2, anchor="w")
         
-        ctk.CTkLabel(quick_add_frame, text="빠른 추가:", 
-                     font=("Helvetica", 12)).pack(anchor="w")
+        # 액션 버튼들
+        action_frame = ctk.CTkFrame(sidebar, fg_color="transparent")
+        action_frame.grid(row=4, column=0, padx=20, pady=20, sticky="ew")
         
         ctk.CTkButton(
-            quick_add_frame,
-            text="일반 대화 에이전트",
-            command=lambda: self.quick_add_agent("general"),
-            width=140,
-            height=28
-        ).pack(side="left", padx=2, pady=2)
-        
-        ctk.CTkButton(
-            quick_add_frame,
-            text="코딩 에이전트",
-            command=lambda: self.quick_add_agent("coder"),
-            width=140,
-            height=28
-        ).pack(side="left", padx=2, pady=2)
-        
-    def setup_task_panel(self, parent):
-        """작업 관리 패널"""
-        # 제목
-        ctk.CTkLabel(parent, text="작업 관리", 
-                     font=("Helvetica", 18, "bold")).pack(pady=10)
-        
-        # 탭뷰
-        tabview = ctk.CTkTabview(parent)
-        tabview.pack(fill="both", expand=True, padx=10, pady=5)
-        
-        # 단일 작업 탭
-        single_tab = tabview.add("단일 작업")
-        self.setup_single_task_tab(single_tab)
-        
-        # 파이프라인 탭
-        pipeline_tab = tabview.add("파이프라인")
-        self.setup_pipeline_tab(pipeline_tab)
-        
-        # 작업 큐 탭
-        queue_tab = tabview.add("작업 큐")
-        self.setup_queue_tab(queue_tab)
-        
-    def setup_single_task_tab(self, parent):
-        """단일 작업 탭"""
-        # 작업 타입 선택
-        type_frame = ctk.CTkFrame(parent)
-        type_frame.pack(fill="x", pady=5)
-        
-        ctk.CTkLabel(type_frame, text="작업 타입:").pack(side="left", padx=5)
-        self.task_type_var = ctk.StringVar(value=AgentRole.GENERAL.value)
-        task_type_menu = ctk.CTkOptionMenu(
-            type_frame,
-            variable=self.task_type_var,
-            values=[role.value for role in AgentRole]
-        )
-        task_type_menu.pack(side="left", padx=5)
-        
-        # 우선순위 선택
-        ctk.CTkLabel(type_frame, text="우선순위:").pack(side="left", padx=(20, 5))
-        self.priority_var = ctk.StringVar(value=TaskPriority.NORMAL.name)
-        priority_menu = ctk.CTkOptionMenu(
-            type_frame,
-            variable=self.priority_var,
-            values=[p.name for p in TaskPriority]
-        )
-        priority_menu.pack(side="left", padx=5)
-        
-        # 프롬프트 입력
-        ctk.CTkLabel(parent, text="프롬프트:").pack(anchor="w", pady=(10, 5))
-        self.prompt_input = ctk.CTkTextbox(parent, height=150)
-        self.prompt_input.pack(fill="x", pady=5)
-        
-        # 제출 버튼
-        submit_btn = ctk.CTkButton(
-            parent,
-            text="작업 제출",
-            command=self.submit_single_task,
+            action_frame,
+            text="➕ New Task",
+            command=self.show_new_task_dialog,
+            font=("SF Pro Display", 13, "bold"),
             height=40,
-            font=("Helvetica", 14, "bold")
-        )
-        submit_btn.pack(pady=10)
-        
-        # 결과 표시
-        ctk.CTkLabel(parent, text="결과:").pack(anchor="w", pady=(10, 5))
-        self.result_box = ctk.CTkTextbox(parent, height=200)
-        self.result_box.pack(fill="both", expand=True, pady=5)
-        
-    def setup_pipeline_tab(self, parent):
-        """파이프라인 탭"""
-        # 파이프라인 선택
-        pipeline_frame = ctk.CTkFrame(parent)
-        pipeline_frame.pack(fill="x", pady=5)
-        
-        ctk.CTkLabel(pipeline_frame, text="파이프라인:").pack(side="left", padx=5)
-        self.pipeline_var = ctk.StringVar(value="새 파이프라인")
-        self.pipeline_menu = ctk.CTkOptionMenu(
-            pipeline_frame,
-            variable=self.pipeline_var,
-            values=["새 파이프라인", "코드 리뷰", "번역 파이프라인"]
-        )
-        self.pipeline_menu.pack(side="left", padx=5)
+            corner_radius=8,
+            fg_color=MODERN_THEME['primary'],
+            hover_color=MODERN_THEME['hover']
+        ).pack(fill="x", pady=5)
         
         ctk.CTkButton(
-            pipeline_frame,
-            text="파이프라인 생성",
-            command=self.create_pipeline,
-            width=120
-        ).pack(side="left", padx=10)
-        
-        # 파이프라인 단계
-        ctk.CTkLabel(parent, text="파이프라인 단계:").pack(anchor="w", pady=(10, 5))
-        self.pipeline_stages_box = ctk.CTkTextbox(parent, height=150)
-        self.pipeline_stages_box.pack(fill="x", pady=5)
-        
-        # 입력
-        ctk.CTkLabel(parent, text="입력:").pack(anchor="w", pady=(10, 5))
-        self.pipeline_input = ctk.CTkTextbox(parent, height=100)
-        self.pipeline_input.pack(fill="x", pady=5)
-        
-        # 실행 버튼
-        execute_btn = ctk.CTkButton(
-            parent,
-            text="파이프라인 실행",
-            command=self.execute_pipeline,
+            action_frame,
+            text="📊 View Reports",
+            command=self.show_reports,
+            font=("SF Pro Display", 13, "bold"),
             height=40,
-            font=("Helvetica", 14, "bold")
+            corner_radius=8,
+            fg_color=MODERN_THEME['secondary'],
+            hover_color=MODERN_THEME['hover']
+        ).pack(fill="x", pady=5)
+        
+        # 설정 버튼
+        ctk.CTkButton(
+            sidebar,
+            text="⚙️ Settings",
+            command=self.show_settings,
+            font=("SF Pro Display", 12),
+            height=35,
+            corner_radius=8,
+            fg_color="transparent",
+            hover_color=MODERN_THEME['hover'],
+            text_color=MODERN_THEME['text_secondary']
+        ).grid(row=7, column=0, padx=20, pady=(0, 20), sticky="ew")
+        
+    def setup_main_area(self):
+        """메인 영역 구성"""
+        main_frame = ctk.CTkFrame(self, fg_color=MODERN_THEME['light'])
+        main_frame.grid(row=0, column=1, sticky="nsew", padx=(0, 0), pady=0)
+        main_frame.grid_columnconfigure(0, weight=1)
+        main_frame.grid_rowconfigure(1, weight=1)
+        
+        # 헤더
+        header_frame = ctk.CTkFrame(main_frame, height=80, fg_color=MODERN_THEME['surface'], corner_radius=0)
+        header_frame.grid(row=0, column=0, sticky="ew", padx=0, pady=0)
+        header_frame.grid_columnconfigure(1, weight=1)
+        
+        ctk.CTkLabel(
+            header_frame,
+            text="Task Console",
+            font=("SF Pro Display", 24, "bold"),
+            text_color=MODERN_THEME['text']
+        ).grid(row=0, column=0, padx=30, pady=25)
+        
+        # 상태 표시
+        self.status_label = ctk.CTkLabel(
+            header_frame,
+            text="🟢 System Online",
+            font=("SF Pro Text", 14),
+            text_color=MODERN_THEME['success']
         )
-        execute_btn.pack(pady=10)
+        self.status_label.grid(row=0, column=1, padx=30, pady=25, sticky="e")
         
-        # 파이프라인 결과
-        ctk.CTkLabel(parent, text="파이프라인 결과:").pack(anchor="w", pady=(10, 5))
-        self.pipeline_result_box = ctk.CTkTextbox(parent, height=150)
-        self.pipeline_result_box.pack(fill="both", expand=True, pady=5)
+        # 탭 뷰
+        self.tabview = ctk.CTkTabview(main_frame, corner_radius=10)
+        self.tabview.grid(row=1, column=0, sticky="nsew", padx=20, pady=20)
         
-    def setup_queue_tab(self, parent):
-        """작업 큐 탭"""
-        # 큐 상태
-        ctk.CTkLabel(parent, text="작업 큐 상태", 
-                     font=("Helvetica", 16, "bold")).pack(pady=10)
+        # 대화 탭
+        chat_tab = self.tabview.add("💬 Chat")
+        self.setup_chat_tab(chat_tab)
         
-        # 활성 작업
-        ctk.CTkLabel(parent, text="처리 중:").pack(anchor="w", pady=5)
-        self.active_tasks_box = ctk.CTkTextbox(parent, height=150)
-        self.active_tasks_box.pack(fill="x", pady=5)
+        # 작업 모니터 탭
+        monitor_tab = self.tabview.add("📊 Task Monitor")
+        self.setup_monitor_tab(monitor_tab)
         
-        # 대기 중인 작업
-        ctk.CTkLabel(parent, text="대기 중:").pack(anchor="w", pady=5)
-        self.queued_tasks_box = ctk.CTkTextbox(parent, height=150)
-        self.queued_tasks_box.pack(fill="x", pady=5)
+        # 메모리 뷰 탭
+        memory_tab = self.tabview.add("🧠 Agent Memory")
+        self.setup_memory_tab(memory_tab)
         
-        # 완료된 작업
-        ctk.CTkLabel(parent, text="최근 완료:").pack(anchor="w", pady=5)
-        self.completed_tasks_box = ctk.CTkTextbox(parent, height=150)
-        self.completed_tasks_box.pack(fill="both", expand=True, pady=5)
+    def setup_chat_tab(self, parent):
+        """대화 탭 설정"""
+        parent.grid_columnconfigure(0, weight=1)
+        parent.grid_rowconfigure(0, weight=1)
         
-    def setup_monitoring_panel(self, parent):
-        """모니터링 패널"""
-        # 제목
-        ctk.CTkLabel(parent, text="시스템 모니터링", 
-                     font=("Helvetica", 18, "bold")).pack(pady=10)
+        # 대화 영역
+        self.chat_frame = ctk.CTkScrollableFrame(
+            parent,
+            fg_color=MODERN_THEME['surface'],
+            corner_radius=10
+        )
+        self.chat_frame.grid(row=0, column=0, sticky="nsew", padx=10, pady=10)
         
-        # 실시간 로그
-        ctk.CTkLabel(parent, text="실시간 로그:", 
-                     font=("Helvetica", 14)).pack(anchor="w", padx=10, pady=5)
+        # 입력 영역
+        input_frame = ctk.CTkFrame(parent, fg_color="transparent", height=100)
+        input_frame.grid(row=1, column=0, sticky="ew", padx=10, pady=(0, 10))
+        input_frame.grid_columnconfigure(0, weight=1)
         
-        self.log_box = ctk.CTkTextbox(parent, height=250)
-        self.log_box.pack(fill="x", padx=10, pady=5)
+        self.input_box = ctk.CTkTextbox(
+            input_frame,
+            height=80,
+            wrap="word",
+            font=("SF Pro Text", 14),
+            border_width=2,
+            border_color=MODERN_THEME['border'],
+            fg_color=MODERN_THEME['surface'],
+            corner_radius=10
+        )
+        self.input_box.grid(row=0, column=0, sticky="ew", padx=(0, 10))
+        self.input_box.bind("<Return>", self.handle_return)
         
-        # 에이전트 성능
-        ctk.CTkLabel(parent, text="에이전트 성능:", 
-                     font=("Helvetica", 14)).pack(anchor="w", padx=10, pady=(10, 5))
+        # 전송 버튼
+        self.send_button = ctk.CTkButton(
+            input_frame,
+            text="Send Task",
+            command=self.send_task,
+            width=120,
+            height=80,
+            font=("SF Pro Display", 14, "bold"),
+            corner_radius=10,
+            fg_color=MODERN_THEME['primary'],
+            hover_color=MODERN_THEME['hover']
+        )
+        self.send_button.grid(row=0, column=1)
         
-        self.performance_box = ctk.CTkTextbox(parent, height=200)
-        self.performance_box.pack(fill="x", padx=10, pady=5)
+    def setup_monitor_tab(self, parent):
+        """작업 모니터 탭 설정"""
+        parent.grid_columnconfigure(0, weight=1)
+        parent.grid_rowconfigure(0, weight=1)
         
-        # 제어 버튼
-        control_frame = ctk.CTkFrame(parent)
-        control_frame.pack(fill="x", padx=10, pady=10)
+        # 작업 리스트
+        self.task_tree = ttk.Treeview(
+            parent,
+            columns=('ID', 'Title', 'Agent', 'Status', 'Priority', 'Created'),
+            show='headings',
+            height=20
+        )
         
-        ctk.CTkButton(
-            control_frame,
-            text="통계 초기화",
-            command=self.reset_stats,
-            width=100
-        ).pack(side="left", padx=5)
+        # 컬럼 설정
+        columns = [
+            ('ID', 80),
+            ('Title', 250),
+            ('Agent', 150),
+            ('Status', 100),
+            ('Priority', 80),
+            ('Created', 150)
+        ]
         
-        ctk.CTkButton(
-            control_frame,
-            text="로그 지우기",
-            command=lambda: self.log_box.delete("1.0", "end"),
-            width=100
-        ).pack(side="left", padx=5)
+        for col, width in columns:
+            self.task_tree.heading(col, text=col)
+            self.task_tree.column(col, width=width)
         
-    def show_add_agent_dialog(self):
-        """에이전트 추가 대화상자"""
+        self.task_tree.grid(row=0, column=0, sticky="nsew", padx=10, pady=10)
+        
+        # 스크롤바
+        scrollbar = ttk.Scrollbar(parent, orient="vertical", command=self.task_tree.yview)
+        scrollbar.grid(row=0, column=1, sticky="ns", pady=10)
+        self.task_tree.configure(yscrollcommand=scrollbar.set)
+        
+    def setup_memory_tab(self, parent):
+        """메모리 뷰 탭 설정"""
+        parent.grid_columnconfigure(0, weight=1)
+        parent.grid_rowconfigure(0, weight=1)
+        
+        self.memory_text = ctk.CTkTextbox(
+            parent,
+            font=("SF Pro Mono", 12),
+            fg_color=MODERN_THEME['dark'],
+            text_color=MODERN_THEME['light']
+        )
+        self.memory_text.grid(row=0, column=0, sticky="nsew", padx=10, pady=10)
+        
+    def add_system_message(self, message):
+        """시스템 메시지 추가"""
+        container = ctk.CTkFrame(self.chat_frame, fg_color=MODERN_THEME['info'], corner_radius=10)
+        container.pack(fill="x", padx=10, pady=5)
+        
+        ctk.CTkLabel(
+            container,
+            text=message,
+            font=("SF Pro Text", 13),
+            text_color="white",
+            wraplength=800,
+            justify="left"
+        ).pack(padx=15, pady=10, anchor="w")
+        
+    def add_agent_message(self, agent_name, message):
+        """에이전트 메시지 추가"""
+        container = ctk.CTkFrame(self.chat_frame, fg_color="#E0E7FF", corner_radius=10)
+        container.pack(fill="x", padx=10, pady=5)
+        
+        # 에이전트 이름
+        ctk.CTkLabel(
+            container,
+            text=f"🤖 {agent_name}",
+            font=("SF Pro Display", 12, "bold"),
+            text_color=MODERN_THEME['primary']
+        ).pack(padx=15, pady=(10, 5), anchor="w")
+        
+        # 메시지
+        ctk.CTkLabel(
+            container,
+            text=message,
+            font=("SF Pro Text", 13),
+            text_color=MODERN_THEME['text'],
+            wraplength=800,
+            justify="left"
+        ).pack(padx=15, pady=(0, 10), anchor="w")
+        
+    def send_task(self):
+        """작업 전송"""
+        task_description = self.input_box.get("0.0", "end").strip()
+        
+        if not task_description:
+            return
+            
+        # 입력 초기화
+        self.input_box.delete("0.0", "end")
+        
+        # 작업 생성
+        task = Task(
+            id=f"TASK-{datetime.now().strftime('%Y%m%d%H%M%S')}",
+            title=task_description[:50],
+            description=task_description,
+            agent_type=AgentType.EXECUTOR,
+            priority=5
+        )
+        
+        # 작업 제출
+        self.orchestrator.submit_task(task)
+        
+        # UI 업데이트
+        self.add_system_message(f"📋 새 작업 제출: {task.title}")
+        self.update_task_monitor(task)
+        self.update_stats()
+        
+    def update_task_monitor(self, task):
+        """작업 모니터 업데이트"""
+        self.task_tree.insert('', 'end', values=(
+            task.id,
+            task.title,
+            task.agent_type.value,
+            task.status.value,
+            task.priority,
+            task.created_at.strftime('%Y-%m-%d %H:%M')
+        ))
+        
+    def update_stats(self):
+        """통계 업데이트"""
+        # 실제 통계 계산
+        stats = {
+            'pending': sum(1 for t in self.orchestrator.task_queue.queue if t.status == TaskStatus.PENDING),
+            'progress': 0,  # 현재 처리 중인 작업
+            'completed': len(self.orchestrator.completed_tasks),
+            'failed': sum(1 for t in self.orchestrator.completed_tasks if t.status == TaskStatus.FAILED)
+        }
+        
+        for key, value in stats.items():
+            if key in self.stats_labels:
+                self.stats_labels[key].configure(text=str(value))
+                
+    def show_new_task_dialog(self):
+        """새 작업 대화상자"""
         dialog = ctk.CTkToplevel(self)
-        dialog.title("에이전트 추가")
-        dialog.geometry("500x600")
+        dialog.title("New Task")
+        dialog.geometry("600x500")
         dialog.transient(self)
         dialog.grab_set()
         
-        # 중앙 정렬
+        # 중앙 배치
         dialog.update_idletasks()
-        x = (dialog.winfo_screenwidth() // 2) - (250)
-        y = (dialog.winfo_screenheight() // 2) - (300)
-        dialog.geometry(f"+{x}+{y}")
+        width = dialog.winfo_width()
+        height = dialog.winfo_height()
+        x = (dialog.winfo_screenwidth() // 2) - (width // 2)
+        y = (dialog.winfo_screenheight() // 2) - (height // 2)
+        dialog.geometry(f'+{x}+{y}')
         
-        # 입력 필드
-        ctk.CTkLabel(dialog, text="에이전트 이름:").pack(pady=5)
-        name_entry = ctk.CTkEntry(dialog, width=300)
-        name_entry.pack(pady=5)
-        
-        ctk.CTkLabel(dialog, text="역할:").pack(pady=5)
-        role_var = ctk.StringVar(value=AgentRole.GENERAL.value)
-        role_menu = ctk.CTkOptionMenu(
+        # 내용
+        ctk.CTkLabel(
             dialog,
-            variable=role_var,
-            values=[role.value for role in AgentRole],
-            width=300
+            text="Create New Task",
+            font=("SF Pro Display", 20, "bold")
+        ).pack(pady=(20, 10))
+        
+        # 작업 제목
+        ctk.CTkLabel(dialog, text="Task Title:").pack(pady=(10, 5))
+        title_entry = ctk.CTkEntry(dialog, width=400)
+        title_entry.pack(pady=(0, 10))
+        
+        # 작업 설명
+        ctk.CTkLabel(dialog, text="Description:").pack(pady=(10, 5))
+        desc_text = ctk.CTkTextbox(dialog, width=400, height=150)
+        desc_text.pack(pady=(0, 10))
+        
+        # 에이전트 선택
+        ctk.CTkLabel(dialog, text="Agent Type:").pack(pady=(10, 5))
+        agent_var = ctk.StringVar(value=AgentType.EXECUTOR.value)
+        agent_menu = ctk.CTkComboBox(
+            dialog,
+            values=[t.value for t in AgentType],
+            variable=agent_var,
+            width=400
         )
-        role_menu.pack(pady=5)
+        agent_menu.pack(pady=(0, 10))
         
-        ctk.CTkLabel(dialog, text="모델 파일:").pack(pady=5)
-        model_path_var = ctk.StringVar()
-        model_path_label = ctk.CTkLabel(dialog, text="선택되지 않음", 
-                                       text_color="gray")
-        model_path_label.pack(pady=5)
-        
-        def select_model():
-            path = filedialog.askopenfilename(
-                title="GGUF 모델 선택",
-                filetypes=[("GGUF 파일", "*.gguf"), ("모든 파일", "*.*")]
-            )
-            if path:
-                model_path_var.set(path)
-                model_path_label.configure(text=os.path.basename(path))
-        
-        ctk.CTkButton(dialog, text="모델 파일 선택", 
-                     command=select_model).pack(pady=5)
-        
-        ctk.CTkLabel(dialog, text="모델 크기 (GB):").pack(pady=5)
-        size_entry = ctk.CTkEntry(dialog, width=300)
-        size_entry.insert(0, "3.0")
-        size_entry.pack(pady=5)
-        
-        ctk.CTkLabel(dialog, text="시스템 프롬프트:").pack(pady=5)
-        prompt_text = ctk.CTkTextbox(dialog, width=300, height=100)
-        prompt_text.pack(pady=5)
-        
-        # 고급 설정
-        advanced_frame = ctk.CTkFrame(dialog)
-        advanced_frame.pack(fill="x", padx=20, pady=10)
-        
-        ctk.CTkLabel(advanced_frame, text="컨텍스트 크기:").grid(row=0, column=0, padx=5, pady=2, sticky="w")
-        context_entry = ctk.CTkEntry(advanced_frame, width=100)
-        context_entry.insert(0, "2048")
-        context_entry.grid(row=0, column=1, padx=5, pady=2)
-        
-        ctk.CTkLabel(advanced_frame, text="Temperature:").grid(row=1, column=0, padx=5, pady=2, sticky="w")
-        temp_entry = ctk.CTkEntry(advanced_frame, width=100)
-        temp_entry.insert(0, "0.7")
-        temp_entry.grid(row=1, column=1, padx=5, pady=2)
-        
-        ctk.CTkLabel(advanced_frame, text="Max Tokens:").grid(row=2, column=0, padx=5, pady=2, sticky="w")
-        tokens_entry = ctk.CTkEntry(advanced_frame, width=100)
-        tokens_entry.insert(0, "1024")
-        tokens_entry.grid(row=2, column=1, padx=5, pady=2)
+        # 우선순위
+        ctk.CTkLabel(dialog, text="Priority (1-10):").pack(pady=(10, 5))
+        priority_slider = ctk.CTkSlider(dialog, from_=1, to=10, width=400)
+        priority_slider.set(5)
+        priority_slider.pack(pady=(0, 20))
         
         # 버튼
-        button_frame = ctk.CTkFrame(dialog)
+        button_frame = ctk.CTkFrame(dialog, fg_color="transparent")
         button_frame.pack(pady=20)
         
-        def add_agent():
-            try:
-                profile = AgentProfile(
-                    name=name_entry.get(),
-                    role=AgentRole(role_var.get()),
-                    model_path=model_path_var.get(),
-                    model_size_gb=float(size_entry.get()),
-                    context_size=int(context_entry.get()),
-                    temperature=float(temp_entry.get()),
-                    max_tokens=int(tokens_entry.get()),
-                    system_prompt=prompt_text.get("1.0", "end").strip()
-                )
-                
-                agent = Agent(profile)
-                if self.orchestrator.register_agent(agent):
-                    self.update_agent_list()
-                    dialog.destroy()
-                    messagebox.showinfo("성공", f"에이전트 '{profile.name}' 추가 완료")
-                else:
-                    messagebox.showerror("오류", "에이전트 로드 실패")
-                    
-            except Exception as e:
-                messagebox.showerror("오류", str(e))
+        ctk.CTkButton(
+            button_frame,
+            text="Cancel",
+            command=dialog.destroy,
+            width=100,
+            fg_color=MODERN_THEME['error']
+        ).pack(side="left", padx=10)
         
-        ctk.CTkButton(button_frame, text="추가", command=add_agent,
-                     width=100).pack(side="left", padx=5)
-        ctk.CTkButton(button_frame, text="취소", command=dialog.destroy,
-                     width=100).pack(side="left", padx=5)
+        ctk.CTkButton(
+            button_frame,
+            text="Create",
+            command=lambda: self.create_task_from_dialog(
+                dialog,
+                title_entry.get(),
+                desc_text.get("0.0", "end"),
+                agent_var.get(),
+                int(priority_slider.get())
+            ),
+            width=100,
+            fg_color=MODERN_THEME['success']
+        ).pack(side="left", padx=10)
         
-    def quick_add_agent(self, agent_type: str):
-        """빠른 에이전트 추가"""
-        # 예제 설정 (실제 사용시 수정 필요)
-        configs = {
-            "general": {
-                "name": f"general_agent_{int(time.time())}",
-                "role": AgentRole.GENERAL,
-                "model_path": "models/llama-2-7b.gguf",  # 실제 경로로 변경
-                "model_size_gb": 7.0,
-                "system_prompt": "You are a helpful AI assistant."
-            },
-            "coder": {
-                "name": f"coder_agent_{int(time.time())}",
-                "role": AgentRole.CODER,
-                "model_path": "models/codellama-7b.gguf",  # 실제 경로로 변경
-                "model_size_gb": 7.0,
-                "system_prompt": "You are an expert programmer."
-            }
-        }
-        
-        if agent_type in configs:
-            try:
-                config = configs[agent_type]
-                profile = AgentProfile(**config)
-                agent = Agent(profile)
-                
-                if self.orchestrator.register_agent(agent):
-                    self.update_agent_list()
-                    self.log(f"에이전트 '{profile.name}' 추가 완료")
-                else:
-                    messagebox.showerror("오류", "에이전트 로드 실패")
-                    
-            except Exception as e:
-                messagebox.showerror("오류", str(e))
-    
-    def submit_single_task(self):
-        """단일 작업 제출"""
-        content = self.prompt_input.get("1.0", "end").strip()
-        if not content:
+    def create_task_from_dialog(self, dialog, title, description, agent_type, priority):
+        """대화상자에서 작업 생성"""
+        if not title or not description:
+            messagebox.showwarning("Warning", "Please fill in all fields")
             return
-        
+            
         task = Task(
-            id="",
-            content=content,
-            role=AgentRole(self.task_type_var.get()),
-            priority=TaskPriority[self.priority_var.get()]
+            id=f"TASK-{datetime.now().strftime('%Y%m%d%H%M%S')}",
+            title=title,
+            description=description.strip(),
+            agent_type=AgentType(agent_type),
+            priority=priority
         )
         
-        task_id = self.orchestrator.submit_task(task)
-        self.log(f"작업 제출: {task_id}")
+        self.orchestrator.submit_task(task)
+        self.add_system_message(f"📋 새 작업 생성: {task.title}")
+        self.update_task_monitor(task)
+        self.update_stats()
         
-        # 입력 초기화
-        self.prompt_input.delete("1.0", "end")
-    
-    def create_pipeline(self):
-        """파이프라인 생성"""
-        name = self.pipeline_var.get()
+        dialog.destroy()
         
-        if name == "코드 리뷰":
-            pipeline = Pipeline("code_review")
-            pipeline.add_stage("analyze", AgentRole.ANALYZER, 
-                             "Analyze this code: {input}")
-            pipeline.add_stage("debug", AgentRole.DEBUGGER,
-                             "Find potential bugs in: {input}")
-            pipeline.add_stage("improve", AgentRole.CODER,
-                             "Suggest improvements for: {input}")
-            self.pipelines[name] = pipeline
-            self.pipeline_stages_box.insert("1.0", 
-                "1. 코드 분석 (Analyzer)\n2. 버그 검사 (Debugger)\n3. 개선 제안 (Coder)\n")
-            
-        elif name == "번역 파이프라인":
-            pipeline = Pipeline("translation")
-            pipeline.add_stage("translate", AgentRole.TRANSLATOR,
-                             "Translate to English: {input}")
-            pipeline.add_stage("validate", AgentRole.VALIDATOR,
-                             "Validate translation: {input}")
-            self.pipelines[name] = pipeline
-            self.pipeline_stages_box.insert("1.0",
-                "1. 번역 (Translator)\n2. 검증 (Validator)\n")
-            
-        self.log(f"파이프라인 '{name}' 생성 완료")
-    
-    def execute_pipeline(self):
-        """파이프라인 실행"""
-        pipeline_name = self.pipeline_var.get()
-        if pipeline_name not in self.pipelines:
-            messagebox.showwarning("경고", "먼저 파이프라인을 생성하세요")
-            return
+    def show_reports(self):
+        """리포트 보기"""
+        messagebox.showinfo("Reports", "작업 리포트 기능은 개발 중입니다.")
         
-        input_text = self.pipeline_input.get("1.0", "end").strip()
-        if not input_text:
-            return
+    def show_settings(self):
+        """설정 보기"""
+        messagebox.showinfo("Settings", "설정 기능은 개발 중입니다.")
         
-        pipeline = self.pipelines[pipeline_name]
-        
-        # 비동기 실행
-        def run_pipeline():
-            try:
-                results = pipeline.execute(self.orchestrator, input_text)
-                
-                # 결과 표시
-                result_text = "=== 파이프라인 실행 결과 ===\n\n"
-                for stage_name, result in results.items():
-                    result_text += f"[{stage_name}]\n{result}\n\n"
-                
-                self.after(0, lambda: self.pipeline_result_box.insert("1.0", result_text))
-                
-            except Exception as e:
-                self.after(0, lambda: messagebox.showerror("오류", str(e)))
-        
-        threading.Thread(target=run_pipeline, daemon=True).start()
-        self.log(f"파이프라인 '{pipeline_name}' 실행 시작")
-    
-    def update_agent_list(self):
-        """에이전트 목록 업데이트"""
-        self.agent_listbox.delete("1.0", "end")
-        
-        for name, agent in self.orchestrator.agents.items():
-            status = "🟢" if agent.is_loaded else "🔴"
-            busy = "🔄" if agent.is_busy else "✅"
-            info = f"{status} {name} ({agent.profile.role.value}) {busy}\n"
-            info += f"  성능: {agent.profile.performance_score:.2f}\n"
-            info += f"  작업: {agent.profile.successful_tasks}/{agent.profile.total_tasks}\n"
-            info += "─" * 30 + "\n"
-            self.agent_listbox.insert("end", info)
-    
-    def start_monitoring(self):
-        """시스템 모니터링 시작"""
-        def monitor():
-            while True:
-                try:
-                    # 시스템 정보
-                    memory_info = SystemMonitor.get_memory_info()
-                    cpu_info = SystemMonitor.get_cpu_info()
-                    
-                    # 통계
-                    stats = self.orchestrator.get_statistics()
-                    
-                    # UI 업데이트
-                    self.after(0, lambda: self.update_monitoring(memory_info, cpu_info, stats))
-                    
-                    time.sleep(1)
-                except:
-                    pass
-        
-        thread = threading.Thread(target=monitor, daemon=True)
-        thread.start()
-    
-    def update_monitoring(self, memory_info, cpu_info, stats):
-        """모니터링 정보 업데이트"""
-        # 메모리
-        self.memory_label.configure(
-            text=f"{memory_info['used_gb']:.1f} / {memory_info['total_gb']:.1f} GB"
-        )
-        
-        # CPU
-        self.cpu_label.configure(text=f"{cpu_info['percent']:.1f}%")
-        
-        # 통계
-        self.stats_label.configure(
-            text=f"완료: {stats['completed_tasks']} / 실패: {stats['failed_tasks']}"
-        )
-        
-        # 큐 상태
-        self.active_tasks_box.delete("1.0", "end")
-        for task_id, task in self.orchestrator.active_tasks.items():
-            self.active_tasks_box.insert("end", 
-                f"{task_id}: {task.status.value} ({task.assigned_agent})\n")
-        
-        # 에이전트 성능
-        self.performance_box.delete("1.0", "end")
-        for name, agent_stats in stats.get("agents", {}).items():
-            perf_text = f"{name}:\n"
-            perf_text += f"  성능: {agent_stats['performance']:.2f}\n"
-            perf_text += f"  완료: {agent_stats['tasks_completed']}\n"
-            self.performance_box.insert("end", perf_text)
-    
-    def on_task_complete(self, task: Task):
-        """작업 완료 콜백"""
-        self.after(0, lambda: self._handle_task_complete(task))
-    
-    def _handle_task_complete(self, task: Task):
-        """작업 완료 처리"""
-        # 결과 표시
-        result_text = f"=== 작업 완료: {task.id} ===\n"
-        result_text += f"에이전트: {task.assigned_agent}\n"
-        result_text += f"소요 시간: {(task.completed_at - task.started_at).total_seconds():.2f}초\n"
-        result_text += f"결과:\n{task.result}\n\n"
-        
-        self.result_box.insert("1.0", result_text)
-        
-        # 완료 목록 업데이트
-        self.completed_tasks_box.insert("1.0", 
-            f"{task.id} ({task.assigned_agent}) ✅\n")
-        
-        self.log(f"작업 완료: {task.id}")
-        
-        # 에이전트 목록 업데이트
-        self.update_agent_list()
-    
-    def on_task_error(self, task: Task, error: Exception):
-        """작업 오류 콜백"""
-        self.after(0, lambda: self._handle_task_error(task, error))
-    
-    def _handle_task_error(self, task: Task, error: Exception):
-        """작업 오류 처리"""
-        self.log(f"작업 실패: {task.id} - {str(error)}", "ERROR")
-        
-        # 완료 목록에 실패 표시
-        self.completed_tasks_box.insert("1.0", 
-            f"{task.id} ({task.assigned_agent}) ❌\n")
-    
-    def on_status_update(self, message: str):
-        """상태 업데이트"""
-        self.after(0, lambda: self.status_label.configure(text=message))
-    
-    def log(self, message: str, level: str = "INFO"):
-        """로그 메시지 추가"""
-        timestamp = datetime.now().strftime("%H:%M:%S")
-        log_message = f"[{timestamp}] {level}: {message}\n"
-        self.log_box.insert("1.0", log_message)
-        
-        # 로거에도 기록
-        if level == "ERROR":
-            logger.error(message)
+    def handle_return(self, event):
+        """Enter 키 처리"""
+        if event.state & 0x1:  # Shift key
+            return None
         else:
-            logger.info(message)
-    
-    def reset_stats(self):
-        """통계 초기화"""
-        self.orchestrator.stats = {
-            "total_tasks": 0,
-            "completed_tasks": 0,
-            "failed_tasks": 0,
-            "average_completion_time": 0.0
-        }
-        
-        for agent in self.orchestrator.agents.values():
-            agent.profile.total_tasks = 0
-            agent.profile.successful_tasks = 0
-            agent.profile.average_response_time = 0.0
-            agent.profile.performance_score = 1.0
-        
-        self.update_agent_list()
-        self.log("통계 초기화 완료")
-    
+            self.send_task()
+            return "break"
+            
     def on_closing(self):
-        """종료 처리"""
+        """앱 종료 처리"""
         self.orchestrator.stop()
-        
-        # 모든 에이전트 언로드
-        for agent in self.orchestrator.agents.values():
-            agent.unload()
-        
+        self.loop.call_soon_threadsafe(self.loop.stop)
+        self.quit()
         self.destroy()
 
-# ==================== 9. 메인 실행 ====================
-def main():
-    """메인 함수"""
-    if not LLAMA_CPP_AVAILABLE:
-        print("오류: llama-cpp-python이 설치되지 않았습니다.")
-        print("설치: pip install llama-cpp-python")
-        return
-    
-    # 디렉토리 생성
-    os.makedirs("models", exist_ok=True)
-    os.makedirs("logs", exist_ok=True)
-    
-    # UI 실행
-    app = OrchestratorUI()
-    app.protocol("WM_DELETE_WINDOW", app.on_closing)
-    app.mainloop()
-
+# ============= 메인 실행 =============
 if __name__ == "__main__":
-    main()
+    try:
+        app = AgenticAIApp()
+        app.protocol("WM_DELETE_WINDOW", app.on_closing)
+        app.mainloop()
+    except Exception as e:
+        error_message = f"애플리케이션 시작 중 오류가 발생했습니다:\n{str(e)}\n\n{traceback.format_exc()}"
+        print(error_message)
+        
+        try:
+            import tkinter as tk
+            from tkinter import messagebox
+            root = tk.Tk()
+            root.withdraw()
+            messagebox.showerror("오류", error_message)
+            root.destroy()
+        except:
+            pass
+        
+        sys.exit(1)
