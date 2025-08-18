@@ -86,36 +86,87 @@ class GGUFModelManager:
         if not os.path.exists(model_path):
             raise FileNotFoundError(f"모델 파일이 존재하지 않습니다: {model_path}")
         
+        # 파일 크기 확인 (너무 작으면 손상된 파일일 가능성)
+        file_size = os.path.getsize(model_path)
+        if file_size < 1024 * 1024:  # 1MB 미만
+            raise ValueError(f"모델 파일이 너무 작습니다. 손상되었을 가능성이 있습니다: {file_size} bytes")
+        
         try:
             # 기존 모델 정리
             if self.model:
-                del self.model
+                try:
+                    del self.model
+                except:
+                    pass
                 self.model = None
+                self.model_loaded = False
             
             # 설정 업데이트
             self.context_size = kwargs.get('context_size', self.context_size)
             self.n_threads = kwargs.get('n_threads', self.n_threads)
             self.n_gpu_layers = kwargs.get('n_gpu_layers', self.n_gpu_layers)
             
-            # 모델 로드
-            self.model = Llama(
-                model_path=model_path,
-                n_ctx=self.context_size,
-                n_threads=self.n_threads,
-                n_gpu_layers=self.n_gpu_layers,
-                verbose=False,
-                seed=-1
-            )
+            # 안전한 기본값으로 시작
+            logger.info(f"모델 로드 시도: {model_path}")
+            logger.info(f"설정 - Context: {self.context_size}, Threads: {self.n_threads}, GPU Layers: {self.n_gpu_layers}")
+            
+            # 모델 로드 (verbose=True로 디버깅 정보 출력)
+            try:
+                self.model = Llama(
+                    model_path=model_path,
+                    n_ctx=self.context_size,
+                    n_threads=self.n_threads,
+                    n_gpu_layers=self.n_gpu_layers,
+                    verbose=True,  # 디버깅을 위해 True로 설정
+                    seed=-1,
+                    n_batch=512,  # 배치 크기 명시
+                    f16_kv=True,  # Half precision
+                    logits_all=False,
+                    vocab_only=False,
+                    use_mmap=True,  # 메모리 맵 사용
+                    use_mlock=False  # 메모리 락 비활성화
+                )
+            except Exception as model_error:
+                # GPU 레이어 문제일 수 있으므로 CPU 전용으로 재시도
+                logger.warning(f"GPU 로드 실패, CPU 모드로 재시도: {str(model_error)}")
+                self.n_gpu_layers = 0
+                self.model = Llama(
+                    model_path=model_path,
+                    n_ctx=min(self.context_size, 512),  # 컨텍스트 크기 줄여서 재시도
+                    n_threads=self.n_threads,
+                    n_gpu_layers=0,  # GPU 비활성화
+                    verbose=False,
+                    seed=-1,
+                    use_mmap=False,  # 메모리 맵 비활성화
+                    use_mlock=False
+                )
             
             self.model_path = model_path
             self.model_loaded = True
             logger.info(f"GGUF 모델 로드 성공: {model_path}")
             return True
             
-        except Exception as e:
-            logger.error(f"모델 로드 오류: {str(e)}")
+        except OSError as e:
+            error_msg = f"모델 파일 접근 오류: {str(e)}"
+            logger.error(error_msg)
             self.model_loaded = False
-            raise
+            self.model = None
+            raise RuntimeError(error_msg)
+            
+        except MemoryError as e:
+            error_msg = f"메모리 부족: 모델이 너무 큽니다. 더 작은 모델을 사용하거나 컨텍스트 크기를 줄이세요."
+            logger.error(error_msg)
+            self.model_loaded = False
+            self.model = None
+            raise RuntimeError(error_msg)
+            
+        except Exception as e:
+            error_msg = f"모델 로드 오류: {str(e)}"
+            logger.error(error_msg)
+            logger.error(f"오류 타입: {type(e).__name__}")
+            self.model_loaded = False
+            self.model = None
+            raise RuntimeError(error_msg)
     
     def generate(self, prompt: str, **kwargs) -> str:
         """텍스트 생성"""
@@ -999,19 +1050,72 @@ class AgenticAIApp(ctk.CTk):
     def _load_model_thread(self, model_file, loading_dialog):
         """모델 로드 스레드"""
         try:
-            # 모델 로드
+            # 모델 로드 전 파일 검증
+            if not os.path.exists(model_file):
+                raise FileNotFoundError(f"파일을 찾을 수 없습니다: {model_file}")
+            
+            file_size_mb = os.path.getsize(model_file) / (1024 * 1024)
+            logger.info(f"모델 파일 크기: {file_size_mb:.2f} MB")
+            
+            # 메모리 체크 (psutil이 있는 경우만)
+            try:
+                import psutil
+                available_memory = psutil.virtual_memory().available / (1024 * 1024 * 1024)  # GB
+                logger.info(f"사용 가능한 메모리: {available_memory:.2f} GB")
+                
+                # 파일 크기가 사용 가능한 메모리보다 크면 경고
+                if file_size_mb > available_memory * 1024 * 0.8:  # 80% 이상 사용 시 경고
+                    logger.warning("메모리 부족 가능성이 있습니다. 더 작은 모델을 사용하는 것을 권장합니다.")
+            except ImportError:
+                logger.info("psutil이 설치되지 않아 메모리 체크를 건너뜁니다.")
+            
+            # 모델 로드 시도
             self.model_manager.load_model(
                 model_file,
                 context_size=2048,
                 n_threads=4,
-                n_gpu_layers=0
+                n_gpu_layers=0  # 기본적으로 GPU 비활성화
             )
             
             # UI 업데이트
             self.after(100, lambda: self._handle_model_load_success(model_file, loading_dialog))
             
+        except FileNotFoundError as e:
+            error_msg = f"파일 오류: {str(e)}"
+            logger.error(error_msg)
+            self.after(100, lambda msg=error_msg: self._handle_model_load_error(msg, loading_dialog))
+            
+        except MemoryError:
+            error_msg = "메모리 부족: 시스템 메모리가 부족합니다. 더 작은 모델을 사용해주세요."
+            logger.error(error_msg)
+            self.after(100, lambda msg=error_msg: self._handle_model_load_error(msg, loading_dialog))
+            
+        except ImportError as e:
+            error_msg = f"라이브러리 오류: {str(e)}\nllama-cpp-python을 다시 설치해보세요."
+            logger.error(error_msg)
+            self.after(100, lambda msg=error_msg: self._handle_model_load_error(msg, loading_dialog))
+            
+        except RuntimeError as e:
+            # GGUFModelManager에서 발생한 RuntimeError
+            error_msg = str(e)
+            logger.error(error_msg)
+            self.after(100, lambda msg=error_msg: self._handle_model_load_error(msg, loading_dialog))
+            
         except Exception as e:
-            self.after(100, lambda: self._handle_model_load_error(str(e), loading_dialog))
+            # 기타 모든 예외 처리
+            error_msg = f"예상치 못한 오류: {str(e)}\n타입: {type(e).__name__}"
+            logger.error(error_msg)
+            logger.error(f"상세 오류:\n{traceback.format_exc()}")
+            
+            # Access Violation 같은 치명적 오류 처리
+            if "access violation" in str(e).lower():
+                error_msg += "\n\n해결 방법:\n"
+                error_msg += "1. 모델 파일이 손상되지 않았는지 확인\n"
+                error_msg += "2. llama-cpp-python 재설치: pip uninstall llama-cpp-python && pip install llama-cpp-python\n"
+                error_msg += "3. Visual C++ Redistributable 설치 확인\n"
+                error_msg += "4. 다른 GGUF 모델 파일로 시도"
+            
+            self.after(100, lambda msg=error_msg: self._handle_model_load_error(msg, loading_dialog))
     
     def _handle_model_load_success(self, model_file, loading_dialog):
         """모델 로드 성공 처리"""
