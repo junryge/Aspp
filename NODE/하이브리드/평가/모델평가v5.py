@@ -1,6 +1,6 @@
 """
-학습된 모델을 로드하여 평가만 수행하는 코드
-TensorFlow 2.15.0
+학습된 모델을 로드하여 평가 수행
+20250731_to20250806.csv의 TOTALCNT를 과거 100분으로 10분 후 예측
 """
 
 import pandas as pd
@@ -9,15 +9,13 @@ import tensorflow as tf
 from tensorflow import keras
 from tensorflow.keras.models import Sequential
 from tensorflow.keras.layers import (Input, LSTM, Dense, Dropout, BatchNormalization,
-                                     GRU, Conv1D, MaxPooling1D, GlobalAveragePooling1D,
-                                     Bidirectional)
+                                     GRU, Conv1D, MaxPooling1D, Bidirectional)
 from tensorflow.keras.regularizers import l1_l2
-from sklearn.preprocessing import MinMaxScaler, RobustScaler
-from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score, confusion_matrix
+from sklearn.preprocessing import RobustScaler
+from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
 import matplotlib.pyplot as plt
 import seaborn as sns
 from datetime import datetime
-import pickle
 import joblib
 import os
 import warnings
@@ -30,31 +28,26 @@ plt.rcParams['axes.unicode_minus'] = False
 print(f"TensorFlow Version: {tf.__version__}")
 
 class ModelEvaluator:
-    """학습된 모델을 로드하여 평가"""
+    """학습된 모델로 평가"""
     
-    def __init__(self, model_dir=None, data_path=None):
-        # 절대 경로 설정
-        if model_dir is None:
-            self.model_dir = r'D:\하이닉스\6.연구_항목\CODE\202508051차_POC구축\앙상블_하이브리드v5_150g학습\models_v5'
-        else:
-            self.model_dir = model_dir
-            
-        if data_path is None:
-            self.data_path = r'D:\하이닉스\6.연구_항목\CODE\202508051차_POC구축\앙상블_하이브리드v5_150g학습\data\20250731_to20250806.csv'
-        else:
-            self.data_path = data_path
-            
+    def __init__(self):
+        # 경로 설정
+        self.model_dir = r'D:\하이닉스\6.연구_항목\CODE\202508051차_POC구축\앙상블_하이브리드v5_150g학습\models_v5'
+        self.data_path = r'D:\하이닉스\6.연구_항목\CODE\202508051차_POC구축\앙상블_하이브리드v5_150g학습\data\20250731_to20250806.csv'
+        
+        # 중요: 100분 데이터로 10분 후 예측
         self.sequence_length = 100  # 과거 100분
         self.prediction_horizon = 10  # 10분 후 예측
         self.spike_threshold = 1400
+        
         self.models = {}
         self.scaler = None
         
-        print(f"모델 디렉토리: {self.model_dir}")
-        print(f"데이터 경로: {self.data_path}")
-    
+        print(f"시퀀스 길이: {self.sequence_length}분")
+        print(f"예측 시점: {self.prediction_horizon}분 후")
+        
     def build_improved_lstm(self, input_shape):
-        """개선된 LSTM (학습 코드와 동일)"""
+        """LSTM 모델 (학습 코드와 동일한 구조)"""
         model = Sequential([
             Input(shape=input_shape),
             LSTM(128, return_sequences=True, kernel_regularizer=l1_l2(l1=0.005, l2=0.005)),
@@ -71,7 +64,7 @@ class ModelEvaluator:
         return model
 
     def build_improved_gru(self, input_shape):
-        """개선된 GRU"""
+        """GRU 모델"""
         model = Sequential([
             Input(shape=input_shape),
             GRU(128, return_sequences=True, kernel_regularizer=l1_l2(l1=0.005, l2=0.005)),
@@ -87,7 +80,7 @@ class ModelEvaluator:
         return model
 
     def build_improved_cnn_lstm(self, input_shape):
-        """개선된 CNN-LSTM"""
+        """CNN-LSTM 모델"""
         model = Sequential([
             Input(shape=input_shape),
             Conv1D(64, 3, activation='relu', padding='same'),
@@ -106,7 +99,7 @@ class ModelEvaluator:
         return model
 
     def build_improved_spike_detector(self, input_shape):
-        """강화된 급변 감지기"""
+        """급변 감지기"""
         model = Sequential([
             Input(shape=input_shape),
             Conv1D(64, 3, activation='relu', padding='same'),
@@ -126,15 +119,17 @@ class ModelEvaluator:
             Dense(1, activation='sigmoid')
         ])
         return model
-        
+    
     def load_models(self):
-        """저장된 모델들 로드"""
-        print("=" * 60)
-        print("학습된 모델 로드 중...")
+        """모델 로드"""
+        print("\n" + "=" * 60)
+        print("모델 로드 중...")
         print("=" * 60)
         
-        # 입력 shape (학습 코드와 동일)
-        input_shape = (50, 12)  # SEQ_LENGTH=50, features=12
+        # 학습 시 사용한 input_shape (50분 시퀀스, 12개 특징)
+        # 하지만 평가는 100분으로 할 것임
+        input_shape_50 = (50, 12)  # 학습 시
+        input_shape_100 = (100, 12)  # 평가 시
         
         model_configs = {
             'lstm': (self.build_improved_lstm, 'lstm_final.h5'),
@@ -148,142 +143,98 @@ class ModelEvaluator:
             
             if os.path.exists(filepath):
                 try:
-                    # 모델 구조 생성
-                    model = build_func(input_shape)
+                    # 모델 구조 생성 (학습 시와 동일한 50으로)
+                    model = build_func(input_shape_50)
                     
-                    # 가중치만 로드
+                    # 가중치 로드
                     model.load_weights(filepath)
                     
-                    # 컴파일
-                    if name == 'spike_detector':
-                        model.compile(
-                            optimizer='adam',
-                            loss='binary_crossentropy',
-                            metrics=['accuracy']
-                        )
-                    else:
-                        model.compile(
-                            optimizer='adam',
-                            loss='mae',
-                            metrics=['mae']
-                        )
+                    # 100분 입력을 위한 새 모델 생성
+                    new_model = build_func(input_shape_100)
                     
-                    self.models[name] = model
+                    # 가중치 복사 (레이어별로)
+                    for i, layer in enumerate(model.layers):
+                        if layer.get_weights():
+                            new_model.layers[i].set_weights(layer.get_weights())
+                    
+                    # 컴파일
+                    new_model.compile(
+                        optimizer='adam',
+                        loss='mae',
+                        metrics=['mae']
+                    )
+                    
+                    self.models[name] = new_model
                     print(f"✓ {name} 모델 로드 완료")
                     
                 except Exception as e:
                     print(f"✗ {name} 모델 로드 실패: {e}")
             else:
-                print(f"✗ {name} 모델 파일 없음: {filepath}")
+                print(f"✗ {name} 모델 파일 없음")
         
-        # 스케일러 로드 - RobustScaler 사용 (학습 코드와 동일)
-        scaler_loaded = False
+        # 스케일러 로드
         scaler_path = os.path.join(self.model_dir, 'scaler.pkl')
-        
         if os.path.exists(scaler_path):
             try:
                 self.scaler = joblib.load(scaler_path)
                 print(f"✓ 스케일러 로드 완료")
-                scaler_loaded = True
             except:
-                try:
-                    with open(scaler_path, 'rb') as f:
-                        self.scaler = pickle.load(f)
-                    print(f"✓ 스케일러 로드 완료 (pickle)")
-                    scaler_loaded = True
-                except Exception as e:
-                    print(f"⚠ 스케일러 로드 실패: {e}")
-        
-        if not scaler_loaded:
-            print(f"⚠ 스케일러 새로 생성 (RobustScaler)")
-            self.scaler = RobustScaler()  # 학습 코드와 동일하게 RobustScaler 사용
+                print(f"⚠ 스케일러 로드 실패, 새로 생성")
+                self.scaler = RobustScaler()
+        else:
+            self.scaler = RobustScaler()
+            print(f"⚠ 스케일러 새로 생성")
         
         print()
         return len(self.models) > 0
     
-    def load_evaluation_data(self):
-        """평가용 데이터 로드 및 전처리"""
-        print("평가 데이터 로드 중...")
+    def load_data(self):
+        """데이터 로드"""
+        print("데이터 로드 중...")
         
-        # 파일 존재 확인
-        if not os.path.exists(self.data_path):
-            print(f"✗ 파일이 존재하지 않습니다: {self.data_path}")
-            return None
-        
-        # CSV 파일 읽기 (콤마 구분 먼저 시도)
-        try:
-            df = pd.read_csv(self.data_path, encoding='utf-8')
-            print("✓ CSV 형식으로 로드 성공")
-        except:
-            # TSV 파일 읽기 (탭 구분)
-            try:
-                df = pd.read_csv(self.data_path, sep='\t', encoding='utf-8')
-                print("✓ TSV 형식으로 로드 성공")
-            except Exception as e:
-                print(f"✗ 파일 로드 실패: {e}")
-                return None
+        # CSV 로드
+        df = pd.read_csv(self.data_path, encoding='utf-8')
         
         print(f"데이터 shape: {df.shape}")
         print(f"컬럼: {df.columns.tolist()}")
         
-        # TOTALCNT를 current_value로 매핑
-        if 'TOTALCNT' in df.columns:
-            df['current_value'] = df['TOTALCNT']
-        elif 'current_value' not in df.columns:
-            print("✗ TOTALCNT 또는 current_value 컬럼이 없습니다!")
-            print(f"사용 가능한 컬럼: {df.columns.tolist()}")
-            return None
-        
-        # 시간 컬럼 처리
+        # 시간 처리
         if 'CURRTIME' in df.columns:
-            df['current_time'] = pd.to_datetime(df['CURRTIME'], format='%Y%m%d%H%M', errors='coerce')
-        elif 'current_time' in df.columns:
-            df['current_time'] = pd.to_datetime(df['current_time'], errors='coerce')
-        else:
-            print("⚠ 시간 컬럼이 없습니다. 인덱스 사용")
-            df['current_time'] = pd.date_range(start='2025-07-31', periods=len(df), freq='1min')
+            df['datetime'] = pd.to_datetime(df['CURRTIME'], format='%Y%m%d%H%M')
         
-        # TIME 컬럼 처리 (미래 시간)
-        if 'TIME' in df.columns:
-            df['future_time'] = pd.to_datetime(df['TIME'], format='%Y%m%d%H%M', errors='coerce')
-        else:
-            df['future_time'] = df['current_time'] + pd.Timedelta(minutes=self.prediction_horizon)
-        
-        # 실제값 생성 (10분 후 값)
-        df['실제'] = df['current_value'].shift(-self.prediction_horizon)
-        
-        # NaN 제거
-        df = df.dropna(subset=['current_value', '실제'])
-        
-        print(f"데이터 기간: {df['current_time'].iloc[0]} ~ {df['current_time'].iloc[-1]}")
-        
-        # 데이터 분포 확인
-        spike_count = (df['실제'] >= self.spike_threshold).sum()
-        print(f"전체 데이터: {len(df):,}개")
-        print(f"1400+ 급증 구간: {spike_count:,}개 ({spike_count/len(df)*100:.2f}%)")
-        print()
+        # TOTALCNT 확인
+        if 'TOTALCNT' not in df.columns:
+            print("✗ TOTALCNT 컬럼이 없습니다!")
+            return None
+            
+        print(f"TOTALCNT 범위: {df['TOTALCNT'].min()} ~ {df['TOTALCNT'].max()}")
+        print(f"데이터 기간: {df['datetime'].min()} ~ {df['datetime'].max()}")
         
         return df
     
     def create_features(self, df):
-        """특징 생성 (학습 시와 동일하게)"""
+        """특징 생성 (학습 코드와 동일)"""
+        print("\n특징 생성 중...")
+        
         df = df.copy()
         
         # 시간 특징
-        df['hour'] = df['current_time'].dt.hour
-        df['dayofweek'] = df['current_time'].dt.dayofweek
-        df['is_weekend'] = (df['current_time'].dt.dayofweek >= 5).astype(int)
+        df['hour'] = df['datetime'].dt.hour
+        df['dayofweek'] = df['datetime'].dt.dayofweek
+        df['is_weekend'] = (df['datetime'].dt.dayofweek >= 5).astype(int)
         
-        # 이동평균 및 표준편차 (학습 코드와 동일)
-        df['MA_10'] = df['current_value'].rolling(10, min_periods=1).mean()
-        df['MA_30'] = df['current_value'].rolling(30, min_periods=1).mean()
-        df['MA_60'] = df['current_value'].rolling(60, min_periods=1).mean()
-        df['STD_10'] = df['current_value'].rolling(10, min_periods=1).std().fillna(0)
-        df['STD_30'] = df['current_value'].rolling(30, min_periods=1).std().fillna(0)
+        # 이동평균
+        df['MA_10'] = df['TOTALCNT'].rolling(10, min_periods=1).mean()
+        df['MA_30'] = df['TOTALCNT'].rolling(30, min_periods=1).mean()
+        df['MA_60'] = df['TOTALCNT'].rolling(60, min_periods=1).mean()
+        
+        # 표준편차
+        df['STD_10'] = df['TOTALCNT'].rolling(10, min_periods=1).std().fillna(0)
+        df['STD_30'] = df['TOTALCNT'].rolling(30, min_periods=1).std().fillna(0)
         
         # 변화율
-        df['change_rate'] = df['current_value'].pct_change().fillna(0)
-        df['change_rate_10'] = df['current_value'].pct_change(10).fillna(0)
+        df['change_rate'] = df['TOTALCNT'].pct_change().fillna(0)
+        df['change_rate_10'] = df['TOTALCNT'].pct_change(10).fillna(0)
         
         # 트렌드
         df['trend'] = df['MA_10'] - df['MA_30']
@@ -295,179 +246,103 @@ class ModelEvaluator:
         return df
     
     def prepare_sequences(self, df):
-        """시퀀스 데이터 준비 (학습 코드와 동일)"""
-        print("시퀀스 데이터 생성 중...")
+        """100분 시퀀스 생성"""
+        print("\n시퀀스 생성 중 (100분 -> 10분 후)...")
         
-        # 학습 코드와 동일한 특징 순서
+        # 특징 컬럼 (학습과 동일)
         feature_cols = ['TOTALCNT', 'MA_10', 'MA_30', 'MA_60', 'STD_10', 'STD_30',
                        'change_rate', 'change_rate_10', 'hour', 'dayofweek', 
                        'is_weekend', 'trend']
         
-        # current_value를 TOTALCNT로 변경 (학습 코드 호환)
-        if 'TOTALCNT' not in df.columns:
-            df['TOTALCNT'] = df['current_value']
+        # 실제값 생성 (10분 후)
+        df['FUTURE'] = df['TOTALCNT'].shift(-self.prediction_horizon)
         
-        # SEQ_LENGTH = 50 (학습 코드와 동일)
-        self.sequence_length = 50
+        # 스케일링
+        scaled_data = self.scaler.fit_transform(df[feature_cols + ['FUTURE']].fillna(0))
+        scaled_df = pd.DataFrame(scaled_data, columns=feature_cols + ['FUTURE'])
         
-        sequences = []
-        actuals = []
+        X, y = [], []
         timestamps = []
         
-        for i in range(len(df) - self.sequence_length - self.prediction_horizon + 1):
-            # 과거 50분 데이터
-            seq_data = df[feature_cols].iloc[i:i+self.sequence_length].values
+        # 100분 시퀀스 생성
+        for i in range(len(scaled_df) - self.sequence_length - self.prediction_horizon):
+            # 과거 100분
+            X.append(scaled_df[feature_cols].iloc[i:i+self.sequence_length].values)
+            # 10분 후 값
+            y.append(scaled_df['FUTURE'].iloc[i+self.sequence_length+self.prediction_horizon-1])
             
-            # 10분 후 실제 값
-            future_idx = i + self.sequence_length + self.prediction_horizon - 1
-            if future_idx < len(df):
-                sequences.append(seq_data)
-                actuals.append(df.iloc[future_idx]['실제'])
-                timestamps.append({
-                    'start_time': df.iloc[i]['current_time'],
-                    'end_time': df.iloc[i+self.sequence_length-1]['current_time'],
-                    'future_time': df.iloc[future_idx]['future_time'] if 'future_time' in df.columns else df.iloc[future_idx]['current_time']
-                })
+            timestamps.append({
+                'start': df['datetime'].iloc[i],
+                'end': df['datetime'].iloc[i+self.sequence_length-1],
+                'target': df['datetime'].iloc[i+self.sequence_length+self.prediction_horizon-1]
+            })
         
-        X = np.array(sequences)
-        y = np.array(actuals)
-        
-        # 스케일링 (학습 코드와 동일하게 13개 특징)
-        if self.scaler is not None:
-            n_samples, n_timesteps, n_features = X.shape
-            X_reshaped = X.reshape(n_samples * n_timesteps, n_features)
-            
-            try:
-                # X 스케일링 (12개 특징)
-                # 스케일러가 13개를 기대하므로 더미 컬럼 추가
-                dummy_future = np.zeros((X_reshaped.shape[0], 1))
-                X_with_future = np.column_stack([X_reshaped, dummy_future])
-                X_scaled = self.scaler.transform(X_with_future)[:, :-1]  # 마지막 컬럼 제외
-                X = X_scaled.reshape(n_samples, n_timesteps, n_features)
-                
-                # y 스케일링
-                y_reshaped = y.reshape(-1, 1)
-                y_with_features = np.column_stack([np.zeros((len(y), 12)), y_reshaped])
-                y_scaled = self.scaler.transform(y_with_features)[:, -1]
-                y = y_scaled
-                
-            except Exception as e:
-                print(f"⚠ 스케일링 오류: {e}")
-                print("⚠ 스케일러 재학습 필요")
-                
-                # 스케일러 재학습 (13개 특징으로)
-                all_features = df[feature_cols].values
-                all_futures = df['실제'].values.reshape(-1, 1)
-                all_data = np.column_stack([all_features, all_futures])
-                
-                self.scaler.fit(all_data)
-                
-                # 다시 스케일링
-                dummy_future = np.zeros((X_reshaped.shape[0], 1))
-                X_with_future = np.column_stack([X_reshaped, dummy_future])
-                X_scaled = self.scaler.transform(X_with_future)[:, :-1]
-                X = X_scaled.reshape(n_samples, n_timesteps, n_features)
-                
-                y_reshaped = y.reshape(-1, 1)
-                y_with_features = np.column_stack([np.zeros((len(y), 12)), y_reshaped])
-                y_scaled = self.scaler.transform(y_with_features)[:, -1]
-                y = y_scaled
+        X = np.array(X)
+        y = np.array(y)
         
         print(f"생성된 시퀀스: {len(X):,}개")
-        print(f"입력 shape: {X.shape}")
-        print(f"타겟 shape: {y.shape}")
-        print()
+        print(f"X shape: {X.shape}")
+        print(f"y shape: {y.shape}")
         
         return X, y, timestamps
     
-    def evaluate_models(self, X, y, timestamps):
-        """각 모델 평가"""
-        print("=" * 60)
-        print("모델 평가 시작")
+    def predict_and_evaluate(self, X, y):
+        """예측 및 평가"""
+        print("\n" + "=" * 60)
+        print("모델 예측 및 평가")
         print("=" * 60)
         
-        results = {}
         predictions = {}
+        results = {}
         
-        for model_name, model in self.models.items():
-            print(f"\n{model_name} 모델 평가 중...")
+        # 각 모델 예측
+        for name, model in self.models.items():
+            print(f"\n{name} 예측 중...")
             
-            try:
-                # 예측
-                if model_name == 'spike_detector':
-                    # Spike detector는 두 개 출력 (regression, classification)
-                    pred = model.predict(X, batch_size=256, verbose=0)
-                    if isinstance(pred, list):
-                        y_pred = pred[0].flatten()  # regression 출력만 사용
-                    else:
-                        y_pred = pred.flatten()
-                else:
-                    y_pred = model.predict(X, batch_size=256, verbose=0).flatten()
-                
-                predictions[model_name] = y_pred
-                
-                # 평가 지표 계산
-                mae = mean_absolute_error(y, y_pred)
-                rmse = np.sqrt(mean_squared_error(y, y_pred))
-                r2 = r2_score(y, y_pred)
-                
-                # 1400+ 급증 구간 평가
-                spike_mask = y >= self.spike_threshold
-                spike_mae = mean_absolute_error(y[spike_mask], y_pred[spike_mask]) if spike_mask.sum() > 0 else 0
-                
-                # 급증 감지 성능
-                pred_spike = y_pred >= self.spike_threshold
-                actual_spike = y >= self.spike_threshold
-                
-                tp = np.sum((pred_spike == True) & (actual_spike == True))
-                fp = np.sum((pred_spike == True) & (actual_spike == False))
-                fn = np.sum((pred_spike == False) & (actual_spike == True))
-                tn = np.sum((pred_spike == False) & (actual_spike == False))
-                
-                precision = tp / (tp + fp) if (tp + fp) > 0 else 0
-                recall = tp / (tp + fn) if (tp + fn) > 0 else 0
-                f1 = 2 * (precision * recall) / (precision + recall) if (precision + recall) > 0 else 0
-                
-                results[model_name] = {
-                    'MAE': mae,
-                    'RMSE': rmse,
-                    'R2': r2,
-                    'Spike_MAE': spike_mae,
-                    'Precision': precision,
-                    'Recall': recall,
-                    'F1': f1,
-                    'TP': tp, 'FP': fp, 'FN': fn, 'TN': tn
-                }
-                
-                print(f"  MAE: {mae:.2f}")
-                print(f"  RMSE: {rmse:.2f}")
-                print(f"  R²: {r2:.4f}")
-                print(f"  1400+ MAE: {spike_mae:.2f}")
-                print(f"  Precision: {precision*100:.2f}%")
-                print(f"  Recall: {recall*100:.2f}%")
-                print(f"  F1-Score: {f1:.4f}")
-                
-            except Exception as e:
-                print(f"  ✗ 평가 실패: {e}")
-                continue
+            if name == 'spike_detector':
+                # spike_detector는 sigmoid 출력
+                pred = model.predict(X, batch_size=256, verbose=0)
+                pred = pred.flatten()
+            else:
+                pred = model.predict(X, batch_size=256, verbose=0).flatten()
+            
+            predictions[name] = pred
+            
+            # 평가
+            mae = mean_absolute_error(y, pred)
+            rmse = np.sqrt(mean_squared_error(y, pred))
+            r2 = r2_score(y, pred)
+            
+            results[name] = {
+                'MAE': mae,
+                'RMSE': rmse,
+                'R2': r2
+            }
+            
+            print(f"  MAE: {mae:.4f}")
+            print(f"  RMSE: {rmse:.4f}")
+            print(f"  R²: {r2:.4f}")
         
-        # 앙상블 예측 (가중 평균)
-        if len(predictions) > 0:
-            print(f"\n앙상블 모델 평가 중...")
+        # 앙상블 예측
+        if len(predictions) > 1:
+            print(f"\n앙상블 예측...")
             
-            # 모델별 가중치 (GRU가 가장 좋았으므로 높은 가중치)
+            # 가중 평균 (GRU 중심)
             weights = {
                 'lstm': 0.2,
                 'gru': 0.4,
-                'cnn_lstm': 0.2,
-                'spike_detector': 0.2
+                'cnn_lstm': 0.25,
+                'spike_detector': 0.15
             }
             
             ensemble_pred = np.zeros_like(y)
             total_weight = 0
             
-            for model_name, pred in predictions.items():
-                weight = weights.get(model_name, 0.25)
+            for name, pred in predictions.items():
+                if name in weights:
+                    weight = weights[name]
+                else:
+                    weight = 1.0 / len(predictions)
                 ensemble_pred += pred * weight
                 total_weight += weight
             
@@ -479,307 +354,224 @@ class ModelEvaluator:
             rmse = np.sqrt(mean_squared_error(y, ensemble_pred))
             r2 = r2_score(y, ensemble_pred)
             
-            spike_mask = y >= self.spike_threshold
-            spike_mae = mean_absolute_error(y[spike_mask], ensemble_pred[spike_mask]) if spike_mask.sum() > 0 else 0
-            
-            pred_spike = ensemble_pred >= self.spike_threshold
-            actual_spike = y >= self.spike_threshold
-            
-            tp = np.sum((pred_spike == True) & (actual_spike == True))
-            fp = np.sum((pred_spike == True) & (actual_spike == False))
-            fn = np.sum((pred_spike == False) & (actual_spike == True))
-            
-            precision = tp / (tp + fp) if (tp + fp) > 0 else 0
-            recall = tp / (tp + fn) if (tp + fn) > 0 else 0
-            f1 = 2 * (precision * recall) / (precision + recall) if (precision + recall) > 0 else 0
-            
             results['ensemble'] = {
                 'MAE': mae,
                 'RMSE': rmse,
-                'R2': r2,
-                'Spike_MAE': spike_mae,
-                'Precision': precision,
-                'Recall': recall,
-                'F1': f1
+                'R2': r2
             }
             
-            print(f"  MAE: {mae:.2f}")
-            print(f"  RMSE: {rmse:.2f}")
+            print(f"  MAE: {mae:.4f}")
+            print(f"  RMSE: {rmse:.4f}")
+            print(f"  R²: {r2:.4f}")
+        
+        return predictions, results
+    
+    def inverse_transform(self, scaled_values):
+        """역변환"""
+        # 12개 특징 + 1개 타겟
+        dummy = np.zeros((len(scaled_values), 12))
+        combined = np.column_stack([dummy, scaled_values.reshape(-1, 1)])
+        inversed = self.scaler.inverse_transform(combined)
+        return inversed[:, -1]
+    
+    def evaluate_final(self, y, predictions):
+        """최종 평가 (원본 스케일)"""
+        print("\n" + "=" * 60)
+        print("최종 평가 (원본 스케일)")
+        print("=" * 60)
+        
+        # 역변환
+        y_original = self.inverse_transform(y)
+        
+        for name, pred in predictions.items():
+            pred_original = self.inverse_transform(pred)
+            
+            # 전체 평가
+            mae = mean_absolute_error(y_original, pred_original)
+            rmse = np.sqrt(mean_squared_error(y_original, pred_original))
+            r2 = r2_score(y_original, pred_original)
+            
+            # 1400+ 평가
+            spike_mask = y_original >= self.spike_threshold
+            if spike_mask.sum() > 0:
+                spike_mae = mean_absolute_error(y_original[spike_mask], pred_original[spike_mask])
+                
+                # 급증 감지
+                pred_spike = pred_original >= self.spike_threshold
+                actual_spike = y_original >= self.spike_threshold
+                
+                tp = np.sum((pred_spike) & (actual_spike))
+                fp = np.sum((pred_spike) & (~actual_spike))
+                fn = np.sum((~pred_spike) & (actual_spike))
+                
+                precision = tp / (tp + fp) if (tp + fp) > 0 else 0
+                recall = tp / (tp + fn) if (tp + fn) > 0 else 0
+                f1 = 2 * precision * recall / (precision + recall) if (precision + recall) > 0 else 0
+            else:
+                spike_mae = precision = recall = f1 = 0
+            
+            print(f"\n{name.upper()}:")
+            print(f"  전체 MAE: {mae:.2f}")
+            print(f"  전체 RMSE: {rmse:.2f}")
             print(f"  R²: {r2:.4f}")
             print(f"  1400+ MAE: {spike_mae:.2f}")
-            print(f"  Precision: {precision*100:.2f}%")
-            print(f"  Recall: {recall*100:.2f}%")
-            print(f"  F1-Score: {f1:.4f}")
-        
-        return results, predictions
+            print(f"  Precision: {precision:.2%}")
+            print(f"  Recall: {recall:.2%}")
+            print(f"  F1: {f1:.4f}")
+            
+            # 최고 모델 저장
+            if name == 'ensemble':
+                self.best_pred = pred_original
+                self.best_actual = y_original
     
-    def save_evaluation_results(self, y, predictions, timestamps, original_df):
-        """평가 결과를 CSV로 저장"""
-        print("\n평가 결과 저장 중...")
-        
-        # 결과 데이터프레임 생성
-        eval_df = pd.DataFrame({
-            'start_time': [t['start_time'] for t in timestamps],
-            'end_time': [t['end_time'] for t in timestamps],
-            'future_time': [t['future_time'] for t in timestamps],
-            '실제값': y,
-            '급증여부': (y >= self.spike_threshold).astype(int)
-        })
-        
-        # 각 모델의 예측값 추가
-        for model_name, pred in predictions.items():
-            eval_df[f'{model_name}_예측'] = pred
-            eval_df[f'{model_name}_오차'] = y - pred
-            eval_df[f'{model_name}_절대오차'] = np.abs(y - pred)
-        
-        # 통계 정보 추가
-        eval_df['실제값_구간'] = pd.cut(y, bins=[0, 1000, 1200, 1400, 1600, 2000, 10000],
-                                    labels=['0-1000', '1000-1200', '1200-1400', 
-                                           '1400-1600', '1600-2000', '2000+'])
-        
-        # CSV 저장 (한글 깨짐 방지)
-        output_file = f'evaluation_results_{datetime.now().strftime("%Y%m%d_%H%M%S")}.csv'
-        eval_df.to_csv(output_file, index=False, encoding='utf-8-sig')
-        print(f"✓ 평가 결과 저장: {output_file}")
-        
-        # 요약 통계 저장
-        summary_file = f'evaluation_summary_{datetime.now().strftime("%Y%m%d_%H%M%S")}.txt'
-        with open(summary_file, 'w', encoding='utf-8') as f:
-            f.write("=" * 80 + "\n")
-            f.write("반도체 물류 예측 모델 평가 결과\n")
-            f.write("=" * 80 + "\n\n")
-            f.write(f"평가 시간: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
-            f.write(f"평가 데이터: {self.data_path}\n")
-            f.write(f"평가 샘플 수: {len(eval_df):,}개\n")
-            f.write(f"급증 구간(≥1400): {(y >= self.spike_threshold).sum():,}개 ({(y >= self.spike_threshold).mean()*100:.2f}%)\n\n")
-            
-            # 구간별 분포
-            f.write("구간별 데이터 분포:\n")
-            for interval in eval_df['실제값_구간'].value_counts().sort_index().items():
-                f.write(f"  {interval[0]}: {interval[1]:,}개\n")
-            
-            f.write("\n" + "=" * 80 + "\n")
-            f.write("모델별 성능 요약\n")
-            f.write("=" * 80 + "\n\n")
-            
-            # 모델별 성능 테이블
-            for model_name in predictions.keys():
-                if f'{model_name}_오차' in eval_df.columns:
-                    f.write(f"\n{model_name.upper()} 모델:\n")
-                    f.write(f"  평균 절대 오차: {eval_df[f'{model_name}_절대오차'].mean():.2f}\n")
-                    f.write(f"  최대 오차: {eval_df[f'{model_name}_절대오차'].max():.2f}\n")
-                    f.write(f"  최소 오차: {eval_df[f'{model_name}_절대오차'].min():.2f}\n")
-                    f.write(f"  오차 표준편차: {eval_df[f'{model_name}_오차'].std():.2f}\n")
-        
-        print(f"✓ 평가 요약 저장: {summary_file}")
-        
-        return eval_df
-    
-    def visualize_results(self, eval_df, results):
-        """결과 시각화"""
+    def visualize(self, y, predictions, timestamps):
+        """시각화"""
         print("\n결과 시각화 생성 중...")
         
-        fig, axes = plt.subplots(3, 2, figsize=(15, 12))
-        fig.suptitle('반도체 물류 예측 모델 평가 결과', fontsize=16, fontweight='bold')
+        # 역변환
+        y_original = self.inverse_transform(y)
         
-        # 1. 시계열 예측 비교 (샘플)
+        fig, axes = plt.subplots(2, 2, figsize=(15, 10))
+        fig.suptitle('반도체 물류 예측 결과 (100분 -> 10분 후)', fontsize=14, fontweight='bold')
+        
+        # 1. 시계열 비교
         ax1 = axes[0, 0]
-        sample_size = min(500, len(eval_df))
-        x_range = range(sample_size)
+        sample = min(500, len(y))
         
-        ax1.plot(x_range, eval_df['실제값'].iloc[:sample_size], 
-                label='실제', color='black', linewidth=2, alpha=0.8)
+        ax1.plot(y_original[:sample], label='실제', color='black', linewidth=2)
         
-        colors = ['blue', 'green', 'orange', 'red', 'purple']
-        for i, model in enumerate(['lstm', 'gru', 'cnn_lstm', 'ensemble']):
-            if f'{model}_예측' in eval_df.columns:
-                ax1.plot(x_range, eval_df[f'{model}_예측'].iloc[:sample_size],
-                        label=model.upper(), alpha=0.6, linewidth=1, color=colors[i])
+        colors = {'lstm': 'blue', 'gru': 'green', 'cnn_lstm': 'orange', 'ensemble': 'red'}
+        for name in ['lstm', 'gru', 'ensemble']:
+            if name in predictions:
+                pred_original = self.inverse_transform(predictions[name])
+                ax1.plot(pred_original[:sample], label=name.upper(), alpha=0.7, color=colors.get(name, 'gray'))
         
-        ax1.axhline(y=self.spike_threshold, color='red', linestyle='--', 
-                   alpha=0.5, label='급증 임계값(1400)')
+        ax1.axhline(y=self.spike_threshold, color='red', linestyle='--', alpha=0.3, label='1400 임계값')
         ax1.set_xlabel('시간 인덱스')
         ax1.set_ylabel('물류량')
-        ax1.set_title(f'예측 비교 (첫 {sample_size}개 샘플)')
-        ax1.legend(loc='upper right')
+        ax1.set_title('예측 결과 비교')
+        ax1.legend()
         ax1.grid(True, alpha=0.3)
         
-        # 2. 모델별 MAE 비교
+        # 2. 산점도
         ax2 = axes[0, 1]
-        model_names = list(results.keys())
-        mae_values = [results[m]['MAE'] for m in model_names]
-        spike_mae_values = [results[m]['Spike_MAE'] for m in model_names]
+        if 'ensemble' in predictions:
+            pred_original = self.inverse_transform(predictions['ensemble'])
+            ax2.scatter(y_original, pred_original, alpha=0.5, s=1)
+            ax2.plot([y_original.min(), y_original.max()], 
+                    [y_original.min(), y_original.max()], 
+                    'r--', alpha=0.5)
+            ax2.set_xlabel('실제값')
+            ax2.set_ylabel('예측값')
+            ax2.set_title('앙상블 예측 산점도')
+            ax2.grid(True, alpha=0.3)
         
-        x = np.arange(len(model_names))
-        width = 0.35
-        
-        bars1 = ax2.bar(x - width/2, mae_values, width, label='전체 MAE', color='skyblue')
-        bars2 = ax2.bar(x + width/2, spike_mae_values, width, label='1400+ MAE', color='coral')
-        
-        ax2.set_xlabel('모델')
-        ax2.set_ylabel('MAE')
-        ax2.set_title('모델별 평균 절대 오차')
-        ax2.set_xticks(x)
-        ax2.set_xticklabels([m.upper() for m in model_names], rotation=45)
-        ax2.legend()
-        ax2.grid(True, alpha=0.3)
-        
-        # 값 표시
-        for bar in bars1:
-            height = bar.get_height()
-            ax2.text(bar.get_x() + bar.get_width()/2., height,
-                    f'{height:.1f}', ha='center', va='bottom', fontsize=8)
-        for bar in bars2:
-            height = bar.get_height()
-            ax2.text(bar.get_x() + bar.get_width()/2., height,
-                    f'{height:.1f}', ha='center', va='bottom', fontsize=8)
-        
-        # 3. 급증 감지 성능 (Precision/Recall)
+        # 3. 오차 분포
         ax3 = axes[1, 0]
-        precision_values = [results[m]['Precision'] for m in model_names]
-        recall_values = [results[m]['Recall'] for m in model_names]
+        if 'ensemble' in predictions:
+            pred_original = self.inverse_transform(predictions['ensemble'])
+            errors = y_original - pred_original
+            ax3.hist(errors, bins=50, alpha=0.7, color='blue', edgecolor='black')
+            ax3.axvline(x=0, color='red', linestyle='--')
+            ax3.set_xlabel('예측 오차')
+            ax3.set_ylabel('빈도')
+            ax3.set_title(f'오차 분포 (평균: {errors.mean():.2f}, 표준편차: {errors.std():.2f})')
+            ax3.grid(True, alpha=0.3)
         
-        bars1 = ax3.bar(x - width/2, precision_values, width, label='Precision', color='lightgreen')
-        bars2 = ax3.bar(x + width/2, recall_values, width, label='Recall', color='lightcoral')
-        
-        ax3.set_xlabel('모델')
-        ax3.set_ylabel('Score')
-        ax3.set_title('급증 감지 성능 (1400+)')
-        ax3.set_xticks(x)
-        ax3.set_xticklabels([m.upper() for m in model_names], rotation=45)
-        ax3.legend()
-        ax3.grid(True, alpha=0.3)
-        
-        # 값 표시
-        for bar in bars1:
-            height = bar.get_height()
-            ax3.text(bar.get_x() + bar.get_width()/2., height,
-                    f'{height*100:.1f}%', ha='center', va='bottom', fontsize=8)
-        for bar in bars2:
-            height = bar.get_height()
-            ax3.text(bar.get_x() + bar.get_width()/2., height,
-                    f'{height*100:.1f}%', ha='center', va='bottom', fontsize=8)
-        
-        # 4. R² Score 비교
+        # 4. 1400+ 구간 성능
         ax4 = axes[1, 1]
-        r2_values = [results[m]['R2'] for m in model_names]
-        bars = ax4.bar(model_names, r2_values, color='mediumpurple')
-        
-        ax4.set_xlabel('모델')
-        ax4.set_ylabel('R² Score')
-        ax4.set_title('모델별 R² Score')
-        ax4.set_xticklabels([m.upper() for m in model_names], rotation=45)
-        ax4.grid(True, alpha=0.3)
-        
-        for bar, r2 in zip(bars, r2_values):
-            height = bar.get_height()
-            ax4.text(bar.get_x() + bar.get_width()/2., height,
-                    f'{r2:.3f}', ha='center', va='bottom')
-        
-        # 5. 오차 분포 (히스토그램)
-        ax5 = axes[2, 0]
-        if 'ensemble_오차' in eval_df.columns:
-            ax5.hist(eval_df['ensemble_오차'], bins=50, alpha=0.7, 
-                    color='blue', edgecolor='black')
-            ax5.axvline(x=0, color='red', linestyle='--', alpha=0.5)
-            ax5.set_xlabel('예측 오차')
-            ax5.set_ylabel('빈도')
-            ax5.set_title('앙상블 모델 오차 분포')
-            ax5.grid(True, alpha=0.3)
+        if 'ensemble' in predictions:
+            pred_original = self.inverse_transform(predictions['ensemble'])
             
-            # 통계 정보 추가
-            mean_error = eval_df['ensemble_오차'].mean()
-            std_error = eval_df['ensemble_오차'].std()
-            ax5.text(0.02, 0.98, f'평균: {mean_error:.2f}\n표준편차: {std_error:.2f}',
-                    transform=ax5.transAxes, verticalalignment='top',
-                    bbox=dict(boxstyle='round', facecolor='white', alpha=0.8))
-        
-        # 6. F1 Score 비교
-        ax6 = axes[2, 1]
-        f1_values = [results[m]['F1'] for m in model_names]
-        bars = ax6.bar(model_names, f1_values, color='orange')
-        
-        ax6.set_xlabel('모델')
-        ax6.set_ylabel('F1 Score')
-        ax6.set_title('급증 감지 F1 Score')
-        ax6.set_xticklabels([m.upper() for m in model_names], rotation=45)
-        ax6.grid(True, alpha=0.3)
-        
-        for bar, f1 in zip(bars, f1_values):
-            height = bar.get_height()
-            ax6.text(bar.get_x() + bar.get_width()/2., height,
-                    f'{f1:.3f}', ha='center', va='bottom')
+            # 1400+ 구간만
+            spike_mask = y_original >= self.spike_threshold
+            if spike_mask.sum() > 0:
+                spike_actual = y_original[spike_mask]
+                spike_pred = pred_original[spike_mask]
+                
+                ax4.scatter(spike_actual, spike_pred, alpha=0.6, color='red', s=10)
+                ax4.plot([1400, spike_actual.max()], [1400, spike_actual.max()], 'k--', alpha=0.5)
+                ax4.set_xlabel('실제값 (1400+)')
+                ax4.set_ylabel('예측값')
+                ax4.set_title(f'1400+ 구간 예측 (n={spike_mask.sum()})')
+                ax4.grid(True, alpha=0.3)
         
         plt.tight_layout()
-        
-        # 그래프 저장
-        output_file = f'evaluation_plot_{datetime.now().strftime("%Y%m%d_%H%M%S")}.png'
-        plt.savefig(output_file, dpi=300, bbox_inches='tight')
-        print(f"✓ 시각화 저장: {output_file}")
-        
+        plt.savefig('evaluation_results_100min.png', dpi=300, bbox_inches='tight')
         plt.show()
         
-        return fig
+        print("✓ 시각화 저장: evaluation_results_100min.png")
+    
+    def save_results(self, y, predictions, timestamps):
+        """결과 저장"""
+        print("\n결과 저장 중...")
+        
+        # 역변환
+        y_original = self.inverse_transform(y)
+        
+        # 데이터프레임 생성
+        results_df = pd.DataFrame({
+            'start_time': [t['start'] for t in timestamps],
+            'target_time': [t['target'] for t in timestamps],
+            '실제값': y_original
+        })
+        
+        # 예측값 추가
+        for name, pred in predictions.items():
+            pred_original = self.inverse_transform(pred)
+            results_df[f'{name}_예측'] = pred_original
+            results_df[f'{name}_오차'] = y_original - pred_original
+        
+        # CSV 저장
+        output_file = f'prediction_results_{datetime.now().strftime("%Y%m%d_%H%M%S")}.csv'
+        results_df.to_csv(output_file, index=False, encoding='utf-8-sig')
+        print(f"✓ 결과 저장: {output_file}")
+        
+        return results_df
 
 def main():
-    """메인 실행 함수"""
+    """메인 실행"""
     print("=" * 60)
-    print("반도체 물류 예측 모델 평가 프로그램")
+    print("반도체 물류 예측 평가")
+    print("과거 100분 데이터로 10분 후 예측")
     print("=" * 60)
-    print()
     
-    # 평가기 초기화 - 경로 자동 설정
+    # 평가기 초기화
     evaluator = ModelEvaluator()
     
-    # 1. 학습된 모델 로드
+    # 1. 모델 로드
     if not evaluator.load_models():
-        print("⚠ 모델을 로드할 수 없습니다. 모델 디렉토리를 확인하세요.")
-        print("학습v5.py를 실행하여 모델을 먼저 학습시켜주세요.")
-        return None, None  # 두 개 반환
+        print("✗ 모델 로드 실패!")
+        return None, None
     
-    # 2. 평가 데이터 로드
-    df = evaluator.load_evaluation_data()
+    # 2. 데이터 로드
+    df = evaluator.load_data()
     if df is None:
-        print("⚠ 데이터를 로드할 수 없습니다.")
-        return None, None  # 두 개 반환
+        return None, None
     
     # 3. 특징 생성
     df = evaluator.create_features(df)
     
-    # 4. 시퀀스 데이터 준비
+    # 4. 시퀀스 생성 (100분)
     X, y, timestamps = evaluator.prepare_sequences(df)
     
-    # 5. 모델 평가
-    results, predictions = evaluator.evaluate_models(X, y, timestamps)
+    # 5. 예측 및 평가
+    predictions, results = evaluator.predict_and_evaluate(X, y)
     
-    # 6. 결과 저장
-    eval_df = evaluator.save_evaluation_results(y, predictions, timestamps, df)
+    # 6. 최종 평가 (원본 스케일)
+    evaluator.evaluate_final(y, predictions)
     
     # 7. 시각화
-    fig = evaluator.visualize_results(eval_df, results)
+    evaluator.visualize(y, predictions, timestamps)
     
-    # 8. 최종 요약 출력
+    # 8. 결과 저장
+    results_df = evaluator.save_results(y, predictions, timestamps)
+    
     print("\n" + "=" * 60)
-    print("평가 완료 - 최종 요약")
+    print("✅ 평가 완료!")
     print("=" * 60)
     
-    if 'ensemble' in results:
-        best_model = min(results.items(), key=lambda x: x[1]['MAE'])
-        print(f"\n최고 성능 모델 (MAE 기준): {best_model[0].upper()}")
-        print(f"  - MAE: {best_model[1]['MAE']:.2f}")
-        print(f"  - RMSE: {best_model[1]['RMSE']:.2f}")
-        print(f"  - R²: {best_model[1]['R2']:.4f}")
-        
-        print(f"\n앙상블 모델 성능:")
-        print(f"  - MAE: {results['ensemble']['MAE']:.2f}")
-        print(f"  - RMSE: {results['ensemble']['RMSE']:.2f}")
-        print(f"  - R²: {results['ensemble']['R2']:.4f}")
-        print(f"  - 1400+ Recall: {results['ensemble']['Recall']*100:.2f}%")
-    
-    print("\n✓ 모든 평가가 완료되었습니다!")
-    print("✓ 결과 파일들이 현재 디렉토리에 저장되었습니다.")
-    
-    return eval_df, results
+    return results_df, results
 
 if __name__ == "__main__":
-    eval_df, results = main()
+    results_df, evaluation = main()
