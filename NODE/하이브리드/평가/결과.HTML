@@ -1,0 +1,293 @@
+import React, { useState, useEffect } from 'react';
+import { LineChart, Line, BarChart, Bar, RadarChart, Radar, PolarGrid, PolarAngleAxis, PolarRadiusAxis, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, Cell, PieChart, Pie } from 'recharts';
+import { TrendingUp, AlertTriangle, CheckCircle, Activity } from 'lucide-react';
+
+const ModelComparisonDashboard = () => {
+  const [activeTab, setActiveTab] = useState('overview');
+
+  // 전체 성능 비교 데이터
+  const performanceData = [
+    { metric: 'MAE', v2: 75.61, v5: 66.22, improvement: 12.4 },
+    { metric: 'RMSE', v2: 92.91, v5: 82.18, improvement: 11.6 },
+    { metric: '정상판정율', v2: 88.9, v5: 93.2, improvement: 4.8 }
+  ];
+
+  // 1400 이상 성능 데이터
+  const highLoadData = [
+    { metric: 'MAE', v2: 103.02, v5: 47.16, improvement: 54.2 },
+    { metric: 'RMSE', v2: 118.33, v5: 59.46, improvement: 49.8 },
+    { metric: '정상판정율', v2: 79.1, v5: 98.7, improvement: 24.8 }
+  ];
+
+  // 오차 분포 데이터
+  const errorDistribution = [
+    { range: '0-50', v2: 37.6, v5: 44.5 },
+    { range: '50-100', v2: 34.0, v5: 32.1 },
+    { range: '100-150', v2: 18.1, v5: 16.3 },
+    { range: '150-200', v2: 7.5, v5: 5.7 },
+    { range: '200+', v2: 2.8, v5: 1.3 }
+  ];
+
+  // 비정상 판정 비교
+  const abnormalData = [
+    { category: '전체', v2_normal: 759, v2_abnormal: 94, v5_normal: 795, v5_abnormal: 58 },
+    { category: '1400+', v2_normal: 295, v2_abnormal: 78, v5_normal: 368, v5_abnormal: 5 }
+  ];
+
+  // Radar 차트용 데이터
+  const radarData = [
+    { subject: '예측정확도', v2: 75, v5: 88, fullMark: 100 },
+    { subject: '안정성', v2: 70, v5: 93, fullMark: 100 },
+    { subject: '고부하처리', v2: 50, v5: 95, fullMark: 100 },
+    { subject: '일관성', v2: 65, v5: 85, fullMark: 100 },
+    { subject: '속도', v2: 80, v5: 80, fullMark: 100 }
+  ];
+
+  const COLORS = {
+    v2: '#FF6B6B',
+    v5: '#4ECDC4',
+    improvement: '#95E77E',
+    warning: '#FFE66D',
+    danger: '#FF6B6B'
+  };
+
+  return (
+    <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100 p-6">
+      <div className="max-w-7xl mx-auto">
+        {/* Header */}
+        <div className="bg-white rounded-xl shadow-lg p-6 mb-6">
+          <h1 className="text-3xl font-bold text-gray-800 mb-2">
+            반도체 물류 예측 모델 성능 비교
+          </h1>
+          <p className="text-gray-600">구형 앙상블 V2.0 vs 신형 앙상블 V5.0</p>
+        </div>
+
+        {/* Tab Navigation */}
+        <div className="bg-white rounded-lg shadow mb-6 p-1">
+          <div className="flex space-x-1">
+            {['overview', 'performance', 'distribution', 'highload'].map((tab) => (
+              <button
+                key={tab}
+                onClick={() => setActiveTab(tab)}
+                className={`flex-1 py-3 px-4 rounded-lg font-medium transition-all ${
+                  activeTab === tab 
+                    ? 'bg-gradient-to-r from-blue-500 to-teal-500 text-white' 
+                    : 'text-gray-600 hover:bg-gray-100'
+                }`}
+              >
+                {tab === 'overview' && '종합 요약'}
+                {tab === 'performance' && '성능 지표'}
+                {tab === 'distribution' && '오차 분포'}
+                {tab === 'highload' && '고부하 구간'}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* Content Area */}
+        {activeTab === 'overview' && (
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            {/* Key Metrics Cards */}
+            <div className="grid grid-cols-2 gap-4">
+              <div className="bg-gradient-to-br from-green-400 to-green-600 rounded-xl p-6 text-white">
+                <div className="flex items-center justify-between mb-2">
+                  <TrendingUp className="w-8 h-8" />
+                  <span className="text-2xl font-bold">12.4%</span>
+                </div>
+                <p className="text-sm opacity-90">전체 MAE 개선</p>
+              </div>
+              
+              <div className="bg-gradient-to-br from-blue-400 to-blue-600 rounded-xl p-6 text-white">
+                <div className="flex items-center justify-between mb-2">
+                  <Activity className="w-8 h-8" />
+                  <span className="text-2xl font-bold">54.2%</span>
+                </div>
+                <p className="text-sm opacity-90">1400+ MAE 개선</p>
+              </div>
+              
+              <div className="bg-gradient-to-br from-purple-400 to-purple-600 rounded-xl p-6 text-white">
+                <div className="flex items-center justify-between mb-2">
+                  <CheckCircle className="w-8 h-8" />
+                  <span className="text-2xl font-bold">38.3%</span>
+                </div>
+                <p className="text-sm opacity-90">비정상 판정 감소</p>
+              </div>
+              
+              <div className="bg-gradient-to-br from-orange-400 to-orange-600 rounded-xl p-6 text-white">
+                <div className="flex items-center justify-between mb-2">
+                  <AlertTriangle className="w-8 h-8" />
+                  <span className="text-2xl font-bold">93.6%</span>
+                </div>
+                <p className="text-sm opacity-90">1400+ 비정상 감소</p>
+              </div>
+            </div>
+
+            {/* Radar Chart */}
+            <div className="bg-white rounded-xl shadow-lg p-6">
+              <h3 className="text-lg font-semibold mb-4">종합 성능 비교</h3>
+              <ResponsiveContainer width="100%" height={300}>
+                <RadarChart data={radarData}>
+                  <PolarGrid stroke="#e0e0e0" />
+                  <PolarAngleAxis dataKey="subject" />
+                  <PolarRadiusAxis angle={90} domain={[0, 100]} />
+                  <Radar name="V2.0" dataKey="v2" stroke={COLORS.v2} fill={COLORS.v2} fillOpacity={0.3} />
+                  <Radar name="V5.0" dataKey="v5" stroke={COLORS.v5} fill={COLORS.v5} fillOpacity={0.3} />
+                  <Legend />
+                </RadarChart>
+              </ResponsiveContainer>
+            </div>
+          </div>
+        )}
+
+        {activeTab === 'performance' && (
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            {/* 전체 성능 비교 */}
+            <div className="bg-white rounded-xl shadow-lg p-6">
+              <h3 className="text-lg font-semibold mb-4">전체 데이터 성능 지표</h3>
+              <ResponsiveContainer width="100%" height={300}>
+                <BarChart data={performanceData}>
+                  <CartesianGrid strokeDasharray="3 3" />
+                  <XAxis dataKey="metric" />
+                  <YAxis />
+                  <Tooltip />
+                  <Legend />
+                  <Bar dataKey="v2" name="V2.0" fill={COLORS.v2} />
+                  <Bar dataKey="v5" name="V5.0" fill={COLORS.v5} />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+
+            {/* 개선율 차트 */}
+            <div className="bg-white rounded-xl shadow-lg p-6">
+              <h3 className="text-lg font-semibold mb-4">개선율 (%)</h3>
+              <ResponsiveContainer width="100%" height={300}>
+                <BarChart data={performanceData}>
+                  <CartesianGrid strokeDasharray="3 3" />
+                  <XAxis dataKey="metric" />
+                  <YAxis />
+                  <Tooltip />
+                  <Bar dataKey="improvement" name="개선율" fill={COLORS.improvement}>
+                    {performanceData.map((entry, index) => (
+                      <Cell key={`cell-${index}`} fill={COLORS.improvement} />
+                    ))}
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          </div>
+        )}
+
+        {activeTab === 'distribution' && (
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            {/* 오차 분포 비교 */}
+            <div className="bg-white rounded-xl shadow-lg p-6">
+              <h3 className="text-lg font-semibold mb-4">오차 분포 비교</h3>
+              <ResponsiveContainer width="100%" height={300}>
+                <BarChart data={errorDistribution}>
+                  <CartesianGrid strokeDasharray="3 3" />
+                  <XAxis dataKey="range" />
+                  <YAxis label={{ value: '비율 (%)', angle: -90, position: 'insideLeft' }} />
+                  <Tooltip />
+                  <Legend />
+                  <Bar dataKey="v2" name="V2.0" fill={COLORS.v2} />
+                  <Bar dataKey="v5" name="V5.0" fill={COLORS.v5} />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+
+            {/* 정상/비정상 판정 */}
+            <div className="bg-white rounded-xl shadow-lg p-6">
+              <h3 className="text-lg font-semibold mb-4">정상/비정상 판정 현황</h3>
+              <div className="space-y-4">
+                {abnormalData.map((item) => (
+                  <div key={item.category} className="border rounded-lg p-4">
+                    <h4 className="font-medium mb-2">{item.category} 데이터</h4>
+                    <div className="grid grid-cols-2 gap-4">
+                      <div>
+                        <p className="text-sm text-gray-600">V2.0</p>
+                        <div className="flex items-center space-x-2">
+                          <span className="text-green-600">정상: {item.v2_normal}</span>
+                          <span className="text-red-600">비정상: {item.v2_abnormal}</span>
+                        </div>
+                      </div>
+                      <div>
+                        <p className="text-sm text-gray-600">V5.0</p>
+                        <div className="flex items-center space-x-2">
+                          <span className="text-green-600">정상: {item.v5_normal}</span>
+                          <span className="text-red-600">비정상: {item.v5_abnormal}</span>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {activeTab === 'highload' && (
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            {/* 1400+ 성능 비교 */}
+            <div className="bg-white rounded-xl shadow-lg p-6">
+              <h3 className="text-lg font-semibold mb-4">1400+ 고부하 구간 성능</h3>
+              <ResponsiveContainer width="100%" height={300}>
+                <BarChart data={highLoadData}>
+                  <CartesianGrid strokeDasharray="3 3" />
+                  <XAxis dataKey="metric" />
+                  <YAxis />
+                  <Tooltip />
+                  <Legend />
+                  <Bar dataKey="v2" name="V2.0" fill={COLORS.v2} />
+                  <Bar dataKey="v5" name="V5.0" fill={COLORS.v5} />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+
+            {/* 고부하 개선율 */}
+            <div className="bg-white rounded-xl shadow-lg p-6">
+              <h3 className="text-lg font-semibold mb-4">고부하 구간 개선율</h3>
+              <ResponsiveContainer width="100%" height={300}>
+                <BarChart data={highLoadData} layout="horizontal">
+                  <CartesianGrid strokeDasharray="3 3" />
+                  <XAxis type="number" />
+                  <YAxis dataKey="metric" type="category" />
+                  <Tooltip />
+                  <Bar dataKey="improvement" name="개선율 (%)" fill={COLORS.improvement}>
+                    {highLoadData.map((entry, index) => (
+                      <Cell key={`cell-${index}`} fill={
+                        entry.improvement > 50 ? '#10B981' : 
+                        entry.improvement > 30 ? COLORS.improvement : 
+                        COLORS.warning
+                      } />
+                    ))}
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          </div>
+        )}
+
+        {/* Summary Box */}
+        <div className="mt-6 bg-gradient-to-r from-blue-600 to-teal-600 rounded-xl shadow-lg p-6 text-white">
+          <h3 className="text-xl font-bold mb-3">💡 핵심 결론</h3>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div>
+              <p className="text-sm opacity-90">전체 성능</p>
+              <p className="text-lg font-semibold">MAE 12.4% 개선 ✅</p>
+            </div>
+            <div>
+              <p className="text-sm opacity-90">고부하 구간 (1400+)</p>
+              <p className="text-lg font-semibold">MAE 54.2% 개선 🚀</p>
+            </div>
+            <div>
+              <p className="text-sm opacity-90">시스템 안정성</p>
+              <p className="text-lg font-semibold">비정상 38.3% 감소 📈</p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+export default ModelComparisonDashboard;
