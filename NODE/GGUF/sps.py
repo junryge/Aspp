@@ -1,5 +1,12 @@
 #!/usr/bin/env python3
 """
+
+# 캐시까지 완전 제거
+pip uninstall llama-cpp-python -y
+pip cache purge
+
+# Python 3.11 전용 설치
+pip install llama-cpp-python==0.2.11 --no-cache-dir --force-reinstall
 llama-cpp-python 설치 및 호환성 확인 스크립트
 """
 
