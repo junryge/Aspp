@@ -317,12 +317,12 @@ def main():
     if len(ensemble_pred) == 0:
         return None
     
-    # 앙상블 예측 통계만 출력
+    # 앙상블 예측 통계만 출력 (정수로 반올림)
     stats_dict = {
-        '최소값': float(ensemble_pred.min()),
-        '최대값': float(ensemble_pred.max()),
-        '평균값': float(ensemble_pred.mean()),
-        '표준편차': float(ensemble_pred.std())
+        '최소값': int(round(ensemble_pred.min())),
+        '최대값': int(round(ensemble_pred.max())),
+        '평균값': int(round(ensemble_pred.mean())),
+        '표준편차': int(round(ensemble_pred.std()))
     }
     
     print("앙상블 예측 통계:")
