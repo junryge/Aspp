@@ -15,12 +15,7 @@ import joblib
 import os
 import warnings
 warnings.filterwarnings('ignore')
-
-print(f"TensorFlow Version: {tf.__version__}")
-print("=" * 60)
-print("20250807 데이터 앙상블 예측 시스템")
-print("과거 100분 → 10분 후 예측")
-print("=" * 60)
+tf.get_logger().setLevel('ERROR')
 
 class Predictor20250807:
     """20250807 데이터 예측"""
@@ -113,8 +108,6 @@ class Predictor20250807:
     
     def load_models(self):
         """모델 로드"""
-        print("\n모델 로드 중...")
-        
         input_shape = (self.sequence_length, 12)
         
         model_configs = {
@@ -137,73 +130,29 @@ class Predictor20250807:
                         metrics=['mae'] if name != 'spike_detector' else ['accuracy']
                     )
                     self.models[name] = model
-                    print(f"✓ {name} 모델 로드 완료")
                 except Exception as e:
-                    print(f"✗ {name} 모델 로드 실패: {e}")
-            else:
-                print(f"✗ {name} 모델 파일 없음: {filepath}")
+                    pass
         
         # 스케일러 로드
         scaler_path = os.path.join(self.model_dir, 'scaler.pkl')
         if os.path.exists(scaler_path):
             try:
                 self.scaler = joblib.load(scaler_path)
-                print("✓ 스케일러 로드 완료")
             except:
-                print("⚠ 스케일러 로드 실패, 새로 생성")
                 self.scaler = RobustScaler()
         else:
             self.scaler = RobustScaler()
-            print("⚠ 스케일러 새로 생성")
         
         return len(self.models) > 0
     
     def load_data(self):
         """데이터 로드"""
-        print(f"\n데이터 로드: {self.data_path}")
-        
-        # CSV 파일 읽기 - 다양한 형식 시도
-        try:
-            # 첫 번째 시도: 일반적인 CSV
-            df = pd.read_csv(self.data_path, encoding='utf-8')
-        except:
-            try:
-                # 두 번째 시도: 탭 구분
-                df = pd.read_csv(self.data_path, encoding='utf-8', sep='\t')
-            except:
-                # 세 번째 시도: 쉼표 구분, 헤더 없음
-                df = pd.read_csv(self.data_path, encoding='utf-8', header=None)
-        
-        print(f"원본 데이터 shape: {df.shape}")
-        print(f"컬럼: {df.columns.tolist()}")
-        
-        # CURRTIME 컬럼이 없으면 TIME 컬럼 사용
-        if 'CURRTIME' in df.columns:
-            df['datetime'] = pd.to_datetime(df['CURRTIME'].astype(str), format='%Y%m%d%H%M', errors='coerce')
-        elif 'TIME' in df.columns:
-            df['datetime'] = pd.to_datetime(df['TIME'].astype(str), format='%Y%m%d%H%M', errors='coerce')
-        else:
-            # 첫 번째 컬럼이 시간일 가능성
-            df['datetime'] = pd.to_datetime(df.iloc[:, 0].astype(str), format='%Y%m%d%H%M', errors='coerce')
-        
-        # NaT 제거
-        df = df[df['datetime'].notna()].reset_index(drop=True)
-        
-        print(f"처리된 데이터 shape: {df.shape}")
-        print(f"TOTALCNT 범위: {df['TOTALCNT'].min()} ~ {df['TOTALCNT'].max()}")
-        print(f"데이터 기간: {df['datetime'].min()} ~ {df['datetime'].max()}")
-        print(f"데이터 개수: {len(df)}개")
-        
-        # 1400+ 분석
-        spikes = df['TOTALCNT'] >= self.spike_threshold
-        print(f"1400+ 개수: {spikes.sum()}개 ({spikes.mean()*100:.1f}%)")
-        
+        df = pd.read_csv(self.data_path, encoding='utf-8')
+        df['datetime'] = pd.to_datetime(df['CURRTIME'], format='%Y%m%d%H%M')
         return df
     
     def create_features(self, df):
         """특징 생성"""
-        print("\n특징 생성 중...")
-        
         df = df.copy()
         
         # 시간 특징
@@ -234,7 +183,9 @@ class Predictor20250807:
     
     def prepare_sequences(self, df):
         """100분 시퀀스 생성"""
-        print("\n시퀀스 생성 (과거 100분 → 10분 후 예측)...")
+        # 데이터가 부족한 경우 처리
+        if len(df) < self.sequence_length + self.prediction_horizon:
+            self.sequence_length = min(50, len(df) - self.prediction_horizon - 1)
         
         # 특징 컬럼
         feature_cols = ['TOTALCNT', 'MA_10', 'MA_30', 'MA_60', 
@@ -248,56 +199,42 @@ class Predictor20250807:
         X = []
         timestamps = []
         
-        # 데이터가 정확히 100개 이상이면 마지막 100개로 예측
-        if len(df) >= self.sequence_length:
-            # 마지막 100개 데이터로 10분 후 예측
-            X.append(scaled_data[-self.sequence_length:])
+        # 시퀀스 생성
+        for i in range(self.sequence_length, len(df) - self.prediction_horizon + 1):
+            # 과거 데이터
+            seq = scaled_data[i-self.sequence_length:i]
+            
+            # 100분 맞추기 위해 패딩 (필요시)
+            if seq.shape[0] < 100:
+                padding = np.zeros((100 - seq.shape[0], seq.shape[1]))
+                seq = np.vstack([padding, seq])
+            
+            X.append(seq)
             
             # 시간 정보
             timestamps.append({
-                'current_time': df['datetime'].iloc[-1],
-                'predict_time': df['datetime'].iloc[-1] + pd.Timedelta(minutes=10),
-                'current_value': df['TOTALCNT'].iloc[-1]
+                'current_time': df['datetime'].iloc[i-1],
+                'predict_time': df['datetime'].iloc[min(i+self.prediction_horizon-1, len(df)-1)],
+                'current_value': df['TOTALCNT'].iloc[i-1]
             })
-            
-            # 추가로 이전 시점들도 예측 가능하면 추가
-            for i in range(self.sequence_length, len(df)):
-                X.append(scaled_data[i-self.sequence_length:i])
-                
-                timestamps.append({
-                    'current_time': df['datetime'].iloc[i-1],
-                    'predict_time': df['datetime'].iloc[i-1] + pd.Timedelta(minutes=10),
-                    'current_value': df['TOTALCNT'].iloc[i-1]
-                })
         
-        X = np.array(X) if X else np.zeros((0, self.sequence_length, len(feature_cols)))
-        
-        print(f"생성된 시퀀스: {len(X)}개")
-        print(f"입력 shape: {X.shape}")
-        
-        if len(X) > 0:
-            print(f"예측 시점: {timestamps[0]['current_time']} → {timestamps[0]['predict_time']}")
+        X = np.array(X) if X else np.zeros((0, 100, len(feature_cols)))
         
         return X, timestamps
     
     def predict_ensemble(self, X, timestamps):
         """앙상블 예측"""
-        print("\n앙상블 예측 수행...")
-        
         if len(X) == 0:
-            print("⚠ 예측할 데이터가 없습니다.")
             return np.array([]), {}
         
         predictions = {}
         
         # 각 모델 예측
         for name, model in self.models.items():
-            print(f"  {name} 예측 중...")
             pred = model.predict(X, batch_size=256, verbose=0)
             predictions[name] = pred.flatten()
         
         # 앙상블 계산
-        print("\n앙상블 가중치 적용...")
         ensemble_pred = np.zeros(len(X))
         
         for i in range(len(X)):
@@ -347,51 +284,11 @@ class Predictor20250807:
             ensemble_pred[i] = (weighted_sum / weight_total) * boost
         
         # 역변환
-        print("\n역변환 수행...")
         dummy = np.zeros((len(ensemble_pred), 12))
         dummy[:, 0] = ensemble_pred
         ensemble_original = self.scaler.inverse_transform(dummy)[:, 0]
         
         return ensemble_original, predictions
-    
-    def display_results(self, ensemble_pred, timestamps):
-        """결과 출력"""
-        print("\n" + "="*60)
-        print("앙상블 예측 결과")
-        print("="*60)
-        
-        if len(ensemble_pred) == 0:
-            print("예측 결과가 없습니다. 데이터를 확인해주세요.")
-            return None
-        
-        # 예측 통계 딕셔너리
-        stats_dict = {
-            '최소값': float(ensemble_pred.min()),
-            '최대값': float(ensemble_pred.max()),
-            '평균값': float(ensemble_pred.mean()),
-            '표준편차': float(ensemble_pred.std())
-        }
-        
-        print("\n앙상블 예측 통계 (딕셔너리):")
-        print(stats_dict)
-        
-        # 1400+ 예측
-        spike_count = np.sum(ensemble_pred >= self.spike_threshold)
-        print(f"\n1400+ 예측: {spike_count}개 ({spike_count/len(ensemble_pred)*100:.1f}%)")
-        
-        # CSV 저장
-        results_df = pd.DataFrame({
-            '현재시간': [t['current_time'] for t in timestamps],
-            '예측시간': [t['predict_time'] for t in timestamps],
-            '현재값': [t['current_value'] for t in timestamps],
-            '앙상블_예측': ensemble_pred.round().astype(int)
-        })
-        
-        output_file = 'ensemble_predictions_20250807.csv'
-        results_df.to_csv(output_file, index=False, encoding='utf-8-sig')
-        print(f"\n결과 저장: {output_file}")
-        
-        return results_df, stats_dict
 
 def main():
     """메인 실행"""
@@ -400,8 +297,7 @@ def main():
     
     # 1. 모델 로드
     if not predictor.load_models():
-        print("모델 로드 실패!")
-        return None, None
+        return None
     
     # 2. 데이터 로드
     df = predictor.load_data()
@@ -413,32 +309,26 @@ def main():
     X, timestamps = predictor.prepare_sequences(df)
     
     if len(X) == 0:
-        print("\n" + "="*60)
-        print("⚠ 데이터 부족으로 예측을 수행할 수 없습니다.")
-        print(f"  현재 데이터: {len(df)}개")
-        print(f"  최소 필요: 100개 이상")
-        print("="*60)
-        return None, None
+        return None
     
     # 5. 앙상블 예측
     ensemble_pred, all_predictions = predictor.predict_ensemble(X, timestamps)
     
     if len(ensemble_pred) == 0:
-        print("예측 실패")
-        return None, None
+        return None
     
-    # 6. 결과 출력 및 통계 딕셔너리 받기
-    results_df, stats_dict = predictor.display_results(ensemble_pred, timestamps)
+    # 앙상블 예측 통계만 출력
+    stats_dict = {
+        '최소값': float(ensemble_pred.min()),
+        '최대값': float(ensemble_pred.max()),
+        '평균값': float(ensemble_pred.mean()),
+        '표준편차': float(ensemble_pred.std())
+    }
     
-    print("\n" + "="*60)
-    print("예측 완료!")
-    print("="*60)
-    
-    # 최종 통계 딕셔너리 출력
-    print("\n최종 앙상블 예측 통계:")
+    print("앙상블 예측 통계:")
     print(stats_dict)
     
-    return ensemble_pred, stats_dict
+    return stats_dict
 
 if __name__ == "__main__":
-    ensemble_values, statistics = main()
+    statistics = main()
