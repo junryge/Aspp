@@ -27,8 +27,8 @@ class Predictor20250807:
     
     def __init__(self):
         # 모델 경로 (실제 경로로 수정 필요)
-        self.model_dir = './models'  # 모델 저장 경로
-        self.data_path = '20250807_DATA.csv'
+        self.model_dir = r'D:\하이닉스\6.연구_항목\CODE\202508051차_POC구축\앙상블_하이브리드v5_150g학습\models_v5'
+        self.data_path = r'D:\하이닉스\6.연구_항목\CODE\202508051차_POC구축\앙상블_하이브리드v5_150g학습\data\20250807_DATA.csv'
         
         self.sequence_length = 100  # 과거 100분
         self.prediction_horizon = 10  # 10분 후 예측
