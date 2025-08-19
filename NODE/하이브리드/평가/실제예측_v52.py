@@ -364,34 +364,20 @@ class Predictor20250807:
             print("예측 결과가 없습니다. 데이터를 확인해주세요.")
             return None
         
-        # 기본 통계
-        print(f"\n예측 통계:")
-        print(f"  - 최소값: {ensemble_pred.min():.0f}")
-        print(f"  - 최대값: {ensemble_pred.max():.0f}")
-        print(f"  - 평균값: {ensemble_pred.mean():.0f}")
-        print(f"  - 표준편차: {ensemble_pred.std():.0f}")
+        # 예측 통계 딕셔너리
+        stats_dict = {
+            '최소값': float(ensemble_pred.min()),
+            '최대값': float(ensemble_pred.max()),
+            '평균값': float(ensemble_pred.mean()),
+            '표준편차': float(ensemble_pred.std())
+        }
+        
+        print("\n앙상블 예측 통계 (딕셔너리):")
+        print(stats_dict)
         
         # 1400+ 예측
         spike_count = np.sum(ensemble_pred >= self.spike_threshold)
         print(f"\n1400+ 예측: {spike_count}개 ({spike_count/len(ensemble_pred)*100:.1f}%)")
-        
-        # 상위 20개 예측값
-        print(f"\n상위 20개 예측값:")
-        top_indices = np.argsort(ensemble_pred)[-min(20, len(ensemble_pred)):][::-1]
-        
-        for i, idx in enumerate(top_indices, 1):
-            ts = timestamps[idx]
-            print(f"{i:2}. {ts['current_time'].strftime('%Y-%m-%d %H:%M')} → " +
-                  f"{ts['predict_time'].strftime('%H:%M')}: {ensemble_pred[idx]:.0f}")
-        
-        # 전체 예측 배열 출력
-        print("\n" + "="*60)
-        print(f"전체 앙상블 예측값 (총 {len(ensemble_pred)}개):")
-        print("="*60)
-        
-        for i in range(min(len(ensemble_pred), len(timestamps))):
-            ts = timestamps[i]
-            print(f"{ts['current_time'].strftime('%m/%d %H:%M')} → {ts['predict_time'].strftime('%H:%M')}: {ensemble_pred[i]:.0f}")
         
         # CSV 저장
         results_df = pd.DataFrame({
@@ -405,7 +391,7 @@ class Predictor20250807:
         results_df.to_csv(output_file, index=False, encoding='utf-8-sig')
         print(f"\n결과 저장: {output_file}")
         
-        return results_df
+        return results_df, stats_dict
 
 def main():
     """메인 실행"""
@@ -415,7 +401,7 @@ def main():
     # 1. 모델 로드
     if not predictor.load_models():
         print("모델 로드 실패!")
-        return None
+        return None, None
     
     # 2. 데이터 로드
     df = predictor.load_data()
@@ -430,7 +416,7 @@ def main():
         print("\n" + "="*60)
         print("⚠ 데이터 부족으로 예측을 수행할 수 없습니다.")
         print(f"  현재 데이터: {len(df)}개")
-        print(f"  최소 필요: 110개 이상")
+        print(f"  최소 필요: 100개 이상")
         print("="*60)
         return None, None
     
@@ -441,18 +427,18 @@ def main():
         print("예측 실패")
         return None, None
     
-    # 6. 결과 출력
-    results_df = predictor.display_results(ensemble_pred, timestamps)
+    # 6. 결과 출력 및 통계 딕셔너리 받기
+    results_df, stats_dict = predictor.display_results(ensemble_pred, timestamps)
     
     print("\n" + "="*60)
     print("예측 완료!")
     print("="*60)
     
-    # 앙상블 예측값 반환
-    print("\nensemble_values:")
-    print(ensemble_pred)
+    # 최종 통계 딕셔너리 출력
+    print("\n최종 앙상블 예측 통계:")
+    print(stats_dict)
     
-    return ensemble_pred, results_df
+    return ensemble_pred, stats_dict
 
 if __name__ == "__main__":
-    ensemble_values, results = main()
+    ensemble_values, statistics = main()
