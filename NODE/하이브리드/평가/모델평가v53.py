@@ -275,7 +275,7 @@ class ModelEvaluator:
                 actuals.append(actual_value)
                 
                 # 스케일링된 값을 타겟으로
-                scaled_value = (actual_value - self.scaler.mean_[0]) / self.scaler.scale_[0]
+                scaled_value = (actual_value - self.scaler.center_[0]) / self.scaler.scale_[0]
                 y.append(scaled_value)
                 
                 timestamps.append({
@@ -381,8 +381,8 @@ class ModelEvaluator:
     
     def inverse_transform_single(self, scaled_values):
         """단일 특징 역변환"""
-        # TOTALCNT의 스케일과 평균 사용
-        return scaled_values * self.scaler.scale_[0] + self.scaler.mean_[0]
+        # RobustScaler는 center_와 scale_ 사용
+        return scaled_values * self.scaler.scale_[0] + self.scaler.center_[0]
     
     def evaluate_final(self, y, predictions, actuals):
         """최종 평가 (원본 스케일)"""
