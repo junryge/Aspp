@@ -213,6 +213,13 @@ class Predictor20250807:
         """100분 시퀀스 생성"""
         print("\n시퀀스 생성 (100분 → 10분 후)...")
         
+        # 데이터가 부족한 경우 처리
+        if len(df) < self.sequence_length + self.prediction_horizon:
+            print(f"⚠ 데이터 부족: {len(df)}개 (최소 {self.sequence_length + self.prediction_horizon}개 필요)")
+            print("  시퀀스 길이를 조정합니다...")
+            self.sequence_length = min(50, len(df) - self.prediction_horizon - 1)
+            print(f"  새 시퀀스 길이: {self.sequence_length}분")
+        
         # 특징 컬럼
         feature_cols = ['TOTALCNT', 'MA_10', 'MA_30', 'MA_60', 
                        'STD_10', 'STD_30',
@@ -225,28 +232,42 @@ class Predictor20250807:
         X = []
         timestamps = []
         
-        # 100분 시퀀스 생성
-        for i in range(self.sequence_length, len(df) - self.prediction_horizon):
-            # 과거 100분
-            X.append(scaled_data[i-self.sequence_length:i])
+        # 시퀀스 생성
+        for i in range(self.sequence_length, len(df) - self.prediction_horizon + 1):
+            # 과거 데이터
+            seq = scaled_data[i-self.sequence_length:i]
+            
+            # 100분 맞추기 위해 패딩 (필요시)
+            if seq.shape[0] < 100:
+                padding = np.zeros((100 - seq.shape[0], seq.shape[1]))
+                seq = np.vstack([padding, seq])
+            
+            X.append(seq)
             
             # 시간 정보
             timestamps.append({
                 'current_time': df['datetime'].iloc[i-1],
-                'predict_time': df['datetime'].iloc[i+self.prediction_horizon-1],
+                'predict_time': df['datetime'].iloc[min(i+self.prediction_horizon-1, len(df)-1)],
                 'current_value': df['TOTALCNT'].iloc[i-1]
             })
         
-        X = np.array(X)
+        X = np.array(X) if X else np.zeros((0, 100, len(feature_cols)))
         
         print(f"생성된 시퀀스: {len(X):,}개")
         print(f"입력 shape: {X.shape}")
+        
+        if len(X) == 0:
+            print("⚠ 시퀀스를 생성할 수 없습니다. 더 많은 데이터가 필요합니다.")
         
         return X, timestamps
     
     def predict_ensemble(self, X, timestamps):
         """앙상블 예측"""
         print("\n앙상블 예측 수행...")
+        
+        if len(X) == 0:
+            print("⚠ 예측할 데이터가 없습니다.")
+            return np.array([]), {}
         
         predictions = {}
         
@@ -320,6 +341,10 @@ class Predictor20250807:
         print("앙상블 예측 결과")
         print("="*60)
         
+        if len(ensemble_pred) == 0:
+            print("예측 결과가 없습니다. 데이터를 확인해주세요.")
+            return None
+        
         # 기본 통계
         print(f"\n예측 통계:")
         print(f"  - 최소값: {ensemble_pred.min():.0f}")
@@ -333,7 +358,7 @@ class Predictor20250807:
         
         # 상위 20개 예측값
         print(f"\n상위 20개 예측값:")
-        top_indices = np.argsort(ensemble_pred)[-20:][::-1]
+        top_indices = np.argsort(ensemble_pred)[-min(20, len(ensemble_pred)):][::-1]
         
         for i, idx in enumerate(top_indices, 1):
             ts = timestamps[idx]
@@ -342,14 +367,12 @@ class Predictor20250807:
         
         # 전체 예측 배열 출력
         print("\n" + "="*60)
-        print("전체 앙상블 예측값 (처음 100개):")
+        print(f"전체 앙상블 예측값 (총 {len(ensemble_pred)}개):")
         print("="*60)
         
-        for i in range(min(100, len(ensemble_pred))):
+        for i in range(min(len(ensemble_pred), len(timestamps))):
             ts = timestamps[i]
             print(f"{ts['current_time'].strftime('%m/%d %H:%M')} → {ts['predict_time'].strftime('%H:%M')}: {ensemble_pred[i]:.0f}")
-        
-        print(f"\n... 총 {len(ensemble_pred)}개 예측값")
         
         # CSV 저장
         results_df = pd.DataFrame({
@@ -384,8 +407,20 @@ def main():
     # 4. 시퀀스 생성 (100분)
     X, timestamps = predictor.prepare_sequences(df)
     
+    if len(X) == 0:
+        print("\n" + "="*60)
+        print("⚠ 데이터 부족으로 예측을 수행할 수 없습니다.")
+        print(f"  현재 데이터: {len(df)}개")
+        print(f"  최소 필요: 110개 이상")
+        print("="*60)
+        return None, None
+    
     # 5. 앙상블 예측
     ensemble_pred, all_predictions = predictor.predict_ensemble(X, timestamps)
+    
+    if len(ensemble_pred) == 0:
+        print("예측 실패")
+        return None, None
     
     # 6. 결과 출력
     results_df = predictor.display_results(ensemble_pred, timestamps)
