@@ -1,401 +1,685 @@
 # -*- coding: utf-8 -*-
 """
-Created on Fri Apr  4 10:51:40 2025
-
-@author: 파이썬AI
+Improved C# Coding Assistant
+Using customtkinter for better UI and enhanced code highlighting
 """
 
 import tkinter as tk
-from tkinter import ttk, scrolledtext, filedialog, messagebox
+from tkinter import scrolledtext, filedialog, messagebox
+import customtkinter as ctk
 import anthropic
 import threading
 import os
 import json
 from pathlib import Path
 import re
+import pygments
+from pygments.lexers import CSharpLexer
+from pygments.formatters import HtmlFormatter
+import webbrowser
+from ttkwidgets import AutoHideScrollbar
 
-class ModernTheme:
-    """모던 테마 설정"""
-    def __init__(self, mode="light"):
-        # 색상 설정
-        if mode == "dark":
-            self.bg_color = "#1e1e1e"  # VS Code 다크 테마 배경색
-            self.fg_color = "#d4d4d4"  # 텍스트 색상
-            self.accent_color = "#0e639c"  # 강조 색상
-            self.secondary_color = "#333333"  # 부 배경색
-            self.code_bg = "#2d2d2d"  # 코드 배경색
-            self.button_bg = "#0e639c"  # 버튼 배경색
-            self.button_fg = "#ffffff"  # 버튼 텍스트 색상
-            self.error_color = "#f14c4c"  # 오류 색상
-        else:  # light
-            self.bg_color = "#f8f8f8"  # 밝은 배경색
-            self.fg_color = "#333333"  # 텍스트 색상
-            self.accent_color = "#007acc"  # VS Code 블루 색상
-            self.secondary_color = "#e8e8e8"  # 부 배경색
-            self.code_bg = "#ffffff"  # 코드 배경색
-            self.button_bg = "#007acc"  # 버튼 배경색
-            self.button_fg = "#ffffff"  # 버튼 텍스트 색상
-            self.error_color = "#d83b01"  # 오류 색상
+# Set appearance mode and default color theme
+ctk.set_appearance_mode("system")  # Options: "Light", "Dark", "System"
+ctk.set_default_color_theme("blue")  # Options: "blue", "green", "dark-blue"
+
+class SyntaxHighlightingText(ctk.CTkTextbox):
+    """Custom text widget with syntax highlighting capabilities"""
+    
+    def __init__(self, *args, **kwargs):
+        self.language = kwargs.pop('language', 'csharp')
+        super().__init__(*args, **kwargs)
         
-        # 폰트 설정
-        self.default_font = ("Segoe UI", 10)
-        self.code_font = ("Consolas", 11)
-        self.header_font = ("Segoe UI", 12, "bold")
-        self.title_font = ("Segoe UI", 14, "bold")
+        # Configure tags for syntax highlighting
+        self._configure_tags()
+        
+        # Bind events for updates
+        self._textbox.bind("<KeyRelease>", self._on_key_release)
+    
+    def _configure_tags(self):
+        """Configure highlighting tags"""
+        # Access the internal Tkinter Text widget
+        text_widget = self._textbox
+        
+        # Keywords
+        text_widget.tag_configure("keyword", foreground="#569CD6")
+        
+        # Types
+        text_widget.tag_configure("type", foreground="#4EC9B0")
+        
+        # Strings
+        text_widget.tag_configure("string", foreground="#CE9178")
+        
+        # Comments
+        text_widget.tag_configure("comment", foreground="#6A9955", font=("Consolas", 11, "italic"))
+        
+        # Numbers
+        text_widget.tag_configure("number", foreground="#B5CEA8")
+        
+        # Methods
+        text_widget.tag_configure("method", foreground="#DCDCAA")
+        
+        # Class
+        text_widget.tag_configure("class", foreground="#4EC9B0")
+        
+        # Namespaces
+        text_widget.tag_configure("namespace", foreground="#9CDCFE")
+    
+    def _on_key_release(self, event=None):
+        """Handle key release events to update syntax highlighting"""
+        if event.keysym not in ('F1', 'F2', 'F3', 'F4', 'F5', 'Alt_L', 'Alt_R', 
+                               'Control_L', 'Control_R', 'Shift_L', 'Shift_R'):
+            self.highlight_syntax()
+    
+    def highlight_syntax(self):
+        """Apply syntax highlighting to the text"""
+        # Access the internal Tkinter Text widget
+        text_widget = self._textbox
+        
+        # First remove all existing tags
+        for tag in text_widget.tag_names():
+            if tag != "sel":  # Keep selection tags
+                text_widget.tag_remove(tag, "1.0", "end")
+        
+        # Get the text content
+        content = text_widget.get("1.0", "end-1c")
+        
+        # Apply C# syntax highlighting
+        if self.language == 'csharp':
+            self._highlight_csharp(content)
+    
+    def _highlight_csharp(self, content):
+        """Apply C# syntax highlighting"""
+        # Access the internal Tkinter Text widget
+        text_widget = self._textbox
+        
+        # Keywords
+        keywords = [
+            "abstract", "as", "base", "bool", "break", "byte", "case", "catch", 
+            "char", "checked", "class", "const", "continue", "decimal", "default", 
+            "delegate", "do", "double", "else", "enum", "event", "explicit", 
+            "extern", "false", "finally", "fixed", "float", "for", "foreach", 
+            "goto", "if", "implicit", "in", "int", "interface", "internal", 
+            "is", "lock", "long", "namespace", "new", "null", "object", 
+            "operator", "out", "override", "params", "private", "protected", 
+            "public", "readonly", "ref", "return", "sbyte", "sealed", 
+            "short", "sizeof", "stackalloc", "static", "string", "struct", 
+            "switch", "this", "throw", "true", "try", "typeof", "uint", "ulong", 
+            "unchecked", "unsafe", "ushort", "using", "virtual", "void", 
+            "volatile", "while", "add", "and", "alias", "ascending", "async", 
+            "await", "by", "descending", "dynamic", "equals", "from", "get", 
+            "global", "group", "into", "join", "let", "nameof", "not", 
+            "notnull", "on", "or", "orderby", "partial", "remove", "select", 
+            "set", "unmanaged", "value", "var", "when", "where", "with", "yield"
+        ]
+        
+        for keyword in keywords:
+            # Find all occurrences of the keyword with word boundaries
+            self._highlight_pattern(keyword, "keyword")
+        
+        # Highlight types
+        types = ["int", "string", "bool", "float", "double", "char", "void", 
+                "object", "var", "dynamic", "Task", "List", "Dictionary", "IEnumerable"]
+        
+        for typ in types:
+            self._highlight_pattern(typ, "type")
+        
+        # Highlight strings
+        self._highlight_pattern(r'"[^"\\]*(\\.[^"\\]*)*"', "string")
+        self._highlight_pattern(r'@"[^"]*(?:""[^"]*)*"', "string")  # Verbatim strings
+        self._highlight_pattern(r"'[^'\\]*(\\.[^'\\]*)*'", "string")  # Character literals
+        
+        # Highlight numbers
+        self._highlight_pattern(r'\b\d+\b', "number")
+        self._highlight_pattern(r'\b\d+\.\d+\b', "number")
+        self._highlight_pattern(r'\b0x[0-9a-fA-F]+\b', "number")  # Hex
+        
+        # Highlight comments
+        self._highlight_pattern(r'//.*$', "comment", line_start=True)
+        
+        # Multi-line comments (/* ... */)
+        content = text_widget.get("1.0", "end-1c")
+        comment_start = 0
+        while True:
+            comment_start = content.find("/*", comment_start)
+            if comment_start == -1:
+                break
+            
+            comment_end = content.find("*/", comment_start + 2)
+            if comment_end == -1:
+                comment_end = len(content)
+            else:
+                comment_end += 2  # Include the closing */
+            
+            # Convert string positions to tkinter text positions
+            start_line = content[:comment_start].count('\n') + 1
+            start_char = comment_start - content[:comment_start].rfind('\n') - 1
+            if start_line == 1:
+                start_char = comment_start
+            
+            end_line = content[:comment_end].count('\n') + 1
+            end_char = comment_end - content[:comment_end].rfind('\n') - 1
+            if end_line == 1:
+                end_char = comment_end
+            
+            text_widget.tag_add("comment", f"{start_line}.{start_char}", f"{end_line}.{end_char}")
+            
+            comment_start = comment_end
+        
+        # Highlight class names and method names
+        self._highlight_pattern(r'class\s+([A-Za-z0-9_]+)', "class", group=1)
+        self._highlight_pattern(r'\b([A-Za-z0-9_]+)\s*\(', "method", group=1)
+        
+        # Highlight namespaces
+        self._highlight_pattern(r'namespace\s+([A-Za-z0-9_.]+)', "namespace", group=1)
+        self._highlight_pattern(r'using\s+([A-Za-z0-9_.]+)', "namespace", group=1)
+    
+    def _highlight_pattern(self, pattern, tag, group=0, line_start=False):
+        """Apply a highlight pattern with a specific tag"""
+        # Access the internal Tkinter Text widget
+        text_widget = self._textbox
+        text = text_widget.get("1.0", "end-1c")
+        start = "1.0"
+        
+        # If pattern should match only at line start
+        if line_start:
+            lines = text.split('\n')
+            for i, line in enumerate(lines):
+                line_num = i + 1
+                match = re.search(pattern, line)
+                if match:
+                    start_idx = match.start(group)
+                    end_idx = match.end(group)
+                    text_widget.tag_add(tag, f"{line_num}.{start_idx}", f"{line_num}.{end_idx}")
+            return
+        
+        # For regular patterns that can be anywhere
+        while True:
+            # Find the next match position
+            match_pos = text_widget.search(pattern, start, regexp=True, stopindex="end")
+            if not match_pos:
+                break
+            
+            # Get line and char position
+            line, char = map(int, match_pos.split('.'))
+            
+            # Get the text that matched the pattern
+            line_text = text_widget.get(f"{line}.0", f"{line}.end")
+            match = re.search(pattern, line_text[char:])
+            
+            if match:
+                # Calculate end position
+                match_end_char = char + match.end(group)
+                match_start_char = char + match.start(group)
+                
+                # Add the tag
+                text_widget.tag_add(tag, f"{line}.{match_start_char}", f"{line}.{match_end_char}")
+                
+                # Move to the next position
+                start = f"{line}.{match_end_char}"
+            else:
+                # No match found, move to next line
+                start = f"{line+1}.0"
 
-class CSharpAssistant:
+class LineNumberedCodeEditor(ctk.CTkFrame):
+    """Code editor with line numbers"""
+    
+    def __init__(self, master, **kwargs):
+        super().__init__(master, **kwargs)
+        
+        # Create a frame for line numbers
+        self.line_numbers = ctk.CTkTextbox(
+            self,
+            width=30,
+            font=("Consolas", 11),
+            fg_color="#2d2d2d",
+            text_color="#6e7681",
+            border_width=0,
+            activate_scrollbars=False
+        )
+        self.line_numbers.grid(row=0, column=0, sticky="nsew")
+        
+        # Create the code editor
+        self.code_editor = SyntaxHighlightingText(
+            self,
+            font=("Consolas", 11),
+            language='csharp',
+            fg_color="#1e1e1e",
+            text_color="#d4d4d4", 
+            border_width=0,
+            wrap="none",
+            undo=True,
+            height=600  # 높이를 200으로 설정 (원하는 높이로 조정)
+        )
+        self.code_editor.grid(row=0, column=1, sticky="nsew")
+        
+        # Configure grid weights
+        self.grid_columnconfigure(1, weight=1)
+        self.grid_rowconfigure(0, weight=1)
+        
+        # Bind events
+        self.code_editor.bind("<KeyRelease>", self._on_key_release)
+        self.code_editor.bind("<Button-1>", self._on_click)
+        self.code_editor.bind("<MouseWheel>", self._on_mousewheel)
+        
+        # Synchronize scrolling
+        self.code_editor._textbox.bind("<<Change>>", self._on_change)
+        self.code_editor._textbox.bind("<Configure>", self._on_configure)
+        
+        # Initial update of line numbers
+        self._update_line_numbers()
+    
+    def _on_key_release(self, event):
+        """Handle key release event"""
+        self._update_line_numbers()
+    
+    def _on_click(self, event):
+        """Handle mouse click event"""
+        self._update_line_numbers()
+    
+    def _on_mousewheel(self, event):
+        """Handle mouse wheel event"""
+        self._update_line_numbers()
+    
+    def _on_change(self, event):
+        """Handle text change event"""
+        self._update_line_numbers()
+    
+    def _on_configure(self, event):
+        """Handle widget resize event"""
+        self._update_line_numbers()
+    
+    def _update_line_numbers(self):
+        """Update the line numbers"""
+        # Get the text content
+        text = self.code_editor.get("1.0", "end-1c")
+        lines = text.count('\n') + 1
+        
+        # Get visible lines
+        first_visible = self.code_editor._textbox.index("@0,0")
+        first_line = int(first_visible.split('.')[0])
+        
+        # Create line numbers text
+        line_numbers_text = '\n'.join(str(i) for i in range(first_line, lines + 1))
+        
+        # Update line numbers
+        self.line_numbers.configure(state="normal")
+        self.line_numbers.delete("1.0", "end")
+        self.line_numbers.insert("1.0", line_numbers_text)
+        self.line_numbers.configure(state="disabled")
+        
+        # Synchronize scrolling
+        self.line_numbers._textbox.yview_moveto(self.code_editor._textbox.yview()[0])
+
+class CSharpAssistantApp:
+    """Improved C# Coding Assistant Application using customtkinter"""
+    
     def __init__(self, root):
         self.root = root
         self.root.title("C# 코딩 어시스턴트")
         self.root.geometry("1200x800")
+        self.root.protocol("WM_DELETE_WINDOW", self.on_closing)
         
-        # 테마 설정
-        self.theme = ModernTheme()
+        # Color scheme
+        self.theme_colors = {
+            "dark": {
+                "bg_primary": "#1e1e1e",     # Main background (VS Code dark)
+                "bg_secondary": "#252526",   # Secondary background
+                "bg_tertiary": "#333333",    # Tertiary background
+                "code_bg": "#1e1e1e",        # Code editor background
+                "text": "#d4d4d4",           # Main text
+                "accent": "#0e639c",         # Accent color (VS Code blue)
+                "highlight": "#264f78",      # Selection highlight
+                "border": "#444444",         # Border color
+                "success": "#6a9955",        # Success color
+                "error": "#f14c4c",          # Error color
+                "warning": "#cca700"         # Warning color
+            },
+            "light": {
+                "bg_primary": "#f8f8f8",     # Main background
+                "bg_secondary": "#f0f0f0",   # Secondary background
+                "bg_tertiary": "#e0e0e0",    # Tertiary background
+                "code_bg": "#ffffff",        # Code editor background
+                "text": "#333333",           # Main text
+                "accent": "#007acc",         # Accent color (VS Code blue)
+                "highlight": "#add6ff",      # Selection highlight
+                "border": "#d0d0d0",         # Border color
+                "success": "#008000",        # Success color
+                "error": "#d83b01",          # Error color
+                "warning": "#bf8803"         # Warning color
+            }
+        }
         
-        # root 설정
-        self.root.configure(bg=self.theme.bg_color)
+        # Current theme
+        self.current_theme = "dark"
         
-        # API 키 설정
+        # API key
         self.api_key = ""
         self.load_api_key()
         
-        # 스타일 설정
-        self.setup_styles()
+        # File variables
+        self.current_file = None
+        self.file_changed = False
         
-        # 메뉴바 생성
+        # Setup UI
+        self.setup_ui()
+        
+        # Bind keyboard shortcuts
+        self.bind_shortcuts()
+    
+    def setup_ui(self):
+        """Create the UI components"""
+        # Set UI color mode
+        if self.current_theme == "dark":
+            ctk.set_appearance_mode("dark")
+        else:
+            ctk.set_appearance_mode("light")
+        
+        # Main container frame
+        self.main_frame = ctk.CTkFrame(self.root, corner_radius=0)
+        self.main_frame.pack(fill="both", expand=True)
+        
+        # Menu bar
         self.create_menu()
         
-        # UI 구성
-        self.create_ui()
+        # Toolbar frame
+        self.toolbar_frame = ctk.CTkFrame(self.main_frame, corner_radius=0)
+        self.toolbar_frame.pack(fill="x", pady=(0, 5))
         
-        # 파일 관련 변수
-        self.current_file = None
-    
-    def setup_styles(self):
-        """ttk 스타일 설정"""
-        self.style = ttk.Style()
+        # Create toolbar buttons
+        self.create_toolbar()
         
-        # 기본 스타일
-        self.style.configure("TFrame", background=self.theme.bg_color)
-        self.style.configure("TLabel", 
-                            background=self.theme.bg_color, 
-                            foreground=self.theme.fg_color, 
-                            font=self.theme.default_font)
+        # Main content with horizontal layout
+        self.main_content_frame = ctk.CTkFrame(self.main_frame)
+        self.main_content_frame.pack(fill="both", expand=True, padx=10, pady=5)
         
-        # 버튼 스타일
-        self.style.configure("TButton", 
-                            background=self.theme.button_bg, 
-                            foreground=self.theme.button_fg,
-                            font=self.theme.default_font)
-        self.style.map("TButton", 
-                      background=[("active", self.theme.accent_color), 
-                                  ("disabled", self.theme.secondary_color)])
+        # Create two columns for editor and results
+        self.main_content_frame.columnconfigure(0, weight=1)
+        self.main_content_frame.columnconfigure(1, weight=1)
         
-        # 헤더 라벨 스타일
-        self.style.configure("Header.TLabel", 
-                            font=self.theme.header_font, 
-                            background=self.theme.bg_color, 
-                            foreground=self.theme.fg_color)
+        # Editor frame (left panel)
+        self.editor_frame = ctk.CTkFrame(self.main_content_frame)
+        self.editor_frame.grid(row=0, column=0, sticky="nsew", padx=5, pady=5)
         
-        # 기본 엔트리 스타일
-        self.style.configure("TEntry", 
-                            fieldbackground=self.theme.code_bg,
-                            foreground=self.theme.fg_color)
+        # Editor header
+        self.editor_header = ctk.CTkFrame(self.editor_frame)
+        self.editor_header.pack(fill="x", padx=5, pady=5)
         
-        # 아코디언 프레임 스타일
-        self.style.configure("Accord.TFrame", 
-                            background=self.theme.secondary_color,
-                            relief="raised")
-        
-        # 상태바 스타일
-        self.style.configure("Status.TLabel", 
-                            background=self.theme.secondary_color, 
-                            foreground=self.theme.fg_color,
-                            relief="sunken", 
-                            anchor="w", 
-                            padding=(5, 2))
-        
-        # 중요 버튼 스타일
-        self.style.configure("Primary.TButton", 
-                            background=self.theme.accent_color, 
-                            foreground="white",
-                            font=(self.theme.default_font[0], self.theme.default_font[1], "bold"))
-    
-    def create_menu(self):
-        """메뉴바 생성"""
-        menubar = tk.Menu(self.root)
-        
-        # 파일 메뉴
-        file_menu = tk.Menu(menubar, tearoff=0, bg=self.theme.code_bg, fg=self.theme.fg_color, 
-                           activebackground=self.theme.accent_color, activeforeground=self.theme.button_fg)
-        file_menu.add_command(label="새 파일 (Ctrl+N)", command=self.new_file, accelerator="Ctrl+N")
-        file_menu.add_command(label="열기... (Ctrl+O)", command=self.open_file, accelerator="Ctrl+O")
-        file_menu.add_command(label="저장 (Ctrl+S)", command=self.save_file, accelerator="Ctrl+S")
-        file_menu.add_command(label="다른 이름으로 저장...", command=self.save_file_as)
-        file_menu.add_separator()
-        file_menu.add_command(label="종료", command=self.root.quit)
-        menubar.add_cascade(label="파일", menu=file_menu)
-        
-        # 편집 메뉴
-        edit_menu = tk.Menu(menubar, tearoff=0, bg=self.theme.code_bg, fg=self.theme.fg_color, 
-                           activebackground=self.theme.accent_color, activeforeground=self.theme.button_fg)
-        edit_menu.add_command(label="실행 취소 (Ctrl+Z)", 
-                             command=lambda: self.code_editor.event_generate("<<Undo>>"), 
-                             accelerator="Ctrl+Z")
-        edit_menu.add_command(label="다시 실행 (Ctrl+Y)", 
-                             command=lambda: self.code_editor.event_generate("<<Redo>>"), 
-                             accelerator="Ctrl+Y")
-        edit_menu.add_separator()
-        edit_menu.add_command(label="잘라내기 (Ctrl+X)", 
-                             command=lambda: self.code_editor.event_generate("<<Cut>>"), 
-                             accelerator="Ctrl+X")
-        edit_menu.add_command(label="복사 (Ctrl+C)", 
-                             command=lambda: self.code_editor.event_generate("<<Copy>>"), 
-                             accelerator="Ctrl+C")
-        edit_menu.add_command(label="붙여넣기 (Ctrl+V)", 
-                             command=lambda: self.code_editor.event_generate("<<Paste>>"), 
-                             accelerator="Ctrl+V")
-        edit_menu.add_command(label="모두 선택 (Ctrl+A)", 
-                             command=lambda: self.code_editor.tag_add("sel", "1.0", "end"), 
-                             accelerator="Ctrl+A")
-        menubar.add_cascade(label="편집", menu=edit_menu)
-        
-        # AI 메뉴
-        ai_menu = tk.Menu(menubar, tearoff=0, bg=self.theme.code_bg, fg=self.theme.fg_color, 
-                         activebackground=self.theme.accent_color, activeforeground=self.theme.button_fg)
-        ai_menu.add_command(label="코드 제안 받기 (F5)", 
-                           command=self.get_suggestion, 
-                           accelerator="F5")
-        ai_menu.add_separator()
-        ai_menu.add_command(label="코드 최적화", 
-                           command=lambda: self.get_suggestion_with_preset("이 코드를 최적화해주세요."))
-        ai_menu.add_command(label="버그 찾기", 
-                           command=lambda: self.get_suggestion_with_preset("이 코드에서 버그나 오류를 찾아주세요."))
-        ai_menu.add_command(label="주석 추가", 
-                           command=lambda: self.get_suggestion_with_preset("이 코드에 상세한 주석을 추가해주세요."))
-        ai_menu.add_command(label="코드 리팩토링", 
-                           command=lambda: self.get_suggestion_with_preset("이 코드를 더 깔끔하게 리팩토링해주세요."))
-        menubar.add_cascade(label="AI 도우미", menu=ai_menu)
-        
-        # 설정 메뉴
-        settings_menu = tk.Menu(menubar, tearoff=0, bg=self.theme.code_bg, fg=self.theme.fg_color, 
-                               activebackground=self.theme.accent_color, activeforeground=self.theme.button_fg)
-        #settings_menu.add_command(label="API 키 설정", command=self.show_api_key_dialog)
-        
-        # 테마 서브메뉴
-        theme_menu = tk.Menu(settings_menu, tearoff=0, bg=self.theme.code_bg, fg=self.theme.fg_color, 
-                           activebackground=self.theme.accent_color, activeforeground=self.theme.button_fg)
-        theme_menu.add_command(label="라이트 테마", command=lambda: self.change_theme("light"))
-        theme_menu.add_command(label="다크 테마", command=lambda: self.change_theme("dark"))
-        settings_menu.add_cascade(label="테마 설정", menu=theme_menu)
-        
-        menubar.add_cascade(label="설정", menu=settings_menu)
-        
-        # 도움말 메뉴
-        help_menu = tk.Menu(menubar, tearoff=0, bg=self.theme.code_bg, fg=self.theme.fg_color, 
-                           activebackground=self.theme.accent_color, activeforeground=self.theme.button_fg)
-        help_menu.add_command(label="사용법", command=self.show_help)
-        help_menu.add_command(label="정보", command=self.show_about)
-        menubar.add_cascade(label="도움말", menu=help_menu)
-        
-        self.root.config(menu=menubar)
-        
-        # 단축키 설정
-        self.root.bind('<Control-n>', lambda event: self.new_file())
-        self.root.bind('<Control-o>', lambda event: self.open_file())
-        self.root.bind('<Control-s>', lambda event: self.save_file())
-        self.root.bind('<F5>', lambda event: self.get_suggestion())
-    
-    def create_ui(self):
-        """UI 구성 요소 생성"""
-        # 메인 컨테이너 (PanedWindow)
-        main_paned = ttk.PanedWindow(self.root, orient=tk.HORIZONTAL)
-        main_paned.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
-        
-        # 왼쪽 패널 (코드 에디터)
-        left_panel = ttk.Frame(main_paned, style="TFrame")
-        
-        # 코드 에디터 헤더
-        editor_header = ttk.Frame(left_panel, style="TFrame")
-        editor_header.pack(fill=tk.X, padx=5, pady=5)
-        
-        editor_label = ttk.Label(editor_header, text="C# 코드 에디터", style="Header.TLabel")
-        editor_label.pack(side=tk.LEFT)
-        
-        # 파일 관련 버튼
-        file_buttons = ttk.Frame(editor_header, style="TFrame")
-        file_buttons.pack(side=tk.RIGHT)
-        
-        new_btn = ttk.Button(file_buttons, text="새로 만들기", command=self.new_file, width=12)
-        new_btn.pack(side=tk.LEFT, padx=2)
-        
-        open_btn = ttk.Button(file_buttons, text="열기", command=self.open_file, width=8)
-        open_btn.pack(side=tk.LEFT, padx=2)
-        
-        save_btn = ttk.Button(file_buttons, text="저장", command=self.save_file, width=8)
-        save_btn.pack(side=tk.LEFT, padx=2)
-        
-        # 코드 에디터 생성
-        editor_frame = ttk.Frame(left_panel, style="TFrame")
-        editor_frame.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
-        
-        self.code_editor = scrolledtext.ScrolledText(
-            editor_frame,
-            wrap=tk.NONE,  # 줄 바꿈 없음
-            font=self.theme.code_font,
-            bg=self.theme.code_bg,
-            fg=self.theme.fg_color,
-            insertbackground=self.theme.fg_color,
-            selectbackground=self.theme.accent_color,
-            selectforeground="white",
-            bd=0,
-            padx=10,
-            pady=10,
-            undo=True  # 실행 취소 기능 활성화
+        self.editor_label = ctk.CTkLabel(
+            self.editor_header,
+            text="C# 코드 에디터",
+            font=("Segoe UI", 14, "bold")
         )
-        self.code_editor.pack(fill=tk.BOTH, expand=True)
-    
-        # 바로 여기에 이벤트 바인딩 코드를 추가
-        self.code_editor.bind("<KeyRelease>", lambda e: self.highlight_csharp_code())
+        self.editor_label.pack(side="left")
         
-        # 초기 코드에 대해서도 구문 강조 적용
-        self.highlight_csharp_code()
+        # Code editor with line numbers
+        self.code_editor_frame = LineNumberedCodeEditor(self.editor_frame)
+        self.code_editor_frame.pack(fill="both", expand=True, padx=5, pady=5)
         
-        # 오른쪽 패널 (결과)
-        right_panel = ttk.Frame(main_paned, style="TFrame")
+        # Get a reference to the code editor
+        self.code_editor = self.code_editor_frame.code_editor
         
-        # 결과 헤더
-        result_header = ttk.Frame(right_panel, style="TFrame")
-        result_header.pack(fill=tk.X, padx=5, pady=5)
+        # Results frame (right panel)
+        self.results_frame = ctk.CTkFrame(self.main_content_frame)
+        self.results_frame.grid(row=0, column=1, sticky="nsew", padx=5, pady=5)
         
-        result_label = ttk.Label(result_header, text="코드 제안 결과", style="Header.TLabel")
-        result_label.pack(side=tk.LEFT)
+        # Results header
+        self.results_header = ctk.CTkFrame(self.results_frame)
+        self.results_header.pack(fill="x", padx=5, pady=5)
         
-        # 결과 제어 버튼
-        result_controls = ttk.Frame(result_header, style="TFrame")
-        result_controls.pack(side=tk.RIGHT)
-        
-        self.apply_btn = ttk.Button(result_controls, text="제안 적용", command=self.apply_suggestion, width=10)
-        self.apply_btn.pack(side=tk.LEFT, padx=2)
-        
-        # 결과 텍스트 영역
-        result_frame = ttk.Frame(right_panel, style="TFrame")
-        result_frame.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
-        
-        self.result_text = scrolledtext.ScrolledText(
-            result_frame,
-            wrap=tk.WORD,
-            font=self.theme.code_font,
-            bg=self.theme.code_bg,
-            fg=self.theme.fg_color,
-            bd=0,
-            padx=10,
-            pady=10
+        self.results_label = ctk.CTkLabel(
+            self.results_header,
+            text="코드 제안 결과",
+            font=("Segoe UI", 14, "bold")
         )
-        self.result_text.pack(fill=tk.BOTH, expand=True)
+        self.results_label.pack(side="left")
         
-        # 코드 블록을 위한 태그 구성
-        self.result_text.tag_configure("code_tag", foreground="#777777", font=self.theme.code_font)
-        self.result_text.tag_configure("code", background="#f0f0f0", borderwidth=1, relief="solid", 
-                                      font=self.theme.code_font, spacing1=10, spacing3=10)
+        # Results control buttons
+        self.results_control_frame = ctk.CTkFrame(self.results_header)
+        self.results_control_frame.pack(side="right")
         
-        # PanedWindow에 두 패널 추가
-        main_paned.add(left_panel, weight=1)
-        main_paned.add(right_panel, weight=1)
-        
-        # 하단 프레임 (프롬프트 + 버튼)
-        bottom_frame = ttk.Frame(self.root, style="TFrame")
-        bottom_frame.pack(side=tk.BOTTOM, fill=tk.X, padx=10, pady=10)
-        
-        # 프롬프트 라벨
-        prompt_label = ttk.Label(bottom_frame, text="요청 내용:", style="TLabel")
-        prompt_label.pack(side=tk.LEFT, padx=5, pady=5)
-        
-        # 프롬프트 입력 필드
-        # 프롬프트 입력 필드
-        # 먼저 status_var 초기화 (이전에 누락된 부분)
-        self.status_var = tk.StringVar(value="준비")
-        
-        # 프롬프트 프레임 추가 (동적 크기 조정을 위해)
-        prompt_frame = ttk.Frame(bottom_frame)
-        prompt_frame.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=5, pady=5)
-        
-        self.prompt_entry = scrolledtext.ScrolledText(
-            prompt_frame, 
-            wrap=tk.WORD,
-            height=3,  # 초기 높이 3줄
-            font=self.theme.default_font,
-            bg=self.theme.code_bg,
-            fg=self.theme.fg_color,
-            insertbackground=self.theme.fg_color,
-            bd=1,
-            padx=5,
-            pady=5,
-            undo=True  # 실행 취소 기능 활성화
+        self.apply_btn = ctk.CTkButton(
+            self.results_control_frame,
+            text="제안 적용",
+            command=self.apply_suggestion,
+            width=100
         )
-        self.prompt_entry.pack(fill=tk.X, expand=True)
+        self.apply_btn.pack(side="left", padx=5)
         
-        # 동적 높이 조정 메서드 추가
-        def adjust_height(event=None):
-            # 현재 라인 수 계산
-            lines = self.prompt_entry.get("1.0", tk.END).count('\n')
-            
-            # 최소 3줄, 최대 10줄로 제한
-            height = max(3, min(lines + 1, 10))
-            self.prompt_entry.configure(height=height)
+        # Results text area
+        self.results_text = ctk.CTkTextbox(
+            self.results_frame,
+            font=("Consolas", 11),
+            wrap="word"
+        )
+        self.results_text.pack(fill="both", expand=True, padx=5, pady=5)
         
-        # 키 입력 시 높이 조정
-        self.prompt_entry.bind('<KeyRelease>', adjust_height)
+        # Bottom frame for prompt
+        self.bottom_frame = ctk.CTkFrame(self.main_frame)
+        self.bottom_frame.pack(fill="x", padx=10, pady=10)
         
-        # Enter 키로 다음 위젯으로 이동, Ctrl+Enter로 코드 제안
-        def on_enter(event):
-            # Ctrl 키 확인을 위해 수정
-            if event.state & 0x4 or (event.keysym == 'Return' and event.state & 0x1):  # Ctrl 키 또는 Ctrl+Enter
-                self.get_suggestion()
-                return 'break'
-            
-            # 현재 커서 위치의 라인 번호
-            current_line = int(self.prompt_entry.index(tk.INSERT).split('.')[0])
-            total_lines = int(self.prompt_entry.index(tk.END).split('.')[0])
-            
-            # 마지막 라인이면 다음 위젯으로 이동
-            if current_line == total_lines:
-                self.suggest_button.focus_set()  # 다음 위젯(제안 버튼)으로 포커스 이동
-                return 'break'
-            
-            # 아니면 다음 라인으로 이동
-            return None
+        # Prompt label
+        self.prompt_label = ctk.CTkLabel(
+            self.bottom_frame,
+            text="요청 내용:",
+            font=("Segoe UI", 12)
+        )
+        self.prompt_label.pack(side="left", padx=5, pady=5)
         
-        self.prompt_entry.bind("<Return>", on_enter)
-        # Ctrl+Enter 대신 Control-Return 사용
-        self.prompt_entry.bind("<Control-Return>", on_enter)
+        # Prompt entry
+        self.prompt_entry = ctk.CTkTextbox(
+            self.bottom_frame,
+            height=60,
+            font=("Segoe UI", 12),
+            wrap="word"
+        )
+        self.prompt_entry.pack(side="left", fill="x", expand=True, padx=5, pady=5)
         
-        # 프롬프트 내용 가져오는 메서드 추가
-        def get_prompt_text():
-            return self.prompt_entry.get("1.0", tk.END).strip()
+        # Helper text in prompt
+        self.prompt_entry.insert("1.0", "여기에 요청사항을 입력하세요...")
+        self.prompt_entry.bind("<FocusIn>", self._on_prompt_focus_in)
+        self.prompt_entry.bind("<FocusOut>", self._on_prompt_focus_out)
         
-        # 제안 버튼
-        self.suggest_button = ttk.Button(
-            bottom_frame,
+        # Submit button
+        self.submit_btn = ctk.CTkButton(
+            self.bottom_frame,
             text="코드 제안 받기",
             command=self.get_suggestion,
-            style="Primary.TButton",
-            width=15
+            width=120,
+            height=40,
+            font=("Segoe UI", 12, "bold")
         )
-        self.suggest_button.pack(side=tk.RIGHT, padx=5)
+        self.submit_btn.pack(side="right", padx=5, pady=5)
         
-        # 상태 표시줄
-        self.status_var = tk.StringVar()
-        self.status_var.set("준비")
-        self.status_bar = ttk.Label(
-            self.root, 
-            textvariable=self.status_var, 
-            style="Status.TLabel"
+        # Status bar
+        self.status_bar = ctk.CTkLabel(
+            self.main_frame,
+            text="준비",
+            anchor="w",
+            font=("Segoe UI", 10),
+            corner_radius=0,
+            height=25
         )
-        self.status_bar.pack(side=tk.BOTTOM, fill=tk.X)
+        self.status_bar.pack(fill="x", side="bottom")
+        
+        # Set initial text in editor
+        self.code_editor.insert("1.0", "using System;\n\nnamespace MyApp\n{\n    class Program\n    {\n        static void Main(string[] args)\n        {\n            Console.WriteLine(\"Hello, World!\");\n        }\n    }\n}")
+        self.code_editor.highlight_syntax()
+    
+    def _on_prompt_focus_in(self, event):
+        """Handle focus in event for prompt entry"""
+        if self.prompt_entry.get("1.0", "end-1c") == "여기에 요청사항을 입력하세요...":
+            self.prompt_entry.delete("1.0", "end")
+    
+    def _on_prompt_focus_out(self, event):
+        """Handle focus out event for prompt entry"""
+        if not self.prompt_entry.get("1.0", "end-1c"):
+            self.prompt_entry.insert("1.0", "여기에 요청사항을 입력하세요...")
+    
+    def create_toolbar(self):
+        """Create toolbar buttons"""
+        # New file button
+        self.new_btn = ctk.CTkButton(
+            self.toolbar_frame,
+            text="새 파일",
+            command=self.new_file,
+            width=80,
+            height=28
+        )
+        self.new_btn.pack(side="left", padx=5, pady=5)
+        
+        # Open file button
+        self.open_btn = ctk.CTkButton(
+            self.toolbar_frame,
+            text="열기",
+            command=self.open_file,
+            width=80,
+            height=28
+        )
+        self.open_btn.pack(side="left", padx=5, pady=5)
+        
+        # Save file button
+        self.save_btn = ctk.CTkButton(
+            self.toolbar_frame,
+            text="저장",
+            command=self.save_file,
+            width=80,
+            height=28
+        )
+        self.save_btn.pack(side="left", padx=5, pady=5)
+        
+        # Separator
+        self.separator = ctk.CTkFrame(
+            self.toolbar_frame,
+            width=2,
+            height=28,
+            fg_color=self.theme_colors[self.current_theme]["border"]
+        )
+        self.separator.pack(side="left", padx=10, pady=5)
+        
+        # Theme selection
+        self.theme_label = ctk.CTkLabel(
+            self.toolbar_frame,
+            text="테마:",
+            font=("Segoe UI", 12)
+        )
+        self.theme_label.pack(side="left", padx=5, pady=5)
+        
+        self.theme_var = ctk.StringVar(value="다크")
+        self.theme_option = ctk.CTkOptionMenu(
+            self.toolbar_frame,
+            values=["다크", "라이트"],
+            variable=self.theme_var,
+            command=self.change_theme,
+            width=80,
+            height=28
+        )
+        self.theme_option.pack(side="left", padx=5, pady=5)
+    
+    def create_menu(self):
+        """Create menu bar"""
+        self.menu = tk.Menu(self.root, bg=self.theme_colors[self.current_theme]["bg_primary"], 
+                           fg=self.theme_colors[self.current_theme]["text"],
+                           activebackground=self.theme_colors[self.current_theme]["highlight"],
+                           activeforeground=self.theme_colors[self.current_theme]["text"],
+                           bd=0)
+        
+        # File menu
+        self.file_menu = tk.Menu(self.menu, tearoff=0, 
+                               bg=self.theme_colors[self.current_theme]["bg_primary"],
+                               fg=self.theme_colors[self.current_theme]["text"],
+                               activebackground=self.theme_colors[self.current_theme]["highlight"],
+                               activeforeground=self.theme_colors[self.current_theme]["text"])
+        self.file_menu.add_command(label="새 파일 (Ctrl+N)", command=self.new_file)
+        self.file_menu.add_command(label="열기... (Ctrl+O)", command=self.open_file)
+        self.file_menu.add_command(label="저장 (Ctrl+S)", command=self.save_file)
+        self.file_menu.add_command(label="다른 이름으로 저장...", command=self.save_file_as)
+        self.file_menu.add_separator()
+        self.file_menu.add_command(label="종료", command=self.on_closing)
+        self.menu.add_cascade(label="파일", menu=self.file_menu)
+        
+        # Edit menu
+        self.edit_menu = tk.Menu(self.menu, tearoff=0, 
+                               bg=self.theme_colors[self.current_theme]["bg_primary"],
+                               fg=self.theme_colors[self.current_theme]["text"],
+                               activebackground=self.theme_colors[self.current_theme]["highlight"],
+                               activeforeground=self.theme_colors[self.current_theme]["text"])
+        self.edit_menu.add_command(label="실행 취소 (Ctrl+Z)", 
+                                 command=lambda: self.code_editor._textbox.event_generate("<<Undo>>"))
+        self.edit_menu.add_command(label="다시 실행 (Ctrl+Y)", 
+                                 command=lambda: self.code_editor._textbox.event_generate("<<Redo>>"))
+        self.edit_menu.add_separator()
+        self.edit_menu.add_command(label="잘라내기 (Ctrl+X)", 
+                                 command=lambda: self.code_editor._textbox.event_generate("<<Cut>>"))
+        self.edit_menu.add_command(label="복사 (Ctrl+C)", 
+                                 command=lambda: self.code_editor._textbox.event_generate("<<Copy>>"))
+        self.edit_menu.add_command(label="붙여넣기 (Ctrl+V)", 
+                                 command=lambda: self.code_editor._textbox.event_generate("<<Paste>>"))
+        self.menu.add_cascade(label="편집", menu=self.edit_menu)
+        
+        # AI Helper menu
+        self.ai_menu = tk.Menu(self.menu, tearoff=0, 
+                             bg=self.theme_colors[self.current_theme]["bg_primary"],
+                             fg=self.theme_colors[self.current_theme]["text"],
+                             activebackground=self.theme_colors[self.current_theme]["highlight"],
+                             activeforeground=self.theme_colors[self.current_theme]["text"])
+        self.ai_menu.add_command(label="코드 제안 받기 (F5)", command=self.get_suggestion)
+        self.ai_menu.add_separator()
+        self.ai_menu.add_command(label="코드 최적화", 
+                               command=lambda: self.get_suggestion_with_preset("이 코드를 최적화해주세요."))
+        self.ai_menu.add_command(label="버그 찾기", 
+                               command=lambda: self.get_suggestion_with_preset("이 코드에서 버그나 오류를 찾아주세요."))
+        self.ai_menu.add_command(label="주석 추가", 
+                               command=lambda: self.get_suggestion_with_preset("이 코드에 상세한 주석을 추가해주세요."))
+        self.ai_menu.add_command(label="코드 리팩토링", 
+                               command=lambda: self.get_suggestion_with_preset("이 코드를 더 깔끔하게 리팩토링해주세요."))
+        self.menu.add_cascade(label="AI 도우미", menu=self.ai_menu)
+        
+        # Settings menu
+        self.settings_menu = tk.Menu(self.menu, tearoff=0, 
+                                   bg=self.theme_colors[self.current_theme]["bg_primary"],
+                                   fg=self.theme_colors[self.current_theme]["text"],
+                                   activebackground=self.theme_colors[self.current_theme]["highlight"],
+                                   activeforeground=self.theme_colors[self.current_theme]["text"])
+        self.settings_menu.add_command(label="API 키 설정", command=self.show_api_key_dialog)
+        
+        # Theme submenu
+        self.theme_menu = tk.Menu(self.settings_menu, tearoff=0, 
+                                bg=self.theme_colors[self.current_theme]["bg_primary"],
+                                fg=self.theme_colors[self.current_theme]["text"],
+                                activebackground=self.theme_colors[self.current_theme]["highlight"],
+                                activeforeground=self.theme_colors[self.current_theme]["text"])
+        self.theme_menu.add_command(label="라이트 테마", command=lambda: self.change_theme("라이트"))
+        self.theme_menu.add_command(label="다크 테마", command=lambda: self.change_theme("다크"))
+        self.settings_menu.add_cascade(label="테마 설정", menu=self.theme_menu)
+        
+        self.menu.add_cascade(label="설정", menu=self.settings_menu)
+        
+        # Help menu
+        self.help_menu = tk.Menu(self.menu, tearoff=0, 
+                               bg=self.theme_colors[self.current_theme]["bg_primary"],
+                               fg=self.theme_colors[self.current_theme]["text"],
+                               activebackground=self.theme_colors[self.current_theme]["highlight"],
+                               activeforeground=self.theme_colors[self.current_theme]["text"])
+        self.help_menu.add_command(label="사용법", command=self.show_help)
+        self.help_menu.add_command(label="정보", command=self.show_about)
+        self.menu.add_cascade(label="도움말", menu=self.help_menu)
+        
+        # Set menu to root
+        self.root.config(menu=self.menu)
+    
+    def bind_shortcuts(self):
+        """Bind keyboard shortcuts"""
+        self.root.bind("<Control-n>", lambda event: self.new_file())
+        self.root.bind("<Control-o>", lambda event: self.open_file())
+        self.root.bind("<Control-s>", lambda event: self.save_file())
+        self.root.bind("<F5>", lambda event: self.get_suggestion())
+        
+        # Enter key in prompt (with Ctrl for submission)
+        self.prompt_entry.bind("<Control-Return>", lambda event: self.get_suggestion())
     
     def load_api_key(self):
-        """config.json 파일에서 API 키를 로드"""
+        """Load API key from config file"""
         config_path = Path.home() / ".csharp_assistant" / "config.json"
         if config_path.exists():
             try:
@@ -406,7 +690,7 @@ class CSharpAssistant:
                 messagebox.showerror("오류", f"설정 파일 로드 중 오류 발생: {e}")
     
     def save_api_key(self):
-        """API 키를 config.json 파일에 저장"""
+        """Save API key to config file"""
         config_path = Path.home() / ".csharp_assistant"
         config_path.mkdir(parents=True, exist_ok=True)
         
@@ -418,82 +702,112 @@ class CSharpAssistant:
             messagebox.showerror("오류", f"설정 파일 저장 중 오류 발생: {e}")
     
     def show_api_key_dialog(self):
-        """API 키 설정 다이얼로그"""
-        dialog = tk.Toplevel(self.root)
+        """Show API key dialog"""
+        dialog = ctk.CTkToplevel(self.root)
         dialog.title("API 키 설정")
         dialog.geometry("450x180")
         dialog.resizable(False, False)
         dialog.transient(self.root)
         dialog.grab_set()
-        dialog.configure(bg=self.theme.bg_color)
+        dialog.focus_set()
         
-        # 다이얼로그 내용 프레임
-        frame = ttk.Frame(dialog, style="TFrame", padding=20)
-        frame.pack(fill=tk.BOTH, expand=True)
+        # Center dialog
+        dialog.update_idletasks()
+        width = dialog.winfo_width()
+        height = dialog.winfo_height()
+        x = (self.root.winfo_width() // 2) - (width // 2) + self.root.winfo_x()
+        y = (self.root.winfo_height() // 2) - (height // 2) + self.root.winfo_y()
+        dialog.geometry(f"{width}x{height}+{x}+{y}")
         
-        # 헤더 레이블
-        header = ttk.Label(frame, text="JUN/BLACK API 키 설정", 
-                          font=self.theme.header_font, style="TLabel")
-        header.grid(row=0, column=0, columnspan=2, sticky=tk.W, pady=(0, 15))
+        # Dialog content
+        frame = ctk.CTkFrame(dialog)
+        frame.pack(fill="both", expand=True, padx=20, pady=20)
         
-        # 설명 텍스트
-        desc = ttk.Label(frame, text="JUN/BLACK API 사용하기 위한 API 키를 입력하세요.", 
-                         style="TLabel", wraplength=400)
-        desc.grid(row=1, column=0, columnspan=2, sticky=tk.W, pady=(0, 10))
+        # Header
+        header = ctk.CTkLabel(
+            frame, 
+            text="JUN BLACK/J API 키 설정",
+            font=("Segoe UI", 16, "bold")
+        )
+        header.pack(anchor="w", pady=(0, 15))
         
-        # API 키 라벨 및 입력 필드
-        key_label = ttk.Label(frame, text="API 키:", style="TLabel")
-        key_label.grid(row=2, column=0, sticky=tk.W, pady=10)
+        # Description
+        desc = ctk.CTkLabel(
+            frame, 
+            text="JUN BLACK/J 사용을 위한 API 키를 입력하세요.",
+            font=("Segoe UI", 12),
+            wraplength=400
+        )
+        desc.pack(anchor="w", pady=(0, 15))
         
+        # API key entry
         api_key_var = tk.StringVar(value=self.api_key)
-        api_key_entry = ttk.Entry(frame, textvariable=api_key_var, width=40, show="*")
-        api_key_entry.grid(row=2, column=1, sticky=tk.W+tk.E, pady=10, padx=(5, 0))
+        api_key_frame = ctk.CTkFrame(frame)
+        api_key_frame.pack(fill="x", pady=5)
         
-        # 버튼 프레임
-        btn_frame = ttk.Frame(frame, style="TFrame")
-        btn_frame.grid(row=3, column=0, columnspan=2, pady=(15, 0))
+        api_key_label = ctk.CTkLabel(
+            api_key_frame,
+            text="API 키:",
+            font=("Segoe UI", 12),
+            width=80
+        )
+        api_key_label.pack(side="left", padx=5)
         
-        # 취소 버튼
-        cancel_btn = ttk.Button(
-            btn_frame, 
-            text="취소", 
+        api_key_entry = ctk.CTkEntry(
+            api_key_frame,
+            textvariable=api_key_var,
+            width=300,
+            show="*",
+            font=("Segoe UI", 12)
+        )
+        api_key_entry.pack(side="left", padx=5, fill="x", expand=True)
+        
+        # Button frame
+        btn_frame = ctk.CTkFrame(frame)
+        btn_frame.pack(fill="x", pady=(15, 0), anchor="e")
+        
+        # Cancel button
+        cancel_btn = ctk.CTkButton(
+            btn_frame,
+            text="취소",
             command=dialog.destroy,
-            width=10
+            width=100
         )
-        cancel_btn.pack(side=tk.RIGHT, padx=5)
+        cancel_btn.pack(side="right", padx=5)
         
-        # 저장 버튼
-        save_btn = ttk.Button(
-            btn_frame, 
-            text="저장", 
+        # Save button
+        save_btn = ctk.CTkButton(
+            btn_frame,
+            text="저장",
             command=lambda: self.save_api_key_from_dialog(api_key_var.get(), dialog),
-            style="Primary.TButton",
-            width=10
+            width=100
         )
-        save_btn.pack(side=tk.RIGHT, padx=5)
+        save_btn.pack(side="right", padx=5)
     
     def save_api_key_from_dialog(self, api_key, dialog):
-        """다이얼로그에서 API 키 저장"""
+        """Save API key from dialog"""
         self.api_key = api_key
         self.save_api_key()
         dialog.destroy()
     
     def new_file(self):
-        """새 파일 생성"""
-        if self.code_editor.get("1.0", tk.END).strip():
+        """Create a new file"""
+        if self.file_changed:
             if messagebox.askyesno("확인", "현재 내용을 저장하지 않고 새 파일을 생성하시겠습니까?"):
-                self.code_editor.delete("1.0", tk.END)
-                self.result_text.delete("1.0", tk.END)
+                self.code_editor.delete("1.0", "end")
+                self.results_text.delete("1.0", "end")
                 self.current_file = None
-                self.status_var.set("새 파일")
+                self.file_changed = False
+                self.status_bar.configure(text="새 파일")
         else:
-            self.code_editor.delete("1.0", tk.END)
-            self.result_text.delete("1.0", tk.END)
+            self.code_editor.delete("1.0", "end")
+            self.results_text.delete("1.0", "end")
             self.current_file = None
-            self.status_var.set("새 파일")
+            self.file_changed = False
+            self.status_bar.configure(text="새 파일")
     
     def open_file(self):
-        """파일 열기 다이얼로그"""
+        """Open a file"""
         file_path = filedialog.askopenfilename(
             filetypes=[("C# 파일", "*.cs"), ("모든 파일", "*.*")]
         )
@@ -501,116 +815,71 @@ class CSharpAssistant:
             try:
                 with open(file_path, 'r', encoding='utf-8') as file:
                     content = file.read()
-                    self.code_editor.delete("1.0", tk.END)
-                    self.code_editor.insert(tk.END, content)
+                    self.code_editor.delete("1.0", "end")
+                    self.code_editor.insert("1.0", content)
+                    self.code_editor.highlight_syntax()
                     self.current_file = file_path
-                    self.status_var.set(f"파일 열기: {file_path}")
-                    # 구문 강조 적용
-                    self.highlight_csharp_code()
+                    self.file_changed = False
+                    self.status_bar.configure(text=f"파일 열기: {file_path}")
             except Exception as e:
                 messagebox.showerror("오류", f"파일 열기 중 오류 발생: {e}")
     
     def save_file(self):
-        """현재 파일 저장"""
+        """Save the current file"""
         if self.current_file:
             try:
-                content = self.code_editor.get("1.0", tk.END)
+                content = self.code_editor.get("1.0", "end-1c")
                 with open(self.current_file, 'w', encoding='utf-8') as file:
                     file.write(content)
-                self.status_var.set(f"파일 저장됨: {self.current_file}")
+                self.file_changed = False
+                self.status_bar.configure(text=f"파일 저장됨: {self.current_file}")
             except Exception as e:
                 messagebox.showerror("오류", f"파일 저장 중 오류 발생: {e}")
         else:
             self.save_file_as()
-
-    def highlight_comments_in_code(self):
-        """코드 내의 주석을 강조 표시"""
-        content = self.result_text.get("1.0", tk.END)
-        
-        # // 스타일 한 줄 주석 찾기
-        for match in re.finditer(r'(//.*?)(\n|$)', content):
-            start, end = match.span(1)
-            start_index = f"1.0 + {start} chars"
-            end_index = f"1.0 + {end} chars"
-            self.result_text.tag_add("comment", start_index, end_index)
-        
-        # /* */ 스타일 블록 주석 찾기
-        for match in re.finditer(r'/\*([\s\S]*?)\*/', content):
-            start, end = match.span()
-            start_index = f"1.0 + {start} chars"
-            end_index = f"1.0 + {end} chars"
-            self.result_text.tag_add("block_comment", start_index, end_index)
-        
-        # C# 키워드 강조
-        keywords = [
-            r'\busing\b', r'\bnamespace\b', r'\bclass\b', r'\bpublic\b', r'\bprivate\b', 
-            r'\bprotected\b', r'\binternal\b', r'\bstatic\b', r'\bvoid\b', r'\breturn\b',
-            r'\bint\b', r'\bstring\b', r'\bbool\b', r'\bfloat\b', r'\bdouble\b', r'\bchar\b',
-            r'\bif\b', r'\belse\b', r'\bswitch\b', r'\bcase\b', r'\bfor\b', r'\bwhile\b', 
-            r'\bdo\b', r'\bforeach\b', r'\btry\b', r'\bcatch\b', r'\bfinally\b', r'\bthrow\b',
-            r'\bnew\b', r'\btrue\b', r'\bfalse\b', r'\bnull\b', r'\bthis\b', r'\bbase\b'
-        ]
-        
-        for keyword in keywords:
-            keyword_pattern = re.compile(keyword)
-            for match in keyword_pattern.finditer(content):
-                start, end = match.span()
-                start_index = f"1.0 + {start} chars"
-                end_index = f"1.0 + {end} chars"
-                self.result_text.tag_add("keyword", start_index, end_index)
-        
-        # 문자열 강조 (큰따옴표)
-        for match in re.finditer(r'"[^"\\]*(\\.[^"\\]*)*"', content):
-            start, end = match.span()
-            start_index = f"1.0 + {start} chars"
-            end_index = f"1.0 + {end} chars"
-            self.result_text.tag_add("string", start_index, end_index)
-        
-        # 태그 색상 설정
-        self.result_text.tag_configure("comment", foreground="#008000")  # 초록색 주석
-        self.result_text.tag_configure("block_comment", foreground="#008000")  # 초록색 블록 주석
-        self.result_text.tag_configure("keyword", foreground="#0000FF")  # 파란색 키워드
-        self.result_text.tag_configure("string", foreground="#A31515")  # 적갈색 문자열
-
-    # C# 코드 하이라이팅 함수 개선
-    def highlight_csharp_code(self):
-        """코드 에디터의 C# 코드 구문 강조 표시"""
-        try:
-            self.apply_csharp_highlighting(self.code_editor)
-            self.status_var.set("구문 강조 적용됨")
-        except Exception as e:
-            print(f"코드 에디터 하이라이팅 오류: {e}")
     
     def save_file_as(self):
-        """다른 이름으로 저장"""
+        """Save as a new file"""
         file_path = filedialog.asksaveasfilename(
             defaultextension=".cs",
             filetypes=[("C# 파일", "*.cs"), ("모든 파일", "*.*")]
         )
         if file_path:
             try:
-                content = self.code_editor.get("1.0", tk.END)
+                content = self.code_editor.get("1.0", "end-1c")
                 with open(file_path, 'w', encoding='utf-8') as file:
                     file.write(content)
                 self.current_file = file_path
-                self.status_var.set(f"파일 저장됨: {file_path}")
+                self.file_changed = False
+                self.status_bar.configure(text=f"파일 저장됨: {file_path}")
             except Exception as e:
                 messagebox.showerror("오류", f"파일 저장 중 오류 발생: {e}")
     
     def get_suggestion_with_preset(self, preset_prompt):
-        """미리 정의된 프롬프트로 코드 제안 받기"""
-        self.prompt_var.set(preset_prompt)
+        """Get code suggestion with preset prompt"""
+        # Clear any placeholder
+        if self.prompt_entry.get("1.0", "end-1c") == "여기에 요청사항을 입력하세요...":
+            self.prompt_entry.delete("1.0", "end")
+        
+        # Set the preset prompt
+        self.prompt_entry.delete("1.0", "end")
+        self.prompt_entry.insert("1.0", preset_prompt)
+        
+        # Get suggestion
         self.get_suggestion()
     
     def get_suggestion(self):
-        """JUN/BLACK J API를 사용하여 코드 제안 받기"""
+        """Get code suggestion from JUN BLACK/J API"""
         if not self.api_key:
             messagebox.showwarning("경고", "API 키가 설정되지 않았습니다. 설정 메뉴에서 API 키를 설정하세요.")
             return
         
-        code = self.code_editor.get("1.0", tk.END).strip()
-        prompt = self.prompt_entry.get("1.0", tk.END).strip()
-
+        code = self.code_editor.get("1.0", "end-1c").strip()
+        prompt = self.prompt_entry.get("1.0", "end-1c").strip()
+        
+        # Check for placeholder text
+        if prompt == "여기에 요청사항을 입력하세요...":
+            prompt = ""
         
         if not code:
             messagebox.showwarning("경고", "코드가 입력되지 않았습니다.")
@@ -619,421 +888,432 @@ class CSharpAssistant:
         if not prompt:
             prompt = "이 코드를 분석하고 개선점이나 최적화 방안을 제안해주세요."
         
-        # 비동기적으로 API 호출
-        self.status_var.set("JUN/BLACK J API 호출 중...")
-        self.suggest_button.config(state=tk.DISABLED)
+        # Show progress dialog
+        self.show_progress_dialog("요청 처리 중", "JUN BLACK/J API에 요청을 처리 중입니다...")
         
-        # 프로그레스 창 표시
-        self.show_progress_dialog("요청 처리 중", "JUN/BLACK J API에 요청을 처리 중입니다...")
+        # Disable submit button
+        self.submit_btn.configure(state="disabled")
+        self.status_bar.configure(text="API 호출 중...")
         
+        # Call API in a separate thread
         threading.Thread(target=self.call_claude_api, args=(code, prompt)).start()
     
     def show_progress_dialog(self, title, message):
-        """진행 상태 창 표시"""
-        self.progress_dialog = tk.Toplevel(self.root)
+        """Show a progress dialog"""
+        self.progress_dialog = ctk.CTkToplevel(self.root)
         self.progress_dialog.title(title)
-        self.progress_dialog.geometry("350x120")
+        self.progress_dialog.geometry("350x150")
         self.progress_dialog.resizable(False, False)
         self.progress_dialog.transient(self.root)
         self.progress_dialog.grab_set()
-        self.progress_dialog.configure(bg=self.theme.bg_color)
         
-        # 다이얼로그 내용
-        frame = ttk.Frame(self.progress_dialog, style="TFrame", padding=20)
-        frame.pack(fill=tk.BOTH, expand=True)
+        # Center dialog
+        self.progress_dialog.update_idletasks()
+        width = self.progress_dialog.winfo_width()
+        height = self.progress_dialog.winfo_height()
+        x = (self.root.winfo_width() // 2) - (width // 2) + self.root.winfo_x()
+        y = (self.root.winfo_height() // 2) - (height // 2) + self.root.winfo_y()
+        self.progress_dialog.geometry(f"{width}x{height}+{x}+{y}")
         
-        # 메시지 레이블
-        ttk.Label(frame, text=message, style="TLabel").pack(pady=(0, 15))
+        # Dialog content
+        frame = ctk.CTkFrame(self.progress_dialog)
+        frame.pack(fill="both", expand=True, padx=20, pady=20)
         
-        # 진행 상태 바
-        progress = ttk.Progressbar(frame, mode="indeterminate", length=300)
-        progress.pack(pady=5)
-        progress.start(10)
-
-
-    def apply_csharp_highlighting(self, text_widget):
-        """텍스트 위젯에 C# 구문 강조 적용"""
-        # 기존 태그 제거
-        for tag in ["keyword", "type", "string", "comment", "korean_comment"]:
-            text_widget.tag_remove(tag, "1.0", tk.END)
+        # Message
+        message_label = ctk.CTkLabel(
+            frame,
+            text=message,
+            font=("Segoe UI", 12),
+            wraplength=300
+        )
+        message_label.pack(pady=(0, 20))
         
-        # C# 키워드 찾기
-        keywords = ["using", "namespace", "class", "public", "private", "protected", 
-                   "internal", "static", "void", "override", "partial", "this", "base"]
-        
-        for keyword in keywords:
-            pos = "1.0"
-            while True:
-                pos = text_widget.search(r'\y' + keyword + r'\y', pos, tk.END, regexp=True)
-                if not pos:
-                    break
-                end_pos = f"{pos}+{len(keyword)}c"
-                text_widget.tag_add("keyword", pos, end_pos)
-                pos = end_pos
-        
-        # 타입 찾기
-        types = ["object", "string", "int", "bool", "float", "double", "var", "EventArgs"]
-        for typ in types:
-            pos = "1.0"
-            while True:
-                pos = text_widget.search(r'\y' + typ + r'\y', pos, tk.END, regexp=True)
-                if not pos:
-                    break
-                end_pos = f"{pos}+{len(typ)}c"
-                text_widget.tag_add("type", pos, end_pos)
-                pos = end_pos
-        
-        # 주석 찾기 (// 스타일)
-        pos = "1.0"
-        while True:
-            pos = text_widget.search(r'//.*$', pos, tk.END, regexp=True)
-            if not pos:
-                break
-            line_end = pos.split('.')[0] + '.end'
-            text_widget.tag_add("comment", pos, line_end)
-            pos = text_widget.index(f"{pos}+1l")
-        
-        # 설조 찾기
-        pos = "1.0"
-        while True:
-            pos = text_widget.search('설조', pos, tk.END)
-            if not pos:
-                break
-            line_end = pos.split('.')[0] + '.end'
-            text_widget.tag_add("korean_comment", pos, line_end)
-            pos = text_widget.index(f"{pos}+1l")
-        
-        # 태그 스타일 설정
-        text_widget.tag_configure("keyword", foreground="#0000FF", font=(self.theme.code_font[0], self.theme.code_font[1], "bold"))
-        text_widget.tag_configure("type", foreground="#2B91AF")
-        text_widget.tag_configure("string", foreground="#A31515")
-        text_widget.tag_configure("comment", foreground="#008000", font=(self.theme.code_font[0], self.theme.code_font[1], "italic"))
-        text_widget.tag_configure("korean_comment", foreground="#FF6600", background="#FFFFCC", font=(self.theme.code_font[0], self.theme.code_font[1], "bold"))
-    
-    def apply_csharp_highlighting_in_range(self, text_widget, start, end):
-        """특정 범위 내에서 C# 구문 강조 적용"""
-        # C# 키워드 찾기
-        keywords = ["using", "namespace", "class", "public", "private", "protected", 
-                   "internal", "static", "void", "override", "partial", "this", "base"]
-        
-        for keyword in keywords:
-            pos = start
-            while True:
-                pos = text_widget.search(r'\y' + keyword + r'\y', pos, end, regexp=True)
-                if not pos:
-                    break
-                end_pos = f"{pos}+{len(keyword)}c"
-                text_widget.tag_add("keyword", pos, end_pos)
-                pos = end_pos
-        
-        # 타입 찾기
-        types = ["object", "string", "int", "bool", "float", "double", "var", "EventArgs"]
-        for typ in types:
-            pos = start
-            while True:
-                pos = text_widget.search(r'\y' + typ + r'\y', pos, end, regexp=True)
-                if not pos:
-                    break
-                end_pos = f"{pos}+{len(typ)}c"
-                text_widget.tag_add("type", pos, end_pos)
-                pos = end_pos
-        
-        # 주석 찾기 (// 스타일)
-        pos = start
-        while True:
-            pos = text_widget.search(r'//.*$', pos, end, regexp=True)
-            if not pos:
-                break
-            line_end = pos.split('.')[0] + '.end'
-            if text_widget.compare(line_end, ">", end):
-                line_end = end
-            text_widget.tag_add("comment", pos, line_end)
-            next_line = text_widget.index(f"{pos}+1l")
-            if text_widget.compare(next_line, ">=", end):
-                break
-            pos = next_line
-        
-        # 설조 찾기
-        pos = start
-        while True:
-            pos = text_widget.search('설조', pos, end)
-            if not pos:
-                break
-            line_end = pos.split('.')[0] + '.end'
-            if text_widget.compare(line_end, ">", end):
-                line_end = end
-            text_widget.tag_add("korean_comment", pos, line_end)
-            pos = text_widget.index(f"{pos}+1c")
-            if text_widget.compare(pos, ">=", end):
-                break
+        # Progress bar
+        self.progress_bar = ctk.CTkProgressBar(
+            frame,
+            mode="indeterminate",
+            width=300
+        )
+        self.progress_bar.pack(pady=10)
+        self.progress_bar.start()
     
     def call_claude_api(self, code, prompt):
-        """JUN/BLACK J API 호출 (스레드에서 실행)"""
+        """Call the JUN BLACK/J API"""
         try:
             client = anthropic.Anthropic(api_key=self.api_key)
+            
             response = client.messages.create(
                 model="claude-3-7-sonnet-20250219",
-                max_tokens=4000,#4000
-                system="당신은 C# 전문가로서 코드 분석, 개선, 버그 수정, 최적화 등을 제안하는 어시스턴트입니다. 제안 코드는 항상 실행 가능하고 정확해야 합니다.",
+                max_tokens=4000,
+                system="당신은 C# 전문가로서 코드 분석, 개선, 버그 수정, 최적화 등을 제안하는 어시스턴트입니다. 제안 코드는 항상 실행 가능하고 정확해야 합니다. 코드 블록은 항상 ```csharp와 ``` 사이에 표시하세요.",
                 messages=[
                     {"role": "user", "content": f"다음 C# 코드를 분석해주세요:\n\n```csharp\n{code}\n```\n\n요청사항: {prompt}"}
                 ]
             )
             
-            # UI 스레드에서 결과 업데이트
+            # Update UI in the main thread
             self.root.after(0, self.update_result, response.content[0].text)
         except Exception as e:
             self.root.after(0, self.show_error, str(e))
     
     def update_result(self, result):
-        """결과 업데이트 (UI 스레드에서 호출)"""
-        # 프로그레스 창 닫기
+        """Update result in the UI"""
+        # Close progress dialog
         if hasattr(self, 'progress_dialog') and self.progress_dialog:
             self.progress_dialog.destroy()
-    
-        # 응답에 백틱(마크다운 코드 블록)이 없다면 자동으로 코드 블록 처리
+        
+        # If no markdown code blocks in result, wrap it
         if "```" not in result:
-            # 만약 "개선된 코드"라는 헤더가 있다면 그 이후부터 코드로 간주하고 코드 블록으로 감싸기
+            # Look for "개선된 코드" or similar header
             pattern = re.compile(r"(#\s*개선된\s*코드)([\s\S]+)", re.IGNORECASE)
             match = pattern.search(result)
             if match:
                 heading = match.group(1)
                 code_text = match.group(2).strip()
-                # 기존 응답의 해당 부분을 백틱으로 감싸도록 변환
+                # Convert to markdown code block
                 result = result.replace(match.group(0), f"{heading}\n```csharp\n{code_text}\n```")
             else:
-                # 헤더가 없다면 응답 전체를 코드 블록으로 감싸기
+                # Wrap the entire response in a code block
                 result = f"```csharp\n{result.strip()}\n```"
-    
-        # 결과 텍스트 위젯 업데이트
-        self.result_text.delete("1.0", tk.END)
-        self.result_text.insert(tk.END, result)
-    
-        # 마크다운 코드 블록 강조 적용
-        self.highlight_code_blocks()
-    
-        self.status_var.set("코드 제안 완료")
-        self.suggest_button.config(state=tk.NORMAL)
-
-    
-    def highlight_code_blocks(self):
-        """결과 텍스트에서 마크다운 코드 블록 강조 표시 (백틱, 언어 지정 포함)"""
-        content = self.result_text.get("1.0", tk.END)
-        self.result_text.delete("1.0", tk.END)
         
-        # 수정된 정규식 패턴: 시작 백틱 세 개 뒤에 선택적으로 'csharp'와 공백 및 줄바꿈이 올 수 있음
-        pattern = re.compile(r'```(?:csharp)?\s*\n([\s\S]*?)\n```')
-        last_end = 0
-        for match in pattern.finditer(content):
-            start, end = match.span()
-            
-            # 코드 블록 이전의 텍스트를 그대로 추가
-            self.result_text.insert(tk.END, content[last_end:start])
-            
-            # 매치된 코드 블록 내용만 가져옴 (마크업은 제거)
-            code_content = match.group(1).rstrip()
-            code_start = self.result_text.index(tk.END)
-            self.result_text.insert(tk.END, code_content, "code")
-            code_end = self.result_text.index(tk.END)
-            
-            # 코드 내부 하이라이팅 적용
-            if code_content:
-                try:
-                    self.apply_csharp_highlighting_in_range(self.result_text, code_start, code_end)
-                except Exception as e:
-                    print(f"코드 블록 내부 하이라이팅 오류: {e}")
-            
-            last_end = end
+        # Update results text
+        self.results_text.delete("1.0", "end")
+        self.results_text.insert("1.0", result)
         
-        # 마지막 코드 블록 이후의 텍스트 추가
-        self.result_text.insert(tk.END, content[last_end:])
-
+        # Apply highlighting to code blocks
+        self.highlight_code_blocks_in_results()
+        
+        # Re-enable submit button
+        self.submit_btn.configure(state="normal")
+        self.status_bar.configure(text="코드 제안 완료")
     
-    def show_error(self, error_message):
-        """오류 표시 (UI 스레드에서 호출)"""
-        # 프로그레스 창 닫기
-        if hasattr(self, 'progress_dialog') and self.progress_dialog:
-            self.progress_dialog.destroy()
+    # def highlight_code_blocks_in_results(self):
+    #     """Highlight code blocks in the results text"""
+    #     # Configure code block tags
+    #     self.results_text.tag_configure("code_block", 
+    #                                   font=("Consolas", 11),
+    #                                   background=self.theme_colors[self.current_theme]["bg_tertiary"])
+        
+    #     # Configure syntax highlighting tags
+    #     self.results_text.tag_configure("keyword", foreground="#569CD6")
+    #     self.results_text.tag_configure("type", foreground="#4EC9B0")
+    #     self.results_text.tag_configure("string", foreground="#CE9178")
+    #     self.results_text.tag_configure("comment", foreground="#6A9955")
+    #     self.results_text.tag_configure("number", foreground="#B5CEA8")
+        
+    #     # Find code blocks
+    #     content = self.results_text.get("1.0", "end-1c")
+        
+    #     # Find all code blocks with the pattern ```csharp ... ```
+    #     pattern = re.compile(r'```(?:csharp)?\s*\n([\s\S]*?)\n```')
+        
+    #     # Process each match
+    #     for match in pattern.finditer(content):
+    #         start_pos = match.start()
+    #         end_pos = match.end()
             
-        messagebox.showerror("API 오류", f"JUN/BLACK J API 호출 중 오류 발생: {error_message}")
-        self.status_var.set("오류 발생")
-        self.suggest_button.config(state=tk.NORMAL)
+    #         # Convert string positions to tkinter positions
+    #         start_line = content[:start_pos].count('\n') + 1
+    #         start_col = start_pos - content[:start_pos].rfind('\n') - 1
+    #         if start_line == 1:
+    #             start_col = start_pos
+            
+    #         end_line = content[:end_pos].count('\n') + 1
+    #         end_col = end_pos - content[:end_pos].rfind('\n') - 1
+    #         if end_line == 1:
+    #             end_col = end_pos
+            
+    #         # Add code block tag
+    #         self.results_text.tag_add("code_block", f"{start_line}.{start_col}", f"{end_line}.{end_col}")
+            
+    #         # Get the code content
+    #         code_content = match.group(1)
+            
+    #         # Highlight C# syntax within the code block
+    #         self._highlight_code_within_block(code_content, start_line, start_col, end_line, end_col)
     
-    def apply_suggestion(self):
-        """제안 결과를 에디터에 적용"""
-        result = self.result_text.get("1.0", tk.END)
+    def highlight_code_blocks_in_results(self):
+        """향상된 C# 코드 블록 하이라이팅"""
+        content = self.results_text.get("1.0", "end-1c")
+        
+        # 테마별 하이라이팅 색상 팔레트
+        theme_colors = {
+            "light": {
+                "background": "#f4f4f4",
+                "text": "#000000",
+                "keyword": "#0000FF",        # 파란색 키워드
+                "string": "#A31515",         # 다크 레드 문자열
+                "comment": "#008000",        # 녹색 주석
+                "type": "#2B91AF",           # 파란 청록색 타입
+                "number": "#098658",         # 어두운 청록색 숫자
+                "method": "#795E26",         # 갈색 메서드
+            },
+            "dark": {
+                "background": "#1E1E1E",     # VS Code 다크 테마 배경
+                "text": "#D4D4D4",           # 밝은 회색 텍스트
+                "keyword": "#569CD6",        # 밝은 파란색 키워드
+                "string": "#CE9178",         # 연한 주황색 문자열
+                "comment": "#6A9955",        # 연한 녹색 주석
+                "type": "#4EC9B0",           # 청록색 타입
+                "number": "#B5CEA8",         # 연한 녹색 숫자
+                "method": "#DCDCAA",         # 밝은 노란색 메서드
+            }
+        }
+        
+        # 현재 테마의 색상 선택
+        colors = theme_colors[self.current_theme]
         
         # 코드 블록 찾기
+        pattern = re.compile(r'```(?:csharp)?\s*\n([\s\S]*?)\n```')
+        matches = list(pattern.finditer(content))
+        
+        if not matches:
+            return
+        
+        # 텍스트 초기화
+        self.results_text.delete("1.0", "end")
+        
+        # 마크다운 스타일 태그 설정
+        markdown_header_style = {
+            "font": ("Consolas", 12, "bold"),
+            "foreground": colors["text"]
+        }
+        
+        # 코드 블록 스타일
+        code_block_style = {
+            "font": ("Consolas", 10),
+            "background": colors["background"],
+            "foreground": colors["text"]
+        }
+        
+        # 구문 강조 키워드
+        keywords = [
+            "abstract", "as", "base", "bool", "break", "byte", "case", "catch", 
+            "char", "checked", "class", "const", "continue", "decimal", "default", 
+            "delegate", "do", "double", "else", "enum", "event", "explicit", 
+            "extern", "false", "finally", "fixed", "float", "for", "foreach", 
+            "goto", "if", "implicit", "in", "int", "interface", "internal", 
+            "is", "lock", "long", "namespace", "new", "null", "object", 
+            "operator", "out", "override", "params", "private", "protected", 
+            "public", "readonly", "ref", "return", "sbyte", "sealed", 
+            "short", "sizeof", "stackalloc", "static", "string", "struct", 
+            "switch", "this", "throw", "true", "try", "typeof", "uint", "ulong", 
+            "unchecked", "unsafe", "ushort", "using", "virtual", "void", 
+            "volatile", "while", "var", "async", "await"
+        ]
+        
+        last_end = 0
+        for match in matches:
+            # 코드 블록 이전 텍스트 추가
+            if match.start() > last_end:
+                self.results_text.insert("end", content[last_end:match.start()], 
+                                         {"font": ("Segoe UI", 10)})
+            
+            # 코드 블록 추가
+            code_block = match.group(1).strip()
+            
+            # 코드 블록 헤더
+            self.results_text.insert("end", "## 코드 블록\n", markdown_header_style)
+            
+            # 구분선
+            self.results_text.insert("end", "---\n", 
+                                     {"foreground": "#999999", 
+                                      "font": ("Segoe UI", 10, "bold")})
+            
+            # 코드 블록 본문 삽입 (구문 강조 포함)
+            current_tag = 0
+            
+            # 각 줄에 대해 구문 강조 적용
+            for line in code_block.split('\n'):
+                # 키워드 강조
+                for keyword in keywords:
+                    line = re.sub(r'\b' + keyword + r'\b', 
+                                  f'<{current_tag}_keyword>{keyword}</{current_tag}_keyword>', 
+                                  line)
+                
+                # 문자열 강조 (큰따옴표, 작은따옴표)
+                line = re.sub(r'"[^"]*"', 
+                              lambda m: f'<{current_tag}_string>{m.group(0)}</{current_tag}_string>', 
+                              line)
+                line = re.sub(r"'[^']*'", 
+                              lambda m: f'<{current_tag}_string>{m.group(0)}</{current_tag}_string>', 
+                              line)
+                
+                # 주석 강조
+                line = re.sub(r'//.*$', 
+                              lambda m: f'<{current_tag}_comment>{m.group(0)}</{current_tag}_comment>', 
+                              line)
+                
+                # 숫자 강조
+                line = re.sub(r'\b\d+\b', 
+                              lambda m: f'<{current_tag}_number>{m.group(0)}</{current_tag}_number>', 
+                              line)
+                
+                # 태그 삽입
+                self.results_text.tag_config(f'{current_tag}_keyword', 
+                                             foreground=colors["keyword"])
+                self.results_text.tag_config(f'{current_tag}_string', 
+                                             foreground=colors["string"])
+                self.results_text.tag_config(f'{current_tag}_comment', 
+                                             foreground=colors["comment"])
+                self.results_text.tag_config(f'{current_tag}_number', 
+                                             foreground=colors["number"])
+                
+                # 라인 삽입
+                self.results_text.insert("end", line + "\n", code_block_style)
+                
+                # 태그 적용
+                start_line, start_char = map(int, self.results_text.index("end-2l").split('.'))
+                end_line, end_char = map(int, self.results_text.index("end-1c").split('.'))
+                
+                for tag_type in ['keyword', 'string', 'comment', 'number']:
+                    pattern = rf'<{current_tag}_{tag_type}>(.+?)</{current_tag}_{tag_type}>'
+                    for match in re.finditer(pattern, line):
+                        start = match.start(1)
+                        end = match.end(1)
+                        self.results_text.tag_add(
+                            f'{current_tag}_{tag_type}', 
+                            f"{start_line}.{start_char + start}", 
+                            f"{start_line}.{start_char + end}"
+                        )
+                
+                current_tag += 1
+            
+            # 코드 블록 후 구분선
+            self.results_text.insert("end", "---\n\n", 
+                                     {"foreground": "#999999", 
+                                      "font": ("Segoe UI", 10, "bold")})
+            
+            last_end = match.end()
+        
+        # 마지막 남은 텍스트 추가
+        if last_end < len(content):
+            self.results_text.insert("end", content[last_end:], 
+                                     {"font": ("Segoe UI", 10)})
+            
+    def _highlight_code_within_block(self, code, start_line, start_col, end_line, end_col):
+        """Apply syntax highlighting within a code block"""
+        # Keywords
+        keywords = [
+            "abstract", "as", "base", "bool", "break", "byte", "case", "catch", 
+            "char", "checked", "class", "const", "continue", "decimal", "default", 
+            "delegate", "do", "double", "else", "enum", "event", "explicit", 
+            "extern", "false", "finally", "fixed", "float", "for", "foreach", 
+            "goto", "if", "implicit", "in", "int", "interface", "internal", 
+            "is", "lock", "long", "namespace", "new", "null", "object", 
+            "operator", "out", "override", "params", "private", "protected", 
+            "public", "readonly", "ref", "return", "sbyte", "sealed", 
+            "short", "sizeof", "stackalloc", "static", "string", "struct", 
+            "switch", "this", "throw", "true", "try", "typeof", "uint", "ulong", 
+            "unchecked", "unsafe", "ushort", "using", "virtual", "void", 
+            "volatile", "while"
+        ]
+        
+        # Start after the opening ```csharp tag
+        start_pos = f"{start_line}.{start_col + 10}"  # Adjust for ```csharp
+        
+        # For each keyword, search and tag
+        for keyword in keywords:
+            pos = start_pos
+            pattern = r'\b' + keyword + r'\b'
+            
+            while True:
+                # Find the next occurrence
+                match_pos = self.results_text.search(pattern, pos, f"{end_line}.{end_col}", 
+                                                   regexp=True, stopindex=f"{end_line}.{end_col}")
+                if not match_pos:
+                    break
+                
+                # Add tag
+                end_match_pos = f"{match_pos}+{len(keyword)}c"
+                self.results_text.tag_add("keyword", match_pos, end_match_pos)
+                
+                # Move to next position
+                pos = end_match_pos
+    
+    def show_error(self, error_message):
+        """Show error message"""
+        # Close progress dialog
+        if hasattr(self, 'progress_dialog') and self.progress_dialog:
+            self.progress_dialog.destroy()
+        
+        messagebox.showerror("API 오류", f"JUN BLACK/J API 호출 중 오류 발생: {error_message}")
+        self.status_bar.configure(text="오류 발생")
+        self.submit_btn.configure(state="normal")
+    
+    def apply_suggestion(self):
+        """Apply suggestion to the editor"""
+        result = self.results_text.get("1.0", "end-1c")
+        
+        # Find code blocks
         code_blocks = re.findall(r'```(?:csharp)?\s*([\s\S]*?)```', result)
         
         if code_blocks:
-            # 첫 번째 코드 블록 사용
+            # Use the first code block
             code = code_blocks[0].strip()
             
-            # 사용자 확인
+            # Confirm with user
             if messagebox.askyesno("확인", "제안된 코드를 에디터에 적용하시겠습니까?"):
-                self.code_editor.delete("1.0", tk.END)
-                self.code_editor.insert(tk.END, code)
-                self.status_var.set("제안 코드가 적용되었습니다")
+                self.code_editor.delete("1.0", "end")
+                self.code_editor.insert("1.0", code)
+                self.code_editor.highlight_syntax()
+                self.file_changed = True
+                self.status_bar.configure(text="제안 코드가 적용되었습니다")
         else:
             messagebox.showinfo("정보", "제안 결과에서 코드 블록을 찾을 수 없습니다.")
-
-    def show_search_dialog(self):
-        """검색 및 바꾸기 다이얼로그 표시"""
-        search_dialog = tk.Toplevel(self.root)
-        search_dialog.title("검색 및 바꾸기")
-        search_dialog.geometry("400x150")
-        search_dialog.transient(self.root)
-        search_dialog.configure(bg=self.theme.bg_color)
-        
-        frame = ttk.Frame(search_dialog, style="TFrame", padding=10)
-        frame.pack(fill=tk.BOTH, expand=True)
-        
-        # 검색어 입력
-        ttk.Label(frame, text="검색:", style="TLabel").grid(row=0, column=0, sticky=tk.W, pady=5)
-        search_var = tk.StringVar()
-        search_entry = ttk.Entry(frame, textvariable=search_var, width=30)
-        search_entry.grid(row=0, column=1, sticky=tk.W+tk.E, padx=5, pady=5)
-        search_entry.focus_set()
-        
-        # 바꿀 텍스트 입력
-        ttk.Label(frame, text="바꾸기:", style="TLabel").grid(row=1, column=0, sticky=tk.W, pady=5)
-        replace_var = tk.StringVar()
-        replace_entry = ttk.Entry(frame, textvariable=replace_var, width=30)
-        replace_entry.grid(row=1, column=1, sticky=tk.W+tk.E, padx=5, pady=5)
-        
-        # 버튼 프레임
-        btn_frame = ttk.Frame(frame, style="TFrame")
-        btn_frame.grid(row=2, column=0, columnspan=2, pady=10)
-        
-        # 검색 버튼
-        search_btn = ttk.Button(
-            btn_frame, 
-            text="검색", 
-            command=lambda: self.search_text(search_var.get()),
-            width=10
-        )
-        search_btn.pack(side=tk.LEFT, padx=5)
-        
-        # 바꾸기 버튼
-        replace_btn = ttk.Button(
-            btn_frame, 
-            text="바꾸기", 
-            command=lambda: self.replace_text(search_var.get(), replace_var.get()),
-            width=10
-        )
-        replace_btn.pack(side=tk.LEFT, padx=5)
-        
-        # 모두 바꾸기 버튼
-        replace_all_btn = ttk.Button(
-            btn_frame, 
-            text="모두 바꾸기", 
-            command=lambda: self.replace_all_text(search_var.get(), replace_var.get()),
-            width=10
-        )
-        replace_all_btn.pack(side=tk.LEFT, padx=5)
-        
-        # 취소 버튼
-        cancel_btn = ttk.Button(
-            btn_frame, 
-            text="취소", 
-            command=search_dialog.destroy,
-            width=10
-        )
-        cancel_btn.pack(side=tk.LEFT, padx=5)
     
-    def search_text(self, search_str):
-        """텍스트 검색"""
-        if not search_str:
-            return
-        
-        # 이전 검색 결과 태그 삭제
-        self.code_editor.tag_remove("search", "1.0", tk.END)
-        
-        start_pos = "1.0"
-        while True:
-            start_pos = self.code_editor.search(search_str, start_pos, stopindex=tk.END)
-            if not start_pos:
-                break
-            
-            end_pos = f"{start_pos}+{len(search_str)}c"
-            self.code_editor.tag_add("search", start_pos, end_pos)
-            start_pos = end_pos
-        
-        # 검색 결과 하이라이트
-        self.code_editor.tag_configure("search", background="yellow", foreground="black")
-    
-    def change_theme(self, theme_mode):
-        """테마 변경"""
-        # 새 테마 설정
-        self.theme = ModernTheme(theme_mode)
-        
-        # 기본 스타일 업데이트
-        self.root.configure(bg=self.theme.bg_color)
-        
-        # 스타일 재설정
-        self.setup_styles()
-        
-        # 에디터 색상 업데이트
-        self.code_editor.configure(
-            bg=self.theme.code_bg,
-            fg=self.theme.fg_color,
-            insertbackground=self.theme.fg_color,
-            selectbackground=self.theme.accent_color
-        )
-        
-        # 결과 텍스트 색상 업데이트
-        self.result_text.configure(
-            bg=self.theme.code_bg,
-            fg=self.theme.fg_color
-        )
-        
-        # 코드 블록 태그 업데이트
-        if theme_mode == "dark":
-            self.result_text.tag_configure("code", background="#2d2d2d", foreground="#e0e0e0")
-            self.result_text.tag_configure("code_tag", foreground="#888888")
+    def change_theme(self, theme):
+        """Change application theme"""
+        if theme == "라이트":
+            self.current_theme = "light"
+            ctk.set_appearance_mode("light")
         else:
-            self.result_text.tag_configure("code", background="#f0f0f0", foreground="#333333")
-            self.result_text.tag_configure("code_tag", foreground="#777777")
+            self.current_theme = "dark"
+            ctk.set_appearance_mode("dark")
         
-        # 상태 메시지
-        self.status_var.set(f"{theme_mode.capitalize()} 테마로 변경되었습니다")
+        # Update UI components
+        self.status_bar.configure(text=f"{theme} 테마로 변경되었습니다")
+        
+        # Re-highlight code
+        self.code_editor.highlight_syntax()
+        self.highlight_code_blocks_in_results()
     
     def show_help(self):
-        """도움말 표시"""
-        help_dialog = tk.Toplevel(self.root)
+        """Show help dialog"""
+        help_dialog = ctk.CTkToplevel(self.root)
         help_dialog.title("C# 코딩 어시스턴트 사용법")
         help_dialog.geometry("600x400")
+        help_dialog.resizable(True, True)
         help_dialog.transient(self.root)
-        help_dialog.configure(bg=self.theme.bg_color)
+        help_dialog.grab_set()
         
-        # 내용 프레임
-        content_frame = ttk.Frame(help_dialog, style="TFrame", padding=20)
-        content_frame.pack(fill=tk.BOTH, expand=True)
+        # Center dialog
+        help_dialog.update_idletasks()
+        width = help_dialog.winfo_width()
+        height = help_dialog.winfo_height()
+        x = (self.root.winfo_width() // 2) - (width // 2) + self.root.winfo_x()
+        y = (self.root.winfo_height() // 2) - (height // 2) + self.root.winfo_y()
+        help_dialog.geometry(f"{width}x{height}+{x}+{y}")
         
-        # 제목
-        title_label = ttk.Label(
-            content_frame, 
-            text="C# 코딩 어시스턴트 사용법", 
-            font=self.theme.title_font,
-            style="TLabel"
+        # Dialog content
+        frame = ctk.CTkFrame(help_dialog)
+        frame.pack(fill="both", expand=True, padx=20, pady=20)
+        
+        # Title
+        title = ctk.CTkLabel(
+            frame,
+            text="C# 코딩 어시스턴트 사용법",
+            font=("Segoe UI", 18, "bold")
         )
-        title_label.pack(anchor=tk.W, pady=(0, 20))
+        title.pack(anchor="w", pady=(0, 20))
         
-        # 도움말 내용
-        help_text = scrolledtext.ScrolledText(
-            content_frame,
-            wrap=tk.WORD,
-            width=70,
-            height=15,
-            font=self.theme.default_font,
-            bg=self.theme.code_bg,
-            fg=self.theme.fg_color,
-            bd=0,
-            padx=10,
-            pady=10
+        # Help content
+        help_text = ctk.CTkTextbox(
+            frame,
+            wrap="word",
+            font=("Segoe UI", 12)
         )
-        help_text.pack(fill=tk.BOTH, expand=True)
+        help_text.pack(fill="both", expand=True, pady=(0, 10))
         
         help_content = """
 C# 코딩 어시스턴트 사용 방법:
@@ -1052,128 +1332,107 @@ C# 코딩 어시스턴트 사용 방법:
    - "AI 도우미" 메뉴에서 코드 최적화, 버그 찾기, 주석 추가 등의 기능을 이용할 수 있습니다.
    - 제안 결과에서 "제안 적용" 버튼을 클릭하여 코드를 바로 적용할 수 있습니다.
 
+4. 단축키
+   - F5: 코드 제안 받기
+   - Ctrl+Z: 실행 취소
+   - Ctrl+Y: 다시 실행
+   - Ctrl+X: 잘라내기
+   - Ctrl+C: 복사
+   - Ctrl+V: 붙여넣기
 
 주의: 제안된 코드는 항상 검토 후 사용하시기 바랍니다.
         """
         
-        help_text.insert(tk.END, help_content)
-        help_text.configure(state=tk.DISABLED)  # 읽기 전용으로 설정
+        help_text.insert("1.0", help_content)
+        help_text.configure(state="disabled")
         
-        # 닫기 버튼
-        close_btn = ttk.Button(
-            content_frame, 
-            text="닫기", 
-            command=help_dialog.destroy, 
-            style="Primary.TButton",
-            width=10
+        # Close button
+        close_btn = ctk.CTkButton(
+            frame,
+            text="닫기",
+            command=help_dialog.destroy,
+            width=100
         )
-        close_btn.pack(side=tk.RIGHT, pady=(10, 0))
+        close_btn.pack(side="right")
     
     def show_about(self):
-        """정보 표시"""
-        about_dialog = tk.Toplevel(self.root)
-        about_dialog.title("C# 코딩 어시스턴트 정보")
+        """Show about dialog"""
+        about_dialog = ctk.CTkToplevel(self.root)
+        about_dialog.title("C# 코딩 어시던트")
         about_dialog.geometry("400x300")
+        about_dialog.resizable(False, False)
         about_dialog.transient(self.root)
-        about_dialog.configure(bg=self.theme.bg_color)
+        about_dialog.grab_set()
         
-        # 내용 프레임
-        content_frame = ttk.Frame(about_dialog, style="TFrame", padding=20)
-        content_frame.pack(fill=tk.BOTH, expand=True)
+        # Center dialog
+        about_dialog.update_idletasks()
+        width = about_dialog.winfo_width()
+        height = about_dialog.winfo_height()
+        x = (self.root.winfo_width() // 2) - (width // 2) + self.root.winfo_x()
+        y = (self.root.winfo_height() // 2) - (height // 2) + self.root.winfo_y()
+        about_dialog.geometry(f"{width}x{height}+{x}+{y}")
         
-        # 앱 이름
-        ttk.Label(
-            content_frame, 
-            text="C# 코딩 어시스턴트", 
-            font=self.theme.title_font,
-            style="TLabel"
-        ).pack(pady=(0, 10))
+        # Dialog content
+        frame = ctk.CTkFrame(about_dialog)
+        frame.pack(fill="both", expand=True, padx=20, pady=20)
         
-        # 버전
-        ttk.Label(
-            content_frame, 
-            text="버전 1.0.0", 
-            style="TLabel"
-        ).pack(pady=(0, 20))
+        # Title
+        title = ctk.CTkLabel(
+            frame,
+            text="C# 코딩 어시스턴트",
+            font=("Segoe UI", 20, "bold")
+        )
+        title.pack(pady=(0, 10))
         
-        # 설명
-        desc = ttk.Label(
-            content_frame, 
-            text="JUN/BLACK J AI를 활용한 C# 코드 분석 및 제안 도구입니다.\n"
-                 "코드 최적화, 버그 찾기, 리팩토링 등의 작업에 도움을 줍니다.",
-            wraplength=350,
-            justify=tk.CENTER,
-            style="TLabel"
+        # Version
+        version = ctk.CTkLabel(
+            frame,
+            text="버전 2.0.0",
+            font=("Segoe UI", 12)
+        )
+        version.pack(pady=(0, 20))
+        
+        # Description
+        desc = ctk.CTkLabel(
+            frame,
+            text="JUN BLACK/J API를 활용한 C# 코드 분석 및 제안 도구입니다.\n"
+                "코드 최적화, 버그 찾기, 리팩토링 등의 작업에 도움을 줍니다.",
+            font=("Segoe UI", 12),
+            wraplength=350
         )
         desc.pack(pady=(0, 20))
         
-        # 크레딧
-        ttk.Label(
-            content_frame, 
-            text="개발: JUN/BLACK J와 함께",
-            style="TLabel"
-        ).pack()
-        
-        # 닫기 버튼
-        close_btn = ttk.Button(
-            content_frame, 
-            text="닫기", 
-            command=about_dialog.destroy, 
-            style="Primary.TButton",
-            width=10
+        # Credits
+        credits = ctk.CTkLabel(
+            frame,
+            text="개발: customtkinter + JUN BLACK/J",
+            font=("Segoe UI", 12)
         )
-        close_btn.pack(side=tk.BOTTOM, pady=(20, 0))
+        credits.pack(pady=(0, 20))
+        
+        # Close button
+        close_btn = ctk.CTkButton(
+            frame,
+            text="닫기",
+            command=about_dialog.destroy,
+            width=100
+        )
+        close_btn.pack(side="bottom")
+    
+    def on_closing(self):
+        """Handle application closing"""
+        if self.file_changed:
+            if messagebox.askyesno("확인", "저장되지 않은 변경사항이 있습니다. 종료하시겠습니까?"):
+                self.root.destroy()
+        else:
+            self.root.destroy()
 
 
-
-class LineNumberedText(scrolledtext.ScrolledText):
-    """라인 번호가 있는 텍스트 위젯"""
-    def __init__(self, *args, **kwargs):
-        scrolledtext.ScrolledText.__init__(self, *args, **kwargs)
-        
-        self.line_numbers = tk.Text(self, width=4, bg='#f0f0f0', 
-                                    fg='#606060', bd=0, 
-                                    font=kwargs.get('font', ('Consolas', 10)),
-                                    state='disabled')
-        self.line_numbers.pack(side=tk.LEFT, fill=tk.Y)
-        
-        # 스크롤 연결
-        self.vscrollbar = self.vbar
-        self.vscrollbar.configure(command=self._on_scroll)
-        
-        # 수정 이벤트 바인딩
-        self.bind('<<Modified>>', self._on_modified)
-        self.bind('<Configure>', self._on_resize)
-        
-        # 초기 라인 번호 설정
-        self._update_line_numbers()
-    
-    def _on_scroll(self, *args):
-        """스크롤 시 라인 번호도 함께 스크롤"""
-        self.line_numbers.yview(*args)
-        scrolledtext.ScrolledText.yview(self, *args)
-    
-    def _on_modified(self, event=None):
-        """텍스트 수정 시 라인 번호 업데이트"""
-        self._update_line_numbers()
-        self.edit_modified(False)  # 수정 플래그 리셋
-    
-    def _on_resize(self, event=None):
-        """위젯 크기 변경 시 라인 번호 업데이트"""
-        self._update_line_numbers()
-    
-    def _update_line_numbers(self):
-        """라인 번호 업데이트"""
-        self.line_numbers.configure(state='normal')
-        self.line_numbers.delete('1.0', tk.END)
-        
-        lines = self.get('1.0', tk.END).count('\n')
-        for i in range(1, lines + 1):
-            self.line_numbers.insert(tk.END, f'{i}\n')
-        
-        self.line_numbers.configure(state='disabled')
-        
 if __name__ == "__main__":
-    root = tk.Tk()
-    app = CSharpAssistant(root)
+    # Enable high DPI support
+    ctk.deactivate_automatic_dpi_awareness()
+    
+    # Create the application
+    root = ctk.CTk()
+    app = CSharpAssistantApp(root)
     root.mainloop()
