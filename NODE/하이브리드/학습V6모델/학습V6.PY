@@ -1,4 +1,133 @@
 """
+
+"""
+def create_sequences(self, df):
+    """시계열 시퀀스 생성 (8코어 병렬 처리)"""
+    print("\n📊 시퀀스 생성 중 (병렬 처리 모드)...")
+    print(f"🚀 {cpu_count()}개 코어 사용")
+    
+    from multiprocessing import Pool, cpu_count
+    import gc
+    
+    # 사용할 특징 선택
+    feature_cols = [col for col in self.feature_names if col in df.columns]
+    
+    # 실제 FORECAST 값 결정
+    forecast_steps = Config.FORECAST
+    if 'CURRTIME' in df.columns:
+        time_str = df['CURRTIME'].astype(str)
+        if len(time_str.iloc[0]) >= 12:
+            time_diff = pd.to_datetime(time_str, format='%Y%m%d%H%M').diff().dt.total_seconds() / 60
+            interval = time_diff.mode()[0] if not time_diff.empty else 1
+            
+            if interval == 1:
+                forecast_steps = 10
+            elif interval == 10:
+                forecast_steps = 1
+            else:
+                forecast_steps = 10
+                
+            print(f"  📍 예측 설정: {interval:.0f}분 간격 → {forecast_steps}스텝 후 (10분)")
+    
+    # NumPy 배열로 변환 (빠른 접근)
+    print("  📦 데이터를 NumPy 배열로 변환 중...")
+    data_values = df[feature_cols].values.astype(np.float32)  # float32로 메모리 절약
+    target_values = df['target'].values.astype(np.float32)
+    
+    # M14 특징 배열
+    m14_cols = ['M14AM14B', 'M14AM10A', 'M14AM16']
+    m14_values = df[m14_cols].values.astype(np.float32)
+    ratio_values = df['ratio_14B_10A'].values.astype(np.float32) if 'ratio_14B_10A' in df.columns else np.zeros(len(df))
+    
+    total_sequences = len(df) - Config.LOOKBACK - forecast_steps
+    print(f"  총 {total_sequences:,}개 시퀀스 생성 예정")
+    
+    # 병렬 처리를 위한 배치 생성 함수
+    def process_batch(args):
+        """각 프로세스에서 실행될 배치 처리 함수"""
+        start_idx, end_idx, data_chunk, target_chunk, m14_chunk, ratio_chunk = args
+        
+        batch_size = end_idx - start_idx
+        X_batch = np.zeros((batch_size, Config.LOOKBACK, data_chunk.shape[1]), dtype=np.float32)
+        y_batch = np.zeros(batch_size, dtype=np.float32)
+        m14_batch = np.zeros((batch_size, 4), dtype=np.float32)
+        
+        for i in range(batch_size):
+            global_idx = start_idx + i
+            local_idx = i + Config.LOOKBACK
+            
+            # 시계열 데이터
+            X_batch[i] = data_chunk[local_idx-Config.LOOKBACK:local_idx]
+            
+            # 타겟
+            y_batch[i] = target_chunk[local_idx + forecast_steps - 1]
+            
+            # M14 특징
+            m14_batch[i, 0] = m14_chunk[local_idx, 0]  # M14AM14B
+            m14_batch[i, 1] = m14_chunk[local_idx, 1]  # M14AM10A
+            m14_batch[i, 2] = m14_chunk[local_idx, 2]  # M14AM16
+            m14_batch[i, 3] = ratio_chunk[local_idx]   # ratio
+        
+        return X_batch, y_batch, m14_batch
+    
+    # 코어 수에 따라 배치 분할
+    n_cores = min(cpu_count(), 8)  # 최대 8코어
+    batch_size = total_sequences // n_cores
+    
+    print(f"  🔧 {n_cores}개 배치로 분할 (배치당 {batch_size:,}개)")
+    
+    # 배치 인덱스 생성
+    batches = []
+    for i in range(n_cores):
+        start = i * batch_size
+        end = (i + 1) * batch_size if i < n_cores - 1 else total_sequences
+        
+        # 각 배치에 필요한 데이터 범위
+        data_start = start
+        data_end = end + Config.LOOKBACK + forecast_steps
+        
+        batches.append((
+            start, 
+            end,
+            data_values[data_start:data_end],
+            target_values[data_start:data_end],
+            m14_values[data_start:data_end],
+            ratio_values[data_start:data_end]
+        ))
+    
+    # 병렬 처리 실행
+    print(f"  ⚡ 병렬 처리 시작...")
+    start_time = datetime.now()
+    
+    with Pool(n_cores) as pool:
+        results = pool.map(process_batch, batches)
+    
+    # 결과 합치기
+    print("  🔗 결과 병합 중...")
+    X_list, y_list, m14_list = zip(*results)
+    
+    X = np.concatenate(X_list, axis=0)
+    y = np.concatenate(y_list, axis=0)
+    m14_features = np.concatenate(m14_list, axis=0)
+    
+    # 메모리 정리
+    del X_list, y_list, m14_list, data_values, target_values
+    gc.collect()
+    
+    elapsed = (datetime.now() - start_time).total_seconds()
+    
+    print(f"\n✅ 시퀀스 생성 완료! (소요 시간: {elapsed:.1f}초)")
+    print(f"  시퀀스 shape: X={X.shape}, y={y.shape}")
+    print(f"  특징 수: {X.shape[2]}개")
+    print(f"  메모리 사용: {X.nbytes / 1024**3:.2f}GB")
+    print(f"  처리 속도: {total_sequences / elapsed:.0f} sequences/sec")
+    
+    return X, y, m14_features
+# 기존 import 뒤에 추가
+import gc
+from multiprocessing import Pool, cpu_count
+"""
+
 학습V6.py - 반도체 물류 예측 시스템 (전체 구간 + 1400-1700+ 특화)
 M14 패턴 통합 하이브리드 모델
 TensorFlow 2.15.0
