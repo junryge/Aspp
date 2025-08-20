@@ -213,7 +213,11 @@ class DataPreprocessorV6:
         
         X, y, m14_features = [], [], []
         
-        for i in range(Config.LOOKBACK, len(df) - Config.FORECAST):
+        total_sequences = len(df) - Config.LOOKBACK - Config.FORECAST
+        print(f"  총 {total_sequences:,}개 시퀀스 생성 예정")
+        
+        # 진행률 표시
+        for idx, i in enumerate(range(Config.LOOKBACK, len(df) - Config.FORECAST)):
             # 시계열 데이터 (과거 100분)
             X.append(df[feature_cols].iloc[i-Config.LOOKBACK:i].values)
             
@@ -227,13 +231,20 @@ class DataPreprocessorV6:
                 df['M14AM16'].iloc[i],
                 df['ratio_14B_10A'].iloc[i] if 'ratio_14B_10A' in df.columns else 0
             ])
+            
+            # 진행률 표시 (10%마다)
+            if (idx + 1) % (total_sequences // 10) == 0:
+                progress = (idx + 1) / total_sequences * 100
+                print(f"  진행률: {progress:.0f}% ({idx+1:,}/{total_sequences:,})")
         
         X = np.array(X)
         y = np.array(y)
         m14_features = np.array(m14_features)
         
+        print(f"\n✅ 시퀀스 생성 완료!")
         print(f"  시퀀스 shape: X={X.shape}, y={y.shape}")
         print(f"  특징 수: {X.shape[2]}개")
+        print(f"  메모리 사용: {X.nbytes / 1024**3:.2f}GB")
         
         return X, y, m14_features
 
@@ -243,9 +254,30 @@ class DataPreprocessorV6:
 class ModelsV6:
     
     @staticmethod
+    def build_lstm_model(input_shape):
+        """LSTM 모델 (기본 시계열 예측)"""
+        inputs = tf.keras.Input(shape=input_shape, name='lstm_input')
+        
+        # Stacked LSTM
+        lstm1 = tf.keras.layers.LSTM(128, return_sequences=True, dropout=0.2)(inputs)
+        lstm2 = tf.keras.layers.LSTM(128, return_sequences=True, dropout=0.2)(lstm1)
+        lstm3 = tf.keras.layers.LSTM(64, dropout=0.2)(lstm2)
+        
+        # Dense layers
+        dense1 = tf.keras.layers.Dense(128, activation='relu')(lstm3)
+        dropout = tf.keras.layers.Dropout(0.3)(dense1)
+        dense2 = tf.keras.layers.Dense(64, activation='relu')(dropout)
+        
+        # Output
+        output = tf.keras.layers.Dense(1, name='lstm_output')(dense2)
+        
+        model = tf.keras.Model(inputs=inputs, outputs=output, name='LSTM_Model')
+        return model
+    
+    @staticmethod
     def build_enhanced_gru(input_shape):
         """개선된 GRU 모델 (전체 구간 안정적 예측)"""
-        inputs = tf.keras.Input(shape=input_shape, name='time_series_input')
+        inputs = tf.keras.Input(shape=input_shape, name='gru_input')
         
         # Layer Normalization
         x = tf.keras.layers.LayerNormalization()(inputs)
@@ -266,9 +298,38 @@ class ModelsV6:
         dense2 = tf.keras.layers.Dense(64, activation='relu')(dropout)
         
         # Output
-        output = tf.keras.layers.Dense(1, name='prediction')(dense2)
+        output = tf.keras.layers.Dense(1, name='gru_output')(dense2)
         
-        model = tf.keras.Model(inputs=inputs, outputs=output, name='Enhanced_GRU')
+        model = tf.keras.Model(inputs=inputs, outputs=output, name='GRU_Model')
+        return model
+    
+    @staticmethod
+    def build_cnn_lstm(input_shape):
+        """CNN-LSTM 모델 (패턴 감지 + 시계열)"""
+        inputs = tf.keras.Input(shape=input_shape, name='cnn_lstm_input')
+        
+        # Multi-scale CNN
+        conv1 = tf.keras.layers.Conv1D(64, 3, activation='relu', padding='same')(inputs)
+        conv2 = tf.keras.layers.Conv1D(64, 5, activation='relu', padding='same')(inputs)
+        conv3 = tf.keras.layers.Conv1D(64, 7, activation='relu', padding='same')(inputs)
+        
+        # Concatenate
+        concat = tf.keras.layers.Concatenate()([conv1, conv2, conv3])
+        pool = tf.keras.layers.MaxPooling1D(pool_size=2)(concat)
+        
+        # LSTM layers
+        lstm1 = tf.keras.layers.LSTM(128, return_sequences=True, dropout=0.2)(pool)
+        lstm2 = tf.keras.layers.LSTM(64, dropout=0.2)(lstm1)
+        
+        # Dense layers
+        dense1 = tf.keras.layers.Dense(128, activation='relu')(lstm2)
+        dropout = tf.keras.layers.Dropout(0.3)(dense1)
+        dense2 = tf.keras.layers.Dense(64, activation='relu')(dropout)
+        
+        # Output
+        output = tf.keras.layers.Dense(1, name='cnn_lstm_output')(dense2)
+        
+        model = tf.keras.Model(inputs=inputs, outputs=output, name='CNN_LSTM_Model')
         return model
     
     @staticmethod
@@ -316,42 +377,6 @@ class ModelsV6:
             inputs=inputs,
             outputs=[regression_output, classification_output],
             name='Spike_Detector'
-        )
-        return model
-    
-    @staticmethod
-    def build_ensemble_model(gru_model, spike_model, m14_input_shape):
-        """동적 앙상블 모델"""
-        # 입력
-        time_series_input = tf.keras.Input(shape=gru_model.input_shape[1:], name='time_series')
-        m14_input = tf.keras.Input(shape=m14_input_shape, name='m14_features')
-        
-        # 각 모델 예측
-        gru_pred = gru_model(time_series_input)
-        spike_pred, spike_prob = spike_model(time_series_input)
-        
-        # M14 기반 가중치 계산
-        weight_dense = tf.keras.layers.Dense(16, activation='relu')(m14_input)
-        weight_dense = tf.keras.layers.Dense(8, activation='relu')(weight_dense)
-        weights = tf.keras.layers.Dense(2, activation='softmax', name='weights')(weight_dense)
-        
-        # 가중 평균
-        gru_weight = tf.keras.layers.Lambda(lambda x: x[:, 0:1])(weights)
-        spike_weight = tf.keras.layers.Lambda(lambda x: x[:, 1:2])(weights)
-        
-        weighted_gru = tf.keras.layers.Multiply()([gru_pred, gru_weight])
-        weighted_spike = tf.keras.layers.Multiply()([spike_pred, spike_weight])
-        
-        # 최종 예측
-        final_pred = tf.keras.layers.Add()([weighted_gru, weighted_spike])
-        
-        # M14 규칙 기반 보정
-        final_pred = M14RuleCorrection()([final_pred, m14_input])
-        
-        model = tf.keras.Model(
-            inputs=[time_series_input, m14_input],
-            outputs=[final_pred, spike_prob],
-            name='Ensemble_Model'
         )
         return model
 
@@ -521,8 +546,41 @@ class TrainingPipelineV6:
         """모델 학습"""
         print("\n🏋️ 모델 학습 시작...")
         
-        # 1. GRU 모델
-        print("\n1️⃣ Enhanced GRU 학습")
+        # 1400+ 여부 레이블 생성
+        y_spike_class = (y_train >= 1400).astype(float)
+        y_val_spike_class = (y_val >= 1400).astype(float)
+        
+        # ============================================
+        # 1. LSTM 모델
+        # ============================================
+        print("\n1️⃣ LSTM 모델 학습")
+        lstm_model = ModelsV6.build_lstm_model(X_train.shape[1:])
+        lstm_model.compile(
+            optimizer=tf.keras.optimizers.Adam(Config.LEARNING_RATE),
+            loss=WeightedLoss(),
+            metrics=['mae']
+        )
+        
+        lstm_history = lstm_model.fit(
+            X_train, y_train,
+            validation_data=(X_val, y_val),
+            epochs=Config.EPOCHS,
+            batch_size=Config.BATCH_SIZE,
+            callbacks=[
+                tf.keras.callbacks.EarlyStopping(patience=Config.PATIENCE, restore_best_weights=True),
+                tf.keras.callbacks.ReduceLROnPlateau(patience=5, factor=0.5),
+                SpikePerformanceCallback(X_val, y_val)
+            ],
+            verbose=1
+        )
+        
+        self.models['lstm'] = lstm_model
+        self.history['lstm'] = lstm_history
+        
+        # ============================================
+        # 2. GRU 모델
+        # ============================================
+        print("\n2️⃣ Enhanced GRU 모델 학습")
         gru_model = ModelsV6.build_enhanced_gru(X_train.shape[1:])
         gru_model.compile(
             optimizer=tf.keras.optimizers.Adam(Config.LEARNING_RATE),
@@ -546,13 +604,38 @@ class TrainingPipelineV6:
         self.models['gru'] = gru_model
         self.history['gru'] = gru_history
         
-        # 2. Spike Detector 모델
-        print("\n2️⃣ Spike Detector 학습")
-        spike_model = ModelsV6.build_spike_detector(X_train.shape[1:])
+        # ============================================
+        # 3. CNN-LSTM 모델
+        # ============================================
+        print("\n3️⃣ CNN-LSTM 모델 학습")
+        cnn_lstm_model = ModelsV6.build_cnn_lstm(X_train.shape[1:])
+        cnn_lstm_model.compile(
+            optimizer=tf.keras.optimizers.Adam(Config.LEARNING_RATE),
+            loss=WeightedLoss(),
+            metrics=['mae']
+        )
         
-        # 1400+ 여부 레이블 생성
-        y_spike_class = (y_train >= 1400).astype(float)
-        y_val_spike_class = (y_val >= 1400).astype(float)
+        cnn_lstm_history = cnn_lstm_model.fit(
+            X_train, y_train,
+            validation_data=(X_val, y_val),
+            epochs=Config.EPOCHS,
+            batch_size=Config.BATCH_SIZE,
+            callbacks=[
+                tf.keras.callbacks.EarlyStopping(patience=Config.PATIENCE, restore_best_weights=True),
+                tf.keras.callbacks.ReduceLROnPlateau(patience=5, factor=0.5),
+                SpikePerformanceCallback(X_val, y_val)
+            ],
+            verbose=1
+        )
+        
+        self.models['cnn_lstm'] = cnn_lstm_model
+        self.history['cnn_lstm'] = cnn_lstm_history
+        
+        # ============================================
+        # 4. Spike Detector 모델 (1400+ 특화)
+        # ============================================
+        print("\n4️⃣ Spike Detector 모델 학습 (1400+ 특화)")
+        spike_model = ModelsV6.build_spike_detector(X_train.shape[1:])
         
         spike_model.compile(
             optimizer=tf.keras.optimizers.Adam(Config.LEARNING_RATE),
@@ -589,24 +672,64 @@ class TrainingPipelineV6:
         self.models['spike'] = spike_model
         self.history['spike'] = spike_history
         
-        # 3. 앙상블 모델
-        print("\n3️⃣ 앙상블 모델 구성")
-        ensemble_model = ModelsV6.build_ensemble_model(
-            gru_model, 
-            spike_model,
-            m14_train.shape[1]
+        # ============================================
+        # 5. 최종 앙상블 모델
+        # ============================================
+        print("\n5️⃣ 최종 앙상블 모델 구성")
+        
+        # 모든 모델의 예측값을 결합하는 앙상블
+        time_series_input = tf.keras.Input(shape=X_train.shape[1:], name='ensemble_input')
+        m14_input = tf.keras.Input(shape=m14_train.shape[1], name='m14_features')
+        
+        # 각 모델 예측
+        lstm_pred = lstm_model(time_series_input)
+        gru_pred = gru_model(time_series_input)
+        cnn_lstm_pred = cnn_lstm_model(time_series_input)
+        spike_pred, spike_prob = spike_model(time_series_input)
+        
+        # M14 기반 동적 가중치
+        weight_dense = tf.keras.layers.Dense(32, activation='relu')(m14_input)
+        weight_dense = tf.keras.layers.Dense(16, activation='relu')(weight_dense)
+        weights = tf.keras.layers.Dense(4, activation='softmax', name='ensemble_weights')(weight_dense)
+        
+        # 가중 평균
+        w_lstm = tf.keras.layers.Lambda(lambda x: x[:, 0:1])(weights)
+        w_gru = tf.keras.layers.Lambda(lambda x: x[:, 1:2])(weights)
+        w_cnn = tf.keras.layers.Lambda(lambda x: x[:, 2:3])(weights)
+        w_spike = tf.keras.layers.Lambda(lambda x: x[:, 3:4])(weights)
+        
+        weighted_lstm = tf.keras.layers.Multiply()([lstm_pred, w_lstm])
+        weighted_gru = tf.keras.layers.Multiply()([gru_pred, w_gru])
+        weighted_cnn = tf.keras.layers.Multiply()([cnn_lstm_pred, w_cnn])
+        weighted_spike = tf.keras.layers.Multiply()([spike_pred, w_spike])
+        
+        # 최종 예측
+        ensemble_pred = tf.keras.layers.Add()([weighted_lstm, weighted_gru, weighted_cnn, weighted_spike])
+        
+        # M14 규칙 보정
+        final_pred = M14RuleCorrection()([ensemble_pred, m14_input])
+        
+        ensemble_model = tf.keras.Model(
+            inputs=[time_series_input, m14_input],
+            outputs=[final_pred, spike_prob],
+            name='Final_Ensemble'
         )
         
         ensemble_model.compile(
             optimizer=tf.keras.optimizers.Adam(Config.LEARNING_RATE * 0.5),
             loss={
-                'tf.math.add': WeightedLoss(),
+                'm14_rule_correction': WeightedLoss(),
                 'spike_prob': 'binary_crossentropy'
+            },
+            loss_weights={
+                'm14_rule_correction': 1.0,
+                'spike_prob': 0.3
             },
             metrics=['mae']
         )
         
         # 앙상블 파인튜닝
+        print("\n📊 앙상블 파인튜닝...")
         ensemble_history = ensemble_model.fit(
             [X_train, m14_train],
             [y_train, y_spike_class],
@@ -621,6 +744,9 @@ class TrainingPipelineV6:
         
         self.models['ensemble'] = ensemble_model
         self.history['ensemble'] = ensemble_history
+        
+        print("\n✅ 모든 모델 학습 완료!")
+        print(f"  학습된 모델: {list(self.models.keys())}")
     
     def _evaluate_models(self, X_val, y_val, m14_val):
         """모델 평가"""
@@ -695,27 +821,28 @@ class TrainingPipelineV6:
         """결과 시각화"""
         print("\n📈 결과 시각화 생성 중...")
         
-        fig, axes = plt.subplots(2, 2, figsize=(15, 10))
+        # 모델이 5개이므로 레이아웃 조정
+        fig = plt.figure(figsize=(18, 12))
         
-        # 1. 학습 곡선
+        # 학습 곡선 (2x3 그리드의 위 5개)
         for idx, (name, history) in enumerate(self.history.items()):
-            if idx < 3:
-                ax = axes[idx//2, idx%2]
-                ax.plot(history.history['loss'], label='Train Loss')
-                ax.plot(history.history['val_loss'], label='Val Loss')
-                ax.set_title(f'{name.upper()} Learning Curve')
-                ax.set_xlabel('Epoch')
-                ax.set_ylabel('Loss')
-                ax.legend()
-                ax.grid(True)
+            ax = plt.subplot(3, 3, idx+1)
+            ax.plot(history.history['loss'], label='Train Loss')
+            ax.plot(history.history['val_loss'], label='Val Loss')
+            ax.set_title(f'{name.upper()} Learning Curve')
+            ax.set_xlabel('Epoch')
+            ax.set_ylabel('Loss')
+            ax.legend()
+            ax.grid(True, alpha=0.3)
         
-        # 4. 성능 비교
-        ax = axes[1, 1]
+        # 6. 모델별 MAE 비교
+        ax = plt.subplot(3, 3, 6)
         models = list(self.evaluation_results.keys())
         maes = [self.evaluation_results[m]['overall_mae'] for m in models]
+        colors = ['blue', 'green', 'orange', 'red', 'purple']
         
-        bars = ax.bar(models, maes, color=['blue', 'green', 'red'])
-        ax.set_title('Model Performance Comparison')
+        bars = ax.bar(models, maes, color=colors[:len(models)])
+        ax.set_title('Model MAE Comparison')
         ax.set_ylabel('MAE')
         ax.set_ylim(0, max(maes) * 1.2)
         
@@ -725,8 +852,66 @@ class TrainingPipelineV6:
             ax.text(bar.get_x() + bar.get_width()/2., height,
                    f'{mae:.1f}', ha='center', va='bottom')
         
+        # 7. 1400+ Recall 비교
+        ax = plt.subplot(3, 3, 7)
+        recalls_1400 = []
+        for m in models:
+            if 1400 in self.evaluation_results[m]['levels']:
+                recalls_1400.append(self.evaluation_results[m]['levels'][1400]['recall'] * 100)
+            else:
+                recalls_1400.append(0)
+        
+        bars = ax.bar(models, recalls_1400, color=colors[:len(models)])
+        ax.set_title('1400+ Recall Comparison (%)')
+        ax.set_ylabel('Recall (%)')
+        ax.set_ylim(0, 105)
+        
+        for bar, recall in zip(bars, recalls_1400):
+            height = bar.get_height()
+            ax.text(bar.get_x() + bar.get_width()/2., height,
+                   f'{recall:.1f}%', ha='center', va='bottom')
+        
+        # 8. 1500+ Recall 비교
+        ax = plt.subplot(3, 3, 8)
+        recalls_1500 = []
+        for m in models:
+            if 1500 in self.evaluation_results[m]['levels']:
+                recalls_1500.append(self.evaluation_results[m]['levels'][1500]['recall'] * 100)
+            else:
+                recalls_1500.append(0)
+        
+        bars = ax.bar(models, recalls_1500, color=colors[:len(models)])
+        ax.set_title('1500+ Recall Comparison (%)')
+        ax.set_ylabel('Recall (%)')
+        ax.set_ylim(0, 105)
+        
+        for bar, recall in zip(bars, recalls_1500):
+            height = bar.get_height()
+            ax.text(bar.get_x() + bar.get_width()/2., height,
+                   f'{recall:.1f}%', ha='center', va='bottom')
+        
+        # 9. 모델별 성능 요약 텍스트
+        ax = plt.subplot(3, 3, 9)
+        ax.axis('off')
+        
+        summary_text = "🏆 Performance Summary\n" + "="*30 + "\n"
+        best_model = min(self.evaluation_results.keys(), 
+                        key=lambda x: self.evaluation_results[x]['overall_mae'])
+        summary_text += f"Best Model: {best_model.upper()}\n"
+        summary_text += f"Overall MAE: {self.evaluation_results[best_model]['overall_mae']:.2f}\n\n"
+        
+        summary_text += "Recall by Level:\n"
+        for level in [1400, 1500, 1600, 1700]:
+            if level in self.evaluation_results[best_model]['levels']:
+                recall = self.evaluation_results[best_model]['levels'][level]['recall']
+                summary_text += f"{level}+: {recall:.1%}\n"
+        
+        ax.text(0.1, 0.9, summary_text, transform=ax.transAxes,
+               fontsize=11, verticalalignment='top', fontfamily='monospace')
+        
+        plt.suptitle('학습 V6 모델 성능 분석', fontsize=16, fontweight='bold')
         plt.tight_layout()
-        plt.savefig(f"{Config.MODEL_DIR}training_results.png", dpi=100)
+        plt.savefig(f"{Config.MODEL_DIR}training_results.png", dpi=100, bbox_inches='tight')
         print("  training_results.png 저장 완료")
         plt.show()
 
