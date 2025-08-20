@@ -16,6 +16,22 @@ import logging
 from datetime import datetime
 import traceback
 
+
+# ===== fileno 오류 해결 코드 추가 =====
+# stdout/stderr에 fileno 메서드가 없는 경우 추가
+if not hasattr(sys.stdout, 'fileno'):
+    sys.stdout.fileno = lambda: 1
+if not hasattr(sys.stderr, 'fileno'):
+    sys.stderr.fileno = lambda: 2
+    
+# 추가적으로 buffer 속성도 없을 수 있으므로 추가
+if not hasattr(sys.stdout, 'buffer'):
+    sys.stdout.buffer = sys.stdout
+if not hasattr(sys.stderr, 'buffer'):
+    sys.stderr.buffer = sys.stderr
+# =====================================
+
+
 # llama-cpp-python 직접 import
 try:
     from llama_cpp import Llama
