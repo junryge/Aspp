@@ -437,8 +437,11 @@ class CTTransformersGUI(ctk.CTk):
                 
                 try:
                     import ctransformers
-                    version = ctransformers.__version__
-                    status_label.configure(text=f"ctransformers {version} 확인")
+                    try:
+                        version = getattr(ctransformers, '__version__', 'unknown')
+                        status_label.configure(text=f"ctransformers {version} 확인")
+                    except:
+                        status_label.configure(text="ctransformers 확인")
                 except ImportError:
                     raise Exception("ctransformers가 설치되지 않았습니다.\npip install ctransformers")
                 
@@ -654,7 +657,12 @@ def main():
     # ctransformers 확인
     try:
         import ctransformers
-        print(f"✅ ctransformers {ctransformers.__version__} 확인됨")
+        # 버전 확인 (있으면 표시, 없으면 패스)
+        try:
+            version = ctransformers.__version__
+            print(f"✅ ctransformers {version} 확인됨")
+        except AttributeError:
+            print("✅ ctransformers 모듈 확인됨")
     except ImportError:
         print("❌ ctransformers가 설치되지 않았습니다.")
         print("설치: pip install ctransformers")
