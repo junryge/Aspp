@@ -2,6 +2,7 @@
 학습V6.py - 반도체 물류 예측 시스템 (전체 구간 + 1400-1700+ 특화)
 M14 패턴 통합 하이브리드 모델
 TensorFlow 2.15.0
+학습 데이터: 20240201_TO_202507281705.CSV
 """
 
 import tensorflow as tf
@@ -26,6 +27,9 @@ print("="*60)
 # 1. 설정 클래스
 # ============================================
 class Config:
+    # 데이터 파일
+    DATA_FILE = '20240201_TO_202507281705.CSV'  # 통합 학습 데이터
+    
     # 데이터 설정
     LOOKBACK = 100  # 과거 100분
     FORECAST = 1    # 10분 후 예측
@@ -72,47 +76,75 @@ class DataPreprocessorV6:
         self.m14_scaler = StandardScaler()
         self.feature_names = []
         
-    def prepare_data(self, value_file='aa.csv', m14_file='20250731_to20250806.csv'):
-        """데이터 로드 및 전처리"""
-        print("\n📂 데이터 로딩 중...")
+    def prepare_data(self, file_path=None):
+        """통합 데이터 로드 및 전처리"""
+        if file_path is None:
+            file_path = Config.DATA_FILE
+            
+        print(f"\n📂 데이터 로딩: {file_path}")
         
-        # 1. 메인 데이터 로드
-        df = pd.read_csv(value_file, sep='\t')
-        print(f"  메인 데이터: {len(df)}행")
+        # 데이터 로드
+        df = pd.read_csv(file_path)
+        print(f"  데이터 크기: {len(df)}행 × {len(df.columns)}열")
         
-        # 2. M14 데이터 로드 및 병합
-        df_m14 = pd.read_csv(m14_file)
+        # 컬럼명 확인 및 정리
+        print(f"  컬럼 확인 중...")
         
-        # 시간 매칭을 위한 키 생성
-        df['time_key'] = pd.to_datetime(df['current_time']).dt.strftime('%Y%m%d%H%M')
-        df_m14['time_key'] = df_m14['CURRTIME'].astype(str)
+        # 필수 컬럼 확인
+        required_cols = ['TOTALCNT', 'M14AM10A', 'M14AM14B', 'M14AM16']
+        missing_cols = [col for col in required_cols if col not in df.columns]
+        if missing_cols:
+            print(f"  ⚠️ 경고: 누락된 컬럼 {missing_cols}")
+            print(f"  사용 가능한 컬럼: {df.columns.tolist()[:10]}...")
         
-        # 병합
-        df = df.merge(
-            df_m14[['time_key', 'M14AM10A', 'M14AM14B', 'M14AM16']], 
-            on='time_key', 
-            how='left'
-        )
+        # 시간 컬럼 처리 (CURRTIME 또는 TIME)
+        if 'CURRTIME' in df.columns:
+            df['TIME'] = df['CURRTIME']
+        elif 'TIME' not in df.columns:
+            # 시간 컬럼이 없으면 인덱스로 생성
+            df['TIME'] = range(len(df))
         
-        # M14 결측치 처리 (forward fill)
-        df['M14AM10A'].fillna(method='ffill', inplace=True)
-        df['M14AM14B'].fillna(method='ffill', inplace=True)
-        df['M14AM16'].fillna(method='ffill', inplace=True)
+        # TOTALCNT를 현재값으로 사용
+        if 'TOTALCNT' in df.columns:
+            df['current_value'] = df['TOTALCNT']
+        else:
+            print("  ⚠️ TOTALCNT 컬럼이 없습니다. 첫 번째 수치 컬럼 사용")
+            numeric_cols = df.select_dtypes(include=[np.number]).columns
+            df['current_value'] = df[numeric_cols[0]]
         
-        print(f"  M14 데이터 병합 완료")
+        # 타겟 생성 (10분 후 값)
+        df['target'] = df['current_value'].shift(-10)  # 10분 후 값
         
-        # 3. 특징 생성
+        # M14 컬럼 확인
+        for col in ['M14AM10A', 'M14AM14B', 'M14AM16']:
+            if col not in df.columns:
+                print(f"  ⚠️ {col} 컬럼이 없습니다. 0으로 초기화")
+                df[col] = 0
+        
+        # 결측치 제거
+        df = df.dropna(subset=['target'])
+        
+        print(f"  전처리 후: {len(df)}행")
+        
+        # 특징 생성
         print("\n🔧 특징 생성 중...")
         df = self._create_features(df)
         
-        # 4. 타겟 레이블 생성 (다단계)
+        # 타겟 레벨 생성 (다단계)
         df['target_level'] = pd.cut(
-            df['실제'],
+            df['target'],
             bins=[-np.inf, 1400, 1500, 1600, 1700, np.inf],
             labels=[0, 1, 2, 3, 4]
         )
         
-        print(f"  생성된 특징 수: {len(self.feature_names)}개")
+        # 데이터 통계
+        print(f"\n📊 데이터 통계:")
+        print(f"  현재값 범위: {df['current_value'].min():.0f} ~ {df['current_value'].max():.0f}")
+        print(f"  타겟값 범위: {df['target'].min():.0f} ~ {df['target'].max():.0f}")
+        print(f"  1400+ 비율: {(df['target'] >= 1400).mean():.1%}")
+        print(f"  1500+ 비율: {(df['target'] >= 1500).mean():.1%}")
+        print(f"  1600+ 비율: {(df['target'] >= 1600).mean():.1%}")
+        print(f"  1700+ 비율: {(df['target'] >= 1700).mean():.1%}")
         
         return df
     
@@ -130,10 +162,12 @@ class DataPreprocessorV6:
         df['ratio_10A_16'] = df['M14AM10A'] / df['M14AM16'].clip(lower=1)
         
         # 3. 변화량 특징
-        for col in ['M14AM14B', 'M14AM10A', 'M14AM16']:
-            df[f'{col}_change_5'] = df[col].diff(5)
-            df[f'{col}_change_10'] = df[col].diff(10)
-            df[f'{col}_ma_10'] = df[col].rolling(10).mean()
+        for col in ['current_value', 'M14AM14B', 'M14AM10A', 'M14AM16']:
+            if col in df.columns:
+                df[f'{col}_change_5'] = df[col].diff(5)
+                df[f'{col}_change_10'] = df[col].diff(10)
+                df[f'{col}_ma_10'] = df[col].rolling(10, min_periods=1).mean()
+                df[f'{col}_std_10'] = df[col].rolling(10, min_periods=1).std()
         
         # 4. M14AM10A 역패턴 특징
         df['M10A_drop_5'] = -df['M14AM10A'].diff(5)  # 감소가 양수
@@ -155,12 +189,18 @@ class DataPreprocessorV6:
         df['m14b_high_m10a_low'] = ((df['M14AM14B'] >= 350) & (df['M14AM10A'] < 70)).astype(float)
         df['spike_imminent'] = ((df['M14AM14B'] >= 400) | (df['ratio_14B_10A'] >= 5)).astype(float)
         
+        # 8. 통계 특징
+        df['current_vs_ma'] = df['current_value'] / df['current_value_ma_10'].clip(lower=1)
+        df['m14b_vs_ma'] = df['M14AM14B'] / df['M14AM14B_ma_10'].clip(lower=1)
+        
         # 특징 이름 저장
-        self.feature_names = [col for col in df.columns if col not in 
-                             ['current_time', 'future_time', 'date', 'time_key', '확인', '차이', '실제', 'target_level']]
+        exclude_cols = ['TIME', 'CURRTIME', 'target', 'target_level', 'TOTALCNT']
+        self.feature_names = [col for col in df.columns if col not in exclude_cols]
         
         # 결측치 처리
         df[self.feature_names] = df[self.feature_names].fillna(0)
+        
+        print(f"  생성된 특징 수: {len(self.feature_names)}개")
         
         return df
     
@@ -168,25 +208,24 @@ class DataPreprocessorV6:
         """시계열 시퀀스 생성"""
         print("\n📊 시퀀스 생성 중...")
         
-        # 필요한 컬럼만 선택
-        feature_cols = ['current_value'] + [col for col in self.feature_names if col in df.columns]
-        target_col = '실제'
+        # 사용할 특징 선택
+        feature_cols = [col for col in self.feature_names if col in df.columns]
         
         X, y, m14_features = [], [], []
         
         for i in range(Config.LOOKBACK, len(df) - Config.FORECAST):
-            # 시계열 데이터
+            # 시계열 데이터 (과거 100분)
             X.append(df[feature_cols].iloc[i-Config.LOOKBACK:i].values)
             
             # 타겟 (10분 후)
-            y.append(df[target_col].iloc[i+Config.FORECAST-1])
+            y.append(df['target'].iloc[i])
             
             # 현재 M14 특징 (앙상블 가중치용)
             m14_features.append([
                 df['M14AM14B'].iloc[i],
                 df['M14AM10A'].iloc[i],
                 df['M14AM16'].iloc[i],
-                df['ratio_14B_10A'].iloc[i]
+                df['ratio_14B_10A'].iloc[i] if 'ratio_14B_10A' in df.columns else 0
             ])
         
         X = np.array(X)
@@ -194,6 +233,7 @@ class DataPreprocessorV6:
         m14_features = np.array(m14_features)
         
         print(f"  시퀀스 shape: X={X.shape}, y={y.shape}")
+        print(f"  특징 수: {X.shape[2]}개")
         
         return X, y, m14_features
 
@@ -454,13 +494,23 @@ class TrainingPipelineV6:
         print(f"  학습: {X_train.shape[0]}개")
         print(f"  검증: {X_val.shape[0]}개")
         
-        # 3. 모델 학습
+        # 3. 스케일링
+        print("\n📏 데이터 스케일링...")
+        
+        # 각 특징별 스케일링
+        n_features = X_train.shape[2]
+        for i in range(n_features):
+            scaler = RobustScaler()
+            X_train[:, :, i] = scaler.fit_transform(X_train[:, :, i].reshape(-1, 1)).reshape(X_train[:, :, i].shape)
+            X_val[:, :, i] = scaler.transform(X_val[:, :, i].reshape(-1, 1)).reshape(X_val[:, :, i].shape)
+        
+        # 4. 모델 학습
         self._train_models(X_train, y_train, X_val, y_val, m14_train, m14_val)
         
-        # 4. 평가
+        # 5. 평가
         self._evaluate_models(X_val, y_val, m14_val)
         
-        # 5. 결과 저장
+        # 6. 결과 저장
         self._save_results()
         
         print("\n" + "="*60)
@@ -703,5 +753,6 @@ if __name__ == "__main__":
     
     print("\n" + "="*60)
     print("🎉 모든 작업 완료!")
-    print("📁 저장 위치:", Config.MODEL_DIR)
+    print(f"📁 저장 위치: {Config.MODEL_DIR}")
+    print(f"📂 학습 데이터: {Config.DATA_FILE}")
     print("="*60)
