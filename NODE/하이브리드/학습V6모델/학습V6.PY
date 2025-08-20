@@ -31,8 +31,8 @@ class Config:
     DATA_FILE = '20240201_TO_202507281705.CSV'  # 통합 학습 데이터
     
     # 데이터 설정
-    LOOKBACK = 100  # 과거 100분
-    FORECAST = 1    # 10분 후 예측
+    LOOKBACK = 100  # 과거 100분 (또는 100개 시점)
+    FORECAST = 10   # 10분 후 예측 (1분 단위 데이터면 10, 10분 단위면 1)
     
     # M14 임계값 (발견된 패턴)
     M14B_THRESHOLDS = {
@@ -113,7 +113,28 @@ class DataPreprocessorV6:
             df['current_value'] = df[numeric_cols[0]]
         
         # 타겟 생성 (10분 후 값)
-        df['target'] = df['current_value'].shift(-10)  # 10분 후 값
+        # 데이터 간격 확인
+        if 'CURRTIME' in df.columns:
+            # 시간 간격 자동 감지
+            time_str = df['CURRTIME'].astype(str)
+            if len(time_str.iloc[0]) >= 12:  # YYYYMMDDHHMM 형식
+                time_diff = pd.to_datetime(time_str, format='%Y%m%d%H%M').diff().dt.total_seconds() / 60
+                interval = time_diff.mode()[0] if not time_diff.empty else 1
+                print(f"  ⏰ 데이터 간격: {interval:.0f}분")
+                
+                if interval == 1:  # 1분 단위 데이터
+                    df['target'] = df['current_value'].shift(-10)  # 10분 후 = 10스텝
+                    print(f"  📍 1분 단위 → 10스텝 후 예측")
+                elif interval == 10:  # 10분 단위 데이터
+                    df['target'] = df['current_value'].shift(-1)   # 10분 후 = 1스텝
+                    print(f"  📍 10분 단위 → 1스텝 후 예측")
+                else:
+                    df['target'] = df['current_value'].shift(-10)  # 기본값
+                    print(f"  ⚠️ 특수 간격 {interval}분 → 10스텝 사용")
+            else:
+                df['target'] = df['current_value'].shift(-10)  # 기본 10스텝
+        else:
+            df['target'] = df['current_value'].shift(-10)  # 기본 10스텝
         
         # M14 컬럼 확인
         for col in ['M14AM10A', 'M14AM14B', 'M14AM16']:
@@ -211,18 +232,35 @@ class DataPreprocessorV6:
         # 사용할 특징 선택
         feature_cols = [col for col in self.feature_names if col in df.columns]
         
+        # 실제 FORECAST 값 결정 (데이터 간격에 따라)
+        forecast_steps = Config.FORECAST
+        if 'CURRTIME' in df.columns:
+            time_str = df['CURRTIME'].astype(str)
+            if len(time_str.iloc[0]) >= 12:
+                time_diff = pd.to_datetime(time_str, format='%Y%m%d%H%M').diff().dt.total_seconds() / 60
+                interval = time_diff.mode()[0] if not time_diff.empty else 1
+                
+                if interval == 1:  # 1분 단위
+                    forecast_steps = 10  # 10분 = 10스텝
+                elif interval == 10:  # 10분 단위
+                    forecast_steps = 1   # 10분 = 1스텝
+                else:
+                    forecast_steps = 10  # 기본값
+                    
+                print(f"  📍 예측 설정: {interval:.0f}분 간격 데이터 → {forecast_steps}스텝 후 (10분 후)")
+        
         X, y, m14_features = [], [], []
         
-        total_sequences = len(df) - Config.LOOKBACK - Config.FORECAST
+        total_sequences = len(df) - Config.LOOKBACK - forecast_steps
         print(f"  총 {total_sequences:,}개 시퀀스 생성 예정")
         
         # 진행률 표시
-        for idx, i in enumerate(range(Config.LOOKBACK, len(df) - Config.FORECAST)):
-            # 시계열 데이터 (과거 100분)
+        for idx, i in enumerate(range(Config.LOOKBACK, len(df) - forecast_steps)):
+            # 시계열 데이터 (과거 100개 시점)
             X.append(df[feature_cols].iloc[i-Config.LOOKBACK:i].values)
             
-            # 타겟 (10분 후)
-            y.append(df['target'].iloc[i])
+            # 타겟 (10분 후 값)
+            y.append(df['target'].iloc[i+forecast_steps-1])
             
             # 현재 M14 특징 (앙상블 가중치용)
             m14_features.append([
@@ -233,7 +271,7 @@ class DataPreprocessorV6:
             ])
             
             # 진행률 표시 (10%마다)
-            if (idx + 1) % (total_sequences // 10) == 0:
+            if (idx + 1) % max(1, total_sequences // 10) == 0:
                 progress = (idx + 1) / total_sequences * 100
                 print(f"  진행률: {progress:.0f}% ({idx+1:,}/{total_sequences:,})")
         
@@ -245,6 +283,7 @@ class DataPreprocessorV6:
         print(f"  시퀀스 shape: X={X.shape}, y={y.shape}")
         print(f"  특징 수: {X.shape[2]}개")
         print(f"  메모리 사용: {X.nbytes / 1024**3:.2f}GB")
+        print(f"  예측: 과거 {Config.LOOKBACK}개 시점 → {forecast_steps}스텝 후 (10분 후)")
         
         return X, y, m14_features
 
