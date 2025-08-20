@@ -431,6 +431,9 @@ class CTTransformersGUI(ctk.CTk):
         
         # 별도 스레드에서 로드
         def load_thread():
+            error_msg = None
+            file_name = None
+            
             try:
                 # ctransformers 확인
                 status_label.configure(text="ctransformers 확인 중...")
@@ -442,7 +445,7 @@ class CTTransformersGUI(ctk.CTk):
                         status_label.configure(text=f"ctransformers {version} 확인")
                     except:
                         status_label.configure(text="ctransformers 확인")
-                except ImportError:
+                except ImportError as import_err:
                     raise Exception("ctransformers가 설치되지 않았습니다.\npip install ctransformers")
                 
                 # 설정 준비
@@ -465,11 +468,12 @@ class CTTransformersGUI(ctk.CTk):
                 )
                 
                 # 성공
-                self.after(100, lambda: self.on_model_loaded(loading_window, file_name))
+                self.after(100, lambda fn=file_name: self.on_model_loaded(loading_window, fn))
                 
-            except Exception as e:
-                # 실패
-                self.after(100, lambda: self.on_model_failed(loading_window, str(e)))
+            except Exception as exc:
+                # 실패 - 에러 메시지를 변수에 저장
+                error_msg = str(exc)
+                self.after(100, lambda err=error_msg: self.on_model_failed(loading_window, err))
         
         threading.Thread(target=load_thread, daemon=True).start()
     
