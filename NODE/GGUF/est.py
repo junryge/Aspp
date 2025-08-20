@@ -35,7 +35,7 @@ class GGUFModelManager:
         self.is_loaded = False
         
     def load_model(self, model_path: str, model_type: str = "auto", **kwargs):
-        """모델 로드"""
+        """모델 로드 - 자동 타입 감지"""
         try:
             from ctransformers import AutoModelForCausalLM
             
@@ -44,22 +44,57 @@ class GGUFModelManager:
                 del self.model
                 self.model = None
             
-            # 모델 타입 시도 순서
+            # 모델 타입 자동 감지
             if model_type == "auto":
-                # Phi-3 모델인 경우 여러 타입 시도
-                if "phi" in os.path.basename(model_path).lower():
-                    type_attempts = ["phi3", "phi", "llama", "gpt2"]
+                filename = os.path.basename(model_path).lower()
+                
+                # 모든 가능한 타입을 우선순위대로 정렬
+                type_attempts = []
+                
+                # 파일명 기반 우선순위 설정
+                if "phi" in filename:
+                    type_attempts = ["llama", "phi3", "phi", "gpt2", "gptj"]
+                elif "llama" in filename or "alpaca" in filename or "vicuna" in filename:
+                    type_attempts = ["llama", "gptj", "gpt2"]
+                elif "mistral" in filename or "mixtral" in filename:
+                    type_attempts = ["llama", "gptj"]
+                elif "orca" in filename or "wizard" in filename:
+                    type_attempts = ["llama", "gptj", "gpt2"]
+                elif "gpt" in filename and "neox" in filename:
+                    type_attempts = ["gptneox", "gptj", "gpt2"]
+                elif "gpt" in filename and "j" in filename:
+                    type_attempts = ["gptj", "gpt2", "llama"]
+                elif "falcon" in filename:
+                    type_attempts = ["falcon", "llama"]
+                elif "mpt" in filename:
+                    type_attempts = ["mpt", "llama"]
+                elif "starcoder" in filename or "starchat" in filename:
+                    type_attempts = ["starcoder", "gpt_bigcode", "gpt2"]
+                elif "dolly" in filename:
+                    type_attempts = ["dolly-v2", "gptneox", "gpt2"]
+                elif "replit" in filename:
+                    type_attempts = ["replit", "gpt2"]
+                elif "bloom" in filename:
+                    type_attempts = ["bloom", "gpt2"]
+                elif "pythia" in filename:
+                    type_attempts = ["gptneox", "gpt2"]
+                elif "stablelm" in filename:
+                    type_attempts = ["gptneox", "llama", "gpt2"]
                 else:
-                    type_attempts = ["llama", "gptneox", "gptj", "gpt2", "falcon", "mpt"]
+                    # 기본 시도 순서 (가장 흔한 순서대로)
+                    type_attempts = ["llama", "gptj", "gptneox", "gpt2", "falcon", 
+                                   "mpt", "starcoder", "dolly-v2", "replit", "bloom"]
             else:
+                # 사용자가 지정한 타입만 시도
                 type_attempts = [model_type]
             
             last_error = None
+            successful_type = None
             
             # 각 모델 타입 시도
-            for attempt_type in type_attempts:
+            for i, attempt_type in enumerate(type_attempts, 1):
                 try:
-                    print(f"모델 타입 '{attempt_type}' 시도 중...")
+                    print(f"[{i}/{len(type_attempts)}] 모델 타입 '{attempt_type}' 시도 중...")
                     
                     # 새 모델 로드
                     self.model = AutoModelForCausalLM.from_pretrained(
@@ -71,16 +106,40 @@ class GGUFModelManager:
                     self.model_path = model_path
                     self.model_type = attempt_type
                     self.is_loaded = True
+                    successful_type = attempt_type
                     print(f"✅ 모델 타입 '{attempt_type}'로 로드 성공!")
-                    return True
+                    
+                    # 간단한 테스트로 모델이 제대로 작동하는지 확인
+                    try:
+                        test_output = self.model("Test", max_new_tokens=1)
+                        print(f"✅ 모델 작동 확인 완료")
+                        return True
+                    except:
+                        # 로드는 됐지만 실행이 안 되는 경우
+                        print(f"⚠️ '{attempt_type}'로 로드됐지만 실행 오류")
+                        del self.model
+                        self.model = None
+                        self.is_loaded = False
+                        continue
                     
                 except Exception as e:
                     last_error = e
-                    print(f"❌ '{attempt_type}' 실패: {str(e)[:100]}")
+                    error_msg = str(e)[:100]
+                    
+                    # 특정 오류 메시지 체크
+                    if "not supported" in error_msg.lower():
+                        print(f"❌ '{attempt_type}' 미지원")
+                    elif "failed to create" in error_msg.lower():
+                        print(f"❌ '{attempt_type}' 생성 실패")
+                    else:
+                        print(f"❌ '{attempt_type}' 실패: {error_msg}")
                     continue
             
             # 모든 시도 실패
-            raise Exception(f"모든 모델 타입 시도 실패. 마지막 오류: {last_error}")
+            if successful_type:
+                return True
+            else:
+                raise Exception(f"모든 모델 타입 시도 실패.\n시도한 타입: {', '.join(type_attempts)}\n마지막 오류: {last_error}")
             
         except Exception as e:
             raise Exception(f"모델 로드 실패: {str(e)}")
@@ -408,23 +467,34 @@ class CTTransformersGUI(ctk.CTk):
                 text=f"📄 {file_name}\n📊 크기: {file_size:.2f} GB"
             )
             
-            # 모델 타입 추측
+            # 모델 타입을 auto로 설정 (자동 감지하도록)
+            self.model_type_var.set("auto")
+            
+            # 파일명으로 힌트 표시
             file_lower = file_name.lower()
+            hint = "자동 감지 중..."
+            
             if "phi" in file_lower:
-                # Phi 모델은 보통 llama 타입으로 작동
-                self.model_type_var.set("llama")
+                hint = "Phi 모델 감지 → llama 타입 우선 시도"
             elif "llama" in file_lower:
-                self.model_type_var.set("llama")
-            elif "gpt" in file_lower and "neox" in file_lower:
-                self.model_type_var.set("gptneox")
-            elif "falcon" in file_lower:
-                self.model_type_var.set("falcon")
-            elif "mpt" in file_lower:
-                self.model_type_var.set("mpt")
+                hint = "Llama 모델 감지"
             elif "mistral" in file_lower or "mixtral" in file_lower:
-                self.model_type_var.set("llama")  # Mistral도 llama 타입
-            else:
-                self.model_type_var.set("llama")  # 기본값을 llama로
+                hint = "Mistral/Mixtral 감지 → llama 타입"
+            elif "gpt" in file_lower:
+                if "neox" in file_lower:
+                    hint = "GPT-NeoX 모델 감지"
+                elif "j" in file_lower:
+                    hint = "GPT-J 모델 감지"
+                else:
+                    hint = "GPT 계열 모델 감지"
+            elif "falcon" in file_lower:
+                hint = "Falcon 모델 감지"
+            elif "mpt" in file_lower:
+                hint = "MPT 모델 감지"
+            elif "orca" in file_lower or "wizard" in file_lower:
+                hint = "Fine-tuned Llama 감지"
+            
+            print(f"📌 {hint}")
     
     def load_model(self):
         """모델 로드"""
@@ -491,16 +561,27 @@ class CTTransformersGUI(ctk.CTk):
                 
                 # 모델 로드
                 file_name = os.path.basename(model_path)
-                status_label.configure(text=f"{file_name} 로드 중...")
+                
+                # 모델 타입 자동 감지 메시지
+                selected_type = self.model_type_var.get()
+                if selected_type == "auto":
+                    status_label.configure(text=f"{file_name} 타입 자동 감지 중...")
+                else:
+                    status_label.configure(text=f"{file_name} '{selected_type}' 타입으로 로드 중...")
                 
                 self.model_manager.load_model(
                     model_path,
-                    model_type=self.model_type_var.get(),
+                    model_type=selected_type,
                     **model_config
                 )
                 
+                # 로드된 실제 타입 확인
+                loaded_type = self.model_manager.model_type
+                if loaded_type and loaded_type != selected_type:
+                    print(f"📌 자동 감지 결과: '{loaded_type}' 타입으로 로드됨")
+                
                 # 성공
-                self.after(100, lambda fn=file_name: self.on_model_loaded(loading_window, fn))
+                self.after(100, lambda fn=file_name, lt=loaded_type: self.on_model_loaded_with_type(loading_window, fn, lt))
                 
             except Exception as exc:
                 # 실패 - 에러 메시지를 변수에 저장
@@ -513,13 +594,35 @@ class CTTransformersGUI(ctk.CTk):
         """모델 로드 성공"""
         loading_window.destroy()
         
+        # 실제 로드된 타입 표시
+        actual_type = self.model_manager.model_type if self.model_manager.model_type else "unknown"
+        
         self.status_label.configure(
-            text=f"✅ {model_name} 로드됨",
+            text=f"✅ {model_name} 로드됨 [{actual_type}]",
             text_color="green"
         )
         
-        self.add_message("system", f"✅ 모델 '{model_name}'이 성공적으로 로드되었습니다!")
-        messagebox.showinfo("성공", "모델이 로드되었습니다. 대화를 시작하세요!")
+        self.add_message("system", f"✅ 모델 '{model_name}'이 성공적으로 로드되었습니다!\n모델 타입: {actual_type}")
+        messagebox.showinfo("성공", f"모델이 로드되었습니다.\n타입: {actual_type}\n대화를 시작하세요!")
+    
+    def on_model_loaded_with_type(self, loading_window, model_name, model_type):
+        """모델 로드 성공 (타입 포함)"""
+        loading_window.destroy()
+        
+        self.status_label.configure(
+            text=f"✅ {model_name} 로드됨 [{model_type}]",
+            text_color="green"
+        )
+        
+        self.add_message("system", f"✅ 모델 '{model_name}'이 성공적으로 로드되었습니다!\n자동 감지된 타입: {model_type}")
+        
+        # 자동 감지된 타입으로 UI 업데이트
+        if self.model_type_var.get() == "auto" and model_type:
+            self.model_type_var.set(model_type)
+            self.config["model_type"] = model_type
+            self.save_config()
+        
+        messagebox.showinfo("성공", f"모델이 로드되었습니다.\n자동 감지 타입: {model_type}\n대화를 시작하세요!")
     
     def on_model_failed(self, loading_window, error):
         """모델 로드 실패"""
