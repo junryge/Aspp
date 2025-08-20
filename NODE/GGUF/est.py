@@ -44,17 +44,43 @@ class GGUFModelManager:
                 del self.model
                 self.model = None
             
-            # 새 모델 로드
-            self.model = AutoModelForCausalLM.from_pretrained(
-                model_path,
-                model_type=model_type,
-                **kwargs
-            )
+            # 모델 타입 시도 순서
+            if model_type == "auto":
+                # Phi-3 모델인 경우 여러 타입 시도
+                if "phi" in os.path.basename(model_path).lower():
+                    type_attempts = ["phi3", "phi", "llama", "gpt2"]
+                else:
+                    type_attempts = ["llama", "gptneox", "gptj", "gpt2", "falcon", "mpt"]
+            else:
+                type_attempts = [model_type]
             
-            self.model_path = model_path
-            self.model_type = model_type
-            self.is_loaded = True
-            return True
+            last_error = None
+            
+            # 각 모델 타입 시도
+            for attempt_type in type_attempts:
+                try:
+                    print(f"모델 타입 '{attempt_type}' 시도 중...")
+                    
+                    # 새 모델 로드
+                    self.model = AutoModelForCausalLM.from_pretrained(
+                        model_path,
+                        model_type=attempt_type,
+                        **kwargs
+                    )
+                    
+                    self.model_path = model_path
+                    self.model_type = attempt_type
+                    self.is_loaded = True
+                    print(f"✅ 모델 타입 '{attempt_type}'로 로드 성공!")
+                    return True
+                    
+                except Exception as e:
+                    last_error = e
+                    print(f"❌ '{attempt_type}' 실패: {str(e)[:100]}")
+                    continue
+            
+            # 모든 시도 실패
+            raise Exception(f"모든 모델 타입 시도 실패. 마지막 오류: {last_error}")
             
         except Exception as e:
             raise Exception(f"모델 로드 실패: {str(e)}")
@@ -383,16 +409,22 @@ class CTTransformersGUI(ctk.CTk):
             )
             
             # 모델 타입 추측
-            if "llama" in file_name.lower():
+            file_lower = file_name.lower()
+            if "phi" in file_lower:
+                # Phi 모델은 보통 llama 타입으로 작동
                 self.model_type_var.set("llama")
-            elif "gpt" in file_name.lower() and "neox" in file_name.lower():
+            elif "llama" in file_lower:
+                self.model_type_var.set("llama")
+            elif "gpt" in file_lower and "neox" in file_lower:
                 self.model_type_var.set("gptneox")
-            elif "falcon" in file_name.lower():
+            elif "falcon" in file_lower:
                 self.model_type_var.set("falcon")
-            elif "mpt" in file_name.lower():
+            elif "mpt" in file_lower:
                 self.model_type_var.set("mpt")
+            elif "mistral" in file_lower or "mixtral" in file_lower:
+                self.model_type_var.set("llama")  # Mistral도 llama 타입
             else:
-                self.model_type_var.set("auto")
+                self.model_type_var.set("llama")  # 기본값을 llama로
     
     def load_model(self):
         """모델 로드"""
