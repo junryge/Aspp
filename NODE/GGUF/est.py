@@ -1,71 +1,39 @@
-# console_test.py
+# test_phi3.py
 """
-GGUF 모델 콘솔 테스트 - fileno 오류 완벽 해결 버전
-GUI 없이 순수 콘솔에서 실행
+Phi-3.1-mini-4k-instruct 모델 전용 테스트
+fileno 오류 완벽 해결 버전
 """
 
 import os
 import sys
 import warnings
 
-# ===== 1단계: 모든 경고 무시 =====
+# 경고 무시
 warnings.filterwarnings("ignore")
-os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 
-# ===== 2단계: 완벽한 fileno 패치 =====
-import io
-
-# stdout 백업
-original_stdout = sys.stdout
-original_stderr = sys.stderr
-
-class FakeStdout:
-    """가짜 stdout - fileno 포함"""
-    def __init__(self, original):
-        self.original = original
+# ===== FILENO 패치 (가장 중요!) =====
+class FakeStream:
+    def __init__(self, original_stream):
+        self.original = original_stream
         self.buffer = self
-    
+        
     def write(self, s):
         if self.original:
-            return self.original.write(s)
-        return len(s)
+            try:
+                return self.original.write(s)
+            except:
+                pass
+        return len(s) if s else 0
     
     def flush(self):
         if self.original:
-            self.original.flush()
+            try:
+                self.original.flush()
+            except:
+                pass
     
     def fileno(self):
-        return 1
-    
-    def isatty(self):
-        return False
-    
-    def readable(self):
-        return False
-    
-    def writable(self):
-        return True
-    
-    def seekable(self):
-        return False
-
-class FakeStderr:
-    """가짜 stderr - fileno 포함"""
-    def __init__(self, original):
-        self.original = original
-        self.buffer = self
-    
-    def write(self, s):
-        if self.original:
-            return self.original.write(s)
-        return len(s)
-    
-    def flush(self):
-        if self.original:
-            self.original.flush()
-    
-    def fileno(self):
-        return 2
+        return 1 if 'out' in str(self.original) else 2
     
     def isatty(self):
         return False
@@ -80,203 +48,206 @@ class FakeStderr:
         return False
 
 # stdout/stderr 교체
-sys.stdout = FakeStdout(original_stdout)
-sys.stderr = FakeStderr(original_stderr)
+original_stdout = sys.stdout
+original_stderr = sys.stderr
+sys.stdout = FakeStream(original_stdout)
+sys.stderr = FakeStream(original_stderr)
 
-# ===== 3단계: 환경 변수 설정 =====
+# 환경 변수 설정
 os.environ['LLAMA_CPP_VERBOSE'] = '0'
-os.environ['CUDA_VISIBLE_DEVICES'] = '-1'  # GPU 비활성화
-os.environ['LLAMA_CPP_LOG_DISABLE'] = '1'
+os.environ['CUDA_VISIBLE_DEVICES'] = '-1'
 
-# ===== 4단계: llama_cpp import =====
-print("=" * 60)
-print("GGUF 모델 테스트 시작")
-print("=" * 60)
-
-try:
-    from llama_cpp import Llama
-    print("✅ llama_cpp 모듈 임포트 성공")
-except ImportError as e:
-    print(f"❌ llama_cpp 모듈 임포트 실패: {e}")
-    print("\n설치 명령어:")
-    print("pip install llama-cpp-python==0.2.20")
-    sys.exit(1)
-
-# ===== 5단계: 모델 테스트 함수 =====
-def test_model(model_path):
-    """모델 로드 및 테스트"""
+# ===== 모델 테스트 =====
+def test_phi3_model():
+    """Phi-3.1 모델 테스트"""
+    
+    # 모델 경로
+    MODEL_PATH = r"D:/LLM_MODEL/GGUF/Phi-3.1-mini-4k-instruct-IQ2_M.gguf"
+    
+    print("="*60)
+    print("Phi-3.1-mini-4k-instruct 모델 테스트")
+    print("="*60)
     
     # 파일 확인
-    if not os.path.exists(model_path):
-        print(f"❌ 파일이 존재하지 않습니다: {model_path}")
+    if not os.path.exists(MODEL_PATH):
+        print(f"❌ 모델 파일을 찾을 수 없습니다: {MODEL_PATH}")
         return False
     
-    # 파일 정보
-    file_size = os.path.getsize(model_path) / (1024**3)  # GB
-    print(f"\n📁 모델 파일: {os.path.basename(model_path)}")
+    file_size = os.path.getsize(MODEL_PATH) / (1024**3)
+    print(f"✅ 모델 파일 발견: {os.path.basename(MODEL_PATH)}")
     print(f"📊 파일 크기: {file_size:.2f} GB")
     
-    # GGUF 헤더 확인
-    with open(model_path, 'rb') as f:
+    # GGUF 확인
+    with open(MODEL_PATH, 'rb') as f:
         header = f.read(4)
-        if header != b'GGUF':
-            print(f"❌ GGUF 파일이 아닙니다. 헤더: {header}")
+        if header == b'GGUF':
+            print("✅ GGUF 형식 확인")
+        else:
+            print(f"❌ GGUF 형식이 아님: {header}")
             return False
-        print("✅ GGUF 형식 확인")
+    
+    # llama_cpp 임포트
+    print("\n⏳ llama_cpp 모듈 로드 중...")
+    try:
+        from llama_cpp import Llama
+        import llama_cpp
+        print(f"✅ llama-cpp-python 버전: {llama_cpp.__version__}")
+    except ImportError as e:
+        print(f"❌ llama_cpp 임포트 실패: {e}")
+        print("\n설치 명령어:")
+        print("pip install llama-cpp-python==0.2.20")
+        return False
     
     # 모델 로드
-    print("\n⏳ 모델 로드 중... (시간이 걸릴 수 있습니다)")
-    
+    print("\n⏳ Phi-3.1 모델 로드 중... (1-2분 소요)")
     try:
-        # 최소 설정으로 로드
         llm = Llama(
-            model_path=model_path,
-            n_ctx=512,          # 작은 컨텍스트
-            n_threads=2,        # 적은 스레드
-            n_gpu_layers=0,     # GPU 비활성화
-            seed=42,            # 고정 시드
-            verbose=False,      # 출력 비활성화
-            use_mlock=False,    # mlock 비활성화
-            use_mmap=False,     # mmap 비활성화
-            n_batch=8,          # 작은 배치
-            f16_kv=False,       # f16 비활성화
-            logits_all=False,   # logits 비활성화
-            vocab_only=False,   # vocab만 로드 안함
-            embedding=False     # 임베딩 모드 비활성화
+            model_path=MODEL_PATH,
+            n_ctx=4096,         # Phi-3.1은 4k 컨텍스트
+            n_threads=4,        # CPU 스레드
+            n_gpu_layers=0,     # GPU 비활성화 (CPU 모드)
+            seed=42,
+            verbose=False,
+            use_mlock=False,
+            use_mmap=True,      # 메모리 맵 사용 (더 빠름)
+            n_batch=512,        # 배치 크기
+            f16_kv=False,
+            logits_all=False,
+            vocab_only=False,
+            embedding=False,
+            rope_scaling_type=-1,  # RoPE 스케일링 비활성화
+            rope_freq_base=0,
+            rope_freq_scale=0,
+            numa=False          # NUMA 비활성화
         )
-        
         print("✅ 모델 로드 성공!")
         
-        # 간단한 테스트
-        print("\n🧪 간단한 테스트 실행...")
-        prompt = "Hello"
-        
-        result = llm(
-            prompt,
-            max_tokens=10,
-            temperature=0.1,
-            top_p=0.95,
-            echo=False,
-            stop=[]
-        )
-        
-        response = result['choices'][0]['text']
-        print(f"입력: {prompt}")
-        print(f"출력: {response}")
-        print("\n✅ 테스트 완료!")
-        
-        return True
-        
     except Exception as e:
-        print(f"\n❌ 오류 발생: {e}")
-        
-        # 상세 오류 정보
+        print(f"❌ 모델 로드 실패: {e}")
         import traceback
         print("\n상세 오류:")
-        print("-" * 40)
         traceback.print_exc()
-        print("-" * 40)
-        
         return False
-
-# ===== 6단계: 메인 실행 =====
-def main():
-    """메인 실행 함수"""
     
-    # 시스템 정보
-    import platform
-    print("\n📋 시스템 정보:")
-    print(f"  OS: {platform.system()} {platform.release()}")
-    print(f"  Python: {platform.python_version()}")
-    print(f"  아키텍처: {platform.machine()}")
+    # 테스트 대화
+    print("\n" + "="*60)
+    print("🧪 모델 테스트")
+    print("="*60)
     
-    # llama-cpp-python 버전
-    try:
-        import llama_cpp
-        print(f"  llama-cpp-python: {llama_cpp.__version__}")
-    except:
-        pass
+    # Phi-3 형식의 프롬프트
+    test_prompts = [
+        "Hello! How are you?",
+        "What is 2+2?",
+        "Tell me a short joke."
+    ]
     
-    print("\n" + "=" * 60)
-    
-    # 모델 경로 입력
-    while True:
-        print("\nGGUF 모델 파일 경로를 입력하세요")
-        print("(전체 경로 입력, 예: C:\\models\\llama-2-7b.gguf)")
-        print("종료하려면 'quit' 입력")
+    for i, prompt in enumerate(test_prompts, 1):
+        print(f"\n테스트 {i}:")
+        print(f"Q: {prompt}")
         
-        model_path = input("\n경로: ").strip()
+        # Phi-3 instruction 형식
+        formatted_prompt = f"<|user|>\n{prompt}<|end|>\n<|assistant|>"
         
-        if model_path.lower() == 'quit':
-            print("프로그램을 종료합니다.")
-            break
-        
-        # 따옴표 제거
-        model_path = model_path.strip('"').strip("'")
-        
-        if not model_path:
-            continue
-        
-        # 테스트 실행
-        success = test_model(model_path)
-        
-        if success:
-            print("\n" + "🎉" * 20)
-            print("모델이 정상적으로 작동합니다!")
-            print("이제 GUI 버전도 작동할 것입니다.")
-            print("🎉" * 20)
+        try:
+            response = llm(
+                formatted_prompt,
+                max_tokens=50,
+                temperature=0.7,
+                top_p=0.95,
+                stop=["<|end|>", "<|user|>"],
+                echo=False
+            )
             
-            # 대화 테스트
-            answer = input("\n대화를 계속 테스트하시겠습니까? (y/n): ")
-            if answer.lower() == 'y':
-                interactive_chat(model_path)
-        else:
-            print("\n다른 모델로 시도해보세요.")
+            answer = response['choices'][0]['text'].strip()
+            print(f"A: {answer}")
+            
+        except Exception as e:
+            print(f"❌ 생성 오류: {e}")
+    
+    print("\n" + "="*60)
+    print("✅ 모든 테스트 완료!")
+    print("="*60)
+    
+    return True, llm
 
-def interactive_chat(model_path):
-    """간단한 대화 테스트"""
-    print("\n💬 대화 모드 (종료: 'quit')")
-    print("-" * 40)
+def interactive_mode(llm):
+    """대화 모드"""
+    print("\n💬 대화 모드 시작 (종료: 'quit' 또는 'exit')")
+    print("-"*60)
     
-    # 모델 로드
-    llm = Llama(
-        model_path=model_path,
-        n_ctx=2048,
-        n_threads=4,
-        n_gpu_layers=0,
-        verbose=False,
-        use_mlock=False,
-        use_mmap=False
-    )
-    
-    conversation = []
+    conversation_history = []
     
     while True:
         user_input = input("\nYou: ").strip()
-        if user_input.lower() == 'quit':
+        
+        if user_input.lower() in ['quit', 'exit', '종료']:
+            print("대화를 종료합니다.")
             break
         
-        # 프롬프트 구성
-        prompt = ""
-        for msg in conversation[-4:]:  # 최근 4개 메시지
-            prompt += msg + "\n"
-        prompt += f"User: {user_input}\nAssistant:"
+        if not user_input:
+            continue
         
-        # 응답 생성
-        print("Assistant: ", end="", flush=True)
-        result = llm(
-            prompt,
-            max_tokens=200,
-            temperature=0.7,
-            stop=["User:", "\n\n"]
-        )
+        # Phi-3 프롬프트 형식
+        if len(conversation_history) > 0:
+            # 이전 대화 포함
+            context = ""
+            for h in conversation_history[-4:]:  # 최근 4개 대화
+                context += h + "\n"
+            prompt = f"{context}<|user|>\n{user_input}<|end|>\n<|assistant|>"
+        else:
+            prompt = f"<|user|>\n{user_input}<|end|>\n<|assistant|>"
         
-        response = result['choices'][0]['text'].strip()
-        print(response)
+        print("Phi-3: ", end="", flush=True)
         
-        # 대화 기록
-        conversation.append(f"User: {user_input}")
-        conversation.append(f"Assistant: {response}")
+        try:
+            response = llm(
+                prompt,
+                max_tokens=200,
+                temperature=0.7,
+                top_p=0.95,
+                stop=["<|end|>", "<|user|>", "\n\n"],
+                stream=False
+            )
+            
+            answer = response['choices'][0]['text'].strip()
+            print(answer)
+            
+            # 대화 기록
+            conversation_history.append(f"<|user|>\n{user_input}<|end|>")
+            conversation_history.append(f"<|assistant|>\n{answer}<|end|>")
+            
+        except Exception as e:
+            print(f"\n❌ 오류: {e}")
+
+def main():
+    """메인 함수"""
+    print("\n🚀 Phi-3.1-mini-4k-instruct 모델 테스터")
+    print("모델: D:/LLM_MODEL/GGUF/Phi-3.1-mini-4k-instruct-IQ2_M.gguf")
+    
+    # 시스템 정보
+    import platform
+    print(f"\n시스템: {platform.system()} {platform.release()}")
+    print(f"Python: {platform.python_version()}")
+    
+    # 모델 테스트
+    success, llm = test_phi3_model()
+    
+    if success:
+        print("\n" + "🎉"*20)
+        print("모델이 정상 작동합니다!")
+        print("🎉"*20)
+        
+        # 대화 모드 제안
+        answer = input("\n대화 모드로 진입하시겠습니까? (y/n): ").strip().lower()
+        if answer == 'y':
+            interactive_mode(llm)
+    else:
+        print("\n모델 로드에 실패했습니다.")
+        print("\n해결 방법:")
+        print("1. llama-cpp-python 버전 변경:")
+        print("   pip install llama-cpp-python==0.2.20 --force-reinstall")
+        print("2. 다른 Phi-3 quantization 시도 (Q4_K_M 등)")
+        print("3. Python 3.10으로 시도")
 
 if __name__ == "__main__":
     try:
@@ -288,7 +259,6 @@ if __name__ == "__main__":
         import traceback
         traceback.print_exc()
     finally:
-        # stdout 복구
+        # stdout 복원
         sys.stdout = original_stdout
         sys.stderr = original_stderr
-        print("\n종료되었습니다.")
