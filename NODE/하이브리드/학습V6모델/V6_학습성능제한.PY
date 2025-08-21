@@ -1,5 +1,5 @@
 """
-train_v6.py - 메모리 최적화 학습 코드
+train_v6.py - 메모리 최적화 학습 코드 + 앙상블
 배치 처리 및 메모리 관리 강화
 TensorFlow 2.15.0
 """
@@ -15,7 +15,7 @@ import warnings
 warnings.filterwarnings('ignore')
 
 print("="*60)
-print("🚀 반도체 물류 예측 학습 V6 - 메모리 최적화")
+print("🚀 반도체 물류 예측 학습 V6 - 메모리 최적화 + 앙상블")
 print(f"📦 TensorFlow 버전: {tf.__version__}")
 print("="*60)
 
@@ -270,8 +270,56 @@ class LightweightModels:
         return model
 
 # ============================================
-# 4. 커스텀 손실 함수
+# 4. 커스텀 레이어 및 손실 함수
 # ============================================
+class M14RuleCorrection(tf.keras.layers.Layer):
+    """M14 규칙 기반 보정 레이어"""
+    def __init__(self):
+        super().__init__()
+        
+    def call(self, inputs):
+        pred, m14_features = inputs
+        
+        # M14 특징 분해
+        m14b = m14_features[:, 0:1]
+        m10a = m14_features[:, 1:2]
+        ratio = m14_features[:, 3:4] if m14_features.shape[1] > 3 else tf.ones_like(m14b)
+        
+        # 규칙 기반 보정
+        # 1700+ 신호
+        condition_1700 = tf.logical_and(
+            tf.greater_equal(m14b, Config.M14B_THRESHOLDS[1700]),
+            tf.greater_equal(ratio, Config.RATIO_THRESHOLDS[1700])
+        )
+        pred = tf.where(condition_1700, tf.maximum(pred, 1700), pred)
+        
+        # 1600+ 신호
+        condition_1600 = tf.logical_and(
+            tf.greater_equal(m14b, Config.M14B_THRESHOLDS[1600]),
+            tf.greater_equal(ratio, Config.RATIO_THRESHOLDS[1600])
+        )
+        pred = tf.where(condition_1600, tf.maximum(pred, 1600), pred)
+        
+        # 1500+ 신호
+        condition_1500 = tf.logical_and(
+            tf.greater_equal(m14b, Config.M14B_THRESHOLDS[1500]),
+            tf.greater_equal(ratio, Config.RATIO_THRESHOLDS[1500])
+        )
+        pred = tf.where(condition_1500, tf.maximum(pred, 1500), pred)
+        
+        # 1400+ 신호
+        condition_1400 = tf.greater_equal(m14b, Config.M14B_THRESHOLDS[1400])
+        pred = tf.where(condition_1400, tf.maximum(pred, 1400), pred)
+        
+        # M10A 역패턴 보정
+        condition_inverse = tf.logical_and(
+            tf.less(m10a, 70),
+            tf.greater_equal(m14b, 250)
+        )
+        pred = tf.where(condition_inverse, pred * 1.08, pred)
+        
+        return pred
+
 class WeightedLoss(tf.keras.losses.Loss):
     """레벨별 가중 손실 함수"""
     def __init__(self):
@@ -528,19 +576,6 @@ gc.collect()
 print("\n4️⃣ Spike Detector 모델 학습")
 
 try:
-    # Spike 데이터 생성기
-    spike_train_gen = DataGenerator(
-        X_train, 
-        {'spike_value': y_train, 'spike_prob': y_spike_class},
-        batch_size=Config.BATCH_SIZE
-    )
-    spike_val_gen = DataGenerator(
-        X_val,
-        {'spike_value': y_val, 'spike_prob': y_val_spike_class},
-        batch_size=Config.BATCH_SIZE,
-        shuffle=False
-    )
-    
     spike_model = LightweightModels.build_spike_detector(X_train.shape[1:])
     spike_model.compile(
         optimizer=tf.keras.optimizers.Adam(Config.LEARNING_RATE),
@@ -558,55 +593,29 @@ try:
         }
     )
     
-    # 커스텀 fit 구현 (메모리 효율)
-    spike_history = {'loss': [], 'val_loss': []}
-    
-    for epoch in range(min(Config.EPOCHS, 50)):  # 최대 50 에폭
-        print(f"  Epoch {epoch+1}/{min(Config.EPOCHS, 50)}")
-        
-        # 학습
-        train_loss = []
-        for batch_idx in range(len(train_gen)):
-            X_batch, y_batch = train_gen[batch_idx]
-            
-            # y_batch가 딕셔너리가 아닌 경우 처리
-            if not isinstance(y_batch, dict):
-                y_batch = {'spike_value': y_batch, 'spike_prob': y_spike_class[batch_idx*Config.BATCH_SIZE:(batch_idx+1)*Config.BATCH_SIZE]}
-            
-            loss = spike_model.train_on_batch(X_batch, y_batch)
-            train_loss.append(loss[0] if isinstance(loss, list) else loss)
-        
-        # 검증
-        val_loss = []
-        for batch_idx in range(len(val_gen)):
-            X_batch, y_batch = val_gen[batch_idx]
-            
-            # y_batch가 딕셔너리가 아닌 경우 처리
-            if not isinstance(y_batch, dict):
-                y_batch = {'spike_value': y_batch, 'spike_prob': y_val_spike_class[batch_idx*Config.BATCH_SIZE:(batch_idx+1)*Config.BATCH_SIZE]}
-            
-            loss = spike_model.test_on_batch(X_batch, y_batch)
-            val_loss.append(loss[0] if isinstance(loss, list) else loss)
-        
-        avg_train_loss = np.mean(train_loss)
-        avg_val_loss = np.mean(val_loss)
-        
-        spike_history['loss'].append(avg_train_loss)
-        spike_history['val_loss'].append(avg_val_loss)
-        
-        print(f"    Loss: {avg_train_loss:.4f} - Val Loss: {avg_val_loss:.4f}")
-        
-        # Early stopping
-        if epoch > 10 and avg_val_loss > min(spike_history['val_loss'][:-1]):
-            print("  Early stopping")
-            break
-        
-        # 메모리 정리
-        if epoch % 5 == 0:
-            gc.collect()
+    # 간단한 학습 (메모리 효율)
+    spike_history = spike_model.fit(
+        X_train,
+        {'spike_value': y_train, 'spike_prob': y_spike_class},
+        validation_data=(
+            X_val,
+            {'spike_value': y_val, 'spike_prob': y_val_spike_class}
+        ),
+        epochs=min(Config.EPOCHS, 50),
+        batch_size=Config.BATCH_SIZE,
+        callbacks=[
+            tf.keras.callbacks.EarlyStopping(
+                patience=10,
+                restore_best_weights=True,
+                verbose=1
+            ),
+            MemoryCallback()
+        ],
+        verbose=1
+    )
     
     models['spike'] = spike_model
-    history['spike'] = type('', (), {'history': spike_history})()
+    history['spike'] = spike_history
     print("  ✅ Spike Detector 학습 완료")
     
 except Exception as e:
@@ -615,7 +624,143 @@ except Exception as e:
 # 메모리 정리
 gc.collect()
 
-print("\n✅ 모든 모델 학습 완료!")
+# ============================================
+# 5. 앙상블 모델 구성
+# ============================================
+print("\n5️⃣ 앙상블 모델 구성")
+
+try:
+    # 앙상블 입력
+    time_series_input = tf.keras.Input(shape=X_train.shape[1:], name='ensemble_input')
+    m14_input = tf.keras.Input(shape=m14_train.shape[1], name='m14_features')
+    
+    # 각 모델 예측값 수집
+    predictions = []
+    
+    if 'lstm' in models and models['lstm'] is not None:
+        lstm_pred = models['lstm'](time_series_input)
+        predictions.append(lstm_pred)
+    
+    if 'gru' in models and models['gru'] is not None:
+        gru_pred = models['gru'](time_series_input)
+        predictions.append(gru_pred)
+    
+    if 'cnn_lstm' in models and models['cnn_lstm'] is not None:
+        cnn_lstm_pred = models['cnn_lstm'](time_series_input)
+        predictions.append(cnn_lstm_pred)
+    
+    if 'spike' in models and models['spike'] is not None:
+        spike_pred, spike_prob = models['spike'](time_series_input)
+        predictions.append(spike_pred)
+    else:
+        spike_prob = None
+    
+    # 예측값들의 평균 (간단한 앙상블)
+    if len(predictions) > 1:
+        # 모든 예측값을 스택하고 평균
+        stacked = tf.keras.layers.Lambda(lambda x: tf.stack(x, axis=-1))(predictions)
+        ensemble_pred = tf.keras.layers.Lambda(lambda x: tf.reduce_mean(x, axis=-1, keepdims=True))(stacked)
+    elif len(predictions) == 1:
+        ensemble_pred = predictions[0]
+    else:
+        raise ValueError("앙상블을 위한 모델이 없습니다.")
+    
+    # M14 기반 동적 가중치
+    weight_dense = tf.keras.layers.Dense(32, activation='relu')(m14_input)
+    weight_dense = tf.keras.layers.Dense(16, activation='relu')(weight_dense)
+    weight_output = tf.keras.layers.Dense(1, activation='sigmoid')(weight_dense)
+    
+    # 가중치 적용
+    weighted_pred = tf.keras.layers.Multiply()([ensemble_pred, weight_output])
+    base_weight = tf.keras.layers.Lambda(lambda x: 1 - x)(weight_output)
+    base_pred = tf.keras.layers.Multiply()([ensemble_pred, base_weight])
+    
+    # 최종 예측값
+    final_base = tf.keras.layers.Add()([weighted_pred, base_pred])
+    
+    # M14 규칙 보정
+    final_pred = M14RuleCorrection()([final_base, m14_input])
+    
+    # 앙상블 모델 생성
+    if spike_prob is not None:
+        ensemble_model = tf.keras.Model(
+            inputs=[time_series_input, m14_input],
+            outputs=[final_pred, spike_prob],
+            name='Ensemble_Model'
+        )
+        
+        ensemble_model.compile(
+            optimizer=tf.keras.optimizers.Adam(Config.LEARNING_RATE * 0.5),
+            loss={
+                'm14_rule_correction': WeightedLoss(),
+                'spike_prob': 'binary_crossentropy'
+            },
+            loss_weights={
+                'm14_rule_correction': 1.0,
+                'spike_prob': 0.3
+            },
+            metrics=['mae']
+        )
+        
+        # 앙상블 파인튜닝
+        print("  📊 앙상블 파인튜닝...")
+        ensemble_history = ensemble_model.fit(
+            [X_train, m14_train],
+            [y_train, y_spike_class],
+            validation_data=(
+                [X_val, m14_val],
+                [y_val, y_val_spike_class]
+            ),
+            epochs=20,
+            batch_size=Config.BATCH_SIZE,
+            callbacks=[
+                tf.keras.callbacks.EarlyStopping(patience=5, restore_best_weights=True),
+                MemoryCallback()
+            ],
+            verbose=1
+        )
+    else:
+        ensemble_model = tf.keras.Model(
+            inputs=[time_series_input, m14_input],
+            outputs=final_pred,
+            name='Ensemble_Model'
+        )
+        
+        ensemble_model.compile(
+            optimizer=tf.keras.optimizers.Adam(Config.LEARNING_RATE * 0.5),
+            loss=WeightedLoss(),
+            metrics=['mae']
+        )
+        
+        # 앙상블 파인튜닝
+        print("  📊 앙상블 파인튜닝...")
+        ensemble_history = ensemble_model.fit(
+            [X_train, m14_train],
+            y_train,
+            validation_data=(
+                [X_val, m14_val],
+                y_val
+            ),
+            epochs=20,
+            batch_size=Config.BATCH_SIZE,
+            callbacks=[
+                tf.keras.callbacks.EarlyStopping(patience=5, restore_best_weights=True),
+                MemoryCallback()
+            ],
+            verbose=1
+        )
+    
+    models['ensemble'] = ensemble_model
+    history['ensemble'] = ensemble_history
+    print("  ✅ 앙상블 모델 구성 완료")
+    
+except Exception as e:
+    print(f"  ❌ 앙상블 모델 구성 실패: {e}")
+
+# 메모리 정리
+gc.collect()
+
+print("\n✅ 모든 모델 학습 완료! (앙상블 포함)")
 
 # ============================================
 # 8. 평가 (배치 처리)
@@ -628,19 +773,31 @@ print("="*60)
 eval_size = min(5000, len(X_val))
 X_eval = X_val[:eval_size]
 y_eval = y_val[:eval_size]
+m14_eval = m14_val[:eval_size]
 
 for name, model in models.items():
     if model is None:
         continue
-        
+    
     # 배치 예측
     predictions = []
-    for i in range(0, len(X_eval), Config.BATCH_SIZE):
-        batch = X_eval[i:i+Config.BATCH_SIZE]
-        pred = model.predict(batch, verbose=0)
-        if isinstance(pred, list):
-            pred = pred[0]
-        predictions.append(pred)
+    
+    if name == 'ensemble':
+        # 앙상블 모델은 m14 특징도 필요
+        for i in range(0, len(X_eval), Config.BATCH_SIZE):
+            batch_X = X_eval[i:i+Config.BATCH_SIZE]
+            batch_m14 = m14_eval[i:i+Config.BATCH_SIZE]
+            pred = model.predict([batch_X, batch_m14], verbose=0)
+            if isinstance(pred, list):
+                pred = pred[0]
+            predictions.append(pred)
+    else:
+        for i in range(0, len(X_eval), Config.BATCH_SIZE):
+            batch = X_eval[i:i+Config.BATCH_SIZE]
+            pred = model.predict(batch, verbose=0)
+            if isinstance(pred, list):
+                pred = pred[0]
+            predictions.append(pred)
     
     pred = np.concatenate(predictions, axis=0).flatten()
     
@@ -706,17 +863,17 @@ print("  결과 파일 저장 완료")
 print("\n📈 결과 시각화 생성 중...")
 
 try:
-    fig, axes = plt.subplots(2, 2, figsize=(12, 8))
+    fig, axes = plt.subplots(2, 3, figsize=(15, 10))
     
-    # 학습 곡선
+    # 학습 곡선 (5개 모델)
     for idx, (name, hist) in enumerate(history.items()):
-        if idx >= 4:
+        if idx >= 5:
             break
-        ax = axes[idx // 2, idx % 2]
+        ax = axes[idx // 3, idx % 3]
         
         if hasattr(hist, 'history'):
-            loss = hist.history.get('loss', [])
-            val_loss = hist.history.get('val_loss', [])
+            loss = hist.history.get('loss', hist.history.get('m14_rule_correction_loss', []))
+            val_loss = hist.history.get('val_loss', hist.history.get('val_m14_rule_correction_loss', []))
             
             if loss and val_loss:
                 ax.plot(loss, label='Train Loss')
@@ -727,7 +884,24 @@ try:
                 ax.legend()
                 ax.grid(True, alpha=0.3)
     
-    plt.suptitle('메모리 최적화 학습 결과', fontsize=14, fontweight='bold')
+    # 마지막 서브플롯에 성능 요약
+    ax = axes[1, 2]
+    ax.axis('off')
+    
+    summary_text = "🏆 Performance Summary\n" + "="*30 + "\n"
+    if best_model:
+        summary_text += f"Best Model: {best_model.upper()}\n"
+        summary_text += f"Overall MAE: {evaluation_results[best_model]['overall_mae']:.2f}\n\n"
+        summary_text += "Recall by Level:\n"
+        for level in [1400, 1500, 1600, 1700]:
+            if level in evaluation_results[best_model]['levels']:
+                recall = evaluation_results[best_model]['levels'][level]['recall']
+                summary_text += f"{level}+: {recall:.1%}\n"
+    
+    ax.text(0.1, 0.9, summary_text, transform=ax.transAxes,
+           fontsize=10, verticalalignment='top', fontfamily='monospace')
+    
+    plt.suptitle('메모리 최적화 학습 결과 (앙상블 포함)', fontsize=14, fontweight='bold')
     plt.tight_layout()
     plt.savefig(f"{Config.MODEL_DIR}training_results.png", dpi=100, bbox_inches='tight')
     print("  training_results.png 저장 완료")
@@ -740,6 +914,7 @@ print("\n" + "="*60)
 print("🎉 모든 작업 완료!")
 print(f"📁 저장 위치: {Config.MODEL_DIR}")
 print(f"📂 시퀀스 파일: {Config.SEQUENCE_FILE}")
+print(f"🔧 모델: LSTM, GRU, CNN-LSTM, Spike Detector, 앙상블")
 print("="*60)
 
 # 최종 메모리 정리
