@@ -78,3 +78,103 @@ M14 규칙
 급변: 딥러닝 20% + M14 80%
 
 = 모든 상황 대응 가능! 🚀
+
+
+
+"""
+반도체 물류 1400-1700+ 예측 시스템
+과거 100분 데이터 → 10분 후 예측
+
+[핵심 규칙]
+1. M14AM14B가 가장 중요 (높을수록 물류량 증가)
+2. M14AM10A는 역상관 (낮을수록 물류량 증가)  
+3. M14AM14B/M14AM10A 비율이 핵심 신호
+
+[예측 단계]
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+레벨        M14AM14B  비율   정확도  발생률
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+< 1400      < 320     < 4    -      56.5%
+1400-1499   ≥ 320     ≥ 4    87%    24.1%
+1500-1599   ≥ 400     ≥ 5    92%    14.8%
+1600-1699   ≥ 450     ≥ 6    99%    4.2%
+≥ 1700      ≥ 500     ≥ 7    90%    0.3%
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+[보정 코드]
+def correct_DL_prediction(pred, M14AM14B, M14AM10A, M14AM16):
+    ratio = M14AM14B / max(M14AM10A, 1)
+    
+    # 초강력 신호
+    if M14AM14B >= 500 and ratio >= 7:
+        return max(pred, 1700)
+    elif M14AM14B >= 450 and ratio >= 6:
+        return max(pred, 1600)
+    elif M14AM14B >= 400 and ratio >= 5:
+        return max(pred, 1500)
+    elif M14AM14B >= 320:
+        return max(pred, 1400)
+    
+    # 역패턴 보정
+    elif M14AM10A < 70 and M14AM14B >= 250:
+        return pred * 1.08
+        
+    return pred
+
+[특별 패턴]
+- M14AM10A < 70: 1400+ 확률 75%
+- M14AM10A 10분간 10↓: 급상승 신호
+- M14AM14B 5분 연속↑: 돌파 임박
+"""
+
+🤖 AI 모델 학습용 Feature 프롬프트
+
+python
+
+# 필수 입력 특징 (과거 100분)
+features = {
+    'time_series': past_100min_values,
+    'M14AM14B': M14AM14B_values,
+    'M14AM10A': M14AM10A_values,
+    'M14AM16': M14AM16_values,
+    
+    # 파생 특징 (엔지니어링)
+    'ratio_14B_10A': M14AM14B / max(M14AM10A, 1),
+    'ratio_14B_16': M14AM14B / max(M14AM16, 1),
+    'M14AM10A_inverse': 100 - M14AM10A,
+    'M14AM14B_change_5min': M14AM14B[t] - M14AM14B[t-5],
+    'M14AM10A_drop_10min': M14AM10A[t-10] - M14AM10A[t],
+    
+    # 레벨 신호
+    'signal_1400': 1 if M14AM14B >= 320 else 0,
+    'signal_1500': 1 if M14AM14B >= 400 else 0,
+    'signal_1600': 1 if M14AM14B >= 450 else 0,
+    'signal_1700': 1 if M14AM14B >= 500 else 0
+}
+
+# 손실 함수 가중치
+loss_weights = {
+    'normal': 1.0,      # < 1400
+    'level_1400': 3.0,  # 1400-1499
+    'level_1500': 5.0,  # 1500-1599  
+    'level_1600': 8.0,  # 1600-1699
+    'level_1700': 10.0  # ≥ 1700 (최우선)
+}
+
+📊 검증용 체크리스트
+
+markdown
+
+✅ 모델 성능 검증 체크리스트
+
+□ 1400+ 구간 Recall > 80%
+□ 1500+ 구간 Recall > 70%
+□ 1600+ 구간 Recall > 60%
+□ 1700+ 구간 Recall > 50% (30개 중 15개 이상)
+
+□ M14AM14B >= 450일 때 → 예측값 >= 1400
+□ M14AM14B >= 500일 때 → 예측값 >= 1600
+□ 비율 >= 6일 때 → 예측값 >= 1500
+
+□ 전체 MAE < 80
+□ 1400+ 구간 MAE < 100
