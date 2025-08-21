@@ -43,8 +43,8 @@ RATIO_THRESHOLDS = {
 SAVE_PATH = './sequences_v6.npz'
 
 # 병렬처리 설정
-N_WORKERS = min(cpu_count() - 1, 8)  # 최대 8개 코어 사용
-CHUNK_SIZE = 5000  # 각 프로세스가 처리할 시퀀스 수
+N_WORKERS = 4  # CPU 코어 수
+CHUNK_SIZE = 2000  # 각 프로세스가 처리할 시퀀스 수
 
 # ============================================
 # 병렬처리용 함수 (모듈 레벨에 정의)
@@ -81,15 +81,6 @@ def process_chunk(args):
            np.array(y_chunk, dtype=np.float32), \
            np.array(m14_chunk, dtype=np.float32)
 
-def scale_feature(args):
-    """특징 하나를 스케일링 (병렬처리용)"""
-    feature_idx, feature_data = args
-    scaler = RobustScaler()
-    feature_flat = feature_data.reshape(-1, 1)
-    scaler.fit(feature_flat)
-    scaled = scaler.transform(feature_flat).reshape(feature_data.shape)
-    return feature_idx, scaled, scaler
-
 # ============================================
 # 메인 함수
 # ============================================
@@ -98,6 +89,7 @@ def main():
     print("🚀 반도체 물류 시퀀스 생성기 V6 (병렬처리)")
     print(f"💻 사용 가능한 CPU 코어: {cpu_count()}개")
     print(f"📍 실제 사용할 워커: {N_WORKERS}개")
+    print(f"📦 청크 크기: {CHUNK_SIZE:,}개")
     print("="*60)
     
     # ============================================
@@ -107,7 +99,7 @@ def main():
     
     # 데이터 로드
     df = pd.read_csv(DATA_FILE)
-    print(f"  데이터 크기: {len(df)}행")
+    print(f"  데이터 크기: {len(df):,}행")
     
     # 필수 컬럼 확인
     if 'TOTALCNT' in df.columns:
@@ -288,11 +280,16 @@ def main():
     print(f"  ✅ 저장 완료: {SAVE_PATH}")
     print(f"  ✅ 스케일러 저장: ./scalers_v6.pkl")
     
+    # 파일 크기 확인
+    file_size = os.path.getsize(SAVE_PATH) / (1024**3)
+    print(f"  📦 파일 크기: {file_size:.2f}GB")
+    
     # ============================================
     # 데이터 통계
     # ============================================
     print("\n📊 데이터 통계:")
     print(f"  타겟값 범위: {y.min():.0f} ~ {y.max():.0f}")
+    print(f"  평균: {y.mean():.1f}, 표준편차: {y.std():.1f}")
     print(f"  1400+ 비율: {(y >= 1400).mean():.1%} ({(y >= 1400).sum():,}개)")
     print(f"  1500+ 비율: {(y >= 1500).mean():.1%} ({(y >= 1500).sum():,}개)")
     print(f"  1600+ 비율: {(y >= 1600).mean():.1%} ({(y >= 1600).sum():,}개)")
@@ -303,7 +300,7 @@ def main():
     print("✅ 시퀀스 생성 완료!")
     print(f"⏱️ 총 소요 시간: {total_time}")
     print(f"🚀 속도 향상: 약 {N_WORKERS}배 빠름")
-    print("💡 다음 단계: train_v6.py 실행")
+    print("💡 다음 단계: python train_v6.py 실행")
     print("="*60)
 
 # ============================================
