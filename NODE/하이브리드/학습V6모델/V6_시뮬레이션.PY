@@ -9,20 +9,32 @@ import seaborn as sns
 from matplotlib.patches import Rectangle
 import matplotlib.patches as mpatches
 
-# 한글 폰트 설정 - 시스템에 맞게 하나만 선택하세요
-import platform
-system = platform.system()
+# Windows 전용 한글 폰트 강제 설정
+import matplotlib.font_manager as fm
+import os
 
-if system == 'Windows':
-    plt.rcParams['font.family'] = 'Malgun Gothic'
-elif system == 'Darwin':  # Mac
-    plt.rcParams['font.family'] = 'AppleGothic'
-else:  # Linux
-    # 한글 폰트가 없는 경우 설치 필요
-    # !apt-get install fonts-nanum
-    plt.rcParams['font.family'] = 'NanumGothic'
+# 폰트 경로 직접 지정 (Windows)
+font_path = 'C:/Windows/Fonts/malgun.ttf'  # 맑은 고딕
+if not os.path.exists(font_path):
+    font_path = 'C:/Windows/Fonts/gulim.ttc'  # 굴림체
+if not os.path.exists(font_path):
+    font_path = 'C:/Windows/Fonts/batang.ttc'  # 바탕체
+
+# 폰트 설정
+if os.path.exists(font_path):
+    font_name = fm.FontProperties(fname=font_path).get_name()
+    plt.rcParams['font.family'] = font_name
+    print(f"✅ 한글 폰트 설정 완료: {font_name}")
+else:
+    # 폰트 리스트에서 찾기
+    for f in fm.fontManager.ttflist:
+        if 'Malgun' in f.name or '맑은' in f.name:
+            plt.rcParams['font.family'] = f.name
+            print(f"✅ 한글 폰트 자동 탐색 완료: {f.name}")
+            break
 
 plt.rcParams['axes.unicode_minus'] = False
+plt.rcParams['axes.grid'] = True
 
 # 스타일 설정
 sns.set_style("whitegrid")
