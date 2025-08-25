@@ -212,30 +212,6 @@ TOTALCNT 통계:
     print("  - TOTALCNT 평균은?")
     print("  - 1500 이상인 데이터는 몇 개?")
     print("=" * 60)
-   
-    # 10. 자동 테스트
-    print("\n🧪 자동 테스트 실행:")
-    test_questions = [
-        "전체 데이터는 몇 개야?",
-        "TOTALCNT 평균은?",
-        "1500 이상인 데이터는 몇 개?"
-    ]
-    
-    for q in test_questions:
-        print(f"\n❓ {q}")
-        try:
-            result = qa_chain({"query": q})
-            print(f"✅ {result['result']}")
-            # 검색된 문서 확인
-            if result.get('source_documents'):
-                print(f"   (검색된 문서 {len(result['source_documents'])}개)")
-        except Exception as e:
-            print(f"❌ 오류: {e}")
-    
-    # 11. 대화형 질의응답
-    print("\n" + "=" * 60)
-    print("💬 대화 모드 (종료: quit/exit)")
-    print("=" * 60)
     
     while True:
         question = input("\n💬 질문: ")
@@ -249,13 +225,7 @@ TOTALCNT 통계:
             print("\n🤖 답변:")
             print(result['result'])
             
-            # 디버그 정보 (선택적)
-            show_debug = input("\n📋 검색된 문서 보기? (y/n): ")
-            if show_debug.lower() == 'y':
-                print("\n📄 검색된 문서:")
-                for i, doc in enumerate(result.get('source_documents', [])[:3]):
-                    print(f"\n[문서 {i+1}]")
-                    print(doc.page_content[:200])
+
                     
         except Exception as e:
             print(f"❌ 오류: {e}")
