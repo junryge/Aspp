@@ -391,6 +391,9 @@ class ImprovedModels:
 # ============================================
 # 5. 개선된 콜백
 # ============================================
+# ============================================
+# 5. 개선된 콜백 (수정 버전)
+# ============================================
 class ImprovedCallbacks:
     @staticmethod
     def cosine_annealing_scheduler(epoch, lr):
@@ -404,7 +407,11 @@ class ImprovedCallbacks:
     @staticmethod
     def get_callbacks(model_name, X_val, y_val):
         """개선된 콜백 세트"""
-        return [
+        # 로그 디렉토리 생성
+        log_dir = f'./logs/{model_name}_{datetime.now().strftime("%Y%m%d-%H%M%S")}'
+        os.makedirs(log_dir, exist_ok=True)
+        
+        callbacks = [
             tf.keras.callbacks.ModelCheckpoint(
                 f"{Config.MODEL_DIR}{model_name}_best.h5",
                 save_best_only=True,
@@ -430,11 +437,14 @@ class ImprovedCallbacks:
                 ImprovedCallbacks.cosine_annealing_scheduler,
                 verbose=0
             ),
-            SpikePerformanceCallback(X_val, y_val),
-            tf.keras.callbacks.TensorBoard(
-                log_dir=f'./logs/{model_name}_{datetime.now().strftime("%Y%m%d-%H%M%S")}'
-            )
+            SpikePerformanceCallback(X_val, y_val)
         ]
+        
+        # TensorBoard는 옵션으로 (CPU에서는 느릴 수 있음)
+        # 원하면 주석 해제
+        # callbacks.append(tf.keras.callbacks.TensorBoard(log_dir=log_dir))
+        
+        return callbacks
 
 # 기존 SpikePerformanceCallback은 유지
 class SpikePerformanceCallback(tf.keras.callbacks.Callback):
