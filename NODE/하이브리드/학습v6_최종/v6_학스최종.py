@@ -1,5 +1,5 @@
 """
-V6_학습_최종본.py - 5개 모델 앙상블 학습
+V6_학습_최종본.py - 5개 모델 앙상블 학습 (체크포인트 지원)
 미리 생성된 시퀀스를 로드하여 LSTM, GRU, CNN-LSTM, Spike Detector, Rule-Based 학습
 TensorFlow 2.15.0
 """
@@ -11,6 +11,8 @@ import matplotlib.pyplot as plt
 import json
 import os
 import warnings
+import pickle
+from datetime import datetime
 warnings.filterwarnings('ignore')
 
 print("="*60)
@@ -48,6 +50,7 @@ class Config:
     
     # 모델 저장 경로
     MODEL_DIR = './models_v6/'
+    CHECKPOINT_DIR = './checkpoints_v6/'
     
     # 가중치 설정
     SPIKE_WEIGHTS = {
@@ -60,6 +63,54 @@ class Config:
 
 # 디렉토리 생성
 os.makedirs(Config.MODEL_DIR, exist_ok=True)
+os.makedirs(Config.CHECKPOINT_DIR, exist_ok=True)
+
+# ============================================
+# 체크포인트 관리자
+# ============================================
+class CheckpointManager:
+    def __init__(self):
+        self.checkpoint_file = os.path.join(Config.CHECKPOINT_DIR, 'training_state.pkl')
+    
+    def save_state(self, completed_models, models, history, evaluation_results):
+        """학습 상태 저장"""
+        state = {
+            'completed_models': completed_models,
+            'timestamp': datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            'evaluation_results': evaluation_results
+        }
+        
+        # 모델 저장
+        for name, model in models.items():
+            model.save(os.path.join(Config.CHECKPOINT_DIR, f'{name}_checkpoint.h5'))
+        
+        # 히스토리 저장
+        with open(os.path.join(Config.CHECKPOINT_DIR, 'history.pkl'), 'wb') as f:
+            pickle.dump(history, f)
+        
+        with open(self.checkpoint_file, 'wb') as f:
+            pickle.dump(state, f)
+        
+        print(f"\n💾 체크포인트 저장 완료: {completed_models}")
+    
+    def load_state(self):
+        """저장된 상태 로드"""
+        if not os.path.exists(self.checkpoint_file):
+            return None, {}, {}, {}
+        
+        with open(self.checkpoint_file, 'rb') as f:
+            state = pickle.load(f)
+        
+        # 히스토리 로드
+        history = {}
+        if os.path.exists(os.path.join(Config.CHECKPOINT_DIR, 'history.pkl')):
+            with open(os.path.join(Config.CHECKPOINT_DIR, 'history.pkl'), 'rb') as f:
+                history = pickle.load(f)
+        
+        print(f"\n🔄 체크포인트 로드: {state['completed_models']}")
+        print(f"   저장 시간: {state['timestamp']}")
+        
+        return state['completed_models'], {}, history, state.get('evaluation_results', {})
 
 # ============================================
 # 2. 커스텀 레이어 및 손실 함수
@@ -347,285 +398,381 @@ print(f"  1400+ 학습 비율: {y_spike_class.mean():.1%}")
 print(f"  1400+ 검증 비율: {y_val_spike_class.mean():.1%}")
 
 # ============================================
-# 5. 학습 파이프라인
+# 5. 학습 파이프라인 (체크포인트 지원)
 # ============================================
 print("\n" + "="*60)
 print("🏋️ 5개 모델 학습 시작")
 print("="*60)
 
-models = {}
-history = {}
-evaluation_results = {}
+# 체크포인트 매니저 초기화
+checkpoint_manager = CheckpointManager()
+
+# 이전 상태 로드
+completed_models, models, history, evaluation_results = checkpoint_manager.load_state()
+
+# 완료되지 않은 경우 초기화
+if not completed_models:
+    completed_models = []
+    models = {}
+    history = {}
+    evaluation_results = {}
+
+# 모델 리스트
+model_list = ['lstm', 'gru', 'cnn_lstm', 'spike', 'rule']
 
 # ============================================
 # 5.1 LSTM 모델
 # ============================================
-print("\n1️⃣ LSTM 모델 학습 (장기 시계열 패턴)")
-
-lstm_model = ModelsV6.build_lstm_model(X_train.shape[1:])
-lstm_model.compile(
-    optimizer=tf.keras.optimizers.Adam(Config.LEARNING_RATE),
-    loss=WeightedLoss(),
-    metrics=['mae']
-)
-
-lstm_history = lstm_model.fit(
-    X_train, y_train,
-    validation_data=(X_val, y_val),
-    epochs=Config.EPOCHS,
-    batch_size=Config.BATCH_SIZE,
-    callbacks=[
-        tf.keras.callbacks.ModelCheckpoint(
-            f"{Config.MODEL_DIR}lstm_best.h5",
-            save_best_only=True,
-            monitor='val_loss',
-            verbose=0
-        ),
-        tf.keras.callbacks.EarlyStopping(patience=Config.PATIENCE, restore_best_weights=True),
-        tf.keras.callbacks.ReduceLROnPlateau(patience=5, factor=0.5),
-        SpikePerformanceCallback(X_val, y_val)
-    ],
-    verbose=1
-)
-
-models['lstm'] = lstm_model
-history['lstm'] = lstm_history
+if 'lstm' not in completed_models:
+    print("\n1️⃣ LSTM 모델 학습 (장기 시계열 패턴)")
+    
+    # 체크포인트에서 모델 로드 시도
+    checkpoint_path = os.path.join(Config.CHECKPOINT_DIR, 'lstm_checkpoint.h5')
+    if os.path.exists(checkpoint_path):
+        print("  체크포인트에서 모델 로드 중...")
+        lstm_model = tf.keras.models.load_model(checkpoint_path, custom_objects={'WeightedLoss': WeightedLoss})
+    else:
+        lstm_model = ModelsV6.build_lstm_model(X_train.shape[1:])
+        lstm_model.compile(
+            optimizer=tf.keras.optimizers.Adam(Config.LEARNING_RATE),
+            loss=WeightedLoss(),
+            metrics=['mae']
+        )
+    
+    lstm_history = lstm_model.fit(
+        X_train, y_train,
+        validation_data=(X_val, y_val),
+        epochs=Config.EPOCHS,
+        batch_size=Config.BATCH_SIZE,
+        callbacks=[
+            tf.keras.callbacks.ModelCheckpoint(
+                f"{Config.MODEL_DIR}lstm_best.h5",
+                save_best_only=True,
+                monitor='val_loss',
+                verbose=0
+            ),
+            tf.keras.callbacks.EarlyStopping(patience=Config.PATIENCE, restore_best_weights=True),
+            tf.keras.callbacks.ReduceLROnPlateau(patience=5, factor=0.5),
+            SpikePerformanceCallback(X_val, y_val)
+        ],
+        verbose=1
+    )
+    
+    models['lstm'] = lstm_model
+    history['lstm'] = lstm_history
+    completed_models.append('lstm')
+    
+    # 체크포인트 저장
+    checkpoint_manager.save_state(completed_models, models, history, evaluation_results)
+else:
+    print("\n1️⃣ LSTM 모델 - 이미 완료 ✓")
+    if os.path.exists(f"{Config.MODEL_DIR}lstm_best.h5"):
+        models['lstm'] = tf.keras.models.load_model(f"{Config.MODEL_DIR}lstm_best.h5", 
+                                                    custom_objects={'WeightedLoss': WeightedLoss})
 
 # ============================================
 # 5.2 GRU 모델
 # ============================================
-print("\n2️⃣ Enhanced GRU 모델 학습 (단기 변동성)")
-
-gru_model = ModelsV6.build_enhanced_gru(X_train.shape[1:])
-gru_model.compile(
-    optimizer=tf.keras.optimizers.Adam(Config.LEARNING_RATE),
-    loss=WeightedLoss(),
-    metrics=['mae']
-)
-
-gru_history = gru_model.fit(
-    X_train, y_train,
-    validation_data=(X_val, y_val),
-    epochs=Config.EPOCHS,
-    batch_size=Config.BATCH_SIZE,
-    callbacks=[
-        tf.keras.callbacks.ModelCheckpoint(
-            f"{Config.MODEL_DIR}gru_best.h5",
-            save_best_only=True,
-            monitor='val_loss',
-            verbose=0
-        ),
-        tf.keras.callbacks.EarlyStopping(patience=Config.PATIENCE, restore_best_weights=True),
-        tf.keras.callbacks.ReduceLROnPlateau(patience=5, factor=0.5),
-        SpikePerformanceCallback(X_val, y_val)
-    ],
-    verbose=1
-)
-
-models['gru'] = gru_model
-history['gru'] = gru_history
+if 'gru' not in completed_models:
+    print("\n2️⃣ Enhanced GRU 모델 학습 (단기 변동성)")
+    
+    checkpoint_path = os.path.join(Config.CHECKPOINT_DIR, 'gru_checkpoint.h5')
+    if os.path.exists(checkpoint_path):
+        print("  체크포인트에서 모델 로드 중...")
+        gru_model = tf.keras.models.load_model(checkpoint_path, custom_objects={'WeightedLoss': WeightedLoss})
+    else:
+        gru_model = ModelsV6.build_enhanced_gru(X_train.shape[1:])
+        gru_model.compile(
+            optimizer=tf.keras.optimizers.Adam(Config.LEARNING_RATE),
+            loss=WeightedLoss(),
+            metrics=['mae']
+        )
+    
+    gru_history = gru_model.fit(
+        X_train, y_train,
+        validation_data=(X_val, y_val),
+        epochs=Config.EPOCHS,
+        batch_size=Config.BATCH_SIZE,
+        callbacks=[
+            tf.keras.callbacks.ModelCheckpoint(
+                f"{Config.MODEL_DIR}gru_best.h5",
+                save_best_only=True,
+                monitor='val_loss',
+                verbose=0
+            ),
+            tf.keras.callbacks.EarlyStopping(patience=Config.PATIENCE, restore_best_weights=True),
+            tf.keras.callbacks.ReduceLROnPlateau(patience=5, factor=0.5),
+            SpikePerformanceCallback(X_val, y_val)
+        ],
+        verbose=1
+    )
+    
+    models['gru'] = gru_model
+    history['gru'] = gru_history
+    completed_models.append('gru')
+    
+    # 체크포인트 저장
+    checkpoint_manager.save_state(completed_models, models, history, evaluation_results)
+else:
+    print("\n2️⃣ GRU 모델 - 이미 완료 ✓")
+    if os.path.exists(f"{Config.MODEL_DIR}gru_best.h5"):
+        models['gru'] = tf.keras.models.load_model(f"{Config.MODEL_DIR}gru_best.h5",
+                                                   custom_objects={'WeightedLoss': WeightedLoss})
 
 # ============================================
 # 5.3 CNN-LSTM 모델
 # ============================================
-print("\n3️⃣ CNN-LSTM 모델 학습 (복합 패턴 인식)")
-
-cnn_lstm_model = ModelsV6.build_cnn_lstm(X_train.shape[1:])
-cnn_lstm_model.compile(
-    optimizer=tf.keras.optimizers.Adam(Config.LEARNING_RATE),
-    loss=WeightedLoss(),
-    metrics=['mae']
-)
-
-cnn_lstm_history = cnn_lstm_model.fit(
-    X_train, y_train,
-    validation_data=(X_val, y_val),
-    epochs=Config.EPOCHS,
-    batch_size=Config.BATCH_SIZE,
-    callbacks=[
-        tf.keras.callbacks.ModelCheckpoint(
-            f"{Config.MODEL_DIR}cnn_lstm_best.h5",
-            save_best_only=True,
-            monitor='val_loss',
-            verbose=0
-        ),
-        tf.keras.callbacks.EarlyStopping(patience=Config.PATIENCE, restore_best_weights=True),
-        tf.keras.callbacks.ReduceLROnPlateau(patience=5, factor=0.5),
-        SpikePerformanceCallback(X_val, y_val)
-    ],
-    verbose=1
-)
-
-models['cnn_lstm'] = cnn_lstm_model
-history['cnn_lstm'] = cnn_lstm_history
+if 'cnn_lstm' not in completed_models:
+    print("\n3️⃣ CNN-LSTM 모델 학습 (복합 패턴 인식)")
+    
+    checkpoint_path = os.path.join(Config.CHECKPOINT_DIR, 'cnn_lstm_checkpoint.h5')
+    if os.path.exists(checkpoint_path):
+        print("  체크포인트에서 모델 로드 중...")
+        cnn_lstm_model = tf.keras.models.load_model(checkpoint_path, custom_objects={'WeightedLoss': WeightedLoss})
+    else:
+        cnn_lstm_model = ModelsV6.build_cnn_lstm(X_train.shape[1:])
+        cnn_lstm_model.compile(
+            optimizer=tf.keras.optimizers.Adam(Config.LEARNING_RATE),
+            loss=WeightedLoss(),
+            metrics=['mae']
+        )
+    
+    cnn_lstm_history = cnn_lstm_model.fit(
+        X_train, y_train,
+        validation_data=(X_val, y_val),
+        epochs=Config.EPOCHS,
+        batch_size=Config.BATCH_SIZE,
+        callbacks=[
+            tf.keras.callbacks.ModelCheckpoint(
+                f"{Config.MODEL_DIR}cnn_lstm_best.h5",
+                save_best_only=True,
+                monitor='val_loss',
+                verbose=0
+            ),
+            tf.keras.callbacks.EarlyStopping(patience=Config.PATIENCE, restore_best_weights=True),
+            tf.keras.callbacks.ReduceLROnPlateau(patience=5, factor=0.5),
+            SpikePerformanceCallback(X_val, y_val)
+        ],
+        verbose=1
+    )
+    
+    models['cnn_lstm'] = cnn_lstm_model
+    history['cnn_lstm'] = cnn_lstm_history
+    completed_models.append('cnn_lstm')
+    
+    # 체크포인트 저장
+    checkpoint_manager.save_state(completed_models, models, history, evaluation_results)
+else:
+    print("\n3️⃣ CNN-LSTM 모델 - 이미 완료 ✓")
+    if os.path.exists(f"{Config.MODEL_DIR}cnn_lstm_best.h5"):
+        models['cnn_lstm'] = tf.keras.models.load_model(f"{Config.MODEL_DIR}cnn_lstm_best.h5",
+                                                        custom_objects={'WeightedLoss': WeightedLoss})
 
 # ============================================
 # 5.4 Spike Detector 모델
 # ============================================
-print("\n4️⃣ Spike Detector 모델 학습 (이상치 감지)")
-
-spike_model = ModelsV6.build_spike_detector(X_train.shape[1:])
-spike_model.compile(
-    optimizer=tf.keras.optimizers.Adam(Config.LEARNING_RATE),
-    loss={
-        'spike_value': WeightedLoss(),
-        'spike_prob': 'binary_crossentropy'
-    },
-    loss_weights={
-        'spike_value': 1.0,
-        'spike_prob': 0.3
-    },
-    metrics=['mae']
-)
-
-spike_history = spike_model.fit(
-    X_train, 
-    [y_train, y_spike_class],
-    validation_data=(X_val, [y_val, y_val_spike_class]),
-    epochs=Config.EPOCHS,
-    batch_size=Config.BATCH_SIZE,
-    callbacks=[
-        tf.keras.callbacks.ModelCheckpoint(
-            f"{Config.MODEL_DIR}spike_best.h5",
-            save_best_only=True,
-            monitor='val_spike_value_loss',
-            verbose=0
-        ),
-        tf.keras.callbacks.EarlyStopping(patience=Config.PATIENCE, restore_best_weights=True),
-        tf.keras.callbacks.ReduceLROnPlateau(patience=5, factor=0.5)
-    ],
-    verbose=1
-)
-
-models['spike'] = spike_model
-history['spike'] = spike_history
+if 'spike' not in completed_models:
+    print("\n4️⃣ Spike Detector 모델 학습 (이상치 감지)")
+    
+    checkpoint_path = os.path.join(Config.CHECKPOINT_DIR, 'spike_checkpoint.h5')
+    if os.path.exists(checkpoint_path):
+        print("  체크포인트에서 모델 로드 중...")
+        spike_model = tf.keras.models.load_model(checkpoint_path, custom_objects={'WeightedLoss': WeightedLoss})
+    else:
+        spike_model = ModelsV6.build_spike_detector(X_train.shape[1:])
+        spike_model.compile(
+            optimizer=tf.keras.optimizers.Adam(Config.LEARNING_RATE),
+            loss={
+                'spike_value': WeightedLoss(),
+                'spike_prob': 'binary_crossentropy'
+            },
+            loss_weights={
+                'spike_value': 1.0,
+                'spike_prob': 0.3
+            },
+            metrics=['mae']
+        )
+    
+    spike_history = spike_model.fit(
+        X_train, 
+        [y_train, y_spike_class],
+        validation_data=(X_val, [y_val, y_val_spike_class]),
+        epochs=Config.EPOCHS,
+        batch_size=Config.BATCH_SIZE,
+        callbacks=[
+            tf.keras.callbacks.ModelCheckpoint(
+                f"{Config.MODEL_DIR}spike_best.h5",
+                save_best_only=True,
+                monitor='val_spike_value_loss',
+                verbose=0
+            ),
+            tf.keras.callbacks.EarlyStopping(patience=Config.PATIENCE, restore_best_weights=True),
+            tf.keras.callbacks.ReduceLROnPlateau(patience=5, factor=0.5)
+        ],
+        verbose=1
+    )
+    
+    models['spike'] = spike_model
+    history['spike'] = spike_history
+    completed_models.append('spike')
+    
+    # 체크포인트 저장
+    checkpoint_manager.save_state(completed_models, models, history, evaluation_results)
+else:
+    print("\n4️⃣ Spike Detector 모델 - 이미 완료 ✓")
+    if os.path.exists(f"{Config.MODEL_DIR}spike_best.h5"):
+        models['spike'] = tf.keras.models.load_model(f"{Config.MODEL_DIR}spike_best.h5",
+                                                     custom_objects={'WeightedLoss': WeightedLoss})
 
 # ============================================
 # 5.5 Rule-Based 모델
 # ============================================
-print("\n5️⃣ Rule-Based 모델 학습 (검증된 황금 패턴)")
+if 'rule' not in completed_models:
+    print("\n5️⃣ Rule-Based 모델 학습 (검증된 황금 패턴)")
+    
+    checkpoint_path = os.path.join(Config.CHECKPOINT_DIR, 'rule_checkpoint.h5')
+    if os.path.exists(checkpoint_path):
+        print("  체크포인트에서 모델 로드 중...")
+        rule_model = tf.keras.models.load_model(checkpoint_path, 
+                                               custom_objects={'WeightedLoss': WeightedLoss, 
+                                                             'M14RuleCorrection': M14RuleCorrection})
+    else:
+        rule_model = ModelsV6.build_rule_based_model(X_train.shape[1:], m14_train.shape[1])
+        rule_model.compile(
+            optimizer=tf.keras.optimizers.Adam(Config.LEARNING_RATE * 0.5),
+            loss=WeightedLoss(),
+            metrics=['mae']
+        )
+    
+    rule_history = rule_model.fit(
+        [X_train, m14_train], 
+        y_train,
+        validation_data=([X_val, m14_val], y_val),
+        epochs=50,  # Rule-based는 빠르게 수렴
+        batch_size=Config.BATCH_SIZE,
+        callbacks=[
+            tf.keras.callbacks.ModelCheckpoint(
+                f"{Config.MODEL_DIR}rule_best.h5",
+                save_best_only=True,
+                monitor='val_loss',
+                verbose=0
+            ),
+            tf.keras.callbacks.EarlyStopping(patience=10, restore_best_weights=True)
+        ],
+        verbose=1
+    )
+    
+    models['rule'] = rule_model
+    history['rule'] = rule_history
+    completed_models.append('rule')
+    
+    # 체크포인트 저장
+    checkpoint_manager.save_state(completed_models, models, history, evaluation_results)
+else:
+    print("\n5️⃣ Rule-Based 모델 - 이미 완료 ✓")
+    if os.path.exists(f"{Config.MODEL_DIR}rule_best.h5"):
+        models['rule'] = tf.keras.models.load_model(f"{Config.MODEL_DIR}rule_best.h5",
+                                                    custom_objects={'WeightedLoss': WeightedLoss,
+                                                                  'M14RuleCorrection': M14RuleCorrection})
 
-rule_model = ModelsV6.build_rule_based_model(X_train.shape[1:], m14_train.shape[1])
-rule_model.compile(
-    optimizer=tf.keras.optimizers.Adam(Config.LEARNING_RATE * 0.5),
-    loss=WeightedLoss(),
-    metrics=['mae']
-)
-
-rule_history = rule_model.fit(
-    [X_train, m14_train], 
-    y_train,
-    validation_data=([X_val, m14_val], y_val),
-    epochs=50,  # Rule-based는 빠르게 수렴
-    batch_size=Config.BATCH_SIZE,
-    callbacks=[
-        tf.keras.callbacks.ModelCheckpoint(
-            f"{Config.MODEL_DIR}rule_best.h5",
-            save_best_only=True,
-            monitor='val_loss',
-            verbose=0
+# ============================================
+# 6. 최종 앙상블 모델 (수정된 버전)
+# ============================================
+if 'ensemble' not in completed_models:
+    print("\n" + "="*60)
+    print("🎯 최종 앙상블 모델 구성")
+    print("="*60)
+    
+    # 입력 정의
+    time_series_input = tf.keras.Input(shape=X_train.shape[1:], name='ensemble_time_input')
+    m14_input = tf.keras.Input(shape=m14_train.shape[1], name='ensemble_m14_input')
+    
+    # 각 모델 예측
+    lstm_pred = models['lstm'](time_series_input)
+    gru_pred = models['gru'](time_series_input)
+    cnn_lstm_pred = models['cnn_lstm'](time_series_input)
+    spike_pred, spike_prob = models['spike'](time_series_input)
+    rule_pred = models['rule']([time_series_input, m14_input])
+    
+    # M14 기반 동적 가중치 생성
+    weight_dense = tf.keras.layers.Dense(32, activation='relu')(m14_input)
+    weight_dense = tf.keras.layers.Dense(16, activation='relu')(weight_dense)
+    weights = tf.keras.layers.Dense(5, activation='softmax', name='ensemble_weights')(weight_dense)
+    
+    # 가중치 분리
+    w_lstm = tf.keras.layers.Lambda(lambda x: x[:, 0:1])(weights)
+    w_gru = tf.keras.layers.Lambda(lambda x: x[:, 1:2])(weights)
+    w_cnn = tf.keras.layers.Lambda(lambda x: x[:, 2:3])(weights)
+    w_spike = tf.keras.layers.Lambda(lambda x: x[:, 3:4])(weights)
+    w_rule = tf.keras.layers.Lambda(lambda x: x[:, 4:5])(weights)
+    
+    # 가중 평균
+    weighted_lstm = tf.keras.layers.Multiply()([lstm_pred, w_lstm])
+    weighted_gru = tf.keras.layers.Multiply()([gru_pred, w_gru])
+    weighted_cnn = tf.keras.layers.Multiply()([cnn_lstm_pred, w_cnn])
+    weighted_spike = tf.keras.layers.Multiply()([spike_pred, w_spike])
+    weighted_rule = tf.keras.layers.Multiply()([rule_pred, w_rule])
+    
+    # 앙상블 예측
+    ensemble_pred = tf.keras.layers.Add()([
+        weighted_lstm, weighted_gru, weighted_cnn, 
+        weighted_spike, weighted_rule
+    ])
+    
+    # 최종 M14 규칙 보정 - name 속성 추가
+    final_pred = M14RuleCorrection(name='ensemble_prediction')([ensemble_pred, m14_input])
+    
+    # spike_prob에도 name 추가
+    spike_prob_output = tf.keras.layers.Lambda(lambda x: x, name='spike_probability')(spike_prob)
+    
+    # 앙상블 모델 정의
+    ensemble_model = tf.keras.Model(
+        inputs=[time_series_input, m14_input],
+        outputs=[final_pred, spike_prob_output],
+        name='Final_Ensemble_Model'
+    )
+    
+    # 컴파일 - 출력 이름과 일치하도록 수정
+    ensemble_model.compile(
+        optimizer=tf.keras.optimizers.Adam(Config.LEARNING_RATE * 0.5),
+        loss={
+            'ensemble_prediction': WeightedLoss(),
+            'spike_probability': 'binary_crossentropy'
+        },
+        loss_weights={
+            'ensemble_prediction': 1.0,
+            'spike_probability': 0.3
+        },
+        metrics=['mae']
+    )
+    
+    print("\n📊 앙상블 파인튜닝...")
+    ensemble_history = ensemble_model.fit(
+        [X_train, m14_train],
+        [y_train, y_spike_class],
+        validation_data=(
+            [X_val, m14_val],
+            [y_val, y_val_spike_class]
         ),
-        tf.keras.callbacks.EarlyStopping(patience=10, restore_best_weights=True)
-    ],
-    verbose=1
-)
-
-models['rule'] = rule_model
-history['rule'] = rule_history
-
-# ============================================
-# 6. 최종 앙상블 모델
-# ============================================
-
-
-
-# ============================================
-# 6. 최종 앙상블 모델
-# ============================================
-print("\n" + "="*60)
-print("🎯 최종 앙상블 모델 구성")
-print("="*60)
-
-# 입력 정의
-time_series_input = tf.keras.Input(shape=X_train.shape[1:], name='ensemble_time_input')
-m14_input = tf.keras.Input(shape=m14_train.shape[1], name='ensemble_m14_input')
-
-# 각 모델 예측
-lstm_pred = models['lstm'](time_series_input)
-gru_pred = models['gru'](time_series_input)
-cnn_lstm_pred = models['cnn_lstm'](time_series_input)
-spike_pred, spike_prob = models['spike'](time_series_input)
-rule_pred = models['rule']([time_series_input, m14_input])
-
-# M14 기반 동적 가중치 생성
-weight_dense = tf.keras.layers.Dense(32, activation='relu')(m14_input)
-weight_dense = tf.keras.layers.Dense(16, activation='relu')(weight_dense)
-weights = tf.keras.layers.Dense(5, activation='softmax', name='ensemble_weights')(weight_dense)
-
-# 가중치 분리
-w_lstm = tf.keras.layers.Lambda(lambda x: x[:, 0:1])(weights)
-w_gru = tf.keras.layers.Lambda(lambda x: x[:, 1:2])(weights)
-w_cnn = tf.keras.layers.Lambda(lambda x: x[:, 2:3])(weights)
-w_spike = tf.keras.layers.Lambda(lambda x: x[:, 3:4])(weights)
-w_rule = tf.keras.layers.Lambda(lambda x: x[:, 4:5])(weights)
-
-# 가중 평균
-weighted_lstm = tf.keras.layers.Multiply()([lstm_pred, w_lstm])
-weighted_gru = tf.keras.layers.Multiply()([gru_pred, w_gru])
-weighted_cnn = tf.keras.layers.Multiply()([cnn_lstm_pred, w_cnn])
-weighted_spike = tf.keras.layers.Multiply()([spike_pred, w_spike])
-weighted_rule = tf.keras.layers.Multiply()([rule_pred, w_rule])
-
-# 앙상블 예측
-ensemble_pred = tf.keras.layers.Add()([
-    weighted_lstm, weighted_gru, weighted_cnn, 
-    weighted_spike, weighted_rule
-])
-
-# 최종 M14 규칙 보정 - name 속성 추가
-final_pred = M14RuleCorrection(name='ensemble_prediction')([ensemble_pred, m14_input])
-
-# spike_prob에도 name 추가
-spike_prob_output = tf.keras.layers.Lambda(lambda x: x, name='spike_probability')(spike_prob)
-
-# 앙상블 모델 정의
-ensemble_model = tf.keras.Model(
-    inputs=[time_series_input, m14_input],
-    outputs=[final_pred, spike_prob_output],  # 명확한 이름의 출력들
-    name='Final_Ensemble_Model'
-)
-
-# 컴파일 시 출력 이름과 일치하도록 수정
-ensemble_model.compile(
-    optimizer=tf.keras.optimizers.Adam(Config.LEARNING_RATE * 0.5),
-    loss={
-        'ensemble_prediction': WeightedLoss(),    # 출력 레이어 이름과 일치
-        'spike_probability': 'binary_crossentropy' # 출력 레이어 이름과 일치
-    },
-    loss_weights={
-        'ensemble_prediction': 1.0,
-        'spike_probability': 0.3
-    },
-    metrics=['mae']
-)
-
-print("\n📊 앙상블 파인튜닝...")
-ensemble_history = ensemble_model.fit(
-    [X_train, m14_train],
-    [y_train, y_spike_class],
-    validation_data=(
-        [X_val, m14_val],
-        [y_val, y_val_spike_class]
-    ),
-    epochs=20,
-    batch_size=Config.BATCH_SIZE,
-    verbose=1
-)
-
-models['ensemble'] = ensemble_model
-history['ensemble'] = ensemble_history
-
-print("\n✅ 5개 모델 + 앙상블 학습 완료!")
+        epochs=20,
+        batch_size=Config.BATCH_SIZE,
+        verbose=1
+    )
+    
+    models['ensemble'] = ensemble_model
+    history['ensemble'] = ensemble_history
+    completed_models.append('ensemble')
+    
+    # 체크포인트 저장
+    checkpoint_manager.save_state(completed_models, models, history, evaluation_results)
+    
+    print("\n✅ 5개 모델 + 앙상블 학습 완료!")
+else:
+    print("\n🎯 앙상블 모델 - 이미 완료 ✓")
+    if os.path.exists(f"{Config.MODEL_DIR}ensemble_model.h5"):
+        models['ensemble'] = tf.keras.models.load_model(f"{Config.MODEL_DIR}ensemble_model.h5",
+                                                        custom_objects={'WeightedLoss': WeightedLoss,
+                                                                      'M14RuleCorrection': M14RuleCorrection})
 
 # ============================================
 # 7. 평가
@@ -729,8 +876,8 @@ for idx, (name, hist) in enumerate(history.items()):
 # 6. 앙상블 학습 곡선
 ax = plt.subplot(3, 4, 6)
 if 'ensemble' in history and hasattr(history['ensemble'], 'history'):
-    loss = history['ensemble'].history.get('m14_rule_correction_loss', [])
-    val_loss = history['ensemble'].history.get('val_m14_rule_correction_loss', [])
+    loss = history['ensemble'].history.get('ensemble_prediction_loss', [])
+    val_loss = history['ensemble'].history.get('val_ensemble_prediction_loss', [])
     if loss and val_loss:
         ax.plot(loss, label='Train Loss', alpha=0.8)
         ax.plot(val_loss, label='Val Loss', alpha=0.8)
@@ -859,17 +1006,26 @@ print("  training_results.png 저장 완료")
 plt.show()
 
 # ============================================
-# 10. 최종 출력
+# 10. 최종 출력 및 정리
 # ============================================
 print("\n" + "="*60)
 print("🎉 모든 작업 완료!")
 print("="*60)
 print(f"📁 모델 저장 위치: {Config.MODEL_DIR}")
 print(f"📂 시퀀스 파일: {Config.SEQUENCE_FILE}")
+print(f"📁 체크포인트 위치: {Config.CHECKPOINT_DIR}")
 print("\n📊 최종 성능:")
 print(f"  최고 모델: {best_model.upper()}")
 print(f"  전체 MAE: {evaluation_results[best_model]['overall_mae']:.2f}")
 print("\n💡 다음 단계: 실시간 예측 시스템 적용")
+
+# 체크포인트 정리 (옵션)
+cleanup = input("\n체크포인트를 삭제하시겠습니까? (y/n): ")
+if cleanup.lower() == 'y':
+    import shutil
+    shutil.rmtree(Config.CHECKPOINT_DIR)
+    print("✅ 체크포인트 삭제 완료")
+
 print("="*60)
 
 # GPU 정보 출력
