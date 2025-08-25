@@ -536,6 +536,12 @@ history['rule'] = rule_history
 # ============================================
 # 6. 최종 앙상블 모델
 # ============================================
+
+
+
+# ============================================
+# 6. 최종 앙상블 모델
+# ============================================
 print("\n" + "="*60)
 print("🎯 최종 앙상블 모델 구성")
 print("="*60)
@@ -576,25 +582,29 @@ ensemble_pred = tf.keras.layers.Add()([
     weighted_spike, weighted_rule
 ])
 
-# 최종 M14 규칙 보정
-final_pred = M14RuleCorrection()([ensemble_pred, m14_input])
+# 최종 M14 규칙 보정 - name 속성 추가
+final_pred = M14RuleCorrection(name='ensemble_prediction')([ensemble_pred, m14_input])
+
+# spike_prob에도 name 추가
+spike_prob_output = tf.keras.layers.Lambda(lambda x: x, name='spike_probability')(spike_prob)
 
 # 앙상블 모델 정의
 ensemble_model = tf.keras.Model(
     inputs=[time_series_input, m14_input],
-    outputs=[final_pred, spike_prob],
+    outputs=[final_pred, spike_prob_output],  # 명확한 이름의 출력들
     name='Final_Ensemble_Model'
 )
 
+# 컴파일 시 출력 이름과 일치하도록 수정
 ensemble_model.compile(
     optimizer=tf.keras.optimizers.Adam(Config.LEARNING_RATE * 0.5),
     loss={
-        'm14_rule_correction': WeightedLoss(),
-        'spike_prob': 'binary_crossentropy'
+        'ensemble_prediction': WeightedLoss(),    # 출력 레이어 이름과 일치
+        'spike_probability': 'binary_crossentropy' # 출력 레이어 이름과 일치
     },
     loss_weights={
-        'm14_rule_correction': 1.0,
-        'spike_prob': 0.3
+        'ensemble_prediction': 1.0,
+        'spike_probability': 0.3
     },
     metrics=['mae']
 )
