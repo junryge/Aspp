@@ -170,7 +170,8 @@ class SpikePerformanceCallback(tf.keras.callbacks.Callback):
     def __init__(self, X_val, y_val, log_dir, model_name):
         self.X_val = X_val
         self.y_val = y_val
-        self.writer = tf.summary.create_file_writer(log_dir)
+        self.log_dir = log_dir.replace('\\', '/')  # Windows 경로 문제 해결
+        self.writer = tf.summary.create_file_writer(self.log_dir)
         self.model_name = model_name
         
     def on_epoch_end(self, epoch, logs=None):
@@ -445,7 +446,9 @@ lstm_model.compile(
 )
 
 # TensorBoard 설정
-log_dir = os.path.join(Config.LOG_DIR, "lstm", datetime.now().strftime("%Y%m%d-%H%M%S"))
+timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+log_dir = os.path.join(Config.LOG_DIR, "lstm", timestamp)
+log_dir = log_dir.replace('\\', '/')  # Windows 경로 문제 해결
 os.makedirs(log_dir, exist_ok=True)
 
 tensorboard_callback = tf.keras.callbacks.TensorBoard(
@@ -510,7 +513,9 @@ gru_model.compile(
     metrics=['mae']
 )
 
-log_dir = os.path.join(Config.LOG_DIR, "gru", datetime.now().strftime("%Y%m%d-%H%M%S"))
+timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+log_dir = os.path.join(Config.LOG_DIR, "gru", timestamp)
+log_dir = log_dir.replace('\\', '/')  # Windows 경로 문제 해결
 os.makedirs(log_dir, exist_ok=True)
 
 tensorboard_callback = tf.keras.callbacks.TensorBoard(
@@ -573,7 +578,9 @@ cnn_lstm_model.compile(
     metrics=['mae']
 )
 
-log_dir = os.path.join(Config.LOG_DIR, "cnn_lstm", datetime.now().strftime("%Y%m%d-%H%M%S"))
+timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+log_dir = os.path.join(Config.LOG_DIR, "cnn_lstm", timestamp)
+log_dir = log_dir.replace('\\', '/')  # Windows 경로 문제 해결
 os.makedirs(log_dir, exist_ok=True)
 
 tensorboard_callback = tf.keras.callbacks.TensorBoard(
@@ -643,7 +650,9 @@ spike_model.compile(
     metrics=['mae']
 )
 
-log_dir = os.path.join(Config.LOG_DIR, "spike", datetime.now().strftime("%Y%m%d-%H%M%S"))
+timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+log_dir = os.path.join(Config.LOG_DIR, "spike", timestamp)
+log_dir = log_dir.replace('\\', '/')  # Windows 경로 문제 해결
 os.makedirs(log_dir, exist_ok=True)
 
 tensorboard_callback = tf.keras.callbacks.TensorBoard(
@@ -706,7 +715,9 @@ rule_model.compile(
     metrics=['mae']
 )
 
-log_dir = os.path.join(Config.LOG_DIR, "rule", datetime.now().strftime("%Y%m%d-%H%M%S"))
+timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+log_dir = os.path.join(Config.LOG_DIR, "rule", timestamp)
+log_dir = log_dir.replace('\\', '/')  # Windows 경로 문제 해결
 os.makedirs(log_dir, exist_ok=True)
 
 tensorboard_callback = tf.keras.callbacks.TensorBoard(
@@ -823,7 +834,9 @@ ensemble_model.compile(
     metrics=['mae']
 )
 
-log_dir = os.path.join(Config.LOG_DIR, "ensemble", datetime.now().strftime("%Y%m%d-%H%M%S"))
+timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+log_dir = os.path.join(Config.LOG_DIR, "ensemble", timestamp)
+log_dir = log_dir.replace('\\', '/')  # Windows 경로 문제 해결
 os.makedirs(log_dir, exist_ok=True)
 
 tensorboard_callback = tf.keras.callbacks.TensorBoard(
