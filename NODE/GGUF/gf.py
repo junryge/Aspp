@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """
-GGUF 대화형 LLM 시스템 - 개선 버전
-프롬프트 템플릿 및 대화 기능 강화
+Modern GGUF Chat Application - 2025
+최신 기술 트렌드를 반영한 GGUF 대화형 AI 시스템
 """
 
 import os
@@ -9,1282 +9,731 @@ import sys
 import json
 import time
 import threading
+import queue
+from datetime import datetime
+from pathlib import Path
+from typing import Optional, Dict, List, Any, Generator
+import logging
+from dataclasses import dataclass, field
+from enum import Enum
+
+# UI 라이브러리
 import customtkinter as ctk
 from tkinter import filedialog, messagebox, scrolledtext
-from pathlib import Path
-from llama_cpp import Llama
-import logging
-from datetime import datetime
-import traceback
+import tkinter as tk
 
-# llama-cpp-python 직접 import
+# GGUF 모델 라이브러리
 try:
     from llama_cpp import Llama
     LLAMA_CPP_AVAILABLE = True
 except ImportError:
     LLAMA_CPP_AVAILABLE = False
-    print("llama-cpp-python가 설치되지 않았습니다. 설치해주세요: pip install llama-cpp-python")
+    print("⚠️ llama-cpp-python이 설치되지 않았습니다.")
+    print("설치: pip install llama-cpp-python")
 
 # 로깅 설정
-logging.basicConfig(level=logging.INFO, 
-                    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-                    handlers=[logging.FileHandler("app.log"), logging.StreamHandler()])
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.FileHandler('gguf_chat.log', encoding='utf-8'),
+        logging.StreamHandler()
+    ]
+)
 logger = logging.getLogger(__name__)
 
-# 전역 테마 설정
-THEME = {
-    'primary': '#2E86C1',
-    'secondary': '#AED6F1',
-    'accent': '#F39C12',
-    'error': '#E74C3C',
-    'success': '#2ECC71',
-    'warning': '#F1C40F',
-    'background': '#F5F5F5',
-    'surface': '#FFFFFF',
-    'text': '#2C3E50',
-    'text_secondary': '#7F8C8D'
-}
+# 최신 프롬프트 템플릿 정의
+class PromptTemplate(Enum):
+    """2025년 최신 프롬프트 템플릿"""
+    
+    CHATML = """<|im_start|>system
+{system_prompt}<|im_end|>
+{chat_history}<|im_start|>user
+{user_message}<|im_end|>
+<|im_start|>assistant
+"""
+    
+    LLAMA3 = """<|begin_of_text|><|start_header_id|>system<|end_header_id|>
 
-# 기본 프롬프트 템플릿
-DEFAULT_PROMPTS = {
-    "일반 대화": {
-        "system": "당신은 친절하고 도움이 되는 AI 어시스턴트입니다. 사용자의 질문에 명확하고 정확한 답변을 제공합니다.",
-        "format": "### 사용자: {user_input}\n### 어시스턴트:"
-    },
-    "코드 도우미": {
-        "system": "당신은 전문적인 프로그래밍 도우미입니다. 코드를 작성하고 설명하며, 버그를 찾고 최적화를 제안합니다.",
-        "format": "### 요청: {user_input}\n### 코드 및 설명:"
-    },
-    "번역": {
-        "system": "당신은 전문 번역가입니다. 정확하고 자연스러운 번역을 제공합니다.",
-        "format": "### 번역 요청: {user_input}\n### 번역 결과:"
-    },
-    "로그프레소 쿼리": {
-        "system": "당신은 로그프레소 쿼리 전문가입니다. 자연어를 로그프레소 쿼리로 변환하고 쿼리를 최적화합니다.",
-        "format": "### 자연어 질의: {user_input}\n### 로그프레소 쿼리:"
-    }
-}
+{system_prompt}<|eot_id|>
+{chat_history}<|start_header_id|>user<|end_header_id|>
 
-# 디렉토리 생성
-def create_app_directories():
-    """애플리케이션 필요 디렉토리 생성"""
-    dirs = ["models", "logs", "configs", "conversations", "prompts"]
-    for dir_path in dirs:
-        os.makedirs(dir_path, exist_ok=True)
-        logger.info(f"디렉토리 생성 또는 확인: {dir_path}")
+{user_message}<|eot_id|><|start_header_id|>assistant<|end_header_id|>
 
-# 설정 관리 클래스
-class ConfigManager:
-    """애플리케이션 설정 관리"""
+"""
+    
+    ALPACA = """### System:
+{system_prompt}
+
+{chat_history}### Human:
+{user_message}
+
+### Assistant:
+"""
+    
+    VICUNA = """A chat between a curious user and an artificial intelligence assistant.
+
+{system_prompt}
+
+{chat_history}USER: {user_message}
+ASSISTANT: """
+
+@dataclass
+class ModelConfig:
+    """모델 설정 데이터 클래스"""
+    model_path: str = ""
+    context_size: int = 4096
+    max_tokens: int = 2048
+    temperature: float = 0.7
+    top_p: float = 0.9
+    top_k: int = 40
+    repeat_penalty: float = 1.1
+    n_threads: int = 4
+    n_gpu_layers: int = -1  # -1은 자동 감지
+    seed: int = -1
+    prompt_template: str = "CHATML"
+    system_prompt: str = "당신은 친절하고 도움이 되는 AI 어시스턴트입니다. 사용자의 질문에 정확하고 유용한 답변을 제공합니다."
+    
+@dataclass
+class ChatMessage:
+    """채팅 메시지 데이터 클래스"""
+    role: str
+    content: str
+    timestamp: datetime = field(default_factory=datetime.now)
+    tokens: int = 0
+
+class StreamingResponse:
+    """스트리밍 응답 처리 클래스"""
+    
+    def __init__(self, model, prompt, config: ModelConfig):
+        self.model = model
+        self.prompt = prompt
+        self.config = config
+        self.response_queue = queue.Queue()
+        self.is_generating = True
+        
+    def generate(self) -> Generator[str, None, None]:
+        """스트리밍 생성"""
+        try:
+            stream = self.model(
+                self.prompt,
+                max_tokens=self.config.max_tokens,
+                temperature=self.config.temperature,
+                top_p=self.config.top_p,
+                top_k=self.config.top_k,
+                repeat_penalty=self.config.repeat_penalty,
+                stream=True,
+                stop=["<|im_end|>", "<|eot_id|>", "</s>", "###", "\n\n\n"]
+            )
+            
+            for output in stream:
+                if not self.is_generating:
+                    break
+                    
+                token = output['choices'][0]['text']
+                yield token
+                
+        except Exception as e:
+            logger.error(f"스트리밍 생성 오류: {str(e)}")
+            yield f"\n[오류: {str(e)}]"
+    
+    def stop(self):
+        """생성 중지"""
+        self.is_generating = False
+
+class GGUFModelManager:
+    """GGUF 모델 관리자 - 최신 기능 포함"""
     
     def __init__(self):
-        self.config_file = "configs/app_config.json"
-        self.defaults = {
-            "theme": "system",
-            "model_path": "",
-            "context_size": 2048,
-            "temperature": 0.7,
-            "max_tokens": 1000,
-            "top_p": 0.95,
-            "top_k": 40,
-            "repeat_penalty": 1.1,
-            "n_threads": 4,
-            "n_gpu_layers": 0,
-            "seed": -1,
-            "recent_conversations": [],
-            "default_prompt_template": "일반 대화",
-            "custom_prompts": {},
-            "system_prompt": "",
-            "prompt_format": ""
-        }
-        self.config = self.load_config()
-    
-    def load_config(self):
-        """설정 파일 로드"""
-        if os.path.exists(self.config_file):
-            try:
-                with open(self.config_file, 'r', encoding='utf-8') as f:
-                    config = json.load(f)
-                    # 누락된 기본값 추가
-                    for key, value in self.defaults.items():
-                        if key not in config:
-                            config[key] = value
-                    return config
-            except Exception as e:
-                logger.error(f"설정 파일 로드 오류: {str(e)}")
-                return self.defaults.copy()
-        else:
-            self.save_config(self.defaults)
-            return self.defaults.copy()
-    
-    def save_config(self, config=None):
-        """설정 파일 저장"""
-        if config is None:
-            config = self.config
-        try:
-            with open(self.config_file, 'w', encoding='utf-8') as f:
-                json.dump(config, f, indent=4, ensure_ascii=False)
-            logger.info("설정 파일 저장 완료")
-            return True
-        except Exception as e:
-            logger.error(f"설정 파일 저장 오류: {str(e)}")
-            return False
-    
-    def get(self, key, default=None):
-        """설정 값 가져오기"""
-        return self.config.get(key, default)
-    
-    def set(self, key, value):
-        """설정 값 설정"""
-        self.config[key] = value
-        self.save_config()
-
-# 프롬프트 관리 클래스
-class PromptManager:
-    """프롬프트 템플릿 관리"""
-    
-    def __init__(self, config_manager):
-        self.config = config_manager
-        self.prompt_file = "prompts/custom_prompts.json"
-        self.prompts = self.load_prompts()
-    
-    def load_prompts(self):
-        """프롬프트 파일 로드"""
-        if os.path.exists(self.prompt_file):
-            try:
-                with open(self.prompt_file, 'r', encoding='utf-8') as f:
-                    custom_prompts = json.load(f)
-                    # 기본 프롬프트와 병합
-                    all_prompts = DEFAULT_PROMPTS.copy()
-                    all_prompts.update(custom_prompts)
-                    return all_prompts
-            except Exception as e:
-                logger.error(f"프롬프트 파일 로드 오류: {str(e)}")
-                return DEFAULT_PROMPTS.copy()
-        else:
-            return DEFAULT_PROMPTS.copy()
-    
-    def save_prompts(self):
-        """커스텀 프롬프트 저장"""
-        custom_prompts = {k: v for k, v in self.prompts.items() if k not in DEFAULT_PROMPTS}
-        try:
-            with open(self.prompt_file, 'w', encoding='utf-8') as f:
-                json.dump(custom_prompts, f, indent=4, ensure_ascii=False)
-            return True
-        except Exception as e:
-            logger.error(f"프롬프트 파일 저장 오류: {str(e)}")
-            return False
-    
-    def add_prompt(self, name, system, format_str):
-        """새 프롬프트 추가"""
-        self.prompts[name] = {"system": system, "format": format_str}
-        self.save_prompts()
-    
-    def delete_prompt(self, name):
-        """프롬프트 삭제"""
-        if name in self.prompts and name not in DEFAULT_PROMPTS:
-            del self.prompts[name]
-            self.save_prompts()
-            return True
-        return False
-    
-    def get_prompt(self, name):
-        """프롬프트 가져오기"""
-        return self.prompts.get(name, DEFAULT_PROMPTS["일반 대화"])
-
-# GGUF 모델 관리 클래스
-class GGUFModel:
-    """GGUF 모델 래퍼 클래스"""
-    
-    def __init__(self, config_manager):
-        self.config = config_manager
-        self.model = None
-        self.model_path = ""
-        self.stop_generation = False
-    
-    def load_model(self, model_path):
-        """GGUF 모델 로드"""
-        if not LLAMA_CPP_AVAILABLE:
-            raise ImportError("llama-cpp-python이 설치되지 않았습니다.")
+        self.model: Optional[Llama] = None
+        self.config = ModelConfig()
+        self.is_loaded = False
         
-        if not os.path.exists(model_path):
-            raise FileNotFoundError(f"모델 파일이 존재하지 않습니다: {model_path}")
-        
+    def load_model(self, model_path: str, config: ModelConfig) -> bool:
+        """모델 로드 with 최신 설정"""
         try:
             # 기존 모델 정리
             if self.model:
                 del self.model
                 self.model = None
-            
-            # 설정 가져오기
-            context_size = self.config.get("context_size", 2048)
-            n_threads = self.config.get("n_threads", 4)
-            n_gpu_layers = self.config.get("n_gpu_layers", 0)
-            seed = self.config.get("seed", -1)
-            
+                
+            # GPU 자동 감지
+            n_gpu_layers = config.n_gpu_layers
+            if n_gpu_layers == -1:
+                try:
+                    # CUDA 사용 가능 여부 확인
+                    import torch
+                    if torch.cuda.is_available():
+                        n_gpu_layers = 999  # 모든 레이어를 GPU로
+                        logger.info(f"CUDA 감지됨: {torch.cuda.get_device_name(0)}")
+                except:
+                    n_gpu_layers = 0
+                    
             # 모델 로드
             self.model = Llama(
                 model_path=model_path,
-                n_ctx=context_size,
-                n_threads=n_threads,
+                n_ctx=config.context_size,
+                n_threads=config.n_threads,
                 n_gpu_layers=n_gpu_layers,
-                seed=seed,
-                verbose=False
+                seed=config.seed,
+                verbose=False,
+                use_mmap=True,  # 메모리 매핑 사용
+                use_mlock=False,  # 메모리 락 비활성화
+                n_batch=512,  # 배치 크기
+                rope_scaling_type=1,  # RoPE 스케일링
+                mul_mat_q=True,  # 양자화된 행렬 곱셈
             )
             
-            self.model_path = model_path
-            logger.info(f"모델 로드 성공: {model_path}")
+            self.config = config
+            self.is_loaded = True
+            logger.info(f"모델 로드 성공: {os.path.basename(model_path)}")
             return True
             
         except Exception as e:
-            logger.error(f"모델 로드 오류: {str(e)}")
+            logger.error(f"모델 로드 실패: {str(e)}")
             raise
-    
-    def generate(self, prompt, **kwargs):
-        """텍스트 생성"""
-        if not self.model:
+            
+    def build_prompt(self, messages: List[ChatMessage], template: PromptTemplate) -> str:
+        """최신 프롬프트 템플릿 빌드"""
+        chat_history = ""
+        
+        # 템플릿에 따른 대화 기록 포맷팅
+        if template == PromptTemplate.CHATML:
+            for msg in messages[:-1]:  # 마지막 메시지 제외
+                if msg.role == "user":
+                    chat_history += f"<|im_start|>user\n{msg.content}<|im_end|>\n"
+                elif msg.role == "assistant":
+                    chat_history += f"<|im_start|>assistant\n{msg.content}<|im_end|>\n"
+                    
+        elif template == PromptTemplate.LLAMA3:
+            for msg in messages[:-1]:
+                if msg.role == "user":
+                    chat_history += f"<|start_header_id|>user<|end_header_id|>\n\n{msg.content}<|eot_id|>"
+                elif msg.role == "assistant":
+                    chat_history += f"<|start_header_id|>assistant<|end_header_id|>\n\n{msg.content}<|eot_id|>"
+                    
+        elif template == PromptTemplate.ALPACA:
+            for msg in messages[:-1]:
+                if msg.role == "user":
+                    chat_history += f"### Human:\n{msg.content}\n\n"
+                elif msg.role == "assistant":
+                    chat_history += f"### Assistant:\n{msg.content}\n\n"
+                    
+        elif template == PromptTemplate.VICUNA:
+            for msg in messages[:-1]:
+                if msg.role == "user":
+                    chat_history += f"USER: {msg.content}\n"
+                elif msg.role == "assistant":
+                    chat_history += f"ASSISTANT: {msg.content}\n"
+        
+        # 프롬프트 생성
+        prompt = template.value.format(
+            system_prompt=self.config.system_prompt,
+            chat_history=chat_history,
+            user_message=messages[-1].content if messages else ""
+        )
+        
+        return prompt
+        
+    def generate_streaming(self, messages: List[ChatMessage]) -> StreamingResponse:
+        """스트리밍 응답 생성"""
+        if not self.is_loaded:
             raise RuntimeError("모델이 로드되지 않았습니다.")
+            
+        # 프롬프트 템플릿 선택
+        template = PromptTemplate[self.config.prompt_template]
+        prompt = self.build_prompt(messages, template)
         
-        # 기본 설정
-        temperature = kwargs.get("temperature", self.config.get("temperature", 0.7))
-        max_tokens = kwargs.get("max_tokens", self.config.get("max_tokens", 1000))
-        top_p = kwargs.get("top_p", self.config.get("top_p", 0.95))
-        top_k = kwargs.get("top_k", self.config.get("top_k", 40))
-        repeat_penalty = kwargs.get("repeat_penalty", self.config.get("repeat_penalty", 1.1))
-        stream = kwargs.get("stream", False)
-        
-        self.stop_generation = False
-        
-        try:
-            if stream:
-                # 스트리밍 생성
-                return self.model(
-                    prompt,
-                    max_tokens=max_tokens,
-                    temperature=temperature,
-                    top_p=top_p,
-                    top_k=top_k,
-                    repeat_penalty=repeat_penalty,
-                    echo=False,
-                    stream=True
-                )
-            else:
-                # 일반 생성
-                response = self.model(
-                    prompt,
-                    max_tokens=max_tokens,
-                    temperature=temperature,
-                    top_p=top_p,
-                    top_k=top_k,
-                    repeat_penalty=repeat_penalty,
-                    echo=False
-                )
-                
-                # 텍스트 추출
-                if isinstance(response, dict) and "choices" in response:
-                    return response["choices"][0]["text"]
-                else:
-                    return str(response)
-                
-        except Exception as e:
-            logger.error(f"텍스트 생성 오류: {str(e)}")
-            raise
-    
-    def stop(self):
-        """생성 중지"""
-        self.stop_generation = True
-    
-    def is_loaded(self):
-        """모델 로드 여부 확인"""
-        return self.model is not None
+        # 스트리밍 응답 객체 생성
+        return StreamingResponse(self.model, prompt, self.config)
 
-# 메인 애플리케이션
-class SimpleGGUFApp(ctk.CTk):
-    """GGUF 대화형 LLM 시스템"""
+class ModernGGUFChat(ctk.CTk):
+    """현대적인 GGUF 채팅 애플리케이션"""
     
     def __init__(self):
         super().__init__()
         
-        # 앱 초기화
-        self.title("GGUF 대화형 LLM 시스템")
+        # 기본 설정
+        self.title("GGUF Chat AI - 2025 Edition")
         self.geometry("1200x800")
         
-        # 디렉토리 생성
-        create_app_directories()
-        
-        # 설정 관리자 초기화
-        self.config_manager = ConfigManager()
-        
-        # 프롬프트 관리자 초기화
-        self.prompt_manager = PromptManager(self.config_manager)
-        
         # 테마 설정
-        self.apply_theme()
+        ctk.set_appearance_mode("dark")
+        ctk.set_default_color_theme("blue")
         
-        # 모델 초기화
-        self.model = GGUFModel(self.config_manager)
-        
-        # 대화 이력
-        self.conversation = []
-        
-        # 현재 프롬프트 템플릿
-        self.current_prompt_template = self.config_manager.get("default_prompt_template", "일반 대화")
-        
-        # 응답 생성 플래그
-        self.is_generating = False
+        # 컴포넌트 초기화
+        self.model_manager = GGUFModelManager()
+        self.messages: List[ChatMessage] = []
+        self.current_streaming: Optional[StreamingResponse] = None
         
         # UI 구성
         self.setup_ui()
         
-        # 모델 자동 로드 시도
-        self.auto_load_model()
-    
-    def apply_theme(self):
-        """테마 적용"""
-        theme_mode = self.config_manager.get("theme", "system")
-        ctk.set_appearance_mode(theme_mode)
-        ctk.set_default_color_theme("blue")
-    
-    def auto_load_model(self):
-        """저장된 모델 경로로 자동 로드 시도"""
-        model_path = self.config_manager.get("model_path", "")
-        if model_path and os.path.exists(model_path):
-            threading.Thread(
-                target=self._auto_load_model_thread,
-                args=(model_path,),
-                daemon=True
-            ).start()
-    
-    def _auto_load_model_thread(self, model_path):
-        """자동 모델 로드 스레드"""
-        try:
-            self.model.load_model(model_path)
-            self.after(100, lambda: self.update_model_info(os.path.basename(model_path)))
-        except Exception as e:
-            logger.error(f"자동 모델 로드 실패: {str(e)}")
-    
-    def update_model_info(self, model_name):
-        """모델 정보 업데이트"""
-        self.model_info_label.configure(text=f"모델: {model_name}")
-        self.send_button.configure(state="normal")
-    
+        # 초기 메시지
+        self.add_message("assistant", "안녕하세요! 👋 GGUF 모델을 로드하고 대화를 시작해보세요.")
+        
     def setup_ui(self):
         """UI 구성"""
-        # 메인 레이아웃
-        self.grid_columnconfigure(0, weight=1)
-        self.grid_rowconfigure(0, weight=0)
-        self.grid_rowconfigure(1, weight=1)
-        self.grid_rowconfigure(2, weight=0)
+        # 메인 컨테이너
+        self.grid_columnconfigure(0, weight=0)  # 사이드바
+        self.grid_columnconfigure(1, weight=1)  # 메인 영역
+        self.grid_rowconfigure(0, weight=1)
         
-        # 상단 바
-        self.setup_top_bar()
+        # 사이드바
+        self.setup_sidebar()
         
-        # 대화 영역
-        self.setup_chat_area()
+        # 메인 영역
+        self.setup_main_area()
         
-        # 입력 영역
-        self.setup_input_area()
-    
-    def setup_top_bar(self):
-        """상단 바 구성"""
-        top_frame = ctk.CTkFrame(self, height=80, corner_radius=0)
-        top_frame.grid(row=0, column=0, sticky="ew", padx=0, pady=0)
-        top_frame.grid_columnconfigure(1, weight=1)
+    def setup_sidebar(self):
+        """사이드바 구성"""
+        sidebar = ctk.CTkFrame(self, width=300, corner_radius=0)
+        sidebar.grid(row=0, column=0, sticky="nsew")
+        sidebar.grid_rowconfigure(10, weight=1)
         
-        # 앱 제목
-        app_title = ctk.CTkLabel(
-            top_frame,
-            text="GGUF 대화형 LLM 시스템",
-            font=("Helvetica", 20, "bold"),
-            text_color=THEME['primary']
+        # 타이틀
+        title = ctk.CTkLabel(
+            sidebar,
+            text="GGUF Chat AI",
+            font=("Arial", 24, "bold")
         )
-        app_title.grid(row=0, column=0, padx=20, pady=15)
+        title.grid(row=0, column=0, padx=20, pady=(20, 10))
         
         # 모델 정보
-        model_path = self.config_manager.get("model_path", "")
-        model_name = os.path.basename(model_path) if model_path else "모델 없음"
-        self.model_info_label = ctk.CTkLabel(
-            top_frame,
-            text=f"모델: {model_name}",
-            font=("Helvetica", 14),
-            text_color=THEME['text_secondary']
+        self.model_info = ctk.CTkLabel(
+            sidebar,
+            text="모델: 로드되지 않음",
+            font=("Arial", 12),
+            text_color="gray"
         )
-        self.model_info_label.grid(row=0, column=1, padx=20, pady=15, sticky="w")
-        
-        # 프롬프트 템플릿 선택
-        prompt_frame = ctk.CTkFrame(top_frame, fg_color="transparent")
-        prompt_frame.grid(row=1, column=0, columnspan=2, padx=20, pady=(0, 10), sticky="w")
-        
-        ctk.CTkLabel(
-            prompt_frame,
-            text="프롬프트 템플릿:",
-            font=("Helvetica", 12)
-        ).pack(side="left", padx=(0, 10))
-        
-        self.prompt_combo = ctk.CTkComboBox(
-            prompt_frame,
-            values=list(self.prompt_manager.prompts.keys()),
-            width=200,
-            command=self.on_prompt_template_change
-        )
-        self.prompt_combo.set(self.current_prompt_template)
-        self.prompt_combo.pack(side="left", padx=(0, 10))
-        
-        ctk.CTkButton(
-            prompt_frame,
-            text="템플릿 관리",
-            command=self.show_prompt_manager,
-            width=100,
-            height=30,
-            font=("Helvetica", 12),
-            fg_color=THEME['secondary'],
-            hover_color=THEME['primary']
-        ).pack(side="left")
+        self.model_info.grid(row=1, column=0, padx=20, pady=(0, 20))
         
         # 버튼들
-        button_frame = ctk.CTkFrame(top_frame, fg_color="transparent")
-        button_frame.grid(row=0, column=2, rowspan=2, padx=20, pady=15)
-        
-        # 모델 로드 버튼
-        load_button = ctk.CTkButton(
-            button_frame,
+        ctk.CTkButton(
+            sidebar,
             text="모델 로드",
             command=self.load_model,
-            width=100,
-            height=30,
-            font=("Helvetica", 12),
-            fg_color=THEME['primary'],
-            hover_color=THEME['secondary']
-        )
-        load_button.pack(side="left", padx=(0, 5))
+            height=40
+        ).grid(row=2, column=0, padx=20, pady=5, sticky="ew")
         
-        # 설정 버튼
-        settings_button = ctk.CTkButton(
-            button_frame,
+        ctk.CTkButton(
+            sidebar,
             text="설정",
             command=self.show_settings,
-            width=80,
-            height=30,
-            font=("Helvetica", 12),
-            fg_color=THEME['primary'],
-            hover_color=THEME['secondary']
-        )
-        settings_button.pack(side="left", padx=5)
+            height=40
+        ).grid(row=3, column=0, padx=20, pady=5, sticky="ew")
         
-        # 대화 초기화 버튼
-        clear_button = ctk.CTkButton(
-            button_frame,
+        # 프롬프트 템플릿 선택
+        ctk.CTkLabel(sidebar, text="프롬프트 템플릿:").grid(row=4, column=0, padx=20, pady=(20, 5), sticky="w")
+        
+        self.template_var = ctk.StringVar(value="CHATML")
+        template_menu = ctk.CTkOptionMenu(
+            sidebar,
+            values=["CHATML", "LLAMA3", "ALPACA", "VICUNA"],
+            variable=self.template_var,
+            command=self.on_template_change
+        )
+        template_menu.grid(row=5, column=0, padx=20, pady=5, sticky="ew")
+        
+        # 온도 슬라이더
+        ctk.CTkLabel(sidebar, text="Temperature:").grid(row=6, column=0, padx=20, pady=(20, 5), sticky="w")
+        
+        self.temp_slider = ctk.CTkSlider(
+            sidebar,
+            from_=0,
+            to=1,
+            number_of_steps=20,
+            command=self.on_temp_change
+        )
+        self.temp_slider.set(0.7)
+        self.temp_slider.grid(row=7, column=0, padx=20, pady=5, sticky="ew")
+        
+        self.temp_label = ctk.CTkLabel(sidebar, text="0.7")
+        self.temp_label.grid(row=8, column=0, padx=20, pady=(0, 20))
+        
+        # 대화 관리 버튼들
+        ctk.CTkButton(
+            sidebar,
             text="대화 초기화",
-            command=self.clear_conversation,
-            width=100,
-            height=30,
-            font=("Helvetica", 12),
-            fg_color=THEME['error'],
-            hover_color="#C0392B"
-        )
-        clear_button.pack(side="left", padx=(5, 0))
-    
-    def setup_chat_area(self):
-        """대화 영역 구성"""
-        # 대화 표시 영역
-        self.chat_frame = ctk.CTkScrollableFrame(
-            self,
-            fg_color=THEME['surface'],
-            corner_radius=10
-        )
-        self.chat_frame.grid(row=1, column=0, sticky="nsew", padx=20, pady=10)
+            command=self.clear_chat,
+            height=35,
+            fg_color="red",
+            hover_color="darkred"
+        ).grid(row=9, column=0, padx=20, pady=5, sticky="ew")
         
-        # 초기 메시지
-        self.add_assistant_message("안녕하세요! GGUF 모델을 로드하고 대화를 시작해보세요.")
-    
-    def setup_input_area(self):
-        """입력 영역 구성"""
-        input_frame = ctk.CTkFrame(self, fg_color="transparent", height=100)
-        input_frame.grid(row=2, column=0, sticky="ew", padx=20, pady=(0, 20))
+    def setup_main_area(self):
+        """메인 영역 구성"""
+        main_frame = ctk.CTkFrame(self, corner_radius=0)
+        main_frame.grid(row=0, column=1, sticky="nsew", padx=(0, 0))
+        main_frame.grid_columnconfigure(0, weight=1)
+        main_frame.grid_rowconfigure(0, weight=1)
+        
+        # 채팅 영역
+        self.chat_frame = ctk.CTkScrollableFrame(main_frame)
+        self.chat_frame.grid(row=0, column=0, sticky="nsew", padx=20, pady=(20, 10))
+        
+        # 입력 영역
+        input_frame = ctk.CTkFrame(main_frame)
+        input_frame.grid(row=1, column=0, sticky="ew", padx=20, pady=(0, 20))
         input_frame.grid_columnconfigure(0, weight=1)
         
-        # 입력창
-        self.input_box = ctk.CTkTextbox(
+        # 입력 텍스트박스
+        self.input_text = ctk.CTkTextbox(
             input_frame,
-            height=80,
+            height=100,
             wrap="word",
-            font=("Helvetica", 14),
-            border_width=1,
-            border_color=THEME['primary'],
-            fg_color=THEME['surface'],
-            corner_radius=10
+            font=("Arial", 14)
         )
-        self.input_box.grid(row=0, column=0, sticky="ew", padx=(0, 10))
-        self.input_box.bind("<Return>", self.handle_return)
-        self.input_box.bind("<Shift-Return>", self.handle_shift_return)
+        self.input_text.grid(row=0, column=0, sticky="ew", padx=(0, 10))
+        self.input_text.bind("<Control-Return>", lambda e: self.send_message())
         
-        # 버튼들
-        buttons_frame = ctk.CTkFrame(input_frame, fg_color="transparent", width=140)
-        buttons_frame.grid(row=0, column=1, sticky="ns")
+        # 버튼 프레임
+        btn_frame = ctk.CTkFrame(input_frame)
+        btn_frame.grid(row=0, column=1, sticky="ns")
         
-        self.send_button = ctk.CTkButton(
-            buttons_frame,
+        self.send_btn = ctk.CTkButton(
+            btn_frame,
             text="전송",
             command=self.send_message,
-            width=120,
-            height=35,
-            font=("Helvetica", 14, "bold"),
-            fg_color=THEME['primary'],
-            hover_color=THEME['secondary'],
-            state="disabled"  # 모델 로드 전까지 비활성화
-        )
-        self.send_button.pack(pady=(0, 5))
-        
-        self.stop_button = ctk.CTkButton(
-            buttons_frame,
-            text="중지",
-            command=self.stop_generation,
-            width=120,
-            height=35,
-            font=("Helvetica", 14, "bold"),
-            fg_color=THEME['error'],
-            hover_color="#C0392B",
+            width=100,
+            height=40,
             state="disabled"
         )
-        self.stop_button.pack()
-    
-    def on_prompt_template_change(self, choice):
-        """프롬프트 템플릿 변경"""
-        self.current_prompt_template = choice
-        self.config_manager.set("default_prompt_template", choice)
-        logger.info(f"프롬프트 템플릿 변경: {choice}")
-    
-    def show_prompt_manager(self):
-        """프롬프트 템플릿 관리자"""
-        dialog = ctk.CTkToplevel(self)
-        dialog.title("프롬프트 템플릿 관리")
-        dialog.geometry("800x600")
-        dialog.transient(self)
-        dialog.grab_set()
+        self.send_btn.pack(pady=(0, 5))
         
-        # 중앙 배치
-        dialog.update_idletasks()
-        width = dialog.winfo_width()
-        height = dialog.winfo_height()
-        x = (dialog.winfo_screenwidth() // 2) - (width // 2)
-        y = (dialog.winfo_screenheight() // 2) - (height // 2)
-        dialog.geometry(f'+{x}+{y}')
-        
-        # 프레임
-        main_frame = ctk.CTkFrame(dialog)
-        main_frame.pack(fill="both", expand=True, padx=20, pady=20)
-        
-        # 템플릿 리스트
-        list_frame = ctk.CTkFrame(main_frame)
-        list_frame.pack(side="left", fill="both", expand=True, padx=(0, 10))
-        
-        ctk.CTkLabel(
-            list_frame,
-            text="템플릿 목록",
-            font=("Helvetica", 16, "bold")
-        ).pack(pady=(0, 10))
-        
-        self.template_listbox = ctk.CTkScrollableFrame(list_frame, width=200)
-        self.template_listbox.pack(fill="both", expand=True)
-        
-        # 템플릿 편집기
-        edit_frame = ctk.CTkFrame(main_frame)
-        edit_frame.pack(side="right", fill="both", expand=True)
-        
-        ctk.CTkLabel(
-            edit_frame,
-            text="템플릿 편집",
-            font=("Helvetica", 16, "bold")
-        ).pack(pady=(0, 10))
-        
-        # 템플릿 이름
-        name_frame = ctk.CTkFrame(edit_frame, fg_color="transparent")
-        name_frame.pack(fill="x", pady=(0, 10))
-        
-        ctk.CTkLabel(name_frame, text="이름:").pack(side="left")
-        self.template_name_var = ctk.StringVar()
-        ctk.CTkEntry(
-            name_frame,
-            textvariable=self.template_name_var,
-            width=300
-        ).pack(side="left", padx=(10, 0))
-        
-        # 시스템 프롬프트
-        ctk.CTkLabel(edit_frame, text="시스템 프롬프트:").pack(anchor="w")
-        self.system_prompt_text = ctk.CTkTextbox(
-            edit_frame,
-            height=150,
-            wrap="word"
+        self.stop_btn = ctk.CTkButton(
+            btn_frame,
+            text="중지",
+            command=self.stop_generation,
+            width=100,
+            height=40,
+            fg_color="orange",
+            hover_color="darkorange",
+            state="disabled"
         )
-        self.system_prompt_text.pack(fill="x", pady=(5, 10))
+        self.stop_btn.pack()
         
-        # 형식 문자열
-        ctk.CTkLabel(edit_frame, text="프롬프트 형식 ({user_input}을 사용):").pack(anchor="w")
-        self.format_text = ctk.CTkTextbox(
-            edit_frame,
-            height=100,
-            wrap="word"
-        )
-        self.format_text.pack(fill="x", pady=(5, 10))
+    def add_message(self, role: str, content: str, streaming=False):
+        """메시지 추가"""
+        # 메시지 컨테이너
+        msg_frame = ctk.CTkFrame(self.chat_frame, corner_radius=10)
         
-        # 버튼들
-        button_frame = ctk.CTkFrame(edit_frame, fg_color="transparent")
-        button_frame.pack(fill="x", pady=(10, 0))
-        
-        ctk.CTkButton(
-            button_frame,
-            text="새 템플릿",
-            command=lambda: self._new_template(),
-            width=100,
-            fg_color=THEME['success']
-        ).pack(side="left", padx=(0, 5))
-        
-        ctk.CTkButton(
-            button_frame,
-            text="저장",
-            command=lambda: self._save_template(),
-            width=100,
-            fg_color=THEME['primary']
-        ).pack(side="left", padx=5)
-        
-        ctk.CTkButton(
-            button_frame,
-            text="삭제",
-            command=lambda: self._delete_template(),
-            width=100,
-            fg_color=THEME['error']
-        ).pack(side="left", padx=5)
-        
-        ctk.CTkButton(
-            button_frame,
-            text="닫기",
-            command=dialog.destroy,
-            width=100
-        ).pack(side="right")
-        
-        # 템플릿 목록 업데이트
-        self._update_template_list()
-    
-    def _update_template_list(self):
-        """템플릿 목록 업데이트"""
-        # 기존 위젯 제거
-        for widget in self.template_listbox.winfo_children():
-            widget.destroy()
-        
-        # 템플릿 버튼 생성
-        for name in self.prompt_manager.prompts:
-            is_default = name in DEFAULT_PROMPTS
-            btn = ctk.CTkButton(
-                self.template_listbox,
-                text=f"{name} {'(기본)' if is_default else ''}",
-                command=lambda n=name: self._load_template(n),
-                width=180,
-                fg_color=THEME['secondary'] if is_default else THEME['primary']
-            )
-            btn.pack(pady=2)
-    
-    def _load_template(self, name):
-        """템플릿 로드"""
-        template = self.prompt_manager.get_prompt(name)
-        self.template_name_var.set(name)
-        self.system_prompt_text.delete("0.0", "end")
-        self.system_prompt_text.insert("0.0", template.get("system", ""))
-        self.format_text.delete("0.0", "end")
-        self.format_text.insert("0.0", template.get("format", ""))
-    
-    def _new_template(self):
-        """새 템플릿"""
-        self.template_name_var.set("")
-        self.system_prompt_text.delete("0.0", "end")
-        self.format_text.delete("0.0", "end")
-    
-    def _save_template(self):
-        """템플릿 저장"""
-        name = self.template_name_var.get().strip()
-        if not name:
-            messagebox.showerror("오류", "템플릿 이름을 입력하세요.")
-            return
-        
-        if name in DEFAULT_PROMPTS:
-            messagebox.showerror("오류", "기본 템플릿은 수정할 수 없습니다.")
-            return
-        
-        system = self.system_prompt_text.get("0.0", "end").strip()
-        format_str = self.format_text.get("0.0", "end").strip()
-        
-        self.prompt_manager.add_prompt(name, system, format_str)
-        self._update_template_list()
-        
-        # 콤보박스 업데이트
-        self.prompt_combo.configure(values=list(self.prompt_manager.prompts.keys()))
-        
-        messagebox.showinfo("성공", "템플릿이 저장되었습니다.")
-    
-    def _delete_template(self):
-        """템플릿 삭제"""
-        name = self.template_name_var.get().strip()
-        if not name:
-            messagebox.showerror("오류", "삭제할 템플릿을 선택하세요.")
-            return
-        
-        if self.prompt_manager.delete_prompt(name):
-            self._update_template_list()
-            self._new_template()
-            
-            # 콤보박스 업데이트
-            self.prompt_combo.configure(values=list(self.prompt_manager.prompts.keys()))
-            if self.current_prompt_template == name:
-                self.prompt_combo.set("일반 대화")
-                self.on_prompt_template_change("일반 대화")
-            
-            messagebox.showinfo("성공", "템플릿이 삭제되었습니다.")
+        if role == "user":
+            msg_frame.configure(fg_color=("gray85", "gray25"))
+            msg_frame.pack(anchor="e", padx=(100, 10), pady=5, fill="x")
         else:
-            messagebox.showerror("오류", "기본 템플릿은 삭제할 수 없습니다.")
-    
-    def add_user_message(self, message):
-        """사용자 메시지 추가"""
-        container = ctk.CTkFrame(self.chat_frame, fg_color="#D6EAF8", corner_radius=10)
-        container.pack(fill="x", padx=10, pady=5, anchor="e")
+            msg_frame.configure(fg_color=("gray90", "gray20"))
+            msg_frame.pack(anchor="w", padx=(10, 100), pady=5, fill="x")
         
-        label = ctk.CTkLabel(
-            container,
-            text=message,
-            font=("Helvetica", 14),
-            text_color=THEME['text'],
-            wraplength=750,
+        # 역할 라벨
+        role_label = ctk.CTkLabel(
+            msg_frame,
+            text="You" if role == "user" else "AI",
+            font=("Arial", 12, "bold"),
+            text_color=("gray40", "gray60")
+        )
+        role_label.pack(anchor="w", padx=15, pady=(10, 0))
+        
+        # 메시지 라벨
+        msg_label = ctk.CTkLabel(
+            msg_frame,
+            text=content,
+            font=("Arial", 14),
+            wraplength=600,
             justify="left"
         )
-        label.pack(padx=15, pady=10, anchor="w")
+        msg_label.pack(anchor="w", padx=15, pady=(5, 10))
         
-        self.conversation.append({"role": "user", "content": message})
-        self.after(100, lambda: self.chat_frame._parent_canvas.yview_moveto(1.0))
-    
-    def add_assistant_message(self, message):
-        """어시스턴트 메시지 추가"""
-        container = ctk.CTkFrame(self.chat_frame, fg_color="#E8F6F3", corner_radius=10)
-        container.pack(fill="x", padx=10, pady=5, anchor="w")
+        # 메시지 저장
+        if not streaming:
+            self.messages.append(ChatMessage(role=role, content=content))
         
-        self.assistant_label = ctk.CTkLabel(
-            container,
-            text=message,
-            font=("Helvetica", 14),
-            text_color=THEME['text'],
-            wraplength=750,
-            justify="left"
-        )
-        self.assistant_label.pack(padx=15, pady=10, anchor="w")
+        # 스크롤 다운
+        self.chat_frame._parent_canvas.yview_moveto(1.0)
         
-        self.conversation.append({"role": "assistant", "content": message})
-        self.after(100, lambda: self.chat_frame._parent_canvas.yview_moveto(1.0))
+        return msg_label
         
-        return self.assistant_label
-    
-    def update_assistant_message(self, label, message):
-        """어시스턴트 메시지 업데이트 (스트리밍용)"""
-        label.configure(text=message)
-        self.after(100, lambda: self.chat_frame._parent_canvas.yview_moveto(1.0))
-    
     def load_model(self):
-        """모델 파일 선택 및 로드"""
-        model_file = filedialog.askopenfilename(
-            title="GGUF 모델 파일 선택",
-            filetypes=[("GGUF 파일", "*.gguf"), ("모든 파일", "*.*")],
-            initialdir="models"
+        """모델 로드"""
+        filepath = filedialog.askopenfilename(
+            title="GGUF 모델 선택",
+            filetypes=[("GGUF Files", "*.gguf"), ("All Files", "*.*")]
         )
         
-        if not model_file:
+        if not filepath:
             return
+            
+        # 로딩 다이얼로그
+        self.show_loading("모델 로드 중...")
         
-        # 로딩 대화상자
-        loading_dialog = self.create_loading_dialog("모델 로드 중...")
-        
-        # 별도 스레드에서 모델 로드
+        # 별도 스레드에서 로드
         threading.Thread(
             target=self._load_model_thread,
-            args=(model_file, loading_dialog),
+            args=(filepath,),
             daemon=True
         ).start()
-    
-    def _load_model_thread(self, model_file, loading_dialog):
+        
+    def _load_model_thread(self, filepath):
         """모델 로드 스레드"""
         try:
-            self.model.load_model(model_file)
-            self.config_manager.set("model_path", model_file)
+            config = ModelConfig(
+                model_path=filepath,
+                prompt_template=self.template_var.get(),
+                temperature=self.temp_slider.get()
+            )
             
-            self.after(100, lambda: self._handle_model_load_result(True, model_file, loading_dialog))
+            self.model_manager.load_model(filepath, config)
+            
+            # UI 업데이트
+            self.after(0, self._on_model_loaded, filepath)
+            
         except Exception as e:
-            self.after(100, lambda: self._handle_model_load_result(False, str(e), loading_dialog))
-    
-    def _handle_model_load_result(self, success, data, loading_dialog):
-        """모델 로드 결과 처리"""
-        loading_dialog.destroy()
+            self.after(0, self._on_model_error, str(e))
+            
+    def _on_model_loaded(self, filepath):
+        """모델 로드 완료"""
+        self.hide_loading()
+        model_name = os.path.basename(filepath)
+        self.model_info.configure(text=f"모델: {model_name}")
+        self.send_btn.configure(state="normal")
+        messagebox.showinfo("성공", "모델이 성공적으로 로드되었습니다!")
         
-        if success:
-            model_name = os.path.basename(data)
-            self.update_model_info(model_name)
-            messagebox.showinfo("성공", f"모델이 성공적으로 로드되었습니다:\n{model_name}")
-        else:
-            messagebox.showerror("오류", f"모델 로드에 실패했습니다:\n{data}")
-    
-    def create_loading_dialog(self, message):
-        """로딩 대화상자 생성"""
-        dialog = ctk.CTkToplevel(self)
-        dialog.title("처리 중")
-        dialog.geometry("300x150")
-        dialog.transient(self)
-        dialog.grab_set()
+    def _on_model_error(self, error):
+        """모델 로드 오류"""
+        self.hide_loading()
+        messagebox.showerror("오류", f"모델 로드 실패:\n{error}")
         
-        # 중앙 배치
-        dialog.update_idletasks()
-        width = dialog.winfo_width()
-        height = dialog.winfo_height()
-        x = (dialog.winfo_screenwidth() // 2) - (width // 2)
-        y = (dialog.winfo_screenheight() // 2) - (height // 2)
-        dialog.geometry(f'+{x}+{y}')
-        
-        ctk.CTkLabel(
-            dialog,
-            text=message,
-            font=("Helvetica", 14, "bold")
-        ).pack(pady=(20, 10))
-        
-        progress = ctk.CTkProgressBar(dialog, width=250)
-        progress.pack(pady=(0, 20))
-        progress.configure(mode="indeterminate")
-        progress.start()
-        
-        return dialog
-    
     def send_message(self):
-        """메시지 전송 처리"""
-        message = self.input_box.get("0.0", "end").strip()
-        
-        if not message or self.is_generating:
+        """메시지 전송"""
+        content = self.input_text.get("1.0", "end").strip()
+        if not content or not self.model_manager.is_loaded:
             return
-        
-        if not self.model.is_loaded():
-            messagebox.showwarning("경고", "먼저 모델을 로드해주세요.")
-            return
-        
+            
         # 입력 초기화
-        self.input_box.delete("0.0", "end")
+        self.input_text.delete("1.0", "end")
         
-        # 사용자 메시지 표시
-        self.add_user_message(message)
+        # 사용자 메시지 추가
+        self.add_message("user", content)
         
-        # UI 상태 업데이트
-        self.is_generating = True
-        self.send_button.configure(state="disabled")
-        self.stop_button.configure(state="normal")
+        # UI 상태 변경
+        self.send_btn.configure(state="disabled")
+        self.stop_btn.configure(state="normal")
         
-        # 별도 스레드에서 응답 생성
+        # 스트리밍 응답 생성
         threading.Thread(
-            target=self._generate_response_thread,
-            args=(message,),
+            target=self._generate_response,
             daemon=True
         ).start()
-    
-    def _generate_response_thread(self, user_message):
-        """응답 생성 스레드"""
+        
+    def _generate_response(self):
+        """응답 생성"""
         try:
-            # 대화 컨텍스트 구성
-            prompt = self._build_prompt(user_message)
-            
-            # 빈 메시지로 시작
-            self.after(100, lambda: self.add_assistant_message(""))
-            current_label = self.assistant_label
-            
-            # 스트리밍 응답 생성
+            # AI 메시지 라벨 생성
+            msg_label = None
             full_response = ""
-            stream = self.model.generate(prompt, stream=True)
             
-            for output in stream:
-                if self.model.stop_generation:
-                    break
-                
-                # 텍스트 추출
-                if isinstance(output, dict) and "choices" in output:
-                    token = output["choices"][0]["text"]
-                else:
-                    token = str(output)
-                
+            # 스트리밍 응답 시작
+            self.current_streaming = self.model_manager.generate_streaming(self.messages)
+            
+            for token in self.current_streaming.generate():
                 full_response += token
                 
-                # UI 업데이트 (너무 자주 하지 않도록)
-                if len(full_response) % 5 == 0 or token in ["\n", ".", "!", "?"]:
-                    self.after(100, lambda r=full_response: self.update_assistant_message(current_label, r))
-            
-            # 최종 업데이트
-            self.after(100, lambda: self._finalize_response(full_response, current_label))
-            
-        except Exception as e:
-            error_message = f"응답 생성 중 오류가 발생했습니다: {str(e)}"
-            logger.error(error_message)
-            self.after(100, lambda: self._handle_response_error(error_message))
-    
-    def _build_prompt(self, user_message):
-        """프롬프트 구성"""
-        template = self.prompt_manager.get_prompt(self.current_prompt_template)
-        system_prompt = template.get("system", "")
-        format_str = template.get("format", "{user_input}")
-        
-        # 대화 컨텍스트 구성
-        context_window = self.config_manager.get("context_size", 2048)
-        max_context_length = int(context_window * 0.7)  # 70% 사용
-        
-        # 시스템 프롬프트 포함
-        prompt = f"{system_prompt}\n\n" if system_prompt else ""
-        
-        # 최근 대화 내역 추가
-        recent_conversation = []
-        total_length = len(prompt)
-        
-        for msg in reversed(self.conversation[:-1]):  # 마지막 사용자 메시지 제외
-            msg_text = f"{msg['role'].capitalize()}: {msg['content']}\n"
-            msg_length = len(msg_text)
-            
-            if total_length + msg_length > max_context_length:
-                break
-            
-            recent_conversation.insert(0, msg_text)
-            total_length += msg_length
-        
-        # 대화 내역 추가
-        if recent_conversation:
-            prompt += "".join(recent_conversation) + "\n"
-        
-        # 현재 메시지 추가
-        prompt += format_str.replace("{user_input}", user_message)
-        
-        return prompt
-    
-    def _finalize_response(self, response, label):
-        """응답 최종 처리"""
-        # 대화 기록 업데이트
-        if self.conversation and self.conversation[-1]["role"] == "assistant":
-            self.conversation[-1]["content"] = response.strip()
-        
-        # UI 상태 복원
-        self.is_generating = False
-        self.send_button.configure(state="normal")
-        self.stop_button.configure(state="disabled")
-    
-    def _handle_response_error(self, error_message):
-        """응답 오류 처리"""
-        self.add_assistant_message(error_message)
-        
-        # UI 상태 복원
-        self.is_generating = False
-        self.send_button.configure(state="normal")
-        self.stop_button.configure(state="disabled")
-    
-    def stop_generation(self):
-        """응답 생성 중지"""
-        self.model.stop()
-        self.is_generating = False
-        self.send_button.configure(state="normal")
-        self.stop_button.configure(state="disabled")
-    
-    def handle_return(self, event):
-        """Enter 키 처리"""
-        self.send_message()
-        return "break"
-    
-    def handle_shift_return(self, event):
-        """Shift+Enter 키 처리"""
-        return None
-    
-    def clear_conversation(self):
-        """대화 초기화"""
-        if not self.conversation:
-            return
-        
-        result = messagebox.askyesno("확인", "정말 대화 내용을 모두 지우시겠습니까?")
-        if not result:
-            return
-        
-        # 대화 초기화
-        self.conversation = []
-        
-        # 화면 초기화
-        for widget in self.chat_frame.winfo_children():
-            widget.destroy()
-        
-        # 초기 메시지
-        self.add_assistant_message("대화가 초기화되었습니다. 새로운 대화를 시작해보세요!")
-    
-    def show_settings(self):
-        """설정 대화상자"""
-        settings_dialog = ctk.CTkToplevel(self)
-        settings_dialog.title("설정")
-        settings_dialog.geometry("500x600")
-        settings_dialog.transient(self)
-        settings_dialog.grab_set()
-        
-        # 중앙 배치
-        settings_dialog.update_idletasks()
-        width = settings_dialog.winfo_width()
-        height = settings_dialog.winfo_height()
-        x = (settings_dialog.winfo_screenwidth() // 2) - (width // 2)
-        y = (settings_dialog.winfo_screenheight() // 2) - (height // 2)
-        settings_dialog.geometry(f'+{x}+{y}')
-        
-        # 설정 프레임
-        settings_frame = ctk.CTkScrollableFrame(settings_dialog)
-        settings_frame.pack(fill="both", expand=True, padx=20, pady=20)
-        
-        # 모델 설정
-        model_frame = ctk.CTkFrame(settings_frame)
-        model_frame.pack(fill="x", pady=(0, 15))
-        
-        ctk.CTkLabel(
-            model_frame,
-            text="모델 설정",
-            font=("Helvetica", 16, "bold")
-        ).pack(anchor="w", padx=10, pady=(10, 10))
-        
-        # 설정 항목들
-        settings_items = [
-            ("컨텍스트 크기:", "context_size", 2048),
-            ("온도 (0.0-1.0):", "temperature", 0.7),
-            ("최대 토큰:", "max_tokens", 1000),
-            ("Top P:", "top_p", 0.95),
-            ("Top K:", "top_k", 40),
-            ("반복 페널티:", "repeat_penalty", 1.1),
-            ("스레드 수:", "n_threads", 4),
-            ("GPU 레이어:", "n_gpu_layers", 0),
-        ]
-        
-        vars_dict = {}
-        
-        for label_text, key, default in settings_items:
-            frame = ctk.CTkFrame(model_frame, fg_color="transparent")
-            frame.pack(fill="x", padx=10, pady=5)
-            
-            ctk.CTkLabel(
-                frame,
-                text=label_text,
-                width=150
-            ).pack(side="left")
-            
-            var = ctk.StringVar(value=str(self.config_manager.get(key, default)))
-            vars_dict[key] = var
-            
-            ctk.CTkEntry(
-                frame,
-                textvariable=var,
-                width=100
-            ).pack(side="left", padx=(10, 0))
-        
-        # 테마 설정
-        theme_frame = ctk.CTkFrame(settings_frame)
-        theme_frame.pack(fill="x", pady=(0, 15))
-        
-        ctk.CTkLabel(
-            theme_frame,
-            text="테마 설정",
-            font=("Helvetica", 16, "bold")
-        ).pack(anchor="w", padx=10, pady=(10, 10))
-        
-        theme_var = ctk.StringVar(value=self.config_manager.get("theme", "system"))
-        theme_combo = ctk.CTkComboBox(
-            theme_frame,
-            values=["system", "light", "dark"],
-            variable=theme_var,
-            width=200
-        )
-        theme_combo.pack(anchor="w", padx=10, pady=5)
-        
-        # 버튼들
-        button_frame = ctk.CTkFrame(settings_dialog, fg_color="transparent")
-        button_frame.pack(fill="x", padx=20, pady=(0, 20))
-        
-        ctk.CTkButton(
-            button_frame,
-            text="취소",
-            command=settings_dialog.destroy,
-            width=100,
-            fg_color=THEME['error']
-        ).pack(side="left")
-        
-        ctk.CTkButton(
-            button_frame,
-            text="저장",
-            command=lambda: self._save_settings(settings_dialog, vars_dict, theme_var.get()),
-            width=100,
-            fg_color=THEME['primary']
-        ).pack(side="right")
-    
-    def _save_settings(self, dialog, vars_dict, theme):
-        """설정 저장"""
-        try:
-            # 설정 값 검증 및 저장
-            for key, var in vars_dict.items():
-                value = var.get()
-                
-                # 숫자 변환
-                if key in ["context_size", "max_tokens", "top_k", "n_threads", "n_gpu_layers"]:
-                    value = int(value)
-                elif key in ["temperature", "top_p", "repeat_penalty"]:
-                    value = float(value)
-                
-                self.config_manager.set(key, value)
-            
-            # 테마 설정
-            self.config_manager.set("theme", theme)
-            if theme != ctk.get_appearance_mode().lower():
-                self.change_theme(theme)
-            
-            dialog.destroy()
-            messagebox.showinfo("성공", "설정이 저장되었습니다.")
-        except ValueError as e:
-            messagebox.showerror("오류", "잘못된 값이 입력되었습니다.", parent=dialog)
-        except Exception as e:
-            messagebox.showerror("오류", f"설정 저장 중 오류가 발생했습니다:\n{str(e)}", parent=dialog)
-    
-    def change_theme(self, theme_mode):
-        """테마 변경"""
-        ctk.set_appearance_mode(theme_mode)
-    
-    def save_conversation(self):
-        """대화 저장"""
-        if not self.conversation:
-            messagebox.showinfo("알림", "저장할 대화 내용이 없습니다.")
-            return
-        
-        file_path = filedialog.asksaveasfilename(
-            title="대화 저장",
-            defaultextension=".json",
-            filetypes=[("JSON 파일", "*.json"), ("텍스트 파일", "*.txt")],
-            initialdir="conversations"
-        )
-        
-        if not file_path:
-            return
-        
-        try:
-            timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            conversation_data = {
-                "timestamp": timestamp,
-                "model": os.path.basename(self.model.model_path),
-                "prompt_template": self.current_prompt_template,
-                "conversation": self.conversation
-            }
-            
-            if file_path.endswith('.json'):
-                with open(file_path, 'w', encoding='utf-8') as f:
-                    json.dump(conversation_data, f, ensure_ascii=False, indent=2)
-            else:
-                with open(file_path, 'w', encoding='utf-8') as f:
-                    f.write(f"대화 저장 시간: {timestamp}\n")
-                    f.write(f"모델: {conversation_data['model']}\n")
-                    f.write(f"프롬프트 템플릿: {conversation_data['prompt_template']}\n")
-                    f.write("=" * 50 + "\n\n")
+                # UI 업데이트
+                if msg_label is None:
+                    self.after(0, lambda: setattr(self, '_temp_label', 
+                        self.add_message("assistant", token, streaming=True)))
+                    time.sleep(0.1)  # UI 생성 대기
+                    msg_label = getattr(self, '_temp_label', None)
+                else:
+                    self.after(0, lambda t=full_response: msg_label.configure(text=t))
                     
-                    for msg in self.conversation:
-                        role = "User" if msg["role"] == "user" else "Assistant"
-                        f.write(f"{role}: {msg['content']}\n\n")
+            # 최종 메시지 저장
+            self.messages.append(ChatMessage(role="assistant", content=full_response))
             
-            messagebox.showinfo("성공", "대화가 저장되었습니다.")
         except Exception as e:
-            messagebox.showerror("오류", f"대화 저장 중 오류가 발생했습니다:\n{str(e)}")
-    
-    def load_conversation(self):
-        """대화 불러오기"""
-        file_path = filedialog.askopenfilename(
-            title="대화 불러오기",
-            filetypes=[("JSON 파일", "*.json")],
-            initialdir="conversations"
-        )
-        
-        if not file_path:
-            return
-        
-        try:
-            with open(file_path, 'r', encoding='utf-8') as f:
-                data = json.load(f)
+            error_msg = f"오류 발생: {str(e)}"
+            self.after(0, lambda: self.add_message("assistant", error_msg))
             
-            # 대화 초기화
-            self.conversation = []
+        finally:
+            # UI 상태 복원
+            self.after(0, self._reset_ui_state)
+            
+    def stop_generation(self):
+        """생성 중지"""
+        if self.current_streaming:
+            self.current_streaming.stop()
+            
+    def _reset_ui_state(self):
+        """UI 상태 초기화"""
+        self.send_btn.configure(state="normal")
+        self.stop_btn.configure(state="disabled")
+        self.current_streaming = None
+        
+    def clear_chat(self):
+        """대화 초기화"""
+        if messagebox.askyesno("확인", "대화를 초기화하시겠습니까?"):
+            self.messages.clear()
             for widget in self.chat_frame.winfo_children():
                 widget.destroy()
+            self.add_message("assistant", "대화가 초기화되었습니다. 새로운 대화를 시작해보세요!")
             
-            # 대화 복원
-            for msg in data.get("conversation", []):
-                if msg["role"] == "user":
-                    self.add_user_message(msg["content"])
-                else:
-                    self.add_assistant_message(msg["content"])
+    def show_settings(self):
+        """설정 창"""
+        settings_window = ctk.CTkToplevel(self)
+        settings_window.title("설정")
+        settings_window.geometry("600x700")
+        settings_window.transient(self)
+        settings_window.grab_set()
+        
+        # 설정 항목들
+        settings = [
+            ("Context Size", "context_size", 128, 32768, 4096),
+            ("Max Tokens", "max_tokens", 128, 4096, 2048),
+            ("Top K", "top_k", 1, 100, 40),
+            ("Repeat Penalty", "repeat_penalty", 0.5, 2.0, 1.1),
+            ("Threads", "n_threads", 1, 32, 4),
+            ("GPU Layers", "n_gpu_layers", -1, 100, -1),
+        ]
+        
+        row = 0
+        self.setting_vars = {}
+        
+        for label, key, min_val, max_val, default in settings:
+            ctk.CTkLabel(settings_window, text=f"{label}:").grid(
+                row=row, column=0, padx=20, pady=10, sticky="w"
+            )
             
-            # 프롬프트 템플릿 복원
-            template = data.get("prompt_template", "일반 대화")
-            if template in self.prompt_manager.prompts:
-                self.prompt_combo.set(template)
-                self.on_prompt_template_change(template)
+            if isinstance(min_val, float):
+                var = ctk.DoubleVar(value=getattr(self.model_manager.config, key, default))
+            else:
+                var = ctk.IntVar(value=getattr(self.model_manager.config, key, default))
+                
+            self.setting_vars[key] = var
             
-            messagebox.showinfo("성공", "대화를 불러왔습니다.")
+            if key in ["context_size", "max_tokens", "n_threads", "n_gpu_layers", "top_k"]:
+                spinbox = ctk.CTkEntry(settings_window, textvariable=var, width=150)
+                spinbox.grid(row=row, column=1, padx=20, pady=10)
+            else:
+                slider = ctk.CTkSlider(
+                    settings_window,
+                    from_=min_val,
+                    to=max_val,
+                    variable=var,
+                    width=200
+                )
+                slider.grid(row=row, column=1, padx=20, pady=10)
+                
+                value_label = ctk.CTkLabel(settings_window, text=f"{var.get():.2f}")
+                value_label.grid(row=row, column=2, padx=10, pady=10)
+                
+                slider.configure(command=lambda v, l=value_label, var=var: l.configure(text=f"{var.get():.2f}"))
+                
+            row += 1
+            
+        # System Prompt
+        ctk.CTkLabel(settings_window, text="System Prompt:").grid(
+            row=row, column=0, columnspan=3, padx=20, pady=(20, 5), sticky="w"
+        )
+        row += 1
+        
+        self.system_prompt_text = ctk.CTkTextbox(settings_window, height=150, width=550)
+        self.system_prompt_text.grid(row=row, column=0, columnspan=3, padx=20, pady=5)
+        self.system_prompt_text.insert("1.0", self.model_manager.config.system_prompt)
+        row += 1
+        
+        # 버튼들
+        btn_frame = ctk.CTkFrame(settings_window)
+        btn_frame.grid(row=row, column=0, columnspan=3, pady=20)
+        
+        ctk.CTkButton(
+            btn_frame,
+            text="저장",
+            command=lambda: self.save_settings(settings_window)
+        ).pack(side="left", padx=10)
+        
+        ctk.CTkButton(
+            btn_frame,
+            text="취소",
+            command=settings_window.destroy
+        ).pack(side="left")
+        
+    def save_settings(self, window):
+        """설정 저장"""
+        try:
+            # 설정 업데이트
+            for key, var in self.setting_vars.items():
+                setattr(self.model_manager.config, key, var.get())
+                
+            self.model_manager.config.system_prompt = self.system_prompt_text.get("1.0", "end").strip()
+            self.model_manager.config.prompt_template = self.template_var.get()
+            self.model_manager.config.temperature = self.temp_slider.get()
+            
+            messagebox.showinfo("성공", "설정이 저장되었습니다!")
+            window.destroy()
+            
         except Exception as e:
-            messagebox.showerror("오류", f"대화 불러오기 중 오류가 발생했습니다:\n{str(e)}")
-    
-    def on_closing(self):
-        """앱 종료 처리"""
-        self.config_manager.save_config()
-        self.quit()
-        self.destroy()
+            messagebox.showerror("오류", f"설정 저장 실패:\n{str(e)}")
+            
+    def on_template_change(self, value):
+        """템플릿 변경"""
+        if self.model_manager.is_loaded:
+            self.model_manager.config.prompt_template = value
+            
+    def on_temp_change(self, value):
+        """온도 변경"""
+        self.temp_label.configure(text=f"{value:.2f}")
+        if self.model_manager.is_loaded:
+            self.model_manager.config.temperature = value
+            
+    def show_loading(self, message):
+        """로딩 표시"""
+        self.loading_window = ctk.CTkToplevel(self)
+        self.loading_window.title("로딩")
+        self.loading_window.geometry("300x150")
+        self.loading_window.transient(self)
+        self.loading_window.grab_set()
+        
+        # 중앙 정렬
+        self.loading_window.update_idletasks()
+        x = (self.loading_window.winfo_screenwidth() // 2) - 150
+        y = (self.loading_window.winfo_screenheight() // 2) - 75
+        self.loading_window.geometry(f"+{x}+{y}")
+        
+        ctk.CTkLabel(
+            self.loading_window,
+            text=message,
+            font=("Arial", 16)
+        ).pack(pady=30)
+        
+        progress = ctk.CTkProgressBar(self.loading_window, mode="indeterminate")
+        progress.pack(padx=40)
+        progress.start()
+        
+    def hide_loading(self):
+        """로딩 숨기기"""
+        if hasattr(self, 'loading_window'):
+            self.loading_window.destroy()
 
-# 메인 실행
-if __name__ == "__main__":
+def main():
+    """메인 함수"""
     if not LLAMA_CPP_AVAILABLE:
-        import tkinter as tk
-        from tkinter import messagebox
         root = tk.Tk()
         root.withdraw()
         messagebox.showerror(
-            "오류", 
-            "llama-cpp-python이 설치되지 않았습니다.\n\n"
-            "다음 명령어로 설치해주세요:\n"
+            "Error",
+            "llama-cpp-python is not installed.\n\n"
+            "Please install it using:\n"
             "pip install llama-cpp-python"
         )
-        root.destroy()
-        sys.exit(1)
-    
-    try:
-        app = SimpleGGUFApp()
-        app.protocol("WM_DELETE_WINDOW", app.on_closing)
+        return
         
-        # 메뉴바 추가
-        import tkinter as tk
-        menu_bar = tk.Menu(app)
+    # 필요한 디렉토리 생성
+    for dir_name in ["models", "logs", "exports"]:
+        Path(dir_name).mkdir(exist_ok=True)
         
-        # 파일 메뉴
-        file_menu = tk.Menu(menu_bar, tearoff=0)
-        file_menu.add_command(label="대화 저장", command=app.save_conversation)
-        file_menu.add_command(label="대화 불러오기", command=app.load_conversation)
-        file_menu.add_separator()
-        file_menu.add_command(label="종료", command=app.on_closing)
-        menu_bar.add_cascade(label="파일", menu=file_menu)
-        
-        # 편집 메뉴
-        edit_menu = tk.Menu(menu_bar, tearoff=0)
-        edit_menu.add_command(label="프롬프트 템플릿 관리", command=app.show_prompt_manager)
-        edit_menu.add_command(label="설정", command=app.show_settings)
-        menu_bar.add_cascade(label="편집", menu=edit_menu)
-        
-        app.configure(menu=menu_bar)
-        
-        app.mainloop()
-    except Exception as e:
-        error_message = f"애플리케이션 시작 중 오류가 발생했습니다:\n{str(e)}\n\n{traceback.format_exc()}"
-        print(error_message)
-        
-        try:
-            import tkinter as tk
-            from tkinter import messagebox
-            root = tk.Tk()
-            root.withdraw()
-            messagebox.showerror("오류", error_message)
-            root.destroy()
-        except:
-            pass
-        
-        sys.exit(1)
+    # 앱 실행
+    app = ModernGGUFChat()
+    app.mainloop()
+
+if __name__ == "__main__":
+    main()
