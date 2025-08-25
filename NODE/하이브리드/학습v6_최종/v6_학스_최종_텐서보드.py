@@ -1,7 +1,7 @@
 """
-V6_학습_TensorBoard_수정완료.py - TensorBoard + 학습 재개 기능이 추가된 5개 모델 앙상블 학습
-디렉토리 생성 문제 해결 버전
-TensorFlow 2.15.0 + TensorBoard + Resume Training
+V6_학습_간단버전.py - TensorBoard 없는 5개 모델 앙상블 학습
+복잡한 기능 제거하고 핵심만 남긴 버전
+TensorFlow 2.15.0
 """
 
 import tensorflow as tf
@@ -13,11 +13,10 @@ import os
 import warnings
 from datetime import datetime
 import pickle
-import pathlib
 warnings.filterwarnings('ignore')
 
 print("="*60)
-print("🚀 반도체 물류 예측 앙상블 학습 V6 - TensorBoard Edition")
+print("🚀 반도체 물류 예측 앙상블 학습 V6 - Simple Version")
 print(f"📦 TensorFlow 버전: {tf.__version__}")
 print("="*60)
 
@@ -36,13 +35,6 @@ class Config:
         1700: 500
     }
     
-    RATIO_THRESHOLDS = {
-        1400: 4,
-        1500: 5,
-        1600: 6,
-        1700: 7
-    }
-    
     # 학습 설정
     BATCH_SIZE = 32
     EPOCHS = 100
@@ -52,41 +44,27 @@ class Config:
     # 모델 저장 경로
     MODEL_DIR = './models_v6/'
     CHECKPOINT_DIR = './checkpoints_v6/'
-    LOG_DIR = './logs/fit/'
-    
-    # 가중치 설정
-    SPIKE_WEIGHTS = {
-        'normal': 1.0,
-        'level_1400': 3.0,
-        'level_1500': 5.0,
-        'level_1600': 8.0,
-        'level_1700': 10.0
-    }
     
     # 학습 재개 설정
     RESUME_TRAINING = True  # True로 설정하면 이전 학습 이어서 진행
 
-# 디렉토리 생성 (Windows 호환)
-for dir_path in [Config.MODEL_DIR, Config.CHECKPOINT_DIR, Config.LOG_DIR]:
-    pathlib.Path(dir_path).mkdir(parents=True, exist_ok=True)
-    print(f"✅ 디렉토리 생성/확인: {dir_path}")
+# 디렉토리 생성
+os.makedirs(Config.MODEL_DIR, exist_ok=True)
+os.makedirs(Config.CHECKPOINT_DIR, exist_ok=True)
+print(f"✅ 디렉토리 생성 완료")
 
 # ============================================
 # 학습 상태 저장/로드 함수
 # ============================================
-def save_training_state(model_name, epoch, history_dict):
+def save_training_state(model_name, epoch):
     """학습 상태 저장"""
-    state = {
-        'epoch': epoch,
-        'history': history_dict
-    }
-    state_path = os.path.join(Config.CHECKPOINT_DIR, f"{model_name}_state.pkl")
-    with open(state_path, 'wb') as f:
+    state = {'epoch': epoch}
+    with open(f"{Config.CHECKPOINT_DIR}{model_name}_state.pkl", 'wb') as f:
         pickle.dump(state, f)
 
 def load_training_state(model_name):
     """학습 상태 로드"""
-    state_file = os.path.join(Config.CHECKPOINT_DIR, f"{model_name}_state.pkl")
+    state_file = f"{Config.CHECKPOINT_DIR}{model_name}_state.pkl"
     if os.path.exists(state_file):
         with open(state_file, 'rb') as f:
             return pickle.load(f)
@@ -166,47 +144,30 @@ class M14RuleCorrection(tf.keras.layers.Layer):
         return pred
 
 class SpikePerformanceCallback(tf.keras.callbacks.Callback):
-    """급증 감지 성능 모니터링 + TensorBoard 로깅"""
-    def __init__(self, X_val, y_val, log_dir, model_name):
+    """급증 감지 성능 모니터링"""
+    def __init__(self, X_val, y_val, model_name):
         self.X_val = X_val
         self.y_val = y_val
-        self.log_dir = log_dir.replace('\\', '/')  # Windows 경로 문제 해결
-        self.writer = tf.summary.create_file_writer(self.log_dir)
         self.model_name = model_name
         
     def on_epoch_end(self, epoch, logs=None):
+        # 매 에폭마다 상태 저장
+        save_training_state(self.model_name, epoch + 1)
+        
+        # 10 에폭마다 성능 출력
         if epoch % 10 == 0:
             pred = self.model.predict(self.X_val, verbose=0)
             if isinstance(pred, list):
                 pred = pred[0]
             pred = pred.flatten()
             
-            # 구간별 Recall
-            with self.writer.as_default():
-                for level in [1400, 1500, 1600, 1700]:
-                    mask = self.y_val >= level
-                    if np.any(mask):
-                        recall = np.sum((pred >= level) & mask) / np.sum(mask)
-                        print(f"   {level} Recall: {recall:.2%}", end=" ")
-                        tf.summary.scalar(f'{self.model_name}/recall_{level}+', recall, step=epoch)
+            print(f"\n  📊 {self.model_name.upper()} Recall:", end=" ")
+            for level in [1400, 1500, 1600, 1700]:
+                mask = self.y_val >= level
+                if np.any(mask):
+                    recall = np.sum((pred >= level) & mask) / np.sum(mask)
+                    print(f"{level}+: {recall:.2%}", end=" | ")
             print()
-            self.writer.flush()
-
-class TrainingStateCallback(tf.keras.callbacks.Callback):
-    """학습 상태 저장 콜백"""
-    def __init__(self, model_name):
-        self.model_name = model_name
-        self.history_dict = {}
-        
-    def on_epoch_end(self, epoch, logs=None):
-        # 히스토리 업데이트
-        for key, value in logs.items():
-            if key not in self.history_dict:
-                self.history_dict[key] = []
-            self.history_dict[key].append(value)
-        
-        # 상태 저장
-        save_training_state(self.model_name, epoch + 1, self.history_dict)
 
 # ============================================
 # 3. 모델 정의
@@ -215,166 +176,127 @@ class ModelsV6:
     
     @staticmethod
     def build_lstm_model(input_shape):
-        """1. LSTM 모델 - 장기 시계열 패턴 학습"""
-        inputs = tf.keras.Input(shape=input_shape, name='lstm_input')
+        """1. LSTM 모델"""
+        inputs = tf.keras.Input(shape=input_shape)
         
-        # Stacked LSTM
         lstm1 = tf.keras.layers.LSTM(128, return_sequences=True, dropout=0.2)(inputs)
         lstm2 = tf.keras.layers.LSTM(128, return_sequences=True, dropout=0.2)(lstm1)
         lstm3 = tf.keras.layers.LSTM(64, dropout=0.2)(lstm2)
         
-        # Dense layers
         dense1 = tf.keras.layers.Dense(128, activation='relu')(lstm3)
         dropout = tf.keras.layers.Dropout(0.3)(dense1)
         dense2 = tf.keras.layers.Dense(64, activation='relu')(dropout)
         
-        # Output
-        output = tf.keras.layers.Dense(1, name='lstm_output')(dense2)
+        output = tf.keras.layers.Dense(1)(dense2)
         
-        model = tf.keras.Model(inputs=inputs, outputs=output, name='LSTM_Model')
-        return model
+        return tf.keras.Model(inputs=inputs, outputs=output, name='LSTM_Model')
     
     @staticmethod
     def build_enhanced_gru(input_shape):
-        """2. GRU 모델 - 단기 변동성 포착"""
-        inputs = tf.keras.Input(shape=input_shape, name='gru_input')
+        """2. GRU 모델"""
+        inputs = tf.keras.Input(shape=input_shape)
         
-        # Layer Normalization
         x = tf.keras.layers.LayerNormalization()(inputs)
         
-        # Stacked GRU with residual
         gru1 = tf.keras.layers.GRU(128, return_sequences=True, dropout=0.2)(x)
         gru2 = tf.keras.layers.GRU(128, return_sequences=True, dropout=0.2)(gru1)
         
-        # Residual connection
         residual = tf.keras.layers.Add()([gru1, gru2])
         
-        # Final GRU
         gru3 = tf.keras.layers.GRU(64, dropout=0.2)(residual)
         
-        # Dense layers
         dense1 = tf.keras.layers.Dense(128, activation='relu')(gru3)
         dropout = tf.keras.layers.Dropout(0.3)(dense1)
         dense2 = tf.keras.layers.Dense(64, activation='relu')(dropout)
         
-        # Output
-        output = tf.keras.layers.Dense(1, name='gru_output')(dense2)
+        output = tf.keras.layers.Dense(1)(dense2)
         
-        model = tf.keras.Model(inputs=inputs, outputs=output, name='GRU_Model')
-        return model
+        return tf.keras.Model(inputs=inputs, outputs=output, name='GRU_Model')
     
     @staticmethod
     def build_cnn_lstm(input_shape):
-        """3. CNN-LSTM 모델 - 복합 패턴 인식"""
-        inputs = tf.keras.Input(shape=input_shape, name='cnn_input')
+        """3. CNN-LSTM 모델"""
+        inputs = tf.keras.Input(shape=input_shape)
         
-        # Multi-scale CNN
         conv1 = tf.keras.layers.Conv1D(64, 3, activation='relu', padding='same')(inputs)
         conv2 = tf.keras.layers.Conv1D(64, 5, activation='relu', padding='same')(inputs)
         conv3 = tf.keras.layers.Conv1D(64, 7, activation='relu', padding='same')(inputs)
         
-        # Concatenate
         concat = tf.keras.layers.Concatenate()([conv1, conv2, conv3])
         
-        # Batch normalization
         norm = tf.keras.layers.BatchNormalization()(concat)
         
-        # LSTM
         lstm = tf.keras.layers.LSTM(128, return_sequences=True, dropout=0.2)(norm)
         lstm2 = tf.keras.layers.LSTM(64, dropout=0.2)(lstm)
         
-        # Dense layers
         dense1 = tf.keras.layers.Dense(128, activation='relu')(lstm2)
         dropout = tf.keras.layers.Dropout(0.3)(dense1)
         
-        # Output
-        output = tf.keras.layers.Dense(1, name='cnn_lstm_output')(dropout)
+        output = tf.keras.layers.Dense(1)(dropout)
         
-        model = tf.keras.Model(inputs=inputs, outputs=output, name='CNN_LSTM_Model')
-        return model
+        return tf.keras.Model(inputs=inputs, outputs=output, name='CNN_LSTM_Model')
     
     @staticmethod
     def build_spike_detector(input_shape):
-        """4. Spike Detector - 이상치 감지 전문"""
-        inputs = tf.keras.Input(shape=input_shape, name='spike_input')
+        """4. Spike Detector"""
+        inputs = tf.keras.Input(shape=input_shape)
         
-        # Multi-scale CNN for pattern detection
         conv1 = tf.keras.layers.Conv1D(64, 3, activation='relu', padding='same')(inputs)
         conv2 = tf.keras.layers.Conv1D(64, 5, activation='relu', padding='same')(inputs)
         conv3 = tf.keras.layers.Conv1D(64, 7, activation='relu', padding='same')(inputs)
         
-        # Concatenate multi-scale features
         concat = tf.keras.layers.Concatenate()([conv1, conv2, conv3])
-        
-        # Batch normalization
         norm = tf.keras.layers.BatchNormalization()(concat)
         
-        # Attention mechanism
         attention = tf.keras.layers.MultiHeadAttention(
-            num_heads=4, 
-            key_dim=48,
-            dropout=0.2
+            num_heads=4, key_dim=48, dropout=0.2
         )(norm, norm)
         
-        # BiLSTM
         lstm = tf.keras.layers.Bidirectional(
             tf.keras.layers.LSTM(128, return_sequences=True, dropout=0.2)
         )(attention)
         
-        # Global pooling
         pooled = tf.keras.layers.GlobalAveragePooling1D()(lstm)
         
-        # Dense layers
         dense1 = tf.keras.layers.Dense(256, activation='relu')(pooled)
         dropout1 = tf.keras.layers.Dropout(0.3)(dense1)
         dense2 = tf.keras.layers.Dense(128, activation='relu')(dropout1)
         dropout2 = tf.keras.layers.Dropout(0.2)(dense2)
         
-        # Dual output (회귀 + 분류)
         regression_output = tf.keras.layers.Dense(1, name='spike_value')(dropout2)
         classification_output = tf.keras.layers.Dense(1, activation='sigmoid', name='spike_prob')(dropout2)
         
-        model = tf.keras.Model(
+        return tf.keras.Model(
             inputs=inputs,
             outputs=[regression_output, classification_output],
             name='Spike_Detector'
         )
-        return model
     
     @staticmethod
     def build_rule_based_model(input_shape, m14_shape):
-        """5. Rule-Based 모델 - 검증된 황금 패턴"""
-        # 시계열 입력
+        """5. Rule-Based 모델"""
         time_input = tf.keras.Input(shape=input_shape, name='time_input')
-        # M14 특징 입력
         m14_input = tf.keras.Input(shape=m14_shape, name='m14_input')
         
-        # 간단한 시계열 처리
         lstm = tf.keras.layers.LSTM(32, dropout=0.2)(time_input)
         
-        # M14 특징 처리
         m14_dense = tf.keras.layers.Dense(16, activation='relu')(m14_input)
         
-        # 결합
         combined = tf.keras.layers.Concatenate()([lstm, m14_dense])
         
-        # Dense layers
         dense1 = tf.keras.layers.Dense(64, activation='relu')(combined)
         dropout = tf.keras.layers.Dropout(0.2)(dense1)
         dense2 = tf.keras.layers.Dense(32, activation='relu')(dropout)
         
-        # 예측
-        prediction = tf.keras.layers.Dense(1, name='rule_pred')(dense2)
+        prediction = tf.keras.layers.Dense(1)(dense2)
         
-        # M14 규칙 적용
         corrected = M14RuleCorrection()([prediction, m14_input])
         
-        model = tf.keras.Model(
+        return tf.keras.Model(
             inputs=[time_input, m14_input],
             outputs=corrected,
             name='Rule_Based_Model'
         )
-        return model
 
 # ============================================
 # 4. 데이터 로드 및 준비
@@ -417,7 +339,6 @@ print(f"  1400+ 검증 비율: {y_val_spike_class.mean():.1%}")
 # ============================================
 print("\n" + "="*60)
 print("🏋️ 5개 모델 학습 시작")
-print("📊 TensorBoard 로그 디렉토리:", Config.LOG_DIR)
 print("⚡ 학습 재개 모드:", "ON" if Config.RESUME_TRAINING else "OFF")
 print("="*60)
 
@@ -430,11 +351,9 @@ evaluation_results = {}
 # ============================================
 print("\n1️⃣ LSTM 모델 학습 (장기 시계열 패턴)")
 
-# 모델 생성 또는 로드
 lstm_model = ModelsV6.build_lstm_model(X_train.shape[1:])
-checkpoint_path = os.path.join(Config.CHECKPOINT_DIR, "lstm_checkpoint.h5")
+checkpoint_path = f"{Config.CHECKPOINT_DIR}lstm_checkpoint.h5"
 
-# 이전 가중치 로드 (있으면)
 if Config.RESUME_TRAINING and os.path.exists(checkpoint_path):
     print("  ✅ 이전 체크포인트에서 가중치 로드")
     lstm_model.load_weights(checkpoint_path)
@@ -445,22 +364,6 @@ lstm_model.compile(
     metrics=['mae']
 )
 
-# TensorBoard 설정
-timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
-log_dir = os.path.join(Config.LOG_DIR, "lstm", timestamp)
-log_dir = log_dir.replace('\\', '/')  # Windows 경로 문제 해결
-os.makedirs(log_dir, exist_ok=True)
-
-tensorboard_callback = tf.keras.callbacks.TensorBoard(
-    log_dir=log_dir,
-    histogram_freq=1,
-    write_graph=True,
-    write_images=True,
-    update_freq='epoch',
-    profile_batch='500,520'
-)
-
-# 시작 에폭 결정
 initial_epoch = get_initial_epoch('lstm')
 print(f"  시작 에폭: {initial_epoch}")
 
@@ -478,16 +381,14 @@ lstm_history = lstm_model.fit(
             verbose=0
         ),
         tf.keras.callbacks.ModelCheckpoint(
-            os.path.join(Config.MODEL_DIR, "lstm_best.h5"),
+            f"{Config.MODEL_DIR}lstm_best.h5",
             save_best_only=True,
             monitor='val_loss',
             verbose=0
         ),
         tf.keras.callbacks.EarlyStopping(patience=Config.PATIENCE, restore_best_weights=True),
         tf.keras.callbacks.ReduceLROnPlateau(patience=5, factor=0.5),
-        tensorboard_callback,
-        SpikePerformanceCallback(X_val, y_val, log_dir, 'lstm'),
-        TrainingStateCallback('lstm')
+        SpikePerformanceCallback(X_val, y_val, 'lstm')
     ],
     verbose=1
 )
@@ -501,7 +402,7 @@ history['lstm'] = lstm_history
 print("\n2️⃣ Enhanced GRU 모델 학습 (단기 변동성)")
 
 gru_model = ModelsV6.build_enhanced_gru(X_train.shape[1:])
-checkpoint_path = os.path.join(Config.CHECKPOINT_DIR, "gru_checkpoint.h5")
+checkpoint_path = f"{Config.CHECKPOINT_DIR}gru_checkpoint.h5"
 
 if Config.RESUME_TRAINING and os.path.exists(checkpoint_path):
     print("  ✅ 이전 체크포인트에서 가중치 로드")
@@ -511,19 +412,6 @@ gru_model.compile(
     optimizer=tf.keras.optimizers.Adam(Config.LEARNING_RATE),
     loss=WeightedLoss(),
     metrics=['mae']
-)
-
-timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
-log_dir = os.path.join(Config.LOG_DIR, "gru", timestamp)
-log_dir = log_dir.replace('\\', '/')  # Windows 경로 문제 해결
-os.makedirs(log_dir, exist_ok=True)
-
-tensorboard_callback = tf.keras.callbacks.TensorBoard(
-    log_dir=log_dir,
-    histogram_freq=1,
-    write_graph=True,
-    write_images=True,
-    update_freq='epoch'
 )
 
 initial_epoch = get_initial_epoch('gru')
@@ -543,16 +431,14 @@ gru_history = gru_model.fit(
             verbose=0
         ),
         tf.keras.callbacks.ModelCheckpoint(
-            os.path.join(Config.MODEL_DIR, "gru_best.h5"),
+            f"{Config.MODEL_DIR}gru_best.h5",
             save_best_only=True,
             monitor='val_loss',
             verbose=0
         ),
         tf.keras.callbacks.EarlyStopping(patience=Config.PATIENCE, restore_best_weights=True),
         tf.keras.callbacks.ReduceLROnPlateau(patience=5, factor=0.5),
-        tensorboard_callback,
-        SpikePerformanceCallback(X_val, y_val, log_dir, 'gru'),
-        TrainingStateCallback('gru')
+        SpikePerformanceCallback(X_val, y_val, 'gru')
     ],
     verbose=1
 )
@@ -566,7 +452,7 @@ history['gru'] = gru_history
 print("\n3️⃣ CNN-LSTM 모델 학습 (복합 패턴 인식)")
 
 cnn_lstm_model = ModelsV6.build_cnn_lstm(X_train.shape[1:])
-checkpoint_path = os.path.join(Config.CHECKPOINT_DIR, "cnn_lstm_checkpoint.h5")
+checkpoint_path = f"{Config.CHECKPOINT_DIR}cnn_lstm_checkpoint.h5"
 
 if Config.RESUME_TRAINING and os.path.exists(checkpoint_path):
     print("  ✅ 이전 체크포인트에서 가중치 로드")
@@ -576,19 +462,6 @@ cnn_lstm_model.compile(
     optimizer=tf.keras.optimizers.Adam(Config.LEARNING_RATE),
     loss=WeightedLoss(),
     metrics=['mae']
-)
-
-timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
-log_dir = os.path.join(Config.LOG_DIR, "cnn_lstm", timestamp)
-log_dir = log_dir.replace('\\', '/')  # Windows 경로 문제 해결
-os.makedirs(log_dir, exist_ok=True)
-
-tensorboard_callback = tf.keras.callbacks.TensorBoard(
-    log_dir=log_dir,
-    histogram_freq=1,
-    write_graph=True,
-    write_images=True,
-    update_freq='epoch'
 )
 
 initial_epoch = get_initial_epoch('cnn_lstm')
@@ -608,16 +481,14 @@ cnn_lstm_history = cnn_lstm_model.fit(
             verbose=0
         ),
         tf.keras.callbacks.ModelCheckpoint(
-            os.path.join(Config.MODEL_DIR, "cnn_lstm_best.h5"),
+            f"{Config.MODEL_DIR}cnn_lstm_best.h5",
             save_best_only=True,
             monitor='val_loss',
             verbose=0
         ),
         tf.keras.callbacks.EarlyStopping(patience=Config.PATIENCE, restore_best_weights=True),
         tf.keras.callbacks.ReduceLROnPlateau(patience=5, factor=0.5),
-        tensorboard_callback,
-        SpikePerformanceCallback(X_val, y_val, log_dir, 'cnn_lstm'),
-        TrainingStateCallback('cnn_lstm')
+        SpikePerformanceCallback(X_val, y_val, 'cnn_lstm')
     ],
     verbose=1
 )
@@ -631,7 +502,7 @@ history['cnn_lstm'] = cnn_lstm_history
 print("\n4️⃣ Spike Detector 모델 학습 (이상치 감지)")
 
 spike_model = ModelsV6.build_spike_detector(X_train.shape[1:])
-checkpoint_path = os.path.join(Config.CHECKPOINT_DIR, "spike_checkpoint.h5")
+checkpoint_path = f"{Config.CHECKPOINT_DIR}spike_checkpoint.h5"
 
 if Config.RESUME_TRAINING and os.path.exists(checkpoint_path):
     print("  ✅ 이전 체크포인트에서 가중치 로드")
@@ -650,21 +521,15 @@ spike_model.compile(
     metrics=['mae']
 )
 
-timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
-log_dir = os.path.join(Config.LOG_DIR, "spike", timestamp)
-log_dir = log_dir.replace('\\', '/')  # Windows 경로 문제 해결
-os.makedirs(log_dir, exist_ok=True)
-
-tensorboard_callback = tf.keras.callbacks.TensorBoard(
-    log_dir=log_dir,
-    histogram_freq=1,
-    write_graph=True,
-    write_images=True,
-    update_freq='epoch'
-)
-
 initial_epoch = get_initial_epoch('spike')
 print(f"  시작 에폭: {initial_epoch}")
+
+# Spike용 특별 콜백
+class SpikeCallback(tf.keras.callbacks.Callback):
+    def __init__(self, model_name):
+        self.model_name = model_name
+    def on_epoch_end(self, epoch, logs=None):
+        save_training_state(self.model_name, epoch + 1)
 
 spike_history = spike_model.fit(
     X_train, 
@@ -681,15 +546,14 @@ spike_history = spike_model.fit(
             verbose=0
         ),
         tf.keras.callbacks.ModelCheckpoint(
-            os.path.join(Config.MODEL_DIR, "spike_best.h5"),
+            f"{Config.MODEL_DIR}spike_best.h5",
             save_best_only=True,
             monitor='val_spike_value_loss',
             verbose=0
         ),
         tf.keras.callbacks.EarlyStopping(patience=Config.PATIENCE, restore_best_weights=True),
         tf.keras.callbacks.ReduceLROnPlateau(patience=5, factor=0.5),
-        tensorboard_callback,
-        TrainingStateCallback('spike')
+        SpikeCallback('spike')
     ],
     verbose=1
 )
@@ -703,7 +567,7 @@ history['spike'] = spike_history
 print("\n5️⃣ Rule-Based 모델 학습 (검증된 황금 패턴)")
 
 rule_model = ModelsV6.build_rule_based_model(X_train.shape[1:], m14_train.shape[1])
-checkpoint_path = os.path.join(Config.CHECKPOINT_DIR, "rule_checkpoint.h5")
+checkpoint_path = f"{Config.CHECKPOINT_DIR}rule_checkpoint.h5"
 
 if Config.RESUME_TRAINING and os.path.exists(checkpoint_path):
     print("  ✅ 이전 체크포인트에서 가중치 로드")
@@ -715,21 +579,15 @@ rule_model.compile(
     metrics=['mae']
 )
 
-timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
-log_dir = os.path.join(Config.LOG_DIR, "rule", timestamp)
-log_dir = log_dir.replace('\\', '/')  # Windows 경로 문제 해결
-os.makedirs(log_dir, exist_ok=True)
-
-tensorboard_callback = tf.keras.callbacks.TensorBoard(
-    log_dir=log_dir,
-    histogram_freq=1,
-    write_graph=True,
-    write_images=True,
-    update_freq='epoch'
-)
-
 initial_epoch = get_initial_epoch('rule')
 print(f"  시작 에폭: {initial_epoch}")
+
+# Rule용 콜백
+class RuleCallback(tf.keras.callbacks.Callback):
+    def __init__(self, model_name):
+        self.model_name = model_name
+    def on_epoch_end(self, epoch, logs=None):
+        save_training_state(self.model_name, epoch + 1)
 
 rule_history = rule_model.fit(
     [X_train, m14_train], 
@@ -746,14 +604,13 @@ rule_history = rule_model.fit(
             verbose=0
         ),
         tf.keras.callbacks.ModelCheckpoint(
-            os.path.join(Config.MODEL_DIR, "rule_best.h5"),
+            f"{Config.MODEL_DIR}rule_best.h5",
             save_best_only=True,
             monitor='val_loss',
             verbose=0
         ),
         tf.keras.callbacks.EarlyStopping(patience=10, restore_best_weights=True),
-        tensorboard_callback,
-        TrainingStateCallback('rule')
+        RuleCallback('rule')
     ],
     verbose=1
 )
@@ -815,7 +672,7 @@ ensemble_model = tf.keras.Model(
 )
 
 # 앙상블 체크포인트
-ensemble_checkpoint_path = os.path.join(Config.CHECKPOINT_DIR, "ensemble_checkpoint.h5")
+ensemble_checkpoint_path = f"{Config.CHECKPOINT_DIR}ensemble_checkpoint.h5"
 
 if Config.RESUME_TRAINING and os.path.exists(ensemble_checkpoint_path):
     print("  ✅ 이전 앙상블 체크포인트에서 가중치 로드")
@@ -834,23 +691,16 @@ ensemble_model.compile(
     metrics=['mae']
 )
 
-timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
-log_dir = os.path.join(Config.LOG_DIR, "ensemble", timestamp)
-log_dir = log_dir.replace('\\', '/')  # Windows 경로 문제 해결
-os.makedirs(log_dir, exist_ok=True)
-
-tensorboard_callback = tf.keras.callbacks.TensorBoard(
-    log_dir=log_dir,
-    histogram_freq=1,
-    write_graph=True,
-    write_images=True,
-    update_freq='epoch'
-)
-
 initial_epoch = get_initial_epoch('ensemble')
 print(f"  앙상블 시작 에폭: {initial_epoch}")
 
 print("\n📊 앙상블 파인튜닝...")
+
+# 앙상블 콜백
+class EnsembleCallback(tf.keras.callbacks.Callback):
+    def on_epoch_end(self, epoch, logs=None):
+        save_training_state('ensemble', epoch + 1)
+
 ensemble_history = ensemble_model.fit(
     [X_train, m14_train],
     [y_train, y_spike_class],
@@ -868,8 +718,7 @@ ensemble_history = ensemble_model.fit(
             save_best_only=False,
             verbose=0
         ),
-        tensorboard_callback,
-        TrainingStateCallback('ensemble')
+        EnsembleCallback()
     ],
     verbose=1
 )
@@ -934,132 +783,84 @@ print(f"  MAE: {evaluation_results[best_model]['overall_mae']:.2f}")
 print("\n💾 최종 모델 저장 중...")
 
 for name, model in models.items():
-    model_path = os.path.join(Config.MODEL_DIR, f"{name}_model.h5")
-    model.save(model_path)
+    model.save(f"{Config.MODEL_DIR}{name}_model.h5")
     print(f"  {name}_model.h5 저장 완료")
 
 # 평가 결과 저장
-results_path = os.path.join(Config.MODEL_DIR, "evaluation_results.json")
-with open(results_path, 'w') as f:
+with open(f"{Config.MODEL_DIR}evaluation_results.json", 'w') as f:
     json.dump(evaluation_results, f, indent=2, default=str)
 
 # 설정 저장
 config_dict = {k: v for k, v in Config.__dict__.items() if not k.startswith('_')}
-config_path = os.path.join(Config.MODEL_DIR, "config.json")
-with open(config_path, 'w') as f:
+with open(f"{Config.MODEL_DIR}config.json", 'w') as f:
     json.dump(config_dict, f, indent=2)
 
 print("  결과 파일 저장 완료")
 
 # ============================================
-# 9. 시각화
+# 9. 간단한 시각화
 # ============================================
-print("\n📈 결과 시각화 생성 중...")
+print("\n📈 간단한 결과 시각화...")
 
-# 시각화 코드는 기존과 동일하지만 경로 수정
-fig = plt.figure(figsize=(20, 12))
+plt.figure(figsize=(15, 10))
 
-# 1-5. 각 모델 학습 곡선
-for idx, (name, hist) in enumerate(history.items()):
-    if idx < 5:  # 개별 모델들
-        ax = plt.subplot(3, 4, idx+1)
-        
-        if hasattr(hist, 'history'):
-            if name == 'spike':
-                loss = hist.history.get('spike_value_loss', [])
-                val_loss = hist.history.get('val_spike_value_loss', [])
-            else:
-                loss = hist.history.get('loss', [])
-                val_loss = hist.history.get('val_loss', [])
-            
-            if loss and val_loss:
-                ax.plot(loss, label='Train Loss', alpha=0.8)
-                ax.plot(val_loss, label='Val Loss', alpha=0.8)
-        
-        ax.set_title(f'{name.upper()} Learning Curve')
-        ax.set_xlabel('Epoch')
-        ax.set_ylabel('Loss')
-        ax.legend()
-        ax.grid(True, alpha=0.3)
-
-# 6. 앙상블 학습 곡선
-ax = plt.subplot(3, 4, 6)
-if 'ensemble' in history and hasattr(history['ensemble'], 'history'):
-    loss = history['ensemble'].history.get('m14_rule_correction_loss', [])
-    val_loss = history['ensemble'].history.get('val_m14_rule_correction_loss', [])
-    if loss and val_loss:
-        ax.plot(loss, label='Train Loss', alpha=0.8)
-        ax.plot(val_loss, label='Val Loss', alpha=0.8)
-ax.set_title('ENSEMBLE Learning Curve')
-ax.set_xlabel('Epoch')
-ax.set_ylabel('Loss')
-ax.legend()
-ax.grid(True, alpha=0.3)
-
-# 7. 모델별 MAE 비교
-ax = plt.subplot(3, 4, 7)
+# 1. 모델별 MAE 비교
+plt.subplot(2, 2, 1)
 model_names = list(evaluation_results.keys())
 maes = [evaluation_results[m]['overall_mae'] for m in model_names]
-colors = ['blue', 'green', 'orange', 'red', 'purple', 'brown']
-
-bars = ax.bar(model_names, maes, color=colors[:len(model_names)])
-ax.set_title('Model MAE Comparison')
-ax.set_ylabel('MAE')
-ax.set_ylim(0, max(maes) * 1.2)
-
+bars = plt.bar(model_names, maes, color=['blue', 'green', 'orange', 'red', 'purple', 'brown'][:len(model_names)])
+plt.title('Model MAE Comparison')
+plt.ylabel('MAE')
 for bar, mae in zip(bars, maes):
-    height = bar.get_height()
-    ax.text(bar.get_x() + bar.get_width()/2., height,
-           f'{mae:.1f}', ha='center', va='bottom')
+    plt.text(bar.get_x() + bar.get_width()/2., bar.get_height(),
+             f'{mae:.1f}', ha='center', va='bottom')
 
-# 8-11. Recall 비교
-for idx, level in enumerate([1400, 1500, 1600, 1700]):
-    ax = plt.subplot(3, 4, 8+idx)
-    recalls = []
-    for m in model_names:
-        if level in evaluation_results[m]['levels']:
-            recalls.append(evaluation_results[m]['levels'][level]['recall'] * 100)
-        else:
-            recalls.append(0)
-    
-    bars = ax.bar(model_names, recalls, color=colors[:len(model_names)])
-    ax.set_title(f'{level}+ Recall Comparison (%)')
-    ax.set_ylabel('Recall (%)')
-    ax.set_ylim(0, 105)
-    
-    for bar, recall in zip(bars, recalls):
-        height = bar.get_height()
-        ax.text(bar.get_x() + bar.get_width()/2., height,
-               f'{recall:.1f}%', ha='center', va='bottom')
+# 2. 1400+ Recall 비교
+plt.subplot(2, 2, 2)
+recalls = []
+for m in model_names:
+    if 1400 in evaluation_results[m]['levels']:
+        recalls.append(evaluation_results[m]['levels'][1400]['recall'] * 100)
+    else:
+        recalls.append(0)
+bars = plt.bar(model_names, recalls, color=['blue', 'green', 'orange', 'red', 'purple', 'brown'][:len(model_names)])
+plt.title('1400+ Recall Comparison (%)')
+plt.ylabel('Recall (%)')
+plt.ylim(0, 105)
+for bar, recall in zip(bars, recalls):
+    plt.text(bar.get_x() + bar.get_width()/2., bar.get_height(),
+             f'{recall:.1f}%', ha='center', va='bottom')
 
-# 12. 성능 요약
-ax = plt.subplot(3, 4, 12)
-ax.axis('off')
+# 3. 학습 곡선 (LSTM 예시)
+plt.subplot(2, 2, 3)
+if 'lstm' in history and hasattr(history['lstm'], 'history'):
+    h = history['lstm'].history
+    if 'loss' in h and 'val_loss' in h:
+        plt.plot(h['loss'], label='Train Loss')
+        plt.plot(h['val_loss'], label='Val Loss')
+        plt.title('LSTM Learning Curve')
+        plt.xlabel('Epoch')
+        plt.ylabel('Loss')
+        plt.legend()
+        plt.grid(True, alpha=0.3)
 
-summary_text = "🏆 Performance Summary\n" + "="*35 + "\n"
-summary_text += f"Best Model: {best_model.upper()}\n"
+# 4. 성능 요약
+plt.subplot(2, 2, 4)
+plt.axis('off')
+summary_text = f"🏆 Best Model: {best_model.upper()}\n"
 summary_text += f"Overall MAE: {evaluation_results[best_model]['overall_mae']:.2f}\n\n"
-
 summary_text += "Recall by Level:\n"
 for level in [1400, 1500, 1600, 1700]:
     if level in evaluation_results[best_model]['levels']:
         recall = evaluation_results[best_model]['levels'][level]['recall']
         mae = evaluation_results[best_model]['levels'][level]['mae']
         summary_text += f"  {level}+: {recall:6.1%} (MAE: {mae:.1f})\n"
+plt.text(0.1, 0.9, summary_text, transform=plt.gca().transAxes,
+         fontsize=12, verticalalignment='top', fontfamily='monospace')
 
-summary_text += f"\n5-Model Ensemble Complete!"
-
-ax.text(0.1, 0.9, summary_text, transform=ax.transAxes,
-       fontsize=11, verticalalignment='top', fontfamily='monospace')
-
-plt.suptitle('V6 Ensemble Model Performance Analysis', fontsize=16, fontweight='bold')
 plt.tight_layout()
-
-# 저장 경로
-plot_path = os.path.join(Config.MODEL_DIR, "training_results.png")
-plt.savefig(plot_path, dpi=100, bbox_inches='tight')
-print(f"  training_results.png 저장 완료: {plot_path}")
-plt.show()
+plt.savefig(f"{Config.MODEL_DIR}training_results_simple.png", dpi=100, bbox_inches='tight')
+print("  시각화 저장 완료")
 
 # ============================================
 # 10. 최종 출력
@@ -1070,13 +871,9 @@ print("="*60)
 print(f"📁 모델 저장 위치: {Config.MODEL_DIR}")
 print(f"📂 시퀀스 파일: {Config.SEQUENCE_FILE}")
 print(f"📊 체크포인트 위치: {Config.CHECKPOINT_DIR}")
-print(f"📈 TensorBoard 로그: {Config.LOG_DIR}")
 print("\n📊 최종 성능:")
 print(f"  최고 모델: {best_model.upper()}")
 print(f"  전체 MAE: {evaluation_results[best_model]['overall_mae']:.2f}")
-print("\n💡 TensorBoard 실행 명령어:")
-print(f"  tensorboard --logdir={Config.LOG_DIR}")
-print(f"  브라우저에서 http://localhost:6006 접속")
 print("\n💡 다음 단계: 실시간 예측 시스템 적용")
 print("="*60)
 
