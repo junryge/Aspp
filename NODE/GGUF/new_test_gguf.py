@@ -202,15 +202,7 @@ TOTALCNT 통계:
    
     print("\n" + "=" * 60)
     print("✅ 시스템 준비 완료!")
-    print("\n📊 데이터 정보:")
-    print(f"  - 총 데이터: {len(df)}개")
-    if 'TOTALCNT' in df.columns:
-        print(f"  - TOTALCNT 평균: {df['TOTALCNT'].mean():.0f}")
-        print(f"  - 1500 이상: {(df['TOTALCNT'] >= 1500).sum()}개")
-    print("\n💡 테스트 질문:")
-    print("  - 전체 데이터는 몇 개야?")
-    print("  - TOTALCNT 평균은?")
-    print("  - 1500 이상인 데이터는 몇 개?")
+    print("💬 질문을 입력하세요 (종료: quit/exit)")
     print("=" * 60)
     
     while True:
