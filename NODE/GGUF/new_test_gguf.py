@@ -1,10 +1,58 @@
 
 """
-# 전체 모델 폴더를 다운로드 (약 1GB)
-git clone https://huggingface.co/sentence-transformers/xlm-r-100langs-bert-base-nli-stsb-mean-tokens
+import os
+import requests
+from tqdm import tqdm
 
-# 또는 더 작은 다국어 모델 대안 (약 500MB)
-git clone https://huggingface.co/sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2
+def download_file(url, filepath):
+    """파일 다운로드 with 진행률 표시"""
+    response = requests.get(url, stream=True)
+    total_size = int(response.headers.get('content-length', 0))
+    
+    with open(filepath, 'wb') as f:
+        with tqdm(total=total_size, unit='iB', unit_scale=True, desc=os.path.basename(filepath)) as pbar:
+            for chunk in response.iter_content(chunk_size=8192):
+                f.write(chunk)
+                pbar.update(len(chunk))
+
+def download_minilm_model():
+    """MiniLM 모델 다운로드"""
+    base_url = "https://huggingface.co/sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2/resolve/main"
+    save_dir = "./models/paraphrase-multilingual-MiniLM-L12-v2"
+    
+    # 다운로드할 파일 목록
+    files = [
+        "config.json",
+        "config_sentence_transformers.json", 
+        "data_config.json",
+        "pytorch_model.bin",  # 약 470MB
+        "sentence_bert_config.json",
+        "special_tokens_map.json",
+        "tokenizer_config.json",
+        "tokenizer.json",
+        "modules.json",
+        "1_Pooling/config.json"
+    ]
+    
+    # 디렉토리 생성
+    os.makedirs(save_dir, exist_ok=True)
+    os.makedirs(f"{save_dir}/1_Pooling", exist_ok=True)
+    
+    print("MiniLM 모델 다운로드 시작...")
+    
+    for file in files:
+        url = f"{base_url}/{file}"
+        save_path = os.path.join(save_dir, file)
+        
+        print(f"\n다운로드 중: {file}")
+        download_file(url, save_path)
+    
+    print(f"\n✅ 완료! 모든 파일이 {save_dir}에 저장되었습니다.")
+    print(f"총 크기: 약 470MB")
+
+if __name__ == "__main__":
+    # tqdm 설치 안됐으면: pip install tqdm
+    download_minilm_model()
 """
 import os
 import pandas as pd
