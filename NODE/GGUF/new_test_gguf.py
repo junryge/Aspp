@@ -1,3 +1,11 @@
+
+"""
+# 전체 모델 폴더를 다운로드 (약 1GB)
+git clone https://huggingface.co/sentence-transformers/xlm-r-100langs-bert-base-nli-stsb-mean-tokens
+
+# 또는 더 작은 다국어 모델 대안 (약 500MB)
+git clone https://huggingface.co/sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2
+"""
 import os
 import pandas as pd
 from typing import List, Dict, Any
