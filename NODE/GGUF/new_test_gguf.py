@@ -36,16 +36,19 @@ class QwenLLM(LLM):
         """Qwen 모델과 토크나이저 로드"""
         print(f"모델 로딩 중: {self.model_path}...")
         
-        # GGUF 형식의 경우 ctransformers 사용
-        # 설치: pip install ctransformers
-        from ctransformers import AutoModelForCausalLM
+        # GGUF 형식의 경우 llama-cpp-python 사용
+        # 설치: pip install llama-cpp-python
+        try:
+            from llama_cpp import Llama
+        from llama_cpp import Llama
         
-        self.model = AutoModelForCausalLM.from_pretrained(
-            self.model_path,
-            model_type='qwen2',
-            gpu_layers=50,  # GPU에 따라 조정
-            context_length=4096,
-            threads=8
+        # llama-cpp를 사용하여 GGUF 모델 로드
+        self.model = Llama(
+            model_path=self.model_path,
+            n_gpu_layers=50,  # GPU에 올릴 레이어 수 (GPU 메모리에 따라 조정)
+            n_ctx=4096,  # 컨텍스트 길이
+            n_threads=8,  # CPU 스레드 수
+            verbose=True  # 로딩 과정 표시
         )
         print("모델 로딩 완료!")
     
@@ -61,14 +64,18 @@ class QwenLLM(LLM):
         **kwargs: Any,
     ) -> str:
         """모델에서 응답 생성"""
+        # llama-cpp 형식으로 호출
         response = self.model(
             prompt,
-            max_new_tokens=512,
+            max_tokens=512,
             temperature=0.7,
             top_p=0.9,
-            stop=stop if stop else ["Human:", "\n\n"]
+            stop=stop if stop else ["Human:", "\n\n"],
+            echo=False  # 프롬프트를 응답에 포함하지 않음
         )
-        return response
+        
+        # llama-cpp는 딕셔너리를 반환하므로 텍스트만 추출
+        return response['choices'][0]['text'].strip()
 
 class CSVDataProcessor:
     """CSV 파일을 처리하고 벡터 저장소를 위해 준비하는 클래스"""
