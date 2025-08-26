@@ -1,7 +1,47 @@
 📋 GPU 리소스 요청서 (V100 32GB 수정본)
 1. 딥러닝 모델 상세 분류
 사용 모델 아키텍처 및 파라미터 수
-모델명아키텍처레이어 구성파라미터 수메모리 요구량LSTMStacked LSTM3층 (128→128→64) + Dense(128→64→1)약 340K2.5GBGRUResidual GRU3층 (128→128→64) + Residual약 280K2.3GBCNN-LSTMMulti-Scale CNN + LSTMConv1D(64×3) + LSTM(128→64)약 450K3.0GBSpike DetectorCNN + MHA + BiLSTMConv1D + 4-Head Attention + BiLSTM(128)약 520K3.5GBRule-BasedShallow LSTM + RulesLSTM(32) + Dense(64→32→1)약 85K0.7GB앙상블Dynamic Weighted Ensemble5개 모델 통합 + 가중치 학습총 1.67M12GB
+1. LSTM (Long Short-Term Memory)
+
+아키텍처: Stacked LSTM
+레이어 구성: 3층 (128→128→64) + Dense(128→64→1)
+파라미터 수: 약 340K
+메모리 요구량: 2.5GB
+
+2. GRU (Gated Recurrent Unit)
+
+아키텍처: Residual GRU
+레이어 구성: 3층 (128→128→64) + Residual Connection
+파라미터 수: 약 280K
+메모리 요구량: 2.3GB
+
+3. CNN-LSTM (Convolutional Neural Network + LSTM)
+
+아키텍처: Multi-Scale CNN + LSTM
+레이어 구성: Conv1D(64×3) + LSTM(128→64)
+파라미터 수: 약 450K
+메모리 요구량: 3.0GB
+
+4. Spike Detector
+
+아키텍처: CNN + MHA + BiLSTM
+레이어 구성: Conv1D + 4-Head Attention + BiLSTM(128)
+파라미터 수: 약 520K
+메모리 요구량: 3.5GB
+
+5. Rule-Based Model
+
+아키텍처: Shallow LSTM + Rules
+레이어 구성: LSTM(32) + Dense(64→32→1)
+파라미터 수: 약 85K
+메모리 요구량: 0.7GB
+
+6. 앙상블 (Ensemble)
+
+아키텍처: Dynamic Weighted Ensemble
+레이어 구성: 5개 모델 통합 + 가중치 학습
+파라미터 수: 총 1.67M
+메모리 요구량: 12GB
 2. GPU 메모리 산출 근거
 A. 학습시 메모리 계산 (Training)
 python# 메모리 계산 공식
