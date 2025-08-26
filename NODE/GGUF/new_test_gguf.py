@@ -58,6 +58,10 @@ CSV에 실제로 있는 컬럼명과 데이터만 질문 가능
 실제 CSV 파일의 컬럼명을 확인하고 그에 맞게 질문하시면 됩니다!
 수정된 GGUF CSV RAG 시스템
 답변 정확도 개선 버전
+# -*- coding: utf-8 -*-
+"""
+수정된 GGUF CSV RAG 시스템
+답변 정확도 개선 버전
 """
 
 import os
@@ -71,7 +75,6 @@ from langchain.schema import Document
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain.prompts import PromptTemplate
 from langchain.callbacks.manager import CallbackManager
-from langchain.callbacks.streaming_stdout import StreamingStdOutCallbackHandler
 
 def main():
     print("=" * 60)
@@ -198,9 +201,7 @@ TOTALCNT 통계 정보:
         print(f"❌ GGUF 모델이 없습니다: {model_path}")
         return
    
-    # 콜백 매니저 (스트리밍 출력)
-    callback_manager = CallbackManager([StreamingStdOutCallbackHandler()])
-   
+    # 스트리밍 제거, 정확한 답변만 받기
     llm = LlamaCpp(
         model_path=model_path,
         n_ctx=2048,
@@ -208,8 +209,8 @@ TOTALCNT 통계 정보:
         temperature=0.1,  # 낮은 온도로 정확도 향상
         top_p=0.9,
         n_threads=8,
-        callback_manager=callback_manager,
-        verbose=False
+        verbose=False,  # 디버그 출력 제거
+        streaming=False  # 스트리밍 비활성화
     )
     print("✅ GGUF 모델 로드 완료")
    
@@ -251,7 +252,7 @@ TOTALCNT 통계 정보:
            
         try:
             print("\n🤔 검색 중...")
-            result = qa_chain({"query": question})
+            result = qa_chain.invoke({"query": question})  # __call__ 대신 invoke 사용
             print("\n🤖 답변:")
             print(result['result'])
             
