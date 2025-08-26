@@ -84,30 +84,14 @@ def main():
         count_1500 = (df['TOTALCNT'] >= 1500).sum()
         
         stats_text = f"""
-TOTALCNT 통계:
-- TOTALCNT 평균: {avg_val:.0f}
+TOTALCNT 통계 정보:
+- TOTALCNT 평균값: {avg_val:.0f}
 - TOTALCNT 최대값: {max_val}
 - TOTALCNT 최소값: {min_val}
-- 1400 이상인 데이터 개수: {count_1400}개
-- 1500 이상인 데이터 개수: {count_1500}개
+- TOTALCNT가 1400 이상인 데이터: {count_1400}개
+- TOTALCNT가 1500 이상인 데이터: {count_1500}개
 """
         documents.append(Document(page_content=stats_text))
-        
-        # 질문 답변용 명시적 문서
-        qa_text = f"""
-질문: 전체 데이터는 몇 개야?
-답변: {len(df)}개
-
-질문: TOTALCNT 평균은?
-답변: {avg_val:.0f}
-
-질문: 1500 이상인 데이터는 몇 개?
-답변: {count_1500}개
-
-질문: 1400 이상인 데이터는 몇 개?
-답변: {count_1400}개
-"""
-        documents.append(Document(page_content=qa_text))
    
     # 샘플 데이터 추가 (상위 100개)
     for idx, row in df.head(100).iterrows():
@@ -174,15 +158,13 @@ TOTALCNT 통계:
     print("✅ GGUF 모델 로드 완료")
    
     # 8. 개선된 프롬프트 템플릿
-    prompt_template = """아래 문맥을 참고하여 질문에 정확히 답변해주세요.
-만약 문맥에 답이 없다면 "정보를 찾을 수 없습니다"라고 답하세요.
+    prompt_template = """주어진 정보를 바탕으로 질문에만 답변하세요.
 
-문맥:
+정보:
 {context}
 
 질문: {question}
-
-답변: """
+답변:"""
 
     PROMPT = PromptTemplate(
         template=prompt_template, 
