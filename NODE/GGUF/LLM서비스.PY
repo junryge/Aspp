@@ -1,26 +1,76 @@
-#!/usr/bin/env python
 # -*- coding: utf-8 -*-
 """
-벡터 검색만 하는 간단한 대화형 서비스
-LLM 없이 유사도 검색 결과만 보여줌
+사전 생성된 벡터 저장소를 사용한 LLM 검색 서비스
 """
 
 import os
 import json
-from typing import List, Dict
+from typing import List, Dict, Any, Optional
 
-from langchain.embeddings import HuggingFaceEmbeddings
-from langchain.vectorstores import FAISS
+from langchain_community.embeddings import HuggingFaceEmbeddings
+from langchain_community.vectorstores import FAISS
+from langchain.chains import RetrievalQA
+from langchain.prompts import PromptTemplate
+from langchain.llms.base import LLM
+from langchain.callbacks.manager import CallbackManagerForLLMRun
+from llama_cpp import Llama
 
-class SimpleSearchService:
-    """벡터 검색만 하는 서비스"""
+class SimpleLLM(LLM):
+    """Llama.cpp 래퍼 - Pydantic 호환"""
     
-    def __init__(self, embedding_model_path: str, vector_store_dir: str = "./vector_stores"):
+    llama_model: Optional[Any] = None  # Pydantic 필드로 선언
+    model_path: str = ""
+    
+    def __init__(self, model_path: str, **kwargs):
+        super().__init__(**kwargs)
+        self.model_path = model_path
+        # 모델을 필드로 직접 할당
+        self.llama_model = Llama(
+            model_path=model_path,
+            n_gpu_layers=0,  # CPU만 사용
+            n_ctx=4096,
+            n_threads=8,
+            verbose=False
+        )
+    
+    @property
+    def _llm_type(self) -> str:
+        return "qwen2.5"
+    
+    def _call(
+        self, 
+        prompt: str, 
+        stop: Optional[List[str]] = None,
+        run_manager: Optional[CallbackManagerForLLMRun] = None, 
+        **kwargs: Any
+    ) -> str:
+        """LLM 호출"""
+        if self.llama_model is None:
+            raise ValueError("LLM model not initialized")
+            
+        response = self.llama_model(
+            prompt,
+            max_tokens=512,
+            temperature=0.7,
+            stop=stop if stop else ["Human:", "\n\n"],
+            echo=False
+        )
+        return response['choices'][0]['text'].strip()
+
+class FastSearchService:
+    """사전 생성된 벡터 저장소를 사용하는 검색 서비스"""
+    
+    def __init__(self, llm_path: str, embedding_model_path: str, vector_store_dir: str = "./vector_stores"):
+        # LLM 로드
+        print("LLM 모델 로딩 중...")
+        self.llm = SimpleLLM(model_path=llm_path)
+        print("LLM 로딩 완료!")
+        
         # 임베딩 모델 로드
         print("임베딩 모델 로딩 중...")
         self.embeddings = HuggingFaceEmbeddings(
             model_name=embedding_model_path,
-            model_kwargs={'device': 'cpu'},
+            model_kwargs={'device': 'cpu'},  # GPU 필요시 'cuda'
             encode_kwargs={'normalize_embeddings': True}
         )
         print("임베딩 모델 로딩 완료!")
@@ -28,6 +78,9 @@ class SimpleSearchService:
         # 벡터 저장소 로드
         self.vector_store_dir = vector_store_dir
         self.vector_store = self._load_all_vector_stores()
+        
+        # QA 체인 설정
+        self._setup_qa_chain()
     
     def _load_all_vector_stores(self):
         """모든 배치의 벡터 저장소 로드 및 병합"""
@@ -36,20 +89,23 @@ class SimpleSearchService:
         # 메타데이터 읽기
         metadata_path = f"{self.vector_store_dir}/metadata.json"
         if not os.path.exists(metadata_path):
-            print("메타데이터 파일이 없습니다. 먼저 prepare_vectors.py를 실행하세요.")
-            return None
+            raise FileNotFoundError(f"메타데이터 파일을 찾을 수 없습니다: {metadata_path}")
             
-        with open(metadata_path, "r") as f:
+        with open(metadata_path, "r", encoding='utf-8') as f:
             metadata = json.load(f)
         
         total_batches = metadata['total_batches']
         print(f"총 {total_batches}개 배치 발견")
         
         # 첫 번째 배치 로드
+        first_batch_path = f"{self.vector_store_dir}/batch_001"
+        if not os.path.exists(first_batch_path):
+            raise FileNotFoundError(f"첫 번째 배치를 찾을 수 없습니다: {first_batch_path}")
+            
         merged_store = FAISS.load_local(
-            f"{self.vector_store_dir}/batch_001", 
+            first_batch_path,
             self.embeddings,
-            allow_dangerous_deserialization=True
+            allow_dangerous_deserialization=True  # 신뢰할 수 있는 파일만
         )
         print("배치 1 로드 완료")
         
@@ -57,80 +113,136 @@ class SimpleSearchService:
         for i in range(2, total_batches + 1):
             batch_path = f"{self.vector_store_dir}/batch_{i:03d}"
             if os.path.exists(batch_path):
-                batch_store = FAISS.load_local(
-                    batch_path, 
-                    self.embeddings,
-                    allow_dangerous_deserialization=True
-                )
-                merged_store.merge_from(batch_store)
-                print(f"배치 {i} 병합 완료")
+                try:
+                    batch_store = FAISS.load_local(
+                        batch_path,
+                        self.embeddings,
+                        allow_dangerous_deserialization=True
+                    )
+                    merged_store.merge_from(batch_store)
+                    print(f"배치 {i} 병합 완료")
+                except Exception as e:
+                    print(f"배치 {i} 로드 실패: {e}")
+                    continue
         
         print("모든 벡터 저장소 로드 완료!")
         return merged_store
     
-    def search(self, query: str, k: int = 10) -> List[Dict]:
-        """유사도 검색"""
-        if not self.vector_store:
-            return []
+    def _setup_qa_chain(self):
+        """QA 체인 설정"""
+        prompt_template = """다음은 CSV 데이터에서 검색된 관련 정보입니다:
+
+{context}
+
+위 정보를 바탕으로 다음 질문에 한글로 자세히 답변해주세요:
+질문: {question}
+
+답변: """
         
-        # 유사한 문서 검색
-        docs = self.vector_store.similarity_search_with_score(query, k=k)
+        prompt = PromptTemplate(
+            template=prompt_template,
+            input_variables=["context", "question"]
+        )
         
-        results = []
-        for doc, score in docs:
-            results.append({
-                "content": doc.page_content,
-                "filename": doc.metadata.get("filename", "Unknown"),
-                "currtime": doc.metadata.get("currtime", ""),
-                "totalcnt": doc.metadata.get("totalcnt", 0),
-                "score": score
-            })
-        
-        return results
+        self.qa_chain = RetrievalQA.from_chain_type(
+            llm=self.llm,
+            chain_type="stuff",
+            retriever=self.vector_store.as_retriever(
+                search_type="similarity",
+                search_kwargs={"k": 5}
+            ),
+            chain_type_kwargs={"prompt": prompt},
+            return_source_documents=True
+        )
+    
+    def search(self, query: str) -> Dict[str, Any]:
+        """검색 실행"""
+        try:
+            result = self.qa_chain({"query": query})
+            
+            sources = []
+            for doc in result.get("source_documents", []):
+                sources.append({
+                    "filename": doc.metadata.get("filename", "Unknown"),
+                    "content": doc.page_content[:200] + "..."
+                })
+            
+            return {
+                "answer": result["result"],
+                "sources": sources
+            }
+        except Exception as e:
+            print(f"검색 중 오류: {e}")
+            return {
+                "answer": f"검색 중 오류가 발생했습니다: {str(e)}",
+                "sources": []
+            }
 
 def main():
     # 설정
     MODEL_DIR = "./models"
     VECTOR_STORE_DIR = "./vector_stores"
     
-    print("=== CSV 검색 서비스 (유사도 검색) ===")
+    # 경로 확인
+    llm_path = os.path.join(MODEL_DIR, "Qwen2.5-14B-Instruct-Q6_K.gguf")
+    embedding_path = os.path.join(MODEL_DIR, "paraphrase-multilingual-MiniLM-L12-v2")
     
-    # 서비스 초기화
-    service = SimpleSearchService(
-        embedding_model_path=os.path.join(MODEL_DIR, "paraphrase-multilingual-MiniLM-L12-v2"),
-        vector_store_dir=VECTOR_STORE_DIR
-    )
-    
-    if not service.vector_store:
+    if not os.path.exists(llm_path):
+        print(f"LLM 모델을 찾을 수 없습니다: {llm_path}")
         return
     
-    print("\n준비 완료! 검색어를 입력하세요.")
-    print("(LLM 없이 유사도 검색 결과만 보여줍니다)\n")
+    if not os.path.exists(VECTOR_STORE_DIR):
+        print(f"벡터 저장소 디렉토리를 찾을 수 없습니다: {VECTOR_STORE_DIR}")
+        print("먼저 벡터 저장소를 생성해주세요.")
+        return
+    
+    # 서비스 초기화
+    print("=== CSV 검색 서비스 시작 ===")
+    
+    try:
+        service = FastSearchService(
+            llm_path=llm_path,
+            embedding_model_path=embedding_path,
+            vector_store_dir=VECTOR_STORE_DIR
+        )
+    except Exception as e:
+        print(f"서비스 초기화 실패: {e}")
+        return
+    
+    print("\n준비 완료! 질문을 입력하세요.\n")
+    print("예시 질문:")
+    print("  - 2025년 8월 7일 15시 30분의 TOTALCNT는 얼마인가요?")
+    print("  - M14AM14B 값이 가장 높은 시간대는 언제인가요?")
+    print("  - 전체 데이터의 평균 TOTALCNT는 얼마인가요?")
+    print()
     
     # 대화형 인터페이스
     while True:
-        query = input("\n검색어 (종료: quit): ").strip()
+        query = input("질문 (종료: quit): ").strip()
         
-        if query.lower() in ['quit', 'exit', '종료']:
+        if query.lower() in ['quit', 'exit', '종료', 'q']:
             print("서비스를 종료합니다.")
             break
         
         if not query:
             continue
         
-        print("\n검색 중...")
-        results = service.search(query, k=5)
+        try:
+            print("\n검색 중...")
+            result = service.search(query)
+            
+            print(f"\n답변: {result['answer']}")
+            
+            if result['sources']:
+                print(f"\n참조 소스 ({len(result['sources'])}개):")
+                for idx, source in enumerate(result['sources'][:3], 1):
+                    print(f"  {idx}. {source['filename']}")
+                    print(f"     내용: {source['content']}")
+            
+        except Exception as e:
+            print(f"오류 발생: {e}")
         
-        if results:
-            print(f"\n=== 검색 결과 (상위 {len(results)}개) ===")
-            for idx, result in enumerate(results, 1):
-                print(f"\n[{idx}] 파일: {result['filename']}")
-                print(f"    시간: {result['currtime']}")
-                print(f"    전체카운트: {result['totalcnt']}")
-                print(f"    유사도: {1 - result['score']:.3f}")  # FAISS는 거리 반환
-                print(f"    내용: {result['content'][:200]}...")
-        else:
-            print("검색 결과가 없습니다.")
+        print("\n" + "="*50 + "\n")
 
 if __name__ == "__main__":
     main()
