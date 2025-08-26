@@ -24,7 +24,6 @@ def download_minilm_model():
     files = [
         "config.json",
         "config_sentence_transformers.json", 
-        "data_config.json",
         "pytorch_model.bin",  # 약 470MB
         "sentence_bert_config.json",
         "special_tokens_map.json",
