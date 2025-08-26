@@ -21,7 +21,7 @@ from transformers import AutoModelForCausalLM, AutoTokenizer
 class QwenLLM(LLM):
     """Qwen2.5-14B-Instruct 모델을 위한 커스텀 LLM 클래스"""
     
-    model_path: str = "Qwen/Qwen2.5-14B-Instruct"
+    model_path: str = "./models/Qwen2.5-14B-Instruct-Q6_K.gguf"  # 로컬 경로
     model: Any = None
     tokenizer: Any = None
     device: str = "cuda" if torch.cuda.is_available() else "cpu"
@@ -40,6 +40,12 @@ class QwenLLM(LLM):
         # 설치: pip install llama-cpp-python
         try:
             from llama_cpp import Llama
+        except ImportError:
+            raise ImportError("llama-cpp-python이 설치되지 않았습니다. 'pip install llama-cpp-python'을 실행하세요.")
+        
+        # 모델 파일 존재 확인
+        if not os.path.exists(self.model_path):
+            raise FileNotFoundError(f"모델 파일을 찾을 수 없습니다: {self.model_path}")
         from llama_cpp import Llama
         
         # llama-cpp를 사용하여 GGUF 모델 로드
@@ -153,14 +159,21 @@ class CSVDataProcessor:
 class CSVSearchService:
     """CSV 데이터 검색 서비스"""
     
-    def __init__(self, model_path: str = "Qwen2.5-14B-Instruct-Q6_K.gguf"):
+    def __init__(self, model_path: str = "./models/Qwen2.5-14B-Instruct-Q6_K.gguf", embedding_model_path: str = None):
         # LLM 초기화
         self.llm = QwenLLM(model_path=model_path)
         
+        # 폐쇄망용 로컬 임베딩 모델 경로
+        if embedding_model_path is None:
+            embedding_model_path = "./models/xlm-r-100langs-bert-base-nli-stsb-mean-tokens"
+        
         # 한글과 영어를 모두 지원하는 임베딩 모델 사용
         self.embeddings = HuggingFaceEmbeddings(
-            model_name="sentence-transformers/xlm-r-100langs-bert-base-nli-stsb-mean-tokens",
-            model_kwargs={'device': 'cuda' if torch.cuda.is_available() else 'cpu'},
+            model_name=embedding_model_path,
+            model_kwargs={
+                'device': 'cuda' if torch.cuda.is_available() else 'cpu',
+                'trust_remote_code': True  # 로컬 모델 사용시 필요
+            },
             encode_kwargs={'normalize_embeddings': True}
         )
         
@@ -271,16 +284,28 @@ class CSVSearchService:
 
 # 사용 예제
 def main():
+    # 폐쇄망 환경 설정
+    MODEL_DIR = "./models"  # 모델 저장 디렉토리
+    DATA_DIR = "./output_by_date"  # CSV 데이터 디렉토리
+    VECTOR_STORE_DIR = "./vector_stores"  # 벡터 저장소 디렉토리
+    
+    # 디렉토리 생성
+    os.makedirs(MODEL_DIR, exist_ok=True)
+    os.makedirs(DATA_DIR, exist_ok=True)
+    os.makedirs(VECTOR_STORE_DIR, exist_ok=True)
+    
     # 서비스 초기화
     service = CSVSearchService(
-        model_path="Qwen2.5-14B-Instruct-Q6_K.gguf"
+        model_path=os.path.join(MODEL_DIR, "Qwen2.5-14B-Instruct-Q6_K.gguf"),
+        embedding_model_path=os.path.join(MODEL_DIR, "xlm-r-100langs-bert-base-nli-stsb-mean-tokens")
     )
     
     # 벡터 저장소 초기화 (처음 실행시)
-    service.initialize_vector_store("output_by_date")
+    service.initialize_vector_store(DATA_DIR)
     
     # 벡터 저장소 저장 (나중에 재사용하기 위해)
-    service.save_vector_store("my_vector_store")
+    vector_store_path = os.path.join(VECTOR_STORE_DIR, "csv_vector_store")
+    service.save_vector_store(vector_store_path)
     
     # 검색 예제
     queries = [
