@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 """
 20250807_DATA.CSV 앙상블 예측 + 구간별 확률 분석
 과거 100분 데이터로 10분 후 예측
@@ -332,144 +333,94 @@ def ensemble_value():
         '표준편차': int(round(ensemble_pred.std()))
     }
    
-    print(ensemble_value)
     return ensemble_value
-
-# ========================================
-# 🎯 구간별 확률 분석 함수 추가!
-# ========================================
 
 def analyze_prediction_probabilities(ensemble_dict):
     """
     ensemble_value 딕셔너리를 받아서 구간별 확률 계산
-    
+   
     Args:
         ensemble_dict: {'최소값': 1356, '최대값': 1849, '평균값': 1520, '표준편차': 95}
-    
+   
     Returns:
         구간별 확률 딕셔너리
     """
-    
+   
     if not ensemble_dict:
         return None
-        
+       
     min_val = ensemble_dict.get('최소값', 1200)
-    max_val = ensemble_dict.get('최대값', 1600) 
+    max_val = ensemble_dict.get('최대값', 1600)
     avg_val = ensemble_dict.get('평균값', 1400)
     std_val = ensemble_dict.get('표준편차', 50)
-    
+   
     # scipy 있을 때와 없을 때 다르게 처리
     if SCIPY_AVAILABLE:
         # 정규분포 가정하여 구간별 확률 계산
         mu = avg_val  # 평균
         sigma = max(std_val, 1)  # 표준편차 (0 방지)
-        
-        # 새로운 구간별 확률 계산
-        prob_1200_1500 = (norm.cdf(1500, mu, sigma) - norm.cdf(1200, mu, sigma)) * 100  # 양호
-        prob_1600 = (norm.cdf(1700, mu, sigma) - norm.cdf(1600, mu, sigma)) * 100      # 경고  
-        prob_1700 = (1 - norm.cdf(1700, mu, sigma)) * 100                             # 심각
+       
+        # 정확한 구간별 확률 계산
+        prob_below_1600 = norm.cdf(1600, mu, sigma) * 100                              # 1599미만 양호
+        prob_1600_1699 = (norm.cdf(1700, mu, sigma) - norm.cdf(1600, mu, sigma)) * 100  # 1600-1699 주의  
+        prob_1700_above = (1 - norm.cdf(1700, mu, sigma)) * 100                         # 1700이상 위험
     else:
         # scipy 없으면 간단한 추정
-        if avg_val < 1400:
-            prob_1200_1500 = 75.0
-            prob_1600 = 5.0
-            prob_1700 = 2.0
-        elif avg_val < 1550:
-            prob_1200_1500 = 60.0
-            prob_1600 = 15.0
-            prob_1700 = 5.0
+        if avg_val < 1500:
+            prob_below_1600 = 85.0
+            prob_1600_1699 = 10.0
+            prob_1700_above = 5.0
+        elif avg_val < 1600:
+            prob_below_1600 = 75.0
+            prob_1600_1699 = 20.0
+            prob_1700_above = 5.0
         elif avg_val < 1650:
-            prob_1200_1500 = 35.0
-            prob_1600 = 30.0
-            prob_1700 = 10.0
+            prob_below_1600 = 45.0
+            prob_1600_1699 = 40.0
+            prob_1700_above = 15.0
         else:
-            prob_1200_1500 = 20.0
-            prob_1600 = 40.0
-            prob_1700 = 20.0
-    
+            prob_below_1600 = 25.0
+            prob_1600_1699 = 45.0
+            prob_1700_above = 30.0
+   
     # 실제 범위에 맞춰 조정
     if min_val >= 1600:
-        prob_1200_1500 = 0.0
+        prob_below_1600 = 0.0
     if max_val <= 1600:
-        prob_1700 = 0.0
+        prob_1700_above = 0.0
     if max_val <= 1700:
-        prob_1700 = min(prob_1700, 5.0)  # 최대값이 1700 이하면 심각 확률 제한
-        
-    # 결과 딕셔너리 생성 (간단한 3구간)
+        prob_1700_above = min(prob_1700_above, 10.0)
+       
+    # 결과 딕셔너리 생성 (정확한 3구간)
     result = {
         '평균값': avg_val,
         '최소값': min_val,
         '최대값': max_val,
         '표준편차': std_val,
-        
-        # 새로운 구간별 확률
-        '1200-1500양호_퍼센트': round(prob_1200_1500, 1),
-        '1600경고_퍼센트': round(prob_1600, 1),
-        '1700심각_퍼센트': round(prob_1700, 1)
+       
+        # 정확한 구간별 확률
+        '1599미만양호_퍼센트': round(prob_below_1600, 1),
+        '1600-1699주의_퍼센트': round(prob_1600_1699, 1),
+        '1700이상위험_퍼센트': round(prob_1700_above, 1)
     }
-    
+   
     return result
 
 def show_analysis(ensemble_dict):
-    """구간별 확률 분석 결과 출력 - 간단 버전"""
-    
+    """구간별 확률 분석 결과 출력 - 수정된 버전"""
+   
     analysis = analyze_prediction_probabilities(ensemble_dict)
-    
+   
     if not analysis:
         print("❌ 분석 실패")
         return None
-    
-    print("📋 구간별 예측 확률:")
-    print(f"  🟢 1200-1500양호 : {analysis['1200-1500양호_퍼센트']:.1f}%")
-    print(f"  🟡 1600경고      : {analysis['1600경고_퍼센트']:.1f}%")
-    print(f"  🟠 1700심각      : {analysis['1700심각_퍼센트']:.1f}%")
+   
+    print(f"  🟢 1599미만양호 : {analysis['1599미만양호_퍼센트']:.1f}%")
+    print(f"  🟡 1600-1699주의 : {analysis['1600-1699주의_퍼센트']:.1f}%")
+    print(f"  🔴 1700이상위험 : {analysis['1700이상위험_퍼센트']:.1f}%")
     print(f"  예측값: {analysis['평균값']}")
-    
+   
     return analysis
-
-# ========================================
-# 🚀 사용 예시
-# ========================================
-
-if __name__ == "__main__":
-    print("🎯 V5 앙상블 모델 실행 + 구간별 확률 분석")
-    print("="*60)
-    
-    # 1. 원본 ensemble_value 함수 실행
-    print("1️⃣ 앙상블 예측 실행 중...")
-    ensemble_result = ensemble_value()
-    
-    if ensemble_result:
-        print("\n2️⃣ 구간별 확률 분석:")
-        
-        # 2. 구간별 확률 분석 (간단 버전)
-        analysis_result = show_analysis(ensemble_result)
-        
-        if analysis_result:
-            print("\n3️⃣ 간단한 딕셔너리로 가져오기:")
-            
-            # analysis_result에서 간단한 딕셔너리 생성 (중복 실행 방지)
-            simple_dict = {
-                '예측값': analysis_result['평균값'],
-                '양호확률': analysis_result['1200-1500양호_퍼센트'],
-                '경고확률': analysis_result['1600경고_퍼센트'], 
-                '심각확률': analysis_result['1700심각_퍼센트']
-            }
-            
-            print("딕셔너리 결과:", simple_dict)
-            
-            print("\n📝 사용법 예시:")
-            print("# 간단한 딕셔너리로 한번에")
-            print("result = get_simple_dict()")
-            print("print(result['예측값'])      # 예측값")
-            print("print(result['양호확률'])    # 양호 확률%")
-            print("print(result['경고확률'])    # 경고 확률%") 
-            print("print(result['심각확률'])    # 심각 확률%")
-            
-            print("\n# 또는 개별 print 함수 사용")
-            print("print_simple_values()  # 모든 값을 한번에 출력")
-    else:
-        print("❌ 앙상블 예측 실패")
 
 # 간단 사용 함수들
 def get_average_only():
@@ -492,15 +443,22 @@ def get_simple_dict():
     if ensemble_result:
         analysis = analyze_prediction_probabilities(ensemble_result)
         
-        # 간단한 딕셔너리 구성
+        # 간단한 딕셔너리 구성 (정확한 키)
         simple_result = {
             '예측값': analysis['평균값'],
-            '양호확률': analysis['1200-1500양호_퍼센트'],
-            '경고확률': analysis['1600경고_퍼센트'], 
-            '심각확률': analysis['1700심각_퍼센트']
+            '양호확률': analysis['1599미만양호_퍼센트'],
+            '주의확률': analysis['1600-1699주의_퍼센트'], 
+            '위험확률': analysis['1700이상위험_퍼센트']
         }
         
         return simple_result
+    return None
+
+def get_prediction_only():
+    """예측값만 반환하는 함수"""
+    simple_dict = get_simple_dict()
+    if simple_dict:
+        return simple_dict['예측값']
     return None
 
 def print_simple_values():
@@ -509,7 +467,37 @@ def print_simple_values():
     if result:
         print(f"예측값: {result['예측값']}")
         print(f"양호확률: {result['양호확률']}%") 
-        print(f"경고확률: {result['경고확률']}%")
-        print(f"심각확률: {result['심각확률']}%")
+        print(f"주의확률: {result['주의확률']}%")
+        print(f"위험확률: {result['위험확률']}%")
         return result
     return None
+
+if __name__ == "__main__":
+    print("="*60)
+   
+    # 1. 원본 ensemble_value 함수 실행
+    ensemble_result = ensemble_value()
+   
+    if ensemble_result:
+       
+        # 2. 구간별 확률 분석 (수정된 버전)
+        analysis_result = show_analysis(ensemble_result)
+       
+        if analysis_result:
+           
+            # analysis_result에서 간단한 딕셔너리 생성 (수정된 키)
+            simple_dict = {
+                '예측값': analysis_result['평균값'],
+                '양호확률': analysis_result['1000-1599양호_퍼센트'],
+                '주의확률': analysis_result['1600-1699주의_퍼센트'],
+                '위험확률': analysis_result['1700이상위험_퍼센트']
+            }
+            
+            print(f"예측값: {simple_dict['예측값']}")
+            print(f"양호확률: {simple_dict['양호확률']}%")
+            print(f"주의확률: {simple_dict['주의확률']}%")
+            print(f"위험확률: {simple_dict['위험확률']}%")
+            print(f"전체 딕셔너리: {simple_dict}")
+           
+    else:
+        print("❌ 앙상블 예측 실패")
