@@ -472,8 +472,8 @@ def get_highest_probability():
         }
     return None
 
-def get_prediction_and_highest():
-    """예측값과 최고 확률만 반환"""
+def get_simple_result():
+    """예측값과 최고 확률 카테고리만 간단하게 반환"""
     simple_dict = get_simple_dict()
     if simple_dict:
         probability_values = {
@@ -486,7 +486,7 @@ def get_prediction_and_highest():
         
         return {
             '예측값': simple_dict['예측값'],
-            '최고확률': f"{highest_category} ({highest_percentage}%)"
+            '카테고리': f"{highest_category} ({highest_percentage}%)"
         }
     return None
 
@@ -536,7 +536,10 @@ if __name__ == "__main__":
             print(f"주의확률: {simple_dict['주의확률']}%")
             print(f"심각확률: {simple_dict['심각확률']}%")
             print(f"전체 딕셔너리: {simple_dict}")
-            print(f"최고 확률: {highest_category} ({highest_percentage}%)")
+            
+            # 간단한 결과 출력
+            simple_result = get_simple_result()
+            print(f"간단 결과: {simple_result}")
            
     else:
         print("앙상블 예측 실패")
