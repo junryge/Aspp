@@ -454,11 +454,40 @@ def get_simple_dict():
         return simple_result
     return None
 
-def get_prediction_only():
-    """예측값만 반환하는 함수"""
+def get_highest_probability():
+    """가장 높은 확률 카테고리만 반환"""
     simple_dict = get_simple_dict()
     if simple_dict:
-        return simple_dict['예측값']
+        probability_values = {
+            '정상': simple_dict['정상확률'],
+            '주의': simple_dict['주의확률'],
+            '심각': simple_dict['심각확률']
+        }
+        highest_category = max(probability_values, key=probability_values.get)
+        highest_percentage = probability_values[highest_category]
+        
+        return {
+            '카테고리': highest_category,
+            '확률': highest_percentage
+        }
+    return None
+
+def get_prediction_and_highest():
+    """예측값과 최고 확률만 반환"""
+    simple_dict = get_simple_dict()
+    if simple_dict:
+        probability_values = {
+            '정상': simple_dict['정상확률'],
+            '주의': simple_dict['주의확률'],
+            '심각': simple_dict['심각확률']
+        }
+        highest_category = max(probability_values, key=probability_values.get)
+        highest_percentage = probability_values[highest_category]
+        
+        return {
+            '예측값': simple_dict['예측값'],
+            '최고확률': f"{highest_category} ({highest_percentage}%)"
+        }
     return None
 
 def print_simple_values():
@@ -493,11 +522,21 @@ if __name__ == "__main__":
                 '심각확률': analysis_result['심각확률']
             }
             
+            # 가장 높은 확률 찾기
+            probability_values = {
+                '정상': simple_dict['정상확률'],
+                '주의': simple_dict['주의확률'],
+                '심각': simple_dict['심각확률']
+            }
+            highest_category = max(probability_values, key=probability_values.get)
+            highest_percentage = probability_values[highest_category]
+            
             print(f"예측값: {simple_dict['예측값']}")
             print(f"정상확률: {simple_dict['정상확률']}%")
             print(f"주의확률: {simple_dict['주의확률']}%")
             print(f"심각확률: {simple_dict['심각확률']}%")
             print(f"전체 딕셔너리: {simple_dict}")
+            print(f"최고 확률: {highest_category} ({highest_percentage}%)")
            
     else:
         print("앙상블 예측 실패")
