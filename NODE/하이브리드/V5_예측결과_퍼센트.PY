@@ -419,15 +419,10 @@ def show_analysis(ensemble_dict):
         print("❌ 분석 실패")
         return None
     
-    # 구간 재계산 (1200-1500 양호)
-    good_percent = analysis['1200-1400양호_퍼센트'] + (analysis['1400-1600보통_퍼센트'] * 0.5)  # 1400-1500 일부 포함
-    warning_percent = analysis['1600이상경고_퍼센트']
-    danger_percent = analysis['1700주의_퍼센트']
-    
     print("📋 구간별 예측 확률:")
-    print(f"  🟢 1200-1500양호 : {good_percent:.1f}%")
-    print(f"  🟡 1600경고      : {warning_percent:.1f}%")
-    print(f"  🟠 1700심각      : {danger_percent:.1f}%")
+    print(f"  🟢 1200-1500양호 : {analysis['1200-1500양호_퍼센트']:.1f}%")
+    print(f"  🟡 1600경고      : {analysis['1600경고_퍼센트']:.1f}%")
+    print(f"  🟠 1700심각      : {analysis['1700심각_퍼센트']:.1f}%")
     print(f"  예측값: {analysis['평균값']}")
     
     return analysis
