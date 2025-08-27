@@ -407,7 +407,7 @@ def analyze_prediction_probabilities(ensemble_dict):
     return result
 
 def show_analysis(ensemble_dict):
-    """구간별 확률 분석 결과 출력"""
+    """구간별 확률 분석 결과 출력 - 모든 결과 한번에 출력"""
    
     analysis = analyze_prediction_probabilities(ensemble_dict)
    
@@ -415,91 +415,38 @@ def show_analysis(ensemble_dict):
         print("분석 실패")
         return None
    
-    print(f"  1700이하정상 : {analysis['정상확률']:.1f}%")
-    print(f"  1700이상주의 : {analysis['주의확률']:.1f}%")
-    print(f"  3000이상심각 : {analysis['심각확률']:.1f}%")
-    print(f"  예측값: {analysis['평균값']}")
+    # 간단한 딕셔너리 생성
+    simple_dict = {
+        '예측값': analysis['평균값'],
+        '정상확률': analysis['정상확률'],
+        '주의확률': analysis['주의확률'],
+        '심각확률': analysis['심각확률']
+    }
+    
+    # 가장 높은 확률 찾기
+    probability_values = {
+        '정상': simple_dict['정상확률'],
+        '주의': simple_dict['주의확률'],
+        '심각': simple_dict['심각확률']
+    }
+    highest_category = max(probability_values, key=probability_values.get)
+    highest_percentage = probability_values[highest_category]
+    
+    # 간단 결과 딕셔너리
+    simple_result = {
+        '예측값': simple_dict['예측값'],
+        '카테고리': f"{highest_category} ({highest_percentage}%)"
+    }
+    
+    # 모든 결과 출력
+    print(f"예측값: {simple_dict['예측값']}")
+    print(f"정상확률: {simple_dict['정상확률']}%")
+    print(f"주의확률: {simple_dict['주의확률']}%")
+    print(f"심각확률: {simple_dict['심각확률']}%")
+    print(f"전체 딕셔너리: {simple_dict}")
+    print(f"간단 결과: {simple_result}")
    
     return analysis
-
-# 간단 사용 함수들
-def get_average_only():
-    """평균값만 빠르게 가져오기"""
-    result = ensemble_value()
-    if result:
-        return result['평균값']
-    return None
-
-def get_full_analysis():
-    """전체 분석 한 번에 가져오기"""
-    ensemble_result = ensemble_value()
-    if ensemble_result:
-        return analyze_prediction_probabilities(ensemble_result)
-    return None
-
-def get_simple_dict():
-    """간단한 딕셔너리로 모든 값 반환"""
-    ensemble_result = ensemble_value()
-    if ensemble_result:
-        analysis = analyze_prediction_probabilities(ensemble_result)
-        
-        # 간단한 딕셔너리 구성 (최종 키)
-        simple_result = {
-            '예측값': analysis['평균값'],
-            '정상확률': analysis['정상확률'],
-            '주의확률': analysis['주의확률'], 
-            '심각확률': analysis['심각확률']
-        }
-        
-        return simple_result
-    return None
-
-def get_highest_probability():
-    """가장 높은 확률 카테고리만 반환"""
-    simple_dict = get_simple_dict()
-    if simple_dict:
-        probability_values = {
-            '정상': simple_dict['정상확률'],
-            '주의': simple_dict['주의확률'],
-            '심각': simple_dict['심각확률']
-        }
-        highest_category = max(probability_values, key=probability_values.get)
-        highest_percentage = probability_values[highest_category]
-        
-        return {
-            '카테고리': highest_category,
-            '확률': highest_percentage
-        }
-    return None
-
-def get_simple_result():
-    """예측값과 최고 확률 카테고리만 간단하게 반환"""
-    simple_dict = get_simple_dict()
-    if simple_dict:
-        probability_values = {
-            '정상': simple_dict['정상확률'],
-            '주의': simple_dict['주의확률'],
-            '심각': simple_dict['심각확률']
-        }
-        highest_category = max(probability_values, key=probability_values.get)
-        highest_percentage = probability_values[highest_category]
-        
-        return {
-            '예측값': simple_dict['예측값'],
-            '카테고리': f"{highest_category} ({highest_percentage}%)"
-        }
-    return None
-
-def print_simple_values():
-    """개별 값들을 print로 출력"""
-    result = get_simple_dict()
-    if result:
-        print(f"예측값: {result['예측값']}")
-        print(f"정상확률: {result['정상확률']}%") 
-        print(f"주의확률: {result['주의확률']}%")
-        print(f"심각확률: {result['심각확률']}%")
-        return result
-    return None
 
 if __name__ == "__main__":
     print("="*60)
@@ -508,38 +455,7 @@ if __name__ == "__main__":
     ensemble_result = ensemble_value()
    
     if ensemble_result:
-       
-        # 2. 구간별 확률 분석
+        # 2. 구간별 확률 분석 (모든 결과 한번에 출력)
         analysis_result = show_analysis(ensemble_result)
-       
-        if analysis_result:
-           
-            # analysis_result에서 간단한 딕셔너리 생성 (최종 키)
-            simple_dict = {
-                '예측값': analysis_result['평균값'],
-                '정상확률': analysis_result['정상확률'],
-                '주의확률': analysis_result['주의확률'],
-                '심각확률': analysis_result['심각확률']
-            }
-            
-            # 가장 높은 확률 찾기
-            probability_values = {
-                '정상': simple_dict['정상확률'],
-                '주의': simple_dict['주의확률'],
-                '심각': simple_dict['심각확률']
-            }
-            highest_category = max(probability_values, key=probability_values.get)
-            highest_percentage = probability_values[highest_category]
-            
-            print(f"예측값: {simple_dict['예측값']}")
-            print(f"정상확률: {simple_dict['정상확률']}%")
-            print(f"주의확률: {simple_dict['주의확률']}%")
-            print(f"심각확률: {simple_dict['심각확률']}%")
-            print(f"전체 딕셔너리: {simple_dict}")
-            
-            # 간단한 결과 출력
-            simple_result = get_simple_result()
-            print(f"간단 결과: {simple_result}")
-           
     else:
         print("앙상블 예측 실패")
