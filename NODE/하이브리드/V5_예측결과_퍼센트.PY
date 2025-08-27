@@ -452,7 +452,15 @@ if __name__ == "__main__":
         
         if analysis_result:
             print("\n3️⃣ 간단한 딕셔너리로 가져오기:")
-            simple_dict = get_simple_dict()
+            
+            # analysis_result에서 간단한 딕셔너리 생성 (중복 실행 방지)
+            simple_dict = {
+                '예측값': analysis_result['평균값'],
+                '양호확률': analysis_result['1200-1500양호_퍼센트'],
+                '경고확률': analysis_result['1600경고_퍼센트'], 
+                '심각확률': analysis_result['1700심각_퍼센트']
+            }
+            
             print("딕셔너리 결과:", simple_dict)
             
             print("\n📝 사용법 예시:")
