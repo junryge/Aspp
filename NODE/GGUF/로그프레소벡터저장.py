@@ -37,21 +37,35 @@ class LogpressoDocumentVectorizer:
         documents = []
         
         try:
-            # 텍스트 파일 로드
+            # 텍스트 파일 로드 (다양한 인코딩 시도)
+            content = None
+            encodings = ['utf-8', 'cp949', 'euc-kr', 'latin1']
+            
+            for encoding in encodings:
+                try:
+                    with open(file_path, 'r', encoding=encoding) as f:
+                        content = f.read()
+                    print(f"✓ 파일 로드 성공 (인코딩: {encoding})")
+                    break
+                except UnicodeDecodeError:
+                    continue
+            
+            if content is None:
+                raise Exception("지원하는 인코딩으로 파일을 읽을 수 없습니다")
+            
             if file_path.endswith('.txt'):
-                with open(file_path, 'r', encoding='utf-8') as f:
-                    content = f.read()
-                
-                # 섹션별로 나누기 (필요에 따라 조정)
+                # 섹션별로 나누기
                 sections = self._split_into_sections(content)
+                print(f"✓ 문서를 {len(sections)}개 섹션으로 분할")
                 
                 for i, section in enumerate(sections):
                     if section.strip():  # 빈 섹션 제외
                         metadata = {
                             "source": "로그프레소.txt",
                             "section": i + 1,
-                            "doc_type": "manual",
-                            "title": self._extract_section_title(section)
+                            "doc_type": "manual", 
+                            "title": self._extract_section_title(section),
+                            "char_count": len(section)
                         }
                         documents.append(Document(page_content=section, metadata=metadata))
             
