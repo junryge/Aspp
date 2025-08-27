@@ -391,7 +391,7 @@ def analyze_prediction_probabilities(ensemble_dict):
     if max_val <= 1700:
         prob_1700_above = min(prob_1700_above, 10.0)
        
-    # 결과 딕셔너리 생성 (정확한 3구간)
+    # 결과 딕셔너리 생성 (정확한 키 이름)
     result = {
         '평균값': avg_val,
         '최소값': min_val,
@@ -399,25 +399,25 @@ def analyze_prediction_probabilities(ensemble_dict):
         '표준편차': std_val,
        
         # 정확한 구간별 확률
-        '1599미만양호_퍼센트': round(prob_below_1600, 1),
-        '1600-1699주의_퍼센트': round(prob_1600_1699, 1),
-        '1700이상위험_퍼센트': round(prob_1700_above, 1)
+        '양호확률': round(prob_below_1600, 1),
+        '주의확률': round(prob_1600_1699, 1),
+        '위험확률': round(prob_1700_above, 1)
     }
    
     return result
 
 def show_analysis(ensemble_dict):
-    """구간별 확률 분석 결과 출력 - 수정된 버전"""
+    """구간별 확률 분석 결과 출력"""
    
     analysis = analyze_prediction_probabilities(ensemble_dict)
    
     if not analysis:
-        print("❌ 분석 실패")
+        print("분석 실패")
         return None
    
-    print(f"  🟢 1599미만양호 : {analysis['1599미만양호_퍼센트']:.1f}%")
-    print(f"  🟡 1600-1699주의 : {analysis['1600-1699주의_퍼센트']:.1f}%")
-    print(f"  🔴 1700이상위험 : {analysis['1700이상위험_퍼센트']:.1f}%")
+    print(f"  1599미만양호 : {analysis['양호확률']:.1f}%")
+    print(f"  1600-1699주의 : {analysis['주의확률']:.1f}%")
+    print(f"  1700이상위험 : {analysis['위험확률']:.1f}%")
     print(f"  예측값: {analysis['평균값']}")
    
     return analysis
@@ -443,12 +443,12 @@ def get_simple_dict():
     if ensemble_result:
         analysis = analyze_prediction_probabilities(ensemble_result)
         
-        # 간단한 딕셔너리 구성 (정확한 키)
+        # 간단한 딕셔너리 구성 (통일된 키)
         simple_result = {
             '예측값': analysis['평균값'],
-            '양호확률': analysis['1599미만양호_퍼센트'],
-            '주의확률': analysis['1600-1699주의_퍼센트'], 
-            '위험확률': analysis['1700이상위험_퍼센트']
+            '양호확률': analysis['양호확률'],
+            '주의확률': analysis['주의확률'], 
+            '위험확률': analysis['위험확률']
         }
         
         return simple_result
@@ -480,17 +480,17 @@ if __name__ == "__main__":
    
     if ensemble_result:
        
-        # 2. 구간별 확률 분석 (수정된 버전)
+        # 2. 구간별 확률 분석
         analysis_result = show_analysis(ensemble_result)
        
         if analysis_result:
            
-            # analysis_result에서 간단한 딕셔너리 생성 (수정된 키)
+            # analysis_result에서 간단한 딕셔너리 생성
             simple_dict = {
                 '예측값': analysis_result['평균값'],
-                '양호확률': analysis_result['1000-1599양호_퍼센트'],
-                '주의확률': analysis_result['1600-1699주의_퍼센트'],
-                '위험확률': analysis_result['1700이상위험_퍼센트']
+                '양호확률': analysis_result['양호확률'],
+                '주의확률': analysis_result['주의확률'],
+                '위험확률': analysis_result['위험확률']
             }
             
             print(f"예측값: {simple_dict['예측값']}")
@@ -500,4 +500,4 @@ if __name__ == "__main__":
             print(f"전체 딕셔너리: {simple_dict}")
            
     else:
-        print("❌ 앙상블 예측 실패")
+        print("앙상블 예측 실패")
