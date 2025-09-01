@@ -6,7 +6,7 @@ from datetime import datetime, timedelta
 import tensorflow as tf
 from tensorflow import keras
 from tensorflow.keras import layers, Model, Input
-from tensorflow.keras.layers import Dense, Dropout, LayerNormalization, MultiHeadAttention
+from tensorflow.keras.layers import Dense, Dropout, LayerNormalization, MultiHeadAttention, GlobalAveragePooling1D, Flatten, Embedding
 from sklearn.preprocessing import StandardScaler
 from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
 import pickle
@@ -19,142 +19,133 @@ plt.rcParams['font.family'] = 'Malgun Gothic'
 plt.rcParams['axes.unicode_minus'] = False
 
 # ===========================
-# 🔧 모델 재구성을 위한 클래스들
+# 🔧 모델 재구성 (실제 저장된 구조에 맞춤)
 # ===========================
 
 class TransformerEncoderLayer(layers.Layer):
-    """TensorFlow 2.15를 위한 수동 구현 Transformer Encoder Layer"""
+    """커스텀 Transformer Encoder Layer"""
     
     def __init__(self, d_model, num_heads, dff, dropout_rate=0.1, **kwargs):
         super(TransformerEncoderLayer, self).__init__(**kwargs)
         
-        self.d_model = d_model
-        self.num_heads = num_heads
-        self.dff = dff
-        self.dropout_rate = dropout_rate
-        
-        # Multi-head attention
-        self.mha = layers.MultiHeadAttention(
+        self.mha = MultiHeadAttention(
             num_heads=num_heads, 
             key_dim=d_model // num_heads,
             dropout=dropout_rate
         )
         
-        # Feed forward network
         self.ffn = keras.Sequential([
-            layers.Dense(dff, activation='relu'),
-            layers.Dense(d_model)
+            Dense(dff, activation='relu'),
+            Dense(d_model)
         ])
         
-        # Layer normalization
-        self.layernorm1 = layers.LayerNormalization(epsilon=1e-6)
-        self.layernorm2 = layers.LayerNormalization(epsilon=1e-6)
+        self.layernorm1 = LayerNormalization(epsilon=1e-6)
+        self.layernorm2 = LayerNormalization(epsilon=1e-6)
         
-        # Dropout
-        self.dropout1 = layers.Dropout(dropout_rate)
-        self.dropout2 = layers.Dropout(dropout_rate)
+        self.dropout1 = Dropout(dropout_rate)
+        self.dropout2 = Dropout(dropout_rate)
     
     def call(self, inputs, training=False):
-        # Multi-head attention
         attn_output = self.mha(inputs, inputs, training=training)
         attn_output = self.dropout1(attn_output, training=training)
         out1 = self.layernorm1(inputs + attn_output)
         
-        # Feed forward
         ffn_output = self.ffn(out1)
         ffn_output = self.dropout2(ffn_output, training=training)
         out2 = self.layernorm2(out1 + ffn_output)
         
         return out2
-    
-    def get_config(self):
-        config = super().get_config()
-        config.update({
-            'd_model': self.d_model,
-            'num_heads': self.num_heads,
-            'dff': self.dff,
-            'dropout_rate': self.dropout_rate
-        })
-        return config
 
-class PatchTST:
-    """PatchTST 모델 재구성"""
+def build_patchtst_model(seq_len=20, n_features=39, patch_len=5, d_model=128, 
+                        n_heads=8, d_ff=256, n_layers=3, dropout=0.1):
+    """실제 저장된 구조에 맞는 PatchTST 모델 재구성"""
     
-    def __init__(self, config):
-        self.seq_len = config['seq_len']
-        self.n_features = config['n_features']
-        self.patch_len = config['patch_len']
-        self.d_model = config['d_model']
-        self.n_heads = config['n_heads']
-        self.d_ff = config['d_ff']
-        self.n_layers = config['n_layers']
-        self.dropout = config['dropout']
-        
-    def build(self):
-        # 입력
-        inputs = Input(shape=(self.seq_len, self.n_features))
-        
-        # Patching
-        n_patches = self.seq_len // self.patch_len
-        patches = tf.reshape(inputs, (-1, n_patches, self.patch_len * self.n_features))
-        
-        # Linear projection
-        x = Dense(self.d_model)(patches)
-        
-        # Positional encoding
-        positions = tf.range(start=0, limit=n_patches, delta=1)
-        position_embedding = layers.Embedding(input_dim=n_patches, output_dim=self.d_model)(positions)
-        x = x + position_embedding
-        
-        # Transformer layers
-        for _ in range(self.n_layers):
-            x = TransformerEncoderLayer(
-                self.d_model, self.n_heads, self.d_ff, self.dropout
-            )(x)
-        
-        # Global average pooling
-        x = layers.GlobalAveragePooling1D()(x)
-        
-        # Output layer
-        outputs = Dense(1)(x)
-        
-        model = Model(inputs=inputs, outputs=outputs, name='PatchTST')
-        return model
+    inputs = Input(shape=(seq_len, n_features))
+    
+    # Patching
+    n_patches = seq_len // patch_len
+    patches = tf.reshape(inputs, (-1, n_patches, patch_len * n_features))
+    
+    # Linear projection (dense)
+    x = Dense(d_model, name='dense')(patches)
+    
+    # Positional encoding (임베딩은 별도로 추가)
+    positions = tf.range(start=0, limit=n_patches, delta=1)
+    pos_embedding = Embedding(input_dim=n_patches, output_dim=d_model, name='pos_embedding')(positions)
+    x = x + pos_embedding
+    
+    # Transformer layers (3개)
+    x = TransformerEncoderLayer(d_model, n_heads, d_ff, dropout, name='transformer_encoder_layer')(x)
+    x = TransformerEncoderLayer(d_model, n_heads, d_ff, dropout, name='transformer_encoder_layer_1')(x)
+    x = TransformerEncoderLayer(d_model, n_heads, d_ff, dropout, name='transformer_encoder_layer_2')(x)
+    
+    # Flatten
+    x = Flatten(name='flatten')(x)
+    
+    # Dense layers
+    x = Dense(128, activation='relu', name='dense_7')(x)
+    x = Dropout(dropout, name='dropout_6')(x)
+    x = Dense(64, activation='relu', name='dense_8')(x)
+    outputs = Dense(1, name='dense_9')(x)
+    
+    model = Model(inputs=inputs, outputs=outputs, name='patch_tst')
+    return model
 
-class PatchTST_PINN_Hybrid:
-    """PatchTST + PINN 하이브리드 모델 재구성"""
+def build_patchtst_pinn_model(seq_len=20, n_features=39, patch_len=5, d_model=128,
+                             n_heads=8, d_ff=256, n_layers=3, dropout=0.1):
+    """실제 저장된 구조에 맞는 PatchTST+PINN 모델 재구성"""
     
-    def __init__(self, config):
-        self.config = config
-        self.patch_tst = PatchTST(config)
-        
-    def build(self):
-        # 두 개의 입력
-        seq_input = Input(shape=(self.config['seq_len'], self.config['n_features']), name='sequence_input')
-        physics_input = Input(shape=(3,), name='physics_input')
-        
-        # PatchTST 부분
-        tst_model = self.patch_tst.build()
-        tst_output = tst_model(seq_input)
-        
-        # Physics 부분
-        physics_x = Dense(64, activation='relu')(physics_input)
-        physics_x = Dropout(0.1)(physics_x)
-        physics_x = Dense(32, activation='relu')(physics_x)
-        
-        # 결합
-        combined = layers.concatenate([tst_output, physics_x])
-        x = Dense(64, activation='relu')(combined)
-        x = Dropout(0.1)(x)
-        x = Dense(32, activation='relu')(x)
-        outputs = Dense(1)(x)
-        
-        model = Model(
-            inputs=[seq_input, physics_input], 
-            outputs=outputs, 
-            name='PatchTST_PINN'
-        )
-        return model
+    # 두 개의 입력
+    seq_input = Input(shape=(seq_len, n_features), name='sequence_input')
+    physics_input = Input(shape=(3,), name='physics_input')
+    
+    # PatchTST 부분 (patch_tst_1으로 래핑)
+    # Patching
+    n_patches = seq_len // patch_len
+    patches = tf.reshape(seq_input, (-1, n_patches, patch_len * n_features))
+    
+    # Linear projection
+    x = Dense(d_model, name='dense_10')(patches)
+    
+    # Positional encoding
+    positions = tf.range(start=0, limit=n_patches, delta=1)
+    pos_embedding = Embedding(input_dim=n_patches, output_dim=d_model, name='pos_embedding')(positions)
+    x = x + pos_embedding
+    
+    # Transformer layers
+    for i in range(3):
+        x = TransformerEncoderLayer(
+            d_model, n_heads, d_ff, dropout,
+            name=f'transformer_encoder_layer_{i+3}'
+        )(x)
+    
+    # Global average pooling
+    x = GlobalAveragePooling1D()(x)
+    
+    # Dense layers for TST output
+    tst_out = Dense(128, activation='relu', name='dense_17')(x)
+    tst_out = Dense(64, activation='relu', name='dense_18')(tst_out)
+    tst_out = Dense(1, name='dense_19')(tst_out)
+    
+    # Physics network
+    physics_x = Dense(64, activation='relu', name='dense_20')(physics_input)
+    physics_x = Dense(32, activation='relu', name='dense_21')(physics_x)
+    
+    # Combine
+    combined = layers.concatenate([tst_out, physics_x])
+    x = Dense(64, activation='relu', name='dense_22')(combined)
+    x = Dense(32, activation='relu', name='dense_23')(x)
+    outputs = Dense(1, name='dense_24')(x)
+    
+    # Dropout layer
+    outputs = Dropout(dropout, name='dropout_14')(outputs)
+    
+    model = Model(
+        inputs=[seq_input, physics_input],
+        outputs=outputs,
+        name='patch_tst_pinn_hybrid'
+    )
+    return model
 
 # ===========================
 # 📊 평가 클래스
@@ -189,17 +180,7 @@ class HUBROOMEvaluator:
             'M16A_3F_TO_M14A_3F_JOB', 'M16A_3F_TO_M14B_7F_JOB'
         ]
         
-        # 모델 설정 (학습 시와 동일하게)
-        self.config = {
-            'seq_len': 20,
-            'n_features': None,  # 데이터 로드 후 설정
-            'patch_len': 5,
-            'd_model': 128,
-            'n_heads': 8,
-            'd_ff': 256,
-            'n_layers': 3,
-            'dropout': 0.1
-        }
+        self.n_features = None  # 데이터 로드 후 설정
     
     def load_scaler(self, filename):
         """스케일러 로드"""
@@ -227,13 +208,11 @@ class HUBROOMEvaluator:
         
         # 숫자형 컬럼만 선택
         numeric_cols = df.select_dtypes(include=[np.number]).columns.tolist()
-        
-        # config 업데이트
-        self.config['n_features'] = len(numeric_cols)
+        self.n_features = len(numeric_cols)
         
         print(f"✅ 데이터 로드 완료: {len(df)} 행")
         print(f"📅 기간: {df['timestamp'].min()} ~ {df['timestamp'].max()}")
-        print(f"📊 특성 수: {len(numeric_cols)}개")
+        print(f"📊 특성 수: {self.n_features}개")
         
         return df, numeric_cols
     
@@ -299,25 +278,60 @@ class HUBROOMEvaluator:
         if os.path.exists(self.patchtst_weights):
             try:
                 print("📌 PatchTST 모델 재구성 중...")
-                patchtst = PatchTST(self.config)
-                model = patchtst.build()
-                model.load_weights(self.patchtst_weights)
+                model = build_patchtst_model(
+                    seq_len=self.seq_len,
+                    n_features=self.n_features,
+                    patch_len=5,
+                    d_model=128,
+                    n_heads=8,
+                    d_ff=256,
+                    n_layers=3,
+                    dropout=0.1
+                )
+                
+                # 더미 데이터로 모델 빌드
+                dummy_input = np.zeros((1, self.seq_len, self.n_features))
+                _ = model(dummy_input)
+                
+                # 가중치 로드
+                model.load_weights(self.patchtst_weights, by_name=True, skip_mismatch=True)
                 models['PatchTST'] = model
                 print("✅ PatchTST 모델 로드 완료")
+                
             except Exception as e:
                 print(f"❌ PatchTST 로드 실패: {e}")
+                import traceback
+                traceback.print_exc()
         
         # PatchTST+PINN 모델
         if os.path.exists(self.pinn_weights):
             try:
                 print("📌 PatchTST+PINN 모델 재구성 중...")
-                pinn = PatchTST_PINN_Hybrid(self.config)
-                model = pinn.build()
-                model.load_weights(self.pinn_weights)
+                model = build_patchtst_pinn_model(
+                    seq_len=self.seq_len,
+                    n_features=self.n_features,
+                    patch_len=5,
+                    d_model=128,
+                    n_heads=8,
+                    d_ff=256,
+                    n_layers=3,
+                    dropout=0.1
+                )
+                
+                # 더미 데이터로 모델 빌드
+                dummy_seq = np.zeros((1, self.seq_len, self.n_features))
+                dummy_physics = np.zeros((1, 3))
+                _ = model([dummy_seq, dummy_physics])
+                
+                # 가중치 로드
+                model.load_weights(self.pinn_weights, by_name=True, skip_mismatch=True)
                 models['PatchTST_PINN'] = model
                 print("✅ PatchTST+PINN 모델 로드 완료")
+                
             except Exception as e:
                 print(f"❌ PatchTST+PINN 로드 실패: {e}")
+                import traceback
+                traceback.print_exc()
         
         return models
     
@@ -345,10 +359,13 @@ class HUBROOMEvaluator:
                 # 예측
                 if model_name == 'PatchTST_PINN':
                     # PINN 모델은 물리 데이터도 필요
-                    y_pred_scaled = model.predict([X_scaled, physics_scaled], verbose=0)
+                    y_pred_scaled = model.predict([X_scaled, physics_scaled], verbose=1, batch_size=32)
                 else:
                     # PatchTST는 시퀀스 데이터만
-                    y_pred_scaled = model.predict(X_scaled, verbose=0)
+                    y_pred_scaled = model.predict(X_scaled, verbose=1, batch_size=32)
+                
+                # 모델 출력 형태 확인
+                print(f"예측 출력 형태: {y_pred_scaled.shape}")
                 
                 # 역정규화 (10분 후 예측값)
                 y_pred_10min = self.scaler_y.inverse_transform(
@@ -408,7 +425,7 @@ class HUBROOMEvaluator:
                 print(f"\n📝 예측 샘플 (처음 10개):")
                 for i in range(min(10, len(y_pred_10min))):
                     status = "⚠️ 경고" if y_pred_10min[i] >= 300 else "✅ 정상"
-                    print(f"  [{i+1}] 실제: {y_true_10min[i]:.1f}, 예측: {y_pred_10min[i]:.1f} {status}")
+                    print(f"  [{i+1}] 시간: {timestamps[i]}, 실제: {y_true_10min[i]:.1f}, 예측: {y_pred_10min[i]:.1f} {status}")
                 
             except Exception as e:
                 print(f"❌ {model_name} 예측 중 오류 발생: {e}")
@@ -589,6 +606,9 @@ def main():
     print("📅 대상: 2025년 9월 데이터")
     print("="*80)
     
+    # TensorFlow 로그 레벨 조정
+    os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
+    
     # 평가기 생성
     evaluator = HUBROOMEvaluator()
     
@@ -616,6 +636,10 @@ def main():
         
         # 4. 예측 및 평가
         results = evaluator.predict_and_evaluate(models, X, y_actual, physics_data, timestamps)
+        
+        if not results:
+            print("\n❌ 예측 결과가 없습니다!")
+            return
         
         # 5. 결과 시각화
         evaluator.visualize_results(results)
