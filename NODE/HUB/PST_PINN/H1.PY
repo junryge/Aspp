@@ -5,6 +5,7 @@ HUBROOM 반송량 예측 시스템 - TensorFlow 2.15 버전
 - PatchTST 모델
 - PatchTST + PINN 하이브리드 모델
 - 진행률 표시 및 체크포인트 기능
+- 300 임계값 경고 기능 추가
 """
 
 import numpy as np
@@ -96,6 +97,7 @@ class ImprovedHUBROOMProcessor:
         self.scaler_y = StandardScaler()
         self.target_col = 'CURRENT_M16A_3F_JOB_2'
         self.checkpoint_manager = CheckpointManager()
+        self.critical_threshold = 300  # 300 이상 문제 발생
         
         # 물리적 계산을 위한 컬럼 그룹
         self.inflow_cols = [
@@ -107,6 +109,21 @@ class ImprovedHUBROOMProcessor:
             'M16A_3F_TO_M16A_6F_JOB', 'M16A_3F_TO_M16A_2F_JOB',
             'M16A_3F_TO_M14A_3F_JOB', 'M16A_3F_TO_M14B_7F_JOB'
         ]
+    
+    def check_alarm_condition(self, value):
+        """300 기준 알람 체크"""
+        if value >= self.critical_threshold:
+            return {
+                'status': 'PROBLEM',
+                'message': f'⚠️ 경고: {value:.1f} (≥300) - HUBROOM 한계 초과!',
+                'action': 'M16 6F AI MAXCAPA 50% DOWN 즉시 조치 필요'
+            }
+        else:
+            return {
+                'status': 'NORMAL',
+                'message': f'✅ 정상: {value:.1f} (<300)',
+                'action': None
+            }
     
     def analyze_data(self, df):
         """데이터 특성 상세 분석"""
@@ -136,7 +153,7 @@ class ImprovedHUBROOMProcessor:
         else:
             print("  - ✅ 결측치 없음")
         
-        # 3. 타겟 변수 분석
+        # 3. 타겟 변수 분석 (300 기준 추가)
         current_step += 1
         print(f"\n[{current_step}/{total_steps}] 타겟 변수 분석... ({current_step/total_steps*100:.0f}%)")
         if self.target_col in df.columns:
@@ -146,6 +163,10 @@ class ImprovedHUBROOMProcessor:
             print(f"  - 표준편차: {target.std():.2f}")
             print(f"  - 최소/최대: {target.min():.0f} / {target.max():.0f}")
             print(f"  - 분포: Q1={target.quantile(0.25):.0f}, Q2={target.median():.0f}, Q3={target.quantile(0.75):.0f}")
+            
+            # 300 이상 데이터 체크
+            over_300 = target[target >= 300].count()
+            print(f"  - 🚨 300 이상 데이터: {over_300}개 ({over_300/len(target)*100:.2f}%)")
         
         # 4. 유입/유출 분석
         current_step += 1
@@ -378,6 +399,7 @@ class ImprovedTrainer:
         self.model_name = model_name
         self.checkpoint_manager = CheckpointManager()
         self.history = None
+        self.processor = ImprovedHUBROOMProcessor()  # 300 체크용
     
     def create_callbacks(self):
         """콜백 생성"""
@@ -452,8 +474,8 @@ class ImprovedTrainer:
         return self.history
     
     def evaluate(self, X_test, y_test, scaler_y=None):
-        """모델 평가"""
-        print("\n📊 모델 평가 중...")
+        """모델 평가 (300 경고 포함)"""
+        print(f"\n📊 {self.model_name} 모델 평가 중...")
         
         # 예측
         y_pred_scaled = self.model.predict(X_test, verbose=0)
@@ -475,18 +497,32 @@ class ImprovedTrainer:
         print(f"  - MSE: {mse:.4f}")
         print(f"  - RMSE: {rmse:.4f}")
         
+        # 300 이상 예측 체크
+        over_300_pred = np.sum(y_pred >= 300)
+        over_300_true = np.sum(y_true >= 300)
+        
+        print(f"\n🚨 300 이상 예측 분석:")
+        print(f"  - 실제 300 이상: {over_300_true}개")
+        print(f"  - 예측 300 이상: {over_300_pred}개")
+        
+        # 샘플 예측 결과 출력 (처음 10개)
+        print(f"\n📝 샘플 예측 결과 (처음 10개):")
+        for i in range(min(10, len(y_pred))):
+            alarm_status = self.processor.check_alarm_condition(y_pred[i])
+            print(f"  [{i+1}] 실제: {y_true[i]:.1f}, 예측: {y_pred[i]:.1f} - {alarm_status['message']}")
+        
         return {'mae': mae, 'mse': mse, 'rmse': rmse, 'y_true': y_true, 'y_pred': y_pred}
 
 # ===========================
-# 🎯 메인 실행
+# 🎯 메인 실행 (두 모델 모두 실행)
 # ===========================
 
-def main_with_progress():
-    """진행률 표시와 체크포인트가 추가된 메인 함수"""
+def main_with_dual_models():
+    """두 모델을 모두 실행하는 메인 함수"""
     
     print("=" * 80)
     print("🏭 HUBROOM 반송량 예측 시스템 (TensorFlow 2.15)")
-    print("💡 특징: 진행률 표시, 중단/재개 가능")
+    print("💡 특징: 두 모델 독립 실행, 300 임계값 경고")
     print("=" * 80)
     
     # 데이터 처리
@@ -549,12 +585,7 @@ def main_with_progress():
         y_val_scaled = processor.scaler_y.transform(y_val.reshape(-1, 1)).flatten()
         y_test_scaled = processor.scaler_y.transform(y_test.reshape(-1, 1)).flatten()
         
-        # 7. 모델 선택
-        print("\n🤖 모델 선택")
-        print("1. PatchTST")
-        print("2. PatchTST + PINN 하이브리드")
-        model_choice = input("선택 (1 또는 2): ")
-        
+        # 7. 모델 설정
         config = {
             'seq_len': 20,
             'n_features': n_features,
@@ -566,52 +597,71 @@ def main_with_progress():
             'dropout': 0.1
         }
         
-        if model_choice == '2':
-            # 물리 데이터 준비
-            X_physics_train = np.array([[p['current_hubroom'], p['inflow_sum'], p['outflow_sum']] 
-                                       for p in physics_train])
-            X_physics_val = np.array([[p['current_hubroom'], p['inflow_sum'], p['outflow_sum']] 
-                                     for p in physics_val])
-            X_physics_test = np.array([[p['current_hubroom'], p['inflow_sum'], p['outflow_sum']] 
-                                      for p in physics_test])
-            
-            # 물리 데이터 정규화
-            scaler_physics = StandardScaler()
-            X_physics_train_scaled = scaler_physics.fit_transform(X_physics_train)
-            X_physics_val_scaled = scaler_physics.transform(X_physics_val)
-            X_physics_test_scaled = scaler_physics.transform(X_physics_test)
-            
-            # 하이브리드 모델
-            model = PatchTST_PINN_Hybrid(config)
-            trainer = ImprovedTrainer(model, "PatchTST_PINN")
-            
-            # 학습 데이터 준비
-            train_data = [X_train_scaled, X_physics_train_scaled]
-            val_data = [X_val_scaled, X_physics_val_scaled]
-            test_data = [X_test_scaled, X_physics_test_scaled]
-        else:
-            # 기본 PatchTST 모델
-            model = PatchTST(config)
-            trainer = ImprovedTrainer(model, "PatchTST")
-            
-            train_data = X_train_scaled
-            val_data = X_val_scaled
-            test_data = X_test_scaled
+        # 8. 모델 1: PatchTST
+        print("\n" + "="*60)
+        print("🤖 모델 1: PatchTST 학습 및 평가")
+        print("="*60)
         
-        # 8. 학습
-        resume_training = input("\n이전 학습을 이어서 하시겠습니까? (y/n): ").lower() == 'y'
+        model1 = PatchTST(config)
+        trainer1 = ImprovedTrainer(model1, "PatchTST")
         
-        history = trainer.train_with_checkpoint(
-            train_data, y_train_scaled,
-            val_data, y_val_scaled,
+        resume_training = input("\nPatchTST 이전 학습을 이어서 하시겠습니까? (y/n): ").lower() == 'y'
+        
+        history1 = trainer1.train_with_checkpoint(
+            X_train_scaled, y_train_scaled,
+            X_val_scaled, y_val_scaled,
             epochs=30,
             batch_size=32,
             lr=0.001,
             resume=resume_training
         )
         
-        # 9. 평가
-        results = trainer.evaluate(test_data, y_test_scaled, processor.scaler_y)
+        results1 = trainer1.evaluate(X_test_scaled, y_test_scaled, processor.scaler_y)
+        
+        # 9. 모델 2: PatchTST + PINN 하이브리드
+        print("\n" + "="*60)
+        print("🤖 모델 2: PatchTST + PINN 하이브리드 학습 및 평가")
+        print("="*60)
+        
+        # 물리 데이터 준비
+        X_physics_train = np.array([[p['current_hubroom'], p['inflow_sum'], p['outflow_sum']] 
+                                   for p in physics_train])
+        X_physics_val = np.array([[p['current_hubroom'], p['inflow_sum'], p['outflow_sum']] 
+                                 for p in physics_val])
+        X_physics_test = np.array([[p['current_hubroom'], p['inflow_sum'], p['outflow_sum']] 
+                                  for p in physics_test])
+        
+        # 물리 데이터 정규화
+        scaler_physics = StandardScaler()
+        X_physics_train_scaled = scaler_physics.fit_transform(X_physics_train)
+        X_physics_val_scaled = scaler_physics.transform(X_physics_val)
+        X_physics_test_scaled = scaler_physics.transform(X_physics_test)
+        
+        model2 = PatchTST_PINN_Hybrid(config)
+        trainer2 = ImprovedTrainer(model2, "PatchTST_PINN")
+        
+        resume_training = input("\nPatchTST_PINN 이전 학습을 이어서 하시겠습니까? (y/n): ").lower() == 'y'
+        
+        history2 = trainer2.train_with_checkpoint(
+            [X_train_scaled, X_physics_train_scaled], y_train_scaled,
+            [X_val_scaled, X_physics_val_scaled], y_val_scaled,
+            epochs=30,
+            batch_size=32,
+            lr=0.001,
+            resume=resume_training
+        )
+        
+        results2 = trainer2.evaluate([X_test_scaled, X_physics_test_scaled], 
+                                    y_test_scaled, processor.scaler_y)
+        
+        # 10. 최종 비교
+        print("\n" + "="*60)
+        print("📊 최종 모델 비교")
+        print("="*60)
+        print(f"\n{'모델':<20} {'MAE':<10} {'RMSE':<10} {'300이상 예측':<15}")
+        print("-"*55)
+        print(f"{'PatchTST':<20} {results1['mae']:<10.2f} {results1['rmse']:<10.2f} {np.sum(results1['y_pred']>=300):<15}")
+        print(f"{'PatchTST+PINN':<20} {results2['mae']:<10.2f} {results2['rmse']:<10.2f} {np.sum(results2['y_pred']>=300):<15}")
         
         print("\n✅ 모든 작업 완료!")
         
@@ -623,4 +673,4 @@ def main_with_progress():
         print("💾 진행 상황이 저장되었습니다.")
 
 if __name__ == "__main__":
-    main_with_progress()
+    main_with_dual_models()
