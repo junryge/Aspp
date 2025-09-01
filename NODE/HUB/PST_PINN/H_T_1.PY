@@ -340,9 +340,16 @@ class HUBROOMProcessor:
             print(f"  • 단계: {saved_progress['stage']}")
             print(f"  • 진행률: {saved_progress['percentage']:.1f}%")
             
-            resume = input("이어서 진행하시겠습니까? (y/n): ")
-            if resume.lower() == 'y':
+            resume = input("\n이어서 진행하시겠습니까? (y/n) [새로 시작: c]: ").lower()
+            
+            if resume == 'y':
                 return self._resume_from_checkpoint(saved_data, saved_progress)
+            elif resume == 'c':
+                print("\n🧹 체크포인트 초기화 선택")
+                self.checkpoint_mgr.clear_checkpoints()
+                return self._process_from_scratch(file_path)
+            else:
+                return self._process_from_scratch(file_path)
         
         # 새로 시작
         return self._process_from_scratch(file_path)
@@ -793,12 +800,21 @@ if __name__ == "__main__":
                        default='train', help='실행 모드')
     parser.add_argument('--resume', action='store_true', 
                        help='이전 학습 이어서 진행')
+    parser.add_argument('--clear', action='store_true',
+                       help='체크포인트 초기화 후 새로 시작')
     parser.add_argument('--model', choices=['patchtst', 'pinn', 'both'], 
                        default='both', help='학습할 모델')
     
     args = parser.parse_args()
     
     try:
+        # 체크포인트 초기화 옵션
+        if args.clear:
+            print("\n🧹 체크포인트 초기화 모드")
+            checkpoint_mgr = CheckpointManager()
+            checkpoint_mgr.clear_checkpoints()
+            print("✅ 초기화 완료. 새로 시작합니다.\n")
+        
         if args.mode == 'train':
             # 학습 모드
             model1, model2, history1, history2 = main()
@@ -806,11 +822,15 @@ if __name__ == "__main__":
         elif args.mode == 'predict':
             # 예측 모드
             print("\n🔮 실시간 예측 모드")
+            
+            # 모델 파일 확인
+            model_path = 'checkpoints/best_model.h5'
+            if not os.path.exists(model_path):
+                print(f"❌ 모델 파일이 없습니다: {model_path}")
+                print("먼저 학습을 진행해주세요: python H_T1.py --mode train")
+                sys.exit(1)
+            
             predictor = HUBROOMPredictor()
-            
-            # 예시: 마지막 20분 데이터 (실제로는 실시간 데이터)
-            # last_20min = get_realtime_data()  # 실제 구현 필요
-            
             print("✅ 예측 서비스 준비 완료!")
             
         elif args.mode == 'evaluate':
@@ -821,19 +841,21 @@ if __name__ == "__main__":
     except KeyboardInterrupt:
         print("\n\n⚠️ 사용자 중단!")
         print("💾 진행 상황이 저장되었습니다.")
-        print("다시 실행하면 중단된 지점부터 이어서 진행됩니다.")
-        
-        # 재개 명령어 안내
         print("\n📌 재개 방법:")
-        print("  python tf_patchtst_complete.py --resume")
+        print("  • 이어서: python H_T1.py --resume")
+        print("  • 초기화: python H_T1.py --clear")
         
     except Exception as e:
         print(f"\n❌ 오류 발생: {e}")
-        print("💾 진행 상황이 저장되었습니다.")
+        print("\n💡 해결 방법:")
+        print("  1. 체크포인트 초기화 후 재시작:")
+        print("     python H_T1.py --clear")
+        print("  2. 디버그 모드로 실행:")
+        print("     python H_T1.py --debug")
         
         # 디버그 정보
         import traceback
-        print("\n디버그 정보:")
+        print("\n📋 디버그 정보:")
         traceback.print_exc()
 
 # ===========================
