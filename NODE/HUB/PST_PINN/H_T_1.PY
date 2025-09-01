@@ -156,11 +156,15 @@ class DataAnalyzer:
     
     def _analyze_basic_info(self, df, target_col):
         """기본 정보 분석"""
+        # dtype을 문자열로 변환
+        dtype_counts = df.dtypes.value_counts()
+        dtype_dict = {str(k): int(v) for k, v in dtype_counts.items()}
+        
         info = {
-            'rows': len(df),
-            'columns': len(df.columns),
-            'memory_mb': df.memory_usage(deep=True).sum() / 1024**2,
-            'dtypes': df.dtypes.value_counts().to_dict()
+            'rows': int(len(df)),
+            'columns': int(len(df.columns)),
+            'memory_mb': float(df.memory_usage(deep=True).sum() / 1024**2),
+            'dtypes': dtype_dict
         }
         
         print(f"  • 데이터 크기: {info['rows']:,} 행 × {info['columns']} 컬럼")
@@ -175,9 +179,9 @@ class DataAnalyzer:
         missing_pct = (missing / len(df)) * 100
         
         result = {
-            'total_missing': missing.sum(),
-            'columns_with_missing': (missing > 0).sum(),
-            'missing_percentage': missing_pct.mean()
+            'total_missing': int(missing.sum()),
+            'columns_with_missing': int((missing > 0).sum()),
+            'missing_percentage': float(missing_pct.mean())
         }
         
         print(f"  • 전체 결측치: {result['total_missing']:,}개")
@@ -191,13 +195,13 @@ class DataAnalyzer:
         if target_col in df.columns:
             target = df[target_col].dropna()
             result = {
-                'mean': target.mean(),
-                'std': target.std(),
-                'min': target.min(),
-                'max': target.max(),
-                'q25': target.quantile(0.25),
-                'q50': target.quantile(0.50),
-                'q75': target.quantile(0.75)
+                'mean': float(target.mean()),
+                'std': float(target.std()),
+                'min': float(target.min()),
+                'max': float(target.max()),
+                'q25': float(target.quantile(0.25)),
+                'q50': float(target.quantile(0.50)),
+                'q75': float(target.quantile(0.75))
             }
             
             print(f"  • 평균±표준편차: {result['mean']:.2f} ± {result['std']:.2f}")
@@ -231,9 +235,9 @@ class DataAnalyzer:
         
         stats = df[numeric_cols].describe()
         result = {
-            'numeric_columns': len(numeric_cols),
-            'mean_values': stats.loc['mean'].mean(),
-            'std_values': stats.loc['std'].mean()
+            'numeric_columns': int(len(numeric_cols)),
+            'mean_values': float(stats.loc['mean'].mean()),
+            'std_values': float(stats.loc['std'].mean())
         }
         
         print(f"  • 숫자형 컬럼: {result['numeric_columns']}개")
@@ -251,7 +255,7 @@ class DataAnalyzer:
             
             result = {
                 'top_features': top_corr.index.tolist(),
-                'correlations': top_corr.values.tolist()
+                'correlations': [float(x) for x in top_corr.values.tolist()]
             }
             
             print(f"  • 타겟과 상관관계 TOP 3:")
@@ -272,13 +276,13 @@ class DataAnalyzer:
             Q3 = df[col].quantile(0.75)
             IQR = Q3 - Q1
             outliers = ((df[col] < Q1 - 1.5 * IQR) | (df[col] > Q3 + 1.5 * IQR)).sum()
-            outlier_counts[col] = outliers
+            outlier_counts[col] = int(outliers)
         
         total_outliers = sum(outlier_counts.values())
         print(f"  • 총 이상치: {total_outliers}개")
         print(f"  • 이상치 비율: {total_outliers/(len(df)*len(numeric_cols))*100:.2f}%")
         
-        return {'outlier_counts': outlier_counts, 'total': total_outliers}
+        return {'outlier_counts': outlier_counts, 'total': int(total_outliers)}
     
     def _analyze_quality(self, df, target_col):
         """데이터 품질 평가"""
@@ -309,7 +313,7 @@ class DataAnalyzer:
         else:
             print("  • ❌ 낮은 품질, 전처리 필수")
         
-        return {'score': score, 'grade': grade}
+        return {'score': float(score), 'grade': grade}
 
 # ===========================
 # 📦 데이터 처리
