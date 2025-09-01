@@ -41,7 +41,29 @@ class CheckpointManager:
     
     def __init__(self, checkpoint_dir='./checkpoints'):
         self.checkpoint_dir = checkpoint_dir
-        os.makedirs(checkpoint_dir, exist_ok=True)
+        
+        # 체크포인트 디렉토리 처리
+        try:
+            if os.path.exists(checkpoint_dir):
+                if os.path.isfile(checkpoint_dir):
+                    print(f"⚠️ {checkpoint_dir}가 파일로 존재합니다. 삭제하고 디렉토리를 생성합니다.")
+                    os.remove(checkpoint_dir)
+                    os.makedirs(checkpoint_dir)
+                elif not os.path.isdir(checkpoint_dir):
+                    print(f"⚠️ {checkpoint_dir}가 올바른 디렉토리가 아닙니다. 재생성합니다.")
+                    import shutil
+                    shutil.rmtree(checkpoint_dir, ignore_errors=True)
+                    os.makedirs(checkpoint_dir)
+            else:
+                os.makedirs(checkpoint_dir)
+            print(f"✅ 체크포인트 디렉토리 준비 완료: {os.path.abspath(checkpoint_dir)}")
+        except Exception as e:
+            print(f"❌ 체크포인트 디렉토리 생성 실패: {e}")
+            # 대체 디렉토리 사용
+            self.checkpoint_dir = os.path.join(os.getcwd(), 'hubroom_checkpoints')
+            os.makedirs(self.checkpoint_dir, exist_ok=True)
+            print(f"📁 대체 디렉토리 사용: {self.checkpoint_dir}")
+        
         self.interrupted = False
         
         # Ctrl+C 인터럽트 핸들러
@@ -53,9 +75,21 @@ class CheckpointManager:
     
     def save_checkpoint(self, model, filename):
         """모델 체크포인트 저장"""
-        filepath = os.path.join(self.checkpoint_dir, filename)
-        model.save_weights(filepath)
-        print(f"💾 체크포인트 저장: {filepath}")
+        try:
+            filepath = os.path.join(self.checkpoint_dir, filename)
+            # 디렉토리가 존재하는지 다시 확인
+            os.makedirs(os.path.dirname(filepath), exist_ok=True)
+            model.save_weights(filepath)
+            print(f"💾 체크포인트 저장: {filepath}")
+        except Exception as e:
+            print(f"❌ 체크포인트 저장 실패: {e}")
+            # 대체 경로로 시도
+            alt_filepath = os.path.join(os.getcwd(), f"backup_{filename}")
+            try:
+                model.save_weights(alt_filepath)
+                print(f"💾 백업 체크포인트 저장: {alt_filepath}")
+            except:
+                print(f"❌ 백업 체크포인트도 저장 실패")
     
     def load_checkpoint(self, model, filename):
         """모델 체크포인트 로드"""
@@ -68,10 +102,22 @@ class CheckpointManager:
     
     def save_data_progress(self, data_dict, filename='data_progress.pkl'):
         """데이터 처리 진행 상황 저장"""
-        filepath = os.path.join(self.checkpoint_dir, filename)
-        with open(filepath, 'wb') as f:
-            pickle.dump(data_dict, f)
-        print(f"💾 데이터 진행 상황 저장: {filepath}")
+        try:
+            filepath = os.path.join(self.checkpoint_dir, filename)
+            os.makedirs(os.path.dirname(filepath), exist_ok=True)
+            with open(filepath, 'wb') as f:
+                pickle.dump(data_dict, f)
+            print(f"💾 데이터 진행 상황 저장: {filepath}")
+        except Exception as e:
+            print(f"❌ 데이터 진행 상황 저장 실패: {e}")
+            # 현재 디렉토리에 저장 시도
+            try:
+                alt_filepath = os.path.join(os.getcwd(), f"backup_{filename}")
+                with open(alt_filepath, 'wb') as f:
+                    pickle.dump(data_dict, f)
+                print(f"💾 백업 데이터 저장: {alt_filepath}")
+            except:
+                print(f"❌ 백업 데이터도 저장 실패")
     
     def load_data_progress(self, filename='data_progress.pkl'):
         """데이터 처리 진행 상황 로드"""
@@ -499,30 +545,52 @@ class ImprovedTrainer:
     
     def create_callbacks(self):
         """콜백 생성"""
-        callbacks_list = [
-            ModelCheckpoint(
-                filepath=os.path.join(self.checkpoint_manager.checkpoint_dir, 
-                                     f'{self.model_name}_best.h5'),
-                monitor='val_loss',
-                save_best_only=True,
-                save_weights_only=True,
-                verbose=1
-            ),
-            EarlyStopping(
-                monitor='val_loss',
-                patience=10,
-                restore_best_weights=True,
-                verbose=1
-            ),
-            ReduceLROnPlateau(
-                monitor='val_loss',
-                factor=0.5,
-                patience=5,
-                min_lr=1e-6,
-                verbose=1
-            )
-        ]
-        return callbacks_list
+        try:
+            # 체크포인트 디렉토리 확인
+            os.makedirs(self.checkpoint_manager.checkpoint_dir, exist_ok=True)
+            
+            callbacks_list = [
+                ModelCheckpoint(
+                    filepath=os.path.join(self.checkpoint_manager.checkpoint_dir, 
+                                         f'{self.model_name}_best.h5'),
+                    monitor='val_loss',
+                    save_best_only=True,
+                    save_weights_only=True,
+                    verbose=1
+                ),
+                EarlyStopping(
+                    monitor='val_loss',
+                    patience=10,
+                    restore_best_weights=True,
+                    verbose=1
+                ),
+                ReduceLROnPlateau(
+                    monitor='val_loss',
+                    factor=0.5,
+                    patience=5,
+                    min_lr=1e-6,
+                    verbose=1
+                )
+            ]
+            return callbacks_list
+        except Exception as e:
+            print(f"⚠️ 콜백 생성 중 오류, 기본 콜백만 사용: {e}")
+            # ModelCheckpoint 없이 기본 콜백만 반환
+            return [
+                EarlyStopping(
+                    monitor='val_loss',
+                    patience=10,
+                    restore_best_weights=True,
+                    verbose=1
+                ),
+                ReduceLROnPlateau(
+                    monitor='val_loss',
+                    factor=0.5,
+                    patience=5,
+                    min_lr=1e-6,
+                    verbose=1
+                )
+            ]
     
     def train_with_checkpoint(self, X_train, y_train, X_val, y_val, 
                              epochs=50, batch_size=32, lr=0.001, resume=False):
@@ -564,7 +632,17 @@ class ImprovedTrainer:
         )
         
         # 최종 체크포인트 저장
-        self.checkpoint_manager.save_checkpoint(self.model, f'{self.model_name}_final')
+        try:
+            self.checkpoint_manager.save_checkpoint(self.model, f'{self.model_name}_final')
+            
+            # 에포크 정보 저장
+            epoch_file = os.path.join(self.checkpoint_manager.checkpoint_dir, 
+                                     f'{self.model_name}_epoch.txt')
+            with open(epoch_file, 'w') as f:
+                f.write(str(len(self.history.history['loss'])))
+        except Exception as e:
+            print(f"⚠️ 최종 체크포인트 저장 실패: {e}")
+            print("⚠️ 모델 학습은 완료되었지만 저장에 실패했습니다.")
         
         print("✅ 학습 완료!")
         return self.history
@@ -620,6 +698,20 @@ def main():
     print("🏭 HUBROOM 반송량 예측 시스템 (TensorFlow 2.15)")
     print("💡 특징: TransformerEncoderLayer 수정 완료, 300 임계값 경고")
     print("=" * 80)
+    
+    # 작업 디렉토리 확인
+    print(f"\n📁 현재 작업 디렉토리: {os.getcwd()}")
+    
+    # 체크포인트 디렉토리 확인 및 정리
+    checkpoint_dir = './checkpoints'
+    if os.path.exists(checkpoint_dir) and os.path.isfile(checkpoint_dir):
+        print(f"⚠️ {checkpoint_dir}가 파일로 존재합니다. 삭제합니다.")
+        try:
+            os.remove(checkpoint_dir)
+        except Exception as e:
+            print(f"❌ 파일 삭제 실패: {e}")
+            checkpoint_dir = 'hubroom_checkpoints'
+            print(f"📁 대체 디렉토리 사용: {checkpoint_dir}")
     
     # 모델 선택
     print("\n📋 모델 선택:")
