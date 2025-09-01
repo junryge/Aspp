@@ -1,6 +1,9 @@
 # -*- coding: utf-8 -*-
 """
-HUBROOM 반송량 예측 평가 시스템 - 10분 단위 결과
+HUBROOM 전체 데이터 예측 시스템
+- 00:20분부터 시작 (20분 과거 데이터 필요)
+- 각 시점에서 10분 후 예측
+- 전체 기간에 대해 연속적으로 예측
 """
 
 import numpy as np
@@ -24,7 +27,7 @@ plt.rcParams['font.family'] = 'Malgun Gothic'
 plt.rcParams['axes.unicode_minus'] = False
 
 # ===========================
-# 🔧 모델 재구성 (실제 저장된 구조에 맞춤)
+# 🔧 모델 클래스 정의
 # ===========================
 
 class TransformerEncoderLayer(layers.Layer):
@@ -63,7 +66,7 @@ class TransformerEncoderLayer(layers.Layer):
 
 def build_patchtst_model(seq_len=20, n_features=39, patch_len=5, d_model=128, 
                         n_heads=8, d_ff=256, n_layers=3, dropout=0.1):
-    """실제 저장된 구조에 맞는 PatchTST 모델 재구성"""
+    """PatchTST 모델 재구성"""
     
     inputs = Input(shape=(seq_len, n_features))
     
@@ -71,15 +74,15 @@ def build_patchtst_model(seq_len=20, n_features=39, patch_len=5, d_model=128,
     n_patches = seq_len // patch_len
     patches = tf.reshape(inputs, (-1, n_patches, patch_len * n_features))
     
-    # Linear projection (dense)
+    # Linear projection
     x = Dense(d_model, name='dense')(patches)
     
-    # Positional encoding (임베딩은 별도로 추가)
+    # Positional encoding
     positions = tf.range(start=0, limit=n_patches, delta=1)
     pos_embedding = Embedding(input_dim=n_patches, output_dim=d_model, name='pos_embedding')(positions)
     x = x + pos_embedding
     
-    # Transformer layers (3개)
+    # Transformer layers
     x = TransformerEncoderLayer(d_model, n_heads, d_ff, dropout, name='transformer_encoder_layer')(x)
     x = TransformerEncoderLayer(d_model, n_heads, d_ff, dropout, name='transformer_encoder_layer_1')(x)
     x = TransformerEncoderLayer(d_model, n_heads, d_ff, dropout, name='transformer_encoder_layer_2')(x)
@@ -98,14 +101,13 @@ def build_patchtst_model(seq_len=20, n_features=39, patch_len=5, d_model=128,
 
 def build_patchtst_pinn_model(seq_len=20, n_features=39, patch_len=5, d_model=128,
                              n_heads=8, d_ff=256, n_layers=3, dropout=0.1):
-    """실제 저장된 구조에 맞는 PatchTST+PINN 모델 재구성"""
+    """PatchTST+PINN 하이브리드 모델 재구성"""
     
     # 두 개의 입력
     seq_input = Input(shape=(seq_len, n_features), name='sequence_input')
     physics_input = Input(shape=(3,), name='physics_input')
     
-    # PatchTST 부분 (patch_tst_1으로 래핑)
-    # Patching
+    # PatchTST 부분
     n_patches = seq_len // patch_len
     patches = tf.reshape(seq_input, (-1, n_patches, patch_len * n_features))
     
@@ -153,22 +155,28 @@ def build_patchtst_pinn_model(seq_len=20, n_features=39, patch_len=5, d_model=12
     return model
 
 # ===========================
-# 📊 10분 단위 평가 클래스
+# 📊 전체 예측 시스템 클래스
 # ===========================
 
-class HUBROOM10MinEvaluator:
-    """HUBROOM 예측 모델 평가 클래스 - 10분 단위"""
+class HUBROOMFullPredictor:
+    """HUBROOM 전체 시간대 예측 시스템"""
     
-    def __init__(self, data_path='20250801_to_20250831.csv'):
-        self.data_path = data_path
+    def __init__(self, model_type='PINN'):
+        """
+        Args:
+            model_type: 'PatchTST' 또는 'PINN'
+        """
+        self.model_type = model_type
         self.seq_len = 20
         self.pred_len = 10
         self.target_col = 'CURRENT_M16A_3F_JOB_2'
         self.critical_threshold = 300
         
         # 모델 경로
-        self.patchtst_weights = './checkpoints/PatchTST_best.h5'
-        self.pinn_weights = './checkpoints/PatchTST_PINN_best.h5'
+        if model_type == 'PINN':
+            self.model_weights = './checkpoints/PatchTST_PINN_best.h5'
+        else:
+            self.model_weights = './checkpoints/PatchTST_best.h5'
         
         # 스케일러 로드
         self.scaler_X = self.load_scaler('scaler_X.pkl')
@@ -185,23 +193,23 @@ class HUBROOM10MinEvaluator:
             'M16A_3F_TO_M14A_3F_JOB', 'M16A_3F_TO_M14B_7F_JOB'
         ]
         
-        self.n_features = None  # 데이터 로드 후 설정
+        self.model = None
+        self.n_features = None
     
     def load_scaler(self, filename):
         """스케일러 로드"""
         filepath = f'./checkpoints/{filename}'
         if os.path.exists(filepath):
             with open(filepath, 'rb') as f:
-                print(f"✅ {filename} 로드 완료")
                 return pickle.load(f)
         else:
-            print(f"⚠️ {filename}이 없습니다. save_scalers.py를 먼저 실행하세요!")
+            print(f"⚠️ {filename}이 없습니다!")
             return None
     
-    def prepare_data(self):
-        """2025년 9월 데이터 준비"""
-        print("\n📂 2025년 9월 데이터 로드 중...")
-        df = pd.read_csv(self.data_path)
+    def load_data(self, data_path):
+        """데이터 로드 및 전처리"""
+        print(f"\n📂 데이터 로드 중: {data_path}")
+        df = pd.read_csv(data_path)
         
         # 시간 컬럼 처리
         time_col = df.columns[0]
@@ -221,99 +229,16 @@ class HUBROOM10MinEvaluator:
         
         return df, numeric_cols
     
-    def create_10min_evaluation_sequences(self, df, numeric_cols):
-        """10분 단위로 평가용 시퀀스 생성"""
-        results_list = []
+    def load_model(self):
+        """모델 로드"""
+        print(f"\n🤖 {self.model_type} 모델 로드 중...")
         
-        data = df[numeric_cols].values
-        target_idx = numeric_cols.index(self.target_col)
+        if not os.path.exists(self.model_weights):
+            print(f"❌ 모델 파일이 없습니다: {self.model_weights}")
+            return None
         
-        # 사용 가능한 컬럼 확인
-        available_inflow = [col for col in self.inflow_cols if col in numeric_cols]
-        available_outflow = [col for col in self.outflow_cols if col in numeric_cols]
-        
-        print(f"\n📊 10분 단위 시퀀스 생성 중...")
-        
-        # 10분 간격으로 시퀀스 생성
-        i = 0
-        while i + self.seq_len + self.pred_len <= len(data):
-            # 입력 시퀀스 (과거 20분)
-            X_seq = data[i:i+self.seq_len]
-            
-            # 실제 값 (10분 후 단일 값)
-            actual_10min_value = data[i+self.seq_len+self.pred_len-1, target_idx]
-            
-            # 예측 시점 (10분 후)
-            pred_time = df['timestamp'].iloc[i+self.seq_len+self.pred_len-1]
-            input_start_time = df['timestamp'].iloc[i]
-            input_end_time = df['timestamp'].iloc[i+self.seq_len-1]
-            
-            # 물리 데이터 (마지막 입력 시점의 상태)
-            current_state = data[i+self.seq_len-1]
-            current_hubroom = current_state[target_idx]
-            
-            inflow_sum = sum([current_state[numeric_cols.index(col)] 
-                            for col in available_inflow])
-            outflow_sum = sum([current_state[numeric_cols.index(col)] 
-                             for col in available_outflow])
-            
-            physics = np.array([current_hubroom, inflow_sum, outflow_sum])
-            
-            # 결과 저장
-            results_list.append({
-                'X_seq': X_seq,
-                'physics': physics,
-                'actual_value': actual_10min_value,
-                'pred_time': pred_time,
-                'input_period': f"{input_start_time.strftime('%H:%M')}~{input_end_time.strftime('%H:%M')}",
-                'input_start': input_start_time,
-                'input_end': input_end_time
-            })
-            
-            # 10분 후로 이동
-            i += 10
-        
-        print(f"✅ 10분 단위 시퀀스 생성 완료: {len(results_list)}개")
-        
-        return results_list
-    
-    def load_models(self):
-        """모델 재구성 및 가중치 로드"""
-        print("\n🤖 모델 재구성 및 가중치 로드 중...")
-        
-        models = {}
-        
-        # PatchTST 모델
-        if os.path.exists(self.patchtst_weights):
-            try:
-                print("📌 PatchTST 모델 재구성 중...")
-                model = build_patchtst_model(
-                    seq_len=self.seq_len,
-                    n_features=self.n_features,
-                    patch_len=5,
-                    d_model=128,
-                    n_heads=8,
-                    d_ff=256,
-                    n_layers=3,
-                    dropout=0.1
-                )
-                
-                # 더미 데이터로 모델 빌드
-                dummy_input = np.zeros((1, self.seq_len, self.n_features))
-                _ = model(dummy_input)
-                
-                # 가중치 로드
-                model.load_weights(self.patchtst_weights, by_name=True, skip_mismatch=True)
-                models['PatchTST'] = model
-                print("✅ PatchTST 모델 로드 완료")
-                
-            except Exception as e:
-                print(f"❌ PatchTST 로드 실패: {e}")
-        
-        # PatchTST+PINN 모델
-        if os.path.exists(self.pinn_weights):
-            try:
-                print("📌 PatchTST+PINN 모델 재구성 중...")
+        try:
+            if self.model_type == 'PINN':
                 model = build_patchtst_pinn_model(
                     seq_len=self.seq_len,
                     n_features=self.n_features,
@@ -324,224 +249,380 @@ class HUBROOM10MinEvaluator:
                     n_layers=3,
                     dropout=0.1
                 )
-                
                 # 더미 데이터로 모델 빌드
                 dummy_seq = np.zeros((1, self.seq_len, self.n_features))
                 dummy_physics = np.zeros((1, 3))
                 _ = model([dummy_seq, dummy_physics])
-                
-                # 가중치 로드
-                model.load_weights(self.pinn_weights, by_name=True, skip_mismatch=True)
-                models['PatchTST_PINN'] = model
-                print("✅ PatchTST+PINN 모델 로드 완료")
-                
-            except Exception as e:
-                print(f"❌ PatchTST+PINN 로드 실패: {e}")
-        
-        return models
-    
-    def predict_10min_intervals(self, models, results_list):
-        """10분 단위로 예측 수행"""
-        # 데이터 준비
-        X_list = np.array([r['X_seq'] for r in results_list])
-        physics_list = np.array([r['physics'] for r in results_list])
-        actual_values = np.array([r['actual_value'] for r in results_list])
-        
-        # 정규화
-        n_samples, seq_len, n_features = X_list.shape
-        X_scaled = self.scaler_X.transform(X_list.reshape(-1, n_features)).reshape(n_samples, seq_len, n_features)
-        physics_scaled = self.scaler_physics.transform(physics_list) if self.scaler_physics else physics_list
-        
-        predictions = {}
-        
-        for model_name, model in models.items():
-            print(f"\n📊 {model_name} 모델로 예측 중...")
+            else:
+                model = build_patchtst_model(
+                    seq_len=self.seq_len,
+                    n_features=self.n_features,
+                    patch_len=5,
+                    d_model=128,
+                    n_heads=8,
+                    d_ff=256,
+                    n_layers=3,
+                    dropout=0.1
+                )
+                # 더미 데이터로 모델 빌드
+                dummy_input = np.zeros((1, self.seq_len, self.n_features))
+                _ = model(dummy_input)
             
-            try:
-                # 예측
-                if model_name == 'PatchTST_PINN':
-                    y_pred_scaled = model.predict([X_scaled, physics_scaled], verbose=0, batch_size=32)
-                else:
-                    y_pred_scaled = model.predict(X_scaled, verbose=0, batch_size=32)
-                
-                # 역정규화
-                y_pred = self.scaler_y.inverse_transform(y_pred_scaled.reshape(-1, 1)).flatten()
-                predictions[model_name] = y_pred
-                
-            except Exception as e:
-                print(f"❌ {model_name} 예측 실패: {e}")
-                predictions[model_name] = np.zeros(len(actual_values))
-        
-        # 결과 통합
-        for i, result in enumerate(results_list):
-            for model_name, pred_values in predictions.items():
-                result[f'pred_{model_name}'] = pred_values[i]
-        
-        return results_list
+            # 가중치 로드
+            model.load_weights(self.model_weights, by_name=True, skip_mismatch=True)
+            self.model = model
+            print(f"✅ {self.model_type} 모델 로드 완료")
+            return model
+            
+        except Exception as e:
+            print(f"❌ 모델 로드 실패: {e}")
+            import traceback
+            traceback.print_exc()
+            return None
     
-    def create_10min_report(self, results_with_predictions):
-        """10분 단위 보고서 생성"""
-        print("\n" + "="*80)
-        print("📊 10분 단위 예측 결과 보고서")
-        print("="*80)
+    def predict_all_timestamps(self, df, numeric_cols):
+        """전체 시간대에 대해 예측 수행"""
+        print(f"\n🔮 전체 예측 시작 (00:20분부터)...")
+        
+        data = df[numeric_cols].values
+        target_idx = numeric_cols.index(self.target_col)
+        
+        # 사용 가능한 물리 컬럼 확인
+        available_inflow = [col for col in self.inflow_cols if col in numeric_cols]
+        available_outflow = [col for col in self.outflow_cols if col in numeric_cols]
+        
+        # 예측 결과 저장
+        predictions = []
+        actual_values = []
+        timestamps = []
+        prediction_times = []
+        
+        # 00:20분부터 시작 (인덱스 19부터)
+        start_idx = self.seq_len - 1  # 19
+        end_idx = len(data) - self.pred_len
+        
+        total_predictions = end_idx - start_idx
+        print(f"📊 총 예측 수: {total_predictions}개")
+        
+        # 배치 처리를 위한 데이터 준비
+        batch_size = 1000
+        n_batches = (total_predictions + batch_size - 1) // batch_size
+        
+        for batch_idx in range(n_batches):
+            start = start_idx + batch_idx * batch_size
+            end = min(start_idx + (batch_idx + 1) * batch_size, end_idx)
+            
+            X_batch = []
+            physics_batch = []
+            timestamps_batch = []
+            actual_batch = []
+            
+            # 배치 데이터 생성
+            for i in range(start, end):
+                # 입력 시퀀스 (과거 20분)
+                X_seq = data[i-self.seq_len+1:i+1]
+                
+                # 실제값 (10분 후)
+                y_actual = data[i+self.pred_len, target_idx]
+                
+                # 타임스탬프
+                current_time = df['timestamp'].iloc[i]
+                pred_time = current_time + timedelta(minutes=self.pred_len)
+                
+                # 물리 데이터 (현재 상태)
+                current_state = data[i]
+                current_hubroom = current_state[target_idx]
+                
+                inflow_sum = sum([current_state[numeric_cols.index(col)] 
+                                for col in available_inflow])
+                outflow_sum = sum([current_state[numeric_cols.index(col)] 
+                                 for col in available_outflow])
+                
+                physics = np.array([current_hubroom, inflow_sum, outflow_sum])
+                
+                X_batch.append(X_seq)
+                physics_batch.append(physics)
+                timestamps_batch.append(current_time)
+                actual_batch.append(y_actual)
+            
+            # 배치 예측
+            X_batch = np.array(X_batch)
+            physics_batch = np.array(physics_batch)
+            
+            # 정규화
+            X_scaled = self.scaler_X.transform(
+                X_batch.reshape(-1, self.n_features)
+            ).reshape(-1, self.seq_len, self.n_features)
+            
+            if self.model_type == 'PINN':
+                physics_scaled = self.scaler_physics.transform(physics_batch)
+                y_pred_scaled = self.model.predict([X_scaled, physics_scaled], 
+                                                 batch_size=32, verbose=0)
+            else:
+                y_pred_scaled = self.model.predict(X_scaled, 
+                                                 batch_size=32, verbose=0)
+            
+            # 역정규화
+            y_pred = self.scaler_y.inverse_transform(
+                y_pred_scaled.reshape(-1, 1)
+            ).flatten()
+            
+            # 결과 저장
+            predictions.extend(y_pred)
+            actual_values.extend(actual_batch)
+            timestamps.extend(timestamps_batch)
+            
+            # 진행 상황 출력
+            if (batch_idx + 1) % 10 == 0 or batch_idx == n_batches - 1:
+                progress = (batch_idx + 1) / n_batches * 100
+                print(f"  진행률: {progress:.1f}% ({len(predictions)}/{total_predictions})")
+        
+        print(f"\n✅ 예측 완료!")
+        
+        # 결과 반환
+        return {
+            'timestamps': np.array(timestamps),
+            'predictions': np.array(predictions),
+            'actual_values': np.array(actual_values)
+        }
+    
+    def analyze_results(self, results):
+        """예측 결과 분석"""
+        print("\n📊 예측 결과 분석")
+        print("="*60)
+        
+        y_true = results['actual_values']
+        y_pred = results['predictions']
+        
+        # 전체 성능 메트릭
+        mae = mean_absolute_error(y_true, y_pred)
+        mse = mean_squared_error(y_true, y_pred)
+        rmse = np.sqrt(mse)
+        r2 = r2_score(y_true, y_pred)
+        
+        print(f"\n📈 전체 성능:")
+        print(f"  - MAE: {mae:.4f}")
+        print(f"  - RMSE: {rmse:.4f}")
+        print(f"  - R²: {r2:.4f}")
+        
+        # 300 이상 분석
+        over_300_true = np.sum(y_true >= 300)
+        over_300_pred = np.sum(y_pred >= 300)
+        
+        print(f"\n🚨 300 이상 분석:")
+        print(f"  - 실제 300 이상: {over_300_true}개 ({over_300_true/len(y_true)*100:.1f}%)")
+        print(f"  - 예측 300 이상: {over_300_pred}개 ({over_300_pred/len(y_pred)*100:.1f}%)")
+        
+        # 300 이상일 때 성능
+        mask_300 = y_true >= 300
+        if np.sum(mask_300) > 0:
+            mae_300 = mean_absolute_error(y_true[mask_300], y_pred[mask_300])
+            print(f"  - 300 이상일 때 MAE: {mae_300:.4f}")
+        
+        # 시간대별 분석
+        self.analyze_by_hour(results)
+        
+        return {
+            'mae': mae,
+            'rmse': rmse,
+            'r2': r2,
+            'over_300_true': over_300_true,
+            'over_300_pred': over_300_pred
+        }
+    
+    def analyze_by_hour(self, results):
+        """시간대별 분석"""
+        print("\n⏰ 시간대별 분석:")
         
         # 데이터프레임 생성
-        report_data = []
+        df_results = pd.DataFrame({
+            'timestamp': results['timestamps'],
+            'actual': results['actual_values'],
+            'predicted': results['predictions'],
+            'error': results['predictions'] - results['actual_values']
+        })
         
-        for result in results_with_predictions:
-            row = {
-                '예측시간': result['pred_time'].strftime('%Y-%m-%d %H:%M'),
-                '입력구간': result['input_period'],
-                '실제값': f"{result['actual_value']:.1f}",
-            }
-            
-            # 각 모델의 예측값 추가
-            for model_name in ['PatchTST', 'PatchTST_PINN']:
-                if f'pred_{model_name}' in result:
-                    pred_val = result[f'pred_{model_name}']
-                    error = pred_val - result['actual_value']
-                    row[f'{model_name}_예측'] = f"{pred_val:.1f}"
-                    row[f'{model_name}_오차'] = f"{error:+.1f}"
-            
-            # 위험 여부
-            if result['actual_value'] >= 300:
-                row['상태'] = '⚠️ 위험'
-            else:
-                row['상태'] = '✅ 정상'
-            
-            report_data.append(row)
+        # 시간대 추출
+        df_results['hour'] = pd.to_datetime(df_results['timestamp']).dt.hour
         
-        df_report = pd.DataFrame(report_data)
+        # 시간대별 평균 오차
+        hourly_mae = df_results.groupby('hour').apply(
+            lambda x: mean_absolute_error(x['actual'], x['predicted'])
+        )
         
-        # 처음 20개 출력
-        print("\n📋 처음 20개 예측 결과:")
-        print("-"*80)
-        print(df_report.head(20).to_string(index=False))
-        
-        # 통계 요약
-        print("\n📈 성능 통계:")
-        print("-"*80)
-        
-        for model_name in ['PatchTST', 'PatchTST_PINN']:
-            if f'pred_{model_name}' in results_with_predictions[0]:
-                actual = np.array([r['actual_value'] for r in results_with_predictions])
-                pred = np.array([r[f'pred_{model_name}'] for r in results_with_predictions])
-                
-                mae = mean_absolute_error(actual, pred)
-                rmse = np.sqrt(mean_squared_error(actual, pred))
-                r2 = r2_score(actual, pred)
-                
-                # 300 이상 정확도
-                mask_300 = actual >= 300
-                if np.sum(mask_300) > 0:
-                    tp = np.sum((pred >= 300) & (actual >= 300))
-                    recall = tp / np.sum(mask_300)
-                else:
-                    recall = 0
-                
-                print(f"\n{model_name}:")
-                print(f"  - MAE: {mae:.2f}")
-                print(f"  - RMSE: {rmse:.2f}")
-                print(f"  - R²: {r2:.3f}")
-                print(f"  - 300 이상 감지율: {recall:.1%}")
-        
-        # CSV 저장
-        df_report.to_csv('hubroom_10min_predictions.csv', index=False, encoding='utf-8-sig')
-        print("\n✅ 결과가 'hubroom_10min_predictions.csv'에 저장되었습니다.")
-        
-        return df_report
+        print("\n시간대별 MAE:")
+        for hour, mae in hourly_mae.items():
+            print(f"  {hour:02d}시: {mae:.2f}")
     
-    def visualize_10min_results(self, results_with_predictions):
-        """10분 단위 결과 시각화"""
-        # 데이터 추출
-        times = [r['pred_time'] for r in results_with_predictions]
-        actual = np.array([r['actual_value'] for r in results_with_predictions])
+    def save_results(self, results, output_path='full_predictions.csv'):
+        """예측 결과 저장"""
+        print(f"\n💾 예측 결과 저장 중...")
         
-        fig, axes = plt.subplots(2, 1, figsize=(15, 10))
-        fig.suptitle('HUBROOM 반송량 10분 단위 예측 결과', fontsize=16)
+        # 데이터프레임 생성
+        df_results = pd.DataFrame({
+            'timestamp': results['timestamps'],
+            'actual': results['actual_values'],
+            'predicted': results['predictions'],
+            'error': results['predictions'] - results['actual_values'],
+            'is_critical_actual': results['actual_values'] >= 300,
+            'is_critical_pred': results['predictions'] >= 300
+        })
+        
+        # 예측 시간 추가 (10분 후)
+        df_results['prediction_for'] = pd.to_datetime(df_results['timestamp']) + timedelta(minutes=10)
+        
+        # 저장
+        df_results.to_csv(output_path, index=False)
+        print(f"✅ 저장 완료: {output_path}")
+        
+        # 요약 출력
+        print(f"\n📊 저장된 데이터 요약:")
+        print(f"  - 총 예측 수: {len(df_results)}개")
+        print(f"  - 기간: {df_results['timestamp'].min()} ~ {df_results['timestamp'].max()}")
+        print(f"  - 300 이상 실제: {df_results['is_critical_actual'].sum()}개")
+        print(f"  - 300 이상 예측: {df_results['is_critical_pred'].sum()}개")
+    
+    def visualize_results(self, results, sample_size=1000):
+        """결과 시각화"""
+        print("\n📊 결과 시각화 생성 중...")
+        
+        y_true = results['actual_values']
+        y_pred = results['predictions']
+        timestamps = results['timestamps']
+        
+        # 큰 데이터셋인 경우 샘플링
+        if len(y_true) > sample_size:
+            indices = np.linspace(0, len(y_true)-1, sample_size, dtype=int)
+            y_true_sample = y_true[indices]
+            y_pred_sample = y_pred[indices]
+            timestamps_sample = timestamps[indices]
+        else:
+            y_true_sample = y_true
+            y_pred_sample = y_pred
+            timestamps_sample = timestamps
+        
+        # 그래프 생성
+        fig, axes = plt.subplots(2, 2, figsize=(15, 10))
+        fig.suptitle(f'HUBROOM 전체 예측 결과 ({self.model_type})', fontsize=16)
         
         # 1. 시계열 그래프
-        ax1 = axes[0]
-        ax1.plot(times, actual, 'k-', label='실제값', linewidth=2)
-        
-        colors = {'PatchTST': 'blue', 'PatchTST_PINN': 'green'}
-        for model_name, color in colors.items():
-            if f'pred_{model_name}' in results_with_predictions[0]:
-                pred = [r[f'pred_{model_name}'] for r in results_with_predictions]
-                ax1.plot(times, pred, '--', color=color, label=f'{model_name} 예측', alpha=0.8)
-        
+        ax1 = axes[0, 0]
+        ax1.plot(y_true_sample, label='실제값', alpha=0.7, linewidth=1)
+        ax1.plot(y_pred_sample, label='예측값', alpha=0.7, linewidth=1)
         ax1.axhline(y=300, color='red', linestyle=':', label='위험 임계값')
-        ax1.set_xlabel('시간')
+        ax1.set_title('시계열 예측 비교')
+        ax1.set_xlabel('시간 인덱스')
         ax1.set_ylabel('HUBROOM 반송량')
         ax1.legend()
         ax1.grid(True, alpha=0.3)
-        ax1.set_title('10분 단위 예측 시계열')
         
         # 2. 산점도
-        ax2 = axes[1]
-        for model_name, color in colors.items():
-            if f'pred_{model_name}' in results_with_predictions[0]:
-                pred = np.array([r[f'pred_{model_name}'] for r in results_with_predictions])
-                ax2.scatter(actual, pred, alpha=0.6, label=model_name, color=color)
-        
-        # 대각선
-        max_val = max(actual.max(), 400)
-        ax2.plot([0, max_val], [0, max_val], 'r--', alpha=0.5, label='Perfect Prediction')
+        ax2 = axes[0, 1]
+        ax2.scatter(y_true, y_pred, alpha=0.5, s=1)
+        ax2.plot([0, max(y_true.max(), y_pred.max())], 
+                 [0, max(y_true.max(), y_pred.max())], 
+                 'r--', label='Perfect Prediction')
         ax2.axvline(x=300, color='red', linestyle=':', alpha=0.5)
         ax2.axhline(y=300, color='red', linestyle=':', alpha=0.5)
-        
+        ax2.set_title('예측값 vs 실제값')
         ax2.set_xlabel('실제값')
         ax2.set_ylabel('예측값')
         ax2.legend()
         ax2.grid(True, alpha=0.3)
-        ax2.set_title('예측값 vs 실제값')
+        
+        # 3. 오차 히스토그램
+        ax3 = axes[1, 0]
+        errors = y_pred - y_true
+        ax3.hist(errors, bins=50, alpha=0.7, edgecolor='black')
+        ax3.axvline(x=0, color='red', linestyle='--', label='Zero Error')
+        ax3.set_title('예측 오차 분포')
+        ax3.set_xlabel('예측 오차')
+        ax3.set_ylabel('빈도')
+        ax3.legend()
+        ax3.grid(True, alpha=0.3)
+        
+        # 4. 시간대별 평균 오차
+        ax4 = axes[1, 1]
+        df_temp = pd.DataFrame({
+            'timestamp': timestamps,
+            'error': np.abs(y_pred - y_true)
+        })
+        df_temp['hour'] = pd.to_datetime(df_temp['timestamp']).dt.hour
+        hourly_mae = df_temp.groupby('hour')['error'].mean()
+        
+        ax4.bar(hourly_mae.index, hourly_mae.values)
+        ax4.set_title('시간대별 평균 절대 오차')
+        ax4.set_xlabel('시간 (Hour)')
+        ax4.set_ylabel('MAE')
+        ax4.grid(True, alpha=0.3)
         
         plt.tight_layout()
-        plt.savefig('hubroom_10min_visualization.png', dpi=300, bbox_inches='tight')
+        plt.savefig(f'hubroom_full_prediction_{self.model_type}.png', dpi=300, bbox_inches='tight')
         plt.show()
+        
+        print("✅ 시각화 완료!")
 
 def main():
     """메인 실행 함수"""
     print("="*80)
-    print("🏭 HUBROOM 반송량 10분 단위 예측 평가 시스템")
-    print("📅 대상: 2025년 9월 데이터")
+    print("🏭 HUBROOM 전체 데이터 예측 시스템")
+    print("📅 예측 시작: 00:20분부터 (20분 과거 데이터 필요)")
     print("="*80)
     
     # TensorFlow 로그 레벨 조정
     os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
     
-    # 평가기 생성
-    evaluator = HUBROOM10MinEvaluator()
+    # 모델 선택
+    print("\n모델 선택:")
+    print("1. PatchTST (기본 모델)")
+    print("2. PatchTST+PINN (물리 법칙 적용 - 권장)")
+    
+    choice = input("\n선택 (1 또는 2, 기본값 2): ").strip()
+    if choice == '1':
+        model_type = 'PatchTST'
+    else:
+        model_type = 'PINN'
+    
+    # 예측기 생성
+    predictor = HUBROOMFullPredictor(model_type=model_type)
     
     # 스케일러 확인
-    if evaluator.scaler_X is None:
-        print("\n❌ 스케일러가 없습니다. save_scalers.py를 먼저 실행하세요!")
+    if predictor.scaler_X is None:
+        print("\n❌ 스케일러가 없습니다. 먼저 모델을 학습시켜주세요!")
+        return
+    
+    # 데이터 파일 경로
+    data_path = input("\n데이터 파일 경로 (기본값: 20250801_to_20250831.csv): ").strip()
+    if not data_path:
+        data_path = '20250801_to_20250831.csv'
+    
+    if not os.path.exists(data_path):
+        print(f"❌ 파일이 없습니다: {data_path}")
         return
     
     try:
-        # 1. 데이터 준비
-        df, numeric_cols = evaluator.prepare_data()
+        # 1. 데이터 로드
+        df, numeric_cols = predictor.load_data(data_path)
         
-        # 2. 10분 단위 시퀀스 생성
-        results_list = evaluator.create_10min_evaluation_sequences(df, numeric_cols)
-        
-        # 3. 모델 로드
-        models = evaluator.load_models()
-        
-        if not models:
-            print("\n❌ 로드된 모델이 없습니다!")
+        # 2. 모델 로드
+        model = predictor.load_model()
+        if model is None:
             return
         
-        # 4. 10분 단위 예측
-        results_with_predictions = evaluator.predict_10min_intervals(models, results_list)
+        # 3. 전체 예측 수행
+        results = predictor.predict_all_timestamps(df, numeric_cols)
         
-        # 5. 보고서 생성
-        df_report = evaluator.create_10min_report(results_with_predictions)
+        # 4. 결과 분석
+        metrics = predictor.analyze_results(results)
+        
+        # 5. 결과 저장
+        output_filename = f'full_predictions_{model_type}_{datetime.now().strftime("%Y%m%d_%H%M%S")}.csv'
+        predictor.save_results(results, output_filename)
         
         # 6. 시각화
-        evaluator.visualize_10min_results(results_with_predictions)
+        predictor.visualize_results(results)
         
-        print("\n✅ 평가 완료!")
+        print("\n✅ 전체 예측 완료!")
         
     except Exception as e:
         print(f"\n❌ 오류 발생: {e}")
