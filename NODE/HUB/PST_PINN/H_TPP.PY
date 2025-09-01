@@ -4,6 +4,9 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 from datetime import datetime, timedelta
 import tensorflow as tf
+from tensorflow import keras
+from tensorflow.keras import layers, Model, Input
+from tensorflow.keras.layers import Dense, Dropout, LayerNormalization, MultiHeadAttention
 from sklearn.preprocessing import StandardScaler
 from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
 import pickle
@@ -14,6 +17,148 @@ warnings.filterwarnings('ignore')
 # 한글 폰트 설정
 plt.rcParams['font.family'] = 'Malgun Gothic'
 plt.rcParams['axes.unicode_minus'] = False
+
+# ===========================
+# 🔧 모델 재구성을 위한 클래스들
+# ===========================
+
+class TransformerEncoderLayer(layers.Layer):
+    """TensorFlow 2.15를 위한 수동 구현 Transformer Encoder Layer"""
+    
+    def __init__(self, d_model, num_heads, dff, dropout_rate=0.1, **kwargs):
+        super(TransformerEncoderLayer, self).__init__(**kwargs)
+        
+        self.d_model = d_model
+        self.num_heads = num_heads
+        self.dff = dff
+        self.dropout_rate = dropout_rate
+        
+        # Multi-head attention
+        self.mha = layers.MultiHeadAttention(
+            num_heads=num_heads, 
+            key_dim=d_model // num_heads,
+            dropout=dropout_rate
+        )
+        
+        # Feed forward network
+        self.ffn = keras.Sequential([
+            layers.Dense(dff, activation='relu'),
+            layers.Dense(d_model)
+        ])
+        
+        # Layer normalization
+        self.layernorm1 = layers.LayerNormalization(epsilon=1e-6)
+        self.layernorm2 = layers.LayerNormalization(epsilon=1e-6)
+        
+        # Dropout
+        self.dropout1 = layers.Dropout(dropout_rate)
+        self.dropout2 = layers.Dropout(dropout_rate)
+    
+    def call(self, inputs, training=False):
+        # Multi-head attention
+        attn_output = self.mha(inputs, inputs, training=training)
+        attn_output = self.dropout1(attn_output, training=training)
+        out1 = self.layernorm1(inputs + attn_output)
+        
+        # Feed forward
+        ffn_output = self.ffn(out1)
+        ffn_output = self.dropout2(ffn_output, training=training)
+        out2 = self.layernorm2(out1 + ffn_output)
+        
+        return out2
+    
+    def get_config(self):
+        config = super().get_config()
+        config.update({
+            'd_model': self.d_model,
+            'num_heads': self.num_heads,
+            'dff': self.dff,
+            'dropout_rate': self.dropout_rate
+        })
+        return config
+
+class PatchTST:
+    """PatchTST 모델 재구성"""
+    
+    def __init__(self, config):
+        self.seq_len = config['seq_len']
+        self.n_features = config['n_features']
+        self.patch_len = config['patch_len']
+        self.d_model = config['d_model']
+        self.n_heads = config['n_heads']
+        self.d_ff = config['d_ff']
+        self.n_layers = config['n_layers']
+        self.dropout = config['dropout']
+        
+    def build(self):
+        # 입력
+        inputs = Input(shape=(self.seq_len, self.n_features))
+        
+        # Patching
+        n_patches = self.seq_len // self.patch_len
+        patches = tf.reshape(inputs, (-1, n_patches, self.patch_len * self.n_features))
+        
+        # Linear projection
+        x = Dense(self.d_model)(patches)
+        
+        # Positional encoding
+        positions = tf.range(start=0, limit=n_patches, delta=1)
+        position_embedding = layers.Embedding(input_dim=n_patches, output_dim=self.d_model)(positions)
+        x = x + position_embedding
+        
+        # Transformer layers
+        for _ in range(self.n_layers):
+            x = TransformerEncoderLayer(
+                self.d_model, self.n_heads, self.d_ff, self.dropout
+            )(x)
+        
+        # Global average pooling
+        x = layers.GlobalAveragePooling1D()(x)
+        
+        # Output layer
+        outputs = Dense(1)(x)
+        
+        model = Model(inputs=inputs, outputs=outputs, name='PatchTST')
+        return model
+
+class PatchTST_PINN_Hybrid:
+    """PatchTST + PINN 하이브리드 모델 재구성"""
+    
+    def __init__(self, config):
+        self.config = config
+        self.patch_tst = PatchTST(config)
+        
+    def build(self):
+        # 두 개의 입력
+        seq_input = Input(shape=(self.config['seq_len'], self.config['n_features']), name='sequence_input')
+        physics_input = Input(shape=(3,), name='physics_input')
+        
+        # PatchTST 부분
+        tst_model = self.patch_tst.build()
+        tst_output = tst_model(seq_input)
+        
+        # Physics 부분
+        physics_x = Dense(64, activation='relu')(physics_input)
+        physics_x = Dropout(0.1)(physics_x)
+        physics_x = Dense(32, activation='relu')(physics_x)
+        
+        # 결합
+        combined = layers.concatenate([tst_output, physics_x])
+        x = Dense(64, activation='relu')(combined)
+        x = Dropout(0.1)(x)
+        x = Dense(32, activation='relu')(x)
+        outputs = Dense(1)(x)
+        
+        model = Model(
+            inputs=[seq_input, physics_input], 
+            outputs=outputs, 
+            name='PatchTST_PINN'
+        )
+        return model
+
+# ===========================
+# 📊 평가 클래스
+# ===========================
 
 class HUBROOMEvaluator:
     """HUBROOM 예측 모델 평가 클래스"""
@@ -26,8 +171,8 @@ class HUBROOMEvaluator:
         self.critical_threshold = 300
         
         # 모델 경로
-        self.patchtst_path = './checkpoints/PatchTST_best.h5'
-        self.pinn_path = './checkpoints/PatchTST_PINN_best.h5'
+        self.patchtst_weights = './checkpoints/PatchTST_best.h5'
+        self.pinn_weights = './checkpoints/PatchTST_PINN_best.h5'
         
         # 스케일러 로드
         self.scaler_X = self.load_scaler('scaler_X.pkl')
@@ -43,6 +188,18 @@ class HUBROOMEvaluator:
             'M16A_3F_TO_M16A_6F_JOB', 'M16A_3F_TO_M16A_2F_JOB',
             'M16A_3F_TO_M14A_3F_JOB', 'M16A_3F_TO_M14B_7F_JOB'
         ]
+        
+        # 모델 설정 (학습 시와 동일하게)
+        self.config = {
+            'seq_len': 20,
+            'n_features': None,  # 데이터 로드 후 설정
+            'patch_len': 5,
+            'd_model': 128,
+            'n_heads': 8,
+            'd_ff': 256,
+            'n_layers': 3,
+            'dropout': 0.1
+        }
     
     def load_scaler(self, filename):
         """스케일러 로드"""
@@ -57,7 +214,7 @@ class HUBROOMEvaluator:
     
     def prepare_data(self):
         """2025년 9월 데이터 준비"""
-        print("📂 2025년 9월 데이터 로드 중...")
+        print("\n📂 2025년 9월 데이터 로드 중...")
         df = pd.read_csv(self.data_path)
         
         # 시간 컬럼 처리
@@ -71,8 +228,12 @@ class HUBROOMEvaluator:
         # 숫자형 컬럼만 선택
         numeric_cols = df.select_dtypes(include=[np.number]).columns.tolist()
         
+        # config 업데이트
+        self.config['n_features'] = len(numeric_cols)
+        
         print(f"✅ 데이터 로드 완료: {len(df)} 행")
         print(f"📅 기간: {df['timestamp'].min()} ~ {df['timestamp'].max()}")
+        print(f"📊 특성 수: {len(numeric_cols)}개")
         
         return df, numeric_cols
     
@@ -129,37 +290,34 @@ class HUBROOMEvaluator:
                 np.array(physics_list), timestamps, y_time_list)
     
     def load_models(self):
-        """학습된 모델 로드"""
-        print("\n🤖 모델 로드 중...")
+        """모델 재구성 및 가중치 로드"""
+        print("\n🤖 모델 재구성 및 가중치 로드 중...")
         
         models = {}
         
-        # PatchTST 모델 로드
-        if os.path.exists(self.patchtst_path):
+        # PatchTST 모델
+        if os.path.exists(self.patchtst_weights):
             try:
-                models['PatchTST'] = tf.keras.models.load_model(
-                    self.patchtst_path,
-                    compile=False
-                )
+                print("📌 PatchTST 모델 재구성 중...")
+                patchtst = PatchTST(self.config)
+                model = patchtst.build()
+                model.load_weights(self.patchtst_weights)
+                models['PatchTST'] = model
                 print("✅ PatchTST 모델 로드 완료")
-            except:
-                # 가중치만 로드하는 방식 시도
-                print("⚠️ 전체 모델 로드 실패, 가중치만 로드 시도...")
-        else:
-            print("❌ PatchTST 모델 파일이 없습니다.")
+            except Exception as e:
+                print(f"❌ PatchTST 로드 실패: {e}")
         
-        # PatchTST+PINN 모델 로드
-        if os.path.exists(self.pinn_path):
+        # PatchTST+PINN 모델
+        if os.path.exists(self.pinn_weights):
             try:
-                models['PatchTST_PINN'] = tf.keras.models.load_model(
-                    self.pinn_path,
-                    compile=False
-                )
+                print("📌 PatchTST+PINN 모델 재구성 중...")
+                pinn = PatchTST_PINN_Hybrid(self.config)
+                model = pinn.build()
+                model.load_weights(self.pinn_weights)
+                models['PatchTST_PINN'] = model
                 print("✅ PatchTST+PINN 모델 로드 완료")
-            except:
-                print("⚠️ 전체 모델 로드 실패, 가중치만 로드 시도...")
-        else:
-            print("❌ PatchTST+PINN 모델 파일이 없습니다.")
+            except Exception as e:
+                print(f"❌ PatchTST+PINN 로드 실패: {e}")
         
         return models
     
@@ -254,6 +412,8 @@ class HUBROOMEvaluator:
                 
             except Exception as e:
                 print(f"❌ {model_name} 예측 중 오류 발생: {e}")
+                import traceback
+                traceback.print_exc()
                 continue
         
         return results
@@ -270,8 +430,8 @@ class HUBROOMEvaluator:
         
         # 1. 시계열 예측 비교 (처음 100개)
         ax1 = axes[0, 0]
+        ax1.plot(results[list(results.keys())[0]]['y_true'][:100], label=f'실제값', alpha=0.7, linewidth=2)
         for model_name, result in results.items():
-            ax1.plot(result['y_true'][:100], label=f'실제값', alpha=0.7, linewidth=2)
             ax1.plot(result['y_pred'][:100], label=f'{model_name} 예측', alpha=0.7, linestyle='--')
         ax1.axhline(y=300, color='red', linestyle=':', label='위험 임계값 (300)')
         ax1.set_title('시계열 예측 비교 (처음 100개)')
@@ -449,6 +609,9 @@ def main():
         
         if not models:
             print("\n❌ 로드된 모델이 없습니다!")
+            print("💡 학습된 모델 파일이 ./checkpoints/ 디렉토리에 있는지 확인하세요:")
+            print("   - PatchTST_best.h5")
+            print("   - PatchTST_PINN_best.h5")
             return
         
         # 4. 예측 및 평가
