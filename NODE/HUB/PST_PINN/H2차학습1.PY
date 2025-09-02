@@ -535,11 +535,6 @@ def main():
         'dropout': 0.2
     }
     
-    print("\n" + "="*60)
-    print("🤖 모델 선택")
-    print("="*60)
-    print("1. ExtremePatchTST (극단값 특
-    
     # 콜백
     callbacks = [
         EarlyStopping(monitor='val_loss', patience=15, restore_best_weights=True),
@@ -549,60 +544,60 @@ def main():
     
     results = {}
     
-    if choice in ['1', '3']:
-        print("\n🚀 ExtremePatchTST 학습 시작...")
-        model1 = ExtremePatchTST(config)
-        
-        # 극단값 특화 손실함수 사용
-        model1.compile(
-            optimizer=Adam(learning_rate=0.001),
-            loss=ExtremeLoss(threshold=300, extreme_weight=10),
-            metrics=['mae']
-        )
-        
-        history1 = model1.fit(
-            X_train_scaled, y_train_scaled,
-            validation_data=(X_val_scaled, y_val_scaled),
-            sample_weight=weights_train,  # 가중치 적용
-            epochs=50,
-            batch_size=32,
-            callbacks=callbacks,
-            verbose=1
-        )
-        
-        # 평가
-        y_pred1_scaled = model1.predict(X_test_scaled)
-        y_pred1 = processor.scaler_y.inverse_transform(y_pred1_scaled.reshape(-1, 1)).flatten()
-        results['ExtremePatchTST'] = y_pred1
+    # 모델 1: ExtremePatchTST 학습
+    print("\n" + "="*60)
+    print("🚀 모델 1: ExtremePatchTST 학습 시작")
+    print("="*60)
+    model1 = ExtremePatchTST(config)
     
-    if choice in ['2', '3']:
-        print("\n🚀 ImprovedPINN 학습 시작...")
-        model2 = ImprovedPINN(config)
-        
-        model2.compile(
-            optimizer=Adam(learning_rate=0.001),
-            loss=FocalMSELoss(gamma=2.0, threshold=300),
-            metrics=['mae']
-        )
-        
-        history2 = model2.fit(
-            [X_train_scaled, X_physics_train_scaled], y_train_scaled,
-            validation_data=([X_val_scaled, X_physics_val_scaled], y_val_scaled),
-            sample_weight=weights_train,
-            epochs=50,
-            batch_size=32,
-            callbacks=callbacks,
-            verbose=1
-        )
-        
-        # 평가
-        y_pred2_scaled = model2.predict([X_test_scaled, X_physics_test_scaled])
-        y_pred2 = processor.scaler_y.inverse_transform(y_pred2_scaled.reshape(-1, 1)).flatten()
-        results['ImprovedPINN'] = y_pred2
+    # 극단값 특화 손실함수 사용
+    model1.compile(
+        optimizer=Adam(learning_rate=0.001),
+        loss=ExtremeLoss(threshold=300, extreme_weight=10),
+        metrics=['mae']
+    )
     
-    if choice == '3':
-        # 앙상블
-        results['Ensemble'] = (results['ExtremePatchTST'] + results['ImprovedPINN']) / 2
+    history1 = model1.fit(
+        X_train_scaled, y_train_scaled,
+        validation_data=(X_val_scaled, y_val_scaled),
+        sample_weight=weights_train,  # 가중치 적용
+        epochs=50,
+        batch_size=32,
+        callbacks=callbacks,
+        verbose=1
+    )
+    
+    # 평가
+    y_pred1_scaled = model1.predict(X_test_scaled)
+    y_pred1 = processor.scaler_y.inverse_transform(y_pred1_scaled.reshape(-1, 1)).flatten()
+    results['ExtremePatchTST'] = y_pred1
+    
+    # 모델 2: ImprovedPINN 학습
+    print("\n" + "="*60)
+    print("🚀 모델 2: ImprovedPINN 학습 시작")
+    print("="*60)
+    model2 = ImprovedPINN(config)
+    
+    model2.compile(
+        optimizer=Adam(learning_rate=0.001),
+        loss=FocalMSELoss(gamma=2.0, threshold=300),
+        metrics=['mae']
+    )
+    
+    history2 = model2.fit(
+        [X_train_scaled, X_physics_train_scaled], y_train_scaled,
+        validation_data=([X_val_scaled, X_physics_val_scaled], y_val_scaled),
+        sample_weight=weights_train,
+        epochs=50,
+        batch_size=32,
+        callbacks=callbacks,
+        verbose=1
+    )
+    
+    # 평가
+    y_pred2_scaled = model2.predict([X_test_scaled, X_physics_test_scaled])
+    y_pred2 = processor.scaler_y.inverse_transform(y_pred2_scaled.reshape(-1, 1)).flatten()
+    results['ImprovedPINN'] = y_pred2
     
     # 8. 최종 평가
     print("\n" + "="*60)
