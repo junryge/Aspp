@@ -1,10 +1,10 @@
 # -*- coding: utf-8 -*-
 """
-HUBROOM 극단값 예측 시스템 - 300+ 감지 특화 버전
-- 극단값(300+) 예측 정확도 최우선
-- 스케일러 저장/로드 완벽 지원
-- 데이터 불균형 해결
-- PINN 모델 완전 재설계
+HUBROOM 극단값 예측 시스템 - 310+ 특화 개선 버전
+- 310+ 극단값 예측 강화
+- 다단계 보정 시스템
+- 구간별 차별화된 학습
+- 중단/재시작 완벽 지원
 """
 
 import numpy as np
@@ -16,7 +16,6 @@ from tensorflow.keras.optimizers import Adam
 from tensorflow.keras.callbacks import ModelCheckpoint, EarlyStopping, ReduceLROnPlateau, Callback
 from sklearn.preprocessing import StandardScaler, RobustScaler, MinMaxScaler
 from sklearn.model_selection import train_test_split
-from sklearn.utils import class_weight
 import warnings
 import matplotlib.pyplot as plt
 from datetime import datetime, timedelta
@@ -46,7 +45,7 @@ if gpus:
         print(e)
 
 # ===========================
-# 🔄 체크포인트 관리자
+# 🔄 체크포인트 관리자 (개선)
 # ===========================
 
 class CheckpointManager:
@@ -114,82 +113,74 @@ class CheckpointManager:
             print(f"💾 {model_name}의 이전 체크포인트 발견! 이어서 학습합니다.")
             return True
         return False
-
-# ===========================
-# 🎯 극단값 특화 손실함수
-# ===========================
-
-class ExtremeLoss(tf.keras.losses.Loss):
-    """300 이상 극단값에 가중치를 부여하는 손실함수"""
     
-    def __init__(self, threshold=300, extreme_weight=10.0, name='extreme_loss'):
+    def save_training_state(self, state_dict, filename='training_state.pkl'):
+        """전체 학습 상태 저장"""
+        filepath = os.path.join(self.checkpoint_dir, filename)
+        with open(filepath, 'wb') as f:
+            pickle.dump(state_dict, f)
+        print(f"💾 학습 상태 저장: {filepath}")
+    
+    def load_training_state(self, filename='training_state.pkl'):
+        """전체 학습 상태 로드"""
+        filepath = os.path.join(self.checkpoint_dir, filename)
+        if os.path.exists(filepath):
+            with open(filepath, 'rb') as f:
+                return pickle.load(f)
+        return None
+
+# ===========================
+# 🎯 다단계 극단값 손실함수 (개선)
+# ===========================
+
+class MultiLevelExtremeLoss(tf.keras.losses.Loss):
+    """310+ 극단값을 위한 다단계 손실함수"""
+    
+    def __init__(self, name='multi_level_extreme_loss'):
         super().__init__(name=name)
-        self.threshold = threshold
-        self.extreme_weight = extreme_weight
     
     def call(self, y_true, y_pred):
         # 기본 MSE
         mse = tf.square(y_true - y_pred)
         
-        # 극단값 마스크 (300 이상)
-        extreme_mask = tf.cast(y_true >= self.threshold, tf.float32)
+        # 구간별 가중치 (310+ 특별 강화)
+        weight_280 = tf.where(y_true >= 280, 2.0, 1.0)
+        weight_300 = tf.where(y_true >= 300, 5.0, 1.0)
+        weight_310 = tf.where(y_true >= 310, 10.0, 1.0)  # 310+ 강조
+        weight_350 = tf.where(y_true >= 350, 20.0, 1.0)  # 350+ 더 강조
         
-        # 가중치 적용
-        weights = 1.0 + extreme_mask * (self.extreme_weight - 1.0)
+        # 누적 가중치
+        total_weight = weight_280 * weight_300 * weight_310 * weight_350
         
         # 가중 MSE
-        weighted_mse = mse * weights
+        weighted_mse = mse * total_weight
         
         return tf.reduce_mean(weighted_mse)
 
-class FocalMSELoss(tf.keras.losses.Loss):
-    """예측이 어려운 샘플에 집중하는 Focal Loss의 MSE 버전"""
-    
-    def __init__(self, gamma=2.0, threshold=300, name='focal_mse_loss'):
-        super().__init__(name=name)
-        self.gamma = gamma
-        self.threshold = threshold
-    
-    def call(self, y_true, y_pred):
-        # 절대 오차
-        abs_error = tf.abs(y_true - y_pred)
-        
-        # Focal 가중치 (오차가 클수록 높은 가중치)
-        focal_weight = tf.pow(abs_error / 100.0, self.gamma)
-        
-        # 극단값 추가 가중치
-        extreme_mask = tf.cast(y_true >= self.threshold, tf.float32)
-        extreme_weight = 1.0 + extreme_mask * 4.0
-        
-        # 최종 손실
-        mse = tf.square(y_true - y_pred)
-        weighted_loss = mse * focal_weight * extreme_weight
-        
-        return tf.reduce_mean(weighted_loss)
-
 # ===========================
-# 📊 극단값 특화 데이터 처리
+# 📊 극단값 특화 데이터 처리 (개선)
 # ===========================
 
-class ExtremeValueProcessor:
-    """극단값 처리에 특화된 데이터 프로세서"""
+class ImprovedExtremeProcessor:
+    """310+ 극단값 처리 강화"""
     
     def __init__(self, file_path='data/HUB_0509_TO_0730_DATA.CSV'):
         self.file_path = file_path
         self.target_col = 'CURRENT_M16A_3F_JOB_2'
         
-        # 임계값 설정
+        # 세분화된 임계값
         self.thresholds = {
             'normal': 250,
             'warning': 280,
             'critical': 300,
-            'extreme': 400,
-            'disaster': 500
+            'severe': 310,     # 추가
+            'extreme': 350,    # 수정
+            'disaster': 400
         }
         
-        # 스케일러 (극단값에 강건한 RobustScaler 사용)
+        # 스케일러
         self.scaler_X = RobustScaler()
-        self.scaler_y = MinMaxScaler(feature_range=(0, 1))  # 0-1로 정규화
+        self.scaler_y = MinMaxScaler(feature_range=(0, 1))
         self.scaler_physics = StandardScaler()
         
         # 스케일러 저장 경로
@@ -227,7 +218,7 @@ class ExtremeValueProcessor:
             return False
     
     def analyze_extremes(self, df):
-        """극단값 상세 분석"""
+        """극단값 상세 분석 (310+ 추가)"""
         if self.target_col not in df.columns:
             return
         
@@ -250,21 +241,19 @@ class ExtremeValueProcessor:
             if ratio > 0:
                 print(f"  - {name:8} (≥{threshold:3}): {count:5}개 ({ratio:5.2f}%)")
         
-        # 극단값 구간별 상세
-        extreme_data = target[target >= 300]
-        if len(extreme_data) > 0:
-            print(f"\n💥 극단값 구간 상세 (≥300):")
-            bins = [300, 350, 400, 450, 500, 600, 700, 1000]
-            for i in range(len(bins)-1):
-                mask = (extreme_data >= bins[i]) & (extreme_data < bins[i+1])
+        # 310+ 특별 분석
+        print(f"\n💥 310+ 극단값 상세:")
+        bins_310 = [310, 320, 330, 340, 350, 400, 500, 1000]
+        extreme_310 = target[target >= 310]
+        if len(extreme_310) > 0:
+            for i in range(len(bins_310)-1):
+                mask = (extreme_310 >= bins_310[i]) & (extreme_310 < bins_310[i+1])
                 count = mask.sum()
                 if count > 0:
-                    print(f"    [{bins[i]:3}-{bins[i+1]:3}): {count:4}개 - "
-                          f"평균: {extreme_data[mask].mean():.1f}, "
-                          f"최대: {extreme_data[mask].max():.0f}")
+                    print(f"    [{bins_310[i]:3}-{bins_310[i+1]:3}): {count:4}개")
     
-    def create_balanced_sequences(self, df, numeric_cols, seq_len=20, pred_len=10):
-        """극단값 오버샘플링이 적용된 시퀀스 생성"""
+    def create_enhanced_sequences(self, df, numeric_cols, seq_len=20, pred_len=10):
+        """구간별 차별화된 오버샘플링"""
         
         X, y, X_physics, sample_weights = [], [], [], []
         
@@ -273,31 +262,53 @@ class ExtremeValueProcessor:
         
         total_sequences = len(df) - seq_len - pred_len + 1
         
-        # 극단값 인덱스 찾기
-        extreme_indices = []
-        normal_indices = []
+        # 구간별 인덱스 분류
+        indices_by_range = {
+            'normal': [],      # < 280
+            'warning': [],     # 280-300
+            'critical': [],    # 300-310
+            'severe': [],      # 310-350
+            'extreme': []      # 350+
+        }
         
-        print("\n📦 균형잡힌 시퀀스 생성 중...")
+        print("\n📦 구간별 시퀀스 분류 중...")
         
-        for i in tqdm(range(total_sequences), desc="시퀀스 스캔"):
+        for i in tqdm(range(total_sequences), desc="시퀀스 분류"):
             target_value = df[self.target_col].iloc[i + seq_len + pred_len - 1]
             
-            if target_value >= 300:
-                extreme_indices.append(i)
+            if target_value >= 350:
+                indices_by_range['extreme'].append(i)
+            elif target_value >= 310:
+                indices_by_range['severe'].append(i)
+            elif target_value >= 300:
+                indices_by_range['critical'].append(i)
+            elif target_value >= 280:
+                indices_by_range['warning'].append(i)
             else:
-                normal_indices.append(i)
+                indices_by_range['normal'].append(i)
         
-        print(f"  - 정상 시퀀스: {len(normal_indices)}개")
-        print(f"  - 극단값 시퀀스 (≥300): {len(extreme_indices)}개")
+        # 구간별 통계 출력
+        for range_name, indices in indices_by_range.items():
+            print(f"  - {range_name:8}: {len(indices):5}개")
         
-        # 극단값 오버샘플링 (3배)
-        oversample_rate = 3
-        extreme_indices_oversampled = extreme_indices * oversample_rate
-        all_indices = normal_indices + extreme_indices_oversampled
+        # 구간별 차별화된 오버샘플링
+        oversample_rates = {
+            'normal': 1,
+            'warning': 2,
+            'critical': 3,
+            'severe': 5,      # 310-350은 5배
+            'extreme': 10     # 350+는 10배
+        }
+        
+        all_indices = []
+        for range_name, indices in indices_by_range.items():
+            rate = oversample_rates[range_name]
+            all_indices.extend(indices * rate)
+            if rate > 1:
+                print(f"  - {range_name} 오버샘플링: {len(indices)} → {len(indices) * rate}")
+        
         np.random.shuffle(all_indices)
-        
-        print(f"  - 오버샘플링 후 극단값: {len(extreme_indices_oversampled)}개")
-        print(f"  - 전체 학습 시퀀스: {len(all_indices)}개")
+        print(f"\n  - 전체 학습 시퀀스: {len(all_indices)}개")
         
         # 시퀀스 생성
         for i in tqdm(all_indices, desc="시퀀스 생성"):
@@ -309,8 +320,12 @@ class ExtremeValueProcessor:
             y_val = df[self.target_col].iloc[i + seq_len + pred_len - 1]
             y.append(y_val)
             
-            # 가중치 (극단값은 높은 가중치)
-            if y_val >= 300:
+            # 세분화된 가중치
+            if y_val >= 350:
+                weight = 20.0
+            elif y_val >= 310:
+                weight = 15.0
+            elif y_val >= 300:
                 weight = 10.0
             elif y_val >= 280:
                 weight = 5.0
@@ -329,14 +344,14 @@ class ExtremeValueProcessor:
         return (np.array(X), np.array(y), np.array(X_physics), np.array(sample_weights))
 
 # ===========================
-# 🧠 극단값 특화 PatchTST 모델
+# 🧠 310+ 특화 PatchTST 모델
 # ===========================
 
-class ExtremePatchTST(keras.Model):
-    """극단값 예측에 특화된 PatchTST"""
+class EnhancedExtremePatchTST(keras.Model):
+    """310+ 극단값 예측 강화 모델"""
     
     def __init__(self, config):
-        super(ExtremePatchTST, self).__init__()
+        super(EnhancedExtremePatchTST, self).__init__()
         
         self.seq_len = config['seq_len']
         self.n_features = config['n_features']
@@ -373,16 +388,32 @@ class ExtremePatchTST(keras.Model):
             self.encoder_layers.append(layers.LayerNormalization())
             self.encoder_layers.append(layers.Dropout(self.dropout_rate))
         
-        # 극단값 감지 브랜치
-        self.extreme_detector = keras.Sequential([
+        # 다단계 극단값 감지
+        self.extreme_detector_300 = keras.Sequential([
             layers.Dense(64, activation='relu'),
             layers.Dropout(0.3),
             layers.Dense(32, activation='relu'),
-            layers.Dense(1, activation='sigmoid')  # 300 이상 확률
+            layers.Dense(1, activation='sigmoid')  # 300+ 확률
+        ])
+        
+        self.extreme_detector_310 = keras.Sequential([
+            layers.Dense(64, activation='relu'),
+            layers.Dropout(0.3),
+            layers.Dense(32, activation='relu'),
+            layers.Dense(1, activation='sigmoid')  # 310+ 확률
+        ])
+        
+        self.extreme_detector_350 = keras.Sequential([
+            layers.Dense(64, activation='relu'),
+            layers.Dropout(0.3),
+            layers.Dense(32, activation='relu'),
+            layers.Dense(1, activation='sigmoid')  # 350+ 확률
         ])
         
         # 값 예측 브랜치
         self.value_predictor = keras.Sequential([
+            layers.Dense(256, activation='relu'),  # 더 큰 네트워크
+            layers.Dropout(self.dropout_rate),
             layers.Dense(128, activation='relu'),
             layers.Dropout(self.dropout_rate),
             layers.Dense(64, activation='relu'),
@@ -414,74 +445,42 @@ class ExtremePatchTST(keras.Model):
         # Flatten
         x_flat = self.flatten(x_embed)
         
-        # 극단값 감지와 값 예측
-        extreme_prob = self.extreme_detector(x_flat)
+        # 다단계 극단값 감지
+        prob_300 = self.extreme_detector_300(x_flat)
+        prob_310 = self.extreme_detector_310(x_flat)
+        prob_350 = self.extreme_detector_350(x_flat)
+        
+        # 값 예측
         value_pred = self.value_predictor(x_flat)
         
-        # 극단값 확률을 이용한 보정
-        # 극단값 확률이 높으면 예측값을 상향 조정
-        adjusted_pred = value_pred + extreme_prob * 50  # 극단값이면 +50 보정
+        # 다단계 보정 (개선된 로직)
+        adjustment_300 = prob_300 * 30.0   # 300+ 기본 보정
+        adjustment_310 = prob_310 * 40.0   # 310+ 추가 보정
+        adjustment_350 = prob_350 * 50.0   # 350+ 최대 보정
+        
+        # 누적 보정 (최대값 사용)
+        total_adjustment = tf.maximum(
+            adjustment_300,
+            tf.maximum(adjustment_310, adjustment_350)
+        )
+        
+        # 최종 예측
+        adjusted_pred = value_pred + total_adjustment
         
         return tf.squeeze(adjusted_pred, axis=-1)
 
 # ===========================
-# 🔬 개선된 PINN 모델
+# 📈 구간별 모니터링 콜백
 # ===========================
 
-class ImprovedPINN(keras.Model):
-    """물리 법칙이 개선된 PINN 모델"""
+class DetailedExtremeMonitor(Callback):
+    """310+ 구간별 상세 모니터링"""
     
-    def __init__(self, config):
-        super(ImprovedPINN, self).__init__()
-        
-        # 시계열 처리 (간단한 LSTM)
-        self.lstm = layers.LSTM(64, return_sequences=False)
-        
-        # 물리 정보 처리
-        self.physics_net = keras.Sequential([
-            layers.Dense(32, activation='relu'),
-            layers.BatchNormalization(),
-            layers.Dense(16, activation='relu')
-        ])
-        
-        # 통합 네트워크
-        self.fusion_net = keras.Sequential([
-            layers.Dense(64, activation='relu'),
-            layers.Dropout(0.3),
-            layers.Dense(32, activation='relu'),
-            layers.Dense(1)
-        ])
-    
-    def call(self, inputs, training=False):
-        x_seq, x_physics = inputs
-        
-        # 시계열 특징
-        seq_features = self.lstm(x_seq)
-        
-        # 물리 특징
-        physics_features = self.physics_net(x_physics)
-        
-        # 특징 결합
-        combined = tf.concat([seq_features, physics_features], axis=-1)
-        
-        # 최종 예측
-        output = self.fusion_net(combined)
-        
-        return tf.squeeze(output, axis=-1)
-
-# ===========================
-# 📈 극단값 모니터링 콜백
-# ===========================
-
-class ExtremeValueMonitor(Callback):
-    """학습 중 극단값 예측 성능 모니터링"""
-    
-    def __init__(self, X_val, y_val, scaler_y, threshold=300):
+    def __init__(self, X_val, y_val, scaler_y):
         super().__init__()
         self.X_val = X_val
         self.y_val = y_val
         self.scaler_y = scaler_y
-        self.threshold = threshold
     
     def on_epoch_end(self, epoch, logs=None):
         # 예측
@@ -491,18 +490,18 @@ class ExtremeValueMonitor(Callback):
         y_pred = self.scaler_y.inverse_transform(y_pred_scaled.reshape(-1, 1)).flatten()
         y_true = self.scaler_y.inverse_transform(self.y_val.reshape(-1, 1)).flatten()
         
-        # 극단값 정확도
-        true_extreme = y_true >= self.threshold
-        pred_extreme = y_pred >= self.threshold
+        # 구간별 정확도
+        ranges = [(300, 310), (310, 350), (350, 1000)]
         
-        if true_extreme.sum() > 0:
-            recall = (true_extreme & pred_extreme).sum() / true_extreme.sum()
-            print(f"\n  🎯 Epoch {epoch+1} - 극단값(≥{self.threshold}) Recall: {recall:.2%}")
-            
-            # 극단값 샘플 출력
-            extreme_indices = np.where(true_extreme)[0][:3]
-            for idx in extreme_indices:
-                print(f"     실제: {y_true[idx]:.0f}, 예측: {y_pred[idx]:.0f}")
+        print(f"\n  🎯 Epoch {epoch+1} - 극단값 구간별 성능:")
+        
+        for low, high in ranges:
+            mask = (y_true >= low) & (y_true < high)
+            if mask.sum() > 0:
+                pred_correct = ((y_pred >= low) & (y_pred < high))[mask].sum()
+                recall = pred_correct / mask.sum()
+                mae = np.mean(np.abs(y_true[mask] - y_pred[mask]))
+                print(f"     [{low}-{high}): Recall={recall:.1%}, MAE={mae:.1f}, Count={mask.sum()}")
 
 # ===========================
 # 🎯 메인 실행
@@ -510,221 +509,251 @@ class ExtremeValueMonitor(Callback):
 
 def main():
     print("="*80)
-    print("🏭 HUBROOM 극단값 예측 시스템")
-    print("🎯 목표: 300 이상 극단값 정확한 예측")
+    print("🏭 HUBROOM 극단값 예측 시스템 - 310+ 강화 버전")
+    print("🎯 목표: 310 이상 극단값 정확한 예측")
     print("="*80)
-    
-    # 데이터 프로세서
-    processor = ExtremeValueProcessor()
-    
-    # 1. 데이터 로드
-    print("\n📂 데이터 로드 중...")
-    df = pd.read_csv(processor.file_path)
-    print(f"✅ 데이터 로드 완료: {df.shape}")
-    
-    # 2. 극단값 분석
-    processor.analyze_extremes(df)
-    
-    # 3. 전처리
-    print("\n🔧 데이터 전처리 중...")
-    time_col = df.columns[0]
-    df['timestamp'] = pd.to_datetime(df[time_col], format='%Y%m%d%H%M', errors='coerce')
-    df = df.sort_values('timestamp').reset_index(drop=True)
-    df = df.fillna(method='ffill').fillna(0)
-    
-    numeric_cols = df.select_dtypes(include=[np.number]).columns.tolist()
-    
-    # 4. 균형잡힌 시퀀스 생성
-    X, y, X_physics, sample_weights = processor.create_balanced_sequences(
-        df, numeric_cols, seq_len=20, pred_len=10
-    )
-    
-    print(f"\n📊 시퀀스 생성 완료:")
-    print(f"  - X shape: {X.shape}")
-    print(f"  - y shape: {y.shape}")
-    print(f"  - 극단값 가중치 적용: {(sample_weights > 1).sum()}개")
-    
-    # 5. 데이터 분할
-    # 가중치도 함께 분할
-    indices = np.arange(len(X))
-    train_idx, temp_idx = train_test_split(indices, test_size=0.3, random_state=42)
-    val_idx, test_idx = train_test_split(temp_idx, test_size=0.5, random_state=42)
-    
-    X_train, y_train = X[train_idx], y[train_idx]
-    X_val, y_val = X[val_idx], y[val_idx]
-    X_test, y_test = X[test_idx], y[test_idx]
-    
-    X_physics_train = X_physics[train_idx]
-    X_physics_val = X_physics[val_idx]
-    X_physics_test = X_physics[test_idx]
-    
-    weights_train = sample_weights[train_idx]
-    
-    print(f"\n🔀 데이터 분할:")
-    print(f"  - Train: {len(X_train)} ({(y_train >= 300).sum()} 극단값)")
-    print(f"  - Valid: {len(X_val)} ({(y_val >= 300).sum()} 극단값)")
-    print(f"  - Test: {len(X_test)} ({(y_test >= 300).sum()} 극단값)")
-    
-    # 6. 스케일링
-    print("\n📏 데이터 정규화 중...")
-    n_samples_train, seq_len, n_features = X_train.shape
-    
-    # X 스케일링 (RobustScaler)
-    X_train_scaled = processor.scaler_X.fit_transform(
-        X_train.reshape(-1, n_features)
-    ).reshape(n_samples_train, seq_len, n_features)
-    
-    X_val_scaled = processor.scaler_X.transform(
-        X_val.reshape(-1, n_features)
-    ).reshape(X_val.shape[0], seq_len, n_features)
-    
-    X_test_scaled = processor.scaler_X.transform(
-        X_test.reshape(-1, n_features)
-    ).reshape(X_test.shape[0], seq_len, n_features)
-    
-    # y 스케일링 (MinMaxScaler)
-    y_train_scaled = processor.scaler_y.fit_transform(y_train.reshape(-1, 1)).flatten()
-    y_val_scaled = processor.scaler_y.transform(y_val.reshape(-1, 1)).flatten()
-    y_test_scaled = processor.scaler_y.transform(y_test.reshape(-1, 1)).flatten()
-    
-    # 물리 데이터 스케일링
-    X_physics_train_scaled = processor.scaler_physics.fit_transform(X_physics_train)
-    X_physics_val_scaled = processor.scaler_physics.transform(X_physics_val)
-    X_physics_test_scaled = processor.scaler_physics.transform(X_physics_test)
-    
-    # 스케일러 저장
-    processor.save_scalers()
-    
-    # 7. 모델 구성
-    config = {
-        'seq_len': 20,
-        'n_features': n_features,
-        'patch_len': 5,
-        'd_model': 128,
-        'n_heads': 8,
-        'd_ff': 256,
-        'n_layers': 4,
-        'dropout': 0.2
-    }
     
     # 체크포인트 관리자
     checkpoint_manager = CheckpointManager()
     
-    # 콜백 (ModelCheckpoint 추가)
-    def create_callbacks(model_name):
-        return [
-            ModelCheckpoint(
-                filepath=os.path.join(checkpoint_manager.checkpoint_dir, f'{model_name}_best.h5'),
-                monitor='val_loss',
-                save_best_only=True,
-                save_weights_only=True,
+    # 이전 학습 상태 확인
+    training_state = checkpoint_manager.load_training_state()
+    if training_state:
+        print("📂 이전 학습 상태 발견! 복원 중...")
+        start_phase = training_state.get('phase', 'data_load')
+    else:
+        start_phase = 'data_load'
+        training_state = {}
+    
+    # 데이터 프로세서
+    processor = ImprovedExtremeProcessor()
+    
+    # Phase 1: 데이터 로드 및 전처리
+    if start_phase == 'data_load':
+        print("\n[Phase 1/5] 📂 데이터 로드 및 전처리...")
+        df = pd.read_csv(processor.file_path)
+        print(f"✅ 데이터 로드 완료: {df.shape}")
+        
+        # 극단값 분석
+        processor.analyze_extremes(df)
+        
+        # 전처리
+        time_col = df.columns[0]
+        df['timestamp'] = pd.to_datetime(df[time_col], format='%Y%m%d%H%M', errors='coerce')
+        df = df.sort_values('timestamp').reset_index(drop=True)
+        df = df.fillna(method='ffill').fillna(0)
+        
+        numeric_cols = df.select_dtypes(include=[np.number]).columns.tolist()
+        
+        # 시퀀스 생성
+        X, y, X_physics, sample_weights = processor.create_enhanced_sequences(
+            df, numeric_cols, seq_len=20, pred_len=10
+        )
+        
+        # 상태 저장
+        training_state['X'] = X
+        training_state['y'] = y
+        training_state['X_physics'] = X_physics
+        training_state['sample_weights'] = sample_weights
+        training_state['phase'] = 'data_split'
+        checkpoint_manager.save_training_state(training_state)
+    
+    # Phase 2: 데이터 분할
+    if start_phase in ['data_load', 'data_split']:
+        print("\n[Phase 2/5] 🔀 데이터 분할...")
+        
+        if 'X' not in locals():
+            X = training_state['X']
+            y = training_state['y']
+            X_physics = training_state['X_physics']
+            sample_weights = training_state['sample_weights']
+        
+        indices = np.arange(len(X))
+        train_idx, temp_idx = train_test_split(indices, test_size=0.3, random_state=42)
+        val_idx, test_idx = train_test_split(temp_idx, test_size=0.5, random_state=42)
+        
+        X_train, y_train = X[train_idx], y[train_idx]
+        X_val, y_val = X[val_idx], y[val_idx]
+        X_test, y_test = X[test_idx], y[test_idx]
+        
+        X_physics_train = X_physics[train_idx]
+        X_physics_val = X_physics[val_idx]
+        X_physics_test = X_physics[test_idx]
+        
+        weights_train = sample_weights[train_idx]
+        
+        print(f"  - Train: {len(X_train)} ({(y_train >= 310).sum()} 310+극단값)")
+        print(f"  - Valid: {len(X_val)} ({(y_val >= 310).sum()} 310+극단값)")
+        print(f"  - Test: {len(X_test)} ({(y_test >= 310).sum()} 310+극단값)")
+        
+        training_state['data_split'] = {
+            'X_train': X_train, 'y_train': y_train,
+            'X_val': X_val, 'y_val': y_val,
+            'X_test': X_test, 'y_test': y_test,
+            'X_physics_train': X_physics_train,
+            'X_physics_val': X_physics_val,
+            'X_physics_test': X_physics_test,
+            'weights_train': weights_train
+        }
+        training_state['phase'] = 'scaling'
+        checkpoint_manager.save_training_state(training_state)
+    
+    # Phase 3: 스케일링
+    if start_phase in ['data_load', 'data_split', 'scaling']:
+        print("\n[Phase 3/5] 📏 데이터 정규화...")
+        
+        if 'X_train' not in locals():
+            data_split = training_state['data_split']
+            X_train = data_split['X_train']
+            X_val = data_split['X_val']
+            X_test = data_split['X_test']
+            y_train = data_split['y_train']
+            y_val = data_split['y_val']
+            y_test = data_split['y_test']
+            X_physics_train = data_split['X_physics_train']
+            X_physics_val = data_split['X_physics_val']
+            X_physics_test = data_split['X_physics_test']
+            weights_train = data_split['weights_train']
+        
+        n_samples_train, seq_len, n_features = X_train.shape
+        
+        # 스케일링
+        X_train_scaled = processor.scaler_X.fit_transform(
+            X_train.reshape(-1, n_features)
+        ).reshape(n_samples_train, seq_len, n_features)
+        
+        X_val_scaled = processor.scaler_X.transform(
+            X_val.reshape(-1, n_features)
+        ).reshape(X_val.shape[0], seq_len, n_features)
+        
+        X_test_scaled = processor.scaler_X.transform(
+            X_test.reshape(-1, n_features)
+        ).reshape(X_test.shape[0], seq_len, n_features)
+        
+        y_train_scaled = processor.scaler_y.fit_transform(y_train.reshape(-1, 1)).flatten()
+        y_val_scaled = processor.scaler_y.transform(y_val.reshape(-1, 1)).flatten()
+        y_test_scaled = processor.scaler_y.transform(y_test.reshape(-1, 1)).flatten()
+        
+        X_physics_train_scaled = processor.scaler_physics.fit_transform(X_physics_train)
+        X_physics_val_scaled = processor.scaler_physics.transform(X_physics_val)
+        X_physics_test_scaled = processor.scaler_physics.transform(X_physics_test)
+        
+        # 스케일러 저장
+        processor.save_scalers()
+        
+        training_state['scaled_data'] = {
+            'X_train_scaled': X_train_scaled,
+            'X_val_scaled': X_val_scaled,
+            'X_test_scaled': X_test_scaled,
+            'y_train_scaled': y_train_scaled,
+            'y_val_scaled': y_val_scaled,
+            'y_test_scaled': y_test_scaled,
+            'X_physics_train_scaled': X_physics_train_scaled,
+            'X_physics_val_scaled': X_physics_val_scaled,
+            'X_physics_test_scaled': X_physics_test_scaled,
+            'n_features': n_features
+        }
+        training_state['phase'] = 'training'
+        checkpoint_manager.save_training_state(training_state)
+    
+    # Phase 4: 모델 학습
+    if start_phase in ['data_load', 'data_split', 'scaling', 'training']:
+        print("\n[Phase 4/5] 🚀 모델 학습...")
+        
+        if 'X_train_scaled' not in locals():
+            scaled_data = training_state['scaled_data']
+            X_train_scaled = scaled_data['X_train_scaled']
+            X_val_scaled = scaled_data['X_val_scaled']
+            X_test_scaled = scaled_data['X_test_scaled']
+            y_train_scaled = scaled_data['y_train_scaled']
+            y_val_scaled = scaled_data['y_val_scaled']
+            y_test_scaled = scaled_data['y_test_scaled']
+            n_features = scaled_data['n_features']
+            weights_train = training_state['data_split']['weights_train']
+            y_test = training_state['data_split']['y_test']
+        
+        # 모델 구성
+        config = {
+            'seq_len': 20,
+            'n_features': n_features,
+            'patch_len': 5,
+            'd_model': 128,
+            'n_heads': 8,
+            'd_ff': 256,
+            'n_layers': 4,
+            'dropout': 0.2
+        }
+        
+        # 콜백
+        def create_callbacks(model_name):
+            return [
+                ModelCheckpoint(
+                    filepath=os.path.join(checkpoint_manager.checkpoint_dir, f'{model_name}_best.h5'),
+                    monitor='val_loss',
+                    save_best_only=True,
+                    save_weights_only=True,
+                    verbose=1
+                ),
+                EarlyStopping(monitor='val_loss', patience=20, restore_best_weights=True),
+                ReduceLROnPlateau(monitor='val_loss', factor=0.5, patience=7, min_lr=1e-6),
+                DetailedExtremeMonitor(X_val_scaled, y_val_scaled, processor.scaler_y)
+            ]
+        
+        results = {}
+        
+        # EnhancedExtremePatchTST 학습
+        print("\n🤖 EnhancedExtremePatchTST (310+ 특화) 학습")
+        model = EnhancedExtremePatchTST(config)
+        model.compile(
+            optimizer=Adam(learning_rate=0.001),
+            loss=MultiLevelExtremeLoss(),
+            metrics=['mae']
+        )
+        
+        # 체크포인트 확인
+        initial_epoch = 0
+        if checkpoint_manager.check_resume('EnhancedExtremePatchTST'):
+            meta = checkpoint_manager.load_checkpoint(model, 'EnhancedExtremePatchTST')
+            if meta:
+                initial_epoch = meta['epoch']
+        
+        try:
+            history = model.fit(
+                X_train_scaled, y_train_scaled,
+                validation_data=(X_val_scaled, y_val_scaled),
+                sample_weight=weights_train,
+                initial_epoch=initial_epoch,
+                epochs=70,  # 더 많은 에폭
+                batch_size=32,
+                callbacks=create_callbacks('EnhancedExtremePatchTST'),
                 verbose=1
-            ),
-            EarlyStopping(monitor='val_loss', patience=15, restore_best_weights=True),
-            ReduceLROnPlateau(monitor='val_loss', factor=0.5, patience=5, min_lr=1e-6),
-            ExtremeValueMonitor(X_val_scaled, y_val_scaled, processor.scaler_y)
-        ]
-    
-    results = {}
-    
-    # 모델 1: ExtremePatchTST 학습
-    print("\n" + "="*60)
-    print("🚀 모델 1: ExtremePatchTST 학습")
-    print("="*60)
-    
-    model1 = ExtremePatchTST(config)
-    model1.compile(
-        optimizer=Adam(learning_rate=0.001),
-        loss=ExtremeLoss(threshold=300, extreme_weight=10),
-        metrics=['mae']
-    )
-    
-    # 체크포인트 확인
-    initial_epoch_1 = 0
-    resume_1 = checkpoint_manager.check_resume('ExtremePatchTST')
-    if resume_1:
-        meta = checkpoint_manager.load_checkpoint(model1, 'ExtremePatchTST')
-        if meta:
-            initial_epoch_1 = meta['epoch']
-    
-    try:
-        history1 = model1.fit(
-            X_train_scaled, y_train_scaled,
-            validation_data=(X_val_scaled, y_val_scaled),
-            sample_weight=weights_train,
-            initial_epoch=initial_epoch_1,
-            epochs=50,
-            batch_size=32,
-            callbacks=create_callbacks('ExtremePatchTST'),
-            verbose=1
-        )
+            )
+            
+            # 학습 완료 후 저장
+            checkpoint_manager.save_checkpoint(model, 'EnhancedExtremePatchTST', 70, history)
+            
+        except KeyboardInterrupt:
+            print("\n⚠️ 학습 중단됨!")
+            current_epoch = len(history.history['loss']) if 'history' in locals() else initial_epoch
+            checkpoint_manager.save_checkpoint(model, 'EnhancedExtremePatchTST', current_epoch)
+            print("💾 재시작 시 이어서 학습 가능합니다.")
+            sys.exit(0)
         
-        # 학습 완료 후 체크포인트 저장
-        checkpoint_manager.save_checkpoint(model1, 'ExtremePatchTST', 50, history1)
+        # 평가
+        y_pred_scaled = model.predict(X_test_scaled)
+        y_pred = processor.scaler_y.inverse_transform(y_pred_scaled.reshape(-1, 1)).flatten()
+        results['EnhancedExtremePatchTST'] = y_pred
         
-    except KeyboardInterrupt:
-        print("\n⚠️ 학습 중단됨!")
-        current_epoch = len(history1.history['loss']) if 'history1' in locals() else initial_epoch_1
-        checkpoint_manager.save_checkpoint(model1, 'ExtremePatchTST', current_epoch)
-        print("💾 재시작 시 이어서 학습 가능합니다.")
-        sys.exit(0)
+        training_state['results'] = results
+        training_state['phase'] = 'evaluation'
+        checkpoint_manager.save_training_state(training_state)
     
-    # 평가
-    y_pred1_scaled = model1.predict(X_test_scaled)
-    y_pred1 = processor.scaler_y.inverse_transform(y_pred1_scaled.reshape(-1, 1)).flatten()
-    results['ExtremePatchTST'] = y_pred1
+    # Phase 5: 최종 평가
+    print("\n[Phase 5/5] 📊 최종 성능 평가")
     
-    # 모델 2: ImprovedPINN 학습
-    print("\n" + "="*60)
-    print("🚀 모델 2: ImprovedPINN 학습")
-    print("="*60)
-    
-    model2 = ImprovedPINN(config)
-    model2.compile(
-        optimizer=Adam(learning_rate=0.001),
-        loss=FocalMSELoss(gamma=2.0, threshold=300),
-        metrics=['mae']
-    )
-    
-    # 체크포인트 확인
-    initial_epoch_2 = 0
-    resume_2 = checkpoint_manager.check_resume('ImprovedPINN')
-    if resume_2:
-        meta = checkpoint_manager.load_checkpoint(model2, 'ImprovedPINN')
-        if meta:
-            initial_epoch_2 = meta['epoch']
-    
-    try:
-        history2 = model2.fit(
-            [X_train_scaled, X_physics_train_scaled], y_train_scaled,
-            validation_data=([X_val_scaled, X_physics_val_scaled], y_val_scaled),
-            sample_weight=weights_train,
-            initial_epoch=initial_epoch_2,
-            epochs=50,
-            batch_size=32,
-            callbacks=create_callbacks('ImprovedPINN'),
-            verbose=1
-        )
-        
-        # 학습 완료 후 체크포인트 저장
-        checkpoint_manager.save_checkpoint(model2, 'ImprovedPINN', 50, history2)
-        
-    except KeyboardInterrupt:
-        print("\n⚠️ 학습 중단됨!")
-        current_epoch = len(history2.history['loss']) if 'history2' in locals() else initial_epoch_2
-        checkpoint_manager.save_checkpoint(model2, 'ImprovedPINN', current_epoch)
-        print("💾 재시작 시 이어서 학습 가능합니다.")
-        sys.exit(0)
-    
-    # 평가
-    y_pred2_scaled = model2.predict([X_test_scaled, X_physics_test_scaled])
-    y_pred2 = processor.scaler_y.inverse_transform(y_pred2_scaled.reshape(-1, 1)).flatten()
-    results['ImprovedPINN'] = y_pred2
-    
-    # 8. 최종 평가
-    print("\n" + "="*60)
-    print("📊 최종 성능 평가")
-    print("="*60)
+    if 'results' not in locals():
+        results = training_state['results']
+        y_test = training_state['data_split']['y_test']
     
     for model_name, y_pred in results.items():
         print(f"\n🔍 {model_name}:")
@@ -732,41 +761,54 @@ def main():
         # 전체 성능
         mae = np.mean(np.abs(y_test - y_pred))
         rmse = np.sqrt(np.mean((y_test - y_pred) ** 2))
-        
         print(f"  전체 MAE: {mae:.2f}, RMSE: {rmse:.2f}")
         
-        # 극단값 성능
-        extreme_mask = y_test >= 300
-        if extreme_mask.sum() > 0:
-            extreme_mae = np.mean(np.abs(y_test[extreme_mask] - y_pred[extreme_mask]))
+        # 구간별 상세 성능
+        print(f"\n  📈 구간별 성능:")
+        ranges = [
+            (280, 300, "경고"),
+            (300, 310, "위험"),
+            (310, 350, "심각"),
+            (350, 1000, "재난")
+        ]
+        
+        for low, high, name in ranges:
+            mask = (y_test >= low) & (y_test < high)
+            if mask.sum() > 0:
+                range_mae = np.mean(np.abs(y_test[mask] - y_pred[mask]))
+                pred_in_range = ((y_pred >= low) & (y_pred < high))[mask].sum()
+                accuracy = pred_in_range / mask.sum()
+                
+                print(f"    {name}[{low}-{high}): "
+                      f"MAE={range_mae:.1f}, "
+                      f"정확도={accuracy:.1%}, "
+                      f"개수={mask.sum()}")
+        
+        # 310+ 특별 분석
+        mask_310 = y_test >= 310
+        if mask_310.sum() > 0:
+            print(f"\n  🎯 310+ 극단값 성능:")
+            mae_310 = np.mean(np.abs(y_test[mask_310] - y_pred[mask_310]))
+            pred_310 = y_pred >= 310
+            tp = (mask_310 & pred_310).sum()
+            recall = tp / mask_310.sum()
             
-            # 극단값 감지 성능
-            pred_extreme = y_pred >= 300
-            tp = (extreme_mask & pred_extreme).sum()
-            fp = (~extreme_mask & pred_extreme).sum()
-            fn = (extreme_mask & ~pred_extreme).sum()
+            print(f"    - MAE: {mae_310:.2f}")
+            print(f"    - 감지율: {tp}/{mask_310.sum()} ({recall:.1%})")
             
-            precision = tp / (tp + fp) if (tp + fp) > 0 else 0
-            recall = tp / (tp + fn) if (tp + fn) > 0 else 0
-            f1 = 2 * precision * recall / (precision + recall) if (precision + recall) > 0 else 0
-            
-            print(f"\n  🚨 극단값(≥300) 성능:")
-            print(f"    - MAE: {extreme_mae:.2f}")
-            print(f"    - 정밀도: {precision:.2%}")
-            print(f"    - 재현율: {recall:.2%}")
-            print(f"    - F1-Score: {f1:.2%}")
-            print(f"    - 감지: {tp}/{extreme_mask.sum()} ({recall:.1%})")
-            
-            # 극단값 예측 샘플
-            print(f"\n  📝 극단값 예측 샘플:")
-            extreme_indices = np.where(extreme_mask)[0][:5]
-            for idx in extreme_indices:
-                status = "✅" if abs(y_test[idx] - y_pred[idx]) < 50 else "❌"
-                print(f"    {status} 실제: {y_test[idx]:.0f}, 예측: {y_pred[idx]:.0f}, "
+            # 샘플 출력
+            print(f"\n  📝 310+ 예측 샘플:")
+            indices_310 = np.where(mask_310)[0][:5]
+            for idx in indices_310:
+                status = "✅" if abs(y_test[idx] - y_pred[idx]) < 30 else "⚠️" if abs(y_test[idx] - y_pred[idx]) < 50 else "❌"
+                print(f"    {status} 실제: {y_test[idx]:.0f}, "
+                      f"예측: {y_pred[idx]:.0f}, "
                       f"오차: {abs(y_test[idx] - y_pred[idx]):.0f}")
     
     print("\n✅ 모든 작업 완료!")
-    print("💾 스케일러가 ./scalers/ 폴더에 저장되었습니다.")
+    print("💾 스케일러: ./scalers/")
+    print("💾 체크포인트: ./checkpoints/")
+    print("🎯 310+ 극단값 예측 강화 완료")
 
 if __name__ == "__main__":
     main()
