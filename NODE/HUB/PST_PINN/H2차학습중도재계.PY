@@ -138,24 +138,29 @@ class MultiLevelExtremeLoss(tf.keras.losses.Loss):
     
     def __init__(self, name='multi_level_extreme_loss'):
         super().__init__(name=name)
+        self.reduction = tf.keras.losses.Reduction.NONE  # 개별 손실값 반환
     
     def call(self, y_true, y_pred):
+        # 차원 맞추기
+        y_true = tf.reshape(y_true, [-1])
+        y_pred = tf.reshape(y_pred, [-1])
+        
         # 기본 MSE
         mse = tf.square(y_true - y_pred)
         
         # 구간별 가중치 (310+ 특별 강화)
-        weight_280 = tf.where(y_true >= 280, 2.0, 1.0)
-        weight_300 = tf.where(y_true >= 300, 5.0, 1.0)
-        weight_310 = tf.where(y_true >= 310, 10.0, 1.0)  # 310+ 강조
-        weight_350 = tf.where(y_true >= 350, 20.0, 1.0)  # 350+ 더 강조
+        weight_280 = tf.where(y_true >= 0.6, 2.0, 1.0)  # MinMaxScaler 적용된 값
+        weight_300 = tf.where(y_true >= 0.65, 5.0, 1.0)  
+        weight_310 = tf.where(y_true >= 0.7, 10.0, 1.0)  # 310+ 강조
+        weight_350 = tf.where(y_true >= 0.8, 20.0, 1.0)  # 350+ 더 강조
         
         # 누적 가중치
         total_weight = weight_280 * weight_300 * weight_310 * weight_350
         
-        # 가중 MSE
+        # 가중 MSE (배치의 각 샘플별 손실값 반환)
         weighted_mse = mse * total_weight
         
-        return tf.reduce_mean(weighted_mse)
+        return weighted_mse  # 평균하지 않고 반환
 
 # ===========================
 # 📊 극단값 특화 데이터 처리 (개선)
