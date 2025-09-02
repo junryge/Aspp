@@ -1,8 +1,9 @@
 # -*- coding: utf-8 -*-
 """
-HUBROOM 반송량 예측 평가 시스템 - CSV 컬럼 수정 버전
+HUBROOM 반송량 예측 평가 시스템 - 데이터 정합성 수정 버전
 Created on Mon Sep 1 15:13:16 2025
 @author: X0163954
+수정: 과거 20분 데이터로 10분 후 예측하는 로직 정확히 구현
 """
 
 import numpy as np
@@ -224,15 +225,16 @@ class HUBROOMEvaluator:
         return df, numeric_cols
     
     def create_evaluation_sequences(self, df, numeric_cols):
-        """평가용 시퀀스 생성 - 수정된 버전"""
+        """평가용 시퀀스 생성 - 정확한 시간 매칭 버전"""
         X_list = []
         y_actual_list = []
         physics_list = []
         
         # 시간 관련 정보 저장
-        input_start_times = []
-        input_end_times = []
-        predicted_target_times = []
+        current_times = []  # 현재 시간 (입력의 마지막 시점)
+        predicted_target_times = []  # 예측 타겟 시간 (10분 후)
+        input_start_times = []  # 입력 시작 시간
+        input_end_times = []  # 입력 끝 시간
         
         # 입력 데이터 통계 정보
         input_max_values = []
@@ -246,28 +248,44 @@ class HUBROOMEvaluator:
         available_outflow = [col for col in self.outflow_cols if col in numeric_cols]
         
         print(f"\n📊 시퀀스 생성 중...")
+        print(f"   - 입력: 과거 20분 (seq_len={self.seq_len})")
+        print(f"   - 예측: 10분 후 값 (pred_len={self.pred_len})")
+        
+        # 전체 시퀀스 수 계산
         total_sequences = len(data) - self.seq_len - self.pred_len + 1
         
         # 시퀀스 생성
         for i in range(total_sequences):
-            # 입력 시퀀스 (과거 20분)
+            # ===================
+            # 1. 입력 시퀀스 (과거 20분)
+            # ===================
             X_seq = data[i:i+self.seq_len]
             
-            # 실제 값 (미래 10분)
-            y_actual = data[i+self.seq_len:i+self.seq_len+self.pred_len, target_idx]
+            # ===================
+            # 2. 실제값 (10분 후의 값)
+            # ===================
+            # 중요: 입력의 마지막 시점(i+seq_len-1)으로부터 10분 후의 실제값
+            actual_10min_later = data[i+self.seq_len-1+self.pred_len, target_idx]
             
-            # 시간 정보
-            input_start = df['timestamp'].iloc[i]
-            input_end = df['timestamp'].iloc[i+self.seq_len-1]
-            target_time = df['timestamp'].iloc[i+self.seq_len+self.pred_len-1]  # 10분 후 시점
+            # ===================
+            # 3. 시간 정보
+            # ===================
+            input_start = df['timestamp'].iloc[i]  # 입력 시작 시간
+            input_end = df['timestamp'].iloc[i+self.seq_len-1]  # 입력 끝 시간 (현재 시간)
+            current_time = input_end  # 현재 시간은 입력의 마지막 시점
+            target_time = df['timestamp'].iloc[i+self.seq_len-1+self.pred_len]  # 10분 후 시간
             
-            # 입력 시퀀스의 타겟 컬럼 최대/최소값
-            input_target_values = X_seq[:, target_idx]
+            # ===================
+            # 4. 입력 시퀀스의 최대/최소값 (과거 20분 데이터에서)
+            # ===================
+            input_target_values = X_seq[:, target_idx]  # 과거 20분간의 타겟 컬럼 값들
             input_max = np.max(input_target_values)
             input_min = np.min(input_target_values)
             
-            # 물리 데이터 (현재 상태)
-            current_state = data[i+self.seq_len-1]
+            # ===================
+            # 5. 물리 데이터 (현재 상태 = 입력의 마지막 시점)
+            # ===================
+            current_state = X_seq[-1]  # 입력 시퀀스의 마지막 상태 (현재)
             current_hubroom = current_state[target_idx]
             
             inflow_sum = sum([current_state[numeric_cols.index(col)] 
@@ -277,24 +295,39 @@ class HUBROOMEvaluator:
             
             physics = np.array([current_hubroom, inflow_sum, outflow_sum])
             
-            # 리스트에 추가
+            # ===================
+            # 6. 리스트에 추가
+            # ===================
             X_list.append(X_seq)
-            y_actual_list.append(y_actual)
+            y_actual_list.append(actual_10min_later)  # 10분 후 단일 값
             physics_list.append(physics)
             
+            current_times.append(current_time)
+            predicted_target_times.append(target_time)
             input_start_times.append(input_start)
             input_end_times.append(input_end)
-            predicted_target_times.append(target_time)
             input_max_values.append(input_max)
             input_min_values.append(input_min)
         
         print(f"✅ 시퀀스 생성 완료: {len(X_list)}개")
         
-        # 시간 정보와 통계 정보도 함께 반환
+        # 데이터 검증 출력
+        print(f"\n📋 데이터 검증 (처음 3개 샘플):")
+        for i in range(min(3, len(X_list))):
+            print(f"\n  [{i+1}번째 샘플]")
+            print(f"    - 입력 기간: {input_start_times[i]} ~ {input_end_times[i]}")
+            print(f"    - 현재 시간: {current_times[i]}")
+            print(f"    - 예측 타겟 시간: {predicted_target_times[i]}")
+            print(f"    - 입력 최대값: {input_max_values[i]:.1f}")
+            print(f"    - 입력 최소값: {input_min_values[i]:.1f}")
+            print(f"    - 10분 후 실제값: {y_actual_list[i]:.1f}")
+        
+        # 시간 정보 딕셔너리
         time_info = {
+            'timestamp': current_times,  # 현재 시간
+            'predicted_target_time': predicted_target_times,  # 10분 후 시간
             'input_start': input_start_times,
             'input_end': input_end_times,
-            'predicted_target_time': predicted_target_times,
             'input_max': input_max_values,
             'input_min': input_min_values
         }
@@ -308,7 +341,7 @@ class HUBROOMEvaluator:
         
         models = {}
         
-        # PatchTST 모델만 로드 (CSV에는 PatchTST 결과만 필요)
+        # PatchTST 모델 로드
         if os.path.exists(self.patchtst_weights):
             try:
                 print("📌 PatchTST 모델 재구성 중...")
@@ -337,7 +370,7 @@ class HUBROOMEvaluator:
                 import traceback
                 traceback.print_exc()
         
-        # PatchTST+PINN 모델도 로드 (그래프용)
+        # PatchTST+PINN 모델 로드
         if os.path.exists(self.pinn_weights):
             try:
                 print("📌 PatchTST+PINN 모델 재구성 중...")
@@ -406,8 +439,8 @@ class HUBROOMEvaluator:
                     y_pred_scaled.reshape(-1, 1)
                 ).flatten()
                 
-                # 실제값은 10분 후 값만 추출
-                y_true_10min = y_actual[:, -1]  # 마지막 시점 (10분 후)
+                # 실제값은 이미 10분 후 단일 값
+                y_true_10min = y_actual
                 
                 # 메트릭 계산
                 mae = mean_absolute_error(y_true_10min, y_pred_10min)
@@ -456,11 +489,13 @@ class HUBROOMEvaluator:
                 print(f"  - 300 감지 정확도: {acc_300:.2%}")
                 
                 # 샘플 출력
-                print(f"\n📝 예측 샘플 (처음 10개):")
-                for i in range(min(10, len(y_pred_10min))):
+                print(f"\n📝 예측 샘플 (처음 5개):")
+                for i in range(min(5, len(y_pred_10min))):
                     status = "⚠️ 경고" if y_pred_10min[i] >= 300 else "✅ 정상"
-                    print(f"  [{i+1}] 시간: {time_info['predicted_target_time'][i]}, "
-                          f"실제: {y_true_10min[i]:.1f}, 예측: {y_pred_10min[i]:.1f} {status}")
+                    print(f"  [{i+1}] 현재: {time_info['timestamp'][i]}")
+                    print(f"       → 10분 후: {time_info['predicted_target_time'][i]}")
+                    print(f"       실제: {y_true_10min[i]:.1f}, 예측: {y_pred_10min[i]:.1f} {status}")
+                    print(f"       (입력 범위: {time_info['input_min'][i]:.1f} ~ {time_info['input_max'][i]:.1f})")
                 
             except Exception as e:
                 print(f"❌ {model_name} 예측 중 오류 발생: {e}")
@@ -470,8 +505,63 @@ class HUBROOMEvaluator:
         
         return results
     
+    def save_predictions(self, results, output_path='predictions_202509.csv'):
+        """예측 결과를 요청된 형식의 CSV로 저장 - 수정된 버전"""
+        print(f"\n💾 예측 결과 저장 중...")
+        
+        # PatchTST 모델 결과만 사용
+        if 'PatchTST' not in results:
+            print("❌ PatchTST 모델 결과가 없습니다!")
+            return
+        
+        patchtst_result = results['PatchTST']
+        time_info = patchtst_result['time_info']
+        
+        # 요청된 컬럼 형식으로 데이터프레임 생성
+        df_results = pd.DataFrame({
+            'timestamp': time_info['timestamp'],  # 현재 시간 (입력의 마지막 시점)
+            'actual': patchtst_result['y_true'],  # 10분 후 실제값
+            'predicted': patchtst_result['y_pred'],  # 10분 후 예측값
+            'predicted_Target_time': time_info['predicted_target_time'],  # 예측 타겟 시간 (10분 후)
+            'input_start': time_info['input_start'],  # 입력 시작 시간 (20분 전)
+            'input_end': time_info['input_end'],  # 입력 종료 시간 (현재)
+            'input_max': time_info['input_max'],  # 과거 20분 중 최대값
+            'input_min': time_info['input_min'],  # 과거 20분 중 최소값
+            'error': patchtst_result['y_true'] - patchtst_result['y_pred'],  # 오차
+            'Patchtst_predicted_TIME': time_info['predicted_target_time']  # PatchTST 예측 시간
+        })
+        
+        # CSV 저장
+        df_results.to_csv(output_path, index=False, encoding='utf-8-sig')
+        print(f"✅ 예측 결과 저장 완료: {output_path}")
+        
+        # 요약 통계
+        print(f"\n📊 저장된 데이터 요약:")
+        print(f"  - 전체 예측 수: {len(df_results)}개")
+        print(f"  - 300 이상 실제값: {(df_results['actual'] >= 300).sum()}개")
+        print(f"  - 300 이상 예측값: {(df_results['predicted'] >= 300).sum()}개")
+        print(f"  - 평균 오차: {df_results['error'].mean():.2f}")
+        print(f"  - 오차 표준편차: {df_results['error'].std():.2f}")
+        print(f"  - 기간: {df_results['timestamp'].min()} ~ {df_results['timestamp'].max()}")
+        
+        # 데이터 정합성 검증
+        print(f"\n✅ 데이터 정합성 검증:")
+        sample_idx = 0
+        print(f"  [샘플 {sample_idx+1}]")
+        print(f"    - 현재 시간 (timestamp): {df_results.iloc[sample_idx]['timestamp']}")
+        print(f"    - 입력 시작 (input_start): {df_results.iloc[sample_idx]['input_start']}")
+        print(f"    - 입력 종료 (input_end): {df_results.iloc[sample_idx]['input_end']}")
+        print(f"    - 예측 타겟 시간: {df_results.iloc[sample_idx]['predicted_Target_time']}")
+        print(f"    - 과거 20분 범위: {df_results.iloc[sample_idx]['input_min']:.1f} ~ {df_results.iloc[sample_idx]['input_max']:.1f}")
+        print(f"    - 10분 후 실제값: {df_results.iloc[sample_idx]['actual']:.1f}")
+        print(f"    - 10분 후 예측값: {df_results.iloc[sample_idx]['predicted']:.1f}")
+        
+        # 처음 5개 행 출력
+        print(f"\n📋 저장된 데이터 샘플 (처음 5개):")
+        print(df_results.head())
+    
     def visualize_results(self, results):
-        """결과 시각화 - 기존 유지"""
+        """결과 시각화"""
         if not results:
             print("시각화할 결과가 없습니다.")
             return
@@ -551,7 +641,7 @@ class HUBROOMEvaluator:
         self.analyze_critical_predictions(results)
     
     def analyze_critical_predictions(self, results):
-        """300 이상 예측 상세 분석 - 기존 유지"""
+        """300 이상 예측 상세 분석"""
         print("\n" + "="*60)
         print("🚨 300 이상 예측 상세 분석")
         print("="*60)
@@ -601,55 +691,13 @@ class HUBROOMEvaluator:
             if np.sum(extreme_cases) > 0:
                 extreme_mae = mean_absolute_error(y_true[extreme_cases], y_pred[extreme_cases])
                 print(f"  - 400 초과 극단값 MAE: {extreme_mae:.2f}")
-    
-    def save_predictions(self, results, output_path='predictions_202509.csv'):
-        """예측 결과를 요청된 형식의 CSV로 저장"""
-        print(f"\n💾 예측 결과 저장 중...")
-        
-        # PatchTST 모델 결과만 사용
-        if 'PatchTST' not in results:
-            print("❌ PatchTST 모델 결과가 없습니다!")
-            return
-        
-        patchtst_result = results['PatchTST']
-        time_info = patchtst_result['time_info']
-        
-        # 요청된 컬럼 형식으로 데이터프레임 생성
-        df_results = pd.DataFrame({
-            'timestamp': time_info['input_end'],  # 현재 시간 (입력 종료 시간)
-            'actual': patchtst_result['y_true'],  # 실제 관측값
-            'predicted': patchtst_result['y_pred'],  # PatchTST 예측값
-            'predicted_Target_time': time_info['predicted_target_time'],  # 예측 타켓 시간 (10분 후)
-            'input_start': time_info['input_start'],  # 입력 시작 시간
-            'input_end': time_info['input_end'],  # 입력 종료 시간
-            'input_max': time_info['input_max'],  # 입력 시퀀스 최대값
-            'input_min': time_info['input_min'],  # 입력 시퀀스 최소값
-            'error': patchtst_result['y_true'] - patchtst_result['y_pred'],  # actual - predicted
-            'Patchtst_predicted_TIME': time_info['predicted_target_time']  # PatchTST 예측 시간
-        })
-        
-        # CSV 저장
-        df_results.to_csv(output_path, index=False, encoding='utf-8-sig')
-        print(f"✅ 예측 결과 저장 완료: {output_path}")
-        
-        # 요약 통계
-        print(f"\n📊 저장된 데이터 요약:")
-        print(f"  - 전체 예측 수: {len(df_results)}개")
-        print(f"  - 300 이상 실제값: {(df_results['actual'] >= 300).sum()}개")
-        print(f"  - 300 이상 예측값: {(df_results['predicted'] >= 300).sum()}개")
-        print(f"  - 평균 오차: {df_results['error'].mean():.2f}")
-        print(f"  - 오차 표준편차: {df_results['error'].std():.2f}")
-        print(f"  - 기간: {df_results['timestamp'].min()} ~ {df_results['timestamp'].max()}")
-        
-        # 처음 5개 행 출력
-        print(f"\n📋 저장된 데이터 샘플 (처음 5개):")
-        print(df_results.head())
 
 def main():
     """메인 실행 함수"""
     print("="*80)
     print("🏭 HUBROOM 반송량 예측 평가 시스템")
     print("📅 대상: 2025년 9월 데이터")
+    print("🔧 수정: 과거 20분 → 10분 후 예측 로직 정확히 구현")
     print("="*80)
     
     # TensorFlow 로그 레벨 조정
@@ -680,14 +728,14 @@ def main():
             print("   - PatchTST_PINN_best.h5")
             return
         
-        # 4. 예측 및 평가 (수정된 버전)
+        # 4. 예측 및 평가
         results = evaluator.predict_and_evaluate(models, X, y_actual, physics_data, time_info)
         
         if not results:
             print("\n❌ 예측 결과가 없습니다!")
             return
         
-        # 5. 결과 시각화 (기존 유지)
+        # 5. 결과 시각화
         evaluator.visualize_results(results)
         
         # 6. 예측 결과 저장 (수정된 형식)
@@ -707,7 +755,12 @@ def main():
         
         print("\n✅ 평가 완료!")
         print("📁 predictions_202509.csv 파일이 생성되었습니다.")
-        print("   컬럼: timestamp, actual, predicted, predicted_Target_time, input_start, input_end, input_max, input_min, error, Patchtst_predicted_TIME")
+        print("\n📌 데이터 구조:")
+        print("   - timestamp: 현재 시간 (입력의 마지막 시점)")
+        print("   - actual: 10분 후 실제값")
+        print("   - predicted: 10분 후 예측값")
+        print("   - input_max/min: 과거 20분 데이터의 최대/최소값")
+        print("   - predicted_Target_time: 예측 타겟 시간 (10분 후)")
         
     except Exception as e:
         print(f"\n❌ 오류 발생: {e}")
