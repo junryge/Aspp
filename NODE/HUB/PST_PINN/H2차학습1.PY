@@ -26,6 +26,8 @@ import json
 from tqdm import tqdm
 import joblib
 from collections import Counter
+import signal
+import sys
 
 warnings.filterwarnings('ignore')
 
@@ -42,6 +44,76 @@ if gpus:
             tf.config.experimental.set_memory_growth(gpu, True)
     except RuntimeError as e:
         print(e)
+
+# ===========================
+# 🔄 체크포인트 관리자
+# ===========================
+
+class CheckpointManager:
+    """학습 중단/재개를 위한 체크포인트 관리"""
+    
+    def __init__(self, checkpoint_dir='./checkpoints'):
+        self.checkpoint_dir = checkpoint_dir
+        os.makedirs(checkpoint_dir, exist_ok=True)
+        self.interrupted = False
+        
+        # Ctrl+C 인터럽트 핸들러
+        signal.signal(signal.SIGINT, self._signal_handler)
+    
+    def _signal_handler(self, sig, frame):
+        print('\n\n⚠️ 학습 중단 감지! 체크포인트 저장 중...')
+        self.interrupted = True
+    
+    def save_checkpoint(self, model, model_name, epoch, history=None):
+        """모델 체크포인트 저장"""
+        try:
+            # 모델 가중치
+            model_path = os.path.join(self.checkpoint_dir, f'{model_name}_checkpoint.h5')
+            model.save_weights(model_path)
+            
+            # 메타데이터
+            meta_path = os.path.join(self.checkpoint_dir, f'{model_name}_meta.pkl')
+            meta_data = {
+                'epoch': epoch,
+                'history': history.history if history else None
+            }
+            with open(meta_path, 'wb') as f:
+                pickle.dump(meta_data, f)
+            
+            print(f"💾 체크포인트 저장: {model_name} (Epoch {epoch})")
+            return True
+        except Exception as e:
+            print(f"❌ 체크포인트 저장 실패: {e}")
+            return False
+    
+    def load_checkpoint(self, model, model_name):
+        """모델 체크포인트 로드"""
+        try:
+            model_path = os.path.join(self.checkpoint_dir, f'{model_name}_checkpoint.h5')
+            meta_path = os.path.join(self.checkpoint_dir, f'{model_name}_meta.pkl')
+            
+            if os.path.exists(model_path) and os.path.exists(meta_path):
+                # 가중치 로드
+                model.load_weights(model_path)
+                
+                # 메타데이터 로드
+                with open(meta_path, 'rb') as f:
+                    meta_data = pickle.load(f)
+                
+                print(f"📂 체크포인트 로드: {model_name} (Epoch {meta_data['epoch']})")
+                return meta_data
+            return None
+        except Exception as e:
+            print(f"⚠️ 체크포인트 로드 실패: {e}")
+            return None
+    
+    def check_resume(self, model_name):
+        """재개 여부 확인"""
+        checkpoint_path = os.path.join(self.checkpoint_dir, f'{model_name}_checkpoint.h5')
+        if os.path.exists(checkpoint_path):
+            response = input(f"\n💾 {model_name}의 이전 체크포인트 발견. 이어서 학습하시겠습니까? (y/n): ")
+            return response.lower() == 'y'
+        return False
 
 # ===========================
 # 🎯 극단값 특화 손실함수
@@ -535,37 +607,67 @@ def main():
         'dropout': 0.2
     }
     
-    # 콜백
-    callbacks = [
-        EarlyStopping(monitor='val_loss', patience=15, restore_best_weights=True),
-        ReduceLROnPlateau(monitor='val_loss', factor=0.5, patience=5, min_lr=1e-6),
-        ExtremeValueMonitor(X_val_scaled, y_val_scaled, processor.scaler_y)
-    ]
+    # 체크포인트 관리자
+    checkpoint_manager = CheckpointManager()
+    
+    # 콜백 (ModelCheckpoint 추가)
+    def create_callbacks(model_name):
+        return [
+            ModelCheckpoint(
+                filepath=os.path.join(checkpoint_manager.checkpoint_dir, f'{model_name}_best.h5'),
+                monitor='val_loss',
+                save_best_only=True,
+                save_weights_only=True,
+                verbose=1
+            ),
+            EarlyStopping(monitor='val_loss', patience=15, restore_best_weights=True),
+            ReduceLROnPlateau(monitor='val_loss', factor=0.5, patience=5, min_lr=1e-6),
+            ExtremeValueMonitor(X_val_scaled, y_val_scaled, processor.scaler_y)
+        ]
     
     results = {}
     
     # 모델 1: ExtremePatchTST 학습
     print("\n" + "="*60)
-    print("🚀 모델 1: ExtremePatchTST 학습 시작")
+    print("🚀 모델 1: ExtremePatchTST 학습")
     print("="*60)
-    model1 = ExtremePatchTST(config)
     
-    # 극단값 특화 손실함수 사용
+    model1 = ExtremePatchTST(config)
     model1.compile(
         optimizer=Adam(learning_rate=0.001),
         loss=ExtremeLoss(threshold=300, extreme_weight=10),
         metrics=['mae']
     )
     
-    history1 = model1.fit(
-        X_train_scaled, y_train_scaled,
-        validation_data=(X_val_scaled, y_val_scaled),
-        sample_weight=weights_train,  # 가중치 적용
-        epochs=50,
-        batch_size=32,
-        callbacks=callbacks,
-        verbose=1
-    )
+    # 체크포인트 확인
+    initial_epoch_1 = 0
+    resume_1 = checkpoint_manager.check_resume('ExtremePatchTST')
+    if resume_1:
+        meta = checkpoint_manager.load_checkpoint(model1, 'ExtremePatchTST')
+        if meta:
+            initial_epoch_1 = meta['epoch']
+    
+    try:
+        history1 = model1.fit(
+            X_train_scaled, y_train_scaled,
+            validation_data=(X_val_scaled, y_val_scaled),
+            sample_weight=weights_train,
+            initial_epoch=initial_epoch_1,
+            epochs=50,
+            batch_size=32,
+            callbacks=create_callbacks('ExtremePatchTST'),
+            verbose=1
+        )
+        
+        # 학습 완료 후 체크포인트 저장
+        checkpoint_manager.save_checkpoint(model1, 'ExtremePatchTST', 50, history1)
+        
+    except KeyboardInterrupt:
+        print("\n⚠️ 학습 중단됨!")
+        current_epoch = len(history1.history['loss']) if 'history1' in locals() else initial_epoch_1
+        checkpoint_manager.save_checkpoint(model1, 'ExtremePatchTST', current_epoch)
+        print("💾 재시작 시 이어서 학습 가능합니다.")
+        sys.exit(0)
     
     # 평가
     y_pred1_scaled = model1.predict(X_test_scaled)
@@ -574,25 +676,45 @@ def main():
     
     # 모델 2: ImprovedPINN 학습
     print("\n" + "="*60)
-    print("🚀 모델 2: ImprovedPINN 학습 시작")
+    print("🚀 모델 2: ImprovedPINN 학습")
     print("="*60)
-    model2 = ImprovedPINN(config)
     
+    model2 = ImprovedPINN(config)
     model2.compile(
         optimizer=Adam(learning_rate=0.001),
         loss=FocalMSELoss(gamma=2.0, threshold=300),
         metrics=['mae']
     )
     
-    history2 = model2.fit(
-        [X_train_scaled, X_physics_train_scaled], y_train_scaled,
-        validation_data=([X_val_scaled, X_physics_val_scaled], y_val_scaled),
-        sample_weight=weights_train,
-        epochs=50,
-        batch_size=32,
-        callbacks=callbacks,
-        verbose=1
-    )
+    # 체크포인트 확인
+    initial_epoch_2 = 0
+    resume_2 = checkpoint_manager.check_resume('ImprovedPINN')
+    if resume_2:
+        meta = checkpoint_manager.load_checkpoint(model2, 'ImprovedPINN')
+        if meta:
+            initial_epoch_2 = meta['epoch']
+    
+    try:
+        history2 = model2.fit(
+            [X_train_scaled, X_physics_train_scaled], y_train_scaled,
+            validation_data=([X_val_scaled, X_physics_val_scaled], y_val_scaled),
+            sample_weight=weights_train,
+            initial_epoch=initial_epoch_2,
+            epochs=50,
+            batch_size=32,
+            callbacks=create_callbacks('ImprovedPINN'),
+            verbose=1
+        )
+        
+        # 학습 완료 후 체크포인트 저장
+        checkpoint_manager.save_checkpoint(model2, 'ImprovedPINN', 50, history2)
+        
+    except KeyboardInterrupt:
+        print("\n⚠️ 학습 중단됨!")
+        current_epoch = len(history2.history['loss']) if 'history2' in locals() else initial_epoch_2
+        checkpoint_manager.save_checkpoint(model2, 'ImprovedPINN', current_epoch)
+        print("💾 재시작 시 이어서 학습 가능합니다.")
+        sys.exit(0)
     
     # 평가
     y_pred2_scaled = model2.predict([X_test_scaled, X_physics_test_scaled])
