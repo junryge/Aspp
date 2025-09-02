@@ -1,9 +1,9 @@
 # -*- coding: utf-8 -*-
 """
-HUBROOM 반송량 예측 평가 시스템 - 데이터 정합성 수정 버전
+HUBROOM 반송량 예측 평가 시스템 - 인덱싱 버그 수정 버전
 Created on Mon Sep 1 15:13:16 2025
 @author: X0163954
-수정: 과거 20분 데이터로 10분 후 예측하는 로직 정확히 구현
+수정: 과거 20분 데이터로 10분 후 예측 - 정확한 인덱싱
 """
 
 import numpy as np
@@ -225,7 +225,7 @@ class HUBROOMEvaluator:
         return df, numeric_cols
     
     def create_evaluation_sequences(self, df, numeric_cols):
-        """평가용 시퀀스 생성 - 정확한 시간 매칭 버전"""
+        """평가용 시퀀스 생성 - 정확한 인덱싱 버전"""
         X_list = []
         y_actual_list = []
         physics_list = []
@@ -239,6 +239,9 @@ class HUBROOMEvaluator:
         # 입력 데이터 통계 정보
         input_max_values = []
         input_min_values = []
+        
+        # 현재 시점 값 저장 (디버깅용)
+        current_values = []
         
         data = df[numeric_cols].values
         target_idx = numeric_cols.index(self.target_col)
@@ -257,15 +260,15 @@ class HUBROOMEvaluator:
         # 시퀀스 생성
         for i in range(total_sequences):
             # ===================
-            # 1. 입력 시퀀스 (과거 20분)
+            # 1. 입력 시퀀스 (과거 20분: i ~ i+19)
             # ===================
             X_seq = data[i:i+self.seq_len]
             
             # ===================
             # 2. 실제값 (10분 후의 값)
             # ===================
-            # 중요: 입력의 마지막 시점(i+seq_len-1)으로부터 10분 후의 실제값
-            actual_10min_later = data[i+self.seq_len-1+self.pred_len, target_idx]
+            # 수정된 인덱싱: 현재(i+19)로부터 10분 후 = i+29
+            actual_10min_later = data[i+self.seq_len+self.pred_len-1, target_idx]
             
             # ===================
             # 3. 시간 정보
@@ -273,7 +276,8 @@ class HUBROOMEvaluator:
             input_start = df['timestamp'].iloc[i]  # 입력 시작 시간
             input_end = df['timestamp'].iloc[i+self.seq_len-1]  # 입력 끝 시간 (현재 시간)
             current_time = input_end  # 현재 시간은 입력의 마지막 시점
-            target_time = df['timestamp'].iloc[i+self.seq_len-1+self.pred_len]  # 10분 후 시간
+            # 수정된 인덱싱: 10분 후 시간
+            target_time = df['timestamp'].iloc[i+self.seq_len+self.pred_len-1]
             
             # ===================
             # 4. 입력 시퀀스의 최대/최소값 (과거 20분 데이터에서)
@@ -281,6 +285,10 @@ class HUBROOMEvaluator:
             input_target_values = X_seq[:, target_idx]  # 과거 20분간의 타겟 컬럼 값들
             input_max = np.max(input_target_values)
             input_min = np.min(input_target_values)
+            
+            # 현재 시점 값 저장 (디버깅용)
+            current_value = X_seq[-1, target_idx]
+            current_values.append(current_value)
             
             # ===================
             # 5. 물리 데이터 (현재 상태 = 입력의 마지막 시점)
@@ -311,16 +319,29 @@ class HUBROOMEvaluator:
         
         print(f"✅ 시퀀스 생성 완료: {len(X_list)}개")
         
-        # 데이터 검증 출력
-        print(f"\n📋 데이터 검증 (처음 3개 샘플):")
-        for i in range(min(3, len(X_list))):
+        # 데이터 검증 출력 (더 자세히)
+        print(f"\n📋 데이터 검증 (처음 5개 샘플):")
+        for i in range(min(5, len(X_list))):
             print(f"\n  [{i+1}번째 샘플]")
             print(f"    - 입력 기간: {input_start_times[i]} ~ {input_end_times[i]}")
             print(f"    - 현재 시간: {current_times[i]}")
+            print(f"    - 현재 HUBROOM 값: {current_values[i]:.1f}")
             print(f"    - 예측 타겟 시간: {predicted_target_times[i]}")
             print(f"    - 입력 최대값: {input_max_values[i]:.1f}")
             print(f"    - 입력 최소값: {input_min_values[i]:.1f}")
             print(f"    - 10분 후 실제값: {y_actual_list[i]:.1f}")
+            
+            # 시간 차이 검증
+            time_diff = predicted_target_times[i] - current_times[i]
+            print(f"    - 시간 차이 검증: {time_diff.total_seconds()/60:.0f}분 (10분이어야 함)")
+        
+        # 인덱싱 검증
+        print(f"\n🔍 인덱싱 검증 (첫 번째 샘플):")
+        print(f"  - i=0일 때:")
+        print(f"  - 입력 인덱스: 0 ~ 19 (20개)")
+        print(f"  - 현재 시점 인덱스: 19")
+        print(f"  - 10분 후 인덱스: 29 (19 + 10)")
+        print(f"  - 실제 사용된 인덱스: {self.seq_len + self.pred_len - 1}")
         
         # 시간 정보 딕셔너리
         time_info = {
@@ -329,7 +350,8 @@ class HUBROOMEvaluator:
             'input_start': input_start_times,
             'input_end': input_end_times,
             'input_max': input_max_values,
-            'input_min': input_min_values
+            'input_min': input_min_values,
+            'current_value': current_values  # 디버깅용 추가
         }
         
         return (np.array(X_list), np.array(y_actual_list), 
@@ -403,7 +425,7 @@ class HUBROOMEvaluator:
         return models
     
     def predict_and_evaluate(self, models, X, y_actual, physics_data, time_info):
-        """모델별 예측 및 평가 - 수정된 버전"""
+        """모델별 예측 및 평가"""
         results = {}
         
         # 데이터 정규화
@@ -488,14 +510,15 @@ class HUBROOMEvaluator:
                 print(f"  - 300 이상일 때 MAE: {mae_300:.4f}")
                 print(f"  - 300 감지 정확도: {acc_300:.2%}")
                 
-                # 샘플 출력
+                # 샘플 출력 (개선된 버전)
                 print(f"\n📝 예측 샘플 (처음 5개):")
                 for i in range(min(5, len(y_pred_10min))):
                     status = "⚠️ 경고" if y_pred_10min[i] >= 300 else "✅ 정상"
-                    print(f"  [{i+1}] 현재: {time_info['timestamp'][i]}")
+                    print(f"\n  [{i+1}] 현재: {time_info['timestamp'][i]}")
+                    print(f"       현재 HUBROOM: {time_info['current_value'][i]:.1f}")
                     print(f"       → 10분 후: {time_info['predicted_target_time'][i]}")
                     print(f"       실제: {y_true_10min[i]:.1f}, 예측: {y_pred_10min[i]:.1f} {status}")
-                    print(f"       (입력 범위: {time_info['input_min'][i]:.1f} ~ {time_info['input_max'][i]:.1f})")
+                    print(f"       (과거 20분 범위: {time_info['input_min'][i]:.1f} ~ {time_info['input_max'][i]:.1f})")
                 
             except Exception as e:
                 print(f"❌ {model_name} 예측 중 오류 발생: {e}")
@@ -506,7 +529,7 @@ class HUBROOMEvaluator:
         return results
     
     def save_predictions(self, results, output_path='predictions_202509.csv'):
-        """예측 결과를 요청된 형식의 CSV로 저장 - 수정된 버전"""
+        """예측 결과를 요청된 형식의 CSV로 저장"""
         print(f"\n💾 예측 결과 저장 중...")
         
         # PatchTST 모델 결과만 사용
@@ -520,6 +543,7 @@ class HUBROOMEvaluator:
         # 요청된 컬럼 형식으로 데이터프레임 생성
         df_results = pd.DataFrame({
             'timestamp': time_info['timestamp'],  # 현재 시간 (입력의 마지막 시점)
+            'current_value': time_info['current_value'],  # 현재 시점의 실제 HUBROOM 값
             'actual': patchtst_result['y_true'],  # 10분 후 실제값
             'predicted': patchtst_result['y_pred'],  # 10분 후 예측값
             'predicted_Target_time': time_info['predicted_target_time'],  # 예측 타겟 시간 (10분 후)
@@ -544,17 +568,26 @@ class HUBROOMEvaluator:
         print(f"  - 오차 표준편차: {df_results['error'].std():.2f}")
         print(f"  - 기간: {df_results['timestamp'].min()} ~ {df_results['timestamp'].max()}")
         
-        # 데이터 정합성 검증
+        # 데이터 정합성 검증 (더 자세히)
         print(f"\n✅ 데이터 정합성 검증:")
-        sample_idx = 0
-        print(f"  [샘플 {sample_idx+1}]")
-        print(f"    - 현재 시간 (timestamp): {df_results.iloc[sample_idx]['timestamp']}")
-        print(f"    - 입력 시작 (input_start): {df_results.iloc[sample_idx]['input_start']}")
-        print(f"    - 입력 종료 (input_end): {df_results.iloc[sample_idx]['input_end']}")
-        print(f"    - 예측 타겟 시간: {df_results.iloc[sample_idx]['predicted_Target_time']}")
-        print(f"    - 과거 20분 범위: {df_results.iloc[sample_idx]['input_min']:.1f} ~ {df_results.iloc[sample_idx]['input_max']:.1f}")
-        print(f"    - 10분 후 실제값: {df_results.iloc[sample_idx]['actual']:.1f}")
-        print(f"    - 10분 후 예측값: {df_results.iloc[sample_idx]['predicted']:.1f}")
+        for sample_idx in [0, len(df_results)//2, len(df_results)-1]:
+            if sample_idx < len(df_results):
+                print(f"\n  [샘플 {sample_idx+1}]")
+                row = df_results.iloc[sample_idx]
+                print(f"    - 현재 시간: {row['timestamp']}")
+                print(f"    - 현재 HUBROOM 값: {row['current_value']:.1f}")
+                print(f"    - 입력 기간: {row['input_start']} ~ {row['input_end']}")
+                print(f"    - 과거 20분 범위: {row['input_min']:.1f} ~ {row['input_max']:.1f}")
+                print(f"    - 예측 타겟 시간: {row['predicted_Target_time']}")
+                print(f"    - 10분 후 실제값: {row['actual']:.1f}")
+                print(f"    - 10분 후 예측값: {row['predicted']:.1f}")
+                print(f"    - 오차: {row['error']:.1f}")
+                
+                # 현재값과 과거 범위 관계 확인
+                if row['input_min'] <= row['current_value'] <= row['input_max']:
+                    print(f"    ✅ 현재값이 과거 20분 범위 내에 있음")
+                else:
+                    print(f"    ⚠️ 현재값이 과거 20분 범위를 벗어남")
         
         # 처음 5개 행 출력
         print(f"\n📋 저장된 데이터 샘플 (처음 5개):")
@@ -697,7 +730,7 @@ def main():
     print("="*80)
     print("🏭 HUBROOM 반송량 예측 평가 시스템")
     print("📅 대상: 2025년 9월 데이터")
-    print("🔧 수정: 과거 20분 → 10분 후 예측 로직 정확히 구현")
+    print("🔧 버그 수정: 정확한 인덱싱으로 10분 후 예측")
     print("="*80)
     
     # TensorFlow 로그 레벨 조정
@@ -757,6 +790,7 @@ def main():
         print("📁 predictions_202509.csv 파일이 생성되었습니다.")
         print("\n📌 데이터 구조:")
         print("   - timestamp: 현재 시간 (입력의 마지막 시점)")
+        print("   - current_value: 현재 시점의 HUBROOM 값")
         print("   - actual: 10분 후 실제값")
         print("   - predicted: 10분 후 예측값")
         print("   - input_max/min: 과거 20분 데이터의 최대/최소값")
