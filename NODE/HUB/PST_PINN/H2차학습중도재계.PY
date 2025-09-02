@@ -730,7 +730,7 @@ def main():
                 initial_epoch=initial_epoch,
                 epochs=70,  # 더 많은 에폭
                 batch_size=32,
-                callbacks=create_callbacks('EnhancedExtremePatchTST', processor.scaler_y),
+                callbacks=create_callbacks('EnhancedExtremePatchTST'),
                 verbose=1
             )
             
