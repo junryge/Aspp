@@ -470,25 +470,18 @@ def main():
     if step <= 2:
         print("\n[Step 2/6] 시퀀스 생성")
         
-        if step == 2:
-            # Step 2 실행
-            df = pd.read_pickle('./checkpoints/processed_df.pkl')
-            X, y, X_physics, weights = processor.create_sequences_v3(df)
-            
-            state['X'] = X
-            state['y'] = y
-            state['X_physics'] = X_physics
-            state['weights'] = weights
-            state['n_features'] = X.shape[2]
-            state['step'] = 3
-            ckpt.save_state(state)
-            print("✅ 시퀀스 생성 완료")
-        else:
-            # 이전 Step에서 저장된 데이터 로드
-            X = state['X']
-            y = state['y']
-            X_physics = state['X_physics']
-            weights = state['weights']
+        # Step 2를 실행해야 하는 경우
+        df = pd.read_pickle('./checkpoints/processed_df.pkl')
+        X, y, X_physics, weights = processor.create_sequences_v3(df)
+        
+        state['X'] = X
+        state['y'] = y
+        state['X_physics'] = X_physics
+        state['weights'] = weights
+        state['n_features'] = X.shape[2]
+        state['step'] = 3
+        ckpt.save_state(state)
+        print("✅ 시퀀스 생성 완료")
     
     # Step 3: 데이터 분할
     if step <= 3:
