@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """
-학습된 데이터 평가 시스템
-기존 학습 데이터(HUB_0509_TO_0730_DATA.CSV)로 모델 성능 평가
+202509월 CSV 파일 평가 시스템
+과거 20분 데이터로 10분 후 예측 → CSV 저장
 """
 
 import numpy as np
@@ -12,12 +12,13 @@ from tensorflow.keras import layers
 from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
 import joblib
 import os
+from tqdm import tqdm
 import warnings
 warnings.filterwarnings('ignore')
 
 print("="*80)
-print("📊 학습 데이터 평가 시스템")
-print("🎯 ExtremePatchTST & ImprovedPINN 성능 평가")
+print("📊 202509월 CSV 평가 시스템")
+print("🎯 과거 20분 → 10분 후 예측")
 print("="*80)
 
 # ========================================
@@ -91,43 +92,83 @@ class ImprovedPINN(keras.Model):
         return tf.squeeze(output, axis=-1)
 
 # ========================================
-# 평가 시스템
+# 평가 클래스
 # ========================================
 
-class ModelEvaluator:
+class CSVEvaluator:
     def __init__(self):
+        self.seq_len = 20  # 과거 20분
+        self.pred_len = 10  # 10분 후 예측
         self.target_col = 'CURRENT_M16A_3F_JOB_2'
         
-        # 스케일러 로드
-        print("\n📂 스케일러 로드 중...")
-        self.scaler_X = joblib.load('./scalers/scaler_X.pkl')
-        self.scaler_y = joblib.load('./scalers/scaler_y.pkl')
-        self.scaler_physics = joblib.load('./scalers/scaler_physics.pkl')
-        print("✅ 스케일러 로드 완료")
+        # 물리 컬럼
+        self.inflow_cols = [
+            'M16A_6F_TO_HUB_JOB', 'M16A_2F_TO_HUB_JOB2',
+            'M14A_3F_TO_HUB_JOB2', 'M14B_7F_TO_HUB_JOB2'
+        ]
+        self.outflow_cols = [
+            'M16A_3F_TO_M16A_6F_JOB', 'M16A_3F_TO_M16A_2F_JOB',
+            'M16A_3F_TO_M14A_3F_JOB', 'M16A_3F_TO_M14B_7F_JOB'
+        ]
+        
+    def load_data(self, csv_path):
+        """CSV 데이터 로드 및 전처리"""
+        print(f"\n📂 CSV 로드: {csv_path}")
+        df = pd.read_csv(csv_path)
+        
+        # 시간 처리
+        df['timestamp'] = pd.to_datetime(df.iloc[:, 0], format='%Y%m%d%H%M', errors='coerce')
+        df = df.sort_values('timestamp').reset_index(drop=True)
+        df = df.fillna(method='ffill').fillna(0)
+        
+        print(f"  데이터 크기: {df.shape}")
+        print(f"  기간: {df['timestamp'].min()} ~ {df['timestamp'].max()}")
+        
+        return df
     
-    def load_test_data(self):
-        """저장된 테스트 데이터 로드"""
-        print("\n📂 테스트 데이터 로드 중...")
+    def prepare_sequences(self, df):
+        """예측을 위한 시퀀스 준비"""
+        print("\n🔄 시퀀스 준비 중...")
         
-        # Step 3에서 저장된 스케일된 데이터 로드
-        import pickle
-        with open('./checkpoints/training_state.pkl', 'rb') as f:
-            state = pickle.load(f)
+        numeric_cols = df.select_dtypes(include=[np.number]).columns.tolist()
+        n_features = len(numeric_cols)
         
-        # 테스트 데이터 추출
-        X_test_scaled = state['X_test_scaled']
-        y_test_scaled = state['y_test_scaled']
-        X_physics_test_scaled = state['X_physics_test_scaled']
-        y_test = state['y_test']  # 원본 y값
+        # 물리 컬럼 확인
+        available_inflow = [col for col in self.inflow_cols if col in df.columns]
+        available_outflow = [col for col in self.outflow_cols if col in df.columns]
         
-        print(f"  테스트 데이터 크기: {X_test_scaled.shape[0]}개")
-        print(f"  310+ 데이터: {(y_test >= 310).sum()}개")
-        print(f"  350+ 데이터: {(y_test >= 350).sum()}개")
+        X_list = []
+        X_physics_list = []
+        y_actual_list = []
+        valid_indices = []
         
-        return X_test_scaled, y_test_scaled, X_physics_test_scaled, y_test
+        # 예측 가능한 범위 계산
+        total = len(df) - self.seq_len - self.pred_len + 1
+        
+        for i in tqdm(range(total), desc="시퀀스 생성"):
+            # 과거 20분 데이터
+            X = df[numeric_cols].iloc[i:i+self.seq_len].values
+            
+            # 10분 후 실제값
+            y_actual = df[self.target_col].iloc[i + self.seq_len + self.pred_len - 1]
+            
+            # 물리 데이터 (현재 상태 + 미래 유입/유출)
+            current_val = df[self.target_col].iloc[i + self.seq_len - 1]
+            inflow = df[available_inflow].iloc[i+self.seq_len:i+self.seq_len+self.pred_len].sum().sum() if available_inflow else 0
+            outflow = df[available_outflow].iloc[i+self.seq_len:i+self.seq_len+self.pred_len].sum().sum() if available_outflow else 0
+            
+            X_list.append(X)
+            X_physics_list.append([current_val, inflow, outflow])
+            y_actual_list.append(y_actual)
+            valid_indices.append(i + self.seq_len + self.pred_len - 1)
+        
+        print(f"  생성된 시퀀스: {len(X_list)}개")
+        
+        return (np.array(X_list), np.array(X_physics_list), 
+                np.array(y_actual_list), valid_indices, n_features)
     
     def load_models(self, n_features):
-        """학습된 모델 로드"""
+        """두 모델 모두 로드"""
         print("\n🤖 모델 로드 중...")
         
         config = {
@@ -136,161 +177,196 @@ class ModelEvaluator:
             'patch_len': 5
         }
         
+        models = {}
+        
         # ExtremePatchTST
-        print("  ExtremePatchTST 로드 중...")
-        model1 = ExtremePatchTST(config)
-        dummy = np.zeros((1, 20, n_features))
-        _ = model1(dummy)
-        model1.load_weights('./checkpoints/model1_final.h5')
+        try:
+            model1 = ExtremePatchTST(config)
+            dummy = np.zeros((1, 20, n_features))
+            _ = model1(dummy)
+            model1.load_weights('./checkpoints/model1_final.h5')
+            models['ExtremePatchTST'] = model1
+            print("  ✅ ExtremePatchTST 로드 완료")
+        except Exception as e:
+            print(f"  ❌ ExtremePatchTST 로드 실패: {e}")
         
         # ImprovedPINN
-        print("  ImprovedPINN 로드 중...")
-        model2 = ImprovedPINN(config)
-        dummy_seq = np.zeros((1, 20, n_features))
-        dummy_physics = np.zeros((1, 3))
-        _ = model2([dummy_seq, dummy_physics])
-        model2.load_weights('./checkpoints/model2_final.h5')
+        try:
+            model2 = ImprovedPINN(config)
+            dummy_seq = np.zeros((1, 20, n_features))
+            dummy_physics = np.zeros((1, 3))
+            _ = model2([dummy_seq, dummy_physics])
+            model2.load_weights('./checkpoints/model2_final.h5')
+            models['ImprovedPINN'] = model2
+            print("  ✅ ImprovedPINN 로드 완료")
+        except Exception as e:
+            print(f"  ❌ ImprovedPINN 로드 실패: {e}")
         
-        print("✅ 모델 로드 완료")
-        return model1, model2
+        return models
     
-    def evaluate_model(self, model, model_name, X_test, y_test_true, X_physics=None):
-        """모델 평가"""
-        print(f"\n{'='*60}")
-        print(f"📊 {model_name} 평가")
-        print('='*60)
-        
-        # 예측
-        if model_name == 'ImprovedPINN':
-            y_pred_scaled = model.predict([X_test, X_physics], batch_size=32, verbose=0)
-        else:
-            y_pred_scaled = model.predict(X_test, batch_size=32, verbose=0)
-        
-        # 역변환
-        y_pred = self.scaler_y.inverse_transform(y_pred_scaled.reshape(-1, 1)).flatten()
-        
-        # 메트릭 계산
-        mae = mean_absolute_error(y_test_true, y_pred)
-        rmse = np.sqrt(mean_squared_error(y_test_true, y_pred))
-        r2 = r2_score(y_test_true, y_pred)
-        
-        print(f"\n📈 전체 성능:")
-        print(f"  MAE: {mae:.2f}")
-        print(f"  RMSE: {rmse:.2f}")
-        print(f"  R²: {r2:.4f}")
-        
-        # 임계값별 분석
-        thresholds = [300, 310, 350]
-        for threshold in thresholds:
-            mask = y_test_true >= threshold
-            if mask.sum() > 0:
-                mae_th = mean_absolute_error(y_test_true[mask], y_pred[mask])
-                detected = (y_pred >= threshold)[mask].sum()
-                total = mask.sum()
-                rate = detected / total * 100
-                
-                print(f"\n🎯 {threshold}+ 분석:")
-                print(f"  실제: {total}개")
-                print(f"  감지: {detected}개 ({rate:.1f}%)")
-                print(f"  MAE: {mae_th:.2f}")
-        
-        return y_pred, {
-            'mae': mae,
-            'rmse': rmse,
-            'r2': r2,
-            'y_pred': y_pred,
-            'y_true': y_test_true
-        }
+    def load_scalers(self):
+        """스케일러 로드"""
+        print("\n📂 스케일러 로드 중...")
+        try:
+            scaler_X = joblib.load('./scalers/scaler_X.pkl')
+            scaler_y = joblib.load('./scalers/scaler_y.pkl')
+            scaler_physics = joblib.load('./scalers/scaler_physics.pkl')
+            print("  ✅ 스케일러 로드 완료")
+            return scaler_X, scaler_y, scaler_physics
+        except Exception as e:
+            print(f"  ❌ 스케일러 로드 실패: {e}")
+            return None, None, None
     
-    def save_predictions(self, y_test, y_pred1, y_pred2):
-        """예측 결과 CSV 저장"""
-        print("\n💾 예측 결과 저장 중...")
+    def predict_and_evaluate(self, models, X, X_physics, y_actual, n_features):
+        """예측 수행 및 평가"""
+        # 스케일러 로드
+        scaler_X, scaler_y, scaler_physics = self.load_scalers()
+        if scaler_X is None:
+            return None
         
-        # 데이터프레임 생성
-        df_results = pd.DataFrame({
-            'actual': y_test,
-            'pred_ExtremePatchTST': y_pred1,
-            'pred_ImprovedPINN': y_pred2,
-            'error_ExtremePatchTST': y_pred1 - y_test,
-            'error_ImprovedPINN': y_pred2 - y_test,
-            'is_310+': y_test >= 310,
-            'is_350+': y_test >= 350
-        })
+        # 데이터 스케일링
+        print("\n📏 데이터 스케일링 중...")
+        X_scaled = scaler_X.transform(X.reshape(-1, n_features)).reshape(X.shape[0], 20, n_features)
+        X_physics_scaled = scaler_physics.transform(X_physics)
+        
+        results = {}
+        
+        # 각 모델로 예측
+        for model_name, model in models.items():
+            print(f"\n🔮 {model_name} 예측 중...")
+            
+            if model_name == 'ImprovedPINN':
+                y_pred_scaled = model.predict([X_scaled, X_physics_scaled], batch_size=32, verbose=1)
+            else:
+                y_pred_scaled = model.predict(X_scaled, batch_size=32, verbose=1)
+            
+            # 역변환
+            y_pred = scaler_y.inverse_transform(y_pred_scaled.reshape(-1, 1)).flatten()
+            
+            # 평가
+            mae = mean_absolute_error(y_actual, y_pred)
+            rmse = np.sqrt(mean_squared_error(y_actual, y_pred))
+            r2 = r2_score(y_actual, y_pred)
+            
+            # 310+ 분석
+            mask_310 = y_actual >= 310
+            if mask_310.sum() > 0:
+                mae_310 = mean_absolute_error(y_actual[mask_310], y_pred[mask_310])
+                detected_310 = (y_pred >= 310)[mask_310].sum()
+                rate_310 = detected_310 / mask_310.sum() * 100
+            else:
+                mae_310 = 0
+                detected_310 = 0
+                rate_310 = 0
+            
+            results[model_name] = {
+                'predictions': y_pred,
+                'mae': mae,
+                'rmse': rmse,
+                'r2': r2,
+                'mae_310': mae_310,
+                'detection_rate_310': rate_310
+            }
+            
+            print(f"\n📊 {model_name} 성능:")
+            print(f"  MAE: {mae:.2f}")
+            print(f"  RMSE: {rmse:.2f}")
+            print(f"  R²: {r2:.4f}")
+            print(f"  310+ MAE: {mae_310:.2f}")
+            print(f"  310+ 감지율: {rate_310:.1f}%")
+        
+        return results
+    
+    def save_results(self, df, results, y_actual, valid_indices):
+        """결과를 CSV로 저장"""
+        print("\n💾 결과 저장 중...")
+        
+        # 전체 데이터프레임 복사
+        df_result = df.copy()
+        
+        # 예측 컬럼 초기화
+        df_result['actual_10min_later'] = np.nan
+        df_result['pred_ExtremePatchTST'] = np.nan
+        df_result['pred_ImprovedPINN'] = np.nan
+        df_result['error_ExtremePatchTST'] = np.nan
+        df_result['error_ImprovedPINN'] = np.nan
+        
+        # 유효한 인덱스에만 값 채우기
+        df_result.loc[valid_indices, 'actual_10min_later'] = y_actual
+        
+        if 'ExtremePatchTST' in results:
+            df_result.loc[valid_indices, 'pred_ExtremePatchTST'] = results['ExtremePatchTST']['predictions']
+            df_result.loc[valid_indices, 'error_ExtremePatchTST'] = results['ExtremePatchTST']['predictions'] - y_actual
+        
+        if 'ImprovedPINN' in results:
+            df_result.loc[valid_indices, 'pred_ImprovedPINN'] = results['ImprovedPINN']['predictions']
+            df_result.loc[valid_indices, 'error_ImprovedPINN'] = results['ImprovedPINN']['predictions'] - y_actual
         
         # 알람 상태 추가
-        df_results['alarm_status'] = df_results.apply(
-            lambda row: 'CRITICAL' if row['actual'] >= 350 
-            else 'WARNING' if row['actual'] >= 310 
-            else 'NORMAL', axis=1
-        )
-        
-        # 예측 정확도
-        df_results['model1_correct_310'] = (
-            (df_results['actual'] >= 310) == (df_results['pred_ExtremePatchTST'] >= 310)
-        )
-        df_results['model2_correct_310'] = (
-            (df_results['actual'] >= 310) == (df_results['pred_ImprovedPINN'] >= 310)
+        df_result['alarm_status'] = df_result.apply(
+            lambda row: 'CRITICAL' if row['actual_10min_later'] >= 350 
+            else 'WARNING' if row['actual_10min_later'] >= 310
+            else 'NORMAL' if pd.notna(row['actual_10min_later'])
+            else 'NO_DATA', axis=1
         )
         
         # 저장
-        output_path = 'test_predictions_result.csv'
-        df_results.to_csv(output_path, index=False)
-        print(f"✅ 저장 완료: {output_path}")
+        output_path = '202509_evaluation_results.csv'
+        df_result.to_csv(output_path, index=False)
         
-        # 요약 통계
-        print(f"\n📊 요약:")
-        print(f"  전체 데이터: {len(df_results)}개")
-        print(f"  310+ 데이터: {df_results['is_310+'].sum()}개")
-        print(f"  350+ 데이터: {df_results['is_350+'].sum()}개")
-        print(f"  Model1 310+ 정확도: {df_results['model1_correct_310'].mean():.1%}")
-        print(f"  Model2 310+ 정확도: {df_results['model2_correct_310'].mean():.1%}")
+        print(f"✅ 결과 저장 완료: {output_path}")
+        print(f"  전체 행: {len(df_result)}")
+        print(f"  예측 가능한 행: {len(valid_indices)}")
+        print(f"  310+ 데이터: {(y_actual >= 310).sum()}개")
         
-        return df_results
+        return df_result
+
+# ========================================
+# 메인 실행
+# ========================================
 
 def main():
     # 평가기 생성
-    evaluator = ModelEvaluator()
+    evaluator = CSVEvaluator()
     
-    # 테스트 데이터 로드
-    X_test, y_test_scaled, X_physics_test, y_test = evaluator.load_test_data()
+    # 1. 데이터 로드
+    csv_path = '202509.csv'  # 또는 입력받기
+    if not os.path.exists(csv_path):
+        csv_path = input("CSV 파일 경로 입력: ").strip()
     
-    # 특성 수 확인
-    n_features = X_test.shape[2]
+    df = evaluator.load_data(csv_path)
     
-    # 모델 로드
-    model1, model2 = evaluator.load_models(n_features)
+    # 2. 시퀀스 준비
+    X, X_physics, y_actual, valid_indices, n_features = evaluator.prepare_sequences(df)
     
-    # ExtremePatchTST 평가
-    y_pred1, results1 = evaluator.evaluate_model(
-        model1, 'ExtremePatchTST', X_test, y_test
-    )
+    # 3. 모델 로드
+    models = evaluator.load_models(n_features)
     
-    # ImprovedPINN 평가
-    y_pred2, results2 = evaluator.evaluate_model(
-        model2, 'ImprovedPINN', X_test, y_test, X_physics_test
-    )
+    if not models:
+        print("❌ 로드된 모델이 없습니다!")
+        return
     
-    # 결과 저장
-    df_results = evaluator.save_predictions(y_test, y_pred1, y_pred2)
+    # 4. 예측 및 평가
+    results = evaluator.predict_and_evaluate(models, X, X_physics, y_actual, n_features)
     
-    # 최종 비교
-    print("\n" + "="*80)
-    print("📊 최종 모델 비교")
-    print("="*80)
-    
-    print(f"\n{'모델':<20} {'MAE':<10} {'RMSE':<10} {'R²':<10}")
-    print("-"*50)
-    print(f"{'ExtremePatchTST':<20} {results1['mae']:<10.2f} {results1['rmse']:<10.2f} {results1['r2']:<10.4f}")
-    print(f"{'ImprovedPINN':<20} {results2['mae']:<10.2f} {results2['rmse']:<10.2f} {results2['r2']:<10.4f}")
-    
-    # 우수 모델
-    if results2['mae'] < results1['mae']:
-        print(f"\n🏆 우수 모델: ImprovedPINN (MAE {results2['mae']:.2f})")
-    else:
-        print(f"\n🏆 우수 모델: ExtremePatchTST (MAE {results1['mae']:.2f})")
-    
-    print("\n✅ 평가 완료!")
-    print(f"📁 결과 파일: test_predictions_result.csv")
+    if results:
+        # 5. 결과 저장
+        df_result = evaluator.save_results(df, results, y_actual, valid_indices)
+        
+        # 6. 최종 요약
+        print("\n" + "="*80)
+        print("📊 최종 평가 요약")
+        print("="*80)
+        
+        for model_name, result in results.items():
+            print(f"\n[{model_name}]")
+            print(f"  MAE: {result['mae']:.2f}")
+            print(f"  RMSE: {result['rmse']:.2f}")
+            print(f"  R²: {result['r2']:.4f}")
+            print(f"  310+ 감지율: {result['detection_rate_310']:.1f}%")
+        
+        print("\n✅ 평가 완료!")
+        print("📁 결과 파일: 202509_evaluation_results.csv")
 
 if __name__ == "__main__":
     main()
