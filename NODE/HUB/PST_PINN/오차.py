@@ -1,169 +1,279 @@
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
+"""
+HUBROOM 300 임계값 Sensing 분류 시스템
+과거 20분 데이터의 300 임계값 상태와 예측/실제값 비교를 통한 감지 성능 분류
+"""
+
 import pandas as pd
+import numpy as np
 from datetime import datetime, timedelta
 
-def validate_input_max_min(file_path):
+def classify_sensing_performance(csv_file_path, output_file_path=None):
     """
-    과거 20분간의 actual 값에서 계산한 max/min과 
-    input_max/input_min이 일치하는지 검증
+    CSV 파일을 읽어 Sensing 성능을 분류하고 새 컬럼 추가
+    
+    Parameters:
+    -----------
+    csv_file_path : str
+        입력 CSV 파일 경로
+    output_file_path : str, optional
+        출력 CSV 파일 경로 (없으면 '_sensing_analyzed.csv' 추가)
+    
+    Returns:
+    --------
+    pd.DataFrame : Sensing 컬럼이 추가된 데이터프레임
     """
-    # CSV 파일 읽기 (탭으로 구분)
-    df = pd.read_csv(file_path, sep='\t')
     
-    # timestamp를 datetime으로 변환
-    df['timestamp'] = pd.to_datetime(df['timestamp'])
+    print("="*80)
+    print("🏭 HUBROOM 300 임계값 Sensing 분류 시스템")
+    print("="*80)
     
-    # 검증 결과를 저장할 리스트
-    validation_results = []
+    # 1. CSV 파일 읽기
+    print("\n📂 CSV 파일 로드 중...")
+    df = pd.read_csv(csv_file_path)
+    print(f"✅ 데이터 로드 완료: {len(df):,} 행")
     
-    print("=" * 80)
-    print("Input Max/Min 검증 결과")
-    print("=" * 80)
-    print(f"{'시간':<20} {'Actual':<8} {'Input_Max':<10} {'Input_Min':<10} {'계산_Max':<10} {'계산_Min':<10} {'Max_일치':<10} {'Min_일치':<10}")
-    print("-" * 80)
+    # 컬럼 확인
+    print("\n📋 컬럼 확인:")
+    print(f"  전체 컬럼: {df.columns.tolist()}")
     
-    # 각 행에 대해 검증
-    for idx, row in df.iterrows():
-        current_time = row['timestamp']
-        
-        # 과거 20분 범위 계산 (현재 시간 - 20분 ~ 현재 시간 - 1분)
-        start_time = current_time - timedelta(minutes=20)
-        end_time = current_time - timedelta(minutes=1)
-        
-        # 과거 20분 데이터 필터링
-        past_20min = df[(df['timestamp'] > start_time) & (df['timestamp'] <= end_time)]
-        
-        if len(past_20min) > 0:
-            # 과거 20분간의 actual 최대/최소값 계산
-            calculated_max = past_20min['actual'].max()
-            calculated_min = past_20min['actual'].min()
-            
-            # 현재 input_max, input_min과 비교
-            input_max = row['input_max']
-            input_min = row['input_min']
-            
-            # 일치 여부 확인
-            max_match = (calculated_max == input_max)
-            min_match = (calculated_min == input_min)
-            
-            # 결과 저장
-            result = {
-                'timestamp': current_time,
-                'actual': row['actual'],
-                'input_max': input_max,
-                'input_min': input_min,
-                'calculated_max': calculated_max,
-                'calculated_min': calculated_min,
-                'max_match': max_match,
-                'min_match': min_match,
-                'past_20min_count': len(past_20min)
-            }
-            validation_results.append(result)
-            
-            # 불일치하는 경우만 출력 (또는 모든 결과 출력)
-            if not max_match or not min_match:
-                print(f"{current_time.strftime('%Y-%m-%d %H:%M'):<20} "
-                      f"{row['actual']:<8} "
-                      f"{input_max:<10} "
-                      f"{input_min:<10} "
-                      f"{calculated_max:<10} "
-                      f"{calculated_min:<10} "
-                      f"{'O' if max_match else 'X':<10} "
-                      f"{'O' if min_match else 'X':<10}")
+    # 2. 시간 컬럼 찾기 및 처리
+    print("\n⏰ 시간 데이터 처리 중...")
     
-    # 결과를 DataFrame으로 변환
-    results_df = pd.DataFrame(validation_results)
+    # 가능한 시간 컬럼명들
+    time_column_candidates = ['timestamp', 'predicted_Target_time', 'Patchtst_predicted_TIME', 
+                              'time', 'Time', 'TIMESTAMP', 'datetime', 'date_time']
+    time_column = None
     
-    # 통계 출력
-    print("\n" + "=" * 80)
-    print("검증 통계")
-    print("=" * 80)
+    for col in time_column_candidates:
+        if col in df.columns:
+            time_column = col
+            print(f"  ✓ 시간 컬럼 발견: '{time_column}'")
+            break
     
-    if len(results_df) > 0:
-        total_count = len(results_df)
-        max_correct = results_df['max_match'].sum()
-        min_correct = results_df['min_match'].sum()
-        both_correct = ((results_df['max_match']) & (results_df['min_match'])).sum()
-        
-        print(f"전체 검증 건수: {total_count}")
-        print(f"Max 일치: {max_correct}/{total_count} ({max_correct/total_count*100:.1f}%)")
-        print(f"Min 일치: {min_correct}/{total_count} ({min_correct/total_count*100:.1f}%)")
-        print(f"둘 다 일치: {both_correct}/{total_count} ({both_correct/total_count*100:.1f}%)")
-        
-        # 불일치 케이스 상세 분석
-        max_errors = results_df[~results_df['max_match']]
-        min_errors = results_df[~results_df['min_match']]
-        
-        if len(max_errors) > 0:
-            print(f"\n최대값 불일치 케이스: {len(max_errors)}건")
-            print("평균 오차:", (max_errors['input_max'] - max_errors['calculated_max']).abs().mean())
-            
-        if len(min_errors) > 0:
-            print(f"\n최소값 불일치 케이스: {len(min_errors)}건")
-            print("평균 오차:", (min_errors['input_min'] - min_errors['calculated_min']).abs().mean())
-    
-    return results_df
-
-def check_specific_time_range(file_path, target_time):
-    """
-    특정 시점의 과거 20분 데이터를 상세히 확인
-    """
-    df = pd.read_csv(file_path, sep='\t')
-    df['timestamp'] = pd.to_datetime(df['timestamp'])
-    
-    # 타겟 시간을 datetime으로 변환
-    target = pd.to_datetime(target_time)
-    
-    # 해당 시점 찾기
-    target_row = df[df['timestamp'] == target]
-    
-    if target_row.empty:
-        print(f"{target_time} 시점의 데이터가 없습니다.")
-        return
-    
-    # 과거 20분 데이터 추출
-    start_time = target - timedelta(minutes=20)
-    end_time = target - timedelta(minutes=1)
-    past_20min = df[(df['timestamp'] > start_time) & (df['timestamp'] <= end_time)]
-    
-    print(f"\n{'='*60}")
-    print(f"{target_time} 시점의 과거 20분 데이터 분석")
-    print(f"{'='*60}")
-    print(f"분석 범위: {start_time.strftime('%H:%M:%S')} ~ {end_time.strftime('%H:%M:%S')}")
-    print(f"데이터 개수: {len(past_20min)}개")
-    
-    if len(past_20min) > 0:
-        print(f"\n과거 20분 actual 값들:")
-        for _, row in past_20min.iterrows():
-            print(f"  {row['timestamp'].strftime('%H:%M')}: {row['actual']}")
-        
-        calculated_max = past_20min['actual'].max()
-        calculated_min = past_20min['actual'].min()
-        
-        print(f"\n계산된 Max: {calculated_max}")
-        print(f"계산된 Min: {calculated_min}")
-        print(f"\n기록된 input_max: {target_row.iloc[0]['input_max']}")
-        print(f"기록된 input_min: {target_row.iloc[0]['input_min']}")
-        
-        if calculated_max != target_row.iloc[0]['input_max']:
-            print(f"⚠️ Max 불일치! 차이: {abs(calculated_max - target_row.iloc[0]['input_max'])}")
+    # 시간 컬럼이 없으면 predicted_Target_time 사용 (제공된 데이터 기준)
+    if time_column is None:
+        if 'predicted_Target_time' in df.columns:
+            time_column = 'predicted_Target_time'
+            print(f"  ✓ 기본 시간 컬럼 사용: '{time_column}'")
         else:
-            print("✓ Max 일치")
-            
-        if calculated_min != target_row.iloc[0]['input_min']:
-            print(f"⚠️ Min 불일치! 차이: {abs(calculated_min - target_row.iloc[0]['input_min'])}")
+            # 인덱스를 시간으로 가정
+            print("  ⚠️ 시간 컬럼을 찾을 수 없습니다. 인덱스를 분 단위로 사용합니다.")
+            df['time_index'] = range(len(df))
+            time_column = 'time_index'
+            is_index_time = True
+    else:
+        is_index_time = False
+    
+    # 시간 데이터 변환
+    if not is_index_time:
+        try:
+            df[time_column] = pd.to_datetime(df[time_column])
+            df = df.sort_values(time_column).reset_index(drop=True)
+            print(f"  ✓ 시간 데이터 변환 완료")
+        except:
+            print(f"  ⚠️ 시간 변환 실패. 원본 데이터 유지")
+    
+    # 필수 컬럼 확인
+    required_columns = ['actual', 'predicted']
+    missing_columns = [col for col in required_columns if col not in df.columns]
+    
+    if missing_columns:
+        print(f"\n❌ 필수 컬럼이 없습니다: {missing_columns}")
+        print("  CSV 파일에 'actual'과 'predicted' 컬럼이 있어야 합니다.")
+        return None
+    
+    # 3. Sensing 컬럼 초기화
+    df['Sensing'] = ''
+    
+    # 4. 각 행에 대해 분류 수행
+    print("\n🔍 Sensing 분류 시작...")
+    threshold = 300
+    lookback_minutes = 20
+    
+    total_rows = len(df)
+    classified_count = 0
+    
+    # 분류 카운터
+    sensing_counts = {
+        '300_Sensing_OK': 0,
+        '300_Sensing_NG': 0,
+        '200_Sensing_OK': 0,
+        '200_Sensing_NG': 0,
+        'No_Classification': 0
+    }
+    
+    for idx in range(len(df)):
+        if idx % 100 == 0:
+            print(f"  진행: {idx}/{total_rows} ({idx/total_rows*100:.1f}%)", end='\r')
+        
+        current_actual = df.loc[idx, 'actual']
+        current_predicted = df.loc[idx, 'predicted']
+        
+        # 과거 20분(20행) 데이터 찾기
+        if is_index_time:
+            # 인덱스 기반 (이전 20행)
+            start_idx = max(0, idx - lookback_minutes)
+            past_data = df.iloc[start_idx:idx]
         else:
-            print("✓ Min 일치")
+            # 시간 기반
+            current_time = df.loc[idx, time_column]
+            past_time = current_time - timedelta(minutes=lookback_minutes)
+            past_data = df[(df[time_column] > past_time) & (df[time_column] < current_time)]
+        
+        if len(past_data) == 0:
+            df.loc[idx, 'Sensing'] = 'No_Past_Data'
+            sensing_counts['No_Classification'] += 1
+            continue
+        
+        # 과거 20분 데이터의 최대값 확인
+        past_max = past_data['actual'].max()
+        
+        # 분류 로직
+        if past_max <= threshold:  # 과거 20분이 300 이하
+            if current_predicted >= threshold:  # 예측이 300 이상
+                if current_actual >= threshold:  # 실제도 300 이상
+                    df.loc[idx, 'Sensing'] = '300_Sensing_OK'
+                    sensing_counts['300_Sensing_OK'] += 1
+                else:  # 실제는 300 미만
+                    df.loc[idx, 'Sensing'] = '300_Sensing_NG'
+                    sensing_counts['300_Sensing_NG'] += 1
+            else:
+                df.loc[idx, 'Sensing'] = 'No_Alert_Needed'
+                sensing_counts['No_Classification'] += 1
+                
+        else:  # 과거 20분에 300 이상 존재
+            if current_predicted < threshold:  # 예측이 300 미만
+                if current_actual < threshold:  # 실제도 300 미만
+                    df.loc[idx, 'Sensing'] = '200_Sensing_OK'
+                    sensing_counts['200_Sensing_OK'] += 1
+                else:  # 실제는 300 이상
+                    df.loc[idx, 'Sensing'] = '200_Sensing_NG'
+                    sensing_counts['200_Sensing_NG'] += 1
+            else:
+                df.loc[idx, 'Sensing'] = 'Maintaining_High'
+                sensing_counts['No_Classification'] += 1
+    
+    print(f"\n✅ Sensing 분류 완료!")
+    
+    # 5. 분류 결과 통계 출력
+    print("\n" + "="*60)
+    print("📊 분류 결과 통계")
+    print("="*60)
+    
+    for category, count in sensing_counts.items():
+        if count > 0:
+            percentage = (count / total_rows) * 100
+            print(f"  {category:20}: {count:6,} 건 ({percentage:5.2f}%)")
+    
+    # 주요 4가지 카테고리의 합계
+    main_categories = ['300_Sensing_OK', '300_Sensing_NG', '200_Sensing_OK', '200_Sensing_NG']
+    main_total = sum(sensing_counts[cat] for cat in main_categories)
+    print(f"\n  {'주요 분류 합계':20}: {main_total:6,} 건 ({main_total/total_rows*100:5.2f}%)")
+    
+    # 6. 성능 지표 계산
+    print("\n" + "="*60)
+    print("🎯 감지 성능 분석")
+    print("="*60)
+    
+    # 300 상승 감지 성능
+    up_total = sensing_counts['300_Sensing_OK'] + sensing_counts['300_Sensing_NG']
+    if up_total > 0:
+        up_accuracy = (sensing_counts['300_Sensing_OK'] / up_total) * 100
+        print(f"\n📈 300 상승 감지:")
+        print(f"  - 전체 감지 시도: {up_total:,} 건")
+        print(f"  - 정확 감지 (OK): {sensing_counts['300_Sensing_OK']:,} 건")
+        print(f"  - 오감지 (NG): {sensing_counts['300_Sensing_NG']:,} 건")
+        print(f"  - 정확도: {up_accuracy:.2f}%")
+    
+    # 300 하락 감지 성능
+    down_total = sensing_counts['200_Sensing_OK'] + sensing_counts['200_Sensing_NG']
+    if down_total > 0:
+        down_accuracy = (sensing_counts['200_Sensing_OK'] / down_total) * 100
+        print(f"\n📉 300 하락 감지:")
+        print(f"  - 전체 감지 시도: {down_total:,} 건")
+        print(f"  - 정확 감지 (OK): {sensing_counts['200_Sensing_OK']:,} 건")
+        print(f"  - 오감지 (NG): {sensing_counts['200_Sensing_NG']:,} 건")
+        print(f"  - 정확도: {down_accuracy:.2f}%")
+    
+    # 전체 정확도
+    total_main = up_total + down_total
+    if total_main > 0:
+        total_ok = sensing_counts['300_Sensing_OK'] + sensing_counts['200_Sensing_OK']
+        total_accuracy = (total_ok / total_main) * 100
+        print(f"\n📊 전체 감지 정확도: {total_accuracy:.2f}%")
+    
+    # 7. 결과 저장
+    if output_file_path is None:
+        output_file_path = csv_file_path.replace('.csv', '_sensing_analyzed.csv')
+    
+    print(f"\n💾 결과 저장 중...")
+    df.to_csv(output_file_path, index=False)
+    print(f"✅ 저장 완료: {output_file_path}")
+    
+    # 8. 샘플 데이터 출력
+    print("\n" + "="*60)
+    print("📝 분류 결과 샘플 (주요 카테고리만)")
+    print("="*60)
+    
+    for category in main_categories:
+        sample = df[df['Sensing'] == category].head(2)
+        if len(sample) > 0:
+            print(f"\n🔹 {category}:")
+            for _, row in sample.iterrows():
+                if not is_index_time:
+                    print(f"  시간: {row[time_column]}")
+                else:
+                    print(f"  인덱스: {row['time_index']}")
+                print(f"  실제값: {row['actual']:.1f}, 예측값: {row['predicted']:.1f}")
+                print()
+    
+    return df
 
-# 사용 예시
-if __name__ == "__main__":
+# 실행 함수
+def main():
+    """메인 실행 함수"""
+    
     # 파일 경로 설정
-    file_path = 'your_data.csv'  # 실제 파일 경로로 변경
+    input_file = 'your_data.csv'  # 여기에 실제 CSV 파일 경로 입력
+    output_file = 'your_data_sensing_analyzed.csv'  # 출력 파일명 (옵션)
     
-    # 전체 검증 실행
-    results = validate_input_max_min(file_path)
+    try:
+        # 분석 실행
+        result_df = classify_sensing_performance(input_file, output_file)
+        
+        if result_df is not None:
+            print("\n" + "="*80)
+            print("✨ 분석 완료!")
+            print("="*80)
+            print(f"📊 총 {len(result_df):,} 행 처리 완료")
+            print(f"📁 결과 파일: {output_file}")
+            
+            # 추가 분석 (옵션)
+            print("\n💡 추가 분석 팁:")
+            print("  - Sensing 컬럼으로 그룹화하여 상세 분석 가능")
+            print("  - 시간대별 성능 변화 추적 가능")
+            print("  - 특정 구간의 감지 성능 집중 분석 가능")
+        
+    except FileNotFoundError:
+        print(f"❌ 파일을 찾을 수 없습니다: {input_file}")
+        print("파일 경로를 확인해주세요.")
+    except Exception as e:
+        print(f"❌ 오류 발생: {e}")
+        import traceback
+        traceback.print_exc()
+
+if __name__ == "__main__":
+    # 사용 예시
+    print("📌 사용법:")
+    print("  1. input_file 변수에 CSV 파일 경로 설정")
+    print("  2. main() 함수 실행")
+    print("\n또는 직접 함수 호출:")
+    print('  df = classify_sensing_performance("your_file.csv")')
     
-    # 특정 시점 상세 분석 (예: 문제가 있는 시점)
-    # check_specific_time_range(file_path, '2025-08-01 01:00:00')
+    # 실제 실행하려면 아래 주석 해제
+    # main()
     
-    # 결과를 CSV로 저장 (선택사항)
-    # results.to_csv('validation_results.csv', index=False)
+    # 또는 직접 실행
+    # df = classify_sensing_performance("your_data.csv", "output_sensing.csv")
