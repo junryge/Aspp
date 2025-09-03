@@ -1,9 +1,10 @@
 # -*- coding: utf-8 -*-
 """
-HUBROOM 극단값 예측 시스템 V3
+HUBROOM 극단값 예측 시스템 V3.1
+- 오류 수정: ExtremeValueCallback 인덱스 문제 해결
+- 중단/재시작 기능 추가
 - Model 1: PatchTST (전체 구간 균형)
 - Model 2: PatchTST + PINN (310+ 극단값 특화)
-- 310-335 구간 10배, 335+ 구간 15배 오버샘플링
 """
 
 import numpy as np
@@ -20,6 +21,8 @@ import pickle
 import warnings
 from tqdm import tqdm
 import joblib
+import signal
+import sys
 
 warnings.filterwarnings('ignore')
 
@@ -27,41 +30,90 @@ np.random.seed(42)
 tf.random.set_seed(42)
 print(f"TensorFlow Version: {tf.__version__}")
 print("="*80)
-print("🏭 HUBROOM 극단값 예측 시스템 V3")
+print("🏭 HUBROOM 극단값 예측 시스템 V3.1")
 print("🎯 목표: 310+ 극단값 정확 예측")
+print("✅ 중단/재시작 기능 포함")
 print("="*80)
 
 # ========================================
-# 극단값 모니터링 콜백
+# 체크포인트 관리자 (중단/재시작)
+# ========================================
+
+class CheckpointManager:
+    def __init__(self, checkpoint_dir='./checkpoints'):
+        self.checkpoint_dir = checkpoint_dir
+        os.makedirs(checkpoint_dir, exist_ok=True)
+        self.state_file = os.path.join(checkpoint_dir, 'training_state_v3.pkl')
+        self.interrupted = False
+        
+        # Ctrl+C 핸들러
+        signal.signal(signal.SIGINT, self._signal_handler)
+    
+    def _signal_handler(self, sig, frame):
+        print('\n\n⚠️ 중단 감지! 상태 저장 중...')
+        self.interrupted = True
+        # 즉시 종료하지 않고 다음 체크포인트에서 저장
+        
+    def save_state(self, state):
+        with open(self.state_file, 'wb') as f:
+            pickle.dump(state, f)
+        print(f"💾 상태 저장 완료: Step {state.get('step', 0)}")
+        
+    def load_state(self):
+        if os.path.exists(self.state_file):
+            with open(self.state_file, 'rb') as f:
+                return pickle.load(f)
+        return None
+    
+    def clear_state(self):
+        if os.path.exists(self.state_file):
+            os.remove(self.state_file)
+            print("🧹 이전 상태 제거 완료")
+
+# ========================================
+# 극단값 모니터링 콜백 (오류 수정)
 # ========================================
 
 class ExtremeValueCallback(Callback):
-    """310+ 예측 성능 모니터링"""
+    """310+ 예측 성능 모니터링 - 인덱스 오류 수정"""
     
     def __init__(self, X_val, y_val, scaler_y):
         super().__init__()
-        self.X_val = X_val[:500] if len(X_val) > 500 else X_val
-        self.y_val = y_val[:500] if len(y_val) > 500 else y_val
+        # 데이터 크기 제한
+        sample_size = min(500, len(y_val))
+        
+        if isinstance(X_val, tuple):
+            # Model 2용 (튜플)
+            self.X_val = (X_val[0][:sample_size], X_val[1][:sample_size])
+        else:
+            # Model 1용 (단일)
+            self.X_val = X_val[:sample_size]
+        
+        self.y_val = y_val[:sample_size]
         self.scaler_y = scaler_y
         
     def on_epoch_end(self, epoch, logs=None):
         if epoch % 10 == 0:
-            # 예측
-            if isinstance(self.X_val, tuple):
+            try:
+                # 예측
                 y_pred_scaled = self.model.predict(self.X_val, verbose=0)
-            else:
-                y_pred_scaled = self.model.predict(self.X_val, verbose=0)
-            
-            y_pred = self.scaler_y.inverse_transform(y_pred_scaled.reshape(-1, 1)).flatten()
-            y_true = self.scaler_y.inverse_transform(self.y_val.reshape(-1, 1)).flatten()
-            
-            # 구간별 성능
-            print(f"\n[Epoch {epoch}] 극단값 감지:")
-            for threshold in [310, 335]:
-                mask = y_true >= threshold
-                if mask.sum() > 0:
-                    detected = (y_pred >= threshold - 5)[mask].sum()
-                    print(f"  {threshold}+: {detected}/{mask.sum()} ({detected/mask.sum()*100:.1f}%)")
+                
+                # 크기 확인 및 조정
+                y_pred_scaled = y_pred_scaled[:len(self.y_val)]
+                
+                y_pred = self.scaler_y.inverse_transform(y_pred_scaled.reshape(-1, 1)).flatten()
+                y_true = self.scaler_y.inverse_transform(self.y_val.reshape(-1, 1)).flatten()
+                
+                # 구간별 성능
+                print(f"\n[Epoch {epoch}] 극단값 감지:")
+                for threshold in [310, 335]:
+                    mask = y_true >= threshold
+                    if mask.sum() > 0:
+                        # 마스크 적용 전 크기 확인
+                        detected = (y_pred[mask] >= threshold - 5).sum()
+                        print(f"  {threshold}+: {detected}/{mask.sum()} ({detected/mask.sum()*100:.1f}%)")
+            except Exception as e:
+                print(f"\n[Epoch {epoch}] 모니터링 오류: {e}")
 
 # ========================================
 # 데이터 처리 (극단값 특화 V3)
@@ -366,195 +418,364 @@ class ExtremeLossV3(tf.keras.losses.Loss):
         return mse * weight
 
 # ========================================
-# 메인 실행
+# 메인 실행 (중단/재시작 지원)
 # ========================================
 
 def main():
+    # 체크포인트 관리자
+    ckpt = CheckpointManager()
+    
+    # 상태 로드
+    state = ckpt.load_state()
+    if state:
+        print(f"\n♻️ 이전 상태 발견! (Step {state.get('step', 1)})")
+        
+        resume = input("이어서 진행하시겠습니까? (y: 이어서, n: 처음부터): ").lower()
+        
+        if resume != 'y':
+            ckpt.clear_state()
+            state = None
+            step = 1
+        else:
+            step = state.get('step', 1)
+            print(f"✅ Step {step}부터 재개합니다.")
+    else:
+        state = {}
+        step = 1
+    
     # 데이터 처리
     processor = DataProcessorV3()
     
-    # 1. 데이터 로드
-    print("\n[Step 1/5] 데이터 로드")
-    df = pd.read_csv('data/HUB_0509_TO_0730_DATA.CSV')
-    print(f"✅ 데이터 로드: {df.shape}")
+    # Step 1: 데이터 로드 및 전처리
+    if step == 1:
+        print("\n[Step 1/6] 데이터 로드 및 전처리")
+        df = pd.read_csv('data/HUB_0509_TO_0730_DATA.CSV')
+        print(f"✅ 데이터 로드: {df.shape}")
+        
+        processor.analyze_data(df)
+        
+        df['timestamp'] = pd.to_datetime(df.iloc[:, 0], format='%Y%m%d%H%M', errors='coerce')
+        df = df.sort_values('timestamp').reset_index(drop=True)
+        df = df.fillna(method='ffill').fillna(0)
+        
+        state['df_shape'] = df.shape
+        state['step'] = 2
+        ckpt.save_state(state)
+        
+        # 다음 단계를 위해 df 저장
+        df.to_pickle('./checkpoints/processed_df.pkl')
+        print("💾 전처리된 데이터 저장 완료")
     
-    # 2. 데이터 분석
-    processor.analyze_data(df)
+    # Step 2: 시퀀스 생성
+    if step <= 2:
+        if step == 2:
+            print("\n[Step 2/6] 시퀀스 생성")
+            df = pd.read_pickle('./checkpoints/processed_df.pkl')
+            X, y, X_physics, weights = processor.create_sequences_v3(df)
+            
+            state['X'] = X
+            state['y'] = y
+            state['X_physics'] = X_physics
+            state['weights'] = weights
+            state['n_features'] = X.shape[2]
+            state['step'] = 3
+            ckpt.save_state(state)
+        else:
+            X = state['X']
+            y = state['y']
+            X_physics = state['X_physics']
+            weights = state['weights']
     
-    # 3. 전처리
-    print("\n[Step 2/5] 데이터 전처리")
-    df['timestamp'] = pd.to_datetime(df.iloc[:, 0], format='%Y%m%d%H%M', errors='coerce')
-    df = df.sort_values('timestamp').reset_index(drop=True)
-    df = df.fillna(method='ffill').fillna(0)
+    # Step 3: 데이터 분할
+    if step <= 3:
+        if step == 3:
+            print("\n[Step 3/6] 데이터 분할")
+            
+            X = state['X']
+            y = state['y']
+            X_physics = state['X_physics']
+            weights = state['weights']
+            
+            indices = np.arange(len(X))
+            train_idx, test_idx = train_test_split(indices, test_size=0.2, random_state=42)
+            val_idx, test_idx = train_test_split(test_idx, test_size=0.5, random_state=42)
+            
+            state['train_idx'] = train_idx
+            state['val_idx'] = val_idx
+            state['test_idx'] = test_idx
+            state['step'] = 4
+            ckpt.save_state(state)
+        else:
+            train_idx = state['train_idx']
+            val_idx = state['val_idx']
+            test_idx = state['test_idx']
     
-    # 4. 시퀀스 생성
-    print("\n[Step 3/5] 시퀀스 생성")
-    X, y, X_physics, weights = processor.create_sequences_v3(df)
+    # Step 4: 스케일링
+    if step <= 4:
+        if step == 4:
+            print("\n[Step 4/6] 데이터 스케일링")
+            
+            X = state['X']
+            y = state['y']
+            X_physics = state['X_physics']
+            weights = state['weights']
+            n_features = state['n_features']
+            
+            train_idx = state['train_idx']
+            val_idx = state['val_idx']
+            test_idx = state['test_idx']
+            
+            # 데이터 분할
+            X_train, y_train = X[train_idx], y[train_idx]
+            X_val, y_val = X[val_idx], y[val_idx]
+            X_test, y_test = X[test_idx], y[test_idx]
+            
+            X_physics_train = X_physics[train_idx]
+            X_physics_val = X_physics[val_idx]
+            X_physics_test = X_physics[test_idx]
+            
+            weights_train = weights[train_idx]
+            
+            # 스케일링
+            X_train_flat = X_train.reshape(-1, n_features)
+            X_train_scaled = processor.scaler_X.fit_transform(X_train_flat)
+            X_train_scaled = X_train_scaled.reshape(len(X_train), 20, n_features)
+            
+            X_val_scaled = processor.scaler_X.transform(X_val.reshape(-1, n_features)).reshape(len(X_val), 20, n_features)
+            X_test_scaled = processor.scaler_X.transform(X_test.reshape(-1, n_features)).reshape(len(X_test), 20, n_features)
+            
+            y_train_scaled = processor.scaler_y.fit_transform(y_train.reshape(-1, 1)).flatten()
+            y_val_scaled = processor.scaler_y.transform(y_val.reshape(-1, 1)).flatten()
+            y_test_scaled = processor.scaler_y.transform(y_test.reshape(-1, 1)).flatten()
+            
+            X_physics_train_scaled = processor.scaler_physics.fit_transform(X_physics_train)
+            X_physics_val_scaled = processor.scaler_physics.transform(X_physics_val)
+            X_physics_test_scaled = processor.scaler_physics.transform(X_physics_test)
+            
+            processor.save_scalers()
+            
+            # 테스트 데이터 저장
+            os.makedirs('./test_data', exist_ok=True)
+            np.save('./test_data/X_test_scaled.npy', X_test_scaled)
+            np.save('./test_data/y_test_scaled.npy', y_test_scaled)
+            np.save('./test_data/y_test.npy', y_test)
+            np.save('./test_data/X_physics_test_scaled.npy', X_physics_test_scaled)
+            
+            state['X_train_scaled'] = X_train_scaled
+            state['y_train_scaled'] = y_train_scaled
+            state['X_val_scaled'] = X_val_scaled
+            state['y_val_scaled'] = y_val_scaled
+            state['X_test_scaled'] = X_test_scaled
+            state['y_test_scaled'] = y_test_scaled
+            state['X_physics_train_scaled'] = X_physics_train_scaled
+            state['X_physics_val_scaled'] = X_physics_val_scaled
+            state['X_physics_test_scaled'] = X_physics_test_scaled
+            state['weights_train'] = weights_train
+            state['y_train'] = y_train
+            state['y_val'] = y_val
+            state['y_test'] = y_test
+            state['step'] = 5
+            ckpt.save_state(state)
+            
+            print(f"\n📊 데이터셋 크기:")
+            print(f"  Train: {len(train_idx)} (310+: {(y_train >= 310).sum()}, 335+: {(y_train >= 335).sum()})")
+            print(f"  Valid: {len(val_idx)} (310+: {(y_val >= 310).sum()}, 335+: {(y_val >= 335).sum()})")
+            print(f"  Test: {len(test_idx)} (310+: {(y_test >= 310).sum()}, 335+: {(y_test >= 335).sum()})")
     
-    # 5. 데이터 분할
-    print("\n[Step 4/5] 데이터 분할 및 스케일링")
-    indices = np.arange(len(X))
-    train_idx, test_idx = train_test_split(indices, test_size=0.2, random_state=42)
-    val_idx, test_idx = train_test_split(test_idx, test_size=0.5, random_state=42)
+    # Step 5: 모델 학습
+    if step <= 5:
+        print("\n[Step 5/6] 모델 학습")
+        
+        # 데이터 로드
+        X_train_scaled = state['X_train_scaled']
+        y_train_scaled = state['y_train_scaled']
+        X_val_scaled = state['X_val_scaled']
+        y_val_scaled = state['y_val_scaled']
+        X_physics_train_scaled = state['X_physics_train_scaled']
+        X_physics_val_scaled = state['X_physics_val_scaled']
+        weights_train = state['weights_train']
+        n_features = state.get('n_features', X_train_scaled.shape[2])
+        
+        config = {
+            'seq_len': 20,
+            'n_features': n_features,
+            'patch_len': 5
+        }
+        
+        # Model 1 학습 체크
+        model1_trained = state.get('model1_trained', False)
+        
+        if not model1_trained:
+            print("\n🤖 Model 1: PatchTST 학습")
+            model1 = PatchTSTModel(config)
+            model1.compile(
+                optimizer=Adam(learning_rate=0.001),
+                loss=ExtremeLossV3(extreme_focus=False),
+                metrics=['mae']
+            )
+            
+            callbacks_model1 = [
+                EarlyStopping(patience=20, restore_best_weights=True),
+                ReduceLROnPlateau(factor=0.5, patience=10, min_lr=1e-6),
+                ModelCheckpoint('./checkpoints/model1_v3.h5', save_best_only=True, save_weights_only=True),
+                ExtremeValueCallback(X_val_scaled, y_val_scaled, processor.scaler_y)
+            ]
+            
+            history1 = model1.fit(
+                X_train_scaled, y_train_scaled,
+                validation_data=(X_val_scaled, y_val_scaled),
+                sample_weight=weights_train,
+                epochs=50,
+                batch_size=32,
+                callbacks=callbacks_model1,
+                verbose=1
+            )
+            
+            # 모델 1 완료 상태 저장
+            state['model1_trained'] = True
+            ckpt.save_state(state)
+            print("✅ Model 1 학습 완료")
+        
+        # Model 2 학습
+        model2_trained = state.get('model2_trained', False)
+        
+        if not model2_trained:
+            print("\n🤖 Model 2: PatchTST + PINN 학습")
+            model2 = PatchTSTPINN(config)
+            model2.compile(
+                optimizer=Adam(learning_rate=0.0008),
+                loss=ExtremeLossV3(extreme_focus=True),
+                metrics=['mae']
+            )
+            
+            callbacks_model2 = [
+                EarlyStopping(patience=20, restore_best_weights=True),
+                ReduceLROnPlateau(factor=0.5, patience=10, min_lr=1e-6),
+                ModelCheckpoint('./checkpoints/model2_v3.h5', save_best_only=True, save_weights_only=True),
+                ExtremeValueCallback((X_val_scaled, X_physics_val_scaled), y_val_scaled, processor.scaler_y)
+            ]
+            
+            history2 = model2.fit(
+                [X_train_scaled, X_physics_train_scaled], y_train_scaled,
+                validation_data=([X_val_scaled, X_physics_val_scaled], y_val_scaled),
+                sample_weight=weights_train,
+                epochs=60,
+                batch_size=32,
+                callbacks=callbacks_model2,
+                verbose=1
+            )
+            
+            state['model2_trained'] = True
+            state['step'] = 6
+            ckpt.save_state(state)
+            print("✅ Model 2 학습 완료")
     
-    # 데이터 분할
-    X_train, y_train = X[train_idx], y[train_idx]
-    X_val, y_val = X[val_idx], y[val_idx]
-    X_test, y_test = X[test_idx], y[test_idx]
-    
-    X_physics_train = X_physics[train_idx]
-    X_physics_val = X_physics[val_idx]
-    X_physics_test = X_physics[test_idx]
-    
-    weights_train = weights[train_idx]
-    
-    # 스케일링
-    n_features = X.shape[2]
-    
-    X_train_flat = X_train.reshape(-1, n_features)
-    X_train_scaled = processor.scaler_X.fit_transform(X_train_flat)
-    X_train_scaled = X_train_scaled.reshape(len(X_train), 20, n_features)
-    
-    X_val_scaled = processor.scaler_X.transform(X_val.reshape(-1, n_features)).reshape(len(X_val), 20, n_features)
-    X_test_scaled = processor.scaler_X.transform(X_test.reshape(-1, n_features)).reshape(len(X_test), 20, n_features)
-    
-    y_train_scaled = processor.scaler_y.fit_transform(y_train.reshape(-1, 1)).flatten()
-    y_val_scaled = processor.scaler_y.transform(y_val.reshape(-1, 1)).flatten()
-    y_test_scaled = processor.scaler_y.transform(y_test.reshape(-1, 1)).flatten()
-    
-    X_physics_train_scaled = processor.scaler_physics.fit_transform(X_physics_train)
-    X_physics_val_scaled = processor.scaler_physics.transform(X_physics_val)
-    X_physics_test_scaled = processor.scaler_physics.transform(X_physics_test)
-    
-    processor.save_scalers()
-    
-    print(f"\n📊 데이터셋 크기:")
-    print(f"  Train: {len(train_idx)} (310+: {(y_train >= 310).sum()}, 335+: {(y_train >= 335).sum()})")
-    print(f"  Valid: {len(val_idx)} (310+: {(y_val >= 310).sum()}, 335+: {(y_val >= 335).sum()})")
-    print(f"  Test: {len(test_idx)} (310+: {(y_test >= 310).sum()}, 335+: {(y_test >= 335).sum()})")
-    
-    # 6. 모델 학습
-    print("\n[Step 5/5] 모델 학습")
-    
-    config = {
-        'seq_len': 20,
-        'n_features': n_features,
-        'patch_len': 5
-    }
-    
-    # 콜백
-    callbacks_model1 = [
-        EarlyStopping(patience=20, restore_best_weights=True),
-        ReduceLROnPlateau(factor=0.5, patience=10, min_lr=1e-6),
-        ModelCheckpoint('./checkpoints/model1_v3.h5', save_best_only=True, save_weights_only=True),
-        ExtremeValueCallback(X_val_scaled, y_val_scaled, processor.scaler_y)
-    ]
-    
-    callbacks_model2 = [
-        EarlyStopping(patience=20, restore_best_weights=True),
-        ReduceLROnPlateau(factor=0.5, patience=10, min_lr=1e-6),
-        ModelCheckpoint('./checkpoints/model2_v3.h5', save_best_only=True, save_weights_only=True),
-        ExtremeValueCallback((X_val_scaled, X_physics_val_scaled), y_val_scaled, processor.scaler_y)
-    ]
-    
-    # Model 1: PatchTST
-    print("\n🤖 Model 1: PatchTST 학습")
-    model1 = PatchTSTModel(config)
-    model1.compile(
-        optimizer=Adam(learning_rate=0.001),
-        loss=ExtremeLossV3(extreme_focus=False),
-        metrics=['mae']
-    )
-    
-    history1 = model1.fit(
-        X_train_scaled, y_train_scaled,
-        validation_data=(X_val_scaled, y_val_scaled),
-        sample_weight=weights_train,
-        epochs=50,
-        batch_size=32,
-        callbacks=callbacks_model1,
-        verbose=1
-    )
-    
-    # Model 2: PatchTST + PINN
-    print("\n🤖 Model 2: PatchTST + PINN 학습")
-    model2 = PatchTSTPINN(config)
-    model2.compile(
-        optimizer=Adam(learning_rate=0.0008),
-        loss=ExtremeLossV3(extreme_focus=True),
-        metrics=['mae']
-    )
-    
-    history2 = model2.fit(
-        [X_train_scaled, X_physics_train_scaled], y_train_scaled,
-        validation_data=([X_val_scaled, X_physics_val_scaled], y_val_scaled),
-        sample_weight=weights_train,
-        epochs=60,
-        batch_size=32,
-        callbacks=callbacks_model2,
-        verbose=1
-    )
-    
-    # 7. 평가
-    print("\n" + "="*80)
-    print("📊 최종 평가")
-    print("="*80)
-    
-    # Model 1 평가
-    print("\n[Model 1: PatchTST]")
-    y_pred1_scaled = model1.predict(X_test_scaled, verbose=0)
-    y_pred1 = processor.scaler_y.inverse_transform(y_pred1_scaled.reshape(-1, 1)).flatten()
-    
-    mae1 = np.mean(np.abs(y_test - y_pred1))
-    print(f"전체 MAE: {mae1:.2f}")
-    
-    # 3구간 평가
-    print("\n3구간 성능:")
-    mask_low = y_test < 200
-    mask_normal = (y_test >= 200) & (y_test < 300)
-    mask_danger = y_test >= 300
-    
-    if mask_low.sum() > 0:
-        print(f"  저구간(<200): MAE={np.mean(np.abs(y_test[mask_low] - y_pred1[mask_low])):.2f}")
-    if mask_normal.sum() > 0:
-        print(f"  정상(200-300): MAE={np.mean(np.abs(y_test[mask_normal] - y_pred1[mask_normal])):.2f}")
-    if mask_danger.sum() > 0:
-        print(f"  위험(300+): MAE={np.mean(np.abs(y_test[mask_danger] - y_pred1[mask_danger])):.2f}")
-    
-    # 극단값 감지
-    print("\n극단값 감지:")
-    for threshold in [310, 335]:
-        mask = y_test >= threshold
-        if mask.sum() > 0:
-            detected = (y_pred1 >= threshold)[mask].sum()
-            print(f"  {threshold}+: {detected}/{mask.sum()} ({detected/mask.sum()*100:.1f}%)")
-    
-    # Model 2 평가
-    print("\n[Model 2: PatchTST + PINN]")
-    y_pred2_scaled = model2.predict([X_test_scaled, X_physics_test_scaled], verbose=0)
-    y_pred2 = processor.scaler_y.inverse_transform(y_pred2_scaled.reshape(-1, 1)).flatten()
-    
-    mae2 = np.mean(np.abs(y_test - y_pred2))
-    print(f"전체 MAE: {mae2:.2f}")
-    
-    # 3구간 평가
-    print("\n3구간 성능:")
-    if mask_low.sum() > 0:
-        print(f"  저구간(<200): MAE={np.mean(np.abs(y_test[mask_low] - y_pred2[mask_low])):.2f}")
-    if mask_normal.sum() > 0:
-        print(f"  정상(200-300): MAE={np.mean(np.abs(y_test[mask_normal] - y_pred2[mask_normal])):.2f}")
-    if mask_danger.sum() > 0:
-        print(f"  위험(300+): MAE={np.mean(np.abs(y_test[mask_danger] - y_pred2[mask_danger])):.2f}")
-    
-    # 극단값 감지
-    print("\n극단값 감지:")
-    for threshold in [310, 335]:
-        mask = y_test >= threshold
-        if mask.sum() > 0:
-            detected = (y_pred2 >= threshold)[mask].sum()
-            print(f"  {threshold}+: {detected}/{mask.sum()} ({detected/mask.sum()*100:.1f}%)")
-    
-    print("\n✅ V3 완료!")
+    # Step 6: 평가
+    if step <= 6:
+        print("\n[Step 6/6] 모델 평가")
+        print("="*80)
+        print("📊 최종 평가")
+        print("="*80)
+        
+        # 테스트 데이터 로드
+        X_test_scaled = state['X_test_scaled']
+        y_test = state['y_test']
+        X_physics_test_scaled = state['X_physics_test_scaled']
+        n_features = state.get('n_features', X_test_scaled.shape[2])
+        
+        config = {
+            'seq_len': 20,
+            'n_features': n_features,
+            'patch_len': 5
+        }
+        
+        # 스케일러 로드
+        if not processor.load_scalers():
+            print("❌ 평가 중단: 스케일러 로드 실패")
+            return
+        
+        # Model 1 평가
+        print("\n[Model 1: PatchTST]")
+        model1 = PatchTSTModel(config)
+        model1.compile(optimizer='adam', loss='mse')
+        
+        # 더미 데이터로 빌드
+        dummy_input = np.zeros((1, 20, n_features))
+        _ = model1(dummy_input)
+        
+        # 가중치 로드
+        model1.load_weights('./checkpoints/model1_v3.h5')
+        
+        y_pred1_scaled = model1.predict(X_test_scaled, verbose=0)
+        y_pred1 = processor.scaler_y.inverse_transform(y_pred1_scaled.reshape(-1, 1)).flatten()
+        
+        mae1 = np.mean(np.abs(y_test - y_pred1))
+        print(f"전체 MAE: {mae1:.2f}")
+        
+        # 3구간 평가
+        print("\n3구간 성능:")
+        mask_low = y_test < 200
+        mask_normal = (y_test >= 200) & (y_test < 300)
+        mask_danger = y_test >= 300
+        
+        if mask_low.sum() > 0:
+            print(f"  저구간(<200): MAE={np.mean(np.abs(y_test[mask_low] - y_pred1[mask_low])):.2f}")
+        if mask_normal.sum() > 0:
+            print(f"  정상(200-300): MAE={np.mean(np.abs(y_test[mask_normal] - y_pred1[mask_normal])):.2f}")
+        if mask_danger.sum() > 0:
+            print(f"  위험(300+): MAE={np.mean(np.abs(y_test[mask_danger] - y_pred1[mask_danger])):.2f}")
+        
+        # 극단값 감지
+        print("\n극단값 감지:")
+        for threshold in [310, 335]:
+            mask = y_test >= threshold
+            if mask.sum() > 0:
+                detected = (y_pred1 >= threshold)[mask].sum()
+                print(f"  {threshold}+: {detected}/{mask.sum()} ({detected/mask.sum()*100:.1f}%)")
+        
+        # Model 2 평가
+        print("\n[Model 2: PatchTST + PINN]")
+        model2 = PatchTSTPINN(config)
+        model2.compile(optimizer='adam', loss='mse')
+        
+        # 더미 데이터로 빌드
+        dummy_seq = np.zeros((1, 20, n_features))
+        dummy_physics = np.zeros((1, 3))
+        _ = model2([dummy_seq, dummy_physics])
+        
+        # 가중치 로드
+        model2.load_weights('./checkpoints/model2_v3.h5')
+        
+        y_pred2_scaled = model2.predict([X_test_scaled, X_physics_test_scaled], verbose=0)
+        y_pred2 = processor.scaler_y.inverse_transform(y_pred2_scaled.reshape(-1, 1)).flatten()
+        
+        mae2 = np.mean(np.abs(y_test - y_pred2))
+        print(f"전체 MAE: {mae2:.2f}")
+        
+        # 3구간 평가
+        print("\n3구간 성능:")
+        if mask_low.sum() > 0:
+            print(f"  저구간(<200): MAE={np.mean(np.abs(y_test[mask_low] - y_pred2[mask_low])):.2f}")
+        if mask_normal.sum() > 0:
+            print(f"  정상(200-300): MAE={np.mean(np.abs(y_test[mask_normal] - y_pred2[mask_normal])):.2f}")
+        if mask_danger.sum() > 0:
+            print(f"  위험(300+): MAE={np.mean(np.abs(y_test[mask_danger] - y_pred2[mask_danger])):.2f}")
+        
+        # 극단값 감지
+        print("\n극단값 감지:")
+        for threshold in [310, 335]:
+            mask = y_test >= threshold
+            if mask.sum() > 0:
+                detected = (y_pred2 >= threshold)[mask].sum()
+                print(f"  {threshold}+: {detected}/{mask.sum()} ({detected/mask.sum()*100:.1f}%)")
+        
+        print("\n✅ V3.1 완료!")
+        
+        # 완료 후 상태 파일 제거 옵션
+        remove = input("\n상태 파일을 제거하시겠습니까? (y/n): ").lower()
+        if remove == 'y':
+            ckpt.clear_state()
+            print("🧹 상태 파일 제거 완료")
 
 if __name__ == "__main__":
     main()
