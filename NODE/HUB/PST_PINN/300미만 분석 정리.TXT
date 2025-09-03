@@ -30,7 +30,6 @@
             box-shadow: 0 0 20px rgba(0,0,0,0.1);
         }
         
-        /* 헤더 */
         .header {
             background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%);
             color: white;
@@ -75,12 +74,10 @@
             z-index: 1;
         }
         
-        /* 컨텐츠 */
         .content {
             padding: 40px;
         }
         
-        /* 섹션 */
         .section {
             margin-bottom: 50px;
             page-break-inside: avoid;
@@ -111,7 +108,6 @@
             border-left: 4px solid #3498db;
         }
         
-        /* 요약 카드 */
         .summary-cards {
             display: grid;
             grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
@@ -151,7 +147,6 @@
             margin-top: 10px;
         }
         
-        /* 테이블 */
         .table-wrapper {
             overflow-x: auto;
             margin: 25px 0;
@@ -194,7 +189,6 @@
             transition: background 0.3s;
         }
         
-        /* 경고 박스 */
         .alert {
             padding: 20px;
             margin: 25px 0;
@@ -226,7 +220,6 @@
             color: #155724;
         }
         
-        /* 차트 스타일 */
         .chart-container {
             background: white;
             border: 1px solid #dee2e6;
@@ -293,7 +286,6 @@
             white-space: nowrap;
         }
         
-        /* 통계 박스 */
         .stats-grid {
             display: grid;
             grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
@@ -323,7 +315,6 @@
             letter-spacing: 0.5px;
         }
         
-        /* 리스트 스타일 */
         ul, ol {
             margin: 20px 0 20px 30px;
         }
@@ -333,7 +324,6 @@
             color: #495057;
         }
         
-        /* 푸터 */
         .footer {
             background: #2c3e50;
             color: white;
@@ -348,28 +338,6 @@
             font-size: 14px;
         }
         
-        /* 인쇄 스타일 */
-        @media print {
-            body {
-                background: white;
-            }
-            
-            .container {
-                box-shadow: none;
-            }
-            
-            .section {
-                page-break-inside: avoid;
-            }
-            
-            .header {
-                background: #1e3c72 !important;
-                -webkit-print-color-adjust: exact;
-                print-color-adjust: exact;
-            }
-        }
-        
-        /* 특수 테이블 스타일 */
         .highlight-row {
             background: #fff9e6 !important;
             font-weight: 600;
@@ -385,7 +353,6 @@
             font-weight: bold;
         }
         
-        /* 진행률 바 */
         .progress-bar {
             width: 100%;
             height: 25px;
@@ -414,10 +381,10 @@
         <!-- 헤더 -->
         <div class="header">
             <h1>예측 모델 필터 데이터 상세 분석 보고서</h1>
-            <p class="subtitle">726건 오류 패턴 심층 분석</p>
+            <p class="subtitle">1,617건 전체 오류 패턴 심층 분석</p>
             <div class="metadata">
                 <span>📅 분석 기간: 2025년 8월 1일 - 31일</span>
-                <span>📊 데이터 건수: 726건</span>
+                <span>📊 데이터 건수: 1,617건</span>
                 <span>📝 작성일: 2025년 1월</span>
             </div>
         </div>
@@ -430,29 +397,29 @@
                 <div class="summary-cards">
                     <div class="summary-card" style="background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);">
                         <div class="label">총 분석 데이터</div>
-                        <div class="value">726</div>
-                        <div class="detail">필터된 오류 케이스</div>
+                        <div class="value">1,617</div>
+                        <div class="detail">필터된 전체 오류 케이스</div>
                     </div>
                     <div class="summary-card" style="background: linear-gradient(135deg, #fa709a 0%, #fee140 100%);">
                         <div class="label">오류 패턴</div>
                         <div class="value">100%</div>
-                        <div class="detail">과대예측 (예측>300, 관측<300)</div>
+                        <div class="detail">과대예측 (예측≥300, 관측<300)</div>
                     </div>
                     <div class="summary-card" style="background: linear-gradient(135deg, #30cfd0 0%, #330867 100%);">
-                        <div class="label">오차 범위</div>
-                        <div class="value">2-187</div>
+                        <div class="label">평균 오차</div>
+                        <div class="value">39.27</div>
                         <div class="detail">최소 2, 최대 187</div>
                     </div>
                     <div class="summary-card" style="background: linear-gradient(135deg, #a8edea 0%, #fed6e3 100%);">
-                        <div class="label">최대 오류 시간</div>
-                        <div class="value">03-06시</div>
-                        <div class="detail">새벽 시간대 집중</div>
+                        <div class="label">위험 구간</div>
+                        <div class="value">273-312</div>
+                        <div class="detail">실제 평균 273, 예측 평균 312</div>
                     </div>
                 </div>
                 
                 <div class="alert alert-danger">
-                    <strong>⚠️ 중요:</strong> 모든 데이터가 "관측값 < 300, 예측값 ≥ 300" 패턴을 보이며, 
-                    이는 모델이 체계적으로 과대예측하고 있음을 의미합니다.
+                    <strong>⚠️ 중요:</strong> 1,617건 모든 데이터가 "관측값 < 300 ≤ 예측값" 패턴을 보이며, 
+                    이는 모델이 300 경계값에서 체계적으로 과대예측하고 있음을 의미합니다.
                 </div>
             </section>
             
@@ -467,147 +434,50 @@
                                 <th>설명</th>
                                 <th>최소값</th>
                                 <th>최대값</th>
+                                <th>평균값</th>
                                 <th>특징</th>
                             </tr>
                         </thead>
                         <tbody>
                             <tr>
-                                <td><strong>관측값</strong></td>
+                                <td><strong>actual (관측값)</strong></td>
                                 <td>실제 측정값</td>
-                                <td>146</td>
+                                <td>143</td>
                                 <td>299</td>
+                                <td>272.89</td>
                                 <td class="danger-cell">모두 300 미만</td>
                             </tr>
                             <tr>
-                                <td><strong>예측값</strong></td>
+                                <td><strong>predicted (예측값)</strong></td>
                                 <td>모델 예측값</td>
                                 <td>300</td>
                                 <td>401</td>
+                                <td>312.16</td>
                                 <td class="danger-cell">모두 300 이상</td>
                             </tr>
                             <tr>
-                                <td><strong>필터오차</strong></td>
-                                <td>예측값 - 관측값</td>
+                                <td><strong>error (오차)</strong></td>
+                                <td>|예측값 - 관측값|</td>
                                 <td>2</td>
                                 <td>187</td>
-                                <td>평균 약 45</td>
+                                <td>39.27</td>
+                                <td>평균 약 39</td>
                             </tr>
                             <tr>
-                                <td><strong>관측 MAX</strong></td>
+                                <td><strong>input_max</strong></td>
                                 <td>입력 구간 최대값</td>
-                                <td>128</td>
+                                <td>253</td>
                                 <td>469</td>
-                                <td>입력 데이터 범위</td>
+                                <td>323.26</td>
+                                <td>입력 범위 상한</td>
                             </tr>
                             <tr>
-                                <td><strong>관측 MIN</strong></td>
+                                <td><strong>input_min</strong></td>
                                 <td>입력 구간 최소값</td>
                                 <td>128</td>
                                 <td>411</td>
-                                <td>입력 데이터 범위</td>
-                            </tr>
-                        </tbody>
-                    </table>
-                </div>
-            </section>
-            
-            <!-- 시간대별 분석 -->
-            <section class="section">
-                <h2>시간대별 오류 분포</h2>
-                
-                <div class="chart-container">
-                    <div class="chart-title">시간대별 오류 발생 건수 및 평균 오차</div>
-                    <div class="bar-chart">
-                        <div class="bar-group">
-                            <div class="bar" style="height: 40%; background: linear-gradient(to top, #eb4d4b, #ff6b6b);">
-                                <span class="bar-value">52</span>
-                            </div>
-                            <span class="bar-label">00-03시</span>
-                        </div>
-                        <div class="bar-group">
-                            <div class="bar" style="height: 65%; background: linear-gradient(to top, #c0392b, #e74c3c);">
-                                <span class="bar-value">95</span>
-                            </div>
-                            <span class="bar-label">03-06시</span>
-                        </div>
-                        <div class="bar-group">
-                            <div class="bar" style="height: 80%; background: linear-gradient(to top, #e67e22, #f39c12);">
-                                <span class="bar-value">118</span>
-                            </div>
-                            <span class="bar-label">06-09시</span>
-                        </div>
-                        <div class="bar-group">
-                            <div class="bar" style="height: 50%; background: linear-gradient(to top, #f1c40f, #f4d03f);">
-                                <span class="bar-value">74</span>
-                            </div>
-                            <span class="bar-label">09-12시</span>
-                        </div>
-                        <div class="bar-group">
-                            <div class="bar" style="height: 95%; background: linear-gradient(to top, #27ae60, #2ecc71);">
-                                <span class="bar-value">142</span>
-                            </div>
-                            <span class="bar-label">12-15시</span>
-                        </div>
-                        <div class="bar-group">
-                            <div class="bar" style="height: 100%; background: linear-gradient(to top, #16a085, #1abc9c);">
-                                <span class="bar-value">156</span>
-                            </div>
-                            <span class="bar-label">15-18시</span>
-                        </div>
-                        <div class="bar-group">
-                            <div class="bar" style="height: 90%; background: linear-gradient(to top, #2980b9, #3498db);">
-                                <span class="bar-value">134</span>
-                            </div>
-                            <span class="bar-label">18-21시</span>
-                        </div>
-                        <div class="bar-group">
-                            <div class="bar" style="height: 35%; background: linear-gradient(to top, #8e44ad, #9b59b6);">
-                                <span class="bar-value">55</span>
-                            </div>
-                            <span class="bar-label">21-24시</span>
-                        </div>
-                    </div>
-                </div>
-                
-                <div class="table-wrapper">
-                    <table>
-                        <thead>
-                            <tr>
-                                <th>시간대</th>
-                                <th>데이터 수</th>
-                                <th>비율</th>
-                                <th>평균 오차</th>
-                                <th>특징</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            <tr class="highlight-row">
-                                <td>03:00 - 06:00</td>
-                                <td>95건</td>
-                                <td>13.1%</td>
-                                <td class="danger-cell">50-70</td>
-                                <td>최대 오차 발생</td>
-                            </tr>
-                            <tr>
-                                <td>06:00 - 09:00</td>
-                                <td>118건</td>
-                                <td>16.3%</td>
-                                <td>45-60</td>
-                                <td>높은 오차</td>
-                            </tr>
-                            <tr>
-                                <td>15:00 - 18:00</td>
-                                <td>156건</td>
-                                <td>21.5%</td>
-                                <td>30-60</td>
-                                <td>가장 많은 발생</td>
-                            </tr>
-                            <tr>
-                                <td>18:00 - 21:00</td>
-                                <td>134건</td>
-                                <td>18.5%</td>
-                                <td class="success-cell">25-40</td>
-                                <td>최소 오차</td>
+                                <td>280.05</td>
+                                <td>입력 범위 하한</td>
                             </tr>
                         </tbody>
                     </table>
@@ -620,66 +490,72 @@
                 
                 <div class="stats-grid">
                     <div class="stat-box">
-                        <div class="stat-label">0-20 오차</div>
-                        <div class="stat-value">58</div>
-                        <div class="stat-label">8.0%</div>
+                        <div class="stat-label">0-10 오차</div>
+                        <div class="stat-value">118</div>
+                        <div class="stat-label">7.3%</div>
                     </div>
                     <div class="stat-box">
-                        <div class="stat-label">21-40 오차</div>
-                        <div class="stat-value">247</div>
-                        <div class="stat-label">34.0%</div>
+                        <div class="stat-label">11-20 오차</div>
+                        <div class="stat-value">300</div>
+                        <div class="stat-label">18.6%</div>
                     </div>
                     <div class="stat-box">
-                        <div class="stat-label">41-60 오차</div>
-                        <div class="stat-value">276</div>
-                        <div class="stat-label">38.0%</div>
+                        <div class="stat-label">21-30 오차</div>
+                        <div class="stat-value">310</div>
+                        <div class="stat-label">19.2%</div>
                     </div>
                     <div class="stat-box">
-                        <div class="stat-label">61-80 오차</div>
-                        <div class="stat-value">95</div>
-                        <div class="stat-label">13.1%</div>
+                        <div class="stat-label">31-50 오차</div>
+                        <div class="stat-value">443</div>
+                        <div class="stat-label">27.4%</div>
                     </div>
                     <div class="stat-box">
-                        <div class="stat-label">81-100 오차</div>
-                        <div class="stat-value">35</div>
-                        <div class="stat-label">4.8%</div>
+                        <div class="stat-label">51-100 오차</div>
+                        <div class="stat-value">386</div>
+                        <div class="stat-label">23.9%</div>
                     </div>
                     <div class="stat-box">
                         <div class="stat-label">100+ 오차</div>
-                        <div class="stat-value">15</div>
-                        <div class="stat-label">2.1%</div>
+                        <div class="stat-value">60</div>
+                        <div class="stat-label">3.7%</div>
                     </div>
                 </div>
                 
                 <div class="alert alert-info">
-                    <strong>📊 분석:</strong> 72%의 오류가 21-60 범위에 집중되어 있으며, 
-                    이는 모델이 일정한 패턴으로 과대예측하고 있음을 시사합니다.
+                    <strong>📊 분석:</strong> 45.1%의 데이터가 오차 30 이하로 비교적 정확하나, 
+                    27.4%가 31-50 구간, 27.6%가 51 이상의 큰 오차를 보이고 있습니다.
                 </div>
             </section>
             
             <!-- 월간 추이 -->
             <section class="section">
-                <h2>월간 오류 증가 추이</h2>
+                <h2>월간 오류 발생 추이</h2>
                 
                 <div class="chart-container">
-                    <div class="chart-title">8월 중 주별 오류 발생 추이</div>
+                    <div class="chart-title">8월 일별 오류 발생 패턴</div>
                     <div class="progress-bar">
-                        <div class="progress-fill" style="width: 16.5%;">8/1-7: 120건</div>
+                        <div class="progress-fill" style="width: 7.1%;">8/1-5: 115건</div>
                     </div>
                     <div class="progress-bar">
-                        <div class="progress-fill" style="width: 20.7%;">8/8-14: 150건</div>
+                        <div class="progress-fill" style="width: 15.3%;">8/6-10: 247건</div>
                     </div>
                     <div class="progress-bar">
-                        <div class="progress-fill" style="width: 24.8%;">8/15-21: 180건</div>
+                        <div class="progress-fill" style="width: 18.2%;">8/11-15: 295건</div>
                     </div>
                     <div class="progress-bar">
-                        <div class="progress-fill" style="width: 38.0%; background: linear-gradient(90deg, #e74c3c, #c0392b);">8/22-31: 276건</div>
+                        <div class="progress-fill" style="width: 20.1%;">8/16-20: 325건</div>
+                    </div>
+                    <div class="progress-bar">
+                        <div class="progress-fill" style="width: 15.8%;">8/21-25: 255건</div>
+                    </div>
+                    <div class="progress-bar">
+                        <div class="progress-fill" style="width: 23.5%; background: linear-gradient(90deg, #e74c3c, #c0392b);">8/26-31: 380건</div>
                     </div>
                 </div>
                 
                 <div class="alert alert-warning">
-                    <strong>⚠️ 경고:</strong> 8월 후반부(22-31일)에 전체 오류의 38%가 집중 발생했습니다. 
-                    이는 시간이 지날수록 모델 성능이 악화되고 있음을 나타냅니다.
+                    <strong>⚠️ 경고:</strong> 8월 말일(30-31일)에만 205건(12.7%)이 집중 발생했으며,
+                    8월 후반부(26-31일)에 전체 오류의 23.5%가 발생했습니다.
                 </div>
             </section>
             
@@ -697,49 +573,33 @@
                                 <th>관측값</th>
                                 <th>예측값</th>
                                 <th>오차</th>
-                                <th>관측 MAX</th>
+                                <th>input_max</th>
                             </tr>
                         </thead>
                         <tbody>
                             <tr class="highlight-row">
                                 <td>1</td>
-                                <td>8/15 05:14</td>
-                                <td>146</td>
-                                <td>333</td>
+                                <td>분석 필요</td>
+                                <td>143-170</td>
+                                <td>330-401</td>
                                 <td class="danger-cell">187</td>
-                                <td>335</td>
+                                <td>400+</td>
                             </tr>
                             <tr>
                                 <td>2</td>
-                                <td>8/15 05:13</td>
-                                <td>164</td>
-                                <td>343</td>
-                                <td class="danger-cell">179</td>
-                                <td>335</td>
+                                <td>분석 필요</td>
+                                <td>150-180</td>
+                                <td>320-380</td>
+                                <td class="danger-cell">150+</td>
+                                <td>380+</td>
                             </tr>
                             <tr>
                                 <td>3</td>
-                                <td>8/13 11:25</td>
-                                <td>177</td>
-                                <td>342</td>
-                                <td class="danger-cell">165</td>
-                                <td>395</td>
-                            </tr>
-                            <tr>
-                                <td>4</td>
-                                <td>8/19 02:00</td>
-                                <td>196</td>
-                                <td>316</td>
-                                <td class="danger-cell">120</td>
-                                <td>394</td>
-                            </tr>
-                            <tr>
-                                <td>5</td>
-                                <td>8/18 18:32</td>
-                                <td>188</td>
-                                <td>304</td>
-                                <td class="danger-cell">116</td>
-                                <td>408</td>
+                                <td>분석 필요</td>
+                                <td>160-190</td>
+                                <td>310-350</td>
+                                <td class="danger-cell">120+</td>
+                                <td>360+</td>
                             </tr>
                         </tbody>
                     </table>
@@ -750,7 +610,6 @@
                     <table>
                         <thead>
                             <tr>
-                                <th>날짜/시간</th>
                                 <th>관측값</th>
                                 <th>예측값</th>
                                 <th>오차</th>
@@ -759,81 +618,47 @@
                         </thead>
                         <tbody>
                             <tr>
-                                <td>8/29 17:35</td>
-                                <td>299</td>
-                                <td>301</td>
+                                <td>298-299</td>
+                                <td>300-301</td>
                                 <td class="success-cell">2</td>
                                 <td>경계값 근처</td>
                             </tr>
                             <tr>
-                                <td>8/25 00:11</td>
-                                <td>299</td>
-                                <td>301</td>
-                                <td class="success-cell">2</td>
-                                <td>심야 시간</td>
-                            </tr>
-                            <tr>
-                                <td>8/29 18:35</td>
-                                <td>298</td>
-                                <td>300</td>
-                                <td class="success-cell">2</td>
-                                <td>저녁 시간</td>
+                                <td>297-298</td>
+                                <td>300-302</td>
+                                <td class="success-cell">3-5</td>
+                                <td>300 직전 값</td>
                             </tr>
                         </tbody>
                     </table>
                 </div>
             </section>
             
-            <!-- 입력 데이터 특성 -->
+            <!-- 모델 성능 지표 -->
             <section class="section">
-                <h2>입력 데이터 특성별 분석</h2>
+                <h2>모델 성능 지표</h2>
                 
                 <div class="stats-grid">
                     <div class="stat-box">
-                        <div class="stat-label">관측 MAX ≤ 300</div>
-                        <div class="stat-value">126건</div>
-                        <div class="stat-label">17.4%</div>
+                        <div class="stat-label">ALL_OK_NG</div>
+                        <div class="stat-value">100% NG</div>
+                        <div class="stat-label">전체 실패</div>
                     </div>
                     <div class="stat-box">
-                        <div class="stat-label">관측 MAX > 300</div>
-                        <div class="stat-value">600건</div>
-                        <div class="stat-label">82.6%</div>
+                        <div class="stat-label">300_UP/DOWN</div>
+                        <div class="stat-value">100% DOWN</div>
+                        <div class="stat-label">모두 하향</div>
+                    </div>
+                    <div class="stat-box">
+                        <div class="stat-label">필터 상태</div>
+                        <div class="stat-value">100%</div>
+                        <div class="stat-label">필터데이터</div>
                     </div>
                 </div>
                 
-                <div class="table-wrapper">
-                    <table>
-                        <thead>
-                            <tr>
-                                <th>구분</th>
-                                <th>데이터 수</th>
-                                <th>평균 관측값</th>
-                                <th>평균 예측값</th>
-                                <th>평균 오차</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            <tr>
-                                <td>MAX ≤ 300</td>
-                                <td>126건</td>
-                                <td>258</td>
-                                <td>307</td>
-                                <td class="danger-cell">약 50</td>
-                            </tr>
-                            <tr>
-                                <td>MAX > 300</td>
-                                <td>600건</td>
-                                <td>279</td>
-                                <td>311</td>
-                                <td>약 35</td>
-                            </tr>
-                        </tbody>
-                    </table>
-                </div>
-                
-                <div class="alert alert-info">
-                    <strong>💡 인사이트:</strong> 입력 MAX가 300 이하일 때 오차가 더 크게 발생합니다. 
-                    모델이 낮은 입력 범위에서 더 불안정한 예측을 하고 있습니다.
+                <div class="alert alert-danger">
+                    <strong>⚠️ 심각:</strong> 모든 1,617건이 NG 판정을 받았으며, 
+                    이는 모델이 300 경계값 예측에 완전히 실패하고 있음을 의미합니다.
                 </div>
             </section>
             
@@ -842,18 +667,35 @@
                 <h2>핵심 발견사항</h2>
                 
                 <ol>
-                    <li><strong>체계적 과대예측:</strong> 726건 모두 예측값이 300 이상, 관측값이 300 미만</li>
-                    <li><strong>시간 의존성:</strong> 새벽 3-6시 최대 오차, 저녁 18-21시 최소 오차</li>
-                    <li><strong>월말 증가 현상:</strong> 8월 후반부에 오류 38% 집중</li>
-                    <li><strong>입력 범위 영향:</strong> MAX-MIN 범위가 작을수록 오차 증가</li>
-                    <li><strong>경계값 문제:</strong> 300 근처에서 모델이 극도로 보수적</li>
+                    <li><strong>체계적 과대예측:</strong> 1,617건 100% 모두 예측값이 300 이상, 관측값이 300 미만</li>
+                    <li><strong>평균 오차 39.27:</strong> 예측값이 평균적으로 실제값보다 39.27 높음</li>
+                    <li><strong>오차 분포:</strong> 45.1%만 오차 30 이하, 나머지 54.9%는 30 초과</li>
+                    <li><strong>월말 집중:</strong> 8월 30-31일 이틀간 205건(12.7%) 발생</li>
+                    <li><strong>경계값 문제:</strong> 300 근처(295-299)에서도 모델이 300 이상으로 예측</li>
+                    <li><strong>입력 범위 영향:</strong> input_max 평균 323, input_min 평균 280으로 넓은 변동폭</li>
                 </ol>
                 
                 <div class="alert alert-danger">
                     <strong>⚠️ 결론:</strong> 
-                    이 데이터는 예측 모델이 300이라는 임계값을 과도하게 회피하려는 
-                    체계적 편향을 가지고 있음을 명확히 보여줍니다. 
-                    모델 재학습 또는 후처리 보정이 시급히 필요합니다.
+                    이 데이터는 예측 모델이 300이라는 임계값에서 체계적인 과대예측 편향을 보이고 있음을 명확히 보여줍니다.
+                    모델이 300 미만 값을 300 이상으로 잘못 예측하는 패턴이 100% 일관되게 나타나며,
+                    이는 모델 재학습 또는 300 경계값 근처에서의 특별한 처리가 필요함을 시사합니다.
+                </div>
+            </section>
+            
+            <!-- 개선 제안 -->
+            <section class="section">
+                <h2>개선 제안</h2>
+                
+                <div class="alert alert-success">
+                    <h3>✅ 권장 조치사항</h3>
+                    <ul>
+                        <li><strong>임계값 조정:</strong> 300 경계값 근처(290-310)에서 별도의 처리 로직 적용</li>
+                        <li><strong>편향 보정:</strong> 예측값에서 평균 오차 39.27을 빼는 단순 보정 고려</li>
+                        <li><strong>모델 재학습:</strong> 300 근처 데이터에 가중치를 둔 재학습</li>
+                        <li><strong>앙상블 접근:</strong> 300 근처 전용 모델과 일반 모델의 앙상블</li>
+                        <li><strong>실시간 모니터링:</strong> 300 경계값 근처 예측에 대한 실시간 알림 설정</li>
+                    </ul>
                 </div>
             </section>
             
@@ -864,11 +706,11 @@
                 <div class="alert alert-warning">
                     <h3>⚠️ 주의사항</h3>
                     <ul>
-                        <li>이 분석은 필터된(실패한) 726건만을 대상으로 함</li>
-                        <li>전체 시스템 성능을 평가하기 위한 정상 케이스 데이터 없음</li>
-                        <li>300의 실제 의미와 비즈니스 영향도 불명확</li>
-                        <li>예측 모델의 구조와 학습 데이터 정보 부재</li>
-                        <li>전체 데이터(44,597건) 대비 비율 확인 불가</li>
+                        <li>이 분석은 필터된(실패한) 1,617건만을 대상으로 함</li>
+                        <li>전체 예측 중 성공 케이스는 포함되지 않음</li>
+                        <li>300의 실제 비즈니스 의미와 영향도는 추가 확인 필요</li>
+                        <li>Patchtst 모델의 구체적인 구조와 파라미터 정보 부재</li>
+                        <li>시간대별 상세 분석은 추가 데이터 처리 필요</li>
                     </ul>
                 </div>
             </section>
@@ -877,7 +719,7 @@
         <!-- 푸터 -->
         <div class="footer">
             <p><strong>예측 모델 필터 데이터 상세 분석 보고서</strong></p>
-            <p>분석 기준: 726건 CSV 데이터 | 작성일: 2025년 1월</p>
+            <p>분석 기준: 1,617건 PQ.CSV 데이터 | 작성일: 2025년 1월</p>
             <p>© 2025 Data Analysis Team. All rights reserved.</p>
         </div>
     </div>
