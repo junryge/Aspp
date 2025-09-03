@@ -24,10 +24,21 @@ def analyze_sensing_performance(csv_file_path, output_file_path=None):
     print("🏭 HUBROOM 300 임계값 Sensing 분석 시스템")
     print("="*80)
     
-    # 1. CSV 파일 읽기
+    # 1. CSV 파일 읽기 (탭 구분자 사용)
     print("\n📂 CSV 파일 로드 중...")
-    df = pd.read_csv(csv_file_path)
-    print(f"✅ 데이터 로드 완료: {len(df):,} 행")
+    try:
+        # 먼저 탭 구분자로 시도
+        df = pd.read_csv(csv_file_path, sep='\t')
+        print(f"✅ 데이터 로드 완료 (탭 구분): {len(df):,} 행")
+    except:
+        # 실패하면 쉼표 구분자로 시도
+        try:
+            df = pd.read_csv(csv_file_path, sep=',')
+            print(f"✅ 데이터 로드 완료 (쉼표 구분): {len(df):,} 행")
+        except:
+            # 그래도 실패하면 공백 구분자로 시도
+            df = pd.read_csv(csv_file_path, delim_whitespace=True)
+            print(f"✅ 데이터 로드 완료 (공백 구분): {len(df):,} 행")
     
     # 2. timestamp를 datetime으로 변환
     print("\n⏰ 시간 데이터 처리 중...")
