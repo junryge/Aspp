@@ -555,6 +555,12 @@ def main():
     print("\n📊 모델 1: ExtremePatchTST 평가")
     model1 = ExtremePatchTST(config)
     model1.compile(optimizer='adam', loss='mse')
+    
+    # 더미 데이터로 모델 빌드
+    dummy_input = np.zeros((1, 20, n_features))
+    _ = model1(dummy_input)
+    
+    # 가중치 로드
     model1.load_weights('./checkpoints/model1_final.h5')
     
     y_pred1_scaled = model1.predict(X_test_scaled, verbose=0)
@@ -574,6 +580,13 @@ def main():
     print("\n📊 모델 2: ImprovedPINN 평가")
     model2 = ImprovedPINN(config)
     model2.compile(optimizer='adam', loss='mse')
+    
+    # 더미 데이터로 모델 빌드
+    dummy_seq = np.zeros((1, 20, n_features))
+    dummy_physics = np.zeros((1, 3))
+    _ = model2([dummy_seq, dummy_physics])
+    
+    # 가중치 로드
     model2.load_weights('./checkpoints/model2_final.h5')
     
     y_pred2_scaled = model2.predict([X_test_scaled, X_physics_test_scaled], verbose=0)
