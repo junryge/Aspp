@@ -1,9 +1,8 @@
 # -*- coding: utf-8 -*-
 """
-HUBROOM 모델 평가 - CSV 데이터 예측
-- CSV 파일 로드
-- 과거 20분 데이터로 10분 후 예측 (시퀀스 생성)
-- 전체 데이터 평가
+HUBROOM 모델 평가
+- 이미 저장된 테스트 데이터 사용 (시퀀스 생성 X)
+- CSV는 실제값 비교용으로만 사용
 """
 
 import numpy as np
@@ -12,7 +11,6 @@ import tensorflow as tf
 from tensorflow import keras
 from tensorflow.keras import layers
 import joblib
-from sklearn.preprocessing import RobustScaler, MinMaxScaler, StandardScaler
 from sklearn.metrics import mean_absolute_error, mean_squared_error
 import os
 from datetime import datetime, timedelta
@@ -20,8 +18,8 @@ import warnings
 warnings.filterwarnings('ignore')
 
 print("="*80)
-print("🎯 HUBROOM 모델 평가 - CSV 데이터")
-print("📅 과거 20분 → 10분 후 예측")
+print("🎯 HUBROOM 모델 평가")
+print("📅 저장된 테스트 데이터 사용")
 print("="*80)
 
 # ========================================
@@ -125,208 +123,122 @@ class PatchTSTPINN(keras.Model):
         return tf.squeeze(output, axis=-1)
 
 # ========================================
-# 메인 평가 함수 - CSV 데이터
+# 메인 평가 함수
 # ========================================
 
-def evaluate_csv_data(csv_path='data/202509월.csv'):
-    """CSV 파일로 평가 - 과거 20분 → 10분 후 예측"""
+def evaluate_model(csv_path=None):
+    """저장된 테스트 데이터로 평가 + CSV에서 타임스탬프만 참조"""
     
-    print(f"\n📂 CSV 파일 로드: {csv_path}")
+    print("\n📂 저장된 테스트 데이터 로드 중...")
     
-    # CSV 로드
-    df = pd.read_csv(csv_path)
-    print(f"✅ 로드 완료: {df.shape[0]}행 x {df.shape[1]}열")
+    # 이미 준비된 테스트 데이터 로드
+    X_test_scaled = np.load('./test_data/X_test_scaled.npy')
+    y_test_scaled = np.load('./test_data/y_test_scaled.npy')
+    y_test = np.load('./test_data/y_test.npy')
+    X_physics_test_scaled = np.load('./test_data/X_physics_test_scaled.npy')
     
-    # 타임스탬프 처리
-    df['timestamp'] = pd.to_datetime(df.iloc[:, 0], format='%Y%m%d%H%M', errors='coerce')
-    df = df.sort_values('timestamp').reset_index(drop=True)
-    df = df.fillna(method='ffill').fillna(0)
-    
-    # 타겟 컬럼
-    target_col = 'CURRENT_M16A_3F_JOB_2'
-    if target_col not in df.columns:
-        # 타겟 컬럼 찾기
-        possible = [col for col in df.columns if 'CURRENT' in col and 'M16A_3F' in col]
-        if possible:
-            target_col = possible[0]
-        else:
-            # 숫자 컬럼 중 적절한 것 선택
-            numeric_cols = df.select_dtypes(include=[np.number]).columns
-            if len(numeric_cols) > 27:  # 27번째 컬럼 (0부터 시작하면 26)
-                target_col = numeric_cols[26]
-    
-    print(f"✅ 타겟 컬럼: {target_col}")
-    
-    # 특징 컬럼 선택 (숫자형만)
-    feature_cols = df.select_dtypes(include=[np.number]).columns.tolist()
-    print(f"✅ 특징 컬럼: {len(feature_cols)}개")
-    
-    # 물리 법칙 컬럼 (유입/유출)
-    inflow_cols = [col for col in feature_cols if 'TO_HUB' in col][:4]
-    outflow_cols = [col for col in feature_cols if 'M16A_3F_TO' in col and 'HUB' not in col][:4]
-    
-    if not inflow_cols:
-        inflow_cols = feature_cols[1:5]  # 임시
-    if not outflow_cols:
-        outflow_cols = feature_cols[30:34]  # 임시
-    
-    # ========================================
-    # 시퀀스 생성 (과거 20분 → 10분 후)
-    # ========================================
-    
-    print("\n📈 시퀀스 생성 중...")
-    
-    X, y, X_physics = [], [], []
-    timestamps = []
-    
-    seq_len = 20  # 과거 20분
-    pred_len = 10  # 10분 후 예측
-    
-    # 시퀀스 생성
-    for i in range(len(df) - seq_len - pred_len + 1):
-        # 입력: i ~ i+seq_len (20개 시점)
-        X.append(df[feature_cols].iloc[i:i+seq_len].values)
-        
-        # 타겟: i+seq_len+pred_len-1 (10분 후)
-        y.append(df[target_col].iloc[i+seq_len+pred_len-1])
-        
-        # 타임스탬프
-        timestamps.append(df['timestamp'].iloc[i+seq_len+pred_len-1])
-        
-        # 물리 특징
-        inflow = df[inflow_cols].iloc[i+seq_len-1].sum() if inflow_cols else 0
-        outflow = df[outflow_cols].iloc[i+seq_len-1].sum() if outflow_cols else 0
-        net_flow = inflow - outflow
-        X_physics.append([inflow, outflow, net_flow])
-    
-    X = np.array(X)
-    y = np.array(y)
-    X_physics = np.array(X_physics)
-    
-    print(f"✅ 시퀀스 생성 완료:")
-    print(f"  - 샘플 수: {len(X)}개")
-    print(f"  - 입력 shape: {X.shape}")
-    print(f"  - 타겟 shape: {y.shape}")
-    
-    # 타겟 분석
-    print(f"\n🎯 타겟 분석:")
-    print(f"  - 범위: {y.min():.0f} ~ {y.max():.0f}")
-    print(f"  - 평균: {y.mean():.1f}")
-    print(f"  - 극단값(310+): {(y >= 310).sum()}개 ({(y >= 310).sum()/len(y)*100:.2f}%)")
-    print(f"  - 초극단값(335+): {(y >= 335).sum()}개 ({(y >= 335).sum()/len(y)*100:.2f}%)")
-    
-    # ========================================
-    # 스케일링
-    # ========================================
-    
-    print("\n🔧 데이터 스케일링...")
+    print(f"✅ 테스트 데이터 로드 완료")
+    print(f"  샘플 수: {len(y_test)}개")
+    print(f"  입력 shape: {X_test_scaled.shape}")
     
     # 스케일러 로드
-    try:
-        scaler_X = joblib.load('./scalers/scaler_X.pkl')
-        scaler_y = joblib.load('./scalers/scaler_y.pkl')
-        scaler_physics = joblib.load('./scalers/scaler_physics.pkl')
-        print("✅ 기존 스케일러 로드")
-    except:
-        print("💡 새 스케일러 생성")
-        scaler_X = RobustScaler()
-        scaler_y = MinMaxScaler(feature_range=(0, 1))
-        scaler_physics = StandardScaler()
-        
-        # Fit
-        X_flat = X.reshape(-1, X.shape[2])
-        scaler_X.fit(X_flat)
-        scaler_y.fit(y.reshape(-1, 1))
-        scaler_physics.fit(X_physics)
+    scaler_y = joblib.load('./scalers/scaler_y.pkl')
     
-    # Transform
-    X_scaled = scaler_X.transform(X.reshape(-1, X.shape[2])).reshape(X.shape)
-    X_physics_scaled = scaler_physics.transform(X_physics)
+    # CSV에서 타임스탬프 가져오기 (있으면)
+    timestamps = None
+    if csv_path:
+        try:
+            print(f"\n📂 CSV 파일에서 타임스탬프 로드: {csv_path}")
+            df = pd.read_csv(csv_path)
+            df['timestamp'] = pd.to_datetime(df.iloc[:, 0], format='%Y%m%d%H%M', errors='coerce')
+            # 테스트 데이터 크기만큼 타임스탬프 추출
+            timestamps = df['timestamp'].values[-len(y_test):]
+            print(f"✅ 타임스탬프 로드 완료")
+        except:
+            print("⚠️ 타임스탬프 로드 실패 - 기본값 사용")
     
-    # ========================================
-    # 모델 예측
-    # ========================================
+    # 타임스탬프가 없으면 생성
+    if timestamps is None:
+        base_date = datetime(2025, 5, 9, 6, 0)
+        timestamps = [base_date + timedelta(minutes=i) for i in range(len(y_test))]
     
-    n_features = X.shape[2]
+    # 데이터 분석
+    print(f"\n📊 테스트 데이터 분석:")
+    print(f"  타겟 범위: {y_test.min():.0f} ~ {y_test.max():.0f}")
+    print(f"  평균: {y_test.mean():.1f}")
+    print(f"  극단값(310+): {(y_test >= 310).sum()}개 ({(y_test >= 310).sum()/len(y_test)*100:.2f}%)")
+    print(f"  초극단값(335+): {(y_test >= 335).sum()}개 ({(y_test >= 335).sum()/len(y_test)*100:.2f}%)")
+    
+    # 모델 설정
+    n_features = X_test_scaled.shape[2]
     config = {
         'seq_len': 20,
         'n_features': n_features,
         'patch_len': 5
     }
     
-    # Model 1
+    # Model 1 예측
     print("\n🤖 Model 1 (PatchTST) 예측 중...")
     model1 = PatchTSTModel(config)
     model1.compile(optimizer='adam', loss='mse')
     dummy_input = np.zeros((1, 20, n_features))
     _ = model1(dummy_input)
+    model1.load_weights('./checkpoints/model1_v3.h5')
     
-    try:
-        model1.load_weights('./checkpoints/model1_v3.h5')
-        print("✅ Model1 가중치 로드")
-    except:
-        print("⚠️ Model1 가중치 없음")
-    
-    y_pred1_scaled = model1.predict(X_scaled, batch_size=32, verbose=0)
+    y_pred1_scaled = model1.predict(X_test_scaled, batch_size=64, verbose=0)
     y_pred1 = scaler_y.inverse_transform(y_pred1_scaled.reshape(-1, 1)).flatten()
+    print("✅ Model 1 예측 완료")
     
-    # Model 2
-    print("\n🤖 Model 2 (PINN) 예측 중...")
+    # Model 2 예측
+    print("\n🤖 Model 2 (PatchTST + PINN) 예측 중...")
     model2 = PatchTSTPINN(config)
     model2.compile(optimizer='adam', loss='mse')
     dummy_seq = np.zeros((1, 20, n_features))
     dummy_physics = np.zeros((1, 3))
     _ = model2([dummy_seq, dummy_physics])
+    model2.load_weights('./checkpoints/model2_v3.h5')
     
-    try:
-        model2.load_weights('./checkpoints/model2_v3.h5')
-        print("✅ Model2 가중치 로드")
-    except:
-        print("⚠️ Model2 가중치 없음")
-    
-    y_pred2_scaled = model2.predict([X_scaled, X_physics_scaled], batch_size=32, verbose=0)
+    y_pred2_scaled = model2.predict([X_test_scaled, X_physics_test_scaled], batch_size=64, verbose=0)
     y_pred2 = scaler_y.inverse_transform(y_pred2_scaled.reshape(-1, 1)).flatten()
+    print("✅ Model 2 예측 완료")
     
-    # Ensemble
+    # 앙상블
     y_ensemble = 0.4 * y_pred1 + 0.6 * y_pred2
+    print("✅ Ensemble 예측 완료")
     
-    print("✅ 예측 완료!")
-    
-    # ========================================
-    # 결과 정리
-    # ========================================
-    
-    print("\n📊 결과 생성 중...")
+    # 결과 생성
+    print("\n📊 결과 정리 중...")
     
     results = []
-    for i in range(len(y)):
-        target_time = timestamps[i]
-        
-        # 시간 정보
-        if pd.notna(target_time):
+    for i in range(len(y_test)):
+        # 타임스탬프 처리
+        if pd.notna(timestamps[i]) and hasattr(timestamps[i], 'strftime'):
+            target_time = timestamps[i]
             timestamp_str = target_time.strftime('%Y%m%d%H%M')
             readable_time = target_time.strftime('%Y-%m-%d %H:%M')
             input_start = (target_time - timedelta(minutes=30)).strftime('%Y-%m-%d %H:%M')
             input_end = (target_time - timedelta(minutes=10)).strftime('%Y-%m-%d %H:%M')
         else:
-            timestamp_str = f"index_{i}"
-            readable_time = f"Index {i}"
-            input_start = "N/A"
-            input_end = "N/A"
+            target_time = timestamps[i] if isinstance(timestamps[i], datetime) else datetime.now() + timedelta(minutes=i)
+            timestamp_str = target_time.strftime('%Y%m%d%H%M')
+            readable_time = target_time.strftime('%Y-%m-%d %H:%M')
+            input_start = (target_time - timedelta(minutes=30)).strftime('%Y-%m-%d %H:%M')
+            input_end = (target_time - timedelta(minutes=10)).strftime('%Y-%m-%d %H:%M')
         
         result = {
+            'index': i,
             'timestamp': timestamp_str,
             'readable_time': readable_time,
-            'actual': float(y[i]),
+            'actual': float(y_test[i]),
             'predicted_model1': float(y_pred1[i]),
             'predicted_model2': float(y_pred2[i]),
             'predicted_ensemble': float(y_ensemble[i]),
             'Target_time': readable_time,
             'input_start': input_start,
             'input_end': input_end,
-            'error_model1': abs(float(y[i]) - float(y_pred1[i])),
-            'error_model2': abs(float(y[i]) - float(y_pred2[i])),
-            'error_ensemble': abs(float(y[i]) - float(y_ensemble[i]))
+            'error_model1': abs(float(y_test[i]) - float(y_pred1[i])),
+            'error_model2': abs(float(y_test[i]) - float(y_pred2[i])),
+            'error_ensemble': abs(float(y_test[i]) - float(y_ensemble[i]))
         }
         
         # 최적 모델
@@ -344,28 +256,28 @@ def evaluate_csv_data(csv_path='data/202509월.csv'):
     
     # 저장
     os.makedirs('./evaluation_results', exist_ok=True)
-    results_df.to_csv('./evaluation_results/csv_predictions_all.csv', index=False)
-    print(f"✅ 전체 결과 저장: ./evaluation_results/csv_predictions_all.csv ({len(results_df)}개)")
+    results_df.to_csv('./evaluation_results/predictions_all.csv', index=False)
+    print(f"✅ 전체 결과 저장: ./evaluation_results/predictions_all.csv ({len(results_df)}개)")
     
     # 극단값만
     extreme_df = results_df[results_df['actual'] >= 310]
     if len(extreme_df) > 0:
-        extreme_df.to_csv('./evaluation_results/csv_predictions_extreme.csv', index=False)
-        print(f"✅ 극단값 저장: ./evaluation_results/csv_predictions_extreme.csv ({len(extreme_df)}개)")
+        extreme_df.to_csv('./evaluation_results/predictions_extreme.csv', index=False)
+        print(f"✅ 극단값 저장: ./evaluation_results/predictions_extreme.csv ({len(extreme_df)}개)")
     
     # ========================================
-    # 성능 출력
+    # 성능 평가
     # ========================================
     
     print("\n" + "="*80)
     print("📈 전체 성능 평가")
     print("="*80)
     
-    print(f"\n📊 전체 데이터: {len(results_df)}개")
+    print(f"\n📊 전체: {len(y_test)}개 샘플")
     
-    mae1 = results_df['error_model1'].mean()
-    mae2 = results_df['error_model2'].mean()
-    mae_ens = results_df['error_ensemble'].mean()
+    mae1 = mean_absolute_error(y_test, y_pred1)
+    mae2 = mean_absolute_error(y_test, y_pred2)
+    mae_ens = mean_absolute_error(y_test, y_ensemble)
     
     print(f"\nMAE (Mean Absolute Error):")
     print(f"  Model 1: {mae1:.2f}")
@@ -373,22 +285,29 @@ def evaluate_csv_data(csv_path='data/202509월.csv'):
     print(f"  Ensemble: {mae_ens:.2f}")
     
     # 극단값 성능
-    if len(extreme_df) > 0:
-        print(f"\n🔴 극단값 성능 ({len(extreme_df)}개):")
-        print(f"  Model 1: {extreme_df['error_model1'].mean():.2f}")
-        print(f"  Model 2: {extreme_df['error_model2'].mean():.2f}")
-        print(f"  Ensemble: {extreme_df['error_ensemble'].mean():.2f}")
+    extreme_mask = y_test >= 310
+    if extreme_mask.sum() > 0:
+        print(f"\n🔴 극단값 성능 ({extreme_mask.sum()}개):")
+        print(f"  Model 1: {mean_absolute_error(y_test[extreme_mask], y_pred1[extreme_mask]):.2f}")
+        print(f"  Model 2: {mean_absolute_error(y_test[extreme_mask], y_pred2[extreme_mask]):.2f}")
+        print(f"  Ensemble: {mean_absolute_error(y_test[extreme_mask], y_ensemble[extreme_mask]):.2f}")
+        
+        # 감지율
+        detected_m1 = (y_pred1[extreme_mask] >= 305).sum()
+        detected_m2 = (y_pred2[extreme_mask] >= 305).sum()
+        print(f"\n극단값 감지율 (예측 >= 305):")
+        print(f"  Model 1: {detected_m1}/{extreme_mask.sum()} ({detected_m1/extreme_mask.sum()*100:.1f}%)")
+        print(f"  Model 2: {detected_m2}/{extreme_mask.sum()} ({detected_m2/extreme_mask.sum()*100:.1f}%)")
     
     # ========================================
-    # 샘플 출력
+    # 결과 출력
     # ========================================
     
     print("\n" + "="*80)
-    print("📋 예측 결과 샘플")
+    print("📋 예측 결과 (1개 샘플)")
     print("="*80)
     
-    # 단일 결과 예시
-    print("\n[대표 예시 1개]")
+    # 대표 샘플 1개
     if len(extreme_df) > 0:
         sample = extreme_df.iloc[0]
     else:
@@ -397,9 +316,9 @@ def evaluate_csv_data(csv_path='data/202509월.csv'):
     print(f"""
 Timestamp: {sample['timestamp']}
 Readable_time: {sample['readable_time']}
-Input_start: {sample['input_start']} (20분 전)
-Input_end: {sample['input_end']} (10분 전)
-Target_time: {sample['Target_time']} (예측 시점)
+Input_start: {sample['input_start']}
+Input_end: {sample['input_end']}
+Target_time: {sample['Target_time']}
 
 CURRENT_M16A_3F_JOB_2:
 - Actual: {sample['actual']:.0f}
@@ -415,13 +334,13 @@ Error:
 Best: {sample['best_model']}
 """)
     
-    # 추가 샘플들
+    # 추가 샘플
     print("\n[처음 10개]")
     for idx, row in results_df.head(10).iterrows():
         mark = "🔴" if row['actual'] >= 310 else "⚪"
-        print(f"{mark} {row['readable_time']}: 실제={row['actual']:.0f}, M1={row['predicted_model1']:.0f}, M2={row['predicted_model2']:.0f}, Ens={row['predicted_ensemble']:.0f}")
+        print(f"{mark} {row['readable_time']}: 실제={row['actual']:.0f}, M1={row['predicted_model1']:.0f}, M2={row['predicted_model2']:.0f}")
     
-    print(f"\n✅ 평가 완료! 총 {len(results_df)}개 데이터 처리")
+    print(f"\n✅ 평가 완료! 총 {len(results_df)}개 테스트 데이터")
     return results_df
 
 # ========================================
@@ -430,15 +349,19 @@ Best: {sample['best_model']}
 
 if __name__ == "__main__":
     try:
-        # CSV 파일 경로
-        csv_path = input("CSV 파일 경로 (기본: data/202509월.csv): ").strip()
-        if not csv_path:
-            csv_path = 'data/202509월.csv'
+        # CSV 파일 옵션
+        use_csv = input("CSV 파일에서 타임스탬프를 가져올까요? (y/n): ").strip().lower()
+        
+        csv_path = None
+        if use_csv == 'y':
+            csv_path = input("CSV 파일 경로 (기본: data/202509월.csv): ").strip()
+            if not csv_path:
+                csv_path = 'data/202509월.csv'
         
         # 평가 실행
-        results = evaluate_csv_data(csv_path)
+        results = evaluate_model(csv_path)
         
-        print("\n🎉 모든 평가 완료!")
+        print("\n🎉 평가 완료!")
         
     except Exception as e:
         print(f"\n❌ 오류 발생: {e}")
