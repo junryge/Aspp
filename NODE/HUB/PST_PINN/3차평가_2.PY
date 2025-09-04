@@ -401,13 +401,160 @@ def evaluate_saved_test_data():
     return results_df
 
 # ========================================
+# CSV 파일 로드 및 예측
+# ========================================
+
+def evaluate_csv_file(csv_path):
+    """CSV 파일 로드해서 예측"""
+    
+    print(f"\n📂 CSV 파일 로드 중: {csv_path}")
+    
+    # CSV 로드
+    df = pd.read_csv(csv_path)
+    print(f"✅ CSV 로드 완료: {df.shape}")
+    print(f"  컬럼: {list(df.columns[:10])}...")
+    
+    # 첫 번째 컬럼이 타임스탬프인 경우
+    df['timestamp'] = pd.to_datetime(df.iloc[:, 0], format='%Y%m%d%H%M', errors='coerce')
+    df = df.sort_values('timestamp').reset_index(drop=True)
+    
+    # 타겟 컬럼 찾기
+    target_col = 'CURRENT_M16A_3F_JOB_2'
+    if target_col not in df.columns:
+        # 비슷한 이름 찾기
+        possible = [col for col in df.columns if 'CURRENT' in col and 'M16A' in col]
+        if possible:
+            target_col = possible[0]
+            print(f"✅ 타겟 컬럼: {target_col}")
+    
+    # 이미 저장된 모델과 스케일러 사용
+    print("\n🔧 저장된 모델/스케일러 로드 중...")
+    
+    # 테스트 데이터 로드 (이미 준비된 것)
+    X_test_scaled = np.load('./test_data/X_test_scaled.npy')
+    X_physics_test_scaled = np.load('./test_data/X_physics_test_scaled.npy')
+    scaler_y = joblib.load('./scalers/scaler_y.pkl')
+    
+    # CSV에서 실제값 추출 (테스트 데이터와 매칭)
+    # 여기서는 CSV의 타겟값을 직접 사용
+    y_actual = df[target_col].values[-len(X_test_scaled):]  # 테스트 크기만큼
+    
+    print(f"✅ 예측할 데이터: {len(y_actual)}개")
+    
+    # 모델 설정
+    n_features = X_test_scaled.shape[2]
+    config = {
+        'seq_len': 20,
+        'n_features': n_features,
+        'patch_len': 5
+    }
+    
+    # Model 1 예측
+    print("\n🤖 Model 1 예측 중...")
+    model1 = PatchTSTModel(config)
+    model1.compile(optimizer='adam', loss='mse')
+    dummy_input = np.zeros((1, 20, n_features))
+    _ = model1(dummy_input)
+    model1.load_weights('./checkpoints/model1_v3.h5')
+    
+    y_pred1_scaled = model1.predict(X_test_scaled, batch_size=64, verbose=0)
+    y_pred1 = scaler_y.inverse_transform(y_pred1_scaled.reshape(-1, 1)).flatten()
+    
+    # Model 2 예측
+    print("🤖 Model 2 예측 중...")
+    model2 = PatchTSTPINN(config)
+    model2.compile(optimizer='adam', loss='mse')
+    dummy_seq = np.zeros((1, 20, n_features))
+    dummy_physics = np.zeros((1, 3))
+    _ = model2([dummy_seq, dummy_physics])
+    model2.load_weights('./checkpoints/model2_v3.h5')
+    
+    y_pred2_scaled = model2.predict([X_test_scaled, X_physics_test_scaled], batch_size=64, verbose=0)
+    y_pred2 = scaler_y.inverse_transform(y_pred2_scaled.reshape(-1, 1)).flatten()
+    
+    # 앙상블
+    y_ensemble = 0.4 * y_pred1 + 0.6 * y_pred2
+    
+    print("✅ 예측 완료!")
+    
+    # 결과 생성
+    results = []
+    timestamps = df['timestamp'].values[-len(y_actual):]
+    
+    for i in range(len(y_actual)):
+        if pd.notna(timestamps[i]):
+            target_time = pd.to_datetime(timestamps[i])
+            timestamp_str = target_time.strftime('%Y%m%d%H%M')
+            readable_time = target_time.strftime('%Y-%m-%d %H:%M')
+        else:
+            timestamp_str = f"index_{i}"
+            readable_time = f"Index {i}"
+            target_time = datetime.now()
+        
+        input_start = target_time - timedelta(minutes=30)
+        input_end = target_time - timedelta(minutes=10)
+        
+        result = {
+            'timestamp': timestamp_str,
+            'readable_time': readable_time,
+            'actual': float(y_actual[i]),
+            'predicted_model1': float(y_pred1[i]),
+            'predicted_model2': float(y_pred2[i]),
+            'predicted_ensemble': float(y_ensemble[i]),
+            'Target_time': readable_time,
+            'input_start': input_start.strftime('%Y-%m-%d %H:%M'),
+            'input_end': input_end.strftime('%Y-%m-%d %H:%M'),
+            'error_model1': abs(float(y_actual[i]) - float(y_pred1[i])),
+            'error_model2': abs(float(y_actual[i]) - float(y_pred2[i])),
+            'error_ensemble': abs(float(y_actual[i]) - float(y_ensemble[i]))
+        }
+        results.append(result)
+    
+    results_df = pd.DataFrame(results)
+    
+    # 저장
+    os.makedirs('./evaluation_results', exist_ok=True)
+    results_df.to_csv('./evaluation_results/csv_predictions.csv', index=False)
+    print(f"\n✅ 결과 저장: ./evaluation_results/csv_predictions.csv")
+    
+    # 성능 출력
+    print("\n" + "="*80)
+    print("📈 성능 요약")
+    print("="*80)
+    print(f"MAE - Model1: {results_df['error_model1'].mean():.2f}")
+    print(f"MAE - Model2: {results_df['error_model2'].mean():.2f}")
+    print(f"MAE - Ensemble: {results_df['error_ensemble'].mean():.2f}")
+    
+    # 샘플 출력
+    print("\n📋 예측 샘플 (처음 5개):")
+    for _, row in results_df.head(5).iterrows():
+        print(f"\n{row['readable_time']}")
+        print(f"  실제: {row['actual']:.0f}, M1: {row['predicted_model1']:.0f}, M2: {row['predicted_model2']:.0f}, Ens: {row['predicted_ensemble']:.0f}")
+    
+    return results_df
+
+# ========================================
 # 메인 실행
 # ========================================
 
 if __name__ == "__main__":
     try:
-        # 평가 실행
-        results = evaluate_saved_test_data()
+        print("\n평가 방법을 선택하세요:")
+        print("1. 저장된 테스트 데이터 사용")
+        print("2. CSV 파일 로드해서 예측")
+        
+        choice = input("\n선택 (1 또는 2): ").strip()
+        
+        if choice == '2':
+            # CSV 파일 경로 입력
+            csv_path = input("CSV 파일 경로 입력 (기본: data/202509월.csv): ").strip()
+            if not csv_path:
+                csv_path = 'data/202509월.csv'
+            
+            results = evaluate_csv_file(csv_path)
+        else:
+            # 기존 테스트 데이터 사용
+            results = evaluate_saved_test_data()
         
         print("\n🎉 평가 완료!")
         
