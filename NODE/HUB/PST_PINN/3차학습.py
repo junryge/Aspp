@@ -483,101 +483,107 @@ def main():
         ckpt.save_state(state)
         print("✅ 시퀀스 생성 완료")
     
-    # Step 3: 데이터 분할
+    # Step 3: 데이터 분할 (수정된 부분)
     if step <= 3:
-        if step == 3:
-            print("\n[Step 3/6] 데이터 분할")
-            
-            X = state['X']
-            y = state['y']
-            X_physics = state['X_physics']
-            weights = state['weights']
-            
-            indices = np.arange(len(X))
-            train_idx, test_idx = train_test_split(indices, test_size=0.2, random_state=42)
-            val_idx, test_idx = train_test_split(test_idx, test_size=0.5, random_state=42)
-            
-            state['train_idx'] = train_idx
-            state['val_idx'] = val_idx
-            state['test_idx'] = test_idx
-            state['step'] = 4
+        print("\n[Step 3/6] 데이터 분할")
+        
+        # state에서 데이터 로드
+        X = state.get('X')
+        y = state.get('y')
+        X_physics = state.get('X_physics')
+        weights = state.get('weights')
+        
+        # 데이터가 없으면 이전 단계로 돌아가야 함
+        if X is None or y is None:
+            print("❌ 시퀀스 데이터가 없습니다. Step 2부터 다시 실행해주세요.")
+            state['step'] = 2
             ckpt.save_state(state)
-        else:
-            train_idx = state['train_idx']
-            val_idx = state['val_idx']
-            test_idx = state['test_idx']
+            return
+        
+        indices = np.arange(len(X))
+        train_idx, test_idx = train_test_split(indices, test_size=0.2, random_state=42)
+        val_idx, test_idx = train_test_split(test_idx, test_size=0.5, random_state=42)
+        
+        state['train_idx'] = train_idx
+        state['val_idx'] = val_idx
+        state['test_idx'] = test_idx
+        state['step'] = 4
+        ckpt.save_state(state)
+        print(f"✅ 데이터 분할 완료")
+        print(f"  Train: {len(train_idx)}")
+        print(f"  Valid: {len(val_idx)}")
+        print(f"  Test: {len(test_idx)}")
     
     # Step 4: 스케일링
     if step <= 4:
-        if step == 4:
-            print("\n[Step 4/6] 데이터 스케일링")
-            
-            X = state['X']
-            y = state['y']
-            X_physics = state['X_physics']
-            weights = state['weights']
-            n_features = state['n_features']
-            
-            train_idx = state['train_idx']
-            val_idx = state['val_idx']
-            test_idx = state['test_idx']
-            
-            # 데이터 분할
-            X_train, y_train = X[train_idx], y[train_idx]
-            X_val, y_val = X[val_idx], y[val_idx]
-            X_test, y_test = X[test_idx], y[test_idx]
-            
-            X_physics_train = X_physics[train_idx]
-            X_physics_val = X_physics[val_idx]
-            X_physics_test = X_physics[test_idx]
-            
-            weights_train = weights[train_idx]
-            
-            # 스케일링
-            X_train_flat = X_train.reshape(-1, n_features)
-            X_train_scaled = processor.scaler_X.fit_transform(X_train_flat)
-            X_train_scaled = X_train_scaled.reshape(len(X_train), 20, n_features)
-            
-            X_val_scaled = processor.scaler_X.transform(X_val.reshape(-1, n_features)).reshape(len(X_val), 20, n_features)
-            X_test_scaled = processor.scaler_X.transform(X_test.reshape(-1, n_features)).reshape(len(X_test), 20, n_features)
-            
-            y_train_scaled = processor.scaler_y.fit_transform(y_train.reshape(-1, 1)).flatten()
-            y_val_scaled = processor.scaler_y.transform(y_val.reshape(-1, 1)).flatten()
-            y_test_scaled = processor.scaler_y.transform(y_test.reshape(-1, 1)).flatten()
-            
-            X_physics_train_scaled = processor.scaler_physics.fit_transform(X_physics_train)
-            X_physics_val_scaled = processor.scaler_physics.transform(X_physics_val)
-            X_physics_test_scaled = processor.scaler_physics.transform(X_physics_test)
-            
-            processor.save_scalers()
-            
-            # 테스트 데이터 저장
-            os.makedirs('./test_data', exist_ok=True)
-            np.save('./test_data/X_test_scaled.npy', X_test_scaled)
-            np.save('./test_data/y_test_scaled.npy', y_test_scaled)
-            np.save('./test_data/y_test.npy', y_test)
-            np.save('./test_data/X_physics_test_scaled.npy', X_physics_test_scaled)
-            
-            state['X_train_scaled'] = X_train_scaled
-            state['y_train_scaled'] = y_train_scaled
-            state['X_val_scaled'] = X_val_scaled
-            state['y_val_scaled'] = y_val_scaled
-            state['X_test_scaled'] = X_test_scaled
-            state['y_test_scaled'] = y_test_scaled
-            state['X_physics_train_scaled'] = X_physics_train_scaled
-            state['X_physics_val_scaled'] = X_physics_val_scaled
-            state['X_physics_test_scaled'] = X_physics_test_scaled
-            state['weights_train'] = weights_train
-            state['y_train'] = y_train
-            state['y_val'] = y_val
-            state['y_test'] = y_test
-            state['step'] = 5
-            ckpt.save_state(state)
-            
-            print(f"\n📊 데이터셋 크기:")
-            print(f"  Train: {len(train_idx)} (310+: {(y_train >= 310).sum()}, 335+: {(y_train >= 335).sum()})")
-            print(f"  Valid: {len(val_idx)} (310+: {(y_val >= 310).sum()}, 335+: {(y_val >= 335).sum()})")
-            print(f"  Test: {len(test_idx)} (310+: {(y_test >= 310).sum()}, 335+: {(y_test >= 335).sum()})")
+        print("\n[Step 4/6] 데이터 스케일링")
+        
+        X = state['X']
+        y = state['y']
+        X_physics = state['X_physics']
+        weights = state['weights']
+        n_features = state['n_features']
+        
+        train_idx = state['train_idx']
+        val_idx = state['val_idx']
+        test_idx = state['test_idx']
+        
+        # 데이터 분할
+        X_train, y_train = X[train_idx], y[train_idx]
+        X_val, y_val = X[val_idx], y[val_idx]
+        X_test, y_test = X[test_idx], y[test_idx]
+        
+        X_physics_train = X_physics[train_idx]
+        X_physics_val = X_physics[val_idx]
+        X_physics_test = X_physics[test_idx]
+        
+        weights_train = weights[train_idx]
+        
+        # 스케일링
+        X_train_flat = X_train.reshape(-1, n_features)
+        X_train_scaled = processor.scaler_X.fit_transform(X_train_flat)
+        X_train_scaled = X_train_scaled.reshape(len(X_train), 20, n_features)
+        
+        X_val_scaled = processor.scaler_X.transform(X_val.reshape(-1, n_features)).reshape(len(X_val), 20, n_features)
+        X_test_scaled = processor.scaler_X.transform(X_test.reshape(-1, n_features)).reshape(len(X_test), 20, n_features)
+        
+        y_train_scaled = processor.scaler_y.fit_transform(y_train.reshape(-1, 1)).flatten()
+        y_val_scaled = processor.scaler_y.transform(y_val.reshape(-1, 1)).flatten()
+        y_test_scaled = processor.scaler_y.transform(y_test.reshape(-1, 1)).flatten()
+        
+        X_physics_train_scaled = processor.scaler_physics.fit_transform(X_physics_train)
+        X_physics_val_scaled = processor.scaler_physics.transform(X_physics_val)
+        X_physics_test_scaled = processor.scaler_physics.transform(X_physics_test)
+        
+        processor.save_scalers()
+        
+        # 테스트 데이터 저장
+        os.makedirs('./test_data', exist_ok=True)
+        np.save('./test_data/X_test_scaled.npy', X_test_scaled)
+        np.save('./test_data/y_test_scaled.npy', y_test_scaled)
+        np.save('./test_data/y_test.npy', y_test)
+        np.save('./test_data/X_physics_test_scaled.npy', X_physics_test_scaled)
+        
+        state['X_train_scaled'] = X_train_scaled
+        state['y_train_scaled'] = y_train_scaled
+        state['X_val_scaled'] = X_val_scaled
+        state['y_val_scaled'] = y_val_scaled
+        state['X_test_scaled'] = X_test_scaled
+        state['y_test_scaled'] = y_test_scaled
+        state['X_physics_train_scaled'] = X_physics_train_scaled
+        state['X_physics_val_scaled'] = X_physics_val_scaled
+        state['X_physics_test_scaled'] = X_physics_test_scaled
+        state['weights_train'] = weights_train
+        state['y_train'] = y_train
+        state['y_val'] = y_val
+        state['y_test'] = y_test
+        state['step'] = 5
+        ckpt.save_state(state)
+        
+        print(f"\n📊 데이터셋 크기:")
+        print(f"  Train: {len(train_idx)} (310+: {(y_train >= 310).sum()}, 335+: {(y_train >= 335).sum()})")
+        print(f"  Valid: {len(val_idx)} (310+: {(y_val >= 310).sum()}, 335+: {(y_val >= 335).sum()})")
+        print(f"  Test: {len(test_idx)} (310+: {(y_test >= 310).sum()}, 335+: {(y_test >= 335).sum()})")
     
     # Step 5: 모델 학습
     if step <= 5:
