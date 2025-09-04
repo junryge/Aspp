@@ -443,4 +443,15 @@ def generate_v4_validation_with_bridge():
     print("\nModel 2 (PatchTST + PINN):")
     print("  - Little's Law 제약조건 추가")
     print(f"  - 브리지타임-재고 관계식 활용 (상관계수: {bridge_corr_lag10:.3f})")
-    print("  - 물리적 제약: 재고(t+10) = f
+    print("  - 물리적 제약: 재고(t+10) = f(브리지타임(t), 유입(t), 유출(t))")
+    
+    return df_result
+
+if __name__ == "__main__":
+    # 실행
+    result_df = generate_v4_validation_with_bridge()
+    
+    print("\n" + "="*80)
+    print("💾 v4_validation_with_bridge.csv 파일이 생성되었습니다.")
+    print("📊 전체 57개 컬럼(브리지타임 포함)에 대한 상세 분석이 완료되었습니다.")
+    print("="*80)
