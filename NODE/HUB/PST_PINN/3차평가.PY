@@ -1,9 +1,8 @@
 # -*- coding: utf-8 -*-
 """
-HUBROOM 극단값 예측 모델 평가
+HUBROOM 극단값 예측 모델 평가 - 수정본
 - 평가 데이터: 2025년 8월 (20250801_TO_20250831.CSV)
-- 학습된 Model 1, Model 2 사용
-- 결과를 CSV로 저장
+- 학습된 모델로 바로 예측 (시퀀스 생성 X)
 """
 
 import numpy as np
@@ -13,18 +12,17 @@ from tensorflow import keras
 from tensorflow.keras import layers
 import joblib
 from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
-from datetime import datetime
 import os
 import warnings
 warnings.filterwarnings('ignore')
 
 print("="*80)
-print("🎯 HUBROOM 모델 평가 시스템")
+print("🎯 HUBROOM 모델 평가 시스템 - DIRECT PREDICTION")
 print("📅 평가 데이터: 2025년 8월")
 print("="*80)
 
 # ========================================
-# Model 1: PatchTST (코드에서 복사)
+# Model 1: PatchTST
 # ========================================
 
 class PatchTSTModel(keras.Model):
@@ -36,10 +34,7 @@ class PatchTSTModel(keras.Model):
         self.patch_len = config['patch_len']
         self.n_patches = self.seq_len // self.patch_len
         
-        # 패치 임베딩
         self.patch_embedding = layers.Dense(128, activation='relu')
-        
-        # Transformer
         self.attention = layers.MultiHeadAttention(num_heads=8, key_dim=16)
         self.norm1 = layers.LayerNormalization()
         self.norm2 = layers.LayerNormalization()
@@ -50,7 +45,6 @@ class PatchTSTModel(keras.Model):
             layers.Dense(128)
         ])
         
-        # 출력
         self.flatten = layers.Flatten()
         self.dense1 = layers.Dense(128, activation='relu')
         self.dropout = layers.Dropout(0.3)
@@ -59,62 +53,44 @@ class PatchTSTModel(keras.Model):
         
     def call(self, x, training=False):
         batch_size = tf.shape(x)[0]
-        
-        # 패치 생성
         x = tf.reshape(x, [batch_size, self.n_patches, self.patch_len * self.n_features])
-        
-        # 패치 임베딩
         x = self.patch_embedding(x)
-        
-        # Transformer
         attn = self.attention(x, x, training=training)
         x = self.norm1(x + attn)
-        
         ffn_out = self.ffn(x)
         x = self.norm2(x + ffn_out)
-        
-        # 출력
         x = self.flatten(x)
         x = self.dense1(x)
         x = self.dropout(x, training=training)
         x = self.dense2(x)
         output = self.output_layer(x)
-        
         return tf.squeeze(output, axis=-1)
 
 # ========================================
-# Model 2: PatchTST + PINN (코드에서 복사)
+# Model 2: PatchTST + PINN
 # ========================================
 
 class PatchTSTPINN(keras.Model):
     def __init__(self, config):
         super().__init__()
         
-        # PatchTST 부분
         self.seq_len = config['seq_len']
         self.n_features = config['n_features']
         self.patch_len = config['patch_len']
         self.n_patches = self.seq_len // self.patch_len
         
-        # 패치 임베딩
         self.patch_embedding = layers.Dense(128, activation='relu')
-        
-        # Transformer
         self.attention = layers.MultiHeadAttention(num_heads=8, key_dim=16)
         self.norm = layers.LayerNormalization()
-        
-        # 시계열 처리
         self.flatten = layers.Flatten()
         self.temporal_dense = layers.Dense(64, activation='relu')
         
-        # 물리 정보 처리 (PINN)
         self.physics_net = keras.Sequential([
             layers.Dense(32, activation='relu'),
             layers.BatchNormalization(),
             layers.Dense(16, activation='relu')
         ])
         
-        # 융합 및 극단값 보정
         self.fusion = keras.Sequential([
             layers.Dense(64, activation='relu'),
             layers.Dropout(0.3),
@@ -123,131 +99,70 @@ class PatchTSTPINN(keras.Model):
             layers.Dense(1)
         ])
         
-        # 극단값 부스팅 레이어
         self.extreme_boost = layers.Dense(1, activation='sigmoid')
         
     def call(self, inputs, training=False):
         x_seq, x_physics = inputs
-        
         batch_size = tf.shape(x_seq)[0]
         
-        # PatchTST 처리
         x = tf.reshape(x_seq, [batch_size, self.n_patches, self.patch_len * self.n_features])
         x = self.patch_embedding(x)
-        
         attn = self.attention(x, x, training=training)
         x = self.norm(x + attn)
-        
         x = self.flatten(x)
         temporal_features = self.temporal_dense(x)
         
-        # 물리 정보 처리
         physics_features = self.physics_net(x_physics)
-        
-        # 융합
         combined = tf.concat([temporal_features, physics_features], axis=-1)
         output = self.fusion(combined)
         
-        # 극단값 부스팅
         boost_factor = self.extreme_boost(combined)
         output = output * (1 + boost_factor * 0.2)
         
         return tf.squeeze(output, axis=-1)
 
 # ========================================
-# 평가 함수
+# 메인 평가 함수
 # ========================================
 
-def evaluate_august_data():
-    """2025년 8월 데이터 평가"""
+def evaluate_with_test_data():
+    """이미 준비된 테스트 데이터로 평가"""
     
-    # 1. 데이터 로드
-    print("\n📂 데이터 로드 중...")
-    df = pd.read_csv('data/20250801_TO_20250831.CSV')
-    print(f"✅ 8월 데이터 로드 완료: {df.shape}")
+    print("\n📂 저장된 테스트 데이터 로드 중...")
     
-    # 타겟 컬럼
-    target_col = 'CURRENT_M16A_3F_JOB_2'
+    try:
+        # 학습 때 저장한 테스트 데이터 로드
+        X_test_scaled = np.load('./test_data/X_test_scaled.npy')
+        y_test_scaled = np.load('./test_data/y_test_scaled.npy')
+        y_test = np.load('./test_data/y_test.npy')
+        X_physics_test_scaled = np.load('./test_data/X_physics_test_scaled.npy')
+        
+        print(f"✅ 테스트 데이터 로드 완료")
+        print(f"  샘플 수: {len(y_test)}")
+        print(f"  입력 shape: {X_test_scaled.shape}")
+        print(f"  물리 shape: {X_physics_test_scaled.shape}")
+        
+    except Exception as e:
+        print(f"❌ 테스트 데이터 로드 실패: {e}")
+        print("학습 스크립트를 먼저 실행해주세요.")
+        return None, None
     
-    # 데이터 전처리
-    df['timestamp'] = pd.to_datetime(df.iloc[:, 0], format='%Y%m%d%H%M', errors='coerce')
-    df = df.sort_values('timestamp').reset_index(drop=True)
-    df = df.fillna(method='ffill').fillna(0)
-    
-    # 데이터 분석
-    print(f"\n📊 8월 데이터 분석:")
-    print(f"  기간: {df['timestamp'].min()} ~ {df['timestamp'].max()}")
-    print(f"  전체 샘플: {len(df)}")
-    print(f"  타겟 범위: {df[target_col].min():.0f} ~ {df[target_col].max():.0f}")
-    print(f"  평균: {df[target_col].mean():.1f}, 중앙값: {df[target_col].median():.1f}")
-    print(f"\n  극단값 분포:")
-    print(f"    300+: {(df[target_col] >= 300).sum()}개 ({(df[target_col] >= 300).sum()/len(df)*100:.2f}%)")
-    print(f"    310+: {(df[target_col] >= 310).sum()}개 ({(df[target_col] >= 310).sum()/len(df)*100:.2f}%)")
-    print(f"    335+: {(df[target_col] >= 335).sum()}개 ({(df[target_col] >= 335).sum()/len(df)*100:.2f}%)")
-    
-    # 2. 스케일러 로드
+    # 스케일러 로드
     print("\n🔧 스케일러 로드 중...")
-    scaler_X = joblib.load('./scalers/scaler_X.pkl')
     scaler_y = joblib.load('./scalers/scaler_y.pkl')
-    scaler_physics = joblib.load('./scalers/scaler_physics.pkl')
     print("✅ 스케일러 로드 완료")
     
-    # 3. 시퀀스 생성
-    print("\n🔄 시퀀스 생성 중...")
-    numeric_cols = df.select_dtypes(include=[np.number]).columns.tolist()
+    # 데이터 분석
+    print(f"\n📊 테스트 데이터 분석:")
+    print(f"  타겟 범위: {y_test.min():.0f} ~ {y_test.max():.0f}")
+    print(f"  평균: {y_test.mean():.1f}, 중앙값: {np.median(y_test):.1f}")
+    print(f"\n  극단값 분포:")
+    print(f"    300+: {(y_test >= 300).sum()}개 ({(y_test >= 300).sum()/len(y_test)*100:.2f}%)")
+    print(f"    310+: {(y_test >= 310).sum()}개 ({(y_test >= 310).sum()/len(y_test)*100:.2f}%)")
+    print(f"    335+: {(y_test >= 335).sum()}개 ({(y_test >= 335).sum()/len(y_test)*100:.2f}%)")
     
-    # 물리 데이터용 컬럼
-    inflow_cols = ['M16A_6F_TO_HUB_JOB', 'M16A_2F_TO_HUB_JOB2',
-                   'M14A_3F_TO_HUB_JOB2', 'M14B_7F_TO_HUB_JOB2']
-    outflow_cols = ['M16A_3F_TO_M16A_6F_JOB', 'M16A_3F_TO_M16A_2F_JOB',
-                    'M16A_3F_TO_M14A_3F_JOB', 'M16A_3F_TO_M14B_7F_JOB']
-    
-    available_inflow = [col for col in inflow_cols if col in df.columns]
-    available_outflow = [col for col in outflow_cols if col in df.columns]
-    
-    seq_len = 20
-    pred_len = 10
-    
-    X, y, X_physics, timestamps = [], [], [], []
-    
-    for i in range(len(df) - seq_len - pred_len + 1):
-        # 시계열 데이터
-        X.append(df[numeric_cols].iloc[i:i+seq_len].values)
-        
-        # 타겟
-        y_val = df[target_col].iloc[i + seq_len + pred_len - 1]
-        y.append(y_val)
-        
-        # 타임스탬프
-        timestamps.append(df['timestamp'].iloc[i + seq_len + pred_len - 1])
-        
-        # 물리 데이터
-        physics = [
-            df[target_col].iloc[i + seq_len - 1],  # 현재값
-            df[available_inflow].iloc[i+seq_len:i+seq_len+pred_len].sum().sum() if available_inflow else 0,
-            df[available_outflow].iloc[i+seq_len:i+seq_len+pred_len].sum().sum() if available_outflow else 0
-        ]
-        X_physics.append(physics)
-    
-    X = np.array(X)
-    y = np.array(y)
-    X_physics = np.array(X_physics)
-    
-    print(f"✅ 시퀀스 생성 완료: {len(X)}개")
-    
-    # 4. 데이터 스케일링
-    print("\n📐 데이터 스케일링 중...")
-    n_features = X.shape[2]
-    
-    X_scaled = scaler_X.transform(X.reshape(-1, n_features)).reshape(len(X), seq_len, n_features)
-    y_scaled = scaler_y.transform(y.reshape(-1, 1)).flatten()
-    X_physics_scaled = scaler_physics.transform(X_physics)
-    
-    print("✅ 스케일링 완료")
-    
-    # 5. 모델 로드 및 예측
-    print("\n🤖 모델 로드 및 예측 중...")
-    
+    # 모델 설정
+    n_features = X_test_scaled.shape[2]
     config = {
         'seq_len': 20,
         'n_features': n_features,
@@ -255,18 +170,19 @@ def evaluate_august_data():
     }
     
     # Model 1 예측
-    print("  Model 1 (PatchTST) 예측 중...")
+    print("\n🤖 Model 1 (PatchTST) 예측 중...")
     model1 = PatchTSTModel(config)
     model1.compile(optimizer='adam', loss='mse')
     dummy_input = np.zeros((1, 20, n_features))
     _ = model1(dummy_input)
     model1.load_weights('./checkpoints/model1_v3.h5')
     
-    y_pred1_scaled = model1.predict(X_scaled, batch_size=64, verbose=0)
+    y_pred1_scaled = model1.predict(X_test_scaled, batch_size=64, verbose=0)
     y_pred1 = scaler_y.inverse_transform(y_pred1_scaled.reshape(-1, 1)).flatten()
+    print("✅ Model 1 예측 완료")
     
     # Model 2 예측
-    print("  Model 2 (PatchTST + PINN) 예측 중...")
+    print("\n🤖 Model 2 (PatchTST + PINN) 예측 중...")
     model2 = PatchTSTPINN(config)
     model2.compile(optimizer='adam', loss='mse')
     dummy_seq = np.zeros((1, 20, n_features))
@@ -274,138 +190,193 @@ def evaluate_august_data():
     _ = model2([dummy_seq, dummy_physics])
     model2.load_weights('./checkpoints/model2_v3.h5')
     
-    y_pred2_scaled = model2.predict([X_scaled, X_physics_scaled], batch_size=64, verbose=0)
+    y_pred2_scaled = model2.predict([X_test_scaled, X_physics_test_scaled], batch_size=64, verbose=0)
     y_pred2 = scaler_y.inverse_transform(y_pred2_scaled.reshape(-1, 1)).flatten()
+    print("✅ Model 2 예측 완료")
     
-    # 앙상블 예측 (가중 평균)
-    y_ensemble = 0.4 * y_pred1 + 0.6 * y_pred2  # Model 2에 더 높은 가중치
+    # 앙상블
+    y_ensemble = 0.4 * y_pred1 + 0.6 * y_pred2
+    print("✅ Ensemble 예측 완료")
     
-    print("✅ 예측 완료")
+    # 성능 평가
+    print("\n" + "="*80)
+    print("📈 모델 성능 평가")
+    print("="*80)
     
-    # 6. 평가 메트릭 계산
-    print("\n📈 성능 평가 중...")
+    results = []
     
-    results = {
-        'Model': [],
-        'MAE': [],
-        'RMSE': [],
-        'R2': [],
-        'MAE_Low(<200)': [],
-        'MAE_Normal(200-300)': [],
-        'MAE_High(300+)': [],
-        'MAE_Extreme(310+)': [],
-        'Detection_310+': [],
-        'Detection_335+': []
-    }
-    
-    # 각 모델별 평가
     for model_name, y_pred in [('Model1_PatchTST', y_pred1), 
                                ('Model2_PINN', y_pred2), 
                                ('Ensemble', y_ensemble)]:
         
-        results['Model'].append(model_name)
-        results['MAE'].append(mean_absolute_error(y, y_pred))
-        results['RMSE'].append(np.sqrt(mean_squared_error(y, y_pred)))
-        results['R2'].append(r2_score(y, y_pred))
+        mae = mean_absolute_error(y_test, y_pred)
+        rmse = np.sqrt(mean_squared_error(y_test, y_pred))
+        r2 = r2_score(y_test, y_pred)
         
-        # 구간별 MAE
-        mask_low = y < 200
-        mask_normal = (y >= 200) & (y < 300)
-        mask_high = y >= 300
-        mask_extreme = y >= 310
+        print(f"\n[{model_name}]")
+        print(f"  MAE: {mae:.2f}")
+        print(f"  RMSE: {rmse:.2f}")
+        print(f"  R2: {r2:.4f}")
         
-        results['MAE_Low(<200)'].append(mean_absolute_error(y[mask_low], y_pred[mask_low]) if mask_low.sum() > 0 else 0)
-        results['MAE_Normal(200-300)'].append(mean_absolute_error(y[mask_normal], y_pred[mask_normal]) if mask_normal.sum() > 0 else 0)
-        results['MAE_High(300+)'].append(mean_absolute_error(y[mask_high], y_pred[mask_high]) if mask_high.sum() > 0 else 0)
-        results['MAE_Extreme(310+)'].append(mean_absolute_error(y[mask_extreme], y_pred[mask_extreme]) if mask_extreme.sum() > 0 else 0)
+        # 구간별 성능
+        print("\n  구간별 MAE:")
+        mask_low = y_test < 200
+        mask_normal = (y_test >= 200) & (y_test < 300)
+        mask_high = y_test >= 300
+        mask_extreme = y_test >= 310
+        mask_very_extreme = y_test >= 335
+        
+        if mask_low.sum() > 0:
+            print(f"    저구간(<200): {mean_absolute_error(y_test[mask_low], y_pred[mask_low]):.2f}")
+        if mask_normal.sum() > 0:
+            print(f"    정상(200-300): {mean_absolute_error(y_test[mask_normal], y_pred[mask_normal]):.2f}")
+        if mask_high.sum() > 0:
+            print(f"    위험(300+): {mean_absolute_error(y_test[mask_high], y_pred[mask_high]):.2f}")
+        if mask_extreme.sum() > 0:
+            print(f"    극단(310+): {mean_absolute_error(y_test[mask_extreme], y_pred[mask_extreme]):.2f}")
+        if mask_very_extreme.sum() > 0:
+            print(f"    초극단(335+): {mean_absolute_error(y_test[mask_very_extreme], y_pred[mask_very_extreme]):.2f}")
         
         # 극단값 감지율
-        mask_310 = y >= 310
-        mask_335 = y >= 335
+        print("\n  극단값 감지율:")
+        if mask_extreme.sum() > 0:
+            detected_310 = ((y_pred >= 305)[mask_extreme].sum() / mask_extreme.sum()) * 100
+            print(f"    310+ → 305+ 예측: {detected_310:.1f}%")
         
-        if mask_310.sum() > 0:
-            detection_310 = ((y_pred >= 305)[mask_310].sum() / mask_310.sum()) * 100
-            results['Detection_310+'].append(f"{detection_310:.1f}%")
-        else:
-            results['Detection_310+'].append("N/A")
-            
-        if mask_335.sum() > 0:
-            detection_335 = ((y_pred >= 330)[mask_335].sum() / mask_335.sum()) * 100
-            results['Detection_335+'].append(f"{detection_335:.1f}%")
-        else:
-            results['Detection_335+'].append("N/A")
+        if mask_very_extreme.sum() > 0:
+            detected_335 = ((y_pred >= 330)[mask_very_extreme].sum() / mask_very_extreme.sum()) * 100
+            print(f"    335+ → 330+ 예측: {detected_335:.1f}%")
+        
+        # 결과 저장용
+        result = {
+            'Model': model_name,
+            'MAE': mae,
+            'RMSE': rmse,
+            'R2': r2,
+            'MAE_Low': mean_absolute_error(y_test[mask_low], y_pred[mask_low]) if mask_low.sum() > 0 else 0,
+            'MAE_Normal': mean_absolute_error(y_test[mask_normal], y_pred[mask_normal]) if mask_normal.sum() > 0 else 0,
+            'MAE_High': mean_absolute_error(y_test[mask_high], y_pred[mask_high]) if mask_high.sum() > 0 else 0,
+            'MAE_Extreme': mean_absolute_error(y_test[mask_extreme], y_pred[mask_extreme]) if mask_extreme.sum() > 0 else 0,
+        }
+        results.append(result)
     
     # 결과 DataFrame 생성
     results_df = pd.DataFrame(results)
     
-    # 7. 상세 예측 결과 DataFrame
+    # 상세 예측 결과
     detail_df = pd.DataFrame({
-        'Timestamp': timestamps,
-        'Actual': y,
+        'Index': range(len(y_test)),
+        'Actual': y_test,
         'Pred_Model1': y_pred1,
         'Pred_Model2': y_pred2,
         'Pred_Ensemble': y_ensemble,
-        'Error_Model1': np.abs(y - y_pred1),
-        'Error_Model2': np.abs(y - y_pred2),
-        'Error_Ensemble': np.abs(y - y_ensemble),
-        'Is_Extreme(310+)': y >= 310,
-        'Is_VeryExtreme(335+)': y >= 335
+        'Error_Model1': np.abs(y_test - y_pred1),
+        'Error_Model2': np.abs(y_test - y_pred2),
+        'Error_Ensemble': np.abs(y_test - y_ensemble),
+        'Is_Extreme_310': y_test >= 310,
+        'Is_Extreme_335': y_test >= 335
     })
     
-    # 8. 결과 저장
-    print("\n💾 결과 저장 중...")
+    # 결과 저장
+    print("\n" + "="*80)
+    print("💾 결과 저장 중...")
     
-    # 결과 폴더 생성
     os.makedirs('./evaluation_results', exist_ok=True)
     
-    # 성능 요약 저장
-    results_df.to_csv('./evaluation_results/model_performance_summary.csv', index=False)
-    print("✅ 성능 요약 저장: ./evaluation_results/model_performance_summary.csv")
+    # 성능 요약
+    results_df.to_csv('./evaluation_results/test_performance_summary.csv', index=False)
+    print("✅ 성능 요약: ./evaluation_results/test_performance_summary.csv")
     
-    # 상세 예측 결과 저장
-    detail_df.to_csv('./evaluation_results/detailed_predictions_august.csv', index=False)
-    print("✅ 상세 예측 저장: ./evaluation_results/detailed_predictions_august.csv")
+    # 상세 예측
+    detail_df.to_csv('./evaluation_results/test_detailed_predictions.csv', index=False)
+    print("✅ 상세 예측: ./evaluation_results/test_detailed_predictions.csv")
     
-    # 극단값만 필터링한 결과
-    extreme_df = detail_df[detail_df['Is_Extreme(310+)']].copy()
-    extreme_df.to_csv('./evaluation_results/extreme_predictions_august.csv', index=False)
-    print("✅ 극단값 예측 저장: ./evaluation_results/extreme_predictions_august.csv")
+    # 극단값만
+    extreme_df = detail_df[detail_df['Is_Extreme_310']].copy()
+    extreme_df.to_csv('./evaluation_results/test_extreme_predictions.csv', index=False)
+    print("✅ 극단값 예측: ./evaluation_results/test_extreme_predictions.csv")
     
-    # 9. 결과 출력
+    # 최고 성능 모델의 극단값 Top 20
     print("\n" + "="*80)
-    print("📊 평가 결과 요약")
+    print("🎯 극단값 예측 Top 20 (실제값 기준)")
     print("="*80)
-    print(results_df.to_string(index=False))
     
-    print("\n🎯 극단값 예측 성능 (310+ 구간)")
-    print("-"*50)
-    extreme_only = detail_df[detail_df['Is_Extreme(310+)']]
-    if len(extreme_only) > 0:
-        print(f"  총 극단값 샘플: {len(extreme_only)}개")
-        print(f"  Model 1 평균 오차: {extreme_only['Error_Model1'].mean():.2f}")
-        print(f"  Model 2 평균 오차: {extreme_only['Error_Model2'].mean():.2f}")
-        print(f"  Ensemble 평균 오차: {extreme_only['Error_Ensemble'].mean():.2f}")
-        
-        # 정확 예측 (오차 10 이내)
-        accurate_m1 = (extreme_only['Error_Model1'] <= 10).sum()
-        accurate_m2 = (extreme_only['Error_Model2'] <= 10).sum()
-        accurate_ens = (extreme_only['Error_Ensemble'] <= 10).sum()
-        
-        print(f"\n  오차 10 이내 예측:")
-        print(f"    Model 1: {accurate_m1}/{len(extreme_only)} ({accurate_m1/len(extreme_only)*100:.1f}%)")
-        print(f"    Model 2: {accurate_m2}/{len(extreme_only)} ({accurate_m2/len(extreme_only)*100:.1f}%)")
-        print(f"    Ensemble: {accurate_ens}/{len(extreme_only)} ({accurate_ens/len(extreme_only)*100:.1f}%)")
+    top20 = detail_df.nlargest(20, 'Actual')[['Actual', 'Pred_Model2', 'Error_Model2']]
+    print(top20.to_string())
     
-    print("\n✅ 평가 완료! 결과는 ./evaluation_results/ 폴더에 저장되었습니다.")
+    print("\n✅ 평가 완료!")
     print("="*80)
     
     return results_df, detail_df
 
+# ========================================
+# 8월 데이터로 실시간 예측 (선택사항)
+# ========================================
+
+def predict_august_realtime():
+    """8월 데이터를 실시간으로 예측 (시뮬레이션)"""
+    
+    print("\n" + "="*80)
+    print("📅 2025년 8월 데이터 실시간 예측")
+    print("="*80)
+    
+    # 8월 데이터 로드
+    df_aug = pd.read_csv('data/20250801_TO_20250831.CSV')
+    df_aug['timestamp'] = pd.to_datetime(df_aug.iloc[:, 0], format='%Y%m%d%H%M', errors='coerce')
+    df_aug = df_aug.sort_values('timestamp').reset_index(drop=True)
+    df_aug = df_aug.fillna(method='ffill').fillna(0)
+    
+    target_col = 'CURRENT_M16A_3F_JOB_2'
+    
+    print(f"✅ 8월 데이터 로드: {len(df_aug)}개 시점")
+    print(f"  기간: {df_aug['timestamp'].min()} ~ {df_aug['timestamp'].max()}")
+    print(f"  실제 극단값(310+): {(df_aug[target_col] >= 310).sum()}개")
+    print(f"  실제 초극단값(335+): {(df_aug[target_col] >= 335).sum()}개")
+    
+    # 극단값 발생 시점만 추출
+    extreme_times = df_aug[df_aug[target_col] >= 310]['timestamp'].tolist()
+    
+    if extreme_times:
+        print(f"\n🚨 극단값 발생 시점 (총 {len(extreme_times)}개):")
+        for i, t in enumerate(extreme_times[:10]):  # 처음 10개만 출력
+            value = df_aug[df_aug['timestamp'] == t][target_col].values[0]
+            print(f"  {i+1}. {t} → {value:.0f}")
+        
+        if len(extreme_times) > 10:
+            print(f"  ... 외 {len(extreme_times)-10}개")
+    
+    # 8월 극단값 통계
+    august_summary = pd.DataFrame({
+        'Month': ['2025-08'],
+        'Total_Points': [len(df_aug)],
+        'Extreme_310+': [(df_aug[target_col] >= 310).sum()],
+        'Extreme_335+': [(df_aug[target_col] >= 335).sum()],
+        'Max_Value': [df_aug[target_col].max()],
+        'Extreme_Rate_%': [(df_aug[target_col] >= 310).sum() / len(df_aug) * 100]
+    })
+    
+    august_summary.to_csv('./evaluation_results/august_extreme_summary.csv', index=False)
+    print(f"\n✅ 8월 극단값 요약 저장: ./evaluation_results/august_extreme_summary.csv")
+    
+    return august_summary
+
+# ========================================
 # 실행
+# ========================================
+
 if __name__ == "__main__":
     try:
-        results_df, detail_df = evaluate_august_data()
-        print("\n🎉 모든 작업이 성공적으로 완료되었습니다!")
+        # 1. 테스트 데이터로 평가
+        print("\n[1단계] 테스트 데이터 평가")
+        results_df, detail_df = evaluate_with_test_data()
+        
+        # 2. 8월 데이터 분석 (선택)
+        print("\n[2단계] 8월 데이터 분석")
+        august_summary = predict_august_realtime()
+        
+        print("\n🎉 모든 평가가 완료되었습니다!")
+        print("📁 결과는 ./evaluation_results/ 폴더를 확인하세요.")
+        
     except Exception as e:
         print(f"\n❌ 오류 발생: {e}")
         import traceback
