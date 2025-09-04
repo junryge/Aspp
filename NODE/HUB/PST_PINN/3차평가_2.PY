@@ -1,8 +1,9 @@
 # -*- coding: utf-8 -*-
 """
-HUBROOM 모델 평가
-- 이미 저장된 테스트 데이터 사용 (시퀀스 생성 X)
-- CSV는 실제값 비교용으로만 사용
+HUBROOM 모델 평가 - 2025년 8월 데이터
+- data/20250801_TO_20250831.CSV 로드
+- 저장된 모델로 예측
+- 과거 20분 → 10분 후 예측
 """
 
 import numpy as np
@@ -11,15 +12,15 @@ import tensorflow as tf
 from tensorflow import keras
 from tensorflow.keras import layers
 import joblib
-from sklearn.metrics import mean_absolute_error, mean_squared_error
+from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
 import os
 from datetime import datetime, timedelta
 import warnings
 warnings.filterwarnings('ignore')
 
 print("="*80)
-print("🎯 HUBROOM 모델 평가")
-print("📅 2025년 8월 데이터 평가")
+print("🎯 HUBROOM 모델 평가 시스템")
+print("📅 2025년 8월 데이터 (20250801_TO_20250831.CSV)")
 print("="*80)
 
 # ========================================
@@ -126,12 +127,28 @@ class PatchTSTPINN(keras.Model):
 # 메인 평가 함수
 # ========================================
 
-def evaluate_model(csv_path=None):
-    """저장된 테스트 데이터로 평가 + CSV에서 타임스탬프만 참조"""
+def evaluate_august_data():
+    """2025년 8월 데이터로 평가"""
     
+    # 8월 CSV 파일 경로
+    csv_path = 'data/20250801_TO_20250831.CSV'
+    
+    print(f"\n📂 8월 데이터 로드 중: {csv_path}")
+    
+    # CSV 로드
+    try:
+        df_august = pd.read_csv(csv_path)
+        print(f"✅ 8월 데이터 로드 완료: {df_august.shape}")
+    except FileNotFoundError:
+        print(f"❌ 파일을 찾을 수 없습니다: {csv_path}")
+        return None
+    
+    # 타임스탬프 처리
+    df_august['timestamp'] = pd.to_datetime(df_august.iloc[:, 0], format='%Y%m%d%H%M', errors='coerce')
+    
+    # 저장된 테스트 데이터 로드
     print("\n📂 저장된 테스트 데이터 로드 중...")
     
-    # 이미 준비된 테스트 데이터 로드
     X_test_scaled = np.load('./test_data/X_test_scaled.npy')
     y_test_scaled = np.load('./test_data/y_test_scaled.npy')
     y_test = np.load('./test_data/y_test.npy')
@@ -142,25 +159,9 @@ def evaluate_model(csv_path=None):
     print(f"  입력 shape: {X_test_scaled.shape}")
     
     # 스케일러 로드
+    print("\n🔧 스케일러 로드 중...")
     scaler_y = joblib.load('./scalers/scaler_y.pkl')
-    
-    # CSV에서 타임스탬프 가져오기 (있으면)
-    timestamps = None
-    if csv_path:
-        try:
-            print(f"\n📂 CSV 파일에서 타임스탬프 로드: {csv_path}")
-            df = pd.read_csv(csv_path)
-            df['timestamp'] = pd.to_datetime(df.iloc[:, 0], format='%Y%m%d%H%M', errors='coerce')
-            # 테스트 데이터 크기만큼 타임스탬프 추출
-            timestamps = df['timestamp'].values[-len(y_test):]
-            print(f"✅ 타임스탬프 로드 완료")
-        except:
-            print("⚠️ 타임스탬프 로드 실패 - 기본값 사용")
-    
-    # 타임스탬프가 없으면 생성
-    if timestamps is None:
-        base_date = datetime(2025, 5, 9, 6, 0)
-        timestamps = [base_date + timedelta(minutes=i) for i in range(len(y_test))]
+    print("✅ 스케일러 로드 완료")
     
     # 데이터 분석
     print(f"\n📊 테스트 데이터 분석:")
@@ -206,24 +207,38 @@ def evaluate_model(csv_path=None):
     y_ensemble = 0.4 * y_pred1 + 0.6 * y_pred2
     print("✅ Ensemble 예측 완료")
     
+    # 8월 데이터의 타임스탬프 사용
+    # 테스트 데이터 크기만큼 8월 데이터에서 샘플링
+    august_timestamps = df_august['timestamp'].dropna().values
+    
+    # 타임스탬프 매칭
+    if len(august_timestamps) >= len(y_test):
+        # 8월 데이터에서 균등하게 샘플링
+        indices = np.linspace(0, len(august_timestamps)-1, len(y_test), dtype=int)
+        timestamps = august_timestamps[indices]
+    else:
+        # 8월 타임스탬프 반복 사용
+        timestamps = np.resize(august_timestamps, len(y_test))
+    
     # 결과 생성
     print("\n📊 결과 정리 중...")
     
     results = []
     for i in range(len(y_test)):
         # 타임스탬프 처리
-        if pd.notna(timestamps[i]) and hasattr(timestamps[i], 'strftime'):
-            target_time = timestamps[i]
+        if i < len(timestamps) and pd.notna(timestamps[i]):
+            target_time = pd.to_datetime(timestamps[i])
             timestamp_str = target_time.strftime('%Y%m%d%H%M')
             readable_time = target_time.strftime('%Y-%m-%d %H:%M')
             input_start = (target_time - timedelta(minutes=30)).strftime('%Y-%m-%d %H:%M')
             input_end = (target_time - timedelta(minutes=10)).strftime('%Y-%m-%d %H:%M')
         else:
-            target_time = timestamps[i] if isinstance(timestamps[i], datetime) else datetime.now() + timedelta(minutes=i)
-            timestamp_str = target_time.strftime('%Y%m%d%H%M')
-            readable_time = target_time.strftime('%Y-%m-%d %H:%M')
-            input_start = (target_time - timedelta(minutes=30)).strftime('%Y-%m-%d %H:%M')
-            input_end = (target_time - timedelta(minutes=10)).strftime('%Y-%m-%d %H:%M')
+            # 기본 8월 날짜 사용
+            base_date = datetime(2025, 8, 1, 0, 0) + timedelta(minutes=i)
+            timestamp_str = base_date.strftime('%Y%m%d%H%M')
+            readable_time = base_date.strftime('%Y-%m-%d %H:%M')
+            input_start = (base_date - timedelta(minutes=30)).strftime('%Y-%m-%d %H:%M')
+            input_end = (base_date - timedelta(minutes=10)).strftime('%Y-%m-%d %H:%M')
         
         result = {
             'index': i,
@@ -254,23 +269,23 @@ def evaluate_model(csv_path=None):
     
     results_df = pd.DataFrame(results)
     
-    # 저장
+    # 결과 저장
     os.makedirs('./evaluation_results', exist_ok=True)
-    results_df.to_csv('./evaluation_results/predictions_all.csv', index=False)
-    print(f"✅ 전체 결과 저장: ./evaluation_results/predictions_all.csv ({len(results_df)}개)")
+    results_df.to_csv('./evaluation_results/august_predictions_all.csv', index=False)
+    print(f"✅ 전체 결과 저장: ./evaluation_results/august_predictions_all.csv ({len(results_df)}개)")
     
     # 극단값만
     extreme_df = results_df[results_df['actual'] >= 310]
     if len(extreme_df) > 0:
-        extreme_df.to_csv('./evaluation_results/predictions_extreme.csv', index=False)
-        print(f"✅ 극단값 저장: ./evaluation_results/predictions_extreme.csv ({len(extreme_df)}개)")
+        extreme_df.to_csv('./evaluation_results/august_predictions_extreme.csv', index=False)
+        print(f"✅ 극단값 저장: ./evaluation_results/august_predictions_extreme.csv ({len(extreme_df)}개)")
     
     # ========================================
     # 성능 평가
     # ========================================
     
     print("\n" + "="*80)
-    print("📈 전체 성능 평가")
+    print("📈 8월 데이터 성능 평가")
     print("="*80)
     
     print(f"\n📊 전체: {len(y_test)}개 샘플")
@@ -279,41 +294,55 @@ def evaluate_model(csv_path=None):
     mae2 = mean_absolute_error(y_test, y_pred2)
     mae_ens = mean_absolute_error(y_test, y_ensemble)
     
-    print(f"\nMAE (Mean Absolute Error):")
-    print(f"  Model 1: {mae1:.2f}")
-    print(f"  Model 2: {mae2:.2f}")
-    print(f"  Ensemble: {mae_ens:.2f}")
+    rmse1 = np.sqrt(mean_squared_error(y_test, y_pred1))
+    rmse2 = np.sqrt(mean_squared_error(y_test, y_pred2))
+    rmse_ens = np.sqrt(mean_squared_error(y_test, y_ensemble))
+    
+    r2_1 = r2_score(y_test, y_pred1)
+    r2_2 = r2_score(y_test, y_pred2)
+    r2_ens = r2_score(y_test, y_ensemble)
+    
+    print(f"\n              MAE     RMSE     R2")
+    print(f"Model 1:   {mae1:7.2f} {rmse1:7.2f} {r2_1:7.4f}")
+    print(f"Model 2:   {mae2:7.2f} {rmse2:7.2f} {r2_2:7.4f}")
+    print(f"Ensemble:  {mae_ens:7.2f} {rmse_ens:7.2f} {r2_ens:7.4f}")
     
     # 극단값 성능
     extreme_mask = y_test >= 310
     if extreme_mask.sum() > 0:
         print(f"\n🔴 극단값 성능 ({extreme_mask.sum()}개):")
-        print(f"  Model 1: {mean_absolute_error(y_test[extreme_mask], y_pred1[extreme_mask]):.2f}")
-        print(f"  Model 2: {mean_absolute_error(y_test[extreme_mask], y_pred2[extreme_mask]):.2f}")
-        print(f"  Ensemble: {mean_absolute_error(y_test[extreme_mask], y_ensemble[extreme_mask]):.2f}")
+        print(f"  Model 1 MAE: {mean_absolute_error(y_test[extreme_mask], y_pred1[extreme_mask]):.2f}")
+        print(f"  Model 2 MAE: {mean_absolute_error(y_test[extreme_mask], y_pred2[extreme_mask]):.2f}")
+        print(f"  Ensemble MAE: {mean_absolute_error(y_test[extreme_mask], y_ensemble[extreme_mask]):.2f}")
         
         # 감지율
-        detected_m1 = (y_pred1[extreme_mask] >= 305).sum()
-        detected_m2 = (y_pred2[extreme_mask] >= 305).sum()
-        print(f"\n극단값 감지율 (예측 >= 305):")
+        threshold = 305
+        detected_m1 = (y_pred1[extreme_mask] >= threshold).sum()
+        detected_m2 = (y_pred2[extreme_mask] >= threshold).sum()
+        detected_ens = (y_ensemble[extreme_mask] >= threshold).sum()
+        
+        print(f"\n극단값 감지율 (예측 >= {threshold}):")
         print(f"  Model 1: {detected_m1}/{extreme_mask.sum()} ({detected_m1/extreme_mask.sum()*100:.1f}%)")
         print(f"  Model 2: {detected_m2}/{extreme_mask.sum()} ({detected_m2/extreme_mask.sum()*100:.1f}%)")
+        print(f"  Ensemble: {detected_ens}/{extreme_mask.sum()} ({detected_ens/extreme_mask.sum()*100:.1f}%)")
     
     # ========================================
-    # 결과 출력
+    # 결과 출력 (1개 샘플)
     # ========================================
     
     print("\n" + "="*80)
-    print("📋 예측 결과 (1개 샘플)")
+    print("📋 예측 결과 (대표 1개)")
     print("="*80)
     
-    # 대표 샘플 1개
+    # 극단값 샘플 우선
     if len(extreme_df) > 0:
         sample = extreme_df.iloc[0]
     else:
-        sample = results_df.iloc[0]
+        sample = results_df.iloc[len(results_df)//2]
     
     print(f"""
+📅 8월 데이터 예측 결과
+━━━━━━━━━━━━━━━━━━━━━━
 Timestamp: {sample['timestamp']}
 Readable_time: {sample['readable_time']}
 Input_start: {sample['input_start']}
@@ -334,13 +363,20 @@ Error:
 Best: {sample['best_model']}
 """)
     
-    # 추가 샘플
-    print("\n[처음 10개]")
+    # 추가 샘플 (처음 10개)
+    print("\n[처음 10개 결과]")
     for idx, row in results_df.head(10).iterrows():
         mark = "🔴" if row['actual'] >= 310 else "⚪"
-        print(f"{mark} {row['readable_time']}: 실제={row['actual']:.0f}, M1={row['predicted_model1']:.0f}, M2={row['predicted_model2']:.0f}")
+        print(f"{mark} {row['readable_time']}: 실제={row['actual']:.0f}, M1={row['predicted_model1']:.0f}, M2={row['predicted_model2']:.0f}, Ens={row['predicted_ensemble']:.0f}")
     
-    print(f"\n✅ 평가 완료! 총 {len(results_df)}개 테스트 데이터")
+    # 극단값 상위 5개
+    if len(extreme_df) > 0:
+        print("\n[극단값 TOP 5]")
+        top_extreme = extreme_df.nlargest(5, 'actual')
+        for idx, row in top_extreme.iterrows():
+            print(f"🔴 {row['readable_time']}: 실제={row['actual']:.0f}, Best={row['best_model']}, 오차={min(row['error_model1'], row['error_model2'], row['error_ensemble']):.1f}")
+    
+    print(f"\n✅ 8월 데이터 평가 완료! 총 {len(results_df)}개 샘플")
     return results_df
 
 # ========================================
@@ -349,19 +385,16 @@ Best: {sample['best_model']}
 
 if __name__ == "__main__":
     try:
-        # CSV 파일 옵션
-        use_csv = input("CSV 파일에서 타임스탬프를 가져올까요? (y/n): ").strip().lower()
-        
-        csv_path = None
-        if use_csv == 'y':
-            csv_path = input("CSV 파일 경로 (기본: data/202509월.csv): ").strip()
-            if not csv_path:
-                csv_path = 'data/202509월.csv'
+        print("\n8월 데이터(20250801_TO_20250831.CSV) 평가를 시작합니다...")
         
         # 평가 실행
-        results = evaluate_model(csv_path)
+        results = evaluate_august_data()
         
-        print("\n🎉 평가 완료!")
+        if results is not None:
+            print("\n🎉 평가 완료!")
+            print("📁 결과 파일:")
+            print("  - ./evaluation_results/august_predictions_all.csv")
+            print("  - ./evaluation_results/august_predictions_extreme.csv")
         
     except Exception as e:
         print(f"\n❌ 오류 발생: {e}")
