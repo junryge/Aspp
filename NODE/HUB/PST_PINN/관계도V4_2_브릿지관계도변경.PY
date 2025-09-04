@@ -1,264 +1,393 @@
+# -*- coding: utf-8 -*-
 """
-실제 CSV 38개 컬럼 상세 평가
-- 202509월.csv 로드 (STAT_DT 제외 38개)
-- 각 컬럼별 상세 정보 및 평가
+PatchTST & PatchTST+PINN 모델 구축을 위한 실제 데이터 검증
+실제 파일: HUB_0509_TO_0807_DATA.CSV, BRTIME_0509_TO_0831.CSV
 """
 
 import pandas as pd
 import numpy as np
 import os
 from datetime import datetime
+import matplotlib.pyplot as plt
+import seaborn as sns
+import warnings
+warnings.filterwarnings('ignore')
 
-def evaluate_38_columns_detailed():
-    """실제 38개 컬럼 상세 평가"""
+# 그래프 한글 설정
+plt.rcParams['font.family'] = 'DejaVu Sans'
+plt.rcParams['axes.unicode_minus'] = False
+
+def validate_real_data():
+    """
+    실제 데이터 검증
+    Model 1: PatchTST (전체 균형)
+    Model 2: PatchTST + PINN (물리법칙 적용)
+    """
     
-    print("="*80)
-    print("🔍 실제 38개 컬럼 상세 평가")
-    print(f"📅 평가 시간: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-    print("="*80)
+    print("=" * 80)
+    print("🔍 PatchTST & PatchTST+PINN 모델 데이터 검증")
+    print(f"📅 검증 시간: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+    print("=" * 80)
     
-    # 38개 컬럼 상세 정의
-    columns_definition = [
-        {"컬럼명": "CURRENT_M16A_3F_JOB_2", "카테고리": "타겟", "V3사용": "O", "V4필수도": "필수", 
-         "점수": 100, "300+기여도": 100, "타겟상관도": 100, "유입영향도": 0, "유출영향도": 0, 
-         "물리법칙": "핵심", "대체가능성": "불가", "설명": "HUBROOM 내 총 재고(타겟)"},
-        
-        # 유입 컬럼
-        {"컬럼명": "M16A_6F_TO_HUB_JOB", "카테고리": "유입", "V3사용": "O", "V4필수도": "필수", 
-         "점수": 70, "300+기여도": 70, "타겟상관도": 65, "유입영향도": 100, "유출영향도": 0, 
-         "물리법칙": "핵심", "대체가능성": "불가", "설명": "M16A 6F→HUB 유입"},
-        
-        {"컬럼명": "M16A_2F_TO_HUB_JOB2", "카테고리": "유입", "V3사용": "O", "V4필수도": "필수", 
-         "점수": 65, "300+기여도": 65, "타겟상관도": 60, "유입영향도": 100, "유출영향도": 0, 
-         "물리법칙": "핵심", "대체가능성": "불가", "설명": "M16A 2F→HUB 유입2"},
-        
-        {"컬럼명": "M14A_3F_TO_HUB_JOB2", "카테고리": "유입", "V3사용": "O", "V4필수도": "필수", 
-         "점수": 65, "300+기여도": 65, "타겟상관도": 60, "유입영향도": 100, "유출영향도": 0, 
-         "물리법칙": "핵심", "대체가능성": "불가", "설명": "M14A 3F→HUB 유입2"},
-        
-        {"컬럼명": "M14B_7F_TO_HUB_JOB2", "카테고리": "유입", "V3사용": "O", "V4필수도": "필수", 
-         "점수": 65, "300+기여도": 65, "타겟상관도": 60, "유입영향도": 100, "유출영향도": 0, 
-         "물리법칙": "핵심", "대체가능성": "불가", "설명": "M14B 7F→HUB 유입2"},
-        
-        {"컬럼명": "M16B_10F_TO_HUB_JOB", "카테고리": "유입", "V3사용": "X", "V4필수도": "선택", 
-         "점수": 25, "300+기여도": 25, "타겟상관도": 20, "유입영향도": 100, "유출영향도": 0, 
-         "물리법칙": "보조", "대체가능성": "불가", "설명": "M16B 10F→HUB 유입"},
-        
-        # 유출 컬럼
-        {"컬럼명": "M16A_3F_TO_M16A_6F_JOB", "카테고리": "유출", "V3사용": "O", "V4필수도": "필수", 
-         "점수": 60, "300+기여도": 60, "타겟상관도": 55, "유입영향도": 0, "유출영향도": 100, 
-         "물리법칙": "핵심", "대체가능성": "불가", "설명": "HUB→6F 유출"},
-        
-        {"컬럼명": "M16A_3F_TO_M16A_2F_JOB", "카테고리": "유출", "V3사용": "O", "V4필수도": "필수", 
-         "점수": 55, "300+기여도": 55, "타겟상관도": 50, "유입영향도": 0, "유출영향도": 100, 
-         "물리법칙": "핵심", "대체가능성": "불가", "설명": "HUB→2F 유출"},
-        
-        {"컬럼명": "M16A_3F_TO_M14A_3F_JOB", "카테고리": "유출", "V3사용": "O", "V4필수도": "필수", 
-         "점수": 55, "300+기여도": 55, "타겟상관도": 50, "유입영향도": 0, "유출영향도": 100, 
-         "물리법칙": "핵심", "대체가능성": "불가", "설명": "HUB→M14A 유출"},
-        
-        {"컬럼명": "M16A_3F_TO_M14B_7F_JOB", "카테고리": "유출", "V3사용": "O", "V4필수도": "필수", 
-         "점수": 55, "300+기여도": 55, "타겟상관도": 50, "유입영향도": 0, "유출영향도": 100, 
-         "물리법칙": "핵심", "대체가능성": "불가", "설명": "HUB→M14B 유출"},
-        
-        {"컬럼명": "M16A_3F_TO_3F_MLUD_JOB", "카테고리": "유출", "V3사용": "X", "V4필수도": "선택", 
-         "점수": 35, "300+기여도": 35, "타겟상관도": 30, "유입영향도": 0, "유출영향도": 100, 
-         "물리법칙": "보조", "대체가능성": "불가", "설명": "HUB→MLUD 유출"},
-        
-        # CMD 컬럼
-        {"컬럼명": "M16A_3F_CMD", "카테고리": "내부CMD", "V3사용": "X", "V4필수도": "필수", 
-         "점수": 85, "300+기여도": 85, "타겟상관도": 75, "유입영향도": 40, "유출영향도": 35, 
-         "물리법칙": "핵심", "대체가능성": "부분가능", "설명": "HUB 내 총 CMD"},
-        
-        {"컬럼명": "M16A_6F_TO_HUB_CMD", "카테고리": "외부CMD", "V3사용": "X", "V4필수도": "권장", 
-         "점수": 55, "300+기여도": 55, "타겟상관도": 45, "유입영향도": 80, "유출영향도": 0, 
-         "물리법칙": "보조", "대체가능성": "부분가능", "설명": "6F→HUB 이동중"},
-        
-        {"컬럼명": "M16A_2F_TO_HUB_CMD", "카테고리": "외부CMD", "V3사용": "X", "V4필수도": "선택", 
-         "점수": 50, "300+기여도": 50, "타겟상관도": 40, "유입영향도": 80, "유출영향도": 0, 
-         "물리법칙": "보조", "대체가능성": "부분가능", "설명": "2F→HUB 이동중"},
-        
-        {"컬럼명": "M14A_3F_TO_HUB_CMD", "카테고리": "외부CMD", "V3사용": "X", "V4필수도": "선택", 
-         "점수": 50, "300+기여도": 50, "타겟상관도": 40, "유입영향도": 80, "유출영향도": 0, 
-         "물리법칙": "보조", "대체가능성": "부분가능", "설명": "M14A→HUB 이동중"},
-        
-        {"컬럼명": "M14B_7F_TO_HUB_CMD", "카테고리": "외부CMD", "V3사용": "X", "V4필수도": "선택", 
-         "점수": 50, "300+기여도": 50, "타겟상관도": 40, "유입영향도": 80, "유출영향도": 0, 
-         "물리법칙": "보조", "대체가능성": "부분가능", "설명": "M14B→HUB 이동중"},
-        
-        {"컬럼명": "M16A_3F_TO_M16A_LFT_AI_CMD", "카테고리": "내부CMD", "V3사용": "X", "V4필수도": "선택", 
-         "점수": 30, "300+기여도": 30, "타겟상관도": 25, "유입영향도": 30, "유출영향도": 30, 
-         "물리법칙": "보조", "대체가능성": "가능", "설명": "LFT AI 이동"},
-        
-        {"컬럼명": "M16A_3F_TO_M16A_MLUD_AI_CMD", "카테고리": "내부CMD", "V3사용": "X", "V4필수도": "선택", 
-         "점수": 20, "300+기여도": 20, "타겟상관도": 20, "유입영향도": 20, "유출영향도": 20, 
-         "물리법칙": "보조", "대체가능성": "가능", "설명": "MLUD AI 이동"},
-        
-        {"컬럼명": "M16A_3F_TO_M16A_3F_STB_CMD", "카테고리": "내부CMD", "V3사용": "X", "V4필수도": "선택", 
-         "점수": 20, "300+기여도": 20, "타겟상관도": 20, "유입영향도": 20, "유출영향도": 20, 
-         "물리법칙": "보조", "대체가능성": "가능", "설명": "STB 이동"},
-        
-        {"컬럼명": "M16A_3F_TO_M14A_CNV_AI_CMD", "카테고리": "내부CMD", "V3사용": "X", "V4필수도": "선택", 
-         "점수": 30, "300+기여도": 30, "타겟상관도": 25, "유입영향도": 0, "유출영향도": 50, 
-         "물리법칙": "보조", "대체가능성": "가능", "설명": "M14A CNV 이동"},
-        
-        {"컬럼명": "M16A_3F_TO_M14B_LFT_AI_CMD", "카테고리": "내부CMD", "V3사용": "X", "V4필수도": "선택", 
-         "점수": 30, "300+기여도": 30, "타겟상관도": 25, "유입영향도": 0, "유출영향도": 50, 
-         "물리법칙": "보조", "대체가능성": "가능", "설명": "M14B LFT 이동"},
-        
-        # MaxCapa 컬럼
-        {"컬럼명": "M16A_6F_LFT_MAXCAPA", "카테고리": "MaxCapa", "V3사용": "X", "V4필수도": "선택", 
-         "점수": 50, "300+기여도": 50, "타겟상관도": 40, "유입영향도": 50, "유출영향도": 0, 
-         "물리법칙": "보조", "대체가능성": "불가", "설명": "6F LFT 최대용량"},
-        
-        {"컬럼명": "M16A_2F_LFT_MAXCAPA", "카테고리": "MaxCapa", "V3사용": "X", "V4필수도": "선택", 
-         "점수": 45, "300+기여도": 45, "타겟상관도": 35, "유입영향도": 50, "유출영향도": 0, 
-         "물리법칙": "보조", "대체가능성": "불가", "설명": "2F LFT 최대용량"},
-        
-        {"컬럼명": "M14A_3F_CNV_MAXCAPA", "카테고리": "MaxCapa", "V3사용": "X", "V4필수도": "선택", 
-         "점수": 45, "300+기여도": 45, "타겟상관도": 35, "유입영향도": 50, "유출영향도": 0, 
-         "물리법칙": "보조", "대체가능성": "불가", "설명": "M14A CNV 최대용량"},
-        
-        {"컬럼명": "M14B_7F_LFT_MAXCAPA", "카테고리": "MaxCapa", "V3사용": "X", "V4필수도": "선택", 
-         "점수": 45, "300+기여도": 45, "타겟상관도": 35, "유입영향도": 50, "유출영향도": 0, 
-         "물리법칙": "보조", "대체가능성": "불가", "설명": "M14B LFT 최대용량"},
-        
-        {"컬럼명": "M16A_3F_LFT_MAXCAPA", "카테고리": "MaxCapa", "V3사용": "X", "V4필수도": "선택", 
-         "점수": 50, "300+기여도": 50, "타겟상관도": 40, "유입영향도": 0, "유출영향도": 50, 
-         "물리법칙": "보조", "대체가능성": "불가", "설명": "3F LFT 최대용량"},
-        
-        {"컬럼명": "M16A_3F_CNV_MAXCAPA", "카테고리": "MaxCapa", "V3사용": "X", "V4필수도": "선택", 
-         "점수": 45, "300+기여도": 45, "타겟상관도": 35, "유입영향도": 0, "유출영향도": 50, 
-         "물리법칙": "보조", "대체가능성": "불가", "설명": "3F CNV 최대용량"},
-        
-        {"컬럼명": "M16A_3F_M14BLFT_MAXCAPA", "카테고리": "MaxCapa", "V3사용": "X", "V4필수도": "선택", 
-         "점수": 45, "300+기여도": 45, "타겟상관도": 35, "유입영향도": 0, "유출영향도": 50, 
-         "물리법칙": "보조", "대체가능성": "불가", "설명": "3F-M14B LFT 용량"},
-        
-        # 극단값지표
-        {"컬럼명": "M16A_3F_STORAGE_UTIL", "카테고리": "극단값지표", "V3사용": "X", "V4필수도": "필수", 
-         "점수": 95, "300+기여도": 95, "타겟상관도": 85, "유입영향도": 30, "유출영향도": 20, 
-         "물리법칙": "핵심", "대체가능성": "가능", "설명": "Storage 활용률"},
-        
-        # 대체경로
-        {"컬럼명": "M16A_6F_TO_HUB_JOB_ALT", "카테고리": "대체경로", "V3사용": "X", "V4필수도": "제외", 
-         "점수": 15, "300+기여도": 15, "타겟상관도": 10, "유입영향도": 30, "유출영향도": 0, 
-         "물리법칙": "보조", "대체가능성": "불가", "설명": "6F 대체경로"},
-        
-        {"컬럼명": "M16A_2F_TO_HUB_JOB_ALT", "카테고리": "대체경로", "V3사용": "X", "V4필수도": "제외", 
-         "점수": 15, "300+기여도": 15, "타겟상관도": 10, "유입영향도": 30, "유출영향도": 0, 
-         "물리법칙": "보조", "대체가능성": "불가", "설명": "2F 대체경로"},
-        
-        {"컬럼명": "M14A_3F_TO_HUB_JOB_ALT", "카테고리": "대체경로", "V3사용": "X", "V4필수도": "제외", 
-         "점수": 15, "300+기여도": 15, "타겟상관도": 10, "유입영향도": 30, "유출영향도": 0, 
-         "물리법칙": "보조", "대체가능성": "불가", "설명": "M14A 대체경로"},
-        
-        {"컬럼명": "M14B_7F_TO_HUB_JOB_ALT", "카테고리": "대체경로", "V3사용": "X", "V4필수도": "제외", 
-         "점수": 15, "300+기여도": 15, "타겟상관도": 10, "유입영향도": 30, "유출영향도": 0, 
-         "물리법칙": "보조", "대체가능성": "불가", "설명": "M14B 대체경로"},
-        
-        # 층간이동
-        {"컬럼명": "M16A_6F_TO_2F_JOB", "카테고리": "층간이동", "V3사용": "X", "V4필수도": "제외", 
-         "점수": 10, "300+기여도": 10, "타겟상관도": 15, "유입영향도": 20, "유출영향도": 20, 
-         "물리법칙": "무관", "대체가능성": "불가", "설명": "6F→2F 이동"},
-        
-        {"컬럼명": "M16A_2F_TO_6F_JOB", "카테고리": "층간이동", "V3사용": "X", "V4필수도": "제외", 
-         "점수": 10, "300+기여도": 10, "타겟상관도": 15, "유입영향도": 20, "유출영향도": 20, 
-         "물리법칙": "무관", "대체가능성": "불가", "설명": "2F→6F 이동"},
-        
-        # OFS
-        {"컬럼명": "M14_TO_M16_OFS_CUR", "카테고리": "OFS", "V3사용": "X", "V4필수도": "선택", 
-         "점수": 40, "300+기여도": 40, "타겟상관도": 35, "유입영향도": 40, "유출영향도": 0, 
-         "물리법칙": "보조", "대체가능성": "불가", "설명": "M14→M16 OFS"},
-        
-        {"컬럼명": "M16_TO_M14_OFS_CUR", "카테고리": "OFS", "V3사용": "X", "V4필수도": "선택", 
-         "점수": 40, "300+기여도": 40, "타겟상관도": 35, "유입영향도": 0, "유출영향도": 40, 
-         "물리법칙": "보조", "대체가능성": "불가", "설명": "M16→M14 OFS"},
-    ]
+    # 실제 데이터 파일 경로
+    data_main = 'data/HUB_0509_TO_0807_DATA.CSV'
+    data_bridge = 'data/BRTIME_0509_TO_0831.CSV'
     
-    # CSV 로드 및 검증
-    actual_columns = []
-    if os.path.exists('202509월.csv'):
-        df = pd.read_csv('202509월.csv')
-        actual_columns = [col for col in df.columns if col != 'STAT_DT']
-        print(f"\n✅ CSV 로드 성공: {len(df)}행 × {len(actual_columns)}열")
-    else:
-        print("\n❌ 202509월.csv 파일 없음")
+    # 1. 파일 존재 확인
+    print("\n📁 데이터 파일 확인:")
+    print("-" * 60)
+    
+    if not os.path.exists(data_main):
+        print(f"❌ {data_main} 파일을 찾을 수 없습니다.")
+        return None
+        
+    if not os.path.exists(data_bridge):
+        print(f"❌ {data_bridge} 파일을 찾을 수 없습니다.")
         return None
     
-    # 브리지타임 확인
-    bridge_exists = os.path.exists('브릿지타임.CSV')
-    if bridge_exists:
-        print("✅ 브릿지타임.CSV 존재")
+    # 2. 데이터 로드
+    print("\n📊 데이터 로드:")
+    print("-" * 60)
     
-    # 평가 결과 생성
-    print("\n" + "="*60)
-    print("📊 38개 컬럼 상세 평가")
-    print("="*60)
+    df_main = pd.read_csv(data_main, encoding='utf-8-sig')
+    df_bridge = pd.read_csv(data_bridge, encoding='utf-8-sig')
     
-    results = []
-    total_score = 0
-    actual_score = 0
+    print(f"✅ HUB 데이터: {df_main.shape[0]:,}행 × {df_main.shape[1]}열")
+    print(f"✅ 브리지타임 데이터: {df_bridge.shape[0]:,}행 × {df_bridge.shape[1]}열")
     
-    for col_info in columns_definition:
-        col_name = col_info['컬럼명']
-        if col_name in actual_columns:
-            col_info['존재여부'] = "✅"
-            actual_score += col_info['점수']
-        else:
-            col_info['존재여부'] = "❌"
-        total_score += col_info['점수']
-        results.append(col_info)
+    # 3. 타겟 컬럼 확인
+    print("\n🎯 타겟 컬럼 확인:")
+    print("-" * 60)
     
-    # DataFrame 생성
-    df_result = pd.DataFrame(results)
-    
-    # 카테고리별 집계
-    category_summary = df_result.groupby('카테고리').agg({
-        '점수': 'sum',
-        '존재여부': lambda x: (x == '✅').sum()
-    }).rename(columns={'존재여부': '존재개수'})
-    category_summary['전체개수'] = df_result.groupby('카테고리').size()
-    
-    print("\n카테고리별 현황:")
-    print("-"*60)
-    print(category_summary)
-    
-    # 최종 점수
-    print(f"\n총 점수: {actual_score}/{total_score} ({actual_score/total_score*100:.1f}%)")
-    
-    # 물리법칙별 집계
-    physics_summary = df_result[df_result['물리법칙'] == '핵심'].agg({
-        '점수': 'sum',
-        '존재여부': lambda x: (x == '✅').sum()
-    })
-    
-    print(f"\n물리법칙 핵심 컬럼: {physics_summary['존재여부']}개 존재")
-    
-    # CSV 저장
-    output_file = '38columns_evaluation.csv'
-    df_result.to_csv(output_file, index=False, encoding='utf-8-sig')
-    print(f"\n💾 평가 결과 저장: {output_file}")
-    
-    # 모델 구축 가능성
-    print("\n" + "="*60)
-    print("🤖 모델 구축 가능성")
-    print("="*60)
-    
-    score_ratio = actual_score/total_score*100
-    if score_ratio >= 75:
-        print("Model 1 (PatchTST): ✅ 구축 가능")
-        print("Model 2 (PINN): ✅ 구축 가능")
-    elif score_ratio >= 65:
-        print("Model 1 (PatchTST): ✅ 구축 가능")
-        print("Model 2 (PINN): ⚠️ 제한적 구축")
+    target_col = 'CURRENT_M16A_3F_JOB_2'
+    if target_col in df_main.columns:
+        print(f"✅ 타겟 컬럼 '{target_col}' 존재")
+        print(f"   - 평균: {df_main[target_col].mean():.2f}")
+        print(f"   - 표준편차: {df_main[target_col].std():.2f}")
+        print(f"   - 최소값: {df_main[target_col].min():.2f}")
+        print(f"   - 최대값: {df_main[target_col].max():.2f}")
+        print(f"   - 결측치: {df_main[target_col].isna().sum()}개")
     else:
-        print("Model 1 (PatchTST): ⚠️ 제한적 구축")
-        print("Model 2 (PINN): ❌ 구축 어려움")
+        print(f"❌ 타겟 컬럼 '{target_col}' 없음")
+        return None
     
-    return df_result
+    # 4. 시간 컬럼 확인 및 병합
+    print("\n⏰ 시간 정보 및 병합:")
+    print("-" * 60)
+    
+    # 시간 컬럼 확인
+    time_col_main = None
+    time_col_bridge = None
+    
+    # HUB 데이터 시간 컬럼 찾기
+    for col in ['STAT_DT', 'DATETIME', 'TIME', 'DATE']:
+        if col in df_main.columns:
+            time_col_main = col
+            break
+    
+    # 브리지타임 시간 컬럼 찾기
+    for col in ['CRT_TM', 'DATETIME', 'TIME', 'DATE']:
+        if col in df_bridge.columns:
+            time_col_bridge = col
+            break
+    
+    if time_col_main:
+        print(f"✅ HUB 시간 컬럼: {time_col_main}")
+    else:
+        print("❌ HUB 데이터에서 시간 컬럼을 찾을 수 없음")
+    
+    if time_col_bridge:
+        print(f"✅ 브리지타임 시간 컬럼: {time_col_bridge}")
+    else:
+        print("❌ 브리지타임 데이터에서 시간 컬럼을 찾을 수 없음")
+    
+    # 시간 변환 및 병합
+    if time_col_main and time_col_bridge:
+        try:
+            # HUB 데이터 시간 변환
+            if time_col_main == 'STAT_DT':
+                df_main['time'] = pd.to_datetime(df_main[time_col_main].astype(str), format='%Y%m%d%H%M')
+            else:
+                df_main['time'] = pd.to_datetime(df_main[time_col_main])
+            
+            # 브리지타임 시간 변환
+            if time_col_bridge == 'CRT_TM':
+                df_bridge['time'] = pd.to_datetime(df_bridge[time_col_bridge].str[:19])
+            else:
+                df_bridge['time'] = pd.to_datetime(df_bridge[time_col_bridge])
+            
+            # 병합
+            bridge_value_col = 'IDC_VAL' if 'IDC_VAL' in df_bridge.columns else df_bridge.columns[1]
+            df = pd.merge(df_main, df_bridge[['time', bridge_value_col]], 
+                         on='time', how='left')
+            df.rename(columns={bridge_value_col: 'BRIDGE_TIME'}, inplace=True)
+            
+            # 브리지타임 결측치 처리
+            bridge_missing_before = df['BRIDGE_TIME'].isna().sum()
+            df['BRIDGE_TIME'] = df['BRIDGE_TIME'].interpolate(method='linear')
+            df['BRIDGE_TIME'] = df['BRIDGE_TIME'].fillna(df['BRIDGE_TIME'].mean())
+            
+            print(f"✅ 데이터 병합 완료: {df.shape[0]:,}행 × {df.shape[1]}열")
+            print(f"   브리지타임 결측치: {bridge_missing_before}개 → 0개 (보간 완료)")
+        except Exception as e:
+            print(f"❌ 시간 변환/병합 중 오류: {e}")
+            df = df_main.copy()
+    else:
+        df = df_main.copy()
+    
+    # 5. 필수 컬럼 분석
+    print("\n📋 필수 컬럼 분석:")
+    print("-" * 60)
+    
+    # 컬럼 카테고리 정의
+    column_categories = {
+        '타겟': ['CURRENT_M16A_3F_JOB_2'],
+        '유입_필수': ['M16A_6F_TO_HUB_JOB', 'M16A_2F_TO_HUB_JOB2', 
+                   'M14A_3F_TO_HUB_JOB2', 'M14B_7F_TO_HUB_JOB2'],
+        '유출_필수': ['M16A_3F_TO_M16A_6F_JOB', 'M16A_3F_TO_M16A_2F_JOB',
+                   'M16A_3F_TO_M14A_3F_JOB', 'M16A_3F_TO_M14B_7F_JOB'],
+        'CMD_핵심': ['M16A_3F_CMD'],
+        'Storage': ['M16A_3F_STORAGE_UTIL'],
+        '브리지타임': ['BRIDGE_TIME'],
+        '활용률': ['M16A_6F_LFT_MAXCAPA_UTIL', 'M16A_2F_LFT_MAXCAPA_UTIL',
+                 'M14A_3F_CNV_MAXCAPA_UTIL', 'M14B_7F_LFT_MAXCAPA_UTIL'],
+        'MaxCapa': ['M16A_6F_LFT_MAXCAPA', 'M16A_2F_LFT_MAXCAPA',
+                   'M14A_3F_CNV_MAXCAPA', 'M14B_7F_LFT_MAXCAPA'],
+        'OFS': ['M14_TO_M16_OFS_CUR', 'M16_TO_M14_OFS_CUR'],
+        '집계': ['M16_ALL_TO_HUB_JOB', 'M14_ALL_TO_HUB_JOB', 'ALL_TO_HUB_JOB']
+    }
+    
+    # 각 카테고리별 존재 여부 확인
+    validation_results = {}
+    total_score = 0
+    available_score = 0
+    
+    for category, cols in column_categories.items():
+        validation_results[category] = {
+            'total': len(cols),
+            'found': 0,
+            'missing': [],
+            'existing': []
+        }
+        
+        for col in cols:
+            if col in df.columns:
+                validation_results[category]['found'] += 1
+                validation_results[category]['existing'].append(col)
+                # 점수 계산 (카테고리별 가중치)
+                if category == '타겟':
+                    available_score += 100
+                elif category in ['유입_필수', '유출_필수']:
+                    available_score += 60
+                elif category in ['CMD_핵심', 'Storage', '브리지타임']:
+                    available_score += 80
+                else:
+                    available_score += 40
+            else:
+                validation_results[category]['missing'].append(col)
+            
+            # 총점 계산
+            if category == '타겟':
+                total_score += 100
+            elif category in ['유입_필수', '유출_필수']:
+                total_score += 60
+            elif category in ['CMD_핵심', 'Storage', '브리지타임']:
+                total_score += 80
+            else:
+                total_score += 40
+        
+        # 카테고리별 출력
+        found_ratio = validation_results[category]['found'] / validation_results[category]['total'] * 100
+        status = "✅" if found_ratio == 100 else "⚠️" if found_ratio >= 50 else "❌"
+        
+        print(f"\n{status} {category}: {validation_results[category]['found']}/{validation_results[category]['total']} ({found_ratio:.0f}%)")
+        
+        if validation_results[category]['existing']:
+            for col in validation_results[category]['existing'][:3]:  # 최대 3개만 표시
+                print(f"   ✓ {col}")
+            if len(validation_results[category]['existing']) > 3:
+                print(f"   ... 외 {len(validation_results[category]['existing'])-3}개")
+        
+        if validation_results[category]['missing']:
+            for col in validation_results[category]['missing'][:3]:  # 최대 3개만 표시
+                print(f"   ✗ {col}")
+            if len(validation_results[category]['missing']) > 3:
+                print(f"   ... 외 {len(validation_results[category]['missing'])-3}개")
+    
+    # 6. 물리법칙 검증 (유입-유출 균형)
+    print("\n⚖️ 물리법칙 검증:")
+    print("-" * 60)
+    
+    # 유입 컬럼 합계
+    inflow_cols = [col for col in validation_results['유입_필수']['existing']]
+    if inflow_cols:
+        total_inflow = df[inflow_cols].sum(axis=1)
+        print(f"✅ 총 유입 계산 가능 ({len(inflow_cols)}개 컬럼)")
+    else:
+        total_inflow = 0
+        print("❌ 유입 컬럼 부족으로 계산 불가")
+    
+    # 유출 컬럼 합계
+    outflow_cols = [col for col in validation_results['유출_필수']['existing']]
+    if outflow_cols:
+        total_outflow = df[outflow_cols].sum(axis=1)
+        print(f"✅ 총 유출 계산 가능 ({len(outflow_cols)}개 컬럼)")
+    else:
+        total_outflow = 0
+        print("❌ 유출 컬럼 부족으로 계산 불가")
+    
+    # 재고 변화량
+    if target_col in df.columns:
+        stock_change = df[target_col].diff()
+        
+        # 물리법칙: 재고 변화 = 유입 - 유출
+        if isinstance(total_inflow, pd.Series) and isinstance(total_outflow, pd.Series):
+            balance = total_inflow - total_outflow - stock_change
+            balance_error = balance.abs().mean()
+            print(f"\n📊 물리법칙 균형 오차: {balance_error:.2f}")
+            
+            if balance_error < 10:
+                print("   ✅ 우수: 물리법칙 잘 유지됨")
+            elif balance_error < 50:
+                print("   ⚠️ 양호: 약간의 불균형 존재")
+            else:
+                print("   ❌ 주의: 물리법칙 불균형 심각")
+    
+    # 7. 브리지타임 상관관계 분석
+    print("\n🔗 브리지타임 상관관계:")
+    print("-" * 60)
+    
+    if 'BRIDGE_TIME' in df.columns and target_col in df.columns:
+        # 동시점 상관관계
+        corr_instant = df[[target_col, 'BRIDGE_TIME']].corr().iloc[0, 1]
+        print(f"동시점 상관계수: {corr_instant:.3f}")
+        
+        # 10분 후 예측을 위한 lag 상관관계
+        df['TARGET_LAG10'] = df[target_col].shift(-10)
+        corr_lag10 = df[['BRIDGE_TIME', 'TARGET_LAG10']].corr().iloc[0, 1]
+        print(f"10분 예측 상관계수: {corr_lag10:.3f}")
+        
+        # 다양한 lag 분석
+        lag_corrs = {}
+        for lag in [5, 10, 15, 20]:
+            df[f'BRIDGE_LAG{lag}'] = df['BRIDGE_TIME'].shift(lag)
+            lag_corr = df[[f'BRIDGE_LAG{lag}', 'TARGET_LAG10']].corr().iloc[0, 1]
+            lag_corrs[lag] = lag_corr
+            print(f"Bridge(t-{lag}) → Target(t+10) 상관계수: {lag_corr:.3f}")
+        
+        best_lag = max(lag_corrs, key=lambda x: abs(lag_corrs[x]))
+        print(f"\n✨ 최적 Lag: {best_lag}분 (상관계수: {lag_corrs[best_lag]:.3f})")
+    else:
+        print("❌ 브리지타임 데이터 없음")
+    
+    # 8. 시계열 데이터 품질 검증
+    print("\n📈 시계열 데이터 품질:")
+    print("-" * 60)
+    
+    if 'time' in df.columns:
+        # 시간 간격 분석
+        time_diff = df['time'].diff().dt.total_seconds() / 60  # 분 단위
+        time_interval = time_diff.mode().values[0] if len(time_diff.mode()) > 0 else time_diff.median()
+        
+        print(f"데이터 간격: {time_interval:.0f}분")
+        print(f"총 기간: {df['time'].min().date()} ~ {df['time'].max().date()}")
+        print(f"총 일수: {(df['time'].max() - df['time'].min()).days}일")
+        
+        # 결측 구간 확인
+        missing_intervals = time_diff[time_diff > time_interval * 2].count()
+        print(f"결측 구간: {missing_intervals}개")
+        
+        # 20분 윈도우로 10분 예측 가능 샘플 수
+        valid_samples = len(df) - 30  # 20분 입력 + 10분 후 타겟
+        print(f"학습 가능 샘플: {valid_samples:,}개")
+        
+        if valid_samples > 10000:
+            print("   ✅ 충분한 학습 데이터")
+        elif valid_samples > 5000:
+            print("   ⚠️ 적절한 학습 데이터")
+        else:
+            print("   ❌ 학습 데이터 부족")
+    
+    # 9. 모델별 구축 가능성 평가
+    print("\n🤖 모델 구축 가능성 평가:")
+    print("-" * 60)
+    
+    score_ratio = (available_score / total_score * 100) if total_score > 0 else 0
+    
+    # 필수 조건 확인
+    has_target = validation_results['타겟']['found'] > 0
+    has_inflow = validation_results['유입_필수']['found'] >= 2
+    has_outflow = validation_results['유출_필수']['found'] >= 2
+    has_bridge = validation_results['브리지타임']['found'] > 0
+    
+    print(f"\n📊 데이터 준비도: {score_ratio:.1f}%")
+    print(f"   • 타겟: {'✅' if has_target else '❌'}")
+    print(f"   • 유입: {'✅' if has_inflow else '❌'} ({validation_results['유입_필수']['found']}/4)")
+    print(f"   • 유출: {'✅' if has_outflow else '❌'} ({validation_results['유출_필수']['found']}/4)")
+    print(f"   • 브리지타임: {'✅' if has_bridge else '❌'}")
+    
+    # Model 1: PatchTST 평가
+    print("\n📍 Model 1: PatchTST (전체 균형)")
+    if has_target and (has_inflow or has_outflow):
+        print("   ✅ 구축 가능")
+        print("   - 기본 시계열 패턴 학습 가능")
+        print("   - 브리지타임으로 성능 향상 가능" if has_bridge else "   - 브리지타임 없이도 구축 가능")
+    else:
+        print("   ❌ 구축 불가")
+        print("   - 최소한 타겟과 유입/유출 데이터 필요")
+    
+    # Model 2: PatchTST + PINN 평가
+    print("\n📍 Model 2: PatchTST + PINN (물리법칙)")
+    if has_target and has_inflow and has_outflow:
+        print("   ✅ 구축 가능")
+        print("   - 물리법칙 (유입-유출 균형) 적용 가능")
+        print("   - 브리지타임으로 추가 제약조건 가능" if has_bridge else "   - 기본 물리법칙만 적용")
+    else:
+        print("   ⚠️ 제한적 구축")
+        print("   - 유입/유출 데이터 부족으로 물리법칙 제약")
+    
+    # 10. 최종 권고사항
+    print("\n💡 권고사항:")
+    print("-" * 60)
+    
+    if score_ratio >= 70:
+        print("✅ 즉시 모델 구축 가능")
+        print("   1. 두 모델 모두 구축하여 성능 비교")
+        print("   2. 브리지타임 lag 최적화 수행")
+        print("   3. 물리법칙 가중치 튜닝")
+    elif score_ratio >= 50:
+        print("⚠️ 기본 모델 구축 가능")
+        print("   1. PatchTST 모델 우선 구축")
+        print("   2. 누락 데이터 수집 후 PINN 추가")
+        print("   3. 브리지타임 활용 극대화")
+    else:
+        print("❌ 추가 데이터 수집 필요")
+        print("   1. 유입/유출 컬럼 확보 우선")
+        print("   2. 브리지타임 데이터 품질 개선")
+        print("   3. 최소 1개월 이상 데이터 축적")
+    
+    # 결과 저장
+    validation_summary = {
+        '데이터준비도': f"{score_ratio:.1f}%",
+        '타겟존재': has_target,
+        '유입컬럼': validation_results['유입_필수']['found'],
+        '유출컬럼': validation_results['유출_필수']['found'],
+        '브리지타임': has_bridge,
+        'PatchTST구축가능': has_target and (has_inflow or has_outflow),
+        'PINN구축가능': has_target and has_inflow and has_outflow,
+        '총샘플수': len(df),
+        '검증시간': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    }
+    
+    # CSV로 저장
+    pd.DataFrame([validation_summary]).to_csv('model_validation_result.csv', index=False, encoding='utf-8-sig')
+    print("\n💾 검증 결과 저장: model_validation_result.csv")
+    
+    return validation_results, df
 
 # 실행
 if __name__ == "__main__":
-    result = evaluate_38_columns_detailed()
-    print("\n✅ 평가 완료!")
+    results, data = validate_real_data()
+    print("\n" + "=" * 80)
+    print("🏁 검증 완료!")
+    print("=" * 80)
