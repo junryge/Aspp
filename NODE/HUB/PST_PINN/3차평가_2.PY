@@ -311,6 +311,16 @@ class EvaluationSystem:
         pred2 = self.scaler_y.inverse_transform(pred2_scaled.reshape(-1, 1)).flatten()
         
         # 결과 저장
+        # timestamps가 이미 datetime 형식인 경우 처리
+        if isinstance(timestamps[0], pd.Timestamp):
+            dates = [t.date() for t in timestamps]
+            hours = [t.hour for t in timestamps]
+        else:
+            # string이나 다른 형식인 경우
+            ts_series = pd.to_datetime(timestamps)
+            dates = ts_series.dt.date.tolist()
+            hours = ts_series.dt.hour.tolist()
+        
         results_df = pd.DataFrame({
             'timestamp': timestamps,
             'actual': actual_values,
@@ -318,8 +328,8 @@ class EvaluationSystem:
             'pred_model2': pred2,
             'error_model1': np.abs(actual_values - pred1),
             'error_model2': np.abs(actual_values - pred2),
-            'date': pd.to_datetime(timestamps).dt.date,
-            'hour': pd.to_datetime(timestamps).dt.hour
+            'date': dates,
+            'hour': hours
         })
         
         # 극단값 플래그 추가
