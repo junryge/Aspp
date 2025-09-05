@@ -1,9 +1,9 @@
 # -*- coding: utf-8 -*-
 """
 HUBROOM 모델 평가 - 2025년 8월 데이터
-- data/20250801_TO_20250831.CSV 로드
-- 저장된 모델로 예측
-- 과거 20분 → 10분 후 예측
+- data/20250801_TO_20250831.CSV에서 실제값 로드 (전체)
+- 예측 가능한 부분만 예측값 표기
+- 예측 불가능한 부분은 실제값만 표기
 """
 
 import numpy as np
@@ -128,12 +128,12 @@ class PatchTSTPINN(keras.Model):
 # ========================================
 
 def evaluate_august_data():
-    """2025년 8월 데이터로 평가"""
+    """8월 CSV에서 실제값 로드하여 예측값과 비교"""
     
     # 8월 CSV 파일 경로
     csv_path = 'data/20250801_TO_20250831.CSV'
     
-    print(f"\n📂 8월 데이터 로드 중: {csv_path}")
+    print(f"\n📂 8월 CSV 데이터 로드 중: {csv_path}")
     
     # CSV 로드
     try:
@@ -145,33 +145,99 @@ def evaluate_august_data():
     
     # 타임스탬프 처리
     df_august['timestamp'] = pd.to_datetime(df_august.iloc[:, 0], format='%Y%m%d%H%M', errors='coerce')
+    df_august = df_august.sort_values('timestamp').reset_index(drop=True)
+    df_august = df_august.fillna(method='ffill').fillna(0)
     
-    # 저장된 테스트 데이터 로드
-    print("\n📂 저장된 테스트 데이터 로드 중...")
+    # 타겟 컬럼 찾기
+    target_col = 'CURRENT_M16A_3F_JOB_2'
+    if target_col not in df_august.columns:
+        # 타겟 컬럼 찾기 시도
+        possible = [col for col in df_august.columns if 'CURRENT' in col and 'M16A_3F' in col]
+        if possible:
+            target_col = possible[0]
+        else:
+            # 보통 27번째 컬럼
+            numeric_cols = df_august.select_dtypes(include=[np.number]).columns
+            if len(numeric_cols) > 26:
+                target_col = numeric_cols[26]
     
-    X_test_scaled = np.load('./test_data/X_test_scaled.npy')
-    y_test_scaled = np.load('./test_data/y_test_scaled.npy')
-    y_test = np.load('./test_data/y_test.npy')
-    X_physics_test_scaled = np.load('./test_data/X_physics_test_scaled.npy')
+    print(f"✅ 타겟 컬럼: {target_col}")
     
-    print(f"✅ 테스트 데이터 로드 완료")
-    print(f"  샘플 수: {len(y_test)}개")
-    print(f"  입력 shape: {X_test_scaled.shape}")
+    # 전체 실제값 분석
+    actual_values_all = df_august[target_col].values
+    print(f"\n🎯 8월 전체 실제값 분석:")
+    print(f"  - 전체 데이터 수: {len(actual_values_all)}개")
+    print(f"  - 범위: {actual_values_all.min():.0f} ~ {actual_values_all.max():.0f}")
+    print(f"  - 평균: {actual_values_all.mean():.1f}")
+    print(f"  - 극단값(310+): {(actual_values_all >= 310).sum()}개")
+    print(f"  - 초극단값(335+): {(actual_values_all >= 335).sum()}개")
     
-    # 스케일러 로드
-    print("\n🔧 스케일러 로드 중...")
+    # 특징 컬럼 선택
+    feature_cols = df_august.select_dtypes(include=[np.number]).columns.tolist()
+    
+    # 물리 법칙 컬럼 (유입/유출)
+    inflow_cols = [col for col in feature_cols if 'TO_HUB' in col][:4]
+    outflow_cols = [col for col in feature_cols if 'M16A_3F_TO' in col and 'HUB' not in col][:4]
+    
+    if not inflow_cols:
+        inflow_cols = feature_cols[1:5]
+    if not outflow_cols:
+        outflow_cols = feature_cols[30:34]
+    
+    # ========================================
+    # 예측 가능한 부분 시퀀스 생성
+    # ========================================
+    
+    print("\n📈 예측 가능한 시퀀스 생성 중...")
+    
+    X_august = []
+    X_physics_august = []
+    predictable_indices = []  # 예측 가능한 인덱스 저장
+    
+    seq_len = 20  # 과거 20분
+    pred_len = 10  # 10분 후 예측
+    
+    # 예측 가능한 시점만 추출
+    for i in range(len(df_august) - seq_len - pred_len + 1):
+        # 입력: i ~ i+seq_len (20개 시점)
+        X_august.append(df_august[feature_cols].iloc[i:i+seq_len].values)
+        
+        # 예측 시점 인덱스 저장
+        predictable_indices.append(i + seq_len + pred_len - 1)
+        
+        # 물리 특징
+        inflow = df_august[inflow_cols].iloc[i+seq_len-1].sum()
+        outflow = df_august[outflow_cols].iloc[i+seq_len-1].sum()
+        net_flow = inflow - outflow
+        X_physics_august.append([inflow, outflow, net_flow])
+    
+    X_august = np.array(X_august)
+    X_physics_august = np.array(X_physics_august)
+    
+    print(f"✅ 시퀀스 생성 완료:")
+    print(f"  - 예측 가능한 샘플 수: {len(X_august)}개")
+    print(f"  - 예측 불가능한 샘플 수: {len(df_august) - len(X_august)}개")
+    
+    # ========================================
+    # 저장된 스케일러 로드
+    # ========================================
+    
+    print("\n🔧 저장된 스케일러 로드...")
+    
+    scaler_X = joblib.load('./scalers/scaler_X.pkl')
     scaler_y = joblib.load('./scalers/scaler_y.pkl')
+    scaler_physics = joblib.load('./scalers/scaler_physics.pkl')
     print("✅ 스케일러 로드 완료")
     
-    # 데이터 분석
-    print(f"\n📊 테스트 데이터 분석:")
-    print(f"  타겟 범위: {y_test.min():.0f} ~ {y_test.max():.0f}")
-    print(f"  평균: {y_test.mean():.1f}")
-    print(f"  극단값(310+): {(y_test >= 310).sum()}개 ({(y_test >= 310).sum()/len(y_test)*100:.2f}%)")
-    print(f"  초극단값(335+): {(y_test >= 335).sum()}개 ({(y_test >= 335).sum()/len(y_test)*100:.2f}%)")
+    # Transform만 수행 (Fit 하지 않음!)
+    X_august_scaled = scaler_X.transform(X_august.reshape(-1, X_august.shape[2])).reshape(X_august.shape)
+    X_physics_august_scaled = scaler_physics.transform(X_physics_august)
     
-    # 모델 설정
-    n_features = X_test_scaled.shape[2]
+    # ========================================
+    # 모델 예측
+    # ========================================
+    
+    n_features = X_august.shape[2]
     config = {
         'seq_len': 20,
         'n_features': n_features,
@@ -186,12 +252,12 @@ def evaluate_august_data():
     _ = model1(dummy_input)
     model1.load_weights('./checkpoints/model1_v3.h5')
     
-    y_pred1_scaled = model1.predict(X_test_scaled, batch_size=64, verbose=0)
+    y_pred1_scaled = model1.predict(X_august_scaled, batch_size=32, verbose=0)
     y_pred1 = scaler_y.inverse_transform(y_pred1_scaled.reshape(-1, 1)).flatten()
     print("✅ Model 1 예측 완료")
     
     # Model 2 예측
-    print("\n🤖 Model 2 (PatchTST + PINN) 예측 중...")
+    print("\n🤖 Model 2 (PINN) 예측 중...")
     model2 = PatchTSTPINN(config)
     model2.compile(optimizer='adam', loss='mse')
     dummy_seq = np.zeros((1, 20, n_features))
@@ -199,7 +265,7 @@ def evaluate_august_data():
     _ = model2([dummy_seq, dummy_physics])
     model2.load_weights('./checkpoints/model2_v3.h5')
     
-    y_pred2_scaled = model2.predict([X_test_scaled, X_physics_test_scaled], batch_size=64, verbose=0)
+    y_pred2_scaled = model2.predict([X_august_scaled, X_physics_august_scaled], batch_size=32, verbose=0)
     y_pred2 = scaler_y.inverse_transform(y_pred2_scaled.reshape(-1, 1)).flatten()
     print("✅ Model 2 예측 완료")
     
@@ -207,138 +273,160 @@ def evaluate_august_data():
     y_ensemble = 0.4 * y_pred1 + 0.6 * y_pred2
     print("✅ Ensemble 예측 완료")
     
-    # 8월 데이터의 타임스탬프 사용
-    # 테스트 데이터 크기만큼 8월 데이터에서 샘플링
-    august_timestamps = df_august['timestamp'].dropna().values
+    # ========================================
+    # 전체 결과 생성 (실제값은 모두, 예측값은 가능한 부분만)
+    # ========================================
     
-    # 타임스탬프 매칭
-    if len(august_timestamps) >= len(y_test):
-        # 8월 데이터에서 균등하게 샘플링
-        indices = np.linspace(0, len(august_timestamps)-1, len(y_test), dtype=int)
-        timestamps = august_timestamps[indices]
-    else:
-        # 8월 타임스탬프 반복 사용
-        timestamps = np.resize(august_timestamps, len(y_test))
-    
-    # 결과 생성
-    print("\n📊 결과 정리 중...")
+    print("\n📊 전체 결과 정리 중...")
     
     results = []
-    for i in range(len(y_test)):
-        # 타임스탬프 처리
-        if i < len(timestamps) and pd.notna(timestamps[i]):
-            target_time = pd.to_datetime(timestamps[i])
-            timestamp_str = target_time.strftime('%Y%m%d%H%M')
-            readable_time = target_time.strftime('%Y-%m-%d %H:%M')
-            input_start = (target_time - timedelta(minutes=30)).strftime('%Y-%m-%d %H:%M')
-            input_end = (target_time - timedelta(minutes=10)).strftime('%Y-%m-%d %H:%M')
-        else:
-            # 기본 8월 날짜 사용
-            base_date = datetime(2025, 8, 1, 0, 0) + timedelta(minutes=i)
-            timestamp_str = base_date.strftime('%Y%m%d%H%M')
-            readable_time = base_date.strftime('%Y-%m-%d %H:%M')
-            input_start = (base_date - timedelta(minutes=30)).strftime('%Y-%m-%d %H:%M')
-            input_end = (base_date - timedelta(minutes=10)).strftime('%Y-%m-%d %H:%M')
+    pred_idx = 0  # 예측값 인덱스
+    
+    for i in range(len(df_august)):
+        # 기본 정보
+        timestamp = df_august['timestamp'].iloc[i]
         
-        result = {
-            'index': i,
-            'timestamp': timestamp_str,
-            'readable_time': readable_time,
-            'actual': float(y_test[i]),
-            'predicted_model1': float(y_pred1[i]),
-            'predicted_model2': float(y_pred2[i]),
-            'predicted_ensemble': float(y_ensemble[i]),
-            'Target_time': readable_time,
-            'input_start': input_start,
-            'input_end': input_end,
-            'error_model1': abs(float(y_test[i]) - float(y_pred1[i])),
-            'error_model2': abs(float(y_test[i]) - float(y_pred2[i])),
-            'error_ensemble': abs(float(y_test[i]) - float(y_ensemble[i]))
-        }
-        
-        # 최적 모델
-        min_error = min(result['error_model1'], result['error_model2'], result['error_ensemble'])
-        if result['error_model1'] == min_error:
-            result['best_model'] = 'Model1'
-        elif result['error_model2'] == min_error:
-            result['best_model'] = 'Model2'
+        if pd.notna(timestamp):
+            timestamp_str = timestamp.strftime('%Y%m%d%H%M')
+            readable_time = timestamp.strftime('%Y-%m-%d %H:%M')
         else:
-            result['best_model'] = 'Ensemble'
+            timestamp_str = f"index_{i}"
+            readable_time = f"Index {i}"
+        
+        # 실제값은 항상 있음
+        actual = float(df_august[target_col].iloc[i])
+        
+        # 예측값은 가능한 경우만
+        if i in predictable_indices:
+            # 예측 가능한 경우
+            target_time = df_august['timestamp'].iloc[i]
+            input_start = (target_time - timedelta(minutes=30)).strftime('%Y-%m-%d %H:%M') if pd.notna(target_time) else "N/A"
+            input_end = (target_time - timedelta(minutes=10)).strftime('%Y-%m-%d %H:%M') if pd.notna(target_time) else "N/A"
+            
+            result = {
+                'index': i,
+                'timestamp': timestamp_str,
+                'readable_time': readable_time,
+                'actual': actual,
+                'predicted_model1': float(y_pred1[pred_idx]),
+                'predicted_model2': float(y_pred2[pred_idx]),
+                'predicted_ensemble': float(y_ensemble[pred_idx]),
+                'input_start': input_start,
+                'input_end': input_end,
+                'error_model1': abs(actual - float(y_pred1[pred_idx])),
+                'error_model2': abs(actual - float(y_pred2[pred_idx])),
+                'error_ensemble': abs(actual - float(y_ensemble[pred_idx])),
+                'is_predictable': True
+            }
+            
+            # 최적 모델
+            min_error = min(result['error_model1'], result['error_model2'], result['error_ensemble'])
+            if result['error_model1'] == min_error:
+                result['best_model'] = 'Model1'
+            elif result['error_model2'] == min_error:
+                result['best_model'] = 'Model2'
+            else:
+                result['best_model'] = 'Ensemble'
+            
+            pred_idx += 1
+        else:
+            # 예측 불가능한 경우 (처음 29개 또는 마지막 부분)
+            result = {
+                'index': i,
+                'timestamp': timestamp_str,
+                'readable_time': readable_time,
+                'actual': actual,
+                'predicted_model1': np.nan,
+                'predicted_model2': np.nan,
+                'predicted_ensemble': np.nan,
+                'input_start': "N/A",
+                'input_end': "N/A",
+                'error_model1': np.nan,
+                'error_model2': np.nan,
+                'error_ensemble': np.nan,
+                'is_predictable': False,
+                'best_model': "N/A"
+            }
         
         results.append(result)
     
     results_df = pd.DataFrame(results)
     
-    # 결과 저장
+    # 저장
     os.makedirs('./evaluation_results', exist_ok=True)
-    results_df.to_csv('./evaluation_results/august_predictions_all.csv', index=False)
-    print(f"✅ 전체 결과 저장: ./evaluation_results/august_predictions_all.csv ({len(results_df)}개)")
+    results_df.to_csv('./evaluation_results/august_complete_results.csv', index=False)
+    print(f"✅ 전체 결과 저장: ./evaluation_results/august_complete_results.csv ({len(results_df)}개)")
+    
+    # 예측 가능한 부분만
+    predictable_df = results_df[results_df['is_predictable']].copy()
+    predictable_df.to_csv('./evaluation_results/august_predictable_only.csv', index=False)
+    print(f"✅ 예측 가능 결과 저장: ./evaluation_results/august_predictable_only.csv ({len(predictable_df)}개)")
     
     # 극단값만
-    extreme_df = results_df[results_df['actual'] >= 310]
+    extreme_df = results_df[(results_df['actual'] >= 310) & (results_df['is_predictable'])].copy()
     if len(extreme_df) > 0:
-        extreme_df.to_csv('./evaluation_results/august_predictions_extreme.csv', index=False)
-        print(f"✅ 극단값 저장: ./evaluation_results/august_predictions_extreme.csv ({len(extreme_df)}개)")
+        extreme_df.to_csv('./evaluation_results/august_extreme_predictions.csv', index=False)
+        print(f"✅ 극단값 예측 저장: ./evaluation_results/august_extreme_predictions.csv ({len(extreme_df)}개)")
     
     # ========================================
-    # 성능 평가
+    # 성능 평가 (예측 가능한 부분만)
     # ========================================
     
     print("\n" + "="*80)
-    print("📈 8월 데이터 성능 평가")
+    print("📈 성능 평가 (예측 가능한 부분)")
     print("="*80)
     
-    print(f"\n📊 전체: {len(y_test)}개 샘플")
+    # 예측 가능한 실제값
+    y_actual_predictable = predictable_df['actual'].values
+    y_pred1_eval = predictable_df['predicted_model1'].values
+    y_pred2_eval = predictable_df['predicted_model2'].values
+    y_ensemble_eval = predictable_df['predicted_ensemble'].values
     
-    mae1 = mean_absolute_error(y_test, y_pred1)
-    mae2 = mean_absolute_error(y_test, y_pred2)
-    mae_ens = mean_absolute_error(y_test, y_ensemble)
+    mae1 = mean_absolute_error(y_actual_predictable, y_pred1_eval)
+    mae2 = mean_absolute_error(y_actual_predictable, y_pred2_eval)
+    mae_ens = mean_absolute_error(y_actual_predictable, y_ensemble_eval)
     
-    rmse1 = np.sqrt(mean_squared_error(y_test, y_pred1))
-    rmse2 = np.sqrt(mean_squared_error(y_test, y_pred2))
-    rmse_ens = np.sqrt(mean_squared_error(y_test, y_ensemble))
+    rmse1 = np.sqrt(mean_squared_error(y_actual_predictable, y_pred1_eval))
+    rmse2 = np.sqrt(mean_squared_error(y_actual_predictable, y_pred2_eval))
+    rmse_ens = np.sqrt(mean_squared_error(y_actual_predictable, y_ensemble_eval))
     
-    r2_1 = r2_score(y_test, y_pred1)
-    r2_2 = r2_score(y_test, y_pred2)
-    r2_ens = r2_score(y_test, y_ensemble)
-    
-    print(f"\n              MAE     RMSE     R2")
-    print(f"Model 1:   {mae1:7.2f} {rmse1:7.2f} {r2_1:7.4f}")
-    print(f"Model 2:   {mae2:7.2f} {rmse2:7.2f} {r2_2:7.4f}")
-    print(f"Ensemble:  {mae_ens:7.2f} {rmse_ens:7.2f} {r2_ens:7.4f}")
+    print(f"\n📊 예측 가능 샘플: {len(predictable_df)}개")
+    print(f"\n              MAE     RMSE")
+    print(f"Model 1:   {mae1:7.2f} {rmse1:7.2f}")
+    print(f"Model 2:   {mae2:7.2f} {rmse2:7.2f}")
+    print(f"Ensemble:  {mae_ens:7.2f} {rmse_ens:7.2f}")
     
     # 극단값 성능
-    extreme_mask = y_test >= 310
-    if extreme_mask.sum() > 0:
-        print(f"\n🔴 극단값 성능 ({extreme_mask.sum()}개):")
-        print(f"  Model 1 MAE: {mean_absolute_error(y_test[extreme_mask], y_pred1[extreme_mask]):.2f}")
-        print(f"  Model 2 MAE: {mean_absolute_error(y_test[extreme_mask], y_pred2[extreme_mask]):.2f}")
-        print(f"  Ensemble MAE: {mean_absolute_error(y_test[extreme_mask], y_ensemble[extreme_mask]):.2f}")
+    if len(extreme_df) > 0:
+        print(f"\n🔴 극단값 성능 ({len(extreme_df)}개):")
+        print(f"  Model 1 MAE: {extreme_df['error_model1'].mean():.2f}")
+        print(f"  Model 2 MAE: {extreme_df['error_model2'].mean():.2f}")
+        print(f"  Ensemble MAE: {extreme_df['error_ensemble'].mean():.2f}")
         
         # 감지율
         threshold = 305
-        detected_m1 = (y_pred1[extreme_mask] >= threshold).sum()
-        detected_m2 = (y_pred2[extreme_mask] >= threshold).sum()
-        detected_ens = (y_ensemble[extreme_mask] >= threshold).sum()
+        detected_m1 = (extreme_df['predicted_model1'] >= threshold).sum()
+        detected_m2 = (extreme_df['predicted_model2'] >= threshold).sum()
+        detected_ens = (extreme_df['predicted_ensemble'] >= threshold).sum()
         
         print(f"\n극단값 감지율 (예측 >= {threshold}):")
-        print(f"  Model 1: {detected_m1}/{extreme_mask.sum()} ({detected_m1/extreme_mask.sum()*100:.1f}%)")
-        print(f"  Model 2: {detected_m2}/{extreme_mask.sum()} ({detected_m2/extreme_mask.sum()*100:.1f}%)")
-        print(f"  Ensemble: {detected_ens}/{extreme_mask.sum()} ({detected_ens/extreme_mask.sum()*100:.1f}%)")
+        print(f"  Model 1: {detected_m1}/{len(extreme_df)} ({detected_m1/len(extreme_df)*100:.1f}%)")
+        print(f"  Model 2: {detected_m2}/{len(extreme_df)} ({detected_m2/len(extreme_df)*100:.1f}%)")
+        print(f"  Ensemble: {detected_ens}/{len(extreme_df)} ({detected_ens/len(extreme_df)*100:.1f}%)")
     
     # ========================================
-    # 결과 출력 (1개 샘플)
+    # 결과 출력 샘플
     # ========================================
     
     print("\n" + "="*80)
-    print("📋 예측 결과 (대표 1개)")
+    print("📋 예측 결과 샘플 (1개)")
     print("="*80)
     
     # 극단값 샘플 우선
     if len(extreme_df) > 0:
         sample = extreme_df.iloc[0]
     else:
-        sample = results_df.iloc[len(results_df)//2]
+        sample = predictable_df.iloc[0]
     
     print(f"""
 📅 8월 데이터 예측 결과
@@ -347,7 +435,6 @@ Timestamp: {sample['timestamp']}
 Readable_time: {sample['readable_time']}
 Input_start: {sample['input_start']}
 Input_end: {sample['input_end']}
-Target_time: {sample['Target_time']}
 
 CURRENT_M16A_3F_JOB_2:
 - Actual: {sample['actual']:.0f}
@@ -363,20 +450,16 @@ Error:
 Best: {sample['best_model']}
 """)
     
-    # 추가 샘플 (처음 10개)
-    print("\n[처음 10개 결과]")
-    for idx, row in results_df.head(10).iterrows():
-        mark = "🔴" if row['actual'] >= 310 else "⚪"
-        print(f"{mark} {row['readable_time']}: 실제={row['actual']:.0f}, M1={row['predicted_model1']:.0f}, M2={row['predicted_model2']:.0f}, Ens={row['predicted_ensemble']:.0f}")
+    # 전체 요약
+    print("\n" + "="*80)
+    print("📊 전체 요약")
+    print("="*80)
+    print(f"  - 전체 데이터: {len(results_df)}개")
+    print(f"  - 예측 가능: {len(predictable_df)}개")
+    print(f"  - 예측 불가능: {len(results_df) - len(predictable_df)}개 (처음 29개 + 마지막 부분)")
+    print(f"  - 극단값 예측: {len(extreme_df)}개")
     
-    # 극단값 상위 5개
-    if len(extreme_df) > 0:
-        print("\n[극단값 TOP 5]")
-        top_extreme = extreme_df.nlargest(5, 'actual')
-        for idx, row in top_extreme.iterrows():
-            print(f"🔴 {row['readable_time']}: 실제={row['actual']:.0f}, Best={row['best_model']}, 오차={min(row['error_model1'], row['error_model2'], row['error_ensemble']):.1f}")
-    
-    print(f"\n✅ 8월 데이터 평가 완료! 총 {len(results_df)}개 샘플")
+    print("\n✅ 8월 데이터 평가 완료!")
     return results_df
 
 # ========================================
@@ -392,9 +475,10 @@ if __name__ == "__main__":
         
         if results is not None:
             print("\n🎉 평가 완료!")
-            print("📁 결과 파일:")
-            print("  - ./evaluation_results/august_predictions_all.csv")
-            print("  - ./evaluation_results/august_predictions_extreme.csv")
+            print("\n📁 생성된 파일:")
+            print("  1. august_complete_results.csv - 전체 결과 (실제값 전체 + 예측 가능 부분)")
+            print("  2. august_predictable_only.csv - 예측 가능한 부분만")
+            print("  3. august_extreme_predictions.csv - 극단값 예측 결과")
         
     except Exception as e:
         print(f"\n❌ 오류 발생: {e}")
