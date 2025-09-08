@@ -1,0 +1,88 @@
+V4 극단값 예측 시스템 재구축 프롬프트
+전체 시스템 요구사항
+HUBROOM 극단값 예측 시스템 V4를 만들어줘.
+- 과거 20분 데이터로 10분 후 CURRENT_M16A_3F_JOB_2 예측
+- Model 1: PatchTST (전체 균형)
+- Model 2: PatchTST + PINN (물리법칙 적용, 극단값 특화)
+- 타겟: CURRENT_M16A_3F_JOB_2
+- 중단/재개 기능 필수
+V4 핵심 개선사항
+V3 대비 개선점:
+1. False Positive 방지 (300이하를 300이상으로 오탐 최소화)
+2. 335+ 극단값 감지율 50% 이상 목표
+3. BRIDGE_TIME 컬럼 추가 활용
+4. 21개 V4 필수 컬럼 전체 사용
+5. 연속 패턴 확률 기반 예측
+필수 컬럼 리스트 (21개)
+타겟: CURRENT_M16A_3F_JOB_2
+유입: M16A_6F_TO_HUB_JOB, M16A_2F_TO_HUB_JOB2, M14A_3F_TO_HUB_JOB2, M14B_7F_TO_HUB_JOB2, M16B_10F_TO_HUB_JOB
+유출: M16A_3F_TO_M16A_6F_JOB, M16A_3F_TO_M16A_2F_JOB, M16A_3F_TO_M14A_3F_JOB, M16A_3F_TO_M14B_7F_JOB, M16A_3F_TO_3F_MLUD_JOB
+CMD: M16A_3F_CMD, M16A_6F_TO_HUB_CMD, M16A_2F_TO_HUB_CMD, M14A_3F_TO_HUB_CMD, M14B_7F_TO_HUB_CMD
+MaxCapa: M16A_6F_LFT_MAXCAPA, M16A_2F_LFT_MAXCAPA
+극단값지표: M16A_3F_STORAGE_UTIL, BRIDGE_TIME
+OFS: M14_TO_M16_OFS_CUR, M16_TO_M14_OFS_CUR
+연속 패턴 확률 데이터
+20개 데이터 중 300+ 개수별 확률:
+0개: 0.3% (실제 99.7% 300이하)
+1-5개: 15-43%
+6-10개: 35-53%
+11-15개: 47-66%
+16-19개: 62-83%
+20개: 98.7%
+
+이 확률을 pattern_probability 딕셔너리로 구현하고
+consecutive_300_prob 컬럼으로 활용
+손실 함수 요구사항
+ExtremeLossV4:
+- Model 2: 335+ 미탐지 시 30배 페널티
+- False Positive 페널티: 300이하를 300+ 예측 시 20배
+- 250이하를 300+ 예측 시 35배 페널티
+- Model 1: 경미한 FP 방지 (5배 페널티)
+오버샘플링 전략
+V4 오버샘플링:
+- <200: 3배 (FP 방지)
+- 200-300: 1배
+- 300-310: 5배
+- 310-335: 15배
+- 335+: 25배
+물리 데이터 차원 (9개)
+1. 현재값
+2. 유입 합계
+3. 유출 합계
+4. BRIDGE_TIME
+5. 연속 300+ 개수
+6. 연속 300+ 확률
+7. STORAGE_UTIL
+8. CMD 합계
+9. 최근 5개 평균
+데이터 파일 처리
+필수: data/HUB_0509_TO_0730_DATA.CSV
+선택: data/BRIDGE_TIME.CSV (IDC_VAL 컬럼을 BRIDGE_TIME으로 변경)
+BRIDGE_TIME 없으면 기본값 3.5 사용
+성능 목표
+Model 1:
+- 전체 MAE: 35-45
+- False Positive Rate: 5% 이하
+
+Model 2:
+- 335+ 감지율: 50% 이상
+- 310+ 감지율: 98% 이상
+- False Positive Rate: 5% 이하
+체크포인트 관리
+CheckpointManager 클래스:
+- training_state_v4.pkl로 상태 저장
+- 6단계 학습 (데이터로드→시퀀스생성→분할→스케일링→학습→평가)
+- Ctrl+C 시그널 핸들링
+- 재시작 시 'y/n' 선택
+모델 구조
+PatchTSTModel:
+- seq_len=20, patch_len=5
+- MultiHeadAttention(heads=8, key_dim=16)
+- Dense(256)→Dense(128)→Dense(64)→Dense(1)
+
+PatchTSTPINN:
+- PatchTST + 물리네트워크
+- physics_net: Dense(64)→BN→Dense(32)→Dropout(0.2)→Dense(16)
+- fusion: Dense(128)→Dropout(0.3)→Dense(64)→Dense(32)→Dense(16)→Dense(1)
+- extreme_boost 레이어 추가
+이 프롬프트를 그대로 입력하면 V4 시스템을 재구축할 수 있습니다
