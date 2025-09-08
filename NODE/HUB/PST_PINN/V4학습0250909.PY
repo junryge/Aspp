@@ -705,19 +705,35 @@ def main():
                 # BRIDGE_TIME 컬럼 추출 (IDC_VAL 컬럼)
                 if 'IDC_VAL' in bridge_df.columns:
                     bridge_df = bridge_df.rename(columns={'IDC_VAL': 'BRIDGE_TIME'})
-                    # 시간 기준으로 병합
+                    # 시간 기준으로 병합 - timezone 처리
                     if 'CRT_TM' in bridge_df.columns:
-                        bridge_df['timestamp'] = pd.to_datetime(bridge_df['CRT_TM'])
+                        # Bridge 데이터의 시간 처리 (timezone 제거)
+                        bridge_df['timestamp'] = pd.to_datetime(bridge_df['CRT_TM']).dt.tz_localize(None)
+                        
+                        # 메인 데이터의 시간 처리
                         df['timestamp'] = pd.to_datetime(df.iloc[:, 0], format='%Y%m%d%H%M', errors='coerce')
+                        
+                        # 시간 포맷 맞추기 (분 단위로 반올림)
+                        bridge_df['timestamp'] = bridge_df['timestamp'].dt.floor('min')
+                        df['timestamp'] = df['timestamp'].dt.floor('min')
+                        
+                        # 병합
                         df = pd.merge(df, bridge_df[['timestamp', 'BRIDGE_TIME']], 
                                     on='timestamp', how='left')
+                        
+                        # BRIDGE_TIME 숫자로 변환 및 기본값 처리
+                        df['BRIDGE_TIME'] = pd.to_numeric(df['BRIDGE_TIME'], errors='coerce')
                         df['BRIDGE_TIME'] = df['BRIDGE_TIME'].fillna(3.5)  # 기본값
-                        print("✅ BRIDGE_TIME 데이터 병합 완료")
+                        
+                        # 병합 결과 확인
+                        matched = df['BRIDGE_TIME'].notna().sum()
+                        print(f"✅ BRIDGE_TIME 데이터 병합 완료 (매칭된 행: {matched}개)")
                 else:
-                    print("⚠️ BRIDGE_TIME 컬럼 형식이 다릅니다. 기본값 사용")
+                    print("⚠️ IDC_VAL 컬럼이 없습니다. 기본값 사용")
                     df['BRIDGE_TIME'] = 3.5
             except Exception as e:
                 print(f"⚠️ BRIDGE_TIME 병합 실패: {e}")
+                print("   기본값(3.5) 사용")
                 df['BRIDGE_TIME'] = 3.5
         else:
             print("ℹ️ BRIDGE_TIME 데이터 없음. 기본값(3.5) 사용")
