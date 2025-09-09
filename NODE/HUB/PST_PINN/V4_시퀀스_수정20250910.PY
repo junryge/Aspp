@@ -1,8 +1,13 @@
 # -*- coding: utf-8 -*-
 """
-HUBROOM 극단값 예측 시스템 V4.0 - 완전한 중단/재개 지원 (오류 수정 버전)
-- ExtremeValueCallbackV4 입력 처리 오류 수정
-- PatchTSTPINN call 메서드 입력 처리 개선
+HUBROOM 극단값 예측 시스템 V4.0 - 완전한 중단/재개 지원
+- 시퀀스 생성 중단/재개 기능 추가
+- HDF5 형식으로 대용량 데이터 저장
+- V3 대비 개선사항:
+  1. BRIDGE_TIME 컬럼 추가 (극단값 물리지표)
+  2. 연속 300+ 패턴 분석 강화
+  3. False Positive 방지 (300이하를 300이상으로 오탐 방지)
+  4. 335+ 극단값 감지율 개선 (목표: 50%+)
 """
 
 import numpy as np
@@ -29,7 +34,7 @@ np.random.seed(42)
 tf.random.set_seed(42)
 print(f"TensorFlow Version: {tf.__version__}")
 print("="*80)
-print("🏭 HUBROOM 극단값 예측 시스템 V4.0 - 오류 수정 버전")
+print("🏭 HUBROOM 극단값 예측 시스템 V4.0")
 print("🎯 목표: 335+ 극단값 감지율 50% + False Positive 최소화")
 print("🚀 V4 핵심: BRIDGE_TIME 활용 + 연속 패턴 분석 + 오탐 방지")
 print("✅ 완전한 중단/재개 기능 (시퀀스 생성 포함)")
@@ -183,7 +188,7 @@ class ExtremeLossV4(keras.losses.Loss):
             return loss
 
 # ========================================
-# 극단값 모니터링 콜백 V4 (수정됨)
+# 극단값 모니터링 콜백 V4 (스케일러 문제 해결)
 # ========================================
 
 class ExtremeValueCallbackV4(Callback):
@@ -197,37 +202,41 @@ class ExtremeValueCallbackV4(Callback):
         
     def on_epoch_end(self, epoch, logs=None):
         if epoch % 5 == 0:
-            # 예측
-            if self.is_model2 and self.X_physics_val is not None:
-                y_pred_scaled = self.model.predict([self.X_val, self.X_physics_val], verbose=0)
-            else:
-                y_pred_scaled = self.model.predict(self.X_val, verbose=0)
-            
-            # 역스케일링
-            y_pred = self.scaler_y.inverse_transform(y_pred_scaled.reshape(-1, 1)).flatten()
-            y_true = self.scaler_y.inverse_transform(self.y_val.reshape(-1, 1)).flatten()
-            
-            # 335+ 감지율
-            mask_335 = y_true >= 335
-            if mask_335.sum() > 0:
-                detected_335 = (y_pred >= 335)[mask_335].sum()
-                recall_335 = detected_335 / mask_335.sum() * 100
-                
-                # 310+ 감지율
-                mask_310 = y_true >= 310
-                detected_310 = (y_pred >= 310)[mask_310].sum()
-                recall_310 = detected_310 / mask_310.sum() * 100
-                
-                # False Positive Rate (오탐율)
-                mask_under_300 = y_true < 300
-                if mask_under_300.sum() > 0:
-                    false_positive_300 = (y_pred >= 300)[mask_under_300].sum()
-                    fp_rate = false_positive_300 / mask_under_300.sum() * 100
+            try:
+                # 예측
+                if self.is_model2 and self.X_physics_val is not None:
+                    y_pred_scaled = self.model.predict([self.X_val, self.X_physics_val], verbose=0)
                 else:
-                    fp_rate = 0
+                    y_pred_scaled = self.model.predict(self.X_val, verbose=0)
                 
-                model_name = "Model2" if self.is_model2 else "Model1"
-                print(f"\n[{model_name} Epoch {epoch}] 335+: {recall_335:.1f}% | 310+: {recall_310:.1f}% | FP(300): {fp_rate:.1f}%")
+                # 역스케일링
+                y_pred = self.scaler_y.inverse_transform(y_pred_scaled.reshape(-1, 1)).flatten()
+                y_true = self.scaler_y.inverse_transform(self.y_val.reshape(-1, 1)).flatten()
+                
+                # 335+ 감지율
+                mask_335 = y_true >= 335
+                if mask_335.sum() > 0:
+                    detected_335 = (y_pred >= 335)[mask_335].sum()
+                    recall_335 = detected_335 / mask_335.sum() * 100
+                    
+                    # 310+ 감지율
+                    mask_310 = y_true >= 310
+                    detected_310 = (y_pred >= 310)[mask_310].sum()
+                    recall_310 = detected_310 / mask_310.sum() * 100
+                    
+                    # False Positive Rate (오탐율)
+                    mask_under_300 = y_true < 300
+                    if mask_under_300.sum() > 0:
+                        false_positive_300 = (y_pred >= 300)[mask_under_300].sum()
+                        fp_rate = false_positive_300 / mask_under_300.sum() * 100
+                    else:
+                        fp_rate = 0
+                    
+                    model_name = "Model2" if self.is_model2 else "Model1"
+                    print(f"\n[{model_name} Epoch {epoch}] 335+: {recall_335:.1f}% | 310+: {recall_310:.1f}% | FP(300): {fp_rate:.1f}%")
+            except Exception as e:
+                print(f"\n[콜백 오류] Epoch {epoch}: {str(e)[:100]}")
+                # 오류가 나도 학습은 계속 진행
 
 # ========================================
 # V4 데이터 처리기 (BRIDGE_TIME 포함)
@@ -571,8 +580,8 @@ class DataProcessorV4:
             self.scaler_physics = joblib.load('./scalers/scaler_physics_v4.pkl')
             print("✅ V4 스케일러 로드 완료")
             return True
-        except:
-            print("❌ V4 스케일러 로드 실패")
+        except Exception as e:
+            print(f"❌ V4 스케일러 로드 실패: {e}")
             return False
 
 # ========================================
@@ -635,7 +644,7 @@ class PatchTSTModel(keras.Model):
         return tf.squeeze(output, axis=-1)
 
 # ========================================
-# Model 2: PatchTST + PINN (극단값 특화) - 수정됨
+# Model 2: PatchTST + PINN (극단값 특화)
 # ========================================
 
 class PatchTSTPINN(keras.Model):
@@ -921,6 +930,13 @@ def main():
     if step <= 5:
         print("\n[Step 5/6] 모델 학습")
         print("="*80)
+        
+        # 중요: Step 5에서 재개할 때 스케일러 로드
+        if not processor.load_scalers():
+            print("⚠️ 스케일러 로드 실패. Step 4부터 다시 실행이 필요합니다.")
+            state['step'] = 4
+            ckpt.save_state(state)
+            return
         
         # 스케일된 데이터 로드
         with h5py.File('./checkpoints/scaled_data_v4.h5', 'r') as f:
