@@ -686,6 +686,10 @@ class StableLoss(tf.keras.losses.Loss):
     """Model 1용 - 안정 구간 특화 손실"""
     
     def call(self, y_true, y_pred):
+        # 차원 맞추기 - y_pred가 (batch_size,) 형태인 경우 처리
+        y_true = tf.reshape(y_true, [-1])
+        y_pred = tf.reshape(y_pred, [-1])
+        
         error = tf.abs(y_true - y_pred)
         
         # False Positive 방지
@@ -707,12 +711,17 @@ class StableLoss(tf.keras.losses.Loss):
             error * 0.5  # 300+ 구간은 덜 중요
         )
         
+        # 스칼라 값으로 반환
         return tf.reduce_mean(penalty)
 
 class ExtremeLoss(tf.keras.losses.Loss):
     """Model 2용 - 극단값 특화 손실"""
     
     def call(self, y_true, y_pred):
+        # 차원 맞추기 - y_pred가 (batch_size,) 형태인 경우 처리
+        y_true = tf.reshape(y_true, [-1])
+        y_pred = tf.reshape(y_pred, [-1])
+        
         error = tf.abs(y_true - y_pred)
         
         # 극단값 미탐지 방지
@@ -738,6 +747,7 @@ class ExtremeLoss(tf.keras.losses.Loss):
             )
         )
         
+        # 스칼라 값으로 반환
         return tf.reduce_mean(penalty)
 
 # ==============================================================================
@@ -919,8 +929,37 @@ def main():
             print(f"\n[Step 4/6] 데이터 스케일링")
             print("-"*60)
             
+            # 시퀀스 로드 (Step 3에서 저장한 데이터)
+            with h5py.File('./checkpoints_ultimate/sequences_complete.h5', 'r') as f:
+                X = f['X'][:]
+                y = f['y'][:]
+                X_physics = f['X_physics'][:]
+                weights = f['weights'][:]
+            
+            # 데이터 재분할 (Step 3과 동일하게)
+            indices = np.arange(len(X))
+            np.random.seed(42)  # 동일한 분할 보장
+            np.random.shuffle(indices)
+            
+            train_size = int(0.7 * len(X))
+            val_size = int(0.15 * len(X))
+            
+            train_idx = indices[:train_size]
+            val_idx = indices[train_size:train_size+val_size]
+            test_idx = indices[train_size+val_size:]
+            
+            X_train, y_train = X[train_idx], y[train_idx]
+            X_val, y_val = X[val_idx], y[val_idx]
+            X_test, y_test = X[test_idx], y[test_idx]
+            
+            X_physics_train = X_physics[train_idx]
+            X_physics_val = X_physics[val_idx]
+            X_physics_test = X_physics[test_idx]
+            
+            weights_train = weights[train_idx]
+            
             # 스케일링
-            n_features = state['n_features']
+            n_features = X.shape[2]
             
             X_train_scaled = processor.scaler_X.fit_transform(X_train.reshape(-1, n_features))
             X_train_scaled = X_train_scaled.reshape(len(X_train), 20, n_features)
@@ -939,11 +978,27 @@ def main():
             X_physics_test_scaled = processor.scaler_physics.transform(X_physics_test)
             
             # 스케일러 저장
+            os.makedirs('./checkpoints_ultimate/scalers', exist_ok=True)
             joblib.dump(processor.scaler_X, './checkpoints_ultimate/scalers/scaler_X.pkl')
             joblib.dump(processor.scaler_y, './checkpoints_ultimate/scalers/scaler_y.pkl')
             joblib.dump(processor.scaler_physics, './checkpoints_ultimate/scalers/scaler_physics.pkl')
             
+            # 스케일된 데이터 저장 (Step 5에서 사용)
+            with h5py.File('./checkpoints_ultimate/scaled_data.h5', 'w') as f:
+                f.create_dataset('X_train_scaled', data=X_train_scaled, compression='gzip')
+                f.create_dataset('X_val_scaled', data=X_val_scaled, compression='gzip')
+                f.create_dataset('X_test_scaled', data=X_test_scaled, compression='gzip')
+                f.create_dataset('y_train_scaled', data=y_train_scaled, compression='gzip')
+                f.create_dataset('y_val_scaled', data=y_val_scaled, compression='gzip')
+                f.create_dataset('y_test', data=y_test, compression='gzip')
+                f.create_dataset('X_physics_train_scaled', data=X_physics_train_scaled, compression='gzip')
+                f.create_dataset('X_physics_val_scaled', data=X_physics_val_scaled, compression='gzip')
+                f.create_dataset('X_physics_test_scaled', data=X_physics_test_scaled, compression='gzip')
+                f.create_dataset('weights_train', data=weights_train, compression='gzip')
+                f.attrs['n_features'] = n_features
+            
             state['step'] = 5
+            state['n_features'] = n_features
             ckpt.save_state(state)
             print("✅ Step 4 완료")
         
@@ -953,6 +1008,25 @@ def main():
         if step <= 5:
             print(f"\n[Step 5/6] 모델 학습")
             print("-"*60)
+            
+            # 스케일된 데이터 로드
+            with h5py.File('./checkpoints_ultimate/scaled_data.h5', 'r') as f:
+                X_train_scaled = f['X_train_scaled'][:]
+                X_val_scaled = f['X_val_scaled'][:]
+                X_test_scaled = f['X_test_scaled'][:]
+                y_train_scaled = f['y_train_scaled'][:]
+                y_val_scaled = f['y_val_scaled'][:]
+                y_test = f['y_test'][:]
+                X_physics_train_scaled = f['X_physics_train_scaled'][:]
+                X_physics_val_scaled = f['X_physics_val_scaled'][:]
+                X_physics_test_scaled = f['X_physics_test_scaled'][:]
+                weights_train = f['weights_train'][:]
+                n_features = f.attrs['n_features']
+            
+            # 스케일러 로드
+            processor.scaler_X = joblib.load('./checkpoints_ultimate/scalers/scaler_X.pkl')
+            processor.scaler_y = joblib.load('./checkpoints_ultimate/scalers/scaler_y.pkl')
+            processor.scaler_physics = joblib.load('./checkpoints_ultimate/scalers/scaler_physics.pkl')
             
             config = {
                 'seq_len': 20,
@@ -1038,6 +1112,39 @@ def main():
         if step <= 6:
             print(f"\n[Step 6/6] 최종 평가 및 선택기 테스트")
             print("-"*60)
+            
+            # 스케일된 데이터 로드
+            with h5py.File('./checkpoints_ultimate/scaled_data.h5', 'r') as f:
+                X_test_scaled = f['X_test_scaled'][:]
+                y_test = f['y_test'][:]
+                X_physics_test_scaled = f['X_physics_test_scaled'][:]
+                n_features = f.attrs['n_features']
+            
+            # 원본 테스트 데이터도 로드 (선택기용)
+            with h5py.File('./checkpoints_ultimate/sequences_complete.h5', 'r') as f:
+                X = f['X'][:]
+                X_physics = f['X_physics'][:]
+            
+            # 테스트 인덱스로 원본 데이터 추출
+            indices = np.arange(len(X))
+            np.random.seed(42)
+            np.random.shuffle(indices)
+            train_size = int(0.7 * len(X))
+            val_size = int(0.15 * len(X))
+            test_idx = indices[train_size+val_size:]
+            X_test = X[test_idx]
+            X_physics_test = X_physics[test_idx]
+            
+            # 스케일러 로드
+            processor.scaler_X = joblib.load('./checkpoints_ultimate/scalers/scaler_X.pkl')
+            processor.scaler_y = joblib.load('./checkpoints_ultimate/scalers/scaler_y.pkl')
+            processor.scaler_physics = joblib.load('./checkpoints_ultimate/scalers/scaler_physics.pkl')
+            
+            config = {
+                'seq_len': 20,
+                'n_features': n_features,
+                'patch_len': 5
+            }
             
             # 모델 로드
             model1 = PatchTSTModel(config)
