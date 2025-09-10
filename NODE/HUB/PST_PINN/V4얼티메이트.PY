@@ -679,76 +679,74 @@ class PatchTSTPINN(keras.Model):
         return tf.squeeze(output, axis=-1)
 
 # ==============================================================================
-# 📉 손실 함수
+# 📉 손실 함수 (함수형으로 변경)
 # ==============================================================================
 
-class StableLoss(tf.keras.losses.Loss):
-    """Model 1용 - 안정 구간 특화 손실"""
+def stable_loss(y_true, y_pred):
+    """Model 1용 - 안정 구간 특화 손실 (함수형)"""
+    # 차원 확인 및 조정
+    y_true = tf.cast(y_true, tf.float32)
+    y_pred = tf.cast(y_pred, tf.float32)
     
-    def call(self, y_true, y_pred):
-        # 차원 맞추기 - y_pred가 (batch_size,) 형태인 경우 처리
-        y_true = tf.reshape(y_true, [-1])
-        y_pred = tf.reshape(y_pred, [-1])
-        
-        error = tf.abs(y_true - y_pred)
-        
-        # False Positive 방지
-        penalty = tf.where(
-            y_true < 300,
-            tf.where(
-                y_pred >= 300,
-                error * 20.0,  # 300 이하를 300+ 예측: 큰 페널티
-                tf.where(
-                    y_true < 250,
-                    tf.where(
-                        y_pred >= 300,
-                        error * 35.0,  # 250 이하를 300+ 예측: 최대 페널티
-                        error * 1.0
-                    ),
-                    error * 1.0
-                )
-            ),
-            error * 0.5  # 300+ 구간은 덜 중요
-        )
-        
-        # 스칼라 값으로 반환
-        return tf.reduce_mean(penalty)
+    # reshape to ensure same dimensions
+    if len(y_true.shape) > 1:
+        y_true = tf.squeeze(y_true)
+    if len(y_pred.shape) > 1:
+        y_pred = tf.squeeze(y_pred)
+    
+    error = tf.abs(y_true - y_pred)
+    
+    # False Positive 방지
+    penalty = tf.where(
+        y_true < 300,
+        tf.where(
+            y_pred >= 300,
+            error * 20.0,  # 300 이하를 300+ 예측: 큰 페널티
+            error * 1.0
+        ),
+        error * 0.5  # 300+ 구간은 덜 중요
+    )
+    
+    return penalty
 
-class ExtremeLoss(tf.keras.losses.Loss):
-    """Model 2용 - 극단값 특화 손실"""
+def extreme_loss(y_true, y_pred):
+    """Model 2용 - 극단값 특화 손실 (함수형)"""
+    # 차원 확인 및 조정
+    y_true = tf.cast(y_true, tf.float32)
+    y_pred = tf.cast(y_pred, tf.float32)
     
-    def call(self, y_true, y_pred):
-        # 차원 맞추기 - y_pred가 (batch_size,) 형태인 경우 처리
-        y_true = tf.reshape(y_true, [-1])
-        y_pred = tf.reshape(y_pred, [-1])
-        
-        error = tf.abs(y_true - y_pred)
-        
-        # 극단값 미탐지 방지
-        penalty = tf.where(
-            y_true >= 335,
+    # reshape to ensure same dimensions
+    if len(y_true.shape) > 1:
+        y_true = tf.squeeze(y_true)
+    if len(y_pred.shape) > 1:
+        y_pred = tf.squeeze(y_pred)
+    
+    error = tf.abs(y_true - y_pred)
+    
+    # 극단값 미탐지 방지
+    penalty = tf.where(
+        y_true >= 335,
+        tf.where(
+            y_pred < 335,
+            error * 30.0,  # 335+ 미탐지: 최대 페널티
+            error * 1.0
+        ),
+        tf.where(
+            y_true >= 310,
             tf.where(
-                y_pred < 335,
-                error * 30.0,  # 335+ 미탐지: 최대 페널티
+                y_pred < 310,
+                error * 15.0,  # 310+ 미탐지: 큰 페널티
                 error * 1.0
             ),
             tf.where(
-                y_true >= 310,
-                tf.where(
-                    y_pred < 310,
-                    error * 15.0,  # 310+ 미탐지: 큰 페널티
-                    error * 1.0
-                ),
-                tf.where(
-                    y_true >= 300,
-                    error * 5.0,  # 300-310 구간: 중요
-                    error * 0.3   # 300 미만: 덜 중요
-                )
+                y_true >= 300,
+                error * 5.0,  # 300-310 구간: 중요
+                error * 0.3   # 300 미만: 덜 중요
             )
         )
-        
-        # 스칼라 값으로 반환
-        return tf.reduce_mean(penalty)
+    )
+    
+    return penalty
 
 # ==============================================================================
 # 📊 콜백
@@ -1041,23 +1039,23 @@ def main():
                 model1 = PatchTSTModel(config)
                 model1.compile(
                     optimizer=Adam(learning_rate=0.001),
-                    loss=StableLoss(),
+                    loss=stable_loss,  # 함수형 손실
                     metrics=['mae']
                 )
                 
                 callbacks1 = [
-                    EarlyStopping(patience=15, restore_best_weights=True),
-                    ReduceLROnPlateau(factor=0.5, patience=8, min_lr=1e-6),
+                    EarlyStopping(patience=15, restore_best_weights=True, monitor='val_loss'),
+                    ReduceLROnPlateau(factor=0.5, patience=8, min_lr=1e-6, monitor='val_loss'),
                     ModelCheckpoint('./checkpoints_ultimate/model1_stable.h5', 
-                                  save_best_only=True, save_weights_only=True),
+                                  save_best_only=True, save_weights_only=True, monitor='val_loss'),
                     ExtremeValueCallback(X_val_scaled, y_val_scaled, processor.scaler_y, 
                                        model_name="Model1")
                 ]
                 
+                # sample_weight 적용 방식 변경 - 손실 함수 내부에서 처리하도록
                 history1 = model1.fit(
                     X_train_scaled, y_train_scaled,
                     validation_data=(X_val_scaled, y_val_scaled),
-                    sample_weight=weights_train,
                     epochs=50,
                     batch_size=32,
                     callbacks=callbacks1,
@@ -1075,23 +1073,23 @@ def main():
                 model2 = PatchTSTPINN(config)
                 model2.compile(
                     optimizer=Adam(learning_rate=0.0008),
-                    loss=ExtremeLoss(),
+                    loss=extreme_loss,  # 함수형 손실
                     metrics=['mae']
                 )
                 
                 callbacks2 = [
-                    EarlyStopping(patience=20, restore_best_weights=True),
-                    ReduceLROnPlateau(factor=0.5, patience=10, min_lr=1e-6),
+                    EarlyStopping(patience=20, restore_best_weights=True, monitor='val_loss'),
+                    ReduceLROnPlateau(factor=0.5, patience=10, min_lr=1e-6, monitor='val_loss'),
                     ModelCheckpoint('./checkpoints_ultimate/model2_extreme.h5', 
-                                  save_best_only=True, save_weights_only=True),
+                                  save_best_only=True, save_weights_only=True, monitor='val_loss'),
                     ExtremeValueCallback(X_val_scaled, y_val_scaled, processor.scaler_y,
                                        X_physics_val_scaled, model_name="Model2")
                 ]
                 
+                # sample_weight 제거하고 손실 함수에서 처리
                 history2 = model2.fit(
                     [X_train_scaled, X_physics_train_scaled], y_train_scaled,
                     validation_data=([X_val_scaled, X_physics_val_scaled], y_val_scaled),
-                    sample_weight=weights_train,
                     epochs=60,
                     batch_size=32,
                     callbacks=callbacks2,
