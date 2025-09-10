@@ -315,7 +315,7 @@ class DataProcessorV4:
         self.target_col = 'CURRENT_M16A_3F_JOB_2'
         self.bridge_time_col = 'BRIDGE_TIME'
         
-        # V4 필수 컬럼 정의
+        # V4 필수 컬럼 정의 (21개)
         self.inflow_cols = [
             'M16A_6F_TO_HUB_JOB',
             'M16A_2F_TO_HUB_JOB2',
@@ -346,8 +346,7 @@ class DataProcessorV4:
         ]
         
         self.extreme_cols = [
-            'M16A_3F_STORAGE_UTIL',
-            'BRIDGE_TIME'
+            'M16A_3F_STORAGE_UTIL'
         ]
         
         self.ofs_cols = [
@@ -355,9 +354,12 @@ class DataProcessorV4:
             'M16_TO_M14_OFS_CUR'
         ]
         
-        # 전체 V4 컬럼 리스트
-        self.all_v4_cols = ([self.target_col] + self.inflow_cols + self.outflow_cols + 
-                           self.cmd_cols + self.maxcapa_cols + self.extreme_cols + self.ofs_cols)
+        # 전체 V4 필수 컬럼 리스트 (21개 + BRIDGE_TIME)
+        self.v4_essential_cols = ([self.target_col] + self.inflow_cols + self.outflow_cols + 
+                                  self.cmd_cols + self.maxcapa_cols + self.extreme_cols + self.ofs_cols)
+        
+        # BRIDGE_TIME은 별도 처리
+        self.all_v4_cols = self.v4_essential_cols + ['BRIDGE_TIME']
         
         # 스케일러 - RobustScaler 사용 (이상치와 0값에 강함)
         self.scaler_X = RobustScaler()
@@ -373,85 +375,106 @@ class DataProcessorV4:
         }
     
     def load_and_merge_data(self) -> pd.DataFrame:
-        """데이터 로드 및 BRIDGE_TIME 병합"""
+        """데이터 로드 및 BRIDGE_TIME 병합 - V4 필수 컬럼만"""
         print("\n[데이터 로드]")
         
         # 메인 데이터 로드
-        df = pd.read_csv('data/HUB_0509_TO_0730_DATA.CSV')
-        print(f"✅ 메인 데이터: {df.shape}")
+        df_raw = pd.read_csv('data/HUB_0509_TO_0730_DATA.CSV')
+        print(f"📊 원본 데이터: {df_raw.shape}")
         
-        # 시간 컬럼 처리 (메인 데이터)
-        time_col = df.columns[0]  # 첫 번째 컬럼이 시간
-        df['timestamp'] = pd.to_datetime(df[time_col], format='%Y%m%d%H%M', errors='coerce')
+        # 시간 컬럼 처리
+        time_col = df_raw.columns[0]  
+        df_raw['timestamp'] = pd.to_datetime(df_raw[time_col], format='%Y%m%d%H%M', errors='coerce')
+        
+        # V4 필수 컬럼만 선택 (있는 것만)
+        available_cols = [time_col, 'timestamp']  # 시간 컬럼은 필수
+        missing_cols = []
+        
+        for col in self.v4_essential_cols:
+            if col in df_raw.columns:
+                available_cols.append(col)
+            else:
+                missing_cols.append(col)
+        
+        # 필수 컬럼만 추출
+        df = df_raw[available_cols].copy()
+        print(f"✅ V4 컬럼 선택: {len(available_cols)-2}/{len(self.v4_essential_cols)} 컬럼 사용")
+        
+        if missing_cols:
+            print(f"⚠️ 누락된 V4 컬럼 ({len(missing_cols)}개): {missing_cols[:5]}...")
+            for col in missing_cols:
+                if col == self.target_col:
+                    print(f"❌ 타겟 컬럼 {self.target_col} 없음!")
+                    raise ValueError(f"타겟 컬럼 {self.target_col}이 없습니다!")
+                else:
+                    df[col] = 0  # 누락 컬럼은 0으로
         
         # BRIDGE_TIME 데이터 병합
         bridge_path = 'data/BRIDGE_TIME.CSV'
         if os.path.exists(bridge_path):
-            print("📊 BRIDGE_TIME 파일 발견!")
+            print("\n📊 BRIDGE_TIME 파일 처리")
             try:
                 bridge_df = pd.read_csv(bridge_path)
-                print(f"  BRIDGE_TIME shape: {bridge_df.shape}")
-                print(f"  BRIDGE_TIME columns: {bridge_df.columns.tolist()}")
+                print(f"  원본 shape: {bridge_df.shape}")
+                print(f"  컬럼: {bridge_df.columns.tolist()}")
                 
                 # IDC_VAL을 BRIDGE_TIME으로 변경
                 if 'IDC_VAL' in bridge_df.columns:
                     bridge_df['BRIDGE_TIME'] = pd.to_numeric(bridge_df['IDC_VAL'], errors='coerce')
-                    print(f"  IDC_VAL → BRIDGE_TIME 변환")
-                
-                # 시간 컬럼 찾기 (CRT_TM 또는 첫 번째 컬럼)
-                if 'CRT_TM' in bridge_df.columns:
-                    bridge_df['timestamp'] = pd.to_datetime(bridge_df['CRT_TM'])
+                    
+                    # 시간 컬럼 처리
+                    if 'CRT_TM' in bridge_df.columns:
+                        bridge_df['timestamp'] = pd.to_datetime(bridge_df['CRT_TM'])
+                        # 시간대 제거
+                        if hasattr(bridge_df['timestamp'].dtype, 'tz'):
+                            bridge_df['timestamp'] = bridge_df['timestamp'].dt.tz_localize(None)
+                    
+                    # 메인 데이터 시간대도 확인
+                    if hasattr(df['timestamp'].dtype, 'tz'):
+                        df['timestamp'] = df['timestamp'].dt.tz_localize(None)
+                    
+                    # 분 단위로 맞추기
+                    bridge_df['timestamp'] = bridge_df['timestamp'].dt.floor('min')
+                    df['timestamp'] = df['timestamp'].dt.floor('min')
+                    
+                    # 병합
+                    df = pd.merge(df, bridge_df[['timestamp', 'BRIDGE_TIME']], 
+                                on='timestamp', how='left')
+                    
+                    # 병합 결과
+                    merged_count = df['BRIDGE_TIME'].notna().sum()
+                    print(f"✅ BRIDGE_TIME 병합: {merged_count}/{len(df)} 행 매칭")
+                    
+                    # 보간
+                    if merged_count > 0:
+                        df['BRIDGE_TIME'] = df['BRIDGE_TIME'].interpolate(method='linear', limit_direction='both')
+                    df['BRIDGE_TIME'] = df['BRIDGE_TIME'].fillna(3.5)
+                    
+                    print(f"  최종 통계: min={df['BRIDGE_TIME'].min():.2f}, "
+                          f"max={df['BRIDGE_TIME'].max():.2f}, "
+                          f"mean={df['BRIDGE_TIME'].mean():.2f}")
                 else:
-                    # 첫 번째 컬럼을 시간으로 가정
-                    bridge_df['timestamp'] = pd.to_datetime(bridge_df.iloc[:, 0])
-                
-                # 시간 단위 맞추기 (분 단위로)
-                bridge_df['timestamp'] = bridge_df['timestamp'].dt.floor('min')
-                df['timestamp'] = df['timestamp'].dt.floor('min')
-                
-                # 병합
-                df = pd.merge(df, bridge_df[['timestamp', 'BRIDGE_TIME']], 
-                            on='timestamp', how='left')
-                
-                # 병합 결과 확인
-                merged_count = df['BRIDGE_TIME'].notna().sum()
-                print(f"✅ BRIDGE_TIME 병합 완료: {merged_count}/{len(df)} 행 매칭")
-                
-                # 빈 값은 앞뒤 값으로 보간
-                df['BRIDGE_TIME'] = df['BRIDGE_TIME'].interpolate(method='linear', limit_direction='both')
-                df['BRIDGE_TIME'] = df['BRIDGE_TIME'].fillna(3.5)  # 그래도 남은 NaN은 3.5
-                
-                print(f"  BRIDGE_TIME 통계: min={df['BRIDGE_TIME'].min():.2f}, "
-                      f"max={df['BRIDGE_TIME'].max():.2f}, "
-                      f"mean={df['BRIDGE_TIME'].mean():.2f}")
-                
+                    print("⚠️ IDC_VAL 컬럼 없음")
+                    df['BRIDGE_TIME'] = 3.5
+                    
             except Exception as e:
-                print(f"⚠️ BRIDGE_TIME 병합 중 오류: {e}")
+                print(f"⚠️ BRIDGE_TIME 처리 오류: {e}")
+                import traceback
+                traceback.print_exc()
                 df['BRIDGE_TIME'] = 3.5
         else:
-            print("⚠️ BRIDGE_TIME.CSV 파일 없음 - 기본값 3.5 사용")
+            print("⚠️ BRIDGE_TIME.CSV 없음 - 기본값 3.5")
             df['BRIDGE_TIME'] = 3.5
         
-        # 누락 컬럼 처리
-        for col in self.all_v4_cols:
-            if col not in df.columns:
-                if col == self.target_col:
-                    continue  # 타겟은 반드시 있어야 함
-                elif 'MAXCAPA' in col:
-                    df[col] = 100  # MAXCAPA는 100으로
-                elif 'UTIL' in col:
-                    df[col] = 50   # UTIL은 50으로
-                elif col == 'BRIDGE_TIME':
-                    continue  # 이미 처리함
-                else:
-                    df[col] = 0
-                print(f"⚠️ {col} 누락 → 기본값으로 채움")
+        # NaN 처리
+        df = df.fillna(method='ffill').fillna(0)
         
-        # NaN 체크 및 처리
-        nan_cols = df.columns[df.isna().any()].tolist()
-        if nan_cols:
-            print(f"⚠️ NaN 발견 컬럼: {nan_cols}")
-            df = df.fillna(method='ffill').fillna(0)
+        # timestamp 컬럼 제거 (더 이상 필요 없음)
+        if 'timestamp' in df.columns:
+            df = df.drop('timestamp', axis=1)
+        
+        print(f"\n✅ 최종 데이터: {df.shape}")
+        print(f"✅ 사용 컬럼: {df.columns.tolist()}")
         
         return df
     
