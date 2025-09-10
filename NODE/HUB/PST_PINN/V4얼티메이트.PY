@@ -679,11 +679,11 @@ class PatchTSTPINN(keras.Model):
         return tf.squeeze(output, axis=-1)
 
 # ==============================================================================
-# 📉 손실 함수 (함수형으로 변경)
+# 📉 손실 함수 (버그 수정 버전)
 # ==============================================================================
 
 def stable_loss(y_true, y_pred):
-    """Model 1용 - 안정 구간 특화 손실 (함수형)"""
+    """Model 1용 - 안정 구간 특화 손실 (수정됨)"""
     # 차원 확인 및 조정
     y_true = tf.cast(y_true, tf.float32)
     y_pred = tf.cast(y_pred, tf.float32)
@@ -696,21 +696,28 @@ def stable_loss(y_true, y_pred):
     
     error = tf.abs(y_true - y_pred)
     
-    # False Positive 방지
-    penalty = tf.where(
-        y_true < 300,
-        tf.where(
-            y_pred >= 300,
-            error * 20.0,  # 300 이하를 300+ 예측: 큰 페널티
-            error * 1.0
-        ),
-        error * 0.5  # 300+ 구간은 덜 중요
-    )
+    # False Positive 방지 - 조건문 수정
+    condition_300 = tf.logical_and(y_true < 300.0, y_pred >= 300.0)
+    condition_250 = tf.logical_and(y_true < 250.0, y_pred >= 300.0)
     
-    return penalty
+    # 페널티 계산 (중첩 제거)
+    penalty = tf.ones_like(error)  # 기본 1배
+    penalty = tf.where(condition_300, 20.0, penalty)  # 300 이하 → 300+ 예측: 20배
+    penalty = tf.where(condition_250, 35.0, penalty)  # 250 이하 → 300+ 예측: 35배 (덮어쓰기)
+    
+    # 300+ 구간은 0.5배
+    penalty = tf.where(y_true >= 300.0, 0.5, penalty)
+    
+    weighted_error = error * penalty
+    
+    # NaN 방지
+    result = tf.reduce_mean(weighted_error)
+    result = tf.where(tf.math.is_nan(result), 0.0, result)
+    
+    return result
 
 def extreme_loss(y_true, y_pred):
-    """Model 2용 - 극단값 특화 손실 (함수형)"""
+    """Model 2용 - 극단값 특화 손실 (수정됨)"""
     # 차원 확인 및 조정
     y_true = tf.cast(y_true, tf.float32)
     y_pred = tf.cast(y_pred, tf.float32)
@@ -723,30 +730,36 @@ def extreme_loss(y_true, y_pred):
     
     error = tf.abs(y_true - y_pred)
     
-    # 극단값 미탐지 방지
-    penalty = tf.where(
-        y_true >= 335,
-        tf.where(
-            y_pred < 335,
-            error * 30.0,  # 335+ 미탐지: 최대 페널티
-            error * 1.0
-        ),
-        tf.where(
-            y_true >= 310,
-            tf.where(
-                y_pred < 310,
-                error * 15.0,  # 310+ 미탐지: 큰 페널티
-                error * 1.0
-            ),
-            tf.where(
-                y_true >= 300,
-                error * 5.0,  # 300-310 구간: 중요
-                error * 0.3   # 300 미만: 덜 중요
-            )
-        )
+    # 극단값 미탐지 방지 - 조건문 수정
+    missed_335 = tf.logical_and(y_true >= 335.0, y_pred < 335.0)
+    missed_310 = tf.logical_and(
+        tf.logical_and(y_true >= 310.0, y_true < 335.0),
+        y_pred < 310.0
     )
+    in_300_range = tf.logical_and(y_true >= 300.0, y_true < 310.0)
     
-    return penalty
+    # 페널티 계산 (명확한 우선순위)
+    penalty = tf.ones_like(error)  # 기본 1배
+    
+    # 300 미만: 0.3배
+    penalty = tf.where(y_true < 300.0, 0.3, penalty)
+    
+    # 300-310 구간: 5배
+    penalty = tf.where(in_300_range, 5.0, penalty)
+    
+    # 310+ 미탐지: 15배
+    penalty = tf.where(missed_310, 15.0, penalty)
+    
+    # 335+ 미탐지: 30배 (최우선)
+    penalty = tf.where(missed_335, 30.0, penalty)
+    
+    weighted_error = error * penalty
+    
+    # NaN 방지
+    result = tf.reduce_mean(weighted_error)
+    result = tf.where(tf.math.is_nan(result), 0.0, result)
+    
+    return result
 
 # ==============================================================================
 # 📊 콜백
@@ -1037,8 +1050,12 @@ def main():
                 print("\n🤖 Model 1: PatchTST (안정형) 학습")
                 
                 model1 = PatchTSTModel(config)
+                
+                # Gradient Clipping 추가
+                optimizer1 = Adam(learning_rate=0.0001, clipnorm=1.0)  # 학습률 낮춤
+                
                 model1.compile(
-                    optimizer=Adam(learning_rate=0.001),
+                    optimizer=optimizer1,
                     loss=stable_loss,  # 함수형 손실
                     metrics=['mae']
                 )
@@ -1057,7 +1074,7 @@ def main():
                     X_train_scaled, y_train_scaled,
                     validation_data=(X_val_scaled, y_val_scaled),
                     epochs=50,
-                    batch_size=32,
+                    batch_size=64,  # 배치 크기 증가
                     callbacks=callbacks1,
                     verbose=1
                 )
@@ -1071,8 +1088,12 @@ def main():
                 print("\n🤖 Model 2: PatchTST+PINN (극단형) 학습")
                 
                 model2 = PatchTSTPINN(config)
+                
+                # Gradient Clipping 추가
+                optimizer2 = Adam(learning_rate=0.0001, clipnorm=1.0)  # 학습률 낮춤
+                
                 model2.compile(
-                    optimizer=Adam(learning_rate=0.0008),
+                    optimizer=optimizer2,
                     loss=extreme_loss,  # 함수형 손실
                     metrics=['mae']
                 )
@@ -1091,7 +1112,7 @@ def main():
                     [X_train_scaled, X_physics_train_scaled], y_train_scaled,
                     validation_data=([X_val_scaled, X_physics_val_scaled], y_val_scaled),
                     epochs=60,
-                    batch_size=32,
+                    batch_size=64,  # 배치 크기 증가
                     callbacks=callbacks2,
                     verbose=1
                 )
