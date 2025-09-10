@@ -248,48 +248,119 @@ class SequenceViewer:
         
         return seq_df
     
-    def analyze_multiple_sequences(self, sequence_length=15):
+    def analyze_multiple_sequences(self, sequence_lengths=None):
         """
         여러 시퀀스 길이 비교 분석
+        
+        Parameters:
+        -----------
+        sequence_lengths : list
+            테스트할 시퀀스 길이들 (기본값: [5, 10, 15, 20, 30, 45, 60])
         """
         print("\n" + "="*80)
-        print("다양한 시퀀스 길이 비교")
+        print("다양한 시퀀스 길이 비교 (최적 길이 탐색)")
         print("="*80)
         
-        test_lengths = [5, 10, 15, 20, 30, 45, 60]
+        if sequence_lengths is None:
+            sequence_lengths = [5, 10, 15, 20, 30, 45, 60]
+        
         results = []
         
-        for length in test_lengths:
-            # 상위 10% 임계값
-            threshold = self.df[self.target_column].quantile(0.9)
-            
+        # 상위 10% 임계값
+        threshold_90 = self.df[self.target_column].quantile(0.9)
+        threshold_95 = self.df[self.target_column].quantile(0.95)
+        
+        print(f"\n타켓 임계값:")
+        print(f"  - 상위 10%: {threshold_90:.1f}")
+        print(f"  - 상위 5%: {threshold_95:.1f}")
+        print(f"  - 최대값: {self.df[self.target_column].max():.1f}")
+        
+        print(f"\n시퀀스 길이 테스트: {sequence_lengths}")
+        print("-" * 60)
+        
+        for length in sequence_lengths:
             # 높은 값 예측 성공률 계산
-            success_count = 0
-            total_high = 0
+            success_count_90 = 0
+            success_count_95 = 0
+            total_high_90 = 0
+            total_high_95 = 0
+            
+            # 패턴 일관성 계산을 위한 리스트
+            high_patterns = []
             
             for i in range(length, len(self.df)):
-                if self.df.iloc[i][self.target_column] >= threshold:
-                    total_high += 1
-                    # 이전 시퀀스 평균이 높은지 체크
-                    seq_mean = self.df.iloc[i-length:i][self.target_column].mean()
+                current_value = self.df.iloc[i][self.target_column]
+                seq_mean = self.df.iloc[i-length:i][self.target_column].mean()
+                seq_std = self.df.iloc[i-length:i][self.target_column].std()
+                seq_trend = (self.df.iloc[i-1][self.target_column] - self.df.iloc[i-length][self.target_column]) / length
+                
+                # 상위 10% 체크
+                if current_value >= threshold_90:
+                    total_high_90 += 1
+                    high_patterns.append(seq_mean)
+                    # 예측 조건: 시퀀스 평균이 상위 30% 이상
                     if seq_mean >= self.df[self.target_column].quantile(0.7):
-                        success_count += 1
+                        success_count_90 += 1
+                
+                # 상위 5% 체크
+                if current_value >= threshold_95:
+                    total_high_95 += 1
+                    # 예측 조건: 시퀀스 평균이 상위 20% 이상
+                    if seq_mean >= self.df[self.target_column].quantile(0.8):
+                        success_count_95 += 1
             
-            if total_high > 0:
-                success_rate = success_count / total_high * 100
-            else:
-                success_rate = 0
+            # 성공률 계산
+            success_rate_90 = (success_count_90 / total_high_90 * 100) if total_high_90 > 0 else 0
+            success_rate_95 = (success_count_95 / total_high_95 * 100) if total_high_95 > 0 else 0
+            
+            # 패턴 일관성 (표준편차가 낮을수록 좋음)
+            pattern_consistency = 1 / (1 + np.std(high_patterns)) if high_patterns else 0
             
             results.append({
                 'length': length,
-                'success_rate': success_rate,
-                'total_high': total_high,
-                'predicted': success_count
+                'success_rate': success_rate_90,  # 상위 10% 기준
+                'success_rate_95': success_rate_95,  # 상위 5% 기준
+                'total_high': total_high_90,
+                'predicted': success_count_90,
+                'total_high_95': total_high_95,
+                'predicted_95': success_count_95,
+                'consistency': pattern_consistency
             })
             
-            print(f"{length:3d}분: 예측 성공률 {success_rate:5.1f}% ({success_count}/{total_high})")
+            print(f"{length:3d}분: 상위10% 예측 {success_rate_90:5.1f}% ({success_count_90:3d}/{total_high_90:3d}) | "
+                  f"상위5% 예측 {success_rate_95:5.1f}% ({success_count_95:3d}/{total_high_95:3d})")
         
-        return pd.DataFrame(results)
+        results_df = pd.DataFrame(results)
+        
+        # 종합 점수 계산 (성공률과 일관성 고려)
+        results_df['overall_score'] = (
+            results_df['success_rate'] * 0.6 + 
+            results_df['success_rate_95'] * 0.3 + 
+            results_df['consistency'] * 100 * 0.1
+        )
+        
+        print("\n" + "="*60)
+        print("분석 결과 요약")
+        print("="*60)
+        
+        # 최적 길이 찾기
+        best_idx = results_df['overall_score'].idxmax()
+        best_length = results_df.loc[best_idx, 'length']
+        
+        print(f"\n🎯 최적 시퀀스 길이: {best_length}분")
+        print(f"  - 상위 10% 예측 성공률: {results_df.loc[best_idx, 'success_rate']:.1f}%")
+        print(f"  - 상위 5% 예측 성공률: {results_df.loc[best_idx, 'success_rate_95']:.1f}%")
+        print(f"  - 패턴 일관성: {results_df.loc[best_idx, 'consistency']:.3f}")
+        print(f"  - 종합 점수: {results_df.loc[best_idx, 'overall_score']:.1f}")
+        
+        # Top 3 출력
+        print("\n📊 상위 3개 시퀀스 길이:")
+        top3 = results_df.nlargest(3, 'overall_score')
+        for i, (_, row) in enumerate(top3.iterrows(), 1):
+            print(f"  {i}. {int(row['length']):2d}분 - 종합점수: {row['overall_score']:.1f} "
+                  f"(상위10%: {row['success_rate']:.1f}%, 상위5%: {row['success_rate_95']:.1f}%)")
+        
+        return results_df
     
     def show_realtime_prediction(self, current_index, sequence_length=15):
         """
@@ -392,25 +463,29 @@ def main():
     # 뷰어 초기화
     viewer = SequenceViewer('/mnt/user-data/uploads/Hub5월.CSV')
     
-    # 1. 높은 값 시퀀스 찾기
-    print("\n1️⃣ 높은 타켓값을 가진 시퀀스 찾기")
-    top_sequences = viewer.find_high_value_sequences(sequence_length=15, top_n=10)
-    
-    # 2. 최고값 시퀀스 시각화
-    if len(top_sequences) > 0:
-        best_seq = top_sequences.iloc[0]
-        print(f"\n2️⃣ 최고값 시퀀스 시각화 (타켓: {best_seq['end_value']:.0f})")
-        viewer.visualize_sequence(int(best_seq['end_index']), sequence_length=15)
-    
-    # 3. 다양한 시퀀스 길이 비교
-    print("\n3️⃣ 시퀀스 길이별 성능 비교")
+    # 1. 먼저 다양한 시퀀스 길이 테스트하여 최적값 찾기
+    print("\n1️⃣ 시퀀스 길이별 성능 비교 (최적 길이 찾기)")
     comparison_df = viewer.analyze_multiple_sequences()
     
-    # 4. 실시간 예측 예시 (임의 시점)
-    print("\n4️⃣ 실시간 예측 시뮬레이션")
+    # 최적 시퀀스 길이 결정
+    best_length = comparison_df.loc[comparison_df['success_rate'].idxmax(), 'length']
+    print(f"\n✅ 최적 시퀀스 길이: {best_length}분 (성공률: {comparison_df.loc[comparison_df['success_rate'].idxmax(), 'success_rate']:.1f}%)")
+    
+    # 2. 최적 길이로 높은 값 시퀀스 찾기
+    print(f"\n2️⃣ 높은 타켓값 시퀀스 찾기 (시퀀스 길이: {best_length}분)")
+    top_sequences = viewer.find_high_value_sequences(sequence_length=int(best_length), top_n=10)
+    
+    # 3. 최고값 시퀀스 시각화
+    if len(top_sequences) > 0:
+        best_seq = top_sequences.iloc[0]
+        print(f"\n3️⃣ 최고값 시퀀스 시각화 (타켓: {best_seq['end_value']:.0f})")
+        viewer.visualize_sequence(int(best_seq['end_index']), sequence_length=int(best_length))
+    
+    # 4. 실시간 예측 예시 (최적 길이 사용)
+    print(f"\n4️⃣ 실시간 예측 시뮬레이션 (시퀀스: {best_length}분)")
     # 오후 6시 경 데이터로 테스트
     test_index = 18 * 60 + 30  # 18:30
-    viewer.show_realtime_prediction(test_index, sequence_length=15)
+    viewer.show_realtime_prediction(test_index, sequence_length=int(best_length))
     
     print("\n" + "="*80)
     print("분석 완료!")
