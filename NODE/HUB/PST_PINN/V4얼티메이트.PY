@@ -756,12 +756,10 @@ class PatchTSTPINN(keras.Model):
 # ==============================================================================
 
 def stable_loss(y_true, y_pred):
-    """Model 1용 - 안정 구간 특화 손실 (수정됨)"""
-    # 차원 확인 및 조정
+    """Model 1용 - 안정 구간만 학습 (극단값 무시)"""
     y_true = tf.cast(y_true, tf.float32)
     y_pred = tf.cast(y_pred, tf.float32)
     
-    # reshape to ensure same dimensions
     if len(y_true.shape) > 1:
         y_true = tf.squeeze(y_true)
     if len(y_pred.shape) > 1:
@@ -769,21 +767,27 @@ def stable_loss(y_true, y_pred):
     
     error = tf.abs(y_true - y_pred)
     
-    # False Positive 방지 - 조건문 수정
-    condition_300 = tf.logical_and(y_true < 300.0, y_pred >= 300.0)
-    condition_250 = tf.logical_and(y_true < 250.0, y_pred >= 300.0)
+    # 300 이상 데이터는 학습에서 제외 (가중치 0.01)
+    is_extreme = tf.cast(y_true >= 300.0, tf.float32)
     
-    # 페널티 계산 (중첩 제거)
-    penalty = tf.ones_like(error)  # 기본 1배
-    penalty = tf.where(condition_300, 20.0, penalty)  # 300 이하 → 300+ 예측: 20배
-    penalty = tf.where(condition_250, 35.0, penalty)  # 250 이하 → 300+ 예측: 35배 (덮어쓰기)
+    # False Positive 방지 + 극단값 무시
+    condition_fp = tf.logical_and(y_true < 300.0, y_pred >= 300.0)
     
-    # 300+ 구간은 0.5배
-    penalty = tf.where(y_true >= 300.0, 0.5, penalty)
+    # 페널티 계산
+    penalty = tf.ones_like(error)
+    
+    # 안정 구간 (300 미만)에서만 정상 학습
+    penalty = tf.where(y_true < 300.0, 1.0, 0.01)  # 300+ 는 거의 무시
+    
+    # False Positive는 큰 페널티
+    penalty = tf.where(condition_fp, 50.0, penalty)  # FP 강력 방지
+    
+    # 250 이하를 300+ 예측하면 더 큰 페널티
+    condition_extreme_fp = tf.logical_and(y_true < 250.0, y_pred >= 300.0)
+    penalty = tf.where(condition_extreme_fp, 100.0, penalty)
     
     weighted_error = error * penalty
     
-    # NaN 방지
     result = tf.reduce_mean(weighted_error)
     result = tf.where(tf.math.is_nan(result), 0.0, result)
     
@@ -859,31 +863,46 @@ class ExtremeValueCallback(Callback):
         y_pred = self.scaler_y.inverse_transform(y_pred_scaled.reshape(-1, 1)).flatten()
         y_true = self.scaler_y.inverse_transform(self.y_val.reshape(-1, 1)).flatten()
         
-        # 극단값 감지율
-        mask_335 = y_true >= 335
-        mask_310 = y_true >= 310
-        mask_under_300 = y_true < 300
-        
-        if mask_335.sum() > 0:
-            recall_335 = (y_pred >= 335)[mask_335].sum() / mask_335.sum() * 100
+        if self.model_name == "Model1":
+            # Model 1: 안정 구간 성능만 체크
+            mask_stable = y_true < 300
+            if mask_stable.sum() > 0:
+                stable_mae = np.mean(np.abs(y_true[mask_stable] - y_pred[mask_stable]))
+                fp_rate = (y_pred[mask_stable] >= 300).sum() / mask_stable.sum() * 100
+                
+                # 250 이하에서 300+ 예측 (심각한 FP)
+                mask_250 = y_true < 250
+                extreme_fp_rate = (y_pred[mask_250] >= 300).sum() / max(1, mask_250.sum()) * 100
+                
+                print(f"\n[{self.model_name} Epoch {epoch+1}] "
+                      f"안정구간 MAE: {stable_mae:.1f} | "
+                      f"FP율: {fp_rate:.1f}% | "
+                      f"극단FP: {extreme_fp_rate:.1f}%")
         else:
-            recall_335 = 0
-        
-        if mask_310.sum() > 0:
-            recall_310 = (y_pred >= 310)[mask_310].sum() / mask_310.sum() * 100
-        else:
-            recall_310 = 0
-        
-        # False Positive Rate
-        if mask_under_300.sum() > 0:
-            fp_rate = (y_pred >= 300)[mask_under_300].sum() / mask_under_300.sum() * 100
-        else:
-            fp_rate = 0
-        
-        print(f"\n[{self.model_name} Epoch {epoch+1}] "
-              f"335+: {recall_335:.1f}% | "
-              f"310+: {recall_310:.1f}% | "
-              f"FP: {fp_rate:.1f}%")
+            # Model 2: 극단값 성능 체크
+            mask_335 = y_true >= 335
+            mask_310 = y_true >= 310
+            mask_under_300 = y_true < 300
+            
+            if mask_335.sum() > 0:
+                recall_335 = (y_pred >= 335)[mask_335].sum() / mask_335.sum() * 100
+            else:
+                recall_335 = 0
+            
+            if mask_310.sum() > 0:
+                recall_310 = (y_pred >= 310)[mask_310].sum() / mask_310.sum() * 100
+            else:
+                recall_310 = 0
+            
+            if mask_under_300.sum() > 0:
+                fp_rate = (y_pred >= 300)[mask_under_300].sum() / mask_under_300.sum() * 100
+            else:
+                fp_rate = 0
+            
+            print(f"\n[{self.model_name} Epoch {epoch+1}] "
+                  f"335+: {recall_335:.1f}% | "
+                  f"310+: {recall_310:.1f}% | "
+                  f"FP: {fp_rate:.1f}%")
 
 # ==============================================================================
 # 🎯 메인 실행 함수
