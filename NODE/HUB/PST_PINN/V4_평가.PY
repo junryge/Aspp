@@ -233,19 +233,17 @@ def create_evaluation_data():
     cmd_cols = ['M16A_3F_CMD', 'M16A_6F_TO_HUB_CMD', 'M16A_2F_TO_HUB_CMD',
                 'M14A_3F_TO_HUB_CMD', 'M14B_7F_TO_HUB_CMD']
     
-    # 유효한 인덱스만 처리 - 올바른 인덱스 설정
-    # 현재 시점(i)을 기준으로 과거 20분(seq_len) 데이터로 10분 후(pred_len) 예측
-    valid_indices = range(seq_len, len(df) - pred_len, 100)  # 100개마다 샘플링
+    # 모든 유효한 인덱스 처리 (1분마다)
+    valid_indices = range(seq_len, len(df) - pred_len)
     
     for idx in tqdm(valid_indices, desc="예측 생성"):
-        # 현재 시점 i
         i = idx
         
         # 과거 20분 데이터 (i-20 ~ i-1)
         X_seq = df[numeric_cols].iloc[i-seq_len:i].values
         X_seq_scaled = scaler_X.transform(X_seq.reshape(-1, n_features)).reshape(1, seq_len, n_features)
         
-        # 물리 데이터 (현재 시점 기준)
+        # 물리 데이터
         physics = [
             df[target_col].iloc[i-1],  # 현재값
             df[inflow_cols].iloc[i:i+pred_len].sum().sum(),  # 향후 10분 유입
@@ -267,137 +265,123 @@ def create_evaluation_data():
         pred2_scaled = model2.predict([X_seq_scaled, X_physics_scaled], verbose=0)
         pred2 = scaler_y.inverse_transform(pred2_scaled.reshape(-1, 1))[0, 0]
         
-        # 실제값 (10분 후)
-        actual = df[target_col].iloc[i + pred_len - 1]
-        actual_time = df['timestamp'].iloc[i + pred_len - 1]
+        # 과거 20분 실제값 전체
+        actual_20min_values = df[target_col].iloc[i-seq_len:i].tolist()
+        actual_20min_times = [df['timestamp'].iloc[j].strftime('%Y-%m-%d %H:%M') for j in range(i-seq_len, i)]
         
-        # 입력 데이터 최대/최소 (과거 20분)
+        # 10분 후 실제값
+        actual_target = df[target_col].iloc[i + pred_len - 1]
+        target_time = df['timestamp'].iloc[i + pred_len - 1].strftime('%Y-%m-%d %H:%M')
+        
+        # 현재 시점 정보
+        current_time = df['timestamp'].iloc[i].strftime('%Y-%m-%d %H:%M')
+        current_value = df[target_col].iloc[i]
+        
+        # 입력 데이터 통계
         input_max = df[target_col].iloc[i-seq_len:i].max()
         input_min = df[target_col].iloc[i-seq_len:i].min()
+        input_avg = df[target_col].iloc[i-seq_len:i].mean()
+        input_std = df[target_col].iloc[i-seq_len:i].std()
         
-        # ALL_OK_NG 판정
+        # 300+ 판정
         threshold_300 = 300
-        actual_ng = actual >= threshold_300
+        actual_ng = actual_target >= threshold_300
         pred1_ng = pred1 >= threshold_300
         pred2_ng = pred2 >= threshold_300
         
-        # 시간 포맷팅 (모든 시간 정보 포함)
-        input_start_time = df['timestamp'].iloc[i-seq_len].strftime('%Y-%m-%d %H:%M')  # 20분 전
-        input_end_time = df['timestamp'].iloc[i-1].strftime('%Y-%m-%d %H:%M')  # 현재
-        current_time = df['timestamp'].iloc[i].strftime('%Y-%m-%d %H:%M')  # 예측 시작 시점
-        target_time = actual_time.strftime('%Y-%m-%d %H:%M')  # 10분 후 (예측 대상)
-        
-        # Model 1 결과
-        results.append({
-            'current_time': current_time,  # 예측 시작 시점
-            'actual_time': target_time,  # 실제값 시간 (10분 후)
-            'actual_value': round(actual, 2),
+        # 결과 저장
+        result = {
+            # 시간 정보
+            'prediction_time': current_time,
+            'target_time': target_time,
+            
+            # 실제값들
+            'current_actual': round(current_value, 2),
+            'target_actual': round(actual_target, 2),
+            
+            # 과거 20분 실제값 (각 분별로)
+            **{f'actual_t-{20-j}': round(actual_20min_values[j], 2) for j in range(20)},
+            
+            # 예측값
             'model1_predicted': round(pred1, 2),
-            'model1_error': round(actual - pred1, 2),
-            'model1_OK_NG': 'OK' if (actual_ng == pred1_ng) else 'NG',
-            'input_start_time': input_start_time,  # 입력 시작 (20분 전)
-            'input_end_time': input_end_time,  # 입력 끝 (현재)
-            'input_max': round(input_max, 2),
-            'input_min': round(input_min, 2),
-            'input_avg': round(df[target_col].iloc[i-seq_len:i].mean(), 2),
-            'consecutive_300_count': int(df['consecutive_300_count'].iloc[i-1]),
-            'model_type': 'Model1_PatchTST'
-        })
-        
-        # Model 2 결과
-        results.append({
-            'current_time': current_time,  # 예측 시작 시점
-            'actual_time': target_time,  # 실제값 시간 (10분 후)
-            'actual_value': round(actual, 2),
             'model2_predicted': round(pred2, 2),
-            'model2_error': round(actual - pred2, 2),
+            
+            # 오차
+            'model1_error': round(actual_target - pred1, 2),
+            'model2_error': round(actual_target - pred2, 2),
+            'model1_error_pct': round((actual_target - pred1) / actual_target * 100, 2) if actual_target != 0 else 0,
+            'model2_error_pct': round((actual_target - pred2) / actual_target * 100, 2) if actual_target != 0 else 0,
+            
+            # 판정
+            'model1_OK_NG': 'OK' if (actual_ng == pred1_ng) else 'NG',
             'model2_OK_NG': 'OK' if (actual_ng == pred2_ng) else 'NG',
-            'input_start_time': input_start_time,  # 입력 시작 (20분 전)
-            'input_end_time': input_end_time,  # 입력 끝 (현재)
+            
+            # 통계
             'input_max': round(input_max, 2),
             'input_min': round(input_min, 2),
-            'input_avg': round(df[target_col].iloc[i-seq_len:i].mean(), 2),
+            'input_avg': round(input_avg, 2),
+            'input_std': round(input_std, 2),
             'consecutive_300_count': int(df['consecutive_300_count'].iloc[i-1]),
-            'model_type': 'Model2_PINN'
-        })
+            'consecutive_300_prob': round(df['consecutive_300_prob'].iloc[i-1], 3)
+        }
+        
+        results.append(result)
     
     # 7. 결과 저장
     print("\n[6] 결과 저장 중...")
     
     results_df = pd.DataFrame(results)
     
-    # Model별 분리 및 컬럼명 정리
-    model1_df = results_df[results_df['model_type'] == 'Model1_PatchTST'].copy()
-    model1_df = model1_df.rename(columns={
-        'model1_predicted': 'predicted',
-        'model1_error': 'error',
-        'model1_OK_NG': 'OK_NG'
-    })
-    model1_df = model1_df.drop(['model2_predicted', 'model2_error', 'model2_OK_NG', 'model_type'], 
-                                 axis=1, errors='ignore')
+    # 전체 결과를 하나의 CSV로 저장
+    results_df.to_csv('evaluation_results_202509_full.csv', index=False, encoding='utf-8-sig')
     
-    model2_df = results_df[results_df['model_type'] == 'Model2_PINN'].copy()
-    model2_df = model2_df.rename(columns={
-        'model2_predicted': 'predicted',
-        'model2_error': 'error',
-        'model2_OK_NG': 'OK_NG'
-    })
-    model2_df = model2_df.drop(['model1_predicted', 'model1_error', 'model1_OK_NG', 'model_type'], 
-                                axis=1, errors='ignore')
-    
-    # CSV 저장
-    model1_df.to_csv('evaluation_results_model1_202509.csv', index=False, encoding='utf-8-sig')
-    model2_df.to_csv('evaluation_results_model2_202509.csv', index=False, encoding='utf-8-sig')
-    
-    # 통합 결과도 저장 (비교용)
-    combined_df = pd.DataFrame()
-    for i in range(0, len(results), 2):  # Model1과 Model2 페어로 처리
-        if i+1 < len(results):
-            row = {
-                'current_time': results[i]['current_time'],
-                'actual_time': results[i]['actual_time'],
-                'actual_value': results[i]['actual_value'],
-                'model1_predicted': results[i]['model1_predicted'],
-                'model1_error': results[i]['model1_error'],
-                'model1_OK_NG': results[i]['model1_OK_NG'],
-                'model2_predicted': results[i+1]['model2_predicted'],
-                'model2_error': results[i+1]['model2_error'],
-                'model2_OK_NG': results[i+1]['model2_OK_NG'],
-                'input_start_time': results[i]['input_start_time'],
-                'input_end_time': results[i]['input_end_time'],
-                'input_max': results[i]['input_max'],
-                'input_min': results[i]['input_min'],
-                'input_avg': results[i]['input_avg'],
-                'consecutive_300_count': results[i]['consecutive_300_count']
-            }
-            combined_df = pd.concat([combined_df, pd.DataFrame([row])], ignore_index=True)
-    
-    combined_df.to_csv('evaluation_results_combined_202509.csv', index=False, encoding='utf-8-sig')
-    
-    print("✅ 평가 데이터 저장 완료:")
-    print(f"   - evaluation_results_model1_202509.csv ({len(model1_df)}행)")
-    print(f"   - evaluation_results_model2_202509.csv ({len(model2_df)}행)")
-    print(f"   - evaluation_results_combined_202509.csv ({len(combined_df)}행)")
+    print(f"✅ 평가 데이터 저장 완료: evaluation_results_202509_full.csv ({len(results_df)}행)")
     
     # 8. 성능 요약
     print("\n[7] 성능 요약:")
     print("="*50)
     
-    for model_name, df_model in [('Model 1', model1_df), ('Model 2', model2_df)]:
-        mae = np.mean(np.abs(df_model['error']))
-        rmse = np.sqrt(np.mean(df_model['error']**2))
-        accuracy = (df_model['OK_NG'] == 'OK').mean() * 100
-        
-        print(f"\n{model_name}:")
-        print(f"  MAE: {mae:.2f}")
-        print(f"  RMSE: {rmse:.2f}")
-        print(f"  300+ 판정 정확도: {accuracy:.1f}%")
-        
-        # 극단값 감지율
-        extreme_actual = df_model[df_model['actual_value'] >= 335]
-        if len(extreme_actual) > 0:
-            extreme_detected = (extreme_actual['predicted'] >= 335).sum()
-            print(f"  335+ 감지율: {extreme_detected}/{len(extreme_actual)} ({extreme_detected/len(extreme_actual)*100:.1f}%)")
+    # Model 1 성능
+    mae1 = np.mean(np.abs(results_df['model1_error']))
+    rmse1 = np.sqrt(np.mean(results_df['model1_error']**2))
+    accuracy1 = (results_df['model1_OK_NG'] == 'OK').mean() * 100
+    
+    print(f"\nModel 1 (PatchTST):")
+    print(f"  MAE: {mae1:.2f}")
+    print(f"  RMSE: {rmse1:.2f}")
+    print(f"  300+ 판정 정확도: {accuracy1:.1f}%")
+    
+    # Model 2 성능
+    mae2 = np.mean(np.abs(results_df['model2_error']))
+    rmse2 = np.sqrt(np.mean(results_df['model2_error']**2))
+    accuracy2 = (results_df['model2_OK_NG'] == 'OK').mean() * 100
+    
+    print(f"\nModel 2 (PINN):")
+    print(f"  MAE: {mae2:.2f}")
+    print(f"  RMSE: {rmse2:.2f}")
+    print(f"  300+ 판정 정확도: {accuracy2:.1f}%")
+    
+    # 극단값 감지율
+    extreme_actual = results_df[results_df['target_actual'] >= 335]
+    if len(extreme_actual) > 0:
+        print(f"\n335+ 극단값 감지:")
+        detected1 = (extreme_actual['model1_predicted'] >= 335).sum()
+        detected2 = (extreme_actual['model2_predicted'] >= 335).sum()
+        print(f"  Model 1: {detected1}/{len(extreme_actual)} ({detected1/len(extreme_actual)*100:.1f}%)")
+        print(f"  Model 2: {detected2}/{len(extreme_actual)} ({detected2/len(extreme_actual)*100:.1f}%)")
+    
+    # 구간별 성능
+    print(f"\n구간별 MAE:")
+    low = results_df[results_df['target_actual'] < 200]
+    normal = results_df[(results_df['target_actual'] >= 200) & (results_df['target_actual'] < 300)]
+    high = results_df[results_df['target_actual'] >= 300]
+    
+    if len(low) > 0:
+        print(f"  <200: Model1={np.mean(np.abs(low['model1_error'])):.2f}, Model2={np.mean(np.abs(low['model2_error'])):.2f}")
+    if len(normal) > 0:
+        print(f"  200-300: Model1={np.mean(np.abs(normal['model1_error'])):.2f}, Model2={np.mean(np.abs(normal['model2_error'])):.2f}")
+    if len(high) > 0:
+        print(f"  300+: Model1={np.mean(np.abs(high['model1_error'])):.2f}, Model2={np.mean(np.abs(high['model2_error'])):.2f}")
     
     print("\n" + "="*80)
     print("✅ 평가 완료!")
