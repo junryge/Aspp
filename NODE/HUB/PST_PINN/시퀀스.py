@@ -295,53 +295,43 @@ class SequenceAnalyzer:
         print("✅ 시각화 저장: sequence_analysis_visualization.png")
         plt.show()
 
-# 사용 예시
-def example_usage():
-    """
-    사용 예시
-    """
-    # 1. 분석기 초기화
+if __name__ == "__main__":
+    # 분석기 초기화
     analyzer = SequenceAnalyzer(target_column='CURRENT_M16A_3F_JOB_2')
     
-    # 2. 데이터 로드
-    df = analyzer.load_data('/path/to/your/data.csv')  # 파일 경로 수정 필요
+    # 데이터 로드
+    df = analyzer.load_data('/mnt/user-data/uploads/Hub5월.CSV')
     
-    # 3. 데이터 확인
+    # 데이터 확인
     print(f"데이터 크기: {len(df)}")
     print(f"타켓 최소값: {df[analyzer.target_column].min()}")
     print(f"타켓 최대값: {df[analyzer.target_column].max()}")
     print(f"타켓 평균: {df[analyzer.target_column].mean():.1f}")
     
-    # 4. 최적 시퀀스 찾기
-    target_thresholds = [300, 400, 500]  # 원하는 임계값
-    sequence_lengths = [5, 10, 15, 20, 30, 45, 60]  # 테스트할 시퀀스 길이
+    # 최적 시퀀스 찾기
+    target_thresholds = [250, 260, 270, 300, 400, 500]  # 임계값
+    sequence_lengths = [5, 10, 15, 20, 30, 45, 60, 90, 120]  # 시퀀스 길이
     prediction_horizon = 10  # 10분 후 예측
     
     results = analyzer.find_optimal_sequence(df, target_thresholds, sequence_lengths, prediction_horizon)
     
-    # 5. 결과 저장
-    results_df = analyzer.save_results(results, 'my_analysis_results.csv')
+    # 결과 저장
+    results_df = analyzer.save_results(results, '/mnt/user-data/outputs/sequence_analysis_results.csv')
     
-    # 6. 시각화
+    # 시각화
     analyzer.visualize_results(results_df)
     
-    # 7. 최적 시퀀스 출력
+    # 최적 시퀀스 출력
+    print("\n" + "="*80)
+    print("최적 시퀀스 요약")
+    print("="*80)
     for threshold in target_thresholds:
         threshold_results = results_df[results_df['target_threshold'] == threshold]
-        if len(threshold_results) > 0:
+        if len(threshold_results) > 0 and threshold_results['actual_high'].sum() > 0:
             best = threshold_results.loc[threshold_results['f1_score'].idxmax()]
-            print(f"\n타겟 {threshold} 이상 최적 시퀀스: {best['sequence_length']}분")
+            print(f"\n타겟 {threshold} 이상:")
+            print(f"  최적 시퀀스: {best['sequence_length']}분")
             print(f"  F1 Score: {best['f1_score']:.3f}")
             print(f"  정밀도: {best['precision']:.3f}")
             print(f"  재현율: {best['recall']:.3f}")
-
-if __name__ == "__main__":
-    print("=" * 80)
-    print("시퀀스 분석 도구")
-    print("=" * 80)
-    print("\n사용 방법:")
-    print("1. analyzer = SequenceAnalyzer()")
-    print("2. df = analyzer.load_data('your_file.csv')")
-    print("3. results = analyzer.find_optimal_sequence(df, [300, 400], [5, 10, 15], 10)")
-    print("4. analyzer.save_results(results)")
-    print("\n자세한 사용법은 example_usage() 함수를 참고하세요.")
+            print(f"  실제 발생: {best['actual_high']}회")
