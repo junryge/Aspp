@@ -359,10 +359,10 @@ class DataProcessorV4:
         self.all_v4_cols = ([self.target_col] + self.inflow_cols + self.outflow_cols + 
                            self.cmd_cols + self.maxcapa_cols + self.extreme_cols + self.ofs_cols)
         
-        # 스케일러
-        self.scaler_X = StandardScaler()
-        self.scaler_y = StandardScaler()
-        self.scaler_physics = StandardScaler()
+        # 스케일러 - RobustScaler 사용 (이상치와 0값에 강함)
+        self.scaler_X = RobustScaler()
+        self.scaler_y = RobustScaler()
+        self.scaler_physics = RobustScaler()
         
         # 연속 패턴 확률
         self.pattern_probability = {
@@ -380,28 +380,78 @@ class DataProcessorV4:
         df = pd.read_csv('data/HUB_0509_TO_0730_DATA.CSV')
         print(f"✅ 메인 데이터: {df.shape}")
         
-        # BRIDGE_TIME 데이터 병합 시도
+        # 시간 컬럼 처리 (메인 데이터)
+        time_col = df.columns[0]  # 첫 번째 컬럼이 시간
+        df['timestamp'] = pd.to_datetime(df[time_col], format='%Y%m%d%H%M', errors='coerce')
+        
+        # BRIDGE_TIME 데이터 병합
         bridge_path = 'data/BRIDGE_TIME.CSV'
         if os.path.exists(bridge_path):
+            print("📊 BRIDGE_TIME 파일 발견!")
             try:
                 bridge_df = pd.read_csv(bridge_path)
+                print(f"  BRIDGE_TIME shape: {bridge_df.shape}")
+                print(f"  BRIDGE_TIME columns: {bridge_df.columns.tolist()}")
+                
+                # IDC_VAL을 BRIDGE_TIME으로 변경
                 if 'IDC_VAL' in bridge_df.columns:
-                    bridge_df = bridge_df.rename(columns={'IDC_VAL': 'BRIDGE_TIME'})
-                    # 시간 기준 병합 로직
-                    print("✅ BRIDGE_TIME 데이터 병합 완료")
+                    bridge_df['BRIDGE_TIME'] = pd.to_numeric(bridge_df['IDC_VAL'], errors='coerce')
+                    print(f"  IDC_VAL → BRIDGE_TIME 변환")
+                
+                # 시간 컬럼 찾기 (CRT_TM 또는 첫 번째 컬럼)
+                if 'CRT_TM' in bridge_df.columns:
+                    bridge_df['timestamp'] = pd.to_datetime(bridge_df['CRT_TM'])
                 else:
-                    df['BRIDGE_TIME'] = 3.5
-            except:
+                    # 첫 번째 컬럼을 시간으로 가정
+                    bridge_df['timestamp'] = pd.to_datetime(bridge_df.iloc[:, 0])
+                
+                # 시간 단위 맞추기 (분 단위로)
+                bridge_df['timestamp'] = bridge_df['timestamp'].dt.floor('min')
+                df['timestamp'] = df['timestamp'].dt.floor('min')
+                
+                # 병합
+                df = pd.merge(df, bridge_df[['timestamp', 'BRIDGE_TIME']], 
+                            on='timestamp', how='left')
+                
+                # 병합 결과 확인
+                merged_count = df['BRIDGE_TIME'].notna().sum()
+                print(f"✅ BRIDGE_TIME 병합 완료: {merged_count}/{len(df)} 행 매칭")
+                
+                # 빈 값은 앞뒤 값으로 보간
+                df['BRIDGE_TIME'] = df['BRIDGE_TIME'].interpolate(method='linear', limit_direction='both')
+                df['BRIDGE_TIME'] = df['BRIDGE_TIME'].fillna(3.5)  # 그래도 남은 NaN은 3.5
+                
+                print(f"  BRIDGE_TIME 통계: min={df['BRIDGE_TIME'].min():.2f}, "
+                      f"max={df['BRIDGE_TIME'].max():.2f}, "
+                      f"mean={df['BRIDGE_TIME'].mean():.2f}")
+                
+            except Exception as e:
+                print(f"⚠️ BRIDGE_TIME 병합 중 오류: {e}")
                 df['BRIDGE_TIME'] = 3.5
         else:
+            print("⚠️ BRIDGE_TIME.CSV 파일 없음 - 기본값 3.5 사용")
             df['BRIDGE_TIME'] = 3.5
-            print("ℹ️ BRIDGE_TIME 기본값(3.5) 사용")
         
-        # 누락 컬럼 0으로 채우기
+        # 누락 컬럼 처리
         for col in self.all_v4_cols:
             if col not in df.columns:
-                df[col] = 0
-                print(f"⚠️ {col} 누락 → 0으로 채움")
+                if col == self.target_col:
+                    continue  # 타겟은 반드시 있어야 함
+                elif 'MAXCAPA' in col:
+                    df[col] = 100  # MAXCAPA는 100으로
+                elif 'UTIL' in col:
+                    df[col] = 50   # UTIL은 50으로
+                elif col == 'BRIDGE_TIME':
+                    continue  # 이미 처리함
+                else:
+                    df[col] = 0
+                print(f"⚠️ {col} 누락 → 기본값으로 채움")
+        
+        # NaN 체크 및 처리
+        nan_cols = df.columns[df.isna().any()].tolist()
+        if nan_cols:
+            print(f"⚠️ NaN 발견 컬럼: {nan_cols}")
+            df = df.fillna(method='ffill').fillna(0)
         
         return df
     
@@ -972,6 +1022,33 @@ def main():
             # 스케일링
             n_features = X.shape[2]
             
+            # 스케일링 전 데이터 검증
+            print("\n📊 스케일링 전 데이터 검증")
+            print(f"X_train shape: {X_train.shape}")
+            print(f"X_train min: {np.min(X_train):.2f}, max: {np.max(X_train):.2f}")
+            print(f"y_train min: {np.min(y_train):.2f}, max: {np.max(y_train):.2f}")
+            
+            # NaN 체크
+            if np.isnan(X_train).any():
+                print("⚠️ X_train에 NaN 발견! 0으로 대체")
+                X_train = np.nan_to_num(X_train, 0)
+                X_val = np.nan_to_num(X_val, 0)
+                X_test = np.nan_to_num(X_test, 0)
+            
+            if np.isnan(y_train).any():
+                print("⚠️ y_train에 NaN 발견! 평균값으로 대체")
+                y_mean = np.nanmean(y_train)
+                y_train = np.nan_to_num(y_train, y_mean)
+                y_val = np.nan_to_num(y_val, y_mean)
+            
+            # 물리 데이터도 체크
+            if np.isnan(X_physics_train).any():
+                print("⚠️ X_physics에 NaN 발견! 기본값으로 대체")
+                X_physics_train = np.nan_to_num(X_physics_train, 0)
+                X_physics_val = np.nan_to_num(X_physics_val, 0)
+                X_physics_test = np.nan_to_num(X_physics_test, 0)
+            
+            # 스케일링 수행
             X_train_scaled = processor.scaler_X.fit_transform(X_train.reshape(-1, n_features))
             X_train_scaled = X_train_scaled.reshape(len(X_train), 20, n_features)
             
@@ -987,6 +1064,18 @@ def main():
             X_physics_train_scaled = processor.scaler_physics.fit_transform(X_physics_train)
             X_physics_val_scaled = processor.scaler_physics.transform(X_physics_val)
             X_physics_test_scaled = processor.scaler_physics.transform(X_physics_test)
+            
+            # 스케일링 후 검증
+            print("\n📊 스케일링 후 데이터 검증")
+            print(f"X_train_scaled min: {np.min(X_train_scaled):.2f}, max: {np.max(X_train_scaled):.2f}")
+            print(f"y_train_scaled min: {np.min(y_train_scaled):.2f}, max: {np.max(y_train_scaled):.2f}")
+            
+            if np.isnan(X_train_scaled).any():
+                print("❌ 스케일링 후에도 NaN 존재!")
+                # 클리핑
+                X_train_scaled = np.clip(X_train_scaled, -10, 10)
+                X_val_scaled = np.clip(X_val_scaled, -10, 10)
+                X_test_scaled = np.clip(X_test_scaled, -10, 10)
             
             # 스케일러 저장
             os.makedirs('./checkpoints_ultimate/scalers', exist_ok=True)
