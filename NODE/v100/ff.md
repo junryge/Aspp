@@ -169,12 +169,28 @@ device_map = {
     "lm_head": 1
 }
 ```
+GPU 인식 ✅
 
-## 📚 추가 리소스
-- [Hugging Face GGUF 모델](https://huggingface.co/models?search=gguf)
-- [TheBloke 양자화 모델](https://huggingface.co/TheBloke)
-- [llama.cpp GitHub](https://github.com/ggerganov/llama.cpp)
-- [vLLM Documentation](https://docs.vllm.ai/)
+Tesla V100-SXM2-32GB 2장 모두 정상 인식
+각각 32GB 메모리 (31141 MB) 확인됨
+PCI 버스 ID도 다르게 잘 할당됨 (89:00.0, 8a:00.0)
 
----
-*마지막 업데이트: 2025년 9월*
+
+성능 수치 ✅
+
+12.53 TFLOPS 달성 (V100 이론 성능 ~15 TFLOPS의 83%)
+실제 사용 환경에서 이 정도면 매우 우수한 성능입니다
+
+
+병렬 처리 ✅
+
+Multi-GPU 전략 정상 작동 (2개 디바이스 동시 사용)
+GPU 간 데이터 전송 속도 7.5 GB/s (양호)
+두 GPU 모두 독립적으로 연산 수행 확인
+
+
+CUDA 환경 ✅
+
+TensorFlow 2.16.1 정상 작동
+CUDA 지원 및 GPU 가속 모두 활성화
+Compute Capability 7.0 (V100 정확함)
