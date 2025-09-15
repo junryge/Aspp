@@ -334,7 +334,11 @@ def main():
             current_indices = tf.range(batch_start + Config.LOOKBACK, 
                                       min(batch_start + Config.GPU_BATCH_SIZE + Config.LOOKBACK, 
                                           len(df) - Config.FORECAST))
-            m14_batch = tf.gather(data_tensor[current_indices], m14_indices, axis=1)
+            
+            # tf.gather를 두 번 사용하여 올바르게 인덱싱
+            # 먼저 행(시간)을 선택하고, 그 다음 열(특징)을 선택
+            current_data = tf.gather(data_tensor, current_indices, axis=0)
+            m14_batch = tf.gather(current_data, m14_indices, axis=1)
             
             # CPU로 이동하여 저장
             X_list.append(X_batch.numpy())
