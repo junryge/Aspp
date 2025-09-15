@@ -323,7 +323,7 @@ def get_callbacks(model_name):
             verbose=1
         ),
         tf.keras.callbacks.ModelCheckpoint(
-            f'{Config.MODEL_DIR}{model_name}_best.h5',
+            f'{Config.MODEL_DIR}{model_name}_best.keras',
             save_best_only=True,
             monitor='loss'
         )
@@ -545,7 +545,7 @@ print(f"\n🏆 최고 성능: {best_model.upper()} "
 print("\n💾 모델 저장 중...")
 
 for name, model in models.items():
-    save_path = f"{Config.MODEL_DIR}{name}_final.h5"
+    save_path = f"{Config.MODEL_DIR}{name}_final.keras"
     model.save(save_path)
     print(f"  ✅ {name} 저장: {save_path}")
 
