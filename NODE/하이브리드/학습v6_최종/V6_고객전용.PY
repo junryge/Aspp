@@ -17,6 +17,65 @@ model.compile(
 )
 
 
+# 앙상블 모델 컴파일 부분도 수정
+ensemble_model.compile(
+    optimizer=tf.keras.optimizers.Adam(Config.LEARNING_RATE * 0.5),
+    loss={'ensemble_output': WeightedLoss(), 'spike_output': 'binary_crossentropy'},
+    loss_weights={'ensemble_output': 1.0, 'spike_output': 0.3},
+    metrics={'ensemble_output': ['mae'], 'spike_output': ['accuracy']}  # ✅ 수정!
+)
+
+# 각 출력별로 적절한 metrics 지정
+metrics={
+    'spike_value': ['mae'],      # 물류량 예측용 MAE
+    'spike_prob': ['accuracy']   # 급증 확률용 정확도
+}
+
+
+📝 전체 수정 부분 (약 590-620번 라인)
+for idx, (name, build_func, input_shape, m14_shape) in enumerate(model_configs):
+    if name not in completed_models:
+        print(f"\n{['1️⃣','2️⃣','3️⃣','4️⃣','5️⃣'][idx]} {name.upper()} 모델 학습")
+        
+        # 모델 빌드
+        if m14_shape:
+            model = build_func(input_shape, m14_shape)
+        else:
+            model = build_func(input_shape)
+        
+        # 컴파일 (모델별 맞춤 설정)
+        if name == 'spike':
+            # ✅ Spike Detector 수정된 컴파일
+            model.compile(
+                optimizer=tf.keras.optimizers.Adam(Config.LEARNING_RATE),
+                loss={'spike_value': WeightedLoss(), 'spike_prob': 'binary_crossentropy'},
+                loss_weights={'spike_value': 1.0, 'spike_prob': 0.3},
+                metrics={'spike_value': ['mae'], 'spike_prob': ['accuracy']}  # ✅ 수정!
+            )
+            train_data = X_train
+            train_labels = [y_train, y_spike_class]  # 2개 출력
+            val_data = (X_val, [y_val, y_val_spike_class])
+        elif name == 'rule':
+            # Rule-Based는 M14 특징도 입력
+            model.compile(
+                optimizer=tf.keras.optimizers.Adam(Config.LEARNING_RATE * 0.5),
+                loss=WeightedLoss(),
+                metrics=['mae']
+            )
+            train_data = [X_train, m14_train]  # 2개 입력
+            train_labels = y_train
+            val_data = ([X_val, m14_val], y_val)
+        else:
+            # 일반 모델
+            model.compile(
+                optimizer=tf.keras.optimizers.Adam(Config.LEARNING_RATE),
+                loss=WeightedLoss(),
+                metrics=['mae']
+            )
+            train_data = X_train
+            train_labels = y_train
+            val_data = (X_val, y_val)
+
 V6_GPU_통합_최종_전체.py
 시퀀스 생성 + 5개 모델 + 앙상블 = 총 6개 모델
 스케일링 완전 처리 + 체크포인트 지원
