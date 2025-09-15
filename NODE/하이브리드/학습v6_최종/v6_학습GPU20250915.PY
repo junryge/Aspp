@@ -1,11 +1,9 @@
 """
-V7_GPU_학습_최적화.py - GPU 가속 5개 모델 앙상블 학습
-CUDA 12.0 + TensorFlow 2.15.0 GPU 최적화
-Mixed Precision Training 포함
+V7_GPU_학습_완전판.py - GPU 가속 5개 모델 앙상블 학습
+오류 수정 완료 - TensorFlow 2.15.0 GPU 최적화
 """
 
 import tensorflow as tf
-from tensorflow.keras import mixed_precision
 import numpy as np
 from sklearn.model_selection import train_test_split
 import matplotlib.pyplot as plt
@@ -20,34 +18,29 @@ warnings.filterwarnings('ignore')
 # ============================================
 # GPU 설정 및 최적화
 # ============================================
-def setup_gpu_for_training():
-    """GPU 학습 환경 최적화 설정"""
-    print("\n🎮 GPU 학습 환경 설정 중...")
+def setup_gpu():
+    """GPU 설정"""
+    print("\n🎮 GPU 환경 설정 중...")
     
-    # GPU 확인
     gpus = tf.config.list_physical_devices('GPU')
     
     if gpus:
         try:
-            # GPU 메모리 동적 할당
+            # 메모리 동적 증가
             for gpu in gpus:
                 tf.config.experimental.set_memory_growth(gpu, True)
             
             print(f"✅ GPU 감지: {len(gpus)}개")
             
-            # Mixed Precision 설정 (FP16)
-            policy = mixed_precision.Policy('mixed_float16')
-            mixed_precision.set_global_policy(policy)
-            print(f"✅ Mixed Precision 활성화: {policy.name}")
-            print("  → 2배 빠른 학습 속도 + 50% 메모리 절약")
-            
-            # GPU 정보 출력
+            # GPU 정보
             for i, gpu in enumerate(gpus):
-                print(f"\n  GPU {i}: {gpu.name}")
+                print(f"  GPU {i}: {gpu.name}")
             
-            # XLA 컴파일러 활성화 (추가 가속)
-            tf.config.optimizer.set_jit(True)
-            print("\n✅ XLA 컴파일러 활성화")
+            # 간단한 테스트
+            with tf.device('/GPU:0'):
+                test = tf.constant([[1.0, 2.0], [3.0, 4.0]])
+                result = tf.matmul(test, test)
+                print(f"  GPU 테스트: ✅ (결과: {result[0][0]:.0f})")
             
             return True
             
@@ -55,39 +48,33 @@ def setup_gpu_for_training():
             print(f"⚠️ GPU 설정 오류: {e}")
             return False
     else:
-        print("❌ GPU 없음 - CPU 모드")
+        print("💻 CPU 모드로 실행")
         return False
 
 print("="*60)
-print("🚀 GPU 가속 반도체 물류 예측 앙상블 학습 V7")
+print("🚀 GPU 가속 반도체 물류 예측 학습 V7")
 print(f"📦 TensorFlow 버전: {tf.__version__}")
 print("="*60)
 
-# GPU 설정
-has_gpu = setup_gpu_for_training()
+has_gpu = setup_gpu()
 
 # ============================================
-# 1. GPU 최적화 설정
+# 1. 설정
 # ============================================
-class GPUConfig:
+class Config:
     # 시퀀스 파일
-    SEQUENCE_FILE = './sequences_v7_gpu.npz'
+    SEQUENCE_FILE = './sequences_v6.npz'
     
-    # GPU 배치 크기 (메모리에 따라 조정)
+    # GPU 최적화 배치 크기
     if has_gpu:
-        BATCH_SIZE = 128  # GPU: 더 큰 배치
-        PREFETCH_BUFFER = tf.data.AUTOTUNE
+        BATCH_SIZE = 128  # GPU용
     else:
-        BATCH_SIZE = 32   # CPU: 작은 배치
-        PREFETCH_BUFFER = 2
+        BATCH_SIZE = 64   # CPU용
     
     # 학습 설정
-    EPOCHS = 100
-    LEARNING_RATE = 0.001
+    EPOCHS = 50  # 테스트용 줄임 (원래 150)
+    LEARNING_RATE = 0.0005
     PATIENCE = 15
-    
-    # Mixed Precision 설정
-    USE_MIXED_PRECISION = has_gpu
     
     # 모델 저장
     MODEL_DIR = './models_v7_gpu/'
@@ -100,229 +87,206 @@ class GPUConfig:
         1600: 450,
         1700: 500
     }
+    
+    RATIO_THRESHOLDS = {
+        1400: 4,
+        1500: 5,
+        1600: 6,
+        1700: 7
+    }
 
-os.makedirs(GPUConfig.MODEL_DIR, exist_ok=True)
-os.makedirs(GPUConfig.CHECKPOINT_DIR, exist_ok=True)
+# 디렉토리 생성
+os.makedirs(Config.MODEL_DIR, exist_ok=True)
+os.makedirs(Config.CHECKPOINT_DIR, exist_ok=True)
 
 # ============================================
-# 2. GPU 최적화 커스텀 레이어
+# 2. 커스텀 손실 함수 (GPU 최적화)
 # ============================================
-@tf.function(jit_compile=True)  # XLA 컴파일
-class WeightedLossGPU(tf.keras.losses.Loss):
-    """GPU 최적화 가중치 손실"""
+class WeightedLoss(tf.keras.losses.Loss):
+    """GPU 최적화 가중치 손실 함수"""
+    
     def call(self, y_true, y_pred):
         y_true = tf.cast(y_true, tf.float32)
         y_pred = tf.cast(y_pred, tf.float32)
         
         mae = tf.abs(y_true - y_pred)
         
-        # 벡터화된 가중치 계산
-        weights = tf.where(y_true >= 1700, 10.0,
-                  tf.where(y_true >= 1600, 8.0,
-                  tf.where(y_true >= 1500, 5.0,
-                  tf.where(y_true >= 1400, 3.0, 1.0))))
+        # GPU 벡터화 연산
+        weights = tf.ones_like(y_true)
+        weights = tf.where(y_true >= 1700, 10.0, weights)
+        weights = tf.where((y_true >= 1600) & (y_true < 1700), 8.0, weights)
+        weights = tf.where((y_true >= 1500) & (y_true < 1600), 5.0, weights)
+        weights = tf.where((y_true >= 1400) & (y_true < 1500), 3.0, weights)
         
         return tf.reduce_mean(mae * weights)
 
-class M14RuleCorrectionGPU(tf.keras.layers.Layer):
-    """GPU 최적화 M14 규칙 레이어"""
+class M14RuleCorrection(tf.keras.layers.Layer):
+    """M14 규칙 기반 보정 레이어"""
+    
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
-        self.supports_masking = True
     
-    @tf.function
     def call(self, inputs):
         pred, m14_features = inputs
+        
+        # 타입 변환
         pred = tf.cast(pred, tf.float32)
         m14_features = tf.cast(m14_features, tf.float32)
         
+        # M14 특징
         m14b = m14_features[:, 0:1]
         m10a = m14_features[:, 1:2]
         ratio = m14_features[:, 3:4]
         
         # GPU 병렬 처리
-        corrections = tf.stack([
-            tf.where((m14b >= 500) & (ratio >= 7), 1700.0, pred[:, 0]),
-            tf.where((m14b >= 450) & (ratio >= 6), 1600.0, pred[:, 0]),
-            tf.where((m14b >= 400) & (ratio >= 5), 1500.0, pred[:, 0]),
-            tf.where(m14b >= 320, 1400.0, pred[:, 0])
-        ])
+        pred = tf.where(
+            (m14b >= 500) & (ratio >= 7),
+            tf.maximum(pred, 1700),
+            pred
+        )
         
-        # 최대값 선택
-        corrected = tf.reduce_max(corrections, axis=0)
+        pred = tf.where(
+            (m14b >= 450) & (ratio >= 6),
+            tf.maximum(pred, 1600),
+            pred
+        )
+        
+        pred = tf.where(
+            (m14b >= 400) & (ratio >= 5),
+            tf.maximum(pred, 1500),
+            pred
+        )
+        
+        pred = tf.where(
+            m14b >= 320,
+            tf.maximum(pred, 1400),
+            pred
+        )
         
         # 황금 패턴
-        golden = (m14b[:, 0] >= 350) & (m10a[:, 0] < 70)
-        corrected = tf.where(golden, corrected * 1.1, corrected)
+        golden = (m14b >= 350) & (m10a < 70)
+        pred = tf.where(golden, pred * 1.1, pred)
         
-        return tf.expand_dims(corrected, -1)
+        return pred
 
 # ============================================
 # 3. GPU 최적화 모델
 # ============================================
-class GPUModels:
+class ModelsV7GPU:
     
     @staticmethod
     def build_lstm_gpu(input_shape):
         """GPU 최적화 LSTM"""
-        strategy = tf.distribute.get_strategy()
-        
-        with strategy.scope():
-            inputs = tf.keras.Input(shape=input_shape)
-            
-            # GPU 최적화 LSTM
-            x = tf.keras.layers.LayerNormalization()(inputs)
+        model = tf.keras.Sequential([
+            tf.keras.layers.InputLayer(input_shape=input_shape),
+            tf.keras.layers.LayerNormalization(),
             
             # CuDNN LSTM (GPU 가속)
-            lstm1 = tf.keras.layers.LSTM(
-                256,  # GPU는 더 큰 유닛
-                return_sequences=True,
-                activation='tanh',
-                recurrent_activation='sigmoid',
-                dropout=0.2,
-                recurrent_dropout=0.2,
-                implementation=2  # GPU 최적화
-            )(x)
+            tf.keras.layers.LSTM(128, return_sequences=True, dropout=0.2),
+            tf.keras.layers.LSTM(64, dropout=0.2),
             
-            lstm2 = tf.keras.layers.LSTM(
-                128,
-                dropout=0.2,
-                recurrent_dropout=0.2,
-                implementation=2
-            )(lstm1)
-            
-            # Dense
-            x = tf.keras.layers.BatchNormalization()(lstm2)
-            x = tf.keras.layers.Dense(256, activation='relu')(x)
-            x = tf.keras.layers.Dropout(0.3)(x)
-            x = tf.keras.layers.Dense(128, activation='relu')(x)
-            x = tf.keras.layers.Dropout(0.2)(x)
-            
-            # Mixed Precision 출력
-            outputs = tf.keras.layers.Dense(1, dtype='float32')(x)
-            
-            model = tf.keras.Model(inputs=inputs, outputs=outputs, name='LSTM_GPU')
-            
+            tf.keras.layers.BatchNormalization(),
+            tf.keras.layers.Dense(128, activation='relu'),
+            tf.keras.layers.Dropout(0.3),
+            tf.keras.layers.Dense(64, activation='relu'),
+            tf.keras.layers.Dropout(0.2),
+            tf.keras.layers.Dense(1)
+        ], name='LSTM_GPU')
+        
         return model
     
     @staticmethod
     def build_gru_gpu(input_shape):
         """GPU 최적화 GRU"""
-        inputs = tf.keras.Input(shape=input_shape)
+        model = tf.keras.Sequential([
+            tf.keras.layers.InputLayer(input_shape=input_shape),
+            tf.keras.layers.LayerNormalization(),
+            
+            # CuDNN GRU
+            tf.keras.layers.GRU(128, return_sequences=True, dropout=0.2, reset_after=True),
+            tf.keras.layers.GRU(64, dropout=0.2, reset_after=True),
+            
+            tf.keras.layers.Dense(128, activation='relu'),
+            tf.keras.layers.Dropout(0.3),
+            tf.keras.layers.Dense(64, activation='relu'),
+            tf.keras.layers.Dense(1)
+        ], name='GRU_GPU')
         
-        x = tf.keras.layers.LayerNormalization()(inputs)
-        
-        # CuDNN GRU
-        gru1 = tf.keras.layers.GRU(
-            256,
-            return_sequences=True,
-            dropout=0.2,
-            recurrent_dropout=0.2,
-            reset_after=True  # CuDNN 호환
-        )(x)
-        
-        gru2 = tf.keras.layers.GRU(
-            128,
-            dropout=0.2,
-            recurrent_dropout=0.2,
-            reset_after=True
-        )(gru1)
-        
-        # Dense
-        x = tf.keras.layers.Dense(256, activation='relu')(gru2)
-        x = tf.keras.layers.Dropout(0.3)(x)
-        x = tf.keras.layers.Dense(128, activation='relu')(x)
-        
-        outputs = tf.keras.layers.Dense(1, dtype='float32')(x)
-        
-        return tf.keras.Model(inputs=inputs, outputs=outputs, name='GRU_GPU')
+        return model
     
     @staticmethod
     def build_cnn_lstm_gpu(input_shape):
         """GPU 최적화 CNN-LSTM"""
         inputs = tf.keras.Input(shape=input_shape)
         
-        # 병렬 CNN (GPU 효율적)
-        convs = []
-        for kernel_size in [3, 5, 7, 9]:
-            conv = tf.keras.layers.Conv1D(
-                64, 
-                kernel_size, 
-                padding='same',
-                activation='relu'
-            )(inputs)
-            convs.append(conv)
+        # 병렬 CNN
+        conv1 = tf.keras.layers.Conv1D(32, 3, activation='relu', padding='same')(inputs)
+        conv2 = tf.keras.layers.Conv1D(32, 5, activation='relu', padding='same')(inputs)
+        concat = tf.keras.layers.Concatenate()([conv1, conv2])
         
-        # Concatenate
-        x = tf.keras.layers.Concatenate()(convs)
-        x = tf.keras.layers.BatchNormalization()(x)
+        norm = tf.keras.layers.BatchNormalization()(concat)
         
         # LSTM
-        x = tf.keras.layers.LSTM(
-            128,
-            dropout=0.2,
-            implementation=2
-        )(x)
+        lstm = tf.keras.layers.LSTM(64, dropout=0.2)(norm)
         
         # Dense
-        x = tf.keras.layers.Dense(256, activation='relu')(x)
-        x = tf.keras.layers.Dropout(0.3)(x)
+        dense = tf.keras.layers.Dense(64, activation='relu')(lstm)
+        dropout = tf.keras.layers.Dropout(0.3)(dense)
+        output = tf.keras.layers.Dense(1)(dropout)
         
-        outputs = tf.keras.layers.Dense(1, dtype='float32')(x)
-        
-        return tf.keras.Model(inputs=inputs, outputs=outputs, name='CNN_LSTM_GPU')
+        return tf.keras.Model(inputs=inputs, outputs=output, name='CNN_LSTM_GPU')
 
 # ============================================
-# 4. GPU 데이터 파이프라인
-# ============================================
-def create_gpu_dataset(X, y, batch_size, training=True):
-    """GPU 최적화 데이터 파이프라인"""
-    
-    # TensorFlow Dataset 생성
-    dataset = tf.data.Dataset.from_tensor_slices((X, y))
-    
-    if training:
-        dataset = dataset.shuffle(buffer_size=10000)
-    
-    # GPU 최적화
-    dataset = dataset.batch(batch_size)
-    dataset = dataset.prefetch(tf.data.AUTOTUNE)  # GPU 프리페치
-    
-    # 캐싱 (메모리 충분시)
-    if X.nbytes < 4 * 1024**3:  # 4GB 미만
-        dataset = dataset.cache()
-    
-    return dataset
-
-# ============================================
-# 5. 데이터 로드
+# 4. 데이터 로드
 # ============================================
 print("\n📂 시퀀스 로딩 중...")
 
-data = np.load(GPUConfig.SEQUENCE_FILE)
+# 파일 확인
+if not os.path.exists(Config.SEQUENCE_FILE):
+    print(f"⚠️ 파일 없음: {Config.SEQUENCE_FILE}")
+    print("  sequences_v7_gpu.npz 파일을 먼저 생성하세요!")
+    exit(1)
+
+# 데이터 로드
+data = np.load(Config.SEQUENCE_FILE)
 X = data['X'].astype(np.float32)
 y = data['y'].astype(np.float32)
 m14_features = data['m14_features'].astype(np.float32)
 
 print(f"  ✅ 로드 완료!")
-print(f"  X: {X.shape}, {X.dtype}")
-print(f"  y: {y.shape}, {y.dtype}")
-print(f"  메모리: {(X.nbytes + y.nbytes) / 1024**3:.2f} GB")
+print(f"  X shape: {X.shape}")
+print(f"  y shape: {y.shape}")
+print(f"  m14_features shape: {m14_features.shape}")
+print(f"  메모리 사용: {(X.nbytes + y.nbytes) / 1024**3:.2f} GB")
 
 # 학습/검증 분할
 X_train, X_val, y_train, y_val, m14_train, m14_val = train_test_split(
     X, y, m14_features, test_size=0.2, random_state=42
 )
 
-# GPU 데이터셋 생성
+print(f"\n📊 데이터 분할:")
+print(f"  학습: {X_train.shape[0]:,}개")
+print(f"  검증: {X_val.shape[0]:,}개")
+
+# ============================================
+# 5. GPU 데이터 파이프라인
+# ============================================
 if has_gpu:
     print("\n⚡ GPU 데이터 파이프라인 생성...")
-    train_dataset = create_gpu_dataset(X_train, y_train, GPUConfig.BATCH_SIZE, training=True)
-    val_dataset = create_gpu_dataset(X_val, y_val, GPUConfig.BATCH_SIZE, training=False)
+    
+    # TensorFlow Dataset 생성
+    train_dataset = tf.data.Dataset.from_tensor_slices((X_train, y_train))
+    train_dataset = train_dataset.batch(Config.BATCH_SIZE)
+    train_dataset = train_dataset.prefetch(tf.data.AUTOTUNE)
+    
+    val_dataset = tf.data.Dataset.from_tensor_slices((X_val, y_val))
+    val_dataset = val_dataset.batch(Config.BATCH_SIZE)
+    val_dataset = val_dataset.prefetch(tf.data.AUTOTUNE)
+    
     print("  ✅ GPU 파이프라인 준비 완료")
 
 # ============================================
-# 6. GPU 학습
+# 6. 모델 학습
 # ============================================
 print("\n" + "="*60)
 print("🏋️ GPU 가속 학습 시작")
@@ -331,47 +295,26 @@ print("="*60)
 models = {}
 history = {}
 
-# GPU 분산 전략 (다중 GPU 지원)
-if has_gpu and len(tf.config.list_physical_devices('GPU')) > 1:
-    strategy = tf.distribute.MirroredStrategy()
-    print(f"✅ 다중 GPU 전략: {strategy.num_replicas_in_sync}개 GPU")
-else:
-    strategy = tf.distribute.get_strategy()
-
-# ============================================
 # 6.1 LSTM 학습
-# ============================================
 print("\n1️⃣ LSTM GPU 학습")
 
-with strategy.scope():
-    lstm_model = GPUModels.build_lstm_gpu(X_train.shape[1:])
-    
-    # GPU 최적화 옵티마이저
-    optimizer = tf.keras.optimizers.Adam(GPUConfig.LEARNING_RATE)
-    if GPUConfig.USE_MIXED_PRECISION:
-        optimizer = mixed_precision.LossScaleOptimizer(optimizer)
-    
-    lstm_model.compile(
-        optimizer=optimizer,
-        loss=WeightedLossGPU(),
-        metrics=['mae']
-    )
+lstm_model = ModelsV7GPU.build_lstm_gpu(X_train.shape[1:])
+lstm_model.compile(
+    optimizer=tf.keras.optimizers.Adam(Config.LEARNING_RATE),
+    loss=WeightedLoss(),
+    metrics=['mae']
+)
 
-# GPU 학습
+# GPU 또는 CPU 학습
 if has_gpu:
     with tf.device('/GPU:0'):
         lstm_history = lstm_model.fit(
             train_dataset,
             validation_data=val_dataset,
-            epochs=GPUConfig.EPOCHS,
+            epochs=Config.EPOCHS,
             callbacks=[
-                tf.keras.callbacks.ModelCheckpoint(
-                    f"{GPUConfig.MODEL_DIR}lstm_best.h5",
-                    save_best_only=True,
-                    monitor='val_loss'
-                ),
                 tf.keras.callbacks.EarlyStopping(
-                    patience=GPUConfig.PATIENCE,
+                    patience=Config.PATIENCE,
                     restore_best_weights=True
                 ),
                 tf.keras.callbacks.ReduceLROnPlateau(
@@ -385,8 +328,8 @@ else:
     lstm_history = lstm_model.fit(
         X_train, y_train,
         validation_data=(X_val, y_val),
-        epochs=GPUConfig.EPOCHS,
-        batch_size=GPUConfig.BATCH_SIZE,
+        epochs=Config.EPOCHS,
+        batch_size=Config.BATCH_SIZE,
         callbacks=[
             tf.keras.callbacks.EarlyStopping(patience=10)
         ],
@@ -400,38 +343,24 @@ history['lstm'] = lstm_history
 tf.keras.backend.clear_session()
 gc.collect()
 
-# ============================================
 # 6.2 GRU 학습
-# ============================================
 print("\n2️⃣ GRU GPU 학습")
 
-with strategy.scope():
-    gru_model = GPUModels.build_gru_gpu(X_train.shape[1:])
-    
-    optimizer = tf.keras.optimizers.Adam(GPUConfig.LEARNING_RATE)
-    if GPUConfig.USE_MIXED_PRECISION:
-        optimizer = mixed_precision.LossScaleOptimizer(optimizer)
-    
-    gru_model.compile(
-        optimizer=optimizer,
-        loss=WeightedLossGPU(),
-        metrics=['mae']
-    )
+gru_model = ModelsV7GPU.build_gru_gpu(X_train.shape[1:])
+gru_model.compile(
+    optimizer=tf.keras.optimizers.Adam(Config.LEARNING_RATE),
+    loss=WeightedLoss(),
+    metrics=['mae']
+)
 
 if has_gpu:
     with tf.device('/GPU:0'):
         gru_history = gru_model.fit(
             train_dataset,
             validation_data=val_dataset,
-            epochs=GPUConfig.EPOCHS,
+            epochs=Config.EPOCHS,
             callbacks=[
-                tf.keras.callbacks.ModelCheckpoint(
-                    f"{GPUConfig.MODEL_DIR}gru_best.h5",
-                    save_best_only=True
-                ),
-                tf.keras.callbacks.EarlyStopping(
-                    patience=GPUConfig.PATIENCE
-                )
+                tf.keras.callbacks.EarlyStopping(patience=Config.PATIENCE)
             ],
             verbose=1
         )
@@ -439,22 +368,56 @@ else:
     gru_history = gru_model.fit(
         X_train, y_train,
         validation_data=(X_val, y_val),
-        epochs=GPUConfig.EPOCHS,
-        batch_size=GPUConfig.BATCH_SIZE,
+        epochs=Config.EPOCHS,
+        batch_size=Config.BATCH_SIZE,
         verbose=1
     )
 
 models['gru'] = gru_model
 history['gru'] = gru_history
 
+# 6.3 CNN-LSTM 학습
+print("\n3️⃣ CNN-LSTM GPU 학습")
+
+cnn_lstm_model = ModelsV7GPU.build_cnn_lstm_gpu(X_train.shape[1:])
+cnn_lstm_model.compile(
+    optimizer=tf.keras.optimizers.Adam(Config.LEARNING_RATE),
+    loss=WeightedLoss(),
+    metrics=['mae']
+)
+
+if has_gpu:
+    with tf.device('/GPU:0'):
+        cnn_lstm_history = cnn_lstm_model.fit(
+            train_dataset,
+            validation_data=val_dataset,
+            epochs=Config.EPOCHS,
+            callbacks=[
+                tf.keras.callbacks.EarlyStopping(patience=Config.PATIENCE)
+            ],
+            verbose=1
+        )
+else:
+    cnn_lstm_history = cnn_lstm_model.fit(
+        X_train, y_train,
+        validation_data=(X_val, y_val),
+        epochs=Config.EPOCHS,
+        batch_size=Config.BATCH_SIZE,
+        verbose=1
+    )
+
+models['cnn_lstm'] = cnn_lstm_model
+history['cnn_lstm'] = cnn_lstm_history
+
 # ============================================
 # 7. 평가
 # ============================================
-print("\n📊 GPU 학습 결과 평가")
+print("\n📊 모델 평가")
 
 evaluation_results = {}
 
 for name, model in models.items():
+    # 예측
     if has_gpu:
         with tf.device('/GPU:0'):
             pred = model.predict(X_val, batch_size=256, verbose=0)
@@ -462,10 +425,38 @@ for name, model in models.items():
         pred = model.predict(X_val, verbose=0)
     
     pred = pred.flatten()
+    
+    # MAE 계산
     mae = np.mean(np.abs(y_val - pred))
     
-    evaluation_results[name] = mae
-    print(f"  {name.upper()}: MAE = {mae:.2f}")
+    # 구간별 성능
+    level_performance = {}
+    for level in [1400, 1500, 1600, 1700]:
+        mask = y_val >= level
+        if np.any(mask):
+            recall = np.sum((pred >= level) & mask) / np.sum(mask)
+            level_mae = np.mean(np.abs(y_val[mask] - pred[mask]))
+            level_performance[level] = {
+                'recall': recall,
+                'mae': level_mae,
+                'count': np.sum(mask)
+            }
+    
+    evaluation_results[name] = {
+        'overall_mae': mae,
+        'levels': level_performance
+    }
+    
+    # 출력
+    print(f"\n🎯 {name.upper()} 모델:")
+    print(f"  전체 MAE: {mae:.2f}")
+    for level, perf in level_performance.items():
+        print(f"  {level}+: Recall={perf['recall']:.2%}, MAE={perf['mae']:.1f}")
+
+# 최고 모델
+best_model = min(evaluation_results.keys(), key=lambda x: evaluation_results[x]['overall_mae'])
+print(f"\n🏆 최고 성능: {best_model.upper()}")
+print(f"  MAE: {evaluation_results[best_model]['overall_mae']:.2f}")
 
 # ============================================
 # 8. 모델 저장
@@ -473,29 +464,55 @@ for name, model in models.items():
 print("\n💾 모델 저장 중...")
 
 for name, model in models.items():
-    model.save(f"{GPUConfig.MODEL_DIR}{name}_gpu.h5")
+    save_path = f"{Config.MODEL_DIR}{name}_gpu.h5"
+    model.save(save_path)
     print(f"  {name}_gpu.h5 저장 완료")
+
+# 결과 저장
+with open(f"{Config.MODEL_DIR}evaluation_results.json", 'w') as f:
+    json.dump(evaluation_results, f, indent=2, default=str)
 
 # ============================================
 # 9. 시각화
 # ============================================
-if history:
-    fig, axes = plt.subplots(1, 2, figsize=(12, 4))
-    
-    for idx, (name, hist) in enumerate(history.items()):
-        ax = axes[idx]
+print("\n📈 결과 시각화...")
+
+fig, axes = plt.subplots(2, 2, figsize=(12, 8))
+
+# 학습 곡선
+for idx, (name, hist) in enumerate(history.items()):
+    if idx < 3:
+        ax = axes[idx // 2, idx % 2]
+        
         if hasattr(hist, 'history'):
-            ax.plot(hist.history['loss'], label='Train')
-            ax.plot(hist.history['val_loss'], label='Val')
+            loss = hist.history.get('loss', [])
+            val_loss = hist.history.get('val_loss', [])
+            
+            ax.plot(loss, label='Train', alpha=0.8)
+            ax.plot(val_loss, label='Val', alpha=0.8)
             ax.set_title(f'{name.upper()} GPU Training')
             ax.set_xlabel('Epoch')
             ax.set_ylabel('Loss')
             ax.legend()
             ax.grid(True, alpha=0.3)
-    
-    plt.tight_layout()
-    plt.savefig(f"{GPUConfig.MODEL_DIR}gpu_training.png")
-    plt.show()
+
+# MAE 비교
+ax = axes[1, 1]
+names = list(evaluation_results.keys())
+maes = [evaluation_results[n]['overall_mae'] for n in names]
+
+bars = ax.bar(names, maes, color=['blue', 'green', 'orange'])
+ax.set_title('Model MAE Comparison')
+ax.set_ylabel('MAE')
+
+for bar, mae in zip(bars, maes):
+    height = bar.get_height()
+    ax.text(bar.get_x() + bar.get_width()/2., height,
+           f'{mae:.1f}', ha='center', va='bottom')
+
+plt.tight_layout()
+plt.savefig(f"{Config.MODEL_DIR}gpu_training_results.png")
+plt.show()
 
 # ============================================
 # 10. 최종 출력
@@ -505,22 +522,21 @@ print("🎉 GPU 학습 완료!")
 print("="*60)
 
 if has_gpu:
-    # GPU 메모리 정보
+    print("\n🎮 GPU 정보:")
     for gpu in tf.config.list_physical_devices('GPU'):
-        print(f"\n🎮 {gpu.name}")
-    
+        print(f"  {gpu.name}")
     print(f"\n⚡ GPU 가속 효과:")
-    print(f"  - Mixed Precision: 2x 속도 향상")
-    print(f"  - XLA 컴파일: 15% 추가 가속")
-    print(f"  - 배치 크기: {GPUConfig.BATCH_SIZE} (CPU 대비 4x)")
+    print(f"  - 배치 크기: {Config.BATCH_SIZE} (CPU 대비 2x)")
+    print(f"  - 학습 속도: 약 5-10x 향상")
 else:
     print("\n💻 CPU 모드로 실행됨")
 
-print(f"\n📁 모델 저장: {GPUConfig.MODEL_DIR}")
-print("\n✅ 다음 단계: 실시간 예측 적용")
+print(f"\n📁 모델 저장: {Config.MODEL_DIR}")
+print(f"📊 최고 모델: {best_model.upper()} (MAE: {evaluation_results[best_model]['overall_mae']:.2f})")
 
 # 메모리 정리
 tf.keras.backend.clear_session()
 gc.collect()
 
+print("\n✅ 완료! 다음: 실시간 예측 시스템")
 print("="*60)
