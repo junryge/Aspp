@@ -333,7 +333,7 @@ class ModelsV6:
         """5. Rule-Based 모델"""
         # 💡 Rule-Based: 검증된 비즈니스 규칙 적용 전문가
         time_input = tf.keras.Input(shape=input_shape, name='time_input')
-        m14_input = tf.keras.Input(shape=m14_shape, name='m14_input')
+        m14_input = tf.keras.Input(shape=(m14_shape,), name='m14_input')
         
         # 간단한 시계열 처리
         lstm = tf.keras.layers.LSTM(32, dropout=0.2)(time_input)
@@ -617,7 +617,7 @@ model_configs = [
     ('gru', ModelsV6.build_enhanced_gru, X_train.shape[1:], None),
     ('cnn_lstm', ModelsV6.build_cnn_lstm, X_train.shape[1:], None),
     ('spike', ModelsV6.build_spike_detector, X_train.shape[1:], None),
-    ('rule', ModelsV6.build_rule_based_model, X_train.shape[1:], m14_train.shape[1])
+    ('rule', ModelsV6.build_rule_based_model, X_train.shape[1:], m14_train.shape[1:])  # ✅ 수정: shape[1:] 튜플로 변경
 ]
 
 for idx, (name, build_func, input_shape, m14_shape) in enumerate(model_configs):
@@ -625,7 +625,7 @@ for idx, (name, build_func, input_shape, m14_shape) in enumerate(model_configs):
         print(f"\n{['1️⃣','2️⃣','3️⃣','4️⃣','5️⃣'][idx]} {name.upper()} 모델 학습")
         
         # 모델 빌드
-        if m14_shape:
+        if m14_shape is not None:  # None 체크로 변경
             model = build_func(input_shape, m14_shape)
         else:
             model = build_func(input_shape)
@@ -719,7 +719,7 @@ if 'ensemble' not in completed_models:
     
     # 앙상블 구성
     time_input = tf.keras.Input(shape=X_train.shape[1:], name='ensemble_time')
-    m14_input = tf.keras.Input(shape=m14_train.shape[1], name='ensemble_m14')
+    m14_input = tf.keras.Input(shape=m14_train.shape[1:], name='ensemble_m14')  # ✅ 일관성 있게 shape[1:] 사용
     
     # 각 모델의 예측값 가져오기
     lstm_pred = models['lstm'](time_input)
