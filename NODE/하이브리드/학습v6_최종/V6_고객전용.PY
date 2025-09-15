@@ -1,4 +1,22 @@
 """
+# Spike Detector는 값 예측 + 급증 확률 2개 출력
+model.compile(
+    optimizer=tf.keras.optimizers.Adam(Config.LEARNING_RATE),
+    loss={'spike_value': WeightedLoss(), 'spike_prob': 'binary_crossentropy'},
+    loss_weights={'spike_value': 1.0, 'spike_prob': 0.3},
+    metrics=['mae']  # ❌ 오류: 출력 2개인데 metrics 1개
+)
+
+#오류수정
+# Spike Detector는 값 예측 + 급증 확률 2개 출력
+model.compile(
+    optimizer=tf.keras.optimizers.Adam(Config.LEARNING_RATE),
+    loss={'spike_value': WeightedLoss(), 'spike_prob': 'binary_crossentropy'},
+    loss_weights={'spike_value': 1.0, 'spike_prob': 0.3},
+    metrics={'spike_value': ['mae'], 'spike_prob': ['accuracy']}  # ✅ 각 출력별 metrics 지정
+)
+
+
 V6_GPU_통합_최종_전체.py
 시퀀스 생성 + 5개 모델 + 앙상블 = 총 6개 모델
 스케일링 완전 처리 + 체크포인트 지원
