@@ -1,0 +1,587 @@
+"""
+V6 전체 데이터 학습 버전
+- 기존 NPZ 파일 활용
+- 전체 데이터를 학습에 사용 (검증 분할 없음)
+- 100분 데이터 유지
+- 5개 모델 + 앙상블
+"""
+
+import numpy as np
+import pandas as pd
+import tensorflow as tf
+from sklearn.preprocessing import RobustScaler
+import json
+import os
+import pickle
+import warnings
+import gc
+warnings.filterwarnings('ignore')
+
+print("="*60)
+print("🚀 V6 전체 데이터 학습 버전")
+print(f"📦 TensorFlow: {tf.__version__}")
+print("="*60)
+
+# ============================================
+# GPU 설정
+# ============================================
+def setup_gpu():
+    """GPU 설정 및 확인"""
+    print("\n🎮 GPU 환경 확인...")
+    gpus = tf.config.list_physical_devices('GPU')
+    
+    if gpus:
+        try:
+            for gpu in gpus:
+                tf.config.experimental.set_memory_growth(gpu, True)
+            print(f"✅ GPU 감지: {len(gpus)}개")
+            return True
+        except Exception as e:
+            print(f"⚠️ GPU 설정 오류: {e}")
+            return False
+    else:
+        print("💻 CPU 모드로 실행")
+        return False
+
+has_gpu = setup_gpu()
+
+# ============================================
+# 설정
+# ============================================
+class Config:
+    # 시퀀스 파일 (기존 파일 활용)
+    SEQUENCE_FILE = './sequences_v6_gpu.npz'
+    SCALER_FILE = './scalers_v6_gpu.pkl'
+    
+    # 백업 경로 (파일이 없을 경우)
+    DATA_FILE = '/mnt/user-data/uploads/20250807_DATA.CSV'
+    
+    # 시퀀스 설정
+    LOOKBACK = 100  # ⭐ 과거 100분 데이터
+    FORECAST = 10   # ⭐ 10분 후 예측
+    
+    # 학습 설정 (전체 데이터용)
+    BATCH_SIZE = 64
+    EPOCHS = 200  # 전체 데이터 학습이므로 에폭 증가
+    LEARNING_RATE = 0.001
+    
+    # 저장 경로
+    MODEL_DIR = './models_v6_full_train/'
+    
+    # 스케일 사용 여부
+    USE_SCALED_Y = False  # 원본 값 사용
+
+# 디렉토리 생성
+os.makedirs(Config.MODEL_DIR, exist_ok=True)
+
+# ============================================
+# 손실 함수
+# ============================================
+class WeightedLoss(tf.keras.losses.Loss):
+    """가중치 손실 함수"""
+    def call(self, y_true, y_pred):
+        y_true = tf.cast(y_true, tf.float32)
+        y_pred = tf.cast(y_pred, tf.float32)
+        
+        mae = tf.abs(y_true - y_pred)
+        
+        # 강화된 가중치
+        weights = tf.ones_like(y_true)
+        if not Config.USE_SCALED_Y:
+            weights = tf.where(y_true >= 1550, 30.0, weights)
+            weights = tf.where((y_true >= 1500) & (y_true < 1550), 25.0, weights)
+            weights = tf.where((y_true >= 1450) & (y_true < 1500), 20.0, weights)
+            weights = tf.where((y_true >= 1400) & (y_true < 1450), 15.0, weights)
+            weights = tf.where((y_true >= 1350) & (y_true < 1400), 10.0, weights)
+        
+        # 큰 오차 페널티
+        large_error = tf.where(mae > 100, mae * 0.2, 0.0)
+        
+        return tf.reduce_mean(mae * weights + large_error)
+
+# ============================================
+# M14 규칙 보정 레이어
+# ============================================
+class M14RuleCorrection(tf.keras.layers.Layer):
+    """M14 규칙 기반 보정"""
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+    
+    def call(self, inputs, training=None):
+        pred, m14_features = inputs
+        
+        pred = tf.cast(pred, tf.float32)
+        m14_features = tf.cast(m14_features, tf.float32)
+        
+        m14b = m14_features[:, 0:1]
+        m10a = m14_features[:, 1:2]
+        m16 = m14_features[:, 2:3]
+        ratio = m14_features[:, 3:4]
+        
+        if not Config.USE_SCALED_Y:
+            # 임계값 규칙
+            pred = tf.where(m14b >= 420, tf.maximum(pred, 1550.0), pred)
+            pred = tf.where(m14b >= 380, tf.maximum(pred, 1500.0), pred)
+            pred = tf.where(m14b >= 350, tf.maximum(pred, 1450.0), pred)
+            pred = tf.where(m14b >= 300, tf.maximum(pred, 1400.0), pred)
+            
+            # 비율 보정
+            pred = tf.where(ratio >= 5.5, pred * 1.15, pred)
+            pred = tf.where((ratio >= 5.0) & (ratio < 5.5), pred * 1.10, pred)
+            pred = tf.where((ratio >= 4.5) & (ratio < 5.0), pred * 1.08, pred)
+            pred = tf.where((ratio >= 4.0) & (ratio < 4.5), pred * 1.05, pred)
+            
+            # 황금 패턴
+            golden = (m14b >= 350) & (m10a < 70)
+            pred = tf.where(golden, pred * 1.2, pred)
+            
+            # 범위 제한
+            pred = tf.clip_by_value(pred, 1200.0, 2000.0)
+        
+        return pred
+
+# ============================================
+# 모델 정의
+# ============================================
+class ModelsV6:
+    
+    @staticmethod
+    def build_lstm_model(input_shape):
+        """LSTM 모델"""
+        model = tf.keras.Sequential([
+            tf.keras.layers.InputLayer(input_shape=input_shape),
+            tf.keras.layers.LayerNormalization(),
+            tf.keras.layers.LSTM(256, return_sequences=True, dropout=0.2),
+            tf.keras.layers.LSTM(128, return_sequences=True, dropout=0.2),
+            tf.keras.layers.LSTM(64, dropout=0.2),
+            tf.keras.layers.BatchNormalization(),
+            tf.keras.layers.Dense(256, activation='relu'),
+            tf.keras.layers.Dropout(0.3),
+            tf.keras.layers.Dense(128, activation='relu'),
+            tf.keras.layers.Dropout(0.2),
+            tf.keras.layers.Dense(64, activation='relu'),
+            tf.keras.layers.Dense(1)
+        ], name='LSTM_Model')
+        return model
+    
+    @staticmethod
+    def build_gru_model(input_shape):
+        """GRU 모델"""
+        model = tf.keras.Sequential([
+            tf.keras.layers.InputLayer(input_shape=input_shape),
+            tf.keras.layers.LayerNormalization(),
+            tf.keras.layers.GRU(256, return_sequences=True, dropout=0.15),
+            tf.keras.layers.GRU(128, return_sequences=True, dropout=0.15),
+            tf.keras.layers.GRU(64, dropout=0.15),
+            tf.keras.layers.BatchNormalization(),
+            tf.keras.layers.Dense(256, activation='relu'),
+            tf.keras.layers.Dropout(0.2),
+            tf.keras.layers.Dense(128, activation='relu'),
+            tf.keras.layers.Dense(1)
+        ], name='GRU_Model')
+        return model
+    
+    @staticmethod
+    def build_cnn_lstm(input_shape):
+        """CNN-LSTM 모델"""
+        inputs = tf.keras.Input(shape=input_shape)
+        
+        # 멀티스케일 CNN
+        convs = []
+        for kernel_size in [3, 5, 7, 9]:
+            conv = tf.keras.layers.Conv1D(128, kernel_size, activation='relu', padding='same')(inputs)
+            conv = tf.keras.layers.BatchNormalization()(conv)
+            convs.append(conv)
+        
+        concat = tf.keras.layers.Concatenate()(convs)
+        
+        lstm1 = tf.keras.layers.LSTM(256, return_sequences=True, dropout=0.15)(concat)
+        lstm2 = tf.keras.layers.LSTM(128, dropout=0.15)(lstm1)
+        
+        dense1 = tf.keras.layers.Dense(256, activation='relu')(lstm2)
+        dropout1 = tf.keras.layers.Dropout(0.2)(dense1)
+        dense2 = tf.keras.layers.Dense(128, activation='relu')(dropout1)
+        dropout2 = tf.keras.layers.Dropout(0.15)(dense2)
+        output = tf.keras.layers.Dense(1)(dropout2)
+        
+        return tf.keras.Model(inputs=inputs, outputs=output, name='CNN_LSTM_Model')
+    
+    @staticmethod
+    def build_spike_detector(input_shape):
+        """Spike Detector"""
+        inputs = tf.keras.Input(shape=input_shape)
+        
+        # CNN
+        convs = []
+        for kernel_size in [3, 5, 7]:
+            conv = tf.keras.layers.Conv1D(96, kernel_size, activation='relu', padding='same')(inputs)
+            convs.append(conv)
+        
+        concat = tf.keras.layers.Concatenate()(convs)
+        norm = tf.keras.layers.BatchNormalization()(concat)
+        
+        # Attention
+        attention = tf.keras.layers.MultiHeadAttention(
+            num_heads=8, key_dim=36, dropout=0.15
+        )(norm, norm)
+        
+        # Bidirectional LSTM
+        lstm = tf.keras.layers.Bidirectional(
+            tf.keras.layers.LSTM(128, return_sequences=True, dropout=0.15)
+        )(attention)
+        
+        # Pooling
+        avg_pool = tf.keras.layers.GlobalAveragePooling1D()(lstm)
+        max_pool = tf.keras.layers.GlobalMaxPooling1D()(lstm)
+        pooled = tf.keras.layers.Concatenate()([avg_pool, max_pool])
+        
+        dense1 = tf.keras.layers.Dense(256, activation='relu')(pooled)
+        dropout1 = tf.keras.layers.Dropout(0.2)(dense1)
+        dense2 = tf.keras.layers.Dense(128, activation='relu')(dropout1)
+        dropout2 = tf.keras.layers.Dropout(0.15)(dense2)
+        
+        output = tf.keras.layers.Dense(1, name='spike_value')(dropout2)
+        
+        return tf.keras.Model(inputs=inputs, outputs=output, name='Spike_Detector')
+    
+    @staticmethod
+    def build_rule_based_model(input_shape, m14_shape):
+        """Rule-Based 모델"""
+        time_input = tf.keras.Input(shape=input_shape, name='time_input')
+        m14_input = tf.keras.Input(shape=(m14_shape,), name='m14_input')
+        
+        lstm1 = tf.keras.layers.LSTM(64, return_sequences=True, dropout=0.15)(time_input)
+        lstm2 = tf.keras.layers.LSTM(32, dropout=0.15)(lstm1)
+        
+        m14_dense1 = tf.keras.layers.Dense(32, activation='relu')(m14_input)
+        m14_dense2 = tf.keras.layers.Dense(16, activation='relu')(m14_dense1)
+        
+        combined = tf.keras.layers.Concatenate()([lstm2, m14_dense2])
+        
+        dense1 = tf.keras.layers.Dense(128, activation='relu')(combined)
+        dropout1 = tf.keras.layers.Dropout(0.2)(dense1)
+        dense2 = tf.keras.layers.Dense(64, activation='relu')(dropout1)
+        dropout2 = tf.keras.layers.Dropout(0.15)(dense2)
+        
+        prediction = tf.keras.layers.Dense(1, name='rule_pred')(dropout2)
+        corrected = M14RuleCorrection()([prediction, m14_input])
+        
+        return tf.keras.Model(
+            inputs=[time_input, m14_input],
+            outputs=corrected,
+            name='Rule_Based_Model'
+        )
+
+# ============================================
+# 데이터 로드
+# ============================================
+print("\n📦 데이터 로드 중...")
+
+# 기존 NPZ 파일 로드 시도
+if os.path.exists(Config.SEQUENCE_FILE):
+    print(f"✅ 기존 NPZ 파일 로드: {Config.SEQUENCE_FILE}")
+    data = np.load(Config.SEQUENCE_FILE)
+    X_train = data['X']
+    y_train = data['y_original'] if 'y_original' in data else data['y']
+    m14_train = data['m14_features']
+    
+    print(f"  X shape: {X_train.shape}")
+    print(f"  y shape: {y_train.shape}")
+    print(f"  m14 shape: {m14_train.shape}")
+    print(f"  y 범위: {y_train.min():.0f} ~ {y_train.max():.0f}")
+    
+else:
+    print("⚠️ NPZ 파일 없음 - 새로 생성 필요")
+    print("기존 V6 코드를 먼저 실행하여 NPZ 파일을 생성하세요.")
+    exit(1)
+
+# 타겟 분포 확인
+print("\n📊 타겟 분포 (전체 데이터):")
+for level in [1300, 1400, 1450, 1500, 1550]:
+    count = (y_train >= level).sum()
+    ratio = count / len(y_train) * 100
+    print(f"  {level}+: {count:,}개 ({ratio:.1f}%)")
+
+# ============================================
+# 모델 학습 (전체 데이터)
+# ============================================
+print("\n" + "="*60)
+print("🏋️ 전체 데이터 학습 시작")
+print("="*60)
+
+models = {}
+history = {}
+
+# 학습 콜백
+def get_callbacks(model_name):
+    return [
+        tf.keras.callbacks.ReduceLROnPlateau(
+            monitor='loss',
+            patience=10,
+            factor=0.5,
+            min_lr=1e-7,
+            verbose=1
+        ),
+        tf.keras.callbacks.ModelCheckpoint(
+            f'{Config.MODEL_DIR}{model_name}_best.h5',
+            save_best_only=True,
+            monitor='loss'
+        )
+    ]
+
+# 1. LSTM
+print("\n1️⃣ LSTM 모델 학습...")
+lstm_model = ModelsV6.build_lstm_model(X_train.shape[1:])
+lstm_model.compile(
+    optimizer=tf.keras.optimizers.Adam(Config.LEARNING_RATE),
+    loss=WeightedLoss(),
+    metrics=['mae']
+)
+lstm_hist = lstm_model.fit(
+    X_train, y_train,
+    epochs=Config.EPOCHS,
+    batch_size=Config.BATCH_SIZE,
+    callbacks=get_callbacks('lstm'),
+    verbose=1
+)
+models['lstm'] = lstm_model
+history['lstm'] = lstm_hist
+print(f"✅ LSTM 완료 - 최종 Loss: {lstm_hist.history['loss'][-1]:.4f}")
+
+# 2. GRU
+print("\n2️⃣ GRU 모델 학습...")
+gru_model = ModelsV6.build_gru_model(X_train.shape[1:])
+gru_model.compile(
+    optimizer=tf.keras.optimizers.Adam(Config.LEARNING_RATE),
+    loss=WeightedLoss(),
+    metrics=['mae']
+)
+gru_hist = gru_model.fit(
+    X_train, y_train,
+    epochs=Config.EPOCHS,
+    batch_size=Config.BATCH_SIZE,
+    callbacks=get_callbacks('gru'),
+    verbose=1
+)
+models['gru'] = gru_model
+history['gru'] = gru_hist
+print(f"✅ GRU 완료 - 최종 Loss: {gru_hist.history['loss'][-1]:.4f}")
+
+# 3. CNN-LSTM
+print("\n3️⃣ CNN-LSTM 모델 학습...")
+cnn_lstm_model = ModelsV6.build_cnn_lstm(X_train.shape[1:])
+cnn_lstm_model.compile(
+    optimizer=tf.keras.optimizers.Adam(Config.LEARNING_RATE),
+    loss=WeightedLoss(),
+    metrics=['mae']
+)
+cnn_lstm_hist = cnn_lstm_model.fit(
+    X_train, y_train,
+    epochs=Config.EPOCHS,
+    batch_size=Config.BATCH_SIZE,
+    callbacks=get_callbacks('cnn_lstm'),
+    verbose=1
+)
+models['cnn_lstm'] = cnn_lstm_model
+history['cnn_lstm'] = cnn_lstm_hist
+print(f"✅ CNN-LSTM 완료 - 최종 Loss: {cnn_lstm_hist.history['loss'][-1]:.4f}")
+
+# 4. Spike Detector
+print("\n4️⃣ Spike Detector 모델 학습...")
+spike_model = ModelsV6.build_spike_detector(X_train.shape[1:])
+spike_model.compile(
+    optimizer=tf.keras.optimizers.Adam(Config.LEARNING_RATE),
+    loss=WeightedLoss(),
+    metrics=['mae']
+)
+spike_hist = spike_model.fit(
+    X_train, y_train,
+    epochs=Config.EPOCHS,
+    batch_size=Config.BATCH_SIZE,
+    callbacks=get_callbacks('spike'),
+    verbose=1
+)
+models['spike'] = spike_model
+history['spike'] = spike_hist
+print(f"✅ Spike 완료 - 최종 Loss: {spike_hist.history['loss'][-1]:.4f}")
+
+# 5. Rule-Based
+print("\n5️⃣ Rule-Based 모델 학습...")
+rule_model = ModelsV6.build_rule_based_model(X_train.shape[1:], m14_train.shape[1])
+rule_model.compile(
+    optimizer=tf.keras.optimizers.Adam(Config.LEARNING_RATE * 0.5),
+    loss=WeightedLoss(),
+    metrics=['mae']
+)
+rule_hist = rule_model.fit(
+    [X_train, m14_train], y_train,
+    epochs=100,  # Rule은 빨리 수렴
+    batch_size=Config.BATCH_SIZE,
+    callbacks=get_callbacks('rule'),
+    verbose=1
+)
+models['rule'] = rule_model
+history['rule'] = rule_hist
+print(f"✅ Rule 완료 - 최종 Loss: {rule_hist.history['loss'][-1]:.4f}")
+
+# ============================================
+# 앙상블 모델
+# ============================================
+print("\n" + "="*60)
+print("🎯 앙상블 모델 생성")
+print("="*60)
+
+# 앙상블 입력
+time_input = tf.keras.Input(shape=X_train.shape[1:], name='ensemble_time')
+m14_input = tf.keras.Input(shape=(m14_train.shape[1],), name='ensemble_m14')
+
+# 각 모델 예측
+lstm_pred = models['lstm'](time_input)
+gru_pred = models['gru'](time_input)
+cnn_lstm_pred = models['cnn_lstm'](time_input)
+spike_pred = models['spike'](time_input)
+rule_pred = models['rule']([time_input, m14_input])
+
+# 가중 평균
+ensemble_pred = tf.keras.layers.Lambda(
+    lambda x: 0.25*x[0] + 0.20*x[1] + 0.25*x[2] + 0.15*x[3] + 0.15*x[4]
+)([lstm_pred, gru_pred, cnn_lstm_pred, spike_pred, rule_pred])
+
+# 최종 보정
+final_pred = M14RuleCorrection()([ensemble_pred, m14_input])
+
+# 앙상블 모델
+ensemble_model = tf.keras.Model(
+    inputs=[time_input, m14_input],
+    outputs=final_pred,
+    name='Ensemble_Model'
+)
+
+ensemble_model.compile(
+    optimizer=tf.keras.optimizers.Adam(Config.LEARNING_RATE * 0.3),
+    loss=WeightedLoss(),
+    metrics=['mae']
+)
+
+print("📊 앙상블 파인튜닝...")
+ensemble_hist = ensemble_model.fit(
+    [X_train, m14_train], y_train,
+    epochs=50,
+    batch_size=Config.BATCH_SIZE,
+    callbacks=get_callbacks('ensemble'),
+    verbose=1
+)
+
+models['ensemble'] = ensemble_model
+history['ensemble'] = ensemble_hist
+print(f"✅ 앙상블 완료 - 최종 Loss: {ensemble_hist.history['loss'][-1]:.4f}")
+
+# ============================================
+# 평가 (학습 데이터로 자체 평가)
+# ============================================
+print("\n" + "="*60)
+print("📊 모델 평가 (학습 데이터)")
+print("="*60)
+
+# 샘플링 평가 (전체는 너무 크므로)
+sample_size = min(10000, len(X_train))
+sample_idx = np.random.choice(len(X_train), sample_size, replace=False)
+X_sample = X_train[sample_idx]
+y_sample = y_train[sample_idx]
+m14_sample = m14_train[sample_idx]
+
+evaluation_results = {}
+
+for name, model in models.items():
+    # 예측
+    if name == 'ensemble' or name == 'rule':
+        pred = model.predict([X_sample, m14_sample], verbose=0).flatten()
+    else:
+        pred = model.predict(X_sample, verbose=0).flatten()
+    
+    # MAE
+    mae = np.mean(np.abs(y_sample - pred))
+    
+    # 구간별 성능
+    level_performance = {}
+    for level in [1300, 1400, 1450, 1500]:
+        mask = y_sample >= level
+        if np.any(mask):
+            recall = np.sum((pred >= level) & mask) / np.sum(mask)
+            precision = np.sum((pred >= level) & mask) / max(np.sum(pred >= level), 1)
+            f1 = 2 * (precision * recall) / max(precision + recall, 1e-7)
+            level_mae = np.mean(np.abs(y_sample[mask] - pred[mask]))
+            
+            level_performance[level] = {
+                'recall': recall,
+                'precision': precision,
+                'f1': f1,
+                'mae': level_mae,
+                'count': np.sum(mask)
+            }
+    
+    evaluation_results[name] = {
+        'overall_mae': mae,
+        'levels': level_performance
+    }
+    
+    # 출력
+    print(f"\n🎯 {name.upper()}:")
+    print(f"  전체 MAE: {mae:.2f}")
+    for level, perf in level_performance.items():
+        print(f"  {level}+: Recall={perf['recall']:.2%}, "
+              f"Precision={perf['precision']:.2%}, "
+              f"F1={perf['f1']:.2%}, MAE={perf['mae']:.1f}")
+
+# 최고 모델
+best_model = min(evaluation_results.keys(), 
+                 key=lambda x: evaluation_results[x]['overall_mae'])
+print(f"\n🏆 최고 성능: {best_model.upper()} "
+      f"(MAE: {evaluation_results[best_model]['overall_mae']:.2f})")
+
+# ============================================
+# 모델 저장
+# ============================================
+print("\n💾 모델 저장 중...")
+
+for name, model in models.items():
+    save_path = f"{Config.MODEL_DIR}{name}_final.h5"
+    model.save(save_path)
+    print(f"  ✅ {name} 저장: {save_path}")
+
+# 평가 결과 저장
+with open(f"{Config.MODEL_DIR}evaluation_results.json", 'w') as f:
+    json.dump(evaluation_results, f, indent=2, default=str)
+
+# 학습 기록 저장
+history_dict = {}
+for name, hist in history.items():
+    history_dict[name] = {
+        'loss': hist.history['loss'][-10:],  # 마지막 10개만
+        'mae': hist.history['mae'][-10:] if 'mae' in hist.history else []
+    }
+with open(f"{Config.MODEL_DIR}training_history.json", 'w') as f:
+    json.dump(history_dict, f, indent=2)
+
+print(f"  ✅ 평가 결과 및 학습 기록 저장")
+
+# ============================================
+# 최종 출력
+# ============================================
+print("\n" + "="*60)
+print("🎉 V6 전체 데이터 학습 완료!")
+print("="*60)
+print(f"📁 모델 저장 위치: {Config.MODEL_DIR}")
+print(f"🏆 최고 모델: {best_model.upper()}")
+print(f"📊 전체 MAE: {evaluation_results[best_model]['overall_mae']:.2f}")
+print("\n📌 주요 성과:")
+print(f"  - 학습 데이터: {len(y_train):,}개 (100% 활용)")
+print(f"  - 총 6개 모델 학습 완료 (5개 + 앙상블)")
+print(f"  - 100분 시퀀스 데이터 유지")
+
+# 메모리 정리
+tf.keras.backend.clear_session()
+gc.collect()
+
+print("\n✅ 모든 작업 완료!")
+print("="*60)
