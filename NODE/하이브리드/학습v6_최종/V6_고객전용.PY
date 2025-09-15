@@ -159,11 +159,25 @@ class CheckpointManager:
             with open(history_path, 'rb') as f:
                 history = pickle.load(f)
         
+        # ⭐ 저장된 모델들 실제로 로드
+        models = {}
+        for model_name in state['completed_models']:
+            checkpoint_path = os.path.join(Config.CHECKPOINT_DIR, f'{model_name}_checkpoint.h5')
+            if os.path.exists(checkpoint_path):
+                try:
+                    custom_objects = {'WeightedLoss': WeightedLoss}
+                    if model_name == 'rule' or model_name == 'ensemble':
+                        custom_objects['M14RuleCorrection'] = M14RuleCorrection
+                    models[model_name] = tf.keras.models.load_model(checkpoint_path, custom_objects=custom_objects)
+                    print(f"   ✅ {model_name} 모델 로드 성공")
+                except Exception as e:
+                    print(f"   ⚠️ {model_name} 모델 로드 실패: {e}")
+        
         print(f"\n🔄 체크포인트 로드: {state['completed_models']}")
         print(f"   저장 시간: {state['timestamp']}")
         # 💡 이전 학습 결과를 불러와 이어서 진행합니다
         
-        return state['completed_models'], {}, history, state.get('evaluation_results', {})
+        return state['completed_models'], models, history, state.get('evaluation_results', {})
 
 # ============================================
 # 커스텀 손실 함수 및 레이어
@@ -333,7 +347,7 @@ class ModelsV6:
         """5. Rule-Based 모델"""
         # 💡 Rule-Based: 검증된 비즈니스 규칙 적용 전문가
         time_input = tf.keras.Input(shape=input_shape, name='time_input')
-        m14_input = tf.keras.Input(shape=(m14_shape,), name='m14_input')
+        m14_input = tf.keras.Input(shape=m14_shape, name='m14_input')  # m14_shape는 이미 (4,) 튜플
         
         # 간단한 시계열 처리
         lstm = tf.keras.layers.LSTM(32, dropout=0.2)(time_input)
@@ -625,7 +639,7 @@ for idx, (name, build_func, input_shape, m14_shape) in enumerate(model_configs):
         print(f"\n{['1️⃣','2️⃣','3️⃣','4️⃣','5️⃣'][idx]} {name.upper()} 모델 학습")
         
         # 모델 빌드
-        if m14_shape is not None:  # None 체크로 변경
+        if m14_shape:  # m14_shape가 있으면
             model = build_func(input_shape, m14_shape)
         else:
             model = build_func(input_shape)
