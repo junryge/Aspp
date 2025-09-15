@@ -4,6 +4,7 @@ V6 개선판 - 반도체 물류 예측 시스템
 - 클래스 불균형 해결
 - 학습 파라미터 최적화
 - 가중치 강화
+- .keras 형식 사용 (TensorFlow 2.16+ 호환)
 """
 
 import numpy as np
@@ -489,7 +490,7 @@ def get_callbacks(patience=15):
             verbose=1
         ),
         tf.keras.callbacks.ModelCheckpoint(
-            f'{Config.CHECKPOINT_DIR}{{epoch:02d}}-{{val_loss:.2f}}.h5',
+            f'{Config.CHECKPOINT_DIR}{{epoch:02d}}-{{val_loss:.2f}}.keras',  # ✅ .h5 → .keras
             save_best_only=True,
             monitor='val_loss'
         )
@@ -708,7 +709,7 @@ print(f"\n🏆 최고 성능: {best_model.upper()} "
 print("\n💾 모델 저장 중...")
 
 for name, model in models.items():
-    save_path = f"{Config.MODEL_DIR}{name}_final.h5"
+    save_path = f"{Config.MODEL_DIR}{name}_final.keras"  # ✅ .h5 → .keras
     model.save(save_path)
     print(f"  ✅ {name} 저장: {save_path}")
 
