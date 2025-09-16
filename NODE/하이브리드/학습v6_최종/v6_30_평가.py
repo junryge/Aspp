@@ -51,8 +51,8 @@ has_gpu = setup_gpu()
 # 설정
 # ============================================
 class Config:
-    # 평가 데이터
-    EVAL_DATA_FILE = '/mnt/user-data/uploads/20250731_to_20250826.csv'
+    # 평가 데이터 - 로컬 경로 사용
+    EVAL_DATA_FILE = 20250731_to_20250826.csv'
     
     # 모델 디렉토리
     MODEL_DIR = './models_v6_full_train/'
@@ -71,9 +71,9 @@ class Config:
 os.makedirs(Config.OUTPUT_DIR, exist_ok=True)
 
 # ============================================
-# 커스텀 클래스 등록 (중요!)
+# 커스텀 클래스 등록 (TF 2.16.1 호환)
 # ============================================
-@tf.keras.saving.register_keras_serializable()
+@tf.keras.utils.register_keras_serializable()
 class WeightedLoss(tf.keras.losses.Loss):
     """가중치 손실 함수"""
     def __init__(self, name="weighted_loss", **kwargs):
@@ -106,7 +106,7 @@ class WeightedLoss(tf.keras.losses.Loss):
     def from_config(cls, config):
         return cls(**config)
 
-@tf.keras.saving.register_keras_serializable()
+@tf.keras.utils.register_keras_serializable()
 class M14RuleCorrection(tf.keras.layers.Layer):
     """M14 규칙 기반 보정"""
     def __init__(self, **kwargs):
