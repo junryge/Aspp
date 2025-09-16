@@ -264,87 +264,94 @@ class V4UltimateEvaluatorImproved:
             return predicted, selected_model, detection_reason
         
         # ==========================================
-        # 2️⃣ 적극적인 점프 감지 (240-285) - 평균 + 8~15 방식
+        # 2️⃣ 적극적인 점프 감지 (240-285) - 평균 + 랜덤(8~15) 방식
         # ==========================================
+        
+        # 랜덤 시드 설정 (재현 가능하도록)
+        import random
+        random.seed(sequence.get('index', 0))
         
         # 🔥 275-285: 최고위험 - 강한 점프
         if 275 <= max_val < 285:
             selected_model = "Model2"
-            # 평균 + 12~15 (강한 점프)
-            predicted = mean_val + 15
-            detection_reason = f"Jump_275_max{int(max_val)}_+15"
+            # 평균 + 랜덤(12~15)
+            jump_value = random.randint(12, 15)
+            predicted = mean_val + jump_value
+            detection_reason = f"Jump_275_max{int(max_val)}_+{jump_value}"
             return predicted, selected_model, detection_reason
         
         # 🔥 270-275: 고위험 - 확실한 점프
         if 270 <= max_val < 275:
             selected_model = "Model2"
-            # 평균 + 12~14
-            predicted = mean_val + 13
-            detection_reason = f"Jump_270_max{int(max_val)}_+13"
+            # 평균 + 랜덤(10~14)
+            jump_value = random.randint(10, 14)
+            predicted = mean_val + jump_value
+            detection_reason = f"Jump_270_max{int(max_val)}_+{jump_value}"
             return predicted, selected_model, detection_reason
         
         # 🔥 265-270: 중위험 - 높은 확률 점프
         if 265 <= max_val < 270:
             selected_model = "Model2"
-            if mean_val >= 260 or trend > 5:
-                # 평균 + 11~12
-                predicted = mean_val + 12
-            else:
-                # 평균 + 10
-                predicted = mean_val + 10
-            detection_reason = f"Jump_265_max{int(max_val)}_+{int(predicted-mean_val)}"
+            # 평균 + 랜덤(9~12)
+            jump_value = random.randint(9, 12)
+            predicted = mean_val + jump_value
+            detection_reason = f"Jump_265_max{int(max_val)}_+{jump_value}"
             return predicted, selected_model, detection_reason
         
         # 🔥 260-265: 점프 가능
         if 260 <= max_val < 265:
             if trend > 10 or acceleration > 3 or growth_5min > 5:
                 selected_model = "Model2"
-                # 평균 + 9~10
-                predicted = mean_val + 10
-                detection_reason = f"Jump_260_Signal_+10"
+                # 평균 + 랜덤(8~11)
+                jump_value = random.randint(8, 11)
+                predicted = mean_val + jump_value
+                detection_reason = f"Jump_260_Signal_+{jump_value}"
                 return predicted, selected_model, detection_reason
         
         # 🔥 255-260: 조건부 점프
         if 255 <= max_val < 260:
             if trend > 15 or growth_5min > 8:
                 selected_model = "Model2"
-                # 평균 + 8~9
-                predicted = mean_val + 9
-                detection_reason = f"Jump_255_Trend_+9"
+                # 평균 + 랜덤(8~10)
+                jump_value = random.randint(8, 10)
+                predicted = mean_val + jump_value
+                detection_reason = f"Jump_255_Trend_+{jump_value}"
                 return predicted, selected_model, detection_reason
         
         # 🔥 250-255: 강한 신호시 점프
         if 250 <= max_val < 255:
             if trend > 20 or (acceleration > 5 and mean_val > 250):
                 selected_model = "Model2"
-                # 평균 + 8
-                predicted = mean_val + 8
-                detection_reason = f"Jump_250_Strong_+8"
+                # 평균 + 랜덤(8~10)
+                jump_value = random.randint(8, 10)
+                predicted = mean_val + jump_value
+                detection_reason = f"Jump_250_Strong_+{jump_value}"
                 return predicted, selected_model, detection_reason
         
         # 🔥 245-250: 매우 강한 신호
         if 245 <= max_val < 250:
             if trend > 25 or growth_5min > 10:
                 selected_model = "Model2"
-                # 평균 + 8
-                predicted = mean_val + 8
-                detection_reason = f"Jump_245_VeryStrong_+8"
+                # 평균 + 랜덤(8~9)
+                jump_value = random.randint(8, 9)
+                predicted = mean_val + jump_value
+                detection_reason = f"Jump_245_VeryStrong_+{jump_value}"
                 return predicted, selected_model, detection_reason
         
-        # 3️⃣ 추가 패턴 점프 (모든 구간) - 평균 + 값 방식
+        # 3️⃣ 추가 패턴 점프 (모든 구간) - 평균 + 랜덤(8~15) 방식
         if max_val < 285:
             # 최근 5분 급상승
             if len(past_values) >= 5:
                 surge_5min = past_values[-1] - past_values[-5]
                 if surge_5min > 15:
                     selected_model = "Model2"
-                    # 급상승 정도에 따라 + 8~12
+                    # 급상승 정도에 따라 랜덤 범위 다르게
                     if surge_5min > 20:
-                        predicted = mean_val + 12
-                        detection_reason = "Jump_Surge5min_+12"
+                        jump_value = random.randint(11, 15)
                     else:
-                        predicted = mean_val + 10
-                        detection_reason = "Jump_Surge5min_+10"
+                        jump_value = random.randint(8, 12)
+                    predicted = mean_val + jump_value
+                    detection_reason = f"Jump_Surge5min_+{jump_value}"
                     return predicted, selected_model, detection_reason
             
             # 지속 상승 패턴
@@ -352,9 +359,10 @@ class V4UltimateEvaluatorImproved:
                 rising_count = sum(1 for i in range(-10, -1) if past_values[i] < past_values[i+1])
                 if rising_count >= 8:  # 10개 중 8개 이상 상승
                     selected_model = "Model2"
-                    # 평균 + 10
-                    predicted = mean_val + 10
-                    detection_reason = "Jump_Continuous_+10"
+                    # 평균 + 랜덤(8~12)
+                    jump_value = random.randint(8, 12)
+                    predicted = mean_val + jump_value
+                    detection_reason = f"Jump_Continuous_+{jump_value}"
                     return predicted, selected_model, detection_reason
         # ==========================================
         
