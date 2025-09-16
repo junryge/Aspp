@@ -51,8 +51,8 @@ has_gpu = setup_gpu()
 # 설정
 # ============================================
 class Config:
-    # 평가 데이터 - 로컬 경로 사용
-    EVAL_DATA_FILE = 20250731_to_20250826.csv'
+    # 평가 데이터 - data 폴더 내 CSV 파일
+    EVAL_DATA_FILE = './data/20250731_to_20250826.csv'
     
     # 모델 디렉토리
     MODEL_DIR = './models_v6_full_train/'
