@@ -128,12 +128,13 @@ class V4UltimateFinalEvaluator:
             past_mean = past_window.mean()
             future_val = df[self.target_col].iloc[i+pred_len-1]
             
-            # 여러 점프 조건 (하나라도 만족하면 점프)
-            is_jump_v1 = past_max < 285 and future_val >= 300  # 기존
-            is_jump_v2 = (future_val - past_mean) > 35  # 평균 대비 35 상승
-            is_jump_v3 = (future_val - past_max) > 25  # 최대값 대비 25 상승
+            # 점프 조건 (v2, v3만 사용)
+            # v2: 평균 대비 35 이상 상승
+            # v3: 최대값 대비 25 이상 상승
+            is_jump_v2 = (future_val - past_mean) > 35
+            is_jump_v3 = (future_val - past_max) > 25
             
-            if is_jump_v1 or is_jump_v2 or is_jump_v3:
+            if is_jump_v2 or is_jump_v3:
                 jump_cases.append({
                     'index': i,
                     'past_max': past_max,
@@ -141,7 +142,7 @@ class V4UltimateFinalEvaluator:
                     'future_val': future_val,
                     'jump_size': future_val - past_max,
                     'jump_from_mean': future_val - past_mean,
-                    'type': 'v1' if is_jump_v1 else ('v2' if is_jump_v2 else 'v3')
+                    'type': 'v2' if is_jump_v2 else 'v3'
                 })
         
         print(f"\n🚀 점프 케이스 분석 (확장된 정의):")
@@ -372,17 +373,17 @@ class V4UltimateFinalEvaluator:
             past_max = max(seq['past_20min_values'])
             past_mean = np.mean(seq['past_20min_values'])
             
-            # 점프 정의 (확장된 버전 - 여러 조건 중 하나만 만족해도 OK)
-            is_jump_v1 = past_max < 285 and seq['actual_value'] >= 300
+            # 점프 정의 (v2, v3만 사용)
+            # v2: 평균 대비 35 이상 상승
+            # v3: 최대값 대비 25 이상 상승
             is_jump_v2 = (seq['actual_value'] - past_mean) > 35
             is_jump_v3 = (seq['actual_value'] - past_max) > 25
-            is_jump = is_jump_v1 or is_jump_v2 or is_jump_v3
+            is_jump = is_jump_v2 or is_jump_v3  # v1 제외
             
-            # 점프 감지 판단
-            jump_detected_v1 = past_max < 285 and predicted >= 290
+            # 점프 감지 판단 (v2, v3 기준)
             jump_detected_v2 = (predicted - past_mean) > 30
             jump_detected_v3 = (predicted - past_max) > 20
-            jump_detected = jump_detected_v1 or jump_detected_v2 or jump_detected_v3
+            jump_detected = jump_detected_v2 or jump_detected_v3  # v1 제외
             
             # 통계 업데이트
             if is_jump:
@@ -390,8 +391,8 @@ class V4UltimateFinalEvaluator:
                 if jump_detected:
                     self.jump_stats['detected_jumps'] += 1
                     
-                    # 감지 방법 통계
-                    method = 'v1' if jump_detected_v1 else ('v2' if jump_detected_v2 else 'v3')
+                    # 감지 방법 통계 (v2 또는 v3)
+                    method = 'v2' if jump_detected_v2 else 'v3'
                     if method not in self.jump_stats['detection_methods']:
                         self.jump_stats['detection_methods'][method] = 0
                     self.jump_stats['detection_methods'][method] += 1
