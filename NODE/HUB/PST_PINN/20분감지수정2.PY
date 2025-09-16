@@ -198,7 +198,7 @@ class V4UltimateEvaluatorImproved:
         return sequences
     
     def predict_sequence_improved(self, sequence):
-        """현실적인 예측 로직 - 과도한 점프 예측 제거"""
+        """균형잡힌 점프 감지 로직 - 적극적이되 현실적으로"""
         
         # 과거 20분 데이터
         past_values = sequence['past_20min_values']
@@ -211,6 +211,13 @@ class V4UltimateEvaluatorImproved:
         mean_all = np.mean(past_values)        # 전체 평균
         std_val = np.std(past_values)          # 표준편차
         
+        # 최근 값 추세
+        recent_vals = past_values[-5:]
+        if len(recent_vals) >= 2:
+            recent_trend = recent_vals[-1] - recent_vals[0]
+        else:
+            recent_trend = 0
+            
         # 변화율 계산
         if len(past_values) >= 10:
             early_mean = np.mean(past_values[:10])
@@ -234,110 +241,149 @@ class V4UltimateEvaluatorImproved:
         detection_reason = "Default"
         
         # ==========================================
-        # 현실적인 예측 로직
+        # 균형잡힌 예측 로직 (처음 코드와 보수적 코드의 중간)
         # ==========================================
         
-        # 1️⃣ 이미 극단값 구간인 경우 (300+가 많은 경우)
-        if consecutive_300 >= 15:
-            # 이미 극단값 상태 - Model2 사용
+        # 1️⃣ 이미 극단값 구간 (유지)
+        if consecutive_300 >= 10:
             selected_model = "Model2"
-            predicted = mean_val * 1.02  # 극단값 유지
+            predicted = mean_val * 1.05  # 기존 1.07에서 조정
             detection_reason = "Extreme_Sustained"
             return predicted, selected_model, detection_reason
         
         if mean_val > 310:
-            # 평균이 이미 매우 높음
             selected_model = "Model2"
-            predicted = mean_val * 1.01  # 약간만 조정
+            predicted = mean_val * 1.07
             detection_reason = "Extreme_High"
             return predicted, selected_model, detection_reason
         
-        # 2️⃣ 안정 구간 (대부분의 경우)
-        if max_val < 250:
-            # 안정적인 낮은 구간 - Model1
+        # 2️⃣ 확실한 안정 구간
+        if max_val < 270:
             selected_model = "Model1"
             predicted = mean_val * 0.98
             detection_reason = "Stable_Low"
             return predicted, selected_model, detection_reason
         
-        # 3️⃣ 점프 가능성 체크 (매우 조심스럽게)
-        # 277 근처 AND 강한 상승 추세가 있을 때만
-        if 272 <= max_val <= 282:
-            # 277 특별 구간
-            if mean_val >= 270 and trend > 20 and acceleration > 5:
-                # 매우 강한 신호가 있을 때만 점프 예측
+        # ==========================================
+        # 3️⃣ 점프 감지 로직 (개선된 버전)
+        # ==========================================
+        
+        # 3-1. 275-280 특별 구간 (점프 최다 발생)
+        if 275 <= max_val < 280:
+            # 강한 신호: 평균도 높고 상승세
+            if mean_val >= 275:
                 selected_model = "Model2"
-                # 과도한 예측 방지 - 현재 값에서 크게 벗어나지 않게
-                predicted = min(305, mean_val * 1.12)
-                detection_reason = "Jump_277_Strong"
+                predicted = 305  # 점프 예측
+                detection_reason = "Jump_277_Direct"
                 return predicted, selected_model, detection_reason
-            elif mean_val >= 265 and trend > 15:
-                # 중간 정도 신호
+            
+            # 중간 신호: 평균은 낮지만 상승 추세
+            elif mean_val >= 265 and (trend > 10 or recent_trend > 8):
+                selected_model = "Model2"
+                predicted = 295  # 부분 점프
+                detection_reason = "Jump_277_Rising"
+                return predicted, selected_model, detection_reason
+            
+            # 약한 신호: 구간에만 있음
+            else:
                 selected_model = "Model2"
                 predicted = mean_val * 1.08
-                detection_reason = "Jump_277_Moderate"
+                detection_reason = "Jump_277_Weak"
                 return predicted, selected_model, detection_reason
         
-        # 4️⃣ 급격한 상승 패턴 (하지만 과도하지 않게)
-        if len(past_values) >= 10:
-            # 최근 10분이 급상승
-            if trend > 25 and acceleration > 8 and mean_val > 260:
+        # 3-2. 270-275 구간 (점프 가능성)
+        if 270 <= max_val < 275:
+            if mean_val >= 268 and trend > 15:
                 selected_model = "Model2"
-                # 급상승이지만 현실적인 예측
-                predicted = min(mean_val * 1.15, 310)
-                detection_reason = "Rapid_Rise"
+                predicted = 292  # 약한 점프
+                detection_reason = "Jump_270_Zone"
+                return predicted, selected_model, detection_reason
+            elif acceleration > 5:
+                selected_model = "Model2"
+                predicted = mean_val * 1.10
+                detection_reason = "Jump_Acceleration"
                 return predicted, selected_model, detection_reason
         
-        # 5️⃣ 변동성 기반 (과도한 예측 방지)
-        if std_val > 15 and mean_val > 260 and max_val > 275:
-            # 변동성이 크고 값이 높을 때
-            selected_model = "Model2"
-            predicted = mean_val * 1.06
-            detection_reason = "High_Volatility"
-            return predicted, selected_model, detection_reason
+        # 3-3. 260-270 구간 (점프 준비)
+        if 260 <= max_val < 270:
+            # 급상승 패턴
+            if trend > 20 and acceleration > 3:
+                selected_model = "Model2"
+                predicted = mean_val * 1.12
+                detection_reason = "Pre_Jump_Pattern"
+                return predicted, selected_model, detection_reason
+            # 높은 변동성
+            elif std_val > 15 and mean_val > 260:
+                selected_model = "Model2"
+                predicted = mean_val * 1.08
+                detection_reason = "High_Volatility"
+                return predicted, selected_model, detection_reason
         
-        # 6️⃣ 중간 구간 기본 처리
-        if 250 <= max_val < 300:
-            if mean_val >= 280:
-                # 거의 극단값에 근접
+        # 3-4. 패턴 기반 점프 감지
+        if len(past_values) >= 15:
+            # 3구간 분석
+            part1 = np.mean(past_values[:7])
+            part2 = np.mean(past_values[7:14])
+            part3 = np.mean(past_values[14:])
+            
+            # 계단식 상승 (각 구간 10이상 상승)
+            if part2 - part1 > 10 and part3 - part2 > 10:
+                selected_model = "Model2"
+                if part3 > 270:
+                    predicted = 298  # 점프 임박
+                else:
+                    predicted = part3 * 1.10
+                detection_reason = "Step_Pattern"
+                return predicted, selected_model, detection_reason
+        
+        # ==========================================
+        # 4️⃣ 일반 구간 처리
+        # ==========================================
+        
+        # 280-300 구간 (극단값 진입)
+        if 280 <= max_val < 300:
+            if mean_val >= 285:
+                selected_model = "Model2"
+                predicted = mean_val * 1.05
+                detection_reason = "Near_Extreme"
+            else:
                 selected_model = "Model2"
                 predicted = mean_val * 1.03
-                detection_reason = "Near_Extreme"
-            elif mean_val >= 260:
-                # 중간 높은 구간
-                selected_model = "Model1"
-                predicted = mean_val * 1.01
                 detection_reason = "Mid_High"
-            else:
-                # 중간 구간
-                selected_model = "Model1"
-                predicted = mean_val * 0.99
-                detection_reason = "Mid_Normal"
             return predicted, selected_model, detection_reason
         
-        # 7️⃣ 기본값 (대부분 여기)
+        # 250-260 구간
+        if 250 <= max_val < 260:
+            if trend > 10:
+                selected_model = "Model1"
+                predicted = mean_val * 1.02
+                detection_reason = "Mid_Rising"
+            else:
+                selected_model = "Model1"
+                predicted = mean_val * 0.99
+                detection_reason = "Mid_Stable"
+            return predicted, selected_model, detection_reason
+        
+        # 기본값
         selected_model = "Model1"
-        predicted = mean_val * 0.99  # 보수적 예측
+        predicted = mean_val * 0.99
         detection_reason = "Default"
         
         # ==========================================
-        # 최종 안전장치: 비현실적 예측 방지
+        # 5️⃣ 안전장치 (완화된 버전)
         # ==========================================
         
-        # 과거 최대값보다 너무 높은 예측 방지
-        if predicted > max_val * 1.3:
-            predicted = max_val * 1.15
-            detection_reason += "_Capped"
-        
-        # 과거 평균보다 너무 높은 예측 방지
-        if predicted > mean_all * 1.5:
-            predicted = mean_all * 1.2
-            detection_reason += "_Adjusted"
-        
-        # 최소값 보장
-        if predicted < min_val * 0.8:
-            predicted = min_val * 0.9
-            detection_reason += "_Floor"
+        # 점프가 아닌 경우에만 제한
+        if "Jump" not in detection_reason:
+            # 과도한 상승 방지
+            if predicted > max_val * 1.25:
+                predicted = max_val * 1.2
+                detection_reason += "_Capped"
+            
+            # 과도한 하락 방지
+            if predicted < min_val * 0.85:
+                predicted = min_val * 0.9
+                detection_reason += "_Floored"
         
         return predicted, selected_model, detection_reason
     
