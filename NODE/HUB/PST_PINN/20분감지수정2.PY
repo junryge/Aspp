@@ -280,14 +280,15 @@ class V4UltimateEvaluatorImproved:
             # 중간 신호: 평균은 낮지만 상승 추세
             elif mean_val >= 265 and (trend > 10 or recent_trend > 8):
                 selected_model = "Model2"
-                predicted = 295  # 부분 점프
+                predicted = 298  # 부분 점프 (295→298로 상향)
                 detection_reason = "Jump_277_Rising"
                 return predicted, selected_model, detection_reason
             
-            # 약한 신호: 구간에만 있음
+            # 약한 신호: 구간에만 있음 (여전히 점프 가능)
             else:
                 selected_model = "Model2"
-                predicted = mean_val * 1.08
+                # 최소 292 이상으로 예측 (점프 감지 위해)
+                predicted = max(292, mean_val * 1.12)  # 1.08→1.12로 상향
                 detection_reason = "Jump_277_Weak"
                 return predicted, selected_model, detection_reason
         
@@ -295,16 +296,38 @@ class V4UltimateEvaluatorImproved:
         if 270 <= max_val < 275:
             if mean_val >= 268 and trend > 15:
                 selected_model = "Model2"
-                predicted = 292  # 약한 점프
+                predicted = 295  # 약한 점프 (292→295로 상향)
                 detection_reason = "Jump_270_Zone"
                 return predicted, selected_model, detection_reason
             elif acceleration > 5:
                 selected_model = "Model2"
-                predicted = mean_val * 1.10
+                # 최소 290 이상으로 예측
+                predicted = max(290, mean_val * 1.12)  # 1.10→1.12로 상향
                 detection_reason = "Jump_Acceleration"
                 return predicted, selected_model, detection_reason
+            elif mean_val >= 265:
+                # 추가 조건: 평균이 265 이상이면 점프 가능
+                selected_model = "Model2"
+                predicted = 292
+                detection_reason = "Jump_270_Mean"
+                return predicted, selected_model, detection_reason
         
-        # 3-3. 260-270 구간 (점프 준비)
+        # 3-3. 272-275 구간 특별 처리 (점프 빈발)
+        if 272 <= max_val < 275:
+            # 272-275는 점프 직전 구간
+            selected_model = "Model2"
+            if mean_val >= 270:
+                predicted = 300  # 강한 점프 예측
+                detection_reason = "Jump_272_Strong"
+            elif mean_val >= 265:
+                predicted = 295  # 중간 점프
+                detection_reason = "Jump_272_Medium"
+            else:
+                predicted = 292  # 최소 점프
+                detection_reason = "Jump_272_Base"
+            return predicted, selected_model, detection_reason
+        
+        # 3-4. 260-270 구간 (점프 준비)
         if 260 <= max_val < 270:
             # 급상승 패턴
             if trend > 20 and acceleration > 3:
@@ -319,7 +342,13 @@ class V4UltimateEvaluatorImproved:
                 detection_reason = "High_Volatility"
                 return predicted, selected_model, detection_reason
         
-        # 3-4. 패턴 기반 점프 감지
+        # 3-5. 268-272 구간 (점프 임박)
+        if 268 <= max_val < 272:
+            if mean_val >= 267 or trend > 12:
+                selected_model = "Model2"
+                predicted = 290  # 점프 임박
+                detection_reason = "Jump_268_Zone"
+                return predicted, selected_model, detection_reason
         if len(past_values) >= 15:
             # 3구간 분석
             part1 = np.mean(past_values[:7])
