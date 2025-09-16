@@ -224,6 +224,7 @@ class V4UltimateEvaluator:
         # ==========================================
         # 우선순위 3: 점프 가능 구간 (개선)
         # past_max < 280이면 점프 가능성 있음
+        # Model2 선택시 mean + random(8, 25) 적용
         # ==========================================
         if max_val < 280:
             # 275-280: 가장 높은 점프 가능성
@@ -231,30 +232,28 @@ class V4UltimateEvaluator:
                 selected_model = "Model2"
                 if mean_val >= 275:
                     # 평균도 높으면 강한 점프
-                    jump_value = random.randint(30, 35)
-                    predicted = mean_val + jump_value  # 305 정도
+                    jump_value = random.randint(15, 25)
                 else:
                     # 평균은 낮지만 점프 가능
-                    jump_value = random.randint(25, 30)
-                    predicted = mean_val + jump_value
+                    jump_value = random.randint(12, 20)
+                predicted = mean_val + jump_value
                 return predicted, selected_model
             
             # 270-275: 점프 가능
             elif 270 <= max_val < 275:
                 selected_model = "Model2"
                 if mean_val >= 270 or trend > 10:
-                    jump_value = random.randint(25, 30)
-                    predicted = mean_val + jump_value
+                    jump_value = random.randint(12, 22)
                 else:
-                    jump_value = random.randint(20, 25)
-                    predicted = mean_val + jump_value
+                    jump_value = random.randint(10, 18)
+                predicted = mean_val + jump_value
                 return predicted, selected_model
             
             # 265-270: 조건부 점프
             elif 265 <= max_val < 270:
                 if trend > 15 or mean_val >= 265:
                     selected_model = "Model2"
-                    jump_value = random.randint(25, 30)
+                    jump_value = random.randint(10, 20)
                     predicted = mean_val + jump_value
                 else:
                     selected_model = "Model1"
@@ -265,7 +264,7 @@ class V4UltimateEvaluator:
             elif 260 <= max_val < 265:
                 if trend > 20 or std_val > 15:
                     selected_model = "Model2"
-                    jump_value = random.randint(25, 35)
+                    jump_value = random.randint(8, 18)
                     predicted = mean_val + jump_value
                 else:
                     selected_model = "Model1"
@@ -276,7 +275,7 @@ class V4UltimateEvaluator:
             else:
                 if trend > 25 and mean_val > 250:
                     selected_model = "Model2"
-                    jump_value = random.randint(30, 40)
+                    jump_value = random.randint(8, 15)
                     predicted = mean_val + jump_value
                 else:
                     selected_model = "Model1"
