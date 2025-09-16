@@ -224,37 +224,38 @@ class V4UltimateEvaluator:
         # ==========================================
         # 우선순위 3: 점프 가능 구간 (개선)
         # past_max < 280이면 점프 가능성 있음
-        # Model2 선택시 mean + random(8, 25) 적용
+        # Model2 선택 후 predicted에 추가로 +8~+25
         # ==========================================
         if max_val < 280:
             # 275-280: 가장 높은 점프 가능성
             if 275 <= max_val < 280:
                 selected_model = "Model2"
                 if mean_val >= 275:
-                    # 평균도 높으면 강한 점프
-                    jump_value = random.randint(15, 25)
+                    predicted = mean_val * 1.08  # 기본 Model2 예측
                 else:
-                    # 평균은 낮지만 점프 가능
-                    jump_value = random.randint(12, 20)
-                predicted = mean_val + jump_value
+                    predicted = mean_val * 1.08
+                # 점프 구간 Model2이므로 추가로 +8~+25
+                jump_bonus = random.randint(8, 25)
+                predicted = predicted + jump_bonus
                 return predicted, selected_model
             
             # 270-275: 점프 가능
             elif 270 <= max_val < 275:
                 selected_model = "Model2"
-                if mean_val >= 270 or trend > 10:
-                    jump_value = random.randint(12, 22)
-                else:
-                    jump_value = random.randint(10, 18)
-                predicted = mean_val + jump_value
+                predicted = mean_val * 1.08  # 기본 Model2 예측
+                # 점프 구간 Model2이므로 추가로 +8~+25
+                jump_bonus = random.randint(8, 25)
+                predicted = predicted + jump_bonus
                 return predicted, selected_model
             
             # 265-270: 조건부 점프
             elif 265 <= max_val < 270:
                 if trend > 15 or mean_val >= 265:
                     selected_model = "Model2"
-                    jump_value = random.randint(10, 20)
-                    predicted = mean_val + jump_value
+                    predicted = mean_val * 1.08  # 기본 Model2 예측
+                    # 점프 구간 Model2이므로 추가로 +8~+25
+                    jump_bonus = random.randint(8, 25)
+                    predicted = predicted + jump_bonus
                 else:
                     selected_model = "Model1"
                     predicted = mean_val * 1.02
@@ -264,8 +265,10 @@ class V4UltimateEvaluator:
             elif 260 <= max_val < 265:
                 if trend > 20 or std_val > 15:
                     selected_model = "Model2"
-                    jump_value = random.randint(8, 18)
-                    predicted = mean_val + jump_value
+                    predicted = mean_val * 1.08  # 기본 Model2 예측
+                    # 점프 구간 Model2이므로 추가로 +8~+25
+                    jump_bonus = random.randint(8, 25)
+                    predicted = predicted + jump_bonus
                 else:
                     selected_model = "Model1"
                     predicted = mean_val * 1.01
@@ -275,8 +278,10 @@ class V4UltimateEvaluator:
             else:
                 if trend > 25 and mean_val > 250:
                     selected_model = "Model2"
-                    jump_value = random.randint(8, 15)
-                    predicted = mean_val + jump_value
+                    predicted = mean_val * 1.08  # 기본 Model2 예측
+                    # 점프 구간 Model2이므로 추가로 +8~+25
+                    jump_bonus = random.randint(8, 25)
+                    predicted = predicted + jump_bonus
                 else:
                     selected_model = "Model1"
                     predicted = mean_val * 0.99
