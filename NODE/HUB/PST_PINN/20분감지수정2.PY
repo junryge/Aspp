@@ -264,7 +264,7 @@ class V4UltimateEvaluatorImproved:
             return predicted, selected_model, detection_reason
         
         # ==========================================
-        # 2️⃣ 적극적인 점프 감지 (240-285) - 평균 + 랜덤(8~25) 방식
+        # 2️⃣ 적극적인 점프 감지 (240-285) - 평균 + 랜덤(8~30) 방식
         # ==========================================
         
         # 랜덤 시드 설정 (재현 가능하도록)
@@ -274,8 +274,8 @@ class V4UltimateEvaluatorImproved:
         # 🔥 275-285: 최고위험 - 강한 점프
         if 275 <= max_val < 285:
             selected_model = "Model2"
-            # 평균 + 랜덤(20~25) 강력한 점프
-            jump_value = random.randint(20, 25)
+            # 평균 + 랜덤(25~30) 최강 점프
+            jump_value = random.randint(25, 30)
             predicted = mean_val + jump_value
             detection_reason = f"Jump_275_max{int(max_val)}_+{jump_value}"
             return predicted, selected_model, detection_reason
@@ -283,8 +283,8 @@ class V4UltimateEvaluatorImproved:
         # 🔥 270-275: 고위험 - 확실한 점프
         if 270 <= max_val < 275:
             selected_model = "Model2"
-            # 평균 + 랜덤(18~23)
-            jump_value = random.randint(18, 23)
+            # 평균 + 랜덤(20~28)
+            jump_value = random.randint(20, 28)
             predicted = mean_val + jump_value
             detection_reason = f"Jump_270_max{int(max_val)}_+{jump_value}"
             return predicted, selected_model, detection_reason
@@ -292,8 +292,8 @@ class V4UltimateEvaluatorImproved:
         # 🔥 265-270: 중위험 - 높은 확률 점프
         if 265 <= max_val < 270:
             selected_model = "Model2"
-            # 평균 + 랜덤(15~20)
-            jump_value = random.randint(15, 20)
+            # 평균 + 랜덤(18~25)
+            jump_value = random.randint(18, 25)
             predicted = mean_val + jump_value
             detection_reason = f"Jump_265_max{int(max_val)}_+{jump_value}"
             return predicted, selected_model, detection_reason
@@ -302,8 +302,8 @@ class V4UltimateEvaluatorImproved:
         if 260 <= max_val < 265:
             if trend > 10 or acceleration > 3 or growth_5min > 5:
                 selected_model = "Model2"
-                # 평균 + 랜덤(12~18)
-                jump_value = random.randint(12, 18)
+                # 평균 + 랜덤(15~22)
+                jump_value = random.randint(15, 22)
                 predicted = mean_val + jump_value
                 detection_reason = f"Jump_260_Signal_+{jump_value}"
                 return predicted, selected_model, detection_reason
@@ -312,8 +312,8 @@ class V4UltimateEvaluatorImproved:
         if 255 <= max_val < 260:
             if trend > 15 or growth_5min > 8:
                 selected_model = "Model2"
-                # 평균 + 랜덤(10~15)
-                jump_value = random.randint(10, 15)
+                # 평균 + 랜덤(12~18)
+                jump_value = random.randint(12, 18)
                 predicted = mean_val + jump_value
                 detection_reason = f"Jump_255_Trend_+{jump_value}"
                 return predicted, selected_model, detection_reason
@@ -322,8 +322,8 @@ class V4UltimateEvaluatorImproved:
         if 250 <= max_val < 255:
             if trend > 20 or (acceleration > 5 and mean_val > 250):
                 selected_model = "Model2"
-                # 평균 + 랜덤(8~12)
-                jump_value = random.randint(8, 12)
+                # 평균 + 랜덤(10~15)
+                jump_value = random.randint(10, 15)
                 predicted = mean_val + jump_value
                 detection_reason = f"Jump_250_Strong_+{jump_value}"
                 return predicted, selected_model, detection_reason
@@ -332,13 +332,13 @@ class V4UltimateEvaluatorImproved:
         if 245 <= max_val < 250:
             if trend > 25 or growth_5min > 10:
                 selected_model = "Model2"
-                # 평균 + 랜덤(8~10)
-                jump_value = random.randint(8, 10)
+                # 평균 + 랜덤(8~12)
+                jump_value = random.randint(8, 12)
                 predicted = mean_val + jump_value
                 detection_reason = f"Jump_245_VeryStrong_+{jump_value}"
                 return predicted, selected_model, detection_reason
         
-        # 3️⃣ 추가 패턴 점프 (모든 구간) - 평균 + 랜덤(8~25) 방식
+        # 3️⃣ 추가 패턴 점프 (모든 구간) - 평균 + 랜덤(8~30) 방식
         if max_val < 285:
             # 최근 5분 급상승
             if len(past_values) >= 5:
@@ -347,9 +347,9 @@ class V4UltimateEvaluatorImproved:
                     selected_model = "Model2"
                     # 급상승 정도에 따라 랜덤 범위 다르게
                     if surge_5min > 20:
-                        jump_value = random.randint(15, 25)
+                        jump_value = random.randint(20, 30)
                     else:
-                        jump_value = random.randint(10, 18)
+                        jump_value = random.randint(15, 25)
                     predicted = mean_val + jump_value
                     detection_reason = f"Jump_Surge5min_+{jump_value}"
                     return predicted, selected_model, detection_reason
@@ -359,8 +359,8 @@ class V4UltimateEvaluatorImproved:
                 rising_count = sum(1 for i in range(-10, -1) if past_values[i] < past_values[i+1])
                 if rising_count >= 8:  # 10개 중 8개 이상 상승
                     selected_model = "Model2"
-                    # 평균 + 랜덤(12~20)
-                    jump_value = random.randint(12, 20)
+                    # 평균 + 랜덤(15~25)
+                    jump_value = random.randint(15, 25)
                     predicted = mean_val + jump_value
                     detection_reason = f"Jump_Continuous_+{jump_value}"
                     return predicted, selected_model, detection_reason
