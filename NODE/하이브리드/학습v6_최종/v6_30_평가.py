@@ -13,7 +13,7 @@ from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
 import matplotlib.pyplot as plt
 import json
 import warnings
-from datetime import datetime
+from datetime import datetime, timedelta
 import os
 warnings.filterwarnings('ignore')
 
@@ -463,11 +463,49 @@ def main():
         predictions['baseline'] = baseline_pred
         results['baseline'] = evaluate(y, baseline_pred, 'Baseline')
         
-        # 4-3. 딥러닝 모델 시도 (옵션)
+        # 4-3. 딥러닝 모델 시도 (모든 모델)
         print("\n🤖 딥러닝 모델 시도...")
         models = create_model_structures()
         loaded_models = try_load_weights(models)
         
+        # CNN-LSTM, Spike Detector 추가 생성
+        cnn_lstm = tf.keras.Sequential([
+            tf.keras.layers.InputLayer(shape=(Config.LOOKBACK, Config.NUM_FEATURES)),
+            tf.keras.layers.Conv1D(128, 3, activation='relu', padding='same'),
+            tf.keras.layers.Conv1D(128, 5, activation='relu', padding='same'),
+            tf.keras.layers.LSTM(128, return_sequences=True, dropout=0.2),
+            tf.keras.layers.LSTM(64, dropout=0.2),
+            tf.keras.layers.Dense(128, activation='relu'),
+            tf.keras.layers.Dropout(0.2),
+            tf.keras.layers.Dense(1)
+        ], name='CNN_LSTM_v216')
+        
+        spike = tf.keras.Sequential([
+            tf.keras.layers.InputLayer(shape=(Config.LOOKBACK, Config.NUM_FEATURES)),
+            tf.keras.layers.Conv1D(96, 3, activation='relu', padding='same'),
+            tf.keras.layers.Bidirectional(tf.keras.layers.LSTM(128, dropout=0.2)),
+            tf.keras.layers.Dense(256, activation='relu'),
+            tf.keras.layers.Dropout(0.2),
+            tf.keras.layers.Dense(128, activation='relu'),
+            tf.keras.layers.Dense(1)
+        ], name='Spike_Detector_v216')
+        
+        # 추가 모델도 가중치 로드 시도
+        extra_models = {'cnn_lstm': cnn_lstm, 'spike': spike}
+        for name, model in extra_models.items():
+            weight_file = f"{Config.MODEL_DIR}{name}_final.keras"
+            if os.path.exists(weight_file):
+                try:
+                    model.load_weights(weight_file)
+                    loaded_models[name] = model
+                    print(f"✅ {name} 가중치 로드 성공")
+                except:
+                    loaded_models[name] = model
+                    print(f"⚠️ {name} 랜덤 초기화 사용")
+            else:
+                loaded_models[name] = model
+        
+        # 모든 로드된 모델로 예측
         for name, model in loaded_models.items():
             try:
                 pred = model.predict(X_scaled, batch_size=Config.BATCH_SIZE, verbose=0)
@@ -502,7 +540,18 @@ def main():
         # 6. 예측 결과 CSV 저장
         print("\n💾 예측 결과 저장...")
         
+        # 날짜 생성 (YYYY-MM-DD HH:MM 형식)
+        from datetime import datetime, timedelta
+        base_date = datetime(2025, 7, 31, 0, 0)  # 시작 날짜
+        dates = []
+        for i in range(len(y)):
+            # 각 샘플은 110분(100분 + 10분) 후의 예측
+            minutes_offset = i + Config.LOOKBACK + Config.FORECAST
+            prediction_time = base_date + timedelta(minutes=minutes_offset)
+            dates.append(prediction_time.strftime('%Y-%m-%d %H:%M'))
+        
         results_df = pd.DataFrame({
+            '예측시간': dates,
             '실제값': y,
             'Rule_Based_예측': predictions['rule_based'],
             'Baseline_예측': predictions['baseline'],
@@ -514,13 +563,15 @@ def main():
             '100이내_정확': np.abs(predictions['rule_based'] - y) <= 100,
         })
         
-        # 딥러닝 모델 추가 (있는 경우)
-        for name in ['lstm', 'gru']:
+        # 모든 딥러닝 모델 추가
+        model_list = ['lstm', 'gru', 'cnn_lstm', 'spike', 'rule', 'ensemble']
+        for name in model_list:
             if name in predictions:
                 results_df[f'{name.upper()}_예측'] = predictions[name]
-                results_df[f'{name.upper()}_오차'] = np.abs(predictions[name] - y)
+                results_df[f'{name.upper()}_오차'] = predictions[name] - y
+                results_df[f'{name.upper()}_절대오차'] = np.abs(predictions[name] - y)
         
-        csv_path = f'{Config.OUTPUT_DIR}prediction_results.csv'
+        csv_path = f'{Config.OUTPUT_DIR}prediction_results_all_models.csv'
         results_df.to_csv(csv_path, index=False, encoding='utf-8-sig')
         print(f"  ✅ CSV 저장: {csv_path}")
         
