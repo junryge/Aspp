@@ -1,306 +1,272 @@
 """
-sequence_aware_data_reducer.py - 시퀀스 학습용 데이터 축소
-100분 연속성을 유지하면서 효율적으로 데이터 축소
+data_reducer_for_v6.py - V6 시퀀스 생성기 전용 데이터 축소
+기존 코드 그대로 사용 가능하도록 최적화
 """
 
 import pandas as pd
 import numpy as np
 from datetime import datetime
+import warnings
+warnings.filterwarnings('ignore')
 
 # ============================================
-# 설정 (조정 가능)
+# 설정 (V6와 동일하게 유지)
 # ============================================
 # 파일 경로
-INPUT_FILE = './data/20240201_TO_202507281705.CSV'
-OUTPUT_FILE = './data/reduced_for_sequence.csv'
+INPUT_FILE = './data/20240201_TO_202507281705.CSV'  # 원본 (V6와 동일)
+OUTPUT_FILE = './data/20240201_TO_202507281705_reduced.CSV'  # 축소 버전
 
-# 시퀀스 설정 (V6과 동일)
+# V6 설정값 그대로
 LOOKBACK = 100  # 과거 100분
 FORECAST = 10   # 10분 후 예측
 
-# 데이터 축소 설정
+# M14 임계값 (V6와 동일)
+M14B_THRESHOLDS = {
+    1400: 320,
+    1500: 400,
+    1600: 450,
+    1700: 500
+}
+
+RATIO_THRESHOLDS = {
+    1400: 4,
+    1500: 5,
+    1600: 6,
+    1700: 7
+}
+
+# 축소 설정
 REDUCTION_CONFIG = {
-    'target_sequences': 50000,  # 목표 시퀀스 수 (약 5만개)
-    'min_segment_length': 200,  # 최소 연속 구간 (100+10+여유)
-    'keep_important_patterns': True,  # 중요 패턴 우선 보존
-    'sampling_method': 'segment'  # 'segment' or 'sliding'
-}
-
-# 중요 패턴 (물류 급증 구간)
-IMPORTANT_THRESHOLDS = {
-    'high_totalcnt': 1500,  # 높은 물류량
-    'high_m14b': 400,       # M14AM14B 높은 값
-    'spike_change': 100     # 급격한 변화
+    'target_rows': 100000,      # 목표: 10만행 (원본의 약 13%)
+    'method': 'smart',           # 중요 패턴 우선 보존
+    'keep_critical_patterns': True,  # 핵심 패턴 100% 보존
 }
 
 # ============================================
-# 연속 구간 찾기
+# 메인 처리
 # ============================================
-def find_continuous_segments(df):
-    """연속된 데이터 구간 찾기"""
+def main():
+    print("="*60)
+    print("🚀 V6 시퀀스 생성기용 데이터 축소")
+    print("="*60)
+    
+    # 1. 데이터 로드
+    print(f"\n📂 원본 데이터 로딩: {INPUT_FILE}")
+    try:
+        df = pd.read_csv(INPUT_FILE)
+    except:
+        print("❌ 파일을 찾을 수 없습니다. 경로를 확인하세요.")
+        return None
+    
+    original_size = len(df)
+    print(f"✅ 원본 크기: {original_size:,}행")
+    
+    # 필수 컬럼 확인 (V6와 동일)
+    required_cols = ['TOTALCNT'] if 'TOTALCNT' in df.columns else []
+    m14_cols = ['M14AM10A', 'M14AM14B', 'M14AM16']
+    
+    for col in m14_cols:
+        if col not in df.columns:
+            print(f"  ⚠️ {col} 없음 → 0으로 초기화")
+            df[col] = 0
+    
+    # 2. 시간 기반 연속성 확인
     print("\n🔍 연속 구간 분석 중...")
     
-    # 시간 컬럼 처리
-    time_col = 'TIME' if 'TIME' in df.columns else 'CURRTIME'
-    df['datetime'] = pd.to_datetime(df[time_col], format='%Y%m%d%H%M', errors='coerce')
+    # TIME 또는 CURRTIME 컬럼 확인
+    time_col = None
+    if 'TIME' in df.columns:
+        time_col = 'TIME'
+    elif 'CURRTIME' in df.columns:
+        time_col = 'CURRTIME'
     
-    # 시간 차이 계산 (분 단위)
-    df['time_diff'] = df['datetime'].diff().dt.total_seconds() / 60
-    
-    # 연속 구간 찾기 (5분 이상 차이나면 끊김)
-    df['segment_id'] = (df['time_diff'] > 5).cumsum()
-    
-    # 각 구간의 크기
-    segment_sizes = df.groupby('segment_id').size()
-    valid_segments = segment_sizes[segment_sizes >= REDUCTION_CONFIG['min_segment_length']]
-    
-    print(f"  • 전체 구간 수: {len(segment_sizes)}")
-    print(f"  • 유효 구간 수 (>={REDUCTION_CONFIG['min_segment_length']}분): {len(valid_segments)}")
-    print(f"  • 최대 구간 크기: {segment_sizes.max()}분")
-    print(f"  • 평균 구간 크기: {segment_sizes.mean():.0f}분")
-    
-    return df, valid_segments
-
-# ============================================
-# 중요 패턴 점수 계산
-# ============================================
-def calculate_importance_score(segment_df):
-    """각 구간의 중요도 점수 계산"""
-    score = 0
-    
-    # 1. 높은 TOTALCNT
-    if 'TOTALCNT' in segment_df.columns:
-        high_total = (segment_df['TOTALCNT'] >= IMPORTANT_THRESHOLDS['high_totalcnt']).sum()
-        score += high_total * 10
+    if time_col:
+        # 시간 순서로 정렬
+        df = df.sort_values(time_col).reset_index(drop=True)
         
-        # 평균 TOTALCNT도 고려
-        avg_total = segment_df['TOTALCNT'].mean()
-        score += (avg_total / 100)
-    
-    # 2. 높은 M14AM14B
-    if 'M14AM14B' in segment_df.columns:
-        high_m14b = (segment_df['M14AM14B'] >= IMPORTANT_THRESHOLDS['high_m14b']).sum()
-        score += high_m14b * 5
+        # datetime 변환
+        df['datetime'] = pd.to_datetime(df[time_col].astype(str), 
+                                       format='%Y%m%d%H%M', 
+                                       errors='coerce')
         
-        # M14B/M14A 비율
-        if 'M14AM10A' in segment_df.columns:
-            segment_df['temp_ratio'] = segment_df['M14AM14B'] / segment_df['M14AM10A'].clip(lower=1)
-            high_ratio = (segment_df['temp_ratio'] >= 5).sum()
-            score += high_ratio * 8
-    
-    # 3. 변동성 (급격한 변화)
-    if 'TOTALCNT' in segment_df.columns:
-        changes = segment_df['TOTALCNT'].diff().abs()
-        spikes = (changes >= IMPORTANT_THRESHOLDS['spike_change']).sum()
-        score += spikes * 3
+        # 시간 차이 계산
+        df['time_diff'] = df['datetime'].diff().dt.total_seconds() / 60
         
-        # 표준편차 (변동성)
-        std_value = segment_df['TOTALCNT'].std()
-        score += (std_value / 10)
+        # 5분 이상 끊어진 구간 찾기
+        df['segment_id'] = (df['time_diff'] > 5).cumsum()
+        
+        # 세그먼트 크기
+        segment_sizes = df.groupby('segment_id').size()
+        min_size = LOOKBACK + FORECAST + 10  # 여유 있게
+        valid_segments = segment_sizes[segment_sizes >= min_size]
+        
+        print(f"  • 전체 세그먼트: {len(segment_sizes)}개")
+        print(f"  • 유효 세그먼트 (>={min_size}분): {len(valid_segments)}개")
+        print(f"  • 최대 세그먼트: {segment_sizes.max():,}분")
+    else:
+        # 시간 컬럼이 없으면 전체를 하나로
+        df['segment_id'] = 0
+        valid_segments = pd.Series([len(df)], index=[0])
+        print("  • TIME 컬럼 없음 - 전체를 하나의 세그먼트로 처리")
     
-    return score
-
-# ============================================
-# 세그먼트 기반 샘플링
-# ============================================
-def segment_based_sampling(df, valid_segments):
-    """연속 구간 단위로 샘플링"""
-    print("\n📊 세그먼트 기반 샘플링 중...")
-    
-    target_sequences = REDUCTION_CONFIG['target_sequences']
-    segments_needed = target_sequences // 100  # 대략적인 필요 세그먼트 수
+    # 3. 중요도 점수 계산
+    print("\n📊 중요 패턴 분석 중...")
     
     segment_scores = {}
+    critical_indices = []  # 반드시 보존할 인덱스
     
-    # 각 세그먼트의 중요도 계산
     for seg_id in valid_segments.index:
-        segment_df = df[df['segment_id'] == seg_id]
+        seg_df = df[df['segment_id'] == seg_id]
+        score = 0
         
-        # 중요 패턴 보존 옵션
-        if REDUCTION_CONFIG['keep_important_patterns']:
-            score = calculate_importance_score(segment_df)
-        else:
-            score = len(segment_df)  # 단순히 길이만
+        # TOTALCNT 기반 점수
+        if 'TOTALCNT' in seg_df.columns:
+            # 1500 이상인 행들은 반드시 보존
+            critical_mask = seg_df['TOTALCNT'] >= 1500
+            critical_indices.extend(seg_df[critical_mask].index.tolist())
+            
+            # 평균값 점수
+            avg_total = seg_df['TOTALCNT'].mean()
+            score += avg_total / 10
+            
+            # 변동성 점수
+            std_total = seg_df['TOTALCNT'].std()
+            score += std_total / 20
+        
+        # M14AM14B 기반 점수
+        if 'M14AM14B' in seg_df.columns:
+            # 400 이상인 행들은 반드시 보존
+            critical_m14b = seg_df['M14AM14B'] >= M14B_THRESHOLDS[1500]
+            critical_indices.extend(seg_df[critical_m14b].index.tolist())
+            
+            # 임계값별 가중치
+            for threshold_val, m14b_threshold in M14B_THRESHOLDS.items():
+                count = (seg_df['M14AM14B'] >= m14b_threshold).sum()
+                score += count * (threshold_val / 1000)
+        
+        # 황금 패턴 (M14B 높고 M10A 낮음)
+        if 'M14AM14B' in seg_df.columns and 'M14AM10A' in seg_df.columns:
+            golden_pattern = (seg_df['M14AM14B'] >= 300) & (seg_df['M14AM10A'] < 80)
+            critical_indices.extend(seg_df[golden_pattern].index.tolist())
+            score += golden_pattern.sum() * 20
+            
+            # 비율 패턴
+            seg_df['temp_ratio'] = seg_df['M14AM14B'] / seg_df['M14AM10A'].clip(lower=1)
+            for threshold_val, ratio_threshold in RATIO_THRESHOLDS.items():
+                ratio_count = (seg_df['temp_ratio'] >= ratio_threshold).sum()
+                score += ratio_count * (threshold_val / 1000)
+        
+        # 세그먼트 길이 보너스
+        score += len(seg_df) / 1000
         
         segment_scores[seg_id] = score
     
-    # 중요도 순으로 정렬
-    sorted_segments = sorted(segment_scores.items(), key=lambda x: x[1], reverse=True)
+    # 중복 제거
+    critical_indices = list(set(critical_indices))
+    print(f"  • 필수 보존 행: {len(critical_indices):,}개")
     
-    # 상위 세그먼트 선택
-    selected_segments = []
-    total_rows = 0
+    # 4. 스마트 샘플링
+    print("\n🎯 스마트 샘플링 시작...")
     
-    for seg_id, score in sorted_segments:
-        segment_size = valid_segments[seg_id]
+    target_rows = REDUCTION_CONFIG['target_rows']
+    
+    # 필수 보존 데이터
+    if REDUCTION_CONFIG['keep_critical_patterns']:
+        sampled_indices = critical_indices.copy()
+        remaining_quota = target_rows - len(sampled_indices)
+        print(f"  • 필수 패턴 보존: {len(sampled_indices):,}개")
+    else:
+        sampled_indices = []
+        remaining_quota = target_rows
+    
+    # 세그먼트별로 추가 샘플링
+    if remaining_quota > 0:
+        # 점수 순으로 정렬
+        sorted_segments = sorted(segment_scores.items(), key=lambda x: x[1], reverse=True)
         
-        # 목표 크기에 도달하면 중단
-        if total_rows + segment_size > target_sequences * 1.5:  # 여유 있게
-            break
-        
-        selected_segments.append(seg_id)
-        total_rows += segment_size
-        
-        if len(selected_segments) >= segments_needed:
-            break
-    
-    print(f"  • 선택된 세그먼트: {len(selected_segments)}개")
-    print(f"  • 예상 시퀀스 수: ~{total_rows - LOOKBACK - FORECAST:,}개")
-    
-    # 선택된 세그먼트의 데이터만 추출
-    reduced_df = df[df['segment_id'].isin(selected_segments)].copy()
-    
-    return reduced_df
-
-# ============================================
-# 슬라이딩 윈도우 샘플링
-# ============================================
-def sliding_window_sampling(df, valid_segments):
-    """슬라이딩 윈도우 방식으로 샘플링"""
-    print("\n📊 슬라이딩 윈도우 샘플링 중...")
-    
-    target_sequences = REDUCTION_CONFIG['target_sequences']
-    
-    # 각 세그먼트에서 균등하게 샘플링
-    sampled_indices = []
-    sequences_per_segment = target_sequences // len(valid_segments)
-    
-    for seg_id in valid_segments.index:
-        segment_df = df[df['segment_id'] == seg_id]
-        segment_indices = segment_df.index.tolist()
-        
-        # 이 세그먼트에서 가능한 시퀀스 수
-        max_sequences = len(segment_indices) - LOOKBACK - FORECAST
-        
-        if max_sequences <= 0:
-            continue
-        
-        # 샘플링 간격 계산
-        n_samples = min(sequences_per_segment, max_sequences)
-        step = max(1, max_sequences // n_samples)
-        
-        # 시작 지점들 선택
-        for i in range(LOOKBACK, len(segment_indices) - FORECAST, step):
-            # 시퀀스에 필요한 인덱스들 (100분 + 10분)
-            sequence_indices = segment_indices[i-LOOKBACK:i+FORECAST]
-            sampled_indices.extend(sequence_indices)
-            
-            if len(set(sampled_indices)) // (LOOKBACK + FORECAST) >= target_sequences:
+        for seg_id, score in sorted_segments:
+            if remaining_quota <= 0:
                 break
+            
+            seg_df = df[df['segment_id'] == seg_id]
+            
+            # 이미 선택된 것 제외
+            unselected = seg_df[~seg_df.index.isin(sampled_indices)]
+            
+            if len(unselected) == 0:
+                continue
+            
+            # 이 세그먼트에서 샘플링할 개수
+            seg_quota = min(remaining_quota, len(unselected) // 2)
+            
+            if seg_quota > 0:
+                # 균등 간격 샘플링
+                step = max(1, len(unselected) // seg_quota)
+                seg_samples = unselected.iloc[::step].index.tolist()
+                sampled_indices.extend(seg_samples[:seg_quota])
+                remaining_quota -= len(seg_samples[:seg_quota])
         
-        if len(set(sampled_indices)) // (LOOKBACK + FORECAST) >= target_sequences:
-            break
+        print(f"  • 추가 샘플링: {target_rows - remaining_quota:,}개")
     
-    # 중복 제거하고 정렬
+    # 5. 최종 데이터 생성
+    print("\n📦 최종 데이터 생성 중...")
+    
+    # 선택된 인덱스로 데이터 추출
     sampled_indices = sorted(list(set(sampled_indices)))
-    reduced_df = df.loc[sampled_indices].copy()
-    
-    print(f"  • 샘플링된 데이터: {len(reduced_df):,}행")
-    print(f"  • 예상 시퀀스 수: ~{(len(reduced_df) - LOOKBACK - FORECAST):,}개")
-    
-    return reduced_df
-
-# ============================================
-# 데이터 정리 및 검증
-# ============================================
-def clean_and_validate(df):
-    """데이터 정리 및 검증"""
-    print("\n✅ 데이터 정리 및 검증 중...")
+    df_reduced = df.loc[sampled_indices].copy()
     
     # 임시 컬럼 제거
     temp_cols = ['datetime', 'time_diff', 'segment_id', 'temp_ratio']
     for col in temp_cols:
-        if col in df.columns:
-            df = df.drop(col, axis=1)
+        if col in df_reduced.columns:
+            df_reduced = df_reduced.drop(col, axis=1)
     
     # 인덱스 리셋
-    df = df.reset_index(drop=True)
+    df_reduced = df_reduced.reset_index(drop=True)
     
-    # 검증
-    print(f"  • 최종 행 수: {len(df):,}")
-    print(f"  • 컬럼 수: {len(df.columns)}")
+    # 6. 검증
+    print("\n✅ 결과 검증")
+    print("="*60)
+    
+    print(f"축소 결과:")
+    print(f"  • 원본: {original_size:,}행")
+    print(f"  • 축소: {len(df_reduced):,}행")
+    print(f"  • 축소율: {(1 - len(df_reduced)/original_size)*100:.1f}%")
     
     # 시퀀스 생성 가능 확인
-    if len(df) >= LOOKBACK + FORECAST:
-        max_sequences = len(df) - LOOKBACK - FORECAST
-        print(f"  • 생성 가능한 시퀀스: {max_sequences:,}개")
-    else:
-        print(f"  ⚠️ 데이터가 너무 적음! 최소 {LOOKBACK + FORECAST}행 필요")
+    max_sequences = max(0, len(df_reduced) - LOOKBACK - FORECAST)
+    print(f"\n생성 가능 시퀀스: {max_sequences:,}개")
     
-    return df
-
-# ============================================
-# 통계 비교
-# ============================================
-def compare_statistics(df_original, df_reduced):
-    """원본과 축소 데이터 통계 비교"""
-    print("\n📊 통계 비교")
-    print("="*60)
+    # 중요 패턴 보존률
+    if 'TOTALCNT' in df_reduced.columns:
+        orig_1500 = (df['TOTALCNT'] >= 1500).sum()
+        redu_1500 = (df_reduced['TOTALCNT'] >= 1500).sum()
+        if orig_1500 > 0:
+            print(f"\nTOTALCNT ≥ 1500 보존률: {redu_1500/orig_1500*100:.1f}%")
     
-    print(f"크기: {len(df_original):,} → {len(df_reduced):,} ({len(df_reduced)/len(df_original)*100:.1f}%)")
+    if 'M14AM14B' in df_reduced.columns:
+        orig_400 = (df['M14AM14B'] >= 400).sum()
+        redu_400 = (df_reduced['M14AM14B'] >= 400).sum()
+        if orig_400 > 0:
+            print(f"M14AM14B ≥ 400 보존률: {redu_400/orig_400*100:.1f}%")
     
-    if 'TOTALCNT' in df_original.columns:
-        print(f"\nTOTALCNT 통계:")
-        print(f"  • 원본 평균: {df_original['TOTALCNT'].mean():.0f}")
-        print(f"  • 축소 평균: {df_reduced['TOTALCNT'].mean():.0f}")
-        print(f"  • 원본 1500+: {(df_original['TOTALCNT'] >= 1500).mean():.1%}")
-        print(f"  • 축소 1500+: {(df_reduced['TOTALCNT'] >= 1500).mean():.1%}")
-    
-    if 'M14AM14B' in df_original.columns:
-        print(f"\nM14AM14B 통계:")
-        print(f"  • 원본 평균: {df_original['M14AM14B'].mean():.0f}")
-        print(f"  • 축소 평균: {df_reduced['M14AM14B'].mean():.0f}")
-        print(f"  • 원본 400+: {(df_original['M14AM14B'] >= 400).mean():.1%}")
-        print(f"  • 축소 400+: {(df_reduced['M14AM14B'] >= 400).mean():.1%}")
-
-# ============================================
-# 메인 함수
-# ============================================
-def main():
-    print("="*60)
-    print("🚀 시퀀스 학습용 데이터 축소 도구")
-    print(f"📍 설정: {LOOKBACK}분 과거 → {FORECAST}분 미래 예측")
-    print("="*60)
-    
-    # 1. 데이터 로드
-    print(f"\n📂 데이터 로딩: {INPUT_FILE}")
-    df = pd.read_csv(INPUT_FILE)
-    df_original = df.copy()
-    print(f"✅ 원본 크기: {len(df):,}행")
-    
-    # 2. 연속 구간 찾기
-    df, valid_segments = find_continuous_segments(df)
-    
-    if len(valid_segments) == 0:
-        print("❌ 유효한 연속 구간이 없습니다!")
-        return None
-    
-    # 3. 샘플링 수행
-    if REDUCTION_CONFIG['sampling_method'] == 'segment':
-        df_reduced = segment_based_sampling(df, valid_segments)
-    else:
-        df_reduced = sliding_window_sampling(df, valid_segments)
-    
-    # 4. 데이터 정리
-    df_reduced = clean_and_validate(df_reduced)
-    
-    # 5. 통계 비교
-    compare_statistics(df_original, df_reduced)
-    
-    # 6. 저장
+    # 7. 저장
     print(f"\n💾 저장 중: {OUTPUT_FILE}")
     df_reduced.to_csv(OUTPUT_FILE, index=False)
     print(f"✅ 저장 완료!")
     
-    # 7. 최종 안내
+    # 8. 사용 안내
     print("\n" + "="*60)
-    print("✨ 완료! 이제 기존 V6 시퀀스 생성기 사용 가능")
+    print("✨ 완료! V6 시퀀스 생성기 사용 방법:")
     print("="*60)
-    print(f"1. 데이터 파일 경로를 변경하세요:")
+    print("\n1. V6 코드에서 경로만 변경:")
     print(f"   DATA_FILE = '{OUTPUT_FILE}'")
-    print(f"2. 그대로 실행하면 됩니다:")
-    print(f"   python V6_시퀀스_END.PY")
-    print("\n💡 팁: 더 줄이려면 target_sequences를 30000으로 설정")
+    print("\n2. 나머지는 그대로 실행:")
+    print("   python sequence_generator_v6_parallel.py")
+    print("\n💡 추가 옵션:")
+    print("  • 더 작게: target_rows = 50000")
+    print("  • 더 크게: target_rows = 200000")
+    print("  • 모든 패턴: keep_critical_patterns = True (권장)")
     
     return df_reduced
 
