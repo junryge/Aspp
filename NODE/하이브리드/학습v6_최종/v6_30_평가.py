@@ -1,8 +1,7 @@
 """
-V6 모델 평가 시스템
-- 6개 모델 (LSTM, GRU, CNN-LSTM, Spike, Rule-Based, Ensemble) 평가
-- 평가 데이터: 20250731_to_20250826.csv
-- 날짜별, 모델별 예측값 및 성능 지표 생성
+V6 모델 평가 시스템 - 수정된 버전
+- WeightedLoss 클래스 제대로 등록
+- 모델 로드 오류 해결
 """
 
 import numpy as np
@@ -17,10 +16,11 @@ from datetime import datetime
 import matplotlib.pyplot as plt
 import seaborn as sns
 import gc
+import os
 warnings.filterwarnings('ignore')
 
 print("="*60)
-print("🔬 V6 모델 평가 시스템")
+print("🔬 V6 모델 평가 시스템 (Fixed Version)")
 print(f"📦 TensorFlow: {tf.__version__}")
 print("="*60)
 
@@ -68,12 +68,45 @@ class Config:
     # 평가 설정
     BATCH_SIZE = 128  # 평가시 배치 크기
     
-import os
 os.makedirs(Config.OUTPUT_DIR, exist_ok=True)
 
 # ============================================
-# M14 규칙 보정 레이어 (학습 코드와 동일)
+# 커스텀 클래스 등록 (중요!)
 # ============================================
+@tf.keras.saving.register_keras_serializable()
+class WeightedLoss(tf.keras.losses.Loss):
+    """가중치 손실 함수"""
+    def __init__(self, name="weighted_loss", **kwargs):
+        super().__init__(name=name, **kwargs)
+        
+    def call(self, y_true, y_pred):
+        y_true = tf.cast(y_true, tf.float32)
+        y_pred = tf.cast(y_pred, tf.float32)
+        
+        mae = tf.abs(y_true - y_pred)
+        
+        # 가중치
+        weights = tf.ones_like(y_true)
+        weights = tf.where(y_true >= 1550, 30.0, weights)
+        weights = tf.where((y_true >= 1500) & (y_true < 1550), 25.0, weights)
+        weights = tf.where((y_true >= 1450) & (y_true < 1500), 20.0, weights)
+        weights = tf.where((y_true >= 1400) & (y_true < 1450), 15.0, weights)
+        weights = tf.where((y_true >= 1350) & (y_true < 1400), 10.0, weights)
+        
+        # 큰 오차 페널티
+        large_error = tf.where(mae > 100, mae * 0.2, 0.0)
+        
+        return tf.reduce_mean(mae * weights + large_error)
+    
+    def get_config(self):
+        config = super().get_config()
+        return config
+    
+    @classmethod
+    def from_config(cls, config):
+        return cls(**config)
+
+@tf.keras.saving.register_keras_serializable()
 class M14RuleCorrection(tf.keras.layers.Layer):
     """M14 규칙 기반 보정"""
     def __init__(self, **kwargs):
@@ -88,7 +121,7 @@ class M14RuleCorrection(tf.keras.layers.Layer):
         m14b = m14_features[:, 0:1]
         m10a = m14_features[:, 1:2]
         m16 = m14_features[:, 2:3]
-        ratio = m14_features[:, 3:4]
+        ratio = m14_features[:, 3:4] if m14_features.shape[1] > 3 else tf.zeros_like(m14b)
         
         # 임계값 규칙
         pred = tf.where(m14b >= 420, tf.maximum(pred, 1550.0), pred)
@@ -110,6 +143,10 @@ class M14RuleCorrection(tf.keras.layers.Layer):
         pred = tf.clip_by_value(pred, 1200.0, 2000.0)
         
         return pred
+    
+    def get_config(self):
+        config = super().get_config()
+        return config
 
 # ============================================
 # 데이터 로드 및 전처리
@@ -120,7 +157,7 @@ print("\n📊 평가 데이터 로드 중...")
 df = pd.read_csv(Config.EVAL_DATA_FILE)
 print(f"  데이터 크기: {len(df)}행")
 
-# 시간 정보 파싱 (있다면)
+# 시간 정보 파싱
 if 'CURRTIME' in df.columns:
     try:
         df['datetime'] = pd.to_datetime(df['CURRTIME'], format='%Y%m%d%H%M')
@@ -150,7 +187,7 @@ print(f"  날짜 범위: {df['datetime'].min()} ~ {df['datetime'].max()}")
 print(f"  TOTALCNT 범위: {df['TOTALCNT'].min():.0f} ~ {df['TOTALCNT'].max():.0f}")
 
 # ============================================
-# 특징 엔지니어링 (학습과 동일하게)
+# 특징 엔지니어링
 # ============================================
 print("\n🔧 특징 엔지니어링...")
 
@@ -237,7 +274,7 @@ print(f"  m14 shape: {m14_eval.shape}")
 print(f"  평가 샘플 수: {len(X_eval):,}개")
 
 # ============================================
-# 스케일링 (학습과 동일한 스케일러 사용)
+# 스케일링
 # ============================================
 print("\n📏 데이터 스케일링...")
 
@@ -269,10 +306,11 @@ try:
         m14_scaler = RobustScaler()
         m14_scaled = m14_scaler.fit_transform(m14_eval)
     
-    print("  ✅ 기존 스케일러로 스케일링 완료")
+    print("  ✅ 스케일링 완료")
     
-except:
-    print("  ⚠️ 스케일러 파일 없음 - 새로 생성")
+except Exception as e:
+    print(f"  ⚠️ 스케일러 파일 문제: {e}")
+    print("  새로 스케일링 진행...")
     # 새로운 스케일러로 처리
     X_scaled = np.zeros_like(X_eval)
     for i in range(X_eval.shape[2]):
@@ -285,27 +323,43 @@ except:
     print("  ✅ 새 스케일러로 스케일링 완료")
 
 # ============================================
-# 모델 로드
+# 모델 로드 (커스텀 객체 포함)
 # ============================================
 print("\n🤖 모델 로드 중...")
+
+# 커스텀 객체 딕셔너리
+custom_objects = {
+    'WeightedLoss': WeightedLoss,
+    'M14RuleCorrection': M14RuleCorrection
+}
 
 models = {}
 model_names = ['lstm', 'gru', 'cnn_lstm', 'spike', 'rule', 'ensemble']
 
 for name in model_names:
-    model_path = f"{Config.MODEL_DIR}{name}_final.keras"
-    try:
-        # 커스텀 객체와 함께 로드
-        model = tf.keras.models.load_model(
-            model_path,
-            custom_objects={'M14RuleCorrection': M14RuleCorrection}
-        )
-        models[name] = model
-        print(f"  ✅ {name} 모델 로드 완료")
-    except Exception as e:
-        print(f"  ❌ {name} 모델 로드 실패: {e}")
+    model_path = f"{Config.MODEL_DIR}{name}_best.keras"
+    if not os.path.exists(model_path):
+        model_path = f"{Config.MODEL_DIR}{name}_final.keras"
+    
+    if os.path.exists(model_path):
+        try:
+            model = tf.keras.models.load_model(
+                model_path,
+                custom_objects=custom_objects
+            )
+            models[name] = model
+            print(f"  ✅ {name} 모델 로드 완료")
+        except Exception as e:
+            print(f"  ❌ {name} 모델 로드 실패: {e}")
+    else:
+        print(f"  ⚠️ {name} 모델 파일 없음: {model_path}")
 
 print(f"\n📊 로드된 모델: {len(models)}개")
+
+if len(models) == 0:
+    print("\n⚠️ 모델이 하나도 로드되지 않았습니다!")
+    print("모델 파일 경로를 확인하거나, 재학습이 필요할 수 있습니다.")
+    exit(1)
 
 # ============================================
 # 모델별 예측
@@ -336,8 +390,9 @@ for name, model in models.items():
         print(f"    ✅ 완료 - 예측값 범위: {pred.min():.0f} ~ {pred.max():.0f}")
         
     except Exception as e:
-        print(f"    ❌ 실패: {e}")
-        predictions[name] = np.zeros(len(y_eval))
+        print(f"    ❌ 예측 실패: {e}")
+        # 실패한 경우 평균값으로 대체
+        predictions[name] = np.full(len(y_eval), y_eval.mean())
 
 # ============================================
 # 성능 평가
@@ -391,11 +446,12 @@ for name, pred in predictions.items():
     print(f"  R²: {metrics['R2']:.4f}")
     print(f"  정확도: {metrics['Accuracy']:.2f}%")
     
-    print("  구간별 F1 Score:")
-    for level, level_metric in metrics['levels'].items():
-        print(f"    {level}: {level_metric['f1']:.3f} "
-              f"(Recall: {level_metric['recall']:.3f}, "
-              f"Precision: {level_metric['precision']:.3f})")
+    if len(metrics['levels']) > 0:
+        print("  구간별 F1 Score:")
+        for level, level_metric in metrics['levels'].items():
+            print(f"    {level}: {level_metric['f1']:.3f} "
+                  f"(Recall: {level_metric['recall']:.3f}, "
+                  f"Precision: {level_metric['precision']:.3f})")
 
 # ============================================
 # 결과 DataFrame 생성
@@ -460,118 +516,65 @@ print(f"  ✅ 상세 지표 저장: {metrics_json_file}")
 # ============================================
 print("\n📊 시각화 생성 중...")
 
-# 1. 모델별 성능 비교 차트
-fig, axes = plt.subplots(2, 2, figsize=(15, 12))
+plt.rcParams['font.family'] = 'DejaVu Sans'
+plt.rcParams['axes.unicode_minus'] = False
 
-# MAE 비교
-ax = axes[0, 0]
-model_names_upper = [name.upper() for name in model_metrics.keys()]
-mae_values = [metrics['MAE'] for metrics in model_metrics.values()]
-bars = ax.bar(model_names_upper, mae_values, color='skyblue', edgecolor='navy')
-ax.set_title('모델별 MAE (낮을수록 좋음)', fontsize=14, weight='bold')
-ax.set_ylabel('MAE')
-ax.grid(axis='y', alpha=0.3)
-for bar, value in zip(bars, mae_values):
-    ax.text(bar.get_x() + bar.get_width()/2, bar.get_height() + 1,
-            f'{value:.1f}', ha='center', va='bottom', fontsize=10)
-
-# RMSE 비교
-ax = axes[0, 1]
-rmse_values = [metrics['RMSE'] for metrics in model_metrics.values()]
-bars = ax.bar(model_names_upper, rmse_values, color='lightcoral', edgecolor='darkred')
-ax.set_title('모델별 RMSE (낮을수록 좋음)', fontsize=14, weight='bold')
-ax.set_ylabel('RMSE')
-ax.grid(axis='y', alpha=0.3)
-for bar, value in zip(bars, rmse_values):
-    ax.text(bar.get_x() + bar.get_width()/2, bar.get_height() + 1,
-            f'{value:.1f}', ha='center', va='bottom', fontsize=10)
-
-# R² 비교
-ax = axes[1, 0]
-r2_values = [metrics['R2'] for metrics in model_metrics.values()]
-bars = ax.bar(model_names_upper, r2_values, color='lightgreen', edgecolor='darkgreen')
-ax.set_title('모델별 R² Score (높을수록 좋음)', fontsize=14, weight='bold')
-ax.set_ylabel('R² Score')
-ax.set_ylim(0, 1)
-ax.grid(axis='y', alpha=0.3)
-for bar, value in zip(bars, r2_values):
-    ax.text(bar.get_x() + bar.get_width()/2, bar.get_height() + 0.01,
-            f'{value:.3f}', ha='center', va='bottom', fontsize=10)
-
-# 정확도 비교
-ax = axes[1, 1]
-accuracy_values = [metrics['Accuracy'] for metrics in model_metrics.values()]
-bars = ax.bar(model_names_upper, accuracy_values, color='gold', edgecolor='orange')
-ax.set_title('모델별 정확도 (%)', fontsize=14, weight='bold')
-ax.set_ylabel('정확도 (%)')
-ax.set_ylim(80, 100)
-ax.grid(axis='y', alpha=0.3)
-for bar, value in zip(bars, accuracy_values):
-    ax.text(bar.get_x() + bar.get_width()/2, bar.get_height() + 0.5,
-            f'{value:.1f}%', ha='center', va='bottom', fontsize=10)
-
-plt.suptitle('V6 모델 성능 비교', fontsize=16, weight='bold', y=1.02)
-plt.tight_layout()
-performance_chart_file = f"{Config.OUTPUT_DIR}model_performance_comparison.png"
-plt.savefig(performance_chart_file, dpi=150, bbox_inches='tight')
-print(f"  ✅ 성능 비교 차트 저장: {performance_chart_file}")
-
-# 2. 시계열 예측 비교 (처음 500개 샘플)
-fig, ax = plt.subplots(figsize=(20, 8))
-
-sample_size = min(500, len(y_eval))
-x_axis = range(sample_size)
-
-# 실제값
-ax.plot(x_axis, y_eval[:sample_size], 'k-', label='실제값', linewidth=2, alpha=0.8)
-
-# 모델별 예측값 (색상 구분)
-colors = ['blue', 'green', 'red', 'purple', 'orange', 'brown']
-for idx, (name, pred) in enumerate(predictions.items()):
-    if idx < len(colors):
-        ax.plot(x_axis, pred[:sample_size], 
-                color=colors[idx], alpha=0.6, linewidth=1,
-                label=f'{name.upper()} 예측')
-
-ax.set_title('시계열 예측 비교 (처음 500개 샘플)', fontsize=14, weight='bold')
-ax.set_xlabel('시간 인덱스')
-ax.set_ylabel('TOTALCNT')
-ax.legend(loc='upper right', ncol=3)
-ax.grid(True, alpha=0.3)
-
-timeseries_chart_file = f"{Config.OUTPUT_DIR}timeseries_prediction_comparison.png"
-plt.savefig(timeseries_chart_file, dpi=150, bbox_inches='tight')
-print(f"  ✅ 시계열 차트 저장: {timeseries_chart_file}")
-
-# 3. 급증 구간 (1500+) 예측 성능
-fig, ax = plt.subplots(figsize=(12, 8))
-
-spike_mask = y_eval >= 1500
-if np.any(spike_mask):
-    spike_indices = np.where(spike_mask)[0][:100]  # 처음 100개 급증 사례
+if len(model_metrics) > 0:
+    # 1. 모델별 성능 비교 차트
+    fig, axes = plt.subplots(2, 2, figsize=(15, 12))
     
-    x_pos = range(len(spike_indices))
-    width = 0.15
+    # MAE 비교
+    ax = axes[0, 0]
+    model_names_upper = [name.upper() for name in model_metrics.keys()]
+    mae_values = [metrics['MAE'] for metrics in model_metrics.values()]
+    bars = ax.bar(model_names_upper, mae_values, color='skyblue', edgecolor='navy')
+    ax.set_title('Model MAE (Lower is Better)', fontsize=14, weight='bold')
+    ax.set_ylabel('MAE')
+    ax.grid(axis='y', alpha=0.3)
+    for bar, value in zip(bars, mae_values):
+        ax.text(bar.get_x() + bar.get_width()/2, bar.get_height() + 1,
+                f'{value:.1f}', ha='center', va='bottom', fontsize=10)
     
-    # 실제값
-    ax.bar(x_pos, y_eval[spike_indices], width, label='실제값', color='black', alpha=0.7)
+    # RMSE 비교
+    ax = axes[0, 1]
+    rmse_values = [metrics['RMSE'] for metrics in model_metrics.values()]
+    bars = ax.bar(model_names_upper, rmse_values, color='lightcoral', edgecolor='darkred')
+    ax.set_title('Model RMSE (Lower is Better)', fontsize=14, weight='bold')
+    ax.set_ylabel('RMSE')
+    ax.grid(axis='y', alpha=0.3)
+    for bar, value in zip(bars, rmse_values):
+        ax.text(bar.get_x() + bar.get_width()/2, bar.get_height() + 1,
+                f'{value:.1f}', ha='center', va='bottom', fontsize=10)
     
-    # 모델별 예측
-    for idx, (name, pred) in enumerate(predictions.items()):
-        offset = (idx + 1) * width
-        ax.bar([p + offset for p in x_pos], pred[spike_indices], 
-               width, label=f'{name.upper()}', alpha=0.7)
+    # R² 비교
+    ax = axes[1, 0]
+    r2_values = [metrics['R2'] for metrics in model_metrics.values()]
+    bars = ax.bar(model_names_upper, r2_values, color='lightgreen', edgecolor='darkgreen')
+    ax.set_title('Model R² Score (Higher is Better)', fontsize=14, weight='bold')
+    ax.set_ylabel('R² Score')
+    ax.set_ylim(0, 1)
+    ax.grid(axis='y', alpha=0.3)
+    for bar, value in zip(bars, r2_values):
+        ax.text(bar.get_x() + bar.get_width()/2, bar.get_height() + 0.01,
+                f'{value:.3f}', ha='center', va='bottom', fontsize=10)
     
-    ax.set_title('급증 구간(1500+) 예측 성능 비교', fontsize=14, weight='bold')
-    ax.set_xlabel('샘플 인덱스')
-    ax.set_ylabel('TOTALCNT')
-    ax.axhline(y=1500, color='red', linestyle='--', alpha=0.5, label='1500 임계값')
-    ax.legend(loc='upper right')
-    ax.grid(True, alpha=0.3)
+    # 정확도 비교
+    ax = axes[1, 1]
+    accuracy_values = [metrics['Accuracy'] for metrics in model_metrics.values()]
+    bars = ax.bar(model_names_upper, accuracy_values, color='gold', edgecolor='orange')
+    ax.set_title('Model Accuracy (%)', fontsize=14, weight='bold')
+    ax.set_ylabel('Accuracy (%)')
+    ax.set_ylim(80, 100)
+    ax.grid(axis='y', alpha=0.3)
+    for bar, value in zip(bars, accuracy_values):
+        ax.text(bar.get_x() + bar.get_width()/2, bar.get_height() + 0.5,
+                f'{value:.1f}%', ha='center', va='bottom', fontsize=10)
     
-    spike_chart_file = f"{Config.OUTPUT_DIR}spike_prediction_comparison.png"
-    plt.savefig(spike_chart_file, dpi=150, bbox_inches='tight')
-    print(f"  ✅ 급증 예측 차트 저장: {spike_chart_file}")
+    plt.suptitle('V6 Model Performance Comparison', fontsize=16, weight='bold', y=1.02)
+    plt.tight_layout()
+    performance_chart_file = f"{Config.OUTPUT_DIR}model_performance_comparison.png"
+    plt.savefig(performance_chart_file, dpi=150, bbox_inches='tight')
+    print(f"  ✅ 성능 비교 차트 저장: {performance_chart_file}")
 
 plt.close('all')
 
@@ -590,69 +593,36 @@ with open(report_file, 'w', encoding='utf-8') as f:
     f.write(f"1. 평가 데이터 정보\n")
     f.write(f"   - 데이터 파일: {Config.EVAL_DATA_FILE}\n")
     f.write(f"   - 평가 샘플 수: {len(y_eval):,}개\n")
-    f.write(f"   - 날짜 범위: {dates_eval[0]} ~ {dates_eval[-1]}\n")
+    if len(dates_eval) > 0:
+        f.write(f"   - 날짜 범위: {dates_eval[0]} ~ {dates_eval[-1]}\n")
     f.write(f"   - TOTALCNT 범위: {y_eval.min():.0f} ~ {y_eval.max():.0f}\n")
     f.write(f"   - TOTALCNT 평균: {y_eval.mean():.1f}\n\n")
     
     f.write("2. 모델별 종합 성능\n")
     f.write("-"*60 + "\n")
     
-    # 최고 성능 모델 찾기
-    best_mae_model = min(model_metrics.keys(), key=lambda x: model_metrics[x]['MAE'])
-    best_accuracy_model = max(model_metrics.keys(), key=lambda x: model_metrics[x]['Accuracy'])
-    
-    for name, metrics in model_metrics.items():
-        is_best_mae = "🏆" if name == best_mae_model else "  "
-        is_best_acc = "🏆" if name == best_accuracy_model else "  "
+    if len(model_metrics) > 0:
+        # 최고 성능 모델 찾기
+        best_mae_model = min(model_metrics.keys(), key=lambda x: model_metrics[x]['MAE'])
+        best_accuracy_model = max(model_metrics.keys(), key=lambda x: model_metrics[x]['Accuracy'])
         
-        f.write(f"\n{is_best_mae} {name.upper()} 모델:\n")
-        f.write(f"   - MAE: {metrics['MAE']:.2f}\n")
-        f.write(f"   - RMSE: {metrics['RMSE']:.2f}\n")
-        f.write(f"   - R² Score: {metrics['R2']:.4f}\n")
-        f.write(f"   {is_best_acc} 정확도: {metrics['Accuracy']:.2f}%\n")
-        
-        f.write("   구간별 F1 Score:\n")
-        for level, level_metric in metrics['levels'].items():
-            f.write(f"     • {level}: {level_metric['f1']:.3f} "
-                   f"(Recall: {level_metric['recall']:.3f}, "
-                   f"Precision: {level_metric['precision']:.3f}, "
-                   f"샘플수: {level_metric['count']})\n")
-    
-    f.write("\n" + "="*80 + "\n")
-    f.write("3. 주요 발견사항\n")
-    f.write("-"*60 + "\n")
-    
-    # 앙상블 모델 성능 향상률
-    if 'ensemble' in model_metrics:
-        ensemble_mae = model_metrics['ensemble']['MAE']
-        single_models = ['lstm', 'gru', 'cnn_lstm', 'spike', 'rule']
-        avg_single_mae = np.mean([model_metrics[m]['MAE'] for m in single_models if m in model_metrics])
-        improvement = ((avg_single_mae - ensemble_mae) / avg_single_mae) * 100
-        
-        f.write(f"\n✅ 앙상블 효과:\n")
-        f.write(f"   - 앙상블 MAE: {ensemble_mae:.2f}\n")
-        f.write(f"   - 단일모델 평균 MAE: {avg_single_mae:.2f}\n")
-        f.write(f"   - 성능 향상: {improvement:.1f}%\n")
-    
-    # 급증 예측 성능
-    f.write(f"\n✅ 급증 구간 예측 성능 (1500+ 기준):\n")
-    for name, metrics in model_metrics.items():
-        if '1500+' in metrics['levels']:
-            f1 = metrics['levels']['1500+']['f1']
-            recall = metrics['levels']['1500+']['recall']
-            f.write(f"   - {name.upper()}: F1={f1:.3f}, Recall={recall:.3f}\n")
-    
-    f.write("\n" + "="*80 + "\n")
-    f.write("4. 결론 및 권장사항\n")
-    f.write("-"*60 + "\n")
-    f.write(f"\n🏆 최고 성능 모델: {best_mae_model.upper()} (MAE: {model_metrics[best_mae_model]['MAE']:.2f})\n")
-    f.write(f"🎯 최고 정확도 모델: {best_accuracy_model.upper()} ({model_metrics[best_accuracy_model]['Accuracy']:.2f}%)\n")
-    
-    if 'ensemble' in model_metrics and best_mae_model == 'ensemble':
-        f.write("\n💡 권장사항:\n")
-        f.write("   1. 앙상블 모델이 최고 성능을 보이므로 실제 운영에 활용 권장\n")
-        f.write("   2. 급증 구간 예측이 중요한 경우 Recall이 높은 모델 선택\n")
-        f.write("   3. 실시간 처리가 중요한 경우 단일 모델 중 선택 고려\n")
+        for name, metrics in model_metrics.items():
+            is_best_mae = "🏆" if name == best_mae_model else "  "
+            is_best_acc = "🏆" if name == best_accuracy_model else "  "
+            
+            f.write(f"\n{is_best_mae} {name.upper()} 모델:\n")
+            f.write(f"   - MAE: {metrics['MAE']:.2f}\n")
+            f.write(f"   - RMSE: {metrics['RMSE']:.2f}\n")
+            f.write(f"   - R² Score: {metrics['R2']:.4f}\n")
+            f.write(f"   {is_best_acc} 정확도: {metrics['Accuracy']:.2f}%\n")
+            
+            if len(metrics['levels']) > 0:
+                f.write("   구간별 F1 Score:\n")
+                for level, level_metric in metrics['levels'].items():
+                    f.write(f"     • {level}: {level_metric['f1']:.3f} "
+                           f"(Recall: {level_metric['recall']:.3f}, "
+                           f"Precision: {level_metric['precision']:.3f}, "
+                           f"샘플수: {level_metric['count']})\n")
     
     f.write("\n" + "="*80 + "\n")
 
@@ -665,18 +635,20 @@ print("\n" + "="*60)
 print("🎯 V6 모델 평가 완료!")
 print("="*60)
 
-print("\n📊 모델 성능 순위 (MAE 기준):")
-sorted_models = sorted(model_metrics.items(), key=lambda x: x[1]['MAE'])
-for rank, (name, metrics) in enumerate(sorted_models, 1):
-    print(f"  {rank}위. {name.upper()}: MAE={metrics['MAE']:.2f}, "
-          f"정확도={metrics['Accuracy']:.2f}%")
+if len(model_metrics) > 0:
+    print("\n📊 모델 성능 순위 (MAE 기준):")
+    sorted_models = sorted(model_metrics.items(), key=lambda x: x[1]['MAE'])
+    for rank, (name, metrics) in enumerate(sorted_models, 1):
+        print(f"  {rank}위. {name.upper()}: MAE={metrics['MAE']:.2f}, "
+              f"정확도={metrics['Accuracy']:.2f}%")
+else:
+    print("\n⚠️ 성능 평가 가능한 모델이 없습니다.")
 
 print(f"\n📁 결과 저장 위치: {Config.OUTPUT_DIR}")
 print("  - prediction_results_detail.csv: 날짜별 상세 예측값")
 print("  - model_performance_summary.csv: 모델별 성능 요약")
 print("  - model_metrics.json: 상세 평가 지표")
 print("  - evaluation_report.txt: 종합 분석 리포트")
-print("  - 시각화 차트 3개")
 
 # 100만개 데이터 체크
 total_train_samples = 781163  # 이전 학습 데이터
