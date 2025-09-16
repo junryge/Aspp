@@ -451,20 +451,110 @@ def main():
         predictions['baseline'] = baseline_pred
         results['baseline'] = evaluate(y, baseline_pred, 'Baseline')
         
-        # 5. 최고 모델
+        # 5. 최고 모델 및 상세 성능 출력
         if results:
             best = min(results.keys(), key=lambda x: results[x]['mae'])
             print("\n" + "="*60)
             print(f"🏆 최고 성능: {best.upper()}")
             print(f"   MAE: {results[best]['mae']:.2f}")
+            print(f"   RMSE: {results[best]['rmse']:.2f}")
             print(f"   정확도(±50): {results[best]['acc_50']:.1f}%")
+            print(f"   정확도(±100): {results[best]['acc_100']:.1f}%")
             print("="*60)
+            
+            # 모든 모델 성능 비교
+            print("\n📊 모델별 성능 비교:")
+            print("-"*60)
+            print(f"{'모델':<15} {'MAE':<10} {'RMSE':<10} {'R²':<10} {'±50':<10} {'±100':<10}")
+            print("-"*60)
+            
+            for name, result in results.items():
+                # R² 계산
+                ss_res = np.sum((y - predictions[name]) ** 2)
+                ss_tot = np.sum((y - np.mean(y)) ** 2)
+                r2 = 1 - (ss_res / ss_tot) if ss_tot > 0 else 0
+                
+                print(f"{name:<15} {result['mae']:<10.2f} {result['rmse']:<10.2f} "
+                      f"{r2:<10.3f} {result['acc_50']:<10.1f} {result['acc_100']:<10.1f}")
+            print("-"*60)
         
-        # 6. 결과 저장
+        # 6. 예측 결과 샘플 출력
+        print("\n🔍 예측 샘플 (처음 20개):")
+        print("-"*80)
+        print(f"{'Index':<8} {'실제값':<10} {'Rule예측':<10} {'Baseline':<10} {'오차(Rule)':<12} {'정확도':<10}")
+        print("-"*80)
+        
+        for i in range(min(20, len(y))):
+            actual = y[i]
+            rule_pred = predictions['rule_based'][i]
+            base_pred = predictions['baseline'][i]
+            error = rule_pred - actual
+            accuracy = "✅" if abs(error) <= 50 else "⚠️" if abs(error) <= 100 else "❌"
+            
+            print(f"{i:<8} {actual:<10.0f} {rule_pred:<10.0f} {base_pred:<10.0f} "
+                  f"{error:<12.1f} {accuracy:<10}")
+        
+        # 7. CSV 파일로 예측 결과 저장
+        print("\n💾 예측 결과 CSV 저장 중...")
+        
+        # 전체 예측 결과 DataFrame 생성
+        results_df = pd.DataFrame({
+            '실제값': y,
+            'Rule_Based_예측': predictions['rule_based'],
+            'Baseline_예측': predictions['baseline'],
+            'Rule_오차': predictions['rule_based'] - y,
+            'Baseline_오차': predictions['baseline'] - y,
+            'Rule_절대오차': np.abs(predictions['rule_based'] - y),
+            'Baseline_절대오차': np.abs(predictions['baseline'] - y)
+        })
+        
+        # 딥러닝 모델 예측값 추가 (있는 경우)
+        for name in ['lstm', 'gru']:
+            if name in predictions:
+                results_df[f'{name.upper()}_예측'] = predictions[name]
+                results_df[f'{name.upper()}_오차'] = predictions[name] - y
+        
+        # 통계 추가
+        results_df['50이내_정확'] = results_df['Rule_절대오차'] <= 50
+        results_df['100이내_정확'] = results_df['Rule_절대오차'] <= 100
+        
+        # CSV 저장
+        csv_path = f'{Config.EVAL_RESULT_DIR}prediction_results.csv'
+        results_df.to_csv(csv_path, index=False, encoding='utf-8-sig')
+        print(f"  ✅ CSV 저장 완료: {csv_path}")
+        
+        # 요약 통계
+        print("\n📈 예측 결과 요약:")
+        print(f"  전체 샘플 수: {len(results_df):,}개")
+        print(f"  Rule-Based MAE: {results_df['Rule_절대오차'].mean():.2f}")
+        print(f"  Baseline MAE: {results_df['Baseline_절대오차'].mean():.2f}")
+        print(f"  50 이내 정확도: {results_df['50이내_정확'].sum():,}개 ({results_df['50이내_정확'].mean()*100:.1f}%)")
+        print(f"  100 이내 정확도: {results_df['100이내_정확'].sum():,}개 ({results_df['100이내_정확'].mean()*100:.1f}%)")
+        
+        # 급증 구간 분석
+        print("\n🎯 급증 구간(1400+) 예측 성능:")
+        spike_mask = y >= 1400
+        if spike_mask.sum() > 0:
+            spike_actual = y[spike_mask]
+            spike_rule = predictions['rule_based'][spike_mask]
+            spike_mae = np.mean(np.abs(spike_actual - spike_rule))
+            spike_detected = (spike_rule >= 1400).sum()
+            
+            print(f"  실제 급증 횟수: {spike_mask.sum()}회")
+            print(f"  예측 성공: {spike_detected}회 ({spike_detected/spike_mask.sum()*100:.1f}%)")
+            print(f"  급증 구간 MAE: {spike_mae:.2f}")
+        
+        # 8. 결과 JSON 저장
         with open(f'{Config.EVAL_RESULT_DIR}results_tf216.json', 'w') as f:
+            # R² 추가
+            for name in results:
+                ss_res = np.sum((y - predictions[name]) ** 2)
+                ss_tot = np.sum((y - np.mean(y)) ** 2)
+                results[name]['r2'] = float(1 - (ss_res / ss_tot)) if ss_tot > 0 else 0
+            
             json.dump(results, f, indent=2, default=float)
         
-        # 7. 시각화
+        # 9. 시각화
         if len(predictions) > 0:
             visualize_results(y, predictions, results)
         
