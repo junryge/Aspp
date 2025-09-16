@@ -56,7 +56,8 @@ os.makedirs(Config.PLOT_DIR, exist_ok=True)
 class RuleBasedPredictor:
     """M14 규칙 기반 예측기"""
     
-    def __init__(self):
+    def __init__(self, totalcnt_idx=4):
+        self.totalcnt_idx = totalcnt_idx
         self.thresholds = {
             'M14B': [250, 300, 350, 400, 450],
             'predictions': [1350, 1400, 1450, 1500, 1550],
@@ -69,11 +70,8 @@ class RuleBasedPredictor:
         predictions = []
         
         for i in range(len(X)):
-            # 최근 TOTALCNT 값들 (4번째 컬럼)
-            try:
-                recent_values = X[i, -20:, 4]  # TOTALCNT 위치
-            except:
-                recent_values = X[i, -20:, 3]  # 다른 위치 시도
+            # 최근 TOTALCNT 값들 (정확한 인덱스 사용)
+            recent_values = X[i, -20:, self.totalcnt_idx]
             
             current_value = recent_values[-1]
             recent_avg = np.mean(recent_values)
@@ -262,10 +260,18 @@ def create_sequences(df):
     
     data = df.values
     
+    # TOTALCNT 컬럼 인덱스 찾기
+    column_names = df.columns.tolist()
+    if 'TOTALCNT' in column_names:
+        totalcnt_idx = column_names.index('TOTALCNT')
+    else:
+        totalcnt_idx = 4  # 기본 위치
+    
+    print(f"  TOTALCNT 인덱스: {totalcnt_idx}")
+    
     for i in range(len(data) - Config.LOOKBACK - Config.FORECAST):
         X.append(data[i:i+Config.LOOKBACK])
-        # TOTALCNT 위치 찾기
-        totalcnt_idx = 4  # 기본 위치
+        # 10분 후 TOTALCNT 값
         y.append(data[i+Config.LOOKBACK+Config.FORECAST-1, totalcnt_idx])
     
     X = np.array(X, dtype=np.float32)
@@ -402,6 +408,15 @@ def main():
     try:
         # 1. 데이터 준비
         df = prepare_data(Config.EVAL_DATA_FILE)
+        
+        # TOTALCNT 인덱스 확인
+        column_names = df.columns.tolist()
+        if 'TOTALCNT' in column_names:
+            totalcnt_idx = column_names.index('TOTALCNT')
+        else:
+            totalcnt_idx = 4
+        print(f"  TOTALCNT 컬럼 인덱스: {totalcnt_idx}")
+        
         X, y = create_sequences(df)
         
         print(f"\n📊 데이터 shape:")
@@ -409,12 +424,16 @@ def main():
         print(f"  y: {y.shape}")
         print(f"  y 범위: {y.min():.0f} ~ {y.max():.0f}")
         
-        # 2. M14 특징 추출
+        # 2. M14 특징 추출 (컬럼 인덱스 확인)
+        m14b_idx = column_names.index('M14AM14B') if 'M14AM14B' in column_names else 1
+        m10a_idx = column_names.index('M14AM10A') if 'M14AM10A' in column_names else 0
+        m16_idx = column_names.index('M14AM16') if 'M14AM16' in column_names else 2
+        
         m14_features = np.zeros((len(X), 4))
-        m14_features[:, 0] = X[:, -1, 1]  # M14AM14B
-        m14_features[:, 1] = X[:, -1, 0]  # M14AM10A
-        m14_features[:, 2] = X[:, -1, 2]  # M14AM16
-        m14_features[:, 3] = X[:, -1, 1] / (X[:, -1, 0] + 1)  # 비율
+        m14_features[:, 0] = X[:, -1, m14b_idx]  # M14AM14B
+        m14_features[:, 1] = X[:, -1, m10a_idx]  # M14AM10A
+        m14_features[:, 2] = X[:, -1, m16_idx]   # M14AM16
+        m14_features[:, 3] = X[:, -1, m14b_idx] / (X[:, -1, m10a_idx] + 1)  # 비율
         
         # 3. 스케일링
         print("\n📏 스케일링...")
@@ -431,16 +450,16 @@ def main():
         predictions = {}
         results = {}
         
-        # 4-1. 규칙 기반 예측 (핵심!)
+        # 4-1. 규칙 기반 예측 (TOTALCNT 인덱스 전달)
         print("\n🎯 규칙 기반 예측...")
-        rule_predictor = RuleBasedPredictor()
+        rule_predictor = RuleBasedPredictor(totalcnt_idx=totalcnt_idx)
         rule_pred = rule_predictor.predict(X, m14_features)
         predictions['rule_based'] = rule_pred
         results['rule_based'] = evaluate(y, rule_pred, 'Rule-Based')
         
         # 4-2. 베이스라인 (단순 평균)
         print("\n📊 베이스라인 예측...")
-        baseline_pred = np.array([np.mean(X[i, -10:, 4]) for i in range(len(X))])
+        baseline_pred = np.array([np.mean(X[i, -10:, totalcnt_idx]) for i in range(len(X))])
         predictions['baseline'] = baseline_pred
         results['baseline'] = evaluate(y, baseline_pred, 'Baseline')
         
