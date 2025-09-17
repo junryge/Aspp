@@ -1,27 +1,4 @@
 """
-def build_ensemble_base(self):
-    """앙상블용 베이스 모델"""
-    inputs = Input(shape=self.input_shape)
-    
-    x = BatchNormalization()(inputs)
-    
-    # [수정된 부분] 3D 시퀀스 입력을 2D로 변환하는 레이어를 추가합니다.
-    x = GlobalAveragePooling1D()(x)
-    
-    # Simple but effective
-    x = Dense(128, activation='relu')(x)
-    x = Dropout(0.3)(x)
-    x = Dense(64, activation='relu')(x)
-    x = Dropout(0.3)(x)
-    x = Dense(32, activation='relu')(x)
-    x = Dropout(0.2)(x)
-    
-    outputs = Dense(1, activation='sigmoid')(x)
-    
-    model = Model(inputs, outputs, name='EnsembleBase')
-    return model
-
-
 🚀 Ultimate 1700+ Predictor v8.0 - Production Ready
 ==================================================
 - Infinity/NaN 오류 완전 해결
