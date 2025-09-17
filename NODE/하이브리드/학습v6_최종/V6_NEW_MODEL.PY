@@ -510,12 +510,26 @@ class ModelTrainer:
         
         model = self.models[model_name]
         
+        # 커스텀 손실 함수 (클래스 불균형 처리)
+        def weighted_sparse_categorical_crossentropy(y_true, y_pred):
+            # 클래스별 가중치 적용
+            weights = tf.constant([1.0, 5.0, 200.0])
+            
+            # sparse_categorical_crossentropy 계산
+            loss = tf.keras.losses.sparse_categorical_crossentropy(y_true, y_pred)
+            
+            # 가중치 적용
+            weight_map = tf.gather(weights, tf.cast(y_true, tf.int32))
+            weighted_loss = loss * weight_map
+            
+            return tf.reduce_mean(weighted_loss)
+        
         # 컴파일
         model.compile(
             optimizer=Adam(learning_rate=0.001),
             loss={
                 'regression': 'mse',
-                'classification': 'sparse_categorical_crossentropy'
+                'classification': weighted_sparse_categorical_crossentropy
             },
             loss_weights={'regression': 0.3, 'classification': 0.7},
             metrics={
@@ -551,10 +565,11 @@ class ModelTrainer:
             )
         ]
         
-        # 클래스 가중치
-        class_weights = {0: 1.0, 1: 5.0, 2: 200.0}
+        # 클래스별 샘플 가중치 생성 (class_weight 대체)
+        class_weight_dict = {0: 1.0, 1: 5.0, 2: 200.0}
+        sample_weights = np.array([class_weight_dict[cls] for cls in y_train[1]])
         
-        # 학습
+        # 학습 데이터 준비
         y_train_dict = {'regression': y_train[0], 'classification': y_train[1]}
         y_val_dict = {'regression': y_val[0], 'classification': y_val[1]}
         
@@ -566,7 +581,7 @@ class ModelTrainer:
             initial_epoch=initial_epoch,
             batch_size=256,
             callbacks=callbacks,
-            class_weight={'classification': class_weights},
+            # sample_weight 제거 (커스텀 손실 함수에서 처리)
             verbose=1
         )
         
