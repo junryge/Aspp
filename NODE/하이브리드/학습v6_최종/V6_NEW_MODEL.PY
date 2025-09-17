@@ -61,20 +61,9 @@ class DataProcessor:
         df = pd.read_csv(filepath)
         print(f"✅ 원본 데이터: {df.shape[0]:,}행 × {df.shape[1]}열")
         
-        # 0값 제거
+        # 0값만 제거 (심각 구간은 유지!)
         df = df[df['TOTALCNT'] > 0].reset_index(drop=True)
         print(f"✅ 0값 제거 후: {df.shape[0]:,}행")
-        
-        # 이상치 제거 (IQR 방식)
-        Q1 = df['TOTALCNT'].quantile(0.25)
-        Q3 = df['TOTALCNT'].quantile(0.75)
-        IQR = Q3 - Q1
-        lower_bound = Q1 - 1.5 * IQR
-        upper_bound = Q3 + 1.5 * IQR
-        
-        before_outlier = len(df)
-        df = df[(df['TOTALCNT'] >= lower_bound) & (df['TOTALCNT'] <= upper_bound)]
-        print(f"✅ 이상치 제거: {before_outlier - len(df):,}개 제거 ({lower_bound:.0f} ~ {upper_bound:.0f} 범위)")
         
         df['CURRTIME'] = pd.to_datetime(df['CURRTIME'].astype(str), format='%Y%m%d%H%M', errors='coerce')
         df = df.sort_values('CURRTIME').reset_index(drop=True)
@@ -341,11 +330,19 @@ def train_and_evaluate(model, train_data, val_data, test_data, processor):
             model = build_ensemble_base(model.input_shape[1:])
         elif model.name == 'GoldenRule':
             model = build_golden_rule(model.input_shape[1:])
+        
+        # 가중치 손실 함수 - 심각 구간에 더 높은 가중치
+        def weighted_loss(y_true, y_pred):
+            weights = tf.where(y_true >= 1700, 10.0,  # 심각: 10배 가중치
+                      tf.where(y_true >= 1400, 3.0,   # 주의: 3배 가중치
+                              1.0))                     # 정상: 1배
+            loss = Huber(delta=1.0)(y_true, y_pred)
+            return loss * weights
             
         model.compile(
             optimizer=Adam(0.001),
-            loss=[Huber(delta=1.0), 'sparse_categorical_crossentropy'],  # Huber loss 사용
-            loss_weights=[0.5, 0.5],
+            loss=[weighted_loss, 'sparse_categorical_crossentropy'],
+            loss_weights=[0.6, 0.4],  # 회귀에 더 높은 가중치
             metrics={'regression': 'mae', 'classification': 'accuracy'}
         )
     
@@ -389,6 +386,19 @@ def train_and_evaluate(model, train_data, val_data, test_data, processor):
     print(f"  RMSE: {rmse:.2f}")
     print(f"  R²:   {r2:.4f}")
     print(f"  정확도: {acc:.2%}")
+    
+    # 심각 구간 성능 별도 평가
+    critical_mask = y_reg_true_orig >= 1700
+    if critical_mask.sum() > 0:
+        critical_mae = mean_absolute_error(y_reg_true_orig[critical_mask], 
+                                          y_reg_pred_orig[critical_mask])
+        print(f"  🔴 심각구간 MAE: {critical_mae:.2f} ({critical_mask.sum()}개)")
+    
+    warning_mask = (y_reg_true_orig >= 1400) & (y_reg_true_orig < 1700)
+    if warning_mask.sum() > 0:
+        warning_mae = mean_absolute_error(y_reg_true_orig[warning_mask], 
+                                         y_reg_pred_orig[warning_mask])
+        print(f"  🟡 주의구간 MAE: {warning_mae:.2f} ({warning_mask.sum()}개)")
     
     os.makedirs('models', exist_ok=True)
     model.save(f'models/{model.name}.keras')
