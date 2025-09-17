@@ -143,6 +143,11 @@ class DataProcessor:
         print("\n🔄 시퀀스 생성 (배치 처리)...")
         df = df.dropna()
         
+        # 데이터 체크
+        if len(df) == 0:
+            print("❌ 에러: 데이터가 비어있습니다!")
+            return None, None, None
+        
         features = [
             'TOTALCNT', 'M14AM14B', 'M14AM14BSUM', 'M14AM10A', 'M14AM16',
             'M14AM16SUM', 'M10AM14A', 'M14BM14A', 'M16M14A', 'M14AM10ASUM',
@@ -159,16 +164,19 @@ class DataProcessor:
         y_reg = df['TARGET'].values.astype('float32')
         y_cls = df['LEVEL'].values  # 타입 변환 제거
         
+        print(f"  데이터 크기: {X_data.shape}")
+        
         # 스케일링
-        if not self.scaler_fitted:
-            print("  스케일러 학습...")
+        print("  스케일러 처리...")
+        if not self.scaler_fitted or len(X_data) > 0:
+            # 항상 fit_transform 사용 (안전)
             X_scaled = self.feature_scaler.fit_transform(X_data)
             y_reg_scaled = self.target_scaler.fit_transform(y_reg.reshape(-1, 1)).flatten()
             self.scaler_fitted = True
             self.save_scalers()
         else:
-            X_scaled = self.feature_scaler.transform(X_data)
-            y_reg_scaled = self.target_scaler.transform(y_reg.reshape(-1, 1)).flatten()
+            print("❌ 에러: 스케일링할 데이터가 없습니다!")
+            return None, None, None
         
         # 배치별 시퀀스 생성
         total_sequences = len(X_scaled) - self.seq_len
@@ -440,8 +448,8 @@ def main():
     # 데이터 처리
     processor = DataProcessor()
     
-    # 스케일러 로드 시도
-    processor.load_scalers()
+    # 스케일러는 새로 학습 (78만개 데이터에 맞게)
+    # processor.load_scalers()  # 제거
     
     # 데이터 로드
     df = processor.load_and_process(data_path)
@@ -449,6 +457,11 @@ def main():
     
     # 시퀀스 생성 (배치 처리)
     X, y_reg, y_cls = processor.create_sequences(df, batch_size=10000)
+    
+    # 데이터 체크
+    if X is None:
+        print("❌ 시퀀스 생성 실패!")
+        return
     
     # 메모리 정리
     del df
