@@ -1,13 +1,12 @@
 """
-📊 반도체 물류 예측 모델 평가
-================================
-실제값 vs 예측값 비교 및 시각화
+📊 모든 모델 예측값 비교 평가
+============================
+6개 모델의 예측값을 하나의 CSV에 모두 저장
 """
 
 import numpy as np
 import pandas as pd
 import tensorflow as tf
-from sklearn.preprocessing import StandardScaler, RobustScaler
 from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
 import pickle
 import json
@@ -15,28 +14,16 @@ import os
 import warnings
 from datetime import datetime, timedelta
 import matplotlib.pyplot as plt
-import seaborn as sns
 
 warnings.filterwarnings('ignore')
+tf.keras.config.enable_unsafe_deserialization()
 
-# 한글 폰트 설정
-plt.rcParams['font.family'] = 'DejaVu Sans'
-plt.rcParams['axes.unicode_minus'] = False
-
-class ModelEvaluator:
-    def __init__(self, model_path, scaler_path='scalers/'):
-        """모델 평가기 초기화"""
+class CompleteModelEvaluator:
+    def __init__(self, scaler_path='scalers/'):
+        """평가기 초기화"""
         print("="*80)
-        print("📊 모델 평가 시스템")
+        print("📊 전체 모델 예측 평가 시스템")
         print("="*80)
-        
-        # Lambda 레이어 허용
-        tf.keras.config.enable_unsafe_deserialization()
-        
-        # 모델 로드 (safe_mode=False)
-        self.model = tf.keras.models.load_model(model_path, safe_mode=False)
-        self.model_name = os.path.basename(model_path).split('.')[0]
-        print(f"✅ 모델 로드: {self.model_name}")
         
         # 스케일러 로드
         with open(f'{scaler_path}feature_scaler.pkl', 'rb') as f:
@@ -50,6 +37,29 @@ class ModelEvaluator:
             self.feature_columns = config['feature_columns']
         print(f"✅ 스케일러 로드 완료")
         
+        self.models = {}
+        
+    def load_all_models(self, model_dir='models/'):
+        """모든 모델 로드"""
+        print(f"\n📁 모델 로딩...")
+        
+        model_files = [f for f in os.listdir(model_dir) if f.endswith('.keras')]
+        
+        for model_file in model_files:
+            model_name = model_file.replace('.keras', '')
+            model_path = os.path.join(model_dir, model_file)
+            
+            try:
+                self.models[model_name] = tf.keras.models.load_model(
+                    model_path, safe_mode=False
+                )
+                print(f"  ✅ {model_name} 로드 완료")
+            except Exception as e:
+                print(f"  ❌ {model_name} 로드 실패: {e}")
+        
+        print(f"\n총 {len(self.models)}개 모델 로드 완료")
+        return self.models
+    
     def load_test_data(self, filepath):
         """테스트 데이터 로드"""
         print(f"\n📂 평가 데이터 로딩: {filepath}")
@@ -69,247 +79,204 @@ class ModelEvaluator:
     
     def create_features(self, df):
         """특성 생성"""
-        # 기본 특성
         df['RATIO'] = df['M14AM14B'] / (df['M14AM10A'] + 1)
         df['GOLDEN'] = ((df['M14AM14B'] > 300) & (df['M14AM10A'] < 80)).astype(float)
         
-        # 시간
         df['HOUR'] = df['CURRTIME'].dt.hour
         df['HOUR_SIN'] = np.sin(2 * np.pi * df['HOUR'] / 24)
         df['HOUR_COS'] = np.cos(2 * np.pi * df['HOUR'] / 24)
         
-        # 이동평균
         for w in [10, 30]:
             df[f'MA_{w}'] = df['TOTALCNT'].rolling(w, min_periods=1).mean()
             df[f'STD_{w}'] = df['TOTALCNT'].rolling(w, min_periods=1).std().fillna(0)
         
-        # 변화율
         df['CHANGE_1'] = df['TOTALCNT'].diff(1).fillna(0)
         df['CHANGE_10'] = df['TOTALCNT'].diff(10).fillna(0)
         
         return df
     
-    def evaluate(self, test_file):
-        """평가 실행"""
+    def evaluate_all_models(self, test_file):
+        """모든 모델 평가 및 예측값 저장"""
+        
         # 데이터 로드
         df = self.load_test_data(test_file)
         df = self.create_features(df)
         
-        # 결과 저장용
-        results = []
-        
-        print("\n🔮 예측 시작...")
-        print(f"  시퀀스: {self.seq_len}분")
-        print(f"  예측: {self.pred_len}분 후")
-        
-        # 예측 가능한 범위
+        # 예측 가능 범위
         start_idx = self.seq_len
         end_idx = len(df) - self.pred_len
-        
         total = end_idx - start_idx
+        
+        print(f"\n🔮 예측 시작...")
+        print(f"  시퀀스: {self.seq_len}분 → 예측: {self.pred_len}분 후")
         print(f"  예측 개수: {total:,}개")
         
-        predictions = []
-        actuals = []
-        timestamps = []
+        # 모든 예측을 저장할 DataFrame 준비
+        all_predictions = pd.DataFrame()
         
-        # 배치 예측
-        batch_size = 1000
-        for i in range(start_idx, end_idx, batch_size):
-            batch_end = min(i + batch_size, end_idx)
+        # 시간 정보 수집
+        timestamps_pred = []  # 예측 시점
+        timestamps_target = []  # 예측 대상 시간
+        actuals = []  # 실제값
+        
+        print("\n📊 시간 정보 수집 중...")
+        for i in range(start_idx, end_idx):
+            pred_time = df.iloc[i]['CURRTIME']
+            target_time = pred_time + timedelta(minutes=self.pred_len)
             
-            # 배치 데이터 준비
-            X_batch = []
-            for j in range(i, batch_end):
-                # 100분 데이터
-                seq_data = df.iloc[j-self.seq_len:j][self.feature_columns].values
-                X_batch.append(seq_data)
+            actual_idx = i + self.pred_len
+            if actual_idx < len(df):
+                timestamps_pred.append(pred_time)
+                timestamps_target.append(target_time)
+                actuals.append(df.iloc[actual_idx]['TOTALCNT'])
+        
+        # 기본 정보 저장
+        all_predictions['예측시점'] = [t.strftime('%Y-%m-%d %H:%M') for t in timestamps_pred]
+        all_predictions['예측대상시간'] = [t.strftime('%Y-%m-%d %H:%M') for t in timestamps_target]
+        all_predictions['실제값'] = actuals
+        
+        print(f"  예측할 데이터: {len(all_predictions)}개")
+        
+        # 각 모델별 예측
+        model_metrics = {}
+        
+        for model_name, model in self.models.items():
+            print(f"\n🎯 {model_name} 예측 중...")
+            predictions = []
             
-            if len(X_batch) == 0:
-                continue
+            # 배치 예측
+            batch_size = 500
+            for i in range(start_idx, end_idx, batch_size):
+                batch_end = min(i + batch_size, end_idx)
                 
-            # 스케일링
-            X_batch = np.array(X_batch)
-            X_batch_scaled = []
-            for seq in X_batch:
-                seq_scaled = self.feature_scaler.transform(seq)
-                X_batch_scaled.append(seq_scaled)
-            X_batch_scaled = np.array(X_batch_scaled)
-            
-            # 예측
-            preds = self.model.predict(X_batch_scaled, verbose=0)
-            y_pred_scaled = preds[0].flatten()
-            
-            # 역변환
-            y_pred = self.target_scaler.inverse_transform(
-                y_pred_scaled.reshape(-1, 1)).flatten()
-            
-            # 실제값
-            for k, j in enumerate(range(i, batch_end)):
-                actual_time = df.iloc[j]['CURRTIME']
-                pred_time = actual_time + timedelta(minutes=self.pred_len)
+                # 배치 데이터 준비
+                X_batch = []
+                for j in range(i, batch_end):
+                    seq_data = df.iloc[j-self.seq_len:j][self.feature_columns].values
+                    X_batch.append(seq_data)
                 
-                # 10분 후 실제값
-                actual_idx = j + self.pred_len
-                if actual_idx < len(df):
-                    actual_value = df.iloc[actual_idx]['TOTALCNT']
-                    pred_value = y_pred[k]
-                    
-                    predictions.append(pred_value)
-                    actuals.append(actual_value)
-                    timestamps.append(pred_time)
-                    
-                    results.append({
-                        '예측시점': actual_time.strftime('%Y-%m-%d %H:%M'),
-                        '예측대상시간': pred_time.strftime('%Y-%m-%d %H:%M'),
-                        '실제값': actual_value,
-                        '예측값': round(pred_value),
-                        '오차': round(pred_value - actual_value),
-                        '오차율(%)': round(abs(pred_value - actual_value) / actual_value * 100, 2)
-                    })
+                if len(X_batch) == 0:
+                    continue
+                
+                # 스케일링
+                X_batch = np.array(X_batch)
+                X_batch_scaled = []
+                for seq in X_batch:
+                    seq_scaled = self.feature_scaler.transform(seq)
+                    X_batch_scaled.append(seq_scaled)
+                X_batch_scaled = np.array(X_batch_scaled)
+                
+                # 예측
+                preds = model.predict(X_batch_scaled, verbose=0)
+                
+                if isinstance(preds, list):
+                    y_pred_scaled = preds[0].flatten()
+                else:
+                    y_pred_scaled = preds.flatten()
+                
+                # 역변환
+                y_pred = self.target_scaler.inverse_transform(
+                    y_pred_scaled.reshape(-1, 1)).flatten()
+                
+                # 수집
+                for k in range(len(y_pred)):
+                    actual_idx = i - start_idx + k
+                    if actual_idx < len(all_predictions):
+                        predictions.append(y_pred[k])
+                
+                if len(predictions) % 2000 == 0:
+                    print(f"    {len(predictions):,}/{len(all_predictions):,} 완료")
             
-            if len(predictions) % 10000 == 0:
-                print(f"    처리: {len(predictions):,}/{total:,}")
-        
-        print(f"\n✅ 예측 완료: {len(predictions):,}개")
-        
-        # 성능 메트릭
-        predictions = np.array(predictions)
-        actuals = np.array(actuals)
-        
-        mae = mean_absolute_error(actuals, predictions)
-        rmse = np.sqrt(mean_squared_error(actuals, predictions))
-        r2 = r2_score(actuals, predictions)
-        mape = np.mean(np.abs((actuals - predictions) / actuals)) * 100
-        
-        print("\n📊 전체 성능:")
-        print(f"  MAE: {mae:.2f}")
-        print(f"  RMSE: {rmse:.2f}")
-        print(f"  R²: {r2:.4f}")
-        print(f"  MAPE: {mape:.2f}%")
-        print(f"  평균 정확도: {100-mape:.2f}%")
-        
-        # 결과 DataFrame
-        results_df = pd.DataFrame(results)
-        
-        # 시간대별 성능
-        results_df['시간대'] = pd.to_datetime(results_df['예측대상시간']).dt.hour
-        hourly_stats = results_df.groupby('시간대').agg({
-            '오차율(%)': ['mean', 'std'],
-            '오차': ['mean', 'std']
-        }).round(2)
-        
-        print("\n⏰ 시간대별 성능:")
-        print(hourly_stats.head(5))
-        
-        # 구간별 성능
-        results_df['구간'] = pd.cut(results_df['실제값'], 
-                                   bins=[0, 1400, 1700, 999999],
-                                   labels=['정상', '주의', '심각'])
-        
-        level_stats = results_df.groupby('구간').agg({
-            '오차율(%)': ['mean', 'count'],
-            '오차': ['mean', 'std']
-        }).round(2)
-        
-        print("\n📊 구간별 성능:")
-        print(level_stats)
+            # 예측값 컬럼 추가
+            predictions = predictions[:len(all_predictions)]  # 길이 맞추기
+            all_predictions[f'{model_name}_예측'] = [round(p) for p in predictions]
+            all_predictions[f'{model_name}_오차'] = all_predictions[f'{model_name}_예측'] - all_predictions['실제값']
+            all_predictions[f'{model_name}_오차율(%)'] = round(
+                abs(all_predictions[f'{model_name}_오차']) / all_predictions['실제값'] * 100, 2
+            )
+            
+            # 성능 계산
+            mae = mean_absolute_error(all_predictions['실제값'], predictions)
+            rmse = np.sqrt(mean_squared_error(all_predictions['실제값'], predictions))
+            r2 = r2_score(all_predictions['실제값'], predictions)
+            mape = np.mean(abs(all_predictions[f'{model_name}_오차']) / all_predictions['실제값']) * 100
+            
+            model_metrics[model_name] = {
+                'MAE': mae,
+                'RMSE': rmse,
+                'R2': r2,
+                'MAPE': mape,
+                '정확도(%)': 100 - mape
+            }
+            
+            print(f"  ✅ {model_name} 완료: MAE={mae:.2f}, R²={r2:.4f}, 정확도={100-mape:.2f}%")
         
         # CSV 저장
-        output_file = f'evaluation_{self.model_name}_{datetime.now().strftime("%Y%m%d_%H%M%S")}.csv'
-        results_df.to_csv(output_file, index=False, encoding='utf-8-sig')
-        print(f"\n💾 결과 저장: {output_file}")
+        output_file = f'all_models_predictions_{datetime.now().strftime("%Y%m%d_%H%M%S")}.csv'
+        all_predictions.to_csv(output_file, index=False, encoding='utf-8-sig')
+        print(f"\n💾 모든 모델 예측값 저장: {output_file}")
+        
+        # 성능 요약
+        print("\n" + "="*80)
+        print("📊 모델 성능 요약")
+        print("="*80)
+        
+        metrics_df = pd.DataFrame(model_metrics).T
+        metrics_df = metrics_df.sort_values('R2', ascending=False)
+        
+        print(f"\n{'모델':<15} {'MAE':>8} {'RMSE':>8} {'R²':>8} {'MAPE(%)':>8} {'정확도(%)':>10}")
+        print("-" * 65)
+        
+        for model_name, row in metrics_df.iterrows():
+            print(f"{model_name:<15} {row['MAE']:8.2f} {row['RMSE']:8.2f} "
+                  f"{row['R2']:8.4f} {row['MAPE']:8.2f} {row['정확도(%)']:10.2f}")
+        
+        # 성능 비교 CSV 저장
+        metrics_file = f'model_performance_{datetime.now().strftime("%Y%m%d_%H%M%S")}.csv'
+        metrics_df.to_csv(metrics_file, encoding='utf-8-sig')
+        print(f"\n💾 성능 비교 저장: {metrics_file}")
         
         # 샘플 출력
-        print("\n📝 예측 결과 샘플 (최근 20개):")
-        print("="*100)
-        print(f"{'예측시점':^19} | {'대상시간':^19} | {'실제값':>8} | {'예측값':>8} | {'오차':>8} | {'오차율':>8}")
-        print("-"*100)
+        print("\n📝 예측 샘플 (처음 5개)")
+        print("="*120)
         
-        for _, row in results_df.tail(20).iterrows():
-            print(f"{row['예측시점']:^19} | {row['예측대상시간']:^19} | "
-                  f"{row['실제값']:8.0f} | {row['예측값']:8.0f} | "
-                  f"{row['오차']:8.0f} | {row['오차율(%)']:7.1f}%")
+        # 컬럼 선택
+        display_cols = ['예측시점', '예측대상시간', '실제값']
+        for model_name in self.models.keys():
+            display_cols.append(f'{model_name}_예측')
         
-        # 시각화
-        self.visualize_results(results_df, timestamps, actuals, predictions)
+        print(all_predictions[display_cols].head())
         
-        return results_df
-    
-    def visualize_results(self, results_df, timestamps, actuals, predictions):
-        """결과 시각화"""
-        print("\n📈 시각화 생성 중...")
+        print("\n📝 예측 샘플 (마지막 5개)")
+        print("="*120)
+        print(all_predictions[display_cols].tail())
         
-        fig, axes = plt.subplots(2, 2, figsize=(15, 10))
+        # 최고 모델 강조
+        best_model = metrics_df.index[0]
+        print(f"\n🏆 최고 성능 모델: {best_model}")
+        print(f"  MAE: {metrics_df.loc[best_model, 'MAE']:.2f}")
+        print(f"  R²: {metrics_df.loc[best_model, 'R2']:.4f}")
+        print(f"  정확도: {metrics_df.loc[best_model, '정확도(%)']:.2f}%")
         
-        # 1. 시계열 비교 (최근 1000개)
-        n_plot = min(1000, len(timestamps))
-        axes[0, 0].plot(timestamps[-n_plot:], actuals[-n_plot:], 
-                       label='Actual', alpha=0.7)
-        axes[0, 0].plot(timestamps[-n_plot:], predictions[-n_plot:], 
-                       label='Predicted', alpha=0.7)
-        axes[0, 0].set_title(f'Actual vs Predicted (Last {n_plot} points)')
-        axes[0, 0].set_xlabel('Time')
-        axes[0, 0].set_ylabel('TOTALCNT')
-        axes[0, 0].legend()
-        axes[0, 0].grid(True, alpha=0.3)
+        # 간단한 통계
+        print("\n📊 예측 통계:")
+        print(f"  총 예측 건수: {len(all_predictions):,}개")
+        print(f"  평가 기간: {all_predictions['예측시점'].iloc[0]} ~ {all_predictions['예측시점'].iloc[-1]}")
         
-        # 2. 산점도
-        axes[0, 1].scatter(actuals, predictions, alpha=0.5, s=1)
-        axes[0, 1].plot([actuals.min(), actuals.max()], 
-                       [actuals.min(), actuals.max()], 
-                       'r--', lw=2)
-        axes[0, 1].set_title(f'Scatter Plot (R² = {r2_score(actuals, predictions):.4f})')
-        axes[0, 1].set_xlabel('Actual')
-        axes[0, 1].set_ylabel('Predicted')
-        axes[0, 1].grid(True, alpha=0.3)
-        
-        # 3. 오차 분포
-        errors = predictions - actuals
-        axes[1, 0].hist(errors, bins=50, edgecolor='black', alpha=0.7)
-        axes[1, 0].axvline(x=0, color='r', linestyle='--')
-        axes[1, 0].set_title(f'Error Distribution (MAE = {np.mean(np.abs(errors)):.2f})')
-        axes[1, 0].set_xlabel('Prediction Error')
-        axes[1, 0].set_ylabel('Frequency')
-        axes[1, 0].grid(True, alpha=0.3)
-        
-        # 4. 시간대별 오차율
-        hourly = results_df.groupby('시간대')['오차율(%)'].mean()
-        axes[1, 1].bar(hourly.index, hourly.values, alpha=0.7)
-        axes[1, 1].set_title('Error Rate by Hour')
-        axes[1, 1].set_xlabel('Hour')
-        axes[1, 1].set_ylabel('Error Rate (%)')
-        axes[1, 1].grid(True, alpha=0.3)
-        
-        plt.tight_layout()
-        plot_file = f'evaluation_{self.model_name}_plot.png'
-        plt.savefig(plot_file, dpi=100, bbox_inches='tight')
-        print(f"📊 그래프 저장: {plot_file}")
-        plt.show()
+        return all_predictions, metrics_df
 
 def main():
     """메인 실행"""
-    # 모델 선택
-    model_files = [f for f in os.listdir('models') if f.endswith('.keras')]
-    
-    if not model_files:
-        print("❌ 모델 파일이 없습니다!")
-        return
-    
-    print("\n📁 사용 가능한 모델:")
-    for i, model in enumerate(model_files):
-        print(f"  {i+1}. {model}")
-    
-    # 최고 성능 모델 자동 선택 (PatchTST)
-    if 'PatchTST.keras' in model_files:
-        model_path = 'models/PatchTST.keras'
-        print(f"\n✅ 최고 성능 모델 선택: PatchTST")
-    else:
-        model_path = f'models/{model_files[0]}'
-        print(f"\n✅ 모델 선택: {model_files[0]}")
     
     # 평가기 생성
-    evaluator = ModelEvaluator(model_path)
+    evaluator = CompleteModelEvaluator()
+    
+    # 모든 모델 로드
+    models = evaluator.load_all_models('models/')
+    
+    if not models:
+        print("❌ 모델이 없습니다!")
+        return
     
     # 테스트 파일
     test_files = [
@@ -326,13 +293,15 @@ def main():
     
     if not test_file:
         print("❌ 테스트 데이터를 찾을 수 없습니다!")
-        print("  예상 경로: data/20250731_to20250806.csv")
         return
     
     # 평가 실행
-    results = evaluator.evaluate(test_file)
+    all_predictions, metrics = evaluator.evaluate_all_models(test_file)
     
     print("\n✅ 평가 완료!")
+    print(f"📁 저장된 파일:")
+    print(f"  1. all_models_predictions_YYYYMMDD.csv - 모든 모델 예측값")
+    print(f"  2. model_performance_YYYYMMDD.csv - 성능 비교")
     print("="*80)
 
 if __name__ == "__main__":
