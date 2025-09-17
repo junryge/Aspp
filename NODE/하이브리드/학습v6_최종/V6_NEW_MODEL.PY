@@ -1,4 +1,5 @@
 """
+pip install tensorflow-probability[tf]==0.24.0
 🚀 Ultimate 1700+ Predictor Suite v7.1
 =====================================
 TensorFlow 2.16.1 + tf-keras 호환 버전
