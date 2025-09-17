@@ -1,14 +1,8 @@
 """
-🚀 반도체 물류 예측 - 6개 모델
-=====================================
-1. StableLSTM
-2. PatchTST  
-3. SpikeDetector
-4. ExtremeNet
-5. EnsembleBase
-6. GoldenRule (황금 규칙)
-
-100분 데이터 → 10분 후 예측
+🚀 반도체 물류 예측 - 6개 모델 최종 개선판
+=========================================
+PatchTST, EnsembleBase 문제 해결
+스케일러 저장 및 실시간 예측 지원
 """
 
 import numpy as np
@@ -19,60 +13,107 @@ from tensorflow.keras.layers import *
 from tensorflow.keras.optimizers import Adam
 from tensorflow.keras.callbacks import *
 from tensorflow.keras.losses import Huber
-from sklearn.preprocessing import StandardScaler, MinMaxScaler
+from sklearn.preprocessing import MinMaxScaler, RobustScaler, StandardScaler
 from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score, accuracy_score
 import warnings
 import os
+import gc
+import pickle
+import json
 
-# GPU 설정 - 2개 GPU 모두 사용, CPU 사용 안함
+warnings.filterwarnings('ignore')
+tf.random.set_seed(42)
+np.random.seed(42)
+
+# GPU 설정
 gpus = tf.config.experimental.list_physical_devices('GPU')
-if not gpus:
-    raise RuntimeError("GPU를 찾을 수 없습니다! GPU가 필요합니다.")
-
-print(f"🔧 GPU {len(gpus)}개 발견")
-
-# 모든 GPU에 메모리 증가 허용
-for i, gpu in enumerate(gpus):
-    tf.config.experimental.set_memory_growth(gpu, True)
-    print(f"  GPU:{i} 활성화")
-
-# Multi-GPU 전략 설정
-strategy = tf.distribute.MirroredStrategy()
-print(f"🚀 GPU {strategy.num_replicas_in_sync}개 사용 중")
-
-device = f'GPU x {len(gpus)}개'
+if gpus:
+    print(f"🔧 GPU {len(gpus)}개 발견")
+    for i, gpu in enumerate(gpus):
+        tf.config.experimental.set_memory_growth(gpu, True)
+        print(f"  GPU:{i} 활성화")
+    strategy = tf.distribute.MirroredStrategy()
+    device = f'GPU x {len(gpus)}개'
+else:
+    print("⚠️ GPU 없음, CPU 사용")
+    strategy = tf.distribute.get_strategy()
+    device = 'CPU'
 
 print("="*80)
-print("🚀 반도체 물류 예측 - 6개 모델")
+print("🚀 반도체 물류 예측 시스템 v2.0")
 print(f"📦 TensorFlow: {tf.__version__}")
 print(f"🔧 Device: {device}")
 print("="*80)
 
-# 데이터 처리
+# ========================================
+# 데이터 처리 클래스
+# ========================================
 class DataProcessor:
     def __init__(self, seq_len=100, pred_len=10):
         self.seq_len = seq_len
         self.pred_len = pred_len
-        self.feature_scaler = MinMaxScaler()  # StandardScaler → MinMaxScaler 변경
-        self.target_scaler = MinMaxScaler()   # StandardScaler → MinMaxScaler 변경
+        # 여러 스케일러 테스트
+        self.feature_scaler = StandardScaler()  # 특징용
+        self.target_scaler = RobustScaler()     # 타겟용 (이상치에 강건)
+        self.feature_columns = None
+        
+    def save_scalers(self, path='scalers/'):
+        """스케일러 저장"""
+        os.makedirs(path, exist_ok=True)
+        
+        # 스케일러 저장
+        with open(f'{path}feature_scaler.pkl', 'wb') as f:
+            pickle.dump(self.feature_scaler, f)
+        with open(f'{path}target_scaler.pkl', 'wb') as f:
+            pickle.dump(self.target_scaler, f)
+            
+        # 설정 저장
+        config = {
+            'seq_len': self.seq_len,
+            'pred_len': self.pred_len,
+            'feature_columns': self.feature_columns
+        }
+        with open(f'{path}config.json', 'w') as f:
+            json.dump(config, f)
+            
+        print(f"✅ 스케일러 저장: {path}")
+    
+    def load_scalers(self, path='scalers/'):
+        """스케일러 로드"""
+        with open(f'{path}feature_scaler.pkl', 'rb') as f:
+            self.feature_scaler = pickle.load(f)
+        with open(f'{path}target_scaler.pkl', 'rb') as f:
+            self.target_scaler = pickle.load(f)
+        with open(f'{path}config.json', 'r') as f:
+            config = json.load(f)
+            self.seq_len = config['seq_len']
+            self.pred_len = config['pred_len']
+            self.feature_columns = config['feature_columns']
+        print(f"✅ 스케일러 로드: {path}")
         
     def load_and_process(self, filepath):
         print(f"\n📂 데이터 로딩: {filepath}")
         df = pd.read_csv(filepath)
-        print(f"✅ 원본 데이터: {df.shape[0]:,}행 × {df.shape[1]}열")
+        print(f"✅ 원본: {df.shape[0]:,}행 × {df.shape[1]}열")
         
-        # 0값만 제거 (심각 구간은 유지!)
+        # 0값 제거
+        before = len(df)
         df = df[df['TOTALCNT'] > 0].reset_index(drop=True)
-        print(f"✅ 0값 제거 후: {df.shape[0]:,}행")
+        print(f"✅ 0값 제거: {before - len(df):,}개")
         
-        df['CURRTIME'] = pd.to_datetime(df['CURRTIME'].astype(str), format='%Y%m%d%H%M', errors='coerce')
+        # 시간 정렬
+        df['CURRTIME'] = pd.to_datetime(df['CURRTIME'].astype(str), 
+                                       format='%Y%m%d%H%M', errors='coerce')
         df = df.sort_values('CURRTIME').reset_index(drop=True)
         
-        print(f"\n📊 TOTALCNT 분포:")
-        print(f"  최소: {df['TOTALCNT'].min():,}")
+        # 통계
+        print(f"\n📊 TOTALCNT 통계:")
         print(f"  평균: {df['TOTALCNT'].mean():,.0f}")
+        print(f"  표준편차: {df['TOTALCNT'].std():,.0f}")
+        print(f"  최소: {df['TOTALCNT'].min():,}")
         print(f"  최대: {df['TOTALCNT'].max():,}")
         
+        # 구간 분포
         normal = (df['TOTALCNT'] < 1400).sum()
         warning = ((df['TOTALCNT'] >= 1400) & (df['TOTALCNT'] < 1700)).sum()
         critical = (df['TOTALCNT'] >= 1700).sum()
@@ -87,13 +128,12 @@ class DataProcessor:
     def create_features(self, df):
         print("\n⚙️ 특성 생성...")
         
-        # 황금 패턴
+        # 기본 특성
         df['RATIO'] = df['M14AM14B'] / (df['M14AM10A'] + 1)
-        df['GOLDEN_1'] = ((df['M14AM14B'] > 300) & (df['M14AM10A'] < 80)).astype(float)
-        df['GOLDEN_2'] = (df['M14AM14BSUM'] > 500).astype(float)
+        df['GOLDEN'] = ((df['M14AM14B'] > 300) & (df['M14AM10A'] < 80)).astype(float)
         
         # 시간
-        df['HOUR'] = df['CURRTIME'].dt.hour.fillna(0)
+        df['HOUR'] = df['CURRTIME'].dt.hour
         df['HOUR_SIN'] = np.sin(2 * np.pi * df['HOUR'] / 24)
         df['HOUR_COS'] = np.cos(2 * np.pi * df['HOUR'] / 24)
         
@@ -120,32 +160,34 @@ class DataProcessor:
     def create_sequences(self, df):
         print("\n🔄 시퀀스 생성...")
         
-        features = [
+        # 특성 선택
+        self.feature_columns = [
             'TOTALCNT', 'M14AM14B', 'M14AM14BSUM', 'M14AM10A', 'M14AM16',
-            'M14AM16SUM', 'M10AM14A', 'M14BM14A', 'M16M14A', 'M14AM10ASUM',
-            'RATIO', 'GOLDEN_1', 'GOLDEN_2',
+            'RATIO', 'GOLDEN',
             'HOUR_SIN', 'HOUR_COS',
             'MA_10', 'MA_30', 'STD_10', 'STD_30',
             'CHANGE_1', 'CHANGE_10'
         ]
         
-        features = [f for f in features if f in df.columns]
-        print(f"  특성: {len(features)}개")
+        # 사용 가능한 컬럼만
+        self.feature_columns = [f for f in self.feature_columns if f in df.columns]
+        print(f"  특성: {len(self.feature_columns)}개")
         
-        X_data = df[features].values
-        y_reg = df['TARGET'].values
-        y_cls = df['LEVEL'].values.astype(int)
+        X_data = df[self.feature_columns].values.astype(np.float32)
+        y_reg = df['TARGET'].values.astype(np.float32)
+        y_cls = df['LEVEL'].values.astype(np.int32)
         
-        # 시계열 순서대로 분할 (중요!)
+        # 분할
         total_samples = len(X_data) - self.seq_len
         train_end = int(total_samples * 0.7)
         val_end = int(total_samples * 0.85)
         
-        # 훈련 데이터로만 fit
+        # 스케일링 (훈련 데이터로만)
+        print("  스케일링...")
         self.feature_scaler.fit(X_data[:train_end + self.seq_len])
         self.target_scaler.fit(y_reg[:train_end].reshape(-1, 1))
         
-        # 전체 변환
+        # 변환
         X_scaled = self.feature_scaler.transform(X_data)
         y_reg_scaled = self.target_scaler.transform(y_reg.reshape(-1, 1)).flatten()
         
@@ -170,46 +212,67 @@ class DataProcessor:
         y_test = (y_r[val_end:], y_c[val_end:])
         
         print(f"  Train: {X_train.shape}")
-        print(f"  Val:   {X_val.shape}")
-        print(f"  Test:  {X_test.shape}")
+        print(f"  Val: {X_val.shape}")
+        print(f"  Test: {X_test.shape}")
+        
+        # 스케일러 저장
+        self.save_scalers()
         
         return (X_train, y_train), (X_val, y_val), (X_test, y_test)
 
-# ===== 원래 5개 모델 =====
+# ========================================
+# 6개 모델 (개선됨)
+# ========================================
 
 def build_stable_lstm(input_shape):
     """1. StableLSTM"""
     inputs = Input(shape=input_shape)
-    x = Bidirectional(LSTM(128, return_sequences=True))(inputs)
+    x = LSTM(64, return_sequences=True)(inputs)
+    x = BatchNormalization()(x)
     x = Dropout(0.2)(x)
-    x = Bidirectional(LSTM(64))(x)
+    x = LSTM(32)(x)
+    x = BatchNormalization()(x)
     x = Dropout(0.2)(x)
-    x = Dense(64, activation='relu')(x)
+    x = Dense(32, activation='relu')(x)
     out_reg = Dense(1, name='regression')(x)
     out_cls = Dense(3, activation='softmax', name='classification')(x)
     return Model(inputs, [out_reg, out_cls], name='StableLSTM')
 
 def build_patch_tst(input_shape):
-    """2. PatchTST"""
+    """2. PatchTST - 완전 재설계"""
     inputs = Input(shape=input_shape)
-    x = Dense(128)(inputs)
-    x = MultiHeadAttention(num_heads=4, key_dim=32)(x, x)
-    x = GlobalAveragePooling1D()(x)
-    x = Dense(128, activation='relu')(x)
+    
+    # GRU로 시작 (시계열에 강함)
+    x = GRU(64, return_sequences=True)(inputs)
+    x = BatchNormalization()(x)
+    
+    # 가벼운 Attention
+    attn = MultiHeadAttention(num_heads=2, key_dim=16)(x, x)
+    x = Add()([x, attn])
+    x = LayerNormalization()(x)
+    
+    # 최종 GRU
+    x = GRU(32)(x)
+    x = BatchNormalization()(x)
     x = Dropout(0.2)(x)
+    
+    x = Dense(32, activation='relu')(x)
+    x = Dropout(0.2)(x)
+    
     out_reg = Dense(1, name='regression')(x)
     out_cls = Dense(3, activation='softmax', name='classification')(x)
+    
     return Model(inputs, [out_reg, out_cls], name='PatchTST')
 
 def build_spike_detector(input_shape):
     """3. SpikeDetector"""
     inputs = Input(shape=input_shape)
     recent = Lambda(lambda x: x[:, -20:, :])(inputs)
-    x = Conv1D(64, 3, activation='relu', padding='same')(recent)
+    x = Conv1D(32, 3, activation='relu', padding='same')(recent)
     x = MaxPooling1D(2)(x)
-    x = GRU(64)(x)
-    x = Dropout(0.3)(x)
-    x = Dense(64, activation='relu')(x)
+    x = GRU(32)(x)
+    x = Dropout(0.2)(x)
+    x = Dense(32, activation='relu')(x)
     out_reg = Dense(1, name='regression')(x)
     out_cls = Dense(3, activation='softmax', name='classification')(x)
     return Model(inputs, [out_reg, out_cls], name='SpikeDetector')
@@ -217,137 +280,89 @@ def build_spike_detector(input_shape):
 def build_extreme_net(input_shape):
     """4. ExtremeNet"""
     inputs = Input(shape=input_shape)
-    normal = LSTM(64, return_sequences=True)(inputs)
-    normal = LSTM(32)(normal)
-    extreme = MultiHeadAttention(num_heads=4, key_dim=16)(inputs, inputs)
-    extreme = GlobalAveragePooling1D()(extreme)
-    x = Concatenate()([normal, extreme])
-    x = Dense(64, activation='relu')(x)
-    x = Dropout(0.3)(x)
+    lstm = LSTM(48, return_sequences=True)(inputs)
+    lstm = LSTM(24)(lstm)
+    attn = MultiHeadAttention(num_heads=4, key_dim=12)(inputs, inputs)
+    attn = GlobalAveragePooling1D()(attn)
+    x = Concatenate()([lstm, attn])
+    x = BatchNormalization()(x)
+    x = Dense(48, activation='relu')(x)
+    x = Dropout(0.2)(x)
     out_reg = Dense(1, name='regression')(x)
     out_cls = Dense(3, activation='softmax', name='classification')(x)
     return Model(inputs, [out_reg, out_cls], name='ExtremeNet')
 
 def build_ensemble_base(input_shape):
-    """5. EnsembleBase"""
+    """5. EnsembleBase - 재설계"""
     inputs = Input(shape=input_shape)
-    avg_pool = GlobalAveragePooling1D()(inputs)
-    max_pool = GlobalMaxPooling1D()(inputs)
-    x = Concatenate()([avg_pool, max_pool])
-    x = Dense(128, activation='relu')(x)
-    x = Dropout(0.3)(x)
-    x = Dense(64, activation='relu')(x)
+    
+    # Simple LSTM branch
+    lstm_branch = LSTM(32)(inputs)
+    
+    # Simple Conv branch  
+    conv_branch = Conv1D(32, 5, activation='relu')(inputs)
+    conv_branch = GlobalAveragePooling1D()(conv_branch)
+    
+    # Statistics
+    mean_pool = Lambda(lambda x: tf.reduce_mean(x, axis=1))(inputs)
+    
+    # Concatenate
+    x = Concatenate()([lstm_branch, conv_branch, mean_pool])
+    x = BatchNormalization()(x)
+    x = Dense(32, activation='relu')(x)
+    x = Dropout(0.2)(x)
+    
     out_reg = Dense(1, name='regression')(x)
     out_cls = Dense(3, activation='softmax', name='classification')(x)
+    
     return Model(inputs, [out_reg, out_cls], name='EnsembleBase')
 
 def build_golden_rule(input_shape):
-    """6. GoldenRule - 황금 규칙 기반"""
+    """6. GoldenRule"""
     inputs = Input(shape=input_shape)
-    # 마지막 시점의 특성만 사용 (규칙 기반)
-    last_step = Lambda(lambda x: x[:, -1, :])(inputs)
-    x = Dense(64, activation='relu')(last_step)
+    last = Lambda(lambda x: x[:, -10:, :])(inputs)
+    x = Conv1D(32, 3, activation='relu')(last)
+    x = GlobalAveragePooling1D()(x)
     x = Dense(32, activation='relu')(x)
-    x = Dense(16, activation='relu')(x)
+    x = Dropout(0.2)(x)
     out_reg = Dense(1, name='regression')(x)
     out_cls = Dense(3, activation='softmax', name='classification')(x)
     return Model(inputs, [out_reg, out_cls], name='GoldenRule')
 
-# ===== 황금 규칙 기반 예측 =====
-def apply_golden_rules(df, processor):
-    """황금 규칙 적용"""
-    print("\n🏆 황금 규칙 평가...")
-    
-    # 규칙 1: M14AM14B > 300 & M14AM10A < 80
-    rule1 = (df['M14AM14B'] > 300) & (df['M14AM10A'] < 80)
-    
-    # 규칙 2: M14AM14BSUM > 500
-    rule2 = df['M14AM14BSUM'] > 500
-    
-    # 규칙 3: M14AM14B/M14AM10A > 5
-    rule3 = (df['M14AM14B'] / (df['M14AM10A'] + 1)) > 5
-    
-    # M14AM14B 구간별 예측
-    def predict_by_m14b(row):
-        m14b = row['M14AM14B']
-        if m14b >= 450:
-            return 1849
-        elif m14b >= 400:
-            return 1671
-        elif m14b >= 350:
-            return 1561
-        elif m14b >= 300:
-            return 1518
-        elif m14b >= 250:
-            return 1438
-        elif m14b >= 200:
-            return 1356
-        else:
-            return 1200
-    
-    # 규칙 기반 예측
-    df['RULE_PRED'] = df.apply(predict_by_m14b, axis=1)
-    
-    # 황금 패턴 정확도
-    golden_mask = rule1 | rule2 | rule3
-    golden_accuracy = (df[golden_mask]['RULE_PRED'] - df[golden_mask]['TARGET']).abs().mean()
-    
-    print(f"  황금 패턴 발생: {golden_mask.sum()}회 ({golden_mask.sum()/len(df)*100:.1f}%)")
-    print(f"  황금 패턴 MAE: {golden_accuracy:.2f}")
-    
-    # 구간별 정확도
-    print(f"\n  M14AM14B 구간별 정확도:")
-    for lower, upper, pred_val in [(450, 999999, 1849), (400, 450, 1671), 
-                                   (350, 400, 1561), (300, 350, 1518),
-                                   (250, 300, 1438), (200, 250, 1356)]:
-        mask = (df['M14AM14B'] >= lower) & (df['M14AM14B'] < upper)
-        if mask.sum() > 0:
-            mae = (df[mask]['TARGET'] - pred_val).abs().mean()
-            print(f"    {lower}-{upper}: {mask.sum()}회, MAE={mae:.2f}")
-    
-    return df['RULE_PRED'].values
-
-# 학습 및 평가
+# ========================================
+# 학습 함수
+# ========================================
 def train_and_evaluate(model, train_data, val_data, test_data, processor):
     X_train, y_train = train_data
     X_val, y_val = val_data
     X_test, y_test = test_data
     
-    # Multi-GPU 전략 사용
-    strategy = tf.distribute.MirroredStrategy()
-    
     with strategy.scope():
-        # 모델 재생성 (strategy 내부에서)
-        if model.name == 'StableLSTM':
-            model = build_stable_lstm(model.input_shape[1:])
-        elif model.name == 'PatchTST':
-            model = build_patch_tst(model.input_shape[1:])
-        elif model.name == 'SpikeDetector':
-            model = build_spike_detector(model.input_shape[1:])
-        elif model.name == 'ExtremeNet':
-            model = build_extreme_net(model.input_shape[1:])
-        elif model.name == 'EnsembleBase':
-            model = build_ensemble_base(model.input_shape[1:])
-        elif model.name == 'GoldenRule':
-            model = build_golden_rule(model.input_shape[1:])
+        # 모델 재생성
+        input_shape = model.input_shape[1:]
         
-        # 가중치 손실 함수 - 심각 구간에 더 높은 가중치
-        def weighted_loss(y_true, y_pred):
-            weights = tf.where(y_true >= 1700, 10.0,  # 심각: 10배 가중치
-                      tf.where(y_true >= 1400, 3.0,   # 주의: 3배 가중치
-                              1.0))                     # 정상: 1배
-            loss = Huber(delta=1.0)(y_true, y_pred)
-            return loss * weights
-            
+        if model.name == 'StableLSTM':
+            model = build_stable_lstm(input_shape)
+        elif model.name == 'PatchTST':
+            model = build_patch_tst(input_shape)
+        elif model.name == 'SpikeDetector':
+            model = build_spike_detector(input_shape)
+        elif model.name == 'ExtremeNet':
+            model = build_extreme_net(input_shape)
+        elif model.name == 'EnsembleBase':
+            model = build_ensemble_base(input_shape)
+        elif model.name == 'GoldenRule':
+            model = build_golden_rule(input_shape)
+        
         model.compile(
             optimizer=Adam(0.001),
-            loss=[weighted_loss, 'sparse_categorical_crossentropy'],
-            loss_weights=[0.6, 0.4],  # 회귀에 더 높은 가중치
+            loss=['mae', 'sparse_categorical_crossentropy'],
+            loss_weights=[0.7, 0.3],
             metrics={'regression': 'mae', 'classification': 'accuracy'}
         )
     
     print(f"\n{'='*60}")
-    print(f"🎯 {model.name} 학습 (GPU 2개 사용)")
+    print(f"🎯 {model.name} 학습")
     print(f"{'='*60}")
     
     callbacks = [
@@ -355,8 +370,7 @@ def train_and_evaluate(model, train_data, val_data, test_data, processor):
         ReduceLROnPlateau(factor=0.5, patience=5, verbose=0)
     ]
     
-    # GPU 학습 (배치 크기를 GPU 개수에 맞게 증가)
-    batch_size = 64 * strategy.num_replicas_in_sync  # GPU당 64, 2개면 128
+    batch_size = 64 * strategy.num_replicas_in_sync if gpus else 32
     
     history = model.fit(
         X_train,
@@ -368,48 +382,84 @@ def train_and_evaluate(model, train_data, val_data, test_data, processor):
         verbose=1
     )
     
-    print(f"\n📊 {model.name} 평가 결과:")
+    # 평가
+    print(f"\n📊 {model.name} 평가:")
     
     preds = model.predict(X_test, verbose=0)
     y_reg_pred = preds[0].flatten()
     y_cls_pred = np.argmax(preds[1], axis=1)
     
-    y_reg_true_orig = processor.target_scaler.inverse_transform(y_test[0].reshape(-1, 1)).flatten()
-    y_reg_pred_orig = processor.target_scaler.inverse_transform(y_reg_pred.reshape(-1, 1)).flatten()
+    # 역변환
+    y_reg_true_orig = processor.target_scaler.inverse_transform(
+        y_test[0].reshape(-1, 1)).flatten()
+    y_reg_pred_orig = processor.target_scaler.inverse_transform(
+        y_reg_pred.reshape(-1, 1)).flatten()
     
     mae = mean_absolute_error(y_reg_true_orig, y_reg_pred_orig)
     rmse = np.sqrt(mean_squared_error(y_reg_true_orig, y_reg_pred_orig))
     r2 = r2_score(y_reg_true_orig, y_reg_pred_orig)
     acc = accuracy_score(y_test[1], y_cls_pred)
     
-    print(f"  MAE:  {mae:.2f}")
+    print(f"  MAE: {mae:.2f}")
     print(f"  RMSE: {rmse:.2f}")
-    print(f"  R²:   {r2:.4f}")
+    print(f"  R²: {r2:.4f}")
     print(f"  정확도: {acc:.2%}")
     
-    # 심각 구간 성능 별도 평가
-    critical_mask = y_reg_true_orig >= 1700
-    if critical_mask.sum() > 0:
-        critical_mae = mean_absolute_error(y_reg_true_orig[critical_mask], 
-                                          y_reg_pred_orig[critical_mask])
-        print(f"  🔴 심각구간 MAE: {critical_mae:.2f} ({critical_mask.sum()}개)")
-    
-    warning_mask = (y_reg_true_orig >= 1400) & (y_reg_true_orig < 1700)
-    if warning_mask.sum() > 0:
-        warning_mae = mean_absolute_error(y_reg_true_orig[warning_mask], 
-                                         y_reg_pred_orig[warning_mask])
-        print(f"  🟡 주의구간 MAE: {warning_mae:.2f} ({warning_mask.sum()}개)")
-    
+    # 모델 저장
     os.makedirs('models', exist_ok=True)
     model.save(f'models/{model.name}.keras')
-    print(f"💾 모델 저장: models/{model.name}.keras")
+    print(f"💾 모델: models/{model.name}.keras")
     
     return {'MAE': mae, 'RMSE': rmse, 'R2': r2, 'Accuracy': acc}
 
+# ========================================
+# 실시간 예측 클래스
+# ========================================
+class RealtimePredictor:
+    def __init__(self, model_path, scaler_path='scalers/'):
+        """실시간 예측기 초기화"""
+        self.model = tf.keras.models.load_model(model_path)
+        self.processor = DataProcessor()
+        self.processor.load_scalers(scaler_path)
+        print(f"✅ 실시간 예측기 준비 완료")
+        
+    def predict(self, data_100min):
+        """100분 데이터로 10분 후 예측"""
+        # 데이터 검증
+        if len(data_100min) != 100:
+            raise ValueError(f"100분 데이터 필요 (현재: {len(data_100min)})")
+        
+        # 특성 추출
+        X = data_100min[self.processor.feature_columns].values
+        
+        # 스케일링
+        X_scaled = self.processor.feature_scaler.transform(X)
+        X_seq = X_scaled.reshape(1, 100, -1)
+        
+        # 예측
+        preds = self.model.predict(X_seq, verbose=0)
+        y_reg_scaled = preds[0][0, 0]
+        y_cls = np.argmax(preds[1][0])
+        
+        # 역변환
+        y_reg = self.processor.target_scaler.inverse_transform([[y_reg_scaled]])[0, 0]
+        
+        # 레벨
+        level = ['정상', '주의', '심각'][y_cls]
+        
+        return {
+            'prediction': float(y_reg),
+            'level': level,
+            'confidence': float(np.max(preds[1][0]))
+        }
+
+# ========================================
 # 메인 실행
+# ========================================
 def main():
-    # 데이터 경로
+    # 데이터 찾기
     data_paths = [
+        'data/20240201_TO_202507281705.csv',
         'data/20250731_to20250806.csv',
         '/mnt/user-data/uploads/gs.CSV',
         'data.csv'
@@ -419,24 +469,20 @@ def main():
     for path in data_paths:
         if os.path.exists(path):
             data_path = path
-            print(f"✅ 데이터 발견: {path}")
+            print(f"✅ 데이터: {path}")
             break
     
     if not data_path:
-        print("❌ 데이터 파일을 찾을 수 없습니다!")
+        print("❌ 데이터 없음")
         return
     
     # 데이터 처리
     processor = DataProcessor()
     df = processor.load_and_process(data_path)
     df = processor.create_features(df)
-    
-    # 황금 규칙 평가
-    rule_predictions = apply_golden_rules(df, processor)
-    
     train_data, val_data, test_data = processor.create_sequences(df)
     
-    # 6개 모델 생성
+    # 6개 모델
     input_shape = (train_data[0].shape[1], train_data[0].shape[2])
     
     models = {
@@ -448,40 +494,52 @@ def main():
         'GoldenRule': build_golden_rule(input_shape)
     }
     
-    print(f"\n✅ 6개 모델 준비 완료:")
-    for name in models.keys():
-        print(f"  - {name}")
+    print(f"\n✅ 6개 모델 준비")
     
+    # 학습
     results = {}
     for name, model in models.items():
-        results[name] = train_and_evaluate(
-            model, train_data, val_data, test_data, processor
-        )
+        try:
+            results[name] = train_and_evaluate(
+                model, train_data, val_data, test_data, processor
+            )
+        except Exception as e:
+            print(f"❌ {name} 실패: {e}")
     
-    # 최종 결과
+    # 결과
     print("\n" + "="*80)
-    print("📊 최종 성능 비교 (6개 모델)")
+    print("📊 최종 성능")
     print("="*80)
     
     results_df = pd.DataFrame(results).T
-    print("\n[6개 모델 성능]")
+    results_df = results_df.sort_values('R2', ascending=False)
     print(results_df.round(3))
     
-    print("\n[황금 규칙 설명]")
-    print("  GoldenRule 모델: M14AM14B 구간별 예측")
-    print("    - M14AM14B > 300 & M14AM10A < 80 → 급증")
-    print("    - M14AM14BSUM > 500 → 누적 경고")
-    print("    - M14AM14B/M14AM10A > 5 → 비율 이상")
-    
-    # 최고 성능
     print("\n🏆 최고 성능:")
-    print(f"  MAE 최저: {results_df['MAE'].idxmin()} ({results_df['MAE'].min():.2f})")
-    print(f"  R² 최고: {results_df['R2'].idxmax()} ({results_df['R2'].max():.4f})")
-    print(f"  정확도 최고: {results_df['Accuracy'].idxmax()} ({results_df['Accuracy'].max():.2%})")
+    print(f"  MAE: {results_df['MAE'].idxmin()} ({results_df['MAE'].min():.2f})")
+    print(f"  R²: {results_df['R2'].idxmax()} ({results_df['R2'].max():.4f})")
     
-    results_df.to_csv('model_results_6models.csv')
-    print("\n💾 결과 저장: model_results_6models.csv")
-    print("\n✅ 6개 모델 학습 완료!")
+    results_df.to_csv('final_results.csv')
+    print("\n💾 결과: final_results.csv")
+    
+    # 실시간 예측 테스트
+    print("\n" + "="*80)
+    print("🔮 실시간 예측 테스트")
+    print("="*80)
+    
+    best_model = results_df['R2'].idxmax()
+    predictor = RealtimePredictor(f'models/{best_model}.keras')
+    
+    # 테스트 데이터로 예측
+    test_sample = df.iloc[-100:].copy()
+    result = predictor.predict(test_sample)
+    
+    print(f"\n예측 결과:")
+    print(f"  10분 후 예측: {result['prediction']:.0f}")
+    print(f"  레벨: {result['level']}")
+    print(f"  신뢰도: {result['confidence']:.2%}")
+    
+    print("\n✅ 완료!")
     
     return results
 
