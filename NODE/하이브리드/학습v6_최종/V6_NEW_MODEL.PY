@@ -18,7 +18,7 @@ from tensorflow.keras import layers, Model, Input
 from tensorflow.keras.layers import *
 from tensorflow.keras.optimizers import Adam
 from tensorflow.keras.callbacks import *
-from sklearn.preprocessing import StandardScaler
+from sklearn.preprocessing import StandardScaler, MinMaxScaler
 from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score, accuracy_score
 import warnings
 import os
@@ -56,13 +56,17 @@ class DataProcessor:
     def __init__(self, seq_len=100, pred_len=10):
         self.seq_len = seq_len
         self.pred_len = pred_len
-        self.feature_scaler = StandardScaler()
-        self.target_scaler = StandardScaler()
+        self.feature_scaler = MinMaxScaler()  # StandardScaler → MinMaxScaler 변경
+        self.target_scaler = MinMaxScaler()   # StandardScaler → MinMaxScaler 변경
         
     def load_and_process(self, filepath):
         print(f"\n📂 데이터 로딩: {filepath}")
         df = pd.read_csv(filepath)
-        print(f"✅ 데이터: {df.shape[0]:,}행 × {df.shape[1]}열")
+        print(f"✅ 원본 데이터: {df.shape[0]:,}행 × {df.shape[1]}열")
+        
+        # 0값 제거
+        df = df[df['TOTALCNT'] > 0].reset_index(drop=True)
+        print(f"✅ 0값 제거 후: {df.shape[0]:,}행")
         
         df['CURRTIME'] = pd.to_datetime(df['CURRTIME'].astype(str), format='%Y%m%d%H%M', errors='coerce')
         df = df.sort_values('CURRTIME').reset_index(drop=True)
