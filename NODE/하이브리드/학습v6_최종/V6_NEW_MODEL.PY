@@ -18,14 +18,11 @@ from tensorflow.keras import layers, Model, Input
 from tensorflow.keras.layers import *
 from tensorflow.keras.optimizers import Adam
 from tensorflow.keras.callbacks import *
+from tensorflow.keras.losses import Huber
 from sklearn.preprocessing import StandardScaler, MinMaxScaler
 from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score, accuracy_score
 import warnings
 import os
-
-warnings.filterwarnings('ignore')
-tf.random.set_seed(42)
-np.random.seed(42)
 
 # GPU 설정 - 2개 GPU 모두 사용, CPU 사용 안함
 gpus = tf.config.experimental.list_physical_devices('GPU')
@@ -67,6 +64,17 @@ class DataProcessor:
         # 0값 제거
         df = df[df['TOTALCNT'] > 0].reset_index(drop=True)
         print(f"✅ 0값 제거 후: {df.shape[0]:,}행")
+        
+        # 이상치 제거 (IQR 방식)
+        Q1 = df['TOTALCNT'].quantile(0.25)
+        Q3 = df['TOTALCNT'].quantile(0.75)
+        IQR = Q3 - Q1
+        lower_bound = Q1 - 1.5 * IQR
+        upper_bound = Q3 + 1.5 * IQR
+        
+        before_outlier = len(df)
+        df = df[(df['TOTALCNT'] >= lower_bound) & (df['TOTALCNT'] <= upper_bound)]
+        print(f"✅ 이상치 제거: {before_outlier - len(df):,}개 제거 ({lower_bound:.0f} ~ {upper_bound:.0f} 범위)")
         
         df['CURRTIME'] = pd.to_datetime(df['CURRTIME'].astype(str), format='%Y%m%d%H%M', errors='coerce')
         df = df.sort_values('CURRTIME').reset_index(drop=True)
@@ -336,8 +344,8 @@ def train_and_evaluate(model, train_data, val_data, test_data, processor):
             
         model.compile(
             optimizer=Adam(0.001),
-            loss=['mse', 'sparse_categorical_crossentropy'],
-            loss_weights=[0.3, 0.7],
+            loss=[Huber(delta=1.0), 'sparse_categorical_crossentropy'],  # Huber loss 사용
+            loss_weights=[0.5, 0.5],
             metrics={'regression': 'mae', 'classification': 'accuracy'}
         )
     
