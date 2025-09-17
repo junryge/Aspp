@@ -27,9 +27,28 @@ warnings.filterwarnings('ignore')
 tf.random.set_seed(42)
 np.random.seed(42)
 
+# GPU 설정 - 2개 GPU 모두 사용, CPU 사용 안함
+gpus = tf.config.experimental.list_physical_devices('GPU')
+if not gpus:
+    raise RuntimeError("GPU를 찾을 수 없습니다! GPU가 필요합니다.")
+
+print(f"🔧 GPU {len(gpus)}개 발견")
+
+# 모든 GPU에 메모리 증가 허용
+for i, gpu in enumerate(gpus):
+    tf.config.experimental.set_memory_growth(gpu, True)
+    print(f"  GPU:{i} 활성화")
+
+# Multi-GPU 전략 설정
+strategy = tf.distribute.MirroredStrategy()
+print(f"🚀 GPU {strategy.num_replicas_in_sync}개 사용 중")
+
+device = f'GPU x {len(gpus)}개'
+
 print("="*80)
 print("🚀 반도체 물류 예측 - 6개 모델")
 print(f"📦 TensorFlow: {tf.__version__}")
+print(f"🔧 Device: {device}")
 print("="*80)
 
 # 데이터 처리
@@ -293,15 +312,33 @@ def train_and_evaluate(model, train_data, val_data, test_data, processor):
     X_val, y_val = val_data
     X_test, y_test = test_data
     
-    model.compile(
-        optimizer=Adam(0.001),
-        loss=['mse', 'sparse_categorical_crossentropy'],
-        loss_weights=[0.3, 0.7],
-        metrics={'regression': 'mae', 'classification': 'accuracy'}
-    )
+    # Multi-GPU 전략 사용
+    strategy = tf.distribute.MirroredStrategy()
+    
+    with strategy.scope():
+        # 모델 재생성 (strategy 내부에서)
+        if model.name == 'StableLSTM':
+            model = build_stable_lstm(model.input_shape[1:])
+        elif model.name == 'PatchTST':
+            model = build_patch_tst(model.input_shape[1:])
+        elif model.name == 'SpikeDetector':
+            model = build_spike_detector(model.input_shape[1:])
+        elif model.name == 'ExtremeNet':
+            model = build_extreme_net(model.input_shape[1:])
+        elif model.name == 'EnsembleBase':
+            model = build_ensemble_base(model.input_shape[1:])
+        elif model.name == 'GoldenRule':
+            model = build_golden_rule(model.input_shape[1:])
+            
+        model.compile(
+            optimizer=Adam(0.001),
+            loss=['mse', 'sparse_categorical_crossentropy'],
+            loss_weights=[0.3, 0.7],
+            metrics={'regression': 'mae', 'classification': 'accuracy'}
+        )
     
     print(f"\n{'='*60}")
-    print(f"🎯 {model.name} 학습")
+    print(f"🎯 {model.name} 학습 (GPU 2개 사용)")
     print(f"{'='*60}")
     
     callbacks = [
@@ -309,12 +346,15 @@ def train_and_evaluate(model, train_data, val_data, test_data, processor):
         ReduceLROnPlateau(factor=0.5, patience=5, verbose=0)
     ]
     
+    # GPU 학습 (배치 크기를 GPU 개수에 맞게 증가)
+    batch_size = 64 * strategy.num_replicas_in_sync  # GPU당 64, 2개면 128
+    
     history = model.fit(
         X_train,
         {'regression': y_train[0], 'classification': y_train[1]},
         validation_data=(X_val, {'regression': y_val[0], 'classification': y_val[1]}),
         epochs=30,
-        batch_size=64,
+        batch_size=batch_size,
         callbacks=callbacks,
         verbose=1
     )
