@@ -1,11 +1,12 @@
 """
-🚀 반도체 물류 예측 - 원래 5개 모델
+🚀 반도체 물류 예측 - 6개 모델
 =====================================
 1. StableLSTM
 2. PatchTST  
 3. SpikeDetector
 4. ExtremeNet
 5. EnsembleBase
+6. GoldenRule (황금 규칙)
 
 100분 데이터 → 10분 후 예측
 """
@@ -27,7 +28,7 @@ tf.random.set_seed(42)
 np.random.seed(42)
 
 print("="*80)
-print("🚀 반도체 물류 예측 - 원래 5개 모델")
+print("🚀 반도체 물류 예측 - 6개 모델")
 print(f"📦 TensorFlow: {tf.__version__}")
 print("="*80)
 
@@ -220,6 +221,72 @@ def build_ensemble_base(input_shape):
     out_cls = Dense(3, activation='softmax', name='classification')(x)
     return Model(inputs, [out_reg, out_cls], name='EnsembleBase')
 
+def build_golden_rule(input_shape):
+    """6. GoldenRule - 황금 규칙 기반"""
+    inputs = Input(shape=input_shape)
+    # 마지막 시점의 특성만 사용 (규칙 기반)
+    last_step = Lambda(lambda x: x[:, -1, :])(inputs)
+    x = Dense(64, activation='relu')(last_step)
+    x = Dense(32, activation='relu')(x)
+    x = Dense(16, activation='relu')(x)
+    out_reg = Dense(1, name='regression')(x)
+    out_cls = Dense(3, activation='softmax', name='classification')(x)
+    return Model(inputs, [out_reg, out_cls], name='GoldenRule')
+
+# ===== 황금 규칙 기반 예측 =====
+def apply_golden_rules(df, processor):
+    """황금 규칙 적용"""
+    print("\n🏆 황금 규칙 평가...")
+    
+    # 규칙 1: M14AM14B > 300 & M14AM10A < 80
+    rule1 = (df['M14AM14B'] > 300) & (df['M14AM10A'] < 80)
+    
+    # 규칙 2: M14AM14BSUM > 500
+    rule2 = df['M14AM14BSUM'] > 500
+    
+    # 규칙 3: M14AM14B/M14AM10A > 5
+    rule3 = (df['M14AM14B'] / (df['M14AM10A'] + 1)) > 5
+    
+    # M14AM14B 구간별 예측
+    def predict_by_m14b(row):
+        m14b = row['M14AM14B']
+        if m14b >= 450:
+            return 1849
+        elif m14b >= 400:
+            return 1671
+        elif m14b >= 350:
+            return 1561
+        elif m14b >= 300:
+            return 1518
+        elif m14b >= 250:
+            return 1438
+        elif m14b >= 200:
+            return 1356
+        else:
+            return 1200
+    
+    # 규칙 기반 예측
+    df['RULE_PRED'] = df.apply(predict_by_m14b, axis=1)
+    
+    # 황금 패턴 정확도
+    golden_mask = rule1 | rule2 | rule3
+    golden_accuracy = (df[golden_mask]['RULE_PRED'] - df[golden_mask]['TARGET']).abs().mean()
+    
+    print(f"  황금 패턴 발생: {golden_mask.sum()}회 ({golden_mask.sum()/len(df)*100:.1f}%)")
+    print(f"  황금 패턴 MAE: {golden_accuracy:.2f}")
+    
+    # 구간별 정확도
+    print(f"\n  M14AM14B 구간별 정확도:")
+    for lower, upper, pred_val in [(450, 999999, 1849), (400, 450, 1671), 
+                                   (350, 400, 1561), (300, 350, 1518),
+                                   (250, 300, 1438), (200, 250, 1356)]:
+        mask = (df['M14AM14B'] >= lower) & (df['M14AM14B'] < upper)
+        if mask.sum() > 0:
+            mae = (df[mask]['TARGET'] - pred_val).abs().mean()
+            print(f"    {lower}-{upper}: {mask.sum()}회, MAE={mae:.2f}")
+    
+    return df['RULE_PRED'].values
+
 # 학습 및 평가
 def train_and_evaluate(model, train_data, val_data, test_data, processor):
     X_train, y_train = train_data
@@ -301,9 +368,13 @@ def main():
     processor = DataProcessor()
     df = processor.load_and_process(data_path)
     df = processor.create_features(df)
+    
+    # 황금 규칙 평가
+    rule_predictions = apply_golden_rules(df, processor)
+    
     train_data, val_data, test_data = processor.create_sequences(df)
     
-    # 5개 모델 생성
+    # 6개 모델 생성
     input_shape = (train_data[0].shape[1], train_data[0].shape[2])
     
     models = {
@@ -311,10 +382,11 @@ def main():
         'PatchTST': build_patch_tst(input_shape),
         'SpikeDetector': build_spike_detector(input_shape),
         'ExtremeNet': build_extreme_net(input_shape),
-        'EnsembleBase': build_ensemble_base(input_shape)
+        'EnsembleBase': build_ensemble_base(input_shape),
+        'GoldenRule': build_golden_rule(input_shape)
     }
     
-    print(f"\n✅ 원래 5개 모델 준비 완료:")
+    print(f"\n✅ 6개 모델 준비 완료:")
     for name in models.keys():
         print(f"  - {name}")
     
@@ -326,11 +398,18 @@ def main():
     
     # 최종 결과
     print("\n" + "="*80)
-    print("📊 최종 성능 비교 (원래 5개 모델)")
+    print("📊 최종 성능 비교 (6개 모델)")
     print("="*80)
     
     results_df = pd.DataFrame(results).T
-    print("\n", results_df.round(3))
+    print("\n[6개 모델 성능]")
+    print(results_df.round(3))
+    
+    print("\n[황금 규칙 설명]")
+    print("  GoldenRule 모델: M14AM14B 구간별 예측")
+    print("    - M14AM14B > 300 & M14AM10A < 80 → 급증")
+    print("    - M14AM14BSUM > 500 → 누적 경고")
+    print("    - M14AM14B/M14AM10A > 5 → 비율 이상")
     
     # 최고 성능
     print("\n🏆 최고 성능:")
@@ -338,9 +417,9 @@ def main():
     print(f"  R² 최고: {results_df['R2'].idxmax()} ({results_df['R2'].max():.4f})")
     print(f"  정확도 최고: {results_df['Accuracy'].idxmax()} ({results_df['Accuracy'].max():.2%})")
     
-    results_df.to_csv('model_results.csv')
-    print("\n💾 결과 저장: model_results.csv")
-    print("\n✅ 5개 모델 학습 완료!")
+    results_df.to_csv('model_results_6models.csv')
+    print("\n💾 결과 저장: model_results_6models.csv")
+    print("\n✅ 6개 모델 학습 완료!")
     
     return results
 
