@@ -1,7 +1,7 @@
 """
-🚀 반도체 물류 TOTALCNT 예측 시스템 - Production Ready v14.0
-===========================================================
-목표: 100분 과거 데이터로 10분 후 TOTALCNT 예측
+🚀 반도체 물류 TOTALCNT 예측 시스템 - Keras 3.0 호환 버전
+==========================================================
+TensorFlow 2.16 + Keras 3.0 완벽 호환
 
 예측 구간:
 - 정상: 0-1399 (56.53%)
@@ -9,16 +9,7 @@
 - 심각: 1700+ (0.35%) ← 핵심 목표
 
 평가 지표:
-- MAE (Mean Absolute Error)
-- RMSE (Root Mean Square Error)
-- R² Score (결정계수)
-- 정확도 (구간별)
-
-특징:
-✅ 학습 중단 시 자동 재개
-✅ 모델 자동 저장 (best & checkpoint)
-✅ 실시간 성능 모니터링
-✅ 5개 모델 앙상블
+- MAE, RMSE, R² Score, 정확도
 """
 
 import numpy as np
@@ -35,14 +26,11 @@ from sklearn.metrics import (
     accuracy_score, precision_score, recall_score, f1_score,
     confusion_matrix, classification_report
 )
-import matplotlib.pyplot as plt
-import seaborn as sns
 import warnings
 import os
 import json
 import pickle
 from datetime import datetime
-import glob
 
 warnings.filterwarnings('ignore')
 
@@ -61,7 +49,7 @@ if gpus:
         print(f"GPU 설정 오류: {e}")
 
 print("="*80)
-print("🚀 반도체 물류 예측 시스템 v14.0 - Production Ready")
+print("🚀 반도체 물류 예측 시스템 v15.0 - Keras 3.0 Compatible")
 print(f"📦 TensorFlow: {tf.__version__}")
 print(f"🔧 Device: {'GPU' if gpus else 'CPU'}")
 print(f"📅 실행 시간: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
@@ -184,7 +172,7 @@ class DataProcessor:
         # 1. 핵심 비율
         df['RATIO_M14B_M14A'] = df['M14AM14B'] / (df['M14AM10A'] + 1)
         
-        # 2. 황금 패턴 (발견된 패턴)
+        # 2. 황금 패턴
         df['GOLDEN_1'] = ((df['M14AM14B'] > 300) & (df['M14AM10A'] < 80)).astype(int)
         df['GOLDEN_2'] = (df['M14AM14BSUM'] > 500).astype(int)
         df['GOLDEN_3'] = (df['RATIO_M14B_M14A'] > 5).astype(int)
@@ -261,7 +249,7 @@ class DataProcessor:
             X_scaled = self.feature_scaler.fit_transform(X_data)
             y_reg_scaled = self.target_scaler.fit_transform(y_reg.reshape(-1, 1)).flatten()
             self.scaler_fitted = True
-            self.save_scalers()  # 스케일러 자동 저장
+            self.save_scalers()
         else:
             X_scaled = self.feature_scaler.transform(X_data)
             y_reg_scaled = self.target_scaler.transform(y_reg.reshape(-1, 1)).flatten()
@@ -283,153 +271,228 @@ class DataProcessor:
         return X, y_regression, y_classification, available_cols
 
 # =========================================
-# 모델 정의
+# 모델 정의 (Keras 3.0 호환)
+# =========================================
+
+class PatchEmbedding(Layer):
+    """패치 임베딩 레이어"""
+    def __init__(self, n_patches, patch_len, n_features, d_model=128):
+        super().__init__()
+        self.n_patches = n_patches
+        self.patch_len = patch_len
+        self.n_features = n_features
+        self.d_model = d_model
+        self.linear = Dense(d_model)
+        
+    def call(self, x):
+        # (batch, seq_len, features) -> (batch, n_patches, patch_len*features)
+        batch_size = tf.shape(x)[0]
+        x = tf.reshape(x, [batch_size, self.n_patches, self.patch_len * self.n_features])
+        return self.linear(x)
+
+def build_patch_tst(input_shape, patch_len=10):
+    """PatchTST - Keras 3.0 호환"""
+    inputs = Input(shape=input_shape)
+    seq_len, n_features = input_shape
+    n_patches = seq_len // patch_len
+    
+    # 패치 임베딩
+    patch_embed = PatchEmbedding(n_patches, patch_len, n_features, 128)
+    x = patch_embed(inputs)
+    
+    # Positional Encoding
+    positions = Embedding(n_patches, 128)(tf.range(n_patches))
+    x = x + positions[tf.newaxis, :, :]
+    
+    # Transformer Blocks
+    for _ in range(3):
+        # Multi-Head Attention
+        attn_output = MultiHeadAttention(
+            num_heads=8, 
+            key_dim=16,
+            dropout=0.1
+        )(x, x)
+        x = LayerNormalization()(x + attn_output)
+        
+        # Feed Forward
+        ffn_output = Dense(512, activation='gelu')(x)
+        ffn_output = Dropout(0.1)(ffn_output)
+        ffn_output = Dense(128)(ffn_output)
+        x = LayerNormalization()(x + ffn_output)
+    
+    # Global Pooling
+    x = GlobalAveragePooling1D()(x)
+    
+    # Dense layers
+    x = Dense(256, activation='relu')(x)
+    x = BatchNormalization()(x)
+    x = Dropout(0.3)(x)
+    
+    x = Dense(128, activation='relu')(x)
+    x = BatchNormalization()(x)
+    x = Dropout(0.2)(x)
+    
+    # 출력층
+    out_reg = Dense(1, name='regression')(x)
+    out_cls = Dense(3, activation='softmax', name='classification')(x)
+    
+    model = Model(inputs, [out_reg, out_cls], name='PatchTST')
+    return model
+
+def build_stable_lstm(input_shape):
+    """StableLSTM - 양방향 LSTM"""
+    inputs = Input(shape=input_shape)
+    
+    # Bidirectional LSTM
+    x = Bidirectional(LSTM(128, return_sequences=True))(inputs)
+    x = BatchNormalization()(x)
+    x = Dropout(0.2)(x)
+    
+    x = Bidirectional(LSTM(64, return_sequences=False))(x)
+    x = BatchNormalization()(x)
+    x = Dropout(0.2)(x)
+    
+    # Dense layers
+    x = Dense(128, activation='relu')(x)
+    x = BatchNormalization()(x)
+    x = Dropout(0.2)(x)
+    
+    x = Dense(64, activation='relu')(x)
+    x = BatchNormalization()(x)
+    
+    # 출력층
+    out_reg = Dense(1, name='regression')(x)
+    out_cls = Dense(3, activation='softmax', name='classification')(x)
+    
+    model = Model(inputs, [out_reg, out_cls], name='StableLSTM')
+    return model
+
+def build_spike_detector(input_shape):
+    """SpikeDetector - 급변 감지"""
+    inputs = Input(shape=input_shape)
+    
+    # 최근 20개 시점에 집중
+    recent = Lambda(lambda x: x[:, -20:, :])(inputs)
+    
+    # 1D CNN
+    x = Conv1D(64, kernel_size=3, activation='relu', padding='same')(recent)
+    x = BatchNormalization()(x)
+    x = MaxPooling1D(pool_size=2)(x)
+    
+    x = Conv1D(32, kernel_size=3, activation='relu', padding='same')(x)
+    x = BatchNormalization()(x)
+    
+    # GRU
+    x = GRU(64, return_sequences=False)(x)
+    x = BatchNormalization()(x)
+    x = Dropout(0.3)(x)
+    
+    # Dense layers
+    x = Dense(64, activation='relu')(x)
+    x = Dropout(0.2)(x)
+    x = Dense(32, activation='relu')(x)
+    
+    # 출력층
+    out_reg = Dense(1, name='regression')(x)
+    out_cls = Dense(3, activation='softmax', name='classification')(x)
+    
+    model = Model(inputs, [out_reg, out_cls], name='SpikeDetector')
+    return model
+
+def build_extreme_net(input_shape):
+    """ExtremeNet - 극단값 전문"""
+    inputs = Input(shape=input_shape)
+    
+    # Branch 1: Normal pattern
+    normal_branch = LSTM(64, return_sequences=True)(inputs)
+    normal_branch = LSTM(32, return_sequences=False)(normal_branch)
+    normal_branch = Dense(32, activation='relu')(normal_branch)
+    
+    # Branch 2: Extreme pattern
+    extreme_branch = MultiHeadAttention(
+        num_heads=4, 
+        key_dim=16
+    )(inputs, inputs)
+    extreme_branch = GlobalAveragePooling1D()(extreme_branch)
+    extreme_branch = Dense(32, activation='relu')(extreme_branch)
+    
+    # Merge
+    combined = Concatenate()([normal_branch, extreme_branch])
+    x = BatchNormalization()(combined)
+    x = Dense(64, activation='relu')(x)
+    x = Dropout(0.3)(x)
+    x = Dense(32, activation='relu')(x)
+    x = Dropout(0.2)(x)
+    
+    # 출력층
+    out_reg = Dense(1, name='regression')(x)
+    out_cls = Dense(3, activation='softmax', name='classification')(x)
+    
+    model = Model(inputs, [out_reg, out_cls], name='ExtremeNet')
+    return model
+
+def build_ensemble_base(input_shape):
+    """EnsembleBase - 앙상블 기본"""
+    inputs = Input(shape=input_shape)
+    
+    # Multiple pooling
+    avg_pool = GlobalAveragePooling1D()(inputs)
+    max_pool = GlobalMaxPooling1D()(inputs)
+    
+    # Combine
+    combined = Concatenate()([avg_pool, max_pool])
+    x = BatchNormalization()(combined)
+    
+    # Dense layers
+    x = Dense(128, activation='relu')(x)
+    x = BatchNormalization()(x)
+    x = Dropout(0.3)(x)
+    
+    x = Dense(64, activation='relu')(x)
+    x = BatchNormalization()(x)
+    x = Dropout(0.2)(x)
+    
+    # 출력층
+    out_reg = Dense(1, name='regression')(x)
+    out_cls = Dense(3, activation='softmax', name='classification')(x)
+    
+    model = Model(inputs, [out_reg, out_cls], name='EnsembleBase')
+    return model
+
+# =========================================
+# 모델 빌더
 # =========================================
 
 def build_models(input_shape):
     """모든 모델 빌드"""
     models = {}
     
-    # 1. PatchTST
-    models['PatchTST'] = build_patch_tst(input_shape)
+    print("\n📦 모델 생성 중...")
     
-    # 2. StableLSTM
+    # 1. StableLSTM
     models['StableLSTM'] = build_stable_lstm(input_shape)
+    print("  ✅ StableLSTM 생성 완료")
+    
+    # 2. PatchTST
+    models['PatchTST'] = build_patch_tst(input_shape)
+    print("  ✅ PatchTST 생성 완료")
     
     # 3. SpikeDetector
     models['SpikeDetector'] = build_spike_detector(input_shape)
+    print("  ✅ SpikeDetector 생성 완료")
     
     # 4. ExtremeNet
     models['ExtremeNet'] = build_extreme_net(input_shape)
+    print("  ✅ ExtremeNet 생성 완료")
     
     # 5. EnsembleBase
     models['EnsembleBase'] = build_ensemble_base(input_shape)
+    print("  ✅ EnsembleBase 생성 완료")
     
     return models
 
-def build_patch_tst(input_shape, patch_len=10):
-    """PatchTST - Transformer"""
-    inputs = Input(shape=input_shape)
-    seq_len, n_features = input_shape
-    n_patches = seq_len // patch_len
-    
-    # 패치 분할
-    x = tf.reshape(inputs, [-1, n_patches, patch_len * n_features])
-    x = Dense(128)(x)
-    
-    # Positional Encoding
-    positions = tf.range(n_patches)
-    pos_embedding = Embedding(n_patches, 128)(positions)
-    x = x + pos_embedding
-    
-    # Transformer Blocks
-    for _ in range(3):
-        attn = MultiHeadAttention(num_heads=8, key_dim=16)(x, x)
-        x = LayerNormalization()(x + attn)
-        
-        ff = Dense(512, activation='gelu')(x)
-        ff = Dense(128)(ff)
-        x = LayerNormalization()(x + ff)
-    
-    x = GlobalAveragePooling1D()(x)
-    x = Dense(256, activation='relu')(x)
-    x = Dropout(0.3)(x)
-    x = Dense(128, activation='relu')(x)
-    x = Dropout(0.2)(x)
-    
-    out_reg = Dense(1, name='regression')(x)
-    out_cls = Dense(3, activation='softmax', name='classification')(x)
-    
-    return Model(inputs, [out_reg, out_cls], name='PatchTST')
-
-def build_stable_lstm(input_shape):
-    """StableLSTM"""
-    inputs = Input(shape=input_shape)
-    
-    x = Bidirectional(LSTM(128, return_sequences=True))(inputs)
-    x = BatchNormalization()(x)
-    x = Dropout(0.2)(x)
-    
-    x = Bidirectional(LSTM(64))(x)
-    x = BatchNormalization()(x)
-    x = Dropout(0.2)(x)
-    
-    x = Dense(128, activation='relu')(x)
-    x = Dropout(0.2)(x)
-    x = Dense(64, activation='relu')(x)
-    
-    out_reg = Dense(1, name='regression')(x)
-    out_cls = Dense(3, activation='softmax', name='classification')(x)
-    
-    return Model(inputs, [out_reg, out_cls], name='StableLSTM')
-
-def build_spike_detector(input_shape):
-    """SpikeDetector"""
-    inputs = Input(shape=input_shape)
-    
-    recent = Lambda(lambda x: x[:, -20:, :])(inputs)
-    
-    x = Conv1D(64, 3, activation='relu', padding='same')(recent)
-    x = BatchNormalization()(x)
-    x = MaxPooling1D(2)(x)
-    
-    x = Conv1D(32, 3, activation='relu', padding='same')(x)
-    x = BatchNormalization()(x)
-    
-    x = GRU(64)(x)
-    x = BatchNormalization()(x)
-    x = Dropout(0.3)(x)
-    
-    x = Dense(64, activation='relu')(x)
-    x = Dropout(0.2)(x)
-    
-    out_reg = Dense(1, name='regression')(x)
-    out_cls = Dense(3, activation='softmax', name='classification')(x)
-    
-    return Model(inputs, [out_reg, out_cls], name='SpikeDetector')
-
-def build_extreme_net(input_shape):
-    """ExtremeNet"""
-    inputs = Input(shape=input_shape)
-    
-    normal = LSTM(64, return_sequences=True)(inputs)
-    normal = LSTM(32)(normal)
-    
-    extreme = MultiHeadAttention(num_heads=4, key_dim=16)(inputs, inputs)
-    extreme = GlobalAveragePooling1D()(extreme)
-    
-    x = Concatenate()([normal, extreme])
-    x = BatchNormalization()(x)
-    x = Dense(64, activation='relu')(x)
-    x = Dropout(0.3)(x)
-    
-    out_reg = Dense(1, name='regression')(x)
-    out_cls = Dense(3, activation='softmax', name='classification')(x)
-    
-    return Model(inputs, [out_reg, out_cls], name='ExtremeNet')
-
-def build_ensemble_base(input_shape):
-    """EnsembleBase"""
-    inputs = Input(shape=input_shape)
-    
-    avg_pool = GlobalAveragePooling1D()(inputs)
-    max_pool = GlobalMaxPooling1D()(inputs)
-    
-    x = Concatenate()([avg_pool, max_pool])
-    x = BatchNormalization()(x)
-    
-    x = Dense(128, activation='relu')(x)
-    x = Dropout(0.3)(x)
-    x = Dense(64, activation='relu')(x)
-    x = Dropout(0.2)(x)
-    
-    out_reg = Dense(1, name='regression')(x)
-    out_cls = Dense(3, activation='softmax', name='classification')(x)
-    
-    return Model(inputs, [out_reg, out_cls], name='EnsembleBase')
-
 # =========================================
-# 학습 및 평가
+# 학습 및 평가 클래스
 # =========================================
 
 class ModelTrainer:
@@ -443,15 +506,9 @@ class ModelTrainer:
         
     def train_model(self, model_name, X_train, y_train, X_val, y_val, 
                    epochs=30, initial_epoch=0):
-        """모델 학습 (재개 가능)"""
+        """모델 학습"""
         
         model = self.models[model_name]
-        
-        # 기존 가중치 체크
-        existing_model = self.checkpoint_manager.check_existing_model(model_name)
-        if existing_model and initial_epoch > 0:
-            print(f"📂 기존 모델 로드: {existing_model}")
-            model.load_weights(existing_model)
         
         # 컴파일
         model.compile(
@@ -468,7 +525,7 @@ class ModelTrainer:
         )
         
         print(f"\n{'='*60}")
-        print(f"🎯 {model_name} 학습 (Epoch {initial_epoch+1}/{epochs})")
+        print(f"🎯 {model_name} 학습 시작")
         print(f"{'='*60}")
         
         # Callbacks
@@ -476,25 +533,21 @@ class ModelTrainer:
             EarlyStopping(
                 monitor='val_loss',
                 patience=7,
-                restore_best_weights=True
+                restore_best_weights=True,
+                verbose=1
             ),
             ReduceLROnPlateau(
                 monitor='val_loss',
                 factor=0.5,
                 patience=3,
-                min_lr=1e-6
+                min_lr=1e-6,
+                verbose=1
             ),
             ModelCheckpoint(
-                f'./checkpoints/{model_name}_model.keras',
+                f'./checkpoints/{model_name}_best.keras',
                 monitor='val_loss',
                 save_best_only=True,
                 verbose=1
-            ),
-            # 매 에폭마다 체크포인트
-            LambdaCallback(
-                on_epoch_end=lambda epoch, logs: self.checkpoint_manager.save_training_state(
-                    epoch, model_name, logs, {'train_size': len(X_train), 'val_size': len(X_val)}
-                )
             )
         ]
         
@@ -517,14 +570,15 @@ class ModelTrainer:
             verbose=1
         )
         
-        # 최종 모델 저장
+        # 최종 저장
+        os.makedirs('models', exist_ok=True)
         model.save(f'./models/{model_name}_final.keras')
-        print(f"💾 최종 모델 저장: ./models/{model_name}_final.keras")
+        print(f"💾 모델 저장: ./models/{model_name}_final.keras")
         
         return history
     
     def evaluate_model(self, model_name, X_test, y_test):
-        """모델 평가 - MAE, RMSE, R2, 정확도"""
+        """모델 평가"""
         
         model = self.models[model_name]
         
@@ -545,19 +599,24 @@ class ModelTrainer:
             y_reg_pred.reshape(-1, 1)
         ).flatten()
         
-        # ========== 회귀 메트릭 ==========
+        # 회귀 메트릭
         mae = mean_absolute_error(y_reg_true_orig, y_reg_pred_orig)
         rmse = np.sqrt(mean_squared_error(y_reg_true_orig, y_reg_pred_orig))
         r2 = r2_score(y_reg_true_orig, y_reg_pred_orig)
         
-        # ========== 분류 메트릭 ==========
+        # 분류 메트릭
         accuracy = accuracy_score(y_cls_true, y_cls_pred)
         
         # 구간별 정확도
         cm = confusion_matrix(y_cls_true, y_cls_pred)
-        class_accuracies = cm.diagonal() / cm.sum(axis=1)
+        class_accuracies = []
+        for i in range(len(cm)):
+            if cm[i].sum() > 0:
+                class_accuracies.append(cm[i, i] / cm[i].sum())
+            else:
+                class_accuracies.append(0)
         
-        # 1700+ (클래스 2) 성능
+        # 1700+ 성능
         if 2 in y_cls_true:
             precision_1700 = precision_score(y_cls_true, y_cls_pred, labels=[2], average='macro', zero_division=0)
             recall_1700 = recall_score(y_cls_true, y_cls_pred, labels=[2], average='macro', zero_division=0)
@@ -581,7 +640,7 @@ class ModelTrainer:
         
         self.results[model_name] = results
         
-        # 결과 출력
+        # 출력
         print(f"\n{'='*60}")
         print(f"📊 {model_name} 평가 결과")
         print(f"{'='*60}")
@@ -596,52 +655,19 @@ class ModelTrainer:
         print(f"  주의 정확도: {results['Accuracy_Warning']:.2%}")
         print(f"  심각 정확도: {results['Accuracy_Critical']:.2%}")
         
-        print(f"\n[1700+ 감지 성능]")
+        print(f"\n[1700+ 감지]")
         print(f"  Precision: {precision_1700:.2%}")
         print(f"  Recall:    {recall_1700:.2%}")
         print(f"  F1-Score:  {f1_1700:.2%}")
         
         return results
-    
-    def print_final_results(self):
-        """최종 결과 테이블 출력"""
-        
-        print("\n" + "="*80)
-        print("📊 최종 성능 비교 테이블")
-        print("="*80)
-        
-        # DataFrame으로 정리
-        df_results = pd.DataFrame(self.results).T
-        df_results = df_results.round(2)
-        
-        print("\n[회귀 성능]")
-        print(df_results[['MAE', 'RMSE', 'R2']])
-        
-        print("\n[분류 성능]")
-        print(df_results[['Accuracy', 'Accuracy_Normal', 'Accuracy_Warning', 'Accuracy_Critical']])
-        
-        print("\n[1700+ 감지 성능]")
-        print(df_results[['Precision_1700', 'Recall_1700', 'F1_1700']])
-        
-        # 최고 성능 모델
-        print("\n🏆 최고 성능 모델:")
-        print(f"  MAE 최저: {df_results['MAE'].idxmin()} ({df_results['MAE'].min():.2f})")
-        print(f"  R² 최고: {df_results['R2'].idxmax()} ({df_results['R2'].max():.4f})")
-        print(f"  정확도 최고: {df_results['Accuracy'].idxmax()} ({df_results['Accuracy'].max():.2%})")
-        print(f"  1700+ F1 최고: {df_results['F1_1700'].idxmax()} ({df_results['F1_1700'].max():.2%})")
-        
-        # CSV로 저장
-        df_results.to_csv('model_results.csv')
-        print("\n💾 결과 저장: model_results.csv")
-        
-        return df_results
 
 # =========================================
 # 메인 실행
 # =========================================
 
 def main():
-    """메인 실행 함수"""
+    """메인 실행"""
     
     # 디렉토리 생성
     os.makedirs('checkpoints', exist_ok=True)
@@ -653,11 +679,10 @@ def main():
     # 1. 데이터 준비
     print("\n📁 데이터 로드...")
     
-    # 데이터 경로 찾기
+    # 데이터 경로
     data_paths = [
+        'data/20250731_to20250806.csv',  # 실제 경로
         '/mnt/user-data/uploads/gs.CSV',
-        'data/semiconductor_data.csv',
-        '/home/claude/data/full_data.csv',
         './data.csv'
     ]
     
@@ -674,11 +699,8 @@ def main():
     
     # 데이터 처리
     processor = DataProcessor(seq_len=100, pred_len=10)
-    
-    # 스케일러 로드 시도
     processor.load_scalers()
     
-    # 데이터 로드 및 전처리
     df = processor.load_data(data_path)
     df = processor.create_features(df)
     X, y_reg, y_cls, feature_cols = processor.prepare_sequences(df)
@@ -712,19 +734,7 @@ def main():
     trainer = ModelTrainer(models, processor, checkpoint_manager)
     
     # 5. 각 모델 학습 및 평가
-    model_names = ['StableLSTM', 'PatchTST', 'SpikeDetector', 'ExtremeNet', 'EnsembleBase']
-    
-    for model_name in model_names:
-        # 기존 학습 상태 체크
-        state = checkpoint_manager.load_training_state(model_name)
-        initial_epoch = 0
-        
-        if state:
-            print(f"\n⚠️ {model_name} 기존 학습 발견 (Epoch {state['epoch']})")
-            resume = input("재개하시겠습니까? (y/n): ").lower() == 'y'
-            if resume:
-                initial_epoch = state['epoch'] + 1
-        
+    for model_name in models.keys():
         # 학습
         trainer.train_model(
             model_name,
@@ -732,8 +742,7 @@ def main():
             (y_reg_train, y_cls_train),
             X_val,
             (y_reg_val, y_cls_val),
-            epochs=30,
-            initial_epoch=initial_epoch
+            epochs=30
         )
         
         # 평가
@@ -744,47 +753,25 @@ def main():
         )
     
     # 6. 최종 결과
-    results_df = trainer.print_final_results()
-    
-    # 7. 앙상블 예측
     print("\n" + "="*80)
-    print("🎯 앙상블 예측")
+    print("📊 최종 성능 비교")
     print("="*80)
     
-    ensemble_reg_preds = []
-    ensemble_cls_preds = []
+    results_df = pd.DataFrame(trainer.results).T
+    print("\n[회귀 성능]")
+    print(results_df[['MAE', 'RMSE', 'R2']].round(3))
     
-    for model_name, model in models.items():
-        preds = model.predict(X_test, verbose=0)
-        ensemble_reg_preds.append(preds[0])
-        ensemble_cls_preds.append(preds[1])
+    print("\n[분류 정확도]")
+    print(results_df[['Accuracy', 'Accuracy_Normal', 'Accuracy_Warning', 'Accuracy_Critical']].round(3))
     
-    # 평균 앙상블
-    ensemble_reg = np.mean(ensemble_reg_preds, axis=0).flatten()
-    ensemble_cls = np.argmax(np.mean(ensemble_cls_preds, axis=0), axis=1)
+    print("\n[1700+ 감지]")
+    print(results_df[['Precision_1700', 'Recall_1700', 'F1_1700']].round(3))
     
-    # 앙상블 성능
-    y_reg_true_orig = processor.target_scaler.inverse_transform(
-        y_reg_test.reshape(-1, 1)
-    ).flatten()
-    y_reg_pred_orig = processor.target_scaler.inverse_transform(
-        ensemble_reg.reshape(-1, 1)
-    ).flatten()
-    
-    ensemble_mae = mean_absolute_error(y_reg_true_orig, y_reg_pred_orig)
-    ensemble_rmse = np.sqrt(mean_squared_error(y_reg_true_orig, y_reg_pred_orig))
-    ensemble_r2 = r2_score(y_reg_true_orig, y_reg_pred_orig)
-    ensemble_acc = accuracy_score(y_cls_test, ensemble_cls)
-    
-    print(f"\n✅ 앙상블 최종 성능:")
-    print(f"  MAE:  {ensemble_mae:.2f}")
-    print(f"  RMSE: {ensemble_rmse:.2f}")
-    print(f"  R²:   {ensemble_r2:.4f}")
-    print(f"  정확도: {ensemble_acc:.2%}")
+    # CSV 저장
+    results_df.to_csv('model_results.csv')
+    print("\n💾 결과 저장: model_results.csv")
     
     print("\n✅ 학습 완료!")
-    print("💾 모든 모델이 ./models/ 폴더에 저장되었습니다.")
-    print("📊 성능 결과가 model_results.csv에 저장되었습니다.")
     
     return models, results_df
 
