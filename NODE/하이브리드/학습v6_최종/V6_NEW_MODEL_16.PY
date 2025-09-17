@@ -235,9 +235,12 @@ class StableModels:
         # Normalize
         x = BatchNormalization()(inputs)
         
-        # 패치 생성 (100 -> 10 patches)
+        # 패치 생성 (100 -> 10 patches) - Reshape 레이어 사용
         n_patches = self.seq_len // patch_len
-        x = tf.reshape(x, [-1, n_patches, patch_len * self.n_features])
+        patch_size = patch_len * self.n_features
+        
+        # Reshape를 Keras 레이어로 처리
+        x = Reshape((n_patches, patch_size))(x)
         
         # 패치 임베딩
         x = Dense(d_model)(x)
@@ -385,9 +388,8 @@ class StableModels:
         diffusion = LSTM(32)(diffusion)
         sigma = Dense(16, activation='softplus')(diffusion)
         
-        # Stochastic integration (training시만)
-        z = tf.random.normal(tf.shape(mu), 0, 0.1)
-        x = mu + sigma * z
+        # Stochastic integration - Lambda 레이어 사용
+        x = Add()([mu, Lambda(lambda s: s * np.random.normal(0, 0.1, (1,)))(sigma)])
         
         x = Dense(32, activation='relu')(x)
         outputs = Dense(1, activation='sigmoid')(x)
@@ -407,22 +409,24 @@ class StableModels:
         
         # 3 Experts
         e1 = Dense(16, activation='relu')(shared)
-        e1_out = Dense(1, activation='linear')(e1)
+        e1_out = Dense(1, activation='sigmoid')(e1)
         
         e2 = Dense(16, activation='relu')(shared)
-        e2_out = Dense(1, activation='linear')(e2)
+        e2_out = Dense(1, activation='sigmoid')(e2)
         
         e3 = Dense(16, activation='relu')(shared)
-        e3_out = Dense(1, activation='linear')(e3)
+        e3_out = Dense(1, activation='sigmoid')(e3)
         
         # Router
         gate = Dense(16, activation='relu')(shared)
         gate = Dense(3, activation='softmax')(gate)
         
-        # Weighted sum
-        experts = tf.stack([e1_out, e2_out, e3_out], axis=1)
-        outputs = tf.reduce_sum(experts * gate[:, :, None], axis=1)
-        outputs = Activation('sigmoid')(outputs)
+        # Weighted sum - Keras 연산으로 처리
+        e1_weighted = Multiply()([e1_out, Lambda(lambda g: g[:, 0:1])(gate)])
+        e2_weighted = Multiply()([e2_out, Lambda(lambda g: g[:, 1:2])(gate)])
+        e3_weighted = Multiply()([e3_out, Lambda(lambda g: g[:, 2:3])(gate)])
+        
+        outputs = Add()([e1_weighted, e2_weighted, e3_weighted])
         
         return Model(inputs, outputs, name='MixtureOfExperts')
     
@@ -438,13 +442,12 @@ class StableModels:
         x = Conv1D(128, 3, padding='same', activation='relu')(x)
         x = MaxPooling1D(2)(x)
         
-        # Noising
+        # Noising - Lambda 레이어 사용
         x = LSTM(64, return_sequences=True)(x)
-        noise_level = 0.05
-        x_noisy = x + tf.random.normal(tf.shape(x), 0, noise_level)
+        x = Lambda(lambda t: t + np.random.normal(0, 0.05, (1,1,1)))(x)
         
         # Denoiser
-        x = LSTM(64)(x_noisy)
+        x = LSTM(64)(x)
         x = Dense(32, activation='relu')(x)
         outputs = Dense(1, activation='sigmoid')(x)
         
@@ -585,11 +588,11 @@ class StableModels:
         
         x = BatchNormalization()(inputs)
         
-        # 1D to 2D transform (simplified)
-        x = tf.expand_dims(x, axis=-1)
+        # 1D to 2D transform - Keras 레이어 사용
+        x = Lambda(lambda t: tf.expand_dims(t, axis=-1))(x)
         x = Conv2D(64, (3, 1), padding='same', activation='relu')(x)
         x = Conv2D(32, (3, 1), padding='same', activation='relu')(x)
-        x = tf.squeeze(x, axis=-1)
+        x = Lambda(lambda t: tf.squeeze(t, axis=-1))(x)
         
         x = GlobalAveragePooling1D()(x)
         x = Dense(32, activation='relu')(x)
