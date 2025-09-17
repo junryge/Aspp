@@ -110,11 +110,12 @@ class DataProcessor:
         
         # 황금 패턴
         df['RATIO'] = (df['M14AM14B'] / (df['M14AM10A'] + 1)).astype('float32')
-        df['GOLDEN_1'] = ((df['M14AM14B'] > 300) & (df['M14AM10A'] < 80)).astype('int8')
-        df['GOLDEN_2'] = (df['M14AM14BSUM'] > 500).astype('int8')
+        df['GOLDEN_1'] = ((df['M14AM14B'] > 300) & (df['M14AM10A'] < 80)).astype('float32')
+        df['GOLDEN_2'] = (df['M14AM14BSUM'] > 500).astype('float32')
         
-        # 시간
-        df['HOUR'] = df['CURRTIME'].dt.hour.astype('int8')
+        # 시간 (NaN 처리)
+        df['HOUR'] = df['CURRTIME'].dt.hour
+        df['HOUR'] = df['HOUR'].fillna(0).astype('float32')  # NaN을 0으로 채우고 float32로
         df['HOUR_SIN'] = np.sin(2 * np.pi * df['HOUR'] / 24).astype('float32')
         df['HOUR_COS'] = np.cos(2 * np.pi * df['HOUR'] / 24).astype('float32')
         
@@ -132,7 +133,7 @@ class DataProcessor:
         df['TARGET'] = df['TOTALCNT'].shift(-self.pred_len)
         df['LEVEL'] = pd.cut(df['TARGET'], 
                             bins=[-np.inf, 1400, 1700, np.inf], 
-                            labels=[0, 1, 2]).astype('int8')
+                            labels=[0, 1, 2])
         
         print(f"✅ 특성 생성 완료: {len(df.columns)}개 컬럼")
         return df
@@ -156,7 +157,7 @@ class DataProcessor:
         
         X_data = df[features].values.astype('float32')
         y_reg = df['TARGET'].values.astype('float32')
-        y_cls = df['LEVEL'].values.astype('int8')
+        y_cls = df['LEVEL'].values  # 타입 변환 제거
         
         # 스케일링
         if not self.scaler_fitted:
@@ -185,7 +186,11 @@ class DataProcessor:
             for i in range(start_idx, end_idx):
                 batch_X.append(X_scaled[i:i+self.seq_len])
                 batch_y_r.append(y_reg_scaled[i+self.seq_len-1])
-                batch_y_c.append(y_cls[i+self.seq_len-1])
+                # NaN 체크 후 변환
+                if pd.isna(y_cls[i+self.seq_len-1]):
+                    batch_y_c.append(0)  # NaN은 0으로 처리
+                else:
+                    batch_y_c.append(int(y_cls[i+self.seq_len-1]))
             
             X_list.append(np.array(batch_X, dtype='float32'))
             y_r_list.append(np.array(batch_y_r, dtype='float32'))
