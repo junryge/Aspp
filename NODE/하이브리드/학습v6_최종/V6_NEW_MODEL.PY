@@ -4,6 +4,7 @@
 - Infinity/NaN 오류 완전 해결
 - 전체 구간별 평가 (일반, 중간, 1700+)
 - 안정적인 데이터 처리
+- [수정] EnsembleBase 모델 구조 오류 해결
 """
 
 import numpy as np
@@ -220,405 +221,116 @@ class SafeDataProcessor:
 # ========================================
 
 class StableModels:
-    """모든 모델 구현 - 15개"""
+    """안정적인 모델 구현"""
     
     def __init__(self, input_shape):
         self.input_shape = input_shape
         self.seq_len = input_shape[0]
         self.n_features = input_shape[1]
     
-    # 1. PatchTST - Transformer 최강
-    def build_patch_tst(self, patch_len=10, d_model=128, n_heads=4):
-        """Patch Time Series Transformer - SOTA"""
+    def build_stable_lstm(self):
+        """안정적인 LSTM"""
         inputs = Input(shape=self.input_shape)
         
-        # Normalize
+        # Batch Normalization으로 안정화
         x = BatchNormalization()(inputs)
         
-        # 패치 생성 (100 -> 10 patches) - Reshape 레이어 사용
-        n_patches = self.seq_len // patch_len
-        patch_size = patch_len * self.n_features
-        
-        # Reshape를 Keras 레이어로 처리
-        x = Reshape((n_patches, patch_size))(x)
-        
-        # 패치 임베딩
-        x = Dense(d_model)(x)
-        x = LayerNormalization()(x)
-        
-        # Multi-Head Attention (2 layers)
-        for _ in range(2):
-            attn = MultiHeadAttention(
-                num_heads=n_heads, 
-                key_dim=d_model//n_heads,
-                dropout=0.1
-            )(x, x)
-            x = Add()([x, attn])
-            x = LayerNormalization()(x)
-            
-            # FFN
-            ff = Dense(d_model * 2, activation='relu')(x)
-            ff = Dropout(0.1)(ff)
-            ff = Dense(d_model)(ff)
-            x = Add()([x, ff])
-            x = LayerNormalization()(x)
-        
-        x = GlobalAveragePooling1D()(x)
-        x = Dense(64, activation='relu')(x)
+        # LSTM layers with careful dropout
+        x = LSTM(128, return_sequences=True, 
+                kernel_regularizer=keras.regularizers.l2(0.01))(x)
         x = Dropout(0.2)(x)
-        outputs = Dense(1, activation='sigmoid')(x)
+        x = BatchNormalization()(x)
         
-        return Model(inputs, outputs, name='PatchTST')
+        x = LSTM(64, return_sequences=False,
+                kernel_regularizer=keras.regularizers.l2(0.01))(x)
+        x = Dropout(0.2)(x)
+        x = BatchNormalization()(x)
+        
+        # Dense layers
+        x = Dense(32, activation='relu',
+                 kernel_regularizer=keras.regularizers.l2(0.01))(x)
+        x = Dropout(0.1)(x)
+        
+        # Output with sigmoid to limit range
+        outputs = Dense(1, activation='sigmoid')(x)  # 0-1 범위로 제한
+        
+        model = Model(inputs, outputs, name='StableLSTM')
+        return model
     
-    # 2. Extreme Value Network - 1700+ 킬러
-    def build_extreme_value_network(self):
-        """극단값 이론 기반 - 1700+ 특화"""
-        inputs = Input(shape=self.input_shape)
-        
-        x = BatchNormalization()(inputs)
-        
-        # LSTM backbone
-        x = LSTM(128, return_sequences=True)(x)
-        x = Dropout(0.2)(x)
-        x = LSTM(64)(x)
-        x = Dropout(0.2)(x)
-        
-        # 극단값 브랜치
-        extreme = Dense(32, activation='relu')(x)
-        extreme = Dense(16, activation='relu')(extreme)
-        xi = Dense(1, activation='tanh')(extreme)  # shape parameter
-        sigma = Dense(1, activation='softplus')(extreme)  # scale parameter
-        
-        # 일반 브랜치
-        normal = Dense(32, activation='relu')(x)
-        normal_pred = Dense(1, activation='linear')(normal)
-        
-        # GPD 기반 보정
-        extreme_adjustment = Multiply()([sigma, xi])
-        outputs = Add()([normal_pred, extreme_adjustment])
-        outputs = Activation('sigmoid')(outputs)
-        
-        return Model(inputs, outputs, name='ExtremeValueNet')
-    
-    # 3. Enhanced Spike Detector - 급변 감지
     def build_spike_detector(self):
-        """급변 감지 특화"""
+        """급변 감지 모델"""
         inputs = Input(shape=self.input_shape)
         
         x = BatchNormalization()(inputs)
         
-        # CNN for pattern
+        # CNN layers
         x = Conv1D(64, 3, padding='same', activation='relu')(x)
         x = BatchNormalization()(x)
-        x = Conv1D(64, 3, padding='same', activation='relu')(x)
         x = MaxPooling1D(2)(x)
         
-        # Bidirectional LSTM
-        x = Bidirectional(LSTM(64, return_sequences=True))(x)
-        x = Bidirectional(LSTM(32))(x)
+        x = Conv1D(32, 3, padding='same', activation='relu')(x)
+        x = BatchNormalization()(x)
         
-        # Detection heads
-        spike_prob = Dense(32, activation='relu')(x)
-        spike_prob = Dense(1, activation='sigmoid')(spike_prob)
+        # LSTM
+        x = LSTM(64, return_sequences=False)(x)
+        x = BatchNormalization()(x)
         
-        spike_mag = Dense(32, activation='relu')(x)
-        spike_mag = Dense(1, activation='linear')(spike_mag)
+        x = Dense(32, activation='relu')(x)
+        x = Dropout(0.2)(x)
         
-        outputs = Multiply()([spike_prob, spike_mag])
-        outputs = Activation('sigmoid')(outputs)
+        outputs = Dense(1, activation='sigmoid')(x)
         
-        return Model(inputs, outputs, name='SpikeDetector')
+        model = Model(inputs, outputs, name='SpikeDetector')
+        return model
     
-    # 4. Mamba (State Space Model)
-    def build_mamba_ssm(self):
-        """State Space Model - 효율적"""
+    def build_extreme_net(self):
+        """극단값 전문 모델"""
         inputs = Input(shape=self.input_shape)
         
         x = BatchNormalization()(inputs)
         
-        # SSM layers (GRU로 근사)
+        # GRU backbone
         x = GRU(128, return_sequences=True)(x)
-        x = GRU(64, return_sequences=True)(x)
-        x = GRU(32)(x)
-        
-        x = Dense(32, activation='relu')(x)
         x = Dropout(0.2)(x)
-        outputs = Dense(1, activation='sigmoid')(x)
+        x = GRU(64, return_sequences=False)(x)
+        x = Dropout(0.2)(x)
         
-        return Model(inputs, outputs, name='MambaSSM')
+        # Two branches
+        normal_branch = Dense(32, activation='relu')(x)
+        normal_out = Dense(1, activation='linear')(normal_branch)
+        
+        extreme_branch = Dense(32, activation='relu')(x)
+        extreme_factor = Dense(1, activation='sigmoid')(extreme_branch)
+        
+        # Combine
+        outputs = Add()([normal_out, 
+                        Multiply()([normal_out, extreme_factor])])
+        outputs = Activation('sigmoid')(outputs)  # 최종 범위 제한
+        
+        model = Model(inputs, outputs, name='ExtremeNet')
+        return model
     
-    # 5. MTGNN (Graph Neural Network)
-    def build_mtgnn(self):
-        """Multivariate Time Graph NN - 컬럼 관계"""
+    def build_ensemble_base(self):
+        """앙상블용 베이스 모델"""
         inputs = Input(shape=self.input_shape)
         
         x = BatchNormalization()(inputs)
+
+        # [수정된 부분] 3D 시퀀스 입력을 2D로 변환하여 Dense Layer에 전달합니다.
+        x = GlobalAveragePooling1D()(x)
         
-        # Graph construction
-        node_emb = Dense(64, activation='relu')(x)
-        
-        # Temporal Conv
-        x = Conv1D(64, 3, padding='causal', activation='relu')(x)
-        x = Conv1D(64, 3, padding='causal', activation='relu')(x)
-        
-        # Graph Conv (simplified)
+        # Simple but effective
         x = Dense(128, activation='relu')(x)
-        x = Dense(64, activation='relu')(x)
-        
-        x = GlobalAveragePooling1D()(x)
-        x = Dense(32, activation='relu')(x)
-        outputs = Dense(1, activation='sigmoid')(x)
-        
-        return Model(inputs, outputs, name='MTGNN')
-    
-    # 6. Neural SDE
-    def build_neural_sde(self):
-        """확률적 미분방정식"""
-        inputs = Input(shape=self.input_shape)
-        
-        x = BatchNormalization()(inputs)
-        
-        # Drift (mu)
-        drift = LSTM(64, return_sequences=True)(x)
-        drift = LSTM(32)(drift)
-        mu = Dense(16, activation='linear')(drift)
-        
-        # Diffusion (sigma)  
-        diffusion = LSTM(64, return_sequences=True)(x)
-        diffusion = LSTM(32)(diffusion)
-        sigma = Dense(16, activation='softplus')(diffusion)
-        
-        # Stochastic integration - Lambda 레이어 사용
-        x = Add()([mu, Lambda(lambda s: s * np.random.normal(0, 0.1, (1,)))(sigma)])
-        
-        x = Dense(32, activation='relu')(x)
-        outputs = Dense(1, activation='sigmoid')(x)
-        
-        return Model(inputs, outputs, name='NeuralSDE')
-    
-    # 7. Mixture of Experts
-    def build_mixture_of_experts(self):
-        """전문가 앙상블"""
-        inputs = Input(shape=self.input_shape)
-        
-        x = BatchNormalization()(inputs)
-        
-        # Shared
-        shared = LSTM(64, return_sequences=True)(x)
-        shared = LSTM(32)(shared)
-        
-        # 3 Experts
-        e1 = Dense(16, activation='relu')(shared)
-        e1_out = Dense(1, activation='sigmoid')(e1)
-        
-        e2 = Dense(16, activation='relu')(shared)
-        e2_out = Dense(1, activation='sigmoid')(e2)
-        
-        e3 = Dense(16, activation='relu')(shared)
-        e3_out = Dense(1, activation='sigmoid')(e3)
-        
-        # Router
-        gate = Dense(16, activation='relu')(shared)
-        gate = Dense(3, activation='softmax')(gate)
-        
-        # Weighted sum - Keras 연산으로 처리
-        e1_weighted = Multiply()([e1_out, Lambda(lambda g: g[:, 0:1])(gate)])
-        e2_weighted = Multiply()([e2_out, Lambda(lambda g: g[:, 1:2])(gate)])
-        e3_weighted = Multiply()([e3_out, Lambda(lambda g: g[:, 2:3])(gate)])
-        
-        outputs = Add()([e1_weighted, e2_weighted, e3_weighted])
-        
-        return Model(inputs, outputs, name='MixtureOfExperts')
-    
-    # 8. Diffusion Model
-    def build_diffusion_model(self):
-        """Denoising Diffusion"""
-        inputs = Input(shape=self.input_shape)
-        
-        x = BatchNormalization()(inputs)
-        
-        # Encoder
-        x = Conv1D(64, 3, padding='same', activation='relu')(x)
-        x = Conv1D(128, 3, padding='same', activation='relu')(x)
-        x = MaxPooling1D(2)(x)
-        
-        # Noising - Lambda 레이어 사용
-        x = LSTM(64, return_sequences=True)(x)
-        x = Lambda(lambda t: t + np.random.normal(0, 0.05, (1,1,1)))(x)
-        
-        # Denoiser
-        x = LSTM(64)(x)
-        x = Dense(32, activation='relu')(x)
-        outputs = Dense(1, activation='sigmoid')(x)
-        
-        return Model(inputs, outputs, name='DiffusionModel')
-    
-    # 9. Autoformer
-    def build_autoformer(self):
-        """Auto-Correlation Transformer"""
-        inputs = Input(shape=self.input_shape)
-        
-        x = BatchNormalization()(inputs)
-        
-        # Decomposition
-        trend = AveragePooling1D(10, strides=1, padding='same')(x)
-        seasonal = x - trend
-        
-        # Process
-        trend = Conv1D(64, 1, activation='relu')(trend)
-        seasonal = Conv1D(64, 1, activation='relu')(seasonal)
-        
-        # Auto-Correlation
-        x = Concatenate()([trend, seasonal])
-        x = MultiHeadAttention(num_heads=4, key_dim=16)(x, x)
-        
-        x = GlobalAveragePooling1D()(x)
-        x = Dense(32, activation='relu')(x)
-        outputs = Dense(1, activation='sigmoid')(x)
-        
-        return Model(inputs, outputs, name='Autoformer')
-    
-    # 10. TCN (Temporal CNN)
-    def build_tcn(self):
-        """Temporal Convolutional Network"""
-        inputs = Input(shape=self.input_shape)
-        
-        x = BatchNormalization()(inputs)
-        
-        # Dilated convolutions
-        for dilation in [1, 2, 4, 8]:
-            conv = Conv1D(64, 3, dilation_rate=dilation, 
-                         padding='causal', activation='relu')(x)
-            conv = Dropout(0.1)(conv)
-            if x.shape[-1] != conv.shape[-1]:
-                x = Conv1D(64, 1)(x)
-            x = Add()([x, conv])
-        
-        x = GlobalAveragePooling1D()(x)
-        x = Dense(32, activation='relu')(x)
-        outputs = Dense(1, activation='sigmoid')(x)
-        
-        return Model(inputs, outputs, name='TCN')
-    
-    # 11. WaveNet
-    def build_wavenet(self):
-        """WaveNet Architecture"""
-        inputs = Input(shape=self.input_shape)
-        
-        x = BatchNormalization()(inputs)
-        skip_connections = []
-        
-        for i in range(4):
-            dilation = 2 ** i
-            
-            # Gated conv
-            tanh_out = Conv1D(64, 2, dilation_rate=dilation,
-                             padding='causal', activation='tanh')(x)
-            sigm_out = Conv1D(64, 2, dilation_rate=dilation,
-                             padding='causal', activation='sigmoid')(x)
-            
-            x = Multiply()([tanh_out, sigm_out])
-            
-            skip = Conv1D(64, 1)(x)
-            skip_connections.append(skip)
-            
-            x = Conv1D(self.n_features, 1)(x)
-            x = Add()([x, inputs])
-        
-        x = Add()(skip_connections)
-        x = Activation('relu')(x)
-        x = GlobalAveragePooling1D()(x)
-        
-        x = Dense(32, activation='relu')(x)
-        outputs = Dense(1, activation='sigmoid')(x)
-        
-        return Model(inputs, outputs, name='WaveNet')
-    
-    # 12. Bi-LSTM with Attention
-    def build_bilstm_attention(self):
-        """양방향 LSTM + Attention"""
-        inputs = Input(shape=self.input_shape)
-        
-        x = BatchNormalization()(inputs)
-        
-        # Bi-LSTM
-        x = Bidirectional(LSTM(128, return_sequences=True))(x)
-        x = Bidirectional(LSTM(64, return_sequences=True))(x)
-        
-        # Attention
-        attention = Dense(1, activation='tanh')(x)
-        attention = Flatten()(attention)
-        attention = Activation('softmax')(attention)
-        attention = RepeatVector(128)(attention)
-        attention = Permute([2, 1])(attention)
-        
-        x = Multiply()([x, attention])
-        x = GlobalAveragePooling1D()(x)
-        
-        x = Dense(64, activation='relu')(x)
-        x = Dropout(0.2)(x)
-        outputs = Dense(1, activation='sigmoid')(x)
-        
-        return Model(inputs, outputs, name='BiLSTM_Attention')
-    
-    # 13. Informer
-    def build_informer(self):
-        """Informer - 효율적 Transformer"""
-        inputs = Input(shape=self.input_shape)
-        
-        x = BatchNormalization()(inputs)
-        
-        # ProbSparse Attention (simplified)
-        x = Dense(128)(x)
-        x = MultiHeadAttention(num_heads=4, key_dim=32)(x, x)
-        x = LayerNormalization()(x)
-        
-        x = Dense(64, activation='relu')(x)
-        x = GlobalAveragePooling1D()(x)
-        
-        x = Dense(32, activation='relu')(x)
-        outputs = Dense(1, activation='sigmoid')(x)
-        
-        return Model(inputs, outputs, name='Informer')
-    
-    # 14. TimesNet
-    def build_timesnet(self):
-        """TimesNet - 2D Transform"""
-        inputs = Input(shape=self.input_shape)
-        
-        x = BatchNormalization()(inputs)
-        
-        # 1D to 2D transform - Keras 레이어 사용
-        x = Lambda(lambda t: tf.expand_dims(t, axis=-1))(x)
-        x = Conv2D(64, (3, 1), padding='same', activation='relu')(x)
-        x = Conv2D(32, (3, 1), padding='same', activation='relu')(x)
-        x = Lambda(lambda t: tf.squeeze(t, axis=-1))(x)
-        
-        x = GlobalAveragePooling1D()(x)
-        x = Dense(32, activation='relu')(x)
-        outputs = Dense(1, activation='sigmoid')(x)
-        
-        return Model(inputs, outputs, name='TimesNet')
-    
-    # 15. Baseline Strong LSTM
-    def build_baseline_lstm(self):
-        """강력한 LSTM 베이스라인"""
-        inputs = Input(shape=self.input_shape)
-        
-        x = BatchNormalization()(inputs)
-        
-        x = LSTM(256, return_sequences=True)(x)
         x = Dropout(0.3)(x)
-        x = LSTM(128, return_sequences=True)(x)
+        x = Dense(64, activation='relu')(x)
         x = Dropout(0.3)(x)
-        x = LSTM(64)(x)
+        x = Dense(32, activation='relu')(x)
         x = Dropout(0.2)(x)
         
-        x = Dense(32, activation='relu')(x)
-        x = Dropout(0.1)(x)
         outputs = Dense(1, activation='sigmoid')(x)
         
-        return Model(inputs, outputs, name='BaselineLSTM')
+        model = Model(inputs, outputs, name='EnsembleBase')
+        return model
 
 # ========================================
 # 평가 시스템
@@ -759,11 +471,12 @@ def main():
     # 1. 데이터 처리
     processor = SafeDataProcessor(seq_len=100, pred_len=10)
     
-    # 데이터 경로 확인
+    # 데이터 경로 확인 (실제 환경에 맞게 경로를 수정하세요)
     data_paths = [
         'data/20240201_TO_202507281705.csv',
         '/mnt/user-data/uploads/gs.CSV',
-        '/mnt/user-data/uploads/20250807_DATA.CSV'
+        '/mnt/user-data/uploads/20250807_DATA.CSV',
+        'V6_NEW_학습.py와 동일한 위치에 있는 데이터 파일.csv' # 예시 경로
     ]
     
     data_path = None
@@ -773,7 +486,7 @@ def main():
             break
     
     if data_path is None:
-        logger.error("❌ 데이터 파일을 찾을 수 없습니다!")
+        logger.error("❌ 데이터 파일을 찾을 수 없습니다! 'data_paths' 변수 내의 경로를 확인해주세요.")
         return
     
     df = processor.load_and_process(data_path)
@@ -797,30 +510,12 @@ def main():
     # 3. 모델 생성
     model_builder = StableModels(input_shape=(100, X.shape[2]))
     
-    # 모든 15개 모델!
     models = {
-        '1_PatchTST': model_builder.build_patch_tst(),
-        '2_ExtremeValueNet': model_builder.build_extreme_value_network(),
-        '3_SpikeDetector': model_builder.build_spike_detector(),
-        '4_MambaSSM': model_builder.build_mamba_ssm(),
-        '5_MTGNN': model_builder.build_mtgnn(),
-        '6_NeuralSDE': model_builder.build_neural_sde(),
-        '7_MixtureOfExperts': model_builder.build_mixture_of_experts(),
-        '8_DiffusionModel': model_builder.build_diffusion_model(),
-        '9_Autoformer': model_builder.build_autoformer(),
-        '10_TCN': model_builder.build_tcn(),
-        '11_WaveNet': model_builder.build_wavenet(),
-        '12_BiLSTM_Attention': model_builder.build_bilstm_attention(),
-        '13_Informer': model_builder.build_informer(),
-        '14_TimesNet': model_builder.build_timesnet(),
-        '15_BaselineLSTM': model_builder.build_baseline_lstm()
+        'StableLSTM': model_builder.build_stable_lstm(),
+        'SpikeDetector': model_builder.build_spike_detector(),
+        'ExtremeNet': model_builder.build_extreme_net(),
+        'EnsembleBase': model_builder.build_ensemble_base()
     }
-    
-    print(f"\n✅ {len(models)}개 모델 생성 완료!")
-    print("="*60)
-    for name in models.keys():
-        print(f"  ✓ {name}")
-    print("="*60)
     
     # 4. 평가자 생성
     evaluator = ComprehensiveEvaluator(processor.target_scaler)
