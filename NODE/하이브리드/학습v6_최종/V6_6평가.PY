@@ -430,9 +430,9 @@ class ImprovedModelEvaluator:
                 
                 # 시퀀스 분석 (과거 100분 TOTALCNT)
                 seq_data = df.iloc[i-self.seq_len:i]['TOTALCNT'].values
-                seq_max, trend = self.extreme_booster.analyze_sequence(seq_data)
-                sequence_maxes.append(seq_max)
-                sequence_trends.append(trend)
+                seq_info = self.extreme_booster.analyze_sequence(seq_data)
+                sequence_maxes.append(seq_info.get('max'))
+                sequence_trends.append(seq_info.get('trend'))
         
         # 기본 정보 저장
         all_predictions['예측시점'] = [t.strftime('%Y-%m-%d %H:%M') for t in timestamps_pred]
@@ -530,10 +530,20 @@ class ImprovedModelEvaluator:
                 seq_trend = all_predictions.iloc[i]['시퀀스_추세']
                 original = predictions[i]
                 
+                # 시퀀스 정보 딕셔너리 생성
+                seq_info = {
+                    'max': seq_max,
+                    'trend': seq_trend,
+                    'consecutive_rises': 0,
+                    'consecutive_falls': 0,
+                    'rise_strength': 0,
+                    'fall_strength': 0
+                }
+                
                 # 시퀀스 기반 부스팅 적용
                 boosted = self.extreme_booster.boost_prediction(
                     original, m14b, m14a, model_name,
-                    sequence_max=seq_max, sequence_trend=seq_trend
+                    sequence_info=seq_info
                 )
                 
                 # ExtremeNet 부스팅 통계
