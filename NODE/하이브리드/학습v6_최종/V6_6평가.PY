@@ -133,6 +133,7 @@ class ImprovedExtremeValueBooster:
         boosted = pred
         seq_max = sequence_info.get('max', 0)
         seq_trend = sequence_info.get('trend', 'stable')
+        is_high_plateau = sequence_info.get('is_high_plateau', False)
         consecutive_rises = sequence_info.get('consecutive_rises', 0)
         consecutive_falls = sequence_info.get('consecutive_falls', 0)
         rise_strength = sequence_info.get('rise_strength', 0)
@@ -171,7 +172,7 @@ class ImprovedExtremeValueBooster:
                 boosted = pred * max(reduction_factor, 0.85)
                 
             # 🔥 고평원 상태별 처리
-            elif seq_trend == 'high_increasing':
+            elif seq_trend == 'increasing' and is_high_plateau:
                 print(f"    📈 ExtremeNet 고평원 상승! (max={seq_max:.0f})")
                 if m14b_value > 500:
                     boosted = max(pred * 1.6, 1850)
