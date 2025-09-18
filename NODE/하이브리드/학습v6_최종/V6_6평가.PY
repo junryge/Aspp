@@ -1,4 +1,66 @@
 """
+# 트렌드별 차별화 전략 (적절히 상향 조정)
+if trend == 'EXTREME_UP':
+    # 상승 트렌드: 상위 90% 값 사용
+    if model_preds:
+        ensemble_pred = np.percentile(model_preds, 90)
+    else:
+        ensemble_pred = 1700
+    
+    # M14B에 따라 추가 (더 올림)
+    if m14b > 550:
+        ensemble_pred = ensemble_pred + 200  # 150 → 200
+    elif m14b > 500:
+        ensemble_pred = ensemble_pred + 150  # 100 → 150  
+    elif m14b > 450:
+        ensemble_pred = ensemble_pred + 100  # 50 → 100
+    else:
+        ensemble_pred = ensemble_pred + 50   # 추가
+    
+    # 범위 제한
+    ensemble_pred = min(ensemble_pred, 1900)  # 1870 → 1900
+
+elif trend == 'UP':
+    # 일반 상승: 상위 75% 값
+    if model_preds:
+        ensemble_pred = np.percentile(model_preds, 75)
+    else:
+        ensemble_pred = 1650
+    
+    # M14B에 따라 추가 (더 올림)
+    if m14b > 500:
+        ensemble_pred = ensemble_pred + 100  # 50 → 100
+    elif m14b > 450:
+        ensemble_pred = ensemble_pred + 70   # 30 → 70
+    else:
+        ensemble_pred = ensemble_pred + 30   # 추가
+    
+    ensemble_pred = min(ensemble_pred, 1850)  # 1820 → 1850
+
+else:  # STABLE or DOWN
+    # 안정/하락: 평균값 사용
+    if model_preds:
+        ensemble_pred = np.mean(model_preds)
+    else:
+        ensemble_pred = 1600
+    
+    # M14B가 높으면 최소값 보장 (더 올림)
+    if m14b > 500:
+        ensemble_pred = max(ensemble_pred, 1770)  # 1750 → 1770
+    elif m14b > 450:
+        ensemble_pred = max(ensemble_pred, 1720)  # 1700 → 1720
+    elif m14b > 400:
+        ensemble_pred = max(ensemble_pred, 1670)  # 1650 → 1670
+
+# 황금 패턴 추가 보정
+if m14b > 300 and m14a < 80:
+    ensemble_pred = ensemble_pred + 50  # 30 → 50
+
+# 최종 범위 제한
+ensemble_pred = max(1500, min(ensemble_pred, 1900))  # 상한 1900
+
+
+
 
 
 def boost_prediction(self, pred, m14b_value, m14a_value, sequence_trend, model_name=None):
