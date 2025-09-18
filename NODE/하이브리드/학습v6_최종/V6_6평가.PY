@@ -1,63 +1,72 @@
 """
 
+
 def boost_prediction(self, pred, m14b_value, m14a_value, sequence_trend, model_name=None):
-    """트렌드 기반 부스팅 - 훨씬 보수적으로"""
+    """차별화된 부스팅"""
     
     boosted = pred
     
     if sequence_trend == 'EXTREME_UP':
-        # 상승 트렌드 - 조금만 올리기
-        if m14b_value > 500:
-            boosted = min(pred * 1.15, 1850)  # 최대 1850
+        # M14B 값에 따라 명확히 구분
+        if m14b_value > 550:
+            boosted = pred + 200  # 직접 더하기
+        elif m14b_value > 500:
+            boosted = pred + 150
         elif m14b_value > 450:
-            boosted = min(pred * 1.1, 1780)   # 최대 1780
+            boosted = pred + 100
         elif m14b_value > 400:
-            boosted = min(pred * 1.08, 1730)  # 최대 1730
+            boosted = pred + 50
         else:
-            boosted = min(pred * 1.05, 1700)  # 최대 1700
+            boosted = pred + 20
     
     elif sequence_trend == 'UP':
         if m14b_value > 500:
-            boosted = min(pred * 1.1, 1800)
+            boosted = pred + 100
         elif m14b_value > 450:
-            boosted = min(pred * 1.08, 1750)
+            boosted = pred + 60
         elif m14b_value > 400:
-            boosted = min(pred * 1.05, 1700)
+            boosted = pred + 30
         else:
             boosted = pred
     
     else:  # STABLE or DOWN
+        # 하락/안정은 보수적
         if m14b_value > 500:
-            boosted = min(pred * 1.05, 1750)
+            boosted = pred + 50
         elif m14b_value > 450:
-            boosted = min(pred * 1.02, 1700)
+            boosted = pred + 20
         else:
             boosted = pred
     
-    # 황금 패턴 - 조금만
-    if m14b_value > 300 and m14a_value and m14a_value < 80:
-        boosted = min(boosted * 1.05, 1850)  # 최대 1850
+    # 황금 패턴 추가
+    if m14b_value > 300 and m14a_value < 80:
+        boosted = boosted + 50
     
-    # 절대 상한선
-    boosted = min(boosted, 1870)  # 실제 최대값 1864 근처로 제한
+    # 범위 제한 (1600 ~ 1870)
+    boosted = max(1600, min(boosted, 1870))
     
     return boosted
 
-    
-
 if trend == 'EXTREME_UP':
     if model_preds:
-        ensemble_pred = max(model_preds)  # 추가 곱하기 없음!
+        # 평균이 아닌 상위값 사용
+        ensemble_pred = np.percentile(model_preds, 90)
     else:
-        ensemble_pred = 1750
+        ensemble_pred = 1700
     
-    # 최종 조정 (보수적으로)
-    if m14b > 500:
-        ensemble_pred = min(max(ensemble_pred, 1780), 1850)
+    # M14B에 따라 추가
+    if m14b > 550:
+        ensemble_pred = ensemble_pred + 150
+    elif m14b > 500:
+        ensemble_pred = ensemble_pred + 100
     elif m14b > 450:
-        ensemble_pred = min(max(ensemble_pred, 1720), 1780)
-    else:
-        ensemble_pred = min(max(ensemble_pred, 1700), 1750)
+        ensemble_pred = ensemble_pred + 50
+    
+    # 범위 제한
+    ensemble_pred = min(ensemble_pred, 1870)
+    
+
+
 
 
 V9.0 시퀀스 트렌드 기반 극단값 예측 시스템
