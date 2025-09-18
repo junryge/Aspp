@@ -157,8 +157,8 @@ class ImprovedExtremeValueBooster:
                 boosted = pred * max(reduction_factor, 0.8)
                 
             # 📈 강한 상승 추세
-            elif seq_trend in ['strong_rising', 'rapid_increasing']:
-                print(f"    📈 ExtremeNet 강한 상승 (연속{consecutive_rises}분↑)")
+            elif seq_trend in ['strong_rising', 'increasing']:
+                print(f"    📈 ExtremeNet 상승 (연속{consecutive_rises}분↑)")
                 boost_factor = 1.3 + (consecutive_rises / 20) * 0.2
                 boosted = pred * min(boost_factor, 1.5)
                 if seq_max >= 1651:
