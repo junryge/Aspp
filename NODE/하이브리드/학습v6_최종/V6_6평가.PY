@@ -47,24 +47,81 @@ def boost_prediction(self, pred, m14b_value, m14a_value, sequence_trend, model_n
     
     return boosted
 
-if trend == 'EXTREME_UP':
-    if model_preds:
-        # 평균이 아닌 상위값 사용
-        ensemble_pred = np.percentile(model_preds, 90)
-    else:
-        ensemble_pred = 1700
+
+
+extreme_ensemble = []
+for i in range(len(all_predictions)):
+    m14b = all_predictions.iloc[i]['M14AM14B']
+    m14a = all_predictions.iloc[i]['M14AM10A']
+    trend = all_predictions.iloc[i]['시퀀스트렌드']
     
-    # M14B에 따라 추가
-    if m14b > 550:
-        ensemble_pred = ensemble_pred + 150
-    elif m14b > 500:
-        ensemble_pred = ensemble_pred + 100
-    elif m14b > 450:
-        ensemble_pred = ensemble_pred + 50
+    # 모든 모델 예측값 수집
+    model_preds = []
+    for model_name in self.models.keys():
+        if f'{model_name}_예측' in all_predictions.columns:
+            model_preds.append(all_predictions.iloc[i][f'{model_name}_예측'])
     
-    # 범위 제한
-    ensemble_pred = min(ensemble_pred, 1870)
+    # 트렌드별 차별화 전략
+    if trend == 'EXTREME_UP':
+        # 상승 트렌드: 상위 90% 값 사용
+        if model_preds:
+            ensemble_pred = np.percentile(model_preds, 90)
+        else:
+            ensemble_pred = 1700
+        
+        # M14B에 따라 추가
+        if m14b > 550:
+            ensemble_pred = ensemble_pred + 150
+        elif m14b > 500:
+            ensemble_pred = ensemble_pred + 100
+        elif m14b > 450:
+            ensemble_pred = ensemble_pred + 50
+        
+        # 범위 제한
+        ensemble_pred = min(ensemble_pred, 1870)
     
+    elif trend == 'UP':
+        # 일반 상승: 상위 75% 값
+        if model_preds:
+            ensemble_pred = np.percentile(model_preds, 75)
+        else:
+            ensemble_pred = 1650
+        
+        # M14B에 따라 약간 추가
+        if m14b > 500:
+            ensemble_pred = ensemble_pred + 50
+        elif m14b > 450:
+            ensemble_pred = ensemble_pred + 30
+        
+        ensemble_pred = min(ensemble_pred, 1820)
+    
+    else:  # STABLE or DOWN
+        # 안정/하락: 평균값 사용
+        if model_preds:
+            ensemble_pred = np.mean(model_preds)
+        else:
+            ensemble_pred = 1600
+        
+        # M14B가 높으면 최소값 보장
+        if m14b > 500:
+            ensemble_pred = max(ensemble_pred, 1750)
+        elif m14b > 450:
+            ensemble_pred = max(ensemble_pred, 1700)
+        elif m14b > 400:
+            ensemble_pred = max(ensemble_pred, 1650)
+    
+    # 황금 패턴 추가 보정
+    if m14b > 300 and m14a < 80:
+        ensemble_pred = ensemble_pred + 30
+    
+    # 최종 범위 제한 (1500 ~ 1870)
+    ensemble_pred = max(1500, min(ensemble_pred, 1870))
+    
+    extreme_ensemble.append(ensemble_pred)
+
+# 결과 저장
+all_predictions['트렌드앙상블_예측'] = [round(p) for p in extreme_ensemble]
+
 
 
 
