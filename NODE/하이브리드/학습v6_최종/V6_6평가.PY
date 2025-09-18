@@ -141,159 +141,38 @@ class ImprovedExtremeValueBooster:
         
         # ========== ExtremeNet 특별 처리 ==========
         if model_name == 'ExtremeNet':
-            
-            # 🚀 극단적 상승 (10분+ 연속 상승)
-            if seq_trend == 'extreme_rising':
-                print(f"    🚀🚀 ExtremeNet 극단 상승! (연속{consecutive_rises}분↑, 강도{rise_strength:.0f})")
-                # 상승 강도에 비례한 부스팅
-                boost_factor = 1.5 + (rise_strength / 100) * 0.3  # 최대 1.8배
-                boosted = pred * min(boost_factor, 1.8)
-                boosted = max(boosted, 1900)
-                
-            # 💥 극단적 하락 (10분+ 연속 하락)
-            elif seq_trend == 'extreme_falling':
-                print(f"    💥💥 ExtremeNet 극단 하락! (연속{consecutive_falls}분↓, 강도{fall_strength:.0f})")
-                # 하락 강도에 비례한 감소
-                reduction_factor = 0.9 - (fall_strength / 100) * 0.1  # 최대 20% 감소
-                boosted = pred * max(reduction_factor, 0.8)
-                
-            # 📈 강한 상승 추세
-            elif seq_trend in ['strong_rising', 'increasing']:
-                print(f"    📈 ExtremeNet 상승 (연속{consecutive_rises}분↑)")
-                boost_factor = 1.3 + (consecutive_rises / 20) * 0.2
-                boosted = pred * min(boost_factor, 1.5)
-                if seq_max >= 1651:
-                    boosted = max(boosted, 1750)
-                    
-            # 📉 강한 하락 추세
-            elif seq_trend in ['strong_falling', 'rapid_decreasing']:
-                print(f"    📉 ExtremeNet 강한 하락 (연속{consecutive_falls}분↓)")
-                reduction_factor = 0.95 - (consecutive_falls / 20) * 0.05
-                boosted = pred * max(reduction_factor, 0.85)
-                
-            # 🔥 고평원 상태별 처리
-            elif seq_trend == 'increasing' and is_high_plateau:
-                print(f"    📈 ExtremeNet 고평원 상승! (max={seq_max:.0f})")
-                if m14b_value > 500:
-                    boosted = max(pred * 1.6, 1850)
-                else:
-                    boosted = max(pred * 1.4, 1750)
-                    
-            elif seq_trend == 'high_stable':
-                print(f"    ➡️ ExtremeNet 고평원 유지 (max={seq_max:.0f})")
-                boosted = max(pred, 1700)  # 최소 1700 보장
-                
-            elif seq_trend == 'high_decreasing':
-                print(f"    📉 ExtremeNet 고평원 하락 (max={seq_max:.0f})")
-                boosted = pred * 0.98
-                
             # 일반 상승 (기존 조건)
-            elif seq_max >= 1651 and seq_trend == 'increasing':
+            if seq_max >= 1651 and seq_trend == 'increasing':
                 print(f"    📈 ExtremeNet 부스팅 활성화! (max={seq_max:.0f})")
-                if m14b_value > 450:
-                    boosted = max(pred * 1.4, 1700)
+                if m14b_value > 200:  # M14B 기준을 200으로 낮춤
+                    boosted = max(pred * 1.2, 1700)
                 else:
-                    boosted = pred * 1.2
-                    
-            # 일반 하락
-            elif seq_trend == 'decreasing':
-                if seq_max >= 1651:
-                    boosted = pred * 0.95
-                else:
-                    boosted = pred
-            
-            # 안정적이거나 max값 미달
+                    boosted = max(pred * 1.15, 1700)
             else:
-                if seq_max < 1651:
-                    print(f"    ⚪ ExtremeNet 원본 사용 (max={seq_max:.0f} < 1651)")
                 boosted = pred
                 
         # ========== SpikeDetector, GoldenRule ==========
         elif model_name in ['SpikeDetector', 'GoldenRule']:
-            # sequence_info에서 추세 가져오기
-            seq_trend = sequence_info.get('trend', 'stable')
-            
-            # 고평원 상태 처리
-            if seq_trend in ['high_increasing', 'high_stable', 'high_decreasing']:
-                # 고평원에서는 이미 높은 예측을 유지
-                if seq_trend == 'high_increasing':
-                    # 고평원 상승 → 추가 부스팅
-                    if m14b_value > 500:
-                        boosted = max(pred * 1.1, 1900)
-                    else:
-                        boosted = max(pred * 1.05, 1800)
-                elif seq_trend == 'high_stable':
-                    # 고평원 유지 → 현재 수준
-                    boosted = max(pred, 1700)
-                else:  # high_decreasing
-                    # 고평원 하락 → 약간 보수적
-                    boosted = pred * 0.98
+            if seq_max >= 1651 and seq_trend == 'increasing':
+                if m14b_value > 200:
+                    boosted = max(pred * 1.15, 1700)
+                else:
+                    boosted = max(pred * 1.1, 1700)
             else:
-                # 일반 상태 (기존 로직)
-                if m14b_value > 550:
-                    boosted = max(pred, 1850)
-                elif m14b_value > 500:
-                    boosted = max(pred, 1750)
-                elif m14b_value > 450:
-                    boosted = max(pred, 1700)
-                elif m14b_value > 400:
-                    boosted = max(pred * 1.05, 1650)
+                boosted = pred
             
             # 하락 추세에서는 추가 조정 없음
                 
         # ========== 기타 모델 (PatchTST, StableLSTM) ==========
         else:
-            # sequence_info에서 추세 가져오기
-            seq_trend = sequence_info.get('trend', 'stable')
-            
-            # 고평원 상태 우선 처리
-            if seq_trend in ['high_increasing', 'high_stable', 'high_decreasing']:
-                if seq_trend == 'high_increasing':
-                    # 고평원 상승 → 강한 부스팅
-                    if m14b_value > 500:
-                        boosted = max(pred * 1.5, 1850)
-                    else:
-                        boosted = max(pred * 1.3, 1750)
-                elif seq_trend == 'high_stable':
-                    # 고평원 유지 → 안정적 예측
-                    boosted = max(pred, 1700)
-                else:  # high_decreasing
-                    # 고평원 하락 → 보수적
-                    boosted = pred * 0.97
-            # 일반 증가 추세
-            elif seq_trend == 'increasing':
-                # 증가 추세 → 적극적 부스팅
-                if m14b_value > 550:
-                    boosted = max(pred * 1.45, 1850)
-                elif m14b_value > 500:
-                    boosted = max(pred * 1.35, 1750)
-                elif m14b_value > 450:
-                    boosted = max(pred * 1.25, 1700)
-                elif m14b_value > 400:
-                    boosted = max(pred * 1.15, 1650)
-                elif m14b_value > 350:
-                    boosted = max(pred * 1.08, 1550)
-                    
-            elif seq_trend == 'decreasing':
-                # 하락 추세 → 보수적 접근
-                if m14b_value > 450:
-                    boosted = max(pred * 1.05, 1650)  # 약한 부스팅
+            if seq_max >= 1651 and seq_trend == 'increasing':
+                if m14b_value > 200:
+                    boosted = max(pred * 1.1, 1700)
                 else:
-                    boosted = pred  # 원본 유지
+                    boosted = max(pred * 1.05, 1700)
             else:
-                # 안정적 → 기본 부스팅
-                if m14b_value > 450:
-                    boosted = max(pred * 1.15, 1700)
-                elif m14b_value > 400:
-                    boosted = max(pred * 1.10, 1650)
+                boosted = pred
         
-        # 황금 패턴 추가 부스팅 (모든 모델 공통)
-        if m14b_value > 300 and m14a_value and m14a_value < 80:
-            if seq_trend == 'increasing':
-                boosted = boosted * 1.15  # 증가 추세면 더 강하게
-            else:
-                boosted = boosted * 1.08  # 아니면 약하게
-            
         return boosted
 
 class ImprovedModelEvaluator:
