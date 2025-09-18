@@ -161,7 +161,7 @@ class ImprovedExtremeValueBooster:
                 print(f"    📈 ExtremeNet 강한 상승 (연속{consecutive_rises}분↑)")
                 boost_factor = 1.3 + (consecutive_rises / 20) * 0.2
                 boosted = pred * min(boost_factor, 1.5)
-                if seq_max >= 1682:
+                if seq_max >= 1651:
                     boosted = max(boosted, 1750)
                     
             # 📉 강한 하락 추세
@@ -187,7 +187,7 @@ class ImprovedExtremeValueBooster:
                 boosted = pred * 0.98
                 
             # 일반 상승 (기존 조건)
-            elif seq_max >= 1682 and seq_trend == 'increasing':
+            elif seq_max >= 1651 and seq_trend == 'increasing':
                 print(f"    📈 ExtremeNet 부스팅 활성화! (max={seq_max:.0f})")
                 if m14b_value > 450:
                     boosted = max(pred * 1.4, 1700)
@@ -196,15 +196,15 @@ class ImprovedExtremeValueBooster:
                     
             # 일반 하락
             elif seq_trend == 'decreasing':
-                if seq_max >= 1682:
+                if seq_max >= 1651:
                     boosted = pred * 0.95
                 else:
                     boosted = pred
             
             # 안정적이거나 max값 미달
             else:
-                if seq_max < 1682:
-                    print(f"    ⚪ ExtremeNet 원본 사용 (max={seq_max:.0f} < 1682)")
+                if seq_max < 1651:
+                    print(f"    ⚪ ExtremeNet 원본 사용 (max={seq_max:.0f} < 1651)")
                 boosted = pred
                 
         # ========== SpikeDetector, GoldenRule ==========
@@ -300,7 +300,7 @@ class ImprovedModelEvaluator:
         """개선된 평가기 초기화"""
         print("="*80)
         print("🔥 V6.7 개선된 극단값 평가 시스템")
-        print("  핵심: 시퀀스 max 1682+ & 증가 추세 → ExtremeNet 부스팅")
+        print("  핵심: 시퀀스 max 1651+ & 증가 추세 → ExtremeNet 부스팅")
         print("="*80)
         
         # 스케일러 로드
@@ -359,10 +359,10 @@ class ImprovedModelEvaluator:
         high_count = (df['TOTALCNT'] >= 1700).sum()
         very_high_count = (df['TOTALCNT'] >= 1750).sum()
         extreme_count = (df['TOTALCNT'] >= 1800).sum()
-        max_1682_count = (df['TOTALCNT'] >= 1682).sum()
+        max_1651_count = (df['TOTALCNT'] >= 1651).sum()
         
         print(f"\n🎯 고값 구간 분포:")
-        print(f"  1682+: {max_1682_count}개 ({max_1682_count/len(df)*100:.1f}%) ← 기준값")
+        print(f"  1651+: {max_1651_count}개 ({max_1651_count/len(df)*100:.1f}%) ← 기준값")
         print(f"  1700+: {high_count}개 ({high_count/len(df)*100:.1f}%)")
         print(f"  1750+: {very_high_count}개 ({very_high_count/len(df)*100:.1f}%)")
         print(f"  1800+: {extreme_count}개 ({extreme_count/len(df)*100:.1f}%)")
@@ -452,17 +452,17 @@ class ImprovedModelEvaluator:
         print(f"  예측할 데이터: {len(all_predictions)}개")
         
         # 시퀀스 분석 통계
-        high_seq_count = (np.array(sequence_maxes) >= 1682).sum()
+        high_seq_count = (np.array(sequence_maxes) >= 1651).sum()
         inc_trend_count = (np.array(sequence_trends) == 'increasing').sum()
         dec_trend_count = (np.array(sequence_trends) == 'decreasing').sum()
         
         print(f"\n📈 시퀀스 분석 결과:")
-        print(f"  max값 1682+: {high_seq_count}개 ({high_seq_count/len(all_predictions)*100:.1f}%)")
+        print(f"  max값 1651+: {high_seq_count}개 ({high_seq_count/len(all_predictions)*100:.1f}%)")
         print(f"  증가 추세: {inc_trend_count}개 ({inc_trend_count/len(all_predictions)*100:.1f}%)")
         print(f"  하락 추세: {dec_trend_count}개 ({dec_trend_count/len(all_predictions)*100:.1f}%)")
         
         # ExtremeNet 부스팅 조건 만족 개수
-        boost_condition = ((np.array(sequence_maxes) >= 1682) & 
+        boost_condition = ((np.array(sequence_maxes) >= 1651) & 
                           (np.array(sequence_trends) == 'increasing')).sum()
         print(f"  🔥 ExtremeNet 부스팅 조건 충족: {boost_condition}개 ({boost_condition/len(all_predictions)*100:.1f}%)")
         
@@ -718,11 +718,11 @@ class ImprovedModelEvaluator:
             print(f"  개선: +{boost_hit - orig_hit}개")
             
             # 시퀀스 조건별 분석
-            seq_condition_mask = ((high_df['시퀀스_MAX'] >= 1682) & 
+            seq_condition_mask = ((high_df['시퀀스_MAX'] >= 1651) & 
                                  (high_df['시퀀스_추세'] == 'increasing'))
             if seq_condition_mask.any():
                 condition_df = high_df[seq_condition_mask]
-                print(f"\n  조건 충족 샘플 (max≥1682 & 증가): {seq_condition_mask.sum()}개")
+                print(f"\n  조건 충족 샘플 (max≥1651 & 증가): {seq_condition_mask.sum()}개")
                 cond_hit = (condition_df['ExtremeNet_예측'] >= 1700).sum()
                 print(f"    → ExtremeNet 적중: {cond_hit}/{len(condition_df)} "
                       f"({cond_hit/len(condition_df)*100:.1f}%)")
@@ -794,7 +794,7 @@ def main():
     """메인 실행"""
     
     print("\n🚀 V6.7 개선된 극단값 평가 시작!")
-    print("핵심: 시퀀스 max 1682+ & 증가 추세 → ExtremeNet 부스팅")
+    print("핵심: 시퀀스 max 1651+ & 증가 추세 → ExtremeNet 부스팅")
     print("      하락 추세 → 보수적 예측")
     
     # 평가기 생성
