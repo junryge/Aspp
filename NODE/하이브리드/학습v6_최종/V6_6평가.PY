@@ -97,10 +97,10 @@ class AdvancedExtremeValueBooster:
             
             # 고평원 상태에서의 추세 판단
             if is_high_plateau:
-                # 고평원(1700+)에서의 극단적 변화 감지
-                if consecutive_rises >= 10 and rise_strength > 50:
+                # 고평원(1700+)에서의 극단적 변화 감지 (더 엄격한 기준)
+                if consecutive_rises >= 15 and rise_strength > 100:  # 15분 연속 & 100 이상 상승
                     trend = 'extreme_rising'  # 극단적 상승
-                elif consecutive_falls >= 10 and fall_strength > 50:
+                elif consecutive_falls >= 15 and fall_strength > 100:  # 15분 연속 & 100 이상 하락
                     trend = 'extreme_falling'  # 극단적 하락
                 elif slope > 1 or consecutive_rises >= 5:
                     trend = 'high_increasing'  # 고평원 상승
@@ -109,14 +109,14 @@ class AdvancedExtremeValueBooster:
                 else:
                     trend = 'high_stable'  # 고평원 유지
             else:
-                # 일반 구간 추세 판단
-                if consecutive_rises >= 10 and rise_strength > 50:
+                # 일반 구간 추세 판단 (엄격한 기준)
+                if consecutive_rises >= 15 and rise_strength > 80:  # 15분 연속 & 80 이상
                     trend = 'strong_rising'  # 강한 연속 상승
-                elif consecutive_falls >= 10 and fall_strength > 50:
+                elif consecutive_falls >= 15 and fall_strength > 80:
                     trend = 'strong_falling'  # 강한 연속 하락
-                elif consecutive_rises >= 7 and rise_strength > 30:
+                elif consecutive_rises >= 10 and rise_strength > 50:
                     trend = 'rapid_increasing'  # 빠른 상승
-                elif consecutive_falls >= 7 and fall_strength > 30:
+                elif consecutive_falls >= 10 and fall_strength > 50:
                     trend = 'rapid_decreasing'  # 빠른 하락
                 elif slope > 2:
                     trend = 'increasing'
@@ -158,10 +158,11 @@ class AdvancedExtremeValueBooster:
             
             # 🚀 극단적 상승 (10분+ 연속 상승)
             if seq_trend == 'extreme_rising':
-                # 상승 강도에 비례한 부스팅
-                boost_factor = 1.5 + (rise_strength / 100) * 0.3  # 최대 1.8배
-                boosted = pred * min(boost_factor, 1.8)
-                boosted = max(boosted, 1900)
+                # 상승 강도에 비례한 부스팅 (보수적)
+                boost_factor = 1.2 + (rise_strength / 200) * 0.2  # 최대 1.4배
+                boosted = pred * min(boost_factor, 1.4)
+                if seq_max >= 1700:  # 이미 고평원이면 더 보수적
+                    boosted = min(boosted, seq_max * 1.05)  # 현재 max의 5% 증가까지만
                 
             # 💥 극단적 하락 (10분+ 연속 하락)
             elif seq_trend == 'extreme_falling':
@@ -171,10 +172,13 @@ class AdvancedExtremeValueBooster:
                 
             # 📈 강한 상승 추세
             elif seq_trend in ['strong_rising', 'rapid_increasing']:
-                boost_factor = 1.3 + (consecutive_rises / 20) * 0.2
-                boosted = pred * min(boost_factor, 1.5)
+                if seq_trend == 'strong_rising':
+                    boost_factor = 1.15 + (consecutive_rises / 30) * 0.1  # 최대 1.25배
+                else:  # rapid_increasing
+                    boost_factor = 1.1 + (consecutive_rises / 30) * 0.1  # 최대 1.2배
+                boosted = pred * min(boost_factor, 1.25)
                 if seq_max >= 1682:
-                    boosted = max(boosted, 1750)
+                    boosted = min(boosted, 1750)  # 상한선 설정
                     
             # 📉 강한 하락 추세
             elif seq_trend in ['strong_falling', 'rapid_decreasing']:
@@ -184,9 +188,9 @@ class AdvancedExtremeValueBooster:
             # 🔥 고평원 상태별 처리
             elif seq_trend == 'high_increasing':
                 if m14b_value > 500:
-                    boosted = max(pred * 1.6, 1850)
+                    boosted = max(pred * 1.3, 1800)  # 1.6 → 1.3
                 else:
-                    boosted = max(pred * 1.4, 1750)
+                    boosted = max(pred * 1.2, 1750)  # 1.4 → 1.2
                     
             elif seq_trend == 'high_stable':
                 boosted = max(pred, 1700)  # 최소 1700 보장
@@ -216,10 +220,11 @@ class AdvancedExtremeValueBooster:
         elif model_name in ['SpikeDetector', 'GoldenRule']:
             # 극단적 변화 처리
             if seq_trend in ['extreme_rising', 'strong_rising']:
-                # 극단 상승 → 추가 부스팅
-                boost_factor = 1.1 + (consecutive_rises / 30) * 0.1
-                boosted = pred * min(boost_factor, 1.2)
-                boosted = max(boosted, 1800)
+                # 극단 상승 → 약한 부스팅 (이미 잘하는 모델)
+                boost_factor = 1.05 + (consecutive_rises / 50) * 0.05  # 최대 1.1배
+                boosted = pred * min(boost_factor, 1.1)
+                if seq_max >= 1700:
+                    boosted = min(boosted, seq_max * 1.03)  # max의 3% 증가까지만
                 
             elif seq_trend in ['extreme_falling', 'strong_falling']:
                 # 극단 하락 → 하향 조정
@@ -243,10 +248,11 @@ class AdvancedExtremeValueBooster:
         else:
             # 극단적 변화 우선 처리
             if seq_trend == 'extreme_rising':
-                # 극단 상승 → 최강 부스팅
-                boost_factor = 1.4 + (rise_strength / 100) * 0.2
-                boosted = pred * min(boost_factor, 1.6)
-                boosted = max(boosted, 1850)
+                # 극단 상승 → 적당한 부스팅
+                boost_factor = 1.15 + (rise_strength / 200) * 0.15  # 최대 1.3배
+                boosted = pred * min(boost_factor, 1.3)
+                if seq_max >= 1700:
+                    boosted = min(boosted, seq_max * 1.08)  # max의 8% 증가까지만
                 
             elif seq_trend == 'extreme_falling':
                 # 극단 하락 → 강한 하향
