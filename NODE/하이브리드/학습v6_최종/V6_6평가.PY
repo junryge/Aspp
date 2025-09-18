@@ -48,79 +48,251 @@ def boost_prediction(self, pred, m14b_value, m14a_value, sequence_trend, model_n
     return boosted
 
 
-
-extreme_ensemble = []
-for i in range(len(all_predictions)):
-    m14b = all_predictions.iloc[i]['M14AM14B']
-    m14a = all_predictions.iloc[i]['M14AM10A']
-    trend = all_predictions.iloc[i]['시퀀스트렌드']
+def evaluate_all_models(self, test_file):
+    """모든 모델 평가 - 트렌드 기반 부스팅 포함"""
     
-    # 모든 모델 예측값 수집
-    model_preds = []
-    for model_name in self.models.keys():
-        if f'{model_name}_예측' in all_predictions.columns:
-            model_preds.append(all_predictions.iloc[i][f'{model_name}_예측'])
+    # 데이터 로드
+    df = self.load_test_data(test_file)
+    df = self.create_features(df)
     
-    # 트렌드별 차별화 전략
-    if trend == 'EXTREME_UP':
-        # 상승 트렌드: 상위 90% 값 사용
-        if model_preds:
-            ensemble_pred = np.percentile(model_preds, 90)
-        else:
-            ensemble_pred = 1700
-        
-        # M14B에 따라 추가
-        if m14b > 550:
-            ensemble_pred = ensemble_pred + 150
-        elif m14b > 500:
-            ensemble_pred = ensemble_pred + 100
-        elif m14b > 450:
-            ensemble_pred = ensemble_pred + 50
-        
-        # 범위 제한
-        ensemble_pred = min(ensemble_pred, 1870)
+    # 예측 가능 범위
+    start_idx = self.seq_len
+    end_idx = len(df) - self.pred_len
+    total = end_idx - start_idx
     
-    elif trend == 'UP':
-        # 일반 상승: 상위 75% 값
-        if model_preds:
-            ensemble_pred = np.percentile(model_preds, 75)
-        else:
-            ensemble_pred = 1650
+    print(f"\n🔮 예측 시작...")
+    print(f"  시퀀스: {self.seq_len}분 → 예측: {self.pred_len}분 후")
+    print(f"  예측 개수: {total:,}개")
+    
+    # 모든 예측을 저장할 DataFrame 준비
+    all_predictions = pd.DataFrame()
+    
+    # 기본 정보 수집
+    timestamps_pred = []
+    timestamps_target = []
+    actuals = []
+    m14b_values = []
+    m14a_values = []
+    sequence_trends = []
+    trend_infos = []
+    
+    print("\n📊 데이터 수집 및 트렌드 분석 중...")
+    for i in range(start_idx, end_idx):
+        if 'CURRTIME' in df.columns:
+            pred_time = df.iloc[i]['CURRTIME']
+            target_time = pred_time + timedelta(minutes=self.pred_len)
+            timestamps_pred.append(pred_time)
+            timestamps_target.append(target_time)
         
-        # M14B에 따라 약간 추가
-        if m14b > 500:
-            ensemble_pred = ensemble_pred + 50
-        elif m14b > 450:
+        actual_idx = i + self.pred_len
+        if actual_idx < len(df):
+            actuals.append(df.iloc[actual_idx]['TOTALCNT'])
+            m14b_values.append(df.iloc[i]['M14AM14B'])
+            m14a_values.append(df.iloc[i]['M14AM10A'])
+            
+            # 시퀀스 트렌드 분석
+            sequence = df.iloc[i-self.seq_len:i]['TOTALCNT'].values
+            trend, info = self.trend_booster.analyze_sequence_trend(sequence)
+            sequence_trends.append(trend)
+            trend_infos.append(info)
+    
+    # 기본 정보 저장
+    if timestamps_pred:
+        all_predictions['예측시점'] = [t.strftime('%Y-%m-%d %H:%M') for t in timestamps_pred]
+        all_predictions['예측대상시간'] = [t.strftime('%Y-%m-%d %H:%M') for t in timestamps_target]
+    
+    all_predictions['실제값'] = actuals
+    all_predictions['M14AM14B'] = m14b_values
+    all_predictions['M14AM10A'] = m14a_values
+    all_predictions['시퀀스트렌드'] = sequence_trends
+    
+    print(f"  예측할 데이터: {len(all_predictions)}개")
+    
+    # 각 모델별 예측
+    model_metrics = {}
+    model_predictions = {}
+    
+    for model_name, model in self.models.items():
+        print(f"\n🎯 {model_name} 예측 중...")
+        predictions = []
+        
+        # 배치 예측
+        batch_size = 500
+        for i in range(start_idx, end_idx, batch_size):
+            batch_end = min(i + batch_size, end_idx)
+            
+            # 배치 데이터 준비
+            X_batch = []
+            for j in range(i, batch_end):
+                seq_data = df.iloc[j-self.seq_len:j][self.feature_columns].values
+                X_batch.append(seq_data)
+            
+            if len(X_batch) == 0:
+                continue
+            
+            # 스케일링
+            X_batch = np.array(X_batch)
+            X_batch_scaled = []
+            for seq in X_batch:
+                if hasattr(self, 'feature_scaler'):
+                    seq_scaled = self.feature_scaler.transform(seq)
+                else:
+                    seq_scaled = seq
+                X_batch_scaled.append(seq_scaled)
+            X_batch_scaled = np.array(X_batch_scaled)
+            
+            # 예측
+            preds = model.predict(X_batch_scaled, verbose=0)
+            
+            if isinstance(preds, list):
+                y_pred_scaled = preds[0].flatten()
+            else:
+                y_pred_scaled = preds.flatten()
+            
+            # 역변환
+            if hasattr(self, 'target_scaler'):
+                y_pred = self.target_scaler.inverse_transform(
+                    y_pred_scaled.reshape(-1, 1)).flatten()
+            else:
+                y_pred = y_pred_scaled
+            
+            # 수집
+            for k in range(len(y_pred)):
+                actual_idx = i - start_idx + k
+                if actual_idx < len(all_predictions):
+                    predictions.append(y_pred[k])
+        
+        # 예측값 저장
+        predictions = predictions[:len(all_predictions)]
+        model_predictions[model_name] = predictions
+        
+        # 원본 예측값 저장
+        all_predictions[f'{model_name}_원본'] = [round(p) for p in predictions]
+        
+        # 트렌드 기반 부스팅 적용
+        print(f"  🔥 {model_name} 트렌드 기반 부스팅 적용 중...")
+        boosted_predictions = []
+        
+        for i in range(len(predictions)):
+            m14b = all_predictions.iloc[i]['M14AM14B']
+            m14a = all_predictions.iloc[i]['M14AM10A']
+            trend = all_predictions.iloc[i]['시퀀스트렌드']
+            original = predictions[i]
+            
+            # 트렌드 기반 부스팅
+            boosted = self.trend_booster.boost_prediction(
+                original, m14b, m14a, trend, model_name
+            )
+            boosted_predictions.append(boosted)
+        
+        all_predictions[f'{model_name}_예측'] = [round(p) for p in boosted_predictions]
+    
+    # 트렌드 기반 극단값 앙상블
+    print("\n🔥 트렌드 기반 극단값 앙상블 생성...")
+    
+    extreme_ensemble = []
+    for i in range(len(all_predictions)):
+        m14b = all_predictions.iloc[i]['M14AM14B']
+        m14a = all_predictions.iloc[i]['M14AM10A']
+        trend = all_predictions.iloc[i]['시퀀스트렌드']
+        
+        # 모든 모델 예측값 수집
+        model_preds = []
+        for model_name in self.models.keys():
+            if f'{model_name}_예측' in all_predictions.columns:
+                model_preds.append(all_predictions.iloc[i][f'{model_name}_예측'])
+        
+        # 트렌드별 차별화 전략
+        if trend == 'EXTREME_UP':
+            # 상승 트렌드: 상위 90% 값 사용
+            if model_preds:
+                ensemble_pred = np.percentile(model_preds, 90)
+            else:
+                ensemble_pred = 1700
+            
+            # M14B에 따라 추가
+            if m14b > 550:
+                ensemble_pred = ensemble_pred + 150
+            elif m14b > 500:
+                ensemble_pred = ensemble_pred + 100
+            elif m14b > 450:
+                ensemble_pred = ensemble_pred + 50
+            
+            # 범위 제한
+            ensemble_pred = min(ensemble_pred, 1870)
+        
+        elif trend == 'UP':
+            # 일반 상승: 상위 75% 값
+            if model_preds:
+                ensemble_pred = np.percentile(model_preds, 75)
+            else:
+                ensemble_pred = 1650
+            
+            # M14B에 따라 약간 추가
+            if m14b > 500:
+                ensemble_pred = ensemble_pred + 50
+            elif m14b > 450:
+                ensemble_pred = ensemble_pred + 30
+            
+            ensemble_pred = min(ensemble_pred, 1820)
+        
+        else:  # STABLE or DOWN
+            # 안정/하락: 평균값 사용
+            if model_preds:
+                ensemble_pred = np.mean(model_preds)
+            else:
+                ensemble_pred = 1600
+            
+            # M14B가 높으면 최소값 보장
+            if m14b > 500:
+                ensemble_pred = max(ensemble_pred, 1750)
+            elif m14b > 450:
+                ensemble_pred = max(ensemble_pred, 1700)
+            elif m14b > 400:
+                ensemble_pred = max(ensemble_pred, 1650)
+        
+        # 황금 패턴 추가 보정
+        if m14b > 300 and m14a < 80:
             ensemble_pred = ensemble_pred + 30
         
-        ensemble_pred = min(ensemble_pred, 1820)
-    
-    else:  # STABLE or DOWN
-        # 안정/하락: 평균값 사용
-        if model_preds:
-            ensemble_pred = np.mean(model_preds)
-        else:
-            ensemble_pred = 1600
+        # 최종 범위 제한 (1500 ~ 1870)
+        ensemble_pred = max(1500, min(ensemble_pred, 1870))
         
-        # M14B가 높으면 최소값 보장
-        if m14b > 500:
-            ensemble_pred = max(ensemble_pred, 1750)
-        elif m14b > 450:
-            ensemble_pred = max(ensemble_pred, 1700)
-        elif m14b > 400:
-            ensemble_pred = max(ensemble_pred, 1650)
+        extreme_ensemble.append(ensemble_pred)
     
-    # 황금 패턴 추가 보정
-    if m14b > 300 and m14a < 80:
-        ensemble_pred = ensemble_pred + 30
+    # 결과 저장
+    all_predictions['트렌드앙상블_예측'] = [round(p) for p in extreme_ensemble]
+    all_predictions['트렌드앙상블_오차'] = all_predictions['트렌드앙상블_예측'] - all_predictions['실제값']
+    all_predictions['트렌드앙상블_오차율(%)'] = round(
+        abs(all_predictions['트렌드앙상블_오차']) / all_predictions['실제값'] * 100, 2
+    )
     
-    # 최종 범위 제한 (1500 ~ 1870)
-    ensemble_pred = max(1500, min(ensemble_pred, 1870))
+    # 성능 계산
+    extreme_mae = mean_absolute_error(all_predictions['실제값'], extreme_ensemble)
+    extreme_rmse = np.sqrt(mean_squared_error(all_predictions['실제값'], extreme_ensemble))
+    extreme_r2 = r2_score(all_predictions['실제값'], extreme_ensemble)
+    extreme_mape = np.mean(abs(all_predictions['트렌드앙상블_오차']) / all_predictions['실제값']) * 100
     
-    extreme_ensemble.append(ensemble_pred)
+    model_metrics['트렌드앙상블'] = {
+        'MAE': extreme_mae,
+        'RMSE': extreme_rmse,
+        'R2': extreme_r2,
+        'MAPE': extreme_mape,
+        '정확도(%)': 100 - extreme_mape
+    }
+    
+    print(f"✅ 트렌드앙상블: MAE={extreme_mae:.2f}, R²={extreme_r2:.4f}, 정확도={100-extreme_mape:.2f}%")
+    
+    # CSV 저장
+    output_file = f'v9_trend_predictions_{datetime.now().strftime("%Y%m%d_%H%M%S")}.csv'
+    all_predictions.to_csv(output_file, index=False, encoding='utf-8-sig')
+    print(f"\n💾 예측값 저장: {output_file}")
+    
+    # 고값 구간 상세 분석
+    self.analyze_extreme_performance(all_predictions)
+    
+    return all_predictions, model_metrics
 
-# 결과 저장
-all_predictions['트렌드앙상블_예측'] = [round(p) for p in extreme_ensemble]
 
 
 
