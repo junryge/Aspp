@@ -1,4 +1,70 @@
 """
+
+def boost_prediction(self, pred, m14b_value, m14a_value, sequence_trend, model_name=None):
+    """트렌드 기반 극단 부스팅 - 현실적으로 수정"""
+    
+    boosted = pred
+    
+    # 1단계: 트렌드 기반 부스팅 (더 보수적으로)
+    if sequence_trend == 'EXTREME_UP':
+        # 상승 트렌드 + 극단값 → 적절한 부스팅
+        if m14b_value > 500:
+            boosted = max(pred * 1.3, 1850)  # 2.0 → 1.3
+        elif m14b_value > 450:
+            boosted = max(pred * 1.25, 1780)  # 1.8 → 1.25
+        elif m14b_value > 400:
+            boosted = max(pred * 1.2, 1730)  # 1.6 → 1.2
+        else:
+            boosted = max(pred * 1.15, 1700)  # 1.4 → 1.15
+    
+    elif sequence_trend == 'UP':
+        # 일반 상승 트렌드
+        if m14b_value > 500:
+            boosted = max(pred * 1.2, 1800)  # 1.6 → 1.2
+        elif m14b_value > 450:
+            boosted = max(pred * 1.15, 1750)  # 1.5 → 1.15
+        elif m14b_value > 400:
+            boosted = max(pred * 1.1, 1700)  # 1.4 → 1.1
+        else:
+            boosted = pred * 1.05
+    
+    else:  # STABLE or DOWN
+        # 안정/하락 → 기본 부스팅
+        if m14b_value > 500:
+            boosted = max(pred * 1.1, 1750)  # 1.4 → 1.1
+        elif m14b_value > 450:
+            boosted = max(pred * 1.05, 1700)  # 1.3 → 1.05
+        elif m14b_value > 400:
+            boosted = max(pred, 1650)  # 1.2 → 1.0
+        else:
+            boosted = pred
+    
+    # 2단계: 황금 패턴 (적절히)
+    if m14b_value > 300 and m14a_value and m14a_value < 80:
+        boosted = boosted * 1.1  # 1.2 → 1.1
+    
+    # 3단계: 상한선 제한 (현실적으로)
+    boosted = min(boosted, 1950)  # 최대 1950으로 제한
+    
+    return boosted
+
+
+# 트렌드 기반 극단값 앙상블 (현실적으로)
+if trend == 'EXTREME_UP':
+    if model_preds:
+        ensemble_pred = max(model_preds) * 1.1  # 1.2 → 1.1
+    else:
+        ensemble_pred = 1800
+    
+    # 최종 강제 (적절하게)
+    if m14b > 500:
+        ensemble_pred = max(ensemble_pred, 1850)  # 1900 → 1850
+    elif m14b > 450:
+        ensemble_pred = max(ensemble_pred, 1750)  # 1800 → 1750
+    else:
+        ensemble_pred = max(ensemble_pred, 1700)  # 1750 → 1700
+
+
 V9.0 시퀀스 트렌드 기반 극단값 예측 시스템
 핵심: 100개 시퀀스 트렌드 분석 → 상승 트렌드면 EXTREME 부스팅
 """
