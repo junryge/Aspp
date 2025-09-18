@@ -27,53 +27,57 @@ class ExtremeValueBooster:
         print("🔥 극단값 부스터 초기화")
         
     def boost_prediction(self, pred, m14b_value, m14a_value=None, model_name=None):
-        """M14B 값에 따른 극단적 부스팅"""
+        """M14B 값에 따른 적절한 부스팅 (과도하지 않게)"""
         original = pred
         boosted = pred
         
-        # 모델별 차별화된 부스팅
+        # 모델별 차별화된 부스팅 (보수적으로)
         if model_name == 'ExtremeNet':
-            # ExtremeNet은 고값에서 약하므로 더 강력한 부스팅
+            # ExtremeNet은 원본 값도 참고하여 적당히만 부스팅
             if m14b_value > 550:
-                boosted = max(pred * 1.6, 1850)
+                # 원본이 이미 높으면 그대로, 낮으면 약간만 상향
+                if original < 1600:
+                    boosted = original * 1.2  # 20% 상향
+                else:
+                    boosted = max(original * 1.05, 1750)  # 5% 상향 또는 1750
             elif m14b_value > 500:
-                boosted = max(pred * 1.5, 1750)
+                if original < 1550:
+                    boosted = original * 1.15  # 15% 상향
+                else:
+                    boosted = max(original * 1.03, 1700)  # 3% 상향 또는 1700
             elif m14b_value > 450:
-                boosted = max(pred * 1.4, 1700)
+                if original < 1500:
+                    boosted = original * 1.1  # 10% 상향
+                else:
+                    boosted = max(original, 1650)  # 원본 유지 또는 1650
             elif m14b_value > 400:
-                boosted = max(pred * 1.3, 1650)
-            elif m14b_value > 350:
-                boosted = max(pred * 1.2, 1550)
-            else:
-                boosted = pred * 1.1
+                boosted = original * 1.05  # 5% 상향만
                 
         elif model_name in ['SpikeDetector', 'GoldenRule']:
-            # 이 모델들은 이미 잘하므로 보수적 부스팅
-            if m14b_value > 550:
-                boosted = max(pred, 1850)
-            elif m14b_value > 500:
-                boosted = max(pred, 1750)
-            elif m14b_value > 450:
-                boosted = max(pred, 1700)
-            elif m14b_value > 400:
-                boosted = max(pred * 1.05, 1650)
+            # 이 모델들은 원본 신뢰 (최소값만 보장)
+            if m14b_value > 550 and original < 1750:
+                boosted = max(original, 1750)
+            elif m14b_value > 500 and original < 1700:
+                boosted = max(original, 1700)
+            elif m14b_value > 450 and original < 1650:
+                boosted = max(original, 1650)
+            else:
+                boosted = original  # 그대로 유지
                 
         else:  # PatchTST, StableLSTM 등
-            # 일반 부스팅
+            # 일반적인 부스팅 (적당히)
             if m14b_value > 550:
-                boosted = max(pred * 1.45, 1850)
+                boosted = max(pred * 1.15, 1750)
             elif m14b_value > 500:
-                boosted = max(pred * 1.35, 1750)
+                boosted = max(pred * 1.1, 1700)
             elif m14b_value > 450:
-                boosted = max(pred * 1.25, 1700)
-            elif m14b_value > 400:
-                boosted = max(pred * 1.15, 1650)
-            elif m14b_value > 350:
-                boosted = max(pred * 1.08, 1550)
+                boosted = max(pred * 1.05, 1650)
+            else:
+                boosted = pred
         
-        # 황금 패턴 추가 부스팅
+        # 황금 패턴 추가 부스팅 (약하게)
         if m14b_value > 300 and m14a_value and m14a_value < 80:
-            boosted = boosted * 1.15
+            boosted = boosted * 1.05  # 5%만 추가
             
         return boosted
 
@@ -369,33 +373,36 @@ class CompleteModelEvaluator:
             m14b = all_predictions.iloc[i]['M14AM14B']
             m14a = all_predictions.iloc[i]['M14AM10A']
             
-            # M14B가 높을 때는 SpikeDetector와 GoldenRule 극대화
+            # M14B가 높을 때도 균형잡힌 가중치 사용
             if m14b > 500:
+                # 극고값 구간: SpikeDetector와 GoldenRule 중시하되 다른 모델도 참고
                 weights = {
-                    'SpikeDetector': 0.45,
-                    'GoldenRule': 0.35,
-                    'PatchTST': 0.10,
-                    'StableLSTM': 0.05,
-                    'ExtremeNet': 0.05
+                    'SpikeDetector': 0.35,  # 35% (기존 45%)
+                    'GoldenRule': 0.30,     # 30% (기존 35%)
+                    'PatchTST': 0.15,       # 15% (기존 10%)
+                    'StableLSTM': 0.10,     # 10% (기존 5%)
+                    'ExtremeNet': 0.10      # 10% (기존 5%)
                 }
             elif m14b > 450:
+                # 고값 구간: 균형잡힌 앙상블
                 weights = {
-                    'SpikeDetector': 0.40,
-                    'GoldenRule': 0.30,
-                    'PatchTST': 0.15,
-                    'StableLSTM': 0.10,
-                    'ExtremeNet': 0.05
+                    'SpikeDetector': 0.30,  # 30% (기존 40%)
+                    'GoldenRule': 0.25,     # 25% (기존 30%)
+                    'PatchTST': 0.20,       # 20% (기존 15%)
+                    'StableLSTM': 0.15,     # 15% (기존 10%)
+                    'ExtremeNet': 0.10      # 10% (기존 5%)
                 }
             elif m14b > 400:
+                # 중고값 구간
                 weights = {
-                    'SpikeDetector': 0.30,
-                    'GoldenRule': 0.25,
-                    'PatchTST': 0.20,
-                    'StableLSTM': 0.15,
+                    'SpikeDetector': 0.25,
+                    'GoldenRule': 0.20,
+                    'PatchTST': 0.25,
+                    'StableLSTM': 0.20,
                     'ExtremeNet': 0.10
                 }
             else:
-                # 일반 구간
+                # 일반 구간: PatchTST 중심
                 weights = {
                     'PatchTST': 0.30,
                     'StableLSTM': 0.25,
@@ -416,19 +423,40 @@ class CompleteModelEvaluator:
             if total_weight > 0:
                 ensemble_pred = ensemble_pred / total_weight
             
-            # 극단값 최종 강제 조정
-            if m14b > 550:
-                ensemble_pred = max(ensemble_pred, 1850)
-            elif m14b > 500:
-                ensemble_pred = max(ensemble_pred, 1750)
-            elif m14b > 450:
-                ensemble_pred = max(ensemble_pred, 1700)
-            elif m14b > 400:
-                ensemble_pred = max(ensemble_pred, 1650)
+            # 극단값 최종 조정 (원본 값 고려하여 적절히)
+            # 각 모델의 원본 예측 평균 확인
+            orig_avg = 0
+            orig_count = 0
+            for model_name in self.models.keys():
+                if f'{model_name}_원본' in all_predictions.columns:
+                    orig_avg += all_predictions.iloc[i][f'{model_name}_원본']
+                    orig_count += 1
             
-            # 황금 패턴 추가 보정
+            if orig_count > 0:
+                orig_avg = orig_avg / orig_count
+                
+                # 원본 평균이 이미 높으면 덜 조정
+                if m14b > 550:
+                    if orig_avg > 1700:
+                        ensemble_pred = max(ensemble_pred, 1800)
+                    else:
+                        ensemble_pred = max(ensemble_pred, 1750)
+                elif m14b > 500:
+                    if orig_avg > 1650:
+                        ensemble_pred = max(ensemble_pred, 1700)
+                    else:
+                        ensemble_pred = max(ensemble_pred, 1680)
+                elif m14b > 450:
+                    if orig_avg > 1600:
+                        ensemble_pred = max(ensemble_pred, 1650)
+                    else:
+                        ensemble_pred = max(ensemble_pred * 1.05, 1600)
+                elif m14b > 400:
+                    ensemble_pred = max(ensemble_pred, 1550)
+            
+            # 황금 패턴 추가 보정 (적절히)
             if m14b > 300 and m14a < 80:
-                ensemble_pred = max(ensemble_pred * 1.1, 1550)
+                ensemble_pred = ensemble_pred * 1.05  # 5%만 추가 (기존 10%)
             
             extreme_ensemble.append(ensemble_pred)
         
