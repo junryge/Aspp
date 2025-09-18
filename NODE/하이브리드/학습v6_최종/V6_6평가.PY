@@ -49,20 +49,37 @@ def boost_prediction(self, pred, m14b_value, m14a_value, sequence_trend, model_n
     return boosted
 
 
-# 트렌드 기반 극단값 앙상블 (현실적으로)
-if trend == 'EXTREME_UP':
-    if model_preds:
-        ensemble_pred = max(model_preds) * 1.1  # 1.2 → 1.1
-    else:
-        ensemble_pred = 1800
+    # 트렌드 기반 극단값 앙상블
+    print("\n🔥 트렌드 기반 극단값 앙상블 생성...")
     
-    # 최종 강제 (적절하게)
-    if m14b > 500:
-        ensemble_pred = max(ensemble_pred, 1850)  # 1900 → 1850
-    elif m14b > 450:
-        ensemble_pred = max(ensemble_pred, 1750)  # 1800 → 1750
-    else:
-        ensemble_pred = max(ensemble_pred, 1700)  # 1750 → 1700
+    extreme_ensemble = []
+    for i in range(len(all_predictions)):
+        m14b = all_predictions.iloc[i]['M14AM14B']
+        m14a = all_predictions.iloc[i]['M14AM10A']
+        trend = all_predictions.iloc[i]['시퀀스트렌드']
+        
+        # 트렌드별 가중치 전략
+        if trend == 'EXTREME_UP':  # <-- 여기부터 수정
+            # 극단 상승: 가장 높은 예측값 선택 + 적절한 부스팅
+            model_preds = []
+            for model_name in self.models.keys():
+                if f'{model_name}_예측' in all_predictions.columns:
+                    model_preds.append(all_predictions.iloc[i][f'{model_name}_예측'])
+            
+            if model_preds:
+                ensemble_pred = max(model_preds) * 1.1  # 1.2 → 1.1로 수정
+            else:
+                ensemble_pred = 1800
+            
+            # 최종 강제 (적절하게 수정)
+            if m14b > 500:
+                ensemble_pred = max(ensemble_pred, 1850)  # 1900 → 1850
+            elif m14b > 450:
+                ensemble_pred = max(ensemble_pred, 1750)  # 1800 → 1750
+            else:
+                ensemble_pred = max(ensemble_pred, 1700)  # 1750 → 1700
+        
+        elif trend == 'UP':
 
 
 V9.0 시퀀스 트렌드 기반 극단값 예측 시스템
