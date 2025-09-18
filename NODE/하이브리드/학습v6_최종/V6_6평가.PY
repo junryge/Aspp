@@ -288,7 +288,7 @@ class ImprovedExtremeValueBooster:
         
         # 황금 패턴 추가 부스팅 (모든 모델 공통)
         if m14b_value > 300 and m14a_value and m14a_value < 80:
-            if sequence_trend == 'increasing':
+            if seq_trend == 'increasing':
                 boosted = boosted * 1.15  # 증가 추세면 더 강하게
             else:
                 boosted = boosted * 1.08  # 아니면 약하게
