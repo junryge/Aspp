@@ -91,10 +91,14 @@ class CompleteModelEvaluator:
             self.target_scaler = pickle.load(f)
         with open(f'{scaler_path}config.json', 'r') as f:
             config = json.load(f)
-            self.seq_len = config['seq_len']
-            self.pred_len = config['pred_len']
+            self.seq_len = config['seq_len']  # 100분 시퀀스
+            self.pred_len = config['pred_len']  # 10분 후 예측
             self.feature_columns = config['feature_columns']
         print(f"✅ 스케일러 로드 완료")
+        print(f"📍 시퀀스 설정:")
+        print(f"   - 입력: 과거 {self.seq_len}분 데이터 (100분)")
+        print(f"   - 출력: {self.pred_len}분 후 예측값")
+        print(f"   - 특징 컬럼: {len(self.feature_columns)}개")
         
         self.models = {}
         self.extreme_booster = ExtremeValueBooster()
@@ -135,6 +139,14 @@ class CompleteModelEvaluator:
         df = df.sort_values('CURRTIME').reset_index(drop=True)
         
         print(f"  유효: {df.shape[0]:,}행")
+        
+        # 시퀀스 길이 체크
+        if len(df) < self.seq_len + self.pred_len:
+            print(f"\n⚠️ 경고: 데이터가 너무 적습니다!")
+            print(f"  필요: {self.seq_len}(시퀀스) + {self.pred_len}(예측) = {self.seq_len + self.pred_len}행 이상")
+            print(f"  현재: {len(df)}행")
+            if len(df) < 120:
+                raise ValueError(f"최소 {self.seq_len + self.pred_len}개 이상의 데이터가 필요합니다!")
         
         # 고값 통계 출력
         high_count = (df['TOTALCNT'] >= 1700).sum()
@@ -179,13 +191,20 @@ class CompleteModelEvaluator:
         df = self.create_features(df)
         
         # 예측 가능 범위
-        start_idx = self.seq_len
-        end_idx = len(df) - self.pred_len
+        start_idx = self.seq_len  # 100분 시퀀스 필요
+        end_idx = len(df) - self.pred_len  # 10분 후 예측
         total = end_idx - start_idx
         
         print(f"\n🔮 예측 시작...")
-        print(f"  시퀀스: {self.seq_len}분 → 예측: {self.pred_len}분 후")
-        print(f"  예측 개수: {total:,}개")
+        print(f"  📍 시퀀스 길이: {self.seq_len}분 (과거 100분 데이터 사용)")
+        print(f"  🎯 예측 시점: {self.pred_len}분 후")
+        print(f"  📊 예측 가능 개수: {total:,}개")
+        
+        if total <= 0:
+            print(f"\n❌ 예측 불가: 데이터 부족")
+            print(f"  데이터 길이: {len(df)}행")
+            print(f"  필요 최소: {self.seq_len + self.pred_len}행")
+            raise ValueError("예측을 위한 충분한 데이터가 없습니다!")
         
         # 모든 예측을 저장할 DataFrame 준비
         all_predictions = pd.DataFrame()
@@ -232,10 +251,23 @@ class CompleteModelEvaluator:
             for i in range(start_idx, end_idx, batch_size):
                 batch_end = min(i + batch_size, end_idx)
                 
-                # 배치 데이터 준비
+                # 배치 데이터 준비 (100분 시퀀스)
                 X_batch = []
                 for j in range(i, batch_end):
-                    seq_data = df.iloc[j-self.seq_len:j][self.feature_columns].values
+                    # j시점 기준 과거 100분 데이터 추출
+                    seq_start = j - self.seq_len  # j-100
+                    seq_end = j  # j시점까지
+                    
+                    if seq_start < 0:
+                        print(f"⚠️ 시퀀스 시작점이 음수: {seq_start}")
+                        continue
+                        
+                    seq_data = df.iloc[seq_start:seq_end][self.feature_columns].values
+                    
+                    if len(seq_data) != self.seq_len:
+                        print(f"⚠️ 시퀀스 길이 오류: {len(seq_data)} != {self.seq_len}")
+                        continue
+                        
                     X_batch.append(seq_data)
                 
                 if len(X_batch) == 0:
