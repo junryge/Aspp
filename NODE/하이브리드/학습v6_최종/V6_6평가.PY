@@ -1,7 +1,7 @@
 """
 📊 V6.7 개선된 극단값 예측 평가 시스템
 ========================================================
-핵심 개선: 시퀀스 max값 1682+ & 증가 추세일 때만 ExtremeNet 부스팅
+핵심 개선: 시퀀스 max값 1651+ & 증가 추세일 때만 ExtremeNet 부스팅
 """
 
 import numpy as np
@@ -25,7 +25,7 @@ class ImprovedExtremeValueBooster:
     
     def __init__(self):
         print("🔥 개선된 극단값 부스터 초기화")
-        print("  - 시퀀스 max값 1682 이상 체크")
+        print("  - 시퀀스 max값 1651 이상 체크")
         print("  - 증가/하락 추세 분석")
         print("  - 추세별 차별화된 부스팅")
         
@@ -601,8 +601,8 @@ class ImprovedModelEvaluator:
             patch_pred = all_predictions.iloc[i]['PatchTST_예측']
             stable_pred = all_predictions.iloc[i]['StableLSTM_예측']
             
-            # 🔥 핵심: 시퀀스 MAX가 1650+ 이고 상승 추세면 최소값 보장
-            if seq_max >= 1650 and seq_trend in ['increasing', 'strong_rising', 'rapid_increasing']:
+            # 🔥 핵심: 시퀀스 MAX가 1650+ 이고 increasing이면 최소값 보장
+            if seq_max >= 1650 and seq_trend == 'increasing':
                 # 가장 높은 예측값을 우선 사용
                 max_pred = max(extreme_pred, spike_pred, golden_pred, patch_pred, stable_pred)
                 
@@ -833,7 +833,7 @@ def main():
     print("\n📁 저장된 파일:")
     print(f"  1. v67_improved_predictions_YYYYMMDD.csv - 개선된 예측")
     print("\n🔥 핵심 개선사항:")
-    print("  ✅ 시퀀스 max값 1682 이상 체크")
+    print("  ✅ 시퀀스 max값 1651 이상 체크")
     print("  ✅ 증가 추세일 때만 ExtremeNet 부스팅")
     print("  ✅ 하락 추세에서는 보수적 예측")
     print("  ✅ 추세별 차별화된 앙상블 가중치")
