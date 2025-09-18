@@ -1,64 +1,63 @@
 """
-# 트렌드별 차별화 전략 (적절히 상향 조정)
+# 트렌드별 차별화 전략 (더 상향 조정)
 if trend == 'EXTREME_UP':
     # 상승 트렌드: 상위 90% 값 사용
     if model_preds:
         ensemble_pred = np.percentile(model_preds, 90)
     else:
-        ensemble_pred = 1700
+        ensemble_pred = 1720
     
     # M14B에 따라 추가 (더 올림)
     if m14b > 550:
-        ensemble_pred = ensemble_pred + 200  # 150 → 200
+        ensemble_pred = ensemble_pred + 250  # 200 → 250
     elif m14b > 500:
-        ensemble_pred = ensemble_pred + 150  # 100 → 150  
+        ensemble_pred = ensemble_pred + 200  # 150 → 200  
     elif m14b > 450:
-        ensemble_pred = ensemble_pred + 100  # 50 → 100
+        ensemble_pred = ensemble_pred + 150  # 100 → 150
     else:
-        ensemble_pred = ensemble_pred + 50   # 추가
+        ensemble_pred = ensemble_pred + 80   # 50 → 80
     
     # 범위 제한
-    ensemble_pred = min(ensemble_pred, 1900)  # 1870 → 1900
+    ensemble_pred = min(ensemble_pred, 1950)  # 1900 → 1950
 
 elif trend == 'UP':
     # 일반 상승: 상위 75% 값
     if model_preds:
         ensemble_pred = np.percentile(model_preds, 75)
     else:
-        ensemble_pred = 1650
+        ensemble_pred = 1680
     
     # M14B에 따라 추가 (더 올림)
     if m14b > 500:
-        ensemble_pred = ensemble_pred + 100  # 50 → 100
+        ensemble_pred = ensemble_pred + 130  # 100 → 130
     elif m14b > 450:
-        ensemble_pred = ensemble_pred + 70   # 30 → 70
+        ensemble_pred = ensemble_pred + 100  # 70 → 100
     else:
-        ensemble_pred = ensemble_pred + 30   # 추가
+        ensemble_pred = ensemble_pred + 50   # 30 → 50
     
-    ensemble_pred = min(ensemble_pred, 1850)  # 1820 → 1850
+    ensemble_pred = min(ensemble_pred, 1880)  # 1850 → 1880
 
 else:  # STABLE or DOWN
     # 안정/하락: 평균값 사용
     if model_preds:
         ensemble_pred = np.mean(model_preds)
     else:
-        ensemble_pred = 1600
+        ensemble_pred = 1650
     
     # M14B가 높으면 최소값 보장 (더 올림)
     if m14b > 500:
-        ensemble_pred = max(ensemble_pred, 1770)  # 1750 → 1770
+        ensemble_pred = max(ensemble_pred, 1800)  # 1770 → 1800
     elif m14b > 450:
-        ensemble_pred = max(ensemble_pred, 1720)  # 1700 → 1720
+        ensemble_pred = max(ensemble_pred, 1750)  # 1720 → 1750
     elif m14b > 400:
-        ensemble_pred = max(ensemble_pred, 1670)  # 1650 → 1670
+        ensemble_pred = max(ensemble_pred, 1700)  # 1670 → 1700
 
 # 황금 패턴 추가 보정
 if m14b > 300 and m14a < 80:
-    ensemble_pred = ensemble_pred + 50  # 30 → 50
+    ensemble_pred = ensemble_pred + 70  # 50 → 70
 
 # 최종 범위 제한
-ensemble_pred = max(1500, min(ensemble_pred, 1900))  # 상한 1900
-
+ensemble_pred = max(1500, min(ensemble_pred, 1950))  # 상한 1950
 
 
 
