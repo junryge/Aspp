@@ -87,11 +87,9 @@ class DataPatternDetector:
         print(f"     1682+ 평균 개수: {avg_high_1682:.0f}개/100")
         print(f"     Stable 비율: {stable_ratio:.1%}")
         
-        # 개선된 UU2 판별 조건
-        if (avg_seq_max >= 1720 and  # 더 엄격한 기준
-            avg_high_1650 >= 25 and  # 1650+ 많음
-            avg_high_1682 >= 10 and  # 1682+ 도 있음
-            stable_ratio >= 0.5):     # 안정적
+        # 실용적 UU2 판별 조건
+        # UU2: 시퀀스가 이미 높은 상태
+        if avg_seq_max >= 1700 and avg_high_1650 >= 10:
             print(f"  🔥 UU2 패턴 감지: 고값 유지 상태")
             return "UU2"
         else:
