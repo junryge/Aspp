@@ -1,11 +1,11 @@
 """
-📊 V6.7 개선된 극단값 예측 평가 시스템 (최적화 완전판)
+📊 V6.8 최종 개선판 - UU1/UU2 패턴 감지 + 1700+ 예측 통합
 ========================================================
-개선사항:
-1. ExtremeNet 부스팅 조건 완화 (1682 → 1650)
-2. 부스팅 상한선 추가 (과도한 예측 방지)
-3. stable 상태에서도 약한 부스팅 적용
-4. UU1/UU2 패턴 감지 조건 최적화
+핵심 개선:
+1. UU1/UU2 자동 패턴 감지
+2. 1700+ 급증 예측 로직
+3. 시퀀스 추세 기반 동적 앙상블
+4. M14B 값 기반 부스팅 조건 최적화
 """
 
 import numpy as np
@@ -23,254 +23,290 @@ import seaborn as sns
 warnings.filterwarnings('ignore')
 tf.keras.config.enable_unsafe_deserialization()
 
-# ====================== 개선된 패턴 감지기 ======================
+# ====================== UU1/UU2 패턴 감지기 ======================
 class DataPatternDetector:
-    """데이터 패턴 자동 감지 (UU1 vs UU2) - 개선됨"""
+    """데이터 패턴 자동 감지 (UU1 vs UU2)"""
     
     def detect_pattern(self, df):
         """
-        패턴 감지: UU1(급증) 또는 UU2(고값유지)
-        개선: 더 정확한 임계값 설정
+        UU1: 급증 예측 필요 (M14B 낮음, 1700+ 가능)
+        UU2: 고값 유지 상태 (M14B 높음, 이미 한계)
         """
         
+        # 1682+ 케이스 분석
         high_cases = df[df['TOTALCNT'] >= 1682]
         
         if len(high_cases) == 0:
-            print("  📈 UU1 패턴: 1682+ 데이터 없음 → 급증 예측 필요")
-            return "UU1"
+            # 1682가 없으면 M14B 평균으로 판단
+            m14b_mean = df['M14AM14B'].mean()
+            if m14b_mean > 250:
+                print(f"  🔥 UU2 패턴: M14B 평균 {m14b_mean:.0f} (고값 상태)")
+                return "UU2"
+            else:
+                print(f"  📈 UU1 패턴: M14B 평균 {m14b_mean:.0f} (급증 가능)")
+                return "UU1"
         
-        # 시퀀스 패턴 분석
-        pattern_stats = []
-        trend_counts = {'increasing': 0, 'stable': 0, 'decreasing': 0}
+        # 1682+ 케이스의 M14B 분석
+        high_m14b_mean = high_cases['M14AM14B'].mean()
         
-        for idx in high_cases.index:
-            if idx >= 100:
-                seq = df.iloc[idx-100:idx]['TOTALCNT'].values
-                
-                # 추세 계산
-                if len(seq) >= 30:
-                    recent = seq[-30:]
-                    x = np.arange(len(recent))
-                    coeffs = np.polyfit(x, recent, 1)
-                    slope = coeffs[0]
-                    
-                    if slope > 2:
-                        trend_counts['increasing'] += 1
-                    elif slope < -2:
-                        trend_counts['decreasing'] += 1
-                    else:
-                        trend_counts['stable'] += 1
-                
-                pattern_stats.append({
-                    'seq_max': seq.max(),
-                    'seq_mean': seq.mean(),
-                    'high_1650': (seq >= 1650).sum(),
-                    'high_1682': (seq >= 1682).sum()
-                })
+        # M14B > 350 비율 계산
+        m14b_high_ratio = (df['M14AM14B'] > 350).sum() / len(df)
         
-        if not pattern_stats:
-            return "UU1"
+        print(f"\n📊 패턴 분석:")
+        print(f"  1682+ 케이스: {len(high_cases)}개")
+        print(f"  1682+ M14B 평균: {high_m14b_mean:.0f}")
+        print(f"  전체 M14B>350 비율: {m14b_high_ratio:.1%}")
         
-        # 통계 계산
-        avg_seq_max = np.mean([p['seq_max'] for p in pattern_stats])
-        avg_seq_mean = np.mean([p['seq_mean'] for p in pattern_stats])
-        avg_high_1650 = np.mean([p['high_1650'] for p in pattern_stats])
-        avg_high_1682 = np.mean([p['high_1682'] for p in pattern_stats])
-        
-        total_trends = sum(trend_counts.values())
-        stable_ratio = trend_counts['stable'] / max(total_trends, 1)
-        
-        print(f"\n  📊 패턴 분석 결과:")
-        print(f"     시퀀스 MAX 평균: {avg_seq_max:.0f}")
-        print(f"     시퀀스 MEAN 평균: {avg_seq_mean:.0f}")
-        print(f"     1650+ 평균 개수: {avg_high_1650:.0f}개/100")
-        print(f"     1682+ 평균 개수: {avg_high_1682:.0f}개/100")
-        print(f"     Stable 비율: {stable_ratio:.1%}")
-        
-        # 실용적 UU2 판별 조건
-        # UU2: 시퀀스가 이미 높은 상태
-        if avg_seq_max >= 1700 and avg_high_1650 >= 10:
+        # 패턴 판별
+        if high_m14b_mean > 400:  # 1682+에서 M14B가 400 이상
             print(f"  🔥 UU2 패턴 감지: 고값 유지 상태")
+            return "UU2"
+        elif m14b_high_ratio > 0.2:  # M14B>350이 20% 이상
+            print(f"  🔥 UU2 패턴 감지: M14B 높은 비율")
             return "UU2"
         else:
             print(f"  📈 UU1 패턴 감지: 급증 예측 필요")
             return "UU1"
 
+# ====================== 1700+ 예측기 ======================
+class SurgePredictor:
+    """1700+ 급증 예측 전문 클래스"""
+    
+    def check_surge_conditions(self, seq_max, seq_trend, m14b, m14a, consecutive_rises):
+        """
+        1700+ 급증 가능성 체크
+        Returns: (surge_probable, confidence_level)
+        """
+        
+        # 황금 조건 1: 시퀀스 MAX 1650-1682 & 상승 추세
+        if 1650 <= seq_max < 1682 and seq_trend == 'increasing':
+            if m14b >= 200:  # UU1 패턴의 적정 M14B
+                return True, 'HIGH'
+        
+        # 황금 조건 2: 현재값 1680 근처 & M14B 상승
+        if 1670 <= seq_max <= 1690:
+            if m14b >= 220 and consecutive_rises >= 5:
+                return True, 'HIGH'
+        
+        # 황금 조건 3: 연속 상승 10회 이상
+        if consecutive_rises >= 10 and seq_max >= 1600:
+            return True, 'MEDIUM'
+        
+        # 황금 패턴: M14B/M14A 비율
+        if m14b > 200 and m14a < 80:
+            ratio = m14b / (m14a + 1)
+            if ratio > 3 and seq_max >= 1600:
+                return True, 'MEDIUM'
+        
+        return False, 'LOW'
+
 # ====================== 개선된 극단값 보정 클래스 ======================
 class ImprovedExtremeValueBooster:
-    """시퀀스 기반 스마트 극단값 예측 - 개선됨"""
+    """시퀀스 기반 스마트 극단값 예측"""
     
     def __init__(self):
-        print("🔥 개선된 극단값 부스터 초기화")
-        print("  - 부스팅 조건 완화: 1650부터 시작")
-        print("  - 부스팅 상한선 추가: 과도한 예측 방지")
-        print("  - Stable 상태에서도 약한 부스팅")
+        print("🔥 V6.8 극단값 부스터 초기화")
+        print("  - UU1/UU2 패턴별 차별화")
+        print("  - 1700+ 급증 예측 강화")
+        print("  - M14B 기반 동적 부스팅")
         self.data_pattern = "UU1"
+        self.surge_predictor = SurgePredictor()
         
     def set_data_pattern(self, pattern):
         """데이터 패턴 설정"""
         self.data_pattern = pattern
         
     def analyze_sequence(self, sequence_data):
-        """시퀀스 분석: max값과 추세 계산"""
+        """시퀀스 분석: max값, 추세, 연속 상승/하락 정도 계산"""
         if len(sequence_data) == 0:
-            return None, 'stable'
+            return None
         
+        # 기본 통계
         seq_max = np.max(sequence_data)
+        seq_min = np.min(sequence_data)
+        seq_mean = np.mean(sequence_data[-30:]) if len(sequence_data) >= 30 else np.mean(sequence_data)
         
+        # 고평원 상태 체크
+        is_high_plateau = seq_mean >= 1700
+        
+        # 연속 상승 카운트
+        consecutive_rises = 0
+        for i in range(len(sequence_data)-1, 0, -1):
+            if sequence_data[i] > sequence_data[i-1]:
+                consecutive_rises += 1
+            else:
+                break
+        
+        # 연속 하락 카운트
+        consecutive_falls = 0
+        for i in range(len(sequence_data)-1, 0, -1):
+            if sequence_data[i] < sequence_data[i-1]:
+                consecutive_falls += 1
+            else:
+                break
+        
+        # 상승/하락 강도
+        rise_strength = 0
+        fall_strength = 0
+        if len(sequence_data) >= 10:
+            recent_10 = sequence_data[-10:]
+            change = recent_10[-1] - recent_10[0]
+            if change > 0:
+                rise_strength = change
+            else:
+                fall_strength = abs(change)
+        
+        # 추세 분석
         if len(sequence_data) >= 30:
             recent = sequence_data[-30:]
             x = np.arange(len(recent))
             coeffs = np.polyfit(x, recent, 1)
             slope = coeffs[0]
             
-            if slope > 2:
-                trend = 'increasing'
-            elif slope < -2:
-                trend = 'decreasing'
+            if is_high_plateau:
+                if consecutive_rises >= 10 and rise_strength > 50:
+                    trend = 'extreme_rising'
+                elif consecutive_falls >= 10 and fall_strength > 50:
+                    trend = 'extreme_falling'
+                elif slope > 1 or consecutive_rises >= 5:
+                    trend = 'high_increasing'
+                elif slope < -1 or consecutive_falls >= 5:
+                    trend = 'high_decreasing'
+                else:
+                    trend = 'high_stable'
             else:
-                trend = 'stable'
+                if consecutive_rises >= 10 and rise_strength > 50:
+                    trend = 'strong_rising'
+                elif consecutive_falls >= 10 and fall_strength > 50:
+                    trend = 'strong_falling'
+                elif consecutive_rises >= 7 and rise_strength > 30:
+                    trend = 'rapid_increasing'
+                elif consecutive_falls >= 7 and fall_strength > 30:
+                    trend = 'rapid_decreasing'
+                elif slope > 2:
+                    trend = 'increasing'
+                elif slope < -2:
+                    trend = 'decreasing'
+                else:
+                    trend = 'stable'
         else:
             trend = 'stable'
         
-        return seq_max, trend
+        # 변동성
+        volatility = np.std(sequence_data[-10:]) if len(sequence_data) >= 10 else 0
+        
+        return {
+            'max': seq_max,
+            'min': seq_min,
+            'mean': seq_mean,
+            'trend': trend,
+            'is_high_plateau': is_high_plateau,
+            'consecutive_rises': consecutive_rises,
+            'consecutive_falls': consecutive_falls,
+            'rise_strength': rise_strength,
+            'fall_strength': fall_strength,
+            'volatility': volatility,
+            'slope': slope if len(sequence_data) >= 30 else 0
+        }
     
     def boost_prediction(self, pred, m14b_value, m14a_value=None, model_name=None, 
-                        sequence_max=None, sequence_trend=None):
+                        sequence_info=None):
         """개선된 부스팅 로직"""
+        if not sequence_info:
+            return pred
+            
+        seq_max = sequence_info.get('max', 0)
+        seq_trend = sequence_info.get('trend', 'stable')
+        consecutive_rises = sequence_info.get('consecutive_rises', 0)
         
-        original = pred
+        # 1700+ 급증 가능성 체크
+        surge_probable, confidence = self.surge_predictor.check_surge_conditions(
+            seq_max, seq_trend, m14b_value, m14a_value, consecutive_rises
+        )
+        
         boosted = pred
         
         # ========== UU2 패턴 (고값 유지) ==========
         if self.data_pattern == "UU2":
             if model_name == 'ExtremeNet':
-                if sequence_max and sequence_max >= 1680:
-                    if m14b_value > 500:
-                        boosted = min(max(pred * 1.15, 1680), 1850)
-                    elif m14b_value > 450:
-                        boosted = min(max(pred * 1.10, 1650), 1800)
-                    else:
-                        boosted = min(pred * 1.05, 1750)
+                # UU2는 보수적 부스팅
+                if seq_max >= 1680 and m14b_value > 450:
+                    boosted = min(max(pred * 1.1, 1680), 1850)
                 else:
                     boosted = pred
                     
             elif model_name in ['SpikeDetector', 'GoldenRule']:
                 if m14b_value > 450:
-                    boosted = min(max(pred * 1.03, 1650), 1800)
+                    boosted = max(pred * 1.03, 1650)
                 else:
                     boosted = pred
-                    
+            
             return boosted
         
-        # ========== UU1 패턴 (급증) - 개선됨 ==========
+        # ========== UU1 패턴 (급증 예측) ==========
         if model_name == 'ExtremeNet':
             
-            # 조건 1: 강한 부스팅 (1682+ & increasing)
-            if sequence_max and sequence_max >= 1682 and sequence_trend == 'increasing':
-                if m14b_value > 550:
-                    boosted = min(max(pred * 1.6, 1850), 2000)
-                elif m14b_value > 500:
-                    boosted = min(max(pred * 1.5, 1750), 1950)
-                elif m14b_value > 450:
-                    boosted = min(max(pred * 1.4, 1700), 1900)
-                elif m14b_value > 400:
-                    boosted = min(max(pred * 1.3, 1650), 1850)
-                elif m14b_value > 350:
-                    boosted = min(max(pred * 1.2, 1550), 1800)
+            # 1700+ 급증 예측 조건
+            if surge_probable and confidence == 'HIGH':
+                # 강력한 부스팅
+                if m14b_value > 250:
+                    boosted = max(pred * 1.4, 1700)
+                elif m14b_value > 220:
+                    boosted = max(pred * 1.35, 1700)
+                elif m14b_value > 200:
+                    boosted = max(pred * 1.3, 1700)
                 else:
-                    boosted = min(pred * 1.1, 1750)
+                    boosted = max(pred * 1.25, 1680)
+                print(f"    🚀 ExtremeNet 1700+ 급증 부스팅! (confidence={confidence})")
             
-            # 조건 2: 중간 부스팅 (1650-1682 & increasing) - 새로 추가!
-            elif sequence_max and 1650 <= sequence_max < 1682 and sequence_trend == 'increasing':
-                if m14b_value > 500:
-                    boosted = min(max(pred * 1.3, 1700), 1900)
-                elif m14b_value > 450:
-                    boosted = min(max(pred * 1.25, 1650), 1850)
-                elif m14b_value > 400:
-                    boosted = min(max(pred * 1.2, 1600), 1800)
+            # 일반 상승 조건 (1651+ & increasing)
+            elif seq_max >= 1651 and seq_trend == 'increasing':
+                if m14b_value > 200:
+                    boosted = max(pred * 1.2, 1680)
                 else:
-                    boosted = min(max(pred * 1.15, 1550), 1750)
+                    boosted = max(pred * 1.15, 1650)
             
-            # 조건 3: 약한 부스팅 (1650+ & stable) - 새로 추가!
-            elif sequence_max and sequence_max >= 1650 and sequence_trend == 'stable':
-                if m14b_value > 450:
-                    boosted = min(max(pred * 1.15, 1600), 1800)
-                elif m14b_value > 400:
-                    boosted = min(max(pred * 1.10, 1550), 1750)
-                else:
-                    boosted = min(max(pred * 1.05, 1500), 1700)
+            # 연속 상승 보너스
+            elif consecutive_rises >= 10:
+                boosted = max(pred * 1.15, 1650)
             
-            # 조건 4: 하락 추세
-            elif sequence_trend == 'decreasing':
-                if sequence_max and sequence_max >= 1682:
-                    boosted = pred * 0.95
-                else:
-                    boosted = pred
-            
-            # 그 외: 최소 부스팅
+            # 그 외는 원본 사용
             else:
-                if sequence_max and sequence_max >= 1600 and m14b_value > 400:
-                    boosted = min(max(pred * 1.05, 1500), 1700)
-                else:
-                    boosted = pred
-                    
+                boosted = pred
+                
         # ========== SpikeDetector, GoldenRule ==========
         elif model_name in ['SpikeDetector', 'GoldenRule']:
-            if m14b_value > 550:
-                boosted = min(max(pred, 1850), 2000)
-            elif m14b_value > 500:
-                boosted = min(max(pred, 1750), 1950)
-            elif m14b_value > 450:
-                boosted = min(max(pred, 1700), 1900)
-            elif m14b_value > 400:
-                boosted = min(max(pred * 1.05, 1650), 1850)
-            
+            if surge_probable:
+                boosted = max(pred * 1.15, 1700)
+            elif seq_max >= 1651 and seq_trend == 'increasing':
+                boosted = max(pred * 1.1, 1680)
+            else:
+                boosted = pred
+                
         # ========== 기타 모델 ==========
         else:
-            if sequence_trend == 'increasing':
-                if m14b_value > 550:
-                    boosted = min(max(pred * 1.45, 1850), 2000)
-                elif m14b_value > 500:
-                    boosted = min(max(pred * 1.35, 1750), 1950)
-                elif m14b_value > 450:
-                    boosted = min(max(pred * 1.25, 1700), 1900)
-                elif m14b_value > 400:
-                    boosted = min(max(pred * 1.15, 1650), 1850)
-                elif m14b_value > 350:
-                    boosted = min(max(pred * 1.08, 1550), 1800)
-                    
-            elif sequence_trend == 'decreasing':
-                if m14b_value > 450:
-                    boosted = max(pred * 1.05, 1650)
-                else:
-                    boosted = pred
+            if surge_probable:
+                boosted = max(pred * 1.1, 1680)
+            elif seq_max >= 1651 and seq_trend == 'increasing':
+                boosted = max(pred * 1.05, 1650)
             else:
-                if m14b_value > 450:
-                    boosted = min(max(pred * 1.15, 1700), 1900)
-                elif m14b_value > 400:
-                    boosted = min(max(pred * 1.10, 1650), 1850)
+                boosted = pred
         
-        # 황금 패턴 추가 부스팅
-        if m14b_value > 300 and m14a_value and m14a_value < 80:
-            if self.data_pattern == "UU2":
-                boosted = min(boosted * 1.05, 2000)
-            elif sequence_trend == 'increasing':
-                boosted = min(boosted * 1.15, 2000)
-            else:
-                boosted = min(boosted * 1.08, 1950)
-            
+        # 상한선 적용
+        if boosted > 2000:
+            boosted = 2000
+        
         return boosted
 
 # ====================== 메인 평가 클래스 ======================
 class ImprovedModelEvaluator:
     def __init__(self, scaler_path='scalers/'):
-        """개선된 평가기 초기화"""
+        """평가기 초기화"""
         print("="*80)
-        print("🔥 V6.7 최적화된 극단값 평가 시스템")
-        print("  - 부스팅 조건 완화")
-        print("  - 상한선 추가")
-        print("  - 패턴 감지 개선")
+        print("🔥 V6.8 최종 개선판")
+        print("  - UU1/UU2 자동 감지")
+        print("  - 1700+ 급증 예측")
+        print("  - 추세 기반 동적 앙상블")
         print("="*80)
         
         # 스케일러 로드
@@ -296,7 +332,7 @@ class ImprovedModelEvaluator:
         self.models = {}
         self.extreme_booster = ImprovedExtremeValueBooster()
         self.pattern_detector = DataPatternDetector()
-    
+        
     def load_all_models(self, model_dir='models/'):
         """모든 모델 로드"""
         print(f"\n📁 모델 로딩...")
@@ -346,30 +382,31 @@ class ImprovedModelEvaluator:
         data_pattern = self.pattern_detector.detect_pattern(df)
         self.extreme_booster.set_data_pattern(data_pattern)
         
-        # 고값 통계 출력
+        # 고값 통계
         high_count = (df['TOTALCNT'] >= 1700).sum()
         very_high_count = (df['TOTALCNT'] >= 1750).sum()
         extreme_count = (df['TOTALCNT'] >= 1800).sum()
         max_1682_count = (df['TOTALCNT'] >= 1682).sum()
         
         print(f"\n🎯 고값 구간 분포:")
-        print(f"  1682+: {max_1682_count}개 ({max_1682_count/len(df)*100:.1f}%) ← 기준값")
+        print(f"  1682+: {max_1682_count}개 ({max_1682_count/len(df)*100:.1f}%)")
         print(f"  1700+: {high_count}개 ({high_count/len(df)*100:.1f}%)")
         print(f"  1750+: {very_high_count}개 ({very_high_count/len(df)*100:.1f}%)")
         print(f"  1800+: {extreme_count}개 ({extreme_count/len(df)*100:.1f}%)")
         
         # M14B 분포
-        if 'M14AM14B' in df.columns:
-            m14b_high = (df['M14AM14B'] > 450).sum()
-            print(f"\n📊 M14AM14B 분포:")
-            print(f"  450+: {m14b_high}개 ({m14b_high/len(df)*100:.1f}%)")
+        m14b_mean = df['M14AM14B'].mean()
+        m14b_high = (df['M14AM14B'] > 350).sum()
+        print(f"\n📊 M14AM14B 분포:")
+        print(f"  평균: {m14b_mean:.0f}")
+        print(f"  350+: {m14b_high}개 ({m14b_high/len(df)*100:.1f}%)")
         
         return df
     
     def create_features(self, df):
         """특성 생성"""
         df['RATIO'] = df['M14AM14B'] / (df['M14AM10A'] + 1)
-        df['GOLDEN'] = ((df['M14AM14B'] > 300) & (df['M14AM10A'] < 80)).astype(float)
+        df['GOLDEN'] = ((df['M14AM14B'] > 200) & (df['M14AM10A'] < 80)).astype(float)
         
         if 'CURRTIME' in df.columns:
             try:
@@ -389,7 +426,7 @@ class ImprovedModelEvaluator:
         return df
     
     def evaluate_all_models(self, test_file):
-        """개선된 모델 평가"""
+        """모델 평가 실행"""
         
         # 데이터 로드
         df = self.load_test_data(test_file)
@@ -420,6 +457,9 @@ class ImprovedModelEvaluator:
         m14a_values = []
         sequence_maxes = []
         sequence_trends = []
+        consecutive_rises_list = []
+        consecutive_falls_list = []
+        surge_predictions = []
         
         print("\n📊 데이터 수집 및 시퀀스 분석 중...")
         for i in range(start_idx, end_idx):
@@ -435,11 +475,31 @@ class ImprovedModelEvaluator:
                 m14b_values.append(df.iloc[i]['M14AM14B'])
                 m14a_values.append(df.iloc[i]['M14AM10A'])
                 
-                # 시퀀스 분석 (과거 100분 TOTALCNT)
+                # 시퀀스 분석
                 seq_data = df.iloc[i-self.seq_len:i]['TOTALCNT'].values
-                seq_max, trend = self.extreme_booster.analyze_sequence(seq_data)
-                sequence_maxes.append(seq_max)
-                sequence_trends.append(trend)
+                seq_info = self.extreme_booster.analyze_sequence(seq_data)
+                
+                if seq_info:
+                    sequence_maxes.append(seq_info.get('max'))
+                    sequence_trends.append(seq_info.get('trend'))
+                    consecutive_rises_list.append(seq_info.get('consecutive_rises', 0))
+                    consecutive_falls_list.append(seq_info.get('consecutive_falls', 0))
+                    
+                    # 1700+ 급증 예측
+                    surge_probable, confidence = self.extreme_booster.surge_predictor.check_surge_conditions(
+                        seq_info.get('max'),
+                        seq_info.get('trend'),
+                        df.iloc[i]['M14AM14B'],
+                        df.iloc[i]['M14AM10A'],
+                        seq_info.get('consecutive_rises', 0)
+                    )
+                    surge_predictions.append(1 if surge_probable else 0)
+                else:
+                    sequence_maxes.append(0)
+                    sequence_trends.append('stable')
+                    consecutive_rises_list.append(0)
+                    consecutive_falls_list.append(0)
+                    surge_predictions.append(0)
         
         # 기본 정보 저장
         if timestamps_pred and timestamps_pred[0] is not None:
@@ -451,61 +511,46 @@ class ImprovedModelEvaluator:
         all_predictions['M14AM10A'] = m14a_values
         all_predictions['시퀀스_MAX'] = sequence_maxes
         all_predictions['시퀀스_추세'] = sequence_trends
+        all_predictions['연속상승'] = consecutive_rises_list
+        all_predictions['연속하락'] = consecutive_falls_list
+        all_predictions['급증예측'] = surge_predictions
         all_predictions['데이터패턴'] = self.extreme_booster.data_pattern
         
         print(f"  예측할 데이터: {len(all_predictions)}개")
         
-        # 시퀀스 분석 통계
-        high_seq_count = (np.array(sequence_maxes) >= 1682).sum()
-        mid_seq_count = ((np.array(sequence_maxes) >= 1650) & (np.array(sequence_maxes) < 1682)).sum()
-        inc_trend_count = (np.array(sequence_trends) == 'increasing').sum()
-        dec_trend_count = (np.array(sequence_trends) == 'decreasing').sum()
-        stable_count = (np.array(sequence_trends) == 'stable').sum()
+        # 1700+ 급증 예측 통계
+        surge_count = sum(surge_predictions)
+        actual_1700 = (np.array(actuals) >= 1700).sum()
         
-        print(f"\n📈 시퀀스 분석 결과:")
-        print(f"  max값 1682+: {high_seq_count}개 ({high_seq_count/len(all_predictions)*100:.1f}%)")
-        print(f"  max값 1650-1682: {mid_seq_count}개 ({mid_seq_count/len(all_predictions)*100:.1f}%)")
-        print(f"  증가 추세: {inc_trend_count}개 ({inc_trend_count/len(all_predictions)*100:.1f}%)")
-        print(f"  안정 추세: {stable_count}개 ({stable_count/len(all_predictions)*100:.1f}%)")
-        print(f"  하락 추세: {dec_trend_count}개 ({dec_trend_count/len(all_predictions)*100:.1f}%)")
+        print(f"\n🚀 1700+ 급증 예측:")
+        print(f"  급증 예측: {surge_count}개 ({surge_count/len(all_predictions)*100:.1f}%)")
+        print(f"  실제 1700+: {actual_1700}개 ({actual_1700/len(all_predictions)*100:.1f}%)")
         
-        # ExtremeNet 부스팅 조건 만족 개수
-        boost_strong = ((np.array(sequence_maxes) >= 1682) & 
-                       (np.array(sequence_trends) == 'increasing')).sum()
-        boost_mid = ((np.array(sequence_maxes) >= 1650) & 
-                    (np.array(sequence_maxes) < 1682) & 
-                    (np.array(sequence_trends) == 'increasing')).sum()
-        boost_weak = ((np.array(sequence_maxes) >= 1650) & 
-                     (np.array(sequence_trends) == 'stable')).sum()
-        
-        print(f"\n🔥 ExtremeNet 부스팅 조건:")
-        print(f"  강한 부스팅 (1682+ & inc): {boost_strong}개")
-        print(f"  중간 부스팅 (1650-1682 & inc): {boost_mid}개")
-        print(f"  약한 부스팅 (1650+ & stable): {boost_weak}개")
-        print(f"  전체 부스팅 대상: {boost_strong + boost_mid + boost_weak}개")
-        
-        # 모델이 없으면 더미 예측 실행
+        # 모델이 없으면 더미 예측
         if not self.models:
             print("\n⚠️ 실제 모델이 없어 더미 예측을 실행합니다")
             
-            # 더미 모델 생성
             for model_name in ['ExtremeNet', 'SpikeDetector', 'GoldenRule', 'PatchTST', 'StableLSTM']:
                 print(f"  {model_name} 더미 예측...")
                 dummy_preds = []
                 boosted_preds = []
                 
                 for i in range(len(all_predictions)):
-                    # 더미 예측
                     dummy_pred = sequence_maxes[i] * 0.98 + np.random.randn() * 20
                     
-                    # 부스팅 적용
+                    seq_info = {
+                        'max': sequence_maxes[i],
+                        'trend': sequence_trends[i],
+                        'consecutive_rises': consecutive_rises_list[i],
+                        'consecutive_falls': consecutive_falls_list[i]
+                    }
+                    
                     boosted = self.extreme_booster.boost_prediction(
                         dummy_pred, 
                         m14b_values[i], 
                         m14a_values[i], 
                         model_name,
-                        sequence_max=sequence_maxes[i],
-                        sequence_trend=sequence_trends[i]
+                        sequence_info=seq_info
                     )
                     
                     dummy_preds.append(dummy_pred)
@@ -521,7 +566,6 @@ class ImprovedModelEvaluator:
         else:
             # 실제 모델로 예측
             model_metrics = {}
-            model_predictions = {}
             
             for model_name, model in self.models.items():
                 print(f"\n🎯 {model_name} 예측 중...")
@@ -532,7 +576,6 @@ class ImprovedModelEvaluator:
                 for i in range(start_idx, end_idx, batch_size):
                     batch_end = min(i + batch_size, end_idx)
                     
-                    # 배치 데이터 준비
                     X_batch = []
                     for j in range(i, batch_end):
                         seq_data = df.iloc[j-self.seq_len:j][self.feature_columns].values
@@ -541,7 +584,6 @@ class ImprovedModelEvaluator:
                     if len(X_batch) == 0:
                         continue
                     
-                    # 스케일링
                     X_batch = np.array(X_batch)
                     if self.feature_scaler:
                         X_batch_scaled = []
@@ -552,7 +594,6 @@ class ImprovedModelEvaluator:
                     else:
                         X_batch_scaled = X_batch
                     
-                    # 예측
                     preds = model.predict(X_batch_scaled, verbose=0)
                     
                     if isinstance(preds, list):
@@ -560,49 +601,42 @@ class ImprovedModelEvaluator:
                     else:
                         y_pred_scaled = preds.flatten()
                     
-                    # 역변환
                     if self.target_scaler:
                         y_pred = self.target_scaler.inverse_transform(
                             y_pred_scaled.reshape(-1, 1)).flatten()
                     else:
                         y_pred = y_pred_scaled
                     
-                    # 수집
                     for k in range(len(y_pred)):
                         actual_idx = i - start_idx + k
                         if actual_idx < len(all_predictions):
                             predictions.append(y_pred[k])
-                    
-                    if len(predictions) % 2000 == 0:
-                        print(f"    {len(predictions):,}/{len(all_predictions):,} 완료")
                 
-                # 예측값 저장
                 predictions = predictions[:len(all_predictions)]
-                model_predictions[model_name] = predictions
-                
-                # 원본 예측값 저장
                 all_predictions[f'{model_name}_원본'] = [round(p) for p in predictions]
                 
-                # 시퀀스 기반 스마트 부스팅
+                # 부스팅 적용
                 print(f"  🔥 {model_name} 부스팅 적용 중...")
                 boosted_predictions = []
                 boost_applied_count = 0
                 
                 for i in range(len(predictions)):
-                    m14b = all_predictions.iloc[i]['M14AM14B']
-                    m14a = all_predictions.iloc[i]['M14AM10A']
-                    seq_max = all_predictions.iloc[i]['시퀀스_MAX']
-                    seq_trend = all_predictions.iloc[i]['시퀀스_추세']
-                    original = predictions[i]
+                    seq_info = {
+                        'max': all_predictions.iloc[i]['시퀀스_MAX'],
+                        'trend': all_predictions.iloc[i]['시퀀스_추세'],
+                        'consecutive_rises': all_predictions.iloc[i]['연속상승'],
+                        'consecutive_falls': all_predictions.iloc[i]['연속하락']
+                    }
                     
-                    # 시퀀스 기반 부스팅 적용
                     boosted = self.extreme_booster.boost_prediction(
-                        original, m14b, m14a, model_name,
-                        sequence_max=seq_max, sequence_trend=seq_trend
+                        predictions[i],
+                        all_predictions.iloc[i]['M14AM14B'],
+                        all_predictions.iloc[i]['M14AM10A'],
+                        model_name,
+                        sequence_info=seq_info
                     )
                     
-                    # ExtremeNet 부스팅 통계
-                    if model_name == 'ExtremeNet' and boosted != original:
+                    if model_name == 'ExtremeNet' and boosted != predictions[i]:
                         boost_applied_count += 1
                         
                     boosted_predictions.append(boosted)
@@ -633,166 +667,167 @@ class ImprovedModelEvaluator:
                 
                 print(f"  ✅ {model_name} 완료: MAE={mae:.2f}, R²={r2:.4f}, 정확도={100-mape:.2f}%")
         
-        # 개선된 극단값 앙상블
-        print("\n🔥 개선된 극단값 앙상블 생성...")
+        # 추세 기반 동적 앙상블
+        print("\n🔥 최종 앙상블 생성...")
         
-        extreme_ensemble = []
+        final_ensemble = []
         for i in range(len(all_predictions)):
-            m14b = all_predictions.iloc[i]['M14AM14B']
-            m14a = all_predictions.iloc[i]['M14AM10A']
-            seq_max = all_predictions.iloc[i]['시퀀스_MAX']
             seq_trend = all_predictions.iloc[i]['시퀀스_추세']
+            consecutive_rises = all_predictions.iloc[i]['연속상승']
+            surge_pred = all_predictions.iloc[i]['급증예측']
+            m14b = all_predictions.iloc[i]['M14AM14B']
             
-            # 패턴별 가중치 설정
-            if self.extreme_booster.data_pattern == "UU2":
-                # UU2: 고값 유지 패턴
-                weights = {
-                    'SpikeDetector': 0.30,
-                    'GoldenRule': 0.25,
-                    'PatchTST': 0.20,
-                    'StableLSTM': 0.15,
-                    'ExtremeNet': 0.10
-                }
-            else:
-                # UU1: 일반 패턴
-                if seq_trend == 'increasing' and seq_max >= 1682:
-                    if m14b > 500:
-                        weights = {
-                            'SpikeDetector': 0.50,
-                            'GoldenRule': 0.30,
-                            'ExtremeNet': 0.10,
-                            'PatchTST': 0.05,
-                            'StableLSTM': 0.05
-                        }
-                    else:
-                        weights = {
-                            'SpikeDetector': 0.35,
-                            'GoldenRule': 0.25,
-                            'ExtremeNet': 0.20,
-                            'PatchTST': 0.10,
-                            'StableLSTM': 0.10
-                        }
-                elif seq_trend == 'decreasing':
-                    weights = {
-                        'PatchTST': 0.30,
-                        'StableLSTM': 0.30,
-                        'ExtremeNet': 0.15,
-                        'GoldenRule': 0.15,
-                        'SpikeDetector': 0.10
-                    }
-                else:
-                    if m14b > 450:
-                        weights = {
-                            'SpikeDetector': 0.30,
-                            'GoldenRule': 0.25,
-                            'PatchTST': 0.20,
-                            'StableLSTM': 0.15,
-                            'ExtremeNet': 0.10
-                        }
-                    else:
-                        weights = {
-                            'PatchTST': 0.30,
-                            'StableLSTM': 0.25,
-                            'ExtremeNet': 0.20,
-                            'SpikeDetector': 0.15,
-                            'GoldenRule': 0.10
-                        }
-            
-            ensemble_pred = 0
-            total_weight = 0
-            
+            # 각 모델 예측값
+            preds = {}
             for model_name in ['ExtremeNet', 'SpikeDetector', 'GoldenRule', 'PatchTST', 'StableLSTM']:
                 if f'{model_name}_예측' in all_predictions.columns:
-                    weight = weights.get(model_name, 0.2)
-                    ensemble_pred += all_predictions.iloc[i][f'{model_name}_예측'] * weight
+                    preds[model_name] = all_predictions.iloc[i][f'{model_name}_예측']
+            
+            # 급증 예측 시 가중치
+            if surge_pred == 1:
+                weights = {
+                    'ExtremeNet': 0.35,
+                    'SpikeDetector': 0.30,
+                    'GoldenRule': 0.20,
+                    'PatchTST': 0.10,
+                    'StableLSTM': 0.05
+                }
+            # 연속 상승
+            elif consecutive_rises >= 10:
+                weights = {
+                    'ExtremeNet': 0.30,
+                    'SpikeDetector': 0.25,
+                    'GoldenRule': 0.25,
+                    'PatchTST': 0.10,
+                    'StableLSTM': 0.10
+                }
+            # 일반 상승
+            elif 'increasing' in seq_trend:
+                weights = {
+                    'ExtremeNet': 0.22,
+                    'SpikeDetector': 0.22,
+                    'GoldenRule': 0.22,
+                    'PatchTST': 0.17,
+                    'StableLSTM': 0.17
+                }
+            # 하락
+            elif 'decreasing' in seq_trend or 'falling' in seq_trend:
+                weights = {
+                    'StableLSTM': 0.30,
+                    'PatchTST': 0.25,
+                    'GoldenRule': 0.20,
+                    'SpikeDetector': 0.15,
+                    'ExtremeNet': 0.10
+                }
+            # 안정
+            else:
+                weights = {
+                    'GoldenRule': 0.22,
+                    'ExtremeNet': 0.22,
+                    'SpikeDetector': 0.22,
+                    'PatchTST': 0.17,
+                    'StableLSTM': 0.17
+                }
+            
+            # 가중 평균
+            ensemble_pred = 0
+            total_weight = 0
+            for model_name, weight in weights.items():
+                if model_name in preds:
+                    ensemble_pred += preds[model_name] * weight
                     total_weight += weight
             
             if total_weight > 0:
                 ensemble_pred = ensemble_pred / total_weight
             
-            # 추세별 최종 조정
-            if seq_trend == 'increasing' and seq_max >= 1682:
-                if m14b > 550:
-                    ensemble_pred = max(ensemble_pred, 1850)
-                elif m14b > 500:
-                    ensemble_pred = max(ensemble_pred, 1750)
-                elif m14b > 450:
-                    ensemble_pred = max(ensemble_pred, 1700)
-            elif seq_trend == 'decreasing' and seq_max >= 1682:
-                ensemble_pred = min(ensemble_pred, seq_max * 0.95)
+            # 급증 예측 시 최소값 보장
+            if surge_pred == 1:
+                ensemble_pred = max(ensemble_pred, 1700)
             
-            extreme_ensemble.append(ensemble_pred)
+            final_ensemble.append(ensemble_pred)
         
-        # 극단 앙상블 결과 추가
-        all_predictions['개선앙상블_예측'] = [round(p) for p in extreme_ensemble]
-        all_predictions['개선앙상블_오차'] = all_predictions['개선앙상블_예측'] - all_predictions['실제값']
-        all_predictions['개선앙상블_오차율(%)'] = round(
-            abs(all_predictions['개선앙상블_오차']) / all_predictions['실제값'] * 100, 2
+        # 앙상블 결과 추가
+        all_predictions['최종앙상블_예측'] = [round(p) for p in final_ensemble]
+        all_predictions['최종앙상블_오차'] = all_predictions['최종앙상블_예측'] - all_predictions['실제값']
+        all_predictions['최종앙상블_오차율(%)'] = round(
+            abs(all_predictions['최종앙상블_오차']) / all_predictions['실제값'] * 100, 2
         )
         
-        # 개선 앙상블 성능
-        extreme_mae = mean_absolute_error(all_predictions['실제값'], extreme_ensemble)
-        extreme_rmse = np.sqrt(mean_squared_error(all_predictions['실제값'], extreme_ensemble))
-        extreme_r2 = r2_score(all_predictions['실제값'], extreme_ensemble)
-        extreme_mape = np.mean(abs(all_predictions['개선앙상블_오차']) / all_predictions['실제값']) * 100
-        
+        # 앙상블 성능
         if self.models:
-            model_metrics['개선앙상블'] = {
-                'MAE': extreme_mae,
-                'RMSE': extreme_rmse,
-                'R2': extreme_r2,
-                'MAPE': extreme_mape,
-                '정확도(%)': 100 - extreme_mape
+            ensemble_mae = mean_absolute_error(all_predictions['실제값'], final_ensemble)
+            ensemble_rmse = np.sqrt(mean_squared_error(all_predictions['실제값'], final_ensemble))
+            ensemble_r2 = r2_score(all_predictions['실제값'], final_ensemble)
+            ensemble_mape = np.mean(abs(all_predictions['최종앙상블_오차']) / all_predictions['실제값']) * 100
+            
+            model_metrics['최종앙상블'] = {
+                'MAE': ensemble_mae,
+                'RMSE': ensemble_rmse,
+                'R2': ensemble_r2,
+                'MAPE': ensemble_mape,
+                '정확도(%)': 100 - ensemble_mape
             }
-        
-        print(f"✅ 개선앙상블: MAE={extreme_mae:.2f}, R²={extreme_r2:.4f}, 정확도={100-extreme_mape:.2f}%")
+            
+            print(f"✅ 최종앙상블: MAE={ensemble_mae:.2f}, R²={ensemble_r2:.4f}, 정확도={100-ensemble_mape:.2f}%")
         
         # CSV 저장
         pattern_suffix = self.extreme_booster.data_pattern
-        output_file = f'v67_optimized_{pattern_suffix}_{datetime.now().strftime("%Y%m%d_%H%M%S")}.csv'
+        output_file = f'v68_{pattern_suffix}_{datetime.now().strftime("%Y%m%d_%H%M%S")}.csv'
         all_predictions.to_csv(output_file, index=False, encoding='utf-8-sig')
         print(f"\n💾 예측값 저장: {output_file}")
         
-        # 고값 구간 상세 분석
+        # 1700+ 급증 예측 정확도
         print("\n" + "="*80)
-        print("🎯🎯🎯 고값 구간 (1700+) 상세 분석 🎯🎯🎯")
+        print("🚀 1700+ 급증 예측 성능 분석")
+        print("="*80)
+        
+        surge_mask = all_predictions['급증예측'] == 1
+        if surge_mask.sum() > 0:
+            surge_df = all_predictions[surge_mask]
+            actual_1700_in_surge = (surge_df['실제값'] >= 1700).sum()
+            surge_accuracy = actual_1700_in_surge / len(surge_df) * 100
+            
+            print(f"급증 예측 케이스: {len(surge_df)}개")
+            print(f"실제 1700+ 달성: {actual_1700_in_surge}개")
+            print(f"급증 예측 정확도: {surge_accuracy:.1f}%")
+            
+            # 앙상블 적중률
+            ensemble_1700_hit = (surge_df['최종앙상블_예측'] >= 1700).sum()
+            print(f"앙상블 1700+ 예측: {ensemble_1700_hit}개 ({ensemble_1700_hit/len(surge_df)*100:.1f}%)")
+        
+        # 고값 구간 분석
+        print("\n" + "="*80)
+        print("🎯 고값 구간 (1700+) 상세 분석")
         print("="*80)
         
         high_mask = all_predictions['실제값'] >= 1700
         if high_mask.any():
             high_df = all_predictions[high_mask]
-            print(f"\n📊 전체 고값 샘플: {high_mask.sum()}개")
+            print(f"전체 1700+ 샘플: {len(high_df)}개")
             
-            # 추세별 분포
-            high_inc = (high_df['시퀀스_추세'] == 'increasing').sum()
-            high_dec = (high_df['시퀀스_추세'] == 'decreasing').sum()
-            high_stable = (high_df['시퀀스_추세'] == 'stable').sum()
+            # 패턴별 분포
+            if self.extreme_booster.data_pattern == "UU1":
+                print("\n[UU1 패턴 - 급증 예측]")
+                print(f"  평균 M14B: {high_df['M14AM14B'].mean():.0f}")
+                print(f"  시퀀스 MAX 평균: {high_df['시퀀스_MAX'].mean():.0f}")
+            else:
+                print("\n[UU2 패턴 - 고값 유지]")
+                print(f"  평균 M14B: {high_df['M14AM14B'].mean():.0f}")
+                print(f"  시퀀스 MAX 평균: {high_df['시퀀스_MAX'].mean():.0f}")
             
-            print(f"\n[고값 구간 추세 분포]")
-            print(f"  증가 추세: {high_inc}개 ({high_inc/len(high_df)*100:.1f}%)")
-            print(f"  하락 추세: {high_dec}개 ({high_dec/len(high_df)*100:.1f}%)")
-            print(f"  안정 추세: {high_stable}개 ({high_stable/len(high_df)*100:.1f}%)")
-            
-            # 각 모델별 고값 적중률 계산
-            print(f"\n[모델별 1700+ 적중률]")
-            print("-" * 70)
-            
-            model_list = ['ExtremeNet', 'SpikeDetector', 'GoldenRule', 'PatchTST', 'StableLSTM', '개선앙상블']
-            for model_name in model_list:
-                col_pred = f'{model_name}_예측'
-                if col_pred in high_df.columns:
-                    high_preds = high_df[col_pred].values
-                    hit_1700 = (high_preds >= 1700).sum()
-                    
-                    print(f"  {model_name:15s}: "
-                          f"{hit_1700:2d}/{len(high_df):2d} ({hit_1700/len(high_df)*100:5.1f}%)")
+            # 모델별 적중률
+            print("\n[모델별 1700+ 적중률]")
+            for model_name in list(self.models.keys()) + ['최종앙상블']:
+                if f'{model_name}_예측' in high_df.columns:
+                    hit = (high_df[f'{model_name}_예측'] >= 1700).sum()
+                    print(f"  {model_name}: {hit}/{len(high_df)} ({hit/len(high_df)*100:.1f}%)")
         
-        # 성능 요약 테이블
-        print("\n" + "="*80)
-        print("📊 전체 모델 성능 요약")
-        print("="*80)
-        
+        # 성능 요약
         if self.models:
+            print("\n" + "="*80)
+            print("📊 전체 모델 성능 요약")
+            print("="*80)
+            
             metrics_df = pd.DataFrame(model_metrics).T
             metrics_df = metrics_df.sort_values('R2', ascending=False)
             
@@ -800,7 +835,7 @@ class ImprovedModelEvaluator:
             print("-" * 65)
             
             for model_name, row in metrics_df.iterrows():
-                if model_name == '개선앙상블':
+                if model_name == '최종앙상블':
                     print(f"{'🔥 ' + model_name:<15} {row['MAE']:8.2f} {row['RMSE']:8.2f} "
                           f"{row['R2']:8.4f} {row['MAPE']:8.2f} {row['정확도(%)']:10.2f} ⭐⭐⭐")
                 else:
@@ -814,12 +849,12 @@ class ImprovedModelEvaluator:
 def main():
     """메인 실행"""
     
-    print("\n🚀 V6.7 최적화 버전 시작!")
-    print("개선사항:")
-    print("  1. ExtremeNet 부스팅 조건 완화 (1650부터)")
-    print("  2. 부스팅 상한선 추가 (과도한 예측 방지)")
-    print("  3. Stable 상태에서도 약한 부스팅")
-    print("  4. UU2 패턴 감지 조건 최적화")
+    print("\n🚀 V6.8 최종 개선판 시작!")
+    print("핵심 기능:")
+    print("  1. UU1/UU2 자동 패턴 감지")
+    print("  2. 1700+ 급증 예측 강화")
+    print("  3. 추세 기반 동적 앙상블")
+    print("  4. M14B 기반 차별화된 부스팅")
     
     # 평가기 생성
     evaluator = ImprovedModelEvaluator()
@@ -829,11 +864,12 @@ def main():
     
     # 테스트 파일
     test_files = [
-        'uu1.csv',
+        'uu.csv',
         'uu2.csv',
-        'data/uu1.csv',
-        'data/uu2.csv',
+        'uu1.csv',
         'data/test_data.csv',
+        '/mnt/user-data/uploads/uu.csv',
+        '/mnt/user-data/uploads/uu2.csv'
     ]
     
     for file in test_files:
@@ -849,7 +885,7 @@ def main():
                 print(f"\n✅ {file} 평가 완료!")
     
     print("\n" + "="*80)
-    print("🏆 평가 완료!")
+    print("🏆 V6.8 평가 완료!")
     print("="*80)
 
 if __name__ == "__main__":
