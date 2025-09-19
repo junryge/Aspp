@@ -1,6 +1,7 @@
 """
-📊 적응형 딥러닝 앙상블 평가 시스템 V2.2 (Fixed)
-feature_columns 자동 매칭
+📊 적응형 딥러닝 앙상블 평가 시스템 V3.0
+- 모든 모델 결과를 하나의 Excel 시트에 통합
+- 예측시점, 예측대상시간 포함
 """
 
 import numpy as np
@@ -19,10 +20,10 @@ warnings.filterwarnings('ignore')
 tf.keras.config.enable_unsafe_deserialization()
 
 print("=" * 80)
-print("🚀 적응형 평가 시스템 V2.2")
-print("  - feature_columns 자동 매칭")
-print("  - 시퀀스 100개로 데이터 타입 판별")
-print("  - 10분 후 예측")
+print("🚀 적응형 평가 시스템 V3.0")
+print("  - 통합 Excel 출력 (모든 모델 한 시트)")
+print("  - 예측시점/예측대상시간 포함")
+print("  - 시퀀스 100개 → 10분 후 예측")
 print("=" * 80)
 print(f"\nTensorFlow Version: {tf.__version__}")
 print(f"GPU Available: {len(tf.config.list_physical_devices('GPU')) > 0}")
@@ -58,20 +59,6 @@ class SequenceBasedDetector:
         if 'M14AM10A' in seq.columns:
             analysis['corr_m14a'] = seq['TOTALCNT'].corr(seq['M14AM10A'])
         
-        analysis['volatility'] = seq['TOTALCNT'].diff().std()
-        
-        x = np.arange(len(seq))
-        y = seq['TOTALCNT'].values
-        coeffs = np.polyfit(x, y, 1)
-        analysis['trend_slope'] = coeffs[0]
-        
-        if 'M14AM14B' in seq.columns and 'M14AM10A' in seq.columns:
-            pattern1 = ((seq['M14AM14B'] > 300) & (seq['M14AM10A'] < 70)).sum()
-            pattern2 = ((seq['M14AM14B'] > 350) & (seq['M14AM10A'] < 65)).sum()
-            
-            analysis['spike_pattern_uu1'] = pattern1
-            analysis['spike_pattern_uu2'] = pattern2
-        
         return analysis
     
     def detect_data_type(self, sequence_df):
@@ -99,11 +86,6 @@ class SequenceBasedDetector:
             score_uu1 += 2
         elif analysis['noise_level'] > 0.18:
             score_uu2 += 2
-        
-        if analysis['volatility'] < 50:
-            score_uu1 += 1
-        elif analysis['volatility'] > 70:
-            score_uu2 += 1
         
         print(f"\n📊 판별 점수: uu1={score_uu1}, uu2={score_uu2}")
         
@@ -169,20 +151,12 @@ class AdaptiveExtremeBooster:
         else:
             trend = 'stable'
         
-        consecutive_rises = 0
-        for i in range(len(sequence_data)-1, 0, -1):
-            if sequence_data[i] > sequence_data[i-1]:
-                consecutive_rises += 1
-            else:
-                break
-        
         return {
             'max': seq_max,
             'min': seq_min,
             'mean': seq_mean,
             'trend': trend,
-            'is_extreme': is_extreme,
-            'consecutive_rises': consecutive_rises
+            'is_extreme': is_extreme
         }
     
     def boost_prediction(self, pred, m14b, m14a, model_name, seq_info):
@@ -199,16 +173,6 @@ class AdaptiveExtremeBooster:
                         boosted = max(pred * 1.20, 1680)
                 elif seq_info['is_extreme']:
                     boosted = max(pred * 1.15, seq_info['max'])
-            
-            elif self.data_type == 'uu2':
-                if seq_info['max'] >= 1700 and seq_info['trend'] in ['rising', 'strong_rising']:
-                    if m14b > 350:
-                        boosted = max(pred * 1.30, 1750)
-                    else:
-                        boosted = max(pred * 1.25, 1720)
-                elif seq_info['is_extreme']:
-                    boosted = max(pred * 1.20, seq_info['max'])
-            
             else:
                 if seq_info['is_extreme'] and seq_info['trend'] in ['rising', 'strong_rising']:
                     boosted = max(pred * 1.22, seq_info['max'] * 1.05)
@@ -231,7 +195,7 @@ class AdaptiveExtremeBooster:
 
 # ====================== 통합 평가 시스템 ======================
 class UnifiedEvaluator:
-    """단일 CSV 파일 적응형 평가"""
+    """단일 CSV 파일 적응형 평가 - 통합 출력"""
     
     def __init__(self, scaler_path='scalers/', model_path='models/'):
         self.scaler_path = scaler_path
@@ -311,11 +275,18 @@ class UnifiedEvaluator:
         """필수 특징 생성"""
         # 시간 특징
         if 'CURRTIME' in df.columns:
-            df['CURRTIME'] = pd.to_datetime(df['CURRTIME'].astype(str), 
-                                           format='%Y%m%d%H%M', errors='coerce')
-            df['HOUR'] = df['CURRTIME'].dt.hour
-            df['HOUR_SIN'] = np.sin(2 * np.pi * df['HOUR'] / 24)
-            df['HOUR_COS'] = np.cos(2 * np.pi * df['HOUR'] / 24)
+            try:
+                # 이미 datetime인지 확인
+                if not pd.api.types.is_datetime64_any_dtype(df['CURRTIME']):
+                    df['CURRTIME'] = pd.to_datetime(df['CURRTIME'].astype(str), 
+                                                   format='%Y%m%d%H%M', errors='coerce')
+                df['HOUR'] = df['CURRTIME'].dt.hour
+                df['HOUR_SIN'] = np.sin(2 * np.pi * df['HOUR'] / 24)
+                df['HOUR_COS'] = np.cos(2 * np.pi * df['HOUR'] / 24)
+            except:
+                df['HOUR'] = 12
+                df['HOUR_SIN'] = np.sin(2 * np.pi * 12 / 24)
+                df['HOUR_COS'] = np.cos(2 * np.pi * 12 / 24)
         else:
             df['HOUR'] = 12
             df['HOUR_SIN'] = np.sin(2 * np.pi * 12 / 24)
@@ -345,6 +316,7 @@ class UnifiedEvaluator:
         
         df = df[df['TOTALCNT'] > 0].reset_index(drop=True)
         
+        # CURRTIME 처리
         if 'CURRTIME' in df.columns:
             df['CURRTIME'] = pd.to_datetime(df['CURRTIME'].astype(str), 
                                            format='%Y%m%d%H%M', errors='coerce')
@@ -356,19 +328,10 @@ class UnifiedEvaluator:
         print(f"  유효: {len(df)}행")
         print(f"  컬럼: {len(df.columns)}개")
         
-        # 필요한 컬럼 확인
-        if self.feature_columns:
-            missing_cols = [col for col in self.feature_columns if col not in df.columns]
-            if missing_cols:
-                print(f"  ⚠️ 누락 컬럼: {missing_cols}")
-            
-            available_cols = [col for col in self.feature_columns if col in df.columns]
-            print(f"  ✅ 사용 가능 컬럼: {len(available_cols)}개")
-        
         return df
     
     def evaluate(self, csv_path):
-        """통합 평가 실행"""
+        """통합 평가 실행 - 하나의 Excel로 출력"""
         
         # 1. 데이터 로드
         df = self.load_and_prepare_data(csv_path)
@@ -402,37 +365,57 @@ class UnifiedEvaluator:
         
         print(f"  예측 개수: {total_predictions}개")
         
-        # 5. 데이터 수집
+        # 5. 기본 데이터 수집
+        print("\n📈 데이터 수집 중...")
+        
+        # 통합 결과 DataFrame 생성
         results = pd.DataFrame()
-        timestamps = []
+        
+        # 날짜/시간 정보
+        pred_times = []  # 예측 시점
+        target_times = []  # 예측 대상 시간 (10분 후)
         actuals = []
         m14b_values = []
         m14a_values = []
         seq_maxes = []
         seq_trends = []
         
-        print("\n📈 데이터 수집 중...")
         for i in range(start_idx, start_idx + total_predictions):
             if i + self.pred_len >= len(df):
                 break
-                
-            seq_data = df.iloc[i-self.seq_len:i]
-            target_idx = i + self.pred_len
             
+            # 예측 시점 (현재)
             if 'CURRTIME' in df.columns:
-                timestamps.append(df.iloc[i]['CURRTIME'])
+                pred_time = df.iloc[i]['CURRTIME']
+                target_time = pred_time + timedelta(minutes=self.pred_len)
+                pred_times.append(pred_time)
+                target_times.append(target_time)
             else:
-                timestamps.append(i)
-                
-            actuals.append(df.iloc[target_idx]['TOTALCNT'])
+                pred_times.append(i)
+                target_times.append(i + self.pred_len)
+            
+            # 실제값 (10분 후)
+            actuals.append(df.iloc[i + self.pred_len]['TOTALCNT'])
             m14b_values.append(df.iloc[i]['M14AM14B'])
             m14a_values.append(df.iloc[i]['M14AM10A'])
             
+            # 시퀀스 분석
+            seq_data = df.iloc[i-self.seq_len:i]
             seq_info = self.booster.analyze_sequence_for_boost(seq_data['TOTALCNT'].values)
             seq_maxes.append(seq_info['max'])
             seq_trends.append(seq_info['trend'])
         
-        results['시점'] = timestamps
+        # 기본 정보 저장
+        results['예측시점'] = pred_times
+        results['예측대상시간'] = target_times
+        
+        # 날짜와 시간 분리
+        if 'CURRTIME' in df.columns:
+            results['예측시점_날짜'] = pd.to_datetime(results['예측시점']).dt.strftime('%Y-%m-%d')
+            results['예측시점_시간'] = pd.to_datetime(results['예측시점']).dt.strftime('%H:%M')
+            results['예측대상_날짜'] = pd.to_datetime(results['예측대상시간']).dt.strftime('%Y-%m-%d')
+            results['예측대상_시간'] = pd.to_datetime(results['예측대상시간']).dt.strftime('%H:%M')
+        
         results['실제값'] = actuals
         results['M14AM14B'] = m14b_values
         results['M14AM10A'] = m14a_values
@@ -503,51 +486,31 @@ class UnifiedEvaluator:
                     boosted_preds.append(boosted)
                 
                 # 결과 저장
-                results[f'{model_name}_원본'] = predictions
-                results[f'{model_name}_예측'] = boosted_preds
-                results[f'{model_name}_오차'] = np.array(boosted_preds) - np.array(actuals)
+                results[f'{model_name}_예측'] = [round(p) for p in boosted_preds]
+                results[f'{model_name}_오차'] = results[f'{model_name}_예측'] - results['실제값']
+                results[f'{model_name}_오차율(%)'] = round(abs(results[f'{model_name}_오차']) / results['실제값'] * 100, 2)
                 
                 # ExtremeNet 범위값
                 if model_name == 'ExtremeNet':
                     ranges = []
-                    percents = []
-                    min_vals = []
-                    max_vals = []
-                    
                     for j in range(len(predictions)):
                         원본 = predictions[j]
                         seq_max = seq_maxes[j]
                         
                         if 원본 > 0:
-                            차이 = seq_max - 원본
-                            퍼센트 = (차이 / 원본) * 100
                             최소값 = 원본
-                            최대값 = 원본 * (1 + 퍼센트/100)
-                            
-                            if 최대값 < 최소값:
-                                최대값 = 최소값 * 1.1
+                            최대값 = seq_max * 1.1 if seq_max > 원본 else 원본 * 1.1
+                            ranges.append(f"{int(최소값)}~{int(최대값)}")
                         else:
-                            퍼센트 = 0
-                            최소값 = 0
-                            최대값 = 0
-                        
-                        percents.append(round(퍼센트, 2))
-                        min_vals.append(round(최소값))
-                        max_vals.append(round(최대값))
-                        ranges.append(f"{int(최소값)}~{int(최대값)}")
+                            ranges.append("0~0")
                     
-                    results['ExtremeNet_퍼센트'] = percents
-                    results['ExtremeNet_최소값'] = min_vals
-                    results['ExtremeNet_최대값'] = max_vals
                     results['ExtremeNet_범위값'] = ranges
                 
                 model_predictions[model_name] = boosted_preds
                 print(f"    ✅ {model_name} 완료")
                 
             except Exception as e:
-                print(f"    ❌ {model_name} 예측 실패: {str(e)}")
-                import traceback
-                traceback.print_exc()
+                print(f"    ❌ {model_name} 예측 실패: {str(e)[:100]}")
                 continue
         
         # 7. 앙상블 생성
@@ -556,95 +519,123 @@ class UnifiedEvaluator:
         available_models = list(model_predictions.keys())
         
         if len(available_models) > 0:
-            # 균등 가중치
-            equal_weight = 1.0 / len(available_models)
+            # 데이터 타입별 가중치 설정
+            if self.data_type == 'uu1':
+                default_weights = {
+                    'ExtremeNet': 0.25,
+                    'SpikeDetector': 0.20,
+                    'GoldenRule': 0.20,
+                    'PatchTST': 0.20,
+                    'StableLSTM': 0.15
+                }
+            else:
+                default_weights = {
+                    'ExtremeNet': 0.20,
+                    'SpikeDetector': 0.18,
+                    'GoldenRule': 0.18,
+                    'PatchTST': 0.22,
+                    'StableLSTM': 0.22
+                }
+            
+            # 실제 사용 가능한 모델의 가중치 재계산
+            total_weight = sum(default_weights.get(m, 0.2) for m in available_models)
+            actual_weights = {m: default_weights.get(m, 0.2) / total_weight for m in available_models}
             
             ensemble_preds = []
             for i in range(len(actuals)):
                 ensemble = 0
                 for model_name in available_models:
-                    ensemble += model_predictions[model_name][i] * equal_weight
+                    ensemble += model_predictions[model_name][i] * actual_weights[model_name]
                 ensemble_preds.append(ensemble)
             
-            results['앙상블_예측'] = ensemble_preds
-            results['앙상블_오차'] = np.array(ensemble_preds) - np.array(actuals)
+            results['앙상블_예측'] = [round(p) for p in ensemble_preds]
+            results['앙상블_오차'] = results['앙상블_예측'] - results['실제값']
+            results['앙상블_오차율(%)'] = round(abs(results['앙상블_오차']) / results['실제값'] * 100, 2)
             
-            print(f"  ✅ {len(available_models)}개 모델로 앙상블 생성")
-        else:
-            print("  ❌ 앙상블 생성 실패: 예측된 모델 없음")
+            print(f"  ✅ {len(available_models)}개 모델 앙상블 생성")
+            print(f"     가중치: {', '.join([f'{k}={v:.2f}' for k, v in actual_weights.items()])}")
         
-        # 8. 성능 계산
+        # 8. 성능 메트릭 계산
         print("\n📊 성능 평가...")
-        metrics = {}
+        metrics = pd.DataFrame()
         
         for col in results.columns:
-            if '_예측' in col:
+            if '_예측' in col and '_범위값' not in col:
                 model_name = col.replace('_예측', '')
-                mae = mean_absolute_error(actuals, results[col])
-                rmse = np.sqrt(mean_squared_error(actuals, results[col]))
-                mape = np.mean(np.abs((np.array(actuals) - results[col]) / np.array(actuals))) * 100
+                mae = mean_absolute_error(results['실제값'], results[col])
+                rmse = np.sqrt(mean_squared_error(results['실제값'], results[col]))
+                mape = np.mean(abs((results['실제값'] - results[col]) / results['실제값'])) * 100
                 
-                metrics[model_name] = {
-                    'MAE': mae,
-                    'RMSE': rmse,
-                    'MAPE': mape,
-                    '정확도': 100 - mape
-                }
+                metrics = pd.concat([metrics, pd.DataFrame({
+                    '모델': [model_name],
+                    'MAE': [mae],
+                    'RMSE': [rmse],
+                    'MAPE(%)': [mape],
+                    '정확도(%)': [100 - mape]
+                })], ignore_index=True)
         
-        # 9. 모델별 CSV 저장
+        # 성능순 정렬
+        metrics = metrics.sort_values('정확도(%)', ascending=False).reset_index(drop=True)
+        
+        # 9. Excel 저장 (하나의 파일, 여러 시트)
         print("\n💾 결과 저장 중...")
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        saved_files = []
         
-        for model_name in model_predictions.keys():
-            model_df = pd.DataFrame()
-            model_df['시점'] = results['시점']
-            model_df['실제값'] = results['실제값']
-            model_df['M14AM14B'] = results['M14AM14B']
-            model_df['M14AM10A'] = results['M14AM10A']
-            model_df['시퀀스_MAX'] = results['시퀀스_MAX']
-            model_df['시퀀스_추세'] = results['시퀀스_추세']
-            model_df[f'{model_name}_원본예측'] = results[f'{model_name}_원본']
-            model_df[f'{model_name}_부스팅예측'] = results[f'{model_name}_예측']
-            model_df[f'{model_name}_오차'] = results[f'{model_name}_오차']
-            model_df[f'{model_name}_오차율(%)'] = abs(results[f'{model_name}_오차']) / results['실제값'] * 100
-            
-            if model_name == 'ExtremeNet' and 'ExtremeNet_범위값' in results.columns:
-                model_df['ExtremeNet_범위값'] = results['ExtremeNet_범위값']
-                model_df['ExtremeNet_퍼센트'] = results['ExtremeNet_퍼센트']
-                model_df['ExtremeNet_최소값'] = results['ExtremeNet_최소값']
-                model_df['ExtremeNet_최대값'] = results['ExtremeNet_최대값']
-            
-            if model_name in metrics:
-                model_df.loc[0, 'MAE'] = metrics[model_name]['MAE']
-                model_df.loc[0, 'RMSE'] = metrics[model_name]['RMSE']
-                model_df.loc[0, 'MAPE(%)'] = metrics[model_name]['MAPE']
-                model_df.loc[0, '정확도(%)'] = metrics[model_name]['정확도']
-            
-            model_file = f'{model_name}_{self.data_type}_{timestamp}.csv'
-            model_df.to_csv(model_file, index=False, encoding='utf-8-sig')
-            saved_files.append(model_file)
-            print(f"  ✅ {model_file}")
+        # Excel Writer 생성
+        output_file = f'통합평가결과_{self.data_type}_{timestamp}.xlsx'
         
-        # 앙상블 저장
-        if '앙상블_예측' in results.columns:
-            ensemble_df = pd.DataFrame()
-            ensemble_df['시점'] = results['시점']
-            ensemble_df['실제값'] = results['실제값']
-            ensemble_df['앙상블_예측'] = results['앙상블_예측']
-            ensemble_df['앙상블_오차'] = results['앙상블_오차']
-            ensemble_df['앙상블_오차율(%)'] = abs(results['앙상블_오차']) / results['실제값'] * 100
+        with pd.ExcelWriter(output_file, engine='openpyxl') as writer:
+            # 1. 메인 결과 시트 (모든 모델 예측값)
+            results.to_excel(writer, sheet_name='전체_예측결과', index=False)
             
-            if '앙상블' in metrics:
-                ensemble_df.loc[0, 'MAE'] = metrics['앙상블']['MAE']
-                ensemble_df.loc[0, 'RMSE'] = metrics['앙상블']['RMSE']
-                ensemble_df.loc[0, 'MAPE(%)'] = metrics['앙상블']['MAPE']
-                ensemble_df.loc[0, '정확도(%)'] = metrics['앙상블']['정확도']
+            # 2. 성능 메트릭 시트
+            metrics.to_excel(writer, sheet_name='모델별_성능', index=False)
             
-            ensemble_file = f'Ensemble_{self.data_type}_{timestamp}.csv'
-            ensemble_df.to_csv(ensemble_file, index=False, encoding='utf-8-sig')
-            saved_files.append(ensemble_file)
-            print(f"  ✅ {ensemble_file}")
+            # 3. 요약 통계 시트
+            summary = pd.DataFrame({
+                '항목': ['데이터 타입', '평가 데이터 수', '예측 기간', '최고 정확도 모델', '최고 정확도'],
+                '값': [
+                    self.data_type,
+                    len(results),
+                    f"{self.seq_len}분 → {self.pred_len}분 후",
+                    metrics.iloc[0]['모델'] if len(metrics) > 0 else 'N/A',
+                    f"{metrics.iloc[0]['정확도(%)']:.2f}%" if len(metrics) > 0 else 'N/A'
+                ]
+            })
+            summary.to_excel(writer, sheet_name='요약', index=False)
+            
+            # 4. 고값 예측 분석 (1700 이상)
+            if '실제값' in results.columns:
+                high_value_mask = results['실제값'] >= 1700
+                if high_value_mask.sum() > 0:
+                    high_value_analysis = results[high_value_mask].copy()
+                    high_value_analysis.to_excel(writer, sheet_name='고값예측분석', index=False)
+            
+            # Excel 스타일링
+            for sheet_name in writer.sheets:
+                worksheet = writer.sheets[sheet_name]
+                # 헤더 스타일
+                for cell in worksheet[1]:
+                    cell.font = cell.font.copy(bold=True)
+                # 열 너비 자동 조정
+                for column in worksheet.columns:
+                    max_length = 0
+                    column_letter = column[0].column_letter
+                    for cell in column:
+                        try:
+                            if len(str(cell.value)) > max_length:
+                                max_length = len(str(cell.value))
+                        except:
+                            pass
+                    adjusted_width = min(max_length + 2, 30)
+                    worksheet.column_dimensions[column_letter].width = adjusted_width
+        
+        print(f"  ✅ {output_file} 저장 완료")
+        
+        # 간단한 CSV도 저장 (호환성)
+        simple_output = f'평가결과_{self.data_type}_{timestamp}.csv'
+        results.to_csv(simple_output, index=False, encoding='utf-8-sig')
+        print(f"  ✅ {simple_output} 저장 완료 (CSV 백업)")
         
         # 10. 결과 출력
         print("\n" + "="*80)
@@ -652,16 +643,19 @@ class UnifiedEvaluator:
         print("="*80)
         print(f"데이터 타입: {self.data_type}")
         print(f"평가 데이터: {len(results)}개")
-        print(f"저장 파일: {len(saved_files)}개")
+        print(f"예측 기간: {self.seq_len}분 시퀀스 → {self.pred_len}분 후 예측")
         
-        if metrics:
+        if len(metrics) > 0:
             print(f"\n{'모델':<15} {'MAE':>10} {'RMSE':>10} {'MAPE(%)':>10} {'정확도(%)':>10}")
             print("-"*60)
             
-            sorted_metrics = sorted(metrics.items(), key=lambda x: x[1]['정확도'], reverse=True)
-            for model_name, m in sorted_metrics:
-                print(f"{model_name:<15} {m['MAE']:10.2f} {m['RMSE']:10.2f} "
-                      f"{m['MAPE']:10.2f} {m['정확도']:10.2f}")
+            for _, row in metrics.iterrows():
+                print(f"{row['모델']:<15} {row['MAE']:10.2f} {row['RMSE']:10.2f} "
+                      f"{row['MAPE(%)']:10.2f} {row['정확도(%)']:10.2f}")
+        
+        print(f"\n📁 저장 파일:")
+        print(f"  1. {output_file} (Excel - 모든 결과)")
+        print(f"  2. {simple_output} (CSV 백업)")
         
         return results, metrics
 
@@ -670,7 +664,7 @@ def main():
     """메인 실행"""
     
     print("\n" + "="*80)
-    print("🚀 적응형 평가 시스템 시작!")
+    print("🚀 통합 평가 시스템 시작!")
     print("="*80)
     
     evaluator = UnifiedEvaluator()
@@ -697,6 +691,11 @@ def main():
     
     if results is not None:
         print("\n✅ 평가 완료!")
+        print("\n💡 Excel 파일 시트 구성:")
+        print("  • 전체_예측결과: 모든 모델의 예측값과 오차")
+        print("  • 모델별_성능: MAE, RMSE, MAPE, 정확도")
+        print("  • 요약: 평가 요약 정보")
+        print("  • 고값예측분석: 1700 이상 구간 분석")
     else:
         print("\n❌ 평가 실패!")
 
