@@ -1,6 +1,6 @@
 """
-📊 적응형 딥러닝 앙상블 평가 시스템 (수정본)
-실제 존재하는 모델만 처리
+📊 적응형 딥러닝 앙상블 평가 시스템 V2.2 (Fixed)
+feature_columns 자동 매칭
 """
 
 import numpy as np
@@ -14,14 +14,13 @@ import os
 import warnings
 from datetime import datetime, timedelta
 import matplotlib.pyplot as plt
-import seaborn as sns
 
 warnings.filterwarnings('ignore')
 tf.keras.config.enable_unsafe_deserialization()
 
 print("=" * 80)
-print("🚀 적응형 평가 시스템 V2.1 (Fixed)")
-print("  - 실제 모델만 로드 및 평가")
+print("🚀 적응형 평가 시스템 V2.2")
+print("  - feature_columns 자동 매칭")
 print("  - 시퀀스 100개로 데이터 타입 판별")
 print("  - 10분 후 예측")
 print("=" * 80)
@@ -265,14 +264,17 @@ class UnifiedEvaluator:
                     self.feature_columns = config.get('feature_columns')
                     self.seq_len = config.get('seq_len', 100)
                     self.pred_len = config.get('pred_len', 10)
+                    print(f"  ✅ 스케일러 로드 완료")
+                    print(f"  ✅ Feature columns: {len(self.feature_columns)}개")
+            else:
+                print("  ⚠️ config.json 없음")
+                self.scaler_loaded = False
+                return
             
-            print("  ✅ 스케일러 로드 완료")
             self.scaler_loaded = True
             
         except Exception as e:
             print(f"  ⚠️ 스케일러 로드 실패: {str(e)[:50]}")
-            self.feature_scaler = StandardScaler()
-            self.target_scaler = StandardScaler()
             self.scaler_loaded = False
     
     def load_models(self):
@@ -305,6 +307,35 @@ class UnifiedEvaluator:
         
         print(f"\n총 {loaded_count}개 모델 로드 완료")
     
+    def create_features(self, df):
+        """필수 특징 생성"""
+        # 시간 특징
+        if 'CURRTIME' in df.columns:
+            df['CURRTIME'] = pd.to_datetime(df['CURRTIME'].astype(str), 
+                                           format='%Y%m%d%H%M', errors='coerce')
+            df['HOUR'] = df['CURRTIME'].dt.hour
+            df['HOUR_SIN'] = np.sin(2 * np.pi * df['HOUR'] / 24)
+            df['HOUR_COS'] = np.cos(2 * np.pi * df['HOUR'] / 24)
+        else:
+            df['HOUR'] = 12
+            df['HOUR_SIN'] = np.sin(2 * np.pi * 12 / 24)
+            df['HOUR_COS'] = np.cos(2 * np.pi * 12 / 24)
+        
+        # 비율 특징
+        df['RATIO'] = df['M14AM14B'] / (df['M14AM10A'] + 1)
+        df['GOLDEN'] = ((df['M14AM14B'] > 300) & (df['M14AM10A'] < 80)).astype(float)
+        
+        # 이동평균
+        for w in [10, 30]:
+            df[f'MA_{w}'] = df['TOTALCNT'].rolling(w, min_periods=1).mean()
+            df[f'STD_{w}'] = df['TOTALCNT'].rolling(w, min_periods=1).std().fillna(0)
+        
+        # 변화량
+        df['CHANGE_1'] = df['TOTALCNT'].diff(1).fillna(0)
+        df['CHANGE_10'] = df['TOTALCNT'].diff(10).fillna(0)
+        
+        return df
+    
     def load_and_prepare_data(self, csv_path):
         """데이터 로드 및 전처리"""
         print(f"\n📊 데이터 로드: {csv_path}")
@@ -319,20 +350,20 @@ class UnifiedEvaluator:
                                            format='%Y%m%d%H%M', errors='coerce')
             df = df.sort_values('CURRTIME').reset_index(drop=True)
         
+        # 필수 특징 생성
+        df = self.create_features(df)
+        
         print(f"  유효: {len(df)}행")
+        print(f"  컬럼: {len(df.columns)}개")
         
-        # 필수 컬럼 확인 및 생성
-        if 'RATIO' not in df.columns:
-            df['RATIO'] = df['M14AM14B'] / (df['M14AM10A'] + 1)
-        if 'GOLDEN' not in df.columns:
-            df['GOLDEN'] = ((df['M14AM14B'] > 300) & (df['M14AM10A'] < 80)).astype(float)
-        
-        # feature_columns 설정
-        if not self.feature_columns:
-            base_cols = ['M14AM14B', 'M14AM10A', 'M14AM16', 'M14AM14BSUM', 
-                        'M14AM10ASUM', 'M14AM16SUM', 'M14BM14A', 'M16M14A',
-                        'RATIO', 'GOLDEN', 'TOTALCNT']
-            self.feature_columns = [col for col in base_cols if col in df.columns]
+        # 필요한 컬럼 확인
+        if self.feature_columns:
+            missing_cols = [col for col in self.feature_columns if col not in df.columns]
+            if missing_cols:
+                print(f"  ⚠️ 누락 컬럼: {missing_cols}")
+            
+            available_cols = [col for col in self.feature_columns if col in df.columns]
+            print(f"  ✅ 사용 가능 컬럼: {len(available_cols)}개")
         
         return df
     
@@ -350,6 +381,10 @@ class UnifiedEvaluator:
             print("❌ 로드된 모델이 없습니다!")
             return None, None
         
+        if not self.scaler_loaded:
+            print("❌ 스케일러가 로드되지 않았습니다!")
+            return None, None
+        
         # 2. 데이터 타입 판별
         first_seq = df.iloc[:self.seq_len]
         self.data_type, seq_analysis = self.detector.detect_data_type(first_seq)
@@ -363,7 +398,7 @@ class UnifiedEvaluator:
         
         start_idx = self.seq_len
         end_idx = len(df) - self.pred_len
-        total_predictions = min(end_idx - start_idx, 5000)  # 최대 5000개로 제한
+        total_predictions = min(end_idx - start_idx, 3000)  # 최대 3000개
         
         print(f"  예측 개수: {total_predictions}개")
         
@@ -414,36 +449,39 @@ class UnifiedEvaluator:
             
             try:
                 # 배치 예측
-                batch_size = 100
+                batch_size = 32
                 for batch_start in range(0, len(actuals), batch_size):
                     batch_end = min(batch_start + batch_size, len(actuals))
-                    batch_preds = []
+                    batch_X = []
                     
                     for j in range(batch_start, batch_end):
                         idx = start_idx + j
+                        
+                        # 시퀀스 데이터 준비
                         seq_data = df.iloc[idx-self.seq_len:idx][self.feature_columns].values
                         
                         # 스케일링
-                        if self.scaler_loaded:
-                            seq_scaled = self.feature_scaler.transform(seq_data)
-                        else:
-                            seq_scaled = seq_data
-                        
-                        # 예측
-                        seq_input = seq_scaled.reshape(1, self.seq_len, len(self.feature_columns))
-                        pred = model.predict(seq_input, verbose=0)
-                        
-                        # 역변환
-                        if self.scaler_loaded:
-                            pred_value = self.target_scaler.inverse_transform(pred.reshape(-1, 1))[0, 0]
-                        else:
-                            pred_value = float(pred[0, 0])
-                        
-                        batch_preds.append(pred_value)
+                        seq_scaled = self.feature_scaler.transform(seq_data)
+                        batch_X.append(seq_scaled)
                     
-                    predictions.extend(batch_preds)
+                    if len(batch_X) == 0:
+                        continue
                     
-                    if len(predictions) % 1000 == 0:
+                    batch_X = np.array(batch_X)
+                    
+                    # 예측
+                    batch_pred = model.predict(batch_X, verbose=0)
+                    
+                    # 역변환
+                    if isinstance(batch_pred, list):
+                        batch_pred = batch_pred[0]
+                    
+                    batch_pred = batch_pred.reshape(-1, 1)
+                    batch_pred_original = self.target_scaler.inverse_transform(batch_pred)
+                    
+                    predictions.extend(batch_pred_original.flatten())
+                    
+                    if len(predictions) % 500 == 0:
                         print(f"    {len(predictions)}/{len(actuals)} 완료")
                 
                 # 부스팅 적용
@@ -507,17 +545,18 @@ class UnifiedEvaluator:
                 print(f"    ✅ {model_name} 완료")
                 
             except Exception as e:
-                print(f"    ❌ {model_name} 예측 실패: {str(e)[:50]}")
+                print(f"    ❌ {model_name} 예측 실패: {str(e)}")
+                import traceback
+                traceback.print_exc()
                 continue
         
         # 7. 앙상블 생성
         print("\n🔥 앙상블 생성...")
         
-        # 실제 예측된 모델만으로 가중치 재계산
         available_models = list(model_predictions.keys())
         
         if len(available_models) > 0:
-            # 균등 가중치 (실제 모델 기준)
+            # 균등 가중치
             equal_weight = 1.0 / len(available_models)
             
             ensemble_preds = []
@@ -615,13 +654,14 @@ class UnifiedEvaluator:
         print(f"평가 데이터: {len(results)}개")
         print(f"저장 파일: {len(saved_files)}개")
         
-        print(f"\n{'모델':<15} {'MAE':>10} {'RMSE':>10} {'MAPE(%)':>10} {'정확도(%)':>10}")
-        print("-"*60)
-        
-        sorted_metrics = sorted(metrics.items(), key=lambda x: x[1]['정확도'], reverse=True)
-        for model_name, m in sorted_metrics:
-            print(f"{model_name:<15} {m['MAE']:10.2f} {m['RMSE']:10.2f} "
-                  f"{m['MAPE']:10.2f} {m['정확도']:10.2f}")
+        if metrics:
+            print(f"\n{'모델':<15} {'MAE':>10} {'RMSE':>10} {'MAPE(%)':>10} {'정확도(%)':>10}")
+            print("-"*60)
+            
+            sorted_metrics = sorted(metrics.items(), key=lambda x: x[1]['정확도'], reverse=True)
+            for model_name, m in sorted_metrics:
+                print(f"{model_name:<15} {m['MAE']:10.2f} {m['RMSE']:10.2f} "
+                      f"{m['MAPE']:10.2f} {m['정확도']:10.2f}")
         
         return results, metrics
 
