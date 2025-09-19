@@ -367,27 +367,24 @@ class ImprovedModelEvaluator:
                     extreme_orig = predictions[i]
                     
                     if extreme_orig > 0:
-                        # 퍼센트 계산: (시퀀스_MAX / 원본) - 1
-                        percent = (seq_max / extreme_orig - 1) * 100
+                        # 1. 비율 계산
+                        비율 = seq_max - extreme_orig
                         
-                        # 범위 설정: 원본 ~ 원본*(1+퍼센트)
-                        min_range = extreme_orig
-                        max_range = extreme_orig * (1 + abs(percent/100))
+                        # 2. 퍼센트 계산  
+                        퍼센트 = (비율 - 1) * 100
                         
-                        # 시퀀스 MAX에 따른 최대값 보정
-                        if seq_max >= 1800:
-                            max_range = max(max_range, extreme_orig * 1.3)
-                        elif seq_max >= 1750:
-                            max_range = max(max_range, extreme_orig * 1.25)
-                        elif seq_max >= 1700:
-                            max_range = max(max_range, extreme_orig * 1.2)
-                        elif seq_max >= 1650:
-                            max_range = max(max_range, extreme_orig * 1.15)
+                        # 3. 범위 계산
+                        최소값 = extreme_orig
+                        최대값 = extreme_orig * 비율
                         
-                        extreme_percents.append(round(percent, 2))
-                        extreme_min_values.append(round(min_range))
-                        extreme_max_values.append(round(max_range))
-                        extreme_ranges.append(f"{round(min_range)}~{round(max_range)}")
+                        # 음수 방지
+                        if 최대값 < 최소값:
+                            최대값 = 최소값 * 1.1
+                        
+                        extreme_percents.append(round(퍼센트, 2))
+                        extreme_min_values.append(round(최소값))
+                        extreme_max_values.append(round(최대값))
+                        extreme_ranges.append(f"{round(최소값)}~{round(최대값)}")
                     else:
                         extreme_percents.append(0)
                         extreme_min_values.append(0)
@@ -401,6 +398,7 @@ class ImprovedModelEvaluator:
                 all_predictions['ExtremeNet_범위값'] = extreme_ranges
                 
                 print(f"    ✅ 범위값 계산 완료")
+                print(f"    공식: 비율 = 시퀀스_MAX - 원본")
             
             # 시퀀스 기반 스마트 부스팅
             print(f"  🔥 {model_name} 시퀀스 기반 부스팅 적용 중...")
