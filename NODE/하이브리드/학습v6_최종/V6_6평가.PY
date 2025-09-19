@@ -157,42 +157,87 @@ class ImprovedExtremeValueBooster:
         return boosted
     
     def calculate_extreme_range(self, original_pred, seq_max, seq_trend):
-        """ExtremeNet 범위값 계산"""
+        """ExtremeNet 범위값 계산 - 추세별 공격적 범위 설정"""
         if original_pred <= 0:
             return 0, original_pred, original_pred, "0~0"
         
-        # 기본 퍼센트 계산: (시퀀스_MAX / 원본)의 비율
+        # 기본 비율 계산
         base_ratio = seq_max / original_pred
         
-        # 추세에 따른 범위 조정
-        if 'rising' in seq_trend or 'increasing' in seq_trend:
-            # 상승 추세일 때는 상한을 더 크게
-            min_ratio = 1.0  # 최소값은 원본
-            max_ratio = max(base_ratio, 1.1)  # 최소 10% 상향
+        # 🔥 추세별 공격적 범위 설정
+        if 'extreme_rising' in seq_trend or 'strong_rising' in seq_trend:
+            # 극단 상승: 원본의 100-150% 범위
+            min_ratio = 1.0
+            max_ratio = 1.5
             
             if seq_max >= 1800:
-                max_ratio = max(max_ratio, 1.3)  # 30% 상향 가능
+                max_ratio = 1.6  # 60% 상향
             elif seq_max >= 1750:
-                max_ratio = max(max_ratio, 1.25)
+                max_ratio = 1.5  # 50% 상향
             elif seq_max >= 1700:
-                max_ratio = max(max_ratio, 1.2)
+                max_ratio = 1.4  # 40% 상향
             elif seq_max >= 1650:
-                max_ratio = max(max_ratio, 1.15)
+                max_ratio = 1.3  # 30% 상향
                 
-        elif 'falling' in seq_trend or 'decreasing' in seq_trend:
-            # 하락 추세일 때는 범위 보수적
-            min_ratio = 0.95  # 5% 하향 가능
-            max_ratio = min(base_ratio, 1.05)  # 최대 5% 상향
+        elif 'rapid_increasing' in seq_trend or 'high_increasing' in seq_trend:
+            # 빠른 상승: 원본의 100-140% 범위
+            min_ratio = 1.0
+            max_ratio = 1.4
             
-        else:
-            # 안정 추세
-            min_ratio = 0.98
-            max_ratio = max(base_ratio, 1.1)
+            if seq_max >= 1700:
+                max_ratio = 1.45
+            elif seq_max >= 1650:
+                max_ratio = 1.35
+                
+        elif seq_trend == 'increasing':
+            # 일반 상승: 원본의 100-130% 범위
+            min_ratio = 1.0
+            max_ratio = 1.3
+            
+            if seq_max >= 1650:
+                max_ratio = 1.35
+                
+        elif 'extreme_falling' in seq_trend or 'strong_falling' in seq_trend:
+            # 극단 하락: 원본의 80-100% 범위
+            min_ratio = 0.8
+            max_ratio = 1.0
+            
+        elif 'rapid_decreasing' in seq_trend or 'high_decreasing' in seq_trend:
+            # 빠른 하락: 원본의 85-105% 범위
+            min_ratio = 0.85
+            max_ratio = 1.05
+            
+        elif seq_trend == 'decreasing':
+            # 일반 하락: 원본의 90-110% 범위
+            min_ratio = 0.9
+            max_ratio = 1.1
+            
+        elif 'high_stable' in seq_trend:
+            # 고평원: 원본의 95-120% 범위
+            min_ratio = 0.95
+            max_ratio = 1.2
+            
+            if seq_max >= 1750:
+                max_ratio = 1.25
+                
+        else:  # stable
+            # 안정: 원본의 95-115% 범위
+            min_ratio = 0.95
+            max_ratio = 1.15
+        
+        # 시퀀스 MAX가 원본보다 크면 최대값 추가 상향
+        if seq_max > original_pred:
+            extra_boost = (seq_max / original_pred - 1) * 0.5
+            max_ratio = max(max_ratio, 1 + extra_boost)
         
         min_value = original_pred * min_ratio
         max_value = original_pred * max_ratio
-        percent = (max_ratio - 1) * 100  # 증가율 퍼센트
         
+        # 최대값이 시퀀스 MAX보다 낮으면 조정
+        if max_value < seq_max and 'rising' in seq_trend:
+            max_value = max(seq_max * 1.05, max_value)
+        
+        percent = (max_ratio - 1) * 100
         range_str = f"{round(min_value)}~{round(max_value)}"
         
         return percent, min_value, max_value, range_str
@@ -330,6 +375,9 @@ class ImprovedModelEvaluator:
                 seq_info = self.extreme_booster.analyze_sequence(seq_data)
                 sequence_infos.append(seq_info)
         
+        # sequence_infos를 self에 저장 (나중에 사용)
+        self.sequence_infos = sequence_infos
+        
         # 기본 정보 저장
         all_predictions['예측시점'] = [t.strftime('%Y-%m-%d %H:%M') for t in timestamps_pred]
         all_predictions['예측대상시간'] = [t.strftime('%Y-%m-%d %H:%M') for t in timestamps_target]
@@ -430,16 +478,70 @@ class ImprovedModelEvaluator:
                 m14b = all_predictions.iloc[i]['M14AM14B']
                 m14a = all_predictions.iloc[i]['M14AM10A']
                 original = predictions[i]
+                seq_trend = sequence_infos[i]['trend']
+                consecutive_rises = sequence_infos[i]['consecutive_rises']
+                consecutive_falls = sequence_infos[i]['consecutive_falls']
                 
                 boosted = self.extreme_booster.boost_prediction(
                     original, m14b, m14a, model_name,
                     sequence_info=sequence_infos[i]
                 )
                 
-                # ExtremeNet의 경우 범위 내로 제한
+                # 🔥 ExtremeNet의 경우 추세별 최대값 적용
                 if model_name == 'ExtremeNet':
                     min_val = all_predictions.iloc[i]['ExtremeNet_최소값']
                     max_val = all_predictions.iloc[i]['ExtremeNet_최대값']
+                    
+                    # 추세별 예측값 조정
+                    if 'extreme_rising' in seq_trend or 'strong_rising' in seq_trend:
+                        # 극단 상승: 최대값의 95-100%
+                        boosted = max_val * 0.95 + (max_val - min_val) * 0.05
+                        if consecutive_rises >= 15:
+                            boosted = max_val  # 15회 이상 연속 상승시 최대값
+                        elif consecutive_rises >= 10:
+                            boosted = max_val * 0.98
+                            
+                    elif 'rapid_increasing' in seq_trend or 'high_increasing' in seq_trend:
+                        # 빠른 상승: 최대값의 85-95%
+                        boosted = min_val + (max_val - min_val) * 0.85
+                        if consecutive_rises >= 7:
+                            boosted = min_val + (max_val - min_val) * 0.90
+                            
+                    elif seq_trend == 'increasing':
+                        # 일반 상승: 최대값의 70-85%
+                        boosted = min_val + (max_val - min_val) * 0.70
+                        if consecutive_rises >= 5:
+                            boosted = min_val + (max_val - min_val) * 0.80
+                            
+                    elif 'extreme_falling' in seq_trend or 'strong_falling' in seq_trend:
+                        # 극단 하락: 최소값의 100-120%
+                        boosted = min_val * 1.05
+                        if consecutive_falls >= 15:
+                            boosted = min_val  # 15회 이상 연속 하락시 최소값
+                        elif consecutive_falls >= 10:
+                            boosted = min_val * 1.10
+                            
+                    elif 'rapid_decreasing' in seq_trend or 'high_decreasing' in seq_trend:
+                        # 빠른 하락: 최소값의 120-140%
+                        boosted = min_val * 1.20
+                        if consecutive_falls >= 7:
+                            boosted = min_val * 1.15
+                            
+                    elif seq_trend == 'decreasing':
+                        # 일반 하락: 최소값의 140-160%
+                        boosted = min_val * 1.40
+                        if consecutive_falls >= 5:
+                            boosted = min_val * 1.30
+                            
+                    elif 'high_stable' in seq_trend:
+                        # 고평원: 범위 중간값
+                        boosted = (min_val + max_val) / 2
+                        
+                    else:  # stable
+                        # 안정: 원본과 최대값의 중간
+                        boosted = (original + max_val) / 2
+                    
+                    # 최종적으로 범위 내로 제한
                     boosted = np.clip(boosted, min_val, max_val)
                 
                 boosted_predictions.append(boosted)
@@ -595,27 +697,72 @@ class ImprovedModelEvaluator:
             print(f"  최대 퍼센트: {high_df['ExtremeNet_퍼센트'].max():.1f}%")
             
             # 범위 예시
-            print(f"\n[고값 구간 ExtremeNet 범위 예시] (처음 10개)")
-            print("-" * 100)
-            print(f"{'실제값':>7} {'원본':>7} {'예측':>7} {'범위값':>15} {'퍼센트':>8} {'범위내':>6}")
-            print("-" * 100)
+            print(f"\n[고값 구간 ExtremeNet 추세별 예측] (처음 15개)")
+            print("-" * 110)
+            print(f"{'실제값':>7} {'원본':>7} {'예측':>7} {'범위값':>15} {'추세':>15} {'연속↑':>6} {'연속↓':>6} {'적중':>6}")
+            print("-" * 110)
             
-            for idx in high_df.head(10).index:
+            for idx in high_df.head(15).index:
                 row = all_predictions.loc[idx]
                 actual = row['실제값']
                 orig = row['ExtremeNet_원본']
                 pred = row['ExtremeNet_예측']
                 range_val = row['ExtremeNet_범위값']
-                percent = row['ExtremeNet_퍼센트']
-                in_range = row['ExtremeNet_범위내']
+                seq_trend = row['시퀀스_추세']
                 
-                # 실제값이 범위 내인지
-                min_val = row['ExtremeNet_최소값']
-                max_val = row['ExtremeNet_최대값']
-                actual_in = '✅' if min_val <= actual <= max_val else '❌'
+                # 연속 상승/하락 카운트 (self.sequence_infos에서 가져오기)
+                idx_pos = list(all_predictions.index).index(idx)
+                consecutive_rises = self.sequence_infos[idx_pos]['consecutive_rises']
+                consecutive_falls = self.sequence_infos[idx_pos]['consecutive_falls']
                 
-                print(f"{actual:7.0f} {orig:7.0f} {pred:7.0f} {range_val:>15} {percent:7.1f}% "
-                      f"{in_range:>6} {actual_in}")
+                # 적중 판정
+                error = abs(pred - actual)
+                if error <= 50:
+                    hit = '✅'
+                elif error <= 100:
+                    hit = '⚠️'
+                else:
+                    hit = '❌'
+                
+                # 추세 아이콘
+                if 'rising' in seq_trend:
+                    trend_icon = '🚀'
+                elif 'increasing' in seq_trend:
+                    trend_icon = '📈'
+                elif 'falling' in seq_trend:
+                    trend_icon = '💥'
+                elif 'decreasing' in seq_trend:
+                    trend_icon = '📉'
+                elif 'stable' in seq_trend:
+                    trend_icon = '➡️'
+                else:
+                    trend_icon = '🔄'
+                
+                print(f"{actual:7.0f} {orig:7.0f} {pred:7.0f} {range_val:>15} "
+                      f"{trend_icon} {seq_trend[:12]:>12} {consecutive_rises:6} "
+                      f"{consecutive_falls:6} {hit:>6}")
+            
+            # 추세별 성능 분석
+            print(f"\n[추세별 ExtremeNet 성능]")
+            print("-" * 80)
+            
+            trend_types = ['extreme_rising', 'strong_rising', 'increasing', 
+                          'stable', 'decreasing', 'strong_falling']
+            
+            for trend in trend_types:
+                trend_mask = high_df['시퀀스_추세'] == trend
+                if trend_mask.sum() > 0:
+                    trend_df = high_df[trend_mask]
+                    
+                    # ExtremeNet 예측 정확도
+                    mae = mean_absolute_error(trend_df['실제값'], trend_df['ExtremeNet_예측'])
+                    
+                    # 평균 예측값
+                    avg_pred = trend_df['ExtremeNet_예측'].mean()
+                    avg_actual = trend_df['실제값'].mean()
+                    
+                    print(f"  {trend:20s}: {trend_mask.sum():3d}개, "
+                          f"MAE={mae:6.1f}, 평균예측={avg_pred:7.0f}, 평균실제={avg_actual:7.0f}")
         
         # 성능 요약
         print("\n" + "="*80)
@@ -641,9 +788,15 @@ class ImprovedModelEvaluator:
 def main():
     """메인 실행"""
     
-    print("\n🚀 V6.7 ExtremeNet 범위값 평가 시작!")
-    print("핵심: 시퀀스 MAX 기반 예측 범위 계산")
-    print("공식: 범위 = 원본 ~ (원본 * (1 + 시퀀스_MAX/원본))")
+    print("\n🚀 V6.7 ExtremeNet 추세별 최대값 예측 시작!")
+    print("="*60)
+    print("🔥 핵심 전략:")
+    print("  - 극단 상승(15회+): 최대값의 95-100% 예측")
+    print("  - 강한 상승(10회+): 최대값의 85-95% 예측")
+    print("  - 일반 상승(5회+): 최대값의 70-85% 예측")
+    print("  - 극단 하락(15회+): 최소값의 100-120% 예측")
+    print("  - 범위: 원본의 80-160% (추세별 동적)")
+    print("="*60)
     
     # 평가기 생성
     evaluator = ImprovedModelEvaluator()
