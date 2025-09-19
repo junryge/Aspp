@@ -367,17 +367,18 @@ class ImprovedModelEvaluator:
                     extreme_orig = predictions[i]
                     
                     if extreme_orig > 0:
-                        # 1. 비율 계산
-                        비율 = seq_max - extreme_orig
+                        # 1. 차이 계산
+                        차이 = seq_max - extreme_orig
                         
-                        # 2. 퍼센트 계산  
-                        퍼센트 = (비율 - 1) * 100
+                        # 2. 퍼센트 계산 (정확한 공식)
+                        퍼센트 = (차이 / extreme_orig) * 100
                         
                         # 3. 범위 계산
                         최소값 = extreme_orig
-                        최대값 = extreme_orig * 비율
+                        # 최대값 = 원본 + (원본 * 퍼센트/100)
+                        최대값 = extreme_orig * (1 + 퍼센트/100)
                         
-                        # 음수 방지
+                        # 최소값보다 작으면 보정
                         if 최대값 < 최소값:
                             최대값 = 최소값 * 1.1
                         
@@ -398,7 +399,7 @@ class ImprovedModelEvaluator:
                 all_predictions['ExtremeNet_범위값'] = extreme_ranges
                 
                 print(f"    ✅ 범위값 계산 완료")
-                print(f"    공식: 비율 = 시퀀스_MAX - 원본")
+                print(f"    공식: 퍼센트 = (시퀀스_MAX - 원본) / 원본 * 100")
             
             # 시퀀스 기반 스마트 부스팅
             print(f"  🔥 {model_name} 시퀀스 기반 부스팅 적용 중...")
