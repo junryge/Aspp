@@ -1,3 +1,145 @@
+
+def create_sequences_280to10_with_classification(data, seq_length=280, pred_horizon=10):
+    """
+    280분 시퀀스로 10분 후 TOTALCNT 예측 + 3구간 분류
+    """
+    
+    print(f"\n시퀀스 생성 중... (280분 → 10분 후 + 3구간 분류)")
+    
+    feature_cols = ['M14AM14B', 'M14AM10A', 'M14AM16', 'M14AM14BSUM', 
+                   'M14AM10ASUM', 'M14AM16SUM', 'M14BM14A', 'M10AM14A', 'M16M14A', 'TOTALCNT']
+    
+    # 파생 변수 생성 (무한대 값 방지)
+    data = data.copy()
+    
+    # 비율 계산 시 0으로 나누기 방지 및 상한선 설정
+    data['ratio_M14B_M14A'] = np.clip(data['M14AM14B'] / (data['M14AM10A'] + 1), 0, 1000)
+    data['ratio_M14B_M16'] = np.clip(data['M14AM14B'] / (data['M14AM16'] + 1), 0, 1000)
+    
+    # 변화량 계산
+    data['totalcnt_change'] = data['TOTALCNT'].diff().fillna(0)
+    data['totalcnt_pct_change'] = data['TOTALCNT'].pct_change().fillna(0)
+    
+    # pct_change에서 발생한 무한대 값을 제한
+    data['totalcnt_pct_change'] = np.clip(data['totalcnt_pct_change'], -10, 10)
+    
+    # NaN이나 inf 값을 0으로 대체
+    data = data.replace([np.inf, -np.inf], 0)
+    data = data.fillna(0)
+    
+    X_list = []
+    y_reg_list = []  # 회귀 타겟
+    y_cls_list = []  # 분류 타겟
+    y_anomaly_list = []  # 이상신호 타겟
+    
+    # 가능한 시퀀스 수
+    n_sequences = len(data) - seq_length - pred_horizon + 1
+    print(f"✓ 생성 가능한 시퀀스: {n_sequences:,}개")
+    
+    for i in range(n_sequences):
+        if i % 1000 == 0:
+            print(f"  진행률: {i/n_sequences*100:.1f}%", end='\r')
+        
+        # 현재 시점부터 과거 280분 데이터
+        start_idx = i
+        end_idx = i + seq_length
+        seq_data = data.iloc[start_idx:end_idx]
+        
+        features = []
+        
+        # 각 컬럼별 특징 추출
+        for col in feature_cols:
+            values = seq_data[col].values
+            
+            # 기본 통계 (안전하게 계산)
+            features.extend([
+                np.mean(values),                    # 평균
+                np.std(values) if len(values) > 1 else 0,  # 표준편차
+                np.min(values),                     # 최소값
+                np.max(values),                     # 최대값
+                np.percentile(values, 25),          # Q1
+                np.percentile(values, 50),          # 중간값
+                np.percentile(values, 75),          # Q3
+                values[-1],                         # 현재값 (280분째)
+                values[-1] - values[0],             # 전체 변화량
+                np.mean(values[-60:]),              # 최근 1시간 평균
+                np.max(values[-60:]),               # 최근 1시간 최대
+                np.mean(values[-30:]),              # 최근 30분 평균
+                np.max(values[-30:]),               # 최근 30분 최대
+            ])
+            
+            # TOTALCNT 특별 처리
+            if col == 'TOTALCNT':
+                # 기존 위험 구간 관련
+                features.append(np.sum((values >= 1650) & (values < 1700)))  # 경고 구간
+                features.append(np.sum(values >= 1700))                      # 위험 횟수
+                features.append(np.max(values[-20:]))                        # 최근 20분 최대
+                
+                # 3구간 관련 특징 추가
+                features.append(np.sum(values < 1400))                       # 정상 구간 횟수
+                features.append(np.sum((values >= 1400) & (values < 1700)))  # 확인 구간 횟수
+                features.append(np.sum(values >= 1700))                      # 위험 구간 횟수
+                
+                # 이상신호 1651-1682 구간 특징
+                features.append(np.sum((values >= 1651) & (values <= 1682))) # 이상신호 횟수
+                anomaly_values = values[(values >= 1651) & (values <= 1682)]
+                features.append(np.max(anomaly_values) if len(anomaly_values) > 0 else 0)  # 이상신호 최대값
+                
+                # 구간별 평균값
+                normal_vals = values[values < 1400]
+                check_vals = values[(values >= 1400) & (values < 1700)]
+                danger_vals = values[values >= 1700]
+                
+                features.append(np.mean(normal_vals) if len(normal_vals) > 0 else 0)  # 정상구간 평균
+                features.append(np.mean(check_vals) if len(check_vals) > 0 else 0)    # 확인구간 평균
+                features.append(np.mean(danger_vals) if len(danger_vals) > 0 else 0)  # 위험구간 평균
+                
+                # 추세 분석 (안전하게)
+                try:
+                    x = np.arange(len(values))
+                    slope, intercept = np.polyfit(x, values, 1)
+                    features.append(np.clip(slope, -100, 100))  # 전체 추세 (상한 설정)
+                except:
+                    features.append(0)
+                
+                # 최근 60분 추세
+                try:
+                    recent_slope = np.polyfit(np.arange(60), values[-60:], 1)[0]
+                    features.append(np.clip(recent_slope, -100, 100))
+                except:
+                    features.append(0)
+        
+        # 마지막 시점의 파생 변수들
+        last_idx = end_idx - 1
+        features.extend([
+            np.clip(data['ratio_M14B_M14A'].iloc[last_idx], 0, 1000),
+            np.clip(data['ratio_M14B_M16'].iloc[last_idx], 0, 1000),
+            np.clip(data['totalcnt_change'].iloc[last_idx], -1000, 1000),
+            np.clip(data['totalcnt_pct_change'].iloc[last_idx], -10, 10),
+        ])
+        
+        # 타겟: 10분 후 TOTALCNT
+        target_idx = end_idx + pred_horizon - 1
+        if target_idx < len(data):
+            future_totalcnt = data['TOTALCNT'].iloc[target_idx]
+            
+            X_list.append(features)
+            y_reg_list.append(future_totalcnt)                        # 회귀 타겟
+            y_cls_list.append(assign_level(future_totalcnt))          # 분류 타겟
+            y_anomaly_list.append(detect_anomaly_signal(future_totalcnt))  # 이상신호 타겟
+    
+    X = np.array(X_list)
+    y_reg = np.array(y_reg_list)
+    y_cls = np.array(y_cls_list)
+    y_anomaly = np.array(y_anomaly_list)
+    
+    # 최종 무한대 및 NaN 체크
+    X = np.nan_to_num(X, nan=0.0, posinf=1000.0, neginf=-1000.0)
+    
+    print(f"\n✓ 시퀀스 생성 완료!")
+    print(f"✓ 특징 개수: {X.shape[1]}개")
+    
+    return X, y_reg, y_cls, y_anomaly
 # -*- coding: utf-8 -*-
 """
 3구간 분류 통합 반도체 물류 예측 시스템 - 280분 → 10분 후 예측
