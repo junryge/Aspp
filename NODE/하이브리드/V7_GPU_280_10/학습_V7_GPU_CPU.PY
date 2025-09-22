@@ -27,7 +27,12 @@ import warnings
 import traceback
 from datetime import datetime
 import platform
-import psutil
+try:
+    import psutil
+    PSUTIL_AVAILABLE = True
+except ImportError:
+    PSUTIL_AVAILABLE = False
+    print("⚠️ psutil 미설치 - 시스템 정보 제한적")
 warnings.filterwarnings('ignore')
 
 # ======================== 시스템 정보 확인 ========================
@@ -40,9 +45,15 @@ def check_system_info():
     # CPU 정보
     print(f"  OS: {platform.system()} {platform.release()}")
     print(f"  Python: {sys.version.split()[0]}")
-    print(f"  CPU: {psutil.cpu_count()} cores")
-    print(f"  RAM: {psutil.virtual_memory().total / (1024**3):.1f} GB")
-    print(f"  사용 가능 RAM: {psutil.virtual_memory().available / (1024**3):.1f} GB")
+    
+    if PSUTIL_AVAILABLE:
+        print(f"  CPU: {psutil.cpu_count()} cores")
+        print(f"  RAM: {psutil.virtual_memory().total / (1024**3):.1f} GB")
+        print(f"  사용 가능 RAM: {psutil.virtual_memory().available / (1024**3):.1f} GB")
+    else:
+        import multiprocessing
+        print(f"  CPU: {multiprocessing.cpu_count()} cores")
+        print("  RAM: psutil 필요 (pip install psutil)")
     
     # GPU 확인 (sklearn은 GPU를 직접 사용하지 않음)
     print("\n  🔍 GPU 확인:")
@@ -403,8 +414,20 @@ def train_with_checkpoint():
             df2 = pd.read_csv('uu2.csv')
             df = pd.concat([df1, df2], ignore_index=True).reset_index(drop=True)
             
+            # 필수 컬럼 확인
+            required_cols = ['M14AM14B', 'M14AM10A', 'M14AM16', 'M14AM14BSUM', 
+                           'M14AM10ASUM', 'M14AM16SUM', 'M14BM14A', 'M10AM14A', 
+                           'M16M14A', 'TOTALCNT']
+            
+            missing_cols = [col for col in required_cols if col not in df.columns]
+            if missing_cols:
+                print(f"❌ 필수 컬럼 누락: {missing_cols}")
+                print(f"   현재 컬럼: {list(df.columns)}")
+                raise ValueError(f"필수 컬럼이 없습니다: {missing_cols}")
+            
             print(f"✅ 전체 데이터: {len(df):,}행")
             print(f"✅ 시간 범위: {len(df)} 분 ({len(df)/60:.1f} 시간)")
+            print(f"✅ 모든 필수 컬럼 확인 완료")
             
             # 데이터 저장
             df.to_pickle(os.path.join(CHECKPOINT_DIR, 'df_combined.pkl'))
@@ -509,7 +532,53 @@ def train_with_checkpoint():
         print(" 📚 모델 학습 시작")
         print("="*70)
         
-        # 회귀 모델 정의
+        # GPU 가속 모델 확인
+        gpu_models = {}
+        try:
+            import xgboost as xgb
+            print("✅ XGBoost 발견 - GPU 가속 시도")
+            gpu_models['XGBoost_GPU'] = xgb.XGBRegressor(
+                n_estimators=300, max_depth=10, learning_rate=0.1,
+                tree_method='gpu_hist', gpu_id=0, random_state=42
+            )
+            gpu_models['XGBoost_GPU_Cls'] = xgb.XGBClassifier(
+                n_estimators=300, max_depth=10, learning_rate=0.1,
+                tree_method='gpu_hist', gpu_id=0, random_state=42
+            )
+        except:
+            print("⚠️ XGBoost GPU 사용 불가 또는 미설치")
+        
+        try:
+            import lightgbm as lgb
+            print("✅ LightGBM 발견 - GPU 가속 시도")
+            gpu_models['LightGBM_GPU'] = lgb.LGBMRegressor(
+                n_estimators=300, max_depth=10, learning_rate=0.1,
+                device='gpu', gpu_platform_id=0, gpu_device_id=0,
+                random_state=42, verbose=-1
+            )
+            gpu_models['LightGBM_GPU_Cls'] = lgb.LGBMClassifier(
+                n_estimators=300, max_depth=10, learning_rate=0.1,
+                device='gpu', gpu_platform_id=0, gpu_device_id=0,
+                random_state=42, verbose=-1
+            )
+        except:
+            print("⚠️ LightGBM GPU 사용 불가 또는 미설치")
+        
+        try:
+            from catboost import CatBoostRegressor, CatBoostClassifier
+            print("✅ CatBoost 발견 - GPU 가속 시도")
+            gpu_models['CatBoost_GPU'] = CatBoostRegressor(
+                iterations=300, depth=10, learning_rate=0.1,
+                task_type='GPU', devices='0', random_state=42, verbose=False
+            )
+            gpu_models['CatBoost_GPU_Cls'] = CatBoostClassifier(
+                iterations=300, depth=10, learning_rate=0.1,
+                task_type='GPU', devices='0', random_state=42, verbose=False
+            )
+        except:
+            print("⚠️ CatBoost GPU 사용 불가 또는 미설치")
+        
+        # 회귀 모델 정의 (CPU)
         regression_models = {
             'RandomForest': RandomForestRegressor(
                 n_estimators=300, max_depth=20, min_samples_split=5,
@@ -531,7 +600,7 @@ def train_with_checkpoint():
             'ElasticNet': ElasticNet(alpha=0.1, l1_ratio=0.5, random_state=42)
         }
         
-        # 분류 모델 정의
+        # 분류 모델 정의 (CPU)
         classification_models = {
             'RandomForest_Cls': RandomForestClassifier(
                 n_estimators=300, max_depth=20, min_samples_split=5,
@@ -556,7 +625,12 @@ def train_with_checkpoint():
             )
         }
         
-        all_models = list(regression_models.items()) + list(classification_models.items())
+        # GPU 모델 추가
+        all_models = list(regression_models.items()) + list(classification_models.items()) + list(gpu_models.items())
+        
+        if gpu_models:
+            print(f"\n🎮 GPU 가속 모델 {len(gpu_models)}개 추가됨!")
+            print(f"📊 총 {len(all_models)}개 모델 학습 예정\n")
         
         # 모델 학습 (이어서)
         for model_name, model in all_models:
