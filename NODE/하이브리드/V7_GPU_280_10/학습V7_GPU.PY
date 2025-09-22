@@ -1,3 +1,77 @@
+# -*- coding: utf-8 -*-
+"""
+3구간 분류 통합 반도체 물류 예측 시스템 - 280분 → 10분 후 예측
+기존 회귀 모델 + 3구간 분류 모델 통합
+
+구간 정의:
+- Level 0 (정상): 900-1399
+- Level 1 (확인): 1400-1699  
+- Level 2 (위험): 1700+
+- 이상신호: 1651-1682 구간 특별 감지
+"""
+
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+import seaborn as sns
+from sklearn.preprocessing import StandardScaler
+from sklearn.model_selection import train_test_split
+from sklearn.ensemble import (RandomForestRegressor, GradientBoostingRegressor, ExtraTreesRegressor,
+                             RandomForestClassifier, GradientBoostingClassifier, ExtraTreesClassifier)
+from sklearn.neural_network import MLPRegressor, MLPClassifier
+from sklearn.linear_model import Ridge, ElasticNet, LogisticRegression
+from sklearn.metrics import (mean_absolute_error, mean_squared_error, r2_score,
+                           classification_report, confusion_matrix, accuracy_score,
+                           precision_recall_fscore_support)
+import joblib
+import pickle
+import os
+import warnings
+warnings.filterwarnings('ignore')
+
+plt.rcParams['font.family'] = 'DejaVu Sans'
+plt.rcParams['figure.figsize'] = (15, 10)
+
+print("="*80)
+print("3구간 분류 통합 반도체 물류 예측 시스템 - 280분 → 10분 후 예측")
+print("="*80)
+print("입력: 과거 280분(4시간 40분) 시퀀스 데이터")
+print("출력: 10분 후 TOTALCNT 예측값 + 3구간 분류")
+print("")
+print("구간 정의:")
+print("  Level 0 (정상): 900-1399")
+print("  Level 1 (확인): 1400-1699") 
+print("  Level 2 (위험): 1700+")
+print("  이상신호: 1651-1682 구간")
+print("="*80)
+
+# 1. 설정
+model_dir = 'regression_classification_models_280to10'
+if not os.path.exists(model_dir):
+    os.makedirs(model_dir)
+
+# 2. 구간 분류 함수
+def assign_level(totalcnt_value):
+    """TOTALCNT 값을 3구간으로 분류"""
+    if totalcnt_value < 1400:
+        return 0  # 정상 (900-1399)
+    elif totalcnt_value < 1700:
+        return 1  # 확인 (1400-1699)
+    else:
+        return 2  # 위험 (1700+)
+
+def detect_anomaly_signal(totalcnt_value):
+    """1651-1682 이상신호 감지"""
+    return 1 if 1651 <= totalcnt_value <= 1682 else 0
+
+# 3. 데이터 로드
+print("\n[Step 1] 데이터 로딩...")
+df1 = pd.read_csv('uu.csv')
+df2 = pd.read_csv('uu2.csv')
+df = pd.concat([df1, df2], ignore_index=True).reset_index(drop=True)
+print(f"✓ 전체 데이터: {len(df):,}행")
+print(f"✓ 시간 범위: {len(df)} 분 ({len(df)/60:.1f} 시간)")
+
 
 def create_sequences_280to10_with_classification(data, seq_length=280, pred_horizon=10):
     """
@@ -140,214 +214,6 @@ def create_sequences_280to10_with_classification(data, seq_length=280, pred_hori
     print(f"✓ 특징 개수: {X.shape[1]}개")
     
     return X, y_reg, y_cls, y_anomaly
-# -*- coding: utf-8 -*-
-"""
-3구간 분류 통합 반도체 물류 예측 시스템 - 280분 → 10분 후 예측
-기존 회귀 모델 + 3구간 분류 모델 통합
-
-구간 정의:
-- Level 0 (정상): 900-1399
-- Level 1 (확인): 1400-1699  
-- Level 2 (위험): 1700+
-- 이상신호: 1651-1682 구간 특별 감지
-"""
-
-import pandas as pd
-import numpy as np
-import matplotlib.pyplot as plt
-import seaborn as sns
-from sklearn.preprocessing import StandardScaler
-from sklearn.model_selection import train_test_split
-from sklearn.ensemble import (RandomForestRegressor, GradientBoostingRegressor, ExtraTreesRegressor,
-                             RandomForestClassifier, GradientBoostingClassifier, ExtraTreesClassifier)
-from sklearn.neural_network import MLPRegressor, MLPClassifier
-from sklearn.linear_model import Ridge, ElasticNet, LogisticRegression
-from sklearn.metrics import (mean_absolute_error, mean_squared_error, r2_score,
-                           classification_report, confusion_matrix, accuracy_score,
-                           precision_recall_fscore_support)
-import joblib
-import pickle
-import os
-import warnings
-warnings.filterwarnings('ignore')
-
-plt.rcParams['font.family'] = 'DejaVu Sans'
-plt.rcParams['figure.figsize'] = (15, 10)
-
-print("="*80)
-print("3구간 분류 통합 반도체 물류 예측 시스템 - 280분 → 10분 후 예측")
-print("="*80)
-print("입력: 과거 280분(4시간 40분) 시퀀스 데이터")
-print("출력: 10분 후 TOTALCNT 예측값 + 3구간 분류")
-print("")
-print("구간 정의:")
-print("  Level 0 (정상): 900-1399")
-print("  Level 1 (확인): 1400-1699") 
-print("  Level 2 (위험): 1700+")
-print("  이상신호: 1651-1682 구간")
-print("="*80)
-
-# 1. 설정
-model_dir = 'regression_classification_models_280to10'
-if not os.path.exists(model_dir):
-    os.makedirs(model_dir)
-
-# 2. 구간 분류 함수
-def assign_level(totalcnt_value):
-    """TOTALCNT 값을 3구간으로 분류"""
-    if totalcnt_value < 1400:
-        return 0  # 정상 (900-1399)
-    elif totalcnt_value < 1700:
-        return 1  # 확인 (1400-1699)
-    else:
-        return 2  # 위험 (1700+)
-
-def detect_anomaly_signal(totalcnt_value):
-    """1651-1682 이상신호 감지"""
-    return 1 if 1651 <= totalcnt_value <= 1682 else 0
-
-# 3. 데이터 로드
-print("\n[Step 1] 데이터 로딩...")
-df1 = pd.read_csv('uu.csv')
-df2 = pd.read_csv('uu2.csv')
-df = pd.concat([df1, df2], ignore_index=True).reset_index(drop=True)
-print(f"✓ 전체 데이터: {len(df):,}행")
-print(f"✓ 시간 범위: {len(df)} 분 ({len(df)/60:.1f} 시간)")
-
-# 4. 280분 시퀀스 → 10분 후 예측 데이터 생성 (기존 함수 확장)
-def create_sequences_280to10_with_classification(data, seq_length=280, pred_horizon=10):
-    """
-    280분 시퀀스로 10분 후 TOTALCNT 예측 + 3구간 분류
-    
-    Parameters:
-    -----------
-    data : DataFrame
-    seq_length : int, 시퀀스 길이 (280분)
-    pred_horizon : int, 예측 시간 (10분 후)
-    
-    Returns:
-    --------
-    X : 특징 행렬
-    y_reg : 회귀 타겟 (10분 후 실제 TOTALCNT)
-    y_cls : 분류 타겟 (0: 정상, 1: 확인, 2: 위험)
-    y_anomaly : 이상신호 타겟 (0: 정상, 1: 1651-1682 구간)
-    """
-    
-    print(f"\n시퀀스 생성 중... (280분 → 10분 후 + 3구간 분류)")
-    
-    feature_cols = ['M14AM14B', 'M14AM10A', 'M14AM16', 'M14AM14BSUM', 
-                   'M14AM10ASUM', 'M14AM16SUM', 'M14BM14A', 'M10AM14A', 'M16M14A', 'TOTALCNT']
-    
-    # 파생 변수 생성
-    data = data.copy()
-    data['ratio_M14B_M14A'] = data['M14AM14B'] / (data['M14AM10A'] + 1)
-    data['ratio_M14B_M16'] = data['M14AM14B'] / (data['M14AM16'] + 1)
-    data['totalcnt_change'] = data['TOTALCNT'].diff().fillna(0)
-    data['totalcnt_pct_change'] = data['TOTALCNT'].pct_change().fillna(0)
-    
-    X_list = []
-    y_reg_list = []  # 회귀 타겟
-    y_cls_list = []  # 분류 타겟
-    y_anomaly_list = []  # 이상신호 타겟
-    
-    # 가능한 시퀀스 수
-    n_sequences = len(data) - seq_length - pred_horizon + 1
-    print(f"✓ 생성 가능한 시퀀스: {n_sequences:,}개")
-    
-    for i in range(n_sequences):
-        if i % 1000 == 0:
-            print(f"  진행률: {i/n_sequences*100:.1f}%", end='\r')
-        
-        # 현재 시점부터 과거 280분 데이터
-        start_idx = i
-        end_idx = i + seq_length
-        seq_data = data.iloc[start_idx:end_idx]
-        
-        features = []
-        
-        # 각 컬럼별 특징 추출 (기존과 동일)
-        for col in feature_cols:
-            values = seq_data[col].values
-            
-            # 기본 통계
-            features.extend([
-                np.mean(values),                    # 평균
-                np.std(values),                     # 표준편차
-                np.min(values),                     # 최소값
-                np.max(values),                     # 최대값
-                np.percentile(values, 25),          # Q1
-                np.percentile(values, 50),          # 중간값
-                np.percentile(values, 75),          # Q3
-                values[-1],                         # 현재값 (280분째)
-                values[-1] - values[0],             # 전체 변화량
-                np.mean(values[-60:]),              # 최근 1시간 평균
-                np.max(values[-60:]),               # 최근 1시간 최대
-                np.mean(values[-30:]),              # 최근 30분 평균
-                np.max(values[-30:]),               # 최근 30분 최대
-            ])
-            
-            # TOTALCNT 특별 처리 (기존 + 3구간 관련)
-            if col == 'TOTALCNT':
-                # 기존 위험 구간 관련
-                features.append(np.sum((values >= 1650) & (values < 1700)))  # 경고 구간
-                features.append(np.sum(values >= 1700))                      # 위험 횟수
-                features.append(np.max(values[-20:]))                        # 최근 20분 최대
-                
-                # 3구간 관련 특징 추가
-                features.append(np.sum(values < 1400))                       # 정상 구간 횟수
-                features.append(np.sum((values >= 1400) & (values < 1700)))  # 확인 구간 횟수
-                features.append(np.sum(values >= 1700))                      # 위험 구간 횟수
-                
-                # 이상신호 1651-1682 구간 특징
-                features.append(np.sum((values >= 1651) & (values <= 1682))) # 이상신호 횟수
-                features.append(np.max(values[(values >= 1651) & (values <= 1682)]) if np.any((values >= 1651) & (values <= 1682)) else 0)  # 이상신호 최대값
-                
-                # 구간별 평균값
-                normal_vals = values[values < 1400]
-                check_vals = values[(values >= 1400) & (values < 1700)]
-                danger_vals = values[values >= 1700]
-                
-                features.append(np.mean(normal_vals) if len(normal_vals) > 0 else 0)  # 정상구간 평균
-                features.append(np.mean(check_vals) if len(check_vals) > 0 else 0)    # 확인구간 평균
-                features.append(np.mean(danger_vals) if len(danger_vals) > 0 else 0)  # 위험구간 평균
-                
-                # 추세 분석 (기존)
-                x = np.arange(len(values))
-                slope, intercept = np.polyfit(x, values, 1)
-                features.append(slope)  # 전체 추세
-                
-                # 최근 60분 추세
-                recent_slope = np.polyfit(np.arange(60), values[-60:], 1)[0]
-                features.append(recent_slope)
-        
-        # 마지막 시점의 파생 변수들 (기존)
-        last_idx = end_idx - 1
-        features.extend([
-            data['ratio_M14B_M14A'].iloc[last_idx],
-            data['ratio_M14B_M16'].iloc[last_idx],
-            data['totalcnt_change'].iloc[last_idx],
-            data['totalcnt_pct_change'].iloc[last_idx],
-        ])
-        
-        # 타겟: 10분 후 TOTALCNT
-        target_idx = end_idx + pred_horizon - 1
-        future_totalcnt = data['TOTALCNT'].iloc[target_idx]
-        
-        X_list.append(features)
-        y_reg_list.append(future_totalcnt)                        # 회귀 타겟
-        y_cls_list.append(assign_level(future_totalcnt))          # 분류 타겟
-        y_anomaly_list.append(detect_anomaly_signal(future_totalcnt))  # 이상신호 타겟
-    
-    X = np.array(X_list)
-    y_reg = np.array(y_reg_list)
-    y_cls = np.array(y_cls_list)
-    y_anomaly = np.array(y_anomaly_list)
-    
-    print(f"\n✓ 시퀀스 생성 완료!")
-    print(f"✓ 특징 개수: {X.shape[1]}개 (기존 139개 + 구간 관련 11개 = 150개)")
-    
-    return X, y_reg, y_cls, y_anomaly
-
 # 5. 데이터 생성
 print("\n[Step 2] 280분 → 10분 후 시퀀스 데이터 생성...")
 X, y_reg, y_cls, y_anomaly = create_sequences_280to10_with_classification(df, seq_length=280, pred_horizon=10)
