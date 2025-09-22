@@ -1,10 +1,11 @@
 """
-🔥 ExtremeNet V6.5 Fixed - 위험구간 예측 개선판
-================================================
+🔥 ExtremeNet V6.5 Fixed - 위험구간 예측 개선판 (오류 수정 완료)
+================================================================
 ✅ StandardScaler로 변경 (RobustScaler 문제 해결)
 ✅ 위험구간 오버샘플링
 ✅ 손실함수 개선
 ✅ 위험구간 특별 관리
+✅ 다중 출력 모델의 class_weight 오류 수정 (sample_weight 사용)
 """
 
 import numpy as np
@@ -34,7 +35,8 @@ if gpus:
         tf.config.experimental.set_memory_growth(gpu, True)
     strategy = tf.distribute.MirroredStrategy()
     DEVICE = 'GPU'
-    BATCH_SIZE = 64 * len(gpus)
+    # BATCH_SIZE는 GPU 수에 따라 동적으로 설정
+    BATCH_SIZE = 64 * strategy.num_replicas_in_sync
 else:
     print("⚠️ GPU 없음, CPU 사용")
     strategy = tf.distribute.get_strategy()
@@ -42,7 +44,7 @@ else:
     BATCH_SIZE = 32
 
 print("="*80)
-print("🔥 ExtremeNet V6.5 Fixed - 위험구간 예측 개선판")
+print("🔥 ExtremeNet V6.5 Fixed - 위험구간 예측 개선판 (오류 수정 완료)")
 print(f"📦 TensorFlow: {tf.__version__}")
 print(f"🔧 Device: {DEVICE}")
 print("="*80)
@@ -218,13 +220,15 @@ class DataProcessor:
         print("  스케일링 중...")
         
         # X 스케일링
-        X_train_flat = X_train.reshape(X_train.shape[0], -1)
-        self.scaler_X.fit(X_train_flat)
-        
-        X_train_scaled = self.scaler_X.transform(X_train_flat).reshape(X_train.shape)
-        X_val_scaled = self.scaler_X.transform(X_val.reshape(X_val.shape[0], -1)).reshape(X_val.shape)
-        X_test_scaled = self.scaler_X.transform(X_test.reshape(X_test.shape[0], -1)).reshape(X_test.shape)
-        
+        # 훈련 데이터의 형태를 2D로 변경하여 스케일러 학습
+        X_train_reshaped = X_train.reshape(-1, X_train.shape[-1])
+        self.scaler_X.fit(X_train_reshaped)
+
+        # 각 데이터셋에 스케일링 적용
+        X_train_scaled = self.scaler_X.transform(X_train.reshape(-1, X_train.shape[-1])).reshape(X_train.shape)
+        X_val_scaled = self.scaler_X.transform(X_val.reshape(-1, X_val.shape[-1])).reshape(X_val.shape)
+        X_test_scaled = self.scaler_X.transform(X_test.reshape(-1, X_test.shape[-1])).reshape(X_test.shape)
+
         # y 스케일링 (MinMaxScaler로 0-1 범위)
         self.scaler_y.fit(y_train.reshape(-1, 1))
         y_train_scaled = self.scaler_y.transform(y_train.reshape(-1, 1)).flatten()
@@ -324,27 +328,31 @@ def build_extremenet(input_shape):
 # 체크포인트
 # ========================================
 class CheckpointManager:
-    def __init__(self):
-        self.checkpoint_dir = 'checkpoints/'
+    def __init__(self, checkpoint_dir='checkpoints/'):
+        self.checkpoint_dir = checkpoint_dir
         os.makedirs(self.checkpoint_dir, exist_ok=True)
-        self.history_file = f'{self.checkpoint_dir}history.json'
+        self.model_path = os.path.join(self.checkpoint_dir, 'extremenet_fixed.keras')
+        self.history_file = os.path.join(self.checkpoint_dir, 'history.json')
         
     def save_checkpoint(self, model, epoch, loss):
-        model.save(f'{self.checkpoint_dir}extremenet_fixed.keras')
+        model.save(self.model_path)
         history = {'epoch': epoch, 'loss': float(loss)}
         with open(self.history_file, 'w') as f:
             json.dump(history, f)
-        print(f"💾 체크포인트 저장: 에포크 {epoch}")
+        print(f"💾 체크포인트 저장: 에포크 {epoch}, 경로: {self.model_path}")
     
     def load_checkpoint(self):
-        model_path = f'{self.checkpoint_dir}extremenet_fixed.keras'
-        if os.path.exists(model_path):
-            print("✅ 체크포인트 발견! 학습 재개...")
-            model = tf.keras.models.load_model(model_path, 
-                                              custom_objects={'weighted_mae': weighted_mae})
-            with open(self.history_file, 'r') as f:
-                history = json.load(f)
-            return model, history['epoch']
+        if os.path.exists(self.model_path):
+            print(f"✅ 체크포인트 발견! 학습 재개... ({self.model_path})")
+            try:
+                model = tf.keras.models.load_model(self.model_path, 
+                                                  custom_objects={'weighted_mae': weighted_mae})
+                with open(self.history_file, 'r') as f:
+                    history = json.load(f)
+                return model, history.get('epoch', 0)
+            except Exception as e:
+                print(f"⚠️ 체크포인트 로드 실패: {e}. 새 모델로 시작합니다.")
+                return None, 0
         return None, 0
 
 # ========================================
@@ -352,15 +360,16 @@ class CheckpointManager:
 # ========================================
 class DangerZoneCallback(tf.keras.callbacks.Callback):
     def __init__(self, X_val, y_val_orig, processor):
+        super().__init__()
         self.X_val = X_val
         self.y_val_orig = y_val_orig
         self.processor = processor
         
     def on_epoch_end(self, epoch, logs=None):
-        # 위험구간만
+        # 위험구간 인덱스
         danger_idx = ((self.y_val_orig >= 1651) & (self.y_val_orig <= 1682))
         
-        if danger_idx.sum() > 0:
+        if np.sum(danger_idx) > 0:
             X_danger = self.X_val[danger_idx]
             y_danger_true = self.y_val_orig[danger_idx]
             
@@ -371,38 +380,42 @@ class DangerZoneCallback(tf.keras.callbacks.Callback):
                 y_pred_scaled.reshape(-1, 1)).flatten()
             
             mae = mean_absolute_error(y_danger_true, y_pred)
-            accuracy = np.mean(np.abs(y_danger_true - y_pred) < 50)
+            accuracy = np.mean(np.abs(y_danger_true - y_pred) < 50) # 오차 50 이내를 정확도로 간주
             
-            print(f"\n  🔥 위험구간 성능: MAE={mae:.1f}, 정확도={accuracy*100:.1f}%")
+            print(f"\n  🔥 위험구간(검증셋) 성능: MAE={mae:.1f}, 정확도(±50)={accuracy*100:.1f}%")
 
 # ========================================
 # 커스텀 손실함수 (위험구간 강조)
 # ========================================
 def weighted_mae(y_true, y_pred):
-    """위험구간에 더 큰 가중치"""
-    # 스케일된 값을 원본 범위로 대략 변환
-    y_true_denorm = y_true * 900 + 900  # MinMaxScaler 역변환 추정
+    """위험구간에 더 큰 가중치를 부여하는 MAE"""
+    # y_true는 이미 0-1 사이로 스케일링된 값입니다.
+    # 위험구간(1651~1682)의 스케일링된 범위를 계산합니다.
+    # 이 계산은 scaler_y가 학습된 후에야 정확하지만, 여기서는 근사치를 사용합니다.
+    # 예를 들어, 데이터 범위가 [800, 2000]이라면,
+    # (1651 - 800) / (2000 - 800) = 0.709
+    # (1682 - 800) / (2000 - 800) = 0.735
+    # 데이터 분포에 따라 달라지므로, 여기서는 대략적인 값을 사용합니다.
+    danger_min_scaled = 0.7 
+    danger_max_scaled = 0.75
     
-    # 가중치 계산
+    # 가중치 텐서 생성 (기본값 1.0)
     weights = tf.ones_like(y_true)
     
-    # 위험구간 마스크 (1651~1682를 스케일된 값으로 변환)
-    danger_min_scaled = (1651 - 900) / 900
-    danger_max_scaled = (1682 - 900) / 900
-    
+    # 위험구간 마스크 생성
     danger_mask = tf.logical_and(
         y_true >= danger_min_scaled,
         y_true <= danger_max_scaled
     )
     
-    # 위험구간에 3배 가중치
+    # 위험구간에 해당하는 샘플에 3배의 가중치 부여
     weights = tf.where(danger_mask, 3.0, weights)
     
-    # Weighted MAE
+    # 가중치가 적용된 MAE 계산
     mae = tf.abs(y_true - y_pred)
-    weighted_mae = mae * weights
+    weighted_mae_val = mae * weights
     
-    return tf.reduce_mean(weighted_mae)
+    return tf.reduce_mean(weighted_mae_val)
 
 # ========================================
 # 학습 함수
@@ -413,18 +426,19 @@ def train_model(train_data, val_data, test_data, processor):
     X_val, y_val_scaled, y_val_orig, y_val_level, y_val_danger = val_data
     X_test, y_test_scaled, y_test_orig, y_test_level, y_test_danger = test_data
     
-    # 체크포인트
+    # 체크포인트 관리자
     cp_manager = CheckpointManager()
     model, start_epoch = cp_manager.load_checkpoint()
     
-    # 모델 생성
+    # 분산 학습 전략 범위 내에서 모델 생성 및 컴파일
     with strategy.scope():
         if model is None:
+            print("새 모델 생성...")
             input_shape = (X_train.shape[1], X_train.shape[2])
             model = build_extremenet(input_shape)
             
             model.compile(
-                optimizer=Adam(0.001),
+                optimizer=Adam(learning_rate=0.001),
                 loss={
                     'regression': weighted_mae,  # 커스텀 손실함수
                     'classification': 'sparse_categorical_crossentropy',
@@ -442,9 +456,10 @@ def train_model(train_data, val_data, test_data, processor):
                 }
             )
     
+    model.summary()
     print("\n" + "="*80)
     print("🔥 ExtremeNet V6.5 Fixed 학습 시작")
-    print(f"🔧 Device: {DEVICE} | Batch: {BATCH_SIZE}")
+    print(f"🔧 Device: {DEVICE} | Global Batch: {BATCH_SIZE}")
     print(f"⏰ 시작 에포크: {start_epoch}")
     print("="*80)
     
@@ -458,6 +473,7 @@ def train_model(train_data, val_data, test_data, processor):
         ),
         EarlyStopping(
             patience=20,
+            monitor='val_loss',
             restore_best_weights=True,
             verbose=1
         ),
@@ -465,19 +481,21 @@ def train_model(train_data, val_data, test_data, processor):
             factor=0.5,
             patience=7,
             min_lr=1e-6,
+            monitor='val_loss',
             verbose=1
         ),
         DangerZoneCallback(X_val, y_val_orig, processor),
         LambdaCallback(
             on_epoch_end=lambda epoch, logs: 
-            cp_manager.save_checkpoint(model, start_epoch + epoch + 1, logs['val_loss'])
+            cp_manager.save_checkpoint(model, start_epoch + epoch + 1, logs['val_loss']) if 'val_loss' in logs else None
         )
     ]
     
-    # 클래스 가중치
-    class_weights_cls = class_weight.compute_class_weight(
-        'balanced',
-        classes=np.unique(y_train_level),
+    # ⭐ 오류 수정: 다중 출력 모델은 class_weight를 직접 지원하지 않습니다.
+    # 대신, 각 샘플에 대한 가중치를 계산하는 sample_weight를 사용합니다.
+    # 이는 불균형한 'classification' 작업에 가중치를 효과적으로 적용합니다.
+    sample_weights = class_weight.compute_sample_weight(
+        class_weight='balanced',
         y=y_train_level
     )
     
@@ -503,9 +521,7 @@ def train_model(train_data, val_data, test_data, processor):
         initial_epoch=start_epoch,
         batch_size=BATCH_SIZE,
         callbacks=callbacks,
-        class_weight={
-            'classification': dict(enumerate(class_weights_cls))
-        },
+        sample_weight=sample_weights,  # ⭐ 수정: class_weight 대신 sample_weight 사용
         verbose=1
     )
     
@@ -522,8 +538,7 @@ def train_model(train_data, val_data, test_data, processor):
     # 메트릭
     mae = mean_absolute_error(y_test_orig, y_pred)
     rmse = np.sqrt(mean_squared_error(y_test_orig, y_pred))
-    r2_raw = r2_score(y_test_orig, y_pred)
-    r2 = max(0.0, r2_raw)
+    r2 = r2_score(y_test_orig, y_pred)
     
     print(f"\n📈 전체 성능:")
     print(f"  MAE: {mae:.2f}")
@@ -532,15 +547,15 @@ def train_model(train_data, val_data, test_data, processor):
     
     # 위험구간 평가
     danger_idx = ((y_test_orig >= 1651) & (y_test_orig <= 1682))
-    if danger_idx.sum() > 0:
+    if np.sum(danger_idx) > 0:
         danger_mae = mean_absolute_error(y_test_orig[danger_idx], y_pred[danger_idx])
         print(f"\n🔥 위험구간 최종 성능:")
-        print(f"  샘플: {danger_idx.sum()}개")
+        print(f"  샘플: {np.sum(danger_idx)}개")
         print(f"  MAE: {danger_mae:.2f}")
     
     # 모델 저장
     model.save('models/extremenet_v65_fixed_final.keras')
-    print(f"\n💾 최종 모델: models/extremenet_v65_fixed_final.keras")
+    print(f"\n💾 최종 모델 저장 완료: models/extremenet_v65_fixed_final.keras")
     
     return model, {'MAE': mae, 'RMSE': rmse, 'R2': r2}
 
@@ -548,8 +563,9 @@ def train_model(train_data, val_data, test_data, processor):
 # 실시간 예측
 # ========================================
 class Predictor:
-    def __init__(self):
-        self.model = tf.keras.models.load_model('models/extremenet_v65_fixed_final.keras',
+    def __init__(self, model_path='models/extremenet_v65_fixed_final.keras'):
+        print("\n🚀 예측기 로딩 중...")
+        self.model = tf.keras.models.load_model(model_path,
                                                custom_objects={'weighted_mae': weighted_mae})
         with open('scalers/scaler_X.pkl', 'rb') as f:
             self.scaler_X = pickle.load(f)
@@ -569,9 +585,17 @@ class Predictor:
         print("✅ 예측기 준비 완료")
     
     def predict(self, data_100min):
+        if not isinstance(data_100min, pd.DataFrame) or len(data_100min) != 100:
+            raise ValueError("입력 데이터는 100개의 행을 가진 pandas DataFrame이어야 합니다.")
+            
         # 특성 준비
         X = data_100min[self.feature_columns].values
-        X_scaled = self.scaler_X.transform(X.reshape(1, -1)).reshape(1, 100, -1)
+        X_reshaped = X.reshape(1, 100, -1)
+        
+        # 스케일링 (전체 시퀀스를 한 번에 변환)
+        X_flat = X_reshaped.reshape(-1, X_reshaped.shape[-1])
+        X_scaled_flat = self.scaler_X.transform(X_flat)
+        X_scaled = X_scaled_flat.reshape(X_reshaped.shape)
         
         # 예측
         preds = self.model.predict(X_scaled, verbose=0)
@@ -587,49 +611,82 @@ class Predictor:
             level = "🔴 심각"
         
         # 위험신호
+        alert = ""
         if 1651 <= y_pred <= 1682:
-            alert = "⚠️ 위험신호! 1700+ 급증 가능!"
-        else:
-            alert = ""
+            alert = "⚠️ 위험신호! 1700+ 급증 가능성!"
         
         return {
-            'prediction': y_pred,
+            'prediction': float(y_pred),
             'level': level,
             'alert': alert,
-            'danger_prob': float(preds[2][0, 0])
+            'danger_probability': float(preds[2][0, 0])
         }
 
 # ========================================
-# 메인
+# 메인 실행
 # ========================================
 def main():
-    # 데이터 찾기
+    # 데이터 경로 탐색
     data_path = None
-    for path in ['data/20240201_TO_202507281705.csv', 
-                 '20240201_TO_202507281705.csv']:
+    possible_paths = [
+        'data/20240201_TO_202507281705.csv', 
+        '20240201_TO_202507281705.csv'
+    ]
+    for path in possible_paths:
         if os.path.exists(path):
             data_path = path
             break
     
     if not data_path:
-        print("❌ 데이터 파일 없음!")
-        return
+        print("❌ 데이터 파일을 찾을 수 없습니다! 'data' 폴더 또는 현재 위치에 CSV 파일을 확인해주세요.")
+        return None, None
     
     # 데이터 처리
     processor = DataProcessor()
     df = processor.load_data(data_path)
-    df = processor.create_features(df)
+    df_features = processor.create_features(df)
     
     # 시퀀스 생성
-    train_data, val_data, test_data = processor.create_sequences(df)
+    train_data, val_data, test_data = processor.create_sequences(df_features)
     
-    # 학습
+    # 모델 학습
     model, results = train_model(train_data, val_data, test_data, processor)
     
-    print("\n✅ 완료!")
-    print("🔥 이제 위험구간 예측이 개선되었습니다!")
+    print("\n✅ 모든 작업 완료!")
+    print("🔥 위험구간 예측이 개선된 모델 학습이 완료되었습니다!")
     
     return model, results
 
 if __name__ == "__main__":
-    model, results = main()
+    trained_model, training_results = main()
+    
+    # 학습이 성공적으로 완료되었을 경우, 예측기 사용 예시
+    if trained_model and os.path.exists('models/extremenet_v65_fixed_final.keras'):
+        print("\n" + "="*80)
+        print("⚡ 예측기 사용 예시")
+        print("="*80)
+        
+        # 테스트 데이터셋의 마지막 100분 데이터를 샘플로 사용
+        try:
+            processor = DataProcessor()
+            df = processor.load_data('20240201_TO_202507281705.csv')
+            df_features = processor.create_features(df)
+            
+            # 예측을 위한 최신 100분 데이터 추출
+            sample_data = df_features.tail(100)
+            
+            if len(sample_data) == 100:
+                predictor = Predictor()
+                prediction_result = predictor.predict(sample_data)
+                
+                print(f"🔮 10분 후 TOTALCNT 예측: {prediction_result['prediction']:.2f}")
+                print(f"📊 예측 레벨: {prediction_result['level']}")
+                print(f"📈 위험 감지 확률: {prediction_result['danger_probability']:.2%}")
+                if prediction_result['alert']:
+                    print(f"🚨 {prediction_result['alert']}")
+            else:
+                print("⚠️ 예측 예시를 위한 샘플 데이터가 100개 미만입니다.")
+
+        except Exception as e:
+            print(f"💥 예측 예시 실행 중 오류 발생: {e}")
+
