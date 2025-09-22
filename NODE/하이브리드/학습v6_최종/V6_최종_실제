@@ -224,6 +224,12 @@ def main():
     
     print(f"예측값: {simple_dict['예측값']}")
     print(f"{status_map[max_prob_key]}: {max_prob_value}%")
+    
+    # ====================== RETURN 값 ======================
+    # 예측값과 가장 높은 확률 반환
+    return simple_dict['예측값'], f"{status_map[max_prob_key]}: {max_prob_value}%"
 
 if __name__ == "__main__":
-    main()
+    result = main()
+    if result:
+        print(f"\n[RETURN] 예측값: {result[0]}, {result[1]}")
