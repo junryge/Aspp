@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """
-1651-1682 구간 정밀 보정 시스템
-시퀀스 MAX와 현재값 기반 정확한 보정
+미세 조정 보정 시스템
+1651-1682 구간만 2-4% 가벼운 보정
 """
 
 import pandas as pd
@@ -13,69 +13,46 @@ import warnings
 warnings.filterwarnings('ignore')
 
 print("="*80)
-print("1651-1682 구간 정밀 보정 시스템")
+print("미세 조정 보정 시스템 (2-4% 가벼운 보정)")
 print("="*80)
 
 # 설정
 model_dir = 'regression_classification_models_280to10'
 data_file = 'data/20250731_to_20250806.csv'
-output_file = 'evaluation_precise_1651_1682.csv'
+output_file = 'evaluation_micro_adjustment.csv'
 
 MODEL_NAMES = ['RandomForest', 'ExtraTrees', 'GradientBoosting', 'MLP']
 
-def precise_anomaly_correction(prediction, current_totalcnt, seq_max, seq_last_100):
+def micro_adjustment(prediction, current_totalcnt, seq_max):
     """
-    1651-1682 구간 정밀 보정
-    시퀀스 MAX와 현재값 기반
+    매우 간단한 미세 조정만
     """
-    # 추세 계산 (마지막 100개)
-    if len(seq_last_100) >= 50:
-        trend = np.mean(seq_last_100[-20:]) - np.mean(seq_last_100[-50:-30])
-        is_rising = trend > 5  # 상승 추세
-    else:
-        is_rising = False
-    
-    # 핵심: 시퀀스 MAX가 1651-1699 구간일 때
-    if 1651 <= seq_max <= 1699:
-        # 현재값이 1651-1682 구간일 때
-        if 1651 <= current_totalcnt <= 1682:
-            if prediction < 1650:
-                # 과소예측 강력 보정
-                if is_rising:
-                    return prediction * 1.12  # 12% 상향
-                else:
-                    return prediction * 1.10  # 10% 상향
-            elif 1650 <= prediction <= 1682:
-                # 구간 내 예측 - 미세 조정
-                if is_rising:
-                    return prediction * 1.06  # 6% 상향
-                else:
-                    return prediction * 1.04  # 4% 상향
+    # 1651-1682 구간이면서 과소예측일 때만 보정
+    if 1651 <= current_totalcnt <= 1682:
+        if prediction < current_totalcnt - 30:  # 30 이상 낮게 예측할 때만
+            # 시퀀스 MAX 고려
+            if 1651 <= seq_max <= 1699:
+                return prediction * 1.04  # 4% 보정
             else:
-                # 과대예측 - 그대로 또는 약간 조정
-                return prediction * 1.02
-        
-        # 현재값이 1683-1699일 때 (구간 벗어났지만 근처)
-        elif 1683 <= current_totalcnt <= 1699:
-            if prediction < 1680:
-                return prediction * 1.08  # 8% 상향
-            else:
-                return prediction * 1.03  # 3% 상향
+                return prediction * 1.03  # 3% 보정
+        elif prediction < current_totalcnt:  # 약간 낮게 예측
+            return prediction * 1.02  # 2% 보정
     
-    # 시퀀스 MAX가 1700 이상이지만 현재값이 1651-1682
-    elif seq_max >= 1700 and 1651 <= current_totalcnt <= 1682:
-        if prediction < current_totalcnt:
-            return prediction * 1.07  # 7% 상향
-        else:
-            return prediction * 1.03  # 3% 상향
+    # 1680-1700 구간에서 심하게 과소예측 (100 이상 차이)
+    elif 1680 <= current_totalcnt <= 1700:
+        if prediction < current_totalcnt - 100:
+            return prediction * 1.05  # 5% 보정
+        elif prediction < current_totalcnt - 50:
+            return prediction * 1.03  # 3% 보정
     
-    # 일반 1680+ 구간 보정
-    elif current_totalcnt >= 1680:
-        if prediction < current_totalcnt * 0.95:  # 5% 이상 과소예측
-            return prediction * 1.08
-        elif prediction < current_totalcnt:
-            return prediction * 1.04
+    # 1700+ 구간에서 심하게 과소예측
+    elif current_totalcnt >= 1700:
+        if prediction < current_totalcnt - 150:
+            return prediction * 1.06  # 6% 보정
+        elif prediction < current_totalcnt - 100:
+            return prediction * 1.04  # 4% 보정
     
+    # 나머지는 그대로
     return prediction
 
 def create_sequences_for_evaluation(data, seq_length=280, pred_horizon=10):
@@ -178,7 +155,6 @@ def create_sequences_for_evaluation(data, seq_length=280, pred_horizon=10):
                 'current_totalcnt': data['TOTALCNT'].iloc[end_idx - 1],
                 'seq_max': np.max(seq_data['TOTALCNT'].values),
                 'seq_min': np.min(seq_data['TOTALCNT'].values),
-                'seq_last_100': seq_data['TOTALCNT'].values[-100:],
             }
             
             X_list.append(features)
@@ -212,15 +188,12 @@ elif X.shape[1] > expected_features:
 
 X_scaled = scaler.transform(X)
 
-print(f"\n4. 정밀 보정 예측")
+print(f"\n4. 미세 조정 예측")
 print("-"*80)
 
 predictions = {}
-corrected_predictions = {}
-
-# 1651-1682 구간 통계
-target_zone_count = 0
-target_zone_corrected = 0
+adjusted_predictions = {}
+adjustment_stats = {'보정안함': 0, '2%': 0, '3%': 0, '4%': 0, '5%': 0, '6%': 0}
 
 for name in MODEL_NAMES:
     print(f"{name}:")
@@ -228,40 +201,55 @@ for name in MODEL_NAMES:
     
     raw_pred = model.predict(X_scaled)
     
-    corrected_pred = []
+    adjusted_pred = []
     for i in range(len(raw_pred)):
         current_val = time_info[i]['current_totalcnt']
         seq_max = time_info[i]['seq_max']
-        seq_last_100 = time_info[i]['seq_last_100']
         
-        corrected_val = precise_anomaly_correction(
-            raw_pred[i], current_val, seq_max, seq_last_100
-        )
-        corrected_pred.append(corrected_val)
+        # 보정 전후 비교
+        original = raw_pred[i]
+        adjusted = micro_adjustment(original, current_val, seq_max)
+        adjusted_pred.append(adjusted)
         
         # 통계
-        if 1651 <= current_val <= 1682:
-            target_zone_count += 1
-            if corrected_val != raw_pred[i]:
-                target_zone_corrected += 1
+        if name == 'GradientBoosting':
+            if adjusted == original:
+                adjustment_stats['보정안함'] += 1
+            else:
+                ratio = adjusted / original
+                if 1.015 < ratio <= 1.025:
+                    adjustment_stats['2%'] += 1
+                elif 1.025 < ratio <= 1.035:
+                    adjustment_stats['3%'] += 1
+                elif 1.035 < ratio <= 1.045:
+                    adjustment_stats['4%'] += 1
+                elif 1.045 < ratio <= 1.055:
+                    adjustment_stats['5%'] += 1
+                elif ratio > 1.055:
+                    adjustment_stats['6%'] += 1
     
-    corrected_pred = np.array(corrected_pred)
+    adjusted_pred = np.array(adjusted_pred)
     
     predictions[name] = raw_pred
-    corrected_predictions[name] = corrected_pred
+    adjusted_predictions[name] = adjusted_pred
     
     mae_raw = np.mean(np.abs(raw_pred - y_true))
-    mae_corrected = np.mean(np.abs(corrected_pred - y_true))
-    print(f"  전체 MAE: {mae_raw:.2f} → {mae_corrected:.2f}")
+    mae_adjusted = np.mean(np.abs(adjusted_pred - y_true))
+    print(f"  전체 MAE: {mae_raw:.2f} → {mae_adjusted:.2f} ({mae_adjusted - mae_raw:+.2f})")
     
-    # 1651-1682 구간만
-    zone_mask = (y_true >= 1651) & (y_true <= 1682)
-    if np.sum(zone_mask) > 0:
-        zone_mae_raw = np.mean(np.abs(raw_pred[zone_mask] - y_true[zone_mask]))
-        zone_mae_corrected = np.mean(np.abs(corrected_pred[zone_mask] - y_true[zone_mask]))
-        print(f"  1651-1682 MAE: {zone_mae_raw:.2f} → {zone_mae_corrected:.2f}")
+    # 1680+ 구간
+    high_mask = y_true >= 1680
+    if np.sum(high_mask) > 0:
+        high_mae_raw = np.mean(np.abs(raw_pred[high_mask] - y_true[high_mask]))
+        high_mae_adjusted = np.mean(np.abs(adjusted_pred[high_mask] - y_true[high_mask]))
+        print(f"  1680+ MAE: {high_mae_raw:.2f} → {high_mae_adjusted:.2f} ({high_mae_adjusted - high_mae_raw:+.2f})")
 
-print(f"\n1651-1682 구간: {target_zone_count//4}개 중 {target_zone_corrected//4}개 보정")
+print(f"\n보정 통계:")
+total = sum(adjustment_stats.values())
+for key, count in adjustment_stats.items():
+    if count > 0:
+        print(f"  {key}: {count}개 ({count/total*100:.1f}%)")
+
 print("-"*80)
 
 print(f"\n5. 결과 CSV 생성")
@@ -275,13 +263,19 @@ for i in range(len(X)):
         '날짜': current_time.strftime('%Y-%m-%d %H:%M'),
         '타켓날짜': target_time.strftime('%Y-%m-%d %H:%M'),
         '실제값': round(y_true[i], 0),
+        '현재값': round(time_info[i]['current_totalcnt'], 0),
         '시퀀스MAX': round(time_info[i]['seq_max'], 0),
         '시퀀스MIN': round(time_info[i]['seq_min'], 0),
     }
     
+    # 각 모델 예측값
     for name in MODEL_NAMES:
-        row[f'{name}_예측'] = round(corrected_predictions[name][i], 0)
-        row[f'{name}_오차'] = round(corrected_predictions[name][i] - y_true[i], 0)
+        row[f'{name}_예측'] = round(adjusted_predictions[name][i], 0)
+    
+    # 앙상블 (단순 평균)
+    ensemble = np.mean([adjusted_predictions[name][i] for name in MODEL_NAMES])
+    row['앙상블_예측'] = round(ensemble, 0)
+    row['앙상블_오차'] = round(ensemble - y_true[i], 0)
     
     results.append(row)
 
@@ -290,17 +284,24 @@ results_df.to_csv(output_file, index=False, encoding='utf-8-sig')
 
 print(f"\n✅ 완료! 결과 파일: {output_file}")
 
-# 1680+ 구간 샘플 출력
-print(f"\n[1680+ 구간 예측 결과]")
+# 1680+ 구간 샘플
+print(f"\n[1680+ 구간 예측 샘플]")
 print("-"*100)
-high_samples = results_df[results_df['실제값'] >= 1680].head(20)
+high_samples = results_df[results_df['실제값'] >= 1680].head(15)
 
 if len(high_samples) > 0:
-    display_cols = ['날짜', '실제값', '시퀀스MAX', 'RandomForest_예측', 
-                   'GradientBoosting_예측', 'RandomForest_오차', 'GradientBoosting_오차']
+    display_cols = ['날짜', '실제값', '현재값', '시퀀스MAX', 
+                   'RandomForest_예측', 'GradientBoosting_예측', '앙상블_예측', '앙상블_오차']
     print(high_samples[display_cols].to_string(index=False))
     
-    print(f"\n평균 절대 오차:")
-    for name in MODEL_NAMES:
-        mae = high_samples[f'{name}_오차'].abs().mean()
-        print(f"  {name}: {mae:.1f}")
+    print(f"\n앙상블 성능 (1680+ 구간):")
+    abs_errors = high_samples['앙상블_오차'].abs()
+    print(f"  평균 절대 오차: {abs_errors.mean():.1f}")
+    print(f"  오차 ≤50: {(abs_errors <= 50).sum()}개 ({(abs_errors <= 50).mean()*100:.1f}%)")
+    print(f"  오차 ≤100: {(abs_errors <= 100).sum()}개 ({(abs_errors <= 100).mean()*100:.1f}%)")
+
+print(f"\n💡 미세 조정 정책:")
+print("  - 1651-1682 구간: 2-4% 보정")
+print("  - 1680-1700 구간: 3-5% 보정 (과소예측 시)")
+print("  - 1700+ 구간: 4-6% 보정 (과소예측 시)")
+print("  - 나머지: 보정 없음")
