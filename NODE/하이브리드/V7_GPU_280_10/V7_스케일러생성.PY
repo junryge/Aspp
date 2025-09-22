@@ -120,20 +120,18 @@ def create_sequences_for_scaler(data, seq_length=280, pred_horizon=10, max_sampl
 # 메인 실행
 print("\n[Step 1] 데이터 로딩...")
 
-# uu.csv와 uu2.csv 확인
-if os.path.exists('uu.csv') and os.path.exists('uu2.csv'):
-    df1 = pd.read_csv('uu.csv')
-    df2 = pd.read_csv('uu2.csv')
-    df = pd.concat([df1, df2], ignore_index=True).reset_index(drop=True)
-    print(f"  uu.csv + uu2.csv 로드 완료: {len(df):,}행")
-elif os.path.exists('uu.csv'):
-    df = pd.read_csv('uu.csv')
-    print(f"  uu.csv 로드 완료: {len(df):,}행")
+# 지정된 CSV 파일 사용
+csv_file = 'data/2025020_to_202508281705.csv'
+
+if os.path.exists(csv_file):
+    df = pd.read_csv(csv_file)
+    print(f"  {csv_file} 로드 완료: {len(df):,}행")
 else:
+    print(f"  ❌ 파일이 없습니다: {csv_file}")
     # 다른 CSV 파일 찾기
     csv_files = [f for f in os.listdir('.') if f.endswith('.csv')]
     if csv_files:
-        print(f"  uu.csv 없음 - {csv_files[0]} 사용")
+        print(f"  대체 파일 사용: {csv_files[0]}")
         df = pd.read_csv(csv_files[0])
         print(f"  {csv_files[0]} 로드 완료: {len(df):,}행")
     else:
