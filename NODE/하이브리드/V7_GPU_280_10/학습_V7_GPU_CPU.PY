@@ -574,12 +574,13 @@ def train_with_checkpoint():
                 print(f"  ⚠️ GPU 사용 불가: {str(gpu_error)[:50]}")
                 print("  💻 CPU 모드로 XGBoost 실행")
                 
-                # CPU 버전으로 폴백
+                # CPU 버전으로 폴백 (2코어 제한)
                 xgboost_models['XGBoost_CPU'] = xgb.XGBRegressor(
                     n_estimators=300,
                     max_depth=10,
                     learning_rate=0.1,
                     tree_method='hist',  # CPU 사용
+                    nthread=2,  # CPU 2코어만
                     random_state=42,
                     verbosity=0
                 )
@@ -589,6 +590,7 @@ def train_with_checkpoint():
                     max_depth=10,
                     learning_rate=0.1,
                     tree_method='hist',  # CPU 사용
+                    nthread=2,  # CPU 2코어만
                     random_state=42,
                     verbosity=0
                 )
@@ -626,50 +628,55 @@ def train_with_checkpoint():
         except:
             print("⚠️ CatBoost GPU 사용 불가 또는 미설치")
         
-        # 회귀 모델 정의 (CPU)
+        # 회귀 모델 정의 (CPU 2코어 제한)
         regression_models = {
             'RandomForest': RandomForestRegressor(
                 n_estimators=300, max_depth=20, min_samples_split=5,
-                min_samples_leaf=2, random_state=42, n_jobs=-1
+                min_samples_leaf=2, random_state=42, n_jobs=2  # CPU 2코어만
             ),
             'ExtraTrees': ExtraTreesRegressor(
-                n_estimators=300, max_depth=20, random_state=42, n_jobs=-1
+                n_estimators=300, max_depth=20, random_state=42, n_jobs=2  # CPU 2코어만
             ),
             'GradientBoosting': GradientBoostingRegressor(
                 n_estimators=300, learning_rate=0.05, max_depth=10,
                 subsample=0.8, random_state=42
+                # GradientBoosting은 n_jobs 파라미터 없음
             ),
             'MLP': MLPRegressor(
                 hidden_layer_sizes=(200, 100, 50), activation='relu',
                 max_iter=1000, early_stopping=True,
                 validation_fraction=0.1, random_state=42
+                # MLPRegressor는 n_jobs 파라미터 없음
             ),
             'Ridge': Ridge(alpha=1.0, random_state=42),
             'ElasticNet': ElasticNet(alpha=0.1, l1_ratio=0.5, random_state=42)
         }
         
-        # 분류 모델 정의 (CPU)
+        # 분류 모델 정의 (CPU 2코어 제한)
         classification_models = {
             'RandomForest_Cls': RandomForestClassifier(
                 n_estimators=300, max_depth=20, min_samples_split=5,
-                min_samples_leaf=2, random_state=42, n_jobs=-1,
+                min_samples_leaf=2, random_state=42, n_jobs=2,  # CPU 2코어만
                 class_weight='balanced'
             ),
             'ExtraTrees_Cls': ExtraTreesClassifier(
                 n_estimators=300, max_depth=20, random_state=42,
-                n_jobs=-1, class_weight='balanced'
+                n_jobs=2, class_weight='balanced'  # CPU 2코어만
             ),
             'GradientBoosting_Cls': GradientBoostingClassifier(
                 n_estimators=300, learning_rate=0.05, max_depth=10,
                 subsample=0.8, random_state=42
+                # GradientBoostingClassifier는 n_jobs 파라미터 없음
             ),
             'MLP_Cls': MLPClassifier(
                 hidden_layer_sizes=(200, 100, 50), activation='relu',
                 max_iter=1000, early_stopping=True,
                 validation_fraction=0.1, random_state=42
+                # MLPClassifier는 n_jobs 파라미터 없음
             ),
             'LogisticRegression': LogisticRegression(
-                random_state=42, max_iter=1000, class_weight='balanced'
+                random_state=42, max_iter=1000, class_weight='balanced',
+                n_jobs=2  # CPU 2코어만
             )
         }
         
@@ -1105,8 +1112,8 @@ def main_with_auto_restart():
     print("    4. MLP_Cls              - 신경망 분류기")
     print("    5. LogisticRegression   - 로지스틱 회귀")
     
-    print("\n  💡 모든 모델은 CPU에서 실행됩니다 (Sklearn 기반)")
-    print("  💡 n_jobs=-1로 모든 CPU 코어 활용")
+    print("\n  💡 모든 Sklearn 모델은 CPU 2코어만 사용합니다 (n_jobs=2)")
+    print("  💡 XGBoost는 GPU 있으면 GPU, 없으면 CPU 2코어 사용")
     print("="*70)
     
     print("\n💡 Ctrl+C로 언제든 중단 가능 (자동 저장됩니다)")
