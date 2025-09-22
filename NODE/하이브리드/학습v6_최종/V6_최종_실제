@@ -1,0 +1,229 @@
+"""
+🔥 ExtremeNet 예측 시스템 - 실제 CSV 직접 사용
+data/20250807_DATA.CSV 파일 로드
+"""
+
+import numpy as np
+import pandas as pd
+from datetime import datetime, timedelta
+import os
+
+print("="*80)
+print("🔥 ExtremeNet 예측 시스템")
+print("📊 정상(900-1400) / 주의(1400-1699) / 심각(1700+)")
+print("="*80)
+
+# ====================== UU1/UU2 패턴 감지 ======================
+def detect_pattern(df):
+    """UU1/UU2 패턴 감지"""
+    
+    print("\n🔍 패턴 감지 중...")
+    
+    # 통계 계산
+    totalcnt_max = df['TOTALCNT'].max()
+    m14b_mean = df['M14AM14B'].mean()
+    m14b_max = df['M14AM14B'].max()
+    high_cases = len(df[df['TOTALCNT'] >= 1682])
+    m14b_350_ratio = (df['M14AM14B'] > 350).sum() / len(df)
+    
+    print(f"  TOTALCNT 최대: {totalcnt_max:,}")
+    print(f"  M14AM14B 평균: {m14b_mean:.0f}")
+    print(f"  M14AM14B 최대: {m14b_max}")
+    print(f"  1682+ 케이스: {high_cases}개")
+    
+    # 패턴 판정
+    if high_cases > 0 and m14b_mean > 380:
+        pattern = "UU2"
+        print("  🔥 UU2 패턴 감지: 고값 유지 상태")
+    elif m14b_350_ratio > 0.3:
+        pattern = "UU2"
+        print("  🔥 UU2 패턴 감지: M14B 높음")
+    else:
+        pattern = "UU1"
+        print("  📈 UU1 패턴 감지: 급증 가능")
+    
+    return pattern
+
+# ====================== ExtremeNet 예측 ======================
+def extremenet_predict(df, pattern):
+    """ExtremeNet 예측값 계산"""
+    
+    # 현재 상태
+    current_val = df['TOTALCNT'].iloc[-1]
+    m14b = df['M14AM14B'].iloc[-1]
+    m14a = df['M14AM10A'].iloc[-1]
+    ratio = m14b / (m14a + 1)
+    
+    # 연속 상승 계산
+    consecutive_rises = 0
+    for i in range(len(df)-1, 0, -1):
+        if df['TOTALCNT'].iloc[i] > df['TOTALCNT'].iloc[i-1]:
+            consecutive_rises += 1
+        else:
+            break
+    
+    # 추세 판단
+    recent_10 = df['TOTALCNT'].tail(10).values
+    change = recent_10[-1] - recent_10[0] if len(recent_10) >= 2 else 0
+    trend = "increasing" if change > 30 else "decreasing" if change < -30 else "stable"
+    
+    print(f"\n📊 현재 상태:")
+    print(f"  TOTALCNT: {current_val:,}")
+    print(f"  M14AM14B: {m14b}")
+    print(f"  M14AM10A: {m14a}")
+    print(f"  비율: {ratio:.2f}")
+    print(f"  연속상승: {consecutive_rises}회")
+    print(f"  추세: {trend}")
+    
+    # ExtremeNet 예측 로직
+    if pattern == "UU1":
+        # UU1: 급증 가능
+        if current_val >= 1650 and trend == "increasing" and m14b > 300:
+            predicted = max(1700, current_val * 1.20)
+        elif m14b > 300 and m14a < 80:  # 황금 패턴
+            predicted = max(1680, current_val * 1.15)
+        elif consecutive_rises >= 10:
+            predicted = max(1650, current_val * 1.12)
+        elif m14b >= 400:
+            predicted = 1550
+        elif m14b >= 350:
+            predicted = 1520
+        elif m14b >= 300:
+            predicted = 1480
+        else:
+            predicted = current_val * 1.02
+            
+        # 추세 보정
+        if trend == "increasing":
+            predicted *= 1.05
+        elif trend == "decreasing":
+            predicted *= 0.98
+            
+    else:  # UU2
+        # UU2: 보수적 예측
+        if m14b >= 450:
+            predicted = min(1750, current_val * 1.02)
+        elif m14b >= 400:
+            predicted = min(1700, current_val * 1.01)
+        else:
+            predicted = current_val * 0.99
+    
+    return int(predicted)
+
+# ====================== 확률 계산 ======================
+def calculate_probabilities(predicted_value, pattern):
+    """정상/주의/심각 확률 계산"""
+    
+    if pattern == "UU1":
+        if predicted_value < 1400:
+            probs = {'정상확률': 85, '주의확률': 15, '심각확률': 0}
+        elif 1400 <= predicted_value < 1500:
+            probs = {'정상확률': 10, '주의확률': 85, '심각확률': 5}
+        elif 1500 <= predicted_value < 1600:
+            probs = {'정상확률': 5, '주의확률': 80, '심각확률': 15}
+        elif 1600 <= predicted_value < 1700:
+            probs = {'정상확률': 0, '주의확률': 60, '심각확률': 40}
+        elif 1700 <= predicted_value < 1800:
+            probs = {'정상확률': 0, '주의확률': 20, '심각확률': 80}
+        else:
+            probs = {'정상확률': 0, '주의확률': 5, '심각확률': 95}
+    else:  # UU2
+        if predicted_value < 1400:
+            probs = {'정상확률': 90, '주의확률': 10, '심각확률': 0}
+        elif 1400 <= predicted_value < 1600:
+            probs = {'정상확률': 10, '주의확률': 80, '심각확률': 10}
+        elif 1600 <= predicted_value < 1700:
+            probs = {'정상확률': 0, '주의확률': 50, '심각확률': 50}
+        else:
+            probs = {'정상확률': 0, '주의확률': 20, '심각확률': 80}
+    
+    return probs
+
+# ====================== 메인 실행 ======================
+def main():
+    """메인 실행 함수"""
+    
+    # CSV 파일 경로
+    csv_file = 'data/20250807_DATA.CSV'
+    
+    # 파일 체크
+    if not os.path.exists(csv_file):
+        print(f"❌ 파일이 없습니다: {csv_file}")
+        return
+    
+    # 데이터 로드
+    print(f"\n📂 데이터 로딩: {csv_file}")
+    df = pd.read_csv(csv_file)
+    
+    # 시간 정렬
+    df['CURRTIME'] = pd.to_datetime(df['CURRTIME'].astype(str), format='%Y%m%d%H%M')
+    df = df.sort_values('CURRTIME').reset_index(drop=True)
+    
+    print(f"  로드 완료: {len(df)}개 행")
+    
+    # 패턴 감지
+    pattern = detect_pattern(df)
+    
+    # ExtremeNet 예측
+    predicted_value = extremenet_predict(df, pattern)
+    
+    # 확률 계산
+    probabilities = calculate_probabilities(predicted_value, pattern)
+    
+    # 결과 준비
+    simple_dict = {
+        '예측값': predicted_value,
+        '정상확률': probabilities['정상확률'],
+        '주의확률': probabilities['주의확률'],
+        '심각확률': probabilities['심각확률']
+    }
+    
+    # 결과 판정
+    if predicted_value >= 1700:
+        simple_result = "🔴 심각 - 물류량 급증!"
+    elif predicted_value >= 1400:
+        simple_result = "🟡 주의 - 물류량 증가 대비"
+    else:
+        simple_result = "🟢 정상 - 안정적"
+    
+    # 결과 출력
+    print("\n" + "="*80)
+    print("🔥 ExtremeNet 최종 예측")
+    print("="*80)
+    
+    current_time = df['CURRTIME'].iloc[-1]
+    pred_time = current_time + timedelta(minutes=10)
+    
+    print(f"\n패턴: {pattern}")
+    print(f"현재시간: {current_time.strftime('%Y-%m-%d %H:%M')}")
+    print(f"예측시간: {pred_time.strftime('%Y-%m-%d %H:%M')} (10분 후)")
+    
+    print("\n" + "-"*50)
+    print(f"예측값: {simple_dict['예측값']}")
+    print(f"🟢정상확률: {simple_dict['정상확률']}%")
+    print(f"🟡주의확률: {simple_dict['주의확률']}%")
+    print(f"🔴심각확률: {simple_dict['심각확률']}%")
+    print(f"결과: {simple_result}")
+    print("-"*50)
+    
+    # ====================== 간단 출력 추가 ======================
+    print("\n" + "="*50)
+    print("📌 간단 결과")
+    print("="*50)
+    
+    # 가장 높은 확률 찾기
+    max_prob_key = max(simple_dict, key=lambda k: simple_dict[k] if k != '예측값' else 0)
+    max_prob_value = simple_dict[max_prob_key]
+    
+    # 한글 변환
+    status_map = {
+        '정상확률': '정상',
+        '주의확률': '주의', 
+        '심각확률': '심각'
+    }
+    
+    print(f"예측값: {simple_dict['예측값']}")
+    print(f"{status_map[max_prob_key]}: {max_prob_value}%")
+
+if __name__ == "__main__":
+    main()
