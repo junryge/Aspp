@@ -532,31 +532,79 @@ def train_with_checkpoint():
         print(" 📚 모델 학습 시작")
         print("="*70)
         
-        # GPU 가속 모델 확인
-        gpu_models = {}
+        # XGBoost 모델 추가 (GPU 우선, 실패시 CPU)
+        xgboost_models = {}
         try:
             import xgboost as xgb
-            print("✅ XGBoost 발견 - GPU 가속 시도")
-            gpu_models['XGBoost_GPU'] = xgb.XGBRegressor(
-                n_estimators=300, max_depth=10, learning_rate=0.1,
-                tree_method='gpu_hist', gpu_id=0, random_state=42
-            )
-            gpu_models['XGBoost_GPU_Cls'] = xgb.XGBClassifier(
-                n_estimators=300, max_depth=10, learning_rate=0.1,
-                tree_method='gpu_hist', gpu_id=0, random_state=42
-            )
-        except:
-            print("⚠️ XGBoost GPU 사용 불가 또는 미설치")
+            print("\n✅ XGBoost 발견! GPU 가속 확인 중...")
+            
+            # GPU 테스트
+            test_X = np.random.rand(100, 10)
+            test_y = np.random.rand(100)
+            
+            try:
+                # GPU 버전 시도
+                test_model = xgb.XGBRegressor(tree_method='gpu_hist', gpu_id=0, n_estimators=10)
+                test_model.fit(test_X, test_y)
+                print("  🎮 GPU 사용 가능! XGBoost GPU 모델 추가")
+                
+                # GPU 회귀 모델
+                xgboost_models['XGBoost_GPU'] = xgb.XGBRegressor(
+                    n_estimators=300,
+                    max_depth=10, 
+                    learning_rate=0.1,
+                    tree_method='gpu_hist',  # GPU 사용
+                    gpu_id=0,
+                    random_state=42,
+                    verbosity=0
+                )
+                
+                # GPU 분류 모델
+                xgboost_models['XGBoost_GPU_Cls'] = xgb.XGBClassifier(
+                    n_estimators=300,
+                    max_depth=10,
+                    learning_rate=0.1,
+                    tree_method='gpu_hist',  # GPU 사용
+                    gpu_id=0,
+                    random_state=42,
+                    verbosity=0
+                )
+                
+            except Exception as gpu_error:
+                print(f"  ⚠️ GPU 사용 불가: {str(gpu_error)[:50]}")
+                print("  💻 CPU 모드로 XGBoost 실행")
+                
+                # CPU 버전으로 폴백
+                xgboost_models['XGBoost_CPU'] = xgb.XGBRegressor(
+                    n_estimators=300,
+                    max_depth=10,
+                    learning_rate=0.1,
+                    tree_method='hist',  # CPU 사용
+                    random_state=42,
+                    verbosity=0
+                )
+                
+                xgboost_models['XGBoost_CPU_Cls'] = xgb.XGBClassifier(
+                    n_estimators=300,
+                    max_depth=10,
+                    learning_rate=0.1,
+                    tree_method='hist',  # CPU 사용
+                    random_state=42,
+                    verbosity=0
+                )
+                
+        except ImportError:
+            print("❌ XGBoost 미설치! 설치 명령: pip install xgboost")
         
         try:
             import lightgbm as lgb
             print("✅ LightGBM 발견 - GPU 가속 시도")
-            gpu_models['LightGBM_GPU'] = lgb.LGBMRegressor(
+            xgboost_models['LightGBM_GPU'] = lgb.LGBMRegressor(
                 n_estimators=300, max_depth=10, learning_rate=0.1,
                 device='gpu', gpu_platform_id=0, gpu_device_id=0,
                 random_state=42, verbose=-1
             )
-            gpu_models['LightGBM_GPU_Cls'] = lgb.LGBMClassifier(
+            xgboost_models['LightGBM_GPU_Cls'] = lgb.LGBMClassifier(
                 n_estimators=300, max_depth=10, learning_rate=0.1,
                 device='gpu', gpu_platform_id=0, gpu_device_id=0,
                 random_state=42, verbose=-1
@@ -567,11 +615,11 @@ def train_with_checkpoint():
         try:
             from catboost import CatBoostRegressor, CatBoostClassifier
             print("✅ CatBoost 발견 - GPU 가속 시도")
-            gpu_models['CatBoost_GPU'] = CatBoostRegressor(
+            xgboost_models['CatBoost_GPU'] = CatBoostRegressor(
                 iterations=300, depth=10, learning_rate=0.1,
                 task_type='GPU', devices='0', random_state=42, verbose=False
             )
-            gpu_models['CatBoost_GPU_Cls'] = CatBoostClassifier(
+            xgboost_models['CatBoost_GPU_Cls'] = CatBoostClassifier(
                 iterations=300, depth=10, learning_rate=0.1,
                 task_type='GPU', devices='0', random_state=42, verbose=False
             )
@@ -625,12 +673,14 @@ def train_with_checkpoint():
             )
         }
         
-        # GPU 모델 추가
-        all_models = list(regression_models.items()) + list(classification_models.items()) + list(gpu_models.items())
+        # 모든 모델 통합
+        all_models = list(regression_models.items()) + list(classification_models.items()) + list(xgboost_models.items())
         
-        if gpu_models:
-            print(f"\n🎮 GPU 가속 모델 {len(gpu_models)}개 추가됨!")
-            print(f"📊 총 {len(all_models)}개 모델 학습 예정\n")
+        if xgboost_models:
+            print(f"\n🎮 GPU/고성능 모델 {len(xgboost_models)}개 추가됨!")
+            for model_name in xgboost_models.keys():
+                print(f"    - {model_name}")
+            print(f"\n📊 총 {len(all_models)}개 모델 학습 예정\n")
         
         # 모델 학습 (이어서)
         for model_name, model in all_models:
