@@ -149,7 +149,7 @@ def main():
     # 파일 체크
     if not os.path.exists(csv_file):
         print(f"❌ 파일이 없습니다: {csv_file}")
-        return
+        return None, None
     
     # 데이터 로드
     print(f"\n📂 데이터 로딩: {csv_file}")
@@ -230,6 +230,10 @@ def main():
     return simple_dict['예측값'], f"{status_map[max_prob_key]}: {max_prob_value}%"
 
 if __name__ == "__main__":
-    result = main()
-    if result:
-        print(f"\n[RETURN] 예측값: {result[0]}, {result[1]}")
+    # main() 실행하면 바로 반환값 받음
+    prediction_value, status = main()
+    
+    # 반환된 값 사용 예시
+    print(f"\n[반환값 확인]")
+    print(f"예측값: {prediction_value}")
+    print(f"상태: {status}")
