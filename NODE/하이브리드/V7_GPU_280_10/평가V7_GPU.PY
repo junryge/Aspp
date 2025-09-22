@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 """
-강화된 보정 적용 평가 - 1680+ 구간 특별 보정
+추세 기반 동적 보정 시스템
+시퀀스 마지막 100개 데이터의 추세에 따라 3-5% 차등 보정
 """
 
 import pandas as pd
@@ -12,81 +13,127 @@ import warnings
 warnings.filterwarnings('ignore')
 
 print("="*80)
-print("강화된 보정 시스템 - 1680+ 구간 특별 관리")
+print("추세 기반 동적 보정 시스템 (상승 5% / 보합 4% / 하락 3%)")
 print("="*80)
 
 # 설정
 model_dir = 'regression_classification_models_280to10'
 data_file = 'data/20250731_to_20250806.csv'
-output_file = 'evaluation_enhanced_correction.csv'
+output_file = 'evaluation_trend_based.csv'
 
 # 사용할 모델 (4개)
 MODEL_NAMES = ['RandomForest', 'ExtraTrees', 'GradientBoosting', 'MLP']
 
-def enhanced_correction(prediction, current_totalcnt, seq_max, seq_min):
+def calculate_trend(sequence_last_100):
     """
-    구간별 차등 보정 적용
+    마지막 100개 데이터의 추세 계산
+    상승(+1), 보합(0), 하락(-1) 반환
     """
-    # 시퀀스 범위 계산
-    seq_range = seq_max - seq_min
+    if len(sequence_last_100) < 100:
+        sequence_last_100 = sequence_last_100[-min(len(sequence_last_100), 100):]
     
-    # 1. 극심한 과소예측 보정 (예측이 1600 미만인데 현재값이 1650+ 일 때)
-    if current_totalcnt >= 1650 and prediction < 1600:
-        # 최소 1650으로 끌어올리고 + 추가 보정
-        base_correction = max(1650, prediction * 1.15)
-        
-        # 시퀀스 최대값이 높으면 더 보정
-        if seq_max >= 1700:
-            return base_correction * 1.08  # 추가 8%
-        return base_correction * 1.05
+    # 1. 선형 회귀로 추세 계산
+    x = np.arange(len(sequence_last_100))
+    slope, _ = np.polyfit(x, sequence_last_100, 1)
     
-    # 2. 1680-1750 구간 (가장 문제가 되는 구간)
+    # 2. 이동평균 비교
+    if len(sequence_last_100) >= 50:
+        first_half_avg = np.mean(sequence_last_100[:50])
+        second_half_avg = np.mean(sequence_last_100[50:])
+        ma_trend = second_half_avg - first_half_avg
+    else:
+        ma_trend = 0
+    
+    # 3. 최근 20개 vs 이전 20개 비교
+    if len(sequence_last_100) >= 40:
+        recent_20_avg = np.mean(sequence_last_100[-20:])
+        prev_20_avg = np.mean(sequence_last_100[-40:-20])
+        short_trend = recent_20_avg - prev_20_avg
+    else:
+        short_trend = 0
+    
+    # 종합 판단
+    # slope가 양수이고 이동평균도 상승 → 상승 추세
+    if slope > 0.5 and ma_trend > 10:
+        return 1  # 상승
+    # slope가 음수이고 이동평균도 하락 → 하락 추세
+    elif slope < -0.5 and ma_trend < -10:
+        return -1  # 하락
+    # 그 외는 보합
+    else:
+        return 0  # 보합
+
+def trend_based_correction(prediction, current_totalcnt, sequence_last_100, seq_max):
+    """
+    추세 기반 동적 보정
+    """
+    # 추세 계산
+    trend = calculate_trend(sequence_last_100)
+    
+    # 추세에 따른 보정률 결정
+    if trend == 1:  # 상승 추세
+        base_correction = 1.05  # 5%
+        trend_name = "상승"
+    elif trend == -1:  # 하락 추세
+        base_correction = 1.03  # 3%
+        trend_name = "하락"
+    else:  # 보합
+        base_correction = 1.04  # 4%
+        trend_name = "보합"
+    
+    # 1651-1682 구간 (기존 요구사항)
+    if 1651 <= current_totalcnt <= 1682:
+        adjusted = prediction * base_correction
+        return adjusted, trend_name
+    
+    # 1680-1750 구간 (강화 보정)
     if 1680 <= current_totalcnt <= 1750:
         if prediction < 1600:
-            # 예측이 너무 낮으면 큰 폭으로 보정
-            return prediction * 1.18  # 18% 상향
+            # 극심한 과소예측 - 추세 관계없이 강력 보정
+            adjusted = prediction * 1.15
+            # 추세가 상승이면 추가 보정
+            if trend == 1:
+                adjusted *= 1.03
         elif 1600 <= prediction < 1680:
-            # 중간 정도 낮으면 12% 보정
-            return prediction * 1.12
-        elif 1680 <= prediction < 1700:
-            # 약간 낮으면 8% 보정
-            return prediction * 1.08
+            # 중간 과소예측 - 추세 기반 보정 강화
+            if trend == 1:
+                adjusted = prediction * 1.12  # 상승 시 12%
+            elif trend == -1:
+                adjusted = prediction * 1.08  # 하락 시 8%
+            else:
+                adjusted = prediction * 1.10  # 보합 시 10%
         else:
-            # 이미 높게 예측했으면 3% 만
-            return prediction * 1.03
+            # 적정 예측 - 기본 추세 보정
+            adjusted = prediction * base_correction
+        
+        return adjusted, trend_name
     
-    # 3. 1651-1682 이상신호 구간 (기존 요구사항)
-    if 1651 <= current_totalcnt <= 1682:
-        if prediction < current_totalcnt:
-            return prediction * 1.06  # 6% 상향
-        return prediction * 1.04  # 4% 상향
-    
-    # 4. 1700+ 구간 일반 보정
+    # 1700+ 구간
     if current_totalcnt >= 1700:
         if prediction < 1650:
-            return prediction * 1.15  # 15% 상향
+            # 과소예측 - 추세 반영 강화
+            if trend == 1:
+                adjusted = prediction * 1.13
+            else:
+                adjusted = prediction * 1.10
         elif prediction < 1700:
-            return prediction * 1.10  # 10% 상향
+            # 약간 낮은 예측 - 추세 기반
+            adjusted = prediction * (base_correction + 0.03)
         else:
-            return prediction * 1.02  # 2% 상향
+            # 적정 예측 - 가벼운 보정
+            adjusted = prediction * base_correction
+        
+        return adjusted, trend_name
     
-    # 5. 추세 기반 보정 (시퀀스 최대값이 현재값보다 낮은데 예측이 더 낮으면)
-    if seq_max < current_totalcnt and prediction < current_totalcnt * 0.95:
-        # 상승 추세인데 예측이 낮음 → 보정
-        return prediction * 1.08
+    # 일반 구간
+    if current_totalcnt >= 1600 and prediction < current_totalcnt * 0.95:
+        # 현재값보다 5% 이상 낮게 예측 시 추세 보정
+        return prediction * base_correction, trend_name
     
-    return prediction
-
-# 앙상블 가중치 (1700+ 구간에서 성능 좋은 모델에 더 가중치)
-ENSEMBLE_WEIGHTS = {
-    'RandomForest': 0.20,
-    'ExtraTrees': 0.25,
-    'GradientBoosting': 0.35,  # 가장 높은 가중치
-    'MLP': 0.20
-}
+    return prediction, "없음"
 
 def create_sequences_for_evaluation(data, seq_length=280, pred_horizon=10):
-    """평가용 280분 시퀀스 생성"""
+    """평가용 280분 시퀀스 생성 (마지막 100개 데이터 추가)"""
     
     print(f"시퀀스 생성 중...")
     
@@ -99,9 +146,6 @@ def create_sequences_for_evaluation(data, seq_length=280, pred_horizon=10):
     data['ratio_M14B_M16'] = np.clip(data['M14AM14B'] / (data['M14AM16'] + 1), 0, 1000)
     data['totalcnt_change'] = data['TOTALCNT'].diff().fillna(0)
     data['totalcnt_pct_change'] = np.clip(data['TOTALCNT'].pct_change().fillna(0), -10, 10)
-    
-    # 추가: 최근 추세 특징
-    data['recent_trend'] = data['TOTALCNT'].rolling(window=10, min_periods=1).mean()
     
     data = data.replace([np.inf, -np.inf], 0).fillna(0)
     
@@ -174,10 +218,6 @@ def create_sequences_for_evaluation(data, seq_length=280, pred_horizon=10):
                     features.append(np.clip(recent_slope, -100, 100))
                 except:
                     features.append(0)
-                
-                # 추가: 최근 10분 추세
-                recent_10_slope = (values[-1] - values[-10]) / 10 if len(values) >= 10 else 0
-                features.append(recent_10_slope)
         
         last_idx = end_idx - 1
         features.extend([
@@ -189,13 +229,16 @@ def create_sequences_for_evaluation(data, seq_length=280, pred_horizon=10):
         
         target_idx = end_idx + pred_horizon - 1
         if target_idx < len(data):
+            # 마지막 100개 데이터 저장
+            last_100_data = seq_data['TOTALCNT'].values[-100:]
+            
             time_info = {
                 'current_idx': end_idx - 1,
                 'target_idx': target_idx,
                 'current_totalcnt': data['TOTALCNT'].iloc[end_idx - 1],
                 'seq_max': np.max(seq_data['TOTALCNT'].values),
                 'seq_min': np.min(seq_data['TOTALCNT'].values),
-                'recent_trend': data['recent_trend'].iloc[end_idx - 1],
+                'last_100': last_100_data,  # 추세 분석용
             }
             
             X_list.append(features)
@@ -222,21 +265,21 @@ X, y_true, time_info = create_sequences_for_evaluation(df)
 print(f"\n3. 스케일러 로딩")
 scaler = joblib.load(os.path.join(model_dir, 'scaler.pkl'))
 
-# 특징 개수 맞추기 (학습시와 동일하게)
+# 특징 개수 맞추기
 expected_features = scaler.n_features_in_
 if X.shape[1] < expected_features:
-    # 부족한 특징 추가 (0으로 패딩)
     X = np.hstack([X, np.zeros((X.shape[0], expected_features - X.shape[1]))])
 elif X.shape[1] > expected_features:
-    # 초과 특징 제거
     X = X[:, :expected_features]
 
 X_scaled = scaler.transform(X)
 
-print(f"\n4. 강화된 보정으로 4개 모델 예측")
+print(f"\n4. 추세 기반 동적 보정 예측")
 print("-"*80)
+
 predictions = {}
 corrected_predictions = {}
+trend_stats = {'상승': 0, '보합': 0, '하락': 0, '없음': 0}
 
 for name in MODEL_NAMES:
     print(f"\n{name}:")
@@ -245,25 +288,29 @@ for name in MODEL_NAMES:
     # 기본 예측
     raw_pred = model.predict(X_scaled)
     
-    # 강화된 보정 적용
+    # 추세 기반 보정 적용
     corrected_pred = []
     for i in range(len(raw_pred)):
         current_val = time_info[i]['current_totalcnt']
+        seq_last_100 = time_info[i]['last_100']
         seq_max = time_info[i]['seq_max']
-        seq_min = time_info[i]['seq_min']
         
-        corrected_val = enhanced_correction(raw_pred[i], current_val, seq_max, seq_min)
+        corrected_val, trend_type = trend_based_correction(
+            raw_pred[i], current_val, seq_last_100, seq_max
+        )
         corrected_pred.append(corrected_val)
+        
+        if name == 'GradientBoosting':  # 한 모델만 통계
+            trend_stats[trend_type] += 1
     
     corrected_pred = np.array(corrected_pred)
     
     predictions[name] = raw_pred
     corrected_predictions[name] = corrected_pred
     
-    # 성능 분석
+    # 전체 성능
     mae_raw = np.mean(np.abs(raw_pred - y_true))
     mae_corrected = np.mean(np.abs(corrected_pred - y_true))
-    
     print(f"  전체 MAE: {mae_raw:.2f} → {mae_corrected:.2f}")
     
     # 1680+ 구간 성능
@@ -271,41 +318,26 @@ for name in MODEL_NAMES:
     if np.sum(high_mask) > 0:
         high_mae_raw = np.mean(np.abs(raw_pred[high_mask] - y_true[high_mask]))
         high_mae_corrected = np.mean(np.abs(corrected_pred[high_mask] - y_true[high_mask]))
-        print(f"  1680+ 구간 MAE: {high_mae_raw:.2f} → {high_mae_corrected:.2f}")
-        
-        # 샘플 출력
-        sample_indices = np.where(high_mask)[0][:3]
-        for idx in sample_indices:
-            actual = y_true[idx]
-            pred_raw = raw_pred[idx]
-            pred_corr = corrected_pred[idx]
-            print(f"    실제:{actual:.0f} → 원본:{pred_raw:.0f} → 보정:{pred_corr:.0f}")
+        print(f"  1680+ MAE: {high_mae_raw:.2f} → {high_mae_corrected:.2f}")
+
+# 추세 통계
+print(f"\n추세 분포:")
+for trend_type, count in trend_stats.items():
+    if count > 0:
+        print(f"  {trend_type}: {count}개 ({count/len(y_true)*100:.1f}%)")
 
 print("-"*80)
 
-# 앙상블 예측 생성
-print(f"\n5. 앙상블 예측 (가중 평균)")
-ensemble_pred = np.zeros(len(y_true))
-for name in MODEL_NAMES:
-    weight = ENSEMBLE_WEIGHTS[name]
-    ensemble_pred += corrected_predictions[name] * weight
-    print(f"  {name}: {weight:.2f}")
-
-ensemble_mae = np.mean(np.abs(ensemble_pred - y_true))
-print(f"\n앙상블 MAE: {ensemble_mae:.2f}")
-
-# 1680+ 구간 앙상블 성능
-high_mask = y_true >= 1680
-if np.sum(high_mask) > 0:
-    ensemble_high_mae = np.mean(np.abs(ensemble_pred[high_mask] - y_true[high_mask]))
-    print(f"앙상블 1680+ MAE: {ensemble_high_mae:.2f}")
-
-print(f"\n6. 결과 CSV 생성")
+print(f"\n5. 결과 CSV 생성")
 results = []
 
 for i in range(len(X)):
     current_time = df['DateTime'].iloc[time_info[i]['current_idx']]
     target_time = df['DateTime'].iloc[time_info[i]['target_idx']]
+    
+    # 추세 계산
+    trend = calculate_trend(time_info[i]['last_100'])
+    trend_name = {1: "상승", 0: "보합", -1: "하락"}[trend]
     
     row = {
         '날짜': current_time.strftime('%Y-%m-%d %H:%M'),
@@ -313,15 +345,12 @@ for i in range(len(X)):
         '실제값': round(y_true[i], 0),
         '시퀀스MAX': round(time_info[i]['seq_max'], 0),
         '시퀀스MIN': round(time_info[i]['seq_min'], 0),
+        '추세': trend_name,
     }
     
-    # 개별 모델 예측 (보정 적용)
+    # 4개 모델 예측 (보정 적용)
     for name in MODEL_NAMES:
         row[f'{name}_예측'] = round(corrected_predictions[name][i], 0)
-    
-    # 앙상블 예측
-    row['앙상블_예측'] = round(ensemble_pred[i], 0)
-    row['앙상블_오차'] = round(ensemble_pred[i] - y_true[i], 0)
     
     results.append(row)
 
@@ -330,35 +359,42 @@ results_df.to_csv(output_file, index=False, encoding='utf-8-sig')
 
 print(f"\n✅ 완료! 결과 파일: {output_file}")
 
-# 최종 성능 요약
+# 성능 요약
 print(f"\n[최종 성능 요약]")
 print("="*80)
-print(f"{'구간':15} {'샘플수':>10} {'앙상블 MAE':>12} {'정확도(±50)':>12}")
-print("-"*80)
+print(f"{'모델':20} {'전체 MAE':>10} {'1680+ MAE':>12}")
+print("-"*60)
 
-# 전체
-total_acc = np.mean(np.abs(ensemble_pred - y_true) <= 50) * 100
-print(f"{'전체':15} {len(y_true):>10} {ensemble_mae:>12.2f} {total_acc:>11.1f}%")
-
-# 1680+ 구간
-high_mask = y_true >= 1680
-if np.sum(high_mask) > 0:
-    high_mae = np.mean(np.abs(ensemble_pred[high_mask] - y_true[high_mask]))
-    high_acc = np.mean(np.abs(ensemble_pred[high_mask] - y_true[high_mask]) <= 50) * 100
-    print(f"{'1680+':15} {np.sum(high_mask):>10} {high_mae:>12.2f} {high_acc:>11.1f}%")
-
-# 1700+ 구간
-very_high_mask = y_true >= 1700
-if np.sum(very_high_mask) > 0:
-    very_high_mae = np.mean(np.abs(ensemble_pred[very_high_mask] - y_true[very_high_mask]))
-    very_high_acc = np.mean(np.abs(ensemble_pred[very_high_mask] - y_true[very_high_mask]) <= 50) * 100
-    print(f"{'1700+':15} {np.sum(very_high_mask):>10} {very_high_mae:>12.2f} {very_high_acc:>11.1f}%")
+for name in MODEL_NAMES:
+    mae = np.mean(np.abs(corrected_predictions[name] - y_true))
+    
+    high_mask = y_true >= 1680
+    if np.sum(high_mask) > 0:
+        high_mae = np.mean(np.abs(corrected_predictions[name][high_mask] - y_true[high_mask]))
+    else:
+        high_mae = 0
+    
+    print(f"{name:20} {mae:10.2f} {high_mae:12.2f}")
 
 print("="*80)
 
-# 문제가 되는 샘플들 상세 분석
-print(f"\n[1680+ 구간 상세 분석]")
-print("-"*80)
-problem_samples = results_df[results_df['실제값'] >= 1680].head(10)
+# 문제 샘플 분석
+print(f"\n[1680+ 구간 예측 샘플]")
+print("-"*100)
+problem_samples = results_df[results_df['실제값'] >= 1680].head(15)
+
 if len(problem_samples) > 0:
-    print(problem_samples[['날짜', '실제값', 'RandomForest_예측', 'GradientBoosting_예측', '앙상블_예측', '앙상블_오차']].to_string(index=False))
+    display_cols = ['날짜', '실제값', '추세', 'RandomForest_예측', 
+                   'ExtraTrees_예측', 'GradientBoosting_예측', 'MLP_예측']
+    print(problem_samples[display_cols].to_string(index=False))
+    
+    # 평균 오차 계산
+    print(f"\n각 모델 평균 오차 (1680+ 구간):")
+    for name in MODEL_NAMES:
+        errors = problem_samples[f'{name}_예측'] - problem_samples['실제값']
+        print(f"  {name}: {errors.mean():.1f}")
+
+print(f"\n💡 추세 기반 보정 효과:")
+print("  상승 추세 → 5% 보정")
+print("  보합 추세 → 4% 보정")
+print("  하락 추세 → 3% 보정")
