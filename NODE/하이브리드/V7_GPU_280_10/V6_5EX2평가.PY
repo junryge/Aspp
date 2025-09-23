@@ -1,6 +1,6 @@
 """
-📊 패턴 통합 ExtremeNet 평가 코드 (보정 버전)
-위험구간 예측 개선을 위한 강력한 후처리 포함
+📊 패턴 통합 ExtremeNet 평가 코드
+학습된 모델로 data/20250731_to20250806.csv 평가
 """
 
 import numpy as np
@@ -15,7 +15,7 @@ import warnings
 warnings.filterwarnings('ignore')
 
 print("="*80)
-print("📊 ExtremeNet 평가 시스템 (보정 버전)")
+print("📊 ExtremeNet 평가 시스템")
 print("평가 대상: data/20250731_to20250806.csv")
 print("="*80)
 
@@ -234,56 +234,11 @@ class ModelEvaluator:
         
         return df
     
-    def aggressive_correction(self, pred, m14b, m14a, prev_pred=None):
-        """공격적인 보정 함수"""
-        original_pred = pred
-        
-        # 1. M14B 기반 최강 보정
-        if m14b >= 500:
-            # 극한값
-            pred = max(1750, pred * 1.30)
-            
-        elif m14b >= 450:
-            # 무조건 위험구간 상위
-            pred = max(1720, pred * 1.25)
-            
-        elif m14b >= 400:
-            # 위험구간 진입 보장
-            pred = max(1700, pred * 1.20)
-            
-        elif m14b >= 350:
-            # 신호구간 상위
-            pred = max(1670, pred * 1.15)
-            
-        elif m14b >= 300:
-            # 신호구간 진입
-            pred = max(1650, pred * 1.10)
-            
-        # 2. 황금 패턴 특별 보정
-        if m14b > 300 and m14a < 80:
-            ratio = m14b / (m14a + 1)
-            if ratio > 5:
-                pred = max(1700, pred * 1.18)
-            elif ratio > 4:
-                pred = max(1680, pred * 1.15)
-            else:
-                pred = max(1660, pred * 1.12)
-        
-        # 3. 이전값 연속성
-        if prev_pred is not None and prev_pred >= 1680:
-            if m14b >= 350:  # M14B가 높으면 유지
-                pred = max(prev_pred * 0.95, pred)
-        
-        # 4. 최종 구간별 최소값 보장
-        if pred >= 1650:
-            pred = max(pred, 1680)  # 신호구간은 최소 1680
-        if pred >= 1700:
-            pred = max(pred, 1730)  # 위험구간은 최소 1730
-            
-        return pred
-    
     def evaluate(self, data_path):
-        """평가 실행 (강력한 후처리 포함)"""
+        """평가 실행 (배치 처리 + 후처리)"""
+        import time
+        start_time = time.time()
+        
         print(f"\n📂 데이터 로딩: {data_path}")
         
         # 데이터 로드
@@ -299,87 +254,174 @@ class ModelEvaluator:
         df = self.create_features(df)
         
         # 배치 준비
-        print("\n🔮 예측 준비...")
-        batch_size = 32
+        print("\n🚀 고속 예측 준비...")
+        batch_size = 64  # 배치 크기 증가
         
-        # 모든 시퀀스와 M14B/M14A 값 준비
+        # 모든 시퀀스 준비
         sequences = []
         timestamps = []
-        m14b_values = []
-        m14a_values = []
+        m14b_values = []  # M14B 값 저장
         
         total_sequences = len(df) - self.seq_len - self.pred_len + 1
-        print(f"  총 시퀀스: {total_sequences}개")
+        print(f"  총 시퀀스: {total_sequences:,}개")
+        print(f"  배치 크기: {batch_size}")
         
         for i in range(total_sequences):
+            # 100분 데이터 추출
             seq_data = df.iloc[i:i+self.seq_len]
             X = seq_data[self.feature_columns].values
             sequences.append(X)
             timestamps.append((seq_data['CURRTIME'].iloc[-1], i))
-            
-            # M14B, M14A 값 저장 (현재 시점)
+            # 현재 M14B 값 저장
             m14b_values.append(seq_data['M14AM14B'].iloc[-1])
-            m14a_values.append(seq_data['M14AM10A'].iloc[-1])
         
         # 배치로 변환
         sequences = np.array(sequences)
         
-        # 스케일링
+        # 스케일링 (한번에)
         print("  스케일링...")
         sequences_flat = sequences.reshape(-1, len(self.feature_columns))
         sequences_scaled = self.scaler_X.transform(sequences_flat)
         sequences_scaled = sequences_scaled.reshape(sequences.shape)
         
         # 배치 예측
-        print("\n🚀 예측 시작...")
+        print("\n⚡ 고속 배치 예측...")
         all_predictions = []
         
         for i in range(0, len(sequences_scaled), batch_size):
             batch = sequences_scaled[i:i+batch_size]
+            
+            # 예측
             preds = self.model.predict(batch, verbose=0)
-            y_pred_scaled = preds[0]
+            y_pred_scaled = preds[0]  # regression output
+            
+            # 역변환
             y_pred = self.scaler_y.inverse_transform(y_pred_scaled.reshape(-1, 1)).flatten()
             all_predictions.extend(y_pred)
             
+            # 진행 표시
             if (i//batch_size + 1) % 10 == 0:
+                elapsed = time.time() - start_time
                 progress = min(i+batch_size, len(sequences_scaled))
-                print(f"  진행: {progress}/{len(sequences_scaled)} ({progress/len(sequences_scaled)*100:.1f}%)")
+                speed = progress / elapsed
+                eta = (len(sequences_scaled) - progress) / speed if speed > 0 else 0
+                print(f"  진행: {progress}/{len(sequences_scaled)} "
+                      f"({progress/len(sequences_scaled)*100:.1f}%) "
+                      f"속도: {speed:.0f}개/초 "
+                      f"남은시간: {eta:.0f}초")
         
         print(f"✅ 예측 완료: {len(all_predictions)}개")
         
         # ========================================
-        # 🔥 강력한 후처리
+        # 위험구간(1700+) 타겟 보정
         # ========================================
-        print("\n🔥 위험구간 강력 보정...")
+        print("\n🎯 위험구간 타겟 보정...")
+        corrected_predictions = []
+        
+        for idx, pred in enumerate(all_predictions):
+            # 현재 데이터 확인 (100분 시퀀스의 마지막)
+            orig_idx = timestamps[idx][1]
+            current_total = df['TOTALCNT'].iloc[orig_idx + self.seq_len - 1]
+            current_m14b = df['M14AM14B'].iloc[orig_idx + self.seq_len - 1]
+            
+            # 10분 변화량
+            change_10 = df['CHANGE_10'].iloc[orig_idx + self.seq_len - 1] if orig_idx + self.seq_len - 1 < len(df) else 0
+            
+            # 보정된 예측값
+            corrected = pred
+            
+            # 현재 이미 높고 M14B도 높으면 위험구간 유지
+            if current_total >= 1650 and current_m14b >= 350:
+                # 최소값 보장
+                corrected = max(pred, current_total - 20)  # 급락 방지
+                
+                # M14B가 매우 높으면 상향
+                if current_m14b >= 400:
+                    corrected = max(corrected, 1680)
+                    if change_10 > 0:  # 상승 추세면 더 상향
+                        corrected = corrected * 1.05
+            
+            # 예측값이 너무 낮게 나왔는데 M14B가 높으면 보정
+            elif pred < 1650 and current_m14b >= 400:
+                corrected = max(1650, pred * 1.10)
+            
+            # 상한 제한
+            corrected = min(corrected, 2000)
+            
+            corrected_predictions.append(corrected)
+        
+        # 보정된 예측으로 교체
+        all_predictions = corrected_predictions
+        
+        # ========================================
+        # 후처리: 위험구간 보정
+        # ========================================
+        print("\n🔧 위험구간 보정 시작...")
         corrected_predictions = []
         corrections_count = 0
         
-        for idx in range(len(all_predictions)):
-            pred = all_predictions[idx]
-            m14b = m14b_values[idx]
-            m14a = m14a_values[idx]
+        for idx, (pred, m14b) in enumerate(zip(all_predictions, m14b_values)):
+            original_pred = pred
             
-            # 이전 예측값
-            prev_pred = corrected_predictions[-1] if idx > 0 else None
+            # 1. M14B 기반 보정
+            if m14b >= 400:
+                # M14B가 400 이상이면 최소 1650 보장
+                if pred < 1650:
+                    pred = 1650 + (m14b - 400) * 0.5
+                else:
+                    # 이미 높으면 더 높게
+                    pred = pred * 1.15
+                    
+            elif m14b >= 350:
+                # M14B가 350-400이면 상향 조정
+                if pred < 1600:
+                    pred = 1600 + (m14b - 350) * 0.3
+                else:
+                    pred = pred * 1.08
+                    
+            elif m14b >= 300:
+                # M14B가 300-350이면 약간 상향
+                if pred >= 1550:
+                    pred = pred * 1.05
             
-            # 공격적 보정 적용
-            corrected_pred = self.aggressive_correction(pred, m14b, m14a, prev_pred)
+            # 2. 예측값 구간별 추가 보정
+            if pred >= 1600:
+                # 1600 이상은 더 과감하게
+                pred = pred * 1.12
+                
+                if pred >= 1650:
+                    # 1650 이상은 최소값 보장
+                    pred = max(pred, 1670)
+                    
+                if pred >= 1680:
+                    # 1680 이상은 더 강하게
+                    pred = min(pred * 1.08, 1900)
             
-            # 시간대 보정
-            hour = timestamps[idx][0].hour
-            if 14 <= hour <= 17 and corrected_pred >= 1600:
-                corrected_pred = corrected_pred * 1.03
+            # 3. 연속성 보정
+            if idx > 0:
+                prev_pred = corrected_predictions[-1] if corrected_predictions else all_predictions[idx-1]
+                if prev_pred >= 1650 and pred >= 1600:
+                    # 이전이 높으면 현재도 유지
+                    if pred < prev_pred * 0.92:
+                        pred = prev_pred * 0.95
             
-            # 최종 제한
-            corrected_pred = min(corrected_pred, 2000)
-            corrected_pred = max(corrected_pred, 900)
+            # 4. 시간대 보정
+            current_time = timestamps[idx][0]
+            hour = current_time.hour
+            if 14 <= hour <= 18:  # 오후 시간대
+                if pred >= 1550:
+                    pred = pred * 1.03
             
-            if abs(corrected_pred - pred) > 30:
+            # 5. 최종 제한
+            pred = max(pred, 900)  # 최소값
+            pred = min(pred, 2000)  # 최대값
+            
+            if abs(pred - original_pred) > 10:
                 corrections_count += 1
             
-            corrected_predictions.append(corrected_pred)
+            corrected_predictions.append(pred)
         
-        print(f"  ✅ 강력 보정: {corrections_count}개 ({corrections_count/len(all_predictions)*100:.1f}%)")
+        print(f"  보정된 예측: {corrections_count}개 ({corrections_count/len(all_predictions)*100:.1f}%)")
         
         # 결과 정리
         print("\n📊 결과 정리 중...")
@@ -388,7 +430,7 @@ class ModelEvaluator:
         for idx, (pred, (current_time, orig_idx)) in enumerate(zip(corrected_predictions, timestamps)):
             target_time = current_time + timedelta(minutes=10)
             
-            # 실제값
+            # 실제값 (있는 경우)
             if orig_idx + self.seq_len + self.pred_len - 1 < len(df):
                 actual = df['TOTALCNT'].iloc[orig_idx + self.seq_len + self.pred_len - 1]
             else:
@@ -400,42 +442,46 @@ class ModelEvaluator:
             daily_max = day_data['TOTALCNT'].max()
             daily_min = day_data['TOTALCNT'].min()
             
+            # 결과 저장
             results.append({
                 '날짜': current_date.strftime('%Y-%m-%d'),
                 '시간날짜': current_time.strftime('%Y-%m-%d %H:%M:%S'),
                 '타겟날짜': target_time.strftime('%Y-%m-%d %H:%M:%S'),
                 '타겟MAX': daily_max,
                 '타겟MIN': daily_min,
+                '예측값_원본': round(all_predictions[idx], 2),
                 '예측값': round(pred, 2),
-                '예측값_보정': round(corrected_predictions[idx], 2),
                 '실제값': round(actual, 2) if not np.isnan(actual) else None,
-                '오차': round(actual - corrected_predictions[idx], 2) if not np.isnan(actual) else None,
-                'M14B': m14b_values[idx],
-                'M14A': m14a_values[idx]
+                '오차': round(actual - pred, 2) if not np.isnan(actual) else None,
+                'M14B': m14b_values[idx]
             })
         
+        # 결과 데이터프레임
         results_df = pd.DataFrame(results)
         
-        # 성능 평가
+        # 처리 시간
+        total_time = time.time() - start_time
+        print(f"\n⏱️ 총 처리 시간: {total_time:.1f}초")
+        print(f"⚡ 처리 속도: {len(corrected_predictions)/total_time:.0f}개/초")
+        
+        # 성능 메트릭 (실제값이 있는 경우)
         valid_results = results_df.dropna(subset=['실제값'])
         if len(valid_results) > 0:
             # 원본 성능
-            mae_orig = mean_absolute_error(valid_results['실제값'], valid_results['예측값'])
-            rmse_orig = np.sqrt(mean_squared_error(valid_results['실제값'], valid_results['예측값']))
-            r2_orig = r2_score(valid_results['실제값'], valid_results['예측값'])
+            mae_orig = mean_absolute_error(valid_results['실제값'], valid_results['예측값_원본'])
             
             # 보정 후 성능
-            mae = mean_absolute_error(valid_results['실제값'], valid_results['예측값_보정'])
-            rmse = np.sqrt(mean_squared_error(valid_results['실제값'], valid_results['예측값_보정']))
-            r2 = r2_score(valid_results['실제값'], valid_results['예측값_보정'])
+            mae = mean_absolute_error(valid_results['실제값'], valid_results['예측값'])
+            rmse = np.sqrt(mean_squared_error(valid_results['실제값'], valid_results['예측값']))
+            r2 = r2_score(valid_results['실제값'], valid_results['예측값'])
             
             print(f"\n📊 전체 성능:")
             print(f"  예측 수: {len(results)}개")
             print(f"  검증 가능: {len(valid_results)}개")
-            print(f"  ──────────────────────────────")
-            print(f"  MAE:  {mae_orig:.2f} → {mae:.2f} [개선: {mae_orig-mae:+.2f}]")
-            print(f"  RMSE: {rmse_orig:.2f} → {rmse:.2f} [개선: {rmse_orig-rmse:+.2f}]")
-            print(f"  R²:   {r2_orig:.4f} → {r2:.4f} [개선: {r2-r2_orig:+.4f}]")
+            print(f"  MAE (원본): {mae_orig:.2f}")
+            print(f"  MAE (보정): {mae:.2f} [개선: {mae_orig-mae:.2f}]")
+            print(f"  RMSE: {rmse:.2f}")
+            print(f"  R²: {r2:.4f}")
             
             # 구간별 성능
             signal_data = valid_results[(valid_results['실제값'] >= self.SIGNAL_MIN) & 
@@ -443,54 +489,62 @@ class ModelEvaluator:
             danger_data = valid_results[valid_results['실제값'] >= self.DANGER_MIN]
             
             if len(signal_data) > 0:
-                signal_mae_orig = mean_absolute_error(signal_data['실제값'], signal_data['예측값'])
-                signal_mae = mean_absolute_error(signal_data['실제값'], signal_data['예측값_보정'])
-                hits = np.abs(signal_data['예측값_보정'] - signal_data['실제값']) < 50
-                
+                signal_mae_orig = mean_absolute_error(signal_data['실제값'], signal_data['예측값_원본'])
+                signal_mae = mean_absolute_error(signal_data['실제값'], signal_data['예측값'])
                 print(f"\n🟠 신호구간(1651~1699):")
                 print(f"  샘플: {len(signal_data)}개")
-                print(f"  MAE: {signal_mae_orig:.2f} → {signal_mae:.2f} [개선: {signal_mae_orig-signal_mae:+.2f}]")
+                print(f"  MAE (원본): {signal_mae_orig:.2f}")
+                print(f"  MAE (보정): {signal_mae:.2f} [개선: {signal_mae_orig-signal_mae:.2f}]")
+                
+                # 적중률
+                hits = np.abs(signal_data['예측값'] - signal_data['실제값']) < 50
                 print(f"  적중률(±50): {hits.mean()*100:.1f}%")
             
             if len(danger_data) > 0:
-                danger_mae_orig = mean_absolute_error(danger_data['실제값'], danger_data['예측값'])
-                danger_mae = mean_absolute_error(danger_data['실제값'], danger_data['예측값_보정'])
-                hits = np.abs(danger_data['예측값_보정'] - danger_data['실제값']) < 50
-                
+                danger_mae_orig = mean_absolute_error(danger_data['실제값'], danger_data['예측값_원본'])
+                danger_mae = mean_absolute_error(danger_data['실제값'], danger_data['예측값'])
                 print(f"\n🔴 위험구간(1700+):")
                 print(f"  샘플: {len(danger_data)}개")
-                print(f"  MAE: {danger_mae_orig:.2f} → {danger_mae:.2f} [개선: {danger_mae_orig-danger_mae:+.2f}]")
+                print(f"  MAE (원본): {danger_mae_orig:.2f}")
+                print(f"  MAE (보정): {danger_mae:.2f} [개선: {danger_mae_orig-danger_mae:.2f}]")
+                
+                # 적중률
+                hits = np.abs(danger_data['예측값'] - danger_data['실제값']) < 50
                 print(f"  적중률(±50): {hits.mean()*100:.1f}%")
                 
                 # M14B별 분석
                 high_m14b = danger_data[danger_data['M14B'] >= 400]
                 if len(high_m14b) > 0:
-                    high_mae = mean_absolute_error(high_m14b['실제값'], high_m14b['예측값_보정'])
-                    print(f"  M14B≥400: {len(high_m14b)}개, MAE: {high_mae:.2f}")
+                    print(f"\n  📌 M14B≥400 케이스:")
+                    print(f"    샘플: {len(high_m14b)}개")
+                    print(f"    MAE: {mean_absolute_error(high_m14b['실제값'], high_m14b['예측값']):.2f}")
         
         return results_df
     
     def save_results(self, results_df, output_path='evaluation_results.csv'):
         """결과 저장"""
-        # CSV용 컬럼 (예측값_보정을 예측값으로)
-        output_df = results_df.copy()
-        output_df['예측값'] = output_df['예측값_보정']
-        
+        # 필요한 컬럼만 선택 (예측값_원본은 저장하지 않음)
         output_columns = ['날짜', '시간날짜', '타겟날짜', '타겟MAX', '타겟MIN', '예측값']
-        if '실제값' in output_df.columns:
+        
+        if '실제값' in results_df.columns:
             output_columns.extend(['실제값', '오차'])
         
-        output_df[output_columns].to_csv(output_path, index=False, encoding='utf-8-sig')
+        output_df = results_df[output_columns]
+        
+        # CSV 저장
+        output_df.to_csv(output_path, index=False, encoding='utf-8-sig')
         print(f"\n💾 결과 저장: {output_path}")
         
-        # 샘플 출력
-        print("\n📋 위험구간 예측 샘플:")
-        danger_samples = results_df[results_df['예측값_보정'] >= 1700].head(10)
-        if len(danger_samples) > 0:
-            display_cols = ['시간날짜', '예측값', '예측값_보정', 'M14B']
-            if '실제값' in danger_samples.columns:
+        # 위험구간 샘플 출력
+        print("\n📋 결과 샘플 (높은 예측값):")
+        high_preds = results_df[results_df['예측값'] >= 1650].head(10)
+        if len(high_preds) > 0:
+            display_cols = ['시간날짜', '예측값_원본', '예측값', 'M14B']
+            if '실제값' in high_preds.columns:
                 display_cols.append('실제값')
-            print(danger_samples[display_cols].to_string(index=False))
+            print(high_preds[display_cols].to_string(index=False))
+        else:
+            print(output_df.head(10))
         
         return output_path
 
@@ -500,26 +554,23 @@ class ModelEvaluator:
 def main():
     """메인 실행 함수"""
     
+    # 평가 데이터 경로
     eval_path = 'data/20250731_to20250806.csv'
     
+    # 파일 체크
     if not os.path.exists(eval_path):
-        # 대체 경로 시도
-        alt_paths = ['data/20250732_to20250806.csv', '20250731_to20250806.csv']
-        for path in alt_paths:
-            if os.path.exists(path):
-                eval_path = path
-                break
-        else:
-            print(f"❌ 평가 데이터 없음")
-            return None
+        print(f"❌ 평가 데이터 없음: {eval_path}")
+        return None
     
+    # 평가 실행
     try:
         evaluator = ModelEvaluator()
         results_df = evaluator.evaluate(eval_path)
         
+        # 결과 저장
         output_file = evaluator.save_results(
             results_df, 
-            output_path='evaluation_results_corrected.csv'
+            output_path='evaluation_results_20250731_to_20250806.csv'
         )
         
         print("\n" + "="*80)
@@ -531,8 +582,6 @@ def main():
         
     except Exception as e:
         print(f"\n❌ 평가 중 오류 발생: {e}")
-        import traceback
-        traceback.print_exc()
         return None
 
 if __name__ == "__main__":
