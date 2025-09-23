@@ -1,5 +1,5 @@
 """
-ExtremeNet V6.5 평가 - data/20250732_to20250806.csv 전용
+ExtremeNet V6.5 평가 - 빠른 버전 (배치 예측)
 """
 
 import numpy as np
@@ -9,13 +9,14 @@ from sklearn.metrics import mean_absolute_error
 import pickle
 import os
 from datetime import timedelta
+import time
 
 print("="*80)
-print("ExtremeNet V6.5 평가")
+print("ExtremeNet V6.5 평가 - 빠른 버전")
 print("대상: data/20250732_to20250806.csv")
 print("="*80)
 
-# weighted_mae_signal 함수 정의
+# weighted_mae_signal 함수
 def weighted_mae_signal(y_true, y_pred):
     weights = tf.ones_like(y_true)
     signal_mask = tf.logical_and(y_true >= 0.65, y_true <= 0.75)
@@ -26,27 +27,27 @@ def weighted_mae_signal(y_true, y_pred):
     weighted_mae = mae * weights
     return tf.reduce_mean(weighted_mae)
 
-# 파일 체크 - data/20250732_to20250806.csv만!
+# 파일 체크
 data_path = 'data/20250732_to20250806.csv'
 if not os.path.exists(data_path):
     print(f"❌ {data_path} 파일이 없습니다!")
-    print("이 파일만 평가합니다. 다른 파일은 사용하지 않습니다.")
     exit()
 
 # 모델 로드
+print("\n모델 로딩...")
+start = time.time()
 model = tf.keras.models.load_model(
     'models_final/extremenet_v65_final.keras',
     safe_mode=False,
     custom_objects={'weighted_mae_signal': weighted_mae_signal}
 )
-print("✓ 모델 로드")
+print(f"✓ 모델 로드 ({time.time()-start:.1f}초)")
 
 # 스케일러 로드
 with open('scalers_final/scaler_X.pkl', 'rb') as f:
     scaler_X = pickle.load(f)
 with open('scalers_final/scaler_y.pkl', 'rb') as f:
     scaler_y = pickle.load(f)
-print("✓ 스케일러 로드")
 
 # 데이터 로드
 df = pd.read_csv(data_path)
@@ -56,6 +57,9 @@ df = df[df['TOTALCNT'] > 0].reset_index(drop=True)
 print(f"✓ 데이터: {len(df)}행")
 
 # 특성 생성
+print("\n특성 생성...")
+start = time.time()
+
 df['RATIO'] = df['M14AM14B'] / (df['M14AM10A'] + 1)
 df['GOLDEN'] = ((df['M14AM14B'] > 300) & (df['M14AM10A'] < 80)).astype(int)
 df['SIGNAL_ZONE'] = ((df['TOTALCNT'] >= 1651) & (df['TOTALCNT'] <= 1699)).astype(int)
@@ -88,6 +92,8 @@ for i in range(20, len(df)):
         if slope > 5: df.loc[i, 'TREND'] = 2
         elif slope < -5: df.loc[i, 'TREND'] = 0
 
+print(f"✓ 특성 생성 ({time.time()-start:.1f}초)")
+
 # 특성 컬럼
 feature_columns = [
     'TOTALCNT', 'M14AM14B', 'M14AM14BSUM', 'M14AM10A', 'M14AM16',
@@ -101,65 +107,88 @@ feature_columns = [
     'RISE_COUNT'
 ]
 
-# 예측
-print("\n예측 중...")
-results = []
+# 파라미터
 seq_len = 100
 pred_len = 10
+batch_size = 32  # 배치 크기
 
-# 데이터 부족 체크
+# 데이터 체크
 if len(df) < seq_len + pred_len:
     print(f"⚠️ 데이터 부족! {seq_len + pred_len}개 필요, 현재 {len(df)}개")
-    print("예측 불가")
     exit()
 
+# 배치 준비
+print("\n배치 준비...")
+start = time.time()
+
+X_batch = []
+times = []
+actual_values = []
+
 for i in range(len(df) - seq_len - pred_len + 1):
-    # 100분 데이터
     seq_data = df.iloc[i:i+seq_len]
-    current_time = seq_data['CURRTIME'].iloc[-1]
-    target_time = current_time + timedelta(minutes=10)
-    
-    # 실제값
-    actual_value = df['TOTALCNT'].iloc[i+seq_len+pred_len-1]
-    
-    # 특성 추출
     X = seq_data[feature_columns].values
-    X_scaled = scaler_X.transform(X.reshape(-1, len(feature_columns)))
-    X_scaled = X_scaled.reshape(1, seq_len, len(feature_columns))
+    X_batch.append(X)
+    times.append(seq_data['CURRTIME'].iloc[-1])
+    actual_values.append(df['TOTALCNT'].iloc[i+seq_len+pred_len-1])
+
+X_batch = np.array(X_batch)
+print(f"✓ 배치 준비: {X_batch.shape} ({time.time()-start:.1f}초)")
+
+# 스케일링
+print("\n스케일링...")
+start = time.time()
+X_batch_flat = X_batch.reshape(-1, len(feature_columns))
+X_batch_scaled = scaler_X.transform(X_batch_flat)
+X_batch_scaled = X_batch_scaled.reshape(X_batch.shape)
+print(f"✓ 스케일링 ({time.time()-start:.1f}초)")
+
+# 배치 예측
+print("\n예측 중... (학습 아님, predict만 수행)")
+start = time.time()
+predictions = []
+
+# 배치 단위로 예측
+for i in range(0, len(X_batch_scaled), batch_size):
+    batch = X_batch_scaled[i:i+batch_size]
+    preds = model.predict(batch, verbose=0)
+    y_pred_scaled = preds[0][:, 0]
+    y_pred = scaler_y.inverse_transform(y_pred_scaled.reshape(-1, 1)).flatten()
+    predictions.extend(y_pred)
     
-    # 예측
-    preds = model.predict(X_scaled, verbose=0)
-    y_pred_scaled = preds[0][0, 0]
-    y_pred = scaler_y.inverse_transform([[y_pred_scaled]])[0, 0]
-    
-    # 일별 최대값
-    current_date = current_time.date()
+    # 진행 표시
+    if (i//batch_size + 1) % 10 == 0:
+        print(f"  진행: {i+batch_size}/{len(X_batch_scaled)}")
+
+print(f"✓ 예측 완료: {len(predictions)}개 ({time.time()-start:.1f}초)")
+
+# 결과 정리
+results = []
+for i, (time_val, actual, pred) in enumerate(zip(times, actual_values, predictions)):
+    target_time = time_val + timedelta(minutes=10)
+    current_date = time_val.date()
     day_data = df[df['CURRTIME'].dt.date == current_date]
     daily_max = day_data['TOTALCNT'].max()
     
     results.append({
-        'DateTime': current_time.strftime('%Y-%m-%d %H:%M'),
+        'DateTime': time_val.strftime('%Y-%m-%d %H:%M'),
         'TargetDateTime': target_time.strftime('%Y-%m-%d %H:%M'),
         'DailyMax': daily_max,
-        'ActualValue': actual_value,
-        'PredictedValue': y_pred
+        'ActualValue': actual,
+        'PredictedValue': pred
     })
 
-# 결과 저장
+# 저장
 results_df = pd.DataFrame(results)
 results_df.to_csv('prediction_results.csv', index=False, encoding='utf-8-sig')
-print(f"✓ 예측: {len(results)}개")
-print("✓ 저장: prediction_results.csv")
+print("\n✓ 저장: prediction_results.csv")
 
 # 평가
-if len(results) > 0:
-    mae = mean_absolute_error(results_df['ActualValue'], results_df['PredictedValue'])
-    print(f"\nMAE: {mae:.2f}")
-    
-    # 샘플 출력
-    print("\n[결과 샘플]")
-    print(results_df[['DateTime', 'TargetDateTime', 'ActualValue', 'PredictedValue']].head(10))
-else:
-    print("예측 결과 없음")
+mae = mean_absolute_error(results_df['ActualValue'], results_df['PredictedValue'])
+print(f"MAE: {mae:.2f}")
+
+# 샘플
+print("\n[결과 샘플]")
+print(results_df[['DateTime', 'ActualValue', 'PredictedValue']].head(5))
 
 print("\n완료!")
