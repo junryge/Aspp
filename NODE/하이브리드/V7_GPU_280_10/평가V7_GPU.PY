@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 """
-최종 보정 시스템 - 1700+ 강력 보정 + 1651-1682 정밀 보정
+최종 보정 시스템 v2 - 시퀀스 50개 추세 분석
+1700+ 구간에서 상승/하락 추세에 따른 동적 보정
 """
 
 import pandas as pd
@@ -12,70 +13,147 @@ import warnings
 warnings.filterwarnings('ignore')
 
 print("="*80)
-print("최종 보정 시스템 (1700+ 및 1651-1682 구간 특별 관리)")
+print("최종 보정 v2 - 시퀀스 50개 추세 기반 동적 보정")
 print("="*80)
 
 # 설정
 model_dir = 'regression_classification_models_280to10'
 data_file = 'data/20250731_to_20250806.csv'
-output_file = 'evaluation_final.csv'
+output_file = 'evaluation_trend_final.csv'
 
 MODEL_NAMES = ['RandomForest', 'ExtraTrees', 'GradientBoosting', 'MLP']
 
-def final_correction(prediction, current_totalcnt, seq_max):
+def analyze_trend_50(seq_last_50):
     """
-    최종 보정 함수 - 구간별 차등 적용
+    마지막 50개 데이터로 추세 분석
+    return: 'rising', 'falling', 'stable'
+    """
+    if len(seq_last_50) < 50:
+        seq_last_50 = seq_last_50[-min(len(seq_last_50), 50):]
+    
+    # 1. 선형 회귀 기울기
+    x = np.arange(len(seq_last_50))
+    slope, _ = np.polyfit(x, seq_last_50, 1)
+    
+    # 2. 전반부 vs 후반부 평균
+    mid = len(seq_last_50) // 2
+    first_half_avg = np.mean(seq_last_50[:mid])
+    second_half_avg = np.mean(seq_last_50[mid:])
+    avg_diff = second_half_avg - first_half_avg
+    
+    # 3. 최근 10개 vs 이전 10개
+    recent_10 = np.mean(seq_last_50[-10:])
+    prev_10 = np.mean(seq_last_50[-20:-10]) if len(seq_last_50) >= 20 else np.mean(seq_last_50[:10])
+    recent_trend = recent_10 - prev_10
+    
+    # 종합 판단
+    if slope > 1.0 and avg_diff > 20 and recent_trend > 10:
+        return 'rising'  # 강한 상승
+    elif slope < -1.0 and avg_diff < -20 and recent_trend < -10:
+        return 'falling'  # 강한 하락
+    else:
+        return 'stable'  # 보합
+
+def trend_based_correction(prediction, current_totalcnt, seq_max, seq_last_50):
+    """
+    추세 기반 동적 보정 (시퀀스 50개 분석)
     """
     
-    # 1. 먼저 예측값이 얼마나 낮은지 확인
-    error = current_totalcnt - prediction
+    # 추세 분석
+    trend = analyze_trend_50(seq_last_50)
     
-    # 2. 1700+ 구간 (가장 문제가 되는 구간)
+    # 1700+ 구간 - 추세별 차등 보정
     if current_totalcnt >= 1700:
-        if prediction < 1550:  # 극도로 낮은 예측 (150+ 차이)
-            return prediction * 1.18  # 18% 상향
-        elif prediction < 1600:  # 매우 낮은 예측 (100+ 차이)
-            return prediction * 1.12  # 12% 상향
-        elif prediction < 1650:  # 낮은 예측 (50+ 차이)
-            return prediction * 1.08  # 8% 상향
-        elif prediction < 1700:  # 약간 낮은 예측
-            return prediction * 1.05  # 5% 상향
-        else:
-            return prediction * 1.01  # 1% 미세 조정
-    
-    # 3. 1680-1699 구간 (1700 직전)
-    elif 1680 <= current_totalcnt < 1700:
-        if seq_max >= 1700:  # 시퀀스에 1700+ 있으면 상승 가능성
-            if prediction < 1600:
-                return prediction * 1.10  # 10% 상향
+        error = current_totalcnt - prediction
+        
+        if trend == 'rising':  # 상승 추세
+            # 더 강한 보정
+            if prediction < 1550:
+                return prediction * 1.20  # 20% (상승 시)
+            elif prediction < 1600:
+                return prediction * 1.15  # 15%
             elif prediction < 1650:
-                return prediction * 1.07  # 7% 상향
+                return prediction * 1.10  # 10%
+            elif prediction < 1700:
+                return prediction * 1.07  # 7%
             else:
-                return prediction * 1.04  # 4% 상향
+                return prediction * 1.03  # 3%
+                
+        elif trend == 'falling':  # 하락 추세
+            # 보수적 보정
+            if prediction < 1550:
+                return prediction * 1.15  # 15% (하락 시)
+            elif prediction < 1600:
+                return prediction * 1.10  # 10%
+            elif prediction < 1650:
+                return prediction * 1.06  # 6%
+            elif prediction < 1700:
+                return prediction * 1.04  # 4%
+            else:
+                return prediction * 1.01  # 1%
+                
+        else:  # stable (보합)
+            # 중간 보정
+            if prediction < 1550:
+                return prediction * 1.18  # 18%
+            elif prediction < 1600:
+                return prediction * 1.12  # 12%
+            elif prediction < 1650:
+                return prediction * 1.08  # 8%
+            elif prediction < 1700:
+                return prediction * 1.05  # 5%
+            else:
+                return prediction * 1.02  # 2%
+    
+    # 1680-1699 구간
+    elif 1680 <= current_totalcnt < 1700:
+        trend = analyze_trend_50(seq_last_50)
+        
+        if seq_max >= 1700:  # 시퀀스에 1700+ 있음
+            if trend == 'rising':
+                # 상승 가능성 높음
+                if prediction < 1600:
+                    return prediction * 1.12  # 12%
+                elif prediction < 1650:
+                    return prediction * 1.08  # 8%
+                else:
+                    return prediction * 1.05  # 5%
+            else:
+                # 일반 보정
+                if prediction < 1600:
+                    return prediction * 1.10  # 10%
+                elif prediction < 1650:
+                    return prediction * 1.07  # 7%
+                else:
+                    return prediction * 1.04  # 4%
         else:
             if prediction < current_totalcnt - 30:
-                return prediction * 1.06  # 6% 상향
+                return prediction * 1.06  # 6%
             else:
-                return prediction * 1.03  # 3% 상향
+                return prediction * 1.03  # 3%
     
-    # 4. 1651-1682 구간 (이상신호 구간)
+    # 1651-1682 구간
     elif 1651 <= current_totalcnt <= 1682:
         if prediction < 1600:
-            return prediction * 1.08  # 8% 상향
+            return prediction * 1.08  # 8%
         elif prediction < 1650:
-            return prediction * 1.05  # 5% 상향
+            return prediction * 1.05  # 5%
         else:
-            return prediction * 1.03  # 3% 상향
+            return prediction * 1.03  # 3%
     
-    # 5. 1600-1650 구간
+    # 1600-1650 구간
     elif 1600 <= current_totalcnt < 1651:
         if seq_max >= 1700 and prediction < current_totalcnt:
-            return prediction * 1.04  # 4% 상향
+            trend = analyze_trend_50(seq_last_50)
+            if trend == 'rising':
+                return prediction * 1.05  # 5%
+            else:
+                return prediction * 1.04  # 4%
     
     return prediction
 
 def create_sequences_for_evaluation(data, seq_length=280, pred_horizon=10):
-    """평가용 시퀀스 생성"""
+    """평가용 시퀀스 생성 (마지막 50개 포함)"""
     
     print(f"시퀀스 생성 중...")
     
@@ -168,12 +246,16 @@ def create_sequences_for_evaluation(data, seq_length=280, pred_horizon=10):
         
         target_idx = end_idx + pred_horizon - 1
         if target_idx < len(data):
+            # 마지막 50개 데이터 저장
+            seq_last_50 = seq_data['TOTALCNT'].values[-50:]
+            
             time_info = {
                 'current_idx': end_idx - 1,
                 'target_idx': target_idx,
                 'current_totalcnt': data['TOTALCNT'].iloc[end_idx - 1],
                 'seq_max': np.max(seq_data['TOTALCNT'].values),
                 'seq_min': np.min(seq_data['TOTALCNT'].values),
+                'seq_last_50': seq_last_50,  # 추세 분석용
             }
             
             X_list.append(features)
@@ -199,7 +281,6 @@ X, y_true, time_info = create_sequences_for_evaluation(df)
 print(f"\n3. 스케일러 로딩")
 scaler = joblib.load(os.path.join(model_dir, 'scaler.pkl'))
 
-# 특징 수 맞추기
 expected_features = scaler.n_features_in_
 if X.shape[1] < expected_features:
     X = np.hstack([X, np.zeros((X.shape[0], expected_features - X.shape[1]))])
@@ -208,11 +289,12 @@ elif X.shape[1] > expected_features:
 
 X_scaled = scaler.transform(X)
 
-print(f"\n4. 최종 보정 예측")
+print(f"\n4. 추세 기반 동적 보정 예측")
 print("="*80)
 
 predictions = {}
 corrected_predictions = {}
+trend_stats = {'rising': 0, 'falling': 0, 'stable': 0}
 
 for name in MODEL_NAMES:
     print(f"\n{name}:")
@@ -220,14 +302,20 @@ for name in MODEL_NAMES:
     
     raw_pred = model.predict(X_scaled)
     
-    # 최종 보정 적용
+    # 추세 기반 보정
     corrected_pred = []
     for i in range(len(raw_pred)):
         current_val = time_info[i]['current_totalcnt']
         seq_max = time_info[i]['seq_max']
+        seq_last_50 = time_info[i]['seq_last_50']
         
-        corrected_val = final_correction(raw_pred[i], current_val, seq_max)
+        corrected_val = trend_based_correction(raw_pred[i], current_val, seq_max, seq_last_50)
         corrected_pred.append(corrected_val)
+        
+        # 추세 통계 (한 모델만)
+        if name == 'GradientBoosting' and current_val >= 1700:
+            trend = analyze_trend_50(seq_last_50)
+            trend_stats[trend] += 1
     
     corrected_pred = np.array(corrected_pred)
     
@@ -245,13 +333,13 @@ for name in MODEL_NAMES:
         high_mae_raw = np.mean(np.abs(raw_pred[high_mask] - y_true[high_mask]))
         high_mae_corrected = np.mean(np.abs(corrected_pred[high_mask] - y_true[high_mask]))
         print(f"  1700+ MAE: {high_mae_raw:.2f} → {high_mae_corrected:.2f}")
-    
-    # 1651-1682 구간
-    anomaly_mask = (y_true >= 1651) & (y_true <= 1682)
-    if np.sum(anomaly_mask) > 0:
-        anomaly_mae_raw = np.mean(np.abs(raw_pred[anomaly_mask] - y_true[anomaly_mask]))
-        anomaly_mae_corrected = np.mean(np.abs(corrected_pred[anomaly_mask] - y_true[anomaly_mask]))
-        print(f"  1651-1682 MAE: {anomaly_mae_raw:.2f} → {anomaly_mae_corrected:.2f}")
+
+# 추세 통계 출력
+print(f"\n1700+ 구간 추세 분포:")
+total_1700 = sum(trend_stats.values())
+if total_1700 > 0:
+    for trend, count in trend_stats.items():
+        print(f"  {trend}: {count}개 ({count/total_1700*100:.1f}%)")
 
 print("="*80)
 
@@ -262,12 +350,16 @@ for i in range(len(X)):
     current_time = df['DateTime'].iloc[time_info[i]['current_idx']]
     target_time = df['DateTime'].iloc[time_info[i]['target_idx']]
     
+    # 추세 계산
+    trend = analyze_trend_50(time_info[i]['seq_last_50'])
+    
     row = {
         '날짜': current_time.strftime('%Y-%m-%d %H:%M'),
         '타켓날짜': target_time.strftime('%Y-%m-%d %H:%M'),
         '실제값': round(y_true[i], 0),
         '시퀀스MAX': round(time_info[i]['seq_max'], 0),
         '시퀀스MIN': round(time_info[i]['seq_min'], 0),
+        '추세': trend,
     }
     
     # 각 모델 예측값
@@ -282,37 +374,28 @@ results_df.to_csv(output_file, index=False, encoding='utf-8-sig')
 
 print(f"\n✅ 완료! 결과 파일: {output_file}")
 
-# 문제 구간 상세 분석
-print(f"\n[1700+ 구간 개선 효과]")
+# 1700+ 구간 상세 분석
+print(f"\n[1700+ 구간 추세별 성능]")
 print("-"*100)
-high_samples = results_df[results_df['실제값'] >= 1700].head(20)
+high_samples = results_df[results_df['실제값'] >= 1700]
 
 if len(high_samples) > 0:
-    print("실제값 vs 보정된 예측값:")
-    display_cols = ['날짜', '실제값', 'RandomForest_예측', 'ExtraTrees_예측', 
-                   'GradientBoosting_예측', 'MLP_예측']
-    print(high_samples[display_cols].to_string(index=False))
+    # 추세별 그룹화
+    for trend in ['rising', 'falling', 'stable']:
+        trend_samples = high_samples[high_samples['추세'] == trend]
+        if len(trend_samples) > 0:
+            print(f"\n{trend.upper()} 추세 ({len(trend_samples)}개):")
+            for name in MODEL_NAMES:
+                errors = trend_samples[f'{name}_오차'].abs()
+                mae = errors.mean()
+                print(f"  {name}: MAE={mae:.1f}")
     
-    print(f"\n모델별 1700+ 구간 성능:")
-    for name in MODEL_NAMES:
-        errors = high_samples[f'{name}_오차'].abs()
-        mae = errors.mean()
-        within_50 = (errors <= 50).mean() * 100
-        within_100 = (errors <= 100).mean() * 100
-        print(f"  {name}: MAE={mae:.1f}, ±50={within_50:.1f}%, ±100={within_100:.1f}%")
+    # 샘플 출력
+    print(f"\n예측 결과 샘플 (처음 15개):")
+    display_cols = ['날짜', '실제값', '추세', 'RandomForest_예측', 'GradientBoosting_예측']
+    print(high_samples.head(15)[display_cols].to_string(index=False))
 
-print(f"\n[1651-1682 구간 분석]")
-print("-"*100)
-anomaly_samples = results_df[(results_df['실제값'] >= 1651) & (results_df['실제값'] <= 1682)].head(10)
-
-if len(anomaly_samples) > 0:
-    print("1651-1682 구간 예측:")
-    print(anomaly_samples[display_cols].to_string(index=False))
-else:
-    print("1651-1682 구간 샘플이 없습니다")
-
-print(f"\n💡 보정 전략:")
-print("  1700+: 예측값에 따라 1-18% 차등 보정")
-print("  1680-1699: 3-10% 보정")
-print("  1651-1682: 3-8% 보정")
-print("  핵심: 예측이 낮을수록 더 강한 보정")
+print(f"\n💡 추세별 보정 전략:")
+print("  상승(rising): 1700+ 구간에서 최대 20% 보정")
+print("  하락(falling): 1700+ 구간에서 최대 15% 보정 (보수적)")
+print("  보합(stable): 1700+ 구간에서 최대 18% 보정")
