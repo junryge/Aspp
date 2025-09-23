@@ -61,6 +61,9 @@ class ModelEvaluator:
         """모델과 스케일러 로드"""
         print("\n📁 모델 및 스케일러 로딩...")
         
+        # Lambda 레이어 허용 설정
+        tf.keras.config.enable_unsafe_deserialization()
+        
         # 모델 경로 확인
         model_paths = [
             'models_pattern/pattern_extremenet_final.keras',
@@ -74,6 +77,7 @@ class ModelEvaluator:
                 print(f"  모델 발견: {path}")
                 self.model = tf.keras.models.load_model(
                     path,
+                    safe_mode=False,  # Lambda 레이어 허용
                     custom_objects={'weighted_mae_pattern': weighted_mae_pattern}
                 )
                 model_loaded = True
