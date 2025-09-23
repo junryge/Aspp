@@ -29,25 +29,21 @@ class DataEvaluator:
                  scaler_path='scalers_final/'):
         """평가기 초기화"""
         
-        # 모델 로드
+        # 모델 로드 - Lambda 레이어 문제 해결
         print("\n📦 모델 로딩 중...")
         try:
-            # custom_objects 추가
-            custom_objects = {
-                'weighted_mae_signal': self.weighted_mae_signal,
-                'weighted_mae': self.weighted_mae
-            }
-            self.model = tf.keras.models.load_model(model_path, custom_objects=custom_objects)
+            # safe_mode=False로 Lambda 레이어 로드 허용
+            self.model = tf.keras.models.load_model(model_path, safe_mode=False)
             print(f"✅ 모델 로드 성공: {model_path}")
         except Exception as e:
             print(f"❌ 모델 로드 실패: {e}")
             # 대체 경로 시도
-            alt_paths = ['models/extremenet_v65_fixed_final.keras', 
-                        'models/best_extremenet_fixed.keras']
+            alt_paths = ['models_final/best_extremenet.keras', 
+                        'checkpoints_final/extremenet_final.keras']
             for alt_path in alt_paths:
                 if os.path.exists(alt_path):
                     try:
-                        self.model = tf.keras.models.load_model(alt_path, custom_objects=custom_objects)
+                        self.model = tf.keras.models.load_model(alt_path, safe_mode=False)
                         print(f"✅ 대체 모델 로드: {alt_path}")
                         break
                     except:
@@ -89,21 +85,6 @@ class DataEvaluator:
         
         self.seq_len = 100
         self.pred_len = 10
-        
-    def weighted_mae_signal(self, y_true, y_pred):
-        """커스텀 손실함수"""
-        weights = tf.ones_like(y_true)
-        signal_mask = tf.logical_and(y_true >= 0.65, y_true <= 0.75)
-        weights = tf.where(signal_mask, 5.0, weights)
-        danger_mask = y_true > 0.75
-        weights = tf.where(danger_mask, 10.0, weights)
-        mae = tf.abs(y_true - y_pred)
-        weighted_mae = mae * weights
-        return tf.reduce_mean(weighted_mae)
-    
-    def weighted_mae(self, y_true, y_pred):
-        """커스텀 손실함수 (대체)"""
-        return self.weighted_mae_signal(y_true, y_pred)
         
     def load_and_process_data(self, filepath):
         """데이터 로드 및 전처리"""
