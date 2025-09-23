@@ -266,7 +266,8 @@ if __name__ == "__main__":
         print(f"결과: {result['emoji']} {message}")
         print("-"*50)
         print(f"[반환값 확인]")
-        print(result['prediction'])
+        print(f"{result['prediction']}")
+        print(f"{result['level']}: {result['danger_prob']}%")
         
         # 추가 정보
         print(f"\n[참고 정보]")
