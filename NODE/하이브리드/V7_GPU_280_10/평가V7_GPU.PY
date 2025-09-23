@@ -1,7 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-1700+ 구간 강화 보정 - 앙상블 없음
-개별 모델별 결과만 제공
+학습된 280분 모델로 평가만 수행
 """
 
 import pandas as pd
@@ -13,53 +12,24 @@ import warnings
 warnings.filterwarnings('ignore')
 
 print("="*80)
-print("1700+ 구간 강화 보정 (앙상블 없음)")
+print("280분 시퀀스 모델 평가 (학습된 모델 사용)")
 print("="*80)
 
 # 설정
 model_dir = 'regression_classification_models_280to10'
 data_file = 'data/20250731_to_20250806.csv'
-output_file = 'evaluation_no_ensemble.csv'
+output_file = 'evaluation_results.csv'
 
-MODEL_NAMES = ['RandomForest', 'ExtraTrees', 'GradientBoosting', 'MLP']
-
-def correction_1700_plus(prediction, current_totalcnt, seq_max):
-    """
-    1700+ 구간 단순 강력 보정
-    """
-    # 1700+ 구간
-    if current_totalcnt >= 1700:
-        if prediction < 1550:  # 너무 낮게 예측
-            return prediction * 1.15  # 15% 상향
-        elif prediction < 1650:
-            return prediction * 1.10  # 10% 상향
-        elif prediction < 1700:
-            return prediction * 1.06  # 6% 상향
-        else:
-            return prediction * 1.02  # 2% 상향
-    
-    # 1680-1699 구간
-    elif 1680 <= current_totalcnt < 1700:
-        if prediction < current_totalcnt - 50:
-            return prediction * 1.08  # 8% 상향
-        elif prediction < current_totalcnt:
-            return prediction * 1.04  # 4% 상향
-    
-    # 1651-1682 구간
-    elif 1651 <= current_totalcnt <= 1682:
-        if prediction < current_totalcnt:
-            return prediction * 1.04  # 4% 상향
-    
-    return prediction
-
+# 시퀀스 생성 함수 (학습 시와 동일)
 def create_sequences_for_evaluation(data, seq_length=280, pred_horizon=10):
-    """평가용 시퀀스 생성"""
+    """평가용 280분 시퀀스 생성"""
     
     print(f"시퀀스 생성 중...")
     
     feature_cols = ['M14AM14B', 'M14AM10A', 'M14AM16', 'M14AM14BSUM', 
                    'M14AM10ASUM', 'M14AM16SUM', 'M14BM14A', 'M10AM14A', 'M16M14A', 'TOTALCNT']
     
+    # 파생 변수 생성
     data = data.copy()
     data['ratio_M14B_M14A'] = np.clip(data['M14AM14B'] / (data['M14AM10A'] + 1), 0, 1000)
     data['ratio_M14B_M16'] = np.clip(data['M14AM14B'] / (data['M14AM16'] + 1), 0, 1000)
@@ -87,6 +57,7 @@ def create_sequences_for_evaluation(data, seq_length=280, pred_horizon=10):
         for col in feature_cols:
             values = seq_data[col].values
             
+            # 기본 통계
             features.extend([
                 np.mean(values),
                 np.std(values) if len(values) > 1 else 0,
@@ -149,7 +120,6 @@ def create_sequences_for_evaluation(data, seq_length=280, pred_horizon=10):
             time_info = {
                 'current_idx': end_idx - 1,
                 'target_idx': target_idx,
-                'current_totalcnt': data['TOTALCNT'].iloc[end_idx - 1],
                 'seq_max': np.max(seq_data['TOTALCNT'].values),
                 'seq_min': np.min(seq_data['TOTALCNT'].values),
             }
@@ -168,69 +138,29 @@ print(f"\n1. 데이터 로딩: {data_file}")
 df = pd.read_csv(data_file)
 print(f"   데이터 크기: {len(df):,}행")
 
+# DateTime 생성 (1분 간격 가정)
 base_date = datetime(2025, 7, 31, 0, 0)
 df['DateTime'] = [base_date + timedelta(minutes=i) for i in range(len(df))]
 
-print(f"\n2. 시퀀스 생성")
-X, y_true, time_info = create_sequences_for_evaluation(df)
+print(f"\n2. 시퀀스 생성 (280분 → 10분 후)")
+X, y_true, time_info = create_sequences_for_evaluation(df, seq_length=280, pred_horizon=10)
 
 print(f"\n3. 스케일러 로딩")
 scaler = joblib.load(os.path.join(model_dir, 'scaler.pkl'))
-
-expected_features = scaler.n_features_in_
-if X.shape[1] < expected_features:
-    X = np.hstack([X, np.zeros((X.shape[0], expected_features - X.shape[1]))])
-elif X.shape[1] > expected_features:
-    X = X[:, :expected_features]
-
 X_scaled = scaler.transform(X)
 
-print(f"\n4. 개별 모델별 예측 (앙상블 없음)")
-print("="*80)
-
+print(f"\n4. 모델별 예측")
+model_names = ['RandomForest', 'ExtraTrees', 'GradientBoosting', 'MLP', 'Ridge', 'ElasticNet']
 predictions = {}
-corrected_predictions = {}
 
-for name in MODEL_NAMES:
-    print(f"\n{name}:")
+for name in model_names:
+    print(f"   {name} 예측...", end='')
     model = joblib.load(os.path.join(model_dir, f'{name}_regression_model.pkl'))
-    
-    raw_pred = model.predict(X_scaled)
-    
-    # 1700+ 보정
-    corrected_pred = []
-    for i in range(len(raw_pred)):
-        current_val = time_info[i]['current_totalcnt']
-        seq_max = time_info[i]['seq_max']
-        
-        corrected_val = correction_1700_plus(raw_pred[i], current_val, seq_max)
-        corrected_pred.append(corrected_val)
-    
-    corrected_pred = np.array(corrected_pred)
-    
-    predictions[name] = raw_pred
-    corrected_predictions[name] = corrected_pred
-    
-    # 전체 성능
-    mae_raw = np.mean(np.abs(raw_pred - y_true))
-    mae_corrected = np.mean(np.abs(corrected_pred - y_true))
-    print(f"  전체 MAE: {mae_raw:.2f} → {mae_corrected:.2f}")
-    
-    # 1700+ 구간
-    high_mask = y_true >= 1700
-    if np.sum(high_mask) > 0:
-        high_mae_raw = np.mean(np.abs(raw_pred[high_mask] - y_true[high_mask]))
-        high_mae_corrected = np.mean(np.abs(corrected_pred[high_mask] - y_true[high_mask]))
-        print(f"  1700+ MAE: {high_mae_raw:.2f} → {high_mae_corrected:.2f}")
-        
-        # 정확도
-        acc_50 = np.mean(np.abs(corrected_pred[high_mask] - y_true[high_mask]) <= 50) * 100
-        acc_100 = np.mean(np.abs(corrected_pred[high_mask] - y_true[high_mask]) <= 100) * 100
-        print(f"  1700+ 정확도: ±50={acc_50:.1f}%, ±100={acc_100:.1f}%")
+    predictions[name] = model.predict(X_scaled)
+    mae = np.mean(np.abs(predictions[name] - y_true))
+    print(f" MAE: {mae:.2f}")
 
-print("="*80)
-
-print(f"\n5. 결과 CSV 생성 (앙상블 없음)")
+print(f"\n5. 결과 CSV 생성")
 results = []
 
 for i in range(len(X)):
@@ -245,10 +175,8 @@ for i in range(len(X)):
         '시퀀스MIN': round(time_info[i]['seq_min'], 0),
     }
     
-    # 각 모델 개별 예측값
-    for name in MODEL_NAMES:
-        row[f'{name}_예측'] = round(corrected_predictions[name][i], 0)
-        row[f'{name}_오차'] = round(corrected_predictions[name][i] - y_true[i], 0)
+    for name in model_names:
+        row[f'{name}_예측'] = round(predictions[name][i], 0)
     
     results.append(row)
 
@@ -256,36 +184,22 @@ results_df = pd.DataFrame(results)
 results_df.to_csv(output_file, index=False, encoding='utf-8-sig')
 
 print(f"\n✅ 완료! 결과 파일: {output_file}")
+print(f"   총 {len(results_df):,}개 예측 생성")
 
-# 1700+ 구간 분석
-print(f"\n[1700+ 구간 개별 모델 성능]")
-print("="*100)
-high_samples = results_df[results_df['실제값'] >= 1700]
+# 성능 요약
+print(f"\n[모델별 성능 요약]")
+print("="*60)
+print(f"{'모델':15} {'MAE':>10} {'RMSE':>10}")
+print("-"*40)
 
-if len(high_samples) > 0:
-    print(f"1700+ 샘플 수: {len(high_samples)}개\n")
-    
-    # 각 모델별 성능
-    for name in MODEL_NAMES:
-        errors = high_samples[f'{name}_오차'].abs()
-        mae = errors.mean()
-        acc_50 = (errors <= 50).mean() * 100
-        acc_100 = (errors <= 100).mean() * 100
-        
-        print(f"{name}:")
-        print(f"  MAE: {mae:.1f}")
-        print(f"  정확도: ±50={acc_50:.1f}%, ±100={acc_100:.1f}%")
-        print()
-    
-    # 샘플 출력
-    print("\n예측 결과 샘플 (처음 15개):")
-    print("-"*100)
-    display_cols = ['날짜', '실제값', 'RandomForest_예측', 'RandomForest_오차',
-                   'GradientBoosting_예측', 'GradientBoosting_오차']
-    print(high_samples.head(15)[display_cols].to_string(index=False))
+for name in model_names:
+    errors = predictions[name] - y_true
+    mae = np.mean(np.abs(errors))
+    rmse = np.sqrt(np.mean(errors**2))
+    print(f"{name:15} {mae:10.2f} {rmse:10.2f}")
 
-print(f"\n💡 보정 규칙:")
-print("  1700+: 예측값에 따라 2-15% 상향")
-print("  1680-1699: 4-8% 상향")
-print("  1651-1682: 4% 상향")
-print("  앙상블 없음 - 개별 모델별 결과만 제공")
+print("="*60)
+
+# 샘플 출력
+print(f"\n[결과 샘플]")
+print(results_df.head(10).to_string(index=False))
