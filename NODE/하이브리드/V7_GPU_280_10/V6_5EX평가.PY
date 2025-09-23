@@ -1,5 +1,5 @@
 """
-ExtremeNet V6.5 - 새 데이터 평가 및 예측 결과 저장
+ExtremeNet V6.5 - 새 데이터 평가 및 예측 결과 저장 (완전 수정판)
 ==================================================
 data/20250732_to20250806.csv 데이터 평가
 """
@@ -29,50 +29,81 @@ class DataEvaluator:
                  scaler_path='scalers_final/'):
         """평가기 초기화"""
         
+        # 모델 속성 먼저 초기화 (중요!)
+        self.model = None
+        self.scaler_X = None
+        self.scaler_y = None
+        
         # 모델 로드
         print("\n📦 모델 로딩 중...")
-        try:
-            # custom_objects 추가
-            custom_objects = {
-                'weighted_mae_signal': self.weighted_mae_signal,
-                'weighted_mae': self.weighted_mae
-            }
-            self.model = tf.keras.models.load_model(model_path, custom_objects=custom_objects)
-            print(f"✅ 모델 로드 성공: {model_path}")
-        except Exception as e:
-            print(f"❌ 모델 로드 실패: {e}")
-            # 대체 경로 시도
-            alt_paths = ['models/extremenet_v65_fixed_final.keras', 
-                        'models/best_extremenet_fixed.keras']
-            for alt_path in alt_paths:
-                if os.path.exists(alt_path):
-                    try:
-                        self.model = tf.keras.models.load_model(alt_path, custom_objects=custom_objects)
-                        print(f"✅ 대체 모델 로드: {alt_path}")
-                        break
-                    except:
-                        continue
+        
+        # custom_objects 정의
+        custom_objects = {
+            'weighted_mae_signal': self.weighted_mae_signal,
+            'weighted_mae': self.weighted_mae
+        }
+        
+        # 여러 경로 시도
+        model_paths = [
+            model_path,
+            'models_final/best_extremenet.keras',
+            'models/extremenet_v65_fixed_final.keras', 
+            'models/best_extremenet_fixed.keras',
+            'checkpoints_final/extremenet_final.keras',
+            'extremenet_v65_final.keras',
+            'best_extremenet.keras'
+        ]
+        
+        model_loaded = False
+        for path in model_paths:
+            if os.path.exists(path):
+                try:
+                    self.model = tf.keras.models.load_model(path, custom_objects=custom_objects)
+                    print(f"✅ 모델 로드 성공: {path}")
+                    model_loaded = True
+                    break
+                except Exception as e:
+                    print(f"⚠️ {path} 로드 실패: {str(e)[:100]}")
+                    continue
+        
+        if not model_loaded:
+            print("\n❌ 모델을 찾을 수 없습니다!")
+            print("다음 경로들을 확인했습니다:")
+            for path in model_paths:
+                print(f"  - {path}: {'[존재]' if os.path.exists(path) else '[없음]'}")
+            raise FileNotFoundError("모델 파일을 찾을 수 없습니다. 먼저 모델을 학습시켜주세요.")
         
         # 스케일러 로드
-        print("📦 스케일러 로딩 중...")
-        try:
-            with open(f'{scaler_path}scaler_X.pkl', 'rb') as f:
-                self.scaler_X = pickle.load(f)
-            with open(f'{scaler_path}scaler_y.pkl', 'rb') as f:
-                self.scaler_y = pickle.load(f)
-            print("✅ 스케일러 로드 성공")
-        except:
-            # 대체 경로
-            try:
-                with open('scalers/scaler_X.pkl', 'rb') as f:
-                    self.scaler_X = pickle.load(f)
-                with open('scalers/scaler_y.pkl', 'rb') as f:
-                    self.scaler_y = pickle.load(f)
-                print("✅ 대체 스케일러 로드")
-            except:
-                print("⚠️ 스케일러 없음, 새로 생성")
-                self.scaler_X = StandardScaler()
-                self.scaler_y = MinMaxScaler()
+        print("\n📦 스케일러 로딩 중...")
+        
+        scaler_paths = [
+            (f'{scaler_path}scaler_X.pkl', f'{scaler_path}scaler_y.pkl'),
+            ('scalers/scaler_X.pkl', 'scalers/scaler_y.pkl'),
+            ('scalers_final/scaler_X.pkl', 'scalers_final/scaler_y.pkl')
+        ]
+        
+        scaler_loaded = False
+        for x_path, y_path in scaler_paths:
+            if os.path.exists(x_path) and os.path.exists(y_path):
+                try:
+                    with open(x_path, 'rb') as f:
+                        self.scaler_X = pickle.load(f)
+                    with open(y_path, 'rb') as f:
+                        self.scaler_y = pickle.load(f)
+                    print(f"✅ 스케일러 로드 성공")
+                    scaler_loaded = True
+                    break
+                except Exception as e:
+                    print(f"⚠️ 스케일러 로드 실패: {e}")
+                    continue
+        
+        if not scaler_loaded:
+            print("⚠️ 스케일러 없음, 새로 생성 (예측 정확도 낮을 수 있음)")
+            self.scaler_X = StandardScaler()
+            self.scaler_y = MinMaxScaler(feature_range=(0, 1))
+            self.need_fit_scaler = True
+        else:
+            self.need_fit_scaler = False
         
         # 특성 컬럼 정의
         self.feature_columns = [
@@ -91,7 +122,7 @@ class DataEvaluator:
         self.pred_len = 10
         
     def weighted_mae_signal(self, y_true, y_pred):
-        """커스텀 손실함수"""
+        """커스텀 손실함수 - 신호구간 강조"""
         weights = tf.ones_like(y_true)
         signal_mask = tf.logical_and(y_true >= 0.65, y_true <= 0.75)
         weights = tf.where(signal_mask, 5.0, weights)
@@ -183,16 +214,37 @@ class DataEvaluator:
                     df.loc[i, 'TREND'] = 0  # 하락
         
         print(f"✅ 특성 생성 완료: {len(self.feature_columns)}개")
+        
+        # 스케일러가 학습되지 않은 경우 학습
+        if hasattr(self, 'need_fit_scaler') and self.need_fit_scaler:
+            print("⚙️ 스케일러 학습 중...")
+            X_sample = df[self.feature_columns].values[:1000]  # 샘플로 학습
+            y_sample = df['TOTALCNT'].values[:1000].reshape(-1, 1)
+            self.scaler_X.fit(X_sample)
+            self.scaler_y.fit(y_sample)
+            print("✅ 스케일러 학습 완료")
+        
         return df
     
     def predict_sequences(self, df):
         """시퀀스 단위로 예측"""
+        
+        # 모델 체크
+        if self.model is None:
+            raise ValueError("모델이 로드되지 않았습니다!")
+        
         print("\n🔮 예측 시작...")
         
         results = []
         
+        # 예측 가능한 범위 계산
+        max_idx = len(df) - self.seq_len - self.pred_len + 1
+        if max_idx <= 0:
+            print(f"⚠️ 데이터가 부족합니다. 최소 {self.seq_len + self.pred_len}개 필요")
+            return pd.DataFrame()
+        
         # 100분 시퀀스로 10분 후 예측
-        for i in range(len(df) - self.seq_len - self.pred_len + 1):
+        for i in range(max_idx):
             # 100분 데이터
             seq_data = df.iloc[i:i+self.seq_len]
             
@@ -215,20 +267,30 @@ class DataEvaluator:
             try:
                 X_scaled = self.scaler_X.transform(X.reshape(-1, len(self.feature_columns)))
                 X_scaled = X_scaled.reshape(1, self.seq_len, len(self.feature_columns))
-            except:
-                # 스케일러가 학습되지 않은 경우
+            except Exception as e:
+                print(f"⚠️ 스케일링 오류: {e}")
                 X_scaled = X.reshape(1, self.seq_len, len(self.feature_columns))
             
             # 예측
-            preds = self.model.predict(X_scaled, verbose=0)
-            y_pred_scaled = preds[0][0, 0]
-            
-            # 역스케일링
             try:
-                y_pred = self.scaler_y.inverse_transform([[y_pred_scaled]])[0, 0]
-            except:
-                # 스케일러가 없는 경우 대략적 변환
-                y_pred = y_pred_scaled * 900 + 900
+                preds = self.model.predict(X_scaled, verbose=0)
+                
+                # 모델 출력이 여러 개인 경우 첫 번째 출력 사용
+                if isinstance(preds, list):
+                    y_pred_scaled = preds[0][0, 0]
+                else:
+                    y_pred_scaled = preds[0, 0]
+                
+                # 역스케일링
+                try:
+                    y_pred = self.scaler_y.inverse_transform([[y_pred_scaled]])[0, 0]
+                except:
+                    # 스케일러가 없는 경우 대략적 변환
+                    y_pred = y_pred_scaled * 900 + 900
+                
+            except Exception as e:
+                print(f"⚠️ 예측 오류 (인덱스 {i}): {e}")
+                continue
             
             # 현재값
             current_value = seq_data['TOTALCNT'].iloc[-1]
@@ -254,7 +316,7 @@ class DataEvaluator:
             
             # 진행 상황 출력
             if (i+1) % 100 == 0:
-                print(f"  진행: {i+1}/{len(df)-self.seq_len-self.pred_len+1}")
+                print(f"  진행: {i+1}/{max_idx}")
         
         print(f"✅ 예측 완료: {len(results)}개")
         return pd.DataFrame(results)
@@ -262,6 +324,10 @@ class DataEvaluator:
     def evaluate_results(self, results_df):
         """평가 메트릭 계산"""
         print("\n📊 평가 메트릭:")
+        
+        if results_df.empty:
+            print("⚠️ 예측 결과가 없습니다.")
+            return
         
         # NaN 제거
         valid_results = results_df.dropna(subset=['ActualValue', 'PredictedValue'])
@@ -289,6 +355,7 @@ class DataEvaluator:
                     valid_results[signal_mask]['PredictedValue']
                 )
                 print(f"\n🟠 신호구간(1651~1699) MAE: {signal_mae:.2f}")
+                print(f"  샘플 수: {signal_mask.sum()}개")
             
             if danger_mask.sum() > 0:
                 danger_mae = mean_absolute_error(
@@ -296,6 +363,7 @@ class DataEvaluator:
                     valid_results[danger_mask]['PredictedValue']
                 )
                 print(f"🔴 위험구간(1700+) MAE: {danger_mae:.2f}")
+                print(f"  샘플 수: {danger_mask.sum()}개")
         else:
             print("⚠️ 유효한 예측 결과가 없습니다.")
 
@@ -303,83 +371,106 @@ class DataEvaluator:
 # 메인 실행
 # ========================================
 def main():
-    # 평가기 생성
-    evaluator = DataEvaluator()
-    
-    # 데이터 경로
-    data_path = 'data/20250732_to20250806.csv'
-    
-    # 대체 경로
-    if not os.path.exists(data_path):
-        alt_paths = ['20250732_to20250806.csv', 
-                    'data/20250807_DATA.CSV',
-                    '20250807_DATA.CSV']
-        for alt in alt_paths:
-            if os.path.exists(alt):
-                data_path = alt
-                print(f"📌 대체 경로 사용: {data_path}")
-                break
-    
-    if not os.path.exists(data_path):
-        # 테스트용 샘플 데이터 생성
-        print("⚠️ 데이터 파일이 없어서 샘플 데이터를 생성합니다.")
+    try:
+        # 평가기 생성
+        evaluator = DataEvaluator()
         
-        # 기존 데이터에서 일부 추출
-        original_path = 'data/20240201_TO_202507281705.csv'
-        if not os.path.exists(original_path):
-            original_path = '20240201_TO_202507281705.csv'
+        # 데이터 경로
+        data_path = 'data/20250732_to20250806.csv'
         
-        if os.path.exists(original_path):
-            df_original = pd.read_csv(original_path)
-            # 마지막 1000개 행을 테스트 데이터로 사용
-            df_test = df_original.tail(1000)
-            df_test.to_csv('test_data.csv', index=False)
-            data_path = 'test_data.csv'
-            print(f"✅ 테스트 데이터 생성: {data_path}")
-    
-    # 데이터 로드 및 처리
-    df = evaluator.load_and_process_data(data_path)
-    df = evaluator.create_features(df)
-    
-    # 예측 수행
-    results_df = evaluator.predict_sequences(df)
-    
-    # 평가
-    evaluator.evaluate_results(results_df)
-    
-    # 결과 저장
-    output_file = 'prediction_results.csv'
-    
-    # 저장할 컬럼 선택
-    save_columns = ['DateTime', 'TargetDateTime', 'DailyMax', 'PredictedValue']
-    if 'ActualValue' in results_df.columns:
-        # 실제값이 있으면 포함
-        save_columns = ['DateTime', 'TargetDateTime', 'DailyMax', 'ActualValue', 'PredictedValue', 'Error']
-    
-    results_df[save_columns].to_csv(output_file, index=False, encoding='utf-8-sig')
-    print(f"\n💾 결과 저장: {output_file}")
-    
-    # 샘플 출력
-    print("\n📋 예측 결과 샘플 (처음 10개):")
-    print(results_df[save_columns].head(10))
-    
-    # 요약 통계
-    print("\n📊 예측값 요약:")
-    print(f"  평균: {results_df['PredictedValue'].mean():.2f}")
-    print(f"  표준편차: {results_df['PredictedValue'].std():.2f}")
-    print(f"  최소: {results_df['PredictedValue'].min():.2f}")
-    print(f"  최대: {results_df['PredictedValue'].max():.2f}")
-    
-    if 'Error' in results_df.columns:
-        valid_errors = results_df['Error'].dropna()
-        if len(valid_errors) > 0:
-            print(f"\n📊 오차 분포:")
-            print(f"  평균 오차: {valid_errors.mean():.2f}")
-            print(f"  오차 < 50: {(valid_errors < 50).sum()/len(valid_errors)*100:.1f}%")
-            print(f"  오차 < 100: {(valid_errors < 100).sum()/len(valid_errors)*100:.1f}%")
-    
-    print("\n✅ 평가 완료!")
-    return results_df
+        # 대체 경로
+        if not os.path.exists(data_path):
+            alt_paths = [
+                '20250732_to20250806.csv', 
+                'data/20250807_DATA.CSV',
+                '20250807_DATA.CSV',
+                'data/20240201_TO_202507281705.csv',
+                '20240201_TO_202507281705.csv'
+            ]
+            for alt in alt_paths:
+                if os.path.exists(alt):
+                    data_path = alt
+                    print(f"📌 대체 경로 사용: {data_path}")
+                    break
+        
+        if not os.path.exists(data_path):
+            # 테스트용 샘플 데이터 생성
+            print("⚠️ 데이터 파일이 없어서 샘플 데이터를 생성합니다.")
+            
+            # 기존 데이터에서 일부 추출
+            original_paths = [
+                'data/20240201_TO_202507281705.csv',
+                '20240201_TO_202507281705.csv'
+            ]
+            
+            for original_path in original_paths:
+                if os.path.exists(original_path):
+                    print(f"📂 원본 데이터에서 샘플 추출: {original_path}")
+                    df_original = pd.read_csv(original_path)
+                    # 마지막 1000개 행을 테스트 데이터로 사용
+                    df_test = df_original.tail(1000)
+                    df_test.to_csv('test_data.csv', index=False)
+                    data_path = 'test_data.csv'
+                    print(f"✅ 테스트 데이터 생성: {data_path}")
+                    break
+            
+            if not os.path.exists(data_path):
+                print("❌ 데이터 파일을 찾을 수 없습니다!")
+                return None
+        
+        # 데이터 로드 및 처리
+        df = evaluator.load_and_process_data(data_path)
+        df = evaluator.create_features(df)
+        
+        # 예측 수행
+        results_df = evaluator.predict_sequences(df)
+        
+        if results_df.empty:
+            print("⚠️ 예측 결과가 없습니다.")
+            return results_df
+        
+        # 평가
+        evaluator.evaluate_results(results_df)
+        
+        # 결과 저장
+        output_file = 'prediction_results.csv'
+        
+        # 저장할 컬럼 선택
+        save_columns = ['DateTime', 'TargetDateTime', 'DailyMax', 'PredictedValue']
+        if 'ActualValue' in results_df.columns:
+            # 실제값이 있으면 포함
+            save_columns = ['DateTime', 'TargetDateTime', 'DailyMax', 'ActualValue', 'PredictedValue', 'Error']
+        
+        results_df[save_columns].to_csv(output_file, index=False, encoding='utf-8-sig')
+        print(f"\n💾 결과 저장: {output_file}")
+        
+        # 샘플 출력
+        print("\n📋 예측 결과 샘플 (처음 10개):")
+        print(results_df[save_columns].head(10))
+        
+        # 요약 통계
+        print("\n📊 예측값 요약:")
+        print(f"  평균: {results_df['PredictedValue'].mean():.2f}")
+        print(f"  표준편차: {results_df['PredictedValue'].std():.2f}")
+        print(f"  최소: {results_df['PredictedValue'].min():.2f}")
+        print(f"  최대: {results_df['PredictedValue'].max():.2f}")
+        
+        if 'Error' in results_df.columns:
+            valid_errors = results_df['Error'].dropna()
+            if len(valid_errors) > 0:
+                print(f"\n📊 오차 분포:")
+                print(f"  평균 오차: {valid_errors.mean():.2f}")
+                print(f"  오차 < 50: {(valid_errors < 50).sum()/len(valid_errors)*100:.1f}%")
+                print(f"  오차 < 100: {(valid_errors < 100).sum()/len(valid_errors)*100:.1f}%")
+        
+        print("\n✅ 평가 완료!")
+        return results_df
+        
+    except Exception as e:
+        print(f"\n❌ 오류 발생: {e}")
+        import traceback
+        traceback.print_exc()
+        return None
 
 if __name__ == "__main__":
     results = main()
