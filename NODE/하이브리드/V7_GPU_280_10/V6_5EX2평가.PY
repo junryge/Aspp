@@ -262,6 +262,39 @@ class ModelEvaluator:
         
         print(f"✅ 예측 완료: {len(all_predictions)}개")
         
+        # ========================================
+        # 조건부 보정: 신호구간 + 상승 추세
+        # ========================================
+        print("\n🎯 조건부 보정 적용...")
+        corrected_predictions = []
+        corrections_count = 0
+        
+        for idx, pred in enumerate(all_predictions):
+            orig_idx = timestamps[idx][1]
+            
+            # 100분 시퀀스에서 상승 추세 확인
+            seq_data = df.iloc[orig_idx:orig_idx+self.seq_len]
+            recent_changes = seq_data['TOTALCNT'].diff().tail(20)  # 최근 20분
+            rising_count = (recent_changes > 0).sum()
+            
+            # 상승 추세 = 최근 20분 중 14분 이상 상승
+            is_rising = rising_count >= 14
+            
+            # 현재 신호구간 여부 (예측값 기준)
+            is_signal_range = (pred >= self.SIGNAL_MIN and pred <= self.SIGNAL_MAX)
+            
+            # 조건: 신호구간 + 상승 추세
+            if is_signal_range and is_rising:
+                corrected = pred * 1.13  # 13% 증가
+                corrections_count += 1
+            else:
+                corrected = pred  # 그대로
+            
+            corrected_predictions.append(corrected)
+        
+        print(f"  보정 적용: {corrections_count}개 ({corrections_count/len(all_predictions)*100:.1f}%)")
+        all_predictions = corrected_predictions
+        
         # 결과 정리 (보정 없음)
         print("\n📊 결과 정리 중...")
         results = []
