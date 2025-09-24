@@ -1,129 +1,7 @@
 # -*- coding: utf-8 -*-
-class IntegratedV4Model(keras.Model):
-    """통합 V4 모델 - 출력 구조 수정"""
-    
-    def __init__(self, config):
-        super().__init__()
-        
-        self.model1 = PatchTSTModel(config)
-        self.model2 = PatchTSTPINN(config)
-        self.fine_tuning = FineTuningNetwork()
-        self.jump_detection = JumpDetectionNetwork()
-        self.decision_fusion = DecisionFusionNetwork()
-    
-    def call(self, inputs, training=None):  # training=None으로 변경
-        # inputs: [x_seq, x_physics, x_features]
-        x_seq, x_physics, x_features = inputs
-        
-        # Base 모델 예측
-        pred1 = self.model1(x_seq, training=training)
-        pred2 = self.model2([x_seq, x_physics], training=training)
-        
-        # 미세조정 네트워크
-        fine_tune_outputs = self.fine_tuning(x_features, training=training)
-        
-        # 점프 감지 네트워크
-        jump_outputs = self.jump_detection(x_features, training=training)
-        
-        # 최종 융합
-        fusion_outputs = self.decision_fusion(
-            [x_features, pred1, pred2, fine_tune_outputs, jump_outputs], 
-            training=training
-        )
-        
-        # 학습 시에는 단일 텐서만 반환 (중요!)
-        if training:
-            return fusion_outputs['final_prediction']
-        
-        # 추론 시에만 전체 딕셔너리 반환
-        return {
-            'pred1': pred1,
-            'pred2': pred2,
-            'fine_tune': fine_tune_outputs,
-            'jump_detect': jump_outputs,
-            'fusion': fusion_outputs,
-            'final_pred': fusion_outputs['final_prediction']
-        }
-    
-    def train_step(self, data):
-        """커스텀 train_step으로 명확한 제어"""
-        x, y, sample_weight = keras.utils.unpack_x_y_sample_weight(data)
-        
-        with tf.GradientTape() as tape:
-            # training=True를 명시적으로 전달
-            y_pred = self(x, training=True)
-            loss = self.compute_loss(x, y, y_pred, sample_weight)
-        
-        self.optimizer.minimize(loss, self.trainable_variables, tape=tape)
-        return self.compute_metrics(x, y, y_pred, sample_weight)
-    
-    def test_step(self, data):
-        """커스텀 test_step"""
-        x, y, sample_weight = keras.utils.unpack_x_y_sample_weight(data)
-        
-        # training=False를 명시적으로 전달
-        y_pred = self(x, training=False)
-        
-        # 딕셔너리인 경우 final_pred 추출
-        if isinstance(y_pred, dict):
-            y_pred = y_pred['final_pred']
-        
-        self.compute_loss(x, y, y_pred, sample_weight)
-        return self.compute_metrics(x, y, y_pred, sample_weight)
-
-class IntegratedCallback(Callback):
-    """통합 모델 성능 모니터링 - 수정"""
-    
-    def __init__(self, X_val, y_val, scaler_y, model_name="Integrated"):
-        self.X_val = X_val
-        self.y_val = y_val
-        self.scaler_y = scaler_y
-        self.model_name = model_name
-    
-    def on_epoch_end(self, epoch, logs=None):
-        # training=False 명시적 전달
-        outputs = self.model(self.X_val, training=False)
-        
-        if isinstance(outputs, dict):
-            y_pred_scaled = outputs['final_pred']
-        else:
-            y_pred_scaled = outputs
-        
-        y_pred = self.scaler_y.inverse_transform(y_pred_scaled.reshape(-1, 1)).flatten()
-        y_true = self.scaler_y.inverse_transform(self.y_val.reshape(-1, 1)).flatten()
-        
-        # 전체 MAE
-        mae = np.mean(np.abs(y_true - y_pred))
-        
-        # 극단값 성능
-        mask_300 = y_true >= 300
-        if mask_300.sum() > 0:
-            extreme_recall = (y_pred[mask_300] >= 300).sum() / mask_300.sum() * 100
-        else:
-            extreme_recall = 0
-        
-        # 점프 케이스 성능
-        mask_jump = (y_true >= 300) & (y_true < 350)
-        if mask_jump.sum() > 0:
-            jump_recall = (y_pred[mask_jump] >= 290).sum() / mask_jump.sum() * 100
-        else:
-            jump_recall = 0
-        
-        # FP 율
-        mask_stable = y_true < 300
-        if mask_stable.sum() > 0:
-            fp_rate = (y_pred[mask_stable] >= 300).sum() / mask_stable.sum() * 100
-        else:
-            fp_rate = 0
-        
-        print(f"\n[{self.model_name} Epoch {epoch+1}] "
-              f"MAE: {mae:.1f} | "
-              f"300+ 감지: {extreme_recall:.1f}% | "
-              f"점프 감지: {jump_recall:.1f}% | "
-              f"FP: {fp_rate:.1f}%")
 """
 ================================================================================
-🔥 HUBROOM V4 ULTIMATE 완전 통합 학습 시스템 - 30분→10분 예측 (완전 수정판)
+🔥 HUBROOM V4 ULTIMATE 완전 통합 학습 시스템 - 30분→10분 예측 (최종 수정판)
 ================================================================================
 ✨ 핵심 기능:
    1. 30분 시퀀스 데이터로 10분 후 예측
@@ -133,11 +11,11 @@ class IntegratedCallback(Callback):
    5. Decision Fusion Network: 최종 통합 예측
    6. 완벽한 중단/재개 시스템
    
-🎯 모든 오류 수정:
-   - TensorFlow 2.16.1 호환 (.weights.h5)
-   - Tensor shape 오류 수정
-   - 손실 함수 호환성 수정
-   - 모든 기능 완전 작동
+🎯 모든 오류 완전 수정:
+   - TensorFlow 2.16.1 완벽 호환
+   - 모든 타입 오류 수정
+   - 손실 함수 완전 수정
+   - PyTree 오류 해결
 ================================================================================
 """
 
@@ -166,7 +44,7 @@ np.random.seed(42)
 tf.random.set_seed(42)
 
 print("="*80)
-print("🔥 HUBROOM V4 ULTIMATE 통합 시스템 (완전 수정판)")
+print("🔥 HUBROOM V4 ULTIMATE 통합 시스템 (최종 수정판)")
 print("📊 30분 시퀀스 → 10분 후 예측")
 print("🎯 Base Models + Fine-tuning + Jump Detection + Decision Fusion")
 print("="*80)
@@ -264,7 +142,7 @@ class IntegratedDataProcessor:
         self.seq_len = 30  # 30분 시퀀스
         self.pred_len = 10  # 10분 후 예측
         
-        # V4 필수 컬럼 정의 (기존과 동일)
+        # V4 필수 컬럼 정의
         self.inflow_cols = [
             'M16A_6F_TO_HUB_JOB',
             'M16A_2F_TO_HUB_JOB2',
@@ -313,7 +191,7 @@ class IntegratedDataProcessor:
         self.scaler_physics = RobustScaler()
         self.scaler_features = StandardScaler()
         
-        # 연속 패턴 확률 (30개까지)
+        # 연속 패턴 확률
         self.pattern_probability = {
             0: 0.003, 1: 0.15, 2: 0.25, 3: 0.31, 4: 0.43, 5: 0.43,
             6: 0.35, 7: 0.42, 8: 0.53, 9: 0.49, 10: 0.42,
@@ -463,7 +341,7 @@ class IntegratedDataProcessor:
                 last_std = np.std(last_10)
                 volatility_change = last_std / first_std
                 
-                # 점프 리스크 계산 (270-280 구간 위험도)
+                # 점프 리스크 계산
                 max_val = np.max(window_30)
                 recent_5 = window_30[-5:]
                 mean_recent = np.mean(recent_5)
@@ -579,7 +457,7 @@ class IntegratedDataProcessor:
                np.array(X_physics_list), np.array(weights_list), np.array(features_list))
     
     def create_physics_features(self, df: pd.DataFrame, idx: int) -> np.ndarray:
-        """물리 특징 생성 (11차원 - 기존과 동일)"""
+        """물리 특징 생성 (11차원)"""
         physics = []
         
         # 기본 9개 특징
@@ -624,7 +502,7 @@ class IntegratedDataProcessor:
         return np.array(physics)
     
     def create_fine_tuning_features(self, df: pd.DataFrame, idx: int) -> np.ndarray:
-        """미세조정용 특징 생성 (15차원) - 룰 기반 로직을 특징으로 변환"""
+        """미세조정용 특징 생성 (15차원)"""
         features = []
         
         if idx < self.seq_len:
@@ -636,15 +514,15 @@ class IntegratedDataProcessor:
         recent_5 = past_30[-5:]
         
         # 1. 점프 감지 특징들 (277 구간)
-        features.append(1.0 if any(275 <= v <= 279 for v in recent_3) else 0.0)  # 277 직격
-        features.append(1.0 if any(274 <= v < 275 for v in recent_3) else 0.0)   # 274-275
-        features.append(1.0 if any(272 <= v < 274 for v in recent_5) else 0.0)   # 272-274
-        features.append(1.0 if any(270 <= v < 272 for v in recent_5) else 0.0)   # 270-272
+        features.append(1.0 if any(275 <= v <= 279 for v in recent_3) else 0.0)
+        features.append(1.0 if any(274 <= v < 275 for v in recent_3) else 0.0)
+        features.append(1.0 if any(272 <= v < 274 for v in recent_5) else 0.0)
+        features.append(1.0 if any(270 <= v < 272 for v in recent_5) else 0.0)
         
         # 2. 구간별 특징들
-        features.append(1.0 if any(255 <= v <= 260 for v in recent_5) else 0.0)  # 255-260
-        features.append(1.0 if any(260 <= v < 270 for v in recent_5) else 0.0)   # 260-270
-        features.append(1.0 if any(250 <= v < 260 for v in past_30) else 0.0)    # 250-260
+        features.append(1.0 if any(255 <= v <= 260 for v in recent_5) else 0.0)
+        features.append(1.0 if any(260 <= v < 270 for v in recent_5) else 0.0)
+        features.append(1.0 if any(250 <= v < 260 for v in past_30) else 0.0)
         
         # 3. 추세 특징들
         features.append(df.get('long_trend', pd.Series([0])).iloc[idx])
@@ -652,9 +530,9 @@ class IntegratedDataProcessor:
         features.append(df.get('volatility_change', pd.Series([1])).iloc[idx])
         
         # 4. 극단값 특징들
-        features.append(np.max(past_30))  # 최대값
-        features.append(np.mean(recent_3))  # 최근 3분 평균
-        features.append(np.mean(recent_5))  # 최근 5분 평균
+        features.append(np.max(past_30))
+        features.append(np.mean(recent_3))
+        features.append(np.mean(recent_5))
         
         # 5. 위험 스코어들
         features.append(df.get('jump_risk', pd.Series([0])).iloc[idx])
@@ -663,7 +541,7 @@ class IntegratedDataProcessor:
         return np.array(features)
     
     def calculate_sample_weight(self, y_value: float) -> float:
-        """샘플 가중치 계산 (기존과 동일)"""
+        """샘플 가중치 계산"""
         if y_value < 200:
             return 3.0
         elif y_value < 300:
@@ -676,7 +554,7 @@ class IntegratedDataProcessor:
             return 25.0
 
 # ==============================================================================
-# 🏗️ 통합 모델 정의 - Base Models + Fine-tuning + Jump Detection + Decision Fusion
+# 🏗️ 통합 모델 정의 - 간단하고 안정적인 버전
 # ==============================================================================
 
 class PatchTSTModel(keras.Model):
@@ -791,12 +669,11 @@ class PatchTSTPINN(keras.Model):
         return tf.squeeze(output, axis=-1)
 
 class FineTuningNetwork(keras.Model):
-    """미세조정 네트워크 - 룰 기반 로직을 학습으로 대체"""
+    """미세조정 네트워크"""
     
     def __init__(self):
         super().__init__()
         
-        # 특징 처리 레이어
         self.feature_net = keras.Sequential([
             layers.Dense(64, activation='relu'),
             layers.BatchNormalization(),
@@ -805,25 +682,22 @@ class FineTuningNetwork(keras.Model):
             layers.Dense(16, activation='relu')
         ])
         
-        # 점프 감지 브랜치
         self.jump_branch = keras.Sequential([
             layers.Dense(32, activation='relu'),
             layers.Dense(16, activation='relu'),
-            layers.Dense(1, activation='sigmoid', name='jump_prob')
+            layers.Dense(1, activation='sigmoid')
         ])
         
-        # 극단값 감지 브랜치
         self.extreme_branch = keras.Sequential([
             layers.Dense(32, activation='relu'),
             layers.Dense(16, activation='relu'),
-            layers.Dense(1, activation='sigmoid', name='extreme_prob')
+            layers.Dense(1, activation='sigmoid')
         ])
         
-        # 보정 인수 브랜치
         self.adjustment_branch = keras.Sequential([
             layers.Dense(16, activation='relu'),
             layers.Dense(8, activation='relu'),
-            layers.Dense(1, activation='tanh', name='adjustment_factor')  # -1 ~ 1
+            layers.Dense(1, activation='tanh')
         ])
     
     def call(self, features, training=False):
@@ -836,11 +710,11 @@ class FineTuningNetwork(keras.Model):
         return {
             'jump_prob': tf.squeeze(jump_prob, axis=-1),
             'extreme_prob': tf.squeeze(extreme_prob, axis=-1),
-            'adjustment': tf.squeeze(adjustment, axis=-1) * 0.2  # -0.2 ~ 0.2
+            'adjustment': tf.squeeze(adjustment, axis=-1) * 0.2
         }
 
 class JumpDetectionNetwork(keras.Model):
-    """점프 감지 특화 네트워크 (277→300 점프)"""
+    """점프 감지 특화 네트워크"""
     
     def __init__(self):
         super().__init__()
@@ -851,13 +725,13 @@ class JumpDetectionNetwork(keras.Model):
             layers.Dropout(0.4),
             layers.Dense(32, activation='relu'),
             layers.Dense(16, activation='relu'),
-            layers.Dense(1, activation='sigmoid', name='jump_detection')
+            layers.Dense(1, activation='sigmoid')
         ])
         
         self.jump_magnitude = keras.Sequential([
             layers.Dense(32, activation='relu'),
             layers.Dense(16, activation='relu'),
-            layers.Dense(1, activation='relu', name='jump_size')  # 점프 크기
+            layers.Dense(1, activation='relu')
         ])
     
     def call(self, features, training=False):
@@ -866,62 +740,56 @@ class JumpDetectionNetwork(keras.Model):
         
         return {
             'jump_prob': tf.squeeze(jump_prob, axis=-1),
-            'jump_size': tf.squeeze(jump_size, axis=-1) * 50 + 250  # 250~300 범위
+            'jump_size': tf.squeeze(jump_size, axis=-1) * 50 + 250
         }
 
 class DecisionFusionNetwork(keras.Model):
-    """최종 의사결정 융합 네트워크 - Tensor Shape 오류 수정"""
+    """최종 의사결정 융합 네트워크"""
     
     def __init__(self):
         super().__init__()
         
-        # 모델 선택 네트워크
         self.model_selector = keras.Sequential([
             layers.Dense(64, activation='relu'),
             layers.BatchNormalization(),
             layers.Dropout(0.3),
             layers.Dense(32, activation='relu'),
             layers.Dense(16, activation='relu'),
-            layers.Dense(1, activation='sigmoid', name='model_choice')  # 0: Model1, 1: Model2
+            layers.Dense(1, activation='sigmoid')
         ])
         
-        # 최종 예측 조합 네트워크
         self.fusion_net = keras.Sequential([
             layers.Dense(32, activation='relu'),
             layers.Dense(16, activation='relu'),
             layers.Dense(8, activation='relu'),
-            layers.Dense(1, name='final_prediction')
+            layers.Dense(1)
         ])
     
     def call(self, inputs, training=False):
-        # inputs: [features, pred1, pred2, fine_tune_outputs, jump_outputs]
         features, pred1, pred2, fine_tune, jump_detect = inputs
         
-        # 모델 선택 확률
         model_choice_prob = self.model_selector(features, training=training)
-        model_choice_squeezed = tf.squeeze(model_choice_prob, axis=-1)  # [?, 1] -> [?]
+        model_choice = tf.squeeze(model_choice_prob, axis=-1)
         
-        # 특징들 결합 - 모든 텐서를 [?, 1] 형태로 통일
         combined_features = tf.concat([
-            features[:, :8],  # 주요 특징들만 [?, 8]
-            tf.expand_dims(pred1, axis=-1),  # [?] -> [?, 1]
-            tf.expand_dims(pred2, axis=-1),  # [?] -> [?, 1]
-            tf.expand_dims(fine_tune['jump_prob'], axis=-1),  # [?] -> [?, 1]
-            tf.expand_dims(fine_tune['extreme_prob'], axis=-1),  # [?] -> [?, 1]
-            tf.expand_dims(jump_detect['jump_prob'], axis=-1),  # [?] -> [?, 1]
-            tf.expand_dims(model_choice_squeezed, axis=-1)  # [?] -> [?, 1]
+            features[:, :8],
+            tf.expand_dims(pred1, axis=-1),
+            tf.expand_dims(pred2, axis=-1),
+            tf.expand_dims(fine_tune['jump_prob'], axis=-1),
+            tf.expand_dims(fine_tune['extreme_prob'], axis=-1),
+            tf.expand_dims(jump_detect['jump_prob'], axis=-1),
+            tf.expand_dims(model_choice, axis=-1)
         ], axis=-1)
         
-        # 최종 예측
         final_pred = self.fusion_net(combined_features, training=training)
         
         return {
-            'model_choice': model_choice_squeezed,
+            'model_choice': model_choice,
             'final_prediction': tf.squeeze(final_pred, axis=-1)
         }
 
 class IntegratedV4Model(keras.Model):
-    """통합 V4 모델 - 학습/추론 모드 분리로 손실 함수 호환성 해결"""
+    """통합 V4 모델 - 간단하고 안정적인 버전"""
     
     def __init__(self, config):
         super().__init__()
@@ -933,7 +801,6 @@ class IntegratedV4Model(keras.Model):
         self.decision_fusion = DecisionFusionNetwork()
     
     def call(self, inputs, training=False):
-        # inputs: [x_seq, x_physics, x_features]
         x_seq, x_physics, x_features = inputs
         
         # Base 모델 예측
@@ -952,19 +819,8 @@ class IntegratedV4Model(keras.Model):
             training=training
         )
         
-        # 학습 시에는 final_pred만 반환 (손실 함수 호환)
-        if training:
-            return fusion_outputs['final_prediction']
-        else:
-            # 추론 시에는 전체 정보 반환
-            return {
-                'pred1': pred1,
-                'pred2': pred2,
-                'fine_tune': fine_tune_outputs,
-                'jump_detect': jump_outputs,
-                'fusion': fusion_outputs,
-                'final_pred': fusion_outputs['final_prediction']
-            }
+        # 항상 단일 값만 반환 (학습과 추론 모두)
+        return fusion_outputs['final_prediction']
 
 # ==============================================================================
 # 📉 통합 손실 함수 - 완전 수정
@@ -983,9 +839,8 @@ def stable_loss(y_true, y_pred):
     error = tf.abs(y_true - y_pred)
     
     penalty = tf.ones_like(error)
-    penalty = tf.where(y_true < 300.0, 1.0, 0.01)  # 300+ 는 거의 무시
+    penalty = tf.where(y_true < 300.0, 1.0, 0.01)
     
-    # False Positive 강력 방지
     condition_fp = tf.logical_and(y_true < 300.0, y_pred >= 300.0)
     penalty = tf.where(condition_fp, 50.0, penalty)
     
@@ -1032,7 +887,7 @@ def extreme_loss(y_true, y_pred):
     return result
 
 def integrated_loss(y_true, y_pred):
-    """통합 손실 함수 - 완전 수정 (final_pred만 받음)"""
+    """통합 손실 함수 - 완전 수정"""
     y_true = tf.cast(y_true, tf.float32)
     y_pred = tf.cast(y_pred, tf.float32)
     
@@ -1044,9 +899,9 @@ def integrated_loss(y_true, y_pred):
     # 기본 MAE 손실
     mae_loss = tf.reduce_mean(tf.abs(y_true - y_pred))
     
-    # 극단값 특화 손실 추가
-    is_extreme = tf.cast(y_true >= 300.0, tf.float32)
-    extreme_penalty = tf.where(is_extreme, 2.0, 1.0)  # 극단값은 2배 가중치
+    # 극단값 특화 손실 추가 - bool 타입 유지!
+    is_extreme = y_true >= 300.0  # bool 타입
+    extreme_penalty = tf.where(is_extreme, 2.0, 1.0)
     
     # False Positive 방지
     fp_condition = tf.logical_and(y_true < 300.0, y_pred >= 300.0)
@@ -1059,11 +914,11 @@ def integrated_loss(y_true, y_pred):
     return weighted_loss
 
 # ==============================================================================
-# 📊 통합 콜백 - 수정
+# 📊 통합 콜백
 # ==============================================================================
 
 class IntegratedCallback(Callback):
-    """통합 모델 성능 모니터링 - 수정"""
+    """통합 모델 성능 모니터링"""
     
     def __init__(self, X_val, y_val, scaler_y, model_name="Integrated"):
         self.X_val = X_val
@@ -1072,16 +927,7 @@ class IntegratedCallback(Callback):
         self.model_name = model_name
     
     def on_epoch_end(self, epoch, logs=None):
-        # 추론 모드로 예측 (전체 출력)
-        self.model.training = False
-        outputs = self.model.predict(self.X_val, verbose=0)
-        self.model.training = True  # 학습 모드로 복원
-        
-        if isinstance(outputs, dict):
-            y_pred_scaled = outputs['final_pred']
-        else:
-            y_pred_scaled = outputs
-        
+        y_pred_scaled = self.model.predict(self.X_val, verbose=0)
         y_pred = self.scaler_y.inverse_transform(y_pred_scaled.reshape(-1, 1)).flatten()
         y_true = self.scaler_y.inverse_transform(self.y_val.reshape(-1, 1)).flatten()
         
@@ -1295,7 +1141,7 @@ def main():
             processor.scaler_y = joblib.load('./checkpoints_integrated_30min/scalers/scaler_y.pkl')
             
             config = {
-                'seq_len': 30,  # 30분 시퀀스
+                'seq_len': 30,
                 'n_features': n_features,
                 'patch_len': 6
             }
@@ -1404,14 +1250,14 @@ def main():
             # 통합 모델 생성
             integrated_model = IntegratedV4Model(config)
             
-            # Base 모델 가중치 로드 (사전 학습된) - TensorFlow 2.16.1 호환
+            # Base 모델 가중치 로드
             integrated_model.model1.build(input_shape=(None, 30, n_features))
             integrated_model.model1.load_weights('./checkpoints_integrated_30min/models/model1_stable.weights.h5')
             
             integrated_model.model2.build([(None, 30, n_features), (None, 11)])
             integrated_model.model2.load_weights('./checkpoints_integrated_30min/models/model2_extreme.weights.h5')
             
-            # Base 모델 가중치 고정 (선택사항)
+            # Base 모델 가중치 고정
             for layer in integrated_model.model1.layers:
                 layer.trainable = False
             for layer in integrated_model.model2.layers:
@@ -1458,20 +1304,9 @@ def main():
             print("\n📊 최종 성능 평가")
             print("="*60)
             
-            # 추론 모드로 전환
-            integrated_model.training = False
-            test_outputs = integrated_model.predict([X_test_scaled, X_physics_test_scaled, X_features_test_scaled], 
-                                                   verbose=1)
-            
-            if isinstance(test_outputs, dict):
-                y_pred = processor.scaler_y.inverse_transform(
-                    test_outputs['final_pred'].reshape(-1, 1)
-                ).flatten()
-            else:
-                y_pred = processor.scaler_y.inverse_transform(
-                    test_outputs.reshape(-1, 1)
-                ).flatten()
-            
+            y_pred_scaled = integrated_model.predict([X_test_scaled, X_physics_test_scaled, X_features_test_scaled], 
+                                                    verbose=1)
+            y_pred = processor.scaler_y.inverse_transform(y_pred_scaled.reshape(-1, 1)).flatten()
             y_true = y_test
             
             # 성능 지표
@@ -1502,7 +1337,7 @@ def main():
                       f"오차: {abs(y_true[i] - y_pred[i]):5.1f}")
             
             print("\n" + "="*80)
-            print("✅ V4 ULTIMATE 통합 시스템 완료! (모든 오류 해결)")
+            print("✅ V4 ULTIMATE 통합 시스템 완료!")
             print("📊 30분 시퀀스 → 10분 예측 시스템 구축 성공!")
             print("="*80)
             
