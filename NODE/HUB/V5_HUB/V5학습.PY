@@ -1,31 +1,126 @@
 # -*- coding: utf-8 -*-
+class IntegratedV4Model(keras.Model):
+    """통합 V4 모델 - 출력 구조 수정"""
+    
+    def __init__(self, config):
+        super().__init__()
+        
+        self.model1 = PatchTSTModel(config)
+        self.model2 = PatchTSTPINN(config)
+        self.fine_tuning = FineTuningNetwork()
+        self.jump_detection = JumpDetectionNetwork()
+        self.decision_fusion = DecisionFusionNetwork()
+    
+    def call(self, inputs, training=None):  # training=None으로 변경
+        # inputs: [x_seq, x_physics, x_features]
+        x_seq, x_physics, x_features = inputs
+        
+        # Base 모델 예측
+        pred1 = self.model1(x_seq, training=training)
+        pred2 = self.model2([x_seq, x_physics], training=training)
+        
+        # 미세조정 네트워크
+        fine_tune_outputs = self.fine_tuning(x_features, training=training)
+        
+        # 점프 감지 네트워크
+        jump_outputs = self.jump_detection(x_features, training=training)
+        
+        # 최종 융합
+        fusion_outputs = self.decision_fusion(
+            [x_features, pred1, pred2, fine_tune_outputs, jump_outputs], 
+            training=training
+        )
+        
+        # 학습 시에는 단일 텐서만 반환 (중요!)
+        if training:
+            return fusion_outputs['final_prediction']
+        
+        # 추론 시에만 전체 딕셔너리 반환
+        return {
+            'pred1': pred1,
+            'pred2': pred2,
+            'fine_tune': fine_tune_outputs,
+            'jump_detect': jump_outputs,
+            'fusion': fusion_outputs,
+            'final_pred': fusion_outputs['final_prediction']
+        }
+    
+    def train_step(self, data):
+        """커스텀 train_step으로 명확한 제어"""
+        x, y, sample_weight = keras.utils.unpack_x_y_sample_weight(data)
+        
+        with tf.GradientTape() as tape:
+            # training=True를 명시적으로 전달
+            y_pred = self(x, training=True)
+            loss = self.compute_loss(x, y, y_pred, sample_weight)
+        
+        self.optimizer.minimize(loss, self.trainable_variables, tape=tape)
+        return self.compute_metrics(x, y, y_pred, sample_weight)
+    
+    def test_step(self, data):
+        """커스텀 test_step"""
+        x, y, sample_weight = keras.utils.unpack_x_y_sample_weight(data)
+        
+        # training=False를 명시적으로 전달
+        y_pred = self(x, training=False)
+        
+        # 딕셔너리인 경우 final_pred 추출
+        if isinstance(y_pred, dict):
+            y_pred = y_pred['final_pred']
+        
+        self.compute_loss(x, y, y_pred, sample_weight)
+        return self.compute_metrics(x, y, y_pred, sample_weight)
 
-def integrated_loss(y_true, y_pred):
-    """통합 손실 함수 - bool 타입 오류 수정"""
-    y_true = tf.cast(y_true, tf.float32)
-    y_pred = tf.cast(y_pred, tf.float32)
+class IntegratedCallback(Callback):
+    """통합 모델 성능 모니터링 - 수정"""
     
-    if len(y_true.shape) > 1:
-        y_true = tf.squeeze(y_true)
-    if len(y_pred.shape) > 1:
-        y_pred = tf.squeeze(y_pred)
+    def __init__(self, X_val, y_val, scaler_y, model_name="Integrated"):
+        self.X_val = X_val
+        self.y_val = y_val
+        self.scaler_y = scaler_y
+        self.model_name = model_name
     
-    # 기본 MAE 손실
-    mae_loss = tf.reduce_mean(tf.abs(y_true - y_pred))
-    
-    # 극단값 특화 손실 추가 - bool 타입 유지!
-    is_extreme = y_true >= 300.0  # bool 타입으로 유지 (수정됨!)
-    extreme_penalty = tf.where(is_extreme, 2.0, 1.0)  
-    
-    # False Positive 방지 - 이미 bool 타입
-    fp_condition = tf.logical_and(y_true < 300.0, y_pred >= 300.0)
-    fp_penalty = tf.where(fp_condition, 5.0, 1.0)
-    
-    # 총 페널티 적용
-    total_penalty = extreme_penalty * fp_penalty
-    weighted_loss = tf.reduce_mean(tf.abs(y_true - y_pred) * total_penalty)
-    
-    return weighted_loss
+    def on_epoch_end(self, epoch, logs=None):
+        # training=False 명시적 전달
+        outputs = self.model(self.X_val, training=False)
+        
+        if isinstance(outputs, dict):
+            y_pred_scaled = outputs['final_pred']
+        else:
+            y_pred_scaled = outputs
+        
+        y_pred = self.scaler_y.inverse_transform(y_pred_scaled.reshape(-1, 1)).flatten()
+        y_true = self.scaler_y.inverse_transform(self.y_val.reshape(-1, 1)).flatten()
+        
+        # 전체 MAE
+        mae = np.mean(np.abs(y_true - y_pred))
+        
+        # 극단값 성능
+        mask_300 = y_true >= 300
+        if mask_300.sum() > 0:
+            extreme_recall = (y_pred[mask_300] >= 300).sum() / mask_300.sum() * 100
+        else:
+            extreme_recall = 0
+        
+        # 점프 케이스 성능
+        mask_jump = (y_true >= 300) & (y_true < 350)
+        if mask_jump.sum() > 0:
+            jump_recall = (y_pred[mask_jump] >= 290).sum() / mask_jump.sum() * 100
+        else:
+            jump_recall = 0
+        
+        # FP 율
+        mask_stable = y_true < 300
+        if mask_stable.sum() > 0:
+            fp_rate = (y_pred[mask_stable] >= 300).sum() / mask_stable.sum() * 100
+        else:
+            fp_rate = 0
+        
+        print(f"\n[{self.model_name} Epoch {epoch+1}] "
+              f"MAE: {mae:.1f} | "
+              f"300+ 감지: {extreme_recall:.1f}% | "
+              f"점프 감지: {jump_recall:.1f}% | "
+              f"FP: {fp_rate:.1f}%")
 """
 ================================================================================
 🔥 HUBROOM V4 ULTIMATE 완전 통합 학습 시스템 - 30분→10분 예측 (완전 수정판)
