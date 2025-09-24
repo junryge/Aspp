@@ -101,18 +101,18 @@ class PatternDetector:
             confidence = 0.7 + (1 - m14b_350_ratio) * 0.3
             print(f"  📈 UU1 패턴 감지: 급증 가능 (신뢰도: {confidence:.1%})")
         
-        # 패턴 통계 저장
+        # 패턴 통계 저장 (numpy 타입을 Python 기본 타입으로 변환)
         self.pattern_stats = {
             'pattern': pattern,
-            'confidence': confidence,
-            'totalcnt_max': totalcnt_max,
-            'totalcnt_mean': totalcnt_mean,
-            'm14b_mean': m14b_mean,
-            'm14b_max': m14b_max,
-            'high_cases': high_cases,
-            'critical_cases': critical_cases,
-            'm14b_350_ratio': m14b_350_ratio,
-            'm14b_400_ratio': m14b_400_ratio
+            'confidence': float(confidence),
+            'totalcnt_max': float(totalcnt_max),
+            'totalcnt_mean': float(totalcnt_mean),
+            'm14b_mean': float(m14b_mean),
+            'm14b_max': float(m14b_max),
+            'high_cases': int(high_cases),
+            'critical_cases': int(critical_cases),
+            'm14b_350_ratio': float(m14b_350_ratio),
+            'm14b_400_ratio': float(m14b_400_ratio)
         }
         
         return pattern, confidence
@@ -306,14 +306,30 @@ class ExtremeDataProcessorWithPattern:
         with open(f'{path}target_scaler.pkl', 'wb') as f:
             pickle.dump(self.target_scaler, f)
             
-        # 설정 저장
+        # numpy 타입을 Python 기본 타입으로 변환하는 함수
+        def convert_numpy_types(obj):
+            if isinstance(obj, np.integer):
+                return int(obj)
+            elif isinstance(obj, np.floating):
+                return float(obj)
+            elif isinstance(obj, np.ndarray):
+                return obj.tolist()
+            elif isinstance(obj, dict):
+                return {key: convert_numpy_types(value) for key, value in obj.items()}
+            elif isinstance(obj, list):
+                return [convert_numpy_types(item) for item in obj]
+            else:
+                return obj
+        
+        # 설정 저장 (numpy 타입 변환)
         config = {
-            'seq_len': self.seq_len,
-            'pred_len': self.pred_len,
+            'seq_len': int(self.seq_len),
+            'pred_len': int(self.pred_len),
             'feature_columns': self.feature_columns,
-            'statistics': self.statistics,
-            'pattern_stats': self.pattern_detector.pattern_stats
+            'statistics': convert_numpy_types(self.statistics),
+            'pattern_stats': convert_numpy_types(self.pattern_detector.pattern_stats)
         }
+        
         with open(f'{path}config.json', 'w') as f:
             json.dump(config, f, indent=2)
             
@@ -354,7 +370,7 @@ class ExtremeDataProcessorWithPattern:
         # 전체 데이터 패턴 감지
         pattern, confidence = self.pattern_detector.detect_pattern(df)
         
-        # 통계 저장
+        # 통계 저장 (numpy 타입을 Python 기본 타입으로 변환)
         self.statistics = {
             'mean': float(df['TOTALCNT'].mean()),
             'std': float(df['TOTALCNT'].std()),
@@ -362,7 +378,7 @@ class ExtremeDataProcessorWithPattern:
             'max': float(df['TOTALCNT'].max()),
             'median': float(df['TOTALCNT'].median()),
             'pattern': pattern,
-            'pattern_confidence': confidence
+            'pattern_confidence': float(confidence)
         }
         
         print(f"\n📊 TOTALCNT 통계:")
