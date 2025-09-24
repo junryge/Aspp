@@ -1,4 +1,31 @@
 # -*- coding: utf-8 -*-
+
+def integrated_loss(y_true, y_pred):
+    """통합 손실 함수 - bool 타입 오류 수정"""
+    y_true = tf.cast(y_true, tf.float32)
+    y_pred = tf.cast(y_pred, tf.float32)
+    
+    if len(y_true.shape) > 1:
+        y_true = tf.squeeze(y_true)
+    if len(y_pred.shape) > 1:
+        y_pred = tf.squeeze(y_pred)
+    
+    # 기본 MAE 손실
+    mae_loss = tf.reduce_mean(tf.abs(y_true - y_pred))
+    
+    # 극단값 특화 손실 추가 - bool 타입 유지!
+    is_extreme = y_true >= 300.0  # bool 타입으로 유지 (수정됨!)
+    extreme_penalty = tf.where(is_extreme, 2.0, 1.0)  
+    
+    # False Positive 방지 - 이미 bool 타입
+    fp_condition = tf.logical_and(y_true < 300.0, y_pred >= 300.0)
+    fp_penalty = tf.where(fp_condition, 5.0, 1.0)
+    
+    # 총 페널티 적용
+    total_penalty = extreme_penalty * fp_penalty
+    weighted_loss = tf.reduce_mean(tf.abs(y_true - y_pred) * total_penalty)
+    
+    return weighted_loss
 """
 ================================================================================
 🔥 HUBROOM V4 ULTIMATE 완전 통합 학습 시스템 - 30분→10분 예측 (완전 수정판)
