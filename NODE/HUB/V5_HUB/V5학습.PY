@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """
 ================================================================================
-🔥 HUBROOM V4 ULTIMATE 완전 통합 학습 시스템 - 30분→10분 예측
+🔥 HUBROOM V4 ULTIMATE 완전 통합 학습 시스템 - 30분→10분 예측 (TensorFlow 2.16.1 호환)
 ================================================================================
 ✨ 핵심 기능:
    1. 30분 시퀀스 데이터로 10분 후 예측
@@ -11,12 +11,10 @@
    5. Decision Fusion Network: 최종 통합 예측
    6. 완벽한 중단/재개 시스템
    
-🎯 학습 구조:
-   - Stage 1: Base 모델들 학습 (기존 방식)
-   - Stage 2: Fine-tuning Network 학습 (rule을 network로)
-   - Stage 3: Jump Detection 학습 (점프 케이스 특화)
-   - Stage 4: Decision Fusion 학습 (모델 선택 로직)
-   - Stage 5: End-to-End 통합 학습
+🎯 TensorFlow 2.16.1 호환:
+   - ModelCheckpoint 파일명을 .weights.h5로 수정
+   - 가중치 로드 부분도 모두 수정
+   - 모든 기능 완전 유지!
 ================================================================================
 """
 
@@ -45,7 +43,7 @@ np.random.seed(42)
 tf.random.set_seed(42)
 
 print("="*80)
-print("🔥 HUBROOM V4 ULTIMATE 완전 통합 학습 시스템")
+print("🔥 HUBROOM V4 ULTIMATE 통합 시스템 (TensorFlow 2.16.1 호환)")
 print("📊 30분 시퀀스 → 10분 후 예측")
 print("🎯 Base Models + Fine-tuning + Jump Detection + Decision Fusion")
 print("="*80)
@@ -1188,7 +1186,7 @@ def main():
                 callbacks1 = [
                     EarlyStopping(patience=15, restore_best_weights=True, monitor='val_loss'),
                     ReduceLROnPlateau(factor=0.5, patience=8, min_lr=1e-6, monitor='val_loss'),
-                    ModelCheckpoint('./checkpoints_integrated_30min/models/model1_stable.h5', 
+                    ModelCheckpoint('./checkpoints_integrated_30min/models/model1_stable.weights.h5', 
                                   save_best_only=True, save_weights_only=True, monitor='val_loss')
                 ]
                 
@@ -1222,7 +1220,7 @@ def main():
                 callbacks2 = [
                     EarlyStopping(patience=20, restore_best_weights=True, monitor='val_loss'),
                     ReduceLROnPlateau(factor=0.5, patience=10, min_lr=1e-6, monitor='val_loss'),
-                    ModelCheckpoint('./checkpoints_integrated_30min/models/model2_extreme.h5', 
+                    ModelCheckpoint('./checkpoints_integrated_30min/models/model2_extreme.weights.h5', 
                                   save_best_only=True, save_weights_only=True, monitor='val_loss')
                 ]
                 
@@ -1275,12 +1273,12 @@ def main():
             # 통합 모델 생성
             integrated_model = IntegratedV4Model(config)
             
-            # Base 모델 가중치 로드 (사전 학습된)
+            # Base 모델 가중치 로드 (사전 학습된) - TensorFlow 2.16.1 호환
             integrated_model.model1.build(input_shape=(None, 30, n_features))
-            integrated_model.model1.load_weights('./checkpoints_integrated_30min/models/model1_stable.h5')
+            integrated_model.model1.load_weights('./checkpoints_integrated_30min/models/model1_stable.weights.h5')
             
             integrated_model.model2.build([(None, 30, n_features), (None, 11)])
-            integrated_model.model2.load_weights('./checkpoints_integrated_30min/models/model2_extreme.h5')
+            integrated_model.model2.load_weights('./checkpoints_integrated_30min/models/model2_extreme.weights.h5')
             
             # Base 모델 가중치 고정 (선택사항)
             for layer in integrated_model.model1.layers:
@@ -1303,7 +1301,7 @@ def main():
             callbacks_integrated = [
                 EarlyStopping(patience=25, restore_best_weights=True, monitor='val_loss'),
                 ReduceLROnPlateau(factor=0.7, patience=12, min_lr=1e-6, monitor='val_loss'),
-                ModelCheckpoint('./checkpoints_integrated_30min/models/integrated_model.h5', 
+                ModelCheckpoint('./checkpoints_integrated_30min/models/integrated_model.weights.h5', 
                               save_best_only=True, save_weights_only=True, monitor='val_loss'),
                 IntegratedCallback([X_val_scaled, X_physics_val_scaled, X_features_val_scaled], 
                                  y_val_scaled, processor.scaler_y, "Integrated")
@@ -1366,7 +1364,7 @@ def main():
                       f"오차: {abs(y_true[i] - y_pred[i]):5.1f}")
             
             print("\n" + "="*80)
-            print("✅ V4 ULTIMATE 통합 시스템 완료!")
+            print("✅ V4 ULTIMATE 통합 시스템 완료! (TensorFlow 2.16.1 호환)")
             print("📊 30분 시퀀스 → 10분 예측 시스템 구축 성공!")
             print("="*80)
             
