@@ -1,4 +1,73 @@
 # -*- coding: utf-8 -*-
+
+def evaluate_sequences(self, df):
+    """시퀀스별 평가"""
+    print("\n🔍 시퀀스별 평가 시작...")
+    
+    results = []
+    timestamps = df['timestamp'].values
+    df = df.drop('timestamp', axis=1)
+    
+    # 사용할 컬럼들
+    all_cols = self.v4_essential_cols + ['BRIDGE_TIME'] + [
+        'consecutive_300_count', 'consecutive_300_prob', 'long_trend',
+        'mid_trend', 'acceleration', 'volatility_change', 'jump_risk', 'extreme_risk'
+    ]
+    
+    total = len(df) - 40
+    
+    for i in tqdm(range(total)):
+        # 30분 시퀀스
+        X = df[all_cols].iloc[i:i+30].values
+        
+        # 실제값
+        y_true = df[self.target_col].iloc[i+39]
+        
+        # 시퀀스 정보
+        seq_values = df[self.target_col].iloc[i:i+30].values
+        
+        # 예측
+        X_scaled = self.scaler_X.transform(X.reshape(-1, X.shape[1]))
+        X_scaled = X_scaled.reshape(1, 30, -1)
+        
+        physics = self.create_physics_features_simple(seq_values)
+        physics_scaled = self.scaler_physics.transform(physics.reshape(1, -1))
+        
+        features = self.create_fine_tuning_features_simple(seq_values)
+        features_scaled = self.scaler_features.transform(features.reshape(1, -1))
+        
+        y_pred_scaled = self.model.predict([X_scaled, physics_scaled, features_scaled], verbose=0)
+        y_pred = self.scaler_y.inverse_transform(y_pred_scaled.reshape(-1, 1)).flatten()[0]
+        
+        # numpy.datetime64를 pd.Timestamp로 변환
+        target_time = pd.Timestamp(timestamps[i+39])
+        start_time = pd.Timestamp(timestamps[i])
+        end_time = pd.Timestamp(timestamps[i+29])
+        
+        # 결과 저장
+        result = {
+            '날짜시간': target_time.strftime('%Y-%m-%d %H:%M'),
+            '타겟날짜': target_time.strftime('%Y-%m-%d'),
+            '시퀀스시작시간': start_time.strftime('%H:%M'),
+            '시퀀스종료시간': end_time.strftime('%H:%M'),
+            'JUMP_277구간': any(275 <= v <= 279 for v in seq_values[-5:]),
+            '시퀀스MAX': np.max(seq_values),
+            '시퀀스MIN': np.min(seq_values),
+            '시퀀스평균': np.mean(seq_values),
+            '시퀀스표준편차': np.std(seq_values),
+            '최근5분MAX': np.max(seq_values[-5:]),
+            '최근5분평균': np.mean(seq_values[-5:]),
+            '실제값': y_true,
+            '예측값': y_pred,
+            'MAE': abs(y_true - y_pred),
+            '300이상여부': y_true >= 300,
+            '점프케이스': (np.max(seq_values) < 280) and (y_true >= 300),
+            '예측성공': (y_true >= 300 and y_pred >= 300) or (y_true < 300 and y_pred < 300)
+        }
+        
+        results.append(result)
+    
+    return pd.DataFrame(results)
 """
 ================================================================================
 📊 V4 ULTIMATE 평가 시스템 - 2025년 8월 데이터 평가 (간단 버전)
