@@ -295,11 +295,12 @@ class DataProcessor:
         print(f"    X_train 범위: [{X_train_scaled.min():.3f}, {X_train_scaled.max():.3f}]")
         print(f"    y_train 범위: [{y_train_scaled.min():.3f}, {y_train_scaled.max():.3f}]")
         
-        return (
-            [X_train_scaled, X_train_pattern], y_train_scaled, y_train_cls, y_train,
-            [X_val_scaled, X_val_pattern], y_val_scaled, y_val_cls, y_val,
-            [X_test_scaled, X_test_pattern], y_test_scaled, y_test_cls, y_test
-        )
+        # 3개의 튜플로 묶어서 반환
+        train_data = ([X_train_scaled, X_train_pattern], y_train_scaled, y_train_cls, y_train)
+        val_data = ([X_val_scaled, X_val_pattern], y_val_scaled, y_val_cls, y_val)
+        test_data = ([X_test_scaled, X_test_pattern], y_test_scaled, y_test_cls, y_test)
+        
+        return train_data, val_data, test_data
     
     def save_all(self, path='models/'):
         """모든 설정 저장"""
@@ -327,6 +328,7 @@ class DataProcessor:
 # ====================================
 def train_model(model, train_data, val_data, test_data, processor):
     """모델 학습"""
+    # 데이터 언패킹
     X_train, y_train_scaled, y_train_cls, y_train_orig = train_data
     X_val, y_val_scaled, y_val_cls, y_val_orig = val_data
     X_test, y_test_scaled, y_test_cls, y_test_orig = test_data
