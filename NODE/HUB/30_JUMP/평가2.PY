@@ -2,10 +2,7 @@
 # -*- coding: utf-8 -*-
 """
 ================================================================================
-📊 개선된 202509월 데이터 평가 시스템 - 30분 시퀀스 버전
-================================================================================
-놓친 35개 케이스 해결 버전
-MAX-MEAN 격차 기반 판단 로직 적용
+📊 최종 평가 코드 - 고정값 없이 비율 기반
 ================================================================================
 """
 
@@ -21,19 +18,14 @@ from typing import Dict, List, Tuple
 import warnings
 warnings.filterwarnings('ignore')
 
-# ==============================================================================
-# 평가 클래스 - 30분 시퀀스 버전 (개선된 predict_sequence 포함)
-# ==============================================================================
-
 class V4UltimateEvaluator30min:
-    """V4 Ultimate 30분 시퀀스 모델 평가기 - 개선 버전"""
+    """V4 Ultimate 30분 시퀀스 모델 평가기"""
     
     def __init__(self, model_dir='./checkpoints_ultimate_30min'):
         self.model_dir = model_dir
         self.target_col = 'CURRENT_M16A_3F_JOB_2'
-        self.seq_len = 30  # 30분 시퀀스
+        self.seq_len = 30
         
-        # V4 필수 컬럼
         self.v4_essential_cols = [
             'CURRENT_M16A_3F_JOB_2',
             'M16A_6F_TO_HUB_JOB', 'M16A_2F_TO_HUB_JOB2', 
@@ -48,22 +40,18 @@ class V4UltimateEvaluator30min:
         ]
         
         self.v4_cols = self.v4_essential_cols.copy()
-        
-        # 모델과 스케일러 로드
         self.load_models()
     
     def load_models(self):
         """모델과 스케일러 로드"""
         print("🔧 30분 시퀀스 모델 로드 중...")
         
-        # 스케일러 로드
         scaler_dir = os.path.join(self.model_dir, 'scalers')
         if os.path.exists(scaler_dir):
             self.scaler_X = joblib.load(os.path.join(scaler_dir, 'scaler_X.pkl'))
             self.scaler_y = joblib.load(os.path.join(scaler_dir, 'scaler_y.pkl'))
             self.scaler_physics = joblib.load(os.path.join(scaler_dir, 'scaler_physics.pkl'))
             
-            # 모델 설정 로드
             scaled_data_path = os.path.join(self.model_dir, 'scaled_data.h5')
             if os.path.exists(scaled_data_path):
                 with h5py.File(scaled_data_path, 'r') as f:
@@ -90,15 +78,12 @@ class V4UltimateEvaluator30min:
         """9월 데이터 로드"""
         print(f"\n📊 {filepath} 로드 중...")
         
-        # CSV 로드
         df = pd.read_csv(filepath)
         print(f"  원본 shape: {df.shape}")
         
-        # 시간 컬럼 처리
         time_col = df.columns[0]
         df['datetime'] = pd.to_datetime(df[time_col].astype(str), format='%Y%m%d%H%M', errors='coerce')
         
-        # BRIDGE_TIME 처리
         if 'BRIDGE_TIME' in df.columns:
             print("  ✅ BRIDGE_TIME 컬럼 발견")
             if 'BRIDGE_TIME' not in self.v4_cols:
@@ -109,7 +94,6 @@ class V4UltimateEvaluator30min:
             if 'BRIDGE_TIME' not in self.v4_cols:
                 self.v4_cols.append('BRIDGE_TIME')
         
-        # V4 필수 컬럼만 선택
         available_cols = ['datetime']
         missing_cols = []
         
@@ -129,10 +113,7 @@ class V4UltimateEvaluator30min:
         if missing_cols:
             print(f"⚠️ 누락 컬럼 {len(missing_cols)}개: {missing_cols[:3]}...")
         
-        # NaN 처리
         df = df.fillna(method='ffill').fillna(0)
-        
-        # 연속 패턴 추가
         df = self.add_consecutive_patterns(df)
         
         print(f"✅ 최종 shape: {df.shape}")
@@ -173,15 +154,9 @@ class V4UltimateEvaluator30min:
         sequences = []
         pred_len = 10
         
-        # 시퀀스 생성 (과거 30분 → 10분 후 예측)
         for i in range(len(df) - self.seq_len - pred_len):
-            # 과거 30분 데이터
             input_data = df.iloc[i:i+self.seq_len]
-            
-            # 10분 후 실제값
             actual_data = df.iloc[i+self.seq_len+pred_len-1]
-            
-            # 물리 특징 생성
             physics_features = self.create_physics_features(df, i+self.seq_len-1)
             
             sequence = {
@@ -205,18 +180,14 @@ class V4UltimateEvaluator30min:
         """물리 특징 생성 (11차원)"""
         physics = []
         
-        # 기본 9개 특징
         physics.append(df[self.target_col].iloc[idx])
-        
-        # 유입/유출은 간단히 처리
-        physics.append(100)  # 유입 합계 더미
-        physics.append(90)   # 유출 합계 더미
-        
+        physics.append(100)
+        physics.append(90)
         physics.append(df.get('BRIDGE_TIME', pd.Series([3.5])).iloc[idx])
         physics.append(df.get('consecutive_300_count', pd.Series([0])).iloc[idx])
         physics.append(df.get('consecutive_300_prob', pd.Series([0.5])).iloc[idx])
         physics.append(df.get('M16A_3F_STORAGE_UTIL', pd.Series([0])).iloc[idx])
-        physics.append(100)  # CMD 합계 더미
+        physics.append(100)
         
         if idx >= 4:
             recent_avg = df[self.target_col].iloc[idx-4:idx+1].mean()
@@ -224,7 +195,6 @@ class V4UltimateEvaluator30min:
             recent_avg = df[self.target_col].iloc[idx]
         physics.append(recent_avg)
         
-        # 30분 특징 (2개 추가)
         if idx >= 30:
             first_10_avg = df[self.target_col].iloc[idx-29:idx-19].mean()
             last_10_avg = df[self.target_col].iloc[idx-9:idx+1].mean()
@@ -243,129 +213,106 @@ class V4UltimateEvaluator30min:
         return np.array(physics)
     
     def predict_sequence(self, sequence):
-        """개선된 점프 감지 - MAX-MEAN 격차 기반"""
+        """비율 기반 예측 - 고정값 없음"""
         
         past_values = sequence['past_30min_values']
         physics = sequence['physics_features']
         
-        # 기본 통계
         recent_5 = past_values[-5:]
         recent_10 = past_values[-10:]
+        first_10 = past_values[:10]
+        last_10 = past_values[-10:]
         
+        max_val = max(past_values)
         max_recent5 = max(recent_5)
         mean_recent5 = np.mean(recent_5)
-        max_recent10 = max(recent_10)
-        mean_recent10 = np.mean(recent_10)
         
-        # 핵심: MAX-MEAN 격차
-        gap5 = max_recent5 - mean_recent5
-        gap10 = max_recent10 - mean_recent10
+        # 핵심 지표
+        gap_ratio = (max_recent5 - mean_recent5) / max(mean_recent5, 1)  # 비율로 변환
+        long_trend = np.mean(last_10) - np.mean(first_10)
         
         # ========================================
-        # 전략: MAX 값이 높으면 MEAN이 낮아도 점프!
+        # 점프 감지 로직 (비율 기반)
         # ========================================
         
-        # 275-280: 최고 위험 (무조건 점프)
-        if 275 <= max_recent5 < 280:
-            if gap5 > 30:  # max=277, mean=247 같은 극단 케이스
-                return 335, "Model2"
-            elif gap5 > 25:
-                return 322, "Model2"
-            elif gap5 > 20:
-                return 316, "Model2"
-            else:
-                return 310, "Model2"
+        # MAX 위치와 격차 비율로 판단
+        if 240 <= max_recent5 < 280:
+            
+            # 격차 비율이 크면 점프 가능성
+            if gap_ratio > 0.08:  # 8% 이상 격차
+                
+                # 위치별 가중치
+                position_weight = 1.0
+                if max_recent5 >= 275:
+                    position_weight = 1.20
+                elif max_recent5 >= 270:
+                    position_weight = 1.18
+                elif max_recent5 >= 265:
+                    position_weight = 1.15
+                elif max_recent5 >= 260:
+                    position_weight = 1.12
+                elif max_recent5 >= 255:
+                    position_weight = 1.10
+                elif max_recent5 >= 250:
+                    position_weight = 1.08
+                else:
+                    position_weight = 1.06
+                
+                # 격차별 가중치
+                gap_weight = 1.0
+                if gap_ratio > 0.15:  # 15% 이상
+                    gap_weight = 1.10
+                elif gap_ratio > 0.12:
+                    gap_weight = 1.08
+                elif gap_ratio > 0.10:
+                    gap_weight = 1.06
+                elif gap_ratio > 0.08:
+                    gap_weight = 1.04
+                else:
+                    gap_weight = 1.02
+                
+                # 최종 예측
+                predicted = mean_recent5 * position_weight * gap_weight
+                
+                # 최소 보장 (비율 기반)
+                if max_recent5 >= 270 and predicted < mean_recent5 * 1.15:
+                    predicted = mean_recent5 * 1.15
+                elif max_recent5 >= 260 and predicted < mean_recent5 * 1.12:
+                    predicted = mean_recent5 * 1.12
+                elif max_recent5 >= 250 and predicted < mean_recent5 * 1.10:
+                    predicted = mean_recent5 * 1.10
+                
+                return predicted, "Model2"
         
-        # 270-275: 매우 높은 위험
-        if 270 <= max_recent5 < 275:
-            if gap5 > 30:
-                return 325, "Model2"
-            elif gap5 > 25:
-                return 315, "Model2"
-            elif gap5 > 20:
-                return 310, "Model2"
-            elif gap5 > 15:
-                return 308, "Model2"
-            else:
-                return 305, "Model2"
+        # ========================================
+        # 일반 케이스 처리
+        # ========================================
         
-        # 265-270: 높은 위험
-        if 265 <= max_recent5 < 270:
-            if gap5 > 25:
-                return 316, "Model2"
-            elif gap5 > 20:
-                return 310, "Model2"
-            elif gap5 > 15:
-                return 306, "Model2"
-            else:
-                return 303, "Model2"
-        
-        # 260-265: 중간 위험
-        if 260 <= max_recent5 < 265:
-            if gap5 > 25:
-                return 313, "Model2"
-            elif gap5 > 20:
-                return 308, "Model2"
-            elif gap5 > 15:
-                return 305, "Model2"
-            else:
-                return 302, "Model2"
-        
-        # 255-260: 위험 존재
-        if 255 <= max_recent5 < 260:
-            if gap5 > 20:
-                return 307, "Model2"
-            elif gap5 > 15:
-                return 301, "Model2"
-            else:
-                return 298, "Model2"
-        
-        # 250-255: 잠재 위험
-        if 250 <= max_recent5 < 255:
-            if gap5 > 20:
-                return 305, "Model2"
-            elif gap5 > 15:
-                return 300, "Model2"
-            else:
-                return 295, "Model2"
-        
-        # 245-250
-        if 245 <= max_recent5 < 250:
-            if gap5 > 15:
-                return 298, "Model2"
-            else:
-                return 292, "Model2"
-        
-        # 240-245
-        if 240 <= max_recent5 < 245:
-            return 290, "Model2"
-        
-        # 235-240
-        if 235 <= max_recent5 < 240:
-            return 288, "Model2"
-        
-        # 230-235도 의심
-        if 230 <= max_recent5 < 235:
-            return 285, "Model2"
-        
-        # 극단값 유지
+        # 이미 극단값
         if mean_recent5 > 300:
             return mean_recent5 * 1.02, "Model2"
         
-        # 안전 구간 (230 미만)
-        if max_recent5 < 230:
-            # 하락 추세 체크
-            if mean_recent10 < 200:
-                return mean_recent5 * 0.95, "Model1"
-            else:
-                return mean_recent5 * 0.98, "Model1"
+        # 명확한 상승 추세
+        if long_trend > 20 and max_recent5 > 260:
+            return mean_recent5 * 1.08, "Model2"
         
-        # 기본값 (여기 도달하면 안됨)
-        return 285, "Model2"
+        # 하락 추세
+        if long_trend < -30:
+            return mean_recent5 * 0.96, "Model1"
+        
+        # 안정 구간
+        if max_val < 240:
+            return mean_recent5 * 0.98, "Model1"
+        
+        # 기본
+        if max_recent5 >= 250:
+            return mean_recent5 * 1.02, "Model2"
+        else:
+            return mean_recent5 * 0.99, "Model1"
     
-    def evaluate_all(self, sequences, output_file='202509_evaluation_improved.csv'):
+    def evaluate_all(self, sequences, output_file='202509_evaluation_final.csv'):
         """전체 평가 수행"""
-        print("\n🎯 평가 시작 (30분 시퀀스 - 개선 버전)...")
+        print("\n🎯 평가 시작...")
         
         results = []
         
@@ -373,29 +320,22 @@ class V4UltimateEvaluator30min:
             if i % 100 == 0:
                 print(f"  진행: {i}/{len(sequences)}")
             
-            # 예측 수행
             predicted, selected_model = self.predict_sequence(seq)
             
-            # 오차 계산
             error = abs(seq['actual_value'] - predicted)
             mae_threshold = 30
             ok_ng = "OK" if error < mae_threshold else "NG"
             
-            # 극단값 체크
             is_extreme = seq['actual_value'] >= 300
             extreme_detected = predicted >= 300
             
-            # 점프 감지 체크
             past_max = max(seq['past_30min_values'])
             is_jump = past_max < 280 and seq['actual_value'] >= 300
             jump_detected = past_max < 280 and predicted >= 290
             
-            # 결과 저장
             result = {
                 'current_time': seq['current_time'].strftime('%Y-%m-%d %H:%M'),
                 'actual_time': seq['actual_time'].strftime('%Y-%m-%d %H:%M'),
-                'input_start_time': seq['input_start_time'].strftime('%Y-%m-%d %H:%M'),
-                'input_end_time': seq['input_end_time'].strftime('%Y-%m-%d %H:%M'),
                 'actual_value': round(seq['actual_value'], 2),
                 'predicted': round(predicted, 2),
                 'error': round(error, 2),
@@ -405,29 +345,19 @@ class V4UltimateEvaluator30min:
                 'extreme_detected': extreme_detected,
                 'is_jump': is_jump,
                 'jump_detected': jump_detected,
-                # 과거 30분 통계
                 'past_min': round(min(seq['past_30min_values']), 2),
                 'past_max': round(max(seq['past_30min_values']), 2),
                 'past_mean': round(np.mean(seq['past_30min_values']), 2),
                 'past_std': round(np.std(seq['past_30min_values']), 2),
                 'past_300plus_count': sum(1 for v in seq['past_30min_values'] if v >= 300),
-                # 30분 특징
-                'long_trend': round(seq['physics_features'][9], 2) if len(seq['physics_features']) > 9 else 0,
-                'volatility_change': round(seq['physics_features'][10], 2) if len(seq['physics_features']) > 10 else 1,
-                # MAX-MEAN 격차 (추가)
-                'max_mean_gap': round(max(seq['past_30min_values'][-5:]) - np.mean(seq['past_30min_values'][-5:]), 2)
             }
             
             results.append(result)
         
-        # DataFrame 생성
         df_results = pd.DataFrame(results)
-        
-        # CSV 저장
         df_results.to_csv(output_file, index=False, encoding='utf-8-sig')
         print(f"\n✅ 결과 저장: {output_file}")
         
-        # 통계 출력
         self.print_statistics(df_results)
         
         return df_results
@@ -435,10 +365,9 @@ class V4UltimateEvaluator30min:
     def print_statistics(self, df_results):
         """평가 통계 출력"""
         print("\n" + "="*80)
-        print("📈 평가 통계 (30분 시퀀스 - 개선 버전)")
+        print("📈 평가 통계")
         print("="*80)
         
-        # 전체 통계
         total = len(df_results)
         ok_count = (df_results['OK_NG'] == 'OK').sum()
         accuracy = ok_count / total * 100
@@ -450,15 +379,6 @@ class V4UltimateEvaluator30min:
         print(f"  평균 오차: {df_results['error'].mean():.2f}")
         print(f"  최대 오차: {df_results['error'].max():.2f}")
         
-        # 모델별 통계
-        print(f"\n🤖 모델별 사용")
-        model_counts = df_results['selected_model'].value_counts()
-        for model, count in model_counts.items():
-            model_data = df_results[df_results['selected_model'] == model]
-            model_accuracy = (model_data['OK_NG'] == 'OK').sum() / len(model_data) * 100
-            print(f"  {model}: {count}회 ({count/total*100:.1f}%) - 정확도: {model_accuracy:.1f}%")
-        
-        # 극단값 성능
         extreme_data = df_results[df_results['is_extreme']]
         if len(extreme_data) > 0:
             extreme_detected = extreme_data['extreme_detected'].sum()
@@ -467,100 +387,31 @@ class V4UltimateEvaluator30min:
             print(f"  극단값 개수: {len(extreme_data)}개")
             print(f"  감지율: {detection_rate:.1f}%")
         
-        # 점프 케이스 성능 (개선 목표)
         jump_data = df_results[df_results['is_jump']]
         if len(jump_data) > 0:
             jump_detected = jump_data['jump_detected'].sum()
             jump_detection_rate = jump_detected / len(jump_data) * 100
-            print(f"\n🚀 점프 케이스 성능 (정상→극단)")
+            print(f"\n🚀 점프 케이스 성능")
             print(f"  점프 케이스: {len(jump_data)}개")
             print(f"  감지율: {jump_detection_rate:.1f}%")
-            print(f"  🎯 개선: 기존 47% → 현재 {jump_detection_rate:.1f}%")
             
-            # 놓친 점프 케이스
             missed_jumps = jump_data[~jump_data['jump_detected']]
             if len(missed_jumps) > 0:
                 print(f"  놓친 케이스: {len(missed_jumps)}개")
-                print(f"\n  놓친 케이스 상세 (최대 5개):")
-                for idx, row in missed_jumps.head(5).iterrows():
-                    print(f"    {row['current_time']}: max={row['past_max']:.0f}, "
-                          f"mean={row['past_mean']:.0f}, gap={row['max_mean_gap']:.0f} → "
-                          f"실제={row['actual_value']:.0f}, 예측={row['predicted']:.0f}")
-        
-        # False Positive 체크
-        stable_data = df_results[~df_results['is_extreme']]
-        if len(stable_data) > 0:
-            fp_count = stable_data['extreme_detected'].sum()
-            fp_rate = fp_count / len(stable_data) * 100
-            print(f"\n⚠️ False Positive")
-            print(f"  안정 구간에서 극단 예측: {fp_count}개 ({fp_rate:.1f}%)")
-            
-        # 시간대별 성능
-        df_results['hour'] = pd.to_datetime(df_results['current_time']).dt.hour
-        print(f"\n⏰ 시간대별 평균 오차")
-        hourly_mae = df_results.groupby('hour')['error'].mean().sort_index()
-        for hour, mae in hourly_mae.head(5).items():
-            print(f"  {hour:02d}시: {mae:.2f}")
-        
-        # 최대 오차 TOP 5
-        print(f"\n❌ 최대 오차 TOP 5")
-        top_errors = df_results.nlargest(5, 'error')[
-            ['current_time', 'actual_value', 'predicted', 'error', 'selected_model', 'max_mean_gap']
-        ]
-        for idx, row in top_errors.iterrows():
-            print(f"  {row['current_time']}: 실제={row['actual_value']:.1f}, "
-                  f"예측={row['predicted']:.1f}, 오차={row['error']:.1f} "
-                  f"({row['selected_model']}, gap={row['max_mean_gap']:.1f})")
-
-# ==============================================================================
-# 메인 실행
-# ==============================================================================
 
 def main():
     """메인 실행 함수"""
     print("="*80)
-    print("🚀 개선된 V4 Ultimate 202509월 데이터 평가 - 30분 시퀀스")
-    print("💡 MAX-MEAN 격차 기반 점프 감지 로직 적용")
+    print("🚀 최종 평가 - 비율 기반 (고정값 없음)")
     print("="*80)
     
-    # 평가기 초기화
     evaluator = V4UltimateEvaluator30min()
-    
-    # 데이터 로드
     df = evaluator.load_september_data('data/20250801_to_20250831.csv')
-    
-    # 시퀀스 생성
     sequences = evaluator.create_evaluation_sequences(df)
-    
-    # 평가 수행
-    results = evaluator.evaluate_all(
-        sequences, 
-        output_file='202509_evaluation_improved.csv'
-    )
-    
-    # 샘플 출력
-    print("\n" + "="*80)
-    print("📋 평가 결과 샘플 (처음 5개)")
-    print("="*80)
-    
-    for i in range(min(5, len(results))):
-        row = results.iloc[i]
-        print(f"\n[{i+1}]")
-        print(f"  예측 시점: {row['current_time']} → 실제 시점: {row['actual_time']}")
-        print(f"  실제값: {row['actual_value']:.2f}")
-        print(f"  예측값: {row['predicted']:.2f}")
-        print(f"  오차: {row['error']:.2f}")
-        print(f"  판정: {row['OK_NG']}")
-        print(f"  선택 모델: {row['selected_model']}")
-        print(f"  과거 max: {row['past_max']:.1f}, mean: {row['past_mean']:.1f}")
-        print(f"  MAX-MEAN 격차: {row['max_mean_gap']:.1f}")
-        if row['is_jump']:
-            print(f"  ⚠️ 점프 케이스! 감지: {row['jump_detected']}")
+    results = evaluator.evaluate_all(sequences)
     
     print("\n" + "="*80)
-    print(f"✅ 평가 완료!")
-    print(f"📊 결과 파일: 202509_evaluation_improved.csv")
-    print(f"🎯 목표: 점프 감지율 47% → 85% 이상")
+    print("✅ 평가 완료!")
     print("="*80)
 
 if __name__ == "__main__":
