@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 
 def evaluate_sequences(self, df):
-    """시퀀스별 평가"""
+    """시퀀스별 평가 - 모델별 예측값 포함"""
     print("\n🔍 시퀀스별 평가 시작...")
     
     results = []
@@ -26,7 +26,7 @@ def evaluate_sequences(self, df):
         # 시퀀스 정보
         seq_values = df[self.target_col].iloc[i:i+30].values
         
-        # 예측
+        # 스케일링
         X_scaled = self.scaler_X.transform(X.reshape(-1, X.shape[1]))
         X_scaled = X_scaled.reshape(1, 30, -1)
         
@@ -36,13 +36,39 @@ def evaluate_sequences(self, df):
         features = self.create_fine_tuning_features_simple(seq_values)
         features_scaled = self.scaler_features.transform(features.reshape(1, -1))
         
+        # 통합 모델 예측
         y_pred_scaled = self.model.predict([X_scaled, physics_scaled, features_scaled], verbose=0)
         y_pred = self.scaler_y.inverse_transform(y_pred_scaled.reshape(-1, 1)).flatten()[0]
+        
+        # Model1 (안정형) 예측
+        pred1_scaled = self.model.model1.predict(X_scaled, verbose=0)
+        pred1 = self.scaler_y.inverse_transform(pred1_scaled.reshape(-1, 1)).flatten()[0]
+        
+        # Model2 (극단형) 예측  
+        pred2_scaled = self.model.model2.predict([X_scaled, physics_scaled], verbose=0)
+        pred2 = self.scaler_y.inverse_transform(pred2_scaled.reshape(-1, 1)).flatten()[0]
+        
+        # Fine-tuning 네트워크 출력
+        fine_tune_outputs = self.model.fine_tuning.predict(features_scaled, verbose=0)
+        jump_prob = fine_tune_outputs['jump_prob'][0]
+        extreme_prob = fine_tune_outputs['extreme_prob'][0]
+        
+        # Jump Detection 네트워크 출력
+        jump_outputs = self.model.jump_detection.predict(features_scaled, verbose=0)
+        jump_detect_prob = jump_outputs['jump_prob'][0]
+        
+        # 어느 모델에 가까운지 판단
+        model_selected = "Model1" if abs(y_pred - pred1) < abs(y_pred - pred2) else "Model2"
         
         # numpy.datetime64를 pd.Timestamp로 변환
         target_time = pd.Timestamp(timestamps[i+39])
         start_time = pd.Timestamp(timestamps[i])
         end_time = pd.Timestamp(timestamps[i+29])
+        
+        # 30분 구간 분석
+        first_10 = seq_values[:10]
+        middle_10 = seq_values[10:20]
+        last_10 = seq_values[20:30]
         
         # 결과 저장
         result = {
@@ -57,17 +83,56 @@ def evaluate_sequences(self, df):
             '시퀀스표준편차': np.std(seq_values),
             '최근5분MAX': np.max(seq_values[-5:]),
             '최근5분평균': np.mean(seq_values[-5:]),
+            '첫10분평균': np.mean(first_10),
+            '중간10분평균': np.mean(middle_10),
+            '마지막10분평균': np.mean(last_10),
+            '장기추세': np.mean(last_10) - np.mean(first_10),
+            '가속도': (np.mean(last_10) - np.mean(middle_10)) - (np.mean(middle_10) - np.mean(first_10)),
+            '연속300카운트': sum(1 for v in seq_values if v >= 300),
             '실제값': y_true,
-            '예측값': y_pred,
+            '최종예측값': y_pred,
+            'Model1예측': pred1,
+            'Model2예측': pred2,
+            '선택모델': model_selected,
+            'Jump확률': jump_prob,
+            'Extreme확률': extreme_prob,
+            'JumpDetect확률': jump_detect_prob,
             'MAE': abs(y_true - y_pred),
+            'Model1_MAE': abs(y_true - pred1),
+            'Model2_MAE': abs(y_true - pred2),
             '300이상여부': y_true >= 300,
             '점프케이스': (np.max(seq_values) < 280) and (y_true >= 300),
-            '예측성공': (y_true >= 300 and y_pred >= 300) or (y_true < 300 and y_pred < 300)
+            '예측성공': (y_true >= 300 and y_pred >= 300) or (y_true < 300 and y_pred < 300),
+            'Model1_성공': (y_true >= 300 and pred1 >= 300) or (y_true < 300 and pred1 < 300),
+            'Model2_성공': (y_true >= 300 and pred2 >= 300) or (y_true < 300 and pred2 < 300),
+            '예측난이도': self.calculate_difficulty(seq_values, y_true)
         }
         
         results.append(result)
     
     return pd.DataFrame(results)
+
+def calculate_difficulty(self, seq_values, y_true):
+    """예측 난이도 계산"""
+    difficulty = 0
+    
+    # 점프 케이스
+    if np.max(seq_values) < 280 and y_true >= 300:
+        difficulty += 50
+    
+    # 277 구간
+    if any(275 <= v <= 279 for v in seq_values[-5:]):
+        difficulty += 30
+    
+    # 변동성
+    if np.std(seq_values) > 50:
+        difficulty += 20
+    
+    # 급변
+    if abs(np.mean(seq_values[-5:]) - np.mean(seq_values[:5])) > 30:
+        difficulty += 15
+    
+    return difficulty
 """
 ================================================================================
 📊 V4 ULTIMATE 평가 시스템 - 2025년 8월 데이터 평가 (간단 버전)
