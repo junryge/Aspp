@@ -1,46 +1,103 @@
 #!/usr/bin/env python3
 
-def load_and_merge_data(self):
-    """데이터 로드 및 BRIDGE_TIME 병합"""
-    print("\n[1단계] 데이터 로드")
+def create_all_features(self, df):
+    """완전한 특징 엔지니어링 - 누락 없음!"""
+    print("\n[2단계] 특징 엔지니어링")
     
-    # 메인 데이터
-    df = pd.read_csv('data/HUB_0509_to_0807_DATA.CSV')
-    print(f"✅ 메인 데이터: {df.shape}")
+    # 1. 유입/유출 밸런스
+    df['flow_balance'] = df[self.inflow_cols].sum(axis=1) - df[self.outflow_cols].sum(axis=1)
+    df['flow_ratio'] = df[self.inflow_cols].sum(axis=1) / (df[self.outflow_cols].sum(axis=1) + 1)
     
-    # 시간 처리
-    time_col = df.columns[0]
-    df['datetime'] = pd.to_datetime(df[time_col], format='%Y%m%d%H%M')
+    # 2. 추세 특징
+    df['trend_20min'] = df[self.target_col].diff(20)
+    df['trend_10min'] = df[self.target_col].diff(10)
+    df['acceleration'] = df['trend_10min'] - df['trend_10min'].shift(10)
     
-    # BRIDGE_TIME 데이터
-    bridge_df = pd.read_csv('data/BRTIME_0509_TO_0807.CSV')
-    print(f"✅ BRIDGE_TIME 데이터: {bridge_df.shape}")
+    # 3. 연속 패턴
+    df['consecutive_250+'] = (df[self.target_col] > 250).rolling(10).sum()
+    df['consecutive_270+'] = (df[self.target_col] > 270).rolling(10).sum()
     
-    # BRIDGE_TIME 병합 - 시간대 문제 해결
-    if 'IDC_VAL' in bridge_df.columns:
-        bridge_df['BRIDGE_TIME'] = bridge_df['IDC_VAL']
-        bridge_df['datetime'] = pd.to_datetime(bridge_df['CRT_TM'])
-        
-        # 시간대 정보 제거 (둘 다 naive datetime으로 변환)
-        if hasattr(bridge_df['datetime'].dtype, 'tz'):
-            bridge_df['datetime'] = bridge_df['datetime'].dt.tz_localize(None)
-        if hasattr(df['datetime'].dtype, 'tz'):
-            df['datetime'] = df['datetime'].dt.tz_localize(None)
-        
-        # 분 단위로 반올림
-        bridge_df['datetime'] = bridge_df['datetime'].dt.floor('min')
-        df['datetime'] = df['datetime'].dt.floor('min')
-        
-        # 병합
-        df = pd.merge(df, bridge_df[['datetime', 'BRIDGE_TIME']], 
-                     on='datetime', how='left')
-        
-        # BRIDGE_TIME 보간 및 결측치 처리
-        df['BRIDGE_TIME'] = df['BRIDGE_TIME'].interpolate(method='linear', limit_direction='both')
-        df['BRIDGE_TIME'] = df['BRIDGE_TIME'].fillna(3.5)
-        
-        print(f"✅ BRIDGE_TIME 병합 완료: {df['BRIDGE_TIME'].notna().sum()}/{len(df)} 매칭")
+    # 4. CMD 동기화
+    df['cmd_sync_count'] = (df[self.cmd_cols] > 235).sum(axis=1)
+    df['cmd_max'] = df[self.cmd_cols].max(axis=1)
     
+    # 5. 브릿지타임 변화
+    df['bridge_diff'] = df['BRIDGE_TIME'].diff(5)
+    df['bridge_high'] = (df['BRIDGE_TIME'] > 4.0).astype(int)
+    
+    # 6. storage x bridge 상호작용
+    df['storage_x_bridge'] = df['M16A_3F_STORAGE_UTIL'] * df['BRIDGE_TIME']
+    
+    # 7. 연속 300+ 카운트와 확률
+    consecutive_300_counts = []
+    consecutive_300_probs = []
+    
+    for i in range(len(df)):
+        if i < 30:
+            count = 0
+            prob = 0.003
+        else:
+            window = df[self.target_col].iloc[i-30:i].values
+            count = sum(1 for v in window if v >= 300)
+            prob = self.probability_map.get(count, 0.5)
+        
+        consecutive_300_counts.append(count)
+        consecutive_300_probs.append(prob)
+    
+    df['consecutive_300_count'] = consecutive_300_counts
+    df['consecutive_300_prob'] = consecutive_300_probs
+    
+    # 8. 3구간 분류 (숫자로 직접 변환)
+    conditions = [
+        df[self.target_col] < 150,
+        (df[self.target_col] >= 150) & (df[self.target_col] < 300),
+        df[self.target_col] >= 300
+    ]
+    choices = [0, 1, 2]
+    df['range_class'] = np.select(conditions, choices, default=1)
+    
+    # 9. 점프 여부
+    df['past_30min_max'] = df[self.target_col].rolling(30).max()
+    df['is_jump'] = ((df['past_30min_max'].shift(10) < 280) & 
+                    (df[self.target_col] >= 300)).astype(int)
+    
+    # 10. 상승/하락 패턴 (숫자로 변환)
+    df['change_20min'] = df[self.target_col] - df[self.target_col].shift(20)
+    
+    trend_conditions = [
+        df['change_20min'] < -20,
+        (df['change_20min'] >= -20) & (df['change_20min'] < 20),
+        (df['change_20min'] >= 20) & (df['change_20min'] < 50),
+        df['change_20min'] >= 50
+    ]
+    trend_choices = [0, 1, 2, 3]  # 0:down, 1:stable, 2:gradual_up, 3:rapid_up
+    df['trend_pattern'] = np.select(trend_conditions, trend_choices, default=1)
+    
+    # 11. 상승률/하락률 (%)
+    df['change_rate_10min'] = ((df[self.target_col] - df[self.target_col].shift(10)) / 
+                               (df[self.target_col].shift(10) + 1)) * 100
+    df['change_rate_20min'] = ((df[self.target_col] - df[self.target_col].shift(20)) / 
+                               (df[self.target_col].shift(20) + 1)) * 100
+    df['change_rate_30min'] = ((df[self.target_col] - df[self.target_col].shift(30)) / 
+                               (df[self.target_col].shift(30) + 1)) * 100
+    
+    # 12. 변동성
+    df['volatility_10min'] = df[self.target_col].rolling(10).std()
+    df['volatility_20min'] = df[self.target_col].rolling(20).std()
+    
+    # 13. 극단값 근접도
+    df['distance_to_300'] = 300 - df[self.target_col]
+    df['near_extreme'] = (df[self.target_col] > 280).astype(int)
+    
+    # 14. 최근 통계
+    df['recent_5min_mean'] = df[self.target_col].rolling(5).mean()
+    df['recent_5min_max'] = df[self.target_col].rolling(5).max()
+    
+    # NaN 처리 - Categorical 컬럼 제외
+    numeric_columns = df.select_dtypes(include=[np.number]).columns
+    df[numeric_columns] = df[numeric_columns].fillna(method='ffill').fillna(0)
+    
+    print(f"✅ 총 {len(df.columns)}개 특징 생성 완료")
     return df
 # -*- coding: utf-8 -*-
 """
