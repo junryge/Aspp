@@ -1,4 +1,47 @@
 #!/usr/bin/env python3
+
+def load_and_merge_data(self):
+    """데이터 로드 및 BRIDGE_TIME 병합"""
+    print("\n[1단계] 데이터 로드")
+    
+    # 메인 데이터
+    df = pd.read_csv('data/HUB_0509_to_0807_DATA.CSV')
+    print(f"✅ 메인 데이터: {df.shape}")
+    
+    # 시간 처리
+    time_col = df.columns[0]
+    df['datetime'] = pd.to_datetime(df[time_col], format='%Y%m%d%H%M')
+    
+    # BRIDGE_TIME 데이터
+    bridge_df = pd.read_csv('data/BRTIME_0509_TO_0807.CSV')
+    print(f"✅ BRIDGE_TIME 데이터: {bridge_df.shape}")
+    
+    # BRIDGE_TIME 병합 - 시간대 문제 해결
+    if 'IDC_VAL' in bridge_df.columns:
+        bridge_df['BRIDGE_TIME'] = bridge_df['IDC_VAL']
+        bridge_df['datetime'] = pd.to_datetime(bridge_df['CRT_TM'])
+        
+        # 시간대 정보 제거 (둘 다 naive datetime으로 변환)
+        if hasattr(bridge_df['datetime'].dtype, 'tz'):
+            bridge_df['datetime'] = bridge_df['datetime'].dt.tz_localize(None)
+        if hasattr(df['datetime'].dtype, 'tz'):
+            df['datetime'] = df['datetime'].dt.tz_localize(None)
+        
+        # 분 단위로 반올림
+        bridge_df['datetime'] = bridge_df['datetime'].dt.floor('min')
+        df['datetime'] = df['datetime'].dt.floor('min')
+        
+        # 병합
+        df = pd.merge(df, bridge_df[['datetime', 'BRIDGE_TIME']], 
+                     on='datetime', how='left')
+        
+        # BRIDGE_TIME 보간 및 결측치 처리
+        df['BRIDGE_TIME'] = df['BRIDGE_TIME'].interpolate(method='linear', limit_direction='both')
+        df['BRIDGE_TIME'] = df['BRIDGE_TIME'].fillna(3.5)
+        
+        print(f"✅ BRIDGE_TIME 병합 완료: {df['BRIDGE_TIME'].notna().sum()}/{len(df)} 매칭")
+    
+    return df
 # -*- coding: utf-8 -*-
 """
 ================================================================================
