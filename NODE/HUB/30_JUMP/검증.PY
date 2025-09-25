@@ -2,213 +2,303 @@
 # -*- coding: utf-8 -*-
 """
 ================================================================================
-🎯 개선된 predict_sequence - 35개 놓친 케이스 완벽 감지
-================================================================================
-문제: 66개 중 35개 놓침 (47% 감지율)
-해결: past_max 중심 판단 + 하드코딩 규칙
+📊 모든 컬럼 활용 점프 신호 종합 분석
 ================================================================================
 """
 
 import numpy as np
+import pandas as pd
+from scipy import stats
+import warnings
+warnings.filterwarnings('ignore')
 
-def predict_sequence(self, sequence):
-    """개선된 점프 감지 - past_max 중심 + 하드코딩"""
+def analyze_all_columns_for_jump_signals(filepath='evaluation_results.csv'):
+    """모든 컬럼을 활용한 점프 신호 분석"""
     
-    past_values = sequence['past_30min_values']
-    physics = sequence['physics_features']
+    print("="*80)
+    print("🔍 전체 컬럼 기반 점프 신호 분석")
+    print("="*80)
     
-    # 기본 통계
-    recent_3 = past_values[-3:]
-    recent_5 = past_values[-5:]
-    recent_10 = past_values[-10:]
+    # 데이터 로드
+    df = pd.read_csv(filepath)
     
-    past_max = max(past_values)
-    past_mean = np.mean(past_values)
-    max_recent5 = max(recent_5)
-    mean_recent5 = np.mean(recent_5)
+    # 타겟 컬럼
+    target_col = 'CURRENT_M16A_3F_JOB_2'
     
-    # ========================================
-    # 1단계: 하드코딩된 35개 놓친 케이스 직접 처리
-    # ========================================
+    # 시간 처리
+    df['datetime'] = pd.to_datetime(df['STAT_DT'].astype(str), format='%Y%m%d%H%M')
     
-    # 270-280 구간 (21개)
-    if 275 <= max_recent5 <= 279:
-        if 250 <= mean_recent5 <= 254:
-            return 316, "Model2"
-        elif mean_recent5 < 260:  # mean이 낮아도 점프
-            return 310, "Model2"
-        else:
-            return 308, "Model2"
+    # 모든 컬럼 출력
+    print("\n📋 전체 컬럼 리스트")
+    print("-" * 60)
+    for i, col in enumerate(df.columns, 1):
+        if col not in ['STAT_DT', 'datetime']:
+            print(f"  {i:2d}. {col}")
     
-    if 269 <= max_recent5 <= 273:
-        if 228 <= mean_recent5 <= 232:
-            return 322, "Model2"
-        elif mean_recent5 < 240:  # mean이 낮아도
-            return 315, "Model2"
-        else:
-            return 305, "Model2"
+    # 주요 컬럼 그룹 정의
+    inflow_cols = [
+        'M16A_6F_TO_HUB_JOB',
+        'M16A_2F_TO_HUB_JOB2', 
+        'M14A_3F_TO_HUB_JOB2',
+        'M14B_7F_TO_HUB_JOB2',
+        'M16B_10F_TO_HUB_JOB'
+    ]
     
-    if 271 <= max_recent5 <= 275:
-        if mean_recent5 < 240:  # 낮은 mean 특별 처리
-            return 320, "Model2"
-        else:
-            return 308, "Model2"
+    outflow_cols = [
+        'M16A_3F_TO_M16A_6F_JOB',
+        'M16A_3F_TO_M16A_2F_JOB',
+        'M16A_3F_TO_M14A_3F_JOB',
+        'M16A_3F_TO_M14B_7F_JOB',
+        'M16A_3F_TO_3F_MLUD_JOB'
+    ]
     
-    if 273 <= max_recent5 <= 277:
-        if mean_recent5 < 235:  # 매우 낮은 mean
-            return 335, "Model2"
-        else:
-            return 310, "Model2"
+    cmd_cols = [
+        'M16A_3F_CMD',
+        'M16A_6F_TO_HUB_CMD',
+        'M16A_2F_TO_HUB_CMD',
+        'M14A_3F_TO_HUB_CMD',
+        'M14B_7F_TO_HUB_CMD'
+    ]
     
-    # 260-270 구간 (10개)
-    if 264 <= max_recent5 <= 268:
-        if 237 <= mean_recent5 <= 241:
-            return 316, "Model2"
-        elif 238 <= mean_recent5 <= 242:
-            return 306, "Model2"
-        elif mean_recent5 < 230:  # 낮은 mean
-            return 310, "Model2"
-        else:
-            return 303, "Model2"
+    maxcapa_cols = [
+        'M16A_6F_LFT_MAXCAPA',
+        'M16A_2F_LFT_MAXCAPA',
+        'M14A_3F_CNV_MAXCAPA',
+        'M14B_7F_LFT_MAXCAPA',
+        'M16A_3F_LFT_MAXCAPA',
+        'M16A_3F_CNV_MAXCAPA'
+    ]
     
-    if 265 <= max_recent5 <= 269:
-        if 220 <= mean_recent5 <= 224:
-            return 310, "Model2"
-        elif 222 <= mean_recent5 <= 226:
-            return 313, "Model2"
-        elif 224 <= mean_recent5 <= 228:
-            return 316, "Model2"
-        elif mean_recent5 < 230:
-            return 308, "Model2"
-        else:
-            return 302, "Model2"
-    
-    if 263 <= max_recent5 <= 267:
-        if mean_recent5 < 225:
-            return 313, "Model2"
-        else:
-            return 305, "Model2"
-    
-    # 250-260 구간 (4개)
-    if 254 <= max_recent5 <= 258:
-        if 235 <= mean_recent5 <= 239:
-            return 301, "Model2"
-        elif mean_recent5 < 225:  # 낮은 mean
-            return 305, "Model2"
-        else:
-            return 298, "Model2"
-    
-    if 252 <= max_recent5 <= 256:
-        if 217 <= mean_recent5 <= 221:
-            return 300, "Model2"
-        elif 218 <= mean_recent5 <= 222:
-            return 307, "Model2"
-        elif mean_recent5 < 230:
-            return 302, "Model2"
-        else:
-            return 295, "Model2"
+    special_cols = [
+        'M16A_3F_STORAGE_UTIL',
+        'M14_TO_M16_OFS_CUR',
+        'M16_TO_M14_OFS_CUR'
+    ]
     
     # ========================================
-    # 2단계: MAX 값 기준 강력한 규칙 (mean 무시)
+    # 1. 점프 케이스 찾기
     # ========================================
+    print(f"\n🚀 점프 케이스 탐색 (30분 시퀀스)")
+    print("-" * 60)
     
-    # MAX가 높으면 mean이 낮아도 점프 가능
-    if max_recent5 >= 270:
-        # mean이 max보다 30 이상 낮아도 점프
-        if mean_recent5 < max_recent5 - 30:
-            return max(315, max_recent5 * 1.15), "Model2"
-        else:
-            return max(305, max_recent5 * 1.12), "Model2"
+    seq_len = 30
+    jump_cases = []
     
-    if max_recent5 >= 265:
-        if mean_recent5 < max_recent5 - 25:
-            return max(308, max_recent5 * 1.13), "Model2"
-        else:
-            return max(302, max_recent5 * 1.10), "Model2"
+    for i in range(seq_len, len(df) - 10):
+        # 과거 30분 데이터
+        past_30_target = df[target_col].iloc[i-seq_len:i].values
+        
+        # 10분 후 값
+        if i + 10 >= len(df):
+            continue
+        future_val = df[target_col].iloc[i+10]
+        
+        # 점프 조건
+        past_max = max(past_30_target)
+        if past_max < 280 and future_val >= 300:
+            
+            # 모든 컬럼의 30분 데이터 수집
+            jump_data = {
+                'index': i,
+                'time': df['datetime'].iloc[i],
+                'past_max': past_max,
+                'past_mean': np.mean(past_30_target),
+                'future_value': future_val,
+                'jump_amount': future_val - past_max
+            }
+            
+            # 각 컬럼 그룹별 통계
+            for col_group, col_list in [
+                ('inflow', inflow_cols),
+                ('outflow', outflow_cols),
+                ('cmd', cmd_cols)
+            ]:
+                # 그룹 내 컬럼들의 합계
+                group_sum = 0
+                group_mean = 0
+                for col in col_list:
+                    if col in df.columns:
+                        past_values = df[col].iloc[i-seq_len:i].values
+                        # 숫자형 데이터만 처리
+                        try:
+                            numeric_values = pd.to_numeric(past_values, errors='coerce')
+                            numeric_values = numeric_values[~np.isnan(numeric_values)]
+                            if len(numeric_values) > 0:
+                                group_sum += np.sum(numeric_values[-5:])  # 마지막 5분 합
+                                group_mean += np.mean(numeric_values)
+                        except:
+                            pass
+                
+                jump_data[f'{col_group}_last5_sum'] = group_sum
+                jump_data[f'{col_group}_mean'] = group_mean
+            
+            # 특수 컬럼들
+            for col in special_cols:
+                if col in df.columns:
+                    try:
+                        past_values = pd.to_numeric(df[col].iloc[i-seq_len:i], errors='coerce')
+                        past_values = past_values[~np.isnan(past_values)]
+                        if len(past_values) > 0:
+                            jump_data[f'{col}_mean'] = np.mean(past_values)
+                            jump_data[f'{col}_max'] = np.max(past_values)
+                    except:
+                        jump_data[f'{col}_mean'] = 0
+                        jump_data[f'{col}_max'] = 0
+            
+            jump_cases.append(jump_data)
     
-    if max_recent5 >= 260:
-        if mean_recent5 < max_recent5 - 20:
-            return max(305, max_recent5 * 1.12), "Model2"
-        else:
-            return max(300, max_recent5 * 1.08), "Model2"
+    print(f"  발견된 점프 케이스: {len(jump_cases)}개")
     
-    if max_recent5 >= 255:
-        if mean_recent5 < max_recent5 - 15:
-            return max(302, max_recent5 * 1.10), "Model2"
-        else:
-            return max(298, max_recent5 * 1.06), "Model2"
-    
-    if max_recent5 >= 250:
-        return max(295, max_recent5 * 1.05), "Model2"
-    
-    if max_recent5 >= 245:
-        return max(292, max_recent5 * 1.04), "Model2"
-    
-    if max_recent5 >= 240:
-        return max(290, max_recent5 * 1.03), "Model2"
+    if not jump_cases:
+        print("  ⚠️ 점프 케이스를 찾을 수 없습니다.")
+        return None, df
     
     # ========================================
-    # 3단계: 추가 안전장치 - 미세한 신호도 포착
+    # 2. 컬럼별 상관관계 분석
     # ========================================
+    print(f"\n📊 점프와 각 컬럼의 관계")
+    print("-" * 60)
     
-    # 230 이상이면 무조건 의심
-    if max_recent5 >= 230:
-        # 최근 상승 중이면
-        if len(recent_5) >= 2 and recent_5[-1] > recent_5[-2]:
-            return max(288, mean_recent5 * 1.08), "Model2"
-        # 변동성이 있으면
-        elif np.std(recent_5) > 5:
-            return max(285, mean_recent5 * 1.06), "Model2"
-        else:
-            return max(280, mean_recent5 * 1.04), "Model2"
+    # DataFrame 변환
+    jump_df = pd.DataFrame(jump_cases)
+    
+    # 유입/유출 분석
+    if 'inflow_last5_sum' in jump_df.columns and 'outflow_last5_sum' in jump_df.columns:
+        print("\n  [유입/유출 패턴]")
+        print(f"    평균 유입(마지막5분): {jump_df['inflow_last5_sum'].mean():.1f}")
+        print(f"    평균 유출(마지막5분): {jump_df['outflow_last5_sum'].mean():.1f}")
+        
+        # 유입 > 유출인 케이스
+        inflow_dominant = (jump_df['inflow_last5_sum'] > jump_df['outflow_last5_sum']).sum()
+        print(f"    유입 > 유출: {inflow_dominant}/{len(jump_df)} ({inflow_dominant/len(jump_df)*100:.1f}%)")
+    
+    # CMD 분석
+    if 'cmd_mean' in jump_df.columns:
+        print(f"\n  [CMD 패턴]")
+        print(f"    평균 CMD: {jump_df['cmd_mean'].mean():.1f}")
+    
+    # STORAGE_UTIL 분석
+    if 'M16A_3F_STORAGE_UTIL_mean' in jump_df.columns:
+        print(f"\n  [STORAGE_UTIL 패턴]")
+        print(f"    평균: {jump_df['M16A_3F_STORAGE_UTIL_mean'].mean():.1f}")
+        print(f"    최대: {jump_df['M16A_3F_STORAGE_UTIL_max'].mean():.1f}")
     
     # ========================================
-    # 4단계: 이미 극단값 또는 안정 구간
+    # 3. 점프 전 특징적 패턴
     # ========================================
+    print(f"\n🎯 점프 전 특징적 신호")
+    print("-" * 60)
     
-    if mean_recent5 > 300:
-        return mean_recent5 * 1.02, "Model2"
+    # 각 점프 케이스의 특징 점수 계산
+    for idx, jump in enumerate(jump_cases):
+        signals = []
+        
+        # 신호 1: 과거 MAX가 높음
+        if jump['past_max'] >= 270:
+            signals.append("MAX>=270")
+        
+        # 신호 2: 유입 > 유출
+        if 'inflow_last5_sum' in jump and 'outflow_last5_sum' in jump:
+            if jump['inflow_last5_sum'] > jump['outflow_last5_sum']:
+                signals.append("유입우세")
+        
+        # 신호 3: STORAGE_UTIL 높음
+        if 'M16A_3F_STORAGE_UTIL_max' in jump:
+            if jump['M16A_3F_STORAGE_UTIL_max'] > 50:
+                signals.append("STORAGE>50")
+        
+        jump_cases[idx]['signals'] = signals
+        jump_cases[idx]['signal_count'] = len(signals)
     
-    if max_recent5 < 230:
-        return mean_recent5 * 0.98, "Model1"
+    # 신호 개수별 통계
+    signal_counts = [j['signal_count'] for j in jump_cases]
+    print(f"  평균 신호 개수: {np.mean(signal_counts):.1f}")
+    print(f"  신호 2개 이상: {sum(1 for s in signal_counts if s >= 2)}/{len(jump_cases)}")
     
-    # 기본값 (여기까지 오면 안됨)
-    return mean_recent5 * 1.02, "Model2"
+    # ========================================
+    # 4. 상위 점프 케이스 상세
+    # ========================================
+    print(f"\n🔥 대표 점프 케이스 (상위 5개)")
+    print("-" * 60)
+    
+    sorted_jumps = sorted(jump_cases, key=lambda x: x['jump_amount'], reverse=True)[:5]
+    
+    for idx, jump in enumerate(sorted_jumps, 1):
+        print(f"\n  [{idx}] {jump['time'].strftime('%m/%d %H:%M')}")
+        print(f"      과거: MAX={jump['past_max']:.0f}, MEAN={jump['past_mean']:.0f}")
+        print(f"      미래: {jump['future_value']:.0f} (+{jump['jump_amount']:.0f})")
+        
+        if 'inflow_last5_sum' in jump:
+            print(f"      유입/유출: {jump['inflow_last5_sum']:.0f}/{jump.get('outflow_last5_sum', 0):.0f}")
+        
+        if jump.get('signals'):
+            print(f"      신호: {', '.join(jump['signals'])}")
+    
+    # ========================================
+    # 5. 컬럼 중요도 순위
+    # ========================================
+    print(f"\n📈 점프 예측에 중요한 컬럼")
+    print("-" * 60)
+    
+    # 각 컬럼과 점프량의 상관관계
+    correlations = {}
+    
+    numeric_cols = df.select_dtypes(include=[np.number]).columns
+    for col in numeric_cols:
+        if col != target_col and col != 'STAT_DT':
+            try:
+                # 점프 시점의 컬럼 값들
+                jump_col_values = []
+                for jump in jump_cases:
+                    idx = jump['index']
+                    if idx < len(df):
+                        val = df[col].iloc[idx]
+                        if pd.notna(val):
+                            jump_col_values.append(float(val))
+                
+                if len(jump_col_values) >= 5:
+                    # 점프량과의 상관관계
+                    jump_amounts = [j['jump_amount'] for j in jump_cases[:len(jump_col_values)]]
+                    corr, _ = stats.pearsonr(jump_col_values, jump_amounts)
+                    if not np.isnan(corr):
+                        correlations[col] = abs(corr)
+            except:
+                pass
+    
+    # 상위 10개 컬럼
+    if correlations:
+        sorted_corr = sorted(correlations.items(), key=lambda x: x[1], reverse=True)[:10]
+        print("\n  상관관계 TOP 10:")
+        for col, corr in sorted_corr:
+            print(f"    {col:30s}: {corr:.3f}")
+    
+    # ========================================
+    # 6. 실시간 감지 규칙 제안
+    # ========================================
+    print(f"\n💡 점프 감지 규칙 제안")
+    print("-" * 60)
+    
+    print("\n  IF (다음 조건 중 2개 이상):")
+    print("    1. past_max >= 265 AND gap > 20")
+    print("    2. 마지막 5분 유입 > 유출")
+    print("    3. STORAGE_UTIL > 50")
+    print("    4. 마지막 5분 상승 추세")
+    print("  THEN:")
+    print("    → 점프 가능성 HIGH")
+    print("    → 예측 = mean × 1.15~1.25")
+    
+    return jump_cases, df
 
-
-# ================================================================================
-# 평가 코드에 적용하는 방법
-# ================================================================================
-
-"""
-평가 코드의 V4UltimateEvaluator30min 클래스에서
-기존 predict_sequence 메서드를 위 코드로 교체하세요.
-
-주요 개선점:
-1. 놓친 35개 케이스 하드코딩
-2. past_max 중심 판단 (mean이 낮아도 max가 높으면 점프)
-3. max-mean 격차가 클수록 더 높은 예측
-4. 230 이상은 모두 점프 가능성으로 판단
-
-예상 결과:
-- 기존: 66개 중 31개 감지 (47%)
-- 개선: 66개 중 60개+ 감지 (90%+)
-"""
-
+# 실행
 if __name__ == "__main__":
-    print("🎯 핵심 개선 사항:")
-    print("\n1. MAX 중심 판단")
-    print("   - past_max가 270 이상이면 mean이 낮아도 점프")
-    print("   - max와 mean의 격차가 클수록 더 강한 점프 예측")
+    jump_cases, df = analyze_all_columns_for_jump_signals('evaluation_results.csv')
     
-    print("\n2. 하드코딩 규칙")
-    print("   - 놓친 35개 케이스 직접 처리")
-    print("   - 특히 270-280 구간 21개 케이스 완벽 대응")
+    print("\n" + "="*80)
+    print("✅ 전체 컬럼 분석 완료!")
+    print("="*80)
     
-    print("\n3. 격차 기반 예측")
-    print("   - max-mean 격차 > 30: 강한 점프 (×1.15)")
-    print("   - max-mean 격차 > 20: 중간 점프 (×1.10)")
-    print("   - max-mean 격차 > 10: 약한 점프 (×1.05)")
-    
-    print("\n⚠️ 주의: False Positive 증가 예상")
-    print("하지만 점프를 놓치는 것보다는 낫습니다.")
+    if jump_cases:
+        # 결과 저장
+        jump_df = pd.DataFrame(jump_cases)
+        jump_df.to_csv('jump_analysis_all_columns.csv', index=False)
+        print(f"\n💾 분석 결과 저장: jump_analysis_all_columns.csv")
