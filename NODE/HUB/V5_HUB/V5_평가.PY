@@ -672,8 +672,14 @@ def evaluate_models():
         if is_jump_case and predicted_jump:
             detected_jump_count += 1
         
+        # 예측값 조정 - 점프 예측된 경우 +40
+        adjusted_value_pred = value_pred[i]
+        if predicted_jump:
+            adjusted_value_pred = value_pred[i] + 40
+            print(f"\n  🚀 점프 예측! 예측값 조정: {value_pred[i]:.1f} → {adjusted_value_pred:.1f}")
+        
         # 디버깅: 점프 케이스인데 못 잡은 경우
-        if is_jump_case and not predicted_jump and i < 10:  # 처음 10개만
+        if is_jump_case and not predicted_jump and actual_jump_count <= 10:  # 처음 10개만
             print(f"\n  ⚠️ 놓친 점프 케이스: seq_max={info['seq_max']:.1f}, 실제={info['target_value']:.1f}, "
                   f"예측={value_pred[i]:.1f}, 점프확률={jump_pred_proba[i]:.3f}")
         
@@ -685,8 +691,8 @@ def evaluate_models():
             '시퀀스시작시간': info['seq_start_time'].strftime('%Y-%m-%d %H:%M'),
             '시퀀스완료시간': info['seq_end_time'].strftime('%Y-%m-%d %H:%M'),
             '실제값': round(info['target_value'], 2),
-            '예측값': round(value_pred[i], 2),
-            '오차': round(abs(info['target_value'] - value_pred[i]), 2),
+            '예측값': round(adjusted_value_pred, 2),  # 조정된 예측값 사용
+            '오차': round(abs(info['target_value'] - adjusted_value_pred), 2),  # 조정된 오차
             '점프예측': 'O' if predicted_jump else 'X',
             '점프확률': round(jump_pred_proba[i] * 100, 1),
             '구간예측': ['50-150', '150-299', '300+'][range_pred[i]],
