@@ -7,36 +7,28 @@ import os
 
 # --------------------------------------------------------------------------
 # 그래프 생성 로직
-# ✨ Hovertemplate에서 customdata를 사용하여 시간 형식을 'HH:MM'으로 고정
+# ✨ 날짜와 시간을 합쳐서 'YYYY-MM-DD HH:MM' 형식으로 표시하도록 수정
 # --------------------------------------------------------------------------
 def create_graph(params):
     try:
         df = pd.read_csv(params['file_path'])
         
-        # UI에서 선택한 컬럼 이름 변수 할당
         actual_x_col = params['actual_x']
         actual_y_col = params['actual_y']
         predicted_x_col = params['predicted_x']
         predicted_y_col = params['predicted_y']
 
-        # 날짜 형식 변환 시도
         try:
             df[actual_x_col] = pd.to_datetime(df[actual_x_col])
             df[predicted_x_col] = pd.to_datetime(df[predicted_x_col])
             
-            # ✨ 정보창에 표시할 날짜/시간 문자열 컬럼 생성 ('초' 제외)
-            df['hover_actual_date'] = df[actual_x_col].dt.strftime('%Y-%m-%d')
-            df['hover_actual_time'] = df[actual_x_col].dt.strftime('%H:%M')
-            df['hover_predicted_date'] = df[predicted_x_col].dt.strftime('%Y-%m-%d')
-            df['hover_predicted_time'] = df[predicted_x_col].dt.strftime('%H:%M')
-
+            # ✨ 정보창에 표시할 통합된 날짜/시간 문자열 컬럼 생성
+            df['hover_actual_datetime'] = df[actual_x_col].dt.strftime('%Y-%m-%d %H:%M')
+            df['hover_predicted_datetime'] = df[predicted_x_col].dt.strftime('%Y-%m-%d %H:%M')
         except Exception as e:
             messagebox.showwarning("날짜 변환 경고", f"시간 축으로 선택된 컬럼을 날짜 형식으로 변환하는 데 실패했습니다. 일반 데이터로 처리합니다.\n({e})")
-            df['hover_actual_date'] = df[actual_x_col]
-            df['hover_actual_time'] = ""
-            df['hover_predicted_date'] = df[predicted_x_col]
-            df['hover_predicted_time'] = ""
-
+            df['hover_actual_datetime'] = df[actual_x_col]
+            df['hover_predicted_datetime'] = df[predicted_x_col]
 
         fig = go.Figure()
 
@@ -47,12 +39,10 @@ def create_graph(params):
             mode='lines',
             name='실제값 (Actual)',
             line=dict(color=params['actual_color'], dash=params['actual_style'].lower()),
-            customdata=df[['hover_actual_date', 'hover_actual_time']],
+            customdata=df[['hover_actual_datetime']],
             hovertemplate=(
                 f"<b>{actual_y_col}:</b> %{{y}}<br>"
-                "------------------<br>"
-                "<b>날짜:</b> %{customdata[0]}<br>"
-                "<b>시간:</b> %{customdata[1]}"
+                "<b>시간:</b> %{customdata[0]}"
                 "<extra></extra>"
             )
         ))
@@ -64,12 +54,10 @@ def create_graph(params):
             mode='lines',
             name='예측값 (Predicted)',
             line=dict(color=params['predicted_color'], dash=params['predicted_style'].lower()),
-            customdata=df[['hover_predicted_date', 'hover_predicted_time']],
+            customdata=df[['hover_predicted_datetime']],
             hovertemplate=(
                 f"<b>{predicted_y_col}:</b> %{{y}}<br>"
-                "------------------<br>"
-                "<b>날짜:</b> %{customdata[0]}<br>"
-                "<b>시간:</b> %{customdata[1]}"
+                "<b>시간:</b> %{customdata[0]}"
                 "<extra></extra>"
             )
         ))
@@ -81,7 +69,7 @@ def create_graph(params):
             hovermode='x unified'
         )
 
-        output_filename = "final_custom_graph.html"
+        output_filename = "final_datetime_graph.html"
         fig.write_html(output_filename)
         webbrowser.open('file://' + os.path.realpath(output_filename))
         messagebox.showinfo("성공", f"'{output_filename}' 파일이 생성되었으며, 웹 브라우저에서 자동으로 열립니다.")
@@ -95,7 +83,7 @@ def create_graph(params):
 class GraphApp:
     def __init__(self, root):
         self.root = root
-        self.root.title("맞춤형 그래프 생성기 v2.1 (시간수정)")
+        self.root.title("맞춤형 그래프 생성기 v2.2 (시간통합)")
         self.file_path = ""
         self.column_widgets = []
         self.df_columns = []
