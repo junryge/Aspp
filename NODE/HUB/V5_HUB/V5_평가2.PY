@@ -782,6 +782,65 @@ class CompleteModelEvaluator:
             trend_predictions = self.system.model_trend.predict(all_features)
             predictions['trend_pattern'] = trend_predictions
         
+        # 7. ExtraTreesRegressor 값 예측
+        if self.models_loaded.get('value', False):
+            print("\n💰 ExtraTreesRegressor 값 예측...")
+            value_predictions = self.system.model_value.predict(all_features)
+            predictions['value_prediction'] = value_predictions
+            print(f"  - 예측값 범위: {value_predictions.min():.1f} ~ {value_predictions.max():.1f}")
+            print(f"  - 평균 예측값: {value_predictions.mean():.1f}")
+            print(f"  - 300+ 예측 개수: {sum(value_predictions >= 300)}")
+        
+        # 8. PatchTST 안정형 값 예측
+        if self.models_loaded.get('patchtst', False) and self.system.scaler_X is not None:
+            print("\n🔷 PatchTST 안정형 값 예측...")
+            patchtst_preds = []
+            
+            # 배치 처리
+            X_scaled = self.system.scaler_X.transform(
+                all_X.reshape(-1, all_X.shape[-1])
+            ).reshape(all_X.shape)
+            
+            # 배치 예측
+            predictions_scaled = self.system.model_patchtst.predict(X_scaled, batch_size=32, verbose=0)
+            
+            # 역변환
+            predictions_values = self.system.scaler_y.inverse_transform(
+                predictions_scaled.reshape(-1, 1)
+            ).flatten()
+            
+            predictions['patchtst_value'] = predictions_values
+            print(f"  - PatchTST 예측값 범위: {predictions_values.min():.1f} ~ {predictions_values.max():.1f}")
+            print(f"  - PatchTST 평균 예측값: {predictions_values.mean():.1f}")
+            print(f"  - PatchTST 300+ 예측 개수: {sum(predictions_values >= 300)}")
+        
+        # 9. PatchTST-PINN 극단형 값 예측
+        if self.models_loaded.get('patchtst_pinn', False) and self.system.scaler_X is not None:
+            print("\n🔶 PatchTST-PINN 극단형 값 예측...")
+            
+            # 스케일링
+            X_scaled = self.system.scaler_X.transform(
+                all_X.reshape(-1, all_X.shape[-1])
+            ).reshape(all_X.shape)
+            X_physics_scaled = self.system.scaler_physics.transform(all_physics)
+            
+            # 배치 예측
+            predictions_scaled = self.system.model_patchtst_pinn.predict(
+                [X_scaled, X_physics_scaled], 
+                batch_size=32, 
+                verbose=0
+            )
+            
+            # 역변환
+            predictions_values = self.system.scaler_y.inverse_transform(
+                predictions_scaled.reshape(-1, 1)
+            ).flatten()
+            
+            predictions['patchtst_pinn_value'] = predictions_values
+            print(f"  - PatchTST-PINN 예측값 범위: {predictions_values.min():.1f} ~ {predictions_values.max():.1f}")
+            print(f"  - PatchTST-PINN 평균 예측값: {predictions_values.mean():.1f}")
+            print(f"  - PatchTST-PINN 300+ 예측 개수: {sum(predictions_values >= 300)}")
+        
         # 결과 정리
         for i, seq in enumerate(sequences):
             result = {
@@ -795,12 +854,23 @@ class CompleteModelEvaluator:
                 '실제점프케이스300+': seq['is_jump_actual']
             }
             
-            # 각 모델 예측 추가
-            for model_name, preds in predictions.items():
-                if model_name in ['range_class', 'trend_pattern']:
-                    result[f'{model_name}_예측'] = preds[i] if i < len(preds) else -1
-                else:
-                    result[f'점프예측_{model_name}'] = preds[i] if i < len(preds) else 0
+            # 점프 예측 (0/1)
+            for model_name in ['xgboost', 'xgboost_rules', 'extra_trees', 'extra_trees_rules', 
+                              'value_based_jump', 'hybrid']:
+                if model_name in predictions:
+                    result[f'점프예측_{model_name}'] = predictions[model_name][i]
+            
+            # 값 예측 (실제 수치)
+            for model_name in ['value_prediction', 'patchtst_value', 'patchtst_pinn_value']:
+                if model_name in predictions:
+                    result[f'값예측_{model_name}'] = predictions[model_name][i]
+            
+            # 분류 예측
+            if 'range_class' in predictions:
+                result['range_class_예측'] = predictions['range_class'][i]
+            
+            if 'trend_pattern' in predictions:
+                result['trend_pattern_예측'] = predictions['trend_pattern'][i]
             
             results.append(result)
         
@@ -836,7 +906,7 @@ def main():
     
     # 성능 요약
     print("\n" + "="*80)
-    print("📊 모델별 점프 감지 성능 요약")
+    print("📊 모델별 성능 요약")
     print("="*80)
     
     actual_jumps = results_df['실제점프케이스300+'].sum()
@@ -844,7 +914,9 @@ def main():
     
     print(f"\n전체 샘플: {total_samples}")
     print(f"실제 점프 케이스: {actual_jumps} ({actual_jumps/total_samples*100:.2f}%)")
-    print("\n모델별 감지율:")
+    
+    print("\n[1] 점프 감지 성능 (이진 분류)")
+    print("-"*60)
     
     for col in results_df.columns:
         if col.startswith('점프예측_'):
@@ -852,17 +924,66 @@ def main():
             predicted_jumps = results_df[col].sum()
             tp = ((results_df['실제점프케이스300+'] == 1) & (results_df[col] == 1)).sum()
             recall = tp / actual_jumps if actual_jumps > 0 else 0
-            
-            print(f"  - {model_name}: {recall*100:.1f}% ({tp}/{actual_jumps}) - 예측점프 {predicted_jumps}개")
-    
-    # 모델별 정확도
-    print("\n모델별 전체 정확도:")
-    for col in results_df.columns:
-        if col.startswith('점프예측_'):
-            model_name = col.replace('점프예측_', '')
             correct = (results_df['실제점프케이스300+'] == results_df[col]).sum()
             accuracy = correct / total_samples
-            print(f"  - {model_name}: {accuracy*100:.1f}%")
+            
+            print(f"\n{model_name}:")
+            print(f"  - 점프 감지율: {recall*100:.1f}% ({tp}/{actual_jumps})")
+            print(f"  - 전체 정확도: {accuracy*100:.1f}%")
+            print(f"  - 예측 점프 수: {predicted_jumps}")
+    
+    print("\n[2] 값 예측 성능 (회귀)")
+    print("-"*60)
+    
+    for col in results_df.columns:
+        if col.startswith('값예측_'):
+            model_name = col.replace('값예측_', '')
+            pred_values = results_df[col]
+            actual_values = results_df['실제값']
+            
+            # MAE
+            mae = np.abs(pred_values - actual_values).mean()
+            
+            # RMSE
+            rmse = np.sqrt(((pred_values - actual_values) ** 2).mean())
+            
+            # 300+ 예측 정확도
+            pred_300plus = (pred_values >= 300).astype(int)
+            actual_300plus = (actual_values >= 300).astype(int)
+            accuracy_300 = (pred_300plus == actual_300plus).sum() / len(pred_300plus) * 100
+            
+            print(f"\n{model_name}:")
+            print(f"  - MAE: {mae:.2f}")
+            print(f"  - RMSE: {rmse:.2f}")
+            print(f"  - 예측값 범위: {pred_values.min():.1f} ~ {pred_values.max():.1f}")
+            print(f"  - 실제값 범위: {actual_values.min():.1f} ~ {actual_values.max():.1f}")
+            print(f"  - 300+ 분류 정확도: {accuracy_300:.1f}%")
+    
+    # 예측 샘플 출력
+    print("\n[3] 예측 샘플 (처음 10개)")
+    print("-"*60)
+    
+    sample_cols = ['날짜', '실제값']
+    for col in results_df.columns:
+        if col.startswith('값예측_'):
+            sample_cols.append(col)
+    
+    if len(sample_cols) > 2:
+        print(results_df[sample_cols].head(10).to_string(index=False))
+    
+    # 점프 케이스 예측 비교
+    jump_cases = results_df[results_df['실제점프케이스300+'] == 1]
+    if len(jump_cases) > 0:
+        print(f"\n[4] 점프 케이스 예측 비교 ({len(jump_cases)}개)")
+        print("-"*60)
+        
+        jump_cols = ['날짜', '측정시퀀스MAX', '실제값']
+        for col in results_df.columns:
+            if col.startswith('값예측_'):
+                jump_cols.append(col)
+        
+        if len(jump_cols) > 3:
+            print(jump_cases[jump_cols].head(10).to_string(index=False))
     
     print("\n" + "="*80)
     print("✅ 평가 완료!")
