@@ -2,30 +2,46 @@
 # -*- coding: utf-8 -*-
 
 
-# Step 9에서 PatchTST 모델 로드 부분 수정
+Step 9 끝부분:
+python# Step 9 마지막에 추가
+state['metrics_xgb'] = metrics_xgb
+state['metrics_xgb_rules'] = metrics_xgb_rules
+state['metrics_extra'] = metrics_extra
+state['metrics_extra_rules'] = metrics_extra_rules
+if 'metrics_hybrid' in locals():
+    state['metrics_hybrid'] = metrics_hybrid
+state['step'] = 10
+ckpt.save_state(state)
 
-# 5. 하이브리드 (ExtraTrees + PatchTST)
-if state.get('patchtst_pinn_trained', False):
-    # PatchTST 모델 재생성
-    n_features = state.get('n_features', X_val.shape[2])
-    system.build_patchtst_models(n_features)
+
+# Step 10: 최종 정리
+if step <= 10:
+    print(f"\n[Step 10/10] 최종 정리 및 저장")
+    print("-"*60)
     
-    # 모델 빌드 (이 부분 추가!)
-    dummy_input_seq = np.zeros((1, 30, n_features))
-    dummy_input_physics = np.zeros((1, 5))
+    # metrics 로드
+    metrics_xgb = state.get('metrics_xgb', {'recall': 0, 'fpr': 0, 'accuracy': 0})
+    metrics_xgb_rules = state.get('metrics_xgb_rules', {'recall': 0, 'fpr': 0, 'accuracy': 0})
+    metrics_extra = state.get('metrics_extra', {'recall': 0, 'fpr': 0, 'accuracy': 0})
+    metrics_extra_rules = state.get('metrics_extra_rules', {'recall': 0, 'fpr': 0, 'accuracy': 0})
+    metrics_hybrid = state.get('metrics_hybrid', None)
     
-    # 모델을 한 번 호출해서 빌드
-    system.model_patchtst(dummy_input_seq)
-    system.model_patchtst_pinn([dummy_input_seq, dummy_input_physics])
+    # 전체 시스템 저장
+    print("\n💾 전체 시스템 저장")
+    joblib.dump(system, 'hubroom_jump_detection_system_complete.pkl')
     
-    # 이제 가중치 로드
-    system.model_patchtst.load_weights(os.path.join(ckpt.models_dir, 'model_patchtst.weights.h5'))
-    system.model_patchtst_pinn.load_weights(os.path.join(ckpt.models_dir, 'model_patchtst_pinn.weights.h5'))
+    # 최종 결과 요약
+    print("\n" + "="*60)
+    print("🎉 학습 완료! 최종 성능 요약")
+    print("="*60)
     
-    # 하이브리드 예측
-    hybrid_predictor = HybridJumpPredictor(system)
-    jump_pred_hybrid = hybrid_predictor.predict(X_val, X_val_features, X_physics_val)
-    metrics_hybrid = evaluate_jump_detection(y_jump_val, jump_pred_hybrid, "ExtraTrees + PatchTST 하이브리드")
+    print("\n📊 점프 감지율 비교:")
+    print(f"  - XGBoost 기본: {metrics_xgb['recall']*100:.1f}%")
+    print(f"  - XGBoost + 규칙: {metrics_xgb_rules['recall']*100:.1f}%")
+    print(f"  - ExtraTrees: {metrics_extra['recall']*100:.1f}%")
+    print(f"  - ExtraTrees + 규칙: {metrics_extra_rules['recall']*100:.1f}%")
+    if metrics_hybrid:
+        print(f"  - ExtraTrees + PatchTST 하이브리드: {metrics_hybrid['recall']*100:.1f}% ✨")
 """
 ================================================================================
 🎯 HUBROOM 점프 감지 80% → 81% 시스템 - 완전 통합 학습 코드
