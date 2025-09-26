@@ -565,49 +565,132 @@ class ModelEvaluator:
         # 특징 인덱스 설정
         self.get_feature_indices(feature_cols)
         
+        # 디버깅 정보
+        print(f"\n📊 디버깅 정보:")
+        print(f"  - 전체 시퀀스 수: {len(sequences)}")
+        print(f"  - 특징 shape: {all_features.shape}")
+        print(f"  - 물리 특징 shape: {all_physics.shape}")
+        print(f"  - 로드된 모델: {list(self.models.keys())}")
+        
+        # 실제 점프 케이스 확인
+        actual_jumps = sum(1 for seq in sequences if seq['is_jump_actual'])
+        print(f"  - 실제 점프 케이스: {actual_jumps}")
+        
+        # 특징값 범위 확인
+        if self.feature_indices:
+            if 'storage_util' in self.feature_indices:
+                idx = self.feature_indices['storage_util']
+                storage_values = all_features[:, idx]
+                print(f"  - Storage Util 범위: {storage_values.min():.2f} ~ {storage_values.max():.2f}")
+                print(f"  - Storage > 10 개수: {sum(storage_values > 10)}")
+                print(f"  - Storage > 20 개수: {sum(storage_values > 20)}")
+        
         # 배치 예측
         predictions = {}
         
         # 1. XGBoost
         if 'xgboost' in self.models:
-            predictions['xgboost'] = self.models['xgboost'].predict(all_features)
-            predictions['xgboost_rules'] = self.apply_rule_based_boost(all_features, predictions['xgboost'])
+            print("\n🔷 XGBoost 예측 중...")
+            try:
+                pred_xgb = self.models['xgboost'].predict(all_features)
+                print(f"  - XGBoost 예측 점프: {sum(pred_xgb)}")
+                predictions['xgboost'] = pred_xgb
+                
+                # 규칙 적용
+                pred_xgb_rules = self.apply_rule_based_boost(all_features, pred_xgb)
+                print(f"  - XGBoost+규칙 예측 점프: {sum(pred_xgb_rules)}")
+                predictions['xgboost_rules'] = pred_xgb_rules
+            except Exception as e:
+                print(f"  ❌ XGBoost 예측 실패: {e}")
+                predictions['xgboost'] = np.zeros(len(sequences))
+                predictions['xgboost_rules'] = np.zeros(len(sequences))
         
         # 2. ExtraTrees
         if 'extra_trees' in self.models:
-            predictions['extra_trees'] = self.models['extra_trees'].predict(all_features)
-            predictions['extra_trees_rules'] = self.apply_rule_based_boost(all_features, predictions['extra_trees'])
+            print("\n🔶 ExtraTrees 예측 중...")
+            try:
+                pred_et = self.models['extra_trees'].predict(all_features)
+                print(f"  - ExtraTrees 예측 점프: {sum(pred_et)}")
+                predictions['extra_trees'] = pred_et
+                
+                # 규칙 적용
+                pred_et_rules = self.apply_rule_based_boost(all_features, pred_et)
+                print(f"  - ExtraTrees+규칙 예측 점프: {sum(pred_et_rules)}")
+                predictions['extra_trees_rules'] = pred_et_rules
+            except Exception as e:
+                print(f"  ❌ ExtraTrees 예측 실패: {e}")
+                predictions['extra_trees'] = np.zeros(len(sequences))
+                predictions['extra_trees_rules'] = np.zeros(len(sequences))
         
         # 3. 하이브리드 (ExtraTrees + PatchTST)
         if 'extra_trees' in self.models and 'patchtst_pinn' in self.models:
-            hybrid_preds = []
-            et_proba = self.models['extra_trees'].predict_proba(all_features)[:, 1]
-            
-            for i in tqdm(range(len(sequences)), desc="하이브리드 예측"):
-                if et_proba[i] > 0.8:
-                    hybrid_preds.append(1)
-                elif et_proba[i] < 0.2:
-                    hybrid_preds.append(0)
+            print("\n🔵 하이브리드 예측 중...")
+            try:
+                hybrid_preds = []
+                
+                # ExtraTrees 확률
+                if hasattr(self.models['extra_trees'], 'predict_proba'):
+                    et_proba = self.models['extra_trees'].predict_proba(all_features)[:, 1]
                 else:
-                    # PatchTST-PINN으로 정밀 예측
-                    x_seq = all_X[i:i+1]
-                    x_physics = all_physics[i:i+1]
-                    
-                    x_seq_scaled = self.scalers['X'].transform(
-                        x_seq.reshape(-1, x_seq.shape[-1])
-                    ).reshape(x_seq.shape)
-                    x_physics_scaled = self.scalers['physics'].transform(x_physics)
-                    
-                    pred_value = self.models['patchtst_pinn'].predict(
-                        [x_seq_scaled, x_physics_scaled], verbose=0
-                    )[0]
-                    
-                    # 역변환
-                    pred_value = self.scalers['y'].inverse_transform([[pred_value]])[0][0]
-                    
-                    hybrid_preds.append(1 if pred_value > 300 else 0)
-            
-            predictions['hybrid'] = np.array(hybrid_preds)
+                    print("  ⚠️ ExtraTrees에 predict_proba 없음, predict 사용")
+                    et_pred = self.models['extra_trees'].predict(all_features)
+                    et_proba = et_pred.astype(float)
+                
+                print(f"  - ET 확률 범위: {et_proba.min():.3f} ~ {et_proba.max():.3f}")
+                
+                high_prob = sum(et_proba > 0.8)
+                low_prob = sum(et_proba < 0.2)
+                mid_prob = len(et_proba) - high_prob - low_prob
+                
+                print(f"  - 높은 확률(>0.8): {high_prob}")
+                print(f"  - 낮은 확률(<0.2): {low_prob}")
+                print(f"  - 중간 확률: {mid_prob}")
+                
+                # 하이브리드 예측
+                for i in range(len(sequences)):
+                    if et_proba[i] > 0.8 or et_pred[i] == 1:
+                        hybrid_preds.append(1)
+                    elif et_proba[i] < 0.2 and et_pred[i] == 0:
+                        hybrid_preds.append(0)
+                    else:
+                        # PatchTST-PINN 사용
+                        try:
+                            x_seq = all_X[i:i+1]
+                            x_physics = all_physics[i:i+1]
+                            
+                            x_seq_scaled = self.scalers['X'].transform(
+                                x_seq.reshape(-1, x_seq.shape[-1])
+                            ).reshape(x_seq.shape)
+                            x_physics_scaled = self.scalers['physics'].transform(x_physics)
+                            
+                            pred_value = self.models['patchtst_pinn'].predict(
+                                [x_seq_scaled, x_physics_scaled], verbose=0
+                            )[0]
+                            
+                            pred_value = self.scalers['y'].inverse_transform([[pred_value]])[0][0]
+                            
+                            hybrid_preds.append(1 if pred_value > 300 else 0)
+                        except:
+                            # PatchTST 실패시 ExtraTrees 결과 사용
+                            hybrid_preds.append(1 if et_pred[i] == 1 else 0)
+                
+                predictions['hybrid'] = np.array(hybrid_preds)
+                print(f"  - 하이브리드 예측 점프: {sum(predictions['hybrid'])}")
+                
+            except Exception as e:
+                print(f"  ❌ 하이브리드 예측 실패: {e}")
+                import traceback
+                traceback.print_exc()
+                if 'extra_trees' in predictions:
+                    predictions['hybrid'] = predictions['extra_trees'].copy()
+                else:
+                    predictions['hybrid'] = np.zeros(len(sequences))
+        
+        # 모델이 없는 경우 기본값
+        if not predictions:
+            print("\n⚠️ 사용 가능한 모델이 없음! 기본값 사용")
+            for model_name in ['xgboost', 'xgboost_rules', 'extra_trees', 'extra_trees_rules', 'hybrid']:
+                predictions[model_name] = np.zeros(len(sequences))
         
         # 결과 정리
         for i, seq in enumerate(sequences):
