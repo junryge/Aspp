@@ -2,7 +2,29 @@
 # -*- coding: utf-8 -*-
 
 
-Step 9 끝부분:
+def save_keras_model(self, model, model_name):
+    """케라스 모델 저장"""
+    # model_path = os.path.join(self.models_dir, f'{model_name}.h5')  # 이거 삭제
+    model_path = os.path.join(self.models_dir, f'{model_name}.weights.h5')  # 이걸로 변경
+    model.save_weights(model_path)
+    print(f"💾 {model_name} 케라스 모델 저장 완료")
+2. Step 9 - 모델 빌드 추가 (약 1380번째 줄)
+python# 5. 하이브리드 (ExtraTrees + PatchTST)
+if state.get('patchtst_pinn_trained', False):
+    # PatchTST 모델 재생성
+    n_features = state.get('n_features', X_val.shape[2])
+    system.build_patchtst_models(n_features)
+    
+    # ===== 여기 추가! =====
+    # 모델 빌드
+    system.model_patchtst.build(input_shape=(None, 30, n_features))
+    system.model_patchtst_pinn.build([(None, 30, n_features), (None, 5)])
+    # ====================
+    
+    # 가중치 로드 (.h5 → .weights.h5로 변경)
+    system.model_patchtst.load_weights(os.path.join(ckpt.models_dir, 'model_patchtst.weights.h5'))
+    system.model_patchtst_pinn.load_weights(os.path.join(ckpt.models_dir, 'model_patchtst_pinn.weights.h5'))
+3. Step 9 끝 - metrics 저장 (약 1405번째 줄)
 python# Step 9 마지막에 추가
 state['metrics_xgb'] = metrics_xgb
 state['metrics_xgb_rules'] = metrics_xgb_rules
@@ -12,36 +34,28 @@ if 'metrics_hybrid' in locals():
     state['metrics_hybrid'] = metrics_hybrid
 state['step'] = 10
 ckpt.save_state(state)
-
-
-# Step 10: 최종 정리
+4. Step 10 - 전체 저장 삭제 (약 1420-1430번째 줄)
+python# Step 10: 최종 정리
 if step <= 10:
     print(f"\n[Step 10/10] 최종 정리 및 저장")
     print("-"*60)
     
-    # metrics 로드
-    metrics_xgb = state.get('metrics_xgb', {'recall': 0, 'fpr': 0, 'accuracy': 0})
-    metrics_xgb_rules = state.get('metrics_xgb_rules', {'recall': 0, 'fpr': 0, 'accuracy': 0})
-    metrics_extra = state.get('metrics_extra', {'recall': 0, 'fpr': 0, 'accuracy': 0})
-    metrics_extra_rules = state.get('metrics_extra_rules', {'recall': 0, 'fpr': 0, 'accuracy': 0})
+    # metrics 로드 추가
+    metrics_xgb = state.get('metrics_xgb', {'recall': 0})
+    metrics_xgb_rules = state.get('metrics_xgb_rules', {'recall': 0})
+    metrics_extra = state.get('metrics_extra', {'recall': 0})
+    metrics_extra_rules = state.get('metrics_extra_rules', {'recall': 0})
     metrics_hybrid = state.get('metrics_hybrid', None)
     
-    # 전체 시스템 저장
-    print("\n💾 전체 시스템 저장")
-    joblib.dump(system, 'hubroom_jump_detection_system_complete.pkl')
+    # ===== 이 부분 삭제! =====
+    # print("\n💾 전체 시스템 저장")
+    # joblib.dump(system, 'hubroom_jump_detection_system_complete.pkl')
+    # ========================
     
-    # 최종 결과 요약
-    print("\n" + "="*60)
-    print("🎉 학습 완료! 최종 성능 요약")
-    print("="*60)
-    
-    print("\n📊 점프 감지율 비교:")
-    print(f"  - XGBoost 기본: {metrics_xgb['recall']*100:.1f}%")
-    print(f"  - XGBoost + 규칙: {metrics_xgb_rules['recall']*100:.1f}%")
-    print(f"  - ExtraTrees: {metrics_extra['recall']*100:.1f}%")
-    print(f"  - ExtraTrees + 규칙: {metrics_extra_rules['recall']*100:.1f}%")
-    if metrics_hybrid:
-        print(f"  - ExtraTrees + PatchTST 하이브리드: {metrics_hybrid['recall']*100:.1f}% ✨")
+    print("\n✅ 모든 모델이 checkpoints_jump80/models/에 개별 저장되었습니다")
+
+
+
 """
 ================================================================================
 🎯 HUBROOM 점프 감지 80% → 81% 시스템 - 완전 통합 학습 코드
