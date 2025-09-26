@@ -2,25 +2,30 @@
 # -*- coding: utf-8 -*-
 
 
-def save_keras_model(self, model, model_name):
-    """케라스 모델 저장"""
-    model_path = os.path.join(self.models_dir, f'{model_name}.weights.h5')  # .h5 → .weights.h5
-    model.save_weights(model_path)
-    print(f"💾 {model_name} 케라스 모델 저장 완료")
+# Step 9에서 PatchTST 모델 로드 부분 수정
 
-# Step 9에서 가중치 로드 부분
-# 기존:
-system.model_patchtst_pinn.load_weights(ckpt.models_dir + '/model_patchtst_pinn.h5')
-
-# 수정:
-system.model_patchtst_pinn.load_weights(ckpt.models_dir + '/model_patchtst_pinn.weights.h5')
-
-# 스케일러 로드 부분도 수정
-# 기존:
-system.scaler_X = joblib.load(ckpt.models_dir + '/scaler_X.pkl')
-
-# 수정:
-system.scaler_X = joblib.load(os.path.join(ckpt.models_dir, 'scaler_X.pkl'))
+# 5. 하이브리드 (ExtraTrees + PatchTST)
+if state.get('patchtst_pinn_trained', False):
+    # PatchTST 모델 재생성
+    n_features = state.get('n_features', X_val.shape[2])
+    system.build_patchtst_models(n_features)
+    
+    # 모델 빌드 (이 부분 추가!)
+    dummy_input_seq = np.zeros((1, 30, n_features))
+    dummy_input_physics = np.zeros((1, 5))
+    
+    # 모델을 한 번 호출해서 빌드
+    system.model_patchtst(dummy_input_seq)
+    system.model_patchtst_pinn([dummy_input_seq, dummy_input_physics])
+    
+    # 이제 가중치 로드
+    system.model_patchtst.load_weights(os.path.join(ckpt.models_dir, 'model_patchtst.weights.h5'))
+    system.model_patchtst_pinn.load_weights(os.path.join(ckpt.models_dir, 'model_patchtst_pinn.weights.h5'))
+    
+    # 하이브리드 예측
+    hybrid_predictor = HybridJumpPredictor(system)
+    jump_pred_hybrid = hybrid_predictor.predict(X_val, X_val_features, X_physics_val)
+    metrics_hybrid = evaluate_jump_detection(y_jump_val, jump_pred_hybrid, "ExtraTrees + PatchTST 하이브리드")
 """
 ================================================================================
 🎯 HUBROOM 점프 감지 80% → 81% 시스템 - 완전 통합 학습 코드
