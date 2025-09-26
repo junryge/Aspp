@@ -1,5 +1,26 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
+
+
+def save_keras_model(self, model, model_name):
+    """케라스 모델 저장"""
+    model_path = os.path.join(self.models_dir, f'{model_name}.weights.h5')  # .h5 → .weights.h5
+    model.save_weights(model_path)
+    print(f"💾 {model_name} 케라스 모델 저장 완료")
+
+# Step 9에서 가중치 로드 부분
+# 기존:
+system.model_patchtst_pinn.load_weights(ckpt.models_dir + '/model_patchtst_pinn.h5')
+
+# 수정:
+system.model_patchtst_pinn.load_weights(ckpt.models_dir + '/model_patchtst_pinn.weights.h5')
+
+# 스케일러 로드 부분도 수정
+# 기존:
+system.scaler_X = joblib.load(ckpt.models_dir + '/scaler_X.pkl')
+
+# 수정:
+system.scaler_X = joblib.load(os.path.join(ckpt.models_dir, 'scaler_X.pkl'))
 """
 ================================================================================
 🎯 HUBROOM 점프 감지 80% → 81% 시스템 - 완전 통합 학습 코드
