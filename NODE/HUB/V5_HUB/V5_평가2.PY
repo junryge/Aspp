@@ -1,521 +1,792 @@
+#!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
 ================================================================================
-📊 V4 ULTIMATE 평가 시스템 - 2025년 8월 데이터 평가 (완전판)
+🎯 HUBROOM 점프 감지 시스템 평가 코드 (개선판)
+================================================================================
+주요 개선사항:
+- 점프로 예측된 케이스에 예측값 +40 자동 추가
+- 더 공격적인 부스팅 규칙으로 점프 감지율 향상
+- 낮은 임계값으로 더 많은 점프 케이스 포착
 ================================================================================
 """
 
 import numpy as np
 import pandas as pd
-import tensorflow as tf
-from tensorflow import keras
-from tensorflow.keras import layers
+from sklearn.ensemble import ExtraTreesClassifier, RandomForestClassifier, ExtraTreesRegressor
+from sklearn.preprocessing import RobustScaler, LabelEncoder
+from sklearn.metrics import classification_report, confusion_matrix
+from xgboost import XGBClassifier
 import joblib
-import h5py
 import os
-from datetime import datetime
+import pickle
+from datetime import datetime, timedelta
 from tqdm import tqdm
 import warnings
-
 warnings.filterwarnings('ignore')
 
 print("="*80)
-print("📊 V4 ULTIMATE 평가 시스템")
-print("🎯 2025년 8월 데이터 (학습되지 않은 데이터) 평가")
+print("🎯 HUBROOM 점프 감지 시스템 평가 (개선판)")
+print("📊 30분 시퀀스 → 10분 후 예측")
+print("🔥 점프 예측 시 +40 자동 추가")
+print("📅 평가 데이터: 2025년 8월")
 print("="*80)
 
 # ==============================================================================
-# 모델 클래스 정의 (학습된 가중치 로드용)
+# 📊 데이터 처리 클래스 (학습 코드와 동일)
 # ==============================================================================
 
-class PatchTSTModel(keras.Model):
-    def __init__(self, config):
-        super().__init__()
-        self.seq_len = config['seq_len']
-        self.n_features = config['n_features']
-        self.patch_len = config['patch_len']
-        self.n_patches = self.seq_len // self.patch_len
-        
-        self.patch_embedding = layers.Dense(128, activation='relu')
-        self.attention = layers.MultiHeadAttention(num_heads=8, key_dim=16)
-        self.norm1 = layers.LayerNormalization()
-        self.norm2 = layers.LayerNormalization()
-        self.ffn = keras.Sequential([
-            layers.Dense(256, activation='relu'),
-            layers.Dropout(0.2),
-            layers.Dense(128)
-        ])
-        self.flatten = layers.Flatten()
-        self.dense1 = layers.Dense(128, activation='relu')
-        self.dropout = layers.Dropout(0.3)
-        self.dense2 = layers.Dense(64, activation='relu')
-        self.output_layer = layers.Dense(1)
+class HubRoomDataProcessor:
+    """완전한 데이터 처리 - 모든 특징 포함"""
     
-    def call(self, x, training=False):
-        batch_size = tf.shape(x)[0]
-        x = tf.reshape(x, [batch_size, self.n_patches, self.patch_len * self.n_features])
-        x = self.patch_embedding(x)
-        attn = self.attention(x, x, training=training)
-        x = self.norm1(x + attn)
-        ffn_out = self.ffn(x)
-        x = self.norm2(x + ffn_out)
-        x = self.flatten(x)
-        x = self.dense1(x)
-        x = self.dropout(x, training=training)
-        x = self.dense2(x)
-        output = self.output_layer(x)
-        return tf.squeeze(output, axis=-1)
-
-class PatchTSTPINN(keras.Model):
-    def __init__(self, config):
-        super().__init__()
-        self.seq_len = config['seq_len']
-        self.n_features = config['n_features']
-        self.patch_len = config['patch_len']
-        self.n_patches = self.seq_len // self.patch_len
-        
-        self.patch_embedding = layers.Dense(128, activation='relu')
-        self.attention = layers.MultiHeadAttention(num_heads=8, key_dim=16)
-        self.norm = layers.LayerNormalization()
-        self.flatten = layers.Flatten()
-        self.temporal_dense = layers.Dense(64, activation='relu')
-        self.physics_net = keras.Sequential([
-            layers.Dense(64, activation='relu'),
-            layers.BatchNormalization(),
-            layers.Dense(32, activation='relu'),
-            layers.Dropout(0.2),
-            layers.Dense(16, activation='relu')
-        ])
-        self.fusion = keras.Sequential([
-            layers.Dense(128, activation='relu'),
-            layers.Dropout(0.3),
-            layers.Dense(64, activation='relu'),
-            layers.Dense(32, activation='relu'),
-            layers.Dense(16, activation='relu'),
-            layers.Dense(1)
-        ])
-        self.extreme_boost = layers.Dense(1, activation='sigmoid')
-    
-    def call(self, inputs, training=False):
-        x_seq, x_physics = inputs
-        batch_size = tf.shape(x_seq)[0]
-        x = tf.reshape(x_seq, [batch_size, self.n_patches, self.patch_len * self.n_features])
-        x = self.patch_embedding(x)
-        attn = self.attention(x, x, training=training)
-        x = self.norm(x + attn)
-        x = self.flatten(x)
-        x_temporal = self.temporal_dense(x)
-        x_physics = self.physics_net(x_physics)
-        x_combined = tf.concat([x_temporal, x_physics], axis=-1)
-        output = self.fusion(x_combined)
-        boost_factor = self.extreme_boost(x_physics)
-        output = output * (1 + boost_factor * 0.1)
-        return tf.squeeze(output, axis=-1)
-
-class FineTuningNetwork(keras.Model):
-    def __init__(self):
-        super().__init__()
-        self.feature_net = keras.Sequential([
-            layers.Dense(64, activation='relu'),
-            layers.BatchNormalization(),
-            layers.Dropout(0.3),
-            layers.Dense(32, activation='relu'),
-            layers.Dense(16, activation='relu')
-        ])
-        self.jump_branch = keras.Sequential([
-            layers.Dense(32, activation='relu'),
-            layers.Dense(16, activation='relu'),
-            layers.Dense(1, activation='sigmoid')
-        ])
-        self.extreme_branch = keras.Sequential([
-            layers.Dense(32, activation='relu'),
-            layers.Dense(16, activation='relu'),
-            layers.Dense(1, activation='sigmoid')
-        ])
-        self.adjustment_branch = keras.Sequential([
-            layers.Dense(16, activation='relu'),
-            layers.Dense(8, activation='relu'),
-            layers.Dense(1, activation='tanh')
-        ])
-    
-    def call(self, features, training=False):
-        x = self.feature_net(features, training=training)
-        jump_prob = self.jump_branch(x, training=training)
-        extreme_prob = self.extreme_branch(x, training=training)
-        adjustment = self.adjustment_branch(x, training=training)
-        return {
-            'jump_prob': tf.squeeze(jump_prob, axis=-1),
-            'extreme_prob': tf.squeeze(extreme_prob, axis=-1),
-            'adjustment': tf.squeeze(adjustment, axis=-1) * 0.2
-        }
-
-class JumpDetectionNetwork(keras.Model):
-    def __init__(self):
-        super().__init__()
-        self.jump_detector = keras.Sequential([
-            layers.Dense(64, activation='relu'),
-            layers.BatchNormalization(),
-            layers.Dropout(0.4),
-            layers.Dense(32, activation='relu'),
-            layers.Dense(16, activation='relu'),
-            layers.Dense(1, activation='sigmoid')
-        ])
-        self.jump_magnitude = keras.Sequential([
-            layers.Dense(32, activation='relu'),
-            layers.Dense(16, activation='relu'),
-            layers.Dense(1, activation='relu')
-        ])
-    
-    def call(self, features, training=False):
-        jump_prob = self.jump_detector(features, training=training)
-        jump_size = self.jump_magnitude(features, training=training)
-        return {
-            'jump_prob': tf.squeeze(jump_prob, axis=-1),
-            'jump_size': tf.squeeze(jump_size, axis=-1) * 50 + 250
-        }
-
-class DecisionFusionNetwork(keras.Model):
-    def __init__(self):
-        super().__init__()
-        self.model_selector = keras.Sequential([
-            layers.Dense(64, activation='relu'),
-            layers.BatchNormalization(),
-            layers.Dropout(0.3),
-            layers.Dense(32, activation='relu'),
-            layers.Dense(16, activation='relu'),
-            layers.Dense(1, activation='sigmoid')
-        ])
-        self.fusion_net = keras.Sequential([
-            layers.Dense(32, activation='relu'),
-            layers.Dense(16, activation='relu'),
-            layers.Dense(8, activation='relu'),
-            layers.Dense(1)
-        ])
-    
-    def call(self, inputs, training=False):
-        features, pred1, pred2, fine_tune, jump_detect = inputs
-        model_choice_prob = self.model_selector(features, training=training)
-        model_choice = tf.squeeze(model_choice_prob, axis=-1)
-        combined_features = tf.concat([
-            features[:, :8],
-            tf.expand_dims(pred1, axis=-1),
-            tf.expand_dims(pred2, axis=-1),
-            tf.expand_dims(fine_tune['jump_prob'], axis=-1),
-            tf.expand_dims(fine_tune['extreme_prob'], axis=-1),
-            tf.expand_dims(jump_detect['jump_prob'], axis=-1),
-            tf.expand_dims(model_choice, axis=-1)
-        ], axis=-1)
-        final_pred = self.fusion_net(combined_features, training=training)
-        return {
-            'model_choice': model_choice,
-            'final_prediction': tf.squeeze(final_pred, axis=-1)
-        }
-
-class IntegratedV4Model(keras.Model):
-    def __init__(self, config):
-        super().__init__()
-        self.model1 = PatchTSTModel(config)
-        self.model2 = PatchTSTPINN(config)
-        self.fine_tuning = FineTuningNetwork()
-        self.jump_detection = JumpDetectionNetwork()
-        self.decision_fusion = DecisionFusionNetwork()
-    
-    def call(self, inputs, training=False):
-        x_seq, x_physics, x_features = inputs
-        pred1 = self.model1(x_seq, training=training)
-        pred2 = self.model2([x_seq, x_physics], training=training)
-        fine_tune_outputs = self.fine_tuning(x_features, training=training)
-        jump_outputs = self.jump_detection(x_features, training=training)
-        fusion_outputs = self.decision_fusion(
-            [x_features, pred1, pred2, fine_tune_outputs, jump_outputs], 
-            training=training
-        )
-        return fusion_outputs['final_prediction']
-
-# ==============================================================================
-# 평가 클래스
-# ==============================================================================
-
-class V4Evaluator:
     def __init__(self):
         self.target_col = 'CURRENT_M16A_3F_JOB_2'
-        self.model = None
         
-        # 저장된 스케일러 로드
-        print("📂 저장된 스케일러 로드 중...")
-        self.scaler_X = joblib.load('./checkpoints_integrated_30min/scalers/scaler_X.pkl')
-        self.scaler_y = joblib.load('./checkpoints_integrated_30min/scalers/scaler_y.pkl')
-        self.scaler_physics = joblib.load('./checkpoints_integrated_30min/scalers/scaler_physics.pkl')
-        self.scaler_features = joblib.load('./checkpoints_integrated_30min/scalers/scaler_features.pkl')
-        print("✅ 스케일러 로드 완료")
-        
-        # 필수 컬럼 정의
-        self.v4_essential_cols = [
-            'CURRENT_M16A_3F_JOB_2', 'M16A_6F_TO_HUB_JOB', 'M16A_2F_TO_HUB_JOB2',
-            'M14A_3F_TO_HUB_JOB2', 'M14B_7F_TO_HUB_JOB2', 'M16B_10F_TO_HUB_JOB',
-            'M16A_3F_TO_M16A_6F_JOB', 'M16A_3F_TO_M16A_2F_JOB', 'M16A_3F_TO_M14A_3F_JOB',
-            'M16A_3F_TO_M14B_7F_JOB', 'M16A_3F_TO_3F_MLUD_JOB', 'M16A_3F_CMD',
-            'M16A_6F_TO_HUB_CMD', 'M16A_2F_TO_HUB_CMD', 'M14A_3F_TO_HUB_CMD',
-            'M14B_7F_TO_HUB_CMD', 'M16A_6F_LFT_MAXCAPA', 'M16A_2F_LFT_MAXCAPA',
-            'M16A_3F_STORAGE_UTIL', 'M14_TO_M16_OFS_CUR', 'M16_TO_M14_OFS_CUR'
+        # 21개 필수 컬럼
+        self.inflow_cols = [
+            'M16A_6F_TO_HUB_JOB',
+            'M16A_2F_TO_HUB_JOB2',
+            'M14A_3F_TO_HUB_JOB2',
+            'M14B_7F_TO_HUB_JOB2',
+            'M16B_10F_TO_HUB_JOB'
         ]
-    
-    def load_august_data(self):
-        """8월 데이터만 로드"""
-        print("\n📊 8월 평가 데이터 로드 중...")
         
-        df_raw = pd.read_csv('data/HUB_0509_TO_0807_DATA.CSV')
-        time_col = df_raw.columns[0]
-        df_raw['timestamp'] = pd.to_datetime(df_raw[time_col], format='%Y%m%d%H%M', errors='coerce')
+        self.outflow_cols = [
+            'M16A_3F_TO_M16A_6F_JOB',
+            'M16A_3F_TO_M16A_2F_JOB',
+            'M16A_3F_TO_M14A_3F_JOB',
+            'M16A_3F_TO_M14B_7F_JOB',
+            'M16A_3F_TO_3F_MLUD_JOB'
+        ]
         
-        # 8월 데이터 필터링
-        df_august = df_raw[(df_raw['timestamp'] >= '2025-08-01') & 
-                          (df_raw['timestamp'] < '2025-09-01')].copy()
+        self.cmd_cols = [
+            'M16A_3F_CMD',
+            'M16A_6F_TO_HUB_CMD',
+            'M16A_2F_TO_HUB_CMD',
+            'M14A_3F_TO_HUB_CMD',
+            'M14B_7F_TO_HUB_CMD'
+        ]
         
-        print(f"✅ 8월 데이터: {len(df_august)} 행")
+        self.capa_cols = [
+            'M16A_6F_LFT_MAXCAPA',
+            'M16A_2F_LFT_MAXCAPA'
+        ]
         
-        # 필수 컬럼 처리
-        for col in self.v4_essential_cols:
-            if col not in df_august.columns:
-                df_august[col] = 0
+        self.other_cols = [
+            'M16A_3F_STORAGE_UTIL',
+            'M14_TO_M16_OFS_CUR',
+            'M16_TO_M14_OFS_CUR'
+        ]
         
-        # BRIDGE_TIME 및 고급 특징 추가
-        df_august['BRIDGE_TIME'] = 3.5
-        
-        # 고급 특징 생성
-        for col in ['consecutive_300_count', 'consecutive_300_prob', 'long_trend', 
-                   'mid_trend', 'acceleration', 'volatility_change', 'jump_risk', 'extreme_risk']:
-            df_august[col] = 0
-        
-        return df_august
-    
-    def load_trained_model(self):
-        """학습된 모델 로드"""
-        print("\n🤖 학습된 모델 로드 중...")
-        
-        with h5py.File('./checkpoints_integrated_30min/scaled_integrated_data.h5', 'r') as f:
-            n_features = f.attrs['n_features']
-        
-        config = {
-            'seq_len': 30,
-            'n_features': n_features,
-            'patch_len': 6
+        # 확률 맵 - 매우 중요!
+        self.probability_map = {
+            0: 0.003, 1: 0.15, 2: 0.25, 3: 0.31, 4: 0.43, 5: 0.43,
+            6: 0.35, 7: 0.42, 8: 0.53, 9: 0.49, 10: 0.42,
+            11: 0.47, 12: 0.52, 13: 0.60, 14: 0.54, 15: 0.66,
+            16: 0.62, 17: 0.71, 18: 0.79, 19: 0.83, 20: 0.987,
+            21: 0.99, 22: 0.99, 23: 0.99, 24: 0.99, 25: 0.99,
+            26: 0.99, 27: 0.99, 28: 0.99, 29: 0.99, 30: 0.99
         }
+    
+    def load_and_merge_data(self, data_path):
+        """데이터 로드 및 BRIDGE_TIME 병합"""
+        print("\n[1단계] 데이터 로드")
         
-        self.model = IntegratedV4Model(config)
+        # 메인 데이터
+        df = pd.read_csv(data_path)
+        print(f"✅ 평가 데이터: {df.shape}")
         
-        # 더미 입력으로 모델 빌드
-        dummy_input = [
-            np.zeros((1, 30, n_features)),
-            np.zeros((1, 11)),
-            np.zeros((1, 15))
+        # 시간 처리
+        time_col = df.columns[0]
+        df['datetime'] = pd.to_datetime(df[time_col], format='%Y%m%d%H%M')
+        
+        # BRIDGE_TIME 데이터가 있는지 확인
+        bridge_path = data_path.replace('.csv', '_BRIDGE.csv')
+        if os.path.exists(bridge_path):
+            bridge_df = pd.read_csv(bridge_path)
+            print(f"✅ BRIDGE_TIME 데이터: {bridge_df.shape}")
+            
+            if 'IDC_VAL' in bridge_df.columns:
+                bridge_df['BRIDGE_TIME'] = bridge_df['IDC_VAL']
+                bridge_df['datetime'] = pd.to_datetime(bridge_df['CRT_TM'])
+                
+                # 시간대 정보 제거
+                if hasattr(bridge_df['datetime'].dtype, 'tz'):
+                    bridge_df['datetime'] = bridge_df['datetime'].dt.tz_localize(None)
+                if hasattr(df['datetime'].dtype, 'tz'):
+                    df['datetime'] = df['datetime'].dt.tz_localize(None)
+                
+                # 분 단위로 반올림
+                bridge_df['datetime'] = bridge_df['datetime'].dt.floor('min')
+                df['datetime'] = df['datetime'].dt.floor('min')
+                
+                # 병합
+                df = pd.merge(df, bridge_df[['datetime', 'BRIDGE_TIME']], 
+                             on='datetime', how='left')
+                
+                # BRIDGE_TIME 보간
+                df['BRIDGE_TIME'] = df['BRIDGE_TIME'].interpolate(method='linear', limit_direction='both')
+        
+        # BRIDGE_TIME이 없으면 기본값
+        if 'BRIDGE_TIME' not in df.columns:
+            df['BRIDGE_TIME'] = 3.5
+            
+        df['BRIDGE_TIME'] = df['BRIDGE_TIME'].fillna(3.5)
+        
+        return df
+    
+    def create_all_features(self, df):
+        """완전한 특징 엔지니어링 - 누락 없음!"""
+        print("\n[2단계] 특징 엔지니어링")
+        
+        # 1. 유입/유출 밸런스
+        df['flow_balance'] = df[self.inflow_cols].sum(axis=1) - df[self.outflow_cols].sum(axis=1)
+        df['flow_ratio'] = df[self.inflow_cols].sum(axis=1) / (df[self.outflow_cols].sum(axis=1) + 1)
+        
+        # 2. 추세 특징
+        df['trend_20min'] = df[self.target_col].diff(20)
+        df['trend_10min'] = df[self.target_col].diff(10)
+        df['acceleration'] = df['trend_10min'] - df['trend_10min'].shift(10)
+        
+        # 3. 연속 패턴
+        df['consecutive_250+'] = (df[self.target_col] > 250).rolling(10).sum()
+        df['consecutive_270+'] = (df[self.target_col] > 270).rolling(10).sum()
+        
+        # 4. CMD 동기화
+        df['cmd_sync_count'] = (df[self.cmd_cols] > 235).sum(axis=1)
+        df['cmd_max'] = df[self.cmd_cols].max(axis=1)
+        
+        # 5. 브릿지타임 변화
+        df['bridge_diff'] = df['BRIDGE_TIME'].diff(5)
+        df['bridge_high'] = (df['BRIDGE_TIME'] > 4.0).astype(int)
+        
+        # 6. storage x bridge 상호작용
+        df['storage_x_bridge'] = df['M16A_3F_STORAGE_UTIL'] * df['BRIDGE_TIME']
+        
+        # 7. 연속 300+ 카운트와 확률
+        consecutive_300_counts = []
+        consecutive_300_probs = []
+        
+        for i in tqdm(range(len(df)), desc="300+ 패턴 계산"):
+            if i < 30:
+                count = 0
+                prob = 0.003
+            else:
+                window = df[self.target_col].iloc[i-30:i].values
+                count = sum(1 for v in window if v >= 300)
+                prob = self.probability_map.get(count, 0.5)
+            
+            consecutive_300_counts.append(count)
+            consecutive_300_probs.append(prob)
+        
+        df['consecutive_300_count'] = consecutive_300_counts
+        df['consecutive_300_prob'] = consecutive_300_probs
+        
+        # 8. 3구간 분류 (숫자로 직접 변환)
+        conditions = [
+            df[self.target_col] < 150,
+            (df[self.target_col] >= 150) & (df[self.target_col] < 300),
+            df[self.target_col] >= 300
         ]
-        _ = self.model(dummy_input, training=False)
+        choices = [0, 1, 2]
+        df['range_class'] = np.select(conditions, choices, default=1)
         
-        # 가중치 로드
-        self.model.load_weights('./checkpoints_integrated_30min/models/integrated_model.weights.h5')
-        print("✅ 모델 로드 완료")
+        # 9. 점프 여부
+        df['past_30min_max'] = df[self.target_col].rolling(30).max()
+        df['is_jump'] = ((df['past_30min_max'].shift(10) < 280) & 
+                        (df[self.target_col] >= 300)).astype(int)
         
-        self.n_features = n_features
+        # 10. 상승/하락 패턴 (숫자로 변환)
+        df['change_20min'] = df[self.target_col] - df[self.target_col].shift(20)
+        
+        trend_conditions = [
+            df['change_20min'] < -20,
+            (df['change_20min'] >= -20) & (df['change_20min'] < 20),
+            (df['change_20min'] >= 20) & (df['change_20min'] < 50),
+            df['change_20min'] >= 50
+        ]
+        trend_choices = [0, 1, 2, 3]  # 0:down, 1:stable, 2:gradual_up, 3:rapid_up
+        df['trend_pattern'] = np.select(trend_conditions, trend_choices, default=1)
+        
+        # 11. 상승률/하락률 (%)
+        df['change_rate_10min'] = ((df[self.target_col] - df[self.target_col].shift(10)) / 
+                                   (df[self.target_col].shift(10) + 1)) * 100
+        df['change_rate_20min'] = ((df[self.target_col] - df[self.target_col].shift(20)) / 
+                                   (df[self.target_col].shift(20) + 1)) * 100
+        df['change_rate_30min'] = ((df[self.target_col] - df[self.target_col].shift(30)) / 
+                                   (df[self.target_col].shift(30) + 1)) * 100
+        
+        # 12. 변동성
+        df['volatility_10min'] = df[self.target_col].rolling(10).std()
+        df['volatility_20min'] = df[self.target_col].rolling(20).std()
+        df['volatility_30min'] = df[self.target_col].rolling(30).std()
+        
+        # 13. 극단값 근접도
+        df['distance_to_300'] = 300 - df[self.target_col]
+        df['near_extreme'] = (df[self.target_col] > 280).astype(int)
+        
+        # 14. 최근 통계
+        df['recent_5min_mean'] = df[self.target_col].rolling(5).mean()
+        df['recent_5min_max'] = df[self.target_col].rolling(5).max()
+        df['recent_10min_mean'] = df[self.target_col].rolling(10).mean()
+        
+        # 15. 277 구간 특별 지표
+        df['in_jump_zone'] = ((df[self.target_col] >= 275) & (df[self.target_col] <= 279)).astype(int)
+        
+        # NaN 처리
+        numeric_columns = df.select_dtypes(include=[np.number]).columns
+        df[numeric_columns] = df[numeric_columns].fillna(method='ffill').fillna(0)
+        
+        print(f"✅ 총 {len(df.columns)}개 특징 생성 완료")
+        return df
     
-    def create_physics_features_simple(self, seq_values):
-        """간단한 물리 특징 생성"""
-        physics = np.zeros(11)
-        physics[0] = seq_values[-1]
-        physics[8] = np.mean(seq_values[-5:])
-        physics[9] = np.mean(seq_values[-10:]) - np.mean(seq_values[:10])
-        physics[10] = 1.0
-        return physics
-    
-    def create_fine_tuning_features_simple(self, seq_values):
-        """간단한 미세조정 특징 생성"""
-        features = np.zeros(15)
-        recent_5 = seq_values[-5:]
+    def create_sequences_for_evaluation(self, df, seq_len=30, pred_len=10):
+        """평가용 시퀀스 데이터 생성"""
+        print(f"\n[3단계] 시퀀스 생성 ({seq_len}분 → {pred_len}분 후)")
         
-        features[0] = 1.0 if any(275 <= v <= 279 for v in recent_5) else 0.0
-        features[10] = np.max(seq_values)
-        features[11] = np.mean(recent_5)
+        # 특징 컬럼 선택
+        feature_cols = [col for col in df.columns 
+                       if col not in ['datetime', 'range_class', 'is_jump', 'trend_pattern']]
+        
+        X = []
+        y_info = []
+        
+        for i in tqdm(range(seq_len, len(df) - pred_len), desc="시퀀스 생성"):
+            # 입력: 과거 30분
+            X.append(df[feature_cols].iloc[i-seq_len:i].values)
+            
+            # 타겟 정보들
+            target_idx = i + pred_len - 1
+            
+            # 시간 정보
+            current_time = df['datetime'].iloc[i-1]
+            predict_time = df['datetime'].iloc[target_idx]
+            seq_start_time = df['datetime'].iloc[i-seq_len]
+            seq_end_time = df['datetime'].iloc[i-1]
+            
+            # 시퀀스 통계
+            seq_values = df[self.target_col].iloc[i-seq_len:i].values
+            seq_max = np.max(seq_values)
+            seq_min = np.min(seq_values)
+            
+            y_info.append({
+                'current_time': current_time,
+                'predict_time': predict_time,
+                'seq_start_time': seq_start_time,
+                'seq_end_time': seq_end_time,
+                'seq_max': seq_max,
+                'seq_min': seq_min,
+                'target_value': df[self.target_col].iloc[target_idx],
+                'is_jump': df['is_jump'].iloc[target_idx],
+                'range_class': df['range_class'].iloc[target_idx],
+                'trend_pattern': df['trend_pattern'].iloc[target_idx]
+            })
+        
+        print(f"✅ {len(X)}개 시퀀스 생성 완료")
+        
+        return np.array(X), y_info, df
+
+# ==============================================================================
+# 🤖 모델 시스템 (학습 코드와 동일)
+# ==============================================================================
+
+class JumpDetectionSystem:
+    """점프 감지 80% 달성 시스템"""
+    
+    def __init__(self):
+        # 모델들
+        self.model_screening = None
+        self.model_jump = None
+        self.model_range = None
+        self.model_trend = None
+        self.model_value = None
+        
+        self.feature_indices = {}
+    
+    def prepare_features(self, X_seq):
+        """시퀀스를 특징으로 변환"""
+        # 마지막 시점 특징
+        last_features = X_seq[:, -1, :]
+        
+        # 통계 특징
+        mean_features = np.mean(X_seq, axis=1)
+        std_features = np.std(X_seq, axis=1)
+        max_features = np.max(X_seq, axis=1)
+        min_features = np.min(X_seq, axis=1)
+        
+        # 추세 특징
+        trend_features = X_seq[:, -1, :] - X_seq[:, 0, :]
+        
+        # 모든 특징 결합
+        features = np.hstack([
+            last_features,    # 0 ~ n-1
+            mean_features,    # n ~ 2n-1
+            std_features,     # 2n ~ 3n-1
+            max_features,     # 3n ~ 4n-1
+            min_features,     # 4n ~ 5n-1
+            trend_features    # 5n ~ 6n-1
+        ])
         
         return features
     
-    def calculate_difficulty(self, seq_values, y_true):
-        """예측 난이도 계산"""
-        difficulty = 0
+    def get_expanded_feature_indices(self, df):
+        """확장된 특징 인덱스 계산 (6배 확장 고려)"""
+        feature_cols = [col for col in df.columns 
+                       if col not in ['datetime', 'range_class', 'is_jump', 'trend_pattern']]
         
-        if np.max(seq_values) < 280 and y_true >= 300:
-            difficulty += 50
+        n_base_features = len(feature_cols)
+        expanded_indices = {}
         
-        if any(275 <= v <= 279 for v in seq_values[-5:]):
-            difficulty += 30
+        # 원본 특징의 인덱스 찾기
+        base_indices = {}
+        for i, col in enumerate(feature_cols):
+            if 'STORAGE_UTIL' in col:
+                base_indices['storage_util'] = i
+            elif col == 'BRIDGE_TIME':  # 정확한 매칭
+                base_indices['bridge_time'] = i
+            elif 'flow_balance' in col:
+                base_indices['flow_balance'] = i
+            elif 'consecutive_250+' in col:
+                base_indices['consecutive_250'] = i
+            elif 'cmd_sync_count' in col:
+                base_indices['cmd_sync'] = i
+            elif 'trend_20min' in col:
+                base_indices['trend_20min'] = i
+            elif 'acceleration' in col:
+                base_indices['acceleration'] = i
+            elif 'consecutive_300_prob' in col:
+                base_indices['prob_extreme'] = i
+            elif 'in_jump_zone' in col:
+                base_indices['in_jump_zone'] = i
+            elif 'recent_5min_max' in col:
+                base_indices['recent_5min_max'] = i
         
-        if np.std(seq_values) > 50:
-            difficulty += 20
+        # 확장된 인덱스 계산
+        for key, base_idx in base_indices.items():
+            expanded_indices[f'{key}_last'] = base_idx
+            expanded_indices[f'{key}_mean'] = base_idx + n_base_features
+            expanded_indices[f'{key}_std'] = base_idx + 2 * n_base_features
+            expanded_indices[f'{key}_max'] = base_idx + 3 * n_base_features
+            expanded_indices[f'{key}_min'] = base_idx + 4 * n_base_features
+            expanded_indices[f'{key}_trend'] = base_idx + 5 * n_base_features
         
-        if abs(np.mean(seq_values[-5:]) - np.mean(seq_values[:5])) > 30:
-            difficulty += 15
+        # 디버깅
+        print(f"\n📍 확장된 특징 인덱스:")
+        print(f"  - 기본 특징 수: {n_base_features}")
+        print(f"  - 확장 특징 수: {n_base_features * 6}")
+        print(f"  - storage_util_last: {expanded_indices.get('storage_util_last', 'N/A')}")
+        print(f"  - storage_util_max: {expanded_indices.get('storage_util_max', 'N/A')}")
+        print(f"  - bridge_time_last: {expanded_indices.get('bridge_time_last', 'N/A')}")
         
-        return difficulty
+        self.feature_indices = expanded_indices
+        return expanded_indices
     
-    def evaluate_sequences(self, df):
-        """시퀀스별 평가 - 모델별 예측값 포함"""
-        print("\n🔍 시퀀스별 평가 시작...")
+    def apply_emergency_boost(self, X_seq, X_features, predictions, value_pred):
+        """긴급 부스팅 - 매우 공격적인 규칙"""
+        boosted = predictions.copy()
+        boost_count = 0
         
-        results = []
-        timestamps = df['timestamp'].values
-        df = df.drop('timestamp', axis=1)
+        for i in range(len(X_seq)):
+            # 과거 30분 최대값
+            seq_max = np.max(X_seq[i, :, 0])  # target_col이 첫 번째라고 가정
+            
+            # 규칙 1: 값 예측이 280 이상이고 과거 최대값이 280 미만 (기준 낮춤)
+            if value_pred[i] >= 280 and seq_max < 280:
+                boosted[i] = 1
+                boost_count += 1
+                continue
+            
+            # 규칙 2: 최근 5분 평균이 270 이상이고 과거 최대값이 280 미만 (기준 낮춤)
+            recent_5min = np.mean(X_seq[i, -5:, 0])
+            if recent_5min >= 270 and seq_max < 280:
+                boosted[i] = 1
+                boost_count += 1
+                continue
+            
+            # 규칙 3: 가속도가 크고 현재값이 265 이상 (기준 낮춤)
+            if len(X_seq[i]) >= 20:
+                accel = (np.mean(X_seq[i, -5:, 0]) - np.mean(X_seq[i, -10:-5, 0])) - \
+                       (np.mean(X_seq[i, -10:-5, 0]) - np.mean(X_seq[i, -15:-10, 0]))
+                current = X_seq[i, -1, 0]
+                
+                if accel > 10 and current >= 265:  # 가속도와 현재값 기준 낮춤
+                    boosted[i] = 1
+                    boost_count += 1
+                    continue
+            
+            # 규칙 4: 최근 10분 평균이 265 이상이고 과거 최대값 < 280
+            recent_10min = np.mean(X_seq[i, -10:, 0])
+            if recent_10min >= 265 and seq_max < 280:
+                boosted[i] = 1
+                boost_count += 1
+                continue
+            
+            # 규칙 5: 277 구간 특별 처리
+            if 275 <= seq_max <= 279:
+                # 최근 5분 중 하나라도 275 이상이면
+                if np.any(X_seq[i, -5:, 0] >= 275):
+                    boosted[i] = 1
+                    boost_count += 1
+                    continue
+            
+            # 규칙 6: 상승 추세가 강한 경우
+            if len(X_seq[i]) >= 30:
+                early_mean = np.mean(X_seq[i, :10, 0])  # 초기 10분
+                late_mean = np.mean(X_seq[i, -10:, 0])  # 최근 10분
+                
+                if late_mean - early_mean > 30 and seq_max < 280:  # 30 이상 상승
+                    boosted[i] = 1
+                    boost_count += 1
         
-        # 사용할 컬럼들
-        all_cols = self.v4_essential_cols + ['BRIDGE_TIME'] + [
-            'consecutive_300_count', 'consecutive_300_prob', 'long_trend',
-            'mid_trend', 'acceleration', 'volatility_change', 'jump_risk', 'extreme_risk'
-        ]
-        
-        total = len(df) - 40
-        
-        for i in tqdm(range(total)):
-            # 30분 시퀀스
-            X = df[all_cols].iloc[i:i+30].values
-            
-            # 실제값
-            y_true = df[self.target_col].iloc[i+39]
-            
-            # 시퀀스 정보
-            seq_values = df[self.target_col].iloc[i:i+30].values
-            
-            # 스케일링
-            X_scaled = self.scaler_X.transform(X.reshape(-1, X.shape[1]))
-            X_scaled = X_scaled.reshape(1, 30, -1)
-            
-            physics = self.create_physics_features_simple(seq_values)
-            physics_scaled = self.scaler_physics.transform(physics.reshape(1, -1))
-            
-            features = self.create_fine_tuning_features_simple(seq_values)
-            features_scaled = self.scaler_features.transform(features.reshape(1, -1))
-            
-            # 통합 모델 예측
-            y_pred_scaled = self.model.predict([X_scaled, physics_scaled, features_scaled], verbose=0)
-            y_pred = self.scaler_y.inverse_transform(y_pred_scaled.reshape(-1, 1)).flatten()[0]
-            
-            # Model1 (안정형) 예측
-            pred1_scaled = self.model.model1.predict(X_scaled, verbose=0)
-            pred1 = self.scaler_y.inverse_transform(pred1_scaled.reshape(-1, 1)).flatten()[0]
-            
-            # Model2 (극단형) 예측  
-            pred2_scaled = self.model.model2.predict([X_scaled, physics_scaled], verbose=0)
-            pred2 = self.scaler_y.inverse_transform(pred2_scaled.reshape(-1, 1)).flatten()[0]
-            
-            # Fine-tuning 네트워크 출력
-            fine_tune_outputs = self.model.fine_tuning.predict(features_scaled, verbose=0)
-            if isinstance(fine_tune_outputs, dict):
-                jump_prob = fine_tune_outputs['jump_prob'][0] if hasattr(fine_tune_outputs['jump_prob'], '__getitem__') else fine_tune_outputs['jump_prob']
-                extreme_prob = fine_tune_outputs['extreme_prob'][0] if hasattr(fine_tune_outputs['extreme_prob'], '__getitem__') else fine_tune_outputs['extreme_prob']
-            else:
-                jump_prob = 0.5
-                extreme_prob = 0.5
-            
-            # Jump Detection 네트워크 출력
-            jump_outputs = self.model.jump_detection.predict(features_scaled, verbose=0)
-            if isinstance(jump_outputs, dict):
-                jump_detect_prob = jump_outputs['jump_prob'][0] if hasattr(jump_outputs['jump_prob'], '__getitem__') else jump_outputs['jump_prob']
-            else:
-                jump_detect_prob = 0.5
-            
-            # 어느 모델에 가까운지 판단
-            model_selected = "Model1" if abs(y_pred - pred1) < abs(y_pred - pred2) else "Model2"
-            
-            # numpy.datetime64를 pd.Timestamp로 변환
-            target_time = pd.Timestamp(timestamps[i+39])
-            start_time = pd.Timestamp(timestamps[i])
-            end_time = pd.Timestamp(timestamps[i+29])
-            
-            # 30분 구간 분석
-            first_10 = seq_values[:10]
-            middle_10 = seq_values[10:20]
-            last_10 = seq_values[20:30]
-            
-            # 결과 저장
-            result = {
-                '날짜시간': target_time.strftime('%Y-%m-%d %H:%M'),
-                '타겟날짜': target_time.strftime('%Y-%m-%d'),
-                '시퀀스시작시간': start_time.strftime('%H:%M'),
-                '시퀀스종료시간': end_time.strftime('%H:%M'),
-                'JUMP_277구간': any(275 <= v <= 279 for v in seq_values[-5:]),
-                '시퀀스MAX': np.max(seq_values),
-                '시퀀스MIN': np.min(seq_values),
-                '시퀀스평균': np.mean(seq_values),
-                '시퀀스표준편차': np.std(seq_values),
-                '최근5분MAX': np.max(seq_values[-5:]),
-                '최근5분평균': np.mean(seq_values[-5:]),
-                '첫10분평균': np.mean(first_10),
-                '중간10분평균': np.mean(middle_10),
-                '마지막10분평균': np.mean(last_10),
-                '장기추세': np.mean(last_10) - np.mean(first_10),
-                '가속도': (np.mean(last_10) - np.mean(middle_10)) - (np.mean(middle_10) - np.mean(first_10)),
-                '연속300카운트': sum(1 for v in seq_values if v >= 300),
-                '실제값': y_true,
-                '최종예측값': y_pred,
-                'Model1예측': pred1,
-                'Model2예측': pred2,
-                '선택모델': model_selected,
-                'Jump확률': float(jump_prob),
-                'Extreme확률': float(extreme_prob),
-                'JumpDetect확률': float(jump_detect_prob),
-                'MAE': abs(y_true - y_pred),
-                'Model1_MAE': abs(y_true - pred1),
-                'Model2_MAE': abs(y_true - pred2),
-                '300이상여부': y_true >= 300,
-                '점프케이스': (np.max(seq_values) < 280) and (y_true >= 300),
-                '예측성공': (y_true >= 300 and y_pred >= 300) or (y_true < 300 and y_pred < 300),
-                'Model1_성공': (y_true >= 300 and pred1 >= 300) or (y_true < 300 and pred1 < 300),
-                'Model2_성공': (y_true >= 300 and pred2 >= 300) or (y_true < 300 and pred2 < 300),
-                '예측난이도': self.calculate_difficulty(seq_values, y_true)
-            }
-            
-            results.append(result)
-        
-        return pd.DataFrame(results)
+        print(f"  🚨 긴급 부스팅: {boost_count}개 추가")
+        return boosted
     
-    def analyze_and_save(self, df_results):
-        """결과 분석 및 저장"""
-        print("\n📊 평가 결과 분석")
-        print("="*60)
+    def apply_rule_based_boost_v3(self, X, predictions, prob_scores=None):
+        """개선된 규칙 기반 부스팅 - 확장된 인덱스 사용"""
+        boosted_predictions = predictions.copy()
         
-        mae = df_results['MAE'].mean()
-        mae1 = df_results['Model1_MAE'].mean()
-        mae2 = df_results['Model2_MAE'].mean()
+        if not self.feature_indices:
+            print("⚠️ 특징 인덱스가 없습니다.")
+            return boosted_predictions
         
-        print(f"전체 MAE: {mae:.2f}")
-        print(f"Model1 MAE: {mae1:.2f}")
-        print(f"Model2 MAE: {mae2:.2f}")
+        idx = self.feature_indices
+        boost_count = 0
         
-        extreme_mask = df_results['300이상여부']
-        if extreme_mask.sum() > 0:
-            extreme_recall = (df_results[extreme_mask]['최종예측값'] >= 300).sum() / extreme_mask.sum() * 100
-            extreme_recall1 = (df_results[extreme_mask]['Model1예측'] >= 300).sum() / extreme_mask.sum() * 100
-            extreme_recall2 = (df_results[extreme_mask]['Model2예측'] >= 300).sum() / extreme_mask.sum() * 100
-            print(f"\n300+ 감지율:")
-            print(f"  통합모델: {extreme_recall:.1f}%")
-            print(f"  Model1: {extreme_recall1:.1f}%")
-            print(f"  Model2: {extreme_recall2:.1f}%")
+        # Phase 1: storage_util 기반 (여러 통계 사용)
+        conditions = []
         
-        jump_mask = df_results['점프케이스']
-        if jump_mask.sum() > 0:
-            jump_detection = (df_results[jump_mask]['최종예측값'] >= 290).sum() / jump_mask.sum() * 100
-            print(f"\n점프 감지율: {jump_detection:.1f}% ({jump_mask.sum()}개)")
+        if 'storage_util_last' in idx:
+            conditions.append(X[:, idx['storage_util_last']] > 15)
+        if 'storage_util_max' in idx:
+            conditions.append(X[:, idx['storage_util_max']] > 20)
+        if 'storage_util_mean' in idx:
+            conditions.append(X[:, idx['storage_util_mean']] > 10)
         
-        # CSV 저장
-        output_path = 'evaluation_august_2025.csv'
-        df_results.to_csv(output_path, index=False, encoding='utf-8-sig')
-        print(f"\n💾 평가 결과 저장: {output_path}")
-        print(f"   총 {len(df_results)}개 시퀀스 평가 완료")
+        if conditions:
+            strong_signal = np.any(conditions, axis=0)
+            new_boost = strong_signal & (boosted_predictions == 0)
+            boosted_predictions[strong_signal] = 1
+            phase1_count = np.sum(new_boost)
+            print(f"  Phase 1 (storage): {phase1_count}개 추가")
+            boost_count += phase1_count
+        
+        # Phase 2: bridge_time 기반
+        conditions = []
+        
+        if 'bridge_time_last' in idx:
+            conditions.append(X[:, idx['bridge_time_last']] > 3.8)
+        if 'bridge_time_max' in idx:
+            conditions.append(X[:, idx['bridge_time_max']] > 4.0)
+        if 'bridge_time_mean' in idx:
+            conditions.append(X[:, idx['bridge_time_mean']] > 3.7)
+        
+        if conditions:
+            bridge_signal = np.any(conditions, axis=0)
+            new_boost = bridge_signal & (boosted_predictions == 0)
+            boosted_predictions[bridge_signal] = 1
+            phase2_count = np.sum(new_boost)
+            print(f"  Phase 2 (bridge): {phase2_count}개 추가")
+            boost_count += phase2_count
+        
+        # Phase 3: 복합 조건
+        complex_conditions = []
+        
+        if 'flow_balance_mean' in idx:
+            complex_conditions.append(X[:, idx['flow_balance_mean']] > 30)
+        if 'acceleration_last' in idx:
+            complex_conditions.append(X[:, idx['acceleration_last']] > 10)
+        if 'consecutive_250_max' in idx:
+            complex_conditions.append(X[:, idx['consecutive_250_max']] >= 5)
+        if 'trend_20min_last' in idx:
+            complex_conditions.append(X[:, idx['trend_20min_last']] > 20)
+        
+        if len(complex_conditions) >= 2:
+            complex_signal = np.sum(complex_conditions, axis=0) >= 2
+            new_boost = complex_signal & (boosted_predictions == 0)
+            boosted_predictions[complex_signal] = 1
+            phase3_count = np.sum(new_boost)
+            print(f"  Phase 3 (복합): {phase3_count}개 추가")
+            boost_count += phase3_count
+        
+        # Phase 4: 확률 기반
+        if prob_scores is not None:
+            # 확률이 0.05 이상이면 부스트 (매우 낮춤)
+            prob_boost = (prob_scores > 0.05) & (boosted_predictions == 0)
+            boosted_predictions[prob_boost] = 1
+            phase4_count = np.sum(prob_boost)
+            print(f"  Phase 4 (확률>0.05): {phase4_count}개 추가")
+            boost_count += phase4_count
+        
+        # Phase 5: 점프존 감지
+        if 'in_jump_zone_last' in idx:
+            jump_zone = X[:, idx['in_jump_zone_last']] > 0
+            new_boost = jump_zone & (boosted_predictions == 0)
+            boosted_predictions[jump_zone] = 1
+            phase5_count = np.sum(new_boost)
+            print(f"  Phase 5 (277존): {phase5_count}개 추가")
+            boost_count += phase5_count
+        
+        # Phase 6: recent_5min_max가 275 이상
+        if 'recent_5min_max_last' in idx:
+            recent_high = X[:, idx['recent_5min_max_last']] >= 275
+            new_boost = recent_high & (boosted_predictions == 0)
+            boosted_predictions[recent_high] = 1
+            phase6_count = np.sum(new_boost)
+            print(f"  Phase 6 (최근5분max≥275): {phase6_count}개 추가")
+            boost_count += phase6_count
+        
+        print(f"  📊 총 부스팅: {boost_count}개")
+        
+        return boosted_predictions
 
-def main():
-    evaluator = V4Evaluator()
-    df_august = evaluator.load_august_data()
-    evaluator.load_trained_model()
-    df_results = evaluator.evaluate_sequences(df_august)
-    evaluator.analyze_and_save(df_results)
-    print("\n✅ 평가 완료!")
+# ==============================================================================
+# 📊 평가 함수
+# ==============================================================================
+
+def evaluate_models():
+    """모델 평가 메인 함수"""
+    
+    print("\n🚀 점프 감지 시스템 평가 시작...")
+    
+    # 1. 체크포인트 확인
+    checkpoint_dir = './checkpoints_jump80'
+    models_dir = os.path.join(checkpoint_dir, 'models')
+    
+    if not os.path.exists(models_dir):
+        print("❌ 학습된 모델을 찾을 수 없습니다. 먼저 학습을 진행해주세요.")
+        return
+    
+    # 2. 데이터 처리
+    processor = HubRoomDataProcessor()
+    system = JumpDetectionSystem()
+    
+    # 평가 데이터 로드
+    eval_data_path = 'data/20250801_to_20250831.csv'
+    
+    if not os.path.exists(eval_data_path):
+        print(f"❌ 평가 데이터를 찾을 수 없습니다: {eval_data_path}")
+        return
+    
+    # 데이터 로드 및 전처리
+    df = processor.load_and_merge_data(eval_data_path)
+    df = processor.create_all_features(df)
+    
+    # 3. 시퀀스 생성
+    X_seq, y_info, df = processor.create_sequences_for_evaluation(df)
+    
+    print(f"\n📊 평가 데이터 준비 완료")
+    print(f"  - 시퀀스 수: {len(X_seq)}")
+    print(f"  - 시퀀스 형태: {X_seq.shape}")
+    
+    # 4. 모델 로드
+    print("\n🤖 모델 로드 중...")
+    
+    try:
+        system.model_jump = joblib.load(os.path.join(models_dir, 'model_jump.pkl'))
+        system.model_range = joblib.load(os.path.join(models_dir, 'model_range.pkl'))
+        system.model_trend = joblib.load(os.path.join(models_dir, 'model_trend.pkl'))
+        system.model_value = joblib.load(os.path.join(models_dir, 'model_value.pkl'))
+        print("✅ 모델 로드 완료")
+    except Exception as e:
+        print(f"❌ 모델 로드 실패: {e}")
+        return
+    
+    # 특징 인덱스 설정 (확장된 인덱스 사용)
+    system.get_expanded_feature_indices(df)
+    
+    # 5. 특징 준비
+    X_features = system.prepare_features(X_seq)
+    print(f"✅ 특징 준비 완료: {X_features.shape}")
+    
+    # 6. 예측 수행
+    print("\n🔮 예측 수행 중...")
+    
+    # 점프 예측
+    print("  - 점프 감지 모델 예측 중...")
+    jump_pred = system.model_jump.predict(X_features)
+    jump_pred_proba = system.model_jump.predict_proba(X_features)[:, 1]
+    
+    # 점프 예측 통계
+    print(f"    초기 점프 예측: {np.sum(jump_pred)}개 감지")
+    print(f"    점프 확률 분포: 최소={np.min(jump_pred_proba):.3f}, 최대={np.max(jump_pred_proba):.3f}, 평균={np.mean(jump_pred_proba):.3f}")
+    
+    # 값 예측 (부스팅에 필요)
+    print("  - 값 예측 모델 예측 중...")
+    value_pred = system.model_value.predict(X_features)
+    
+    print("\n  📊 규칙 기반 부스팅 적용")
+    jump_pred_boosted = system.apply_rule_based_boost_v3(X_features, jump_pred, jump_pred_proba)
+    print(f"    부스팅 후 점프 예측: {np.sum(jump_pred_boosted)}개 감지")
+    
+    # 긴급 부스팅 추가
+    print("\n  🚨 긴급 부스팅 적용")
+    jump_pred_final = system.apply_emergency_boost(X_seq, X_features, jump_pred_boosted, value_pred)
+    print(f"    최종 점프 예측: {np.sum(jump_pred_final)}개 감지")
+    
+    # 구간 예측
+    print("\n  - 3구간 분류 모델 예측 중...")
+    range_pred = system.model_range.predict(X_features)
+    
+    # 패턴 예측
+    print("  - 상승/하락 패턴 모델 예측 중...")
+    trend_pred = system.model_trend.predict(X_features)
+    
+    # 7. 결과 정리
+    print("\n📋 결과 생성 중...")
+    results = []
+    
+    # 실제 점프 케이스 카운트
+    actual_jump_count = 0
+    detected_jump_count = 0
+    adjusted_count = 0  # +40 조정된 케이스
+    
+    for i in tqdm(range(len(X_seq)), desc="결과 생성"):
+        info = y_info[i]
+        
+        # 점프 케이스 확인 (과거 최대값 < 280 & 실제값 >= 300)
+        is_jump_case = (info['seq_max'] < 280) and (info['target_value'] >= 300)
+        if is_jump_case:
+            actual_jump_count += 1
+        
+        predicted_jump = jump_pred_final[i] == 1
+        if is_jump_case and predicted_jump:
+            detected_jump_count += 1
+        
+        # 예측값 조정 - 점프 예측된 경우 +40
+        adjusted_value_pred = value_pred[i]
+        if predicted_jump:
+            adjusted_value_pred = value_pred[i] + 40
+            adjusted_count += 1
+            if adjusted_count <= 10:  # 처음 10개만 출력
+                print(f"\n  🚀 점프 예측! 예측값 조정: {value_pred[i]:.1f} → {adjusted_value_pred:.1f}")
+        
+        # 디버깅: 점프 케이스인데 못 잡은 경우
+        if is_jump_case and not predicted_jump and actual_jump_count <= 10:  # 처음 10개만
+            print(f"\n  ⚠️ 놓친 점프 케이스: seq_max={info['seq_max']:.1f}, 실제={info['target_value']:.1f}, "
+                  f"예측={value_pred[i]:.1f}, 점프확률={jump_pred_proba[i]:.3f}")
+        
+        results.append({
+            '날짜': info['current_time'].strftime('%Y-%m-%d %H:%M'),
+            '예측날짜': info['predict_time'].strftime('%Y-%m-%d %H:%M'),
+            '측정시퀀스MAX': round(info['seq_max'], 2),
+            '측정시퀀스MIN': round(info['seq_min'], 2),
+            '시퀀스시작시간': info['seq_start_time'].strftime('%Y-%m-%d %H:%M'),
+            '시퀀스완료시간': info['seq_end_time'].strftime('%Y-%m-%d %H:%M'),
+            '실제값': round(info['target_value'], 2),
+            '예측값': round(adjusted_value_pred, 2),  # 조정된 예측값 사용
+            '오차': round(abs(info['target_value'] - adjusted_value_pred), 2),  # 조정된 오차
+            '점프예측': 'O' if predicted_jump else 'X',
+            '점프확률': round(jump_pred_proba[i] * 100, 1),
+            '구간예측': ['50-150', '150-299', '300+'][range_pred[i]],
+            '패턴예측': ['하락', '안정', '점진상승', '급상승'][trend_pred[i]],
+            '점프케이스300+': 'O' if is_jump_case else 'X'
+        })
+    
+    print(f"\n📊 점프 케이스 감지 현황:")
+    print(f"  - 실제 점프 케이스: {actual_jump_count}개")
+    print(f"  - 감지된 점프 케이스: {detected_jump_count}개")
+    print(f"  - 총 +40 조정된 예측: {adjusted_count}개")
+    if actual_jump_count > 0:
+        print(f"  - 점프 감지율: {detected_jump_count/actual_jump_count*100:.1f}%")
+    
+    # 8. 결과 분석
+    results_df = pd.DataFrame(results)
+    
+    print("\n" + "="*80)
+    print("📊 평가 결과 분석")
+    print("="*80)
+    
+    # 전체 성능
+    mae = results_df['오차'].mean()
+    rmse = np.sqrt((results_df['오차'] ** 2).mean())
+    
+    print(f"\n📈 전체 성능:")
+    print(f"  - MAE: {mae:.2f}")
+    print(f"  - RMSE: {rmse:.2f}")
+    print(f"  - 총 예측 수: {len(results_df)}")
+    
+    # 극단값 감지 성능
+    extreme_mask = results_df['실제값'] >= 300
+    if extreme_mask.sum() > 0:
+        extreme_detected = (results_df[extreme_mask]['예측값'] >= 300).sum()
+        extreme_recall = extreme_detected / extreme_mask.sum() * 100
+        print(f"\n🎯 극단값(300+) 감지:")
+        print(f"  - 실제 300+ 케이스: {extreme_mask.sum()}개")
+        print(f"  - 감지된 케이스: {extreme_detected}개")
+        print(f"  - 감지율: {extreme_recall:.1f}%")
+    
+    # 점프 케이스 성능
+    jump_cases = results_df[results_df['점프케이스300+'] == 'O']
+    if len(jump_cases) > 0:
+        jump_detected = (jump_cases['점프예측'] == 'O').sum()
+        jump_recall = jump_detected / len(jump_cases) * 100
+        print(f"\n🚀 점프 케이스 (과거<280 → 실제300+):")
+        print(f"  - 총 점프 케이스: {len(jump_cases)}개")
+        print(f"  - 감지된 케이스: {jump_detected}개")
+        print(f"  - 점프 감지율: {jump_recall:.1f}%")
+        
+        # 점프 케이스 상세 분석
+        if len(jump_cases) > 0:
+            print(f"\n  📊 점프 케이스 상세:")
+            for idx, row in jump_cases.head(10).iterrows():
+                print(f"    - {row['날짜']}: 실제 {row['실제값']}, 예측 {row['예측값']}, "
+                      f"점프예측 {row['점프예측']} (확률 {row['점프확률']}%)")
+    
+    # False Positive
+    stable_mask = results_df['실제값'] < 300
+    if stable_mask.sum() > 0:
+        fp_cases = results_df[stable_mask & (results_df['점프예측'] == 'O')]
+        fp_count = len(fp_cases)
+        fp_rate = fp_count / stable_mask.sum() * 100
+        print(f"\n⚠️ False Positive:")
+        print(f"  - 실제 <300 케이스: {stable_mask.sum()}개")
+        print(f"  - 잘못된 점프 예측: {fp_count}개")
+        print(f"  - FP Rate: {fp_rate:.1f}%")
+        
+        # False Positive 예측값 분석
+        if len(fp_cases) > 0:
+            fp_pred_over_300 = (fp_cases['예측값'] >= 300).sum()
+            print(f"  - FP 중 예측값 300+: {fp_pred_over_300}개 (FP의 {fp_pred_over_300/len(fp_cases)*100:.1f}%)")
+    
+    # 3구간 분류 정확도
+    actual_ranges = []
+    for info in y_info:
+        if info['target_value'] < 150:
+            actual_ranges.append(0)
+        elif info['target_value'] < 300:
+            actual_ranges.append(1)
+        else:
+            actual_ranges.append(2)
+    
+    range_accuracy = (range_pred == actual_ranges).mean() * 100
+    print(f"\n📊 3구간 분류 정확도: {range_accuracy:.1f}%")
+    
+    # 패턴 예측 분석
+    pattern_counts = results_df['패턴예측'].value_counts()
+    print(f"\n📈 패턴 예측 분포:")
+    for pattern, count in pattern_counts.items():
+        print(f"  - {pattern}: {count}개 ({count/len(results_df)*100:.1f}%)")
+    
+    # 8. CSV 파일 저장
+    output_path = 'hubroom_evaluation_improved_202508.csv'
+    results_df.to_csv(output_path, index=False, encoding='utf-8-sig')
+    print(f"\n💾 결과 저장 완료: {output_path}")
+    
+    # 샘플 출력
+    print(f"\n📋 샘플 결과 (처음 10개):")
+    display_cols = ['날짜', '예측날짜', '실제값', '예측값', '오차', '점프예측', '점프케이스300+']
+    print(results_df[display_cols].head(10).to_string(index=False))
+    
+    # 점프 예측된 케이스 샘플
+    jump_predicted_cases = results_df[results_df['점프예측'] == 'O']
+    if len(jump_predicted_cases) > 0:
+        print(f"\n🚀 점프로 예측된 케이스 샘플:")
+        print(jump_predicted_cases[display_cols].head(10).to_string(index=False))
+    
+    print("\n" + "="*80)
+    print("✅ 점프 감지 시스템 평가 완료!")
+    print("🔥 개선사항: 점프 예측 시 +40 자동 추가")
+    print("="*80)
 
 if __name__ == "__main__":
-    main()
+    evaluate_models()
