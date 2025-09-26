@@ -1,79 +1,61 @@
 import tkinter as tk
-from tkinter import filedialog
-from tkinter import messagebox
+from tkinter import filedialog, messagebox, colorchooser
 import pandas as pd
 import plotly.graph_objects as go
 import webbrowser
 import os
 
 # --------------------------------------------------------------------------
-# 이전 단계에서 완성된 그래프 생성 로직을 함수 안에 넣습니다.
-# 이 함수는 파일 경로와 그래프 제목을 인자로 받습니다.
+# 그래프 생성 로직
+# UI에서 선택된 모든 옵션(컬럼명, 색상, 스타일 등)을 인자로 받도록 수정
 # --------------------------------------------------------------------------
-def create_graph(file_path, graph_title):
+def create_graph(params):
     try:
-        # 1. CSV 파일 불러오기
-        df = pd.read_csv(file_path)
+        df = pd.read_csv(params['file_path'])
 
-        # 2. 필수 컬럼 확인
-        required_columns = ['날짜', '실제값', '예측날짜', '예측값', '점프예측']
-        if not all(col in df.columns for col in required_columns):
-            missing_cols = [col for col in required_columns if col not in df.columns]
-            messagebox.showerror("오류", f"CSV 파일에 필수 컬럼이 없습니다: {', '.join(missing_cols)}")
-            return
+        # 날짜 형식 변환 시도
+        try:
+            df[params['actual_x']] = pd.to_datetime(df[params['actual_x']])
+            df[params['predicted_x']] = pd.to_datetime(df[params['predicted_x']])
+        except Exception as e:
+            print(f"날짜 변환 경고: {e}. 일반 데이터로 처리합니다.")
 
-        # 3. 날짜 형식 변환
-        df['날짜'] = pd.to_datetime(df['날짜'])
-        df['예측날짜'] = pd.to_datetime(df['예측날짜'])
-
-        # 4. 정보창 표시용 데이터 준비 ('초' 제외)
-        df['표시_날짜'] = df['날짜'].dt.strftime('%Y-%m-%d')
-        df['표시_시간'] = df['날짜'].dt.strftime('%H:%M')
-        df['표시_예측날짜'] = df['예측날짜'].dt.strftime('%Y-%m-%d')
-        df['표시_예측시간'] = df['예측날짜'].dt.strftime('%H:%M')
-
-        # 5. 그래프 객체 생성
         fig = go.Figure()
 
-        # 6. '실제값' 라인 추가
+        # 실제값(Actual) 라인 추가
         fig.add_trace(go.Scatter(
-            x=df['날짜'],
-            y=df['실제값'],
+            x=df[params['actual_x']],
+            y=df[params['actual_y']],
             mode='lines',
             name='실제값 (Actual)',
-            customdata=df[['표시_날짜', '표시_시간', '예측값', '표시_예측날짜', '표시_예측시간', '점프예측']],
+            line=dict(color=params['actual_color'], dash=params['actual_style'].lower()),
             hovertemplate=(
-                '<b>--- 측정 시점 (기준) ---</b><br>'
-                '<b>시간:</b> %{customdata[0]} %{customdata[1]}<br>'
-                '<b>실제값:</b> %{y}<br>'
-                '<b>점프예측:</b> %{customdata[5]}<br>'
-                '<br><b>--- 해당 시점의 예측 정보 ---</b><br>'
-                '<b>예측 대상 시간:</b> %{customdata[3]} %{customdata[4]}<br>'
-                '<b>예측값:</b> %{customdata[2]}'
-                '<extra></extra>'
+                f"<b>{params['actual_x']}:</b> %{{x}}<br>"
+                f"<b>{params['actual_y']}:</b> %{{y}}<extra></extra>"
             )
         ))
 
-        # 7. '예측값' 라인 추가
+        # 예측값(Predicted) 라인 추가
         fig.add_trace(go.Scatter(
-            x=df['예측날짜'],
-            y=df['예측값'],
+            x=df[params['predicted_x']],
+            y=df[params['predicted_y']],
             mode='lines',
             name='예측값 (Predicted)',
-            line=dict(dash='dot'),
-            hovertemplate='<b>예측값:</b> %{y}<extra></extra>'
+            line=dict(color=params['predicted_color'], dash=params['predicted_style'].lower()),
+            hovertemplate=(
+                f"<b>{params['predicted_x']}:</b> %{{x}}<br>"
+                f"<b>{params['predicted_y']}:</b> %{{y}}<extra></extra>"
+            )
         ))
-
-        # 8. 그래프 레이아웃 설정
+        
         fig.update_layout(
-            title=graph_title, # UI에서 입력받은 제목 사용
-            xaxis_title='타임라인',
-            yaxis_title='값',
+            title=params['title'],
+            xaxis_title='X-Axis',
+            yaxis_title='Y-Axis',
             hovermode='x unified'
         )
 
-        # 9. 그래프를 HTML 파일로 저장하고 자동으로 열기
-        output_filename = "interactive_graph.html"
+        output_filename = "custom_graph.html"
         fig.write_html(output_filename)
         webbrowser.open('file://' + os.path.realpath(output_filename))
         messagebox.showinfo("성공", f"'{output_filename}' 파일이 생성되었으며, 웹 브라우저에서 자동으로 열립니다.")
@@ -87,50 +69,128 @@ def create_graph(file_path, graph_title):
 class GraphApp:
     def __init__(self, root):
         self.root = root
-        self.root.title("대화형 그래프 생성기")
-        self.root.geometry("400x200") # 창 크기 조절
-
+        self.root.title("맞춤형 그래프 생성기 v2.0")
         self.file_path = ""
+        self.column_widgets = []
+        self.df_columns = []
 
-        # 제목 입력 위젯
-        self.title_label = tk.Label(root, text="그래프 제목:")
-        self.title_label.pack(pady=5)
-        self.title_entry = tk.Entry(root, width=50)
-        self.title_entry.pack(pady=5)
-        self.title_entry.insert(0, "실제값 vs 예측값 시계열 분석") # 기본 제목 설정
+        # -- 프레임 생성 --
+        top_frame = tk.Frame(root, padx=10, pady=5)
+        top_frame.pack(fill='x')
+        
+        columns_frame = tk.LabelFrame(root, text="데이터 선택 (CSV 선택 후 활성화)", padx=10, pady=10)
+        columns_frame.pack(fill='x', padx=10, pady=5)
 
-        # 파일 선택 위젯
-        self.file_button = tk.Button(root, text="CSV 파일 선택", command=self.select_file)
-        self.file_button.pack(pady=10)
-        self.file_label = tk.Label(root, text="선택된 파일이 없습니다.", fg="blue")
-        self.file_label.pack()
+        style_frame = tk.LabelFrame(root, text="그래프 스타일링", padx=10, pady=10)
+        style_frame.pack(fill='x', padx=10, pady=5)
+        
+        bottom_frame = tk.Frame(root, pady=10)
+        bottom_frame.pack()
 
-        # 그래프 생성 버튼
-        self.generate_button = tk.Button(root, text="그래프 생성", command=self.generate_graph, font=('Helvetica', 10, 'bold'))
-        self.generate_button.pack(pady=20)
+        # -- 기본 위젯 (파일, 제목) --
+        tk.Button(top_frame, text="1. CSV 파일 열기", command=self.select_file).pack(side='left')
+        self.file_label = tk.Label(top_frame, text="선택된 파일이 없습니다.", fg="blue")
+        self.file_label.pack(side='left', padx=10)
+        
+        tk.Label(style_frame, text="그래프 제목:").grid(row=0, column=0, sticky='w', padx=5, pady=2)
+        self.title_var = tk.StringVar(value="사용자 정의 그래프")
+        tk.Entry(style_frame, textvariable=self.title_var, width=50).grid(row=0, column=1, columnspan=3, sticky='ew', padx=5, pady=2)
+        
+        # -- 컬럼 선택 위젯 (나중에 생성) --
+        self.columns_frame = columns_frame
+        
+        # -- 스타일 선택 위젯 --
+        # 실제값 스타일
+        tk.Label(style_frame, text="[실제값 라인]").grid(row=1, column=0, sticky='w', padx=5, pady=5)
+        self.actual_color_var = tk.StringVar(value='#1f77b4') # 기본 파란색
+        self.actual_color_btn = tk.Button(style_frame, text="색상 선택", command=lambda: self.choose_color(self.actual_color_var, self.actual_color_btn), bg=self.actual_color_var.get())
+        self.actual_color_btn.grid(row=1, column=1, padx=5)
+
+        self.actual_style_var = tk.StringVar(value='Solid')
+        tk.OptionMenu(style_frame, self.actual_style_var, 'Solid', 'Dash', 'Dot').grid(row=1, column=2, padx=5)
+
+        # 예측값 스타일
+        tk.Label(style_frame, text="[예측값 라인]").grid(row=2, column=0, sticky='w', padx=5, pady=5)
+        self.predicted_color_var = tk.StringVar(value='#ff7f0e') # 기본 주황색
+        self.predicted_color_btn = tk.Button(style_frame, text="색상 선택", command=lambda: self.choose_color(self.predicted_color_var, self.predicted_color_btn), bg=self.predicted_color_var.get())
+        self.predicted_color_btn.grid(row=2, column=1, padx=5)
+
+        self.predicted_style_var = tk.StringVar(value='Dash')
+        tk.OptionMenu(style_frame, self.predicted_style_var, 'Solid', 'Dash', 'Dot').grid(row=2, column=2, padx=5)
+
+        # -- 생성 버튼 --
+        tk.Button(bottom_frame, text="2. 그래프 생성 실행", command=self.generate_graph, font=('Helvetica', 12, 'bold'), bg='#d3ffd3').pack()
+    
+    def choose_color(self, color_var, button):
+        color_code = colorchooser.askcolor(title="색상 선택")[1]
+        if color_code:
+            color_var.set(color_code)
+            button.config(bg=color_code)
 
     def select_file(self):
-        # 파일 탐색기 열기
-        path = filedialog.askopenfilename(
-            filetypes=[("CSV files", "*.csv")]
-        )
-        if path:
-            self.file_path = path
-            # os.path.basename을 사용하여 파일 이름만 추출
-            filename = os.path.basename(path)
-            self.file_label.config(text=f"선택된 파일: {filename}")
+        path = filedialog.askopenfilename(filetypes=[("CSV files", "*.csv")])
+        if not path:
+            return
+        
+        self.file_path = path
+        filename = os.path.basename(path)
+        self.file_label.config(text=f"선택됨: {filename}")
+        
+        try:
+            self.df_columns = pd.read_csv(self.file_path, nrows=0).columns.tolist()
+            self.update_column_widgets()
+        except Exception as e:
+            messagebox.showerror("오류", f"CSV 파일을 읽는 데 실패했습니다:\n{e}")
+
+    def update_column_widgets(self):
+        # 기존 위젯 제거
+        for widget in self.column_widgets:
+            widget.destroy()
+        self.column_widgets = []
+
+        # 새 위젯 생성
+        labels = ["실제값 X축 (시간):", "실제값 Y축 (값):", "예측값 X축 (시간):", "예측값 Y축 (값):"]
+        self.column_vars = [tk.StringVar() for _ in labels]
+
+        for i, label_text in enumerate(labels):
+            label = tk.Label(self.columns_frame, text=label_text)
+            label.grid(row=i, column=0, sticky='w', padx=5, pady=2)
+            self.column_widgets.append(label)
+
+            menu = tk.OptionMenu(self.columns_frame, self.column_vars[i], *self.df_columns)
+            menu.grid(row=i, column=1, sticky='ew', padx=5, pady=2)
+            self.column_widgets.append(menu)
+            
+            # 컬럼 이름과 일치하는 경우 자동으로 선택 (예: '날짜', '실제값')
+            for col in self.df_columns:
+                if label_text.startswith('실제값 X') and col == '날짜': self.column_vars[i].set(col)
+                if label_text.startswith('실제값 Y') and col == '실제값': self.column_vars[i].set(col)
+                if label_text.startswith('예측값 X') and col == '예측날짜': self.column_vars[i].set(col)
+                if label_text.startswith('예측값 Y') and col == '예측값': self.column_vars[i].set(col)
 
     def generate_graph(self):
-        graph_title = self.title_entry.get()
         if not self.file_path:
             messagebox.showwarning("경고", "먼저 CSV 파일을 선택해주세요.")
             return
-        if not graph_title:
-            messagebox.showwarning("경고", "그래프 제목을 입력해주세요.")
-            return
+
+        params = {
+            'file_path': self.file_path,
+            'title': self.title_var.get(),
+            'actual_x': self.column_vars[0].get(),
+            'actual_y': self.column_vars[1].get(),
+            'predicted_x': self.column_vars[2].get(),
+            'predicted_y': self.column_vars[3].get(),
+            'actual_color': self.actual_color_var.get(),
+            'actual_style': self.actual_style_var.get(),
+            'predicted_color': self.predicted_color_var.get(),
+            'predicted_style': self.predicted_style_var.get()
+        }
         
-        # 그래프 생성 함수 호출
-        create_graph(self.file_path, graph_title)
+        if not all([params['actual_x'], params['actual_y'], params['predicted_x'], params['predicted_y']]):
+            messagebox.showwarning("경고", "모든 데이터 축(X, Y)의 컬럼을 선택해주세요.")
+            return
+            
+        create_graph(params)
 
 if __name__ == "__main__":
     root = tk.Tk()
