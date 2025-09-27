@@ -291,44 +291,61 @@ class ComprehensiveEvaluationSystem:
         print("✅ 4개 모델 모두 로드 완료")
         return True
     
-    def predict_all_models(self, X_features):
-        """4개 모델로 모든 예측 수행"""
-        print("\n🔮 4개 모델 예측 수행...")
+    def predict_all_models_sequential(self, X_features):
+        """올바른 순차적 예측: 3개 모델 → model_value"""
+        print("\n🔮 순차적 예측 수행...")
         
         predictions = {}
         
-        # 1. 점프 감지
+        # 1단계: 3개 분류 모델 먼저 예측
         if self.model_jump:
-            print("  - 점프 감지 모델...")
+            print("  - 1단계: 점프 감지 모델...")
             predictions['jump_pred'] = self.model_jump.predict(X_features)
             predictions['jump_proba'] = self.model_jump.predict_proba(X_features)[:, 1]
             print(f"    점프 예측: {np.sum(predictions['jump_pred'])}개")
         
-        # 2. 3구간 분류
         if self.model_range:
-            print("  - 3구간 분류 모델...")
+            print("  - 1단계: 3구간 분류 모델...")
             predictions['range_pred'] = self.model_range.predict(X_features)
             predictions['range_proba'] = self.model_range.predict_proba(X_features)
-            
             range_dist = np.bincount(predictions['range_pred'], minlength=3)
             print(f"    구간 분포: 저위험 {range_dist[0]}개, 중위험 {range_dist[1]}개, 고위험 {range_dist[2]}개")
         
-        # 3. 상승/하락 패턴
         if self.model_trend:
-            print("  - 상승/하락 패턴 모델...")
+            print("  - 1단계: 상승/하락 패턴 모델...")
             predictions['trend_pred'] = self.model_trend.predict(X_features)
             predictions['trend_proba'] = self.model_trend.predict_proba(X_features)
-            
             trend_dist = np.bincount(predictions['trend_pred'], minlength=4)
             print(f"    패턴 분포: 하락 {trend_dist[0]}개, 안정 {trend_dist[1]}개, 점진상승 {trend_dist[2]}개, 급상승 {trend_dist[3]}개")
         
-        # 4. 값 예측
-        if self.model_value:
-            print("  - 값 예측 모델...")
-            predictions['value_pred'] = self.model_value.predict(X_features)
+        # 2단계: 3개 결과를 추가 특징으로 사용하여 값 예측
+        if self.model_value and all(k in predictions for k in ['jump_pred', 'range_pred', 'trend_pred']):
+            print("  - 2단계: 확장 특징으로 값 예측...")
             
-            value_stats = predictions['value_pred']
-            print(f"    값 예측: 평균 {np.mean(value_stats):.1f}, 최소 {np.min(value_stats):.1f}, 최대 {np.max(value_stats):.1f}")
+            # 원래 특징 + 3개 예측 결과 결합
+            extended_features = np.column_stack([
+                X_features,
+                predictions['jump_pred'].reshape(-1, 1),
+                predictions['range_pred'].reshape(-1, 1), 
+                predictions['trend_pred'].reshape(-1, 1)
+            ])
+            
+            print(f"    확장 특징 크기: {X_features.shape} → {extended_features.shape}")
+            
+            try:
+                predictions['value_pred'] = self.model_value.predict(extended_features)
+                value_stats = predictions['value_pred']
+                print(f"    값 예측: 평균 {np.mean(value_stats):.1f}, 최소 {np.min(value_stats):.1f}, 최대 {np.max(value_stats):.1f}")
+            except Exception as e:
+                print(f"    ❌ 값 예측 실패: {e}")
+                print(f"    ⚠️ model_value가 확장 특징으로 학습되지 않았을 수 있습니다.")
+                # 폴백: 원래 특징만 사용
+                predictions['value_pred'] = self.model_value.predict(X_features)
+                print(f"    📌 폴백: 원래 특징만 사용하여 예측")
+        
+        elif self.model_value:
+            print("  - ⚠️ 3개 모델 결과 없음, 독립적 값 예측")
+            predictions['value_pred'] = self.model_value.predict(X_features)
         
         return predictions
     
@@ -460,8 +477,8 @@ def evaluate_comprehensive_performance():
     X_features = system.prepare_features(X_seq)
     print(f"✅ 특징 준비 완료: {X_features.shape}")
     
-    # 6. 4개 모델 예측
-    predictions = system.predict_all_models(X_features)
+    # 6. 순차적 예측 (3개 모델 → model_value)
+    predictions = system.predict_all_models_sequential(X_features)
     
     # 7. 앙상블 적용
     final_predictions = system.apply_ensemble_logic(predictions, X_seq)
