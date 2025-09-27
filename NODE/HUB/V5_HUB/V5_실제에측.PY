@@ -1,37 +1,5 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-
-def get_prediction_result(self, file_path='data/HUBROOM_PIVOT_DATA.csv'):
-    """예측 결과를 문자열로 반환"""
-    try:
-        # 데이터 로드
-        df = self.processor.load_and_process_data(file_path)
-        
-        # 데이터 부족 체크
-        if len(df) < 30:
-            return f"데이터부족:{len(df)}개"
-        
-        df = self.processor.create_prediction_features(df)
-        
-        # 모델 체크
-        if not self.predictor.models:
-            return "모델없음"
-        
-        # 최근 1개만 예측
-        idx = len(df) - 1
-        if idx >= 20:
-            result = self.predictor.predict_sequence(df, idx)
-            if result and 'value' in result:
-                pred_value = result['value']['prediction']
-                risk_korean = result['value']['risk_korean']
-                risk_percentage = result['value']['risk_percentage']
-                
-                return f"{pred_value:.1f},{risk_korean}({risk_percentage:.0f}%)"
-        
-        return "예측실패"
-        
-    except:
-        return "오류발생"
 """
 ================================================================================
 🎯 HUBROOM V4 Ultimate - 실시간 예측 시스템 (간단 버전)
@@ -298,6 +266,38 @@ class RealTimePredictionRunner:
         self.processor = HubRoomPredictionProcessor()
         self.predictor = HUBROOMPredictionSystem()
     
+    def get_prediction_result(self, file_path='data/HUBROOM_PIVOT_DATA.csv'):
+        """예측 결과를 문자열로 반환"""
+        try:
+            # 데이터 로드
+            df = self.processor.load_and_process_data(file_path)
+            
+            # 데이터 부족 체크
+            if len(df) < 30:
+                return f"데이터부족:{len(df)}개"
+            
+            df = self.processor.create_prediction_features(df)
+            
+            # 모델 체크
+            if not self.predictor.models:
+                return "모델없음"
+            
+            # 최근 1개만 예측
+            idx = len(df) - 1
+            if idx >= 20:
+                result = self.predictor.predict_sequence(df, idx)
+                if result and 'value' in result:
+                    pred_value = result['value']['prediction']
+                    risk_korean = result['value']['risk_korean']
+                    risk_percentage = result['value']['risk_percentage']
+                    
+                    return f"{pred_value:.0f},{risk_korean}({risk_percentage:.0f}%)"
+            
+            return "예측실패"
+            
+        except:
+            return "오류발생"
+
     def run_prediction(self, file_path='data/HUBROOM_PIVOT_DATA.csv', num_predictions=5):
         """예측 실행"""
         try:
@@ -341,7 +341,6 @@ class RealTimePredictionRunner:
     def display_simple_results(self, results):
         """초간단 결과 표시"""
         if not results:
-            print("예측 결과 없음")
             return
         
         # 최신 예측만 간단하게
@@ -351,9 +350,9 @@ class RealTimePredictionRunner:
             risk_korean = latest['value']['risk_korean']
             risk_percentage = latest['value']['risk_percentage']
             
-            print(f"{{{pred_value:.1f},{risk_korean}({risk_percentage:.0f}%)}}")
+            print(f"{pred_value:.1f},{risk_korean}({risk_percentage:.0f}%)")
         else:
-            print("예측 실패")
+            return
 
 # ==============================================================================
 # 🚀 메인 실행
