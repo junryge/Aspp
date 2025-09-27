@@ -515,43 +515,33 @@ def predict_realtime():
     
     # 10. 상태 판정
     if predicted_value < 250:
-        status = "정상"
         status_percent = {"정상": 80, "주의": 15, "심각": 5}
     elif predicted_value < 280:
-        status = "주의"
         status_percent = {"정상": 20, "주의": 60, "심각": 20}
     else:
-        status = "심각"
         status_percent = {"정상": 5, "주의": 15, "심각": 80}
     
     # 점프 예측이면 심각도 상향
     if is_jump:
-        status = "심각"
         status_percent = {"정상": 2, "주의": 8, "심각": 90}
     
-    # 11. 결과 생성
+    # 가장 높은 확률의 상태 찾기
+    max_status = max(status_percent, key=status_percent.get)
+    max_percent = status_percent[max_status]
+    
+    # 11. 결과 생성 (간단한 형태)
     result = {
-        "현재시간": current_time.strftime('%Y-%m-%d %H:%M'),
-        "예측시간": predict_time.strftime('%Y-%m-%d %H:%M'),
         "예측값": round(predicted_value, 1),
-        "상태": status,
-        "상태확률": status_percent,
-        "점프예측": "예상" if is_jump else "정상",
-        "점프확률": round(jump_pred_proba[0] * 100, 1),
-        "구간예측": ['50-150', '150-299', '300+'][range_pred[0]],
-        "패턴예측": ['하락', '안정', '점진상승', '급상승'][trend_pred[0]]
+        "상태": max_status,
+        "퍼센트": max_percent
     }
     
     # 12. 결과 출력
     print("\n" + "="*80)
     print("📊 예측 결과")
     print("="*80)
-    print(f"🔮 10분 후 예측값: {result['예측값']}")
-    print(f"⚠️ 상태: {result['상태']}")
-    print(f"📊 상태 확률: 정상 {result['상태확률']['정상']}% | 주의 {result['상태확률']['주의']}% | 심각 {result['상태확률']['심각']}%")
-    print(f"🚀 점프 예측: {result['점프예측']} (확률: {result['점프확률']}%)")
-    print(f"📈 패턴: {result['패턴예측']}")
-    print(f"📍 구간: {result['구간예측']}")
+    print(f"🔮 예측값: {result['예측값']}")
+    print(f"⚠️ 상태: {result['상태']} ({result['퍼센트']}%)")
     print("="*80)
     
     return result
@@ -565,6 +555,4 @@ if __name__ == "__main__":
     
     if result:
         print("\n✅ 예측 완료!")
-        print(f"\n🔄 반환값:")
-        print(f"  예측값: {result['예측값']}")
-        print(f"  상태확률: {result['상태확률']}")
+        print(f"\n🔄 반환값: {result}")
