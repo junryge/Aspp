@@ -267,17 +267,30 @@ class RealTimePredictionRunner:
     
     def run_prediction(self, file_path='data/HUBROOM_PIVOT_DATA.csv', num_predictions=5):
         """예측 실행"""
+        print(f"디버깅: 파일 로드 시작 - {file_path}")
+        
         # 데이터 로드
-        df = self.processor.load_and_process_data(file_path)
+        try:
+            df = self.processor.load_and_process_data(file_path)
+            print(f"디버깅: 데이터 크기 - {df.shape}")
+        except Exception as e:
+            print(f"파일 로드 실패: {e}")
+            return []
         
         # 데이터 부족 체크
         if len(df) < 30:
             print(f"데이터 부족: {len(df)}개 (최소 30개 필요)")
             return []
         
-        df = self.processor.create_prediction_features(df)
+        try:
+            df = self.processor.create_prediction_features(df)
+            print(f"디버깅: 특징 생성 후 크기 - {df.shape}")
+        except Exception as e:
+            print(f"특징 생성 실패: {e}")
+            return []
         
         # 모델 체크
+        print(f"디버깅: 로드된 모델 - {list(self.predictor.models.keys())}")
         if not self.predictor.models:
             print("모델 없음")
             return []
@@ -285,16 +298,26 @@ class RealTimePredictionRunner:
         # 예측 수행
         results = []
         start_idx = len(df) - num_predictions
+        print(f"디버깅: 시작 인덱스 {start_idx}, 총 길이 {len(df)}")
         
         for i in range(num_predictions):
             idx = start_idx + i
             if idx >= 20 and idx < len(df):
                 try:
+                    print(f"디버깅: 인덱스 {idx} 예측 시도")
                     result = self.predictor.predict_sequence(df, idx)
                     if result:
                         results.append(result)
-                except:
+                        print(f"디버깅: 인덱스 {idx} 성공")
+                    else:
+                        print(f"디버깅: 인덱스 {idx} 결과 None")
+                except Exception as e:
+                    print(f"디버깅: 인덱스 {idx} 오류 - {e}")
                     continue
+            else:
+                print(f"디버깅: 인덱스 {idx} 범위 밖")
+        
+        print(f"디버깅: 총 결과 개수 - {len(results)}")
         
         # 결과 표시
         self.display_simple_results(results)
