@@ -2,23 +2,26 @@
 # -*- coding: utf-8 -*-
 """
 ================================================================================
-🎯 HUBROOM 점프 감지 시스템 - 실제 예측 코드 (v3.0 - 문자열 반환)
+🎯 HUBROOM 점프 감지 시스템 - 최종 실행 코드 (v3.1)
 ================================================================================
 목표:
 - 예측 시스템을 클래스(RealTimePredictionRunner)로 패키징
 - get_prediction_result() 호출 시 "285,주의(65%)" 형태의 문자열을 반환
+- Feature Shape Mismatch 오류 해결을 위해 모든 특징 생성 로직 포함
 ================================================================================
 """
 import numpy as np
 import pandas as pd
 import joblib
 import os
-from datetime import datetime, timedelta
 import warnings
 warnings.filterwarnings('ignore')
 
-# 데이터 처리 및 모델 시스템 클래스는 내부적으로 사용되므로 그대로 둡니다.
+# --------------------------------------------------------------------------
+# 내부 데이터 처리 및 모델 관리 클래스
+# --------------------------------------------------------------------------
 class HubRoomDataProcessor:
+    """데이터 로드 및 학습/평가 코드와 동일한 모든 특징을 생성합니다."""
     def __init__(self):
         self.target_col = 'CURRENT_M16A_3F_JOB_2'
         self.inflow_cols = ['M16A_6F_TO_HUB_JOB', 'M16A_2F_TO_HUB_JOB2', 'M14A_3F_TO_HUB_JOB2', 'M14B_7F_TO_HUB_JOB2', 'M16B_10F_TO_HUB_JOB']
@@ -27,6 +30,7 @@ class HubRoomDataProcessor:
         self.probability_map = {0: 0.003, 1: 0.15, 2: 0.25, 3: 0.31, 4: 0.43, 5: 0.43, 6: 0.35, 7: 0.42, 8: 0.53, 9: 0.49, 10: 0.42, 11: 0.47, 12: 0.52, 13: 0.60, 14: 0.54, 15: 0.66, 16: 0.62, 17: 0.71, 18: 0.79, 19: 0.83, 20: 0.987, 21: 0.99, 22: 0.99, 23: 0.99, 24: 0.99, 25: 0.99, 26: 0.99, 27: 0.99, 28: 0.99, 29: 0.99, 30: 0.99}
 
     def load_and_merge_data(self, data_path):
+        print("\n[단계 1/3] 데이터 로드 및 병합...")
         df = pd.read_csv(data_path)
         df['datetime'] = pd.to_datetime(df[df.columns[0]], format='%Y%m%d%H%M')
         bridge_path = data_path.replace('.csv', '_BRIDGE.csv')
@@ -42,18 +46,22 @@ class HubRoomDataProcessor:
         return df
 
     def create_all_features(self, df):
-        df['flow_balance'] = df[self.inflow_cols].sum(axis=1) - df[self.outflow_cols].sum(axis=1)
-        df['acceleration'] = (df[self.target_col].diff(10)) - (df[self.target_col].diff(10)).shift(10)
-        df['trend_20min'] = df[self.target_col].diff(20)
-        df['consecutive_250+'] = (df[self.target_col] > 250).rolling(10).sum()
-        df['cmd_sync_count'] = (df[self.cmd_cols] > 235).sum(axis=1)
+        print("[단계 2/3] 전체 특징 생성 (학습 데이터와 동일)...")
+        df['flow_balance'] = df[self.inflow_cols].sum(axis=1) - df[self.outflow_cols].sum(axis=1); df['flow_ratio'] = df[self.inflow_cols].sum(axis=1) / (df[self.outflow_cols].sum(axis=1) + 1)
+        df['trend_20min'] = df[self.target_col].diff(20); df['trend_10min'] = df[self.target_col].diff(10); df['acceleration'] = df['trend_10min'] - df['trend_10min'].shift(10)
+        df['consecutive_250+'] = (df[self.target_col] > 250).rolling(10).sum(); df['consecutive_270+'] = (df[self.target_col] > 270).rolling(10).sum()
+        df['cmd_sync_count'] = (df[self.cmd_cols] > 235).sum(axis=1); df['cmd_max'] = df[self.cmd_cols].max(axis=1)
+        df['bridge_diff'] = df['BRIDGE_TIME'].diff(5); df['bridge_high'] = (df['BRIDGE_TIME'] > 4.0).astype(int); df['storage_x_bridge'] = df['M16A_3F_STORAGE_UTIL'] * df['BRIDGE_TIME']
         consecutive_300_probs = []
         for i in range(len(df)):
             if i < 30: prob = 0.003
             else: count = sum(1 for v in df[self.target_col].iloc[i-30:i] if v >= 300); prob = self.probability_map.get(count, 0.5)
             consecutive_300_probs.append(prob)
         df['consecutive_300_prob'] = consecutive_300_probs
-        df['recent_5min_max'] = df[self.target_col].rolling(5).max()
+        df['change_rate_10min'] = ((df[self.target_col] - df[self.target_col].shift(10)) / (df[self.target_col].shift(10) + 1)) * 100; df['change_rate_20min'] = ((df[self.target_col] - df[self.target_col].shift(20)) / (df[self.target_col].shift(20) + 1)) * 100; df['change_rate_30min'] = ((df[self.target_col] - df[self.target_col].shift(30)) / (df[self.target_col].shift(30) + 1)) * 100
+        df['volatility_10min'] = df[self.target_col].rolling(10).std(); df['volatility_20min'] = df[self.target_col].rolling(20).std(); df['volatility_30min'] = df[self.target_col].rolling(30).std()
+        df['distance_to_300'] = 300 - df[self.target_col]; df['near_extreme'] = (df[self.target_col] > 280).astype(int)
+        df['recent_5min_mean'] = df[self.target_col].rolling(5).mean(); df['recent_5min_max'] = df[self.target_col].rolling(5).max(); df['recent_10min_mean'] = df[self.target_col].rolling(10).mean()
         df['in_jump_zone'] = ((df[self.target_col] >= 275) & (df[self.target_col] <= 279)).astype(int)
         numeric_cols = df.select_dtypes(include=[np.number]).columns
         df[numeric_cols] = df[numeric_cols].fillna(method='ffill').fillna(0)
@@ -74,14 +82,14 @@ class JumpDetectionSystem:
         complex_conds = np.sum([X_features[:, idx['flow_balance_mean']] > 30, X_features[:, idx['acceleration_last']] > 10, X_features[:, idx['consecutive_250_max']] >= 5, X_features[:, idx['trend_20min_last']] > 20], axis=0) >= 2; boosted[complex_conds] = 1
         if prob_scores is not None: boosted[prob_scores > 0.1] = 1
         boosted[X_features[:, idx['in_jump_zone_last']] > 0] = 1; boosted[X_features[:, idx['recent_5min_max_last']] >= 275] = 1
-        seq_max = np.max(X_seq[0, :, 0])
+        seq_max = np.max(X_seq[0, :, 0]);
         if value_pred[0] >= 290 and seq_max < 280: boosted[0] = 1
         if np.mean(X_seq[0, -5:, 0]) >= 275 and seq_max <= 279: boosted[0] = 1
         return boosted
 
-# ==============================================================================
+# --------------------------------------------------------------------------
 # ✨ 최종 예측 실행 클래스
-# ==============================================================================
+# --------------------------------------------------------------------------
 class RealTimePredictionRunner:
     """
     모델 로드부터 예측, 최종 결과 문자열 반환까지 모든 과정을 처리하는 클래스.
@@ -90,43 +98,30 @@ class RealTimePredictionRunner:
         print("🚀 HUBROOM 예측 시스템 초기화...")
         if not os.path.exists(data_path): raise FileNotFoundError(f"데이터 파일을 찾을 수 없습니다: {data_path}")
         if not os.path.exists(models_dir): raise FileNotFoundError(f"모델 디렉토리를 찾을 수 없습니다: {models_dir}")
-        
         self.data_path = data_path
         self.processor = HubRoomDataProcessor()
         self.system = JumpDetectionSystem()
-        
-        # 초기화 시 모델을 한 번만 로드하여 효율성 증대
         self._load_models(models_dir)
 
     def _load_models(self, models_dir):
         """내부적으로 모델을 로드하는 메서드"""
         try:
-            model_names = ['jump', 'range', 'trend', 'value']
-            for name in model_names:
-                self.system.models[name] = joblib.load(os.path.join(models_dir, f'model_{name}.pkl'))
+            for name in ['jump', 'range', 'trend', 'value']: self.system.models[name] = joblib.load(os.path.join(models_dir, f'model_{name}.pkl'))
             print("✅ 모델 4종 로드 완료.")
-        except Exception as e:
-            raise RuntimeError(f"모델 로드에 실패했습니다: {e}")
+        except Exception as e: raise RuntimeError(f"모델 로드에 실패했습니다: {e}")
 
     @staticmethod
     def _determine_status(jump_final, jump_proba, value_pred, trend_pred):
         """예측 결과를 바탕으로 최종 상태와 대표 확률을 결정"""
-        if jump_final == 1:
-            level = "심각"
-            percentage = jump_proba * 100
+        if jump_final == 1: level, percentage = "심각", jump_proba * 100
         else:
             caution_score = jump_proba * 100
             if value_pred > 280: caution_score += 30
             elif value_pred > 260: caution_score += 15
-            if trend_pred == 3: caution_score += 25
-            elif trend_pred == 2: caution_score += 10
-            
-            if caution_score >= 50:
-                level = "주의"
-                percentage = min(caution_score, 95.0)
-            else:
-                level = "안정"
-                percentage = 100 - caution_score
+            if trend_pred == 3: caution_score += 25  # '급상승'
+            elif trend_pred == 2: caution_score += 10 # '점진상승'
+            if caution_score >= 50: level, percentage = "주의", min(caution_score, 95.0)
+            else: level, percentage = "안정", 100 - caution_score
         return level, percentage
 
     def get_prediction_result(self) -> str:
@@ -135,20 +130,18 @@ class RealTimePredictionRunner:
         
         :return: "예측값,상태(확률%)" 형식의 문자열. 예: "285,주의(65%)"
         """
-        # 1. 데이터 로드 및 특징 생성
-        df_raw = self.processor.load_and_merge_data(self.data_path)
-        df_featured = self.processor.create_all_features(df_raw)
-
-        # 2. 예측에 사용할 최신 시퀀스 추출
-        seq_len = 30
-        if len(df_featured) < seq_len:
-            return f"오류: 데이터 부족 (필요: {seq_len}개)"
+        # 1. 데이터 처리
+        df_featured = self.processor.create_all_features(self.processor.load_and_merge_data(self.data_path))
         
-        latest_data = df_featured.tail(seq_len)
+        # 2. 예측 시퀀스 준비
+        seq_len = 30
+        if len(df_featured) < seq_len: return f"오류: 데이터 부족 (필요: {seq_len}개)"
+        
         feature_cols = [c for c in df_featured.columns if c not in ['datetime']]
-        X_seq = np.expand_dims(latest_data[feature_cols].values, axis=0)
-
-        # 3. 모델 예측 수행
+        X_seq = np.expand_dims(df_featured.tail(seq_len)[feature_cols].values, axis=0)
+        
+        # 3. 모델 예측 및 부스팅
+        print("[단계 3/3] 모델 예측 및 부스팅 적용...")
         self.system.get_expanded_feature_indices(df_featured)
         X_features = self.system.prepare_features(X_seq)
         
@@ -156,32 +149,25 @@ class RealTimePredictionRunner:
         jump_pred = (jump_proba > 0.5).astype(int)
         value_pred = self.system.models['value'].predict(X_features)
         
-        # 4. 부스팅 규칙 적용
         jump_final = self.system.apply_boosts(X_seq, X_features, jump_pred, jump_proba, value_pred)
         
-        # 5. 최종 결과 계산 및 포맷팅
+        # 4. 최종 결과 포맷팅
         adjusted_value = value_pred[0] + 40 if jump_final[0] == 1 else value_pred[0]
         trend_pred = self.system.models['trend'].predict(X_features)
         
-        risk_korean, risk_percentage = self._determine_status(
-            jump_final=jump_final[0],
-            jump_proba=jump_proba[0],
-            value_pred=adjusted_value,
-            trend_pred=trend_pred[0]
-        )
+        risk_korean, risk_percentage = self._determine_status(jump_final[0], jump_proba[0], adjusted_value, trend_pred[0])
         
         return f"{adjusted_value:.0f},{risk_korean}({risk_percentage:.0f}%)"
 
-# ==============================================================================
+# --------------------------------------------------------------------------
 # 🚀 실행 예시
-# ==============================================================================
+# --------------------------------------------------------------------------
 if __name__ == "__main__":
     try:
-        # 1. 예측 실행기(Runner) 객체 생성 (이때 모델들이 로드됩니다)
+        # 1. 예측 실행기 객체 생성 (이때 모델들이 로드됩니다)
         runner = RealTimePredictionRunner()
         
         # 2. 예측 결과 요청
-        print("\n[요청] 최신 데이터 기반으로 10분 후 예측 수행...")
         result_string = runner.get_prediction_result()
         
         # 3. 반환된 문자열 결과 출력
@@ -189,5 +175,5 @@ if __name__ == "__main__":
         print(f"  ✅ 최종 예측 결과 (문자열): {result_string}")
         print("="*50)
 
-    except (FileNotFoundError, RuntimeError, ValueError) as e:
+    except Exception as e:
         print(f"\n❌ 치명적인 오류 발생: {e}")
