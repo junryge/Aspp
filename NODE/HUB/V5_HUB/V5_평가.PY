@@ -1,41 +1,5 @@
 #!/usr/bin/env python3
 
-python    # 8. 결과 분석
-    results_df = pd.DataFrame(results)
-    
-    print("\n" + "="*80)
-    print("📊 평가 결과 분석")
-    print("="*80)
-    
-    # 전체 성능
-    mae = results_df['오차'].mean()
-    rmse = np.sqrt((results_df['오차'] ** 2).mean())
-    
-    print(f"\n📈 전체 성능:")
-    print(f"  - MAE: {mae:.2f}")
-    print(f"  - RMSE: {rmse:.2f}")
-    print(f"  - 총 예측 수: {len(results_df)}")
-수정 후:
-python    # 8. 결과 분석
-    results_df = pd.DataFrame(results)
-    
-    print("\n" + "="*80)
-    print("📊 평가 결과 분석")
-    print("="*80)
-    
-    # 전체 성능
-    y_true = results_df['실제값'].values
-    y_pred = results_df['예측값'].values
-    
-    mae = results_df['오차'].mean()
-    rmse = np.sqrt((results_df['오차'] ** 2).mean())
-    r2 = r2_score(y_true, y_pred)
-    
-    print(f"\n📈 전체 성능:")
-    print(f"  - MAE: {mae:.2f}")
-    print(f"  - RMSE: {rmse:.2f}")
-    print(f"  - R²: {r2:.4f}")
-    print(f"  - 총 예측 수: {len(results_df)}")
 
 # -*- coding: utf-8 -*-
 """
