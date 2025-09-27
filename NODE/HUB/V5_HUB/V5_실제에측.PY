@@ -1,5 +1,37 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
+
+def get_prediction_result(self, file_path='data/HUBROOM_PIVOT_DATA.csv'):
+    """예측 결과를 문자열로 반환"""
+    try:
+        # 데이터 로드
+        df = self.processor.load_and_process_data(file_path)
+        
+        # 데이터 부족 체크
+        if len(df) < 30:
+            return f"데이터부족:{len(df)}개"
+        
+        df = self.processor.create_prediction_features(df)
+        
+        # 모델 체크
+        if not self.predictor.models:
+            return "모델없음"
+        
+        # 최근 1개만 예측
+        idx = len(df) - 1
+        if idx >= 20:
+            result = self.predictor.predict_sequence(df, idx)
+            if result and 'value' in result:
+                pred_value = result['value']['prediction']
+                risk_korean = result['value']['risk_korean']
+                risk_percentage = result['value']['risk_percentage']
+                
+                return f"{pred_value:.1f},{risk_korean}({risk_percentage:.0f}%)"
+        
+        return "예측실패"
+        
+    except:
+        return "오류발생"
 """
 ================================================================================
 🎯 HUBROOM V4 Ultimate - 실시간 예측 시스템 (간단 버전)
