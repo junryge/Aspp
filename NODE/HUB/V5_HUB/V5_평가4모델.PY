@@ -572,15 +572,12 @@ def evaluate_comprehensive_performance():
             '시퀀스MIN': round(info['seq_min'], 2),
             '실제값': round(info['target_value'], 2),
             
-            # 값 예측
-            '기본예측값': round(predictions.get('value_pred', [0])[i], 2),
-            '조정예측값': round(final_predictions.get('value_adjusted', [0])[i], 2),
-            '기본오차': round(abs(info['target_value'] - predictions.get('value_pred', [0])[i]), 2),
-            '조정오차': round(abs(info['target_value'] - final_predictions.get('value_adjusted', [0])[i]), 2),
+            # 값 예측: 순차적 구조 반영
+            '순차예측값': round(predictions.get('value_pred', [0])[i], 2),  # 3개 모델 결과 활용
+            '순차오차': round(abs(info['target_value'] - predictions.get('value_pred', [0])[i]), 2),
             
             # 점프 예측
-            '점프예측_기본': 'O' if predictions.get('jump_pred', [0])[i] == 1 else 'X',
-            '점프예측_앙상블': 'O' if final_predictions.get('jump_enhanced', [0])[i] == 1 else 'X',
+            '점프예측': 'O' if predictions.get('jump_pred', [0])[i] == 1 else 'X',
             '점프확률': round(predictions.get('jump_proba', [0])[i] * 100, 1),
             
             # 구간 분류
@@ -593,9 +590,14 @@ def evaluate_comprehensive_performance():
             '예측패턴': ['하락', '안정', '점진상승', '급상승'][predictions.get('trend_pred', [1])[i]],
             '패턴정확': 'O' if info['trend_pattern'] == predictions.get('trend_pred', [1])[i] else 'X',
             
+            # 3개 모델 기여도 표시
+            '점프기여': predictions.get('jump_pred', [0])[i],
+            '구간기여': predictions.get('range_pred', [1])[i], 
+            '패턴기여': predictions.get('trend_pred', [1])[i],
+            
             # 메타 정보
             '점프케이스': 'O' if is_jump_case else 'X',
-            '신뢰도': round(final_predictions.get('confidence', [0.5])[i], 3)
+            '모델신뢰도': round(predictions.get('jump_proba', [0.5])[i], 3)
         }
         
         results.append(result)
@@ -604,28 +606,23 @@ def evaluate_comprehensive_performance():
     results_df = pd.DataFrame(results)
     
     print("\n" + "="*80)
-    print("📈 최종 성능 요약")
+    print("📈 순차적 모델 성능 요약")
     print("="*80)
     
-    # 전체 성능
-    basic_mae = results_df['기본오차'].mean()
-    adjusted_mae = results_df['조정오차'].mean()
+    # 순차 예측 성능
+    sequential_mae = results_df['순차오차'].mean()
     
-    print(f"\n💰 값 예측 성능:")
-    print(f"  - 기본 MAE: {basic_mae:.2f}")
-    print(f"  - 조정 MAE: {adjusted_mae:.2f}")
-    print(f"  - 개선율: {((basic_mae - adjusted_mae) / basic_mae * 100):.1f}%")
+    print(f"\n💰 값 예측 성능 (3개 모델 → model_value):")
+    print(f"  - 순차 예측 MAE: {sequential_mae:.2f}")
     
     # 점프 감지 성능
     actual_jump_cases = results_df[results_df['점프케이스'] == 'O']
     if len(actual_jump_cases) > 0:
-        basic_jump_detected = (actual_jump_cases['점프예측_기본'] == 'O').sum()
-        ensemble_jump_detected = (actual_jump_cases['점프예측_앙상블'] == 'O').sum()
+        jump_detected = (actual_jump_cases['점프예측'] == 'O').sum()
         
         print(f"\n🚀 점프 감지 성능:")
         print(f"  - 총 점프 케이스: {len(actual_jump_cases)}개")
-        print(f"  - 기본 감지: {basic_jump_detected}개 ({basic_jump_detected/len(actual_jump_cases)*100:.1f}%)")
-        print(f"  - 앙상블 감지: {ensemble_jump_detected}개 ({ensemble_jump_detected/len(actual_jump_cases)*100:.1f}%)")
+        print(f"  - 감지된 케이스: {jump_detected}개 ({jump_detected/len(actual_jump_cases)*100:.1f}%)")
     
     # 분류 정확도
     range_accuracy = (results_df['구간정확'] == 'O').mean()
@@ -635,11 +632,25 @@ def evaluate_comprehensive_performance():
     print(f"  - 3구간 분류 정확도: {range_accuracy:.1%}")
     print(f"  - 패턴 분류 정확도: {trend_accuracy:.1%}")
     
-    # 신뢰도 분석
-    high_confidence_mask = results_df['신뢰도'] > 0.7
-    if high_confidence_mask.sum() > 0:
-        high_conf_mae = results_df[high_confidence_mask]['조정오차'].mean()
-        print(f"  - 고신뢰도(>0.7) 예측 MAE: {high_conf_mae:.2f}")
+    # 3개 모델 기여도 분석
+    print(f"\n🔗 모델 기여도 분석:")
+    jump_contrib = results_df['점프기여'].mean()
+    range_contrib = results_df['구간기여'].mean()
+    trend_contrib = results_df['패턴기여'].mean()
+    
+    print(f"  - 점프 모델 평균 기여: {jump_contrib:.3f}")
+    print(f"  - 구간 모델 평균 기여: {range_contrib:.3f}")
+    print(f"  - 패턴 모델 평균 기여: {trend_contrib:.3f}")
+    
+    # 극단값 예측 성능
+    extreme_mask = results_df['실제값'] >= 300
+    if extreme_mask.sum() > 0:
+        extreme_detected = (results_df[extreme_mask]['순차예측값'] >= 300).sum()
+        extreme_recall = extreme_detected / extreme_mask.sum() * 100
+        print(f"\n🎯 극단값(300+) 감지:")
+        print(f"  - 실제 300+ 케이스: {extreme_mask.sum()}개")
+        print(f"  - 순차 예측으로 감지: {extreme_detected}개")
+        print(f"  - 감지율: {extreme_recall:.1f}%")
     
     # 11. CSV 저장
     output_path = 'hubroom_comprehensive_evaluation.csv'
