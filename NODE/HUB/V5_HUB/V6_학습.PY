@@ -2,15 +2,16 @@
 # -*- coding: utf-8 -*-
 """
 ================================================================================
-🔥 HUBROOM V4 듀얼 모델 학습 시스템 - 30분→10분 예측
+🔥 HUBROOM V4 듀얼 모델 학습 시스템 - 30분→10분 예측 (수정 버전)
 ================================================================================
-✨ 핵심 전략:
-   - Model 1 (안정형): 80-299 범위 전문, False Positive 최소화
-   - Model 2 (극단형): 300+ 전문, 점프 감지 특화
+✨ 주요 수정사항:
+   - 인덱스 매핑 문제 해결
+   - 중단/재개 기능 강화
+   - 시퀀스 생성 진행상황 저장
    
 🎯 목표:
-   - 안정형: MAE < 30, 과대예측 방지
-   - 극단형: 277→300 점프 감지, 극단값 정확도
+   - Model 1 (안정형): 80-299 범위 전문, False Positive 최소화
+   - Model 2 (극단형): 300+ 전문, 점프 감지 특화
 ================================================================================
 """
 
@@ -32,28 +33,30 @@ import sys
 import joblib
 import h5py
 from tqdm import tqdm
+import gc  # 메모리 관리
 
 warnings.filterwarnings('ignore')
 np.random.seed(42)
 tf.random.set_seed(42)
 
 print("="*80)
-print("🔥 HUBROOM V4 듀얼 모델 학습 시스템")
+print("🔥 HUBROOM V4 듀얼 모델 학습 시스템 (수정 버전)")
 print("📊 30분 시퀀스 → 10분 후 예측")
 print("🎯 Model1(안정형) + Model2(극단형)")
+print("✅ 인덱스 문제 해결 + 중단/재개 강화")
 print("="*80)
 print(f"📅 실행 시간: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
 print(f"🔧 TensorFlow Version: {tf.__version__}")
 print("="*80)
 
 # ==============================================================================
-# 💾 체크포인트 관리자
+# 💾 강화된 체크포인트 관리자
 # ==============================================================================
 
-class CheckpointManager:
-    """학습 중단/재개를 위한 체크포인트 관리"""
+class EnhancedCheckpointManager:
+    """강화된 학습 중단/재개 관리"""
     
-    def __init__(self, checkpoint_dir='./checkpoints_dual_30min'):
+    def __init__(self, checkpoint_dir='./checkpoints_dual_30min_v2'):
         self.checkpoint_dir = checkpoint_dir
         os.makedirs(checkpoint_dir, exist_ok=True)
         
@@ -61,6 +64,9 @@ class CheckpointManager:
         self.sequence_file = os.path.join(checkpoint_dir, 'sequences_complete.h5')
         self.scaler_dir = os.path.join(checkpoint_dir, 'scalers')
         os.makedirs(self.scaler_dir, exist_ok=True)
+        
+        # 시퀀스 생성 진행상황 파일
+        self.sequence_progress_file = os.path.join(checkpoint_dir, 'sequence_progress.pkl')
         
         self.interrupted = False
         signal.signal(signal.SIGINT, self._signal_handler)
@@ -82,13 +88,26 @@ class CheckpointManager:
             with open(self.state_file, 'rb') as f:
                 return pickle.load(f)
         return None
+    
+    def save_sequence_progress(self, progress_data):
+        """시퀀스 생성 진행상황 저장"""
+        with open(self.sequence_progress_file, 'wb') as f:
+            pickle.dump(progress_data, f)
+        print(f"💾 시퀀스 진행상황 저장: {progress_data.get('current_idx', 0)}개 완료")
+    
+    def load_sequence_progress(self):
+        """시퀀스 생성 진행상황 로드"""
+        if os.path.exists(self.sequence_progress_file):
+            with open(self.sequence_progress_file, 'rb') as f:
+                return pickle.load(f)
+        return None
 
 # ==============================================================================
-# 📊 데이터 처리 클래스
+# 📊 데이터 처리 클래스 (수정)
 # ==============================================================================
 
 class V4DataProcessor:
-    """V4 듀얼 모델용 데이터 처리"""
+    """V4 듀얼 모델용 데이터 처리 - 인덱스 문제 해결"""
     
     def __init__(self):
         self.target_col = 'CURRENT_M16A_3F_JOB_2'
@@ -167,6 +186,9 @@ class V4DataProcessor:
             if 'BRIDGE_TIME' not in self.v4_cols:
                 self.v4_cols.append('BRIDGE_TIME')
         
+        # 인덱스 리셋 (중요!)
+        df = df.reset_index(drop=True)
+        
         return df
     
     def add_consecutive_patterns(self, df):
@@ -198,37 +220,108 @@ class V4DataProcessor:
         
         return df
     
-    def create_sequences(self, df, pred_len=10):
-        """시퀀스 데이터 생성 (30분 → 10분 후)"""
+    def create_sequences_with_resume(self, df, ckpt, pred_len=10):
+        """시퀀스 데이터 생성 - 중단/재개 지원"""
         print(f"\n[3단계] 시퀀스 생성 ({self.seq_len}분 → {pred_len}분 후)")
+        
+        # 진행상황 확인
+        progress = ckpt.load_sequence_progress()
+        if progress and progress.get('completed', False) == False:
+            print(f"⚠️ 이전 진행상황 발견: {progress['current_idx']}/{progress['total']} 완료")
+            resume = input("이어서 진행하시겠습니까? (y/n): ").lower()
+            
+            if resume == 'y':
+                # 이전 데이터 로드
+                X = progress['X']
+                y = progress['y']
+                physics_features = progress['physics_features']
+                sequence_indices = progress['sequence_indices']
+                start_idx = progress['current_idx'] + self.seq_len
+            else:
+                X, y, physics_features, sequence_indices = [], [], [], []
+                start_idx = self.seq_len
+                progress = None
+        else:
+            X, y, physics_features, sequence_indices = [], [], [], []
+            start_idx = self.seq_len
+            progress = None
         
         # 필수 컬럼 + consecutive 컬럼
         feature_cols = self.v4_cols + ['consecutive_300_count', 'consecutive_300_prob']
         
-        X, y = [], []
-        physics_features = []
+        total = len(df) - pred_len - self.seq_len
         
-        for i in tqdm(range(self.seq_len, len(df) - pred_len), desc="시퀀스 생성"):
-            # 입력: 과거 30분
-            X.append(df[feature_cols].iloc[i-self.seq_len:i].values)
+        try:
+            for i in range(start_idx, len(df) - pred_len):
+                if ckpt.interrupted:
+                    # 중단 시 진행상황 저장
+                    progress_data = {
+                        'X': X,
+                        'y': y,
+                        'physics_features': physics_features,
+                        'sequence_indices': sequence_indices,
+                        'current_idx': i - self.seq_len,
+                        'total': total,
+                        'completed': False
+                    }
+                    ckpt.save_sequence_progress(progress_data)
+                    print(f"\n💾 시퀀스 생성 중단! {len(X)}개 저장")
+                    sys.exit(0)
+                
+                # 진행률 표시
+                if (i - start_idx) % 1000 == 0:
+                    print(f"  진행: {i - self.seq_len}/{total} ({(i - self.seq_len)/total*100:.1f}%)")
+                
+                # 입력: 과거 30분
+                X.append(df[feature_cols].iloc[i-self.seq_len:i].values)
+                
+                # 타겟: 10분 후
+                target_idx = i + pred_len - 1
+                y.append(df[self.target_col].iloc[target_idx])
+                
+                # 원본 인덱스 저장 (타겟 시점의 df 인덱스)
+                sequence_indices.append(target_idx)
+                
+                # 물리 특징 (현재 시점 기준)
+                physics = self.create_physics_features(df, i-1)
+                physics_features.append(physics)
             
-            # 타겟: 10분 후
-            y.append(df[self.target_col].iloc[i + pred_len - 1])
+            # 완료 표시
+            X = np.array(X)
+            y = np.array(y)
+            physics_features = np.array(physics_features)
+            sequence_indices = np.array(sequence_indices)
             
-            # 물리 특징 (현재 시점 기준)
-            physics = self.create_physics_features(df, i-1)
-            physics_features.append(physics)
+            # 완료 상태 저장
+            progress_data = {
+                'completed': True,
+                'total_sequences': len(X)
+            }
+            ckpt.save_sequence_progress(progress_data)
+            
+            print(f"\n✅ {len(X)}개 시퀀스 생성 완료")
+            print(f"  X shape: {X.shape}")
+            print(f"  y shape: {y.shape}")
+            print(f"  Physics shape: {physics_features.shape}")
+            print(f"  Indices shape: {sequence_indices.shape}")
+            
+            return X, y, physics_features, sequence_indices
         
-        X = np.array(X)
-        y = np.array(y)
-        physics_features = np.array(physics_features)
-        
-        print(f"✅ {len(X)}개 시퀀스 생성 완료")
-        print(f"  X shape: {X.shape}")
-        print(f"  y shape: {y.shape}")
-        print(f"  Physics shape: {physics_features.shape}")
-        
-        return X, y, physics_features
+        except Exception as e:
+            print(f"\n❌ 시퀀스 생성 중 오류: {e}")
+            # 오류 시에도 진행상황 저장
+            if len(X) > 0:
+                progress_data = {
+                    'X': X,
+                    'y': y,
+                    'physics_features': physics_features,
+                    'sequence_indices': sequence_indices,
+                    'current_idx': i - self.seq_len if 'i' in locals() else 0,
+                    'total': total,
+                    'completed': False
+                }
+                ckpt.save_sequence_progress(progress_data)
+            raise
     
     def create_physics_features(self, df, idx):
         """물리 특징 생성 (11차원) - 평가 코드와 동일"""
@@ -299,9 +392,171 @@ class V4DataProcessor:
         return np.array(physics)
 
 # ==============================================================================
-# 🤖 Model 1: PatchTST (안정형)
+# 📊 데이터 분리 (수정) - 시퀀스 인덱스 기반
 # ==============================================================================
 
+def create_model_specific_data_v2(df_expanded, sequence_indices):
+    """시퀀스 인덱스 기반 모델별 데이터 분리"""
+    print("\n[4단계] 모델별 데이터 분리 (시퀀스 인덱스 기반)")
+    
+    # Model1 데이터 선택 조건 (안정형)
+    model1_mask = (
+        (df_expanded['consecutive_300_prob'] < 0.5) &  # 낮은 확률
+        (df_expanded['consecutive_300_count'] < 10) &  # 300+ 적음
+        (df_expanded['past_30min_max'] < 275) &  # 점프 위험 없음
+        (df_expanded['BRIDGE_TIME'] <= 4) &  # 물리 지표 안정
+        (df_expanded['acceleration'] <= 2) &  # 급변 없음
+        (df_expanded['volatility_change'] <= 1.5) &  # 변동성 안정
+        (df_expanded['long_trend'].between(-30, 30))  # 극단 추세 없음
+    )
+    
+    # Model2 데이터 선택 조건 (극단형)
+    model2_mask = (
+        # 확률 맵 기반
+        (df_expanded['consecutive_300_prob'] >= 0.6) |  # 높은 확률 (15개+)
+        (df_expanded['consecutive_300_count'] >= 15) |  # 극단값 지속
+        
+        # 277 구간 특별 처리
+        ((df_expanded['past_30min_max'] >= 275) & (df_expanded['past_30min_max'] <= 279)) |
+        ((df_expanded['recent_5min_max'] >= 275) & (df_expanded['recent_5min_max'] <= 279)) |
+        ((df_expanded['recent_3min_max'] >= 275) & (df_expanded['recent_3min_max'] <= 279)) |
+        
+        # 점프 가능성 구간
+        ((df_expanded['past_30min_max'] >= 260) & (df_expanded['past_30min_max'] <= 280)) |
+        (df_expanded['CURRENT_M16A_3F_JOB_2'] >= 300) |  # 이미 극단값
+        
+        # 물리 지표
+        (df_expanded['BRIDGE_TIME'] > 4.2) |  # 물리 지표 위험
+        
+        # 가속도 및 추세
+        (df_expanded['acceleration'] > 2) |  # 급변 신호
+        (df_expanded['long_trend'] > 10) |  # 장기 상승
+        (df_expanded['recent_5min_trend'] > 5) |  # 최근 급등
+        
+        # 변동성
+        (df_expanded['volatility_change'] > 1.8) |  # 변동성 증가
+        
+        # 특별 케이스
+        (df_expanded['is_277_zone']) |  # 277 특별 구간
+        (df_expanded['is_jump_case']) |  # 실제 점프 케이스
+        
+        # 상승 패턴
+        (df_expanded['consecutive_rises'] >= 20)  # 연속 상승
+    )
+    
+    # 시퀀스 인덱스 추출
+    model1_sequence_idx = np.where(model1_mask)[0]
+    model2_sequence_idx = np.where(model2_mask)[0]
+    
+    print(f"✅ Model1 시퀀스: {len(model1_sequence_idx)}개 ({len(model1_sequence_idx)/len(sequence_indices)*100:.1f}%)")
+    print(f"✅ Model2 시퀀스: {len(model2_sequence_idx)}개 ({len(model2_sequence_idx)/len(sequence_indices)*100:.1f}%)")
+    
+    # 겹치는 데이터 확인
+    overlap = set(model1_sequence_idx) & set(model2_sequence_idx)
+    print(f"⚠️ 겹치는 시퀀스: {len(overlap)}개")
+    
+    # 가중치 계산
+    model1_weights = calculate_weights_v2(df_expanded.iloc[model1_sequence_idx], 'stable')
+    model2_weights = calculate_weights_v2(df_expanded.iloc[model2_sequence_idx], 'extreme')
+    
+    return model1_sequence_idx, model2_sequence_idx, model1_weights, model2_weights
+
+def calculate_weights_v2(df_subset, model_type):
+    """데이터 가중치 계산 (수정)"""
+    weights = np.ones(len(df_subset))
+    
+    if model_type == 'extreme':
+        # 점프 케이스에 높은 가중치
+        jump_mask = df_subset['is_jump_case'].values == True
+        weights[jump_mask] = 10.0
+        
+        # 277 구간에 높은 가중치  
+        zone_277_mask = df_subset['is_277_zone'].values == True
+        weights[zone_277_mask] = 8.0
+        
+        # 극고값(335+)에 높은 가중치
+        extreme_high = df_subset['CURRENT_M16A_3F_JOB_2'].values >= 335
+        weights[extreme_high] = 5.0
+        
+        # 300-335 구간
+        high_value = (df_subset['CURRENT_M16A_3F_JOB_2'].values >= 300) & \
+                    (df_subset['CURRENT_M16A_3F_JOB_2'].values < 335)
+        weights[high_value] = 3.0
+        
+        # 260-280 점프 가능 구간
+        jump_possible = (df_subset['past_30min_max'].values >= 260) & \
+                       (df_subset['past_30min_max'].values < 280)
+        weights[jump_possible] = 2.0
+    
+    elif model_type == 'stable':
+        # 안정형은 균등 가중치
+        # 단, 250-270 경계 구간은 조금 더 중요
+        boundary = (df_subset['CURRENT_M16A_3F_JOB_2'].values >= 250) & \
+                  (df_subset['CURRENT_M16A_3F_JOB_2'].values < 270)
+        weights[boundary] = 1.5
+    
+    return weights
+
+# 특징 계산 함수들은 이전과 동일...
+def calculate_advanced_features(df, target_col):
+    """평가 코드에서 사용하는 모든 특징 계산"""
+    
+    # 과거 30분 최대값/최소값/평균
+    df['past_30min_max'] = df[target_col].rolling(30, min_periods=1).max()
+    df['past_30min_min'] = df[target_col].rolling(30, min_periods=1).min()
+    df['past_30min_mean'] = df[target_col].rolling(30, min_periods=1).mean()
+    
+    # 최근 5분 통계 (상승/하락 판단용)
+    df['recent_5min_mean'] = df[target_col].rolling(5, min_periods=1).mean()
+    df['recent_5min_max'] = df[target_col].rolling(5, min_periods=1).max()
+    df['recent_5min_min'] = df[target_col].rolling(5, min_periods=1).min()
+    df['recent_5min_trend'] = df[target_col] - df[target_col].shift(5)
+    
+    # 최근 3분 통계 (277 감지용)
+    df['recent_3min_max'] = df[target_col].rolling(3, min_periods=1).max()
+    df['recent_3min_mean'] = df[target_col].rolling(3, min_periods=1).mean()
+    
+    # 10분 구간별 평균 (30분 데이터 3등분)
+    df['first_10min_avg'] = df[target_col].rolling(10, min_periods=1).mean().shift(20)
+    df['middle_10min_avg'] = df[target_col].rolling(10, min_periods=1).mean().shift(10)
+    df['last_10min_avg'] = df[target_col].rolling(10, min_periods=1).mean()
+    
+    # 장기 추세 (30분)
+    df['long_trend'] = df['last_10min_avg'] - df['first_10min_avg']
+    
+    # 가속도
+    df['mid_trend'] = df['last_10min_avg'] - df['middle_10min_avg']
+    df['early_trend'] = df['middle_10min_avg'] - df['first_10min_avg']
+    df['acceleration'] = df['mid_trend'] - df['early_trend']
+    
+    # 변동성 변화
+    df['first_10min_std'] = df[target_col].rolling(10, min_periods=1).std().shift(20)
+    df['last_10min_std'] = df[target_col].rolling(10, min_periods=1).std()
+    df['volatility_change'] = df['last_10min_std'] / (df['first_10min_std'] + 1e-6)
+    
+    # 277 특별 구간
+    df['is_277_zone'] = (
+        ((df['past_30min_max'] >= 275) & (df['past_30min_max'] <= 279)) |
+        ((df['recent_5min_max'] >= 275) & (df['recent_5min_max'] <= 279)) |
+        ((df['recent_3min_max'] >= 275) & (df['recent_3min_max'] <= 279))
+    )
+    
+    # 점프 케이스 (과거 최대 < 280, 현재 >= 300)
+    df['is_jump_case'] = (df['past_30min_max'].shift(10) < 280) & (df[target_col] >= 300)
+    
+    # 연속 상승 카운트
+    df['consecutive_rises'] = (df[target_col] > df[target_col].shift(1)).rolling(30).sum()
+    
+    # 상승/하락 패턴
+    df['is_rising'] = df['recent_5min_trend'] > 0
+    df['is_rapid_rising'] = df['recent_5min_trend'] > 10
+    
+    # NaN 처리
+    df = df.fillna(0)
+    
+    return df
+
+# PatchTST와 PatchTSTPINN 모델 클래스는 이전과 동일...
 class PatchTST(keras.Model):
     """안정형 모델 - False Positive 최소화"""
     
@@ -389,10 +644,6 @@ class PatchTST(keras.Model):
         
         return output
 
-# ==============================================================================
-# 🤖 Model 2: PatchTST + PINN (극단형)
-# ==============================================================================
-
 class PatchTSTPINN(keras.Model):
     """극단형 모델 - 점프 감지 특화"""
     
@@ -436,178 +687,14 @@ class PatchTSTPINN(keras.Model):
         return output
 
 # ==============================================================================
-# 📊 데이터 분리 및 가중치 생성
+# 🎯 학습 함수 (수정)
 # ==============================================================================
 
-def create_model_specific_data(df, processor):
-    """모델별 데이터 생성 및 가중치 계산"""
-    print("\n[4단계] 모델별 데이터 분리")
+def train_dual_models_v2(processor, X, y, physics, model1_idx, model2_idx, 
+                        model1_weights, model2_weights, ckpt):
+    """듀얼 모델 학습 - 인덱스 문제 해결"""
     
-    # 필요한 특징들 계산
-    df = calculate_advanced_features(df, processor.target_col)
-    
-    # Model1 데이터 선택 조건 (안정형)
-    model1_conditions = (
-        (df['consecutive_300_prob'] < 0.5) &  # 낮은 확률
-        (df['consecutive_300_count'] < 10) &  # 300+ 적음
-        (df['past_30min_max'] < 275) &  # 점프 위험 없음
-        (df['BRIDGE_TIME'] <= 4) &  # 물리 지표 안정
-        (df['acceleration'] <= 2) &  # 급변 없음
-        (df['volatility_change'] <= 1.5) &  # 변동성 안정
-        (df['long_trend'].between(-30, 30))  # 극단 추세 없음
-    )
-    
-    # Model2 데이터 선택 조건 (극단형) - 평가코드의 모든 조건 포함
-    model2_conditions = (
-        # 확률 맵 기반
-        (df['consecutive_300_prob'] >= 0.6) |  # 높은 확률 (15개+)
-        (df['consecutive_300_count'] >= 15) |  # 극단값 지속
-        
-        # 277 구간 특별 처리
-        ((df['past_30min_max'] >= 275) & (df['past_30min_max'] <= 279)) |
-        ((df['recent_5min_max'] >= 275) & (df['recent_5min_max'] <= 279)) |
-        
-        # 점프 가능성 구간
-        ((df['past_30min_max'] >= 260) & (df['past_30min_max'] <= 280)) |
-        (df[processor.target_col] >= 300) |  # 이미 극단값
-        
-        # 물리 지표
-        (df['BRIDGE_TIME'] > 4.2) |  # 물리 지표 위험
-        (df['BRIDGE_TIME'] > 4.5) |  # 강한 신호
-        
-        # 가속도 및 추세
-        (df['acceleration'] > 2) |  # 급변 신호
-        (df['long_trend'] > 10) |  # 장기 상승
-        (df['recent_5min_trend'] > 5) |  # 최근 급등
-        
-        # 변동성
-        (df['volatility_change'] > 1.8) |  # 변동성 증가
-        
-        # 특별 케이스
-        (df['is_277_zone']) |  # 277 특별 구간
-        (df['is_jump_case']) |  # 실제 점프 케이스
-        
-        # 상승 패턴
-        (df['consecutive_rises'] >= 20)  # 연속 상승
-    )
-    
-    # 데이터 인덱스
-    model1_idx = df[model1_conditions].index
-    model2_idx = df[model2_conditions].index
-    
-    print(f"✅ Model1 데이터: {len(model1_idx)}개 ({len(model1_idx)/len(df)*100:.1f}%)")
-    print(f"✅ Model2 데이터: {len(model2_idx)}개 ({len(model2_idx)/len(df)*100:.1f}%)")
-    
-    # 겹치는 데이터 확인
-    overlap = set(model1_idx) & set(model2_idx)
-    print(f"⚠️ 겹치는 데이터: {len(overlap)}개")
-    
-    # 가중치 계산
-    model1_weights = calculate_weights(df.loc[model1_idx], 'stable')
-    model2_weights = calculate_weights(df.loc[model2_idx], 'extreme')
-    
-    return model1_idx, model2_idx, model1_weights, model2_weights
-
-def calculate_advanced_features(df, target_col):
-    """평가 코드에서 사용하는 모든 특징 계산"""
-    
-    # 과거 30분 최대값/최소값/평균
-    df['past_30min_max'] = df[target_col].rolling(30, min_periods=1).max()
-    df['past_30min_min'] = df[target_col].rolling(30, min_periods=1).min()
-    df['past_30min_mean'] = df[target_col].rolling(30, min_periods=1).mean()
-    
-    # 최근 5분 통계 (상승/하락 판단용)
-    df['recent_5min_mean'] = df[target_col].rolling(5, min_periods=1).mean()
-    df['recent_5min_max'] = df[target_col].rolling(5, min_periods=1).max()
-    df['recent_5min_min'] = df[target_col].rolling(5, min_periods=1).min()
-    df['recent_5min_trend'] = df[target_col] - df[target_col].shift(5)
-    
-    # 최근 3분 통계 (277 감지용)
-    df['recent_3min_max'] = df[target_col].rolling(3, min_periods=1).max()
-    df['recent_3min_mean'] = df[target_col].rolling(3, min_periods=1).mean()
-    
-    # 10분 구간별 평균 (30분 데이터 3등분)
-    df['first_10min_avg'] = df[target_col].rolling(10, min_periods=1).mean().shift(20)
-    df['middle_10min_avg'] = df[target_col].rolling(10, min_periods=1).mean().shift(10)
-    df['last_10min_avg'] = df[target_col].rolling(10, min_periods=1).mean()
-    
-    # 장기 추세 (30분)
-    df['long_trend'] = df['last_10min_avg'] - df['first_10min_avg']
-    
-    # 가속도
-    df['mid_trend'] = df['last_10min_avg'] - df['middle_10min_avg']
-    df['early_trend'] = df['middle_10min_avg'] - df['first_10min_avg']
-    df['acceleration'] = df['mid_trend'] - df['early_trend']
-    
-    # 변동성 변화
-    df['first_10min_std'] = df[target_col].rolling(10, min_periods=1).std().shift(20)
-    df['last_10min_std'] = df[target_col].rolling(10, min_periods=1).std()
-    df['volatility_change'] = df['last_10min_std'] / (df['first_10min_std'] + 1e-6)
-    
-    # 277 특별 구간
-    df['is_277_zone'] = (
-        ((df['past_30min_max'] >= 275) & (df['past_30min_max'] <= 279)) |
-        ((df['recent_5min_max'] >= 275) & (df['recent_5min_max'] <= 279)) |
-        ((df['recent_3min_max'] >= 275) & (df['recent_3min_max'] <= 279))
-    )
-    
-    # 점프 케이스 (과거 최대 < 280, 현재 >= 300)
-    df['is_jump_case'] = (df['past_30min_max'].shift(10) < 280) & (df[target_col] >= 300)
-    
-    # 연속 상승 카운트
-    df['consecutive_rises'] = (df[target_col] > df[target_col].shift(1)).rolling(30).sum()
-    
-    # 상승/하락 패턴
-    df['is_rising'] = df['recent_5min_trend'] > 0
-    df['is_rapid_rising'] = df['recent_5min_trend'] > 10
-    
-    # NaN 처리
-    df = df.fillna(0)
-    
-    return df
-
-def calculate_weights(df_subset, model_type):
-    """데이터 가중치 계산"""
-    weights = np.ones(len(df_subset))
-    
-    if model_type == 'extreme':
-        # 점프 케이스에 높은 가중치
-        jump_mask = df_subset['is_jump_case'] == True
-        weights[jump_mask] = 10.0
-        
-        # 277 구간에 높은 가중치
-        zone_277_mask = df_subset['is_277_zone'] == True
-        weights[zone_277_mask] = 8.0
-        
-        # 극고값(335+)에 높은 가중치
-        extreme_high = df_subset['CURRENT_M16A_3F_JOB_2'] >= 335
-        weights[extreme_high] = 5.0
-        
-        # 300-335 구간
-        high_value = (df_subset['CURRENT_M16A_3F_JOB_2'] >= 300) & (df_subset['CURRENT_M16A_3F_JOB_2'] < 335)
-        weights[high_value] = 3.0
-        
-        # 260-280 점프 가능 구간
-        jump_possible = (df_subset['past_30min_max'] >= 260) & (df_subset['past_30min_max'] < 280)
-        weights[jump_possible] = 2.0
-    
-    elif model_type == 'stable':
-        # 안정형은 균등 가중치
-        # 단, 250-270 경계 구간은 조금 더 중요
-        boundary = (df_subset['CURRENT_M16A_3F_JOB_2'] >= 250) & (df_subset['CURRENT_M16A_3F_JOB_2'] < 270)
-        weights[boundary] = 1.5
-    
-    return weights
-
-# ==============================================================================
-# 🎯 학습 함수
-# ==============================================================================
-
-def train_dual_models(processor, X, y, physics, model1_idx, model2_idx, 
-                     model1_weights, model2_weights, ckpt):
-    """듀얼 모델 학습"""
-    
-    # 모델별 데이터 준비
+    # 모델별 데이터 준비 (시퀀스 인덱스 사용)
     X_model1 = X[model1_idx]
     y_model1 = y[model1_idx]
     physics_model1 = physics[model1_idx]
@@ -685,132 +772,144 @@ def train_dual_models(processor, X, y, physics, model1_idx, model2_idx,
     }
     
     # Model 1 학습 (안정형)
-    print("\n" + "="*60)
-    print("🤖 Model 1: PatchTST (안정형) 학습")
-    print("="*60)
-    
-    model1 = PatchTST(config)
-    
-    # 안정형 손실함수 (과대예측 페널티)
-    def stable_loss(y_true, y_pred):
-        mae = tf.abs(y_true - y_pred)
+    if not ckpt.load_state().get('model1_trained', False):
+        print("\n" + "="*60)
+        print("🤖 Model 1: PatchTST (안정형) 학습")
+        print("="*60)
         
-        # 과대예측 페널티 (실제 < 300인데 300+ 예측)
-        y_true_original = y_true * processor.scaler_y.scale_ + processor.scaler_y.center_
-        y_pred_original = y_pred * processor.scaler_y.scale_ + processor.scaler_y.center_
+        model1 = PatchTST(config)
         
-        overpredict_penalty = tf.where(
-            (y_true_original < 300) & (y_pred_original >= 300),
-            mae * 5.0,  # 5배 페널티
-            mae
+        # 안정형 손실함수 (과대예측 페널티)
+        def stable_loss(y_true, y_pred):
+            mae = tf.abs(y_true - y_pred)
+            
+            # 과대예측 페널티 (실제 < 300인데 300+ 예측)
+            y_true_original = y_true * processor.scaler_y.scale_ + processor.scaler_y.center_
+            y_pred_original = y_pred * processor.scaler_y.scale_ + processor.scaler_y.center_
+            
+            overpredict_penalty = tf.where(
+                (y_true_original < 300) & (y_pred_original >= 300),
+                mae * 5.0,  # 5배 페널티
+                mae
+            )
+            
+            # 250-270 경계 구간은 더 정확하게
+            boundary_penalty = tf.where(
+                (y_true_original >= 250) & (y_true_original < 270),
+                mae * 1.5,
+                mae
+            )
+            
+            return tf.reduce_mean(tf.maximum(overpredict_penalty, boundary_penalty))
+        
+        model1.compile(
+            optimizer=Adam(learning_rate=0.0001, clipnorm=1.0),
+            loss=stable_loss,
+            metrics=['mae']
         )
         
-        # 250-270 경계 구간은 더 정확하게
-        boundary_penalty = tf.where(
-            (y_true_original >= 250) & (y_true_original < 270),
-            mae * 1.5,
-            mae
+        callbacks1 = [
+            EarlyStopping(patience=20, restore_best_weights=True),
+            ReduceLROnPlateau(factor=0.5, patience=10, min_lr=1e-6),
+            ModelCheckpoint(f'{ckpt.checkpoint_dir}/model1_stable.h5', 
+                           save_best_only=True, save_weights_only=True)
+        ]
+        
+        history1 = model1.fit(
+            X_train1_scaled, y_train1_scaled,
+            validation_data=(X_val1_scaled, y_val1_scaled),
+            epochs=100,
+            batch_size=64,
+            sample_weight=weights_train1,
+            callbacks=callbacks1,
+            verbose=1
         )
         
-        return tf.reduce_mean(tf.maximum(overpredict_penalty, boundary_penalty))
-    
-    model1.compile(
-        optimizer=Adam(learning_rate=0.0001, clipnorm=1.0),
-        loss=stable_loss,
-        metrics=['mae']
-    )
-    
-    callbacks1 = [
-        EarlyStopping(patience=20, restore_best_weights=True),
-        ReduceLROnPlateau(factor=0.5, patience=10, min_lr=1e-6),
-        ModelCheckpoint(f'{ckpt.checkpoint_dir}/model1_stable.h5', 
-                       save_best_only=True, save_weights_only=True)
-    ]
-    
-    history1 = model1.fit(
-        X_train1_scaled, y_train1_scaled,
-        validation_data=(X_val1_scaled, y_val1_scaled),
-        epochs=100,
-        batch_size=64,
-        sample_weight=weights_train1,
-        callbacks=callbacks1,
-        verbose=1
-    )
-    
-    print("✅ Model 1 학습 완료")
+        # 학습 상태 저장
+        state = ckpt.load_state()
+        state['model1_trained'] = True
+        ckpt.save_state(state)
+        
+        print("✅ Model 1 학습 완료")
     
     # Model 2 학습 (극단형)
-    print("\n" + "="*60)
-    print("🤖 Model 2: PatchTST + PINN (극단형) 학습")
-    print("="*60)
-    
-    model2 = PatchTSTPINN(config)
-    
-    # 극단형 손실함수 (점프 감지 중시)
-    def extreme_loss(y_true, y_pred):
-        mae = tf.abs(y_true - y_pred)
+    if not ckpt.load_state().get('model2_trained', False):
+        print("\n" + "="*60)
+        print("🤖 Model 2: PatchTST + PINN (극단형) 학습")
+        print("="*60)
         
-        # 극단값 놓침 페널티 (실제 300+인데 300 미만 예측)
-        y_true_original = y_true * scaler_y2.scale_ + scaler_y2.center_
-        y_pred_original = y_pred * scaler_y2.scale_ + scaler_y2.center_
+        model2 = PatchTSTPINN(config)
         
-        miss_penalty = tf.where(
-            (y_true_original >= 300) & (y_pred_original < 300),
-            mae * 10.0,  # 10배 페널티
-            mae
+        # 극단형 손실함수 (점프 감지 중시)
+        def extreme_loss(y_true, y_pred):
+            mae = tf.abs(y_true - y_pred)
+            
+            # 극단값 놓침 페널티 (실제 300+인데 300 미만 예측)
+            y_true_original = y_true * scaler_y2.scale_ + scaler_y2.center_
+            y_pred_original = y_pred * scaler_y2.scale_ + scaler_y2.center_
+            
+            miss_penalty = tf.where(
+                (y_true_original >= 300) & (y_pred_original < 300),
+                mae * 10.0,  # 10배 페널티
+                mae
+            )
+            
+            # 277 구간 특별 처리
+            zone_277_penalty = tf.where(
+                (y_true_original >= 275) & (y_true_original <= 279),
+                mae * 0.5,  # 페널티 감소 (더 관대하게)
+                mae
+            )
+            
+            # 극고값(335+) 놓침 추가 페널티
+            extreme_miss_penalty = tf.where(
+                (y_true_original >= 335) & (y_pred_original < 320),
+                mae * 15.0,  # 15배 페널티
+                mae
+            )
+            
+            return tf.reduce_mean(tf.maximum(tf.maximum(miss_penalty, zone_277_penalty), extreme_miss_penalty))
+        
+        model2.compile(
+            optimizer=Adam(learning_rate=0.0001, clipnorm=1.0),
+            loss=extreme_loss,
+            metrics=['mae']
         )
         
-        # 277 구간 특별 처리
-        zone_277_penalty = tf.where(
-            (y_true_original >= 275) & (y_true_original <= 279),
-            mae * 0.5,  # 페널티 감소 (더 관대하게)
-            mae
+        callbacks2 = [
+            EarlyStopping(patience=25, restore_best_weights=True),
+            ReduceLROnPlateau(factor=0.5, patience=12, min_lr=1e-6),
+            ModelCheckpoint(f'{ckpt.checkpoint_dir}/model2_extreme.h5',
+                           save_best_only=True, save_weights_only=True)
+        ]
+        
+        history2 = model2.fit(
+            [X_train2_scaled, physics_train2_scaled], y_train2_scaled,
+            validation_data=([X_val2_scaled, physics_val2_scaled], y_val2_scaled),
+            epochs=120,
+            batch_size=64,
+            sample_weight=weights_train2,
+            callbacks=callbacks2,
+            verbose=1
         )
         
-        # 극고값(335+) 놓침 추가 페널티
-        extreme_miss_penalty = tf.where(
-            (y_true_original >= 335) & (y_pred_original < 320),
-            mae * 15.0,  # 15배 페널티
-            mae
-        )
+        # 학습 상태 저장
+        state = ckpt.load_state()
+        state['model2_trained'] = True
+        ckpt.save_state(state)
         
-        return tf.reduce_mean(tf.maximum(tf.maximum(miss_penalty, zone_277_penalty), extreme_miss_penalty))
+        print("✅ Model 2 학습 완료")
     
-    model2.compile(
-        optimizer=Adam(learning_rate=0.0001, clipnorm=1.0),
-        loss=extreme_loss,
-        metrics=['mae']
-    )
-    
-    callbacks2 = [
-        EarlyStopping(patience=25, restore_best_weights=True),
-        ReduceLROnPlateau(factor=0.5, patience=12, min_lr=1e-6),
-        ModelCheckpoint(f'{ckpt.checkpoint_dir}/model2_extreme.h5',
-                       save_best_only=True, save_weights_only=True)
-    ]
-    
-    history2 = model2.fit(
-        [X_train2_scaled, physics_train2_scaled], y_train2_scaled,
-        validation_data=([X_val2_scaled, physics_val2_scaled], y_val2_scaled),
-        epochs=120,
-        batch_size=64,
-        sample_weight=weights_train2,
-        callbacks=callbacks2,
-        verbose=1
-    )
-    
-    print("✅ Model 2 학습 완료")
-    
-    return model1, model2, history1, history2
+    return True
 
 # ==============================================================================
-# 🚀 메인 실행
+# 🚀 메인 실행 (수정)
 # ==============================================================================
 
 def main():
-    """메인 학습 프로세스"""
+    """메인 학습 프로세스 - 인덱스 문제 해결 버전"""
     
-    ckpt = CheckpointManager()
+    ckpt = EnhancedCheckpointManager()
     processor = V4DataProcessor()
     
     # 이전 상태 확인
@@ -862,53 +961,61 @@ def main():
             if ckpt.interrupted:
                 sys.exit(0)
         
-        # Step 3: 시퀀스 생성
+        # Step 3: 시퀀스 생성 (중단/재개 지원)
         if step <= 3:
             print(f"\n[Step 3/7] 시퀀스 생성")
             print("-"*60)
             
             # 데이터 로드
-            if step < 3:
+            if os.path.exists(f'{ckpt.checkpoint_dir}/df_with_patterns.pkl'):
                 df = pd.read_pickle(f'{ckpt.checkpoint_dir}/df_with_patterns.pkl')
             else:
-                if os.path.exists(f'{ckpt.checkpoint_dir}/df_with_patterns.pkl'):
-                    df = pd.read_pickle(f'{ckpt.checkpoint_dir}/df_with_patterns.pkl')
-                else:
-                    df = processor.load_and_merge_data()
-                    df = processor.add_consecutive_patterns(df)
+                df = processor.load_and_merge_data()
+                df = processor.add_consecutive_patterns(df)
             
-            X, y, physics = processor.create_sequences(df)
+            # 시퀀스 생성 (중단/재개 지원)
+            X, y, physics, sequence_indices = processor.create_sequences_with_resume(df, ckpt)
             
             # HDF5로 저장
             with h5py.File(ckpt.sequence_file, 'w') as f:
                 f.create_dataset('X', data=X, compression='gzip')
                 f.create_dataset('y', data=y, compression='gzip')
                 f.create_dataset('physics', data=physics, compression='gzip')
+                f.create_dataset('sequence_indices', data=sequence_indices, compression='gzip')
                 f.attrs['n_features'] = X.shape[2]
             
             state['step'] = 4
             state['sequences_shape'] = X.shape
             ckpt.save_state(state)
             
+            # 메모리 정리
+            del X, y, physics, sequence_indices
+            gc.collect()
+            
             if ckpt.interrupted:
                 sys.exit(0)
         
-        # Step 4: 모델별 데이터 분리
+        # Step 4: 모델별 데이터 분리 (수정)
         if step <= 4:
             print(f"\n[Step 4/7] 모델별 데이터 분리")
             print("-"*60)
             
             # 시퀀스 로드
             with h5py.File(ckpt.sequence_file, 'r') as f:
-                X = f['X'][:]
-                y = f['y'][:]
-                physics = f['physics'][:]
+                sequence_indices = f['sequence_indices'][:]
             
             # df 로드 (특징 계산용)
             df = pd.read_pickle(f'{ckpt.checkpoint_dir}/df_with_patterns.pkl')
             
+            # 특징 계산
+            df = calculate_advanced_features(df, processor.target_col)
+            
+            # 시퀀스 인덱스에 해당하는 특징만 추출
+            df_expanded = df.iloc[sequence_indices].reset_index(drop=True)
+            
             # 모델별 데이터 분리
-            model1_idx, model2_idx, model1_weights, model2_weights = create_model_specific_data(df, processor)
+            model1_idx, model2_idx, model1_weights, model2_weights = \
+                create_model_specific_data_v2(df_expanded, sequence_indices)
             
             # 인덱스 저장
             np.save(f'{ckpt.checkpoint_dir}/model1_idx.npy', model1_idx)
@@ -920,6 +1027,10 @@ def main():
             state['model1_samples'] = len(model1_idx)
             state['model2_samples'] = len(model2_idx)
             ckpt.save_state(state)
+            
+            # 메모리 정리
+            del df, df_expanded
+            gc.collect()
             
             if ckpt.interrupted:
                 sys.exit(0)
@@ -942,17 +1053,20 @@ def main():
             model2_weights = np.load(f'{ckpt.checkpoint_dir}/model2_weights.npy')
             
             # 학습
-            model1, model2, history1, history2 = train_dual_models(
+            success = train_dual_models_v2(
                 processor, X, y, physics,
                 model1_idx, model2_idx,
                 model1_weights, model2_weights,
                 ckpt
             )
             
-            state['step'] = 6
-            state['model1_trained'] = True
-            state['model2_trained'] = True
-            ckpt.save_state(state)
+            if success:
+                state['step'] = 6
+                ckpt.save_state(state)
+            
+            # 메모리 정리
+            del X, y, physics
+            gc.collect()
             
             if ckpt.interrupted:
                 sys.exit(0)
