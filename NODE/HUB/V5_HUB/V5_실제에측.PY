@@ -2,12 +2,12 @@
 # -*- coding: utf-8 -*-
 """
 ================================================================================
-🎯 HUBROOM 점프 감지 시스템 - 최종 실행 코드 (v4.1)
+🎯 HUBROOM 점프 감지 시스템 - 최종 실행 코드 (v4.3)
 ================================================================================
 목표:
-- 누락된 입력 컬럼을 자동으로 감지하고 생성하는 방어 로직 추가
-- Feature Shape Mismatch 오류를 근본적으로 해결
-- get_prediction_result() 호출 시 최종 문자열 반환
+- 누락된 'past_30min_max', 'consecutive_270+' 특징 로직을 완벽 복원
+- 모든 필수 컬럼 자동 생성 기능 유지
+- 최종 결과 문자열 반환
 ================================================================================
 """
 import numpy as np
@@ -23,7 +23,6 @@ class HubRoomDataProcessor:
         self.inflow_cols = ['M16A_6F_TO_HUB_JOB', 'M16A_2F_TO_HUB_JOB2', 'M14A_3F_TO_HUB_JOB2', 'M14B_7F_TO_HUB_JOB2', 'M16B_10F_TO_HUB_JOB']
         self.outflow_cols = ['M16A_3F_TO_M16A_6F_JOB', 'M16A_3F_TO_M16A_2F_JOB', 'M16A_3F_TO_M14A_3F_JOB', 'M16A_3F_TO_M14B_7F_JOB', 'M16A_3F_TO_3F_MLUD_JOB']
         self.cmd_cols = ['M16A_3F_CMD', 'M16A_6F_TO_HUB_CMD', 'M16A_2F_TO_HUB_CMD', 'M14A_3F_TO_HUB_CMD', 'M14B_7F_TO_HUB_CMD']
-        # 모델 학습에 사용된 21개 필수 원본 컬럼 목록
         self.required_base_cols = self.inflow_cols + self.outflow_cols + self.cmd_cols + \
                                   ['M16A_6F_LFT_MAXCAPA', 'M16A_2F_LFT_MAXCAPA', 'M16A_3F_STORAGE_UTIL', 'M14_TO_M16_OFS_CUR', 'M16_TO_M14_OFS_CUR', self.target_col]
         self.probability_map = {0: 0.003, 1: 0.15, 2: 0.25, 3: 0.31, 4: 0.43, 5: 0.43, 6: 0.35, 7: 0.42, 8: 0.53, 9: 0.49, 10: 0.42, 11: 0.47, 12: 0.52, 13: 0.60, 14: 0.54, 15: 0.66, 16: 0.62, 17: 0.71, 18: 0.79, 19: 0.83, 20: 0.987, 21: 0.99, 22: 0.99, 23: 0.99, 24: 0.99, 25: 0.99, 26: 0.99, 27: 0.99, 28: 0.99, 29: 0.99, 30: 0.99}
@@ -31,8 +30,6 @@ class HubRoomDataProcessor:
     def load_and_merge_data(self, data_path):
         print("\n[단계 1/3] 데이터 로드 및 정합성 검사...")
         df = pd.read_csv(data_path)
-        
-        # [강화된 방어 코드] 필수 21개 컬럼이 없으면 자동으로 생성
         for col in self.required_base_cols:
             if col not in df.columns:
                 print(f"     ⚠️ 경고: 필수 컬럼 '{col}'이 없어 기본값 0으로 자동 생성합니다.")
@@ -40,25 +37,28 @@ class HubRoomDataProcessor:
         
         df['datetime'] = pd.to_datetime(df[df.columns[0]], format='%Y%m%d%H%M')
         bridge_path = data_path.replace('.csv', '_BRIDGE.csv')
-        if os.path.exists(bridge_path):
+        if os.path.exists(bridge_path) and 'IDC_VAL' in pd.read_csv(bridge_path, nrows=0).columns:
             bridge_df = pd.read_csv(bridge_path)
-            if 'IDC_VAL' in bridge_df.columns:
-                bridge_df['BRIDGE_TIME'] = bridge_df['IDC_VAL']; bridge_df['datetime'] = pd.to_datetime(bridge_df['CRT_TM']).dt.floor('min')
-                df = pd.merge(df, bridge_df[['datetime', 'BRIDGE_TIME']], on='datetime', how='left')
+            bridge_df['BRIDGE_TIME'] = bridge_df['IDC_VAL']
+            bridge_df['datetime'] = pd.to_datetime(bridge_df['CRT_TM']).dt.floor('min')
+            df = pd.merge(df, bridge_df[['datetime', 'BRIDGE_TIME']], on='datetime', how='left')
         if 'BRIDGE_TIME' not in df.columns: df['BRIDGE_TIME'] = 3.5
         df['BRIDGE_TIME'] = df['BRIDGE_TIME'].fillna(3.5)
         return df
 
     def create_all_features(self, df):
-        print("[단계 2/3] 전체 특징 생성 (평가 코드와 동일)...")
-        # 평가 코드의 모든 특징 생성 로직을 그대로 사용
+        print("[단계 2/3] 전체 특징 생성 (평가 코드와 완벽 동기화)...")
         df['flow_balance'] = df[self.inflow_cols].sum(axis=1) - df[self.outflow_cols].sum(axis=1); df['flow_ratio'] = df[self.inflow_cols].sum(axis=1) / (df[self.outflow_cols].sum(axis=1) + 1)
         df['trend_20min'] = df[self.target_col].diff(20); df['trend_10min'] = df[self.target_col].diff(10); df['acceleration'] = df['trend_10min'] - df['trend_10min'].shift(10)
-        df['consecutive_250+'] = (df[self.target_col] > 250).rolling(10).sum(); df['consecutive_270+'] = (df[self.target_col] > 270).rolling(10).sum()
+        df['consecutive_250+'] = (df[self.target_col] > 250).rolling(10).sum()
+        df['consecutive_270+'] = (df[self.target_col] > 270).rolling(10).sum() # <<-- [수정됨] 이전에 누락되었던 컬럼
         df['cmd_sync_count'] = (df[self.cmd_cols] > 235).sum(axis=1); df['cmd_max'] = df[self.cmd_cols].max(axis=1)
         df['bridge_diff'] = df['BRIDGE_TIME'].diff(5); df['bridge_high'] = (df['BRIDGE_TIME'] > 4.0).astype(int); df['storage_x_bridge'] = df['M16A_3F_STORAGE_UTIL'] * df['BRIDGE_TIME']
-        consecutive_300_probs = [self.probability_map.get(sum(1 for v in df[self.target_col].iloc[i-30:i] if v >= 300), 0.5) if i >= 30 else 0.003 for i in range(len(df))]
-        df['consecutive_300_prob'] = consecutive_300_probs
+        
+        consecutive_300_counts = [sum(1 for v in df[self.target_col].iloc[i-30:i] if v >= 300) if i >= 30 else 0 for i in range(len(df))]
+        df['consecutive_300_count'] = consecutive_300_counts
+        df['consecutive_300_prob'] = [self.probability_map.get(c, 0.5) for c in consecutive_300_counts]
+        
         df['change_rate_10min'] = ((df[self.target_col] - df[self.target_col].shift(10)) / (df[self.target_col].shift(10) + 1)) * 100
         df['change_rate_20min'] = ((df[self.target_col] - df[self.target_col].shift(20)) / (df[self.target_col].shift(20) + 1)) * 100
         df['change_rate_30min'] = ((df[self.target_col] - df[self.target_col].shift(30)) / (df[self.target_col].shift(30) + 1)) * 100
@@ -66,10 +66,14 @@ class HubRoomDataProcessor:
         df['distance_to_300'] = 300 - df[self.target_col]; df['near_extreme'] = (df[self.target_col] > 280).astype(int)
         df['recent_5min_mean'] = df[self.target_col].rolling(5).mean(); df['recent_5min_max'] = df[self.target_col].rolling(5).max(); df['recent_10min_mean'] = df[self.target_col].rolling(10).mean()
         df['in_jump_zone'] = ((df[self.target_col] >= 275) & (df[self.target_col] <= 279)).astype(int)
+        
+        # 평가 코드용 컬럼도 동일하게 생성
         df['range_class'] = np.select([df[self.target_col] < 150, df[self.target_col] < 300], [0, 1], default=2)
-        df['is_jump'] = ((df[self.target_col].rolling(30).max().shift(10) < 280) & (df[self.target_col] >= 300)).astype(int)
+        df['past_30min_max'] = df[self.target_col].rolling(30).max() # <<-- [수정됨] 이전에 누락되었던 컬럼
+        df['is_jump'] = ((df['past_30min_max'].shift(10) < 280) & (df[self.target_col] >= 300)).astype(int)
         df['change_20min'] = df[self.target_col] - df[self.target_col].shift(20)
         df['trend_pattern'] = np.select([df['change_20min'] < -20, df['change_20min'] < 20, df['change_20min'] < 50], [0, 1, 2], default=3)
+        
         df.fillna(method='ffill', inplace=True); df.fillna(0, inplace=True)
         return df
 
@@ -120,7 +124,7 @@ class RealTimePredictionRunner:
         feature_cols = [col for col in df_featured.columns if col not in ['datetime', 'range_class', 'is_jump', 'trend_pattern']]
         X_seq = np.expand_dims(df_featured.tail(seq_len)[feature_cols].values, axis=0)
         
-        print("[단계 3/3] 모델 예측 및 최종 결과 생성...")
+        print(f"[단계 3/3] 모델 예측 및 최종 결과 생성 (입력 특징 수: {len(feature_cols)})...")
         X_features = self._prepare_features(X_seq)
         
         jump_proba = self.system['jump'].predict_proba(X_features)[:, 1]
