@@ -21,7 +21,7 @@ def read_csv_safe(filepath):
     return pd.read_csv(filepath, encoding='utf-8', errors='ignore')
 
 # --------------------------------------------------------------------------
-# 그래프 생성 로직 (INFO 정보창 및 리미트선 추가)
+# 그래프 생성 로직 (INFO 정보창, 리미트선, 점프예측, 패턴예측 포함)
 # --------------------------------------------------------------------------
 def create_graph(params):
     try:
@@ -39,6 +39,20 @@ def create_graph(params):
         
         # NaN 제거
         df = df.dropna(subset=[actual_y_col, predicted_y_col])
+        
+        # 점프예측 컬럼 확인
+        jump_col = None
+        for col in df.columns:
+            if '점프예측' in col or 'jump' in col.lower():
+                jump_col = col
+                break
+        
+        # 패턴예측 컬럼 확인
+        pattern_col = None
+        for col in df.columns:
+            if '패턴예측' in col or 'pattern' in col.lower():
+                pattern_col = col
+                break
 
         # 날짜 변환 및 포맷팅
         try:
@@ -52,10 +66,40 @@ def create_graph(params):
             df['predicted_time_str'] = df[predicted_x_col].dt.strftime('%Y-%m-%d %H:%M:%S')
         except:
             df['predicted_time_str'] = df[predicted_x_col].astype(str)
+        
+        # 점프예측 값 준비 및 색상 결정
+        if jump_col:
+            df['jump_value'] = df[jump_col].astype(str)
+            df['jump_color'] = df[jump_col].apply(
+                lambda x: '#27AE60' if str(x).upper() == 'O' else '#E74C3C' if str(x).upper() == 'X' else '#666'
+            )
+        else:
+            df['jump_value'] = 'N/A'
+            df['jump_color'] = '#666'
+        
+        # 패턴예측 값 준비 및 색상 결정
+        if pattern_col:
+            df['pattern_value'] = df[pattern_col].astype(str)
+            # 패턴예측 값에 따른 색상 설정
+            def get_pattern_color(val):
+                val_str = str(val).strip()
+                if '상승' in val_str or '증가' in val_str:
+                    return '#27AE60'  # 초록색 - 상승
+                elif '하락' in val_str or '감소' in val_str:
+                    return '#E74C3C'  # 빨간색 - 하락
+                elif '안정' in val_str or '유지' in val_str:
+                    return '#3498DB'  # 파란색 - 안정
+                else:
+                    return '#8E44AD'  # 보라색 - 기타
+            
+            df['pattern_color'] = df[pattern_col].apply(get_pattern_color)
+        else:
+            df['pattern_value'] = 'N/A'
+            df['pattern_color'] = '#95A5A6'
 
         fig = go.Figure()
 
-        # 실제값 라인 - 개선된 INFO 정보창
+        # 실제값 라인 - 점프예측, 패턴예측 정보 포함
         fig.add_trace(go.Scattergl(
             x=df[actual_x_col], 
             y=df[actual_y_col], 
@@ -65,7 +109,8 @@ def create_graph(params):
                      dash=None if params['actual_style'] == 'Solid' else params['actual_style'].lower(), 
                      width=2),
             marker=dict(size=5),
-            customdata=df[[actual_y_col, 'actual_time_str', predicted_y_col, 'predicted_time_str']].values,
+            customdata=df[[actual_y_col, 'actual_time_str', predicted_y_col, 'predicted_time_str', 
+                          'jump_value', 'jump_color', 'pattern_value', 'pattern_color']].values,
             hovertemplate='<b style="color: #2E86C1; font-size: 14px;">📊 INFO 정보</b><br>' +
                          '<span style="color: #85C1E2;">═══════════════════</span><br>' +
                          '<b style="color: #1f77b4;">🔵 실제값</b><br>' +
@@ -74,11 +119,14 @@ def create_graph(params):
                          '<span style="color: #85C1E2;">═══════════════════</span><br>' +
                          '<b style="color: #ff7f0e;">🔶 예측값</b><br>' + 
                          '<span style="color: #666;">예측날짜:</span> <span style="color: #000;">%{customdata[3]}</span><br>' +
-                         '<span style="color: #666;">예측값:</span> <b style="color: #ff7f0e;">%{customdata[2]:.2f}</b>' +
+                         '<span style="color: #666;">예측값:</span> <b style="color: #ff7f0e;">%{customdata[2]:.2f}</b><br>' +
+                         '<span style="color: #85C1E2;">═══════════════════</span><br>' +
+                         '<span style="color: #666;">점프예측:</span> <b style="color: %{customdata[5]};">%{customdata[4]}</b><br>' +
+                         '<span style="color: #666;">패턴예측:</span> <b style="color: %{customdata[7]};">%{customdata[6]}</b>' +
                          '<extra></extra>'
         ))
         
-        # 예측값 라인 - 개선된 INFO 정보창
+        # 예측값 라인 - 점프예측, 패턴예측 정보 포함
         fig.add_trace(go.Scattergl(
             x=df[predicted_x_col], 
             y=df[predicted_y_col], 
@@ -88,7 +136,8 @@ def create_graph(params):
                      dash=None if params['predicted_style'] == 'Solid' else params['predicted_style'].lower(), 
                      width=2),
             marker=dict(size=5),
-            customdata=df[[actual_y_col, 'actual_time_str', predicted_y_col, 'predicted_time_str']].values,
+            customdata=df[[actual_y_col, 'actual_time_str', predicted_y_col, 'predicted_time_str', 
+                          'jump_value', 'jump_color', 'pattern_value', 'pattern_color']].values,
             hovertemplate='<b style="color: #2E86C1; font-size: 14px;">📊 INFO 정보</b><br>' +
                          '<span style="color: #85C1E2;">═══════════════════</span><br>' +
                          '<b style="color: #1f77b4;">🔵 실제값</b><br>' +
@@ -97,7 +146,10 @@ def create_graph(params):
                          '<span style="color: #85C1E2;">═══════════════════</span><br>' +
                          '<b style="color: #ff7f0e;">🔶 예측값</b><br>' + 
                          '<span style="color: #666;">예측날짜:</span> <span style="color: #000;">%{customdata[3]}</span><br>' +
-                         '<span style="color: #666;">예측값:</span> <b style="color: #ff7f0e;">%{customdata[2]:.2f}</b>' +
+                         '<span style="color: #666;">예측값:</span> <b style="color: #ff7f0e;">%{customdata[2]:.2f}</b><br>' +
+                         '<span style="color: #85C1E2;">═══════════════════</span><br>' +
+                         '<span style="color: #666;">점프예측:</span> <b style="color: %{customdata[5]};">%{customdata[4]}</b><br>' +
+                         '<span style="color: #666;">패턴예측:</span> <b style="color: %{customdata[7]};">%{customdata[6]}</b>' +
                          '<extra></extra>'
         ))
         
@@ -152,6 +204,8 @@ def create_graph(params):
         messagebox.showinfo("성공", 
             f"'{output_filename}' 파일이 생성되었습니다.\n\n"
             f"✅ 색상이 추가된 INFO 정보창\n"
+            f"✅ 점프예측 정보 표시\n"
+            f"✅ 패턴예측 정보 표시\n"
             f"✅ 빨간색 리미트선 표시\n"
             f"✅ 격자선 유지\n"
             f"✅ 인코딩 자동 감지")
@@ -165,7 +219,7 @@ def create_graph(params):
 class GraphApp:
     def __init__(self, root):
         self.root = root
-        self.root.title("단계별 그래프 생성기 v3.0")
+        self.root.title("단계별 그래프 생성기 v3.0 (패턴예측 포함)")
         self.file_path = ""
         self.df_columns = []
 
