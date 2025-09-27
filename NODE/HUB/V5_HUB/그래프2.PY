@@ -30,6 +30,9 @@ class PerformanceWindow:
         self.window.title("평가 결과 분석 입력")
         self.window.geometry("600x700")
         
+        # 값들을 저장할 변수 초기화
+        self.values = None
+        
         # 메인 프레임
         main_frame = tk.Frame(self.window)
         main_frame.pack(fill='both', expand=True, padx=10, pady=10)
@@ -113,100 +116,22 @@ class PerformanceWindow:
         
         # 확인 버튼
         tk.Button(main_frame, text="확인", 
-                 command=self.window.destroy,
+                 command=self.save_and_close,
                  bg='#3498DB', fg='white',
                  font=('Arial', 10, 'bold')).pack(pady=10)
         
-    def get_values(self):
-        """입력된 값들 반환"""
-        return {
+    def save_and_close(self):
+        """값을 저장하고 창을 닫기"""
+        self.values = {
             'mae': self.mae_var.get(),
             'rmse': self.rmse_var.get(),
             'r2': self.r2_var.get(),
             'other_info': self.text_widget.get('1.0', 'end-1c')
         }
+        self.window.destroy()
 
 # --------------------------------------------------------------------------
-# 성능 그래프 생성 함수
-# --------------------------------------------------------------------------
-def create_performance_graph(mae=30.23, rmse=36.02, r2=0.72, other_info=""):
-    """BAR 그래프와 기타 정보를 포함한 HTML 생성"""
-    
-    # 서브플롯 생성 - 그래프와 텍스트 영역
-    fig = make_subplots(
-        rows=2, cols=1,
-        row_heights=[0.4, 0.6],
-        specs=[[{"type": "bar"}],
-               [{"type": "table"}]],
-        subplot_titles=('모델 성능 지표', None)
-    )
-    
-    # BAR 그래프 추가
-    metrics = ['MAE', 'RMSE', 'R²']
-    values = [mae, rmse, r2]
-    colors = ['#3498DB', '#9B59B6', '#1ABC9C']
-    
-    # R²는 스케일이 다르므로 표시를 위해 10을 곱함
-    display_values = [mae, rmse, r2 * 100]  # R²를 퍼센트로 표시
-    
-    fig.add_trace(go.Bar(
-        x=metrics,
-        y=display_values,
-        text=[f'{mae:.2f}', f'{rmse:.2f}', f'{r2:.2f}'],
-        textposition='auto',
-        marker_color=colors,
-        showlegend=False
-    ), row=1, col=1)
-    
-    # 기타 정보를 테이블로 추가
-    # 텍스트를 HTML로 변환하여 표시
-    info_lines = other_info.split('\n')
-    
-    fig.add_trace(go.Table(
-        header=dict(
-            values=['<b>기타 정보</b>'],
-            fill_color='#2E86C1',
-            align='left',
-            font=dict(color='white', size=14)
-        ),
-        cells=dict(
-            values=[['<br>'.join(info_lines)]],
-            fill_color='white',
-            align='left',
-            font=dict(size=10),
-            height=30
-        )
-    ), row=2, col=1)
-    
-    # 레이아웃 업데이트
-    fig.update_yaxes(title_text="값", row=1, col=1)
-    fig.update_xaxes(title_text="성능 지표", row=1, col=1)
-    
-    # R² 값에 대한 주석 추가
-    fig.add_annotation(
-        x='R²', y=r2 * 100,
-        text=f"실제값: {r2:.2f}",
-        showarrow=True,
-        arrowhead=2,
-        yshift=20
-    )
-    
-    fig.update_layout(
-        height=800,
-        showlegend=False,
-        title_text="모델 평가 결과 분석",
-        title_font_size=20,
-        paper_bgcolor='white',
-        plot_bgcolor='white'
-    )
-    
-    # HTML 파일로 저장
-    output_filename = "performance_metrics.html"
-    fig.write_html(output_filename, include_plotlyjs='cdn')
-    webbrowser.open('file://' + os.path.realpath(output_filename))
-
-# --------------------------------------------------------------------------
-# 그래프 생성 로직 (성능 그래프 자동 생성 추가)
+# 그래프 생성 로직
 # --------------------------------------------------------------------------
 def create_graph(params, perf_values=None):
     try:
@@ -365,6 +290,7 @@ def create_graph(params, perf_values=None):
         except:
             pass  # 리미트값이 올바르지 않으면 무시
         
+        # 레이아웃 업데이트 - 전체성능 확인 버튼 추가
         fig.update_layout(
             title=params['title'], 
             xaxis_title='시간', 
@@ -379,36 +305,124 @@ def create_graph(params, perf_values=None):
                 font_size=12,
                 font_family="Arial",
                 bordercolor="#2E86C1"
-            )
+            ),
+            updatemenus=[
+                dict(
+                    type="buttons",
+                    direction="left",
+                    buttons=list([
+                        dict(
+                            args=None,
+                            label="📊 전체성능 확인",
+                            method="skip"
+                        )
+                    ]),
+                    pad={"r": 10, "t": 10},
+                    showactive=True,
+                    x=0.11,
+                    xanchor="left",
+                    y=-0.15,
+                    yanchor="top"
+                )
+            ]
         )
 
-        output_filename = "final_guided_graph.html"
-        fig.write_html(output_filename, include_plotlyjs='cdn')
-        webbrowser.open('file://' + os.path.realpath(output_filename))
-        
-        # 성능 그래프도 자동으로 생성
+        # 성능 정보 HTML 생성 (기타정보만)
         if perf_values:
-            mae = float(perf_values.get('mae', 30.23))
-            rmse = float(perf_values.get('rmse', 36.02))
-            r2 = float(perf_values.get('r2', 0.72))
-            other_info = perf_values.get('other_info', '')
-            create_performance_graph(mae, rmse, r2, other_info)
-        
+            other_info = perf_values.get('other_info', '정보가 입력되지 않았습니다.')
+            
+            # 텍스트만 있는 HTML 생성
+            html_text = f"""
+            <!DOCTYPE html>
+            <html>
+            <head>
+                <title>평가 결과 분석</title>
+                <style>
+                    body {{
+                        font-family: Arial, sans-serif;
+                        margin: 20px;
+                        background-color: #f8f9fa;
+                    }}
+                    .container {{
+                        background-color: white;
+                        padding: 30px;
+                        border-radius: 10px;
+                        box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+                    }}
+                    h1 {{
+                        color: #2E86C1;
+                        text-align: center;
+                        margin-bottom: 30px;
+                    }}
+                    .info-content {{
+                        white-space: pre-wrap;
+                        line-height: 1.8;
+                        font-size: 14px;
+                        color: #333;
+                        background-color: #f8f9fa;
+                        padding: 20px;
+                        border-radius: 5px;
+                        border: 1px solid #dee2e6;
+                    }}
+                </style>
+            </head>
+            <body>
+                <div class="container">
+                    <h1>📊 평가 결과 분석 - 기타 정보</h1>
+                    <div class="info-content">{other_info}</div>
+                </div>
+            </body>
+            </html>
+            """
+            
+            perf_filename = "performance_info.html"
+            with open(perf_filename, 'w', encoding='utf-8') as f:
+                f.write(html_text)
+
+        # 메인 그래프 HTML에 JavaScript 추가
+        output_filename = "final_guided_graph.html"
+        html_content = fig.to_html(include_plotlyjs='cdn')
+
+        # JavaScript 코드 추가
+        script = """
+        <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            setTimeout(function() {
+                var button = document.querySelector('.updatemenu-button');
+                if(button) {
+                    button.onclick = function() {
+                        window.open('performance_info.html', 'Performance Info', 
+                            'width=800,height=600,scrollbars=yes');
+                    };
+                }
+            }, 500);
+        });
+        </script>
+        """
+
+        # HTML 파일에 스크립트 추가
+        html_content = html_content.replace('</body>', script + '</body>')
+
+        with open(output_filename, 'w', encoding='utf-8') as f:
+            f.write(html_content)
+
+        webbrowser.open('file://' + os.path.realpath(output_filename))
+
         messagebox.showinfo("성공", 
             f"'{output_filename}' 파일이 생성되었습니다.\n"
-            f"성능 분석 그래프도 함께 생성되었습니다.\n\n"
+            f"그래프 하단의 '전체성능 확인' 버튼을 클릭하면\n"
+            f"기타 정보를 확인할 수 있습니다.\n\n"
             f"✅ 색상이 추가된 INFO 정보창\n"
             f"✅ 점프예측 정보 표시\n"
             f"✅ 패턴예측 정보 표시\n"
             f"✅ 빨간색 리미트선 표시\n"
-            f"✅ 격자선 유지\n"
-            f"✅ 인코딩 자동 감지")
+            f"✅ 기타정보 팝업 버튼 추가")
             
     except Exception as e:
         messagebox.showerror("오류 발생", f"그래프 생성 중 오류가 발생했습니다:\n{e}")
 
 # --------------------------------------------------------------------------
-# GUI 애플리케이션 로직 (내용정보 버튼 추가)
+# GUI 애플리케이션 로직
 # --------------------------------------------------------------------------
 class GraphApp:
     def __init__(self, root):
@@ -470,7 +484,7 @@ class GraphApp:
         """성능 정보 창 열기"""
         perf_window = PerformanceWindow(self.root)
         self.root.wait_window(perf_window.window)  # 창이 닫힐 때까지 대기
-        self.perf_values = perf_window.get_values()  # 값 저장
+        self.perf_values = perf_window.values  # values 직접 사용
     
     def toggle_widgets_state(self, frame, state):
         for child in frame.winfo_children():
