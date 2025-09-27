@@ -103,13 +103,103 @@ class HubRoomDataProcessor:
         time_col = df.columns[0]
         df['datetime'] = pd.to_datetime(df[time_col], format='%Y%m%d%H%M')
         
-        # BRIDGE_TIME 처리 (있으면 사용, 없으면 기본값)
-        if 'BRIDGE_TIME' not in df.columns:
-            df['BRIDGE_TIME'] = 3.5
-            print("⚠️ BRIDGE_TIME 없음 - 기본값 3.5 사용")
-        else:
+        # BRIDGE_TIME 처리 - 여러 가능성 체크
+        bridge_loaded = False
+        
+        # 1. 메인 데이터에 이미 BRIDGE_TIME이 있는 경우
+        if 'BRIDGE_TIME' in df.columns:
             df['BRIDGE_TIME'] = df['BRIDGE_TIME'].fillna(3.5)
-            print("✅ BRIDGE_TIME 처리 완료")
+            print(f"✅ BRIDGE_TIME 컬럼 발견 (메인 파일)")
+            bridge_loaded = True
+        
+        # 2. 별도 BRIDGE_TIME CSV 파일들 체크
+        if not bridge_loaded:
+            bridge_file_patterns = [
+                'data/BRIDGE_TIME.csv',
+                'data/BRTIME_0509_TO_0807.csv',
+                data_path.replace('.csv', '_BRIDGE.csv'),
+                data_path.replace('.csv', '_BRTIME.csv'),
+                'data/HUBROOM_BRIDGE_TIME.csv'
+            ]
+            
+            for bridge_path in bridge_file_patterns:
+                if os.path.exists(bridge_path):
+                    print(f"🔍 브릿지타임 파일 발견: {bridge_path}")
+                    
+                    try:
+                        bridge_df = pd.read_csv(bridge_path)
+                        print(f"✅ 브릿지타임 데이터 로드: {bridge_df.shape}")
+                        
+                        # 시간 컬럼과 값 컬럼 찾기
+                        time_candidates = ['CRT_TM', 'datetime', 'time', 'timestamp']
+                        value_candidates = ['IDC_VAL', 'BRIDGE_TIME', 'bridge_time', 'value']
+                        
+                        bridge_time_col = None
+                        bridge_value_col = None
+                        
+                        # 시간 컬럼 찾기
+                        for col in time_candidates:
+                            if col in bridge_df.columns:
+                                bridge_time_col = col
+                                break
+                        
+                        # 값 컬럼 찾기  
+                        for col in value_candidates:
+                            if col in bridge_df.columns:
+                                bridge_value_col = col
+                                break
+                        
+                        if bridge_time_col and bridge_value_col:
+                            # 시간 처리
+                            bridge_df['datetime'] = pd.to_datetime(bridge_df[bridge_time_col])
+                            bridge_df['BRIDGE_TIME'] = bridge_df[bridge_value_col]
+                            
+                            # 시간대 정보 제거
+                            if hasattr(bridge_df['datetime'].dtype, 'tz'):
+                                bridge_df['datetime'] = bridge_df['datetime'].dt.tz_localize(None)
+                            if hasattr(df['datetime'].dtype, 'tz'):
+                                df['datetime'] = df['datetime'].dt.tz_localize(None)
+                            
+                            # 분 단위로 반올림
+                            bridge_df['datetime'] = bridge_df['datetime'].dt.floor('min')
+                            df['datetime'] = df['datetime'].dt.floor('min')
+                            
+                            # 병합
+                            df = pd.merge(df, bridge_df[['datetime', 'BRIDGE_TIME']], 
+                                         on='datetime', how='left')
+                            
+                            # 보간 및 결측치 처리
+                            df['BRIDGE_TIME'] = df['BRIDGE_TIME'].interpolate(method='linear', limit_direction='both')
+                            df['BRIDGE_TIME'] = df['BRIDGE_TIME'].fillna(3.5)
+                            
+                            bridge_loaded = True
+                            matched_count = df['BRIDGE_TIME'].notna().sum()
+                            print(f"✅ 브릿지타임 병합 완료: {matched_count}/{len(df)} 매칭")
+                            break
+                        else:
+                            print(f"⚠️ {bridge_path}: 적절한 시간/값 컬럼을 찾을 수 없음")
+                            print(f"   - 컬럼들: {list(bridge_df.columns)}")
+                            
+                    except Exception as e:
+                        print(f"❌ {bridge_path} 로드 실패: {e}")
+                        continue
+        
+        # 3. 브릿지타임을 찾지 못한 경우 기본값 사용
+        if not bridge_loaded:
+            df['BRIDGE_TIME'] = 3.5
+            print("⚠️ 브릿지타임 파일 없음 - 기본값 3.5 사용")
+            print("💡 브릿지타임 파일 경로 예시:")
+            print("   - data/BRIDGE_TIME.csv")
+            print("   - data/BRTIME_0509_TO_0807.csv") 
+            print("   - data/HUBROOM_BRIDGE_TIME.csv")
+        
+        # 최종 브릿지타임 통계
+        bridge_stats = df['BRIDGE_TIME'].describe()
+        print(f"\n📊 브릿지타임 통계:")
+        print(f"   - 평균: {bridge_stats['mean']:.2f}")
+        print(f"   - 최소: {bridge_stats['min']:.2f}")
+        print(f"   - 최대: {bridge_stats['max']:.2f}")
+        print(f"   - 표준편차: {bridge_stats['std']:.2f}")
         
         return df
     
