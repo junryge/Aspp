@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+알겠습니다. ModelCheckpoint 파일명 오류를 수정한 전체 코드입니다:#!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
 ================================================================================
@@ -8,6 +8,7 @@
    - 인덱스 매핑 문제 해결
    - 중단/재개 기능 강화
    - 시퀀스 생성 진행상황 저장
+   - ModelCheckpoint 파일명 수정 (.weights.h5)
    
 🎯 목표:
    - Model 1 (안정형): 80-299 범위 전문, False Positive 최소화
@@ -811,7 +812,7 @@ def train_dual_models_v2(processor, X, y, physics, model1_idx, model2_idx,
         callbacks1 = [
             EarlyStopping(patience=20, restore_best_weights=True),
             ReduceLROnPlateau(factor=0.5, patience=10, min_lr=1e-6),
-            ModelCheckpoint(f'{ckpt.checkpoint_dir}/model1_stable.h5', 
+            ModelCheckpoint(f'{ckpt.checkpoint_dir}/model1_stable.weights.h5',  # 수정!
                            save_best_only=True, save_weights_only=True)
         ]
         
@@ -879,7 +880,7 @@ def train_dual_models_v2(processor, X, y, physics, model1_idx, model2_idx,
         callbacks2 = [
             EarlyStopping(patience=25, restore_best_weights=True),
             ReduceLROnPlateau(factor=0.5, patience=12, min_lr=1e-6),
-            ModelCheckpoint(f'{ckpt.checkpoint_dir}/model2_extreme.h5',
+            ModelCheckpoint(f'{ckpt.checkpoint_dir}/model2_extreme.weights.h5',  # 수정!
                            save_best_only=True, save_weights_only=True)
         ]
         
@@ -1087,8 +1088,8 @@ def main():
             
             print("✅ 학습 완료!")
             print(f"\n📁 저장 위치: {ckpt.checkpoint_dir}")
-            print("  - model1_stable.h5: 안정형 모델")
-            print("  - model2_extreme.h5: 극단형 모델")
+            print("  - model1_stable.weights.h5: 안정형 모델")  # 수정!
+            print("  - model2_extreme.weights.h5: 극단형 모델")  # 수정!
             print("  - scalers/: 정규화 스케일러")
             print("  - scaled_data.h5: 학습 설정")
             
@@ -1114,4 +1115,4 @@ def main():
         traceback.print_exc()
 
 if __name__ == "__main__":
-    main()
+    main()ModelCheckpoint 파일명을 수정한 전체 코드입니다. 이제 오류 없이 실행될 것입니다!
