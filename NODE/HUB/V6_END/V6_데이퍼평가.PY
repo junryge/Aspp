@@ -6,7 +6,7 @@ from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
 
 def evaluate_and_save_csv(test_file='BBB.CSV'):
     """
-    10분 후 정확한 시점의 실제값과 비교
+    각 시점의 실제값 그대로 + 예측값 비교
     """
     # 모델 로드
     try:
@@ -16,7 +16,7 @@ def evaluate_and_save_csv(test_file='BBB.CSV'):
         print("❌ 모델 파일 없음")
         return
     
-    # 테스트 데이터 로드
+    # 데이터 로드
     df_test = pd.read_csv(test_file, on_bad_lines='skip')
     TARGET_COL = 'CURRENT_M16A_3F_JOB_2'
     
@@ -25,26 +25,23 @@ def evaluate_and_save_csv(test_file='BBB.CSV'):
         try:
             df_test['STAT_DT'] = pd.to_datetime(df_test['STAT_DT'].astype(str), format='%Y%m%d%H%M')
         except:
-            base_date = datetime(2024, 1, 1)
+            base_date = datetime(2024, 1, 1, 10, 0)  # 10:00 시작
             df_test['STAT_DT'] = [base_date + timedelta(minutes=i) for i in range(len(df_test))]
     
-    results = []
+    # 전체 데이터에 실제값 추가
+    all_results = []
     
-    # 30분 시퀀스로 10분 후 예측
+    # 모든 시점의 실제값 저장
+    for i in range(len(df_test)):
+        all_results.append({
+            '날짜시간': df_test['STAT_DT'].iloc[i].strftime('%Y-%m-%d %H:%M'),
+            '실제값': round(df_test[TARGET_COL].iloc[i], 2)
+        })
+    
+    # 예측 추가 (30분 시퀀스 필요)
     for i in range(30, len(df_test) - 10):
-        # 시퀀스 (i-30 ~ i-1)
         seq = df_test[TARGET_COL].iloc[i-30:i].values
         
-        # 시간 정보
-        seq_start_time = df_test['STAT_DT'].iloc[i-30]
-        seq_end_time = df_test['STAT_DT'].iloc[i-1]
-        current_time = df_test['STAT_DT'].iloc[i]
-        target_time = df_test['STAT_DT'].iloc[i+10]  # 정확히 10분 후
-        
-        # 10분 후 해당 시점의 실제값 (MAX 아님!)
-        actual_value_10min = df_test[TARGET_COL].iloc[i+10]
-        
-        # Features
         features = pd.DataFrame([{
             'target_mean': np.mean(seq),
             'target_std': np.std(seq),
@@ -56,51 +53,43 @@ def evaluate_and_save_csv(test_file='BBB.CSV'):
             'target_first_10_mean': np.mean(seq[:10])
         }])
         
-        # 예측 (모델이 10분 구간 MAX 예측하도록 학습됨)
+        # 예측 (10분 구간 MAX)
         pred_value = model.predict(features)[0]
+        max_10min = df_test[TARGET_COL].iloc[i:i+10].max()
         
-        # 10분 구간의 실제 MAX (모델이 학습한 방식)
-        actual_max_10min = df_test[TARGET_COL].iloc[i:i+10].max()
+        # i+10 시점에 예측값 추가
+        if i + 10 < len(all_results):
+            all_results[i + 10]['예측값'] = round(pred_value, 2)
+            all_results[i + 10]['10분구간MAX'] = round(max_10min, 2)
+            all_results[i + 10]['시퀀스MAX'] = round(np.max(seq), 2)
+            all_results[i + 10]['시퀀스MIN'] = round(np.min(seq), 2)
+    
+    df_results = pd.DataFrame(all_results)
+    
+    # 예측값이 있는 행만 평가
+    eval_df = df_results.dropna(subset=['예측값'])
+    
+    if len(eval_df) > 0:
+        # MAX 기준 평가 (모델이 MAX 예측하도록 학습됨)
+        actual = eval_df['10분구간MAX'].values
+        predicted = eval_df['예측값'].values
         
-        results.append({
-            '현재시간': current_time.strftime('%Y-%m-%d %H:%M'),
-            '예측시간(+10분)': target_time.strftime('%Y-%m-%d %H:%M'),
-            '시퀀스시작': seq_start_time.strftime('%Y-%m-%d %H:%M'),
-            '시퀀스종료': seq_end_time.strftime('%Y-%m-%d %H:%M'),
-            '10분후실제값': round(actual_value_10min, 2),  # i+10 시점의 값
-            '10분구간MAX': round(actual_max_10min, 2),     # i~i+9 구간 MAX
-            '예측값': round(pred_value, 2),
-            '오차(vs시점)': round(abs(actual_value_10min - pred_value), 2),
-            '오차(vsMAX)': round(abs(actual_max_10min - pred_value), 2),
-            '시퀀스MAX': round(np.max(seq), 2),
-            '시퀀스MIN': round(np.min(seq), 2),
-            '점프케이스': 'O' if (np.max(seq) < 280 and actual_max_10min >= 300) else '-',
-            '극단값': 'O' if actual_max_10min >= 300 else '-'
-        })
-    
-    df_results = pd.DataFrame(results)
-    
-    # 평가 (모델은 MAX 예측용이므로 MAX와 비교)
-    actual = df_results['10분구간MAX'].values
-    predicted = df_results['예측값'].values
-    
-    mae = mean_absolute_error(actual, predicted)
-    rmse = np.sqrt(mean_squared_error(actual, predicted))
-    r2 = r2_score(actual, predicted)
-    
-    print(f"\n📊 평가 결과 (10분 구간 MAX 기준):")
-    print(f"  MAE:  {mae:.2f}")
-    print(f"  RMSE: {rmse:.2f}")
-    print(f"  R²:   {r2:.3f}")
+        mae = mean_absolute_error(actual, predicted)
+        rmse = np.sqrt(mean_squared_error(actual, predicted))
+        r2 = r2_score(actual, predicted)
+        
+        print(f"\n📊 평가 결과:")
+        print(f"  MAE:  {mae:.2f}")
+        print(f"  RMSE: {rmse:.2f}")
+        print(f"  R²:   {r2:.3f}")
     
     # CSV 저장
     df_results.to_csv('evaluation_results.csv', index=False, encoding='utf-8-sig')
     print(f"\n✅ 저장: evaluation_results.csv")
     
-    # 검증 출력
-    print("\n검증 (처음 5개):")
-    for _, row in df_results.head(5).iterrows():
-        print(f"{row['예측시간(+10분)']} 시점: 실제={row['10분후실제값']} (구간MAX={row['10분구간MAX']}), 예측={row['예측값']}")
+    # 샘플 출력
+    print("\n샘플:")
+    print(df_results[['날짜시간', '실제값', '예측값']].head(50))
     
     return df_results
 
