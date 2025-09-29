@@ -15,6 +15,7 @@ plt.rcParams['axes.unicode_minus'] = False
 def train_and_evaluate_complete():
     """
     학습(aas.csv) → 평가(BBB.CSV) 전체 프로세스
+    시퀀스 시작/완료 시간 포함
     """
     print("="*80)
     print("XGBoost 30분→10분 예측 모델 학습 및 평가")
@@ -45,7 +46,9 @@ def train_and_evaluate_complete():
                 'target_last_5_mean': np.mean(seq_target[-5:]),
                 'target_max': np.max(seq_target),
                 'target_min': np.min(seq_target),
-                'target_slope': np.polyfit(np.arange(30), seq_target, 1)[0]
+                'target_slope': np.polyfit(np.arange(30), seq_target, 1)[0],
+                'target_last_10_mean': np.mean(seq_target[-10:]),
+                'target_first_10_mean': np.mean(seq_target[:10])
             }
             
             features_list.append(features)
@@ -121,13 +124,17 @@ def train_and_evaluate_complete():
     
     # 날짜 컬럼이 있는 경우 처리
     if 'STAT_DT' in df_test.columns:
-        # STAT_DT를 datetime으로 변환 시도
         try:
+            # YYYYMMDDHHMM 형식 시도
             df_test['STAT_DT'] = pd.to_datetime(df_test['STAT_DT'], format='%Y%m%d%H%M')
         except:
-            # 실패시 인덱스 기반으로 생성
-            base_date = datetime(2024, 1, 1)
-            df_test['STAT_DT'] = [base_date + timedelta(minutes=i) for i in range(len(df_test))]
+            try:
+                # YYYY-MM-DD HH:MM:SS 형식 시도
+                df_test['STAT_DT'] = pd.to_datetime(df_test['STAT_DT'])
+            except:
+                # 실패시 인덱스 기반으로 생성
+                base_date = datetime(2024, 1, 1)
+                df_test['STAT_DT'] = [base_date + timedelta(minutes=i) for i in range(len(df_test))]
     else:
         # STAT_DT가 없으면 가상으로 생성
         base_date = datetime(2024, 1, 1)
@@ -137,10 +144,13 @@ def train_and_evaluate_complete():
     results = []
     jump_count = 0
     extreme_count = 0
+    extreme_detected = 0
     
     for i, idx in enumerate(indices):
-        current_time = df_test['STAT_DT'].iloc[idx]
-        prediction_time = current_time + timedelta(minutes=10)
+        # 시간 계산
+        current_time = df_test['STAT_DT'].iloc[idx]  # 시퀀스 완료 시점
+        seq_start_time = df_test['STAT_DT'].iloc[idx-30]  # 시퀀스 시작 시점
+        prediction_time = current_time + timedelta(minutes=10)  # 예측 시점
         
         # 점프 케이스 판단 (시퀀스 MAX < 280 & 실제값 >= 300)
         is_jump = (seq_max_list[i] < 280) and (y_test[i] >= 300)
@@ -150,17 +160,23 @@ def train_and_evaluate_complete():
         # 극단값 케이스
         if y_test[i] >= 300:
             extreme_count += 1
+            if y_pred[i] >= 290:  # 극단값 감지 성공
+                extreme_detected += 1
         
         results.append({
-            '현재시간': current_time.strftime('%Y-%m-%d %H:%M'),
-            '예측시간(+10분)': prediction_time.strftime('%Y-%m-%d %H:%M'),
-            '실제값': y_test[i],
-            '예측값': y_pred[i],
-            '오차': abs(y_test[i] - y_pred[i]),
-            '시퀀스MAX': seq_max_list[i],
-            '시퀀스MIN': seq_min_list[i],
+            '시퀀스시작': seq_start_time.strftime('%Y-%m-%d %H:%M'),
+            '시퀀스완료': current_time.strftime('%Y-%m-%d %H:%M'),
+            '예측시점(+10분)': prediction_time.strftime('%Y-%m-%d %H:%M'),
+            '실제값': round(y_test[i], 2),
+            '예측값': round(y_pred[i], 2),
+            '오차': round(abs(y_test[i] - y_pred[i]), 2),
+            '오차율(%)': round(abs(y_test[i] - y_pred[i]) / y_test[i] * 100, 2),
+            '시퀀스MAX': round(seq_max_list[i], 2),
+            '시퀀스MIN': round(seq_min_list[i], 2),
+            '시퀀스범위': round(seq_max_list[i] - seq_min_list[i], 2),
             '점프케이스': 'O' if is_jump else '-',
-            '극단값(300+)': 'O' if y_test[i] >= 300 else '-'
+            '극단값(300+)': 'O' if y_test[i] >= 300 else '-',
+            '극단값감지': 'O' if (y_test[i] >= 300 and y_pred[i] >= 290) else '-'
         })
     
     df_results = pd.DataFrame(results)
@@ -169,12 +185,20 @@ def train_and_evaluate_complete():
     print(f"\n📊 특수 케이스 분석:")
     print(f"  - 전체 예측: {len(df_results)}개")
     print(f"  - 극단값(300+): {extreme_count}개 ({extreme_count/len(df_results)*100:.1f}%)")
+    print(f"  - 극단값 감지: {extreme_detected}/{extreme_count}개 ({extreme_detected/extreme_count*100 if extreme_count > 0 else 0:.1f}%)")
     print(f"  - 점프 케이스: {jump_count}개 ({jump_count/len(df_results)*100:.1f}%)")
     
+    # 점프 케이스 상세 출력
     if jump_count > 0:
         jump_df = df_results[df_results['점프케이스'] == 'O']
         print(f"\n🔥 점프 케이스 상세 (시퀀스MAX<280 → 실제값≥300):")
-        print(jump_df[['현재시간', '시퀀스MAX', '실제값', '예측값', '오차']].head(5))
+        print(jump_df[['시퀀스시작', '시퀀스완료', '시퀀스MAX', '실제값', '예측값', '오차']].head(5).to_string())
+    
+    # 극단값 케이스 상세 출력
+    if extreme_count > 0:
+        extreme_df = df_results[df_results['극단값(300+)'] == 'O']
+        print(f"\n⚠️ 극단값 케이스 상세 (실제값 ≥ 300):")
+        print(extreme_df[['시퀀스완료', '실제값', '예측값', '오차', '극단값감지']].head(5).to_string())
     
     # CSV 저장
     df_results.to_csv('BBB_evaluation_results.csv', index=False, encoding='utf-8-sig')
@@ -195,23 +219,23 @@ def train_and_evaluate_complete():
     ax1.set_title(f'Actual vs Predicted\nMAE={test_mae:.2f}, R²={test_r2:.3f}')
     ax1.grid(True, alpha=0.3)
     
-    # 2. 시계열 비교 (처음 200개)
+    # 2. 시계열 비교 (처음 300개)
     ax2 = axes[0, 1]
-    plot_size = min(200, len(y_test))
-    ax2.plot(y_test[:plot_size], 'b-', label='Actual', alpha=0.7)
-    ax2.plot(y_pred[:plot_size], 'r--', label='Predicted', alpha=0.7)
-    ax2.axhline(y=300, color='orange', linestyle='--', label='Extreme(300)')
+    plot_size = min(300, len(y_test))
+    ax2.plot(range(plot_size), y_test[:plot_size], 'b-', label='Actual', alpha=0.7, linewidth=1)
+    ax2.plot(range(plot_size), y_pred[:plot_size], 'r--', label='Predicted', alpha=0.7, linewidth=1)
+    ax2.axhline(y=300, color='orange', linestyle='--', label='Extreme(300)', alpha=0.5)
     ax2.set_xlabel('Time Index')
     ax2.set_ylabel('Value')
-    ax2.set_title('Time Series Comparison (First 200)')
+    ax2.set_title('Time Series Comparison (First 300)')
     ax2.legend()
     ax2.grid(True, alpha=0.3)
     
     # 3. 오차 분포
     ax3 = axes[0, 2]
     errors = y_pred - y_test
-    ax3.hist(errors, bins=50, edgecolor='black', alpha=0.7)
-    ax3.axvline(x=0, color='r', linestyle='--')
+    ax3.hist(errors, bins=50, edgecolor='black', alpha=0.7, color='skyblue')
+    ax3.axvline(x=0, color='r', linestyle='--', linewidth=2)
     ax3.set_xlabel('Prediction Error')
     ax3.set_ylabel('Frequency')
     ax3.set_title(f'Error Distribution\nMean={np.mean(errors):.2f}, Std={np.std(errors):.2f}')
@@ -230,26 +254,37 @@ def train_and_evaluate_complete():
         ax4.axvline(x=300, color='orange', linestyle='--', alpha=0.5)
         ax4.set_xlabel('Actual')
         ax4.set_ylabel('Predicted')
-        ax4.set_title('Extreme Value Performance')
+        ax4.set_title(f'Extreme Value Performance\nDetected: {extreme_detected}/{extreme_count}')
         ax4.legend()
         ax4.grid(True, alpha=0.3)
     
     # 5. 점프 케이스 분석
     ax5 = axes[1, 1]
-    jump_mask = df_results['점프케이스'] == 'O'
-    if jump_mask.any():
+    if jump_count > 0:
+        jump_mask = df_results['점프케이스'] == 'O'
         jump_actual = df_results[jump_mask]['실제값'].values
         jump_pred = df_results[jump_mask]['예측값'].values
         jump_seq_max = df_results[jump_mask]['시퀀스MAX'].values
         
         ax5.scatter(jump_seq_max, jump_actual, label='Actual Jump', s=50, alpha=0.8, color='red')
         ax5.scatter(jump_seq_max, jump_pred, label='Predicted', s=30, alpha=0.6, color='blue')
+        
+        # 점프 감지선
+        for i in range(len(jump_seq_max)):
+            ax5.plot([jump_seq_max[i], jump_seq_max[i]], 
+                    [jump_pred[i], jump_actual[i]], 
+                    'gray', alpha=0.3, linewidth=0.5)
+        
         ax5.axhline(y=300, color='orange', linestyle='--', label='Threshold')
+        ax5.axvline(x=280, color='green', linestyle='--', alpha=0.5, label='SeqMax=280')
         ax5.set_xlabel('Sequence MAX')
         ax5.set_ylabel('Value')
         ax5.set_title(f'Jump Cases Analysis\n(SeqMax<280 → Actual≥300: {jump_count} cases)')
         ax5.legend()
         ax5.grid(True, alpha=0.3)
+    else:
+        ax5.text(0.5, 0.5, 'No Jump Cases', ha='center', va='center', fontsize=14)
+        ax5.set_title('Jump Cases Analysis')
     
     # 6. Feature 중요도
     ax6 = axes[1, 2]
@@ -258,19 +293,23 @@ def train_and_evaluate_complete():
         'importance': model.feature_importances_
     }).sort_values('importance', ascending=True)
     
-    ax6.barh(range(len(feature_importance)), feature_importance['importance'].values)
+    colors = plt.cm.viridis(np.linspace(0.3, 0.9, len(feature_importance)))
+    ax6.barh(range(len(feature_importance)), feature_importance['importance'].values, color=colors)
     ax6.set_yticks(range(len(feature_importance)))
     ax6.set_yticklabels(feature_importance['feature'].values)
     ax6.set_xlabel('Importance')
     ax6.set_title('Feature Importance')
+    
+    # 중요도 값 표시
+    for i, v in enumerate(feature_importance['importance'].values):
+        ax6.text(v + 0.001, i, f'{v:.3f}', va='center')
+    
     ax6.grid(True, alpha=0.3)
     
     plt.suptitle('BBB.CSV Evaluation Results', fontsize=16, fontweight='bold')
     plt.tight_layout()
     plt.savefig('BBB_evaluation_graphs.png', dpi=150, bbox_inches='tight')
     print("✅ 그래프 저장: BBB_evaluation_graphs.png")
-    
-    plt.show()
     
     # ===== 5. 최종 요약 =====
     print("\n" + "="*80)
@@ -280,10 +319,18 @@ def train_and_evaluate_complete():
     print(f"   - 학습 MAE: {train_mae:.2f}")
     print(f"   - 평가 MAE: {test_mae:.2f}")
     print(f"   - 성능 차이: {abs(test_mae - train_mae):.2f}")
-    print(f"\n2. 특수 케이스:")
-    print(f"   - 극단값 감지: {extreme_count}개")
-    print(f"   - 점프 케이스: {jump_count}개")
-    print(f"\n3. 저장 파일:")
+    
+    print(f"\n2. 특수 케이스 성능:")
+    print(f"   - 극단값(300+): {extreme_count}개 발생")
+    print(f"   - 극단값 감지: {extreme_detected}개 ({extreme_detected/extreme_count*100 if extreme_count > 0 else 0:.1f}%)")
+    print(f"   - 점프 케이스: {jump_count}개 발생")
+    
+    print(f"\n3. 시간 정보:")
+    if len(df_results) > 0:
+        print(f"   - 데이터 시작: {df_results['시퀀스시작'].iloc[0]}")
+        print(f"   - 데이터 종료: {df_results['예측시점(+10분)'].iloc[-1]}")
+    
+    print(f"\n4. 저장 파일:")
     print(f"   - 모델: xgboost_model_30min_10min.pkl")
     print(f"   - 결과: BBB_evaluation_results.csv")
     print(f"   - 그래프: BBB_evaluation_graphs.png")
