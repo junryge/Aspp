@@ -792,6 +792,115 @@ def evaluate_models():
         if predicted_jump:
             adjusted_value_pred = value_pred[i] + 40
         
+        # 현재 시점 인덱스 찾기
+        current_idx = 30 + i - 1  # 30분 시퀀스 + i번째 - 1
+        
+        # 현재값
+        current_value = df[processor.target_col].iloc[current_idx] if current_idx < len(df) else 0
+        
+        # 현재값 구간 분류
+        if current_value < 200:
+            current_range = "0-200"
+        elif current_value < 250:
+            current_range = "200-250"
+        elif current_value < 300:
+            current_range = "250-300"
+        elif current_value < 350:
+            current_range = "300-350"
+        else:
+            current_range = "350+"
+        
+        # 5분 후 실제값과 변화량
+        actual_5min = 0
+        change_5min = 0
+        change_5min_range = ""
+        if current_idx + 5 < len(df):
+            actual_5min = df[processor.target_col].iloc[current_idx + 5]
+            change_5min = actual_5min - current_value
+            # 변화량 구간
+            abs_change = abs(change_5min)
+            if abs_change <= 20:
+                change_5min_range = "0~20"
+            elif abs_change <= 40:
+                change_5min_range = "21~40"
+            elif abs_change <= 60:
+                change_5min_range = "41~60"
+            elif abs_change <= 80:
+                change_5min_range = "61~80"
+            elif abs_change <= 100:
+                change_5min_range = "81~100"
+            else:
+                change_5min_range = "100+"
+        
+        # 10분 후는 이미 target_value로 있음
+        actual_10min = info['target_value']
+        change_10min = actual_10min - current_value
+        # 10분 변화량 구간
+        abs_change_10 = abs(change_10min)
+        if abs_change_10 <= 20:
+            change_10min_range = "0~20"
+        elif abs_change_10 <= 40:
+            change_10min_range = "21~40"
+        elif abs_change_10 <= 60:
+            change_10min_range = "41~60"
+        elif abs_change_10 <= 80:
+            change_10min_range = "61~80"
+        elif abs_change_10 <= 100:
+            change_10min_range = "81~100"
+        else:
+            change_10min_range = "100+"
+        
+        # 20분 후 실제값과 변화량
+        actual_20min = 0
+        change_20min = 0
+        change_20min_range = ""
+        if current_idx + 20 < len(df):
+            actual_20min = df[processor.target_col].iloc[current_idx + 20]
+            change_20min = actual_20min - current_value
+            # 변화량 구간
+            abs_change = abs(change_20min)
+            if abs_change <= 20:
+                change_20min_range = "0~20"
+            elif abs_change <= 40:
+                change_20min_range = "21~40"
+            elif abs_change <= 60:
+                change_20min_range = "41~60"
+            elif abs_change <= 80:
+                change_20min_range = "61~80"
+            elif abs_change <= 100:
+                change_20min_range = "81~100"
+            else:
+                change_20min_range = "100+"
+        
+        # 30분 후 실제값과 변화량
+        actual_30min = 0
+        change_30min = 0
+        change_30min_range = ""
+        if current_idx + 30 < len(df):
+            actual_30min = df[processor.target_col].iloc[current_idx + 30]
+            change_30min = actual_30min - current_value
+            # 변화량 구간
+            abs_change = abs(change_30min)
+            if abs_change <= 20:
+                change_30min_range = "0~20"
+            elif abs_change <= 40:
+                change_30min_range = "21~40"
+            elif abs_change <= 60:
+                change_30min_range = "41~60"
+            elif abs_change <= 80:
+                change_30min_range = "61~80"
+            elif abs_change <= 100:
+                change_30min_range = "81~100"
+            else:
+                change_30min_range = "100+"
+        
+        # 연속 300+ 확인 (현재부터 30분간)
+        stable_under_300 = "X"
+        if current_idx + 30 < len(df):
+            future_30min = df[processor.target_col].iloc[current_idx:current_idx+31].values
+            if np.all(future_30min < 300):
+                stable_under_300 = "O"
+        
         results.append({
             '날짜': info['current_time'].strftime('%Y-%m-%d %H:%M'),
             '예측날짜': info['predict_time'].strftime('%Y-%m-%d %H:%M'),
@@ -799,14 +908,33 @@ def evaluate_models():
             '측정시퀀스MIN': round(info['seq_min'], 2),
             '시퀀스시작시간': info['seq_start_time'].strftime('%Y-%m-%d %H:%M'),
             '시퀀스완료시간': info['seq_end_time'].strftime('%Y-%m-%d %H:%M'),
-            '실제값': round(info['target_value'], 2),
+            '현재값': round(current_value, 2),
+            '현재값구간': current_range,
+            '실제값_10분후': round(info['target_value'], 2),
             '예측값': round(adjusted_value_pred, 2),
             '오차': round(abs(info['target_value'] - adjusted_value_pred), 2),
             '점프예측': 'O' if predicted_jump else 'X',
             '점프확률': round(jump_pred_proba[i] * 100, 1),
             '구간예측': ['50-150', '150-299', '300+'][range_pred[i]],
             '패턴예측': ['하락', '안정', '점진상승', '급상승'][trend_pred[i]],
-            '점프케이스300+': 'O' if is_jump_case else 'X'
+            '점프케이스300+': 'O' if is_jump_case else 'X',
+            # 큐 변화량 분석 추가 컬럼들
+            '실제값_5분후': round(actual_5min, 2),
+            '실제값_20분후': round(actual_20min, 2),
+            '실제값_30분후': round(actual_30min, 2),
+            '변화량_5분': round(change_5min, 2),
+            '변화량_10분': round(change_10min, 2),
+            '변화량_20분': round(change_20min, 2),
+            '변화량_30분': round(change_30min, 2),
+            '변화방향_5분': '상승' if change_5min > 0 else ('하락' if change_5min < 0 else '유지'),
+            '변화방향_10분': '상승' if change_10min > 0 else ('하락' if change_10min < 0 else '유지'),
+            '변화방향_20분': '상승' if change_20min > 0 else ('하락' if change_20min < 0 else '유지'),
+            '변화방향_30분': '상승' if change_30min > 0 else ('하락' if change_30min < 0 else '유지'),
+            '변화구간_5분': change_5min_range,
+            '변화구간_10분': change_10min_range,
+            '변화구간_20분': change_20min_range,
+            '변화구간_30분': change_30min_range,
+            '30분간_300미만유지': stable_under_300
         })
     
     print(f"\n📊 점프 케이스 감지 현황:")
@@ -880,10 +1008,50 @@ def evaluate_models():
     for pattern, count in pattern_counts.items():
         print(f"  - {pattern}: {count}개 ({count/len(results_df)*100:.1f}%)")
     
-    # CSV 파일 저장
-    output_path = 'hubroom_evaluation_results_202508.csv'
+    # CSV 파일 저장 (큐 변화량 분석 포함)
+    output_path = 'RESULT_2025_with_queue_analysis.csv'
     results_df.to_csv(output_path, index=False, encoding='utf-8-sig')
-    print(f"\n💾 결과 저장 완료: {output_path}")
+    print(f"\n💾 CSV 결과 저장 완료 (큐 변화량 분석 포함): {output_path}")
+    
+    # 엑셀 파일로도 저장
+    try:
+        excel_output = 'RESULT_2025_with_queue_analysis.xlsx'
+        with pd.ExcelWriter(excel_output, engine='openpyxl') as writer:
+            results_df.to_excel(writer, sheet_name='평가결과_변화량분석', index=False)
+            
+            # 워크북과 시트 가져오기
+            workbook = writer.book
+            worksheet = workbook['평가결과_변화량분석']
+            
+            # 열 너비 자동 조정
+            for column in worksheet.columns:
+                max_length = 0
+                column_letter = column[0].column_letter
+                for cell in column:
+                    try:
+                        if len(str(cell.value)) > max_length:
+                            max_length = len(str(cell.value))
+                    except:
+                        pass
+                adjusted_width = min(max_length + 2, 30)
+                worksheet.column_dimensions[column_letter].width = adjusted_width
+        
+        print(f"💾 엑셀 파일 저장 완료: {excel_output}")
+    except Exception as e:
+        print(f"⚠️ 엑셀 저장 실패: {e}")
+    
+    # 큐 변화량 통계 출력
+    print(f"\n📊 큐 변화량 통계 분석:")
+    
+    # 구간별 평균 변화량
+    for range_name in ['200-250', '250-300', '300-350']:
+        range_data = results_df[results_df['현재값구간'] == range_name]
+        if len(range_data) > 0:
+            print(f"\n  {range_name} 구간:")
+            print(f"    - 케이스 수: {len(range_data)}개")
+            print(f"    - 10분 후 평균 변화량: {range_data['변화량_10분'].mean():.1f}")
+            print(f"    - 10분 후 상승 비율: {(range_data['변화방향_10분'] == '상승').sum() / len(range_data) * 100:.1f}%")
+            print(f"    - 300+ 도달 비율: {(range_data['실제값_10분후'] >= 300).sum() / len(range_data) * 100:.1f}%")
     
     # ==============================================================================
     # 🔍 큐 변화량 분석 추가
