@@ -960,7 +960,7 @@ def evaluate_models():
     print(f"  - 총 예측 수: {len(results_df)}")
     
     # 극단값 감지 성능
-    extreme_mask = results_df['실제값'] >= 300
+    extreme_mask = results_df['실제값_10분후'] >= 300
     if extreme_mask.sum() > 0:
         extreme_detected = (results_df[extreme_mask]['예측값'] >= 300).sum()
         extreme_recall = extreme_detected / extreme_mask.sum() * 100
@@ -980,7 +980,7 @@ def evaluate_models():
         print(f"  - 점프 감지율: {jump_recall:.1f}%")
     
     # False Positive
-    stable_mask = results_df['실제값'] < 300
+    stable_mask = results_df['실제값_10분후'] < 300
     if stable_mask.sum() > 0:
         fp_count = (results_df[stable_mask]['예측값'] >= 300).sum()
         fp_rate = fp_count / stable_mask.sum() * 100
