@@ -30,6 +30,10 @@ import pickle
 from datetime import datetime, timedelta
 from tqdm import tqdm
 import warnings
+try:
+    import openpyxl
+except ImportError:
+    print("⚠️ openpyxl이 설치되지 않았습니다. pip install openpyxl을 실행하세요.")
 warnings.filterwarnings('ignore')
 
 print("="*80)
@@ -527,6 +531,9 @@ def analyze_queue_changes(df, target_col='CURRENT_M16A_3F_JOB_2'):
     
     print("\n🔍 큐 변화량 상세 분석 시작...")
     
+    # 엑셀 저장을 위한 결과 저장 딕셔너리
+    excel_results = {}
+    
     # 1. 300 미만 안정 구간 분석
     print("\n[1] 300 미만 안정 구간 분석")
     stable_count = 0
@@ -540,6 +547,13 @@ def analyze_queue_changes(df, target_col='CURRENT_M16A_3F_JOB_2'):
     
     print(f"  - 현재 및 향후 10분간 모두 300 미만인 케이스: {stable_count}개")
     print(f"  - 전체 대비 비율: {stable_count/(len(df)-30)*100:.2f}%")
+    
+    # 안정 구간 분석 결과 저장
+    excel_results['안정구간분석'] = pd.DataFrame([{
+        '분석항목': '300미만 안정구간',
+        '케이스수': stable_count,
+        '전체대비비율(%)': round(stable_count/(len(df)-30)*100, 2)
+    }])
     
     # 2. 시간대별 변화량 분석
     time_horizons = [5, 10, 20, 30]
@@ -560,6 +574,9 @@ def analyze_queue_changes(df, target_col='CURRENT_M16A_3F_JOB_2'):
         (81, 100, "81~100"),
         (101, float('inf'), "100+")
     ]
+    
+    # 각 시간대별 분석 결과를 저장할 리스트
+    all_analysis_results = []
     
     # 각 시간대별 분석
     for horizon in time_horizons:
@@ -594,7 +611,7 @@ def analyze_queue_changes(df, target_col='CURRENT_M16A_3F_JOB_2'):
                             })
                             break
             
-            # 결과 출력 (요청된 형식대로)
+            # 결과 출력 및 엑셀용 데이터 저장
             total_cases = sum(len(v) for v in changes_dict.values())
             if total_cases > 0:
                 for bin_name in ["0~20", "21~40", "41~60", "61~80", "81~100"]:
@@ -603,8 +620,58 @@ def analyze_queue_changes(df, target_col='CURRENT_M16A_3F_JOB_2'):
                     up_count = sum(1 for item in changes_dict.get(bin_name, []) if item['direction'] == 'up')
                     down_count = count - up_count
                     print(f"    {bin_name:8}: {count:5}개 ({pct:5.1f}%) [상승:{up_count:4}개, 하락:{down_count:4}개]")
+                    
+                    # 엑셀 저장용 데이터
+                    all_analysis_results.append({
+                        '예측시간(분)': horizon,
+                        '현재값구간': range_name,
+                        '변화량구간': bin_name,
+                        '케이스수': count,
+                        '비중(%)': round(pct, 1),
+                        '상승케이스': up_count,
+                        '하락케이스': down_count
+                    })
             else:
                 print(f"    해당 구간 데이터 없음")
+    
+    # 시간대별 변화량 분석 결과를 DataFrame으로 변환
+    excel_results['변화량분석'] = pd.DataFrame(all_analysis_results)
+    
+    # 3. 엑셀 파일로 저장
+    output_file = 'queue_change_analysis.xlsx'
+    
+    try:
+        with pd.ExcelWriter(output_file, engine='openpyxl') as writer:
+            # 안정구간 분석 시트
+            excel_results['안정구간분석'].to_excel(writer, sheet_name='안정구간분석', index=False)
+            
+            # 변화량 분석 시트
+            excel_results['변화량분석'].to_excel(writer, sheet_name='변화량분석', index=False)
+            
+            # 워크북과 시트 가져오기
+            workbook = writer.book
+            
+            # 열 너비 자동 조정
+            for sheet_name in workbook.sheetnames:
+                worksheet = workbook[sheet_name]
+                for column in worksheet.columns:
+                    max_length = 0
+                    column_letter = column[0].column_letter
+                    for cell in column:
+                        try:
+                            if len(str(cell.value)) > max_length:
+                                max_length = len(str(cell.value))
+                        except:
+                            pass
+                    adjusted_width = min(max_length + 2, 50)
+                    worksheet.column_dimensions[column_letter].width = adjusted_width
+        
+        print(f"\n💾 큐 변화량 분석 결과가 엑셀 파일로 저장되었습니다: {output_file}")
+    except Exception as e:
+        print(f"\n⚠️ 엑셀 저장 중 오류 발생: {e}")
+        # CSV로 대체 저장
+        excel_results['변화량분석'].to_csv('queue_change_analysis.csv', index=False, encoding='utf-8-sig')
+        print(f"💾 CSV 파일로 저장되었습니다: queue_change_analysis.csv")
     
     print("\n✅ 큐 변화량 분석 완료")
 
