@@ -894,12 +894,15 @@ def evaluate_models():
             else:
                 change_30min_range = "100+"
         
-        # 연속 300+ 확인 (현재부터 30분간)
+        # 안정 구간 체크: 과거 30분(시퀀스) 모두 300미만 AND 향후 10분 모두 300이하
         stable_under_300 = "X"
-        if current_idx + 30 < len(df):
-            future_30min = df[processor.target_col].iloc[current_idx:current_idx+31].values
-            if np.all(future_30min < 300):
-                stable_under_300 = "O"
+        # 과거 30분 시퀀스 체크 (seq_max로 간단히 체크 가능)
+        if info['seq_max'] < 300:  # 시퀀스 30분 모두 300 미만
+            # 향후 10분 체크
+            if current_idx + 10 < len(df):
+                future_10min = df[processor.target_col].iloc[current_idx:current_idx+11].values
+                if np.all(future_10min <= 300):  # 향후 10분 모두 300 이하
+                    stable_under_300 = "O"
         
         results.append({
             '날짜': info['current_time'].strftime('%Y-%m-%d %H:%M'),
@@ -934,7 +937,7 @@ def evaluate_models():
             '변화구간_10분': change_10min_range,
             '변화구간_20분': change_20min_range,
             '변화구간_30분': change_30min_range,
-            '30분간_300미만유지': stable_under_300
+            '안정구간_과거30분<300_향후10분≤300': stable_under_300
         })
     
     print(f"\n📊 점프 케이스 감지 현황:")
