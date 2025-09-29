@@ -15,7 +15,7 @@ plt.rcParams['axes.unicode_minus'] = False
 def train_and_evaluate_complete():
     """
     학습(aas.csv) → 평가(BBB.CSV) 전체 프로세스
-    시퀀스 시작/완료 시간 포함
+    시퀀스 시작/완료 시간 포함 (컬럼 순서 조정)
     """
     print("="*80)
     print("XGBoost 30분→10분 예측 모델 학습 및 평가")
@@ -148,7 +148,7 @@ def train_and_evaluate_complete():
     
     for i, idx in enumerate(indices):
         # 시간 계산
-        current_time = df_test['STAT_DT'].iloc[idx]  # 시퀀스 완료 시점
+        current_time = df_test['STAT_DT'].iloc[idx]  # 시퀀스 완료 시점 (현재)
         seq_start_time = df_test['STAT_DT'].iloc[idx-30]  # 시퀀스 시작 시점
         prediction_time = current_time + timedelta(minutes=10)  # 예측 시점
         
@@ -163,10 +163,12 @@ def train_and_evaluate_complete():
             if y_pred[i] >= 290:  # 극단값 감지 성공
                 extreme_detected += 1
         
+        # 컬럼 순서 조정: 현재시간 → 예측시간 → 시퀀스시작 → 시퀀스완료 → 나머지
         results.append({
+            '현재시간': current_time.strftime('%Y-%m-%d %H:%M'),
+            '예측시간(+10분)': prediction_time.strftime('%Y-%m-%d %H:%M'),
             '시퀀스시작': seq_start_time.strftime('%Y-%m-%d %H:%M'),
             '시퀀스완료': current_time.strftime('%Y-%m-%d %H:%M'),
-            '예측시점(+10분)': prediction_time.strftime('%Y-%m-%d %H:%M'),
             '실제값': round(y_test[i], 2),
             '예측값': round(y_pred[i], 2),
             '오차': round(abs(y_test[i] - y_pred[i]), 2),
@@ -192,13 +194,15 @@ def train_and_evaluate_complete():
     if jump_count > 0:
         jump_df = df_results[df_results['점프케이스'] == 'O']
         print(f"\n🔥 점프 케이스 상세 (시퀀스MAX<280 → 실제값≥300):")
-        print(jump_df[['시퀀스시작', '시퀀스완료', '시퀀스MAX', '실제값', '예측값', '오차']].head(5).to_string())
+        display_cols = ['현재시간', '시퀀스시작', '시퀀스완료', '시퀀스MAX', '실제값', '예측값', '오차']
+        print(jump_df[display_cols].head(5).to_string())
     
     # 극단값 케이스 상세 출력
     if extreme_count > 0:
         extreme_df = df_results[df_results['극단값(300+)'] == 'O']
         print(f"\n⚠️ 극단값 케이스 상세 (실제값 ≥ 300):")
-        print(extreme_df[['시퀀스완료', '실제값', '예측값', '오차', '극단값감지']].head(5).to_string())
+        display_cols = ['현재시간', '시퀀스완료', '실제값', '예측값', '오차', '극단값감지']
+        print(extreme_df[display_cols].head(5).to_string())
     
     # CSV 저장
     df_results.to_csv('BBB_evaluation_results.csv', index=False, encoding='utf-8-sig')
@@ -328,12 +332,17 @@ def train_and_evaluate_complete():
     print(f"\n3. 시간 정보:")
     if len(df_results) > 0:
         print(f"   - 데이터 시작: {df_results['시퀀스시작'].iloc[0]}")
-        print(f"   - 데이터 종료: {df_results['예측시점(+10분)'].iloc[-1]}")
+        print(f"   - 데이터 종료: {df_results['예측시간(+10분)'].iloc[-1]}")
     
     print(f"\n4. 저장 파일:")
     print(f"   - 모델: xgboost_model_30min_10min.pkl")
-    print(f"   - 결과: BBB_evaluation_results.csv")
+    print(f"   - 결과: BBB_evaluation_results.csv (컬럼 순서 조정)")
     print(f"   - 그래프: BBB_evaluation_graphs.png")
+    
+    # 컬럼 순서 확인 출력
+    print(f"\n5. CSV 컬럼 순서:")
+    print(f"   {' | '.join(df_results.columns[:6])}")
+    print(f"   {' | '.join(df_results.columns[6:])}")
     
     return model, df_results
 
