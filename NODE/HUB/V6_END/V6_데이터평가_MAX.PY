@@ -6,7 +6,7 @@ from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
 
 def evaluate_and_save_csv(test_file='BBB.CSV'):
     """
-    평가 - 예측값이 10분MAX값
+    평가
     """
     # 모델 로드
     with open('xgboost_model_30min_10min.pkl', 'rb') as f:
@@ -31,7 +31,10 @@ def evaluate_and_save_csv(test_file='BBB.CSV'):
         seq_end = df_test['STAT_DT'].iloc[i-1]
         prediction_time = df_test['STAT_DT'].iloc[i+9]
         
-        # 실제 10분 MAX
+        # 실제값 = i+9 시점의 값 (그냥 값!)
+        actual_value = df_test[TARGET_COL].iloc[i+9]
+        
+        # 10분 구간 MAX (평가용)
         actual_max = df_test[TARGET_COL].iloc[i:i+10].max()
         
         # Features
@@ -59,7 +62,7 @@ def evaluate_and_save_csv(test_file='BBB.CSV'):
             '예측시간(+10분)': prediction_time.strftime('%Y-%m-%d %H:%M'),
             '시퀀스시작': seq_start.strftime('%Y-%m-%d %H:%M'),
             '시퀀스완료': seq_end.strftime('%Y-%m-%d %H:%M'),
-            '실제값(10분MAX)': round(actual_max, 2),
+            '실제값': round(actual_value, 2),  # 그냥 실제값!
             '예측값(10분MAX)': round(pred_value, 2),
             '오차': round(abs(actual_max - pred_value), 2),
             '시퀀스MAX': round(seq_max, 2),
@@ -70,21 +73,9 @@ def evaluate_and_save_csv(test_file='BBB.CSV'):
     
     df_results = pd.DataFrame(results)
     
-    # 평가
-    y_true = df_results['실제값(10분MAX)'].values
-    y_pred = df_results['예측값(10분MAX)'].values
-    
-    mae = mean_absolute_error(y_true, y_pred)
-    rmse = np.sqrt(mean_squared_error(y_true, y_pred))
-    r2 = r2_score(y_true, y_pred)
-    
-    print(f"\nMAE: {mae:.4f}")
-    print(f"RMSE: {rmse:.4f}")
-    print(f"R²: {r2:.4f}")
-    print(f"점프: {jump_count}개")
-    
+    # CSV 저장
     df_results.to_csv('evaluation_results.csv', index=False, encoding='utf-8-sig')
-    print(f"\n✅ 저장: evaluation_results.csv")
+    print(f"✅ 저장: evaluation_results.csv")
     
     return df_results
 
