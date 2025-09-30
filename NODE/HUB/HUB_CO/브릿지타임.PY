@@ -8,8 +8,8 @@ import numpy as np
 plt.rcParams['font.family'] = 'Malgun Gothic'
 plt.rcParams['axes.unicode_minus'] = False
 
-# CSV 파일 읽기
-df = pd.read_csv('RB2.CSV', names=['timestamp', 'description', 'metric', 'latency', 'save_time'])
+# CSV 파일 읽기 (헤더 건너뛰기)
+df = pd.read_csv('RB2.CSV', names=['timestamp', 'description', 'metric', 'latency', 'save_time'], skiprows=1)
 
 # 타임스탬프를 datetime으로 변환
 df['timestamp'] = pd.to_datetime(df['timestamp'])
