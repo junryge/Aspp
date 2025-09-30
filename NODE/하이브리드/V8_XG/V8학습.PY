@@ -165,16 +165,12 @@ def train_and_evaluate_complete():
     print("\n[STEP 1] 데이터 로딩")
     print("-"*40)
     
-    # CSV 파일 찾기
-    csv_files = [f for f in os.listdir('.') if f.endswith('.csv') or f.endswith('.CSV')]
-    print(f"발견된 CSV 파일: {csv_files}")
+    # CSV 파일 경로
+    csv_file = 'DATA/202502.CSV'
+    print(f"사용 파일: {csv_file}")
     
-    if not csv_files:
-        raise FileNotFoundError("❌ CSV 파일이 없습니다!")
-    
-    # 첫 번째 CSV 파일 사용
-    csv_file = csv_files[0]
-    print(f"✅ 사용 파일: {csv_file}")
+    if not os.path.exists(csv_file):
+        raise FileNotFoundError(f"❌ CSV 파일이 없습니다: {csv_file}")
     
     df = pd.read_csv(csv_file, on_bad_lines='skip')
     print(f"✅ 데이터 로딩: {len(df):,}행")
