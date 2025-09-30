@@ -164,15 +164,21 @@ def evaluate_all_predictions():
     
     print(f"필수 컬럼 확인 완료")
     
-    # CURRTIME 처리 (있으면 사용, 없으면 생성)
+    # CURRTIME 처리 (YYYYMMDDHHMM 형식)
     if 'CURRTIME' in df.columns:
         try:
-            df['CURRTIME'] = pd.to_datetime(df['CURRTIME'])
-            print("CURRTIME 컬럼 사용")
+            # YYYYMMDDHHMM 형식으로 파싱 (예: 202509162023 → 2025-09-16 20:23)
+            df['CURRTIME'] = pd.to_datetime(df['CURRTIME'].astype(str), format='%Y%m%d%H%M')
+            print("CURRTIME 파싱 완료 (YYYYMMDDHHMM 형식)")
         except:
-            print("CURRTIME 변환 실패, 가상 시간 생성")
-            base_time = datetime(2024, 1, 1, 0, 0)
-            df['CURRTIME'] = [base_time + timedelta(minutes=i) for i in range(len(df))]
+            try:
+                # 다른 형식 시도
+                df['CURRTIME'] = pd.to_datetime(df['CURRTIME'])
+                print("CURRTIME 자동 파싱 완료")
+            except:
+                print("CURRTIME 변환 실패, 가상 시간 생성")
+                base_time = datetime(2024, 1, 1, 0, 0)
+                df['CURRTIME'] = [base_time + timedelta(minutes=i) for i in range(len(df))]
     else:
         print("CURRTIME 없음, 가상 시간 생성")
         base_time = datetime(2024, 1, 1, 0, 0)
@@ -208,6 +214,11 @@ def evaluate_all_predictions():
         # 예측
         prediction = model.predict(X_pred)[0]
         
+        # 예측값 보정 (1700 이상일 때 과대 예측 방지)
+        if prediction >= 1700:
+            # 1700 이상 예측값에 0.90 보정 계수 적용
+            prediction = 1700 + (prediction - 1700) * 0.90
+        
         # 황금 패턴 감지
         golden_pattern = (seq_m14b[-1] > 300 and seq_m10a[-1] < 80)
         
@@ -234,7 +245,7 @@ def evaluate_all_predictions():
             '황금패턴': 'O' if golden_pattern else '',
             '시퀀스위험': 'O' if danger_in_seq else '',
             '실제위험(1700+)': 'O' if actual_value >= 1700 else '',
-            '예측위험(1700+)': 'O' if prediction >= 1650 else ''
+            '예측위험(1700+)': 'O' if prediction >= 1680 else ''  # 임계값 상향 (1650→1680)
         })
         
         # 진행상황 출력
@@ -272,10 +283,16 @@ def evaluate_all_predictions():
     danger_detected = (actual_danger & pred_danger).sum()
     
     print(f"\n실제 위험(1700+): {actual_danger_count}개")
-    print(f"예측 위험(1650+): {pred_danger_count}개")
+    print(f"예측 위험(1680+): {pred_danger_count}개")
     print(f"위험 감지 성공: {danger_detected}개")
     if actual_danger_count > 0:
         print(f"위험 감지율: {danger_detected/actual_danger_count*100:.1f}%")
+        
+        # False Positive (오경보) 분석
+        false_positive = pred_danger & ~actual_danger
+        false_positive_count = false_positive.sum()
+        if pred_danger_count > 0:
+            print(f"오경보(FP): {false_positive_count}개 ({false_positive_count/pred_danger_count*100:.1f}%)")
     
     # 오차 상위 10개
     print("\n" + "="*80)
