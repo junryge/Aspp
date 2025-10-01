@@ -126,33 +126,45 @@ def train_and_evaluate_complete():
     print(f"\n생성된 Feature 수: {len(X_train.columns)}개")
     print(f"학습 샘플 수: {len(X_train)}개")
     
-    # 모델 학습 (GPU 가속)
+    # GPU 사용 가능 여부 자동 감지
+    use_gpu = False
     try:
-        # GPU 사용 시도
-        model = xgb.XGBRegressor(
-            n_estimators=150,
-            max_depth=6,
-            learning_rate=0.05,
-            subsample=0.8,
-            colsample_bytree=0.8,
-            random_state=42,
-            tree_method='gpu_hist',  # GPU 가속
-            gpu_id=0,
-            predictor='gpu_predictor'
-        )
-        print("🚀 GPU 모드로 학습합니다!")
+        import subprocess
+        result = subprocess.run(['nvidia-smi'], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        if result.returncode == 0:
+            use_gpu = True
+            print("\n✅ GPU 감지 완료! GPU 모드로 학습합니다.")
+        else:
+            print("\n⚠️ GPU 미감지, CPU 모드로 학습합니다.")
     except:
-        # GPU 실패 시 CPU로 fallback
-        model = xgb.XGBRegressor(
-            n_estimators=150,
-            max_depth=6,
-            learning_rate=0.05,
-            subsample=0.8,
-            colsample_bytree=0.8,
-            random_state=42,
-            n_jobs=-1
-        )
-        print("⚠️ GPU 사용 불가, CPU로 학습합니다.")
+        print("\n⚠️ GPU 미감지, CPU 모드로 학습합니다.")
+    
+    # 모델 설정 (GPU/CPU 자동 선택)
+    if use_gpu:
+        model_params = {
+            'n_estimators': 150,
+            'max_depth': 6,
+            'learning_rate': 0.05,
+            'subsample': 0.8,
+            'colsample_bytree': 0.8,
+            'random_state': 42,
+            'tree_method': 'gpu_hist',
+            'gpu_id': 0,
+            'predictor': 'gpu_predictor'
+        }
+    else:
+        model_params = {
+            'n_estimators': 150,
+            'max_depth': 6,
+            'learning_rate': 0.05,
+            'subsample': 0.8,
+            'colsample_bytree': 0.8,
+            'random_state': 42,
+            'tree_method': 'hist',  # CPU 최적화
+            'n_jobs': -1
+        }
+    
+    model = xgb.XGBRegressor(**model_params)
     
     # 학습/검증 분할
     X_tr, X_val, y_tr, y_val = train_test_split(
