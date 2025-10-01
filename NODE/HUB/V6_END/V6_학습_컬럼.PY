@@ -126,52 +126,60 @@ def train_and_evaluate_complete():
     print(f"\n생성된 Feature 수: {len(X_train.columns)}개")
     print(f"학습 샘플 수: {len(X_train)}개")
     
-    # GPU 사용 가능 여부 자동 감지
-    use_gpu = False
-    try:
-        import subprocess
-        result = subprocess.run(['nvidia-smi'], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-        if result.returncode == 0:
-            use_gpu = True
-            print("\n✅ GPU 감지 완료! GPU 모드로 학습합니다.")
-        else:
-            print("\n⚠️ GPU 미감지, CPU 모드로 학습합니다.")
-    except:
-        print("\n⚠️ GPU 미감지, CPU 모드로 학습합니다.")
-    
-    # 모델 설정 (GPU/CPU 자동 선택)
-    if use_gpu:
-        model_params = {
-            'n_estimators': 150,
-            'max_depth': 6,
-            'learning_rate': 0.05,
-            'subsample': 0.8,
-            'colsample_bytree': 0.8,
-            'random_state': 42,
-            'tree_method': 'gpu_hist',
-            'gpu_id': 0,
-            'predictor': 'gpu_predictor'
-        }
-    else:
-        model_params = {
-            'n_estimators': 150,
-            'max_depth': 6,
-            'learning_rate': 0.05,
-            'subsample': 0.8,
-            'colsample_bytree': 0.8,
-            'random_state': 42,
-            'tree_method': 'hist',  # CPU 최적화
-            'n_jobs': -1
-        }
-    
-    model = xgb.XGBRegressor(**model_params)
-    
     # 학습/검증 분할
     X_tr, X_val, y_tr, y_val = train_test_split(
         X_train, y_train, test_size=0.2, random_state=42
     )
     
-    print("\n모델 학습 중...")
+    # GPU/CPU 자동 선택 (실제 학습으로 테스트)
+    print("\n🔍 학습 환경 감지 중...")
+    use_gpu = False
+    
+    # 1차 시도: GPU
+    try:
+        print("  → GPU 모드 시도 중...")
+        test_model = xgb.XGBRegressor(
+            n_estimators=5,
+            max_depth=3,
+            random_state=42,
+            tree_method='gpu_hist',
+            gpu_id=0
+        )
+        # 실제로 학습 시도 (작은 샘플로 테스트)
+        test_model.fit(X_tr[:100], y_tr[:100], verbose=False)
+        use_gpu = True
+        print("  ✅ GPU 사용 가능! GPU 모드로 학습합니다.\n")
+    except Exception as e:
+        print(f"  ⚠️ GPU 사용 불가: {str(e)[:100]}")
+        print("  → CPU 모드로 전환합니다.\n")
+        use_gpu = False
+    
+    # 실제 모델 생성
+    if use_gpu:
+        model = xgb.XGBRegressor(
+            n_estimators=150,
+            max_depth=6,
+            learning_rate=0.05,
+            subsample=0.8,
+            colsample_bytree=0.8,
+            random_state=42,
+            tree_method='gpu_hist',
+            gpu_id=0,
+            predictor='gpu_predictor'
+        )
+    else:
+        model = xgb.XGBRegressor(
+            n_estimators=150,
+            max_depth=6,
+            learning_rate=0.05,
+            subsample=0.8,
+            colsample_bytree=0.8,
+            random_state=42,
+            tree_method='hist',  # CPU 최적화
+            n_jobs=-1
+        )
+    
+    print("모델 학습 중...")
     model.fit(
         X_tr, y_tr,
         eval_set=[(X_val, y_val)],
