@@ -18,20 +18,16 @@ def train_and_evaluate_complete():
     V4 Ultimate 21개 필수 컬럼 활용
     """
     print("="*80)
-    print("XGBoost 30분→10분 예측 모델 학습 및 평가 (다중 컬럼 활용)")
+    print("XGBoost 30분→10분 예측 모델 학습 및 평가 (핵심 12개 컬럼)")
     print("="*80)
     
-    # V4 Ultimate 필수 컬럼 정의
+    # 핵심 12개 컬럼만 사용 (물리적으로 중요한 것만)
     FEATURE_COLS = {
-        'inflow': ['M16A_6F_TO_HUB_JOB', 'M16A_2F_TO_HUB_JOB2', 'M14A_3F_TO_HUB_JOB2', 
-                   'M14B_7F_TO_HUB_JOB2', 'M16B_10F_TO_HUB_JOB'],
-        'outflow': ['M16A_3F_TO_M16A_6F_JOB', 'M16A_3F_TO_M16A_2F_JOB', 'M16A_3F_TO_M14A_3F_JOB',
-                    'M16A_3F_TO_M14B_7F_JOB', 'M16A_3F_TO_3F_MLUD_JOB'],
-        'cmd': ['M16A_3F_CMD', 'M16A_6F_TO_HUB_CMD', 'M16A_2F_TO_HUB_CMD',
-                'M14A_3F_TO_HUB_CMD', 'M14B_7F_TO_HUB_CMD'],
-        'maxcapa': ['M16A_6F_LFT_MAXCAPA', 'M16A_2F_LFT_MAXCAPA'],
-        'storage': ['M16A_3F_STORAGE_UTIL'],
-        'ofs': ['M14_TO_M16_OFS_CUR', 'M16_TO_M14_OFS_CUR']
+        'storage': ['M16A_3F_STORAGE_UTIL'],  # 극단값 핵심 지표
+        'cmd': ['M16A_3F_CMD', 'M16A_6F_TO_HUB_CMD'],  # 주요 CMD
+        'inflow': ['M16A_6F_TO_HUB_JOB', 'M16A_2F_TO_HUB_JOB2', 'M14A_3F_TO_HUB_JOB2'],  # 주요 유입
+        'outflow': ['M16A_3F_TO_M16A_6F_JOB', 'M16A_3F_TO_M16A_2F_JOB', 'M16A_3F_TO_M14A_3F_JOB'],  # 주요 유출
+        'maxcapa': ['M16A_6F_LFT_MAXCAPA', 'M16A_2F_LFT_MAXCAPA']  # 용량 제한
     }
     
     TARGET_COL = 'CURRENT_M16A_3F_JOB_2'
