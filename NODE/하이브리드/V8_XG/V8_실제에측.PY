@@ -352,11 +352,156 @@ def realtime_prediction():
     
     return results_df
 
+def predict_latest_only():
+    """
+    가장 최근 280분 데이터로 10분 후 예측 (예측물류량, 예측상태만 반환)
+    """
+    
+    print("="*80)
+    print("최신 데이터 예측")
+    print("="*80)
+    
+    # 모델 로드
+    model_file = 'xgboost_280to10_enhanced.pkl'
+    try:
+        with open(model_file, 'rb') as f:
+            model = pickle.load(f)
+        print(f"✅ 모델 로드 완료")
+    except Exception as e:
+        print(f"❌ 모델 파일 없음: {e}")
+        return None
+    
+    # 데이터 로드
+    csv_file = 'data/222.csv'
+    if not os.path.exists(csv_file):
+        print(f"❌ CSV 파일 없음: {csv_file}")
+        return None
+    
+    df = pd.read_csv(csv_file, on_bad_lines='skip')
+    print(f"✅ 데이터 로드 완료: {len(df):,}개 행")
+    
+    # 필수 컬럼 확인
+    required_cols = ['M14AM14B', 'M14AM10A', 'M14AM16', 'TOTALCNT']
+    missing_cols = [col for col in required_cols if col not in df.columns]
+    
+    if missing_cols:
+        print(f"❌ 필수 컬럼 누락: {missing_cols}")
+        return None
+    
+    # 데이터 길이 확인
+    if len(df) < 280:
+        print(f"❌ 데이터 부족: 최소 280개 필요, 현재 {len(df)}개")
+        return None
+    
+    # CURRTIME 처리
+    if 'CURRTIME' in df.columns:
+        try:
+            df['CURRTIME'] = pd.to_datetime(df['CURRTIME'].astype(str), format='%Y%m%d%H%M')
+        except:
+            try:
+                df['CURRTIME'] = pd.to_datetime(df['CURRTIME'])
+            except:
+                base_time = datetime(2024, 1, 1, 0, 0)
+                df['CURRTIME'] = [base_time + timedelta(minutes=i) for i in range(len(df))]
+    else:
+        base_time = datetime(2024, 1, 1, 0, 0)
+        df['CURRTIME'] = [base_time + timedelta(minutes=i) for i in range(len(df))]
+    
+    # 최근 280분 데이터 추출
+    seq_m14b = df['M14AM14B'].iloc[-280:].values
+    seq_m10a = df['M14AM10A'].iloc[-280:].values
+    seq_m16 = df['M14AM16'].iloc[-280:].values
+    seq_totalcnt = df['TOTALCNT'].iloc[-280:].values
+    
+    # 현재 시간 정보
+    current_time = df['CURRTIME'].iloc[-1]
+    prediction_time = current_time + timedelta(minutes=10)
+    
+    # 현재 상태
+    current_totalcnt = seq_totalcnt[-1]
+    current_m14b = seq_m14b[-1]
+    current_m10a = seq_m10a[-1]
+    
+    # Feature 생성
+    features = create_single_prediction_features(seq_m14b, seq_m10a, seq_m16, seq_totalcnt)
+    X_pred = pd.DataFrame([features])
+    
+    # 예측
+    prediction = model.predict(X_pred)[0]
+    
+    # 예측 보정 (1650+ 과소 예측 방지)
+    recent_5_avg = np.mean(seq_totalcnt[-5:])
+    
+    if prediction >= 1650:
+        # 상승 추세 감지
+        if recent_5_avg > current_totalcnt - 50:
+            prediction += 30
+        
+        # 현재값이 높으면 추가 보정
+        if current_totalcnt >= 1680:
+            prediction += 20
+    
+    # 황금 패턴 감지
+    golden_pattern = (current_m14b > 300 and current_m10a < 80)
+    
+    # 상태 판정
+    current_status, current_color = get_status_info(current_totalcnt)
+    pred_status, pred_color = get_status_info(prediction)
+    
+    # 상태 변화 감지
+    status_change = ''
+    if current_color != pred_color:
+        if pred_color == 'red' and current_color != 'red':
+            status_change = '⚠️상승경보'
+        elif pred_color == 'yellow' and current_color == 'green':
+            status_change = '⚠️주의전환'
+        elif pred_color == 'green' and current_color in ['yellow', 'red']:
+            status_change = '✅안정화'
+    
+    # 결과 출력
+    print("\n" + "="*80)
+    print("🔮 예측 결과")
+    print("="*80)
+    print(f"현재 시간:        {current_time.strftime('%Y-%m-%d %H:%M')}")
+    print(f"예측 시점:        {prediction_time.strftime('%Y-%m-%d %H:%M')} (10분 후)")
+    print("-"*80)
+    print(f"현재 물류량:      {int(current_totalcnt)}  {current_status}")
+    print(f"예측 물류량:      {int(prediction)}  {pred_status}")
+    print(f"변화량:          {int(prediction - current_totalcnt):+d}")
+    if status_change:
+        print(f"상태 변화:        {status_change}")
+    print("-"*80)
+    print(f"M14AM14B:        {int(current_m14b)}")
+    print(f"M14AM10A:        {int(current_m10a)}")
+    if golden_pattern:
+        print(f"황금 패턴:        ⭐ 발생")
+    print("="*80)
+    
+    # 결과 딕셔너리 반환
+    result = {
+        '예측물류량': int(prediction),
+        '예측상태': pred_status
+    }
+    
+    return result
+
 if __name__ == '__main__':
     print("\n🚀 실시간 예측 시스템 시작...\n")
+    
+    # 전체 예측 실행
     results = realtime_prediction()
     
     if results is not None:
         print(f"\n✅ 예측 완료! 총 {len(results):,}개 생성")
         print(f"📁 결과 파일: realtime_prediction_results.csv")
+        print("\n" + "="*80)
+    
+    # 최신 예측만 실행
+    print("\n\n")
+    latest_result = predict_latest_only()
+    
+    if latest_result is not None:
+        print(f"\n✅ 최신 예측 완료!")
+        print(f"   예측물류량: {latest_result['예측물류량']}")
+        print(f"   예측상태: {latest_result['예측상태']}")
         print("\n" + "="*80)
