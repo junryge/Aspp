@@ -1,0 +1,476 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>XGBoost Architecture Diagram</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 40px 20px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+
+        .container {
+            max-width: 1400px;
+            width: 100%;
+            background: white;
+            border-radius: 20px;
+            padding: 40px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+        }
+
+        .header {
+            text-align: center;
+            margin-bottom: 50px;
+        }
+
+        .header h1 {
+            font-size: 2.5em;
+            color: #2c3e50;
+            margin-bottom: 10px;
+            font-weight: 700;
+        }
+
+        .header p {
+            font-size: 1.2em;
+            color: #7f8c8d;
+        }
+
+        .architecture {
+            display: flex;
+            flex-direction: column;
+            gap: 40px;
+        }
+
+        .phase-row {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            gap: 30px;
+            flex-wrap: wrap;
+        }
+
+        .phase-card {
+            background: white;
+            border-radius: 15px;
+            padding: 25px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.1);
+            transition: all 0.3s ease;
+            cursor: pointer;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .phase-card:hover {
+            transform: translateY(-10px);
+            box-shadow: 0 15px 40px rgba(0,0,0,0.2);
+        }
+
+        .phase-card::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 5px;
+            transition: height 0.3s ease;
+        }
+
+        .phase-card:hover::before {
+            height: 100%;
+            opacity: 0.1;
+        }
+
+        .phase-card.blue { border: 3px solid #2196F3; }
+        .phase-card.blue::before { background: #2196F3; }
+
+        .phase-card.purple { border: 3px solid #9C27B0; }
+        .phase-card.purple::before { background: #9C27B0; }
+
+        .phase-card.red { border: 3px solid #F44336; }
+        .phase-card.red::before { background: #F44336; }
+
+        .phase-card.orange { border: 3px solid #FF9800; }
+        .phase-card.orange::before { background: #FF9800; }
+
+        .phase-card.green { border: 3px solid #4CAF50; }
+        .phase-card.green::before { background: #4CAF50; }
+
+        .phase-title {
+            font-size: 1.3em;
+            font-weight: 700;
+            margin-bottom: 15px;
+            color: #2c3e50;
+        }
+
+        .phase-items {
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+
+        .phase-item {
+            background: #f8f9fa;
+            padding: 12px 18px;
+            border-radius: 8px;
+            font-size: 0.95em;
+            color: #495057;
+            font-weight: 500;
+            transition: all 0.2s ease;
+        }
+
+        .phase-item:hover {
+            background: #e9ecef;
+            transform: translateX(5px);
+        }
+
+        .arrow {
+            font-size: 2em;
+            color: #95a5a6;
+            animation: pulse 2s infinite;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 0.5; }
+            50% { opacity: 1; }
+        }
+
+        .arrow-down {
+            text-align: center;
+            margin: -20px 0;
+        }
+
+        .details-section {
+            margin-top: 50px;
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 20px;
+        }
+
+        .detail-card {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 25px;
+            border-radius: 15px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.1);
+            transition: transform 0.3s ease;
+        }
+
+        .detail-card:hover {
+            transform: scale(1.05);
+        }
+
+        .detail-card h3 {
+            font-size: 1.3em;
+            margin-bottom: 15px;
+            font-weight: 600;
+        }
+
+        .detail-card p {
+            font-size: 0.95em;
+            line-height: 1.6;
+            opacity: 0.95;
+        }
+
+        .output-files {
+            margin-top: 40px;
+            display: flex;
+            justify-content: space-around;
+            gap: 20px;
+            flex-wrap: wrap;
+        }
+
+        .file-badge {
+            background: #2c3e50;
+            color: white;
+            padding: 15px 30px;
+            border-radius: 50px;
+            font-weight: 600;
+            font-size: 0.95em;
+            box-shadow: 0 5px 15px rgba(0,0,0,0.2);
+            transition: all 0.3s ease;
+        }
+
+        .file-badge:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 10px 25px rgba(0,0,0,0.3);
+        }
+
+        .file-badge.model { background: #2196F3; }
+        .file-badge.csv { background: #9C27B0; }
+        .file-badge.graph { background: #4CAF50; }
+
+        .legend {
+            margin-top: 40px;
+            padding: 20px;
+            background: #f8f9fa;
+            border-radius: 10px;
+            text-align: center;
+        }
+
+        .legend p {
+            color: #6c757d;
+            font-size: 0.9em;
+            margin-top: 10px;
+        }
+
+        @media (max-width: 768px) {
+            .header h1 {
+                font-size: 1.8em;
+            }
+            
+            .phase-row {
+                flex-direction: column;
+            }
+            
+            .arrow {
+                transform: rotate(90deg);
+            }
+        }
+
+        /* 애니메이션 */
+        .phase-card {
+            animation: fadeInUp 0.6s ease-out;
+            animation-fill-mode: both;
+        }
+
+        .phase-card:nth-child(1) { animation-delay: 0.1s; }
+        .phase-card:nth-child(2) { animation-delay: 0.2s; }
+        .phase-card:nth-child(3) { animation-delay: 0.3s; }
+        .phase-card:nth-child(4) { animation-delay: 0.4s; }
+        .phase-card:nth-child(5) { animation-delay: 0.5s; }
+
+        @keyframes fadeInUp {
+            from {
+                opacity: 0;
+                transform: translateY(30px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        .emoji {
+            font-size: 1.5em;
+            margin-right: 8px;
+        }
+
+        .tooltip {
+            position: relative;
+            display: inline-block;
+        }
+
+        .tooltip .tooltiptext {
+            visibility: hidden;
+            width: 250px;
+            background-color: #2c3e50;
+            color: #fff;
+            text-align: center;
+            border-radius: 8px;
+            padding: 10px;
+            position: absolute;
+            z-index: 1;
+            bottom: 125%;
+            left: 50%;
+            margin-left: -125px;
+            opacity: 0;
+            transition: opacity 0.3s;
+            font-size: 0.85em;
+        }
+
+        .tooltip:hover .tooltiptext {
+            visibility: visible;
+            opacity: 1;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🎯 XGBoost 시계열 예측 시스템</h1>
+            <p>30분 윈도우 → 10분 후 예측 아키텍처</p>
+        </div>
+
+        <div class="architecture">
+            <!-- Row 1: Data Input + Feature Engineering + Model Training + Output -->
+            <div class="phase-row">
+                <!-- Phase 1: Data Input -->
+                <div class="phase-card blue tooltip">
+                    <div class="phase-title"><span class="emoji">📁</span>PHASE 1: 데이터 준비</div>
+                    <div class="phase-items">
+                        <div class="phase-item">📊 aas.csv (학습용)</div>
+                        <div class="phase-item">📊 BBB.CSV (평가용)</div>
+                    </div>
+                    <span class="tooltiptext">학습 데이터와 평가 데이터를 로드합니다</span>
+                </div>
+
+                <div class="arrow">→</div>
+
+                <!-- Phase 2: Feature Engineering -->
+                <div class="phase-card purple tooltip">
+                    <div class="phase-title"><span class="emoji">⚙️</span>PHASE 2: 특성 생성</div>
+                    <div class="phase-items">
+                        <div class="phase-item">21개 컬럼<br><small>Inflow/Outflow/CMD</small></div>
+                        <div class="phase-item">30분 슬라이딩 윈도우</div>
+                        <div class="phase-item">통계 특성 생성<br><small>평균/표준편차/추세</small></div>
+                    </div>
+                    <span class="tooltiptext">21개 컬럼에서 통계 특성을 생성합니다</span>
+                </div>
+
+                <div class="arrow">→</div>
+
+                <!-- Phase 3: Model Training -->
+                <div class="phase-card red tooltip">
+                    <div class="phase-title"><span class="emoji">🤖</span>PHASE 3: 모델 학습</div>
+                    <div class="phase-items">
+                        <div class="phase-item">XGBoost 회귀 모델</div>
+                        <div class="phase-item">하이퍼파라미터 튜닝</div>
+                        <div class="phase-item">성능 평가<br><small>MAE/RMSE/R²</small></div>
+                    </div>
+                    <span class="tooltiptext">XGBoost 모델을 학습하고 성능을 평가합니다</span>
+                </div>
+
+                <div class="arrow">→</div>
+
+                <!-- Phase 5: Output -->
+                <div class="phase-card green tooltip">
+                    <div class="phase-title"><span class="emoji">📊</span>PHASE 5: 시각화 및 출력</div>
+                    <div class="phase-items">
+                        <div class="phase-item">6개 그래프 생성</div>
+                        <div class="phase-item">파일 저장<br><small>모델/CSV/PNG</small></div>
+                    </div>
+                    <span class="tooltiptext">결과를 시각화하고 파일로 저장합니다</span>
+                </div>
+            </div>
+
+            <!-- Arrow Down -->
+            <div class="arrow-down">
+                <div class="arrow" style="transform: rotate(90deg);">→</div>
+            </div>
+
+            <!-- Row 2: Prediction & Analysis -->
+            <div class="phase-row">
+                <!-- Phase 4: Prediction & Analysis -->
+                <div class="phase-card orange tooltip" style="width: 400px;">
+                    <div class="phase-title"><span class="emoji">🎯</span>PHASE 4: 예측 및 분석</div>
+                    <div class="phase-items">
+                        <div class="phase-item">BBB.CSV 예측 수행</div>
+                        <div class="phase-item">특수 케이스 탐지<br><small>점프 & 극단값</small></div>
+                        <div class="phase-item">결과 생성<br><small>14개 컬럼</small></div>
+                    </div>
+                    <span class="tooltiptext">BBB.CSV로 예측하고 특수 케이스를 분석합니다</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- Details Section -->
+        <div class="details-section">
+            <div class="detail-card">
+                <h3>📋 Feature 그룹 (21개 컬럼)</h3>
+                <p>
+                    • Inflow (5개): 자재 유입 흐름<br>
+                    • Outflow (5개): 자재 유출 흐름<br>
+                    • CMD (5개): 커맨드 신호<br>
+                    • MaxCapa (2개): 최대 용량<br>
+                    • Storage (1개): 저장 공간 활용도<br>
+                    • OFS (2개): 오프셋 값
+                </p>
+            </div>
+
+            <div class="detail-card">
+                <h3>🔧 모델 설정</h3>
+                <p>
+                    • 알고리즘: XGBoost Regressor<br>
+                    • n_estimators: 150<br>
+                    • max_depth: 6<br>
+                    • learning_rate: 0.05<br>
+                    • GPU 지원: 활성화<br>
+                    • Train/Val 분할: 80/20
+                </p>
+            </div>
+
+            <div class="detail-card">
+                <h3>⚠️ 특수 케이스 탐지</h3>
+                <p>
+                    • <strong>점프 케이스:</strong> 시퀀스 MAX < 280 → 실제값 ≥ 300<br>
+                    생산 부하의 급격한 증가<br><br>
+                    • <strong>극단값:</strong> 실제값 ≥ 300<br>
+                    주의가 필요한 고부하 상황
+                </p>
+            </div>
+        </div>
+
+        <!-- Output Files -->
+        <div class="output-files">
+            <div class="file-badge model">💾 xgboost_model_30min_10min.pkl</div>
+            <div class="file-badge csv">📄 BBB_evaluation_results.csv</div>
+            <div class="file-badge graph">📊 BBB_evaluation_graphs.png</div>
+        </div>
+
+        <!-- Legend -->
+        <div class="legend">
+            <h3 style="color: #2c3e50; margin-bottom: 10px;">💡 인터랙티브 기능</h3>
+            <p>각 단계 카드에 마우스를 올리면 툴팁이 표시됩니다 • 클릭하면 애니메이션 효과 • 모든 기기에서 반응형 디자인</p>
+        </div>
+    </div>
+
+    <script>
+        // 카드 클릭 시 효과
+        document.querySelectorAll('.phase-card').forEach(card => {
+            card.addEventListener('click', function() {
+                this.style.transform = 'scale(1.05)';
+                setTimeout(() => {
+                    this.style.transform = '';
+                }, 200);
+            });
+        });
+
+        // 스크롤 애니메이션
+        const observerOptions = {
+            threshold: 0.1,
+            rootMargin: '0px 0px -50px 0px'
+        };
+
+        const observer = new IntersectionObserver((entries) => {
+            entries.forEach(entry => {
+                if (entry.isIntersecting) {
+                    entry.target.style.opacity = '1';
+                    entry.target.style.transform = 'translateY(0)';
+                }
+            });
+        }, observerOptions);
+
+        document.querySelectorAll('.detail-card, .file-badge').forEach(el => {
+            el.style.opacity = '0';
+            el.style.transform = 'translateY(20px)';
+            el.style.transition = 'all 0.6s ease-out';
+            observer.observe(el);
+        });
+
+        // 파일 배지 클릭 시 효과
+        document.querySelectorAll('.file-badge').forEach(badge => {
+            badge.addEventListener('click', function() {
+                const originalText = this.textContent;
+                this.textContent = '✅ Saved!';
+                this.style.background = '#27ae60';
+                setTimeout(() => {
+                    this.textContent = originalText;
+                    this.className = this.className;
+                }, 1000);
+            });
+        });
+    </script>
+</body>
+</html>
