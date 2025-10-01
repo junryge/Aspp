@@ -130,16 +130,33 @@ def train_and_evaluate_complete():
     print(f"\n생성된 Feature 수: {len(X_train.columns)}개")
     print(f"학습 샘플 수: {len(X_train)}개")
     
-    # 모델 학습
-    model = xgb.XGBRegressor(
-        n_estimators=150,
-        max_depth=6,
-        learning_rate=0.05,
-        subsample=0.8,
-        colsample_bytree=0.8,
-        random_state=42,
-        n_jobs=-1
-    )
+    # 모델 학습 (GPU 가속)
+    try:
+        # GPU 사용 시도
+        model = xgb.XGBRegressor(
+            n_estimators=150,
+            max_depth=6,
+            learning_rate=0.05,
+            subsample=0.8,
+            colsample_bytree=0.8,
+            random_state=42,
+            tree_method='gpu_hist',  # GPU 가속
+            gpu_id=0,
+            predictor='gpu_predictor'
+        )
+        print("🚀 GPU 모드로 학습합니다!")
+    except:
+        # GPU 실패 시 CPU로 fallback
+        model = xgb.XGBRegressor(
+            n_estimators=150,
+            max_depth=6,
+            learning_rate=0.05,
+            subsample=0.8,
+            colsample_bytree=0.8,
+            random_state=42,
+            n_jobs=-1
+        )
+        print("⚠️ GPU 사용 불가, CPU로 학습합니다.")
     
     # 학습/검증 분할
     X_tr, X_val, y_tr, y_val = train_test_split(
