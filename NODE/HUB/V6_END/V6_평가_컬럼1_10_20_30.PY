@@ -13,6 +13,7 @@ plt.rcParams['axes.unicode_minus'] = False
 def create_features(df, horizon, start_idx=30):
     """
     Feature 생성 함수 (1개 컬럼 - 타겟만)
+    실제값 = 정확히 그 시점의 값! (MAX 아님)
     """
     features_list = []
     labels = []
@@ -38,12 +39,13 @@ def create_features(df, horizon, start_idx=30):
         
         features_list.append(features)
         
+        # 🔥 수정: 정확히 그 시점의 실제값!
         if horizon == 10:
-            labels.append(df[TARGET_COL].iloc[i:i+10].max())
+            labels.append(df[TARGET_COL].iloc[i+10])  # 10분 후 정확한 값
         elif horizon == 20:
-            labels.append(df[TARGET_COL].iloc[i+10:i+20].max())
+            labels.append(df[TARGET_COL].iloc[i+20])  # 20분 후 정확한 값
         elif horizon == 30:
-            labels.append(df[TARGET_COL].iloc[i+20:i+30].max())
+            labels.append(df[TARGET_COL].iloc[i+30])  # 30분 후 정확한 값
         
         seq_max_list.append(np.max(seq_target))
         seq_min_list.append(np.min(seq_target))
@@ -56,7 +58,7 @@ def evaluate_all_models():
     이미 학습된 3개 모델(10분/20분/30분)을 불러와서 평가만!
     """
     print("="*80)
-    print("🚀 3개 모델 통합 평가 (학습 안함, 평가만!)")
+    print("🚀 3개 모델 통합 평가 (실제값 = 정확한 시점!)")
     print("="*80)
     
     # ===== 1. 모델 로드 =====
@@ -113,6 +115,7 @@ def evaluate_all_models():
         X_test, y_test, seq_max, seq_min, indices = create_features(df_test, horizon_minutes)
         
         print(f"  생성된 샘플 수: {len(X_test)}개")
+        print(f"  실제값 = {horizon_minutes}분 후 정확한 값")
         
         y_pred = models[horizon_name].predict(X_test)
         
@@ -331,7 +334,7 @@ def evaluate_all_models():
     ax6.legend()
     ax6.grid(True, alpha=0.3)
     
-    plt.suptitle('3 Models Evaluation Comparison (1 Column)', fontsize=16, fontweight='bold')
+    plt.suptitle('3 Models Evaluation (Exact Time Point Values)', fontsize=16, fontweight='bold')
     plt.tight_layout()
     
     graph_filename = 'evaluation_graphs_all_models_1col.png'
@@ -366,12 +369,13 @@ def evaluate_all_models():
     print("\n📋 평가 데이터 정보:")
     print(f"  - 파일: HUB0906_0929.CSV")
     print(f"  - 기간: {df_results['현재시간'].iloc[0]} ~ {df_results['현재시간'].iloc[-1]}")
+    print(f"\n✅ 실제값 = 정확히 그 시점의 값 (MAX 아님!)")
     
     return df_results
 
 # 실행
 if __name__ == '__main__':
-    print("🚀 3개 모델 평가 시작 (학습 안함!)\n")
+    print("🚀 3개 모델 평가 시작 (정확한 시점 실제값!)\n")
     results = evaluate_all_models()
     
     if results is not None:
