@@ -620,12 +620,7 @@ class GraphApp:
                 y_menu.config(width=22, font=('Arial', 8))
                 y_menu.grid(row=row, column=3, padx=3, pady=3, sticky='ew')
                 
-            # 컬럼 너비 설정
-            inner_frame.grid_columnconfigure(0, minsize=50)
-            inner_frame.grid_columnconfigure(1, minsize=250)
-            inner_frame.grid_columnconfigure(2, minsize=200)
-            inner_frame.grid_columnconfigure(3, minsize=200)
-                
+                # trend_widgets에 저장
                 self.trend_widgets[trend_name] = {
                     'name': trend_name,
                     'enabled': var,
@@ -634,6 +629,12 @@ class GraphApp:
                     'y_var': y_var,
                     'y_menu': y_menu
                 }
+            
+            # 컬럼 너비 설정
+            inner_frame.grid_columnconfigure(0, minsize=50)
+            inner_frame.grid_columnconfigure(1, minsize=250)
+            inner_frame.grid_columnconfigure(2, minsize=200)
+            inner_frame.grid_columnconfigure(3, minsize=200)
             
             # 그룹 전체 선택/해제 버튼 추가
             tk.Button(btn_frame, text=f"전체선택", 
