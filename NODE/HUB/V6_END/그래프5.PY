@@ -192,116 +192,18 @@ def create_graph(params, perf_values=None):
             df['pattern_value'] = 'N/A'
             df['pattern_color'] = '#95A5A6'
         
-        # 트렌드 데이터 준비 - 각 트렌드의 시간과 값을 df에 추가
-        trend_info_list = []  # INFO에 표시할 트렌드 정보 저장
-        customdata_columns = [actual_y_col, 'actual_time_str', 
-                              hubroom_y_col, 'hubroom_time_str',
-                              predicted1_y_col, 'predicted1_time_str',
-                              predicted2_y_col, 'predicted2_time_str',
-                              predicted3_y_col, 'predicted3_time_str',
-                              'jump_value', 'jump_color', 'pattern_value', 'pattern_color']
-        
-        current_idx = 14  # customdata에서 다음 인덱스 (0-13까지 이미 사용중)
-        
-        # 각 트렌드 데이터 처리
+        # 트렌드 데이터 Y값을 숫자로 변환
         for trend_info in trend_data:
-            x_col = trend_info.get('x_col', '')
             y_col = trend_info.get('y_col', '')
-            name = trend_info.get('name', '')
-            
-            if not x_col or not y_col or not name:
-                continue
-            
-            if x_col in df.columns and y_col in df.columns:
-                # Y값이 숫자인지 확인
+            if y_col and y_col in df.columns:
                 try:
                     df[y_col] = pd.to_numeric(df[y_col], errors='coerce')
                 except:
-                    continue
-                
-                # 시간 문자열 생성
-                time_col_name = f'trend_{name}_time'
-                try:
-                    df[time_col_name] = pd.to_datetime(df[x_col]).dt.strftime('%Y-%m-%d %H:%M:%S')
-                except:
-                    df[time_col_name] = df[x_col].astype(str)
-                
-                # customdata 컬럼에 추가
-                customdata_columns.append(y_col)
-                customdata_columns.append(time_col_name)
-                
-                # INFO 표시 정보 저장
-                trend_info_list.append({
-                    'name': name,
-                    'value_idx': current_idx,
-                    'time_idx': current_idx + 1,
-                    'group': 'MAXCAP' if 'MAXCAP' in name else 'UTIL' if 'UTIL' in name else 'JOB' if 'JOB' in name else '기타'
-                })
-                
-                current_idx += 2
-        
-        # hovertemplate 생성
-        hover_template = '<b style="color: #2E86C1; font-size: 16px;">📊 INFO 정보</b><br>'
-        hover_template += '<span style="color: #85C1E2;">═══════════════════</span><br>'
-        hover_template += '<b style="color: #1f77b4;">🔵 실제값</b><br>'
-        hover_template += '<span style="color: #666;">날짜:</span> <span style="color: #000;">%{customdata[1]}</span><br>'
-        hover_template += '<span style="color: #666;">실제값:</span> <b style="color: #1f77b4;">%{customdata[0]:.2f}</b><br>'
-        hover_template += '<span style="color: #85C1E2;">═══════════════════</span><br>'
-        hover_template += '<b style="color: #9467bd;">🟣 HUBROOM</b><br>'
-        hover_template += '<span style="color: #666;">날짜:</span> <span style="color: #000;">%{customdata[3]}</span><br>'
-        hover_template += '<span style="color: #666;">값:</span> <b style="color: #9467bd;">%{customdata[2]:.2f}</b><br>'
-        hover_template += '<span style="color: #85C1E2;">═══════════════════</span><br>'
-        hover_template += '<b style="color: #ff7f0e;">🔶 예측값1</b><br>'
-        hover_template += '<span style="color: #666;">날짜:</span> <span style="color: #000;">%{customdata[5]}</span><br>'
-        hover_template += '<span style="color: #666;">예측값:</span> <b style="color: #ff7f0e;">%{customdata[4]:.2f}</b><br>'
-        hover_template += '<span style="color: #85C1E2;">═══════════════════</span><br>'
-        hover_template += '<b style="color: #2ca02c;">🔷 예측값2</b><br>'
-        hover_template += '<span style="color: #666;">날짜:</span> <span style="color: #000;">%{customdata[7]}</span><br>'
-        hover_template += '<span style="color: #666;">예측값:</span> <b style="color: #2ca02c;">%{customdata[6]:.2f}</b><br>'
-        hover_template += '<span style="color: #85C1E2;">═══════════════════</span><br>'
-        hover_template += '<b style="color: #d62728;">🔸 예측값3</b><br>'
-        hover_template += '<span style="color: #666;">날짜:</span> <span style="color: #000;">%{customdata[9]}</span><br>'
-        hover_template += '<span style="color: #666;">예측값:</span> <b style="color: #d62728;">%{customdata[8]:.2f}</b><br>'
-        hover_template += '<span style="color: #85C1E2;">═══════════════════</span><br>'
-        hover_template += '<span style="color: #666;">점프예측:</span> '
-        hover_template += '<b style="color: %{customdata[11]};">%{customdata[10]}</b><br>'
-        hover_template += '<span style="color: #666;">패턴예측:</span> '
-        hover_template += '<b style="color: %{customdata[13]};">%{customdata[12]}</b>'
-        
-        # 트렌드 데이터 그룹별로 추가
-        group_colors = {
-            'MAXCAP': ('#3498DB', '📦'),
-            'UTIL': ('#E67E22', '📊'),
-            'JOB': ('#9B59B6', '🔄'),
-            '기타': ('#95A5A6', '📌')
-        }
-        
-        # 그룹별로 정렬
-        grouped_trends = {'MAXCAP': [], 'UTIL': [], 'JOB': [], '기타': []}
-        for trend in trend_info_list:
-            grouped_trends[trend['group']].append(trend)
-        
-        # 각 그룹 출력
-        for group_name in ['MAXCAP', 'UTIL', 'JOB', '기타']:
-            trends = grouped_trends[group_name]
-            if trends:
-                color, emoji = group_colors[group_name]
-                hover_template += '<br><span style="color: #85C1E2;">═══════════════════</span><br>'
-                hover_template += f'<b style="color: {color}; font-size: 14px;">{emoji} {group_name} 그룹 ({len(trends)}개)</b><br>'
-                
-                for trend in trends:
-                    name = trend['name']
-                    val_idx = trend['value_idx']
-                    time_idx = trend['time_idx']
-                    hover_template += f'<span style="color: #666;">{name}:</span><br>'
-                    hover_template += f'  <span style="color: #666;">날짜:</span> %{{customdata[{time_idx}]}}<br>'
-                    hover_template += f'  <span style="color: #666;">값:</span> <b style="color: {color};">%{{customdata[{val_idx}]:.2f}}</b><br>'
-        
-        hover_template += '<extra></extra>'
+                    pass
 
         fig = go.Figure()
 
-        # 실제값 라인 - 전체 정보 포함
+        # 실제값 라인 - 간단한 hover
         fig.add_trace(go.Scattergl(
             x=df['common_time'],
             y=df[actual_y_col], 
@@ -311,11 +213,10 @@ def create_graph(params, perf_values=None):
                      dash=None if params['actual_style'] == 'Solid' else params['actual_style'].lower(), 
                      width=3),
             marker=dict(size=6),
-            customdata=df[customdata_columns].values,
-            hovertemplate=hover_template
+            hovertemplate='<b>실제값:</b> %{y:.2f}<extra></extra>'
         ))
         
-        # HUBROOM 라인 - 동일한 INFO 정보 표시
+        # HUBROOM 라인 - 간단한 hover
         fig.add_trace(go.Scattergl(
             x=df['common_time'],
             y=df[hubroom_y_col], 
@@ -325,11 +226,10 @@ def create_graph(params, perf_values=None):
                      dash=None if params['hubroom_style'] == 'Solid' else params['hubroom_style'].lower(), 
                      width=3),
             marker=dict(size=6),
-            customdata=df[customdata_columns].values,
-            hovertemplate=hover_template
+            hovertemplate='<b>HUBROOM:</b> %{y:.2f}<extra></extra>'
         ))
         
-        # 예측값1 라인 - 동일한 INFO 정보 표시
+        # 예측값1 라인 - 간단한 hover
         fig.add_trace(go.Scattergl(
             x=df['common_time'],
             y=df[predicted1_y_col], 
@@ -339,11 +239,10 @@ def create_graph(params, perf_values=None):
                      dash=None if params['predicted1_style'] == 'Solid' else params['predicted1_style'].lower(), 
                      width=3),
             marker=dict(size=6),
-            customdata=df[customdata_columns].values,
-            hovertemplate=hover_template
+            hovertemplate='<b>예측값1:</b> %{y:.2f}<extra></extra>'
         ))
         
-        # 예측값2 라인 - 동일한 INFO 정보 표시
+        # 예측값2 라인 - 간단한 hover
         fig.add_trace(go.Scattergl(
             x=df['common_time'],
             y=df[predicted2_y_col], 
@@ -353,11 +252,10 @@ def create_graph(params, perf_values=None):
                      dash=None if params['predicted2_style'] == 'Solid' else params['predicted2_style'].lower(), 
                      width=3),
             marker=dict(size=6),
-            customdata=df[customdata_columns].values,
-            hovertemplate=hover_template
+            hovertemplate='<b>예측값2:</b> %{y:.2f}<extra></extra>'
         ))
         
-        # 예측값3 라인 - 동일한 INFO 정보 표시
+        # 예측값3 라인 - 간단한 hover
         fig.add_trace(go.Scattergl(
             x=df['common_time'],
             y=df[predicted3_y_col], 
@@ -367,11 +265,10 @@ def create_graph(params, perf_values=None):
                      dash=None if params['predicted3_style'] == 'Solid' else params['predicted3_style'].lower(), 
                      width=3),
             marker=dict(size=6),
-            customdata=df[customdata_columns].values,
-            hovertemplate=hover_template
+            hovertemplate='<b>예측값3:</b> %{y:.2f}<extra></extra>'
         ))
         
-        # 트렌드 데이터 라인들 - 모두 동일한 INFO 정보 표시
+        # 트렌드 데이터 라인들 - 간단한 hover로 성능 개선
         trend_colors = ['#808080', '#A9A9A9', '#696969', '#778899', '#708090', 
                        '#2F4F4F', '#556B2F', '#8B4513', '#A0522D', '#B8860B',
                        '#BDB76B', '#8B008B', '#9932CC', '#8B0000', '#DC143C',
@@ -392,11 +289,10 @@ def create_graph(params, perf_values=None):
                     x=df[x_col],
                     y=df[y_col],
                     mode='lines',
-                    name=f'Trend: {name}',
+                    name=f'{name}',
                     line=dict(color=color, dash='dot', width=1.5),
                     opacity=0.7,
-                    customdata=df[customdata_columns].values,
-                    hovertemplate=hover_template
+                    hovertemplate=f'<b>{name}:</b> %{{y:.2f}}<extra></extra>'
                 ))
         
         # 리미트선
@@ -423,7 +319,7 @@ def create_graph(params, perf_values=None):
             title=params['title'], 
             xaxis_title='시간', 
             yaxis_title='값', 
-            hovermode='closest',
+            hovermode='x unified',  # 성능 개선: unified 모드로 변경
             plot_bgcolor='white',
             xaxis=dict(showgrid=True, gridcolor='lightgray'),
             yaxis=dict(showgrid=True, gridcolor='lightgray'),
