@@ -297,9 +297,13 @@ def create_graph(params, perf_values=None):
                        '#FF6347', '#FF4500']
         
         for idx, trend_info in enumerate(trend_data):
-            x_col = trend_info['x_col']
-            y_col = trend_info['y_col']
-            name = trend_info['name']
+            x_col = trend_info.get('x_col', '')
+            y_col = trend_info.get('y_col', '')
+            name = trend_info.get('name', '')
+            
+            # 빈 문자열이거나 컬럼이 없으면 스킵
+            if not x_col or not y_col or not name:
+                continue
             
             if x_col in df.columns and y_col in df.columns:
                 color = trend_colors[idx % len(trend_colors)]
@@ -310,7 +314,7 @@ def create_graph(params, perf_values=None):
                     name=f'Trend: {name}',
                     line=dict(color=color, dash='dot', width=1.5),
                     opacity=0.7,
-                    hovertemplate=f'<b>{name}</b><br>시간: %{x}<br>값: %{y:.2f}<extra></extra>'
+                    hovertemplate=f'<b>{name}</b><br>시간: %{{x}}<br>값: %{{y:.2f}}<extra></extra>'
                 ))
         
         # 리미트선
@@ -328,7 +332,8 @@ def create_graph(params, perf_values=None):
                 line=dict(color='red', width=2.5),
                 hovertemplate=f'<b style="color: red;">⚠️ 리미트선: {limit_value:.2f}</b><extra></extra>'
             ))
-        except:
+        except Exception as e:
+            print(f"리미트선 생성 중 오류: {e}")
             pass
         
         # 레이아웃
@@ -407,7 +412,9 @@ def create_graph(params, perf_values=None):
             f"✅ 범례 클릭으로 표시/숨김 가능")
             
     except Exception as e:
-        messagebox.showerror("오류 발생", f"그래프 생성 중 오류:\n{e}")
+        import traceback
+        error_detail = traceback.format_exc()
+        messagebox.showerror("오류 발생", f"그래프 생성 중 오류:\n{e}\n\n상세:\n{error_detail}")
 
 # --------------------------------------------------------------------------
 # GUI 애플리케이션
@@ -470,7 +477,7 @@ class GraphApp:
         
         # 2.5단계: 트렌드 데이터 선택 (그룹별 정리)
         self.step2_5_frame = tk.LabelFrame(self.scrollable_frame, text="🔒 2.5단계: 트렌드 데이터 선택 (그룹별)", padx=10, pady=10)
-        self.step2_5_frame.pack(fill='x', padx=10, pady=5)
+        self.step2_5_frame.pack(fill='both', expand=True, padx=10, pady=5)  # ← fill='both', expand=True 추가!
         self.create_step2_5_widgets()
 
         # 3단계: 그래프 스타일 설정
