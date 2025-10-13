@@ -192,13 +192,8 @@ def create_graph(params, perf_values=None):
             df['pattern_value'] = 'N/A'
             df['pattern_color'] = '#95A5A6'
         
-        # 트렌드 데이터를 그룹별로 분류하고 준비
-        trend_groups_data = {
-            'MAXCAP': [],
-            'UTIL': [],
-            'JOB': []
-        }
-        
+        # 트렌드 데이터 준비 - 각 트렌드의 시간과 값을 df에 추가
+        trend_info_list = []  # INFO에 표시할 트렌드 정보 저장
         customdata_columns = [actual_y_col, 'actual_time_str', 
                               hubroom_y_col, 'hubroom_time_str',
                               predicted1_y_col, 'predicted1_time_str',
@@ -206,7 +201,9 @@ def create_graph(params, perf_values=None):
                               predicted3_y_col, 'predicted3_time_str',
                               'jump_value', 'jump_color', 'pattern_value', 'pattern_color']
         
-        # 트렌드 데이터 준비 및 그룹화
+        current_idx = 14  # customdata에서 다음 인덱스 (0-13까지 이미 사용중)
+        
+        # 각 트렌드 데이터 처리
         for trend_info in trend_data:
             x_col = trend_info.get('x_col', '')
             y_col = trend_info.get('y_col', '')
@@ -216,26 +213,35 @@ def create_graph(params, perf_values=None):
                 continue
             
             if x_col in df.columns and y_col in df.columns:
-                # 시간 문자열 생성
+                # Y값이 숫자인지 확인
                 try:
-                    df[f'{name}_time_str'] = pd.to_datetime(df[x_col]).dt.strftime('%Y-%m-%d %H:%M:%S')
+                    df[y_col] = pd.to_numeric(df[y_col], errors='coerce')
                 except:
-                    df[f'{name}_time_str'] = df[x_col].astype(str)
+                    continue
                 
-                # customdata에 추가할 컬럼
+                # 시간 문자열 생성
+                time_col_name = f'trend_{name}_time'
+                try:
+                    df[time_col_name] = pd.to_datetime(df[x_col]).dt.strftime('%Y-%m-%d %H:%M:%S')
+                except:
+                    df[time_col_name] = df[x_col].astype(str)
+                
+                # customdata 컬럼에 추가
                 customdata_columns.append(y_col)
-                customdata_columns.append(f'{name}_time_str')
+                customdata_columns.append(time_col_name)
                 
-                # 그룹 분류
-                if 'MAXCAP' in name:
-                    trend_groups_data['MAXCAP'].append({'name': name, 'idx': len(customdata_columns) - 2})
-                elif 'UTIL' in name:
-                    trend_groups_data['UTIL'].append({'name': name, 'idx': len(customdata_columns) - 2})
-                elif 'JOB' in name:
-                    trend_groups_data['JOB'].append({'name': name, 'idx': len(customdata_columns) - 2})
+                # INFO 표시 정보 저장
+                trend_info_list.append({
+                    'name': name,
+                    'value_idx': current_idx,
+                    'time_idx': current_idx + 1,
+                    'group': 'MAXCAP' if 'MAXCAP' in name else 'UTIL' if 'UTIL' in name else 'JOB' if 'JOB' in name else '기타'
+                })
+                
+                current_idx += 2
         
-        # hovertemplate 동적 생성
-        hover_template = '<b style="color: #2E86C1; font-size: 14px;">📊 INFO 정보</b><br>'
+        # hovertemplate 생성
+        hover_template = '<b style="color: #2E86C1; font-size: 16px;">📊 INFO 정보</b><br>'
         hover_template += '<span style="color: #85C1E2;">═══════════════════</span><br>'
         hover_template += '<b style="color: #1f77b4;">🔵 실제값</b><br>'
         hover_template += '<span style="color: #666;">날짜:</span> <span style="color: #000;">%{customdata[1]}</span><br>'
@@ -262,25 +268,34 @@ def create_graph(params, perf_values=None):
         hover_template += '<span style="color: #666;">패턴예측:</span> '
         hover_template += '<b style="color: %{customdata[13]};">%{customdata[12]}</b>'
         
-        # 트렌드 데이터 그룹별 추가
-        group_colors_emoji = {
-            'MAXCAP': ('📦', '#3498DB'),
-            'UTIL': ('📊', '#E67E22'),
-            'JOB': ('🔄', '#9B59B6')
+        # 트렌드 데이터 그룹별로 추가
+        group_colors = {
+            'MAXCAP': ('#3498DB', '📦'),
+            'UTIL': ('#E67E22', '📊'),
+            'JOB': ('#9B59B6', '🔄'),
+            '기타': ('#95A5A6', '📌')
         }
         
-        for group_name, trends in trend_groups_data.items():
+        # 그룹별로 정렬
+        grouped_trends = {'MAXCAP': [], 'UTIL': [], 'JOB': [], '기타': []}
+        for trend in trend_info_list:
+            grouped_trends[trend['group']].append(trend)
+        
+        # 각 그룹 출력
+        for group_name in ['MAXCAP', 'UTIL', 'JOB', '기타']:
+            trends = grouped_trends[group_name]
             if trends:
-                emoji, color = group_colors_emoji[group_name]
+                color, emoji = group_colors[group_name]
                 hover_template += '<br><span style="color: #85C1E2;">═══════════════════</span><br>'
-                hover_template += f'<b style="color: {color};">{emoji} {group_name} 그룹</b><br>'
+                hover_template += f'<b style="color: {color}; font-size: 14px;">{emoji} {group_name} 그룹 ({len(trends)}개)</b><br>'
                 
                 for trend in trends:
-                    idx = trend['idx']
                     name = trend['name']
+                    val_idx = trend['value_idx']
+                    time_idx = trend['time_idx']
                     hover_template += f'<span style="color: #666;">{name}:</span><br>'
-                    hover_template += f'<span style="color: #666;">  날짜:</span> <span style="color: #000;">%{{customdata[{idx+1}]}}</span><br>'
-                    hover_template += f'<span style="color: #666;">  값:</span> <b style="color: {color};">%{{customdata[{idx}]:.2f}}</b><br>'
+                    hover_template += f'  <span style="color: #666;">날짜:</span> %{{customdata[{time_idx}]}}<br>'
+                    hover_template += f'  <span style="color: #666;">값:</span> <b style="color: {color};">%{{customdata[{val_idx}]:.2f}}</b><br>'
         
         hover_template += '<extra></extra>'
 
