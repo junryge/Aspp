@@ -415,8 +415,8 @@ def create_graph(params, perf_values=None):
 class GraphApp:
     def __init__(self, root):
         self.root = root
-        self.root.title("그래프 생성기 v4.1 (INFO복원 + 그룹정리)")
-        self.root.geometry("1600x900")
+        self.root.title("그래프 생성기 v4.2 (스크롤 개선)")
+        self.root.geometry("1200x900")
         
         self.file_path = ""
         self.df_columns = []
@@ -553,9 +553,10 @@ class GraphApp:
             ]
         }
         
-        # 스크롤 가능한 프레임
-        canvas = tk.Canvas(self.step2_5_frame, height=450, width=1500)
-        scrollbar_trend = tk.Scrollbar(self.step2_5_frame, orient="vertical", command=canvas.yview)
+        # 스크롤 가능한 프레임 (가로/세로 스크롤)
+        canvas = tk.Canvas(self.step2_5_frame, height=450)
+        scrollbar_trend_v = tk.Scrollbar(self.step2_5_frame, orient="vertical", command=canvas.yview)
+        scrollbar_trend_h = tk.Scrollbar(self.step2_5_frame, orient="horizontal", command=canvas.xview)
         scrollable_trend_frame = tk.Frame(canvas)
         
         scrollable_trend_frame.bind(
@@ -564,7 +565,11 @@ class GraphApp:
         )
         
         canvas.create_window((0, 0), window=scrollable_trend_frame, anchor="nw")
-        canvas.configure(yscrollcommand=scrollbar_trend.set)
+        canvas.configure(yscrollcommand=scrollbar_trend_v.set, xscrollcommand=scrollbar_trend_h.set)
+        
+        # step2_5_frame의 grid weight 설정
+        self.step2_5_frame.grid_rowconfigure(0, weight=1)
+        self.step2_5_frame.grid_columnconfigure(0, weight=1)
         
         current_row = 0
         
@@ -730,12 +735,14 @@ class GraphApp:
                      command=make_auto_match_func(trend_list, group_name),
                      bg='#9B59B6', fg='white', font=('Arial', 8)).pack(side='left', padx=3)
         
-        canvas.pack(side="left", fill="both", expand=True)
-        scrollbar_trend.pack(side="right", fill="y")
+        # 캔버스와 스크롤바 배치 (가로/세로 스크롤)
+        canvas.grid(row=0, column=0, sticky="nsew", padx=(10, 0), pady=(10, 0))
+        scrollbar_trend_v.grid(row=0, column=1, sticky="ns", pady=(10, 0))
+        scrollbar_trend_h.grid(row=1, column=0, sticky="ew", padx=(10, 0))
         
         # 자동 매칭 버튼 프레임
         auto_match_frame = tk.Frame(self.step2_5_frame)
-        auto_match_frame.pack(fill='x', pady=10)
+        auto_match_frame.grid(row=2, column=0, columnspan=2, sticky='ew', pady=10, padx=10)
         
         tk.Button(auto_match_frame, text="🔄 전체 자동 매칭", 
                  command=self.auto_match_all_trends,
