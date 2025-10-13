@@ -416,7 +416,7 @@ class GraphApp:
     def __init__(self, root):
         self.root = root
         self.root.title("그래프 생성기 v4.1 (INFO복원 + 그룹정리)")
-        self.root.geometry("1400x900")
+        self.root.geometry("1600x900")
         
         self.file_path = ""
         self.df_columns = []
@@ -554,7 +554,7 @@ class GraphApp:
         }
         
         # 스크롤 가능한 프레임
-        canvas = tk.Canvas(self.step2_5_frame, height=450)
+        canvas = tk.Canvas(self.step2_5_frame, height=450, width=1500)
         scrollbar_trend = tk.Scrollbar(self.step2_5_frame, orient="vertical", command=canvas.yview)
         scrollable_trend_frame = tk.Frame(canvas)
         
@@ -590,10 +590,10 @@ class GraphApp:
             inner_frame = tk.Frame(group_frame)
             inner_frame.pack(fill='both', expand=True)
             
-            tk.Label(inner_frame, text="사용", font=('Arial', 8, 'bold'), width=5).grid(row=0, column=0, padx=3, sticky='w')
-            tk.Label(inner_frame, text="트렌드 이름", font=('Arial', 8, 'bold'), width=30).grid(row=0, column=1, sticky='w', padx=3)
-            tk.Label(inner_frame, text="X축 (시간)", font=('Arial', 8, 'bold'), width=25).grid(row=0, column=2, padx=3, sticky='w')
-            tk.Label(inner_frame, text="Y축 (값)", font=('Arial', 8, 'bold'), width=25).grid(row=0, column=3, padx=3, sticky='w')
+            tk.Label(inner_frame, text="사용", font=('Arial', 9, 'bold'), width=6).grid(row=0, column=0, padx=5, sticky='w')
+            tk.Label(inner_frame, text="트렌드 이름", font=('Arial', 9, 'bold'), width=32).grid(row=0, column=1, sticky='w', padx=5)
+            tk.Label(inner_frame, text="X축 (시간)", font=('Arial', 9, 'bold'), width=32).grid(row=0, column=2, padx=5, sticky='w')
+            tk.Label(inner_frame, text="Y축 (값)", font=('Arial', 9, 'bold'), width=32).grid(row=0, column=3, padx=5, sticky='w')
             
             # 각 트렌드 데이터
             for idx, trend_name in enumerate(trend_list):
@@ -602,23 +602,23 @@ class GraphApp:
                 # 체크박스
                 var = tk.BooleanVar(value=False)
                 cb = tk.Checkbutton(inner_frame, variable=var)
-                cb.grid(row=row, column=0, padx=3, pady=3, sticky='w')
+                cb.grid(row=row, column=0, padx=5, pady=3, sticky='w')
                 group_vars.append(var)
                 
                 # 이름
-                tk.Label(inner_frame, text=trend_name, font=('Arial', 8), anchor='w', width=30).grid(row=row, column=1, sticky='w', padx=3, pady=3)
+                tk.Label(inner_frame, text=trend_name, font=('Arial', 9), anchor='w', width=32).grid(row=row, column=1, sticky='w', padx=5, pady=3)
                 
                 # X축 선택
                 x_var = tk.StringVar()
                 x_menu = tk.OptionMenu(inner_frame, x_var, "")
-                x_menu.config(width=22, font=('Arial', 8))
-                x_menu.grid(row=row, column=2, padx=3, pady=3, sticky='ew')
+                x_menu.config(width=30, font=('Arial', 9))
+                x_menu.grid(row=row, column=2, padx=5, pady=3, sticky='ew')
                 
                 # Y축 선택
                 y_var = tk.StringVar()
                 y_menu = tk.OptionMenu(inner_frame, y_var, "")
-                y_menu.config(width=22, font=('Arial', 8))
-                y_menu.grid(row=row, column=3, padx=3, pady=3, sticky='ew')
+                y_menu.config(width=30, font=('Arial', 9))
+                y_menu.grid(row=row, column=3, padx=5, pady=3, sticky='ew')
                 
                 # trend_widgets에 저장
                 self.trend_widgets[trend_name] = {
@@ -630,11 +630,11 @@ class GraphApp:
                     'y_menu': y_menu
                 }
             
-            # 컬럼 너비 설정
-            inner_frame.grid_columnconfigure(0, minsize=50)
-            inner_frame.grid_columnconfigure(1, minsize=250)
-            inner_frame.grid_columnconfigure(2, minsize=200)
-            inner_frame.grid_columnconfigure(3, minsize=200)
+            # 컬럼 너비 설정 - 확실하게 크게!
+            inner_frame.grid_columnconfigure(0, minsize=60, weight=0)
+            inner_frame.grid_columnconfigure(1, minsize=280, weight=0)
+            inner_frame.grid_columnconfigure(2, minsize=300, weight=1)
+            inner_frame.grid_columnconfigure(3, minsize=300, weight=1)
             
             # 그룹 전체 선택/해제 버튼 추가
             tk.Button(btn_frame, text=f"전체선택", 
