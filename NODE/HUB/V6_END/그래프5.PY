@@ -630,15 +630,72 @@ class GraphApp:
                 }
             
             # 그룹 전체 선택/해제 버튼 추가
-            tk.Button(btn_frame, text=f"{group_name} 전체선택", 
+            tk.Button(btn_frame, text=f"전체선택", 
                      command=make_toggle_func(group_vars, True),
                      bg='#3498DB', fg='white', font=('Arial', 8)).pack(side='left', padx=3)
-            tk.Button(btn_frame, text=f"{group_name} 전체해제", 
+            tk.Button(btn_frame, text=f"전체해제", 
                      command=make_toggle_func(group_vars, False),
                      bg='#E74C3C', fg='white', font=('Arial', 8)).pack(side='left', padx=3)
+            
+            # 그룹 자동 매칭 버튼
+            def make_auto_match_func(trend_names):
+                def auto_match_group():
+                    if not self.df_columns:
+                        messagebox.showwarning("경고", "먼저 CSV 파일을 선택해주세요!")
+                        return
+                    
+                    # 날짜/시간 컬럼 찾기
+                    time_col = None
+                    time_keywords = ['날짜', 'date', 'time', '시간', 'datetime', 'timestamp']
+                    for col in self.df_columns:
+                        col_lower = col.lower()
+                        if any(keyword in col_lower for keyword in time_keywords):
+                            time_col = col
+                            break
+                    
+                    if not time_col:
+                        messagebox.showwarning("경고", "날짜/시간 컬럼을 찾을 수 없습니다!")
+                        return
+                    
+                    matched = 0
+                    for trend_name in trend_names:
+                        widget_dict = self.trend_widgets[trend_name]
+                        # Y축 찾기
+                        y_col_found = None
+                        for col in self.df_columns:
+                            if trend_name in col or col in trend_name:
+                                y_col_found = col
+                                break
+                        
+                        if y_col_found:
+                            widget_dict['x_var'].set(time_col)
+                            widget_dict['y_var'].set(y_col_found)
+                            widget_dict['enabled'].set(True)
+                            matched += 1
+                    
+                    messagebox.showinfo("자동 매칭", f"{group_name}: {matched}개 매칭 완료")
+                return auto_match_group
+            
+            tk.Button(btn_frame, text=f"🔄 자동매칭", 
+                     command=make_auto_match_func(trend_list),
+                     bg='#9B59B6', fg='white', font=('Arial', 8)).pack(side='left', padx=3)
         
         canvas.pack(side="left", fill="both", expand=True)
         scrollbar_trend.pack(side="right", fill="y")
+        
+        # 자동 매칭 버튼 프레임
+        auto_match_frame = tk.Frame(self.step2_5_frame)
+        auto_match_frame.pack(fill='x', pady=10)
+        
+        tk.Button(auto_match_frame, text="🔄 전체 자동 매칭", 
+                 command=self.auto_match_all_trends,
+                 bg='#9B59B6', fg='white', 
+                 font=('Arial', 10, 'bold'),
+                 width=20, height=2).pack(pady=5)
+        
+        tk.Label(auto_match_frame, 
+                text="※ 자동 매칭: 트렌드 이름과 일치하는 Y축 컬럼 + 날짜/시간 X축을 자동 선택",
+                font=('Arial', 8), fg='#666').pack()
             
     def create_step3_widgets(self):
         tk.Label(self.step3_frame, text="그래프 제목:").grid(row=0, column=0, sticky='w', padx=5, pady=2)
@@ -714,6 +771,49 @@ class GraphApp:
         if color_code:
             color_var.set(color_code)
             button.config(bg=color_code)
+    
+    def auto_match_all_trends(self):
+        """모든 트렌드 데이터의 X축/Y축을 자동으로 매칭"""
+        if not self.df_columns:
+            messagebox.showwarning("경고", "먼저 CSV 파일을 선택해주세요!")
+            return
+        
+        # 날짜/시간 컬럼 찾기
+        time_col = None
+        time_keywords = ['날짜', 'date', 'time', '시간', 'datetime', 'timestamp']
+        for col in self.df_columns:
+            col_lower = col.lower()
+            if any(keyword in col_lower for keyword in time_keywords):
+                time_col = col
+                break
+        
+        if not time_col:
+            messagebox.showwarning("경고", "날짜/시간 컬럼을 찾을 수 없습니다!")
+            return
+        
+        # 각 트렌드에 대해 자동 매칭
+        matched_count = 0
+        for trend_name, widget_dict in self.trend_widgets.items():
+            # Y축: 트렌드 이름과 일치하는 컬럼 찾기
+            y_col_found = None
+            for col in self.df_columns:
+                if trend_name in col or col in trend_name:
+                    y_col_found = col
+                    break
+            
+            if y_col_found:
+                # X축 설정
+                widget_dict['x_var'].set(time_col)
+                # Y축 설정
+                widget_dict['y_var'].set(y_col_found)
+                # 체크박스 자동 선택
+                widget_dict['enabled'].set(True)
+                matched_count += 1
+        
+        messagebox.showinfo("자동 매칭 완료", 
+                           f"총 {matched_count}개의 트렌드 데이터가 자동 매칭되었습니다.\n\n"
+                           f"X축: {time_col}\n"
+                           f"Y축: 각 트렌드 이름과 일치하는 컬럼")
 
     def select_file(self):
         path = filedialog.askopenfilename(filetypes=[("CSV files", "*.csv")])
