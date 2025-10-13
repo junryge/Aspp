@@ -1,9 +1,11 @@
 import numpy as np
 import pandas as pd
+import xgboost as xgb
 import pickle
 import warnings
 from datetime import datetime, timedelta
 import matplotlib.pyplot as plt
+from sklearn.model_selection import train_test_split
 from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
 
 warnings.filterwarnings('ignore')
@@ -12,12 +14,15 @@ plt.rcParams['axes.unicode_minus'] = False
 
 def create_features(df, horizon, start_idx=30):
     """
-    Feature 생성 함수 (1개 컬럼 - 타겟만)
+    Feature 생성 함수
     
     Args:
         df: 데이터프레임
         horizon: 예측 시점 (10, 20, 30분)
-        start_idx: 시작 인덱스
+        start_idx: 시작 인덱스 (기본 30)
+    
+    Returns:
+        X, y, seq_max_list, seq_min_list, indices
     """
     features_list = []
     labels = []
@@ -58,36 +63,86 @@ def create_features(df, horizon, start_idx=30):
     
     return pd.DataFrame(features_list), np.array(labels), seq_max_list, seq_min_list, indices
 
-def evaluate_all_models():
+def train_model_for_horizon(horizon_name, horizon_minutes):
     """
-    3개 모델(10분/20분/30분)을 불러와서 평가 후 통합 CSV 생성
+    특정 horizon에 대한 모델 학습 및 평가
+    
+    Args:
+        horizon_name: '10min', '20min', '30min'
+        horizon_minutes: 10, 20, 30
     """
-    print("="*80)
-    print("🚀 3개 모델 통합 평가 시작 (1개 컬럼)")
+    print("\n" + "="*80)
+    print(f"🚀 {horizon_name} 모델 학습 시작 (과거 30분 → {horizon_minutes}분 후 예측)")
     print("="*80)
     
-    # ===== 1. 모델 로드 =====
-    print("\n[STEP 1] 모델 로드")
+    # ===== 1. 학습 단계 =====
+    print(f"\n[STEP 1] 학습 데이터로 {horizon_name} 모델 학습")
     print("-"*40)
     
-    models = {}
-    for horizon_name in ['10min', '20min', '30min']:
-        model_filename = f'model_30min_{horizon_name}.pkl'
-        try:
-            with open(model_filename, 'rb') as f:
-                models[horizon_name] = pickle.load(f)
-            print(f"✅ {model_filename} 로드 완료")
-        except Exception as e:
-            print(f"❌ {model_filename} 로드 실패: {e}")
-            return None
+    df_train = pd.read_csv('HUB_0509_TO_0929_DATA.csv', on_bad_lines='skip')
     
-    # ===== 2. 평가 데이터 로드 =====
-    print("\n[STEP 2] 평가 데이터 로드")
+    # 학습 데이터 생성
+    X_train, y_train, _, _, _ = create_features(df_train, horizon_minutes)
+    
+    print(f"학습 데이터 생성 완료: {len(X_train)}개")
+    
+    # 모델 학습
+    model = xgb.XGBRegressor(
+        n_estimators=200,
+        max_depth=6,
+        learning_rate=0.1,
+        random_state=42
+    )
+    
+    # 학습/검증 분할
+    X_tr, X_val, y_tr, y_val = train_test_split(
+        X_train, y_train, test_size=0.2, random_state=42
+    )
+    
+    model.fit(X_tr, y_tr)
+    
+    # 학습 데이터 평가
+    y_val_pred = model.predict(X_val)
+    train_mae = mean_absolute_error(y_val, y_val_pred)
+    train_rmse = np.sqrt(mean_squared_error(y_val, y_val_pred))
+    train_r2 = r2_score(y_val, y_val_pred)
+    
+    print(f"학습 데이터 성능:")
+    print(f"  MAE:  {train_mae:.4f}")
+    print(f"  RMSE: {train_rmse:.4f}")
+    print(f"  R²:   {train_r2:.4f}")
+    
+    # 모델 저장
+    model_filename = f'model_30min_{horizon_name}.pkl'
+    with open(model_filename, 'wb') as f:
+        pickle.dump(model, f)
+    print(f"✅ 모델 저장 완료: {model_filename}")
+    
+    # ===== 2. 평가 단계 =====
+    print(f"\n[STEP 2] 평가 데이터로 {horizon_name} 모델 평가")
     print("-"*40)
     
-    # 🔥 변경: 평가 데이터 파일명
     df_test = pd.read_csv('HUB0906_0929.CSV', on_bad_lines='skip')
-    print(f"✅ 평가 데이터 로드: {len(df_test)}개 행")
+    
+    # 평가 데이터 생성
+    X_test, y_test, seq_max_list, seq_min_list, indices = create_features(df_test, horizon_minutes)
+    
+    # 예측
+    y_pred = model.predict(X_test)
+    
+    # 평가 지표
+    test_mae = mean_absolute_error(y_test, y_pred)
+    test_rmse = np.sqrt(mean_squared_error(y_test, y_pred))
+    test_r2 = r2_score(y_test, y_pred)
+    
+    print(f"평가 데이터 성능:")
+    print(f"  MAE:  {test_mae:.4f}")
+    print(f"  RMSE: {test_rmse:.4f}")
+    print(f"  R²:   {test_r2:.4f}")
+    
+    # ===== 3. 상세 분석 결과 생성 =====
+    print(f"\n[STEP 3] {horizon_name} 상세 결과 생성")
+    print("-"*40)
     
     TARGET_COL = 'CURRENT_M16A_3F_JOB_2'
     
@@ -99,306 +154,275 @@ def evaluate_all_models():
             try:
                 df_test['STAT_DT'] = pd.to_datetime(df_test['STAT_DT'])
             except:
-                print("⚠️ STAT_DT 변환 실패, 가상 시간 생성")
                 base_date = datetime(2024, 9, 6, 0, 0)
                 df_test['STAT_DT'] = [base_date + timedelta(minutes=i) for i in range(len(df_test))]
     else:
-        print("⚠️ STAT_DT 없음, 가상 시간 생성")
         base_date = datetime(2024, 9, 6, 0, 0)
         df_test['STAT_DT'] = [base_date + timedelta(minutes=i) for i in range(len(df_test))]
     
-    # ===== 3. 각 모델로 예측 =====
-    print("\n[STEP 3] 각 모델로 예측")
-    print("-"*40)
-    
-    predictions = {}
-    actuals = {}
-    seq_info = {}
-    
-    for horizon_name, horizon_minutes in [('10min', 10), ('20min', 20), ('30min', 30)]:
-        print(f"\n{horizon_name} 모델 예측 중...")
-        
-        # Feature 생성
-        X_test, y_test, seq_max, seq_min, indices = create_features(df_test, horizon_minutes)
-        
-        print(f"  생성된 샘플 수: {len(X_test)}개")
-        
-        # 예측
-        y_pred = models[horizon_name].predict(X_test)
-        
-        # 저장
-        predictions[horizon_name] = {
-            'y_pred': y_pred,
-            'y_test': y_test,
-            'indices': indices
-        }
-        
-        # 평가 지표
-        mae = mean_absolute_error(y_test, y_pred)
-        rmse = np.sqrt(mean_squared_error(y_test, y_pred))
-        r2 = r2_score(y_test, y_pred)
-        
-        print(f"  MAE:  {mae:.4f}")
-        print(f"  RMSE: {rmse:.4f}")
-        print(f"  R²:   {r2:.4f}")
-        
-        # 첫 번째 모델에서만 시퀀스 정보 저장 (공통)
-        if horizon_name == '10min':
-            seq_info = {
-                'seq_max': seq_max,
-                'seq_min': seq_min,
-                'indices': indices
-            }
-    
-    # ===== 4. 통합 결과 생성 =====
-    print("\n[STEP 4] 통합 결과 CSV 생성")
-    print("-"*40)
-    
-    # 가장 짧은 길이 사용 (30분 모델이 가장 짧음)
-    min_length = len(predictions['30min']['indices'])
-    print(f"통합 가능한 샘플 수: {min_length}개")
-    
+    # 결과 DataFrame 생성
     results = []
-    stats = {
-        '10min': {'jump': 0, 'extreme': 0, 'extreme_detected': 0},
-        '20min': {'jump': 0, 'extreme': 0, 'extreme_detected': 0},
-        '30min': {'jump': 0, 'extreme': 0, 'extreme_detected': 0}
-    }
+    jump_count = 0
+    extreme_count = 0
+    extreme_detected = 0
     
-    for i in range(min_length):
-        idx = predictions['30min']['indices'][i]
-        
-        # 시간 정보
+    for i, idx in enumerate(indices):
         current_time = df_test['STAT_DT'].iloc[idx]
         seq_start_time = df_test['STAT_DT'].iloc[idx-30]
+        prediction_time = current_time + timedelta(minutes=horizon_minutes)
         
-        # 시퀀스 정보 (10min에서 가져오기)
-        seq_max_val = seq_info['seq_max'][i]
-        seq_min_val = seq_info['seq_min'][i]
+        # 점프 케이스 판단
+        is_jump = (seq_max_list[i] < 280) and (y_test[i] >= 300)
+        if is_jump:
+            jump_count += 1
         
-        result = {
+        # 극단값 케이스
+        if y_test[i] >= 300:
+            extreme_count += 1
+            if y_pred[i] >= 285:
+                extreme_detected += 1
+        
+        results.append({
             '현재시간': current_time.strftime('%Y-%m-%d %H:%M'),
+            f'예측시간(+{horizon_minutes}분)': prediction_time.strftime('%Y-%m-%d %H:%M'),
             '시퀀스시작': seq_start_time.strftime('%Y-%m-%d %H:%M'),
-            '시퀀스MAX': round(seq_max_val, 2),
-            '시퀀스MIN': round(seq_min_val, 2),
-            '시퀀스범위': round(seq_max_val - seq_min_val, 2),
-        }
-        
-        # 각 horizon별 예측 결과 추가
-        for horizon_name, horizon_minutes in [('10min', 10), ('20min', 20), ('30min', 30)]:
-            pred_time = current_time + timedelta(minutes=horizon_minutes)
-            
-            # 해당 horizon의 예측값과 실제값
-            y_pred_val = predictions[horizon_name]['y_pred'][i]
-            y_test_val = predictions[horizon_name]['y_test'][i]
-            
-            error = abs(y_test_val - y_pred_val)
-            error_rate = (error / y_test_val * 100) if y_test_val > 0 else 0
-            
-            # 점프 케이스 판단
-            is_jump = (seq_max_val < 280) and (y_test_val >= 300)
-            if is_jump:
-                stats[horizon_name]['jump'] += 1
-            
-            # 극단값 케이스
-            if y_test_val >= 300:
-                stats[horizon_name]['extreme'] += 1
-                if y_pred_val >= 290:
-                    stats[horizon_name]['extreme_detected'] += 1
-            
-            # 결과에 추가
-            result[f'예측시간_{horizon_name}'] = pred_time.strftime('%Y-%m-%d %H:%M')
-            result[f'실제값_{horizon_name}'] = round(y_test_val, 2)
-            result[f'예측값_{horizon_name}'] = round(y_pred_val, 2)
-            result[f'오차_{horizon_name}'] = round(error, 2)
-            result[f'오차율_{horizon_name}(%)'] = round(error_rate, 2)
-            result[f'점프케이스_{horizon_name}'] = 'O' if is_jump else '-'
-            result[f'극단값_{horizon_name}'] = 'O' if y_test_val >= 300 else '-'
-            result[f'극단값감지_{horizon_name}'] = 'O' if (y_test_val >= 300 and y_pred_val >= 290) else '-'
-        
-        results.append(result)
-        
-        # 진행 상황 출력
-        if (i + 1) % 500 == 0:
-            print(f"  진행 중... {i+1}/{min_length} ({(i+1)/min_length*100:.1f}%)")
+            '시퀀스완료': current_time.strftime('%Y-%m-%d %H:%M'),
+            '실제값': round(y_test[i], 2),
+            '예측값': round(y_pred[i], 2),
+            '오차': round(abs(y_test[i] - y_pred[i]), 2),
+            '오차율(%)': round(abs(y_test[i] - y_pred[i]) / y_test[i] * 100, 2),
+            '시퀀스MAX': round(seq_max_list[i], 2),
+            '시퀀스MIN': round(seq_min_list[i], 2),
+            '시퀀스범위': round(seq_max_list[i] - seq_min_list[i], 2),
+            '점프케이스': 'O' if is_jump else '-',
+            '극단값(300+)': 'O' if y_test[i] >= 300 else '-',
+            '극단값감지': 'O' if (y_test[i] >= 300 and y_pred[i] >= 290) else '-'
+        })
     
     df_results = pd.DataFrame(results)
     
+    # 통계 출력
+    print(f"\n📊 특수 케이스 분석:")
+    print(f"  - 전체 예측: {len(df_results)}개")
+    print(f"  - 극단값(300+): {extreme_count}개 ({extreme_count/len(df_results)*100:.1f}%)")
+    print(f"  - 극단값 감지: {extreme_detected}/{extreme_count}개 ({extreme_detected/extreme_count*100 if extreme_count > 0 else 0:.1f}%)")
+    print(f"  - 점프 케이스: {jump_count}개 ({jump_count/len(df_results)*100:.1f}%)")
+    
+    # 점프 케이스 상세
+    if jump_count > 0:
+        jump_df = df_results[df_results['점프케이스'] == 'O']
+        print(f"\n🔥 점프 케이스 상세:")
+        display_cols = ['현재시간', '시퀀스MAX', '실제값', '예측값', '오차']
+        print(jump_df[display_cols].head(5).to_string(index=False))
+    
+    # 극단값 케이스 상세
+    if extreme_count > 0:
+        extreme_df = df_results[df_results['극단값(300+)'] == 'O']
+        print(f"\n⚠️ 극단값 케이스 상세:")
+        display_cols = ['현재시간', '실제값', '예측값', '오차', '극단값감지']
+        print(extreme_df[display_cols].head(5).to_string(index=False))
+    
     # CSV 저장
-    csv_filename = 'evaluation_results_all_models_1col.csv'
+    csv_filename = f'evaluation_results_{horizon_name}.csv'
     df_results.to_csv(csv_filename, index=False, encoding='utf-8-sig')
-    print(f"✅ 통합 결과 저장: {csv_filename}")
-    print(f"   총 {len(df_results)}개 예측 생성")
+    print(f"\n✅ 상세 결과 저장: {csv_filename}")
     
-    # ===== 5. 통계 출력 =====
-    print("\n" + "="*80)
-    print("📊 모델별 통계")
-    print("="*80)
-    
-    for horizon_name in ['10min', '20min', '30min']:
-        stat = stats[horizon_name]
-        y_test = predictions[horizon_name]['y_test'][:min_length]
-        y_pred = predictions[horizon_name]['y_pred'][:min_length]
-        
-        mae = mean_absolute_error(y_test, y_pred)
-        rmse = np.sqrt(mean_squared_error(y_test, y_pred))
-        
-        print(f"\n[{horizon_name}]")
-        print(f"  MAE: {mae:.2f}")
-        print(f"  RMSE: {rmse:.2f}")
-        print(f"  극단값(300+): {stat['extreme']}개")
-        print(f"  극단값 감지: {stat['extreme_detected']}/{stat['extreme']}개 ({stat['extreme_detected']/stat['extreme']*100 if stat['extreme'] > 0 else 0:.1f}%)")
-        print(f"  점프 케이스: {stat['jump']}개")
-    
-    # ===== 6. 비교 그래프 생성 =====
-    print("\n[STEP 5] 비교 그래프 생성")
+    # ===== 4. 그래프 생성 =====
+    print(f"\n[STEP 4] {horizon_name} 평가 그래프 생성")
     print("-"*40)
     
     fig, axes = plt.subplots(2, 3, figsize=(18, 10))
     
-    colors = {'10min': 'blue', '20min': 'green', '30min': 'orange'}
-    
-    # 1. MAE 비교
+    # 1. 예측 vs 실제 산점도
     ax1 = axes[0, 0]
-    maes = []
-    for horizon_name in ['10min', '20min', '30min']:
-        y_test = predictions[horizon_name]['y_test'][:min_length]
-        y_pred = predictions[horizon_name]['y_pred'][:min_length]
-        maes.append(mean_absolute_error(y_test, y_pred))
-    
-    ax1.bar(['10min', '20min', '30min'], maes, color=[colors[h] for h in ['10min', '20min', '30min']])
-    ax1.set_ylabel('MAE')
-    ax1.set_title('MAE Comparison')
+    ax1.scatter(y_test, y_pred, alpha=0.5, s=10)
+    ax1.plot([y_test.min(), y_test.max()], [y_test.min(), y_test.max()], 'r--', lw=2)
+    ax1.set_xlabel('Actual')
+    ax1.set_ylabel('Predicted')
+    ax1.set_title(f'Actual vs Predicted ({horizon_name})\nMAE={test_mae:.2f}, R²={test_r2:.3f}')
     ax1.grid(True, alpha=0.3)
     
-    # 값 표시
-    for i, v in enumerate(maes):
-        ax1.text(i, v + 1, f'{v:.2f}', ha='center', va='bottom')
-    
-    # 2. 극단값 감지율 비교
+    # 2. 시계열 비교
     ax2 = axes[0, 1]
-    detection_rates = []
-    for horizon_name in ['10min', '20min', '30min']:
-        stat = stats[horizon_name]
-        rate = (stat['extreme_detected']/stat['extreme']*100) if stat['extreme'] > 0 else 0
-        detection_rates.append(rate)
-    
-    ax2.bar(['10min', '20min', '30min'], detection_rates, color=[colors[h] for h in ['10min', '20min', '30min']])
-    ax2.set_ylabel('Detection Rate (%)')
-    ax2.set_title('Extreme Value Detection Rate')
+    plot_size = min(300, len(y_test))
+    ax2.plot(range(plot_size), y_test[:plot_size], 'b-', label='Actual', alpha=0.7, linewidth=1)
+    ax2.plot(range(plot_size), y_pred[:plot_size], 'r--', label='Predicted', alpha=0.7, linewidth=1)
+    ax2.axhline(y=300, color='orange', linestyle='--', label='Extreme(300)', alpha=0.5)
+    ax2.set_xlabel('Time Index')
+    ax2.set_ylabel('Value')
+    ax2.set_title('Time Series Comparison (First 300)')
+    ax2.legend()
     ax2.grid(True, alpha=0.3)
     
-    for i, v in enumerate(detection_rates):
-        ax2.text(i, v + 1, f'{v:.1f}%', ha='center', va='bottom')
-    
-    # 3. 시계열 비교 (첫 200개)
+    # 3. 오차 분포
     ax3 = axes[0, 2]
-    plot_size = min(200, min_length)
-    
-    # 실제값 (10min 기준)
-    y_test_plot = predictions['10min']['y_test'][:plot_size]
-    ax3.plot(range(plot_size), y_test_plot, 'k-', label='Actual', alpha=0.7, linewidth=2)
-    
-    # 각 모델 예측값
-    for horizon_name in ['10min', '20min', '30min']:
-        y_pred_plot = predictions[horizon_name]['y_pred'][:plot_size]
-        ax3.plot(range(plot_size), y_pred_plot, '--', label=f'Pred {horizon_name}', 
-                alpha=0.7, linewidth=1, color=colors[horizon_name])
-    
-    ax3.axhline(y=300, color='red', linestyle='--', label='Extreme(300)', alpha=0.5)
-    ax3.set_xlabel('Time Index')
-    ax3.set_ylabel('Value')
-    ax3.set_title('Time Series Comparison (First 200)')
-    ax3.legend()
+    errors = y_pred - y_test
+    ax3.hist(errors, bins=50, edgecolor='black', alpha=0.7, color='skyblue')
+    ax3.axvline(x=0, color='r', linestyle='--', linewidth=2)
+    ax3.set_xlabel('Prediction Error')
+    ax3.set_ylabel('Frequency')
+    ax3.set_title(f'Error Distribution\nMean={np.mean(errors):.2f}, Std={np.std(errors):.2f}')
     ax3.grid(True, alpha=0.3)
     
-    # 4. 점프 케이스 수 비교
+    # 4. 극단값 성능
     ax4 = axes[1, 0]
-    jump_counts = [stats[h]['jump'] for h in ['10min', '20min', '30min']]
-    ax4.bar(['10min', '20min', '30min'], jump_counts, color=[colors[h] for h in ['10min', '20min', '30min']])
-    ax4.set_ylabel('Count')
-    ax4.set_title('Jump Cases Count')
-    ax4.grid(True, alpha=0.3)
+    extreme_mask = y_test >= 300
+    if extreme_mask.any():
+        ax4.scatter(y_test[~extreme_mask], y_pred[~extreme_mask],
+                   alpha=0.3, s=5, label='Normal', color='blue')
+        ax4.scatter(y_test[extreme_mask], y_pred[extreme_mask],
+                   alpha=0.8, s=20, label='Extreme(300+)', color='red')
+        ax4.plot([200, 500], [200, 500], 'k--', lw=1)
+        ax4.axhline(y=300, color='orange', linestyle='--', alpha=0.5)
+        ax4.axvline(x=300, color='orange', linestyle='--', alpha=0.5)
+        ax4.set_xlabel('Actual')
+        ax4.set_ylabel('Predicted')
+        ax4.set_title(f'Extreme Value Performance ({horizon_name})\nDetected: {extreme_detected}/{extreme_count}')
+        ax4.legend()
+        ax4.grid(True, alpha=0.3)
     
-    for i, v in enumerate(jump_counts):
-        ax4.text(i, v + 0.5, f'{v}', ha='center', va='bottom')
-    
-    # 5. 오차 분포 비교
+    # 5. 점프 케이스 분석
     ax5 = axes[1, 1]
-    for horizon_name in ['10min', '20min', '30min']:
-        y_test = predictions[horizon_name]['y_test'][:min_length]
-        y_pred = predictions[horizon_name]['y_pred'][:min_length]
-        errors = y_pred - y_test
-        ax5.hist(errors, bins=30, alpha=0.5, label=horizon_name, color=colors[horizon_name])
+    if jump_count > 0:
+        jump_mask = df_results['점프케이스'] == 'O'
+        jump_actual = df_results[jump_mask]['실제값'].values
+        jump_pred = df_results[jump_mask]['예측값'].values
+        jump_seq_max = df_results[jump_mask]['시퀀스MAX'].values
+        
+        ax5.scatter(jump_seq_max, jump_actual, label='Actual Jump', s=50, alpha=0.8, color='red')
+        ax5.scatter(jump_seq_max, jump_pred, label='Predicted', s=30, alpha=0.6, color='blue')
+        
+        for i in range(len(jump_seq_max)):
+            ax5.plot([jump_seq_max[i], jump_seq_max[i]],
+                    [jump_pred[i], jump_actual[i]],
+                    'gray', alpha=0.3, linewidth=0.5)
+        
+        ax5.axhline(y=300, color='orange', linestyle='--', label='Threshold')
+        ax5.axvline(x=280, color='green', linestyle='--', alpha=0.5, label='SeqMax=280')
+        ax5.set_xlabel('Sequence MAX')
+        ax5.set_ylabel('Value')
+        ax5.set_title(f'Jump Cases Analysis ({horizon_name})\n(SeqMax<280 → Actual≥300: {jump_count} cases)')
+        ax5.legend()
+        ax5.grid(True, alpha=0.3)
+    else:
+        ax5.text(0.5, 0.5, 'No Jump Cases', ha='center', va='center', fontsize=14)
+        ax5.set_title('Jump Cases Analysis')
     
-    ax5.axvline(x=0, color='r', linestyle='--', linewidth=2)
-    ax5.set_xlabel('Prediction Error')
-    ax5.set_ylabel('Frequency')
-    ax5.set_title('Error Distribution Comparison')
-    ax5.legend()
-    ax5.grid(True, alpha=0.3)
-    
-    # 6. 극단값 예측 산점도 (30min 모델)
+    # 6. Feature 중요도
     ax6 = axes[1, 2]
-    y_test_30 = predictions['30min']['y_test'][:min_length]
-    y_pred_30 = predictions['30min']['y_pred'][:min_length]
+    feature_importance = pd.DataFrame({
+        'feature': X_train.columns,
+        'importance': model.feature_importances_
+    }).sort_values('importance', ascending=True)
     
-    extreme_mask = y_test_30 >= 300
-    ax6.scatter(y_test_30[~extreme_mask], y_pred_30[~extreme_mask],
-               alpha=0.3, s=5, label='Normal', color='blue')
-    ax6.scatter(y_test_30[extreme_mask], y_pred_30[extreme_mask],
-               alpha=0.8, s=20, label='Extreme(300+)', color='red')
-    ax6.plot([200, 500], [200, 500], 'k--', lw=1)
-    ax6.axhline(y=300, color='orange', linestyle='--', alpha=0.5)
-    ax6.axvline(x=300, color='orange', linestyle='--', alpha=0.5)
-    ax6.set_xlabel('Actual')
-    ax6.set_ylabel('Predicted')
-    ax6.set_title('Extreme Value Performance (30min)')
-    ax6.legend()
+    colors = plt.cm.viridis(np.linspace(0.3, 0.9, len(feature_importance)))
+    ax6.barh(range(len(feature_importance)), feature_importance['importance'].values, color=colors)
+    ax6.set_yticks(range(len(feature_importance)))
+    ax6.set_yticklabels(feature_importance['feature'].values)
+    ax6.set_xlabel('Importance')
+    ax6.set_title('Feature Importance')
+    
+    for i, v in enumerate(feature_importance['importance'].values):
+        ax6.text(v + 0.001, i, f'{v:.3f}', va='center')
+    
     ax6.grid(True, alpha=0.3)
     
-    plt.suptitle('3 Models Evaluation Comparison (1 Column)', fontsize=16, fontweight='bold')
+    plt.suptitle(f'Evaluation Results ({horizon_name} Prediction)', fontsize=16, fontweight='bold')
     plt.tight_layout()
     
-    graph_filename = 'evaluation_graphs_all_models_1col.png'
+    graph_filename = f'evaluation_graphs_{horizon_name}.png'
     plt.savefig(graph_filename, dpi=150, bbox_inches='tight')
     plt.close()
-    print(f"✅ 비교 그래프 저장: {graph_filename}")
+    print(f"✅ 그래프 저장: {graph_filename}")
     
-    # ===== 7. 최종 요약 =====
-    print("\n" + "="*80)
-    print("🎉 평가 완료!")
+    # ===== 5. 최종 요약 =====
+    print("\n" + "-"*80)
+    print(f"📊 {horizon_name} 최종 요약")
+    print("-"*80)
+    print(f"모델 성능:")
+    print(f"  - 학습 MAE: {train_mae:.2f}")
+    print(f"  - 평가 MAE: {test_mae:.2f}")
+    print(f"  - 성능 차이: {abs(test_mae - train_mae):.2f}")
+    
+    print(f"\n특수 케이스:")
+    print(f"  - 극단값(300+): {extreme_count}개")
+    print(f"  - 극단값 감지율: {extreme_detected/extreme_count*100 if extreme_count > 0 else 0:.1f}%")
+    print(f"  - 점프 케이스: {jump_count}개")
+    
+    print(f"\n저장 파일:")
+    print(f"  - 모델: {model_filename}")
+    print(f"  - 결과: {csv_filename}")
+    print(f"  - 그래프: {graph_filename}")
+    
+    return {
+        'model': model,
+        'results': df_results,
+        'metrics': {
+            'train_mae': train_mae,
+            'test_mae': test_mae,
+            'test_rmse': test_rmse,
+            'test_r2': test_r2,
+            'extreme_count': extreme_count,
+            'extreme_detected': extreme_detected,
+            'jump_count': jump_count
+        }
+    }
+
+def main():
+    """메인 실행 함수 - 10분/20분/30분 모델 순차 학습"""
+    
     print("="*80)
-    print(f"\n📊 전체 성능 비교:")
+    print("🚀 XGBoost 다중 Horizon 예측 모델 통합 학습 시작")
+    print("="*80)
+    print("📋 학습 계획:")
+    print("  1. 10분 후 예측 모델 (model_30min_10min.pkl)")
+    print("  2. 20분 후 예측 모델 (model_30min_20min.pkl)")
+    print("  3. 30분 후 예측 모델 (model_30min_30min.pkl)")
+    print("="*80)
+    
+    results_all = {}
+    
+    # 10분 모델
+    print("\n\n" + "🔵"*40)
+    results_all['10min'] = train_model_for_horizon('10min', 10)
+    
+    # 20분 모델
+    print("\n\n" + "🟢"*40)
+    results_all['20min'] = train_model_for_horizon('20min', 20)
+    
+    # 30분 모델
+    print("\n\n" + "🟡"*40)
+    results_all['30min'] = train_model_for_horizon('30min', 30)
+    
+    # 전체 요약
+    print("\n\n" + "="*80)
+    print("🎉 전체 학습 완료!")
+    print("="*80)
+    print("\n📊 전체 성능 비교:")
     print("-"*80)
-    print(f"{'Model':<10} {'MAE':<10} {'RMSE':<10} {'극단값감지율':<15} {'점프케이스':<12}")
+    print(f"{'Horizon':<10} {'Train MAE':<12} {'Test MAE':<12} {'Test RMSE':<12} {'R²':<8} {'극단값 감지율':<15}")
     print("-"*80)
     
-    for horizon_name in ['10min', '20min', '30min']:
-        y_test = predictions[horizon_name]['y_test'][:min_length]
-        y_pred = predictions[horizon_name]['y_pred'][:min_length]
-        mae = mean_absolute_error(y_test, y_pred)
-        rmse = np.sqrt(mean_squared_error(y_test, y_pred))
-        
-        stat = stats[horizon_name]
-        detection_rate = (stat['extreme_detected']/stat['extreme']*100) if stat['extreme'] > 0 else 0
-        
-        print(f"{horizon_name:<10} {mae:<10.2f} {rmse:<10.2f} {detection_rate:<15.1f}% {stat['jump']:<12}")
+    for horizon in ['10min', '20min', '30min']:
+        metrics = results_all[horizon]['metrics']
+        detection_rate = metrics['extreme_detected']/metrics['extreme_count']*100 if metrics['extreme_count'] > 0 else 0
+        print(f"{horizon:<10} {metrics['train_mae']:<12.2f} {metrics['test_mae']:<12.2f} "
+              f"{metrics['test_rmse']:<12.2f} {metrics['test_r2']:<8.3f} {detection_rate:<15.1f}%")
     
     print("\n📁 생성된 파일:")
-    print(f"  - {csv_filename}")
-    print(f"  - {graph_filename}")
+    print("-"*80)
+    for horizon in ['10min', '20min', '30min']:
+        print(f"\n[{horizon}]")
+        print(f"  - model_30min_{horizon}.pkl")
+        print(f"  - evaluation_results_{horizon}.csv")
+        print(f"  - evaluation_graphs_{horizon}.png")
     
-    print("\n📋 평가 데이터 정보:")
-    print(f"  - 파일: HUB0906_0929.CSV")
-    print(f"  - 기간: {df_results['현재시간'].iloc[0]} ~ {df_results['현재시간'].iloc[-1]}")
+    print("\n" + "="*80)
+    print("✅ 모든 작업 완료!")
+    print("="*80)
     
-    return df_results
+    return results_all
 
 # 실행
 if __name__ == '__main__':
-    print("🚀 3개 모델 통합 평가 시작...\n")
-    results = evaluate_all_models()
-    
-    if results is not None:
-        print(f"\n✅ 평가 완료! 총 {len(results)}개 예측 생성")
+    results = main()
