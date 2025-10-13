@@ -203,7 +203,7 @@ def create_graph(params, perf_values=None):
 
         fig = go.Figure()
 
-        # 실제값 라인 - 간단한 hover
+        # 실제값 라인
         fig.add_trace(go.Scattergl(
             x=df['common_time'],
             y=df[actual_y_col], 
@@ -213,10 +213,16 @@ def create_graph(params, perf_values=None):
                      dash=None if params['actual_style'] == 'Solid' else params['actual_style'].lower(), 
                      width=3),
             marker=dict(size=6),
-            hovertemplate='<b>실제값:</b> %{y:.2f}<extra></extra>'
+            customdata=df[['actual_time_str']].values,
+            hovertemplate='<b style="color: #2E86C1; font-size: 14px;">📊 INFO 정보</b><br>' +
+                         '<span style="color: #85C1E2;">═══════════════════</span><br>' +
+                         '<b style="color: #1f77b4;">🔵 실제값</b><br>' +
+                         '<span style="color: #666;">시간:</span> %{customdata[0]}<br>' +
+                         '<span style="color: #666;">값:</span> <b>%{y:.2f}</b>' +
+                         '<extra></extra>'
         ))
         
-        # HUBROOM 라인 - 간단한 hover
+        # HUBROOM 라인
         fig.add_trace(go.Scattergl(
             x=df['common_time'],
             y=df[hubroom_y_col], 
@@ -226,10 +232,14 @@ def create_graph(params, perf_values=None):
                      dash=None if params['hubroom_style'] == 'Solid' else params['hubroom_style'].lower(), 
                      width=3),
             marker=dict(size=6),
-            hovertemplate='<b>HUBROOM:</b> %{y:.2f}<extra></extra>'
+            customdata=df[['hubroom_time_str']].values,
+            hovertemplate='<b style="color: #9467bd;">🟣 HUBROOM</b><br>' +
+                         '<span style="color: #666;">시간:</span> %{customdata[0]}<br>' +
+                         '<span style="color: #666;">값:</span> <b>%{y:.2f}</b>' +
+                         '<extra></extra>'
         ))
         
-        # 예측값1 라인 - 간단한 hover
+        # 예측값1 라인
         fig.add_trace(go.Scattergl(
             x=df['common_time'],
             y=df[predicted1_y_col], 
@@ -239,10 +249,14 @@ def create_graph(params, perf_values=None):
                      dash=None if params['predicted1_style'] == 'Solid' else params['predicted1_style'].lower(), 
                      width=3),
             marker=dict(size=6),
-            hovertemplate='<b>예측값1:</b> %{y:.2f}<extra></extra>'
+            customdata=df[['predicted1_time_str']].values,
+            hovertemplate='<b style="color: #ff7f0e;">🔶 예측값1</b><br>' +
+                         '<span style="color: #666;">시간:</span> %{customdata[0]}<br>' +
+                         '<span style="color: #666;">값:</span> <b>%{y:.2f}</b>' +
+                         '<extra></extra>'
         ))
         
-        # 예측값2 라인 - 간단한 hover
+        # 예측값2 라인
         fig.add_trace(go.Scattergl(
             x=df['common_time'],
             y=df[predicted2_y_col], 
@@ -252,10 +266,14 @@ def create_graph(params, perf_values=None):
                      dash=None if params['predicted2_style'] == 'Solid' else params['predicted2_style'].lower(), 
                      width=3),
             marker=dict(size=6),
-            hovertemplate='<b>예측값2:</b> %{y:.2f}<extra></extra>'
+            customdata=df[['predicted2_time_str']].values,
+            hovertemplate='<b style="color: #2ca02c;">🔷 예측값2</b><br>' +
+                         '<span style="color: #666;">시간:</span> %{customdata[0]}<br>' +
+                         '<span style="color: #666;">값:</span> <b>%{y:.2f}</b>' +
+                         '<extra></extra>'
         ))
         
-        # 예측값3 라인 - 간단한 hover
+        # 예측값3 라인
         fig.add_trace(go.Scattergl(
             x=df['common_time'],
             y=df[predicted3_y_col], 
@@ -265,10 +283,14 @@ def create_graph(params, perf_values=None):
                      dash=None if params['predicted3_style'] == 'Solid' else params['predicted3_style'].lower(), 
                      width=3),
             marker=dict(size=6),
-            hovertemplate='<b>예측값3:</b> %{y:.2f}<extra></extra>'
+            customdata=df[['predicted3_time_str']].values,
+            hovertemplate='<b style="color: #d62728;">🔸 예측값3</b><br>' +
+                         '<span style="color: #666;">시간:</span> %{customdata[0]}<br>' +
+                         '<span style="color: #666;">값:</span> <b>%{y:.2f}</b>' +
+                         '<extra></extra>'
         ))
         
-        # 트렌드 데이터 라인들 - 간단한 hover로 성능 개선
+        # 트렌드 데이터 라인들 - 간단하게만 표시
         trend_colors = ['#808080', '#A9A9A9', '#696969', '#778899', '#708090', 
                        '#2F4F4F', '#556B2F', '#8B4513', '#A0522D', '#B8860B',
                        '#BDB76B', '#8B008B', '#9932CC', '#8B0000', '#DC143C',
@@ -285,6 +307,7 @@ def create_graph(params, perf_values=None):
             
             if x_col in df.columns and y_col in df.columns:
                 color = trend_colors[idx % len(trend_colors)]
+                
                 fig.add_trace(go.Scattergl(
                     x=df[x_col],
                     y=df[y_col],
