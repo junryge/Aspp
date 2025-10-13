@@ -439,64 +439,16 @@ def create_graph(params, perf_values=None):
         output_filename = "final_guided_graph.html"
         html_content = fig.to_html(include_plotlyjs='cdn')
 
-        # 트렌드 데이터를 그룹별로 분류
-        trend_groups = {
-            'MAXCAP 그룹': [],
-            'UTIL 그룹': [],
-            'JOB 그룹': [],
-            '기타': []
-        }
-        
-        for trend_info in trend_data:
-            name = trend_info['name']
-            x_col = trend_info['x_col']
-            y_col = trend_info['y_col']
-            
-            if 'MAXCAP' in name:
-                trend_groups['MAXCAP 그룹'].append(f"{name} (X: {x_col}, Y: {y_col})")
-            elif 'UTIL' in name:
-                trend_groups['UTIL 그룹'].append(f"{name} (X: {x_col}, Y: {y_col})")
-            elif 'JOB' in name:
-                trend_groups['JOB 그룹'].append(f"{name} (X: {x_col}, Y: {y_col})")
-            else:
-                trend_groups['기타'].append(f"{name} (X: {x_col}, Y: {y_col})")
-        
-        # 트렌드 데이터 HTML 섹션 생성
-        trend_html_sections = ""
-        group_colors = {
-            'MAXCAP 그룹': '#3498DB',
-            'UTIL 그룹': '#E67E22',
-            'JOB 그룹': '#9B59B6',
-            '기타': '#95A5A6'
-        }
-        
-        for group_name, trends in trend_groups.items():
-            if trends:  # 해당 그룹에 데이터가 있을 때만
-                color = group_colors.get(group_name, '#95A5A6')
-                trend_items = ""
-                for trend in trends:
-                    trend_items += f"<li style='margin: 8px 0; padding: 8px; background-color: #f8f9fa; border-radius: 5px;'>{trend}</li>\n"
-                
-                trend_html_sections += f"""
-                <div style="margin-bottom: 25px;">
-                    <h3 style="color: {color}; border-left: 5px solid {color}; padding-left: 15px; margin-bottom: 15px;">
-                        📦 {group_name} ({len(trends)}개)
-                    </h3>
-                    <ul style="list-style: none; padding-left: 0;">
-                        {trend_items}
-                    </ul>
-                </div>
-                """
-
+        # HTML 하단에는 평가 결과 분석만 표시
         if perf_values:
             other_info = perf_values.get('other_info', '정보가 입력되지 않았습니다.')
             other_info_escaped = other_info.replace('<', '&lt;').replace('>', '&gt;')
             
-            performance_section = f"""
+            info_section = f"""
             <div style="margin: 30px auto; max-width: 1200px; padding: 0 20px;">
                 <div style="background-color: white; padding: 30px; border-radius: 10px; box-shadow: 0 2px 10px rgba(0,0,0,0.1);">
                     <h2 style="color: #2E86C1; text-align: center; margin-bottom: 30px; border-bottom: 3px solid #2E86C1; padding-bottom: 15px;">
-                        📊 평가 결과 분석 - 기타 정보
+                        📊 평가 결과 분석
                     </h2>
                     <div style="white-space: pre-wrap; line-height: 1.8; font-size: 14px; color: #333; background-color: #f8f9fa; padding: 25px; border-radius: 8px; border: 2px solid #dee2e6; font-family: 'Courier New', monospace;">
 {other_info_escaped}
@@ -505,26 +457,9 @@ def create_graph(params, perf_values=None):
             </div>
             """
         else:
-            performance_section = ""
-        
-        # 트렌드 데이터 섹션
-        if trend_html_sections:
-            trend_section = f"""
-            <div style="margin: 30px auto; max-width: 1200px; padding: 0 20px;">
-                <div style="background-color: white; padding: 30px; border-radius: 10px; box-shadow: 0 2px 10px rgba(0,0,0,0.1);">
-                    <h2 style="color: #27AE60; text-align: center; margin-bottom: 30px; border-bottom: 3px solid #27AE60; padding-bottom: 15px;">
-                        📈 트렌드 데이터 정보 (그룹별)
-                    </h2>
-                    <div style="padding: 20px;">
-                        {trend_html_sections}
-                    </div>
-                </div>
-            </div>
-            """
-        else:
-            trend_section = ""
+            info_section = ""
 
-        html_content = html_content.replace('</body>', performance_section + trend_section + '</body>')
+        html_content = html_content.replace('</body>', info_section + '</body>')
 
         style_section = """
         <style>
