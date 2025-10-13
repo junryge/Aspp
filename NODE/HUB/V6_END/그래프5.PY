@@ -191,6 +191,98 @@ def create_graph(params, perf_values=None):
         else:
             df['pattern_value'] = 'N/A'
             df['pattern_color'] = '#95A5A6'
+        
+        # 트렌드 데이터를 그룹별로 분류하고 준비
+        trend_groups_data = {
+            'MAXCAP': [],
+            'UTIL': [],
+            'JOB': []
+        }
+        
+        customdata_columns = [actual_y_col, 'actual_time_str', 
+                              hubroom_y_col, 'hubroom_time_str',
+                              predicted1_y_col, 'predicted1_time_str',
+                              predicted2_y_col, 'predicted2_time_str',
+                              predicted3_y_col, 'predicted3_time_str',
+                              'jump_value', 'jump_color', 'pattern_value', 'pattern_color']
+        
+        # 트렌드 데이터 준비 및 그룹화
+        for trend_info in trend_data:
+            x_col = trend_info.get('x_col', '')
+            y_col = trend_info.get('y_col', '')
+            name = trend_info.get('name', '')
+            
+            if not x_col or not y_col or not name:
+                continue
+            
+            if x_col in df.columns and y_col in df.columns:
+                # 시간 문자열 생성
+                try:
+                    df[f'{name}_time_str'] = pd.to_datetime(df[x_col]).dt.strftime('%Y-%m-%d %H:%M:%S')
+                except:
+                    df[f'{name}_time_str'] = df[x_col].astype(str)
+                
+                # customdata에 추가할 컬럼
+                customdata_columns.append(y_col)
+                customdata_columns.append(f'{name}_time_str')
+                
+                # 그룹 분류
+                if 'MAXCAP' in name:
+                    trend_groups_data['MAXCAP'].append({'name': name, 'idx': len(customdata_columns) - 2})
+                elif 'UTIL' in name:
+                    trend_groups_data['UTIL'].append({'name': name, 'idx': len(customdata_columns) - 2})
+                elif 'JOB' in name:
+                    trend_groups_data['JOB'].append({'name': name, 'idx': len(customdata_columns) - 2})
+        
+        # hovertemplate 동적 생성
+        hover_template = '<b style="color: #2E86C1; font-size: 14px;">📊 INFO 정보</b><br>'
+        hover_template += '<span style="color: #85C1E2;">═══════════════════</span><br>'
+        hover_template += '<b style="color: #1f77b4;">🔵 실제값</b><br>'
+        hover_template += '<span style="color: #666;">날짜:</span> <span style="color: #000;">%{customdata[1]}</span><br>'
+        hover_template += '<span style="color: #666;">실제값:</span> <b style="color: #1f77b4;">%{customdata[0]:.2f}</b><br>'
+        hover_template += '<span style="color: #85C1E2;">═══════════════════</span><br>'
+        hover_template += '<b style="color: #9467bd;">🟣 HUBROOM</b><br>'
+        hover_template += '<span style="color: #666;">날짜:</span> <span style="color: #000;">%{customdata[3]}</span><br>'
+        hover_template += '<span style="color: #666;">값:</span> <b style="color: #9467bd;">%{customdata[2]:.2f}</b><br>'
+        hover_template += '<span style="color: #85C1E2;">═══════════════════</span><br>'
+        hover_template += '<b style="color: #ff7f0e;">🔶 예측값1</b><br>'
+        hover_template += '<span style="color: #666;">날짜:</span> <span style="color: #000;">%{customdata[5]}</span><br>'
+        hover_template += '<span style="color: #666;">예측값:</span> <b style="color: #ff7f0e;">%{customdata[4]:.2f}</b><br>'
+        hover_template += '<span style="color: #85C1E2;">═══════════════════</span><br>'
+        hover_template += '<b style="color: #2ca02c;">🔷 예측값2</b><br>'
+        hover_template += '<span style="color: #666;">날짜:</span> <span style="color: #000;">%{customdata[7]}</span><br>'
+        hover_template += '<span style="color: #666;">예측값:</span> <b style="color: #2ca02c;">%{customdata[6]:.2f}</b><br>'
+        hover_template += '<span style="color: #85C1E2;">═══════════════════</span><br>'
+        hover_template += '<b style="color: #d62728;">🔸 예측값3</b><br>'
+        hover_template += '<span style="color: #666;">날짜:</span> <span style="color: #000;">%{customdata[9]}</span><br>'
+        hover_template += '<span style="color: #666;">예측값:</span> <b style="color: #d62728;">%{customdata[8]:.2f}</b><br>'
+        hover_template += '<span style="color: #85C1E2;">═══════════════════</span><br>'
+        hover_template += '<span style="color: #666;">점프예측:</span> '
+        hover_template += '<b style="color: %{customdata[11]};">%{customdata[10]}</b><br>'
+        hover_template += '<span style="color: #666;">패턴예측:</span> '
+        hover_template += '<b style="color: %{customdata[13]};">%{customdata[12]}</b>'
+        
+        # 트렌드 데이터 그룹별 추가
+        group_colors_emoji = {
+            'MAXCAP': ('📦', '#3498DB'),
+            'UTIL': ('📊', '#E67E22'),
+            'JOB': ('🔄', '#9B59B6')
+        }
+        
+        for group_name, trends in trend_groups_data.items():
+            if trends:
+                emoji, color = group_colors_emoji[group_name]
+                hover_template += '<br><span style="color: #85C1E2;">═══════════════════</span><br>'
+                hover_template += f'<b style="color: {color};">{emoji} {group_name} 그룹</b><br>'
+                
+                for trend in trends:
+                    idx = trend['idx']
+                    name = trend['name']
+                    hover_template += f'<span style="color: #666;">{name}:</span><br>'
+                    hover_template += f'<span style="color: #666;">  날짜:</span> <span style="color: #000;">%{{customdata[{idx+1}]}}</span><br>'
+                    hover_template += f'<span style="color: #666;">  값:</span> <b style="color: {color};">%{{customdata[{idx}]:.2f}}</b><br>'
+        
+        hover_template += '<extra></extra>'
 
         fig = go.Figure()
 
@@ -204,39 +296,8 @@ def create_graph(params, perf_values=None):
                      dash=None if params['actual_style'] == 'Solid' else params['actual_style'].lower(), 
                      width=3),
             marker=dict(size=6),
-            customdata=df[[actual_y_col, 'actual_time_str', 
-                          hubroom_y_col, 'hubroom_time_str',
-                          predicted1_y_col, 'predicted1_time_str',
-                          predicted2_y_col, 'predicted2_time_str',
-                          predicted3_y_col, 'predicted3_time_str',
-                          'jump_value', 'jump_color', 'pattern_value', 'pattern_color']].values,
-            hovertemplate='<b style="color: #2E86C1; font-size: 14px;">📊 INFO 정보</b><br>' +
-                         '<span style="color: #85C1E2;">═══════════════════</span><br>' +
-                         '<b style="color: #1f77b4;">🔵 실제값</b><br>' +
-                         '<span style="color: #666;">날짜:</span> <span style="color: #000;">%{customdata[1]}</span><br>' +
-                         '<span style="color: #666;">실제값:</span> <b style="color: #1f77b4;">%{customdata[0]:.2f}</b><br>' +
-                         '<span style="color: #85C1E2;">═══════════════════</span><br>' +
-                         '<b style="color: #9467bd;">🟣 HUBROOM</b><br>' +
-                         '<span style="color: #666;">날짜:</span> <span style="color: #000;">%{customdata[3]}</span><br>' +
-                         '<span style="color: #666;">값:</span> <b style="color: #9467bd;">%{customdata[2]:.2f}</b><br>' +
-                         '<span style="color: #85C1E2;">═══════════════════</span><br>' +
-                         '<b style="color: #ff7f0e;">🔶 예측값1</b><br>' +
-                         '<span style="color: #666;">날짜:</span> <span style="color: #000;">%{customdata[5]}</span><br>' +
-                         '<span style="color: #666;">예측값:</span> <b style="color: #ff7f0e;">%{customdata[4]:.2f}</b><br>' +
-                         '<span style="color: #85C1E2;">═══════════════════</span><br>' +
-                         '<b style="color: #2ca02c;">🔷 예측값2</b><br>' +
-                         '<span style="color: #666;">날짜:</span> <span style="color: #000;">%{customdata[7]}</span><br>' +
-                         '<span style="color: #666;">예측값:</span> <b style="color: #2ca02c;">%{customdata[6]:.2f}</b><br>' +
-                         '<span style="color: #85C1E2;">═══════════════════</span><br>' +
-                         '<b style="color: #d62728;">🔸 예측값3</b><br>' +
-                         '<span style="color: #666;">날짜:</span> <span style="color: #000;">%{customdata[9]}</span><br>' +
-                         '<span style="color: #666;">예측값:</span> <b style="color: #d62728;">%{customdata[8]:.2f}</b><br>' +
-                         '<span style="color: #85C1E2;">═══════════════════</span><br>' +
-                         '<span style="color: #666;">점프예측:</span> ' +
-                         '<b style="color: %{customdata[11]};">%{customdata[10]}</b><br>' +
-                         '<span style="color: #666;">패턴예측:</span> ' +
-                         '<b style="color: %{customdata[13]};">%{customdata[12]}</b>' +
-                         '<extra></extra>'
+            customdata=df[customdata_columns].values,
+            hovertemplate=hover_template
         ))
         
         # HUBROOM, 예측값들 라인 (간단한 호버)
@@ -363,6 +424,55 @@ def create_graph(params, perf_values=None):
         output_filename = "final_guided_graph.html"
         html_content = fig.to_html(include_plotlyjs='cdn')
 
+        # 트렌드 데이터를 그룹별로 분류
+        trend_groups = {
+            'MAXCAP 그룹': [],
+            'UTIL 그룹': [],
+            'JOB 그룹': [],
+            '기타': []
+        }
+        
+        for trend_info in trend_data:
+            name = trend_info['name']
+            x_col = trend_info['x_col']
+            y_col = trend_info['y_col']
+            
+            if 'MAXCAP' in name:
+                trend_groups['MAXCAP 그룹'].append(f"{name} (X: {x_col}, Y: {y_col})")
+            elif 'UTIL' in name:
+                trend_groups['UTIL 그룹'].append(f"{name} (X: {x_col}, Y: {y_col})")
+            elif 'JOB' in name:
+                trend_groups['JOB 그룹'].append(f"{name} (X: {x_col}, Y: {y_col})")
+            else:
+                trend_groups['기타'].append(f"{name} (X: {x_col}, Y: {y_col})")
+        
+        # 트렌드 데이터 HTML 섹션 생성
+        trend_html_sections = ""
+        group_colors = {
+            'MAXCAP 그룹': '#3498DB',
+            'UTIL 그룹': '#E67E22',
+            'JOB 그룹': '#9B59B6',
+            '기타': '#95A5A6'
+        }
+        
+        for group_name, trends in trend_groups.items():
+            if trends:  # 해당 그룹에 데이터가 있을 때만
+                color = group_colors.get(group_name, '#95A5A6')
+                trend_items = ""
+                for trend in trends:
+                    trend_items += f"<li style='margin: 8px 0; padding: 8px; background-color: #f8f9fa; border-radius: 5px;'>{trend}</li>\n"
+                
+                trend_html_sections += f"""
+                <div style="margin-bottom: 25px;">
+                    <h3 style="color: {color}; border-left: 5px solid {color}; padding-left: 15px; margin-bottom: 15px;">
+                        📦 {group_name} ({len(trends)}개)
+                    </h3>
+                    <ul style="list-style: none; padding-left: 0;">
+                        {trend_items}
+                    </ul>
+                </div>
+                """
+
         if perf_values:
             other_info = perf_values.get('other_info', '정보가 입력되지 않았습니다.')
             other_info_escaped = other_info.replace('<', '&lt;').replace('>', '&gt;')
@@ -381,8 +491,25 @@ def create_graph(params, perf_values=None):
             """
         else:
             performance_section = ""
+        
+        # 트렌드 데이터 섹션
+        if trend_html_sections:
+            trend_section = f"""
+            <div style="margin: 30px auto; max-width: 1200px; padding: 0 20px;">
+                <div style="background-color: white; padding: 30px; border-radius: 10px; box-shadow: 0 2px 10px rgba(0,0,0,0.1);">
+                    <h2 style="color: #27AE60; text-align: center; margin-bottom: 30px; border-bottom: 3px solid #27AE60; padding-bottom: 15px;">
+                        📈 트렌드 데이터 정보 (그룹별)
+                    </h2>
+                    <div style="padding: 20px;">
+                        {trend_html_sections}
+                    </div>
+                </div>
+            </div>
+            """
+        else:
+            trend_section = ""
 
-        html_content = html_content.replace('</body>', performance_section + '</body>')
+        html_content = html_content.replace('</body>', performance_section + trend_section + '</body>')
 
         style_section = """
         <style>
