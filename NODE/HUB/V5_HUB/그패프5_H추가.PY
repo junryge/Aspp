@@ -1,5 +1,5 @@
 import tkinter as tk
-from tkinter import filedialog, messagebox, colorchooser, scrolledtext
+from tkinter import filedialog, messagebox, colorchooser, scrolledtext, ttk
 import pandas as pd
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
@@ -30,98 +30,43 @@ class PerformanceWindow:
         self.window.title("평가 결과 분석 입력")
         self.window.geometry("600x700")
         
-        # 값들을 저장할 변수 초기화
         self.values = None
         
-        # 메인 프레임
         main_frame = tk.Frame(self.window)
         main_frame.pack(fill='both', expand=True, padx=10, pady=10)
         
-        # 상단 프레임 - 성능 지표 입력
         top_frame = tk.LabelFrame(main_frame, text="📊 전체 성능 지표 입력", padx=10, pady=10)
         top_frame.pack(fill='x', pady=(0, 10))
         
-        # 성능 지표 입력 필드들
         input_frame = tk.Frame(top_frame)
         input_frame.pack(pady=10)
         
-        # MAE 입력
         tk.Label(input_frame, text="MAE:", font=('Arial', 10)).grid(row=0, column=0, sticky='e', padx=5, pady=5)
         self.mae_var = tk.StringVar(value="30.23")
         tk.Entry(input_frame, textvariable=self.mae_var, width=15).grid(row=0, column=1, padx=5, pady=5)
         
-        # RMSE 입력
         tk.Label(input_frame, text="RMSE:", font=('Arial', 10)).grid(row=1, column=0, sticky='e', padx=5, pady=5)
         self.rmse_var = tk.StringVar(value="36.02")
         tk.Entry(input_frame, textvariable=self.rmse_var, width=15).grid(row=1, column=1, padx=5, pady=5)
         
-        # R² 입력
         tk.Label(input_frame, text="R²:", font=('Arial', 10)).grid(row=2, column=0, sticky='e', padx=5, pady=5)
         self.r2_var = tk.StringVar(value="0.72")
         tk.Entry(input_frame, textvariable=self.r2_var, width=15).grid(row=2, column=1, padx=5, pady=5)
         
-        # 하단 프레임 - 기타 정보
         bottom_frame = tk.LabelFrame(main_frame, text="📝 기타 정보 (붙여넣기 가능)", padx=10, pady=10)
         bottom_frame.pack(fill='both', expand=True)
         
-        # 스크롤 가능한 텍스트 위젯
         self.text_widget = scrolledtext.ScrolledText(bottom_frame, height=20, width=70, wrap=tk.WORD)
         self.text_widget.pack(fill='both', expand=True)
         
-        # 샘플 텍스트
-        self.text_widget.insert('1.0', """📊 점프 케이스 감지 현황:
-  - 실제 점프 케이스: 66개
-  - 감지된 점프 케이스: 51개
-  - 감지율: 77.3%
-
-================================================================================
-📊 평가 결과 분석
-================================================================================
-
-📈 전체 성능:
-  - MAE: 30.23
-  - RMSE: 36.02
-  - R²: 0.72
-  - 총 예측 수: 34518
-
-🎯 극단값(300+) 감지:
-  - 실제 300+ 케이스: 7318개
-  - 감지된 케이스: 7222개
-  - 감지율: 98.7%
-
-🚀 점프 케이스 (과거<280 → 실제300+):
-  - 총 점프 케이스: 66개
-  - 감지된 케이스: 51개
-  - 점프 감지율: 77.3%
-  
-📊 점프 케이스 상세:
-  - 2025-08-08 09:33: 실제 303, 예측 307.19, 점프예측 O (확률 0.2%)
-  - 2025-08-08 09:36: 실제 316, 예측 309.0, 점프예측 O (확률 0.1%)
-  - 2025-08-08 09:37: 실제 307, 예측 313.85, 점프예측 O (확률 0.3%)
-  - 2025-08-08 09:38: 실제 308, 예측 317.05, 점프예측 O (확률 0.2%)
-  - 2025-08-08 09:39: 실제 306, 예측 315.86, 점프예측 O (확률 0.1%)
-
-⚠️ False Positive:
-  - 실제 <300 케이스: 27200개
-  - 잘못 예측된 케이스: 5082개
-  - FP Rate: 18.7%
-
-📊 3구간 분류 정확도: 94.5%
-
-📈 패턴 예측 분포:
-  - 하락: 15301개 (44.3%)
-  - 안정: 10594개 (30.7%)
-  - 점진상승: 7562개 (21.9%)
-  - 급상승: 1061개 (3.1%)""")
+        self.text_widget.insert('1.0', """📊 평가 결과 분석""")
         
-        # 확인 버튼
         tk.Button(main_frame, text="확인", 
                  command=self.save_and_close,
                  bg='#3498DB', fg='white',
                  font=('Arial', 10, 'bold')).pack(pady=10)
         
     def save_and_close(self):
-        """값을 저장하고 창을 닫기"""
         self.values = {
             'mae': self.mae_var.get(),
             'rmse': self.rmse_var.get(),
@@ -135,7 +80,6 @@ class PerformanceWindow:
 # --------------------------------------------------------------------------
 def create_graph(params, perf_values=None):
     try:
-        # 인코딩 안전하게 읽기
         df = read_csv_safe(params['file_path'])
         
         actual_x_col = params['actual_x']
@@ -146,15 +90,31 @@ def create_graph(params, perf_values=None):
         predicted1_y_col = params['predicted1_y']
         predicted2_x_col = params['predicted2_x']
         predicted2_y_col = params['predicted2_y']
+        predicted3_x_col = params['predicted3_x']
+        predicted3_y_col = params['predicted3_y']
         
         # Y값을 숫자로 변환
         df[actual_y_col] = pd.to_numeric(df[actual_y_col], errors='coerce')
         df[hubroom_y_col] = pd.to_numeric(df[hubroom_y_col], errors='coerce')
         df[predicted1_y_col] = pd.to_numeric(df[predicted1_y_col], errors='coerce')
         df[predicted2_y_col] = pd.to_numeric(df[predicted2_y_col], errors='coerce')
+        df[predicted3_y_col] = pd.to_numeric(df[predicted3_y_col], errors='coerce')
         
-        # NaN 제거
-        df = df.dropna(subset=[actual_y_col, hubroom_y_col, predicted1_y_col, predicted2_y_col])
+        # 트렌드 데이터 처리
+        trend_data = params.get('trend_data', [])
+        for trend_info in trend_data:
+            x_col = trend_info['x_col']
+            y_col = trend_info['y_col']
+            if x_col in df.columns and y_col in df.columns:
+                df[y_col] = pd.to_numeric(df[y_col], errors='coerce')
+                try:
+                    df[x_col] = pd.to_datetime(df[x_col])
+                except:
+                    pass
+        
+        # 필수 컬럼만 NaN 체크
+        required_cols = [actual_y_col, hubroom_y_col, predicted1_y_col, predicted2_y_col, predicted3_y_col]
+        df = df.dropna(subset=required_cols)
         
         # 점프예측 컬럼 확인
         jump_col = None
@@ -169,7 +129,7 @@ def create_graph(params, perf_values=None):
             if '패턴예측' in col or 'pattern' in col.lower():
                 pattern_col = col
                 break
-
+        
         # 날짜 변환 및 포맷팅
         try:
             df[actual_x_col] = pd.to_datetime(df[actual_x_col])
@@ -194,6 +154,12 @@ def create_graph(params, perf_values=None):
             df['predicted2_time_str'] = df[predicted2_x_col].dt.strftime('%Y-%m-%d %H:%M:%S')
         except:
             df['predicted2_time_str'] = df[predicted2_x_col].astype(str)
+            
+        try:
+            df[predicted3_x_col] = pd.to_datetime(df[predicted3_x_col])
+            df['predicted3_time_str'] = df[predicted3_x_col].dt.strftime('%Y-%m-%d %H:%M:%S')
+        except:
+            df['predicted3_time_str'] = df[predicted3_x_col].astype(str)
         
         # 실제값의 시간을 공통 시간축으로 사용
         df['common_time'] = df[actual_x_col]
@@ -225,10 +191,117 @@ def create_graph(params, perf_values=None):
         else:
             df['pattern_value'] = 'N/A'
             df['pattern_color'] = '#95A5A6'
+        
+        # 트렌드 데이터 준비 - 각 트렌드의 시간과 값을 df에 추가
+        trend_info_list = []  # INFO에 표시할 트렌드 정보 저장
+        customdata_columns = [actual_y_col, 'actual_time_str', 
+                              hubroom_y_col, 'hubroom_time_str',
+                              predicted1_y_col, 'predicted1_time_str',
+                              predicted2_y_col, 'predicted2_time_str',
+                              predicted3_y_col, 'predicted3_time_str',
+                              'jump_value', 'jump_color', 'pattern_value', 'pattern_color']
+        
+        current_idx = 14  # customdata에서 다음 인덱스 (0-13까지 이미 사용중)
+        
+        # 각 트렌드 데이터 처리
+        for trend_info in trend_data:
+            x_col = trend_info.get('x_col', '')
+            y_col = trend_info.get('y_col', '')
+            name = trend_info.get('name', '')
+            
+            if not x_col or not y_col or not name:
+                continue
+            
+            if x_col in df.columns and y_col in df.columns:
+                # Y값이 숫자인지 확인
+                try:
+                    df[y_col] = pd.to_numeric(df[y_col], errors='coerce')
+                except:
+                    continue
+                
+                # 시간 문자열 생성
+                time_col_name = f'trend_{name}_time'
+                try:
+                    df[time_col_name] = pd.to_datetime(df[x_col]).dt.strftime('%Y-%m-%d %H:%M:%S')
+                except:
+                    df[time_col_name] = df[x_col].astype(str)
+                
+                # customdata 컬럼에 추가
+                customdata_columns.append(y_col)
+                customdata_columns.append(time_col_name)
+                
+                # INFO 표시 정보 저장
+                trend_info_list.append({
+                    'name': name,
+                    'value_idx': current_idx,
+                    'time_idx': current_idx + 1,
+                    'group': 'MAXCAP' if 'MAXCAP' in name else 'UTIL' if 'UTIL' in name else 'JOB' if 'JOB' in name else '기타'
+                })
+                
+                current_idx += 2
+        
+        # hovertemplate 생성
+        hover_template = '<b style="color: #2E86C1; font-size: 16px;">📊 INFO 정보</b><br>'
+        hover_template += '<span style="color: #85C1E2;">═══════════════════</span><br>'
+        hover_template += '<b style="color: #1f77b4;">🔵 실제값</b><br>'
+        hover_template += '<span style="color: #666;">날짜:</span> <span style="color: #000;">%{customdata[1]}</span><br>'
+        hover_template += '<span style="color: #666;">실제값:</span> <b style="color: #1f77b4;">%{customdata[0]:.2f}</b><br>'
+        hover_template += '<span style="color: #85C1E2;">═══════════════════</span><br>'
+        hover_template += '<b style="color: #9467bd;">🟣 HUBROOM</b><br>'
+        hover_template += '<span style="color: #666;">날짜:</span> <span style="color: #000;">%{customdata[3]}</span><br>'
+        hover_template += '<span style="color: #666;">값:</span> <b style="color: #9467bd;">%{customdata[2]:.2f}</b><br>'
+        hover_template += '<span style="color: #85C1E2;">═══════════════════</span><br>'
+        hover_template += '<b style="color: #ff7f0e;">🔶 예측값1</b><br>'
+        hover_template += '<span style="color: #666;">날짜:</span> <span style="color: #000;">%{customdata[5]}</span><br>'
+        hover_template += '<span style="color: #666;">예측값:</span> <b style="color: #ff7f0e;">%{customdata[4]:.2f}</b><br>'
+        hover_template += '<span style="color: #85C1E2;">═══════════════════</span><br>'
+        hover_template += '<b style="color: #2ca02c;">🔷 예측값2</b><br>'
+        hover_template += '<span style="color: #666;">날짜:</span> <span style="color: #000;">%{customdata[7]}</span><br>'
+        hover_template += '<span style="color: #666;">예측값:</span> <b style="color: #2ca02c;">%{customdata[6]:.2f}</b><br>'
+        hover_template += '<span style="color: #85C1E2;">═══════════════════</span><br>'
+        hover_template += '<b style="color: #d62728;">🔸 예측값3</b><br>'
+        hover_template += '<span style="color: #666;">날짜:</span> <span style="color: #000;">%{customdata[9]}</span><br>'
+        hover_template += '<span style="color: #666;">예측값:</span> <b style="color: #d62728;">%{customdata[8]:.2f}</b><br>'
+        hover_template += '<span style="color: #85C1E2;">═══════════════════</span><br>'
+        hover_template += '<span style="color: #666;">점프예측:</span> '
+        hover_template += '<b style="color: %{customdata[11]};">%{customdata[10]}</b><br>'
+        hover_template += '<span style="color: #666;">패턴예측:</span> '
+        hover_template += '<b style="color: %{customdata[13]};">%{customdata[12]}</b>'
+        
+        # 트렌드 데이터 그룹별로 추가
+        group_colors = {
+            'MAXCAP': ('#3498DB', '📦'),
+            'UTIL': ('#E67E22', '📊'),
+            'JOB': ('#9B59B6', '🔄'),
+            '기타': ('#95A5A6', '📌')
+        }
+        
+        # 그룹별로 정렬
+        grouped_trends = {'MAXCAP': [], 'UTIL': [], 'JOB': [], '기타': []}
+        for trend in trend_info_list:
+            grouped_trends[trend['group']].append(trend)
+        
+        # 각 그룹 출력
+        for group_name in ['MAXCAP', 'UTIL', 'JOB', '기타']:
+            trends = grouped_trends[group_name]
+            if trends:
+                color, emoji = group_colors[group_name]
+                hover_template += '<br><span style="color: #85C1E2;">═══════════════════</span><br>'
+                hover_template += f'<b style="color: {color}; font-size: 14px;">{emoji} {group_name} 그룹 ({len(trends)}개)</b><br>'
+                
+                for trend in trends:
+                    name = trend['name']
+                    val_idx = trend['value_idx']
+                    time_idx = trend['time_idx']
+                    hover_template += f'<span style="color: #666;">{name}:</span><br>'
+                    hover_template += f'  <span style="color: #666;">날짜:</span> %{{customdata[{time_idx}]}}<br>'
+                    hover_template += f'  <span style="color: #666;">값:</span> <b style="color: {color};">%{{customdata[{val_idx}]:.2f}}</b><br>'
+        
+        hover_template += '<extra></extra>'
 
         fig = go.Figure()
 
-        # 실제값 라인
+        # 실제값 라인 - 전체 정보 포함
         fig.add_trace(go.Scattergl(
             x=df['common_time'],
             y=df[actual_y_col], 
@@ -236,37 +309,13 @@ def create_graph(params, perf_values=None):
             name='실제값 (Actual)',
             line=dict(color=params['actual_color'], 
                      dash=None if params['actual_style'] == 'Solid' else params['actual_style'].lower(), 
-                     width=2),
-            marker=dict(size=5),
-            customdata=df[[actual_y_col, 'actual_time_str', 
-                          hubroom_y_col, 'hubroom_time_str',
-                          predicted1_y_col, 'predicted1_time_str', 
-                          predicted2_y_col, 'predicted2_time_str',
-                          'jump_value', 'jump_color', 'pattern_value', 'pattern_color']].values,
-            hovertemplate='<b style="color: #2E86C1; font-size: 14px;">📊 INFO 정보</b><br>' +
-                         '<span style="color: #85C1E2;">═══════════════════</span><br>' +
-                         '<b style="color: #1f77b4;">🔵 실제값</b><br>' +
-                         '<span style="color: #666;">날짜:</span> <span style="color: #000;">%{customdata[1]}</span><br>' +
-                         '<span style="color: #666;">실제값:</span> <b style="color: #1f77b4;">%{customdata[0]:.2f}</b><br>' +
-                         '<span style="color: #85C1E2;">═══════════════════</span><br>' +
-                         '<b style="color: #9467bd;">🟣 HUBROOM</b><br>' + 
-                         '<span style="color: #666;">날짜:</span> <span style="color: #000;">%{customdata[3]}</span><br>' +
-                         '<span style="color: #666;">값:</span> <b style="color: #9467bd;">%{customdata[2]:.2f}</b><br>' +
-                         '<span style="color: #85C1E2;">═══════════════════</span><br>' +
-                         '<b style="color: #ff7f0e;">🔶 예측값1</b><br>' + 
-                         '<span style="color: #666;">예측날짜:</span> <span style="color: #000;">%{customdata[5]}</span><br>' +
-                         '<span style="color: #666;">예측값:</span> <b style="color: #ff7f0e;">%{customdata[4]:.2f}</b><br>' +
-                         '<span style="color: #85C1E2;">═══════════════════</span><br>' +
-                         '<b style="color: #2ca02c;">🔷 예측값2</b><br>' + 
-                         '<span style="color: #666;">예측날짜:</span> <span style="color: #000;">%{customdata[7]}</span><br>' +
-                         '<span style="color: #666;">예측값:</span> <b style="color: #2ca02c;">%{customdata[6]:.2f}</b><br>' +
-                         '<span style="color: #85C1E2;">═══════════════════</span><br>' +
-                         '<span style="color: #666;">점프예측:</span> <b style="color: %{customdata[9]};">%{customdata[8]}</b><br>' +
-                         '<span style="color: #666;">패턴예측:</span> <b style="color: %{customdata[11]};">%{customdata[10]}</b>' +
-                         '<extra></extra>'
+                     width=3),
+            marker=dict(size=6),
+            customdata=df[customdata_columns].values,
+            hovertemplate=hover_template
         ))
         
-        # HUBROOM 라인
+        # HUBROOM 라인 - 동일한 INFO 정보 표시
         fig.add_trace(go.Scattergl(
             x=df['common_time'],
             y=df[hubroom_y_col], 
@@ -274,37 +323,13 @@ def create_graph(params, perf_values=None):
             name='HUBROOM',
             line=dict(color=params['hubroom_color'], 
                      dash=None if params['hubroom_style'] == 'Solid' else params['hubroom_style'].lower(), 
-                     width=2),
-            marker=dict(size=5),
-            customdata=df[[actual_y_col, 'actual_time_str', 
-                          hubroom_y_col, 'hubroom_time_str',
-                          predicted1_y_col, 'predicted1_time_str', 
-                          predicted2_y_col, 'predicted2_time_str',
-                          'jump_value', 'jump_color', 'pattern_value', 'pattern_color']].values,
-            hovertemplate='<b style="color: #2E86C1; font-size: 14px;">📊 INFO 정보</b><br>' +
-                         '<span style="color: #85C1E2;">═══════════════════</span><br>' +
-                         '<b style="color: #1f77b4;">🔵 실제값</b><br>' +
-                         '<span style="color: #666;">날짜:</span> <span style="color: #000;">%{customdata[1]}</span><br>' +
-                         '<span style="color: #666;">실제값:</span> <b style="color: #1f77b4;">%{customdata[0]:.2f}</b><br>' +
-                         '<span style="color: #85C1E2;">═══════════════════</span><br>' +
-                         '<b style="color: #9467bd;">🟣 HUBROOM</b><br>' + 
-                         '<span style="color: #666;">날짜:</span> <span style="color: #000;">%{customdata[3]}</span><br>' +
-                         '<span style="color: #666;">값:</span> <b style="color: #9467bd;">%{customdata[2]:.2f}</b><br>' +
-                         '<span style="color: #85C1E2;">═══════════════════</span><br>' +
-                         '<b style="color: #ff7f0e;">🔶 예측값1</b><br>' + 
-                         '<span style="color: #666;">예측날짜:</span> <span style="color: #000;">%{customdata[5]}</span><br>' +
-                         '<span style="color: #666;">예측값:</span> <b style="color: #ff7f0e;">%{customdata[4]:.2f}</b><br>' +
-                         '<span style="color: #85C1E2;">═══════════════════</span><br>' +
-                         '<b style="color: #2ca02c;">🔷 예측값2</b><br>' + 
-                         '<span style="color: #666;">예측날짜:</span> <span style="color: #000;">%{customdata[7]}</span><br>' +
-                         '<span style="color: #666;">예측값:</span> <b style="color: #2ca02c;">%{customdata[6]:.2f}</b><br>' +
-                         '<span style="color: #85C1E2;">═══════════════════</span><br>' +
-                         '<span style="color: #666;">점프예측:</span> <b style="color: %{customdata[9]};">%{customdata[8]}</b><br>' +
-                         '<span style="color: #666;">패턴예측:</span> <b style="color: %{customdata[11]};">%{customdata[10]}</b>' +
-                         '<extra></extra>'
+                     width=3),
+            marker=dict(size=6),
+            customdata=df[customdata_columns].values,
+            hovertemplate=hover_template
         ))
         
-        # 예측값1 라인
+        # 예측값1 라인 - 동일한 INFO 정보 표시
         fig.add_trace(go.Scattergl(
             x=df['common_time'],
             y=df[predicted1_y_col], 
@@ -312,37 +337,13 @@ def create_graph(params, perf_values=None):
             name='예측값1 (Predicted1)',
             line=dict(color=params['predicted1_color'], 
                      dash=None if params['predicted1_style'] == 'Solid' else params['predicted1_style'].lower(), 
-                     width=2),
-            marker=dict(size=5),
-            customdata=df[[actual_y_col, 'actual_time_str', 
-                          hubroom_y_col, 'hubroom_time_str',
-                          predicted1_y_col, 'predicted1_time_str', 
-                          predicted2_y_col, 'predicted2_time_str',
-                          'jump_value', 'jump_color', 'pattern_value', 'pattern_color']].values,
-            hovertemplate='<b style="color: #2E86C1; font-size: 14px;">📊 INFO 정보</b><br>' +
-                         '<span style="color: #85C1E2;">═══════════════════</span><br>' +
-                         '<b style="color: #1f77b4;">🔵 실제값</b><br>' +
-                         '<span style="color: #666;">날짜:</span> <span style="color: #000;">%{customdata[1]}</span><br>' +
-                         '<span style="color: #666;">실제값:</span> <b style="color: #1f77b4;">%{customdata[0]:.2f}</b><br>' +
-                         '<span style="color: #85C1E2;">═══════════════════</span><br>' +
-                         '<b style="color: #9467bd;">🟣 HUBROOM</b><br>' + 
-                         '<span style="color: #666;">날짜:</span> <span style="color: #000;">%{customdata[3]}</span><br>' +
-                         '<span style="color: #666;">값:</span> <b style="color: #9467bd;">%{customdata[2]:.2f}</b><br>' +
-                         '<span style="color: #85C1E2;">═══════════════════</span><br>' +
-                         '<b style="color: #ff7f0e;">🔶 예측값1</b><br>' + 
-                         '<span style="color: #666;">예측날짜:</span> <span style="color: #000;">%{customdata[5]}</span><br>' +
-                         '<span style="color: #666;">예측값:</span> <b style="color: #ff7f0e;">%{customdata[4]:.2f}</b><br>' +
-                         '<span style="color: #85C1E2;">═══════════════════</span><br>' +
-                         '<b style="color: #2ca02c;">🔷 예측값2</b><br>' + 
-                         '<span style="color: #666;">예측날짜:</span> <span style="color: #000;">%{customdata[7]}</span><br>' +
-                         '<span style="color: #666;">예측값:</span> <b style="color: #2ca02c;">%{customdata[6]:.2f}</b><br>' +
-                         '<span style="color: #85C1E2;">═══════════════════</span><br>' +
-                         '<span style="color: #666;">점프예측:</span> <b style="color: %{customdata[9]};">%{customdata[8]}</b><br>' +
-                         '<span style="color: #666;">패턴예측:</span> <b style="color: %{customdata[11]};">%{customdata[10]}</b>' +
-                         '<extra></extra>'
+                     width=3),
+            marker=dict(size=6),
+            customdata=df[customdata_columns].values,
+            hovertemplate=hover_template
         ))
         
-        # 예측값2 라인
+        # 예측값2 라인 - 동일한 INFO 정보 표시
         fig.add_trace(go.Scattergl(
             x=df['common_time'],
             y=df[predicted2_y_col], 
@@ -350,37 +351,55 @@ def create_graph(params, perf_values=None):
             name='예측값2 (Predicted2)',
             line=dict(color=params['predicted2_color'], 
                      dash=None if params['predicted2_style'] == 'Solid' else params['predicted2_style'].lower(), 
-                     width=2),
-            marker=dict(size=5),
-            customdata=df[[actual_y_col, 'actual_time_str', 
-                          hubroom_y_col, 'hubroom_time_str',
-                          predicted1_y_col, 'predicted1_time_str', 
-                          predicted2_y_col, 'predicted2_time_str',
-                          'jump_value', 'jump_color', 'pattern_value', 'pattern_color']].values,
-            hovertemplate='<b style="color: #2E86C1; font-size: 14px;">📊 INFO 정보</b><br>' +
-                         '<span style="color: #85C1E2;">═══════════════════</span><br>' +
-                         '<b style="color: #1f77b4;">🔵 실제값</b><br>' +
-                         '<span style="color: #666;">날짜:</span> <span style="color: #000;">%{customdata[1]}</span><br>' +
-                         '<span style="color: #666;">실제값:</span> <b style="color: #1f77b4;">%{customdata[0]:.2f}</b><br>' +
-                         '<span style="color: #85C1E2;">═══════════════════</span><br>' +
-                         '<b style="color: #9467bd;">🟣 HUBROOM</b><br>' + 
-                         '<span style="color: #666;">날짜:</span> <span style="color: #000;">%{customdata[3]}</span><br>' +
-                         '<span style="color: #666;">값:</span> <b style="color: #9467bd;">%{customdata[2]:.2f}</b><br>' +
-                         '<span style="color: #85C1E2;">═══════════════════</span><br>' +
-                         '<b style="color: #ff7f0e;">🔶 예측값1</b><br>' + 
-                         '<span style="color: #666;">예측날짜:</span> <span style="color: #000;">%{customdata[5]}</span><br>' +
-                         '<span style="color: #666;">예측값:</span> <b style="color: #ff7f0e;">%{customdata[4]:.2f}</b><br>' +
-                         '<span style="color: #85C1E2;">═══════════════════</span><br>' +
-                         '<b style="color: #2ca02c;">🔷 예측값2</b><br>' + 
-                         '<span style="color: #666;">예측날짜:</span> <span style="color: #000;">%{customdata[7]}</span><br>' +
-                         '<span style="color: #666;">예측값:</span> <b style="color: #2ca02c;">%{customdata[6]:.2f}</b><br>' +
-                         '<span style="color: #85C1E2;">═══════════════════</span><br>' +
-                         '<span style="color: #666;">점프예측:</span> <b style="color: %{customdata[9]};">%{customdata[8]}</b><br>' +
-                         '<span style="color: #666;">패턴예측:</span> <b style="color: %{customdata[11]};">%{customdata[10]}</b>' +
-                         '<extra></extra>'
+                     width=3),
+            marker=dict(size=6),
+            customdata=df[customdata_columns].values,
+            hovertemplate=hover_template
         ))
         
-        # 리미트선 추가
+        # 예측값3 라인 - 동일한 INFO 정보 표시
+        fig.add_trace(go.Scattergl(
+            x=df['common_time'],
+            y=df[predicted3_y_col], 
+            mode='lines+markers',
+            name='예측값3 (Predicted3)',
+            line=dict(color=params['predicted3_color'], 
+                     dash=None if params['predicted3_style'] == 'Solid' else params['predicted3_style'].lower(), 
+                     width=3),
+            marker=dict(size=6),
+            customdata=df[customdata_columns].values,
+            hovertemplate=hover_template
+        ))
+        
+        # 트렌드 데이터 라인들 - 모두 동일한 INFO 정보 표시
+        trend_colors = ['#808080', '#A9A9A9', '#696969', '#778899', '#708090', 
+                       '#2F4F4F', '#556B2F', '#8B4513', '#A0522D', '#B8860B',
+                       '#BDB76B', '#8B008B', '#9932CC', '#8B0000', '#DC143C',
+                       '#FF6347', '#FF4500']
+        
+        for idx, trend_info in enumerate(trend_data):
+            x_col = trend_info.get('x_col', '')
+            y_col = trend_info.get('y_col', '')
+            name = trend_info.get('name', '')
+            
+            # 빈 문자열이거나 컬럼이 없으면 스킵
+            if not x_col or not y_col or not name:
+                continue
+            
+            if x_col in df.columns and y_col in df.columns:
+                color = trend_colors[idx % len(trend_colors)]
+                fig.add_trace(go.Scattergl(
+                    x=df[x_col],
+                    y=df[y_col],
+                    mode='lines',
+                    name=f'Trend: {name}',
+                    line=dict(color=color, dash='dot', width=1.5),
+                    opacity=0.7,
+                    customdata=df[customdata_columns].values,
+                    hovertemplate=hover_template
+                ))
+        
+        # 리미트선
         try:
             limit_value = float(params.get('limit_value', 300))
             all_x = df['common_time'].sort_values()
@@ -393,15 +412,13 @@ def create_graph(params, perf_values=None):
                 mode='lines',
                 name=f'리미트선 ({limit_value})',
                 line=dict(color='red', width=2.5),
-                hovertemplate='<b style="color: red;">⚠️ 리미트선</b><br>' +
-                             f'<span style="color: red;">설정값: {limit_value:.2f}</span><br>' +
-                             '<span style="color: #666;">시간: %{x}</span>' +
-                             '<extra></extra>'
+                hovertemplate=f'<b style="color: red;">⚠️ 리미트선: {limit_value:.2f}</b><extra></extra>'
             ))
-        except:
+        except Exception as e:
+            print(f"리미트선 생성 중 오류: {e}")
             pass
         
-        # 레이아웃 업데이트
+        # 레이아웃
         fig.update_layout(
             title=params['title'], 
             xaxis_title='시간', 
@@ -411,6 +428,12 @@ def create_graph(params, perf_values=None):
             xaxis=dict(showgrid=True, gridcolor='lightgray'),
             yaxis=dict(showgrid=True, gridcolor='lightgray'),
             showlegend=True,
+            legend=dict(
+                yanchor="top",
+                y=0.99,
+                xanchor="left",
+                x=0.01
+            ),
             hoverlabel=dict(
                 bgcolor="white",
                 font_size=12,
@@ -419,39 +442,10 @@ def create_graph(params, perf_values=None):
             )
         )
 
-        # 메인 그래프 HTML 생성
         output_filename = "final_guided_graph.html"
         html_content = fig.to_html(include_plotlyjs='cdn')
 
-        # 성능 정보 HTML 섹션 생성
-        if perf_values:
-            other_info = perf_values.get('other_info', '정보가 입력되지 않았습니다.')
-            other_info_escaped = other_info.replace('<', '&lt;').replace('>', '&gt;')
-            
-            performance_section = f"""
-            <div style="margin: 30px auto; max-width: 1200px; padding: 0 20px;">
-                <div style="background-color: white; padding: 30px; border-radius: 10px; box-shadow: 0 2px 10px rgba(0,0,0,0.1);">
-                    <h2 style="color: #2E86C1; text-align: center; margin-bottom: 30px; border-bottom: 3px solid #2E86C1; padding-bottom: 15px;">
-                        📊 평가 결과 분석 - 기타 정보
-                    </h2>
-                    <div style="white-space: pre-wrap; line-height: 1.8; font-size: 14px; color: #333; background-color: #f8f9fa; padding: 25px; border-radius: 8px; border: 2px solid #dee2e6; font-family: 'Courier New', monospace;">
-{other_info_escaped}
-                    </div>
-                </div>
-            </div>
-            """
-        else:
-            performance_section = """
-            <div style="margin: 30px auto; max-width: 1200px; padding: 0 20px;">
-                <div style="background-color: #fff3cd; padding: 20px; border-radius: 10px; border: 2px solid #ffc107;">
-                    <p style="text-align: center; color: #856404; margin: 0;">
-                        ⚠️ 기타 정보가 입력되지 않았습니다. '내용정보 입력' 버튼을 클릭하여 정보를 입력해주세요.
-                    </p>
-                </div>
-            </div>
-            """
-
-        html_content = html_content.replace('</body>', performance_section + '</body>')
+        # HTML 하단에는 아무것도 표시하지 않음 - 그래프 호버에만 INFO 정보 표시
 
         style_section = """
         <style>
@@ -462,7 +456,7 @@ def create_graph(params, perf_values=None):
             }
             .plotly-graph-div {
                 margin: 0 auto;
-                max-width: 1200px;
+                max-width: 1400px;
             }
         </style>
         """
@@ -473,65 +467,95 @@ def create_graph(params, perf_values=None):
 
         webbrowser.open('file://' + os.path.realpath(output_filename))
 
+        trend_count = len(trend_data)
         messagebox.showinfo("성공", 
             f"'{output_filename}' 파일이 생성되었습니다.\n\n"
-            f"✅ 실제값 + HUBROOM + 예측값1 + 예측값2 (총 4개 라인)\n"
-            f"✅ 모든 라인이 같은 시간축에 겹쳐서 표시\n"
-            f"✅ 그래프와 성능 정보 통합\n"
-            f"✅ 점프예측/패턴예측 정보 표시\n"
-            f"✅ 빨간색 리미트선 표시")
+            f"✅ 메인 5개 라인 + 트렌드 {trend_count}개\n"
+            f"✅ 실제값 라인에 전체 INFO 정보 포함\n"
+            f"✅ 범례 클릭으로 표시/숨김 가능")
             
     except Exception as e:
-        messagebox.showerror("오류 발생", f"그래프 생성 중 오류가 발생했습니다:\n{e}")
+        import traceback
+        error_detail = traceback.format_exc()
+        messagebox.showerror("오류 발생", f"그래프 생성 중 오류:\n{e}\n\n상세:\n{error_detail}")
 
 # --------------------------------------------------------------------------
-# GUI 애플리케이션 로직
+# GUI 애플리케이션
 # --------------------------------------------------------------------------
 class GraphApp:
     def __init__(self, root):
         self.root = root
-        self.root.title("단계별 그래프 생성기 v3.2 (실제값+HUBROOM+예측값2개)")
+        self.root.title("그래프 생성기 v4.2 (스크롤 개선)")
+        self.root.geometry("1200x900")
+        
         self.file_path = ""
         self.df_columns = []
         self.perf_values = None
+        self.trend_widgets = {}
 
-        main_container = tk.Frame(root)
-        main_container.pack(fill='both', expand=True)
+        # 전체 스크롤 가능한 메인 컨테이너
+        main_canvas = tk.Canvas(root)
+        scrollbar = tk.Scrollbar(root, orient="vertical", command=main_canvas.yview)
+        self.scrollable_frame = tk.Frame(main_canvas)
         
-        left_frame = tk.Frame(main_container)
-        left_frame.pack(side='left', fill='both', expand=True, padx=(10, 5), pady=10)
+        self.scrollable_frame.bind(
+            "<Configure>",
+            lambda e: main_canvas.configure(scrollregion=main_canvas.bbox("all"))
+        )
         
-        right_frame = tk.Frame(main_container)
-        right_frame.pack(side='right', fill='y', padx=(5, 10), pady=10)
+        main_canvas.create_window((0, 0), window=self.scrollable_frame, anchor="nw")
+        main_canvas.configure(yscrollcommand=scrollbar.set)
         
-        tk.Button(right_frame, text="📊 내용정보\n입력", 
+        # 마우스 휠 스크롤 지원
+        def _on_mousewheel(event):
+            main_canvas.yview_scroll(int(-1*(event.delta/120)), "units")
+        main_canvas.bind_all("<MouseWheel>", _on_mousewheel)
+        
+        main_canvas.pack(side="left", fill="both", expand=True)
+        scrollbar.pack(side="right", fill="y")
+
+        # 상단 버튼 프레임
+        top_button_frame = tk.Frame(self.scrollable_frame)
+        top_button_frame.pack(fill='x', padx=10, pady=10)
+        
+        tk.Button(top_button_frame, text="📊 내용정보 입력", 
                  command=self.open_performance_window,
-                 font=('Arial', 12, 'bold'),
+                 font=('Arial', 10, 'bold'),
                  bg='#2ECC71', fg='white',
-                 width=12, height=3).pack(pady=10)
+                 width=15, height=2).pack(side='right', padx=5)
 
-        self.step1_frame = tk.LabelFrame(left_frame, text="✅ 1단계: 파일 선택", padx=10, pady=10)
+        # 1단계: 파일 선택
+        self.step1_frame = tk.LabelFrame(self.scrollable_frame, text="✅ 1단계: 파일 선택", padx=10, pady=10)
         self.step1_frame.pack(fill='x', padx=10, pady=5)
         
-        self.step2_frame = tk.LabelFrame(left_frame, text="🔒 2단계: 데이터 컬럼 선택", padx=10, pady=10)
-        self.step2_frame.pack(fill='x', padx=10, pady=5)
-
-        self.step3_frame = tk.LabelFrame(left_frame, text="🔒 3단계: 그래프 스타일 설정", padx=10, pady=10)
-        self.step3_frame.pack(fill='x', padx=10, pady=5)
-        
-        self.step4_frame = tk.LabelFrame(left_frame, text="🔒 4단계: 그래프 생성", padx=10, pady=10)
-        self.step4_frame.pack(fill='x', padx=10, pady=5)
-
         tk.Button(self.step1_frame, text="CSV 파일 열기", command=self.select_file, 
                  font=('Helvetica', 10, 'bold'), bg='#e8f4f8').pack(side='left')
         self.file_label = tk.Label(self.step1_frame, text="선택된 파일이 없습니다.", fg="blue")
         self.file_label.pack(side='left', padx=10)
         
+        # 2단계: 데이터 컬럼 선택
+        self.step2_frame = tk.LabelFrame(self.scrollable_frame, text="🔒 2단계: 메인 데이터 컬럼 선택", padx=10, pady=10)
+        self.step2_frame.pack(fill='x', padx=10, pady=5)
         self.create_step2_widgets()
+        
+        # 2.5단계: 트렌드 데이터 선택 (그룹별 정리)
+        self.step2_5_frame = tk.LabelFrame(self.scrollable_frame, text="🔒 2.5단계: 트렌드 데이터 선택 (그룹별)", padx=10, pady=10)
+        self.step2_5_frame.pack(fill='both', expand=True, padx=10, pady=5)  # ← fill='both', expand=True 추가!
+        self.create_step2_5_widgets()
+
+        # 3단계: 그래프 스타일 설정
+        self.step3_frame = tk.LabelFrame(self.scrollable_frame, text="🔒 3단계: 그래프 스타일 설정", padx=10, pady=10)
+        self.step3_frame.pack(fill='x', padx=10, pady=5)
         self.create_step3_widgets()
+        
+        # 4단계: 그래프 생성
+        self.step4_frame = tk.LabelFrame(self.scrollable_frame, text="🔒 4단계: 그래프 생성", padx=10, pady=10)
+        self.step4_frame.pack(fill='x', padx=10, pady=5)
         self.create_step4_widgets()
         
+        # 초기 비활성화
         self.toggle_widgets_state(self.step2_frame, 'disabled')
+        self.toggle_widgets_state(self.step2_5_frame, 'disabled')
         self.toggle_widgets_state(self.step3_frame, 'disabled')
         self.toggle_widgets_state(self.step4_frame, 'disabled')
     
@@ -548,34 +572,265 @@ class GraphApp:
                 pass
 
     def create_step2_widgets(self):
-        # 실제값 + HUBROOM + 예측값1 + 예측값2 = 총 8개 컬럼
         labels = [
             "실제값 X축 (시간):", 
             "실제값 Y축 (값):", 
-            "HUBROOM X축 (시간):",  # 새로 추가
-            "HUBROOM Y축 (값):",    # 새로 추가
+            "HUBROOM X축 (시간):",
+            "HUBROOM Y축 (값):",
             "예측값1 X축 (시간):", 
             "예측값1 Y축 (값):",
             "예측값2 X축 (시간):",
-            "예측값2 Y축 (값):"
+            "예측값2 Y축 (값):",
+            "예측값3 X축 (시간):",
+            "예측값3 Y축 (값):"
         ]
         self.column_vars = [tk.StringVar() for _ in labels]
         self.column_menus = []
 
         for i, label_text in enumerate(labels):
-            tk.Label(self.step2_frame, text=label_text).grid(row=i, column=0, sticky='w', padx=5, pady=2)
+            tk.Label(self.step2_frame, text=label_text, font=('Arial', 9)).grid(row=i, column=0, sticky='w', padx=5, pady=2)
             menu = tk.OptionMenu(self.step2_frame, self.column_vars[i], "")
             menu.config(width=30)
             menu.grid(row=i, column=1, sticky='ew', padx=5, pady=2)
             self.column_menus.append(menu)
+    
+    def create_step2_5_widgets(self):
+        """트렌드 데이터 그룹별로 정리"""
+        # 트렌드 데이터 그룹
+        trend_groups = {
+            '📦 MAXCAP 그룹': [
+                'M14A_3F_CNV_MAXCAP',
+                'M14B_7F_LFT_MAXCAP',
+                'M16A_2F_LFT_MAXCAP',
+                'M16A_3F_CNV_MAXCAP',
+                'M16A_3F_LFT_MAXCAP',
+                'M16A_3F_M14BLFT_MAXCAP',
+                'M16A_6F_LFT_MAXCAP'
+            ],
+            '📊 UTIL 그룹': [
+                'M16A_3F_STORAGE_UTIL'
+            ],
+            '🔄 JOB 그룹': [
+                'M14A_3F_TO_HUB_JOB2',
+                'M14A_3F_TO_HUB_JOB_ALT',
+                'M14B_7F_TO_HUB_JOB2',
+                'M14B_7F_TO_HUB_JOB_ALT',
+                'M16A_2F_TO_HUB_JOB2',
+                'M16A_2F_TO_HUB_JOB_ALT',
+                'M16A_6F_TO_HUB_JOB',
+                'M16A_6F_TO_HUB_JOB_ALT',
+                'M16B_10F_TO_HUB_JOB'
+            ]
+        }
+        
+        # 스크롤 가능한 프레임 (가로/세로 스크롤)
+        canvas = tk.Canvas(self.step2_5_frame, height=450)
+        scrollbar_trend_v = tk.Scrollbar(self.step2_5_frame, orient="vertical", command=canvas.yview)
+        scrollbar_trend_h = tk.Scrollbar(self.step2_5_frame, orient="horizontal", command=canvas.xview)
+        scrollable_trend_frame = tk.Frame(canvas)
+        
+        scrollable_trend_frame.bind(
+            "<Configure>",
+            lambda e: canvas.configure(scrollregion=canvas.bbox("all"))
+        )
+        
+        canvas.create_window((0, 0), window=scrollable_trend_frame, anchor="nw")
+        canvas.configure(yscrollcommand=scrollbar_trend_v.set, xscrollcommand=scrollbar_trend_h.set)
+        
+        # step2_5_frame의 grid weight 설정
+        self.step2_5_frame.grid_rowconfigure(0, weight=1)
+        self.step2_5_frame.grid_columnconfigure(0, weight=1)
+        
+        current_row = 0
+        
+        # 그룹별로 표시
+        for group_name, trend_list in trend_groups.items():
+            # 그룹 헤더
+            group_frame = tk.LabelFrame(scrollable_trend_frame, text=group_name, 
+                                       font=('Arial', 10, 'bold'), 
+                                       bg='#E8F4F8', padx=10, pady=5)
+            group_frame.grid(row=current_row, column=0, columnspan=4, sticky='ew', padx=5, pady=10)
+            current_row += 1
+            
+            # 그룹 전체 선택/해제 버튼
+            btn_frame = tk.Frame(group_frame)
+            btn_frame.pack(fill='x', pady=5)
+            
+            group_vars = []
+            
+            def make_toggle_func(vars_list, value):
+                return lambda: [v.set(value) for v in vars_list]
+            
+            # 헤더
+            inner_frame = tk.Frame(group_frame)
+            inner_frame.pack(fill='both', expand=True)
+            
+            tk.Label(inner_frame, text="사용", font=('Arial', 9, 'bold'), width=6).grid(row=0, column=0, padx=5, sticky='w')
+            tk.Label(inner_frame, text="트렌드 이름", font=('Arial', 9, 'bold'), width=32).grid(row=0, column=1, sticky='w', padx=5)
+            tk.Label(inner_frame, text="X축 (시간)", font=('Arial', 9, 'bold'), width=32).grid(row=0, column=2, padx=5, sticky='w')
+            tk.Label(inner_frame, text="Y축 (값)", font=('Arial', 9, 'bold'), width=32).grid(row=0, column=3, padx=5, sticky='w')
+            
+            # 각 트렌드 데이터
+            for idx, trend_name in enumerate(trend_list):
+                row = idx + 1
+                
+                # 체크박스
+                var = tk.BooleanVar(value=False)
+                cb = tk.Checkbutton(inner_frame, variable=var)
+                cb.grid(row=row, column=0, padx=5, pady=3, sticky='w')
+                group_vars.append(var)
+                
+                # 이름
+                tk.Label(inner_frame, text=trend_name, font=('Arial', 9), anchor='w', width=32).grid(row=row, column=1, sticky='w', padx=5, pady=3)
+                
+                # X축 선택
+                x_var = tk.StringVar()
+                x_menu = tk.OptionMenu(inner_frame, x_var, "")
+                x_menu.config(width=30, font=('Arial', 9))
+                x_menu.grid(row=row, column=2, padx=5, pady=3, sticky='ew')
+                
+                # Y축 선택
+                y_var = tk.StringVar()
+                y_menu = tk.OptionMenu(inner_frame, y_var, "")
+                y_menu.config(width=30, font=('Arial', 9))
+                y_menu.grid(row=row, column=3, padx=5, pady=3, sticky='ew')
+                
+                # trend_widgets에 저장
+                self.trend_widgets[trend_name] = {
+                    'name': trend_name,
+                    'enabled': var,
+                    'x_var': x_var,
+                    'x_menu': x_menu,
+                    'y_var': y_var,
+                    'y_menu': y_menu
+                }
+            
+            # 컬럼 너비 설정 - 확실하게 크게!
+            inner_frame.grid_columnconfigure(0, minsize=60, weight=0)
+            inner_frame.grid_columnconfigure(1, minsize=280, weight=0)
+            inner_frame.grid_columnconfigure(2, minsize=300, weight=1)
+            inner_frame.grid_columnconfigure(3, minsize=300, weight=1)
+            
+            # 그룹 전체 선택/해제 버튼 추가
+            tk.Button(btn_frame, text=f"전체선택", 
+                     command=make_toggle_func(group_vars, True),
+                     bg='#3498DB', fg='white', font=('Arial', 8)).pack(side='left', padx=3)
+            tk.Button(btn_frame, text=f"전체해제", 
+                     command=make_toggle_func(group_vars, False),
+                     bg='#E74C3C', fg='white', font=('Arial', 8)).pack(side='left', padx=3)
+            
+            # 그룹 자동 매칭 버튼
+            def make_auto_match_func(trend_names, group_title):
+                def auto_match_group():
+                    if not self.df_columns:
+                        messagebox.showwarning("경고", "먼저 CSV 파일을 선택해주세요!")
+                        return
+                    
+                    # X축 선택 창 띄우기
+                    select_window = tk.Toplevel(self.root)
+                    select_window.title(f"{group_title} X축 선택")
+                    select_window.geometry("400x200")
+                    select_window.transient(self.root)
+                    select_window.grab_set()
+                    
+                    # 중앙 배치
+                    select_window.update_idletasks()
+                    x = (select_window.winfo_screenwidth() // 2) - (400 // 2)
+                    y = (select_window.winfo_screenheight() // 2) - (200 // 2)
+                    select_window.geometry(f'400x200+{x}+{y}')
+                    
+                    selected_col = tk.StringVar()
+                    
+                    frame = tk.Frame(select_window)
+                    frame.pack(fill='both', expand=True, padx=20, pady=20)
+                    
+                    tk.Label(frame, text=f"{group_title}의 X축(시간) 컬럼을 선택하세요:", 
+                            font=('Arial', 10, 'bold')).pack(pady=10)
+                    
+                    # 드롭다운
+                    col_menu = ttk.Combobox(frame, textvariable=selected_col, 
+                                           values=self.df_columns, 
+                                           font=('Arial', 10),
+                                           width=40,
+                                           state='readonly')
+                    col_menu.pack(pady=10)
+                    
+                    # 날짜/시간 컬럼 자동 추천
+                    time_keywords = ['날짜', 'date', 'time', '시간', 'datetime', 'timestamp']
+                    for col in self.df_columns:
+                        col_lower = col.lower()
+                        if any(keyword in col_lower for keyword in time_keywords):
+                            selected_col.set(col)
+                            break
+                    
+                    def confirm_selection():
+                        time_col = selected_col.get()
+                        if not time_col:
+                            messagebox.showwarning("경고", "X축 컬럼을 선택해주세요!")
+                            return
+                        
+                        select_window.destroy()
+                        
+                        matched = 0
+                        for trend_name in trend_names:
+                            widget_dict = self.trend_widgets[trend_name]
+                            # Y축 찾기
+                            y_col_found = None
+                            for col in self.df_columns:
+                                if trend_name in col or col in trend_name:
+                                    y_col_found = col
+                                    break
+                            
+                            if y_col_found:
+                                widget_dict['x_var'].set(time_col)
+                                widget_dict['y_var'].set(y_col_found)
+                                widget_dict['enabled'].set(True)
+                                matched += 1
+                        
+                        messagebox.showinfo("자동 매칭", f"{group_title}: {matched}개 매칭 완료\nX축: {time_col}")
+                    
+                    btn_frame = tk.Frame(frame)
+                    btn_frame.pack(pady=20)
+                    
+                    tk.Button(btn_frame, text="확인", command=confirm_selection,
+                             bg='#3498DB', fg='white', font=('Arial', 10, 'bold'),
+                             width=10).pack(side='left', padx=5)
+                    tk.Button(btn_frame, text="취소", command=select_window.destroy,
+                             bg='#95A5A6', fg='white', font=('Arial', 10, 'bold'),
+                             width=10).pack(side='left', padx=5)
+                
+                return auto_match_group
+            
+            tk.Button(btn_frame, text=f"🔄 자동매칭", 
+                     command=make_auto_match_func(trend_list, group_name),
+                     bg='#9B59B6', fg='white', font=('Arial', 8)).pack(side='left', padx=3)
+        
+        # 캔버스와 스크롤바 배치 (가로/세로 스크롤)
+        canvas.grid(row=0, column=0, sticky="nsew", padx=(10, 0), pady=(10, 0))
+        scrollbar_trend_v.grid(row=0, column=1, sticky="ns", pady=(10, 0))
+        scrollbar_trend_h.grid(row=1, column=0, sticky="ew", padx=(10, 0))
+        
+        # 자동 매칭 버튼 프레임
+        auto_match_frame = tk.Frame(self.step2_5_frame)
+        auto_match_frame.grid(row=2, column=0, columnspan=2, sticky='ew', pady=10, padx=10)
+        
+        tk.Button(auto_match_frame, text="🔄 전체 자동 매칭", 
+                 command=self.auto_match_all_trends,
+                 bg='#9B59B6', fg='white', 
+                 font=('Arial', 10, 'bold'),
+                 width=20, height=2).pack(pady=5)
+        
+        tk.Label(auto_match_frame, 
+                text="※ 자동 매칭: 트렌드 이름과 일치하는 Y축 컬럼 + 날짜/시간 X축을 자동 선택",
+                font=('Arial', 8), fg='#666').pack()
             
     def create_step3_widgets(self):
         tk.Label(self.step3_frame, text="그래프 제목:").grid(row=0, column=0, sticky='w', padx=5, pady=2)
         self.title_var = tk.StringVar(value="사용자 정의 그래프")
         tk.Entry(self.step3_frame, textvariable=self.title_var, width=50).grid(row=0, column=1, columnspan=3, sticky='ew', padx=5, pady=2)
         
-        # 실제값 라인
-        tk.Label(self.step3_frame, text="[실제값 라인]").grid(row=1, column=0, sticky='w', padx=5, pady=5)
+        # 실제값
+        tk.Label(self.step3_frame, text="[실제값]", font=('Arial', 9, 'bold')).grid(row=1, column=0, sticky='w', padx=5, pady=5)
         self.actual_color_var = tk.StringVar(value='#1f77b4')
         self.actual_color_btn = tk.Button(self.step3_frame, text="색상", 
                                          command=lambda: self.choose_color(self.actual_color_var, self.actual_color_btn), 
@@ -584,8 +839,8 @@ class GraphApp:
         self.actual_style_var = tk.StringVar(value='Solid')
         tk.OptionMenu(self.step3_frame, self.actual_style_var, 'Solid', 'Dash', 'Dot').grid(row=1, column=2, padx=5)
 
-        # HUBROOM 라인 (새로 추가)
-        tk.Label(self.step3_frame, text="[HUBROOM 라인]").grid(row=2, column=0, sticky='w', padx=5, pady=5)
+        # HUBROOM
+        tk.Label(self.step3_frame, text="[HUBROOM]", font=('Arial', 9, 'bold')).grid(row=2, column=0, sticky='w', padx=5, pady=5)
         self.hubroom_color_var = tk.StringVar(value='#9467bd')
         self.hubroom_color_btn = tk.Button(self.step3_frame, text="색상", 
                                          command=lambda: self.choose_color(self.hubroom_color_var, self.hubroom_color_btn), 
@@ -594,8 +849,8 @@ class GraphApp:
         self.hubroom_style_var = tk.StringVar(value='Solid')
         tk.OptionMenu(self.step3_frame, self.hubroom_style_var, 'Solid', 'Dash', 'Dot').grid(row=2, column=2, padx=5)
 
-        # 예측값1 라인
-        tk.Label(self.step3_frame, text="[예측값1 라인]").grid(row=3, column=0, sticky='w', padx=5, pady=5)
+        # 예측값1
+        tk.Label(self.step3_frame, text="[예측값1]", font=('Arial', 9, 'bold')).grid(row=3, column=0, sticky='w', padx=5, pady=5)
         self.predicted1_color_var = tk.StringVar(value='#ff7f0e')
         self.predicted1_color_btn = tk.Button(self.step3_frame, text="색상", 
                                            command=lambda: self.choose_color(self.predicted1_color_var, self.predicted1_color_btn), 
@@ -604,8 +859,8 @@ class GraphApp:
         self.predicted1_style_var = tk.StringVar(value='Dash')
         tk.OptionMenu(self.step3_frame, self.predicted1_style_var, 'Solid', 'Dash', 'Dot').grid(row=3, column=2, padx=5)
         
-        # 예측값2 라인
-        tk.Label(self.step3_frame, text="[예측값2 라인]").grid(row=4, column=0, sticky='w', padx=5, pady=5)
+        # 예측값2
+        tk.Label(self.step3_frame, text="[예측값2]", font=('Arial', 9, 'bold')).grid(row=4, column=0, sticky='w', padx=5, pady=5)
         self.predicted2_color_var = tk.StringVar(value='#2ca02c')
         self.predicted2_color_btn = tk.Button(self.step3_frame, text="색상", 
                                            command=lambda: self.choose_color(self.predicted2_color_var, self.predicted2_color_btn), 
@@ -614,18 +869,28 @@ class GraphApp:
         self.predicted2_style_var = tk.StringVar(value='Dot')
         tk.OptionMenu(self.step3_frame, self.predicted2_style_var, 'Solid', 'Dash', 'Dot').grid(row=4, column=2, padx=5)
         
-        # 리미트선 설정
-        tk.Label(self.step3_frame, text="[🔴 리미트선]").grid(row=5, column=0, sticky='w', padx=5, pady=5)
-        tk.Label(self.step3_frame, text="값:").grid(row=5, column=1, sticky='e', padx=(0, 5))
+        # 예측값3
+        tk.Label(self.step3_frame, text="[예측값3]", font=('Arial', 9, 'bold')).grid(row=5, column=0, sticky='w', padx=5, pady=5)
+        self.predicted3_color_var = tk.StringVar(value='#d62728')
+        self.predicted3_color_btn = tk.Button(self.step3_frame, text="색상", 
+                                           command=lambda: self.choose_color(self.predicted3_color_var, self.predicted3_color_btn), 
+                                           bg=self.predicted3_color_var.get())
+        self.predicted3_color_btn.grid(row=5, column=1, padx=5)
+        self.predicted3_style_var = tk.StringVar(value='Dash')
+        tk.OptionMenu(self.step3_frame, self.predicted3_style_var, 'Solid', 'Dash', 'Dot').grid(row=5, column=2, padx=5)
+        
+        # 리미트선
+        tk.Label(self.step3_frame, text="[🔴 리미트선]", font=('Arial', 9, 'bold')).grid(row=6, column=0, sticky='w', padx=5, pady=5)
+        tk.Label(self.step3_frame, text="값:").grid(row=6, column=1, sticky='e', padx=(0, 5))
         self.limit_value_var = tk.StringVar(value="300")
-        tk.Entry(self.step3_frame, textvariable=self.limit_value_var, width=10).grid(row=5, column=2, sticky='w', padx=5)
-        tk.Label(self.step3_frame, text="(빨간색 수평선)").grid(row=5, column=3, sticky='w', padx=5)
+        tk.Entry(self.step3_frame, textvariable=self.limit_value_var, width=10).grid(row=6, column=2, sticky='w', padx=5)
 
     def create_step4_widgets(self):
-        self.generate_button = tk.Button(self.step4_frame, text="그래프 생성 실행", 
+        self.generate_button = tk.Button(self.step4_frame, text="🎨 그래프 생성 실행", 
                                         command=self.generate_graph, 
                                         font=('Helvetica', 12, 'bold'), 
-                                        bg='#d3ffd3')
+                                        bg='#d3ffd3',
+                                        height=2)
         self.generate_button.pack(fill='x')
 
     def choose_color(self, color_var, button):
@@ -633,6 +898,91 @@ class GraphApp:
         if color_code:
             color_var.set(color_code)
             button.config(bg=color_code)
+    
+    def auto_match_all_trends(self):
+        """모든 트렌드 데이터의 X축/Y축을 자동으로 매칭 - X축은 사용자 선택"""
+        if not self.df_columns:
+            messagebox.showwarning("경고", "먼저 CSV 파일을 선택해주세요!")
+            return
+        
+        # X축 선택 창 띄우기
+        select_window = tk.Toplevel(self.root)
+        select_window.title("X축(시간) 컬럼 선택")
+        select_window.geometry("400x200")
+        select_window.transient(self.root)
+        select_window.grab_set()
+        
+        # 중앙 배치
+        select_window.update_idletasks()
+        x = (select_window.winfo_screenwidth() // 2) - (400 // 2)
+        y = (select_window.winfo_screenheight() // 2) - (200 // 2)
+        select_window.geometry(f'400x200+{x}+{y}')
+        
+        selected_col = tk.StringVar()
+        
+        frame = tk.Frame(select_window)
+        frame.pack(fill='both', expand=True, padx=20, pady=20)
+        
+        tk.Label(frame, text="모든 트렌드 데이터의 X축(시간)으로 사용할 컬럼을 선택하세요:", 
+                font=('Arial', 10, 'bold')).pack(pady=10)
+        
+        # 드롭다운
+        col_menu = ttk.Combobox(frame, textvariable=selected_col, 
+                               values=self.df_columns, 
+                               font=('Arial', 10),
+                               width=40,
+                               state='readonly')
+        col_menu.pack(pady=10)
+        
+        # 날짜/시간 컬럼 자동 추천
+        time_keywords = ['날짜', 'date', 'time', '시간', 'datetime', 'timestamp']
+        for col in self.df_columns:
+            col_lower = col.lower()
+            if any(keyword in col_lower for keyword in time_keywords):
+                selected_col.set(col)
+                break
+        
+        def confirm_selection():
+            time_col = selected_col.get()
+            if not time_col:
+                messagebox.showwarning("경고", "X축 컬럼을 선택해주세요!")
+                return
+            
+            select_window.destroy()
+            
+            # 각 트렌드에 대해 자동 매칭
+            matched_count = 0
+            for trend_name, widget_dict in self.trend_widgets.items():
+                # Y축: 트렌드 이름과 일치하는 컬럼 찾기
+                y_col_found = None
+                for col in self.df_columns:
+                    if trend_name in col or col in trend_name:
+                        y_col_found = col
+                        break
+                
+                if y_col_found:
+                    # X축 설정
+                    widget_dict['x_var'].set(time_col)
+                    # Y축 설정
+                    widget_dict['y_var'].set(y_col_found)
+                    # 체크박스 자동 선택
+                    widget_dict['enabled'].set(True)
+                    matched_count += 1
+            
+            messagebox.showinfo("자동 매칭 완료", 
+                               f"총 {matched_count}개의 트렌드 데이터가 자동 매칭되었습니다.\n\n"
+                               f"X축: {time_col}\n"
+                               f"Y축: 각 트렌드 이름과 일치하는 컬럼")
+        
+        btn_frame = tk.Frame(frame)
+        btn_frame.pack(pady=20)
+        
+        tk.Button(btn_frame, text="확인", command=confirm_selection,
+                 bg='#3498DB', fg='white', font=('Arial', 10, 'bold'),
+                 width=10).pack(side='left', padx=5)
+        tk.Button(btn_frame, text="취소", command=select_window.destroy,
+                 bg='#95A5A6', fg='white', font=('Arial', 10, 'bold'),
+                 width=10).pack(side='left', padx=5)
 
     def select_file(self):
         path = filedialog.askopenfilename(filetypes=[("CSV files", "*.csv")])
@@ -646,12 +996,25 @@ class GraphApp:
             df = read_csv_safe(self.file_path)
             self.df_columns = df.columns.tolist()
             
+            # 메인 데이터 컬럼 메뉴 업데이트
             for i, menu in enumerate(self.column_menus):
                 menu['menu'].delete(0, 'end')
                 for col in self.df_columns:
                     menu['menu'].add_command(label=col, command=tk._setit(self.column_vars[i], col))
             
-            # 컬럼 자동 추천
+            # 트렌드 데이터 컬럼 메뉴 업데이트
+            for widget_dict in self.trend_widgets.values():
+                # X축
+                widget_dict['x_menu']['menu'].delete(0, 'end')
+                for col in self.df_columns:
+                    widget_dict['x_menu']['menu'].add_command(label=col, command=tk._setit(widget_dict['x_var'], col))
+                
+                # Y축
+                widget_dict['y_menu']['menu'].delete(0, 'end')
+                for col in self.df_columns:
+                    widget_dict['y_menu']['menu'].add_command(label=col, command=tk._setit(widget_dict['y_var'], col))
+            
+            # 자동 추천
             patterns = [
                 ['날짜', 'date', 'time'],
                 ['실제값', 'actual', 'real'],
@@ -660,7 +1023,9 @@ class GraphApp:
                 ['예측날짜', 'pred_date', 'forecast'],
                 ['예측값', 'predicted', 'pred'],
                 ['예측날짜', 'pred_date', 'forecast', '2'],
-                ['예측값', 'predicted', 'pred', '2']
+                ['예측값', 'predicted', 'pred', '2'],
+                ['예측날짜', 'pred_date', 'forecast', '3'],
+                ['예측값', 'predicted', 'pred', '3']
             ]
             
             for idx, pattern_list in enumerate(patterns):
@@ -670,8 +1035,10 @@ class GraphApp:
                         self.column_vars[idx].set(col)
                         break
 
-            self.step2_frame.config(text="✅ 2단계: 데이터 컬럼 선택")
+            self.step2_frame.config(text="✅ 2단계: 메인 데이터 컬럼 선택")
             self.toggle_widgets_state(self.step2_frame, 'normal')
+            self.step2_5_frame.config(text="✅ 2.5단계: 트렌드 데이터 선택 (그룹별)")
+            self.toggle_widgets_state(self.step2_5_frame, 'normal')
             self.step3_frame.config(text="✅ 3단계: 그래프 스타일 설정")
             self.toggle_widgets_state(self.step3_frame, 'normal')
             self.step4_frame.config(text="✅ 4단계: 그래프 생성")
@@ -681,33 +1048,52 @@ class GraphApp:
             messagebox.showerror("오류", f"CSV 파일을 읽는 데 실패했습니다:\n{e}")
 
     def generate_graph(self):
+        # 선택된 트렌드 데이터 수집
+        selected_trends = []
+        for widget_dict in self.trend_widgets.values():
+            if widget_dict['enabled'].get():
+                x_col = widget_dict['x_var'].get()
+                y_col = widget_dict['y_var'].get()
+                if x_col and y_col:
+                    selected_trends.append({
+                        'name': widget_dict['name'],
+                        'x_col': x_col,
+                        'y_col': y_col
+                    })
+        
         params = {
             'file_path': self.file_path, 
             'title': self.title_var.get(),
             'actual_x': self.column_vars[0].get(), 
             'actual_y': self.column_vars[1].get(),
-            'hubroom_x': self.column_vars[2].get(),  # HUBROOM 추가
-            'hubroom_y': self.column_vars[3].get(),  # HUBROOM 추가
+            'hubroom_x': self.column_vars[2].get(),
+            'hubroom_y': self.column_vars[3].get(),
             'predicted1_x': self.column_vars[4].get(), 
             'predicted1_y': self.column_vars[5].get(),
             'predicted2_x': self.column_vars[6].get(),
             'predicted2_y': self.column_vars[7].get(),
+            'predicted3_x': self.column_vars[8].get(),
+            'predicted3_y': self.column_vars[9].get(),
             'actual_color': self.actual_color_var.get(), 
             'actual_style': self.actual_style_var.get(),
-            'hubroom_color': self.hubroom_color_var.get(),  # HUBROOM 추가
-            'hubroom_style': self.hubroom_style_var.get(),  # HUBROOM 추가
+            'hubroom_color': self.hubroom_color_var.get(),
+            'hubroom_style': self.hubroom_style_var.get(),
             'predicted1_color': self.predicted1_color_var.get(), 
             'predicted1_style': self.predicted1_style_var.get(),
             'predicted2_color': self.predicted2_color_var.get(),
             'predicted2_style': self.predicted2_style_var.get(),
-            'limit_value': self.limit_value_var.get()
+            'predicted3_color': self.predicted3_color_var.get(),
+            'predicted3_style': self.predicted3_style_var.get(),
+            'limit_value': self.limit_value_var.get(),
+            'trend_data': selected_trends
         }
         
         if not all([params['actual_x'], params['actual_y'], 
                    params['hubroom_x'], params['hubroom_y'],
                    params['predicted1_x'], params['predicted1_y'],
-                   params['predicted2_x'], params['predicted2_y']]):
-            messagebox.showwarning("경고", "2단계에서 모든 데이터 축(X, Y)의 컬럼을 선택해주세요.")
+                   params['predicted2_x'], params['predicted2_y'],
+                   params['predicted3_x'], params['predicted3_y']]):
+            messagebox.showwarning("경고", "2단계에서 모든 메인 데이터 축의 컬럼을 선택해주세요.")
             return
         
         if not self.perf_values:
@@ -715,7 +1101,7 @@ class GraphApp:
                 'mae': '30.23',
                 'rmse': '36.02',
                 'r2': '0.72',
-                'other_info': '기타 정보가 입력되지 않았습니다.\n내용정보 입력 버튼을 클릭하여 정보를 입력해주세요.'
+                'other_info': '기타 정보가 입력되지 않았습니다.'
             }
             
         create_graph(params, self.perf_values)
