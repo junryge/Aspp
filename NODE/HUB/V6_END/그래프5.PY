@@ -416,7 +416,7 @@ class GraphApp:
     def __init__(self, root):
         self.root = root
         self.root.title("그래프 생성기 v4.1 (INFO복원 + 그룹정리)")
-        self.root.geometry("1150x900")
+        self.root.geometry("1400x900")
         
         self.file_path = ""
         self.df_columns = []
@@ -554,7 +554,7 @@ class GraphApp:
         }
         
         # 스크롤 가능한 프레임
-        canvas = tk.Canvas(self.step2_5_frame, height=400)
+        canvas = tk.Canvas(self.step2_5_frame, height=450)
         scrollbar_trend = tk.Scrollbar(self.step2_5_frame, orient="vertical", command=canvas.yview)
         scrollable_trend_frame = tk.Frame(canvas)
         
@@ -588,12 +588,12 @@ class GraphApp:
             
             # 헤더
             inner_frame = tk.Frame(group_frame)
-            inner_frame.pack(fill='x')
+            inner_frame.pack(fill='both', expand=True)
             
-            tk.Label(inner_frame, text="사용", font=('Arial', 8, 'bold'), width=5).grid(row=0, column=0, padx=2)
-            tk.Label(inner_frame, text="트렌드 이름", font=('Arial', 8, 'bold'), width=25).grid(row=0, column=1, sticky='w', padx=2)
-            tk.Label(inner_frame, text="X축 (시간)", font=('Arial', 8, 'bold'), width=20).grid(row=0, column=2, padx=2)
-            tk.Label(inner_frame, text="Y축 (값)", font=('Arial', 8, 'bold'), width=20).grid(row=0, column=3, padx=2)
+            tk.Label(inner_frame, text="사용", font=('Arial', 8, 'bold'), width=5).grid(row=0, column=0, padx=3, sticky='w')
+            tk.Label(inner_frame, text="트렌드 이름", font=('Arial', 8, 'bold'), width=30).grid(row=0, column=1, sticky='w', padx=3)
+            tk.Label(inner_frame, text="X축 (시간)", font=('Arial', 8, 'bold'), width=25).grid(row=0, column=2, padx=3, sticky='w')
+            tk.Label(inner_frame, text="Y축 (값)", font=('Arial', 8, 'bold'), width=25).grid(row=0, column=3, padx=3, sticky='w')
             
             # 각 트렌드 데이터
             for idx, trend_name in enumerate(trend_list):
@@ -602,23 +602,29 @@ class GraphApp:
                 # 체크박스
                 var = tk.BooleanVar(value=False)
                 cb = tk.Checkbutton(inner_frame, variable=var)
-                cb.grid(row=row, column=0, padx=2, pady=2)
+                cb.grid(row=row, column=0, padx=3, pady=3, sticky='w')
                 group_vars.append(var)
                 
                 # 이름
-                tk.Label(inner_frame, text=trend_name, font=('Arial', 7), anchor='w').grid(row=row, column=1, sticky='w', padx=2, pady=2)
+                tk.Label(inner_frame, text=trend_name, font=('Arial', 8), anchor='w', width=30).grid(row=row, column=1, sticky='w', padx=3, pady=3)
                 
                 # X축 선택
                 x_var = tk.StringVar()
                 x_menu = tk.OptionMenu(inner_frame, x_var, "")
-                x_menu.config(width=18, font=('Arial', 7))
-                x_menu.grid(row=row, column=2, padx=2, pady=2)
+                x_menu.config(width=22, font=('Arial', 8))
+                x_menu.grid(row=row, column=2, padx=3, pady=3, sticky='ew')
                 
                 # Y축 선택
                 y_var = tk.StringVar()
                 y_menu = tk.OptionMenu(inner_frame, y_var, "")
-                y_menu.config(width=18, font=('Arial', 7))
-                y_menu.grid(row=row, column=3, padx=2, pady=2)
+                y_menu.config(width=22, font=('Arial', 8))
+                y_menu.grid(row=row, column=3, padx=3, pady=3, sticky='ew')
+                
+            # 컬럼 너비 설정
+            inner_frame.grid_columnconfigure(0, minsize=50)
+            inner_frame.grid_columnconfigure(1, minsize=250)
+            inner_frame.grid_columnconfigure(2, minsize=200)
+            inner_frame.grid_columnconfigure(3, minsize=200)
                 
                 self.trend_widgets[trend_name] = {
                     'name': trend_name,
@@ -638,46 +644,89 @@ class GraphApp:
                      bg='#E74C3C', fg='white', font=('Arial', 8)).pack(side='left', padx=3)
             
             # 그룹 자동 매칭 버튼
-            def make_auto_match_func(trend_names):
+            def make_auto_match_func(trend_names, group_title):
                 def auto_match_group():
                     if not self.df_columns:
                         messagebox.showwarning("경고", "먼저 CSV 파일을 선택해주세요!")
                         return
                     
-                    # 날짜/시간 컬럼 찾기
-                    time_col = None
+                    # X축 선택 창 띄우기
+                    select_window = tk.Toplevel(self.root)
+                    select_window.title(f"{group_title} X축 선택")
+                    select_window.geometry("400x200")
+                    select_window.transient(self.root)
+                    select_window.grab_set()
+                    
+                    # 중앙 배치
+                    select_window.update_idletasks()
+                    x = (select_window.winfo_screenwidth() // 2) - (400 // 2)
+                    y = (select_window.winfo_screenheight() // 2) - (200 // 2)
+                    select_window.geometry(f'400x200+{x}+{y}')
+                    
+                    selected_col = tk.StringVar()
+                    
+                    frame = tk.Frame(select_window)
+                    frame.pack(fill='both', expand=True, padx=20, pady=20)
+                    
+                    tk.Label(frame, text=f"{group_title}의 X축(시간) 컬럼을 선택하세요:", 
+                            font=('Arial', 10, 'bold')).pack(pady=10)
+                    
+                    # 드롭다운
+                    col_menu = ttk.Combobox(frame, textvariable=selected_col, 
+                                           values=self.df_columns, 
+                                           font=('Arial', 10),
+                                           width=40,
+                                           state='readonly')
+                    col_menu.pack(pady=10)
+                    
+                    # 날짜/시간 컬럼 자동 추천
                     time_keywords = ['날짜', 'date', 'time', '시간', 'datetime', 'timestamp']
                     for col in self.df_columns:
                         col_lower = col.lower()
                         if any(keyword in col_lower for keyword in time_keywords):
-                            time_col = col
+                            selected_col.set(col)
                             break
                     
-                    if not time_col:
-                        messagebox.showwarning("경고", "날짜/시간 컬럼을 찾을 수 없습니다!")
-                        return
-                    
-                    matched = 0
-                    for trend_name in trend_names:
-                        widget_dict = self.trend_widgets[trend_name]
-                        # Y축 찾기
-                        y_col_found = None
-                        for col in self.df_columns:
-                            if trend_name in col or col in trend_name:
-                                y_col_found = col
-                                break
+                    def confirm_selection():
+                        time_col = selected_col.get()
+                        if not time_col:
+                            messagebox.showwarning("경고", "X축 컬럼을 선택해주세요!")
+                            return
                         
-                        if y_col_found:
-                            widget_dict['x_var'].set(time_col)
-                            widget_dict['y_var'].set(y_col_found)
-                            widget_dict['enabled'].set(True)
-                            matched += 1
+                        select_window.destroy()
+                        
+                        matched = 0
+                        for trend_name in trend_names:
+                            widget_dict = self.trend_widgets[trend_name]
+                            # Y축 찾기
+                            y_col_found = None
+                            for col in self.df_columns:
+                                if trend_name in col or col in trend_name:
+                                    y_col_found = col
+                                    break
+                            
+                            if y_col_found:
+                                widget_dict['x_var'].set(time_col)
+                                widget_dict['y_var'].set(y_col_found)
+                                widget_dict['enabled'].set(True)
+                                matched += 1
+                        
+                        messagebox.showinfo("자동 매칭", f"{group_title}: {matched}개 매칭 완료\nX축: {time_col}")
                     
-                    messagebox.showinfo("자동 매칭", f"{group_name}: {matched}개 매칭 완료")
+                    btn_frame = tk.Frame(frame)
+                    btn_frame.pack(pady=20)
+                    
+                    tk.Button(btn_frame, text="확인", command=confirm_selection,
+                             bg='#3498DB', fg='white', font=('Arial', 10, 'bold'),
+                             width=10).pack(side='left', padx=5)
+                    tk.Button(btn_frame, text="취소", command=select_window.destroy,
+                             bg='#95A5A6', fg='white', font=('Arial', 10, 'bold'),
+                             width=10).pack(side='left', padx=5)
+                
                 return auto_match_group
             
             tk.Button(btn_frame, text=f"🔄 자동매칭", 
-                     command=make_auto_match_func(trend_list),
+                     command=make_auto_match_func(trend_list, group_name),
                      bg='#9B59B6', fg='white', font=('Arial', 8)).pack(side='left', padx=3)
         
         canvas.pack(side="left", fill="both", expand=True)
@@ -773,47 +822,89 @@ class GraphApp:
             button.config(bg=color_code)
     
     def auto_match_all_trends(self):
-        """모든 트렌드 데이터의 X축/Y축을 자동으로 매칭"""
+        """모든 트렌드 데이터의 X축/Y축을 자동으로 매칭 - X축은 사용자 선택"""
         if not self.df_columns:
             messagebox.showwarning("경고", "먼저 CSV 파일을 선택해주세요!")
             return
         
-        # 날짜/시간 컬럼 찾기
-        time_col = None
+        # X축 선택 창 띄우기
+        select_window = tk.Toplevel(self.root)
+        select_window.title("X축(시간) 컬럼 선택")
+        select_window.geometry("400x200")
+        select_window.transient(self.root)
+        select_window.grab_set()
+        
+        # 중앙 배치
+        select_window.update_idletasks()
+        x = (select_window.winfo_screenwidth() // 2) - (400 // 2)
+        y = (select_window.winfo_screenheight() // 2) - (200 // 2)
+        select_window.geometry(f'400x200+{x}+{y}')
+        
+        selected_col = tk.StringVar()
+        
+        frame = tk.Frame(select_window)
+        frame.pack(fill='both', expand=True, padx=20, pady=20)
+        
+        tk.Label(frame, text="모든 트렌드 데이터의 X축(시간)으로 사용할 컬럼을 선택하세요:", 
+                font=('Arial', 10, 'bold')).pack(pady=10)
+        
+        # 드롭다운
+        col_menu = ttk.Combobox(frame, textvariable=selected_col, 
+                               values=self.df_columns, 
+                               font=('Arial', 10),
+                               width=40,
+                               state='readonly')
+        col_menu.pack(pady=10)
+        
+        # 날짜/시간 컬럼 자동 추천
         time_keywords = ['날짜', 'date', 'time', '시간', 'datetime', 'timestamp']
         for col in self.df_columns:
             col_lower = col.lower()
             if any(keyword in col_lower for keyword in time_keywords):
-                time_col = col
+                selected_col.set(col)
                 break
         
-        if not time_col:
-            messagebox.showwarning("경고", "날짜/시간 컬럼을 찾을 수 없습니다!")
-            return
-        
-        # 각 트렌드에 대해 자동 매칭
-        matched_count = 0
-        for trend_name, widget_dict in self.trend_widgets.items():
-            # Y축: 트렌드 이름과 일치하는 컬럼 찾기
-            y_col_found = None
-            for col in self.df_columns:
-                if trend_name in col or col in trend_name:
-                    y_col_found = col
-                    break
+        def confirm_selection():
+            time_col = selected_col.get()
+            if not time_col:
+                messagebox.showwarning("경고", "X축 컬럼을 선택해주세요!")
+                return
             
-            if y_col_found:
-                # X축 설정
-                widget_dict['x_var'].set(time_col)
-                # Y축 설정
-                widget_dict['y_var'].set(y_col_found)
-                # 체크박스 자동 선택
-                widget_dict['enabled'].set(True)
-                matched_count += 1
+            select_window.destroy()
+            
+            # 각 트렌드에 대해 자동 매칭
+            matched_count = 0
+            for trend_name, widget_dict in self.trend_widgets.items():
+                # Y축: 트렌드 이름과 일치하는 컬럼 찾기
+                y_col_found = None
+                for col in self.df_columns:
+                    if trend_name in col or col in trend_name:
+                        y_col_found = col
+                        break
+                
+                if y_col_found:
+                    # X축 설정
+                    widget_dict['x_var'].set(time_col)
+                    # Y축 설정
+                    widget_dict['y_var'].set(y_col_found)
+                    # 체크박스 자동 선택
+                    widget_dict['enabled'].set(True)
+                    matched_count += 1
+            
+            messagebox.showinfo("자동 매칭 완료", 
+                               f"총 {matched_count}개의 트렌드 데이터가 자동 매칭되었습니다.\n\n"
+                               f"X축: {time_col}\n"
+                               f"Y축: 각 트렌드 이름과 일치하는 컬럼")
         
-        messagebox.showinfo("자동 매칭 완료", 
-                           f"총 {matched_count}개의 트렌드 데이터가 자동 매칭되었습니다.\n\n"
-                           f"X축: {time_col}\n"
-                           f"Y축: 각 트렌드 이름과 일치하는 컬럼")
+        btn_frame = tk.Frame(frame)
+        btn_frame.pack(pady=20)
+        
+        tk.Button(btn_frame, text="확인", command=confirm_selection,
+                 bg='#3498DB', fg='white', font=('Arial', 10, 'bold'),
+                 width=10).pack(side='left', padx=5)
+        tk.Button(btn_frame, text="취소", command=select_window.destroy,
+                 bg='#95A5A6', fg='white', font=('Arial', 10, 'bold'),
+                 width=10).pack(side='left', padx=5)
 
     def select_file(self):
         path = filedialog.askopenfilename(filetypes=[("CSV files", "*.csv")])
