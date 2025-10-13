@@ -315,9 +315,7 @@ def create_graph(params, perf_values=None):
             hovertemplate=hover_template
         ))
         
-        # HUBROOM, 예측값들 라인 (간단한 호버)
-        simple_hover = '<b>시간:</b> %{x}<br><b>값:</b> %{y:.2f}<extra></extra>'
-        
+        # HUBROOM 라인 - 동일한 INFO 정보 표시
         fig.add_trace(go.Scattergl(
             x=df['common_time'],
             y=df[hubroom_y_col], 
@@ -327,9 +325,11 @@ def create_graph(params, perf_values=None):
                      dash=None if params['hubroom_style'] == 'Solid' else params['hubroom_style'].lower(), 
                      width=3),
             marker=dict(size=6),
-            hovertemplate=simple_hover
+            customdata=df[customdata_columns].values,
+            hovertemplate=hover_template
         ))
         
+        # 예측값1 라인 - 동일한 INFO 정보 표시
         fig.add_trace(go.Scattergl(
             x=df['common_time'],
             y=df[predicted1_y_col], 
@@ -339,9 +339,11 @@ def create_graph(params, perf_values=None):
                      dash=None if params['predicted1_style'] == 'Solid' else params['predicted1_style'].lower(), 
                      width=3),
             marker=dict(size=6),
-            hovertemplate=simple_hover
+            customdata=df[customdata_columns].values,
+            hovertemplate=hover_template
         ))
         
+        # 예측값2 라인 - 동일한 INFO 정보 표시
         fig.add_trace(go.Scattergl(
             x=df['common_time'],
             y=df[predicted2_y_col], 
@@ -351,9 +353,11 @@ def create_graph(params, perf_values=None):
                      dash=None if params['predicted2_style'] == 'Solid' else params['predicted2_style'].lower(), 
                      width=3),
             marker=dict(size=6),
-            hovertemplate=simple_hover
+            customdata=df[customdata_columns].values,
+            hovertemplate=hover_template
         ))
         
+        # 예측값3 라인 - 동일한 INFO 정보 표시
         fig.add_trace(go.Scattergl(
             x=df['common_time'],
             y=df[predicted3_y_col], 
@@ -363,10 +367,11 @@ def create_graph(params, perf_values=None):
                      dash=None if params['predicted3_style'] == 'Solid' else params['predicted3_style'].lower(), 
                      width=3),
             marker=dict(size=6),
-            hovertemplate=simple_hover
+            customdata=df[customdata_columns].values,
+            hovertemplate=hover_template
         ))
         
-        # 트렌드 데이터 라인들
+        # 트렌드 데이터 라인들 - 모두 동일한 INFO 정보 표시
         trend_colors = ['#808080', '#A9A9A9', '#696969', '#778899', '#708090', 
                        '#2F4F4F', '#556B2F', '#8B4513', '#A0522D', '#B8860B',
                        '#BDB76B', '#8B008B', '#9932CC', '#8B0000', '#DC143C',
@@ -390,7 +395,8 @@ def create_graph(params, perf_values=None):
                     name=f'Trend: {name}',
                     line=dict(color=color, dash='dot', width=1.5),
                     opacity=0.7,
-                    hovertemplate=f'<b>{name}</b><br>시간: %{{x}}<br>값: %{{y:.2f}}<extra></extra>'
+                    customdata=df[customdata_columns].values,
+                    hovertemplate=hover_template
                 ))
         
         # 리미트선
