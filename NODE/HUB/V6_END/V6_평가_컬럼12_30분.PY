@@ -66,8 +66,8 @@ def evaluate_all_predictions():
    
     results = []
    
-    # 슬라이딩 윈도우: 30개 시퀀스 → 20분 후 예측
-    for i in range(30, len(df) - 20):
+    # 슬라이딩 윈도우: 30개 시퀀스 → 30분 후 예측
+    for i in range(30, len(df) - 30):
         # 과거 30개 데이터
         seq_data = df.iloc[i-30:i].copy()
         seq_target = seq_data[TARGET_COL].values
@@ -75,12 +75,12 @@ def evaluate_all_predictions():
         # 현재 시점 (시퀀스 마지막)
         current_time = seq_data['STAT_DT'].iloc[-1]
        
-        # 예측 시점 (20분 후)
-        prediction_time = current_time + timedelta(minutes=20)
+        # 예측 시점 (30분 후)
+        prediction_time = current_time + timedelta(minutes=30)
        
-        # 실제값 (i+20번째 행)
-        actual_value = df.iloc[i+20][TARGET_COL]
-        actual_time = df.iloc[i+20]['STAT_DT']
+        # 실제값 (i+30번째 행)
+        actual_value = df.iloc[i+30][TARGET_COL]
+        actual_time = df.iloc[i+30]['STAT_DT']
        
         # Feature 생성 (타겟 컬럼)
         features = {
@@ -163,7 +163,7 @@ def evaluate_all_predictions():
        
         # 진행상황 출력
         if (i - 30) % 100 == 0:
-            print(f"진행중... {i-30}/{len(df)-30-20} ({(i-30)/(len(df)-30-20)*100:.1f}%)")
+            print(f"진행중... {i-30}/{len(df)-30-30} ({(i-30)/(len(df)-30-30)*100:.1f}%)")
    
     # DataFrame 변환
     results_df = pd.DataFrame(results)
