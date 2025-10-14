@@ -5,13 +5,6 @@ Created on Thu Oct  2 07:35:29 2025
 @author: X0163954
 """
 
-# -*- coding: utf-8 -*-
-"""
-Created on Tue Sep 30 13:08:17 2025
-
-@author: X0163954
-"""
-
 import numpy as np
 import pandas as pd
 import pickle
@@ -29,8 +22,6 @@ def evaluate_all_predictions():
         'outflow': ['M16A_3F_TO_M16A_6F_JOB', 'M16A_3F_TO_M16A_2F_JOB', 'M16A_3F_TO_M14A_3F_JOB'],  # 주요 유출
         'maxcapa': ['M16A_6F_LFT_MAXCAPA', 'M16A_2F_LFT_MAXCAPA']  # 용량 제한
     }
-   
-   
    
     # 모델 로드
     try:
@@ -91,7 +82,9 @@ def evaluate_all_predictions():
             'target_min': np.min(seq_target),
             'target_slope': np.polyfit(np.arange(30), seq_target, 1)[0],
             'target_last_10_mean': np.mean(seq_target[-10:]),
-            'target_first_10_mean': np.mean(seq_target[:10])
+            'target_first_10_mean': np.mean(seq_target[:10]),
+            'target_first_15_mean': np.mean(seq_target[:15]),  # 처음 15분
+            'target_last_15_mean': np.mean(seq_target[15:])    # 마지막 15분
         }
        
         # 각 컬럼 그룹별 특성 추가
@@ -117,6 +110,10 @@ def evaluate_all_predictions():
                     features[f'{col}_first_10_mean'] = np.mean(col_seq[:10])
                     features[f'{col}_mid_10_mean'] = np.mean(col_seq[10:20])
                     features[f'{col}_last_value'] = col_seq[-1]
+                    
+                    # 처음 15분 / 마지막 15분
+                    features[f'{col}_first_15_mean'] = np.mean(col_seq[:15])
+                    features[f'{col}_last_15_mean'] = np.mean(col_seq[15:])
        
         # 유입-유출 차이 (Net Flow)
         inflow_sum = 0
@@ -195,17 +192,14 @@ def evaluate_all_predictions():
     # 극단값 구간
     extreme_cases = results_df[results_df['실제값'] >= 300]
     if len(extreme_cases) > 0:
-        #print("\n" + "="*80)
-        #print("🔴 실제 극단값(≥300) 구간")
-        #print("="*80)
         print(extreme_cases[['현재시간', '실제값', '예측값', '오차', '시퀀스MAX', '시퀀스MIN']].to_string(index=False))
    
     return results_df
 
 if __name__ == '__main__':
-    print("🚀 실시간 예측 평가 시작 (Multi-Column Features)...\n")
+    print("🚀 실시간 예측 평가 시작 (Multi-Column Features + first15/last15)...\n")
     results = evaluate_all_predictions()
    
     if results is not None:
         print(f"\n✅ 평가 완료! 총 {len(results)}개 예측 생성")
-        print(f"📁 결과 파일: prediction_evaluation_results2222222.csv")
+        print(f"📁 결과 파일: prediction_evaluation_컬럼12.csv")
