@@ -93,40 +93,37 @@ def create_graph(params, perf_values=None):
         predicted3_x_col = params['predicted3_x']
         predicted3_y_col = params['predicted3_y']
         
-        # 선택된 라인 체크
-        selected_lines = {}
+        # 선택된 라인 체크 (params에서 enable 플래그 사용)
+        selected_lines = {
+            'actual': params.get('enable_actual', True),
+            'hubroom': params.get('enable_hubroom', True),
+            'predicted1': params.get('enable_predicted1', True),
+            'predicted2': params.get('enable_predicted2', True),
+            'predicted3': params.get('enable_predicted3', True)
+        }
         
-        # 실제값
-        if actual_x_col and actual_y_col and actual_x_col in df.columns and actual_y_col in df.columns:
-            selected_lines['actual'] = True
+        # 선택된 라인의 Y값을 숫자로 변환
+        if selected_lines['actual'] and actual_y_col and actual_y_col in df.columns:
             df[actual_y_col] = pd.to_numeric(df[actual_y_col], errors='coerce')
         else:
             selected_lines['actual'] = False
             
-        # HUBROOM
-        if hubroom_x_col and hubroom_y_col and hubroom_x_col in df.columns and hubroom_y_col in df.columns:
-            selected_lines['hubroom'] = True
+        if selected_lines['hubroom'] and hubroom_y_col and hubroom_y_col in df.columns:
             df[hubroom_y_col] = pd.to_numeric(df[hubroom_y_col], errors='coerce')
         else:
             selected_lines['hubroom'] = False
             
-        # 예측값1
-        if predicted1_x_col and predicted1_y_col and predicted1_x_col in df.columns and predicted1_y_col in df.columns:
-            selected_lines['predicted1'] = True
+        if selected_lines['predicted1'] and predicted1_y_col and predicted1_y_col in df.columns:
             df[predicted1_y_col] = pd.to_numeric(df[predicted1_y_col], errors='coerce')
         else:
             selected_lines['predicted1'] = False
             
-        # 예측값2
-        if predicted2_x_col and predicted2_y_col and predicted2_x_col in df.columns and predicted2_y_col in df.columns:
-            selected_lines['predicted2'] = True
+        if selected_lines['predicted2'] and predicted2_y_col and predicted2_y_col in df.columns:
             df[predicted2_y_col] = pd.to_numeric(df[predicted2_y_col], errors='coerce')
         else:
             selected_lines['predicted2'] = False
             
-        # 예측값3
-        if predicted3_x_col and predicted3_y_col and predicted3_x_col in df.columns and predicted3_y_col in df.columns:
-            selected_lines['predicted3'] = True
+        if selected_lines['predicted3'] and predicted3_y_col and predicted3_y_col in df.columns:
             df[predicted3_y_col] = pd.to_numeric(df[predicted3_y_col], errors='coerce')
         else:
             selected_lines['predicted3'] = False
@@ -600,14 +597,43 @@ class GraphApp:
             "예측값3 X축 (시간):",
             "예측값3 Y축 (값):"
         ]
+        
+        # 각 데이터 라인별 체크박스 변수 (5개 그룹)
+        self.enable_actual = tk.BooleanVar(value=True)
+        self.enable_hubroom = tk.BooleanVar(value=True)
+        self.enable_predicted1 = tk.BooleanVar(value=True)
+        self.enable_predicted2 = tk.BooleanVar(value=True)
+        self.enable_predicted3 = tk.BooleanVar(value=True)
+        
         self.column_vars = [tk.StringVar() for _ in labels]
         self.column_menus = []
 
+        # 각 그룹마다 체크박스 추가
+        enable_vars = [
+            (self.enable_actual, "✅ 실제값 사용"),
+            (self.enable_actual, ""),
+            (self.enable_hubroom, "✅ HUBROOM 사용"),
+            (self.enable_hubroom, ""),
+            (self.enable_predicted1, "✅ 예측값1 사용"),
+            (self.enable_predicted1, ""),
+            (self.enable_predicted2, "✅ 예측값2 사용"),
+            (self.enable_predicted2, ""),
+            (self.enable_predicted3, "✅ 예측값3 사용"),
+            (self.enable_predicted3, "")
+        ]
+
         for i, label_text in enumerate(labels):
-            tk.Label(self.step2_frame, text=label_text, font=('Arial', 9)).grid(row=i, column=0, sticky='w', padx=5, pady=2)
+            # 체크박스 (X축 줄에만 표시)
+            if i % 2 == 0:  # X축 줄
+                enable_var, checkbox_text = enable_vars[i]
+                tk.Checkbutton(self.step2_frame, text=checkbox_text, variable=enable_var, 
+                              font=('Arial', 9, 'bold')).grid(row=i, column=0, sticky='w', padx=5, pady=(8, 2))
+            
+            # 라벨과 메뉴는 한 칸 오른쪽으로
+            tk.Label(self.step2_frame, text=label_text, font=('Arial', 9)).grid(row=i, column=1, sticky='w', padx=5, pady=2)
             menu = tk.OptionMenu(self.step2_frame, self.column_vars[i], "")
             menu.config(width=30)
-            menu.grid(row=i, column=1, sticky='ew', padx=5, pady=2)
+            menu.grid(row=i, column=2, sticky='ew', padx=5, pady=2)
             self.column_menus.append(menu)
     
     def create_step2_5_widgets(self):
@@ -1080,16 +1106,16 @@ class GraphApp:
         params = {
             'file_path': self.file_path, 
             'title': self.title_var.get(),
-            'actual_x': self.column_vars[0].get(), 
-            'actual_y': self.column_vars[1].get(),
-            'hubroom_x': self.column_vars[2].get(),
-            'hubroom_y': self.column_vars[3].get(),
-            'predicted1_x': self.column_vars[4].get(), 
-            'predicted1_y': self.column_vars[5].get(),
-            'predicted2_x': self.column_vars[6].get(),
-            'predicted2_y': self.column_vars[7].get(),
-            'predicted3_x': self.column_vars[8].get(),
-            'predicted3_y': self.column_vars[9].get(),
+            'actual_x': self.column_vars[0].get() if self.enable_actual.get() else '', 
+            'actual_y': self.column_vars[1].get() if self.enable_actual.get() else '',
+            'hubroom_x': self.column_vars[2].get() if self.enable_hubroom.get() else '',
+            'hubroom_y': self.column_vars[3].get() if self.enable_hubroom.get() else '',
+            'predicted1_x': self.column_vars[4].get() if self.enable_predicted1.get() else '', 
+            'predicted1_y': self.column_vars[5].get() if self.enable_predicted1.get() else '',
+            'predicted2_x': self.column_vars[6].get() if self.enable_predicted2.get() else '',
+            'predicted2_y': self.column_vars[7].get() if self.enable_predicted2.get() else '',
+            'predicted3_x': self.column_vars[8].get() if self.enable_predicted3.get() else '',
+            'predicted3_y': self.column_vars[9].get() if self.enable_predicted3.get() else '',
             'actual_color': self.actual_color_var.get(), 
             'actual_style': self.actual_style_var.get(),
             'hubroom_color': self.hubroom_color_var.get(),
@@ -1101,15 +1127,42 @@ class GraphApp:
             'predicted3_color': self.predicted3_color_var.get(),
             'predicted3_style': self.predicted3_style_var.get(),
             'limit_value': self.limit_value_var.get(),
-            'trend_data': selected_trends
+            'trend_data': selected_trends,
+            'enable_actual': self.enable_actual.get(),
+            'enable_hubroom': self.enable_hubroom.get(),
+            'enable_predicted1': self.enable_predicted1.get(),
+            'enable_predicted2': self.enable_predicted2.get(),
+            'enable_predicted3': self.enable_predicted3.get()
         }
         
-        if not all([params['actual_x'], params['actual_y'], 
-                   params['hubroom_x'], params['hubroom_y'],
-                   params['predicted1_x'], params['predicted1_y'],
-                   params['predicted2_x'], params['predicted2_y'],
-                   params['predicted3_x'], params['predicted3_y']]):
-            messagebox.showwarning("경고", "2단계에서 모든 메인 데이터 축의 컬럼을 선택해주세요.")
+        # 최소 1개 이상의 메인 데이터가 활성화되어 있는지 확인
+        enabled_count = sum([
+            self.enable_actual.get(),
+            self.enable_hubroom.get(),
+            self.enable_predicted1.get(),
+            self.enable_predicted2.get(),
+            self.enable_predicted3.get()
+        ])
+        
+        if enabled_count == 0:
+            messagebox.showwarning("경고", "최소 1개 이상의 메인 데이터를 체크해주세요.")
+            return
+        
+        # 체크된 것만 컬럼 선택 확인
+        missing = []
+        if self.enable_actual.get() and (not params['actual_x'] or not params['actual_y']):
+            missing.append("실제값")
+        if self.enable_hubroom.get() and (not params['hubroom_x'] or not params['hubroom_y']):
+            missing.append("HUBROOM")
+        if self.enable_predicted1.get() and (not params['predicted1_x'] or not params['predicted1_y']):
+            missing.append("예측값1")
+        if self.enable_predicted2.get() and (not params['predicted2_x'] or not params['predicted2_y']):
+            missing.append("예측값2")
+        if self.enable_predicted3.get() and (not params['predicted3_x'] or not params['predicted3_y']):
+            missing.append("예측값3")
+        
+        if missing:
+            messagebox.showwarning("경고", f"체크된 항목의 컬럼을 선택해주세요:\n{', '.join(missing)}")
             return
         
         if not self.perf_values:
