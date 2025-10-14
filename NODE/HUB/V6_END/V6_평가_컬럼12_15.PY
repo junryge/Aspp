@@ -14,20 +14,19 @@ def evaluate_all_predictions():
     """전체 데이터를 슬라이딩 윈도우로 평가"""
    
     # V4 Ultimate 필수 컬럼 정의
-    # 핵심 12개 컬럼만 사용 (물리적으로 중요한 것만)
     FEATURE_COLS = {
-        'storage': ['M16A_3F_STORAGE_UTIL'],  # 극단값 핵심 지표
-        'cmd': ['M16A_3F_CMD', 'M16A_6F_TO_HUB_CMD'],  # 주요 CMD
-        'inflow': ['M16A_6F_TO_HUB_JOB', 'M16A_2F_TO_HUB_JOB2', 'M14A_3F_TO_HUB_JOB2'],  # 주요 유입
-        'outflow': ['M16A_3F_TO_M16A_6F_JOB', 'M16A_3F_TO_M16A_2F_JOB', 'M16A_3F_TO_M14A_3F_JOB'],  # 주요 유출
-        'maxcapa': ['M16A_6F_LFT_MAXCAPA', 'M16A_2F_LFT_MAXCAPA']  # 용량 제한
+        'storage': ['M16A_3F_STORAGE_UTIL'],
+        'cmd': ['M16A_3F_CMD', 'M16A_6F_TO_HUB_CMD'],
+        'inflow': ['M16A_6F_TO_HUB_JOB', 'M16A_2F_TO_HUB_JOB2', 'M14A_3F_TO_HUB_JOB2'],
+        'outflow': ['M16A_3F_TO_M16A_6F_JOB', 'M16A_3F_TO_M16A_2F_JOB', 'M16A_3F_TO_M14A_3F_JOB'],
+        'maxcapa': ['M16A_6F_LFT_MAXCAPA', 'M16A_2F_LFT_MAXCAPA']
     }
    
     # 모델 로드
     try:
-        with open('xgboost_model_30min_15min.pkl', 'rb') as f:
+        with open('xgboost_model_30min_15min_enhanced.pkl', 'rb') as f:
             model = pickle.load(f)
-        print("✅ 모델 로드 완료")
+        print("✅ 모델 로드 완료 (Enhanced)")
     except Exception as e:
         print(f"❌ 모델 파일 없음: {e}")
         return None
@@ -69,8 +68,8 @@ def evaluate_all_predictions():
         # 예측 시점 (15분 후)
         prediction_time = current_time + timedelta(minutes=15)
        
-        # 실제값 (i+15번째 행)
-        actual_value = df.iloc[i+15][TARGET_COL]
+        # 실제값 (i부터 i+15까지의 MAX)
+        actual_value = df[TARGET_COL].iloc[i:i+15].max()
         actual_time = df.iloc[i+15]['STAT_DT']
        
         # Feature 생성 (타겟 컬럼)
@@ -82,9 +81,7 @@ def evaluate_all_predictions():
             'target_min': np.min(seq_target),
             'target_slope': np.polyfit(np.arange(30), seq_target, 1)[0],
             'target_last_10_mean': np.mean(seq_target[-10:]),
-            'target_first_10_mean': np.mean(seq_target[:10]),
-            'target_first_15_mean': np.mean(seq_target[:15]),  # 처음 15분
-            'target_last_15_mean': np.mean(seq_target[15:])    # 마지막 15분
+            'target_first_10_mean': np.mean(seq_target[:10])
         }
        
         # 각 컬럼 그룹별 특성 추가
@@ -110,10 +107,6 @@ def evaluate_all_predictions():
                     features[f'{col}_first_10_mean'] = np.mean(col_seq[:10])
                     features[f'{col}_mid_10_mean'] = np.mean(col_seq[10:20])
                     features[f'{col}_last_value'] = col_seq[-1]
-                    
-                    # 처음 15분 / 마지막 15분
-                    features[f'{col}_first_15_mean'] = np.mean(col_seq[:15])
-                    features[f'{col}_last_15_mean'] = np.mean(col_seq[15:])
        
         # 유입-유출 차이 (Net Flow)
         inflow_sum = 0
@@ -166,13 +159,13 @@ def evaluate_all_predictions():
     results_df = pd.DataFrame(results)
    
     # CSV 저장
-    output_file = 'prediction_evaluation_컬럼12.csv'
+    output_file = 'prediction_evaluation_enhanced.csv'
     results_df.to_csv(output_file, index=False, encoding='utf-8-sig')
     print(f"\n✅ 결과 저장 완료: {output_file}")
    
     # 통계 출력
     print("\n" + "="*80)
-    print("📊 평가 통계")
+    print("📊 평가 통계 (Enhanced)")
     print("="*80)
     print(f"총 예측 수: {len(results_df)}")
     print(f"평균 오차: {results_df['오차'].abs().mean():.2f}")
@@ -197,9 +190,11 @@ def evaluate_all_predictions():
     return results_df
 
 if __name__ == '__main__':
-    print("🚀 실시간 예측 평가 시작 (Multi-Column Features + first15/last15)...\n")
+    print("🚀 실시간 예측 평가 시작 (Enhanced Hyperparameters)...\n")
     results = evaluate_all_predictions()
    
     if results is not None:
         print(f"\n✅ 평가 완료! 총 {len(results)}개 예측 생성")
-        print(f"📁 결과 파일: prediction_evaluation_컬럼12.csv")
+        print(f"📁 결과 파일: prediction_evaluation_enhanced.csv")
+   
+   
