@@ -18,7 +18,7 @@ def train_and_evaluate_complete():
     V4 Ultimate 21개 필수 컬럼 활용
     """
     print("="*80)
-    print("XGBoost 30분→15분 예측 모델 학습 및 평가 (핵심 12개 컬럼 + first15/last15)")
+    print("XGBoost 30분→15분 예측 모델 학습 및 평가 (하이퍼파라미터 강화)")
     print("="*80)
     
     # 핵심 12개 컬럼만 사용 (물리적으로 중요한 것만)
@@ -53,8 +53,6 @@ def train_and_evaluate_complete():
                 'target_slope': np.polyfit(np.arange(30), seq_target, 1)[0],
                 'target_last_10_mean': np.mean(seq_target[-10:]),
                 'target_first_10_mean': np.mean(seq_target[:10]),
-                'target_first_15_mean': np.mean(seq_target[:15]),  # 처음 15분
-                'target_last_15_mean': np.mean(seq_target[15:]),   # 마지막 15분
             }
             
             # 각 컬럼 그룹별 특성 추가
@@ -80,10 +78,6 @@ def train_and_evaluate_complete():
                         features[f'{col}_first_10_mean'] = np.mean(seq_data[:10])
                         features[f'{col}_mid_10_mean'] = np.mean(seq_data[10:20])
                         features[f'{col}_last_value'] = seq_data[-1]
-                        
-                        # 처음 15분 / 마지막 15분
-                        features[f'{col}_first_15_mean'] = np.mean(seq_data[:15])
-                        features[f'{col}_last_15_mean'] = np.mean(seq_data[15:])
             
             # 유입-유출 차이 (Net Flow)
             inflow_sum = 0
@@ -104,7 +98,7 @@ def train_and_evaluate_complete():
             features['total_cmd'] = cmd_sum
             
             features_list.append(features)
-            labels.append(df[TARGET_COL].iloc[i:i+15].max())
+            labels.append(df[TARGET_COL].iloc[i:i+15].max())  # MAX 유지
             seq_max_list.append(np.max(seq_target))
             seq_min_list.append(np.min(seq_target))
             indices.append(i)
@@ -160,14 +154,18 @@ def train_and_evaluate_complete():
         print("  → CPU 모드로 전환합니다.\n")
         use_gpu = False
     
-    # 실제 모델 생성
+    # 실제 모델 생성 (하이퍼파라미터 강화)
     if use_gpu:
         model = xgb.XGBRegressor(
-            n_estimators=150,
-            max_depth=6,
-            learning_rate=0.05,
+            n_estimators=300,           # 150 → 300
+            max_depth=8,                # 6 → 8
+            learning_rate=0.03,         # 0.05 → 0.03
             subsample=0.8,
             colsample_bytree=0.8,
+            min_child_weight=3,         # 추가
+            gamma=0.1,                  # 추가
+            reg_alpha=0.1,              # 추가 (L1 정규화)
+            reg_lambda=1.0,             # 추가 (L2 정규화)
             random_state=42,
             tree_method='gpu_hist',
             gpu_id=0,
@@ -175,17 +173,21 @@ def train_and_evaluate_complete():
         )
     else:
         model = xgb.XGBRegressor(
-            n_estimators=150,
-            max_depth=6,
-            learning_rate=0.05,
+            n_estimators=300,           # 150 → 300
+            max_depth=8,                # 6 → 8
+            learning_rate=0.03,         # 0.05 → 0.03
             subsample=0.8,
             colsample_bytree=0.8,
+            min_child_weight=3,         # 추가
+            gamma=0.1,                  # 추가
+            reg_alpha=0.1,              # 추가 (L1 정규화)
+            reg_lambda=1.0,             # 추가 (L2 정규화)
             random_state=42,
-            tree_method='hist',  # CPU 최적화
+            tree_method='hist',
             n_jobs=-1
         )
     
-    print("모델 학습 중...")
+    print("모델 학습 중 (하이퍼파라미터 강화)...")
     model.fit(
         X_tr, y_tr,
         eval_set=[(X_val, y_val)],
@@ -203,10 +205,10 @@ def train_and_evaluate_complete():
     print(f"  RMSE: {train_rmse:.4f}")
     print(f"  R²:   {train_r2:.4f}")
     
-    # 모델 저장 (동일한 파일명)
-    with open('xgboost_model_30min_15min.pkl', 'wb') as f:
+    # 모델 저장
+    with open('xgboost_model_30min_15min_enhanced.pkl', 'wb') as f:
         pickle.dump(model, f)
-    print("✅ 모델 저장 완료: xgboost_model_30min_15min.pkl")
+    print("✅ 모델 저장 완료: xgboost_model_30min_15min_enhanced.pkl")
     
     # ===== 2. 평가 단계 (BBB.CSV) =====
     print("\n[STEP 2] BBB.CSV로 모델 평가")
@@ -310,9 +312,9 @@ def train_and_evaluate_complete():
         display_cols = ['현재시간', '시퀀스완료', '실제값', '예측값', '오차', '극단값감지']
         print(extreme_df[display_cols].head(5).to_string())
     
-    # CSV 저장 (동일한 파일명)
-    df_results.to_csv('BBB_evaluation_results.csv', index=False, encoding='utf-8-sig')
-    print(f"\n✅ 상세 결과 저장: BBB_evaluation_results.csv")
+    # CSV 저장
+    df_results.to_csv('BBB_evaluation_results_enhanced.csv', index=False, encoding='utf-8-sig')
+    print(f"\n✅ 상세 결과 저장: BBB_evaluation_results_enhanced.csv")
     
     # ===== 4. 그래프 생성 =====
     print("\n[STEP 4] 평가 그래프 생성")
@@ -326,7 +328,7 @@ def train_and_evaluate_complete():
     ax1.plot([y_test.min(), y_test.max()], [y_test.min(), y_test.max()], 'r--', lw=2)
     ax1.set_xlabel('Actual')
     ax1.set_ylabel('Predicted')
-    ax1.set_title(f'Actual vs Predicted (Multi-Column)\nMAE={test_mae:.2f}, R²={test_r2:.3f}')
+    ax1.set_title(f'Actual vs Predicted (Enhanced)\nMAE={test_mae:.2f}, R²={test_r2:.3f}')
     ax1.grid(True, alpha=0.3)
     
     # 2. 시계열 비교
@@ -410,10 +412,10 @@ def train_and_evaluate_complete():
     ax6.set_title('Top 20 Feature Importance')
     ax6.grid(True, alpha=0.3)
     
-    plt.suptitle('BBB.CSV Evaluation Results (Multi-Column Features + first15/last15)', fontsize=16, fontweight='bold')
+    plt.suptitle('BBB.CSV Evaluation Results (Enhanced Hyperparameters)', fontsize=16, fontweight='bold')
     plt.tight_layout()
-    plt.savefig('BBB_evaluation_graphs.png', dpi=150, bbox_inches='tight')
-    print("✅ 그래프 저장: BBB_evaluation_graphs.png")
+    plt.savefig('BBB_evaluation_graphs_enhanced.png', dpi=150, bbox_inches='tight')
+    print("✅ 그래프 저장: BBB_evaluation_graphs_enhanced.png")
     
     # ===== 5. 최종 요약 =====
     print("\n" + "="*80)
@@ -429,10 +431,11 @@ def train_and_evaluate_complete():
     print(f"   - 극단값 감지: {extreme_detected}개 ({extreme_detected/extreme_count*100 if extreme_count > 0 else 0:.1f}%)")
     print(f"   - 점프 케이스: {jump_count}개 발생")
     
-    print(f"\n3. Feature 정보:")
-    print(f"   - 총 Feature 수: {len(X_train.columns)}개")
-    print(f"   - 사용된 컬럼 그룹: inflow(5), outflow(5), cmd(5), maxcapa(2), storage(1), ofs(2)")
-    print(f"   - 추가 Feature: target_first_15_mean, target_last_15_mean (+ 모든 컬럼에 적용)")
+    print(f"\n3. 하이퍼파라미터 강화:")
+    print(f"   - n_estimators: 150 → 300")
+    print(f"   - max_depth: 6 → 8")
+    print(f"   - learning_rate: 0.05 → 0.03")
+    print(f"   - 추가: min_child_weight=3, gamma=0.1, reg_alpha=0.1, reg_lambda=1.0")
     
     print(f"\n4. Top 10 중요 Features:")
     top_features = feature_importance.head(10)
@@ -440,9 +443,9 @@ def train_and_evaluate_complete():
         print(f"   - {row['feature']}: {row['importance']:.4f}")
     
     print(f"\n5. 저장 파일:")
-    print(f"   - 모델: xgboost_model_30min_15min.pkl")
-    print(f"   - 결과: BBB_evaluation_results.csv")
-    print(f"   - 그래프: BBB_evaluation_graphs.png")
+    print(f"   - 모델: xgboost_model_30min_15min_enhanced.pkl")
+    print(f"   - 결과: BBB_evaluation_results_enhanced.csv")
+    print(f"   - 그래프: BBB_evaluation_graphs_enhanced.png")
     
     return model, df_results
 
