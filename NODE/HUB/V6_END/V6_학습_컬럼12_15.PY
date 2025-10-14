@@ -18,7 +18,7 @@ def train_and_evaluate_complete():
     V4 Ultimate 21개 필수 컬럼 활용
     """
     print("="*80)
-    print("XGBoost 30분→15분 예측 모델 학습 및 평가 (핵심 12개 컬럼)")
+    print("XGBoost 30분→15분 예측 모델 학습 및 평가 (핵심 12개 컬럼 + first15/last15)")
     print("="*80)
     
     # 핵심 12개 컬럼만 사용 (물리적으로 중요한 것만)
@@ -53,6 +53,8 @@ def train_and_evaluate_complete():
                 'target_slope': np.polyfit(np.arange(30), seq_target, 1)[0],
                 'target_last_10_mean': np.mean(seq_target[-10:]),
                 'target_first_10_mean': np.mean(seq_target[:10]),
+                'target_first_15_mean': np.mean(seq_target[:15]),  # 처음 15분
+                'target_last_15_mean': np.mean(seq_target[15:]),   # 마지막 15분
             }
             
             # 각 컬럼 그룹별 특성 추가
@@ -78,6 +80,10 @@ def train_and_evaluate_complete():
                         features[f'{col}_first_10_mean'] = np.mean(seq_data[:10])
                         features[f'{col}_mid_10_mean'] = np.mean(seq_data[10:20])
                         features[f'{col}_last_value'] = seq_data[-1]
+                        
+                        # 처음 15분 / 마지막 15분
+                        features[f'{col}_first_15_mean'] = np.mean(seq_data[:15])
+                        features[f'{col}_last_15_mean'] = np.mean(seq_data[15:])
             
             # 유입-유출 차이 (Net Flow)
             inflow_sum = 0
@@ -404,7 +410,7 @@ def train_and_evaluate_complete():
     ax6.set_title('Top 20 Feature Importance')
     ax6.grid(True, alpha=0.3)
     
-    plt.suptitle('BBB.CSV Evaluation Results (Multi-Column Features)', fontsize=16, fontweight='bold')
+    plt.suptitle('BBB.CSV Evaluation Results (Multi-Column Features + first15/last15)', fontsize=16, fontweight='bold')
     plt.tight_layout()
     plt.savefig('BBB_evaluation_graphs.png', dpi=150, bbox_inches='tight')
     print("✅ 그래프 저장: BBB_evaluation_graphs.png")
@@ -426,6 +432,7 @@ def train_and_evaluate_complete():
     print(f"\n3. Feature 정보:")
     print(f"   - 총 Feature 수: {len(X_train.columns)}개")
     print(f"   - 사용된 컬럼 그룹: inflow(5), outflow(5), cmd(5), maxcapa(2), storage(1), ofs(2)")
+    print(f"   - 추가 Feature: target_first_15_mean, target_last_15_mean (+ 모든 컬럼에 적용)")
     
     print(f"\n4. Top 10 중요 Features:")
     top_features = feature_importance.head(10)
