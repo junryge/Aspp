@@ -93,12 +93,48 @@ def create_graph(params, perf_values=None):
         predicted3_x_col = params['predicted3_x']
         predicted3_y_col = params['predicted3_y']
         
-        # Y값을 숫자로 변환
-        df[actual_y_col] = pd.to_numeric(df[actual_y_col], errors='coerce')
-        df[hubroom_y_col] = pd.to_numeric(df[hubroom_y_col], errors='coerce')
-        df[predicted1_y_col] = pd.to_numeric(df[predicted1_y_col], errors='coerce')
-        df[predicted2_y_col] = pd.to_numeric(df[predicted2_y_col], errors='coerce')
-        df[predicted3_y_col] = pd.to_numeric(df[predicted3_y_col], errors='coerce')
+        # 선택된 라인 체크
+        selected_lines = {}
+        
+        # 실제값
+        if actual_x_col and actual_y_col and actual_x_col in df.columns and actual_y_col in df.columns:
+            selected_lines['actual'] = True
+            df[actual_y_col] = pd.to_numeric(df[actual_y_col], errors='coerce')
+        else:
+            selected_lines['actual'] = False
+            
+        # HUBROOM
+        if hubroom_x_col and hubroom_y_col and hubroom_x_col in df.columns and hubroom_y_col in df.columns:
+            selected_lines['hubroom'] = True
+            df[hubroom_y_col] = pd.to_numeric(df[hubroom_y_col], errors='coerce')
+        else:
+            selected_lines['hubroom'] = False
+            
+        # 예측값1
+        if predicted1_x_col and predicted1_y_col and predicted1_x_col in df.columns and predicted1_y_col in df.columns:
+            selected_lines['predicted1'] = True
+            df[predicted1_y_col] = pd.to_numeric(df[predicted1_y_col], errors='coerce')
+        else:
+            selected_lines['predicted1'] = False
+            
+        # 예측값2
+        if predicted2_x_col and predicted2_y_col and predicted2_x_col in df.columns and predicted2_y_col in df.columns:
+            selected_lines['predicted2'] = True
+            df[predicted2_y_col] = pd.to_numeric(df[predicted2_y_col], errors='coerce')
+        else:
+            selected_lines['predicted2'] = False
+            
+        # 예측값3
+        if predicted3_x_col and predicted3_y_col and predicted3_x_col in df.columns and predicted3_y_col in df.columns:
+            selected_lines['predicted3'] = True
+            df[predicted3_y_col] = pd.to_numeric(df[predicted3_y_col], errors='coerce')
+        else:
+            selected_lines['predicted3'] = False
+        
+        # 최소 1개 라인은 있어야 함
+        if not any(selected_lines.values()):
+            messagebox.showerror("오류", "최소 1개 이상의 데이터 라인을 선택해야 합니다.")
+            return
         
         # 트렌드 데이터 처리
         trend_data = params.get('trend_data', [])
@@ -112,9 +148,21 @@ def create_graph(params, perf_values=None):
                 except:
                     pass
         
-        # 필수 컬럼만 NaN 체크
-        required_cols = [actual_y_col, hubroom_y_col, predicted1_y_col, predicted2_y_col, predicted3_y_col]
-        df = df.dropna(subset=required_cols)
+        # NaN 제거 (선택된 컬럼만)
+        dropna_cols = []
+        if selected_lines['actual']:
+            dropna_cols.append(actual_y_col)
+        if selected_lines['hubroom']:
+            dropna_cols.append(hubroom_y_col)
+        if selected_lines['predicted1']:
+            dropna_cols.append(predicted1_y_col)
+        if selected_lines['predicted2']:
+            dropna_cols.append(predicted2_y_col)
+        if selected_lines['predicted3']:
+            dropna_cols.append(predicted3_y_col)
+            
+        if dropna_cols:
+            df = df.dropna(subset=dropna_cols)
         
         # 점프예측 컬럼 확인
         jump_col = None
@@ -130,39 +178,63 @@ def create_graph(params, perf_values=None):
                 pattern_col = col
                 break
         
-        # 날짜 변환 및 포맷팅
-        try:
-            df[actual_x_col] = pd.to_datetime(df[actual_x_col])
-            df['actual_time_str'] = df[actual_x_col].dt.strftime('%Y-%m-%d %H:%M:%S')
-        except:
-            df['actual_time_str'] = df[actual_x_col].astype(str)
-            
-        try:
-            df[hubroom_x_col] = pd.to_datetime(df[hubroom_x_col])
-            df['hubroom_time_str'] = df[hubroom_x_col].dt.strftime('%Y-%m-%d %H:%M:%S')
-        except:
-            df['hubroom_time_str'] = df[hubroom_x_col].astype(str)
-            
-        try:
-            df[predicted1_x_col] = pd.to_datetime(df[predicted1_x_col])
-            df['predicted1_time_str'] = df[predicted1_x_col].dt.strftime('%Y-%m-%d %H:%M:%S')
-        except:
-            df['predicted1_time_str'] = df[predicted1_x_col].astype(str)
-            
-        try:
-            df[predicted2_x_col] = pd.to_datetime(df[predicted2_x_col])
-            df['predicted2_time_str'] = df[predicted2_x_col].dt.strftime('%Y-%m-%d %H:%M:%S')
-        except:
-            df['predicted2_time_str'] = df[predicted2_x_col].astype(str)
-            
-        try:
-            df[predicted3_x_col] = pd.to_datetime(df[predicted3_x_col])
-            df['predicted3_time_str'] = df[predicted3_x_col].dt.strftime('%Y-%m-%d %H:%M:%S')
-        except:
-            df['predicted3_time_str'] = df[predicted3_x_col].astype(str)
+        # 날짜 변환 및 포맷팅 (선택된 라인만)
+        if selected_lines['actual']:
+            try:
+                df[actual_x_col] = pd.to_datetime(df[actual_x_col])
+                df['actual_time_str'] = df[actual_x_col].dt.strftime('%Y-%m-%d %H:%M:%S')
+            except:
+                df['actual_time_str'] = df[actual_x_col].astype(str)
+        else:
+            df['actual_time_str'] = ''
+                
+        if selected_lines['hubroom']:
+            try:
+                df[hubroom_x_col] = pd.to_datetime(df[hubroom_x_col])
+                df['hubroom_time_str'] = df[hubroom_x_col].dt.strftime('%Y-%m-%d %H:%M:%S')
+            except:
+                df['hubroom_time_str'] = df[hubroom_x_col].astype(str)
+        else:
+            df['hubroom_time_str'] = ''
+                
+        if selected_lines['predicted1']:
+            try:
+                df[predicted1_x_col] = pd.to_datetime(df[predicted1_x_col])
+                df['predicted1_time_str'] = df[predicted1_x_col].dt.strftime('%Y-%m-%d %H:%M:%S')
+            except:
+                df['predicted1_time_str'] = df[predicted1_x_col].astype(str)
+        else:
+            df['predicted1_time_str'] = ''
+                
+        if selected_lines['predicted2']:
+            try:
+                df[predicted2_x_col] = pd.to_datetime(df[predicted2_x_col])
+                df['predicted2_time_str'] = df[predicted2_x_col].dt.strftime('%Y-%m-%d %H:%M:%S')
+            except:
+                df['predicted2_time_str'] = df[predicted2_x_col].astype(str)
+        else:
+            df['predicted2_time_str'] = ''
+                
+        if selected_lines['predicted3']:
+            try:
+                df[predicted3_x_col] = pd.to_datetime(df[predicted3_x_col])
+                df['predicted3_time_str'] = df[predicted3_x_col].dt.strftime('%Y-%m-%d %H:%M:%S')
+            except:
+                df['predicted3_time_str'] = df[predicted3_x_col].astype(str)
+        else:
+            df['predicted3_time_str'] = ''
         
-        # 실제값의 시간을 공통 시간축으로 사용
-        df['common_time'] = df[actual_x_col]
+        # 공통 시간축 설정 (첫 번째 선택된 라인의 X축 사용)
+        if selected_lines['actual']:
+            df['common_time'] = df[actual_x_col]
+        elif selected_lines['hubroom']:
+            df['common_time'] = df[hubroom_x_col]
+        elif selected_lines['predicted1']:
+            df['common_time'] = df[predicted1_x_col]
+        elif selected_lines['predicted2']:
+            df['common_time'] = df[predicted2_x_col]
+        elif selected_lines['predicted3']:
+            df['common_time'] = df[predicted3_x_col]
         
         # 점프예측 값 준비 및 색상 결정
         if jump_col:
@@ -203,92 +275,97 @@ def create_graph(params, perf_values=None):
 
         fig = go.Figure()
 
-        # 실제값 라인
-        fig.add_trace(go.Scattergl(
-            x=df['common_time'],
-            y=df[actual_y_col], 
-            mode='lines+markers',
-            name='실제값 (Actual)',
-            line=dict(color=params['actual_color'], 
-                     dash=None if params['actual_style'] == 'Solid' else params['actual_style'].lower(), 
-                     width=3),
-            marker=dict(size=6),
-            customdata=df[['actual_time_str']].values,
-            hovertemplate='<b style="color: #2E86C1; font-size: 14px;">📊 INFO 정보</b><br>' +
-                         '<span style="color: #85C1E2;">═══════════════════</span><br>' +
-                         '<b style="color: #1f77b4;">🔵 실제값</b><br>' +
-                         '<span style="color: #666;">시간:</span> %{customdata[0]}<br>' +
-                         '<span style="color: #666;">값:</span> <b>%{y:.2f}</b>' +
-                         '<extra></extra>'
-        ))
+        # 실제값 라인 (선택된 경우에만)
+        if selected_lines['actual']:
+            fig.add_trace(go.Scattergl(
+                x=df['common_time'],
+                y=df[actual_y_col], 
+                mode='lines+markers',
+                name='실제값 (Actual)',
+                line=dict(color=params['actual_color'], 
+                         dash=None if params['actual_style'] == 'Solid' else params['actual_style'].lower(), 
+                         width=3),
+                marker=dict(size=6),
+                customdata=df[['actual_time_str']].values,
+                hovertemplate='<b style="color: #2E86C1; font-size: 14px;">📊 INFO 정보</b><br>' +
+                             '<span style="color: #85C1E2;">═══════════════════</span><br>' +
+                             '<b style="color: #1f77b4;">🔵 실제값</b><br>' +
+                             '<span style="color: #666;">시간:</span> %{customdata[0]}<br>' +
+                             '<span style="color: #666;">값:</span> <b>%{y:.2f}</b>' +
+                             '<extra></extra>'
+            ))
         
-        # HUBROOM 라인
-        fig.add_trace(go.Scattergl(
-            x=df['common_time'],
-            y=df[hubroom_y_col], 
-            mode='lines+markers',
-            name='HUBROOM',
-            line=dict(color=params['hubroom_color'], 
-                     dash=None if params['hubroom_style'] == 'Solid' else params['hubroom_style'].lower(), 
-                     width=3),
-            marker=dict(size=6),
-            customdata=df[['hubroom_time_str']].values,
-            hovertemplate='<b style="color: #9467bd;">🟣 HUBROOM</b><br>' +
-                         '<span style="color: #666;">시간:</span> %{customdata[0]}<br>' +
-                         '<span style="color: #666;">값:</span> <b>%{y:.2f}</b>' +
-                         '<extra></extra>'
-        ))
+        # HUBROOM 라인 (선택된 경우에만)
+        if selected_lines['hubroom']:
+            fig.add_trace(go.Scattergl(
+                x=df['common_time'],
+                y=df[hubroom_y_col], 
+                mode='lines+markers',
+                name='HUBROOM',
+                line=dict(color=params['hubroom_color'], 
+                         dash=None if params['hubroom_style'] == 'Solid' else params['hubroom_style'].lower(), 
+                         width=3),
+                marker=dict(size=6),
+                customdata=df[['hubroom_time_str']].values,
+                hovertemplate='<b style="color: #9467bd;">🟣 HUBROOM</b><br>' +
+                             '<span style="color: #666;">시간:</span> %{customdata[0]}<br>' +
+                             '<span style="color: #666;">값:</span> <b>%{y:.2f}</b>' +
+                             '<extra></extra>'
+            ))
         
-        # 예측값1 라인
-        fig.add_trace(go.Scattergl(
-            x=df['common_time'],
-            y=df[predicted1_y_col], 
-            mode='lines+markers',
-            name='예측값1 (Predicted1)',
-            line=dict(color=params['predicted1_color'], 
-                     dash=None if params['predicted1_style'] == 'Solid' else params['predicted1_style'].lower(), 
-                     width=3),
-            marker=dict(size=6),
-            customdata=df[['predicted1_time_str']].values,
-            hovertemplate='<b style="color: #ff7f0e;">🔶 예측값1</b><br>' +
-                         '<span style="color: #666;">시간:</span> %{customdata[0]}<br>' +
-                         '<span style="color: #666;">값:</span> <b>%{y:.2f}</b>' +
-                         '<extra></extra>'
-        ))
+        # 예측값1 라인 (선택된 경우에만)
+        if selected_lines['predicted1']:
+            fig.add_trace(go.Scattergl(
+                x=df['common_time'],
+                y=df[predicted1_y_col], 
+                mode='lines+markers',
+                name='예측값1 (Predicted1)',
+                line=dict(color=params['predicted1_color'], 
+                         dash=None if params['predicted1_style'] == 'Solid' else params['predicted1_style'].lower(), 
+                         width=3),
+                marker=dict(size=6),
+                customdata=df[['predicted1_time_str']].values,
+                hovertemplate='<b style="color: #ff7f0e;">🔶 예측값1</b><br>' +
+                             '<span style="color: #666;">시간:</span> %{customdata[0]}<br>' +
+                             '<span style="color: #666;">값:</span> <b>%{y:.2f}</b>' +
+                             '<extra></extra>'
+            ))
         
-        # 예측값2 라인
-        fig.add_trace(go.Scattergl(
-            x=df['common_time'],
-            y=df[predicted2_y_col], 
-            mode='lines+markers',
-            name='예측값2 (Predicted2)',
-            line=dict(color=params['predicted2_color'], 
-                     dash=None if params['predicted2_style'] == 'Solid' else params['predicted2_style'].lower(), 
-                     width=3),
-            marker=dict(size=6),
-            customdata=df[['predicted2_time_str']].values,
-            hovertemplate='<b style="color: #2ca02c;">🔷 예측값2</b><br>' +
-                         '<span style="color: #666;">시간:</span> %{customdata[0]}<br>' +
-                         '<span style="color: #666;">값:</span> <b>%{y:.2f}</b>' +
-                         '<extra></extra>'
-        ))
+        # 예측값2 라인 (선택된 경우에만)
+        if selected_lines['predicted2']:
+            fig.add_trace(go.Scattergl(
+                x=df['common_time'],
+                y=df[predicted2_y_col], 
+                mode='lines+markers',
+                name='예측값2 (Predicted2)',
+                line=dict(color=params['predicted2_color'], 
+                         dash=None if params['predicted2_style'] == 'Solid' else params['predicted2_style'].lower(), 
+                         width=3),
+                marker=dict(size=6),
+                customdata=df[['predicted2_time_str']].values,
+                hovertemplate='<b style="color: #2ca02c;">🔷 예측값2</b><br>' +
+                             '<span style="color: #666;">시간:</span> %{customdata[0]}<br>' +
+                             '<span style="color: #666;">값:</span> <b>%{y:.2f}</b>' +
+                             '<extra></extra>'
+            ))
         
-        # 예측값3 라인
-        fig.add_trace(go.Scattergl(
-            x=df['common_time'],
-            y=df[predicted3_y_col], 
-            mode='lines+markers',
-            name='예측값3 (Predicted3)',
-            line=dict(color=params['predicted3_color'], 
-                     dash=None if params['predicted3_style'] == 'Solid' else params['predicted3_style'].lower(), 
-                     width=3),
-            marker=dict(size=6),
-            customdata=df[['predicted3_time_str']].values,
-            hovertemplate='<b style="color: #d62728;">🔸 예측값3</b><br>' +
-                         '<span style="color: #666;">시간:</span> %{customdata[0]}<br>' +
-                         '<span style="color: #666;">값:</span> <b>%{y:.2f}</b>' +
-                         '<extra></extra>'
-        ))
+        # 예측값3 라인 (선택된 경우에만)
+        if selected_lines['predicted3']:
+            fig.add_trace(go.Scattergl(
+                x=df['common_time'],
+                y=df[predicted3_y_col], 
+                mode='lines+markers',
+                name='예측값3 (Predicted3)',
+                line=dict(color=params['predicted3_color'], 
+                         dash=None if params['predicted3_style'] == 'Solid' else params['predicted3_style'].lower(), 
+                         width=3),
+                marker=dict(size=6),
+                customdata=df[['predicted3_time_str']].values,
+                hovertemplate='<b style="color: #d62728;">🔸 예측값3</b><br>' +
+                             '<span style="color: #666;">시간:</span> %{customdata[0]}<br>' +
+                             '<span style="color: #666;">값:</span> <b>%{y:.2f}</b>' +
+                             '<extra></extra>'
+            ))
         
         # 트렌드 데이터 라인들 - 간단하게만 표시
         trend_colors = ['#808080', '#A9A9A9', '#696969', '#778899', '#708090', 
