@@ -364,7 +364,27 @@ def create_graph(params, perf_values=None):
         output_filename = "final_guided_graph.html"
         html_content = fig.to_html(include_plotlyjs='cdn')
 
-        # HTML 하단에는 아무것도 표시하지 않음 - 그래프 호버에만 INFO 정보 표시
+        # HTML 하단에 평가 결과 분석 섹션 추가
+        if perf_values:
+            other_info = perf_values.get('other_info', '정보가 입력되지 않았습니다.')
+            other_info_escaped = other_info.replace('<', '&lt;').replace('>', '&gt;')
+            
+            performance_section = f"""
+            <div style="margin: 30px auto; max-width: 1200px; padding: 0 20px;">
+                <div style="background-color: white; padding: 30px; border-radius: 10px; box-shadow: 0 2px 10px rgba(0,0,0,0.1);">
+                    <h2 style="color: #2E86C1; text-align: center; margin-bottom: 30px; border-bottom: 3px solid #2E86C1; padding-bottom: 15px;">
+                        📊 평가 결과 분석
+                    </h2>
+                    <div style="white-space: pre-wrap; line-height: 1.8; font-size: 14px; color: #333; background-color: #f8f9fa; padding: 25px; border-radius: 8px; border: 2px solid #dee2e6; font-family: 'Courier New', monospace;">
+{other_info_escaped}
+                    </div>
+                </div>
+            </div>
+            """
+        else:
+            performance_section = ""
+
+        html_content = html_content.replace('</body>', performance_section + '</body>')
 
         style_section = """
         <style>
