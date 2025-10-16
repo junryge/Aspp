@@ -292,6 +292,88 @@ def create_graph(params, perf_values=None):
         # 실제값 라인 (선택된 경우에만)
         if selected_lines['actual']:
             actual_name = params.get('actual_name', '실제값')
+            hubroom_name = params.get('hubroom_name', 'HUBROOM')
+            predicted1_name = params.get('predicted1_name', '예측값1')
+            predicted2_name = params.get('predicted2_name', '예측값2')
+            predicted3_name = params.get('predicted3_name', '예측값3')
+            
+            # customdata에 모든 라인의 정보 포함 (순서: 실제값, 예측값1, 예측값2, 예측값3, HUBROOM)
+            customdata_cols = ['actual_time_str']
+            
+            if selected_lines['predicted1']:
+                customdata_cols.extend(['predicted1_time_str_original', predicted1_y_col])
+            else:
+                df['_dummy_pred1_time'] = ''
+                df['_dummy_pred1_val'] = 0
+                customdata_cols.extend(['_dummy_pred1_time', '_dummy_pred1_val'])
+                
+            if selected_lines['predicted2']:
+                customdata_cols.extend(['predicted2_time_str_original', predicted2_y_col])
+            else:
+                df['_dummy_pred2_time'] = ''
+                df['_dummy_pred2_val'] = 0
+                customdata_cols.extend(['_dummy_pred2_time', '_dummy_pred2_val'])
+                
+            if selected_lines['predicted3']:
+                customdata_cols.extend(['predicted3_time_str_original', predicted3_y_col])
+            else:
+                df['_dummy_pred3_time'] = ''
+                df['_dummy_pred3_val'] = 0
+                customdata_cols.extend(['_dummy_pred3_time', '_dummy_pred3_val'])
+            
+            if selected_lines['hubroom']:
+                customdata_cols.extend(['hubroom_time_str', hubroom_y_col])
+            else:
+                df['_dummy_hubroom_time'] = ''
+                df['_dummy_hubroom_val'] = 0
+                customdata_cols.extend(['_dummy_hubroom_time', '_dummy_hubroom_val'])
+            
+            # hovertemplate 생성 (순서: 실제값 → 예측값1 → 예측값2 → 예측값3 → HUBROOM)
+            hover_text = f'<b style="color: #2E86C1; font-size: 14px;">📊 INFO 정보</b><br>'
+            hover_text += '<span style="color: #85C1E2;">═══════════════════</span><br>'
+            hover_text += f'<b style="color: #1f77b4;">🔵 {actual_name}</b><br>'
+            hover_text += '<span style="color: #666;">시간:</span> %{customdata[0]}<br>'
+            hover_text += '<span style="color: #666;">값:</span> <b>%{y:.2f}</b><br>'
+            
+            if selected_lines['predicted1']:
+                hover_text += '<br>'
+                hover_text += f'<b style="color: #ff7f0e;">🔶 {predicted1_name}</b><br>'
+                hover_text += '<span style="color: #666;">시간:</span> %{customdata[1]}<br>'
+                hover_text += '<span style="color: #666;">값:</span> <b>%{customdata[2]:.2f}</b><br>'
+                
+            if selected_lines['predicted2']:
+                idx = 3 if selected_lines['predicted1'] else 1
+                hover_text += '<br>'
+                hover_text += f'<b style="color: #2ca02c;">🔷 {predicted2_name}</b><br>'
+                hover_text += f'<span style="color: #666;">시간:</span> %{{customdata[{idx}]}}<br>'
+                hover_text += f'<span style="color: #666;">값:</span> <b>%{{customdata[{idx+1}]:.2f}}</b><br>'
+                
+            if selected_lines['predicted3']:
+                idx = 1
+                if selected_lines['predicted1']:
+                    idx += 2
+                if selected_lines['predicted2']:
+                    idx += 2
+                hover_text += '<br>'
+                hover_text += f'<b style="color: #d62728;">🔸 {predicted3_name}</b><br>'
+                hover_text += f'<span style="color: #666;">시간:</span> %{{customdata[{idx}]}}<br>'
+                hover_text += f'<span style="color: #666;">값:</span> <b>%{{customdata[{idx+1}]:.2f}}</b><br>'
+            
+            if selected_lines['hubroom']:
+                idx = 1
+                if selected_lines['predicted1']:
+                    idx += 2
+                if selected_lines['predicted2']:
+                    idx += 2
+                if selected_lines['predicted3']:
+                    idx += 2
+                hover_text += '<br>'
+                hover_text += f'<b style="color: #9467bd;">🟣 {hubroom_name}</b><br>'
+                hover_text += f'<span style="color: #666;">시간:</span> %{{customdata[{idx}]}}<br>'
+                hover_text += f'<span style="color: #666;">값:</span> <b>%{{customdata[{idx+1}]:.2f}}</b><br>'
+            
+            hover_text += '<extra></extra>'
+            
             fig.add_trace(go.Scattergl(
                 x=df['common_time'],
                 y=df[actual_y_col], 
@@ -301,13 +383,8 @@ def create_graph(params, perf_values=None):
                          dash=None if params['actual_style'] == 'Solid' else params['actual_style'].lower(), 
                          width=3),
                 marker=dict(size=6),
-                customdata=df[['actual_time_str']].values,
-                hovertemplate=f'<b style="color: #2E86C1; font-size: 14px;">📊 INFO 정보</b><br>' +
-                             '<span style="color: #85C1E2;">═══════════════════</span><br>' +
-                             f'<b style="color: #1f77b4;">🔵 {actual_name}</b><br>' +
-                             '<span style="color: #666;">시간:</span> %{customdata[0]}<br>' +
-                             '<span style="color: #666;">값:</span> <b>%{y:.2f}</b>' +
-                             '<extra></extra>'
+                customdata=df[customdata_cols].values,
+                hovertemplate=hover_text
             ))
         
         # HUBROOM 라인 (선택된 경우에만)
