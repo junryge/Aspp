@@ -399,7 +399,11 @@ def create_graph(params, perf_values=None):
                          dash=None if params['hubroom_style'] == 'Solid' else params['hubroom_style'].lower(), 
                          width=3),
                 marker=dict(size=6),
-                hoverinfo='skip'  # 호버 정보 표시 안 함
+                customdata=df[['hubroom_time_str']].values,
+                hovertemplate=f'<b style="color: #9467bd;">🟣 {hubroom_name}</b><br>' +
+                             '<span style="color: #666;">시간:</span> %{customdata[0]}<br>' +
+                             '<span style="color: #666;">값:</span> <b>%{y:.2f}</b>' +
+                             '<extra></extra>'
             ))
         
         # 예측값1 라인 (선택된 경우에만) - Shift 적용!
@@ -414,7 +418,11 @@ def create_graph(params, perf_values=None):
                          dash=None if params['predicted1_style'] == 'Solid' else params['predicted1_style'].lower(), 
                          width=3),
                 marker=dict(size=6),
-                hoverinfo='skip'  # 호버 정보 표시 안 함
+                customdata=df[['predicted1_time_str_original']].values,  # ← 원본 시간 사용! (INFO)
+                hovertemplate=f'<b style="color: #ff7f0e;">🔶 {predicted1_name}</b><br>' +
+                             '<span style="color: #666;">시간:</span> %{customdata[0]}<br>' +  # ← 원본 시간 표시
+                             '<span style="color: #666;">값:</span> <b>%{y:.2f}</b>' +
+                             '<extra></extra>'
             ))
         
         # 예측값2 라인 (선택된 경우에만) - Shift 적용!
@@ -429,7 +437,11 @@ def create_graph(params, perf_values=None):
                          dash=None if params['predicted2_style'] == 'Solid' else params['predicted2_style'].lower(), 
                          width=3),
                 marker=dict(size=6),
-                hoverinfo='skip'  # 호버 정보 표시 안 함
+                customdata=df[['predicted2_time_str_original']].values,  # ← 원본 시간 사용!
+                hovertemplate=f'<b style="color: #2ca02c;">🔷 {predicted2_name}</b><br>' +
+                             '<span style="color: #666;">시간:</span> %{customdata[0]}<br>' +  # ← 원본 시간 표시
+                             '<span style="color: #666;">값:</span> <b>%{y:.2f}</b>' +
+                             '<extra></extra>'
             ))
         
         # 예측값3 라인 (선택된 경우에만) - Shift 적용!
@@ -444,7 +456,11 @@ def create_graph(params, perf_values=None):
                          dash=None if params['predicted3_style'] == 'Solid' else params['predicted3_style'].lower(), 
                          width=3),
                 marker=dict(size=6),
-                hoverinfo='skip'  # 호버 정보 표시 안 함
+                customdata=df[['predicted3_time_str_original']].values,  # ← 원본 시간 사용!
+                hovertemplate=f'<b style="color: #d62728;">🔸 {predicted3_name}</b><br>' +
+                             '<span style="color: #666;">시간:</span> %{customdata[0]}<br>' +  # ← 원본 시간 표시
+                             '<span style="color: #666;">값:</span> <b>%{y:.2f}</b>' +
+                             '<extra></extra>'
             ))
         
         # 트렌드 데이터 라인들 - 간단하게만 표시
