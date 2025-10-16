@@ -291,19 +291,20 @@ def create_graph(params, perf_values=None):
 
         # 실제값 라인 (선택된 경우에만)
         if selected_lines['actual']:
+            actual_name = params.get('actual_name', '실제값')
             fig.add_trace(go.Scattergl(
                 x=df['common_time'],
                 y=df[actual_y_col], 
                 mode='lines+markers',
-                name='실제값 (Actual)',
+                name=f'{actual_name} (Actual)',
                 line=dict(color=params['actual_color'], 
                          dash=None if params['actual_style'] == 'Solid' else params['actual_style'].lower(), 
                          width=3),
                 marker=dict(size=6),
                 customdata=df[['actual_time_str']].values,
-                hovertemplate='<b style="color: #2E86C1; font-size: 14px;">📊 INFO 정보</b><br>' +
+                hovertemplate=f'<b style="color: #2E86C1; font-size: 14px;">📊 INFO 정보</b><br>' +
                              '<span style="color: #85C1E2;">═══════════════════</span><br>' +
-                             '<b style="color: #1f77b4;">🔵 실제값</b><br>' +
+                             f'<b style="color: #1f77b4;">🔵 {actual_name}</b><br>' +
                              '<span style="color: #666;">시간:</span> %{customdata[0]}<br>' +
                              '<span style="color: #666;">값:</span> <b>%{y:.2f}</b>' +
                              '<extra></extra>'
@@ -311,17 +312,18 @@ def create_graph(params, perf_values=None):
         
         # HUBROOM 라인 (선택된 경우에만)
         if selected_lines['hubroom']:
+            hubroom_name = params.get('hubroom_name', 'HUBROOM')
             fig.add_trace(go.Scattergl(
                 x=df['common_time'],
                 y=df[hubroom_y_col], 
                 mode='lines+markers',
-                name='HUBROOM',
+                name=hubroom_name,
                 line=dict(color=params['hubroom_color'], 
                          dash=None if params['hubroom_style'] == 'Solid' else params['hubroom_style'].lower(), 
                          width=3),
                 marker=dict(size=6),
                 customdata=df[['hubroom_time_str']].values,
-                hovertemplate='<b style="color: #9467bd;">🟣 HUBROOM</b><br>' +
+                hovertemplate=f'<b style="color: #9467bd;">🟣 {hubroom_name}</b><br>' +
                              '<span style="color: #666;">시간:</span> %{customdata[0]}<br>' +
                              '<span style="color: #666;">값:</span> <b>%{y:.2f}</b>' +
                              '<extra></extra>'
@@ -329,17 +331,18 @@ def create_graph(params, perf_values=None):
         
         # 예측값1 라인 (선택된 경우에만) - Shift 적용!
         if selected_lines['predicted1']:
+            predicted1_name = params.get('predicted1_name', '예측값1')
             fig.add_trace(go.Scattergl(
                 x=df['predicted1_shifted_time'],  # ← Shift된 시간 사용 (그래프 위치)
                 y=df[predicted1_y_col], 
                 mode='lines+markers',
-                name=f'예측값1 (Predicted1)',
+                name=f'{predicted1_name} (Predicted1)',
                 line=dict(color=params['predicted1_color'], 
                          dash=None if params['predicted1_style'] == 'Solid' else params['predicted1_style'].lower(), 
                          width=3),
                 marker=dict(size=6),
                 customdata=df[['predicted1_time_str_original']].values,  # ← 원본 시간 사용! (INFO)
-                hovertemplate='<b style="color: #ff7f0e;">🔶 예측값1</b><br>' +
+                hovertemplate=f'<b style="color: #ff7f0e;">🔶 {predicted1_name}</b><br>' +
                              '<span style="color: #666;">시간:</span> %{customdata[0]}<br>' +  # ← 원본 시간 표시
                              '<span style="color: #666;">값:</span> <b>%{y:.2f}</b>' +
                              '<extra></extra>'
@@ -347,17 +350,18 @@ def create_graph(params, perf_values=None):
         
         # 예측값2 라인 (선택된 경우에만) - Shift 적용!
         if selected_lines['predicted2']:
+            predicted2_name = params.get('predicted2_name', '예측값2')
             fig.add_trace(go.Scattergl(
                 x=df['predicted2_shifted_time'],  # ← Shift된 시간 사용
                 y=df[predicted2_y_col], 
                 mode='lines+markers',
-                name=f'예측값2 (Predicted2)',
+                name=f'{predicted2_name} (Predicted2)',
                 line=dict(color=params['predicted2_color'], 
                          dash=None if params['predicted2_style'] == 'Solid' else params['predicted2_style'].lower(), 
                          width=3),
                 marker=dict(size=6),
                 customdata=df[['predicted2_time_str_original']].values,  # ← 원본 시간 사용!
-                hovertemplate='<b style="color: #2ca02c;">🔷 예측값2</b><br>' +
+                hovertemplate=f'<b style="color: #2ca02c;">🔷 {predicted2_name}</b><br>' +
                              '<span style="color: #666;">시간:</span> %{customdata[0]}<br>' +  # ← 원본 시간 표시
                              '<span style="color: #666;">값:</span> <b>%{y:.2f}</b>' +
                              '<extra></extra>'
@@ -365,17 +369,18 @@ def create_graph(params, perf_values=None):
         
         # 예측값3 라인 (선택된 경우에만) - Shift 적용!
         if selected_lines['predicted3']:
+            predicted3_name = params.get('predicted3_name', '예측값3')
             fig.add_trace(go.Scattergl(
                 x=df['predicted3_shifted_time'],  # ← Shift된 시간 사용
                 y=df[predicted3_y_col], 
                 mode='lines+markers',
-                name=f'예측값3 (Predicted3)',
+                name=f'{predicted3_name} (Predicted3)',
                 line=dict(color=params['predicted3_color'], 
                          dash=None if params['predicted3_style'] == 'Solid' else params['predicted3_style'].lower(), 
                          width=3),
                 marker=dict(size=6),
                 customdata=df[['predicted3_time_str_original']].values,  # ← 원본 시간 사용!
-                hovertemplate='<b style="color: #d62728;">🔸 예측값3</b><br>' +
+                hovertemplate=f'<b style="color: #d62728;">🔸 {predicted3_name}</b><br>' +
                              '<span style="color: #666;">시간:</span> %{customdata[0]}<br>' +  # ← 원본 시간 표시
                              '<span style="color: #666;">값:</span> <b>%{y:.2f}</b>' +
                              '<extra></extra>'
@@ -637,6 +642,13 @@ class GraphApp:
         self.enable_predicted2 = tk.BooleanVar(value=True)
         self.enable_predicted3 = tk.BooleanVar(value=True)
         
+        # 각 라인의 이름 변수 추가
+        self.actual_name_var = tk.StringVar(value="실제값")
+        self.hubroom_name_var = tk.StringVar(value="HUBROOM")
+        self.predicted1_name_var = tk.StringVar(value="예측값1")
+        self.predicted2_name_var = tk.StringVar(value="예측값2")
+        self.predicted3_name_var = tk.StringVar(value="예측값3")
+        
         self.column_vars = [tk.StringVar() for _ in labels]
         self.column_menus = []
 
@@ -655,7 +667,7 @@ class GraphApp:
         ]
 
         for i, label_text in enumerate(labels):
-            # 체크박스 + shift 입력 (X축 줄에만 표시)
+            # 체크박스 + shift 입력 + 이름 입력 (X축 줄에만 표시)
             if i % 2 == 0:  # X축 줄
                 enable_var, checkbox_text, shift_var = enable_vars[i]
                 
@@ -663,10 +675,34 @@ class GraphApp:
                 tk.Checkbutton(self.step2_frame, text=checkbox_text, variable=enable_var, 
                               font=('Arial', 9, 'bold')).grid(row=i, column=0, sticky='w', padx=5, pady=(8, 2))
                 
+                # 이름 입력 필드 추가
+                name_frame = tk.Frame(self.step2_frame)
+                name_frame.grid(row=i, column=0, sticky='e', padx=(200, 5))
+                
+                tk.Label(name_frame, text="이름:", font=('Arial', 8)).pack(side='left')
+                
+                # 각 라인별 이름 변수 선택
+                if i == 0:  # 실제값
+                    name_var = self.actual_name_var
+                elif i == 2:  # HUBROOM
+                    name_var = self.hubroom_name_var
+                elif i == 4:  # 예측값1
+                    name_var = self.predicted1_name_var
+                elif i == 6:  # 예측값2
+                    name_var = self.predicted2_name_var
+                elif i == 8:  # 예측값3
+                    name_var = self.predicted3_name_var
+                else:
+                    name_var = None
+                
+                if name_var:
+                    tk.Entry(name_frame, textvariable=name_var, width=10, 
+                            font=('Arial', 8)).pack(side='left', padx=2)
+                
                 # 예측값의 경우 shift 입력 필드 추가
                 if shift_var is not None:
                     shift_frame = tk.Frame(self.step2_frame)
-                    shift_frame.grid(row=i, column=0, sticky='e', padx=(150, 5))
+                    shift_frame.grid(row=i, column=0, sticky='e', padx=(350, 5))
                     
                     tk.Label(shift_frame, text="⏭️", font=('Arial', 10)).pack(side='left')
                     tk.Entry(shift_frame, textvariable=shift_var, width=5, 
@@ -1168,14 +1204,19 @@ class GraphApp:
             'title': self.title_var.get(),
             'actual_x': self.column_vars[0].get() if self.enable_actual.get() else '', 
             'actual_y': self.column_vars[1].get() if self.enable_actual.get() else '',
+            'actual_name': self.actual_name_var.get(),
             'hubroom_x': self.column_vars[2].get() if self.enable_hubroom.get() else '',
             'hubroom_y': self.column_vars[3].get() if self.enable_hubroom.get() else '',
+            'hubroom_name': self.hubroom_name_var.get(),
             'predicted1_x': self.column_vars[4].get() if self.enable_predicted1.get() else '', 
             'predicted1_y': self.column_vars[5].get() if self.enable_predicted1.get() else '',
+            'predicted1_name': self.predicted1_name_var.get(),
             'predicted2_x': self.column_vars[6].get() if self.enable_predicted2.get() else '',
             'predicted2_y': self.column_vars[7].get() if self.enable_predicted2.get() else '',
+            'predicted2_name': self.predicted2_name_var.get(),
             'predicted3_x': self.column_vars[8].get() if self.enable_predicted3.get() else '',
             'predicted3_y': self.column_vars[9].get() if self.enable_predicted3.get() else '',
+            'predicted3_name': self.predicted3_name_var.get(),
             'predicted1_shift': pred1_shift,  # ← Shift 값 추가
             'predicted2_shift': pred2_shift,  # ← Shift 값 추가
             'predicted3_shift': pred3_shift,  # ← Shift 값 추가
