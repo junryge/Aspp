@@ -642,7 +642,7 @@ class GraphApp:
         self.enable_predicted2 = tk.BooleanVar(value=True)
         self.enable_predicted3 = tk.BooleanVar(value=True)
         
-        # 각 라인의 이름 변수 추가
+        # 모든 라인의 이름 변수 추가
         self.actual_name_var = tk.StringVar(value="실제값")
         self.hubroom_name_var = tk.StringVar(value="HUBROOM")
         self.predicted1_name_var = tk.StringVar(value="예측값1")
@@ -675,7 +675,7 @@ class GraphApp:
                 tk.Checkbutton(self.step2_frame, text=checkbox_text, variable=enable_var, 
                               font=('Arial', 9, 'bold')).grid(row=i, column=0, sticky='w', padx=5, pady=(8, 2))
                 
-                # 이름 입력 필드 추가
+                # 모든 라인에 이름 입력 필드 추가
                 name_frame = tk.Frame(self.step2_frame)
                 name_frame.grid(row=i, column=0, sticky='e', padx=(200, 5))
                 
@@ -1217,9 +1217,9 @@ class GraphApp:
             'predicted3_x': self.column_vars[8].get() if self.enable_predicted3.get() else '',
             'predicted3_y': self.column_vars[9].get() if self.enable_predicted3.get() else '',
             'predicted3_name': self.predicted3_name_var.get(),
-            'predicted1_shift': pred1_shift,  # ← Shift 값 추가
-            'predicted2_shift': pred2_shift,  # ← Shift 값 추가
-            'predicted3_shift': pred3_shift,  # ← Shift 값 추가
+            'predicted1_shift': pred1_shift,
+            'predicted2_shift': pred2_shift,
+            'predicted3_shift': pred3_shift,
             'actual_color': self.actual_color_var.get(), 
             'actual_style': self.actual_style_var.get(),
             'hubroom_color': self.hubroom_color_var.get(),
