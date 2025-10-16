@@ -55,6 +55,16 @@ class StyledButton(tk.Button):
         
         bg, fg = colors.get(style, colors['primary'])
         
+        # font가 kwargs에 없으면 기본값 사용
+        if 'font' not in kwargs:
+            kwargs['font'] = ('Segoe UI', 10, 'bold')
+        
+        # padx, pady가 kwargs에 없으면 기본값 사용
+        if 'padx' not in kwargs:
+            kwargs['padx'] = 20
+        if 'pady' not in kwargs:
+            kwargs['pady'] = 10
+        
         super().__init__(
             parent,
             bg=bg,
@@ -64,9 +74,6 @@ class StyledButton(tk.Button):
             relief='flat',
             borderwidth=0,
             cursor='hand2',
-            font=('Segoe UI', 10, 'bold'),
-            padx=20,
-            pady=10,
             **kwargs
         )
         
