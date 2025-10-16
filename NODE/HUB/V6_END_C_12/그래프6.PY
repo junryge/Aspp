@@ -461,13 +461,13 @@ def create_graph(params, perf_values=None):
                 x=df['common_time'],
                 y=df[predicted1_y_col], 
                 mode='lines+markers',
-                name='예측값1 (Predicted1)',
+                name=params.get('predicted1_name', '예측값1 (Predicted1)'),
                 line=dict(color=params['predicted1_color'], 
                          dash=None if params['predicted1_style'] == 'Solid' else params['predicted1_style'].lower(), 
                          width=3),
                 marker=dict(size=6),
                 customdata=df[['predicted1_time_str']].values,
-                hovertemplate='<b style="color: #ff7f0e;">🔶 예측값1</b><br>' +
+                hovertemplate=f'<b style="color: #ff7f0e;">🔶 {params.get("predicted1_name", "예측값1")}</b><br>' +
                              '<span style="color: #666;">시간:</span> %{customdata[0]}<br>' +
                              '<span style="color: #666;">값:</span> <b>%{y:.2f}</b>' +
                              '<extra></extra>'
@@ -478,13 +478,13 @@ def create_graph(params, perf_values=None):
                 x=df['common_time'],
                 y=df[predicted2_y_col], 
                 mode='lines+markers',
-                name='예측값2 (Predicted2)',
+                name=params.get('predicted2_name', '예측값2 (Predicted2)'),
                 line=dict(color=params['predicted2_color'], 
                          dash=None if params['predicted2_style'] == 'Solid' else params['predicted2_style'].lower(), 
                          width=3),
                 marker=dict(size=6),
                 customdata=df[['predicted2_time_str']].values,
-                hovertemplate='<b style="color: #2ca02c;">🔷 예측값2</b><br>' +
+                hovertemplate=f'<b style="color: #2ca02c;">🔷 {params.get("predicted2_name", "예측값2")}</b><br>' +
                              '<span style="color: #666;">시간:</span> %{customdata[0]}<br>' +
                              '<span style="color: #666;">값:</span> <b>%{y:.2f}</b>' +
                              '<extra></extra>'
@@ -495,13 +495,13 @@ def create_graph(params, perf_values=None):
                 x=df['common_time'],
                 y=df[predicted3_y_col], 
                 mode='lines+markers',
-                name='예측값3 (Predicted3)',
+                name=params.get('predicted3_name', '예측값3 (Predicted3)'),
                 line=dict(color=params['predicted3_color'], 
                          dash=None if params['predicted3_style'] == 'Solid' else params['predicted3_style'].lower(), 
                          width=3),
                 marker=dict(size=6),
                 customdata=df[['predicted3_time_str']].values,
-                hovertemplate='<b style="color: #d62728;">🔸 예측값3</b><br>' +
+                hovertemplate=f'<b style="color: #d62728;">🔸 {params.get("predicted3_name", "예측값3")}</b><br>' +
                              '<span style="color: #666;">시간:</span> %{customdata[0]}<br>' +
                              '<span style="color: #666;">값:</span> <b>%{y:.2f}</b>' +
                              '<extra></extra>'
@@ -644,6 +644,11 @@ class GraphApp:
         self.df_columns = []
         self.perf_values = None
         self.trend_widgets = {}
+        
+        # 예측값 이름 변수
+        self.predicted1_name_var = tk.StringVar(value="예측값1")
+        self.predicted2_name_var = tk.StringVar(value="예측값2")
+        self.predicted3_name_var = tk.StringVar(value="예측값3")
 
         # 헤더
         self.create_header()
@@ -812,16 +817,16 @@ class GraphApp:
         self.column_menus = []
 
         enable_vars = [
-            (self.enable_actual, "✓ 실제값 사용"),
-            (self.enable_actual, ""),
-            (self.enable_hubroom, "✓ HUBROOM 사용"),
-            (self.enable_hubroom, ""),
-            (self.enable_predicted1, "✓ 예측값1 사용"),
-            (self.enable_predicted1, ""),
-            (self.enable_predicted2, "✓ 예측값2 사용"),
-            (self.enable_predicted2, ""),
-            (self.enable_predicted3, "✓ 예측값3 사용"),
-            (self.enable_predicted3, "")
+            (self.enable_actual, "✓ 실제값 사용", None),
+            (self.enable_actual, "", None),
+            (self.enable_hubroom, "✓ HUBROOM 사용", None),
+            (self.enable_hubroom, "", None),
+            (self.enable_predicted1, "✓ 예측값1 사용", self.predicted1_name_var),
+            (self.enable_predicted1, "", None),
+            (self.enable_predicted2, "✓ 예측값2 사용", self.predicted2_name_var),
+            (self.enable_predicted2, "", None),
+            (self.enable_predicted3, "✓ 예측값3 사용", self.predicted3_name_var),
+            (self.enable_predicted3, "", None)
         ]
 
         for i, label_text in enumerate(labels):
@@ -829,7 +834,7 @@ class GraphApp:
             row_frame.pack(fill='x', pady=5)
             
             if i % 2 == 0:
-                enable_var, checkbox_text = enable_vars[i]
+                enable_var, checkbox_text, name_var = enable_vars[i]
                 cb = tk.Checkbutton(
                     row_frame,
                     text=checkbox_text,
@@ -839,7 +844,26 @@ class GraphApp:
                     activebackground=COLORS['white'],
                     selectcolor=COLORS['light']
                 )
-                cb.pack(side='left', padx=(0, 20))
+                cb.pack(side='left', padx=(0, 10))
+                
+                # 예측값의 경우 이름 입력 필드 추가
+                if name_var is not None:
+                    tk.Label(
+                        row_frame,
+                        text="이름:",
+                        font=('Segoe UI', 9),
+                        bg=COLORS['white']
+                    ).pack(side='left', padx=(0, 5))
+                    
+                    name_entry = tk.Entry(
+                        row_frame,
+                        textvariable=name_var,
+                        font=('Segoe UI', 9),
+                        width=15,
+                        relief='flat',
+                        bg=COLORS['light']
+                    )
+                    name_entry.pack(side='left', padx=(0, 20))
             
             tk.Label(
                 row_frame,
@@ -1395,6 +1419,9 @@ class GraphApp:
             'predicted2_y': self.column_vars[7].get() if self.enable_predicted2.get() else '',
             'predicted3_x': self.column_vars[8].get() if self.enable_predicted3.get() else '',
             'predicted3_y': self.column_vars[9].get() if self.enable_predicted3.get() else '',
+            'predicted1_name': self.predicted1_name_var.get(),
+            'predicted2_name': self.predicted2_name_var.get(),
+            'predicted3_name': self.predicted3_name_var.get(),
             'actual_color': self.actual_color_var.get(),
             'actual_style': self.actual_style_var.get(),
             'hubroom_color': self.hubroom_color_var.get(),
