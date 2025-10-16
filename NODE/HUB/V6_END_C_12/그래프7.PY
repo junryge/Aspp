@@ -625,14 +625,14 @@ class GraphApp:
         labels = [
             "실제값 X축 (시간):", 
             "실제값 Y축 (값):", 
-            "HUBROOM X축 (시간):",
-            "HUBROOM Y축 (값):",
             "예측값1 X축 (시간):", 
             "예측값1 Y축 (값):",
             "예측값2 X축 (시간):",
             "예측값2 Y축 (값):",
             "예측값3 X축 (시간):",
-            "예측값3 Y축 (값):"
+            "예측값3 Y축 (값):",
+            "HUBROOM X축 (시간):",
+            "HUBROOM Y축 (값):"
         ]
         
         # 각 데이터 라인별 체크박스 변수 (5개 그룹)
@@ -656,14 +656,14 @@ class GraphApp:
         enable_vars = [
             (self.enable_actual, "✅ 실제값 사용", None),
             (self.enable_actual, "", None),
-            (self.enable_hubroom, "✅ HUBROOM 사용", None),
-            (self.enable_hubroom, "", None),
             (self.enable_predicted1, "✅ 예측값1 사용", self.predicted1_shift_var),
             (self.enable_predicted1, "", None),
             (self.enable_predicted2, "✅ 예측값2 사용", self.predicted2_shift_var),
             (self.enable_predicted2, "", None),
             (self.enable_predicted3, "✅ 예측값3 사용", self.predicted3_shift_var),
-            (self.enable_predicted3, "", None)
+            (self.enable_predicted3, "", None),
+            (self.enable_hubroom, "✅ HUBROOM 사용", None),
+            (self.enable_hubroom, "", None)
         ]
 
         for i, label_text in enumerate(labels):
@@ -693,17 +693,17 @@ class GraphApp:
                 
                 tk.Label(name_frame, text="이름:", font=('Arial', 8)).pack(side='left')
                 
-                # 각 라인별 이름 변수 선택
+                # 각 라인별 이름 변수 선택 (새로운 순서)
                 if i == 1:  # 실제값 Y축
                     name_var = self.actual_name_var
-                elif i == 3:  # HUBROOM Y축
-                    name_var = self.hubroom_name_var
-                elif i == 5:  # 예측값1 Y축
+                elif i == 3:  # 예측값1 Y축
                     name_var = self.predicted1_name_var
-                elif i == 7:  # 예측값2 Y축
+                elif i == 5:  # 예측값2 Y축
                     name_var = self.predicted2_name_var
-                elif i == 9:  # 예측값3 Y축
+                elif i == 7:  # 예측값3 Y축
                     name_var = self.predicted3_name_var
+                elif i == 9:  # HUBROOM Y축
+                    name_var = self.hubroom_name_var
                 else:
                     name_var = None
                 
@@ -1142,14 +1142,14 @@ class GraphApp:
             patterns = [
                 ['날짜', 'date', 'time'],
                 ['실제값', 'actual', 'real'],
-                ['hubroom', 'hub'],
-                ['hubroom', 'hub'],
                 ['예측날짜', 'pred_date', 'forecast'],
                 ['예측값', 'predicted', 'pred'],
                 ['예측날짜', 'pred_date', 'forecast', '2'],
                 ['예측값', 'predicted', 'pred', '2'],
                 ['예측날짜', 'pred_date', 'forecast', '3'],
-                ['예측값', 'predicted', 'pred', '3']
+                ['예측값', 'predicted', 'pred', '3'],
+                ['hubroom', 'hub'],
+                ['hubroom', 'hub']
             ]
             
             for idx, pattern_list in enumerate(patterns):
@@ -1207,17 +1207,17 @@ class GraphApp:
             'actual_x': self.column_vars[0].get() if self.enable_actual.get() else '', 
             'actual_y': self.column_vars[1].get() if self.enable_actual.get() else '',
             'actual_name': self.actual_name_var.get(),
-            'hubroom_x': self.column_vars[2].get() if self.enable_hubroom.get() else '',
-            'hubroom_y': self.column_vars[3].get() if self.enable_hubroom.get() else '',
+            'hubroom_x': self.column_vars[8].get() if self.enable_hubroom.get() else '',
+            'hubroom_y': self.column_vars[9].get() if self.enable_hubroom.get() else '',
             'hubroom_name': self.hubroom_name_var.get(),
-            'predicted1_x': self.column_vars[4].get() if self.enable_predicted1.get() else '', 
-            'predicted1_y': self.column_vars[5].get() if self.enable_predicted1.get() else '',
+            'predicted1_x': self.column_vars[2].get() if self.enable_predicted1.get() else '', 
+            'predicted1_y': self.column_vars[3].get() if self.enable_predicted1.get() else '',
             'predicted1_name': self.predicted1_name_var.get(),
-            'predicted2_x': self.column_vars[6].get() if self.enable_predicted2.get() else '',
-            'predicted2_y': self.column_vars[7].get() if self.enable_predicted2.get() else '',
+            'predicted2_x': self.column_vars[4].get() if self.enable_predicted2.get() else '',
+            'predicted2_y': self.column_vars[5].get() if self.enable_predicted2.get() else '',
             'predicted2_name': self.predicted2_name_var.get(),
-            'predicted3_x': self.column_vars[8].get() if self.enable_predicted3.get() else '',
-            'predicted3_y': self.column_vars[9].get() if self.enable_predicted3.get() else '',
+            'predicted3_x': self.column_vars[6].get() if self.enable_predicted3.get() else '',
+            'predicted3_y': self.column_vars[7].get() if self.enable_predicted3.get() else '',
             'predicted3_name': self.predicted3_name_var.get(),
             'predicted1_shift': pred1_shift,
             'predicted2_shift': pred2_shift,
