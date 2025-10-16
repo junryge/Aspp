@@ -330,7 +330,7 @@ def create_graph(params, perf_values=None):
         # 예측값1 라인 (선택된 경우에만) - Shift 적용!
         if selected_lines['predicted1']:
             fig.add_trace(go.Scattergl(
-                x=df['predicted1_shifted_time'],  # ← Shift된 시간 사용
+                x=df['predicted1_shifted_time'],  # ← Shift된 시간 사용 (그래프 위치)
                 y=df[predicted1_y_col], 
                 mode='lines+markers',
                 name=f'예측값1 (Predicted1)',
@@ -338,7 +338,7 @@ def create_graph(params, perf_values=None):
                          dash=None if params['predicted1_style'] == 'Solid' else params['predicted1_style'].lower(), 
                          width=3),
                 marker=dict(size=6),
-                customdata=df[['predicted1_time_str_original']].values,  # ← 원본 시간 사용!
+                customdata=df[['predicted1_time_str_original']].values,  # ← 원본 시간 사용! (INFO)
                 hovertemplate='<b style="color: #ff7f0e;">🔶 예측값1</b><br>' +
                              '<span style="color: #666;">시간:</span> %{customdata[0]}<br>' +  # ← 원본 시간 표시
                              '<span style="color: #666;">값:</span> <b>%{y:.2f}</b>' +
