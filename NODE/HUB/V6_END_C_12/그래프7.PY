@@ -667,7 +667,7 @@ class GraphApp:
         ]
 
         for i, label_text in enumerate(labels):
-            # 체크박스 + shift 입력 + 이름 입력 (X축 줄에만 표시)
+            # X축 줄 - 체크박스 + shift 입력만
             if i % 2 == 0:  # X축 줄
                 enable_var, checkbox_text, shift_var = enable_vars[i]
                 
@@ -675,39 +675,41 @@ class GraphApp:
                 tk.Checkbutton(self.step2_frame, text=checkbox_text, variable=enable_var, 
                               font=('Arial', 9, 'bold')).grid(row=i, column=0, sticky='w', padx=5, pady=(8, 2))
                 
-                # 모든 라인에 이름 입력 필드 추가
+                # 예측값의 경우 shift 입력 필드 추가 (X축 줄)
+                if shift_var is not None:
+                    shift_frame = tk.Frame(self.step2_frame)
+                    shift_frame.grid(row=i, column=0, sticky='e', padx=(200, 5))
+                    
+                    tk.Label(shift_frame, text="⏭️", font=('Arial', 10)).pack(side='left')
+                    tk.Entry(shift_frame, textvariable=shift_var, width=5, 
+                            font=('Arial', 9)).pack(side='left', padx=2)
+                    tk.Label(shift_frame, text="분", font=('Arial', 9)).pack(side='left')
+            
+            # Y축 줄 - 이름 입력 필드
+            else:  # Y축 줄 (i=1,3,5,7,9)
+                # 이름 입력 필드를 Y축 줄에 추가
                 name_frame = tk.Frame(self.step2_frame)
                 name_frame.grid(row=i, column=0, sticky='e', padx=(200, 5))
                 
                 tk.Label(name_frame, text="이름:", font=('Arial', 8)).pack(side='left')
                 
                 # 각 라인별 이름 변수 선택
-                if i == 0:  # 실제값
+                if i == 1:  # 실제값 Y축
                     name_var = self.actual_name_var
-                elif i == 2:  # HUBROOM
+                elif i == 3:  # HUBROOM Y축
                     name_var = self.hubroom_name_var
-                elif i == 4:  # 예측값1
+                elif i == 5:  # 예측값1 Y축
                     name_var = self.predicted1_name_var
-                elif i == 6:  # 예측값2
+                elif i == 7:  # 예측값2 Y축
                     name_var = self.predicted2_name_var
-                elif i == 8:  # 예측값3
+                elif i == 9:  # 예측값3 Y축
                     name_var = self.predicted3_name_var
                 else:
                     name_var = None
                 
                 if name_var:
-                    tk.Entry(name_frame, textvariable=name_var, width=10, 
-                            font=('Arial', 8)).pack(side='left', padx=2)
-                
-                # 예측값의 경우 shift 입력 필드 추가
-                if shift_var is not None:
-                    shift_frame = tk.Frame(self.step2_frame)
-                    shift_frame.grid(row=i, column=0, sticky='e', padx=(350, 5))
-                    
-                    tk.Label(shift_frame, text="⏭️", font=('Arial', 10)).pack(side='left')
-                    tk.Entry(shift_frame, textvariable=shift_var, width=5, 
+                    tk.Entry(name_frame, textvariable=name_var, width=12, 
                             font=('Arial', 9)).pack(side='left', padx=2)
-                    tk.Label(shift_frame, text="분", font=('Arial', 9)).pack(side='left')
             
             # 라벨과 메뉴는 한 칸 오른쪽으로
             tk.Label(self.step2_frame, text=label_text, font=('Arial', 9)).grid(row=i, column=1, sticky='w', padx=5, pady=2)
