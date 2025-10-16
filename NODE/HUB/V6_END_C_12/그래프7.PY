@@ -204,8 +204,8 @@ def create_graph(params, perf_values=None):
                 df[predicted1_x_col] = pd.to_datetime(df[predicted1_x_col])
                 # 원본 시간 문자열 저장 (INFO용 - 변경 안 됨!)
                 df['predicted1_time_str_original'] = df[predicted1_x_col].dt.strftime('%Y-%m-%d %H:%M:%S')
-                # Shift된 시간 계산 (그래프 표시용) - 분 단위!
-                df['predicted1_shifted_time'] = df[predicted1_x_col] - pd.Timedelta(minutes=predicted1_shift)
+                # Shift된 시간 계산 (그래프 표시용) - 분 단위! 오른쪽으로 이동!
+                df['predicted1_shifted_time'] = df[predicted1_x_col] + pd.Timedelta(minutes=predicted1_shift)
             except:
                 df['predicted1_time_str_original'] = df[predicted1_x_col].astype(str)
                 df['predicted1_shifted_time'] = df[predicted1_x_col]
@@ -217,8 +217,8 @@ def create_graph(params, perf_values=None):
                 df[predicted2_x_col] = pd.to_datetime(df[predicted2_x_col])
                 # 원본 시간 문자열 저장 (INFO용 - 변경 안 됨!)
                 df['predicted2_time_str_original'] = df[predicted2_x_col].dt.strftime('%Y-%m-%d %H:%M:%S')
-                # Shift된 시간 계산 (그래프 표시용) - 분 단위!
-                df['predicted2_shifted_time'] = df[predicted2_x_col] - pd.Timedelta(minutes=predicted2_shift)
+                # Shift된 시간 계산 (그래프 표시용) - 분 단위! 오른쪽으로 이동!
+                df['predicted2_shifted_time'] = df[predicted2_x_col] + pd.Timedelta(minutes=predicted2_shift)
             except:
                 df['predicted2_time_str_original'] = df[predicted2_x_col].astype(str)
                 df['predicted2_shifted_time'] = df[predicted2_x_col]
@@ -230,8 +230,8 @@ def create_graph(params, perf_values=None):
                 df[predicted3_x_col] = pd.to_datetime(df[predicted3_x_col])
                 # 원본 시간 문자열 저장 (INFO용 - 변경 안 됨!)
                 df['predicted3_time_str_original'] = df[predicted3_x_col].dt.strftime('%Y-%m-%d %H:%M:%S')
-                # Shift된 시간 계산 (그래프 표시용) - 분 단위!
-                df['predicted3_shifted_time'] = df[predicted3_x_col] - pd.Timedelta(minutes=predicted3_shift)
+                # Shift된 시간 계산 (그래프 표시용) - 분 단위! 오른쪽으로 이동!
+                df['predicted3_shifted_time'] = df[predicted3_x_col] + pd.Timedelta(minutes=predicted3_shift)
             except:
                 df['predicted3_time_str_original'] = df[predicted3_x_col].astype(str)
                 df['predicted3_shifted_time'] = df[predicted3_x_col]
@@ -668,7 +668,7 @@ class GraphApp:
                     shift_frame = tk.Frame(self.step2_frame)
                     shift_frame.grid(row=i, column=0, sticky='e', padx=(150, 5))
                     
-                    tk.Label(shift_frame, text="⏮️", font=('Arial', 10)).pack(side='left')
+                    tk.Label(shift_frame, text="⏭️", font=('Arial', 10)).pack(side='left')
                     tk.Entry(shift_frame, textvariable=shift_var, width=5, 
                             font=('Arial', 9)).pack(side='left', padx=2)
                     tk.Label(shift_frame, text="분", font=('Arial', 9)).pack(side='left')
