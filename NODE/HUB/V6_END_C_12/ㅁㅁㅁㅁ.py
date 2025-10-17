@@ -93,6 +93,7 @@ def predict_and_detect_early():
         
         # 현재 시점
         current_time = df['STAT_DT'].iloc[i]
+        current_actual_value = df[TARGET_COL].iloc[i]  # 현재시간 실제값
         
         # 예측타겟시점 (10분 후)
         target_time = df['STAT_DT'].iloc[i+10]
@@ -164,6 +165,7 @@ def predict_and_detect_early():
         result_row = {
             '인덱스': i,
             '현재시간': current_time.strftime('%Y-%m-%d %H:%M'),
+            '현재시간_실제값': round(current_actual_value, 2),
             '예측타겟시점': target_time.strftime('%Y-%m-%d %H:%M'),
             '시퀀스MAX': round(seq_max, 2),
             '시퀀스MIN': round(seq_min, 2),
@@ -173,6 +175,7 @@ def predict_and_detect_early():
             '예측값': round(prediction, 2),
             '오차': round(target_actual_value - prediction, 2),
             '오차율(%)': round(abs(target_actual_value - prediction) / max(target_actual_value, 1) * 100, 2),
+            '실제값_변화량': round(target_actual_value - current_actual_value, 2),
             '사전감지': '✅' if is_early_detection else ''
         }
         
@@ -228,8 +231,8 @@ def predict_and_detect_early():
     print("\n" + "="*80)
     print("🔥 사전감지 케이스 상세 (상위 10개)")
     print("="*80)
-    display_cols = ['현재시간', '예측타겟시점', '시퀀스MAX', '시퀀스평균', 
-                    '예측타겟시점_실제값', '예측값', '오차', '사전감지_성공여부']
+    display_cols = ['현재시간', '현재시간_실제값', '예측타겟시점', '시퀀스MAX', '시퀀스평균', 
+                    '예측타겟시점_실제값', '예측값', '실제값_변화량', '오차', '사전감지_성공여부']
     print(df_early[display_cols].head(10).to_string(index=False))
     
     # 7. 성공/실패 케이스 분석
