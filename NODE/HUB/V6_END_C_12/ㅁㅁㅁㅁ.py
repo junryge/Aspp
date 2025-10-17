@@ -1,7 +1,4 @@
 # -*- coding: utf-8 -*-
-
-인덱스,현재시간,현재시간_실제값,예측타겟시점,시퀀스MAX,시퀀스MIN,시퀀스평균,시퀀스STD,예측타겟시점_실제값,예측값,오차,오차율(%),실제값_변화량,사전감지
-150,2025-09-05 00:54,285.5,2025-09-05 01:04,285.5,245.2,265.8,12.4,312.5,295.3,17.2,5.50,27.0,✅
 """
 V6 모델로 예측 + 사전감지 분석
 - 모델(pkl) 사용해서 예측
@@ -98,9 +95,9 @@ def predict_and_detect_early():
         current_time = df['STAT_DT'].iloc[i]
         current_actual_value = df[TARGET_COL].iloc[i]  # 현재시간 실제값
         
-        # 예측타겟시점 (10분 후)
+        # 예측타겟시점 (10분 후 한 시점)
         target_time = df['STAT_DT'].iloc[i+10]
-        target_actual_value = df[TARGET_COL].iloc[i+10]
+        target_actual_value = df[TARGET_COL].iloc[i+10]  # 10분 후 한 시점의 실제값
         
         # Feature 생성
         features = {
@@ -149,10 +146,72 @@ def predict_and_detect_early():
                 cmd_sum += df[col].iloc[i-1]
         features['total_cmd'] = cmd_sum
         
-        X_pred = pd.DataFrame([features])
+        # ★★★ 향후 10분(i+1 ~ i+10)을 각각 예측해서 MAX 추출 ★★★
+        predictions_10min = []
         
-        # 모델 예측
-        prediction = model.predict(X_pred)[0]
+        for future_step in range(1, 11):  # i+1 ~ i+10
+            # 각 미래 시점마다 새로운 시퀀스로 Feature 생성
+            # i+future_step 시점을 예측하기 위해 (i+future_step-30 ~ i+future_step) 시퀀스 사용
+            future_idx = i + future_step
+            
+            if future_idx < len(df):
+                # 해당 시점의 과거 30개 시퀀스
+                future_seq_data = df.iloc[future_idx-30:future_idx].copy()
+                future_seq_target = future_seq_data[TARGET_COL].values
+                
+                # Feature 생성 (미래 시점용)
+                future_features = {
+                    'target_mean': np.mean(future_seq_target),
+                    'target_std': np.std(future_seq_target),
+                    'target_last_5_mean': np.mean(future_seq_target[-5:]),
+                    'target_max': np.max(future_seq_target),
+                    'target_min': np.min(future_seq_target),
+                    'target_slope': np.polyfit(np.arange(30), future_seq_target, 1)[0],
+                    'target_last_10_mean': np.mean(future_seq_target[-10:]),
+                    'target_first_10_mean': np.mean(future_seq_target[:10])
+                }
+                
+                # 각 컬럼 그룹별 특성 추가
+                for group_name, cols in FEATURE_COLS.items():
+                    for col in cols:
+                        if col in df.columns:
+                            future_col_seq = future_seq_data[col].values
+                            
+                            future_features[f'{col}_mean'] = np.mean(future_col_seq)
+                            future_features[f'{col}_std'] = np.std(future_col_seq)
+                            future_features[f'{col}_max'] = np.max(future_col_seq)
+                            future_features[f'{col}_min'] = np.min(future_col_seq)
+                            future_features[f'{col}_last_5_mean'] = np.mean(future_col_seq[-5:])
+                            future_features[f'{col}_last_10_mean'] = np.mean(future_col_seq[-10:])
+                            future_features[f'{col}_slope'] = np.polyfit(np.arange(30), future_col_seq, 1)[0]
+                            future_features[f'{col}_first_10_mean'] = np.mean(future_col_seq[:10])
+                            future_features[f'{col}_mid_10_mean'] = np.mean(future_col_seq[10:20])
+                            future_features[f'{col}_last_value'] = future_col_seq[-1]
+                
+                # Net Flow
+                future_inflow_sum = 0
+                future_outflow_sum = 0
+                for col in FEATURE_COLS['inflow']:
+                    if col in df.columns:
+                        future_inflow_sum += df[col].iloc[future_idx-1]
+                for col in FEATURE_COLS['outflow']:
+                    if col in df.columns:
+                        future_outflow_sum += df[col].iloc[future_idx-1]
+                future_features['net_flow'] = future_inflow_sum - future_outflow_sum
+                
+                # CMD 총합
+                future_cmd_sum = 0
+                for col in FEATURE_COLS['cmd']:
+                    if col in df.columns:
+                        future_cmd_sum += df[col].iloc[future_idx-1]
+                future_features['total_cmd'] = future_cmd_sum
+                
+                X_future = pd.DataFrame([future_features])
+                pred = model.predict(X_future)[0]
+                predictions_10min.append(pred)
+        
+        # 10개 예측값 중 MAX
+        prediction = max(predictions_10min) if len(predictions_10min) > 0 else 0
         
         # 시퀀스 통계
         seq_max = np.max(seq_target)
