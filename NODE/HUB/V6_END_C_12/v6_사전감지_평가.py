@@ -157,8 +157,13 @@ def evaluate_all_predictions():
         
         # 예측값 보정
         if 사전감지_조건:
-            예측값내리기 = prediction + 15  # +15 보정
             사전감지_count += 1
+            # 예측값이 300 미만일 때만 +15 보정
+            if prediction < 300:
+                예측값내리기 = prediction + 15  # +15 보정
+            else:
+                예측값내리기 = prediction  # 이미 300 이상이면 보정 안 함
+            
             if actual_value >= 300:
                 보정적용_count += 1
         else:
