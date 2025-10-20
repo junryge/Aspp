@@ -1,8 +1,9 @@
 # -*- coding: utf-8 -*-
 """
-V6 평가코드 - 사전감지 조건 및 예측값 보정 적용
+V6 평가코드 - 사전감지 조건 및 예측값 보정 적용 (수정본)
 조건: 30 시퀀스에 283 이상 + 증가률 15 이상
 보정: 조건 만족 시 예측값 +15
+예측: 향후 10분(10개 행)의 최댓값
 """
 
 import numpy as np
@@ -65,11 +66,12 @@ def evaluate_all_predictions():
     print("조건 1: 30 시퀀스 MAX < 300")
     print("조건 2: 30 시퀀스에 283 이상 값 존재")
     print("조건 3: 증가률(끝-처음) >= 15")
-    print("보정값: +15")
+    print("보정값: +15 (예측값 < 300일 때만)")
+    print("예측 타겟: 향후 10분(10개 행)의 최댓값")
     print("="*80 + "\n")
    
-    # 슬라이딩 윈도우: 30개 시퀀스 → 10분 후 예측
-    for i in range(30, len(df)):
+    # 슬라이딩 윈도우: 30개 시퀀스 → 향후 10분(10개) 최댓값 예측
+    for i in range(30, len(df) - 10):  # ✅ -10 추가 (향후 10개 필요)
         # 과거 30개 데이터
         seq_data = df.iloc[i-30:i].copy()
         seq_target = seq_data[TARGET_COL].values
@@ -80,9 +82,9 @@ def evaluate_all_predictions():
         # 예측 시점 (10분 후)
         prediction_time = current_time + timedelta(minutes=10)
        
-        # 실제값 (i번째 행)
-        actual_value = df.iloc[i][TARGET_COL]
-        actual_time = df.iloc[i]['STAT_DT']
+        # ✅ 실제값 = 향후 10분(10개 행)의 최댓값
+        actual_value = df[TARGET_COL].iloc[i:i+10].max()
+        actual_time = df.iloc[i+9]['STAT_DT']  # 10분 후 시점
        
         # Feature 생성 (타겟 컬럼)
         features = {
@@ -195,7 +197,7 @@ def evaluate_all_predictions():
        
         # 진행상황 출력
         if (i - 30) % 100 == 0:
-            print(f"진행중... {i-30}/{len(df)-30} ({(i-30)/(len(df)-30)*100:.1f}%)")
+            print(f"진행중... {i-30}/{len(df)-40} ({(i-30)/(len(df)-40)*100:.1f}%)")
    
     # DataFrame 변환
     results_df = pd.DataFrame(results)
@@ -244,7 +246,7 @@ def evaluate_all_predictions():
     return results_df
 
 if __name__ == '__main__':
-    print("🚀 실시간 예측 평가 시작 (사전감지 보정 적용)...\n")
+    print("🚀 실시간 예측 평가 시작 (사전감지 보정 적용 - 향후 10분 최댓값)...\n")
     results = evaluate_all_predictions()
    
     if results is not None:
