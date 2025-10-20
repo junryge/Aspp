@@ -1,8 +1,10 @@
 # -*- coding: utf-8 -*-
 """
-V6 평가코드 - 사전감지 조건 및 예측값 보정 적용
-조건: 30 시퀀스에 283 이상 + 증가률 15 이상
-보정: 조건 만족 시 예측값 +15 (예측값 < 300일 때만)
+V6 평가코드 - 사전감지 조건 및 예측값 보정 적용 (최종 확정)
+조건1: 30분 시퀀스 MAX < 300
+조건2: 30분 시퀀스에 283 이상 존재
+조건3: 증가률(끝-처음) >= 15
+보정: 조건 만족 + 예측값 < 300 → +15
 """
 
 import numpy as np
@@ -14,7 +16,7 @@ from datetime import datetime, timedelta
 def evaluate_all_predictions():
     """전체 데이터를 슬라이딩 윈도우로 평가 (사전감지 보정 적용)"""
    
-    # V4 Ultimate 필수 컬럼 정의
+    # 필수 컬럼 정의
     FEATURE_COLS = {
         'storage': ['M16A_3F_STORAGE_UTIL'],
         'cmd': ['M16A_3F_CMD', 'M16A_6F_TO_HUB_CMD'],
@@ -60,27 +62,31 @@ def evaluate_all_predictions():
     보정적용_count = 0
    
     print("\n" + "="*80)
-    print("🚨 사전감지 조건 적용")
+    print("🚨 사전감지 조건 및 보정 규칙")
     print("="*80)
-    print("조건 1: 30 시퀀스 MAX < 300")
-    print("조건 2: 30 시퀀스에 283 이상 값 존재")
-    print("조건 3: 증가률(끝-처음) >= 15")
-    print("보정값: +15 (예측값 < 300일 때만)")
+    print("조건1: 30분 시퀀스 MAX < 300")
+    print("조건2: 30분 시퀀스에 283 이상 존재")
+    print("조건3: 증가률(끝-처음) >= 15")
+    print("")
+    print("보정 규칙:")
+    print("  - 조건 만족 + 예측값 < 300  → 예측값 + 15 ✅")
+    print("  - 조건 만족 + 예측값 >= 300 → 그대로 (보정 안 함)")
+    print("  - 조건 불만족               → 그대로")
     print("="*80 + "\n")
    
-    # 슬라이딩 윈도우: 30개 시퀀스 → 10분 후 예측
+    # 슬라이딩 윈도우
     for i in range(30, len(df)):
         # 과거 30개 데이터
         seq_data = df.iloc[i-30:i].copy()
         seq_target = seq_data[TARGET_COL].values
        
-        # 현재 시점 (시퀀스 마지막)
+        # 현재 시점
         current_time = seq_data['STAT_DT'].iloc[-1]
        
         # 예측 시점 (10분 후)
         prediction_time = current_time + timedelta(minutes=10)
        
-        # 실제값 (i번째 행)
+        # 실제값
         actual_value = df.iloc[i][TARGET_COL]
         actual_time = df.iloc[i]['STAT_DT']
        
@@ -96,7 +102,7 @@ def evaluate_all_predictions():
             'target_first_10_mean': np.mean(seq_target[:10])
         }
         
-        # 각 컬럼 그룹별 특성 추가
+        # 각 컬럼 그룹별 특성
         for group_name, cols in FEATURE_COLS.items():
             for col in cols:
                 if col in df.columns:
@@ -133,41 +139,49 @@ def evaluate_all_predictions():
        
         X_pred = pd.DataFrame([features])
        
-        # 기본 예측
+        # 모델 예측
         prediction = model.predict(X_pred)[0]
         
         # ========================================
-        # 🚨 사전감지 조건 체크 및 보정 적용
+        # 🚨 사전감지 조건 체크 (과거 30개 시퀀스)
         # ========================================
         seq_max = np.max(seq_target)
         seq_min = np.min(seq_target)
+        increase_rate = seq_target[-1] - seq_target[0]
         
-        # 조건 1: 시퀀스 MAX < 300
+        # 조건1: 30분 시퀀스 MAX < 300
         condition1 = seq_max < 300
         
-        # 조건 2: 시퀀스에 283 이상 존재
+        # 조건2: 30분 시퀀스에 283 이상 존재
         condition2 = np.any(seq_target >= 283)
         
-        # 조건 3: 증가률 >= 15
-        increase_rate = seq_target[-1] - seq_target[0]
+        # 조건3: 증가율 >= 15
         condition3 = increase_rate >= 15
         
-        # 사전감지 조건 만족 여부
+        # 사전감지 = 3가지 모두 만족
         사전감지_조건 = condition1 and condition2 and condition3
         
-        # 예측값 보정
+        # ========================================
+        # 🔧 예측값 보정
+        # ========================================
         if 사전감지_조건:
             사전감지_count += 1
-            # 예측값이 300 미만일 때만 +15 보정
+            
             if prediction < 300:
-                예측값내리기 = prediction + 15  # +15 보정
+                # 예측값 < 300 → +15 보정
+                예측값_보정후 = prediction + 15
+                보정여부 = True
             else:
-                예측값내리기 = prediction  # 이미 300 이상이면 보정 안 함
+                # 예측값 >= 300 → 그대로 (보정 안 함!)
+                예측값_보정후 = prediction
+                보정여부 = False
             
             if actual_value >= 300:
                 보정적용_count += 1
         else:
-            예측값내리기 = prediction  # 보정 없음
+            # 조건 불만족 → 그대로
+            예측값_보정후 = prediction
+            보정여부 = False
         
         # 300 이상 점프 감지
         jump_detected = np.any(seq_target >= 300)
@@ -179,18 +193,21 @@ def evaluate_all_predictions():
             '실제시점': actual_time.strftime('%Y-%m-%d %H:%M'),
             '실제값': actual_value,
             '예측값': round(prediction, 2),
-            '예측값내리기': round(예측값내리기, 2),
-            '오차': round(actual_value - 예측값내리기, 2),
-            '오차율(%)': round(abs(actual_value - 예측값내리기) / max(actual_value, 1) * 100, 2),
-            '시퀀스MAX': seq_max,
-            '시퀀스MIN': seq_min,
+            '예측값_보정후': round(예측값_보정후, 2),
+            '오차': round(actual_value - 예측값_보정후, 2),
+            '오차율(%)': round(abs(actual_value - 예측값_보정후) / max(actual_value, 1) * 100, 2),
+            '시퀀스MAX': round(seq_max, 2),
+            '시퀀스MIN': round(seq_min, 2),
             '시퀀스평균': round(np.mean(seq_target), 2),
             '시퀀스증가': round(increase_rate, 2),
+            '조건1_MAX<300': condition1,
+            '조건2_283이상': condition2,
+            '조건3_증가15이상': condition3,
             '사전감지': '사전감지' if 사전감지_조건 else '이상없음',
-            '보정적용': '✅' if 사전감지_조건 else '',
+            '보정적용': '✅' if (사전감지_조건 and 보정여부) else '❌',
             '300이상점프': '🔴' if jump_detected else '',
             '실제값상태': '🔴극단' if actual_value >= 300 else ('🟡주의' if actual_value >= 280 else '🟢정상'),
-            '예측값상태': '🔴극단' if 예측값내리기 >= 300 else ('🟡주의' if 예측값내리기 >= 280 else '🟢정상')
+            '예측값상태': '🔴극단' if 예측값_보정후 >= 300 else ('🟡주의' if 예측값_보정후 >= 280 else '🟢정상')
         })
        
         # 진행상황 출력
@@ -201,7 +218,7 @@ def evaluate_all_predictions():
     results_df = pd.DataFrame(results)
    
     # CSV 저장
-    output_file = 'prediction_evaluation_사전감지보정_적용.csv'
+    output_file = 'prediction_evaluation_사전감지보정_최종.csv'
     results_df.to_csv(output_file, index=False, encoding='utf-8-sig')
     print(f"\n✅ 결과 저장 완료: {output_file}")
    
@@ -218,8 +235,10 @@ def evaluate_all_predictions():
     print("🚨 사전감지 통계")
     print("="*80)
     print(f"사전감지 조건 만족: {사전감지_count}개")
+    print(f"  - 보정 적용 (+15): {results_df['보정적용'].value_counts().get('✅', 0)}개")
+    print(f"  - 보정 안 함 (이미 300+): {사전감지_count - results_df['보정적용'].value_counts().get('✅', 0)}개")
     print(f"실제 300+ 점프: {(results_df['실제값'] >= 300).sum()}개")
-    print(f"예측값내리기 300+: {(results_df['예측값내리기'] >= 300).sum()}개")
+    print(f"예측값_보정후 300+: {(results_df['예측값_보정후'] >= 300).sum()}개")
     print(f"사전감지 중 실제 300+ 점프: {보정적용_count}개")
     
     if 사전감지_count > 0:
@@ -229,24 +248,24 @@ def evaluate_all_predictions():
     사전감지_cases = results_df[results_df['사전감지'] == '사전감지']
     if len(사전감지_cases) > 0:
         print("\n" + "="*80)
-        print(f"🚨 사전감지 케이스 상세 (상위 20개)")
+        print(f"🚨 사전감지 케이스 상세 (전체 {len(사전감지_cases)}개)")
         print("="*80)
-        print(사전감지_cases[['현재시간', '실제값', '예측값', '예측값내리기', '오차', '실제값상태']].head(20).to_string(index=False))
+        print(사전감지_cases[['현재시간', '실제값', '예측값', '예측값_보정후', '보정적용', '오차', '시퀀스MAX', '시퀀스증가']].to_string(index=False))
     
     # 극단값 구간
     extreme_cases = results_df[results_df['실제값'] >= 300]
     if len(extreme_cases) > 0:
         print("\n" + "="*80)
-        print("🔴 실제 극단값(≥300) 구간")
+        print(f"🔴 실제 극단값(≥300) 구간 (전체 {len(extreme_cases)}개)")
         print("="*80)
-        print(extreme_cases[['현재시간', '실제값', '예측값내리기', '오차', '시퀀스MAX', '사전감지']].to_string(index=False))
+        print(extreme_cases[['현재시간', '실제값', '예측값_보정후', '오차', '시퀀스MAX', '사전감지', '보정적용']].to_string(index=False))
    
     return results_df
 
 if __name__ == '__main__':
-    print("🚀 실시간 예측 평가 시작 (사전감지 보정 적용)...\n")
+    print("🚀 실시간 예측 평가 시작 (사전감지 보정 적용 - 최종 확정)...\n")
     results = evaluate_all_predictions()
    
     if results is not None:
         print(f"\n✅ 평가 완료! 총 {len(results)}개 예측 생성")
-        print(f"📁 결과 파일: prediction_evaluation_사전감지보정_적용.csv")
+        print(f"📁 결과 파일: prediction_evaluation_사전감지보정_최종.csv")
