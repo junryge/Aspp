@@ -64,7 +64,8 @@ def evaluate_all_predictions():
     print("조건2: 283 이상 존재")
     print("조건3: 증가율 >= 15")
     print("조건4: 283~299.9 범위 값 존재")
-    print("보정: 조건 1,2,3,4 모두 만족 + 예측값 < 300 → +18")
+    print("조건5: 시퀀스 변동성 < 6.99% (CV)")
+    print("보정: 조건 1,2,3,4,5 모두 만족 + 예측값 < 300 → +21")
     print("="*80 + "\n")
    
     # 슬라이딩 윈도우
@@ -154,17 +155,21 @@ def evaluate_all_predictions():
         # 조건4: 283~299.9 범위 값 존재
         condition4 = np.any((seq_target >= 283) & (seq_target < 300))
         
-        # 사전감지 = 4가지 모두 만족
-        사전감지_조건 = condition1 and condition2 and condition3 and condition4
+        # 조건5: 시퀀스 변동성 < 6.99% (CV = 변동계수)
+        seq_cv = (np.std(seq_target) / np.mean(seq_target) * 100) if np.mean(seq_target) > 0 else 0
+        condition5 = seq_cv < 6.99
+        
+        # 사전감지 = 5가지 모두 만족
+        사전감지_조건 = condition1 and condition2 and condition3 and condition4 and condition5
         
         # ========================================
-        # 🔧 예측값 보정 (+18)
+        # 🔧 예측값 보정 (+21)
         # ========================================
         if 사전감지_조건:
             사전감지_count += 1
             
             if prediction < 300:
-                예측값_보정후 = prediction + 18  # +18 보정
+                예측값_보정후 = prediction + 21  # +21 보정
                 보정여부 = True
             else:
                 예측값_보정후 = prediction
@@ -193,10 +198,12 @@ def evaluate_all_predictions():
             '시퀀스MIN': round(seq_min, 2),
             '시퀀스평균': round(np.mean(seq_target), 2),
             '시퀀스증가': round(increase_rate, 2),
+            '시퀀스변동성(CV)': round(seq_cv, 2),
             '조건1_MAX<300': condition1,
             '조건2_283이상': condition2,
             '조건3_증가15이상': condition3,
             '조건4_283~299.9': condition4,
+            '조건5_CV<6.99': condition5,
             '사전감지': '사전감지' if 사전감지_조건 else '이상없음',
             '보정적용': '✅' if (사전감지_조건 and 보정여부) else '❌',
             '300이상점프': '🔴' if jump_detected else '',
@@ -212,7 +219,7 @@ def evaluate_all_predictions():
     results_df = pd.DataFrame(results)
    
     # CSV 저장
-    output_file = 'prediction_evaluation_조건4추가_보정18.csv'
+    output_file = 'prediction_evaluation_조건5추가_보정21.csv'
     results_df.to_csv(output_file, index=False, encoding='utf-8-sig')
     print(f"\n✅ 결과 저장 완료: {output_file}")
    
@@ -257,9 +264,9 @@ def evaluate_all_predictions():
     return results_df
 
 if __name__ == '__main__':
-    print("🚀 평가 시작 (조건4 추가 + 보정 +18)...\n")
+    print("🚀 평가 시작 (조건5 추가 + 보정 +21)...\n")
     results = evaluate_all_predictions()
    
     if results is not None:
         print(f"\n✅ 평가 완료! 총 {len(results)}개 예측 생성")
-        print(f"📁 결과 파일: prediction_evaluation_조건4추가_보정18.csv")
+        print(f"📁 결과 파일: prediction_evaluation_조건5추가_보정21.csv")
