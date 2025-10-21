@@ -177,7 +177,7 @@ def train_and_evaluate_complete():
         indices = []
         seq_target_list = []
         
-        for i in range(start_idx, len(df)):
+        for i in range(start_idx, len(df) - 10):
             seq_target = df[TARGET_COL].iloc[i-30:i].values
             
             features = {
@@ -235,11 +235,7 @@ def train_and_evaluate_complete():
             features['total_cmd'] = cmd_sum
             
             features_list.append(features)
-            labels.append(df[TARGET_COL].iloc[i])
-            # NaN/Inf 체크
-            if np.isnan(labels[-1]) or np.isinf(labels[-1]):
-                features_list.pop()
-                continue
+            labels.append(df[TARGET_COL].iloc[i:i+10].max())
             seq_max_list.append(np.max(seq_target))
             seq_min_list.append(np.min(seq_target))
             indices.append(i)
@@ -253,13 +249,13 @@ def train_and_evaluate_complete():
     
     # 인코딩 자동 감지 및 로드
     try:
-        df_train = pd.read_csv('81.csv', on_bad_lines='skip', encoding='utf-8')
+        df_train = pd.read_csv('HUB_0509_TO_0929_DATA.csv', on_bad_lines='skip', encoding='utf-8')
     except UnicodeDecodeError:
         try:
-            df_train = pd.read_csv('81.csv', on_bad_lines='skip', encoding='cp949')
+            df_train = pd.read_csv('HUB_0509_TO_0929_DATA.csv', on_bad_lines='skip', encoding='cp949')
             print("⚠️ 인코딩: CP949로 파일 로드")
         except:
-            df_train = pd.read_csv('81.csv', on_bad_lines='skip', encoding='euc-kr')
+            df_train = pd.read_csv('HUB_0509_TO_0929_DATA.csv', on_bad_lines='skip', encoding='euc-kr')
             print("⚠️ 인코딩: EUC-KR로 파일 로드")
     
     print(f"학습 데이터: {len(df_train)}개 행")
@@ -359,13 +355,13 @@ def train_and_evaluate_complete():
     
     # 인코딩 자동 감지 및 로드
     try:
-        df_test = pd.read_csv('91.CSV', on_bad_lines='skip', encoding='utf-8')
+        df_test = pd.read_csv('HUB_20250916_to_20250929.CSV', on_bad_lines='skip', encoding='utf-8')
     except UnicodeDecodeError:
         try:
-            df_test = pd.read_csv('91.CSV', on_bad_lines='skip', encoding='cp949')
+            df_test = pd.read_csv('HUB_20250916_to_20250929.CSV', on_bad_lines='skip', encoding='cp949')
             print("⚠️ 인코딩: CP949로 파일 로드")
         except:
-            df_test = pd.read_csv('91.CSV', on_bad_lines='skip', encoding='euc-kr')
+            df_test = pd.read_csv('HUB_20250916_to_20250929.CSV', on_bad_lines='skip', encoding='euc-kr')
             print("⚠️ 인코딩: EUC-KR로 파일 로드")
     
     print(f"평가 데이터: {len(df_test)}개 행")
