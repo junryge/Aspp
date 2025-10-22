@@ -104,13 +104,22 @@ def apply_adaptive_correction(prediction, features, seq_target):
     if seq_max >= 300:
         correction += 5
     
-    # 3. 보정값 제한
+    # 3. 보정값 적용
     corrected_prediction = prediction + correction
-    corrected_prediction = max(corrected_prediction, current_value - 50)
-    corrected_prediction = min(corrected_prediction, current_value + 100)
     
-    if current_value < 250 and corrected_prediction > 350:
-        corrected_prediction = 320
+    # 과도한 제한 제거 - 원본 예측값 기준으로 제한
+    # 급락 방지: 원본 예측값보다 너무 낮아지지 않도록
+    corrected_prediction = max(corrected_prediction, prediction - 30)
+    
+    # 급등 제한: 현재값 기준 합리적 범위 (+150까지 허용)
+    if current_value < 200:
+        max_allowed = current_value + 150
+    else:
+        max_allowed = current_value + 120
+    
+    # 단, 원본 예측값보다는 높을 수 있음 (보정의 의미)
+    if corrected_prediction > max_allowed and prediction < max_allowed:
+        corrected_prediction = max(prediction, max_allowed)
     
     return corrected_prediction, risk_level, surge_prob, correction
 
