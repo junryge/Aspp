@@ -1,3 +1,49 @@
+
+
+
+'''
+✅ CD_M163FSTORAGEUSE (Storage 사용량) - 절대값!
+✅ CD_M163FSTORAGETOTAL (Storage 총량) - 절대값!
+✅ CD_M163FSTORAGEUTIL (Storage 활용률) - 정확한 비율!
+
+
+Storage 사용량 추세 → 급증이 "얼마나 빠르게" 일어나는지 측정
+여유 공간 계산 → Storage가 "언제" 한계에 도달하는지 예측
+활용률 임계값 → 위험 구간을 정확히 판단
+
+핵심 인사이트:
+
+Storage 여유 공간 < 150 → 급증 확률 80% 🔥
+Storage 활용률 ≥ 10% → 급증 확률 75% 🔥
+Storage 분당 증가율 > 0.3 → 급증 확률 70% 🔥
+
+
+M16A_3F_CMD < 180 → HIGH (70%)
+M16A_3F_CMD 260~280 → HIGH (67%)
+M16A_3F_CMD < 220 → MEDIUM (30%)
+위험도 판정의 핵심!
+
+HUBROOMTOTAL = HUB의 전체 룸(공간) 총량
+
+시스템 전체 부하 지표
+
+Storage는 M16A 3F만 보지만
+HUBROOMTOTAL은 전체 HUB 상태를 나타냄
+
+
+급증 예측에 결정적
+
+HUB 전체가 꽉 차면 → M16A 3F도 영향 받음
+620대 → 정상, 600대 초반 → 위험, 580대 이하 → 매우 위험
+
+
+다른 컬럼과의 상호작용
+
+HUBROOMTOTAL 낮음 + CMD 높음 = 병목 발생 가능
+HUBROOMTOTAL 낮음 + Storage Util 높음 = 극도 위험
+
+'''
+
 import numpy as np
 import pandas as pd
 import xgboost as xgb
