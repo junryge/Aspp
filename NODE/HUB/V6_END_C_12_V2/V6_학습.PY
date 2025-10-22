@@ -253,12 +253,7 @@ def train_change_prediction():
         )
    
     print("모델 학습 중 (변화량 예측)...")
-    eval_result = model.fit(
-        X_tr, y_tr,
-        eval_set=[(X_tr, y_tr), (X_val, y_val)],
-        eval_metric=['rmse', 'mae'],
-        verbose=100
-    )
+    model.fit(X_tr, y_tr, eval_set=[(X_val, y_val)], verbose=False)
    
     # 평가
     y_val_pred = model.predict(X_val)
@@ -342,6 +337,15 @@ def train_change_prediction():
     print(f"  발생: {drop_count}개")
     print(f"  감지: {drop_detected}/{drop_count}개 ({drop_detected/drop_count*100 if drop_count > 0 else 0:.1f}%)")
    
+    # 극단값 성능
+    extreme_count = sum(1 for i in range(len(future_test)) if future_test[i] >= 300)
+    extreme_detected = sum(1 for i in range(len(future_test)) 
+                          if future_test[i] >= 300 and (current_test[i] + y_pred_change[i]) >= 290)
+   
+    print(f"\n극단값 (300+) 감지:")
+    print(f"  발생: {extreme_count}개")
+    print(f"  감지: {extreme_detected}/{extreme_count}개 ({extreme_detected/extreme_count*100 if extreme_count > 0 else 0:.1f}%)")
+   
     # 결과 저장
     results = []
     for i in range(len(X_test)):
@@ -353,6 +357,7 @@ def train_change_prediction():
        
         is_surge = (current < 300 and future_actual >= 300)
         is_drop = (current >= 300 and future_actual < 300)
+        is_extreme = (future_actual >= 300)
        
         results.append({
             '현재값': round(current, 2),
@@ -364,7 +369,9 @@ def train_change_prediction():
             '급증': 'O' if is_surge else '-',
             '급증감지': 'O' if (is_surge and predicted_future >= 290) else '-',
             '급감': 'O' if is_drop else '-',
-            '급감감지': 'O' if (is_drop and predicted_future < 310) else '-'
+            '급감감지': 'O' if (is_drop and predicted_future < 310) else '-',
+            '극단값': 'O' if is_extreme else '-',
+            '극단값감지': 'O' if (is_extreme and predicted_future >= 290) else '-'
         })
    
     df_results = pd.DataFrame(results)
@@ -390,6 +397,10 @@ def train_change_prediction():
    
     print(f"\n4. 급감 감지:")
     print(f"   - 성공률: {drop_detected/drop_count*100 if drop_count > 0 else 0:.1f}%")
+   
+    print(f"\n5. 극단값 (300+) 감지:")
+    print(f"   - 발생: {extreme_count}개")
+    print(f"   - 감지율: {extreme_detected/extreme_count*100 if extreme_count > 0 else 0:.1f}%")
    
     if surge_detected/surge_count >= 0.78 if surge_count > 0 else False:
         print(f"\n✅ 급증 감지율 78% 이상 달성!")
