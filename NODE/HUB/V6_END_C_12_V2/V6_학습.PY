@@ -255,7 +255,12 @@ def train_minimal_drop_support():
         )
    
     print("모델 학습 중...")
-    model.fit(X_tr, y_tr, eval_set=[(X_val, y_val)], verbose=False)
+    eval_result = model.fit(
+        X_tr, y_tr, 
+        eval_set=[(X_tr, y_tr), (X_val, y_val)],
+        eval_metric=['rmse', 'mae'],
+        verbose=100
+    )
    
     # 평가
     y_val_pred = model.predict(X_val)
@@ -267,6 +272,35 @@ def train_minimal_drop_support():
     print(f"  MAE:  {train_mae:.4f}")
     print(f"  RMSE: {train_rmse:.4f}")
     print(f"  R²:   {train_r2:.4f}")
+    
+    # ===== 시각화 1: 학습 곡선 =====
+    print("\n📊 학습 곡선 그래프 생성 중...")
+    results = eval_result.evals_result()
+    
+    fig, axes = plt.subplots(1, 2, figsize=(15, 5))
+    
+    # RMSE
+    axes[0].plot(results['validation_0']['rmse'], label='Train RMSE', linewidth=2)
+    axes[0].plot(results['validation_1']['rmse'], label='Validation RMSE', linewidth=2)
+    axes[0].set_xlabel('Iterations', fontsize=12)
+    axes[0].set_ylabel('RMSE', fontsize=12)
+    axes[0].set_title('Learning Curve - RMSE', fontsize=14, fontweight='bold')
+    axes[0].legend(fontsize=11)
+    axes[0].grid(True, alpha=0.3)
+    
+    # MAE
+    axes[1].plot(results['validation_0']['mae'], label='Train MAE', linewidth=2)
+    axes[1].plot(results['validation_1']['mae'], label='Validation MAE', linewidth=2)
+    axes[1].set_xlabel('Iterations', fontsize=12)
+    axes[1].set_ylabel('MAE', fontsize=12)
+    axes[1].set_title('Learning Curve - MAE', fontsize=14, fontweight='bold')
+    axes[1].legend(fontsize=11)
+    axes[1].grid(True, alpha=0.3)
+    
+    plt.tight_layout()
+    plt.savefig('학습곡선_급감대응.png', dpi=150, bbox_inches='tight')
+    print("✅ 저장: 학습곡선_급감대응.png")
+    plt.close()
    
     # 모델 저장
     with open('xgboost_급감대응_최소변경.pkl', 'wb') as f:
@@ -300,6 +334,25 @@ def train_minimal_drop_support():
     if new_features_in_top:
         print(f"\n⚠️ 신규 Feature Top 30 진입: {new_features_in_top}")
         print(f"   → 기존 급증 Feature 순위 확인 필요")
+    
+    # ===== 시각화 2: Feature Importance =====
+    print("\n📊 Feature Importance 그래프 생성 중...")
+    fig, ax = plt.subplots(figsize=(12, 10))
+    
+    colors = ['red' if f in ['target_from_max', 'target_decreasing'] else 'steelblue' for f in feature_importance['feature']]
+    
+    ax.barh(range(len(feature_importance)), feature_importance['importance'], color=colors)
+    ax.set_yticks(range(len(feature_importance)))
+    ax.set_yticklabels(feature_importance['feature'], fontsize=10)
+    ax.set_xlabel('Importance', fontsize=12)
+    ax.set_title('Top 30 Feature Importance (Red=New Features)', fontsize=14, fontweight='bold')
+    ax.grid(True, axis='x', alpha=0.3)
+    ax.invert_yaxis()
+    
+    plt.tight_layout()
+    plt.savefig('Feature중요도_급감대응.png', dpi=150, bbox_inches='tight')
+    print("✅ 저장: Feature중요도_급감대응.png")
+    plt.close()
    
     # ===== 2. 평가 =====
     print("\n[STEP 2] 평가")
@@ -375,6 +428,111 @@ def train_minimal_drop_support():
     df_results = pd.DataFrame(results)
     df_results.to_csv('급감대응_최소변경_결과.csv', index=False, encoding='utf-8-sig')
     print(f"\n✅ 결과 저장: 급감대응_최소변경_결과.csv")
+    
+    # ===== 시각화 3: 예측 vs 실제 산점도 =====
+    print("\n📊 예측 vs 실제 산점도 생성 중...")
+    fig, axes = plt.subplots(1, 2, figsize=(16, 6))
+    
+    # 전체 데이터
+    axes[0].scatter(y_test, y_pred, alpha=0.5, s=20)
+    axes[0].plot([y_test.min(), y_test.max()], [y_test.min(), y_test.max()], 'r--', lw=2, label='Perfect Prediction')
+    axes[0].set_xlabel('Actual Value', fontsize=12)
+    axes[0].set_ylabel('Predicted Value', fontsize=12)
+    axes[0].set_title(f'Prediction vs Actual (R²={test_r2:.3f}, MAE={test_mae:.2f})', fontsize=14, fontweight='bold')
+    axes[0].legend(fontsize=11)
+    axes[0].grid(True, alpha=0.3)
+    
+    # 급증/급감 케이스 강조
+    surge_mask = np.array([results[i]['급증'] == 'O' for i in range(len(results))])
+    drop_mask = np.array([results[i]['급감'] == 'O' for i in range(len(results))])
+    normal_mask = ~(surge_mask | drop_mask)
+    
+    axes[1].scatter(y_test[normal_mask], y_pred[normal_mask], alpha=0.3, s=20, c='gray', label='Normal')
+    axes[1].scatter(y_test[surge_mask], y_pred[surge_mask], alpha=0.7, s=40, c='red', marker='^', label=f'Surge ({surge_mask.sum()})')
+    axes[1].scatter(y_test[drop_mask], y_pred[drop_mask], alpha=0.7, s=40, c='blue', marker='v', label=f'Drop ({drop_mask.sum()})')
+    axes[1].plot([y_test.min(), y_test.max()], [y_test.min(), y_test.max()], 'k--', lw=2)
+    axes[1].set_xlabel('Actual Value', fontsize=12)
+    axes[1].set_ylabel('Predicted Value', fontsize=12)
+    axes[1].set_title('Surge/Drop Cases Highlighted', fontsize=14, fontweight='bold')
+    axes[1].legend(fontsize=11)
+    axes[1].grid(True, alpha=0.3)
+    
+    plt.tight_layout()
+    plt.savefig('예측vs실제_급감대응.png', dpi=150, bbox_inches='tight')
+    print("✅ 저장: 예측vs실제_급감대응.png")
+    plt.close()
+    
+    # ===== 시각화 4: 오차 분포 및 케이스 분석 =====
+    print("\n📊 오차 분포 및 케이스 분석 그래프 생성 중...")
+    fig, axes = plt.subplots(2, 2, figsize=(16, 12))
+    
+    # 오차 히스토그램
+    errors = y_test - y_pred
+    axes[0, 0].hist(errors, bins=50, edgecolor='black', alpha=0.7)
+    axes[0, 0].axvline(0, color='red', linestyle='--', linewidth=2, label='Zero Error')
+    axes[0, 0].set_xlabel('Prediction Error', fontsize=12)
+    axes[0, 0].set_ylabel('Frequency', fontsize=12)
+    axes[0, 0].set_title(f'Error Distribution (Mean={errors.mean():.2f}, Std={errors.std():.2f})', fontsize=14, fontweight='bold')
+    axes[0, 0].legend(fontsize=11)
+    axes[0, 0].grid(True, alpha=0.3)
+    
+    # 케이스별 분포
+    case_types = ['Normal', 'Surge', 'Drop']
+    case_counts = [normal_mask.sum(), surge_mask.sum(), drop_mask.sum()]
+    case_colors = ['gray', 'red', 'blue']
+    
+    axes[0, 1].bar(case_types, case_counts, color=case_colors, alpha=0.7, edgecolor='black')
+    axes[0, 1].set_ylabel('Count', fontsize=12)
+    axes[0, 1].set_title('Case Type Distribution', fontsize=14, fontweight='bold')
+    for i, v in enumerate(case_counts):
+        axes[0, 1].text(i, v + max(case_counts)*0.02, f'{v}\n({v/len(y_test)*100:.1f}%)', 
+                       ha='center', fontsize=11, fontweight='bold')
+    axes[0, 1].grid(True, axis='y', alpha=0.3)
+    
+    # 급증 예측 성공률
+    surge_detected_mask = np.array([results[i]['급증감지'] == 'O' for i in range(len(results))])
+    surge_success_rate = surge_detected_mask.sum() / surge_mask.sum() * 100 if surge_mask.sum() > 0 else 0
+    
+    drop_detected_mask = np.array([results[i]['급감감지'] == 'O' for i in range(len(results))])
+    drop_success_rate = drop_detected_mask.sum() / drop_mask.sum() * 100 if drop_mask.sum() > 0 else 0
+    
+    success_types = ['Surge\nDetection', 'Drop\nDetection']
+    success_rates = [surge_success_rate, drop_success_rate]
+    success_colors = ['red', 'blue']
+    
+    bars = axes[1, 0].bar(success_types, success_rates, color=success_colors, alpha=0.7, edgecolor='black')
+    axes[1, 0].set_ylabel('Success Rate (%)', fontsize=12)
+    axes[1, 0].set_title('Detection Success Rate', fontsize=14, fontweight='bold')
+    axes[1, 0].set_ylim([0, 105])
+    axes[1, 0].axhline(78, color='green', linestyle='--', linewidth=2, label='Target: 78%')
+    for i, (bar, rate) in enumerate(zip(bars, success_rates)):
+        axes[1, 0].text(bar.get_x() + bar.get_width()/2, rate + 2, f'{rate:.1f}%', 
+                       ha='center', fontsize=12, fontweight='bold')
+    axes[1, 0].legend(fontsize=11)
+    axes[1, 0].grid(True, axis='y', alpha=0.3)
+    
+    # 실제값 범위별 오차
+    value_bins = [0, 250, 300, 350, 400, y_test.max()]
+    value_labels = ['<250', '250-300', '300-350', '350-400', '400+']
+    bin_errors = []
+    
+    for i in range(len(value_bins)-1):
+        mask = (y_test >= value_bins[i]) & (y_test < value_bins[i+1])
+        if mask.sum() > 0:
+            bin_errors.append(np.abs(errors[mask]).mean())
+        else:
+            bin_errors.append(0)
+    
+    axes[1, 1].bar(value_labels, bin_errors, alpha=0.7, edgecolor='black', color='steelblue')
+    axes[1, 1].set_xlabel('Actual Value Range', fontsize=12)
+    axes[1, 1].set_ylabel('Mean Absolute Error', fontsize=12)
+    axes[1, 1].set_title('Error by Value Range', fontsize=14, fontweight='bold')
+    axes[1, 1].grid(True, axis='y', alpha=0.3)
+    
+    plt.tight_layout()
+    plt.savefig('오차분석_급감대응.png', dpi=150, bbox_inches='tight')
+    print("✅ 저장: 오차분석_급감대응.png")
+    plt.close()
    
     # 최종 요약
     print("\n" + "="*80)
@@ -402,6 +560,12 @@ def train_minimal_drop_support():
         print(f"   → 이전 모델로 롤백 권장")
     else:
         print(f"\n✅ 기존 급증 성능 유지됨")
+    
+    print(f"\n5. 생성된 시각화 파일:")
+    print(f"   📊 학습곡선_급감대응.png")
+    print(f"   📊 Feature중요도_급감대응.png")
+    print(f"   📊 예측vs실제_급감대응.png")
+    print(f"   📊 오차분석_급감대응.png")
    
     return model, df_results, feature_importance
 
