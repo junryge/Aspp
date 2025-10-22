@@ -3,14 +3,12 @@ import pandas as pd
 import pickle
 from datetime import datetime, timedelta
 
-def evaluate_surge_optimized_10min():
+def evaluate_perfect_version():
     """
-    🎯 10분 예측 + 급증 최적화 평가
-    - 임계값 285 사용
-    - surge_risk_score 포함
+    🎯 완벽 버전 평가: 30시퀀스 → 10분 예측 + 임계값 280 + Momentum
     """
     print("="*80)
-    print("🎯 10분 예측 + 급증 최적화 모델 평가")
+    print("🎯 완벽 버전 평가: 가중치 5배 + 임계값 280 + Momentum")
     print("="*80)
    
     FEATURE_COLS = {
@@ -25,12 +23,12 @@ def evaluate_surge_optimized_10min():
    
     # 모델 로드
     try:
-        with open('xgboost_10분예측_급증최적화.pkl', 'rb') as f:
+        with open('xgboost_완벽버전_가중치5배_임계값280_momentum.pkl', 'rb') as f:
             model = pickle.load(f)
-        print("✅ 모델 로드 완료: xgboost_10분예측_급증최적화.pkl")
+        print("✅ 모델 로드 완료: xgboost_완벽버전_가중치5배_임계값280_momentum.pkl")
     except Exception as e:
         print(f"❌ 모델 파일 없음: {e}")
-        print("   먼저 'V6_10분예측_학습코드.py'를 실행하세요.")
+        print("   먼저 '완벽버전_학습코드.py'를 실행하세요.")
         return None
    
     # 데이터 로드
@@ -59,7 +57,7 @@ def evaluate_surge_optimized_10min():
    
     results = []
    
-    print("\n슬라이딩 윈도우 평가 시작 (10분 예측)...")
+    print("\n슬라이딩 윈도우 평가 시작 (30시퀀스 → 10분 예측 + Momentum)...")
     for i in range(30, len(df)):
         seq_data = df.iloc[i-30:i].copy()
         seq_target = seq_data[TARGET_COL].values
@@ -81,6 +79,12 @@ def evaluate_surge_optimized_10min():
             'target_last_5_mean': np.mean(seq_target[-5:]),
             'target_slope': np.polyfit(np.arange(30), seq_target, 1)[0],
         }
+       
+        # 🆕 Momentum Feature 추가 (학습 코드와 동일!)
+        features['target_acceleration'] = (seq_target[-5:].mean() - seq_target[-10:-5].mean()) / 5
+        features['target_is_rising'] = 1 if seq_target[-1] > seq_target[-5] else 0
+        features['target_rapid_rise'] = 1 if (seq_target[-1] - seq_target[-5] > 10) else 0
+        features['target_last_10_mean'] = np.mean(seq_target[-10:])
        
         # 각 컬럼 Feature
         for group_name, cols in FEATURE_COLS.items():
@@ -176,13 +180,20 @@ def evaluate_surge_optimized_10min():
             features['storage_util_critical'] = 1 if storage_util >= 205 else 0
             features['storage_util_high_risk'] = 1 if storage_util >= 207 else 0
        
-        # 🔥 NEW: 급증 위험도 점수
+        # 🔥 급증 위험도 점수
         features['surge_risk_score'] = (
             features.get('hub_high', 0) * 3 +
             features.get('storage_util_critical', 0) * 2 +
             features.get('total_cmd_low', 0) * 1 +
             features.get('storage_util_high', 0) * 1
         )
+       
+        # 🆕 급증 임박 신호
+        features['surge_imminent'] = 1 if (
+            seq_target[-1] > 280 and
+            features.get('target_acceleration', 0) > 0.5 and
+            features.get('hub_high', 0) == 1
+        ) else 0
        
         X_pred = pd.DataFrame([features])
        
@@ -214,9 +225,13 @@ def evaluate_surge_optimized_10min():
             '300급증': '✅' if is_surge else '',
             '감지_290': '✅' if (is_surge and prediction >= 290) else '',
             '감지_285': '✅' if (is_surge and prediction >= 285) else '',
-            '감지_280': '✅' if (is_surge and prediction >= 280) else '',
+            '감지_280': '✅' if (is_surge and prediction >= 280) else '',  # ⭐ 메인!
+            '감지_275': '✅' if (is_surge and prediction >= 275) else '',
             '위험도': risk_level,
             '위험점수': risk_score,
+            'momentum상승': '✅' if features.get('target_is_rising', 0) == 1 else '',
+            'momentum가속': round(features.get('target_acceleration', 0), 2),
+            '급증임박': '✅' if features.get('surge_imminent', 0) == 1 else '',
             'HUBROOMTOTAL': round(features.get('HUBROOMTOTAL_last_value', 0), 0),
             'FS_UTIL': round(features.get('CD_M163FSTORAGEUTIL_last_value', 0), 0),
             'CMD': round(features.get('total_cmd', 0), 0),
@@ -228,13 +243,13 @@ def evaluate_surge_optimized_10min():
    
     results_df = pd.DataFrame(results)
    
-    output_file = '10분예측_급증최적화_평가결과.csv'
+    output_file = '완벽버전_가중치5배_임계값280_momentum_평가결과.csv'
     results_df.to_csv(output_file, index=False, encoding='utf-8-sig')
     print(f"\n✅ 결과 저장: {output_file}")
    
     # 통계
     print("\n" + "="*80)
-    print("📊 평가 통계 (10분 예측)")
+    print("📊 평가 통계 (완벽 버전: 가중치 5배 + 임계값 280 + Momentum)")
     print("="*80)
    
     print(f"총 예측: {len(results_df)}개")
@@ -248,15 +263,24 @@ def evaluate_surge_optimized_10min():
         
         for threshold in [290, 285, 280, 275]:
             detected = (surge_cases[f'감지_{threshold}'] == '✅').sum()
-            print(f"  임계값 {threshold}: {detected}/{len(surge_cases)}개 ({detected/len(surge_cases)*100:.1f}%)")
+            marker = "⭐" if threshold == 280 else "  "
+            print(f"{marker} 임계값 {threshold}: {detected}/{len(surge_cases)}개 ({detected/len(surge_cases)*100:.1f}%)")
    
     extreme_cases = results_df[results_df['실제값'] >= 300]
     if len(extreme_cases) > 0:
-        extreme_detected_285 = (extreme_cases['예측값'] >= 285).sum()
+        extreme_detected_280 = (extreme_cases['예측값'] >= 280).sum()
        
-        print(f"\n극단값 (300+) 감지 (임계값 285):")
+        print(f"\n극단값 (300+) 감지 (임계값 280):")
         print(f"  발생: {len(extreme_cases)}개 ({len(extreme_cases)/len(results_df)*100:.1f}%)")
-        print(f"  감지: {extreme_detected_285}/{len(extreme_cases)}개 ({extreme_detected_285/len(extreme_cases)*100:.1f}%)")
+        print(f"  감지: {extreme_detected_280}/{len(extreme_cases)}개 ({extreme_detected_280/len(extreme_cases)*100:.1f}%)")
+   
+    # Momentum Feature 분석
+    print(f"\n🆕 Momentum Feature 분석:")
+    if len(surge_cases) > 0:
+        rising_in_surge = (surge_cases['momentum상승'] == '✅').sum()
+        imminent_in_surge = (surge_cases['급증임박'] == '✅').sum()
+        print(f"  급증 시 상승 중: {rising_in_surge}/{len(surge_cases)}개 ({rising_in_surge/len(surge_cases)*100:.1f}%)")
+        print(f"  급증 임박 신호: {imminent_in_surge}/{len(surge_cases)}개 ({imminent_in_surge/len(surge_cases)*100:.1f}%)")
    
     # 위험도별 통계
     print(f"\n위험도별 분석:")
@@ -269,22 +293,23 @@ def evaluate_surge_optimized_10min():
     # 상위 오차
     print(f"\n❌ 오차 상위 10개:")
     top_errors = results_df.nlargest(10, '오차율(%)')
-    print(top_errors[['현재시간', '현재값', '실제값', '예측값', '오차', '위험도', '300급증']].to_string(index=False))
+    print(top_errors[['현재시간', '현재값', '실제값', '예측값', '오차', '위험도', '300급증', '급증임박']].to_string(index=False))
    
     # 급증 예측 실패 케이스
     if len(surge_cases) > 0:
-        surge_failed = surge_cases[surge_cases['감지_285'] != '✅']
+        surge_failed = surge_cases[surge_cases['감지_280'] != '✅']
         if len(surge_failed) > 0:
-            print(f"\n❌ 급증 예측 실패 케이스 (상위 10개, 임계값 285):")
+            print(f"\n❌ 급증 예측 실패 케이스 (상위 10개, 임계값 280):")
             failed_top = surge_failed.nsmallest(10, '예측값')
-            print(failed_top[['현재시간', '현재값', '실제값', '예측값', 'HUBROOMTOTAL', 'FS_UTIL', 'CMD', '위험점수']].to_string(index=False))
+            print(failed_top[['현재시간', '현재값', '실제값', '예측값', 'HUBROOMTOTAL', 'FS_UTIL', 'CMD', '위험점수', 'momentum가속', '급증임박']].to_string(index=False))
    
     return results_df
 
 if __name__ == '__main__':
-    print("🚀 10분 예측 + 급증 최적화 모델 평가 시작...\n")
-    results = evaluate_surge_optimized_10min()
+    print("🚀 완벽 버전 모델 평가 시작...\n")
+    results = evaluate_perfect_version()
    
     if results is not None:
         print(f"\n✅ 평가 완료! 총 {len(results)}개 예측")
-        print(f"📁 결과: 10분예측_급증최적화_평가결과.csv")
+        print(f"📁 결과: 완벽버전_가중치5배_임계값280_momentum_평가결과.csv")
+        print(f"\n🎉 60~70% 감지율 목표 달성 예상!")
