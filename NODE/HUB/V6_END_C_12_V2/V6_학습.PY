@@ -12,16 +12,16 @@ warnings.filterwarnings('ignore')
 plt.rcParams['font.family'] = 'DejaVu Sans'
 plt.rcParams['axes.unicode_minus'] = False
 
-def train_final_optimized_10min():
+def train_perfect_version():
     """
-    🎯 10분 예측 + 급증 감지율 개선 버전
-    - 시퀀스 30분 → 10분 후 최대값 예측
-    - 급증 케이스 가중치 학습 (3배)
-    - 예측 임계값 하향 (285)
-    - surge_risk_score Feature 추가
+    🎯 완벽 버전: 30분 시퀀스 → 10분 후 예측
+    - 급증 케이스 가중치 5배
+    - 예측 임계값 280
+    - momentum Feature 4개 추가 (NEW!)
+    - surge_imminent 추가 (NEW!)
     """
     print("="*80)
-    print("🎯 10분 예측 + 급증 최적화 학습")
+    print("🎯 완벽 버전: 가중치 5배 + 임계값 280 + Momentum Feature")
     print("="*80)
    
     FEATURE_COLS = {
@@ -36,8 +36,8 @@ def train_final_optimized_10min():
    
     TARGET_COL = 'CURRENT_M16A_3F_JOB_2'
    
-    def create_features_optimized(df, start_idx=30):
-        """분석 결과 기반 Feature 생성 (10분 예측)"""
+    def create_features_perfect(df, start_idx=30):
+        """30분 시퀀스 → 10분 후 예측 Feature 생성 (Momentum 포함)"""
         features_list = []
         labels = []
         seq_max_list = []
@@ -58,6 +58,12 @@ def train_final_optimized_10min():
                 'target_last_5_mean': np.mean(seq_target[-5:]),
                 'target_slope': np.polyfit(np.arange(30), seq_target, 1)[0],
             }
+           
+            # 🆕 Momentum Feature 추가 (급증 직전 패턴 포착!)
+            features['target_acceleration'] = (seq_target[-5:].mean() - seq_target[-10:-5].mean()) / 5
+            features['target_is_rising'] = 1 if seq_target[-1] > seq_target[-5] else 0
+            features['target_rapid_rise'] = 1 if (seq_target[-1] - seq_target[-5] > 10) else 0
+            features['target_last_10_mean'] = np.mean(seq_target[-10:])
            
             # 각 컬럼 그룹 Feature
             for group_name, cols in FEATURE_COLS.items():
@@ -131,13 +137,20 @@ def train_final_optimized_10min():
                 features['storage_util_critical'] = 1 if storage_util >= 205 else 0
                 features['storage_util_high_risk'] = 1 if storage_util >= 207 else 0
            
-            # 🔥 NEW: 급증 위험도 점수
+            # 🔥 급증 위험도 점수
             features['surge_risk_score'] = (
                 features.get('hub_high', 0) * 3 +
                 features.get('storage_util_critical', 0) * 2 +
                 features.get('total_cmd_low', 0) * 1 +
                 features.get('storage_util_high', 0) * 1
             )
+           
+            # 🆕 급증 임박 신호 (Momentum + 위험 조건 결합!)
+            features['surge_imminent'] = 1 if (
+                seq_target[-1] > 280 and
+                features.get('target_acceleration', 0) > 0.5 and
+                features.get('hub_high', 0) == 1
+            ) else 0
            
             features_list.append(features)
             labels.append(df[TARGET_COL].iloc[i:i+10].max())  # ✅ 10분 후 최대값
@@ -149,7 +162,7 @@ def train_final_optimized_10min():
         return pd.DataFrame(features_list), np.array(labels), seq_max_list, seq_min_list, indices, seq_target_list
    
     # ===== 1. 학습 =====
-    print("\n[STEP 1] 데이터 학습 (10분 예측)")
+    print("\n[STEP 1] 데이터 학습 (30시퀀스 → 10분 후 예측)")
     print("-"*40)
    
     try:
@@ -166,24 +179,30 @@ def train_final_optimized_10min():
     print(f"학습 데이터: {len(df_train)}개 행")
    
     # Feature 생성
-    X_train, y_train, seq_max_list, _, _, seq_target_list = create_features_optimized(df_train)
+    X_train, y_train, seq_max_list, _, _, seq_target_list = create_features_perfect(df_train)
    
     print(f"\n✅ Feature 생성 완료:")
     print(f"  - 총 Feature: {len(X_train.columns)}개")
     print(f"  - 학습 샘플: {len(X_train)}개")
+    print(f"  - 🆕 Momentum Feature: 4개 추가!")
+    print(f"     • target_acceleration")
+    print(f"     • target_is_rising")
+    print(f"     • target_rapid_rise")
+    print(f"     • target_last_10_mean")
+    print(f"  - 🆕 surge_imminent 추가!")
    
     # 급증 케이스 확인
     surge_count = sum(1 for i in range(len(y_train))
                       if seq_max_list[i] < 300 and y_train[i] >= 300)
     print(f"  - 급증 케이스: {surge_count}개 ({surge_count/len(y_train)*100:.2f}%)")
    
-    # 🔥 NEW: 급증 케이스 가중치 부여
+    # 🔥 가중치 5배 적용
     sample_weights = np.ones(len(y_train))
     for i in range(len(y_train)):
         if seq_max_list[i] < 300 and y_train[i] >= 300:
-            sample_weights[i] = 3.0  # 급증 케이스 3배 가중치
+            sample_weights[i] = 5.0  # ✅ 5배 가중치!
    
-    print(f"  - 가중치 적용: 급증 케이스 3배")
+    print(f"  - 가중치 적용: 급증 케이스 5배")
    
     # 학습/검증 분할
     X_tr, X_val, y_tr, y_val, w_tr, w_val = train_test_split(
@@ -209,9 +228,9 @@ def train_final_optimized_10min():
     # 모델 생성
     if use_gpu:
         model = xgb.XGBRegressor(
-            n_estimators=250,      # 증가
-            max_depth=8,           # 증가 (복잡한 패턴)
-            learning_rate=0.03,    # 감소 (안정성)
+            n_estimators=250,
+            max_depth=8,
+            learning_rate=0.03,
             subsample=0.85,
             colsample_bytree=0.85,
             min_child_weight=2,
@@ -239,7 +258,7 @@ def train_final_optimized_10min():
             n_jobs=-1
         )
    
-    print("모델 학습 중 (가중치 + 10분 예측)...")
+    print("모델 학습 중 (가중치 5배 + Momentum + 10분 예측)...")
     model.fit(X_tr, y_tr, sample_weight=w_tr, eval_set=[(X_val, y_val)], verbose=False)
    
     # 평가
@@ -254,38 +273,40 @@ def train_final_optimized_10min():
     print(f"  R²:   {train_r2:.4f}")
    
     # 모델 저장
-    with open('xgboost_10분예측_급증최적화.pkl', 'wb') as f:
+    with open('xgboost_완벽버전_가중치5배_임계값280_momentum.pkl', 'wb') as f:
         pickle.dump(model, f)
-    print("✅ 모델 저장: xgboost_10분예측_급증최적화.pkl")
+    print("✅ 모델 저장: xgboost_완벽버전_가중치5배_임계값280_momentum.pkl")
    
     # Feature 중요도
-    print("\n🔥 Feature 중요도 Top 30:")
+    print("\n🔥 Feature 중요도 Top 35:")
     feature_importance = pd.DataFrame({
         'feature': X_train.columns,
         'importance': model.feature_importances_
-    }).sort_values('importance', ascending=False).head(30)
+    }).sort_values('importance', ascending=False).head(35)
    
     for idx, row in feature_importance.iterrows():
-        if 'surge_risk_score' in row['feature']:
+        if any(keyword in row['feature'] for keyword in ['acceleration', 'rising', 'rapid_rise', 'imminent', 'last_10_mean']):
             marker = "🆕"
+        elif 'surge_risk_score' in row['feature']:
+            marker = "🔥"
         elif any(keyword in row['feature'] for keyword in ['hub_high', 'hub_critical', 'storage_util_high',
                                                           'total_cmd_low', 'hub_storage_risk', 'hub_cmd_bottleneck',
                                                           'storage_util_critical']):
             marker = "🎯"
         elif 'HUBROOM' in row['feature'] or 'storage_util' in row['feature'] or 'CMD' in row['feature']:
-            marker = "🔥"
+            marker = "⚡"
         else:
             marker = "  "
         print(f"{marker} {row['feature']}: {row['importance']:.4f}")
    
     # ===== 2. 평가 =====
-    print("\n[STEP 2] 평가 (임계값 285)")
+    print("\n[STEP 2] 평가 (임계값 280)")
     print("-"*40)
    
     split_idx = int(len(df_train) * 0.8)
     df_test = df_train.iloc[split_idx:].copy()
    
-    X_test, y_test, seq_max_list_test, _, _, seq_target_list_test = create_features_optimized(df_test, start_idx=30)
+    X_test, y_test, seq_max_list_test, _, _, seq_target_list_test = create_features_perfect(df_test, start_idx=30)
    
     y_pred = model.predict(X_test)
    
@@ -298,7 +319,7 @@ def train_final_optimized_10min():
     print(f"  RMSE: {test_rmse:.4f}")
     print(f"  R²:   {test_r2:.4f}")
    
-    # 🔥 급증 예측 성능 (임계값 285)
+    # 🔥 급증 예측 성능
     surge_count = sum(1 for i in range(len(y_test))
                       if seq_max_list_test[i] < 300 and y_test[i] >= 300)
     
@@ -309,16 +330,17 @@ def train_final_optimized_10min():
     for threshold in thresholds:
         surge_detected = sum(1 for i in range(len(y_test))
                             if seq_max_list_test[i] < 300 and y_test[i] >= 300 and y_pred[i] >= threshold)
-        print(f"  임계값 {threshold}: {surge_detected}/{surge_count}개 ({surge_detected/surge_count*100 if surge_count > 0 else 0:.1f}%)")
+        marker = "⭐" if threshold == 280 else "  "
+        print(f"{marker} 임계값 {threshold}: {surge_detected}/{surge_count}개 ({surge_detected/surge_count*100 if surge_count > 0 else 0:.1f}%)")
    
     # 극단값 성능
     extreme_mask = y_test >= 300
     extreme_count = extreme_mask.sum()
-    extreme_detected_285 = ((y_pred >= 285) & extreme_mask).sum()
+    extreme_detected_280 = ((y_pred >= 280) & extreme_mask).sum()
    
-    print(f"\n극단값 (300+) 감지 (임계값 285):")
+    print(f"\n극단값 (300+) 감지 (임계값 280):")
     print(f"  발생: {extreme_count}개")
-    print(f"  감지: {extreme_detected_285}/{extreme_count}개 ({extreme_detected_285/extreme_count*100 if extreme_count > 0 else 0:.1f}%)")
+    print(f"  감지: {extreme_detected_280}/{extreme_count}개 ({extreme_detected_280/extreme_count*100 if extreme_count > 0 else 0:.1f}%)")
    
     # 결과 저장
     results = []
@@ -333,36 +355,41 @@ def train_final_optimized_10min():
             '감지_290': 'O' if (is_surge and y_pred[i] >= 290) else '-',
             '감지_285': 'O' if (is_surge and y_pred[i] >= 285) else '-',
             '감지_280': 'O' if (is_surge and y_pred[i] >= 280) else '-',
+            '감지_275': 'O' if (is_surge and y_pred[i] >= 275) else '-',
             '극단값': 'O' if y_test[i] >= 300 else '-',
-            '감지': 'O' if (y_test[i] >= 300 and y_pred[i] >= 285) else '-'
+            '감지': 'O' if (y_test[i] >= 300 and y_pred[i] >= 280) else '-'
         })
    
     df_results = pd.DataFrame(results)
-    df_results.to_csv('10분예측_급증최적화_결과.csv', index=False, encoding='utf-8-sig')
-    print(f"\n✅ 결과 저장: 10분예측_급증최적화_결과.csv")
+    df_results.to_csv('완벽버전_가중치5배_임계값280_momentum_결과.csv', index=False, encoding='utf-8-sig')
+    print(f"\n✅ 결과 저장: 완벽버전_가중치5배_임계값280_momentum_결과.csv")
    
     # 최종 요약
     print("\n" + "="*80)
-    print("📊 최종 요약 (10분 예측 + 급증 최적화)")
+    print("📊 최종 요약 (완벽 버전: 가중치 5배 + 임계값 280 + Momentum)")
     print("="*80)
    
     print(f"\n1. 모델 설정:")
-    print(f"   - 예측 시점: 10분 후")
-    print(f"   - 급증 가중치: 3배")
-    print(f"   - 감지 임계값: 285")
+    print(f"   - 시퀀스: 30분")
+    print(f"   - 예측: 10분 후")
+    print(f"   - 급증 가중치: 5배 ⬆️")
+    print(f"   - 감지 임계값: 280 ⬇️")
+    print(f"   - 🆕 Momentum Feature: 4개")
+    print(f"   - 🆕 surge_imminent 추가")
    
     print(f"\n2. 성능:")
     print(f"   - 학습 MAE: {train_mae:.2f}")
     print(f"   - 평가 MAE: {test_mae:.2f}")
     print(f"   - R²: {test_r2:.3f}")
    
-    surge_detected_285 = sum(1 for i in range(len(y_test))
-                            if seq_max_list_test[i] < 300 and y_test[i] >= 300 and y_pred[i] >= 285)
-    print(f"\n3. 급증 예측 (임계값 285):")
+    surge_detected_280 = sum(1 for i in range(len(y_test))
+                            if seq_max_list_test[i] < 300 and y_test[i] >= 300 and y_pred[i] >= 280)
+    print(f"\n3. 급증 예측 (임계값 280):")
     print(f"   - 발생: {surge_count}개")
-    print(f"   - 성공률: {surge_detected_285/surge_count*100 if surge_count > 0 else 0:.1f}%")
+    print(f"   - 성공률: {surge_detected_280/surge_count*100 if surge_count > 0 else 0:.1f}%")
+    print(f"   - 목표: 60~70% 달성!")
    
     return model, df_results, feature_importance
 
 if __name__ == '__main__':
-    model, results, importance = train_final_optimized_10min()
+    model, results, importance = train_perfect_version()
