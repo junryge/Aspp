@@ -3,14 +3,13 @@ import pandas as pd
 import pickle
 from datetime import datetime, timedelta
 
-def evaluate_minimal_drop_support():
+def evaluate_change_prediction():
     """
-    🎯 급감 대응 최소 변경 모델 평가
-    - 기존 급증 Feature 100% 유지
-    - 급감 대응 Feature 2개만 추가
+    🎯 변화량 예측 모델 평가
+    - 단일 모델로 급증/급감 동시 감지
     """
     print("="*80)
-    print("🎯 급감 대응 최소 변경 모델 평가")
+    print("🎯 변화량 예측 모델 평가")
     print("="*80)
    
     FEATURE_COLS = {
@@ -25,12 +24,12 @@ def evaluate_minimal_drop_support():
    
     # 모델 로드
     try:
-        with open('xgboost_급감대응_최소변경.pkl', 'rb') as f:
+        with open('xgboost_변화량예측.pkl', 'rb') as f:
             model = pickle.load(f)
-        print("✅ 모델 로드 완료: xgboost_급감대응_최소변경.pkl")
+        print("✅ 모델 로드 완료: xgboost_변화량예측.pkl")
     except Exception as e:
         print(f"❌ 모델 파일 없음: {e}")
-        print("   먼저 'V6_최소변경_급감대응_학습코드.py'를 실행하세요.")
+        print("   먼저 'V7_변화량_학습코드.py'를 실행하세요.")
         return None
    
     # 데이터 로드
@@ -61,7 +60,10 @@ def evaluate_minimal_drop_support():
     results = []
    
     print("\n슬라이딩 윈도우 평가 시작...")
-    for i in range(30, len(df)):
+    for i in range(30, len(df) - 10):
+        if (i - 30) % 1000 == 0:
+            print(f"진행: {i-30}/{len(df)-40} ({(i-30)/(len(df)-40)*100:.1f}%)")
+       
         seq_data = df.iloc[i-30:i].copy()
         seq_target = seq_data[TARGET_COL].values
        
@@ -69,12 +71,12 @@ def evaluate_minimal_drop_support():
         current_value = seq_target[-1]
         prediction_time = current_time + timedelta(minutes=10)
        
-        actual_value = df.iloc[i][TARGET_COL]
-        actual_time = df.iloc[i]['STAT_DT']
+        # 10분 후 실제 값
+        actual_value = df.iloc[i+10][TARGET_COL]
+        actual_time = df.iloc[i+10]['STAT_DT']
+        actual_change = actual_value - current_value
        
-        # ============================================================
-        # 기존 Feature (100% 유지)
-        # ============================================================
+        # Feature 생성 (학습 코드와 동일)
         features = {
             'target_mean': np.mean(seq_target),
             'target_std': np.std(seq_target),
@@ -84,16 +86,15 @@ def evaluate_minimal_drop_support():
             'target_last_5_mean': np.mean(seq_target[-5:]),
             'target_slope': np.polyfit(np.arange(30), seq_target, 1)[0],
         }
-        
-        # ============================================================
-        # 🆕 급감 대응 Feature (2개 추가)
-        # ============================================================
+       
+        # 변화량 예측용 추가 Feature
         features['target_from_max'] = np.max(seq_target) - seq_target[-1]
         features['target_decreasing'] = 1 if features['target_slope'] < -1 else 0
+        features['target_increasing'] = 1 if features['target_slope'] > 1 else 0
+        features['target_volatility'] = np.std(np.diff(seq_target))
+        features['target_momentum'] = np.mean(seq_target[-5:]) - np.mean(seq_target[:5])
        
-        # ============================================================
-        # 기존 컬럼 Feature (100% 유지)
-        # ============================================================
+        # 각 컬럼 Feature
         for group_name, cols in FEATURE_COLS.items():
             for col in cols:
                 if col not in df.columns:
@@ -118,43 +119,19 @@ def evaluate_minimal_drop_support():
                     features[f'{col}_last_value'] = col_seq[-1]
                     features[f'{col}_slope'] = np.polyfit(np.arange(30), col_seq, 1)[0]
        
-        # FS Storage Feature (기존 유지)
+        # FS Storage Feature
         if 'CD_M163FSTORAGEUSE' in df.columns and 'CD_M163FSTORAGETOTAL' in df.columns and 'CD_M163FSTORAGEUTIL' in df.columns:
             use_seq = seq_data['CD_M163FSTORAGEUSE'].values
             total_seq = seq_data['CD_M163FSTORAGETOTAL'].values
             util_seq = seq_data['CD_M163FSTORAGEUTIL'].values
-            
-            features['CD_M163FSTORAGEUSE_mean'] = np.mean(use_seq)
-            features['CD_M163FSTORAGEUSE_std'] = np.std(use_seq)
-            features['CD_M163FSTORAGEUSE_max'] = np.max(use_seq)
-            features['CD_M163FSTORAGEUSE_min'] = np.min(use_seq)
-            features['CD_M163FSTORAGEUSE_last_value'] = use_seq[-1]
-            features['CD_M163FSTORAGEUSE_last_5_mean'] = np.mean(use_seq[-5:])
-            features['CD_M163FSTORAGEUSE_slope'] = np.polyfit(np.arange(30), use_seq, 1)[0]
            
-            features['CD_M163FSTORAGETOTAL_mean'] = np.mean(total_seq)
-            features['CD_M163FSTORAGETOTAL_std'] = np.std(total_seq)
-            features['CD_M163FSTORAGETOTAL_max'] = np.max(total_seq)
-            features['CD_M163FSTORAGETOTAL_min'] = np.min(total_seq)
-            features['CD_M163FSTORAGETOTAL_last_value'] = total_seq[-1]
-            features['CD_M163FSTORAGETOTAL_last_5_mean'] = np.mean(total_seq[-5:])
-            features['CD_M163FSTORAGETOTAL_slope'] = np.polyfit(np.arange(30), total_seq, 1)[0]
-           
-            features['CD_M163FSTORAGEUTIL_mean'] = np.mean(util_seq)
-            features['CD_M163FSTORAGEUTIL_std'] = np.std(util_seq)
-            features['CD_M163FSTORAGEUTIL_max'] = np.max(util_seq)
-            features['CD_M163FSTORAGEUTIL_min'] = np.min(util_seq)
-            features['CD_M163FSTORAGEUTIL_last_value'] = util_seq[-1]
-            features['CD_M163FSTORAGEUTIL_last_5_mean'] = np.mean(util_seq[-5:])
-            features['CD_M163FSTORAGEUTIL_slope'] = np.polyfit(np.arange(30), util_seq, 1)[0]
-           
-            # 특수 Feature (기존 유지)
             features['storage_use_rate'] = (use_seq[-1] - use_seq[0]) / 30
             features['storage_remaining'] = total_seq[-1] - use_seq[-1]
             features['storage_util_last'] = util_seq[-1]
             features['storage_util_high'] = 1 if util_seq[-1] >= 7 else 0
             features['storage_util_critical'] = 1 if util_seq[-1] >= 10 else 0
        
+        # HUBROOMTOTAL Feature
         if 'HUBROOMTOTAL' in df.columns:
             hub_seq = seq_data['HUBROOMTOTAL'].values
             hub_last = hub_seq[-1]
@@ -168,6 +145,7 @@ def evaluate_minimal_drop_support():
                 storage_util_last = df['CD_M163FSTORAGEUTIL'].iloc[i-1]
                 features['hub_storage_risk'] = 1 if (hub_last < 610 and storage_util_last >= 7) else 0
        
+        # CMD Feature
         inflow_sum = sum(df[col].iloc[i-1] for col in FEATURE_COLS['inflow'] if col in df.columns)
         outflow_sum = sum(df[col].iloc[i-1] for col in FEATURE_COLS['outflow'] if col in df.columns)
         features['net_flow'] = inflow_sum - outflow_sum
@@ -181,53 +159,61 @@ def evaluate_minimal_drop_support():
             hub_last = df['HUBROOMTOTAL'].iloc[i-1]
             features['hub_cmd_bottleneck'] = 1 if (hub_last < 610 and cmd_sum < 220) else 0
        
+        # Storage Util
         if 'M16A_3F_STORAGE_UTIL' in df.columns:
             storage_util = df['M16A_3F_STORAGE_UTIL'].iloc[i-1]
             features['storage_util_critical'] = 1 if storage_util >= 205 else 0
             features['storage_util_high_risk'] = 1 if storage_util >= 207 else 0
        
+        # DataFrame으로 변환
         X_pred = pd.DataFrame([features])
        
-        # 예측
-        prediction = model.predict(X_pred)[0]
+        # 변화량 예측
+        predicted_change = model.predict(X_pred)[0]
+        predicted_value = current_value + predicted_change
        
         # 급증/급감 판정
         is_surge = (current_value < 300 and actual_value >= 300)
         is_drop = (current_value >= 300 and actual_value < 300)
+        is_extreme = (actual_value >= 300)
+       
+        surge_detected = (is_surge and predicted_value >= 290)
+        drop_detected = (is_drop and predicted_value < 310)
+        extreme_detected = (is_extreme and predicted_value >= 290)
        
         # 위험도 판정
         risk_level = "LOW"
-        if features.get('hub_high', 0) == 1 or features.get('storage_util_critical', 0) == 1:
+        if abs(predicted_change) >= 40:
             risk_level = "HIGH"
-        elif features.get('total_cmd_low', 0) == 1 or features.get('storage_util_high', 0) == 1:
+        elif abs(predicted_change) >= 25:
             risk_level = "MEDIUM"
        
         results.append({
             '현재시간': current_time.strftime('%Y-%m-%d %H:%M'),
             '예측시점': prediction_time.strftime('%Y-%m-%d %H:%M'),
             '현재값': round(current_value, 2),
-            '실제값': round(actual_value, 2),
-            '예측값': round(prediction, 2),
-            '오차': round(abs(actual_value - prediction), 2),
-            '오차율(%)': round(abs(actual_value - prediction) / max(actual_value, 1) * 100, 2),
-            '시퀀스MAX': round(np.max(seq_target), 2),
-            '300급증': '✅' if is_surge else '',
-            '급증예측성공': '✅' if (is_surge and prediction >= 290) else '',
-            '300급감': '🔻' if is_drop else '',
-            '급감예측성공': '✅' if (is_drop and prediction < 310) else '',
+            '실제_10분후': round(actual_value, 2),
+            '예측_10분후': round(predicted_value, 2),
+            '실제_변화량': round(actual_change, 2),
+            '예측_변화량': round(predicted_change, 2),
+            '변화량_오차': round(abs(actual_change - predicted_change), 2),
+            '예측값_오차': round(abs(actual_value - predicted_value), 2),
+            '급증': '✅' if is_surge else '',
+            '급증감지': '✅' if surge_detected else '',
+            '급감': '✅' if is_drop else '',
+            '급감감지': '✅' if drop_detected else '',
+            '극단값': '✅' if is_extreme else '',
+            '극단값감지': '✅' if extreme_detected else '',
             '위험도': risk_level,
             'HUBROOMTOTAL': round(features.get('HUBROOMTOTAL_last_value', 0), 0),
             'FS_UTIL': round(features.get('CD_M163FSTORAGEUTIL_last_value', 0), 0),
             'CMD': round(features.get('total_cmd', 0), 0),
             'STORAGE_UTIL': round(features.get('M16A_3F_STORAGE_UTIL_last_value', 0), 0),
         })
-       
-        if (i - 30) % 1000 == 0:
-            print(f"진행: {i-30}/{len(df)-30} ({(i-30)/(len(df)-30)*100:.1f}%)")
    
     results_df = pd.DataFrame(results)
    
-    output_file = '급감대응_최소변경_평가결과.csv'
+    output_file = '변화량예측_평가결과.csv'
     results_df.to_csv(output_file, index=False, encoding='utf-8-sig')
     print(f"\n✅ 결과 저장: {output_file}")
    
@@ -237,31 +223,37 @@ def evaluate_minimal_drop_support():
     print("="*80)
    
     print(f"총 예측: {len(results_df)}개")
-    print(f"평균 오차: {results_df['오차'].abs().mean():.2f}")
-    print(f"평균 오차율: {results_df['오차율(%)'].mean():.2f}%")
+    print(f"\n변화량 예측 정확도:")
+    print(f"  평균 변화량 오차: {results_df['변화량_오차'].mean():.2f}")
+    print(f"  평균 예측값 오차: {results_df['예측값_오차'].mean():.2f}")
    
     # 급증 성능
-    surge_cases = results_df[results_df['300급증'] == '✅']
+    surge_cases = results_df[results_df['급증'] == '✅']
     if len(surge_cases) > 0:
-        surge_detected = (surge_cases['급증예측성공'] == '✅').sum()
+        surge_detected = (surge_cases['급증감지'] == '✅').sum()
        
-        print(f"\n🔺 300 급증 예측 성능:")
+        print(f"\n🔺 급증 예측 성능:")
         print(f"  발생: {len(surge_cases)}개 ({len(surge_cases)/len(results_df)*100:.2f}%)")
-        print(f"  예측 성공: {surge_detected}/{len(surge_cases)}개 ({surge_detected/len(surge_cases)*100:.1f}%)")
-        print(f"  ⚠️ 기존 78% 대비 확인 필요")
-    
-    # 급감 성능
-    drop_cases = results_df[results_df['300급감'] == '🔻']
-    if len(drop_cases) > 0:
-        drop_detected = (drop_cases['급감예측성공'] == '✅').sum()
+        print(f"  감지: {surge_detected}/{len(surge_cases)}개 ({surge_detected/len(surge_cases)*100:.1f}%)")
        
-        print(f"\n🔻 300 급감 예측 성능 (신규):")
-        print(f"  발생: {len(drop_cases)}개 ({len(drop_cases)/len(results_df)*100:.2f}%)")
-        print(f"  예측 성공: {drop_detected}/{len(drop_cases)}개 ({drop_detected/len(drop_cases)*100:.1f}%)")
+        if surge_detected/len(surge_cases) >= 0.78:
+            print(f"  ✅ 목표 78% 이상 달성!")
+        else:
+            print(f"  ⚠️ 목표 78% 미달")
    
-    extreme_cases = results_df[results_df['실제값'] >= 300]
+    # 급감 성능
+    drop_cases = results_df[results_df['급감'] == '✅']
+    if len(drop_cases) > 0:
+        drop_detected = (drop_cases['급감감지'] == '✅').sum()
+       
+        print(f"\n🔻 급감 예측 성능:")
+        print(f"  발생: {len(drop_cases)}개 ({len(drop_cases)/len(results_df)*100:.2f}%)")
+        print(f"  감지: {drop_detected}/{len(drop_cases)}개 ({drop_detected/len(drop_cases)*100:.1f}%)")
+   
+    # 극단값 성능
+    extreme_cases = results_df[results_df['극단값'] == '✅']
     if len(extreme_cases) > 0:
-        extreme_detected = (extreme_cases['예측값'] >= 290).sum()
+        extreme_detected = (extreme_cases['극단값감지'] == '✅').sum()
        
         print(f"\n극단값 (300+) 감지:")
         print(f"  발생: {len(extreme_cases)}개 ({len(extreme_cases)/len(results_df)*100:.1f}%)")
@@ -272,35 +264,71 @@ def evaluate_minimal_drop_support():
     for risk in ['HIGH', 'MEDIUM', 'LOW']:
         risk_df = results_df[results_df['위험도'] == risk]
         if len(risk_df) > 0:
-            surge_in_risk = (risk_df['300급증'] == '✅').sum()
-            drop_in_risk = (risk_df['300급감'] == '🔻').sum()
+            surge_in_risk = (risk_df['급증'] == '✅').sum()
+            drop_in_risk = (risk_df['급감'] == '✅').sum()
             print(f"  {risk}: {len(risk_df)}개 - 급증 {surge_in_risk}개, 급감 {drop_in_risk}개")
    
-    # 상위 오차
-    print(f"\n❌ 오차 상위 10개:")
-    top_errors = results_df.nlargest(10, '오차율(%)')
-    print(top_errors[['현재시간', '현재값', '실제값', '예측값', '오차', '위험도', '300급증', '300급감']].to_string(index=False))
+    # 오차 상위 케이스
+    print(f"\n❌ 변화량 오차 상위 10개:")
+    top_errors = results_df.nlargest(10, '변화량_오차')
+    print(top_errors[['현재시간', '현재값', '실제_변화량', '예측_변화량', '변화량_오차', '급증', '급감']].to_string(index=False))
    
+    # 급증 예측 실패 케이스
     if len(surge_cases) > 0:
-        surge_failed = surge_cases[surge_cases['급증예측성공'] != '✅']
+        surge_failed = surge_cases[surge_cases['급증감지'] != '✅']
         if len(surge_failed) > 0:
-            print(f"\n❌ 급증 예측 실패 케이스 (상위 10개):")
-            failed_top = surge_failed.nsmallest(10, '예측값')
-            print(failed_top[['현재시간', '현재값', '실제값', '예측값', 'HUBROOMTOTAL', 'FS_UTIL', 'CMD']].to_string(index=False))
-    
+            print(f"\n❌ 급증 예측 실패 케이스 (상위 5개):")
+            failed_top = surge_failed.nlargest(5, '실제_변화량')
+            print(failed_top[['현재시간', '현재값', '실제_10분후', '예측_10분후', '실제_변화량', '예측_변화량']].to_string(index=False))
+   
+    # 급감 예측 실패 케이스
     if len(drop_cases) > 0:
-        drop_failed = drop_cases[drop_cases['급감예측성공'] != '✅']
+        drop_failed = drop_cases[drop_cases['급감감지'] != '✅']
         if len(drop_failed) > 0:
-            print(f"\n❌ 급감 예측 실패 케이스 (상위 10개):")
-            failed_top = drop_failed.nlargest(10, '예측값')
-            print(failed_top[['현재시간', '현재값', '실제값', '예측값', 'HUBROOMTOTAL', 'FS_UTIL', 'CMD']].to_string(index=False))
+            print(f"\n❌ 급감 예측 실패 케이스 (상위 5개):")
+            failed_top = drop_failed.nsmallest(5, '실제_변화량')
+            print(failed_top[['현재시간', '현재값', '실제_10분후', '예측_10분후', '실제_변화량', '예측_변화량']].to_string(index=False))
+   
+    # 변화량 분포
+    print(f"\n📊 변화량 분포:")
+    print(f"  실제 변화량:")
+    print(f"    평균: {results_df['실제_변화량'].mean():.2f}")
+    print(f"    표준편차: {results_df['실제_변화량'].std():.2f}")
+    print(f"    최소: {results_df['실제_변화량'].min():.2f}")
+    print(f"    최대: {results_df['실제_변화량'].max():.2f}")
+   
+    print(f"\n  예측 변화량:")
+    print(f"    평균: {results_df['예측_변화량'].mean():.2f}")
+    print(f"    표준편차: {results_df['예측_변화량'].std():.2f}")
+    print(f"    최소: {results_df['예측_변화량'].min():.2f}")
+    print(f"    최대: {results_df['예측_변화량'].max():.2f}")
    
     return results_df
 
 if __name__ == '__main__':
-    print("🚀 급감 대응 최소 변경 모델 평가 시작...\n")
-    results = evaluate_minimal_drop_support()
+    print("🚀 변화량 예측 모델 평가 시작...\n")
+    results = evaluate_change_prediction()
    
     if results is not None:
         print(f"\n✅ 평가 완료! 총 {len(results)}개 예측")
-        print(f"📁 결과: 급감대응_최소변경_평가결과.csv")
+        print(f"📁 결과: 변화량예측_평가결과.csv")
+        
+        # 최종 요약
+        surge_total = (results['급증'] == '✅').sum()
+        surge_detected = ((results['급증'] == '✅') & (results['급증감지'] == '✅')).sum()
+        drop_total = (results['급감'] == '✅').sum()
+        drop_detected = ((results['급감'] == '✅') & (results['급감감지'] == '✅')).sum()
+        extreme_total = (results['극단값'] == '✅').sum()
+        extreme_detected = ((results['극단값'] == '✅') & (results['극단값감지'] == '✅')).sum()
+        
+        print("\n" + "="*80)
+        print("🎯 최종 성능 요약")
+        print("="*80)
+        print(f"\n🔺 급증: {surge_detected}/{surge_total} ({surge_detected/surge_total*100 if surge_total > 0 else 0:.1f}%)")
+        print(f"🔻 급감: {drop_detected}/{drop_total} ({drop_detected/drop_total*100 if drop_total > 0 else 0:.1f}%)")
+        print(f"⚡ 극단값 (300+): {extreme_detected}/{extreme_total} ({extreme_detected/extreme_total*100 if extreme_total > 0 else 0:.1f}%)")
+        
+        if surge_total > 0 and surge_detected/surge_total >= 0.78:
+            print("\n✅ 급증 감지율 78% 이상 달성!")
+        elif surge_total > 0:
+            print(f"\n⚠️ 급증 감지율 {surge_detected/surge_total*100:.1f}% - 78% 목표 미달")
