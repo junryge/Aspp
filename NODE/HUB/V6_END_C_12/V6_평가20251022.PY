@@ -107,17 +107,44 @@ def evaluate_surge_optimized():
                     features[f'{col}_last_value'] = col_seq[-1]
                     features[f'{col}_slope'] = np.polyfit(np.arange(30), col_seq, 1)[0]
         
-        # 특수 Feature
-        if 'CD_M163FSTORAGEUSE' in df.columns and 'CD_M163FSTORAGETOTAL' in df.columns:
-            storage_use = seq_data['CD_M163FSTORAGEUSE'].values
-            storage_total = seq_data['CD_M163FSTORAGETOTAL'].values
-            storage_util = seq_data['CD_M163FSTORAGEUTIL'].values
+        # FS Storage 기본 Feature (학습 코드와 동일하게!)
+        if 'CD_M163FSTORAGEUSE' in df.columns and 'CD_M163FSTORAGETOTAL' in df.columns and 'CD_M163FSTORAGEUTIL' in df.columns:
+            # CD_M163FSTORAGEUSE
+            use_seq = seq_data['CD_M163FSTORAGEUSE'].values
+            features['CD_M163FSTORAGEUSE_mean'] = np.mean(use_seq)
+            features['CD_M163FSTORAGEUSE_std'] = np.std(use_seq)
+            features['CD_M163FSTORAGEUSE_max'] = np.max(use_seq)
+            features['CD_M163FSTORAGEUSE_min'] = np.min(use_seq)
+            features['CD_M163FSTORAGEUSE_last_value'] = use_seq[-1]
+            features['CD_M163FSTORAGEUSE_last_5_mean'] = np.mean(use_seq[-5:])
+            features['CD_M163FSTORAGEUSE_slope'] = np.polyfit(np.arange(30), use_seq, 1)[0]
             
-            features['storage_use_rate'] = (storage_use[-1] - storage_use[0]) / 30
-            features['storage_remaining'] = storage_total[-1] - storage_use[-1]
-            features['storage_util_last'] = storage_util[-1]
-            features['storage_util_high'] = 1 if storage_util[-1] >= 7 else 0
-            features['storage_util_critical'] = 1 if storage_util[-1] >= 10 else 0
+            # CD_M163FSTORAGETOTAL
+            total_seq = seq_data['CD_M163FSTORAGETOTAL'].values
+            features['CD_M163FSTORAGETOTAL_mean'] = np.mean(total_seq)
+            features['CD_M163FSTORAGETOTAL_std'] = np.std(total_seq)
+            features['CD_M163FSTORAGETOTAL_max'] = np.max(total_seq)
+            features['CD_M163FSTORAGETOTAL_min'] = np.min(total_seq)
+            features['CD_M163FSTORAGETOTAL_last_value'] = total_seq[-1]
+            features['CD_M163FSTORAGETOTAL_last_5_mean'] = np.mean(total_seq[-5:])
+            features['CD_M163FSTORAGETOTAL_slope'] = np.polyfit(np.arange(30), total_seq, 1)[0]
+            
+            # CD_M163FSTORAGEUTIL
+            util_seq = seq_data['CD_M163FSTORAGEUTIL'].values
+            features['CD_M163FSTORAGEUTIL_mean'] = np.mean(util_seq)
+            features['CD_M163FSTORAGEUTIL_std'] = np.std(util_seq)
+            features['CD_M163FSTORAGEUTIL_max'] = np.max(util_seq)
+            features['CD_M163FSTORAGEUTIL_min'] = np.min(util_seq)
+            features['CD_M163FSTORAGEUTIL_last_value'] = util_seq[-1]
+            features['CD_M163FSTORAGEUTIL_last_5_mean'] = np.mean(util_seq[-5:])
+            features['CD_M163FSTORAGEUTIL_slope'] = np.polyfit(np.arange(30), util_seq, 1)[0]
+            
+            # 특수 Feature
+            features['storage_use_rate'] = (use_seq[-1] - use_seq[0]) / 30
+            features['storage_remaining'] = total_seq[-1] - use_seq[-1]
+            features['storage_util_last'] = util_seq[-1]
+            features['storage_util_high'] = 1 if util_seq[-1] >= 7 else 0
+            features['storage_util_critical'] = 1 if util_seq[-1] >= 10 else 0
         
         if 'HUBROOMTOTAL' in df.columns:
             hub_seq = seq_data['HUBROOMTOTAL'].values
