@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 """
-V6 실시간 예측 코드 + 급증 위험도 기반 보정
+V6 실시간 예측 코드 + 급증 위험도 기반 보정 (최종 버전)
+- 평가 코드와 동일한 Feature 생성 로직
 - 최근 30개 데이터로 10분 후 예측
 - 보정 전/후 예측값 모두 반환
 - 위험도 평가 포함
@@ -14,7 +15,7 @@ import os
 
 # 현 디렉터리를 기준으로 경로 설정
 script_dir = os.path.dirname(os.path.abspath(__file__))
-model_dir = os.path.join(script_dir, 'model', 'xgboost_model_30min_10min.pkl')
+model_dir = os.path.join(script_dir, 'model', 'xgboost_model_30min_10min_D.pkl')
 data_dir = os.path.join(script_dir, 'data', 'HUBROOM_PIVOT_DATA.csv')
 
 # V6 필수 컬럼 정의 (12개 핵심 컬럼)
@@ -30,94 +31,143 @@ TARGET_COL = 'CURRENT_M16A_3F_JOB_2'
 
 
 def calculate_surge_risk(features):
-    """급증 위험도 및 예상 급증량 계산"""
+    """
+    급증 위험도 및 예상 급증량 계산
+    
+    Returns:
+        risk_level: 위험도 (HIGH/MEDIUM/LOW)
+        surge_prob: 급증 확률 (0~1)
+        expected_surge: 예상 급증량
+    """
+    # 주요 지표 추출
     cmd_last = features.get('M16A_3F_CMD_last_value', 999)
+    cmd_mean = features.get('M16A_3F_CMD_mean', 999)
     storage_last = features.get('M16A_3F_STORAGE_UTIL_last_value', 0)
+    storage_mean = features.get('M16A_3F_STORAGE_UTIL_mean', 0)
+    
+    # CMD 변화량 계산
     cmd_slope = features.get('M16A_3F_CMD_slope', 0)
     
     # 위험도 판정 (분석 결과 기반)
     if cmd_last < 180:
+        # CMD가 매우 낮음 → 큰 급증 가능성
         risk_level = "HIGH"
         surge_prob = 0.70
         expected_surge = 60
     elif storage_last >= 30 and storage_last <= 40:
+        # Storage Util 위험 구간
         risk_level = "HIGH"
         surge_prob = 0.45
         expected_surge = 50
     elif cmd_last >= 260 and cmd_last <= 280:
+        # CMD 높은 구간에서도 급증 가능
         risk_level = "HIGH"
         surge_prob = 0.67
         expected_surge = 60
     elif cmd_last < 220:
+        # CMD 중간 구간
         risk_level = "MEDIUM"
         surge_prob = 0.30
         expected_surge = 35
     else:
+        # 일반 상황
         risk_level = "LOW"
         surge_prob = 0.05
         expected_surge = 20
     
     # 추가 보정 요소
+    # 1. CMD 급감 패턴 (slope가 음수이고 큼)
     if cmd_slope < -5:
-        surge_prob *= 1.2
+        surge_prob *= 1.2  # 20% 증가
         expected_surge *= 1.1
     
+    # 2. Storage Util이 증가 추세
     storage_slope = features.get('M16A_3F_STORAGE_UTIL_slope', 0)
     if storage_slope > 2:
-        surge_prob *= 1.1
+        surge_prob *= 1.1  # 10% 증가
     
+    # 확률 상한 조정
     surge_prob = min(surge_prob, 0.85)
     
     return risk_level, surge_prob, expected_surge
 
 
 def apply_adaptive_correction(prediction, features, seq_target):
-    """적응형 예측값 보정"""
+    """
+    적응형 예측값 보정 (개선 버전)
+    
+    Args:
+        prediction: 원래 모델 예측값
+        features: 특성 딕셔너리
+        seq_target: 30개 시퀀스 타겟값
+    
+    Returns:
+        보정된 예측값, 위험도, 급증 확률, 보정량
+    """
+    # 위험도 계산
     risk_level, surge_prob, expected_surge = calculate_surge_risk(features)
+    
+    # 현재 값 (시퀀스 마지막)
     current_value = seq_target[-1]
+    
+    # 시퀀스 통계
     seq_mean = np.mean(seq_target)
+    seq_std = np.std(seq_target)
     seq_max = np.max(seq_target)
     recent_mean = np.mean(seq_target[-5:])
     
+    # 보정 전략
     correction = 0
     
     # 1. 기본 보정: 위험도에 따른 급증 반영
-    if current_value < 300:
+    if current_value < 300:  # 현재 300 미만일 때만
         if risk_level == "HIGH":
+            # 높은 위험도: 급증 가능성 적극 반영
             if prediction < 300:
+                # 예측값이 300 미만이면 급증 가능성 반영
                 potential_value = current_value + expected_surge * surge_prob
+                
+                # 300 도달 가능성 체크
                 if potential_value >= 300:
-                    correction = (potential_value - prediction) * 0.7
+                    # 300 넘을 가능성이 높으면 보정
+                    correction = (potential_value - prediction) * 0.7  # 70% 반영
                 else:
+                    # 300 미달이어도 상향 보정
                     correction = expected_surge * surge_prob * 0.5
+                    
         elif risk_level == "MEDIUM":
+            # 중간 위험도: 보수적 보정
             if prediction < 300 and surge_prob > 0.25:
                 correction = expected_surge * surge_prob * 0.3
-        else:
+                
+        else:  # LOW
+            # 낮은 위험도: 최소 보정
             correction = expected_surge * surge_prob * 0.1
     
     # 2. 추가 보정: 시퀀스 패턴 반영
+    # 최근 급증 추세
     recent_increase = recent_mean - seq_mean
-    if recent_increase > 10:
+    if recent_increase > 10:  # 최근 급증 중
         correction += recent_increase * 0.2
     
+    # 시퀀스 내 300 이상 있었던 경우
     if seq_max >= 300:
-        correction += 5
+        correction += 5  # 추가 상향
     
-    # 3. 보정값 적용
+    # 3. 보정값 적용 (개선된 제한 로직)
     corrected_prediction = prediction + correction
     
     # 과도한 제한 제거 - 원본 예측값 기준으로 제한
     # 급락 방지: 원본 예측값보다 너무 낮아지지 않도록
     corrected_prediction = max(corrected_prediction, prediction - 30)
     
-    # 급등 제한: 현재값 기준 합리적 범위 (+150까지 허용)
+    # 급등 제한: 현재값 기준 합리적 범위
     if current_value < 200:
-        max_allowed = current_value + 150
+        max_allowed = current_value + 150  # 낮은 값일 때 +150까지 허용
     else:
-        max_allowed = current_value + 120
+        max_allowed = current_value + 120  # 높은 값일 때 +120까지 허용
     
-    # 단, 원본 예측값보다는 높을 수 있음 (보정의 의미)
+    # 단, 원본 예측값이 이미 높으면 그대로 유지
     if corrected_prediction > max_allowed and prediction < max_allowed:
         corrected_prediction = max(prediction, max_allowed)
     
@@ -136,14 +186,17 @@ def realtime_prediction():
     except Exception as e:
         return None, f"model load error: {str(e)}"
     
-    # 데이터 로드
+    # 데이터 로드 (인코딩 자동 감지)
     try:
         df = pd.read_csv(data_dir, on_bad_lines='skip', encoding='utf-8')
     except UnicodeDecodeError:
         try:
             df = pd.read_csv(data_dir, on_bad_lines='skip', encoding='cp949')
         except:
-            df = pd.read_csv(data_dir, on_bad_lines='skip', encoding='euc-kr')
+            try:
+                df = pd.read_csv(data_dir, on_bad_lines='skip', encoding='euc-kr')
+            except:
+                return None, "file encoding error"
     except FileNotFoundError:
         return None, "file is not found"
     except Exception as e:
@@ -179,7 +232,7 @@ def realtime_prediction():
     prediction_time = seq_end + timedelta(minutes=10)
     current_value = seq_target[-1]
     
-    # Feature 생성 - 타겟 컬럼 기본 특성
+    # Feature 생성 - 타겟 컬럼 기본 특성 (평가 코드와 동일)
     features = {
         'target_mean': np.mean(seq_target),
         'target_std': np.std(seq_target),
@@ -191,7 +244,7 @@ def realtime_prediction():
         'target_first_10_mean': np.mean(seq_target[:10])
     }
     
-    # 각 컬럼 그룹별 특성 추가 (12개 핵심 컬럼)
+    # 각 컬럼 그룹별 특성 추가 (평가 코드와 동일)
     for group_name, cols in FEATURE_COLS.items():
         for col in cols:
             if col in recent_30.columns:
@@ -270,7 +323,7 @@ def realtime_prediction():
 
 
 def predict_realtime():
-    """실시간 예측 실행 및 결과 출력"""
+    """실시간 예측 실행 및 결과 출력 (운영 환경용)"""
     result, error = realtime_prediction()
     
     if error:
@@ -306,18 +359,25 @@ def predict_realtime_detail():
     print("🚀 V6 실시간 예측 결과 (급증 위험도 보정 포함)")
     print("="*80)
     print(f"\n📅 현재 시간: {result['current_time']}")
-    print(f"📅 예측 시점: {result['prediction_time']}")
-    print(f"\n현재값: {result['current_value']}")
+    print(f"📅 예측 시점: {result['prediction_time']} (10분 후)")
+    print(f"\n📊 현재값: {result['current_value']}")
     print(f"\n[보정 전] 예측값: {result['prediction_original']}")
     print(f"[보정 후] 예측값: {result['prediction_corrected']}")
     print(f"보정량: +{result['correction_amount']}")
     print(f"\n⚠️ 위험도: {result['risk_level']}")
-    print(f"📊 급증 확률: {result['surge_probability']}")
+    print(f"📈 급증 확률: {result['surge_probability']}")
     print(f"🚦 상태: {result['status']}")
     print(f"\n주요 지표:")
     print(f"  - M16A_3F_CMD: {result['cmd_last']}")
     print(f"  - M16A_3F_STORAGE_UTIL: {result['storage_last']}")
     print("="*80)
+    
+    # 추가 경고 메시지
+    if result['risk_level'] == 'HIGH':
+        print(f"\n⚠️ 경고: {result['risk_level']} 위험도 감지!")
+        print(f"   10분 후 {result['prediction_corrected']} 예측 (현재 {result['current_value']})")
+        if result['prediction_corrected'] >= 300:
+            print(f"   🔴 극단값(≥300) 도달 가능성 높음!")
 
 
 if __name__ == '__main__':
