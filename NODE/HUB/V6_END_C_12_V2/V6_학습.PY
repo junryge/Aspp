@@ -12,23 +12,16 @@ warnings.filterwarnings('ignore')
 plt.rcParams['font.family'] = 'DejaVu Sans'
 plt.rcParams['axes.unicode_minus'] = False
 
-def train_change_prediction():
+def train_final_optimized_10min():
     """
-    🎯 변화량 예측 모델 (단일 모델로 급증/급감 해결)
-    
-    핵심 아이디어:
-    - 타겟: 10분 후 변화량 (delta = future - current)
-    - 급증: 변화량 +30 이상 (양수)
-    - 급감: 변화량 -30 이하 (음수)
-    - 정상: -30 ~ +30 범위
-    
-    장점:
-    - 단일 모델로 급증/급감 자동 구분
-    - 기존 Feature 100% 활용
-    - 부호로 명확히 구분됨
+    🎯 10분 예측 + 급증 감지율 개선 버전
+    - 시퀀스 30분 → 10분 후 최대값 예측
+    - 급증 케이스 가중치 학습 (3배)
+    - 예측 임계값 하향 (285)
+    - surge_risk_score Feature 추가
     """
     print("="*80)
-    print("🎯 변화량 예측 모델 학습 (급증/급감 통합)")
+    print("🎯 10분 예측 + 급증 최적화 학습")
     print("="*80)
    
     FEATURE_COLS = {
@@ -43,22 +36,19 @@ def train_change_prediction():
    
     TARGET_COL = 'CURRENT_M16A_3F_JOB_2'
    
-    def create_features_for_change(df, start_idx=30):
-        """변화량 예측을 위한 Feature 생성"""
+    def create_features_optimized(df, start_idx=30):
+        """분석 결과 기반 Feature 생성 (10분 예측)"""
         features_list = []
-        labels = []  # 변화량
-        current_values = []
-        future_values = []
+        labels = []
+        seq_max_list = []
+        seq_min_list = []
         indices = []
         seq_target_list = []
        
-        for i in range(start_idx, len(df) - 10):
+        for i in range(start_idx, len(df) - 10):  # ✅ 10분 후 예측
             seq_target = df[TARGET_COL].iloc[i-30:i].values
-            current_value = seq_target[-1]  # 현재값
-            future_value = df[TARGET_COL].iloc[i+10]  # 10분 후
-            change = future_value - current_value  # 변화량 (타겟!)
            
-            # 기본 타겟 Feature
+            # 타겟 기본 통계
             features = {
                 'target_mean': np.mean(seq_target),
                 'target_std': np.std(seq_target),
@@ -68,13 +58,6 @@ def train_change_prediction():
                 'target_last_5_mean': np.mean(seq_target[-5:]),
                 'target_slope': np.polyfit(np.arange(30), seq_target, 1)[0],
             }
-           
-            # 변화량 예측에 유용한 추가 Feature
-            features['target_from_max'] = np.max(seq_target) - seq_target[-1]
-            features['target_decreasing'] = 1 if features['target_slope'] < -1 else 0
-            features['target_increasing'] = 1 if features['target_slope'] > 1 else 0
-            features['target_volatility'] = np.std(np.diff(seq_target))
-            features['target_momentum'] = np.mean(seq_target[-5:]) - np.mean(seq_target[:5])
            
             # 각 컬럼 그룹 Feature
             for group_name, cols in FEATURE_COLS.items():
@@ -101,7 +84,7 @@ def train_change_prediction():
                         features[f'{col}_last_value'] = col_seq[-1]
                         features[f'{col}_slope'] = np.polyfit(np.arange(30), col_seq, 1)[0]
            
-            # FS Storage Feature
+            # 🎯 FS Storage Feature
             if 'CD_M163FSTORAGEUSE' in df.columns and 'CD_M163FSTORAGETOTAL' in df.columns:
                 storage_use = df['CD_M163FSTORAGEUSE'].iloc[i-30:i].values
                 storage_total = df['CD_M163FSTORAGETOTAL'].iloc[i-30:i].values
@@ -113,7 +96,7 @@ def train_change_prediction():
                 features['storage_util_high'] = 1 if storage_util[-1] >= 7 else 0
                 features['storage_util_critical'] = 1 if storage_util[-1] >= 10 else 0
            
-            # HUBROOMTOTAL Feature
+            # 🎯 HUBROOMTOTAL Feature
             if 'HUBROOMTOTAL' in df.columns:
                 hub_seq = df['HUBROOMTOTAL'].iloc[i-30:i].values
                 hub_last = hub_seq[-1]
@@ -127,7 +110,7 @@ def train_change_prediction():
                     storage_util_last = df['CD_M163FSTORAGEUTIL'].iloc[i-1]
                     features['hub_storage_risk'] = 1 if (hub_last < 610 and storage_util_last >= 7) else 0
            
-            # CMD Feature
+            # 유입-유출, CMD
             inflow_sum = sum(df[col].iloc[i-1] for col in FEATURE_COLS['inflow'] if col in df.columns)
             outflow_sum = sum(df[col].iloc[i-1] for col in FEATURE_COLS['outflow'] if col in df.columns)
             features['net_flow'] = inflow_sum - outflow_sum
@@ -137,28 +120,36 @@ def train_change_prediction():
             features['total_cmd_low'] = 1 if cmd_sum < 220 else 0
             features['total_cmd_very_low'] = 1 if cmd_sum < 200 else 0
            
+            # 🎯 HUB × CMD 복합
             if 'HUBROOMTOTAL' in df.columns:
                 hub_last = df['HUBROOMTOTAL'].iloc[i-1]
                 features['hub_cmd_bottleneck'] = 1 if (hub_last < 610 and cmd_sum < 220) else 0
            
-            # Storage Util
+            # 🎯 Storage Util 위험
             if 'M16A_3F_STORAGE_UTIL' in df.columns:
                 storage_util = df['M16A_3F_STORAGE_UTIL'].iloc[i-1]
                 features['storage_util_critical'] = 1 if storage_util >= 205 else 0
                 features['storage_util_high_risk'] = 1 if storage_util >= 207 else 0
            
+            # 🔥 NEW: 급증 위험도 점수
+            features['surge_risk_score'] = (
+                features.get('hub_high', 0) * 3 +
+                features.get('storage_util_critical', 0) * 2 +
+                features.get('total_cmd_low', 0) * 1 +
+                features.get('storage_util_high', 0) * 1
+            )
+           
             features_list.append(features)
-            labels.append(change)  # 🔥 타겟: 변화량!
-            current_values.append(current_value)
-            future_values.append(future_value)
+            labels.append(df[TARGET_COL].iloc[i:i+10].max())  # ✅ 10분 후 최대값
+            seq_max_list.append(np.max(seq_target))
+            seq_min_list.append(np.min(seq_target))
             indices.append(i)
             seq_target_list.append(seq_target)
        
-        return (pd.DataFrame(features_list), np.array(labels), 
-                current_values, future_values, indices, seq_target_list)
+        return pd.DataFrame(features_list), np.array(labels), seq_max_list, seq_min_list, indices, seq_target_list
    
     # ===== 1. 학습 =====
-    print("\n[STEP 1] 데이터 로드 및 Feature 생성")
+    print("\n[STEP 1] 데이터 학습 (10분 예측)")
     print("-"*40)
    
     try:
@@ -174,33 +165,29 @@ def train_change_prediction():
    
     print(f"학습 데이터: {len(df_train)}개 행")
    
-    X_train, y_train, current_vals, future_vals, _, seq_list = create_features_for_change(df_train)
+    # Feature 생성
+    X_train, y_train, seq_max_list, _, _, seq_target_list = create_features_optimized(df_train)
    
     print(f"\n✅ Feature 생성 완료:")
     print(f"  - 총 Feature: {len(X_train.columns)}개")
     print(f"  - 학습 샘플: {len(X_train)}개")
    
-    # 변화량 분포 확인
-    print(f"\n변화량 분포:")
-    print(f"  평균: {np.mean(y_train):.2f}")
-    print(f"  표준편차: {np.std(y_train):.2f}")
-    print(f"  최소: {np.min(y_train):.2f}")
-    print(f"  최대: {np.max(y_train):.2f}")
+    # 급증 케이스 확인
+    surge_count = sum(1 for i in range(len(y_train))
+                      if seq_max_list[i] < 300 and y_train[i] >= 300)
+    print(f"  - 급증 케이스: {surge_count}개 ({surge_count/len(y_train)*100:.2f}%)")
    
-    # 급증/급감 케이스 확인
-    surge_cases = sum(1 for i in range(len(y_train))
-                      if current_vals[i] < 300 and future_vals[i] >= 300)
-    drop_cases = sum(1 for i in range(len(y_train))
-                     if current_vals[i] >= 300 and future_vals[i] < 300)
+    # 🔥 NEW: 급증 케이스 가중치 부여
+    sample_weights = np.ones(len(y_train))
+    for i in range(len(y_train)):
+        if seq_max_list[i] < 300 and y_train[i] >= 300:
+            sample_weights[i] = 3.0  # 급증 케이스 3배 가중치
    
-    print(f"\n케이스 분포:")
-    print(f"  🔺 급증 (current<300, future≥300): {surge_cases}개 ({surge_cases/len(y_train)*100:.2f}%)")
-    print(f"  🔻 급감 (current≥300, future<300): {drop_cases}개 ({drop_cases/len(y_train)*100:.2f}%)")
-    print(f"  ⚪ 정상: {len(y_train)-surge_cases-drop_cases}개")
+    print(f"  - 가중치 적용: 급증 케이스 3배")
    
     # 학습/검증 분할
-    X_tr, X_val, y_tr, y_val = train_test_split(
-        X_train, y_train, test_size=0.2, random_state=42
+    X_tr, X_val, y_tr, y_val, w_tr, w_val = train_test_split(
+        X_train, y_train, sample_weights, test_size=0.2, random_state=42
     )
    
     # GPU/CPU 감지
@@ -222,9 +209,9 @@ def train_change_prediction():
     # 모델 생성
     if use_gpu:
         model = xgb.XGBRegressor(
-            n_estimators=200,
-            max_depth=7,
-            learning_rate=0.04,
+            n_estimators=250,      # 증가
+            max_depth=8,           # 증가 (복잡한 패턴)
+            learning_rate=0.03,    # 감소 (안정성)
             subsample=0.85,
             colsample_bytree=0.85,
             min_child_weight=2,
@@ -238,9 +225,9 @@ def train_change_prediction():
         )
     else:
         model = xgb.XGBRegressor(
-            n_estimators=200,
-            max_depth=7,
-            learning_rate=0.04,
+            n_estimators=250,
+            max_depth=8,
+            learning_rate=0.03,
             subsample=0.85,
             colsample_bytree=0.85,
             min_child_weight=2,
@@ -252,8 +239,8 @@ def train_change_prediction():
             n_jobs=-1
         )
    
-    print("모델 학습 중 (변화량 예측)...")
-    model.fit(X_tr, y_tr, eval_set=[(X_val, y_val)], verbose=False)
+    print("모델 학습 중 (가중치 + 10분 예측)...")
+    model.fit(X_tr, y_tr, sample_weight=w_tr, eval_set=[(X_val, y_val)], verbose=False)
    
     # 평가
     y_val_pred = model.predict(X_val)
@@ -262,152 +249,120 @@ def train_change_prediction():
     train_r2 = r2_score(y_val, y_val_pred)
    
     print(f"\n학습 성능:")
-    print(f"  MAE (변화량):  {train_mae:.4f}")
+    print(f"  MAE:  {train_mae:.4f}")
     print(f"  RMSE: {train_rmse:.4f}")
     print(f"  R²:   {train_r2:.4f}")
    
     # 모델 저장
-    with open('xgboost_변화량예측.pkl', 'wb') as f:
+    with open('xgboost_10분예측_급증최적화.pkl', 'wb') as f:
         pickle.dump(model, f)
-    print("✅ 모델 저장: xgboost_변화량예측.pkl")
+    print("✅ 모델 저장: xgboost_10분예측_급증최적화.pkl")
    
     # Feature 중요도
-    print("\n🔥 Feature 중요도 Top 20:")
+    print("\n🔥 Feature 중요도 Top 30:")
     feature_importance = pd.DataFrame({
         'feature': X_train.columns,
         'importance': model.feature_importances_
-    }).sort_values('importance', ascending=False).head(20)
+    }).sort_values('importance', ascending=False).head(30)
    
     for idx, row in feature_importance.iterrows():
-        print(f"  {row['feature']}: {row['importance']:.4f}")
+        if 'surge_risk_score' in row['feature']:
+            marker = "🆕"
+        elif any(keyword in row['feature'] for keyword in ['hub_high', 'hub_critical', 'storage_util_high',
+                                                          'total_cmd_low', 'hub_storage_risk', 'hub_cmd_bottleneck',
+                                                          'storage_util_critical']):
+            marker = "🎯"
+        elif 'HUBROOM' in row['feature'] or 'storage_util' in row['feature'] or 'CMD' in row['feature']:
+            marker = "🔥"
+        else:
+            marker = "  "
+        print(f"{marker} {row['feature']}: {row['importance']:.4f}")
    
     # ===== 2. 평가 =====
-    print("\n[STEP 2] 테스트 데이터 평가")
+    print("\n[STEP 2] 평가 (임계값 285)")
     print("-"*40)
    
     split_idx = int(len(df_train) * 0.8)
     df_test = df_train.iloc[split_idx:].copy()
    
-    X_test, y_test_change, current_test, future_test, indices, seq_test = create_features_for_change(df_test, start_idx=30)
+    X_test, y_test, seq_max_list_test, _, _, seq_target_list_test = create_features_optimized(df_test, start_idx=30)
    
-    y_pred_change = model.predict(X_test)
+    y_pred = model.predict(X_test)
    
-    # 변화량 예측 성능
-    test_mae = mean_absolute_error(y_test_change, y_pred_change)
-    test_rmse = np.sqrt(mean_squared_error(y_test_change, y_pred_change))
-    test_r2 = r2_score(y_test_change, y_pred_change)
+    test_mae = mean_absolute_error(y_test, y_pred)
+    test_rmse = np.sqrt(mean_squared_error(y_test, y_pred))
+    test_r2 = r2_score(y_test, y_pred)
    
-    print(f"\n변화량 예측 성능:")
+    print(f"\n평가 성능:")
     print(f"  MAE:  {test_mae:.4f}")
     print(f"  RMSE: {test_rmse:.4f}")
     print(f"  R²:   {test_r2:.4f}")
    
-    # 급증/급감 감지 성능
-    print(f"\n[STEP 3] 급증/급감 감지 성능")
-    print("-"*40)
-   
-    surge_count = 0
-    surge_detected = 0
-    drop_count = 0
-    drop_detected = 0
-   
-    for i in range(len(X_test)):
-        current = current_test[i]
-        future_actual = future_test[i]
-        predicted_change = y_pred_change[i]
-        predicted_future = current + predicted_change
-       
-        # 급증
-        if current < 300 and future_actual >= 300:
-            surge_count += 1
-            if predicted_future >= 290:  # 여유있게 290
-                surge_detected += 1
-       
-        # 급감
-        elif current >= 300 and future_actual < 300:
-            drop_count += 1
-            if predicted_future < 310:  # 여유있게 310
-                drop_detected += 1
-   
-    print(f"🔺 급증 감지:")
-    print(f"  발생: {surge_count}개")
-    print(f"  감지: {surge_detected}/{surge_count}개 ({surge_detected/surge_count*100 if surge_count > 0 else 0:.1f}%)")
-   
-    print(f"\n🔻 급감 감지:")
-    print(f"  발생: {drop_count}개")
-    print(f"  감지: {drop_detected}/{drop_count}개 ({drop_detected/drop_count*100 if drop_count > 0 else 0:.1f}%)")
+    # 🔥 급증 예측 성능 (임계값 285)
+    surge_count = sum(1 for i in range(len(y_test))
+                      if seq_max_list_test[i] < 300 and y_test[i] >= 300)
+    
+    # 290, 285, 280, 275 각각 테스트
+    thresholds = [290, 285, 280, 275]
+    print(f"\n🎯 급증 예측 성능 (발생: {surge_count}개):")
+    
+    for threshold in thresholds:
+        surge_detected = sum(1 for i in range(len(y_test))
+                            if seq_max_list_test[i] < 300 and y_test[i] >= 300 and y_pred[i] >= threshold)
+        print(f"  임계값 {threshold}: {surge_detected}/{surge_count}개 ({surge_detected/surge_count*100 if surge_count > 0 else 0:.1f}%)")
    
     # 극단값 성능
-    extreme_count = sum(1 for i in range(len(future_test)) if future_test[i] >= 300)
-    extreme_detected = sum(1 for i in range(len(future_test)) 
-                          if future_test[i] >= 300 and (current_test[i] + y_pred_change[i]) >= 290)
+    extreme_mask = y_test >= 300
+    extreme_count = extreme_mask.sum()
+    extreme_detected_285 = ((y_pred >= 285) & extreme_mask).sum()
    
-    print(f"\n극단값 (300+) 감지:")
+    print(f"\n극단값 (300+) 감지 (임계값 285):")
     print(f"  발생: {extreme_count}개")
-    print(f"  감지: {extreme_detected}/{extreme_count}개 ({extreme_detected/extreme_count*100 if extreme_count > 0 else 0:.1f}%)")
+    print(f"  감지: {extreme_detected_285}/{extreme_count}개 ({extreme_detected_285/extreme_count*100 if extreme_count > 0 else 0:.1f}%)")
    
     # 결과 저장
     results = []
-    for i in range(len(X_test)):
-        current = current_test[i]
-        future_actual = future_test[i]
-        change_actual = y_test_change[i]
-        change_pred = y_pred_change[i]
-        predicted_future = current + change_pred
-       
-        is_surge = (current < 300 and future_actual >= 300)
-        is_drop = (current >= 300 and future_actual < 300)
-        is_extreme = (future_actual >= 300)
-       
+    for i in range(len(y_test)):
+        is_surge = (seq_max_list_test[i] < 300 and y_test[i] >= 300)
         results.append({
-            '현재값': round(current, 2),
-            '실제_10분후': round(future_actual, 2),
-            '예측_10분후': round(predicted_future, 2),
-            '실제_변화량': round(change_actual, 2),
-            '예측_변화량': round(change_pred, 2),
-            '변화량_오차': round(abs(change_actual - change_pred), 2),
+            '실제값': y_test[i],
+            '예측값': round(y_pred[i], 2),
+            '오차': round(abs(y_test[i] - y_pred[i]), 2),
+            '시퀀스MAX': seq_max_list_test[i],
             '급증': 'O' if is_surge else '-',
-            '급증감지': 'O' if (is_surge and predicted_future >= 290) else '-',
-            '급감': 'O' if is_drop else '-',
-            '급감감지': 'O' if (is_drop and predicted_future < 310) else '-',
-            '극단값': 'O' if is_extreme else '-',
-            '극단값감지': 'O' if (is_extreme and predicted_future >= 290) else '-'
+            '감지_290': 'O' if (is_surge and y_pred[i] >= 290) else '-',
+            '감지_285': 'O' if (is_surge and y_pred[i] >= 285) else '-',
+            '감지_280': 'O' if (is_surge and y_pred[i] >= 280) else '-',
+            '극단값': 'O' if y_test[i] >= 300 else '-',
+            '감지': 'O' if (y_test[i] >= 300 and y_pred[i] >= 285) else '-'
         })
    
     df_results = pd.DataFrame(results)
-    df_results.to_csv('변화량예측_결과.csv', index=False, encoding='utf-8-sig')
-    print(f"\n✅ 결과 저장: 변화량예측_결과.csv")
+    df_results.to_csv('10분예측_급증최적화_결과.csv', index=False, encoding='utf-8-sig')
+    print(f"\n✅ 결과 저장: 10분예측_급증최적화_결과.csv")
    
     # 최종 요약
     print("\n" + "="*80)
-    print("📊 최종 요약 (변화량 예측 방식)")
+    print("📊 최종 요약 (10분 예측 + 급증 최적화)")
     print("="*80)
    
-    print(f"\n1. 접근 방식:")
-    print(f"   - 타겟: 10분 후 변화량")
-    print(f"   - 급증/급감 자동 구분 (부호)")
-    print(f"   - 단일 모델")
+    print(f"\n1. 모델 설정:")
+    print(f"   - 예측 시점: 10분 후")
+    print(f"   - 급증 가중치: 3배")
+    print(f"   - 감지 임계값: 285")
    
-    print(f"\n2. 변화량 예측 성능:")
-    print(f"   - MAE: {test_mae:.2f}")
+    print(f"\n2. 성능:")
+    print(f"   - 학습 MAE: {train_mae:.2f}")
+    print(f"   - 평가 MAE: {test_mae:.2f}")
     print(f"   - R²: {test_r2:.3f}")
    
-    print(f"\n3. 급증 감지:")
-    print(f"   - 성공률: {surge_detected/surge_count*100 if surge_count > 0 else 0:.1f}%")
-   
-    print(f"\n4. 급감 감지:")
-    print(f"   - 성공률: {drop_detected/drop_count*100 if drop_count > 0 else 0:.1f}%")
-   
-    print(f"\n5. 극단값 (300+) 감지:")
-    print(f"   - 발생: {extreme_count}개")
-    print(f"   - 감지율: {extreme_detected/extreme_count*100 if extreme_count > 0 else 0:.1f}%")
-   
-    if surge_detected/surge_count >= 0.78 if surge_count > 0 else False:
-        print(f"\n✅ 급증 감지율 78% 이상 달성!")
-    else:
-        print(f"\n⚠️ 급증 감지율 개선 필요")
+    surge_detected_285 = sum(1 for i in range(len(y_test))
+                            if seq_max_list_test[i] < 300 and y_test[i] >= 300 and y_pred[i] >= 285)
+    print(f"\n3. 급증 예측 (임계값 285):")
+    print(f"   - 발생: {surge_count}개")
+    print(f"   - 성공률: {surge_detected_285/surge_count*100 if surge_count > 0 else 0:.1f}%")
    
     return model, df_results, feature_importance
 
 if __name__ == '__main__':
-    model, results, importance = train_change_prediction()
+    model, results, importance = train_final_optimized_10min()
