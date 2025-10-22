@@ -333,16 +333,17 @@ def predict_realtime():
         # 운영 환경 출력 형식 (보정된 예측값 사용)
         classification_label = int(result['prediction_corrected'] >= 300)
         row = {
+            "CURRENT_TIME": result['current_time'],           # 현재 시간 (예측하는 시간)
+            "PREDICTION_TIME": result['prediction_time'],     # 예측 대상 시간 (10분 후)
+            "CURRENT_VALUE": int(result['current_value']),
             "PREDICTVAL": int(result['prediction_corrected']),
             "PREDICTVAL_ORIGINAL": int(result['prediction_original']),
             "CORRECTION": int(result['correction_amount']),
             "JUDGEVAL": classification_label,
             "RISK_LEVEL": result['risk_level'],
             "SURGE_PROB": result['surge_probability'],
-            "CURRENT_VALUE": int(result['current_value']),
             "MODEL": "V6_HUBROOM_MODEL_C12_WITH_CORRECTION",
-            "STATUS": result['status'],
-            "PREDICTION_TIME": result['prediction_time']
+            "STATUS": result['status']
         }
         print([row])
 
