@@ -1,15 +1,25 @@
-import numpy as np
+mport numpy as np
 import pandas as pd
+import xgboost as xgb
 import pickle
+import warnings
 from datetime import datetime, timedelta
+import matplotlib.pyplot as plt
+from sklearn.model_selection import train_test_split
+from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
 
-def evaluate_surge_optimized():
+warnings.filterwarnings('ignore')
+plt.rcParams['font.family'] = 'DejaVu Sans'
+plt.rcParams['axes.unicode_minus'] = False
+
+def train_final_optimized():
     """
-    🎯 급증 케이스 최적화 평가
-    - 1,804개 급증 패턴 학습 모델 평가
+    🎯 데이터 분석 결과 기반 최종 최적화 버전
+    - 1,804개 급증 케이스 확인 (3.00%)
+    - 핵심 패턴: HUBROOMTOTAL<610(87.5%), STORAGE≥205(82.9%), CMD<220(45.4%), FS_UTIL≥7(25.3%)
     """
     print("="*80)
-    print("🎯 급증 최적화 모델 평가")
+    print("🎯 최종 최적화: 1,804개 급증 케이스 기반 학습")
     print("="*80)
    
     FEATURE_COLS = {
@@ -22,254 +32,346 @@ def evaluate_surge_optimized():
         'maxcapa': ['M16A_6F_LFT_MAXCAPA', 'M16A_2F_LFT_MAXCAPA']
     }
    
-    # 모델 로드
-    try:
-        with open('xgboost_최종_급증최적화.pkl', 'rb') as f:
-            model = pickle.load(f)
-        print("✅ 모델 로드 완료: xgboost_최종_급증최적화.pkl")
-    except Exception as e:
-        print(f"❌ 모델 파일 없음: {e}")
-        print("   먼저 '최종_급증최적화_학습코드.py'를 실행하세요.")
-        return None
-   
-    # 데이터 로드
-    try:
-        df = pd.read_csv('HUB0905101512.csv', on_bad_lines='skip', encoding='utf-8', low_memory=False)
-    except:
-        try:
-            df = pd.read_csv('HUB0905101512.csv', on_bad_lines='skip', encoding='cp949', low_memory=False)
-        except:
-            df = pd.read_csv('HUB0905101512.csv', on_bad_lines='skip', encoding='euc-kr', low_memory=False)
-   
     TARGET_COL = 'CURRENT_M16A_3F_JOB_2'
    
-    # 타입 변환
-    df[TARGET_COL] = pd.to_numeric(df[TARGET_COL], errors='coerce')
-    df = df.dropna(subset=[TARGET_COL])
+    def create_features_optimized(df, start_idx=30):
+        """분석 결과 기반 Feature 생성"""
+        features_list = []
+        labels = []
+        seq_max_list = []
+        seq_min_list = []
+        indices = []
+        seq_target_list = []
+       
+        for i in range(start_idx, len(df) - 10):
+            seq_target = df[TARGET_COL].iloc[i-30:i].values
+           
+            # 타겟 기본 통계
+            features = {
+                'target_mean': np.mean(seq_target),
+                'target_std': np.std(seq_target),
+                'target_max': np.max(seq_target),
+                'target_min': np.min(seq_target),
+                'target_last_value': seq_target[-1],
+                'target_last_5_mean': np.mean(seq_target[-5:]),
+                'target_slope': np.polyfit(np.arange(30), seq_target, 1)[0],
+            }
+           
+            # 각 컬럼 그룹 Feature
+            for group_name, cols in FEATURE_COLS.items():
+                for col in cols:
+                    if col not in df.columns:
+                        continue
+                   
+                    col_seq = df[col].iloc[i-30:i].values
+                   
+                    if group_name == 'maxcapa':
+                        features[f'{col}_last_value'] = col_seq[-1]
+                   
+                    elif group_name in ['cmd', 'storage', 'fs_storage', 'hub']:
+                        # 핵심 Feature
+                        features[f'{col}_mean'] = np.mean(col_seq)
+                        features[f'{col}_std'] = np.std(col_seq)
+                        features[f'{col}_max'] = np.max(col_seq)
+                        features[f'{col}_min'] = np.min(col_seq)
+                        features[f'{col}_last_value'] = col_seq[-1]
+                        features[f'{col}_last_5_mean'] = np.mean(col_seq[-5:])
+                        features[f'{col}_slope'] = np.polyfit(np.arange(30), col_seq, 1)[0]
+                   
+                    else:
+                        # Inflow/Outflow 간소화
+                        features[f'{col}_mean'] = np.mean(col_seq)
+                        features[f'{col}_last_value'] = col_seq[-1]
+                        features[f'{col}_slope'] = np.polyfit(np.arange(30), col_seq, 1)[0]
+           
+            # 🎯 데이터 분석 결과 기반 Feature
+            if 'CD_M163FSTORAGEUSE' in df.columns and 'CD_M163FSTORAGETOTAL' in df.columns:
+                storage_use = df['CD_M163FSTORAGEUSE'].iloc[i-30:i].values
+                storage_total = df['CD_M163FSTORAGETOTAL'].iloc[i-30:i].values
+                storage_util = df['CD_M163FSTORAGEUTIL'].iloc[i-30:i].values
+               
+                features['storage_use_rate'] = (storage_use[-1] - storage_use[0]) / 30
+                features['storage_remaining'] = storage_total[-1] - storage_use[-1]
+                features['storage_util_last'] = storage_util[-1]
+                # 🎯 분석 결과: FS_UTIL ≥ 7 → 25.3% 급증
+                features['storage_util_high'] = 1 if storage_util[-1] >= 7 else 0
+                features['storage_util_critical'] = 1 if storage_util[-1] >= 10 else 0
+           
+            # 🎯 HUBROOMTOTAL Feature (분석 결과 기반)
+            if 'HUBROOMTOTAL' in df.columns:
+                hub_seq = df['HUBROOMTOTAL'].iloc[i-30:i].values
+                hub_last = hub_seq[-1]
+               
+                # 🎯 분석 결과: HUBROOMTOTAL < 610 → 87.5% 급증
+                features['hub_critical'] = 1 if hub_last < 590 else 0
+                features['hub_high'] = 1 if hub_last < 610 else 0  # 🔥 핵심!
+                features['hub_warning'] = 1 if hub_last < 620 else 0
+               
+                features['hub_decrease_rate'] = (hub_seq[0] - hub_last) / 30
+               
+                # HUB × Storage 복합 위험
+                if 'CD_M163FSTORAGEUTIL' in df.columns:
+                    storage_util_last = df['CD_M163FSTORAGEUTIL'].iloc[i-1]
+                    # 🎯 HUB<610 + FS_UTIL≥7 = 극도 위험
+                    features['hub_storage_risk'] = 1 if (hub_last < 610 and storage_util_last >= 7) else 0
+           
+            # 유입-유출, CMD
+            inflow_sum = sum(df[col].iloc[i-1] for col in FEATURE_COLS['inflow'] if col in df.columns)
+            outflow_sum = sum(df[col].iloc[i-1] for col in FEATURE_COLS['outflow'] if col in df.columns)
+            features['net_flow'] = inflow_sum - outflow_sum
+           
+            cmd_sum = sum(df[col].iloc[i-1] for col in FEATURE_COLS['cmd'] if col in df.columns)
+            features['total_cmd'] = cmd_sum
+            # 🎯 분석 결과: CMD < 220 → 45.4% 급증
+            features['total_cmd_low'] = 1 if cmd_sum < 220 else 0
+            features['total_cmd_very_low'] = 1 if cmd_sum < 200 else 0
+           
+            # 🎯 HUB × CMD 복합
+            if 'HUBROOMTOTAL' in df.columns:
+                hub_last = df['HUBROOMTOTAL'].iloc[i-1]
+                # HUB 낮음 + CMD 낮음 = 병목 + 급증 위험
+                features['hub_cmd_bottleneck'] = 1 if (hub_last < 610 and cmd_sum < 220) else 0
+           
+            # 🎯 Storage Util 위험 (분석 결과: STORAGE≥205 → 82.9% 급증)
+            if 'M16A_3F_STORAGE_UTIL' in df.columns:
+                storage_util = df['M16A_3F_STORAGE_UTIL'].iloc[i-1]
+                features['storage_util_critical'] = 1 if storage_util >= 205 else 0
+                features['storage_util_high_risk'] = 1 if storage_util >= 207 else 0
+           
+            features_list.append(features)
+            labels.append(df[TARGET_COL].iloc[i:i+10].max())
+            seq_max_list.append(np.max(seq_target))
+            seq_min_list.append(np.min(seq_target))
+            indices.append(i)
+            seq_target_list.append(seq_target)
+       
+        return pd.DataFrame(features_list), np.array(labels), seq_max_list, seq_min_list, indices, seq_target_list
    
-    print(f"✅ 데이터 로드: {len(df)}개 행")
+    # ===== 1. 학습 =====
+    print("\n[STEP 1] FS 데이터 학습 (1,804개 급증 케이스 활용)")
+    print("-"*40)
    
-    # STAT_DT 처리
-    if 'STAT_DT' in df.columns:
+    try:
+        df_train = pd.read_csv('20250904_TO_20251020.csv', on_bad_lines='skip', encoding='utf-8', low_memory=False)
+    except:
         try:
-            df['STAT_DT'] = pd.to_datetime(df['STAT_DT'].astype(str), format='%Y%m%d%H%M')
+            df_train = pd.read_csv('20250904_TO_20251020.csv', on_bad_lines='skip', encoding='cp949', low_memory=False)
         except:
-            base_time = datetime(2024, 1, 1, 0, 0)
-            df['STAT_DT'] = [base_time + timedelta(minutes=i) for i in range(len(df))]
+            df_train = pd.read_csv('20250904_TO_20251020.csv', on_bad_lines='skip', encoding='euc-kr', low_memory=False)
    
+    # 타입 변환
+    df_train[TARGET_COL] = pd.to_numeric(df_train[TARGET_COL], errors='coerce')
+    df_train = df_train.dropna(subset=[TARGET_COL])
+   
+    print(f"학습 데이터: {len(df_train)}개 행")
+   
+    # 컬럼 확인
+    print(f"\n사용 가능한 컬럼:")
+    for group_name, cols in FEATURE_COLS.items():
+        available = [col for col in cols if col in df_train.columns]
+        marker = "🔥" if group_name in ['hub', 'fs_storage'] else "  "
+        print(f"{marker} - {group_name}: {len(available)}/{len(cols)}개")
+   
+    # Feature 생성
+    X_train, y_train, _, _, _, _ = create_features_optimized(df_train)
+   
+    print(f"\n✅ Feature 생성 완료:")
+    print(f"  - 총 Feature: {len(X_train.columns)}개")
+    print(f"  - 학습 샘플: {len(X_train)}개")
+   
+    # 급증 케이스 비율 확인
+    surge_in_train = sum(1 for i in range(len(y_train))
+                         if X_train.iloc[i]['target_max'] < 300 and y_train[i] >= 300)
+    print(f"  - 급증 케이스: {surge_in_train}개 ({surge_in_train/len(y_train)*100:.2f}%)")
+   
+    # 학습/검증 분할
+    X_tr, X_val, y_tr, y_val = train_test_split(
+        X_train, y_train, test_size=0.2, random_state=42
+    )
+   
+    # GPU/CPU 감지
+    print("\n🔍 학습 환경 감지...")
+    use_gpu = False
+   
+    try:
+        test_model = xgb.XGBRegressor(
+            n_estimators=5, max_depth=3, random_state=42,
+            tree_method='gpu_hist', gpu_id=0
+        )
+        test_model.fit(X_tr[:100], y_tr[:100], verbose=False)
+        use_gpu = True
+        print("  ✅ GPU 모드\n")
+    except:
+        print("  ⚠️ CPU 모드\n")
+        use_gpu = False
+   
+    # 모델 생성 (급증 케이스 최적화)
+    if use_gpu:
+        model = xgb.XGBRegressor(
+            n_estimators=200,  # 급증 케이스 충분하므로 증가
+            max_depth=7,       # 복잡한 패턴 포착
+            learning_rate=0.04,
+            subsample=0.85,
+            colsample_bytree=0.85,
+            min_child_weight=2,
+            gamma=0.05,
+            reg_alpha=0.05,
+            reg_lambda=0.8,
+            random_state=42,
+            tree_method='gpu_hist',
+            gpu_id=0,
+            predictor='gpu_predictor'
+        )
+    else:
+        model = xgb.XGBRegressor(
+            n_estimators=200,
+            max_depth=7,
+            learning_rate=0.04,
+            subsample=0.85,
+            colsample_bytree=0.85,
+            min_child_weight=2,
+            gamma=0.05,
+            reg_alpha=0.05,
+            reg_lambda=0.8,
+            random_state=42,
+            tree_method='hist',
+            n_jobs=-1
+        )
+   
+    print("모델 학습 중 (급증 케이스 최적화)...")
+    model.fit(X_tr, y_tr, eval_set=[(X_val, y_val)], verbose=False)
+   
+    # 평가
+    y_val_pred = model.predict(X_val)
+    train_mae = mean_absolute_error(y_val, y_val_pred)
+    train_rmse = np.sqrt(mean_squared_error(y_val, y_val_pred))
+    train_r2 = r2_score(y_val, y_val_pred)
+   
+    print(f"\n학습 성능:")
+    print(f"  MAE:  {train_mae:.4f}")
+    print(f"  RMSE: {train_rmse:.4f}")
+    print(f"  R²:   {train_r2:.4f}")
+   
+    # 모델 저장
+    with open('xgboost_최종_급증최적화.pkl', 'wb') as f:
+        pickle.dump(model, f)
+    print("✅ 모델 저장: xgboost_최종_급증최적화.pkl")
+   
+    # Feature 중요도
+    print("\n🔥 Feature 중요도 Top 30:")
+    feature_importance = pd.DataFrame({
+        'feature': X_train.columns,
+        'importance': model.feature_importances_
+    }).sort_values('importance', ascending=False).head(30)
+   
+    for idx, row in feature_importance.iterrows():
+        # 분석 결과 기반 Feature 강조
+        if any(keyword in row['feature'] for keyword in ['hub_high', 'hub_critical', 'storage_util_high',
+                                                          'total_cmd_low', 'hub_storage_risk', 'hub_cmd_bottleneck',
+                                                          'storage_util_critical']):
+            marker = "🎯"
+        elif 'HUBROOM' in row['feature'] or 'storage_util' in row['feature'] or 'CMD' in row['feature']:
+            marker = "🔥"
+        else:
+            marker = "  "
+        print(f"{marker} {row['feature']}: {row['importance']:.4f}")
+   
+    # ===== 2. 평가 =====
+    print("\n[STEP 2] 평가")
+    print("-"*40)
+   
+    split_idx = int(len(df_train) * 0.8)
+    df_test = df_train.iloc[split_idx:].copy()
+   
+    X_test, y_test, seq_max_list, seq_min_list, indices, seq_target_list = create_features_optimized(df_test, start_idx=30)
+   
+    y_pred = model.predict(X_test)
+   
+    test_mae = mean_absolute_error(y_test, y_pred)
+    test_rmse = np.sqrt(mean_squared_error(y_test, y_pred))
+    test_r2 = r2_score(y_test, y_pred)
+   
+    print(f"\n평가 성능:")
+    print(f"  MAE:  {test_mae:.4f}")
+    print(f"  RMSE: {test_rmse:.4f}")
+    print(f"  R²:   {test_r2:.4f}")
+   
+    # 급증 케이스 성능
+    surge_count = sum(1 for i in range(len(y_test))
+                      if seq_target_list[i][-1] < 300 and y_test[i] >= 300)
+    surge_detected = sum(1 for i in range(len(y_test))
+                         if seq_target_list[i][-1] < 300 and y_test[i] >= 300 and y_pred[i] >= 290)
+   
+    print(f"\n🎯 급증 예측 성능:")
+    print(f"  발생: {surge_count}개")
+    print(f"  예측 성공: {surge_detected}/{surge_count}개 ({surge_detected/surge_count*100 if surge_count > 0 else 0:.1f}%)")
+   
+    # 극단값 성능
+    extreme_mask = y_test >= 300
+    extreme_count = extreme_mask.sum()
+    extreme_detected = ((y_pred >= 290) & extreme_mask).sum()
+   
+    print(f"\n극단값 (300+) 감지:")
+    print(f"  발생: {extreme_count}개")
+    print(f"  감지: {extreme_detected}/{extreme_count}개 ({extreme_detected/extreme_count*100 if extreme_count > 0 else 0:.1f}%)")
+   
+    # 결과 저장
     results = []
-   
-    print("\n슬라이딩 윈도우 평가 시작...")
-    for i in range(30, len(df)):
-        seq_data = df.iloc[i-30:i].copy()
-        seq_target = seq_data[TARGET_COL].values
-       
-        current_time = seq_data['STAT_DT'].iloc[-1]
-        current_value = seq_target[-1]
-        prediction_time = current_time + timedelta(minutes=10)
-       
-        actual_value = df.iloc[i][TARGET_COL]
-        actual_time = df.iloc[i]['STAT_DT']
-       
-        # Feature 생성
-        features = {
-            'target_mean': np.mean(seq_target),
-            'target_std': np.std(seq_target),
-            'target_max': np.max(seq_target),
-            'target_min': np.min(seq_target),
-            'target_last_value': seq_target[-1],
-            'target_last_5_mean': np.mean(seq_target[-5:]),
-            'target_slope': np.polyfit(np.arange(30), seq_target, 1)[0],
-        }
-       
-        # 각 컬럼 Feature
-        for group_name, cols in FEATURE_COLS.items():
-            for col in cols:
-                if col not in df.columns:
-                    continue
-               
-                col_seq = seq_data[col].values
-               
-                if group_name == 'maxcapa':
-                    features[f'{col}_last_value'] = col_seq[-1]
-               
-                elif group_name in ['cmd', 'storage', 'fs_storage', 'hub']:
-                    features[f'{col}_mean'] = np.mean(col_seq)
-                    features[f'{col}_std'] = np.std(col_seq)
-                    features[f'{col}_max'] = np.max(col_seq)
-                    features[f'{col}_min'] = np.min(col_seq)
-                    features[f'{col}_last_value'] = col_seq[-1]
-                    features[f'{col}_last_5_mean'] = np.mean(col_seq[-5:])
-                    features[f'{col}_slope'] = np.polyfit(np.arange(30), col_seq, 1)[0]
-               
-                else:
-                    features[f'{col}_mean'] = np.mean(col_seq)
-                    features[f'{col}_last_value'] = col_seq[-1]
-                    features[f'{col}_slope'] = np.polyfit(np.arange(30), col_seq, 1)[0]
-       
-        # FS Storage 기본 Feature (학습 코드와 동일하게!)
-        if 'CD_M163FSTORAGEUSE' in df.columns and 'CD_M163FSTORAGETOTAL' in df.columns and 'CD_M163FSTORAGEUTIL' in df.columns:
-            # CD_M163FSTORAGEUSE
-            use_seq = seq_data['CD_M163FSTORAGEUSE'].values
-            features['CD_M163FSTORAGEUSE_mean'] = np.mean(use_seq)
-            features['CD_M163FSTORAGEUSE_std'] = np.std(use_seq)
-            features['CD_M163FSTORAGEUSE_max'] = np.max(use_seq)
-            features['CD_M163FSTORAGEUSE_min'] = np.min(use_seq)
-            features['CD_M163FSTORAGEUSE_last_value'] = use_seq[-1]
-            features['CD_M163FSTORAGEUSE_last_5_mean'] = np.mean(use_seq[-5:])
-            features['CD_M163FSTORAGEUSE_slope'] = np.polyfit(np.arange(30), use_seq, 1)[0]
-           
-            # CD_M163FSTORAGETOTAL
-            total_seq = seq_data['CD_M163FSTORAGETOTAL'].values
-            features['CD_M163FSTORAGETOTAL_mean'] = np.mean(total_seq)
-            features['CD_M163FSTORAGETOTAL_std'] = np.std(total_seq)
-            features['CD_M163FSTORAGETOTAL_max'] = np.max(total_seq)
-            features['CD_M163FSTORAGETOTAL_min'] = np.min(total_seq)
-            features['CD_M163FSTORAGETOTAL_last_value'] = total_seq[-1]
-            features['CD_M163FSTORAGETOTAL_last_5_mean'] = np.mean(total_seq[-5:])
-            features['CD_M163FSTORAGETOTAL_slope'] = np.polyfit(np.arange(30), total_seq, 1)[0]
-           
-            # CD_M163FSTORAGEUTIL
-            util_seq = seq_data['CD_M163FSTORAGEUTIL'].values
-            features['CD_M163FSTORAGEUTIL_mean'] = np.mean(util_seq)
-            features['CD_M163FSTORAGEUTIL_std'] = np.std(util_seq)
-            features['CD_M163FSTORAGEUTIL_max'] = np.max(util_seq)
-            features['CD_M163FSTORAGEUTIL_min'] = np.min(util_seq)
-            features['CD_M163FSTORAGEUTIL_last_value'] = util_seq[-1]
-            features['CD_M163FSTORAGEUTIL_last_5_mean'] = np.mean(util_seq[-5:])
-            features['CD_M163FSTORAGEUTIL_slope'] = np.polyfit(np.arange(30), util_seq, 1)[0]
-           
-            # 특수 Feature
-            features['storage_use_rate'] = (use_seq[-1] - use_seq[0]) / 30
-            features['storage_remaining'] = total_seq[-1] - use_seq[-1]
-            features['storage_util_last'] = util_seq[-1]
-            features['storage_util_high'] = 1 if util_seq[-1] >= 7 else 0
-            features['storage_util_critical'] = 1 if util_seq[-1] >= 10 else 0
-       
-        if 'HUBROOMTOTAL' in df.columns:
-            hub_seq = seq_data['HUBROOMTOTAL'].values
-            hub_last = hub_seq[-1]
-           
-            features['hub_critical'] = 1 if hub_last < 590 else 0
-            features['hub_high'] = 1 if hub_last < 610 else 0
-            features['hub_warning'] = 1 if hub_last < 620 else 0
-            features['hub_decrease_rate'] = (hub_seq[0] - hub_last) / 30
-           
-            if 'CD_M163FSTORAGEUTIL' in df.columns:
-                storage_util_last = df['CD_M163FSTORAGEUTIL'].iloc[i-1]
-                features['hub_storage_risk'] = 1 if (hub_last < 610 and storage_util_last >= 7) else 0
-       
-        inflow_sum = sum(df[col].iloc[i-1] for col in FEATURE_COLS['inflow'] if col in df.columns)
-        outflow_sum = sum(df[col].iloc[i-1] for col in FEATURE_COLS['outflow'] if col in df.columns)
-        features['net_flow'] = inflow_sum - outflow_sum
-       
-        cmd_sum = sum(df[col].iloc[i-1] for col in FEATURE_COLS['cmd'] if col in df.columns)
-        features['total_cmd'] = cmd_sum
-        features['total_cmd_low'] = 1 if cmd_sum < 220 else 0
-        features['total_cmd_very_low'] = 1 if cmd_sum < 200 else 0
-       
-        if 'HUBROOMTOTAL' in df.columns:
-            hub_last = df['HUBROOMTOTAL'].iloc[i-1]
-            features['hub_cmd_bottleneck'] = 1 if (hub_last < 610 and cmd_sum < 220) else 0
-       
-        if 'M16A_3F_STORAGE_UTIL' in df.columns:
-            storage_util = df['M16A_3F_STORAGE_UTIL'].iloc[i-1]
-            features['storage_util_critical'] = 1 if storage_util >= 205 else 0
-            features['storage_util_high_risk'] = 1 if storage_util >= 207 else 0
-       
-        X_pred = pd.DataFrame([features])
-       
-        # 예측
-        prediction = model.predict(X_pred)[0]
-       
-        # 급증 판정
-        is_surge = (current_value < 300 and actual_value >= 300)
-       
-        # 위험도 판정
-        risk_level = "LOW"
-        if features.get('hub_high', 0) == 1 or features.get('storage_util_critical', 0) == 1:
-            risk_level = "HIGH"
-        elif features.get('total_cmd_low', 0) == 1 or features.get('storage_util_high', 0) == 1:
-            risk_level = "MEDIUM"
-       
+    for i, idx in enumerate(indices):
         results.append({
-            '현재시간': current_time.strftime('%Y-%m-%d %H:%M'),
-            '예측시점': prediction_time.strftime('%Y-%m-%d %H:%M'),
-            '현재값': round(current_value, 2),
-            '실제값': round(actual_value, 2),
-            '예측값': round(prediction, 2),
-            '오차': round(abs(actual_value - prediction), 2),
-            '오차율(%)': round(abs(actual_value - prediction) / max(actual_value, 1) * 100, 2),
-            '시퀀스MAX': round(np.max(seq_target), 2),
-            '300급증': '✅' if is_surge else '',
-            '급증예측성공': '✅' if (is_surge and prediction >= 290) else '',
-            '위험도': risk_level,
-            'HUBROOMTOTAL': round(features.get('HUBROOMTOTAL_last_value', 0), 0),
-            'FS_UTIL': round(features.get('CD_M163FSTORAGEUTIL_last_value', 0), 0),
-            'CMD': round(features.get('total_cmd', 0), 0),
-            'STORAGE_UTIL': round(features.get('M16A_3F_STORAGE_UTIL_last_value', 0), 0),
+            '실제값': y_test[i],
+            '예측값': round(y_pred[i], 2),
+            '오차': round(abs(y_test[i] - y_pred[i]), 2),
+            '시퀀스MAX': seq_max_list[i],
+            '급증': 'O' if (seq_target_list[i][-1] < 300 and y_test[i] >= 300) else '-',
+            '급증감지': 'O' if (seq_target_list[i][-1] < 300 and y_test[i] >= 300 and y_pred[i] >= 290) else '-',
+            '극단값': 'O' if y_test[i] >= 300 else '-',
+            '감지': 'O' if (y_test[i] >= 300 and y_pred[i] >= 290) else '-'
         })
-       
-        if (i - 30) % 1000 == 0:
-            print(f"진행: {i-30}/{len(df)-30} ({(i-30)/(len(df)-30)*100:.1f}%)")
    
-    results_df = pd.DataFrame(results)
+    df_results = pd.DataFrame(results)
+    df_results.to_csv('최종_급증최적화_결과.csv', index=False, encoding='utf-8-sig')
+    print(f"\n✅ 결과 저장: 최종_급증최적화_결과.csv")
    
-    output_file = '최종_급증최적화_평가결과.csv'
-    results_df.to_csv(output_file, index=False, encoding='utf-8-sig')
-    print(f"\n✅ 결과 저장: {output_file}")
-   
-    # 통계
+    # 최종 요약
     print("\n" + "="*80)
-    print("📊 평가 통계")
+    print("📊 최종 요약 (1,804개 급증 케이스 기반)")
     print("="*80)
    
-    print(f"총 예측: {len(results_df)}개")
-    print(f"평균 오차: {results_df['오차'].abs().mean():.2f}")
-    print(f"평균 오차율: {results_df['오차율(%)'].mean():.2f}%")
+    print(f"\n1. 데이터 분석 결과:")
+    print(f"   - 급증 케이스: 1,804개 (3.00%)")
+    print(f"   - 평균 급증량: 22.9")
+    print(f"   - 최대 급증량: 130.0")
    
-    surge_cases = results_df[results_df['300급증'] == '✅']
-    if len(surge_cases) > 0:
-        surge_detected = (surge_cases['급증예측성공'] == '✅').sum()
-       
-        print(f"\n🎯 300 급증 예측 성능:")
-        print(f"  발생: {len(surge_cases)}개 ({len(surge_cases)/len(results_df)*100:.2f}%)")
-        print(f"  예측 성공: {surge_detected}/{len(surge_cases)}개 ({surge_detected/len(surge_cases)*100:.1f}%)")
+    print(f"\n2. 핵심 패턴:")
+    print(f"   🎯 HUBROOMTOTAL < 610: 87.5%")
+    print(f"   🎯 STORAGE_UTIL ≥ 205: 82.9%")
+    print(f"   🎯 CMD < 220: 45.4%")
+    print(f"   🎯 FS_UTIL ≥ 7: 25.3%")
    
-    extreme_cases = results_df[results_df['실제값'] >= 300]
-    if len(extreme_cases) > 0:
-        extreme_detected = (extreme_cases['예측값'] >= 290).sum()
-       
-        print(f"\n극단값 (300+) 감지:")
-        print(f"  발생: {len(extreme_cases)}개 ({len(extreme_cases)/len(results_df)*100:.1f}%)")
-        print(f"  감지: {extreme_detected}/{len(extreme_cases)}개 ({extreme_detected/len(extreme_cases)*100:.1f}%)")
+    print(f"\n3. Feature 구성:")
+    print(f"   - 타겟: 7개")
+    print(f"   - HUBROOMTOTAL: ~13개 (hub_high 핵심!)")
+    print(f"   - FS Storage: ~12개 (storage_util_high 핵심!)")
+    print(f"   - CMD: ~20개 (total_cmd_low 핵심!)")
+    print(f"   - Storage: ~13개 (storage_util_critical 핵심!)")
+    print(f"   - 복합: hub_storage_risk, hub_cmd_bottleneck")
+    print(f"   - 총: {len(X_train.columns)}개")
    
-    # 위험도별 통계
-    print(f"\n위험도별 분석:")
-    for risk in ['HIGH', 'MEDIUM', 'LOW']:
-        risk_df = results_df[results_df['위험도'] == risk]
-        if len(risk_df) > 0:
-            surge_in_risk = (risk_df['300급증'] == '✅').sum()
-            print(f"  {risk}: {len(risk_df)}개 - 급증 {surge_in_risk}개 ({surge_in_risk/len(risk_df)*100:.1f}%)")
+    print(f"\n4. 모델 성능:")
+    print(f"   - 학습 MAE: {train_mae:.2f}")
+    print(f"   - 평가 MAE: {test_mae:.2f}")
+    print(f"   - R²: {test_r2:.3f}")
    
-    # 상위 오차
-    print(f"\n❌ 오차 상위 10개:")
-    top_errors = results_df.nlargest(10, '오차율(%)')
-    print(top_errors[['현재시간', '현재값', '실제값', '예측값', '오차', '위험도', '300급증']].to_string(index=False))
+    print(f"\n5. 급증 예측:")
+    print(f"   - 발생: {surge_count}개")
+    print(f"   - 성공률: {surge_detected/surge_count*100 if surge_count > 0 else 0:.1f}%")
    
-    if len(surge_cases) > 0:
-        surge_failed = surge_cases[surge_cases['급증예측성공'] != '✅']
-        if len(surge_failed) > 0:
-            print(f"\n❌ 급증 예측 실패 케이스 (상위 10개):")
-            failed_top = surge_failed.nsmallest(10, '예측값')
-            print(failed_top[['현재시간', '현재값', '실제값', '예측값', 'HUBROOMTOTAL', 'FS_UTIL', 'CMD']].to_string(index=False))
+    print(f"\n6. 극단값 감지:")
+    print(f"   - 발생: {extreme_count}개")
+    print(f"   - 감지율: {extreme_detected/extreme_count*100 if extreme_count > 0 else 0:.1f}%")
    
-    return results_df
+    return model, df_results, feature_importance
 
 if __name__ == '__main__':
-    print("🚀 급증 최적화 모델 평가 시작...\n")
-    results = evaluate_surge_optimized()
-   
-    if results is not None:
-        print(f"\n✅ 평가 완료! 총 {len(results)}개 예측")
-        print(f"📁 결과: 최종_급증최적화_평가결과.csv")
+    model, results, importance = train_final_optimized()
