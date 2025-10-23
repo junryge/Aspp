@@ -1,6 +1,30 @@
 # -*- coding: utf-8 -*-
 
 확률의미조치80~100%매우 높음 - 거의 확실즉시 대응 필요60~79%높음 - 발생 가능성 큼사전 준비 필요40~59%중간 - 주의 관찰모니터링 강화20~39%낮음 - 가능성 있음정상 모니터링0~19%매우 낮음정상 상태
+
+result = {
+    "CURRENT_VALUE": 285.5,           # 현재값 (30분 시퀀스의 마지막 값)
+    "PREDICTED_VALUE": 305.2,         # 예측값 (10분 후 예상값)
+    "INCREASE_RATE": "6.9%",          # 상승률(%)
+    "EXCEED_300_PROBABILITY": "85%",  # ✨ 10분 내 300 이상 달성 확률
+    "STATUS": "WARNING",              # NORMAL / WARNING / DANGEROUS
+    "SURGE_RISK": "HIGH",             # LOW / MEDIUM / HIGH / CRITICAL
+    "CAUSE_ANALYSIS": "HUB병목(598) + 높은가속도(1.2) + CMD부족(205)",
+    "MOMENTUM_SIGNAL": {
+        "acceleration": 1.2,          # 가속도
+        "is_rising": True,            # 상승 중
+        "rapid_rise": True,           # 급등 여부
+        "surge_imminent": True        # 급증 임박
+    },
+    "KEY_FACTORS": {
+        "HUBROOMTOTAL": 598,          # HUB 여유공간
+        "FS_STORAGE_UTIL": 8.5,       # FS 스토리지 사용률
+        "TOTAL_CMD": 205,             # 총 CMD
+        "STORAGE_UTIL": 206           # 스토리지 사용률
+    },
+    "PREDICTION_TIME": "2025-10-23 15:10:00",
+    "MODEL_VERSION": "V6_MOMENTUM_W5X_T280"
+}
 """
 V6 실시간 예측 시스템
 - 30분 시퀀스 → 10분 후 예측
