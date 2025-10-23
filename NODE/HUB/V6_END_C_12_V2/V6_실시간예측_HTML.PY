@@ -12,6 +12,7 @@ import pandas as pd
 import pickle
 from datetime import datetime, timedelta
 import os
+import webbrowser  # 브라우저 자동 열기용
 
 # 경로 설정
 script_dir = os.path.dirname(os.path.abspath(__file__))
@@ -995,6 +996,14 @@ def predict_realtime():
             
             print(f"\n✅ HTML 대시보드 생성 완료: {html_filename}")
             print(f"📂 파일 위치: {html_path}")
+            
+            # 🌐 브라우저에서 자동으로 열기!
+            try:
+                webbrowser.open('file://' + os.path.abspath(html_path))
+                print(f"🌐 브라우저에서 대시보드를 열었습니다!")
+            except Exception as browser_error:
+                print(f"⚠️ 브라우저 자동 열기 실패: {str(browser_error)}")
+                print(f"💡 수동으로 파일을 열어주세요: {html_path}")
             
         except Exception as e:
             print(f"\n⚠️ HTML 생성 실패: {str(e)}")
