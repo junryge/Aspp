@@ -5,10 +5,10 @@ from datetime import datetime, timedelta
 
 def evaluate_perfect_version():
     """
-    🎯 완벽 버전 평가: 30시퀀스 → 15분 예측 + 임계값 280 + Momentum
+    🎯 완벽 버전 평가: 30시퀀스 → 25분 예측 + 임계값 280 + Momentum
     """
     print("="*80)
-    print("🎯 완벽 버전 평가: 가중치 5배 + 임계값 280 + Momentum (15분 예측)")
+    print("🎯 완벽 버전 평가: 가중치 5배 + 임계값 280 + Momentum (25분 예측)")
     print("="*80)
    
     FEATURE_COLS = {
@@ -23,12 +23,12 @@ def evaluate_perfect_version():
    
     # 모델 로드
     try:
-        with open('xgboost_완벽버전_가중치5배_임계값280_momentum_15분.pkl', 'rb') as f:
+        with open('xgboost_완벽버전_가중치5배_임계값280_momentum_25분.pkl', 'rb') as f:
             model = pickle.load(f)
-        print("✅ 모델 로드 완료: xgboost_완벽버전_가중치5배_임계값280_momentum_15분.pkl")
+        print("✅ 모델 로드 완료: xgboost_완벽버전_가중치5배_임계값280_momentum_25분.pkl")
     except Exception as e:
         print(f"❌ 모델 파일 없음: {e}")
-        print("   먼저 'V6_학습_15분.py'를 실행하세요.")
+        print("   먼저 'V6_학습_25분.py'를 실행하세요.")
         return None
    
     # 데이터 로드
@@ -57,14 +57,14 @@ def evaluate_perfect_version():
    
     results = []
    
-    print("\n슬라이딩 윈도우 평가 시작 (30시퀀스 → 15분 예측 + Momentum)...")
+    print("\n슬라이딩 윈도우 평가 시작 (30시퀀스 → 25분 예측 + Momentum)...")
     for i in range(30, len(df)):
         seq_data = df.iloc[i-30:i].copy()
         seq_target = seq_data[TARGET_COL].values
        
         current_time = seq_data['STAT_DT'].iloc[-1]
         current_value = seq_target[-1]
-        prediction_time = current_time + timedelta(minutes=15)  # ✅ 15분 후
+        prediction_time = current_time + timedelta(minutes=25)  # ✅ 25분 후
        
         actual_value = df.iloc[i][TARGET_COL]
         actual_time = df.iloc[i]['STAT_DT']
@@ -243,13 +243,13 @@ def evaluate_perfect_version():
    
     results_df = pd.DataFrame(results)
    
-    output_file = '완벽버전_가중치5배_임계값280_momentum_15분_평가결과.csv'
+    output_file = '완벽버전_가중치5배_임계값280_momentum_25분_평가결과.csv'
     results_df.to_csv(output_file, index=False, encoding='utf-8-sig')
     print(f"\n✅ 결과 저장: {output_file}")
    
     # 통계
     print("\n" + "="*80)
-    print("📊 평가 통계 (완벽 버전: 가중치 5배 + 임계값 280 + Momentum - 15분 예측)")
+    print("📊 평가 통계 (완벽 버전: 가중치 5배 + 임계값 280 + Momentum - 25분 예측)")
     print("="*80)
    
     print(f"총 예측: {len(results_df)}개")
@@ -306,10 +306,10 @@ def evaluate_perfect_version():
     return results_df
 
 if __name__ == '__main__':
-    print("🚀 완벽 버전 모델 평가 시작 (15분 예측)...\n")
+    print("🚀 완벽 버전 모델 평가 시작 (25분 예측)...\n")
     results = evaluate_perfect_version()
    
     if results is not None:
         print(f"\n✅ 평가 완료! 총 {len(results)}개 예측")
-        print(f"📁 결과: 완벽버전_가중치5배_임계값280_momentum_15분_평가결과.csv")
+        print(f"📁 결과: 완벽버전_가중치5배_임계값280_momentum_25분_평가결과.csv")
         print(f"\n🎉 60~70% 감지율 목표 달성 예상!")
