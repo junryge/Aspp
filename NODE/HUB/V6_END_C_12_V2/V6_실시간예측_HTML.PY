@@ -859,9 +859,9 @@ def generate_html_dashboard(result):
                 <div class="big-number current-value">{result['CURRENT_VALUE']}</div>
                 <div class="sub-info">30분 시퀀스의 마지막 값</div>
                 <div class="sub-info">데이터 시간: {current_time_str}</div>
-                <div class="prediction-range" style="margin-top: 15px; background: #e6f7ff; border: 2px dashed #1890ff;">
-                    <div class="prediction-range-title" style="color: #0050b3;">📊 시퀀스 분석 범위 (30분)</div>
-                    <div class="prediction-range-time" style="color: #003a8c;">{result['SEQUENCE_START_TIME']} ~ {result['CURRENT_TIME']}</div>
+                <div class="prediction-range" style="margin-top: 15px; background: #e6f7ff; border: 2px dashed #1890ff; padding: 15px; border-radius: 10px; text-align: center;">
+                    <div class="prediction-range-title" style="font-size: 12px; color: #0050b3; font-weight: 600; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 5px;">📊 시퀀스 분석 범위 (30분)</div>
+                    <div class="prediction-range-time" style="font-size: 14px; font-weight: 700; color: #003a8c;">{result['SEQUENCE_START_TIME'].split(' ')[1]} ~ {result['CURRENT_TIME'].split(' ')[1]}</div>
                 </div>
             </div>
 
@@ -871,9 +871,9 @@ def generate_html_dashboard(result):
                 <div class="big-number predicted-value">{result['PREDICTED_VALUE']}</div>
                 <div class="sub-info">예측 구간 최대값</div>
                 <span class="status-badge {status_class}">{result['STATUS']}</span>
-                <div class="prediction-range" style="margin-top: 15px;">
-                    <div class="prediction-range-title">🎯 예측 범위</div>
-                    <div class="prediction-range-time">{result['PREDICTION_TIME']}</div>
+                <div class="prediction-range" style="margin-top: 15px; background: #fef5e7; border: 2px dashed #f39c12; padding: 15px; border-radius: 10px; text-align: center;">
+                    <div class="prediction-range-title" style="font-size: 12px; color: #d68910; font-weight: 600; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 5px;">🎯 예측 범위 (10분)</div>
+                    <div class="prediction-range-time" style="font-size: 14px; font-weight: 700; color: #c77b00;">{result['PREDICTION_TIME'].split('~')[0].split(' ')[1]}~{result['PREDICTION_TIME'].split('~')[1].split(' ')[1]}</div>
                 </div>
             </div>
 
