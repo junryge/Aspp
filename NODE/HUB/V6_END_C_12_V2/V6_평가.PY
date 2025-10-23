@@ -190,8 +190,8 @@ def evaluate_perfect_version():
        
         # 🆕 급증 임박 신호
         features['surge_imminent'] = 1 if (
-            seq_target[-1] > 280 and
-            features.get('target_acceleration', 0) > 0.5 and
+            seq_target[-1] > 272 and
+            features.get('target_acceleration', 0) > 0.2 and
             features.get('hub_high', 0) == 1
         ) else 0
        
