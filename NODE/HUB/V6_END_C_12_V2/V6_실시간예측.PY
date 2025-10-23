@@ -1,10 +1,10 @@
 # -*- coding: utf-8 -*-
 """
-V6 실시간 예측 코드
+V6 실시간 예측 시스템
 - 30분 시퀀스 → 10분 후 예측
-- Momentum Feature 4개 포함
-- surge_imminent 포함
-- 임계값: 280
+- Momentum Feature 포함
+- 300 이상 달성 확률 계산
+- 상승 원인 분석
 """
 
 import numpy as np
@@ -13,10 +13,10 @@ import pickle
 from datetime import datetime, timedelta
 import os
 
-# 현 디렉터리를 기준으로 경로 설정
+# 경로 설정
 script_dir = os.path.dirname(os.path.abspath(__file__))
-model_dir = os.path.join(script_dir, 'model', 'xgboost_완벽버전_가중치5배_임계값280_momentum.pkl')
-data_dir = os.path.join(script_dir, 'data', 'HUBROOM_PIVOT_DATA.csv')
+model_path = os.path.join(script_dir, 'model', 'xgboost_완벽버전_가중치5배_임계값280_momentum.pkl')
+data_path = os.path.join(script_dir, 'data', 'HUBROOM_PIVOT_DATA.csv')
 
 # V6 Feature 컬럼 정의
 FEATURE_COLS = {
@@ -31,88 +31,137 @@ FEATURE_COLS = {
 
 TARGET_COL = 'CURRENT_M16A_3F_JOB_2'
 
-def realtime_prediction():
+def calculate_exceed_300_probability(prediction, features):
     """
-    실시간 예측 함수
-    - 최근 30분 데이터로 10분 후 예측
-    - V6 평가 코드의 Feature 생성 로직 사용
+    10분 내 300 이상 달성 확률 계산
     """
-    # 모델 로드
-    try:
-        with open(model_dir, 'rb') as f:
-            model = pickle.load(f)
-    except FileNotFoundError:
-        return None, "model is not found", None, None
-    except Exception as e:
-        return None, f"model load error: {str(e)}", None, None
-   
-    # 데이터 로드
-    try:
-        df = pd.read_csv(data_dir, on_bad_lines='skip', encoding='utf-8', low_memory=False)
-    except FileNotFoundError:
-        return None, "file is not found", None, None
-    except Exception as e:
-        # 다른 인코딩 시도
-        try:
-            df = pd.read_csv(data_dir, on_bad_lines='skip', encoding='cp949', low_memory=False)
-        except:
-            try:
-                df = pd.read_csv(data_dir, on_bad_lines='skip', encoding='euc-kr', low_memory=False)
-            except:
-                return None, "exception occurred while reading file", None, None
-   
-    # 타겟 컬럼 확인 및 전처리
-    if TARGET_COL not in df.columns:
-        return None, "target column is not included", None, None
-   
-    df[TARGET_COL] = pd.to_numeric(df[TARGET_COL], errors='coerce')
-    df = df.dropna(subset=[TARGET_COL])
-   
-    if len(df) < 30:
-        return None, "insufficient data (need 30 rows)", None, None
-   
-    # 최근 30개 데이터 추출
-    recent_30 = df.tail(30).copy()
-    seq_target = recent_30[TARGET_COL].values
-   
-    # STAT_DT 처리
-    if 'STAT_DT' in recent_30.columns:
-        try:
-            recent_30['STAT_DT'] = pd.to_datetime(recent_30['STAT_DT'].astype(str), format='%Y%m%d%H%M')
-            seq_end = recent_30['STAT_DT'].iloc[-1]
-        except:
-            seq_end = datetime.now()
+    # 1. 예측값 기반 확률
+    if prediction >= 310:
+        base_prob = 95
+    elif prediction >= 300:
+        base_prob = 85
+    elif prediction >= 290:
+        base_prob = 60
+    elif prediction >= 280:
+        base_prob = 35
+    elif prediction >= 270:
+        base_prob = 20
     else:
-        seq_end = datetime.now()
-   
-    prediction_time = seq_end + timedelta(minutes=10)
-   
-    # ==================== Feature 생성 (V6_평가.PY와 동일) ====================
+        base_prob = 5
     
-    features = {}
+    # 2. Momentum 보정
+    momentum_boost = 0
+    if features.get('surge_imminent', 0) == 1:
+        momentum_boost += 15
+    if features.get('target_acceleration', 0) > 1.0:
+        momentum_boost += 10
+    elif features.get('target_acceleration', 0) > 0.5:
+        momentum_boost += 5
     
-    # 1. 타겟 기본 통계
-    features['target_mean'] = np.mean(seq_target)
-    features['target_std'] = np.std(seq_target)
-    features['target_max'] = np.max(seq_target)
-    features['target_min'] = np.min(seq_target)
-    features['target_last_value'] = seq_target[-1]
-    features['target_last_5_mean'] = np.mean(seq_target[-5:])
-    features['target_slope'] = np.polyfit(np.arange(30), seq_target, 1)[0]
+    # 3. 위험 요인 보정
+    risk_boost = 0
+    if features.get('hub_high', 0) == 1:
+        risk_boost += 10
+    if features.get('storage_util_critical', 0) == 1:
+        risk_boost += 5
+    if features.get('total_cmd_low', 0) == 1:
+        risk_boost += 5
     
-    # 2. 🆕 Momentum Feature (V6 핵심!)
+    # 4. 최종 확률 (0~100% 범위)
+    final_prob = min(100, max(0, base_prob + momentum_boost + risk_boost))
+    
+    return f"{final_prob}%"
+
+def analyze_surge_cause(features, seq_target):
+    """
+    상승 원인 분석
+    """
+    causes = []
+    
+    # HUB 병목
+    hub_last = features.get('HUBROOMTOTAL_last_value', 650)
+    if hub_last < 590:
+        causes.append(f"HUB심각병목({int(hub_last)})")
+    elif hub_last < 610:
+        causes.append(f"HUB병목({int(hub_last)})")
+    
+    # 가속도
+    acceleration = features.get('target_acceleration', 0)
+    if acceleration > 1.0:
+        causes.append(f"매우높은가속도({acceleration:.1f})")
+    elif acceleration > 0.5:
+        causes.append(f"높은가속도({acceleration:.1f})")
+    
+    # CMD 부족
+    total_cmd = features.get('total_cmd', 300)
+    if total_cmd < 200:
+        causes.append(f"CMD심각부족({int(total_cmd)})")
+    elif total_cmd < 220:
+        causes.append(f"CMD부족({int(total_cmd)})")
+    
+    # 스토리지 과부하
+    storage_util = features.get('M16A_3F_STORAGE_UTIL_last_value', 0)
+    if storage_util >= 207:
+        causes.append(f"스토리지심각({int(storage_util)})")
+    elif storage_util >= 205:
+        causes.append(f"스토리지과부하({int(storage_util)})")
+    
+    # FS 저장공간 부족
+    fs_util = features.get('CD_M163FSTORAGEUTIL_last_value', 0)
+    if fs_util >= 10:
+        causes.append(f"FS심각부족({fs_util:.1f})")
+    elif fs_util >= 7:
+        causes.append(f"FS부족({fs_util:.1f})")
+    
+    # 급등 패턴
+    if features.get('target_rapid_rise', 0) == 1:
+        causes.append("5분급등패턴")
+    
+    # 급증 임박
+    if features.get('surge_imminent', 0) == 1:
+        causes.append("급증임박신호")
+    
+    # 원인이 없으면
+    if not causes:
+        # 현재값 확인
+        current_value = seq_target[-1]
+        if current_value < 250:
+            causes.append("정상범위")
+        else:
+            causes.append("완만한상승추세")
+    
+    return " + ".join(causes)
+
+def create_features_realtime(df_30):
+    """
+    실시간 Feature 생성 (학습 코드와 동일)
+    """
+    seq_target = df_30[TARGET_COL].values
+    
+    # 타겟 기본 통계
+    features = {
+        'target_mean': np.mean(seq_target),
+        'target_std': np.std(seq_target),
+        'target_max': np.max(seq_target),
+        'target_min': np.min(seq_target),
+        'target_last_value': seq_target[-1],
+        'target_last_5_mean': np.mean(seq_target[-5:]),
+        'target_slope': np.polyfit(np.arange(30), seq_target, 1)[0],
+    }
+    
+    # 🆕 Momentum Feature 추가
     features['target_acceleration'] = (seq_target[-5:].mean() - seq_target[-10:-5].mean()) / 5
     features['target_is_rising'] = 1 if seq_target[-1] > seq_target[-5] else 0
     features['target_rapid_rise'] = 1 if (seq_target[-1] - seq_target[-5] > 10) else 0
     features['target_last_10_mean'] = np.mean(seq_target[-10:])
     
-    # 3. 각 컬럼 그룹별 Feature
+    # 각 컬럼 그룹별 Feature
     for group_name, cols in FEATURE_COLS.items():
         for col in cols:
-            if col not in df.columns:
+            if col not in df_30.columns:
                 continue
             
-            col_seq = recent_30[col].values
+            col_seq = df_30[col].values
             
             if group_name == 'maxcapa':
                 features[f'{col}_last_value'] = col_seq[-1]
@@ -131,46 +180,21 @@ def realtime_prediction():
                 features[f'{col}_last_value'] = col_seq[-1]
                 features[f'{col}_slope'] = np.polyfit(np.arange(30), col_seq, 1)[0]
     
-    # 4. FS Storage Feature
-    if 'CD_M163FSTORAGEUSE' in df.columns and 'CD_M163FSTORAGETOTAL' in df.columns and 'CD_M163FSTORAGEUTIL' in df.columns:
-        use_seq = recent_30['CD_M163FSTORAGEUSE'].values
-        total_seq = recent_30['CD_M163FSTORAGETOTAL'].values
-        util_seq = recent_30['CD_M163FSTORAGEUTIL'].values
+    # FS Storage Feature
+    if 'CD_M163FSTORAGEUSE' in df_30.columns and 'CD_M163FSTORAGETOTAL' in df_30.columns:
+        storage_use = df_30['CD_M163FSTORAGEUSE'].values
+        storage_total = df_30['CD_M163FSTORAGETOTAL'].values
+        storage_util = df_30['CD_M163FSTORAGEUTIL'].values
         
-        # 추가 Feature (V6_평가.PY에서 누락된 부분 보완)
-        features['CD_M163FSTORAGEUSE_mean'] = np.mean(use_seq)
-        features['CD_M163FSTORAGEUSE_std'] = np.std(use_seq)
-        features['CD_M163FSTORAGEUSE_max'] = np.max(use_seq)
-        features['CD_M163FSTORAGEUSE_min'] = np.min(use_seq)
-        features['CD_M163FSTORAGEUSE_last_value'] = use_seq[-1]
-        features['CD_M163FSTORAGEUSE_last_5_mean'] = np.mean(use_seq[-5:])
-        features['CD_M163FSTORAGEUSE_slope'] = np.polyfit(np.arange(30), use_seq, 1)[0]
-        
-        features['CD_M163FSTORAGETOTAL_mean'] = np.mean(total_seq)
-        features['CD_M163FSTORAGETOTAL_std'] = np.std(total_seq)
-        features['CD_M163FSTORAGETOTAL_max'] = np.max(total_seq)
-        features['CD_M163FSTORAGETOTAL_min'] = np.min(total_seq)
-        features['CD_M163FSTORAGETOTAL_last_value'] = total_seq[-1]
-        features['CD_M163FSTORAGETOTAL_last_5_mean'] = np.mean(total_seq[-5:])
-        features['CD_M163FSTORAGETOTAL_slope'] = np.polyfit(np.arange(30), total_seq, 1)[0]
-        
-        features['CD_M163FSTORAGEUTIL_mean'] = np.mean(util_seq)
-        features['CD_M163FSTORAGEUTIL_std'] = np.std(util_seq)
-        features['CD_M163FSTORAGEUTIL_max'] = np.max(util_seq)
-        features['CD_M163FSTORAGEUTIL_min'] = np.min(util_seq)
-        features['CD_M163FSTORAGEUTIL_last_value'] = util_seq[-1]
-        features['CD_M163FSTORAGEUTIL_last_5_mean'] = np.mean(util_seq[-5:])
-        features['CD_M163FSTORAGEUTIL_slope'] = np.polyfit(np.arange(30), util_seq, 1)[0]
-        
-        features['storage_use_rate'] = (use_seq[-1] - use_seq[0]) / 30
-        features['storage_remaining'] = total_seq[-1] - use_seq[-1]
-        features['storage_util_last'] = util_seq[-1]
-        features['storage_util_high'] = 1 if util_seq[-1] >= 7 else 0
-        features['storage_util_critical'] = 1 if util_seq[-1] >= 10 else 0
+        features['storage_use_rate'] = (storage_use[-1] - storage_use[0]) / 30
+        features['storage_remaining'] = storage_total[-1] - storage_use[-1]
+        features['storage_util_last'] = storage_util[-1]
+        features['storage_util_high'] = 1 if storage_util[-1] >= 7 else 0
+        features['storage_util_critical'] = 1 if storage_util[-1] >= 10 else 0
     
-    # 5. HUBROOMTOTAL Feature
-    if 'HUBROOMTOTAL' in df.columns:
-        hub_seq = recent_30['HUBROOMTOTAL'].values
+    # HUBROOMTOTAL Feature
+    if 'HUBROOMTOTAL' in df_30.columns:
+        hub_seq = df_30['HUBROOMTOTAL'].values
         hub_last = hub_seq[-1]
         
         features['hub_critical'] = 1 if hub_last < 590 else 0
@@ -178,32 +202,32 @@ def realtime_prediction():
         features['hub_warning'] = 1 if hub_last < 620 else 0
         features['hub_decrease_rate'] = (hub_seq[0] - hub_last) / 30
         
-        if 'CD_M163FSTORAGEUTIL' in df.columns:
-            storage_util_last = recent_30['CD_M163FSTORAGEUTIL'].iloc[-1]
+        if 'CD_M163FSTORAGEUTIL' in df_30.columns:
+            storage_util_last = df_30['CD_M163FSTORAGEUTIL'].iloc[-1]
             features['hub_storage_risk'] = 1 if (hub_last < 610 and storage_util_last >= 7) else 0
     
-    # 6. 유입-유출, CMD
-    i = len(df) - 1  # 마지막 인덱스
-    
-    inflow_sum = sum(df[col].iloc[i] for col in FEATURE_COLS['inflow'] if col in df.columns)
-    outflow_sum = sum(df[col].iloc[i] for col in FEATURE_COLS['outflow'] if col in df.columns)
+    # 유입-유출, CMD
+    inflow_sum = sum(df_30[col].iloc[-1] for col in FEATURE_COLS['inflow'] if col in df_30.columns)
+    outflow_sum = sum(df_30[col].iloc[-1] for col in FEATURE_COLS['outflow'] if col in df_30.columns)
     features['net_flow'] = inflow_sum - outflow_sum
     
-    cmd_sum = sum(df[col].iloc[i] for col in FEATURE_COLS['cmd'] if col in df.columns)
+    cmd_sum = sum(df_30[col].iloc[-1] for col in FEATURE_COLS['cmd'] if col in df_30.columns)
     features['total_cmd'] = cmd_sum
     features['total_cmd_low'] = 1 if cmd_sum < 220 else 0
     features['total_cmd_very_low'] = 1 if cmd_sum < 200 else 0
     
-    if 'HUBROOMTOTAL' in df.columns:
-        hub_last = df['HUBROOMTOTAL'].iloc[i]
+    # HUB × CMD 복합
+    if 'HUBROOMTOTAL' in df_30.columns:
+        hub_last = df_30['HUBROOMTOTAL'].iloc[-1]
         features['hub_cmd_bottleneck'] = 1 if (hub_last < 610 and cmd_sum < 220) else 0
     
-    if 'M16A_3F_STORAGE_UTIL' in df.columns:
-        storage_util = df['M16A_3F_STORAGE_UTIL'].iloc[i]
+    # Storage Util 위험
+    if 'M16A_3F_STORAGE_UTIL' in df_30.columns:
+        storage_util = df_30['M16A_3F_STORAGE_UTIL'].iloc[-1]
         features['storage_util_critical'] = 1 if storage_util >= 205 else 0
         features['storage_util_high_risk'] = 1 if storage_util >= 207 else 0
     
-    # 7. 🔥 급증 위험도 점수
+    # 🔥 급증 위험도 점수
     features['surge_risk_score'] = (
         features.get('hub_high', 0) * 3 +
         features.get('storage_util_critical', 0) * 2 +
@@ -211,19 +235,81 @@ def realtime_prediction():
         features.get('storage_util_high', 0) * 1
     )
     
-    # 8. 🆕 급증 임박 신호 (평가 코드 버전 - 임계값 272로 완화)
+    # 🆕 급증 임박 신호
     features['surge_imminent'] = 1 if (
         seq_target[-1] > 272 and
         features.get('target_acceleration', 0) > 0.2 and
         features.get('hub_high', 0) == 1
     ) else 0
     
-    # ==================== 예측 실행 ====================
+    return features, seq_target
+
+def realtime_prediction():
+    """
+    실시간 예측 메인 함수
+    """
+    # 모델 로드
+    try:
+        with open(model_path, 'rb') as f:
+            model = pickle.load(f)
+    except FileNotFoundError:
+        return None, "MODEL_FILE_NOT_FOUND"
+    except Exception as e:
+        return None, f"MODEL_LOAD_ERROR: {str(e)}"
     
+    # 데이터 로드
+    try:
+        df = pd.read_csv(data_path, on_bad_lines='skip', encoding='utf-8', low_memory=False)
+    except FileNotFoundError:
+        return None, "DATA_FILE_NOT_FOUND"
+    except Exception as e:
+        return None, f"DATA_LOAD_ERROR: {str(e)}"
+    
+    # 타겟 컬럼 확인
+    if TARGET_COL not in df.columns:
+        return None, "TARGET_COLUMN_NOT_FOUND"
+    
+    # 최근 30개 데이터 추출
+    if len(df) < 30:
+        return None, "INSUFFICIENT_DATA"
+    
+    df_30 = df.tail(30).copy()
+    
+    # 타겟 컬럼 전처리
+    df_30[TARGET_COL] = pd.to_numeric(df_30[TARGET_COL], errors='coerce')
+    df_30 = df_30.dropna(subset=[TARGET_COL])
+    
+    if len(df_30) < 30:
+        return None, "INSUFFICIENT_VALID_DATA"
+    
+    # STAT_DT 처리
+    if 'STAT_DT' in df_30.columns:
+        try:
+            df_30['STAT_DT'] = pd.to_datetime(df_30['STAT_DT'].astype(str), format='%Y%m%d%H%M')
+        except:
+            base_time = datetime.now() - timedelta(minutes=29)
+            df_30['STAT_DT'] = [base_time + timedelta(minutes=i) for i in range(30)]
+    else:
+        base_time = datetime.now() - timedelta(minutes=29)
+        df_30['STAT_DT'] = [base_time + timedelta(minutes=i) for i in range(30)]
+    
+    current_time = df_30['STAT_DT'].iloc[-1]
+    prediction_time = current_time + timedelta(minutes=10)
+    
+    # Feature 생성
+    features, seq_target = create_features_realtime(df_30)
+    
+    # DataFrame 변환
     X_pred = pd.DataFrame([features])
-    prediction = model.predict(X_pred)[0]
     
-    # 상태 결정 (임계값 280 기준)
+    # 예측
+    prediction = model.predict(X_pred)[0]
+    current_value = seq_target[-1]
+    
+    # 상승률 계산
+    increase_rate = (prediction - current_value) / current_value * 100
+    
+    # STATUS 결정
     if prediction >= 300:
         status = "DANGEROUS"
     elif prediction >= 280:
@@ -231,34 +317,60 @@ def realtime_prediction():
     else:
         status = "NORMAL"
     
-    # 시간 정보 포함하여 반환
-    return prediction, status, seq_end, prediction_time
+    # SURGE_RISK 결정
+    risk_score = features.get('surge_risk_score', 0)
+    if risk_score >= 5:
+        surge_risk = "CRITICAL"
+    elif risk_score >= 3:
+        surge_risk = "HIGH"
+    elif risk_score >= 1:
+        surge_risk = "MEDIUM"
+    else:
+        surge_risk = "LOW"
+    
+    # 300 이상 달성 확률
+    exceed_300_prob = calculate_exceed_300_probability(prediction, features)
+    
+    # 상승 원인 분석
+    cause_analysis = analyze_surge_cause(features, seq_target)
+    
+    # 결과 생성
+    result = {
+        "CURRENT_VALUE": round(current_value, 1),
+        "PREDICTED_VALUE": round(prediction, 1),
+        "INCREASE_RATE": f"{increase_rate:+.1f}%",
+        "EXCEED_300_PROBABILITY": exceed_300_prob,
+        "STATUS": status,
+        "SURGE_RISK": surge_risk,
+        "CAUSE_ANALYSIS": cause_analysis,
+        "MOMENTUM_SIGNAL": {
+            "acceleration": round(features.get('target_acceleration', 0), 2),
+            "is_rising": bool(features.get('target_is_rising', 0)),
+            "rapid_rise": bool(features.get('target_rapid_rise', 0)),
+            "surge_imminent": bool(features.get('surge_imminent', 0))
+        },
+        "KEY_FACTORS": {
+            "HUBROOMTOTAL": int(features.get('HUBROOMTOTAL_last_value', 0)),
+            "FS_STORAGE_UTIL": round(features.get('CD_M163FSTORAGEUTIL_last_value', 0), 1),
+            "TOTAL_CMD": int(features.get('total_cmd', 0)),
+            "STORAGE_UTIL": int(features.get('M16A_3F_STORAGE_UTIL_last_value', 0))
+        },
+        "PREDICTION_TIME": prediction_time.strftime('%Y-%m-%d %H:%M:%S'),
+        "MODEL_VERSION": "V6_MOMENTUM_W5X_T280"
+    }
+    
+    return result, None
 
 def predict_realtime():
     """
-    실시간 예측 실행 및 결과 출력
-    - 기존 포맷 준수
-    - 현재시간, 예측시간 추가
+    실시간 예측 실행 및 출력
     """
-    result = realtime_prediction()
+    result, error = realtime_prediction()
     
-    if result[0] is None:
-        # 예외 상황
-        row = {"EXCEPT": result[1]}
-        print([row])
+    if error:
+        print([{"ERROR": error}])
     else:
-        # 정상 예측
-        prediction, status_text, current_time, pred_time = result
-        classification_label = int(prediction >= 300)  # 300 이상이면 1 (DANGEROUS)
-        row = {
-            "CURRENT_TIME": current_time.strftime('%Y-%m-%d %H:%M'),
-            "PREDICTION_TIME": pred_time.strftime('%Y-%m-%d %H:%M'),
-            "PREDICTVAL": int(prediction),
-            "JUDGEVAL": classification_label,
-            "MODEL": "V6_HUBROOM_MODEL_MOMENTUM",
-            "STATUS": status_text
-        }
-        print([row])
+        print([result])
 
 if __name__ == '__main__':
     predict_realtime()
