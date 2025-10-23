@@ -200,7 +200,7 @@ def train_perfect_version():
     sample_weights = np.ones(len(y_train))
     for i in range(len(y_train)):
         if seq_max_list[i] < 300 and y_train[i] >= 300:
-            sample_weights[i] = 5.0  # ✅ 5배 가중치!
+            sample_weights[i] = 10.0  # ✅ 10배 가중치!
    
     print(f"  - 가중치 적용: 급증 케이스 5배")
    
