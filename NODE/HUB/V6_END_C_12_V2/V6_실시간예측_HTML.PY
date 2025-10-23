@@ -339,7 +339,7 @@ def realtime_prediction():
     # 결과 생성
     result = {
         "CURRENT_VALUE": round(current_value, 1),
-        "PREDICTED_VALUE": round(prediction, 1),
+        "PREDICTED_VALUE": int(round(prediction)),  # 정수로 변경!
         "INCREASE_RATE": f"{increase_rate:+.1f}%",
         "EXCEED_300_PROBABILITY": exceed_300_prob,
         "STATUS": status,
