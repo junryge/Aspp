@@ -851,8 +851,8 @@ def generate_html_dashboard(result):
             </div>
         </div>''' if result['STATUS'] == 'DANGEROUS' else ''}
 
-        <!-- Main Metrics Grid -->
-        <div class="main-grid">
+        <!-- Main Metrics Grid 1: 현재값 + 예측값 -->
+        <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 20px; margin-bottom: 20px;">
             <!-- Current Value -->
             <div class="card">
                 <div class="card-title">현재값</div>
@@ -876,6 +876,10 @@ def generate_html_dashboard(result):
                     <div class="prediction-range-time" style="font-size: 14px; font-weight: 700; color: #c77b00;">{result['PREDICTION_TIME'].split('~')[0].split(' ')[1]}~{result['PREDICTION_TIME'].split('~')[1].split(' ')[1]}</div>
                 </div>
             </div>
+        </div>
+
+        <!-- Main Metrics Grid 2: 상승률 + 300 달성 확률 -->
+        <div class="main-grid">
 
             <!-- Increase Rate -->
             <div class="card">
