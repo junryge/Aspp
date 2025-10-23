@@ -357,6 +357,7 @@ def realtime_prediction():
             "TOTAL_CMD": int(features.get('total_cmd', 0)),
             "STORAGE_UTIL": int(features.get('M16A_3F_STORAGE_UTIL_last_value', 0))
         },
+        "CURRENT_TIME": current_time.strftime('%Y-%m-%d %H:%M:%S'),  # 시퀀스 마지막 시간!
         "PREDICTION_TIME": f"{prediction_start.strftime('%Y-%m-%d %H:%M:%S')}~{prediction_end.strftime('%Y-%m-%d %H:%M:%S')}",
         "MODEL_VERSION": "V6_MOMENTUM_W5X_T280"
     }
@@ -429,8 +430,8 @@ def generate_html_dashboard(result):
     pred_start = time_parts[0] if len(time_parts) > 0 else ""
     pred_end = time_parts[1] if len(time_parts) > 1 else ""
     
-    # 현재 시간 (예측 시작 시간 - 1분)
-    current_time_str = pred_start.split(' ')[1] if ' ' in pred_start else "00:00:00"
+    # 현재 시간 (시퀀스 마지막 시간)
+    current_time_str = result['CURRENT_TIME']
     
     html_content = f"""<!DOCTYPE html>
 <html lang="ko">
@@ -833,7 +834,7 @@ def generate_html_dashboard(result):
     <div class="container">
         <!-- Header -->
         <div class="header">
-            <div class="timestamp">생성 시간: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}</div>
+            <div class="timestamp">데이터 시간: {result['CURRENT_TIME']}</div>
             <h1>🚨 V6 실시간 급증 예측 대시보드</h1>
             <p class="subtitle">30분 시퀀스 → 10분 후 예측 | Momentum Feature 기반 분석</p>
             <span class="model-info">{result['MODEL_VERSION']}</span>
@@ -856,7 +857,7 @@ def generate_html_dashboard(result):
                 <div class="card-title">현재값</div>
                 <div class="big-number current-value">{result['CURRENT_VALUE']}</div>
                 <div class="sub-info">30분 시퀀스의 마지막 값</div>
-                <div class="sub-info">현재 시간: {current_time_str}</div>
+                <div class="sub-info">데이터 시간: {current_time_str}</div>
             </div>
 
             <!-- Predicted Value -->
