@@ -358,6 +358,7 @@ def realtime_prediction():
             "STORAGE_UTIL": int(features.get('M16A_3F_STORAGE_UTIL_last_value', 0))
         },
         "CURRENT_TIME": current_time.strftime('%Y-%m-%d %H:%M:%S'),  # 시퀀스 마지막 시간!
+        "SEQUENCE_START_TIME": (current_time - timedelta(minutes=29)).strftime('%Y-%m-%d %H:%M:%S'),  # 시퀀스 시작 시간!
         "PREDICTION_TIME": f"{prediction_start.strftime('%Y-%m-%d %H:%M:%S')}~{prediction_end.strftime('%Y-%m-%d %H:%M:%S')}",
         "MODEL_VERSION": "V6_MOMENTUM_W5X_T280"
     }
@@ -858,6 +859,10 @@ def generate_html_dashboard(result):
                 <div class="big-number current-value">{result['CURRENT_VALUE']}</div>
                 <div class="sub-info">30분 시퀀스의 마지막 값</div>
                 <div class="sub-info">데이터 시간: {current_time_str}</div>
+                <div class="prediction-range" style="margin-top: 15px; background: #e6f7ff; border: 2px dashed #1890ff;">
+                    <div class="prediction-range-title" style="color: #0050b3;">📊 시퀀스 분석 범위 (30분)</div>
+                    <div class="prediction-range-time" style="color: #003a8c;">{result['SEQUENCE_START_TIME']} ~ {result['CURRENT_TIME']}</div>
+                </div>
             </div>
 
             <!-- Predicted Value -->
@@ -866,6 +871,10 @@ def generate_html_dashboard(result):
                 <div class="big-number predicted-value">{result['PREDICTED_VALUE']}</div>
                 <div class="sub-info">예측 구간 최대값</div>
                 <span class="status-badge {status_class}">{result['STATUS']}</span>
+                <div class="prediction-range" style="margin-top: 15px;">
+                    <div class="prediction-range-title">🎯 예측 범위</div>
+                    <div class="prediction-range-time">{result['PREDICTION_TIME']}</div>
+                </div>
             </div>
 
             <!-- Increase Rate -->
@@ -891,14 +900,6 @@ def generate_html_dashboard(result):
                     <div class="action-needed-title">{action_level}</div>
                     <div class="action-needed-text">{action_desc}</div>
                 </div>
-            </div>
-        </div>
-
-        <!-- Prediction Range -->
-        <div class="card">
-            <div class="prediction-range">
-                <div class="prediction-range-title">🎯 예측 범위</div>
-                <div class="prediction-range-time">{result['PREDICTION_TIME']}</div>
             </div>
         </div>
 
