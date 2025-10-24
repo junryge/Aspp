@@ -259,7 +259,7 @@ def predict_all_horizons():
     
     # 3개 모델 예측
     for horizon in [10, 15, 25]:
-        model_path = os.path.join(script_dir, 'model', f'xgboost_30min_{horizon}min_D3.pkl')
+        model_path = os.path.join(script_dir, f'xgboost_V6_{horizon}min_W10X_T280_momentum.pkl')
         
         try:
             with open(model_path, 'rb') as f:
@@ -300,7 +300,7 @@ def predict_all_horizons():
             "EXCEED_300_PROBABILITY": exceed_300_prob,
             "STATUS": status,
             "SURGE_RISK": surge_risk,
-            "PREDICTION_TIME": f"{prediction_start.strftime('%H:%M')}~{prediction_end.strftime('%H:%M')}"
+            "PREDICTION_TIME": f"{prediction_start.strftime('%Y-%m-%d %H:%M')} ~ {prediction_end.strftime('%Y-%m-%d %H:%M')}"
         }
     
     # 공통 정보
@@ -491,9 +491,10 @@ def generate_html_dashboard(result):
         .prediction-header h3 {{ font-size: 24px; margin-bottom: 10px; }}
         .time-badge {{
             background: rgba(255,255,255,0.2);
-            padding: 5px 15px;
+            padding: 8px 15px;
             border-radius: 20px;
-            font-size: 14px;
+            font-size: 13px;
+            line-height: 1.4;
         }}
         .prediction-body {{ padding: 25px; text-align: center; }}
         .big-pred-value {{ font-size: 56px; font-weight: 700; margin-bottom: 10px; }}
@@ -628,7 +629,7 @@ def generate_html_dashboard(result):
         <div class="current-section">
             <div class="current-label">현재값 (30분 시퀀스 마지막)</div>
             <div class="current-value">{result['CURRENT_VALUE']}</div>
-            <div style="color: #718096; font-size: 14px;">시퀀스 범위: {result['SEQUENCE_START_TIME'].split(' ')[1]} ~ {result['CURRENT_TIME'].split(' ')[1]}</div>
+            <div style="color: #718096; font-size: 14px;">시퀀스 범위: {result['SEQUENCE_START_TIME']} ~ {result['CURRENT_TIME']}</div>
         </div>
 
         <div class="predictions-grid">
