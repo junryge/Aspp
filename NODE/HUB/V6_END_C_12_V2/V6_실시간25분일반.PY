@@ -1,5 +1,24 @@
 # -*- coding: utf-8 -*-
 """
+
+def predict_realtime():
+    prediction, status_text = realtime_prediction()
+   
+    if prediction is None:
+        row = {"EXCEPT": status_text}
+        print([row])
+    else:
+        classification_label = int(prediction >= 300)  # 300 이상이면 1
+        row = {
+            "PREDICTVAL": int(prediction),
+            "JUDGEVAL": classification_label,
+            "MODEL": "V6_MOMENTUM_10MIN",
+            "STATUS": status_text
+        }
+        print([row])
+
+if __name__ == '__main__':
+    predict_realtime()
 V6 실시간 예측 - 25분 버전
 """
 
