@@ -420,18 +420,22 @@ def create_sequence_graph(seq_data, features):
         xaxis=dict(
             title="<b>시간 (분 전)</b>",
             showgrid=False,
-            tickangle=-45
+            tickangle=-45,
+            tickfont=dict(size=12)
         ),
         yaxis=dict(
             title="<b>Job Queue Level</b>",
             showgrid=True,
-            gridcolor='rgba(0,0,0,0.1)'
+            gridcolor='rgba(0,0,0,0.1)',
+            tickfont=dict(size=12)
         ),
         hovermode='closest',
         plot_bgcolor='white',
         paper_bgcolor='white',
-        height=500,
-        margin=dict(l=60, r=60, t=100, b=80)
+        height=600,
+        width=None,
+        autosize=True,
+        margin=dict(l=80, r=80, t=120, b=100)
     )
     
     # HTML로 변환
