@@ -329,11 +329,19 @@ def predict_all_horizons():
     
     return {**common_info, "predictions": results}, None
 
-def create_sequence_graph(seq_data, features):
-    """30분 시퀀스 인터랙티브 그래프 생성"""
+def create_sequence_graph(seq_data, features, predictions, current_time):
+    """30분 시퀀스 + 예측값 인터랙티브 그래프 생성"""
     
-    # 시간 라벨
-    x_labels = [f"-{29-i}분" for i in range(30)]
+    # 실제 시간 라벨 생성 (30분 시퀀스)
+    time_labels = []
+    for i in range(30):
+        time_point = current_time - timedelta(minutes=(29-i))
+        time_labels.append(time_point.strftime('%Y-%m-%d %H:%M'))
+    
+    # 예측 시간 라벨
+    pred_time_10 = current_time + timedelta(minutes=10)
+    pred_time_15 = current_time + timedelta(minutes=15)
+    pred_time_25 = current_time + timedelta(minutes=25)
     
     # 호버 텍스트 생성 (각 포인트별 상세 정보)
     hover_texts = []
@@ -355,7 +363,7 @@ def create_sequence_graph(seq_data, features):
             trend = "분석 중"
         
         hover_text = (
-            f"<b>{x_labels[i]}</b><br>"
+            f"<b>{time_labels[i]}</b><br>"
             f"값: <b>{value:.1f}</b><br>"
             f"{status}<br>"
             f"{change_text}<br>"
@@ -367,7 +375,7 @@ def create_sequence_graph(seq_data, features):
     fig = go.Figure()
     
     # 배경 색상 영역
-    fig.add_hrect(y0=300, y1=max(seq_data)+20, 
+    fig.add_hrect(y0=300, y1=max(seq_data)+50, 
                   fillcolor="rgba(254, 215, 215, 0.3)", 
                   line_width=0, 
                   annotation_text="위험", 
@@ -385,12 +393,12 @@ def create_sequence_graph(seq_data, features):
                   annotation_text="안전",
                   annotation_position="bottom right")
     
-    # 메인 라인
+    # 메인 라인 (30분 시퀀스)
     fig.add_trace(go.Scatter(
-        x=x_labels,
+        x=time_labels,
         y=seq_data,
         mode='lines+markers',
-        name='CURRENT_M16A_3F_JOB_2',
+        name='실제 시퀀스 (30분)',
         line=dict(color='#4299e1', width=3),
         marker=dict(size=8, color='#4299e1', line=dict(color='white', width=2)),
         hovertext=hover_texts,
@@ -402,26 +410,72 @@ def create_sequence_graph(seq_data, features):
         )
     ))
     
+    # 현재값에서 예측값으로 연결선
+    current_value = seq_data[-1]
+    
+    # 10분 예측
+    pred_10 = predictions[10]['PREDICTED_VALUE']
+    status_10 = "🟢" if pred_10 < 280 else ("🟡" if pred_10 < 300 else "🔴")
+    fig.add_trace(go.Scatter(
+        x=[time_labels[-1], pred_time_10.strftime('%Y-%m-%d %H:%M')],
+        y=[current_value, pred_10],
+        mode='lines+markers',
+        name=f'10분 예측: {pred_10}',
+        line=dict(color='#3182ce', width=2, dash='dash'),
+        marker=dict(size=12, color='#3182ce', symbol='diamond'),
+        hovertext=f"<b>10분 후 예측</b><br>{pred_time_10.strftime('%Y-%m-%d %H:%M')}<br>예측값: <b>{pred_10}</b><br>{status_10} {predictions[10]['STATUS']}<br>확률: {predictions[10]['EXCEED_300_PROBABILITY']}%",
+        hoverinfo='text'
+    ))
+    
+    # 15분 예측
+    pred_15 = predictions[15]['PREDICTED_VALUE']
+    status_15 = "🟢" if pred_15 < 280 else ("🟡" if pred_15 < 300 else "🔴")
+    fig.add_trace(go.Scatter(
+        x=[time_labels[-1], pred_time_15.strftime('%Y-%m-%d %H:%M')],
+        y=[current_value, pred_15],
+        mode='lines+markers',
+        name=f'15분 예측: {pred_15}',
+        line=dict(color='#38a169', width=2, dash='dash'),
+        marker=dict(size=12, color='#38a169', symbol='diamond'),
+        hovertext=f"<b>15분 후 예측</b><br>{pred_time_15.strftime('%Y-%m-%d %H:%M')}<br>예측값: <b>{pred_15}</b><br>{status_15} {predictions[15]['STATUS']}<br>확률: {predictions[15]['EXCEED_300_PROBABILITY']}%",
+        hoverinfo='text'
+    ))
+    
+    # 25분 예측
+    pred_25 = predictions[25]['PREDICTED_VALUE']
+    status_25 = "🟢" if pred_25 < 280 else ("🟡" if pred_25 < 300 else "🔴")
+    fig.add_trace(go.Scatter(
+        x=[time_labels[-1], pred_time_25.strftime('%Y-%m-%d %H:%M')],
+        y=[current_value, pred_25],
+        mode='lines+markers',
+        name=f'25분 예측: {pred_25}',
+        line=dict(color='#dd6b20', width=2, dash='dash'),
+        marker=dict(size=12, color='#dd6b20', symbol='diamond'),
+        hovertext=f"<b>25분 후 예측</b><br>{pred_time_25.strftime('%Y-%m-%d %H:%M')}<br>예측값: <b>{pred_25}</b><br>{status_25} {predictions[25]['STATUS']}<br>확률: {predictions[25]['EXCEED_300_PROBABILITY']}%",
+        hoverinfo='text'
+    ))
+    
     # 기준선
-    fig.add_hline(y=300, line_dash="dash", line_color="#f56565", line_width=2,
+    fig.add_hline(y=300, line_dash="dot", line_color="#f56565", line_width=2,
                   annotation_text="위험선 (300)", annotation_position="right")
     
-    fig.add_hline(y=280, line_dash="dash", line_color="#ed8936", line_width=2,
+    fig.add_hline(y=280, line_dash="dot", line_color="#ed8936", line_width=2,
                   annotation_text="경고선 (280)", annotation_position="right")
     
     # 레이아웃 설정
     fig.update_layout(
         title=dict(
-            text="<b>30분 시퀀스 추이 분석</b><br><sub>클릭하여 확대/축소 가능 | 호버하면 상세 정보 표시</sub>",
+            text="<b>30분 시퀀스 + 3개 예측값 분석</b><br><sub>클릭하여 확대/축소 가능 | 호버하면 상세 정보 표시</sub>",
             font=dict(size=18, color='#2d3748'),
             x=0.5,
             xanchor='center'
         ),
         xaxis=dict(
-            title="<b>시간 (분 전)</b>",
-            showgrid=False,
+            title=None,
+            showgrid=True,
+            gridcolor='rgba(0,0,0,0.05)',
             tickangle=-45,
-            tickfont=dict(size=12)
+            tickfont=dict(size=10)
         ),
         yaxis=dict(
             title="<b>Job Queue Level</b>",
@@ -435,7 +489,15 @@ def create_sequence_graph(seq_data, features):
         height=600,
         width=None,
         autosize=True,
-        margin=dict(l=80, r=80, t=120, b=100)
+        margin=dict(l=80, r=80, t=120, b=100),
+        legend=dict(
+            orientation="h",
+            yanchor="bottom",
+            y=1.02,
+            xanchor="center",
+            x=0.5,
+            font=dict(size=12)
+        )
     )
     
     # HTML로 변환
@@ -450,7 +512,7 @@ def create_sequence_graph(seq_data, features):
                 'format': 'png',
                 'filename': 'sequence_graph',
                 'height': 600,
-                'width': 1200
+                'width': 1400
             }
         }
     )
@@ -507,7 +569,11 @@ def create_sequence_graph(seq_data, features):
 def generate_html_dashboard(result):
     """3개 모델 비교 HTML 대시보드 생성"""
     
-    # 시퀀스 그래프 생성
+    # 현재 시간을 datetime 객체로 변환
+    from datetime import datetime
+    current_time = datetime.strptime(result['CURRENT_TIME'], '%Y-%m-%d %H:%M:%S')
+    
+    # 시퀀스 그래프 생성 (예측값 포함)
     graph_html, analysis_text = create_sequence_graph(result['SEQUENCE_DATA'], 
                                                        {**result['KEY_FACTORS'], 
                                                         **result['MOMENTUM_SIGNAL'],
@@ -517,7 +583,9 @@ def generate_html_dashboard(result):
                                                         'surge_imminent': 1 if result['MOMENTUM_SIGNAL']['surge_imminent'] else 0,
                                                         'HUBROOMTOTAL_last_value': result['KEY_FACTORS']['HUBROOMTOTAL'],
                                                         'total_cmd': result['KEY_FACTORS']['TOTAL_CMD'],
-                                                        'M16A_3F_STORAGE_UTIL_last_value': result['KEY_FACTORS']['STORAGE_UTIL']})
+                                                        'M16A_3F_STORAGE_UTIL_last_value': result['KEY_FACTORS']['STORAGE_UTIL']},
+                                                       result['predictions'],
+                                                       current_time)
     
     # 원인 분석 HTML
     causes = result['CAUSE_ANALYSIS'].split(' + ')
@@ -880,11 +948,8 @@ def generate_html_dashboard(result):
         </div>
 
         <div class="card" style="margin-bottom: 20px;">
-            <div class="card-title" style="cursor: pointer; user-select: none; display: flex; justify-content: space-between; align-items: center;" onclick="toggleGraph()">
-                <span>📈 30분 시퀀스 추이 분석 (클릭하여 펼치기/접기)</span>
-                <span id="graph-toggle" style="font-size: 24px;">▼</span>
-            </div>
-            <div id="graph-container" style="display: none; margin-top: 15px;">
+            <div class="card-title">📈 30분 시퀀스 + 예측값 추이 분석</div>
+            <div style="margin-top: 15px;">
                 <div style="background: #f7fafc; border-radius: 10px; padding: 20px;">
                     {graph_html}
                 </div>
@@ -900,7 +965,7 @@ def generate_html_dashboard(result):
                         <li><b>호버:</b> 마우스를 올리면 해당 시점의 상세 데이터 표시</li>
                         <li><b>클릭 & 드래그:</b> 특정 영역 확대</li>
                         <li><b>더블클릭:</b> 원래 크기로 복원</li>
-                        <li><b>상단 버튼:</b> 줌/팬/저장 기능 사용 가능</li>
+                        <li><b>범례 클릭:</b> 특정 라인 표시/숨김 전환</li>
                     </ul>
                 </div>
             </div>
@@ -911,20 +976,6 @@ def generate_html_dashboard(result):
             <p>Powered by XGBoost + Momentum Features</p>
         </div>
     </div>
-    <script>
-        function toggleGraph() {{
-            const container = document.getElementById('graph-container');
-            const toggle = document.getElementById('graph-toggle');
-            
-            if (container.style.display === 'none') {{
-                container.style.display = 'block';
-                toggle.textContent = '▲';
-            }} else {{
-                container.style.display = 'none';
-                toggle.textContent = '▼';
-            }}
-        }}
-    </script>
 </body>
 </html>"""
     
