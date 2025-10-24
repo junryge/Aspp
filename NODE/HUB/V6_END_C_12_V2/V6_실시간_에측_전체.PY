@@ -13,11 +13,8 @@ import pickle
 from datetime import datetime, timedelta
 import os
 import webbrowser
-import matplotlib.pyplot as plt
-import matplotlib
-matplotlib.use('Agg')  # GUI 없이 실행
-import io
-import base64
+import plotly.graph_objects as go
+from plotly.subplots import make_subplots
 
 # 경로 설정
 script_dir = os.path.dirname(os.path.abspath(__file__))
@@ -332,63 +329,191 @@ def predict_all_horizons():
     
     return {**common_info, "predictions": results}, None
 
-def create_sequence_graph(seq_data):
-    """30분 시퀀스 그래프를 base64 이미지로 생성"""
-    # 한글 폰트 설정
-    plt.rcParams['font.family'] = 'DejaVu Sans'
-    plt.rcParams['axes.unicode_minus'] = False
+def create_sequence_graph(seq_data, features):
+    """30분 시퀀스 인터랙티브 그래프 생성"""
     
-    plt.figure(figsize=(14, 6), facecolor='white')
-    
-    # 시간 라벨 생성
+    # 시간 라벨
     x_labels = [f"-{29-i}분" for i in range(30)]
-    x_pos = range(30)
     
-    # 라인 그래프
-    plt.plot(x_pos, seq_data, color='#4299e1', linewidth=3, marker='o', 
-             markersize=5, markerfacecolor='#4299e1', markeredgecolor='white', 
-             markeredgewidth=2, label='CURRENT_M16A_3F_JOB_2')
+    # 호버 텍스트 생성 (각 포인트별 상세 정보)
+    hover_texts = []
+    for i, value in enumerate(seq_data):
+        status = "🟢 안전" if value < 280 else ("🟡 경고" if value < 300 else "🔴 위험")
+        
+        # 변화량 계산
+        if i > 0:
+            change = value - seq_data[i-1]
+            change_text = f"변화: {change:+.1f}"
+        else:
+            change_text = "변화: -"
+        
+        # 추세 분석
+        if i >= 5:
+            recent_avg = np.mean(seq_data[i-5:i+1])
+            trend = "상승 추세" if recent_avg > np.mean(seq_data[:i-4]) else "하락 추세"
+        else:
+            trend = "분석 중"
+        
+        hover_text = (
+            f"<b>{x_labels[i]}</b><br>"
+            f"값: <b>{value:.1f}</b><br>"
+            f"{status}<br>"
+            f"{change_text}<br>"
+            f"추세: {trend}"
+        )
+        hover_texts.append(hover_text)
     
-    # 배경 색상 (구간별)
-    plt.axhspan(300, max(seq_data) + 20, alpha=0.2, color='#fed7d7', label='위험 (300+)')
-    plt.axhspan(280, 300, alpha=0.2, color='#feebc8', label='경고 (280-300)')
-    plt.axhspan(min(seq_data) - 20, 280, alpha=0.1, color='#c6f6d5', label='안전 (<280)')
+    # 그래프 생성
+    fig = go.Figure()
+    
+    # 배경 색상 영역
+    fig.add_hrect(y0=300, y1=max(seq_data)+20, 
+                  fillcolor="rgba(254, 215, 215, 0.3)", 
+                  line_width=0, 
+                  annotation_text="위험", 
+                  annotation_position="top right")
+    
+    fig.add_hrect(y0=280, y1=300, 
+                  fillcolor="rgba(254, 235, 200, 0.3)", 
+                  line_width=0,
+                  annotation_text="경고",
+                  annotation_position="top right")
+    
+    fig.add_hrect(y0=min(seq_data)-20, y1=280, 
+                  fillcolor="rgba(198, 246, 213, 0.2)", 
+                  line_width=0,
+                  annotation_text="안전",
+                  annotation_position="bottom right")
+    
+    # 메인 라인
+    fig.add_trace(go.Scatter(
+        x=x_labels,
+        y=seq_data,
+        mode='lines+markers',
+        name='CURRENT_M16A_3F_JOB_2',
+        line=dict(color='#4299e1', width=3),
+        marker=dict(size=8, color='#4299e1', line=dict(color='white', width=2)),
+        hovertext=hover_texts,
+        hoverinfo='text',
+        hoverlabel=dict(
+            bgcolor="rgba(0,0,0,0.8)",
+            font_size=14,
+            font_color="white"
+        )
+    ))
     
     # 기준선
-    plt.axhline(y=300, color='#f56565', linestyle='--', linewidth=2, label='위험선 (300)')
-    plt.axhline(y=280, color='#ed8936', linestyle='--', linewidth=2, label='경고선 (280)')
+    fig.add_hline(y=300, line_dash="dash", line_color="#f56565", line_width=2,
+                  annotation_text="위험선 (300)", annotation_position="right")
     
-    # 축 설정
-    plt.xlabel('시간 (분 전)', fontsize=12, fontweight='bold')
-    plt.ylabel('Job Queue Level', fontsize=12, fontweight='bold')
-    plt.title('30분 시퀀스 추이 분석', fontsize=14, fontweight='bold', pad=20)
+    fig.add_hline(y=280, line_dash="dash", line_color="#ed8936", line_width=2,
+                  annotation_text="경고선 (280)", annotation_position="right")
     
-    # x축 라벨
-    plt.xticks(x_pos[::3], [x_labels[i] for i in range(0, 30, 3)], rotation=45)
+    # 레이아웃 설정
+    fig.update_layout(
+        title=dict(
+            text="<b>30분 시퀀스 추이 분석</b><br><sub>클릭하여 확대/축소 가능 | 호버하면 상세 정보 표시</sub>",
+            font=dict(size=18, color='#2d3748'),
+            x=0.5,
+            xanchor='center'
+        ),
+        xaxis=dict(
+            title="<b>시간 (분 전)</b>",
+            showgrid=False,
+            tickangle=-45
+        ),
+        yaxis=dict(
+            title="<b>Job Queue Level</b>",
+            showgrid=True,
+            gridcolor='rgba(0,0,0,0.1)'
+        ),
+        hovermode='closest',
+        plot_bgcolor='white',
+        paper_bgcolor='white',
+        height=500,
+        margin=dict(l=60, r=60, t=100, b=80)
+    )
     
-    # 그리드
-    plt.grid(True, alpha=0.3, linestyle=':', linewidth=0.5)
+    # HTML로 변환
+    graph_html = fig.to_html(
+        include_plotlyjs='cdn',
+        div_id='sequence-graph',
+        config={
+            'displayModeBar': True,
+            'displaylogo': False,
+            'modeBarButtonsToRemove': ['pan2d', 'select2d', 'lasso2d', 'autoScale2d'],
+            'toImageButtonOptions': {
+                'format': 'png',
+                'filename': 'sequence_graph',
+                'height': 600,
+                'width': 1200
+            }
+        }
+    )
     
-    # 범례
-    plt.legend(loc='upper left', fontsize=10, framealpha=0.9)
+    # 원인 분석 텍스트 생성
+    analysis_text = ""
     
-    # 여백 조정
-    plt.tight_layout()
+    # 가속도 분석
+    if features.get('target_acceleration', 0) > 1.0:
+        analysis_text += "• <b>매우 높은 가속도</b> 감지 (급격한 상승 중)<br>"
+    elif features.get('target_acceleration', 0) > 0.5:
+        analysis_text += "• <b>높은 가속도</b> 감지 (빠른 상승 추세)<br>"
+    elif features.get('target_acceleration', 0) > 0.2:
+        analysis_text += "• 가속도 증가 중 (상승 추세)<br>"
     
-    # 이미지를 base64로 인코딩
-    buffer = io.BytesIO()
-    plt.savefig(buffer, format='png', dpi=100, bbox_inches='tight')
-    buffer.seek(0)
-    image_base64 = base64.b64encode(buffer.read()).decode()
-    plt.close()
+    # 추세 분석
+    if features.get('target_is_rising', 0) == 1:
+        analysis_text += "• 현재 <b>상승 추세</b> 지속 중<br>"
     
-    return f"data:image/png;base64,{image_base64}"
+    # 급등 패턴
+    if features.get('target_rapid_rise', 0) == 1:
+        analysis_text += "• ⚠️ <b>5분 급등 패턴</b> 감지됨<br>"
+    
+    # HUB 상태
+    hub_last = features.get('HUBROOMTOTAL_last_value', 650)
+    if hub_last < 590:
+        analysis_text += f"• 🔴 <b>HUB 심각 병목</b> (현재: {int(hub_last)})<br>"
+    elif hub_last < 610:
+        analysis_text += f"• 🟡 <b>HUB 병목 위험</b> (현재: {int(hub_last)})<br>"
+    
+    # CMD 상태
+    total_cmd = features.get('total_cmd', 300)
+    if total_cmd < 200:
+        analysis_text += f"• 🔴 <b>CMD 심각 부족</b> (현재: {int(total_cmd)})<br>"
+    elif total_cmd < 220:
+        analysis_text += f"• 🟡 <b>CMD 부족</b> (현재: {int(total_cmd)})<br>"
+    
+    # 스토리지 상태
+    storage_util = features.get('M16A_3F_STORAGE_UTIL_last_value', 0)
+    if storage_util >= 207:
+        analysis_text += f"• 🔴 <b>스토리지 심각 과부하</b> (현재: {int(storage_util)})<br>"
+    elif storage_util >= 205:
+        analysis_text += f"• 🟡 <b>스토리지 과부하</b> (현재: {int(storage_util)})<br>"
+    
+    # 급증 임박
+    if features.get('surge_imminent', 0) == 1:
+        analysis_text += "• 🚨 <b>급증 임박 신호</b> 발생!<br>"
+    
+    if not analysis_text:
+        analysis_text = "• 현재 정상 범위 내에서 운영 중입니다."
+    
+    return graph_html, analysis_text
 
 def generate_html_dashboard(result):
     """3개 모델 비교 HTML 대시보드 생성"""
     
-    # 시퀀스 그래프 이미지 생성
-    graph_image = create_sequence_graph(result['SEQUENCE_DATA'])
+    # 시퀀스 그래프 생성
+    graph_html, analysis_text = create_sequence_graph(result['SEQUENCE_DATA'], 
+                                                       {**result['KEY_FACTORS'], 
+                                                        **result['MOMENTUM_SIGNAL'],
+                                                        'target_acceleration': result['MOMENTUM_SIGNAL']['acceleration'],
+                                                        'target_is_rising': 1 if result['MOMENTUM_SIGNAL']['is_rising'] else 0,
+                                                        'target_rapid_rise': 1 if result['MOMENTUM_SIGNAL']['rapid_rise'] else 0,
+                                                        'surge_imminent': 1 if result['MOMENTUM_SIGNAL']['surge_imminent'] else 0,
+                                                        'HUBROOMTOTAL_last_value': result['KEY_FACTORS']['HUBROOMTOTAL'],
+                                                        'total_cmd': result['KEY_FACTORS']['TOTAL_CMD'],
+                                                        'M16A_3F_STORAGE_UTIL_last_value': result['KEY_FACTORS']['STORAGE_UTIL']})
     
     # 원인 분석 HTML
     causes = result['CAUSE_ANALYSIS'].split(' + ')
@@ -751,18 +876,29 @@ def generate_html_dashboard(result):
         </div>
 
         <div class="card" style="margin-bottom: 20px;">
-            <div class="card-title">📈 30분 시퀀스 추이 분석</div>
-            <div style="background: #f7fafc; border-radius: 10px; padding: 20px;">
-                <img src="{graph_image}" style="width: 100%; height: auto; border-radius: 8px;">
+            <div class="card-title" style="cursor: pointer; user-select: none; display: flex; justify-content: space-between; align-items: center;" onclick="toggleGraph()">
+                <span>📈 30분 시퀀스 추이 분석 (클릭하여 펼치기/접기)</span>
+                <span id="graph-toggle" style="font-size: 24px;">▼</span>
             </div>
-            <div style="margin-top: 15px; padding: 15px; background: #fff3cd; border-radius: 8px; border-left: 4px solid #ffc107;">
-                <strong>📍 그래프 해석:</strong>
-                <ul style="margin: 10px 0 0 20px; color: #856404;">
-                    <li>파란색 선: 30분간 실제 값 추이</li>
-                    <li>빨간 점선 (300): 위험 기준선</li>
-                    <li>주황 점선 (280): 경고 기준선</li>
-                    <li>배경색: 초록(안전) → 노랑(주의) → 빨강(위험)</li>
-                </ul>
+            <div id="graph-container" style="display: none; margin-top: 15px;">
+                <div style="background: #f7fafc; border-radius: 10px; padding: 20px;">
+                    {graph_html}
+                </div>
+                <div style="margin-top: 15px; padding: 15px; background: #e6f7ff; border-radius: 8px; border-left: 4px solid #1890ff;">
+                    <strong>🔍 증가 원인 분석:</strong>
+                    <div style="margin-top: 10px; color: #0050b3; line-height: 1.8;">
+                        {analysis_text}
+                    </div>
+                </div>
+                <div style="margin-top: 15px; padding: 15px; background: #fff3cd; border-radius: 8px; border-left: 4px solid #ffc107;">
+                    <strong>📍 그래프 사용법:</strong>
+                    <ul style="margin: 10px 0 0 20px; color: #856404;">
+                        <li><b>호버:</b> 마우스를 올리면 해당 시점의 상세 데이터 표시</li>
+                        <li><b>클릭 & 드래그:</b> 특정 영역 확대</li>
+                        <li><b>더블클릭:</b> 원래 크기로 복원</li>
+                        <li><b>상단 버튼:</b> 줌/팬/저장 기능 사용 가능</li>
+                    </ul>
+                </div>
             </div>
         </div>
 
@@ -771,6 +907,20 @@ def generate_html_dashboard(result):
             <p>Powered by XGBoost + Momentum Features</p>
         </div>
     </div>
+    <script>
+        function toggleGraph() {{
+            const container = document.getElementById('graph-container');
+            const toggle = document.getElementById('graph-toggle');
+            
+            if (container.style.display === 'none') {{
+                container.style.display = 'block';
+                toggle.textContent = '▲';
+            }} else {{
+                container.style.display = 'none';
+                toggle.textContent = '▼';
+            }}
+        }}
+    </script>
 </body>
 </html>"""
     
