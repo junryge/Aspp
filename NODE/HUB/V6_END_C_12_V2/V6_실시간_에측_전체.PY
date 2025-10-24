@@ -13,7 +13,11 @@ import pickle
 from datetime import datetime, timedelta
 import os
 import webbrowser
-import json
+import matplotlib.pyplot as plt
+import matplotlib
+matplotlib.use('Agg')  # GUI 없이 실행
+import io
+import base64
 
 # 경로 설정
 script_dir = os.path.dirname(os.path.abspath(__file__))
@@ -328,8 +332,63 @@ def predict_all_horizons():
     
     return {**common_info, "predictions": results}, None
 
+def create_sequence_graph(seq_data):
+    """30분 시퀀스 그래프를 base64 이미지로 생성"""
+    # 한글 폰트 설정
+    plt.rcParams['font.family'] = 'DejaVu Sans'
+    plt.rcParams['axes.unicode_minus'] = False
+    
+    plt.figure(figsize=(14, 6), facecolor='white')
+    
+    # 시간 라벨 생성
+    x_labels = [f"-{29-i}분" for i in range(30)]
+    x_pos = range(30)
+    
+    # 라인 그래프
+    plt.plot(x_pos, seq_data, color='#4299e1', linewidth=3, marker='o', 
+             markersize=5, markerfacecolor='#4299e1', markeredgecolor='white', 
+             markeredgewidth=2, label='CURRENT_M16A_3F_JOB_2')
+    
+    # 배경 색상 (구간별)
+    plt.axhspan(300, max(seq_data) + 20, alpha=0.2, color='#fed7d7', label='위험 (300+)')
+    plt.axhspan(280, 300, alpha=0.2, color='#feebc8', label='경고 (280-300)')
+    plt.axhspan(min(seq_data) - 20, 280, alpha=0.1, color='#c6f6d5', label='안전 (<280)')
+    
+    # 기준선
+    plt.axhline(y=300, color='#f56565', linestyle='--', linewidth=2, label='위험선 (300)')
+    plt.axhline(y=280, color='#ed8936', linestyle='--', linewidth=2, label='경고선 (280)')
+    
+    # 축 설정
+    plt.xlabel('시간 (분 전)', fontsize=12, fontweight='bold')
+    plt.ylabel('Job Queue Level', fontsize=12, fontweight='bold')
+    plt.title('30분 시퀀스 추이 분석', fontsize=14, fontweight='bold', pad=20)
+    
+    # x축 라벨
+    plt.xticks(x_pos[::3], [x_labels[i] for i in range(0, 30, 3)], rotation=45)
+    
+    # 그리드
+    plt.grid(True, alpha=0.3, linestyle=':', linewidth=0.5)
+    
+    # 범례
+    plt.legend(loc='upper left', fontsize=10, framealpha=0.9)
+    
+    # 여백 조정
+    plt.tight_layout()
+    
+    # 이미지를 base64로 인코딩
+    buffer = io.BytesIO()
+    plt.savefig(buffer, format='png', dpi=100, bbox_inches='tight')
+    buffer.seek(0)
+    image_base64 = base64.b64encode(buffer.read()).decode()
+    plt.close()
+    
+    return f"data:image/png;base64,{image_base64}"
+
 def generate_html_dashboard(result):
     """3개 모델 비교 HTML 대시보드 생성"""
+    
+    # 시퀀스 그래프 이미지 생성
+    graph_image = create_sequence_graph(result['SEQUENCE_DATA'])
     
     # 원인 분석 HTML
     causes = result['CAUSE_ANALYSIS'].split(' + ')
@@ -419,8 +478,6 @@ def generate_html_dashboard(result):
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>V6 실시간 예측 대시보드 - 3개 모델 비교</title>
-    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-annotation@3.0.1/dist/chartjs-plugin-annotation.min.js"></script>
     <style>
         * {{ margin: 0; padding: 0; box-sizing: border-box; }}
         body {{
@@ -696,7 +753,7 @@ def generate_html_dashboard(result):
         <div class="card" style="margin-bottom: 20px;">
             <div class="card-title">📈 30분 시퀀스 추이 분석</div>
             <div style="background: #f7fafc; border-radius: 10px; padding: 20px;">
-                <canvas id="sequenceChart" style="max-height: 400px;"></canvas>
+                <img src="{graph_image}" style="width: 100%; height: auto; border-radius: 8px;">
             </div>
             <div style="margin-top: 15px; padding: 15px; background: #fff3cd; border-radius: 8px; border-left: 4px solid #ffc107;">
                 <strong>📍 그래프 해석:</strong>
@@ -714,212 +771,6 @@ def generate_html_dashboard(result):
             <p>Powered by XGBoost + Momentum Features</p>
         </div>
     </div>
-    <script>
-        // 시퀀스 데이터
-        const sequenceData = {json.dumps(result['SEQUENCE_DATA'])};
-        const labels = Array.from({{length: 30}}, (_, i) => `-${{29-i}}분`);
-        
-        // 배경 색상 플러그인
-        const bgColorPlugin = {{
-            id: 'customCanvasBackgroundColor',
-            beforeDraw: (chart) => {{
-                const {{ctx, chartArea: {{top, bottom, left, right, width, height}}}} = chart;
-                const yScale = chart.scales.y;
-                
-                ctx.save();
-                
-                // 위험 구간 (300 이상) - 빨강
-                const y300 = yScale.getPixelForValue(300);
-                if (y300 > top) {{
-                    ctx.fillStyle = 'rgba(254, 215, 215, 0.3)';
-                    ctx.fillRect(left, top, width, y300 - top);
-                }}
-                
-                // 경고 구간 (280-300) - 주황
-                const y280 = yScale.getPixelForValue(280);
-                if (y280 > y300 && y300 > top) {{
-                    ctx.fillStyle = 'rgba(254, 235, 200, 0.3)';
-                    ctx.fillRect(left, y300, width, y280 - y300);
-                }} else if (y280 > top) {{
-                    ctx.fillStyle = 'rgba(254, 235, 200, 0.3)';
-                    ctx.fillRect(left, top, width, y280 - top);
-                }}
-                
-                // 안전 구간 (280 미만) - 초록
-                if (y280 < bottom) {{
-                    ctx.fillStyle = 'rgba(198, 246, 213, 0.2)';
-                    ctx.fillRect(left, y280, width, bottom - y280);
-                }}
-                
-                ctx.restore();
-            }}
-        }};
-        
-        // 그래프 그리기
-        const ctx = document.getElementById('sequenceChart').getContext('2d');
-        const chart = new Chart(ctx, {{
-            type: 'line',
-            data: {{
-                labels: labels,
-                datasets: [{{
-                    label: 'CURRENT_M16A_3F_JOB_2',
-                    data: sequenceData,
-                    borderColor: '#4299e1',
-                    backgroundColor: 'rgba(66, 153, 225, 0.1)',
-                    borderWidth: 3,
-                    tension: 0.4,
-                    fill: true,
-                    pointRadius: 4,
-                    pointHoverRadius: 6,
-                    pointBackgroundColor: '#4299e1',
-                    pointBorderColor: '#fff',
-                    pointBorderWidth: 2
-                }}]
-            }},
-            plugins: [bgColorPlugin],
-            options: {{
-                responsive: true,
-                maintainAspectRatio: true,
-                plugins: {{
-                    legend: {{
-                        display: true,
-                        position: 'top',
-                        labels: {{
-                            font: {{
-                                size: 14,
-                                weight: 'bold'
-                            }}
-                        }}
-                    }},
-                    tooltip: {{
-                        backgroundColor: 'rgba(0,0,0,0.8)',
-                        titleFont: {{ size: 14, weight: 'bold' }},
-                        bodyFont: {{ size: 13 }},
-                        padding: 12,
-                        displayColors: false,
-                        callbacks: {{
-                            title: function(context) {{
-                                return context[0].label;
-                            }},
-                            label: function(context) {{
-                                const value = context.parsed.y;
-                                let status = '정상';
-                                if (value >= 300) status = '위험';
-                                else if (value >= 280) status = '경고';
-                                return `값: ${{value.toFixed(1)}} [${{status}}]`;
-                            }}
-                        }}
-                    }},
-                    annotation: {{
-                        annotations: {{
-                            line1: {{
-                                type: 'line',
-                                yMin: 300,
-                                yMax: 300,
-                                borderColor: '#f56565',
-                                borderWidth: 2,
-                                borderDash: [10, 5],
-                                label: {{
-                                    content: '위험선 (300)',
-                                    enabled: true,
-                                    position: 'end',
-                                    backgroundColor: '#f56565',
-                                    color: 'white',
-                                    font: {{ weight: 'bold' }}
-                                }}
-                            }},
-                            line2: {{
-                                type: 'line',
-                                yMin: 280,
-                                yMax: 280,
-                                borderColor: '#ed8936',
-                                borderWidth: 2,
-                                borderDash: [10, 5],
-                                label: {{
-                                    content: '경고선 (280)',
-                                    enabled: true,
-                                    position: 'end',
-                                    backgroundColor: '#ed8936',
-                                    color: 'white',
-                                    font: {{ weight: 'bold' }}
-                                }}
-                            }}
-                        }}
-                    }}
-                }},
-                scales: {{
-                    y: {{
-                        beginAtZero: false,
-                        grid: {{
-                            color: 'rgba(0, 0, 0, 0.05)'
-                        }},
-                        ticks: {{
-                            font: {{ size: 12 }},
-                            callback: function(value) {{
-                                return value.toFixed(0);
-                            }}
-                        }},
-                        title: {{
-                            display: true,
-                            text: 'Job Queue Level',
-                            font: {{ size: 14, weight: 'bold' }}
-                        }}
-                    }},
-                    x: {{
-                        grid: {{
-                            display: false
-                        }},
-                        ticks: {{
-                            font: {{ size: 11 }},
-                            maxRotation: 45,
-                            minRotation: 45
-                        }},
-                        title: {{
-                            display: true,
-                            text: '시간 (분 전)',
-                            font: {{ size: 14, weight: 'bold' }}
-                        }}
-                    }}
-                }}
-            }}
-        }});
-
-        // 배경 색상 플러그인
-        const bgColorPlugin = {{
-            id: 'customCanvasBackgroundColor',
-            beforeDraw: (chart) => {{
-                const {{ctx, chartArea: {{top, bottom, left, right, width, height}}}} = chart;
-                const yScale = chart.scales.y;
-                
-                ctx.save();
-                
-                // 위험 구간 (300 이상) - 빨강
-                const y300 = yScale.getPixelForValue(300);
-                if (y300 > top) {{
-                    ctx.fillStyle = 'rgba(254, 215, 215, 0.3)';
-                    ctx.fillRect(left, top, width, y300 - top);
-                }}
-                
-                // 경고 구간 (280-300) - 주황
-                const y280 = yScale.getPixelForValue(280);
-                if (y280 > y300 && y300 > top) {{
-                    ctx.fillStyle = 'rgba(254, 235, 200, 0.3)';
-                    ctx.fillRect(left, y300, width, y280 - y300);
-                }} else if (y280 > top) {{
-                    ctx.fillStyle = 'rgba(254, 235, 200, 0.3)';
-                    ctx.fillRect(left, top, width, y280 - top);
-                }}
-                
-                // 안전 구간 (280 미만) - 초록
-                if (y280 < bottom) {{
-                    ctx.fillStyle = 'rgba(198, 246, 213, 0.2)';
-                    ctx.fillRect(left, y280, width, bottom - y280);
-                }}
-                
-                ctx.restore();
-            }}
-        }};
-    </script>
 </body>
 </html>"""
     
