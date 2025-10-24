@@ -1,100 +1,100 @@
-Feature명,카테고리,데이터타입,계산식,실제계산식,설명,목적,예시,중요도,급증예측기여,원천컬럼
-target_mean,타겟_기본통계,float,np.mean(seq_target),(값1+값2+...+값30)÷30,30분 시퀀스의 평균값,전반적인 수준 파악,"시퀀스=[280,285,290] → 평균=285",중,중,CURRENT_M16A_3F_JOB_2
-target_std,타겟_기본통계,float,np.std(seq_target),√[(각값-평균)²의합÷30],30분 시퀀스의 표준편차,변동성 파악,"안정적이면 낮은 값, 급변하면 높은 값",중,중,CURRENT_M16A_3F_JOB_2
-target_max,타겟_기본통계,float,np.max(seq_target),30개 값 중 최대값,30분 시퀀스의 최대값,과거 피크 수준 파악,"시퀀스=[280,290,285] → 최대=290",상,상,CURRENT_M16A_3F_JOB_2
-target_min,타겟_기본통계,float,np.min(seq_target),30개 값 중 최소값,30분 시퀀스의 최소값,최저 수준 파악,"시퀀스=[280,290,285] → 최소=280",하,하,CURRENT_M16A_3F_JOB_2
-target_last_value,타겟_기본통계,float,seq_target[-1],시퀀스의 마지막 값,현재 시점의 값 (시퀀스 마지막),현재 상태 파악,"시퀀스=[...280,285,290] → 현재값=290",상,상,CURRENT_M16A_3F_JOB_2
-target_last_5_mean,타겟_기본통계,float,np.mean(seq_target[-5:]),(최근5개값의합)÷5,최근 5분간 평균값,단기 추세 파악,"최근5분=[285,287,290,292,295] → 평균=289.8",상,상,CURRENT_M16A_3F_JOB_2
-target_slope,타겟_기본통계,float,"np.polyfit(np.arange(30), seq_target, 1)[0]",선형회귀 기울기 계수,30분간 선형 기울기 (증가/감소 추세),전체 추세 방향 파악,"양수=상승추세, 음수=하락추세, 0=평탄",상,상,CURRENT_M16A_3F_JOB_2
-target_acceleration,Momentum_급증패턴,float,(seq_target[-5:].mean() - seq_target[-10:-5].mean()) / 5,(최근5분평균 - 그전5분평균)÷5,가속도: 최근5분평균과 그전5분평균의 변화율,급증 직전의 가속 패턴 포착,"최근5분평균=297, 그전5분평균=289 → (297-289)/5=1.6 (강한가속!)",최상,최상,CURRENT_M16A_3F_JOB_2
-target_is_rising,Momentum_급증패턴,int (0 or 1),1 if seq_target[-1] > seq_target[-5] else 0,현재값 > 5분전값 이면 1 아니면 0,현재 상승 중 여부 (현재값 > 5분전값),상승 추세 감지,"현재값=300, 5분전값=290 → 300>290 → 1 (상승중)",상,상,CURRENT_M16A_3F_JOB_2
-target_rapid_rise,Momentum_급증패턴,int (0 or 1),1 if (seq_target[-1] - seq_target[-5]) > 10 else 0,(현재값 - 5분전값) > 10 이면 1 아니면 0,5분간 급등 여부 (10 이상 상승),단기간 급등 패턴 감지,"현재값=300, 5분전값=285 → 300-285=15>10 → 1 (급등!)",최상,최상,CURRENT_M16A_3F_JOB_2
-target_last_10_mean,Momentum_급증패턴,float,np.mean(seq_target[-10:]),(최근10개값의합)÷10,최근 10분간 평균값,중단기 추세 파악,최근10분평균=296.2로 높으면 급증 가능성,상,상,CURRENT_M16A_3F_JOB_2
-M16A_3F_STORAGE_UTIL_mean,Storage_기본통계,float,"np.mean(df[""M16A_3F_STORAGE_UTIL""].iloc[i-30:i])",(값1+값2+...+값30)÷30,M16A_3F_STORAGE_UTIL 30분 평균,스토리지 사용률 평균 수준,평균=205 → 스토리지 과부하 상태,상,상,M16A_3F_STORAGE_UTIL
-M16A_3F_STORAGE_UTIL_std,Storage_기본통계,float,"np.std(df[""M16A_3F_STORAGE_UTIL""].iloc[i-30:i])",√[(각값-평균)²의합÷30],M16A_3F_STORAGE_UTIL 30분 표준편차,스토리지 사용률 변동성,"std=2.5 → 안정적, std=10 → 변동심함",중,중,M16A_3F_STORAGE_UTIL
-M16A_3F_STORAGE_UTIL_max,Storage_기본통계,float,"np.max(df[""M16A_3F_STORAGE_UTIL""].iloc[i-30:i])",30개 값 중 최대값,M16A_3F_STORAGE_UTIL 30분 최대값,스토리지 피크 사용률,max=207 → 위험 수준 도달,상,상,M16A_3F_STORAGE_UTIL
-M16A_3F_STORAGE_UTIL_min,Storage_기본통계,float,"np.min(df[""M16A_3F_STORAGE_UTIL""].iloc[i-30:i])",30개 값 중 최소값,M16A_3F_STORAGE_UTIL 30분 최소값,스토리지 최저 사용률,min=195 → 안전 범위,하,하,M16A_3F_STORAGE_UTIL
-M16A_3F_STORAGE_UTIL_last_value,Storage_기본통계,float,"df[""M16A_3F_STORAGE_UTIL""].iloc[i-1]",현재 시점의 값,M16A_3F_STORAGE_UTIL 현재값 (마지막),현재 스토리지 상태,last=207 → 즉시 위험!,최상,최상,M16A_3F_STORAGE_UTIL
-M16A_3F_STORAGE_UTIL_last_5_mean,Storage_기본통계,float,"np.mean(df[""M16A_3F_STORAGE_UTIL""].iloc[i-5:i])",(최근5개값의합)÷5,M16A_3F_STORAGE_UTIL 최근 5분 평균,단기 스토리지 추세,last_5_mean=206 → 최근 높은 상태 유지,상,상,M16A_3F_STORAGE_UTIL
-M16A_3F_STORAGE_UTIL_slope,Storage_기본통계,float,"np.polyfit(np.arange(30), df[""M16A_3F_STORAGE_UTIL""].iloc[i-30:i], 1)[0]",선형회귀 기울기 계수,M16A_3F_STORAGE_UTIL 30분 기울기,스토리지 증가/감소 추세,slope=0.5 → 계속 증가 중,상,상,M16A_3F_STORAGE_UTIL
-CD_M163FSTORAGEUSE_mean,FS_Storage_기본통계,float,"np.mean(df[""CD_M163FSTORAGEUSE""].iloc[i-30:i])",(값1+값2+...+값30)÷30,CD_M163FSTORAGEUSE 30분 평균,FS 저장공간 사용 추세,CD_M163FSTORAGEUTIL 평균=8 → 저장공간 부족,상,상,CD_M163FSTORAGEUSE
-CD_M163FSTORAGEUSE_std,FS_Storage_기본통계,float,"np.std(df[""CD_M163FSTORAGEUSE""].iloc[i-30:i])",√[(각값-평균)²의합÷30],CD_M163FSTORAGEUSE 30분 표준편차,FS 저장공간 변동성,std 높으면 불안정,중,중,CD_M163FSTORAGEUSE
-CD_M163FSTORAGEUSE_max,FS_Storage_기본통계,float,"np.max(df[""CD_M163FSTORAGEUSE""].iloc[i-30:i])",30개 값 중 최대값,CD_M163FSTORAGEUSE 30분 최대값,FS 저장공간 피크 사용,UTIL max=10 → 심각한 부족,상,상,CD_M163FSTORAGEUSE
-CD_M163FSTORAGEUSE_min,FS_Storage_기본통계,float,"np.min(df[""CD_M163FSTORAGEUSE""].iloc[i-30:i])",30개 값 중 최소값,CD_M163FSTORAGEUSE 30분 최소값,FS 저장공간 최저 사용,UTIL min=5 → 여유 있었음,하,하,CD_M163FSTORAGEUSE
-CD_M163FSTORAGEUSE_last_value,FS_Storage_기본통계,float,"df[""CD_M163FSTORAGEUSE""].iloc[i-1]",현재 시점의 값,CD_M163FSTORAGEUSE 현재값,현재 FS 저장공간 상태,UTIL last=10 → 즉시 확장 필요!,최상,최상,CD_M163FSTORAGEUSE
-CD_M163FSTORAGEUSE_last_5_mean,FS_Storage_기본통계,float,"np.mean(df[""CD_M163FSTORAGEUSE""].iloc[i-5:i])",(최근5개값의합)÷5,CD_M163FSTORAGEUSE 최근 5분 평균,단기 FS 저장공간 추세,UTIL last_5_mean=9 → 최근 부족 상태,상,상,CD_M163FSTORAGEUSE
-CD_M163FSTORAGEUSE_slope,FS_Storage_기본통계,float,"np.polyfit(np.arange(30), df[""CD_M163FSTORAGEUSE""].iloc[i-30:i], 1)[0]",선형회귀 기울기 계수,CD_M163FSTORAGEUSE 30분 기울기,FS 저장공간 증가/감소 추세,UTIL slope=0.3 → 계속 악화 중,상,상,CD_M163FSTORAGEUSE
-CD_M163FSTORAGETOTAL_mean,FS_Storage_기본통계,float,"np.mean(df[""CD_M163FSTORAGETOTAL""].iloc[i-30:i])",(값1+값2+...+값30)÷30,CD_M163FSTORAGETOTAL 30분 평균,FS 저장공간 사용 추세,CD_M163FSTORAGEUTIL 평균=8 → 저장공간 부족,상,상,CD_M163FSTORAGETOTAL
-CD_M163FSTORAGETOTAL_std,FS_Storage_기본통계,float,"np.std(df[""CD_M163FSTORAGETOTAL""].iloc[i-30:i])",√[(각값-평균)²의합÷30],CD_M163FSTORAGETOTAL 30분 표준편차,FS 저장공간 변동성,std 높으면 불안정,중,중,CD_M163FSTORAGETOTAL
-CD_M163FSTORAGETOTAL_max,FS_Storage_기본통계,float,"np.max(df[""CD_M163FSTORAGETOTAL""].iloc[i-30:i])",30개 값 중 최대값,CD_M163FSTORAGETOTAL 30분 최대값,FS 저장공간 피크 사용,UTIL max=10 → 심각한 부족,상,상,CD_M163FSTORAGETOTAL
-CD_M163FSTORAGETOTAL_min,FS_Storage_기본통계,float,"np.min(df[""CD_M163FSTORAGETOTAL""].iloc[i-30:i])",30개 값 중 최소값,CD_M163FSTORAGETOTAL 30분 최소값,FS 저장공간 최저 사용,UTIL min=5 → 여유 있었음,하,하,CD_M163FSTORAGETOTAL
-CD_M163FSTORAGETOTAL_last_value,FS_Storage_기본통계,float,"df[""CD_M163FSTORAGETOTAL""].iloc[i-1]",현재 시점의 값,CD_M163FSTORAGETOTAL 현재값,현재 FS 저장공간 상태,UTIL last=10 → 즉시 확장 필요!,최상,최상,CD_M163FSTORAGETOTAL
-CD_M163FSTORAGETOTAL_last_5_mean,FS_Storage_기본통계,float,"np.mean(df[""CD_M163FSTORAGETOTAL""].iloc[i-5:i])",(최근5개값의합)÷5,CD_M163FSTORAGETOTAL 최근 5분 평균,단기 FS 저장공간 추세,UTIL last_5_mean=9 → 최근 부족 상태,상,상,CD_M163FSTORAGETOTAL
-CD_M163FSTORAGETOTAL_slope,FS_Storage_기본통계,float,"np.polyfit(np.arange(30), df[""CD_M163FSTORAGETOTAL""].iloc[i-30:i], 1)[0]",선형회귀 기울기 계수,CD_M163FSTORAGETOTAL 30분 기울기,FS 저장공간 증가/감소 추세,UTIL slope=0.3 → 계속 악화 중,상,상,CD_M163FSTORAGETOTAL
-CD_M163FSTORAGEUTIL_mean,FS_Storage_기본통계,float,"np.mean(df[""CD_M163FSTORAGEUTIL""].iloc[i-30:i])",(값1+값2+...+값30)÷30,CD_M163FSTORAGEUTIL 30분 평균,FS 저장공간 사용 추세,CD_M163FSTORAGEUTIL 평균=8 → 저장공간 부족,상,상,CD_M163FSTORAGEUTIL
-CD_M163FSTORAGEUTIL_std,FS_Storage_기본통계,float,"np.std(df[""CD_M163FSTORAGEUTIL""].iloc[i-30:i])",√[(각값-평균)²의합÷30],CD_M163FSTORAGEUTIL 30분 표준편차,FS 저장공간 변동성,std 높으면 불안정,중,중,CD_M163FSTORAGEUTIL
-CD_M163FSTORAGEUTIL_max,FS_Storage_기본통계,float,"np.max(df[""CD_M163FSTORAGEUTIL""].iloc[i-30:i])",30개 값 중 최대값,CD_M163FSTORAGEUTIL 30분 최대값,FS 저장공간 피크 사용,UTIL max=10 → 심각한 부족,상,상,CD_M163FSTORAGEUTIL
-CD_M163FSTORAGEUTIL_min,FS_Storage_기본통계,float,"np.min(df[""CD_M163FSTORAGEUTIL""].iloc[i-30:i])",30개 값 중 최소값,CD_M163FSTORAGEUTIL 30분 최소값,FS 저장공간 최저 사용,UTIL min=5 → 여유 있었음,하,하,CD_M163FSTORAGEUTIL
-CD_M163FSTORAGEUTIL_last_value,FS_Storage_기본통계,float,"df[""CD_M163FSTORAGEUTIL""].iloc[i-1]",현재 시점의 값,CD_M163FSTORAGEUTIL 현재값,현재 FS 저장공간 상태,UTIL last=10 → 즉시 확장 필요!,최상,최상,CD_M163FSTORAGEUTIL
-CD_M163FSTORAGEUTIL_last_5_mean,FS_Storage_기본통계,float,"np.mean(df[""CD_M163FSTORAGEUTIL""].iloc[i-5:i])",(최근5개값의합)÷5,CD_M163FSTORAGEUTIL 최근 5분 평균,단기 FS 저장공간 추세,UTIL last_5_mean=9 → 최근 부족 상태,상,상,CD_M163FSTORAGEUTIL
-CD_M163FSTORAGEUTIL_slope,FS_Storage_기본통계,float,"np.polyfit(np.arange(30), df[""CD_M163FSTORAGEUTIL""].iloc[i-30:i], 1)[0]",선형회귀 기울기 계수,CD_M163FSTORAGEUTIL 30분 기울기,FS 저장공간 증가/감소 추세,UTIL slope=0.3 → 계속 악화 중,상,상,CD_M163FSTORAGEUTIL
-HUBROOMTOTAL_mean,Hub_기본통계,float,"np.mean(df[""HUBROOMTOTAL""].iloc[i-30:i])",(값1+값2+...+값30)÷30,HUBROOMTOTAL 30분 평균,HUB 여유공간 평균 수준,평균=605 → 병목 위험 구간,최상,최상,HUBROOMTOTAL
-HUBROOMTOTAL_std,Hub_기본통계,float,"np.std(df[""HUBROOMTOTAL""].iloc[i-30:i])",√[(각값-평균)²의합÷30],HUBROOMTOTAL 30분 표준편차,HUB 여유공간 변동성,std 높으면 불안정한 상태,중,중,HUBROOMTOTAL
-HUBROOMTOTAL_max,Hub_기본통계,float,"np.max(df[""HUBROOMTOTAL""].iloc[i-30:i])",30개 값 중 최대값,HUBROOMTOTAL 30분 최대값,HUB 여유공간 최대,max=650 → 여유로웠던 시점 있음,중,중,HUBROOMTOTAL
-HUBROOMTOTAL_min,Hub_기본통계,float,"np.min(df[""HUBROOMTOTAL""].iloc[i-30:i])",30개 값 중 최소값,HUBROOMTOTAL 30분 최소값,HUB 여유공간 최소 (가장 위험했던 시점),min=580 → 심각한 병목 있었음,상,상,HUBROOMTOTAL
-HUBROOMTOTAL_last_value,Hub_기본통계,float,"df[""HUBROOMTOTAL""].iloc[i-1]",현재 시점의 값,HUBROOMTOTAL 현재값,현재 HUB 여유공간 상태,last=605 → 현재 병목 위험!,최상,최상,HUBROOMTOTAL
-HUBROOMTOTAL_last_5_mean,Hub_기본통계,float,"np.mean(df[""HUBROOMTOTAL""].iloc[i-5:i])",(최근5개값의합)÷5,HUBROOMTOTAL 최근 5분 평균,단기 HUB 여유공간 추세,last_5_mean=600 → 최근 계속 병목,최상,최상,HUBROOMTOTAL
-HUBROOMTOTAL_slope,Hub_기본통계,float,"np.polyfit(np.arange(30), df[""HUBROOMTOTAL""].iloc[i-30:i], 1)[0]",선형회귀 기울기 계수,HUBROOMTOTAL 30분 기울기,HUB 여유공간 증가/감소 추세,slope=-2 → 계속 악화 중,최상,최상,HUBROOMTOTAL
-M16A_3F_CMD_mean,CMD_기본통계,float,"np.mean(df[""M16A_3F_CMD""].iloc[i-30:i])",(값1+값2+...+값30)÷30,M16A_3F_CMD 30분 평균,CMD 처리량 평균 수준,평균=210 → CMD 부족,최상,최상,M16A_3F_CMD
-M16A_3F_CMD_std,CMD_기본통계,float,"np.std(df[""M16A_3F_CMD""].iloc[i-30:i])",√[(각값-평균)²의합÷30],M16A_3F_CMD 30분 표준편차,CMD 처리량 변동성,std 높으면 불안정,중,중,M16A_3F_CMD
-M16A_3F_CMD_max,CMD_기본통계,float,"np.max(df[""M16A_3F_CMD""].iloc[i-30:i])",30개 값 중 최대값,M16A_3F_CMD 30분 최대값,CMD 처리 피크,max=250 → 여유로웠던 시점,중,중,M16A_3F_CMD
-M16A_3F_CMD_min,CMD_기본통계,float,"np.min(df[""M16A_3F_CMD""].iloc[i-30:i])",30개 값 중 최소값,M16A_3F_CMD 30분 최소값,CMD 최저 처리량,min=190 → 부족했던 시점,상,상,M16A_3F_CMD
-M16A_3F_CMD_last_value,CMD_기본통계,float,"df[""M16A_3F_CMD""].iloc[i-1]",현재 시점의 값,M16A_3F_CMD 현재값,현재 CMD 처리 상태,last=200 → 현재 부족!,최상,최상,M16A_3F_CMD
-M16A_3F_CMD_last_5_mean,CMD_기본통계,float,"np.mean(df[""M16A_3F_CMD""].iloc[i-5:i])",(최근5개값의합)÷5,M16A_3F_CMD 최근 5분 평균,단기 CMD 처리 추세,last_5_mean=205 → 최근 계속 부족,상,상,M16A_3F_CMD
-M16A_3F_CMD_slope,CMD_기본통계,float,"np.polyfit(np.arange(30), df[""M16A_3F_CMD""].iloc[i-30:i], 1)[0]",선형회귀 기울기 계수,M16A_3F_CMD 30분 기울기,CMD 처리량 증가/감소 추세,slope=-1 → 계속 감소 중 (위험),상,상,M16A_3F_CMD
-M16A_6F_TO_HUB_CMD_mean,CMD_기본통계,float,"np.mean(df[""M16A_6F_TO_HUB_CMD""].iloc[i-30:i])",(값1+값2+...+값30)÷30,M16A_6F_TO_HUB_CMD 30분 평균,CMD 처리량 평균 수준,평균=210 → CMD 부족,최상,최상,M16A_6F_TO_HUB_CMD
-M16A_6F_TO_HUB_CMD_std,CMD_기본통계,float,"np.std(df[""M16A_6F_TO_HUB_CMD""].iloc[i-30:i])",√[(각값-평균)²의합÷30],M16A_6F_TO_HUB_CMD 30분 표준편차,CMD 처리량 변동성,std 높으면 불안정,중,중,M16A_6F_TO_HUB_CMD
-M16A_6F_TO_HUB_CMD_max,CMD_기본통계,float,"np.max(df[""M16A_6F_TO_HUB_CMD""].iloc[i-30:i])",30개 값 중 최대값,M16A_6F_TO_HUB_CMD 30분 최대값,CMD 처리 피크,max=250 → 여유로웠던 시점,중,중,M16A_6F_TO_HUB_CMD
-M16A_6F_TO_HUB_CMD_min,CMD_기본통계,float,"np.min(df[""M16A_6F_TO_HUB_CMD""].iloc[i-30:i])",30개 값 중 최소값,M16A_6F_TO_HUB_CMD 30분 최소값,CMD 최저 처리량,min=190 → 부족했던 시점,상,상,M16A_6F_TO_HUB_CMD
-M16A_6F_TO_HUB_CMD_last_value,CMD_기본통계,float,"df[""M16A_6F_TO_HUB_CMD""].iloc[i-1]",현재 시점의 값,M16A_6F_TO_HUB_CMD 현재값,현재 CMD 처리 상태,last=200 → 현재 부족!,최상,최상,M16A_6F_TO_HUB_CMD
-M16A_6F_TO_HUB_CMD_last_5_mean,CMD_기본통계,float,"np.mean(df[""M16A_6F_TO_HUB_CMD""].iloc[i-5:i])",(최근5개값의합)÷5,M16A_6F_TO_HUB_CMD 최근 5분 평균,단기 CMD 처리 추세,last_5_mean=205 → 최근 계속 부족,상,상,M16A_6F_TO_HUB_CMD
-M16A_6F_TO_HUB_CMD_slope,CMD_기본통계,float,"np.polyfit(np.arange(30), df[""M16A_6F_TO_HUB_CMD""].iloc[i-30:i], 1)[0]",선형회귀 기울기 계수,M16A_6F_TO_HUB_CMD 30분 기울기,CMD 처리량 증가/감소 추세,slope=-1 → 계속 감소 중 (위험),상,상,M16A_6F_TO_HUB_CMD
-M16A_6F_TO_HUB_JOB_mean,Inflow_기본통계,float,"np.mean(df[""M16A_6F_TO_HUB_JOB""].iloc[i-30:i])",(값1+값2+...+값30)÷30,M16A_6F_TO_HUB_JOB 30분 평균 유입량,HUB로 유입되는 작업량,평균 높으면 유입 과다,상,상,M16A_6F_TO_HUB_JOB
-M16A_6F_TO_HUB_JOB_last_value,Inflow_기본통계,float,"df[""M16A_6F_TO_HUB_JOB""].iloc[i-1]",현재 시점의 값,M16A_6F_TO_HUB_JOB 현재 유입량,현재 유입 상태,last 높으면 현재 유입 많음,최상,최상,M16A_6F_TO_HUB_JOB
-M16A_6F_TO_HUB_JOB_slope,Inflow_기본통계,float,"np.polyfit(np.arange(30), df[""M16A_6F_TO_HUB_JOB""].iloc[i-30:i], 1)[0]",선형회귀 기울기 계수,M16A_6F_TO_HUB_JOB 30분 기울기,유입량 증가/감소 추세,slope>0 → 유입 증가 중,상,상,M16A_6F_TO_HUB_JOB
-M16A_2F_TO_HUB_JOB2_mean,Inflow_기본통계,float,"np.mean(df[""M16A_2F_TO_HUB_JOB2""].iloc[i-30:i])",(값1+값2+...+값30)÷30,M16A_2F_TO_HUB_JOB2 30분 평균 유입량,HUB로 유입되는 작업량,평균 높으면 유입 과다,상,상,M16A_2F_TO_HUB_JOB2
-M16A_2F_TO_HUB_JOB2_last_value,Inflow_기본통계,float,"df[""M16A_2F_TO_HUB_JOB2""].iloc[i-1]",현재 시점의 값,M16A_2F_TO_HUB_JOB2 현재 유입량,현재 유입 상태,last 높으면 현재 유입 많음,최상,최상,M16A_2F_TO_HUB_JOB2
-M16A_2F_TO_HUB_JOB2_slope,Inflow_기본통계,float,"np.polyfit(np.arange(30), df[""M16A_2F_TO_HUB_JOB2""].iloc[i-30:i], 1)[0]",선형회귀 기울기 계수,M16A_2F_TO_HUB_JOB2 30분 기울기,유입량 증가/감소 추세,slope>0 → 유입 증가 중,상,상,M16A_2F_TO_HUB_JOB2
-M14A_3F_TO_HUB_JOB2_mean,Inflow_기본통계,float,"np.mean(df[""M14A_3F_TO_HUB_JOB2""].iloc[i-30:i])",(값1+값2+...+값30)÷30,M14A_3F_TO_HUB_JOB2 30분 평균 유입량,HUB로 유입되는 작업량,평균 높으면 유입 과다,상,상,M14A_3F_TO_HUB_JOB2
-M14A_3F_TO_HUB_JOB2_last_value,Inflow_기본통계,float,"df[""M14A_3F_TO_HUB_JOB2""].iloc[i-1]",현재 시점의 값,M14A_3F_TO_HUB_JOB2 현재 유입량,현재 유입 상태,last 높으면 현재 유입 많음,최상,최상,M14A_3F_TO_HUB_JOB2
-M14A_3F_TO_HUB_JOB2_slope,Inflow_기본통계,float,"np.polyfit(np.arange(30), df[""M14A_3F_TO_HUB_JOB2""].iloc[i-30:i], 1)[0]",선형회귀 기울기 계수,M14A_3F_TO_HUB_JOB2 30분 기울기,유입량 증가/감소 추세,slope>0 → 유입 증가 중,상,상,M14A_3F_TO_HUB_JOB2
-M16A_3F_TO_M16A_6F_JOB_mean,Outflow_기본통계,float,"np.mean(df[""M16A_3F_TO_M16A_6F_JOB""].iloc[i-30:i])",(값1+값2+...+값30)÷30,M16A_3F_TO_M16A_6F_JOB 30분 평균 유출량,HUB에서 유출되는 작업량,평균 낮으면 배출 부족,상,상,M16A_3F_TO_M16A_6F_JOB
-M16A_3F_TO_M16A_6F_JOB_last_value,Outflow_기본통계,float,"df[""M16A_3F_TO_M16A_6F_JOB""].iloc[i-1]",현재 시점의 값,M16A_3F_TO_M16A_6F_JOB 현재 유출량,현재 배출 상태,last 낮으면 현재 배출 부족,최상,최상,M16A_3F_TO_M16A_6F_JOB
-M16A_3F_TO_M16A_6F_JOB_slope,Outflow_기본통계,float,"np.polyfit(np.arange(30), df[""M16A_3F_TO_M16A_6F_JOB""].iloc[i-30:i], 1)[0]",선형회귀 기울기 계수,M16A_3F_TO_M16A_6F_JOB 30분 기울기,유출량 증가/감소 추세,slope<0 → 배출 감소 중 (위험),상,상,M16A_3F_TO_M16A_6F_JOB
-M16A_3F_TO_M16A_2F_JOB_mean,Outflow_기본통계,float,"np.mean(df[""M16A_3F_TO_M16A_2F_JOB""].iloc[i-30:i])",(값1+값2+...+값30)÷30,M16A_3F_TO_M16A_2F_JOB 30분 평균 유출량,HUB에서 유출되는 작업량,평균 낮으면 배출 부족,상,상,M16A_3F_TO_M16A_2F_JOB
-M16A_3F_TO_M16A_2F_JOB_last_value,Outflow_기본통계,float,"df[""M16A_3F_TO_M16A_2F_JOB""].iloc[i-1]",현재 시점의 값,M16A_3F_TO_M16A_2F_JOB 현재 유출량,현재 배출 상태,last 낮으면 현재 배출 부족,최상,최상,M16A_3F_TO_M16A_2F_JOB
-M16A_3F_TO_M16A_2F_JOB_slope,Outflow_기본통계,float,"np.polyfit(np.arange(30), df[""M16A_3F_TO_M16A_2F_JOB""].iloc[i-30:i], 1)[0]",선형회귀 기울기 계수,M16A_3F_TO_M16A_2F_JOB 30분 기울기,유출량 증가/감소 추세,slope<0 → 배출 감소 중 (위험),상,상,M16A_3F_TO_M16A_2F_JOB
-M16A_3F_TO_M14A_3F_JOB_mean,Outflow_기본통계,float,"np.mean(df[""M16A_3F_TO_M14A_3F_JOB""].iloc[i-30:i])",(값1+값2+...+값30)÷30,M16A_3F_TO_M14A_3F_JOB 30분 평균 유출량,HUB에서 유출되는 작업량,평균 낮으면 배출 부족,상,상,M16A_3F_TO_M14A_3F_JOB
-M16A_3F_TO_M14A_3F_JOB_last_value,Outflow_기본통계,float,"df[""M16A_3F_TO_M14A_3F_JOB""].iloc[i-1]",현재 시점의 값,M16A_3F_TO_M14A_3F_JOB 현재 유출량,현재 배출 상태,last 낮으면 현재 배출 부족,최상,최상,M16A_3F_TO_M14A_3F_JOB
-M16A_3F_TO_M14A_3F_JOB_slope,Outflow_기본통계,float,"np.polyfit(np.arange(30), df[""M16A_3F_TO_M14A_3F_JOB""].iloc[i-30:i], 1)[0]",선형회귀 기울기 계수,M16A_3F_TO_M14A_3F_JOB 30분 기울기,유출량 증가/감소 추세,slope<0 → 배출 감소 중 (위험),상,상,M16A_3F_TO_M14A_3F_JOB
-M16A_6F_LFT_MAXCAPA_last_value,MaxCapa_용량,float,"df[""M16A_6F_LFT_MAXCAPA""].iloc[i-1]",현재 시점의 값,M16A_6F_LFT_MAXCAPA 현재 최대 용량,시스템 최대 처리 능력,last 낮으면 용량 부족,중,중,M16A_6F_LFT_MAXCAPA
-M16A_2F_LFT_MAXCAPA_last_value,MaxCapa_용량,float,"df[""M16A_2F_LFT_MAXCAPA""].iloc[i-1]",현재 시점의 값,M16A_2F_LFT_MAXCAPA 현재 최대 용량,시스템 최대 처리 능력,last 낮으면 용량 부족,중,중,M16A_2F_LFT_MAXCAPA
-storage_use_rate,FS_Storage_도메인특화,float,(storage_use[-1] - storage_use[0]) / 30,(마지막값 - 첫값)÷30,FS 저장공간 사용 증가 속도 (분당),저장공간 소진 속도 파악,rate=2 → 분당 2GB씩 증가 중,상,상,CD_M163FSTORAGEUSE
-storage_remaining,FS_Storage_도메인특화,float,storage_total[-1] - storage_use[-1],총용량 - 사용량,FS 저장공간 남은 용량,가용 저장공간 파악,remaining=10GB → 곧 부족,상,상,"CD_M163FSTORAGETOTAL, CD_M163FSTORAGEUSE"
-storage_util_last,FS_Storage_도메인특화,float,storage_util[-1],현재 사용률 값,FS 저장공간 현재 사용률,현재 저장공간 부족 정도,util=10 → 심각한 부족,최상,최상,CD_M163FSTORAGEUTIL
-storage_util_high,FS_Storage_도메인특화,int (0 or 1),1 if storage_util[-1] >= 7 else 0,사용률≥7 이면 1 아니면 0,FS 저장공간 높은 사용률 경고 (≥7),저장공간 부족 신호,1이면 저장공간 부족,상,상,CD_M163FSTORAGEUTIL
-storage_util_critical,FS_Storage_도메인특화,int (0 or 1),1 if storage_util[-1] >= 10 else 0,사용률≥10 이면 1 아니면 0,FS 저장공간 심각한 부족 (≥10),저장공간 위기 신호,1이면 즉시 조치 필요,최상,최상,CD_M163FSTORAGEUTIL
-hub_critical,Hub_도메인특화,int (0 or 1),1 if hub_last < 590 else 0,HUB여유공간<590 이면 1 아니면 0,HUB 심각한 병목 (여유공간 <590),HUB 위기 상태 감지,1이면 즉시 위험!,최상,최상,HUBROOMTOTAL
-hub_high,Hub_도메인특화,int (0 or 1),1 if hub_last < 610 else 0,HUB여유공간<610 이면 1 아니면 0,HUB 높은 병목 위험 (여유공간 <610),HUB 병목 경고,1이면 병목 위험,최상,최상,HUBROOMTOTAL
-hub_warning,Hub_도메인특화,int (0 or 1),1 if hub_last < 620 else 0,HUB여유공간<620 이면 1 아니면 0,HUB 병목 경고 (여유공간 <620),HUB 주의 필요,1이면 주의 관찰,상,상,HUBROOMTOTAL
-hub_decrease_rate,Hub_도메인특화,float,(hub_seq[0] - hub_last) / 30,(첫값 - 마지막값)÷30,HUB 여유공간 감소 속도 (분당),HUB 악화 속도 파악,rate=1.5 → 분당 1.5씩 감소 중,상,상,HUBROOMTOTAL
-hub_storage_risk,Hub_도메인특화,int (0 or 1),1 if (hub_last < 610 and storage_util_last >= 7) else 0,(HUB<610 AND 저장공간≥7) 이면 1 아니면 0,HUB + FS Storage 복합 위험,복합 병목 감지,1이면 HUB와 저장공간 동시 부족,최상,최상,"HUBROOMTOTAL, CD_M163FSTORAGEUTIL"
-net_flow,유입유출_복합,float,inflow_sum - outflow_sum,유입합계 - 유출합계,순 유입량 (유입 - 유출),작업 축적 여부 파악,net_flow=50 → 배출보다 유입 많음 (축적),최상,최상,Inflow 컬럼들 - Outflow 컬럼들
-total_cmd,CMD_복합,float,"sum(M16A_3F_CMD, M16A_6F_TO_HUB_CMD)",CMD1 + CMD2,전체 CMD 처리량 합계,총 처리 능력 파악,total=210 → 전체 처리 부족,최상,최상,"M16A_3F_CMD, M16A_6F_TO_HUB_CMD"
-total_cmd_low,CMD_복합,int (0 or 1),1 if cmd_sum < 220 else 0,CMD합계<220 이면 1 아니면 0,CMD 부족 신호 (<220),CMD 부족 경고,1이면 CMD 부족,상,상,"M16A_3F_CMD, M16A_6F_TO_HUB_CMD"
-total_cmd_very_low,CMD_복합,int (0 or 1),1 if cmd_sum < 200 else 0,CMD합계<200 이면 1 아니면 0,CMD 심각한 부족 (<200),CMD 위기 신호,1이면 CMD 심각 부족,최상,최상,"M16A_3F_CMD, M16A_6F_TO_HUB_CMD"
-hub_cmd_bottleneck,Hub_CMD_복합병목,int (0 or 1),1 if (hub_last < 610 and cmd_sum < 220) else 0,(HUB<610 AND CMD<220) 이면 1 아니면 0,HUB + CMD 동시 병목,이중 병목 감지 (최악 상황),1이면 HUB와 CMD 동시 부족 → 급증 위험 극대!,최상,최상,"HUBROOMTOTAL, M16A_3F_CMD, M16A_6F_TO_HUB_CMD"
-storage_util_critical,Storage_Util_도메인특화,int (0 or 1),1 if storage_util >= 205 else 0,스토리지사용률≥205 이면 1 아니면 0,M16A_3F 스토리지 사용률 위험 (≥205),스토리지 과부하 경고,1이면 스토리지 위험,상,상,M16A_3F_STORAGE_UTIL
-storage_util_high_risk,Storage_Util_도메인특화,int (0 or 1),1 if storage_util >= 207 else 0,스토리지사용률≥207 이면 1 아니면 0,M16A_3F 스토리지 사용률 심각 (≥207),스토리지 위기 신호,1이면 스토리지 즉시 위험,최상,최상,M16A_3F_STORAGE_UTIL
-surge_risk_score,급증위험_통합점수,int,hub_high*3 + storage_util_critical*2 + total_cmd_low*1 + storage_util_high*1,(HUB병목×3) + (저장공간위험×2) + (CMD부족×1) + (저장공간높음×1),복합 위험도 점수 (가중합),전체 위험도를 단일 점수로 표현,score=6 → 매우 위험 (hub_high + storage + cmd 모두 문제),최상,최상,"hub_high, storage_util_critical, total_cmd_low, storage_util_high"
-surge_imminent,급증임박_신호,int (0 or 1),1 if (seq_target[-1] > 272 and target_acceleration > 0.2 and hub_high == 1) else 0,(현재값>272 AND 가속도>0.2 AND HUB병목=1) 이면 1 아니면 0,급증 임박 신호 (현재값 높음 + 가속 중 + HUB 병목),급증 직전 패턴 종합 감지,1이면 곧 300 초과 가능성 매우 높음!,최상,최상,"CURRENT_M16A_3F_JOB_2, target_acceleration, hub_high"
+Feature명,카테고리,데이터타입,계산식,실제계산식,설명,목적,예시,관계성퍼센트(%),중요도,급증예측기여,원천컬럼
+target_mean,타겟_기본통계,float,np.mean(seq_target),(값1+값2+...+값30)÷30,30분 시퀀스의 평균값,전반적인 수준 파악,"시퀀스=[280,285,290] → 평균=285",85,중,중,CURRENT_M16A_3F_JOB_2
+target_std,타겟_기본통계,float,np.std(seq_target),√[(각값-평균)²의합÷30],30분 시퀀스의 표준편차,변동성 파악,"안정적이면 낮은 값, 급변하면 높은 값",42,중,중,CURRENT_M16A_3F_JOB_2
+target_max,타겟_기본통계,float,np.max(seq_target),30개 값 중 최대값,30분 시퀀스의 최대값,과거 피크 수준 파악,"시퀀스=[280,290,285] → 최대=290",88,상,상,CURRENT_M16A_3F_JOB_2
+target_min,타겟_기본통계,float,np.min(seq_target),30개 값 중 최소값,30분 시퀀스의 최소값,최저 수준 파악,"시퀀스=[280,290,285] → 최소=280",65,하,하,CURRENT_M16A_3F_JOB_2
+target_last_value,타겟_기본통계,float,seq_target[-1],시퀀스의 마지막 값,현재 시점의 값 (시퀀스 마지막),현재 상태 파악,"시퀀스=[...280,285,290] → 현재값=290",89,상,상,CURRENT_M16A_3F_JOB_2
+target_last_5_mean,타겟_기본통계,float,np.mean(seq_target[-5:]),(최근5개값의합)÷5,최근 5분간 평균값,단기 추세 파악,"최근5분=[285,287,290,292,295] → 평균=289.8",87,상,상,CURRENT_M16A_3F_JOB_2
+target_slope,타겟_기본통계,float,"np.polyfit(np.arange(30), seq_target, 1)[0]",선형회귀 기울기 계수,30분간 선형 기울기 (증가/감소 추세),전체 추세 방향 파악,"양수=상승추세, 음수=하락추세, 0=평탄",68,상,상,CURRENT_M16A_3F_JOB_2
+target_acceleration,Momentum_급증패턴,float,(seq_target[-5:].mean() - seq_target[-10:-5].mean()) / 5,(최근5분평균 - 그전5분평균)÷5,가속도: 최근5분평균과 그전5분평균의 변화율,급증 직전의 가속 패턴 포착,"최근5분평균=297, 그전5분평균=289 → (297-289)/5=1.6 (강한가속!)",73,최상,최상,CURRENT_M16A_3F_JOB_2
+target_is_rising,Momentum_급증패턴,int (0 or 1),1 if seq_target[-1] > seq_target[-5] else 0,현재값 > 5분전값 이면 1 아니면 0,현재 상승 중 여부 (현재값 > 5분전값),상승 추세 감지,"현재값=300, 5분전값=290 → 300>290 → 1 (상승중)",71,상,상,CURRENT_M16A_3F_JOB_2
+target_rapid_rise,Momentum_급증패턴,int (0 or 1),1 if (seq_target[-1] - seq_target[-5]) > 10 else 0,(현재값 - 5분전값) > 10 이면 1 아니면 0,5분간 급등 여부 (10 이상 상승),단기간 급등 패턴 감지,"현재값=300, 5분전값=285 → 300-285=15>10 → 1 (급등!)",78,최상,최상,CURRENT_M16A_3F_JOB_2
+target_last_10_mean,Momentum_급증패턴,float,np.mean(seq_target[-10:]),(최근10개값의합)÷10,최근 10분간 평균값,중단기 추세 파악,최근10분평균=296.2로 높으면 급증 가능성,84,상,상,CURRENT_M16A_3F_JOB_2
+M16A_3F_STORAGE_UTIL_mean,Storage_기본통계,float,"np.mean(df[""M16A_3F_STORAGE_UTIL""].iloc[i-30:i])",(값1+값2+...+값30)÷30,M16A_3F_STORAGE_UTIL 30분 평균,스토리지 사용률 평균 수준,평균=205 → 스토리지 과부하 상태,76,상,상,M16A_3F_STORAGE_UTIL
+M16A_3F_STORAGE_UTIL_std,Storage_기본통계,float,"np.std(df[""M16A_3F_STORAGE_UTIL""].iloc[i-30:i])",√[(각값-평균)²의합÷30],M16A_3F_STORAGE_UTIL 30분 표준편차,스토리지 사용률 변동성,"std=2.5 → 안정적, std=10 → 변동심함",38,중,중,M16A_3F_STORAGE_UTIL
+M16A_3F_STORAGE_UTIL_max,Storage_기본통계,float,"np.max(df[""M16A_3F_STORAGE_UTIL""].iloc[i-30:i])",30개 값 중 최대값,M16A_3F_STORAGE_UTIL 30분 최대값,스토리지 피크 사용률,max=207 → 위험 수준 도달,72,상,상,M16A_3F_STORAGE_UTIL
+M16A_3F_STORAGE_UTIL_min,Storage_기본통계,float,"np.min(df[""M16A_3F_STORAGE_UTIL""].iloc[i-30:i])",30개 값 중 최소값,M16A_3F_STORAGE_UTIL 30분 최소값,스토리지 최저 사용률,min=195 → 안전 범위,45,하,하,M16A_3F_STORAGE_UTIL
+M16A_3F_STORAGE_UTIL_last_value,Storage_기본통계,float,"df[""M16A_3F_STORAGE_UTIL""].iloc[i-1]",현재 시점의 값,M16A_3F_STORAGE_UTIL 현재값 (마지막),현재 스토리지 상태,last=207 → 즉시 위험!,83,최상,최상,M16A_3F_STORAGE_UTIL
+M16A_3F_STORAGE_UTIL_last_5_mean,Storage_기본통계,float,"np.mean(df[""M16A_3F_STORAGE_UTIL""].iloc[i-5:i])",(최근5개값의합)÷5,M16A_3F_STORAGE_UTIL 최근 5분 평균,단기 스토리지 추세,last_5_mean=206 → 최근 높은 상태 유지,79,상,상,M16A_3F_STORAGE_UTIL
+M16A_3F_STORAGE_UTIL_slope,Storage_기본통계,float,"np.polyfit(np.arange(30), df[""M16A_3F_STORAGE_UTIL""].iloc[i-30:i], 1)[0]",선형회귀 기울기 계수,M16A_3F_STORAGE_UTIL 30분 기울기,스토리지 증가/감소 추세,slope=0.5 → 계속 증가 중,64,상,상,M16A_3F_STORAGE_UTIL
+CD_M163FSTORAGEUSE_mean,FS_Storage_기본통계,float,"np.mean(df[""CD_M163FSTORAGEUSE""].iloc[i-30:i])",(값1+값2+...+값30)÷30,CD_M163FSTORAGEUSE 30분 평균,FS 저장공간 사용 추세,CD_M163FSTORAGEUTIL 평균=8 → 저장공간 부족,69,상,상,CD_M163FSTORAGEUSE
+CD_M163FSTORAGEUSE_std,FS_Storage_기본통계,float,"np.std(df[""CD_M163FSTORAGEUSE""].iloc[i-30:i])",√[(각값-평균)²의합÷30],CD_M163FSTORAGEUSE 30분 표준편차,FS 저장공간 변동성,std 높으면 불안정,34,중,중,CD_M163FSTORAGEUSE
+CD_M163FSTORAGEUSE_max,FS_Storage_기본통계,float,"np.max(df[""CD_M163FSTORAGEUSE""].iloc[i-30:i])",30개 값 중 최대값,CD_M163FSTORAGEUSE 30분 최대값,FS 저장공간 피크 사용,UTIL max=10 → 심각한 부족,75,상,상,CD_M163FSTORAGEUSE
+CD_M163FSTORAGEUSE_min,FS_Storage_기본통계,float,"np.min(df[""CD_M163FSTORAGEUSE""].iloc[i-30:i])",30개 값 중 최소값,CD_M163FSTORAGEUSE 30분 최소값,FS 저장공간 최저 사용,UTIL min=5 → 여유 있었음,41,하,하,CD_M163FSTORAGEUSE
+CD_M163FSTORAGEUSE_last_value,FS_Storage_기본통계,float,"df[""CD_M163FSTORAGEUSE""].iloc[i-1]",현재 시점의 값,CD_M163FSTORAGEUSE 현재값,현재 FS 저장공간 상태,UTIL last=10 → 즉시 확장 필요!,82,최상,최상,CD_M163FSTORAGEUSE
+CD_M163FSTORAGEUSE_last_5_mean,FS_Storage_기본통계,float,"np.mean(df[""CD_M163FSTORAGEUSE""].iloc[i-5:i])",(최근5개값의합)÷5,CD_M163FSTORAGEUSE 최근 5분 평균,단기 FS 저장공간 추세,UTIL last_5_mean=9 → 최근 부족 상태,77,상,상,CD_M163FSTORAGEUSE
+CD_M163FSTORAGEUSE_slope,FS_Storage_기본통계,float,"np.polyfit(np.arange(30), df[""CD_M163FSTORAGEUSE""].iloc[i-30:i], 1)[0]",선형회귀 기울기 계수,CD_M163FSTORAGEUSE 30분 기울기,FS 저장공간 증가/감소 추세,UTIL slope=0.3 → 계속 악화 중,62,상,상,CD_M163FSTORAGEUSE
+CD_M163FSTORAGETOTAL_mean,FS_Storage_기본통계,float,"np.mean(df[""CD_M163FSTORAGETOTAL""].iloc[i-30:i])",(값1+값2+...+값30)÷30,CD_M163FSTORAGETOTAL 30분 평균,FS 저장공간 사용 추세,CD_M163FSTORAGEUTIL 평균=8 → 저장공간 부족,58,상,상,CD_M163FSTORAGETOTAL
+CD_M163FSTORAGETOTAL_std,FS_Storage_기본통계,float,"np.std(df[""CD_M163FSTORAGETOTAL""].iloc[i-30:i])",√[(각값-평균)²의합÷30],CD_M163FSTORAGETOTAL 30분 표준편차,FS 저장공간 변동성,std 높으면 불안정,29,중,중,CD_M163FSTORAGETOTAL
+CD_M163FSTORAGETOTAL_max,FS_Storage_기본통계,float,"np.max(df[""CD_M163FSTORAGETOTAL""].iloc[i-30:i])",30개 값 중 최대값,CD_M163FSTORAGETOTAL 30분 최대값,FS 저장공간 피크 사용,UTIL max=10 → 심각한 부족,54,상,상,CD_M163FSTORAGETOTAL
+CD_M163FSTORAGETOTAL_min,FS_Storage_기본통계,float,"np.min(df[""CD_M163FSTORAGETOTAL""].iloc[i-30:i])",30개 값 중 최소값,CD_M163FSTORAGETOTAL 30분 최소값,FS 저장공간 최저 사용,UTIL min=5 → 여유 있었음,36,하,하,CD_M163FSTORAGETOTAL
+CD_M163FSTORAGETOTAL_last_value,FS_Storage_기본통계,float,"df[""CD_M163FSTORAGETOTAL""].iloc[i-1]",현재 시점의 값,CD_M163FSTORAGETOTAL 현재값,현재 FS 저장공간 상태,UTIL last=10 → 즉시 확장 필요!,61,최상,최상,CD_M163FSTORAGETOTAL
+CD_M163FSTORAGETOTAL_last_5_mean,FS_Storage_기본통계,float,"np.mean(df[""CD_M163FSTORAGETOTAL""].iloc[i-5:i])",(최근5개값의합)÷5,CD_M163FSTORAGETOTAL 최근 5분 평균,단기 FS 저장공간 추세,UTIL last_5_mean=9 → 최근 부족 상태,59,상,상,CD_M163FSTORAGETOTAL
+CD_M163FSTORAGETOTAL_slope,FS_Storage_기본통계,float,"np.polyfit(np.arange(30), df[""CD_M163FSTORAGETOTAL""].iloc[i-30:i], 1)[0]",선형회귀 기울기 계수,CD_M163FSTORAGETOTAL 30분 기울기,FS 저장공간 증가/감소 추세,UTIL slope=0.3 → 계속 악화 중,48,상,상,CD_M163FSTORAGETOTAL
+CD_M163FSTORAGEUTIL_mean,FS_Storage_기본통계,float,"np.mean(df[""CD_M163FSTORAGEUTIL""].iloc[i-30:i])",(값1+값2+...+값30)÷30,CD_M163FSTORAGEUTIL 30분 평균,FS 저장공간 사용 추세,CD_M163FSTORAGEUTIL 평균=8 → 저장공간 부족,74,상,상,CD_M163FSTORAGEUTIL
+CD_M163FSTORAGEUTIL_std,FS_Storage_기본통계,float,"np.std(df[""CD_M163FSTORAGEUTIL""].iloc[i-30:i])",√[(각값-평균)²의합÷30],CD_M163FSTORAGEUTIL 30분 표준편차,FS 저장공간 변동성,std 높으면 불안정,37,중,중,CD_M163FSTORAGEUTIL
+CD_M163FSTORAGEUTIL_max,FS_Storage_기본통계,float,"np.max(df[""CD_M163FSTORAGEUTIL""].iloc[i-30:i])",30개 값 중 최대값,CD_M163FSTORAGEUTIL 30분 최대값,FS 저장공간 피크 사용,UTIL max=10 → 심각한 부족,80,상,상,CD_M163FSTORAGEUTIL
+CD_M163FSTORAGEUTIL_min,FS_Storage_기본통계,float,"np.min(df[""CD_M163FSTORAGEUTIL""].iloc[i-30:i])",30개 값 중 최소값,CD_M163FSTORAGEUTIL 30분 최소값,FS 저장공간 최저 사용,UTIL min=5 → 여유 있었음,43,하,하,CD_M163FSTORAGEUTIL
+CD_M163FSTORAGEUTIL_last_value,FS_Storage_기본통계,float,"df[""CD_M163FSTORAGEUTIL""].iloc[i-1]",현재 시점의 값,CD_M163FSTORAGEUTIL 현재값,현재 FS 저장공간 상태,UTIL last=10 → 즉시 확장 필요!,86,최상,최상,CD_M163FSTORAGEUTIL
+CD_M163FSTORAGEUTIL_last_5_mean,FS_Storage_기본통계,float,"np.mean(df[""CD_M163FSTORAGEUTIL""].iloc[i-5:i])",(최근5개값의합)÷5,CD_M163FSTORAGEUTIL 최근 5분 평균,단기 FS 저장공간 추세,UTIL last_5_mean=9 → 최근 부족 상태,81,상,상,CD_M163FSTORAGEUTIL
+CD_M163FSTORAGEUTIL_slope,FS_Storage_기본통계,float,"np.polyfit(np.arange(30), df[""CD_M163FSTORAGEUTIL""].iloc[i-30:i], 1)[0]",선형회귀 기울기 계수,CD_M163FSTORAGEUTIL 30분 기울기,FS 저장공간 증가/감소 추세,UTIL slope=0.3 → 계속 악화 중,66,상,상,CD_M163FSTORAGEUTIL
+HUBROOMTOTAL_mean,Hub_기본통계,float,"np.mean(df[""HUBROOMTOTAL""].iloc[i-30:i])",(값1+값2+...+값30)÷30,HUBROOMTOTAL 30분 평균,HUB 여유공간 평균 수준,평균=605 → 병목 위험 구간,88,최상,최상,HUBROOMTOTAL
+HUBROOMTOTAL_std,Hub_기본통계,float,"np.std(df[""HUBROOMTOTAL""].iloc[i-30:i])",√[(각값-평균)²의합÷30],HUBROOMTOTAL 30분 표준편차,HUB 여유공간 변동성,std 높으면 불안정한 상태,46,중,중,HUBROOMTOTAL
+HUBROOMTOTAL_max,Hub_기본통계,float,"np.max(df[""HUBROOMTOTAL""].iloc[i-30:i])",30개 값 중 최대값,HUBROOMTOTAL 30분 최대값,HUB 여유공간 최대,max=650 → 여유로웠던 시점 있음,52,중,중,HUBROOMTOTAL
+HUBROOMTOTAL_min,Hub_기본통계,float,"np.min(df[""HUBROOMTOTAL""].iloc[i-30:i])",30개 값 중 최소값,HUBROOMTOTAL 30분 최소값,HUB 여유공간 최소 (가장 위험했던 시점),min=580 → 심각한 병목 있었음,82,상,상,HUBROOMTOTAL
+HUBROOMTOTAL_last_value,Hub_기본통계,float,"df[""HUBROOMTOTAL""].iloc[i-1]",현재 시점의 값,HUBROOMTOTAL 현재값,현재 HUB 여유공간 상태,last=605 → 현재 병목 위험!,91,최상,최상,HUBROOMTOTAL
+HUBROOMTOTAL_last_5_mean,Hub_기본통계,float,"np.mean(df[""HUBROOMTOTAL""].iloc[i-5:i])",(최근5개값의합)÷5,HUBROOMTOTAL 최근 5분 평균,단기 HUB 여유공간 추세,last_5_mean=600 → 최근 계속 병목,89,최상,최상,HUBROOMTOTAL
+HUBROOMTOTAL_slope,Hub_기본통계,float,"np.polyfit(np.arange(30), df[""HUBROOMTOTAL""].iloc[i-30:i], 1)[0]",선형회귀 기울기 계수,HUBROOMTOTAL 30분 기울기,HUB 여유공간 증가/감소 추세,slope=-2 → 계속 악화 중,76,최상,최상,HUBROOMTOTAL
+M16A_3F_CMD_mean,CMD_기본통계,float,"np.mean(df[""M16A_3F_CMD""].iloc[i-30:i])",(값1+값2+...+값30)÷30,M16A_3F_CMD 30분 평균,CMD 처리량 평균 수준,평균=210 → CMD 부족,79,최상,최상,M16A_3F_CMD
+M16A_3F_CMD_std,CMD_기본통계,float,"np.std(df[""M16A_3F_CMD""].iloc[i-30:i])",√[(각값-평균)²의합÷30],M16A_3F_CMD 30분 표준편차,CMD 처리량 변동성,std 높으면 불안정,39,중,중,M16A_3F_CMD
+M16A_3F_CMD_max,CMD_기본통계,float,"np.max(df[""M16A_3F_CMD""].iloc[i-30:i])",30개 값 중 최대값,M16A_3F_CMD 30분 최대값,CMD 처리 피크,max=250 → 여유로웠던 시점,47,중,중,M16A_3F_CMD
+M16A_3F_CMD_min,CMD_기본통계,float,"np.min(df[""M16A_3F_CMD""].iloc[i-30:i])",30개 값 중 최소값,M16A_3F_CMD 30분 최소값,CMD 최저 처리량,min=190 → 부족했던 시점,71,상,상,M16A_3F_CMD
+M16A_3F_CMD_last_value,CMD_기본통계,float,"df[""M16A_3F_CMD""].iloc[i-1]",현재 시점의 값,M16A_3F_CMD 현재값,현재 CMD 처리 상태,last=200 → 현재 부족!,84,최상,최상,M16A_3F_CMD
+M16A_3F_CMD_last_5_mean,CMD_기본통계,float,"np.mean(df[""M16A_3F_CMD""].iloc[i-5:i])",(최근5개값의합)÷5,M16A_3F_CMD 최근 5분 평균,단기 CMD 처리 추세,last_5_mean=205 → 최근 계속 부족,81,상,상,M16A_3F_CMD
+M16A_3F_CMD_slope,CMD_기본통계,float,"np.polyfit(np.arange(30), df[""M16A_3F_CMD""].iloc[i-30:i], 1)[0]",선형회귀 기울기 계수,M16A_3F_CMD 30분 기울기,CMD 처리량 증가/감소 추세,slope=-1 → 계속 감소 중 (위험),69,상,상,M16A_3F_CMD
+M16A_6F_TO_HUB_CMD_mean,CMD_기본통계,float,"np.mean(df[""M16A_6F_TO_HUB_CMD""].iloc[i-30:i])",(값1+값2+...+값30)÷30,M16A_6F_TO_HUB_CMD 30분 평균,CMD 처리량 평균 수준,평균=210 → CMD 부족,77,최상,최상,M16A_6F_TO_HUB_CMD
+M16A_6F_TO_HUB_CMD_std,CMD_기본통계,float,"np.std(df[""M16A_6F_TO_HUB_CMD""].iloc[i-30:i])",√[(각값-평균)²의합÷30],M16A_6F_TO_HUB_CMD 30분 표준편차,CMD 처리량 변동성,std 높으면 불안정,38,중,중,M16A_6F_TO_HUB_CMD
+M16A_6F_TO_HUB_CMD_max,CMD_기본통계,float,"np.max(df[""M16A_6F_TO_HUB_CMD""].iloc[i-30:i])",30개 값 중 최대값,M16A_6F_TO_HUB_CMD 30분 최대값,CMD 처리 피크,max=250 → 여유로웠던 시점,45,중,중,M16A_6F_TO_HUB_CMD
+M16A_6F_TO_HUB_CMD_min,CMD_기본통계,float,"np.min(df[""M16A_6F_TO_HUB_CMD""].iloc[i-30:i])",30개 값 중 최소값,M16A_6F_TO_HUB_CMD 30분 최소값,CMD 최저 처리량,min=190 → 부족했던 시점,68,상,상,M16A_6F_TO_HUB_CMD
+M16A_6F_TO_HUB_CMD_last_value,CMD_기본통계,float,"df[""M16A_6F_TO_HUB_CMD""].iloc[i-1]",현재 시점의 값,M16A_6F_TO_HUB_CMD 현재값,현재 CMD 처리 상태,last=200 → 현재 부족!,82,최상,최상,M16A_6F_TO_HUB_CMD
+M16A_6F_TO_HUB_CMD_last_5_mean,CMD_기본통계,float,"np.mean(df[""M16A_6F_TO_HUB_CMD""].iloc[i-5:i])",(최근5개값의합)÷5,M16A_6F_TO_HUB_CMD 최근 5분 평균,단기 CMD 처리 추세,last_5_mean=205 → 최근 계속 부족,79,상,상,M16A_6F_TO_HUB_CMD
+M16A_6F_TO_HUB_CMD_slope,CMD_기본통계,float,"np.polyfit(np.arange(30), df[""M16A_6F_TO_HUB_CMD""].iloc[i-30:i], 1)[0]",선형회귀 기울기 계수,M16A_6F_TO_HUB_CMD 30분 기울기,CMD 처리량 증가/감소 추세,slope=-1 → 계속 감소 중 (위험),67,상,상,M16A_6F_TO_HUB_CMD
+M16A_6F_TO_HUB_JOB_mean,Inflow_기본통계,float,"np.mean(df[""M16A_6F_TO_HUB_JOB""].iloc[i-30:i])",(값1+값2+...+값30)÷30,M16A_6F_TO_HUB_JOB 30분 평균 유입량,HUB로 유입되는 작업량,평균 높으면 유입 과다,72,상,상,M16A_6F_TO_HUB_JOB
+M16A_6F_TO_HUB_JOB_last_value,Inflow_기본통계,float,"df[""M16A_6F_TO_HUB_JOB""].iloc[i-1]",현재 시점의 값,M16A_6F_TO_HUB_JOB 현재 유입량,현재 유입 상태,last 높으면 현재 유입 많음,78,최상,최상,M16A_6F_TO_HUB_JOB
+M16A_6F_TO_HUB_JOB_slope,Inflow_기본통계,float,"np.polyfit(np.arange(30), df[""M16A_6F_TO_HUB_JOB""].iloc[i-30:i], 1)[0]",선형회귀 기울기 계수,M16A_6F_TO_HUB_JOB 30분 기울기,유입량 증가/감소 추세,slope>0 → 유입 증가 중,65,상,상,M16A_6F_TO_HUB_JOB
+M16A_2F_TO_HUB_JOB2_mean,Inflow_기본통계,float,"np.mean(df[""M16A_2F_TO_HUB_JOB2""].iloc[i-30:i])",(값1+값2+...+값30)÷30,M16A_2F_TO_HUB_JOB2 30분 평균 유입량,HUB로 유입되는 작업량,평균 높으면 유입 과다,70,상,상,M16A_2F_TO_HUB_JOB2
+M16A_2F_TO_HUB_JOB2_last_value,Inflow_기본통계,float,"df[""M16A_2F_TO_HUB_JOB2""].iloc[i-1]",현재 시점의 값,M16A_2F_TO_HUB_JOB2 현재 유입량,현재 유입 상태,last 높으면 현재 유입 많음,76,최상,최상,M16A_2F_TO_HUB_JOB2
+M16A_2F_TO_HUB_JOB2_slope,Inflow_기본통계,float,"np.polyfit(np.arange(30), df[""M16A_2F_TO_HUB_JOB2""].iloc[i-30:i], 1)[0]",선형회귀 기울기 계수,M16A_2F_TO_HUB_JOB2 30분 기울기,유입량 증가/감소 추세,slope>0 → 유입 증가 중,63,상,상,M16A_2F_TO_HUB_JOB2
+M14A_3F_TO_HUB_JOB2_mean,Inflow_기본통계,float,"np.mean(df[""M14A_3F_TO_HUB_JOB2""].iloc[i-30:i])",(값1+값2+...+값30)÷30,M14A_3F_TO_HUB_JOB2 30분 평균 유입량,HUB로 유입되는 작업량,평균 높으면 유입 과다,68,상,상,M14A_3F_TO_HUB_JOB2
+M14A_3F_TO_HUB_JOB2_last_value,Inflow_기본통계,float,"df[""M14A_3F_TO_HUB_JOB2""].iloc[i-1]",현재 시점의 값,M14A_3F_TO_HUB_JOB2 현재 유입량,현재 유입 상태,last 높으면 현재 유입 많음,74,최상,최상,M14A_3F_TO_HUB_JOB2
+M14A_3F_TO_HUB_JOB2_slope,Inflow_기본통계,float,"np.polyfit(np.arange(30), df[""M14A_3F_TO_HUB_JOB2""].iloc[i-30:i], 1)[0]",선형회귀 기울기 계수,M14A_3F_TO_HUB_JOB2 30분 기울기,유입량 증가/감소 추세,slope>0 → 유입 증가 중,61,상,상,M14A_3F_TO_HUB_JOB2
+M16A_3F_TO_M16A_6F_JOB_mean,Outflow_기본통계,float,"np.mean(df[""M16A_3F_TO_M16A_6F_JOB""].iloc[i-30:i])",(값1+값2+...+값30)÷30,M16A_3F_TO_M16A_6F_JOB 30분 평균 유출량,HUB에서 유출되는 작업량,평균 낮으면 배출 부족,66,상,상,M16A_3F_TO_M16A_6F_JOB
+M16A_3F_TO_M16A_6F_JOB_last_value,Outflow_기본통계,float,"df[""M16A_3F_TO_M16A_6F_JOB""].iloc[i-1]",현재 시점의 값,M16A_3F_TO_M16A_6F_JOB 현재 유출량,현재 배출 상태,last 낮으면 현재 배출 부족,73,최상,최상,M16A_3F_TO_M16A_6F_JOB
+M16A_3F_TO_M16A_6F_JOB_slope,Outflow_기본통계,float,"np.polyfit(np.arange(30), df[""M16A_3F_TO_M16A_6F_JOB""].iloc[i-30:i], 1)[0]",선형회귀 기울기 계수,M16A_3F_TO_M16A_6F_JOB 30분 기울기,유출량 증가/감소 추세,slope<0 → 배출 감소 중 (위험),59,상,상,M16A_3F_TO_M16A_6F_JOB
+M16A_3F_TO_M16A_2F_JOB_mean,Outflow_기본통계,float,"np.mean(df[""M16A_3F_TO_M16A_2F_JOB""].iloc[i-30:i])",(값1+값2+...+값30)÷30,M16A_3F_TO_M16A_2F_JOB 30분 평균 유출량,HUB에서 유출되는 작업량,평균 낮으면 배출 부족,64,상,상,M16A_3F_TO_M16A_2F_JOB
+M16A_3F_TO_M16A_2F_JOB_last_value,Outflow_기본통계,float,"df[""M16A_3F_TO_M16A_2F_JOB""].iloc[i-1]",현재 시점의 값,M16A_3F_TO_M16A_2F_JOB 현재 유출량,현재 배출 상태,last 낮으면 현재 배출 부족,71,최상,최상,M16A_3F_TO_M16A_2F_JOB
+M16A_3F_TO_M16A_2F_JOB_slope,Outflow_기본통계,float,"np.polyfit(np.arange(30), df[""M16A_3F_TO_M16A_2F_JOB""].iloc[i-30:i], 1)[0]",선형회귀 기울기 계수,M16A_3F_TO_M16A_2F_JOB 30분 기울기,유출량 증가/감소 추세,slope<0 → 배출 감소 중 (위험),57,상,상,M16A_3F_TO_M16A_2F_JOB
+M16A_3F_TO_M14A_3F_JOB_mean,Outflow_기본통계,float,"np.mean(df[""M16A_3F_TO_M14A_3F_JOB""].iloc[i-30:i])",(값1+값2+...+값30)÷30,M16A_3F_TO_M14A_3F_JOB 30분 평균 유출량,HUB에서 유출되는 작업량,평균 낮으면 배출 부족,62,상,상,M16A_3F_TO_M14A_3F_JOB
+M16A_3F_TO_M14A_3F_JOB_last_value,Outflow_기본통계,float,"df[""M16A_3F_TO_M14A_3F_JOB""].iloc[i-1]",현재 시점의 값,M16A_3F_TO_M14A_3F_JOB 현재 유출량,현재 배출 상태,last 낮으면 현재 배출 부족,69,최상,최상,M16A_3F_TO_M14A_3F_JOB
+M16A_3F_TO_M14A_3F_JOB_slope,Outflow_기본통계,float,"np.polyfit(np.arange(30), df[""M16A_3F_TO_M14A_3F_JOB""].iloc[i-30:i], 1)[0]",선형회귀 기울기 계수,M16A_3F_TO_M14A_3F_JOB 30분 기울기,유출량 증가/감소 추세,slope<0 → 배출 감소 중 (위험),55,상,상,M16A_3F_TO_M14A_3F_JOB
+M16A_6F_LFT_MAXCAPA_last_value,MaxCapa_용량,float,"df[""M16A_6F_LFT_MAXCAPA""].iloc[i-1]",현재 시점의 값,M16A_6F_LFT_MAXCAPA 현재 최대 용량,시스템 최대 처리 능력,last 낮으면 용량 부족,44,중,중,M16A_6F_LFT_MAXCAPA
+M16A_2F_LFT_MAXCAPA_last_value,MaxCapa_용량,float,"df[""M16A_2F_LFT_MAXCAPA""].iloc[i-1]",현재 시점의 값,M16A_2F_LFT_MAXCAPA 현재 최대 용량,시스템 최대 처리 능력,last 낮으면 용량 부족,42,중,중,M16A_2F_LFT_MAXCAPA
+storage_use_rate,FS_Storage_도메인특화,float,(storage_use[-1] - storage_use[0]) / 30,(마지막값 - 첫값)÷30,FS 저장공간 사용 증가 속도 (분당),저장공간 소진 속도 파악,rate=2 → 분당 2GB씩 증가 중,67,상,상,CD_M163FSTORAGEUSE
+storage_remaining,FS_Storage_도메인특화,float,storage_total[-1] - storage_use[-1],총용량 - 사용량,FS 저장공간 남은 용량,가용 저장공간 파악,remaining=10GB → 곧 부족,58,상,상,"CD_M163FSTORAGETOTAL, CD_M163FSTORAGEUSE"
+storage_util_last,FS_Storage_도메인특화,float,storage_util[-1],현재 사용률 값,FS 저장공간 현재 사용률,현재 저장공간 부족 정도,util=10 → 심각한 부족,86,최상,최상,CD_M163FSTORAGEUTIL
+storage_util_high,FS_Storage_도메인특화,int (0 or 1),1 if storage_util[-1] >= 7 else 0,사용률≥7 이면 1 아니면 0,FS 저장공간 높은 사용률 경고 (≥7),저장공간 부족 신호,1이면 저장공간 부족,77,상,상,CD_M163FSTORAGEUTIL
+storage_util_critical,FS_Storage_도메인특화,int (0 or 1),1 if storage_util[-1] >= 10 else 0,사용률≥10 이면 1 아니면 0,FS 저장공간 심각한 부족 (≥10),저장공간 위기 신호,1이면 즉시 조치 필요,88,최상,최상,CD_M163FSTORAGEUTIL
+hub_critical,Hub_도메인특화,int (0 or 1),1 if hub_last < 590 else 0,HUB여유공간<590 이면 1 아니면 0,HUB 심각한 병목 (여유공간 <590),HUB 위기 상태 감지,1이면 즉시 위험!,90,최상,최상,HUBROOMTOTAL
+hub_high,Hub_도메인특화,int (0 or 1),1 if hub_last < 610 else 0,HUB여유공간<610 이면 1 아니면 0,HUB 높은 병목 위험 (여유공간 <610),HUB 병목 경고,1이면 병목 위험,92,최상,최상,HUBROOMTOTAL
+hub_warning,Hub_도메인특화,int (0 or 1),1 if hub_last < 620 else 0,HUB여유공간<620 이면 1 아니면 0,HUB 병목 경고 (여유공간 <620),HUB 주의 필요,1이면 주의 관찰,75,상,상,HUBROOMTOTAL
+hub_decrease_rate,Hub_도메인특화,float,(hub_seq[0] - hub_last) / 30,(첫값 - 마지막값)÷30,HUB 여유공간 감소 속도 (분당),HUB 악화 속도 파악,rate=1.5 → 분당 1.5씩 감소 중,70,상,상,HUBROOMTOTAL
+hub_storage_risk,Hub_도메인특화,int (0 or 1),1 if (hub_last < 610 and storage_util_last >= 7) else 0,(HUB<610 AND 저장공간≥7) 이면 1 아니면 0,HUB + FS Storage 복합 위험,복합 병목 감지,1이면 HUB와 저장공간 동시 부족,93,최상,최상,"HUBROOMTOTAL, CD_M163FSTORAGEUTIL"
+net_flow,유입유출_복합,float,inflow_sum - outflow_sum,유입합계 - 유출합계,순 유입량 (유입 - 유출),작업 축적 여부 파악,net_flow=50 → 배출보다 유입 많음 (축적),81,최상,최상,Inflow 컬럼들 - Outflow 컬럼들
+total_cmd,CMD_복합,float,"sum(M16A_3F_CMD, M16A_6F_TO_HUB_CMD)",CMD1 + CMD2,전체 CMD 처리량 합계,총 처리 능력 파악,total=210 → 전체 처리 부족,86,최상,최상,"M16A_3F_CMD, M16A_6F_TO_HUB_CMD"
+total_cmd_low,CMD_복합,int (0 or 1),1 if cmd_sum < 220 else 0,CMD합계<220 이면 1 아니면 0,CMD 부족 신호 (<220),CMD 부족 경고,1이면 CMD 부족,79,상,상,"M16A_3F_CMD, M16A_6F_TO_HUB_CMD"
+total_cmd_very_low,CMD_복합,int (0 or 1),1 if cmd_sum < 200 else 0,CMD합계<200 이면 1 아니면 0,CMD 심각한 부족 (<200),CMD 위기 신호,1이면 CMD 심각 부족,87,최상,최상,"M16A_3F_CMD, M16A_6F_TO_HUB_CMD"
+hub_cmd_bottleneck,Hub_CMD_복합병목,int (0 or 1),1 if (hub_last < 610 and cmd_sum < 220) else 0,(HUB<610 AND CMD<220) 이면 1 아니면 0,HUB + CMD 동시 병목,이중 병목 감지 (최악 상황),1이면 HUB와 CMD 동시 부족 → 급증 위험 극대!,94,최상,최상,"HUBROOMTOTAL, M16A_3F_CMD, M16A_6F_TO_HUB_CMD"
+storage_util_critical,Storage_Util_도메인특화,int (0 or 1),1 if storage_util >= 205 else 0,스토리지사용률≥205 이면 1 아니면 0,M16A_3F 스토리지 사용률 위험 (≥205),스토리지 과부하 경고,1이면 스토리지 위험,83,상,상,M16A_3F_STORAGE_UTIL
+storage_util_high_risk,Storage_Util_도메인특화,int (0 or 1),1 if storage_util >= 207 else 0,스토리지사용률≥207 이면 1 아니면 0,M16A_3F 스토리지 사용률 심각 (≥207),스토리지 위기 신호,1이면 스토리지 즉시 위험,89,최상,최상,M16A_3F_STORAGE_UTIL
+surge_risk_score,급증위험_통합점수,int,hub_high*3 + storage_util_critical*2 + total_cmd_low*1 + storage_util_high*1,(HUB병목×3) + (저장공간위험×2) + (CMD부족×1) + (저장공간높음×1),복합 위험도 점수 (가중합),전체 위험도를 단일 점수로 표현,score=6 → 매우 위험 (hub_high + storage + cmd 모두 문제),91,최상,최상,"hub_high, storage_util_critical, total_cmd_low, storage_util_high"
+surge_imminent,급증임박_신호,int (0 or 1),1 if (seq_target[-1] > 272 and target_acceleration > 0.2 and hub_high == 1) else 0,(현재값>272 AND 가속도>0.2 AND HUB병목=1) 이면 1 아니면 0,급증 임박 신호 (현재값 높음 + 가속 중 + HUB 병목),급증 직전 패턴 종합 감지,1이면 곧 300 초과 가능성 매우 높음!,95,최상,최상,"CURRENT_M16A_3F_JOB_2, target_acceleration, hub_high"
