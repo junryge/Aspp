@@ -197,7 +197,9 @@ def create_graph(params, perf_values=None):
         if selected_lines['predicted1']:
             try:
                 df[predicted1_x_col] = pd.to_datetime(df[predicted1_x_col])
-                df['predicted1_time_str'] = df[predicted1_x_col].dt.strftime('%Y-%m-%d %H:%M:%S')
+                # 예측값1 시간에 입력한 분만큼 더하기
+                pred1_minutes = int(params.get('predicted1_time', '10'))
+                df['predicted1_time_str'] = (df[predicted1_x_col] + pd.Timedelta(minutes=pred1_minutes)).dt.strftime('%Y-%m-%d %H:%M:%S')
             except:
                 df['predicted1_time_str'] = df[predicted1_x_col].astype(str)
         else:
@@ -206,7 +208,9 @@ def create_graph(params, perf_values=None):
         if selected_lines['predicted2']:
             try:
                 df[predicted2_x_col] = pd.to_datetime(df[predicted2_x_col])
-                df['predicted2_time_str'] = df[predicted2_x_col].dt.strftime('%Y-%m-%d %H:%M:%S')
+                # 예측값2 시간에 입력한 분만큼 더하기
+                pred2_minutes = int(params.get('predicted2_time', '15'))
+                df['predicted2_time_str'] = (df[predicted2_x_col] + pd.Timedelta(minutes=pred2_minutes)).dt.strftime('%Y-%m-%d %H:%M:%S')
             except:
                 df['predicted2_time_str'] = df[predicted2_x_col].astype(str)
         else:
@@ -215,7 +219,9 @@ def create_graph(params, perf_values=None):
         if selected_lines['predicted3']:
             try:
                 df[predicted3_x_col] = pd.to_datetime(df[predicted3_x_col])
-                df['predicted3_time_str'] = df[predicted3_x_col].dt.strftime('%Y-%m-%d %H:%M:%S')
+                # 예측값3 시간에 입력한 분만큼 더하기
+                pred3_minutes = int(params.get('predicted3_time', '25'))
+                df['predicted3_time_str'] = (df[predicted3_x_col] + pd.Timedelta(minutes=pred3_minutes)).dt.strftime('%Y-%m-%d %H:%M:%S')
             except:
                 df['predicted3_time_str'] = df[predicted3_x_col].astype(str)
         else:
@@ -312,17 +318,18 @@ def create_graph(params, perf_values=None):
         
         # 예측값1 라인 (선택된 경우에만)
         if selected_lines['predicted1']:
+            pred1_time = params.get('predicted1_time', '10')
             fig.add_trace(go.Scattergl(
                 x=df['common_time'],
                 y=df[predicted1_y_col], 
                 mode='lines+markers',
-                name='예측값1 (Predicted1)',
+                name=f'예측값1 ({pred1_time}분)',
                 line=dict(color=params['predicted1_color'], 
                          dash=None if params['predicted1_style'] == 'Solid' else params['predicted1_style'].lower(), 
                          width=3),
                 marker=dict(size=6),
                 customdata=df[['predicted1_time_str']].values,
-                hovertemplate='<b style="color: #ff7f0e;">🔶 예측값1</b><br>' +
+                hovertemplate=f'<b style="color: #ff7f0e;">🔶 예측값1 ({pred1_time}분)</b><br>' +
                              '<span style="color: #666;">시간:</span> %{customdata[0]}<br>' +
                              '<span style="color: #666;">값:</span> <b>%{y:.2f}</b>' +
                              '<extra></extra>'
@@ -330,17 +337,18 @@ def create_graph(params, perf_values=None):
         
         # 예측값2 라인 (선택된 경우에만)
         if selected_lines['predicted2']:
+            pred2_time = params.get('predicted2_time', '15')
             fig.add_trace(go.Scattergl(
                 x=df['common_time'],
                 y=df[predicted2_y_col], 
                 mode='lines+markers',
-                name='예측값2 (Predicted2)',
+                name=f'예측값2 ({pred2_time}분)',
                 line=dict(color=params['predicted2_color'], 
                          dash=None if params['predicted2_style'] == 'Solid' else params['predicted2_style'].lower(), 
                          width=3),
                 marker=dict(size=6),
                 customdata=df[['predicted2_time_str']].values,
-                hovertemplate='<b style="color: #2ca02c;">🔷 예측값2</b><br>' +
+                hovertemplate=f'<b style="color: #2ca02c;">🔷 예측값2 ({pred2_time}분)</b><br>' +
                              '<span style="color: #666;">시간:</span> %{customdata[0]}<br>' +
                              '<span style="color: #666;">값:</span> <b>%{y:.2f}</b>' +
                              '<extra></extra>'
@@ -348,17 +356,18 @@ def create_graph(params, perf_values=None):
         
         # 예측값3 라인 (선택된 경우에만)
         if selected_lines['predicted3']:
+            pred3_time = params.get('predicted3_time', '25')
             fig.add_trace(go.Scattergl(
                 x=df['common_time'],
                 y=df[predicted3_y_col], 
                 mode='lines+markers',
-                name='예측값3 (Predicted3)',
+                name=f'예측값3 ({pred3_time}분)',
                 line=dict(color=params['predicted3_color'], 
                          dash=None if params['predicted3_style'] == 'Solid' else params['predicted3_style'].lower(), 
                          width=3),
                 marker=dict(size=6),
                 customdata=df[['predicted3_time_str']].values,
-                hovertemplate='<b style="color: #d62728;">🔸 예측값3</b><br>' +
+                hovertemplate=f'<b style="color: #d62728;">🔸 예측값3 ({pred3_time}분)</b><br>' +
                              '<span style="color: #666;">시간:</span> %{customdata[0]}<br>' +
                              '<span style="color: #666;">값:</span> <b>%{y:.2f}</b>' +
                              '<extra></extra>'
@@ -605,29 +614,44 @@ class GraphApp:
         self.enable_predicted2 = tk.BooleanVar(value=True)
         self.enable_predicted3 = tk.BooleanVar(value=True)
         
+        # 예측값 시간 입력 변수
+        self.predicted1_time = tk.StringVar(value="10")
+        self.predicted2_time = tk.StringVar(value="15")
+        self.predicted3_time = tk.StringVar(value="25")
+        
         self.column_vars = [tk.StringVar() for _ in labels]
         self.column_menus = []
 
-        # 각 그룹마다 체크박스 추가 (시간 명시)
-        enable_vars = [
-            (self.enable_actual, "✅ 실제값 사용"),
-            (self.enable_actual, ""),
-            (self.enable_hubroom, "✅ HUBROOM 사용"),
-            (self.enable_hubroom, ""),
-            (self.enable_predicted1, "✅ 예측값1 사용 (10분)"),
-            (self.enable_predicted1, ""),
-            (self.enable_predicted2, "✅ 예측값2 사용 (15분)"),
-            (self.enable_predicted2, ""),
-            (self.enable_predicted3, "✅ 예측값3 사용 (25분)"),
-            (self.enable_predicted3, "")
-        ]
-
         for i, label_text in enumerate(labels):
-            # 체크박스 (X축 줄에만 표시)
+            # 체크박스 프레임 (X축 줄에만 표시)
             if i % 2 == 0:  # X축 줄
-                enable_var, checkbox_text = enable_vars[i]
-                tk.Checkbutton(self.step2_frame, text=checkbox_text, variable=enable_var, 
-                              font=('Arial', 9, 'bold')).grid(row=i, column=0, sticky='w', padx=5, pady=(8, 2))
+                checkbox_frame = tk.Frame(self.step2_frame)
+                checkbox_frame.grid(row=i, column=0, sticky='w', padx=5, pady=(8, 2))
+                
+                if i == 0:  # 실제값
+                    tk.Checkbutton(checkbox_frame, text="✅ 실제값 사용", variable=self.enable_actual, 
+                                  font=('Arial', 9, 'bold')).pack(side=tk.LEFT)
+                elif i == 2:  # HUBROOM
+                    tk.Checkbutton(checkbox_frame, text="✅ HUBROOM 사용", variable=self.enable_hubroom, 
+                                  font=('Arial', 9, 'bold')).pack(side=tk.LEFT)
+                elif i == 4:  # 예측값1
+                    tk.Checkbutton(checkbox_frame, text="✅ 예측값1 사용", variable=self.enable_predicted1, 
+                                  font=('Arial', 9, 'bold')).pack(side=tk.LEFT)
+                    tk.Entry(checkbox_frame, textvariable=self.predicted1_time, width=5, 
+                            font=('Arial', 9)).pack(side=tk.LEFT, padx=2)
+                    tk.Label(checkbox_frame, text="분", font=('Arial', 9)).pack(side=tk.LEFT)
+                elif i == 6:  # 예측값2
+                    tk.Checkbutton(checkbox_frame, text="✅ 예측값2 사용", variable=self.enable_predicted2, 
+                                  font=('Arial', 9, 'bold')).pack(side=tk.LEFT)
+                    tk.Entry(checkbox_frame, textvariable=self.predicted2_time, width=5, 
+                            font=('Arial', 9)).pack(side=tk.LEFT, padx=2)
+                    tk.Label(checkbox_frame, text="분", font=('Arial', 9)).pack(side=tk.LEFT)
+                elif i == 8:  # 예측값3
+                    tk.Checkbutton(checkbox_frame, text="✅ 예측값3 사용", variable=self.enable_predicted3, 
+                                  font=('Arial', 9, 'bold')).pack(side=tk.LEFT)
+                    tk.Entry(checkbox_frame, textvariable=self.predicted3_time, width=5, 
+                            font=('Arial', 9)).pack(side=tk.LEFT, padx=2)
+                    tk.Label(checkbox_frame, text="분", font=('Arial', 9)).pack(side=tk.LEFT)
             
             # 라벨과 메뉴는 한 칸 오른쪽으로
             tk.Label(self.step2_frame, text=label_text, font=('Arial', 9)).grid(row=i, column=1, sticky='w', padx=5, pady=2)
@@ -1116,6 +1140,9 @@ class GraphApp:
             'predicted2_y': self.column_vars[7].get() if self.enable_predicted2.get() else '',
             'predicted3_x': self.column_vars[8].get() if self.enable_predicted3.get() else '',
             'predicted3_y': self.column_vars[9].get() if self.enable_predicted3.get() else '',
+            'predicted1_time': self.predicted1_time.get(),
+            'predicted2_time': self.predicted2_time.get(),
+            'predicted3_time': self.predicted3_time.get(),
             'actual_color': self.actual_color_var.get(), 
             'actual_style': self.actual_style_var.get(),
             'hubroom_color': self.hubroom_color_var.get(),
