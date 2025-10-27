@@ -1,3 +1,8 @@
+# -*- coding: utf-8 -*-
+"""
+280분 시퀀스 → 15분 후 예측 평가
+"""
+
 import numpy as np
 import pandas as pd
 import pickle
@@ -109,36 +114,28 @@ def create_single_prediction_features(seq_m14b, seq_m10a, seq_m16, seq_totalcnt)
     features['m14b_recent_vs_mean'] = np.mean(seq_m14b[-30:]) / (np.mean(seq_m14b) + 1)
     features['totalcnt_recent_vs_mean'] = np.mean(seq_totalcnt[-30:]) / (np.mean(seq_totalcnt) + 1)
     
-    # ========== 시간 통계 (10개) ==========
-    for window in [10, 30, 60]:
-        features[f'm14b_last_{window}_mean'] = np.mean(seq_m14b[-window:])
-        features[f'totalcnt_last_{window}_mean'] = np.mean(seq_totalcnt[-window:])
+    # ========== 시간대별 통계 (8개) ==========
+    q1 = seq_totalcnt[:70]
+    q2 = seq_totalcnt[70:140]
+    q3 = seq_totalcnt[140:210]
+    q4 = seq_totalcnt[210:280]
     
-    features['m14b_trend_10_vs_30'] = np.mean(seq_m14b[-10:]) - np.mean(seq_m14b[-30:])
-    features['m14b_trend_30_vs_60'] = np.mean(seq_m14b[-30:]) - np.mean(seq_m14b[-60:])
-    features['totalcnt_trend_10_vs_30'] = np.mean(seq_totalcnt[-10:]) - np.mean(seq_totalcnt[-30:])
-    features['totalcnt_trend_30_vs_60'] = np.mean(seq_totalcnt[-30:]) - np.mean(seq_totalcnt[-60:])
-    
-    # ========== 추가 통계 (10개) ==========
-    features['m14b_median'] = np.median(seq_m14b)
-    features['m14b_q25'] = np.percentile(seq_m14b, 25)
-    features['m14b_q75'] = np.percentile(seq_m14b, 75)
-    features['totalcnt_median'] = np.median(seq_totalcnt)
-    features['totalcnt_q25'] = np.percentile(seq_totalcnt, 25)
-    features['totalcnt_q75'] = np.percentile(seq_totalcnt, 75)
-    
-    features['m14b_over_mean'] = np.sum(seq_m14b > np.mean(seq_m14b))
-    features['totalcnt_over_mean'] = np.sum(seq_totalcnt > np.mean(seq_totalcnt))
-    features['m14b_last_vs_max'] = seq_m14b[-1] / (np.max(seq_m14b) + 1)
-    features['totalcnt_last_vs_max'] = seq_totalcnt[-1] / (np.max(seq_totalcnt) + 1)
+    features['totalcnt_q1_mean'] = np.mean(q1)
+    features['totalcnt_q2_mean'] = np.mean(q2)
+    features['totalcnt_q3_mean'] = np.mean(q3)
+    features['totalcnt_q4_mean'] = np.mean(q4)
+    features['totalcnt_trend_q1_q2'] = np.mean(q2) - np.mean(q1)
+    features['totalcnt_trend_q2_q3'] = np.mean(q3) - np.mean(q2)
+    features['totalcnt_trend_q3_q4'] = np.mean(q4) - np.mean(q3)
+    features['totalcnt_trend_overall'] = np.mean(q4) - np.mean(q1)
     
     return features
 
 def evaluate_all_predictions():
-    """전체 데이터를 슬라이딩 윈도우로 평가 - 15분 후 예측"""
+    """전체 데이터를 슬라이딩 윈도우로 평가 - 15분 후"""
     
     print("="*80)
-    print("280분 시퀀스 → 15분 후 예측 모델 평가")
+    print("280분 시퀀스 → 15분 후 예측 평가")
     print("="*80)
     
     # 모델 로드
@@ -149,17 +146,16 @@ def evaluate_all_predictions():
         print(f"✅ 모델 로드 완료: {model_file}")
     except Exception as e:
         print(f"❌ 모델 파일 없음: {e}")
-        print("먼저 xgb_280seq_15min_pred.py를 실행하여 모델을 학습하세요.")
+        print("먼저 xgb_280_to_15min_CORRECT.py를 실행하여 모델을 학습하세요.")
         return None
     
     # 데이터 로드
-    data_path = '/mnt/project/V6_6결과.CSV'
-    
-    if not os.path.exists(data_path):
-        print(f"❌ CSV 파일 없음: {data_path}")
+    csv_file = '/mnt/project/V6_6결과.CSV'
+    if not os.path.exists(csv_file):
+        print(f"❌ CSV 파일 없음: {csv_file}")
         return None
     
-    df = pd.read_csv(data_path)
+    df = pd.read_csv(csv_file, on_bad_lines='skip')
     print(f"✅ 데이터 로드 완료: {len(df):,}개 행")
     
     # 필수 컬럼 확인
@@ -173,7 +169,7 @@ def evaluate_all_predictions():
     
     print(f"✅ 필수 컬럼 확인 완료")
     
-    # CURRTIME 처리
+    # CURRTIME 처리 (YYYYMMDDHHMM 형식)
     if 'CURRTIME' in df.columns:
         try:
             df['CURRTIME'] = pd.to_datetime(df['CURRTIME'].astype(str), format='%Y%m%d%H%M')
@@ -196,7 +192,8 @@ def evaluate_all_predictions():
     print(f"\n🔄 슬라이딩 윈도우 평가 시작...")
     print(f"총 예측 수: {len(df) - 280 - 15:,}개")
     
-    # 슬라이딩 윈도우: 280분 시퀀스로 15분 후 예측
+    # 슬라이딩 윈도우: i=280부터 시작
+    # 280분 시퀀스 (i-280 ~ i-1)로 i+15번째 예측
     for i in range(280, len(df) - 15):
         # 280분 시퀀스
         seq_m14b = df['M14AM14B'].iloc[i-280:i].values
@@ -205,12 +202,12 @@ def evaluate_all_predictions():
         seq_totalcnt = df['TOTALCNT'].iloc[i-280:i].values
         
         # 시간 정보
-        current_time = df['CURRTIME'].iloc[i-1]
-        seq_start_time = df['CURRTIME'].iloc[i-280]
-        prediction_time = current_time + timedelta(minutes=15)  # 15분 후
-        actual_time = df['CURRTIME'].iloc[i+15]  # 실제 15분 후 시점
+        current_time = df['CURRTIME'].iloc[i-1]  # 시퀀스 마지막 시점
+        seq_start_time = df['CURRTIME'].iloc[i-280]  # 시퀀스 시작
+        prediction_time = current_time + timedelta(minutes=15)  # 예측 시점 (15분 후)
+        actual_time = df['CURRTIME'].iloc[i+15]  # 실제 시점 (15분 후)
         
-        # 실제값 (15분 후)
+        # 실제값 (i+15번째)
         actual_value = df['TOTALCNT'].iloc[i+15]
         
         # Feature 생성
@@ -219,10 +216,6 @@ def evaluate_all_predictions():
         
         # 예측
         prediction = model.predict(X_pred)[0]
-        
-        # 예측값 보정 (1700 이상일 때)
-        if prediction >= 1700:
-            prediction = 1700 + (prediction - 1700) * 0.90
         
         # 황금 패턴 감지
         golden_pattern = (seq_m14b[-1] > 300 and seq_m10a[-1] < 80)
@@ -254,7 +247,7 @@ def evaluate_all_predictions():
         })
         
         # 진행상황 출력
-        if (i - 280) % 5000 == 0:
+        if (i - 280) % 1000 == 0:
             progress = (i - 280) / (len(df) - 280 - 15) * 100
             print(f"  진행중... {i-280}/{len(df)-280-15} ({progress:.1f}%)")
     
@@ -268,7 +261,7 @@ def evaluate_all_predictions():
     
     # ===== 통계 분석 =====
     print("\n" + "="*80)
-    print("📊 평가 통계 (280분 → 15분 후 예측)")
+    print("📊 평가 통계 (280분 → 15분 후)")
     print("="*80)
     print(f"총 예측 수: {len(results_df):,}개")
     print(f"평균 절대 오차(MAE): {results_df['절대오차'].mean():.2f}")
@@ -293,6 +286,7 @@ def evaluate_all_predictions():
     if actual_danger_count > 0:
         print(f"위험 감지율: {danger_detected/actual_danger_count*100:.1f}%")
         
+        # False Positive (오경보) 분석
         false_positive = pred_danger & ~actual_danger
         false_positive_count = false_positive.sum()
         if pred_danger_count > 0:
