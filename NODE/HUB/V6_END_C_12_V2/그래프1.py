@@ -193,13 +193,17 @@ def create_graph(params, perf_values=None):
                 df['hubroom_time_str'] = df[hubroom_x_col].astype(str)
         else:
             df['hubroom_time_str'] = ''
-                
+        
+        # 예측값 시간은 실제값 시간 기준으로 계산
         if selected_lines['predicted1']:
             try:
                 df[predicted1_x_col] = pd.to_datetime(df[predicted1_x_col])
-                # 예측값1 시간에 입력한 분만큼 더하기
+                # 실제값 시간에 입력한 분만큼 더하기
                 pred1_minutes = int(params.get('predicted1_time', '10'))
-                df['predicted1_time_str'] = (df[predicted1_x_col] + pd.Timedelta(minutes=pred1_minutes)).dt.strftime('%Y-%m-%d %H:%M:%S')
+                if selected_lines['actual']:
+                    df['predicted1_time_str'] = (df[actual_x_col] + pd.Timedelta(minutes=pred1_minutes)).dt.strftime('%Y-%m-%d %H:%M:%S')
+                else:
+                    df['predicted1_time_str'] = (df[predicted1_x_col] + pd.Timedelta(minutes=pred1_minutes)).dt.strftime('%Y-%m-%d %H:%M:%S')
             except:
                 df['predicted1_time_str'] = df[predicted1_x_col].astype(str)
         else:
@@ -208,9 +212,12 @@ def create_graph(params, perf_values=None):
         if selected_lines['predicted2']:
             try:
                 df[predicted2_x_col] = pd.to_datetime(df[predicted2_x_col])
-                # 예측값2 시간에 입력한 분만큼 더하기
+                # 실제값 시간에 입력한 분만큼 더하기
                 pred2_minutes = int(params.get('predicted2_time', '15'))
-                df['predicted2_time_str'] = (df[predicted2_x_col] + pd.Timedelta(minutes=pred2_minutes)).dt.strftime('%Y-%m-%d %H:%M:%S')
+                if selected_lines['actual']:
+                    df['predicted2_time_str'] = (df[actual_x_col] + pd.Timedelta(minutes=pred2_minutes)).dt.strftime('%Y-%m-%d %H:%M:%S')
+                else:
+                    df['predicted2_time_str'] = (df[predicted2_x_col] + pd.Timedelta(minutes=pred2_minutes)).dt.strftime('%Y-%m-%d %H:%M:%S')
             except:
                 df['predicted2_time_str'] = df[predicted2_x_col].astype(str)
         else:
@@ -219,9 +226,12 @@ def create_graph(params, perf_values=None):
         if selected_lines['predicted3']:
             try:
                 df[predicted3_x_col] = pd.to_datetime(df[predicted3_x_col])
-                # 예측값3 시간에 입력한 분만큼 더하기
+                # 실제값 시간에 입력한 분만큼 더하기
                 pred3_minutes = int(params.get('predicted3_time', '25'))
-                df['predicted3_time_str'] = (df[predicted3_x_col] + pd.Timedelta(minutes=pred3_minutes)).dt.strftime('%Y-%m-%d %H:%M:%S')
+                if selected_lines['actual']:
+                    df['predicted3_time_str'] = (df[actual_x_col] + pd.Timedelta(minutes=pred3_minutes)).dt.strftime('%Y-%m-%d %H:%M:%S')
+                else:
+                    df['predicted3_time_str'] = (df[predicted3_x_col] + pd.Timedelta(minutes=pred3_minutes)).dt.strftime('%Y-%m-%d %H:%M:%S')
             except:
                 df['predicted3_time_str'] = df[predicted3_x_col].astype(str)
         else:
