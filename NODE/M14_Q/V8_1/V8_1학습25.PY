@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 """
 280분 시퀀스 → 25분 후 TOTALCNT 최대값 예측
+조기 경보 Feature 추가: 마지막 25분에 1650+ 상승 추세
 """
 
 import numpy as np
@@ -45,14 +46,15 @@ def check_gpu_availability():
 
 def create_features_280min_enhanced(df, start_idx=280):
     """
-    280분 시퀀스 + 강화된 Feature
+    280분 시퀀스 + 강화된 Feature + 조기 경보 Feature
     - 기본 8개 통계값 (각 컬럼)
     - 비율 Feature (m14b/m10a 등)
     - 임계값 카운트
     - 변화율, 가속도 등
+    - 🔥 조기 경보: 마지막 25분에 1650+ 상승 추세
     """
     
-    print(f"\nFeature 생성 중... (280분 시퀀스 + 강화 Feature)")
+    print(f"\nFeature 생성 중... (280분 시퀀스 + 강화 Feature + 조기 경보)")
     
     # 필수 컬럼 확인
     required_cols = ['M14AM14B', 'M14AM10A', 'M14AM16', 'TOTALCNT']
@@ -128,19 +130,12 @@ def create_features_280min_enhanced(df, start_idx=280):
         features['totalcnt_first_10_mean'] = np.mean(seq_totalcnt[:10])
         
         # ========== 비율 Feature (8개) ==========
-        # 현재값 비율
         features['ratio_m14b_m10a'] = seq_m14b[-1] / (seq_m10a[-1] + 1)
         features['ratio_m14b_m16'] = seq_m14b[-1] / (seq_m16[-1] + 1)
         features['ratio_m10a_m16'] = seq_m10a[-1] / (seq_m16[-1] + 1)
-        
-        # 평균값 비율
         features['ratio_m14b_m10a_mean'] = np.mean(seq_m14b) / (np.mean(seq_m10a) + 1)
         features['ratio_m14b_m16_mean'] = np.mean(seq_m14b) / (np.mean(seq_m16) + 1)
-        
-        # 최대값 비율
         features['ratio_m14b_m10a_max'] = np.max(seq_m14b) / (np.max(seq_m10a) + 1)
-        
-        # 변동성 비율
         features['volatility_m14b'] = np.std(seq_m14b) / (np.mean(seq_m14b) + 1)
         features['volatility_totalcnt'] = np.std(seq_totalcnt) / (np.mean(seq_totalcnt) + 1)
         
@@ -150,8 +145,6 @@ def create_features_280min_enhanced(df, start_idx=280):
         features['m14b_over_350'] = np.sum(seq_m14b > 350)
         features['m14b_over_400'] = np.sum(seq_m14b > 400)
         features['m14b_over_450'] = np.sum(seq_m14b > 450)
-        
-        # 최근 30분 임계값
         features['m14b_over_300_last30'] = np.sum(seq_m14b[-30:] > 300)
         features['m14b_over_350_last30'] = np.sum(seq_m14b[-30:] > 350)
         features['m14b_over_400_last30'] = np.sum(seq_m14b[-30:] > 400)
@@ -167,8 +160,6 @@ def create_features_280min_enhanced(df, start_idx=280):
         features['totalcnt_over_1500'] = np.sum(seq_totalcnt >= 1500)
         features['totalcnt_over_1600'] = np.sum(seq_totalcnt >= 1600)
         features['totalcnt_over_1700'] = np.sum(seq_totalcnt >= 1700)
-        
-        # 최근 30분 임계값
         features['totalcnt_over_1400_last30'] = np.sum(seq_totalcnt[-30:] >= 1400)
         features['totalcnt_over_1500_last30'] = np.sum(seq_totalcnt[-30:] >= 1500)
         features['totalcnt_over_1600_last30'] = np.sum(seq_totalcnt[-30:] >= 1600)
@@ -181,11 +172,9 @@ def create_features_280min_enhanced(df, start_idx=280):
         features['danger_zone'] = 1 if seq_totalcnt[-1] >= 1700 else 0
         
         # ========== 변화율/가속도 (8개) ==========
-        # 변화율
         features['m14b_change_rate'] = (seq_m14b[-1] - seq_m14b[-30]) / 30 if len(seq_m14b) >= 30 else 0
         features['totalcnt_change_rate'] = (seq_totalcnt[-1] - seq_totalcnt[-30]) / 30 if len(seq_totalcnt) >= 30 else 0
         
-        # 가속도 (최근 30분 vs 이전 30분)
         recent_30_m14b = np.mean(seq_m14b[-30:])
         previous_30_m14b = np.mean(seq_m14b[-60:-30]) if len(seq_m14b) >= 60 else np.mean(seq_m14b[-30:])
         features['m14b_acceleration'] = recent_30_m14b - previous_30_m14b
@@ -194,16 +183,12 @@ def create_features_280min_enhanced(df, start_idx=280):
         previous_30_totalcnt = np.mean(seq_totalcnt[-60:-30]) if len(seq_totalcnt) >= 60 else np.mean(seq_totalcnt[-30:])
         features['totalcnt_acceleration'] = recent_30_totalcnt - previous_30_totalcnt
         
-        # Range (최대-최소)
         features['m14b_range'] = np.max(seq_m14b) - np.min(seq_m14b)
         features['totalcnt_range'] = np.max(seq_totalcnt) - np.min(seq_totalcnt)
-        
-        # 최근 vs 전체 평균 비율
         features['m14b_recent_vs_mean'] = np.mean(seq_m14b[-30:]) / (np.mean(seq_m14b) + 1)
         features['totalcnt_recent_vs_mean'] = np.mean(seq_totalcnt[-30:]) / (np.mean(seq_totalcnt) + 1)
         
         # ========== 시간대별 통계 (8개) ==========
-        # 280분을 4구간으로 나눔 (각 70분)
         q1 = seq_totalcnt[:70]
         q2 = seq_totalcnt[70:140]
         q3 = seq_totalcnt[140:210]
@@ -213,12 +198,23 @@ def create_features_280min_enhanced(df, start_idx=280):
         features['totalcnt_q2_mean'] = np.mean(q2)
         features['totalcnt_q3_mean'] = np.mean(q3)
         features['totalcnt_q4_mean'] = np.mean(q4)
-        
-        # 구간별 증가 추세
         features['totalcnt_trend_q1_q2'] = np.mean(q2) - np.mean(q1)
         features['totalcnt_trend_q2_q3'] = np.mean(q3) - np.mean(q2)
         features['totalcnt_trend_q3_q4'] = np.mean(q4) - np.mean(q3)
         features['totalcnt_trend_overall'] = np.mean(q4) - np.mean(q1)
+        
+        # ========== 🔥 조기 경보 Feature (5개) ==========
+        # 마지막 25분 분석
+        last_10min = seq_totalcnt[-10:]
+        
+        features['last_10min_max'] = np.max(last_10min)
+        features['last_10min_min'] = np.min(last_10min)
+        features['last_10min_mean'] = np.mean(last_10min)
+        features['last_10min_rise'] = last_10min[-1] - last_10min[0]  # 25분간 상승폭
+        
+        # 조기 경보: 1650 이상 + 20 이상 상승
+        early_warning = (np.max(last_10min) >= 1650) and ((last_10min[-1] - last_10min[0]) > 20)
+        features['early_warning_1650_rising'] = 1 if early_warning else 0
         
         features_list.append(features)
         
@@ -252,18 +248,19 @@ def create_features_280min_enhanced(df, start_idx=280):
     print(f"  - 황금 패턴: 4개")
     print(f"  - 변화율/가속도: 8개")
     print(f"  - 시간대별 통계: 8개")
+    print(f"  - 🔥 조기 경보: 5개")
     print(f"데이터 범위: 인덱스 {indices[0]} ~ {indices[-1]}")
     
     return X, y, seq_info
 
 def train_and_evaluate_complete():
     """
-    280분 시퀀스 + 강화된 Feature로 25분 후 TOTALCNT 예측
+    280분 시퀀스 + 강화된 Feature + 조기 경보로 25분 후 TOTALCNT 예측
     """
     print("="*80)
-    print("XGBoost 280분 → 25분 후 TOTALCNT 최대값 예측 (강화 버전)")
+    print("XGBoost 280분 → 25분 후 TOTALCNT 최대값 예측 (조기 경보 추가)")
     print("컬럼: M14AM14B, M14AM10A, M14AM16, TOTALCNT")
-    print("Feature: 기본 32개 + 추가 48개 = 총 80개")
+    print("Feature: 기본 80개 + 조기 경보 5개 = 총 85개")
     print("="*80)
     
     # GPU 확인
@@ -284,7 +281,7 @@ def train_and_evaluate_complete():
     print(f"컬럼: {list(df.columns)}")
     
     # ===== 2. Feature 생성 =====
-    print("\n[STEP 2] Feature 생성 (280분 시퀀스 + 강화 Feature)")
+    print("\n[STEP 2] Feature 생성 (280분 시퀀스 + 강화 Feature + 조기 경보)")
     print("-"*40)
     
     X, y, seq_info = create_features_280min_enhanced(df)
@@ -296,6 +293,10 @@ def train_and_evaluate_complete():
     print(f"  최대: {y.max():.2f}")
     print(f"  위험(1700+): {np.sum(y >= 1700)}개 ({np.sum(y >= 1700)/len(y)*100:.2f}%)")
     print(f"  극단(2000+): {np.sum(y >= 2000)}개 ({np.sum(y >= 2000)/len(y)*100:.2f}%)")
+    
+    # 조기 경보 통계
+    early_warning_count = X['early_warning_1650_rising'].sum()
+    print(f"\n조기 경보 발생: {early_warning_count}개 ({early_warning_count/len(X)*100:.2f}%)")
     
     # ===== 2000 이상 극단값 제거 =====
     print("\n극단값(2000+) 필터링...")
@@ -390,9 +391,9 @@ def train_and_evaluate_complete():
     print("\n[STEP 6] 모델 저장")
     print("-"*40)
     
-    with open('xgboost_280to25_enhanced.pkl', 'wb') as f:
+    with open('xgboost_280to25_enhanced_earlywarning.pkl', 'wb') as f:
         pickle.dump(model, f)
-    print("모델 저장: xgboost_280to25_enhanced.pkl")
+    print("모델 저장: xgboost_280to25_enhanced_earlywarning.pkl")
     
     # ===== 7. 상세 분석 =====
     print("\n[STEP 7] 상세 분석")
@@ -418,115 +419,8 @@ def train_and_evaluate_complete():
     print(f"  오차 표준편차: {np.std(errors):.2f}")
     print(f"  오차 범위: [{np.min(errors):.2f}, {np.max(errors):.2f}]")
     
-    # ===== 8. 시각화 =====
-    print("\n[STEP 8] 시각화 생성")
-    print("-"*40)
-    
-    fig, axes = plt.subplots(2, 3, figsize=(18, 10))
-    
-    # 1. 예측 vs 실제
-    ax1 = axes[0, 0]
-    ax1.scatter(y_test, y_test_pred, alpha=0.3, s=5, color='blue')
-    ax1.plot([y_test.min(), y_test.max()], [y_test.min(), y_test.max()], 'r--', lw=2)
-    ax1.axhline(y=1700, color='orange', linestyle='--', alpha=0.5, label='Danger(1700)')
-    ax1.axvline(x=1700, color='orange', linestyle='--', alpha=0.5)
-    ax1.set_xlabel('Actual TOTALCNT')
-    ax1.set_ylabel('Predicted TOTALCNT')
-    ax1.set_title(f'Actual vs Predicted\nMAE={test_mae:.2f}, R²={test_r2:.3f}')
-    ax1.legend()
-    ax1.grid(True, alpha=0.3)
-    
-    # 2. 시계열
-    ax2 = axes[0, 1]
-    plot_size = min(500, len(y_test))
-    ax2.plot(range(plot_size), y_test[:plot_size], 'b-', label='Actual', alpha=0.7, linewidth=1)
-    ax2.plot(range(plot_size), y_test_pred[:plot_size], 'r--', label='Predicted', alpha=0.7, linewidth=1)
-    ax2.axhline(y=1700, color='orange', linestyle='--', label='Danger(1700)', alpha=0.5)
-    ax2.set_xlabel('Time Index')
-    ax2.set_ylabel('TOTALCNT')
-    ax2.set_title('Time Series (First 500)')
-    ax2.legend()
-    ax2.grid(True, alpha=0.3)
-    
-    # 3. 오차 분포
-    ax3 = axes[0, 2]
-    ax3.hist(errors, bins=50, edgecolor='black', alpha=0.7, color='skyblue')
-    ax3.axvline(x=0, color='r', linestyle='--', linewidth=2, label='Zero Error')
-    ax3.set_xlabel('Prediction Error')
-    ax3.set_ylabel('Frequency')
-    ax3.set_title(f'Error Distribution\nMean={np.mean(errors):.2f}, Std={np.std(errors):.2f}')
-    ax3.legend()
-    ax3.grid(True, alpha=0.3)
-    
-    # 4. 위험 구간 성능
-    ax4 = axes[1, 0]
-    normal_mask = y_test < 1700
-    ax4.scatter(y_test[normal_mask], y_test_pred[normal_mask],
-               alpha=0.2, s=5, label='Normal(<1700)', color='blue')
-    ax4.scatter(y_test[danger_mask_actual], y_test_pred[danger_mask_actual],
-               alpha=0.8, s=20, label='Danger(1700+)', color='red')
-    ax4.plot([1200, 2000], [1200, 2000], 'k--', lw=1)
-    ax4.axhline(y=1700, color='orange', linestyle='--', alpha=0.5)
-    ax4.axvline(x=1700, color='orange', linestyle='--', alpha=0.5)
-    ax4.set_xlabel('Actual')
-    ax4.set_ylabel('Predicted')
-    ax4.set_title(f'Danger Zone Performance\nDetected: {danger_detected}/{danger_actual_count}')
-    ax4.legend()
-    ax4.grid(True, alpha=0.3)
-    
-    # 5. MAE by Range
-    ax5 = axes[1, 1]
-    bins = np.array([1000, 1200, 1400, 1600, 1800, 2000])
-    bin_labels = ['1000-1200', '1200-1400', '1400-1600', '1600-1800', '1800+']
-    mae_by_range = []
-    count_by_range = []
-    
-    for i in range(len(bins)-1):
-        mask = (y_test >= bins[i]) & (y_test < bins[i+1])
-        count = np.sum(mask)
-        count_by_range.append(count)
-        if count > 0:
-            mae_by_range.append(mean_absolute_error(y_test[mask], y_test_pred[mask]))
-        else:
-            mae_by_range.append(0)
-    
-    bars = ax5.bar(bin_labels, mae_by_range, color='steelblue', alpha=0.7)
-    ax5.set_xlabel('TOTALCNT Range')
-    ax5.set_ylabel('MAE')
-    ax5.set_title('MAE by Value Range')
-    ax5.tick_params(axis='x', rotation=45)
-    
-    for i, (bar, count) in enumerate(zip(bars, count_by_range)):
-        height = bar.get_height()
-        ax5.text(bar.get_x() + bar.get_width()/2., height,
-                f'n={count}',
-                ha='center', va='bottom', fontsize=8)
-    
-    ax5.grid(True, alpha=0.3)
-    
-    # 6. Feature 중요도 Top 20
-    ax6 = axes[1, 2]
-    feature_importance = pd.DataFrame({
-        'feature': X.columns,
-        'importance': model.feature_importances_
-    }).sort_values('importance', ascending=False).head(20)
-    
-    colors = plt.cm.viridis(np.linspace(0.3, 0.9, len(feature_importance)))
-    ax6.barh(range(len(feature_importance)), feature_importance['importance'].values, color=colors)
-    ax6.set_yticks(range(len(feature_importance)))
-    ax6.set_yticklabels(feature_importance['feature'].values, fontsize=8)
-    ax6.set_xlabel('Importance')
-    ax6.set_title('Top 20 Feature Importance')
-    ax6.invert_yaxis()
-    ax6.grid(True, alpha=0.3)
-    
-    plt.suptitle('280min -> 25min TOTALCNT Prediction (Enhanced)', fontsize=14, fontweight='bold')
-    plt.tight_layout()
-    plt.savefig('xgboost_280to25_enhanced_evaluation.png', dpi=150, bbox_inches='tight')
-    print("그래프 저장: xgboost_280to25_enhanced_evaluation.png")
-    
-    # ===== 9. Feature 중요도 전체 =====
-    print("\n[STEP 9] Feature 중요도 (Top 30)")
+    # ===== 8. Feature 중요도 =====
+    print("\n[STEP 8] Feature 중요도 (Top 30)")
     print("-"*40)
     
     feature_importance_full = pd.DataFrame({
@@ -536,10 +430,19 @@ def train_and_evaluate_complete():
     
     print(feature_importance_full.head(30).to_string(index=False))
     
-    feature_importance_full.to_csv('feature_importance_280to25.csv', index=False)
-    print("\nFeature 중요도 저장: feature_importance_280to25.csv")
+    feature_importance_full.to_csv('feature_importance_280to25_earlywarning.csv', index=False)
+    print("\nFeature 중요도 저장: feature_importance_280to25_earlywarning.csv")
     
-    # ===== 10. 최종 요약 =====
+    # 조기 경보 Feature 중요도 확인
+    early_warning_importance = feature_importance_full[
+        feature_importance_full['feature'].str.contains('early_warning|last_10min')
+    ]
+    
+    if len(early_warning_importance) > 0:
+        print("\n🔥 조기 경보 Feature 중요도:")
+        print(early_warning_importance.to_string(index=False))
+    
+    # ===== 9. 최종 요약 =====
     print("\n" + "="*80)
     print("최종 평가 요약")
     print("="*80)
@@ -551,12 +454,11 @@ def train_and_evaluate_complete():
     print(f"\n2. 시퀀스 정보:")
     print(f"   - 시퀀스 길이: 280분")
     print(f"   - 예측 범위: 25분 후 최대값")
-    print(f"   - Feature 수: {X.shape[1]}개")
+    print(f"   - Feature 수: {X.shape[1]}개 (조기 경보 5개 포함)")
     
     print(f"\n3. 저장 파일:")
-    print(f"   - 모델: xgboost_280to25_enhanced.pkl")
-    print(f"   - 그래프: xgboost_280to25_enhanced_evaluation.png")
-    print(f"   - Feature 중요도: feature_importance_280to25.csv")
+    print(f"   - 모델: xgboost_280to25_enhanced_earlywarning.pkl")
+    print(f"   - Feature 중요도: feature_importance_280to25_earlywarning.csv")
     
     print("\n" + "="*80)
     
