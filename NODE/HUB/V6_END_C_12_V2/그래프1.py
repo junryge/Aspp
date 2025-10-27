@@ -674,7 +674,10 @@ class GraphApp:
                 'M16A_6F_LFT_MAXCAP'
             ],
             '📊 UTIL 그룹': [
-                'M16A_3F_STORAGE_UTIL'
+                'M16A_3F_STORAGE_UTIL',
+                'CD_M163FSTORAGEUSE',
+                'CD_M163FSTORAGETOTAL',
+                'CD_M163FSTORAGEUTIL'
             ],
             '🔄 JOB 그룹': [
                 'M14A_3F_TO_HUB_JOB2',
