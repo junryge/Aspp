@@ -1,469 +1,336 @@
 # -*- coding: utf-8 -*-
 """
-280분 시퀀스 → 10분 후 TOTALCNT 최대값 예측
-조기 경보 Feature 추가: 마지막 10분에 1650+ 상승 추세
+280분 시퀀스 → 10분 후 예측 평가
+조기 경보 Feature 포함 (85개)
 """
 
 import numpy as np
 import pandas as pd
-import xgboost as xgb
 import pickle
-import warnings
 from datetime import datetime, timedelta
-import matplotlib.pyplot as plt
-from sklearn.model_selection import train_test_split
-from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
 import os
 
-warnings.filterwarnings('ignore')
-plt.rcParams['font.family'] = 'DejaVu Sans'
-plt.rcParams['axes.unicode_minus'] = False
+def create_single_prediction_features(seq_m14b, seq_m10a, seq_m16, seq_totalcnt):
+    """하나의 280분 시퀀스로부터 Feature 생성 (조기 경보 포함)"""
+    features = {}
+    
+    # ========== M14AM14B 기본 8개 ==========
+    features['m14b_mean'] = np.mean(seq_m14b)
+    features['m14b_std'] = np.std(seq_m14b)
+    features['m14b_last_5_mean'] = np.mean(seq_m14b[-5:])
+    features['m14b_max'] = np.max(seq_m14b)
+    features['m14b_min'] = np.min(seq_m14b)
+    features['m14b_slope'] = np.polyfit(np.arange(280), seq_m14b, 1)[0]
+    features['m14b_last_10_mean'] = np.mean(seq_m14b[-10:])
+    features['m14b_first_10_mean'] = np.mean(seq_m14b[:10])
+    
+    # ========== M14AM10A 기본 8개 ==========
+    features['m10a_mean'] = np.mean(seq_m10a)
+    features['m10a_std'] = np.std(seq_m10a)
+    features['m10a_last_5_mean'] = np.mean(seq_m10a[-5:])
+    features['m10a_max'] = np.max(seq_m10a)
+    features['m10a_min'] = np.min(seq_m10a)
+    features['m10a_slope'] = np.polyfit(np.arange(280), seq_m10a, 1)[0]
+    features['m10a_last_10_mean'] = np.mean(seq_m10a[-10:])
+    features['m10a_first_10_mean'] = np.mean(seq_m10a[:10])
+    
+    # ========== M14AM16 기본 8개 ==========
+    features['m16_mean'] = np.mean(seq_m16)
+    features['m16_std'] = np.std(seq_m16)
+    features['m16_last_5_mean'] = np.mean(seq_m16[-5:])
+    features['m16_max'] = np.max(seq_m16)
+    features['m16_min'] = np.min(seq_m16)
+    features['m16_slope'] = np.polyfit(np.arange(280), seq_m16, 1)[0]
+    features['m16_last_10_mean'] = np.mean(seq_m16[-10:])
+    features['m16_first_10_mean'] = np.mean(seq_m16[:10])
+    
+    # ========== TOTALCNT 기본 8개 ==========
+    features['totalcnt_mean'] = np.mean(seq_totalcnt)
+    features['totalcnt_std'] = np.std(seq_totalcnt)
+    features['totalcnt_last_5_mean'] = np.mean(seq_totalcnt[-5:])
+    features['totalcnt_max'] = np.max(seq_totalcnt)
+    features['totalcnt_min'] = np.min(seq_totalcnt)
+    features['totalcnt_slope'] = np.polyfit(np.arange(280), seq_totalcnt, 1)[0]
+    features['totalcnt_last_10_mean'] = np.mean(seq_totalcnt[-10:])
+    features['totalcnt_first_10_mean'] = np.mean(seq_totalcnt[:10])
+    
+    # ========== 비율 Feature (8개) ==========
+    features['ratio_m14b_m10a'] = seq_m14b[-1] / (seq_m10a[-1] + 1)
+    features['ratio_m14b_m16'] = seq_m14b[-1] / (seq_m16[-1] + 1)
+    features['ratio_m10a_m16'] = seq_m10a[-1] / (seq_m16[-1] + 1)
+    features['ratio_m14b_m10a_mean'] = np.mean(seq_m14b) / (np.mean(seq_m10a) + 1)
+    features['ratio_m14b_m16_mean'] = np.mean(seq_m14b) / (np.mean(seq_m16) + 1)
+    features['ratio_m14b_m10a_max'] = np.max(seq_m14b) / (np.max(seq_m10a) + 1)
+    features['volatility_m14b'] = np.std(seq_m14b) / (np.mean(seq_m14b) + 1)
+    features['volatility_totalcnt'] = np.std(seq_totalcnt) / (np.mean(seq_totalcnt) + 1)
+    
+    # ========== M14AM14B 임계값 카운트 (8개) ==========
+    features['m14b_over_250'] = np.sum(seq_m14b > 250)
+    features['m14b_over_300'] = np.sum(seq_m14b > 300)
+    features['m14b_over_350'] = np.sum(seq_m14b > 350)
+    features['m14b_over_400'] = np.sum(seq_m14b > 400)
+    features['m14b_over_450'] = np.sum(seq_m14b > 450)
+    features['m14b_over_300_last30'] = np.sum(seq_m14b[-30:] > 300)
+    features['m14b_over_350_last30'] = np.sum(seq_m14b[-30:] > 350)
+    features['m14b_over_400_last30'] = np.sum(seq_m14b[-30:] > 400)
+    
+    # ========== M14AM10A 임계값 카운트 (4개) ==========
+    features['m10a_over_70'] = np.sum(seq_m10a > 70)
+    features['m10a_over_80'] = np.sum(seq_m10a > 80)
+    features['m10a_under_80'] = np.sum(seq_m10a < 80)
+    features['m10a_under_70'] = np.sum(seq_m10a < 70)
+    
+    # ========== TOTALCNT 임계값 카운트 (8개) ==========
+    features['totalcnt_over_1400'] = np.sum(seq_totalcnt >= 1400)
+    features['totalcnt_over_1500'] = np.sum(seq_totalcnt >= 1500)
+    features['totalcnt_over_1600'] = np.sum(seq_totalcnt >= 1600)
+    features['totalcnt_over_1700'] = np.sum(seq_totalcnt >= 1700)
+    features['totalcnt_over_1400_last30'] = np.sum(seq_totalcnt[-30:] >= 1400)
+    features['totalcnt_over_1500_last30'] = np.sum(seq_totalcnt[-30:] >= 1500)
+    features['totalcnt_over_1600_last30'] = np.sum(seq_totalcnt[-30:] >= 1600)
+    features['totalcnt_over_1700_last30'] = np.sum(seq_totalcnt[-30:] >= 1700)
+    
+    # ========== 황금 패턴 (4개) ==========
+    features['golden_pattern_300_80'] = 1 if (seq_m14b[-1] > 300 and seq_m10a[-1] < 80) else 0
+    features['golden_pattern_350_80'] = 1 if (seq_m14b[-1] > 350 and seq_m10a[-1] < 80) else 0
+    features['golden_pattern_400_70'] = 1 if (seq_m14b[-1] > 400 and seq_m10a[-1] < 70) else 0
+    features['danger_zone'] = 1 if seq_totalcnt[-1] >= 1700 else 0
+    
+    # ========== 변화율/가속도 (8개) ==========
+    features['m14b_change_rate'] = (seq_m14b[-1] - seq_m14b[-30]) / 30 if len(seq_m14b) >= 30 else 0
+    features['totalcnt_change_rate'] = (seq_totalcnt[-1] - seq_totalcnt[-30]) / 30 if len(seq_totalcnt) >= 30 else 0
+    
+    recent_30_m14b = np.mean(seq_m14b[-30:])
+    previous_30_m14b = np.mean(seq_m14b[-60:-30]) if len(seq_m14b) >= 60 else np.mean(seq_m14b[-30:])
+    features['m14b_acceleration'] = recent_30_m14b - previous_30_m14b
+    
+    recent_30_totalcnt = np.mean(seq_totalcnt[-30:])
+    previous_30_totalcnt = np.mean(seq_totalcnt[-60:-30]) if len(seq_totalcnt) >= 60 else np.mean(seq_totalcnt[-30:])
+    features['totalcnt_acceleration'] = recent_30_totalcnt - previous_30_totalcnt
+    
+    features['m14b_range'] = np.max(seq_m14b) - np.min(seq_m14b)
+    features['totalcnt_range'] = np.max(seq_totalcnt) - np.min(seq_totalcnt)
+    features['m14b_recent_vs_mean'] = np.mean(seq_m14b[-30:]) / (np.mean(seq_m14b) + 1)
+    features['totalcnt_recent_vs_mean'] = np.mean(seq_totalcnt[-30:]) / (np.mean(seq_totalcnt) + 1)
+    
+    # ========== 시간대별 통계 (8개) ==========
+    q1 = seq_totalcnt[:70]
+    q2 = seq_totalcnt[70:140]
+    q3 = seq_totalcnt[140:210]
+    q4 = seq_totalcnt[210:280]
+    
+    features['totalcnt_q1_mean'] = np.mean(q1)
+    features['totalcnt_q2_mean'] = np.mean(q2)
+    features['totalcnt_q3_mean'] = np.mean(q3)
+    features['totalcnt_q4_mean'] = np.mean(q4)
+    features['totalcnt_trend_q1_q2'] = np.mean(q2) - np.mean(q1)
+    features['totalcnt_trend_q2_q3'] = np.mean(q3) - np.mean(q2)
+    features['totalcnt_trend_q3_q4'] = np.mean(q4) - np.mean(q3)
+    features['totalcnt_trend_overall'] = np.mean(q4) - np.mean(q1)
+    
+    # ========== 🔥 조기 경보 Feature (5개) ==========
+    # 마지막 10분 분석
+    last_10min = seq_totalcnt[-10:]
+    
+    features['last_10min_max'] = np.max(last_10min)
+    features['last_10min_min'] = np.min(last_10min)
+    features['last_10min_mean'] = np.mean(last_10min)
+    features['last_10min_rise'] = last_10min[-1] - last_10min[0]  # 10분간 상승폭
+    
+    # 조기 경보: 1650 이상 + 20 이상 상승
+    early_warning = (np.max(last_10min) >= 1650) and ((last_10min[-1] - last_10min[0]) > 20)
+    features['early_warning_1650_rising'] = 1 if early_warning else 0
+    
+    return features
 
-def check_gpu_availability():
-    """GPU 사용 가능 여부 확인"""
-    print("\n" + "="*80)
-    print("GPU 사용 가능 여부 확인")
+def evaluate_all_predictions():
+    """전체 데이터를 슬라이딩 윈도우로 평가 - 10분 후"""
+    
+    print("="*80)
+    print("280분 시퀀스 → 10분 후 예측 평가 (조기 경보 포함)")
     print("="*80)
     
+    # 모델 로드
+    model_file = 'xgboost_280to10_enhanced_earlywarning.pkl'
     try:
-        test_X = np.random.rand(100, 10)
-        test_y = np.random.rand(100)
-        
-        test_model = xgb.XGBRegressor(
-            tree_method='gpu_hist',
-            gpu_id=0,
-            n_estimators=10
-        )
-        test_model.fit(test_X, test_y)
-        
-        print("GPU 사용 가능! XGBoost GPU 모드로 학습")
-        return 'gpu_hist', 0
-        
+        with open(model_file, 'rb') as f:
+            model = pickle.load(f)
+        print(f"✅ 모델 로드 완료: {model_file}")
     except Exception as e:
-        print(f"GPU 사용 불가: {str(e)[:100]}")
-        print("CPU 모드로 학습")
-        return 'hist', None
-
-def create_features_280min_enhanced(df, start_idx=280):
-    """
-    280분 시퀀스 + 강화된 Feature + 조기 경보 Feature
-    - 기본 8개 통계값 (각 컬럼)
-    - 비율 Feature (m14b/m10a 등)
-    - 임계값 카운트
-    - 변화율, 가속도 등
-    - 🔥 조기 경보: 마지막 10분에 1650+ 상승 추세
-    """
+        print(f"❌ 모델 파일 없음: {e}")
+        print("먼저 xgb_280_to_10min_EARLYWARNING.py를 실행하여 모델을 학습하세요.")
+        return None
     
-    print(f"\nFeature 생성 중... (280분 시퀀스 + 강화 Feature + 조기 경보)")
+    # 데이터 로드
+    csv_file = '/mnt/project/V6_6결과.CSV'
+    if not os.path.exists(csv_file):
+        print(f"❌ CSV 파일 없음: {csv_file}")
+        return None
+    
+    df = pd.read_csv(csv_file, on_bad_lines='skip')
+    print(f"✅ 데이터 로드 완료: {len(df):,}개 행")
     
     # 필수 컬럼 확인
     required_cols = ['M14AM14B', 'M14AM10A', 'M14AM16', 'TOTALCNT']
     missing_cols = [col for col in required_cols if col not in df.columns]
     
     if missing_cols:
-        raise ValueError(f"필수 컬럼 누락: {missing_cols}")
+        print(f"❌ 필수 컬럼 누락: {missing_cols}")
+        print(f"현재 컬럼: {list(df.columns)}")
+        return None
     
-    print(f"필수 컬럼 확인: {required_cols}")
+    print(f"✅ 필수 컬럼 확인 완료")
     
-    features_list = []
-    labels = []
+    # CURRTIME 처리
+    if 'CURRTIME' in df.columns:
+        try:
+            df['CURRTIME'] = pd.to_datetime(df['CURRTIME'].astype(str), format='%Y%m%d%H%M')
+            print("✅ CURRTIME 파싱 완료")
+        except:
+            print("⚠️ CURRTIME 변환 실패, 가상 시간 생성")
+            base_time = datetime(2024, 1, 1, 0, 0)
+            df['CURRTIME'] = [base_time + timedelta(minutes=i) for i in range(len(df))]
+    else:
+        print("⚠️ CURRTIME 없음, 가상 시간 생성")
+        base_time = datetime(2024, 1, 1, 0, 0)
+        df['CURRTIME'] = [base_time + timedelta(minutes=i) for i in range(len(df))]
     
-    seq_totalcnt_max_list = []
-    seq_totalcnt_min_list = []
-    indices = []
+    results = []
     
-    total_sequences = len(df) - start_idx - 10
-    print(f"생성 가능한 시퀀스: {total_sequences:,}개")
+    print(f"\n🔄 슬라이딩 윈도우 평가 시작...")
+    print(f"총 예측 수: {len(df) - 280 - 10:,}개")
     
-    # Feature 생성
-    for i in range(start_idx, len(df) - 10):
-        if i % 10000 == 0:
-            progress = (i - start_idx) / total_sequences * 100
-            print(f"  진행률: {i-start_idx}/{total_sequences} ({progress:.1f}%)", end='\r')
-        
-        # 280분 시퀀스 추출
+    # 슬라이딩 윈도우
+    for i in range(280, len(df) - 10):
+        # 280분 시퀀스
         seq_m14b = df['M14AM14B'].iloc[i-280:i].values
         seq_m10a = df['M14AM10A'].iloc[i-280:i].values
         seq_m16 = df['M14AM16'].iloc[i-280:i].values
         seq_totalcnt = df['TOTALCNT'].iloc[i-280:i].values
         
-        features = {}
+        # 시간 정보
+        current_time = df['CURRTIME'].iloc[i-1]
+        seq_start_time = df['CURRTIME'].iloc[i-280]
+        prediction_time = current_time + timedelta(minutes=10)
+        actual_time = df['CURRTIME'].iloc[i+10]
         
-        # ========== M14AM14B 기본 8개 ==========
-        features['m14b_mean'] = np.mean(seq_m14b)
-        features['m14b_std'] = np.std(seq_m14b)
-        features['m14b_last_5_mean'] = np.mean(seq_m14b[-5:])
-        features['m14b_max'] = np.max(seq_m14b)
-        features['m14b_min'] = np.min(seq_m14b)
-        features['m14b_slope'] = np.polyfit(np.arange(280), seq_m14b, 1)[0]
-        features['m14b_last_10_mean'] = np.mean(seq_m14b[-10:])
-        features['m14b_first_10_mean'] = np.mean(seq_m14b[:10])
+        # 실제값 (10분 후)
+        actual_value = df['TOTALCNT'].iloc[i+10]
         
-        # ========== M14AM10A 기본 8개 ==========
-        features['m10a_mean'] = np.mean(seq_m10a)
-        features['m10a_std'] = np.std(seq_m10a)
-        features['m10a_last_5_mean'] = np.mean(seq_m10a[-5:])
-        features['m10a_max'] = np.max(seq_m10a)
-        features['m10a_min'] = np.min(seq_m10a)
-        features['m10a_slope'] = np.polyfit(np.arange(280), seq_m10a, 1)[0]
-        features['m10a_last_10_mean'] = np.mean(seq_m10a[-10:])
-        features['m10a_first_10_mean'] = np.mean(seq_m10a[:10])
+        # Feature 생성
+        features = create_single_prediction_features(seq_m14b, seq_m10a, seq_m16, seq_totalcnt)
+        X_pred = pd.DataFrame([features])
         
-        # ========== M14AM16 기본 8개 ==========
-        features['m16_mean'] = np.mean(seq_m16)
-        features['m16_std'] = np.std(seq_m16)
-        features['m16_last_5_mean'] = np.mean(seq_m16[-5:])
-        features['m16_max'] = np.max(seq_m16)
-        features['m16_min'] = np.min(seq_m16)
-        features['m16_slope'] = np.polyfit(np.arange(280), seq_m16, 1)[0]
-        features['m16_last_10_mean'] = np.mean(seq_m16[-10:])
-        features['m16_first_10_mean'] = np.mean(seq_m16[:10])
+        # 예측
+        prediction = model.predict(X_pred)[0]
         
-        # ========== TOTALCNT 기본 8개 ==========
-        features['totalcnt_mean'] = np.mean(seq_totalcnt)
-        features['totalcnt_std'] = np.std(seq_totalcnt)
-        features['totalcnt_last_5_mean'] = np.mean(seq_totalcnt[-5:])
-        features['totalcnt_max'] = np.max(seq_totalcnt)
-        features['totalcnt_min'] = np.min(seq_totalcnt)
-        features['totalcnt_slope'] = np.polyfit(np.arange(280), seq_totalcnt, 1)[0]
-        features['totalcnt_last_10_mean'] = np.mean(seq_totalcnt[-10:])
-        features['totalcnt_first_10_mean'] = np.mean(seq_totalcnt[:10])
+        # 황금 패턴 감지
+        golden_pattern = (seq_m14b[-1] > 300 and seq_m10a[-1] < 80)
         
-        # ========== 비율 Feature (8개) ==========
-        features['ratio_m14b_m10a'] = seq_m14b[-1] / (seq_m10a[-1] + 1)
-        features['ratio_m14b_m16'] = seq_m14b[-1] / (seq_m16[-1] + 1)
-        features['ratio_m10a_m16'] = seq_m10a[-1] / (seq_m16[-1] + 1)
-        features['ratio_m14b_m10a_mean'] = np.mean(seq_m14b) / (np.mean(seq_m10a) + 1)
-        features['ratio_m14b_m16_mean'] = np.mean(seq_m14b) / (np.mean(seq_m16) + 1)
-        features['ratio_m14b_m10a_max'] = np.max(seq_m14b) / (np.max(seq_m10a) + 1)
-        features['volatility_m14b'] = np.std(seq_m14b) / (np.mean(seq_m14b) + 1)
-        features['volatility_totalcnt'] = np.std(seq_totalcnt) / (np.mean(seq_totalcnt) + 1)
+        # 위험 구간 감지
+        danger_in_seq = np.sum(seq_totalcnt >= 1700) > 0
         
-        # ========== M14AM14B 임계값 카운트 (8개) ==========
-        features['m14b_over_250'] = np.sum(seq_m14b > 250)
-        features['m14b_over_300'] = np.sum(seq_m14b > 300)
-        features['m14b_over_350'] = np.sum(seq_m14b > 350)
-        features['m14b_over_400'] = np.sum(seq_m14b > 400)
-        features['m14b_over_450'] = np.sum(seq_m14b > 450)
-        features['m14b_over_300_last30'] = np.sum(seq_m14b[-30:] > 300)
-        features['m14b_over_350_last30'] = np.sum(seq_m14b[-30:] > 350)
-        features['m14b_over_400_last30'] = np.sum(seq_m14b[-30:] > 400)
-        
-        # ========== M14AM10A 임계값 카운트 (4개) ==========
-        features['m10a_over_70'] = np.sum(seq_m10a > 70)
-        features['m10a_over_80'] = np.sum(seq_m10a > 80)
-        features['m10a_under_80'] = np.sum(seq_m10a < 80)
-        features['m10a_under_70'] = np.sum(seq_m10a < 70)
-        
-        # ========== TOTALCNT 임계값 카운트 (8개) ==========
-        features['totalcnt_over_1400'] = np.sum(seq_totalcnt >= 1400)
-        features['totalcnt_over_1500'] = np.sum(seq_totalcnt >= 1500)
-        features['totalcnt_over_1600'] = np.sum(seq_totalcnt >= 1600)
-        features['totalcnt_over_1700'] = np.sum(seq_totalcnt >= 1700)
-        features['totalcnt_over_1400_last30'] = np.sum(seq_totalcnt[-30:] >= 1400)
-        features['totalcnt_over_1500_last30'] = np.sum(seq_totalcnt[-30:] >= 1500)
-        features['totalcnt_over_1600_last30'] = np.sum(seq_totalcnt[-30:] >= 1600)
-        features['totalcnt_over_1700_last30'] = np.sum(seq_totalcnt[-30:] >= 1700)
-        
-        # ========== 황금 패턴 (4개) ==========
-        features['golden_pattern_300_80'] = 1 if (seq_m14b[-1] > 300 and seq_m10a[-1] < 80) else 0
-        features['golden_pattern_350_80'] = 1 if (seq_m14b[-1] > 350 and seq_m10a[-1] < 80) else 0
-        features['golden_pattern_400_70'] = 1 if (seq_m14b[-1] > 400 and seq_m10a[-1] < 70) else 0
-        features['danger_zone'] = 1 if seq_totalcnt[-1] >= 1700 else 0
-        
-        # ========== 변화율/가속도 (8개) ==========
-        features['m14b_change_rate'] = (seq_m14b[-1] - seq_m14b[-30]) / 30 if len(seq_m14b) >= 30 else 0
-        features['totalcnt_change_rate'] = (seq_totalcnt[-1] - seq_totalcnt[-30]) / 30 if len(seq_totalcnt) >= 30 else 0
-        
-        recent_30_m14b = np.mean(seq_m14b[-30:])
-        previous_30_m14b = np.mean(seq_m14b[-60:-30]) if len(seq_m14b) >= 60 else np.mean(seq_m14b[-30:])
-        features['m14b_acceleration'] = recent_30_m14b - previous_30_m14b
-        
-        recent_30_totalcnt = np.mean(seq_totalcnt[-30:])
-        previous_30_totalcnt = np.mean(seq_totalcnt[-60:-30]) if len(seq_totalcnt) >= 60 else np.mean(seq_totalcnt[-30:])
-        features['totalcnt_acceleration'] = recent_30_totalcnt - previous_30_totalcnt
-        
-        features['m14b_range'] = np.max(seq_m14b) - np.min(seq_m14b)
-        features['totalcnt_range'] = np.max(seq_totalcnt) - np.min(seq_totalcnt)
-        features['m14b_recent_vs_mean'] = np.mean(seq_m14b[-30:]) / (np.mean(seq_m14b) + 1)
-        features['totalcnt_recent_vs_mean'] = np.mean(seq_totalcnt[-30:]) / (np.mean(seq_totalcnt) + 1)
-        
-        # ========== 시간대별 통계 (8개) ==========
-        q1 = seq_totalcnt[:70]
-        q2 = seq_totalcnt[70:140]
-        q3 = seq_totalcnt[140:210]
-        q4 = seq_totalcnt[210:280]
-        
-        features['totalcnt_q1_mean'] = np.mean(q1)
-        features['totalcnt_q2_mean'] = np.mean(q2)
-        features['totalcnt_q3_mean'] = np.mean(q3)
-        features['totalcnt_q4_mean'] = np.mean(q4)
-        features['totalcnt_trend_q1_q2'] = np.mean(q2) - np.mean(q1)
-        features['totalcnt_trend_q2_q3'] = np.mean(q3) - np.mean(q2)
-        features['totalcnt_trend_q3_q4'] = np.mean(q4) - np.mean(q3)
-        features['totalcnt_trend_overall'] = np.mean(q4) - np.mean(q1)
-        
-        # ========== 🔥 조기 경보 Feature (5개) ==========
-        # 마지막 10분 분석
+        # 🔥 조기 경보 감지
         last_10min = seq_totalcnt[-10:]
+        early_warning_detected = (np.max(last_10min) >= 1650) and ((last_10min[-1] - last_10min[0]) > 20)
         
-        features['last_10min_max'] = np.max(last_10min)
-        features['last_10min_min'] = np.min(last_10min)
-        features['last_10min_mean'] = np.mean(last_10min)
-        features['last_10min_rise'] = last_10min[-1] - last_10min[0]  # 10분간 상승폭
+        # 결과 저장
+        results.append({
+            '시퀀스시작': seq_start_time.strftime('%Y-%m-%d %H:%M'),
+            '현재시간': current_time.strftime('%Y-%m-%d %H:%M'),
+            '예측시점': prediction_time.strftime('%Y-%m-%d %H:%M'),
+            '실제시점': actual_time.strftime('%Y-%m-%d %H:%M'),
+            '실제값': round(actual_value, 2),
+            '예측값': round(prediction, 2),
+            '오차': round(actual_value - prediction, 2),
+            '절대오차': round(abs(actual_value - prediction), 2),
+            '오차율(%)': round(abs(actual_value - prediction) / max(actual_value, 1) * 100, 2),
+            'M14AM14B': round(seq_m14b[-1], 2),
+            'M14AM10A': round(seq_m10a[-1], 2),
+            'M14AM16': round(seq_m16[-1], 2),
+            '시퀀스TOTALCNT_MAX': round(np.max(seq_totalcnt), 2),
+            '시퀀스TOTALCNT_MIN': round(np.min(seq_totalcnt), 2),
+            '시퀀스TOTALCNT_평균': round(np.mean(seq_totalcnt), 2),
+            '마지막10분_MAX': round(np.max(last_10min), 2),
+            '마지막10분_상승폭': round(last_10min[-1] - last_10min[0], 2),
+            '황금패턴': 'O' if golden_pattern else '',
+            '시퀀스위험': 'O' if danger_in_seq else '',
+            '조기경보': 'O' if early_warning_detected else '',
+            '실제위험(1700+)': 'O' if actual_value >= 1700 else '',
+            '예측위험(1650+)': 'O' if prediction >= 1650 else ''
+        })
         
-        # 조기 경보: 1650 이상 + 20 이상 상승
-        early_warning = (np.max(last_10min) >= 1650) and ((last_10min[-1] - last_10min[0]) > 20)
-        features['early_warning_1650_rising'] = 1 if early_warning else 0
-        
-        features_list.append(features)
-        
-        # 라벨: 10분 후 TOTALCNT 최대값
-        future_totalcnt = df['TOTALCNT'].iloc[i:i+10].values
-        labels.append(np.max(future_totalcnt))
-        
-        # 시퀀스 정보 저장
-        seq_totalcnt_max_list.append(np.max(seq_totalcnt))
-        seq_totalcnt_min_list.append(np.min(seq_totalcnt))
-        indices.append(i)
+        # 진행상황 출력
+        if (i - 280) % 1000 == 0:
+            progress = (i - 280) / (len(df) - 280 - 10) * 100
+            print(f"  진행중... {i-280}/{len(df)-280-10} ({progress:.1f}%)")
     
-    print(f"\nFeature 생성 완료: {len(features_list):,}개 시퀀스")
+    # DataFrame 변환
+    results_df = pd.DataFrame(results)
     
-    X = pd.DataFrame(features_list)
-    y = np.array(labels)
+    # CSV 저장
+    output_file = 'evaluation_280to10_earlywarning.csv'
+    results_df.to_csv(output_file, index=False, encoding='utf-8-sig')
+    print(f"\n✅ 결과 저장 완료: {output_file}")
     
-    seq_info = {
-        'seq_max': seq_totalcnt_max_list,
-        'seq_min': seq_totalcnt_min_list,
-        'indices': indices
-    }
-    
-    
-    print(f"Feature 개수: {X.shape[1]}개")
-    print(f"  - 기본 통계 (4컬럼 × 8): 32개")
-    print(f"  - 비율: 8개")
-    print(f"  - M14AM14B 임계값: 8개")
-    print(f"  - M14AM10A 임계값: 4개")
-    print(f"  - TOTALCNT 임계값: 8개")
-    print(f"  - 황금 패턴: 4개")
-    print(f"  - 변화율/가속도: 8개")
-    print(f"  - 시간대별 통계: 8개")
-    print(f"  - 🔥 조기 경보: 5개")
-    print(f"데이터 범위: 인덱스 {indices[0]} ~ {indices[-1]}")
-    
-    return X, y, seq_info
-
-def train_and_evaluate_complete():
-    """
-    280분 시퀀스 + 강화된 Feature + 조기 경보로 10분 후 TOTALCNT 예측
-    """
+    # ===== 통계 분석 =====
+    print("\n" + "="*80)
+    print("📊 평가 통계 (280분 → 10분 후)")
     print("="*80)
-    print("XGBoost 280분 → 10분 후 TOTALCNT 최대값 예측 (조기 경보 추가)")
-    print("컬럼: M14AM14B, M14AM10A, M14AM16, TOTALCNT")
-    print("Feature: 기본 80개 + 조기 경보 5개 = 총 85개")
-    print("="*80)
+    print(f"총 예측 수: {len(results_df):,}개")
+    print(f"평균 절대 오차(MAE): {results_df['절대오차'].mean():.2f}")
+    print(f"평균 오차율: {results_df['오차율(%)'].mean():.2f}%")
+    print(f"최대 절대 오차: {results_df['절대오차'].max():.2f}")
+    print(f"최소 절대 오차: {results_df['절대오차'].min():.2f}")
     
-    # GPU 확인
-    tree_method, gpu_id = check_gpu_availability()
-    
-    # ===== 1. 데이터 로딩 =====
-    print("\n[STEP 1] 데이터 로딩")
-    print("-"*40)
-    
-    csv_file = '/mnt/project/V6_6결과.CSV'
-    print(f"사용 파일: {csv_file}")
-    
-    if not os.path.exists(csv_file):
-        raise FileNotFoundError(f"CSV 파일이 없습니다: {csv_file}")
-    
-    df = pd.read_csv(csv_file, on_bad_lines='skip')
-    print(f"데이터 로딩: {len(df):,}행")
-    print(f"컬럼: {list(df.columns)}")
-    
-    # ===== 2. Feature 생성 =====
-    print("\n[STEP 2] Feature 생성 (280분 시퀀스 + 강화 Feature + 조기 경보)")
-    print("-"*40)
-    
-    X, y, seq_info = create_features_280min_enhanced(df)
-    
-    print(f"\nTOTALCNT 분석 (10분 후 최대값):")
-    print(f"  평균: {y.mean():.2f}")
-    print(f"  표준편차: {y.std():.2f}")
-    print(f"  최소: {y.min():.2f}")
-    print(f"  최대: {y.max():.2f}")
-    print(f"  위험(1700+): {np.sum(y >= 1700)}개 ({np.sum(y >= 1700)/len(y)*100:.2f}%)")
-    print(f"  극단(2000+): {np.sum(y >= 2000)}개 ({np.sum(y >= 2000)/len(y)*100:.2f}%)")
-    
-    # 조기 경보 통계
-    early_warning_count = X['early_warning_1650_rising'].sum()
-    print(f"\n조기 경보 발생: {early_warning_count}개 ({early_warning_count/len(X)*100:.2f}%)")
-    
-    # ===== 2000 이상 극단값 제거 =====
-    print("\n극단값(2000+) 필터링...")
-    filter_mask = y < 2000
-    X_filtered = X[filter_mask]
-    y_filtered = y[filter_mask]
-    
-    removed_count = len(y) - len(y_filtered)
-    print(f"제거된 데이터: {removed_count:,}개 ({removed_count/len(y)*100:.3f}%)")
-    print(f"남은 데이터: {len(y_filtered):,}개")
-    print(f"새로운 최대값: {y_filtered.max():.2f}")
-    
-    # ===== 3. Train/Test 분할 =====
-    print("\n[STEP 3] Train/Test 분할")
-    print("-"*40)
-    
-    X_train, X_test, y_train, y_test = train_test_split(
-        X_filtered, y_filtered, test_size=0.2, random_state=42, shuffle=True
-    )
-    
-    print(f"학습 데이터: {X_train.shape[0]:,}개")
-    print(f"테스트 데이터: {X_test.shape[0]:,}개")
-    
-    # ===== 4. 모델 학습 =====
-    print("\n[STEP 4] XGBoost 모델 학습")
-    print("-"*40)
-    
-    if gpu_id is not None:
-        print(f"GPU 모드: tree_method={tree_method}, gpu_id={gpu_id}")
-        model = xgb.XGBRegressor(
-            n_estimators=500,
-            max_depth=8,
-            learning_rate=0.05,
-            subsample=0.8,
-            colsample_bytree=0.8,
-            tree_method=tree_method,
-            gpu_id=gpu_id,
-            random_state=42
-        )
-    else:
-        print(f"CPU 모드: tree_method={tree_method}")
-        model = xgb.XGBRegressor(
-            n_estimators=500,
-            max_depth=8,
-            learning_rate=0.05,
-            subsample=0.8,
-            colsample_bytree=0.8,
-            tree_method=tree_method,
-            random_state=42,
-            n_jobs=4
-        )
-    
-    print("학습 시작...")
-    start_time = datetime.now()
-    
-    model.fit(
-        X_train, y_train,
-        eval_set=[(X_test, y_test)],
-        verbose=50
-    )
-    
-    elapsed = (datetime.now() - start_time).total_seconds()
-    print(f"\n학습 완료! 소요 시간: {elapsed:.1f}초 ({elapsed/60:.1f}분)")
-    
-    # ===== 5. 모델 평가 =====
-    print("\n[STEP 5] 모델 평가")
-    print("-"*40)
-    
-    # Train 성능
-    y_train_pred = model.predict(X_train)
-    train_mae = mean_absolute_error(y_train, y_train_pred)
-    train_rmse = np.sqrt(mean_squared_error(y_train, y_train_pred))
-    train_r2 = r2_score(y_train, y_train_pred)
-    
-    print(f"Train 성능:")
-    print(f"  MAE:  {train_mae:.2f}")
-    print(f"  RMSE: {train_rmse:.2f}")
-    print(f"  R²:   {train_r2:.4f}")
-    
-    # Test 성능
-    y_test_pred = model.predict(X_test)
-    test_mae = mean_absolute_error(y_test, y_test_pred)
-    test_rmse = np.sqrt(mean_squared_error(y_test, y_test_pred))
-    test_r2 = r2_score(y_test, y_test_pred)
-    
-    print(f"\nTest 성능:")
-    print(f"  MAE:  {test_mae:.2f}")
-    print(f"  RMSE: {test_rmse:.2f}")
-    print(f"  R²:   {test_r2:.4f}")
-    
-    # ===== 6. 모델 저장 =====
-    print("\n[STEP 6] 모델 저장")
-    print("-"*40)
-    
-    with open('xgboost_280to10_enhanced_earlywarning.pkl', 'wb') as f:
-        pickle.dump(model, f)
-    print("모델 저장: xgboost_280to10_enhanced_earlywarning.pkl")
-    
-    # ===== 7. 상세 분석 =====
-    print("\n[STEP 7] 상세 분석")
-    print("-"*40)
+    print(f"\n황금 패턴 발생: {results_df['황금패턴'].value_counts().get('O', 0)}개")
+    print(f"시퀀스 위험 구간: {results_df['시퀀스위험'].value_counts().get('O', 0)}개")
+    print(f"🔥 조기 경보 발생: {results_df['조기경보'].value_counts().get('O', 0)}개")
     
     # 위험 구간 분석
-    danger_mask_actual = y_test >= 1700
-    danger_mask_pred = y_test_pred >= 1650
+    actual_danger = results_df['실제위험(1700+)'] == 'O'
+    pred_danger = results_df['예측위험(1650+)'] == 'O'
+    early_warning = results_df['조기경보'] == 'O'
     
-    danger_actual_count = np.sum(danger_mask_actual)
-    danger_detected = np.sum(danger_mask_actual & danger_mask_pred)
+    actual_danger_count = actual_danger.sum()
+    pred_danger_count = pred_danger.sum()
+    danger_detected = (actual_danger & pred_danger).sum()
+    early_warning_count = early_warning.sum()
     
-    print(f"위험 구간 (1700+) 분석:")
-    print(f"  실제 위험: {danger_actual_count}개")
-    print(f"  감지 성공: {danger_detected}개")
-    if danger_actual_count > 0:
-        print(f"  감지율: {danger_detected/danger_actual_count*100:.1f}%")
+    # 조기 경보의 1700+ 예측력
+    early_to_danger = (early_warning & actual_danger).sum()
     
-    # 오차 분석
-    errors = y_test_pred - y_test
-    print(f"\n오차 분석:")
-    print(f"  평균 오차: {np.mean(errors):.2f}")
-    print(f"  오차 표준편차: {np.std(errors):.2f}")
-    print(f"  오차 범위: [{np.min(errors):.2f}, {np.max(errors):.2f}]")
+    print(f"\n실제 위험(1700+): {actual_danger_count}개")
+    print(f"예측 위험(1650+): {pred_danger_count}개")
+    print(f"위험 감지 성공: {danger_detected}개")
+    if actual_danger_count > 0:
+        print(f"위험 감지율: {danger_detected/actual_danger_count*100:.1f}%")
     
-    # ===== 8. Feature 중요도 =====
-    print("\n[STEP 8] Feature 중요도 (Top 30)")
-    print("-"*40)
+    if early_warning_count > 0:
+        print(f"\n🔥 조기 경보 → 실제 1700+ 발생: {early_to_danger}개 ({early_to_danger/early_warning_count*100:.1f}%)")
     
-    feature_importance_full = pd.DataFrame({
-        'feature': X.columns,
-        'importance': model.feature_importances_
-    }).sort_values('importance', ascending=False)
-    
-    print(feature_importance_full.head(30).to_string(index=False))
-    
-    feature_importance_full.to_csv('feature_importance_280to10_earlywarning.csv', index=False)
-    print("\nFeature 중요도 저장: feature_importance_280to10_earlywarning.csv")
-    
-    # 조기 경보 Feature 중요도 확인
-    early_warning_importance = feature_importance_full[
-        feature_importance_full['feature'].str.contains('early_warning|last_10min')
-    ]
-    
-    if len(early_warning_importance) > 0:
-        print("\n🔥 조기 경보 Feature 중요도:")
-        print(early_warning_importance.to_string(index=False))
-    
-    # ===== 9. 최종 요약 =====
+    # 오차 상위 10개
     print("\n" + "="*80)
-    print("최종 평가 요약")
+    print("오차 상위 10개 구간")
     print("="*80)
-    print(f"1. 모델 성능:")
-    print(f"   - Train MAE: {train_mae:.2f}")
-    print(f"   - Test MAE:  {test_mae:.2f}")
-    print(f"   - Test R²:   {test_r2:.4f}")
+    top_errors = results_df.nlargest(10, '절대오차')
+    print(top_errors[['현재시간', '실제값', '예측값', '절대오차', 'M14AM14B', '조기경보']].to_string(index=False))
     
-    print(f"\n2. 시퀀스 정보:")
-    print(f"   - 시퀀스 길이: 280분")
-    print(f"   - 예측 범위: 10분 후 최대값")
-    print(f"   - Feature 수: {X.shape[1]}개 (조기 경보 5개 포함)")
+    # 조기 경보 발생 구간 분석
+    if early_warning_count > 0:
+        print("\n" + "="*80)
+        print("🔥 조기 경보 발생 구간 (샘플 20개)")
+        print("="*80)
+        early_cases = results_df[results_df['조기경보'] == 'O']
+        print(f"총 {len(early_cases)}개")
+        print(early_cases[['현재시간', '마지막10분_MAX', '마지막10분_상승폭', '실제값', '예측값', '실제위험(1700+)']].head(20).to_string(index=False))
     
-    print(f"\n3. 저장 파일:")
-    print(f"   - 모델: xgboost_280to10_enhanced_earlywarning.pkl")
-    print(f"   - Feature 중요도: feature_importance_280to10_earlywarning.csv")
-    
-    print("\n" + "="*80)
-    
-    return model, feature_importance_full
+    return results_df
 
-# 실행
 if __name__ == '__main__':
-    model, feature_importance = train_and_evaluate_complete()
+    print("\n🚀 280분 시퀀스 → 10분 후 예측 평가 시작 (조기 경보 포함)...\n")
+    results = evaluate_all_predictions()
+    
+    if results is not None:
+        print(f"\n✅ 평가 완료! 총 {len(results):,}개 예측 생성")
+        print(f"✅ 결과 파일: evaluation_280to10_earlywarning.csv")
