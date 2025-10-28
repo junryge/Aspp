@@ -256,13 +256,13 @@ def evaluate_all_predictions():
         seq_totalcnt = df['TOTALCNT'].iloc[i-280:i].values
         
         # 시간 정보
-        current_time = df['CURRTIME'].iloc[i-1]
+        current_time = df['CURRTIME'].iloc[i-1]  # 시퀀스 마지막 (현재)
         seq_start_time = df['CURRTIME'].iloc[i-280]
         prediction_time = current_time + timedelta(minutes=10)
-        actual_time = df['CURRTIME'].iloc[i+10]
+        actual_time = df['CURRTIME'].iloc[i+9]  # ✅ 10분 후 (i+9)
         
-        # 실제값 (10분 후)
-        actual_value = df['TOTALCNT'].iloc[i+10]
+        # ✅ 실제값 (10분 후)
+        actual_value = df['TOTALCNT'].iloc[i+9]  # i는 1분 후, i+9는 10분 후
         
         # Feature 생성
         features = create_single_prediction_features(seq_m14b, seq_m10a, seq_m16, seq_totalcnt)
