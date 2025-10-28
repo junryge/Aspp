@@ -275,15 +275,13 @@ def predict_latest_only():
         prob_1700_plus = max(0, (prediction - 1500) / 50 * 5)  # 0-5%
     
     # 간단한 결과만 출력
-    if early_warning_detected:
-        print("🔥 조기 경보: 발생!")
-    
     simple_dict = {
         '현재시간': current_time.strftime('%Y-%m-%d %H:%M'),
         '현재물류량': int(current_totalcnt),
         '예측시간': prediction_time.strftime('%Y-%m-%d %H:%M'),
         '예측물류량': int(prediction),
         '예측상태': pred_status,
+        '조기경보': '발생' if early_warning_detected else '없음',
         '1700+확률(%)': round(prob_1700_plus, 1)
     }
     
