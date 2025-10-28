@@ -141,166 +141,19 @@ def create_single_prediction_features(seq_m14b, seq_m10a, seq_m16, seq_totalcnt)
 
 def get_status_info(value):
     """
-    물류량에 따른 상태 정보 반환
-    900-1599: 정상
-    1600-1699: 주의
-    1700+: 심각
+    물류량에 따른 상태 정보 반환 (영문)
+    900-1599: NORMAL
+    1600-1699: WARNING
+    1700+: CRITICAL
     """
     if value < 900:
-        return '🔵저조', 'blue'
+        return 'LOW', 'blue'
     elif value < 1600:
-        return '🟢정상', 'green'
+        return 'NORMAL', 'green'
     elif value < 1700:
-        return '🟡주의', 'yellow'
+        return 'WARNING', 'yellow'
     else:
-        return '🔴심각', 'red'
-
-def realtime_prediction():
-    """실시간 예측 시스템 (조기 경보 포함)"""
-    
-    # 모델 로드 (여러 파일명 시도)
-    model_files = [
-        'xgboost_280to10_1year_augmented.pkl',
-        'xgboost_280to10_enhanced_earlywarning.pkl',
-        '280to10_enhanced.pkl'
-    ]
-    
-    model = None
-    model_file = None
-    
-    for mf in model_files:
-        if os.path.exists(mf):
-            try:
-                with open(mf, 'rb') as f:
-                    model = pickle.load(f)
-                model_file = mf
-                break
-            except Exception as e:
-                pass
-    
-    if model is None:
-        return None
-    
-    # 데이터 로드
-    csv_files = [
-        'data/222.csv',
-        'data/20250807_DATA.csv',
-        '222.csv'
-    ]
-    
-    csv_file = None
-    for cf in csv_files:
-        if os.path.exists(cf):
-            csv_file = cf
-            break
-    
-    if csv_file is None:
-        return None
-    
-    df = pd.read_csv(csv_file, on_bad_lines='skip')
-    
-    # 필수 컬럼 확인
-    required_cols = ['M14AM14B', 'M14AM10A', 'M14AM16', 'TOTALCNT']
-    missing_cols = [col for col in required_cols if col not in df.columns]
-    
-    if missing_cols:
-        return None
-    
-    # CURRTIME 처리
-    if 'CURRTIME' in df.columns:
-        try:
-            df['CURRTIME'] = pd.to_datetime(df['CURRTIME'].astype(str), format='%Y%m%d%H%M')
-        except:
-            try:
-                df['CURRTIME'] = pd.to_datetime(df['CURRTIME'])
-            except:
-                base_time = datetime(2024, 1, 1, 0, 0)
-                df['CURRTIME'] = [base_time + timedelta(minutes=i) for i in range(len(df))]
-    else:
-        base_time = datetime(2024, 1, 1, 0, 0)
-        df['CURRTIME'] = [base_time + timedelta(minutes=i) for i in range(len(df))]
-    
-    # 데이터 길이 확인
-    if len(df) < 280:
-        return None
-    
-    results = []
-    
-    # 슬라이딩 윈도우 예측
-    for i in range(280, len(df) + 1):
-        # 280분 시퀀스 추출
-        seq_m14b = df['M14AM14B'].iloc[i-280:i].values
-        seq_m10a = df['M14AM10A'].iloc[i-280:i].values
-        seq_m16 = df['M14AM16'].iloc[i-280:i].values
-        seq_totalcnt = df['TOTALCNT'].iloc[i-280:i].values
-        
-        # 시간 정보
-        current_time = df['CURRTIME'].iloc[i-1]
-        prediction_time = current_time + timedelta(minutes=10)
-        
-        # 현재 상태
-        current_totalcnt = seq_totalcnt[-1]
-        current_m14b = seq_m14b[-1]
-        current_m10a = seq_m10a[-1]
-        
-        # Feature 생성 (85개)
-        features = create_single_prediction_features(seq_m14b, seq_m10a, seq_m16, seq_totalcnt)
-        X_pred = pd.DataFrame([features])
-        
-        # 예측
-        prediction = model.predict(X_pred)[0]
-        
-        # 🔥 조기 경보 감지
-        last_10min = seq_totalcnt[-10:]
-        early_warning_detected = (np.max(last_10min) >= 1650) and ((last_10min[-1] - last_10min[0]) > 20)
-        
-        # 🔥🔥 조기경보 발생 시 예측값 * 1.02 (2% 증가)
-        if early_warning_detected:
-            prediction = prediction * 1.02
-        
-        # 황금 패턴 감지
-        golden_pattern = (current_m14b > 300 and current_m10a < 80)
-        
-        # 상태 판정
-        current_status, current_color = get_status_info(current_totalcnt)
-        pred_status, pred_color = get_status_info(prediction)
-        
-        # 상태 변화 감지
-        status_change = ''
-        if current_color != pred_color:
-            if pred_color == 'red' and current_color != 'red':
-                status_change = '⚠️상승경보'
-            elif pred_color == 'yellow' and current_color == 'green':
-                status_change = '⚠️주의전환'
-            elif pred_color == 'green' and current_color in ['yellow', 'red']:
-                status_change = '✅안정화'
-        
-        # 결과 저장
-        results.append({
-            '현재시간': current_time.strftime('%Y-%m-%d %H:%M'),
-            '예측시점(10분후)': prediction_time.strftime('%Y-%m-%d %H:%M'),
-            '현재물류량': int(current_totalcnt),
-            '현재상태': current_status,
-            '예측물류량': int(prediction),
-            '예측상태': pred_status,
-            '변화량': int(prediction - current_totalcnt),
-            '상태변화': status_change,
-            'M14AM14B': int(current_m14b),
-            'M14AM10A': int(current_m10a),
-            '황금패턴': '⭐' if golden_pattern else '',
-            '🔥조기경보': '🔥' if early_warning_detected else '',
-            '조기경보2%적용': 'O' if early_warning_detected else '',
-            '마지막10분_MAX': int(np.max(last_10min)),
-            '마지막10분_상승폭': int(last_10min[-1] - last_10min[0]),
-            '시퀀스최대': int(np.max(seq_totalcnt)),
-            '시퀀스최소': int(np.min(seq_totalcnt)),
-            '시퀀스평균': int(np.mean(seq_totalcnt))
-        })
-    
-    # DataFrame 변환
-    results_df = pd.DataFrame(results)
-    
-    return results_df
+        return 'CRITICAL', 'red'
 
 def predict_latest_only():
     """
