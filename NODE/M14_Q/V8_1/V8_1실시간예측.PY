@@ -435,5 +435,5 @@ def predict_latest_only():
     return simple_dict
 
 if __name__ == '__main__':
-    # 전체 데이터 실시간 예측
-    results = realtime_prediction()
+    # 최신 데이터 예측
+    result = predict_latest_only()
