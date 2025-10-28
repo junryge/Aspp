@@ -231,6 +231,7 @@ def predict_latest_only():
     
     # 현재 시간 정보
     current_time = df['CURRTIME'].iloc[-1]
+    prediction_time = current_time + timedelta(minutes=10)
     current_totalcnt = seq_totalcnt[-1]
     current_m14b = seq_m14b[-1]
     current_m10a = seq_m10a[-1]
@@ -278,6 +279,7 @@ def predict_latest_only():
         print("🔥 조기 경보: 발생!")
     
     simple_dict = {
+        '예측시간': prediction_time.strftime('%Y-%m-%d %H:%M'),
         '예측물류량': int(prediction),
         '예측상태': pred_status,
         '1700+확률(%)': round(prob_1700_plus, 1)
