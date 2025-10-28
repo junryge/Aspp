@@ -158,12 +158,6 @@ def get_status_info(value):
 def realtime_prediction():
     """실시간 예측 시스템 (조기 경보 포함)"""
     
-    print("="*80)
-    print("280분 → 10분 후 물류량 실시간 예측 시스템 (조기 경보 포함)")
-    print("="*80)
-    print("Feature: 85개 (조기 경보 5개 포함)")
-    print("="*80)
-    
     # 모델 로드 (여러 파일명 시도)
     model_files = [
         'xgboost_280to10_1year_augmented.pkl',
@@ -180,16 +174,11 @@ def realtime_prediction():
                 with open(mf, 'rb') as f:
                     model = pickle.load(f)
                 model_file = mf
-                print(f"✅ 모델 로드 완료: {model_file}")
                 break
             except Exception as e:
-                print(f"⚠️ 모델 로드 실패 ({mf}): {e}")
+                pass
     
     if model is None:
-        print(f"❌ 모델 파일 없음!")
-        print(f"시도한 파일:")
-        for mf in model_files:
-            print(f"  - {mf}")
         return None
     
     # 데이터 로드
@@ -206,56 +195,36 @@ def realtime_prediction():
             break
     
     if csv_file is None:
-        print(f"❌ CSV 파일 없음!")
-        print(f"시도한 파일:")
-        for cf in csv_files:
-            print(f"  - {cf}")
         return None
     
     df = pd.read_csv(csv_file, on_bad_lines='skip')
-    print(f"✅ 데이터 로드 완료: {len(df):,}개 행")
     
     # 필수 컬럼 확인
     required_cols = ['M14AM14B', 'M14AM10A', 'M14AM16', 'TOTALCNT']
     missing_cols = [col for col in required_cols if col not in df.columns]
     
     if missing_cols:
-        print(f"❌ 필수 컬럼 누락: {missing_cols}")
-        print(f"현재 컬럼: {list(df.columns)}")
         return None
-    
-    print(f"✅ 필수 컬럼 확인 완료")
     
     # CURRTIME 처리
     if 'CURRTIME' in df.columns:
         try:
             df['CURRTIME'] = pd.to_datetime(df['CURRTIME'].astype(str), format='%Y%m%d%H%M')
-            print("✅ CURRTIME 파싱 완료 (YYYYMMDDHHMM 형식)")
         except:
             try:
                 df['CURRTIME'] = pd.to_datetime(df['CURRTIME'])
-                print("✅ CURRTIME 자동 파싱 완료")
             except:
-                print("⚠️ CURRTIME 변환 실패, 가상 시간 생성")
                 base_time = datetime(2024, 1, 1, 0, 0)
                 df['CURRTIME'] = [base_time + timedelta(minutes=i) for i in range(len(df))]
     else:
-        print("⚠️ CURRTIME 없음, 가상 시간 생성")
         base_time = datetime(2024, 1, 1, 0, 0)
         df['CURRTIME'] = [base_time + timedelta(minutes=i) for i in range(len(df))]
     
     # 데이터 길이 확인
     if len(df) < 280:
-        print(f"❌ 데이터 부족: 최소 280개 필요, 현재 {len(df)}개")
         return None
     
     results = []
-    
-    print(f"\n🔮 실시간 예측 시작...")
-    print(f"총 예측 가능: {len(df) - 280 + 1:,}개")
-    print(f"예측 방식: 280분 시퀀스 → 10분 후 예측")
-    print(f"조기 경보: 1650+ & 20+ 상승 감지 시 예측값 2% 증가")
-    print("-"*80)
     
     # 슬라이딩 윈도우 예측
     for i in range(280, len(df) + 1):
@@ -327,91 +296,9 @@ def realtime_prediction():
             '시퀀스최소': int(np.min(seq_totalcnt)),
             '시퀀스평균': int(np.mean(seq_totalcnt))
         })
-        
-        # 진행상황 (100개마다)
-        if (i - 280) % 100 == 0:
-            progress = (i - 280) / (len(df) - 280 + 1) * 100
-            print(f"  진행중... {i-280}/{len(df)-280+1} ({progress:.1f}%)")
     
     # DataFrame 변환
     results_df = pd.DataFrame(results)
-    
-    # ===== 통계 분석 =====
-    print("\n" + "="*80)
-    print("📊 예측 통계")
-    print("="*80)
-    print(f"총 예측 수: {len(results_df):,}개")
-    print(f"\n현재 상태 분포:")
-    print(results_df['현재상태'].value_counts())
-    print(f"\n예측 상태 분포:")
-    print(results_df['예측상태'].value_counts())
-    
-    # 조기 경보 분석
-    early_warning_cases = results_df[results_df['🔥조기경보'] == '🔥']
-    if len(early_warning_cases) > 0:
-        print(f"\n🔥 조기 경보 발생: {len(early_warning_cases):,}건")
-        print(f"   평균 예측값: {early_warning_cases['예측물류량'].mean():.0f}")
-        print(f"   평균 마지막10분_MAX: {early_warning_cases['마지막10분_MAX'].mean():.0f}")
-        print(f"   평균 상승폭: {early_warning_cases['마지막10분_상승폭'].mean():.0f}")
-    
-    # 상태 변화 분석
-    status_changes = results_df[results_df['상태변화'] != '']
-    if len(status_changes) > 0:
-        print(f"\n⚠️ 상태 변화 발생: {len(status_changes):,}건")
-        print(status_changes['상태변화'].value_counts())
-    
-    # 심각 상태 분석
-    critical_cases = results_df[results_df['예측상태'] == '🔴심각']
-    if len(critical_cases) > 0:
-        print(f"\n🔴 심각(1700+) 예측: {len(critical_cases):,}건")
-        print(f"   평균 예측값: {critical_cases['예측물류량'].mean():.0f}")
-        print(f"   최대 예측값: {critical_cases['예측물류량'].max():.0f}")
-        
-        # 조기 경보 & 심각 동시 발생
-        early_and_critical = critical_cases[critical_cases['🔥조기경보'] == '🔥']
-        if len(early_and_critical) > 0:
-            print(f"   🔥 조기경보+심각: {len(early_and_critical):,}건 ({len(early_and_critical)/len(critical_cases)*100:.1f}%)")
-    
-    # 주의 상태 분석
-    warning_cases = results_df[results_df['예측상태'] == '🟡주의']
-    if len(warning_cases) > 0:
-        print(f"\n🟡 주의(1600-1699) 예측: {len(warning_cases):,}건")
-        print(f"   평균 예측값: {warning_cases['예측물류량'].mean():.0f}")
-    
-    # 황금 패턴 분석
-    golden_cases = results_df[results_df['황금패턴'] == '⭐']
-    if len(golden_cases) > 0:
-        print(f"\n⭐ 황금 패턴 발생: {len(golden_cases):,}건")
-        print(f"   평균 예측값: {golden_cases['예측물류량'].mean():.0f}")
-    
-    # 최근 10개 예측 출력
-    print("\n" + "="*80)
-    print("📋 최근 10개 예측 결과")
-    print("="*80)
-    print(results_df[['현재시간', '현재물류량', '현재상태', '예측물류량', '예측상태', '변화량', '🔥조기경보', '상태변화']].tail(10).to_string(index=False))
-    
-    # 조기 경보 발생 구간 (상위 20개)
-    if len(early_warning_cases) > 0:
-        print("\n" + "="*80)
-        print("🔥 조기 경보 발생 구간 (상위 20개)")
-        print("="*80)
-        print(early_warning_cases[['현재시간', '마지막10분_MAX', '마지막10분_상승폭', '현재물류량', '예측물류량', '예측상태']].head(20).to_string(index=False))
-    
-    # 심각 예측 상위 10개
-    if len(critical_cases) > 0:
-        print("\n" + "="*80)
-        print("🔴 심각 예측 상위 10개")
-        print("="*80)
-        top_critical = critical_cases.nlargest(10, '예측물류량')
-        print(top_critical[['현재시간', '현재물류량', '예측물류량', '변화량', 'M14AM14B', 'M14AM10A', '🔥조기경보']].to_string(index=False))
-    
-    # 상승 경보 발생
-    alerts = results_df[results_df['상태변화'].str.contains('상승경보', na=False)]
-    if len(alerts) > 0:
-        print("\n" + "="*80)
-        print("⚠️ 상승 경보 발생 구간")
-        print("="*80)
-        print(alerts[['현재시간', '현재상태', '예측상태', '현재물류량', '예측물류량', '변화량', '🔥조기경보']].to_string(index=False))
     
     return results_df
 
@@ -438,7 +325,6 @@ def predict_latest_only():
                 pass
     
     if model is None:
-        print(f"❌ 모델 파일 없음!")
         return None
     
     # 데이터 로드
@@ -455,7 +341,6 @@ def predict_latest_only():
             break
     
     if csv_file is None:
-        print(f"❌ CSV 파일 없음!")
         return None
     
     df = pd.read_csv(csv_file, on_bad_lines='skip')
@@ -465,12 +350,10 @@ def predict_latest_only():
     missing_cols = [col for col in required_cols if col not in df.columns]
     
     if missing_cols:
-        print(f"❌ 필수 컬럼 누락: {missing_cols}")
         return None
     
     # 데이터 길이 확인
     if len(df) < 280:
-        print(f"❌ 데이터 부족: 최소 280개 필요, 현재 {len(df)}개")
         return None
     
     # CURRTIME 처리
@@ -521,7 +404,7 @@ def predict_latest_only():
     current_status, current_color = get_status_info(current_totalcnt)
     pred_status, pred_color = get_status_info(prediction)
     
-    # 1700+ 도달 확률 계산
+    # 1700+ 도달 확률 계산 (예측값만으로 계산)
     prob_1700_plus = 0
     
     if prediction >= 1750:
@@ -536,19 +419,6 @@ def predict_latest_only():
         prob_1700_plus = 5 + (prediction - 1550) / 50 * 15  # 5-20%
     else:
         prob_1700_plus = max(0, (prediction - 1500) / 50 * 5)  # 0-5%
-    
-    # 조기경보 발생 시 확률 10% 증가
-    if early_warning_detected:
-        prob_1700_plus = min(100, prob_1700_plus + 10)
-    
-    # 황금 패턴 발생 시 확률 5% 증가
-    if golden_pattern:
-        prob_1700_plus = min(100, prob_1700_plus + 5)
-    
-    # 상승 추세 감지 시 확률 5% 증가
-    recent_slope = (seq_totalcnt[-1] - seq_totalcnt[-30]) / 30
-    if recent_slope > 5:
-        prob_1700_plus = min(100, prob_1700_plus + 5)
     
     # 간단한 결과만 출력
     if early_warning_detected:
@@ -566,8 +436,4 @@ def predict_latest_only():
 
 if __name__ == '__main__':
     # 전체 데이터 실시간 예측
-    print("\n🚀 실시간 예측 시스템 시작 (조기 경보 포함)...\n")
     results = realtime_prediction()
-    
-    if results is not None:
-        print(f"\n✅ 예측 완료! 총 {len(results):,}개 예측 생성")
