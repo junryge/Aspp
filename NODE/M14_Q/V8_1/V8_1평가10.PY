@@ -146,7 +146,7 @@ def create_single_prediction_features(seq_m14b, seq_m10a, seq_m16, seq_totalcnt)
     return features
 
 def evaluate_all_predictions():
-    """전체 데이터를 슬라이딩 윈도우로 평가 - 10분 후 (1년치 데이터) + 조기경보 2% 가산"""
+    """전체 데이터를 슬라이딩 윈도우로 평가 - 10분 후 (1년치 데이터)"""
     
     print("="*80)
     print("🚀 280분 시퀀스 → 10분 후 예측 평가 (1년치 데이터)")
@@ -181,12 +181,11 @@ def evaluate_all_predictions():
         print(f"시도한 파일:")
         for mf in model_files:
             print(f"  - {mf}")
-        print("\n먼저 학습 코드를 실행하여 모델을 생성하세요.")
+        print("\n먼저 xgb_280_to_10min_1YEAR_OPTIMIZED.py를 실행하여 모델을 학습하세요.")
         return None
     
     # 데이터 로드 (여러 경로 시도)
     csv_files = [
-        '/mnt/user-data/uploads/V6_6결과.CSV',
         '/mnt/project/V6_6결과.CSV',
         'V6_6결과.CSV',
         '/mnt/project/uu.csv',
@@ -244,8 +243,8 @@ def evaluate_all_predictions():
     print(f"  - 예상 소요 시간: 약 {total_predictions/10000:.1f}분")
     print()
     
-    # 🔥 조기경보 적용 카운터
-    early_warning_applied_count = 0
+    # 🔥 조기경보 카운터
+    early_warning_applied = 0
     
     for i in range(280, len(df) - 10):
         # 280분 시퀀스 추출
@@ -267,25 +266,25 @@ def evaluate_all_predictions():
         features = create_single_prediction_features(seq_m14b, seq_m10a, seq_m16, seq_totalcnt)
         X_pred = pd.DataFrame([features])
         
-        # 예측
+        # 예측 (원본)
         prediction_original = model.predict(X_pred)[0]
-        
-        # 🔥 조기 경보 감지
-        last_10min = seq_totalcnt[-10:]
-        early_warning_detected = (np.max(last_10min) >= 1650) and ((last_10min[-1] - last_10min[0]) > 20)
-        
-        # 🔥 조기경보 발생 시 예측값 * 1.02 (2% 증가)
-        if early_warning_detected:
-            prediction = prediction_original * 1.02
-            early_warning_applied_count += 1
-        else:
-            prediction = prediction_original
         
         # 황금 패턴 감지
         golden_pattern = (seq_m14b[-1] > 300 and seq_m10a[-1] < 80)
         
         # 위험 구간 감지
         danger_in_seq = np.sum(seq_totalcnt >= 1700) > 0
+        
+        # 🔥 조기 경보 감지
+        last_10min = seq_totalcnt[-10:]
+        early_warning_detected = (np.max(last_10min) >= 1650) and ((last_10min[-1] - last_10min[0]) > 20)
+        
+        # 🔥🔥🔥 조기경보 발생 시 예측값 * 1.02 (2% 증가)
+        if early_warning_detected:
+            prediction_final = prediction_original * 1.02
+            early_warning_applied += 1
+        else:
+            prediction_final = prediction_original
         
         # 결과 저장
         results.append({
@@ -296,10 +295,10 @@ def evaluate_all_predictions():
             '실제시점': actual_time.strftime('%Y-%m-%d %H:%M'),
             '실제값': round(actual_value, 2),
             '원본예측값': round(prediction_original, 2),  # 🔥 조기경보 적용 전
-            '최종예측값': round(prediction, 2),  # 🔥 조기경보 적용 후
-            '오차': round(actual_value - prediction, 2),
-            '절대오차': round(abs(actual_value - prediction), 2),
-            '오차율(%)': round(abs(actual_value - prediction) / max(actual_value, 1) * 100, 2),
+            '최종예측값': round(prediction_final, 2),      # 🔥 조기경보 적용 후
+            '오차': round(actual_value - prediction_final, 2),
+            '절대오차': round(abs(actual_value - prediction_final), 2),
+            '오차율(%)': round(abs(actual_value - prediction_final) / max(actual_value, 1) * 100, 2),
             'M14AM14B': round(seq_m14b[-1], 2),
             'M14AM10A': round(seq_m10a[-1], 2),
             'M14AM16': round(seq_m16[-1], 2),
@@ -311,9 +310,9 @@ def evaluate_all_predictions():
             '황금패턴': 'O' if golden_pattern else '',
             '시퀀스위험': 'O' if danger_in_seq else '',
             '조기경보': 'O' if early_warning_detected else '',
-            '조기경보2%적용': 'O' if early_warning_detected else '',  # 🔥 새로운 컬럼
+            '조기경보2%적용': 'O' if early_warning_detected else '',  # 🔥 새 컬럼
             '실제위험(1700+)': 'O' if actual_value >= 1700 else '',
-            '예측위험(1650+)': 'O' if prediction >= 1650 else ''
+            '예측위험(1650+)': 'O' if prediction_final >= 1650 else ''
         })
         
         # 진행상황 출력 (1년치 데이터용 - 50000개마다)
@@ -321,19 +320,19 @@ def evaluate_all_predictions():
             progress = (i - 280) / total_predictions * 100
             elapsed = (i - 280) / 10000  # 대략적인 경과 시간
             print(f"  진행중... {i-280:,}/{total_predictions:,} ({progress:.1f}%) - 약 {elapsed:.1f}분 경과")
-            print(f"    조기경보 2% 적용: {early_warning_applied_count:,}건")
+            print(f"    🔥 조기경보 2% 적용: {early_warning_applied:,}건")
             
             # 메모리 정리
             gc.collect()
     
     print(f"✅ 평가 완료!")
-    print(f"🔥 총 조기경보 2% 적용 건수: {early_warning_applied_count:,}개")
+    print(f"🔥 총 조기경보 2% 적용: {early_warning_applied:,}건")
     
     # DataFrame 변환
     results_df = pd.DataFrame(results)
     
     # CSV 저장
-    output_file = 'evaluation_280to10_with_early_warning_boost.csv'
+    output_file = 'evaluation_280to10_early_warning_2pct.csv'
     results_df.to_csv(output_file, index=False, encoding='utf-8-sig')
     print(f"✅ 결과 저장 완료: {output_file}")
     
@@ -356,14 +355,14 @@ def evaluate_all_predictions():
     print(f"🔥 조기 경보 발생: {results_df['조기경보'].value_counts().get('O', 0):,}개")
     print(f"🔥 조기 경보 2% 적용: {results_df['조기경보2%적용'].value_counts().get('O', 0):,}개")
     
-    # 조기경보 적용 효과 분석
-    early_warning_cases = results_df[results_df['조기경보'] == 'O']
-    if len(early_warning_cases) > 0:
+    # 🔥 조기경보 2% 가산 효과 분석
+    early_cases = results_df[results_df['조기경보'] == 'O']
+    if len(early_cases) > 0:
+        boost_amounts = early_cases['최종예측값'] - early_cases['원본예측값']
         print(f"\n🔥 조기경보 2% 가산 효과:")
-        avg_boost = (early_warning_cases['최종예측값'] - early_warning_cases['원본예측값']).mean()
-        print(f"  - 평균 가산량: +{avg_boost:.2f}")
-        print(f"  - 최대 가산량: +{(early_warning_cases['최종예측값'] - early_warning_cases['원본예측값']).max():.2f}")
-        print(f"  - 최소 가산량: +{(early_warning_cases['최종예측값'] - early_warning_cases['원본예측값']).min():.2f}")
+        print(f"  - 평균 가산량: +{boost_amounts.mean():.2f}")
+        print(f"  - 최대 가산량: +{boost_amounts.max():.2f}")
+        print(f"  - 최소 가산량: +{boost_amounts.min():.2f}")
     
     # 위험 구간 분석
     actual_danger = results_df['실제위험(1700+)'] == 'O'
@@ -402,14 +401,13 @@ def evaluate_all_predictions():
     print("오차 상위 10개 구간")
     print("="*80)
     top_errors = results_df.nlargest(10, '절대오차')
-    print(top_errors[['현재시간', '현재TOTALCNT', '실제값', '원본예측값', '최종예측값', '절대오차', 'M14AM14B', '조기경보2%적용']].to_string(index=False))
+    print(top_errors[['현재시간', '현재TOTALCNT', '실제값', '원본예측값', '최종예측값', '절대오차', '조기경보2%적용']].to_string(index=False))
     
     # 조기 경보 발생 구간 분석
     if early_warning_count > 0:
         print("\n" + "="*80)
         print("🔥 조기 경보 2% 가산 적용 구간 (샘플 20개)")
         print("="*80)
-        early_cases = results_df[results_df['조기경보'] == 'O']
         print(f"총 {len(early_cases):,}개")
         print(early_cases[['현재시간', '마지막10분_MAX', '마지막10분_상승폭', '원본예측값', '최종예측값', '실제값', '실제위험(1700+)']].head(20).to_string(index=False))
     
@@ -419,7 +417,8 @@ def evaluate_all_predictions():
     print("="*80)
     print(f"1. 전체 성능:")
     print(f"   - MAE: {results_df['절대오차'].mean():.2f}")
-    print(f"   - 위험 감지율: {danger_detected/actual_danger_count*100:.1f}% ({danger_detected:,}/{actual_danger_count:,})")
+    if actual_danger_count > 0:
+        print(f"   - 위험 감지율: {danger_detected/actual_danger_count*100:.1f}% ({danger_detected:,}/{actual_danger_count:,})")
     
     if high_m14b_count > 0:
         print(f"\n2. M14AM14B 450+ 구간:")
@@ -431,7 +430,7 @@ def evaluate_all_predictions():
         print(f"\n3. 조기 경보 2% 가산:")
         print(f"   - 적용 횟수: {early_warning_count:,}개")
         print(f"   - 정확도: {early_to_danger/early_warning_count*100:.1f}% (1700+ 예측)")
-        print(f"   - 평균 가산량: +{avg_boost:.2f}")
+        print(f"   - 평균 가산량: +{boost_amounts.mean():.2f}")
     
     print(f"\n4. 저장 파일:")
     print(f"   - {output_file}")
@@ -440,9 +439,9 @@ def evaluate_all_predictions():
     return results_df
 
 if __name__ == '__main__':
-    print("\n🚀 280분 시퀀스 → 10분 후 예측 평가 시작 (조기경보 2% 가산)...\n")
+    print("\n🚀 280분 시퀀스 → 10분 후 예측 평가 시작 (조기경보 2% 적용)...\n")
     results = evaluate_all_predictions()
     
     if results is not None:
         print(f"\n✅ 평가 완료! 총 {len(results):,}개 예측 생성")
-        print(f"✅ 결과 파일: evaluation_280to10_with_early_warning_boost.csv")
+        print(f"✅ 결과 파일: evaluation_280to10_early_warning_2pct.csv")
