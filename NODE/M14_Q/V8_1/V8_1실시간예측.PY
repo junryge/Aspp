@@ -336,11 +336,6 @@ def realtime_prediction():
     # DataFrame 변환
     results_df = pd.DataFrame(results)
     
-    # CSV 저장
-    output_file = 'realtime_prediction_with_early_warning.csv'
-    results_df.to_csv(output_file, index=False, encoding='utf-8-sig')
-    print(f"\n✅ 결과 저장 완료: {output_file}")
-    
     # ===== 통계 분석 =====
     print("\n" + "="*80)
     print("📊 예측 통계")
@@ -535,48 +530,18 @@ def predict_latest_only():
     current_status, current_color = get_status_info(current_totalcnt)
     pred_status, pred_color = get_status_info(prediction)
     
-    # 상태 변화 감지
-    status_change = ''
-    if current_color != pred_color:
-        if pred_color == 'red' and current_color != 'red':
-            status_change = '⚠️상승경보'
-        elif pred_color == 'yellow' and current_color == 'green':
-            status_change = '⚠️주의전환'
-        elif pred_color == 'green' and current_color in ['yellow', 'red']:
-            status_change = '✅안정화'
-    
-    # 결과 출력
-    print("\n" + "="*80)
-    print("🔮 예측 결과")
-    print("="*80)
-    print(f"현재 시간: {current_time.strftime('%Y-%m-%d %H:%M')}")
-    print(f"예측 시점: {prediction_time.strftime('%Y-%m-%d %H:%M')} (10분 후)")
-    print("-"*80)
-    print(f"현재 물류량: {int(current_totalcnt)} {current_status}")
-    print(f"예측 물류량: {int(prediction)} {pred_status}")
-    print(f"변화량: {int(prediction - current_totalcnt):+}")
-    if status_change:
-        print(f"상태 변화: {status_change}")
-    print("-"*80)
-    print(f"M14AM14B: {int(current_m14b)}")
-    print(f"M14AM10A: {int(current_m10a)}")
-    if golden_pattern:
-        print(f"황금 패턴: ⭐ 발생")
-    print("-"*80)
-    print(f"마지막 10분 MAX: {int(np.max(last_10min))}")
-    print(f"마지막 10분 상승폭: {int(last_10min[-1] - last_10min[0]):+}")
+    # 간단한 결과만 출력
     if early_warning_detected:
-        print(f"🔥 조기 경보: 발생! (예측값 2% 증가 적용)")
-    print("="*80)
+        print("🔥 조기 경보: 발생!")
     
-    # 간단한 결과 딕셔너리
-    result_dict = {
+    simple_dict = {
         '예측물류량': int(prediction),
-        '예측상태': pred_status,
-        '조기경보': '🔥' if early_warning_detected else ''
+        '예측상태': pred_status
     }
     
-    return result_dict
+    print(simple_dict)
+    
+    return simple_dict
 
 if __name__ == '__main__':
     # 전체 데이터 실시간 예측
@@ -585,4 +550,3 @@ if __name__ == '__main__':
     
     if results is not None:
         print(f"\n✅ 예측 완료! 총 {len(results):,}개 예측 생성")
-        print(f"✅ 결과 파일: realtime_prediction_with_early_warning.csv")
