@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-280분 시퀀스 → 10분 후 예측 평가
+280분 시퀀스 → 10분 후 예측 평가 (1년치 데이터)
 조기 경보 Feature 포함 (85개)
 """
 
@@ -9,6 +9,7 @@ import pandas as pd
 import pickle
 from datetime import datetime, timedelta
 import os
+import gc
 
 def create_single_prediction_features(seq_m14b, seq_m10a, seq_m16, seq_totalcnt):
     """하나의 280분 시퀀스로부터 Feature 생성 (조기 경보 포함)"""
@@ -144,31 +145,75 @@ def create_single_prediction_features(seq_m14b, seq_m10a, seq_m16, seq_totalcnt)
     return features
 
 def evaluate_all_predictions():
-    """전체 데이터를 슬라이딩 윈도우로 평가 - 10분 후"""
+    """전체 데이터를 슬라이딩 윈도우로 평가 - 10분 후 (1년치 데이터)"""
     
     print("="*80)
-    print("280분 시퀀스 → 10분 후 예측 평가 (조기 경보 포함)")
+    print("🚀 280분 시퀀스 → 10분 후 예측 평가 (1년치 데이터)")
+    print("="*80)
+    print("Feature: 85개 (조기 경보 포함)")
     print("="*80)
     
-    # 모델 로드
-    model_file = 'xgboost_280to10_enhanced_earlywarning.pkl'
-    try:
-        with open(model_file, 'rb') as f:
-            model = pickle.load(f)
-        print(f"✅ 모델 로드 완료: {model_file}")
-    except Exception as e:
-        print(f"❌ 모델 파일 없음: {e}")
-        print("먼저 xgb_280_to_10min_EARLYWARNING.py를 실행하여 모델을 학습하세요.")
+    # 모델 로드 (여러 파일명 시도)
+    model_files = [
+        'xgboost_280to10_1year_augmented.pkl',
+        'xgboost_280to10_enhanced_earlywarning.pkl',
+        '/mnt/user-data/outputs/xgboost_280to10_1year_augmented.pkl'
+    ]
+    
+    model = None
+    model_file = None
+    
+    for mf in model_files:
+        if os.path.exists(mf):
+            try:
+                with open(mf, 'rb') as f:
+                    model = pickle.load(f)
+                model_file = mf
+                print(f"✅ 모델 로드 완료: {model_file}")
+                break
+            except Exception as e:
+                print(f"⚠️ 모델 로드 실패 ({mf}): {e}")
+    
+    if model is None:
+        print(f"❌ 모델 파일 없음!")
+        print(f"시도한 파일:")
+        for mf in model_files:
+            print(f"  - {mf}")
+        print("\n먼저 xgb_280_to_10min_1YEAR_OPTIMIZED.py를 실행하여 모델을 학습하세요.")
         return None
     
-    # 데이터 로드
-    csv_file = '/mnt/project/V6_6결과.CSV'
-    if not os.path.exists(csv_file):
-        print(f"❌ CSV 파일 없음: {csv_file}")
+    # 데이터 로드 (여러 경로 시도)
+    csv_files = [
+        '/mnt/project/V6_6결과.CSV',
+        'V6_6결과.CSV',
+        '/mnt/project/uu.csv',
+        'uu.csv'
+    ]
+    
+    df = None
+    csv_file = None
+    
+    for cf in csv_files:
+        if os.path.exists(cf):
+            try:
+                print(f"데이터 로딩 중: {cf}...")
+                df = pd.read_csv(cf, on_bad_lines='skip')
+                csv_file = cf
+                print(f"✅ 데이터 로드 완료: {len(df):,}개 행")
+                break
+            except Exception as e:
+                print(f"⚠️ 데이터 로드 실패 ({cf}): {e}")
+    
+    if df is None:
+        print(f"❌ CSV 파일 없음!")
+        print(f"시도한 파일:")
+        for cf in csv_files:
+            print(f"  - {cf}")
         return None
     
-    df = pd.read_csv(csv_file, on_bad_lines='skip')
-    print(f"✅ 데이터 로드 완료: {len(df):,}개 행")
+    # 메모리 사용량 확인
+    memory_mb = df.memory_usage(deep=True).sum() / 1024 / 1024
+    print(f"메모리 사용량: {memory_mb:.1f} MB")
     
     # 필수 컬럼 확인
     required_cols = ['M14AM14B', 'M14AM10A', 'M14AM16', 'TOTALCNT']
@@ -197,8 +242,10 @@ def evaluate_all_predictions():
     
     results = []
     
+    total_predictions = len(df) - 280 - 10
     print(f"\n🔄 슬라이딩 윈도우 평가 시작...")
-    print(f"총 예측 수: {len(df) - 280 - 10:,}개")
+    print(f"총 예측 수: {total_predictions:,}개")
+    print(f"예상 소요 시간: 약 {total_predictions / 10000:.1f}분")
     
     # 슬라이딩 윈도우
     for i in range(280, len(df) - 10):
@@ -260,18 +307,28 @@ def evaluate_all_predictions():
             '예측위험(1650+)': 'O' if prediction >= 1650 else ''
         })
         
-        # 진행상황 출력
-        if (i - 280) % 1000 == 0:
-            progress = (i - 280) / (len(df) - 280 - 10) * 100
-            print(f"  진행중... {i-280}/{len(df)-280-10} ({progress:.1f}%)")
+        # 진행상황 출력 (1년치 데이터용 - 50000개마다)
+        if (i - 280) % 50000 == 0 and i > 280:
+            progress = (i - 280) / total_predictions * 100
+            elapsed = (i - 280) / 10000  # 대략적인 경과 시간
+            print(f"  진행중... {i-280:,}/{total_predictions:,} ({progress:.1f}%) - 약 {elapsed:.1f}분 경과")
+            
+            # 메모리 정리
+            gc.collect()
+    
+    print(f"✅ 평가 완료!")
     
     # DataFrame 변환
     results_df = pd.DataFrame(results)
     
     # CSV 저장
-    output_file = 'evaluation_280to10_earlywarning.csv'
+    output_file = 'evaluation_280to10_1year.csv'
     results_df.to_csv(output_file, index=False, encoding='utf-8-sig')
-    print(f"\n✅ 결과 저장 완료: {output_file}")
+    print(f"✅ 결과 저장 완료: {output_file}")
+    
+    # 메모리 정리
+    del df
+    gc.collect()
     
     # ===== 통계 분석 =====
     print("\n" + "="*80)
@@ -283,9 +340,9 @@ def evaluate_all_predictions():
     print(f"최대 절대 오차: {results_df['절대오차'].max():.2f}")
     print(f"최소 절대 오차: {results_df['절대오차'].min():.2f}")
     
-    print(f"\n황금 패턴 발생: {results_df['황금패턴'].value_counts().get('O', 0)}개")
-    print(f"시퀀스 위험 구간: {results_df['시퀀스위험'].value_counts().get('O', 0)}개")
-    print(f"🔥 조기 경보 발생: {results_df['조기경보'].value_counts().get('O', 0)}개")
+    print(f"\n황금 패턴 발생: {results_df['황금패턴'].value_counts().get('O', 0):,}개")
+    print(f"시퀀스 위험 구간: {results_df['시퀀스위험'].value_counts().get('O', 0):,}개")
+    print(f"🔥 조기 경보 발생: {results_df['조기경보'].value_counts().get('O', 0):,}개")
     
     # 위험 구간 분석
     actual_danger = results_df['실제위험(1700+)'] == 'O'
@@ -300,14 +357,24 @@ def evaluate_all_predictions():
     # 조기 경보의 1700+ 예측력
     early_to_danger = (early_warning & actual_danger).sum()
     
-    print(f"\n실제 위험(1700+): {actual_danger_count}개")
-    print(f"예측 위험(1650+): {pred_danger_count}개")
-    print(f"위험 감지 성공: {danger_detected}개")
+    print(f"\n실제 위험(1700+): {actual_danger_count:,}개")
+    print(f"예측 위험(1650+): {pred_danger_count:,}개")
+    print(f"위험 감지 성공: {danger_detected:,}개")
     if actual_danger_count > 0:
         print(f"위험 감지율: {danger_detected/actual_danger_count*100:.1f}%")
     
     if early_warning_count > 0:
-        print(f"\n🔥 조기 경보 → 실제 1700+ 발생: {early_to_danger}개 ({early_to_danger/early_warning_count*100:.1f}%)")
+        print(f"\n🔥 조기 경보 → 실제 1700+ 발생: {early_to_danger:,}개 ({early_to_danger/early_warning_count*100:.1f}%)")
+    
+    # M14AM14B 450+ 구간 분석
+    high_m14b_mask = results_df['M14AM14B'] >= 450
+    high_m14b_count = high_m14b_mask.sum()
+    if high_m14b_count > 0:
+        print(f"\n🔥 M14AM14B 450+ 구간: {high_m14b_count:,}개")
+        high_m14b_mae = results_df[high_m14b_mask]['절대오차'].mean()
+        print(f"   평균 MAE: {high_m14b_mae:.2f}")
+        high_m14b_danger = (high_m14b_mask & actual_danger).sum()
+        print(f"   1700+ 발생: {high_m14b_danger:,}개 ({high_m14b_danger/high_m14b_count*100:.1f}%)")
     
     # 오차 상위 10개
     print("\n" + "="*80)
@@ -322,15 +389,38 @@ def evaluate_all_predictions():
         print("🔥 조기 경보 발생 구간 (샘플 20개)")
         print("="*80)
         early_cases = results_df[results_df['조기경보'] == 'O']
-        print(f"총 {len(early_cases)}개")
+        print(f"총 {len(early_cases):,}개")
         print(early_cases[['현재시간', '마지막10분_MAX', '마지막10분_상승폭', '실제값', '예측값', '실제위험(1700+)']].head(20).to_string(index=False))
+    
+    # 최종 요약
+    print("\n" + "="*80)
+    print("✅ 최종 평가 요약")
+    print("="*80)
+    print(f"1. 전체 성능:")
+    print(f"   - MAE: {results_df['절대오차'].mean():.2f}")
+    print(f"   - 위험 감지율: {danger_detected/actual_danger_count*100:.1f}% ({danger_detected:,}/{actual_danger_count:,})")
+    
+    if high_m14b_count > 0:
+        print(f"\n2. M14AM14B 450+ 구간:")
+        print(f"   - 발생 횟수: {high_m14b_count:,}개")
+        print(f"   - MAE: {high_m14b_mae:.2f}")
+        print(f"   - 1700+ 비율: {high_m14b_danger/high_m14b_count*100:.1f}%")
+    
+    if early_warning_count > 0:
+        print(f"\n3. 조기 경보:")
+        print(f"   - 발생 횟수: {early_warning_count:,}개")
+        print(f"   - 정확도: {early_to_danger/early_warning_count*100:.1f}% (1700+ 예측)")
+    
+    print(f"\n4. 저장 파일:")
+    print(f"   - {output_file}")
+    print("="*80)
     
     return results_df
 
 if __name__ == '__main__':
-    print("\n🚀 280분 시퀀스 → 10분 후 예측 평가 시작 (조기 경보 포함)...\n")
+    print("\n🚀 280분 시퀀스 → 10분 후 예측 평가 시작 (1년치 데이터)...\n")
     results = evaluate_all_predictions()
     
     if results is not None:
         print(f"\n✅ 평가 완료! 총 {len(results):,}개 예측 생성")
-        print(f"✅ 결과 파일: evaluation_280to10_earlywarning.csv")
+        print(f"✅ 결과 파일: evaluation_280to10_1year.csv")
