@@ -2,7 +2,6 @@
 """
 280분 시퀀스 → 10분 후 예측 평가 (1년치 데이터)
 조기 경보 Feature 포함 (85개)
-🔥 조기경보 발생 시 예측값 * 1.02 (2% 증가) 적용
 """
 
 import numpy as np
@@ -150,7 +149,6 @@ def evaluate_all_predictions():
     
     print("="*80)
     print("🚀 280분 시퀀스 → 10분 후 예측 평가 (1년치 데이터)")
-    print("🔥 조기경보 발생 시 예측값 * 1.02 (2% 증가) 적용")
     print("="*80)
     print("Feature: 85개 (조기 경보 포함)")
     print("="*80)
@@ -198,56 +196,60 @@ def evaluate_all_predictions():
     for cf in csv_files:
         if os.path.exists(cf):
             try:
-                df = pd.read_csv(cf, encoding='utf-8-sig')
+                print(f"데이터 로딩 중: {cf}...")
+                df = pd.read_csv(cf, on_bad_lines='skip')
                 csv_file = cf
-                print(f"✅ 데이터 로드 완료: {csv_file}")
+                print(f"✅ 데이터 로드 완료: {len(df):,}개 행")
                 break
             except Exception as e:
                 print(f"⚠️ 데이터 로드 실패 ({cf}): {e}")
     
     if df is None:
-        print(f"❌ 데이터 파일 없음!")
+        print(f"❌ CSV 파일 없음!")
         print(f"시도한 파일:")
         for cf in csv_files:
             print(f"  - {cf}")
         return None
     
-    # 컬럼명 확인
-    required_cols = ['CURRTIME', 'M14AM14B', 'M14AM10A', 'M14AM16', 'TOTALCNT']
+    # 메모리 사용량 확인
+    memory_mb = df.memory_usage(deep=True).sum() / 1024 / 1024
+    print(f"메모리 사용량: {memory_mb:.1f} MB")
+    
+    # 필수 컬럼 확인
+    required_cols = ['M14AM14B', 'M14AM10A', 'M14AM16', 'TOTALCNT']
     missing_cols = [col for col in required_cols if col not in df.columns]
     
     if missing_cols:
         print(f"❌ 필수 컬럼 누락: {missing_cols}")
-        print(f"실제 컬럼: {df.columns.tolist()}")
+        print(f"현재 컬럼: {list(df.columns)}")
         return None
     
-    # 시간 정렬
-    df['CURRTIME'] = pd.to_datetime(df['CURRTIME'])
-    df = df.sort_values('CURRTIME').reset_index(drop=True)
+    print(f"✅ 필수 컬럼 확인 완료")
     
-    print(f"\n데이터 정보:")
-    print(f"  - 총 행 수: {len(df):,}")
-    print(f"  - 시작: {df['CURRTIME'].min()}")
-    print(f"  - 종료: {df['CURRTIME'].max()}")
-    print(f"  - 기간: {(df['CURRTIME'].max() - df['CURRTIME'].min()).days}일")
-    
-    # 슬라이딩 윈도우 평가
-    print(f"\n슬라이딩 윈도우 평가 시작...")
-    print(f"  - 시퀀스 길이: 280분")
-    print(f"  - 예측 시점: 10분 후")
+    # CURRTIME 처리
+    if 'CURRTIME' in df.columns:
+        try:
+            df['CURRTIME'] = pd.to_datetime(df['CURRTIME'].astype(str), format='%Y%m%d%H%M')
+            print("✅ CURRTIME 파싱 완료")
+        except:
+            print("⚠️ CURRTIME 변환 실패, 가상 시간 생성")
+            base_time = datetime(2024, 1, 1, 0, 0)
+            df['CURRTIME'] = [base_time + timedelta(minutes=i) for i in range(len(df))]
+    else:
+        print("⚠️ CURRTIME 없음, 가상 시간 생성")
+        base_time = datetime(2024, 1, 1, 0, 0)
+        df['CURRTIME'] = [base_time + timedelta(minutes=i) for i in range(len(df))]
     
     results = []
-    total_predictions = len(df) - 280 - 10  # 280분 시퀀스 + 10분 후
     
-    print(f"  - 예상 예측 수: {total_predictions:,}개")
-    print(f"  - 예상 소요 시간: 약 {total_predictions/10000:.1f}분")
-    print()
+    total_predictions = len(df) - 280 - 10
+    print(f"\n🔄 슬라이딩 윈도우 평가 시작...")
+    print(f"총 예측 수: {total_predictions:,}개")
+    print(f"예상 소요 시간: 약 {total_predictions / 10000:.1f}분")
     
-    # 🔥 조기경보 카운터
-    early_warning_applied = 0
-    
+    # 슬라이딩 윈도우
     for i in range(280, len(df) - 10):
-        # 280분 시퀀스 추출
+        # 280분 시퀀스
         seq_m14b = df['M14AM14B'].iloc[i-280:i].values
         seq_m10a = df['M14AM10A'].iloc[i-280:i].values
         seq_m16 = df['M14AM16'].iloc[i-280:i].values
@@ -266,8 +268,8 @@ def evaluate_all_predictions():
         features = create_single_prediction_features(seq_m14b, seq_m10a, seq_m16, seq_totalcnt)
         X_pred = pd.DataFrame([features])
         
-        # 예측 (원본)
-        prediction_original = model.predict(X_pred)[0]
+        # 예측
+        prediction = model.predict(X_pred)[0]
         
         # 황금 패턴 감지
         golden_pattern = (seq_m14b[-1] > 300 and seq_m10a[-1] < 80)
@@ -279,12 +281,9 @@ def evaluate_all_predictions():
         last_10min = seq_totalcnt[-10:]
         early_warning_detected = (np.max(last_10min) >= 1650) and ((last_10min[-1] - last_10min[0]) > 20)
         
-        # 🔥🔥🔥 조기경보 발생 시 예측값 * 1.02 (2% 증가)
+        # 🔥🔥 조기경보 발생 시 예측값 * 1.02 (2% 증가)
         if early_warning_detected:
-            prediction_final = prediction_original * 1.02
-            early_warning_applied += 1
-        else:
-            prediction_final = prediction_original
+            prediction = prediction * 1.02
         
         # 결과 저장
         results.append({
@@ -294,11 +293,10 @@ def evaluate_all_predictions():
             '예측시점': prediction_time.strftime('%Y-%m-%d %H:%M'),
             '실제시점': actual_time.strftime('%Y-%m-%d %H:%M'),
             '실제값': round(actual_value, 2),
-            '원본예측값': round(prediction_original, 2),  # 🔥 조기경보 적용 전
-            '최종예측값': round(prediction_final, 2),      # 🔥 조기경보 적용 후
-            '오차': round(actual_value - prediction_final, 2),
-            '절대오차': round(abs(actual_value - prediction_final), 2),
-            '오차율(%)': round(abs(actual_value - prediction_final) / max(actual_value, 1) * 100, 2),
+            '예측값': round(prediction, 2),
+            '오차': round(actual_value - prediction, 2),
+            '절대오차': round(abs(actual_value - prediction), 2),
+            '오차율(%)': round(abs(actual_value - prediction) / max(actual_value, 1) * 100, 2),
             'M14AM14B': round(seq_m14b[-1], 2),
             'M14AM10A': round(seq_m10a[-1], 2),
             'M14AM16': round(seq_m16[-1], 2),
@@ -310,9 +308,9 @@ def evaluate_all_predictions():
             '황금패턴': 'O' if golden_pattern else '',
             '시퀀스위험': 'O' if danger_in_seq else '',
             '조기경보': 'O' if early_warning_detected else '',
-            '조기경보2%적용': 'O' if early_warning_detected else '',  # 🔥 새 컬럼
+            '조기경보2%적용': 'O' if early_warning_detected else '',
             '실제위험(1700+)': 'O' if actual_value >= 1700 else '',
-            '예측위험(1650+)': 'O' if prediction_final >= 1650 else ''
+            '예측위험(1650+)': 'O' if prediction >= 1650 else ''
         })
         
         # 진행상황 출력 (1년치 데이터용 - 50000개마다)
@@ -320,19 +318,17 @@ def evaluate_all_predictions():
             progress = (i - 280) / total_predictions * 100
             elapsed = (i - 280) / 10000  # 대략적인 경과 시간
             print(f"  진행중... {i-280:,}/{total_predictions:,} ({progress:.1f}%) - 약 {elapsed:.1f}분 경과")
-            print(f"    🔥 조기경보 2% 적용: {early_warning_applied:,}건")
             
             # 메모리 정리
             gc.collect()
     
     print(f"✅ 평가 완료!")
-    print(f"🔥 총 조기경보 2% 적용: {early_warning_applied:,}건")
     
     # DataFrame 변환
     results_df = pd.DataFrame(results)
     
     # CSV 저장
-    output_file = 'evaluation_280to10_early_warning_2pct.csv'
+    output_file = 'evaluation_280to10_1year.csv'
     results_df.to_csv(output_file, index=False, encoding='utf-8-sig')
     print(f"✅ 결과 저장 완료: {output_file}")
     
@@ -342,7 +338,7 @@ def evaluate_all_predictions():
     
     # ===== 통계 분석 =====
     print("\n" + "="*80)
-    print("📊 평가 통계 (280분 → 10분 후) - 조기경보 2% 가산 적용")
+    print("📊 평가 통계 (280분 → 10분 후)")
     print("="*80)
     print(f"총 예측 수: {len(results_df):,}개")
     print(f"평균 절대 오차(MAE): {results_df['절대오차'].mean():.2f}")
@@ -353,16 +349,6 @@ def evaluate_all_predictions():
     print(f"\n황금 패턴 발생: {results_df['황금패턴'].value_counts().get('O', 0):,}개")
     print(f"시퀀스 위험 구간: {results_df['시퀀스위험'].value_counts().get('O', 0):,}개")
     print(f"🔥 조기 경보 발생: {results_df['조기경보'].value_counts().get('O', 0):,}개")
-    print(f"🔥 조기 경보 2% 적용: {results_df['조기경보2%적용'].value_counts().get('O', 0):,}개")
-    
-    # 🔥 조기경보 2% 가산 효과 분석
-    early_cases = results_df[results_df['조기경보'] == 'O']
-    if len(early_cases) > 0:
-        boost_amounts = early_cases['최종예측값'] - early_cases['원본예측값']
-        print(f"\n🔥 조기경보 2% 가산 효과:")
-        print(f"  - 평균 가산량: +{boost_amounts.mean():.2f}")
-        print(f"  - 최대 가산량: +{boost_amounts.max():.2f}")
-        print(f"  - 최소 가산량: +{boost_amounts.min():.2f}")
     
     # 위험 구간 분석
     actual_danger = results_df['실제위험(1700+)'] == 'O'
@@ -401,15 +387,36 @@ def evaluate_all_predictions():
     print("오차 상위 10개 구간")
     print("="*80)
     top_errors = results_df.nlargest(10, '절대오차')
-    print(top_errors[['현재시간', '현재TOTALCNT', '실제값', '원본예측값', '최종예측값', '절대오차', '조기경보2%적용']].to_string(index=False))
+    print(top_errors[['현재시간', '현재TOTALCNT', '실제값', '예측값', '절대오차', 'M14AM14B', '조기경보']].to_string(index=False))
+    
+    # ✅ 10칸 내려서 비교 검증 (샘플 10개)
+    print("\n" + "="*80)
+    print("🔍 10칸 내려서 예측 검증 (샘플 10개)")
+    print("="*80)
+    print("Line 1의 예측값 vs Line 11의 현재TOTALCNT 비교")
+    print("-"*80)
+    
+    for idx in [0, 100, 200, 300, 400, 500, 600, 700, 800, 900]:
+        if idx + 10 < len(results_df):
+            line1_time = results_df.iloc[idx]['현재시간']
+            line1_pred = results_df.iloc[idx]['예측값']
+            line11_time = results_df.iloc[idx+10]['현재시간']
+            line11_current = results_df.iloc[idx+10]['현재TOTALCNT']
+            diff = abs(line11_current - line1_pred)
+            
+            print(f"Line {idx+1:4d} (예측): {line1_time} → 예측값: {line1_pred:7.2f}")
+            print(f"Line {idx+11:4d} (실제): {line11_time} → 현재값: {line11_current:7.2f}")
+            print(f"           차이: {diff:.2f}")
+            print("-"*40)
     
     # 조기 경보 발생 구간 분석
     if early_warning_count > 0:
         print("\n" + "="*80)
-        print("🔥 조기 경보 2% 가산 적용 구간 (샘플 20개)")
+        print("🔥 조기 경보 발생 구간 (샘플 20개)")
         print("="*80)
+        early_cases = results_df[results_df['조기경보'] == 'O']
         print(f"총 {len(early_cases):,}개")
-        print(early_cases[['현재시간', '마지막10분_MAX', '마지막10분_상승폭', '원본예측값', '최종예측값', '실제값', '실제위험(1700+)']].head(20).to_string(index=False))
+        print(early_cases[['현재시간', '마지막10분_MAX', '마지막10분_상승폭', '실제값', '예측값', '실제위험(1700+)']].head(20).to_string(index=False))
     
     # 최종 요약
     print("\n" + "="*80)
@@ -417,8 +424,7 @@ def evaluate_all_predictions():
     print("="*80)
     print(f"1. 전체 성능:")
     print(f"   - MAE: {results_df['절대오차'].mean():.2f}")
-    if actual_danger_count > 0:
-        print(f"   - 위험 감지율: {danger_detected/actual_danger_count*100:.1f}% ({danger_detected:,}/{actual_danger_count:,})")
+    print(f"   - 위험 감지율: {danger_detected/actual_danger_count*100:.1f}% ({danger_detected:,}/{actual_danger_count:,})")
     
     if high_m14b_count > 0:
         print(f"\n2. M14AM14B 450+ 구간:")
@@ -427,10 +433,9 @@ def evaluate_all_predictions():
         print(f"   - 1700+ 비율: {high_m14b_danger/high_m14b_count*100:.1f}%")
     
     if early_warning_count > 0:
-        print(f"\n3. 조기 경보 2% 가산:")
-        print(f"   - 적용 횟수: {early_warning_count:,}개")
+        print(f"\n3. 조기 경보:")
+        print(f"   - 발생 횟수: {early_warning_count:,}개")
         print(f"   - 정확도: {early_to_danger/early_warning_count*100:.1f}% (1700+ 예측)")
-        print(f"   - 평균 가산량: +{boost_amounts.mean():.2f}")
     
     print(f"\n4. 저장 파일:")
     print(f"   - {output_file}")
@@ -439,9 +444,9 @@ def evaluate_all_predictions():
     return results_df
 
 if __name__ == '__main__':
-    print("\n🚀 280분 시퀀스 → 10분 후 예측 평가 시작 (조기경보 2% 적용)...\n")
+    print("\n🚀 280분 시퀀스 → 10분 후 예측 평가 시작 (1년치 데이터)...\n")
     results = evaluate_all_predictions()
     
     if results is not None:
         print(f"\n✅ 평가 완료! 총 {len(results):,}개 예측 생성")
-        print(f"✅ 결과 파일: evaluation_280to10_early_warning_2pct.csv")
+        print(f"✅ 결과 파일: evaluation_280to10_1year.csv")
