@@ -279,6 +279,8 @@ def predict_latest_only():
         print("🔥 조기 경보: 발생!")
     
     simple_dict = {
+        '현재시간': current_time.strftime('%Y-%m-%d %H:%M'),
+        '현재물류량': int(current_totalcnt),
         '예측시간': prediction_time.strftime('%Y-%m-%d %H:%M'),
         '예측물류량': int(prediction),
         '예측상태': pred_status,
