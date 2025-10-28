@@ -285,6 +285,7 @@ def evaluate_all_predictions():
         results.append({
             '시퀀스시작': seq_start_time.strftime('%Y-%m-%d %H:%M'),
             '현재시간': current_time.strftime('%Y-%m-%d %H:%M'),
+            '현재TOTALCNT': round(seq_totalcnt[-1], 2),  # ✅ 현재 시점의 실제 TOTALCNT
             '예측시점': prediction_time.strftime('%Y-%m-%d %H:%M'),
             '실제시점': actual_time.strftime('%Y-%m-%d %H:%M'),
             '실제값': round(actual_value, 2),
@@ -381,7 +382,27 @@ def evaluate_all_predictions():
     print("오차 상위 10개 구간")
     print("="*80)
     top_errors = results_df.nlargest(10, '절대오차')
-    print(top_errors[['현재시간', '실제값', '예측값', '절대오차', 'M14AM14B', '조기경보']].to_string(index=False))
+    print(top_errors[['현재시간', '현재TOTALCNT', '실제값', '예측값', '절대오차', 'M14AM14B', '조기경보']].to_string(index=False))
+    
+    # ✅ 10칸 내려서 비교 검증 (샘플 10개)
+    print("\n" + "="*80)
+    print("🔍 10칸 내려서 예측 검증 (샘플 10개)")
+    print("="*80)
+    print("Line 1의 예측값 vs Line 11의 현재TOTALCNT 비교")
+    print("-"*80)
+    
+    for idx in [0, 100, 200, 300, 400, 500, 600, 700, 800, 900]:
+        if idx + 10 < len(results_df):
+            line1_time = results_df.iloc[idx]['현재시간']
+            line1_pred = results_df.iloc[idx]['예측값']
+            line11_time = results_df.iloc[idx+10]['현재시간']
+            line11_current = results_df.iloc[idx+10]['현재TOTALCNT']
+            diff = abs(line11_current - line1_pred)
+            
+            print(f"Line {idx+1:4d} (예측): {line1_time} → 예측값: {line1_pred:7.2f}")
+            print(f"Line {idx+11:4d} (실제): {line11_time} → 현재값: {line11_current:7.2f}")
+            print(f"           차이: {diff:.2f}")
+            print("-"*40)
     
     # 조기 경보 발생 구간 분석
     if early_warning_count > 0:
