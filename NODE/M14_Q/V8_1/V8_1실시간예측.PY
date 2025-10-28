@@ -420,10 +420,6 @@ def predict_latest_only():
     가장 최근 280분 데이터로 10분 후 예측 (조기 경보 포함)
     """
     
-    print("="*80)
-    print("최신 데이터 예측 (조기 경보 포함)")
-    print("="*80)
-    
     # 모델 로드
     model_files = [
         'xgboost_280to10_1year_augmented.pkl',
@@ -437,7 +433,6 @@ def predict_latest_only():
             try:
                 with open(mf, 'rb') as f:
                     model = pickle.load(f)
-                print(f"✅ 모델 로드 완료: {mf}")
                 break
             except:
                 pass
@@ -464,7 +459,6 @@ def predict_latest_only():
         return None
     
     df = pd.read_csv(csv_file, on_bad_lines='skip')
-    print(f"✅ 데이터 로드 완료: {len(df):,}개 행")
     
     # 필수 컬럼 확인
     required_cols = ['M14AM14B', 'M14AM10A', 'M14AM16', 'TOTALCNT']
@@ -501,9 +495,6 @@ def predict_latest_only():
     
     # 현재 시간 정보
     current_time = df['CURRTIME'].iloc[-1]
-    prediction_time = current_time + timedelta(minutes=10)
-    
-    # 현재 상태
     current_totalcnt = seq_totalcnt[-1]
     current_m14b = seq_m14b[-1]
     current_m10a = seq_m10a[-1]
@@ -530,13 +521,43 @@ def predict_latest_only():
     current_status, current_color = get_status_info(current_totalcnt)
     pred_status, pred_color = get_status_info(prediction)
     
+    # 1700+ 도달 확률 계산
+    prob_1700_plus = 0
+    
+    if prediction >= 1750:
+        prob_1700_plus = 95 + min((prediction - 1750) / 10, 5)  # 95-100%
+    elif prediction >= 1700:
+        prob_1700_plus = 80 + (prediction - 1700) / 50 * 15  # 80-95%
+    elif prediction >= 1650:
+        prob_1700_plus = 50 + (prediction - 1650) / 50 * 30  # 50-80%
+    elif prediction >= 1600:
+        prob_1700_plus = 20 + (prediction - 1600) / 50 * 30  # 20-50%
+    elif prediction >= 1550:
+        prob_1700_plus = 5 + (prediction - 1550) / 50 * 15  # 5-20%
+    else:
+        prob_1700_plus = max(0, (prediction - 1500) / 50 * 5)  # 0-5%
+    
+    # 조기경보 발생 시 확률 10% 증가
+    if early_warning_detected:
+        prob_1700_plus = min(100, prob_1700_plus + 10)
+    
+    # 황금 패턴 발생 시 확률 5% 증가
+    if golden_pattern:
+        prob_1700_plus = min(100, prob_1700_plus + 5)
+    
+    # 상승 추세 감지 시 확률 5% 증가
+    recent_slope = (seq_totalcnt[-1] - seq_totalcnt[-30]) / 30
+    if recent_slope > 5:
+        prob_1700_plus = min(100, prob_1700_plus + 5)
+    
     # 간단한 결과만 출력
     if early_warning_detected:
         print("🔥 조기 경보: 발생!")
     
     simple_dict = {
         '예측물류량': int(prediction),
-        '예측상태': pred_status
+        '예측상태': pred_status,
+        '1700+확률(%)': round(prob_1700_plus, 1)
     }
     
     print(simple_dict)
