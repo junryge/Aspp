@@ -575,24 +575,7 @@ def train_and_evaluate_complete():
     
     # ===== 6. 모델 평가 =====
     print("\n[STEP 5] 모델 평가")
-    print("-"*40)
-    
-    # Train 성능
-    y_train_pred = model.predict(X_train)
-    train_mae = mean_absolute_error(y_train, y_train_pred)
-    train_rmse = np.sqrt(mean_squared_error(y_train, y_train_pred))
-    train_r2 = r2_score(y_train, y_train_pred)
-    
-    print(f"Train 성능:")
-    print(f"  MAE:  {train_mae:.2f}")
-    print(f"  RMSE: {train_rmse:.2f}")
-    print(f"  R²:   {train_r2:.4f}")
-    
-    # Test 성능
-    y_test_pred = model.predict(X_test)
-    test_mae = mean_absolute_error(y_test, y_test_pred)
-    test_rmse = np.sqrt(mean_squared_error(y_test, y_test_pred))
-    test_r2 = r2_score(y_test, y_test_pred)
+    print("-
     
     print(f"\nTest 성능:")
     print(f"  MAE:  {test_mae:.2f}")
