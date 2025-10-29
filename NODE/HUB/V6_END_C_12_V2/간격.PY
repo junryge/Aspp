@@ -6,8 +6,14 @@ from datetime import datetime, timedelta
 input_file = 'input.csv'  # 입력 파일명 변경하세요
 output_file = 'output_filled.csv'  # 출력 파일명
 
-# CSV 파일 읽기
-df = pd.read_csv(input_file)
+# CSV 파일 읽기 (한글 인코딩 처리)
+try:
+    df = pd.read_csv(input_file, encoding='cp949')
+except:
+    try:
+        df = pd.read_csv(input_file, encoding='euc-kr')
+    except:
+        df = pd.read_csv(input_file, encoding='utf-8')
 
 # CRT_TM 컬럼을 datetime 타입으로 변환
 df['CRT_TM'] = pd.to_datetime(df['CRT_TM'])
