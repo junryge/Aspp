@@ -52,7 +52,7 @@ def create_features_280min_enhanced(df, start_idx=280):
     """
     280분 시퀀스 + 강화된 Feature + 조기 경보 Feature + 1550→1700 패턴
     
-    총 95개 Feature:
+    총 96개 Feature:
     - 기본 통계 (4컬럼 × 8): 32개
     - 비율: 8개
     - M14AM14B 임계값: 8개
@@ -62,7 +62,7 @@ def create_features_280min_enhanced(df, start_idx=280):
     - 변화율/가속도: 8개
     - 시간대별 통계: 8개
     - 🔥 조기 경보: 5개
-    - 🎯 1550→1700 패턴: 10개
+    - 🎯 1550→1700 패턴: 11개
     """
     
     print(f"\nFeature 생성 중... (280분 시퀀스 + 조기 경보)")
@@ -228,7 +228,7 @@ def create_features_280min_enhanced(df, start_idx=280):
         early_warning = (np.max(last_10min) >= 1650) and ((last_10min[-1] - last_10min[0]) > 20)
         features['early_warning_1650_rising'] = 1 if early_warning else 0
         
-        # ========== 🎯 1550→1700 패턴 Feature (10개) ==========
+        # ========== 🎯 1550→1700 패턴 Feature (11개) ==========
         # 마지막 5분에서 TOTALCNT 체크
         last_5min_totalcnt = seq_totalcnt[-5:]
         current_totalcnt_max = np.max(last_5min_totalcnt)  # 마지막 5분 최대값
@@ -328,7 +328,7 @@ def create_features_280min_enhanced(df, start_idx=280):
     print(f"  - 변화율/가속도: 8개")
     print(f"  - 시간대별 통계: 8개")
     print(f"  - 🔥 조기 경보: 5개")
-    print(f"  - 🎯 1550→1700 패턴: 10개")
+    print(f"  - 🎯 1550→1700 패턴: 11개")
     print(f"데이터 범위: 인덱스 {indices[0]:,} ~ {indices[-1]:,}")
     
     return X, y, seq_info
@@ -420,7 +420,7 @@ def train_and_evaluate_complete():
     print("="*80)
     print("🚀 XGBoost 280분 → 10분 후 TOTALCNT 예측 (1년치 데이터)")
     print("="*80)
-    print("Feature: 95개 (조기 경보 5 + 1550→1700 패턴 10)")
+    print("Feature: 96개 (조기 경보 5 + 1550→1700 패턴 11)")
     print("데이터 증강: M14AM14B 450+ + 1550→1700 패턴 × 10배")
     print("="*80)
     
@@ -647,7 +647,7 @@ def train_and_evaluate_complete():
     
     print(f"\n2. 데이터 정보:")
     print(f"   - 학습 데이터: {X_train.shape[0]:,}개")
-    print(f"   - Feature 수: {X_train.shape[1]}개 (조기 경보 5개 포함)")
+    print(f"   - Feature 수: {X_train.shape[1]}개 (조기 경보 5 + 1550→1700 패턴 11)")
     
     print(f"\n3. 저장 파일:")
     print(f"   - 모델: {model_filename}")
