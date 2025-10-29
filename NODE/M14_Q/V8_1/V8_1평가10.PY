@@ -157,19 +157,19 @@ def create_single_prediction_features(seq_m14b, seq_m10a, seq_m16, seq_totalcnt,
     features['current_totalcnt'] = current_totalcnt_max  # 마지막 5분 최대값
     features['totalcnt_rise_5min'] = rise_amount  # 5분 상승폭
     
-    # 🔥 1550+ 조건: TOTALCNT 1550+ AND 상승 추세 AND M14AM16 조건
+    # 🔥 1550+ 조건: TOTALCNT 1550+ AND 상승 추세 AND (M14AM16 >= 217 OR M14AM14B >= 300)
     is_1550_plus_with_conditions = (
         (current_totalcnt_max >= 1550) and 
         is_rising and 
-        (seq_m16[-1] >= 217)  # M14AM16이 217 이상
+        ((seq_m16[-1] >= 217) or (seq_m14b[-1] >= 300))  # OR 조건: M16 높음 또는 M14B 높음
     )
     features['is_1550_plus'] = 1 if is_1550_plus_with_conditions else 0
     
-    # 🔥 1600+ 조건: TOTALCNT 1600+ AND 상승 추세 AND 강한 M14AM16 조건
+    # 🔥 1600+ 조건: TOTALCNT 1600+ AND 상승 추세 AND (M14AM16 >= 272 OR M14AM14B >= 350)
     is_1600_plus_with_conditions = (
         (current_totalcnt_max >= 1600) and 
         is_rising and 
-        (seq_m16[-1] >= 272)  # M14AM16이 272 이상 (75% 분위수)
+        ((seq_m16[-1] >= 272) or (seq_m14b[-1] >= 350))  # OR 조건: M16 높음 또는 M14B 높음
     )
     features['is_1600_plus'] = 1 if is_1600_plus_with_conditions else 0
     
@@ -352,9 +352,27 @@ def evaluate_all_predictions():
         pattern_1700_level2 = features['pattern_1700_level2'] == 1
         pattern_1700_level3 = features['pattern_1700_level3'] == 1
         
-        # 🔥🔥 조기경보 발생 시 예측값 * 1.02 (2% 증가)
+        # 🔥 현재 1700+ 구간 감지
+        current_in_danger = seq_totalcnt[-1] >= 1700
+        
+        # === 예측값 보정 ===
+        # 1. 조기경보 발생 시 +2%
         if early_warning_detected:
             prediction = prediction * 1.02
+        
+        # 2. 🔥🔥 현재 이미 1700+인 경우 특수 보정
+        if current_in_danger:
+            # 최근 5분 상승/하락 추세 확인
+            recent_5_trend = seq_totalcnt[-1] - seq_totalcnt[-5]
+            
+            if recent_5_trend > 0:  # 상승 중
+                prediction = max(prediction, seq_totalcnt[-1] * 1.01)  # 최소 1% 상승
+            else:  # 하락 중
+                prediction = min(prediction, seq_totalcnt[-1] * 0.98)  # 최대 2% 하락
+        
+        # 3. LEVEL3 긴급 패턴 시 +5%
+        elif pattern_1700_level3:
+            prediction = prediction * 1.05
         
         # 결과 저장
         results.append({
