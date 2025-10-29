@@ -50,9 +50,9 @@ def check_gpu_availability():
 
 def create_features_280min_enhanced(df, start_idx=280):
     """
-    280분 시퀀스 + 강화된 Feature + 조기 경보 Feature
+    280분 시퀀스 + 강화된 Feature + 조기 경보 Feature + 1550→1700 패턴
     
-    총 85개 Feature:
+    총 95개 Feature:
     - 기본 통계 (4컬럼 × 8): 32개
     - 비율: 8개
     - M14AM14B 임계값: 8개
@@ -62,6 +62,7 @@ def create_features_280min_enhanced(df, start_idx=280):
     - 변화율/가속도: 8개
     - 시간대별 통계: 8개
     - 🔥 조기 경보: 5개
+    - 🎯 1550→1700 패턴: 10개
     """
     
     print(f"\nFeature 생성 중... (280분 시퀀스 + 조기 경보)")
@@ -227,6 +228,72 @@ def create_features_280min_enhanced(df, start_idx=280):
         early_warning = (np.max(last_10min) >= 1650) and ((last_10min[-1] - last_10min[0]) > 20)
         features['early_warning_1650_rising'] = 1 if early_warning else 0
         
+        # ========== 🎯 1550→1700 패턴 Feature (10개) ==========
+        # 마지막 5분에서 TOTALCNT 체크
+        last_5min_totalcnt = seq_totalcnt[-5:]
+        current_totalcnt_max = np.max(last_5min_totalcnt)  # 마지막 5분 최대값
+        current_totalcnt_mean = np.mean(last_5min_totalcnt)  # 마지막 5분 평균
+        
+        # 상승 추세 체크 (마지막 5분 평균 vs 이전 5분 평균)
+        prev_5min_totalcnt = seq_totalcnt[-10:-5]
+        prev_5min_mean = np.mean(prev_5min_totalcnt)
+        is_rising = current_totalcnt_mean > prev_5min_mean
+        rise_amount = current_totalcnt_mean - prev_5min_mean
+        
+        features['current_totalcnt'] = current_totalcnt_max  # 마지막 5분 최대값
+        features['totalcnt_rise_5min'] = rise_amount  # 5분 상승폭
+        
+        # 🔥 1550+ 조건: TOTALCNT 1550+ AND 상승 추세 AND M14AM16 조건
+        is_1550_plus_with_conditions = (
+            (current_totalcnt_max >= 1550) and 
+            is_rising and 
+            (seq_m16[-1] >= 217)  # M14AM16이 217 이상
+        )
+        features['is_1550_plus'] = 1 if is_1550_plus_with_conditions else 0
+        
+        # 🔥 1600+ 조건: TOTALCNT 1600+ AND 상승 추세 AND 강한 M14AM16 조건
+        is_1600_plus_with_conditions = (
+            (current_totalcnt_max >= 1600) and 
+            is_rising and 
+            (seq_m16[-1] >= 272)  # M14AM16이 272 이상 (75% 분위수)
+        )
+        features['is_1600_plus'] = 1 if is_1600_plus_with_conditions else 0
+        
+        # M14AM16 핵심 변수 (46.2% 차이)
+        features['m16_last'] = seq_m16[-1]
+        features['m16_last_vs_mean'] = seq_m16[-1] / (np.mean(seq_m16) + 1)
+        
+        # M14AM16SUM 계산 (28.7% 차이)
+        if 'M14AM16SUM' in df.columns:
+            m16sum_current = df['M14AM16SUM'].iloc[i-1]
+        else:
+            # M14AM16SUM이 없으면 계산
+            m16sum_current = np.sum(seq_m16[-10:])  # 최근 10분 합
+        features['m16sum_current'] = m16sum_current
+        
+        # 1700+ 예측 규칙 (LEVEL 2 기준)
+        rule_level2 = (seq_m16[-1] >= 272) and (m16sum_current >= 494) and (seq_m14b[-1] <= 194)
+        features['pattern_1700_level2'] = 1 if rule_level2 else 0
+        
+        # 1700+ 예측 규칙 (LEVEL 3 긴급)
+        rule_level3 = (seq_m16[-1] >= 641) and (m16sum_current >= 853)
+        features['pattern_1700_level3'] = 1 if rule_level3 else 0
+        
+        # M14BM14A 비율 (15.3% 차이)
+        if 'M14BM14A' in df.columns:
+            m14bm14a_current = df['M14BM14A'].iloc[i-1]
+        else:
+            m14bm14a_current = 0
+        features['m14bm14a_current'] = m14bm14a_current
+        
+        # 복합 패턴: 1550+ 구간에서 위험 신호 (마지막 5분 기준)
+        high_base_danger = (
+            (current_totalcnt_max >= 1550) and 
+            (seq_m16[-1] >= 217) and 
+            (m16sum_current >= 430)
+        )
+        features['pattern_1550_danger'] = 1 if high_base_danger else 0
+        
         features_list.append(features)
         
         # 라벨: 10분 후 TOTALCNT 최대값
@@ -261,13 +328,17 @@ def create_features_280min_enhanced(df, start_idx=280):
     print(f"  - 변화율/가속도: 8개")
     print(f"  - 시간대별 통계: 8개")
     print(f"  - 🔥 조기 경보: 5개")
+    print(f"  - 🎯 1550→1700 패턴: 10개")
     print(f"데이터 범위: 인덱스 {indices[0]:,} ~ {indices[-1]:,}")
     
     return X, y, seq_info
 
 def augment_high_risk_data(X, y, seq_info, augment_factor=10):
     """
-    M14AM14B 450+ 구간과 1700+ 구간 데이터 증강
+    고위험 구간 데이터 증강:
+    1. M14AM14B 450+ 구간
+    2. TOTALCNT 1700+ 구간
+    3. 1550+ → 1700+ 증가 패턴
     
     Parameters:
     - augment_factor: 증강 배수 (기본 10배)
@@ -277,21 +348,28 @@ def augment_high_risk_data(X, y, seq_info, augment_factor=10):
     
     m14b_last = np.array(seq_info['m14b_last'])
     
-    # M14AM14B 450+ 구간
+    # 1. M14AM14B 450+ 구간
     high_m14b_mask = m14b_last >= 450
     high_m14b_count = np.sum(high_m14b_mask)
     
-    # 1700+ 구간
+    # 2. TOTALCNT 1700+ 구간
     high_totalcnt_mask = y >= 1700
     high_totalcnt_count = np.sum(high_totalcnt_mask)
     
-    # 둘 중 하나라도 해당하는 구간
-    high_risk_mask = high_m14b_mask | high_totalcnt_mask
+    # 3. 1550+ → 1700+ 패턴 (현재 1550+ & 미래 1700+)
+    current_1550_mask = X['current_totalcnt'] >= 1550
+    future_1700_mask = y >= 1700
+    pattern_1550_to_1700 = current_1550_mask & future_1700_mask
+    pattern_count = np.sum(pattern_1550_to_1700)
+    
+    # 셋 중 하나라도 해당하는 구간
+    high_risk_mask = high_m14b_mask | high_totalcnt_mask | pattern_1550_to_1700
     high_risk_count = np.sum(high_risk_mask)
     
     print(f"원본 데이터:")
     print(f"  - M14AM14B 450+: {high_m14b_count:,}개 ({high_m14b_count/len(X)*100:.2f}%)")
     print(f"  - TOTALCNT 1700+: {high_totalcnt_count:,}개 ({high_totalcnt_count/len(X)*100:.2f}%)")
+    print(f"  - 🎯 1550→1700 패턴: {pattern_count:,}개 ({pattern_count/len(X)*100:.2f}%)")
     print(f"  - 고위험 구간(합계): {high_risk_count:,}개 ({high_risk_count/len(X)*100:.2f}%)")
     
     if high_risk_count == 0:
@@ -316,10 +394,14 @@ def augment_high_risk_data(X, y, seq_info, augment_factor=10):
     print(f"  - 증가량: {len(X_augmented) - len(X):,}개")
     
     # 고위험 데이터 비율
-    final_high_risk_count = np.sum((X_augmented[X_augmented.columns[0]] >= 0))  # 전체
-    m14b_450_augmented = high_risk_count * augment_factor
-    final_ratio = m14b_450_augmented / len(X_augmented) * 100
+    final_high_risk_count = high_risk_count * augment_factor
+    final_ratio = final_high_risk_count / len(X_augmented) * 100
     print(f"  - 고위험 데이터 비율: {final_ratio:.2f}%")
+    
+    # 1550→1700 패턴 비율
+    pattern_augmented = pattern_count * augment_factor
+    pattern_ratio = pattern_augmented / len(X_augmented) * 100
+    print(f"  - 🎯 1550→1700 패턴 비율: {pattern_ratio:.2f}%")
     
     # 메모리 정리
     del X_high_risk, y_high_risk
@@ -332,13 +414,14 @@ def train_and_evaluate_complete():
     280분 시퀀스 → 10분 후 TOTALCNT 예측
     ✅ 1년치 데이터 최적화
     ✅ 조기 경보 Feature
+    ✅ 🎯 1550→1700 패턴 Feature
     ✅ 고위험 구간 데이터 증강
     """
     print("="*80)
     print("🚀 XGBoost 280분 → 10분 후 TOTALCNT 예측 (1년치 데이터)")
     print("="*80)
-    print("Feature: 85개 (조기 경보 포함)")
-    print("데이터 증강: M14AM14B 450+ × 10배")
+    print("Feature: 95개 (조기 경보 5 + 1550→1700 패턴 10)")
+    print("데이터 증강: M14AM14B 450+ + 1550→1700 패턴 × 10배")
     print("="*80)
     
     # GPU 확인
@@ -560,6 +643,15 @@ def train_and_evaluate_complete():
     if len(early_warning_features) > 0:
         print("\n🔥 조기 경보 Feature 중요도:")
         print(early_warning_features.to_string(index=False))
+    
+    # 1550→1700 패턴 Feature 중요도
+    pattern_1550_features = feature_importance_full[
+        feature_importance_full['feature'].str.contains('pattern_1700|pattern_1550|is_1550|is_1600|m16_last|m16sum|m14bm14a_current')
+    ]
+    
+    if len(pattern_1550_features) > 0:
+        print("\n🎯 1550→1700 패턴 Feature 중요도:")
+        print(pattern_1550_features.to_string(index=False))
     
     # ===== 9. 최종 요약 =====
     print("\n" + "="*80)
