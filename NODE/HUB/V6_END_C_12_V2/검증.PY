@@ -1,27 +1,13 @@
 import pandas as pd
 import numpy as np
 
-def verify_v7_features():
+def analyze_all_correlations():
     """
-    🔍 V7 신규 Feature 후보 8개 검증
+    🔍 전체 컬럼 상관계수 분석 - TOP 30 찾기
     """
     print("="*80)
-    print("🔍 V7 신규 Feature 검증 시작")
+    print("🔍 전체 컬럼 상관계수 분석")
     print("="*80)
-    
-    # 검증할 컬럼 리스트
-    new_features = [
-        'M16HUB.QUE.M16TOM14B.MESCURRENTQCNT',  # +0.59
-        'M16HUB.QUE.ALL.CURRENTQCNT',           # +0.57
-        'M16HUB.QUE.M16TOM14.MESCURRENTQCNT',   # +0.48
-        'M16HUB.QUE.OHT.CURRENTOHTQCNT',        # +0.46
-        'M16HUB.QUE.M16TOM14A.MESCURRENTQCNT',  # +0.42
-        'M14.QUE.CNV.M14ATOM16ACURRNETQCNT',    # +0.36
-        'M16HUB.QUE.OHT.OHTUTIL',               # +0.34
-        'M16HUB.QUE.M14TOM16.MESCURRENTQCNT'    # -0.32
-    ]
-    
-    expected_corr = [0.59, 0.57, 0.48, 0.46, 0.42, 0.36, 0.34, -0.32]
     
     TARGET_COL = 'CURRENT_M16A_3F_JOB_2'
     
@@ -75,108 +61,118 @@ def verify_v7_features():
     
     print(f"✅ 최종 데이터: {len(df)}개 행")
     
-    # 검증 시작
-    print("\n[2] 컬럼 존재 여부 & 상관계수 검증")
+    # [2] 전체 컬럼 상관계수 계산
+    print("\n[2] 전체 컬럼 상관계수 계산 중...")
     print("-"*80)
     
     results = []
     
-    for i, col in enumerate(new_features):
-        result = {
-            '순위': i+1,
-            '컬럼명': col,
-            '존재여부': '',
-            '결측률(%)': 0,
-            '계산상관계수': 0,
-            '예상상관계수': expected_corr[i],
-            '오차': 0,
-            '검증': ''
-        }
+    for col in df.columns:
+        if col == TARGET_COL:
+            continue  # 타겟 컬럼 자체는 제외
         
-        # 존재 여부 확인
-        if col in df.columns:
-            result['존재여부'] = '✅'
-            
-            # 숫자 변환 및 NULL 처리
-            col_data = pd.to_numeric(df[col], errors='coerce')
-            
-            # 🆕 NULL을 위 값으로 채우기
-            col_data = col_data.ffill().bfill()
-            
-            # 결측률 계산 (원본 기준)
-            original_missing = pd.to_numeric(df[col], errors='coerce').isna().sum()
-            missing_rate = original_missing / len(df) * 100
-            result['결측률(%)'] = round(missing_rate, 2)
-            
-            # 상관계수 계산
-            valid_mask = col_data.notna() & df[TARGET_COL].notna()
-            if valid_mask.sum() > 0:
-                corr = col_data[valid_mask].corr(df[TARGET_COL][valid_mask])
-                result['계산상관계수'] = round(corr, 4)
-                result['오차'] = round(abs(corr - expected_corr[i]), 4)
-                
-                # 검증 (오차 0.05 이내면 OK)
-                if abs(corr - expected_corr[i]) <= 0.05:
-                    result['검증'] = '✅'
-                else:
-                    result['검증'] = f'⚠️ 차이큼'
-            else:
-                result['검증'] = '❌ 계산불가'
-        else:
-            result['존재여부'] = '❌'
-            result['검증'] = '❌ 컬럼없음'
+        if col == 'STAT_DT':
+            continue  # 시간 컬럼 제외
         
-        results.append(result)
+        # 숫자 변환
+        col_data = pd.to_numeric(df[col], errors='coerce')
         
-        # 실시간 출력
-        status = result['검증']
-        print(f"{i+1}. {col[:40]:<40} | 존재:{result['존재여부']} | 상관:{result['계산상관계수']:>7.4f} | 예상:{expected_corr[i]:>6.2f} | {status}")
+        # NULL 처리
+        col_data = col_data.ffill().bfill()
+        
+        # 변동성 확인 (모두 같은 값이면 제외)
+        if col_data.nunique() <= 1:
+            continue
+        
+        # 상관계수 계산
+        valid_mask = col_data.notna() & df[TARGET_COL].notna()
+        
+        if valid_mask.sum() < 10:  # 유효 데이터 10개 미만이면 제외
+            continue
+        
+        try:
+            corr = col_data[valid_mask].corr(df[TARGET_COL][valid_mask])
+            
+            if pd.notna(corr):
+                results.append({
+                    '컬럼명': col,
+                    '상관계수': round(corr, 4),
+                    '절대값': round(abs(corr), 4),
+                    '결측률(%)': round((col_data.isna().sum() / len(col_data)) * 100, 2),
+                    '고유값개수': col_data.nunique(),
+                    '평균': round(col_data.mean(), 2),
+                    '표준편차': round(col_data.std(), 2)
+                })
+        except:
+            continue
     
     # DataFrame 변환
     results_df = pd.DataFrame(results)
     
-    # 결과 저장
-    output_file = 'V7_feature_검증결과.csv'
-    results_df.to_csv(output_file, index=False, encoding='utf-8-sig')
-    print(f"\n✅ 결과 저장: {output_file}")
+    if len(results_df) == 0:
+        print("\n❌ 계산 가능한 컬럼이 없습니다!")
+        return
     
-    # 통계 요약
+    # 절대값 기준 정렬
+    results_df = results_df.sort_values('절대값', ascending=False)
+    
+    # 결과 저장
+    output_file = '전체컬럼_상관계수_분석결과.csv'
+    results_df.to_csv(output_file, index=False, encoding='utf-8-sig')
+    print(f"✅ 전체 결과 저장: {output_file}")
+    
+    # [3] TOP 30 출력
     print("\n" + "="*80)
-    print("📊 검증 요약")
+    print("🔥 상관계수 TOP 30 (절대값 기준)")
     print("="*80)
     
-    total = len(results_df)
-    exists = (results_df['존재여부'] == '✅').sum()
-    verified = (results_df['검증'] == '✅').sum()
+    top30 = results_df.head(30)
     
-    print(f"\n총 검증 대상: {total}개")
-    print(f"컬럼 존재: {exists}/{total}개 ({exists/total*100:.1f}%)")
-    print(f"상관계수 일치: {verified}/{total}개 ({verified/total*100:.1f}%)")
+    for idx, row in top30.iterrows():
+        # 상관계수 양수/음수 표시
+        if row['상관계수'] > 0:
+            sign = "+"
+            marker = "📈" if row['절대값'] >= 0.3 else "  "
+        else:
+            sign = ""
+            marker = "📉" if row['절대값'] >= 0.3 else "  "
+        
+        print(f"{marker} {row['컬럼명'][:55]:<55} : {sign}{row['상관계수']:>7.4f}")
     
-    # 문제 컬럼
-    problems = results_df[results_df['검증'] != '✅']
-    if len(problems) > 0:
-        print(f"\n⚠️ 문제 컬럼 ({len(problems)}개):")
-        for idx, row in problems.iterrows():
-            print(f"  - {row['컬럼명']}: {row['검증']}")
-    else:
-        print(f"\n🎉 모든 컬럼 검증 완료!")
+    # [4] 통계 요약
+    print("\n" + "="*80)
+    print("📊 분석 요약")
+    print("="*80)
     
-    # 상관계수 TOP 8 재확인
-    print(f"\n🔥 상관계수 TOP 8 (재계산):")
-    verified_cols = results_df[results_df['존재여부'] == '✅'].copy()
-    verified_cols = verified_cols.sort_values('계산상관계수', key=abs, ascending=False)
+    print(f"\n총 분석 컬럼: {len(results_df)}개")
     
-    for idx, row in verified_cols.iterrows():
-        marker = "⭐" if abs(row['계산상관계수']) >= 0.40 else "  "
-        print(f"{marker} {row['순위']}. {row['컬럼명'][:50]:<50} : {row['계산상관계수']:>7.4f}")
+    high_corr = results_df[results_df['절대값'] >= 0.3]
+    medium_corr = results_df[(results_df['절대값'] >= 0.2) & (results_df['절대값'] < 0.3)]
+    low_corr = results_df[results_df['절대값'] < 0.2]
+    
+    print(f"\n상관계수 분포:")
+    print(f"  - 높음 (≥0.30): {len(high_corr)}개")
+    print(f"  - 중간 (0.20~0.29): {len(medium_corr)}개")
+    print(f"  - 낮음 (<0.20): {len(low_corr)}개")
+    
+    # 상관계수 높은 컬럼 그룹화
+    print(f"\n🎯 상관계수 ≥0.30 컬럼 ({len(high_corr)}개):")
+    for idx, row in high_corr.iterrows():
+        print(f"  • {row['컬럼명'][:50]:<50} : {row['상관계수']:>7.4f}")
+    
+    # TOP 10 상세 정보
+    print(f"\n📌 TOP 10 상세 정보:")
+    print("-"*80)
+    top10 = results_df.head(10)
+    print(top10[['컬럼명', '상관계수', '고유값개수', '평균', '표준편차']].to_string(index=False))
     
     return results_df
 
 if __name__ == '__main__':
-    print("🚀 V7 신규 Feature 검증 시작...\n")
-    results = verify_v7_features()
+    print("🚀 전체 컬럼 상관계수 분석 시작...\n")
+    results = analyze_all_correlations()
     
     if results is not None:
-        print(f"\n✅ 검증 완료!")
-        print(f"📁 결과: V7_feature_검증결과.csv")
+        print(f"\n✅ 분석 완료!")
+        print(f"📁 결과: 전체컬럼_상관계수_분석결과.csv")
+        print(f"\n💡 이제 이 결과를 보고 V7 feature를 선택하세요!")
