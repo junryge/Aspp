@@ -67,6 +67,9 @@ except:
 print(f"원본 데이터: {len(df)}행")
 print(f"컬럼: {list(df.columns)}")
 
+# STAT_DT를 문자열로 변환 (혹시 숫자로 읽혔을 경우 대비)
+df['STAT_DT'] = df['STAT_DT'].astype(str)
+
 # STAT_DT를 datetime으로 변환 (YYYYMMDDHHMM 형태)
 df['STAT_DT_DATETIME'] = pd.to_datetime(df['STAT_DT'], format='%Y%m%d%H%M')
 
@@ -77,10 +80,10 @@ end_date = datetime(2025, 10, 25, 23, 59)
 # 1분 간격으로 전체 datetime 범위 생성
 full_datetime_range = pd.date_range(start=start_date, end=end_date, freq='min')
 
-# STAT_DT 형식으로 변환 (YYYYMMDDHHMM)
+# STAT_DT 형식으로 변환 (YYYYMMDDHHMM) - 문자열로 생성
 full_df = pd.DataFrame({
     'STAT_DT_DATETIME': full_datetime_range,
-    'STAT_DT': full_datetime_range.strftime('%Y%m%d%H%M')
+    'STAT_DT': full_datetime_range.strftime('%Y%m%d%H%M').astype(str)
 })
 
 # 원본 데이터와 병합 (left join)
