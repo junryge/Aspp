@@ -1,52 +1,35 @@
 """
-V7 신규 컬럼 검증 코드
-- 8개 신규 컬럼의 실제 예측력 검증
-- V6 vs V7 성능 비교
-- 컬럼별 기여도 분석
+V7 신규 8개 컬럼 검증 코드
+- NULL 값 자동 제거
+- 기본 통계 분석
+- 상관관계 분석
+- 급증 예측력 테스트
 """
 
-import numpy as np
 import pandas as pd
-import pickle
-from datetime import datetime, timedelta
-import warnings
+import numpy as np
+import sys
 
-warnings.filterwarnings('ignore')
-
-# ===================================
-# V7 신규 컬럼 정의
-# ===================================
+# 신규 8개 컬럼
 NEW_COLS_V7 = [
-    'M16HUB.QUE.M16TOM14B.MESCURRENTQCNT',    # 1순위 (0.59)
-    'M16HUB.QUE.ALL.CURRENTQCNT',             # 2순위 (0.57)
-    'M16HUB.QUE.M16TOM14.MESCURRENTQCNT',     # 3순위 (0.48)
-    'M16HUB.QUE.OHT.CURRENTOHTQCNT',          # 4순위 (0.46)
-    'M16HUB.QUE.M16TOM14A.MESCURRENTQCNT',    # 5순위 (0.42)
-    'M14.QUE.CNV.M14ATOM16ACURRNETQCNT',      # 6순위 (0.36)
-    'M16HUB.QUE.OHT.OHTUTIL',                 # 7순위 (0.34)
-    'M16HUB.QUE.M14TOM16.MESCURRENTQCNT',     # 8순위 (0.32)
+    'M16HUB.QUE.M16TOM14B.MESCURRENTQCNT',
+    'M16HUB.QUE.ALL.CURRENTQCNT',
+    'M16HUB.QUE.M16TOM14.MESCURRENTQCNT',
+    'M16HUB.QUE.OHT.CURRENTOHTQCNT',
+    'M16HUB.QUE.M16TOM14A.MESCURRENTQCNT',
+    'M14.QUE.CNV.M14ATOM16ACURRNETQCNT',
+    'M16HUB.QUE.OHT.OHTUTIL',
+    'M16HUB.QUE.M14TOM16.MESCURRENTQCNT',
 ]
-
-# V6 기존 컬럼
-V6_FEATURE_COLS = {
-    'storage': ['M16A_3F_STORAGE_UTIL'],
-    'fs_storage': ['CD_M163FSTORAGEUSE', 'CD_M163FSTORAGETOTAL', 'CD_M163FSTORAGEUTIL'],
-    'hub': ['HUBROOMTOTAL'],
-    'cmd': ['M16A_3F_CMD', 'M16A_6F_TO_HUB_CMD'],
-    'inflow': ['M16A_6F_TO_HUB_JOB', 'M16A_2F_TO_HUB_JOB2', 'M14A_3F_TO_HUB_JOB2'],
-    'outflow': ['M16A_3F_TO_M16A_6F_JOB', 'M16A_3F_TO_M16A_2F_JOB', 'M16A_3F_TO_M14A_3F_JOB'],
-    'maxcapa': ['M16A_6F_LFT_MAXCAPA', 'M16A_2F_LFT_MAXCAPA']
-}
 
 TARGET_COL = 'CURRENT_M16A_3F_JOB_2'
 
 
-def validate_new_columns(csv_file):
-    """
-    V7 신규 컬럼 검증 메인 함수
-    """
+def validate_v7_columns(csv_file):
+    """V7 신규 컬럼 검증"""
+    
     print("="*80)
-    print("🔍 V7 신규 컬럼 검증 시작")
+    print("🔍 V7 신규 8개 컬럼 검증 (NULL 자동 제거)")
     print("="*80)
     
     # 데이터 로드
@@ -56,72 +39,121 @@ def validate_new_columns(csv_file):
         try:
             df = pd.read_csv(csv_file, on_bad_lines='skip', encoding='cp949', low_memory=False)
         except:
-            df = pd.read_csv(csv_file, on_bad_lines='skip', encoding='euc-kr', low_memory=False)
+            try:
+                df = pd.read_csv(csv_file, on_bad_lines='skip', encoding='euc-kr', low_memory=False)
+            except Exception as e:
+                print(f"❌ 파일 로드 실패: {e}")
+                return None
     
-    print(f"\n✅ 데이터 로드: {len(df)}개 행")
+    print(f"\n✅ 데이터 로드: {len(df)}개 행, {len(df.columns)}개 컬럼")
     
-    # 타겟 컬럼 확인
+    # ========================================
+    # NULL 값 처리
+    # ========================================
+    print(f"\n🔍 NULL 값 체크 및 제거 중...")
+    initial_len = len(df)
+    
+    # 타겟 컬럼 NULL 제거
     if TARGET_COL not in df.columns:
         print(f"❌ 타겟 컬럼 '{TARGET_COL}' 없음!")
         return None
     
     df[TARGET_COL] = pd.to_numeric(df[TARGET_COL], errors='coerce')
+    before = len(df)
     df = df.dropna(subset=[TARGET_COL])
+    if before != len(df):
+        print(f"   타겟 컬럼 NULL 제거: {before} → {len(df)}개 ({before - len(df)}개 제거)")
     
-    print(f"✅ 타겟 컬럼 전처리 완료: {len(df)}개 행")
+    # 신규 컬럼들 NULL 제거
+    for col in NEW_COLS_V7:
+        if col in df.columns:
+            before = len(df)
+            df[col] = pd.to_numeric(df[col], errors='coerce')
+            null_count = df[col].isna().sum()
+            
+            if null_count > 0:
+                print(f"   {col.split('.')[-1]}: NULL {null_count}개 발견")
+                df = df.dropna(subset=[col])
+                print(f"      → {before} → {len(df)}개 ({before - len(df)}개 제거)")
+    
+    print(f"\n✅ NULL 제거 완료: {len(df)}개 행 남음 (원본의 {len(df)/initial_len*100:.1f}%)")
+    
+    if len(df) < 100:
+        print(f"⚠️ 경고: 데이터가 너무 적습니다! ({len(df)}개)")
+        print(f"   신뢰할 수 있는 검증을 위해 최소 1000개 이상 권장")
     
     # ========================================
-    # 1단계: 신규 컬럼 존재 여부 확인
+    # 1단계: 컬럼 존재 여부
     # ========================================
     print("\n" + "="*80)
-    print("📊 1단계: 신규 컬럼 존재 여부 확인")
+    print("📊 1단계: 신규 컬럼 존재 여부")
     print("="*80)
     
-    available_cols = []
-    missing_cols = []
+    available = []
+    missing = []
     
     for i, col in enumerate(NEW_COLS_V7, 1):
         if col in df.columns:
-            available_cols.append(col)
+            available.append(col)
+            valid_count = df[col].notna().sum()
             print(f"✅ {i}. {col}")
+            print(f"      유효 데이터: {valid_count}개")
         else:
-            missing_cols.append(col)
+            missing.append(col)
             print(f"❌ {i}. {col} - 없음!")
     
-    print(f"\n📊 결과: {len(available_cols)}/{len(NEW_COLS_V7)}개 존재")
+    print(f"\n📊 결과: {len(available)}/{len(NEW_COLS_V7)}개 존재")
     
-    if len(available_cols) == 0:
+    if len(available) == 0:
         print("\n❌ 신규 컬럼이 하나도 없습니다!")
-        print("💡 파일에 다음 컬럼들이 있는지 확인하세요:")
+        print("\n💡 데이터 파일에 다음 컬럼이 필요합니다:")
         for col in NEW_COLS_V7:
             print(f"   - {col}")
         return None
     
     # ========================================
-    # 2단계: 신규 컬럼 기본 통계
+    # 2단계: 기본 통계
     # ========================================
     print("\n" + "="*80)
-    print("📊 2단계: 신규 컬럼 기본 통계")
+    print("📊 2단계: 기본 통계 (NULL 제외)")
     print("="*80)
     
     stats_list = []
     
-    for col in available_cols:
+    for col in available:
         data = df[col]
+        mean = data.mean()
+        std = data.std()
+        cv = (std / mean * 100) if mean != 0 else 0
         
-        stats = {
-            '컬럼': col.split('.')[-1],  # 짧게 표시
-            '평균': round(data.mean(), 1),
-            '표준편차': round(data.std(), 1),
+        stats_list.append({
+            '컬럼': col.split('.')[-1],
+            '평균': round(mean, 1),
+            '표준편차': round(std, 1),
             '최소': round(data.min(), 1),
             '최대': round(data.max(), 1),
             '범위': round(data.max() - data.min(), 1),
-            '변동계수(%)': round(data.std() / data.mean() * 100, 1) if data.mean() != 0 else 0,
-        }
-        stats_list.append(stats)
-    
-    stats_df = pd.DataFrame(stats_list)
-    print(stats_df.to_string(index=False))
+            '변동계수(%)': round(cv, 1),
+        })
+        
+        # 변동계수에 따른 마커
+        if cv >= 20:
+            marker = "🟢"
+            comment = "(충분한 변동)"
+        elif cv >= 10:
+            marker = "🟡"
+            comment = "(보통 변동)"
+        elif cv >= 5:
+            marker = "🟠"
+            comment = "(낮은 변동)"
+        else:
+            marker = "🔴"
+            comment = "(거의 고정)"
+        
+        print(f"\n{marker} {col.split('.')[-1]}:")
+        print(f"   평균: {mean:.1f}, 표준편차: {std:.1f}")
+        print(f"   범위: {data.min():.0f} ~ {data.max():.0f}")
+        print(f"   변동계수: {cv:.1f}% {comment}")
     
     # ========================================
     # 3단계: 타겟과의 상관관계
@@ -132,214 +164,204 @@ def validate_new_columns(csv_file):
     
     corr_list = []
     
-    for col in available_cols:
+    for col in available:
         corr = df[TARGET_COL].corr(df[col])
         
-        # 급증 시 vs 정상 시 평균 차이
-        high = df[df[TARGET_COL] >= 300][col].mean()
-        low = df[df[TARGET_COL] < 300][col].mean()
-        diff_pct = abs(high - low) / low * 100 if low != 0 else 0
+        # 300+ vs 300- 비교
+        high_df = df[df[TARGET_COL] >= 300]
+        low_df = df[df[TARGET_COL] < 300]
+        
+        if len(high_df) > 0 and len(low_df) > 0:
+            high = high_df[col].mean()
+            low = low_df[col].mean()
+            diff_pct = abs(high - low) / low * 100 if low != 0 else 0
+        else:
+            high = 0
+            low = 0
+            diff_pct = 0
         
         corr_list.append({
             '컬럼': col.split('.')[-1],
             '상관계수': round(corr, 4),
-            '300+ 평균': round(high, 1),
-            '300- 평균': round(low, 1),
+            '300+평균': round(high, 1),
+            '300-평균': round(low, 1),
             '차이(%)': round(diff_pct, 1),
         })
-    
-    corr_df = pd.DataFrame(corr_list).sort_values('상관계수', ascending=False, key=abs)
-    print(corr_df.to_string(index=False))
+        
+        print(f"\n{col.split('.')[-1]}:")
+        print(f"   상관계수: {corr:+.4f}")
+        print(f"   300+ 평균: {high:.1f}")
+        print(f"   300- 평균: {low:.1f}")
+        print(f"   차이: {diff_pct:.1f}%", end="")
+        
+        if diff_pct >= 15:
+            print(" 🔥 (매우 유용!)")
+        elif diff_pct >= 10:
+            print(" ⚡ (유용)")
+        elif diff_pct >= 5:
+            print(" 📊 (보통)")
+        else:
+            print(" ⚠️ (제한적)")
     
     # ========================================
-    # 4단계: 급증 예측력 개별 테스트
+    # 4단계: 급증 예측력 테스트
     # ========================================
     print("\n" + "="*80)
-    print("📊 4단계: 급증 예측력 개별 테스트 (단일 Feature)")
+    print("📊 4단계: 급증 예측력 테스트 (임계값 기반)")
     print("="*80)
-    
-    surge_results = []
     
     # 급증 케이스 찾기
     surge_indices = []
     for i in range(30, len(df) - 10):
         seq_max = df[TARGET_COL].iloc[i-30:i].max()
         actual = df[TARGET_COL].iloc[i:i+10].max()
-        
         if seq_max < 300 and actual >= 300:
             surge_indices.append(i)
     
     print(f"✅ 급증 케이스: {len(surge_indices)}개 발견")
     
-    if len(surge_indices) > 0:
-        for col in available_cols:
-            # 각 컬럼의 마지막 값으로 간단한 임계값 테스트
+    if len(surge_indices) == 0:
+        print("⚠️ 급증 케이스가 없어서 예측력 테스트 불가")
+        print("   (시퀀스MAX<300 → 실제값≥300 케이스)")
+    else:
+        print("\n임계값 기반 감지율:")
+        
+        surge_results = []
+        
+        for col in available:
             correct = 0
             
             for idx in surge_indices:
-                last_value = df[col].iloc[idx-1]
+                last_val = df[col].iloc[idx-1]
+                detected = False
                 
-                # 컬럼별 임계값 (임시)
-                if 'M16TOM14B' in col:
-                    threshold = 120
-                    detected = (last_value < threshold)
-                elif 'ALL.CURRENT' in col:
-                    threshold = 850
-                    detected = (last_value > threshold)
-                elif 'M16TOM14.MES' in col:
-                    threshold = 300
-                    detected = (last_value < threshold)
-                elif 'OHT.CURRENT' in col:
-                    threshold = 230
-                    detected = (last_value > threshold)
-                elif 'M16TOM14A' in col:
-                    threshold = 160
-                    detected = (last_value < threshold)
-                elif 'M14ATOM16A' in col:
-                    threshold = 220
-                    detected = (last_value > threshold)
-                elif 'OHTUTIL' in col:
-                    threshold = 85
-                    detected = (last_value > threshold)
-                elif 'M14TOM16' in col:
-                    threshold = 200
-                    detected = (last_value < threshold)
-                else:
-                    detected = False
+                # 컬럼별 임계값
+                if 'M16TOM14B' in col and last_val < 120:
+                    detected = True
+                elif 'ALL.CURRENT' in col and last_val > 850:
+                    detected = True
+                elif 'M16TOM14.MES' in col and last_val < 300:
+                    detected = True
+                elif 'OHT.CURRENT' in col and last_val > 230:
+                    detected = True
+                elif 'M16TOM14A' in col and last_val < 160:
+                    detected = True
+                elif 'M14ATOM16A' in col and last_val > 220:
+                    detected = True
+                elif 'OHTUTIL' in col and last_val > 85:
+                    detected = True
+                elif 'M14TOM16' in col and last_val < 200:
+                    detected = True
                 
                 if detected:
                     correct += 1
             
-            detection_rate = correct / len(surge_indices) * 100
+            rate = correct / len(surge_indices) * 100
             
             surge_results.append({
                 '컬럼': col.split('.')[-1],
                 '감지': correct,
                 '전체': len(surge_indices),
-                '감지율(%)': round(detection_rate, 1),
+                '감지율(%)': round(rate, 1),
             })
-        
-        surge_df = pd.DataFrame(surge_results).sort_values('감지율(%)', ascending=False)
-        print(surge_df.to_string(index=False))
+            
+            # 마커
+            if rate >= 80:
+                marker = "🔥"
+            elif rate >= 60:
+                marker = "⚡"
+            elif rate >= 40:
+                marker = "📊"
+            else:
+                marker = "  "
+            
+            print(f"   {marker} {col.split('.')[-1]}: {correct}/{len(surge_indices)} = {rate:.1f}%")
     
     # ========================================
-    # 5단계: V6 vs V7 비교 (모델 필요 없는 간단 비교)
+    # CSV 저장
     # ========================================
     print("\n" + "="*80)
-    print("📊 5단계: 복합 신호 테스트")
+    print("📁 결과 저장")
     print("="*80)
     
-    if len(surge_indices) > 0:
-        # V6 방식 (기존 지표만)
-        v6_correct = 0
-        # V7 방식 (신규 지표 포함)
-        v7_correct = 0
+    try:
+        stats_df = pd.DataFrame(stats_list)
+        corr_df = pd.DataFrame(corr_list).sort_values('상관계수', ascending=False, key=abs)
         
-        for idx in surge_indices:
-            # V6 신호
-            v6_signals = 0
-            if 'HUBROOMTOTAL' in df.columns:
-                if df['HUBROOMTOTAL'].iloc[idx-1] < 610:
-                    v6_signals += 1
-            if 'CD_M163FSTORAGEUTIL' in df.columns:
-                if df['CD_M163FSTORAGEUTIL'].iloc[idx-1] >= 7:
-                    v6_signals += 1
-            if 'M16A_3F_CMD' in df.columns:
-                if df['M16A_3F_CMD'].iloc[idx-1] < 220:
-                    v6_signals += 1
-            
-            if v6_signals >= 2:
-                v6_correct += 1
-            
-            # V7 신호 (V6 + 신규)
-            v7_signals = v6_signals
-            
-            if 'M16HUB.QUE.M16TOM14B.MESCURRENTQCNT' in df.columns:
-                if df['M16HUB.QUE.M16TOM14B.MESCURRENTQCNT'].iloc[idx-1] < 120:
-                    v7_signals += 2  # 가중치
-            if 'M16HUB.QUE.ALL.CURRENTQCNT' in df.columns:
-                if df['M16HUB.QUE.ALL.CURRENTQCNT'].iloc[idx-1] > 850:
-                    v7_signals += 2  # 가중치
-            if 'M16HUB.QUE.OHT.OHTUTIL' in df.columns:
-                if df['M16HUB.QUE.OHT.OHTUTIL'].iloc[idx-1] > 85:
-                    v7_signals += 1
-            
-            if v7_signals >= 3:
-                v7_correct += 1
+        stats_df.to_csv('V7_검증_기본통계.csv', index=False, encoding='utf-8-sig')
+        print("✅ V7_검증_기본통계.csv")
         
-        print(f"\n📊 복합 신호 기반 급증 감지:")
-        print(f"   V6 방식 (기존 지표): {v6_correct}/{len(surge_indices)} = {v6_correct/len(surge_indices)*100:.1f}%")
-        print(f"   V7 방식 (신규 추가): {v7_correct}/{len(surge_indices)} = {v7_correct/len(surge_indices)*100:.1f}%")
-        print(f"   개선: {(v7_correct-v6_correct)/len(surge_indices)*100:+.1f}%p")
+        corr_df.to_csv('V7_검증_상관관계.csv', index=False, encoding='utf-8-sig')
+        print("✅ V7_검증_상관관계.csv")
+        
+        if len(surge_indices) > 0:
+            surge_df = pd.DataFrame(surge_results).sort_values('감지율(%)', ascending=False)
+            surge_df.to_csv('V7_검증_급증예측력.csv', index=False, encoding='utf-8-sig')
+            print("✅ V7_검증_급증예측력.csv")
+    except Exception as e:
+        print(f"⚠️ CSV 저장 실패: {e}")
+        print("   (결과는 화면으로 확인 가능)")
     
     # ========================================
-    # 6단계: 결과 저장
+    # 최종 판정
     # ========================================
     print("\n" + "="*80)
-    print("📊 6단계: 결과 저장")
+    print("🎯 최종 판정")
     print("="*80)
     
-    # 통계 저장
-    stats_df.to_csv('V7_신규컬럼_기본통계.csv', index=False, encoding='utf-8-sig')
-    print("✅ V7_신규컬럼_기본통계.csv")
+    print(f"\n데이터 품질:")
+    print(f"   원본: {initial_len}개 행")
+    print(f"   NULL 제거 후: {len(df)}개 행")
+    print(f"   사용 가능율: {len(df)/initial_len*100:.1f}%")
     
-    # 상관관계 저장
-    corr_df.to_csv('V7_신규컬럼_상관관계.csv', index=False, encoding='utf-8-sig')
-    print("✅ V7_신규컬럼_상관관계.csv")
+    if len(df) < initial_len * 0.5:
+        print(f"   ⚠️ 경고: 50% 이상 데이터 손실!")
+        print(f"   ⚠️ NULL이 너무 많습니다. 데이터 품질 점검 필요!")
     
-    # 급증 예측력 저장
-    if len(surge_indices) > 0:
-        surge_df.to_csv('V7_신규컬럼_급증예측력.csv', index=False, encoding='utf-8-sig')
-        print("✅ V7_신규컬럼_급증예측력.csv")
+    print(f"\n컬럼 상태:")
+    print(f"   존재: {len(available)}/{len(NEW_COLS_V7)}개")
     
-    # ========================================
-    # 최종 요약
-    # ========================================
-    print("\n" + "="*80)
-    print("🎯 최종 요약")
-    print("="*80)
+    if len(missing) > 0:
+        print(f"   부족: {len(missing)}개")
+        for col in missing:
+            print(f"      ❌ {col}")
     
-    print(f"\n1️⃣ 컬럼 존재 여부:")
-    print(f"   존재: {len(available_cols)}/{len(NEW_COLS_V7)}개")
-    if len(missing_cols) > 0:
-        print(f"   부족: {missing_cols}")
+    print(f"\n최종 결론:")
     
-    print(f"\n2️⃣ 상관관계 우수:")
-    top_3 = corr_df.head(3)
-    for _, row in top_3.iterrows():
-        print(f"   • {row['컬럼']}: {row['상관계수']:+.4f}")
-    
-    print(f"\n3️⃣ 급증 예측력 우수:")
-    if len(surge_indices) > 0:
-        top_3_surge = surge_df.head(3)
-        for _, row in top_3_surge.iterrows():
-            print(f"   • {row['컬럼']}: {row['감지율(%)']}%")
-    
-    print(f"\n4️⃣ 권장사항:")
-    if len(available_cols) == len(NEW_COLS_V7):
-        print(f"   ✅ 모든 컬럼 사용 가능!")
+    if len(available) == len(NEW_COLS_V7):
+        print(f"   ✅ 8개 컬럼 모두 사용 가능!")
         print(f"   ✅ V7 모델 학습 진행 가능!")
-    elif len(available_cols) >= 6:
-        print(f"   ⚠️ {len(available_cols)}개 컬럼만 사용 가능")
-        print(f"   ⚠️ V7 모델 학습은 가능하나 성능 제한적")
+        
+        # 추가 권장사항
+        high_corr = sum(1 for item in corr_list if abs(item['상관계수']) >= 0.4)
+        print(f"\n   📊 고상관(≥0.4) 컬럼: {high_corr}개")
+        
+        if len(surge_indices) > 0:
+            high_detect = sum(1 for item in surge_results if item['감지율(%)'] >= 60)
+            print(f"   🎯 고감지(≥60%) 컬럼: {high_detect}개")
+        
+        return True
+        
+    elif len(available) >= 6:
+        print(f"   ⚠️ {len(available)}개 컬럼만 사용 가능")
+        print(f"   ⚠️ V7 학습 가능하나 성능이 제한적일 수 있음")
+        return True
+        
+    elif len(available) >= 4:
+        print(f"   ⚠️ {len(available)}개 컬럼만 사용 가능")
+        print(f"   ⚠️ V7 학습 가능하나 성능이 매우 제한적")
+        print(f"   💡 V6 모델 사용 권장")
+        return False
+        
     else:
-        print(f"   ❌ 신규 컬럼 부족 ({len(available_cols)}개)")
+        print(f"   ❌ 신규 컬럼 부족 ({len(available)}개)")
         print(f"   ❌ V6 모델 사용 권장")
-    
-    return {
-        'available_cols': available_cols,
-        'missing_cols': missing_cols,
-        'stats_df': stats_df,
-        'corr_df': corr_df,
-        'surge_df': surge_df if len(surge_indices) > 0 else None,
-    }
+        return False
 
 
 if __name__ == '__main__':
-    import sys
-    
     print("\n" + "="*80)
-    print("🚀 V7 신규 컬럼 검증 도구")
+    print("🚀 V7 신규 컬럼 검증 도구 (NULL 자동 처리)")
     print("="*80)
     
     # 파일명 입력
@@ -357,18 +379,23 @@ if __name__ == '__main__':
         print("   또는")
         print("   python V7_컬럼검증.py")
         print("   (파일명 입력)")
+        sys.exit(1)
+    
+    # 검증 실행
+    result = validate_v7_columns(csv_file)
+    
+    if result is None:
+        print("\n" + "="*80)
+        print("❌ 검증 실패!")
+        print("="*80)
+        sys.exit(1)
+    elif result:
+        print("\n" + "="*80)
+        print("✅ 검증 완료! V7 진행 가능!")
+        print("="*80)
+        sys.exit(0)
     else:
-        result = validate_new_columns(csv_file)
-        
-        if result:
-            print("\n" + "="*80)
-            print("✅ 검증 완료!")
-            print("="*80)
-            print(f"\n📁 결과 파일:")
-            print(f"   • V7_신규컬럼_기본통계.csv")
-            print(f"   • V7_신규컬럼_상관관계.csv")
-            print(f"   • V7_신규컬럼_급증예측력.csv")
-        else:
-            print("\n" + "="*80)
-            print("❌ 검증 실패!")
-            print("="*80)
+        print("\n" + "="*80)
+        print("⚠️ 검증 완료! V6 사용 권장!")
+        print("="*80)
+        sys.exit(0)
