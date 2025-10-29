@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """
 280분 시퀀스 → 10분 후 예측 평가 (1년치 데이터)
-조기 경보 Feature 포함 (85개)
+조기 경보 + 1550→1700 패턴 Feature 포함 (96개)
 """
 
 import numpy as np
@@ -11,8 +11,8 @@ from datetime import datetime, timedelta
 import os
 import gc
 
-def create_single_prediction_features(seq_m14b, seq_m10a, seq_m16, seq_totalcnt):
-    """하나의 280분 시퀀스로부터 Feature 생성 (조기 경보 포함)"""
+def create_single_prediction_features(seq_m14b, seq_m10a, seq_m16, seq_totalcnt, df=None, idx=None):
+    """하나의 280분 시퀀스로부터 Feature 생성 (96개: 조기 경보 + 1550→1700 패턴)"""
     features = {}
     
     # ========== M14AM14B 기본 8개 ==========
@@ -142,6 +142,72 @@ def create_single_prediction_features(seq_m14b, seq_m10a, seq_m16, seq_totalcnt)
     early_warning = (np.max(last_10min) >= 1650) and ((last_10min[-1] - last_10min[0]) > 20)
     features['early_warning_1650_rising'] = 1 if early_warning else 0
     
+    # ========== 🎯 1550→1700 패턴 Feature (11개) ==========
+    # 마지막 5분에서 TOTALCNT 체크
+    last_5min_totalcnt = seq_totalcnt[-5:]
+    current_totalcnt_max = np.max(last_5min_totalcnt)  # 마지막 5분 최대값
+    current_totalcnt_mean = np.mean(last_5min_totalcnt)  # 마지막 5분 평균
+    
+    # 상승 추세 체크 (마지막 5분 평균 vs 이전 5분 평균)
+    prev_5min_totalcnt = seq_totalcnt[-10:-5]
+    prev_5min_mean = np.mean(prev_5min_totalcnt)
+    is_rising = current_totalcnt_mean > prev_5min_mean
+    rise_amount = current_totalcnt_mean - prev_5min_mean
+    
+    features['current_totalcnt'] = current_totalcnt_max  # 마지막 5분 최대값
+    features['totalcnt_rise_5min'] = rise_amount  # 5분 상승폭
+    
+    # 🔥 1550+ 조건: TOTALCNT 1550+ AND 상승 추세 AND M14AM16 조건
+    is_1550_plus_with_conditions = (
+        (current_totalcnt_max >= 1550) and 
+        is_rising and 
+        (seq_m16[-1] >= 217)  # M14AM16이 217 이상
+    )
+    features['is_1550_plus'] = 1 if is_1550_plus_with_conditions else 0
+    
+    # 🔥 1600+ 조건: TOTALCNT 1600+ AND 상승 추세 AND 강한 M14AM16 조건
+    is_1600_plus_with_conditions = (
+        (current_totalcnt_max >= 1600) and 
+        is_rising and 
+        (seq_m16[-1] >= 272)  # M14AM16이 272 이상 (75% 분위수)
+    )
+    features['is_1600_plus'] = 1 if is_1600_plus_with_conditions else 0
+    
+    # M14AM16 핵심 변수 (46.2% 차이)
+    features['m16_last'] = seq_m16[-1]
+    features['m16_last_vs_mean'] = seq_m16[-1] / (np.mean(seq_m16) + 1)
+    
+    # M14AM16SUM 계산 (28.7% 차이)
+    if df is not None and 'M14AM16SUM' in df.columns and idx is not None:
+        m16sum_current = df['M14AM16SUM'].iloc[idx-1]
+    else:
+        # M14AM16SUM이 없으면 계산
+        m16sum_current = np.sum(seq_m16[-10:])  # 최근 10분 합
+    features['m16sum_current'] = m16sum_current
+    
+    # 1700+ 예측 규칙 (LEVEL 2 기준)
+    rule_level2 = (seq_m16[-1] >= 272) and (m16sum_current >= 494) and (seq_m14b[-1] <= 194)
+    features['pattern_1700_level2'] = 1 if rule_level2 else 0
+    
+    # 1700+ 예측 규칙 (LEVEL 3 긴급)
+    rule_level3 = (seq_m16[-1] >= 641) and (m16sum_current >= 853)
+    features['pattern_1700_level3'] = 1 if rule_level3 else 0
+    
+    # M14BM14A 비율 (15.3% 차이)
+    if df is not None and 'M14BM14A' in df.columns and idx is not None:
+        m14bm14a_current = df['M14BM14A'].iloc[idx-1]
+    else:
+        m14bm14a_current = 0
+    features['m14bm14a_current'] = m14bm14a_current
+    
+    # 복합 패턴: 1550+ 구간에서 위험 신호 (마지막 5분 기준)
+    high_base_danger = (
+        (current_totalcnt_max >= 1550) and 
+        (seq_m16[-1] >= 217) and 
+        (m16sum_current >= 430)
+    )
+    features['pattern_1550_danger'] = 1 if high_base_danger else 0
+    
     return features
 
 def evaluate_all_predictions():
@@ -150,7 +216,7 @@ def evaluate_all_predictions():
     print("="*80)
     print("🚀 280분 시퀀스 → 10분 후 예측 평가 (1년치 데이터)")
     print("="*80)
-    print("Feature: 85개 (조기 경보 포함)")
+    print("Feature: 96개 (조기 경보 5 + 1550→1700 패턴 11)")
     print("="*80)
     
     # 모델 로드 (여러 파일명 시도)
@@ -179,7 +245,7 @@ def evaluate_all_predictions():
         print(f"시도한 파일:")
         for mf in model_files:
             print(f"  - {mf}")
-        print("\n먼저 xgb_280_to_10min_1YEAR_OPTIMIZED.py를 실행하여 모델을 학습하세요.")
+        print("\n먼저 FINAL_xgb_280_COMPLETE.py를 실행하여 모델을 학습하세요.")
         return None
     
     # 데이터 로드 (여러 경로 시도)
@@ -264,8 +330,8 @@ def evaluate_all_predictions():
         # ✅ 실제값 (10분 후)
         actual_value = df['TOTALCNT'].iloc[i+9]  # i는 1분 후, i+9는 10분 후
         
-        # Feature 생성
-        features = create_single_prediction_features(seq_m14b, seq_m10a, seq_m16, seq_totalcnt)
+        # Feature 생성 (96개: 조기 경보 + 1550→1700 패턴)
+        features = create_single_prediction_features(seq_m14b, seq_m10a, seq_m16, seq_totalcnt, df, i)
         X_pred = pd.DataFrame([features])
         
         # 예측
@@ -280,6 +346,11 @@ def evaluate_all_predictions():
         # 🔥 조기 경보 감지
         last_10min = seq_totalcnt[-10:]
         early_warning_detected = (np.max(last_10min) >= 1650) and ((last_10min[-1] - last_10min[0]) > 20)
+        
+        # 🎯 1550→1700 패턴 감지
+        pattern_1550_detected = features['is_1550_plus'] == 1
+        pattern_1700_level2 = features['pattern_1700_level2'] == 1
+        pattern_1700_level3 = features['pattern_1700_level3'] == 1
         
         # 🔥🔥 조기경보 발생 시 예측값 * 1.02 (2% 증가)
         if early_warning_detected:
@@ -305,10 +376,15 @@ def evaluate_all_predictions():
             '시퀀스TOTALCNT_평균': round(np.mean(seq_totalcnt), 2),
             '마지막10분_MAX': round(np.max(last_10min), 2),
             '마지막10분_상승폭': round(last_10min[-1] - last_10min[0], 2),
+            '마지막5분_MAX': round(features['current_totalcnt'], 2),
+            '5분상승폭': round(features['totalcnt_rise_5min'], 2),
             '황금패턴': 'O' if golden_pattern else '',
             '시퀀스위험': 'O' if danger_in_seq else '',
             '조기경보': 'O' if early_warning_detected else '',
             '조기경보2%적용': 'O' if early_warning_detected else '',
+            '1550+패턴': 'O' if pattern_1550_detected else '',
+            '1700_LEVEL2': 'O' if pattern_1700_level2 else '',
+            '1700_LEVEL3': 'O' if pattern_1700_level3 else '',
             '실제위험(1700+)': 'O' if actual_value >= 1700 else '',
             '예측위험(1650+)': 'O' if prediction >= 1650 else ''
         })
@@ -328,7 +404,7 @@ def evaluate_all_predictions():
     results_df = pd.DataFrame(results)
     
     # CSV 저장
-    output_file = 'evaluation_280to10_1year.csv'
+    output_file = 'evaluation_280to10_1year_with_1550pattern.csv'
     results_df.to_csv(output_file, index=False, encoding='utf-8-sig')
     print(f"✅ 결과 저장 완료: {output_file}")
     
@@ -349,19 +425,37 @@ def evaluate_all_predictions():
     print(f"\n황금 패턴 발생: {results_df['황금패턴'].value_counts().get('O', 0):,}개")
     print(f"시퀀스 위험 구간: {results_df['시퀀스위험'].value_counts().get('O', 0):,}개")
     print(f"🔥 조기 경보 발생: {results_df['조기경보'].value_counts().get('O', 0):,}개")
+    print(f"🎯 1550+ 패턴 발생: {results_df['1550+패턴'].value_counts().get('O', 0):,}개")
+    print(f"🎯 1700 LEVEL2 발생: {results_df['1700_LEVEL2'].value_counts().get('O', 0):,}개")
+    print(f"🎯 1700 LEVEL3 발생: {results_df['1700_LEVEL3'].value_counts().get('O', 0):,}개")
     
     # 위험 구간 분석
     actual_danger = results_df['실제위험(1700+)'] == 'O'
     pred_danger = results_df['예측위험(1650+)'] == 'O'
     early_warning = results_df['조기경보'] == 'O'
+    pattern_1550 = results_df['1550+패턴'] == 'O'
+    pattern_level2 = results_df['1700_LEVEL2'] == 'O'
+    pattern_level3 = results_df['1700_LEVEL3'] == 'O'
     
     actual_danger_count = actual_danger.sum()
     pred_danger_count = pred_danger.sum()
     danger_detected = (actual_danger & pred_danger).sum()
     early_warning_count = early_warning.sum()
+    pattern_1550_count = pattern_1550.sum()
+    pattern_level2_count = pattern_level2.sum()
+    pattern_level3_count = pattern_level3.sum()
     
     # 조기 경보의 1700+ 예측력
     early_to_danger = (early_warning & actual_danger).sum()
+    
+    # 1550+ 패턴의 1700+ 예측력
+    pattern_1550_to_danger = (pattern_1550 & actual_danger).sum()
+    
+    # LEVEL2의 1700+ 예측력
+    level2_to_danger = (pattern_level2 & actual_danger).sum()
+    
+    # LEVEL3의 1700+ 예측력
+    level3_to_danger = (pattern_level3 & actual_danger).sum()
     
     print(f"\n실제 위험(1700+): {actual_danger_count:,}개")
     print(f"예측 위험(1650+): {pred_danger_count:,}개")
@@ -371,6 +465,15 @@ def evaluate_all_predictions():
     
     if early_warning_count > 0:
         print(f"\n🔥 조기 경보 → 실제 1700+ 발생: {early_to_danger:,}개 ({early_to_danger/early_warning_count*100:.1f}%)")
+    
+    if pattern_1550_count > 0:
+        print(f"🎯 1550+ 패턴 → 실제 1700+ 발생: {pattern_1550_to_danger:,}개 ({pattern_1550_to_danger/pattern_1550_count*100:.1f}%)")
+    
+    if pattern_level2_count > 0:
+        print(f"🎯 LEVEL2 패턴 → 실제 1700+ 발생: {level2_to_danger:,}개 ({level2_to_danger/pattern_level2_count*100:.1f}%)")
+    
+    if pattern_level3_count > 0:
+        print(f"🎯 LEVEL3 패턴 → 실제 1700+ 발생: {level3_to_danger:,}개 ({level3_to_danger/pattern_level3_count*100:.1f}%)")
     
     # M14AM14B 450+ 구간 분석
     high_m14b_mask = results_df['M14AM14B'] >= 450
@@ -387,7 +490,7 @@ def evaluate_all_predictions():
     print("오차 상위 10개 구간")
     print("="*80)
     top_errors = results_df.nlargest(10, '절대오차')
-    print(top_errors[['현재시간', '현재TOTALCNT', '실제값', '예측값', '절대오차', 'M14AM14B', '조기경보']].to_string(index=False))
+    print(top_errors[['현재시간', '현재TOTALCNT', '실제값', '예측값', '절대오차', 'M14AM14B', '1550+패턴', '조기경보']].to_string(index=False))
     
     # ✅ 10칸 내려서 비교 검증 (샘플 10개)
     print("\n" + "="*80)
@@ -408,6 +511,15 @@ def evaluate_all_predictions():
             print(f"Line {idx+11:4d} (실제): {line11_time} → 현재값: {line11_current:7.2f}")
             print(f"           차이: {diff:.2f}")
             print("-"*40)
+    
+    # 1550+ 패턴 발생 구간 분석
+    if pattern_1550_count > 0:
+        print("\n" + "="*80)
+        print("🎯 1550+ 패턴 발생 구간 (샘플 20개)")
+        print("="*80)
+        pattern_cases = results_df[results_df['1550+패턴'] == 'O']
+        print(f"총 {len(pattern_cases):,}개")
+        print(pattern_cases[['현재시간', '마지막5분_MAX', '5분상승폭', 'M14AM16', '실제값', '예측값', '실제위험(1700+)']].head(20).to_string(index=False))
     
     # 조기 경보 발생 구간 분석
     if early_warning_count > 0:
@@ -437,7 +549,18 @@ def evaluate_all_predictions():
         print(f"   - 발생 횟수: {early_warning_count:,}개")
         print(f"   - 정확도: {early_to_danger/early_warning_count*100:.1f}% (1700+ 예측)")
     
-    print(f"\n4. 저장 파일:")
+    if pattern_1550_count > 0:
+        print(f"\n4. 1550→1700 패턴:")
+        print(f"   - 발생 횟수: {pattern_1550_count:,}개")
+        print(f"   - 정확도: {pattern_1550_to_danger/pattern_1550_count*100:.1f}% (1700+ 예측)")
+        
+        if pattern_level2_count > 0:
+            print(f"   - LEVEL2: {pattern_level2_count:,}개 ({level2_to_danger/pattern_level2_count*100:.1f}% 정확도)")
+        
+        if pattern_level3_count > 0:
+            print(f"   - LEVEL3: {pattern_level3_count:,}개 ({level3_to_danger/pattern_level3_count*100:.1f}% 정확도)")
+    
+    print(f"\n5. 저장 파일:")
     print(f"   - {output_file}")
     print("="*80)
     
@@ -449,4 +572,4 @@ if __name__ == '__main__':
     
     if results is not None:
         print(f"\n✅ 평가 완료! 총 {len(results):,}개 예측 생성")
-        print(f"✅ 결과 파일: evaluation_280to10_1year.csv")
+        print(f"✅ 결과 파일: evaluation_280to10_1year_with_1550pattern.csv")
