@@ -48,9 +48,32 @@ def verify_v7_features():
         print(f"\n❌ 타겟 컬럼 없음: {TARGET_COL}")
         return
     
+    # 🆕 NULL 값 처리 - 바로 위 값으로 채우기 (forward fill)
+    print(f"\n🔧 NULL 값 처리 중...")
+    null_before = df.isnull().sum().sum()
+    print(f"  처리 전 NULL: {null_before}개")
+    
+    # 모든 컬럼에 대해 forward fill 적용
+    df = df.ffill()
+    
+    # 만약 첫 행에 NULL이 있으면 backward fill로 보완
+    df = df.bfill()
+    
+    null_after = df.isnull().sum().sum()
+    print(f"  처리 후 NULL: {null_after}개")
+    print(f"  ✅ {null_before - null_after}개 NULL 값 처리 완료!")
+    
+    # 타겟 컬럼 숫자 변환
     df[TARGET_COL] = pd.to_numeric(df[TARGET_COL], errors='coerce')
+    
+    # 여전히 NULL이 남아있다면 제거
+    before_drop = len(df)
     df = df.dropna(subset=[TARGET_COL])
-    print(f"✅ 타겟 컬럼 전처리 완료: {len(df)}개 행")
+    dropped = before_drop - len(df)
+    if dropped > 0:
+        print(f"  타겟 컬럼 NULL 제거: {dropped}개 행")
+    
+    print(f"✅ 최종 데이터: {len(df)}개 행")
     
     # 검증 시작
     print("\n[2] 컬럼 존재 여부 & 상관계수 검증")
@@ -74,11 +97,15 @@ def verify_v7_features():
         if col in df.columns:
             result['존재여부'] = '✅'
             
-            # 숫자 변환
+            # 숫자 변환 및 NULL 처리
             col_data = pd.to_numeric(df[col], errors='coerce')
             
-            # 결측률 계산
-            missing_rate = col_data.isna().sum() / len(col_data) * 100
+            # 🆕 NULL을 위 값으로 채우기
+            col_data = col_data.ffill().bfill()
+            
+            # 결측률 계산 (원본 기준)
+            original_missing = pd.to_numeric(df[col], errors='coerce').isna().sum()
+            missing_rate = original_missing / len(df) * 100
             result['결측률(%)'] = round(missing_rate, 2)
             
             # 상관계수 계산
