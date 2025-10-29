@@ -232,6 +232,9 @@ elif len(df) < 500:
 else:
     print("🎉 V6 학습코드 사용 가능!")
     
+    if len(found_v7) == 8:
+        print("🚀 V7 업그레이드도 가능! (고상관 Feature 8개 모두 존재)")
+    
     if quality_issues:
         print("\n⚠️ 주의사항:")
         for issue in quality_issues:
@@ -240,35 +243,92 @@ else:
     print("\n" + "="*80)
     print("🚀 다음 단계")
     print("="*80)
-    print("\n1. V6_학습코드.PY 파일 열기")
-    print("\n2. 파일명 변경:")
+    
+    if len(found_v7) == 8:
+        print("\n⭐ 권장: V7 학습 (고상관 Feature 포함)")
+        print("\n1. V7_학습코드.PY 파일 생성 (V6 기반 + 8개 Feature 추가)")
+        print(f"   df_train = pd.read_csv('{FILE_PATH}', ...)")
+        print("\n2. 또는 기존 V6로 먼저 테스트:")
+    else:
+        print("\n1. V6_학습코드.PY 파일 열기")
+    
     print(f"   df_train = pd.read_csv('{FILE_PATH}', ...)")
     print("\n3. 실행:")
     print("   python V6_학습코드.py")
     print("\n4. 학습 완료 후 평가:")
     print("   python V6_평가.py")
 
-# 9. 추가 발견 컬럼
+# 9. V7 고상관 Feature 8개 체크
 print("\n" + "="*80)
-print("🆕 V7 업그레이드용 추가 컬럼 발견")
+print("🔥 V7 고상관 Feature 8개 확인 (상관계수 0.32~0.59)")
 print("="*80)
 
-v7_candidates = [
-    'M16HUB.QUE.OHT.CURRENTOHTQCNT',
-    'M16HUB.QUE.OHT.OHTUTIL',
-    'M16HUB.QUE.ALL.CURRENTQCNT',
-]
+v7_features = {
+    'M16HUB.QUE.M16TOM14B.MESCURRENTQCNT': {'corr': 0.59, 'desc': 'M16→M14B 유출 큐'},
+    'M16HUB.QUE.ALL.CURRENTQCNT': {'corr': 0.57, 'desc': 'M16HUB 전체 큐'},
+    'M16HUB.QUE.M16TOM14.MESCURRENTQCNT': {'corr': 0.48, 'desc': 'M16→M14 전체 유출'},
+    'M16HUB.QUE.OHT.CURRENTOHTQCNT': {'corr': 0.46, 'desc': 'OHT 큐 수'},
+    'M16HUB.QUE.M16TOM14A.MESCURRENTQCNT': {'corr': 0.42, 'desc': 'M16→M14A 유출'},
+    'M14.QUE.CNV.M14ATOM16ACURRNETQCNT': {'corr': 0.36, 'desc': 'M14A→M16A 유입'},
+    'M16HUB.QUE.OHT.OHTUTIL': {'corr': 0.34, 'desc': 'OHT 사용률(%)'},
+    'M16HUB.QUE.M14TOM16.MESCURRENTQCNT': {'corr': -0.32, 'desc': 'M14→M16 유입'},
+}
 
-found_new = []
-for col in v7_candidates:
+found_v7 = []
+missing_v7 = []
+
+print(f"\n{'순위':<4} {'컬럼명':<45} {'상관계수':<8} {'상태'}")
+print("-" * 80)
+
+for idx, (col, info) in enumerate(v7_features.items(), 1):
     if col in df.columns:
-        found_new.append(col)
-        print(f"✅ {col}")
+        found_v7.append(col)
+        print(f"{idx:<4} {col:<45} {info['corr']:>+5.2f}   ✅")
+    else:
+        missing_v7.append(col)
+        print(f"{idx:<4} {col:<45} {info['corr']:>+5.2f}   ❌ 없음")
 
-if found_new:
-    print(f"\n💡 V7 모델에 추가 고려 가능: {len(found_new)}개")
+print("-" * 80)
+print(f"발견: {len(found_v7)}/8개")
+
+if len(found_v7) == 8:
+    print("\n🎉 모든 V7 Feature 존재! V7 업그레이드 가능!")
+    
+    # V7 Feature 통계
+    print("\n📊 V7 Feature 기본 통계:")
+    for col in found_v7:
+        if col in df.columns:
+            df[col] = pd.to_numeric(df[col], errors='coerce')
+            print(f"\n{v7_features[col]['desc']} ({col}):")
+            print(f"  범위: {df[col].min():.1f} ~ {df[col].max():.1f}")
+            print(f"  평균: {df[col].mean():.1f}")
+            print(f"  결측치: {df[col].isna().sum()}개")
+            
+elif len(found_v7) > 0:
+    print(f"\n⚠️ 일부만 존재 ({len(found_v7)}/8개)")
+    print(f"누락: {missing_v7}")
 else:
-    print("\n현재 데이터로는 V6 Feature만 사용 가능")
+    print("\n❌ V7 Feature 없음 - V6만 사용 가능")
+
+print("\n" + "="*80)
+print("📋 최종 요약")
+print("="*80)
+
+summary = []
+summary.append(f"✅ 데이터 행: {len(df)}개")
+summary.append(f"✅ V6 필수 컬럼: {len(present_cols)}/{len(all_required)}개")
+
+if len(found_v7) == 8:
+    summary.append(f"🚀 V7 고상관 Feature: {len(found_v7)}/8개 (완벽!)")
+elif len(found_v7) > 0:
+    summary.append(f"⚠️ V7 고상관 Feature: {len(found_v7)}/8개 (일부)")
+
+if TARGET_COL in df.columns:
+    summary.append(f"✅ 급증 케이스: {surge_count}개")
+
+print()
+for line in summary:
+    print(line)
 
 print("\n" + "="*80)
 print("검증 완료!")
