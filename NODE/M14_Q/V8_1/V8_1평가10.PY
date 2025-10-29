@@ -356,11 +356,15 @@ def evaluate_all_predictions():
         current_in_danger = seq_totalcnt[-1] >= 1700
         
         # === 예측값 보정 ===
-        # 1. 조기경보 발생 시 +2%
+        # 1. 🎯 1550+ 패턴 발동 시 +3%
+        if pattern_1550_detected:
+            prediction = prediction * 1.03
+        
+        # 2. 🔥 조기경보 발생 시 추가 +2%
         if early_warning_detected:
             prediction = prediction * 1.02
         
-        # 2. 🔥🔥 현재 이미 1700+인 경우 특수 보정
+        # 3. 🔥🔥 현재 이미 1700+인 경우 특수 보정
         if current_in_danger:
             # 최근 5분 상승/하락 추세 확인
             recent_5_trend = seq_totalcnt[-1] - seq_totalcnt[-5]
@@ -370,7 +374,11 @@ def evaluate_all_predictions():
             else:  # 하락 중
                 prediction = min(prediction, seq_totalcnt[-1] * 0.98)  # 최대 2% 하락
         
-        # 3. LEVEL3 긴급 패턴 시 +5%
+        # 4. 🚨 LEVEL2 패턴 시 추가 +3%
+        elif pattern_1700_level2:
+            prediction = prediction * 1.03
+        
+        # 5. 🚨🚨 LEVEL3 긴급 패턴 시 추가 +5%
         elif pattern_1700_level3:
             prediction = prediction * 1.05
         
