@@ -64,51 +64,112 @@ def validate_v7_columns(csv_file):
     if before != len(df):
         print(f"   타겟 컬럼 NULL 제거: {before} → {len(df)}개 ({before - len(df)}개 제거)")
     
-    # 신규 컬럼들 NULL 제거
+    # 신규 컬럼들 NULL 체크 및 필터링
+    print(f"\n🔍 신규 컬럼별 NULL 비율 체크...")
+    
+    col_null_info = []
+    cols_to_keep = []
+    cols_to_exclude = []
+    
     for col in NEW_COLS_V7:
         if col in df.columns:
-            before = len(df)
             df[col] = pd.to_numeric(df[col], errors='coerce')
             null_count = df[col].isna().sum()
+            null_ratio = null_count / len(df) * 100
             
-            if null_count > 0:
-                print(f"   {col.split('.')[-1]}: NULL {null_count}개 발견")
-                df = df.dropna(subset=[col])
-                print(f"      → {before} → {len(df)}개 ({before - len(df)}개 제거)")
+            col_null_info.append({
+                'column': col,
+                'null_count': null_count,
+                'null_ratio': null_ratio
+            })
+            
+            if null_ratio >= 50:
+                cols_to_exclude.append(col)
+                print(f"   ❌ {col.split('.')[-1]}: NULL {null_ratio:.1f}% - 제외!")
+            else:
+                cols_to_keep.append(col)
+                if null_count > 0:
+                    print(f"   ✅ {col.split('.')[-1]}: NULL {null_ratio:.1f}% - 사용 가능")
+                else:
+                    print(f"   ✅ {col.split('.')[-1]}: NULL 없음")
+    
+    # NULL이 적은 컬럼만으로 데이터 필터링
+    if len(cols_to_keep) > 0:
+        print(f"\n🔍 사용 가능 컬럼({len(cols_to_keep)}개)으로 NULL 제거 중...")
+        for col in cols_to_keep:
+            before = len(df)
+            df = df.dropna(subset=[col])
+            if before != len(df):
+                print(f"   {col.split('.')[-1]}: {before} → {len(df)}개 ({before - len(df)}개 제거)")
     
     print(f"\n✅ NULL 제거 완료: {len(df)}개 행 남음 (원본의 {len(df)/initial_len*100:.1f}%)")
+    
+    # 데이터가 너무 적으면 조기 종료
+    if len(df) < 100:
+        print(f"\n❌ 치명적 오류: 데이터 부족!")
+        print(f"   남은 행: {len(df)}개")
+        print(f"   필요: 최소 1000개")
+        print(f"\n💡 원인:")
+        if len(cols_to_exclude) > 0:
+            print(f"   - NULL이 많은 컬럼 때문에 데이터 손실")
+            print(f"   - 제외된 컬럼:")
+            for col in cols_to_exclude:
+                null_ratio = next((x['null_ratio'] for x in col_null_info if x['column'] == col), 0)
+                print(f"     • {col.split('.')[-1]} (NULL {null_ratio:.1f}%)")
+        
+        print(f"\n💡 해결 방법:")
+        print(f"   1. NULL이 많은 컬럼을 데이터에서 개선")
+        print(f"   2. 또는 해당 컬럼 없이 V6 모델 사용")
+        
+        return None
     
     if len(df) < 100:
         print(f"⚠️ 경고: 데이터가 너무 적습니다! ({len(df)}개)")
         print(f"   신뢰할 수 있는 검증을 위해 최소 1000개 이상 권장")
     
     # ========================================
-    # 1단계: 컬럼 존재 여부
+    # 1단계: 컬럼 존재 및 사용 가능 여부
     # ========================================
     print("\n" + "="*80)
-    print("📊 1단계: 신규 컬럼 존재 여부")
+    print("📊 1단계: 신규 컬럼 존재 및 사용 가능 여부")
     print("="*80)
     
-    available = []
-    missing = []
+    available = []  # 사용 가능한 컬럼
+    excluded = []   # NULL 많아서 제외된 컬럼
+    missing = []    # 아예 없는 컬럼
     
     for i, col in enumerate(NEW_COLS_V7, 1):
-        if col in df.columns:
+        if col not in df.columns:
+            missing.append(col)
+            print(f"❌ {i}. {col} - 파일에 없음!")
+        elif col in cols_to_exclude:
+            excluded.append(col)
+            null_ratio = next((x['null_ratio'] for x in col_null_info if x['column'] == col), 0)
+            print(f"❌ {i}. {col}")
+            print(f"      NULL {null_ratio:.1f}% - 사용 불가!")
+        else:
             available.append(col)
             valid_count = df[col].notna().sum()
             print(f"✅ {i}. {col}")
             print(f"      유효 데이터: {valid_count}개")
-        else:
-            missing.append(col)
-            print(f"❌ {i}. {col} - 없음!")
     
-    print(f"\n📊 결과: {len(available)}/{len(NEW_COLS_V7)}개 존재")
+    print(f"\n📊 결과:")
+    print(f"   사용 가능: {len(available)}/{len(NEW_COLS_V7)}개")
+    if len(excluded) > 0:
+        print(f"   NULL 많음: {len(excluded)}개 (제외됨)")
+    if len(missing) > 0:
+        print(f"   파일 없음: {len(missing)}개")
     
     if len(available) == 0:
-        print("\n❌ 신규 컬럼이 하나도 없습니다!")
-        print("\n💡 데이터 파일에 다음 컬럼이 필요합니다:")
+        print("\n❌ 사용 가능한 신규 컬럼이 하나도 없습니다!")
+        print("\n💡 데이터 파일에 다음 컬럼이 필요하고, NULL이 50% 미만이어야 합니다:")
         for col in NEW_COLS_V7:
             print(f"   - {col}")
+        return None
+    
+    # 데이터가 충분히 있는지 확인
+    if len(df) < 100:
+        print(f"\n❌ 데이터 부족으로 통계 분석 불가!")
         return None
     
     # ========================================
@@ -319,14 +380,32 @@ def validate_v7_columns(csv_file):
         print(f"   ⚠️ NULL이 너무 많습니다. 데이터 품질 점검 필요!")
     
     print(f"\n컬럼 상태:")
-    print(f"   존재: {len(available)}/{len(NEW_COLS_V7)}개")
+    print(f"   사용 가능: {len(available)}/{len(NEW_COLS_V7)}개")
+    
+    if len(excluded) > 0:
+        print(f"   NULL 많아서 제외: {len(excluded)}개")
+        for col in excluded:
+            null_ratio = next((x['null_ratio'] for x in col_null_info if x['column'] == col), 0)
+            print(f"      ❌ {col.split('.')[-1]} (NULL {null_ratio:.1f}%)")
     
     if len(missing) > 0:
-        print(f"   부족: {len(missing)}개")
+        print(f"   파일에 없음: {len(missing)}개")
         for col in missing:
             print(f"      ❌ {col}")
     
     print(f"\n최종 결론:")
+    
+    # 데이터가 너무 적으면 무조건 불가
+    if len(df) < 100:
+        print(f"   ❌ 데이터 부족! (남은 행: {len(df)}개)")
+        print(f"   ❌ 최소 1000개 이상 필요!")
+        print(f"   ❌ V7 학습 불가!")
+        return False
+    
+    # 데이터가 원본의 30% 미만이면 경고
+    if len(df) < initial_len * 0.3:
+        print(f"   ⚠️ 경고: 데이터 손실 70% 이상!")
+        print(f"   ⚠️ NULL이 너무 많아서 신뢰도 낮음!")
     
     if len(available) == len(NEW_COLS_V7):
         print(f"   ✅ 8개 컬럼 모두 사용 가능!")
@@ -345,6 +424,10 @@ def validate_v7_columns(csv_file):
     elif len(available) >= 6:
         print(f"   ⚠️ {len(available)}개 컬럼만 사용 가능")
         print(f"   ⚠️ V7 학습 가능하나 성능이 제한적일 수 있음")
+        
+        if len(excluded) > 0:
+            print(f"   💡 {len(excluded)}개 컬럼은 NULL이 너무 많아서 제외됨")
+        
         return True
         
     elif len(available) >= 4:
@@ -355,6 +438,7 @@ def validate_v7_columns(csv_file):
         
     else:
         print(f"   ❌ 신규 컬럼 부족 ({len(available)}개)")
+        print(f"   ❌ V7 학습 불가!")
         print(f"   ❌ V6 모델 사용 권장")
         return False
 
@@ -386,16 +470,19 @@ if __name__ == '__main__':
     
     if result is None:
         print("\n" + "="*80)
-        print("❌ 검증 실패!")
+        print("❌ 검증 실패! 데이터 품질 문제!")
         print("="*80)
         sys.exit(1)
     elif result:
         print("\n" + "="*80)
         print("✅ 검증 완료! V7 진행 가능!")
         print("="*80)
+        print("\n🚀 다음 단계:")
+        print("   python V7_학습.py [학습파일.csv]")
         sys.exit(0)
     else:
         print("\n" + "="*80)
         print("⚠️ 검증 완료! V6 사용 권장!")
         print("="*80)
+        print("\n💡 사유: 신규 컬럼 부족 또는 데이터 품질 문제")
         sys.exit(0)
