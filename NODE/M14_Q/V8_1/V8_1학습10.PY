@@ -243,19 +243,19 @@ def create_features_280min_enhanced(df, start_idx=280):
         features['current_totalcnt'] = current_totalcnt_max  # 마지막 5분 최대값
         features['totalcnt_rise_5min'] = rise_amount  # 5분 상승폭
         
-        # 🔥 1550+ 조건: TOTALCNT 1550+ AND 상승 추세 AND M14AM16 조건
+        # 🔥 1550+ 조건: TOTALCNT 1550+ AND 상승 추세 AND (M14AM16 >= 217 OR M14AM14B >= 300)
         is_1550_plus_with_conditions = (
             (current_totalcnt_max >= 1550) and 
             is_rising and 
-            (seq_m16[-1] >= 217)  # M14AM16이 217 이상
+            ((seq_m16[-1] >= 217) or (seq_m14b[-1] >= 300))  # OR 조건: M16 높음 또는 M14B 높음
         )
         features['is_1550_plus'] = 1 if is_1550_plus_with_conditions else 0
         
-        # 🔥 1600+ 조건: TOTALCNT 1600+ AND 상승 추세 AND 강한 M14AM16 조건
+        # 🔥 1600+ 조건: TOTALCNT 1600+ AND 상승 추세 AND (M14AM16 >= 272 OR M14AM14B >= 350)
         is_1600_plus_with_conditions = (
             (current_totalcnt_max >= 1600) and 
             is_rising and 
-            (seq_m16[-1] >= 272)  # M14AM16이 272 이상 (75% 분위수)
+            ((seq_m16[-1] >= 272) or (seq_m14b[-1] >= 350))  # OR 조건: M16 높음 또는 M14B 높음
         )
         features['is_1600_plus'] = 1 if is_1600_plus_with_conditions else 0
         
