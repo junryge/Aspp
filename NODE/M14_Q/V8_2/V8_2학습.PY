@@ -1,7 +1,9 @@
+#!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-🚀 XGBoost 280분 시퀀스 → 10분 후 예측 학습 V2
-신규 7개 컬럼 포함 (총 11개 컬럼, 약 220개 Feature)
+🚀 XGBoost 280분 시퀀스 → 10분 후 예측 학습
+데이터: Ois.csv (43,200행)
+11개 컬럼, 약 220개 Feature 생성
 """
 
 import numpy as np
@@ -9,27 +11,19 @@ import pandas as pd
 import xgboost as xgb
 from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
 import pickle
-from datetime import datetime, timedelta
+from datetime import datetime
 import gc
 import warnings
 warnings.filterwarnings('ignore')
 
 print("="*80)
-print("🚀 XGBoost V2 학습 시작 - 신규 7개 컬럼 포함")
+print("🚀 XGBoost 학습 - Ois.csv (280분→10분 예측)")
 print("="*80)
-print("기존 4개 + 신규 7개 = 총 11개 컬럼")
-print("약 220개 Feature 생성 예정")
+print("11개 컬럼, 약 220개 Feature")
 print("="*80)
 
 def create_features_v2(row_dict):
-    """
-    11개 컬럼 280분 시퀀스로부터 Feature 생성
-    
-    기존 4개: M14AM14B, M14AM10A, M14AM16, TOTALCNT
-    신규 7개: CURRENTQCREATED, CURRENTQCOMPLETED, OHTUTIL, 
-             TRANSPORT4MINOVERCNT, VERTICALQUEUECOUNT, 
-             M10A_CURRENTQCNT, M10A_OHTUTIL
-    """
+    """11개 컬럼 280분 시퀀스로부터 Feature 생성"""
     features = {}
     
     # 시퀀스 추출
@@ -223,7 +217,7 @@ def create_features_v2(row_dict):
     
     features['volatility_m14b'] = np.std(seq_m14b) / (np.mean(seq_m14b) + 1)
     features['volatility_totalcnt'] = np.std(seq_totalcnt) / (np.mean(seq_totalcnt) + 1)
-    features['volatility_queue_gap'] = np.std(seq_queue_gap) / (np.mean(seq_queue_gap) + 1)
+    features['volatility_queue_gap'] = np.std(seq_queue_gap) / (np.mean(np.abs(seq_queue_gap)) + 1)
     features['volatility_oht_util'] = np.std(seq_oht_util) / (np.mean(seq_oht_util) + 1)
     features['volatility_m10a_cnt'] = np.std(seq_m10a_cnt) / (np.mean(seq_m10a_cnt) + 1)
     
@@ -353,7 +347,7 @@ def prepare_training_data(csv_path):
     # CURRTIME 변환
     df['CURRTIME'] = pd.to_datetime(df['CURRTIME'].astype(str), format='%Y%m%d%H%M')
     
-    print(f"\n🔄 Feature 생성 중...")
+    print(f"\n🔄 Feature 생성 중... (280분 시퀀스 → 10분 후 타겟)")
     X_list = []
     y_list = []
     
@@ -361,7 +355,7 @@ def prepare_training_data(csv_path):
     print(f"총 {total_samples:,}개 샘플 생성 예정")
     
     for i in range(280, len(df) - 10):
-        # 280분 시퀀스
+        # 280분 시퀀스: iloc[i-280:i] = 과거 280분
         row_dict = {
             'M14AM14B': df['M14AM14B'].iloc[i-280:i].values,
             'M14AM10A': df['M14AM10A'].iloc[i-280:i].values,
@@ -379,14 +373,15 @@ def prepare_training_data(csv_path):
         # Feature 생성
         features = create_features_v2(row_dict)
         
-        # 타겟 (10분 후)
+        # 타겟 (10분 후): iloc[i+9]
+        # i-1이 현재, i+9는 10분 후
         target = df['TOTALCNT'].iloc[i+9]
         
         X_list.append(features)
         y_list.append(target)
         
         # 진행상황
-        if (i - 280) % 100 == 0:
+        if (i - 280) % 1000 == 0:
             progress = (i - 280) / total_samples * 100
             print(f"  진행: {i-280:,}/{total_samples:,} ({progress:.1f}%)", end='\r')
     
@@ -400,17 +395,18 @@ def prepare_training_data(csv_path):
     print(f"  Feature 수: {X.shape[1]}개")
     print(f"  샘플 수: {len(X):,}개")
     print(f"  타겟 범위: {y.min():.0f} ~ {y.max():.0f}")
+    print(f"  1700+ 타겟: {(y >= 1700).sum()}개 ({(y >= 1700).sum()/len(y)*100:.3f}%)")
     
     return X, y
 
 def augment_high_risk_data(X, y, threshold=1700, multiplier=10):
     """1700+ 고위험 구간 데이터 증강"""
-    print(f"\n🔥 데이터 증강 (1700+ 구간)")
+    print(f"\n🔥 데이터 증강 (1700+ 구간 x{multiplier})")
     
     high_risk_mask = y >= threshold
     high_risk_count = high_risk_mask.sum()
     
-    print(f"1700+ 구간: {high_risk_count:,}개 ({high_risk_count/len(y)*100:.2f}%)")
+    print(f"1700+ 구간: {high_risk_count:,}개 ({high_risk_count/len(y)*100:.3f}%)")
     
     if high_risk_count == 0:
         print("⚠️ 1700+ 구간 없음, 증강 불가")
@@ -423,13 +419,13 @@ def augment_high_risk_data(X, y, threshold=1700, multiplier=10):
     X_augmented = pd.concat([X] + [X_high] * (multiplier - 1), ignore_index=True)
     y_augmented = pd.concat([y] + [y_high] * (multiplier - 1), ignore_index=True)
     
-    print(f"증강 후: {len(X_augmented):,}개 (x{multiplier})")
+    print(f"증강 후: {len(X_augmented):,}개")
     print(f"1700+ 비율: {(y_augmented >= threshold).sum() / len(y_augmented) * 100:.2f}%")
     
     return X_augmented, y_augmented
 
 def train_xgboost_v2(X_train, y_train):
-    """XGBoost 학습 (전체 데이터)"""
+    """XGBoost 학습"""
     print(f"\n🚀 XGBoost 학습 시작")
     
     params = {
@@ -454,7 +450,7 @@ def train_xgboost_v2(X_train, y_train):
     
     model = xgb.XGBRegressor(**params)
     
-    print(f"\n학습 중... (전체 데이터 사용)")
+    print(f"\n학습 중...")
     model.fit(
         X_train, y_train,
         verbose=50
@@ -497,6 +493,12 @@ def evaluate_training_data(model, X_train, y_train):
         detected = (high_mask & pred_high_mask).sum()
         detection_rate = detected / high_mask.sum() * 100
         print(f"  1700+ 감지율: {detection_rate:.1f}% ({detected:,}/{high_mask.sum():,})")
+        
+        # 1700+ 실제 예측값 분포
+        print(f"\n  1700+ 실제값 예측 분포:")
+        print(f"    평균 예측: {y_pred[high_mask].mean():.1f}")
+        print(f"    최소 예측: {y_pred[high_mask].min():.1f}")
+        print(f"    최대 예측: {y_pred[high_mask].max():.1f}")
     
     # 1600+ 구간 평가
     mid_mask = (y_train >= 1600) & (y_train < 1700)
@@ -505,14 +507,6 @@ def evaluate_training_data(model, X_train, y_train):
         print(f"\n1600-1699 구간 성능:")
         print(f"  샘플 수: {mid_mask.sum():,}개")
         print(f"  MAE:  {mae_mid:.2f}")
-    
-    # 1500-1599 구간 평가
-    normal_mask = (y_train >= 1500) & (y_train < 1600)
-    if normal_mask.sum() > 0:
-        mae_normal = mean_absolute_error(y_train[normal_mask], y_pred[normal_mask])
-        print(f"\n1500-1599 구간 성능:")
-        print(f"  샘플 수: {normal_mask.sum():,}개")
-        print(f"  MAE:  {mae_normal:.2f}")
     
     print(f"\n" + "="*80)
     
@@ -536,7 +530,7 @@ def show_feature_importance(model, X):
 
 if __name__ == '__main__':
     # 데이터 준비
-    X, y = prepare_training_data('/mnt/user-data/uploads/TRS.CSV')
+    X, y = prepare_training_data('/mnt/user-data/uploads/Ois.csv')
     
     if X is None:
         print("❌ 데이터 준비 실패")
@@ -545,12 +539,11 @@ if __name__ == '__main__':
     # 데이터 증강
     X_aug, y_aug = augment_high_risk_data(X, y, threshold=1700, multiplier=10)
     
-    # 전체 데이터로 학습
-    print(f"\n🎯 전체 데이터 학습 (테스트는 별도 수행)")
+    # 학습
+    print(f"\n🎯 전체 데이터 학습")
     print(f"  총 샘플: {len(X_aug):,}개")
     print(f"  1700+ 비율: {(y_aug >= 1700).sum() / len(y_aug) * 100:.2f}%")
     
-    # 학습
     model = train_xgboost_v2(X_aug, y_aug)
     
     # 학습 데이터 평가
@@ -560,13 +553,13 @@ if __name__ == '__main__':
     show_feature_importance(model, X_aug)
     
     # 모델 저장
-    model_filename = 'xgboost_280to10_v2_11columns.pkl'
+    model_filename = '/home/claude/xgboost_ois_280to10.pkl'
     with open(model_filename, 'wb') as f:
         pickle.dump(model, f)
     print(f"\n💾 모델 저장: {model_filename}")
     
     # Feature 리스트 저장
-    feature_filename = 'xgboost_v2_features.pkl'
+    feature_filename = '/home/claude/xgboost_ois_features.pkl'
     with open(feature_filename, 'wb') as f:
         pickle.dump(list(X.columns), f)
     print(f"💾 Feature 저장: {feature_filename}")
@@ -574,8 +567,8 @@ if __name__ == '__main__':
     print("\n" + "="*80)
     print("✅ 학습 완료!")
     print("="*80)
-    print(f"모델 파일: {model_filename}")
-    print(f"Feature 파일: {feature_filename}")
+    print(f"모델: {model_filename}")
+    print(f"Feature: {feature_filename}")
     print(f"총 샘플: {len(X_aug):,}개")
     print(f"Feature 수: {X_aug.shape[1]}개")
     print(f"\n성능:")
