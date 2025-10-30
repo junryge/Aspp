@@ -7,7 +7,6 @@
 import numpy as np
 import pandas as pd
 import xgboost as xgb
-from sklearn.model_selection import train_test_split
 from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
 import pickle
 from datetime import datetime, timedelta
@@ -429,8 +428,8 @@ def augment_high_risk_data(X, y, threshold=1700, multiplier=10):
     
     return X_augmented, y_augmented
 
-def train_xgboost_v2(X_train, y_train, X_test, y_test):
-    """XGBoost 학습"""
+def train_xgboost_v2(X_train, y_train):
+    """XGBoost 학습 (전체 데이터)"""
     print(f"\n🚀 XGBoost 학습 시작")
     
     params = {
@@ -455,10 +454,9 @@ def train_xgboost_v2(X_train, y_train, X_test, y_test):
     
     model = xgb.XGBRegressor(**params)
     
-    print(f"\n학습 중...")
+    print(f"\n학습 중... (전체 데이터 사용)")
     model.fit(
         X_train, y_train,
-        eval_set=[(X_train, y_train), (X_test, y_test)],
         verbose=50
     )
     
@@ -466,45 +464,15 @@ def train_xgboost_v2(X_train, y_train, X_test, y_test):
     
     return model
 
-def evaluate_model(model, X_test, y_test):
-    """모델 평가"""
-    print(f"\n📊 모델 평가")
-    
-    y_pred = model.predict(X_test)
-    
-    mae = mean_absolute_error(y_test, y_pred)
-    rmse = np.sqrt(mean_squared_error(y_test, y_pred))
-    r2 = r2_score(y_test, y_pred)
-    
-    print(f"\n전체 성능:")
-    print(f"  MAE: {mae:.2f}")
-    print(f"  RMSE: {rmse:.2f}")
-    print(f"  R²: {r2:.4f}")
-    
-    # 1700+ 구간 평가
-    high_mask = y_test >= 1700
-    if high_mask.sum() > 0:
-        mae_high = mean_absolute_error(y_test[high_mask], y_pred[high_mask])
-        print(f"\n1700+ 구간:")
-        print(f"  샘플 수: {high_mask.sum():,}개")
-        print(f"  MAE: {mae_high:.2f}")
-        
-        # 1700+ 감지율
-        pred_high_mask = y_pred >= 1650
-        detected = (high_mask & pred_high_mask).sum()
-        detection_rate = detected / high_mask.sum() * 100
-        print(f"  감지율: {detection_rate:.1f}% ({detected}/{high_mask.sum()})")
-    
-    # Feature 중요도 TOP 20
-    print(f"\n🏆 Feature 중요도 TOP 20:")
+def show_feature_importance(model, X):
+    """Feature 중요도 출력"""
+    print(f"\n🏆 Feature 중요도 TOP 30:")
     feature_importance = pd.DataFrame({
-        'feature': X_test.columns,
+        'feature': X.columns,
         'importance': model.feature_importances_
     }).sort_values('importance', ascending=False)
     
-    print(feature_importance.head(20).to_string(index=False))
-    
-    return mae, r2
+    print(feature_importance.head(30).to_string(index=False))
 
 # ========================================
 # 메인 실행
@@ -521,19 +489,16 @@ if __name__ == '__main__':
     # 데이터 증강
     X_aug, y_aug = augment_high_risk_data(X, y, threshold=1700, multiplier=10)
     
-    # Train/Test 분할
-    print(f"\n✂️ Train/Test 분할 (80/20)")
-    X_train, X_test, y_train, y_test = train_test_split(
-        X_aug, y_aug, test_size=0.2, random_state=42
-    )
-    print(f"  Train: {len(X_train):,}개")
-    print(f"  Test: {len(X_test):,}개")
+    # 전체 데이터로 학습
+    print(f"\n🎯 전체 데이터 학습 (테스트는 별도 수행)")
+    print(f"  총 샘플: {len(X_aug):,}개")
+    print(f"  1700+ 비율: {(y_aug >= 1700).sum() / len(y_aug) * 100:.2f}%")
     
     # 학습
-    model = train_xgboost_v2(X_train, y_train, X_test, y_test)
+    model = train_xgboost_v2(X_aug, y_aug)
     
-    # 평가
-    mae, r2 = evaluate_model(model, X_test, y_test)
+    # Feature 중요도 출력
+    show_feature_importance(model, X_aug)
     
     # 모델 저장
     model_filename = 'xgboost_280to10_v2_11columns.pkl'
@@ -552,6 +517,6 @@ if __name__ == '__main__':
     print("="*80)
     print(f"모델 파일: {model_filename}")
     print(f"Feature 파일: {feature_filename}")
-    print(f"MAE: {mae:.2f}")
-    print(f"R²: {r2:.4f}")
+    print(f"총 샘플: {len(X_aug):,}개")
+    print(f"Feature 수: {X_aug.shape[1]}개")
     print("="*80)
