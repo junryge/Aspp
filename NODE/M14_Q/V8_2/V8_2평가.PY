@@ -1,6 +1,7 @@
+#!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-🚀 XGBoost V2 평가 - 신규 7개 컬럼 포함
+🚀 XGBoost 평가 - Ois.csv
 280분 시퀀스 → 10분 후 예측 평가
 """
 
@@ -16,11 +17,7 @@ warnings.filterwarnings('ignore')
 def create_features_v2(row_dict):
     """
     11개 컬럼 280분 시퀀스로부터 Feature 생성
-    
-    기존 4개: M14AM14B, M14AM10A, M14AM16, TOTALCNT
-    신규 7개: CURRENTQCREATED, CURRENTQCOMPLETED, OHTUTIL, 
-             TRANSPORT4MINOVERCNT, VERTICALQUEUECOUNT, 
-             M10A_CURRENTQCNT, M10A_OHTUTIL
+    (학습 코드와 동일)
     """
     features = {}
     
@@ -215,7 +212,7 @@ def create_features_v2(row_dict):
     
     features['volatility_m14b'] = np.std(seq_m14b) / (np.mean(seq_m14b) + 1)
     features['volatility_totalcnt'] = np.std(seq_totalcnt) / (np.mean(seq_totalcnt) + 1)
-    features['volatility_queue_gap'] = np.std(seq_queue_gap) / (np.mean(seq_queue_gap) + 1)
+    features['volatility_queue_gap'] = np.std(seq_queue_gap) / (np.mean(np.abs(seq_queue_gap)) + 1)
     features['volatility_oht_util'] = np.std(seq_oht_util) / (np.mean(seq_oht_util) + 1)
     features['volatility_m10a_cnt'] = np.std(seq_m10a_cnt) / (np.mean(seq_m10a_cnt) + 1)
     
@@ -320,20 +317,17 @@ def create_features_v2(row_dict):
     
     return features
 
-def evaluate_all_predictions_v2():
-    """전체 데이터를 슬라이딩 윈도우로 평가 - 신규 11개 컬럼 버전"""
+def evaluate_all_predictions():
+    """전체 데이터를 슬라이딩 윈도우로 평가 - Ois.csv"""
     
     print("="*80)
-    print("🚀 XGBoost V2 평가 - 신규 7개 컬럼 포함")
-    print("="*80)
-    print("11개 컬럼: 기존 4개 + 신규 7개")
-    print("약 220개 Feature")
+    print("🚀 XGBoost 평가 - Ois.csv (280분→10분)")
     print("="*80)
     
     # 모델 로드
     model_files = [
-        'xgboost_280to10_v2_11columns.pkl',
-        '/mnt/user-data/outputs/xgboost_280to10_v2_11columns.pkl'
+        'xgboost_ois_280to10.pkl',
+        '/home/claude/xgboost_ois_280to10.pkl'
     ]
     
     model = None
@@ -345,37 +339,30 @@ def evaluate_all_predictions_v2():
                 with open(mf, 'rb') as f:
                     model = pickle.load(f)
                 model_file = mf
-                print(f"✅ 모델 로드 완료: {model_file}")
+                print(f"✅ 모델 로드: {model_file}")
                 break
             except Exception as e:
-                print(f"⚠️ 모델 로드 실패 ({mf}): {e}")
+                print(f"⚠️ 로드 실패 ({mf}): {e}")
     
     if model is None:
         print(f"❌ 모델 파일 없음!")
-        print(f"시도한 파일:")
-        for mf in model_files:
-            print(f"  - {mf}")
-        print("\n먼저 xgb_280to10_v2_학습.py를 실행하여 모델을 학습하세요.")
+        print(f"\n먼저 xgboost_ois_280to10_train.py를 실행하세요.")
         return None
     
     # 데이터 로드
-    csv_file = '/mnt/user-data/uploads/TRS.CSV'
+    csv_file = '/mnt/user-data/uploads/Ois.csv'
     
     if not os.path.exists(csv_file):
         print(f"❌ CSV 파일 없음: {csv_file}")
         return None
     
     try:
-        print(f"데이터 로딩 중: {csv_file}...")
+        print(f"데이터 로딩: {csv_file}...")
         df = pd.read_csv(csv_file, on_bad_lines='skip')
-        print(f"✅ 데이터 로드 완료: {len(df):,}개 행")
+        print(f"✅ 데이터 로드: {len(df):,}행")
     except Exception as e:
         print(f"❌ 데이터 로드 실패: {e}")
         return None
-    
-    # 메모리 사용량 확인
-    memory_mb = df.memory_usage(deep=True).sum() / 1024 / 1024
-    print(f"메모리 사용량: {memory_mb:.1f} MB")
     
     # 필수 컬럼 확인
     required_cols = [
@@ -390,7 +377,6 @@ def evaluate_all_predictions_v2():
     
     if missing_cols:
         print(f"❌ 필수 컬럼 누락: {missing_cols}")
-        print(f"현재 컬럼: {list(df.columns)}")
         return None
     
     print(f"✅ 필수 컬럼 확인 완료")
@@ -407,7 +393,7 @@ def evaluate_all_predictions_v2():
     
     # 슬라이딩 윈도우
     for i in range(280, len(df) - 10):
-        # 280분 시퀀스 (11개 컬럼)
+        # 280분 시퀀스
         row_dict = {
             'M14AM14B': df['M14AM14B'].iloc[i-280:i].values,
             'M14AM10A': df['M14AM10A'].iloc[i-280:i].values,
@@ -448,14 +434,14 @@ def evaluate_all_predictions_v2():
         features = create_features_v2(row_dict)
         X_pred = pd.DataFrame([features])
         
-        # 예측 (수동 보정 없음!)
+        # 예측
         prediction = model.predict(X_pred)[0]
         
-        # 패턴 감지 (통계용)
+        # 패턴 감지
         golden_pattern = (seq_m14b[-1] > 300 and seq_m10a[-1] < 80)
         danger_in_seq = np.sum(seq_totalcnt >= 1700) > 0
         
-        # 조기 경보 감지 (통계용)
+        # 조기 경보 감지
         last_10min = seq_totalcnt[-10:]
         early_warning_detected = (np.max(last_10min) >= 1650) and ((last_10min[-1] - last_10min[0]) > 20)
         
@@ -490,7 +476,7 @@ def evaluate_all_predictions_v2():
         })
         
         # 진행상황 출력
-        if (i - 280) % 10000 == 0 and i > 280:
+        if (i - 280) % 5000 == 0 and i > 280:
             progress = (i - 280) / total_predictions * 100
             print(f"  진행중... {i-280:,}/{total_predictions:,} ({progress:.1f}%)")
             gc.collect()
@@ -501,9 +487,9 @@ def evaluate_all_predictions_v2():
     results_df = pd.DataFrame(results)
     
     # CSV 저장
-    output_file = 'evaluation_v2_11columns.csv'
+    output_file = 'evaluation_ois_280to10.csv'
     results_df.to_csv(output_file, index=False, encoding='utf-8-sig')
-    print(f"✅ 결과 저장 완료: {output_file}")
+    print(f"✅ 결과 저장: {output_file}")
     
     # 메모리 정리
     del df
@@ -545,26 +531,6 @@ def evaluate_all_predictions_v2():
     if early_warning_count > 0:
         print(f"\n🔥 조기 경보 → 실제 1700+ 발생: {early_to_danger:,}개 ({early_to_danger/early_warning_count*100:.1f}%)")
     
-    # M14AM14B 450+ 구간 분석
-    high_m14b_mask = results_df['M14AM14B'] >= 450
-    high_m14b_count = high_m14b_mask.sum()
-    if high_m14b_count > 0:
-        print(f"\n🔥 M14AM14B 450+ 구간: {high_m14b_count:,}개")
-        high_m14b_mae = results_df[high_m14b_mask]['절대오차'].mean()
-        print(f"   평균 MAE: {high_m14b_mae:.2f}")
-        high_m14b_danger = (high_m14b_mask & actual_danger).sum()
-        print(f"   1700+ 발생: {high_m14b_danger:,}개 ({high_m14b_danger/high_m14b_count*100:.1f}%)")
-    
-    # queue_gap 구간 분석
-    high_queue_gap_mask = results_df['queue_gap'] >= 150
-    high_queue_gap_count = high_queue_gap_mask.sum()
-    if high_queue_gap_count > 0:
-        print(f"\n🔥 queue_gap 150+ 구간: {high_queue_gap_count:,}개")
-        high_queue_gap_mae = results_df[high_queue_gap_mask]['절대오차'].mean()
-        print(f"   평균 MAE: {high_queue_gap_mae:.2f}")
-        high_queue_gap_danger = (high_queue_gap_mask & actual_danger).sum()
-        print(f"   1700+ 발생: {high_queue_gap_danger:,}개 ({high_queue_gap_danger/high_queue_gap_count*100:.1f}%)")
-    
     # 오차 상위 10개
     print("\n" + "="*80)
     print("오차 상위 10개 구간")
@@ -579,7 +545,7 @@ def evaluate_all_predictions_v2():
     print("Line 1의 예측값 vs Line 11의 현재TOTALCNT 비교")
     print("-"*80)
     
-    for idx in [0, 100, 200, 300, 400, 500, 600, 700, 800, 900]:
+    for idx in [0, 1000, 5000, 10000, 15000, 20000, 25000, 30000, 35000, 40000]:
         if idx + 10 < len(results_df):
             line1_time = results_df.iloc[idx]['현재시간']
             line1_pred = results_df.iloc[idx]['예측값']
@@ -587,9 +553,9 @@ def evaluate_all_predictions_v2():
             line11_current = results_df.iloc[idx+10]['현재TOTALCNT']
             diff = abs(line11_current - line1_pred)
             
-            print(f"Line {idx+1:4d} (예측): {line1_time} → 예측값: {line1_pred:7.2f}")
-            print(f"Line {idx+11:4d} (실제): {line11_time} → 현재값: {line11_current:7.2f}")
-            print(f"           차이: {diff:.2f}")
+            print(f"Line {idx+1:5d} (예측): {line1_time} → 예측값: {line1_pred:7.2f}")
+            print(f"Line {idx+11:5d} (실제): {line11_time} → 현재값: {line11_current:7.2f}")
+            print(f"            차이: {diff:.2f}")
             print("-"*40)
     
     # 최종 요약
@@ -598,35 +564,19 @@ def evaluate_all_predictions_v2():
     print("="*80)
     print(f"1. 전체 성능:")
     print(f"   - MAE: {results_df['절대오차'].mean():.2f}")
-    print(f"   - 위험 감지율: {danger_detected/actual_danger_count*100:.1f}% ({danger_detected:,}/{actual_danger_count:,})")
+    if actual_danger_count > 0:
+        print(f"   - 위험 감지율: {danger_detected/actual_danger_count*100:.1f}% ({danger_detected:,}/{actual_danger_count:,})")
     
-    if high_m14b_count > 0:
-        print(f"\n2. M14AM14B 450+ 구간:")
-        print(f"   - 발생 횟수: {high_m14b_count:,}개")
-        print(f"   - MAE: {high_m14b_mae:.2f}")
-        print(f"   - 1700+ 비율: {high_m14b_danger/high_m14b_count*100:.1f}%")
-    
-    if high_queue_gap_count > 0:
-        print(f"\n3. queue_gap 150+ 구간:")
-        print(f"   - 발생 횟수: {high_queue_gap_count:,}개")
-        print(f"   - MAE: {high_queue_gap_mae:.2f}")
-        print(f"   - 1700+ 비율: {high_queue_gap_danger/high_queue_gap_count*100:.1f}%")
-    
-    if early_warning_count > 0:
-        print(f"\n4. 조기 경보:")
-        print(f"   - 발생 횟수: {early_warning_count:,}개")
-        print(f"   - 정확도: {early_to_danger/early_warning_count*100:.1f}% (1700+ 예측)")
-    
-    print(f"\n5. 저장 파일:")
+    print(f"\n2. 저장 파일:")
     print(f"   - {output_file}")
     print("="*80)
     
     return results_df
 
 if __name__ == '__main__':
-    print("\n🚀 XGBoost V2 평가 시작 (신규 11개 컬럼)...\n")
-    results = evaluate_all_predictions_v2()
+    print("\n🚀 XGBoost 평가 시작 (Ois.csv)...\n")
+    results = evaluate_all_predictions()
     
     if results is not None:
         print(f"\n✅ 평가 완료! 총 {len(results):,}개 예측 생성")
-        print(f"✅ 결과 파일: evaluation_v2_11columns.csv")
+        print(f"✅ 결과 파일: evaluation_ois_280to10.csv")
