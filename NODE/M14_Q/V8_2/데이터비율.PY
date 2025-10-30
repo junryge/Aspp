@@ -1,19 +1,16 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-🎯 1700+ 구간 추출 - 초간단 버전
+🎯 1700+ 구간 추출 - CURRTIME 원본 유지!
 """
 
 import pandas as pd
-
-# ============================================================
-# 핵심 코드: 1700+ 구간 추출
-# ============================================================
 
 def extract_1700plus(input_csv, output_csv='extracted_1700plus.csv'):
     """
     1700+ 발생 구간을 자동 추출
     과거 280분 + 1700+ 시점 + 이후 30분 포함
+    CURRTIME 원본 형식 그대로 유지!
     """
     
     print("="*60)
@@ -23,7 +20,13 @@ def extract_1700plus(input_csv, output_csv='extracted_1700plus.csv'):
     # 1. 데이터 로드
     print(f"\n📂 로딩: {input_csv}")
     df = pd.read_csv(input_csv)
-    df['CURRTIME'] = pd.to_datetime(df['CURRTIME'].astype(str), format='%Y%m%d%H%M')
+    
+    # CURRTIME 원본 백업!
+    df['CURRTIME_ORIGINAL'] = df['CURRTIME'].copy()
+    
+    # 정렬용으로만 datetime 변환
+    df['CURRTIME_DATETIME'] = pd.to_datetime(df['CURRTIME'].astype(str), format='%Y%m%d%H%M')
+    
     print(f"✅ 전체: {len(df):,}행")
     
     # 2. 1700+ 시점 찾기
@@ -50,7 +53,15 @@ def extract_1700plus(input_csv, output_csv='extracted_1700plus.csv'):
     print(f"\n💾 추출 중...")
     extracted_indices = sorted(needed_indices)
     extracted_df = df.iloc[extracted_indices].copy()
-    extracted_df = extracted_df.sort_values('CURRTIME').reset_index(drop=True)
+    
+    # 정렬 (datetime 기준)
+    extracted_df = extracted_df.sort_values('CURRTIME_DATETIME').reset_index(drop=True)
+    
+    # CURRTIME 원본으로 복원!
+    extracted_df['CURRTIME'] = extracted_df['CURRTIME_ORIGINAL']
+    
+    # 임시 컬럼 삭제
+    extracted_df = extracted_df.drop(['CURRTIME_ORIGINAL', 'CURRTIME_DATETIME'], axis=1)
     
     # 5. 저장
     extracted_df.to_csv(output_csv, index=False, encoding='utf-8-sig')
@@ -58,6 +69,7 @@ def extract_1700plus(input_csv, output_csv='extracted_1700plus.csv'):
     print(f"✅ 완료: {output_csv}")
     print(f"   추출: {len(extracted_df):,}행 (원본의 {len(extracted_df)/len(df)*100:.1f}%)")
     print(f"   1700+: {(extracted_df['TOTALCNT'] >= 1700).sum()}개")
+    print(f"   CURRTIME: 원본 형식 유지! ✅")
     print("="*60)
     
     return extracted_df
@@ -82,6 +94,6 @@ if __name__ == '__main__':
     # 
     # # 합치기
     # combined = pd.concat([df1, df2, df3], ignore_index=True)
-    # combined = combined.sort_values('CURRTIME').reset_index(drop=True)
+    # # CURRTIME 원본 그대로!
     # combined.to_csv('combined_1700plus.csv', index=False, encoding='utf-8-sig')
     # print(f"✅ 합침 완료: {len(combined):,}행, 1700+: {(combined['TOTALCNT']>=1700).sum()}개")
