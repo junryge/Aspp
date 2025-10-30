@@ -464,9 +464,65 @@ def train_xgboost_v2(X_train, y_train):
     
     return model
 
+def evaluate_training_data(model, X_train, y_train):
+    """학습 데이터 평가"""
+    print(f"\n" + "="*80)
+    print(f"📊 학습 데이터 성능 평가")
+    print("="*80)
+    
+    y_pred = model.predict(X_train)
+    
+    mae = mean_absolute_error(y_train, y_pred)
+    rmse = np.sqrt(mean_squared_error(y_train, y_pred))
+    r2 = r2_score(y_train, y_pred)
+    
+    print(f"\n전체 성능:")
+    print(f"  MAE:  {mae:.2f}")
+    print(f"  RMSE: {rmse:.2f}")
+    print(f"  R²:   {r2:.4f}")
+    
+    # 1700+ 구간 평가
+    high_mask = y_train >= 1700
+    if high_mask.sum() > 0:
+        mae_high = mean_absolute_error(y_train[high_mask], y_pred[high_mask])
+        rmse_high = np.sqrt(mean_squared_error(y_train[high_mask], y_pred[high_mask]))
+        
+        print(f"\n1700+ 구간 성능:")
+        print(f"  샘플 수: {high_mask.sum():,}개 ({high_mask.sum()/len(y_train)*100:.1f}%)")
+        print(f"  MAE:  {mae_high:.2f}")
+        print(f"  RMSE: {rmse_high:.2f}")
+        
+        # 1700+ 감지율
+        pred_high_mask = y_pred >= 1650
+        detected = (high_mask & pred_high_mask).sum()
+        detection_rate = detected / high_mask.sum() * 100
+        print(f"  1700+ 감지율: {detection_rate:.1f}% ({detected:,}/{high_mask.sum():,})")
+    
+    # 1600+ 구간 평가
+    mid_mask = (y_train >= 1600) & (y_train < 1700)
+    if mid_mask.sum() > 0:
+        mae_mid = mean_absolute_error(y_train[mid_mask], y_pred[mid_mask])
+        print(f"\n1600-1699 구간 성능:")
+        print(f"  샘플 수: {mid_mask.sum():,}개")
+        print(f"  MAE:  {mae_mid:.2f}")
+    
+    # 1500-1599 구간 평가
+    normal_mask = (y_train >= 1500) & (y_train < 1600)
+    if normal_mask.sum() > 0:
+        mae_normal = mean_absolute_error(y_train[normal_mask], y_pred[normal_mask])
+        print(f"\n1500-1599 구간 성능:")
+        print(f"  샘플 수: {normal_mask.sum():,}개")
+        print(f"  MAE:  {mae_normal:.2f}")
+    
+    print(f"\n" + "="*80)
+    
+    return mae, rmse, r2
+
 def show_feature_importance(model, X):
     """Feature 중요도 출력"""
-    print(f"\n🏆 Feature 중요도 TOP 30:")
+    print(f"\n" + "="*80)
+    print(f"🏆 Feature 중요도 TOP 30")
+    print("="*80)
     feature_importance = pd.DataFrame({
         'feature': X.columns,
         'importance': model.feature_importances_
@@ -497,6 +553,9 @@ if __name__ == '__main__':
     # 학습
     model = train_xgboost_v2(X_aug, y_aug)
     
+    # 학습 데이터 평가
+    mae, rmse, r2 = evaluate_training_data(model, X_aug, y_aug)
+    
     # Feature 중요도 출력
     show_feature_importance(model, X_aug)
     
@@ -519,4 +578,8 @@ if __name__ == '__main__':
     print(f"Feature 파일: {feature_filename}")
     print(f"총 샘플: {len(X_aug):,}개")
     print(f"Feature 수: {X_aug.shape[1]}개")
+    print(f"\n성능:")
+    print(f"  MAE:  {mae:.2f}")
+    print(f"  RMSE: {rmse:.2f}")
+    print(f"  R²:   {r2:.4f}")
     print("="*80)
