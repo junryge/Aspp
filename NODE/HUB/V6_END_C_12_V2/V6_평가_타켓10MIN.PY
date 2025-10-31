@@ -6,7 +6,8 @@ from datetime import datetime, timedelta
 def evaluate_change_prediction():
     """
     🎯 변화량 예측 모델 평가
-    - 현재값, 10분 후 실제값, 실제 변화량, 예측 변화량 분석
+    - 현재값, 10분 후 실제값(AVG), 실제 변화량, 예측 변화량 분석
+    - 10분 구간의 평균값 기준으로 평가
     """
     print("="*80)
     print("🎯 변화량 예측 모델 평가")
@@ -68,11 +69,11 @@ def evaluate_change_prediction():
         current_time = seq_data['STAT_DT'].iloc[-1]
         current_value = seq_target[-1]  # 현재값 (시퀀스 마지막)
         
-        # 🎯 10분 후 실제 최대값
-        future_max = df[TARGET_COL].iloc[i:i+10].max()
+        # 🎯 10분 후 실제 평균값
+        future_avg = df[TARGET_COL].iloc[i:i+10].mean()
         
-        # 🎯 실제 변화량
-        actual_change = future_max - current_value
+        # 🎯 실제 변화량 (평균 기준)
+        actual_change = future_avg - current_value
         
         prediction_time = current_time + timedelta(minutes=10)
        
@@ -243,12 +244,12 @@ def evaluate_change_prediction():
             '현재시간': current_time.strftime('%Y-%m-%d %H:%M'),
             '예측시점': prediction_time.strftime('%Y-%m-%d %H:%M'),
             '현재값': round(current_value, 2),
-            '10분후_실제값': round(future_max, 2),
+            '10분후_실제값_AVG': round(future_avg, 2),
             '실제_변화량': round(actual_change, 2),
             '예측_변화량': round(predicted_change, 2),
             '예측_미래값': round(predicted_future, 2),
             '변화량_오차': round(abs(actual_change - predicted_change), 2),
-            '미래값_오차': round(abs(future_max - predicted_future), 2),
+            '미래값_오차': round(abs(future_avg - predicted_future), 2),
             '방향_일치': '✅' if direction_match else '❌',
             '변화_유형': change_type,
             '예측_정확도': pred_accuracy,
