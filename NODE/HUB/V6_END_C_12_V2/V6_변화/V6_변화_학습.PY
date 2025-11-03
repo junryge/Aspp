@@ -7,21 +7,21 @@ from datetime import datetime, timedelta
 import matplotlib.pyplot as plt
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
+from sklearn.multioutput import MultiOutputRegressor
 
 warnings.filterwarnings('ignore')
 plt.rcParams['font.family'] = 'DejaVu Sans'
 plt.rcParams['axes.unicode_minus'] = False
 
-def train_change_prediction_version():
+def train_multi_change_prediction():
     """
-    🎯 변화량 예측 버전: 30분 시퀀스 → 10분 후 변화량 예측
-    - 타겟: 정확히 10분 후 시점 값 - 현재값 (변화량!)
-    - 급증 판정 제거
-    - 가중치 제거
-    - 순수 변화량 예측
+    🎯 변화량 예측 버전: 30분 시퀀스 → 10분 후 MIN/MAX/AVG 변화량 예측
+    - 타겟: [MIN 변화량, MAX 변화량, AVG 변화량]
+    - 큰 변화 기준: ±50
+    - 멀티아웃풋 예측
     """
     print("="*80)
-    print("🎯 변화량 예측 모델: 30분 시퀀스 → 10분 후 변화량")
+    print("🎯 변화량 예측 모델: MIN / MAX / AVG 동시 예측")
     print("="*80)
    
     FEATURE_COLS = {
@@ -36,13 +36,14 @@ def train_change_prediction_version():
    
     TARGET_COL = 'CURRENT_M16A_3F_JOB_2'
    
-    def create_features_change(df, start_idx=30):
-        """30분 시퀀스 → 10분 후 변화량 Feature 생성"""
+    def create_features_multi_change(df, start_idx=30):
+        """30분 시퀀스 → 10분 후 MIN/MAX/AVG 변화량 Feature 생성"""
         features_list = []
-        labels = []  # 변화량!
+        labels = []  # [MIN 변화량, MAX 변화량, AVG 변화량]
         current_values = []
-        future_values = []
-        changes = []
+        future_min_values = []
+        future_max_values = []
+        future_avg_values = []
         indices = []
        
         for i in range(start_idx, len(df) - 10):
@@ -51,11 +52,16 @@ def train_change_prediction_version():
             # 현재값 (시퀀스 마지막)
             current_value = seq_target[-1]
            
-            # 🎯 정확히 10분 후 시점의 값
-            future_value = df[TARGET_COL].iloc[i+10]
+            # 🎯 10분 구간의 MIN, MAX, AVG
+            future_10min = df[TARGET_COL].iloc[i:i+10].values
+            future_min = np.min(future_10min)
+            future_max = np.max(future_10min)
+            future_avg = np.mean(future_10min)
            
-            # 🎯 변화량 = 미래 - 현재
-            change = future_value - current_value
+            # 🎯 각각의 변화량
+            change_min = future_min - current_value
+            change_max = future_max - current_value
+            change_avg = future_avg - current_value
            
             # 타겟 기본 통계
             features = {
@@ -162,16 +168,18 @@ def train_change_prediction_version():
             ) else 0
            
             features_list.append(features)
-            labels.append(change)  # 🎯 변화량!
+            labels.append([change_min, change_max, change_avg])  # 🎯 3개 타겟!
             current_values.append(current_value)
-            future_values.append(future_value)
-            changes.append(change)
+            future_min_values.append(future_min)
+            future_max_values.append(future_max)
+            future_avg_values.append(future_avg)
             indices.append(i)
        
-        return pd.DataFrame(features_list), np.array(labels), current_values, future_values, changes, indices
+        return (pd.DataFrame(features_list), np.array(labels), 
+                current_values, future_min_values, future_max_values, future_avg_values, indices)
    
     # ===== 1. 학습 =====
-    print("\n[STEP 1] 데이터 학습 (30시퀀스 → 10분 후 변화량 예측)")
+    print("\n[STEP 1] 데이터 학습 (30시퀀스 → 10분 후 MIN/MAX/AVG 변화량)")
     print("-"*40)
    
     try:
@@ -188,35 +196,32 @@ def train_change_prediction_version():
     print(f"학습 데이터: {len(df_train)}개 행")
    
     # Feature 생성
-    X_train, y_train, current_vals, future_vals, changes, _ = create_features_change(df_train)
+    X_train, y_train, current_vals, min_vals, max_vals, avg_vals, _ = create_features_multi_change(df_train)
    
     print(f"\n✅ Feature 생성 완료:")
     print(f"  - 총 Feature: {len(X_train.columns)}개")
     print(f"  - 학습 샘플: {len(X_train)}개")
-    print(f"  - Momentum Feature: 4개")
+    print(f"  - 타겟: [MIN 변화량, MAX 변화량, AVG 변화량]")
    
     # 변화량 통계
-    changes_array = np.array(changes)
     print(f"\n📊 변화량 통계:")
-    print(f"  - 평균: {np.mean(changes_array):.2f}")
-    print(f"  - 표준편차: {np.std(changes_array):.2f}")
-    print(f"  - 최소: {np.min(changes_array):.2f}")
-    print(f"  - 최대: {np.max(changes_array):.2f}")
-    print(f"  - 중앙값: {np.median(changes_array):.2f}")
-   
-    positive_changes = sum(1 for c in changes if c > 0)
-    negative_changes = sum(1 for c in changes if c < 0)
-    zero_changes = sum(1 for c in changes if c == 0)
-   
-    print(f"\n  - 상승 케이스 (+): {positive_changes}개 ({positive_changes/len(changes)*100:.1f}%)")
-    print(f"  - 하락 케이스 (-): {negative_changes}개 ({negative_changes/len(changes)*100:.1f}%)")
-    print(f"  - 유지 케이스 (0): {zero_changes}개 ({zero_changes/len(changes)*100:.1f}%)")
-   
-    large_increase = sum(1 for c in changes if c >= 25)
-    large_decrease = sum(1 for c in changes if c <= -25)
-   
-    print(f"\n  - 큰 상승 (+25 이상): {large_increase}개 ({large_increase/len(changes)*100:.1f}%)")
-    print(f"  - 큰 하락 (-25 이하): {large_decrease}개 ({large_decrease/len(changes)*100:.1f}%)")
+    for idx, name in enumerate(['MIN', 'MAX', 'AVG']):
+        changes = y_train[:, idx]
+        print(f"\n  {name} 변화량:")
+        print(f"    - 평균: {np.mean(changes):.2f}")
+        print(f"    - 표준편차: {np.std(changes):.2f}")
+        print(f"    - 최소: {np.min(changes):.2f}")
+        print(f"    - 최대: {np.max(changes):.2f}")
+       
+        positive = sum(1 for c in changes if c > 0)
+        negative = sum(1 for c in changes if c < 0)
+        large_inc = sum(1 for c in changes if c >= 50)
+        large_dec = sum(1 for c in changes if c <= -50)
+       
+        print(f"    - 상승 (+): {positive}개 ({positive/len(changes)*100:.1f}%)")
+        print(f"    - 하락 (-): {negative}개 ({negative/len(changes)*100:.1f}%)")
+        print(f"    - 큰 상승 (+50 이상): {large_inc}개 ({large_inc/len(changes)*100:.1f}%)")
+        print(f"    - 큰 하락 (-50 이하): {large_dec}개 ({large_dec/len(changes)*100:.1f}%)")
    
     # 학습/검증 분할
     X_tr, X_val, y_tr, y_val = train_test_split(
@@ -232,16 +237,16 @@ def train_change_prediction_version():
             n_estimators=5, max_depth=3, random_state=42,
             tree_method='gpu_hist', gpu_id=0
         )
-        test_model.fit(X_tr[:100], y_tr[:100], verbose=False)
+        test_model.fit(X_tr[:100], y_tr[:100, 0], verbose=False)
         use_gpu = True
         print("  ✅ GPU 모드\n")
     except:
         print("  ⚠️ CPU 모드\n")
         use_gpu = False
    
-    # 모델 생성
+    # 멀티아웃풋 모델 생성
     if use_gpu:
-        model = xgb.XGBRegressor(
+        base_model = xgb.XGBRegressor(
             n_estimators=250,
             max_depth=8,
             learning_rate=0.03,
@@ -257,7 +262,7 @@ def train_change_prediction_version():
             predictor='gpu_predictor'
         )
     else:
-        model = xgb.XGBRegressor(
+        base_model = xgb.XGBRegressor(
             n_estimators=250,
             max_depth=8,
             learning_rate=0.03,
@@ -272,31 +277,32 @@ def train_change_prediction_version():
             n_jobs=-1
         )
    
-    print("모델 학습 중 (변화량 예측)...")
-    model.fit(X_tr, y_tr, eval_set=[(X_val, y_val)], verbose=False)
+    model = MultiOutputRegressor(base_model)
+   
+    print("모델 학습 중 (MIN/MAX/AVG 변화량 동시 예측)...")
+    model.fit(X_tr, y_tr)
    
     # 평가
     y_val_pred = model.predict(X_val)
-    train_mae = mean_absolute_error(y_val, y_val_pred)
-    train_rmse = np.sqrt(mean_squared_error(y_val, y_val_pred))
-    train_r2 = r2_score(y_val, y_val_pred)
-   
+    
     print(f"\n학습 성능:")
-    print(f"  MAE:  {train_mae:.4f}")
-    print(f"  RMSE: {train_rmse:.4f}")
-    print(f"  R²:   {train_r2:.4f}")
+    for idx, name in enumerate(['MIN', 'MAX', 'AVG']):
+        mae = mean_absolute_error(y_val[:, idx], y_val_pred[:, idx])
+        rmse = np.sqrt(mean_squared_error(y_val[:, idx], y_val_pred[:, idx]))
+        r2 = r2_score(y_val[:, idx], y_val_pred[:, idx])
+        print(f"  {name} - MAE: {mae:.4f}, RMSE: {rmse:.4f}, R²: {r2:.4f}")
    
     # 모델 저장
-    model_filename = 'xgboost_변화량예측_30min_10min.pkl'
+    model_filename = 'xgboost_변화량예측_MIN_MAX_AVG.pkl'
     with open(model_filename, 'wb') as f:
         pickle.dump(model, f)
-    print(f"✅ 모델 저장: {model_filename}")
+    print(f"\n✅ 모델 저장: {model_filename}")
    
-    # Feature 중요도
+    # Feature 중요도 (첫 번째 모델 기준)
     print("\n🔥 Feature 중요도 Top 35:")
     feature_importance = pd.DataFrame({
         'feature': X_train.columns,
-        'importance': model.feature_importances_
+        'importance': model.estimators_[0].feature_importances_
     }).sort_values('importance', ascending=False).head(35)
    
     for idx, row in feature_importance.iterrows():
@@ -315,108 +321,89 @@ def train_change_prediction_version():
         print(f"{marker} {row['feature']}: {row['importance']:.4f}")
    
     # ===== 2. 평가 =====
-    print("\n[STEP 2] 평가 (변화량 예측)")
+    print("\n[STEP 2] 평가 (MIN/MAX/AVG 변화량)")
     print("-"*40)
    
     split_idx = int(len(df_train) * 0.8)
     df_test = df_train.iloc[split_idx:].copy()
    
-    X_test, y_test, current_vals_test, future_vals_test, changes_test, _ = create_features_change(df_test, start_idx=30)
+    X_test, y_test, current_vals_test, min_vals_test, max_vals_test, avg_vals_test, _ = create_features_multi_change(df_test, start_idx=30)
    
     y_pred = model.predict(X_test)
    
-    test_mae = mean_absolute_error(y_test, y_pred)
-    test_rmse = np.sqrt(mean_squared_error(y_test, y_pred))
-    test_r2 = r2_score(y_test, y_pred)
-   
     print(f"\n평가 성능:")
-    print(f"  MAE:  {test_mae:.4f}")
-    print(f"  RMSE: {test_rmse:.4f}")
-    print(f"  R²:   {test_r2:.4f}")
-   
-    # 변화량 예측 정확도 분석
-    print(f"\n📊 변화량 예측 정확도:")
-    
-    # 방향 정확도 (부호 일치)
-    direction_correct = sum(1 for i in range(len(y_test)) 
-                           if (y_test[i] > 0 and y_pred[i] > 0) or 
-                              (y_test[i] < 0 and y_pred[i] < 0) or
-                              (y_test[i] == 0 and abs(y_pred[i]) < 5))
-    direction_accuracy = direction_correct / len(y_test) * 100
-    print(f"  - 방향 정확도: {direction_correct}/{len(y_test)}개 ({direction_accuracy:.1f}%)")
-   
-    # 큰 변화 예측 성능
-    large_increase_actual = sum(1 for c in y_test if c >= 25)
-    large_increase_predicted = sum(1 for i in range(len(y_test)) if y_test[i] >= 25 and y_pred[i] >= 20)
-    
-    large_decrease_actual = sum(1 for c in y_test if c <= -25)
-    large_decrease_predicted = sum(1 for i in range(len(y_test)) if y_test[i] <= -25 and y_pred[i] <= -20)
-   
-    print(f"\n  - 큰 상승 (+25 이상) 감지:")
-    print(f"    발생: {large_increase_actual}개")
-    print(f"    감지: {large_increase_predicted}/{large_increase_actual}개 ({large_increase_predicted/large_increase_actual*100 if large_increase_actual > 0 else 0:.1f}%)")
-   
-    print(f"\n  - 큰 하락 (-25 이하) 감지:")
-    print(f"    발생: {large_decrease_actual}개")
-    print(f"    감지: {large_decrease_predicted}/{large_decrease_actual}개 ({large_decrease_predicted/large_decrease_actual*100 if large_decrease_actual > 0 else 0:.1f}%)")
+    for idx, name in enumerate(['MIN', 'MAX', 'AVG']):
+        mae = mean_absolute_error(y_test[:, idx], y_pred[:, idx])
+        rmse = np.sqrt(mean_squared_error(y_test[:, idx], y_pred[:, idx]))
+        r2 = r2_score(y_test[:, idx], y_pred[:, idx])
+        print(f"  {name} - MAE: {mae:.4f}, RMSE: {rmse:.4f}, R²: {r2:.4f}")
    
     # 결과 저장
     results = []
     for i in range(len(y_test)):
-        actual_change = y_test[i]
-        predicted_change = y_pred[i]
         current_val = current_vals_test[i]
-        future_val = future_vals_test[i]
         
-        predicted_future = current_val + predicted_change
+        # 실제값
+        actual_min = min_vals_test[i]
+        actual_max = max_vals_test[i]
+        actual_avg = avg_vals_test[i]
         
-        direction_match = (
-            (actual_change > 0 and predicted_change > 0) or
-            (actual_change < 0 and predicted_change < 0) or
-            (abs(actual_change) < 5 and abs(predicted_change) < 5)
-        )
+        # 실제 변화량
+        actual_change_min = y_test[i, 0]
+        actual_change_max = y_test[i, 1]
+        actual_change_avg = y_test[i, 2]
+        
+        # 예측 변화량
+        pred_change_min = y_pred[i, 0]
+        pred_change_max = y_pred[i, 1]
+        pred_change_avg = y_pred[i, 2]
+        
+        # 예측값
+        pred_min = current_val + pred_change_min
+        pred_max = current_val + pred_change_max
+        pred_avg = current_val + pred_change_avg
         
         results.append({
             '현재값': round(current_val, 2),
-            '실제_미래값': round(future_val, 2),
-            '실제_변화량': round(actual_change, 2),
-            '예측_변화량': round(predicted_change, 2),
-            '예측_미래값': round(predicted_future, 2),
-            '변화량_오차': round(abs(actual_change - predicted_change), 2),
-            '방향_일치': '✅' if direction_match else '❌',
-            '큰상승_실제': '✅' if actual_change >= 25 else '',
-            '큰상승_예측': '✅' if predicted_change >= 20 else '',
-            '큰하락_실제': '✅' if actual_change <= -25 else '',
-            '큰하락_예측': '✅' if predicted_change <= -20 else ''
+            '실제_MIN': round(actual_min, 2),
+            '실제_MAX': round(actual_max, 2),
+            '실제_AVG': round(actual_avg, 2),
+            '실제_변화량_MIN': round(actual_change_min, 2),
+            '실제_변화량_MAX': round(actual_change_max, 2),
+            '실제_변화량_AVG': round(actual_change_avg, 2),
+            '예측_변화량_MIN': round(pred_change_min, 2),
+            '예측_변화량_MAX': round(pred_change_max, 2),
+            '예측_변화량_AVG': round(pred_change_avg, 2),
+            '예측값_MIN': round(pred_min, 2),
+            '예측값_MAX': round(pred_max, 2),
+            '예측값_AVG': round(pred_avg, 2),
+            '오차_MIN': round(abs(actual_change_min - pred_change_min), 2),
+            '오차_MAX': round(abs(actual_change_max - pred_change_max), 2),
+            '오차_AVG': round(abs(actual_change_avg - pred_change_avg), 2),
         })
    
     df_results = pd.DataFrame(results)
-    output_filename = '변화량예측_결과.csv'
+    output_filename = '변화량예측_MIN_MAX_AVG_결과.csv'
     df_results.to_csv(output_filename, index=False, encoding='utf-8-sig')
     print(f"\n✅ 결과 저장: {output_filename}")
    
     # 최종 요약
     print("\n" + "="*80)
-    print("📊 최종 요약 (변화량 예측 모델)")
+    print("📊 최종 요약 (MIN/MAX/AVG 변화량 예측)")
     print("="*80)
    
     print(f"\n1. 모델 설정:")
     print(f"   - 시퀀스: 30분")
-    print(f"   - 예측: 10분 후 변화량")
-    print(f"   - 타겟: 미래값 - 현재값")
+    print(f"   - 예측: 10분 구간의 MIN/MAX/AVG 변화량")
+    print(f"   - 큰 변화 기준: ±50")
     print(f"   - Momentum Feature 포함")
    
     print(f"\n2. 성능:")
-    print(f"   - 학습 MAE: {train_mae:.2f}")
-    print(f"   - 평가 MAE: {test_mae:.2f}")
-    print(f"   - R²: {test_r2:.3f}")
-    print(f"   - 방향 정확도: {direction_accuracy:.1f}%")
-   
-    print(f"\n3. 큰 변화 감지 성능:")
-    print(f"   - 큰 상승 (+25 이상): {large_increase_predicted}/{large_increase_actual}개")
-    print(f"   - 큰 하락 (-25 이하): {large_decrease_predicted}/{large_decrease_actual}개")
+    for idx, name in enumerate(['MIN', 'MAX', 'AVG']):
+        mae = mean_absolute_error(y_test[:, idx], y_pred[:, idx])
+        print(f"   {name} - MAE: {mae:.2f}")
    
     return model, df_results, feature_importance
 
 if __name__ == '__main__':
-    model, results, importance = train_change_prediction_version()
+    model, results, importance = train_multi_change_prediction()
