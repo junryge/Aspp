@@ -3,14 +3,14 @@ import pandas as pd
 import pickle
 from datetime import datetime, timedelta
 
-def evaluate_change_prediction():
+def evaluate_multi_change_prediction():
     """
-    🎯 변화량 예측 모델 평가
-    - 현재값, 정확히 10분 후 실제값, 실제 변화량, 예측 변화량 분석
-    - 10분 후 시점의 값 기준으로 평가
+    🎯 MIN/MAX/AVG 변화량 예측 모델 평가
+    - 10분 구간의 MIN, MAX, AVG 각각 평가
+    - 큰 변화 기준: ±50
     """
     print("="*80)
-    print("🎯 변화량 예측 모델 평가")
+    print("🎯 MIN/MAX/AVG 변화량 예측 모델 평가")
     print("="*80)
    
     FEATURE_COLS = {
@@ -25,12 +25,12 @@ def evaluate_change_prediction():
    
     # 모델 로드
     try:
-        with open('xgboost_변화량예측_30min_10min.pkl', 'rb') as f:
+        with open('xgboost_변화량예측_MIN_MAX_AVG.pkl', 'rb') as f:
             model = pickle.load(f)
-        print("✅ 모델 로드 완료: xgboost_변화량예측_30min_10min.pkl")
+        print("✅ 모델 로드 완료: xgboost_변화량예측_MIN_MAX_AVG.pkl")
     except Exception as e:
         print(f"❌ 모델 파일 없음: {e}")
-        print("   먼저 'V7_변화량예측_학습코드.py'를 실행하세요.")
+        print("   먼저 'V7_변화량예측_MIN_MAX_AVG_학습코드.py'를 실행하세요.")
         return None
    
     # 데이터 로드
@@ -59,23 +59,27 @@ def evaluate_change_prediction():
    
     results = []
    
-    print("\n슬라이딩 윈도우 평가 시작 (변화량 예측)...")
+    print("\n슬라이딩 윈도우 평가 시작 (MIN/MAX/AVG 변화량)...")
     
-    # ✅ 10분 후 데이터도 필요하므로 len(df) - 10까지만!
+    # ✅ 10분 후 데이터 필요
     for i in range(30, len(df) - 10):
         seq_data = df.iloc[i-30:i].copy()
         seq_target = seq_data[TARGET_COL].values
        
         current_time = seq_data['STAT_DT'].iloc[-1]
-        current_value = seq_target[-1]  # 현재값 (시퀀스 마지막)
-        
-        # 🎯 정확히 10분 후 시점의 실제값
-        future_value = df[TARGET_COL].iloc[i+10]
+        current_value = seq_target[-1]
+        prediction_time = current_time + timedelta(minutes=10)
+       
+        # 🎯 10분 구간의 MIN, MAX, AVG
+        future_10min = df[TARGET_COL].iloc[i:i+10].values
+        actual_min = np.min(future_10min)
+        actual_max = np.max(future_10min)
+        actual_avg = np.mean(future_10min)
         
         # 🎯 실제 변화량
-        actual_change = future_value - current_value
-        
-        prediction_time = current_time + timedelta(minutes=10)
+        actual_change_min = actual_min - current_value
+        actual_change_max = actual_max - current_value
+        actual_change_avg = actual_avg - current_value
        
         # Feature 생성 (학습 코드와 동일!)
         features = {
@@ -211,53 +215,64 @@ def evaluate_change_prediction():
        
         X_pred = pd.DataFrame([features])
        
-        # 🎯 예측 (변화량!)
-        predicted_change = model.predict(X_pred)[0]
+        # 🎯 예측 (변화량 3개!)
+        predictions = model.predict(X_pred)[0]
+        pred_change_min = predictions[0]
+        pred_change_max = predictions[1]
+        pred_change_avg = predictions[2]
         
-        # 🎯 예측 미래값 = 현재값 + 예측 변화량
-        predicted_future = current_value + predicted_change
+        # 🎯 예측값 = 현재값 + 예측 변화량
+        pred_min = current_value + pred_change_min
+        pred_max = current_value + pred_change_max
+        pred_avg = current_value + pred_change_avg
         
         # 방향 일치 여부
-        direction_match = (
-            (actual_change > 0 and predicted_change > 0) or
-            (actual_change < 0 and predicted_change < 0) or
-            (abs(actual_change) < 5 and abs(predicted_change) < 5)
+        direction_match_min = (
+            (actual_change_min > 0 and pred_change_min > 0) or
+            (actual_change_min < 0 and pred_change_min < 0) or
+            (abs(actual_change_min) < 5 and abs(pred_change_min) < 5)
         )
-        
-        # 변화 유형 판별
-        change_type = "유지"
-        if actual_change >= 25:
-            change_type = "큰상승"
-        elif actual_change >= 10:
-            change_type = "상승"
-        elif actual_change <= -25:
-            change_type = "큰하락"
-        elif actual_change <= -10:
-            change_type = "하락"
-        
-        # 예측 정확도
-        pred_accuracy = "정확" if abs(actual_change - predicted_change) <= 10 else "오차"
-        if abs(actual_change - predicted_change) > 20:
-            pred_accuracy = "큰오차"
+        direction_match_max = (
+            (actual_change_max > 0 and pred_change_max > 0) or
+            (actual_change_max < 0 and pred_change_max < 0) or
+            (abs(actual_change_max) < 5 and abs(pred_change_max) < 5)
+        )
+        direction_match_avg = (
+            (actual_change_avg > 0 and pred_change_avg > 0) or
+            (actual_change_avg < 0 and pred_change_avg < 0) or
+            (abs(actual_change_avg) < 5 and abs(pred_change_avg) < 5)
+        )
        
         results.append({
             '현재시간': current_time.strftime('%Y-%m-%d %H:%M'),
             '예측시점': prediction_time.strftime('%Y-%m-%d %H:%M'),
             '현재값': round(current_value, 2),
-            '실제_변화량': round(actual_change, 2),
-            '10분후_실제값': round(future_value, 2),
-            '예측_변화량': round(predicted_change, 2),
-            '예측값': round(predicted_future, 2),
-            '변화량_오차': round(abs(actual_change - predicted_change), 2),
-            '예측값_오차': round(abs(future_value - predicted_future), 2),
-            '방향_일치': '✅' if direction_match else '❌',
-            '변화_유형': change_type,
-            '예측_정확도': pred_accuracy,
+            # MIN
+            '실제_MIN': round(actual_min, 2),
+            '실제_변화량_MIN': round(actual_change_min, 2),
+            '예측_변화량_MIN': round(pred_change_min, 2),
+            '예측값_MIN': round(pred_min, 2),
+            '오차_MIN': round(abs(actual_change_min - pred_change_min), 2),
+            '방향일치_MIN': '✅' if direction_match_min else '❌',
+            # MAX
+            '실제_MAX': round(actual_max, 2),
+            '실제_변화량_MAX': round(actual_change_max, 2),
+            '예측_변화량_MAX': round(pred_change_max, 2),
+            '예측값_MAX': round(pred_max, 2),
+            '오차_MAX': round(abs(actual_change_max - pred_change_max), 2),
+            '방향일치_MAX': '✅' if direction_match_max else '❌',
+            # AVG
+            '실제_AVG': round(actual_avg, 2),
+            '실제_변화량_AVG': round(actual_change_avg, 2),
+            '예측_변화량_AVG': round(pred_change_avg, 2),
+            '예측값_AVG': round(pred_avg, 2),
+            '오차_AVG': round(abs(actual_change_avg - pred_change_avg), 2),
+            '방향일치_AVG': '✅' if direction_match_avg else '❌',
+            # 기타
             '시퀀스MAX': round(np.max(seq_target), 2),
             'HUBROOMTOTAL': round(features.get('HUBROOMTOTAL_last_value', 0), 0),
             'FS_UTIL': round(features.get('CD_M163FSTORAGEUTIL_last_value', 0), 0),
             'CMD': round(features.get('total_cmd', 0), 0),
-            'STORAGE_UTIL': round(features.get('M16A_3F_STORAGE_UTIL_last_value', 0), 0),
             'Momentum가속': round(features.get('target_acceleration', 0), 2),
         })
        
@@ -266,77 +281,59 @@ def evaluate_change_prediction():
    
     results_df = pd.DataFrame(results)
    
-    output_file = '변화량예측_평가결과.csv'
+    output_file = '변화량예측_MIN_MAX_AVG_평가결과.csv'
     results_df.to_csv(output_file, index=False, encoding='utf-8-sig')
     print(f"\n✅ 결과 저장: {output_file}")
    
     # 통계
     print("\n" + "="*80)
-    print("📊 평가 통계 (변화량 예측)")
+    print("📊 평가 통계 (MIN/MAX/AVG 변화량)")
     print("="*80)
    
     print(f"총 예측: {len(results_df)}개")
-    print(f"평균 변화량 오차: {results_df['변화량_오차'].mean():.2f}")
-    print(f"평균 미래값 오차: {results_df['미래값_오차'].mean():.2f}")
    
-    # 방향 정확도
-    direction_correct = (results_df['방향_일치'] == '✅').sum()
-    direction_accuracy = direction_correct / len(results_df) * 100
-    print(f"\n🎯 방향 정확도: {direction_correct}/{len(results_df)}개 ({direction_accuracy:.1f}%)")
+    # 각 타입별 통계
+    for target_type in ['MIN', 'MAX', 'AVG']:
+        print(f"\n🎯 {target_type} 변화량:")
+        
+        error_col = f'오차_{target_type}'
+        direction_col = f'방향일치_{target_type}'
+        actual_col = f'실제_변화량_{target_type}'
+        pred_col = f'예측_변화량_{target_type}'
+        
+        avg_error = results_df[error_col].mean()
+        direction_correct = (results_df[direction_col] == '✅').sum()
+        direction_accuracy = direction_correct / len(results_df) * 100
+        
+        print(f"  - 평균 오차: {avg_error:.2f}")
+        print(f"  - 방향 정확도: {direction_correct}/{len(results_df)}개 ({direction_accuracy:.1f}%)")
+        
+        # 큰 변화 감지 (기준: ±50)
+        large_increase = results_df[results_df[actual_col] >= 50]
+        if len(large_increase) > 0:
+            detected_increase = large_increase[large_increase[pred_col] >= 40]
+            print(f"  - 큰 상승 (+50 이상):")
+            print(f"    발생: {len(large_increase)}개")
+            print(f"    감지 (+40 이상): {len(detected_increase)}개 ({len(detected_increase)/len(large_increase)*100:.1f}%)")
+        
+        large_decrease = results_df[results_df[actual_col] <= -50]
+        if len(large_decrease) > 0:
+            detected_decrease = large_decrease[large_decrease[pred_col] <= -40]
+            print(f"  - 큰 하락 (-50 이하):")
+            print(f"    발생: {len(large_decrease)}개")
+            print(f"    감지 (-40 이하): {len(detected_decrease)}개 ({len(detected_decrease)/len(large_decrease)*100:.1f}%)")
    
-    # 변화 유형별 통계
-    print(f"\n📊 변화 유형별 분석:")
-    for change_type in ['큰상승', '상승', '유지', '하락', '큰하락']:
-        type_df = results_df[results_df['변화_유형'] == change_type]
-        if len(type_df) > 0:
-            direction_ok = (type_df['방향_일치'] == '✅').sum()
-            accurate = (type_df['예측_정확도'] == '정확').sum()
-            print(f"  {change_type}: {len(type_df)}개 - 방향일치 {direction_ok}개 ({direction_ok/len(type_df)*100:.1f}%) - 정확 {accurate}개 ({accurate/len(type_df)*100:.1f}%)")
-   
-    # 큰 변화 감지 성능
-    print(f"\n🔥 큰 변화 감지 성능:")
-    
-    # 큰 상승 (+25 이상)
-    large_increase = results_df[results_df['실제_변화량'] >= 25]
-    if len(large_increase) > 0:
-        detected_increase = large_increase[large_increase['예측_변화량'] >= 20]
-        print(f"  큰 상승 (+25 이상):")
-        print(f"    발생: {len(large_increase)}개 ({len(large_increase)/len(results_df)*100:.1f}%)")
-        print(f"    감지 (+20 이상): {len(detected_increase)}개 ({len(detected_increase)/len(large_increase)*100:.1f}%)")
-    
-    # 큰 하락 (-25 이하)
-    large_decrease = results_df[results_df['실제_변화량'] <= -25]
-    if len(large_decrease) > 0:
-        detected_decrease = large_decrease[large_decrease['예측_변화량'] <= -20]
-        print(f"  큰 하락 (-25 이하):")
-        print(f"    발생: {len(large_decrease)}개 ({len(large_decrease)/len(results_df)*100:.1f}%)")
-        print(f"    감지 (-20 이하): {len(detected_decrease)}개 ({len(detected_decrease)/len(large_decrease)*100:.1f}%)")
-   
-    # 정확도 분포
-    print(f"\n📈 예측 정확도 분포:")
-    for accuracy in ['정확', '오차', '큰오차']:
-        acc_df = results_df[results_df['예측_정확도'] == accuracy]
-        print(f"  {accuracy}: {len(acc_df)}개 ({len(acc_df)/len(results_df)*100:.1f}%)")
-   
-    # 오차 상위 10개
-    print(f"\n❌ 변화량 오차 상위 10개:")
-    top_errors = results_df.nlargest(10, '변화량_오차')
-    print(top_errors[['현재시간', '현재값', '실제_변화량', '예측_변화량', '변화량_오차', '변화_유형', 'HUBROOMTOTAL']].to_string(index=False))
-   
-    # 큰 상승 예측 실패 케이스
-    if len(large_increase) > 0:
-        failed_increase = large_increase[large_increase['예측_변화량'] < 20]
-        if len(failed_increase) > 0:
-            print(f"\n❌ 큰 상승 예측 실패 케이스 (상위 10개):")
-            failed_top = failed_increase.nsmallest(10, '예측_변화량')
-            print(failed_top[['현재시간', '현재값', '실제_변화량', '예측_변화량', 'HUBROOMTOTAL', 'CMD', 'Momentum가속']].to_string(index=False))
+    # 오차 상위 10개 (MAX 기준)
+    print(f"\n❌ MAX 변화량 오차 상위 10개:")
+    top_errors = results_df.nlargest(10, '오차_MAX')
+    print(top_errors[['현재시간', '현재값', '실제_변화량_MAX', '예측_변화량_MAX', '오차_MAX', 'HUBROOMTOTAL']].to_string(index=False))
    
     return results_df
 
 if __name__ == '__main__':
-    print("🚀 변화량 예측 모델 평가 시작...\n")
-    results = evaluate_change_prediction()
+    print("🚀 MIN/MAX/AVG 변화량 예측 모델 평가 시작...\n")
+    results = evaluate_multi_change_prediction()
    
     if results is not None:
         print(f"\n✅ 평가 완료! 총 {len(results)}개 예측")
-        print(f"📁 결과: 변화량예측_평가결과.csv")
+        print(f"📁 결과: 변화량예측_MIN_MAX_AVG_평가결과.csv")
