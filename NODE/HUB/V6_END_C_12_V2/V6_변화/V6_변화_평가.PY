@@ -70,16 +70,17 @@ def evaluate_multi_change_prediction():
         current_value = seq_target[-1]
         prediction_time = current_time + timedelta(minutes=10)
        
-        # 🎯 10분 구간의 MIN, MAX, AVG
+        # 🎯 정확히 10분 후 실제값 (1개!)
+        actual_value = df[TARGET_COL].iloc[i+10]
+        
+        # 🎯 실제 변화량 (1개!)
+        actual_change = actual_value - current_value
+        
+        # 🎯 10분 구간의 MIN, MAX, AVG (참고용)
         future_10min = df[TARGET_COL].iloc[i:i+10].values
         actual_min = np.min(future_10min)
         actual_max = np.max(future_10min)
         actual_avg = np.mean(future_10min)
-        
-        # 🎯 실제 변화량
-        actual_change_min = actual_min - current_value
-        actual_change_max = actual_max - current_value
-        actual_change_avg = actual_avg - current_value
        
         # Feature 생성 (학습 코드와 동일!)
         features = {
@@ -226,47 +227,47 @@ def evaluate_multi_change_prediction():
         pred_max = current_value + pred_change_max
         pred_avg = current_value + pred_change_avg
         
-        # 방향 일치 여부
+        # 방향 일치 여부 (실제 변화량 1개 vs 예측 변화량 3개)
         direction_match_min = (
-            (actual_change_min > 0 and pred_change_min > 0) or
-            (actual_change_min < 0 and pred_change_min < 0) or
-            (abs(actual_change_min) < 5 and abs(pred_change_min) < 5)
+            (actual_change > 0 and pred_change_min > 0) or
+            (actual_change < 0 and pred_change_min < 0) or
+            (abs(actual_change) < 5 and abs(pred_change_min) < 5)
         )
         direction_match_max = (
-            (actual_change_max > 0 and pred_change_max > 0) or
-            (actual_change_max < 0 and pred_change_max < 0) or
-            (abs(actual_change_max) < 5 and abs(pred_change_max) < 5)
+            (actual_change > 0 and pred_change_max > 0) or
+            (actual_change < 0 and pred_change_max < 0) or
+            (abs(actual_change) < 5 and abs(pred_change_max) < 5)
         )
         direction_match_avg = (
-            (actual_change_avg > 0 and pred_change_avg > 0) or
-            (actual_change_avg < 0 and pred_change_avg < 0) or
-            (abs(actual_change_avg) < 5 and abs(pred_change_avg) < 5)
+            (actual_change > 0 and pred_change_avg > 0) or
+            (actual_change < 0 and pred_change_avg < 0) or
+            (abs(actual_change) < 5 and abs(pred_change_avg) < 5)
         )
        
         results.append({
             '현재시간': current_time.strftime('%Y-%m-%d %H:%M'),
             '예측시점': prediction_time.strftime('%Y-%m-%d %H:%M'),
             '현재값': round(current_value, 2),
-            # MIN
-            '실제_MIN': round(actual_min, 2),
-            '실제_변화량_MIN': round(actual_change_min, 2),
+            '실제값': round(actual_value, 2),
+            '실제_변화량': round(actual_change, 2),
+            # 구간 참고 정보
+            '구간_MIN': round(actual_min, 2),
+            '구간_MAX': round(actual_max, 2),
+            '구간_AVG': round(actual_avg, 2),
+            # MIN 예측
             '예측_변화량_MIN': round(pred_change_min, 2),
             '예측값_MIN': round(pred_min, 2),
-            '오차_MIN': round(abs(actual_change_min - pred_change_min), 2),
+            '오차_MIN': round(abs(actual_change - pred_change_min), 2),
             '방향일치_MIN': '✅' if direction_match_min else '❌',
-            # MAX
-            '실제_MAX': round(actual_max, 2),
-            '실제_변화량_MAX': round(actual_change_max, 2),
+            # MAX 예측
             '예측_변화량_MAX': round(pred_change_max, 2),
             '예측값_MAX': round(pred_max, 2),
-            '오차_MAX': round(abs(actual_change_max - pred_change_max), 2),
+            '오차_MAX': round(abs(actual_change - pred_change_max), 2),
             '방향일치_MAX': '✅' if direction_match_max else '❌',
-            # AVG
-            '실제_AVG': round(actual_avg, 2),
-            '실제_변화량_AVG': round(actual_change_avg, 2),
+            # AVG 예측
             '예측_변화량_AVG': round(pred_change_avg, 2),
             '예측값_AVG': round(pred_avg, 2),
-            '오차_AVG': round(abs(actual_change_avg - pred_change_avg), 2),
+            '오차_AVG': round(abs(actual_change - pred_change_avg), 2),
             '방향일치_AVG': '✅' if direction_match_avg else '❌',
             # 기타
             '시퀀스MAX': round(np.max(seq_target), 2),
@@ -294,11 +295,10 @@ def evaluate_multi_change_prediction():
    
     # 각 타입별 통계
     for target_type in ['MIN', 'MAX', 'AVG']:
-        print(f"\n🎯 {target_type} 변화량:")
+        print(f"\n🎯 {target_type} 예측 성능:")
         
         error_col = f'오차_{target_type}'
         direction_col = f'방향일치_{target_type}'
-        actual_col = f'실제_변화량_{target_type}'
         pred_col = f'예측_변화량_{target_type}'
         
         avg_error = results_df[error_col].mean()
@@ -308,25 +308,25 @@ def evaluate_multi_change_prediction():
         print(f"  - 평균 오차: {avg_error:.2f}")
         print(f"  - 방향 정확도: {direction_correct}/{len(results_df)}개 ({direction_accuracy:.1f}%)")
         
-        # 큰 변화 감지 (기준: ±50)
-        large_increase = results_df[results_df[actual_col] >= 50]
+        # 큰 변화 감지 (기준: 실제 변화량 ±50)
+        large_increase = results_df[results_df['실제_변화량'] >= 50]
         if len(large_increase) > 0:
             detected_increase = large_increase[large_increase[pred_col] >= 40]
-            print(f"  - 큰 상승 (+50 이상):")
+            print(f"  - 큰 상승 (+50 이상) 감지:")
             print(f"    발생: {len(large_increase)}개")
             print(f"    감지 (+40 이상): {len(detected_increase)}개 ({len(detected_increase)/len(large_increase)*100:.1f}%)")
         
-        large_decrease = results_df[results_df[actual_col] <= -50]
+        large_decrease = results_df[results_df['실제_변화량'] <= -50]
         if len(large_decrease) > 0:
             detected_decrease = large_decrease[large_decrease[pred_col] <= -40]
-            print(f"  - 큰 하락 (-50 이하):")
+            print(f"  - 큰 하락 (-50 이하) 감지:")
             print(f"    발생: {len(large_decrease)}개")
             print(f"    감지 (-40 이하): {len(detected_decrease)}개 ({len(detected_decrease)/len(large_decrease)*100:.1f}%)")
    
     # 오차 상위 10개 (MAX 기준)
     print(f"\n❌ MAX 변화량 오차 상위 10개:")
     top_errors = results_df.nlargest(10, '오차_MAX')
-    print(top_errors[['현재시간', '현재값', '실제_변화량_MAX', '예측_변화량_MAX', '오차_MAX', 'HUBROOMTOTAL']].to_string(index=False))
+    print(top_errors[['현재시간', '현재값', '실제값', '실제_변화량', '예측_변화량_MAX', '오차_MAX', 'HUBROOMTOTAL']].to_string(index=False))
    
     return results_df
 
