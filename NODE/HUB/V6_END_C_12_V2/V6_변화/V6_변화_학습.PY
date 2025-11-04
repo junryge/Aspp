@@ -41,6 +41,7 @@ def train_multi_change_prediction():
         features_list = []
         labels = []  # [MIN 변화량, MAX 변화량, AVG 변화량]
         current_values = []
+        future_actual_values = []  # 10분 후 실제값 (1개!)
         future_min_values = []
         future_max_values = []
         future_avg_values = []
@@ -52,13 +53,19 @@ def train_multi_change_prediction():
             # 현재값 (시퀀스 마지막)
             current_value = seq_target[-1]
            
-            # 🎯 10분 구간의 MIN, MAX, AVG
+            # 🎯 정확히 10분 후 실제값 (1개!)
+            future_actual = df[TARGET_COL].iloc[i+10]
+            
+            # 🎯 10분 구간의 MIN, MAX, AVG (예측용)
             future_10min = df[TARGET_COL].iloc[i:i+10].values
             future_min = np.min(future_10min)
             future_max = np.max(future_10min)
             future_avg = np.mean(future_10min)
            
-            # 🎯 각각의 변화량
+            # 🎯 실제 변화량 (1개!)
+            actual_change = future_actual - current_value
+            
+            # 🎯 각각의 변화량 (예측 타겟)
             change_min = future_min - current_value
             change_max = future_max - current_value
             change_avg = future_avg - current_value
@@ -170,13 +177,14 @@ def train_multi_change_prediction():
             features_list.append(features)
             labels.append([change_min, change_max, change_avg])  # 🎯 3개 타겟!
             current_values.append(current_value)
+            future_actual_values.append(future_actual)  # 🎯 실제값 1개!
             future_min_values.append(future_min)
             future_max_values.append(future_max)
             future_avg_values.append(future_avg)
             indices.append(i)
        
         return (pd.DataFrame(features_list), np.array(labels), 
-                current_values, future_min_values, future_max_values, future_avg_values, indices)
+                current_values, future_actual_values, future_min_values, future_max_values, future_avg_values, indices)
    
     # ===== 1. 학습 =====
     print("\n[STEP 1] 데이터 학습 (30시퀀스 → 10분 후 MIN/MAX/AVG 변화량)")
@@ -196,7 +204,7 @@ def train_multi_change_prediction():
     print(f"학습 데이터: {len(df_train)}개 행")
    
     # Feature 생성
-    X_train, y_train, current_vals, min_vals, max_vals, avg_vals, _ = create_features_multi_change(df_train)
+    X_train, y_train, current_vals, actual_vals, min_vals, max_vals, avg_vals, _ = create_features_multi_change(df_train)
    
     print(f"\n✅ Feature 생성 완료:")
     print(f"  - 총 Feature: {len(X_train.columns)}개")
@@ -327,7 +335,7 @@ def train_multi_change_prediction():
     split_idx = int(len(df_train) * 0.8)
     df_test = df_train.iloc[split_idx:].copy()
    
-    X_test, y_test, current_vals_test, min_vals_test, max_vals_test, avg_vals_test, _ = create_features_multi_change(df_test, start_idx=30)
+    X_test, y_test, current_vals_test, actual_vals_test, min_vals_test, max_vals_test, avg_vals_test, _ = create_features_multi_change(df_test, start_idx=30)
    
     y_pred = model.predict(X_test)
    
@@ -343,43 +351,41 @@ def train_multi_change_prediction():
     for i in range(len(y_test)):
         current_val = current_vals_test[i]
         
-        # 실제값
-        actual_min = min_vals_test[i]
-        actual_max = max_vals_test[i]
-        actual_avg = avg_vals_test[i]
+        # 🎯 실제값 (1개!)
+        actual_value = actual_vals_test[i]
+        actual_change = actual_value - current_val
         
-        # 실제 변화량
-        actual_change_min = y_test[i, 0]
-        actual_change_max = y_test[i, 1]
-        actual_change_avg = y_test[i, 2]
+        # 예측용 MIN/MAX/AVG 값
+        pred_min_val = min_vals_test[i]
+        pred_max_val = max_vals_test[i]
+        pred_avg_val = avg_vals_test[i]
         
-        # 예측 변화량
+        # 예측 변화량 (3개)
         pred_change_min = y_pred[i, 0]
         pred_change_max = y_pred[i, 1]
         pred_change_avg = y_pred[i, 2]
         
-        # 예측값
+        # 예측값 (3개)
         pred_min = current_val + pred_change_min
         pred_max = current_val + pred_change_max
         pred_avg = current_val + pred_change_avg
         
         results.append({
             '현재값': round(current_val, 2),
-            '실제_MIN': round(actual_min, 2),
-            '실제_MAX': round(actual_max, 2),
-            '실제_AVG': round(actual_avg, 2),
-            '실제_변화량_MIN': round(actual_change_min, 2),
-            '실제_변화량_MAX': round(actual_change_max, 2),
-            '실제_변화량_AVG': round(actual_change_avg, 2),
+            '실제값': round(actual_value, 2),
+            '실제_변화량': round(actual_change, 2),
+            '구간_MIN': round(pred_min_val, 2),
+            '구간_MAX': round(pred_max_val, 2),
+            '구간_AVG': round(pred_avg_val, 2),
             '예측_변화량_MIN': round(pred_change_min, 2),
             '예측_변화량_MAX': round(pred_change_max, 2),
             '예측_변화량_AVG': round(pred_change_avg, 2),
             '예측값_MIN': round(pred_min, 2),
             '예측값_MAX': round(pred_max, 2),
             '예측값_AVG': round(pred_avg, 2),
-            '오차_MIN': round(abs(actual_change_min - pred_change_min), 2),
-            '오차_MAX': round(abs(actual_change_max - pred_change_max), 2),
-            '오차_AVG': round(abs(actual_change_avg - pred_change_avg), 2),
+            '오차_MIN': round(abs(y_test[i, 0] - pred_change_min), 2),
+            '오차_MAX': round(abs(y_test[i, 1] - pred_change_max), 2),
+            '오차_AVG': round(abs(y_test[i, 2] - pred_change_avg), 2),
         })
    
     df_results = pd.DataFrame(results)
