@@ -453,7 +453,7 @@ if __name__ == '__main__':
     X_aug, y_aug = augment_high_risk_data(X, y, threshold=1700, multiplier=10)
     
     # 🔥 가중치 생성
-    sample_weights = create_sample_weights(y_aug, threshold=1700, weight_multiplier=50)
+    sample_weights = create_sample_weights(y_aug, threshold=1700, weight_multiplier=100)
     
     print(f"\n🎯 가중치 적용 학습")
     print(f"  총 샘플: {len(X_aug):,}개")
