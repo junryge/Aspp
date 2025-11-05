@@ -1,9 +1,8 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-🚀 XGBoost 280분 시퀀스 → 10분 후 예측 학습 (🔥 가중치 적용!)
-데이터: Ois.csv
-9개 컬럼, 1700+ 샘플에 50배 가중치!
+🚀 XGBoost 학습 - 13개 컬럼 (280분→10분 예측)
+M14AM14BSUM 추가, 양방향 흐름 포함
 """
 
 import numpy as np
@@ -11,480 +10,534 @@ import pandas as pd
 import xgboost as xgb
 from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
 import pickle
-from datetime import datetime
-import gc
 import warnings
 warnings.filterwarnings('ignore')
 
 print("="*80)
-print("🔥 XGBoost 가중치 학습 - 1700+ 샘플 50배 가중치!")
+print("🚀 XGBoost 학습 - 13개 컬럼")
 print("="*80)
 
-def create_features_v3(row_dict):
-    """9개 컬럼 280분 시퀀스로부터 Feature 생성"""
+# ========================================
+# Feature 생성 함수
+# ========================================
+def create_features_13col(row_dict):
+    """13개 컬럼 280분 시퀀스로부터 약 220개 Feature 생성"""
     features = {}
     
+    # 시퀀스 추출
     seq_m14b = np.array(row_dict['M14AM14B'])
+    seq_m14b_sum = np.array(row_dict['M14AM14BSUM'])
+    seq_m14b_rev = np.array(row_dict['M14BM14A'])
     seq_m10a = np.array(row_dict['M14AM10A'])
-    seq_m16 = np.array(row_dict['M14AM16'])
+    seq_m10a_rev = np.array(row_dict['M10AM14A'])
+    seq_m16_rev = np.array(row_dict['M16M14A'])
+    seq_m16_sum = np.array(row_dict['M14AM16SUM'])
     seq_totalcnt = np.array(row_dict['TOTALCNT'])
-    seq_queue_created = np.array(row_dict['M14.QUE.ALL.CURRENTQCREATED'])
-    seq_queue_completed = np.array(row_dict['M14.QUE.ALL.CURRENTQCOMPLETED'])
-    seq_oht_util = np.array(row_dict['M14.QUE.OHT.OHTUTIL'])
-    seq_transport_over = np.array(row_dict['M14.QUE.ALL.TRANSPORT4MINOVERCNT'])
-    seq_m14b_vertical = np.array(row_dict['M14B.QUE.SENDFAB.VERTICALQUEUECOUNT'])
-    seq_queue_gap = seq_queue_created - seq_queue_completed
+    seq_q_created = np.array(row_dict['M14.QUE.ALL.CURRENTQCREATED'])
+    seq_q_completed = np.array(row_dict['M14.QUE.ALL.CURRENTQCOMPLETED'])
+    seq_oht = np.array(row_dict['M14.QUE.OHT.OHTUTIL'])
+    seq_transport = np.array(row_dict['M14.QUE.ALL.TRANSPORT4MINOVERCNT'])
     
-    # M14AM14B (10개)
+    # 파생
+    seq_queue_gap = seq_q_created - seq_q_completed
+    
+    # ========================================
+    # 1. M14AM14B (10개)
+    # ========================================
     features['m14b_mean'] = np.mean(seq_m14b)
     features['m14b_std'] = np.std(seq_m14b)
     features['m14b_max'] = np.max(seq_m14b)
     features['m14b_min'] = np.min(seq_m14b)
     features['m14b_current'] = seq_m14b[-1]
-    features['m14b_last_5_mean'] = np.mean(seq_m14b[-5:])
-    features['m14b_last_10_mean'] = np.mean(seq_m14b[-10:])
-    features['m14b_last_30_mean'] = np.mean(seq_m14b[-30:])
+    features['m14b_last_5'] = np.mean(seq_m14b[-5:])
+    features['m14b_last_10'] = np.mean(seq_m14b[-10:])
+    features['m14b_last_30'] = np.mean(seq_m14b[-30:])
     features['m14b_slope'] = np.polyfit(np.arange(280), seq_m14b, 1)[0]
     features['m14b_range'] = np.max(seq_m14b) - np.min(seq_m14b)
     
-    # M14AM10A (10개)
+    # ========================================
+    # 2. M14AM14BSUM (10개) ⭐ 신규!
+    # ========================================
+    features['m14b_sum_mean'] = np.mean(seq_m14b_sum)
+    features['m14b_sum_std'] = np.std(seq_m14b_sum)
+    features['m14b_sum_max'] = np.max(seq_m14b_sum)
+    features['m14b_sum_min'] = np.min(seq_m14b_sum)
+    features['m14b_sum_current'] = seq_m14b_sum[-1]
+    features['m14b_sum_last_5'] = np.mean(seq_m14b_sum[-5:])
+    features['m14b_sum_last_10'] = np.mean(seq_m14b_sum[-10:])
+    features['m14b_sum_last_30'] = np.mean(seq_m14b_sum[-30:])
+    features['m14b_sum_slope'] = np.polyfit(np.arange(280), seq_m14b_sum, 1)[0]
+    features['m14b_sum_range'] = np.max(seq_m14b_sum) - np.min(seq_m14b_sum)
+    
+    # ========================================
+    # 3. M14BM14A (역방향, 10개) ⭐ 신규!
+    # ========================================
+    features['m14b_rev_mean'] = np.mean(seq_m14b_rev)
+    features['m14b_rev_std'] = np.std(seq_m14b_rev)
+    features['m14b_rev_max'] = np.max(seq_m14b_rev)
+    features['m14b_rev_min'] = np.min(seq_m14b_rev)
+    features['m14b_rev_current'] = seq_m14b_rev[-1]
+    features['m14b_rev_last_5'] = np.mean(seq_m14b_rev[-5:])
+    features['m14b_rev_last_10'] = np.mean(seq_m14b_rev[-10:])
+    features['m14b_rev_last_30'] = np.mean(seq_m14b_rev[-30:])
+    features['m14b_rev_slope'] = np.polyfit(np.arange(280), seq_m14b_rev, 1)[0]
+    features['m14b_rev_range'] = np.max(seq_m14b_rev) - np.min(seq_m14b_rev)
+    
+    # ========================================
+    # 4. M14AM10A (10개)
+    # ========================================
     features['m10a_mean'] = np.mean(seq_m10a)
     features['m10a_std'] = np.std(seq_m10a)
     features['m10a_max'] = np.max(seq_m10a)
     features['m10a_min'] = np.min(seq_m10a)
     features['m10a_current'] = seq_m10a[-1]
-    features['m10a_last_5_mean'] = np.mean(seq_m10a[-5:])
-    features['m10a_last_10_mean'] = np.mean(seq_m10a[-10:])
-    features['m10a_last_30_mean'] = np.mean(seq_m10a[-30:])
+    features['m10a_last_5'] = np.mean(seq_m10a[-5:])
+    features['m10a_last_10'] = np.mean(seq_m10a[-10:])
+    features['m10a_last_30'] = np.mean(seq_m10a[-30:])
     features['m10a_slope'] = np.polyfit(np.arange(280), seq_m10a, 1)[0]
     features['m10a_range'] = np.max(seq_m10a) - np.min(seq_m10a)
     
-    # M14AM16 (10개)
-    features['m16_mean'] = np.mean(seq_m16)
-    features['m16_std'] = np.std(seq_m16)
-    features['m16_max'] = np.max(seq_m16)
-    features['m16_min'] = np.min(seq_m16)
-    features['m16_current'] = seq_m16[-1]
-    features['m16_last_5_mean'] = np.mean(seq_m16[-5:])
-    features['m16_last_10_mean'] = np.mean(seq_m16[-10:])
-    features['m16_last_30_mean'] = np.mean(seq_m16[-30:])
-    features['m16_slope'] = np.polyfit(np.arange(280), seq_m16, 1)[0]
-    features['m16_range'] = np.max(seq_m16) - np.min(seq_m16)
+    # ========================================
+    # 5. M10AM14A (역방향, 10개) ⭐ 신규!
+    # ========================================
+    features['m10a_rev_mean'] = np.mean(seq_m10a_rev)
+    features['m10a_rev_std'] = np.std(seq_m10a_rev)
+    features['m10a_rev_max'] = np.max(seq_m10a_rev)
+    features['m10a_rev_min'] = np.min(seq_m10a_rev)
+    features['m10a_rev_current'] = seq_m10a_rev[-1]
+    features['m10a_rev_last_5'] = np.mean(seq_m10a_rev[-5:])
+    features['m10a_rev_last_10'] = np.mean(seq_m10a_rev[-10:])
+    features['m10a_rev_last_30'] = np.mean(seq_m10a_rev[-30:])
+    features['m10a_rev_slope'] = np.polyfit(np.arange(280), seq_m10a_rev, 1)[0]
+    features['m10a_rev_range'] = np.max(seq_m10a_rev) - np.min(seq_m10a_rev)
     
-    # TOTALCNT (10개)
-    features['totalcnt_mean'] = np.mean(seq_totalcnt)
-    features['totalcnt_std'] = np.std(seq_totalcnt)
-    features['totalcnt_max'] = np.max(seq_totalcnt)
-    features['totalcnt_min'] = np.min(seq_totalcnt)
-    features['totalcnt_current'] = seq_totalcnt[-1]
-    features['totalcnt_last_5_mean'] = np.mean(seq_totalcnt[-5:])
-    features['totalcnt_last_10_mean'] = np.mean(seq_totalcnt[-10:])
-    features['totalcnt_last_30_mean'] = np.mean(seq_totalcnt[-30:])
-    features['totalcnt_slope'] = np.polyfit(np.arange(280), seq_totalcnt, 1)[0]
-    features['totalcnt_range'] = np.max(seq_totalcnt) - np.min(seq_totalcnt)
+    # ========================================
+    # 6. M16M14A (역방향, 10개) ⭐ 신규!
+    # ========================================
+    features['m16_rev_mean'] = np.mean(seq_m16_rev)
+    features['m16_rev_std'] = np.std(seq_m16_rev)
+    features['m16_rev_max'] = np.max(seq_m16_rev)
+    features['m16_rev_min'] = np.min(seq_m16_rev)
+    features['m16_rev_current'] = seq_m16_rev[-1]
+    features['m16_rev_last_5'] = np.mean(seq_m16_rev[-5:])
+    features['m16_rev_last_10'] = np.mean(seq_m16_rev[-10:])
+    features['m16_rev_last_30'] = np.mean(seq_m16_rev[-30:])
+    features['m16_rev_slope'] = np.polyfit(np.arange(280), seq_m16_rev, 1)[0]
+    features['m16_rev_range'] = np.max(seq_m16_rev) - np.min(seq_m16_rev)
     
-    # CURRENTQCREATED (10개)
-    features['q_created_mean'] = np.mean(seq_queue_created)
-    features['q_created_std'] = np.std(seq_queue_created)
-    features['q_created_max'] = np.max(seq_queue_created)
-    features['q_created_min'] = np.min(seq_queue_created)
-    features['q_created_current'] = seq_queue_created[-1]
-    features['q_created_last_5_mean'] = np.mean(seq_queue_created[-5:])
-    features['q_created_last_10_mean'] = np.mean(seq_queue_created[-10:])
-    features['q_created_last_30_mean'] = np.mean(seq_queue_created[-30:])
-    features['q_created_slope'] = np.polyfit(np.arange(280), seq_queue_created, 1)[0]
-    features['q_created_range'] = np.max(seq_queue_created) - np.min(seq_queue_created)
+    # ========================================
+    # 7. M14AM16SUM (10개) ⭐ 신규!
+    # ========================================
+    features['m16_sum_mean'] = np.mean(seq_m16_sum)
+    features['m16_sum_std'] = np.std(seq_m16_sum)
+    features['m16_sum_max'] = np.max(seq_m16_sum)
+    features['m16_sum_min'] = np.min(seq_m16_sum)
+    features['m16_sum_current'] = seq_m16_sum[-1]
+    features['m16_sum_last_5'] = np.mean(seq_m16_sum[-5:])
+    features['m16_sum_last_10'] = np.mean(seq_m16_sum[-10:])
+    features['m16_sum_last_30'] = np.mean(seq_m16_sum[-30:])
+    features['m16_sum_slope'] = np.polyfit(np.arange(280), seq_m16_sum, 1)[0]
+    features['m16_sum_range'] = np.max(seq_m16_sum) - np.min(seq_m16_sum)
     
-    # CURRENTQCOMPLETED (10개)
-    features['q_completed_mean'] = np.mean(seq_queue_completed)
-    features['q_completed_std'] = np.std(seq_queue_completed)
-    features['q_completed_max'] = np.max(seq_queue_completed)
-    features['q_completed_min'] = np.min(seq_queue_completed)
-    features['q_completed_current'] = seq_queue_completed[-1]
-    features['q_completed_last_5_mean'] = np.mean(seq_queue_completed[-5:])
-    features['q_completed_last_10_mean'] = np.mean(seq_queue_completed[-10:])
-    features['q_completed_last_30_mean'] = np.mean(seq_queue_completed[-30:])
-    features['q_completed_slope'] = np.polyfit(np.arange(280), seq_queue_completed, 1)[0]
-    features['q_completed_range'] = np.max(seq_queue_completed) - np.min(seq_queue_completed)
+    # ========================================
+    # 8. TOTALCNT (10개)
+    # ========================================
+    features['total_mean'] = np.mean(seq_totalcnt)
+    features['total_std'] = np.std(seq_totalcnt)
+    features['total_max'] = np.max(seq_totalcnt)
+    features['total_min'] = np.min(seq_totalcnt)
+    features['total_current'] = seq_totalcnt[-1]
+    features['total_last_5'] = np.mean(seq_totalcnt[-5:])
+    features['total_last_10'] = np.mean(seq_totalcnt[-10:])
+    features['total_last_30'] = np.mean(seq_totalcnt[-30:])
+    features['total_slope'] = np.polyfit(np.arange(280), seq_totalcnt, 1)[0]
+    features['total_range'] = np.max(seq_totalcnt) - np.min(seq_totalcnt)
     
-    # OHT.OHTUTIL (10개)
-    features['oht_util_mean'] = np.mean(seq_oht_util)
-    features['oht_util_std'] = np.std(seq_oht_util)
-    features['oht_util_max'] = np.max(seq_oht_util)
-    features['oht_util_min'] = np.min(seq_oht_util)
-    features['oht_util_current'] = seq_oht_util[-1]
-    features['oht_util_last_5_mean'] = np.mean(seq_oht_util[-5:])
-    features['oht_util_last_10_mean'] = np.mean(seq_oht_util[-10:])
-    features['oht_util_last_30_mean'] = np.mean(seq_oht_util[-30:])
-    features['oht_util_slope'] = np.polyfit(np.arange(280), seq_oht_util, 1)[0]
-    features['oht_util_range'] = np.max(seq_oht_util) - np.min(seq_oht_util)
+    # ========================================
+    # 9. Queue Created (10개)
+    # ========================================
+    features['qc_mean'] = np.mean(seq_q_created)
+    features['qc_std'] = np.std(seq_q_created)
+    features['qc_max'] = np.max(seq_q_created)
+    features['qc_min'] = np.min(seq_q_created)
+    features['qc_current'] = seq_q_created[-1]
+    features['qc_last_5'] = np.mean(seq_q_created[-5:])
+    features['qc_last_10'] = np.mean(seq_q_created[-10:])
+    features['qc_last_30'] = np.mean(seq_q_created[-30:])
+    features['qc_slope'] = np.polyfit(np.arange(280), seq_q_created, 1)[0]
+    features['qc_range'] = np.max(seq_q_created) - np.min(seq_q_created)
     
-    # TRANSPORT4MINOVERCNT (10개)
-    features['transport_over_mean'] = np.mean(seq_transport_over)
-    features['transport_over_std'] = np.std(seq_transport_over)
-    features['transport_over_max'] = np.max(seq_transport_over)
-    features['transport_over_min'] = np.min(seq_transport_over)
-    features['transport_over_current'] = seq_transport_over[-1]
-    features['transport_over_last_5_mean'] = np.mean(seq_transport_over[-5:])
-    features['transport_over_last_10_mean'] = np.mean(seq_transport_over[-10:])
-    features['transport_over_last_30_mean'] = np.mean(seq_transport_over[-30:])
-    features['transport_over_slope'] = np.polyfit(np.arange(280), seq_transport_over, 1)[0]
-    features['transport_over_range'] = np.max(seq_transport_over) - np.min(seq_transport_over)
+    # ========================================
+    # 10. Queue Completed (10개)
+    # ========================================
+    features['qd_mean'] = np.mean(seq_q_completed)
+    features['qd_std'] = np.std(seq_q_completed)
+    features['qd_max'] = np.max(seq_q_completed)
+    features['qd_min'] = np.min(seq_q_completed)
+    features['qd_current'] = seq_q_completed[-1]
+    features['qd_last_5'] = np.mean(seq_q_completed[-5:])
+    features['qd_last_10'] = np.mean(seq_q_completed[-10:])
+    features['qd_last_30'] = np.mean(seq_q_completed[-30:])
+    features['qd_slope'] = np.polyfit(np.arange(280), seq_q_completed, 1)[0]
+    features['qd_range'] = np.max(seq_q_completed) - np.min(seq_q_completed)
     
-    # M14B.VERTICALQUEUECOUNT (10개)
-    features['m14b_vertical_mean'] = np.mean(seq_m14b_vertical)
-    features['m14b_vertical_std'] = np.std(seq_m14b_vertical)
-    features['m14b_vertical_max'] = np.max(seq_m14b_vertical)
-    features['m14b_vertical_min'] = np.min(seq_m14b_vertical)
-    features['m14b_vertical_current'] = seq_m14b_vertical[-1]
-    features['m14b_vertical_last_5_mean'] = np.mean(seq_m14b_vertical[-5:])
-    features['m14b_vertical_last_10_mean'] = np.mean(seq_m14b_vertical[-10:])
-    features['m14b_vertical_last_30_mean'] = np.mean(seq_m14b_vertical[-30:])
-    features['m14b_vertical_slope'] = np.polyfit(np.arange(280), seq_m14b_vertical, 1)[0]
-    features['m14b_vertical_range'] = np.max(seq_m14b_vertical) - np.min(seq_m14b_vertical)
+    # ========================================
+    # 11. OHT Util (10개)
+    # ========================================
+    features['oht_mean'] = np.mean(seq_oht)
+    features['oht_std'] = np.std(seq_oht)
+    features['oht_max'] = np.max(seq_oht)
+    features['oht_min'] = np.min(seq_oht)
+    features['oht_current'] = seq_oht[-1]
+    features['oht_last_5'] = np.mean(seq_oht[-5:])
+    features['oht_last_10'] = np.mean(seq_oht[-10:])
+    features['oht_last_30'] = np.mean(seq_oht[-30:])
+    features['oht_slope'] = np.polyfit(np.arange(280), seq_oht, 1)[0]
+    features['oht_range'] = np.max(seq_oht) - np.min(seq_oht)
     
-    # queue_gap (10개)
-    features['queue_gap_mean'] = np.mean(seq_queue_gap)
-    features['queue_gap_std'] = np.std(seq_queue_gap)
-    features['queue_gap_max'] = np.max(seq_queue_gap)
-    features['queue_gap_min'] = np.min(seq_queue_gap)
-    features['queue_gap_current'] = seq_queue_gap[-1]
-    features['queue_gap_last_5_mean'] = np.mean(seq_queue_gap[-5:])
-    features['queue_gap_last_10_mean'] = np.mean(seq_queue_gap[-10:])
-    features['queue_gap_last_30_mean'] = np.mean(seq_queue_gap[-30:])
-    features['queue_gap_slope'] = np.polyfit(np.arange(280), seq_queue_gap, 1)[0]
-    features['queue_gap_range'] = np.max(seq_queue_gap) - np.min(seq_queue_gap)
+    # ========================================
+    # 12. Transport (10개)
+    # ========================================
+    features['trans_mean'] = np.mean(seq_transport)
+    features['trans_std'] = np.std(seq_transport)
+    features['trans_max'] = np.max(seq_transport)
+    features['trans_min'] = np.min(seq_transport)
+    features['trans_current'] = seq_transport[-1]
+    features['trans_last_5'] = np.mean(seq_transport[-5:])
+    features['trans_last_10'] = np.mean(seq_transport[-10:])
+    features['trans_last_30'] = np.mean(seq_transport[-30:])
+    features['trans_slope'] = np.polyfit(np.arange(280), seq_transport, 1)[0]
+    features['trans_range'] = np.max(seq_transport) - np.min(seq_transport)
     
-    # 비율 Feature (16개)
+    # ========================================
+    # 13. Queue Gap (10개)
+    # ========================================
+    features['gap_mean'] = np.mean(seq_queue_gap)
+    features['gap_std'] = np.std(seq_queue_gap)
+    features['gap_max'] = np.max(seq_queue_gap)
+    features['gap_min'] = np.min(seq_queue_gap)
+    features['gap_current'] = seq_queue_gap[-1]
+    features['gap_last_5'] = np.mean(seq_queue_gap[-5:])
+    features['gap_last_10'] = np.mean(seq_queue_gap[-10:])
+    features['gap_last_30'] = np.mean(seq_queue_gap[-30:])
+    features['gap_slope'] = np.polyfit(np.arange(280), seq_queue_gap, 1)[0]
+    features['gap_range'] = np.max(seq_queue_gap) - np.min(seq_queue_gap)
+    
+    # ========================================
+    # 비율 Feature (20개)
+    # ========================================
+    features['ratio_m14b_m14bsum'] = seq_m14b[-1] / (seq_m14b_sum[-1] + 1)
     features['ratio_m14b_m10a'] = seq_m14b[-1] / (seq_m10a[-1] + 1)
-    features['ratio_m14b_m16'] = seq_m14b[-1] / (seq_m16[-1] + 1)
-    features['ratio_m10a_m16'] = seq_m10a[-1] / (seq_m16[-1] + 1)
-    features['ratio_m14b_totalcnt'] = seq_m14b[-1] / (seq_totalcnt[-1] + 1)
-    features['ratio_queue_gap_totalcnt'] = seq_queue_gap[-1] / (seq_totalcnt[-1] + 1)
-    features['ratio_oht_util_m14b'] = seq_oht_util[-1] / (seq_m14b[-1] + 1)
-    features['ratio_m14b_m10a_mean'] = np.mean(seq_m14b) / (np.mean(seq_m10a) + 1)
-    features['ratio_queue_gap_m14b'] = seq_queue_gap[-1] / (seq_m14b[-1] + 1)
-    features['ratio_vertical_m14b'] = seq_m14b_vertical[-1] / (seq_m14b[-1] + 1)
-    features['ratio_transport_totalcnt'] = seq_transport_over[-1] / (seq_totalcnt[-1] + 1)
-    features['volatility_m14b'] = np.std(seq_m14b) / (np.mean(seq_m14b) + 1)
-    features['volatility_totalcnt'] = np.std(seq_totalcnt) / (np.mean(seq_totalcnt) + 1)
-    features['volatility_queue_gap'] = np.std(seq_queue_gap) / (np.mean(np.abs(seq_queue_gap)) + 1)
-    features['volatility_oht_util'] = np.std(seq_oht_util) / (np.mean(seq_oht_util) + 1)
-    features['correlation_m14b_totalcnt'] = np.corrcoef(seq_m14b, seq_totalcnt)[0, 1]
-    features['correlation_queue_gap_totalcnt'] = np.corrcoef(seq_queue_gap, seq_totalcnt)[0, 1]
+    features['ratio_m14b_total'] = seq_m14b[-1] / (seq_totalcnt[-1] + 1)
+    features['ratio_m14bsum_total'] = seq_m14b_sum[-1] / (seq_totalcnt[-1] + 1)
+    features['ratio_gap_total'] = seq_queue_gap[-1] / (seq_totalcnt[-1] + 1)
+    features['ratio_m10a_rev_m10a'] = seq_m10a_rev[-1] / (seq_m10a[-1] + 1)
+    features['ratio_m14b_rev_m14b'] = seq_m14b_rev[-1] / (seq_m14b[-1] + 1)
+    features['ratio_m16_rev_m16sum'] = seq_m16_rev[-1] / (seq_m16_sum[-1] + 1)
     
-    # 임계값 카운트 Feature (26개)
-    features['m14b_over_250'] = np.sum(seq_m14b > 250)
+    features['vol_m14b'] = np.std(seq_m14b) / (np.mean(seq_m14b) + 1)
+    features['vol_m14bsum'] = np.std(seq_m14b_sum) / (np.mean(seq_m14b_sum) + 1)
+    features['vol_total'] = np.std(seq_totalcnt) / (np.mean(seq_totalcnt) + 1)
+    features['vol_gap'] = np.std(seq_queue_gap) / (np.mean(np.abs(seq_queue_gap)) + 1)
+    features['vol_oht'] = np.std(seq_oht) / (np.mean(seq_oht) + 1)
+    
+    features['corr_m14b_total'] = np.corrcoef(seq_m14b, seq_totalcnt)[0, 1]
+    features['corr_m14bsum_total'] = np.corrcoef(seq_m14b_sum, seq_totalcnt)[0, 1]
+    features['corr_gap_total'] = np.corrcoef(seq_queue_gap, seq_totalcnt)[0, 1]
+    features['corr_m10a_rev_total'] = np.corrcoef(seq_m10a_rev, seq_totalcnt)[0, 1]
+    features['corr_oht_total'] = np.corrcoef(seq_oht, seq_totalcnt)[0, 1]
+    features['corr_trans_total'] = np.corrcoef(seq_transport, seq_totalcnt)[0, 1]
+    features['corr_m16sum_total'] = np.corrcoef(seq_m16_sum, seq_totalcnt)[0, 1]
+    
+    # ========================================
+    # 임계값 카운트 (25개)
+    # ========================================
+    # M14AM14B
     features['m14b_over_300'] = np.sum(seq_m14b > 300)
-    features['m14b_over_350'] = np.sum(seq_m14b > 350)
     features['m14b_over_400'] = np.sum(seq_m14b > 400)
     features['m14b_over_450'] = np.sum(seq_m14b > 450)
-    features['m14b_over_300_last30'] = np.sum(seq_m14b[-30:] > 300)
-    features['m14b_over_400_last30'] = np.sum(seq_m14b[-30:] > 400)
-    features['totalcnt_over_1500'] = np.sum(seq_totalcnt >= 1500)
-    features['totalcnt_over_1600'] = np.sum(seq_totalcnt >= 1600)
-    features['totalcnt_over_1700'] = np.sum(seq_totalcnt >= 1700)
-    features['totalcnt_over_1600_last30'] = np.sum(seq_totalcnt[-30:] >= 1600)
-    features['totalcnt_over_1700_last30'] = np.sum(seq_totalcnt[-30:] >= 1700)
-    features['queue_gap_over_100'] = np.sum(seq_queue_gap > 100)
-    features['queue_gap_over_150'] = np.sum(seq_queue_gap > 150)
-    features['queue_gap_over_200'] = np.sum(seq_queue_gap > 200)
-    features['queue_gap_over_100_last30'] = np.sum(seq_queue_gap[-30:] > 100)
-    features['queue_gap_over_150_last30'] = np.sum(seq_queue_gap[-30:] > 150)
-    features['oht_util_over_85'] = np.sum(seq_oht_util > 85)
-    features['oht_util_over_90'] = np.sum(seq_oht_util > 90)
-    features['oht_util_over_85_last30'] = np.sum(seq_oht_util[-30:] > 85)
+    features['m14b_over_500'] = np.sum(seq_m14b > 500)
+    
+    # M14AM14BSUM
+    features['m14bsum_over_400'] = np.sum(seq_m14b_sum > 400)
+    features['m14bsum_over_500'] = np.sum(seq_m14b_sum > 500)
+    features['m14bsum_over_550'] = np.sum(seq_m14b_sum > 550)
+    
+    # TOTALCNT
+    features['total_over_1500'] = np.sum(seq_totalcnt >= 1500)
+    features['total_over_1600'] = np.sum(seq_totalcnt >= 1600)
+    features['total_over_1700'] = np.sum(seq_totalcnt >= 1700)
+    features['total_over_1600_last30'] = np.sum(seq_totalcnt[-30:] >= 1600)
+    features['total_over_1700_last30'] = np.sum(seq_totalcnt[-30:] >= 1700)
+    
+    # Queue Gap
+    features['gap_over_100'] = np.sum(seq_queue_gap > 100)
+    features['gap_over_150'] = np.sum(seq_queue_gap > 150)
+    features['gap_over_200'] = np.sum(seq_queue_gap > 200)
+    
+    # OHT
+    features['oht_over_80'] = np.sum(seq_oht > 80)
+    features['oht_over_85'] = np.sum(seq_oht > 85)
+    features['oht_over_90'] = np.sum(seq_oht > 90)
+    
+    # Transport
+    features['trans_over_150'] = np.sum(seq_transport > 150)
+    features['trans_over_180'] = np.sum(seq_transport > 180)
+    
+    # M10AM14A
+    features['m10a_rev_over_55'] = np.sum(seq_m10a_rev > 55)
+    features['m10a_rev_over_60'] = np.sum(seq_m10a_rev > 60)
+    
+    # M14AM10A
     features['m10a_under_80'] = np.sum(seq_m10a < 80)
     features['m10a_under_70'] = np.sum(seq_m10a < 70)
-    features['transport_over_150'] = np.sum(seq_transport_over > 150)
-    features['transport_over_180'] = np.sum(seq_transport_over > 180)
-    features['m14b_vertical_over_160'] = np.sum(seq_m14b_vertical > 160)
-    features['m14b_vertical_over_180'] = np.sum(seq_m14b_vertical > 180)
     
-    # 황금 패턴 & 위험 신호 (13개)
-    features['golden_pattern_300_80'] = 1 if (seq_m14b[-1] > 300 and seq_m10a[-1] < 80) else 0
-    features['golden_pattern_400_70'] = 1 if (seq_m14b[-1] > 400 and seq_m10a[-1] < 70) else 0
-    features['golden_pattern_450_80'] = 1 if (seq_m14b[-1] > 450 and seq_m10a[-1] < 80) else 0
-    features['danger_zone_1700'] = 1 if seq_totalcnt[-1] >= 1700 else 0
-    features['danger_zone_1600'] = 1 if seq_totalcnt[-1] >= 1600 else 0
+    # ========================================
+    # 황금 패턴 & 위험 신호 (15개)
+    # ========================================
+    features['golden_m14b_450'] = 1 if seq_m14b[-1] > 450 else 0
+    features['golden_m14b_500'] = 1 if seq_m14b[-1] > 500 else 0
+    features['golden_m14bsum_550'] = 1 if seq_m14b_sum[-1] > 550 else 0
+    features['golden_pattern_1'] = 1 if (seq_m14b[-1] > 450 and seq_m10a[-1] < 80) else 0
+    features['golden_pattern_2'] = 1 if (seq_m14b_sum[-1] > 550 and seq_oht[-1] > 80) else 0
+    
+    features['danger_1700'] = 1 if seq_totalcnt[-1] >= 1700 else 0
+    features['danger_1600'] = 1 if seq_totalcnt[-1] >= 1600 else 0
     features['danger_signal_1'] = 1 if (seq_queue_gap[-1] > 150 and seq_m14b[-1] > 400) else 0
-    features['danger_signal_4'] = 1 if (seq_queue_gap[-1] > 100 and seq_oht_util[-1] > 85) else 0
-    features['in_1700_zone'] = 1 if seq_totalcnt[-1] >= 1700 else 0
-    features['rising_in_1700'] = 1 if (seq_totalcnt[-1] >= 1700 and seq_totalcnt[-1] - seq_totalcnt[-10] > 20) else 0
-    features['stable_in_1700'] = 1 if (seq_totalcnt[-1] >= 1700 and abs(seq_totalcnt[-1] - seq_totalcnt[-10]) <= 20) else 0
-    features['falling_in_1700'] = 1 if (seq_totalcnt[-1] >= 1700 and seq_totalcnt[-1] - seq_totalcnt[-10] < -20) else 0
-    features['last_10min_trend'] = seq_totalcnt[-1] - seq_totalcnt[-10]
-    features['last_30min_trend'] = seq_totalcnt[-1] - seq_totalcnt[-30]
+    features['danger_signal_2'] = 1 if (seq_m14b_sum[-1] > 500 and seq_oht[-1] > 85) else 0
     
+    features['in_1700'] = 1 if seq_totalcnt[-1] >= 1700 else 0
+    features['rising_1700'] = 1 if (seq_totalcnt[-1] >= 1700 and seq_totalcnt[-1] - seq_totalcnt[-10] > 20) else 0
+    features['stable_1700'] = 1 if (seq_totalcnt[-1] >= 1700 and abs(seq_totalcnt[-1] - seq_totalcnt[-10]) <= 20) else 0
+    features['falling_1700'] = 1 if (seq_totalcnt[-1] >= 1700 and seq_totalcnt[-1] - seq_totalcnt[-10] < -20) else 0
+    
+    features['trend_10min'] = seq_totalcnt[-1] - seq_totalcnt[-10]
+    features['trend_30min'] = seq_totalcnt[-1] - seq_totalcnt[-30]
+    
+    # ========================================
     # 시간대별 통계 (10개)
+    # ========================================
     q1 = seq_totalcnt[:70]
     q2 = seq_totalcnt[70:140]
     q3 = seq_totalcnt[140:210]
     q4 = seq_totalcnt[210:280]
-    features['totalcnt_q1_mean'] = np.mean(q1)
-    features['totalcnt_q2_mean'] = np.mean(q2)
-    features['totalcnt_q3_mean'] = np.mean(q3)
-    features['totalcnt_q4_mean'] = np.mean(q4)
-    features['totalcnt_trend_q1_q2'] = np.mean(q2) - np.mean(q1)
-    features['totalcnt_trend_q2_q3'] = np.mean(q3) - np.mean(q2)
-    features['totalcnt_trend_q3_q4'] = np.mean(q4) - np.mean(q3)
-    features['totalcnt_trend_overall'] = np.mean(q4) - np.mean(q1)
-    features['totalcnt_q4_vs_mean'] = np.mean(q4) / (np.mean(seq_totalcnt) + 1)
-    features['totalcnt_q4_acceleration'] = (np.mean(q4) - np.mean(q3)) - (np.mean(q3) - np.mean(q2))
+    
+    features['q1_mean'] = np.mean(q1)
+    features['q2_mean'] = np.mean(q2)
+    features['q3_mean'] = np.mean(q3)
+    features['q4_mean'] = np.mean(q4)
+    features['q_trend_1_2'] = np.mean(q2) - np.mean(q1)
+    features['q_trend_2_3'] = np.mean(q3) - np.mean(q2)
+    features['q_trend_3_4'] = np.mean(q4) - np.mean(q3)
+    features['q_trend_overall'] = np.mean(q4) - np.mean(q1)
+    features['q4_vs_mean'] = np.mean(q4) / (np.mean(seq_totalcnt) + 1)
+    features['q_accel'] = (np.mean(q4) - np.mean(q3)) - (np.mean(q3) - np.mean(q2))
     
     return features
 
-def prepare_training_data(csv_path):
-    """학습 데이터 준비"""
+# ========================================
+# 데이터 준비
+# ========================================
+def prepare_data(csv_path):
+    """데이터 로딩 및 Feature 생성"""
     print(f"\n📂 데이터 로딩: {csv_path}")
     df = pd.read_csv(csv_path)
-    print(f"✅ 원본: {len(df):,}행 × {df.shape[1]}열")
+    print(f"✅ {len(df):,}행 × {df.shape[1]}열")
     
-    required_cols = [
-        'CURRTIME', 'M14AM14B', 'M14AM10A', 'M14AM16', 'TOTALCNT',
+    # 필수 컬럼
+    required = [
+        'CURRTIME', 'M14AM14B', 'M14AM14BSUM', 'M14BM14A',
+        'M14AM10A', 'M10AM14A', 'M16M14A', 'M14AM16SUM', 'TOTALCNT',
         'M14.QUE.ALL.CURRENTQCREATED', 'M14.QUE.ALL.CURRENTQCOMPLETED',
-        'M14.QUE.OHT.OHTUTIL', 'M14.QUE.ALL.TRANSPORT4MINOVERCNT',
-        'M14B.QUE.SENDFAB.VERTICALQUEUECOUNT'
+        'M14.QUE.OHT.OHTUTIL', 'M14.QUE.ALL.TRANSPORT4MINOVERCNT'
     ]
     
-    missing = [col for col in required_cols if col not in df.columns]
+    missing = [c for c in required if c not in df.columns]
     if missing:
         print(f"❌ 필수 컬럼 누락: {missing}")
         return None, None
     
-    print("✅ 필수 컬럼 확인 완료")
+    print("✅ 13개 컬럼 확인 완료")
+    
+    # CURRTIME 변환
     df['CURRTIME'] = pd.to_datetime(df['CURRTIME'].astype(str), format='%Y%m%d%H%M')
     
     print(f"\n🔄 Feature 생성 중...")
-    X_list = []
-    y_list = []
-    
-    total_samples = len(df) - 280 - 10
-    print(f"총 {total_samples:,}개 샘플 생성 예정")
+    X_list, y_list = [], []
+    total = len(df) - 280 - 10
     
     for i in range(280, len(df) - 10):
         row_dict = {
             'M14AM14B': df['M14AM14B'].iloc[i-280:i].values,
+            'M14AM14BSUM': df['M14AM14BSUM'].iloc[i-280:i].values,
+            'M14BM14A': df['M14BM14A'].iloc[i-280:i].values,
             'M14AM10A': df['M14AM10A'].iloc[i-280:i].values,
-            'M14AM16': df['M14AM16'].iloc[i-280:i].values,
+            'M10AM14A': df['M10AM14A'].iloc[i-280:i].values,
+            'M16M14A': df['M16M14A'].iloc[i-280:i].values,
+            'M14AM16SUM': df['M14AM16SUM'].iloc[i-280:i].values,
             'TOTALCNT': df['TOTALCNT'].iloc[i-280:i].values,
             'M14.QUE.ALL.CURRENTQCREATED': df['M14.QUE.ALL.CURRENTQCREATED'].iloc[i-280:i].values,
             'M14.QUE.ALL.CURRENTQCOMPLETED': df['M14.QUE.ALL.CURRENTQCOMPLETED'].iloc[i-280:i].values,
             'M14.QUE.OHT.OHTUTIL': df['M14.QUE.OHT.OHTUTIL'].iloc[i-280:i].values,
             'M14.QUE.ALL.TRANSPORT4MINOVERCNT': df['M14.QUE.ALL.TRANSPORT4MINOVERCNT'].iloc[i-280:i].values,
-            'M14B.QUE.SENDFAB.VERTICALQUEUECOUNT': df['M14B.QUE.SENDFAB.VERTICALQUEUECOUNT'].iloc[i-280:i].values,
         }
         
-        features = create_features_v3(row_dict)
-        target = df['TOTALCNT'].iloc[i+9]
-        
-        X_list.append(features)
-        y_list.append(target)
+        X_list.append(create_features_13col(row_dict))
+        y_list.append(df['TOTALCNT'].iloc[i+9])
         
         if (i - 280) % 1000 == 0:
-            progress = (i - 280) / total_samples * 100
-            print(f"  진행: {i-280:,}/{total_samples:,} ({progress:.1f}%)", end='\r')
+            print(f"  {i-280:,}/{total:,} ({(i-280)/total*100:.1f}%)", end='\r')
     
-    print(f"\n✅ Feature 생성 완료!")
+    print(f"\n✅ 완료!")
     
     X = pd.DataFrame(X_list)
     y = pd.Series(y_list)
     
-    print(f"\n📊 Feature 정보:")
-    print(f"  Feature 수: {X.shape[1]}개")
-    print(f"  샘플 수: {len(X):,}개")
-    print(f"  타겟 범위: {y.min():.0f} ~ {y.max():.0f}")
-    print(f"  1700+ 타겟: {(y >= 1700).sum()}개 ({(y >= 1700).sum()/len(y)*100:.3f}%)")
+    print(f"\n📊 결과:")
+    print(f"  Feature: {X.shape[1]}개")
+    print(f"  샘플: {len(X):,}개")
+    print(f"  타겟 범위: {y.min():.0f}~{y.max():.0f}")
+    print(f"  1700+: {(y>=1700).sum()}개 ({(y>=1700).sum()/len(y)*100:.3f}%)")
     
     return X, y
 
-def augment_high_risk_data(X, y, threshold=1700, multiplier=10):
-    """1700+ 고위험 구간 데이터 증강"""
-    print(f"\n🔥 데이터 증강 (1700+ 구간 x{multiplier})")
+# ========================================
+# 데이터 증강
+# ========================================
+def augment_data(X, y, threshold=1700, multiplier=10):
+    """1700+ 데이터 증강"""
+    print(f"\n🔥 1700+ 데이터 {multiplier}배 증강")
     
-    high_risk_mask = y >= threshold
-    high_risk_count = high_risk_mask.sum()
+    high_mask = y >= threshold
+    count = high_mask.sum()
     
-    print(f"1700+ 구간: {high_risk_count:,}개 ({high_risk_count/len(y)*100:.3f}%)")
+    print(f"1700+ 원본: {count:,}개")
     
-    if high_risk_count == 0:
-        print("⚠️ 1700+ 구간 없음, 증강 불가")
+    if count == 0:
+        print("⚠️ 증강 불가")
         return X, y
     
-    X_high = X[high_risk_mask]
-    y_high = y[high_risk_mask]
+    X_aug = pd.concat([X] + [X[high_mask]] * (multiplier - 1), ignore_index=True)
+    y_aug = pd.concat([y] + [y[high_mask]] * (multiplier - 1), ignore_index=True)
     
-    X_augmented = pd.concat([X] + [X_high] * (multiplier - 1), ignore_index=True)
-    y_augmented = pd.concat([y] + [y_high] * (multiplier - 1), ignore_index=True)
+    print(f"증강 후: {len(X_aug):,}개")
+    print(f"1700+ 비율: {(y_aug>=threshold).sum()/len(y_aug)*100:.2f}%")
     
-    print(f"증강 후: {len(X_augmented):,}개")
-    print(f"1700+ 비율: {(y_augmented >= threshold).sum() / len(y_augmented) * 100:.2f}%")
-    
-    return X_augmented, y_augmented
+    return X_aug, y_aug
 
-def create_sample_weights(y, threshold=1700, weight_multiplier=50):
-    """
-    🔥 샘플 가중치 생성 - 1700+ 샘플에 50배 가중치!
-    """
-    print(f"\n🎯 샘플 가중치 생성")
-    print(f"  임계값: {threshold}")
-    print(f"  가중치 배수: {weight_multiplier}x")
+# ========================================
+# 학습
+# ========================================
+def train_model(X, y):
+    """XGBoost 학습"""
+    print(f"\n🚀 XGBoost 학습")
     
-    weights = np.ones(len(y))
-    high_risk_mask = y >= threshold
-    weights[high_risk_mask] = weight_multiplier
-    
-    high_count = high_risk_mask.sum()
-    normal_count = len(y) - high_count
-    
-    print(f"\n  일반 샘플: {normal_count:,}개 (가중치 1.0)")
-    print(f"  고위험 샘플: {high_count:,}개 (가중치 {weight_multiplier}.0)")
-    print(f"  전체 가중치 합: {weights.sum():,.0f}")
-    print(f"  고위험 비중: {(high_count * weight_multiplier) / weights.sum() * 100:.1f}%")
-    
-    return weights
-
-def train_xgboost_v3(X_train, y_train, sample_weights):
-    """🔥 XGBoost 가중치 학습"""
-    print(f"\n🚀 XGBoost 가중치 학습 시작")
-    
-    params = {
-        'objective': 'reg:squarederror',
-        'max_depth': 8,
-        'learning_rate': 0.05,
-        'n_estimators': 500,
-        'subsample': 0.8,
-        'colsample_bytree': 0.8,
-        'min_child_weight': 3,
-        'gamma': 0.1,
-        'reg_alpha': 0.1,
-        'reg_lambda': 1.0,
-        'random_state': 42,
-        'n_jobs': -1,
-        'tree_method': 'hist',
-    }
-    
-    print(f"파라미터:")
-    for k, v in params.items():
-        print(f"  {k}: {v}")
-    
-    model = xgb.XGBRegressor(**params)
-    
-    print(f"\n학습 중... (🔥 sample_weight 적용!)")
-    model.fit(
-        X_train, y_train,
-        sample_weight=sample_weights,
-        verbose=50
+    model = xgb.XGBRegressor(
+        objective='reg:squarederror',
+        max_depth=8,
+        learning_rate=0.05,
+        n_estimators=500,
+        subsample=0.8,
+        colsample_bytree=0.8,
+        min_child_weight=3,
+        gamma=0.1,
+        reg_alpha=0.1,
+        reg_lambda=1.0,
+        random_state=42,
+        n_jobs=-1,
+        tree_method='hist'
     )
     
+    model.fit(X, y, verbose=50)
     print(f"\n✅ 학습 완료!")
+    
     return model
 
-def evaluate_training_data(model, X_train, y_train):
-    """학습 데이터 평가"""
+# ========================================
+# 평가
+# ========================================
+def evaluate(model, X, y):
+    """성능 평가"""
     print(f"\n" + "="*80)
-    print(f"📊 학습 데이터 성능 평가")
+    print(f"📊 성능 평가")
     print("="*80)
     
-    y_pred = model.predict(X_train)
+    y_pred = model.predict(X)
     
-    mae = mean_absolute_error(y_train, y_pred)
-    rmse = np.sqrt(mean_squared_error(y_train, y_pred))
-    r2 = r2_score(y_train, y_pred)
+    mae = mean_absolute_error(y, y_pred)
+    rmse = np.sqrt(mean_squared_error(y, y_pred))
+    r2 = r2_score(y, y_pred)
     
-    print(f"\n전체 성능:")
+    print(f"\n전체:")
     print(f"  MAE:  {mae:.2f}")
     print(f"  RMSE: {rmse:.2f}")
     print(f"  R²:   {r2:.4f}")
     
-    high_mask = y_train >= 1700
-    if high_mask.sum() > 0:
-        mae_high = mean_absolute_error(y_train[high_mask], y_pred[high_mask])
-        rmse_high = np.sqrt(mean_squared_error(y_train[high_mask], y_pred[high_mask]))
+    # 1700+
+    high = y >= 1700
+    if high.sum() > 0:
+        mae_h = mean_absolute_error(y[high], y_pred[high])
+        detected = ((y >= 1700) & (y_pred >= 1650)).sum()
+        rate = detected / high.sum() * 100
         
-        print(f"\n1700+ 구간 성능:")
-        print(f"  샘플 수: {high_mask.sum():,}개")
-        print(f"  MAE:  {mae_high:.2f}")
-        print(f"  RMSE: {rmse_high:.2f}")
-        
-        pred_high_mask = y_pred >= 1650
-        detected = (high_mask & pred_high_mask).sum()
-        detection_rate = detected / high_mask.sum() * 100
-        print(f"  1700+ 감지율 (1650+): {detection_rate:.1f}% ({detected:,}/{high_mask.sum():,})")
-        
-        pred_1700_mask = y_pred >= 1700
-        detected_1700 = (high_mask & pred_1700_mask).sum()
-        detection_rate_1700 = detected_1700 / high_mask.sum() * 100
-        print(f"  1700+ 감지율 (1700+): {detection_rate_1700:.1f}% ({detected_1700:,}/{high_mask.sum():,})")
-        
-        print(f"\n  1700+ 실제값 예측 분포:")
-        print(f"    평균 예측: {y_pred[high_mask].mean():.1f}")
-        print(f"    최소 예측: {y_pred[high_mask].min():.1f}")
-        print(f"    최대 예측: {y_pred[high_mask].max():.1f}")
-        print(f"    중앙값: {np.median(y_pred[high_mask]):.1f}")
+        print(f"\n1700+:")
+        print(f"  샘플: {high.sum():,}개")
+        print(f"  MAE: {mae_h:.2f}")
+        print(f"  감지율: {rate:.1f}% ({detected:,}/{high.sum():,})")
     
-    mid_mask = (y_train >= 1600) & (y_train < 1700)
-    if mid_mask.sum() > 0:
-        mae_mid = mean_absolute_error(y_train[mid_mask], y_pred[mid_mask])
-        print(f"\n1600-1699 구간 성능:")
-        print(f"  샘플 수: {mid_mask.sum():,}개")
-        print(f"  MAE:  {mae_mid:.2f}")
-    
-    print(f"\n" + "="*80)
+    print("="*80)
     return mae, rmse, r2
 
-def show_feature_importance(model, X):
-    """Feature 중요도 출력"""
+# ========================================
+# Feature 중요도
+# ========================================
+def show_importance(model, X):
+    """TOP 30 Feature 중요도"""
     print(f"\n" + "="*80)
     print(f"🏆 Feature 중요도 TOP 30")
     print("="*80)
-    feature_importance = pd.DataFrame({
+    
+    imp = pd.DataFrame({
         'feature': X.columns,
         'importance': model.feature_importances_
     }).sort_values('importance', ascending=False)
-    print(feature_importance.head(30).to_string(index=False))
-
-if __name__ == '__main__':
-    X, y = prepare_training_data('/mnt/user-data/uploads/Ois.csv')
     
+    print(imp.head(30).to_string(index=False))
+
+# ========================================
+# 메인
+# ========================================
+if __name__ == '__main__':
+    # CSV 파일 경로 (수정하세요!)
+    CSV_FILE = "당신의파일.csv"
+    
+    # 데이터 준비
+    X, y = prepare_data(CSV_FILE)
     if X is None:
         exit(1)
     
-    X_aug, y_aug = augment_high_risk_data(X, y, threshold=1700, multiplier=10)
+    # 증강
+    X_aug, y_aug = augment_data(X, y, threshold=1700, multiplier=10)
     
-    # 🔥 가중치 생성
-    sample_weights = create_sample_weights(y_aug, threshold=1700, weight_multiplier=100)
+    # 학습
+    model = train_model(X_aug, y_aug)
     
-    print(f"\n🎯 가중치 적용 학습")
-    print(f"  총 샘플: {len(X_aug):,}개")
-    print(f"  1700+ 비율: {(y_aug >= 1700).sum() / len(y_aug) * 100:.2f}%")
-    print(f"  가중치 적용: 1700+ 샘플 50배")
+    # 평가
+    mae, rmse, r2 = evaluate(model, X_aug, y_aug)
     
-    model = train_xgboost_v3(X_aug, y_aug, sample_weights)
+    # Feature 중요도
+    show_importance(model, X_aug)
     
-    mae, rmse, r2 = evaluate_training_data(model, X_aug, y_aug)
-    
-    show_feature_importance(model, X_aug)
-    
-    model_filename = '/home/claude/xgboost_9col_280to10_weighted.pkl'
-    with open(model_filename, 'wb') as f:
+    # 저장
+    with open('model_13col.pkl', 'wb') as f:
         pickle.dump(model, f)
-    print(f"\n💾 모델 저장: {model_filename}")
-    
-    feature_filename = '/home/claude/xgboost_9col_features_weighted.pkl'
-    with open(feature_filename, 'wb') as f:
+    with open('features_13col.pkl', 'wb') as f:
         pickle.dump(list(X.columns), f)
-    print(f"💾 Feature 저장: {feature_filename}")
     
-    print("\n" + "="*80)
-    print("✅ 학습 완료!")
-    print("="*80)
-    print(f"모델: {model_filename}")
-    print(f"Feature: {feature_filename}")
-    print(f"총 샘플: {len(X_aug):,}개")
-    print(f"Feature 수: {X_aug.shape[1]}개")
-    print(f"\n성능:")
-    print(f"  MAE:  {mae:.2f}")
-    print(f"  RMSE: {rmse:.2f}")
-    print(f"  R²:   {r2:.4f}")
+    print(f"\n💾 저장:")
+    print(f"  model_13col.pkl")
+    print(f"  features_13col.pkl")
+    
+    print(f"\n" + "="*80)
+    print(f"✅ 완료! Feature: {X.shape[1]}개, MAE: {mae:.2f}, R²: {r2:.4f}")
     print("="*80)
