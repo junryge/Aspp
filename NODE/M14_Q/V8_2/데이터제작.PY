@@ -80,8 +80,8 @@ def generate_new_sample(base_sample, patterns, variation=0.05):
     """기존 샘플 기반으로 새 샘플 생성"""
     new_sample = base_sample.copy()
     
-    # TOTALCNT: 1700~1800 범위에서 생성
-    new_sample['TOTALCNT'] = np.random.uniform(1700, 1850)
+    # TOTALCNT: 1700~1800 범위에서 생성 (정수!)
+    new_sample['TOTALCNT'] = int(np.random.uniform(1700, 1850))
     
     # M14AM14B: 패턴 기반 + 노이즈
     base_val = base_sample['M14AM14B']
