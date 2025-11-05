@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-🚀 XGBoost 학습 - 13개 컬럼 (280분→10분 예측)
-M14AM14BSUM 추가, 양방향 흐름 포함
+🚀 XGBoost 학습 - 14개 컬럼 (280분→10분 예측)
+M14AM14BSUM + VERTICALQUEUE 추가, 양방향 흐름 포함
 """
 
 import numpy as np
@@ -14,14 +14,14 @@ import warnings
 warnings.filterwarnings('ignore')
 
 print("="*80)
-print("🚀 XGBoost 학습 - 13개 컬럼")
+print("🚀 XGBoost 학습 - 14개 컬럼")
 print("="*80)
 
 # ========================================
 # Feature 생성 함수
 # ========================================
-def create_features_13col(row_dict):
-    """13개 컬럼 280분 시퀀스로부터 약 220개 Feature 생성"""
+def create_features_14col(row_dict):
+    """14개 컬럼 280분 시퀀스로부터 약 240개 Feature 생성"""
     features = {}
     
     # 시퀀스 추출
@@ -37,6 +37,7 @@ def create_features_13col(row_dict):
     seq_q_completed = np.array(row_dict['M14.QUE.ALL.CURRENTQCOMPLETED'])
     seq_oht = np.array(row_dict['M14.QUE.OHT.OHTUTIL'])
     seq_transport = np.array(row_dict['M14.QUE.ALL.TRANSPORT4MINOVERCNT'])
+    seq_vertical = np.array(row_dict['M14B.QUE.SENDFAB.VERTICALQUEUECOUNT'])
     
     # 파생
     seq_queue_gap = seq_q_created - seq_q_completed
@@ -56,7 +57,7 @@ def create_features_13col(row_dict):
     features['m14b_range'] = np.max(seq_m14b) - np.min(seq_m14b)
     
     # ========================================
-    # 2. M14AM14BSUM (10개) ⭐ 신규!
+    # 2. M14AM14BSUM (10개)
     # ========================================
     features['m14b_sum_mean'] = np.mean(seq_m14b_sum)
     features['m14b_sum_std'] = np.std(seq_m14b_sum)
@@ -70,7 +71,7 @@ def create_features_13col(row_dict):
     features['m14b_sum_range'] = np.max(seq_m14b_sum) - np.min(seq_m14b_sum)
     
     # ========================================
-    # 3. M14BM14A (역방향, 10개) ⭐ 신규!
+    # 3. M14BM14A (10개)
     # ========================================
     features['m14b_rev_mean'] = np.mean(seq_m14b_rev)
     features['m14b_rev_std'] = np.std(seq_m14b_rev)
@@ -98,7 +99,7 @@ def create_features_13col(row_dict):
     features['m10a_range'] = np.max(seq_m10a) - np.min(seq_m10a)
     
     # ========================================
-    # 5. M10AM14A (역방향, 10개) ⭐ 신규!
+    # 5. M10AM14A (10개)
     # ========================================
     features['m10a_rev_mean'] = np.mean(seq_m10a_rev)
     features['m10a_rev_std'] = np.std(seq_m10a_rev)
@@ -112,7 +113,7 @@ def create_features_13col(row_dict):
     features['m10a_rev_range'] = np.max(seq_m10a_rev) - np.min(seq_m10a_rev)
     
     # ========================================
-    # 6. M16M14A (역방향, 10개) ⭐ 신규!
+    # 6. M16M14A (10개)
     # ========================================
     features['m16_rev_mean'] = np.mean(seq_m16_rev)
     features['m16_rev_std'] = np.std(seq_m16_rev)
@@ -126,7 +127,7 @@ def create_features_13col(row_dict):
     features['m16_rev_range'] = np.max(seq_m16_rev) - np.min(seq_m16_rev)
     
     # ========================================
-    # 7. M14AM16SUM (10개) ⭐ 신규!
+    # 7. M14AM16SUM (10개)
     # ========================================
     features['m16_sum_mean'] = np.mean(seq_m16_sum)
     features['m16_sum_std'] = np.std(seq_m16_sum)
@@ -210,7 +211,21 @@ def create_features_13col(row_dict):
     features['trans_range'] = np.max(seq_transport) - np.min(seq_transport)
     
     # ========================================
-    # 13. Queue Gap (10개)
+    # 13. Vertical Queue (10개) ⭐ 신규!
+    # ========================================
+    features['vertical_mean'] = np.mean(seq_vertical)
+    features['vertical_std'] = np.std(seq_vertical)
+    features['vertical_max'] = np.max(seq_vertical)
+    features['vertical_min'] = np.min(seq_vertical)
+    features['vertical_current'] = seq_vertical[-1]
+    features['vertical_last_5'] = np.mean(seq_vertical[-5:])
+    features['vertical_last_10'] = np.mean(seq_vertical[-10:])
+    features['vertical_last_30'] = np.mean(seq_vertical[-30:])
+    features['vertical_slope'] = np.polyfit(np.arange(280), seq_vertical, 1)[0]
+    features['vertical_range'] = np.max(seq_vertical) - np.min(seq_vertical)
+    
+    # ========================================
+    # 14. Queue Gap (10개)
     # ========================================
     features['gap_mean'] = np.mean(seq_queue_gap)
     features['gap_std'] = np.std(seq_queue_gap)
@@ -224,7 +239,7 @@ def create_features_13col(row_dict):
     features['gap_range'] = np.max(seq_queue_gap) - np.min(seq_queue_gap)
     
     # ========================================
-    # 비율 Feature (20개)
+    # 비율 Feature (25개)
     # ========================================
     features['ratio_m14b_m14bsum'] = seq_m14b[-1] / (seq_m14b_sum[-1] + 1)
     features['ratio_m14b_m10a'] = seq_m14b[-1] / (seq_m10a[-1] + 1)
@@ -234,12 +249,15 @@ def create_features_13col(row_dict):
     features['ratio_m10a_rev_m10a'] = seq_m10a_rev[-1] / (seq_m10a[-1] + 1)
     features['ratio_m14b_rev_m14b'] = seq_m14b_rev[-1] / (seq_m14b[-1] + 1)
     features['ratio_m16_rev_m16sum'] = seq_m16_rev[-1] / (seq_m16_sum[-1] + 1)
+    features['ratio_vertical_m14b'] = seq_vertical[-1] / (seq_m14b[-1] + 1)
+    features['ratio_vertical_total'] = seq_vertical[-1] / (seq_totalcnt[-1] + 1)
     
     features['vol_m14b'] = np.std(seq_m14b) / (np.mean(seq_m14b) + 1)
     features['vol_m14bsum'] = np.std(seq_m14b_sum) / (np.mean(seq_m14b_sum) + 1)
     features['vol_total'] = np.std(seq_totalcnt) / (np.mean(seq_totalcnt) + 1)
     features['vol_gap'] = np.std(seq_queue_gap) / (np.mean(np.abs(seq_queue_gap)) + 1)
     features['vol_oht'] = np.std(seq_oht) / (np.mean(seq_oht) + 1)
+    features['vol_vertical'] = np.std(seq_vertical) / (np.mean(seq_vertical) + 1)
     
     features['corr_m14b_total'] = np.corrcoef(seq_m14b, seq_totalcnt)[0, 1]
     features['corr_m14bsum_total'] = np.corrcoef(seq_m14b_sum, seq_totalcnt)[0, 1]
@@ -248,63 +266,73 @@ def create_features_13col(row_dict):
     features['corr_oht_total'] = np.corrcoef(seq_oht, seq_totalcnt)[0, 1]
     features['corr_trans_total'] = np.corrcoef(seq_transport, seq_totalcnt)[0, 1]
     features['corr_m16sum_total'] = np.corrcoef(seq_m16_sum, seq_totalcnt)[0, 1]
+    features['corr_vertical_total'] = np.corrcoef(seq_vertical, seq_totalcnt)[0, 1]
+    features['corr_vertical_m14b'] = np.corrcoef(seq_vertical, seq_m14b)[0, 1]
     
     # ========================================
-    # 임계값 카운트 (25개)
+    # 임계값 카운트 (30개)
     # ========================================
-    # M14AM14B
     features['m14b_over_300'] = np.sum(seq_m14b > 300)
     features['m14b_over_400'] = np.sum(seq_m14b > 400)
     features['m14b_over_450'] = np.sum(seq_m14b > 450)
     features['m14b_over_500'] = np.sum(seq_m14b > 500)
     
-    # M14AM14BSUM
     features['m14bsum_over_400'] = np.sum(seq_m14b_sum > 400)
     features['m14bsum_over_500'] = np.sum(seq_m14b_sum > 500)
     features['m14bsum_over_550'] = np.sum(seq_m14b_sum > 550)
     
-    # TOTALCNT
     features['total_over_1500'] = np.sum(seq_totalcnt >= 1500)
     features['total_over_1600'] = np.sum(seq_totalcnt >= 1600)
     features['total_over_1700'] = np.sum(seq_totalcnt >= 1700)
     features['total_over_1600_last30'] = np.sum(seq_totalcnt[-30:] >= 1600)
     features['total_over_1700_last30'] = np.sum(seq_totalcnt[-30:] >= 1700)
     
-    # Queue Gap
     features['gap_over_100'] = np.sum(seq_queue_gap > 100)
     features['gap_over_150'] = np.sum(seq_queue_gap > 150)
     features['gap_over_200'] = np.sum(seq_queue_gap > 200)
     
-    # OHT
     features['oht_over_80'] = np.sum(seq_oht > 80)
     features['oht_over_85'] = np.sum(seq_oht > 85)
     features['oht_over_90'] = np.sum(seq_oht > 90)
     
-    # Transport
     features['trans_over_150'] = np.sum(seq_transport > 150)
     features['trans_over_180'] = np.sum(seq_transport > 180)
     
-    # M10AM14A
+    features['vertical_over_140'] = np.sum(seq_vertical > 140)
+    features['vertical_over_160'] = np.sum(seq_vertical > 160)
+    features['vertical_over_180'] = np.sum(seq_vertical > 180)
+    features['vertical_over_160_last30'] = np.sum(seq_vertical[-30:] > 160)
+    
     features['m10a_rev_over_55'] = np.sum(seq_m10a_rev > 55)
     features['m10a_rev_over_60'] = np.sum(seq_m10a_rev > 60)
     
-    # M14AM10A
     features['m10a_under_80'] = np.sum(seq_m10a < 80)
     features['m10a_under_70'] = np.sum(seq_m10a < 70)
     
     # ========================================
-    # 황금 패턴 & 위험 신호 (15개)
+    # 황금 패턴 & 위험 신호 (20개)
     # ========================================
     features['golden_m14b_450'] = 1 if seq_m14b[-1] > 450 else 0
     features['golden_m14b_500'] = 1 if seq_m14b[-1] > 500 else 0
     features['golden_m14bsum_550'] = 1 if seq_m14b_sum[-1] > 550 else 0
+    features['golden_vertical_160'] = 1 if seq_vertical[-1] > 160 else 0
+    
     features['golden_pattern_1'] = 1 if (seq_m14b[-1] > 450 and seq_m10a[-1] < 80) else 0
     features['golden_pattern_2'] = 1 if (seq_m14b_sum[-1] > 550 and seq_oht[-1] > 80) else 0
+    features['golden_pattern_3'] = 1 if (seq_m14b[-1] > 450 and seq_vertical[-1] > 160) else 0
     
     features['danger_1700'] = 1 if seq_totalcnt[-1] >= 1700 else 0
     features['danger_1600'] = 1 if seq_totalcnt[-1] >= 1600 else 0
     features['danger_signal_1'] = 1 if (seq_queue_gap[-1] > 150 and seq_m14b[-1] > 400) else 0
     features['danger_signal_2'] = 1 if (seq_m14b_sum[-1] > 500 and seq_oht[-1] > 85) else 0
+    features['danger_signal_3'] = 1 if (seq_vertical[-1] > 160 and seq_m14b[-1] > 400) else 0
+    
+    # 3중 위험 신호 (슈퍼 위험!)
+    features['super_danger'] = 1 if (
+        seq_m14b[-1] > 450 and 
+        seq_m14b_sum[-1] > 550 and 
+        seq_vertical[-1] > 160
+    ) else 0
     
     features['in_1700'] = 1 if seq_totalcnt[-1] >= 1700 else 0
     features['rising_1700'] = 1 if (seq_totalcnt[-1] >= 1700 and seq_totalcnt[-1] - seq_totalcnt[-10] > 20) else 0
@@ -344,12 +372,13 @@ def prepare_data(csv_path):
     df = pd.read_csv(csv_path)
     print(f"✅ {len(df):,}행 × {df.shape[1]}열")
     
-    # 필수 컬럼
+    # 필수 컬럼 (14개)
     required = [
         'CURRTIME', 'M14AM14B', 'M14AM14BSUM', 'M14BM14A',
         'M14AM10A', 'M10AM14A', 'M16M14A', 'M14AM16SUM', 'TOTALCNT',
         'M14.QUE.ALL.CURRENTQCREATED', 'M14.QUE.ALL.CURRENTQCOMPLETED',
-        'M14.QUE.OHT.OHTUTIL', 'M14.QUE.ALL.TRANSPORT4MINOVERCNT'
+        'M14.QUE.OHT.OHTUTIL', 'M14.QUE.ALL.TRANSPORT4MINOVERCNT',
+        'M14B.QUE.SENDFAB.VERTICALQUEUECOUNT'
     ]
     
     missing = [c for c in required if c not in df.columns]
@@ -357,7 +386,7 @@ def prepare_data(csv_path):
         print(f"❌ 필수 컬럼 누락: {missing}")
         return None, None
     
-    print("✅ 13개 컬럼 확인 완료")
+    print("✅ 14개 컬럼 확인 완료")
     
     # CURRTIME 변환
     df['CURRTIME'] = pd.to_datetime(df['CURRTIME'].astype(str), format='%Y%m%d%H%M')
@@ -380,9 +409,10 @@ def prepare_data(csv_path):
             'M14.QUE.ALL.CURRENTQCOMPLETED': df['M14.QUE.ALL.CURRENTQCOMPLETED'].iloc[i-280:i].values,
             'M14.QUE.OHT.OHTUTIL': df['M14.QUE.OHT.OHTUTIL'].iloc[i-280:i].values,
             'M14.QUE.ALL.TRANSPORT4MINOVERCNT': df['M14.QUE.ALL.TRANSPORT4MINOVERCNT'].iloc[i-280:i].values,
+            'M14B.QUE.SENDFAB.VERTICALQUEUECOUNT': df['M14B.QUE.SENDFAB.VERTICALQUEUECOUNT'].iloc[i-280:i].values,
         }
         
-        X_list.append(create_features_13col(row_dict))
+        X_list.append(create_features_14col(row_dict))
         y_list.append(df['TOTALCNT'].iloc[i+9])
         
         if (i - 280) % 1000 == 0:
@@ -529,14 +559,14 @@ if __name__ == '__main__':
     show_importance(model, X_aug)
     
     # 저장
-    with open('model_13col.pkl', 'wb') as f:
+    with open('model_14col.pkl', 'wb') as f:
         pickle.dump(model, f)
-    with open('features_13col.pkl', 'wb') as f:
+    with open('features_14col.pkl', 'wb') as f:
         pickle.dump(list(X.columns), f)
     
     print(f"\n💾 저장:")
-    print(f"  model_13col.pkl")
-    print(f"  features_13col.pkl")
+    print(f"  model_14col.pkl")
+    print(f"  features_14col.pkl")
     
     print(f"\n" + "="*80)
     print(f"✅ 완료! Feature: {X.shape[1]}개, MAE: {mae:.2f}, R²: {r2:.4f}")
