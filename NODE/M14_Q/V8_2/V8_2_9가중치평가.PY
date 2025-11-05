@@ -293,6 +293,10 @@ def evaluate_all_predictions():
         X_pred = pd.DataFrame([features])
         prediction = model.predict(X_pred)[0]
         
+        # 🔥 1400 이상 예측값에 예측값의 0.04 만큼 추가
+        if prediction >= 1400:
+            prediction = prediction + (prediction * 0.04)
+        
         golden_pattern = (seq_m14b[-1] > 300 and seq_m10a[-1] < 80)
         danger_in_seq = np.sum(seq_totalcnt >= 1700) > 0
         
