@@ -76,69 +76,69 @@ def analyze_1700_patterns(df):
     
     return patterns, high_risk
 
-def generate_new_sample(base_sample, patterns, variation=0.05):
-    """기존 샘플 기반으로 새 샘플 생성"""
+def generate_new_sample(base_sample, patterns, variation=0.3):
+    """기존 샘플 기반으로 새 샘플 생성 (큰 변형!)"""
     new_sample = base_sample.copy()
     
-    # TOTALCNT: 1700~1800 범위에서 생성 (정수!)
-    new_sample['TOTALCNT'] = int(np.random.uniform(1700, 1850))
+    # TOTALCNT: 1700~1900 범위에서 생성 (정수!)
+    new_sample['TOTALCNT'] = int(np.random.uniform(1700, 1900))
     
-    # M14AM14B: 패턴 기반 + 노이즈
+    # M14AM14B: 큰 변형 (200~600)
     base_val = base_sample['M14AM14B']
-    noise = np.random.normal(0, patterns['M14AM14B']['std'] * variation)
-    new_sample['M14AM14B'] = int(np.clip(base_val + noise, 200, 550))
+    noise = np.random.normal(0, patterns['M14AM14B']['std'] * 0.8)
+    new_sample['M14AM14B'] = int(np.clip(base_val + noise, 200, 600))
     
-    # M14AM10A
+    # M14AM10A: 큰 변형 (40~130)
     base_val = base_sample['M14AM10A']
-    noise = np.random.normal(0, patterns['M14AM10A']['std'] * variation)
-    new_sample['M14AM10A'] = int(np.clip(base_val + noise, 50, 120))
+    noise = np.random.normal(0, patterns['M14AM10A']['std'] * 0.8)
+    new_sample['M14AM10A'] = int(np.clip(base_val + noise, 40, 130))
     
-    # M14AM16
+    # M14AM16: 큰 변형 (60~120)
     base_val = base_sample['M14AM16']
-    noise = np.random.normal(0, patterns['M14AM16']['std'] * variation)
-    new_sample['M14AM16'] = int(np.clip(base_val + noise, 70, 110))
+    noise = np.random.normal(0, patterns['M14AM16']['std'] * 0.8)
+    new_sample['M14AM16'] = int(np.clip(base_val + noise, 60, 120))
     
-    # OHT_UTIL: 85~95 범위 (고부하)
+    # OHT_UTIL: 80~98 범위 (고부하, 큰 변형)
     base_val = base_sample['M14.QUE.OHT.OHTUTIL']
-    noise = np.random.normal(0, patterns['M14.QUE.OHT.OHTUTIL']['std'] * variation)
-    new_sample['M14.QUE.OHT.OHTUTIL'] = round(np.clip(base_val + noise, 82, 95), 2)
+    noise = np.random.normal(0, patterns['M14.QUE.OHT.OHTUTIL']['std'] * 0.8)
+    new_sample['M14.QUE.OHT.OHTUTIL'] = round(np.clip(base_val + noise, 80, 98), 2)
     
-    # CURRENTQCREATED
+    # CURRENTQCREATED: 큰 변형
     base_val = base_sample['M14.QUE.ALL.CURRENTQCREATED']
-    noise = np.random.normal(0, patterns['M14.QUE.ALL.CURRENTQCREATED']['std'] * variation)
-    new_sample['M14.QUE.ALL.CURRENTQCREATED'] = int(np.clip(base_val + noise, 2800, 3200))
+    noise = np.random.normal(0, patterns['M14.QUE.ALL.CURRENTQCREATED']['std'] * 0.8)
+    new_sample['M14.QUE.ALL.CURRENTQCREATED'] = int(np.clip(base_val + noise, 2700, 3300))
     
-    # CURRENTQCOMPLETED
+    # CURRENTQCOMPLETED: 큰 변형
     base_val = base_sample['M14.QUE.ALL.CURRENTQCOMPLETED']
-    noise = np.random.normal(0, patterns['M14.QUE.ALL.CURRENTQCOMPLETED']['std'] * variation)
-    new_sample['M14.QUE.ALL.CURRENTQCOMPLETED'] = int(np.clip(base_val + noise, 2700, 3000))
+    noise = np.random.normal(0, patterns['M14.QUE.ALL.CURRENTQCOMPLETED']['std'] * 0.8)
+    new_sample['M14.QUE.ALL.CURRENTQCOMPLETED'] = int(np.clip(base_val + noise, 2600, 3100))
     
-    # M14.QUE.ALL.TRANSPORT4MINOVERCNT
+    # M14.QUE.ALL.TRANSPORT4MINOVERCNT: 큰 변형
     base_val = base_sample['M14.QUE.ALL.TRANSPORT4MINOVERCNT']
-    noise = np.random.uniform(-20, 20)
-    new_sample['M14.QUE.ALL.TRANSPORT4MINOVERCNT'] = int(np.clip(base_val + noise, 80, 180))
+    noise = np.random.uniform(-50, 50)
+    new_sample['M14.QUE.ALL.TRANSPORT4MINOVERCNT'] = int(np.clip(base_val + noise, 60, 200))
     
-    # M14B.QUE.SENDFAB.VERTICALQUEUECOUNT
+    # M14B.QUE.SENDFAB.VERTICALQUEUECOUNT: 큰 변형
     base_val = base_sample['M14B.QUE.SENDFAB.VERTICALQUEUECOUNT']
-    noise = np.random.uniform(-30, 30)
-    new_sample['M14B.QUE.SENDFAB.VERTICALQUEUECOUNT'] = int(np.clip(base_val + noise, 150, 300))
+    noise = np.random.uniform(-60, 60)
+    new_sample['M14B.QUE.SENDFAB.VERTICALQUEUECOUNT'] = int(np.clip(base_val + noise, 130, 320))
     
-    # M10A.QUE.ALL.CURRENTQCNT
+    # M10A.QUE.ALL.CURRENTQCNT: 큰 변형
     base_val = base_sample['M10A.QUE.ALL.CURRENTQCNT']
-    noise = np.random.uniform(-20, 20)
-    new_sample['M10A.QUE.ALL.CURRENTQCNT'] = int(np.clip(base_val + noise, 300, 450))
+    noise = np.random.uniform(-50, 50)
+    new_sample['M10A.QUE.ALL.CURRENTQCNT'] = int(np.clip(base_val + noise, 280, 480))
     
-    # M10A.QUE.OHT_OHS.OHTUTIL
+    # M10A.QUE.OHT_OHS.OHTUTIL: 큰 변형
     base_val = base_sample['M10A.QUE.OHT_OHS.OHTUTIL']
-    noise = np.random.uniform(-5, 5)
-    new_sample['M10A.QUE.OHT_OHS.OHTUTIL'] = round(np.clip(base_val + noise, 30, 90), 2)
+    noise = np.random.uniform(-15, 15)
+    new_sample['M10A.QUE.OHT_OHS.OHTUTIL'] = round(np.clip(base_val + noise, 25, 95), 2)
     
-    # 기타 컬럼들 (M10AM14A, M14AM10ASUM 등)
-    new_sample['M10AM14A'] = int(np.random.uniform(40, 60))
+    # 기타 컬럼들 (큰 범위)
+    new_sample['M10AM14A'] = int(np.random.uniform(35, 65))
     new_sample['M14AM10ASUM'] = new_sample['M14AM10A'] + new_sample['M10AM14A']
-    new_sample['M14BM14A'] = int(np.random.uniform(60, 110))
+    new_sample['M14BM14A'] = int(np.random.uniform(50, 120))
     new_sample['M14AM14BSUM'] = new_sample['M14AM14B'] + new_sample['M14BM14A']
-    new_sample['M16M14A'] = int(np.random.uniform(120, 160))
+    new_sample['M16M14A'] = int(np.random.uniform(110, 170))
     new_sample['M14AM16SUM'] = new_sample['M14AM16'] + new_sample['M16M14A']
     
     return new_sample
@@ -167,8 +167,8 @@ def generate_synthetic_data(df, num_samples=2000):
         # 랜덤하게 기존 1700+ 샘플 선택
         base_sample = high_risk_samples.sample(1).iloc[0]
         
-        # 새 샘플 생성
-        new_sample = generate_new_sample(base_sample, patterns, variation=0.1)
+        # 새 샘플 생성 (큰 변형!)
+        new_sample = generate_new_sample(base_sample, patterns, variation=0.5)
         
         # 시간 설정 (1분씩 증가)
         new_time = last_time + timedelta(minutes=i+1)
@@ -223,8 +223,8 @@ def main():
     print(f"✅ 원본: {len(df):,}행")
     print(f"1700+ 샘플: {(df['TOTALCNT'] >= 1700).sum()}개")
     
-    # 합성 데이터 생성
-    num_synthetic = 2000  # 생성할 개수
+    # 합성 데이터 생성 (더 많이!)
+    num_synthetic = 3000  # 생성할 개수
     synthetic_df = generate_synthetic_data(df, num_samples=num_synthetic)
     
     if synthetic_df is None:
