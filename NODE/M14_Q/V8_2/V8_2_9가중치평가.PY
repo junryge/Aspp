@@ -1,9 +1,8 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-🚀 XGBoost 평가 - 가중치 모델
-280분 시퀀스 → 10분 후 예측 평가 (9개 컬럼, 가중치 적용 모델)
-윈도우용
+🚀 XGBoost 평가 - 가중치 모델 (완전판)
+모든 컬럼 포함 + 100배 가중치 모델용
 """
 
 import numpy as np
@@ -19,18 +18,15 @@ def create_features_v3(row_dict):
     """9개 컬럼 280분 시퀀스로부터 Feature 생성"""
     features = {}
     
-    # 시퀀스 추출
     seq_m14b = np.array(row_dict['M14AM14B'])
     seq_m10a = np.array(row_dict['M14AM10A'])
     seq_m16 = np.array(row_dict['M14AM16'])
     seq_totalcnt = np.array(row_dict['TOTALCNT'])
-    
     seq_queue_created = np.array(row_dict['M14.QUE.ALL.CURRENTQCREATED'])
     seq_queue_completed = np.array(row_dict['M14.QUE.ALL.CURRENTQCOMPLETED'])
     seq_oht_util = np.array(row_dict['M14.QUE.OHT.OHTUTIL'])
     seq_transport_over = np.array(row_dict['M14.QUE.ALL.TRANSPORT4MINOVERCNT'])
     seq_m14b_vertical = np.array(row_dict['M14B.QUE.SENDFAB.VERTICALQUEUECOUNT'])
-    
     seq_queue_gap = seq_queue_created - seq_queue_completed
     
     # M14AM14B
@@ -234,44 +230,37 @@ def create_features_v3(row_dict):
     return features
 
 def evaluate_all_predictions():
-    """전체 데이터를 슬라이딩 윈도우로 평가"""
+    """전체 데이터를 슬라이딩 윈도우로 평가 - 모든 컬럼 포함"""
     
     print("="*80)
-    print("🔥 XGBoost 평가 - 가중치 모델")
+    print("🔥 XGBoost 평가 - 가중치 100배 모델")
     print("="*80)
     
-    # 모델 로드
     model_file = 'xgboost_9col_weighted.pkl'
     
     if not os.path.exists(model_file):
         print(f"❌ 모델 파일 없음: {model_file}")
-        print(f"먼저 학습_가중치.py를 실행하세요.")
         return None
     
     with open(model_file, 'rb') as f:
         model = pickle.load(f)
-    print(f"✅ 모델 로드: {model_file}")
+    print(f"✅ 모델 로드")
     
-    # 데이터 로드
     csv_file = 'Ois.csv'
-    
     if not os.path.exists(csv_file):
-        print(f"❌ CSV 파일 없음: {csv_file}")
+        print(f"❌ CSV 파일 없음")
         return None
     
-    print(f"데이터 로딩: {csv_file}...")
     df = pd.read_csv(csv_file, on_bad_lines='skip')
     print(f"✅ 데이터 로드: {len(df):,}행")
     
-    # CURRTIME 처리
     df['CURRTIME'] = pd.to_datetime(df['CURRTIME'].astype(str), format='%Y%m%d%H%M')
     
     results = []
     total_predictions = len(df) - 280 - 10
-    print(f"\n🔄 슬라이딩 윈도우 평가 시작...")
-    print(f"총 예측 수: {total_predictions:,}개")
     
-    # 슬라이딩 윈도우
+    print(f"🔄 평가 시작... (총 {total_predictions:,}개)")
+    
     for i in range(280, len(df) - 10):
         row_dict = {
             'M14AM14B': df['M14AM14B'].iloc[i-280:i].values,
@@ -288,54 +277,76 @@ def evaluate_all_predictions():
         seq_totalcnt = row_dict['TOTALCNT']
         seq_m14b = row_dict['M14AM14B']
         seq_m10a = row_dict['M14AM10A']
+        seq_m16 = row_dict['M14AM16']
         seq_oht_util = row_dict['M14.QUE.OHT.OHTUTIL']
         seq_queue_created = row_dict['M14.QUE.ALL.CURRENTQCREATED']
         seq_queue_completed = row_dict['M14.QUE.ALL.CURRENTQCOMPLETED']
         seq_queue_gap = seq_queue_created - seq_queue_completed
         
         current_time = df['CURRTIME'].iloc[i-1]
+        seq_start_time = df['CURRTIME'].iloc[i-280]
+        prediction_time = current_time + timedelta(minutes=10)
+        actual_time = df['CURRTIME'].iloc[i+9]
         actual_value = df['TOTALCNT'].iloc[i+9]
         
-        # Feature 생성 및 예측
         features = create_features_v3(row_dict)
         X_pred = pd.DataFrame([features])
         prediction = model.predict(X_pred)[0]
         
+        golden_pattern = (seq_m14b[-1] > 300 and seq_m10a[-1] < 80)
+        danger_in_seq = np.sum(seq_totalcnt >= 1700) > 0
+        
+        last_10min = seq_totalcnt[-10:]
+        early_warning_detected = (np.max(last_10min) >= 1650) and ((last_10min[-1] - last_10min[0]) > 20)
+        
         results.append({
+            '시퀀스시작': seq_start_time.strftime('%Y-%m-%d %H:%M'),
             '현재시간': current_time.strftime('%Y-%m-%d %H:%M'),
             '현재TOTALCNT': round(seq_totalcnt[-1], 2),
+            '예측시점': prediction_time.strftime('%Y-%m-%d %H:%M'),
+            '실제시점': actual_time.strftime('%Y-%m-%d %H:%M'),
             '실제값': round(actual_value, 2),
             '예측값': round(prediction, 2),
             '오차': round(actual_value - prediction, 2),
             '절대오차': round(abs(actual_value - prediction), 2),
             '오차율(%)': round(abs(actual_value - prediction) / max(actual_value, 1) * 100, 2),
             'M14AM14B': round(seq_m14b[-1], 2),
-            'OHT_UTIL': round(seq_oht_util[-1], 2),
+            'M14AM10A': round(seq_m10a[-1], 2),
+            'M14AM16': round(seq_m16[-1], 2),
             'queue_gap': round(seq_queue_gap[-1], 2),
+            'OHT_UTIL': round(seq_oht_util[-1], 2),
+            '시퀀스TOTALCNT_MAX': round(np.max(seq_totalcnt), 2),
+            '시퀀스TOTALCNT_MIN': round(np.min(seq_totalcnt), 2),
+            '시퀀스TOTALCNT_평균': round(np.mean(seq_totalcnt), 2),
+            '마지막10분_MAX': round(np.max(last_10min), 2),
+            '마지막10분_상승폭': round(last_10min[-1] - last_10min[0], 2),
+            '황금패턴': 'O' if golden_pattern else '',
+            '시퀀스위험': 'O' if danger_in_seq else '',
+            '조기경보': 'O' if early_warning_detected else '',
             '실제위험(1700+)': 'O' if actual_value >= 1700 else '',
             '예측위험(1650+)': 'O' if prediction >= 1650 else ''
         })
         
         if (i - 280) % 5000 == 0 and i > 280:
-            progress = (i - 280) / total_predictions * 100
-            print(f"  진행중... {i-280:,}/{total_predictions:,} ({progress:.1f}%)")
+            print(f"  {i-280:,}/{total_predictions:,} ({(i-280)/total_predictions*100:.1f}%)")
             gc.collect()
     
     print(f"✅ 평가 완료!")
     
     results_df = pd.DataFrame(results)
     
-    # CSV 저장
-    output_file = 'evaluation_weighted.csv'
+    output_file = 'evaluation_weighted_100x.csv'
     results_df.to_csv(output_file, index=False, encoding='utf-8-sig')
-    print(f"✅ 결과 저장: {output_file}")
+    print(f"✅ 저장: {output_file}")
     
-    # 통계
+    del df
+    gc.collect()
+    
     print("\n" + "="*80)
-    print("📊 평가 통계 (가중치 모델)")
+    print("📊 통계")
     print("="*80)
     print(f"총 예측: {len(results_df):,}개")
-    print(f"평균 MAE: {results_df['절대오차'].mean():.2f}")
+    print(f"MAE: {results_df['절대오차'].mean():.2f}")
     
     actual_danger = results_df['실제위험(1700+)'] == 'O'
     pred_danger = results_df['예측위험(1650+)'] == 'O'
@@ -346,23 +357,20 @@ def evaluate_all_predictions():
     detected_1700 = (actual_danger & pred_1700).sum()
     pred_1700_count = pred_1700.sum()
     
-    print(f"\n🔥 위험 구간 분석")
+    print(f"\n🔥 1700+ 분석")
     print(f"실제 1700+: {actual_count:,}개")
     print(f"예측 1650+: {pred_danger.sum():,}개")
-    print(f"예측 1700+: {pred_1700_count:,}개")
+    print(f"예측 1700+: {pred_1700_count:,}개 🎯")
     
     if actual_count > 0:
-        print(f"\n🎯 감지율 (1650+): {detected/actual_count*100:.1f}%")
-        print(f"🎯 감지율 (1700+): {detected_1700/actual_count*100:.1f}%")
+        print(f"\n감지율 (1650+): {detected/actual_count*100:.1f}%")
+        print(f"감지율 (1700+): {detected_1700/actual_count*100:.1f}% 🎯")
     
-    print(f"\n저장: {output_file}")
     print("="*80)
     
     return results_df
 
 if __name__ == '__main__':
-    print("\n🔥 가중치 모델 평가 시작...\n")
     results = evaluate_all_predictions()
-    
     if results is not None:
-        print(f"\n✅ 완료! {len(results):,}개 예측")
+        print(f"\n✅ 완료!")
