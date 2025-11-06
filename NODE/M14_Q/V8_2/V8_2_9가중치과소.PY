@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-🚀 평가 FINAL - multiplier=50 + 균형잡힌 보정
+🚀 평가 FINAL - multiplier=50 + 가벼운 보정+ (1700 잡는다!)
 완전판!
 """
 
@@ -15,7 +15,7 @@ import warnings
 warnings.filterwarnings('ignore')
 
 print("="*80)
-print("🚀 평가 FINAL - multiplier=50 + 균형잡힌 보정")
+print("🚀 평가 FINAL - multiplier=50 + 가벼운 보정+ (1700 잡는다!)")
 print("="*80)
 
 def create_features_13col_optimized(row_dict):
@@ -298,70 +298,70 @@ def create_features_13col_optimized(row_dict):
     
     return features
 
-def adjust_balanced(pred, m14b, m14bsum, gap, trans):
-    """⚖️ 균형잡힌 보정 - 과도하지 않게!"""
+def adjust_light_plus(pred, m14b, m14bsum, gap, trans):
+    """💨 가벼운 보정+ - 1700 잡을 정도로!"""
     boost = 0
     
-    # 1. 황금패턴 (최소 보장은 제거, boost만)
+    # 1. 황금패턴 (살짝 더)
     if (m14b > 520 and m14bsum > 588):
-        boost += 40  # 70→40
+        boost += 25  # 20→25
     elif (m14b > 517 and m14bsum > 576):
-        boost += 35  # 60→35
+        boost += 20  # 15→20
     elif (m14b > 509 and m14bsum > 570):
-        boost += 28  # 50→28
+        boost += 15  # 12→15
     elif (m14b > 497 and m14bsum > 566):
-        boost += 20  # 40→20
+        boost += 12  # 8→12
     
-    # 2. Gap (4.2배) - 줄임
+    # 2. Gap (살짝 더)
     if gap > 400:
-        boost += 45  # 80→45
+        boost += 22  # 18→22
     elif gap > 350:
-        boost += 38  # 70→38
+        boost += 18  # 15→18
     elif gap > 300:
-        boost += 32  # 60→32
+        boost += 15  # 12→15
     elif gap > 250:
-        boost += 25  # 45→25
+        boost += 12  # 10→12
     elif gap > 200:
-        boost += 15  # 추가
+        boost += 8   # 6→8
     
-    # 3. Transport (1.29배) - 줄임
+    # 3. Transport (살짝 더)
     if trans > 200:
-        boost += 35  # 60→35
+        boost += 18  # 15→18
     elif trans > 180:
-        boost += 28  # 50→28
+        boost += 15  # 12→15
     elif trans > 171:
-        boost += 22  # 45→22
+        boost += 12  # 10→12
     elif trans > 151:
-        boost += 18  # 30→18
+        boost += 10  # 8→10
     elif trans > 145:
-        boost += 12  # 20→12
+        boost += 7   # 5→7
     
-    # 4. 극단값 - 줄임
+    # 4. 극단값 (살짝 더)
     if m14b > 550:
-        boost += 25  # 50→25
+        boost += 12  # 10→12
     elif m14b > 539:
-        boost += 20  # 45→20
+        boost += 10  # 8→10
     
     if m14bsum > 620:
-        boost += 25  # 50→25
+        boost += 12  # 10→12
     elif m14bsum > 602:
-        boost += 20  # 45→20
+        boost += 10  # 8→10
     
-    # 5. 복합 (줄임)
+    # 5. 복합 (살짝 더)
     if gap > 300 and trans > 151:
-        boost += 25  # 50→25
+        boost += 12  # 10→12
     elif gap > 250 and trans > 145:
-        boost += 18  # 추가
+        boost += 10  # 8→10
     
-    # 6. 최강 복합 (줄임)
+    # 6. 최강 복합 (살짝 더)
     if m14b > 520 and m14bsum > 588 and gap > 300 and trans > 151:
-        boost += 35  # 80→35
+        boost += 18  # 15→18
     
     # 최종 보정
     pred = pred + boost
     
     # 상한선
-    pred = min(pred, 2050)  # 2100→2050
+    pred = min(pred, 2000)
     
     return pred
 
@@ -422,9 +422,9 @@ for i in range(280, len(df) - 10):
     features = create_features_13col_optimized(row_dict)
     X = pd.DataFrame([features])
     
-    # 예측 (원본 + 균형잡힌 보정)
+    # 예측 (원본 + 가벼운 보정+)
     pred_raw = model.predict(X)[0]
-    pred = adjust_balanced(pred_raw, seq_m14b[-1], seq_m14b_sum[-1], seq_gap[-1], seq_trans[-1])
+    pred = adjust_light_plus(pred_raw, seq_m14b[-1], seq_m14b_sum[-1], seq_gap[-1], seq_trans[-1])
     
     # 패턴 감지
     gold_strict = (seq_m14b[-1] > 520 and seq_m14b_sum[-1] > 588)
