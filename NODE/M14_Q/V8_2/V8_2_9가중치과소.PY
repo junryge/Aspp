@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-🚀 평가 FINAL - multiplier=50 + 강화 보정 (전체 +5!)
+🚀 평가 FINAL - multiplier=50 + 최적 보정 (주요값 +8)
 완전판!
 """
 
@@ -15,7 +15,7 @@ import warnings
 warnings.filterwarnings('ignore')
 
 print("="*80)
-print("🚀 평가 FINAL - multiplier=50 + 강화 보정 (전체 +5!)")
+print("🚀 평가 FINAL - multiplier=50 + 최적 보정 (주요값 +8)")
 print("="*80)
 
 def create_features_13col_optimized(row_dict):
@@ -299,63 +299,63 @@ def create_features_13col_optimized(row_dict):
     return features
 
 def adjust_light_plus(pred, m14b, m14bsum, gap, trans):
-    """💨 가벼운 보정+ - 전체 +5 강화!"""
+    """💨 최적 보정 - 주요값 +8!"""
     boost = 0
     
-    # 1. 황금패턴 (+5씩!)
+    # 1. 황금패턴 (+8)
     if (m14b > 520 and m14bsum > 588):
-        boost += 35  # 30→35
+        boost += 33  # 25+8
     elif (m14b > 517 and m14bsum > 576):
-        boost += 30  # 25→30
+        boost += 28  # 20+8
     elif (m14b > 509 and m14bsum > 570):
-        boost += 25  # 20→25
+        boost += 15  # 원래값
     elif (m14b > 497 and m14bsum > 566):
-        boost += 20  # 15→20
+        boost += 12  # 원래값
     
-    # 2. Gap (+5씩!)
+    # 2. Gap (+8)
     if gap > 400:
-        boost += 33  # 28→33
+        boost += 30  # 22+8
     elif gap > 350:
-        boost += 27  # 22→27
+        boost += 22  # 조정안함
     elif gap > 300:
-        boost += 23  # 18→23
+        boost += 23  # 15+8
     elif gap > 250:
-        boost += 20  # 15→20
+        boost += 12  # 원래값
     elif gap > 200:
-        boost += 15  # 10→15
+        boost += 8   # 원래값
     
-    # 3. Transport (+5씩!)
+    # 3. Transport (+8)
     if trans > 200:
-        boost += 27  # 22→27
+        boost += 26  # 18+8
     elif trans > 180:
-        boost += 23  # 18→23
+        boost += 23  # 15+8
     elif trans > 171:
-        boost += 20  # 15→20
+        boost += 12  # 원래값
     elif trans > 151:
-        boost += 17  # 12→17
+        boost += 10  # 원래값
     elif trans > 145:
-        boost += 15  # 10→15
+        boost += 7   # 원래값
     
-    # 4. 극단값 (+5씩!)
+    # 4. 극단값 (+8)
     if m14b > 550:
-        boost += 20  # 15→20
+        boost += 20  # 12+8
     elif m14b > 539:
-        boost += 17  # 12→17
+        boost += 10  # 원래값
     
     if m14bsum > 620:
-        boost += 20  # 15→20
+        boost += 20  # 12+8
     elif m14bsum > 602:
-        boost += 17  # 12→17
+        boost += 10  # 원래값
     
-    # 5. 복합 (+5씩!)
+    # 5. 복합 (+8)
     if gap > 300 and trans > 151:
-        boost += 20  # 15→20
+        boost += 20  # 12+8
     elif gap > 250 and trans > 145:
-        boost += 17  # 12→17
+        boost += 10  # 원래값
     
-    # 6. 최강 복합 (+5!)
+    # 6. 최강 복합 (+8)
     if m14b > 520 and m14bsum > 588 and gap > 300 and trans > 151:
-        boost += 30  # 25→30
+        boost += 26  # 18+8
     
     # 최종 보정
     pred = pred + boost
