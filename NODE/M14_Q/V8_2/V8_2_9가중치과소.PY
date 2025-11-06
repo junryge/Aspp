@@ -1,4 +1,80 @@
 #!/usr/bin/env python3
+
+def adjust_smart_range(pred, m14b, m14bsum, gap, trans):
+    """🎯 1650~1699만 집중 boost - 다른 구간 영향 없음!"""
+    boost = 0
+    
+    # 🔥 핵심 구간: 1650~1699만 강하게 boost!
+    if 1650 <= pred < 1700:
+        
+        # 1. 황금패턴
+        if (m14b > 520 and m14bsum > 588):
+            boost += 45  # 33+12
+        elif (m14b > 517 and m14bsum > 576):
+            boost += 40  # 28+12
+        elif (m14b > 509 and m14bsum > 570):
+            boost += 30  # 15+15
+        elif (m14b > 497 and m14bsum > 566):
+            boost += 25  # 12+13
+        
+        # 2. Gap
+        if gap > 400:
+            boost += 42  # 30+12
+        elif gap > 350:
+            boost += 35  # 22+13
+        elif gap > 300:
+            boost += 35  # 23+12
+        elif gap > 250:
+            boost += 25  # 12+13
+        elif gap > 200:
+            boost += 20  # 8+12
+        
+        # 3. Transport
+        if trans > 200:
+            boost += 38  # 26+12
+        elif trans > 180:
+            boost += 35  # 23+12
+        elif trans > 171:
+            boost += 25  # 12+13
+        elif trans > 151:
+            boost += 22  # 10+12
+        elif trans > 145:
+            boost += 18  # 7+11
+        
+        # 4. 극단값
+        if m14b > 550:
+            boost += 32  # 20+12
+        elif m14b > 539:
+            boost += 22  # 10+12
+        
+        if m14bsum > 620:
+            boost += 32  # 20+12
+        elif m14bsum > 602:
+            boost += 22  # 10+12
+        
+        # 5. 복합
+        if gap > 300 and trans > 151:
+            boost += 32  # 20+12
+        elif gap > 250 and trans > 145:
+            boost += 22  # 10+12
+        
+        # 6. 최강 복합
+        if m14b > 520 and m14bsum > 588 and gap > 300 and trans > 151:
+            boost += 38  # 26+12
+    
+    # ✅ 나머지 구간 (1650 미만, 1700 이상): boost = 0
+    # 완전히 안 건드림! 다른 구간 영향 없음!
+    
+    # 최종 보정
+    pred = pred + boost
+    
+    # 상한선
+    pred = min(pred, 2000)
+    
+    return pred
+
+
+
 # -*- coding: utf-8 -*-
 """
 🚀 평가 FINAL - multiplier=50 + 최적 보정 (주요값 +8)
