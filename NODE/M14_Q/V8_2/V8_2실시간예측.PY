@@ -48,6 +48,12 @@
     
     return result
 
+
+print(f"예측값: {result['prediction']:,}")
+print(f"상태: {result['status']}")
+print(f"예측시점: {result['prediction_time']}")
+print(f"1700+ 위험확률: {result['danger_probability']}%")
+
 # -*- coding: utf-8 -*-
 """
 🚀 실시간 예측 시스템 - V8.2 평가 코드 기반
