@@ -1,77 +1,38 @@
 #!/usr/bin/env python3
 
-python    # 1700+ 위험 확률 계산
-    danger_prob = 0
-    
-    # ⭐ 예측값에 따른 기본 확률
-    if pred >= 1750:
-        # 1750+ → 거의 확실히 1700+
-        danger_prob = 100
-    elif pred >= 1700:
-        # 1700~1749 → 매우 높은 확률
-        danger_prob = 95
-    elif pred >= 1680:
-        # 1680~1699 → 높은 확률 (오차 고려)
-        danger_prob = 75
-    elif pred >= 1650:
-        # 1650~1679 → 중간 확률
-        danger_prob = 50
-    elif pred >= 1620:
-        # 1620~1649 → 낮은 확률
-        danger_prob = 30
-    elif pred >= 1600:
-        # 1600~1619 → 매우 낮은 확률
-        danger_prob = 15
-    else:
-        # 1600 미만 → 거의 불가능
-        danger_prob = 5
-    
-    # 황금 패턴으로 확률 보정 (+10~+20)
-    if gold_strict:
-        danger_prob = min(100, danger_prob + 20)  # ⭐⭐⭐ 엄격 패턴
-    elif gold_normal:
-        danger_prob = min(100, danger_prob + 15)  # ⭐⭐ 보통 패턴
-    elif (current_m14b > 509 and current_m14bsum > 570):
-        danger_prob = min(100, danger_prob + 10)  # ⭐ 느슨 패턴
-    
-    # Gap 위험도 추가 (+5~+10)
-    if danger_gap:
-        if current_gap > 350:
-            danger_prob = min(100, danger_prob + 10)
-        else:
-            danger_prob = min(100, danger_prob + 5)
-    
-    # Transport 위험도 추가 (+5~+10)
-    if danger_trans:
-        if current_trans > 180:
-            danger_prob = min(100, danger_prob + 10)
-        else:
-            danger_prob = min(100, danger_prob + 5)
-    
-    # 현재값이 이미 위험한 경우 확률 상향
-    if current_totalcnt >= 1700:
-        danger_prob = max(danger_prob, 85)  # 현재 1700+ → 최소 85%
-    elif current_totalcnt >= 1650:
-        danger_prob = max(danger_prob, 60)  # 현재 1650+ → 최소 60%
-    
-    # 최종 확률 (0~100% 범위로 제한)
-    danger_prob = max(0, min(100, danger_prob))
-    
-    # 결과 딕셔너리 반환
-    result = {
-        'prediction': int(pred),
-        'status': pred_status,
-        'prediction_time': prediction_time.strftime('%Y-%m-%d %H:%M'),
-        'danger_probability': danger_prob
-    }
-    
-    return result
+# CURRTIME 처리 (개선!)
+if 'CURRTIME' in df.columns:
+    try:
+        # 시도 1: YYYYMMDDHHMM 형식 (202510151430)
+        df['CURRTIME'] = pd.to_datetime(df['CURRTIME'].astype(str), format='%Y%m%d%H%M')
+        print("✅ CURRTIME 파싱 완료 (YYYYMMDDHHMM)")
+    except:
+        try:
+            # 시도 2: 자동 파싱
+            df['CURRTIME'] = pd.to_datetime(df['CURRTIME'])
+            print("✅ CURRTIME 자동 파싱 완료")
+        except:
+            try:
+                # 시도 3: YYYY-MM-DD HH:MM:SS 형식
+                df['CURRTIME'] = pd.to_datetime(df['CURRTIME'], format='%Y-%m-%d %H:%M:%S')
+                print("✅ CURRTIME 파싱 완료 (YYYY-MM-DD HH:MM:SS)")
+            except:
+                print("⚠️ CURRTIME 변환 실패, 가상 시간 생성")
+                print(f"   원본 CURRTIME 샘플: {df['CURRTIME'].iloc[:3].tolist()}")
+                base_time = datetime.now()  # ⭐ 현재 시간 기준으로 변경!
+                df['CURRTIME'] = [base_time - timedelta(minutes=len(df)-1-i) for i in range(len(df))]
+                print(f"   가상 시간 생성: {df['CURRTIME'].iloc[-1]}")
+else:
+    print("⚠️ CURRTIME 컬럼 없음, 가상 시간 생성")
+    base_time = datetime.now()  # ⭐ 현재 시간 기준으로 변경!
+    df['CURRTIME'] = [base_time - timedelta(minutes=len(df)-1-i) for i in range(len(df))]
+    print(f"   가상 시간 생성: {df['CURRTIME'].iloc[-1]}")
 
-
-print(f"예측값: {result['prediction']:,}")
-print(f"상태: {result['status']}")
-print(f"예측시점: {result['prediction_time']}")
-print(f"1700+ 위험확률: {result['danger_probability']}%")
+# ⭐ 디버깅용 출력 추가!
+print(f"\n📅 시간 정보:")
+print(f"   데이터 첫 시간: {df['CURRTIME'].iloc[0]}")
+print(f"   데이터 마지막 시간: {df['CURRTIME'].iloc[-1]}")
+print(f"   데이터 총 개수: {len(df):,}개")
 
 # -*- coding: utf-8 -*-
 """
