@@ -1,38 +1,47 @@
 #!/usr/bin/env python3
 
-# CURRTIME 처리 (개선!)
+# CURRTIME 처리 (강화!)
 if 'CURRTIME' in df.columns:
+    print(f"\n⏰ CURRTIME 파싱 시작...")
+    
+    # ⭐ 문자열로 확실히 변환
+    df['CURRTIME'] = df['CURRTIME'].astype(str)
+    
+    # 공백이나 이상한 문자 제거
+    df['CURRTIME'] = df['CURRTIME'].str.strip()
+    
+    # 길이 확인 (12자리여야 함: YYYYMMDDHHMM)
+    first_val = df['CURRTIME'].iloc[0]
+    print(f"   원본 값: {first_val}")
+    print(f"   길이: {len(first_val)}자리")
+    
     try:
-        # 시도 1: YYYYMMDDHHMM 형식 (202510151430)
-        df['CURRTIME'] = pd.to_datetime(df['CURRTIME'].astype(str), format='%Y%m%d%H%M')
-        print("✅ CURRTIME 파싱 완료 (YYYYMMDDHHMM)")
-    except:
-        try:
-            # 시도 2: 자동 파싱
-            df['CURRTIME'] = pd.to_datetime(df['CURRTIME'])
-            print("✅ CURRTIME 자동 파싱 완료")
-        except:
-            try:
-                # 시도 3: YYYY-MM-DD HH:MM:SS 형식
-                df['CURRTIME'] = pd.to_datetime(df['CURRTIME'], format='%Y-%m-%d %H:%M:%S')
-                print("✅ CURRTIME 파싱 완료 (YYYY-MM-DD HH:MM:SS)")
-            except:
-                print("⚠️ CURRTIME 변환 실패, 가상 시간 생성")
-                print(f"   원본 CURRTIME 샘플: {df['CURRTIME'].iloc[:3].tolist()}")
-                base_time = datetime.now()  # ⭐ 현재 시간 기준으로 변경!
-                df['CURRTIME'] = [base_time - timedelta(minutes=len(df)-1-i) for i in range(len(df))]
-                print(f"   가상 시간 생성: {df['CURRTIME'].iloc[-1]}")
+        # YYYYMMDDHHMM 형식 파싱 (202508020919)
+        df['CURRTIME'] = pd.to_datetime(df['CURRTIME'], format='%Y%m%d%H%M', errors='coerce')
+        
+        # NaT(파싱 실패) 확인
+        if df['CURRTIME'].isna().any():
+            print(f"⚠️  파싱 실패한 행: {df['CURRTIME'].isna().sum()}개")
+            print(f"   실패 샘플: {df[df['CURRTIME'].isna()].head()}")
+        else:
+            print(f"✅ CURRTIME 파싱 완료 (YYYYMMDDHHMM)")
+            print(f"   첫 시간: {df['CURRTIME'].iloc[0]}")
+            print(f"   마지막 시간: {df['CURRTIME'].iloc[-1]}")
+    except Exception as e:
+        print(f"❌ CURRTIME 파싱 실패: {e}")
+        print(f"   현재 시간 기준으로 가상 시간 생성")
+        base_time = datetime.now()
+        df['CURRTIME'] = [base_time - timedelta(minutes=len(df)-1-i) for i in range(len(df))]
 else:
     print("⚠️ CURRTIME 컬럼 없음, 가상 시간 생성")
-    base_time = datetime.now()  # ⭐ 현재 시간 기준으로 변경!
+    base_time = datetime.now()
     df['CURRTIME'] = [base_time - timedelta(minutes=len(df)-1-i) for i in range(len(df))]
-    print(f"   가상 시간 생성: {df['CURRTIME'].iloc[-1]}")
 
-# ⭐ 디버깅용 출력 추가!
-print(f"\n📅 시간 정보:")
-print(f"   데이터 첫 시간: {df['CURRTIME'].iloc[0]}")
-print(f"   데이터 마지막 시간: {df['CURRTIME'].iloc[-1]}")
-print(f"   데이터 총 개수: {len(df):,}개")
+# ⭐ 최종 확인!
+print(f"\n📅 최종 시간 정보:")
+print(f"   첫 시간: {df['CURRTIME'].iloc[0]}")
+print(f"   마지막 시간: {df['CURRTIME'].iloc[-1]}")
+print(f"   타입: {type(df['CURRTIME'].iloc[0])}")
 
 # -*- coding: utf-8 -*-
 """
