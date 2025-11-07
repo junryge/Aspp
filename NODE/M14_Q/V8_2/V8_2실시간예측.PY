@@ -1,42 +1,48 @@
 #!/usr/bin/env python3
 
-    # 1700+ 위험 확률 계산
+ # 1700+ 위험 확률 계산
     danger_prob = 0
     
-    # 황금 패턴 기반
-    if gold_strict:
-        danger_prob = 85  # ⭐⭐⭐ 엄격 패턴
-    elif gold_normal:
-        danger_prob = 70  # ⭐⭐ 보통 패턴
-    elif (current_m14b > 509 and current_m14bsum > 570):
-        danger_prob = 55  # ⭐ 느슨 패턴
-    elif (current_m14b > 497 and current_m14bsum > 566):
-        danger_prob = 40  # 필수 조건
+    # ⭐ 예측값이 이미 1700+ 이면 100%!
+    if pred >= 1700:
+        danger_prob = 100
     
-    # Gap 위험도 추가
-    if danger_gap:
-        if current_gap > 350:
-            danger_prob += 15
-        else:
-            danger_prob += 10
-    
-    # Transport 위험도 추가
-    if danger_trans:
-        if current_trans > 180:
-            danger_prob += 15
-        else:
-            danger_prob += 10
-    
-    # 현재 값이 이미 1700+ 인 경우
-    if current_totalcnt >= 1700:
-        danger_prob = max(danger_prob, 90)
-    
-    # 현재 값이 1600+ 인 경우
-    elif current_totalcnt >= 1600:
-        danger_prob = max(danger_prob, 60)
-    
-    # 최대 95%로 제한
-    danger_prob = min(danger_prob, 95)
+    # 예측값이 1700 미만일 때만 계산
+    else:
+        # 황금 패턴 기반
+        if gold_strict:
+            danger_prob = 85  # ⭐⭐⭐ 엄격 패턴
+        elif gold_normal:
+            danger_prob = 70  # ⭐⭐ 보통 패턴
+        elif (current_m14b > 509 and current_m14bsum > 570):
+            danger_prob = 55  # ⭐ 느슨 패턴
+        elif (current_m14b > 497 and current_m14bsum > 566):
+            danger_prob = 40  # 필수 조건
+        
+        # Gap 위험도 추가
+        if danger_gap:
+            if current_gap > 350:
+                danger_prob += 15
+            else:
+                danger_prob += 10
+        
+        # Transport 위험도 추가
+        if danger_trans:
+            if current_trans > 180:
+                danger_prob += 15
+            else:
+                danger_prob += 10
+        
+        # 현재 값이 이미 1700+ 인 경우
+        if current_totalcnt >= 1700:
+            danger_prob = max(danger_prob, 90)
+        
+        # 현재 값이 1600+ 인 경우
+        elif current_totalcnt >= 1600:
+            danger_prob = max(danger_prob, 60)
+        
+        # 최대 95%로 제한 (예측값이 1700 미만일 때만)
+        danger_prob = min(danger_prob, 95)
     
     # 결과 딕셔너리 반환
     result = {
