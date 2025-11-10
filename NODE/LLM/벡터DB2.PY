@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
+pip install langchain-huggingface tf-keras protobuf==3.20.3 --break-system-packages
 Step 1: 벡터DB 생성 (최초 1회만 실행)
 """
 
