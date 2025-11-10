@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
+2025-08-12 00:05 실제값 알려줘
 Step 2: RAG 시스템 실행 (pickle 벡터DB 사용)
 """
 
