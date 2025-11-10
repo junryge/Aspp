@@ -1,20 +1,9 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-
-pip install pysqlite3-binary --break-system-packages
-Step 1: 벡터DB 생성 (최초 1회만 실행)
+Step 1: 벡터DB 생성 (ChromaDB 없이 pickle 사용)
 """
 
-# SQLite3 버전 우회 (chromadb 요구사항)
-import sys
-try:
-    __import__('pysqlite3')
-    sys.modules['sqlite3'] = sys.modules.pop('pysqlite3')
-except ImportError:
-    pass
-
-# TensorFlow 완전히 비활성화 (PyTorch만 사용)
 import os
 os.environ['USE_TF'] = '0'
 os.environ['USE_TORCH'] = '1'
@@ -22,28 +11,19 @@ os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 os.environ['TRANSFORMERS_NO_TF'] = '1'
 
 import warnings
-warnings.filterwarnings('ignore', category=DeprecationWarning)
-warnings.filterwarnings('ignore', category=FutureWarning)
+warnings.filterwarnings('ignore')
 
 import pandas as pd
 import numpy as np
 from datetime import datetime
+import pickle
 import logging
-
-# Embeddings import (최신 버전)
-try:
-    from langchain_huggingface import HuggingFaceEmbeddings
-except ImportError:
-    from langchain_community.embeddings import HuggingFaceEmbeddings
-    
-from langchain_community.vectorstores import Chroma
-from langchain_core.documents import Document
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 class VectorDBCreator:
-    """벡터DB 생성 전용 클래스"""
+    """벡터DB 생성 전용 클래스 (pickle 기반)"""
     
     def __init__(self, csv_path, embedding_model_path, db_persist_path):
         self.csv_path = csv_path
@@ -60,7 +40,6 @@ class VectorDBCreator:
         logger.info(f"CSV 로드 중: {self.csv_path}")
         df = pd.read_csv(self.csv_path, encoding='utf-8')
         
-        # 필요한 컬럼만 선택
         df_filtered = df[['현재시간', '실제시점', '실제값', 
                          '보정예측', '오차']].copy()
         
@@ -78,37 +57,43 @@ class VectorDBCreator:
         # 3. 임베딩 모델 로드
         logger.info(f"임베딩 모델 로드: {self.embedding_model_path}")
         
-        # CUDA 사용 가능 여부 확인
         try:
             import torch
             device = 'cuda' if torch.cuda.is_available() else 'cpu'
-            logger.info(f"임베딩 디바이스: {device}")
         except:
             device = 'cpu'
-            logger.info(f"임베딩 디바이스: cpu (torch 없음)")
         
-        embeddings = HuggingFaceEmbeddings(
-            model_name=self.embedding_model_path,
-            model_kwargs={'device': device},
-            encode_kwargs={'batch_size': 32}
-        )
+        logger.info(f"디바이스: {device}")
         
-        # 4. 벡터DB 생성 및 저장
-        logger.info("벡터DB 생성 중... (시간이 걸립니다)")
-        vector_store = Chroma.from_documents(
-            documents=documents,
-            embedding=embeddings,
-            persist_directory=self.db_persist_path,
-            collection_name="timeseries_data"
-        )
+        from sentence_transformers import SentenceTransformer
+        model = SentenceTransformer(self.embedding_model_path)
+        if device == 'cuda':
+            model = model.to('cuda')
         
-        # 5. 영구 저장
-        vector_store.persist()
+        # 4. 임베딩 생성
+        logger.info("임베딩 생성 중... (시간이 걸립니다)")
+        texts = [doc['content'] for doc in documents]
+        embeddings = model.encode(texts, show_progress_bar=True, batch_size=32)
+        
+        # 5. 저장
+        logger.info("벡터DB 저장 중...")
+        os.makedirs(self.db_persist_path, exist_ok=True)
+        
+        db_data = {
+            'documents': documents,
+            'embeddings': embeddings,
+            'metadata': {
+                'created_at': datetime.now().isoformat(),
+                'data_count': len(df_filtered),
+                'start_date': str(df_filtered.index[0]),
+                'end_date': str(df_filtered.index[-1])
+            }
+        }
+        
+        with open(os.path.join(self.db_persist_path, 'vectordb.pkl'), 'wb') as f:
+            pickle.dump(db_data, f)
+        
         logger.info(f"벡터DB 저장 완료: {self.db_persist_path}")
-        
-        # 6. 메타데이터 저장
-        self._save_metadata(df_filtered)
-        
         logger.info("="*60)
         logger.info("벡터DB 생성 완료!")
         logger.info("="*60)
@@ -119,20 +104,20 @@ class VectorDBCreator:
         
         # 개별 데이터 포인트
         for idx, row in df.iterrows():
-            doc = Document(
-                page_content=f"""
+            doc = {
+                'content': f"""
 시간: {idx}
 실제값: {row['실제값']:.1f}
 타겟시간: {row['실제시점']}
 예측값: {row['보정예측']:.1f}
 오차: {row['오차']:.1f}
                 """.strip(),
-                metadata={
+                'metadata': {
                     'datetime': str(idx),
                     'type': 'datapoint',
                     'value': float(row['실제값'])
                 }
-            )
+            }
             documents.append(doc)
         
         # 280개 시퀀스 문서
@@ -143,8 +128,8 @@ class VectorDBCreator:
             if len(sequence) < 100:
                 continue
                 
-            seq_doc = Document(
-                page_content=f"""
+            seq_doc = {
+                'content': f"""
 시퀀스 기간: {sequence.index[0]} ~ {sequence.index[-1]}
 데이터 수: {len(sequence)}개
 평균: {sequence['실제값'].mean():.2f}
@@ -153,32 +138,15 @@ class VectorDBCreator:
 표준편차: {sequence['실제값'].std():.2f}
 평균오차: {sequence['오차'].mean():.2f}
                 """.strip(),
-                metadata={
+                'metadata': {
                     'type': 'sequence',
                     'start_time': str(sequence.index[0]),
                     'end_time': str(sequence.index[-1])
                 }
-            )
+            }
             documents.append(seq_doc)
             
         return documents
-    
-    def _save_metadata(self, df):
-        """메타데이터 저장"""
-        metadata = {
-            'created_at': datetime.now().isoformat(),
-            'data_count': len(df),
-            'start_date': str(df.index[0]),
-            'end_date': str(df.index[-1]),
-            'columns': list(df.columns)
-        }
-        
-        import json
-        metadata_path = os.path.join(self.db_persist_path, 'metadata.json')
-        with open(metadata_path, 'w') as f:
-            json.dump(metadata, f, indent=2)
-        
-        logger.info(f"메타데이터 저장: {metadata_path}")
 
 if __name__ == "__main__":
     # 설정
