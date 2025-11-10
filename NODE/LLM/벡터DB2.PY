@@ -9,7 +9,13 @@ import numpy as np
 from datetime import datetime
 import os
 import logging
-from langchain_community.embeddings import HuggingFaceEmbeddings
+
+# Embeddings import (최신 버전)
+try:
+    from langchain_huggingface import HuggingFaceEmbeddings
+except ImportError:
+    from langchain_community.embeddings import HuggingFaceEmbeddings
+    
 from langchain_community.vectorstores import Chroma
 from langchain_core.documents import Document
 
@@ -51,9 +57,19 @@ class VectorDBCreator:
         
         # 3. 임베딩 모델 로드
         logger.info(f"임베딩 모델 로드: {self.embedding_model_path}")
+        
+        # CUDA 사용 가능 여부 확인
+        try:
+            import torch
+            device = 'cuda' if torch.cuda.is_available() else 'cpu'
+            logger.info(f"임베딩 디바이스: {device}")
+        except:
+            device = 'cpu'
+            logger.info(f"임베딩 디바이스: cpu (torch 없음)")
+        
         embeddings = HuggingFaceEmbeddings(
             model_name=self.embedding_model_path,
-            model_kwargs={'device': 'cuda'},
+            model_kwargs={'device': device},
             encode_kwargs={'batch_size': 32}
         )
         
