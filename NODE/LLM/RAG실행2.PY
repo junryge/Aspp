@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Step 2: RAG 시스템 실행 (pickle 기반)
+Step 2: RAG 시스템 실행 (pickle 벡터DB 사용)
 """
 
 import os
@@ -24,7 +24,7 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 class TimeSeriesRAG:
-    """pickle 기반 RAG 시스템"""
+    """pickle 벡터DB를 로드하여 사용하는 RAG 시스템"""
     
     def __init__(self, 
                  csv_path,
@@ -44,10 +44,10 @@ class TimeSeriesRAG:
         """시스템 초기화"""
         logger.info("RAG 시스템 초기화 중...")
         
-        # 1. CSV 데이터 로드
+        # 1. CSV 데이터 로드 (쿼리용)
         self._load_csv_data()
         
-        # 2. 벡터DB 로드
+        # 2. 기존 벡터DB 로드
         self._load_vectorstore()
         
         # 3. 임베딩 모델 로드
@@ -73,7 +73,7 @@ class TimeSeriesRAG:
         logger.info(f"데이터 로드 완료: {len(self.df)}개")
     
     def _load_vectorstore(self):
-        """벡터DB 로드"""
+        """기존 벡터DB 로드"""
         db_file = os.path.join(self.db_persist_path, 'vectordb.pkl')
         
         if not os.path.exists(db_file):
@@ -102,6 +102,8 @@ class TimeSeriesRAG:
         except:
             device = 'cpu'
         
+        logger.info(f"디바이스: {device}")
+        
         from sentence_transformers import SentenceTransformer
         self.embedding_model = SentenceTransformer(self.embedding_model_path)
         if device == 'cuda':
@@ -122,7 +124,9 @@ class TimeSeriesRAG:
             model_path=self.model_path,
             n_ctx=4096,
             n_batch=512,
-            n_gpu_layers=35,
+            n_gpu_layers=35,  # GPU 사용
+            temperature=0.3,
+            max_tokens=1000,
             verbose=False
         )
         
@@ -149,12 +153,14 @@ class TimeSeriesRAG:
         
         results = []
         for idx, score in top_k:
-            results.append({
-                'content': self.documents[idx]['content'],
-                'score': score
-            })
+            results.append(self.documents[idx]['content'])
         
         return results
+    
+    def _call_llm(self, prompt):
+        """LLM 호출"""
+        response = self.llm(prompt, max_tokens=1000, temperature=0.3)
+        return response['choices'][0]['text']
     
     def get_data_at_time(self, datetime_str):
         """특정 시간 데이터 조회"""
@@ -227,40 +233,26 @@ class TimeSeriesRAG:
             sequence_info = self.get_sequence_before(time_match.group(1))
             
             # 유사 문서 검색
-            similar_docs = self._search_similar(query, k=3)
-            context = "\n\n".join([doc['content'] for doc in similar_docs])
+            similar_docs = self._search_similar(query, k=5)
+            context = "\n\n".join(similar_docs)
             
             # LLM 설명 추가
-            prompt = f"""다음 데이터를 바탕으로 예측 이유를 간단히 설명:
-
-{sequence_info}
-
-관련 참고 데이터:
-{context}
-
-답변:"""
+            prompt = f"{sequence_info}\n\n관련 데이터:\n{context}\n\n위 데이터를 바탕으로 예측 이유를 간단히 설명:"
+            result = self._call_llm(prompt)
             
-            response = self.llm(prompt, max_tokens=500, temperature=0.3)
-            
-            return f"{sequence_info}\n\n💡 설명:\n{response['choices'][0]['text']}"
+            return f"{sequence_info}\n\n💡 설명:\n{result}"
         
         # 일반 RAG 쿼리
         else:
             # 유사 문서 검색
             similar_docs = self._search_similar(query, k=5)
-            context = "\n\n".join([doc['content'] for doc in similar_docs])
+            context = "\n\n".join(similar_docs)
             
             # LLM 답변 생성
-            prompt = f"""다음 정보를 바탕으로 질문에 답변:
-
-{context}
-
-질문: {query}
-
-답변:"""
+            prompt = f"질문: {query}\n\n관련 정보:\n{context}\n\n답변:"
+            result = self._call_llm(prompt)
             
-            response = self.llm(prompt, max_tokens=500, temperature=0.3)
-            return response['choices'][0]['text']
+            return result
 
 def main():
     """메인 실행"""
