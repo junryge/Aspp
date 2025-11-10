@@ -204,6 +204,86 @@ class TimeSeriesRAG:
         except Exception as e:
             return f"오류: {e}"
     
+    def _find_max_value(self, query):
+        """최대값 찾기"""
+        if "실제값" in query:
+            max_idx = self.df['실제값'].idxmax()
+            max_val = self.df.loc[max_idx, '실제값']
+            pred_val = self.df.loc[max_idx, '보정예측']
+            error = self.df.loc[max_idx, '오차']
+            
+            return f"""
+📊 실제값이 가장 큰 시간: {max_idx}
+- 실제값: {max_val:.1f}
+- 예측값: {pred_val:.1f}
+- 오차: {error:.1f}
+            """
+        elif "예측값" in query:
+            max_idx = self.df['보정예측'].idxmax()
+            max_val = self.df.loc[max_idx, '보정예측']
+            real_val = self.df.loc[max_idx, '실제값']
+            error = self.df.loc[max_idx, '오차']
+            
+            return f"""
+📊 예측값이 가장 큰 시간: {max_idx}
+- 예측값: {max_val:.1f}
+- 실제값: {real_val:.1f}
+- 오차: {error:.1f}
+            """
+        else:
+            return "실제값과 예측값 중 무엇을 찾으시나요?"
+    
+    def _find_min_value(self, query):
+        """최소값 찾기"""
+        if "실제값" in query:
+            min_idx = self.df['실제값'].idxmin()
+            min_val = self.df.loc[min_idx, '실제값']
+            pred_val = self.df.loc[min_idx, '보정예측']
+            error = self.df.loc[min_idx, '오차']
+            
+            return f"""
+📊 실제값이 가장 작은 시간: {min_idx}
+- 실제값: {min_val:.1f}
+- 예측값: {pred_val:.1f}
+- 오차: {error:.1f}
+            """
+        else:
+            return "실제값을 기준으로 최소값을 찾았습니다."
+    
+    def _find_most_accurate(self):
+        """가장 정확한 예측 찾기 (오차 절대값 최소)"""
+        self.df['절대오차'] = self.df['오차'].abs()
+        min_idx = self.df['절대오차'].idxmin()
+        
+        real_val = self.df.loc[min_idx, '실제값']
+        pred_val = self.df.loc[min_idx, '보정예측']
+        error = self.df.loc[min_idx, '오차']
+        
+        return f"""
+📊 예측이 가장 정확한 시간: {min_idx}
+- 실제값: {real_val:.1f}
+- 예측값: {pred_val:.1f}
+- 오차: {error:.1f}
+- 절대오차: {abs(error):.1f}
+        """
+    
+    def _find_high_values(self, query):
+        """높은 값 찾기"""
+        if "M14AM14B" in query:
+            # 상위 3개 찾기
+            top_3 = self.df.nlargest(3, 'M14AM14B')
+            
+            result = "📊 M14AM14B 값이 높은 시간대 (상위 3개):\n\n"
+            for idx, row in top_3.iterrows():
+                result += f"시간: {idx}\n"
+                result += f"- M14AM14B: {row['M14AM14B']}\n"
+                result += f"- 실제값: {row['실제값']:.1f}\n"
+                result += f"- 예측값: {row['보정예측']:.1f}\n\n"
+            
+            return result
+        else:
+            return "어떤 값을 찾으시나요?"
+    
     def analyze_query(self, query):
         """쿼리 분석 및 처리"""
         # 시간 패턴 추출
@@ -211,30 +291,36 @@ class TimeSeriesRAG:
         time_match = re.search(time_pattern, query)
         
         # 실제값/예측값 조회
-        if time_match and ("실제값" in query or "예측값" in query or "데이터" in query):
+        if time_match and ("실제값" in query or "예측값" in query or "데이터" in query or "오차" in query):
             return self.get_data_at_time(time_match.group(1))
+        
+        # 계산 필요한 질문들 - Python으로 직접 처리
+        elif "가장 큰" in query or "최대" in query or "최고" in query:
+            return self._find_max_value(query)
+        elif "가장 작은" in query or "최소" in query or "최저" in query:
+            return self._find_min_value(query)
+        elif "가장 정확" in query or "오차가 작은" in query:
+            return self._find_most_accurate()
+        elif "높은 시간대" in query or "많은 시간" in query:
+            return self._find_high_values(query)
         
         # 일반 RAG 쿼리
         else:
             print("🔍 유사 문서 검색 중...")
-            similar_docs = self._search_similar(query, k=5)  # 더 많은 문서 검색
+            similar_docs = self._search_similar(query, k=3)
             context = "\n---\n".join(similar_docs)
             
             print("🤖 AI 답변 생성 중...")
-            # 개선된 프롬프트
-            prompt = f"""다음은 반도체 제조 데이터입니다.
-
-데이터:
+            prompt = f"""데이터:
 {context}
 
 질문: {query}
 
-위 데이터를 바탕으로 질문에 대해 구체적으로 답변해주세요. 시간, 값, 특징을 포함해서 2-3문장으로 설명하세요.
+위 데이터를 보고 간단히 설명하세요.
 
 답변:"""
             
-            result = self._call_llm(prompt, max_tokens=300)
-            
+            result = self._call_llm(prompt, max_tokens=200)
             return result
 
 def main():
