@@ -1,12 +1,12 @@
 def predict_latest():
     """
-    가장 최근 280분 데이터로 15분 후 예측
+    가장 최근 280분 데이터로 25분 후 예측
     반환: {'prediction': int, 'status': str, 'prediction_time': str, 'danger_probability': int}
     에러 시: {'prediction': 0, 'status': 'Model operation failure/No data/Lack of data', ...}
     """
     
-    # ⭐ 1. 모델 로드 (15분용 모델)
-    model_file = 'model_13col_15.pkl'
+    # ⭐ 1. 모델 로드 (25분용 모델)
+    model_file = 'model_13col_25.pkl'
     try:
         with open(model_file, 'rb') as f:
             model = pickle.load(f)
@@ -134,11 +134,11 @@ def predict_latest():
             'M14.QUE.ALL.TRANSPORT4MINOVERCNT': df['M14.QUE.ALL.TRANSPORT4MINOVERCNT'].iloc[-280:].values,
         }
         
-        # 시간 정보 (⭐ 15분 후)
+        # 시간 정보 (⭐ 25분 후)
         current_time = df['CURRTIME'].iloc[-1]
         if pd.isna(current_time):
             current_time = datetime.now()
-        prediction_time = current_time + timedelta(minutes=15)
+        prediction_time = current_time + timedelta(minutes=25)
         
         # 현재 상태
         seq_totalcnt = row_dict['TOTALCNT']
