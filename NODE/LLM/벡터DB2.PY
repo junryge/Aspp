@@ -9,9 +9,9 @@ import numpy as np
 from datetime import datetime
 import os
 import logging
-from langchain.embeddings import HuggingFaceEmbeddings
-from langchain.vectorstores import Chroma
-from langchain.docstore.document import Document
+from langchain_community.embeddings import HuggingFaceEmbeddings
+from langchain_community.vectorstores import Chroma
+from langchain_core.documents import Document
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
