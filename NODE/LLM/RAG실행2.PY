@@ -122,12 +122,13 @@ class TimeSeriesRAG:
         
         self.llm = Llama(
             model_path=self.model_path,
-            n_ctx=4096,
-            n_batch=512,
-            n_gpu_layers=35,  # GPU 사용
+            n_ctx=2048,  # 줄임!
+            n_batch=256,  # 줄임!
+            n_gpu_layers=-1,  # 전체 GPU
+            n_threads=4,  # CPU 스레드 제한
             temperature=0.3,
-            max_tokens=1000,
-            verbose=True  # 진행상황 표시
+            max_tokens=200,  # 더 줄임!
+            verbose=True
         )
         
         logger.info("LLM 로드 완료")
@@ -157,11 +158,20 @@ class TimeSeriesRAG:
         
         return results
     
-    def _call_llm(self, prompt):
+    def _call_llm(self, prompt, max_tokens=100):
         """LLM 호출"""
-        print("\n🤖 AI 답변 생성 중... (30B 모델이라 시간이 좀 걸립니다)")
-        response = self.llm(prompt, max_tokens=1000, temperature=0.3)
-        return response['choices'][0]['text']
+        print(f"💬 토큰 생성 시작... (최대 {max_tokens}개)")
+        response = self.llm(
+            prompt, 
+            max_tokens=max_tokens, 
+            temperature=0.1,  # 더 낮춤
+            top_p=0.9,
+            repeat_penalty=1.1,
+            stop=["\n\n", "질문:", "답변:", "데이터"]
+        )
+        result = response['choices'][0]['text'].strip()
+        print(f"✅ 생성 완료 ({len(result)}자)")
+        return result
     
     def get_data_at_time(self, datetime_str):
         """특정 시간 데이터 조회"""
@@ -231,26 +241,32 @@ class TimeSeriesRAG:
         
         # 시퀀스 분석
         elif time_match and ("시퀀스" in query or "280" in query or "설명" in query):
+            print("📊 시퀀스 정보 수집 중...")
             sequence_info = self.get_sequence_before(time_match.group(1))
             
-            # 유사 문서 검색
-            similar_docs = self._search_similar(query, k=5)
-            context = "\n\n".join(similar_docs)
+            print("🔍 유사 문서 검색 중...")
+            # 유사 문서 검색 (개수 줄임)
+            similar_docs = self._search_similar(query, k=1)  # 1개만!
             
-            # LLM 설명 추가
-            prompt = f"{sequence_info}\n\n관련 데이터:\n{context}\n\n위 데이터를 바탕으로 예측 이유를 간단히 설명:"
-            result = self._call_llm(prompt)
+            print("🤖 AI 설명 생성 중... (20초 정도 소요)")
+            # 초간단 프롬프트
+            prompt = f"데이터 요약:\n평균={sequence_info.split('평균:')[1].split()[0]}, 최대={sequence_info.split('최대:')[1].split()[0]}\n\n한 줄로 간단히 설명:"
             
-            return f"{sequence_info}\n\n💡 설명:\n{result}"
+            try:
+                result = self._call_llm(prompt, max_tokens=100)
+                return f"{sequence_info}\n\n💡 AI 설명:\n{result}"
+            except Exception as e:
+                print(f"⚠️ AI 설명 생성 실패: {e}")
+                return sequence_info
         
         # 일반 RAG 쿼리
         else:
-            # 유사 문서 검색
-            similar_docs = self._search_similar(query, k=5)
+            # 유사 문서 검색 (개수 줄임)
+            similar_docs = self._search_similar(query, k=3)
             context = "\n\n".join(similar_docs)
             
-            # LLM 답변 생성
-            prompt = f"질문: {query}\n\n관련 정보:\n{context}\n\n답변:"
+            # LLM 답변 생성 (짧게)
+            prompt = f"질문: {query}\n\n참고:\n{context}\n\n답변:"
             result = self._call_llm(prompt)
             
             return result
