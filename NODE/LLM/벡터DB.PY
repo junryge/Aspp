@@ -1,155 +1,150 @@
-python#!/usr/bin/env python3
+#!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Step 1: 벡터DB 생성 (최초 1회만 실행)
+Step 1: TEST.CSV로 벡터DB 생성
 """
+
+import os
+os.environ['USE_TF'] = '0'
+os.environ['USE_TORCH'] = '1'
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
+os.environ['TRANSFORMERS_NO_TF'] = '1'
+
+import warnings
+warnings.filterwarnings('ignore')
 
 import pandas as pd
 import numpy as np
-from datetime import datetime
-import os
+import pickle
 import logging
-from langchain.embeddings import HuggingFaceEmbeddings
-from langchain.vectorstores import Chroma
-from langchain.docstore.document import Document
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 class VectorDBCreator:
-    """벡터DB 생성 전용 클래스"""
+    """TEST.CSV로 벡터DB 생성"""
     
-    def __init__(self, csv_path, embedding_model_path, db_persist_path):
+    def __init__(self, csv_path, db_path="./chroma_db", 
+                 embedding_model_path="./embeddings/all-MiniLM-L6-v2"):
         self.csv_path = csv_path
+        self.db_path = db_path
         self.embedding_model_path = embedding_model_path
-        self.db_persist_path = db_persist_path
         
-    def create_vectordb(self):
-        """벡터DB 생성 메인 프로세스"""
-        logger.info("="*60)
-        logger.info("벡터DB 생성 시작")
-        logger.info("="*60)
-        
-        # 1. CSV 로드
-        logger.info(f"CSV 로드 중: {self.csv_path}")
-        df = pd.read_csv(self.csv_path)
+        os.makedirs(self.db_path, exist_ok=True)
+    
+    def load_csv(self):
+        """CSV 로드"""
+        logger.info(f"CSV 로드: {self.csv_path}")
+        df = pd.read_csv(self.csv_path, encoding='utf-8')
         
         # 필요한 컬럼만 선택
-        df_filtered = df[['날짜', '타켓날짜', '실제값', 
-                         'ExtraTrees_예측', 'ExtraTrees_오차']].copy()
+        self.df = df[['시퀀스시작', '현재시간', '현재TOTALCNT', '예측시점', 
+                      '실제시점', '실제값', '보정예측', '오차', 
+                      'M14AM14B', 'M14BM14A', 'queue_gap', 'TRANSPORT']].copy()
         
-        df_filtered['날짜'] = pd.to_datetime(df_filtered['날짜'])
-        df_filtered['타켓날짜'] = pd.to_datetime(df_filtered['타켓날짜'])
-        df_filtered.set_index('날짜', inplace=True)
+        self.df['현재시간'] = pd.to_datetime(self.df['현재시간'])
+        self.df['실제시점'] = pd.to_datetime(self.df['실제시점'])
         
-        logger.info(f"데이터 로드 완료: {len(df_filtered)}개 행")
-        
-        # 2. 문서 생성
-        logger.info("문서 생성 중...")
-        documents = self._create_documents(df_filtered)
-        logger.info(f"총 {len(documents)}개 문서 생성")
-        
-        # 3. 임베딩 모델 로드
-        logger.info(f"임베딩 모델 로드: {self.embedding_model_path}")
-        embeddings = HuggingFaceEmbeddings(
-            model_name=self.embedding_model_path,
-            model_kwargs={'device': 'cuda'},
-            encode_kwargs={'batch_size': 32}
-        )
-        
-        # 4. 벡터DB 생성 및 저장
-        logger.info("벡터DB 생성 중... (시간이 걸립니다)")
-        vector_store = Chroma.from_documents(
-            documents=documents,
-            embedding=embeddings,
-            persist_directory=self.db_persist_path,
-            collection_name="timeseries_data"
-        )
-        
-        # 5. 영구 저장
-        vector_store.persist()
-        logger.info(f"벡터DB 저장 완료: {self.db_persist_path}")
-        
-        # 6. 메타데이터 저장
-        self._save_metadata(df_filtered)
-        
-        logger.info("="*60)
-        logger.info("벡터DB 생성 완료!")
-        logger.info("="*60)
-        
-    def _create_documents(self, df):
+        logger.info(f"데이터 로드 완료: {len(self.df)}개 레코드")
+        return self.df
+    
+    def create_documents(self):
         """문서 생성"""
+        logger.info("문서 생성 중...")
         documents = []
         
-        # 개별 데이터 포인트
-        for idx, row in df.iterrows():
-            doc = Document(
-                page_content=f"""
-시간: {idx}
+        for idx, row in self.df.iterrows():
+            # 각 행을 문서로 변환
+            doc_text = f"""
+시간: {row['현재시간']}
+현재TOTALCNT: {row['현재TOTALCNT']}
 실제값: {row['실제값']:.1f}
-타겟시간: {row['타켓날짜']}
-예측값: {row['ExtraTrees_예측']:.1f}
-오차: {row['ExtraTrees_오차']:.1f}
-                """.strip(),
-                metadata={
-                    'datetime': str(idx),
-                    'type': 'datapoint',
-                    'value': float(row['실제값'])
+예측값: {row['보정예측']:.1f}
+오차: {row['오차']:.1f}
+M14AM14B: {row['M14AM14B']}
+M14BM14A: {row['M14BM14A']}
+queue_gap: {row['queue_gap']}
+TRANSPORT: {row['TRANSPORT']}
+            """
+            
+            documents.append({
+                'content': doc_text.strip(),
+                'metadata': {
+                    '시간': str(row['현재시간']),
+                    '실제값': float(row['실제값']),
+                    '예측값': float(row['보정예측']),
+                    '오차': float(row['오차'])
                 }
-            )
-            documents.append(doc)
+            })
         
-        # 280개 시퀀스 문서
-        sequence_size = 280
-        for i in range(0, max(1, len(df) - sequence_size + 1), 10):
-            sequence = df.iloc[i:min(i+sequence_size, len(df))]
-            
-            if len(sequence) < 100:
-                continue
-                
-            seq_doc = Document(
-                page_content=f"""
-시퀀스 기간: {sequence.index[0]} ~ {sequence.index[-1]}
-데이터 수: {len(sequence)}개
-평균: {sequence['실제값'].mean():.2f}
-최대: {sequence['실제값'].max():.1f}
-최소: {sequence['실제값'].min():.1f}
-표준편차: {sequence['실제값'].std():.2f}
-평균오차: {sequence['ExtraTrees_오차'].mean():.2f}
-                """.strip(),
-                metadata={
-                    'type': 'sequence',
-                    'start_time': str(sequence.index[0]),
-                    'end_time': str(sequence.index[-1])
-                }
-            )
-            documents.append(seq_doc)
-            
+        logger.info(f"문서 생성 완료: {len(documents)}개")
         return documents
     
-    def _save_metadata(self, df):
-        """메타데이터 저장"""
-        metadata = {
-            'created_at': datetime.now().isoformat(),
-            'data_count': len(df),
-            'start_date': str(df.index[0]),
-            'end_date': str(df.index[-1]),
-            'columns': list(df.columns)
-        }
+    def create_embeddings(self, documents):
+        """임베딩 생성"""
+        logger.info("임베딩 모델 로드...")
         
-        import json
-        metadata_path = os.path.join(self.db_persist_path, 'metadata.json')
-        with open(metadata_path, 'w') as f:
-            json.dump(metadata, f, indent=2)
+        try:
+            import torch
+            device = 'cuda' if torch.cuda.is_available() else 'cpu'
+        except:
+            device = 'cpu'
         
-        logger.info(f"메타데이터 저장: {metadata_path}")
+        logger.info(f"디바이스: {device}")
+        
+        from sentence_transformers import SentenceTransformer
+        model = SentenceTransformer(self.embedding_model_path)
+        if device == 'cuda':
+            model = model.to('cuda')
+        
+        logger.info("임베딩 생성 중...")
+        texts = [doc['content'] for doc in documents]
+        embeddings = model.encode(texts, show_progress_bar=True)
+        
+        logger.info(f"임베딩 생성 완료: {len(embeddings)}개")
+        return embeddings
+    
+    def save_vectordb(self, documents, embeddings):
+        """벡터DB 저장"""
+        db_file = os.path.join(self.db_path, 'vectordb.pkl')
+        
+        logger.info(f"벡터DB 저장: {db_file}")
+        
+        with open(db_file, 'wb') as f:
+            pickle.dump({
+                'documents': documents,
+                'embeddings': embeddings
+            }, f)
+        
+        logger.info("저장 완료!")
+    
+    def run(self):
+        """전체 프로세스 실행"""
+        self.load_csv()
+        documents = self.create_documents()
+        embeddings = self.create_embeddings(documents)
+        self.save_vectordb(documents, embeddings)
 
-if __name__ == "__main__":
-    # 설정
-    CSV_PATH = "./CSV파일.csv"
-    EMBEDDING_PATH = "./embeddings/all-MiniLM-L6-v2"
+def main():
+    """메인 실행"""
+    CSV_PATH = "./TEST.CSV"
     DB_PATH = "./chroma_db"
     
-    # 벡터DB 생성
-    creator = VectorDBCreator(CSV_PATH, EMBEDDING_PATH, DB_PATH)
-    creator.create_vectordb()
+    print("="*60)
+    print("TEST.CSV 벡터DB 생성 시작")
+    print("="*60)
+    
+    creator = VectorDBCreator(
+        csv_path=CSV_PATH,
+        db_path=DB_PATH
+    )
+    
+    creator.run()
+    
+    print("="*60)
+    print("✅ 벡터DB 생성 완료!")
+    print("이제 RAG2_TEST.py를 실행하세요.")
+    print("="*60)
+
+if __name__ == "__main__":
+    main()
