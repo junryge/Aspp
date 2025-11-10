@@ -123,12 +123,12 @@ class TimeSeriesRAG:
         
         self.llm = Llama(
             model_path=self.model_path,
-            n_ctx=2048,
-            n_batch=256,
+            n_ctx=4096,  # 컨텍스트 늘림
+            n_batch=512,  # 배치 늘림
             n_gpu_layers=-1,  # 전체 GPU
             n_threads=4,
-            temperature=0.3,
-            max_tokens=200,
+            temperature=0.7,
+            max_tokens=512,  # 크게 늘림
             verbose=True
         )
         
@@ -156,16 +156,16 @@ class TimeSeriesRAG:
         
         return results
     
-    def _call_llm(self, prompt, max_tokens=100):
+    def _call_llm(self, prompt, max_tokens=300):
         """LLM 호출"""
         print(f"💬 토큰 생성 시작... (최대 {max_tokens}개)")
         response = self.llm(
             prompt, 
             max_tokens=max_tokens, 
-            temperature=0.1,
-            top_p=0.9,
-            repeat_penalty=1.1,
-            stop=["\n\n", "질문:", "답변:", "데이터"]
+            temperature=0.7,  # 더 창의적으로
+            top_p=0.95,
+            repeat_penalty=1.15,
+            stop=["질문:", "###"]  # stop 토큰 최소화
         )
         result = response['choices'][0]['text'].strip()
         print(f"✅ 생성 완료 ({len(result)}자)")
@@ -216,11 +216,24 @@ class TimeSeriesRAG:
         
         # 일반 RAG 쿼리
         else:
-            similar_docs = self._search_similar(query, k=3)
-            context = "\n\n".join(similar_docs)
+            print("🔍 유사 문서 검색 중...")
+            similar_docs = self._search_similar(query, k=5)  # 더 많은 문서 검색
+            context = "\n---\n".join(similar_docs)
             
-            prompt = f"질문: {query}\n\n참고:\n{context}\n\n답변:"
-            result = self._call_llm(prompt)
+            print("🤖 AI 답변 생성 중...")
+            # 개선된 프롬프트
+            prompt = f"""다음은 반도체 제조 데이터입니다.
+
+데이터:
+{context}
+
+질문: {query}
+
+위 데이터를 바탕으로 질문에 대해 구체적으로 답변해주세요. 시간, 값, 특징을 포함해서 2-3문장으로 설명하세요.
+
+답변:"""
+            
+            result = self._call_llm(prompt, max_tokens=300)
             
             return result
 
