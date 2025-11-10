@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-2025-08-12 00:05 실제값 알려줘
 Step 2: RAG 시스템 실행 (pickle 벡터DB 사용)
 """
 
@@ -128,7 +127,7 @@ class TimeSeriesRAG:
             n_gpu_layers=35,  # GPU 사용
             temperature=0.3,
             max_tokens=1000,
-            verbose=False
+            verbose=True  # 진행상황 표시
         )
         
         logger.info("LLM 로드 완료")
@@ -160,6 +159,7 @@ class TimeSeriesRAG:
     
     def _call_llm(self, prompt):
         """LLM 호출"""
+        print("\n🤖 AI 답변 생성 중... (30B 모델이라 시간이 좀 걸립니다)")
         response = self.llm(prompt, max_tokens=1000, temperature=0.3)
         return response['choices'][0]['text']
     
