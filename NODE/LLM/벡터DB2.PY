@@ -1,14 +1,31 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-pip install langchain-huggingface tf-keras protobuf==3.20.3 --break-system-packages
 Step 1: 벡터DB 생성 (최초 1회만 실행)
 """
+
+# SQLite3 버전 우회 (chromadb 요구사항)
+import sys
+try:
+    __import__('pysqlite3')
+    sys.modules['sqlite3'] = sys.modules.pop('pysqlite3')
+except ImportError:
+    pass
+
+# TensorFlow 완전히 비활성화 (PyTorch만 사용)
+import os
+os.environ['USE_TF'] = '0'
+os.environ['USE_TORCH'] = '1'
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
+os.environ['TRANSFORMERS_NO_TF'] = '1'
+
+import warnings
+warnings.filterwarnings('ignore', category=DeprecationWarning)
+warnings.filterwarnings('ignore', category=FutureWarning)
 
 import pandas as pd
 import numpy as np
 from datetime import datetime
-import os
 import logging
 
 # Embeddings import (최신 버전)
