@@ -1,59 +1,59 @@
 def predict_latest():
     """
-    가장 최근 280분 데이터로 10분 후 예측
+    가장 최근 280분 데이터로 15분 후 예측
     반환: {'prediction': int, 'status': str, 'prediction_time': str, 'danger_probability': int}
-    에러 시: {'prediction': 0, 'status': '데이터부족/데이터없음/모델작동실패', ...}
+    에러 시: {'prediction': 0, 'status': 'Model operation failure/No data/Lack of data', ...}
     """
     
-    # ⭐ 1. 모델 로드
-    model_file = 'model_13col_10.pkl'
+    # ⭐ 1. 모델 로드 (15분용 모델)
+    model_file = 'model_13col_15.pkl'
     try:
         with open(model_file, 'rb') as f:
             model = pickle.load(f)
     except Exception as e:
-        print(f"❌ 모델 파일 에러: {e}")
+        print(f"❌ Model file error: {e}")
         return {
             'prediction': 0,
-            'status': '모델작동실패',
+            'status': 'Model operation failure',
             'prediction_time': '',
             'danger_probability': 0,
-            'error_message': f'모델 파일 없음: {model_file}'
+            'error_message': f'No model file: {model_file}'
         }
     
     # ⭐ 2. CSV 파일 확인
     csv_file = 'data/2025_DATA.CSV'
     if not os.path.exists(csv_file):
-        print(f"❌ CSV 파일 없음: {csv_file}")
+        print(f"❌ No CSV file: {csv_file}")
         return {
             'prediction': 0,
-            'status': '데이터없음',
+            'status': 'No data',
             'prediction_time': '',
             'danger_probability': 0,
-            'error_message': f'데이터 파일 없음: {csv_file}'
+            'error_message': f'No data file: {csv_file}'
         }
     
     # ⭐ 3. 데이터 로드
     try:
         df = pd.read_csv(csv_file, on_bad_lines='skip', dtype={'CURRTIME': str})
     except Exception as e:
-        print(f"❌ 데이터 로드 에러: {e}")
+        print(f"❌ Data Load Error: {e}")
         return {
             'prediction': 0,
-            'status': '데이터없음',
+            'status': 'No data',
             'prediction_time': '',
             'danger_probability': 0,
-            'error_message': f'데이터 로드 실패: {e}'
+            'error_message': f'Failed to load data: {e}'
         }
     
     # ⭐ 4. 데이터가 비어있는 경우
     if len(df) == 0:
-        print(f"❌ 데이터 없음: CSV 파일이 비어있음")
+        print(f"❌ No data: CSV file empty")
         return {
             'prediction': 0,
-            'status': '데이터없음',
+            'status': 'No data',
             'prediction_time': '',
             'danger_probability': 0,
-            'error_message': 'CSV 파일이 비어있습니다'
+            'error_message': 'CSV file is empty'
         }
     
     # ⭐ 5. 필수 컬럼 확인
@@ -66,24 +66,24 @@ def predict_latest():
     missing_cols = [col for col in required_cols if col not in df.columns]
     
     if missing_cols:
-        print(f"❌ 필수 컬럼 누락: {missing_cols}")
+        print(f"❌ Missing required column: {missing_cols}")
         return {
             'prediction': 0,
-            'status': '데이터없음',
+            'status': 'No data',
             'prediction_time': '',
             'danger_probability': 0,
-            'error_message': f'필수 컬럼 누락: {", ".join(missing_cols)}'
+            'error_message': f'Missing required column: {", ".join(missing_cols)}'
         }
     
     # ⭐ 6. 데이터 부족 체크
     if len(df) < 280:
-        print(f"❌ 데이터 부족: {len(df)}개 (최소 280개 필요)")
+        print(f"❌ Lack of data: {len(df)}EA (Minimum 280 EA required)")
         return {
             'prediction': 0,
-            'status': '데이터부족',
+            'status': 'Lack of data',
             'prediction_time': '',
             'danger_probability': 0,
-            'error_message': f'데이터 부족: {len(df)}개 (최소 280개 필요)'
+            'error_message': f'Lack of data: {len(df)}EA (Minimum 280 EA required)'
         }
     
     # ⭐ 7. CURRTIME 파싱
@@ -92,11 +92,11 @@ def predict_latest():
             df['CURRTIME'] = df['CURRTIME'].astype(str).str.strip()
             df = df[df['CURRTIME'].str.len() == 12].copy()
             if len(df) == 0:
-                raise ValueError("유효한 CURRTIME 없음")
+                raise ValueError("No valid CURRTIME")
             df['CURRTIME'] = pd.to_datetime(df['CURRTIME'], format='%Y%m%d%H%M', errors='coerce')
             df = df.dropna(subset=['CURRTIME']).copy()
             if len(df) < 280:
-                raise ValueError(f"CURRTIME 파싱 후 데이터 부족: {len(df)}개")
+                raise ValueError(f"Lack of data after CURRTIME parsing: {len(df)}EA")
         except Exception as e:
             # CURRTIME 파싱 실패해도 가상 시간으로 진행
             base_time = datetime.now()
@@ -107,13 +107,13 @@ def predict_latest():
     
     # 최종 데이터 부족 재확인
     if len(df) < 280:
-        print(f"❌ 데이터 부족: {len(df)}개 (최소 280개 필요)")
+        print(f"❌ Lack of data: {len(df)}EA (Minimum 280 EA required)")
         return {
             'prediction': 0,
-            'status': '데이터부족',
+            'status': 'Lack of data',
             'prediction_time': '',
             'danger_probability': 0,
-            'error_message': f'데이터 부족: {len(df)}개 (최소 280개 필요)'
+            'error_message': f'Lack of data: {len(df)}EA (Minimum 280 EA required)'
         }
     
     # ⭐ 8. Feature 추출 및 예측
@@ -134,11 +134,11 @@ def predict_latest():
             'M14.QUE.ALL.TRANSPORT4MINOVERCNT': df['M14.QUE.ALL.TRANSPORT4MINOVERCNT'].iloc[-280:].values,
         }
         
-        # 시간 정보
+        # 시간 정보 (⭐ 15분 후)
         current_time = df['CURRTIME'].iloc[-1]
         if pd.isna(current_time):
             current_time = datetime.now()
-        prediction_time = current_time + timedelta(minutes=10)
+        prediction_time = current_time + timedelta(minutes=15)
         
         # 현재 상태
         seq_totalcnt = row_dict['TOTALCNT']
@@ -225,11 +225,11 @@ def predict_latest():
         return result
         
     except Exception as e:
-        print(f"❌ 예측 실행 에러: {e}")
+        print(f"❌ Predictive execution error: {e}")
         return {
             'prediction': 0,
-            'status': '모델작동실패',
+            'status': 'Model operation failure',
             'prediction_time': '',
             'danger_probability': 0,
-            'error_message': f'예측 실행 실패: {e}'
+            'error_message': f'Prediction execution failed: {e}'
         }
