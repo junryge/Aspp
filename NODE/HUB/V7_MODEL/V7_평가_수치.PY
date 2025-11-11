@@ -89,7 +89,7 @@ def evaluate_multi_change_prediction_que2():
         prediction_time = current_time + timedelta(minutes=10)
        
         # 🎯 정확히 10분 후 실제값 (1개!)
-        actual_value = df[TARGET_COL].iloc[i+10]
+        actual_value = df[TARGET_COL].iloc[i+9]
         
         # 🎯 실제 변화량 (1개!)
         actual_change = actual_value - current_value
