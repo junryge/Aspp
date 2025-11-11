@@ -63,7 +63,7 @@ def train_multi_change_prediction_que2():
             current_value = seq_target[-1]
            
             # 🎯 정확히 10분 후 실제값 (1개!)
-            future_actual = df[TARGET_COL].iloc[i+10]
+            future_actual = df[TARGET_COL].iloc[i+9]
             
             # 🎯 10분 구간의 MIN, MAX, AVG (예측용)
             future_10min = df[TARGET_COL].iloc[i:i+10].values
