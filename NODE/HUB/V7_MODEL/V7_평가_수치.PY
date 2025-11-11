@@ -73,8 +73,14 @@ def evaluate_multi_change_prediction_que2():
    
     print("\n슬라이딩 윈도우 평가 시작 (MIN/MAX/AVG 변화량 + QUE 2개)...")
     
+    total_samples = len(df) - 40
+    
     # ✅ 10분 후 데이터 필요
-    for i in range(30, len(df) - 10):
+    for idx, i in enumerate(range(30, len(df) - 10)):
+        # 진행 상황 출력 (500개마다)
+        if idx % 500 == 0:
+            print(f"  평가 진행: {idx}/{total_samples} ({idx/total_samples*100:.1f}%)")
+        
         seq_data = df.iloc[i-30:i].copy()
         seq_target = seq_data[TARGET_COL].values
        
@@ -291,9 +297,6 @@ def evaluate_multi_change_prediction_que2():
             'AVGTIME1MIN': round(avgtime_val, 2),
             'QUE병목': '✅' if features.get('que_severe_bottleneck', 0) == 1 else '',
         })
-       
-        if (i - 30) % 1000 == 0:
-            print(f"진행: {i-30}/{len(df)-40} ({(i-30)/(len(df)-40)*100:.1f}%)")
    
     results_df = pd.DataFrame(results)
    
