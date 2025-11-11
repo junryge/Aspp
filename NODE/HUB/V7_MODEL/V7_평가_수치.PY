@@ -3,12 +3,15 @@ import pandas as pd
 import pickle
 from datetime import datetime, timedelta
 
-def evaluate_v8_version():
+def evaluate_multi_change_prediction_que2():
     """
-    🎯 V8 버전 평가: V7 + QUE 2개 컬럼
+    🎯 V7 + QUE 2개: MIN/MAX/AVG 변화량 예측 모델 평가
+    - 10분 구간의 MIN, MAX, AVG 각각 평가
+    - 큰 변화 기준: ±50
+    - 🆕 QUE 2개 컬럼 포함
     """
     print("="*80)
-    print("🎯 V8 버전 평가: V7 + QUE 2개 컬럼")
+    print("🎯 V7 + QUE 2개: MIN/MAX/AVG 변화량 예측 모델 평가")
     print("="*80)
    
     FEATURE_COLS = {
@@ -19,18 +22,18 @@ def evaluate_v8_version():
         'inflow': ['M16A_6F_TO_HUB_JOB', 'M16A_2F_TO_HUB_JOB2', 'M14A_3F_TO_HUB_JOB2'],
         'outflow': ['M16A_3F_TO_M16A_6F_JOB', 'M16A_3F_TO_M16A_2F_JOB', 'M16A_3F_TO_M14A_3F_JOB'],
         'maxcapa': ['M16A_6F_LFT_MAXCAPA', 'M16A_2F_LFT_MAXCAPA'],
-        # 🆕 V8: QUE 컬럼 2개
+        # 🆕 V7: QUE 2개
         'que': ['M16HUB.QUE.ALL.CURRENTQCNT', 'M16HUB.QUE.TIME.AVGTOTALTIME1MIN']
     }
    
     # 모델 로드
     try:
-        with open('xgboost_V8_que2.pkl', 'rb') as f:
+        with open('xgboost_변화량예측_QUE2.pkl', 'rb') as f:
             model = pickle.load(f)
-        print("✅ 모델 로드 완료: xgboost_V8_que2.pkl")
+        print("✅ 모델 로드 완료: xgboost_변화량예측_QUE2.pkl")
     except Exception as e:
         print(f"❌ 모델 파일 없음: {e}")
-        print("   먼저 'V8_학습.py'를 실행하세요.")
+        print("   먼저 'V7_변화량예측_QUE2_학습.py'를 실행하세요.")
         return None
    
     # 데이터 로드
@@ -49,7 +52,7 @@ def evaluate_v8_version():
    
     print(f"✅ 데이터 로드: {len(df)}개 행")
    
-    # 🆕 V8: QUE 컬럼 확인
+    # 🆕 V7: QUE 컬럼 확인
     que_cols_available = []
     for col in FEATURE_COLS['que']:
         if col in df.columns:
@@ -68,19 +71,30 @@ def evaluate_v8_version():
    
     results = []
    
-    print("\n슬라이딩 윈도우 평가 시작 (V8: QUE 2개 추가)...")
-    for i in range(30, len(df)):
+    print("\n슬라이딩 윈도우 평가 시작 (MIN/MAX/AVG 변화량 + QUE 2개)...")
+    
+    # ✅ 10분 후 데이터 필요
+    for i in range(30, len(df) - 10):
         seq_data = df.iloc[i-30:i].copy()
         seq_target = seq_data[TARGET_COL].values
        
         current_time = seq_data['STAT_DT'].iloc[-1]
         current_value = seq_target[-1]
-        prediction_time = current_time + timedelta(minutes=10)  # ✅ 10분 후
+        prediction_time = current_time + timedelta(minutes=10)
        
-        actual_value = df.iloc[i][TARGET_COL]
-        actual_time = df.iloc[i]['STAT_DT']
+        # 🎯 정확히 10분 후 실제값 (1개!)
+        actual_value = df[TARGET_COL].iloc[i+10]
+        
+        # 🎯 실제 변화량 (1개!)
+        actual_change = actual_value - current_value
+        
+        # 🎯 10분 구간의 MIN, MAX, AVG (참고용)
+        future_10min = df[TARGET_COL].iloc[i:i+10].values
+        actual_min = np.min(future_10min)
+        actual_max = np.max(future_10min)
+        actual_avg = np.mean(future_10min)
        
-        # Feature 생성 (학습 코드와 완벽히 동일!)
+        # Feature 생성 (학습 코드와 동일!)
         features = {
             'target_mean': np.mean(seq_target),
             'target_std': np.std(seq_target),
@@ -91,7 +105,7 @@ def evaluate_v8_version():
             'target_slope': np.polyfit(np.arange(30), seq_target, 1)[0],
         }
        
-        # 🆕 Momentum Feature 추가
+        # Momentum Feature
         features['target_acceleration'] = (seq_target[-5:].mean() - seq_target[-10:-5].mean()) / 5
         features['target_is_rising'] = 1 if seq_target[-1] > seq_target[-5] else 0
         features['target_rapid_rise'] = 1 if (seq_target[-1] - seq_target[-5] > 10) else 0
@@ -167,7 +181,7 @@ def evaluate_v8_version():
             features['storage_util_critical'] = 1 if storage_util >= 205 else 0
             features['storage_util_high_risk'] = 1 if storage_util >= 207 else 0
        
-        # 🔥 급증 위험도 점수
+        # 급증 위험도 점수
         features['surge_risk_score'] = (
             features.get('hub_high', 0) * 3 +
             features.get('storage_util_critical', 0) * 2 +
@@ -175,14 +189,14 @@ def evaluate_v8_version():
             features.get('storage_util_high', 0) * 1
         )
        
-        # 🆕 급증 임박 신호
+        # 급증 임박 신호
         features['surge_imminent'] = 1 if (
-            seq_target[-1] > 272 and
-            features.get('target_acceleration', 0) > 0.2 and
+            seq_target[-1] > 280 and
+            features.get('target_acceleration', 0) > 0.5 and
             features.get('hub_high', 0) == 1
         ) else 0
        
-        # 🆕 V8: QUE Boolean Feature
+        # 🆕 V7: QUE Boolean Feature
         if 'M16HUB.QUE.ALL.CURRENTQCNT' in df.columns:
             currentq = df['M16HUB.QUE.ALL.CURRENTQCNT'].iloc[i-1]
             features['currentq_high'] = 1 if currentq >= 1200 else 0
@@ -199,7 +213,7 @@ def evaluate_v8_version():
             features['avgtime1min_high'] = 0
             features['avgtime1min_critical'] = 0
        
-        # 🆕 V8: QUE 복합 Boolean
+        # 🆕 V7: QUE 복합 Boolean
         if 'M16HUB.QUE.ALL.CURRENTQCNT' in df.columns and 'M16HUB.QUE.TIME.AVGTOTALTIME1MIN' in df.columns:
             currentq = df['M16HUB.QUE.ALL.CURRENTQCNT'].iloc[i-1]
             avgtime = df['M16HUB.QUE.TIME.AVGTOTALTIME1MIN'].iloc[i-1]
@@ -209,23 +223,35 @@ def evaluate_v8_version():
        
         X_pred = pd.DataFrame([features])
        
-        # 예측
-        prediction = model.predict(X_pred)[0]
+        # 🎯 예측 (변화량 3개!)
+        predictions = model.predict(X_pred)[0]
+        pred_change_min = predictions[0]
+        pred_change_max = predictions[1]
+        pred_change_avg = predictions[2]
+        
+        # 🎯 예측값 = 현재값 + 예측 변화량
+        pred_min = current_value + pred_change_min
+        pred_max = current_value + pred_change_max
+        pred_avg = current_value + pred_change_avg
+        
+        # 방향 일치 여부 (실제 변화량 1개 vs 예측 변화량 3개)
+        direction_match_min = (
+            (actual_change > 0 and pred_change_min > 0) or
+            (actual_change < 0 and pred_change_min < 0) or
+            (abs(actual_change) < 5 and abs(pred_change_min) < 5)
+        )
+        direction_match_max = (
+            (actual_change > 0 and pred_change_max > 0) or
+            (actual_change < 0 and pred_change_max < 0) or
+            (abs(actual_change) < 5 and abs(pred_change_max) < 5)
+        )
+        direction_match_avg = (
+            (actual_change > 0 and pred_change_avg > 0) or
+            (actual_change < 0 and pred_change_avg < 0) or
+            (abs(actual_change) < 5 and abs(pred_change_avg) < 5)
+        )
        
-        # 급증 판정
-        is_surge = (current_value < 300 and actual_value >= 300)
-       
-        # 위험도 판정
-        risk_level = "LOW"
-        risk_score = features.get('surge_risk_score', 0)
-        if risk_score >= 5:
-            risk_level = "CRITICAL"
-        elif risk_score >= 3:
-            risk_level = "HIGH"
-        elif risk_score >= 1:
-            risk_level = "MEDIUM"
-       
-        # 🆕 V8: QUE 데이터 추가
+        # 🆕 V7: QUE 데이터 추가
         currentq_val = df['M16HUB.QUE.ALL.CURRENTQCNT'].iloc[i-1] if 'M16HUB.QUE.ALL.CURRENTQCNT' in df.columns else 0
         avgtime_val = df['M16HUB.QUE.TIME.AVGTOTALTIME1MIN'].iloc[i-1] if 'M16HUB.QUE.TIME.AVGTOTALTIME1MIN' in df.columns else 0
        
@@ -234,112 +260,111 @@ def evaluate_v8_version():
             '예측시점': prediction_time.strftime('%Y-%m-%d %H:%M'),
             '현재값': round(current_value, 2),
             '실제값': round(actual_value, 2),
-            '예측값': round(prediction, 2),
-            '오차': round(abs(actual_value - prediction), 2),
-            '오차율(%)': round(abs(actual_value - prediction) / max(actual_value, 1) * 100, 2),
+            '실제_변화량': round(actual_change, 2),
+            # 구간 참고 정보
+            '구간_MIN': round(actual_min, 2),
+            '구간_MAX': round(actual_max, 2),
+            '구간_AVG': round(actual_avg, 2),
+            # MIN 예측
+            '예측_변화량_MIN': round(pred_change_min, 2),
+            '예측값_MIN': round(pred_min, 2),
+            '오차_MIN': round(abs(actual_change - pred_change_min), 2),
+            '방향일치_MIN': '✅' if direction_match_min else '❌',
+            # MAX 예측
+            '예측_변화량_MAX': round(pred_change_max, 2),
+            '예측값_MAX': round(pred_max, 2),
+            '오차_MAX': round(abs(actual_change - pred_change_max), 2),
+            '방향일치_MAX': '✅' if direction_match_max else '❌',
+            # AVG 예측
+            '예측_변화량_AVG': round(pred_change_avg, 2),
+            '예측값_AVG': round(pred_avg, 2),
+            '오차_AVG': round(abs(actual_change - pred_change_avg), 2),
+            '방향일치_AVG': '✅' if direction_match_avg else '❌',
+            # 기타
             '시퀀스MAX': round(np.max(seq_target), 2),
-            '300급증': '✅' if is_surge else '',
-            '감지_290': '✅' if (is_surge and prediction >= 290) else '',
-            '감지_285': '✅' if (is_surge and prediction >= 285) else '',
-            '감지_280': '✅' if (is_surge and prediction >= 280) else '',
-            '감지_275': '✅' if (is_surge and prediction >= 275) else '',
-            '위험도': risk_level,
-            '위험점수': risk_score,
-            'momentum상승': '✅' if features.get('target_is_rising', 0) == 1 else '',
-            'momentum가속': round(features.get('target_acceleration', 0), 2),
-            '급증임박': '✅' if features.get('surge_imminent', 0) == 1 else '',
             'HUBROOMTOTAL': round(features.get('HUBROOMTOTAL_last_value', 0), 0),
             'FS_UTIL': round(features.get('CD_M163FSTORAGEUTIL_last_value', 0), 0),
             'CMD': round(features.get('total_cmd', 0), 0),
-            'STORAGE_UTIL': round(features.get('M16A_3F_STORAGE_UTIL_last_value', 0), 0),
-            # 🆕 V8
+            'Momentum가속': round(features.get('target_acceleration', 0), 2),
+            # 🆕 V7
             'CURRENTQ': round(currentq_val, 0),
             'AVGTIME1MIN': round(avgtime_val, 2),
             'QUE병목': '✅' if features.get('que_severe_bottleneck', 0) == 1 else '',
         })
        
         if (i - 30) % 1000 == 0:
-            print(f"진행: {i-30}/{len(df)-30} ({(i-30)/(len(df)-30)*100:.1f}%)")
+            print(f"진행: {i-30}/{len(df)-40} ({(i-30)/(len(df)-40)*100:.1f}%)")
    
     results_df = pd.DataFrame(results)
    
-    output_file = 'V8_que2_평가결과.csv'
+    output_file = '변화량예측_QUE2_평가결과.csv'
     results_df.to_csv(output_file, index=False, encoding='utf-8-sig')
     print(f"\n✅ 결과 저장: {output_file}")
    
     # 통계
     print("\n" + "="*80)
-    print("📊 평가 통계 (V8: V7 + QUE 2개)")
+    print("📊 평가 통계 (V7 + QUE 2개: MIN/MAX/AVG 변화량)")
     print("="*80)
    
     print(f"총 예측: {len(results_df)}개")
-    print(f"평균 오차: {results_df['오차'].mean():.2f}")
-    print(f"평균 오차율: {results_df['오차율(%)'].mean():.2f}%")
    
-    surge_cases = results_df[results_df['300급증'] == '✅']
-    if len(surge_cases) > 0:
-        print(f"\n🎯 300 급증 예측 성능:")
-        print(f"  발생: {len(surge_cases)}개 ({len(surge_cases)/len(results_df)*100:.2f}%)")
+    # 각 타입별 통계
+    for target_type in ['MIN', 'MAX', 'AVG']:
+        print(f"\n🎯 {target_type} 예측 성능:")
         
-        for threshold in [290, 285, 280, 275]:
-            detected = (surge_cases[f'감지_{threshold}'] == '✅').sum()
-            marker = "⭐" if threshold == 280 else "  "
-            print(f"{marker} 임계값 {threshold}: {detected}/{len(surge_cases)}개 ({detected/len(surge_cases)*100:.1f}%)")
+        error_col = f'오차_{target_type}'
+        direction_col = f'방향일치_{target_type}'
+        pred_col = f'예측_변화량_{target_type}'
+        
+        avg_error = results_df[error_col].mean()
+        direction_correct = (results_df[direction_col] == '✅').sum()
+        direction_accuracy = direction_correct / len(results_df) * 100
+        
+        print(f"  - 평균 오차: {avg_error:.2f}")
+        print(f"  - 방향 정확도: {direction_correct}/{len(results_df)}개 ({direction_accuracy:.1f}%)")
+        
+        # 큰 변화 감지 (기준: 실제 변화량 ±50)
+        large_increase = results_df[results_df['실제_변화량'] >= 50]
+        if len(large_increase) > 0:
+            detected_increase = large_increase[large_increase[pred_col] >= 40]
+            print(f"  - 큰 상승 (+50 이상) 감지:")
+            print(f"    발생: {len(large_increase)}개")
+            print(f"    감지 (+40 이상): {len(detected_increase)}개 ({len(detected_increase)/len(large_increase)*100:.1f}%)")
+        
+        large_decrease = results_df[results_df['실제_변화량'] <= -50]
+        if len(large_decrease) > 0:
+            detected_decrease = large_decrease[large_decrease[pred_col] <= -40]
+            print(f"  - 큰 하락 (-50 이하) 감지:")
+            print(f"    발생: {len(large_decrease)}개")
+            print(f"    감지 (-40 이하): {len(detected_decrease)}개 ({len(detected_decrease)/len(large_decrease)*100:.1f}%)")
    
-    extreme_cases = results_df[results_df['실제값'] >= 300]
-    if len(extreme_cases) > 0:
-        extreme_detected_280 = (extreme_cases['예측값'] >= 280).sum()
-       
-        print(f"\n극단값 (300+) 감지 (임계값 280):")
-        print(f"  발생: {len(extreme_cases)}개 ({len(extreme_cases)/len(results_df)*100:.1f}%)")
-        print(f"  감지: {extreme_detected_280}/{len(extreme_cases)}개 ({extreme_detected_280/len(extreme_cases)*100:.1f}%)")
-   
-    # 🆕 V8: QUE Feature 분석
+    # 🆕 V7: QUE Feature 분석
     if len(que_cols_available) == 2:
-        print(f"\n🆕 V8 QUE Feature 분석:")
+        print(f"\n🆕 V7 QUE Feature 분석:")
         print(f"  평균 CURRENTQ: {results_df['CURRENTQ'].mean():.0f}")
         print(f"  평균 AVGTIME1MIN: {results_df['AVGTIME1MIN'].mean():.2f}")
         
-        if len(surge_cases) > 0:
-            que_bottleneck_in_surge = (surge_cases['QUE병목'] == '✅').sum()
-            print(f"  급증 시 QUE병목: {que_bottleneck_in_surge}/{len(surge_cases)}개 ({que_bottleneck_in_surge/len(surge_cases)*100:.1f}%)")
+        que_bottleneck_count = (results_df['QUE병목'] == '✅').sum()
+        print(f"  QUE병목 발생: {que_bottleneck_count}개 ({que_bottleneck_count/len(results_df)*100:.1f}%)")
+        
+        # 큰 상승 시 QUE 병목
+        large_increase = results_df[results_df['실제_변화량'] >= 50]
+        if len(large_increase) > 0:
+            que_in_surge = (large_increase['QUE병목'] == '✅').sum()
+            print(f"  큰 상승 시 QUE병목: {que_in_surge}/{len(large_increase)}개 ({que_in_surge/len(large_increase)*100:.1f}%)")
    
-    # Momentum Feature 분석
-    print(f"\n💨 Momentum Feature 분석:")
-    if len(surge_cases) > 0:
-        rising_in_surge = (surge_cases['momentum상승'] == '✅').sum()
-        imminent_in_surge = (surge_cases['급증임박'] == '✅').sum()
-        print(f"  급증 시 상승 중: {rising_in_surge}/{len(surge_cases)}개 ({rising_in_surge/len(surge_cases)*100:.1f}%)")
-        print(f"  급증 임박 신호: {imminent_in_surge}/{len(surge_cases)}개 ({imminent_in_surge/len(surge_cases)*100:.1f}%)")
-   
-    # 위험도별 통계
-    print(f"\n위험도별 분석:")
-    for risk in ['CRITICAL', 'HIGH', 'MEDIUM', 'LOW']:
-        risk_df = results_df[results_df['위험도'] == risk]
-        if len(risk_df) > 0:
-            surge_in_risk = (risk_df['300급증'] == '✅').sum()
-            print(f"  {risk}: {len(risk_df)}개 - 급증 {surge_in_risk}개 ({surge_in_risk/len(risk_df)*100:.1f}%)")
-   
-    # 상위 오차
-    print(f"\n❌ 오차 상위 10개:")
-    top_errors = results_df.nlargest(10, '오차율(%)')
-    print(top_errors[['현재시간', '현재값', '실제값', '예측값', '오차', '위험도', '300급증', 'CURRENTQ', 'AVGTIME1MIN']].to_string(index=False))
-   
-    # 급증 예측 실패 케이스
-    if len(surge_cases) > 0:
-        surge_failed = surge_cases[surge_cases['감지_280'] != '✅']
-        if len(surge_failed) > 0:
-            print(f"\n❌ 급증 예측 실패 케이스 (상위 10개, 임계값 280):")
-            failed_top = surge_failed.nsmallest(10, '예측값')
-            print(failed_top[['현재시간', '현재값', '실제값', '예측값', 'HUBROOMTOTAL', 'FS_UTIL', 'CMD', 'CURRENTQ', 'AVGTIME1MIN', '위험점수']].to_string(index=False))
+    # 오차 상위 10개 (MAX 기준)
+    print(f"\n❌ MAX 변화량 오차 상위 10개:")
+    top_errors = results_df.nlargest(10, '오차_MAX')
+    print(top_errors[['현재시간', '현재값', '실제값', '실제_변화량', '예측_변화량_MAX', '오차_MAX', 'HUBROOMTOTAL', 'CURRENTQ']].to_string(index=False))
    
     return results_df
 
 if __name__ == '__main__':
-    print("🚀 V8 모델 평가 시작...\n")
-    results = evaluate_v8_version()
+    print("🚀 V7 + QUE 2개: MIN/MAX/AVG 변화량 예측 모델 평가 시작...\n")
+    results = evaluate_multi_change_prediction_que2()
    
     if results is not None:
         print(f"\n✅ 평가 완료! 총 {len(results)}개 예측")
-        print(f"📁 결과: V8_que2_평가결과.csv")
-        print(f"\n🎉 V8: QUE 2개 컬럼으로 성능 향상!")
+        print(f"📁 결과: 변화량예측_QUE2_평가결과.csv")
+        print(f"\n🎉 V7 + QUE 2개 컬럼으로 성능 향상!")
