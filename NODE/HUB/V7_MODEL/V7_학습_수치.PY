@@ -50,7 +50,13 @@ def train_multi_change_prediction_que2():
         future_avg_values = []
         indices = []
        
-        for i in range(start_idx, len(df) - 10):
+        total_samples = len(df) - 10 - start_idx
+        
+        for idx, i in enumerate(range(start_idx, len(df) - 10)):
+            # 진행 상황 출력 (1000개마다)
+            if idx % 1000 == 0:
+                print(f"  Feature 생성 진행: {idx}/{total_samples} ({idx/total_samples*100:.1f}%)")
+            
             seq_target = df[TARGET_COL].iloc[i-30:i].values
            
             # 현재값 (시퀀스 마지막)
@@ -323,7 +329,10 @@ def train_multi_change_prediction_que2():
     model = MultiOutputRegressor(base_model)
    
     print("모델 학습 중 (MIN/MAX/AVG 변화량 동시 예측 + QUE 2개)...")
+    print("="*60)
     model.fit(X_tr, y_tr)
+    print("="*60)
+    print("✅ 학습 완료!")
    
     # 평가
     y_val_pred = model.predict(X_val)
@@ -386,7 +395,11 @@ def train_multi_change_prediction_que2():
    
     # 결과 저장
     results = []
+    print("\n결과 저장 중...")
     for i in range(len(y_test)):
+        if i % 1000 == 0:
+            print(f"  저장 진행: {i}/{len(y_test)} ({i/len(y_test)*100:.1f}%)")
+        
         current_val = current_vals_test[i]
         
         # 🎯 실제값 (1개!)
