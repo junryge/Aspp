@@ -80,10 +80,10 @@ def train_v8_final_change_prediction():
             seq_target = df[TARGET_COL].iloc[i-30:i].values
             current_value = seq_target[-1]
            
-            # 🎯 정확히 10분 후 실제값
-            future_actual = df[TARGET_COL].iloc[i+10]
+            # 🎯 정확히 10분 후 실제값 (i-1이 현재, i-1+10=i+9가 10분 후)
+            future_actual = df[TARGET_COL].iloc[i+9]
             
-            # 🎯 10분 구간의 MIN, MAX, AVG
+            # 🎯 10분 구간의 MIN, MAX, AVG (i부터 i+9까지 10개)
             future_10min = df[TARGET_COL].iloc[i:i+10].values
             future_min = np.min(future_10min)
             future_max = np.max(future_10min)
