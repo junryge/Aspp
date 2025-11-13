@@ -116,11 +116,11 @@ def evaluate_v8_final_change_prediction():
         current_value = seq_target[-1]
         prediction_time = current_time + timedelta(minutes=10)
        
-        # 🎯 정확히 10분 후 실제값
-        actual_value = df[TARGET_COL].iloc[i+10]
+        # 🎯 정확히 10분 후 실제값 (i-1이 현재, i-1+10=i+9가 10분 후)
+        actual_value = df[TARGET_COL].iloc[i+9]
         actual_change = actual_value - current_value
         
-        # 🎯 10분 구간의 MIN, MAX, AVG
+        # 🎯 10분 구간의 MIN, MAX, AVG (i부터 i+9까지 10개)
         future_10min = df[TARGET_COL].iloc[i:i+10].values
         actual_min = np.min(future_10min)
         actual_max = np.max(future_10min)
@@ -372,9 +372,9 @@ def evaluate_v8_final_change_prediction():
         elif current_trans4min > 35 and current_hub < 610:
             pred_transport_high = 1  # 복합 위험
             
-        # 10분 후 실제 병목 상태
-        future_hub = df['HUBROOMTOTAL'].iloc[i+10] if i+10 < len(df) and 'HUBROOMTOTAL' in available_cols else 1000
-        future_trans4min = df['M16A.QUE.ALL.TRANSPORT4MINOVERCNT'].iloc[i+10] if i+10 < len(df) and 'M16A.QUE.ALL.TRANSPORT4MINOVERCNT' in available_cols else 0
+        # 10분 후 실제 병목 상태 (정확히 10분 후는 i+9)
+        future_hub = df['HUBROOMTOTAL'].iloc[i+9] if i+9 < len(df) and 'HUBROOMTOTAL' in available_cols else 1000
+        future_trans4min = df['M16A.QUE.ALL.TRANSPORT4MINOVERCNT'].iloc[i+9] if i+9 < len(df) and 'M16A.QUE.ALL.TRANSPORT4MINOVERCNT' in available_cols else 0
         
         actual_bottleneck_severe = 1 if future_hub < 550 else 0
         actual_bottleneck_warning = 1 if future_hub < 590 else 0
