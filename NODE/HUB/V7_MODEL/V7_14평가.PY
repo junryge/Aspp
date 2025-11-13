@@ -3,58 +3,32 @@ import pandas as pd
 import pickle
 from datetime import datetime, timedelta
 
-def evaluate_v8_final_change_prediction():
+def evaluate_perfect_version():
     """
-    🎯 V8-Final 변화량 예측 모델 평가
-    - 10분 구간의 MIN, MAX, AVG 각각 평가
-    - 큰 변화 기준: ±50
-    - V8-Final: 32개 컬럼 (V7 19개 + V8 신규 13개, velocity 제외)
+    🎯 완벽 버전 평가: 30시퀀스 → 10분 예측 + 임계값 280 + Momentum
     """
     print("="*80)
-    print("🎯 V8-Final 변화량 예측 모델 평가")
+    print("🎯 완벽 버전 평가: 가중치 5배 + 임계값 280 + Momentum")
     print("="*80)
    
     FEATURE_COLS = {
-        # ========== V7 기존 (17개) ==========
         'storage': ['M16A_3F_STORAGE_UTIL'],
         'fs_storage': ['CD_M163FSTORAGEUSE', 'CD_M163FSTORAGETOTAL', 'CD_M163FSTORAGEUTIL'],
         'hub': ['HUBROOMTOTAL'],
         'cmd': ['M16A_3F_CMD', 'M16A_6F_TO_HUB_CMD'],
         'inflow': ['M16A_6F_TO_HUB_JOB', 'M16A_2F_TO_HUB_JOB2', 'M14A_3F_TO_HUB_JOB2'],
         'outflow': ['M16A_3F_TO_M16A_6F_JOB', 'M16A_3F_TO_M16A_2F_JOB', 'M16A_3F_TO_M14A_3F_JOB'],
-        'maxcapa': ['M16A_6F_LFT_MAXCAPA', 'M16A_2F_LFT_MAXCAPA'],
-        
-        # V7 QUE (2개)
-        'que': ['M16HUB.QUE.ALL.CURRENTQCNT', 'M16HUB.QUE.TIME.AVGTOTALTIME1MIN'],
-        
-        # ========== V8 신규 (13개) ==========
-        'target_alt': ['CURRENT_M16A_3F_JOB'],
-        'm16hub_que': [
-            'M16HUB.QUE.ALL.CURRENTQCOMPLETED',
-            'M16HUB.QUE.ALL.FABTRANSJOBCNT',
-            'M16HUB.QUE.TIME.AVGTOTALTIME',
-            'M16HUB.QUE.OHT.CURRENTOHTQCNT',
-            'M16HUB.QUE.OHT.OHTUTIL'
-        ],
-        'm16a_que': [
-            'M16A.QUE.ALL.CURRENTQCOMPLETED',
-            'M16A.QUE.ALL.CURRENTQCREATED',
-            'M16A.QUE.OHT.CURRENTOHTQCNT',
-            'M16A.QUE.OHT.OHTUTIL',
-            'M16A.QUE.LOAD.AVGLOADTIME1MIN',
-            'M16A.QUE.ALL.TRANSPORT4MINOVERCNT',
-            'M16A.QUE.ABN.QUETIMEDELAY'
-        ]
+        'maxcapa': ['M16A_6F_LFT_MAXCAPA', 'M16A_2F_LFT_MAXCAPA']
     }
    
     # 모델 로드
     try:
-        with open('xgboost_변화량예측_V8_Final.pkl', 'rb') as f:
+        with open('xgboost_완벽버전_가중치5배_임계값280_momentum.pkl', 'rb') as f:
             model = pickle.load(f)
-        print("✅ 모델 로드 완료: xgboost_변화량예측_V8_Final.pkl")
+        print("✅ 모델 로드 완료: xgboost_완벽버전_가중치5배_임계값280_momentum.pkl")
     except Exception as e:
         print(f"❌ 모델 파일 없음: {e}")
-        print("   먼저 'V8_Final_학습코드.py'를 실행하세요.")
+        print("   먼저 '완벽버전_학습코드.py'를 실행하세요.")
         return None
    
     # 데이터 로드
@@ -73,24 +47,6 @@ def evaluate_v8_final_change_prediction():
    
     print(f"✅ 데이터 로드: {len(df)}개 행")
    
-    # 컬럼 존재 확인
-    print("\n📋 컬럼 존재 확인:")
-    available_cols = set(df.columns)
-    total_cols = 0
-    available_count = 0
-    
-    for group_name, cols in FEATURE_COLS.items():
-        print(f"\n  [{group_name}] ({len(cols)}개)")
-        for col in cols:
-            total_cols += 1
-            if col in available_cols:
-                available_count += 1
-                print(f"    ✅ {col}")
-            else:
-                print(f"    ❌ {col} - 누락 (Feature는 0으로 생성)")
-    
-    print(f"\n  총 컬럼: {available_count}/{total_cols}개 사용 가능")
-   
     # STAT_DT 처리
     if 'STAT_DT' in df.columns:
         try:
@@ -101,32 +57,20 @@ def evaluate_v8_final_change_prediction():
    
     results = []
    
-    print("\n슬라이딩 윈도우 평가 시작 (V8-Final)...")
-    
-    total_samples = len(df) - 40
-    
-    for idx, i in enumerate(range(30, len(df) - 10)):
-        if idx % 500 == 0:
-            print(f"  평가 진행: {idx}/{total_samples} ({idx/total_samples*100:.1f}%)")
-        
+    print("\n슬라이딩 윈도우 평가 시작 (30시퀀스 → 10분 예측 + Momentum)...")
+    for i in range(30, len(df) - 10):  # 🔥 수정: -10 추가!
         seq_data = df.iloc[i-30:i].copy()
         seq_target = seq_data[TARGET_COL].values
        
         current_time = seq_data['STAT_DT'].iloc[-1]
         current_value = seq_target[-1]
-        prediction_time = current_time + timedelta(minutes=10)
+        prediction_time = current_time + timedelta(minutes=10)  # ✅ 10분 후
        
-        # 🎯 정확히 10분 후 실제값
-        actual_value = df[TARGET_COL].iloc[i+10]
-        actual_change = actual_value - current_value
-        
-        # 🎯 10분 구간의 MIN, MAX, AVG
-        future_10min = df[TARGET_COL].iloc[i:i+10].values
-        actual_min = np.min(future_10min)
-        actual_max = np.max(future_10min)
-        actual_avg = np.mean(future_10min)
+        # 🔥 수정: 10분 구간의 최대값 (학습과 동일하게!)
+        actual_value = df[TARGET_COL].iloc[i:i+10].max()
+        actual_time = df.iloc[i+9]['STAT_DT']  # 10분 후의 시간
        
-        # ===== Feature 생성 (학습과 동일!) =====
+        # Feature 생성 (학습 코드와 완벽히 동일!)
         features = {
             'target_mean': np.mean(seq_target),
             'target_std': np.std(seq_target),
@@ -137,7 +81,7 @@ def evaluate_v8_final_change_prediction():
             'target_slope': np.polyfit(np.arange(30), seq_target, 1)[0],
         }
        
-        # Momentum Feature
+        # 🆕 Momentum Feature 추가 (학습 코드와 동일!)
         features['target_acceleration'] = (seq_target[-5:].mean() - seq_target[-10:-5].mean()) / 5
         features['target_is_rising'] = 1 if seq_target[-1] > seq_target[-5] else 0
         features['target_rapid_rise'] = 1 if (seq_target[-1] - seq_target[-5] > 10) else 0
@@ -146,7 +90,7 @@ def evaluate_v8_final_change_prediction():
         # 각 컬럼 Feature
         for group_name, cols in FEATURE_COLS.items():
             for col in cols:
-                if col not in available_cols:
+                if col not in df.columns:
                     continue
                
                 col_seq = seq_data[col].values
@@ -154,8 +98,7 @@ def evaluate_v8_final_change_prediction():
                 if group_name == 'maxcapa':
                     features[f'{col}_last_value'] = col_seq[-1]
                
-                elif group_name in ['cmd', 'storage', 'fs_storage', 'hub', 'que', 
-                                   'target_alt', 'm16hub_que', 'm16a_que']:
+                elif group_name in ['cmd', 'storage', 'fs_storage', 'hub']:
                     features[f'{col}_mean'] = np.mean(col_seq)
                     features[f'{col}_std'] = np.std(col_seq)
                     features[f'{col}_max'] = np.max(col_seq)
@@ -164,16 +107,40 @@ def evaluate_v8_final_change_prediction():
                     features[f'{col}_last_5_mean'] = np.mean(col_seq[-5:])
                     features[f'{col}_slope'] = np.polyfit(np.arange(30), col_seq, 1)[0]
                
-                else:  # inflow, outflow
+                else:
                     features[f'{col}_mean'] = np.mean(col_seq)
                     features[f'{col}_last_value'] = col_seq[-1]
                     features[f'{col}_slope'] = np.polyfit(np.arange(30), col_seq, 1)[0]
        
         # FS Storage Feature
-        if all(col in available_cols for col in ['CD_M163FSTORAGEUSE', 'CD_M163FSTORAGETOTAL', 'CD_M163FSTORAGEUTIL']):
+        if 'CD_M163FSTORAGEUSE' in df.columns and 'CD_M163FSTORAGETOTAL' in df.columns and 'CD_M163FSTORAGEUTIL' in df.columns:
             use_seq = seq_data['CD_M163FSTORAGEUSE'].values
             total_seq = seq_data['CD_M163FSTORAGETOTAL'].values
             util_seq = seq_data['CD_M163FSTORAGEUTIL'].values
+           
+            features['CD_M163FSTORAGEUSE_mean'] = np.mean(use_seq)
+            features['CD_M163FSTORAGEUSE_std'] = np.std(use_seq)
+            features['CD_M163FSTORAGEUSE_max'] = np.max(use_seq)
+            features['CD_M163FSTORAGEUSE_min'] = np.min(use_seq)
+            features['CD_M163FSTORAGEUSE_last_value'] = use_seq[-1]
+            features['CD_M163FSTORAGEUSE_last_5_mean'] = np.mean(use_seq[-5:])
+            features['CD_M163FSTORAGEUSE_slope'] = np.polyfit(np.arange(30), use_seq, 1)[0]
+           
+            features['CD_M163FSTORAGETOTAL_mean'] = np.mean(total_seq)
+            features['CD_M163FSTORAGETOTAL_std'] = np.std(total_seq)
+            features['CD_M163FSTORAGETOTAL_max'] = np.max(total_seq)
+            features['CD_M163FSTORAGETOTAL_min'] = np.min(total_seq)
+            features['CD_M163FSTORAGETOTAL_last_value'] = total_seq[-1]
+            features['CD_M163FSTORAGETOTAL_last_5_mean'] = np.mean(total_seq[-5:])
+            features['CD_M163FSTORAGETOTAL_slope'] = np.polyfit(np.arange(30), total_seq, 1)[0]
+           
+            features['CD_M163FSTORAGEUTIL_mean'] = np.mean(util_seq)
+            features['CD_M163FSTORAGEUTIL_std'] = np.std(util_seq)
+            features['CD_M163FSTORAGEUTIL_max'] = np.max(util_seq)
+            features['CD_M163FSTORAGEUTIL_min'] = np.min(util_seq)
+            features['CD_M163FSTORAGEUTIL_last_value'] = util_seq[-1]
+            features['CD_M163FSTORAGEUTIL_last_5_mean'] = np.mean(util_seq[-5:])
+            features['CD_M163FSTORAGEUTIL_slope'] = np.polyfit(np.arange(30), util_seq, 1)[0]
            
             features['storage_use_rate'] = (use_seq[-1] - use_seq[0]) / 30
             features['storage_remaining'] = total_seq[-1] - use_seq[-1]
@@ -182,7 +149,7 @@ def evaluate_v8_final_change_prediction():
             features['storage_util_critical'] = 1 if util_seq[-1] >= 10 else 0
        
         # HUBROOMTOTAL Feature
-        if 'HUBROOMTOTAL' in available_cols:
+        if 'HUBROOMTOTAL' in df.columns:
             hub_seq = seq_data['HUBROOMTOTAL'].values
             hub_last = hub_seq[-1]
            
@@ -191,30 +158,30 @@ def evaluate_v8_final_change_prediction():
             features['hub_warning'] = 1 if hub_last < 620 else 0
             features['hub_decrease_rate'] = (hub_seq[0] - hub_last) / 30
            
-            if 'CD_M163FSTORAGEUTIL' in available_cols:
+            if 'CD_M163FSTORAGEUTIL' in df.columns:
                 storage_util_last = df['CD_M163FSTORAGEUTIL'].iloc[i-1]
                 features['hub_storage_risk'] = 1 if (hub_last < 610 and storage_util_last >= 7) else 0
        
         # 유입-유출, CMD
-        inflow_sum = sum(df[col].iloc[i-1] for col in FEATURE_COLS['inflow'] if col in available_cols)
-        outflow_sum = sum(df[col].iloc[i-1] for col in FEATURE_COLS['outflow'] if col in available_cols)
+        inflow_sum = sum(df[col].iloc[i-1] for col in FEATURE_COLS['inflow'] if col in df.columns)
+        outflow_sum = sum(df[col].iloc[i-1] for col in FEATURE_COLS['outflow'] if col in df.columns)
         features['net_flow'] = inflow_sum - outflow_sum
        
-        cmd_sum = sum(df[col].iloc[i-1] for col in FEATURE_COLS['cmd'] if col in available_cols)
+        cmd_sum = sum(df[col].iloc[i-1] for col in FEATURE_COLS['cmd'] if col in df.columns)
         features['total_cmd'] = cmd_sum
         features['total_cmd_low'] = 1 if cmd_sum < 220 else 0
         features['total_cmd_very_low'] = 1 if cmd_sum < 200 else 0
        
-        if 'HUBROOMTOTAL' in available_cols:
+        if 'HUBROOMTOTAL' in df.columns:
             hub_last = df['HUBROOMTOTAL'].iloc[i-1]
             features['hub_cmd_bottleneck'] = 1 if (hub_last < 610 and cmd_sum < 220) else 0
        
-        if 'M16A_3F_STORAGE_UTIL' in available_cols:
+        if 'M16A_3F_STORAGE_UTIL' in df.columns:
             storage_util = df['M16A_3F_STORAGE_UTIL'].iloc[i-1]
             features['storage_util_critical'] = 1 if storage_util >= 205 else 0
             features['storage_util_high_risk'] = 1 if storage_util >= 207 else 0
        
-        # 급증 위험도 점수
+        # 🔥 급증 위험도 점수
         features['surge_risk_score'] = (
             features.get('hub_high', 0) * 3 +
             features.get('storage_util_critical', 0) * 2 +
@@ -222,278 +189,128 @@ def evaluate_v8_final_change_prediction():
             features.get('storage_util_high', 0) * 1
         )
        
-        # 급증 임박 신호
+        # 🆕 급증 임박 신호
         features['surge_imminent'] = 1 if (
-            seq_target[-1] > 280 and
-            features.get('target_acceleration', 0) > 0.5 and
+            seq_target[-1] > 272 and
+            features.get('target_acceleration', 0) > 0.2 and
             features.get('hub_high', 0) == 1
         ) else 0
        
-        # ===== V7 QUE Boolean =====
-        if 'M16HUB.QUE.ALL.CURRENTQCNT' in available_cols:
-            currentq = df['M16HUB.QUE.ALL.CURRENTQCNT'].iloc[i-1]
-            features['currentq_high'] = 1 if currentq >= 1200 else 0
-            features['currentq_critical'] = 1 if currentq >= 1400 else 0
-        else:
-            features['currentq_high'] = 0
-            features['currentq_critical'] = 0
-       
-        if 'M16HUB.QUE.TIME.AVGTOTALTIME1MIN' in available_cols:
-            avgtime = df['M16HUB.QUE.TIME.AVGTOTALTIME1MIN'].iloc[i-1]
-            features['avgtime1min_high'] = 1 if avgtime >= 4.0 else 0
-            features['avgtime1min_critical'] = 1 if avgtime >= 4.5 else 0
-        else:
-            features['avgtime1min_high'] = 0
-            features['avgtime1min_critical'] = 0
-       
-        if 'M16HUB.QUE.ALL.CURRENTQCNT' in available_cols and 'M16HUB.QUE.TIME.AVGTOTALTIME1MIN' in available_cols:
-            currentq = df['M16HUB.QUE.ALL.CURRENTQCNT'].iloc[i-1]
-            avgtime = df['M16HUB.QUE.TIME.AVGTOTALTIME1MIN'].iloc[i-1]
-            features['que_severe_bottleneck'] = 1 if (currentq >= 1200 and avgtime >= 4.0) else 0
-        else:
-            features['que_severe_bottleneck'] = 0
-       
-        # ===== 🆕 V8 M16HUB QUE Boolean =====
-        if 'M16HUB.QUE.OHT.OHTUTIL' in available_cols:
-            ohtutil = df['M16HUB.QUE.OHT.OHTUTIL'].iloc[i-1]
-            features['m16hub_ohtutil_high'] = 1 if ohtutil >= 85.0 else 0
-            features['m16hub_ohtutil_critical'] = 1 if ohtutil >= 90.0 else 0
-        else:
-            features['m16hub_ohtutil_high'] = 0
-            features['m16hub_ohtutil_critical'] = 0
-       
-        if 'M16HUB.QUE.TIME.AVGTOTALTIME' in available_cols:
-            avgtime = df['M16HUB.QUE.TIME.AVGTOTALTIME'].iloc[i-1]
-            features['m16hub_avgtime_high'] = 1 if avgtime >= 5.0 else 0
-            features['m16hub_avgtime_critical'] = 1 if avgtime >= 6.0 else 0
-        else:
-            features['m16hub_avgtime_high'] = 0
-            features['m16hub_avgtime_critical'] = 0
-       
-        if 'M16HUB.QUE.OHT.OHTUTIL' in available_cols and 'M16HUB.QUE.TIME.AVGTOTALTIME' in available_cols:
-            ohtutil = df['M16HUB.QUE.OHT.OHTUTIL'].iloc[i-1]
-            avgtime = df['M16HUB.QUE.TIME.AVGTOTALTIME'].iloc[i-1]
-            features['m16hub_severe_bottleneck'] = 1 if (ohtutil >= 85.0 and avgtime >= 5.0) else 0
-        else:
-            features['m16hub_severe_bottleneck'] = 0
-       
-        # ===== 🆕 V8 M16A QUE Boolean =====
-        if 'M16A.QUE.OHT.OHTUTIL' in available_cols:
-            ohtutil = df['M16A.QUE.OHT.OHTUTIL'].iloc[i-1]
-            features['m16a_ohtutil_high'] = 1 if ohtutil >= 85.0 else 0
-            features['m16a_ohtutil_critical'] = 1 if ohtutil >= 90.0 else 0
-        else:
-            features['m16a_ohtutil_high'] = 0
-            features['m16a_ohtutil_critical'] = 0
-       
-        if 'M16A.QUE.LOAD.AVGLOADTIME1MIN' in available_cols:
-            loadtime = df['M16A.QUE.LOAD.AVGLOADTIME1MIN'].iloc[i-1]
-            features['m16a_loadtime_high'] = 1 if loadtime >= 2.5 else 0
-            features['m16a_loadtime_critical'] = 1 if loadtime >= 2.8 else 0
-        else:
-            features['m16a_loadtime_high'] = 0
-            features['m16a_loadtime_critical'] = 0
-       
-        if 'M16A.QUE.ALL.TRANSPORT4MINOVERCNT' in available_cols:
-            transport4min = df['M16A.QUE.ALL.TRANSPORT4MINOVERCNT'].iloc[i-1]
-            features['m16a_transport4min_high'] = 1 if transport4min >= 40 else 0
-            features['m16a_transport4min_critical'] = 1 if transport4min >= 50 else 0
-        else:
-            features['m16a_transport4min_high'] = 0
-            features['m16a_transport4min_critical'] = 0
-       
-        if 'M16A.QUE.ABN.QUETIMEDELAY' in available_cols:
-            delay = df['M16A.QUE.ABN.QUETIMEDELAY'].iloc[i-1]
-            features['m16a_delay_warning'] = 1 if delay >= 1 else 0
-            features['m16a_delay_critical'] = 1 if delay >= 3 else 0
-        else:
-            features['m16a_delay_warning'] = 0
-            features['m16a_delay_critical'] = 0
-       
-        if 'M16A.QUE.OHT.OHTUTIL' in available_cols and 'M16A.QUE.ALL.TRANSPORT4MINOVERCNT' in available_cols:
-            ohtutil = df['M16A.QUE.OHT.OHTUTIL'].iloc[i-1]
-            transport4min = df['M16A.QUE.ALL.TRANSPORT4MINOVERCNT'].iloc[i-1]
-            features['m16a_severe_bottleneck'] = 1 if (ohtutil >= 85.0 and transport4min >= 40) else 0
-        else:
-            features['m16a_severe_bottleneck'] = 0
-       
         X_pred = pd.DataFrame([features])
        
-        # 🎯 예측 (변화량 3개!)
-        predictions = model.predict(X_pred)[0]
-        pred_change_min = predictions[0]
-        pred_change_max = predictions[1]
-        pred_change_avg = predictions[2]
-        
-        # 🎯 예측값 = 현재값 + 예측 변화량
-        pred_min = current_value + pred_change_min
-        pred_max = current_value + pred_change_max
-        pred_avg = current_value + pred_change_avg
-        
-        # 방향 일치 여부
-        direction_match_min = (
-            (actual_change > 0 and pred_change_min > 0) or
-            (actual_change < 0 and pred_change_min < 0) or
-            (abs(actual_change) < 5 and abs(pred_change_min) < 5)
-        )
-        direction_match_max = (
-            (actual_change > 0 and pred_change_max > 0) or
-            (actual_change < 0 and pred_change_max < 0) or
-            (abs(actual_change) < 5 and abs(pred_change_max) < 5)
-        )
-        direction_match_avg = (
-            (actual_change > 0 and pred_change_avg > 0) or
-            (actual_change < 0 and pred_change_avg < 0) or
-            (abs(actual_change) < 5 and abs(pred_change_avg) < 5)
-        )
+        # 예측
+        prediction = model.predict(X_pred)[0]
        
-        # V8 데이터 추가
-        target_alt_val = df['CURRENT_M16A_3F_JOB'].iloc[i-1] if 'CURRENT_M16A_3F_JOB' in available_cols else 0
-        m16hub_ohtutil_val = df['M16HUB.QUE.OHT.OHTUTIL'].iloc[i-1] if 'M16HUB.QUE.OHT.OHTUTIL' in available_cols else 0
-        m16a_completed_val = df['M16A.QUE.ALL.CURRENTQCOMPLETED'].iloc[i-1] if 'M16A.QUE.ALL.CURRENTQCOMPLETED' in available_cols else 0
-        m16a_created_val = df['M16A.QUE.ALL.CURRENTQCREATED'].iloc[i-1] if 'M16A.QUE.ALL.CURRENTQCREATED' in available_cols else 0
-        m16a_loadtime_val = df['M16A.QUE.LOAD.AVGLOADTIME1MIN'].iloc[i-1] if 'M16A.QUE.LOAD.AVGLOADTIME1MIN' in available_cols else 0
-        m16a_transport4min_val = df['M16A.QUE.ALL.TRANSPORT4MINOVERCNT'].iloc[i-1] if 'M16A.QUE.ALL.TRANSPORT4MINOVERCNT' in available_cols else 0
-        m16a_delay_val = df['M16A.QUE.ABN.QUETIMEDELAY'].iloc[i-1] if 'M16A.QUE.ABN.QUETIMEDELAY' in available_cols else 0
+        # 급증 판정
+        is_surge = (current_value < 300 and actual_value >= 300)
+       
+        # 위험도 판정
+        risk_level = "LOW"
+        risk_score = features.get('surge_risk_score', 0)
+        if risk_score >= 5:
+            risk_level = "CRITICAL"
+        elif risk_score >= 3:
+            risk_level = "HIGH"
+        elif risk_score >= 1:
+            risk_level = "MEDIUM"
        
         results.append({
             '현재시간': current_time.strftime('%Y-%m-%d %H:%M'),
             '예측시점': prediction_time.strftime('%Y-%m-%d %H:%M'),
             '현재값': round(current_value, 2),
             '실제값': round(actual_value, 2),
-            '실제_변화량': round(actual_change, 2),
-            # 구간 참고 정보
-            '구간_MIN': round(actual_min, 2),
-            '구간_MAX': round(actual_max, 2),
-            '구간_AVG': round(actual_avg, 2),
-            # MIN 예측
-            '예측_변화량_MIN': round(pred_change_min, 2),
-            '예측값_MIN': round(pred_min, 2),
-            '오차_MIN': round(abs(actual_change - pred_change_min), 2),
-            '방향일치_MIN': '✅' if direction_match_min else '❌',
-            # MAX 예측
-            '예측_변화량_MAX': round(pred_change_max, 2),
-            '예측값_MAX': round(pred_max, 2),
-            '오차_MAX': round(abs(actual_change - pred_change_max), 2),
-            '방향일치_MAX': '✅' if direction_match_max else '❌',
-            # AVG 예측
-            '예측_변화량_AVG': round(pred_change_avg, 2),
-            '예측값_AVG': round(pred_avg, 2),
-            '오차_AVG': round(abs(actual_change - pred_change_avg), 2),
-            '방향일치_AVG': '✅' if direction_match_avg else '❌',
-            # V7 기타
+            '예측값': round(prediction, 2),
+            '오차': round(abs(actual_value - prediction), 2),
+            '오차율(%)': round(abs(actual_value - prediction) / max(actual_value, 1) * 100, 2),
             '시퀀스MAX': round(np.max(seq_target), 2),
+            '300급증': '✅' if is_surge else '',
+            '감지_290': '✅' if (is_surge and prediction >= 290) else '',
+            '감지_285': '✅' if (is_surge and prediction >= 285) else '',
+            '감지_280': '✅' if (is_surge and prediction >= 280) else '',  # ⭐ 메인!
+            '감지_275': '✅' if (is_surge and prediction >= 275) else '',
+            '위험도': risk_level,
+            '위험점수': risk_score,
+            'momentum상승': '✅' if features.get('target_is_rising', 0) == 1 else '',
+            'momentum가속': round(features.get('target_acceleration', 0), 2),
+            '급증임박': '✅' if features.get('surge_imminent', 0) == 1 else '',
             'HUBROOMTOTAL': round(features.get('HUBROOMTOTAL_last_value', 0), 0),
             'FS_UTIL': round(features.get('CD_M163FSTORAGEUTIL_last_value', 0), 0),
             'CMD': round(features.get('total_cmd', 0), 0),
-            'Momentum가속': round(features.get('target_acceleration', 0), 2),
-            'CURRENTQ': round(df['M16HUB.QUE.ALL.CURRENTQCNT'].iloc[i-1] if 'M16HUB.QUE.ALL.CURRENTQCNT' in available_cols else 0, 0),
-            'AVGTIME1MIN': round(df['M16HUB.QUE.TIME.AVGTOTALTIME1MIN'].iloc[i-1] if 'M16HUB.QUE.TIME.AVGTOTALTIME1MIN' in available_cols else 0, 2),
-            'QUE병목': '✅' if features.get('que_severe_bottleneck', 0) == 1 else '',
-            # V8
-            'TARGET_ALT': round(target_alt_val, 2),
-            'M16HUB_OHTUTIL': round(m16hub_ohtutil_val, 1),
-            'M16HUB병목': '✅' if features.get('m16hub_severe_bottleneck', 0) == 1 else '',
-            'M16A_COMPLETED': round(m16a_completed_val, 0),
-            'M16A_CREATED': round(m16a_created_val, 0),
-            'M16A_LOADTIME1MIN': round(m16a_loadtime_val, 2),
-            'M16A_TRANSPORT4MIN': round(m16a_transport4min_val, 0),
-            'M16A_DELAY': round(m16a_delay_val, 0),
-            'M16A병목': '✅' if features.get('m16a_severe_bottleneck', 0) == 1 else '',
+            'STORAGE_UTIL': round(features.get('M16A_3F_STORAGE_UTIL_last_value', 0), 0),
         })
+       
+        if (i - 30) % 1000 == 0:
+            print(f"진행: {i-30}/{len(df)-30} ({(i-30)/(len(df)-30)*100:.1f}%)")
    
     results_df = pd.DataFrame(results)
    
-    output_file = '변화량예측_V8_Final_평가결과.csv'
+    output_file = '완벽버전_가중치5배_임계값280_momentum_평가결과.csv'
     results_df.to_csv(output_file, index=False, encoding='utf-8-sig')
     print(f"\n✅ 결과 저장: {output_file}")
    
     # 통계
     print("\n" + "="*80)
-    print("📊 평가 통계 (V8-Final)")
+    print("📊 평가 통계 (완벽 버전: 가중치 5배 + 임계값 280 + Momentum)")
     print("="*80)
    
     print(f"총 예측: {len(results_df)}개")
+    print(f"평균 오차: {results_df['오차'].mean():.2f}")
+    print(f"평균 오차율: {results_df['오차율(%)'].mean():.2f}%")
    
-    # 각 타입별 통계
-    for target_type in ['MIN', 'MAX', 'AVG']:
-        print(f"\n🎯 {target_type} 예측 성능:")
+    surge_cases = results_df[results_df['300급증'] == '✅']
+    if len(surge_cases) > 0:
+        print(f"\n🎯 300 급증 예측 성능:")
+        print(f"  발생: {len(surge_cases)}개 ({len(surge_cases)/len(results_df)*100:.2f}%)")
         
-        error_col = f'오차_{target_type}'
-        direction_col = f'방향일치_{target_type}'
-        pred_col = f'예측_변화량_{target_type}'
-        
-        avg_error = results_df[error_col].mean()
-        direction_correct = (results_df[direction_col] == '✅').sum()
-        direction_accuracy = direction_correct / len(results_df) * 100
-        
-        print(f"  - 평균 오차: {avg_error:.2f}")
-        print(f"  - 방향 정확도: {direction_correct}/{len(results_df)}개 ({direction_accuracy:.1f}%)")
-        
-        # 큰 변화 감지
-        large_increase = results_df[results_df['실제_변화량'] >= 50]
-        if len(large_increase) > 0:
-            detected_increase = large_increase[large_increase[pred_col] >= 40]
-            print(f"  - 큰 상승 (+50 이상) 감지:")
-            print(f"    발생: {len(large_increase)}개")
-            print(f"    감지 (+40 이상): {len(detected_increase)}개 ({len(detected_increase)/len(large_increase)*100:.1f}%)")
-        
-        large_decrease = results_df[results_df['실제_변화량'] <= -50]
-        if len(large_decrease) > 0:
-            detected_decrease = large_decrease[large_decrease[pred_col] <= -40]
-            print(f"  - 큰 하락 (-50 이하) 감지:")
-            print(f"    발생: {len(large_decrease)}개")
-            print(f"    감지 (-40 이하): {len(detected_decrease)}개 ({len(detected_decrease)/len(large_decrease)*100:.1f}%)")
+        for threshold in [290, 285, 280, 275]:
+            detected = (surge_cases[f'감지_{threshold}'] == '✅').sum()
+            marker = "⭐" if threshold == 280 else "  "
+            print(f"{marker} 임계값 {threshold}: {detected}/{len(surge_cases)}개 ({detected/len(surge_cases)*100:.1f}%)")
    
-    # V8 Feature 분석
-    print(f"\n🆕 V8 Feature 분석:")
-    
-    if 'TARGET_ALT' in results_df.columns and results_df['TARGET_ALT'].sum() > 0:
-        print(f"  평균 TARGET_ALT: {results_df['TARGET_ALT'].mean():.1f}")
-    
-    if 'M16HUB_OHTUTIL' in results_df.columns and results_df['M16HUB_OHTUTIL'].sum() > 0:
-        print(f"  평균 M16HUB_OHTUTIL: {results_df['M16HUB_OHTUTIL'].mean():.1f}%")
-        m16hub_bottleneck_count = (results_df['M16HUB병목'] == '✅').sum()
-        print(f"  M16HUB병목 발생: {m16hub_bottleneck_count}개 ({m16hub_bottleneck_count/len(results_df)*100:.1f}%)")
-    
-    if 'M16A_TRANSPORT4MIN' in results_df.columns and results_df['M16A_TRANSPORT4MIN'].sum() > 0:
-        print(f"  평균 M16A_TRANSPORT4MIN: {results_df['M16A_TRANSPORT4MIN'].mean():.1f}개")
-        
-        # 큰 상승 시 TRANSPORT4MIN 관계
-        large_increase = results_df[results_df['실제_변화량'] >= 50]
-        if len(large_increase) > 0:
-            avg_transport4min = large_increase['M16A_TRANSPORT4MIN'].mean()
-            print(f"  큰 상승 시 평균 TRANSPORT4MIN: {avg_transport4min:.1f}개")
-    
-    if 'M16A_DELAY' in results_df.columns and results_df['M16A_DELAY'].sum() > 0:
-        delay_count = (results_df['M16A_DELAY'] >= 1).sum()
-        print(f"  M16A_DELAY 발생: {delay_count}개 ({delay_count/len(results_df)*100:.1f}%)")
-    
-    if 'M16A병목' in results_df.columns:
-        m16a_bottleneck_count = (results_df['M16A병목'] == '✅').sum()
-        print(f"  M16A병목 발생: {m16a_bottleneck_count}개 ({m16a_bottleneck_count/len(results_df)*100:.1f}%)")
-        
-        # 큰 상승 시 M16A 병목
-        large_increase = results_df[results_df['실제_변화량'] >= 50]
-        if len(large_increase) > 0:
-            m16a_in_surge = (large_increase['M16A병목'] == '✅').sum()
-            print(f"  큰 상승 시 M16A병목: {m16a_in_surge}/{len(large_increase)}개 ({m16a_in_surge/len(large_increase)*100:.1f}%)")
+    extreme_cases = results_df[results_df['실제값'] >= 300]
+    if len(extreme_cases) > 0:
+        extreme_detected_280 = (extreme_cases['예측값'] >= 280).sum()
+       
+        print(f"\n극단값 (300+) 감지 (임계값 280):")
+        print(f"  발생: {len(extreme_cases)}개 ({len(extreme_cases)/len(results_df)*100:.1f}%)")
+        print(f"  감지: {extreme_detected_280}/{len(extreme_cases)}개 ({extreme_detected_280/len(extreme_cases)*100:.1f}%)")
    
-    # 오차 상위 10개 (MAX 기준)
-    print(f"\n❌ MAX 변화량 오차 상위 10개:")
-    top_errors = results_df.nlargest(10, '오차_MAX')
-    display_cols = ['현재시간', '현재값', '실제값', '실제_변화량', '예측_변화량_MAX', '오차_MAX', 
-                    'HUBROOMTOTAL', 'M16A_TRANSPORT4MIN', 'M16A병목']
-    available_cols = [col for col in display_cols if col in top_errors.columns]
-    print(top_errors[available_cols].to_string(index=False))
+    # Momentum Feature 분석
+    print(f"\n🆕 Momentum Feature 분석:")
+    if len(surge_cases) > 0:
+        rising_in_surge = (surge_cases['momentum상승'] == '✅').sum()
+        imminent_in_surge = (surge_cases['급증임박'] == '✅').sum()
+        print(f"  급증 시 상승 중: {rising_in_surge}/{len(surge_cases)}개 ({rising_in_surge/len(surge_cases)*100:.1f}%)")
+        print(f"  급증 임박 신호: {imminent_in_surge}/{len(surge_cases)}개 ({imminent_in_surge/len(surge_cases)*100:.1f}%)")
+   
+    # 위험도별 통계
+    print(f"\n위험도별 분석:")
+    for risk in ['CRITICAL', 'HIGH', 'MEDIUM', 'LOW']:
+        risk_df = results_df[results_df['위험도'] == risk]
+        if len(risk_df) > 0:
+            surge_in_risk = (risk_df['300급증'] == '✅').sum()
+            print(f"  {risk}: {len(risk_df)}개 - 급증 {surge_in_risk}개 ({surge_in_risk/len(risk_df)*100:.1f}%)")
+   
+    # 상위 오차
+    print(f"\n❌ 오차 상위 10개:")
+    top_errors = results_df.nlargest(10, '오차율(%)')
+    print(top_errors[['현재시간', '현재값', '실제값', '예측값', '오차', '위험도', '300급증', '급증임박']].to_string(index=False))
+   
+    # 급증 예측 실패 케이스
+    if len(surge_cases) > 0:
+        surge_failed = surge_cases[surge_cases['감지_280'] != '✅']
+        if len(surge_failed) > 0:
+            print(f"\n❌ 급증 예측 실패 케이스 (상위 10개, 임계값 280):")
+            failed_top = surge_failed.nsmallest(10, '예측값')
+            print(failed_top[['현재시간', '현재값', '실제값', '예측값', 'HUBROOMTOTAL', 'FS_UTIL', 'CMD', '위험점수', 'momentum가속', '급증임박']].to_string(index=False))
    
     return results_df
 
 if __name__ == '__main__':
-    print("🚀 V8-Final 변화량 예측 모델 평가 시작...\n")
-    results = evaluate_v8_final_change_prediction()
+    print("🚀 완벽 버전 모델 평가 시작...\n")
+    results = evaluate_perfect_version()
    
     if results is not None:
         print(f"\n✅ 평가 완료! 총 {len(results)}개 예측")
-        print(f"📁 결과: 변화량예측_V8_Final_평가결과.csv")
-        print(f"\n🎉 V8-Final: 32개 컬럼 (velocity 제외)!")
+        print(f"📁 결과: 완벽버전_가중치5배_임계값280_momentum_평가결과.csv")
+        print(f"\n🎉 60~70% 감지율 목표 달성 예상!")
