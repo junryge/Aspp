@@ -1,3 +1,26 @@
+'''
+# 모델 로드
+try:
+    with open('xgboost_수치형_V8.pkl', 'rb') as f:
+        model = pickle.load(f)
+    print("✅ 모델 로드: xgboost_수치형_V8.pkl")
+except Exception as e:
+    print(f"❌ 모델 없음: {e}")
+    return None
+
+
+try:
+    with open('xgboost_수치형_V8.pkl', 'rb') as f:
+        model_dict = pickle.load(f)
+    models = model_dict['models']  # 3개 모델 리스트 [MIN, MAX, AVG]
+    print("✅ 모델 로드: xgboost_수치형_V8.pkl (3개 모델)")
+except Exception as e:
+    print(f"❌ 모델 없음: {e}")
+    return None
+'''
+
+
+
 import numpy as np
 import pandas as pd
 import pickle
