@@ -1,26 +1,3 @@
-'''
-# 모델 로드
-try:
-    with open('xgboost_수치형_V8.pkl', 'rb') as f:
-        model = pickle.load(f)
-    print("✅ 모델 로드: xgboost_수치형_V8.pkl")
-except Exception as e:
-    print(f"❌ 모델 없음: {e}")
-    return None
-
-
-try:
-    with open('xgboost_수치형_V8.pkl', 'rb') as f:
-        model_dict = pickle.load(f)
-    models = model_dict['models']  # 3개 모델 리스트 [MIN, MAX, AVG]
-    print("✅ 모델 로드: xgboost_수치형_V8.pkl (3개 모델)")
-except Exception as e:
-    print(f"❌ 모델 없음: {e}")
-    return None
-'''
-
-
-
 import numpy as np
 import pandas as pd
 import pickle
@@ -65,8 +42,9 @@ def evaluate_v8_regression():
     # 모델 로드
     try:
         with open('xgboost_수치형_V8.pkl', 'rb') as f:
-            model = pickle.load(f)
-        print("✅ 모델 로드: xgboost_수치형_V8.pkl")
+            model_dict = pickle.load(f)
+        models = model_dict['models']  # 3개 모델 리스트 [MIN, MAX, AVG]
+        print("✅ 모델 로드: xgboost_수치형_V8.pkl (3개 모델)")
     except Exception as e:
         print(f"❌ 모델 없음: {e}")
         return None
@@ -211,7 +189,7 @@ def evaluate_v8_regression():
             features.get('hub_high', 0) == 1
         ) else 0
        
-        # Boolean features (생략 - 위와 동일)
+        # Boolean features
         if 'M16HUB.QUE.ALL.CURRENTQCNT' in available_cols:
             currentq = df['M16HUB.QUE.ALL.CURRENTQCNT'].iloc[i-1]
             features['currentq_high'] = 1 if currentq >= 1200 else 0
@@ -299,11 +277,10 @@ def evaluate_v8_regression():
        
         X_pred = pd.DataFrame([features])
        
-        # 예측
-        predictions = model.predict(X_pred)[0]
-        pred_change_min = predictions[0]
-        pred_change_max = predictions[1]
-        pred_change_avg = predictions[2]
+        # 예측 (3개 모델 개별 예측)
+        pred_change_min = models[0].predict(X_pred)[0]
+        pred_change_max = models[1].predict(X_pred)[0]
+        pred_change_avg = models[2].predict(X_pred)[0]
         
         pred_min = current_value + pred_change_min
         pred_max = current_value + pred_change_max
