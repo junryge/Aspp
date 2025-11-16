@@ -7,7 +7,6 @@ from datetime import datetime, timedelta
 import matplotlib.pyplot as plt
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
-from sklearn.multioutput import MultiOutputRegressor
 
 warnings.filterwarnings('ignore')
 plt.rcParams['font.family'] = 'DejaVu Sans'
@@ -345,55 +344,63 @@ def train_v8_regression_with_weights():
         print("  ⚠️ CPU 모드\n")
         use_gpu = False
    
-    # 멀티아웃풋 모델 생성
-    if use_gpu:
-        base_model = xgb.XGBRegressor(
-            n_estimators=250,
-            max_depth=8,
-            learning_rate=0.03,
-            subsample=0.85,
-            colsample_bytree=0.85,
-            min_child_weight=2,
-            gamma=0.05,
-            reg_alpha=0.05,
-            reg_lambda=0.8,
-            random_state=42,
-            tree_method='gpu_hist',
-            gpu_id=0,
-            predictor='gpu_predictor'
-        )
-    else:
-        base_model = xgb.XGBRegressor(
-            n_estimators=250,
-            max_depth=8,
-            learning_rate=0.03,
-            subsample=0.85,
-            colsample_bytree=0.85,
-            min_child_weight=2,
-            gamma=0.05,
-            reg_alpha=0.05,
-            reg_lambda=0.8,
-            random_state=42,
-            tree_method='hist',
-            n_jobs=-1
-        )
-   
-    model = MultiOutputRegressor(base_model)
-   
-    print("모델 학습 중 (가중치 적용)...")
+    print("모델 학습 중 (가중치 적용 - 3개 모델 개별 학습)...")
     print("="*60)
     
-    # 🔥 가중치 적용 학습 (각 출력마다)
-    for idx, estimator in enumerate(model.estimators_):
-        pass  # MultiOutputRegressor가 자동으로 각각 학습
+    # 🔥 각 출력(MIN/MAX/AVG)에 대해 개별 모델 학습
+    # MultiOutputRegressor 대신 개별 모델로 가중치 적용
+    models = []
     
-    model.fit(X_tr, y_tr, sample_weight=w_tr)
+    for idx, name in enumerate(['MIN', 'MAX', 'AVG']):
+        print(f"\n[{name}] 학습 중...")
+        
+        # 개별 모델 생성
+        if use_gpu:
+            individual_model = xgb.XGBRegressor(
+                n_estimators=250,
+                max_depth=8,
+                learning_rate=0.03,
+                subsample=0.85,
+                colsample_bytree=0.85,
+                min_child_weight=2,
+                gamma=0.05,
+                reg_alpha=0.05,
+                reg_lambda=0.8,
+                random_state=42,
+                tree_method='gpu_hist',
+                gpu_id=0,
+                predictor='gpu_predictor'
+            )
+        else:
+            individual_model = xgb.XGBRegressor(
+                n_estimators=250,
+                max_depth=8,
+                learning_rate=0.03,
+                subsample=0.85,
+                colsample_bytree=0.85,
+                min_child_weight=2,
+                gamma=0.05,
+                reg_alpha=0.05,
+                reg_lambda=0.8,
+                random_state=42,
+                tree_method='hist',
+                n_jobs=-1
+            )
+        
+        # 가중치 적용 학습
+        individual_model.fit(X_tr, y_tr[:, idx], sample_weight=w_tr, verbose=False)
+        models.append(individual_model)
+        print(f"✓ {name} 학습 완료")
     
     print("="*60)
     print("✅ 학습 완료!")
    
-    # 평가
-    y_val_pred = model.predict(X_val)
+    # 평가 (3개 모델 개별 예측)
+    y_val_pred = np.column_stack([
+        models[0].predict(X_val),
+        models[1].predict(X_val),
+        models[2].predict(X_val)
+    ])
     
     print(f"\n📊 학습 성능 (50+ 가중치 적용):")
     for idx, name in enumerate(['MIN', 'MAX', 'AVG']):
@@ -410,17 +417,22 @@ def train_v8_regression_with_weights():
         print(f"  - 큰 변화 샘플: {large_idx.sum()}개")
         print(f"  - MAX MAE (큰 변화만): {mae_large:.4f}")
    
-    # 모델 저장
+    # 모델 저장 (3개 모델을 딕셔너리로)
+    model_dict = {
+        'models': models,  # 3개 모델 리스트
+        'feature_names': X_train.columns.tolist()
+    }
+    
     model_filename = 'xgboost_수치형_V8.pkl'
     with open(model_filename, 'wb') as f:
-        pickle.dump(model, f)
+        pickle.dump(model_dict, f)
     print(f"\n✅ 모델 저장: {model_filename}")
    
-    # Feature 중요도
-    print("\n🔥 Feature 중요도 Top 20:")
+    # Feature 중요도 (MAX 모델 기준)
+    print("\n🔥 Feature 중요도 Top 20 (MAX 모델 기준):")
     feature_importance = pd.DataFrame({
         'feature': X_train.columns,
-        'importance': model.estimators_[0].feature_importances_
+        'importance': models[1].feature_importances_
     }).sort_values('importance', ascending=False).head(20)
    
     for idx, row in feature_importance.iterrows():
