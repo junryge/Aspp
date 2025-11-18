@@ -321,10 +321,9 @@ def generate_html(data, historical_data, historical_times):
     chart_labels = historical_times + [p['pred_time_label'] for p in data]
     chart_historical = historical_data + [None] * len(data)
     
-    # 예측 MIN/MAX 범위
+    # 예측 MIN/MAX 범위 (AVG 제거!)
     chart_pred_min = [None] * len(historical_times) + [p['pred_min'] for p in data]
     chart_pred_max = [None] * len(historical_times) + [p['pred_max'] for p in data]
-    chart_pred_avg = [None] * len(historical_times) + [p['pred_avg'] for p in data]
     
     html = f"""<!DOCTYPE html>
 <html><head><meta charset="UTF-8"><title>V8 Numerical</title>
@@ -345,7 +344,7 @@ def generate_html(data, historical_data, historical_times):
     
     html += f"""</div>
 <div class="chart-container">
-<div class="chart-title">📈 30분 과거 데이터 + 예측 범위</div>
+<div class="chart-title">📈 30분 과거 데이터 + 예측 범위 (MIN ~ MAX)</div>
 <canvas id="timeSeriesChart"></canvas>
 </div>
 </div>
@@ -372,9 +371,9 @@ const chart = new Chart(ctx, {{
                 data: {json.dumps(chart_pred_max)},
                 borderColor: '#e53e3e',
                 backgroundColor: 'rgba(229, 62, 62, 0.1)',
-                borderWidth: 2,
+                borderWidth: 3,
                 borderDash: [5, 5],
-                pointRadius: 5,
+                pointRadius: 6,
                 pointBackgroundColor: '#e53e3e',
                 tension: 0.4,
                 fill: '+1'
@@ -384,21 +383,10 @@ const chart = new Chart(ctx, {{
                 data: {json.dumps(chart_pred_min)},
                 borderColor: '#38a169',
                 backgroundColor: 'rgba(56, 161, 105, 0.2)',
-                borderWidth: 2,
+                borderWidth: 3,
                 borderDash: [5, 5],
-                pointRadius: 5,
+                pointRadius: 6,
                 pointBackgroundColor: '#38a169',
-                tension: 0.4,
-                fill: false
-            }},
-            {{
-                label: '예측 AVG',
-                data: {json.dumps(chart_pred_avg)},
-                borderColor: '#d69e2e',
-                backgroundColor: 'rgba(214, 158, 46, 0.1)',
-                borderWidth: 2,
-                pointRadius: 4,
-                pointBackgroundColor: '#d69e2e',
                 tension: 0.4,
                 fill: false
             }}
