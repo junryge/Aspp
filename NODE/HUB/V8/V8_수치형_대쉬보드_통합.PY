@@ -16,7 +16,7 @@ def get_numerical_predictions():
     """수치형 통합 예측 실행"""
     try:
         result = subprocess.run(
-            ['python', os.path.join(script_dir, 'V8_실시간_수치형_통합.py')],
+            ['python', os.path.join(script_dir, 'V8_Numerical_Real_time_DO.py')],
             capture_output=True,
             text=True,
             timeout=30
