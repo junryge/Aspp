@@ -306,10 +306,19 @@ def predict_realtime():
         row = {"EXCEPT": error}
         print([row])
     else:
+        # 가장 높은 확률의 클래스 찾기
+        probs = [
+            (0, result['prob_class0'] * 100, "CLASS_0"),
+            (1, result['prob_class1'] * 100, "CLASS_1"),
+            (2, result['prob_class2'] * 100, "CLASS_2")
+        ]
+        max_class_num, max_prob, max_class_name = max(probs, key=lambda x: x[1])
+        
         row = {
             "CURRENT_TIME": result['current_time'],
             "PREDICTION_TIME": result['prediction_time'],
             "CURRENT_VALUE": round(result['current_value'], 2),
+            "RESULT": f"{max_class_name} ({max_prob:.1f}%)",
             "PREDICT_CLASS": result['pred_class'],
             "PREDICT_CLASS_NAME": result['class_name'],
             "CLASS_0_PROB": round(result['prob_class0'] * 100, 1),
