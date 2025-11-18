@@ -16,7 +16,7 @@ def get_categorical_predictions():
     """범주형 통합 예측 실행"""
     try:
         result = subprocess.run(
-            ['python', os.path.join(script_dir, 'V8_실시간_범주형_통합.py')],
+            ['python', os.path.join(script_dir, 'V8_Categorical_Real_time_DO.py')],
             capture_output=True,
             text=True,
             timeout=30
