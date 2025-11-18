@@ -74,6 +74,7 @@ def realtime_prediction():
             recent_30['STAT_DT'] = [base_time + timedelta(minutes=i) for i in range(len(recent_30))]
    
     seq_end = recent_30['STAT_DT'].iloc[-1]
+    current_time = seq_end
     prediction_time = seq_end + timedelta(minutes=10)
    
     # Feature 생성
@@ -288,6 +289,7 @@ def realtime_prediction():
         'change_max': pred_change_max,
         'change_avg': pred_change_avg,
         'status': status,
+        'current_time': current_time.strftime('%Y-%m-%d %H:%M'),
         'prediction_time': prediction_time.strftime('%Y-%m-%d %H:%M')
     }, None
 
@@ -302,6 +304,8 @@ def predict_realtime():
         extreme_warning = int(result['pred_max'] >= 300)
        
         row = {
+            "CURRENT_TIME": result['current_time'],
+            "PREDICTION_TIME": result['prediction_time'],
             "CURRENT_VALUE": round(result['current_value'], 2),
             "PREDICT_MIN": round(result['pred_min'], 2),
             "PREDICT_MAX": round(result['pred_max'], 2),
@@ -312,7 +316,6 @@ def predict_realtime():
             "SURGE_WARNING": surge_warning,
             "EXTREME_WARNING": extreme_warning,
             "STATUS": result['status'],
-            "PREDICTION_TIME": result['prediction_time'],
             "MODEL": "V8_REGRESSION_10MIN",
             "PREDICTION_HORIZON": "10MIN",
             "MODEL_TYPE": "NUMERICAL"
