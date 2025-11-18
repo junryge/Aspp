@@ -82,6 +82,7 @@ def realtime_prediction():
             recent_30['STAT_DT'] = [base_time + timedelta(minutes=i) for i in range(len(recent_30))]
    
     seq_end = recent_30['STAT_DT'].iloc[-1]
+    current_time = seq_end
     prediction_time = seq_end + timedelta(minutes=10)
    
     # Feature 생성
@@ -294,6 +295,7 @@ def realtime_prediction():
         'prob_class2': pred_proba[2],
         'status': status,
         'surge_alert': surge_alert,
+        'current_time': current_time.strftime('%Y-%m-%d %H:%M'),
         'prediction_time': prediction_time.strftime('%Y-%m-%d %H:%M')
     }, None
 
@@ -305,6 +307,8 @@ def predict_realtime():
         print([row])
     else:
         row = {
+            "CURRENT_TIME": result['current_time'],
+            "PREDICTION_TIME": result['prediction_time'],
             "CURRENT_VALUE": round(result['current_value'], 2),
             "PREDICT_CLASS": result['pred_class'],
             "CLASS_NAME": result['class_name'],
@@ -313,7 +317,6 @@ def predict_realtime():
             "PROB_SURGE": round(result['prob_class2'] * 100, 1),
             "SURGE_ALERT": result['surge_alert'],
             "STATUS": result['status'],
-            "PREDICTION_TIME": result['prediction_time'],
             "MODEL": "V8_CLASSIFICATION_10MIN",
             "PREDICTION_HORIZON": "10MIN",
             "MODEL_TYPE": "CATEGORICAL"
