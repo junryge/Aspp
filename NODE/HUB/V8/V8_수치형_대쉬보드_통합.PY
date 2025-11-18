@@ -309,17 +309,16 @@ def generate_html(data):
     
     html = f"""<!DOCTYPE html>
 <html><head><meta charset="UTF-8"><title>V8 Numerical</title><style>
-*{{margin:0;padding:0;box-sizing:border-box}}body{{font-family:sans-serif;background:linear-gradient(135deg,#667eea,#764ba2);padding:20px}}.container{{max-width:1200px;margin:0 auto}}.card{{background:#fff;border-radius:15px;padding:30px;margin-bottom:20px;box-shadow:0 10px 30px rgba(0,0,0,0.2)}}.header{{text-align:center;font-size:36px;color:#2d3748;margin-bottom:20px}}.risk{{background:{risk_color};color:#fff;padding:20px;border-radius:10px;text-align:center;font-size:24px;font-weight:700;margin-bottom:20px}}.grid{{display:grid;grid-template-columns:repeat(3,1fr);gap:20px}}.pred{{background:#f7fafc;border-radius:10px;padding:20px;text-align:center}}.time{{font-size:20px;font-weight:700;color:#667eea;margin-bottom:10px}}.value{{font-size:48px;font-weight:700;color:#e53e3e;margin:10px 0}}.metric{{display:flex;justify-content:space-between;padding:8px;background:#fff;border-radius:8px;margin:5px 0}}.status{{display:inline-block;padding:8px 16px;border-radius:20px;font-weight:700;margin-top:10px}}.status-normal{{background:#c6f6d5;color:#2f855a}}.status-caution{{background:#fefcbf;color:#b7791f}}.status-warning{{background:#feebc8;color:#c05621}}.status-critical{{background:#fed7d7;color:#c53030}}
+*{{margin:0;padding:0;box-sizing:border-box}}body{{font-family:sans-serif;background:linear-gradient(135deg,#667eea,#764ba2);padding:20px}}.container{{max-width:1200px;margin:0 auto}}.card{{background:#fff;border-radius:15px;padding:30px;margin-bottom:20px;box-shadow:0 10px 30px rgba(0,0,0,0.2)}}.header{{text-align:center;font-size:36px;color:#2d3748;margin-bottom:20px}}.risk{{background:{risk_color};color:#fff;padding:20px;border-radius:10px;text-align:center;font-size:24px;font-weight:700;margin-bottom:20px}}.grid{{display:grid;grid-template-columns:repeat(3,1fr);gap:20px}}.pred{{background:#f7fafc;border-radius:10px;padding:20px;text-align:center}}.time{{font-size:20px;font-weight:700;color:#667eea;margin-bottom:10px}}.range{{font-size:36px;font-weight:700;color:#e53e3e;margin:15px 0;line-height:1.2}}.range-label{{font-size:14px;color:#718096;margin-top:5px}}.metric{{display:flex;justify-content:space-between;padding:8px;background:#fff;border-radius:8px;margin:5px 0}}.status{{display:inline-block;padding:8px 16px;border-radius:20px;font-weight:700;margin-top:10px}}.status-normal{{background:#c6f6d5;color:#2f855a}}.status-caution{{background:#fefcbf;color:#b7791f}}.status-warning{{background:#feebc8;color:#c05621}}.status-critical{{background:#fed7d7;color:#c53030}}
 </style></head><body><div class="container">
 <div class="card"><div class="header">📊 V8 Numerical</div><div style="text-align:center;font-size:24px;color:#4299e1">Current: {current_value} → Max: {max_value:.1f}</div></div>
 <div class="risk">{risk}</div><div class="grid">"""
     
     for p in data:
         html += f"""<div class="pred"><div class="time">⏱️ {p['horizon']} min</div><div style="font-size:14px;color:#718096;margin-bottom:10px">{p['pred_time']}</div>
-<div class="value">{p['pred_max']:.1f}</div>
-<div class="metric"><span>MIN</span><span>{p['pred_min']:.1f}</span></div>
-<div class="metric"><span>AVG</span><span>{p['pred_avg']:.1f}</span></div>
-<div class="metric"><span>Change</span><span>{p['change_max']:+.1f}</span></div>
+<div class="range">{p['pred_min']:.1f} ~ {p['pred_max']:.1f}<div class="range-label">예측 범위</div></div>
+<div class="metric"><span>AVG</span><span style="font-weight:700;font-size:18px">{p['pred_avg']:.1f}</span></div>
+<div class="metric"><span>Change (MAX)</span><span>{p['change_max']:+.1f}</span></div>
 <span class="status status-{p['status'].lower()}">{p['status']}</span></div>"""
     
     html += f"""</div></div></body></html>"""
