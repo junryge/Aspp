@@ -83,7 +83,7 @@ def realtime_prediction():
    
     seq_end = recent_30['STAT_DT'].iloc[-1]
     current_time = seq_end
-    prediction_time = seq_end + timedelta(minutes=10)
+    prediction_time = seq_end + timedelta(minutes=15)
    
     # Feature 생성
     features = {
@@ -311,10 +311,13 @@ def predict_realtime():
             "PREDICTION_TIME": result['prediction_time'],
             "CURRENT_VALUE": round(result['current_value'], 2),
             "PREDICT_CLASS": result['pred_class'],
-            "CLASS_NAME": result['class_name'],
-            "PROB_DECLINE": round(result['prob_class0'] * 100, 1),
-            "PROB_SMALL_RISE": round(result['prob_class1'] * 100, 1),
-            "PROB_SURGE": round(result['prob_class2'] * 100, 1),
+            "PREDICT_CLASS_NAME": result['class_name'],
+            "CLASS_0_PROB": round(result['prob_class0'] * 100, 1),
+            "CLASS_0_NAME": "DECLINE (~0)",
+            "CLASS_1_PROB": round(result['prob_class1'] * 100, 1),
+            "CLASS_1_NAME": "SMALL_RISE (0~50)",
+            "CLASS_2_PROB": round(result['prob_class2'] * 100, 1),
+            "CLASS_2_NAME": "SURGE (50~)",
             "SURGE_ALERT": result['surge_alert'],
             "STATUS": result['status'],
             "MODEL": "V8_CLASSIFICATION_15MIN",
