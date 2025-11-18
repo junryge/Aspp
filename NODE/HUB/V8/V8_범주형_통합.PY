@@ -326,17 +326,44 @@ def predict_realtime_integrated():
     pred_15 = predict_one_horizon(model_15, 15, df, current_time)
     pred_25 = predict_one_horizon(model_25, 25, df, current_time)
     
-    result = {
-        "CURRENT_TIME": current_time.strftime('%Y-%m-%d %H:%M'),
-        "CURRENT_VALUE": round(current_value, 2),
-        "PREDICT_10MIN": pred_10 if pred_10 else {"ERROR": "model not found"},
-        "PREDICT_15MIN": pred_15 if pred_15 else {"ERROR": "model not found"},
-        "PREDICT_25MIN": pred_25 if pred_25 else {"ERROR": "model not found"},
-        "MODEL_TYPE": "CATEGORICAL_INTEGRATED"
-    }
+    # 3개 결과를 배열로 분리
+    results = []
     
-    return result
+    # 10분 예측
+    if pred_10:
+        result_10 = {
+            "TIME_HORIZON": "10MIN",
+            "CURRENT_TIME": current_time.strftime('%Y-%m-%d %H:%M'),
+            "CURRENT_VALUE": round(current_value, 2),
+            **pred_10,
+            "MODEL_TYPE": "CATEGORICAL"
+        }
+        results.append(result_10)
+    
+    # 15분 예측
+    if pred_15:
+        result_15 = {
+            "TIME_HORIZON": "15MIN",
+            "CURRENT_TIME": current_time.strftime('%Y-%m-%d %H:%M'),
+            "CURRENT_VALUE": round(current_value, 2),
+            **pred_15,
+            "MODEL_TYPE": "CATEGORICAL"
+        }
+        results.append(result_15)
+    
+    # 25분 예측
+    if pred_25:
+        result_25 = {
+            "TIME_HORIZON": "25MIN",
+            "CURRENT_TIME": current_time.strftime('%Y-%m-%d %H:%M'),
+            "CURRENT_VALUE": round(current_value, 2),
+            **pred_25,
+            "MODEL_TYPE": "CATEGORICAL"
+        }
+        results.append(result_25)
+    
+    return results
 
 if __name__ == '__main__':
-    result = predict_realtime_integrated()
-    print([result])
+    results = predict_realtime_integrated()
+    print(results)
