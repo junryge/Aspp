@@ -1,690 +1,373 @@
+#!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""
-V8 실시간 대시보드 - 범주형 전용
-10분, 15분, 25분 범주형 예측을 시각화
-"""
+"""V8 범주형 대시보드"""
 
-import subprocess
-import json
+import numpy as np
+import pandas as pd
+import pickle
 import os
-from datetime import datetime
 import webbrowser
+from datetime import datetime, timedelta
 
-script_dir = os.path.dirname(os.path.abspath(__file__))
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+MODEL_DIR = os.path.join(SCRIPT_DIR, 'model')
+DATA_PATH = os.path.join(SCRIPT_DIR, 'data', 'HUBROOM_PIVOT_DATA.csv')
 
-def get_categorical_predictions():
-    """범주형 통합 예측 실행"""
-    try:
-        result = subprocess.run(
-            ['python', os.path.join(script_dir, 'V8_Categorical_Real_time_DO.py')],
-            capture_output=True,
-            text=True,
-            timeout=30
-        )
-        data = json.loads(result.stdout)
-        return data
-    except Exception as e:
-        print(f"❌ 범주형 예측 실패: {e}")
-        return []
+TARGET_COL = 'CURRENT_M16A_3F_JOB_2'
 
-def generate_html_dashboard(data):
-    """범주형 HTML 대시보드 생성"""
+FEATURE_COLS = {
+    'storage': ['M16A_3F_STORAGE_UTIL'],
+    'fs_storage': ['CD_M163FSTORAGEUSE', 'CD_M163FSTORAGETOTAL', 'CD_M163FSTORAGEUTIL'],
+    'hub': ['HUBROOMTOTAL'],
+    'cmd': ['M16A_3F_CMD', 'M16A_6F_TO_HUB_CMD'],
+    'inflow': ['M16A_6F_TO_HUB_JOB', 'M16A_2F_TO_HUB_JOB2', 'M14A_3F_TO_HUB_JOB2'],
+    'outflow': ['M16A_3F_TO_M16A_6F_JOB', 'M16A_3F_TO_M16A_2F_JOB', 'M16A_3F_TO_M14A_3F_JOB'],
+    'maxcapa': ['M16A_6F_LFT_MAXCAPA', 'M16A_2F_LFT_MAXCAPA'],
+    'que': ['M16HUB.QUE.ALL.CURRENTQCNT', 'M16HUB.QUE.TIME.AVGTOTALTIME1MIN'],
+    'target_alt': ['CURRENT_M16A_3F_JOB'],
+    'm16hub_que': [
+        'M16HUB.QUE.ALL.CURRENTQCOMPLETED', 'M16HUB.QUE.ALL.FABTRANSJOBCNT',
+        'M16HUB.QUE.TIME.AVGTOTALTIME', 'M16HUB.QUE.OHT.CURRENTOHTQCNT', 'M16HUB.QUE.OHT.OHTUTIL'
+    ],
+    'm16a_que': [
+        'M16A.QUE.ALL.CURRENTQCOMPLETED', 'M16A.QUE.ALL.CURRENTQCREATED',
+        'M16A.QUE.OHT.CURRENTOHTQCNT', 'M16A.QUE.OHT.OHTUTIL',
+        'M16A.QUE.LOAD.AVGLOADTIME1MIN', 'M16A.QUE.ALL.TRANSPORT4MINOVERCNT', 'M16A.QUE.ABN.QUETIMEDELAY'
+    ]
+}
+
+def create_features_v8(df, available_cols):
+    """학습과 동일한 Feature 생성 - 마지막 30개 사용"""
     
-    if not data or len(data) == 0:
-        return "<html><body><h1>데이터 없음</h1></body></html>"
+    if len(df) < 30:
+        raise ValueError(f"데이터 부족: {len(df)}개 (최소 30개 필요)")
     
-    # 데이터 추출
-    current_time = data[0].get('CURRENT_TIME', '')
-    current_value = data[0].get('CURRENT_VALUE', 0)
+    i = len(df)
+    seq_target = df[TARGET_COL].iloc[i-30:i].values
     
-    pred_10 = data[0] if len(data) > 0 else {}
-    pred_15 = data[1] if len(data) > 1 else {}
-    pred_25 = data[2] if len(data) > 2 else {}
+    features = {
+        'target_mean': np.mean(seq_target),
+        'target_std': np.std(seq_target),
+        'target_max': np.max(seq_target),
+        'target_min': np.min(seq_target),
+        'target_last_value': seq_target[-1],
+        'target_last_5_mean': np.mean(seq_target[-5:]),
+        'target_slope': np.polyfit(np.arange(30), seq_target, 1)[0],
+        'target_acceleration': (seq_target[-5:].mean() - seq_target[-10:-5].mean()) / 5,
+        'target_is_rising': 1 if seq_target[-1] > seq_target[-5] else 0,
+        'target_rapid_rise': 1 if (seq_target[-1] - seq_target[-5] > 10) else 0,
+        'target_last_10_mean': np.mean(seq_target[-10:])
+    }
     
-    # 급증 확률 최대값
-    max_surge_prob = max(
-        pred_10.get('CLASS_2_PROB', 0),
-        pred_15.get('CLASS_2_PROB', 0),
-        pred_25.get('CLASS_2_PROB', 0)
+    for group_name, cols in FEATURE_COLS.items():
+        for col in cols:
+            if col not in available_cols:
+                continue
+            col_seq = df[col].iloc[i-30:i].values
+            
+            if group_name == 'maxcapa':
+                features[f'{col}_last_value'] = col_seq[-1]
+            elif group_name in ['cmd', 'storage', 'fs_storage', 'hub', 'que', 'target_alt', 'm16hub_que', 'm16a_que']:
+                features[f'{col}_mean'] = np.mean(col_seq)
+                features[f'{col}_std'] = np.std(col_seq)
+                features[f'{col}_max'] = np.max(col_seq)
+                features[f'{col}_min'] = np.min(col_seq)
+                features[f'{col}_last_value'] = col_seq[-1]
+                features[f'{col}_last_5_mean'] = np.mean(col_seq[-5:])
+                features[f'{col}_slope'] = np.polyfit(np.arange(30), col_seq, 1)[0]
+            else:
+                features[f'{col}_mean'] = np.mean(col_seq)
+                features[f'{col}_last_value'] = col_seq[-1]
+                features[f'{col}_slope'] = np.polyfit(np.arange(30), col_seq, 1)[0]
+    
+    if all(col in available_cols for col in ['CD_M163FSTORAGEUSE', 'CD_M163FSTORAGETOTAL', 'CD_M163FSTORAGEUTIL']):
+        storage_use = df['CD_M163FSTORAGEUSE'].iloc[i-30:i].values
+        storage_total = df['CD_M163FSTORAGETOTAL'].iloc[i-30:i].values
+        storage_util = df['CD_M163FSTORAGEUTIL'].iloc[i-30:i].values
+        features['storage_use_rate'] = (storage_use[-1] - storage_use[0]) / 30
+        features['storage_remaining'] = storage_total[-1] - storage_use[-1]
+        features['storage_util_last'] = storage_util[-1]
+        features['storage_util_high'] = 1 if storage_util[-1] >= 7 else 0
+        features['storage_util_critical'] = 1 if storage_util[-1] >= 10 else 0
+    
+    if 'HUBROOMTOTAL' in available_cols:
+        hub_seq = df['HUBROOMTOTAL'].iloc[i-30:i].values
+        hub_last = hub_seq[-1]
+        features['hub_critical'] = 1 if hub_last < 590 else 0
+        features['hub_high'] = 1 if hub_last < 610 else 0
+        features['hub_warning'] = 1 if hub_last < 620 else 0
+        features['hub_decrease_rate'] = (hub_seq[0] - hub_last) / 30
+        if 'CD_M163FSTORAGEUTIL' in available_cols:
+            storage_util_last = df['CD_M163FSTORAGEUTIL'].iloc[i-1]
+            features['hub_storage_risk'] = 1 if (hub_last < 610 and storage_util_last >= 7) else 0
+    
+    inflow_sum = sum(df[col].iloc[i-1] for col in FEATURE_COLS['inflow'] if col in available_cols)
+    outflow_sum = sum(df[col].iloc[i-1] for col in FEATURE_COLS['outflow'] if col in available_cols)
+    features['net_flow'] = inflow_sum - outflow_sum
+    
+    cmd_sum = sum(df[col].iloc[i-1] for col in FEATURE_COLS['cmd'] if col in available_cols)
+    features['total_cmd'] = cmd_sum
+    features['total_cmd_low'] = 1 if cmd_sum < 220 else 0
+    features['total_cmd_very_low'] = 1 if cmd_sum < 200 else 0
+    
+    if 'HUBROOMTOTAL' in available_cols:
+        hub_last = df['HUBROOMTOTAL'].iloc[i-1]
+        features['hub_cmd_bottleneck'] = 1 if (hub_last < 610 and cmd_sum < 220) else 0
+    
+    if 'M16A_3F_STORAGE_UTIL' in available_cols:
+        storage_util = df['M16A_3F_STORAGE_UTIL'].iloc[i-1]
+        features['storage_util_critical'] = 1 if storage_util >= 205 else 0
+        features['storage_util_high_risk'] = 1 if storage_util >= 207 else 0
+    
+    features['surge_risk_score'] = (
+        features.get('hub_high', 0) * 3 + features.get('storage_util_critical', 0) * 2 +
+        features.get('total_cmd_low', 0) * 1 + features.get('storage_util_high', 0) * 1
     )
     
-    # 추세 판단 (급증 확률 기준)
-    surge_10 = pred_10.get('CLASS_2_PROB', 0)
-    surge_15 = pred_15.get('CLASS_2_PROB', 0)
-    surge_25 = pred_25.get('CLASS_2_PROB', 0)
+    features['surge_imminent'] = 1 if (
+        seq_target[-1] > 280 and features.get('target_acceleration', 0) > 0.5 and features.get('hub_high', 0) == 1
+    ) else 0
     
-    if surge_10 < surge_15 < surge_25:
-        trend = "📈 급증 확률 증가 추세"
-        trend_color = "#e53e3e"
-        trend_alert = "시간이 지날수록 급증 가능성이 높아집니다"
-    elif surge_10 > surge_15 > surge_25:
-        trend = "📉 급증 확률 감소 추세"
-        trend_color = "#38a169"
-        trend_alert = "급증 위험이 줄어들고 있습니다"
+    if 'M16HUB.QUE.ALL.CURRENTQCNT' in available_cols:
+        currentq = df['M16HUB.QUE.ALL.CURRENTQCNT'].iloc[i-1]
+        features['currentq_high'] = 1 if currentq >= 1200 else 0
+        features['currentq_critical'] = 1 if currentq >= 1400 else 0
     else:
-        trend = "📊 급증 확률 변동 추세"
-        trend_color = "#d69e2e"
-        trend_alert = "급증 확률이 불규칙하게 변화합니다"
+        features['currentq_high'] = 0
+        features['currentq_critical'] = 0
     
-    # 위험 레벨 (최대 급증 확률 기준)
-    if max_surge_prob >= 70:
-        risk_level = "CRITICAL"
-        risk_color = "#c53030"
-        risk_icon = "🔴"
-        risk_desc = "매우 높은 급증 위험"
-    elif max_surge_prob >= 50:
-        risk_level = "HIGH"
-        risk_color = "#dd6b20"
-        risk_icon = "🟠"
-        risk_desc = "높은 급증 위험"
-    elif max_surge_prob >= 30:
-        risk_level = "MEDIUM"
-        risk_color = "#d69e2e"
-        risk_icon = "🟡"
-        risk_desc = "중간 수준 급증 위험"
+    if 'M16HUB.QUE.TIME.AVGTOTALTIME1MIN' in available_cols:
+        avgtime = df['M16HUB.QUE.TIME.AVGTOTALTIME1MIN'].iloc[i-1]
+        features['avgtime1min_high'] = 1 if avgtime >= 4.0 else 0
+        features['avgtime1min_critical'] = 1 if avgtime >= 4.5 else 0
     else:
-        risk_level = "LOW"
-        risk_color = "#38a169"
-        risk_icon = "🟢"
-        risk_desc = "낮은 급증 위험"
+        features['avgtime1min_high'] = 0
+        features['avgtime1min_critical'] = 0
+    
+    if 'M16HUB.QUE.ALL.CURRENTQCNT' in available_cols and 'M16HUB.QUE.TIME.AVGTOTALTIME1MIN' in available_cols:
+        currentq = df['M16HUB.QUE.ALL.CURRENTQCNT'].iloc[i-1]
+        avgtime = df['M16HUB.QUE.TIME.AVGTOTALTIME1MIN'].iloc[i-1]
+        features['que_severe_bottleneck'] = 1 if (currentq >= 1200 and avgtime >= 4.0) else 0
+    else:
+        features['que_severe_bottleneck'] = 0
+    
+    if 'M16HUB.QUE.OHT.OHTUTIL' in available_cols:
+        ohtutil = df['M16HUB.QUE.OHT.OHTUTIL'].iloc[i-1]
+        features['m16hub_ohtutil_high'] = 1 if ohtutil >= 85.0 else 0
+        features['m16hub_ohtutil_critical'] = 1 if ohtutil >= 90.0 else 0
+    else:
+        features['m16hub_ohtutil_high'] = 0
+        features['m16hub_ohtutil_critical'] = 0
+    
+    if 'M16HUB.QUE.TIME.AVGTOTALTIME' in available_cols:
+        avgtime = df['M16HUB.QUE.TIME.AVGTOTALTIME'].iloc[i-1]
+        features['m16hub_avgtime_high'] = 1 if avgtime >= 5.0 else 0
+        features['m16hub_avgtime_critical'] = 1 if avgtime >= 6.0 else 0
+    else:
+        features['m16hub_avgtime_high'] = 0
+        features['m16hub_avgtime_critical'] = 0
+    
+    if 'M16HUB.QUE.OHT.OHTUTIL' in available_cols and 'M16HUB.QUE.TIME.AVGTOTALTIME' in available_cols:
+        ohtutil = df['M16HUB.QUE.OHT.OHTUTIL'].iloc[i-1]
+        avgtime = df['M16HUB.QUE.TIME.AVGTOTALTIME'].iloc[i-1]
+        features['m16hub_severe_bottleneck'] = 1 if (ohtutil >= 85.0 and avgtime >= 5.0) else 0
+    else:
+        features['m16hub_severe_bottleneck'] = 0
+    
+    if 'M16A.QUE.OHT.OHTUTIL' in available_cols:
+        ohtutil = df['M16A.QUE.OHT.OHTUTIL'].iloc[i-1]
+        features['m16a_ohtutil_high'] = 1 if ohtutil >= 85.0 else 0
+        features['m16a_ohtutil_critical'] = 1 if ohtutil >= 90.0 else 0
+    else:
+        features['m16a_ohtutil_high'] = 0
+        features['m16a_ohtutil_critical'] = 0
+    
+    if 'M16A.QUE.LOAD.AVGLOADTIME1MIN' in available_cols:
+        loadtime = df['M16A.QUE.LOAD.AVGLOADTIME1MIN'].iloc[i-1]
+        features['m16a_loadtime_high'] = 1 if loadtime >= 2.5 else 0
+        features['m16a_loadtime_critical'] = 1 if loadtime >= 2.8 else 0
+    else:
+        features['m16a_loadtime_high'] = 0
+        features['m16a_loadtime_critical'] = 0
+    
+    if 'M16A.QUE.ALL.TRANSPORT4MINOVERCNT' in available_cols:
+        transport4min = df['M16A.QUE.ALL.TRANSPORT4MINOVERCNT'].iloc[i-1]
+        features['m16a_transport4min_high'] = 1 if transport4min >= 40 else 0
+        features['m16a_transport4min_critical'] = 1 if transport4min >= 50 else 0
+    else:
+        features['m16a_transport4min_high'] = 0
+        features['m16a_transport4min_critical'] = 0
+    
+    if 'M16A.QUE.ABN.QUETIMEDELAY' in available_cols:
+        delay = df['M16A.QUE.ABN.QUETIMEDELAY'].iloc[i-1]
+        features['m16a_delay_warning'] = 1 if delay >= 1 else 0
+        features['m16a_delay_critical'] = 1 if delay >= 3 else 0
+    else:
+        features['m16a_delay_warning'] = 0
+        features['m16a_delay_critical'] = 0
+    
+    if 'M16A.QUE.OHT.OHTUTIL' in available_cols and 'M16A.QUE.ALL.TRANSPORT4MINOVERCNT' in available_cols:
+        ohtutil = df['M16A.QUE.OHT.OHTUTIL'].iloc[i-1]
+        transport4min = df['M16A.QUE.ALL.TRANSPORT4MINOVERCNT'].iloc[i-1]
+        features['m16a_severe_bottleneck'] = 1 if (ohtutil >= 85.0 and transport4min >= 40) else 0
+    else:
+        features['m16a_severe_bottleneck'] = 0
+    
+    return features, seq_target[-1]
+
+def predict_horizons(df):
+    """10/15/25분 예측"""
+    
+    if 'STAT_DT' in df.columns:
+        try:
+            df['STAT_DT'] = pd.to_datetime(df['STAT_DT'].astype(str), format='%Y%m%d%H%M')
+            current_time = df['STAT_DT'].iloc[-1]
+        except:
+            current_time = datetime.now()
+    else:
+        current_time = datetime.now()
+    
+    print(f"현재 시간: {current_time.strftime('%Y-%m-%d %H:%M')}")
+    print(f"데이터: {len(df)}개")
+    
+    available_cols = set(df.columns)
+    features, current_value = create_features_v8(df, available_cols)
+    
+    print(f"현재값: {current_value:.2f}")
+    print(f"Feature: {len(features)}개")
+    
+    X_pred = pd.DataFrame([features])
+    CLASS_NAMES = ['Class 0 (하락/정체)', 'Class 1 (소폭증가)', 'Class 2 (급증)']
+    results = []
+    
+    for horizon_min in [10, 15, 25]:
+        model_path = os.path.join(MODEL_DIR, f'xgboost_범주형_V8_{horizon_min}분.pkl')
+        
+        if not os.path.exists(model_path):
+            print(f"❌ {horizon_min}분: 모델 없음")
+            continue
+        
+        try:
+            with open(model_path, 'rb') as f:
+                model = pickle.load(f)
+            
+            pred_class = model.predict(X_pred)[0]
+            pred_proba = model.predict_proba(X_pred)[0]
+            
+            prob0 = pred_proba[0] * 100
+            prob1 = pred_proba[1] * 100
+            prob2 = pred_proba[2] * 100
+            
+            if prob2 >= 70:
+                status = "CRITICAL"
+            elif prob2 >= 50:
+                status = "HIGH"
+            elif prob2 >= 30:
+                status = "MEDIUM"
+            else:
+                status = "LOW"
+            
+            result = {
+                "horizon": horizon_min,
+                "current_time": current_time.strftime('%Y-%m-%d %H:%M'),
+                "pred_time": (current_time + timedelta(minutes=horizon_min)).strftime('%Y-%m-%d %H:%M'),
+                "current_value": round(current_value, 2),
+                "pred_class": int(pred_class),
+                "class_name": CLASS_NAMES[pred_class],
+                "prob0": round(prob0, 1),
+                "prob1": round(prob1, 1),
+                "prob2": round(prob2, 1),
+                "status": status
+            }
+            
+            results.append(result)
+            print(f"✅ {horizon_min}분: {CLASS_NAMES[pred_class]} (급증: {prob2:.1f}%, {status})")
+            
+        except Exception as e:
+            print(f"❌ {horizon_min}분: {e}")
+            continue
+    
+    return results
+
+def generate_html(data):
+    if not data:
+        return "<html><body><h1>No Data</h1></body></html>"
+    
+    current_value = data[0]['current_value']
+    max_prob2 = max(p['prob2'] for p in data)
+    
+    if max_prob2 >= 70:
+        risk, risk_color = "CRITICAL", "#c53030"
+    elif max_prob2 >= 50:
+        risk, risk_color = "HIGH", "#dd6b20"
+    elif max_prob2 >= 30:
+        risk, risk_color = "MEDIUM", "#d69e2e"
+    else:
+        risk, risk_color = "LOW", "#38a169"
     
     html = f"""<!DOCTYPE html>
-<html lang="ko">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>V8 범주형 예측 대시보드</title>
-    <style>
-        * {{
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-        }}
-        
-        body {{
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-            background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
-            padding: 20px;
-            min-height: 100vh;
-        }}
-        
-        .container {{
-            max-width: 1400px;
-            margin: 0 auto;
-        }}
-        
-        .header {{
-            background: white;
-            border-radius: 15px;
-            padding: 30px;
-            margin-bottom: 20px;
-            box-shadow: 0 10px 30px rgba(0,0,0,0.2);
-        }}
-        
-        .header h1 {{
-            font-size: 36px;
-            color: #2d3748;
-            margin-bottom: 10px;
-        }}
-        
-        .header .subtitle {{
-            color: #718096;
-            font-size: 16px;
-        }}
-        
-        .header-grid {{
-            display: grid;
-            grid-template-columns: repeat(3, 1fr);
-            gap: 20px;
-            margin-top: 20px;
-        }}
-        
-        .header-item {{
-            text-align: center;
-        }}
-        
-        .header-label {{
-            font-size: 12px;
-            color: #718096;
-            text-transform: uppercase;
-            letter-spacing: 1px;
-            margin-bottom: 8px;
-        }}
-        
-        .header-value {{
-            font-size: 32px;
-            font-weight: 700;
-            color: #2d3748;
-        }}
-        
-        .current-value {{
-            color: #4299e1;
-        }}
-        
-        .surge-prob {{
-            color: {risk_color};
-        }}
-        
-        .summary-card {{
-            background: white;
-            border-radius: 15px;
-            padding: 25px;
-            margin-bottom: 20px;
-            box-shadow: 0 10px 30px rgba(0,0,0,0.2);
-        }}
-        
-        .risk-banner {{
-            background: {risk_color};
-            color: white;
-            padding: 20px;
-            border-radius: 10px;
-            text-align: center;
-            margin-bottom: 20px;
-        }}
-        
-        .risk-banner-icon {{
-            font-size: 48px;
-            margin-bottom: 10px;
-        }}
-        
-        .risk-banner-text {{
-            font-size: 24px;
-            font-weight: 700;
-        }}
-        
-        .risk-banner-desc {{
-            margin-top: 10px;
-            font-size: 16px;
-        }}
-        
-        .trend-card {{
-            background: #f7fafc;
-            border-left: 4px solid {trend_color};
-            padding: 20px;
-            border-radius: 8px;
-            margin-bottom: 20px;
-        }}
-        
-        .trend-title {{
-            font-size: 20px;
-            font-weight: 700;
-            color: {trend_color};
-            margin-bottom: 10px;
-        }}
-        
-        .trend-desc {{
-            font-size: 16px;
-            color: #4a5568;
-        }}
-        
-        .chart-container {{
-            background: white;
-            border-radius: 15px;
-            padding: 25px;
-            margin-bottom: 20px;
-            box-shadow: 0 10px 30px rgba(0,0,0,0.2);
-        }}
-        
-        .chart-title {{
-            font-size: 20px;
-            font-weight: 700;
-            color: #2d3748;
-            margin-bottom: 20px;
-        }}
-        
-        .probability-bars {{
-            display: flex;
-            justify-content: space-around;
-            align-items: flex-end;
-            height: 250px;
-            background: #f7fafc;
-            border-radius: 10px;
-            padding: 20px;
-        }}
-        
-        .prob-bar-item {{
-            flex: 1;
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            justify-content: flex-end;
-        }}
-        
-        .prob-bar {{
-            width: 80%;
-            background: linear-gradient(to top, #f093fb, #f5576c);
-            border-radius: 8px 8px 0 0;
-            transition: all 0.3s;
-        }}
-        
-        .prob-bar:hover {{
-            transform: scale(1.05);
-        }}
-        
-        .prob-bar-label {{
-            margin-top: 15px;
-            font-weight: 700;
-            font-size: 16px;
-            color: #2d3748;
-        }}
-        
-        .prob-bar-value {{
-            margin-top: 5px;
-            font-size: 24px;
-            font-weight: 700;
-            color: #f5576c;
-        }}
-        
-        .predictions-grid {{
-            display: grid;
-            grid-template-columns: repeat(3, 1fr);
-            gap: 20px;
-            margin-bottom: 20px;
-        }}
-        
-        .prediction-card {{
-            background: white;
-            border-radius: 15px;
-            padding: 25px;
-            box-shadow: 0 10px 30px rgba(0,0,0,0.2);
-        }}
-        
-        .card-header {{
-            text-align: center;
-            margin-bottom: 20px;
-            padding-bottom: 15px;
-            border-bottom: 2px solid #e2e8f0;
-        }}
-        
-        .time-badge {{
-            font-size: 24px;
-            font-weight: 700;
-            color: #f5576c;
-        }}
-        
-        .time-range {{
-            font-size: 14px;
-            color: #718096;
-            margin-top: 5px;
-        }}
-        
-        .result-highlight {{
-            background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
-            color: white;
-            padding: 20px;
-            border-radius: 10px;
-            text-align: center;
-            font-size: 20px;
-            font-weight: 700;
-            margin-bottom: 20px;
-        }}
-        
-        .class-section {{
-            margin-bottom: 15px;
-        }}
-        
-        .class-label {{
-            font-size: 12px;
-            color: #718096;
-            text-transform: uppercase;
-            letter-spacing: 1px;
-            margin-bottom: 8px;
-        }}
-        
-        .class-bar-container {{
-            background: #f7fafc;
-            border-radius: 8px;
-            padding: 12px;
-            margin-bottom: 8px;
-        }}
-        
-        .class-bar-header {{
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            margin-bottom: 8px;
-        }}
-        
-        .class-name {{
-            font-size: 14px;
-            font-weight: 600;
-            color: #2d3748;
-        }}
-        
-        .class-prob {{
-            font-size: 18px;
-            font-weight: 700;
-            color: #f5576c;
-        }}
-        
-        .class-bar {{
-            height: 8px;
-            background: #e2e8f0;
-            border-radius: 4px;
-            overflow: hidden;
-        }}
-        
-        .class-bar-fill {{
-            height: 100%;
-            background: linear-gradient(to right, #f093fb, #f5576c);
-            transition: width 0.5s;
-        }}
-        
-        .status-badge {{
-            display: inline-block;
-            padding: 10px 20px;
-            border-radius: 25px;
-            font-weight: 700;
-            font-size: 16px;
-            margin-top: 15px;
-        }}
-        
-        .status-normal {{
-            background: #c6f6d5;
-            color: #2f855a;
-        }}
-        
-        .status-caution {{
-            background: #fefcbf;
-            color: #b7791f;
-        }}
-        
-        .status-warning {{
-            background: #feebc8;
-            color: #c05621;
-        }}
-        
-        .status-critical {{
-            background: #fed7d7;
-            color: #c53030;
-        }}
-        
-        .alert-box {{
-            padding: 15px;
-            border-radius: 8px;
-            text-align: center;
-            font-weight: 700;
-            margin-top: 15px;
-        }}
-        
-        .alert-surge {{
-            background: #fed7d7;
-            color: #c53030;
-            border: 2px solid #fc8181;
-        }}
-        
-        .footer {{
-            text-align: center;
-            color: white;
-            margin-top: 30px;
-            font-size: 14px;
-        }}
-    </style>
-</head>
-<body>
-    <div class="container">
-        <!-- Header -->
-        <div class="header">
-            <h1>🎯 V8 범주형 예측 대시보드</h1>
-            <p class="subtitle">3-Class Classification | 10분/15분/25분 시간대 분석</p>
-            <div class="header-grid">
-                <div class="header-item">
-                    <div class="header-label">현재값</div>
-                    <div class="header-value current-value">{current_value}</div>
-                </div>
-                <div class="header-item">
-                    <div class="header-label">최대 급증 확률</div>
-                    <div class="header-value surge-prob">{max_surge_prob:.1f}%</div>
-                </div>
-                <div class="header-item">
-                    <div class="header-label">위험 레벨</div>
-                    <div class="header-value" style="color: {risk_color};">{risk_icon} {risk_level}</div>
-                </div>
-            </div>
-        </div>
-
-        <!-- Risk Banner -->
-        <div class="risk-banner">
-            <div class="risk-banner-icon">{risk_icon}</div>
-            <div class="risk-banner-text">{risk_desc}</div>
-            <div class="risk-banner-desc">데이터 시간: {current_time}</div>
-        </div>
-
-        <!-- Trend Card -->
-        <div class="summary-card">
-            <div class="trend-card">
-                <div class="trend-title">{trend}</div>
-                <div class="trend-desc">{trend_alert}</div>
-            </div>
-        </div>
-
-        <!-- Probability Chart -->
-        <div class="chart-container">
-            <div class="chart-title">📊 시간대별 급증(Class 2) 확률 변화</div>
-            <div class="probability-bars">
-                <div class="prob-bar-item">
-                    <div class="prob-bar" style="height: {surge_10}%;"></div>
-                    <div class="prob-bar-label">10분 후</div>
-                    <div class="prob-bar-value">{surge_10:.1f}%</div>
-                </div>
-                <div class="prob-bar-item">
-                    <div class="prob-bar" style="height: {surge_15}%;"></div>
-                    <div class="prob-bar-label">15분 후</div>
-                    <div class="prob-bar-value">{surge_15:.1f}%</div>
-                </div>
-                <div class="prob-bar-item">
-                    <div class="prob-bar" style="height: {surge_25}%;"></div>
-                    <div class="prob-bar-label">25분 후</div>
-                    <div class="prob-bar-value">{surge_25:.1f}%</div>
-                </div>
-            </div>
-        </div>
-
-        <!-- Predictions Grid -->
-        <div class="predictions-grid">
-            <!-- 10분 -->
-            <div class="prediction-card">
-                <div class="card-header">
-                    <div class="time-badge">⏱️ 10분 후</div>
-                    <div class="time-range">{pred_10.get('PREDICTION_TIME', '')}</div>
-                </div>
-                
-                <div class="result-highlight">
-                    {pred_10.get('RESULT', '')}
-                </div>
-                
-                <div class="class-section">
-                    <div class="class-label">클래스별 확률</div>
-                    
-                    <div class="class-bar-container">
-                        <div class="class-bar-header">
-                            <span class="class-name">🔴 Class 2 (급증)</span>
-                            <span class="class-prob">{pred_10.get('CLASS_2_PROB', 0):.1f}%</span>
-                        </div>
-                        <div class="class-bar">
-                            <div class="class-bar-fill" style="width: {pred_10.get('CLASS_2_PROB', 0)}%;"></div>
-                        </div>
-                    </div>
-                    
-                    <div class="class-bar-container">
-                        <div class="class-bar-header">
-                            <span class="class-name">🟡 Class 1 (소폭증가)</span>
-                            <span class="class-prob">{pred_10.get('CLASS_1_PROB', 0):.1f}%</span>
-                        </div>
-                        <div class="class-bar">
-                            <div class="class-bar-fill" style="width: {pred_10.get('CLASS_1_PROB', 0)}%;"></div>
-                        </div>
-                    </div>
-                    
-                    <div class="class-bar-container">
-                        <div class="class-bar-header">
-                            <span class="class-name">🟢 Class 0 (하락/정체)</span>
-                            <span class="class-prob">{pred_10.get('CLASS_0_PROB', 0):.1f}%</span>
-                        </div>
-                        <div class="class-bar">
-                            <div class="class-bar-fill" style="width: {pred_10.get('CLASS_0_PROB', 0)}%;"></div>
-                        </div>
-                    </div>
-                </div>
-                
-                <div style="text-align: center;">
-                    <span class="status-badge status-{pred_10.get('STATUS', '').lower()}">{pred_10.get('STATUS', '')}</span>
-                </div>
-                
-                {'<div class="alert-box alert-surge">🚨 급증 경고 발령</div>' if pred_10.get('SURGE_ALERT', 0) == 1 else ''}
-            </div>
-
-            <!-- 15분 -->
-            <div class="prediction-card">
-                <div class="card-header">
-                    <div class="time-badge">⏱️ 15분 후</div>
-                    <div class="time-range">{pred_15.get('PREDICTION_TIME', '')}</div>
-                </div>
-                
-                <div class="result-highlight">
-                    {pred_15.get('RESULT', '')}
-                </div>
-                
-                <div class="class-section">
-                    <div class="class-label">클래스별 확률</div>
-                    
-                    <div class="class-bar-container">
-                        <div class="class-bar-header">
-                            <span class="class-name">🔴 Class 2 (급증)</span>
-                            <span class="class-prob">{pred_15.get('CLASS_2_PROB', 0):.1f}%</span>
-                        </div>
-                        <div class="class-bar">
-                            <div class="class-bar-fill" style="width: {pred_15.get('CLASS_2_PROB', 0)}%;"></div>
-                        </div>
-                    </div>
-                    
-                    <div class="class-bar-container">
-                        <div class="class-bar-header">
-                            <span class="class-name">🟡 Class 1 (소폭증가)</span>
-                            <span class="class-prob">{pred_15.get('CLASS_1_PROB', 0):.1f}%</span>
-                        </div>
-                        <div class="class-bar">
-                            <div class="class-bar-fill" style="width: {pred_15.get('CLASS_1_PROB', 0)}%;"></div>
-                        </div>
-                    </div>
-                    
-                    <div class="class-bar-container">
-                        <div class="class-bar-header">
-                            <span class="class-name">🟢 Class 0 (하락/정체)</span>
-                            <span class="class-prob">{pred_15.get('CLASS_0_PROB', 0):.1f}%</span>
-                        </div>
-                        <div class="class-bar">
-                            <div class="class-bar-fill" style="width: {pred_15.get('CLASS_0_PROB', 0)}%;"></div>
-                        </div>
-                    </div>
-                </div>
-                
-                <div style="text-align: center;">
-                    <span class="status-badge status-{pred_15.get('STATUS', '').lower()}">{pred_15.get('STATUS', '')}</span>
-                </div>
-                
-                {'<div class="alert-box alert-surge">🚨 급증 경고 발령</div>' if pred_15.get('SURGE_ALERT', 0) == 1 else ''}
-            </div>
-
-            <!-- 25분 -->
-            <div class="prediction-card">
-                <div class="card-header">
-                    <div class="time-badge">⏱️ 25분 후</div>
-                    <div class="time-range">{pred_25.get('PREDICTION_TIME', '')}</div>
-                </div>
-                
-                <div class="result-highlight">
-                    {pred_25.get('RESULT', '')}
-                </div>
-                
-                <div class="class-section">
-                    <div class="class-label">클래스별 확률</div>
-                    
-                    <div class="class-bar-container">
-                        <div class="class-bar-header">
-                            <span class="class-name">🔴 Class 2 (급증)</span>
-                            <span class="class-prob">{pred_25.get('CLASS_2_PROB', 0):.1f}%</span>
-                        </div>
-                        <div class="class-bar">
-                            <div class="class-bar-fill" style="width: {pred_25.get('CLASS_2_PROB', 0)}%;"></div>
-                        </div>
-                    </div>
-                    
-                    <div class="class-bar-container">
-                        <div class="class-bar-header">
-                            <span class="class-name">🟡 Class 1 (소폭증가)</span>
-                            <span class="class-prob">{pred_25.get('CLASS_1_PROB', 0):.1f}%</span>
-                        </div>
-                        <div class="class-bar">
-                            <div class="class-bar-fill" style="width: {pred_25.get('CLASS_1_PROB', 0)}%;"></div>
-                        </div>
-                    </div>
-                    
-                    <div class="class-bar-container">
-                        <div class="class-bar-header">
-                            <span class="class-name">🟢 Class 0 (하락/정체)</span>
-                            <span class="class-prob">{pred_25.get('CLASS_0_PROB', 0):.1f}%</span>
-                        </div>
-                        <div class="class-bar">
-                            <div class="class-bar-fill" style="width: {pred_25.get('CLASS_0_PROB', 0)}%;"></div>
-                        </div>
-                    </div>
-                </div>
-                
-                <div style="text-align: center;">
-                    <span class="status-badge status-{pred_25.get('STATUS', '').lower()}">{pred_25.get('STATUS', '')}</span>
-                </div>
-                
-                {'<div class="alert-box alert-surge">🚨 급증 경고 발령</div>' if pred_25.get('SURGE_ALERT', 0) == 1 else ''}
-            </div>
-        </div>
-
-        <!-- Footer -->
-        <div class="footer">
-            <p>🤖 V8 Categorical Prediction System | XGBoost Classifier</p>
-            <p>생성 시간: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}</p>
-        </div>
-    </div>
-</body>
-</html>"""
+<html><head><meta charset="UTF-8"><title>V8 Categorical</title><style>
+*{{margin:0;padding:0;box-sizing:border-box}}body{{font-family:sans-serif;background:linear-gradient(135deg,#f093fb,#f5576c);padding:20px}}.container{{max-width:1200px;margin:0 auto}}.card{{background:#fff;border-radius:15px;padding:30px;margin-bottom:20px;box-shadow:0 10px 30px rgba(0,0,0,0.2)}}.header{{text-align:center;font-size:36px;color:#2d3748;margin-bottom:20px}}.risk{{background:{risk_color};color:#fff;padding:20px;border-radius:10px;text-align:center;font-size:24px;font-weight:700;margin-bottom:20px}}.grid{{display:grid;grid-template-columns:repeat(3,1fr);gap:20px}}.pred{{background:#f7fafc;border-radius:10px;padding:20px;text-align:center}}.time{{font-size:20px;font-weight:700;color:#f5576c;margin-bottom:10px}}.result{{font-size:18px;font-weight:700;padding:15px;background:linear-gradient(135deg,#f093fb,#f5576c);color:#fff;border-radius:10px;margin:10px 0}}.prob{{display:flex;justify-content:space-between;padding:8px;background:#fff;border-radius:8px;margin:5px 0}}.status{{display:inline-block;padding:8px 16px;border-radius:20px;font-weight:700;margin-top:10px}}.status-low{{background:#c6f6d5;color:#2f855a}}.status-medium{{background:#fefcbf;color:#b7791f}}.status-high{{background:#feebc8;color:#c05621}}.status-critical{{background:#fed7d7;color:#c53030}}
+</style></head><body><div class="container">
+<div class="card"><div class="header">🎯 V8 Categorical</div><div style="text-align:center;font-size:24px;color:#4299e1">Current: {current_value} → Max Surge: {max_prob2:.1f}%</div></div>
+<div class="risk">{risk}</div><div class="grid">"""
     
+    for p in data:
+        html += f"""<div class="pred"><div class="time">⏱️ {p['horizon']} min</div><div style="font-size:14px;color:#718096;margin-bottom:10px">{p['pred_time']}</div>
+<div class="result">{p['class_name']}</div>
+<div class="prob"><span>🔴 Class 2 (급증)</span><span style="font-weight:700;color:#f5576c">{p['prob2']}%</span></div>
+<div class="prob"><span>🟡 Class 1 (소폭)</span><span style="font-weight:700;color:#f5576c">{p['prob1']}%</span></div>
+<div class="prob"><span>🟢 Class 0 (하락)</span><span style="font-weight:700;color:#f5576c">{p['prob0']}%</span></div>
+<span class="status status-{p['status'].lower()}">{p['status']}</span></div>"""
+    
+    html += f"""</div></div></body></html>"""
     return html
 
 def main():
-    """메인 실행"""
     print("="*60)
-    print("V8 범주형 대시보드 생성 중...")
+    print("V8 Categorical Dashboard")
     print("="*60)
     
-    print("\n[1/2] 범주형 예측 실행 중...")
-    data = get_categorical_predictions()
-    
-    if not data:
-        print("\n❌ 예측 실패!")
+    if not os.path.exists(DATA_PATH):
+        print(f"❌ 파일 없음: {DATA_PATH}")
         return
     
-    print("[2/2] HTML 대시보드 생성 중...")
-    html_content = generate_html_dashboard(data)
+    try:
+        df = pd.read_csv(DATA_PATH, on_bad_lines='skip', encoding='utf-8', low_memory=False)
+        df[TARGET_COL] = pd.to_numeric(df[TARGET_COL], errors='coerce')
+        df = df.dropna(subset=[TARGET_COL])
+        print(f"✅ 로드: {len(df):,}행")
+    except Exception as e:
+        print(f"❌ 로드 실패: {e}")
+        return
     
-    # 파일 저장
+    try:
+        results = predict_horizons(df)
+    except Exception as e:
+        print(f"❌ 예측 실패: {e}")
+        import traceback
+        traceback.print_exc()
+        return
+    
+    if not results:
+        print("❌ 예측 결과 없음!")
+        return
+    
+    html = generate_html(results)
+    
     timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-    filename = f'V8_범주형_대시보드_{timestamp}.html'
-    filepath = os.path.join(script_dir, filename)
+    filename = f'V8_Categorical_{timestamp}.html'
+    filepath = os.path.join(SCRIPT_DIR, filename)
     
     with open(filepath, 'w', encoding='utf-8') as f:
-        f.write(html_content)
+        f.write(html)
     
-    print(f"\n✅ 대시보드 생성 완료!")
-    print(f"📂 파일: {filename}")
-    print(f"📍 위치: {filepath}")
+    print(f"✅ 완료: {filename}")
     
-    # 브라우저 열기
     try:
         webbrowser.open('file://' + os.path.abspath(filepath))
-        print(f"\n🌐 브라우저에서 대시보드를 열었습니다!")
-    except Exception as e:
-        print(f"\n⚠️ 브라우저 자동 열기 실패: {e}")
-        print(f"💡 수동으로 파일을 열어주세요: {filepath}")
+    except:
+        pass
 
 if __name__ == '__main__':
     main()
