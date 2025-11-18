@@ -131,13 +131,11 @@ class TimeSeriesRAG:
         
         self.llm = Llama(
             model_path=self.model_path,
-            n_ctx=4096,  # 컨텍스트 늘림
-            n_batch=512,  # 배치 늘림
-            n_gpu_layers=-1,  # 전체 GPU
+            n_ctx=4096,
+            n_batch=512,
+            n_gpu_layers=-1,
             n_threads=4,
-            temperature=0.7,
-            max_tokens=512,  # 크게 늘림
-            verbose=True
+            verbose=False  # sampler 에러 방지
         )
         
         logger.info("LLM 로드 완료")
