@@ -477,15 +477,15 @@ def predict_all_horizons():
     except Exception as e:
         return {'error': 'Model operation failure', 'message': f'Feature generation failed: {e}'}
     
-    # 🎨 그래프용 데이터 (280분 전체!)
-    totalcnt_data = seq_totalcnt.tolist()  # 280개
-    m14b_data = seq_m14b.tolist()
-    m14bsum_data = seq_m14b_sum.tolist()
-    gap_data = seq_gap.tolist()
-    trans_data = seq_trans.tolist()
+    # 🎨 그래프용 데이터 (최근 30분만!)
+    totalcnt_data = seq_totalcnt[-30:].tolist()  # 30개
+    m14b_data = seq_m14b[-30:].tolist()
+    m14bsum_data = seq_m14b_sum[-30:].tolist()
+    gap_data = seq_gap[-30:].tolist()
+    trans_data = seq_trans[-30:].tolist()
     
-    # 시간 라벨 (280개)
-    time_labels = df['CURRTIME'].tail(280).tolist()
+    # 시간 라벨 (30개)
+    time_labels = df['CURRTIME'].tail(30).tolist()
     time_labels = [t.strftime('%H:%M') for t in time_labels]
     
     # 각 예측 실행
@@ -727,31 +727,31 @@ body{{font-family:sans-serif;background:linear-gradient(135deg,#667eea,#764ba2);
     
     html += f"""</div>
 
-<!-- 메인 그래프: 280분 TOTALCNT + 예측 -->
+<!-- 메인 그래프: 30분 과거 + 예측 -->
 <div class="chart-container">
-<div class="chart-title">📈 280분 시퀀스 TOTALCNT + 예측 (10/15/25분)</div>
+<div class="chart-title">📈 최근 30분 TOTALCNT + 예측 (10/15/25분)</div>
 <canvas id="chart1" height="100"></canvas>
 </div>
 
 <!-- 서브 그래프 그리드 -->
 <div class="chart-grid">
 <div class="chart-container">
-<div class="chart-title">M14AM14B (280분)</div>
+<div class="chart-title">M14AM14B (최근 30분)</div>
 <canvas id="chart2" height="150"></canvas>
 </div>
 
 <div class="chart-container">
-<div class="chart-title">M14AM14BSUM (280분)</div>
+<div class="chart-title">M14AM14BSUM (최근 30분)</div>
 <canvas id="chart3" height="150"></canvas>
 </div>
 
 <div class="chart-container">
-<div class="chart-title">queue_gap (280분)</div>
+<div class="chart-title">queue_gap (최근 30분)</div>
 <canvas id="chart4" height="150"></canvas>
 </div>
 
 <div class="chart-container">
-<div class="chart-title">TRANSPORT (280분)</div>
+<div class="chart-title">TRANSPORT (최근 30분)</div>
 <canvas id="chart5" height="150"></canvas>
 </div>
 </div>
@@ -759,7 +759,7 @@ body{{font-family:sans-serif;background:linear-gradient(135deg,#667eea,#764ba2);
 </div>
 
 <script>
-// Chart 1: TOTALCNT + 예측
+// Chart 1: TOTALCNT + 예측 (점선으로 연결!)
 const ctx1 = document.getElementById('chart1').getContext('2d');
 new Chart(ctx1, {{
     type: 'line',
@@ -767,17 +767,18 @@ new Chart(ctx1, {{
         labels: {json.dumps(chart1_labels)},
         datasets: [
             {{
-                label: '280분 과거 데이터',
+                label: '최근 30분 데이터',
                 data: {json.dumps(chart1_historical)},
                 borderColor: '#667eea',
                 backgroundColor: 'rgba(102, 126, 234, 0.1)',
-                borderWidth: 2,
-                pointRadius: 0,
+                borderWidth: 3,
+                pointRadius: 3,
+                pointBackgroundColor: '#667eea',
                 tension: 0.4,
                 fill: false
             }},
             {{
-                label: '예측값 (10/15/25분)',
+                label: '예측 (10/15/25분)',
                 data: {json.dumps(chart1_predictions)},
                 borderColor: '#e53e3e',
                 backgroundColor: 'rgba(229, 62, 62, 0.1)',
@@ -785,8 +786,9 @@ new Chart(ctx1, {{
                 borderDash: [5, 5],
                 pointRadius: 8,
                 pointBackgroundColor: '#e53e3e',
-                tension: 0.4,
-                fill: false
+                tension: 0,
+                fill: false,
+                spanGaps: true
             }}
         ]
     }},
@@ -811,17 +813,22 @@ new Chart(ctx1, {{
                 backgroundColor: 'rgba(0, 0, 0, 0.8)',
                 padding: 12,
                 titleFont: {{size: 14, weight: 'bold'}},
-                bodyFont: {{size: 13}}
+                bodyFont: {{size: 13}},
+                callbacks: {{
+                    label: function(context) {{
+                        if (context.parsed.y === null) return null;
+                        return context.dataset.label + ': ' + context.parsed.y.toFixed(0);
+                    }}
+                }}
             }}
         }},
         scales: {{
             x: {{
                 grid: {{display: true, color: 'rgba(0, 0, 0, 0.05)'}},
                 ticks: {{
-                    font: {{size: 10}},
-                    maxRotation: 0,
-                    autoSkip: true,
-                    maxTicksLimit: 20
+                    font: {{size: 11}},
+                    maxRotation: 45,
+                    minRotation: 45
                 }}
             }},
             y: {{
