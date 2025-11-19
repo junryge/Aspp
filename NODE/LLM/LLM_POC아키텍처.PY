@@ -1,226 +1,265 @@
-import matplotlib.pyplot as plt
-import matplotlib.patches as mpatches
-from matplotlib.patches import FancyBboxPatch, FancyArrowPatch, Rectangle
-import numpy as np
+from openpyxl import Workbook
+from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+from openpyxl.utils import get_column_letter
 
-# 고해상도 설정
-plt.rcParams['font.family'] = 'Malgun Gothic'
-plt.rcParams['axes.unicode_minus'] = False
-plt.rcParams['font.size'] = 11
+# 워크북 생성
+wb = Workbook()
+ws = wb.active
+ws.title = "Architecture Overview"
 
-fig = plt.figure(figsize=(20, 14), facecolor='white')
-ax = fig.add_subplot(111)
-ax.set_xlim(0, 20)
-ax.set_ylim(0, 16)
-ax.axis('off')
+# 스타일 정의
+header_fill = PatternFill(start_color="1A237E", end_color="1A237E", fill_type="solid")
+header_font = Font(bold=True, color="FFFFFF", size=14)
 
-# 전문적인 색상 팔레트
-COLORS = {
-    'user': '#2196F3',      # Blue
-    'router': '#FF9800',    # Orange  
-    'rag': '#4CAF50',       # Green
-    'predict': '#4CAF50',   
-    'explain': '#4CAF50',
-    'db': '#FFC107',        # Amber
-    'llm': '#9C27B0',       # Purple
-    'response': '#00BCD4',  # Cyan
-    'bg_light': '#F5F5F5'
+layer_fills = {
+    'user': PatternFill(start_color="E3F2FD", end_color="E3F2FD", fill_type="solid"),
+    'router': PatternFill(start_color="FFF3E0", end_color="FFF3E0", fill_type="solid"),
+    'processing': PatternFill(start_color="E8F5E9", end_color="E8F5E9", fill_type="solid"),
+    'data': PatternFill(start_color="FFF9C4", end_color="FFF9C4", fill_type="solid"),
+    'llm': PatternFill(start_color="F3E5F5", end_color="F3E5F5", fill_type="solid"),
+    'response': PatternFill(start_color="E0F7FA", end_color="E0F7FA", fill_type="solid"),
 }
 
-def draw_modern_box(ax, x, y, width, height, text, color, is_header=False):
-    """모던한 박스 디자인"""
-    # 그림자 효과
-    shadow = FancyBboxPatch(
-        (x+0.05, y-0.05), width, height,
-        boxstyle="round,pad=0.15",
-        facecolor='#CCCCCC',
-        edgecolor='none',
-        alpha=0.3,
-        zorder=1
-    )
-    ax.add_patch(shadow)
+component_font = Font(bold=True, size=11)
+border = Border(
+    left=Side(style='thin'),
+    right=Side(style='thin'),
+    top=Side(style='thin'),
+    bottom=Side(style='thin')
+)
+
+# 열 너비 설정
+ws.column_dimensions['A'].width = 20
+ws.column_dimensions['B'].width = 35
+ws.column_dimensions['C'].width = 50
+
+# 타이틀
+ws.merge_cells('A1:C1')
+ws['A1'] = "Text Generation WebUI RAG Architecture"
+ws['A1'].font = header_font
+ws['A1'].fill = header_fill
+ws['A1'].alignment = Alignment(horizontal='center', vertical='center')
+ws.row_dimensions[1].height = 30
+
+# 헤더
+row = 3
+ws['A3'] = "Layer"
+ws['B3'] = "Component"
+ws['C3'] = "Description"
+for col in ['A', 'B', 'C']:
+    ws[f'{col}3'].font = Font(bold=True, size=12)
+    ws[f'{col}3'].fill = PatternFill(start_color="CCCCCC", end_color="CCCCCC", fill_type="solid")
+    ws[f'{col}3'].border = border
+    ws[f'{col}3'].alignment = Alignment(horizontal='center', vertical='center')
+
+# 데이터 입력
+data = [
+    # Layer 1: User
+    ("User Layer", "사용자 질의", "• V7 모델로 예측해줘\n• 왜 급증 예측했어?\n• 과거 유사 케이스 찾아줘"),
     
-    # 메인 박스
-    box = FancyBboxPatch(
-        (x, y), width, height,
-        boxstyle="round,pad=0.15",
-        facecolor='white',
-        edgecolor=color,
-        linewidth=3 if is_header else 2.5,
-        zorder=2
-    )
-    ax.add_patch(box)
+    # Layer 2: Router
+    ("Routing Layer", "FastAPI Router", "질의 유형 자동 판별\n• SEARCH: 데이터 검색\n• PREDICT: 예측 수행\n• EXPLAIN: 예측 설명"),
     
-    # 헤더 색상 바
-    if is_header:
-        header_bar = Rectangle(
-            (x, y + height - 0.4), width, 0.4,
-            facecolor=color,
-            edgecolor='none',
-            zorder=3
-        )
-        ax.add_patch(header_bar)
+    # Layer 3: Processing
+    ("Processing Layer", "RAG Engine", "LangChain + ChromaDB\n• 과거 이력 검색\n• 문서 임베딩\n• 유사도 매칭"),
+    ("", "Prediction Engine", "모델 레지스트리 관리\n• XGBoost V7 모델\n• XGBoost V6 모델\n• 기타 예측 모델"),
+    ("", "Explainability Engine", "SHAP 분석\n• Feature 중요도 계산\n• 영향도 분석\n• 상위 N개 Feature 추출"),
+    
+    # Layer 4: Data
+    ("Data Layer", "Vector Database", "ChromaDB\n• 과거 데이터 임베딩 저장\n• 유사도 기반 검색\n• 벡터 인덱싱"),
+    ("", "Model Storage", ".pkl 파일 저장소\n• V7.pkl (30분→10분 예측)\n• V6.pkl (기존 모델)\n• 기타 모델 파일"),
+    
+    # Layer 5: LLM
+    ("LLM Layer", "Text Generation WebUI", "Qwen 80B (H200 GPU)\n• RAG 답변 생성\n• 예측 결과 해석\n• SHAP → 자연어 변환\n• 통합 설명 생성"),
+    
+    # Layer 6: Response
+    ("Response Layer", "통합 응답", "• 예측값 + 신뢰도\n• 주요 원인 설명\n• 과거 유사 케이스\n• 자연어 설명")
+]
+
+row = 4
+current_layer = None
+for layer, component, description in data:
+    # Layer 병합 처리
+    if layer and layer != current_layer:
+        layer_start_row = row
+        current_layer = layer
+        ws[f'A{row}'] = layer
+        ws[f'A{row}'].font = Font(bold=True, size=11)
+        ws[f'A{row}'].alignment = Alignment(horizontal='center', vertical='center')
         
-        # 헤더 텍스트 (흰색)
-        lines = text.split('\n')
-        ax.text(
-            x + width/2, y + height - 0.2, lines[0],
-            ha='center', va='center',
-            fontsize=13, weight='bold',
-            color='white',
-            zorder=4
-        )
-        
-        # 본문 텍스트
-        body_text = '\n'.join(lines[1:])
-        ax.text(
-            x + width/2, y + height/2 - 0.3, body_text,
-            ha='center', va='center',
-            fontsize=10,
-            color='#333333',
-            zorder=4,
-            linespacing=1.6
-        )
-    else:
-        # 일반 박스 텍스트
-        ax.text(
-            x + width/2, y + height/2, text,
-            ha='center', va='center',
-            fontsize=10,
-            color='#333333',
-            zorder=4,
-            linespacing=1.6
-        )
-
-def draw_clean_arrow(ax, x1, y1, x2, y2, label='', color='#666666'):
-    """깔끔한 화살표"""
-    arrow = FancyArrowPatch(
-        (x1, y1), (x2, y2),
-        arrowstyle='-|>',
-        color=color,
-        linewidth=2.5,
-        mutation_scale=25,
-        zorder=5,
-        connectionstyle="arc3,rad=0"
-    )
-    ax.add_patch(arrow)
+        # Layer별 색상
+        if 'User' in layer:
+            ws[f'A{row}'].fill = layer_fills['user']
+        elif 'Routing' in layer:
+            ws[f'A{row}'].fill = layer_fills['router']
+        elif 'Processing' in layer:
+            ws[f'A{row}'].fill = layer_fills['processing']
+        elif 'Data' in layer:
+            ws[f'A{row}'].fill = layer_fills['data']
+        elif 'LLM' in layer:
+            ws[f'A{row}'].fill = layer_fills['llm']
+        elif 'Response' in layer:
+            ws[f'A{row}'].fill = layer_fills['response']
     
-    if label:
-        mid_x, mid_y = (x1 + x2) / 2, (y1 + y2) / 2
-        ax.text(
-            mid_x, mid_y + 0.25, label,
-            fontsize=9, 
-            color=color,
-            weight='bold',
-            ha='center',
-            bbox=dict(boxstyle='round,pad=0.4', facecolor='white', 
-                     edgecolor=color, linewidth=1.5),
-            zorder=6
-        )
+    # Component & Description
+    ws[f'B{row}'] = component
+    ws[f'C{row}'] = description
+    
+    ws[f'B{row}'].font = component_font
+    ws[f'B{row}'].alignment = Alignment(horizontal='left', vertical='top', wrap_text=True)
+    ws[f'C{row}'].alignment = Alignment(horizontal='left', vertical='top', wrap_text=True)
+    
+    # 테두리
+    for col in ['A', 'B', 'C']:
+        ws[f'{col}{row}'].border = border
+    
+    # 행 높이
+    ws.row_dimensions[row].height = 60
+    
+    row += 1
 
-# ===== 배경 레이어 구분 =====
-layer_y = [14.5, 12.3, 9.8, 7.3, 4.8, 2.3]
-layer_names = ['User Layer', 'Routing Layer', 'Processing Layer', 'Data Layer', 'LLM Layer', 'Response Layer']
-layer_colors = ['#E3F2FD', '#FFF3E0', '#E8F5E9', '#FFF9C4', '#F3E5F5', '#E0F7FA']
+# Layer 셀 병합
+merge_ranges = [
+    ('A4:A4', 'user'),      # User Layer
+    ('A5:A5', 'router'),    # Routing Layer
+    ('A6:A8', 'processing'),# Processing Layer (3행)
+    ('A9:A10', 'data'),     # Data Layer (2행)
+    ('A11:A11', 'llm'),     # LLM Layer
+    ('A12:A12', 'response') # Response Layer
+]
 
-for i, (y, name, col) in enumerate(zip(layer_y, layer_names, layer_colors)):
-    height = 1.5 if i == 2 else 1.3
-    bg = Rectangle((0.5, y - height), 19, height, 
-                   facecolor=col, edgecolor='none', alpha=0.15, zorder=0)
-    ax.add_patch(bg)
-    ax.text(0.7, y - height + 0.2, name, 
-           fontsize=10, style='italic', weight='bold', color='#555555')
+for merge_range, layer_type in merge_ranges:
+    if ':' in merge_range:
+        ws.merge_cells(merge_range)
+        first_cell = merge_range.split(':')[0]
+        ws[first_cell].fill = layer_fills[layer_type]
 
-# ===== 1층: 사용자 =====
-draw_modern_box(ax, 7, 13.5, 6, 1.2,
-    '사용자 질의\n\n"V7 모델로 예측해줘"  •  "왜 급증 예측했어?"  •  "과거 유사 케이스 찾아줘"',
-    COLORS['user'], is_header=True)
+# 두 번째 시트: Data Flow
+ws2 = wb.create_sheet("Data Flow")
+ws2.column_dimensions['A'].width = 15
+ws2.column_dimensions['B'].width = 40
+ws2.column_dimensions['C'].width = 40
 
-# ===== 2층: 라우터 =====
-draw_modern_box(ax, 7, 11.3, 6, 1.2,
-    'FastAPI Router - 질의 분류\n\n질의 유형 자동 판별: SEARCH  |  PREDICT  |  EXPLAIN',
-    COLORS['router'], is_header=True)
+# 타이틀
+ws2.merge_cells('A1:C1')
+ws2['A1'] = "Data Flow Diagram"
+ws2['A1'].font = header_font
+ws2['A1'].fill = header_fill
+ws2['A1'].alignment = Alignment(horizontal='center', vertical='center')
+ws2.row_dimensions[1].height = 30
 
-# ===== 3층: 처리 엔진 (3개) =====
-draw_modern_box(ax, 1.5, 8.8, 5, 1.6,
-    'RAG Engine\n\nLangChain + ChromaDB\n과거 이력 검색 • 문서 임베딩 • 유사도 매칭',
-    COLORS['rag'], is_header=True)
+# Flow 1: 예측 + 설명
+row = 3
+ws2.merge_cells(f'A{row}:C{row}')
+ws2[f'A{row}'] = "Flow 1: 예측 + 설명 플로우"
+ws2[f'A{row}'].font = Font(bold=True, size=13, color="2E7D32")
+ws2[f'A{row}'].fill = PatternFill(start_color="E8F5E9", end_color="E8F5E9", fill_type="solid")
+ws2[f'A{row}'].alignment = Alignment(horizontal='center', vertical='center')
+ws2[f'A{row}'].border = border
 
-draw_modern_box(ax, 7.5, 8.8, 5, 1.6,
-    'Prediction Engine\n\n모델 레지스트리 관리\nXGBoost V7 • V6 • 기타 모델',
-    COLORS['predict'], is_header=True)
+flow1_data = [
+    ("Step 1", "입력 데이터", "30분 시퀀스 데이터"),
+    ("Step 2", "Feature 생성", "Momentum Features\nhub/storage/cmd flags\nsurge_risk_score"),
+    ("Step 3", "XGBoost V7 예측", "예측 수행 + Confidence 계산"),
+    ("Step 4", "SHAP 분석", "Feature 영향도 분석\n상위 10개 추출"),
+    ("Step 5", "Qwen 80B 해석", "SHAP → 자연어 변환\n'hub_high로 인한 병목 발생'"),
+    ("Step 6", "최종 응답", "예측값: 305.2\n신뢰도: 87%\n주요 원인 3개")
+]
 
-draw_modern_box(ax, 13.5, 8.8, 5, 1.6,
-    'Explainability Engine\n\nSHAP 분석\nFeature 중요도 • 영향도 계산 • 상위 N개 추출',
-    COLORS['explain'], is_header=True)
+row = 4
+for step, action, detail in flow1_data:
+    ws2[f'A{row}'] = step
+    ws2[f'B{row}'] = action
+    ws2[f'C{row}'] = detail
+    
+    ws2[f'A{row}'].font = Font(bold=True)
+    ws2[f'A{row}'].alignment = Alignment(horizontal='center', vertical='center')
+    ws2[f'B{row}'].font = Font(bold=True)
+    ws2[f'B{row}'].alignment = Alignment(horizontal='left', vertical='top', wrap_text=True)
+    ws2[f'C{row}'].alignment = Alignment(horizontal='left', vertical='top', wrap_text=True)
+    
+    for col in ['A', 'B', 'C']:
+        ws2[f'{col}{row}'].border = border
+    
+    ws2.row_dimensions[row].height = 45
+    row += 1
 
-# ===== 4층: 데이터베이스 (2개) =====
-draw_modern_box(ax, 2.5, 6.3, 4, 1.2,
-    'Vector Database\n\nChromaDB\n과거 데이터 임베딩 저장',
-    COLORS['db'], is_header=True)
+# Flow 2: RAG 검색
+row += 1
+ws2.merge_cells(f'A{row}:C{row}')
+ws2[f'A{row}'] = "Flow 2: RAG 검색 플로우"
+ws2[f'A{row}'].font = Font(bold=True, size=13, color="1565C0")
+ws2[f'A{row}'].fill = PatternFill(start_color="E3F2FD", end_color="E3F2FD", fill_type="solid")
+ws2[f'A{row}'].alignment = Alignment(horizontal='center', vertical='center')
+ws2[f'A{row}'].border = border
 
-draw_modern_box(ax, 13.5, 6.3, 4, 1.2,
-    'Model Storage\n\n.pkl 파일 저장소\nV7.pkl • V6.pkl • 기타 모델',
-    COLORS['db'], is_header=True)
+flow2_data = [
+    ("Step 1", "사용자 질문", "과거 유사 케이스는?"),
+    ("Step 2", "임베딩 변환", "ko-sroberta\n512차원 벡터"),
+    ("Step 3", "Vector DB 검색", "Top-5 유사도 매칭"),
+    ("Step 4", "Qwen 80B 답변", "Context + Query로 답변 생성"),
+    ("Step 5", "RAG 응답", "유사 케이스: 2024-09-15 14:23:00")
+]
 
-# ===== 5층: LLM (중앙 대형) =====
-draw_modern_box(ax, 5, 3.8, 10, 1.6,
-    'Text Generation WebUI - Qwen 80B (H200 GPU)\n\nRAG 답변 생성  •  예측 결과 해석  •  SHAP → 자연어 변환',
-    COLORS['llm'], is_header=True)
+row += 1
+for step, action, detail in flow2_data:
+    ws2[f'A{row}'] = step
+    ws2[f'B{row}'] = action
+    ws2[f'C{row}'] = detail
+    
+    ws2[f'A{row}'].font = Font(bold=True)
+    ws2[f'A{row}'].alignment = Alignment(horizontal='center', vertical='center')
+    ws2[f'B{row}'].font = Font(bold=True)
+    ws2[f'B{row}'].alignment = Alignment(horizontal='left', vertical='top', wrap_text=True)
+    ws2[f'C{row}'].alignment = Alignment(horizontal='left', vertical='top', wrap_text=True)
+    
+    for col in ['A', 'B', 'C']:
+        ws2[f'{col}{row}'].border = border
+    
+    ws2.row_dimensions[row].height = 40
+    row += 1
 
-# ===== 6층: 최종 응답 =====
-draw_modern_box(ax, 7, 1.3, 6, 1.2,
-    '통합 응답\n\n예측값 + 신뢰도 + 주요 원인 설명 + 과거 유사 케이스',
-    COLORS['response'], is_header=True)
+# 세 번째 시트: Technical Specs
+ws3 = wb.create_sheet("Technical Specs")
+ws3.column_dimensions['A'].width = 25
+ws3.column_dimensions['B'].width = 60
 
-# ===== 화살표 연결 =====
-# User → Router
-draw_clean_arrow(ax, 10, 13.5, 10, 12.5, 'HTTP Request', COLORS['user'])
+# 타이틀
+ws3.merge_cells('A1:B1')
+ws3['A1'] = "Technical Specifications"
+ws3['A1'].font = header_font
+ws3['A1'].fill = header_fill
+ws3['A1'].alignment = Alignment(horizontal='center', vertical='center')
+ws3.row_dimensions[1].height = 30
 
-# Router → 3 Engines
-draw_clean_arrow(ax, 8.5, 11.3, 4, 10.4, 'SEARCH', COLORS['rag'])
-draw_clean_arrow(ax, 10, 11.3, 10, 10.4, 'PREDICT', COLORS['predict'])
-draw_clean_arrow(ax, 11.5, 11.3, 16, 10.4, 'EXPLAIN', COLORS['explain'])
+specs = [
+    ("LLM Model", "Qwen 80B (Text Generation WebUI)"),
+    ("GPU", "H200 (4개 분산: Dev, Staging, Prod)"),
+    ("Vector DB", "ChromaDB"),
+    ("RAG Framework", "LangChain"),
+    ("Embedding Model", "ko-sroberta-multitask"),
+    ("Prediction Models", "XGBoost V7, V6, 기타"),
+    ("Explainability", "SHAP (TreeExplainer)"),
+    ("API Framework", "FastAPI"),
+    ("Feature Engineering", "Momentum, hub/storage/cmd flags, surge_risk_score"),
+    ("Model Files", "V7.pkl (30분→10분 예측), V6.pkl (기존 모델)")
+]
 
-# Engines → Databases (점선)
-ax.plot([4, 4.5], [8.8, 7.5], '--', color=COLORS['db'], linewidth=2, zorder=5)
-ax.text(4.7, 8.1, 'Query', fontsize=8, color=COLORS['db'])
+row = 3
+for spec_name, spec_value in specs:
+    ws3[f'A{row}'] = spec_name
+    ws3[f'B{row}'] = spec_value
+    
+    ws3[f'A{row}'].font = Font(bold=True, size=11)
+    ws3[f'A{row}'].alignment = Alignment(horizontal='left', vertical='center')
+    ws3[f'B{row}'].alignment = Alignment(horizontal='left', vertical='center', wrap_text=True)
+    
+    for col in ['A', 'B']:
+        ws3[f'{col}{row}'].border = border
+    
+    ws3.row_dimensions[row].height = 30
+    row += 1
 
-ax.plot([16, 15.5], [8.8, 7.5], '--', color=COLORS['db'], linewidth=2, zorder=5)
-ax.text(15.2, 8.1, 'Load', fontsize=8, color=COLORS['db'])
-
-# Engines → LLM
-draw_clean_arrow(ax, 4, 8.8, 7, 5.4, '검색 결과', COLORS['rag'])
-draw_clean_arrow(ax, 10, 8.8, 10, 5.4, '예측값', COLORS['predict'])
-draw_clean_arrow(ax, 16, 8.8, 13, 5.4, 'SHAP 값', COLORS['explain'])
-
-# LLM → Response
-draw_clean_arrow(ax, 10, 3.8, 10, 2.5, '자연어 생성', COLORS['llm'])
-
-# Response → User (순환)
-ax.annotate('', xy=(12.8, 13.7), xytext=(13, 2.5),
-            arrowprops=dict(arrowstyle='-|>', color=COLORS['response'], 
-                          lw=2.5, connectionstyle="arc3,rad=0.3"))
-ax.text(14, 8, 'HTTP\nResponse', fontsize=9, color=COLORS['response'], 
-       weight='bold', ha='center')
-
-# ===== 타이틀 =====
-title_bg = Rectangle((3, 15.2), 14, 0.6, 
-                     facecolor='#1A237E', edgecolor='none', zorder=10)
-ax.add_patch(title_bg)
-
-ax.text(10, 15.5, 'Text Generation WebUI RAG Architecture', 
-        fontsize=18, weight='bold', ha='center', color='white', zorder=11)
-
-# ===== 범례 =====
-legend_x = 0.8
-legend_y = 0.5
-ax.text(legend_x, legend_y + 0.3, '● Architecture Overview', 
-       fontsize=10, weight='bold', color='#333333')
-ax.text(legend_x, legend_y, '  └ 6-Layer 구조로 설계된 통합 예측/검색 시스템', 
-       fontsize=8, color='#666666')
-
-plt.tight_layout()
-plt.savefig('/mnt/user-data/outputs/architecture_professional.png', 
-           dpi=300, bbox_inches='tight', facecolor='white')
-print("✅ 프로페셔널 아키텍처 다이어그램 생성 완료!")
+# 저장
+wb.save('/mnt/user-data/outputs/architecture_documentation.xlsx')
+print("✅ 엑셀 문서 생성 완료!")
