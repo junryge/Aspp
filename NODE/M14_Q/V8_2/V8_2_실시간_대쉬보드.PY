@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-🚀 실시간 예측 대시보드 - 280분 시퀀스 완전판
+🚀 실시간 예측 대시보드 - 60분 그래프 버전
 10분/15분/25분 후 예측 + 풍부한 그래프
 """
 
@@ -387,7 +387,7 @@ def predict_all_horizons():
     """10/15/25분 예측 실행"""
     
     print("="*60)
-    print("🚀 실시간 예측 대시보드 - 280분 시퀀스 완전판")
+    print("🚀 실시간 예측 대시보드 - 60분 그래프")
     print("="*60)
     
     # 데이터 로드
@@ -477,15 +477,15 @@ def predict_all_horizons():
     except Exception as e:
         return {'error': 'Model operation failure', 'message': f'Feature generation failed: {e}'}
     
-    # 🎨 그래프용 데이터 (최근 30분만!)
-    totalcnt_data = seq_totalcnt[-30:].tolist()  # 30개
-    m14b_data = seq_m14b[-30:].tolist()
-    m14bsum_data = seq_m14b_sum[-30:].tolist()
-    gap_data = seq_gap[-30:].tolist()
-    trans_data = seq_trans[-30:].tolist()
+    # 🎨 그래프용 데이터 (최근 60분!)
+    totalcnt_data = seq_totalcnt[-60:].tolist()  # 60개
+    m14b_data = seq_m14b[-60:].tolist()
+    m14bsum_data = seq_m14b_sum[-60:].tolist()
+    gap_data = seq_gap[-60:].tolist()
+    trans_data = seq_trans[-60:].tolist()
     
-    # 시간 라벨 (30개)
-    time_labels = df['CURRTIME'].tail(30).tolist()
+    # 시간 라벨 (60개)
+    time_labels = df['CURRTIME'].tail(60).tolist()
     time_labels = [t.strftime('%H:%M') for t in time_labels]
     
     # 각 예측 실행
@@ -643,7 +643,7 @@ def generate_html(data):
     chart5_data = data['trans_data']
     
     html = f"""<!DOCTYPE html>
-<html><head><meta charset="UTF-8"><title>280분 시퀀스 실시간 예측 완전판</title>
+<html><head><meta charset="UTF-8"><title>60분 실시간 예측 대시보드</title>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 <style>
 *{{margin:0;padding:0;box-sizing:border-box}}
@@ -678,7 +678,7 @@ body{{font-family:sans-serif;background:linear-gradient(135deg,#667eea,#764ba2);
 </style></head><body><div class="container">
 
 <div class="card">
-<div class="header">📊 280분 시퀀스 실시간 예측 완전판</div>
+<div class="header">📊 60분 실시간 예측 대시보드</div>
 <div class="subtitle">{data['current_time']}</div>
 
 <div class="current">
@@ -727,31 +727,31 @@ body{{font-family:sans-serif;background:linear-gradient(135deg,#667eea,#764ba2);
     
     html += f"""</div>
 
-<!-- 메인 그래프: 30분 과거 + 예측 -->
+<!-- 메인 그래프: 60분 과거 + 예측 -->
 <div class="chart-container">
-<div class="chart-title">📈 최근 30분 TOTALCNT + 예측 (10/15/25분)</div>
+<div class="chart-title">📈 최근 60분 TOTALCNT + 예측 (10/15/25분)</div>
 <canvas id="chart1" height="100"></canvas>
 </div>
 
 <!-- 서브 그래프 그리드 -->
 <div class="chart-grid">
 <div class="chart-container">
-<div class="chart-title">M14AM14B (최근 30분)</div>
+<div class="chart-title">M14AM14B (최근 60분)</div>
 <canvas id="chart2" height="150"></canvas>
 </div>
 
 <div class="chart-container">
-<div class="chart-title">M14AM14BSUM (최근 30분)</div>
+<div class="chart-title">M14AM14BSUM (최근 60분)</div>
 <canvas id="chart3" height="150"></canvas>
 </div>
 
 <div class="chart-container">
-<div class="chart-title">queue_gap (최근 30분)</div>
+<div class="chart-title">queue_gap (최근 60분)</div>
 <canvas id="chart4" height="150"></canvas>
 </div>
 
 <div class="chart-container">
-<div class="chart-title">TRANSPORT (최근 30분)</div>
+<div class="chart-title">TRANSPORT (최근 60분)</div>
 <canvas id="chart5" height="150"></canvas>
 </div>
 </div>
@@ -767,7 +767,7 @@ new Chart(ctx1, {{
         labels: {json.dumps(chart1_labels)},
         datasets: [
             {{
-                label: '최근 30분 데이터',
+                label: '최근 60분 데이터',
                 data: {json.dumps(chart1_historical)},
                 borderColor: '#667eea',
                 backgroundColor: 'rgba(102, 126, 234, 0.1)',
@@ -1036,7 +1036,7 @@ def main():
     
     # 파일 저장
     timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-    filename = f'Dashboard_280min_Complete_{timestamp}.html'
+    filename = f'Dashboard_60min_{timestamp}.html'
     filepath = os.path.join(SCRIPT_DIR, filename)
     
     with open(filepath, 'w', encoding='utf-8') as f:
