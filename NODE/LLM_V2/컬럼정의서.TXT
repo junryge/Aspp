@@ -1,0 +1,150 @@
+🤖 LLM 학습용 - AMHS 컬럼 정의서
+================================================================================
+AMHS 시스템 컬럼 정의 (총 58개)
+예측 타겟: CURRENT_M16A_3F_JOB_2 (M16A 3층 작업 대기량)
+================================================================================
+
+## 📋 기본 정보 (3개)
+
+STAT_DT                          | 측정 시간 (YYYYMMDDHHmm 형식)
+CURRENT_M16A_3F_JOB              | M16A 3층 현재 작업량
+CURRENT_M16A_3F_JOB_2            | M16A 3층 현재 작업량_2 🎯 예측 타겟
+
+--------------------------------------------------------------------------------
+
+## 🏭 M14A 3층 (4개)
+
+M14A_3F_CNV_MAXCAPA              | M14A 3층 컨베이어 최대용량
+M14A_3F_TO_HUB_CMD               | M14A 3층 → HUB 명령수
+M14A_3F_TO_HUB_JOB2              | M14A 3층 → HUB 작업량
+M14A_3F_TO_HUB_JOB_ALT           | M14A 3층 → HUB 작업량(대체값)
+
+--------------------------------------------------------------------------------
+
+## 🏭 M14B 7층 (4개)
+
+M14B_7F_LFT_MAXCAPA              | M14B 7층 리프터 최대용량
+M14B_7F_TO_HUB_CMD               | M14B 7층 → HUB 명령수
+M14B_7F_TO_HUB_JOB2              | M14B 7층 → HUB 작업량
+M14B_7F_TO_HUB_JOB_ALT           | M14B 7층 → HUB 작업량(대체값)
+
+--------------------------------------------------------------------------------
+
+## 🔗 M14 ↔ M16 연결 (2개)
+
+M14_TO_M16_OFS_CUR               | M14 → M16 오프셋 현재값
+M16_TO_M14_OFS_CUR               | M16 → M14 오프셋 현재값
+
+--------------------------------------------------------------------------------
+
+## 🏢 M16A 2층 (5개)
+
+M16A_2F_LFT_MAXCAPA              | M16A 2층 리프터 최대용량
+M16A_2F_TO_6F_JOB                | M16A 2층 → 6층 작업량
+M16A_2F_TO_HUB_CMD               | M16A 2층 → HUB 명령수
+M16A_2F_TO_HUB_JOB2              | M16A 2층 → HUB 작업량
+M16A_2F_TO_HUB_JOB_ALT           | M16A 2층 → HUB 작업량(대체값)
+
+--------------------------------------------------------------------------------
+
+## 🏢 M16A 3층 설비 (5개)
+
+M16A_3F_CMD                      | M16A 3층 총 명령수
+M16A_3F_CNV_MAXCAPA              | M16A 3층 컨베이어 최대용량
+M16A_3F_LFT_MAXCAPA              | M16A 3층 리프터 최대용량
+M16A_3F_M14BLFT_MAXCAPA          | M16A 3층 M14B 리프터 최대용량
+M16A_3F_STORAGE_UTIL             | M16A 3층 저장소 사용률 ⭐ 중요
+
+--------------------------------------------------------------------------------
+
+## 🔄 M16A 3층 → 다른층 작업 (9개)
+
+M16A_3F_TO_3F_MLUD_JOB           | M16A 3층 → 3층 MLUD 작업량
+M16A_3F_TO_M14A_3F_JOB           | M16A 3층 → M14A 3층 작업량
+M16A_3F_TO_M14A_CNV_AI_CMD       | M16A 3층 → M14A 컨베이어 AI 명령
+M16A_3F_TO_M14B_7F_JOB           | M16A 3층 → M14B 7층 작업량
+M16A_3F_TO_M14B_LFT_AI_CMD       | M16A 3층 → M14B 리프터 AI 명령
+M16A_3F_TO_M16A_2F_JOB           | M16A 3층 → M16A 2층 작업량
+M16A_3F_TO_M16A_3F_STB_CMD       | M16A 3층 → M16A 3층 STB 명령
+M16A_3F_TO_M16A_6F_JOB           | M16A 3층 → M16A 6층 작업량
+M16A_3F_TO_M16A_LFT_AI_CMD       | M16A 3층 → M16A 리프터 AI 명령
+M16A_3F_TO_M16A_MLUD_AI_CMD      | M16A 3층 → M16A MLUD AI 명령
+
+--------------------------------------------------------------------------------
+
+## 🏢 M16A 6층 (5개)
+
+M16A_6F_LFT_MAXCAPA              | M16A 6층 리프터 최대용량
+M16A_6F_TO_2F_JOB                | M16A 6층 → 2층 작업량
+M16A_6F_TO_HUB_CMD               | M16A 6층 → HUB 명령수
+M16A_6F_TO_HUB_JOB               | M16A 6층 → HUB 작업량
+M16A_6F_TO_HUB_JOB_ALT           | M16A 6층 → HUB 작업량(대체값)
+
+--------------------------------------------------------------------------------
+
+## 🏢 M16B 10층 (1개)
+
+M16B_10F_TO_HUB_JOB              | M16B 10층 → HUB 작업량
+
+--------------------------------------------------------------------------------
+
+## 🎯 HUB 및 저장소 (4개)
+
+HUBROOMTOTAL                     | HUB 전체 룸 수 (가용 공간) ⭐ 매우 중요
+CD_M163FSTORAGEUSE               | M16A 3층 저장소 사용량
+CD_M163FSTORAGETOTAL             | M16A 3층 저장소 총 용량
+CD_M163FSTORAGEUTIL              | M16A 3층 저장소 사용률
+
+--------------------------------------------------------------------------------
+
+## 📊 M14 Queue 지표 (5개)
+
+M14.QUE.ALL.CURRENTQCREATED      | M14 생성된 큐 수
+M14.QUE.ALL.CURRENTQCOMPLETED    | M14 완료된 큐 수
+M14.QUE.OHT.OHTUTIL              | M14 OHT(천정운반) 가동률
+M14.QUE.ALL.TRANSPORT4MINOVERCNT | M14 4분 초과 운송 건수
+M14B.QUE.SENDFAB.VERTICALQUEUECOUNT | M14B 수직 큐 카운트
+
+--------------------------------------------------------------------------------
+
+## 📊 M14 속도 (1개)
+
+M14A_A_AVG_VELOCITY              | M14A_A 평균 속도
+
+--------------------------------------------------------------------------------
+
+## 📊 M16A Queue 지표 (4개)
+
+M16A.QUE.ALL.CURRENTQCREATED     | M16A 생성된 큐 수
+M16A.QUE.ALL.TRANSPORT4MINOVERCNT| M16A 4분 초과 운송 건수
+M16A.QUE.LOAD.AVGLOADTIME1MIN    | M16A 1분 평균 적재시간
+M16A_BR_AVG_VELOCITY             | M16A_BR 평균 속도
+
+--------------------------------------------------------------------------------
+
+## 📊 M16HUB Queue 지표 (6개)
+
+M16HUB.QUE.ALL.CURRENTQCNT       | M16HUB 현재 큐 수 ⭐ 중요
+M16HUB.QUE.ALL.CURRENTQCREATED   | M16HUB 생성된 큐 수
+M16HUB.QUE.ALL.MESCURRENTQCNT    | M16HUB MES 현재 큐 수
+M16HUB.QUE.TIME.AVGTOTALTIME1MIN | M16HUB 1분 평균 총 시간 ⭐ 중요
+M16HUB_QUE_AVG_TOTAL_TIME        | M16HUB 큐 평균 총 시간
+
+================================================================================
+
+## 🔤 용어 설명
+
+CMD      | Command (명령 수)
+JOB      | 작업량, 이동 건수
+CNV      | Conveyor (컨베이어)
+LFT      | Lifter (리프터, 승강기)
+MAXCAPA  | Maximum Capacity (최대 용량)
+OFS      | Offset (오프셋)
+STB      | Stocker Bay (저장 베이)
+MLUD     | Multi-Load/Unload Device (다중 적재/하역 장치)
+OHT      | Overhead Hoist Transport (천정 운반 장치)
+UTIL     | Utilization (사용률, 가동률)
+QUE      | Queue (대기열)
+ALT      | Alternative (대체 값)
+
+================================================================================
