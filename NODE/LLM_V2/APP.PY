@@ -168,11 +168,11 @@ async def ask(query: Query):
     try:
         logger.info(f"질문: {query.question}")
         
-        # 프롬프트 구성 (한글/영어 대화)
-        prompt = f"""You are a helpful AI assistant. Answer in Korean or English based on the question language.
+        # 프롬프트 구성 (한국어 강제)
+        prompt = f"""당신은 친절한 AI 어시스턴트입니다. 항상 한국어로 답변하세요.
 
-User: {query.question}
-Assistant:"""
+질문: {query.question}
+답변:"""
         
         # LLM 호출
         response = llm(
@@ -181,7 +181,7 @@ Assistant:"""
             temperature=0.7,
             top_p=0.9,
             repeat_penalty=1.1,
-            stop=["User:", "\n\n"]
+            stop=["질문:", "\n\n"]
         )
         
         answer = response['choices'][0]['text'].strip()
