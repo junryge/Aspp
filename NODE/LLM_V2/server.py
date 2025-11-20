@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-벡터DB 검색 전용 서버
+벡터DB + 컬럼 정의 통합 RAG 서버
 """
 
 import os
@@ -18,15 +18,55 @@ logger = logging.getLogger(__name__)
 app = FastAPI()
 
 # 전역 변수
+llm = None
 vectordb = None
 embedding_model = None
+COLUMN_DEFINITIONS = ""
+
+def load_column_definitions():
+    """컬럼 정의 파일 로드"""
+    try:
+        with open("column_definitions.txt", "r", encoding="utf-8") as f:
+            return f.read()
+    except Exception as e:
+        logger.error(f"컬럼 정의 로드 실패: {e}")
+        return "컬럼 정의 파일을 찾을 수 없습니다."
 
 @app.on_event("startup")
 async def startup():
-    """서버 시작 시 벡터DB만 로드"""
-    global vectordb, embedding_model
+    """서버 시작 시 초기화"""
+    global llm, vectordb, embedding_model, COLUMN_DEFINITIONS
     
-    # 1. 벡터DB 로드
+    # 0. 컬럼 정의 로드
+    COLUMN_DEFINITIONS = load_column_definitions()
+    logger.info("✅ 컬럼 정의 로드 완료")
+    
+    # 1. LLM 로드
+    MODEL_PATH = "./models/QWEN3-1.7B-18_0.GGUF"
+    
+    if os.path.exists(MODEL_PATH):
+        logger.info(f"LLM 로드 시작: {MODEL_PATH}")
+        
+        try:
+            from llama_cpp import Llama
+            
+            llm = Llama(
+                model_path=MODEL_PATH,
+                n_ctx=1024,
+                n_batch=128,
+                n_gpu_layers=0,
+                n_threads=6,
+                verbose=False
+            )
+            
+            logger.info("✅ LLM 로드 성공!")
+            
+        except Exception as e:
+            logger.error(f"❌ LLM 로드 실패: {e}")
+    else:
+        logger.warning(f"⚠️ LLM 모델 없음: {MODEL_PATH}")
+    
+    # 2. 벡터DB 로드
     DB_PATH = "./vector_db/vectordb.pkl"
     
     if os.path.exists(DB_PATH):
@@ -36,15 +76,14 @@ async def startup():
             with open(DB_PATH, 'rb') as f:
                 vectordb = pickle.load(f)
             
-            logger.info(f"✅ 벡터DB 로드 완료: {vectordb['total_docs']}개 문서")
+            logger.info(f"✅ 벡터DB 로드 완료: {len(vectordb['documents'])}개 문서")
             
         except Exception as e:
             logger.error(f"❌ 벡터DB 로드 실패: {e}")
     else:
-        logger.error(f"❌ 벡터DB 없음: {DB_PATH}")
-        logger.info("먼저 create_vectordb.py를 실행하세요!")
+        logger.warning(f"⚠️ 벡터DB 없음: {DB_PATH}")
     
-    # 2. 임베딩 모델 로드 (검색용)
+    # 3. 임베딩 모델 로드
     EMB_PATH = "./embeddings/all-MiniLM-L6-v2"
     
     try:
@@ -62,7 +101,7 @@ async def startup():
     except Exception as e:
         logger.error(f"❌ 임베딩 모델 로드 실패: {e}")
 
-def search_vectordb(query, k=5):
+def search_similar(query, k=3):
     """벡터DB에서 유사 문서 검색"""
     if vectordb is None or embedding_model is None:
         return []
@@ -79,7 +118,7 @@ def search_vectordb(query, k=5):
             )
             similarities.append((i, sim))
         
-        # 상위 k개
+        # 상위 k개 선택
         similarities.sort(key=lambda x: x[1], reverse=True)
         top_k = similarities[:k]
         
@@ -87,9 +126,9 @@ def search_vectordb(query, k=5):
         for idx, score in top_k:
             doc = vectordb['documents'][idx]
             results.append({
-                'stat_dt': doc.get('stat_dt', 'Unknown'),
                 'content': doc['content'],
-                'score': round(float(score), 4)
+                'stat_dt': doc.get('stat_dt', 'Unknown'),
+                'score': float(score)
             })
         
         return results
@@ -108,33 +147,56 @@ async def home():
 
 @app.post("/ask")
 async def ask(query: Query):
-    """벡터DB 검색"""
+    """RAG 질문 처리"""
+    global COLUMN_DEFINITIONS
     
-    if vectordb is None:
-        return {"answer": "❌ 벡터DB가 로드되지 않았습니다."}
+    if llm is None:
+        return {"answer": "❌ LLM이 로드되지 않았습니다."}
     
     try:
         logger.info(f"질문: {query.question}")
         
-        # 벡터DB 검색
-        results = search_vectordb(query.question, k=5)
+        # 1. 벡터DB 검색
+        search_results = search_similar(query.question, k=3)
         
-        if not results:
-            return {"answer": "검색 결과가 없습니다."}
+        # 2. 검색 결과 포맷팅
+        context = ""
+        if search_results:
+            context = "\n\n📈 관련 데이터:\n"
+            for i, result in enumerate(search_results, 1):
+                context += f"\n[{i}] {result['stat_dt']}\n"
+                # 너무 길면 일부만 표시
+                content_preview = result['content'][:200]
+                context += f"{content_preview}...\n"
         
-        # 결과 포맷팅
-        answer = f"🔍 '{query.question}' 검색 결과 (상위 {len(results)}개):\n\n"
+        # 3. 프롬프트 구성
+        prompt = f"""당신은 반도체 제조 AMHS 전문가입니다. 한국어로 답변하세요.
+
+{COLUMN_DEFINITIONS}
+{context}
+
+질문: {query.question}
+답변:"""
         
-        for i, result in enumerate(results, 1):
-            answer += f"[{i}] {result['stat_dt']} (유사도: {result['score']})\n"
-            answer += f"{result['content'][:300]}...\n\n"
+        # 4. LLM 호출
+        response = llm(
+            prompt,
+            max_tokens=500,
+            temperature=0.7,
+            top_p=0.9,
+            repeat_penalty=1.1,
+            stop=["질문:", "\n\n", "📊"]
+        )
         
-        logger.info(f"검색 완료: {len(results)}개")
+        answer = response['choices'][0]['text'].strip()
+        logger.info(f"답변 생성 완료")
         
         return {"answer": answer}
         
     except Exception as e:
         logger.error(f"처리 실패: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
         return {"answer": f"❌ 오류: {str(e)}"}
 
 if __name__ == "__main__":
