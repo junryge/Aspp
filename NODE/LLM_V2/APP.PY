@@ -168,13 +168,20 @@ async def ask(query: Query):
     try:
         logger.info(f"질문: {query.question}")
         
+        # 프롬프트 구성 (한글/영어 대화)
+        prompt = f"""You are a helpful AI assistant. Answer in Korean or English based on the question language.
+
+User: {query.question}
+Assistant:"""
+        
         # LLM 호출
         response = llm(
-            query.question,
-            max_tokens=200,
+            prompt,
+            max_tokens=150,
             temperature=0.7,
             top_p=0.9,
-            stop=["\n\n"]
+            repeat_penalty=1.1,
+            stop=["User:", "\n\n"]
         )
         
         answer = response['choices'][0]['text'].strip()
