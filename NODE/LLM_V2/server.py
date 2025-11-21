@@ -167,40 +167,59 @@ async def ask(query: Query):
         # 2. 검색 결과 포맷팅
         context = ""
         if search_results:
-            context = "검색된 데이터:\n"
+            context = "참고 데이터:\n"
             for i, result in enumerate(search_results, 1):
-                # 매우 짧게 표시 (100자)
-                content_preview = result['content'][:100]
-                context += f"[{i}] {content_preview}...\n"
+                # 시간과 핵심 값만 (80자)
+                content_preview = result['content'][:80]
+                context += f"{i}. {content_preview}...\n"
         
         # 3. 프롬프트 구성
-        prompt = f"""You are an AMHS expert. You MUST answer in Korean only.
-당신은 반도체 제조 AMHS 전문가입니다. 반드시 한국어로만 답변하세요.
+        prompt = f"""You MUST answer in Korean only. Be concise.
+당신은 AMHS 전문가입니다. 한국어로 간결하게 답변하세요.
 
-아래 컬럼 정의를 참고하세요:
+컬럼 정의:
 {COLUMN_DEFINITIONS}
 
-관련 데이터:
+데이터:
 {context}
 
 질문: {query.question}
 
-답변 (반드시 한국어로):"""
+답변 (한국어, 간결하게):"""
         
         # 4. LLM 호출
         response = llm(
             prompt,
-            max_tokens=200,  # 200으로 줄임
-            temperature=0.3,  # 낮춤 (더 일관성있게)
-            top_p=0.9,
-            repeat_penalty=1.2,  # 높임 (반복 방지)
-            stop=["질문:", "Question:", "\n\n\n"]
+            max_tokens=150,  # 더 줄임 (200 → 150)
+            temperature=0.2,  # 더 낮춤 (0.3 → 0.2)
+            top_p=0.85,       # 낮춤 (0.9 → 0.85)
+            repeat_penalty=1.5,  # 크게 높임 (1.2 → 1.5)
+            frequency_penalty=0.5,  # 추가
+            presence_penalty=0.3,   # 추가
+            stop=["질문:", "Question:", "[", "추정값", "설정합니다"]
         )
         
         answer = response['choices'][0]['text'].strip()
+        
+        # 반복 패턴 제거
+        lines = answer.split('\n')
+        seen = set()
+        unique_lines = []
+        for line in lines:
+            line_clean = line.strip()
+            if line_clean and line_clean not in seen:
+                seen.add(line_clean)
+                unique_lines.append(line)
+        
+        answer = '\n'.join(unique_lines[:5])  # 최대 5줄
+        
+        # 불필요한 패턴 제거
+        answer = answer.replace("추정값을 50으로 설정합니다.", "")
+        answer = answer.replace("이 데이터는 [1], [2]와 같은", "")
+        
         logger.info(f"답변 생성 완료")
         
-        return {"answer": answer}
+        return {"answer": answer.strip()}
         
     except Exception as e:
         logger.error(f"처리 실패: {e}")
