@@ -269,12 +269,33 @@ async def predict(query: PredictQuery):
             if 'error' in result:
                 return JSONResponse(content=result, status_code=400)
             
-            # 간소화된 요약 생성
+            # HTML 대시보드 저장
+            timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+            dashboard_filename = f'M14_Dashboard_{timestamp}.html'
+            dashboard_path = os.path.join('dashboards', dashboard_filename)
+            
+            os.makedirs('dashboards', exist_ok=True)
+            with open(dashboard_path, 'w', encoding='utf-8') as f:
+                f.write(result['dashboard_html'])
+            
+            logger.info(f"대시보드 저장: {dashboard_filename}")
+            
+            # 간단 요약 생성
             summary = generate_prediction_summary(result)
+            
+            # LLM 해석 (있으면)
+            llm_analysis = ""
+            if llm is not None:
+                try:
+                    llm_analysis = generate_llm_analysis(result)
+                except Exception as e:
+                    logger.warning(f"LLM 분석 실패: {e}")
             
             return {
                 "success": True,
                 "summary": summary,
+                "llm_analysis": llm_analysis,
+                "dashboard_url": f"/dashboard/{dashboard_filename}",
                 "predictions": result['predictions'],
                 "current_value": result['current_value'],
                 "current_status": result['current_status']
@@ -303,13 +324,13 @@ async def predict(query: PredictQuery):
         )
 
 def generate_prediction_summary(result):
-    """예측 결과 요약 생성"""
+    """예측 결과 간단 요약"""
     predictions = result['predictions']
     current_val = result['current_value']
     current_status = result['current_status']
     
-    summary = f"📊 현재 TOTALCNT: {current_val:,} ({current_status})\n\n"
-    summary += "🔮 예측 결과:\n"
+    summary = f"📊 현재: {current_val:,} ({current_status})\n\n"
+    summary += "🔮 예측:\n"
     
     for pred in predictions:
         status_emoji = {
@@ -319,23 +340,57 @@ def generate_prediction_summary(result):
             'CRITICAL': '🚨'
         }.get(pred['status'], '❓')
         
-        change_sign = '+' if pred['change'] > 0 else ''
-        summary += f"• {pred['horizon']}분 후: {pred['prediction']:,} {status_emoji} "
-        summary += f"(변화: {change_sign}{pred['change']:,}, 위험도: {pred['danger_probability']}%)\n"
+        summary += f"• {pred['horizon']}분: {pred['prediction']:,} {status_emoji} (위험 {pred['danger_probability']}%)\n"
+    
+    return summary
+
+def generate_llm_analysis(result):
+    """LLM으로 예측 결과 분석"""
+    predictions = result['predictions']
+    current_val = result['current_value']
+    current_status = result['current_status']
     
     # 최대 위험도
     max_danger = max(p['danger_probability'] for p in predictions)
     
-    if max_danger >= 85:
-        summary += "\n🚨 CRITICAL: 즉시 대응 필요!"
-    elif max_danger >= 60:
-        summary += "\n⚠️ WARNING: 주의 필요!"
-    elif max_danger >= 30:
-        summary += "\n⚠️ CAUTION: 모니터링 강화!"
-    else:
-        summary += "\n✅ NORMAL: 정상 범위"
+    # 프롬프트 구성
+    pred_text = ""
+    for pred in predictions:
+        pred_text += f"{pred['horizon']}분 후: {pred['prediction']:,} (위험도 {pred['danger_probability']}%, 상태 {pred['status']})\n"
     
-    return summary
+    prompt = f"""You MUST answer in Korean only. Be concise and professional.
+
+현재 AMHS 물류 상황:
+- 현재 TOTALCNT: {current_val:,} ({current_status})
+
+예측 결과:
+{pred_text}
+
+최대 위험도: {max_danger}%
+
+위 예측 결과를 바탕으로 다음을 한국어로 간결하게 설명하세요 (3-4문장):
+1. 현재 상황 평가
+2. 예측되는 추세 (증가/감소/안정)
+3. 권장 조치사항
+
+답변 (한국어):"""
+    
+    try:
+        response = llm(
+            prompt,
+            max_tokens=200,
+            temperature=0.3,
+            top_p=0.85,
+            repeat_penalty=1.5,
+            stop=["질문:", "\n\n\n"]
+        )
+        
+        answer = response['choices'][0]['text'].strip()
+        return answer
+        
+    except Exception as e:
+        logger.error(f"LLM 분석 실패: {e}")
+        return ""
 
 @app.get("/dashboard/{filename}")
 async def get_dashboard(filename: str):
