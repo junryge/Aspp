@@ -810,9 +810,11 @@ STAT_DT,CURRENT_M16A_3F_JOB_2,M16A_3F_STORAGE_UTIL,HUBROOMTOTAL,...
                 html += '</div>';
             }
             
-            // 3. 상세 대시보드 버튼
+            // 3. 대시보드 버튼
+            html += '<div style="text-align: center; margin: 20px 0;">';
+            
+            // M14 모드: 1개 대시보드
             if (result.dashboard_url) {
-                html += '<div style="text-align: center; margin: 20px 0;">';
                 html += `<button onclick="window.open('${result.dashboard_url}', '_blank')" style="
                     padding: 15px 30px;
                     font-size: 18px;
@@ -828,9 +830,45 @@ STAT_DT,CURRENT_M16A_3F_JOB_2,M16A_3F_STORAGE_UTIL,HUBROOMTOTAL,...
                    onmouseout="this.style.transform='translateY(0)'; this.style.boxShadow='0 4px 15px rgba(102, 126, 234, 0.4)';">
                     📊 상세 대시보드 보기
                 </button>`;
-                html += '</div>';
             }
             
+            // HUB 모드: 2개 대시보드
+            if (result.dashboard_numerical_url && result.dashboard_categorical_url) {
+                html += `<button onclick="window.open('${result.dashboard_numerical_url}', '_blank')" style="
+                    padding: 15px 30px;
+                    font-size: 18px;
+                    font-weight: 700;
+                    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                    color: white;
+                    border: none;
+                    border-radius: 10px;
+                    cursor: pointer;
+                    box-shadow: 0 4px 15px rgba(102, 126, 234, 0.4);
+                    transition: all 0.3s;
+                    margin-right: 15px;
+                " onmouseover="this.style.transform='translateY(-2px)'; this.style.boxShadow='0 6px 20px rgba(102, 126, 234, 0.6)';" 
+                   onmouseout="this.style.transform='translateY(0)'; this.style.boxShadow='0 4px 15px rgba(102, 126, 234, 0.4)';">
+                    📊 수치형 대시보드
+                </button>`;
+                
+                html += `<button onclick="window.open('${result.dashboard_categorical_url}', '_blank')" style="
+                    padding: 15px 30px;
+                    font-size: 18px;
+                    font-weight: 700;
+                    background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+                    color: white;
+                    border: none;
+                    border-radius: 10px;
+                    cursor: pointer;
+                    box-shadow: 0 4px 15px rgba(240, 147, 251, 0.4);
+                    transition: all 0.3s;
+                " onmouseover="this.style.transform='translateY(-2px)'; this.style.boxShadow='0 6px 20px rgba(240, 147, 251, 0.6)';" 
+                   onmouseout="this.style.transform='translateY(0)'; this.style.boxShadow='0 4px 15px rgba(240, 147, 251, 0.4)';">
+                    🎯 범주형 대시보드
+                </button>`;
+            }
+            
+            html += '</div>';
             html += '</div>';
             
             resultDiv.innerHTML = html;
