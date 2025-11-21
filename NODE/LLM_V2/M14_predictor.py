@@ -360,6 +360,8 @@ def get_status_info(value):
 def generate_dashboard_html(result):
     """상세 HTML 대시보드 생성"""
     
+    import json
+    
     current_value = result['current_value']
     current_status = result['current_status']
     current_time = result['current_time']
@@ -377,24 +379,39 @@ def generate_dashboard_html(result):
     else:
         risk, risk_color = "NORMAL", "#38a169"
     
+    # 그래프 데이터
+    chart1_labels = result['time_labels'] + [p['pred_time_label'] if 'pred_time_label' in p else f"{p['horizon']}min" for p in predictions]
+    chart1_historical = result['totalcnt_data'] + [None] * len(predictions)
+    chart1_predictions = [None] * len(result['totalcnt_data']) + [p['prediction'] for p in predictions]
+    
+    chart2_labels = result['time_labels']
+    chart2_data = result['m14b_data']
+    chart3_data = result['m14bsum_data']
+    chart4_data = result['gap_data']
+    chart5_data = result['trans_data']
+    
     html = f"""<!DOCTYPE html>
 <html><head><meta charset="UTF-8"><title>M14 예측 대시보드</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 <style>
 *{{margin:0;padding:0;box-sizing:border-box}}
 body{{font-family:sans-serif;background:linear-gradient(135deg,#667eea,#764ba2);padding:20px}}
-.container{{max-width:1200px;margin:0 auto}}
+.container{{max-width:1600px;margin:0 auto}}
 .card{{background:#fff;border-radius:15px;padding:30px;margin-bottom:20px;box-shadow:0 10px 30px rgba(0,0,0,0.2)}}
 .header{{text-align:center;font-size:36px;color:#2d3748;margin-bottom:10px;font-weight:700}}
 .subtitle{{text-align:center;font-size:18px;color:#718096;margin-bottom:20px}}
-.current{{background:#f7fafc;border-radius:10px;padding:20px;margin-bottom:20px;text-align:center}}
-.current-value{{font-size:48px;font-weight:700;color:#2d3748;margin:10px 0}}
-.current-status{{display:inline-block;padding:10px 20px;border-radius:20px;font-weight:700;margin-top:10px;font-size:16px}}
+.current{{background:#f7fafc;border-radius:10px;padding:20px;margin-bottom:20px}}
+.current-grid{{display:grid;grid-template-columns:repeat(5,1fr);gap:15px}}
+.current-item{{text-align:center}}
+.current-label{{font-size:12px;color:#718096;margin-bottom:5px}}
+.current-value{{font-size:28px;font-weight:700;color:#2d3748}}
+.current-status{{display:inline-block;padding:8px 16px;border-radius:20px;font-weight:700;margin-top:5px;font-size:14px}}
 .status-low{{background:#c6f6d5;color:#2f855a}}
 .status-normal{{background:#bee3f8;color:#2c5282}}
 .status-caution{{background:#fefcbf;color:#b7791f}}
 .status-critical{{background:#fed7d7;color:#c53030}}
 .risk{{background:{risk_color};color:#fff;padding:20px;border-radius:10px;text-align:center;font-size:24px;font-weight:700;margin-bottom:20px}}
-.grid{{display:grid;grid-template-columns:repeat(3,1fr);gap:20px}}
+.grid{{display:grid;grid-template-columns:repeat(3,1fr);gap:20px;margin-bottom:30px}}
 .pred{{background:#f7fafc;border-radius:10px;padding:25px;text-align:center}}
 .time{{font-size:20px;font-weight:700;color:#667eea;margin-bottom:10px}}
 .pred-value{{font-size:48px;font-weight:700;color:#2d3748;margin:15px 0}}
@@ -403,6 +420,9 @@ body{{font-family:sans-serif;background:linear-gradient(135deg,#667eea,#764ba2);
 .danger-medium{{color:#dd6b20}}
 .danger-low{{color:#38a169}}
 .metric{{display:flex;justify-content:space-between;padding:10px;background:#fff;border-radius:8px;margin:8px 0;font-size:16px}}
+.chart-container{{background:#fff;border-radius:15px;padding:30px;box-shadow:0 10px 30px rgba(0,0,0,0.2);margin-bottom:20px}}
+.chart-title{{font-size:24px;font-weight:700;color:#2d3748;margin-bottom:20px;text-align:center}}
+.chart-grid{{display:grid;grid-template-columns:repeat(2,1fr);gap:20px}}
 </style></head><body>
 
 <div class="container">
@@ -412,9 +432,29 @@ body{{font-family:sans-serif;background:linear-gradient(135deg,#667eea,#764ba2);
 <div class="subtitle">{current_time}</div>
 
 <div class="current">
-<div style="font-size:16px;color:#718096;margin-bottom:10px;">현재 TOTALCNT</div>
+<div class="current-grid">
+<div class="current-item">
+<div class="current-label">TOTALCNT</div>
 <div class="current-value">{current_value:,}</div>
 <span class="current-status status-{current_status.lower()}">{current_status}</span>
+</div>
+<div class="current-item">
+<div class="current-label">M14AM14B</div>
+<div class="current-value">{result['current_m14b']:.0f}</div>
+</div>
+<div class="current-item">
+<div class="current-label">M14AM14BSUM</div>
+<div class="current-value">{result['current_m14bsum']:.0f}</div>
+</div>
+<div class="current-item">
+<div class="current-label">queue_gap</div>
+<div class="current-value">{result['current_gap']:.0f}</div>
+</div>
+<div class="current-item">
+<div class="current-label">TRANSPORT</div>
+<div class="current-value">{result['current_trans']:.0f}</div>
+</div>
+</div>
 </div>
 </div>
 
@@ -434,9 +474,301 @@ body{{font-family:sans-serif;background:linear-gradient(135deg,#667eea,#764ba2);
 <span class="current-status status-{p['status'].lower()}">{p['status']}</span>
 </div>"""
     
-    html += """</div>
+    html += f"""</div>
+
+<!-- 메인 그래프: 60분 과거 + 예측 -->
+<div class="chart-container">
+<div class="chart-title">📈 최근 60분 TOTALCNT + 예측 (10/15/25분)</div>
+<canvas id="chart1" height="100"></canvas>
+</div>
+
+<!-- 서브 그래프 그리드 -->
+<div class="chart-grid">
+<div class="chart-container">
+<div class="chart-title">M14AM14B (최근 60분)</div>
+<canvas id="chart2" height="150"></canvas>
+</div>
+
+<div class="chart-container">
+<div class="chart-title">M14AM14BSUM (최근 60분)</div>
+<canvas id="chart3" height="150"></canvas>
+</div>
+
+<div class="chart-container">
+<div class="chart-title">queue_gap (최근 60분)</div>
+<canvas id="chart4" height="150"></canvas>
+</div>
+
+<div class="chart-container">
+<div class="chart-title">TRANSPORT (최근 60분)</div>
+<canvas id="chart5" height="150"></canvas>
+</div>
+</div>
 
 </div>
+
+<script>
+// Chart 1: TOTALCNT + 예측
+const ctx1 = document.getElementById('chart1').getContext('2d');
+new Chart(ctx1, {{
+    type: 'line',
+    data: {{
+        labels: {json.dumps(chart1_labels)},
+        datasets: [
+            {{
+                label: '최근 60분 데이터',
+                data: {json.dumps(chart1_historical)},
+                borderColor: '#667eea',
+                backgroundColor: 'rgba(102, 126, 234, 0.1)',
+                borderWidth: 3,
+                pointRadius: 3,
+                pointBackgroundColor: '#667eea',
+                tension: 0.4,
+                fill: false
+            }},
+            {{
+                label: '예측 (10/15/25분)',
+                data: {json.dumps(chart1_predictions)},
+                borderColor: '#e53e3e',
+                backgroundColor: 'rgba(229, 62, 62, 0.1)',
+                borderWidth: 3,
+                borderDash: [5, 5],
+                pointRadius: 8,
+                pointBackgroundColor: '#e53e3e',
+                tension: 0,
+                fill: false,
+                spanGaps: true
+            }}
+        ]
+    }},
+    options: {{
+        responsive: true,
+        maintainAspectRatio: true,
+        interaction: {{
+            mode: 'index',
+            intersect: false
+        }},
+        plugins: {{
+            legend: {{
+                display: true,
+                position: 'top',
+                labels: {{
+                    font: {{size: 14, weight: 'bold'}},
+                    usePointStyle: true,
+                    padding: 20
+                }}
+            }},
+            tooltip: {{
+                backgroundColor: 'rgba(0, 0, 0, 0.8)',
+                padding: 12,
+                titleFont: {{size: 14, weight: 'bold'}},
+                bodyFont: {{size: 13}},
+                callbacks: {{
+                    label: function(context) {{
+                        if (context.parsed.y === null) return null;
+                        return context.dataset.label + ': ' + context.parsed.y.toFixed(0);
+                    }}
+                }}
+            }}
+        }},
+        scales: {{
+            x: {{
+                grid: {{display: true, color: 'rgba(0, 0, 0, 0.05)'}},
+                ticks: {{
+                    font: {{size: 11}},
+                    maxRotation: 45,
+                    minRotation: 45
+                }}
+            }},
+            y: {{
+                beginAtZero: false,
+                grid: {{display: true, color: 'rgba(0, 0, 0, 0.1)'}},
+                ticks: {{font: {{size: 12}}}}
+            }}
+        }}
+    }}
+}});
+
+// Chart 2: M14AM14B
+const ctx2 = document.getElementById('chart2').getContext('2d');
+new Chart(ctx2, {{
+    type: 'line',
+    data: {{
+        labels: {json.dumps(chart2_labels)},
+        datasets: [{{
+            label: 'M14AM14B',
+            data: {json.dumps(chart2_data)},
+            borderColor: '#48bb78',
+            backgroundColor: 'rgba(72, 187, 120, 0.1)',
+            borderWidth: 2,
+            pointRadius: 0,
+            tension: 0.4,
+            fill: true
+        }}]
+    }},
+    options: {{
+        responsive: true,
+        maintainAspectRatio: true,
+        plugins: {{
+            legend: {{display: false}},
+            tooltip: {{
+                backgroundColor: 'rgba(0, 0, 0, 0.8)',
+                padding: 10
+            }}
+        }},
+        scales: {{
+            x: {{
+                grid: {{display: false}},
+                ticks: {{
+                    maxRotation: 0,
+                    autoSkip: true,
+                    maxTicksLimit: 10,
+                    font: {{size: 9}}
+                }}
+            }},
+            y: {{
+                grid: {{display: true, color: 'rgba(0, 0, 0, 0.05)'}},
+                ticks: {{font: {{size: 10}}}}
+            }}
+        }}
+    }}
+}});
+
+// Chart 3: M14AM14BSUM
+const ctx3 = document.getElementById('chart3').getContext('2d');
+new Chart(ctx3, {{
+    type: 'line',
+    data: {{
+        labels: {json.dumps(chart2_labels)},
+        datasets: [{{
+            label: 'M14AM14BSUM',
+            data: {json.dumps(chart3_data)},
+            borderColor: '#4299e1',
+            backgroundColor: 'rgba(66, 153, 225, 0.1)',
+            borderWidth: 2,
+            pointRadius: 0,
+            tension: 0.4,
+            fill: true
+        }}]
+    }},
+    options: {{
+        responsive: true,
+        maintainAspectRatio: true,
+        plugins: {{
+            legend: {{display: false}},
+            tooltip: {{
+                backgroundColor: 'rgba(0, 0, 0, 0.8)',
+                padding: 10
+            }}
+        }},
+        scales: {{
+            x: {{
+                grid: {{display: false}},
+                ticks: {{
+                    maxRotation: 0,
+                    autoSkip: true,
+                    maxTicksLimit: 10,
+                    font: {{size: 9}}
+                }}
+            }},
+            y: {{
+                grid: {{display: true, color: 'rgba(0, 0, 0, 0.05)'}},
+                ticks: {{font: {{size: 10}}}}
+            }}
+        }}
+    }}
+}});
+
+// Chart 4: queue_gap
+const ctx4 = document.getElementById('chart4').getContext('2d');
+new Chart(ctx4, {{
+    type: 'line',
+    data: {{
+        labels: {json.dumps(chart2_labels)},
+        datasets: [{{
+            label: 'queue_gap',
+            data: {json.dumps(chart4_data)},
+            borderColor: '#ed8936',
+            backgroundColor: 'rgba(237, 137, 54, 0.1)',
+            borderWidth: 2,
+            pointRadius: 0,
+            tension: 0.4,
+            fill: true
+        }}]
+    }},
+    options: {{
+        responsive: true,
+        maintainAspectRatio: true,
+        plugins: {{
+            legend: {{display: false}},
+            tooltip: {{
+                backgroundColor: 'rgba(0, 0, 0, 0.8)',
+                padding: 10
+            }}
+        }},
+        scales: {{
+            x: {{
+                grid: {{display: false}},
+                ticks: {{
+                    maxRotation: 0,
+                    autoSkip: true,
+                    maxTicksLimit: 10,
+                    font: {{size: 9}}
+                }}
+            }},
+            y: {{
+                grid: {{display: true, color: 'rgba(0, 0, 0, 0.05)'}},
+                ticks: {{font: {{size: 10}}}}
+            }}
+        }}
+    }}
+}});
+
+// Chart 5: TRANSPORT
+const ctx5 = document.getElementById('chart5').getContext('2d');
+new Chart(ctx5, {{
+    type: 'line',
+    data: {{
+        labels: {json.dumps(chart2_labels)},
+        datasets: [{{
+            label: 'TRANSPORT',
+            data: {json.dumps(chart5_data)},
+            borderColor: '#9f7aea',
+            backgroundColor: 'rgba(159, 122, 234, 0.1)',
+            borderWidth: 2,
+            pointRadius: 0,
+            tension: 0.4,
+            fill: true
+        }}]
+    }},
+    options: {{
+        responsive: true,
+        maintainAspectRatio: true,
+        plugins: {{
+            legend: {{display: false}},
+            tooltip: {{
+                backgroundColor: 'rgba(0, 0, 0, 0.8)',
+                padding: 10
+            }}
+        }},
+        scales: {{
+            x: {{
+                grid: {{display: false}},
+                ticks: {{
+                    maxRotation: 0,
+                    autoSkip: true,
+                    maxTicksLimit: 10,
+                    font: {{size: 9}}
+                }}
+            }},
+            y: {{
+                grid: {{display: true, color: 'rgba(0, 0, 0, 0.05)'}},
+                ticks: {{font: {{size: 10}}}}
+            }}
+        }}
+    }}
+}});
+</script>
 
 </body></html>"""
     
@@ -511,6 +843,19 @@ def predict_m14(csv_data):
     except Exception as e:
         return {'error': 'Feature generation failed', 'message': str(e)}
     
+    # 🎨 그래프용 데이터 (최근 60분!)
+    totalcnt_data = seq_totalcnt[-60:].tolist()
+    m14b_data = seq_m14b[-60:].tolist()
+    m14bsum_data = seq_m14b_sum[-60:].tolist()
+    gap_data = seq_gap[-60:].tolist()
+    trans_data = seq_trans[-60:].tolist()
+    
+    # 시간 라벨 (60개)
+    time_labels = []
+    for i in range(60):
+        t = current_time - timedelta(minutes=59-i)
+        time_labels.append(t.strftime('%H:%M'))
+    
     # 예측 실행
     results = []
     
@@ -584,7 +929,17 @@ def predict_m14(csv_data):
         'current_value': int(current_totalcnt),
         'current_time': current_time.strftime('%Y-%m-%d %H:%M'),
         'current_status': get_status_info(current_totalcnt),
-        'predictions': results
+        'current_m14b': float(current_m14b),
+        'current_m14bsum': float(current_m14bsum),
+        'current_gap': float(current_gap),
+        'current_trans': float(current_trans),
+        'predictions': results,
+        'totalcnt_data': totalcnt_data,
+        'm14b_data': m14b_data,
+        'm14bsum_data': m14bsum_data,
+        'gap_data': gap_data,
+        'trans_data': trans_data,
+        'time_labels': time_labels
     }
     
     # HTML 대시보드 생성
