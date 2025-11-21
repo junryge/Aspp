@@ -45,7 +45,7 @@ async def startup():
     logger.info("✅ 컬럼 정의 로드 완료")
     
     # 1. CSV 로드
-    CSV_PATH = "./CSV/2025.CSV"
+    CSV_PATH = "./CSV/2025_DATA.CSV"
     
     if os.path.exists(CSV_PATH):
         logger.info(f"CSV 로드 중: {CSV_PATH}")
@@ -65,7 +65,7 @@ async def startup():
         logger.error(f"❌ CSV 파일 없음: {CSV_PATH}")
     
     # 2. LLM 로드
-    MODEL_PATH = "./models/QWEN3-1.7B-18_0.GGUF"
+    MODEL_PATH = "models/Qwen3-1.7B-Q8_0.gguf"
     
     if os.path.exists(MODEL_PATH):
         logger.info(f"LLM 로드 시작: {MODEL_PATH}")
