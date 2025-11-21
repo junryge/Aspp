@@ -12,9 +12,9 @@ from datetime import datetime, timedelta
 
 # 모델 파일
 MODEL_FILES = {
-    10: 'model_13col_10.pkl',
-    15: 'model_13col_15.pkl',
-    25: 'model_13col_25.pkl'
+    10: 'M14_MODEL/model_13col_10.pkl',
+    15: 'M14_MODEL/model_13col_15.pkl',
+    25: 'M14_MODEL/model_13col_25.pkl'
 }
 
 # 필수 컬럼 13개
