@@ -151,6 +151,7 @@ def search_csv(query):
 
 class Query(BaseModel):
     question: str
+    mode: str = "search"  # 기본값: search
 
 @app.get("/")
 async def home():
@@ -166,13 +167,32 @@ async def ask(query: Query):
         return {"answer": "❌ LLM이 로드되지 않았습니다."}
     
     try:
-        logger.info(f"질문: {query.question}")
+        logger.info(f"질문: {query.question} | 모드: {query.mode}")
         
-        # 1. CSV에서 직접 검색
-        result, data_text = search_csv(query.question)
+        # 모드별 처리
+        if query.mode == "search":
+            # 데이터 검색 모드
+            result, data_text = search_csv(query.question)
+            
+            if result is None:
+                return {"answer": data_text}
         
-        if result is None:
+        elif query.mode == "m14":
+            # M14 예측 모드
+            data_text = "M14 예측 기능은 준비 중입니다.\n현재는 데이터 검색만 가능합니다."
             return {"answer": data_text}
+        
+        elif query.mode == "hub":
+            # HUB 예측 모드
+            data_text = "HUB 예측 기능은 준비 중입니다.\n현재는 데이터 검색만 가능합니다."
+            return {"answer": data_text}
+        
+        else:
+            # 기본값: 검색
+            result, data_text = search_csv(query.question)
+            
+            if result is None:
+                return {"answer": data_text}
         
         # 2. 프롬프트 구성
         prompt = f"""You MUST answer in Korean only. Be concise.
