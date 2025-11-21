@@ -38,7 +38,7 @@ FEATURE_COLS = {
 }
 
 def create_features_v8(df, available_cols):
-    """Feature 생성"""
+    """Feature 생성 - 완전판"""
     if len(df) < 30:
         raise ValueError(f"데이터 부족: {len(df)}개 (최소 30개 필요)")
     
@@ -79,6 +79,142 @@ def create_features_v8(df, available_cols):
                 features[f'{col}_mean'] = np.mean(col_seq)
                 features[f'{col}_last_value'] = col_seq[-1]
                 features[f'{col}_slope'] = np.polyfit(np.arange(30), col_seq, 1)[0]
+    
+    # 추가 Feature (누락되었던 부분!)
+    if all(col in available_cols for col in ['CD_M163FSTORAGEUSE', 'CD_M163FSTORAGETOTAL', 'CD_M163FSTORAGEUTIL']):
+        storage_use = df['CD_M163FSTORAGEUSE'].iloc[i-30:i].values
+        storage_total = df['CD_M163FSTORAGETOTAL'].iloc[i-30:i].values
+        storage_util = df['CD_M163FSTORAGEUTIL'].iloc[i-30:i].values
+        features['storage_use_rate'] = (storage_use[-1] - storage_use[0]) / 30
+        features['storage_remaining'] = storage_total[-1] - storage_use[-1]
+        features['storage_util_last'] = storage_util[-1]
+        features['storage_util_high'] = 1 if storage_util[-1] >= 7 else 0
+        features['storage_util_critical'] = 1 if storage_util[-1] >= 10 else 0
+    
+    if 'HUBROOMTOTAL' in available_cols:
+        hub_seq = df['HUBROOMTOTAL'].iloc[i-30:i].values
+        hub_last = hub_seq[-1]
+        features['hub_critical'] = 1 if hub_last < 590 else 0
+        features['hub_high'] = 1 if hub_last < 610 else 0
+        features['hub_warning'] = 1 if hub_last < 620 else 0
+        features['hub_decrease_rate'] = (hub_seq[0] - hub_last) / 30
+        if 'CD_M163FSTORAGEUTIL' in available_cols:
+            storage_util_last = df['CD_M163FSTORAGEUTIL'].iloc[i-1]
+            features['hub_storage_risk'] = 1 if (hub_last < 610 and storage_util_last >= 7) else 0
+    
+    inflow_sum = sum(df[col].iloc[i-1] for col in FEATURE_COLS['inflow'] if col in available_cols)
+    outflow_sum = sum(df[col].iloc[i-1] for col in FEATURE_COLS['outflow'] if col in available_cols)
+    features['net_flow'] = inflow_sum - outflow_sum
+    
+    cmd_sum = sum(df[col].iloc[i-1] for col in FEATURE_COLS['cmd'] if col in available_cols)
+    features['total_cmd'] = cmd_sum
+    features['total_cmd_low'] = 1 if cmd_sum < 220 else 0
+    features['total_cmd_very_low'] = 1 if cmd_sum < 200 else 0
+    
+    if 'HUBROOMTOTAL' in available_cols:
+        hub_last = df['HUBROOMTOTAL'].iloc[i-1]
+        features['hub_cmd_bottleneck'] = 1 if (hub_last < 610 and cmd_sum < 220) else 0
+    
+    if 'M16A_3F_STORAGE_UTIL' in available_cols:
+        storage_util = df['M16A_3F_STORAGE_UTIL'].iloc[i-1]
+        features['storage_util_critical'] = 1 if storage_util >= 205 else 0
+        features['storage_util_high_risk'] = 1 if storage_util >= 207 else 0
+    
+    features['surge_risk_score'] = (
+        features.get('hub_high', 0) * 3 + features.get('storage_util_critical', 0) * 2 +
+        features.get('total_cmd_low', 0) * 1 + features.get('storage_util_high', 0) * 1
+    )
+    
+    features['surge_imminent'] = 1 if (
+        seq_target[-1] > 280 and features.get('target_acceleration', 0) > 0.5 and features.get('hub_high', 0) == 1
+    ) else 0
+    
+    # M16HUB 큐 관련
+    if 'M16HUB.QUE.ALL.CURRENTQCNT' in available_cols:
+        currentq = df['M16HUB.QUE.ALL.CURRENTQCNT'].iloc[i-1]
+        features['currentq_high'] = 1 if currentq >= 1200 else 0
+        features['currentq_critical'] = 1 if currentq >= 1400 else 0
+    else:
+        features['currentq_high'] = 0
+        features['currentq_critical'] = 0
+    
+    if 'M16HUB.QUE.TIME.AVGTOTALTIME1MIN' in available_cols:
+        avgtime = df['M16HUB.QUE.TIME.AVGTOTALTIME1MIN'].iloc[i-1]
+        features['avgtime1min_high'] = 1 if avgtime >= 4.0 else 0
+        features['avgtime1min_critical'] = 1 if avgtime >= 4.5 else 0
+    else:
+        features['avgtime1min_high'] = 0
+        features['avgtime1min_critical'] = 0
+    
+    if 'M16HUB.QUE.ALL.CURRENTQCNT' in available_cols and 'M16HUB.QUE.TIME.AVGTOTALTIME1MIN' in available_cols:
+        currentq = df['M16HUB.QUE.ALL.CURRENTQCNT'].iloc[i-1]
+        avgtime = df['M16HUB.QUE.TIME.AVGTOTALTIME1MIN'].iloc[i-1]
+        features['que_severe_bottleneck'] = 1 if (currentq >= 1200 and avgtime >= 4.0) else 0
+    else:
+        features['que_severe_bottleneck'] = 0
+    
+    if 'M16HUB.QUE.OHT.OHTUTIL' in available_cols:
+        ohtutil = df['M16HUB.QUE.OHT.OHTUTIL'].iloc[i-1]
+        features['m16hub_ohtutil_high'] = 1 if ohtutil >= 85.0 else 0
+        features['m16hub_ohtutil_critical'] = 1 if ohtutil >= 90.0 else 0
+    else:
+        features['m16hub_ohtutil_high'] = 0
+        features['m16hub_ohtutil_critical'] = 0
+    
+    if 'M16HUB.QUE.TIME.AVGTOTALTIME' in available_cols:
+        avgtime = df['M16HUB.QUE.TIME.AVGTOTALTIME'].iloc[i-1]
+        features['m16hub_avgtime_high'] = 1 if avgtime >= 5.0 else 0
+        features['m16hub_avgtime_critical'] = 1 if avgtime >= 6.0 else 0
+    else:
+        features['m16hub_avgtime_high'] = 0
+        features['m16hub_avgtime_critical'] = 0
+    
+    if 'M16HUB.QUE.OHT.OHTUTIL' in available_cols and 'M16HUB.QUE.TIME.AVGTOTALTIME' in available_cols:
+        ohtutil = df['M16HUB.QUE.OHT.OHTUTIL'].iloc[i-1]
+        avgtime = df['M16HUB.QUE.TIME.AVGTOTALTIME'].iloc[i-1]
+        features['m16hub_severe_bottleneck'] = 1 if (ohtutil >= 85.0 and avgtime >= 5.0) else 0
+    else:
+        features['m16hub_severe_bottleneck'] = 0
+    
+    # M16A 큐 관련
+    if 'M16A.QUE.OHT.OHTUTIL' in available_cols:
+        ohtutil = df['M16A.QUE.OHT.OHTUTIL'].iloc[i-1]
+        features['m16a_ohtutil_high'] = 1 if ohtutil >= 85.0 else 0
+        features['m16a_ohtutil_critical'] = 1 if ohtutil >= 90.0 else 0
+    else:
+        features['m16a_ohtutil_high'] = 0
+        features['m16a_ohtutil_critical'] = 0
+    
+    if 'M16A.QUE.LOAD.AVGLOADTIME1MIN' in available_cols:
+        loadtime = df['M16A.QUE.LOAD.AVGLOADTIME1MIN'].iloc[i-1]
+        features['m16a_loadtime_high'] = 1 if loadtime >= 2.5 else 0
+        features['m16a_loadtime_critical'] = 1 if loadtime >= 2.8 else 0
+    else:
+        features['m16a_loadtime_high'] = 0
+        features['m16a_loadtime_critical'] = 0
+    
+    if 'M16A.QUE.ALL.TRANSPORT4MINOVERCNT' in available_cols:
+        transport4min = df['M16A.QUE.ALL.TRANSPORT4MINOVERCNT'].iloc[i-1]
+        features['m16a_transport4min_high'] = 1 if transport4min >= 40 else 0
+        features['m16a_transport4min_critical'] = 1 if transport4min >= 50 else 0
+    else:
+        features['m16a_transport4min_high'] = 0
+        features['m16a_transport4min_critical'] = 0
+    
+    if 'M16A.QUE.ABN.QUETIMEDELAY' in available_cols:
+        delay = df['M16A.QUE.ABN.QUETIMEDELAY'].iloc[i-1]
+        features['m16a_delay_warning'] = 1 if delay >= 1 else 0
+        features['m16a_delay_critical'] = 1 if delay >= 3 else 0
+    else:
+        features['m16a_delay_warning'] = 0
+        features['m16a_delay_critical'] = 0
+    
+    if 'M16A.QUE.OHT.OHTUTIL' in available_cols and 'M16A.QUE.ALL.TRANSPORT4MINOVERCNT' in available_cols:
+        ohtutil = df['M16A.QUE.OHT.OHTUTIL'].iloc[i-1]
+        transport4min = df['M16A.QUE.ALL.TRANSPORT4MINOVERCNT'].iloc[i-1]
+        features['m16a_severe_bottleneck'] = 1 if (ohtutil >= 85.0 and transport4min >= 40) else 0
+    else:
+        features['m16a_severe_bottleneck'] = 0
     
     return features, seq_target[-1]
 
