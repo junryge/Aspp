@@ -83,23 +83,22 @@ async def startup():
     else:
         logger.warning(f"⚠️ 벡터DB 없음: {DB_PATH}")
     
-    # 3. 임베딩 모델 로드
+    # 3. 임베딩 모델 로드 (로컬만)
     EMB_PATH = "./embeddings/all-MiniLM-L6-v2"
     
-    try:
-        from sentence_transformers import SentenceTransformer
+    if os.path.exists(EMB_PATH):
+        logger.info(f"임베딩 모델 로드: {EMB_PATH}")
         
-        if os.path.exists(EMB_PATH):
-            logger.info(f"임베딩 모델 로드: {EMB_PATH}")
+        try:
+            from sentence_transformers import SentenceTransformer
             embedding_model = SentenceTransformer(EMB_PATH)
-        else:
-            logger.info("온라인에서 임베딩 모델 다운로드...")
-            embedding_model = SentenceTransformer('all-MiniLM-L6-v2')
-        
-        logger.info("✅ 임베딩 모델 로드 완료")
-        
-    except Exception as e:
-        logger.error(f"❌ 임베딩 모델 로드 실패: {e}")
+            logger.info("✅ 임베딩 모델 로드 완료")
+            
+        except Exception as e:
+            logger.error(f"❌ 임베딩 모델 로드 실패: {e}")
+    else:
+        logger.error(f"❌ 임베딩 모델 없음: {EMB_PATH}")
+        logger.error("폐쇄망 환경이므로 사전에 모델을 준비하세요!")
 
 def search_similar(query, k=3):
     """벡터DB에서 유사 문서 검색"""
