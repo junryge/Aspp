@@ -753,45 +753,51 @@ CURRTIME,M14AM14B,M14AM14BSUM,M14BM14A,...
         }
         
         function displayPredictionResult(result) {
+            let html = '<div style="padding: 10px;">';
+            
+            // 1. 간단 요약
             if (result.summary) {
-                // 간소화된 요약 표시
-                let html = '<div style="background: #f7fafc; padding: 20px; border-radius: 10px; white-space: pre-wrap;">';
+                html += '<div style="background: #f7fafc; padding: 20px; border-radius: 10px; white-space: pre-wrap; margin-bottom: 20px;">';
+                html += '<h3 style="color: #667eea; margin-bottom: 15px;">📊 예측 요약</h3>';
                 html += result.summary;
                 html += '</div>';
-                
-                // 상세 예측 카드
-                if (result.predictions) {
-                    html += '<div style="margin-top: 20px;">';
-                    html += '<h3 style="color: #667eea; margin-bottom: 15px;">📊 상세 예측</h3>';
-                    
-                    result.predictions.forEach(pred => {
-                        const statusColor = pred.status === 'CRITICAL' ? '#e53e3e' : 
-                                           pred.status === 'CAUTION' ? '#dd6b20' : 
-                                           pred.status === 'NORMAL' ? '#38a169' : '#718096';
-                        
-                        html += `
-                            <div style="background: white; padding: 15px; margin: 10px 0; border-radius: 8px; border-left: 4px solid ${statusColor};">
-                                <div style="font-size: 18px; font-weight: 700; color: #2d3748; margin-bottom: 5px;">
-                                    ${pred.horizon}분 후: ${pred.prediction.toLocaleString()}
-                                </div>
-                                <div style="display: flex; gap: 15px; font-size: 14px;">
-                                    <span>상태: <strong style="color: ${statusColor};">${pred.status}</strong></span>
-                                    <span>위험도: <strong style="color: #e53e3e;">${pred.danger_probability}%</strong></span>
-                                    <span>변화: <strong>${pred.change > 0 ? '+' : ''}${pred.change}</strong></span>
-                                </div>
-                            </div>
-                        `;
-                    });
-                    
-                    html += '</div>';
-                }
-                
-                resultDiv.innerHTML = html;
-                resultDiv.className = 'success';
-            } else {
-                resultDiv.textContent = '예측 결과를 표시할 수 없습니다.';
-                resultDiv.className = 'error';
             }
+            
+            // 2. LLM 분석
+            if (result.llm_analysis) {
+                html += '<div style="background: #ebf8ff; padding: 20px; border-radius: 10px; border-left: 4px solid #4299e1; margin-bottom: 20px;">';
+                html += '<h3 style="color: #2c5282; margin-bottom: 15px;">🤖 AI 분석</h3>';
+                html += '<div style="line-height: 1.8; white-space: pre-wrap;">';
+                html += result.llm_analysis;
+                html += '</div>';
+                html += '</div>';
+            }
+            
+            // 3. 상세 대시보드 버튼
+            if (result.dashboard_url) {
+                html += '<div style="text-align: center; margin: 20px 0;">';
+                html += `<button onclick="window.open('${result.dashboard_url}', '_blank')" style="
+                    padding: 15px 30px;
+                    font-size: 18px;
+                    font-weight: 700;
+                    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                    color: white;
+                    border: none;
+                    border-radius: 10px;
+                    cursor: pointer;
+                    box-shadow: 0 4px 15px rgba(102, 126, 234, 0.4);
+                    transition: all 0.3s;
+                " onmouseover="this.style.transform='translateY(-2px)'; this.style.boxShadow='0 6px 20px rgba(102, 126, 234, 0.6)';" 
+                   onmouseout="this.style.transform='translateY(0)'; this.style.boxShadow='0 4px 15px rgba(102, 126, 234, 0.4)';">
+                    📊 상세 대시보드 보기
+                </button>`;
+                html += '</div>';
+            }
+            
+            html += '</div>';
+            
+            resultDiv.innerHTML = html;
+            resultDiv.className = 'success';
         }
     </script>
 </body>
