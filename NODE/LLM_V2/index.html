@@ -409,7 +409,7 @@
         <!-- 데이터 입력 섹션 (M14/HUB 모드에서만 표시) -->
         <div id="dataInputSection" class="data-input-section" style="display: none;">
             <div class="data-input-header" onclick="toggleDataInput()">
-                <span>📊 데이터 입력 (280분 시계열 데이터)</span>
+                <span id="dataInputHeaderText">📊 데이터 입력 (280분 시계열 데이터)</span>
                 <span class="icon" id="dataInputIcon">▼</span>
             </div>
             <div class="data-input-body" id="dataInputBody">
@@ -448,12 +448,7 @@
                 <!-- 텍스트 입력 -->
                 <div class="input-area" id="input-text">
                     <div class="text-input">
-                        <textarea id="textData" placeholder="CSV 데이터를 붙여넣으세요...
-예시:
-CURRTIME,M14AM14B,M14AM14BSUM,M14BM14A,...
-202509210000,305,425,180,...
-202509210001,310,430,185,...
-..."></textarea>
+                        <textarea id="textData"></textarea>
                     </div>
                     <button class="submit-btn" onclick="submitData()">
                         🚀 예측 시작
@@ -492,18 +487,17 @@ CURRTIME,M14AM14B,M14AM14BSUM,M14BM14A,...
                 { text: 'M16A_3F_STORAGE_UTIL이 뭐야?', label: '컬럼 설명' }
             ],
             m14: [
-                { text: 'M14A 3층 작업량 예측해줘', label: 'M14A 작업량 예측' },
-                { text: '10분 후 M14A 상태는?', label: '10분 후 예측' },
-                { text: 'M14B 7층 예측 보여줘', label: 'M14B 예측' },
-                { text: 'M14에서 HUB로 가는 작업량 예측', label: 'M14→HUB 예측' },
-                { text: 'M14A 혼잡도 예측', label: '혼잡도 예측' }
+                { text: 'M14 QUE 10분 예측', label: 'M14 QUE 10분 예측' },
+                { text: 'M14 QUE 15분 예측', label: 'M14 QUE 15분 예측' },
+                { text: 'M14 QUE 25분 예측', label: 'M14 QUE 25분 예측' }
             ],
             hub: [
-                { text: 'HUB 공간 부족 예측해줘', label: 'HUB 공간 예측' },
-                { text: '10분 후 HUBROOMTOTAL은?', label: '가용공간 예측' },
-                { text: 'M16HUB 큐 수 예측', label: '큐 수 예측' },
-                { text: 'HUB 평균 처리 시간 예측', label: '처리시간 예측' },
-                { text: 'HUB 혼잡 예상 시간대', label: '혼잡시간 예측' }
+                { text: 'HUB 수치형 10분 예측', label: 'HUB 수치형 10분' },
+                { text: 'HUB 수치형 15분 예측', label: 'HUB 수치형 15분' },
+                { text: 'HUB 수치형 25분 예측', label: 'HUB 수치형 25분' },
+                { text: 'HUB 범주형 10분 예측', label: 'HUB 범주형 10분' },
+                { text: 'HUB 범주형 15분 예측', label: 'HUB 범주형 15분' },
+                { text: 'HUB 범주형 25분 예측', label: 'HUB 범주형 25분' }
             ]
         };
         
@@ -528,12 +522,61 @@ CURRTIME,M14AM14B,M14AM14BSUM,M14BM14A,...
             const dataInputSection = document.getElementById('dataInputSection');
             if (mode === 'm14' || mode === 'hub') {
                 dataInputSection.style.display = 'block';
+                updateDataInputInfo(mode);
+                
+                // 헤더 텍스트 변경
+                const headerText = document.getElementById('dataInputHeaderText');
+                if (mode === 'm14') {
+                    headerText.textContent = '📊 데이터 입력 (280분 시계열 데이터)';
+                } else if (mode === 'hub') {
+                    headerText.textContent = '📊 데이터 입력 (30분 시계열 데이터)';
+                }
             } else {
                 dataInputSection.style.display = 'none';
             }
             
             // 질문 예시 업데이트
             updateExamples();
+        }
+        
+        function updateDataInputInfo(mode) {
+            const dataInfo = document.querySelector('.data-info');
+            const textarea = document.getElementById('textData');
+            
+            if (mode === 'm14') {
+                dataInfo.innerHTML = `
+                    <strong>ℹ️ 필요 데이터:</strong> 최근 280분(4시간 40분) 데이터가 필요합니다.<br>
+                    <strong>📋 필수 컬럼 13개:</strong> M14AM14B, M14AM14BSUM, M14BM14A, M14AM10A, M10AM14A, M16M14A, M14AM16SUM, TOTALCNT, 
+                    M14.QUE.ALL.CURRENTQCREATED, M14.QUE.ALL.CURRENTQCOMPLETED, M14.QUE.OHT.OHTUTIL, M14.QUE.ALL.TRANSPORT4MINOVERCNT, CURRTIME
+                `;
+                
+                textarea.placeholder = `CSV 데이터를 붙여넣으세요... (280행)
+
+예시:
+CURRTIME,M14AM14B,M14AM14BSUM,M14BM14A,...
+202509210000,305,425,180,...
+202509210001,310,430,185,...
+...
+202509210279,342,489,195,...`;
+                
+            } else if (mode === 'hub') {
+                dataInfo.innerHTML = `
+                    <strong>ℹ️ 필요 데이터:</strong> 최근 30분 데이터가 필요합니다.<br>
+                    <strong>📋 필수 컬럼 55개:</strong><br>
+                    <div style="font-size: 11px; margin-top: 5px; line-height: 1.3; max-height: 120px; overflow-y: auto; padding: 5px; background: white; border-radius: 5px;">
+                    STAT_DT, CURRENT_M16A_3F_JOB, CURRENT_M16A_3F_JOB_2, M14A_3F_CNV_MAXCAPA, M14A_3F_TO_HUB_CMD, M14A_3F_TO_HUB_JOB2, M14A_3F_TO_HUB_JOB_ALT, M14B_7F_LFT_MAXCAPA, M14B_7F_TO_HUB_CMD, M14B_7F_TO_HUB_JOB2, M14B_7F_TO_HUB_JOB_ALT, M14_TO_M16_OFS_CUR, M16A_2F_LFT_MAXCAPA, M16A_2F_TO_6F_JOB, M16A_2F_TO_HUB_CMD, M16A_2F_TO_HUB_JOB2, M16A_2F_TO_HUB_JOB_ALT, M16A_3F_CMD, M16A_3F_CNV_MAXCAPA, M16A_3F_LFT_MAXCAPA, M16A_3F_M14BLFT_MAXCAPA, M16A_3F_STORAGE_UTIL, M16A_3F_TO_3F_MLUD_JOB, M16A_3F_TO_M14A_3F_JOB, M16A_3F_TO_M14A_CNV_AI_CMD, M16A_3F_TO_M14B_7F_JOB, M16A_3F_TO_M14B_LFT_AI_CMD, M16A_3F_TO_M16A_2F_JOB, M16A_3F_TO_M16A_3F_STB_CMD, M16A_3F_TO_M16A_6F_JOB, M16A_3F_TO_M16A_LFT_AI_CMD, M16A_3F_TO_M16A_MLUD_AI_CMD, M16A_6F_LFT_MAXCAPA, M16A_6F_TO_2F_JOB, M16A_6F_TO_HUB_CMD, M16A_6F_TO_HUB_JOB, M16A_6F_TO_HUB_JOB_ALT, M16B_10F_TO_HUB_JOB, M16_TO_M14_OFS_CUR, HUBROOMTOTAL, CD_M163FSTORAGEUSE, CD_M163FSTORAGETOTAL, CD_M163FSTORAGEUTIL, M16HUB.QUE.ALL.CURRENTQCNT, M16HUB.QUE.TIME.AVGTOTALTIME1MIN, M16HUB.QUE.ALL.CURRENTQCOMPLETED, M16HUB.QUE.ALL.FABTRANSJOBCNT, M16HUB.QUE.TIME.AVGTOTALTIME, M16HUB.QUE.OHT.CURRENTOHTQCNT, M16HUB.QUE.OHT.OHTUTIL, M16A.QUE.ALL.CURRENTQCOMPLETED, M16A.QUE.ALL.CURRENTQCREATED, M16A.QUE.OHT.CURRENTOHTQCNT, M16A.QUE.OHT.OHTUTIL, M16A.QUE.LOAD.AVGLOADTIME1MIN, M16A.QUE.ALL.TRANSPORT4MINOVERCNT, M16A.QUE.ABN.QUETIMEDELAY
+                    </div>
+                `;
+                
+                textarea.placeholder = `CSV 데이터를 붙여넣으세요... (30행)
+
+예시:
+STAT_DT,CURRENT_M16A_3F_JOB_2,M16A_3F_STORAGE_UTIL,HUBROOMTOTAL,...
+202509210000,1234,78.5,450,...
+202509210001,1245,79.2,448,...
+...
+202509210029,1267,80.1,445,...`;
+            }
         }
         
         function updateExamples() {
