@@ -373,7 +373,7 @@ async def predict(query: PredictQuery):
         )
 
 def generate_prediction_summary(result):
-    """예측 결과 간단 요약"""
+    """M14 예측 결과 간단 요약"""
     predictions = result['predictions']
     current_val = result['current_value']
     current_status = result['current_status']
@@ -486,7 +486,9 @@ def generate_hub_llm_analysis(result_numerical, result_categorical):
     except Exception as e:
         logger.error(f"LLM 분석 실패: {e}")
         return ""
-    """LLM으로 예측 결과 분석"""
+
+def generate_llm_analysis(result):
+    """LLM으로 M14 예측 결과 분석"""
     predictions = result['predictions']
     current_val = result['current_value']
     current_status = result['current_status']
