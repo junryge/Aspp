@@ -20,6 +20,10 @@ import json
 # M14 예측 모듈
 import m14_predictor
 
+# HUB 예측 모듈
+import hub_predictor_numerical
+import hub_predictor_categorical
+
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
@@ -302,10 +306,55 @@ async def predict(query: PredictQuery):
             }
         
         elif query.mode == "hub":
-            # HUB 예측 (미구현)
+            # HUB 예측 실행 (수치형 + 범주형)
+            result_numerical = hub_predictor_numerical.predict_hub_numerical(query.data)
+            result_categorical = hub_predictor_categorical.predict_hub_categorical(query.data)
+            
+            if 'error' in result_numerical:
+                return JSONResponse(content=result_numerical, status_code=400)
+            
+            if 'error' in result_categorical:
+                return JSONResponse(content=result_categorical, status_code=400)
+            
+            # HTML 대시보드 저장 (2개)
+            timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+            
+            dashboard_numerical_filename = f'HUB_Numerical_{timestamp}.html'
+            dashboard_numerical_path = os.path.join('dashboards', dashboard_numerical_filename)
+            
+            dashboard_categorical_filename = f'HUB_Categorical_{timestamp}.html'
+            dashboard_categorical_path = os.path.join('dashboards', dashboard_categorical_filename)
+            
+            os.makedirs('dashboards', exist_ok=True)
+            
+            with open(dashboard_numerical_path, 'w', encoding='utf-8') as f:
+                f.write(result_numerical['dashboard_html'])
+            
+            with open(dashboard_categorical_path, 'w', encoding='utf-8') as f:
+                f.write(result_categorical['dashboard_html'])
+            
+            logger.info(f"대시보드 저장: {dashboard_numerical_filename}, {dashboard_categorical_filename}")
+            
+            # 간단 요약 생성
+            summary = generate_hub_summary(result_numerical, result_categorical)
+            
+            # LLM 해석 (있으면)
+            llm_analysis = ""
+            if llm is not None:
+                try:
+                    llm_analysis = generate_hub_llm_analysis(result_numerical, result_categorical)
+                except Exception as e:
+                    logger.warning(f"LLM 분석 실패: {e}")
+            
             return {
-                "error": "Not implemented",
-                "message": "HUB 예측 기능은 준비 중입니다."
+                "success": True,
+                "summary": summary,
+                "llm_analysis": llm_analysis,
+                "dashboard_numerical_url": f"/dashboard/{dashboard_numerical_filename}",
+                "dashboard_categorical_url": f"/dashboard/{dashboard_categorical_filename}",
+                "predictions_numerical": result_numerical['predictions'],
+                "predictions_categorical": result_categorical['predictions'],
+                "current_value": result_numerical['current_value']
             }
         
         else:
@@ -344,7 +393,99 @@ def generate_prediction_summary(result):
     
     return summary
 
-def generate_llm_analysis(result):
+def generate_hub_summary(result_numerical, result_categorical):
+    """HUB 예측 결과 간단 요약"""
+    current_val = result_numerical['current_value']
+    
+    pred_num = result_numerical['predictions']
+    pred_cat = result_categorical['predictions']
+    
+    summary = f"📊 현재: {current_val:,.1f}\n\n"
+    summary += "🔢 수치형 예측:\n"
+    
+    for pred in pred_num:
+        status_emoji = {
+            'NORMAL': '✅',
+            'CAUTION': '⚠️',
+            'WARNING': '🟠',
+            'CRITICAL': '🚨'
+        }.get(pred['status'], '❓')
+        
+        summary += f"• {pred['horizon']}분: {pred['pred_min']:.1f} ~ {pred['pred_max']:.1f} {status_emoji}\n"
+    
+    summary += "\n🎯 범주형 예측:\n"
+    
+    for pred in pred_cat:
+        status_emoji = {
+            'LOW': '✅',
+            'MEDIUM': '⚠️',
+            'HIGH': '🟠',
+            'CRITICAL': '🚨'
+        }.get(pred['status'], '❓')
+        
+        summary += f"• {pred['horizon']}분: {pred['class_name']} (급증 {pred['prob2']:.1f}%) {status_emoji}\n"
+    
+    return summary
+
+def generate_hub_llm_analysis(result_numerical, result_categorical):
+    """LLM으로 HUB 예측 결과 분석"""
+    current_val = result_numerical['current_value']
+    
+    pred_num = result_numerical['predictions']
+    pred_cat = result_categorical['predictions']
+    
+    # 최대 급증 확률
+    max_surge_prob = max(p['prob2'] for p in pred_cat)
+    
+    # 최대 예측값
+    max_pred_value = max(p['pred_max'] for p in pred_num)
+    
+    # 프롬프트 구성
+    pred_num_text = ""
+    for pred in pred_num:
+        pred_num_text += f"{pred['horizon']}분 후: {pred['pred_min']:.1f} ~ {pred['pred_max']:.1f} (상태 {pred['status']})\n"
+    
+    pred_cat_text = ""
+    for pred in pred_cat:
+        pred_cat_text += f"{pred['horizon']}분 후: {pred['class_name']} (급증 {pred['prob2']:.1f}%, 상태 {pred['status']})\n"
+    
+    prompt = f"""You MUST answer in Korean only. Be concise and professional.
+
+현재 HUB 물류 상황:
+- 현재 CURRENT_M16A_3F_JOB_2: {current_val:,.1f}
+
+수치형 예측 결과:
+{pred_num_text}
+
+범주형 예측 결과:
+{pred_cat_text}
+
+최대 급증 확률: {max_surge_prob:.1f}%
+최대 예측값: {max_pred_value:.1f}
+
+위 예측 결과를 바탕으로 다음을 한국어로 간결하게 설명하세요 (3-4문장):
+1. 현재 상황 평가
+2. 예측되는 추세 (증가/감소/안정)
+3. 권장 조치사항
+
+답변 (한국어):"""
+    
+    try:
+        response = llm(
+            prompt,
+            max_tokens=200,
+            temperature=0.3,
+            top_p=0.85,
+            repeat_penalty=1.5,
+            stop=["질문:", "\n\n\n"]
+        )
+        
+        answer = response['choices'][0]['text'].strip()
+        return answer
+        
+    except Exception as e:
+        logger.error(f"LLM 분석 실패: {e}")
+        return ""
     """LLM으로 예측 결과 분석"""
     predictions = result['predictions']
     current_val = result['current_value']
