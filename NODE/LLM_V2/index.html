@@ -225,6 +225,148 @@
             color: white;
             border-color: #667eea;
         }
+        
+        .data-input-section {
+            margin-top: 20px;
+            background: #f7fafc;
+            border-radius: 10px;
+            overflow: hidden;
+            border: 2px solid #667eea;
+        }
+        
+        .data-input-header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 15px 20px;
+            cursor: pointer;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            font-weight: 600;
+            transition: all 0.3s;
+        }
+        
+        .data-input-header:hover {
+            background: linear-gradient(135deg, #5568d3 0%, #6a3f8a 100%);
+        }
+        
+        .data-input-header .icon {
+            font-size: 20px;
+            transition: transform 0.3s;
+        }
+        
+        .data-input-header .icon.open {
+            transform: rotate(180deg);
+        }
+        
+        .data-input-body {
+            padding: 20px;
+            display: none;
+        }
+        
+        .data-input-body.show {
+            display: block;
+        }
+        
+        .input-method {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 20px;
+        }
+        
+        .method-btn {
+            flex: 1;
+            padding: 12px;
+            background: white;
+            border: 2px solid #ddd;
+            border-radius: 8px;
+            cursor: pointer;
+            text-align: center;
+            font-weight: 600;
+            transition: all 0.3s;
+        }
+        
+        .method-btn:hover {
+            border-color: #667eea;
+        }
+        
+        .method-btn.active {
+            background: #667eea;
+            color: white;
+            border-color: #667eea;
+        }
+        
+        .input-area {
+            display: none;
+        }
+        
+        .input-area.show {
+            display: block;
+        }
+        
+        .file-upload {
+            border: 2px dashed #667eea;
+            border-radius: 10px;
+            padding: 30px;
+            text-align: center;
+            background: white;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+        
+        .file-upload:hover {
+            background: #f7fafc;
+            border-color: #5568d3;
+        }
+        
+        .file-upload input[type="file"] {
+            display: none;
+        }
+        
+        .text-input textarea {
+            width: 100%;
+            min-height: 200px;
+            padding: 15px;
+            border: 2px solid #ddd;
+            border-radius: 8px;
+            font-family: 'Courier New', monospace;
+            font-size: 13px;
+            resize: vertical;
+        }
+        
+        .text-input textarea:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+        
+        .submit-btn {
+            margin-top: 15px;
+            width: 100%;
+            padding: 15px;
+            background: linear-gradient(135deg, #48bb78 0%, #38a169 100%);
+            color: white;
+            border: none;
+            border-radius: 8px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+        
+        .submit-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(72, 187, 120, 0.4);
+        }
+        
+        .data-info {
+            background: #e6fffa;
+            border-left: 4px solid #38b2ac;
+            padding: 15px;
+            margin-bottom: 15px;
+            border-radius: 5px;
+            font-size: 14px;
+            line-height: 1.6;
+        }
     </style>
 </head>
 <body>
@@ -264,6 +406,62 @@
         
         <div id="result">💡 질문을 입력하면 AI가 CSV 데이터를 검색하여 답변합니다.</div>
         
+        <!-- 데이터 입력 섹션 (M14/HUB 모드에서만 표시) -->
+        <div id="dataInputSection" class="data-input-section" style="display: none;">
+            <div class="data-input-header" onclick="toggleDataInput()">
+                <span>📊 데이터 입력 (280분 시계열 데이터)</span>
+                <span class="icon" id="dataInputIcon">▼</span>
+            </div>
+            <div class="data-input-body" id="dataInputBody">
+                <div class="data-info">
+                    <strong>ℹ️ 필요 데이터:</strong> 최근 280분(4시간 40분) 데이터가 필요합니다.<br>
+                    <strong>📋 필수 컬럼 13개:</strong> M14AM14B, M14AM14BSUM, M14BM14A, M14AM10A, M10AM14A, M16M14A, M14AM16SUM, TOTALCNT, 
+                    M14.QUE.ALL.CURRENTQCREATED, M14.QUE.ALL.CURRENTQCOMPLETED, M14.QUE.OHT.OHTUTIL, M14.QUE.ALL.TRANSPORT4MINOVERCNT, CURRTIME
+                </div>
+                
+                <div class="input-method">
+                    <div class="method-btn active" onclick="selectInputMethod('file')" id="method-file">
+                        📁 CSV 파일 업로드
+                    </div>
+                    <div class="method-btn" onclick="selectInputMethod('text')" id="method-text">
+                        📝 텍스트 입력
+                    </div>
+                </div>
+                
+                <!-- 파일 업로드 -->
+                <div class="input-area show" id="input-file">
+                    <div class="file-upload" onclick="document.getElementById('fileInput').click()">
+                        <div style="font-size: 48px; margin-bottom: 10px;">📁</div>
+                        <div style="font-size: 18px; font-weight: 600; margin-bottom: 5px;">CSV 파일을 선택하세요</div>
+                        <div style="font-size: 14px; color: #718096;">또는 드래그 앤 드롭</div>
+                        <input type="file" id="fileInput" accept=".csv" onchange="handleFileSelect(event)">
+                    </div>
+                    <div id="fileInfo" style="margin-top: 15px; padding: 10px; background: white; border-radius: 5px; display: none;">
+                        <strong>선택된 파일:</strong> <span id="fileName"></span><br>
+                        <strong>크기:</strong> <span id="fileSize"></span>
+                    </div>
+                    <button class="submit-btn" onclick="submitData()" id="submitFileBtn" style="display: none;">
+                        🚀 예측 시작
+                    </button>
+                </div>
+                
+                <!-- 텍스트 입력 -->
+                <div class="input-area" id="input-text">
+                    <div class="text-input">
+                        <textarea id="textData" placeholder="CSV 데이터를 붙여넣으세요...
+예시:
+CURRTIME,M14AM14B,M14AM14BSUM,M14BM14A,...
+202509210000,305,425,180,...
+202509210001,310,430,185,...
+..."></textarea>
+                    </div>
+                    <button class="submit-btn" onclick="submitData()">
+                        🚀 예측 시작
+                    </button>
+                </div>
+            </div>
+        </div>
+        
         <div class="examples">
             <h3 id="exampleTitle">📝 질문 예시 (클릭하면 입력됩니다)</h3>
             <div class="example-tags" id="exampleTags">
@@ -280,6 +478,8 @@
         const statusText = document.getElementById('statusText');
         
         let currentMode = 'search';
+        let currentInputMethod = 'file';
+        let uploadedFileData = null;
         
         // 모드별 질문 예시
         const modeExamples = {
@@ -323,6 +523,14 @@
                 hub: 'HUB 예측 모드'
             };
             statusText.textContent = `시스템 준비됨 | ${modeNames[mode]}`;
+            
+            // 데이터 입력 섹션 표시/숨김
+            const dataInputSection = document.getElementById('dataInputSection');
+            if (mode === 'm14' || mode === 'hub') {
+                dataInputSection.style.display = 'block';
+            } else {
+                dataInputSection.style.display = 'none';
+            }
             
             // 질문 예시 업데이트
             updateExamples();
@@ -405,6 +613,174 @@
             updateExamples();
             questionInput.focus();
         });
+        
+        // ========================================
+        // 데이터 입력 기능
+        // ========================================
+        
+        function toggleDataInput() {
+            const body = document.getElementById('dataInputBody');
+            const icon = document.getElementById('dataInputIcon');
+            
+            if (body.classList.contains('show')) {
+                body.classList.remove('show');
+                icon.classList.remove('open');
+            } else {
+                body.classList.add('show');
+                icon.classList.add('open');
+            }
+        }
+        
+        function selectInputMethod(method) {
+            currentInputMethod = method;
+            
+            // 버튼 활성화
+            document.querySelectorAll('.method-btn').forEach(btn => {
+                btn.classList.remove('active');
+            });
+            document.getElementById('method-' + method).classList.add('active');
+            
+            // 입력 영역 표시
+            document.querySelectorAll('.input-area').forEach(area => {
+                area.classList.remove('show');
+            });
+            document.getElementById('input-' + method).classList.add('show');
+        }
+        
+        function handleFileSelect(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+            
+            // 파일 정보 표시
+            document.getElementById('fileName').textContent = file.name;
+            document.getElementById('fileSize').textContent = (file.size / 1024).toFixed(2) + ' KB';
+            document.getElementById('fileInfo').style.display = 'block';
+            document.getElementById('submitFileBtn').style.display = 'block';
+            
+            // 파일 읽기
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                uploadedFileData = e.target.result;
+                console.log('✅ 파일 로드 완료');
+            };
+            reader.readAsText(file);
+        }
+        
+        // 드래그 앤 드롭
+        const fileUpload = document.querySelector('.file-upload');
+        if (fileUpload) {
+            fileUpload.addEventListener('dragover', (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                fileUpload.style.background = '#f0f4ff';
+            });
+            
+            fileUpload.addEventListener('dragleave', (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                fileUpload.style.background = 'white';
+            });
+            
+            fileUpload.addEventListener('drop', (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                fileUpload.style.background = 'white';
+                
+                const files = e.dataTransfer.files;
+                if (files.length > 0) {
+                    document.getElementById('fileInput').files = files;
+                    handleFileSelect({ target: { files: files } });
+                }
+            });
+        }
+        
+        async function submitData() {
+            let data = null;
+            
+            if (currentInputMethod === 'file') {
+                if (!uploadedFileData) {
+                    resultDiv.textContent = '❗ 파일을 선택해주세요!';
+                    resultDiv.className = 'error';
+                    return;
+                }
+                data = uploadedFileData;
+            } else {
+                const textarea = document.getElementById('textData');
+                data = textarea.value.trim();
+                
+                if (!data) {
+                    resultDiv.textContent = '❗ 데이터를 입력해주세요!';
+                    resultDiv.className = 'error';
+                    return;
+                }
+            }
+            
+            // UI 업데이트
+            resultDiv.innerHTML = '<div class="loading"><div class="spinner"></div>데이터 분석 중... (예측 실행 중)</div>';
+            resultDiv.className = '';
+            
+            try {
+                const response = await fetch('/predict', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        mode: currentMode,
+                        data: data
+                    })
+                });
+                
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}`);
+                }
+                
+                const result = await response.json();
+                
+                // 결과 표시
+                if (result.error) {
+                    resultDiv.textContent = '❌ ' + result.error + '\n' + result.message;
+                    resultDiv.className = 'error';
+                } else {
+                    displayPredictionResult(result);
+                }
+                
+            } catch (error) {
+                resultDiv.textContent = '❌ 오류: ' + error.message;
+                resultDiv.className = 'error';
+                console.error('Error:', error);
+            }
+        }
+        
+        function displayPredictionResult(result) {
+            let html = '<div style="background: #f7fafc; padding: 20px; border-radius: 10px;">';
+            html += '<h3 style="color: #667eea; margin-bottom: 15px;">📊 예측 결과</h3>';
+            
+            if (result.predictions) {
+                result.predictions.forEach(pred => {
+                    const statusColor = pred.status === 'CRITICAL' ? '#e53e3e' : 
+                                       pred.status === 'CAUTION' ? '#dd6b20' : 
+                                       pred.status === 'NORMAL' ? '#38a169' : '#718096';
+                    
+                    html += `
+                        <div style="background: white; padding: 15px; margin: 10px 0; border-radius: 8px; border-left: 4px solid ${statusColor};">
+                            <div style="font-size: 18px; font-weight: 700; color: #2d3748; margin-bottom: 5px;">
+                                ${pred.horizon}분 후: ${pred.prediction.toLocaleString()}
+                            </div>
+                            <div style="display: flex; gap: 15px; font-size: 14px;">
+                                <span>상태: <strong style="color: ${statusColor};">${pred.status}</strong></span>
+                                <span>위험도: <strong style="color: #e53e3e;">${pred.danger_probability}%</strong></span>
+                                <span>변화: <strong>${pred.change > 0 ? '+' : ''}${pred.change}</strong></span>
+                            </div>
+                        </div>
+                    `;
+                });
+            }
+            
+            html += '</div>';
+            resultDiv.innerHTML = html;
+            resultDiv.className = 'success';
+        }
     </script>
 </body>
 </html>
