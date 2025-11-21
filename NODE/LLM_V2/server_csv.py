@@ -6,11 +6,19 @@ CSV 직접 검색 RAG 서버 (벡터DB 없음)
 
 import os
 from fastapi import FastAPI
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel
 import logging
 import pandas as pd
 import re
+import numpy as np
+import pickle
+from datetime import datetime, timedelta
+from io import StringIO
+import json
+
+# M14 예측 모듈
+import m14_predictor
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -153,6 +161,10 @@ class Query(BaseModel):
     question: str
     mode: str = "search"  # 기본값: search
 
+class PredictQuery(BaseModel):
+    mode: str  # "m14" or "hub"
+    data: str  # CSV 데이터
+
 @app.get("/")
 async def home():
     """메인 페이지"""
@@ -243,6 +255,100 @@ async def ask(query: Query):
         import traceback
         logger.error(traceback.format_exc())
         return {"answer": f"❌ 오류: {str(e)}"}
+
+@app.post("/predict")
+async def predict(query: PredictQuery):
+    """M14/HUB 예측 처리"""
+    try:
+        logger.info(f"예측 요청: 모드={query.mode}")
+        
+        if query.mode == "m14":
+            # M14 예측 실행
+            result = m14_predictor.predict_m14(query.data)
+            
+            if 'error' in result:
+                return JSONResponse(content=result, status_code=400)
+            
+            # 간소화된 요약 생성
+            summary = generate_prediction_summary(result)
+            
+            return {
+                "success": True,
+                "summary": summary,
+                "predictions": result['predictions'],
+                "current_value": result['current_value'],
+                "current_status": result['current_status']
+            }
+        
+        elif query.mode == "hub":
+            # HUB 예측 (미구현)
+            return {
+                "error": "Not implemented",
+                "message": "HUB 예측 기능은 준비 중입니다."
+            }
+        
+        else:
+            return {
+                "error": "Invalid mode",
+                "message": "mode는 'm14' 또는 'hub'여야 합니다."
+            }
+        
+    except Exception as e:
+        logger.error(f"예측 실패: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
+        return JSONResponse(
+            content={"error": "Prediction failed", "message": str(e)},
+            status_code=500
+        )
+
+def generate_prediction_summary(result):
+    """예측 결과 요약 생성"""
+    predictions = result['predictions']
+    current_val = result['current_value']
+    current_status = result['current_status']
+    
+    summary = f"📊 현재 TOTALCNT: {current_val:,} ({current_status})\n\n"
+    summary += "🔮 예측 결과:\n"
+    
+    for pred in predictions:
+        status_emoji = {
+            'LOW': '✅',
+            'NORMAL': '🟢',
+            'CAUTION': '⚠️',
+            'CRITICAL': '🚨'
+        }.get(pred['status'], '❓')
+        
+        change_sign = '+' if pred['change'] > 0 else ''
+        summary += f"• {pred['horizon']}분 후: {pred['prediction']:,} {status_emoji} "
+        summary += f"(변화: {change_sign}{pred['change']:,}, 위험도: {pred['danger_probability']}%)\n"
+    
+    # 최대 위험도
+    max_danger = max(p['danger_probability'] for p in predictions)
+    
+    if max_danger >= 85:
+        summary += "\n🚨 CRITICAL: 즉시 대응 필요!"
+    elif max_danger >= 60:
+        summary += "\n⚠️ WARNING: 주의 필요!"
+    elif max_danger >= 30:
+        summary += "\n⚠️ CAUTION: 모니터링 강화!"
+    else:
+        summary += "\n✅ NORMAL: 정상 범위"
+    
+    return summary
+
+@app.get("/dashboard/{filename}")
+async def get_dashboard(filename: str):
+    """생성된 HTML 대시보드 반환"""
+    filepath = os.path.join("dashboards", filename)
+    
+    if not os.path.exists(filepath):
+        return JSONResponse(
+            content={"error": "File not found"},
+            status_code=404
+        )
+    
+    return FileResponse(filepath)
 
 if __name__ == "__main__":
     import uvicorn
