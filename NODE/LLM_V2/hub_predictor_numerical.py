@@ -236,6 +236,7 @@ def predict_hub_numerical(csv_data):
     
     available_cols = set(df.columns)
     features, current_value = create_features_v8(df, available_cols)
+    current_value = float(current_value)  # NumPy → Python float
     X_pred = pd.DataFrame([features])
     
     if 'STAT_DT' in df.columns:
@@ -261,8 +262,9 @@ def predict_hub_numerical(csv_data):
                 model_dict = pickle.load(f)
             models = model_dict['models']
             
-            pred_min = models[0].predict(X_pred)[0]
-            pred_max = models[1].predict(X_pred)[0]
+            # NumPy float32 → Python float 변환
+            pred_min = float(models[0].predict(X_pred)[0])
+            pred_max = float(models[1].predict(X_pred)[0])
             
             pred_value_max = current_value + pred_max
             
