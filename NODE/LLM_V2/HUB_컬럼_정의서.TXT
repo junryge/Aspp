@@ -1,0 +1,223 @@
+================================================================================
+V8 모델 컬럼 정리
+================================================================================
+총 54개 컬럼 (V8 모델에서 32개 사용)
+
+================================================================================
+1. 시간/타겟 (2개)
+================================================================================
+STAT_DT                          - 시간 (YYYYMMDDHHmm)
+CURRENT_M16A_3F_JOB              - 현재 작업량 (타겟)
+CURRENT_M16A_3F_JOB_2            - 현재 작업량 (예측 대상) ★★★
+
+================================================================================
+2. M14A_3F - 생산라인 A (6개)
+================================================================================
+M14A_3F_CNV_MAXCAPA              - Conveyor 최대 용량
+M14A_3F_TO_HUB_CMD               - HUB로 가는 명령
+M14A_3F_TO_HUB_JOB2              - HUB로 가는 작업량 (실제) [V8 사용]
+M14A_3F_TO_HUB_JOB_ALT           - HUB로 가는 작업량 (대체)
+
+M14_TO_M16_OFS_CUR               - M14→M16 오프셋 현재값
+
+M16A_3F_TO_M14A_3F_JOB           - M16A→M14A 작업 전송 [V8 사용]
+M16A_3F_TO_M14A_CNV_AI_CMD       - M16A→M14A Conveyor AI 명령
+
+================================================================================
+3. M14B_7F - 생산라인 B (5개)
+================================================================================
+M14B_7F_LFT_MAXCAPA              - Lifter 최대 용량
+M14B_7F_TO_HUB_CMD               - HUB로 가는 명령
+M14B_7F_TO_HUB_JOB2              - HUB로 가는 작업량
+M14B_7F_TO_HUB_JOB_ALT           - HUB로 가는 작업량 (대체)
+
+M16A_3F_M14BLFT_MAXCAPA          - M16A_3F의 M14B Lifter 최대 용량
+M16A_3F_TO_M14B_7F_JOB           - M16A→M14B 작업 전송 [V8 사용]
+M16A_3F_TO_M14B_LFT_AI_CMD       - M16A→M14B Lifter AI 명령
+
+================================================================================
+4. M16A_2F - M16A 2층 (6개)
+================================================================================
+M16A_2F_LFT_MAXCAPA              - Lifter 최대 용량 [V8 사용]
+M16A_2F_TO_6F_JOB                - 2층→6층 작업 전송
+M16A_2F_TO_HUB_CMD               - 2층→HUB 명령
+M16A_2F_TO_HUB_JOB2              - 2층→HUB 작업량 [V8 사용]
+M16A_2F_TO_HUB_JOB_ALT           - 2층→HUB 작업량 (대체)
+
+M16A_3F_TO_M16A_2F_JOB           - 3층→2층 작업 전송 [V8 사용]
+
+================================================================================
+5. M16A_3F - M16A 3층 (메인 타겟층) (11개)
+================================================================================
+[기본 정보]
+M16A_3F_CMD                      - 3층 명령 [V8 사용]
+M16A_3F_CNV_MAXCAPA              - Conveyor 최대 용량
+M16A_3F_LFT_MAXCAPA              - Lifter 최대 용량
+M16A_3F_STORAGE_UTIL             - 저장 사용률 [V8 사용]
+
+[내부 작업]
+M16A_3F_TO_3F_MLUD_JOB           - 3층 내부 MLUD 작업
+M16A_3F_TO_M16A_3F_STB_CMDM      - 3층 STB 명령
+
+[AI 명령]
+M16A_3F_TO_M16A_LFT_AI_CMD       - Lifter AI 명령
+M16A_3F_TO_M16A_MLUD_AI_CMD      - MLUD AI 명령
+
+[작업 전송] - 위에서 이미 정리됨
+M16A_3F_TO_M14A_3F_JOB           - →M14A 작업 [V8 사용]
+M16A_3F_TO_M14B_7F_JOB           - →M14B 작업 [V8 사용]
+M16A_3F_TO_M16A_2F_JOB           - →M16A_2F 작업 [V8 사용]
+M16A_3F_TO_M16A_6F_JOB           - →M16A_6F 작업 [V8 사용]
+
+================================================================================
+6. M16A_6F - M16A 6층 (6개)
+================================================================================
+M16A_6F_LFT_MAXCAPA              - Lifter 최대 용량 [V8 사용]
+M16A_6F_TO_2F_JOB                - 6층→2층 작업 전송
+M16A_6F_TO_HUB_CMD               - 6층→HUB 명령 [V8 사용]
+M16A_6F_TO_HUB_JOB               - 6층→HUB 작업량 [V8 사용]
+M16A_6F_TO_HUB_JOB_ALT           - 6층→HUB 작업량 (대체)
+
+M16A_3F_TO_M16A_6F_JOB           - 3층→6층 작업 전송 [V8 사용]
+
+================================================================================
+7. M16B (1개)
+================================================================================
+M16B_10F_TO_HUB_JOB              - M16B 10층→HUB 작업
+
+================================================================================
+8. M16_오프셋 (1개)
+================================================================================
+M16_TO_M14_OFS_CUR               - M16→M14 오프셋 현재값
+
+================================================================================
+9. HUB (1개) - 핵심 병목 지표
+================================================================================
+HUBROOMTOTAL                     - HUB 전체 룸 개수 [V8 사용] ★★★
+                                   (< 610이면 병목 위험)
+
+================================================================================
+10. CD_M163F Storage (3개) - FS Storage 정보
+================================================================================
+CD_M163FSTORAGEUSE               - M16A_3F Storage 사용량 [V8 사용]
+CD_M163FSTORAGETOTAL             - M16A_3F Storage 전체량 [V8 사용]
+CD_M163FSTORAGEUTIL              - M16A_3F Storage 사용률 [V8 사용]
+                                   (>= 7이면 위험)
+
+================================================================================
+11. M16HUB QUE (7개) - V8 신규 추가 ★★★
+================================================================================
+[기본 큐 정보]
+M16HUB.QUE.ALL.CURRENTQCNT            - 현재 큐 개수 [V8 사용]
+                                        (>= 1200이면 병목)
+M16HUB.QUE.ALL.CURRENTQCOMPLETED      - 완료된 큐 [V8 사용]
+M16HUB.QUE.ALL.FABTRANSJOBCNT         - FAB 전송 작업 수 [V8 사용]
+
+[시간 지표]
+M16HUB.QUE.TIME.AVGTOTALTIME1MIN     - 1분 평균 총 시간 [V8 사용]
+                                        (>= 4.0이면 위험)
+M16HUB.QUE.TIME.AVGTOTALTIME         - 평균 총 시간 [V8 사용]
+                                        (>= 5.0이면 위험)
+
+[OHT 정보]
+M16HUB.QUE.OHT.CURRENTOHTQCNT        - 현재 OHT 큐 수 [V8 사용]
+M16HUB.QUE.OHT.OHTUTIL               - OHT 사용률(%) [V8 사용]
+                                        (>= 85%이면 위험)
+
+================================================================================
+12. M16A QUE (7개) - V8 신규 추가 ★★★
+================================================================================
+[기본 큐 정보]
+M16A.QUE.ALL.CURRENTQCOMPLETED       - 완료된 큐 [V8 사용]
+M16A.QUE.ALL.CURRENTQCREATED         - 생성된 큐 [V8 사용]
+
+[OHT 정보]
+M16A.QUE.OHT.CURRENTOHTQCNT          - 현재 OHT 큐 수 [V8 사용]
+M16A.QUE.OHT.OHTUTIL                 - OHT 사용률(%) [V8 사용]
+                                        (>= 85%이면 위험)
+
+[시간/로드 지표]
+M16A.QUE.LOAD.AVGLOADTIME1MIN        - 1분 평균 로드 시간 [V8 사용]
+                                        (>= 2.5이면 위험)
+M16A.QUE.ALL.TRANSPORT4MINOVERCNT    - 4분 초과 전송 횟수 [V8 사용]
+                                        (>= 40이면 위험)
+
+[이상 지표]
+M16A.QUE.ABN.QUETIMEDELAY            - 큐 시간 지연 [V8 사용]
+                                        (>= 1이면 경고, >= 3이면 위험)
+
+================================================================================
+V8 모델 사용 컬럼 요약 (32개)
+================================================================================
+
+[V7 기존 17개]
+1. M16A_3F_STORAGE_UTIL              - 저장 사용률
+2. CD_M163FSTORAGEUSE                - Storage 사용량
+3. CD_M163FSTORAGETOTAL              - Storage 전체량
+4. CD_M163FSTORAGEUTIL               - Storage 사용률
+5. HUBROOMTOTAL                      - HUB 룸 개수
+6. M16A_3F_CMD                       - 3층 명령
+7. M16A_6F_TO_HUB_CMD                - 6층→HUB 명령
+8. M16A_6F_TO_HUB_JOB                - 6층→HUB 작업 (유입)
+9. M16A_2F_TO_HUB_JOB2               - 2층→HUB 작업 (유입)
+10. M14A_3F_TO_HUB_JOB2              - M14A→HUB 작업 (유입)
+11. M16A_3F_TO_M16A_6F_JOB           - 3층→6층 작업 (유출)
+12. M16A_3F_TO_M16A_2F_JOB           - 3층→2층 작업 (유출)
+13. M16A_3F_TO_M14A_3F_JOB           - 3층→M14A 작업 (유출)
+14. M16A_6F_LFT_MAXCAPA              - 6층 Lifter 용량
+15. M16A_2F_LFT_MAXCAPA              - 2층 Lifter 용량
+16. M16HUB.QUE.ALL.CURRENTQCNT       - HUB 큐 개수
+17. M16HUB.QUE.TIME.AVGTOTALTIME1MIN - HUB 1분 평균 시간
+
+[V8 신규 13개]
+18. CURRENT_M16A_3F_JOB              - 현재 작업량
+19. M16HUB.QUE.ALL.CURRENTQCOMPLETED - HUB 완료 큐
+20. M16HUB.QUE.ALL.FABTRANSJOBCNT    - HUB FAB 전송
+21. M16HUB.QUE.TIME.AVGTOTALTIME     - HUB 평균 시간
+22. M16HUB.QUE.OHT.CURRENTOHTQCNT    - HUB OHT 큐
+23. M16HUB.QUE.OHT.OHTUTIL           - HUB OHT 사용률
+24. M16A.QUE.ALL.CURRENTQCOMPLETED   - M16A 완료 큐
+25. M16A.QUE.ALL.CURRENTQCREATED     - M16A 생성 큐
+26. M16A.QUE.OHT.CURRENTOHTQCNT      - M16A OHT 큐
+27. M16A.QUE.OHT.OHTUTIL             - M16A OHT 사용률
+28. M16A.QUE.LOAD.AVGLOADTIME1MIN    - M16A 로드 시간
+29. M16A.QUE.ALL.TRANSPORT4MINOVERCNT - M16A 4분 초과
+30. M16A.QUE.ABN.QUETIMEDELAY        - M16A 시간 지연
+
+
+================================================================================
+컬럼 그룹별 역할
+================================================================================
+
+[Storage 그룹] - 저장 공간 상태
+- M16A_3F_STORAGE_UTIL
+- CD_M163FSTORAGEUSE/TOTAL/UTIL
+
+[Hub 그룹] - 병목 핵심
+- HUBROOMTOTAL
+
+[CMD 그룹] - 명령 처리
+- M16A_3F_CMD
+- M16A_6F_TO_HUB_CMD
+
+[Inflow 그룹] - 유입량
+- M16A_6F_TO_HUB_JOB
+- M16A_2F_TO_HUB_JOB2
+- M14A_3F_TO_HUB_JOB2
+
+[Outflow 그룹] - 유출량
+- M16A_3F_TO_M16A_6F_JOB
+- M16A_3F_TO_M16A_2F_JOB
+- M16A_3F_TO_M14A_3F_JOB
+
+[MaxCapa 그룹] - 최대 용량
+- M16A_6F_LFT_MAXCAPA
+- M16A_2F_LFT_MAXCAPA
+
+[QUE 그룹] - V8 신규 핵심
+- M16HUB.QUE.* (7개)
+- M16A.QUE.* (7개)
+
+[Target 그룹] - 예측 대상
+- CURRENT_M16A_3F_JOB
+
