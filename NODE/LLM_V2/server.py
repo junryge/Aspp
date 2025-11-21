@@ -24,13 +24,19 @@ embedding_model = None
 COLUMN_DEFINITIONS = ""
 
 def load_column_definitions():
-    """컬럼 정의 파일 로드"""
+    """컬럼 정의 파일 로드 (짧은 버전)"""
     try:
-        with open("column_definitions.txt", "r", encoding="utf-8") as f:
+        # 짧은 버전 사용 (토큰 절약)
+        with open("column_definitions_short.txt", "r", encoding="utf-8") as f:
             return f.read()
-    except Exception as e:
-        logger.error(f"컬럼 정의 로드 실패: {e}")
-        return "컬럼 정의 파일을 찾을 수 없습니다."
+    except:
+        # 짧은 버전 없으면 원본
+        try:
+            with open("column_definitions.txt", "r", encoding="utf-8") as f:
+                return f.read()
+        except Exception as e:
+            logger.error(f"컬럼 정의 로드 실패: {e}")
+            return "컬럼 정의 파일을 찾을 수 없습니다."
 
 @app.on_event("startup")
 async def startup():
@@ -52,8 +58,8 @@ async def startup():
             
             llm = Llama(
                 model_path=MODEL_PATH,
-                n_ctx=1024,
-                n_batch=128,
+                n_ctx=3000,  # 3000으로 고정!
+                n_batch=256,
                 n_gpu_layers=0,
                 n_threads=6,
                 verbose=False
@@ -155,36 +161,40 @@ async def ask(query: Query):
     try:
         logger.info(f"질문: {query.question}")
         
-        # 1. 벡터DB 검색
-        search_results = search_similar(query.question, k=3)
+        # 1. 벡터DB 검색 (2개만)
+        search_results = search_similar(query.question, k=2)
         
         # 2. 검색 결과 포맷팅
         context = ""
         if search_results:
-            context = "\n\n📈 관련 데이터:\n"
+            context = "검색된 데이터:\n"
             for i, result in enumerate(search_results, 1):
-                context += f"\n[{i}] {result['stat_dt']}\n"
-                # 너무 길면 일부만 표시
-                content_preview = result['content'][:200]
-                context += f"{content_preview}...\n"
+                # 매우 짧게 표시 (100자)
+                content_preview = result['content'][:100]
+                context += f"[{i}] {content_preview}...\n"
         
         # 3. 프롬프트 구성
-        prompt = f"""당신은 반도체 제조 AMHS 전문가입니다. 한국어로 답변하세요.
+        prompt = f"""You are an AMHS expert. You MUST answer in Korean only.
+당신은 반도체 제조 AMHS 전문가입니다. 반드시 한국어로만 답변하세요.
 
+아래 컬럼 정의를 참고하세요:
 {COLUMN_DEFINITIONS}
+
+관련 데이터:
 {context}
 
 질문: {query.question}
-답변:"""
+
+답변 (반드시 한국어로):"""
         
         # 4. LLM 호출
         response = llm(
             prompt,
-            max_tokens=500,
-            temperature=0.7,
+            max_tokens=200,  # 200으로 줄임
+            temperature=0.3,  # 낮춤 (더 일관성있게)
             top_p=0.9,
-            repeat_penalty=1.1,
-            stop=["질문:", "\n\n", "📊"]
+            repeat_penalty=1.2,  # 높임 (반복 방지)
+            stop=["질문:", "Question:", "\n\n\n"]
         )
         
         answer = response['choices'][0]['text'].strip()
