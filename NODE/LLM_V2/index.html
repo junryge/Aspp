@@ -51,6 +51,45 @@
             gap: 10px;
         }
         
+        .mode-selector {
+            margin-bottom: 20px;
+            display: flex;
+            gap: 10px;
+            background: #f8f9fa;
+            padding: 10px;
+            border-radius: 10px;
+        }
+        
+        .mode-btn {
+            flex: 1;
+            padding: 15px;
+            background: white;
+            border: 2px solid #ddd;
+            border-radius: 8px;
+            font-size: 15px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s;
+            text-align: center;
+        }
+        
+        .mode-btn:hover {
+            border-color: #667eea;
+            transform: translateY(-2px);
+        }
+        
+        .mode-btn.active {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border-color: #667eea;
+        }
+        
+        .mode-icon {
+            font-size: 24px;
+            display: block;
+            margin-bottom: 5px;
+        }
+        
         .status-indicator {
             width: 8px;
             height: 8px;
@@ -195,7 +234,22 @@
         
         <div class="status-bar">
             <div class="status-indicator"></div>
-            <span>시스템 준비됨 | 벡터DB + LLM 통합</span>
+            <span id="statusText">시스템 준비됨 | CSV 직접 검색</span>
+        </div>
+        
+        <div class="mode-selector">
+            <div class="mode-btn active" onclick="setMode('search')" id="mode-search">
+                <span class="mode-icon">🔍</span>
+                데이터검색
+            </div>
+            <div class="mode-btn" onclick="setMode('m14')" id="mode-m14">
+                <span class="mode-icon">📊</span>
+                M14예측
+            </div>
+            <div class="mode-btn" onclick="setMode('hub')" id="mode-hub">
+                <span class="mode-icon">🎯</span>
+                HUB예측
+            </div>
         </div>
         
         <div class="input-box">
@@ -208,26 +262,12 @@
             <button id="sendBtn" onclick="ask()">전송</button>
         </div>
         
-        <div id="result">💡 질문을 입력하면 AI가 벡터DB를 검색하여 답변합니다.</div>
+        <div id="result">💡 질문을 입력하면 AI가 CSV 데이터를 검색하여 답변합니다.</div>
         
         <div class="examples">
-            <h3>📝 질문 예시 (클릭하면 입력됩니다)</h3>
-            <div class="example-tags">
-                <span class="example-tag" onclick="setQuestion('M16A_3F_STORAGE_UTIL이 뭐야?')">
-                    저장소 사용률
-                </span>
-                <span class="example-tag" onclick="setQuestion('HUBROOMTOTAL은 무슨 의미?')">
-                    HUB 공간
-                </span>
-                <span class="example-tag" onclick="setQuestion('큐 수가 많으면 어떻게 돼?')">
-                    큐 분석
-                </span>
-                <span class="example-tag" onclick="setQuestion('M14A에서 HUB로 가는 작업량은?')">
-                    설비 이동
-                </span>
-                <span class="example-tag" onclick="setQuestion('OHT 가동률이란?')">
-                    OHT 설명
-                </span>
+            <h3 id="exampleTitle">📝 질문 예시 (클릭하면 입력됩니다)</h3>
+            <div class="example-tags" id="exampleTags">
+                <!-- 동적으로 생성됨 -->
             </div>
         </div>
     </div>
@@ -236,6 +276,70 @@
         const questionInput = document.getElementById('question');
         const resultDiv = document.getElementById('result');
         const sendBtn = document.getElementById('sendBtn');
+        const exampleTags = document.getElementById('exampleTags');
+        const statusText = document.getElementById('statusText');
+        
+        let currentMode = 'search';
+        
+        // 모드별 질문 예시
+        const modeExamples = {
+            search: [
+                { text: '202509210013 시간의 데이터 보여줘', label: '시간별 데이터 조회' },
+                { text: '202509210014 시점의 M16A_3F_STORAGE_UTIL 값은?', label: '저장소 사용률 조회' },
+                { text: 'HUBROOMTOTAL이 낮은 시간대 찾아줘', label: 'HUB 공간 부족 시간' },
+                { text: 'M16HUB 큐 수가 높았던 시간 분석해줘', label: '큐 혼잡 분석' },
+                { text: '202509210013과 202509210014 비교해줘', label: '시간대 비교' },
+                { text: 'M16A_3F_STORAGE_UTIL이 뭐야?', label: '컬럼 설명' }
+            ],
+            m14: [
+                { text: 'M14A 3층 작업량 예측해줘', label: 'M14A 작업량 예측' },
+                { text: '10분 후 M14A 상태는?', label: '10분 후 예측' },
+                { text: 'M14B 7층 예측 보여줘', label: 'M14B 예측' },
+                { text: 'M14에서 HUB로 가는 작업량 예측', label: 'M14→HUB 예측' },
+                { text: 'M14A 혼잡도 예측', label: '혼잡도 예측' }
+            ],
+            hub: [
+                { text: 'HUB 공간 부족 예측해줘', label: 'HUB 공간 예측' },
+                { text: '10분 후 HUBROOMTOTAL은?', label: '가용공간 예측' },
+                { text: 'M16HUB 큐 수 예측', label: '큐 수 예측' },
+                { text: 'HUB 평균 처리 시간 예측', label: '처리시간 예측' },
+                { text: 'HUB 혼잡 예상 시간대', label: '혼잡시간 예측' }
+            ]
+        };
+        
+        function setMode(mode) {
+            currentMode = mode;
+            
+            // 모드 버튼 활성화
+            document.querySelectorAll('.mode-btn').forEach(btn => {
+                btn.classList.remove('active');
+            });
+            document.getElementById('mode-' + mode).classList.add('active');
+            
+            // 상태 텍스트 업데이트
+            const modeNames = {
+                search: 'CSV 직접 검색',
+                m14: 'M14 예측 모드',
+                hub: 'HUB 예측 모드'
+            };
+            statusText.textContent = `시스템 준비됨 | ${modeNames[mode]}`;
+            
+            // 질문 예시 업데이트
+            updateExamples();
+        }
+        
+        function updateExamples() {
+            exampleTags.innerHTML = '';
+            const examples = modeExamples[currentMode];
+            
+            examples.forEach(example => {
+                const tag = document.createElement('span');
+                tag.className = 'example-tag';
+                tag.textContent = example.label;
+                tag.onclick = () => setQuestion(example.text);
+                exampleTags.appendChild(tag);
+            });
+        }
         
         function setQuestion(text) {
             questionInput.value = text;
@@ -252,7 +356,7 @@
             }
             
             // UI 업데이트
-            resultDiv.innerHTML = '<div class="loading"><div class="spinner"></div>답변 생성 중... (벡터DB 검색 → LLM 생성)</div>';
+            resultDiv.innerHTML = '<div class="loading"><div class="spinner"></div>답변 생성 중... (CSV 검색 → LLM 생성)</div>';
             resultDiv.className = '';
             sendBtn.disabled = true;
             
@@ -262,7 +366,10 @@
                     headers: {
                         'Content-Type': 'application/json'
                     },
-                    body: JSON.stringify({ question: question })
+                    body: JSON.stringify({ 
+                        question: question,
+                        mode: currentMode 
+                    })
                 });
                 
                 if (!response.ok) {
@@ -293,8 +400,9 @@
             }
         });
         
-        // 페이지 로드 시 포커스
+        // 페이지 로드 시 초기화
         window.addEventListener('load', function() {
+            updateExamples();
             questionInput.focus();
         });
     </script>
