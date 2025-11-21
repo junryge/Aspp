@@ -357,6 +357,91 @@ def get_status_info(value):
     else:
         return 'CRITICAL'
 
+def generate_dashboard_html(result):
+    """상세 HTML 대시보드 생성"""
+    
+    current_value = result['current_value']
+    current_status = result['current_status']
+    current_time = result['current_time']
+    predictions = result['predictions']
+    
+    # 최대 위험도
+    max_danger = max(p['danger_probability'] for p in predictions)
+    
+    if max_danger >= 85:
+        risk, risk_color = "CRITICAL", "#c53030"
+    elif max_danger >= 60:
+        risk, risk_color = "WARNING", "#dd6b20"
+    elif max_danger >= 30:
+        risk, risk_color = "CAUTION", "#d69e2e"
+    else:
+        risk, risk_color = "NORMAL", "#38a169"
+    
+    html = f"""<!DOCTYPE html>
+<html><head><meta charset="UTF-8"><title>M14 예측 대시보드</title>
+<style>
+*{{margin:0;padding:0;box-sizing:border-box}}
+body{{font-family:sans-serif;background:linear-gradient(135deg,#667eea,#764ba2);padding:20px}}
+.container{{max-width:1200px;margin:0 auto}}
+.card{{background:#fff;border-radius:15px;padding:30px;margin-bottom:20px;box-shadow:0 10px 30px rgba(0,0,0,0.2)}}
+.header{{text-align:center;font-size:36px;color:#2d3748;margin-bottom:10px;font-weight:700}}
+.subtitle{{text-align:center;font-size:18px;color:#718096;margin-bottom:20px}}
+.current{{background:#f7fafc;border-radius:10px;padding:20px;margin-bottom:20px;text-align:center}}
+.current-value{{font-size:48px;font-weight:700;color:#2d3748;margin:10px 0}}
+.current-status{{display:inline-block;padding:10px 20px;border-radius:20px;font-weight:700;margin-top:10px;font-size:16px}}
+.status-low{{background:#c6f6d5;color:#2f855a}}
+.status-normal{{background:#bee3f8;color:#2c5282}}
+.status-caution{{background:#fefcbf;color:#b7791f}}
+.status-critical{{background:#fed7d7;color:#c53030}}
+.risk{{background:{risk_color};color:#fff;padding:20px;border-radius:10px;text-align:center;font-size:24px;font-weight:700;margin-bottom:20px}}
+.grid{{display:grid;grid-template-columns:repeat(3,1fr);gap:20px}}
+.pred{{background:#f7fafc;border-radius:10px;padding:25px;text-align:center}}
+.time{{font-size:20px;font-weight:700;color:#667eea;margin-bottom:10px}}
+.pred-value{{font-size:48px;font-weight:700;color:#2d3748;margin:15px 0}}
+.danger{{font-size:28px;font-weight:700;margin:10px 0}}
+.danger-high{{color:#e53e3e}}
+.danger-medium{{color:#dd6b20}}
+.danger-low{{color:#38a169}}
+.metric{{display:flex;justify-content:space-between;padding:10px;background:#fff;border-radius:8px;margin:8px 0;font-size:16px}}
+</style></head><body>
+
+<div class="container">
+
+<div class="card">
+<div class="header">📊 M14 예측 대시보드</div>
+<div class="subtitle">{current_time}</div>
+
+<div class="current">
+<div style="font-size:16px;color:#718096;margin-bottom:10px;">현재 TOTALCNT</div>
+<div class="current-value">{current_value:,}</div>
+<span class="current-status status-{current_status.lower()}">{current_status}</span>
+</div>
+</div>
+
+<div class="risk">위험도: {risk} ({max_danger}%)</div>
+
+<div class="grid">"""
+    
+    for p in predictions:
+        danger_class = 'danger-high' if p['danger_probability'] >= 60 else ('danger-medium' if p['danger_probability'] >= 30 else 'danger-low')
+        
+        html += f"""<div class="pred">
+<div class="time">⏱️ {p['horizon']}분 후</div>
+<div class="pred-value">{p['prediction']:,}</div>
+<div class="danger {danger_class}">🚨 {p['danger_probability']}%</div>
+<div class="metric"><span>변화</span><span style="font-weight:700">{p['change']:+,}</span></div>
+<div class="metric"><span>상태</span><span style="font-weight:700">{p['status']}</span></div>
+<span class="current-status status-{p['status'].lower()}">{p['status']}</span>
+</div>"""
+    
+    html += """</div>
+
+</div>
+
+</body></html>"""
+    
+    return html
+
 def predict_m14(csv_data):
     """
     M14 예측 실행
@@ -494,10 +579,15 @@ def predict_m14(csv_data):
     if not results:
         return {'error': 'Prediction failed', 'message': 'All models failed'}
     
-    return {
+    result = {
         'success': True,
         'current_value': int(current_totalcnt),
         'current_time': current_time.strftime('%Y-%m-%d %H:%M'),
         'current_status': get_status_info(current_totalcnt),
         'predictions': results
     }
+    
+    # HTML 대시보드 생성
+    result['dashboard_html'] = generate_dashboard_html(result)
+    
+    return result
