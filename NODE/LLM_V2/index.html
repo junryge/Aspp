@@ -545,9 +545,7 @@
             
             if (mode === 'm14') {
                 dataInfo.innerHTML = `
-                    <strong>ℹ️ 필요 데이터:</strong> 최근 280분(4시간 40분) 데이터가 필요합니다.<br>
-                    <strong>📋 필수 컬럼 13개:</strong> M14AM14B, M14AM14BSUM, M14BM14A, M14AM10A, M10AM14A, M16M14A, M14AM16SUM, TOTALCNT, 
-                    M14.QUE.ALL.CURRENTQCREATED, M14.QUE.ALL.CURRENTQCOMPLETED, M14.QUE.OHT.OHTUTIL, M14.QUE.ALL.TRANSPORT4MINOVERCNT, CURRTIME
+                    <strong>ℹ️ 필요 데이터:</strong> 최근 280분(4시간 40분) 데이터가 필요합니다.
                 `;
                 
                 textarea.placeholder = `CSV 데이터를 붙여넣으세요... (280행)
@@ -561,11 +559,7 @@ CURRTIME,M14AM14B,M14AM14BSUM,M14BM14A,...
                 
             } else if (mode === 'hub') {
                 dataInfo.innerHTML = `
-                    <strong>ℹ️ 필요 데이터:</strong> 최근 30분 데이터가 필요합니다.<br>
-                    <strong>📋 필수 컬럼 55개:</strong><br>
-                    <div style="font-size: 11px; margin-top: 5px; line-height: 1.3; max-height: 120px; overflow-y: auto; padding: 5px; background: white; border-radius: 5px;">
-                    STAT_DT, CURRENT_M16A_3F_JOB, CURRENT_M16A_3F_JOB_2, M14A_3F_CNV_MAXCAPA, M14A_3F_TO_HUB_CMD, M14A_3F_TO_HUB_JOB2, M14A_3F_TO_HUB_JOB_ALT, M14B_7F_LFT_MAXCAPA, M14B_7F_TO_HUB_CMD, M14B_7F_TO_HUB_JOB2, M14B_7F_TO_HUB_JOB_ALT, M14_TO_M16_OFS_CUR, M16A_2F_LFT_MAXCAPA, M16A_2F_TO_6F_JOB, M16A_2F_TO_HUB_CMD, M16A_2F_TO_HUB_JOB2, M16A_2F_TO_HUB_JOB_ALT, M16A_3F_CMD, M16A_3F_CNV_MAXCAPA, M16A_3F_LFT_MAXCAPA, M16A_3F_M14BLFT_MAXCAPA, M16A_3F_STORAGE_UTIL, M16A_3F_TO_3F_MLUD_JOB, M16A_3F_TO_M14A_3F_JOB, M16A_3F_TO_M14A_CNV_AI_CMD, M16A_3F_TO_M14B_7F_JOB, M16A_3F_TO_M14B_LFT_AI_CMD, M16A_3F_TO_M16A_2F_JOB, M16A_3F_TO_M16A_3F_STB_CMD, M16A_3F_TO_M16A_6F_JOB, M16A_3F_TO_M16A_LFT_AI_CMD, M16A_3F_TO_M16A_MLUD_AI_CMD, M16A_6F_LFT_MAXCAPA, M16A_6F_TO_2F_JOB, M16A_6F_TO_HUB_CMD, M16A_6F_TO_HUB_JOB, M16A_6F_TO_HUB_JOB_ALT, M16B_10F_TO_HUB_JOB, M16_TO_M14_OFS_CUR, HUBROOMTOTAL, CD_M163FSTORAGEUSE, CD_M163FSTORAGETOTAL, CD_M163FSTORAGEUTIL, M16HUB.QUE.ALL.CURRENTQCNT, M16HUB.QUE.TIME.AVGTOTALTIME1MIN, M16HUB.QUE.ALL.CURRENTQCOMPLETED, M16HUB.QUE.ALL.FABTRANSJOBCNT, M16HUB.QUE.TIME.AVGTOTALTIME, M16HUB.QUE.OHT.CURRENTOHTQCNT, M16HUB.QUE.OHT.OHTUTIL, M16A.QUE.ALL.CURRENTQCOMPLETED, M16A.QUE.ALL.CURRENTQCREATED, M16A.QUE.OHT.CURRENTOHTQCNT, M16A.QUE.OHT.OHTUTIL, M16A.QUE.LOAD.AVGLOADTIME1MIN, M16A.QUE.ALL.TRANSPORT4MINOVERCNT, M16A.QUE.ABN.QUETIMEDELAY
-                    </div>
+                    <strong>ℹ️ 필요 데이터:</strong> 최근 30분 데이터가 필요합니다.
                 `;
                 
                 textarea.placeholder = `CSV 데이터를 붙여넣으세요... (30행)
