@@ -753,33 +753,45 @@ CURRTIME,M14AM14B,M14AM14BSUM,M14BM14A,...
         }
         
         function displayPredictionResult(result) {
-            let html = '<div style="background: #f7fafc; padding: 20px; border-radius: 10px;">';
-            html += '<h3 style="color: #667eea; margin-bottom: 15px;">📊 예측 결과</h3>';
-            
-            if (result.predictions) {
-                result.predictions.forEach(pred => {
-                    const statusColor = pred.status === 'CRITICAL' ? '#e53e3e' : 
-                                       pred.status === 'CAUTION' ? '#dd6b20' : 
-                                       pred.status === 'NORMAL' ? '#38a169' : '#718096';
+            if (result.summary) {
+                // 간소화된 요약 표시
+                let html = '<div style="background: #f7fafc; padding: 20px; border-radius: 10px; white-space: pre-wrap;">';
+                html += result.summary;
+                html += '</div>';
+                
+                // 상세 예측 카드
+                if (result.predictions) {
+                    html += '<div style="margin-top: 20px;">';
+                    html += '<h3 style="color: #667eea; margin-bottom: 15px;">📊 상세 예측</h3>';
                     
-                    html += `
-                        <div style="background: white; padding: 15px; margin: 10px 0; border-radius: 8px; border-left: 4px solid ${statusColor};">
-                            <div style="font-size: 18px; font-weight: 700; color: #2d3748; margin-bottom: 5px;">
-                                ${pred.horizon}분 후: ${pred.prediction.toLocaleString()}
+                    result.predictions.forEach(pred => {
+                        const statusColor = pred.status === 'CRITICAL' ? '#e53e3e' : 
+                                           pred.status === 'CAUTION' ? '#dd6b20' : 
+                                           pred.status === 'NORMAL' ? '#38a169' : '#718096';
+                        
+                        html += `
+                            <div style="background: white; padding: 15px; margin: 10px 0; border-radius: 8px; border-left: 4px solid ${statusColor};">
+                                <div style="font-size: 18px; font-weight: 700; color: #2d3748; margin-bottom: 5px;">
+                                    ${pred.horizon}분 후: ${pred.prediction.toLocaleString()}
+                                </div>
+                                <div style="display: flex; gap: 15px; font-size: 14px;">
+                                    <span>상태: <strong style="color: ${statusColor};">${pred.status}</strong></span>
+                                    <span>위험도: <strong style="color: #e53e3e;">${pred.danger_probability}%</strong></span>
+                                    <span>변화: <strong>${pred.change > 0 ? '+' : ''}${pred.change}</strong></span>
+                                </div>
                             </div>
-                            <div style="display: flex; gap: 15px; font-size: 14px;">
-                                <span>상태: <strong style="color: ${statusColor};">${pred.status}</strong></span>
-                                <span>위험도: <strong style="color: #e53e3e;">${pred.danger_probability}%</strong></span>
-                                <span>변화: <strong>${pred.change > 0 ? '+' : ''}${pred.change}</strong></span>
-                            </div>
-                        </div>
-                    `;
-                });
+                        `;
+                    });
+                    
+                    html += '</div>';
+                }
+                
+                resultDiv.innerHTML = html;
+                resultDiv.className = 'success';
+            } else {
+                resultDiv.textContent = '예측 결과를 표시할 수 없습니다.';
+                resultDiv.className = 'error';
             }
-            
-            html += '</div>';
-            resultDiv.innerHTML = html;
-            resultDiv.className = 'success';
         }
     </script>
 </body>
