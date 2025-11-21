@@ -237,6 +237,7 @@ def predict_hub_categorical(csv_data):
     
     available_cols = set(df.columns)
     features, current_value = create_features_v8(df, available_cols)
+    current_value = float(current_value)  # NumPy → Python float
     X_pred = pd.DataFrame([features])
     
     if 'STAT_DT' in df.columns:
@@ -264,9 +265,10 @@ def predict_hub_categorical(csv_data):
             pred_class = model.predict(X_pred)[0]
             pred_proba = model.predict_proba(X_pred)[0]
             
-            prob0 = pred_proba[0] * 100
-            prob1 = pred_proba[1] * 100
-            prob2 = pred_proba[2] * 100
+            # NumPy float32 → Python float 변환
+            prob0 = float(pred_proba[0] * 100)
+            prob1 = float(pred_proba[1] * 100)
+            prob2 = float(pred_proba[2] * 100)
             
             if prob2 >= 70:
                 status = "CRITICAL"
