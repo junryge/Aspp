@@ -129,7 +129,7 @@ async def ask(query: Query):
                 return {"answer": data_text}
             
             # 1. 정확한 데이터 먼저
-            answer = f"📊 검색 결과\n{data_text}\n"
+            answer = f"📊 검색 결과<br>{data_text}<br>"
             
             # 2. LLM 분석 추가 (있으면)
             if llm is not None:
@@ -170,10 +170,10 @@ async def ask(query: Query):
                             seen.add(line_clean)
                             unique_lines.append(line)
                     
-                    analysis = '\n'.join(unique_lines[:4])
+                    analysis = '<br>'.join(unique_lines[:4])
                     
                     if analysis:
-                        answer += f"---\n🤖 분석\n{analysis}"
+                        answer += f"<br>---<br>🤖 분석<br>{analysis}"
                     
                 except Exception as e:
                     logger.warning(f"LLM 분석 실패: {e}")
