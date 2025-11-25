@@ -622,7 +622,7 @@ STAT_DT,CURRENT_M16A_3F_JOB_2,M16A_3F_STORAGE_UTIL,HUBROOMTOTAL,...
                 }
                 
                 const data = await response.json();
-                resultDiv.textContent = data.answer;
+                resultDiv.innerHTML = data.answer;
                 resultDiv.className = 'success';
                 
                 // 입력창 비우기
