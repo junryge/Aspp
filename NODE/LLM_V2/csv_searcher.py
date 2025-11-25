@@ -107,12 +107,12 @@ def search_by_time(time_str: str) -> Tuple[Optional[pd.Series], str]:
     ]
     
     # 결과 포맷팅 (HTML 줄바꿈)
-    data_text = f"{row[time_col]}<br>"
+    data_text = f"{row[time_col]}\n"
     
     # 주요 컬럼만 표시
     for col in important_cols:
         if col in row.index and pd.notna(row[col]):
-            data_text += f"{col}: {row[col]}<br>"
+            data_text += f"{col}: {row[col]}\n"
     
     return row, data_text
 
@@ -137,7 +137,7 @@ def search_by_columns(col_names: List[str], n_rows: int = 5) -> Tuple[Optional[p
         return None, f"유효한 컬럼이 없습니다. 사용 가능: {list(_df.columns[:10])}..."
     
     recent = _df.tail(n_rows)
-    data_text = f"최근 {n_rows}개 데이터:<br><br>"
+    data_text = f"최근 {n_rows}개 데이터:\n\n"
     
     # 시간 컬럼
     time_cols = ['현재시간', 'STAT_DT', 'CURRTIME', '시간']
@@ -149,13 +149,13 @@ def search_by_columns(col_names: List[str], n_rows: int = 5) -> Tuple[Optional[p
     
     for idx, row in recent.iterrows():
         if time_col:
-            data_text += f"[{row[time_col]}]<br>"
+            data_text += f"[{row[time_col]}]\n"
         else:
-            data_text += f"[Row {idx}]<br>"
+            data_text += f"[Row {idx}]\n"
         
         for col in valid_cols:
-            data_text += f"  {col}: {row[col]}<br>"
-        data_text += "<br>"
+            data_text += f"  {col}: {row[col]}\n"
+        data_text += "\n"
     
     return recent[valid_cols], data_text
 
@@ -206,10 +206,10 @@ def search_csv(query: str) -> Tuple[Optional[Any], str]:
             return None, f"시간 '{time_str}'에 해당하는 데이터가 없습니다."
         
         # 해당 컬럼값만 반환
-        data_text = f"시간: {time_str}<br>"
+        data_text = f"시간: {time_str}\n"
         for col in valid_cols:
             if col in row.index:
-                data_text += f"{col}: {row[col]}<br>"
+                data_text += f"{col}: {row[col]}\n"
         
         return row, data_text
     
