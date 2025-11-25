@@ -134,54 +134,39 @@ async def ask(query: Query):
             # 2. LLM 분석 추가 (있으면)
             if llm is not None:
                 try:
-                    prompt = f"""You MUST answer in Korean only. 
-아래 데이터를 분석해주세요. 데이터 값은 절대 바꾸지 마세요.
+                    prompt = f"""한국어로 2문장만 답하세요. 마크다운 금지. 번호 금지. 괄호 금지.
 
-컬럼 정의:
-{COLUMN_DEFINITIONS}
+데이터: {data_text}
 
-검색된 데이터:
-{data_text}
-
-위 데이터를 바탕으로 현재 상태를 간단히 분석해주세요 (2-3문장):
-- 정상/주의/위험 상태인지
-- 특이사항이 있는지
-
-분석 (한국어, 간결하게):"""
+이 데이터가 정상인지 위험인지 2문장으로:"""
                     
                     response = llm(
                         prompt,
-                        max_tokens=150,
-                        temperature=0.3,
-                        top_p=0.85,
-                        repeat_penalty=1.5,
-                        stop=["질문:", "검색된", "\n\n\n"]
+                        max_tokens=80,
+                        temperature=0.2,
+                        top_p=0.9,
+                        repeat_penalty=1.8,
+                        stop=["질문:", "검색", "\n\n", "[[", "1.", "2.", "###", "```", "["]
                     )
                     
                     analysis = response['choices'][0]['text'].strip()
                     
-                    # 불필요한 패턴 제거
+                    # 불필요한 패턴 강력 제거
                     import re
-                    # [분석 결과], [분석], ### 등 제거
-                    analysis = re.sub(r'\[분석[^\]]*\]', '', analysis)
-                    analysis = re.sub(r'###.*', '', analysis)
-                    analysis = re.sub(r'```[a-z]*', '', analysis)  # ```python, ```json 등
-                    analysis = re.sub(r'```', '', analysis)
-                    analysis = re.sub(r'\*\*', '', analysis)  # 볼드 마크다운
-                    analysis = re.sub(r'^[-*]\s*', '', analysis, flags=re.MULTILINE)  # 불릿 포인트
+                    analysis = re.sub(r'\[+[^\]]*\]+', '', analysis)  # 모든 대괄호
+                    analysis = re.sub(r'#+.*', '', analysis)  # ### 헤더
+                    analysis = re.sub(r'```.*', '', analysis)
+                    analysis = re.sub(r'\*+', '', analysis)
+                    analysis = re.sub(r'^\d+[\.\)]\s*', '', analysis, flags=re.MULTILINE)  # 1. 2. 등
+                    analysis = re.sub(r'^[-*•]\s*', '', analysis, flags=re.MULTILINE)
+                    analysis = re.sub(r'문제|요약|설명|바탕으로|간략히', '', analysis)  # 메타 단어
                     
-                    # 반복 제거
-                    lines = analysis.split('\n')
-                    seen = set()
-                    unique_lines = []
-                    for line in lines:
-                        line_clean = line.strip()
-                        # 빈 줄, 불필요한 문자만 있는 줄 제외
-                        if line_clean and line_clean not in seen and len(line_clean) > 2:
-                            seen.add(line_clean)
-                            unique_lines.append(line_clean)
-                    
-                    analysis = '<br>'.join(unique_lines[:4])
+                    # 첫 2문장만 추출
+                    sentences = re.split(r'[.。]\s*', analysis)
+                    clean_sentences = [s.strip() for s in sentences if len(s.strip()) > 5]
+                    analysis = '. '.join(clean_sentences[:2])
+                    if analysis and not analysis.endswith('.'):
+                        analysis += '.'
                     
                     if analysis:
                         answer += f"<br>---<br>🤖 분석<br>{analysis}"
