@@ -57,7 +57,7 @@ def search_by_time(time_str: str) -> Tuple[Optional[pd.Series], str]:
         return None, "CSV 파일이 로드되지 않았습니다."
     
     # 시간 컬럼 후보
-    time_cols = ['STAT_DT', '현재시간', 'CURRTIME', '시간', 'TIME', 'DATETIME']
+    time_cols = ['현재시간', 'STAT_DT', 'CURRTIME', '시간', 'TIME', 'DATETIME']
     time_col = None
     
     for col in time_cols:
@@ -68,11 +68,31 @@ def search_by_time(time_str: str) -> Tuple[Optional[pd.Series], str]:
     if time_col is None:
         return None, "시간 컬럼을 찾을 수 없습니다."
     
-    # 검색
-    result = _df[_df[time_col].astype(str).str.contains(time_str, na=False)]
+    # 검색 (여러 방식 시도)
+    time_col_str = _df[time_col].astype(str)
+    
+    # 1. 정확히 포함
+    result = _df[time_col_str.str.contains(time_str, na=False, regex=False)]
+    
+    # 2. 시간 정규화 후 비교 (4:39 vs 04:39)
+    if result.empty:
+        # 입력 시간에서 날짜와 시간 분리
+        if ' ' in time_str:
+            date_part, time_part = time_str.rsplit(' ', 1)
+            # 시간 부분 정규화 (4:39 -> 04:39, 04:39 -> 4:39)
+            if ':' in time_part:
+                h, m = time_part.split(':')
+                # 두 가지 형식으로 검색
+                time_str_padded = f"{date_part} {int(h):02d}:{m}"
+                time_str_unpadded = f"{date_part} {int(h)}:{m}"
+                
+                result = _df[time_col_str.str.contains(time_str_padded, na=False, regex=False) |
+                            time_col_str.str.contains(time_str_unpadded, na=False, regex=False)]
     
     if result.empty:
-        return None, f"시간 '{time_str}'에 해당하는 데이터가 없습니다."
+        # 유사한 시간 제안
+        sample_times = time_col_str.head(5).tolist()
+        return None, f"시간 '{time_str}'에 해당하는 데이터가 없습니다.\n예시: {sample_times}"
     
     row = result.iloc[0]
     
@@ -146,25 +166,52 @@ def search_csv(query: str) -> Tuple[Optional[Any], str]:
     time_patterns = [
         r'(\d{12})',  # 202509210013
         r'(\d{4}-\d{2}-\d{2}\s+\d{1,2}:\d{2})',  # 2025-10-14 4:39
-        r'(\d{4}-\d{2}-\d{2})',  # 2025-10-14
     ]
     
+    time_str = None
     for pattern in time_patterns:
         match = re.search(pattern, query)
         if match:
             time_str = match.group(1)
-            logger.info(f"시간 검색: {time_str}")
-            return search_by_time(time_str)
+            break
     
-    # 2. 컬럼명 추출
-    col_pattern = r'([A-Z가-힣_\.][A-Z가-힣0-9_\.\(\)]+)'
-    col_matches = re.findall(col_pattern, query, re.IGNORECASE)
+    # 2. 컬럼명 추출 (시간 부분 제외하고)
+    query_without_time = query
+    if time_str:
+        query_without_time = query.replace(time_str, '')
     
-    if col_matches:
-        # 실제 존재하는 컬럼만 필터
-        valid_cols = [c for c in col_matches if c in _df.columns]
-        if valid_cols:
-            return search_by_columns(valid_cols)
+    # 컬럼 패턴: 영문대문자, 한글, 숫자, _, ., (, ) 포함
+    col_pattern = r'([A-Z가-힣][A-Z가-힣0-9_\.\(\)]+)'
+    col_matches = re.findall(col_pattern, query_without_time, re.IGNORECASE)
+    
+    # 실제 존재하는 컬럼만 필터
+    valid_cols = [c for c in col_matches if c in _df.columns]
+    
+    # 3. 시간 + 컬럼 둘 다 있으면 → 해당 시간의 특정 컬럼값만
+    if time_str and valid_cols:
+        logger.info(f"시간+컬럼 검색: {time_str}, {valid_cols}")
+        row, _ = search_by_time(time_str)
+        
+        if row is None:
+            return None, f"시간 '{time_str}'에 해당하는 데이터가 없습니다."
+        
+        # 해당 컬럼값만 반환
+        data_text = f"시간: {time_str}\n"
+        for col in valid_cols:
+            if col in row.index:
+                data_text += f"{col}: {row[col]}\n"
+        
+        return row, data_text
+    
+    # 4. 시간만 있으면 → 전체 행 데이터
+    if time_str:
+        logger.info(f"시간 검색: {time_str}")
+        return search_by_time(time_str)
+    
+    # 5. 컬럼만 있으면 → 최근 데이터
+    if valid_cols:
+        logger.info(f"컬럼 검색: {valid_cols}")
+        return search_by_columns(valid_cols)
     
     return None, "검색 조건을 찾을 수 없습니다. 시간(예: 2025-10-14 4:39) 또는 컬럼명을 포함해주세요."
 
