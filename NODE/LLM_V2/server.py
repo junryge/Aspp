@@ -147,11 +147,11 @@ async def ask(query: Query):
                     
                     response = llm(
                         prompt,
-                        max_tokens=100,
+                        max_tokens=150,
                         temperature=0.3,
                         top_p=0.9,
                         repeat_penalty=1.2,
-                        stop=["\n\n", "데이터", "---"]
+                        stop=["\n\n\n", "데이터 분석 요청"]
                     )
                     
                     raw_analysis = response['choices'][0]['text'].strip()
