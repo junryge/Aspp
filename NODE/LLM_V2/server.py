@@ -23,7 +23,7 @@ import hub_predictor_numerical
 import hub_predictor_categorical
 
 # LLM 후처리 모듈
-from llm_postprocessor import clean_llm_response
+from llm_postprocessor import clean_llm_response, get_llm_analysis
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -134,52 +134,11 @@ async def ask(query: Query):
             # 1. 정확한 데이터 먼저
             answer = f"📊 검색 결과\n{data_text}\n"
             
-            # 2. LLM 분석 추가 (있으면)
-            if llm is not None:
-                try:
-                    # 데이터에서 핵심만 추출
-                    short_data = data_text[:500] if len(data_text) > 500 else data_text
-                    
-                    prompt = f"""/no_think
-{short_data}
-
-위 M14 물류 데이터를 보고 구체적인 수치를 언급하며 분석하세요.
-예시: "TOTALCNT 1332는 정상 범위입니다. OHT_UTIL 84.32%는 주의 구간입니다."
-
-분석:"""
-                    
-                    response = llm(
-                        prompt,
-                        max_tokens=150,
-                        temperature=0.5,
-                        stop=["\n\n\n", "---"]
-                    )
-                    
-                    raw_analysis = response['choices'][0]['text'].strip()
-                    logger.info(f"LLM 원본: {raw_analysis[:200]}")  # 디버그
-                    
-                    analysis = clean_llm_response(raw_analysis, max_lines=5)  # 3→5줄
-                    logger.info(f"LLM 후처리: {analysis[:200] if analysis else '없음'}")  # 디버그
-                    
-                    if analysis:
-                        answer += f"\n---\n🤖 LLM 분석\n{analysis}"
-                    else:
-                        # 후처리 결과 없으면 원본 일부 표시
-                        if raw_analysis:
-                            # 기본 정리만
-                            simple_clean = raw_analysis.replace('```', '').replace('[', '').replace(']', '').strip()
-                            if simple_clean:
-                                answer += f"\n---\n🤖 LLM 분석\n{simple_clean[:200]}"
-                            else:
-                                answer += f"\n---\n🤖 LLM 분석\n(분석 생성 실패)"
-                        else:
-                            answer += f"\n---\n🤖 LLM 분석\n(분석 생성 실패)"
-                    
-                except Exception as e:
-                    logger.warning(f"LLM 분석 실패: {e}")
-                    answer += f"\n---\n🤖 LLM 분석\n⚠️ 분석 실패: {str(e)[:50]}"
-            else:
-                answer += f"\n---\n🤖 LLM 분석\n⚠️ LLM 모델이 로드되지 않았습니다."
+            # 2. LLM 분석 추가
+            # 데이터 타입 감지
+            data_type = "hub" if "HUB" in data_text else "m14"
+            analysis = get_llm_analysis(data_text, llm, data_type)
+            answer += f"\n---\n🤖 LLM 분석\n{analysis}"
             
             return {"answer": answer}
         
