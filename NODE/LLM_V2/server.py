@@ -129,7 +129,7 @@ async def ask(query: Query):
                 return {"answer": data_text}
             
             # 1. 정확한 데이터 먼저
-            answer = f"📊 검색 결과<br>{data_text}<br>"
+            answer = f"📊 검색 결과\n{data_text}\n"
             
             # 2. LLM 분석 추가 (있으면)
             if llm is not None:
@@ -160,16 +160,20 @@ async def ask(query: Query):
                     
                     analysis = response['choices'][0]['text'].strip()
                     
-                    # 마크다운 문법 제거
+                    # 마크다운/특수문법 제거
                     import re
                     analysis = re.sub(r'```[\s\S]*?```', '', analysis)  # 코드 블록
                     analysis = re.sub(r'`[^`]+`', '', analysis)  # 인라인 코드
                     analysis = re.sub(r'^#{1,6}\s*', '', analysis, flags=re.MULTILINE)  # 헤더
                     analysis = re.sub(r'\*\*([^*]+)\*\*', r'\1', analysis)  # 볼드
                     analysis = re.sub(r'\*([^*]+)\*', r'\1', analysis)  # 이탤릭
-                    analysis = re.sub(r'\[([^\]]+)\]\([^)]+\)', r'\1', analysis)  # 링크
+                    analysis = re.sub(r'\[{1,2}[^\]]*\]{1,2}', '', analysis)  # [태그], [[태그]]
                     analysis = re.sub(r'^\s*[-*]\s+', '', analysis, flags=re.MULTILINE)  # 리스트
                     analysis = re.sub(r'^\s*\d+\.\s+', '', analysis, flags=re.MULTILINE)  # 숫자 리스트
+                    analysis = re.sub(r'[=\-]{3,}', '', analysis)  # ===, --- 구분선
+                    analysis = re.sub(r'데이터에서 주어진.*', '', analysis)  # 프롬프트 반복 제거
+                    analysis = re.sub(r'위 데이터를.*', '', analysis)
+                    analysis = re.sub(r'분석\s*\(한국어.*', '', analysis)
                     
                     # 반복 제거
                     lines = analysis.split('\n')
@@ -177,14 +181,14 @@ async def ask(query: Query):
                     unique_lines = []
                     for line in lines:
                         line_clean = line.strip()
-                        if line_clean and line_clean not in seen:
+                        if line_clean and line_clean not in seen and len(line_clean) > 2:
                             seen.add(line_clean)
                             unique_lines.append(line_clean)
                     
-                    analysis = '<br>'.join(unique_lines[:4])
+                    analysis = '\n'.join(unique_lines[:3])
                     
                     if analysis:
-                        answer += f"<br>---<br>🤖 분석<br>{analysis}"
+                        answer += f"\n---\n🤖 분석\n{analysis}"
                     
                 except Exception as e:
                     logger.warning(f"LLM 분석 실패: {e}")
