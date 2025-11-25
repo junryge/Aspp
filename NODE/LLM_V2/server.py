@@ -137,21 +137,19 @@ async def ask(query: Query):
             # 2. LLM 분석 추가 (있으면)
             if llm is not None:
                 try:
-                    prompt = f"""데이터 분석 요청입니다.
+                    # 데이터에서 핵심만 추출
+                    short_data = data_text[:500] if len(data_text) > 500 else data_text
+                    
+                    prompt = f"""/no_think
+{short_data}
 
-{data_text}
-
-위 데이터의 상태를 한국어로 2문장으로 분석하세요. 정상인지 주의인지 위험인지 판단하세요.
-
-분석:"""
+위 데이터 상태 분석 (한국어 2문장):"""
                     
                     response = llm(
                         prompt,
-                        max_tokens=150,
-                        temperature=0.3,
-                        top_p=0.9,
-                        repeat_penalty=1.2,
-                        stop=["\n\n\n", "데이터 분석 요청"]
+                        max_tokens=100,
+                        temperature=0.5,
+                        stop=["\n\n\n"]
                     )
                     
                     raw_analysis = response['choices'][0]['text'].strip()
