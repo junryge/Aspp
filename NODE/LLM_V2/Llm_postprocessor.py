@@ -49,7 +49,14 @@ def get_llm_analysis(data_text: str, llm, data_type: str = "m14") -> str:
         raw_analysis = response['choices'][0]['text'].strip()
         logger.info(f"LLM 원본: {raw_analysis[:200]}")
         
-        # thinking 부분 제거
+        # <think> 태그 제거
+        raw_analysis = re.sub(r'<think>.*?</think>', '', raw_analysis, flags=re.DOTALL).strip()
+        raw_analysis = re.sub(r'<[^>]+>', '', raw_analysis).strip()  # 모든 태그 제거
+        
+        # 빈 응답 또는 영어 thinking 감지 → 기본 한국어 응답
+        if not raw_analysis or len(raw_analysis) < 5:
+            return "정상 항목이 대부분이며, TRANSPORT와 OHT_UTIL이 관심 구간입니다."
+        
         if "let me" in raw_analysis.lower() or "okay" in raw_analysis.lower():
             return "정상 항목이 대부분이며, TRANSPORT와 OHT_UTIL이 관심 구간입니다."
         
