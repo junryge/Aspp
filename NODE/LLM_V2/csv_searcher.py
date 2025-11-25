@@ -69,6 +69,76 @@ def detect_data_type(columns: List[str]) -> str:
     else:
         return "unknown"
 
+def analyze_status(row: pd.Series, data_type: str) -> str:
+    """임계값 기반 상태 분석"""
+    config = get_column_config()
+    
+    if not config or data_type not in config:
+        return ""
+    
+    thresholds = config[data_type].get('thresholds', {})
+    
+    if not thresholds:
+        return ""
+    
+    results = []
+    warnings = 0
+    criticals = 0
+    
+    for col, limits in thresholds.items():
+        if col not in row.index or pd.isna(row[col]):
+            continue
+        
+        value = float(row[col])
+        
+        # HUBROOMTOTAL은 낮을수록 위험 (반대 로직)
+        if col == 'HUBROOMTOTAL':
+            critical = limits.get('critical', 0)
+            caution = limits.get('caution', 0)
+            normal = limits.get('normal', 0)
+            
+            if value < critical:
+                results.append(f"🚨 {col}: {value} → 심각 (< {critical})")
+                criticals += 1
+            elif value < caution:
+                results.append(f"⚠️ {col}: {value} → 주의 (< {caution})")
+                warnings += 1
+            else:
+                results.append(f"✅ {col}: {value} → 정상")
+        else:
+            # 일반 컬럼: 높을수록 위험
+            critical = limits.get('critical', float('inf'))
+            caution = limits.get('caution', float('inf'))
+            normal = limits.get('normal', float('inf'))
+            
+            if value >= critical:
+                results.append(f"🚨 {col}: {value} → 심각 (≥ {critical})")
+                criticals += 1
+            elif value >= caution:
+                results.append(f"⚠️ {col}: {value} → 주의 (≥ {caution})")
+                warnings += 1
+            elif value >= normal:
+                results.append(f"🟡 {col}: {value} → 관심 (≥ {normal})")
+            else:
+                results.append(f"✅ {col}: {value} → 정상")
+    
+    if not results:
+        return ""
+    
+    # 종합 판단
+    if criticals > 0:
+        summary = f"🚨 종합: 심각 ({criticals}개 항목 임계값 초과)"
+    elif warnings > 0:
+        summary = f"⚠️ 종합: 주의 ({warnings}개 항목 주의 필요)"
+    else:
+        summary = "✅ 종합: 정상"
+    
+    analysis_text = "\n📊 상태 분석\n"
+    analysis_text += "\n".join(results)
+    analysis_text += f"\n\n{summary}"
+    
+    return analysis_text
+
 def load_csv(csv_path: str) -> bool:
     """CSV 파일 로드"""
     global _df, _csv_path
@@ -168,6 +238,7 @@ def search_by_time(time_str: str) -> Tuple[Optional[pd.Series], str]:
     
     if m14_found > hub_found and m14_display:
         # M14 데이터
+        data_type = "m14"
         icon = m14_config.get('icon', '📦')
         name = m14_config.get('name', 'M14')
         data_text += f"{icon} [{name}]\n"
@@ -176,6 +247,7 @@ def search_by_time(time_str: str) -> Tuple[Optional[pd.Series], str]:
                 data_text += f"{col}: {row[col]}\n"
     elif hub_found > 0 and hub_display:
         # HUB 데이터
+        data_type = "hub"
         icon = hub_config.get('icon', '🏭')
         name = hub_config.get('name', 'HUB')
         data_text += f"{icon} [{name}]\n"
@@ -184,10 +256,16 @@ def search_by_time(time_str: str) -> Tuple[Optional[pd.Series], str]:
                 data_text += f"{col}: {row[col]}\n"
     else:
         # 둘 다 아니면 전체 표시
+        data_type = "unknown"
         data_text += "📊 [전체 데이터]\n"
         for col in row.index:
             if col != time_col and pd.notna(row[col]):
                 data_text += f"{col}: {row[col]}\n"
+    
+    # 상태 분석 추가
+    analysis = analyze_status(row, data_type)
+    if analysis:
+        data_text += "\n" + analysis
     
     return row, data_text
 
