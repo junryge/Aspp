@@ -172,9 +172,14 @@ async def ask(query: Query):
                     
                     if analysis:
                         answer += f"\n---\n🤖 LLM 분석\n{analysis}"
+                    else:
+                        answer += f"\n---\n🤖 LLM 분석\n(분석 결과 없음)"
                     
                 except Exception as e:
                     logger.warning(f"LLM 분석 실패: {e}")
+                    answer += f"\n---\n🤖 LLM 분석\n⚠️ 분석 실패: {str(e)[:50]}"
+            else:
+                answer += f"\n---\n🤖 LLM 분석\n⚠️ LLM 모델이 로드되지 않았습니다."
             
             return {"answer": answer}
         
