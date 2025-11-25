@@ -96,13 +96,23 @@ def search_by_time(time_str: str) -> Tuple[Optional[pd.Series], str]:
     
     row = result.iloc[0]
     
+    # 주요 컬럼 목록 (우선 표시)
+    important_cols = [
+        '현재TOTALCNT', 'TOTALCNT',
+        'M14AM14B', 'M14AM14BSUM', 'M14BM14A',
+        'M14AM10A', 'M10AM14A', 'M16M14A', 'M14AM16SUM',
+        'queue_gap', 'TRANSPORT', 'OHT_UTIL',
+        'CURRENT_M16A_3F_JOB', 'CURRENT_M16A_3F_JOB_2',
+        'HUBROOMTOTAL', 'M16A_3F_STORAGE_UTIL'
+    ]
+    
     # 결과 포맷팅
-    data_text = f"시간: {row[time_col]}\n"
-    for col in _df.columns:
-        if col != time_col:
-            val = row[col]
-            if pd.notna(val):
-                data_text += f"{col}: {val}\n"
+    data_text = f"{row[time_col]}\n"
+    
+    # 주요 컬럼만 표시
+    for col in important_cols:
+        if col in row.index and pd.notna(row[col]):
+            data_text += f"{col}: {row[col]}\n"
     
     return row, data_text
 
