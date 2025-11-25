@@ -19,7 +19,7 @@ def get_llm_analysis(data_text: str, llm, data_type: str = "m14") -> str:
     LLM 분석 호출 + 후처리
     
     Args:
-        data_text: 분석할 데이터 텍스트
+        data_text: 분석할 데이터 텍스트 (상태 분석 포함)
         llm: LLM 모델 객체
         data_type: "m14" 또는 "hub"
     
@@ -30,45 +30,39 @@ def get_llm_analysis(data_text: str, llm, data_type: str = "m14") -> str:
         return "⚠️ LLM 모델이 로드되지 않았습니다."
     
     try:
-        # 데이터 길이 제한
-        short_data = data_text[:500] if len(data_text) > 500 else data_text
+        # 상태 분석 부분 추출
+        if "📊 상태 분석" in data_text:
+            status_part = data_text.split("📊 상태 분석")[1][:300]
+        else:
+            status_part = data_text[:300]
         
-        # 데이터 타입별 프롬프트
-        if data_type == "hub":
-            prompt = f"""/no_think
-{short_data}
+        prompt = f"""/no_think
+상태 분석 결과:
+{status_part}
 
-위 HUB 물류 데이터를 보고 구체적인 수치를 언급하며 분석하세요.
-예시: "CURRENT_M16A_3F_JOB_2 값이 280을 넘어 주의가 필요합니다. HUBROOMTOTAL이 610 이하로 병목 위험이 있습니다."
+위 상태 분석을 보고 한국어 2문장으로 요약하세요.
+- 정상 항목과 주의 항목을 구분
+- 수치 언급
 
-분석:"""
-        else:  # m14
-            prompt = f"""/no_think
-{short_data}
-
-위 M14 물류 데이터를 보고 구체적인 수치를 언급하며 분석하세요.
-예시: "TOTALCNT 1332는 정상 범위입니다. OHT_UTIL 84.32%는 주의 구간(83.6% 이상)에 진입했습니다."
-
-분석:"""
+요약:"""
         
         response = llm(
             prompt,
-            max_tokens=150,
+            max_tokens=100,
             temperature=0.5,
-            stop=["\n\n\n", "---"]
+            stop=["\n\n\n", "---", "상태 분석"]
         )
         
         raw_analysis = response['choices'][0]['text'].strip()
         logger.info(f"LLM 원본: {raw_analysis[:200]}")
         
         # 후처리
-        analysis = clean_llm_response(raw_analysis, max_lines=5)
+        analysis = clean_llm_response(raw_analysis, max_lines=3)
         logger.info(f"LLM 후처리: {analysis[:200] if analysis else '없음'}")
         
         if analysis:
             return analysis
         elif raw_analysis:
-            # 후처리 실패 시 기본 정리
             simple = raw_analysis.replace('```', '').replace('[', '').replace(']', '').strip()
             return simple[:200] if simple else "(분석 생성 실패)"
         else:
