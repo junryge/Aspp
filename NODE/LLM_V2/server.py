@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-CSV 직접 검색 RAG 서버 (벡터DB 없음)
+CSV 직접 검색 RAG 서버 (csv_searcher 모듈 사용)
 """
 
 import os
@@ -9,13 +9,11 @@ from fastapi import FastAPI
 from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel
 import logging
-import pandas as pd
-import re
-import numpy as np
-import pickle
-from datetime import datetime, timedelta
-from io import StringIO
+from datetime import datetime
 import json
+
+# CSV 검색 모듈
+import csv_searcher
 
 # M14 예측 모듈
 import m14_predictor
@@ -31,7 +29,6 @@ app = FastAPI()
 
 # 전역 변수
 llm = None
-df = None
 COLUMN_DEFINITIONS = ""
 
 def load_column_definitions():
@@ -50,29 +47,20 @@ def load_column_definitions():
 @app.on_event("startup")
 async def startup():
     """서버 시작 시 초기화"""
-    global llm, df, COLUMN_DEFINITIONS
+    global llm, COLUMN_DEFINITIONS
     
     # 0. 컬럼 정의 로드
     COLUMN_DEFINITIONS = load_column_definitions()
     logger.info("✅ 컬럼 정의 로드 완료")
     
-    # 1. CSV 로드
+    # 1. CSV 로드 (csv_searcher 사용)
     CSV_PATH = "./CSV/2025_DATA.CSV"
     
     if os.path.exists(CSV_PATH):
-        logger.info(f"CSV 로드 중: {CSV_PATH}")
-        
-        try:
-            df = pd.read_csv(CSV_PATH, encoding='utf-8')
-            logger.info(f"✅ CSV 로드 완료: {len(df)}행, {len(df.columns)}컬럼")
-            logger.info(f"컬럼: {list(df.columns[:5])}...")
-            
-            # STAT_DT가 있는지 확인
-            if 'STAT_DT' not in df.columns:
-                logger.error("❌ STAT_DT 컬럼이 없습니다!")
-            
-        except Exception as e:
-            logger.error(f"❌ CSV 로드 실패: {e}")
+        if csv_searcher.load_csv(CSV_PATH):
+            logger.info("✅ CSV 로드 완료 (csv_searcher)")
+        else:
+            logger.error("❌ CSV 로드 실패")
     else:
         logger.error(f"❌ CSV 파일 없음: {CSV_PATH}")
     
@@ -101,78 +89,28 @@ async def startup():
     else:
         logger.warning(f"⚠️ LLM 모델 없음: {MODEL_PATH}")
 
-def search_csv(query):
-    """CSV에서 직접 검색"""
-    if df is None:
-        return None, "CSV 파일이 로드되지 않았습니다."
-    
-    # 시간 패턴 추출 (202509210013 형식)
-    time_pattern = r'(\d{12})'
-    time_match = re.search(time_pattern, query)
-    
-    if time_match:
-        stat_dt = time_match.group(1)
-        logger.info(f"시간 검색: {stat_dt}")
-        
-        # STAT_DT로 정확히 매칭
-        result = df[df['STAT_DT'].astype(str) == stat_dt]
-        
-        if not result.empty:
-            # 첫 번째 매칭 행 반환
-            row = result.iloc[0]
-            
-            # 데이터 포맷팅 (주요 컬럼만)
-            data_text = f"시간: {stat_dt}\n"
-            
-            # 주요 컬럼만 표시
-            important_cols = [
-                'CURRENT_M16A_3F_JOB', 'CURRENT_M16A_3F_JOB_2',
-                'M16A_3F_STORAGE_UTIL', 'HUBROOMTOTAL',
-                'M16HUB.QUE.ALL.CURRENTQCNT', 'M16HUB.QUE.TIME.AVGTOTALTIME1MIN',
-                'M14A_3F_TO_HUB_JOB2', 'M16A_3F_TO_M14A_3F_JOB'
-            ]
-            
-            for col in important_cols:
-                if col in row.index:
-                    data_text += f"{col}: {row[col]}\n"
-            
-            return row, data_text
-        else:
-            return None, f"시간 {stat_dt}에 해당하는 데이터가 없습니다."
-    
-    # 시간이 없으면 컬럼명으로 검색
-    col_pattern = r'([A-Z_\.]+)'
-    col_matches = re.findall(col_pattern, query)
-    
-    if col_matches:
-        # 최근 5개 데이터 요약
-        recent_data = df.tail(5)
-        data_text = f"최근 5개 데이터:\n"
-        
-        for idx, row in recent_data.iterrows():
-            stat_dt = row['STAT_DT'] if 'STAT_DT' in row.index else idx
-            data_text += f"\n[{stat_dt}]\n"
-            
-            for col in col_matches:
-                if col in row.index:
-                    data_text += f"  {col}: {row[col]}\n"
-        
-        return recent_data, data_text
-    
-    return None, "검색 조건을 찾을 수 없습니다. 시간(예: 202509210013) 또는 컬럼명을 포함해주세요."
-
 class Query(BaseModel):
     question: str
-    mode: str = "search"  # 기본값: search
+    mode: str = "search"
 
 class PredictQuery(BaseModel):
-    mode: str  # "m14" or "hub"
-    data: str  # CSV 데이터
+    mode: str
+    data: str
 
 @app.get("/")
 async def home():
     """메인 페이지"""
     return FileResponse("index.html")
+
+@app.get("/columns")
+async def get_columns():
+    """컬럼 목록 반환"""
+    return {"columns": csv_searcher.get_columns()}
+
+@app.get("/stats/{column}")
+async def get_column_stats(column: str):
+    """컬럼 통계 반환"""
+    return csv_searcher.get_statistics(column)
 
 @app.post("/ask")
 async def ask(query: Query):
@@ -187,25 +125,23 @@ async def ask(query: Query):
         
         # 모드별 처리
         if query.mode == "search":
-            # 데이터 검색 모드
-            result, data_text = search_csv(query.question)
+            # csv_searcher로 검색
+            result, data_text = csv_searcher.search_csv(query.question)
             
             if result is None:
                 return {"answer": data_text}
         
         elif query.mode == "m14":
-            # M14 예측 모드
             data_text = "M14 예측 기능은 준비 중입니다.\n현재는 데이터 검색만 가능합니다."
             return {"answer": data_text}
         
         elif query.mode == "hub":
-            # HUB 예측 모드
             data_text = "HUB 예측 기능은 준비 중입니다.\n현재는 데이터 검색만 가능합니다."
             return {"answer": data_text}
         
         else:
             # 기본값: 검색
-            result, data_text = search_csv(query.question)
+            result, data_text = csv_searcher.search_csv(query.question)
             
             if result is None:
                 return {"answer": data_text}
