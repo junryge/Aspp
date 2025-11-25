@@ -22,6 +22,9 @@ import m14_predictor
 import hub_predictor_numerical
 import hub_predictor_categorical
 
+# LLM 후처리 모듈
+from llm_postprocessor import clean_llm_response
+
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
@@ -137,6 +140,12 @@ async def ask(query: Query):
                     prompt = f"""You MUST answer in Korean only. 
 아래 데이터를 분석해주세요. 데이터 값은 절대 바꾸지 마세요.
 
+중요 규칙:
+- 이미지, URL, 링크를 절대 생성하지 마세요
+- http://, https://, www. 포함 금지
+- 이미지: 또는 그림: 같은 표현 금지
+- 오직 텍스트 분석만 작성하세요
+
 컬럼 정의:
 {COLUMN_DEFINITIONS}
 
@@ -147,45 +156,19 @@ async def ask(query: Query):
 - 정상/주의/위험 상태인지
 - 특이사항이 있는지
 
-분석 (한국어, 간결하게):"""
+분석 (한국어, 간결하게, URL 없이):"""
                     
                     response = llm(
                         prompt,
                         max_tokens=150,
-                        temperature=0.3,
+                        temperature=0.2,
                         top_p=0.85,
                         repeat_penalty=1.5,
-                        stop=["질문:", "검색된", "\n\n\n"]
+                        stop=["질문:", "검색된", "\n\n\n", "이미지:", "http"]
                     )
                     
-                    analysis = response['choices'][0]['text'].strip()
-                    
-                    # 마크다운/특수문법 제거
-                    import re
-                    analysis = re.sub(r'```[\s\S]*?```', '', analysis)  # 코드 블록
-                    analysis = re.sub(r'`[^`]+`', '', analysis)  # 인라인 코드
-                    analysis = re.sub(r'^#{1,6}\s*', '', analysis, flags=re.MULTILINE)  # 헤더
-                    analysis = re.sub(r'\*\*([^*]+)\*\*', r'\1', analysis)  # 볼드
-                    analysis = re.sub(r'\*([^*]+)\*', r'\1', analysis)  # 이탤릭
-                    analysis = re.sub(r'\[{1,2}[^\]]*\]{1,2}', '', analysis)  # [태그], [[태그]]
-                    analysis = re.sub(r'^\s*[-*]\s+', '', analysis, flags=re.MULTILINE)  # 리스트
-                    analysis = re.sub(r'^\s*\d+\.\s+', '', analysis, flags=re.MULTILINE)  # 숫자 리스트
-                    analysis = re.sub(r'[=\-]{3,}', '', analysis)  # ===, --- 구분선
-                    analysis = re.sub(r'데이터에서 주어진.*', '', analysis)  # 프롬프트 반복 제거
-                    analysis = re.sub(r'위 데이터를.*', '', analysis)
-                    analysis = re.sub(r'분석\s*\(한국어.*', '', analysis)
-                    
-                    # 반복 제거
-                    lines = analysis.split('\n')
-                    seen = set()
-                    unique_lines = []
-                    for line in lines:
-                        line_clean = line.strip()
-                        if line_clean and line_clean not in seen and len(line_clean) > 2:
-                            seen.add(line_clean)
-                            unique_lines.append(line_clean)
-                    
-                    analysis = '\n'.join(unique_lines[:3])
+                    raw_analysis = response['choices'][0]['text'].strip()
+                    analysis = clean_llm_response(raw_analysis)
                     
                     if analysis:
                         answer += f"\n---\n🤖 분석\n{analysis}"
@@ -432,14 +415,14 @@ def generate_hub_llm_analysis(result_numerical, result_categorical):
         response = llm(
             prompt,
             max_tokens=200,
-            temperature=0.3,
+            temperature=0.2,
             top_p=0.85,
             repeat_penalty=1.5,
-            stop=["질문:", "\n\n\n"]
+            stop=["질문:", "\n\n\n", "이미지:", "http"]
         )
         
-        answer = response['choices'][0]['text'].strip()
-        return answer
+        raw_answer = response['choices'][0]['text'].strip()
+        return clean_llm_response(raw_answer)
         
     except Exception as e:
         logger.error(f"LLM 분석 실패: {e}")
@@ -480,14 +463,14 @@ def generate_llm_analysis(result):
         response = llm(
             prompt,
             max_tokens=200,
-            temperature=0.3,
+            temperature=0.2,
             top_p=0.85,
             repeat_penalty=1.5,
-            stop=["질문:", "\n\n\n"]
+            stop=["질문:", "\n\n\n", "이미지:", "http"]
         )
         
-        answer = response['choices'][0]['text'].strip()
-        return answer
+        raw_answer = response['choices'][0]['text'].strip()
+        return clean_llm_response(raw_answer)
         
     except Exception as e:
         logger.error(f"LLM 분석 실패: {e}")
