@@ -137,46 +137,42 @@ async def ask(query: Query):
             # 2. LLM 분석 추가 (있으면)
             if llm is not None:
                 try:
-                    prompt = f"""You MUST answer in Korean only. 
-아래 데이터를 분석해주세요. 데이터 값은 절대 바꾸지 마세요.
+                    prompt = f"""데이터 분석 요청입니다.
 
-중요 규칙:
-- 이미지, URL, 링크를 절대 생성하지 마세요
-- http://, https://, www. 포함 금지
-- 이미지: 또는 그림: 같은 표현 금지
-- 오직 텍스트 분석만 작성하세요
-
-컬럼 정의:
-{COLUMN_DEFINITIONS}
-
-검색된 데이터:
 {data_text}
 
-위 데이터를 바탕으로 현재 상태를 간단히 분석해주세요 (2-3문장):
-- 정상/주의/위험 상태인지
-- 특이사항이 있는지
+위 데이터의 상태를 한국어로 2문장으로 분석하세요. 정상인지 주의인지 위험인지 판단하세요.
 
-분석 (한국어, 간결하게, URL 없이):"""
+분석:"""
                     
                     response = llm(
                         prompt,
-                        max_tokens=150,
-                        temperature=0.2,
-                        top_p=0.85,
-                        repeat_penalty=1.5,
-                        stop=["질문:", "검색된", "\n\n\n", "이미지:", "http"]
+                        max_tokens=100,
+                        temperature=0.3,
+                        top_p=0.9,
+                        repeat_penalty=1.2,
+                        stop=["\n\n", "데이터", "---"]
                     )
                     
                     raw_analysis = response['choices'][0]['text'].strip()
                     logger.info(f"LLM 원본: {raw_analysis[:200]}")  # 디버그
                     
-                    analysis = clean_llm_response(raw_analysis)
+                    analysis = clean_llm_response(raw_analysis, max_lines=5)  # 3→5줄
                     logger.info(f"LLM 후처리: {analysis[:200] if analysis else '없음'}")  # 디버그
                     
                     if analysis:
                         answer += f"\n---\n🤖 LLM 분석\n{analysis}"
                     else:
-                        answer += f"\n---\n🤖 LLM 분석\n(분석 결과 없음 - 원본: {raw_analysis[:100]})"
+                        # 후처리 결과 없으면 원본 일부 표시
+                        if raw_analysis:
+                            # 기본 정리만
+                            simple_clean = raw_analysis.replace('```', '').replace('[', '').replace(']', '').strip()
+                            if simple_clean:
+                                answer += f"\n---\n🤖 LLM 분석\n{simple_clean[:200]}"
+                            else:
+                                answer += f"\n---\n🤖 LLM 분석\n(분석 생성 실패)"
+                        else:
+                            answer += f"\n---\n🤖 LLM 분석\n(분석 생성 실패)"
                     
                 except Exception as e:
                     logger.warning(f"LLM 분석 실패: {e}")
