@@ -168,12 +168,15 @@ async def ask(query: Query):
                     )
                     
                     raw_analysis = response['choices'][0]['text'].strip()
+                    logger.info(f"LLM 원본: {raw_analysis[:200]}")  # 디버그
+                    
                     analysis = clean_llm_response(raw_analysis)
+                    logger.info(f"LLM 후처리: {analysis[:200] if analysis else '없음'}")  # 디버그
                     
                     if analysis:
                         answer += f"\n---\n🤖 LLM 분석\n{analysis}"
                     else:
-                        answer += f"\n---\n🤖 LLM 분석\n(분석 결과 없음)"
+                        answer += f"\n---\n🤖 LLM 분석\n(분석 결과 없음 - 원본: {raw_analysis[:100]})"
                     
                 except Exception as e:
                     logger.warning(f"LLM 분석 실패: {e}")
