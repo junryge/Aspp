@@ -96,16 +96,24 @@ def search_by_time(time_str: str) -> Tuple[Optional[pd.Series], str]:
     
     row = result.iloc[0]
     
-    # 결과 포맷팅 - 전체 컬럼 표시
+    # 핵심 컬럼만 표시
+    important_cols = [
+        '시퀀스시작',
+        '현재TOTALCNT',
+        '원본예측', '보정예측',
+        'M14AM14B', 'M14AM14BSUM', 'M14BM14A',
+        'M14AM10A', 'M10AM14A', 'M16M14A', 'M14AM16SUM',
+        'queue_gap', 'TRANSPORT', 'OHT_UTIL'
+    ]
+    
+    # 결과 포맷팅
     data_text = f"시간: {row[time_col]}\n"
     data_text += "-" * 40 + "\n"
     
-    # 모든 컬럼 표시 (시간 컬럼 제외)
-    for col in row.index:
-        if col != time_col:
-            val = row[col]
-            if pd.notna(val):
-                data_text += f"{col}: {val}\n"
+    # 핵심 컬럼만 표시
+    for col in important_cols:
+        if col in row.index and pd.notna(row[col]):
+            data_text += f"{col}: {row[col]}\n"
     
     return row, data_text
 
