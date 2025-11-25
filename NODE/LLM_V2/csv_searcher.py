@@ -27,7 +27,7 @@ def load_column_config() -> dict:
     """컬럼 설정 JSON 로드"""
     global _column_config
     
-    config_path = os.path.join(SCRIPT_DIR, 'column_config.json')
+    config_path = os.path.join(SCRIPT_DIR, 'sort', 'column_config.json')
     
     if not os.path.exists(config_path):
         logger.warning(f"⚠️ 컬럼 설정 파일 없음: {config_path}")
@@ -36,7 +36,7 @@ def load_column_config() -> dict:
     try:
         with open(config_path, 'r', encoding='utf-8') as f:
             _column_config = json.load(f)
-        logger.info(f"✅ 컬럼 설정 로드 완료")
+        logger.info(f"✅ 컬럼 설정 로드 완료: {config_path}")
         return _column_config
     except Exception as e:
         logger.error(f"❌ 컬럼 설정 로드 실패: {e}")
