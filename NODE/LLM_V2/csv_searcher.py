@@ -137,10 +137,10 @@ def search_by_columns(col_names: List[str], n_rows: int = 5) -> Tuple[Optional[p
         return None, f"유효한 컬럼이 없습니다. 사용 가능: {list(_df.columns[:10])}..."
     
     recent = _df.tail(n_rows)
-    data_text = f"최근 {n_rows}개 데이터:\n\n"
+    data_text = f"최근 {n_rows}개 데이터:<br><br>"
     
     # 시간 컬럼
-    time_cols = ['STAT_DT', '현재시간', 'CURRTIME', '시간']
+    time_cols = ['현재시간', 'STAT_DT', 'CURRTIME', '시간']
     time_col = None
     for tc in time_cols:
         if tc in _df.columns:
@@ -149,13 +149,13 @@ def search_by_columns(col_names: List[str], n_rows: int = 5) -> Tuple[Optional[p
     
     for idx, row in recent.iterrows():
         if time_col:
-            data_text += f"[{row[time_col]}]\n"
+            data_text += f"[{row[time_col]}]<br>"
         else:
-            data_text += f"[Row {idx}]\n"
+            data_text += f"[Row {idx}]<br>"
         
         for col in valid_cols:
-            data_text += f"  {col}: {row[col]}\n"
-        data_text += "\n"
+            data_text += f"  {col}: {row[col]}<br>"
+        data_text += "<br>"
     
     return recent[valid_cols], data_text
 
