@@ -122,14 +122,63 @@ async def ask(query: Query):
         
         # 모드별 처리
         if query.mode == "search":
-            # csv_searcher로 검색 → 바로 반환 (LLM 안 거침)
+            # csv_searcher로 검색
             result, data_text = csv_searcher.search_csv(query.question)
             
             if result is None:
                 return {"answer": data_text}
             
-            # 검색 결과 바로 반환
-            return {"answer": data_text}
+            # 1. 정확한 데이터 먼저
+            answer = f"📊 검색 결과\n{data_text}\n"
+            
+            # 2. LLM 분석 추가 (있으면)
+            if llm is not None:
+                try:
+                    prompt = f"""You MUST answer in Korean only. 
+아래 데이터를 분석해주세요. 데이터 값은 절대 바꾸지 마세요.
+
+컬럼 정의:
+{COLUMN_DEFINITIONS}
+
+검색된 데이터:
+{data_text}
+
+위 데이터를 바탕으로 현재 상태를 간단히 분석해주세요 (2-3문장):
+- 정상/주의/위험 상태인지
+- 특이사항이 있는지
+
+분석 (한국어, 간결하게):"""
+                    
+                    response = llm(
+                        prompt,
+                        max_tokens=150,
+                        temperature=0.3,
+                        top_p=0.85,
+                        repeat_penalty=1.5,
+                        stop=["질문:", "검색된", "\n\n\n"]
+                    )
+                    
+                    analysis = response['choices'][0]['text'].strip()
+                    
+                    # 반복 제거
+                    lines = analysis.split('\n')
+                    seen = set()
+                    unique_lines = []
+                    for line in lines:
+                        line_clean = line.strip()
+                        if line_clean and line_clean not in seen:
+                            seen.add(line_clean)
+                            unique_lines.append(line)
+                    
+                    analysis = '\n'.join(unique_lines[:4])
+                    
+                    if analysis:
+                        answer += f"---\n🤖 분석\n{analysis}"
+                    
+                except Exception as e:
+                    logger.warning(f"LLM 분석 실패: {e}")
+            
+            return {"answer": answer}
         
         elif query.mode == "m14":
             data_text = "M14 예측 기능은 준비 중입니다.\n현재는 데이터 검색만 가능합니다."
