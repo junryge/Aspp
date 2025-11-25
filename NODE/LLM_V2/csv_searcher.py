@@ -8,15 +8,66 @@ server.py에서 import하여 사용
 import os
 import pandas as pd
 import re
+import json
 import logging
 from typing import Tuple, Optional, List, Dict, Any
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# 전역 DataFrame
+# 전역 변수
 _df = None
 _csv_path = None
+_column_config = None
+
+# 스크립트 위치 기준 경로
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+
+def load_column_config() -> dict:
+    """컬럼 설정 JSON 로드"""
+    global _column_config
+    
+    config_path = os.path.join(SCRIPT_DIR, 'column_config.json')
+    
+    if not os.path.exists(config_path):
+        logger.warning(f"⚠️ 컬럼 설정 파일 없음: {config_path}")
+        return {}
+    
+    try:
+        with open(config_path, 'r', encoding='utf-8') as f:
+            _column_config = json.load(f)
+        logger.info(f"✅ 컬럼 설정 로드 완료")
+        return _column_config
+    except Exception as e:
+        logger.error(f"❌ 컬럼 설정 로드 실패: {e}")
+        return {}
+
+def get_column_config() -> dict:
+    """현재 컬럼 설정 반환"""
+    global _column_config
+    if _column_config is None:
+        load_column_config()
+    return _column_config or {}
+
+def detect_data_type(columns: List[str]) -> str:
+    """데이터 타입 자동 감지 (m14/hub)"""
+    config = get_column_config()
+    
+    if not config:
+        return "unknown"
+    
+    m14_detect = config.get('m14', {}).get('detect_columns', [])
+    hub_detect = config.get('hub', {}).get('detect_columns', [])
+    
+    m14_count = sum(1 for col in m14_detect if col in columns)
+    hub_count = sum(1 for col in hub_detect if col in columns)
+    
+    if m14_count > hub_count:
+        return "m14"
+    elif hub_count > 0:
+        return "hub"
+    else:
+        return "unknown"
 
 def load_csv(csv_path: str) -> bool:
     """CSV 파일 로드"""
@@ -96,24 +147,47 @@ def search_by_time(time_str: str) -> Tuple[Optional[pd.Series], str]:
     
     row = result.iloc[0]
     
-    # 핵심 컬럼만 표시
-    important_cols = [
-        '시퀀스시작',
-        '현재TOTALCNT',
-        '원본예측', '보정예측',
-        'M14AM14B', 'M14AM14BSUM', 'M14BM14A',
-        'M14AM10A', 'M10AM14A', 'M16M14A', 'M14AM16SUM',
-        'queue_gap', 'TRANSPORT', 'OHT_UTIL'
-    ]
+    # JSON 설정에서 컬럼 로드
+    config = get_column_config()
+    
+    m14_config = config.get('m14', {})
+    hub_config = config.get('hub', {})
+    
+    m14_display = m14_config.get('display_columns', [])
+    hub_display = hub_config.get('display_columns', [])
+    m14_detect = m14_config.get('detect_columns', [])
+    hub_detect = hub_config.get('detect_columns', [])
+    
+    # 데이터 타입 자동 감지
+    m14_found = sum(1 for col in m14_detect if col in row.index and pd.notna(row[col]))
+    hub_found = sum(1 for col in hub_detect if col in row.index and pd.notna(row[col]))
     
     # 결과 포맷팅
     data_text = f"시간: {row[time_col]}\n"
     data_text += "-" * 40 + "\n"
     
-    # 핵심 컬럼만 표시
-    for col in important_cols:
-        if col in row.index and pd.notna(row[col]):
-            data_text += f"{col}: {row[col]}\n"
+    if m14_found > hub_found and m14_display:
+        # M14 데이터
+        icon = m14_config.get('icon', '📦')
+        name = m14_config.get('name', 'M14')
+        data_text += f"{icon} [{name}]\n"
+        for col in m14_display:
+            if col in row.index and pd.notna(row[col]):
+                data_text += f"{col}: {row[col]}\n"
+    elif hub_found > 0 and hub_display:
+        # HUB 데이터
+        icon = hub_config.get('icon', '🏭')
+        name = hub_config.get('name', 'HUB')
+        data_text += f"{icon} [{name}]\n"
+        for col in hub_display:
+            if col in row.index and pd.notna(row[col]):
+                data_text += f"{col}: {row[col]}\n"
+    else:
+        # 둘 다 아니면 전체 표시
+        data_text += "📊 [전체 데이터]\n"
+        for col in row.index:
+            if col != time_col and pd.notna(row[col]):
+                data_text += f"{col}: {row[col]}\n"
     
     return row, data_text
 
