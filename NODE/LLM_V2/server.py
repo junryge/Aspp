@@ -171,7 +171,7 @@ async def ask(query: Query):
                     analysis = clean_llm_response(raw_analysis)
                     
                     if analysis:
-                        answer += f"\n---\n🤖 분석\n{analysis}"
+                        answer += f"\n---\n🤖 LLM 분석\n{analysis}"
                     
                 except Exception as e:
                     logger.warning(f"LLM 분석 실패: {e}")
