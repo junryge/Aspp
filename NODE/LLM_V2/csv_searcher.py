@@ -106,13 +106,13 @@ def search_by_time(time_str: str) -> Tuple[Optional[pd.Series], str]:
         'HUBROOMTOTAL', 'M16A_3F_STORAGE_UTIL'
     ]
     
-    # 결과 포맷팅
-    data_text = f"{row[time_col]}\n"
+    # 결과 포맷팅 (HTML 줄바꿈)
+    data_text = f"{row[time_col]}<br>"
     
     # 주요 컬럼만 표시
     for col in important_cols:
         if col in row.index and pd.notna(row[col]):
-            data_text += f"{col}: {row[col]}\n"
+            data_text += f"{col}: {row[col]}<br>"
     
     return row, data_text
 
@@ -206,10 +206,10 @@ def search_csv(query: str) -> Tuple[Optional[Any], str]:
             return None, f"시간 '{time_str}'에 해당하는 데이터가 없습니다."
         
         # 해당 컬럼값만 반환
-        data_text = f"시간: {time_str}\n"
+        data_text = f"시간: {time_str}<br>"
         for col in valid_cols:
             if col in row.index:
-                data_text += f"{col}: {row[col]}\n"
+                data_text += f"{col}: {row[col]}<br>"
         
         return row, data_text
     
