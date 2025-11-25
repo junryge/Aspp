@@ -143,13 +143,16 @@ async def ask(query: Query):
                     prompt = f"""/no_think
 {short_data}
 
-위 데이터 상태 분석 (한국어 2문장):"""
+위 M14 물류 데이터를 보고 구체적인 수치를 언급하며 분석하세요.
+예시: "TOTALCNT 1332는 정상 범위입니다. OHT_UTIL 84.32%는 주의 구간입니다."
+
+분석:"""
                     
                     response = llm(
                         prompt,
-                        max_tokens=100,
+                        max_tokens=150,
                         temperature=0.5,
-                        stop=["\n\n\n"]
+                        stop=["\n\n\n", "---"]
                     )
                     
                     raw_analysis = response['choices'][0]['text'].strip()
