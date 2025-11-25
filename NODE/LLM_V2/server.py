@@ -160,15 +160,26 @@ async def ask(query: Query):
                     
                     analysis = response['choices'][0]['text'].strip()
                     
+                    # 불필요한 패턴 제거
+                    import re
+                    # [분석 결과], [분석], ### 등 제거
+                    analysis = re.sub(r'\[분석[^\]]*\]', '', analysis)
+                    analysis = re.sub(r'###.*', '', analysis)
+                    analysis = re.sub(r'```[a-z]*', '', analysis)  # ```python, ```json 등
+                    analysis = re.sub(r'```', '', analysis)
+                    analysis = re.sub(r'\*\*', '', analysis)  # 볼드 마크다운
+                    analysis = re.sub(r'^[-*]\s*', '', analysis, flags=re.MULTILINE)  # 불릿 포인트
+                    
                     # 반복 제거
                     lines = analysis.split('\n')
                     seen = set()
                     unique_lines = []
                     for line in lines:
                         line_clean = line.strip()
-                        if line_clean and line_clean not in seen:
+                        # 빈 줄, 불필요한 문자만 있는 줄 제외
+                        if line_clean and line_clean not in seen and len(line_clean) > 2:
                             seen.add(line_clean)
-                            unique_lines.append(line)
+                            unique_lines.append(line_clean)
                     
                     analysis = '<br>'.join(unique_lines[:4])
                     
