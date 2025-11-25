@@ -96,50 +96,16 @@ def search_by_time(time_str: str) -> Tuple[Optional[pd.Series], str]:
     
     row = result.iloc[0]
     
-    # 주요 컬럼 목록 (우선 표시) - M14 + HUB 관련 전체
-    important_cols = [
-        # 시간/기본
-        '현재TOTALCNT', 'TOTALCNT', 'CURRTIME',
-        
-        # M14 핵심 (사용자 요청)
-        'M14AM14B', 'M14AM14BSUM', 'M14BM14A',
-        'M14AM10A', 'M10AM14A', 'M16M14A', 'M14AM16SUM',
-        'queue_gap', 'TRANSPORT', 'OHT_UTIL',
-        
-        # M14 큐 정보
-        'M14.QUE.ALL.CURRENTQCREATED', 'M14.QUE.ALL.CURRENTQCOMPLETED',
-        'M14.QUE.OHT.OHTUTIL', 'M14.QUE.ALL.TRANSPORT4MINOVERCNT',
-        
-        # HUB 관련
-        'CURRENT_M16A_3F_JOB', 'CURRENT_M16A_3F_JOB_2',
-        'HUBROOMTOTAL', 'M16A_3F_STORAGE_UTIL',
-        'M16A_3F_CMD', 'M16A_6F_TO_HUB_CMD',
-        
-        # M16HUB 큐
-        'M16HUB.QUE.ALL.CURRENTQCNT', 'M16HUB.QUE.TIME.AVGTOTALTIME1MIN',
-        'M16HUB.QUE.OHT.OHTUTIL',
-        
-        # 저장소
-        'CD_M163FSTORAGEUSE', 'CD_M163FSTORAGETOTAL', 'CD_M163FSTORAGEUTIL'
-    ]
-    
-    # 결과 포맷팅
+    # 결과 포맷팅 - 전체 컬럼 표시
     data_text = f"시간: {row[time_col]}\n"
     data_text += "-" * 40 + "\n"
     
-    # 주요 컬럼 표시
-    found_count = 0
-    for col in important_cols:
-        if col in row.index and pd.notna(row[col]):
-            data_text += f"{col}: {row[col]}\n"
-            found_count += 1
-    
-    # 찾은 컬럼이 적으면 모든 컬럼 표시
-    if found_count < 5:
-        data_text += "\n[전체 컬럼]\n"
-        for col in row.index:
-            if col != time_col and pd.notna(row[col]):
-                data_text += f"{col}: {row[col]}\n"
+    # 모든 컬럼 표시 (시간 컬럼 제외)
+    for col in row.index:
+        if col != time_col:
+            val = row[col]
+            if pd.notna(val):
+                data_text += f"{col}: {val}\n"
     
     return row, data_text
 
