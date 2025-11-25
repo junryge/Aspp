@@ -367,39 +367,5 @@ def format_row(row: pd.Series, important_cols: List[str] = None) -> str:
     return text
 
 
-# 테스트 코드
-if __name__ == "__main__":
-    print("=" * 60)
-    print("CSV 검색 모듈 테스트")
-    print("=" * 60)
-    
-    # 테스트 CSV 생성
-    test_data = {
-        '현재시간': ['2025-10-14 4:39', '2025-10-14 4:40', '2025-10-14 4:41'],
-        '현재TOTALCNT': [1292, 1314, 1322],
-        'M14AM14B': [248, 255, 260],
-        'M14AM14BSUM': [338, 341, 353]
-    }
-    
-    test_df = pd.DataFrame(test_data)
-    test_df.to_csv('/tmp/test.csv', index=False)
-    
-    # 로드 테스트
-    if load_csv('/tmp/test.csv'):
-        print("\n1. 시간 검색 테스트:")
-        row, text = search_by_time('4:39')
-        print(text)
-        
-        print("\n2. 컬럼 검색 테스트:")
-        df, text = search_by_columns(['M14AM14B', 'M14AM14BSUM'], n_rows=3)
-        print(text)
-        
-        print("\n3. 자연어 검색 테스트:")
-        result, text = search_csv('2025-10-14 4:40 데이터 보여줘')
-        print(text)
-        
-        print("\n4. 통계 테스트:")
-        stats = get_statistics('현재TOTALCNT')
-        print(stats)
-    
-    print("\n✅ 테스트 완료")
+# 테스트는 별도 파일에서 실행
+# python -c "import csv_searcher; csv_searcher.load_csv('./csv/with.csv'); print(csv_searcher.get_columns())"
