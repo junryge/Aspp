@@ -2,13 +2,82 @@
 # -*- coding: utf-8 -*-
 """
 LLM 응답 후처리 모듈
+- LLM 분석 호출
 - 마크다운 제거
 - URL/이미지 환각 제거
-- 프롬프트 반복 제거
 """
 
 import re
+import logging
 from typing import Optional
+
+logger = logging.getLogger(__name__)
+
+
+def get_llm_analysis(data_text: str, llm, data_type: str = "m14") -> str:
+    """
+    LLM 분석 호출 + 후처리
+    
+    Args:
+        data_text: 분석할 데이터 텍스트
+        llm: LLM 모델 객체
+        data_type: "m14" 또는 "hub"
+    
+    Returns:
+        정제된 분석 결과
+    """
+    if llm is None:
+        return "⚠️ LLM 모델이 로드되지 않았습니다."
+    
+    try:
+        # 데이터 길이 제한
+        short_data = data_text[:500] if len(data_text) > 500 else data_text
+        
+        # 데이터 타입별 프롬프트
+        if data_type == "hub":
+            prompt = f"""/no_think
+{short_data}
+
+위 HUB 물류 데이터를 보고 구체적인 수치를 언급하며 분석하세요.
+예시: "CURRENT_M16A_3F_JOB_2 값이 280을 넘어 주의가 필요합니다. HUBROOMTOTAL이 610 이하로 병목 위험이 있습니다."
+
+분석:"""
+        else:  # m14
+            prompt = f"""/no_think
+{short_data}
+
+위 M14 물류 데이터를 보고 구체적인 수치를 언급하며 분석하세요.
+예시: "TOTALCNT 1332는 정상 범위입니다. OHT_UTIL 84.32%는 주의 구간(83.6% 이상)에 진입했습니다."
+
+분석:"""
+        
+        response = llm(
+            prompt,
+            max_tokens=150,
+            temperature=0.5,
+            stop=["\n\n\n", "---"]
+        )
+        
+        raw_analysis = response['choices'][0]['text'].strip()
+        logger.info(f"LLM 원본: {raw_analysis[:200]}")
+        
+        # 후처리
+        analysis = clean_llm_response(raw_analysis, max_lines=5)
+        logger.info(f"LLM 후처리: {analysis[:200] if analysis else '없음'}")
+        
+        if analysis:
+            return analysis
+        elif raw_analysis:
+            # 후처리 실패 시 기본 정리
+            simple = raw_analysis.replace('```', '').replace('[', '').replace(']', '').strip()
+            return simple[:200] if simple else "(분석 생성 실패)"
+        else:
+            return "(분석 생성 실패)"
+            
+    except Exception as e:
+        logger.warning(f"LLM 분석 실패: {e}")
+        return f"⚠️ 분석 실패: {str(e)[:50]}"
+
 
 def clean_llm_response(text: str, max_lines: int = 5) -> str:
     """
