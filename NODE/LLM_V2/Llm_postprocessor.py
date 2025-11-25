@@ -41,32 +41,38 @@ def generate_status_summary(status_text: str) -> str:
             match = re.search(r'⚠️\s*([^:]+):\s*([\d.]+).*?≥\s*([\d.]+)', line)
             if match:
                 warning_items.append((match.group(1).strip(), match.group(2), match.group(3)))
+        elif '🚨' in line and '종합' not in line:
+            # 🚨 M14AM14BSUM: 614.0 → 심각 (≥ 588)
+            match = re.search(r'🚨\s*([^:]+):\s*([\d.]+).*?≥\s*([\d.]+)', line)
+            if match:
+                critical_items.append((match.group(1).strip(), match.group(2), match.group(3)))
         elif '🔴' in line:
             match = re.search(r'🔴\s*([^:]+):\s*([\d.]+).*?≥\s*([\d.]+)', line)
             if match:
                 critical_items.append((match.group(1).strip(), match.group(2), match.group(3)))
     
-    # 설명 생성
+    # 설명 생성 (심각한 것부터!)
     parts = []
     
-    # 정상 항목
+    # 위험/심각 항목 (가장 먼저!)
+    if critical_items:
+        for name, value, threshold in critical_items:
+            parts.append(f"🚨 {name}({value})이 심각 구간({threshold} 이상)! 즉시 조치 필요!")
+    
+    # 주의 항목
+    for name, value, threshold in warning_items:
+        parts.append(f"⚠️ {name}({value})이 주의 구간({threshold} 이상). 점검 필요.")
+    
+    # 관심 항목
+    for name, value, threshold in caution_items:
+        parts.append(f"{name}({value})이 기준값({threshold}) 이상으로 관심 구간 진입. 모니터링 권장.")
+    
+    # 정상 항목 (마지막에 간단히)
     if normal_items:
         names = ', '.join([item[0] for item in normal_items[:3]])
         if len(normal_items) > 3:
             names += f" 등 {len(normal_items)}개"
         parts.append(f"{names}는 정상 범위입니다.")
-    
-    # 관심 항목 (상세 설명)
-    for name, value, threshold in caution_items:
-        parts.append(f"{name}({value})이 기준값({threshold}) 이상으로 관심 구간 진입. 모니터링 권장.")
-    
-    # 주의 항목 (상세 설명)
-    for name, value, threshold in warning_items:
-        parts.append(f"⚠️ {name}({value})이 주의 구간({threshold} 이상). 점검 필요.")
-    
-    # 위험 항목 (상세 설명)
-    for name, value, threshold in critical_items:
-        parts.append(f"🚨 {name}({value})이 위험 구간({threshold} 이상)! 즉시 조치 필요!")
     
     if not parts:
         return "모든 항목이 정상 범위 내에 있습니다."
