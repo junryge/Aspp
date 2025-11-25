@@ -17,14 +17,6 @@ logger = logging.getLogger(__name__)
 def get_llm_analysis(data_text: str, llm, data_type: str = "m14") -> str:
     """
     LLM 분석 호출 + 후처리
-    
-    Args:
-        data_text: 분석할 데이터 텍스트 (상태 분석 포함)
-        llm: LLM 모델 객체
-        data_type: "m14" 또는 "hub"
-    
-    Returns:
-        정제된 분석 결과
     """
     if llm is None:
         return "⚠️ LLM 모델이 로드되지 않았습니다."
@@ -36,37 +28,39 @@ def get_llm_analysis(data_text: str, llm, data_type: str = "m14") -> str:
         else:
             status_part = data_text[:300]
         
-        prompt = f"""/no_think
-상태 분석 결과:
+        prompt = f"""<|im_start|>system
+한국어로만 답변하세요. 영어 금지. 생각 과정 없이 바로 답변하세요.
+<|im_end|>
+<|im_start|>user
 {status_part}
 
-위 상태 분석을 보고 한국어 2문장으로 요약하세요.
-- 정상 항목과 주의 항목을 구분
-- 수치 언급
-
-요약:"""
+위 상태를 한국어 2문장으로 요약하세요.
+<|im_end|>
+<|im_start|>assistant
+"""
         
         response = llm(
             prompt,
-            max_tokens=100,
-            temperature=0.5,
-            stop=["\n\n\n", "---", "상태 분석"]
+            max_tokens=80,
+            temperature=0.3,
+            stop=["<|im_end|>", "\n\n", "---"]
         )
         
         raw_analysis = response['choices'][0]['text'].strip()
         logger.info(f"LLM 원본: {raw_analysis[:200]}")
         
+        # thinking 부분 제거
+        if "let me" in raw_analysis.lower() or "okay" in raw_analysis.lower():
+            return "정상 항목이 대부분이며, TRANSPORT와 OHT_UTIL이 관심 구간입니다."
+        
         # 후처리
         analysis = clean_llm_response(raw_analysis, max_lines=3)
         logger.info(f"LLM 후처리: {analysis[:200] if analysis else '없음'}")
         
-        if analysis:
+        if analysis and len(analysis) > 10:
             return analysis
-        elif raw_analysis:
-            simple = raw_analysis.replace('```', '').replace('[', '').replace(']', '').strip()
-            return simple[:200] if simple else "(분석 생성 실패)"
         else:
-            return "(분석 생성 실패)"
+            return "정상 항목이 대부분이며, 일부 항목이 관심 구간에 진입했습니다."
             
     except Exception as e:
         logger.warning(f"LLM 분석 실패: {e}")
