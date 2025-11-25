@@ -54,7 +54,7 @@ async def startup():
     logger.info("✅ 컬럼 정의 로드 완료")
     
     # 1. CSV 로드 (csv_searcher 사용)
-    CSV_PATH = "./CSV/2025_DATA.CSV"
+    CSV_PATH = "./csv/with.csv"
     
     if os.path.exists(CSV_PATH):
         if csv_searcher.load_csv(CSV_PATH):
@@ -117,19 +117,19 @@ async def ask(query: Query):
     """RAG 질문 처리"""
     global COLUMN_DEFINITIONS
     
-    if llm is None:
-        return {"answer": "❌ LLM이 로드되지 않았습니다."}
-    
     try:
         logger.info(f"질문: {query.question} | 모드: {query.mode}")
         
         # 모드별 처리
         if query.mode == "search":
-            # csv_searcher로 검색
+            # csv_searcher로 검색 → 바로 반환 (LLM 안 거침)
             result, data_text = csv_searcher.search_csv(query.question)
             
             if result is None:
                 return {"answer": data_text}
+            
+            # 검색 결과 바로 반환
+            return {"answer": data_text}
         
         elif query.mode == "m14":
             data_text = "M14 예측 기능은 준비 중입니다.\n현재는 데이터 검색만 가능합니다."
@@ -145,50 +145,8 @@ async def ask(query: Query):
             
             if result is None:
                 return {"answer": data_text}
-        
-        # 2. 프롬프트 구성
-        prompt = f"""You MUST answer in Korean only. Be concise.
-당신은 AMHS 전문가입니다. 한국어로 간결하게 답변하세요.
-
-컬럼 정의:
-{COLUMN_DEFINITIONS}
-
-검색된 데이터:
-{data_text}
-
-질문: {query.question}
-
-답변 (한국어, 간결하게):"""
-        
-        # 3. LLM 호출
-        response = llm(
-            prompt,
-            max_tokens=150,
-            temperature=0.2,
-            top_p=0.85,
-            repeat_penalty=1.5,
-            frequency_penalty=0.5,
-            presence_penalty=0.3,
-            stop=["질문:", "Question:", "[", "추정값"]
-        )
-        
-        answer = response['choices'][0]['text'].strip()
-        
-        # 반복 패턴 제거
-        lines = answer.split('\n')
-        seen = set()
-        unique_lines = []
-        for line in lines:
-            line_clean = line.strip()
-            if line_clean and line_clean not in seen:
-                seen.add(line_clean)
-                unique_lines.append(line)
-        
-        answer = '\n'.join(unique_lines[:5])
-        
-        logger.info(f"답변 생성 완료")
-        
-        return {"answer": answer.strip()}
+            
+            return {"answer": data_text}
         
     except Exception as e:
         logger.error(f"처리 실패: {e}")
