@@ -14,6 +14,66 @@ from typing import Optional
 logger = logging.getLogger(__name__)
 
 
+def generate_status_summary(status_text: str) -> str:
+    """
+    상태 분석 텍스트를 파싱해서 상세 설명 자동 생성
+    """
+    lines = status_text.split('\n')
+    
+    normal_items = []
+    caution_items = []  # 🟡 관심
+    warning_items = []  # ⚠️ 주의
+    critical_items = [] # 🔴 위험
+    
+    for line in lines:
+        line = line.strip()
+        if '✅' in line and '종합' not in line:
+            # ✅ M14AM14B: 262.0 → 정상
+            match = re.search(r'✅\s*([^:]+):\s*([\d.]+)', line)
+            if match:
+                normal_items.append((match.group(1).strip(), match.group(2)))
+        elif '🟡' in line:
+            # 🟡 TRANSPORT: 149.0 → 관심 (≥ 145)
+            match = re.search(r'🟡\s*([^:]+):\s*([\d.]+).*?≥\s*([\d.]+)', line)
+            if match:
+                caution_items.append((match.group(1).strip(), match.group(2), match.group(3)))
+        elif '⚠️' in line:
+            match = re.search(r'⚠️\s*([^:]+):\s*([\d.]+).*?≥\s*([\d.]+)', line)
+            if match:
+                warning_items.append((match.group(1).strip(), match.group(2), match.group(3)))
+        elif '🔴' in line:
+            match = re.search(r'🔴\s*([^:]+):\s*([\d.]+).*?≥\s*([\d.]+)', line)
+            if match:
+                critical_items.append((match.group(1).strip(), match.group(2), match.group(3)))
+    
+    # 설명 생성
+    parts = []
+    
+    # 정상 항목
+    if normal_items:
+        names = ', '.join([item[0] for item in normal_items[:3]])
+        if len(normal_items) > 3:
+            names += f" 등 {len(normal_items)}개"
+        parts.append(f"{names}는 정상 범위입니다.")
+    
+    # 관심 항목 (상세 설명)
+    for name, value, threshold in caution_items:
+        parts.append(f"{name}({value})이 기준값({threshold}) 이상으로 관심 구간 진입. 모니터링 권장.")
+    
+    # 주의 항목 (상세 설명)
+    for name, value, threshold in warning_items:
+        parts.append(f"⚠️ {name}({value})이 주의 구간({threshold} 이상). 점검 필요.")
+    
+    # 위험 항목 (상세 설명)
+    for name, value, threshold in critical_items:
+        parts.append(f"🚨 {name}({value})이 위험 구간({threshold} 이상)! 즉시 조치 필요!")
+    
+    if not parts:
+        return "모든 항목이 정상 범위 내에 있습니다."
+    
+    return ' '.join(parts)
+
+
 def get_llm_analysis(data_text: str, llm, data_type: str = "m14") -> str:
     """
     LLM 분석 호출 + 후처리
@@ -53,12 +113,12 @@ def get_llm_analysis(data_text: str, llm, data_type: str = "m14") -> str:
         raw_analysis = re.sub(r'<think>.*?</think>', '', raw_analysis, flags=re.DOTALL).strip()
         raw_analysis = re.sub(r'<[^>]+>', '', raw_analysis).strip()  # 모든 태그 제거
         
-        # 빈 응답 또는 영어 thinking 감지 → 기본 한국어 응답
+        # 빈 응답 또는 영어 thinking 감지 → 템플릿 기반 응답
         if not raw_analysis or len(raw_analysis) < 5:
-            return "정상 항목이 대부분이며, TRANSPORT와 OHT_UTIL이 관심 구간입니다."
+            return generate_status_summary(status_part)
         
         if "let me" in raw_analysis.lower() or "okay" in raw_analysis.lower():
-            return "정상 항목이 대부분이며, TRANSPORT와 OHT_UTIL이 관심 구간입니다."
+            return generate_status_summary(status_part)
         
         # 후처리
         analysis = clean_llm_response(raw_analysis, max_lines=3)
@@ -67,11 +127,15 @@ def get_llm_analysis(data_text: str, llm, data_type: str = "m14") -> str:
         if analysis and len(analysis) > 10:
             return analysis
         else:
-            return "정상 항목이 대부분이며, 일부 항목이 관심 구간에 진입했습니다."
+            return generate_status_summary(status_part)
             
     except Exception as e:
         logger.warning(f"LLM 분석 실패: {e}")
-        return f"⚠️ 분석 실패: {str(e)[:50]}"
+        # 상태 분석 부분 추출 시도
+        if "📊 상태 분석" in data_text:
+            status_part = data_text.split("📊 상태 분석")[1][:300]
+            return generate_status_summary(status_part)
+        return "상태 분석을 확인해주세요."
 
 
 def clean_llm_response(text: str, max_lines: int = 5) -> str:
