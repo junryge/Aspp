@@ -18,6 +18,9 @@ import csv_searcher
 # STAR DB 검색 모듈
 import star_searcher
 
+# MongoDB/Logpresso 검색 모듈
+import mongo_searcher
+
 # M14 예측 모듈
 import m14_predictor
 
@@ -75,6 +78,12 @@ async def startup():
         logger.info("✅ STAR DB 문서 로드 완료")
     else:
         logger.warning("⚠️ STAR DB 문서 로드 실패 (STAR_READ.md 없음)")
+    
+    # 1.6. MongoDB/Logpresso 문서 로드
+    if mongo_searcher.load_md():
+        logger.info("✅ MongoDB/Logpresso 문서 로드 완료")
+    else:
+        logger.warning("⚠️ MongoDB/Logpresso 문서 로드 실패 (MOGO_Read.md 없음)")
     
     # 2. LLM 로드
     MODEL_PATH = "models/Qwen3-1.7B-Q8_0.gguf"
@@ -243,6 +252,51 @@ async def ask(query: Query):
                                 summary = "이천 QA 환경 Oracle RAC DB 접속 정보입니다."
                             else:
                                 summary = "STAR DB 접속 정보입니다."
+                        
+                        answer += f"\n---\n🤖 요약: {summary}"
+                    except Exception as e:
+                        logger.warning(f"LLM 요약 실패: {e}")
+                
+                return {"answer": answer}
+            
+            # ⭐ MongoDB/Logpresso 쿼리 체크
+            if mongo_searcher.is_mongo_query(query.question):
+                logger.info("MongoDB/Logpresso 검색 감지")
+                section_key, answer = mongo_searcher.search(query.question)
+                
+                # LLM 한글 요약 추가 (선택)
+                if llm is not None:
+                    try:
+                        prompt = f"""<|im_start|>system
+반드시 한국어로만 답변하세요. 영어 금지. 생각 과정 없이 바로 답변하세요.
+<|im_end|>
+<|im_start|>user
+{answer[:500]}
+
+위 접속 정보를 한국어 1문장으로 요약하세요.
+<|im_end|>
+<|im_start|>assistant
+"""
+                        response = llm(prompt, max_tokens=60, temperature=0.1, stop=["<|im_end|>"])
+                        summary = response['choices'][0]['text'].strip()
+                        
+                        # 영어 감지 → 템플릿 사용
+                        import re
+                        summary = re.sub(r'<think>.*?</think>', '', summary, flags=re.DOTALL).strip()
+                        if not summary or 'okay' in summary.lower() or 'let' in summary.lower() or len(summary) < 5:
+                            # 템플릿 폴백
+                            if 'MongoDB' in answer and '이천' in answer:
+                                summary = "이천 MongoDB 클러스터 접속 정보입니다."
+                            elif 'MongoDB' in answer and '청주' in answer:
+                                summary = "청주 MongoDB 클러스터 접속 정보입니다."
+                            elif 'Logpresso' in answer and '이천' in answer:
+                                summary = "이천 Logpresso 로그 서버 접속 정보입니다."
+                            elif 'Logpresso' in answer and '청주' in answer:
+                                summary = "청주 Logpresso 로그 서버 접속 정보입니다."
+                            elif 'Logpresso' in answer and '우시' in answer:
+                                summary = "우시 Logpresso 로그 서버 접속 정보입니다."
+                            else:
+                                summary = "MongoDB/Logpresso 접속 정보입니다."
                         
                         answer += f"\n---\n🤖 요약: {summary}"
                     except Exception as e:
