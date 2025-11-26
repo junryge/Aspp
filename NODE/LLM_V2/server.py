@@ -345,6 +345,28 @@ def generate_hub_llm_analysis(result_numerical, result_categorical):
     # 최대 예측값
     max_pred_value = max(p['pred_max'] for p in pred_num)
     
+    # 위험 요인 분석 (예측 기반)
+    risk_factors = []
+    
+    # 수치형 예측 기반 위험
+    if max_pred_value >= 300:
+        risk_factors.append(f"예측 최대값({max_pred_value:.0f})이 심각 임계값(300) 초과 예상")
+    elif max_pred_value >= 280:
+        risk_factors.append(f"예측 최대값({max_pred_value:.0f})이 주의 임계값(280) 초과 예상")
+    
+    # 범주형 예측 기반 위험
+    if max_surge_prob >= 70:
+        risk_factors.append(f"급증 확률({max_surge_prob:.1f}%)이 매우 높음 (70% 이상)")
+    elif max_surge_prob >= 50:
+        risk_factors.append(f"급증 확률({max_surge_prob:.1f}%)이 높음 (50% 이상)")
+    elif max_surge_prob >= 30:
+        risk_factors.append(f"급증 확률({max_surge_prob:.1f}%)이 주의 수준 (30% 이상)")
+    
+    # 시간별 추세 분석
+    for pred in pred_cat:
+        if pred['prob2'] >= 50:
+            risk_factors.append(f"{pred['horizon']}분 후 급증 확률 {pred['prob2']:.1f}% - {pred['class_name']}")
+    
     # 프롬프트 구성
     pred_num_text = ""
     for pred in pred_num:
@@ -352,33 +374,37 @@ def generate_hub_llm_analysis(result_numerical, result_categorical):
     
     pred_cat_text = ""
     for pred in pred_cat:
-        pred_cat_text += f"{pred['horizon']}분 후: {pred['class_name']} (급증 {pred['prob2']:.1f}%, 상태 {pred['status']})\n"
+        pred_cat_text += f"{pred['horizon']}분 후: {pred['class_name']} (급증 {pred['prob2']:.1f}%)\n"
+    
+    risk_text = "\n- ".join(risk_factors) if risk_factors else "현재 위험 요인 없음"
     
     prompt = f"""You MUST answer in Korean only. Be concise and professional.
 
 현재 HUB 물류 상황:
-- 현재 CURRENT_M16A_3F_JOB_2: {current_val:,.1f}
+- 현재값: {current_val:.1f} (임계값: 270정상/280주의/300심각)
+- 최대 예측값: {max_pred_value:.1f}
+- 최대 급증 확률: {max_surge_prob:.1f}%
 
-수치형 예측 결과:
+수치형 예측:
 {pred_num_text}
 
-범주형 예측 결과:
+범주형 예측:
 {pred_cat_text}
 
-최대 급증 확률: {max_surge_prob:.1f}%
-최대 예측값: {max_pred_value:.1f}
+⚠️ 위험 요인:
+- {risk_text}
 
-위 예측 결과를 바탕으로 다음을 한국어로 간결하게 설명하세요 (3-4문장):
-1. 현재 상황 평가
-2. 예측되는 추세 (증가/감소/안정)
+위 데이터 바탕으로 한국어 3-4문장으로 분석하세요:
+1. 왜 위험한지 구체적 이유 (어떤 시간대에 급증 예상인지)
+2. 예측 추세 (증가/감소/급증)
 3. 권장 조치사항
 
-답변 (한국어):"""
+답변:"""
     
     try:
         response = llm(
             prompt,
-            max_tokens=200,
+            max_tokens=250,
             temperature=0.2,
             top_p=0.85,
             repeat_penalty=1.5,
@@ -386,11 +412,59 @@ def generate_hub_llm_analysis(result_numerical, result_categorical):
         )
         
         raw_answer = response['choices'][0]['text'].strip()
-        return clean_llm_response(raw_answer)
+        cleaned = clean_llm_response(raw_answer)
+        
+        # 영어/이상한 문자 감지 → 템플릿 사용
+        english_patterns = ['please', 'answer', 'korean', 'following', 'response', 'analysis', 'the ', 'is ', 'are ', 'this ']
+        has_english = any(p in cleaned.lower() for p in english_patterns)
+        
+        # 이상한 문자 감지 (중국어 등)
+        has_weird = any(ord(c) > 0x4E00 and ord(c) < 0x9FFF for c in cleaned)
+        
+        # 지표 언급 확인
+        indicator_keywords = ['급증', '확률', '%', '분 후', '예측', '증가', '임계']
+        has_indicator = any(k in cleaned for k in indicator_keywords)
+        
+        # 부적절하면 템플릿 사용
+        if not cleaned or len(cleaned) < 20 or has_english or has_weird or (risk_factors and not has_indicator):
+            logger.warning(f"HUB LLM 응답 부적절, 템플릿 사용")
+            return generate_hub_template_analysis(result_numerical, result_categorical, risk_factors, max_surge_prob, max_pred_value)
+        
+        return cleaned
         
     except Exception as e:
         logger.error(f"LLM 분석 실패: {e}")
-        return ""
+        return generate_hub_template_analysis(result_numerical, result_categorical, risk_factors, max_surge_prob, max_pred_value)
+
+def generate_hub_template_analysis(result_numerical, result_categorical, risk_factors, max_surge_prob, max_pred_value):
+    """LLM 실패시 템플릿 기반 HUB 분석"""
+    current_val = result_numerical['current_value']
+    pred_cat = result_categorical['predictions']
+    
+    if not risk_factors:
+        return f"현재값 {current_val:.1f}로 정상 범위입니다. 급증 확률이 낮아 안정적인 상태입니다. 지속적인 모니터링을 권장합니다."
+    
+    analysis = f"⚠️ 위험 분석:\n"
+    for factor in risk_factors[:4]:  # 최대 4개
+        analysis += f"🚨 {factor}\n"
+    
+    # 급증 예상 시간대 강조
+    surge_times = [p for p in pred_cat if p['prob2'] >= 30]
+    if surge_times:
+        analysis += f"\n📈 급증 주의 시간대:\n"
+        for p in surge_times:
+            emoji = "🚨" if p['prob2'] >= 70 else "⚠️" if p['prob2'] >= 50 else "🟡"
+            analysis += f"  {emoji} {p['horizon']}분 후: {p['prob2']:.1f}% ({p['class_name']})\n"
+    
+    # 권장 조치
+    if max_surge_prob >= 70:
+        analysis += f"\n⚠️ 25분 내 급증 확률 {max_surge_prob:.1f}%! HUB 용량 확보 및 유입량 조절 즉시 필요합니다."
+    elif max_surge_prob >= 50:
+        analysis += f"\n⚠️ 급증 가능성 있음. 물류 흐름 모니터링 강화를 권장합니다."
+    else:
+        analysis += f"\n현재 안정적이나 지속적인 모니터링이 필요합니다."
+    
+    return analysis
 
 def generate_llm_analysis(result):
     """LLM으로 M14 예측 결과 분석"""
@@ -473,8 +547,12 @@ def generate_llm_analysis(result):
         english_patterns = ['please', 'answer', 'korean', 'following', 'response', 'analysis', 'the ', 'is ', 'are ', 'this ']
         has_english = any(p in cleaned.lower() for p in english_patterns)
         
-        # LLM 응답이 없거나 짧거나 영어 섞이면 템플릿 응답
-        if not cleaned or len(cleaned) < 20 or has_english:
+        # 지표 언급 확인 (위험 요인 있는데 지표 안 말하면 템플릿)
+        indicator_keywords = ['M14AM14B', 'M14AM14BSUM', 'queue_gap', 'TRANSPORT', '임계값', '초과', '병목', '적체']
+        has_indicator = any(k in cleaned for k in indicator_keywords)
+        
+        # LLM 응답이 없거나, 짧거나, 영어 섞이거나, 위험요인 있는데 지표 안 말하면 → 템플릿
+        if not cleaned or len(cleaned) < 20 or has_english or (risk_factors and not has_indicator):
             logger.warning(f"LLM 응답 부적절, 템플릿 사용: {cleaned[:50] if cleaned else 'empty'}")
             return generate_m14_template_analysis(result, risk_factors, max_danger)
         
