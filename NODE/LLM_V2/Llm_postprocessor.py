@@ -149,6 +149,104 @@ def get_llm_analysis(data_text: str, llm, data_type: str = "m14") -> str:
         return "상태 분석을 확인해주세요."
 
 
+def get_prediction_llm_analysis(data_text: str, llm) -> str:
+    """
+    예측 분석용 LLM 호출 + 후처리
+    """
+    # 예측 분석 부분 추출
+    if "🔮 예측 분석" not in data_text:
+        return "예측 데이터가 없습니다."
+    
+    pred_part = data_text.split("🔮 예측 분석")[1][:500]
+    
+    # 핵심 정보 추출
+    import re
+    
+    current_match = re.search(r'현재TOTALCNT:\s*([\d,]+)', pred_part)
+    pred_match = re.search(r'보정예측:\s*([\d,]+)', pred_part)
+    actual_match = re.search(r'실제값:\s*([\d,]+)', pred_part)
+    error_match = re.search(r'예측 오차:\s*([+\-]?[\d,]+)', pred_part)
+    error_rate_match = re.search(r'오차율:\s*([\d.]+)%', pred_part)
+    direction_match = re.search(r'(과소예측|과대예측|정확)', pred_part)
+    
+    current_val = current_match.group(1) if current_match else "?"
+    pred_val = pred_match.group(1) if pred_match else "?"
+    actual_val = actual_match.group(1) if actual_match else "?"
+    error_val = error_match.group(1) if error_match else "?"
+    error_rate = error_rate_match.group(1) if error_rate_match else "?"
+    direction = direction_match.group(1) if direction_match else "?"
+    
+    # LLM 없으면 템플릿
+    if llm is None:
+        return generate_prediction_summary(current_val, pred_val, actual_val, error_val, error_rate, direction)
+    
+    try:
+        prompt = f"""<|im_start|>system
+한국어로만 답변하세요. 영어 금지. 바로 답변하세요.
+<|im_end|>
+<|im_start|>user
+예측 결과:
+- 현재값: {current_val}
+- 예측값: {pred_val}
+- 실제값: {actual_val}
+- 오차: {error_val} ({error_rate}%)
+- 방향: {direction}
+
+위 예측 결과를 한국어 2문장으로 해석하세요.
+<|im_end|>
+<|im_start|>assistant
+"""
+        
+        response = llm(
+            prompt,
+            max_tokens=100,
+            temperature=0.3,
+            stop=["<|im_end|>", "\n\n"]
+        )
+        
+        raw = response['choices'][0]['text'].strip()
+        raw = re.sub(r'<think>.*?</think>', '', raw, flags=re.DOTALL).strip()
+        raw = re.sub(r'<[^>]+>', '', raw).strip()
+        
+        if not raw or len(raw) < 10 or "let me" in raw.lower():
+            return generate_prediction_summary(current_val, pred_val, actual_val, error_val, error_rate, direction)
+        
+        return clean_llm_response(raw, max_lines=3)
+        
+    except Exception as e:
+        logger.warning(f"예측 LLM 분석 실패: {e}")
+        return generate_prediction_summary(current_val, pred_val, actual_val, error_val, error_rate, direction)
+
+
+def generate_prediction_summary(current_val, pred_val, actual_val, error_val, error_rate, direction) -> str:
+    """예측 분석 템플릿"""
+    try:
+        error_rate_f = float(error_rate.replace(',', ''))
+    except:
+        error_rate_f = 0
+    
+    if error_rate_f <= 2:
+        accuracy = "우수"
+        emoji = "✅"
+    elif error_rate_f <= 5:
+        accuracy = "양호"
+        emoji = "🟡"
+    else:
+        accuracy = "개선 필요"
+        emoji = "⚠️"
+    
+    result = f"{emoji} 예측 정확도 {accuracy} (오차 {error_rate}%). "
+    
+    if direction == "과소예측":
+        result += f"실제값({actual_val})이 예측({pred_val})보다 높음. 예상보다 물량 증가!"
+    elif direction == "과대예측":
+        result += f"실제값({actual_val})이 예측({pred_val})보다 낮음. 예상보다 물량 감소."
+    else:
+        result += f"예측이 정확했습니다."
+    
+    return result
+
+
 def clean_llm_response(text: str, max_lines: int = 5) -> str:
     """
     LLM 응답 후처리: 마크다운, URL, 환각 제거
