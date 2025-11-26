@@ -125,8 +125,11 @@ def format_result(section_key: str, context: str) -> str:
     
     title = titles.get(section_key, f'📂 {section_key}')
     
-    result = f"{title}\n"
+    # 맨 위에 시스템 제목 추가
+    result = "🗄️ smartSTAR Database 접속 정보\n"
     result += "=" * 45 + "\n\n"
+    result += f"{title}\n"
+    result += "-" * 45 + "\n\n"
     
     lines = context.split('\n')
     
