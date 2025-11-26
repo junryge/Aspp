@@ -15,6 +15,9 @@ import json
 # CSV 검색 모듈
 import csv_searcher
 
+# STAR DB 검색 모듈
+import star_searcher
+
 # M14 예측 모듈
 import m14_predictor
 
@@ -67,6 +70,12 @@ async def startup():
     else:
         logger.error(f"❌ CSV 파일 없음: {CSV_PATH}")
     
+    # 1.5. STAR DB 문서 로드
+    if star_searcher.load_md():
+        logger.info("✅ STAR DB 문서 로드 완료")
+    else:
+        logger.warning("⚠️ STAR DB 문서 로드 실패 (STAR_READ.md 없음)")
+    
     # 2. LLM 로드
     MODEL_PATH = "models/Qwen3-1.7B-Q8_0.gguf"
     
@@ -91,6 +100,78 @@ async def startup():
             logger.error(f"❌ LLM 로드 실패: {e}")
     else:
         logger.warning(f"⚠️ LLM 모델 없음: {MODEL_PATH}")
+
+
+def format_star_result(section_key: str, context: str) -> str:
+    """STAR 검색 결과를 보기 좋게 포맷팅"""
+    import re
+    
+    # 섹션별 제목 매핑
+    section_titles = {
+        '청주_운영': '🔵 청주 운영 환경',
+        '청주_QA': '🟡 청주 QA 환경',
+        '이천_운영': '🔵 이천 운영 환경',
+        '이천_QA': '🟡 이천 QA 환경',
+        '계정': '👤 공통 계정 정보',
+        '요약': '📊 전체 요약',
+        'Failover': '🔧 Failover 설정'
+    }
+    
+    title = section_titles.get(section_key, f'📂 {section_key}')
+    
+    result = f"{title}\n"
+    result += "=" * 45 + "\n\n"
+    
+    # MD 테이블 파싱해서 깔끔하게 변환
+    lines = context.split('\n')
+    
+    for line in lines:
+        line = line.strip()
+        
+        # 빈 줄, 구분선 스킵
+        if not line or line.startswith('|--') or line.startswith('---'):
+            continue
+        
+        # 헤더 제거 (## ### ####)
+        if line.startswith('#'):
+            continue
+        
+        # 테이블 행 파싱: | 항목 | 값 |
+        if line.startswith('|') and line.endswith('|'):
+            cells = [c.strip() for c in line.split('|') if c.strip()]
+            if len(cells) >= 2:
+                key = cells[0]
+                value = cells[1]
+                
+                # 헤더 행 스킵 ("항목", "값")
+                if key in ['항목', '사이트'] or value in ['값', '환경']:
+                    continue
+                
+                # 이모지 추가
+                if 'Service' in key:
+                    result += f"📌 {key}: {value}\n"
+                elif 'Node' in key:
+                    result += f"   🖥️ {key}: {value}\n"
+                elif '계정' in key:
+                    result += f"👤 {key}: {value}\n"
+                elif '비밀번호' in key:
+                    result += f"🔑 {key}: {value}\n"
+                elif '사이트' in key or '청주' in key or '이천' in key:
+                    # 요약 테이블 (4컬럼)
+                    if len(cells) >= 4:
+                        result += f"📍 {cells[0]} {cells[1]}: {cells[2]} ({cells[3]})\n"
+                    else:
+                        result += f"📍 {key}: {value}\n"
+                else:
+                    result += f"   {key}: {value}\n"
+        
+        # 리스트 항목 (* 재시도 횟수: 5회)
+        elif line.startswith('*'):
+            item = line[1:].strip()
+            result += f"  • {item}\n"
+    
+    return result
+
 
 class Query(BaseModel):
     question: str
@@ -125,6 +206,50 @@ async def ask(query: Query):
         
         # 모드별 처리
         if query.mode == "search":
+            
+            # ⭐ STAR DB 쿼리 먼저 체크
+            if star_searcher.is_star_query(query.question):
+                logger.info("STAR DB 검색 감지")
+                section_key, answer = star_searcher.search(query.question)
+                
+                # LLM 한글 요약 추가
+                if llm is not None:
+                    try:
+                        prompt = f"""<|im_start|>system
+반드시 한국어로만 답변하세요. 영어 금지. 생각 과정 없이 바로 답변하세요.
+<|im_end|>
+<|im_start|>user
+{answer}
+
+위 DB 접속 정보를 한국어 1문장으로 요약하세요.
+<|im_end|>
+<|im_start|>assistant
+"""
+                        response = llm(prompt, max_tokens=60, temperature=0.1, stop=["<|im_end|>"])
+                        summary = response['choices'][0]['text'].strip()
+                        
+                        # 영어 감지 → 템플릿 사용
+                        import re
+                        summary = re.sub(r'<think>.*?</think>', '', summary, flags=re.DOTALL).strip()
+                        if not summary or 'okay' in summary.lower() or 'let' in summary.lower() or len(summary) < 5:
+                            # 템플릿 폴백
+                            if '청주' in answer and '운영' in answer:
+                                summary = "청주 운영 환경 Oracle RAC DB 접속 정보입니다."
+                            elif '청주' in answer and 'QA' in answer:
+                                summary = "청주 QA 환경 Oracle RAC DB 접속 정보입니다."
+                            elif '이천' in answer and '운영' in answer:
+                                summary = "이천 운영 환경 Oracle RAC DB 접속 정보입니다."
+                            elif '이천' in answer and 'QA' in answer:
+                                summary = "이천 QA 환경 Oracle RAC DB 접속 정보입니다."
+                            else:
+                                summary = "STAR DB 접속 정보입니다."
+                        
+                        answer += f"\n---\n🤖 요약: {summary}"
+                    except Exception as e:
+                        logger.warning(f"LLM 요약 실패: {e}")
+                
+                return {"answer": answer}
+            
             # csv_searcher로 검색
             result, data_text = csv_searcher.search_csv(query.question)
             
