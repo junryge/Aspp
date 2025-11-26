@@ -590,19 +590,52 @@ def generate_llm_analysis(result):
 def generate_m14_template_analysis(result, risk_factors, max_danger):
     """LLM 실패시 템플릿 기반 M14 분석"""
     predictions = result['predictions']
+    current_val = result['current_value']
     max_pred = max(p['prediction'] for p in predictions)
     
-    if not risk_factors:
-        return "현재 모든 지표가 정상 범위입니다. 예측 결과를 모니터링하며 상황을 지켜보세요."
+    analysis = ""
     
-    analysis = f"⚠️ 위험도 {max_danger}% 원인:\n"
-    for factor in risk_factors:
-        analysis += f"🚨 {factor}\n"
+    # 1. 현재 지표 기반 위험 요인
+    if risk_factors:
+        analysis += f"⚠️ 현재 지표 위험 요인:\n"
+        for factor in risk_factors:
+            analysis += f"  🚨 {factor}\n"
+        analysis += "\n"
     
+    # 2. 예측 기반 위험 분석 (핵심!)
+    critical_preds = [p for p in predictions if p['prediction'] >= 1700]
+    warning_preds = [p for p in predictions if 1600 <= p['prediction'] < 1700]
+    
+    if critical_preds or warning_preds:
+        analysis += f"🔮 예측 기반 위험:\n"
+        for p in predictions:
+            if p['prediction'] >= 1700:
+                analysis += f"  🚨 {p['horizon']}분 후: {p['prediction']:,} (CRITICAL, 위험도 {p['danger_probability']}%)\n"
+            elif p['prediction'] >= 1650:
+                analysis += f"  ⚠️ {p['horizon']}분 후: {p['prediction']:,} (CAUTION, 위험도 {p['danger_probability']}%)\n"
+            elif p['prediction'] >= 1600:
+                analysis += f"  🟡 {p['horizon']}분 후: {p['prediction']:,} (주의, 위험도 {p['danger_probability']}%)\n"
+        
+        if critical_preds:
+            horizons = [f"{p['horizon']}분" for p in critical_preds]
+            analysis += f"\n  ⚠️ {', '.join(horizons)} 후 1700 이상! 즉시 확인 필요!\n"
+    
+    # 3. 결론
+    analysis += f"\n📋 결론:\n"
     if max_pred >= 1700:
-        analysis += f"\n예측 최대값 {max_pred:,}으로 CRITICAL 상태 진입 예상. 즉시 물류 분산 조치가 필요합니다."
+        analysis += f"  → 예측 최대값 {max_pred:,}으로 CRITICAL 상태 진입 예상\n"
+        analysis += f"  → 최대 위험도 {max_danger}%, 즉시 물류 분산 조치 필요!"
+    elif max_pred >= 1650:
+        analysis += f"  → 예측 최대값 {max_pred:,}으로 CAUTION 상태 예상\n"
+        analysis += f"  → 물류 흐름 모니터링 강화 필요"
+    elif max_pred >= 1600:
+        analysis += f"  → 예측 최대값 {max_pred:,}, 주의 관찰 필요"
     else:
-        analysis += f"\n예측 최대값 {max_pred:,}. 지속적인 모니터링이 필요합니다."
+        analysis += f"  → 현재 안정적, 지속적인 모니터링 권장"
+    
+    # 분석 내용이 없으면 기본 메시지
+    if not analysis.strip():
+        return "현재 모든 지표가 정상 범위입니다. 예측 결과를 모니터링하며 상황을 지켜보세요."
     
     return analysis
 
