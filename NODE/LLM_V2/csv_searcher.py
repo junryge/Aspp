@@ -84,10 +84,10 @@ def has_prediction_data(row: pd.Series) -> bool:
 
 def analyze_prediction(row: pd.Series) -> str:
     """
-    예측 분석 텍스트 생성
+    예측 분석 텍스트 생성 (간결 버전)
     
     Returns:
-        예측 분석 텍스트 (현재값 → 예측값 → 실제값 → 오차)
+        예측 분석 텍스트
     """
     if not has_prediction_data(row):
         return ""
@@ -96,9 +96,7 @@ def analyze_prediction(row: pd.Series) -> str:
     current_time = row.get('현재시간', 'N/A')
     current_value = row.get('현재TOTALCNT', 0)
     pred_time = row.get('예측시점', 'N/A')
-    actual_time = row.get('실제시점', pred_time)
     actual_value = row.get('실제값', 0)
-    raw_pred = row.get('원본예측', 0)
     adj_pred = row.get('보정예측', 0)
     error = row.get('오차', 0)
     error_rate = row.get('오차율(%)', 0)
@@ -107,84 +105,32 @@ def analyze_prediction(row: pd.Series) -> str:
     try:
         current_value = float(current_value) if pd.notna(current_value) else 0
         actual_value = float(actual_value) if pd.notna(actual_value) else 0
-        raw_pred = float(raw_pred) if pd.notna(raw_pred) else 0
         adj_pred = float(adj_pred) if pd.notna(adj_pred) else 0
         error = float(error) if pd.notna(error) else 0
         error_rate = float(error_rate) if pd.notna(error_rate) else 0
     except:
         return ""
     
-    # 변화량 계산
+    # 변화량
     change = actual_value - current_value
     change_rate = (change / current_value * 100) if current_value > 0 else 0
     
-    # 예측 오차 방향
+    # 오차 방향
     if error > 0:
-        error_direction = "과소예측"
-        error_emoji = "📈"
+        error_dir = "📈 과소예측"
     elif error < 0:
-        error_direction = "과대예측"
-        error_emoji = "📉"
+        error_dir = "📉 과대예측"
     else:
-        error_direction = "정확"
-        error_emoji = "✅"
+        error_dir = "✅ 정확"
     
-    # 텍스트 생성
-    text = "\n" + "=" * 50 + "\n"
-    text += "🔮 예측 분석\n"
-    text += "=" * 50 + "\n\n"
-    
-    # 1. 현재 시점
-    text += f"🕐 현재 시점: {current_time}\n"
-    text += f"   현재TOTALCNT: {current_value:,.0f}\n\n"
-    
-    # 2. 예측
-    text += f"🎯 예측 시점: {pred_time}\n"
-    text += f"   보정예측: {adj_pred:,.0f}\n"
-    if raw_pred > 0:
-        text += f"   (원본예측: {raw_pred:,.0f})\n"
-    text += "\n"
-    
-    # 3. 실제 결과
-    text += f"📊 실제 결과: {actual_time}\n"
-    text += f"   실제값: {actual_value:,.0f}\n\n"
-    
-    # 4. 오차 분석
-    text += f"📐 오차 분석\n"
-    text += f"   예측 오차: {error:+,.0f} ({error_emoji} {error_direction})\n"
-    text += f"   오차율: {abs(error_rate):.1f}%\n\n"
-    
-    # 5. 변화 분석
-    text += f"📈 변화 분석\n"
-    text += f"   현재값 → 실제값: {current_value:,.0f} → {actual_value:,.0f}\n"
-    text += f"   변화량: {change:+,.0f} ({change_rate:+.1f}%)\n\n"
-    
-    # 6. 종합 평가
-    text += "💡 종합 평가\n"
-    
-    if abs(error_rate) <= 2:
-        text += f"   ✅ 예측 정확도 우수 (오차 {abs(error_rate):.1f}%)\n"
-    elif abs(error_rate) <= 5:
-        text += f"   🟡 예측 정확도 양호 (오차 {abs(error_rate):.1f}%)\n"
-    else:
-        text += f"   ⚠️ 예측 정확도 개선 필요 (오차 {abs(error_rate):.1f}%)\n"
-    
-    if error > 0:
-        text += f"   → 실제값({actual_value:,.0f})이 예측({adj_pred:,.0f})보다 {abs(error):,.0f} 높음\n"
-        text += f"   → 예상보다 물량 증가!\n"
-    elif error < 0:
-        text += f"   → 실제값({actual_value:,.0f})이 예측({adj_pred:,.0f})보다 {abs(error):,.0f} 낮음\n"
-        text += f"   → 예상보다 물량 감소\n"
-    else:
-        text += f"   → 예측이 정확했습니다!\n"
-    
-    # 1700 임계값 체크
-    if actual_value >= 1700:
-        text += f"\n   🚨 실제값 {actual_value:,.0f} → CRITICAL 상태 (1700 이상)!\n"
-    elif actual_value >= 1650:
-        text += f"\n   ⚠️ 실제값 {actual_value:,.0f} → CAUTION 상태 (1650 이상)\n"
-    elif actual_value >= 1600:
-        text += f"\n   🟡 실제값 {actual_value:,.0f} → 주의 구간 (1600 이상)\n"
+    # 간결한 텍스트
+    text = "\n🔮 예측 분석\n"
+    text += "-" * 40 + "\n"
+    text += f"🕐 현재: {current_time} | TOTALCNT: {current_value:,.0f}\n"
+    text += f"🎯 예측: {pred_time} | 보정예측: {adj_pred:,.0f}\n"
+    text += f"📊 실제: {pred_time} | 실제값: {actual_value:,.0f}\n"
+    text += f"📐 오차: {error:+,.0f} ({abs(error_rate):.1f}%) {error_dir}\n"
+    text += f"📈 변화: {current_value:,.0f} → {actual_value:,.0f} ({change:+,.0f}, {change_rate:+.1f}%)\n"
     
     return text
 
@@ -441,15 +387,58 @@ def search_by_time(time_str: str) -> Tuple[Optional[pd.Series], str]:
             if col != time_col and pd.notna(row[col]):
                 data_text += f"{col}: {row[col]}\n"
     
-    # ⭐ 예측 분석 추가 (보정예측, 실제값 있으면)
-    if has_prediction_data(row):
-        pred_analysis = analyze_prediction(row)
-        data_text += pred_analysis
-    
     # 상태 분석 추가
     analysis = analyze_status(row, data_type)
     if analysis:
         data_text += "\n" + analysis
+    
+    return row, data_text
+
+
+def search_by_time_prediction(time_str: str) -> Tuple[Optional[pd.Series], str]:
+    """
+    시간으로 예측 분석만 검색
+    
+    Returns:
+        (매칭된 행, 예측 분석 텍스트)
+    """
+    if _df is None:
+        return None, "CSV 파일이 로드되지 않았습니다."
+    
+    # 시간 컬럼 찾기
+    time_cols = ['현재시간', 'STAT_DT', 'CURRTIME', '시간', 'TIME', 'DATETIME']
+    time_col = None
+    for col in time_cols:
+        if col in _df.columns:
+            time_col = col
+            break
+    
+    if time_col is None:
+        return None, "시간 컬럼을 찾을 수 없습니다."
+    
+    # 시간 검색
+    time_col_str = _df[time_col].astype(str)
+    search_formats = convert_time_format(time_str)
+    
+    result = pd.DataFrame()
+    for fmt in search_formats:
+        matched = _df[time_col_str.str.contains(fmt, na=False, regex=False)]
+        if not matched.empty:
+            result = matched
+            break
+    
+    if result.empty:
+        return None, f"시간 '{time_str}'에 해당하는 데이터가 없습니다."
+    
+    row = result.iloc[0]
+    
+    # 예측 데이터 확인
+    if not has_prediction_data(row):
+        return None, f"❌ 시간 '{time_str}'에 예측 데이터가 없습니다.\n(보정예측, 실제값 컬럼 필요)"
+    
+    # 예측 분석만 출력
+    data_text = f"시간: {row[time_col]}\n"
+    data_text += analyze_prediction(row)
     
     return row, data_text
 
@@ -613,8 +602,13 @@ def search_csv(query: str) -> Tuple[Optional[Any], str]:
         
         return None, error_msg
     
-    # 4. 시간만 있으면 → 전체 행 데이터
+    # 4. 시간만 있으면 → 전체 행 데이터 또는 예측 분석
     if time_str:
+        # "예측" 키워드 있으면 → 예측 분석만
+        if '예측' in query:
+            logger.info(f"예측 검색: {time_str}")
+            return search_by_time_prediction(time_str)
+        # 없으면 → 기존 전체 데이터
         logger.info(f"시간 검색: {time_str}")
         return search_by_time(time_str)
     
