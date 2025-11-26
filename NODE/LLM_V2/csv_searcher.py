@@ -401,6 +401,34 @@ def search_csv(query: str) -> Tuple[Optional[Any], str]:
         logger.info(f"시간 범위 검색: {start_time} ~ {end_time}")
         return search_time_range(start_time, end_time)
     
+    # 0-1. 날짜 + 조건 패턴 체크 (2025-10-14 에서 1700이상)
+    # 패턴: 날짜 + (이상|이하|초과|미만) + 숫자  또는  날짜 + 숫자 + (이상|이하|초과|미만)
+    date_condition_patterns = [
+        r'(\d{4}-\d{2}-\d{2}).*?(\d+(?:\.\d+)?)\s*(이상|이하|초과|미만)',  # 2025-10-14 1700 이상
+        r'(\d{4}-\d{2}-\d{2}).*?(이상|이하|초과|미만)\s*(\d+(?:\.\d+)?)',  # 2025-10-14 이상 1700
+    ]
+    
+    for pattern in date_condition_patterns:
+        match = re.search(pattern, query)
+        if match:
+            groups = match.groups()
+            if len(groups) == 3:
+                date_str = groups[0]
+                if groups[1] in ['이상', '이하', '초과', '미만']:
+                    value = float(groups[0] if groups[0].replace('.','').isdigit() else groups[2])
+                    operator = groups[1]
+                else:
+                    value = float(groups[1])
+                    operator = groups[2]
+                
+                # 컬럼 추출 (지정 안 하면 기본 타겟)
+                col_pattern = r'([A-Z][A-Z0-9_\.]+)'
+                col_match = re.search(col_pattern, query, re.IGNORECASE)
+                target_col = col_match.group(1) if col_match and col_match.group(1) in _df.columns else None
+                
+                logger.info(f"날짜+조건 검색: {date_str}, {operator} {value}, 컬럼={target_col}")
+                return search_date_condition(date_str, operator, value, target_col)
+    
     # 1. 시간 패턴 추출 (202509210013 또는 2025-10-14 4:39 형식)
     time_patterns = [
         r'(\d{12})',  # 202509210013
@@ -478,6 +506,149 @@ def search_csv(query: str) -> Tuple[Optional[Any], str]:
         return search_by_columns(valid_cols)
     
     return None, "검색 조건을 찾을 수 없습니다. 시간(예: 2025-10-14 4:39) 또는 컬럼명을 포함해주세요."
+
+def search_date_condition(date_str: str, operator: str, value: float, target_col: str = None) -> Tuple[Optional[pd.DataFrame], str]:
+    """
+    날짜 + 조건으로 검색 (예: 2025-10-14에서 1700 이상)
+    
+    Args:
+        date_str: 날짜 (YYYY-MM-DD)
+        operator: 이상/이하/초과/미만
+        value: 비교값
+        target_col: 대상 컬럼 (없으면 자동 감지)
+    
+    Returns:
+        (결과 DataFrame, 설명 텍스트)
+    """
+    if _df is None:
+        return None, "CSV 파일이 로드되지 않았습니다."
+    
+    # 시간 컬럼 찾기
+    time_cols = ['현재시간', 'STAT_DT', 'CURRTIME', '시간']
+    time_col = None
+    for tc in time_cols:
+        if tc in _df.columns:
+            time_col = tc
+            break
+    
+    if time_col is None:
+        return None, "시간 컬럼을 찾을 수 없습니다."
+    
+    # 타겟 컬럼 결정
+    if target_col is None:
+        # 데이터 타입 감지해서 기본 타겟 설정
+        data_type = detect_data_type(list(_df.columns))
+        if data_type == "m14":
+            target_col = "현재TOTALCNT" if "현재TOTALCNT" in _df.columns else "TOTALCNT"
+        elif data_type == "hub":
+            target_col = "CURRENT_M16A_3F_JOB_2"
+        else:
+            # 숫자 컬럼 중 첫번째
+            for col in _df.columns:
+                if _df[col].dtype in ['int64', 'float64']:
+                    target_col = col
+                    break
+    
+    if target_col not in _df.columns:
+        return None, f"❌ 컬럼 '{target_col}'이(가) 없습니다."
+    
+    try:
+        df_copy = _df.copy()
+        df_copy[time_col] = pd.to_datetime(df_copy[time_col], errors='coerce')
+        df_copy[target_col] = pd.to_numeric(df_copy[target_col], errors='coerce')
+        
+        # 날짜 필터
+        target_date = pd.to_datetime(date_str).date()
+        date_mask = df_copy[time_col].dt.date == target_date
+        
+        # 조건 필터
+        op_map = {
+            '이상': '>=',
+            '이하': '<=',
+            '초과': '>',
+            '미만': '<'
+        }
+        op = op_map.get(operator, '>=')
+        
+        if op == '>=':
+            cond_mask = df_copy[target_col] >= value
+        elif op == '<=':
+            cond_mask = df_copy[target_col] <= value
+        elif op == '>':
+            cond_mask = df_copy[target_col] > value
+        elif op == '<':
+            cond_mask = df_copy[target_col] < value
+        else:
+            cond_mask = df_copy[target_col] >= value
+        
+        result = _df[date_mask & cond_mask].copy()
+        
+        if result.empty:
+            return None, f"❌ {date_str}에서 {target_col} {value} {operator} 데이터가 없습니다."
+        
+        # 데이터 타입 감지
+        data_type = detect_data_type(list(result.columns))
+        config = get_column_config()
+        
+        if data_type == "m14":
+            icon = "📦"
+            name = "M14 물류"
+        elif data_type == "hub":
+            icon = "🏭"
+            name = "HUB 물류"
+        else:
+            icon = "📊"
+            name = "데이터"
+        
+        # 결과 텍스트 생성
+        data_text = f"{icon} [{name}] 조건 검색\n"
+        data_text += f"📅 {date_str} | {target_col} {value} {operator} ({len(result)}건)\n"
+        data_text += "-" * 50 + "\n"
+        
+        # 각 행 출력
+        for idx, row in result.iterrows():
+            time_val = row[time_col]
+            if pd.notna(time_val):
+                if isinstance(time_val, str):
+                    time_str_fmt = time_val
+                else:
+                    time_str_fmt = time_val.strftime('%Y-%m-%d %H:%M') if hasattr(time_val, 'strftime') else str(time_val)
+                
+                val = row[target_col]
+                data_text += f"{time_str_fmt} : {target_col} = {val}\n"
+        
+        # 통계
+        vals = result[target_col].dropna()
+        data_text += "\n" + "=" * 50 + "\n"
+        data_text += f"📈 통계\n"
+        data_text += f"  건수: {len(result)}건\n"
+        data_text += f"  최소: {vals.min():.1f}\n"
+        data_text += f"  최대: {vals.max():.1f}\n"
+        data_text += f"  평균: {vals.mean():.1f}\n"
+        
+        # 마지막 행 상태 분석
+        last_row = result.iloc[-1]
+        last_time = last_row[time_col]
+        if isinstance(last_time, str):
+            last_time_str = last_time
+        else:
+            last_time_str = last_time.strftime('%Y-%m-%d %H:%M') if hasattr(last_time, 'strftime') else str(last_time)
+        
+        data_text += "\n" + "=" * 50 + "\n"
+        data_text += f"📊 상태 분석 ({last_time_str} 마지막 데이터)\n"
+        
+        analysis = analyze_status(last_row, data_type)
+        if analysis:
+            analysis = analysis.replace("\n📊 상태 분석\n", "\n")
+            data_text += analysis
+        
+        return result, data_text
+        
+    except Exception as e:
+        logger.error(f"날짜+조건 검색 오류: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
+        return None, f"❌ 검색 오류: {e}"
 
 def search_time_range(start_time: str, end_time: str) -> Tuple[Optional[pd.DataFrame], str]:
     """
