@@ -53,11 +53,18 @@ def detect_data_type(columns: List[str]) -> str:
     """데이터 타입 자동 감지 (m14/hub)"""
     config = get_column_config()
     
-    if not config:
-        return "unknown"
+    # 기본 감지 컬럼 (config 없을 때 사용)
+    DEFAULT_DETECT = {
+        "m14": ["M14AM14B", "M14AM14BSUM", "TOTALCNT", "현재TOTALCNT", "queue_gap", "TRANSPORT"],
+        "hub": ["CURRENT_M16A_3F_JOB_2", "HUBROOMTOTAL", "M16A_3F_STORAGE_UTIL", "M16HUB.QUE.ALL.CURRENTQCNT"]
+    }
     
-    m14_detect = config.get('m14', {}).get('detect_columns', [])
-    hub_detect = config.get('hub', {}).get('detect_columns', [])
+    if config:
+        m14_detect = config.get('m14', {}).get('detect_columns', DEFAULT_DETECT["m14"])
+        hub_detect = config.get('hub', {}).get('detect_columns', DEFAULT_DETECT["hub"])
+    else:
+        m14_detect = DEFAULT_DETECT["m14"]
+        hub_detect = DEFAULT_DETECT["hub"]
     
     m14_count = sum(1 for col in m14_detect if col in columns)
     hub_count = sum(1 for col in hub_detect if col in columns)
@@ -73,10 +80,31 @@ def analyze_status(row: pd.Series, data_type: str) -> str:
     """임계값 기반 상태 분석"""
     config = get_column_config()
     
-    if not config or data_type not in config:
-        return ""
+    # 기본 임계값 (config 없을 때 사용)
+    DEFAULT_THRESHOLDS = {
+        "m14": {
+            "현재TOTALCNT": {"normal": 1600, "caution": 1650, "critical": 1700},
+            "TOTALCNT": {"normal": 1600, "caution": 1650, "critical": 1700},
+            "M14AM14B": {"normal": 497, "caution": 517, "critical": 520},
+            "M14AM14BSUM": {"normal": 566, "caution": 576, "critical": 588},
+            "queue_gap": {"normal": 200, "caution": 300, "critical": 400},
+            "TRANSPORT": {"normal": 145, "caution": 151, "critical": 180},
+            "OHT_UTIL": {"normal": 83.6, "caution": 84.6, "critical": 85.6}
+        },
+        "hub": {
+            "CURRENT_M16A_3F_JOB_2": {"normal": 270, "caution": 280, "critical": 300},
+            "HUBROOMTOTAL": {"normal": 620, "caution": 610, "critical": 590},
+            "M16A_3F_STORAGE_UTIL": {"normal": 205, "caution": 206, "critical": 207},
+            "CD_M163FSTORAGEUTIL": {"normal": 7, "caution": 8, "critical": 10},
+            "M16HUB.QUE.ALL.CURRENTQCNT": {"normal": 1200, "caution": 1300, "critical": 1400}
+        }
+    }
     
-    thresholds = config[data_type].get('thresholds', {})
+    # config 있으면 사용, 없으면 기본값
+    if config and data_type in config:
+        thresholds = config[data_type].get('thresholds', {})
+    else:
+        thresholds = DEFAULT_THRESHOLDS.get(data_type, {})
     
     if not thresholds:
         return ""
@@ -363,6 +391,16 @@ def search_csv(query: str) -> Tuple[Optional[Any], str]:
     if _df is None:
         return None, "CSV 파일이 로드되지 않았습니다."
     
+    # 0. 시간 범위 패턴 먼저 체크 (2025-10-14 4:45 ~ 2025-10-14 5:50)
+    range_pattern = r'(\d{4}-\d{2}-\d{2}\s+\d{1,2}:\d{2})\s*[~\-]\s*(\d{4}-\d{2}-\d{2}\s+\d{1,2}:\d{2})'
+    range_match = re.search(range_pattern, query)
+    
+    if range_match:
+        start_time = range_match.group(1)
+        end_time = range_match.group(2)
+        logger.info(f"시간 범위 검색: {start_time} ~ {end_time}")
+        return search_time_range(start_time, end_time)
+    
     # 1. 시간 패턴 추출 (202509210013 또는 2025-10-14 4:39 형식)
     time_patterns = [
         r'(\d{12})',  # 202509210013
@@ -440,6 +478,110 @@ def search_csv(query: str) -> Tuple[Optional[Any], str]:
         return search_by_columns(valid_cols)
     
     return None, "검색 조건을 찾을 수 없습니다. 시간(예: 2025-10-14 4:39) 또는 컬럼명을 포함해주세요."
+
+def search_time_range(start_time: str, end_time: str) -> Tuple[Optional[pd.DataFrame], str]:
+    """
+    시간 범위로 검색 (요약 + 상태 분석)
+    
+    Args:
+        start_time: 시작 시간
+        end_time: 종료 시간
+    
+    Returns:
+        (결과 DataFrame, 설명 텍스트)
+    """
+    if _df is None:
+        return None, "CSV 파일이 로드되지 않았습니다."
+    
+    # 시간 컬럼 찾기
+    time_cols = ['현재시간', 'STAT_DT', 'CURRTIME', '시간']
+    time_col = None
+    for tc in time_cols:
+        if tc in _df.columns:
+            time_col = tc
+            break
+    
+    if time_col is None:
+        return None, "시간 컬럼을 찾을 수 없습니다."
+    
+    try:
+        df_copy = _df.copy()
+        df_copy[time_col] = pd.to_datetime(df_copy[time_col], errors='coerce')
+        
+        # 시간 형식 변환
+        start_formats = convert_time_format(start_time)
+        end_formats = convert_time_format(end_time)
+        
+        start_dt = pd.to_datetime(start_formats[0])
+        end_dt = pd.to_datetime(end_formats[0])
+        
+        mask = (df_copy[time_col] >= start_dt) & (df_copy[time_col] <= end_dt)
+        result = _df[mask].copy()
+        
+        if result.empty:
+            return None, f"❌ {start_time} ~ {end_time} 범위에 데이터가 없습니다."
+        
+        # 데이터 타입 감지
+        data_type = detect_data_type(list(result.columns))
+        config = get_column_config()
+        
+        # 타겟 컬럼 결정
+        if data_type == "m14":
+            target_col = "현재TOTALCNT" if "현재TOTALCNT" in result.columns else "TOTALCNT"
+            icon = config.get('m14', {}).get('icon', '📦')
+            name = config.get('m14', {}).get('name', 'M14 물류')
+        elif data_type == "hub":
+            target_col = "CURRENT_M16A_3F_JOB_2"
+            icon = config.get('hub', {}).get('icon', '🏭')
+            name = config.get('hub', {}).get('name', 'HUB 물류')
+        else:
+            target_col = result.columns[2] if len(result.columns) > 2 else result.columns[0]
+            icon = "📊"
+            name = "데이터"
+        
+        # 결과 텍스트 생성
+        data_text = f"{icon} [{name}]\n"
+        data_text += f"📅 {start_time} ~ {end_time} ({len(result)}건)\n"
+        data_text += "-" * 40 + "\n"
+        
+        # 각 행의 시간: 타겟값 출력
+        for idx, row in result.iterrows():
+            time_val = row[time_col]
+            if pd.notna(time_val):
+                if isinstance(time_val, str):
+                    time_str = time_val
+                else:
+                    time_str = time_val.strftime('%Y-%m-%d %H:%M') if hasattr(time_val, 'strftime') else str(time_val)
+                
+                if target_col in row.index and pd.notna(row[target_col]):
+                    data_text += f"{time_str} : {target_col} = {row[target_col]}\n"
+                else:
+                    data_text += f"{time_str}\n"
+        
+        # 마지막 행 상태 분석
+        last_row = result.iloc[-1]
+        last_time = last_row[time_col]
+        if isinstance(last_time, str):
+            last_time_str = last_time
+        else:
+            last_time_str = last_time.strftime('%Y-%m-%d %H:%M') if hasattr(last_time, 'strftime') else str(last_time)
+        
+        data_text += "\n" + "=" * 40 + "\n"
+        data_text += f"📊 상태 분석 ({last_time_str} 마지막 데이터)\n"
+        
+        analysis = analyze_status(last_row, data_type)
+        if analysis:
+            # "📊 상태 분석" 제목 제거 (중복 방지)
+            analysis = analysis.replace("\n📊 상태 분석\n", "\n")
+            data_text += analysis
+        else:
+            data_text += "✅ 상태 분석 정보 없음"
+        
+        return result, data_text
+        
+    except Exception as e:
+        logger.error(f"시간 범위 검색 오류: {e}")
+        return None, f"❌ 시간 파싱 오류: {e}"
 
 def search_range(start_time: str, end_time: str) -> Tuple[Optional[pd.DataFrame], str]:
     """
