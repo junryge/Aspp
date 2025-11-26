@@ -23,7 +23,7 @@ import hub_predictor_numerical
 import hub_predictor_categorical
 
 # LLM 후처리 모듈
-from llm_postprocessor import clean_llm_response, get_llm_analysis
+from llm_postprocessor import clean_llm_response, get_llm_analysis, get_prediction_llm_analysis
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -135,9 +135,14 @@ async def ask(query: Query):
             answer = f"📊 검색 결과\n{data_text}\n"
             
             # 2. LLM 분석 추가
-            # 데이터 타입 감지
-            data_type = "hub" if "HUB" in data_text else "m14"
-            analysis = get_llm_analysis(data_text, llm, data_type)
+            # 예측 데이터 있으면 → 예측 분석용 LLM
+            if "🔮 예측 분석" in data_text:
+                analysis = get_prediction_llm_analysis(data_text, llm)
+            else:
+                # 상태 분석용 LLM
+                data_type = "hub" if "HUB" in data_text else "m14"
+                analysis = get_llm_analysis(data_text, llm, data_type)
+            
             answer += f"\n---\n🤖 LLM 분석\n{analysis}"
             
             return {"answer": answer}
