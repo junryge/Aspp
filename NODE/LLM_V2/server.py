@@ -216,50 +216,7 @@ async def ask(query: Query):
         # 모드별 처리
         if query.mode == "search":
             
-            # ⭐ STAR DB 쿼리 먼저 체크
-            if star_searcher.is_star_query(query.question):
-                logger.info("STAR DB 검색 감지")
-                section_key, answer = star_searcher.search(query.question)
-                
-                # LLM 한글 요약 추가
-                if llm is not None:
-                    try:
-                        prompt = f"""<|im_start|>system
-반드시 한국어로만 답변하세요. 영어 금지. 생각 과정 없이 바로 답변하세요.
-<|im_end|>
-<|im_start|>user
-{answer}
-
-위 DB 접속 정보를 한국어 1문장으로 요약하세요.
-<|im_end|>
-<|im_start|>assistant
-"""
-                        response = llm(prompt, max_tokens=60, temperature=0.1, stop=["<|im_end|>"])
-                        summary = response['choices'][0]['text'].strip()
-                        
-                        # 영어 감지 → 템플릿 사용
-                        import re
-                        summary = re.sub(r'<think>.*?</think>', '', summary, flags=re.DOTALL).strip()
-                        if not summary or 'okay' in summary.lower() or 'let' in summary.lower() or len(summary) < 5:
-                            # 템플릿 폴백
-                            if '청주' in answer and '운영' in answer:
-                                summary = "청주 운영 환경 Oracle RAC DB 접속 정보입니다."
-                            elif '청주' in answer and 'QA' in answer:
-                                summary = "청주 QA 환경 Oracle RAC DB 접속 정보입니다."
-                            elif '이천' in answer and '운영' in answer:
-                                summary = "이천 운영 환경 Oracle RAC DB 접속 정보입니다."
-                            elif '이천' in answer and 'QA' in answer:
-                                summary = "이천 QA 환경 Oracle RAC DB 접속 정보입니다."
-                            else:
-                                summary = "STAR DB 접속 정보입니다."
-                        
-                        answer += f"\n---\n🤖 요약: {summary}"
-                    except Exception as e:
-                        logger.warning(f"LLM 요약 실패: {e}")
-                
-                return {"answer": answer}
-            
-            # ⭐ MongoDB/Logpresso 쿼리 체크
+            # ⭐ MongoDB/Logpresso 쿼리 먼저 체크 (STAR보다 먼저!)
             if mongo_searcher.is_mongo_query(query.question):
                 logger.info("MongoDB/Logpresso 검색 감지")
                 section_key, answer = mongo_searcher.search(query.question)
@@ -297,6 +254,49 @@ async def ask(query: Query):
                                 summary = "우시 Logpresso 로그 서버 접속 정보입니다."
                             else:
                                 summary = "MongoDB/Logpresso 접속 정보입니다."
+                        
+                        answer += f"\n---\n🤖 요약: {summary}"
+                    except Exception as e:
+                        logger.warning(f"LLM 요약 실패: {e}")
+                
+                return {"answer": answer}
+            
+            # ⭐ STAR DB 쿼리 체크 (MongoDB 다음)
+            if star_searcher.is_star_query(query.question):
+                logger.info("STAR DB 검색 감지")
+                section_key, answer = star_searcher.search(query.question)
+                
+                # LLM 한글 요약 추가
+                if llm is not None:
+                    try:
+                        prompt = f"""<|im_start|>system
+반드시 한국어로만 답변하세요. 영어 금지. 생각 과정 없이 바로 답변하세요.
+<|im_end|>
+<|im_start|>user
+{answer}
+
+위 DB 접속 정보를 한국어 1문장으로 요약하세요.
+<|im_end|>
+<|im_start|>assistant
+"""
+                        response = llm(prompt, max_tokens=60, temperature=0.1, stop=["<|im_end|>"])
+                        summary = response['choices'][0]['text'].strip()
+                        
+                        # 영어 감지 → 템플릿 사용
+                        import re
+                        summary = re.sub(r'<think>.*?</think>', '', summary, flags=re.DOTALL).strip()
+                        if not summary or 'okay' in summary.lower() or 'let' in summary.lower() or len(summary) < 5:
+                            # 템플릿 폴백
+                            if '청주' in answer and '운영' in answer:
+                                summary = "청주 운영 환경 Oracle RAC DB 접속 정보입니다."
+                            elif '청주' in answer and 'QA' in answer:
+                                summary = "청주 QA 환경 Oracle RAC DB 접속 정보입니다."
+                            elif '이천' in answer and '운영' in answer:
+                                summary = "이천 운영 환경 Oracle RAC DB 접속 정보입니다."
+                            elif '이천' in answer and 'QA' in answer:
+                                summary = "이천 QA 환경 Oracle RAC DB 접속 정보입니다."
+                            else:
+                                summary = "STAR DB 접속 정보입니다."
                         
                         answer += f"\n---\n🤖 요약: {summary}"
                     except Exception as e:
