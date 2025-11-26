@@ -341,26 +341,32 @@ def generate_html(data):
 <span class="status status-{p['status'].lower()}">{p['status']}</span></div>"""
     
     html += f"""</div>
-<div class="card"><canvas id="chart"></canvas></div>
+<div class="card" style="padding:15px; margin-top:20px;">
+<div style="height:180px; position:relative;"><canvas id="chart"></canvas></div>
+</div>
 </div>
 <script>
 new Chart(document.getElementById('chart'), {{
-    type: 'line',
+    type: 'bar',
     data: {{
         labels: {json.dumps(chart_labels)},
         datasets: [{{
-            label: 'Class 2 (급증) 확률',
+            label: '급증 확률 (%)',
             data: {json.dumps(chart_prob2)},
-            borderColor: '#e53e3e',
-            backgroundColor: 'rgba(229, 62, 62, 0.2)',
-            borderWidth: 3,
-            fill: true
+            backgroundColor: {json.dumps(chart_prob2)}.map(v => v >= 70 ? '#e53e3e' : v >= 50 ? '#dd6b20' : '#38a169'),
+            borderWidth: 1,
+            borderColor: '#333'
         }}]
     }},
     options: {{
         responsive: true,
-        aspectRatio: 2.5,
-        scales: {{y: {{beginAtZero: true, max: 100}}}}
+        maintainAspectRatio: false,
+        scales: {{
+            y: {{ beginAtZero: true, max: 100 }}
+        }},
+        plugins: {{
+            legend: {{ display: false }}
+        }}
     }}
 }});
 </script>
