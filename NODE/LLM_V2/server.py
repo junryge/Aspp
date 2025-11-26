@@ -437,32 +437,50 @@ def generate_hub_llm_analysis(result_numerical, result_categorical):
         return generate_hub_template_analysis(result_numerical, result_categorical, risk_factors, max_surge_prob, max_pred_value)
 
 def generate_hub_template_analysis(result_numerical, result_categorical, risk_factors, max_surge_prob, max_pred_value):
-    """LLM 실패시 템플릿 기반 HUB 분석"""
+    """LLM 실패시 템플릿 기반 HUB 분석 - 수치형 예측 + 범주형 뒷받침"""
     current_val = result_numerical['current_value']
+    pred_num = result_numerical['predictions']
     pred_cat = result_categorical['predictions']
     
-    if not risk_factors:
+    # 가장 위험한 시간대 찾기
+    max_horizon = max(pred_num, key=lambda x: x['pred_max'])
+    max_cat = next((p for p in pred_cat if p['horizon'] == max_horizon['horizon']), pred_cat[-1])
+    
+    if max_pred_value < 280 and max_surge_prob < 30:
         return f"현재값 {current_val:.1f}로 정상 범위입니다. 급증 확률이 낮아 안정적인 상태입니다. 지속적인 모니터링을 권장합니다."
     
-    analysis = f"⚠️ 위험 분석:\n"
-    for factor in risk_factors[:4]:  # 최대 4개
-        analysis += f"🚨 {factor}\n"
+    analysis = f"⚠️ 위험 분석:\n\n"
     
-    # 급증 예상 시간대 강조
-    surge_times = [p for p in pred_cat if p['prob2'] >= 30]
-    if surge_times:
-        analysis += f"\n📈 급증 주의 시간대:\n"
-        for p in surge_times:
-            emoji = "🚨" if p['prob2'] >= 70 else "⚠️" if p['prob2'] >= 50 else "🟡"
-            analysis += f"  {emoji} {p['horizon']}분 후: {p['prob2']:.1f}% ({p['class_name']})\n"
+    # 1. 수치형 예측 (메인)
+    analysis += f"🔢 수치형 예측:\n"
+    for p in pred_num:
+        if p['pred_max'] >= 300:
+            analysis += f"  🚨 {p['horizon']}분 후: {p['pred_min']:.0f} ~ {p['pred_max']:.0f} (심각)\n"
+        elif p['pred_max'] >= 280:
+            analysis += f"  ⚠️ {p['horizon']}분 후: {p['pred_min']:.0f} ~ {p['pred_max']:.0f} (주의)\n"
+        else:
+            analysis += f"  ✅ {p['horizon']}분 후: {p['pred_min']:.0f} ~ {p['pred_max']:.0f} (정상)\n"
     
-    # 권장 조치
-    if max_surge_prob >= 70:
-        analysis += f"\n⚠️ 25분 내 급증 확률 {max_surge_prob:.1f}%! HUB 용량 확보 및 유입량 조절 즉시 필요합니다."
-    elif max_surge_prob >= 50:
-        analysis += f"\n⚠️ 급증 가능성 있음. 물류 흐름 모니터링 강화를 권장합니다."
+    # 2. 범주형 뒷받침 (근거)
+    analysis += f"\n🎯 범주형 근거 (발생 확률):\n"
+    for p in pred_cat:
+        if p['prob2'] >= 70:
+            analysis += f"  🚨 {p['horizon']}분 후: 급증 확률 {p['prob2']:.1f}%\n"
+        elif p['prob2'] >= 50:
+            analysis += f"  ⚠️ {p['horizon']}분 후: 급증 확률 {p['prob2']:.1f}%\n"
+        elif p['prob2'] >= 30:
+            analysis += f"  🟡 {p['horizon']}분 후: 급증 확률 {p['prob2']:.1f}%\n"
+    
+    # 3. 결론
+    analysis += f"\n📋 결론:\n"
+    if max_pred_value >= 300 and max_surge_prob >= 70:
+        analysis += f"  → {max_horizon['horizon']}분 후 {max_pred_value:.0f}까지 상승 예측, 발생 확률 {max_surge_prob:.1f}%로 매우 높음\n"
+        analysis += f"  → HUB 용량 확보 및 유입량 조절 즉시 필요!"
+    elif max_pred_value >= 280 or max_surge_prob >= 50:
+        analysis += f"  → {max_horizon['horizon']}분 후 {max_pred_value:.0f}까지 상승 가능, 급증 확률 {max_surge_prob:.1f}%\n"
+        analysis += f"  → 물류 흐름 모니터링 강화 필요"
     else:
-        analysis += f"\n현재 안정적이나 지속적인 모니터링이 필요합니다."
+        analysis += f"  → 현재 안정적이나 지속적인 모니터링 필요"
     
     return analysis
 
