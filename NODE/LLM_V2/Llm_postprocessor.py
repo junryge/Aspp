@@ -67,12 +67,17 @@ def generate_status_summary(status_text: str) -> str:
     for name, value, threshold in caution_items:
         parts.append(f"{name}({value})이 기준값({threshold}) 이상으로 관심 구간 진입. 모니터링 권장.")
     
-    # 정상 항목 (마지막에 간단히)
-    if normal_items:
+    # 심각/주의 항목 있으면 → 정상 항목 생략, 경고 마무리
+    if critical_items:
+        parts.append(f"⚠️ 총 {len(critical_items)}개 항목이 심각 상태입니다. 즉시 점검하세요!")
+    elif warning_items:
+        parts.append(f"⚠️ 총 {len(warning_items)}개 항목이 주의 상태입니다. 점검이 필요합니다.")
+    elif normal_items and not caution_items:
+        # 전부 정상일 때만 정상 언급
         names = ', '.join([item[0] for item in normal_items[:3]])
         if len(normal_items) > 3:
             names += f" 등 {len(normal_items)}개"
-        parts.append(f"{names}는 정상 범위입니다.")
+        parts.append(f"{names} 모두 정상 범위입니다.")
     
     if not parts:
         return "모든 항목이 정상 범위 내에 있습니다."
