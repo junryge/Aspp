@@ -208,7 +208,11 @@ def get_prediction_llm_analysis(data_text: str, llm) -> str:
         raw = re.sub(r'<think>.*?</think>', '', raw, flags=re.DOTALL).strip()
         raw = re.sub(r'<[^>]+>', '', raw).strip()
         
-        if not raw or len(raw) < 10 or "let me" in raw.lower():
+        # 영어 감지 → 템플릿 폴백
+        english_patterns = ['let me', 'let\'s', 'okay', 'the ', 'this ', 'user', 'want', 'given', 'result']
+        has_english = any(p in raw.lower() for p in english_patterns)
+        
+        if not raw or len(raw) < 10 or has_english:
             return generate_prediction_summary(current_val, pred_val, actual_val, error_val, error_rate, direction)
         
         return clean_llm_response(raw, max_lines=3)
