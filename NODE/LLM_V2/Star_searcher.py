@@ -130,6 +130,10 @@ def format_result(section_key: str, context: str) -> str:
     
     lines = context.split('\n')
     
+    # 정보 수집용
+    service_name = ""
+    node_count = 0
+    
     for line in lines:
         line = line.strip()
         
@@ -161,6 +165,12 @@ def format_result(section_key: str, context: str) -> str:
                 if key in ['항목', '사이트'] or value in ['값', '환경']:
                     continue
                 
+                # 정보 수집
+                if 'Service' in key:
+                    service_name = value
+                if 'Node' in key:
+                    node_count += 1
+                
                 # 이모지 추가
                 if 'Service' in key:
                     result += f"📌 {key}: {value}\n"
@@ -179,6 +189,29 @@ def format_result(section_key: str, context: str) -> str:
         elif line.startswith('*'):
             item = line[1:].strip()
             result += f"  • {item}\n"
+    
+    # 📝 한글 요약 추가 (LLM 없이 템플릿!)
+    result += "\n" + "-" * 45 + "\n"
+    result += "📝 요약: "
+    
+    if section_key == '청주_운영':
+        result += f"청주 운영 DB ({service_name}) - {node_count}개 노드 RAC 구성"
+    elif section_key == '청주_QA':
+        result += f"청주 QA DB ({service_name}) - {node_count}개 노드 RAC 구성"
+    elif section_key == '이천_운영':
+        result += f"이천 운영 DB ({service_name}) - {node_count}개 노드 RAC 구성"
+    elif section_key == '이천_QA':
+        result += f"이천 QA DB ({service_name}) - {node_count}개 노드 RAC 구성"
+    elif section_key == '계정':
+        result += "STAREAD 계정으로 읽기 전용 접속"
+    elif section_key == '요약':
+        result += "청주/이천 운영/QA 4개 환경 접속 정보"
+    elif section_key == 'Failover':
+        result += "장애 시 5회 재시도 (5초 간격)"
+    else:
+        result += "STAR DB 접속 정보"
+    
+    result += "\n"
     
     return result
 
@@ -241,7 +274,8 @@ def is_star_query(query: str) -> bool:
         'star', '스타', 'db', '데이터베이스', '접속', 'tns', 
         '청주', '이천', 'cheongju', 'icheon',
         'oracle', '오라클', 'connection', '연결',
-        'staread', 'fc1star', 'icastar'
+        'staread', 'fc1star', 'icastar',
+        '계정', '비밀번호', 'password', '공통'
     ]
     return any(k in query.lower() for k in keywords)
 
