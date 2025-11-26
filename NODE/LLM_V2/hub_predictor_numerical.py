@@ -344,7 +344,7 @@ def generate_html(data, historical_data, historical_times):
 <span class="status status-{p['status'].lower()}">{p['status']}</span></div>"""
     
     html += f"""</div>
-<div class="card"><canvas id="chart"></canvas></div>
+<div class="card" style="margin-top:50px;"><canvas id="chart"></canvas></div>
 </div>
 <script>
 new Chart(document.getElementById('chart'), {{
