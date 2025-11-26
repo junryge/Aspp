@@ -453,13 +453,20 @@ def generate_hub_template_analysis(result_numerical, result_categorical, risk_fa
     
     # 1. 수치형 예측 (메인)
     analysis += f"🔢 수치형 예측:\n"
+    critical_horizons = []  # 300 이상인 시간대
+    
     for p in pred_num:
         if p['pred_max'] >= 300:
             analysis += f"  🚨 {p['horizon']}분 후: {p['pred_min']:.0f} ~ {p['pred_max']:.0f} (심각)\n"
+            critical_horizons.append(f"{p['horizon']}분")
         elif p['pred_max'] >= 280:
             analysis += f"  ⚠️ {p['horizon']}분 후: {p['pred_min']:.0f} ~ {p['pred_max']:.0f} (주의)\n"
         else:
             analysis += f"  ✅ {p['horizon']}분 후: {p['pred_min']:.0f} ~ {p['pred_max']:.0f} (정상)\n"
+    
+    # 300 이상 경고 추가
+    if critical_horizons:
+        analysis += f"\n  ⚠️ {', '.join(critical_horizons)} 후 MAX값 300 이상! 즉시 확인 필요!\n"
     
     # 2. 범주형 뒷받침 (근거)
     analysis += f"\n🎯 범주형 근거 (발생 확률):\n"
