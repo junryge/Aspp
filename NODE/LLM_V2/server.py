@@ -469,8 +469,13 @@ def generate_llm_analysis(result):
         raw_answer = response['choices'][0]['text'].strip()
         cleaned = clean_llm_response(raw_answer)
         
-        # LLM 응답이 없거나 짧으면 템플릿 응답
-        if not cleaned or len(cleaned) < 20:
+        # 영어 패턴 감지 → 템플릿 사용
+        english_patterns = ['please', 'answer', 'korean', 'following', 'response', 'analysis', 'the ', 'is ', 'are ', 'this ']
+        has_english = any(p in cleaned.lower() for p in english_patterns)
+        
+        # LLM 응답이 없거나 짧거나 영어 섞이면 템플릿 응답
+        if not cleaned or len(cleaned) < 20 or has_english:
+            logger.warning(f"LLM 응답 부적절, 템플릿 사용: {cleaned[:50] if cleaned else 'empty'}")
             return generate_m14_template_analysis(result, risk_factors, max_danger)
         
         return cleaned
