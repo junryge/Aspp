@@ -272,15 +272,36 @@ def search(query: str) -> Tuple[Optional[str], str]:
 
 
 def is_star_query(query: str) -> bool:
-    """STAR DB 관련 쿼리인지 판단"""
-    keywords = [
-        'star', '스타', 'db', '데이터베이스', '접속', 'tns', 
-        '청주', '이천', 'cheongju', 'icheon',
-        'oracle', '오라클', 'connection', '연결',
+    """STAR DB 관련 쿼리인지 판단 - 명확한 키워드만!"""
+    query_lower = query.lower()
+    
+    # STAR 전용 키워드 (이천/청주는 MongoDB에도 있으니 제외!)
+    star_keywords = [
+        'star', '스타', 'smartstar', 'smart star',
+        'oracle', '오라클', 'rac',
         'staread', 'fc1star', 'icastar',
-        '계정', '비밀번호', 'password', '공통'
+        'fc1starpp', 'icastarpp',  # Service Name
+        'tns', '1521'  # Oracle 포트
     ]
-    return any(k in query.lower() for k in keywords)
+    
+    # STAR 키워드가 있으면 True
+    if any(k in query_lower for k in star_keywords):
+        return True
+    
+    # "이천/청주" + "DB/접속/운영/QA" 조합이면서 mongo/logpresso 없으면 STAR
+    location_keywords = ['이천', '청주', 'icheon', 'cheongju']
+    db_keywords = ['db', '데이터베이스', '접속', '운영', 'qa', '계정', '비밀번호']
+    mongo_keywords = ['mongo', '몽고', 'logpresso', '로그프레소', '로그', 'pkt', 'nwt', 'm11', 'm15']
+    
+    has_location = any(k in query_lower for k in location_keywords)
+    has_db = any(k in query_lower for k in db_keywords)
+    has_mongo = any(k in query_lower for k in mongo_keywords)
+    
+    # 지역 + DB키워드 있고, MongoDB 키워드 없으면 → STAR
+    if has_location and has_db and not has_mongo:
+        return True
+    
+    return False
 
 
 # 테스트
