@@ -1,375 +1,708 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-CSV 검색 모듈
-server.py에서 import하여 사용
+CSV 직접 검색 RAG 서버 (csv_searcher 모듈 사용)
 """
 
 import os
-import pandas as pd
-import re
+from fastapi import FastAPI
+from fastapi.responses import FileResponse, JSONResponse
+from pydantic import BaseModel
 import logging
-from typing import Tuple, Optional, List, Dict, Any
+from datetime import datetime
+import json
+
+# CSV 검색 모듈
+import csv_searcher
+
+# STAR DB 검색 모듈
+import star_searcher
+
+# M14 예측 모듈
+import m14_predictor
+
+# HUB 예측 모듈
+import hub_predictor_numerical
+import hub_predictor_categorical
+
+# LLM 후처리 모듈
+from llm_postprocessor import clean_llm_response, get_llm_analysis, get_prediction_llm_analysis
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# 전역 DataFrame
-_df = None
-_csv_path = None
+app = FastAPI()
 
-def load_csv(csv_path: str) -> bool:
-    """CSV 파일 로드"""
-    global _df, _csv_path
-    
-    if not os.path.exists(csv_path):
-        logger.error(f"❌ CSV 파일 없음: {csv_path}")
-        return False
-    
+# 전역 변수
+llm = None
+COLUMN_DEFINITIONS = ""
+
+def load_column_definitions():
+    """컬럼 정의 파일 로드"""
     try:
-        _df = pd.read_csv(csv_path, encoding='utf-8')
-        _csv_path = csv_path
-        logger.info(f"✅ CSV 로드 완료: {len(_df)}행, {len(_df.columns)}컬럼")
-        logger.info(f"컬럼: {list(_df.columns[:5])}...")
-        return True
-    except Exception as e:
-        logger.error(f"❌ CSV 로드 실패: {e}")
-        return False
+        with open("column_definitions_short.txt", "r", encoding="utf-8") as f:
+            return f.read()
+    except:
+        try:
+            with open("column_definitions.txt", "r", encoding="utf-8") as f:
+                return f.read()
+        except Exception as e:
+            logger.error(f"컬럼 정의 로드 실패: {e}")
+            return ""
 
-def get_df() -> Optional[pd.DataFrame]:
-    """현재 로드된 DataFrame 반환"""
-    return _df
-
-def get_columns() -> List[str]:
-    """컬럼 목록 반환"""
-    if _df is None:
-        return []
-    return list(_df.columns)
-
-def search_by_time(time_str: str) -> Tuple[Optional[pd.Series], str]:
-    """
-    시간으로 검색 (YYYYMMDDHHMM 또는 YYYY-MM-DD HH:MM 형식)
+@app.on_event("startup")
+async def startup():
+    """서버 시작 시 초기화"""
+    global llm, COLUMN_DEFINITIONS
     
-    Returns:
-        (매칭된 행, 설명 텍스트)
-    """
-    if _df is None:
-        return None, "CSV 파일이 로드되지 않았습니다."
+    # 0. 컬럼 정의 로드
+    COLUMN_DEFINITIONS = load_column_definitions()
+    logger.info("✅ 컬럼 정의 로드 완료")
     
-    # 시간 컬럼 후보
-    time_cols = ['현재시간', 'STAT_DT', 'CURRTIME', '시간', 'TIME', 'DATETIME']
-    time_col = None
+    # 1. CSV 로드 (csv_searcher 사용)
+    CSV_PATH = "./csv/with.csv"
     
-    for col in time_cols:
-        if col in _df.columns:
-            time_col = col
-            break
-    
-    if time_col is None:
-        return None, "시간 컬럼을 찾을 수 없습니다."
-    
-    # 검색 (여러 방식 시도)
-    time_col_str = _df[time_col].astype(str)
-    
-    # 1. 정확히 포함
-    result = _df[time_col_str.str.contains(time_str, na=False, regex=False)]
-    
-    # 2. 시간 정규화 후 비교 (4:39 vs 04:39)
-    if result.empty:
-        # 입력 시간에서 날짜와 시간 분리
-        if ' ' in time_str:
-            date_part, time_part = time_str.rsplit(' ', 1)
-            # 시간 부분 정규화 (4:39 -> 04:39, 04:39 -> 4:39)
-            if ':' in time_part:
-                h, m = time_part.split(':')
-                # 두 가지 형식으로 검색
-                time_str_padded = f"{date_part} {int(h):02d}:{m}"
-                time_str_unpadded = f"{date_part} {int(h)}:{m}"
-                
-                result = _df[time_col_str.str.contains(time_str_padded, na=False, regex=False) |
-                            time_col_str.str.contains(time_str_unpadded, na=False, regex=False)]
-    
-    if result.empty:
-        # 유사한 시간 제안
-        sample_times = time_col_str.head(5).tolist()
-        return None, f"시간 '{time_str}'에 해당하는 데이터가 없습니다.\n예시: {sample_times}"
-    
-    row = result.iloc[0]
-    
-    # 결과 포맷팅
-    data_text = f"시간: {row[time_col]}\n"
-    for col in _df.columns:
-        if col != time_col:
-            val = row[col]
-            if pd.notna(val):
-                data_text += f"{col}: {val}\n"
-    
-    return row, data_text
-
-def search_by_columns(col_names: List[str], n_rows: int = 5) -> Tuple[Optional[pd.DataFrame], str]:
-    """
-    컬럼명으로 검색 (최근 n개 데이터)
-    
-    Args:
-        col_names: 검색할 컬럼명 리스트
-        n_rows: 반환할 행 수
-    
-    Returns:
-        (매칭된 DataFrame, 설명 텍스트)
-    """
-    if _df is None:
-        return None, "CSV 파일이 로드되지 않았습니다."
-    
-    # 유효한 컬럼만 필터
-    valid_cols = [c for c in col_names if c in _df.columns]
-    
-    if not valid_cols:
-        return None, f"유효한 컬럼이 없습니다. 사용 가능: {list(_df.columns[:10])}..."
-    
-    recent = _df.tail(n_rows)
-    data_text = f"최근 {n_rows}개 데이터:\n\n"
-    
-    # 시간 컬럼
-    time_cols = ['STAT_DT', '현재시간', 'CURRTIME', '시간']
-    time_col = None
-    for tc in time_cols:
-        if tc in _df.columns:
-            time_col = tc
-            break
-    
-    for idx, row in recent.iterrows():
-        if time_col:
-            data_text += f"[{row[time_col]}]\n"
+    if os.path.exists(CSV_PATH):
+        if csv_searcher.load_csv(CSV_PATH):
+            logger.info("✅ CSV 로드 완료 (csv_searcher)")
         else:
-            data_text += f"[Row {idx}]\n"
-        
-        for col in valid_cols:
-            data_text += f"  {col}: {row[col]}\n"
-        data_text += "\n"
-    
-    return recent[valid_cols], data_text
-
-def search_csv(query: str) -> Tuple[Optional[Any], str]:
-    """
-    자연어 쿼리로 CSV 검색 (기존 server.py 함수와 호환)
-    
-    Args:
-        query: 검색 쿼리 (시간 또는 컬럼명 포함)
-    
-    Returns:
-        (결과 데이터, 설명 텍스트)
-    """
-    if _df is None:
-        return None, "CSV 파일이 로드되지 않았습니다."
-    
-    # 1. 시간 패턴 추출 (202509210013 또는 2025-10-14 4:39 형식)
-    time_patterns = [
-        r'(\d{12})',  # 202509210013
-        r'(\d{4}-\d{2}-\d{2}\s+\d{1,2}:\d{2})',  # 2025-10-14 4:39
-        r'(\d{4}-\d{2}-\d{2})',  # 2025-10-14
-    ]
-    
-    for pattern in time_patterns:
-        match = re.search(pattern, query)
-        if match:
-            time_str = match.group(1)
-            logger.info(f"시간 검색: {time_str}")
-            return search_by_time(time_str)
-    
-    # 2. 컬럼명 추출
-    col_pattern = r'([A-Z가-힣_\.][A-Z가-힣0-9_\.\(\)]+)'
-    col_matches = re.findall(col_pattern, query, re.IGNORECASE)
-    
-    if col_matches:
-        # 실제 존재하는 컬럼만 필터
-        valid_cols = [c for c in col_matches if c in _df.columns]
-        if valid_cols:
-            return search_by_columns(valid_cols)
-    
-    return None, "검색 조건을 찾을 수 없습니다. 시간(예: 2025-10-14 4:39) 또는 컬럼명을 포함해주세요."
-
-def search_range(start_time: str, end_time: str) -> Tuple[Optional[pd.DataFrame], str]:
-    """
-    시간 범위로 검색
-    
-    Args:
-        start_time: 시작 시간
-        end_time: 종료 시간
-    
-    Returns:
-        (결과 DataFrame, 설명 텍스트)
-    """
-    if _df is None:
-        return None, "CSV 파일이 로드되지 않았습니다."
-    
-    # 시간 컬럼 찾기
-    time_cols = ['STAT_DT', '현재시간', 'CURRTIME', '시간']
-    time_col = None
-    for tc in time_cols:
-        if tc in _df.columns:
-            time_col = tc
-            break
-    
-    if time_col is None:
-        return None, "시간 컬럼을 찾을 수 없습니다."
-    
-    try:
-        df_copy = _df.copy()
-        df_copy[time_col] = pd.to_datetime(df_copy[time_col], errors='coerce')
-        
-        start_dt = pd.to_datetime(start_time)
-        end_dt = pd.to_datetime(end_time)
-        
-        mask = (df_copy[time_col] >= start_dt) & (df_copy[time_col] <= end_dt)
-        result = _df[mask]
-        
-        if result.empty:
-            return None, f"{start_time} ~ {end_time} 범위에 데이터가 없습니다."
-        
-        data_text = f"검색 결과: {len(result)}건 ({start_time} ~ {end_time})\n"
-        return result, data_text
-        
-    except Exception as e:
-        return None, f"시간 파싱 오류: {e}"
-
-def search_condition(column: str, operator: str, value: Any) -> Tuple[Optional[pd.DataFrame], str]:
-    """
-    조건으로 검색
-    
-    Args:
-        column: 컬럼명
-        operator: 연산자 ('>', '<', '>=', '<=', '==', '!=')
-        value: 비교값
-    
-    Returns:
-        (결과 DataFrame, 설명 텍스트)
-    """
-    if _df is None:
-        return None, "CSV 파일이 로드되지 않았습니다."
-    
-    if column not in _df.columns:
-        return None, f"컬럼 '{column}'이 없습니다."
-    
-    try:
-        col_data = pd.to_numeric(_df[column], errors='coerce')
-        value = float(value)
-        
-        if operator == '>':
-            mask = col_data > value
-        elif operator == '<':
-            mask = col_data < value
-        elif operator == '>=':
-            mask = col_data >= value
-        elif operator == '<=':
-            mask = col_data <= value
-        elif operator == '==':
-            mask = col_data == value
-        elif operator == '!=':
-            mask = col_data != value
-        else:
-            return None, f"지원하지 않는 연산자: {operator}"
-        
-        result = _df[mask]
-        
-        if result.empty:
-            return None, f"{column} {operator} {value} 조건에 맞는 데이터가 없습니다."
-        
-        data_text = f"검색 결과: {len(result)}건 ({column} {operator} {value})\n"
-        return result, data_text
-        
-    except Exception as e:
-        return None, f"조건 검색 오류: {e}"
-
-def get_statistics(column: str) -> Dict[str, Any]:
-    """
-    컬럼 통계 정보
-    
-    Args:
-        column: 컬럼명
-    
-    Returns:
-        통계 딕셔너리
-    """
-    if _df is None:
-        return {'error': 'CSV 파일이 로드되지 않았습니다.'}
-    
-    if column not in _df.columns:
-        return {'error': f"컬럼 '{column}'이 없습니다."}
-    
-    try:
-        col_data = pd.to_numeric(_df[column], errors='coerce').dropna()
-        
-        return {
-            'count': len(col_data),
-            'mean': float(col_data.mean()),
-            'std': float(col_data.std()),
-            'min': float(col_data.min()),
-            'max': float(col_data.max()),
-            'median': float(col_data.median()),
-            'q25': float(col_data.quantile(0.25)),
-            'q75': float(col_data.quantile(0.75))
-        }
-    except Exception as e:
-        return {'error': str(e)}
-
-def format_row(row: pd.Series, important_cols: List[str] = None) -> str:
-    """
-    행 데이터를 보기 좋게 포맷팅
-    
-    Args:
-        row: pandas Series
-        important_cols: 우선 표시할 컬럼 (없으면 전체)
-    
-    Returns:
-        포맷팅된 문자열
-    """
-    text = ""
-    
-    if important_cols:
-        for col in important_cols:
-            if col in row.index and pd.notna(row[col]):
-                text += f"{col}: {row[col]}\n"
+            logger.error("❌ CSV 로드 실패")
     else:
-        for col in row.index:
-            if pd.notna(row[col]):
-                text += f"{col}: {row[col]}\n"
+        logger.error(f"❌ CSV 파일 없음: {CSV_PATH}")
     
-    return text
+    # 1.5. STAR DB 문서 로드
+    if star_searcher.load_md():
+        logger.info("✅ STAR DB 문서 로드 완료")
+    else:
+        logger.warning("⚠️ STAR DB 문서 로드 실패 (STAR_READ.md 없음)")
+    
+    # 2. LLM 로드
+    MODEL_PATH = "models/Qwen3-1.7B-Q8_0.gguf"
+    
+    if os.path.exists(MODEL_PATH):
+        logger.info(f"LLM 로드 시작: {MODEL_PATH}")
+        
+        try:
+            from llama_cpp import Llama
+            
+            llm = Llama(
+                model_path=MODEL_PATH,
+                n_ctx=3000,
+                n_batch=256,
+                n_gpu_layers=0,
+                n_threads=6,
+                verbose=False
+            )
+            
+            logger.info("✅ LLM 로드 성공!")
+            
+        except Exception as e:
+            logger.error(f"❌ LLM 로드 실패: {e}")
+    else:
+        logger.warning(f"⚠️ LLM 모델 없음: {MODEL_PATH}")
 
+class Query(BaseModel):
+    question: str
+    mode: str = "search"
 
-# 테스트 코드
+class PredictQuery(BaseModel):
+    mode: str
+    data: str
+
+@app.get("/")
+async def home():
+    """메인 페이지"""
+    return FileResponse("index.html")
+
+@app.get("/columns")
+async def get_columns():
+    """컬럼 목록 반환"""
+    return {"columns": csv_searcher.get_columns()}
+
+@app.get("/stats/{column}")
+async def get_column_stats(column: str):
+    """컬럼 통계 반환"""
+    return csv_searcher.get_statistics(column)
+
+@app.post("/ask")
+async def ask(query: Query):
+    """RAG 질문 처리"""
+    global COLUMN_DEFINITIONS
+    
+    try:
+        logger.info(f"질문: {query.question} | 모드: {query.mode}")
+        
+        # 모드별 처리
+        if query.mode == "search":
+            
+            # ⭐ STAR DB 쿼리 먼저 체크
+            if star_searcher.is_star_query(query.question):
+                logger.info("STAR DB 검색 감지")
+                section_key, context = star_searcher.search(query.question)
+                
+                if section_key is None:
+                    return {"answer": context}  # 에러 메시지
+                
+                # 1. 검색 결과
+                answer = f"🔵 STAR DB 접속 정보\n"
+                answer += f"📂 섹션: {section_key}\n"
+                answer += "=" * 40 + "\n\n"
+                answer += context
+                
+                # 2. LLM 분석 (선택)
+                if llm is not None:
+                    try:
+                        prompt = f"""<|im_start|>system
+한국어로 답변하세요. 간결하게.
+<|im_end|>
+<|im_start|>user
+아래 DB 접속정보를 보고 핵심만 1-2문장으로 요약하세요:
+
+{context[:500]}
+<|im_end|>
+<|im_start|>assistant
+"""
+                        response = llm(prompt, max_tokens=100, temperature=0.3, stop=["<|im_end|>"])
+                        llm_summary = response['choices'][0]['text'].strip()
+                        if llm_summary and len(llm_summary) > 10:
+                            answer += f"\n---\n🤖 요약: {llm_summary}"
+                    except Exception as e:
+                        logger.warning(f"STAR LLM 분석 실패: {e}")
+                
+                return {"answer": answer}
+            
+            # csv_searcher로 검색
+            result, data_text = csv_searcher.search_csv(query.question)
+            
+            if result is None:
+                return {"answer": data_text}
+            
+            # 1. 정확한 데이터 먼저
+            answer = f"📊 검색 결과\n{data_text}\n"
+            
+            # 2. LLM 분석 추가
+            # 예측 데이터 있으면 → 예측 분석용 LLM
+            if "🔮 예측 분석" in data_text:
+                analysis = get_prediction_llm_analysis(data_text, llm)
+            else:
+                # 상태 분석용 LLM
+                data_type = "hub" if "HUB" in data_text else "m14"
+                analysis = get_llm_analysis(data_text, llm, data_type)
+            
+            answer += f"\n---\n🤖 LLM 분석\n{analysis}"
+            
+            return {"answer": answer}
+        
+        elif query.mode == "m14":
+            data_text = "M14 예측 기능은 준비 중입니다.\n현재는 데이터 검색만 가능합니다."
+            return {"answer": data_text}
+        
+        elif query.mode == "hub":
+            data_text = "HUB 예측 기능은 준비 중입니다.\n현재는 데이터 검색만 가능합니다."
+            return {"answer": data_text}
+        
+        else:
+            # 기본값: 검색
+            result, data_text = csv_searcher.search_csv(query.question)
+            
+            if result is None:
+                return {"answer": data_text}
+            
+            return {"answer": data_text}
+        
+    except Exception as e:
+        logger.error(f"처리 실패: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
+        return {"answer": f"❌ 오류: {str(e)}"}
+
+@app.post("/predict")
+async def predict(query: PredictQuery):
+    """M14/HUB 예측 처리"""
+    try:
+        logger.info(f"예측 요청: 모드={query.mode}")
+        
+        if query.mode == "m14":
+            # M14 예측 실행
+            result = m14_predictor.predict_m14(query.data)
+            
+            if 'error' in result:
+                return JSONResponse(content=result, status_code=400)
+            
+            # HTML 대시보드 저장
+            timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+            dashboard_filename = f'M14_Dashboard_{timestamp}.html'
+            dashboard_path = os.path.join('dashboards', dashboard_filename)
+            
+            os.makedirs('dashboards', exist_ok=True)
+            with open(dashboard_path, 'w', encoding='utf-8') as f:
+                f.write(result['dashboard_html'])
+            
+            logger.info(f"대시보드 저장: {dashboard_filename}")
+            
+            # 간단 요약 생성
+            summary = generate_prediction_summary(result)
+            
+            # LLM 해석 (있으면)
+            llm_analysis = ""
+            if llm is not None:
+                try:
+                    llm_analysis = generate_llm_analysis(result)
+                except Exception as e:
+                    logger.warning(f"LLM 분석 실패: {e}")
+            
+            return {
+                "success": True,
+                "summary": summary,
+                "llm_analysis": llm_analysis,
+                "dashboard_url": f"/dashboard/{dashboard_filename}",
+                "predictions": result['predictions'],
+                "current_value": result['current_value'],
+                "current_status": result['current_status']
+            }
+        
+        elif query.mode == "hub":
+            # HUB 예측 실행 (수치형 + 범주형)
+            result_numerical = hub_predictor_numerical.predict_hub_numerical(query.data)
+            result_categorical = hub_predictor_categorical.predict_hub_categorical(query.data)
+            
+            if 'error' in result_numerical:
+                return JSONResponse(content=result_numerical, status_code=400)
+            
+            if 'error' in result_categorical:
+                return JSONResponse(content=result_categorical, status_code=400)
+            
+            # HTML 대시보드 저장 (2개)
+            timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+            
+            dashboard_numerical_filename = f'HUB_Numerical_{timestamp}.html'
+            dashboard_numerical_path = os.path.join('dashboards', dashboard_numerical_filename)
+            
+            dashboard_categorical_filename = f'HUB_Categorical_{timestamp}.html'
+            dashboard_categorical_path = os.path.join('dashboards', dashboard_categorical_filename)
+            
+            os.makedirs('dashboards', exist_ok=True)
+            
+            with open(dashboard_numerical_path, 'w', encoding='utf-8') as f:
+                f.write(result_numerical['dashboard_html'])
+            
+            with open(dashboard_categorical_path, 'w', encoding='utf-8') as f:
+                f.write(result_categorical['dashboard_html'])
+            
+            logger.info(f"대시보드 저장: {dashboard_numerical_filename}, {dashboard_categorical_filename}")
+            
+            # 간단 요약 생성
+            summary = generate_hub_summary(result_numerical, result_categorical)
+            
+            # LLM 해석 (있으면)
+            llm_analysis = ""
+            if llm is not None:
+                try:
+                    llm_analysis = generate_hub_llm_analysis(result_numerical, result_categorical)
+                except Exception as e:
+                    logger.warning(f"LLM 분석 실패: {e}")
+            
+            return {
+                "success": True,
+                "summary": summary,
+                "llm_analysis": llm_analysis,
+                "dashboard_numerical_url": f"/dashboard/{dashboard_numerical_filename}",
+                "dashboard_categorical_url": f"/dashboard/{dashboard_categorical_filename}",
+                "predictions_numerical": result_numerical['predictions'],
+                "predictions_categorical": result_categorical['predictions'],
+                "current_value": result_numerical['current_value']
+            }
+        
+        else:
+            return {
+                "error": "Invalid mode",
+                "message": "mode는 'm14' 또는 'hub'여야 합니다."
+            }
+        
+    except Exception as e:
+        logger.error(f"예측 실패: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
+        return JSONResponse(
+            content={"error": "Prediction failed", "message": str(e)},
+            status_code=500
+        )
+
+def generate_prediction_summary(result):
+    """M14 예측 결과 간단 요약"""
+    predictions = result['predictions']
+    current_val = result['current_value']
+    current_status = result['current_status']
+    
+    summary = f"📊 현재: {current_val:,} ({current_status})\n\n"
+    summary += "🔮 예측:\n"
+    
+    for pred in predictions:
+        status_emoji = {
+            'LOW': '✅',
+            'NORMAL': '🟢',
+            'CAUTION': '⚠️',
+            'CRITICAL': '🚨'
+        }.get(pred['status'], '❓')
+        
+        summary += f"• {pred['horizon']}분: {pred['prediction']:,} {status_emoji} (위험 {pred['danger_probability']}%)\n"
+    
+    return summary
+
+def generate_hub_summary(result_numerical, result_categorical):
+    """HUB 예측 결과 간단 요약"""
+    current_val = result_numerical['current_value']
+    
+    pred_num = result_numerical['predictions']
+    pred_cat = result_categorical['predictions']
+    
+    summary = f"📊 현재: {current_val:,.1f}\n\n"
+    summary += "🔢 수치형 예측:\n"
+    
+    for pred in pred_num:
+        status_emoji = {
+            'NORMAL': '✅',
+            'CAUTION': '⚠️',
+            'WARNING': '🟠',
+            'CRITICAL': '🚨'
+        }.get(pred['status'], '❓')
+        
+        summary += f"• {pred['horizon']}분: {pred['pred_min']:.1f} ~ {pred['pred_max']:.1f} {status_emoji}\n"
+    
+    summary += "\n🎯 범주형 예측:\n"
+    
+    for pred in pred_cat:
+        status_emoji = {
+            'LOW': '✅',
+            'MEDIUM': '⚠️',
+            'HIGH': '🟠',
+            'CRITICAL': '🚨'
+        }.get(pred['status'], '❓')
+        
+        summary += f"• {pred['horizon']}분: {pred['class_name']} (급증 {pred['prob2']:.1f}%) {status_emoji}\n"
+    
+    return summary
+
+def generate_hub_llm_analysis(result_numerical, result_categorical):
+    """LLM으로 HUB 예측 결과 분석"""
+    current_val = result_numerical['current_value']
+    
+    pred_num = result_numerical['predictions']
+    pred_cat = result_categorical['predictions']
+    
+    # 최대 급증 확률
+    max_surge_prob = max(p['prob2'] for p in pred_cat)
+    
+    # 최대 예측값
+    max_pred_value = max(p['pred_max'] for p in pred_num)
+    
+    # 위험 요인 분석 (예측 기반)
+    risk_factors = []
+    
+    # 수치형 예측 기반 위험
+    if max_pred_value >= 300:
+        risk_factors.append(f"예측 최대값({max_pred_value:.0f})이 심각 임계값(300) 초과 예상")
+    elif max_pred_value >= 280:
+        risk_factors.append(f"예측 최대값({max_pred_value:.0f})이 주의 임계값(280) 초과 예상")
+    
+    # 범주형 예측 기반 위험
+    if max_surge_prob >= 70:
+        risk_factors.append(f"급증 확률({max_surge_prob:.1f}%)이 매우 높음 (70% 이상)")
+    elif max_surge_prob >= 50:
+        risk_factors.append(f"급증 확률({max_surge_prob:.1f}%)이 높음 (50% 이상)")
+    elif max_surge_prob >= 30:
+        risk_factors.append(f"급증 확률({max_surge_prob:.1f}%)이 주의 수준 (30% 이상)")
+    
+    # 시간별 추세 분석
+    for pred in pred_cat:
+        if pred['prob2'] >= 50:
+            risk_factors.append(f"{pred['horizon']}분 후 급증 확률 {pred['prob2']:.1f}% - {pred['class_name']}")
+    
+    # 프롬프트 구성
+    pred_num_text = ""
+    for pred in pred_num:
+        pred_num_text += f"{pred['horizon']}분 후: {pred['pred_min']:.1f} ~ {pred['pred_max']:.1f} (상태 {pred['status']})\n"
+    
+    pred_cat_text = ""
+    for pred in pred_cat:
+        pred_cat_text += f"{pred['horizon']}분 후: {pred['class_name']} (급증 {pred['prob2']:.1f}%)\n"
+    
+    risk_text = "\n- ".join(risk_factors) if risk_factors else "현재 위험 요인 없음"
+    
+    prompt = f"""You MUST answer in Korean only. Be concise and professional.
+
+현재 HUB 물류 상황:
+- 현재값: {current_val:.1f} (임계값: 270정상/280주의/300심각)
+- 최대 예측값: {max_pred_value:.1f}
+- 최대 급증 확률: {max_surge_prob:.1f}%
+
+수치형 예측:
+{pred_num_text}
+
+범주형 예측:
+{pred_cat_text}
+
+⚠️ 위험 요인:
+- {risk_text}
+
+위 데이터 바탕으로 한국어 3-4문장으로 분석하세요:
+1. 왜 위험한지 구체적 이유 (어떤 시간대에 급증 예상인지)
+2. 예측 추세 (증가/감소/급증)
+3. 권장 조치사항
+
+답변:"""
+    
+    try:
+        response = llm(
+            prompt,
+            max_tokens=250,
+            temperature=0.2,
+            top_p=0.85,
+            repeat_penalty=1.5,
+            stop=["질문:", "\n\n\n", "이미지:", "http"]
+        )
+        
+        raw_answer = response['choices'][0]['text'].strip()
+        cleaned = clean_llm_response(raw_answer)
+        
+        # 영어/이상한 문자 감지 → 템플릿 사용
+        english_patterns = ['please', 'answer', 'korean', 'following', 'response', 'analysis', 'the ', 'is ', 'are ', 'this ']
+        has_english = any(p in cleaned.lower() for p in english_patterns)
+        
+        # 이상한 문자 감지 (중국어 등)
+        has_weird = any(ord(c) > 0x4E00 and ord(c) < 0x9FFF for c in cleaned)
+        
+        # 지표 언급 확인
+        indicator_keywords = ['급증', '확률', '%', '분 후', '예측', '증가', '임계']
+        has_indicator = any(k in cleaned for k in indicator_keywords)
+        
+        # 부적절하면 템플릿 사용
+        if not cleaned or len(cleaned) < 20 or has_english or has_weird or (risk_factors and not has_indicator):
+            logger.warning(f"HUB LLM 응답 부적절, 템플릿 사용")
+            return generate_hub_template_analysis(result_numerical, result_categorical, risk_factors, max_surge_prob, max_pred_value)
+        
+        return cleaned
+        
+    except Exception as e:
+        logger.error(f"LLM 분석 실패: {e}")
+        return generate_hub_template_analysis(result_numerical, result_categorical, risk_factors, max_surge_prob, max_pred_value)
+
+def generate_hub_template_analysis(result_numerical, result_categorical, risk_factors, max_surge_prob, max_pred_value):
+    """LLM 실패시 템플릿 기반 HUB 분석 - 수치형 예측 + 범주형 뒷받침"""
+    current_val = result_numerical['current_value']
+    pred_num = result_numerical['predictions']
+    pred_cat = result_categorical['predictions']
+    
+    # 가장 위험한 시간대 찾기
+    max_horizon = max(pred_num, key=lambda x: x['pred_max'])
+    max_cat = next((p for p in pred_cat if p['horizon'] == max_horizon['horizon']), pred_cat[-1])
+    
+    if max_pred_value < 280 and max_surge_prob < 30:
+        return f"현재값 {current_val:.1f}로 정상 범위입니다. 급증 확률이 낮아 안정적인 상태입니다. 지속적인 모니터링을 권장합니다."
+    
+    analysis = f"⚠️ 위험 분석:\n\n"
+    
+    # 1. 수치형 예측 (메인)
+    analysis += f"🔢 수치형 예측:\n"
+    critical_horizons = []  # 300 이상인 시간대
+    
+    for p in pred_num:
+        if p['pred_max'] >= 300:
+            analysis += f"  🚨 {p['horizon']}분 후: {p['pred_min']:.0f} ~ {p['pred_max']:.0f} (심각)\n"
+            critical_horizons.append(f"{p['horizon']}분")
+        elif p['pred_max'] >= 280:
+            analysis += f"  ⚠️ {p['horizon']}분 후: {p['pred_min']:.0f} ~ {p['pred_max']:.0f} (주의)\n"
+        else:
+            analysis += f"  ✅ {p['horizon']}분 후: {p['pred_min']:.0f} ~ {p['pred_max']:.0f} (정상)\n"
+    
+    # 300 이상 경고 추가
+    if critical_horizons:
+        analysis += f"\n  ⚠️ {', '.join(critical_horizons)} 후 MAX값 300 이상! 즉시 확인 필요!\n"
+    
+    # 2. 범주형 뒷받침 (근거)
+    analysis += f"\n🎯 범주형 근거 (발생 확률):\n"
+    for p in pred_cat:
+        if p['prob2'] >= 70:
+            analysis += f"  🚨 {p['horizon']}분 후: 급증 확률 {p['prob2']:.1f}%\n"
+        elif p['prob2'] >= 50:
+            analysis += f"  ⚠️ {p['horizon']}분 후: 급증 확률 {p['prob2']:.1f}%\n"
+        elif p['prob2'] >= 30:
+            analysis += f"  🟡 {p['horizon']}분 후: 급증 확률 {p['prob2']:.1f}%\n"
+    
+    # 3. 결론
+    analysis += f"\n📋 결론:\n"
+    if max_pred_value >= 300 and max_surge_prob >= 70:
+        analysis += f"  → {max_horizon['horizon']}분 후 {max_pred_value:.0f}까지 상승 예측, 발생 확률 {max_surge_prob:.1f}%로 매우 높음\n"
+        analysis += f"  → HUB 용량 확보 및 유입량 조절 즉시 필요!"
+    elif max_pred_value >= 280 or max_surge_prob >= 50:
+        analysis += f"  → {max_horizon['horizon']}분 후 {max_pred_value:.0f}까지 상승 가능, 급증 확률 {max_surge_prob:.1f}%\n"
+        analysis += f"  → 물류 흐름 모니터링 강화 필요"
+    else:
+        analysis += f"  → 현재 안정적이나 지속적인 모니터링 필요"
+    
+    return analysis
+
+def generate_llm_analysis(result):
+    """LLM으로 M14 예측 결과 분석"""
+    predictions = result['predictions']
+    current_val = result['current_value']
+    current_status = result['current_status']
+    
+    # 현재 지표 데이터
+    current_m14b = result.get('current_m14b', 0)
+    current_m14bsum = result.get('current_m14bsum', 0)
+    current_gap = result.get('current_gap', 0)
+    current_trans = result.get('current_trans', 0)
+    
+    # 최대 위험도
+    max_danger = max(p['danger_probability'] for p in predictions)
+    
+    # 위험 요인 분석
+    risk_factors = []
+    if current_m14b > 520:
+        risk_factors.append(f"M14AM14B({current_m14b:.0f})가 심각 임계값(520) 초과")
+    elif current_m14b > 517:
+        risk_factors.append(f"M14AM14B({current_m14b:.0f})가 주의 임계값(517) 초과")
+    
+    if current_m14bsum > 588:
+        risk_factors.append(f"M14AM14BSUM({current_m14bsum:.0f})이 심각 임계값(588) 초과")
+    elif current_m14bsum > 576:
+        risk_factors.append(f"M14AM14BSUM({current_m14bsum:.0f})이 주의 임계값(576) 초과")
+    
+    if current_gap > 300:
+        risk_factors.append(f"queue_gap({current_gap:.0f})이 위험 임계값(300) 초과")
+    
+    if current_trans > 180:
+        risk_factors.append(f"TRANSPORT({current_trans:.0f})가 심각 임계값(180) 초과")
+    elif current_trans > 151:
+        risk_factors.append(f"TRANSPORT({current_trans:.0f})가 주의 임계값(151) 초과")
+    
+    # 프롬프트 구성
+    pred_text = ""
+    for pred in predictions:
+        pred_text += f"{pred['horizon']}분 후: {pred['prediction']:,} (위험도 {pred['danger_probability']}%)\n"
+    
+    risk_text = "\n- ".join(risk_factors) if risk_factors else "모든 지표 정상 범위"
+    
+    prompt = f"""You MUST answer in Korean only. Be concise and professional.
+
+현재 AMHS 물류 상황:
+- TOTALCNT: {current_val:,} ({current_status})
+- M14AM14B: {current_m14b:.0f} (임계값: 517주의/520심각)
+- M14AM14BSUM: {current_m14bsum:.0f} (임계값: 576주의/588심각)
+- queue_gap: {current_gap:.0f} (임계값: 300위험)
+- TRANSPORT: {current_trans:.0f} (임계값: 151주의/180심각)
+
+⚠️ 현재 위험 요인:
+- {risk_text}
+
+예측 결과:
+{pred_text}
+
+위 데이터를 바탕으로 한국어 3-4문장으로 분석하세요:
+1. 왜 위험도가 높은지 구체적 이유 (어떤 지표가 임계값 초과했는지)
+2. 예측되는 추세
+3. 권장 조치사항
+
+답변:"""
+    
+    try:
+        response = llm(
+            prompt,
+            max_tokens=250,
+            temperature=0.2,
+            top_p=0.85,
+            repeat_penalty=1.5,
+            stop=["질문:", "\n\n\n", "이미지:", "http"]
+        )
+        
+        raw_answer = response['choices'][0]['text'].strip()
+        cleaned = clean_llm_response(raw_answer)
+        
+        # 영어 패턴 감지 → 템플릿 사용
+        english_patterns = ['please', 'answer', 'korean', 'following', 'response', 'analysis', 'the ', 'is ', 'are ', 'this ']
+        has_english = any(p in cleaned.lower() for p in english_patterns)
+        
+        # 지표 언급 확인 (위험 요인 있는데 지표 안 말하면 템플릿)
+        indicator_keywords = ['M14AM14B', 'M14AM14BSUM', 'queue_gap', 'TRANSPORT', '임계값', '초과', '병목', '적체']
+        has_indicator = any(k in cleaned for k in indicator_keywords)
+        
+        # LLM 응답이 없거나, 짧거나, 영어 섞이거나, 위험요인 있는데 지표 안 말하면 → 템플릿
+        if not cleaned or len(cleaned) < 20 or has_english or (risk_factors and not has_indicator):
+            logger.warning(f"LLM 응답 부적절, 템플릿 사용: {cleaned[:50] if cleaned else 'empty'}")
+            return generate_m14_template_analysis(result, risk_factors, max_danger)
+        
+        return cleaned
+        
+    except Exception as e:
+        logger.error(f"LLM 분석 실패: {e}")
+        return generate_m14_template_analysis(result, risk_factors, max_danger)
+
+def generate_m14_template_analysis(result, risk_factors, max_danger):
+    """LLM 실패시 템플릿 기반 M14 분석"""
+    predictions = result['predictions']
+    current_val = result['current_value']
+    max_pred = max(p['prediction'] for p in predictions)
+    
+    analysis = ""
+    
+    # 1. 현재 지표 기반 위험 요인
+    if risk_factors:
+        analysis += f"⚠️ 현재 지표 위험 요인:\n"
+        for factor in risk_factors:
+            analysis += f"  🚨 {factor}\n"
+        analysis += "\n"
+    
+    # 2. 예측 기반 위험 분석 (핵심!)
+    critical_preds = [p for p in predictions if p['prediction'] >= 1700]
+    warning_preds = [p for p in predictions if 1600 <= p['prediction'] < 1700]
+    
+    if critical_preds or warning_preds:
+        analysis += f"🔮 예측 기반 위험:\n"
+        for p in predictions:
+            if p['prediction'] >= 1700:
+                analysis += f"  🚨 {p['horizon']}분 후: {p['prediction']:,} (CRITICAL, 위험도 {p['danger_probability']}%)\n"
+            elif p['prediction'] >= 1650:
+                analysis += f"  ⚠️ {p['horizon']}분 후: {p['prediction']:,} (CAUTION, 위험도 {p['danger_probability']}%)\n"
+            elif p['prediction'] >= 1600:
+                analysis += f"  🟡 {p['horizon']}분 후: {p['prediction']:,} (주의, 위험도 {p['danger_probability']}%)\n"
+        
+        if critical_preds:
+            horizons = [f"{p['horizon']}분" for p in critical_preds]
+            analysis += f"\n  ⚠️ {', '.join(horizons)} 후 1700 이상! 즉시 확인 필요!\n"
+    
+    # 3. 결론
+    analysis += f"\n📋 결론:\n"
+    if max_pred >= 1700:
+        analysis += f"  → 예측 최대값 {max_pred:,}으로 CRITICAL 상태 진입 예상\n"
+        analysis += f"  → 최대 위험도 {max_danger}%, 즉시 물류 분산 조치 필요!"
+    elif max_pred >= 1650:
+        analysis += f"  → 예측 최대값 {max_pred:,}으로 CAUTION 상태 예상\n"
+        analysis += f"  → 물류 흐름 모니터링 강화 필요"
+    elif max_pred >= 1600:
+        analysis += f"  → 예측 최대값 {max_pred:,}, 주의 관찰 필요"
+    else:
+        analysis += f"  → 현재 안정적, 지속적인 모니터링 권장"
+    
+    # 분석 내용이 없으면 기본 메시지
+    if not analysis.strip():
+        return "현재 모든 지표가 정상 범위입니다. 예측 결과를 모니터링하며 상황을 지켜보세요."
+    
+    return analysis
+
+@app.get("/dashboard/{filename}")
+async def get_dashboard(filename: str):
+    """생성된 HTML 대시보드 반환"""
+    filepath = os.path.join("dashboards", filename)
+    
+    if not os.path.exists(filepath):
+        return JSONResponse(
+            content={"error": "File not found"},
+            status_code=404
+        )
+    
+    return FileResponse(filepath)
+
 if __name__ == "__main__":
-    print("=" * 60)
-    print("CSV 검색 모듈 테스트")
-    print("=" * 60)
-    
-    # 테스트 CSV 생성
-    test_data = {
-        '현재시간': ['2025-10-14 4:39', '2025-10-14 4:40', '2025-10-14 4:41'],
-        '현재TOTALCNT': [1292, 1314, 1322],
-        'M14AM14B': [248, 255, 260],
-        'M14AM14BSUM': [338, 341, 353]
-    }
-    
-    test_df = pd.DataFrame(test_data)
-    test_df.to_csv('/tmp/test.csv', index=False)
-    
-    # 로드 테스트
-    if load_csv('/tmp/test.csv'):
-        print("\n1. 시간 검색 테스트:")
-        row, text = search_by_time('4:39')
-        print(text)
-        
-        print("\n2. 컬럼 검색 테스트:")
-        df, text = search_by_columns(['M14AM14B', 'M14AM14BSUM'], n_rows=3)
-        print(text)
-        
-        print("\n3. 자연어 검색 테스트:")
-        result, text = search_csv('2025-10-14 4:40 데이터 보여줘')
-        print(text)
-        
-        print("\n4. 통계 테스트:")
-        stats = get_statistics('현재TOTALCNT')
-        print(stats)
-    
-    print("\n✅ 테스트 완료")
+    import uvicorn
+    uvicorn.run(app, host="127.0.0.1", port=8000)
