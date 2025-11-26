@@ -398,35 +398,68 @@ def generate_llm_analysis(result):
     current_val = result['current_value']
     current_status = result['current_status']
     
+    # 현재 지표 데이터
+    current_m14b = result.get('current_m14b', 0)
+    current_m14bsum = result.get('current_m14bsum', 0)
+    current_gap = result.get('current_gap', 0)
+    current_trans = result.get('current_trans', 0)
+    
     # 최대 위험도
     max_danger = max(p['danger_probability'] for p in predictions)
+    
+    # 위험 요인 분석
+    risk_factors = []
+    if current_m14b > 520:
+        risk_factors.append(f"M14AM14B({current_m14b:.0f})가 심각 임계값(520) 초과")
+    elif current_m14b > 517:
+        risk_factors.append(f"M14AM14B({current_m14b:.0f})가 주의 임계값(517) 초과")
+    
+    if current_m14bsum > 588:
+        risk_factors.append(f"M14AM14BSUM({current_m14bsum:.0f})이 심각 임계값(588) 초과")
+    elif current_m14bsum > 576:
+        risk_factors.append(f"M14AM14BSUM({current_m14bsum:.0f})이 주의 임계값(576) 초과")
+    
+    if current_gap > 300:
+        risk_factors.append(f"queue_gap({current_gap:.0f})이 위험 임계값(300) 초과")
+    
+    if current_trans > 180:
+        risk_factors.append(f"TRANSPORT({current_trans:.0f})가 심각 임계값(180) 초과")
+    elif current_trans > 151:
+        risk_factors.append(f"TRANSPORT({current_trans:.0f})가 주의 임계값(151) 초과")
     
     # 프롬프트 구성
     pred_text = ""
     for pred in predictions:
-        pred_text += f"{pred['horizon']}분 후: {pred['prediction']:,} (위험도 {pred['danger_probability']}%, 상태 {pred['status']})\n"
+        pred_text += f"{pred['horizon']}분 후: {pred['prediction']:,} (위험도 {pred['danger_probability']}%)\n"
+    
+    risk_text = "\n- ".join(risk_factors) if risk_factors else "모든 지표 정상 범위"
     
     prompt = f"""You MUST answer in Korean only. Be concise and professional.
 
 현재 AMHS 물류 상황:
-- 현재 TOTALCNT: {current_val:,} ({current_status})
+- TOTALCNT: {current_val:,} ({current_status})
+- M14AM14B: {current_m14b:.0f} (임계값: 517주의/520심각)
+- M14AM14BSUM: {current_m14bsum:.0f} (임계값: 576주의/588심각)
+- queue_gap: {current_gap:.0f} (임계값: 300위험)
+- TRANSPORT: {current_trans:.0f} (임계값: 151주의/180심각)
+
+⚠️ 현재 위험 요인:
+- {risk_text}
 
 예측 결과:
 {pred_text}
 
-최대 위험도: {max_danger}%
-
-위 예측 결과를 바탕으로 다음을 한국어로 간결하게 설명하세요 (3-4문장):
-1. 현재 상황 평가
-2. 예측되는 추세 (증가/감소/안정)
+위 데이터를 바탕으로 한국어 3-4문장으로 분석하세요:
+1. 왜 위험도가 높은지 구체적 이유 (어떤 지표가 임계값 초과했는지)
+2. 예측되는 추세
 3. 권장 조치사항
 
-답변 (한국어):"""
+답변:"""
     
     try:
         response = llm(
             prompt,
-            max_tokens=200,
+            max_tokens=250,
             temperature=0.2,
             top_p=0.85,
             repeat_penalty=1.5,
@@ -434,11 +467,36 @@ def generate_llm_analysis(result):
         )
         
         raw_answer = response['choices'][0]['text'].strip()
-        return clean_llm_response(raw_answer)
+        cleaned = clean_llm_response(raw_answer)
+        
+        # LLM 응답이 없거나 짧으면 템플릿 응답
+        if not cleaned or len(cleaned) < 20:
+            return generate_m14_template_analysis(result, risk_factors, max_danger)
+        
+        return cleaned
         
     except Exception as e:
         logger.error(f"LLM 분석 실패: {e}")
-        return ""
+        return generate_m14_template_analysis(result, risk_factors, max_danger)
+
+def generate_m14_template_analysis(result, risk_factors, max_danger):
+    """LLM 실패시 템플릿 기반 M14 분석"""
+    predictions = result['predictions']
+    max_pred = max(p['prediction'] for p in predictions)
+    
+    if not risk_factors:
+        return "현재 모든 지표가 정상 범위입니다. 예측 결과를 모니터링하며 상황을 지켜보세요."
+    
+    analysis = f"⚠️ 위험도 {max_danger}% 원인:\n"
+    for factor in risk_factors:
+        analysis += f"🚨 {factor}\n"
+    
+    if max_pred >= 1700:
+        analysis += f"\n예측 최대값 {max_pred:,}으로 CRITICAL 상태 진입 예상. 즉시 물류 분산 조치가 필요합니다."
+    else:
+        analysis += f"\n예측 최대값 {max_pred:,}. 지속적인 모니터링이 필요합니다."
+    
+    return analysis
 
 @app.get("/dashboard/{filename}")
 async def get_dashboard(filename: str):
