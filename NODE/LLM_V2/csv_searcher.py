@@ -167,49 +167,6 @@ def get_columns() -> List[str]:
         return []
     return list(_df.columns)
 
-def convert_time_format(time_str: str) -> List[str]:
-    """
-    다양한 시간 형식을 변환하여 검색 가능한 형식 목록 반환
-    
-    입력 예시:
-    - 202509210014 → ['2025-09-21 00:14', '2025-09-21 0:14']
-    - 2025-10-14 04:39 → ['2025-10-14 04:39', '2025-10-14 4:39']
-    - 202510140439 → ['2025-10-14 04:39', '2025-10-14 4:39']
-    """
-    formats = []
-    time_str = time_str.strip()
-    
-    # 1. YYYYMMDDHHMM 형식 (12자리 숫자)
-    if re.match(r'^\d{12}$', time_str):
-        year = time_str[0:4]
-        month = time_str[4:6]
-        day = time_str[6:8]
-        hour = time_str[8:10]
-        minute = time_str[10:12]
-        
-        # 여러 형식 생성
-        formats.append(f"{year}-{month}-{day} {int(hour):02d}:{minute}")  # 2025-10-14 04:39
-        formats.append(f"{year}-{month}-{day} {int(hour)}:{minute}")      # 2025-10-14 4:39
-        formats.append(time_str)  # 원본도 포함
-    
-    # 2. YYYY-MM-DD HH:MM 형식
-    elif re.match(r'^\d{4}-\d{2}-\d{2}\s+\d{1,2}:\d{2}$', time_str):
-        formats.append(time_str)
-        # 시간 부분 정규화
-        date_part, time_part = time_str.rsplit(' ', 1)
-        if ':' in time_part:
-            h, m = time_part.split(':')
-            formats.append(f"{date_part} {int(h):02d}:{m}")
-            formats.append(f"{date_part} {int(h)}:{m}")
-    
-    # 3. 그 외 형식은 원본 그대로
-    else:
-        formats.append(time_str)
-    
-    # 중복 제거
-    return list(set(formats))
-
-
 def search_by_time(time_str: str) -> Tuple[Optional[pd.Series], str]:
     """
     시간으로 검색 (YYYYMMDDHHMM 또는 YYYY-MM-DD HH:MM 형식)
@@ -235,23 +192,28 @@ def search_by_time(time_str: str) -> Tuple[Optional[pd.Series], str]:
     # 검색 (여러 방식 시도)
     time_col_str = _df[time_col].astype(str)
     
-    # 시간 형식 변환 (여러 형식으로)
-    search_formats = convert_time_format(time_str)
-    logger.info(f"시간 검색 형식: {search_formats}")
+    # 1. 정확히 포함
+    result = _df[time_col_str.str.contains(time_str, na=False, regex=False)]
     
-    result = pd.DataFrame()
-    
-    # 각 형식으로 검색 시도
-    for fmt in search_formats:
-        matched = _df[time_col_str.str.contains(fmt, na=False, regex=False)]
-        if not matched.empty:
-            result = matched
-            break
+    # 2. 시간 정규화 후 비교 (4:39 vs 04:39)
+    if result.empty:
+        # 입력 시간에서 날짜와 시간 분리
+        if ' ' in time_str:
+            date_part, time_part = time_str.rsplit(' ', 1)
+            # 시간 부분 정규화 (4:39 -> 04:39, 04:39 -> 4:39)
+            if ':' in time_part:
+                h, m = time_part.split(':')
+                # 두 가지 형식으로 검색
+                time_str_padded = f"{date_part} {int(h):02d}:{m}"
+                time_str_unpadded = f"{date_part} {int(h)}:{m}"
+                
+                result = _df[time_col_str.str.contains(time_str_padded, na=False, regex=False) |
+                            time_col_str.str.contains(time_str_unpadded, na=False, regex=False)]
     
     if result.empty:
         # 유사한 시간 제안
         sample_times = time_col_str.head(5).tolist()
-        return None, f"시간 '{time_str}'에 해당하는 데이터가 없습니다.\n변환 시도: {search_formats}\n예시: {sample_times}"
+        return None, f"시간 '{time_str}'에 해당하는 데이터가 없습니다.\n예시: {sample_times}"
     
     row = result.iloc[0]
     
@@ -388,9 +350,6 @@ def search_csv(query: str) -> Tuple[Optional[Any], str]:
     # 실제 존재하는 컬럼만 필터
     valid_cols = [c for c in col_matches if c in _df.columns]
     
-    # 요청했지만 없는 컬럼 찾기
-    invalid_cols = [c for c in col_matches if c not in _df.columns and len(c) > 2]
-    
     # 3. 시간 + 컬럼 둘 다 있으면 → 해당 시간의 특정 컬럼값만
     if time_str and valid_cols:
         logger.info(f"시간+컬럼 검색: {time_str}, {valid_cols}")
@@ -406,25 +365,6 @@ def search_csv(query: str) -> Tuple[Optional[Any], str]:
                 data_text += f"{col}: {row[col]}\n"
         
         return row, data_text
-    
-    # 3-1. 시간 + 컬럼 요청했는데 컬럼이 없으면 → 에러
-    if time_str and invalid_cols and not valid_cols:
-        logger.info(f"컬럼 없음: {invalid_cols}")
-        # 유사 컬럼 추천
-        similar_cols = []
-        for inv_col in invalid_cols:
-            for col in _df.columns:
-                if inv_col.upper() in col.upper() or col.upper() in inv_col.upper():
-                    similar_cols.append(col)
-        
-        error_msg = f"❌ 컬럼 '{', '.join(invalid_cols)}'이(가) 현재 로드된 CSV에 없습니다.\n"
-        error_msg += f"\n⚠️ DB 또는 CSV 파일을 확인해주세요.\n"
-        if similar_cols:
-            error_msg += f"\n💡 유사한 컬럼: {', '.join(similar_cols[:5])}\n"
-        error_msg += f"\n📋 현재 CSV 컬럼 ({len(_df.columns)}개):\n"
-        error_msg += ", ".join(list(_df.columns)[:15]) + "..."
-        
-        return None, error_msg
     
     # 4. 시간만 있으면 → 전체 행 데이터
     if time_str:
