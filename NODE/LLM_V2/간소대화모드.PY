@@ -13,9 +13,9 @@ MODEL_PATH = "Qwen3-Coder-30B-A3B-Instruct.gguf"  # 사용할 모델 파일 경�
 print(f"모델 로딩 중: {MODEL_PATH}")
 llm = Llama(
     model_path=MODEL_PATH,
-    n_ctx=8192,         # 컨텍스트 길이 (30B는 넉넉하게)
+    n_ctx=32768,        # 컨텍스트 길이 (68GB면 충분)
     n_gpu_layers=-1,    # 전체 레이어 GPU 사용
-    n_batch=512,        # 배치 크기
+    n_batch=1024,       # 배치 크기 (GPU 메모리 여유)
     n_threads=8,        # CPU 스레드 (혼합 사용시)
     verbose=False
 )
@@ -39,7 +39,7 @@ while True:
         messages=[
             {"role": "user", "content": user_input}
         ],
-        max_tokens=1024,
+        max_tokens=4096,
         temperature=0.7
     )
     
