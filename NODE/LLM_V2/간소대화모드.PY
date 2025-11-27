@@ -23,12 +23,12 @@ MODEL_PATH = "Qwen3-Coder-30B-A3B-Instruct.gguf"  # 사용할 모델 파일 경�
 print(f"모델 로딩 중: {MODEL_PATH}")
 llm = Llama(
     model_path=MODEL_PATH,
-    n_ctx=32768,        # 컨텍스트 길이 (68GB면 충분)
+    n_ctx=8192,         # 7B 모델은 이정도로
     n_gpu_layers=-1,    # 전체 레이어 GPU 사용
-    n_batch=1024,       # 배치 크기 (GPU 메모리 여유)
-    n_threads=8,        # CPU 스레드 (혼합 사용시)
+    n_batch=512,        # 배치 크기
+    n_threads=8,        # CPU 스레드
     tensor_split=[0.5, 0.5],  # GPU 2개에 50:50 분배
-    verbose=False
+    verbose=True        # 일단 로그 켜서 확인
 )
 print("로딩 완료!\n")
 
