@@ -11,7 +11,7 @@ pip install llama-cpp-python --no-cache-dir
 """
 
 import os
-os.environ["CUDA_VISIBLE_DEVICES"] = "0"  # GPU 0번 사용
+os.environ["CUDA_VISIBLE_DEVICES"] = "0,1"  # GPU 2개 사용
 
 from llama_cpp import Llama
 
@@ -27,6 +27,7 @@ llm = Llama(
     n_gpu_layers=-1,    # 전체 레이어 GPU 사용
     n_batch=1024,       # 배치 크기 (GPU 메모리 여유)
     n_threads=8,        # CPU 스레드 (혼합 사용시)
+    tensor_split=[0.5, 0.5],  # GPU 2개에 50:50 분배
     verbose=False
 )
 print("로딩 완료!\n")
