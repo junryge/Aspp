@@ -47,6 +47,7 @@ while True:
     # 응답 생성
     response = llm.create_chat_completion(
         messages=[
+            {"role": "system", "content": "You are a helpful assistant. 항상 한국어로 대답해주세요."},
             {"role": "user", "content": user_input}
         ],
         max_tokens=4096,
