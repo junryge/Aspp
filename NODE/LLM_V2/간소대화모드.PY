@@ -1,7 +1,17 @@
 """
 로컬 GGUF 모델 대화 스크립트 (30B 모델 기준, GPU 사용)
-llama-cpp-python 필요: pip install llama-cpp-python
+
+[GPU 버전 설치 방법]
+pip uninstall llama-cpp-python -y
+CMAKE_ARGS="-DGGML_CUDA=on" pip install llama-cpp-python --no-cache-dir
+
+또는 (Windows):
+set CMAKE_ARGS=-DGGML_CUDA=on
+pip install llama-cpp-python --no-cache-dir
 """
+
+import os
+os.environ["CUDA_VISIBLE_DEVICES"] = "0"  # GPU 0번 사용
 
 from llama_cpp import Llama
 
