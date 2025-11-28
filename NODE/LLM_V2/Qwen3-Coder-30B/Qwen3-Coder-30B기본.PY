@@ -1,19 +1,21 @@
 from transformers import AutoModelForCausalLM, AutoTokenizer
 import torch
 
-# 로컬 경로 지정
-model_path = "./Qwen3-Coder-30B-A3B-Instruct"
+# 절대경로로 수정
+model_path = "/project/workSpace/LLM_AMHS_AI/model/Qwen3-Coder-30B-A3B-Instruct"
 
-# 토크나이저 로드
+print("토크나이저 로딩...")
 tokenizer = AutoTokenizer.from_pretrained(model_path, trust_remote_code=True)
+print("토크나이저 완료!")
 
-# 모델 로드
+print("모델 로딩... (시간 걸림)")
 model = AutoModelForCausalLM.from_pretrained(
     model_path,
     torch_dtype=torch.bfloat16,
     device_map="auto",
     trust_remote_code=True
 )
+print("모델 로딩 완료!")
 
 # 대화 함수
 def chat(user_input):
