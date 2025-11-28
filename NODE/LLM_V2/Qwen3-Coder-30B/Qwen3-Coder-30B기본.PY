@@ -28,19 +28,17 @@ def chat(user_input):
     # 유저 메시지 추가
     conversation_history.append({"role": "user", "content": user_input})
     
-    # 토큰화
-    text = tokenizer.apply_chat_template(
+    # 토큰화 - 직접 텐서로 받기
+    inputs = tokenizer.apply_chat_template(
         conversation_history,
-        tokenize=False,
-        add_generation_prompt=True
-    )
-    
-    inputs = tokenizer(text, return_tensors="pt").to(model.device)
-    attention_mask = torch.ones_like(inputs['input_ids']).to(model.device)
+        tokenize=True,
+        add_generation_prompt=True,
+        return_tensors="pt",
+        return_dict=True
+    ).to(model.device)
     
     outputs = model.generate(
-        inputs['input_ids'],
-        attention_mask=attention_mask,
+        **inputs,
         max_new_tokens=1024,
         temperature=0.7,
         top_p=0.9,
@@ -71,5 +69,12 @@ while True:
         print("대화 리셋됨!")
         continue
     
-    response = chat(user)
-    print(f"\nAI: {response}")
+    try:
+        response = chat(user)
+        print(f"\nAI: {response}")
+    except Exception as e:
+        print(f"\n에러: {e}")
+        print("대화 리셋합니다...")
+        conversation_history = [
+            {"role": "system", "content": "You are a helpful assistant. 한국어로 답변해주세요."}
+        ]
