@@ -1,0 +1,1054 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AMHS AI Agent System Architecture</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #0f0f1a 0%, #1a1a2e 50%, #16213e 100%);
+            min-height: 100vh;
+            padding: 30px 20px;
+            color: #fff;
+        }
+        
+        .container {
+            max-width: 1600px;
+            margin: 0 auto;
+        }
+        
+        h1 {
+            text-align: center;
+            font-size: 2.8rem;
+            margin-bottom: 10px;
+            background: linear-gradient(90deg, #00d4ff, #7b2cbf, #ff6b6b);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+        
+        .subtitle {
+            text-align: center;
+            color: #888;
+            margin-bottom: 40px;
+            font-size: 1.1rem;
+        }
+        
+        /* Main Layout */
+        .main-architecture {
+            display: flex;
+            gap: 30px;
+            margin-bottom: 40px;
+        }
+        
+        /* Server Boxes */
+        .server-section {
+            flex: 1;
+            min-width: 300px;
+        }
+        
+        .server-box {
+            background: rgba(255, 255, 255, 0.03);
+            border-radius: 20px;
+            padding: 25px;
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            height: 100%;
+        }
+        
+        .server-box.windows {
+            border-top: 4px solid #00a8e8;
+        }
+        
+        .server-box.linux {
+            border-top: 4px solid #7b2cbf;
+        }
+        
+        .server-header {
+            display: flex;
+            align-items: center;
+            gap: 15px;
+            margin-bottom: 25px;
+            padding-bottom: 15px;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+        }
+        
+        .server-icon {
+            width: 55px;
+            height: 55px;
+            border-radius: 12px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.6rem;
+        }
+        
+        .server-icon.windows {
+            background: linear-gradient(135deg, #00a8e8, #0077b6);
+        }
+        
+        .server-icon.linux {
+            background: linear-gradient(135deg, #7b2cbf, #9d4edd);
+        }
+        
+        .server-title h2 {
+            font-size: 1.3rem;
+            margin-bottom: 3px;
+        }
+        
+        .server-title p {
+            color: #888;
+            font-size: 0.85rem;
+        }
+        
+        .server-title .port {
+            background: rgba(0, 212, 255, 0.2);
+            color: #00d4ff;
+            padding: 2px 10px;
+            border-radius: 10px;
+            font-size: 0.75rem;
+            margin-left: 10px;
+        }
+        
+        /* Agent Section */
+        .agent-section {
+            margin-bottom: 20px;
+        }
+        
+        .agent-section-title {
+            font-size: 0.9rem;
+            color: #7b2cbf;
+            margin-bottom: 12px;
+            font-weight: 600;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        
+        .agent-section-title::before {
+            content: '';
+            width: 8px;
+            height: 8px;
+            background: #7b2cbf;
+            border-radius: 50%;
+        }
+        
+        /* Agent Flow */
+        .agent-flow {
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 12px;
+            padding: 15px;
+            margin-bottom: 15px;
+        }
+        
+        .flow-header {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-bottom: 12px;
+        }
+        
+        .flow-icon {
+            font-size: 1.2rem;
+        }
+        
+        .flow-name {
+            font-weight: 600;
+            font-size: 1rem;
+        }
+        
+        .flow-nodes {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            flex-wrap: wrap;
+        }
+        
+        .node {
+            padding: 6px 12px;
+            border-radius: 8px;
+            font-size: 0.8rem;
+            font-weight: 500;
+        }
+        
+        .node.start {
+            background: linear-gradient(135deg, #ff9a56, #ff6b35);
+            color: #fff;
+        }
+        
+        .node.supervisor {
+            background: linear-gradient(135deg, #56ab2f, #a8e063);
+            color: #fff;
+        }
+        
+        .node.agent {
+            background: linear-gradient(135deg, #667eea, #764ba2);
+            color: #fff;
+        }
+        
+        .node.tool {
+            background: linear-gradient(135deg, #11998e, #38ef7d);
+            color: #fff;
+        }
+        
+        .node.end {
+            background: linear-gradient(135deg, #4facfe, #00f2fe);
+            color: #fff;
+        }
+        
+        .node.finish {
+            background: rgba(255, 255, 255, 0.2);
+            color: #ccc;
+        }
+        
+        .flow-arrow {
+            color: #666;
+            font-size: 1rem;
+        }
+        
+        /* Component Cards */
+        .component-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 12px;
+        }
+        
+        .component-card {
+            background: rgba(255, 255, 255, 0.06);
+            border-radius: 10px;
+            padding: 15px;
+            transition: transform 0.3s, box-shadow 0.3s;
+        }
+        
+        .component-card:hover {
+            transform: translateY(-3px);
+            box-shadow: 0 8px 25px rgba(0, 0, 0, 0.3);
+        }
+        
+        .component-card.full-width {
+            grid-column: span 2;
+        }
+        
+        .card-header {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin-bottom: 8px;
+        }
+        
+        .card-icon {
+            font-size: 1.1rem;
+        }
+        
+        .card-name {
+            font-weight: 600;
+            font-size: 0.95rem;
+        }
+        
+        .card-desc {
+            color: #999;
+            font-size: 0.8rem;
+            margin-bottom: 8px;
+        }
+        
+        .card-tags {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 5px;
+        }
+        
+        .tag {
+            background: rgba(255, 255, 255, 0.1);
+            padding: 3px 8px;
+            border-radius: 10px;
+            font-size: 0.7rem;
+            color: #aaa;
+        }
+        
+        /* Connection Section */
+        .connection-section {
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            min-width: 140px;
+            padding: 20px 10px;
+        }
+        
+        .connection-box {
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 15px;
+            padding: 20px;
+            text-align: center;
+            border: 2px dashed rgba(123, 44, 191, 0.5);
+        }
+        
+        .connection-icon {
+            font-size: 2.5rem;
+            margin-bottom: 10px;
+        }
+        
+        .connection-label {
+            font-weight: 600;
+            margin-bottom: 5px;
+            color: #00d4ff;
+        }
+        
+        .connection-protocol {
+            font-size: 0.8rem;
+            color: #888;
+        }
+        
+        .connection-endpoints {
+            margin-top: 15px;
+            text-align: left;
+        }
+        
+        .endpoint {
+            font-family: 'Courier New', monospace;
+            font-size: 0.75rem;
+            color: #7b2cbf;
+            padding: 3px 0;
+        }
+        
+        /* Database Section */
+        .db-section {
+            margin-top: 40px;
+            background: rgba(255, 255, 255, 0.03);
+            border-radius: 20px;
+            padding: 30px;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+        
+        .db-section h3 {
+            text-align: center;
+            font-size: 1.4rem;
+            margin-bottom: 25px;
+            color: #00d4ff;
+        }
+        
+        .db-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 20px;
+        }
+        
+        .db-card {
+            background: linear-gradient(135deg, rgba(255, 242, 204, 0.1), rgba(214, 182, 86, 0.1));
+            border-radius: 15px;
+            padding: 20px;
+            text-align: center;
+            border: 1px solid rgba(214, 182, 86, 0.3);
+            transition: transform 0.3s;
+        }
+        
+        .db-card:hover {
+            transform: scale(1.03);
+        }
+        
+        .db-icon {
+            font-size: 2.5rem;
+            margin-bottom: 10px;
+        }
+        
+        .db-name {
+            font-weight: 600;
+            margin-bottom: 5px;
+        }
+        
+        .db-type {
+            font-size: 0.8rem;
+            color: #888;
+        }
+        
+        /* API Section */
+        .api-section {
+            margin-top: 40px;
+        }
+        
+        .api-section h3 {
+            text-align: center;
+            font-size: 1.4rem;
+            margin-bottom: 25px;
+            color: #7b2cbf;
+        }
+        
+        .api-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 15px;
+        }
+        
+        .api-card {
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 12px;
+            padding: 18px;
+            border-left: 4px solid;
+            transition: transform 0.3s;
+        }
+        
+        .api-card:hover {
+            transform: translateX(5px);
+        }
+        
+        .api-card.get {
+            border-color: #22c55e;
+        }
+        
+        .api-card.post {
+            border-color: #3b82f6;
+        }
+        
+        .api-method {
+            display: inline-block;
+            padding: 3px 10px;
+            border-radius: 5px;
+            font-size: 0.75rem;
+            font-weight: 600;
+            margin-bottom: 8px;
+        }
+        
+        .api-method.get {
+            background: rgba(34, 197, 94, 0.2);
+            color: #22c55e;
+        }
+        
+        .api-method.post {
+            background: rgba(59, 130, 246, 0.2);
+            color: #3b82f6;
+        }
+        
+        .api-endpoint {
+            font-family: 'Courier New', monospace;
+            font-size: 1rem;
+            margin-bottom: 5px;
+        }
+        
+        .api-desc {
+            color: #888;
+            font-size: 0.8rem;
+        }
+        
+        /* Flow Diagram */
+        .flow-diagram {
+            margin-top: 40px;
+            background: rgba(255, 255, 255, 0.03);
+            border-radius: 20px;
+            padding: 30px;
+        }
+        
+        .flow-diagram h3 {
+            text-align: center;
+            font-size: 1.4rem;
+            margin-bottom: 25px;
+            color: #ff6b6b;
+        }
+        
+        .flow-steps {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 15px;
+        }
+        
+        .flow-step {
+            flex: 1;
+            min-width: 120px;
+            text-align: center;
+            padding: 15px;
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 12px;
+        }
+        
+        .step-number {
+            width: 40px;
+            height: 40px;
+            background: linear-gradient(135deg, #00d4ff, #7b2cbf);
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.1rem;
+            font-weight: bold;
+            margin: 0 auto 10px;
+        }
+        
+        .step-title {
+            font-weight: 600;
+            font-size: 0.9rem;
+            margin-bottom: 5px;
+        }
+        
+        .step-desc {
+            color: #888;
+            font-size: 0.75rem;
+        }
+        
+        .step-arrow {
+            font-size: 1.5rem;
+            color: #7b2cbf;
+        }
+        
+        /* Tech Stack */
+        .tech-stack {
+            margin-top: 40px;
+            text-align: center;
+        }
+        
+        .tech-stack h3 {
+            font-size: 1.4rem;
+            margin-bottom: 25px;
+            color: #00d4ff;
+        }
+        
+        .tech-grid {
+            display: flex;
+            justify-content: center;
+            flex-wrap: wrap;
+            gap: 15px;
+        }
+        
+        .tech-item {
+            background: rgba(255, 255, 255, 0.06);
+            padding: 12px 20px;
+            border-radius: 10px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            transition: transform 0.3s;
+        }
+        
+        .tech-item:hover {
+            transform: scale(1.05);
+        }
+        
+        .tech-icon {
+            font-size: 1.3rem;
+        }
+        
+        /* Responsive */
+        @media (max-width: 1100px) {
+            .main-architecture {
+                flex-direction: column;
+            }
+            
+            .connection-section {
+                padding: 10px;
+            }
+            
+            .component-grid {
+                grid-template-columns: 1fr;
+            }
+            
+            .component-card.full-width {
+                grid-column: span 1;
+            }
+        }
+        
+        @media (max-width: 600px) {
+            h1 {
+                font-size: 1.8rem;
+            }
+            
+            .flow-steps {
+                flex-direction: column;
+            }
+            
+            .step-arrow {
+                transform: rotate(90deg);
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🏭 AMHS AI Agent System Architecture</h1>
+        <p class="subtitle">SK Hynix FAB Operations - Multi-Agent System with Qwen3-Coder API Integration</p>
+        
+        <!-- Main Architecture -->
+        <div class="main-architecture">
+            
+            <!-- Windows Local Server -->
+            <div class="server-section">
+                <div class="server-box windows">
+                    <div class="server-header">
+                        <div class="server-icon windows">🖥️</div>
+                        <div class="server-title">
+                            <h2>Windows Local Server <span class="port">:8000</span></h2>
+                            <p>RAG + Multi-Agent System (FastAPI)</p>
+                        </div>
+                    </div>
+                    
+                    <!-- Supervisor Flow -->
+                    <div class="agent-section">
+                        <div class="agent-section-title">Main Supervisor Flow</div>
+                        <div class="agent-flow">
+                            <div class="flow-nodes">
+                                <span class="node start">__start__</span>
+                                <span class="flow-arrow">→</span>
+                                <span class="node supervisor">SuperVisor</span>
+                                <span class="flow-arrow">→</span>
+                                <span class="node finish">FINISH</span>
+                                <span class="flow-arrow">→</span>
+                                <span class="node end">__end__</span>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- General Answer Agent -->
+                    <div class="agent-section">
+                        <div class="agent-section-title">General Answer Agent</div>
+                        <div class="agent-flow">
+                            <div class="flow-nodes">
+                                <span class="node start">__start__</span>
+                                <span class="flow-arrow">→</span>
+                                <span class="node agent">General Agent</span>
+                                <span class="flow-arrow">↔</span>
+                                <span class="node tool">General Tools</span>
+                                <span class="flow-arrow">→</span>
+                                <span class="node end">__end__</span>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- AMHS AI Agent -->
+                    <div class="agent-section">
+                        <div class="agent-section-title">AMHS AI Agent (Main)</div>
+                        <div class="agent-flow">
+                            <div class="flow-nodes">
+                                <span class="node start">__start__</span>
+                                <span class="flow-arrow">→</span>
+                                <span class="node supervisor">SuperVisor</span>
+                                <span class="flow-arrow">→</span>
+                            </div>
+                            <div class="flow-nodes" style="margin-top: 10px; padding-left: 20px;">
+                                <span class="node agent">Location Trace</span>
+                                <span class="node agent">Embedding Searcher</span>
+                                <span class="node agent">Report Writer</span>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Components -->
+                    <div class="agent-section">
+                        <div class="agent-section-title">Core Components</div>
+                        <div class="component-grid">
+                            <div class="component-card">
+                                <div class="card-header">
+                                    <span class="card-icon">📍</span>
+                                    <span class="card-name">Location Trace</span>
+                                </div>
+                                <p class="card-desc">물류 위치 추적 Agent</p>
+                                <div class="card-tags">
+                                    <span class="tag">LLM Agent</span>
+                                    <span class="tag">DB Search</span>
+                                </div>
+                            </div>
+                            
+                            <div class="component-card">
+                                <div class="card-header">
+                                    <span class="card-icon">🔍</span>
+                                    <span class="card-name">Embedding Searcher</span>
+                                </div>
+                                <p class="card-desc">임베딩 기반 데이터 검색</p>
+                                <div class="card-tags">
+                                    <span class="tag">Vector Search</span>
+                                    <span class="tag">RAG</span>
+                                </div>
+                            </div>
+                            
+                            <div class="component-card">
+                                <div class="card-header">
+                                    <span class="card-icon">📝</span>
+                                    <span class="card-name">Report Writer</span>
+                                </div>
+                                <p class="card-desc">분석 리포트 자동 생성</p>
+                                <div class="card-tags">
+                                    <span class="tag">LLM</span>
+                                    <span class="tag">Dashboard</span>
+                                </div>
+                            </div>
+                            
+                            <div class="component-card">
+                                <div class="card-header">
+                                    <span class="card-icon">🔧</span>
+                                    <span class="card-name">DB Search Tool</span>
+                                </div>
+                                <p class="card-desc">smartMCS DB 직접 조회</p>
+                                <div class="card-tags">
+                                    <span class="tag">Oracle</span>
+                                    <span class="tag">SQL</span>
+                                </div>
+                            </div>
+                            
+                            <div class="component-card">
+                                <div class="card-header">
+                                    <span class="card-icon">📊</span>
+                                    <span class="card-name">M14 Predictor</span>
+                                </div>
+                                <p class="card-desc">M14 물류 예측 모델</p>
+                                <div class="card-tags">
+                                    <span class="tag">XGBoost</span>
+                                    <span class="tag">V7 Model</span>
+                                </div>
+                            </div>
+                            
+                            <div class="component-card">
+                                <div class="card-header">
+                                    <span class="card-icon">📈</span>
+                                    <span class="card-name">HUB Predictor</span>
+                                </div>
+                                <p class="card-desc">HUB 급증 예측</p>
+                                <div class="card-tags">
+                                    <span class="tag">Numerical</span>
+                                    <span class="tag">Categorical</span>
+                                </div>
+                            </div>
+                            
+                            <div class="component-card full-width">
+                                <div class="card-header">
+                                    <span class="card-icon">🔗</span>
+                                    <span class="card-name">Qwen API Client</span>
+                                </div>
+                                <p class="card-desc">Linux GPU 서버 LLM API 호출 클라이언트</p>
+                                <div class="card-tags">
+                                    <span class="tag">HTTP POST</span>
+                                    <span class="tag">/chat</span>
+                                    <span class="tag">/health</span>
+                                    <span class="tag">requests</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Connection -->
+            <div class="connection-section">
+                <div class="connection-box">
+                    <div class="connection-icon">🔄</div>
+                    <div class="connection-label">HTTP REST API</div>
+                    <div class="connection-protocol">JSON over HTTP</div>
+                    <div class="connection-endpoints">
+                        <div class="endpoint">POST /chat</div>
+                        <div class="endpoint">GET /health</div>
+                        <div class="endpoint">POST /v1/chat/completions</div>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Linux GPU Server -->
+            <div class="server-section">
+                <div class="server-box linux">
+                    <div class="server-header">
+                        <div class="server-icon linux">🐧</div>
+                        <div class="server-title">
+                            <h2>Linux GPU Server <span class="port">:8000</span></h2>
+                            <p>Qwen3-Coder API (Flask)</p>
+                        </div>
+                    </div>
+                    
+                    <!-- LLM Model -->
+                    <div class="agent-section">
+                        <div class="agent-section-title">LLM Model</div>
+                        <div class="component-grid">
+                            <div class="component-card full-width">
+                                <div class="card-header">
+                                    <span class="card-icon">🤖</span>
+                                    <span class="card-name">Qwen3-Coder-30B-A3B-Instruct</span>
+                                </div>
+                                <p class="card-desc">MoE 코딩 LLM (30B params, 3B active)</p>
+                                <div class="card-tags">
+                                    <span class="tag">Transformers</span>
+                                    <span class="tag">bfloat16</span>
+                                    <span class="tag">128K Context</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- GPU Info -->
+                    <div class="agent-section">
+                        <div class="agent-section-title">Hardware</div>
+                        <div class="component-grid">
+                            <div class="component-card">
+                                <div class="card-header">
+                                    <span class="card-icon">🎮</span>
+                                    <span class="card-name">GPU</span>
+                                </div>
+                                <p class="card-desc">64GB VRAM (병렬)</p>
+                                <div class="card-tags">
+                                    <span class="tag">CUDA</span>
+                                    <span class="tag">device_map=auto</span>
+                                </div>
+                            </div>
+                            
+                            <div class="component-card">
+                                <div class="card-header">
+                                    <span class="card-icon">⚡</span>
+                                    <span class="card-name">Flask Server</span>
+                                </div>
+                                <p class="card-desc">REST API 제공</p>
+                                <div class="card-tags">
+                                    <span class="tag">Port 8000</span>
+                                    <span class="tag">외부 접속</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Model Config -->
+                    <div class="agent-section">
+                        <div class="agent-section-title">Model Configuration</div>
+                        <div class="component-grid">
+                            <div class="component-card full-width">
+                                <div class="card-header">
+                                    <span class="card-icon">🎯</span>
+                                    <span class="card-name">Inference Parameters</span>
+                                </div>
+                                <div class="card-tags" style="margin-top: 10px;">
+                                    <span class="tag">temperature: 0.7</span>
+                                    <span class="tag">top_p: 0.9</span>
+                                    <span class="tag">max_tokens: 1024</span>
+                                    <span class="tag">do_sample: True</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- API Endpoints -->
+                    <div class="agent-section">
+                        <div class="agent-section-title">API Endpoints</div>
+                        <div class="component-grid">
+                            <div class="component-card">
+                                <div class="card-header">
+                                    <span class="card-icon">💬</span>
+                                    <span class="card-name">/chat</span>
+                                </div>
+                                <p class="card-desc">간단 대화 요청</p>
+                                <div class="card-tags">
+                                    <span class="tag">POST</span>
+                                    <span class="tag">message</span>
+                                    <span class="tag">system</span>
+                                </div>
+                            </div>
+                            
+                            <div class="component-card">
+                                <div class="card-header">
+                                    <span class="card-icon">❤️</span>
+                                    <span class="card-name">/health</span>
+                                </div>
+                                <p class="card-desc">서버 상태 확인</p>
+                                <div class="card-tags">
+                                    <span class="tag">GET</span>
+                                    <span class="tag">status</span>
+                                </div>
+                            </div>
+                            
+                            <div class="component-card full-width">
+                                <div class="card-header">
+                                    <span class="card-icon">🔌</span>
+                                    <span class="card-name">/v1/chat/completions</span>
+                                </div>
+                                <p class="card-desc">OpenAI 호환 API</p>
+                                <div class="card-tags">
+                                    <span class="tag">POST</span>
+                                    <span class="tag">messages[]</span>
+                                    <span class="tag">max_tokens</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Database Section -->
+        <div class="db-section">
+            <h3>🗄️ Database Connections</h3>
+            <div class="db-grid">
+                <div class="db-card">
+                    <div class="db-icon">🏭</div>
+                    <div class="db-name">smartMCS M14</div>
+                    <div class="db-type">Oracle RAC DB</div>
+                </div>
+                
+                <div class="db-card">
+                    <div class="db-icon">🏭</div>
+                    <div class="db-name">smartMCS M16B</div>
+                    <div class="db-type">Oracle RAC DB</div>
+                </div>
+                
+                <div class="db-card">
+                    <div class="db-icon">🍃</div>
+                    <div class="db-name">MongoDB</div>
+                    <div class="db-type">청주/이천 Cluster</div>
+                </div>
+                
+                <div class="db-card">
+                    <div class="db-icon">📋</div>
+                    <div class="db-name">Logpresso</div>
+                    <div class="db-type">청주/이천/우시</div>
+                </div>
+                
+                <div class="db-card">
+                    <div class="db-icon">⭐</div>
+                    <div class="db-name">STAR DB</div>
+                    <div class="db-type">Oracle RAC</div>
+                </div>
+                
+                <div class="db-card">
+                    <div class="db-icon">📊</div>
+                    <div class="db-name">CSV Data</div>
+                    <div class="db-type">Local Files</div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Data Flow -->
+        <div class="flow-diagram">
+            <h3>📡 Request Flow</h3>
+            <div class="flow-steps">
+                <div class="flow-step">
+                    <div class="step-number">1</div>
+                    <div class="step-title">User Request</div>
+                    <div class="step-desc">브라우저/클라이언트</div>
+                </div>
+                
+                <span class="step-arrow">→</span>
+                
+                <div class="flow-step">
+                    <div class="step-number">2</div>
+                    <div class="step-title">SuperVisor</div>
+                    <div class="step-desc">요청 분류/라우팅</div>
+                </div>
+                
+                <span class="step-arrow">→</span>
+                
+                <div class="flow-step">
+                    <div class="step-number">3</div>
+                    <div class="step-title">Agent 실행</div>
+                    <div class="step-desc">Location/Search/Report</div>
+                </div>
+                
+                <span class="step-arrow">→</span>
+                
+                <div class="flow-step">
+                    <div class="step-number">4</div>
+                    <div class="step-title">Qwen API</div>
+                    <div class="step-desc">LLM 분석/생성</div>
+                </div>
+                
+                <span class="step-arrow">→</span>
+                
+                <div class="flow-step">
+                    <div class="step-number">5</div>
+                    <div class="step-title">Response</div>
+                    <div class="step-desc">결과 반환</div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- API Endpoints -->
+        <div class="api-section">
+            <h3>🔌 Windows Server API Endpoints</h3>
+            <div class="api-grid">
+                <div class="api-card get">
+                    <span class="api-method get">GET</span>
+                    <div class="api-endpoint">/health</div>
+                    <div class="api-desc">서버 상태 확인</div>
+                </div>
+                
+                <div class="api-card post">
+                    <span class="api-method post">POST</span>
+                    <div class="api-endpoint">/ask</div>
+                    <div class="api-desc">RAG 질문 처리</div>
+                </div>
+                
+                <div class="api-card post">
+                    <span class="api-method post">POST</span>
+                    <div class="api-endpoint">/code</div>
+                    <div class="api-desc">Qwen3-Coder 코드 생성</div>
+                </div>
+                
+                <div class="api-card post">
+                    <span class="api-method post">POST</span>
+                    <div class="api-endpoint">/predict</div>
+                    <div class="api-desc">M14/HUB 예측 실행</div>
+                </div>
+                
+                <div class="api-card get">
+                    <span class="api-method get">GET</span>
+                    <div class="api-endpoint">/columns</div>
+                    <div class="api-desc">CSV 컬럼 목록</div>
+                </div>
+                
+                <div class="api-card get">
+                    <span class="api-method get">GET</span>
+                    <div class="api-endpoint">/dashboard/{filename}</div>
+                    <div class="api-desc">예측 대시보드 HTML</div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Tech Stack -->
+        <div class="tech-stack">
+            <h3>🛠️ Tech Stack</h3>
+            <div class="tech-grid">
+                <div class="tech-item">
+                    <span class="tech-icon">🐍</span>
+                    <span>Python 3.11</span>
+                </div>
+                <div class="tech-item">
+                    <span class="tech-icon">⚡</span>
+                    <span>FastAPI</span>
+                </div>
+                <div class="tech-item">
+                    <span class="tech-icon">🌶️</span>
+                    <span>Flask</span>
+                </div>
+                <div class="tech-item">
+                    <span class="tech-icon">🤗</span>
+                    <span>Transformers</span>
+                </div>
+                <div class="tech-item">
+                    <span class="tech-icon">🔥</span>
+                    <span>PyTorch</span>
+                </div>
+                <div class="tech-item">
+                    <span class="tech-icon">📊</span>
+                    <span>XGBoost</span>
+                </div>
+                <div class="tech-item">
+                    <span class="tech-icon">🦜</span>
+                    <span>LangGraph</span>
+                </div>
+                <div class="tech-item">
+                    <span class="tech-icon">🎮</span>
+                    <span>CUDA</span>
+                </div>
+                <div class="tech-item">
+                    <span class="tech-icon">🐧</span>
+                    <span>Ubuntu 24</span>
+                </div>
+                <div class="tech-item">
+                    <span class="tech-icon">🗄️</span>
+                    <span>Oracle RAC</span>
+                </div>
+                <div class="tech-item">
+                    <span class="tech-icon">🍃</span>
+                    <span>MongoDB</span>
+                </div>
+            </div>
+        </div>
+    </div>
+</body>
+</html>
