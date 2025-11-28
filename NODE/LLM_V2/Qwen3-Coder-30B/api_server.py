@@ -4,8 +4,8 @@ import torch
 
 app = Flask(__name__)
 
-# 모델 로드
-model_path = "./Qwen3-Coder-30B-A3B-Instruct"
+# 절대경로로 수정
+model_path = "/project/workSpace/LLM_AMHS_AI/model/Qwen3-Coder-30B-A3B-Instruct"
 
 print("모델 로딩 중...")
 tokenizer = AutoTokenizer.from_pretrained(model_path, trust_remote_code=True)
