@@ -4,7 +4,6 @@ import torch
 
 app = Flask(__name__)
 
-# 절대경로로 수정
 model_path = "/project/workSpace/LLM_AMHS_AI/model/Qwen3-Coder-30B-A3B-Instruct"
 
 print("모델 로딩 중...")
@@ -19,14 +18,13 @@ print("모델 로딩 완료!")
 
 
 def generate_response(messages, max_tokens=1024, temperature=0.7, top_p=0.9):
-    text = tokenizer.apply_chat_template(
+    inputs = tokenizer.apply_chat_template(
         messages,
-        tokenize=False,
+        tokenize=True,
         add_generation_prompt=True,
-        enable_thinking=False
-    )
-    
-    inputs = tokenizer(text, return_tensors="pt").to(model.device)
+        return_tensors="pt",
+        return_dict=True
+    ).to(model.device)
     
     outputs = model.generate(
         **inputs,
@@ -80,7 +78,7 @@ def simple_chat():
     try:
         data = request.json
         user_input = data.get('message', '')
-        system_prompt = data.get('system', 'You are a helpful assistant.')
+        system_prompt = data.get('system', 'You are a helpful assistant. 한국어로 답변해주세요.')
         
         messages = [
             {"role": "system", "content": system_prompt},
