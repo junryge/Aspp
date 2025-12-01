@@ -33,6 +33,16 @@ class PatchNote:
         self.files: List[str] = []
         self.next: List[str] = []
         self.important: List[str] = []
+        # 버전 관리 필드
+        self.vm_date: str = ""
+        self.vm_operation: str = ""
+        self.vm_development: str = ""
+        self.vm_fab: str = ""
+        self.vm_model_name: str = ""
+        self.vm_version: str = ""
+        self.vm_total_predict: str = ""
+        self.vm_early_detect: str = ""
+        self.vm_model_desc: List[str] = []
     
     def to_dict(self) -> dict:
         return {
@@ -47,6 +57,15 @@ class PatchNote:
             "files": self.files,
             "next": self.next,
             "important": self.important,
+            "vm_date": self.vm_date,
+            "vm_operation": self.vm_operation,
+            "vm_development": self.vm_development,
+            "vm_fab": self.vm_fab,
+            "vm_model_name": self.vm_model_name,
+            "vm_version": self.vm_version,
+            "vm_total_predict": self.vm_total_predict,
+            "vm_early_detect": self.vm_early_detect,
+            "vm_model_desc": self.vm_model_desc,
         }
     
     @classmethod
@@ -58,11 +77,20 @@ class PatchNote:
         note.files = data.get("files", [])
         note.next = data.get("next", [])
         note.important = data.get("important", [])
+        # 버전 관리 필드
+        note.vm_date = data.get("vm_date", "")
+        note.vm_operation = data.get("vm_operation", "")
+        note.vm_development = data.get("vm_development", "")
+        note.vm_fab = data.get("vm_fab", "")
+        note.vm_model_name = data.get("vm_model_name", "")
+        note.vm_version = data.get("vm_version", "")
+        note.vm_total_predict = data.get("vm_total_predict", "")
+        note.vm_early_detect = data.get("vm_early_detect", "")
+        note.vm_model_desc = data.get("vm_model_desc", [])
         
         # improved 호환성 처리
         improved_data = data.get("improved", [])
         if improved_data and isinstance(improved_data[0], dict):
-            # 딕셔너리 형식 → 문자열로 변환
             note.improved = [f"{item.get('item', '')}: {item.get('before', '')} → {item.get('after', '')}" for item in improved_data]
         else:
             note.improved = improved_data
@@ -198,7 +226,12 @@ class PatchNoteApp:
         self.notebook.add(self.tab_metrics, text="📊 성능/파일")
         self.create_metrics_tab()
         
-        # 탭 4: 미리보기
+        # 탭 4: 버전 관리
+        self.tab_version = ttk.Frame(self.notebook)
+        self.notebook.add(self.tab_version, text="🔖 버전 관리")
+        self.create_version_tab()
+        
+        # 탭 5: 미리보기
         self.tab_preview = ttk.Frame(self.notebook)
         self.notebook.add(self.tab_preview, text="👁️ 미리보기")
         self.create_preview_tab()
@@ -282,6 +315,65 @@ class PatchNoteApp:
                                                      bg=self.colors['input'], fg=self.colors['fg'])
         self.text_files.pack(fill=tk.X, pady=(5, 15))
     
+    def create_version_tab(self):
+        """버전 관리 탭"""
+        frame = ttk.Frame(self.tab_version, padding=20)
+        frame.pack(fill=tk.BOTH, expand=True)
+        
+        # 상단 그리드 (날짜, 운영, 개발, FAB)
+        top_frame = ttk.Frame(frame)
+        top_frame.pack(fill=tk.X, pady=(0, 15))
+        
+        # 날짜
+        ttk.Label(top_frame, text="📅 날짜:").grid(row=0, column=0, sticky='w', pady=5)
+        self.entry_vm_date = ttk.Entry(top_frame, font=('맑은 고딕', 11), width=15)
+        self.entry_vm_date.grid(row=0, column=1, sticky='w', pady=5, padx=5)
+        
+        # 운영
+        ttk.Label(top_frame, text="🏭 운영:").grid(row=0, column=2, sticky='w', pady=5, padx=(20, 0))
+        self.entry_vm_operation = ttk.Entry(top_frame, font=('맑은 고딕', 11), width=15)
+        self.entry_vm_operation.grid(row=0, column=3, sticky='w', pady=5, padx=5)
+        
+        # 개발
+        ttk.Label(top_frame, text="💻 개발:").grid(row=0, column=4, sticky='w', pady=5, padx=(20, 0))
+        self.entry_vm_development = ttk.Entry(top_frame, font=('맑은 고딕', 11), width=15)
+        self.entry_vm_development.grid(row=0, column=5, sticky='w', pady=5, padx=5)
+        
+        # FAB
+        ttk.Label(top_frame, text="🏢 FAB:").grid(row=1, column=0, sticky='w', pady=5)
+        self.entry_vm_fab = ttk.Entry(top_frame, font=('맑은 고딕', 11), width=15)
+        self.entry_vm_fab.grid(row=1, column=1, sticky='w', pady=5, padx=5)
+        
+        # 예측모델_NAME
+        ttk.Label(top_frame, text="🤖 예측모델_NAME:").grid(row=1, column=2, sticky='w', pady=5, padx=(20, 0))
+        self.entry_vm_model_name = ttk.Entry(top_frame, font=('맑은 고딕', 11), width=25)
+        self.entry_vm_model_name.grid(row=1, column=3, columnspan=3, sticky='w', pady=5, padx=5)
+        
+        # 중간 그리드 (버전, 전체예측, 사전감지예측)
+        mid_frame = ttk.Frame(frame)
+        mid_frame.pack(fill=tk.X, pady=(0, 15))
+        
+        # 버전
+        ttk.Label(mid_frame, text="🔖 버전:").grid(row=0, column=0, sticky='w', pady=5)
+        self.entry_vm_version = ttk.Entry(mid_frame, font=('맑은 고딕', 11), width=15)
+        self.entry_vm_version.grid(row=0, column=1, sticky='w', pady=5, padx=5)
+        
+        # 전체예측
+        ttk.Label(mid_frame, text="📊 전체예측:").grid(row=0, column=2, sticky='w', pady=5, padx=(20, 0))
+        self.entry_vm_total_predict = ttk.Entry(mid_frame, font=('맑은 고딕', 11), width=20)
+        self.entry_vm_total_predict.grid(row=0, column=3, sticky='w', pady=5, padx=5)
+        
+        # 사전감지예측
+        ttk.Label(mid_frame, text="🔍 사전감지예측:").grid(row=0, column=4, sticky='w', pady=5, padx=(20, 0))
+        self.entry_vm_early_detect = ttk.Entry(mid_frame, font=('맑은 고딕', 11), width=20)
+        self.entry_vm_early_detect.grid(row=0, column=5, sticky='w', pady=5, padx=5)
+        
+        # 모델 내용
+        ttk.Label(frame, text="📝 모델 내용 (줄바꿈으로 구분):", style='Header.TLabel').pack(anchor='w')
+        self.text_vm_model_desc = scrolledtext.ScrolledText(frame, height=12, font=('맑은 고딕', 10),
+                                                            bg=self.colors['input'], fg=self.colors['fg'])
+        self.text_vm_model_desc.pack(fill=tk.BOTH, expand=True, pady=(5, 15))
+    
     def create_preview_tab(self):
         """미리보기 탭"""
         frame = ttk.Frame(self.tab_preview, padding=10)
@@ -340,6 +432,22 @@ class PatchNoteApp:
             "xgboost_수치형_V8.pkl", "xgboost_범주형_V8.pkl"
         ]
         v8.next = ["MLflow Tracking 연동", "하이퍼파라미터 자동 탐색 (Optuna)"]
+        # 버전 관리 정보
+        v8.vm_date = "2025-12-01"
+        v8.vm_operation = "M16A"
+        v8.vm_development = "AI팀"
+        v8.vm_fab = "M16"
+        v8.vm_model_name = "AMHS_JOB2_예측모델"
+        v8.vm_version = "V8.0.0"
+        v8.vm_total_predict = "MAE 9.8, R² 0.68"
+        v8.vm_early_detect = "범주형 정확도 72%"
+        v8.vm_model_desc = [
+            "수치형: XGBoost Regressor (MIN/MAX/AVG 멀티아웃풋)",
+            "범주형: XGBoost Classifier (3-Class: 하락/소폭/급증)",
+            "입력: 32개 컬럼 → 222개 Feature",
+            "시퀀스: 30분 → 10분 후 예측",
+            "가중치: 수치형 50+ 3배, 범주형 Class2 5배",
+        ]
         self.notes["V8.0.0"] = v8
         
         # V7
@@ -418,6 +526,34 @@ class PatchNoteApp:
         self.text_files.delete('1.0', tk.END)
         self.text_files.insert('1.0', '\n'.join(note.files))
         
+        # 버전 관리
+        self.entry_vm_date.delete(0, tk.END)
+        self.entry_vm_date.insert(0, note.vm_date)
+        
+        self.entry_vm_operation.delete(0, tk.END)
+        self.entry_vm_operation.insert(0, note.vm_operation)
+        
+        self.entry_vm_development.delete(0, tk.END)
+        self.entry_vm_development.insert(0, note.vm_development)
+        
+        self.entry_vm_fab.delete(0, tk.END)
+        self.entry_vm_fab.insert(0, note.vm_fab)
+        
+        self.entry_vm_model_name.delete(0, tk.END)
+        self.entry_vm_model_name.insert(0, note.vm_model_name)
+        
+        self.entry_vm_version.delete(0, tk.END)
+        self.entry_vm_version.insert(0, note.vm_version)
+        
+        self.entry_vm_total_predict.delete(0, tk.END)
+        self.entry_vm_total_predict.insert(0, note.vm_total_predict)
+        
+        self.entry_vm_early_detect.delete(0, tk.END)
+        self.entry_vm_early_detect.insert(0, note.vm_early_detect)
+        
+        self.text_vm_model_desc.delete('1.0', tk.END)
+        self.text_vm_model_desc.insert('1.0', '\n'.join(note.vm_model_desc))
+        
         # 미리보기
         self.refresh_preview()
     
@@ -442,6 +578,17 @@ class PatchNoteApp:
         note.files = [x.strip() for x in self.text_files.get('1.0', tk.END).strip().split('\n') if x.strip()]
         note.metrics = [x.strip() for x in self.text_metrics.get('1.0', tk.END).strip().split('\n') if x.strip()]
         note.important = [x.strip() for x in self.text_important.get('1.0', tk.END).strip().split('\n') if x.strip()]
+        
+        # 버전 관리
+        note.vm_date = self.entry_vm_date.get().strip()
+        note.vm_operation = self.entry_vm_operation.get().strip()
+        note.vm_development = self.entry_vm_development.get().strip()
+        note.vm_fab = self.entry_vm_fab.get().strip()
+        note.vm_model_name = self.entry_vm_model_name.get().strip()
+        note.vm_version = self.entry_vm_version.get().strip()
+        note.vm_total_predict = self.entry_vm_total_predict.get().strip()
+        note.vm_early_detect = self.entry_vm_early_detect.get().strip()
+        note.vm_model_desc = [x.strip() for x in self.text_vm_model_desc.get('1.0', tk.END).strip().split('\n') if x.strip()]
         
         return note
     
