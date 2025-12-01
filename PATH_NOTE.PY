@@ -29,7 +29,7 @@ class PatchNote:
         self.improved: List[str] = []
         self.fixed: List[str] = []
         self.breaking: List[str] = []
-        self.metrics: Dict[str, Dict] = {}
+        self.metrics: List[str] = []
         self.files: List[str] = []
         self.next: List[str] = []
     
@@ -54,7 +54,7 @@ class PatchNote:
         note.improved = data.get("improved", [])
         note.fixed = data.get("fixed", [])
         note.breaking = data.get("breaking", [])
-        note.metrics = data.get("metrics", {})
+        note.metrics = data.get("metrics", [])
         note.files = data.get("files", [])
         note.next = data.get("next", [])
         return note
@@ -243,8 +243,7 @@ class PatchNoteApp:
         frame.pack(fill=tk.BOTH, expand=True)
         
         # 성능 지표
-        ttk.Label(frame, text="📊 성능 변화 (형식: 지표명|이전|이후|변화):", style='Header.TLabel').pack(anchor='w')
-        ttk.Label(frame, text="예: MAE|12.5|9.8|↓21%", foreground='gray').pack(anchor='w')
+        ttk.Label(frame, text="📊 성능 변화 (줄바꿈으로 구분):", style='Header.TLabel').pack(anchor='w')
         self.text_metrics = scrolledtext.ScrolledText(frame, height=6, font=('맑은 고딕', 10),
                                                        bg=self.colors['input'], fg=self.colors['fg'])
         self.text_metrics.pack(fill=tk.X, pady=(5, 15))
@@ -297,11 +296,11 @@ class PatchNoteApp:
             "수치형 모델: 50+ 변화 샘플 3배 가중치 적용",
             "범주형 모델: Class2(급증) 5배 가중치 적용",
         ]
-        v8.metrics = {
-            "MAE": {"before": "12.5", "after": "9.8", "change": "↓21%"},
-            "R²": {"before": "0.62", "after": "0.68", "change": "↑9.7%"},
-            "범주형정확도": {"before": "-", "after": "72%", "change": "신규"},
-        }
+        v8.metrics = [
+            "MAE: 12.5 → 9.8 (↓21%)",
+            "R²: 0.62 → 0.68 (↑9.7%)",
+            "범주형 정확도: 72% (신규)",
+        ]
         v8.breaking = ["V7 모델 파일(.pkl)과 호환되지 않음", "V8 전용 평가 코드 사용 필요"]
         v8.files = [
             "V8_수치형_학습코드.py", "V8_수치형_평가코드.py",
@@ -315,7 +314,7 @@ class PatchNoteApp:
         v7 = PatchNote("V7.0.0", "2025-11-15", "Major")
         v7.new = ["M16HUB.QUE.ALL.CURRENTQCNT 컬럼 추가", "QUE 기반 병목 감지 Feature 추가"]
         v7.improved = ["입력 컬럼: 17개 → 19개", "병목 감지 로직 강화"]
-        v7.metrics = {"MAE": {"before": "14.2", "after": "12.5", "change": "↓12%"}}
+        v7.metrics = ["MAE: 14.2 → 12.5 (↓12%)"]
         v7.fixed = ["HUBROOMTOTAL 결측치 처리 오류 수정"]
         v7.breaking = ["V6 모델 파일과 호환되지 않음"]
         v7.next = ["범주형 분류 모델 추가"]
@@ -325,7 +324,7 @@ class PatchNoteApp:
         v6 = PatchNote("V6.0.0", "2025-10-20", "Major")
         v6.new = ["멀티아웃풋 구조 도입 (MIN/MAX/AVG)", "10분 구간 통계 예측"]
         v6.improved = ["Feature 수: 120개 → 165개", "시퀀스 길이: 20분 → 30분"]
-        v6.metrics = {"MAE": {"before": "18.5", "after": "14.2", "change": "↓23%"}}
+        v6.metrics = ["MAE: 18.5 → 14.2 (↓23%)"]
         v6.fixed = ["큰 변화 예측 누락 문제 해결"]
         v6.breaking = ["단일 출력 → 멀티 출력 구조 변경"]
         self.notes["V6.0.0"] = v6
@@ -378,11 +377,8 @@ class PatchNoteApp:
         self.text_fixed.insert('1.0', '\n'.join(note.fixed))
         
         # 성능/파일
-        metrics_lines = []
-        for name, data in note.metrics.items():
-            metrics_lines.append(f"{name}|{data['before']}|{data['after']}|{data['change']}")
         self.text_metrics.delete('1.0', tk.END)
-        self.text_metrics.insert('1.0', '\n'.join(metrics_lines))
+        self.text_metrics.insert('1.0', '\n'.join(note.metrics))
         
         self.text_files.delete('1.0', tk.END)
         self.text_files.insert('1.0', '\n'.join(note.files))
@@ -409,18 +405,7 @@ class PatchNoteApp:
         note.breaking = [x.strip() for x in self.text_breaking.get('1.0', tk.END).strip().split('\n') if x.strip()]
         note.next = [x.strip() for x in self.text_next.get('1.0', tk.END).strip().split('\n') if x.strip()]
         note.files = [x.strip() for x in self.text_files.get('1.0', tk.END).strip().split('\n') if x.strip()]
-        
-        # 성능 지표 파싱
-        note.metrics = {}
-        for line in self.text_metrics.get('1.0', tk.END).strip().split('\n'):
-            if '|' in line:
-                parts = line.split('|')
-                if len(parts) >= 4:
-                    note.metrics[parts[0].strip()] = {
-                        "before": parts[1].strip(),
-                        "after": parts[2].strip(),
-                        "change": parts[3].strip()
-                    }
+        note.metrics = [x.strip() for x in self.text_metrics.get('1.0', tk.END).strip().split('\n') if x.strip()]
         
         return note
     
@@ -458,8 +443,8 @@ class PatchNoteApp:
         
         if note.metrics:
             lines.append(f"│  [METRICS] 성능 변화".ljust(w) + " │")
-            for name, data in note.metrics.items():
-                line = f"│    • {name}: {data['before']} → {data['after']} ({data['change']})"
+            for item in note.metrics:
+                line = f"│    • {item}"
                 lines.append(line[:w].ljust(w) + " │")
         
         lines.append(f"│  [FIXED] 버그 수정".ljust(w) + " │")
