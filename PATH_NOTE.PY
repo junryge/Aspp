@@ -129,8 +129,8 @@ class PatchNoteApp:
     def __init__(self, root):
         self.root = root
         self.root.title("AMHS 예측 모델 패치노트 관리")
-        self.root.geometry("1100x750")
-        self.root.minsize(900, 600)
+        self.root.geometry("1300x850")
+        self.root.minsize(1000, 700)
         self.root.resizable(True, True)
         self.root.configure(bg="#2b2b2b")
         
@@ -358,65 +358,65 @@ class PatchNoteApp:
     
     def _create_vm_panel(self, parent, tab_type):
         """버전 관리 패널 생성"""
-        frame = ttk.Frame(parent, padding=5)
+        frame = ttk.Frame(parent, padding=8)
         frame.pack(fill=tk.BOTH, expand=True)
         
         # 입력 영역
-        input_frame = ttk.LabelFrame(frame, text="입력", padding=5)
-        input_frame.pack(fill=tk.X, pady=(0, 5))
+        input_frame = ttk.LabelFrame(frame, text="입력", padding=8)
+        input_frame.pack(fill=tk.X, pady=(0, 8))
         
         # Row 1: 날짜, 운영, 개발
         row1 = ttk.Frame(input_frame)
-        row1.pack(fill=tk.X, pady=2)
+        row1.pack(fill=tk.X, pady=3)
         
-        ttk.Label(row1, text="날짜:", font=('맑은 고딕', 9)).pack(side=tk.LEFT)
-        entry_date = ttk.Entry(row1, font=('맑은 고딕', 9), width=10)
-        entry_date.pack(side=tk.LEFT, padx=(2, 8))
+        ttk.Label(row1, text="날짜:", font=('맑은 고딕', 10)).pack(side=tk.LEFT)
+        entry_date = ttk.Entry(row1, font=('맑은 고딕', 10), width=12)
+        entry_date.pack(side=tk.LEFT, padx=(3, 10))
         entry_date.insert(0, datetime.now().strftime("%Y-%m-%d"))
         
-        ttk.Label(row1, text="운영:", font=('맑은 고딕', 9)).pack(side=tk.LEFT)
-        entry_operation = ttk.Entry(row1, font=('맑은 고딕', 9), width=8)
-        entry_operation.pack(side=tk.LEFT, padx=(2, 8))
+        ttk.Label(row1, text="운영:", font=('맑은 고딕', 10)).pack(side=tk.LEFT)
+        entry_operation = ttk.Entry(row1, font=('맑은 고딕', 10), width=10)
+        entry_operation.pack(side=tk.LEFT, padx=(3, 10))
         
-        ttk.Label(row1, text="개발:", font=('맑은 고딕', 9)).pack(side=tk.LEFT)
-        entry_development = ttk.Entry(row1, font=('맑은 고딕', 9), width=8)
-        entry_development.pack(side=tk.LEFT, padx=(2, 0))
+        ttk.Label(row1, text="개발:", font=('맑은 고딕', 10)).pack(side=tk.LEFT)
+        entry_development = ttk.Entry(row1, font=('맑은 고딕', 10), width=10)
+        entry_development.pack(side=tk.LEFT, padx=(3, 0))
         
         # Row 2: FAB, 모델명, 버전
         row2 = ttk.Frame(input_frame)
-        row2.pack(fill=tk.X, pady=2)
+        row2.pack(fill=tk.X, pady=3)
         
-        ttk.Label(row2, text="FAB:", font=('맑은 고딕', 9)).pack(side=tk.LEFT)
-        entry_fab = ttk.Entry(row2, font=('맑은 고딕', 9), width=6)
-        entry_fab.pack(side=tk.LEFT, padx=(2, 8))
+        ttk.Label(row2, text="FAB:", font=('맑은 고딕', 10)).pack(side=tk.LEFT)
+        entry_fab = ttk.Entry(row2, font=('맑은 고딕', 10), width=8)
+        entry_fab.pack(side=tk.LEFT, padx=(3, 10))
         
-        ttk.Label(row2, text="모델:", font=('맑은 고딕', 9)).pack(side=tk.LEFT)
-        entry_model_name = ttk.Entry(row2, font=('맑은 고딕', 9), width=15)
-        entry_model_name.pack(side=tk.LEFT, padx=(2, 8))
+        ttk.Label(row2, text="모델:", font=('맑은 고딕', 10)).pack(side=tk.LEFT)
+        entry_model_name = ttk.Entry(row2, font=('맑은 고딕', 10), width=18)
+        entry_model_name.pack(side=tk.LEFT, padx=(3, 10))
         
-        ttk.Label(row2, text="버전:", font=('맑은 고딕', 9)).pack(side=tk.LEFT)
-        entry_version = ttk.Entry(row2, font=('맑은 고딕', 9), width=8)
-        entry_version.pack(side=tk.LEFT, padx=(2, 0))
+        ttk.Label(row2, text="버전:", font=('맑은 고딕', 10)).pack(side=tk.LEFT)
+        entry_version = ttk.Entry(row2, font=('맑은 고딕', 10), width=10)
+        entry_version.pack(side=tk.LEFT, padx=(3, 0))
         
         # Row 3: 전체예측, 사전감지
         row3 = ttk.Frame(input_frame)
-        row3.pack(fill=tk.X, pady=2)
+        row3.pack(fill=tk.X, pady=3)
         
-        ttk.Label(row3, text="전체예측:", font=('맑은 고딕', 9)).pack(side=tk.LEFT)
-        entry_total_predict = ttk.Entry(row3, font=('맑은 고딕', 9), width=15)
-        entry_total_predict.pack(side=tk.LEFT, padx=(2, 8))
+        ttk.Label(row3, text="전체예측:", font=('맑은 고딕', 10)).pack(side=tk.LEFT)
+        entry_total_predict = ttk.Entry(row3, font=('맑은 고딕', 10), width=18)
+        entry_total_predict.pack(side=tk.LEFT, padx=(3, 10))
         
-        ttk.Label(row3, text="사전감지:", font=('맑은 고딕', 9)).pack(side=tk.LEFT)
-        entry_early_detect = ttk.Entry(row3, font=('맑은 고딕', 9), width=15)
-        entry_early_detect.pack(side=tk.LEFT, padx=(2, 0))
+        ttk.Label(row3, text="사전감지:", font=('맑은 고딕', 10)).pack(side=tk.LEFT)
+        entry_early_detect = ttk.Entry(row3, font=('맑은 고딕', 10), width=18)
+        entry_early_detect.pack(side=tk.LEFT, padx=(3, 0))
         
         # Row 4: 모델내용
         row4 = ttk.Frame(input_frame)
-        row4.pack(fill=tk.X, pady=2)
+        row4.pack(fill=tk.X, pady=3)
         
-        ttk.Label(row4, text="내용:", font=('맑은 고딕', 9)).pack(side=tk.LEFT)
-        entry_model_desc = ttk.Entry(row4, font=('맑은 고딕', 9), width=45)
-        entry_model_desc.pack(side=tk.LEFT, padx=(2, 0), fill=tk.X, expand=True)
+        ttk.Label(row4, text="내용:", font=('맑은 고딕', 10)).pack(side=tk.LEFT)
+        entry_model_desc = ttk.Entry(row4, font=('맑은 고딕', 10))
+        entry_model_desc.pack(side=tk.LEFT, padx=(3, 0), fill=tk.X, expand=True)
         
         # 입력 필드 저장
         entries = {
@@ -438,25 +438,25 @@ class PatchNoteApp:
         
         # 버튼 영역
         btn_frame = ttk.Frame(input_frame)
-        btn_frame.pack(fill=tk.X, pady=(5, 0))
+        btn_frame.pack(fill=tk.X, pady=(8, 0))
         
-        ttk.Button(btn_frame, text="➕추가", width=6,
-                   command=lambda: self.add_vm_row(tab_type)).pack(side=tk.LEFT, padx=2)
-        ttk.Button(btn_frame, text="✏️수정", width=6,
-                   command=lambda: self.update_vm_row(tab_type)).pack(side=tk.LEFT, padx=2)
-        ttk.Button(btn_frame, text="🗑️삭제", width=6,
-                   command=lambda: self.delete_vm_row(tab_type)).pack(side=tk.LEFT, padx=2)
-        ttk.Button(btn_frame, text="🧹초기화", width=6,
-                   command=lambda: self.clear_vm_inputs(tab_type)).pack(side=tk.LEFT, padx=2)
+        ttk.Button(btn_frame, text="➕ 추가", width=8,
+                   command=lambda: self.add_vm_row(tab_type)).pack(side=tk.LEFT, padx=3)
+        ttk.Button(btn_frame, text="✏️ 수정", width=8,
+                   command=lambda: self.update_vm_row(tab_type)).pack(side=tk.LEFT, padx=3)
+        ttk.Button(btn_frame, text="🗑️ 삭제", width=8,
+                   command=lambda: self.delete_vm_row(tab_type)).pack(side=tk.LEFT, padx=3)
+        ttk.Button(btn_frame, text="🧹 초기화", width=8,
+                   command=lambda: self.clear_vm_inputs(tab_type)).pack(side=tk.LEFT, padx=3)
         
         # 테이블 (Treeview)
         table_frame = ttk.Frame(frame)
-        table_frame.pack(fill=tk.BOTH, expand=True, pady=5)
+        table_frame.pack(fill=tk.BOTH, expand=True, pady=8)
         
         columns = ("날짜", "운영", "개발", "FAB", "모델", "버전", "전체예측", "사전감지", "내용")
-        tree = ttk.Treeview(table_frame, columns=columns, show='headings', height=6)
+        tree = ttk.Treeview(table_frame, columns=columns, show='headings', height=8)
         
-        col_widths = [75, 45, 45, 35, 80, 55, 70, 70, 100]
+        col_widths = [85, 55, 55, 45, 100, 65, 90, 90, 120]
         for col, width in zip(columns, col_widths):
             tree.heading(col, text=col)
             tree.column(col, width=width, minwidth=30)
@@ -479,10 +479,10 @@ class PatchNoteApp:
         csv_frame = ttk.Frame(frame)
         csv_frame.pack(fill=tk.X)
         
-        ttk.Button(csv_frame, text="💾 CSV저장", width=10,
-                   command=lambda: self.save_vm_csv(tab_type)).pack(side=tk.LEFT, padx=2)
-        ttk.Button(csv_frame, text="📂 CSV불러오기", width=12,
-                   command=lambda: self.load_vm_csv(tab_type)).pack(side=tk.LEFT, padx=2)
+        ttk.Button(csv_frame, text="💾 CSV 저장", width=12,
+                   command=lambda: self.save_vm_csv(tab_type)).pack(side=tk.LEFT, padx=3)
+        ttk.Button(csv_frame, text="📂 CSV 불러오기", width=14,
+                   command=lambda: self.load_vm_csv(tab_type)).pack(side=tk.LEFT, padx=3)
     
     def _get_vm_data(self, tab_type):
         """탭 타입에 맞는 데이터 반환"""
