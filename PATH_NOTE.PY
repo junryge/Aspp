@@ -394,11 +394,12 @@ class PatchNoteApp:
         self.entry_vm_model_desc = ttk.Entry(row4, font=('맑은 고딕', 10), width=60)
         self.entry_vm_model_desc.pack(side=tk.LEFT, padx=(5, 0), fill=tk.X, expand=True)
         
-        # 버튼 영역 (항목 추가/삭제)
+        # 버튼 영역 (항목 추가/수정/삭제)
         btn_frame = ttk.Frame(input_frame)
         btn_frame.pack(fill=tk.X, pady=(10, 0))
         
         ttk.Button(btn_frame, text="➕ 항목 추가", command=self.add_vm_row).pack(side=tk.LEFT, padx=5)
+        ttk.Button(btn_frame, text="✏️ 선택 수정", command=self.update_vm_row).pack(side=tk.LEFT, padx=5)
         ttk.Button(btn_frame, text="🗑️ 선택 삭제", command=self.delete_vm_row).pack(side=tk.LEFT, padx=5)
         ttk.Button(btn_frame, text="🧹 입력 초기화", command=self.clear_vm_inputs).pack(side=tk.LEFT, padx=5)
         
@@ -423,6 +424,9 @@ class PatchNoteApp:
         self.vm_tree.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         scrollbar_y.pack(side=tk.RIGHT, fill=tk.Y)
         scrollbar_x.pack(side=tk.BOTTOM, fill=tk.X)
+        
+        # 테이블 선택 이벤트
+        self.vm_tree.bind('<<TreeviewSelect>>', self.on_vm_select)
         
         # CSV 저장/불러오기 버튼
         csv_frame = ttk.Frame(frame)
@@ -505,6 +509,77 @@ class PatchNoteApp:
         self.vm_tree.insert('', tk.END, values=vm.to_row())
         self.clear_vm_inputs()
         self._auto_save_vm()  # 자동 저장
+    
+    def on_vm_select(self, event):
+        """테이블 선택 시 입력 필드에 데이터 로드"""
+        selected = self.vm_tree.selection()
+        if not selected:
+            return
+        
+        item = selected[0]
+        values = self.vm_tree.item(item, 'values')
+        
+        if len(values) >= 9:
+            self.entry_vm_date.delete(0, tk.END)
+            self.entry_vm_date.insert(0, values[0])
+            
+            self.entry_vm_operation.delete(0, tk.END)
+            self.entry_vm_operation.insert(0, values[1])
+            
+            self.entry_vm_development.delete(0, tk.END)
+            self.entry_vm_development.insert(0, values[2])
+            
+            self.entry_vm_fab.delete(0, tk.END)
+            self.entry_vm_fab.insert(0, values[3])
+            
+            self.entry_vm_model_name.delete(0, tk.END)
+            self.entry_vm_model_name.insert(0, values[4])
+            
+            self.entry_vm_version.delete(0, tk.END)
+            self.entry_vm_version.insert(0, values[5])
+            
+            self.entry_vm_total_predict.delete(0, tk.END)
+            self.entry_vm_total_predict.insert(0, values[6])
+            
+            self.entry_vm_early_detect.delete(0, tk.END)
+            self.entry_vm_early_detect.insert(0, values[7])
+            
+            self.entry_vm_model_desc.delete(0, tk.END)
+            self.entry_vm_model_desc.insert(0, values[8])
+    
+    def update_vm_row(self):
+        """선택된 항목 수정"""
+        selected = self.vm_tree.selection()
+        if not selected:
+            messagebox.showwarning("경고", "수정할 항목을 선택하세요.")
+            return
+        
+        item = selected[0]
+        idx = self.vm_tree.index(item)
+        
+        if idx >= len(self.vm_data):
+            return
+        
+        # 입력 필드에서 데이터 가져오기
+        vm = self.vm_data[idx]
+        vm.date = self.entry_vm_date.get().strip()
+        vm.operation = self.entry_vm_operation.get().strip()
+        vm.development = self.entry_vm_development.get().strip()
+        vm.fab = self.entry_vm_fab.get().strip()
+        vm.model_name = self.entry_vm_model_name.get().strip()
+        vm.version = self.entry_vm_version.get().strip()
+        vm.total_predict = self.entry_vm_total_predict.get().strip()
+        vm.early_detect = self.entry_vm_early_detect.get().strip()
+        vm.model_desc = self.entry_vm_model_desc.get().strip()
+        
+        if not vm.version:
+            messagebox.showwarning("경고", "버전은 필수 입력입니다.")
+            return
+        
+        # 테이블 업데이트
+        self.vm_tree.item(item, values=vm.to_row())
+        self._auto_save_vm()  # 자동 저장
+        messagebox.showinfo("수정 완료", "항목이 수정되었습니다.")
     
     def delete_vm_row(self):
         """선택된 항목 삭제"""
