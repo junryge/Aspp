@@ -26,7 +26,7 @@ class PatchNote:
         self.date = date or datetime.now().strftime("%Y-%m-%d")
         self.type = note_type
         self.new: List[str] = []
-        self.improved: List[str] = []
+        self.improved: List[Dict] = []  # [{"item": "", "before": "", "after": ""}, ...]
         self.fixed: List[str] = []
         self.breaking: List[str] = []
         self.metrics: List[str] = []
@@ -51,16 +51,36 @@ class PatchNote:
     def from_dict(cls, data: dict) -> 'PatchNote':
         note = cls(data["version"], data["date"], data.get("type", "Major"))
         note.new = data.get("new", [])
-        note.improved = data.get("improved", [])
         note.fixed = data.get("fixed", [])
         note.breaking = data.get("breaking", [])
         note.files = data.get("files", [])
         note.next = data.get("next", [])
         
+        # improved 호환성 처리 (문자열 리스트 → 딕셔너리 리스트 변환)
+        improved_data = data.get("improved", [])
+        if improved_data and isinstance(improved_data[0], str):
+            # 이전 형식 (문자열 리스트) → 딕셔너리 리스트로 변환
+            note.improved = []
+            for item in improved_data:
+                if "→" in item:
+                    parts = item.split("→")
+                    if ":" in parts[0]:
+                        name_before = parts[0].split(":")
+                        note.improved.append({
+                            "item": name_before[0].strip(),
+                            "before": name_before[1].strip() if len(name_before) > 1 else "",
+                            "after": parts[1].strip() if len(parts) > 1 else ""
+                        })
+                    else:
+                        note.improved.append({"item": parts[0].strip(), "before": "", "after": parts[1].strip() if len(parts) > 1 else ""})
+                else:
+                    note.improved.append({"item": item, "before": "", "after": ""})
+        else:
+            note.improved = improved_data
+        
         # metrics 호환성 처리 (딕셔너리 → 리스트 변환)
         metrics_data = data.get("metrics", [])
         if isinstance(metrics_data, dict):
-            # 이전 형식 (딕셔너리) → 리스트로 변환
             note.metrics = []
             for name, info in metrics_data.items():
                 if isinstance(info, dict):
@@ -68,7 +88,6 @@ class PatchNote:
                 else:
                     note.metrics.append(f"{name}: {info}")
         else:
-            # 새 형식 (리스트)
             note.metrics = metrics_data
         
         return note
@@ -235,21 +254,80 @@ class PatchNoteApp:
         
         # 신규 기능
         ttk.Label(frame, text="✨ 신규 기능 (줄바꿈으로 구분):", style='Header.TLabel').pack(anchor='w')
-        self.text_new = scrolledtext.ScrolledText(frame, height=6, font=('맑은 고딕', 10),
+        self.text_new = scrolledtext.ScrolledText(frame, height=5, font=('맑은 고딕', 10),
                                                    bg=self.colors['input'], fg=self.colors['fg'])
         self.text_new.pack(fill=tk.X, pady=(5, 15))
         
-        # 개선사항
-        ttk.Label(frame, text="⬆️ 개선사항 (줄바꿈으로 구분):", style='Header.TLabel').pack(anchor='w')
-        self.text_improved = scrolledtext.ScrolledText(frame, height=6, font=('맑은 고딕', 10),
-                                                        bg=self.colors['input'], fg=self.colors['fg'])
-        self.text_improved.pack(fill=tk.X, pady=(5, 15))
+        # 개선사항 (Before/After)
+        ttk.Label(frame, text="⬆️ 개선사항 (항목 | Before | After):", style='Header.TLabel').pack(anchor='w')
+        
+        improved_frame = ttk.Frame(frame)
+        improved_frame.pack(fill=tk.X, pady=(5, 5))
+        
+        # 헤더
+        header_frame = ttk.Frame(improved_frame)
+        header_frame.pack(fill=tk.X)
+        ttk.Label(header_frame, text="항목", width=20, anchor='w').pack(side=tk.LEFT, padx=2)
+        ttk.Label(header_frame, text="Before", width=20, anchor='w').pack(side=tk.LEFT, padx=2)
+        ttk.Label(header_frame, text="After", width=20, anchor='w').pack(side=tk.LEFT, padx=2)
+        
+        # 테이블 (Treeview)
+        self.tree_improved = ttk.Treeview(improved_frame, columns=('item', 'before', 'after'), 
+                                           show='headings', height=5)
+        self.tree_improved.heading('item', text='항목')
+        self.tree_improved.heading('before', text='Before')
+        self.tree_improved.heading('after', text='After')
+        self.tree_improved.column('item', width=150)
+        self.tree_improved.column('before', width=150)
+        self.tree_improved.column('after', width=150)
+        self.tree_improved.pack(fill=tk.X, pady=5)
+        
+        # 입력 필드
+        input_frame = ttk.Frame(improved_frame)
+        input_frame.pack(fill=tk.X, pady=5)
+        
+        self.entry_item = ttk.Entry(input_frame, width=22, font=('맑은 고딕', 10))
+        self.entry_item.pack(side=tk.LEFT, padx=2)
+        self.entry_item.insert(0, "항목명")
+        self.entry_item.bind('<FocusIn>', lambda e: self.entry_item.delete(0, tk.END) if self.entry_item.get() == "항목명" else None)
+        
+        self.entry_before = ttk.Entry(input_frame, width=22, font=('맑은 고딕', 10))
+        self.entry_before.pack(side=tk.LEFT, padx=2)
+        self.entry_before.insert(0, "이전")
+        self.entry_before.bind('<FocusIn>', lambda e: self.entry_before.delete(0, tk.END) if self.entry_before.get() == "이전" else None)
+        
+        self.entry_after = ttk.Entry(input_frame, width=22, font=('맑은 고딕', 10))
+        self.entry_after.pack(side=tk.LEFT, padx=2)
+        self.entry_after.insert(0, "이후")
+        self.entry_after.bind('<FocusIn>', lambda e: self.entry_after.delete(0, tk.END) if self.entry_after.get() == "이후" else None)
+        
+        ttk.Button(input_frame, text="➕ 추가", command=self.add_improved_item, width=8).pack(side=tk.LEFT, padx=5)
+        ttk.Button(input_frame, text="🗑️ 삭제", command=self.delete_improved_item, width=8).pack(side=tk.LEFT, padx=2)
         
         # 버그 수정
-        ttk.Label(frame, text="🔧 버그 수정 (줄바꿈으로 구분):", style='Header.TLabel').pack(anchor='w')
-        self.text_fixed = scrolledtext.ScrolledText(frame, height=6, font=('맑은 고딕', 10),
+        ttk.Label(frame, text="🔧 버그 수정 (줄바꿈으로 구분):", style='Header.TLabel').pack(anchor='w', pady=(10,0))
+        self.text_fixed = scrolledtext.ScrolledText(frame, height=4, font=('맑은 고딕', 10),
                                                      bg=self.colors['input'], fg=self.colors['fg'])
         self.text_fixed.pack(fill=tk.X, pady=(5, 15))
+    
+    def add_improved_item(self):
+        """개선사항 항목 추가"""
+        item = self.entry_item.get().strip()
+        before = self.entry_before.get().strip()
+        after = self.entry_after.get().strip()
+        
+        if item and item != "항목명" and before and before != "이전" and after and after != "이후":
+            self.tree_improved.insert('', tk.END, values=(item, before, after))
+            # 입력 필드 초기화
+            self.entry_item.delete(0, tk.END)
+            self.entry_before.delete(0, tk.END)
+            self.entry_after.delete(0, tk.END)
+    
+    def delete_improved_item(self):
+        """개선사항 항목 삭제"""
+        selected = self.tree_improved.selection()
+        if selected:
+            self.tree_improved.delete(selected)
     
     def create_metrics_tab(self):
         """성능/파일 탭"""
