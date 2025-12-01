@@ -129,7 +129,9 @@ class PatchNoteApp:
     def __init__(self, root):
         self.root = root
         self.root.title("AMHS 예측 모델 패치노트 관리")
-        self.root.geometry("900x700")
+        self.root.geometry("1100x750")
+        self.root.minsize(900, 600)
+        self.root.resizable(True, True)
         self.root.configure(bg="#2b2b2b")
         
         self.notes: Dict[str, PatchNote] = {}
@@ -189,18 +191,17 @@ class PatchNoteApp:
         ttk.Button(btn_frame, text="📄 MD 내보내기", command=self.export_md).pack(side=tk.LEFT, padx=2)
         ttk.Button(btn_frame, text="➕ 새 버전", command=self.new_version_dialog).pack(side=tk.LEFT, padx=2)
         
-        # ===== 메인 영역 =====
-        main_frame = ttk.Frame(self.root)
-        main_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=5)
+        # ===== 메인 영역 (PanedWindow로 좌우 크기 조절 가능) =====
+        main_paned = ttk.PanedWindow(self.root, orient=tk.HORIZONTAL)
+        main_paned.pack(fill=tk.BOTH, expand=True, padx=10, pady=5)
         
         # 좌측: 버전 관리 + 버전 목록
-        left_frame = ttk.Frame(main_frame, width=420)
-        left_frame.pack(side=tk.LEFT, fill=tk.Y, padx=(0, 10))
-        left_frame.pack_propagate(False)
+        left_frame = ttk.Frame(main_paned, width=450)
+        main_paned.add(left_frame, weight=1)
         
         # 버전 관리 탭 (M14 / Q,HUB)
         self.vm_notebook = ttk.Notebook(left_frame)
-        self.vm_notebook.pack(fill=tk.X, pady=(0, 10))
+        self.vm_notebook.pack(fill=tk.BOTH, expand=True, pady=(0, 10))
         
         self.tab_vm_m14 = ttk.Frame(self.vm_notebook)
         self.vm_notebook.add(self.tab_vm_m14, text="📋 M14")
@@ -231,8 +232,8 @@ class PatchNoteApp:
         ttk.Button(left_frame, text="🗑️ 삭제", command=self.delete_version).pack(fill=tk.X, pady=5)
         
         # 우측: 패치노트 상세
-        right_frame = ttk.Frame(main_frame)
-        right_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        right_frame = ttk.Frame(main_paned)
+        main_paned.add(right_frame, weight=2)
         
         # 탭 노트북
         self.notebook = ttk.Notebook(right_frame)
