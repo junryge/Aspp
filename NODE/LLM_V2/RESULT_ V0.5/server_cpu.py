@@ -337,37 +337,40 @@ async def ask(query: Query):
             return {"answer": data_text}
         
         elif query.mode == "general":
-            # 🗣️ 일반 대화 (전체 데이터 컨텍스트 포함)
+            # 🗣️ 일반 대화 (필요할 때만 컨텍스트 로드)
             if llm is None:
                 return {"answer": "❌ LLM 모델이 로드되지 않아 대화가 불가능합니다."}
             
-            # 1. 데이터 요약 수집
-            csv_cols = csv_searcher.get_columns()
-            csv_summary = f"CSV 데이터 컬럼 ({len(csv_cols)}개): {', '.join(csv_cols[:20])}..."
+            # 1. 질문 분석 → 필요한 컨텍스트만 로드
+            context_parts = []
             
-            # ⭐ 전체 데이터 컨텍스트 사용 (사용자 요청)
-            star_content = star_searcher.get_full_content()
-            mongo_content = mongo_searcher.get_full_content()
+            # STAR 관련 키워드 있으면 로드
+            if star_searcher.is_star_query(query.question):
+                star_content = star_searcher.get_full_content()
+                context_parts.append(f"[STAR DB 접속 정보]\n{star_content}")
+                logger.info("📄 STAR 컨텍스트 로드")
+            
+            # MongoDB/Logpresso 관련 키워드 있으면 로드
+            if mongo_searcher.is_mongo_query(query.question):
+                mongo_content = mongo_searcher.get_full_content()
+                context_parts.append(f"[MongoDB/Logpresso 접속 정보]\n{mongo_content}")
+                logger.info("📄 MongoDB 컨텍스트 로드")
             
             # 2. 프롬프트 구성
+            if context_parts:
+                data_context = "\n\n".join(context_parts)
+                system_prompt = f"""당신은 AMHS 물류 AI 어시스턴트입니다. 한국어로 답변하세요.
+아래 데이터를 참고하여 답변하세요.
+
+{data_context}"""
+                max_tok = 400
+            else:
+                # 일반 대화 (컨텍스트 없음 → 빠름)
+                system_prompt = "당신은 AMHS 물류 AI 어시스턴트입니다. 한국어로 짧게 답변하세요."
+                max_tok = 200
+            
             prompt = f"""<|im_start|>system
-당신은 반도체 제조 물류 시스템(AMHS)의 AI 어시스턴트입니다.
-사용자와 친구처럼 자연스럽게 대화하세요.
-아래 제공된 **전체 시스템 데이터**를 참고하여 시스템 관련 질문에 답변할 수 있습니다.
-데이터에 없는 일반적인 질문(인사, 날씨, 일반 상식 등)에도 자유롭게 답변하세요.
-반드시 한국어로 답변하세요.
-
-[보유 데이터 전체]
-1. CSV 시계열 데이터 (컬럼 목록):
-{csv_summary}
-
-2. STAR DB (Oracle) 접속 정보 (전체):
-{star_content}
-
-3. MongoDB / Logpresso 접속 정보 (전체):
-{mongo_content}
-
-현재 시간: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
+{system_prompt}
 <|im_end|>
 <|im_start|>user
 {query.question}
@@ -378,7 +381,7 @@ async def ask(query: Query):
             try:
                 response = llm(
                     prompt, 
-                    max_tokens=500, 
+                    max_tokens=max_tok,
                     temperature=0.7, 
                     stop=["<|im_end|>"]
                 )
