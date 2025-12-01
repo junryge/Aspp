@@ -193,11 +193,25 @@ class PatchNoteApp:
         main_frame = ttk.Frame(self.root)
         main_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=5)
         
-        # 좌측: 버전 목록
-        left_frame = ttk.Frame(main_frame, width=150)
+        # 좌측: 버전 관리 + 버전 목록
+        left_frame = ttk.Frame(main_frame, width=420)
         left_frame.pack(side=tk.LEFT, fill=tk.Y, padx=(0, 10))
         left_frame.pack_propagate(False)
         
+        # 버전 관리 탭 (M14 / Q,HUB)
+        self.vm_notebook = ttk.Notebook(left_frame)
+        self.vm_notebook.pack(fill=tk.X, pady=(0, 10))
+        
+        self.tab_vm_m14 = ttk.Frame(self.vm_notebook)
+        self.vm_notebook.add(self.tab_vm_m14, text="📋 M14")
+        
+        self.tab_vm_qhub = ttk.Frame(self.vm_notebook)
+        self.vm_notebook.add(self.tab_vm_qhub, text="📋 Q,HUB")
+        
+        # 버전 관리 탭 내용 생성
+        self.create_version_tabs()
+        
+        # 버전 목록
         ttk.Label(left_frame, text="📦 버전 목록", style='Header.TLabel').pack(pady=5)
         
         self.version_listbox = tk.Listbox(
@@ -239,12 +253,7 @@ class PatchNoteApp:
         self.notebook.add(self.tab_metrics, text="📊 성능/파일")
         self.create_metrics_tab()
         
-        # 탭 4: 버전 관리
-        self.tab_version = ttk.Frame(self.notebook)
-        self.notebook.add(self.tab_version, text="🔖 버전 관리")
-        self.create_version_tab()
-        
-        # 탭 5: 미리보기
+        # 탭 4: 미리보기
         self.tab_preview = ttk.Frame(self.notebook)
         self.notebook.add(self.tab_preview, text="👁️ 미리보기")
         self.create_preview_tab()
@@ -328,293 +337,345 @@ class PatchNoteApp:
                                                      bg=self.colors['input'], fg=self.colors['fg'])
         self.text_files.pack(fill=tk.X, pady=(5, 15))
     
-    def create_version_tab(self):
-        """버전 관리 탭 (CSV 저장용, 별도 관리)"""
-        frame = ttk.Frame(self.tab_version, padding=20)
+    def create_version_tabs(self):
+        """버전 관리 탭 생성 (M14 / Q,HUB)"""
+        # 데이터 저장소
+        self.vm_m14_data: List[VersionManagement] = []
+        self.vm_qhub_data: List[VersionManagement] = []
+        self.vm_m14_save_file = "version_management_m14.csv"
+        self.vm_qhub_save_file = "version_management_qhub.csv"
+        
+        # M14 탭 생성
+        self._create_vm_panel(self.tab_vm_m14, "m14")
+        
+        # Q,HUB 탭 생성
+        self._create_vm_panel(self.tab_vm_qhub, "qhub")
+        
+        # 데이터 로드
+        self._load_vm_data("m14")
+        self._load_vm_data("qhub")
+    
+    def _create_vm_panel(self, parent, tab_type):
+        """버전 관리 패널 생성"""
+        frame = ttk.Frame(parent, padding=5)
         frame.pack(fill=tk.BOTH, expand=True)
         
-        # 안내 문구
-        ttk.Label(frame, text="📋 버전 관리 (CSV로 별도 저장)", 
-                  font=('맑은 고딕', 12, 'bold')).pack(anchor='w', pady=(0, 10))
-        
         # 입력 영역
-        input_frame = ttk.LabelFrame(frame, text="새 항목 입력", padding=10)
-        input_frame.pack(fill=tk.X, pady=(0, 15))
+        input_frame = ttk.LabelFrame(frame, text="입력", padding=5)
+        input_frame.pack(fill=tk.X, pady=(0, 5))
         
-        # 상단 그리드 (날짜, 운영, 개발, FAB)
+        # Row 1: 날짜, 운영, 개발
         row1 = ttk.Frame(input_frame)
-        row1.pack(fill=tk.X, pady=5)
+        row1.pack(fill=tk.X, pady=2)
         
-        ttk.Label(row1, text="📅 날짜:").pack(side=tk.LEFT)
-        self.entry_vm_date = ttk.Entry(row1, font=('맑은 고딕', 10), width=12)
-        self.entry_vm_date.pack(side=tk.LEFT, padx=(5, 15))
-        self.entry_vm_date.insert(0, datetime.now().strftime("%Y-%m-%d"))
+        ttk.Label(row1, text="날짜:", font=('맑은 고딕', 9)).pack(side=tk.LEFT)
+        entry_date = ttk.Entry(row1, font=('맑은 고딕', 9), width=10)
+        entry_date.pack(side=tk.LEFT, padx=(2, 8))
+        entry_date.insert(0, datetime.now().strftime("%Y-%m-%d"))
         
-        ttk.Label(row1, text="🏭 운영:").pack(side=tk.LEFT)
-        self.entry_vm_operation = ttk.Entry(row1, font=('맑은 고딕', 10), width=10)
-        self.entry_vm_operation.pack(side=tk.LEFT, padx=(5, 15))
+        ttk.Label(row1, text="운영:", font=('맑은 고딕', 9)).pack(side=tk.LEFT)
+        entry_operation = ttk.Entry(row1, font=('맑은 고딕', 9), width=8)
+        entry_operation.pack(side=tk.LEFT, padx=(2, 8))
         
-        ttk.Label(row1, text="💻 개발:").pack(side=tk.LEFT)
-        self.entry_vm_development = ttk.Entry(row1, font=('맑은 고딕', 10), width=10)
-        self.entry_vm_development.pack(side=tk.LEFT, padx=(5, 15))
+        ttk.Label(row1, text="개발:", font=('맑은 고딕', 9)).pack(side=tk.LEFT)
+        entry_development = ttk.Entry(row1, font=('맑은 고딕', 9), width=8)
+        entry_development.pack(side=tk.LEFT, padx=(2, 0))
         
-        ttk.Label(row1, text="🏢 FAB:").pack(side=tk.LEFT)
-        self.entry_vm_fab = ttk.Entry(row1, font=('맑은 고딕', 10), width=10)
-        self.entry_vm_fab.pack(side=tk.LEFT, padx=(5, 0))
-        
-        # 중간 그리드 (예측모델_NAME, 버전)
+        # Row 2: FAB, 모델명, 버전
         row2 = ttk.Frame(input_frame)
-        row2.pack(fill=tk.X, pady=5)
+        row2.pack(fill=tk.X, pady=2)
         
-        ttk.Label(row2, text="🤖 예측모델_NAME:").pack(side=tk.LEFT)
-        self.entry_vm_model_name = ttk.Entry(row2, font=('맑은 고딕', 10), width=25)
-        self.entry_vm_model_name.pack(side=tk.LEFT, padx=(5, 15))
+        ttk.Label(row2, text="FAB:", font=('맑은 고딕', 9)).pack(side=tk.LEFT)
+        entry_fab = ttk.Entry(row2, font=('맑은 고딕', 9), width=6)
+        entry_fab.pack(side=tk.LEFT, padx=(2, 8))
         
-        ttk.Label(row2, text="🔖 버전:").pack(side=tk.LEFT)
-        self.entry_vm_version = ttk.Entry(row2, font=('맑은 고딕', 10), width=12)
-        self.entry_vm_version.pack(side=tk.LEFT, padx=(5, 0))
+        ttk.Label(row2, text="모델:", font=('맑은 고딕', 9)).pack(side=tk.LEFT)
+        entry_model_name = ttk.Entry(row2, font=('맑은 고딕', 9), width=15)
+        entry_model_name.pack(side=tk.LEFT, padx=(2, 8))
         
-        # 하단 그리드 (전체예측, 사전감지예측)
+        ttk.Label(row2, text="버전:", font=('맑은 고딕', 9)).pack(side=tk.LEFT)
+        entry_version = ttk.Entry(row2, font=('맑은 고딕', 9), width=8)
+        entry_version.pack(side=tk.LEFT, padx=(2, 0))
+        
+        # Row 3: 전체예측, 사전감지
         row3 = ttk.Frame(input_frame)
-        row3.pack(fill=tk.X, pady=5)
+        row3.pack(fill=tk.X, pady=2)
         
-        ttk.Label(row3, text="📊 전체예측:").pack(side=tk.LEFT)
-        self.entry_vm_total_predict = ttk.Entry(row3, font=('맑은 고딕', 10), width=20)
-        self.entry_vm_total_predict.pack(side=tk.LEFT, padx=(5, 15))
+        ttk.Label(row3, text="전체예측:", font=('맑은 고딕', 9)).pack(side=tk.LEFT)
+        entry_total_predict = ttk.Entry(row3, font=('맑은 고딕', 9), width=15)
+        entry_total_predict.pack(side=tk.LEFT, padx=(2, 8))
         
-        ttk.Label(row3, text="🔍 사전감지예측:").pack(side=tk.LEFT)
-        self.entry_vm_early_detect = ttk.Entry(row3, font=('맑은 고딕', 10), width=20)
-        self.entry_vm_early_detect.pack(side=tk.LEFT, padx=(5, 0))
+        ttk.Label(row3, text="사전감지:", font=('맑은 고딕', 9)).pack(side=tk.LEFT)
+        entry_early_detect = ttk.Entry(row3, font=('맑은 고딕', 9), width=15)
+        entry_early_detect.pack(side=tk.LEFT, padx=(2, 0))
         
-        # 모델 내용
+        # Row 4: 모델내용
         row4 = ttk.Frame(input_frame)
-        row4.pack(fill=tk.X, pady=5)
+        row4.pack(fill=tk.X, pady=2)
         
-        ttk.Label(row4, text="📝 모델내용:").pack(side=tk.LEFT)
-        self.entry_vm_model_desc = ttk.Entry(row4, font=('맑은 고딕', 10), width=60)
-        self.entry_vm_model_desc.pack(side=tk.LEFT, padx=(5, 0), fill=tk.X, expand=True)
+        ttk.Label(row4, text="내용:", font=('맑은 고딕', 9)).pack(side=tk.LEFT)
+        entry_model_desc = ttk.Entry(row4, font=('맑은 고딕', 9), width=45)
+        entry_model_desc.pack(side=tk.LEFT, padx=(2, 0), fill=tk.X, expand=True)
         
-        # 버튼 영역 (항목 추가/수정/삭제)
+        # 입력 필드 저장
+        entries = {
+            'date': entry_date,
+            'operation': entry_operation,
+            'development': entry_development,
+            'fab': entry_fab,
+            'model_name': entry_model_name,
+            'version': entry_version,
+            'total_predict': entry_total_predict,
+            'early_detect': entry_early_detect,
+            'model_desc': entry_model_desc
+        }
+        
+        if tab_type == "m14":
+            self.vm_m14_entries = entries
+        else:
+            self.vm_qhub_entries = entries
+        
+        # 버튼 영역
         btn_frame = ttk.Frame(input_frame)
-        btn_frame.pack(fill=tk.X, pady=(10, 0))
+        btn_frame.pack(fill=tk.X, pady=(5, 0))
         
-        ttk.Button(btn_frame, text="➕ 항목 추가", command=self.add_vm_row).pack(side=tk.LEFT, padx=5)
-        ttk.Button(btn_frame, text="✏️ 선택 수정", command=self.update_vm_row).pack(side=tk.LEFT, padx=5)
-        ttk.Button(btn_frame, text="🗑️ 선택 삭제", command=self.delete_vm_row).pack(side=tk.LEFT, padx=5)
-        ttk.Button(btn_frame, text="🧹 입력 초기화", command=self.clear_vm_inputs).pack(side=tk.LEFT, padx=5)
+        ttk.Button(btn_frame, text="➕추가", width=6,
+                   command=lambda: self.add_vm_row(tab_type)).pack(side=tk.LEFT, padx=2)
+        ttk.Button(btn_frame, text="✏️수정", width=6,
+                   command=lambda: self.update_vm_row(tab_type)).pack(side=tk.LEFT, padx=2)
+        ttk.Button(btn_frame, text="🗑️삭제", width=6,
+                   command=lambda: self.delete_vm_row(tab_type)).pack(side=tk.LEFT, padx=2)
+        ttk.Button(btn_frame, text="🧹초기화", width=6,
+                   command=lambda: self.clear_vm_inputs(tab_type)).pack(side=tk.LEFT, padx=2)
         
         # 테이블 (Treeview)
         table_frame = ttk.Frame(frame)
-        table_frame.pack(fill=tk.BOTH, expand=True, pady=(0, 15))
+        table_frame.pack(fill=tk.BOTH, expand=True, pady=5)
         
-        columns = ("날짜", "운영", "개발", "FAB", "예측모델_NAME", "버전", "전체예측", "사전감지예측", "모델내용")
-        self.vm_tree = ttk.Treeview(table_frame, columns=columns, show='headings', height=8)
+        columns = ("날짜", "운영", "개발", "FAB", "모델", "버전", "전체예측", "사전감지", "내용")
+        tree = ttk.Treeview(table_frame, columns=columns, show='headings', height=6)
         
-        # 컬럼 설정
-        col_widths = [90, 60, 60, 50, 150, 80, 120, 120, 200]
+        col_widths = [75, 45, 45, 35, 80, 55, 70, 70, 100]
         for col, width in zip(columns, col_widths):
-            self.vm_tree.heading(col, text=col)
-            self.vm_tree.column(col, width=width, minwidth=50)
+            tree.heading(col, text=col)
+            tree.column(col, width=width, minwidth=30)
         
-        # 스크롤바
-        scrollbar_y = ttk.Scrollbar(table_frame, orient=tk.VERTICAL, command=self.vm_tree.yview)
-        scrollbar_x = ttk.Scrollbar(table_frame, orient=tk.HORIZONTAL, command=self.vm_tree.xview)
-        self.vm_tree.configure(yscrollcommand=scrollbar_y.set, xscrollcommand=scrollbar_x.set)
+        scrollbar_y = ttk.Scrollbar(table_frame, orient=tk.VERTICAL, command=tree.yview)
+        tree.configure(yscrollcommand=scrollbar_y.set)
         
-        self.vm_tree.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        tree.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         scrollbar_y.pack(side=tk.RIGHT, fill=tk.Y)
-        scrollbar_x.pack(side=tk.BOTTOM, fill=tk.X)
         
-        # 테이블 선택 이벤트
-        self.vm_tree.bind('<<TreeviewSelect>>', self.on_vm_select)
+        # 선택 이벤트
+        tree.bind('<<TreeviewSelect>>', lambda e: self.on_vm_select(tab_type))
         
-        # CSV 저장/불러오기 버튼
+        if tab_type == "m14":
+            self.vm_m14_tree = tree
+        else:
+            self.vm_qhub_tree = tree
+        
+        # CSV 버튼
         csv_frame = ttk.Frame(frame)
         csv_frame.pack(fill=tk.X)
         
-        ttk.Button(csv_frame, text="💾 CSV 저장", command=self.save_vm_csv).pack(side=tk.LEFT, padx=5)
-        ttk.Button(csv_frame, text="📂 CSV 불러오기", command=self.load_vm_csv).pack(side=tk.LEFT, padx=5)
-        
-        # 버전 관리 데이터 리스트
-        self.vm_data: List[VersionManagement] = []
-        self.vm_save_file = "version_management.csv"
-        
-        # 기존 데이터 로드 또는 샘플 추가
-        self._load_vm_data()
+        ttk.Button(csv_frame, text="💾 CSV저장", width=10,
+                   command=lambda: self.save_vm_csv(tab_type)).pack(side=tk.LEFT, padx=2)
+        ttk.Button(csv_frame, text="📂 CSV불러오기", width=12,
+                   command=lambda: self.load_vm_csv(tab_type)).pack(side=tk.LEFT, padx=2)
     
-    def _load_vm_data(self):
+    def _get_vm_data(self, tab_type):
+        """탭 타입에 맞는 데이터 반환"""
+        if tab_type == "m14":
+            return self.vm_m14_data, self.vm_m14_tree, self.vm_m14_entries, self.vm_m14_save_file
+        else:
+            return self.vm_qhub_data, self.vm_qhub_tree, self.vm_qhub_entries, self.vm_qhub_save_file
+    
+    def _load_vm_data(self, tab_type):
         """버전 관리 데이터 로드"""
-        if os.path.exists(self.vm_save_file):
+        data, tree, entries, save_file = self._get_vm_data(tab_type)
+        
+        if os.path.exists(save_file):
             try:
-                with open(self.vm_save_file, 'r', encoding='utf-8-sig') as f:
+                with open(save_file, 'r', encoding='utf-8-sig') as f:
                     reader = csv.reader(f)
-                    next(reader)  # 헤더 스킵
+                    next(reader)
                     for row in reader:
                         vm = VersionManagement.from_row(row)
-                        self.vm_data.append(vm)
-                        self.vm_tree.insert('', tk.END, values=vm.to_row())
+                        data.append(vm)
+                        tree.insert('', tk.END, values=vm.to_row())
             except Exception as e:
-                print(f"버전 관리 로드 실패: {e}")
-                self._add_sample_vm_data()
+                print(f"버전 관리 로드 실패 ({tab_type}): {e}")
+                self._add_sample_vm_data(tab_type)
         else:
-            # 파일 없으면 샘플 데이터
-            self._add_sample_vm_data()
-            self._auto_save_vm()
+            self._add_sample_vm_data(tab_type)
+            self._auto_save_vm(tab_type)
     
-    def _auto_save_vm(self):
+    def _auto_save_vm(self, tab_type):
         """버전 관리 자동 저장"""
+        data, tree, entries, save_file = self._get_vm_data(tab_type)
         try:
-            with open(self.vm_save_file, 'w', newline='', encoding='utf-8-sig') as f:
+            with open(save_file, 'w', newline='', encoding='utf-8-sig') as f:
                 writer = csv.writer(f)
                 writer.writerow(VersionManagement.csv_header())
-                for vm in self.vm_data:
+                for vm in data:
                     writer.writerow(vm.to_row())
         except Exception as e:
-            print(f"버전 관리 저장 실패: {e}")
+            print(f"버전 관리 저장 실패 ({tab_type}): {e}")
     
-    def _add_sample_vm_data(self):
+    def _add_sample_vm_data(self, tab_type):
         """샘플 버전 관리 데이터"""
+        data, tree, entries, save_file = self._get_vm_data(tab_type)
+        
         sample = VersionManagement()
         sample.date = "2025-12-01"
-        sample.operation = "M16A"
-        sample.development = "AI팀"
-        sample.fab = "M16"
-        sample.model_name = "AMHS_JOB2_예측모델"
-        sample.version = "V8.0.0"
-        sample.total_predict = "MAE 9.8, R² 0.68"
-        sample.early_detect = "범주형 정확도 72%"
-        sample.model_desc = "수치형+범주형 앙상블, 32컬럼→222Feature"
         
-        self.vm_data.append(sample)
-        self.vm_tree.insert('', tk.END, values=sample.to_row())
+        if tab_type == "m14":
+            sample.operation = "M14A"
+            sample.fab = "M14"
+            sample.model_name = "M14_예측모델"
+        else:
+            sample.operation = "Q,HUB"
+            sample.fab = "M16"
+            sample.model_name = "HUB_예측모델"
+        
+        sample.development = "AI팀"
+        sample.version = "V8.0.0"
+        sample.total_predict = "MAE 9.8"
+        sample.early_detect = "정확도 72%"
+        sample.model_desc = "샘플 데이터"
+        
+        data.append(sample)
+        tree.insert('', tk.END, values=sample.to_row())
     
-    def add_vm_row(self):
+    def add_vm_row(self, tab_type):
         """버전 관리 항목 추가"""
+        data, tree, entries, save_file = self._get_vm_data(tab_type)
+        
         vm = VersionManagement()
-        vm.date = self.entry_vm_date.get().strip()
-        vm.operation = self.entry_vm_operation.get().strip()
-        vm.development = self.entry_vm_development.get().strip()
-        vm.fab = self.entry_vm_fab.get().strip()
-        vm.model_name = self.entry_vm_model_name.get().strip()
-        vm.version = self.entry_vm_version.get().strip()
-        vm.total_predict = self.entry_vm_total_predict.get().strip()
-        vm.early_detect = self.entry_vm_early_detect.get().strip()
-        vm.model_desc = self.entry_vm_model_desc.get().strip()
+        vm.date = entries['date'].get().strip()
+        vm.operation = entries['operation'].get().strip()
+        vm.development = entries['development'].get().strip()
+        vm.fab = entries['fab'].get().strip()
+        vm.model_name = entries['model_name'].get().strip()
+        vm.version = entries['version'].get().strip()
+        vm.total_predict = entries['total_predict'].get().strip()
+        vm.early_detect = entries['early_detect'].get().strip()
+        vm.model_desc = entries['model_desc'].get().strip()
         
         if not vm.version:
             messagebox.showwarning("경고", "버전은 필수 입력입니다.")
             return
         
-        self.vm_data.append(vm)
-        self.vm_tree.insert('', tk.END, values=vm.to_row())
-        self.clear_vm_inputs()
-        self._auto_save_vm()  # 자동 저장
+        data.append(vm)
+        tree.insert('', tk.END, values=vm.to_row())
+        self.clear_vm_inputs(tab_type)
+        self._auto_save_vm(tab_type)
     
-    def on_vm_select(self, event):
+    def on_vm_select(self, tab_type):
         """테이블 선택 시 입력 필드에 데이터 로드"""
-        selected = self.vm_tree.selection()
+        data, tree, entries, save_file = self._get_vm_data(tab_type)
+        
+        selected = tree.selection()
         if not selected:
             return
         
         item = selected[0]
-        values = self.vm_tree.item(item, 'values')
+        values = tree.item(item, 'values')
         
         if len(values) >= 9:
-            self.entry_vm_date.delete(0, tk.END)
-            self.entry_vm_date.insert(0, values[0])
-            
-            self.entry_vm_operation.delete(0, tk.END)
-            self.entry_vm_operation.insert(0, values[1])
-            
-            self.entry_vm_development.delete(0, tk.END)
-            self.entry_vm_development.insert(0, values[2])
-            
-            self.entry_vm_fab.delete(0, tk.END)
-            self.entry_vm_fab.insert(0, values[3])
-            
-            self.entry_vm_model_name.delete(0, tk.END)
-            self.entry_vm_model_name.insert(0, values[4])
-            
-            self.entry_vm_version.delete(0, tk.END)
-            self.entry_vm_version.insert(0, values[5])
-            
-            self.entry_vm_total_predict.delete(0, tk.END)
-            self.entry_vm_total_predict.insert(0, values[6])
-            
-            self.entry_vm_early_detect.delete(0, tk.END)
-            self.entry_vm_early_detect.insert(0, values[7])
-            
-            self.entry_vm_model_desc.delete(0, tk.END)
-            self.entry_vm_model_desc.insert(0, values[8])
+            entries['date'].delete(0, tk.END)
+            entries['date'].insert(0, values[0])
+            entries['operation'].delete(0, tk.END)
+            entries['operation'].insert(0, values[1])
+            entries['development'].delete(0, tk.END)
+            entries['development'].insert(0, values[2])
+            entries['fab'].delete(0, tk.END)
+            entries['fab'].insert(0, values[3])
+            entries['model_name'].delete(0, tk.END)
+            entries['model_name'].insert(0, values[4])
+            entries['version'].delete(0, tk.END)
+            entries['version'].insert(0, values[5])
+            entries['total_predict'].delete(0, tk.END)
+            entries['total_predict'].insert(0, values[6])
+            entries['early_detect'].delete(0, tk.END)
+            entries['early_detect'].insert(0, values[7])
+            entries['model_desc'].delete(0, tk.END)
+            entries['model_desc'].insert(0, values[8])
     
-    def update_vm_row(self):
+    def update_vm_row(self, tab_type):
         """선택된 항목 수정"""
-        selected = self.vm_tree.selection()
+        data, tree, entries, save_file = self._get_vm_data(tab_type)
+        
+        selected = tree.selection()
         if not selected:
             messagebox.showwarning("경고", "수정할 항목을 선택하세요.")
             return
         
         item = selected[0]
-        idx = self.vm_tree.index(item)
+        idx = tree.index(item)
         
-        if idx >= len(self.vm_data):
+        if idx >= len(data):
             return
         
-        # 입력 필드에서 데이터 가져오기
-        vm = self.vm_data[idx]
-        vm.date = self.entry_vm_date.get().strip()
-        vm.operation = self.entry_vm_operation.get().strip()
-        vm.development = self.entry_vm_development.get().strip()
-        vm.fab = self.entry_vm_fab.get().strip()
-        vm.model_name = self.entry_vm_model_name.get().strip()
-        vm.version = self.entry_vm_version.get().strip()
-        vm.total_predict = self.entry_vm_total_predict.get().strip()
-        vm.early_detect = self.entry_vm_early_detect.get().strip()
-        vm.model_desc = self.entry_vm_model_desc.get().strip()
+        vm = data[idx]
+        vm.date = entries['date'].get().strip()
+        vm.operation = entries['operation'].get().strip()
+        vm.development = entries['development'].get().strip()
+        vm.fab = entries['fab'].get().strip()
+        vm.model_name = entries['model_name'].get().strip()
+        vm.version = entries['version'].get().strip()
+        vm.total_predict = entries['total_predict'].get().strip()
+        vm.early_detect = entries['early_detect'].get().strip()
+        vm.model_desc = entries['model_desc'].get().strip()
         
         if not vm.version:
             messagebox.showwarning("경고", "버전은 필수 입력입니다.")
             return
         
-        # 테이블 업데이트
-        self.vm_tree.item(item, values=vm.to_row())
-        self._auto_save_vm()  # 자동 저장
-        messagebox.showinfo("수정 완료", "항목이 수정되었습니다.")
+        tree.item(item, values=vm.to_row())
+        self._auto_save_vm(tab_type)
     
-    def delete_vm_row(self):
+    def delete_vm_row(self, tab_type):
         """선택된 항목 삭제"""
-        selected = self.vm_tree.selection()
+        data, tree, entries, save_file = self._get_vm_data(tab_type)
+        
+        selected = tree.selection()
         if not selected:
             messagebox.showwarning("경고", "삭제할 항목을 선택하세요.")
             return
         
         for item in selected:
-            idx = self.vm_tree.index(item)
-            self.vm_tree.delete(item)
-            if idx < len(self.vm_data):
-                del self.vm_data[idx]
+            idx = tree.index(item)
+            tree.delete(item)
+            if idx < len(data):
+                del data[idx]
         
-        self._auto_save_vm()  # 자동 저장
+        self._auto_save_vm(tab_type)
     
-    def clear_vm_inputs(self):
+    def clear_vm_inputs(self, tab_type):
         """입력 필드 초기화"""
-        self.entry_vm_date.delete(0, tk.END)
-        self.entry_vm_date.insert(0, datetime.now().strftime("%Y-%m-%d"))
-        self.entry_vm_operation.delete(0, tk.END)
-        self.entry_vm_development.delete(0, tk.END)
-        self.entry_vm_fab.delete(0, tk.END)
-        self.entry_vm_model_name.delete(0, tk.END)
-        self.entry_vm_version.delete(0, tk.END)
-        self.entry_vm_total_predict.delete(0, tk.END)
-        self.entry_vm_early_detect.delete(0, tk.END)
-        self.entry_vm_model_desc.delete(0, tk.END)
+        data, tree, entries, save_file = self._get_vm_data(tab_type)
+        
+        entries['date'].delete(0, tk.END)
+        entries['date'].insert(0, datetime.now().strftime("%Y-%m-%d"))
+        entries['operation'].delete(0, tk.END)
+        entries['development'].delete(0, tk.END)
+        entries['fab'].delete(0, tk.END)
+        entries['model_name'].delete(0, tk.END)
+        entries['version'].delete(0, tk.END)
+        entries['total_predict'].delete(0, tk.END)
+        entries['early_detect'].delete(0, tk.END)
+        entries['model_desc'].delete(0, tk.END)
     
-    def save_vm_csv(self):
+    def save_vm_csv(self, tab_type):
         """버전 관리 CSV 저장"""
+        data, tree, entries, save_file = self._get_vm_data(tab_type)
+        
+        default_name = f"version_management_{tab_type}.csv"
         filename = filedialog.asksaveasfilename(
             defaultextension=".csv",
             filetypes=[("CSV files", "*.csv"), ("All files", "*.*")],
-            initialfile="version_management.csv"
+            initialfile=default_name
         )
         if not filename:
             return
@@ -622,13 +683,15 @@ class PatchNoteApp:
         with open(filename, 'w', newline='', encoding='utf-8-sig') as f:
             writer = csv.writer(f)
             writer.writerow(VersionManagement.csv_header())
-            for vm in self.vm_data:
+            for vm in data:
                 writer.writerow(vm.to_row())
         
         messagebox.showinfo("저장 완료", f"CSV 저장: {filename}")
     
-    def load_vm_csv(self):
+    def load_vm_csv(self, tab_type):
         """버전 관리 CSV 불러오기"""
+        data, tree, entries, save_file = self._get_vm_data(tab_type)
+        
         filename = filedialog.askopenfilename(
             filetypes=[("CSV files", "*.csv"), ("All files", "*.*")]
         )
@@ -638,20 +701,18 @@ class PatchNoteApp:
         try:
             with open(filename, 'r', encoding='utf-8-sig') as f:
                 reader = csv.reader(f)
-                header = next(reader)  # 헤더 스킵
+                next(reader)
                 
-                # 기존 데이터 클리어
-                self.vm_data.clear()
-                for item in self.vm_tree.get_children():
-                    self.vm_tree.delete(item)
+                data.clear()
+                for item in tree.get_children():
+                    tree.delete(item)
                 
-                # 새 데이터 로드
                 for row in reader:
                     vm = VersionManagement.from_row(row)
-                    self.vm_data.append(vm)
-                    self.vm_tree.insert('', tk.END, values=vm.to_row())
+                    data.append(vm)
+                    tree.insert('', tk.END, values=vm.to_row())
             
-            self._auto_save_vm()  # 자동 저장
+            self._auto_save_vm(tab_type)
             messagebox.showinfo("로드 완료", f"CSV 로드: {filename}")
         except Exception as e:
             messagebox.showerror("오류", f"CSV 로드 실패: {e}")
