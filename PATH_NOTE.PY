@@ -1,15 +1,17 @@
 """
 ================================================================================
-AMHS 예측 모델 패치노트 관리 프로그램
+AMHS 예측 모델 패치노트 관리 프로그램 (GUI)
 ================================================================================
 기능:
-  - 패치노트 작성
+  - 패치노트 작성/수정/삭제
   - JSON 파일로 저장/로드
   - 탭으로 버전별 분리
-  - 콘솔/파일 출력
+  - MD 내보내기
 ================================================================================
 """
 
+import tkinter as tk
+from tkinter import ttk, messagebox, filedialog, scrolledtext
 import json
 import os
 from datetime import datetime
@@ -30,10 +32,8 @@ class PatchNote:
         self.metrics: Dict[str, Dict] = {}
         self.files: List[str] = []
         self.next: List[str] = []
-        self.notes: List[str] = []
     
     def to_dict(self) -> dict:
-        """딕셔너리로 변환"""
         return {
             "version": self.version,
             "date": self.date,
@@ -45,12 +45,10 @@ class PatchNote:
             "metrics": self.metrics,
             "files": self.files,
             "next": self.next,
-            "notes": self.notes,
         }
     
     @classmethod
     def from_dict(cls, data: dict) -> 'PatchNote':
-        """딕셔너리에서 생성"""
         note = cls(data["version"], data["date"], data.get("type", "Major"))
         note.new = data.get("new", [])
         note.improved = data.get("improved", [])
@@ -59,217 +57,500 @@ class PatchNote:
         note.metrics = data.get("metrics", {})
         note.files = data.get("files", [])
         note.next = data.get("next", [])
-        note.notes = data.get("notes", [])
         return note
 
 
-class PatchNoteManager:
-    """패치노트 관리자"""
+class PatchNoteApp:
+    """패치노트 GUI 애플리케이션"""
     
-    def __init__(self, project_name: str = "AMHS 예측 모델"):
-        self.project_name = project_name
-        self.notes: Dict[str, PatchNote] = {}  # version -> PatchNote
+    def __init__(self, root):
+        self.root = root
+        self.root.title("AMHS 예측 모델 패치노트 관리")
+        self.root.geometry("900x700")
+        self.root.configure(bg="#2b2b2b")
+        
+        self.notes: Dict[str, PatchNote] = {}
+        self.current_version: Optional[str] = None
         self.save_file = "patch_notes.json"
+        
+        # 스타일 설정
+        self.setup_styles()
+        
+        # UI 구성
+        self.create_widgets()
+        
+        # 샘플 데이터 로드
+        self.load_or_create_sample()
     
-    # ========== 추가/삭제 ==========
-    
-    def add(self, note: PatchNote):
-        """패치노트 추가"""
-        self.notes[note.version] = note
-        print(f"✅ {note.version} 추가됨")
-        return self
-    
-    def remove(self, version: str):
-        """패치노트 삭제"""
-        if version in self.notes:
-            del self.notes[version]
-            print(f"🗑️ {version} 삭제됨")
-        else:
-            print(f"❌ {version} 없음")
-        return self
-    
-    def get(self, version: str) -> Optional[PatchNote]:
-        """버전으로 조회"""
-        return self.notes.get(version)
-    
-    def list_versions(self) -> List[str]:
-        """모든 버전 목록"""
-        return sorted(self.notes.keys(), reverse=True)
-    
-    # ========== 저장/로드 ==========
-    
-    def save(self, filename: str = None):
-        """JSON 파일로 저장"""
-        filename = filename or self.save_file
-        data = {
-            "project": self.project_name,
-            "updated": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-            "notes": {v: n.to_dict() for v, n in self.notes.items()}
+    def setup_styles(self):
+        """스타일 설정"""
+        style = ttk.Style()
+        style.theme_use('clam')
+        
+        # 다크 테마 색상
+        self.colors = {
+            'bg': '#2b2b2b',
+            'fg': '#ffffff',
+            'accent': '#4a9eff',
+            'accent2': '#ff6b6b',
+            'card': '#3c3c3c',
+            'input': '#404040',
+            'border': '#555555',
         }
-        with open(filename, 'w', encoding='utf-8') as f:
-            json.dump(data, f, ensure_ascii=False, indent=2)
-        print(f"💾 저장됨: {filename}")
-        return self
-    
-    def load(self, filename: str = None):
-        """JSON 파일에서 로드"""
-        filename = filename or self.save_file
-        if not os.path.exists(filename):
-            print(f"❌ 파일 없음: {filename}")
-            return self
         
-        with open(filename, 'r', encoding='utf-8') as f:
-            data = json.load(f)
-        
-        self.project_name = data.get("project", self.project_name)
-        self.notes = {}
-        for version, note_data in data.get("notes", {}).items():
-            self.notes[version] = PatchNote.from_dict(note_data)
-        
-        print(f"📂 로드됨: {filename} ({len(self.notes)}개 버전)")
-        return self
+        style.configure('TFrame', background=self.colors['bg'])
+        style.configure('Card.TFrame', background=self.colors['card'])
+        style.configure('TLabel', background=self.colors['bg'], foreground=self.colors['fg'], font=('맑은 고딕', 10))
+        style.configure('Title.TLabel', font=('맑은 고딕', 14, 'bold'))
+        style.configure('Header.TLabel', font=('맑은 고딕', 12, 'bold'))
+        style.configure('TButton', font=('맑은 고딕', 10))
+        style.configure('Accent.TButton', font=('맑은 고딕', 10, 'bold'))
+        style.configure('TNotebook', background=self.colors['bg'])
+        style.configure('TNotebook.Tab', font=('맑은 고딕', 10), padding=[10, 5])
     
-    # ========== 출력 ==========
+    def create_widgets(self):
+        """위젯 생성"""
+        
+        # ===== 상단 헤더 =====
+        header_frame = ttk.Frame(self.root)
+        header_frame.pack(fill=tk.X, padx=10, pady=10)
+        
+        ttk.Label(header_frame, text="📋 AMHS 예측 모델 패치노트", style='Title.TLabel').pack(side=tk.LEFT)
+        
+        # 버튼들
+        btn_frame = ttk.Frame(header_frame)
+        btn_frame.pack(side=tk.RIGHT)
+        
+        ttk.Button(btn_frame, text="💾 저장", command=self.save_notes).pack(side=tk.LEFT, padx=2)
+        ttk.Button(btn_frame, text="📂 로드", command=self.load_notes).pack(side=tk.LEFT, padx=2)
+        ttk.Button(btn_frame, text="📄 MD 내보내기", command=self.export_md).pack(side=tk.LEFT, padx=2)
+        ttk.Button(btn_frame, text="➕ 새 버전", command=self.new_version_dialog).pack(side=tk.LEFT, padx=2)
+        
+        # ===== 메인 영역 =====
+        main_frame = ttk.Frame(self.root)
+        main_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=5)
+        
+        # 좌측: 버전 목록
+        left_frame = ttk.Frame(main_frame, width=150)
+        left_frame.pack(side=tk.LEFT, fill=tk.Y, padx=(0, 10))
+        left_frame.pack_propagate(False)
+        
+        ttk.Label(left_frame, text="📦 버전 목록", style='Header.TLabel').pack(pady=5)
+        
+        self.version_listbox = tk.Listbox(
+            left_frame, 
+            font=('맑은 고딕', 11),
+            bg=self.colors['card'],
+            fg=self.colors['fg'],
+            selectbackground=self.colors['accent'],
+            selectforeground='white',
+            borderwidth=0,
+            highlightthickness=1,
+            highlightcolor=self.colors['border']
+        )
+        self.version_listbox.pack(fill=tk.BOTH, expand=True, pady=5)
+        self.version_listbox.bind('<<ListboxSelect>>', self.on_version_select)
+        
+        ttk.Button(left_frame, text="🗑️ 삭제", command=self.delete_version).pack(fill=tk.X, pady=5)
+        
+        # 우측: 패치노트 상세
+        right_frame = ttk.Frame(main_frame)
+        right_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        
+        # 탭 노트북
+        self.notebook = ttk.Notebook(right_frame)
+        self.notebook.pack(fill=tk.BOTH, expand=True)
+        
+        # 탭 1: 기본 정보
+        self.tab_info = ttk.Frame(self.notebook)
+        self.notebook.add(self.tab_info, text="📝 기본 정보")
+        self.create_info_tab()
+        
+        # 탭 2: 신규/개선
+        self.tab_changes = ttk.Frame(self.notebook)
+        self.notebook.add(self.tab_changes, text="✨ 변경사항")
+        self.create_changes_tab()
+        
+        # 탭 3: 성능/파일
+        self.tab_metrics = ttk.Frame(self.notebook)
+        self.notebook.add(self.tab_metrics, text="📊 성능/파일")
+        self.create_metrics_tab()
+        
+        # 탭 4: 미리보기
+        self.tab_preview = ttk.Frame(self.notebook)
+        self.notebook.add(self.tab_preview, text="👁️ 미리보기")
+        self.create_preview_tab()
     
-    def print_one(self, version: str):
-        """단일 버전 출력"""
-        note = self.get(version)
+    def create_info_tab(self):
+        """기본 정보 탭"""
+        frame = ttk.Frame(self.tab_info, padding=20)
+        frame.pack(fill=tk.BOTH, expand=True)
+        
+        # 버전
+        ttk.Label(frame, text="버전:").grid(row=0, column=0, sticky='w', pady=5)
+        self.entry_version = ttk.Entry(frame, font=('맑은 고딕', 11), width=20)
+        self.entry_version.grid(row=0, column=1, sticky='w', pady=5, padx=5)
+        
+        # 날짜
+        ttk.Label(frame, text="날짜:").grid(row=1, column=0, sticky='w', pady=5)
+        self.entry_date = ttk.Entry(frame, font=('맑은 고딕', 11), width=20)
+        self.entry_date.grid(row=1, column=1, sticky='w', pady=5, padx=5)
+        
+        # 유형
+        ttk.Label(frame, text="유형:").grid(row=2, column=0, sticky='w', pady=5)
+        self.combo_type = ttk.Combobox(frame, values=["Major", "Minor", "Patch"], font=('맑은 고딕', 11), width=17)
+        self.combo_type.grid(row=2, column=1, sticky='w', pady=5, padx=5)
+        self.combo_type.set("Major")
+        
+        # Breaking Changes
+        ttk.Label(frame, text="Breaking Changes:").grid(row=3, column=0, sticky='nw', pady=5)
+        self.text_breaking = scrolledtext.ScrolledText(frame, height=4, width=50, font=('맑은 고딕', 10),
+                                                        bg=self.colors['input'], fg=self.colors['fg'])
+        self.text_breaking.grid(row=3, column=1, sticky='w', pady=5, padx=5)
+        
+        # 다음 버전 예고
+        ttk.Label(frame, text="다음 버전 예고:").grid(row=4, column=0, sticky='nw', pady=5)
+        self.text_next = scrolledtext.ScrolledText(frame, height=4, width=50, font=('맑은 고딕', 10),
+                                                    bg=self.colors['input'], fg=self.colors['fg'])
+        self.text_next.grid(row=4, column=1, sticky='w', pady=5, padx=5)
+    
+    def create_changes_tab(self):
+        """변경사항 탭"""
+        frame = ttk.Frame(self.tab_changes, padding=20)
+        frame.pack(fill=tk.BOTH, expand=True)
+        
+        # 신규 기능
+        ttk.Label(frame, text="✨ 신규 기능 (줄바꿈으로 구분):", style='Header.TLabel').pack(anchor='w')
+        self.text_new = scrolledtext.ScrolledText(frame, height=6, font=('맑은 고딕', 10),
+                                                   bg=self.colors['input'], fg=self.colors['fg'])
+        self.text_new.pack(fill=tk.X, pady=(5, 15))
+        
+        # 개선사항
+        ttk.Label(frame, text="⬆️ 개선사항 (줄바꿈으로 구분):", style='Header.TLabel').pack(anchor='w')
+        self.text_improved = scrolledtext.ScrolledText(frame, height=6, font=('맑은 고딕', 10),
+                                                        bg=self.colors['input'], fg=self.colors['fg'])
+        self.text_improved.pack(fill=tk.X, pady=(5, 15))
+        
+        # 버그 수정
+        ttk.Label(frame, text="🔧 버그 수정 (줄바꿈으로 구분):", style='Header.TLabel').pack(anchor='w')
+        self.text_fixed = scrolledtext.ScrolledText(frame, height=6, font=('맑은 고딕', 10),
+                                                     bg=self.colors['input'], fg=self.colors['fg'])
+        self.text_fixed.pack(fill=tk.X, pady=(5, 15))
+    
+    def create_metrics_tab(self):
+        """성능/파일 탭"""
+        frame = ttk.Frame(self.tab_metrics, padding=20)
+        frame.pack(fill=tk.BOTH, expand=True)
+        
+        # 성능 지표
+        ttk.Label(frame, text="📊 성능 변화 (형식: 지표명|이전|이후|변화):", style='Header.TLabel').pack(anchor='w')
+        ttk.Label(frame, text="예: MAE|12.5|9.8|↓21%", foreground='gray').pack(anchor='w')
+        self.text_metrics = scrolledtext.ScrolledText(frame, height=6, font=('맑은 고딕', 10),
+                                                       bg=self.colors['input'], fg=self.colors['fg'])
+        self.text_metrics.pack(fill=tk.X, pady=(5, 15))
+        
+        # 변경 파일
+        ttk.Label(frame, text="📁 변경 파일 (줄바꿈으로 구분):", style='Header.TLabel').pack(anchor='w')
+        self.text_files = scrolledtext.ScrolledText(frame, height=8, font=('맑은 고딕', 10),
+                                                     bg=self.colors['input'], fg=self.colors['fg'])
+        self.text_files.pack(fill=tk.X, pady=(5, 15))
+    
+    def create_preview_tab(self):
+        """미리보기 탭"""
+        frame = ttk.Frame(self.tab_preview, padding=10)
+        frame.pack(fill=tk.BOTH, expand=True)
+        
+        ttk.Button(frame, text="🔄 새로고침", command=self.refresh_preview).pack(anchor='w', pady=5)
+        
+        self.text_preview = scrolledtext.ScrolledText(
+            frame, 
+            font=('Consolas', 10),
+            bg=self.colors['card'], 
+            fg=self.colors['fg'],
+            wrap=tk.NONE
+        )
+        self.text_preview.pack(fill=tk.BOTH, expand=True, pady=5)
+    
+    # ===== 기능 메서드 =====
+    
+    def load_or_create_sample(self):
+        """파일 로드 또는 샘플 생성"""
+        if os.path.exists(self.save_file):
+            self._load_from_file(self.save_file)
+        else:
+            self._create_sample_data()
+        self.refresh_version_list()
+    
+    def _create_sample_data(self):
+        """샘플 데이터 생성"""
+        # V8
+        v8 = PatchNote("V8.0.0", "2025-12-01", "Major")
+        v8.new = [
+            "범주형 3-Class 분류 모델 추가 (하락/소폭/급증)",
+            "M16HUB QUE 컬럼 5개 추가",
+            "M16A QUE 컬럼 7개 추가",
+            "CURRENT_M16A_3F_JOB 대체 타겟 컬럼 추가",
+        ]
+        v8.improved = [
+            "입력 컬럼: 19개 → 32개",
+            "Feature 수: 180개 → 222개",
+            "수치형 모델: 50+ 변화 샘플 3배 가중치 적용",
+            "범주형 모델: Class2(급증) 5배 가중치 적용",
+        ]
+        v8.metrics = {
+            "MAE": {"before": "12.5", "after": "9.8", "change": "↓21%"},
+            "R²": {"before": "0.62", "after": "0.68", "change": "↑9.7%"},
+            "범주형정확도": {"before": "-", "after": "72%", "change": "신규"},
+        }
+        v8.breaking = ["V7 모델 파일(.pkl)과 호환되지 않음", "V8 전용 평가 코드 사용 필요"]
+        v8.files = [
+            "V8_수치형_학습코드.py", "V8_수치형_평가코드.py",
+            "V8_범주형_학습코드.py", "V8_범주형_평가코드.py",
+            "xgboost_수치형_V8.pkl", "xgboost_범주형_V8.pkl"
+        ]
+        v8.next = ["MLflow Tracking 연동", "하이퍼파라미터 자동 탐색 (Optuna)"]
+        self.notes["V8.0.0"] = v8
+        
+        # V7
+        v7 = PatchNote("V7.0.0", "2025-11-15", "Major")
+        v7.new = ["M16HUB.QUE.ALL.CURRENTQCNT 컬럼 추가", "QUE 기반 병목 감지 Feature 추가"]
+        v7.improved = ["입력 컬럼: 17개 → 19개", "병목 감지 로직 강화"]
+        v7.metrics = {"MAE": {"before": "14.2", "after": "12.5", "change": "↓12%"}}
+        v7.fixed = ["HUBROOMTOTAL 결측치 처리 오류 수정"]
+        v7.breaking = ["V6 모델 파일과 호환되지 않음"]
+        v7.next = ["범주형 분류 모델 추가"]
+        self.notes["V7.0.0"] = v7
+        
+        # V6
+        v6 = PatchNote("V6.0.0", "2025-10-20", "Major")
+        v6.new = ["멀티아웃풋 구조 도입 (MIN/MAX/AVG)", "10분 구간 통계 예측"]
+        v6.improved = ["Feature 수: 120개 → 165개", "시퀀스 길이: 20분 → 30분"]
+        v6.metrics = {"MAE": {"before": "18.5", "after": "14.2", "change": "↓23%"}}
+        v6.fixed = ["큰 변화 예측 누락 문제 해결"]
+        v6.breaking = ["단일 출력 → 멀티 출력 구조 변경"]
+        self.notes["V6.0.0"] = v6
+    
+    def refresh_version_list(self):
+        """버전 목록 갱신"""
+        self.version_listbox.delete(0, tk.END)
+        for version in sorted(self.notes.keys(), reverse=True):
+            self.version_listbox.insert(tk.END, version)
+        
+        if self.notes:
+            self.version_listbox.selection_set(0)
+            self.on_version_select(None)
+    
+    def on_version_select(self, event):
+        """버전 선택 시"""
+        selection = self.version_listbox.curselection()
+        if not selection:
+            return
+        
+        version = self.version_listbox.get(selection[0])
+        self.current_version = version
+        self.load_note_to_ui(self.notes[version])
+    
+    def load_note_to_ui(self, note: PatchNote):
+        """패치노트를 UI에 로드"""
+        # 기본 정보
+        self.entry_version.delete(0, tk.END)
+        self.entry_version.insert(0, note.version)
+        
+        self.entry_date.delete(0, tk.END)
+        self.entry_date.insert(0, note.date)
+        
+        self.combo_type.set(note.type)
+        
+        self.text_breaking.delete('1.0', tk.END)
+        self.text_breaking.insert('1.0', '\n'.join(note.breaking))
+        
+        self.text_next.delete('1.0', tk.END)
+        self.text_next.insert('1.0', '\n'.join(note.next))
+        
+        # 변경사항
+        self.text_new.delete('1.0', tk.END)
+        self.text_new.insert('1.0', '\n'.join(note.new))
+        
+        self.text_improved.delete('1.0', tk.END)
+        self.text_improved.insert('1.0', '\n'.join(note.improved))
+        
+        self.text_fixed.delete('1.0', tk.END)
+        self.text_fixed.insert('1.0', '\n'.join(note.fixed))
+        
+        # 성능/파일
+        metrics_lines = []
+        for name, data in note.metrics.items():
+            metrics_lines.append(f"{name}|{data['before']}|{data['after']}|{data['change']}")
+        self.text_metrics.delete('1.0', tk.END)
+        self.text_metrics.insert('1.0', '\n'.join(metrics_lines))
+        
+        self.text_files.delete('1.0', tk.END)
+        self.text_files.insert('1.0', '\n'.join(note.files))
+        
+        # 미리보기
+        self.refresh_preview()
+    
+    def save_ui_to_note(self) -> Optional[PatchNote]:
+        """UI에서 패치노트로 저장"""
+        version = self.entry_version.get().strip()
+        if not version:
+            messagebox.showerror("오류", "버전을 입력하세요")
+            return None
+        
+        note = PatchNote(
+            version,
+            self.entry_date.get().strip() or datetime.now().strftime("%Y-%m-%d"),
+            self.combo_type.get()
+        )
+        
+        note.new = [x.strip() for x in self.text_new.get('1.0', tk.END).strip().split('\n') if x.strip()]
+        note.improved = [x.strip() for x in self.text_improved.get('1.0', tk.END).strip().split('\n') if x.strip()]
+        note.fixed = [x.strip() for x in self.text_fixed.get('1.0', tk.END).strip().split('\n') if x.strip()]
+        note.breaking = [x.strip() for x in self.text_breaking.get('1.0', tk.END).strip().split('\n') if x.strip()]
+        note.next = [x.strip() for x in self.text_next.get('1.0', tk.END).strip().split('\n') if x.strip()]
+        note.files = [x.strip() for x in self.text_files.get('1.0', tk.END).strip().split('\n') if x.strip()]
+        
+        # 성능 지표 파싱
+        note.metrics = {}
+        for line in self.text_metrics.get('1.0', tk.END).strip().split('\n'):
+            if '|' in line:
+                parts = line.split('|')
+                if len(parts) >= 4:
+                    note.metrics[parts[0].strip()] = {
+                        "before": parts[1].strip(),
+                        "after": parts[2].strip(),
+                        "change": parts[3].strip()
+                    }
+        
+        return note
+    
+    def refresh_preview(self):
+        """미리보기 갱신"""
+        note = self.save_ui_to_note()
         if not note:
-            print(f"❌ {version} 없음")
             return
         
-        self._print_note(note)
+        preview = self._generate_preview(note)
+        self.text_preview.delete('1.0', tk.END)
+        self.text_preview.insert('1.0', preview)
     
-    def print_all(self):
-        """전체 버전 출력"""
-        for version in self.list_versions():
-            self._print_note(self.notes[version])
-            print()
-    
-    def print_tabs(self):
-        """탭 형식으로 버전 목록 출력"""
-        versions = self.list_versions()
-        if not versions:
-            print("패치노트 없음")
-            return
+    def _generate_preview(self, note: PatchNote) -> str:
+        """미리보기 텍스트 생성"""
+        lines = []
+        w = 58
         
-        print("\n" + "=" * 60)
-        print(f"  {self.project_name} 패치노트")
-        print("=" * 60)
+        lines.append("┌" + "─" * w + "┐")
+        lines.append(f"│  AMHS 예측 모델 {note.version}".ljust(w) + " │")
+        lines.append(f"│  {note.date} | {note.type} Update".ljust(w) + " │")
+        lines.append("├" + "─" * w + "┤")
         
-        # 탭 헤더
-        print("\n┌" + "─" * 58 + "┐")
-        tab_line = "│ "
-        for i, v in enumerate(versions):
-            tab_line += f"[{i+1}] {v}  "
-        print(tab_line.ljust(59) + "│")
-        print("└" + "─" * 58 + "┘")
-        
-        # 버전 선택
-        while True:
-            try:
-                choice = input("\n버전 번호 선택 (0=종료): ").strip()
-                if choice == "0" or choice == "":
-                    break
-                idx = int(choice) - 1
-                if 0 <= idx < len(versions):
-                    self._print_note(self.notes[versions[idx]])
-                else:
-                    print("잘못된 번호")
-            except ValueError:
-                print("숫자를 입력하세요")
-            except KeyboardInterrupt:
-                break
-    
-    def _print_note(self, note: PatchNote):
-        """패치노트 포맷 출력"""
-        w = 58  # 너비
-        
-        print()
-        print("┌" + "─" * w + "┐")
-        print(f"│  {self.project_name} {note.version}".ljust(w) + " │")
-        print(f"│  {note.date} | {note.type} Update".ljust(w) + " │")
-        print("├" + "─" * w + "┤")
-        
-        # NEW
         if note.new:
-            print(f"│  [NEW] 신규 기능".ljust(w) + " │")
+            lines.append(f"│  [NEW] 신규 기능".ljust(w) + " │")
             for item in note.new:
                 line = f"│    • {item}"
-                if len(line) > w:
-                    line = line[:w-3] + "..."
-                print(line.ljust(w) + " │")
+                lines.append(line[:w].ljust(w) + " │")
         
-        # IMPROVED
         if note.improved:
-            print(f"│  [IMPROVED] 개선사항".ljust(w) + " │")
+            lines.append(f"│  [IMPROVED] 개선사항".ljust(w) + " │")
             for item in note.improved:
                 line = f"│    • {item}"
-                if len(line) > w:
-                    line = line[:w-3] + "..."
-                print(line.ljust(w) + " │")
+                lines.append(line[:w].ljust(w) + " │")
         
-        # METRICS
         if note.metrics:
-            print(f"│  [METRICS] 성능 변화".ljust(w) + " │")
+            lines.append(f"│  [METRICS] 성능 변화".ljust(w) + " │")
             for name, data in note.metrics.items():
-                before = data.get('before', '-')
-                after = data.get('after', '-')
-                change = data.get('change', '')
-                line = f"│    • {name}: {before} → {after} ({change})"
-                if len(line) > w:
-                    line = line[:w-3] + "..."
-                print(line.ljust(w) + " │")
+                line = f"│    • {name}: {data['before']} → {data['after']} ({data['change']})"
+                lines.append(line[:w].ljust(w) + " │")
         
-        # FIXED
-        print(f"│  [FIXED] 버그 수정".ljust(w) + " │")
+        lines.append(f"│  [FIXED] 버그 수정".ljust(w) + " │")
         if note.fixed:
             for item in note.fixed:
                 line = f"│    • {item}"
-                if len(line) > w:
-                    line = line[:w-3] + "..."
-                print(line.ljust(w) + " │")
+                lines.append(line[:w].ljust(w) + " │")
         else:
-            print(f"│    • 없음".ljust(w) + " │")
+            lines.append(f"│    • 없음".ljust(w) + " │")
         
-        # BREAKING
         if note.breaking:
-            print(f"│  [BREAKING] 호환성".ljust(w) + " │")
+            lines.append(f"│  [BREAKING] 호환성".ljust(w) + " │")
             for item in note.breaking:
                 line = f"│    • {item}"
-                if len(line) > w:
-                    line = line[:w-3] + "..."
-                print(line.ljust(w) + " │")
+                lines.append(line[:w].ljust(w) + " │")
         
-        # FILES
         if note.files:
-            print(f"│  [FILES] 변경 파일".ljust(w) + " │")
+            lines.append(f"│  [FILES] 변경 파일".ljust(w) + " │")
             for item in note.files:
                 line = f"│    • {item}"
-                if len(line) > w:
-                    line = line[:w-3] + "..."
-                print(line.ljust(w) + " │")
+                lines.append(line[:w].ljust(w) + " │")
         
-        # NEXT
         if note.next:
-            print(f"│  [NEXT] 다음 버전 예고".ljust(w) + " │")
+            lines.append(f"│  [NEXT] 다음 버전 예고".ljust(w) + " │")
             for item in note.next:
                 line = f"│    • {item}"
-                if len(line) > w:
-                    line = line[:w-3] + "..."
-                print(line.ljust(w) + " │")
+                lines.append(line[:w].ljust(w) + " │")
         
-        print("└" + "─" * w + "┘")
+        lines.append("└" + "─" * w + "┘")
+        
+        return '\n'.join(lines)
     
-    # ========== 내보내기 ==========
+    def save_notes(self):
+        """저장"""
+        # 현재 편집 중인 노트 저장
+        if self.current_version:
+            note = self.save_ui_to_note()
+            if note:
+                # 버전이 변경된 경우
+                if note.version != self.current_version:
+                    del self.notes[self.current_version]
+                self.notes[note.version] = note
+                self.current_version = note.version
+        
+        # 파일로 저장
+        data = {
+            "project": "AMHS 예측 모델",
+            "updated": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "notes": {v: n.to_dict() for v, n in self.notes.items()}
+        }
+        
+        with open(self.save_file, 'w', encoding='utf-8') as f:
+            json.dump(data, f, ensure_ascii=False, indent=2)
+        
+        self.refresh_version_list()
+        messagebox.showinfo("저장", f"저장 완료: {self.save_file}")
     
-    def export_md(self, filename: str = "PATCH_NOTES.md"):
-        """마크다운으로 내보내기"""
+    def load_notes(self):
+        """로드"""
+        filename = filedialog.askopenfilename(
+            filetypes=[("JSON files", "*.json"), ("All files", "*.*")]
+        )
+        if filename:
+            self._load_from_file(filename)
+            self.refresh_version_list()
+            messagebox.showinfo("로드", f"로드 완료: {filename}")
+    
+    def _load_from_file(self, filename):
+        """파일에서 로드"""
+        with open(filename, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+        
+        self.notes = {}
+        for version, note_data in data.get("notes", {}).items():
+            self.notes[version] = PatchNote.from_dict(note_data)
+    
+    def export_md(self):
+        """마크다운 내보내기"""
+        filename = filedialog.asksaveasfilename(
+            defaultextension=".md",
+            filetypes=[("Markdown files", "*.md"), ("All files", "*.*")],
+            initialfilename="PATCH_NOTES.md"
+        )
+        if not filename:
+            return
+        
         lines = []
-        lines.append(f"# {self.project_name} 패치노트\n")
+        lines.append("# AMHS 예측 모델 패치노트\n")
         lines.append(f"*최종 업데이트: {datetime.now().strftime('%Y-%m-%d')}*\n")
         
-        for version in self.list_versions():
+        for version in sorted(self.notes.keys(), reverse=True):
             note = self.notes[version]
             lines.append(f"\n---\n")
             lines.append(f"## {note.version} ({note.date})\n")
@@ -290,10 +571,7 @@ class PatchNoteManager:
                 lines.append("| 지표 | Before | After | 변화 |\n")
                 lines.append("|------|--------|-------|------|\n")
                 for name, data in note.metrics.items():
-                    before = data.get('before', '-')
-                    after = data.get('after', '-')
-                    change = data.get('change', '')
-                    lines.append(f"| {name} | {before} | {after} | {change} |\n")
+                    lines.append(f"| {name} | {data['before']} | {data['after']} | {data['change']} |\n")
             
             if note.fixed:
                 lines.append("\n### 🔧 버그 수정\n")
@@ -318,227 +596,55 @@ class PatchNoteManager:
         with open(filename, 'w', encoding='utf-8') as f:
             f.writelines(lines)
         
-        print(f"📄 MD 저장됨: {filename}")
-        return self
-
-
-# ========== 샘플 데이터 ==========
-
-def create_sample_data() -> PatchNoteManager:
-    """V6~V8 샘플 패치노트 생성"""
+        messagebox.showinfo("내보내기", f"MD 저장 완료: {filename}")
     
-    manager = PatchNoteManager("AMHS 예측 모델")
+    def new_version_dialog(self):
+        """새 버전 다이얼로그"""
+        dialog = tk.Toplevel(self.root)
+        dialog.title("새 패치노트")
+        dialog.geometry("300x150")
+        dialog.configure(bg=self.colors['bg'])
+        dialog.transient(self.root)
+        dialog.grab_set()
+        
+        ttk.Label(dialog, text="새 버전:").pack(pady=10)
+        entry = ttk.Entry(dialog, font=('맑은 고딕', 12), width=20)
+        entry.pack(pady=5)
+        entry.insert(0, "V9.0.0")
+        entry.focus()
+        
+        def create():
+            version = entry.get().strip()
+            if version:
+                if version in self.notes:
+                    messagebox.showerror("오류", "이미 존재하는 버전입니다")
+                    return
+                self.notes[version] = PatchNote(version)
+                self.refresh_version_list()
+                # 새 버전 선택
+                idx = list(sorted(self.notes.keys(), reverse=True)).index(version)
+                self.version_listbox.selection_clear(0, tk.END)
+                self.version_listbox.selection_set(idx)
+                self.on_version_select(None)
+                dialog.destroy()
+        
+        ttk.Button(dialog, text="생성", command=create).pack(pady=15)
     
-    # V8.0.0
-    v8 = PatchNote("V8.0.0", "2025-12-01", "Major")
-    v8.new = [
-        "범주형 3-Class 분류 모델 추가 (하락/소폭/급증)",
-        "M16HUB QUE 컬럼 5개 추가",
-        "M16A QUE 컬럼 7개 추가",
-        "CURRENT_M16A_3F_JOB 대체 타겟 컬럼 추가",
-    ]
-    v8.improved = [
-        "입력 컬럼: 19개 → 32개",
-        "Feature 수: 180개 → 222개",
-        "수치형 모델: 50+ 변화 샘플 3배 가중치 적용",
-        "범주형 모델: Class2(급증) 5배 가중치 적용",
-    ]
-    v8.metrics = {
-        "MAE": {"before": 12.5, "after": 9.8, "change": "↓21%"},
-        "R²": {"before": 0.62, "after": 0.68, "change": "↑9.7%"},
-        "범주형정확도": {"before": "-", "after": "72%", "change": "신규"},
-    }
-    v8.fixed = []
-    v8.breaking = [
-        "V7 모델 파일(.pkl)과 호환되지 않음",
-        "V8 전용 평가 코드 사용 필요",
-    ]
-    v8.files = [
-        "V8_수치형_학습코드.py",
-        "V8_수치형_평가코드.py",
-        "V8_범주형_학습코드.py",
-        "V8_범주형_평가코드.py",
-        "xgboost_수치형_V8.pkl",
-        "xgboost_범주형_V8.pkl",
-    ]
-    v8.next = [
-        "MLflow Tracking 연동",
-        "하이퍼파라미터 자동 탐색 (Optuna)",
-    ]
-    manager.add(v8)
-    
-    # V7.0.0
-    v7 = PatchNote("V7.0.0", "2025-11-15", "Major")
-    v7.new = [
-        "M16HUB.QUE.ALL.CURRENTQCNT 컬럼 추가",
-        "M16HUB.QUE.TIME.AVGTOTALTIME1MIN 컬럼 추가",
-        "QUE 기반 병목 감지 Feature 추가",
-    ]
-    v7.improved = [
-        "입력 컬럼: 17개 → 19개",
-        "Feature 수: 165개 → 180개",
-        "병목 감지 로직 강화",
-    ]
-    v7.metrics = {
-        "MAE": {"before": 14.2, "after": 12.5, "change": "↓12%"},
-        "R²": {"before": 0.58, "after": 0.62, "change": "↑6.9%"},
-    }
-    v7.fixed = [
-        "HUBROOMTOTAL 결측치 처리 오류 수정",
-    ]
-    v7.breaking = [
-        "V6 모델 파일과 호환되지 않음",
-    ]
-    v7.files = [
-        "V7_수치형_학습코드.py",
-        "V7_수치형_평가코드.py",
-    ]
-    v7.next = [
-        "범주형 분류 모델 추가",
-        "QUE 컬럼 확장",
-    ]
-    manager.add(v7)
-    
-    # V6.0.0
-    v6 = PatchNote("V6.0.0", "2025-10-20", "Major")
-    v6.new = [
-        "멀티아웃풋 구조 도입 (MIN/MAX/AVG)",
-        "10분 구간 통계 예측",
-        "방향 정확도 지표 추가",
-    ]
-    v6.improved = [
-        "Feature 수: 120개 → 165개",
-        "시퀀스 길이: 20분 → 30분",
-        "예측 안정성 향상",
-    ]
-    v6.metrics = {
-        "MAE": {"before": 18.5, "after": 14.2, "change": "↓23%"},
-        "R²": {"before": 0.45, "after": 0.58, "change": "↑29%"},
-    }
-    v6.fixed = [
-        "큰 변화 예측 누락 문제 해결",
-    ]
-    v6.breaking = [
-        "단일 출력 → 멀티 출력 구조 변경",
-    ]
-    v6.files = [
-        "V6_학습코드.py",
-        "V6_평가코드.py",
-    ]
-    v6.next = [
-        "QUE 컬럼 추가",
-        "실시간 예측 모듈",
-    ]
-    manager.add(v6)
-    
-    return manager
+    def delete_version(self):
+        """버전 삭제"""
+        if not self.current_version:
+            return
+        
+        if messagebox.askyesno("삭제 확인", f"{self.current_version}을(를) 삭제하시겠습니까?"):
+            del self.notes[self.current_version]
+            self.current_version = None
+            self.refresh_version_list()
 
-
-# ========== 메인 ==========
 
 def main():
-    """메인 메뉴"""
-    
-    manager = PatchNoteManager("AMHS 예측 모델")
-    
-    # 기존 파일 있으면 로드
-    if os.path.exists("patch_notes.json"):
-        manager.load()
-    else:
-        # 샘플 데이터 생성
-        manager = create_sample_data()
-        manager.save()
-    
-    while True:
-        print("\n" + "=" * 40)
-        print("  패치노트 관리 시스템")
-        print("=" * 40)
-        print("  [1] 버전별 탭 보기")
-        print("  [2] 전체 출력")
-        print("  [3] 특정 버전 보기")
-        print("  [4] 새 패치노트 추가")
-        print("  [5] 패치노트 삭제")
-        print("  [6] 저장")
-        print("  [7] 로드")
-        print("  [8] MD 내보내기")
-        print("  [0] 종료")
-        print("=" * 40)
-        
-        choice = input("선택: ").strip()
-        
-        if choice == "1":
-            manager.print_tabs()
-        
-        elif choice == "2":
-            manager.print_all()
-        
-        elif choice == "3":
-            version = input("버전 입력 (예: V8.0.0): ").strip()
-            manager.print_one(version)
-        
-        elif choice == "4":
-            print("\n[새 패치노트 추가]")
-            version = input("버전 (예: V9.0.0): ").strip()
-            date = input("날짜 (YYYY-MM-DD, 엔터=오늘): ").strip()
-            note_type = input("유형 (Major/Minor/Patch): ").strip() or "Major"
-            
-            note = PatchNote(version, date if date else None, note_type)
-            
-            print("\n신규 기능 (빈 줄로 종료):")
-            while True:
-                item = input("  • ").strip()
-                if not item:
-                    break
-                note.new.append(item)
-            
-            print("\n개선사항 (빈 줄로 종료):")
-            while True:
-                item = input("  • ").strip()
-                if not item:
-                    break
-                note.improved.append(item)
-            
-            print("\n버그 수정 (빈 줄로 종료):")
-            while True:
-                item = input("  • ").strip()
-                if not item:
-                    break
-                note.fixed.append(item)
-            
-            print("\nBreaking Changes (빈 줄로 종료):")
-            while True:
-                item = input("  • ").strip()
-                if not item:
-                    break
-                note.breaking.append(item)
-            
-            manager.add(note)
-            manager.save()
-        
-        elif choice == "5":
-            version = input("삭제할 버전: ").strip()
-            confirm = input(f"{version} 삭제? (y/n): ").strip().lower()
-            if confirm == 'y':
-                manager.remove(version)
-                manager.save()
-        
-        elif choice == "6":
-            manager.save()
-        
-        elif choice == "7":
-            filename = input("파일명 (엔터=patch_notes.json): ").strip()
-            manager.load(filename if filename else None)
-        
-        elif choice == "8":
-            filename = input("파일명 (엔터=PATCH_NOTES.md): ").strip()
-            manager.export_md(filename if filename else "PATCH_NOTES.md")
-        
-        elif choice == "0":
-            print("종료")
-            break
-        
-        else:
-            print("잘못된 선택")
+    root = tk.Tk()
+    app = PatchNoteApp(root)
+    root.mainloop()
 
 
 if __name__ == "__main__":
