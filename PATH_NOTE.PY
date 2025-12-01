@@ -541,7 +541,7 @@ class PatchNoteApp:
         filename = filedialog.asksaveasfilename(
             defaultextension=".md",
             filetypes=[("Markdown files", "*.md"), ("All files", "*.*")],
-            initialfilename="PATCH_NOTES.md"
+            initialfile="PATCH_NOTES.md"
         )
         if not filename:
             return
