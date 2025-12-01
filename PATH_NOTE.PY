@@ -369,52 +369,52 @@ class PatchNoteApp:
         row1 = ttk.Frame(input_frame)
         row1.pack(fill=tk.X, pady=3)
         
-        ttk.Label(row1, text="날짜:", font=('맑은 고딕', 10)).pack(side=tk.LEFT)
-        entry_date = ttk.Entry(row1, font=('맑은 고딕', 10), width=12)
-        entry_date.pack(side=tk.LEFT, padx=(3, 10))
+        ttk.Label(row1, text="날짜:", font=('맑은 고딕', 10), width=6).pack(side=tk.LEFT)
+        entry_date = ttk.Entry(row1, font=('맑은 고딕', 10))
+        entry_date.pack(side=tk.LEFT, padx=(3, 10), fill=tk.X, expand=True)
         entry_date.insert(0, datetime.now().strftime("%Y-%m-%d"))
         
-        ttk.Label(row1, text="운영:", font=('맑은 고딕', 10)).pack(side=tk.LEFT)
-        entry_operation = ttk.Entry(row1, font=('맑은 고딕', 10), width=10)
-        entry_operation.pack(side=tk.LEFT, padx=(3, 10))
+        ttk.Label(row1, text="운영:", font=('맑은 고딕', 10), width=5).pack(side=tk.LEFT)
+        entry_operation = ttk.Entry(row1, font=('맑은 고딕', 10))
+        entry_operation.pack(side=tk.LEFT, padx=(3, 10), fill=tk.X, expand=True)
         
-        ttk.Label(row1, text="개발:", font=('맑은 고딕', 10)).pack(side=tk.LEFT)
-        entry_development = ttk.Entry(row1, font=('맑은 고딕', 10), width=10)
-        entry_development.pack(side=tk.LEFT, padx=(3, 0))
+        ttk.Label(row1, text="개발:", font=('맑은 고딕', 10), width=5).pack(side=tk.LEFT)
+        entry_development = ttk.Entry(row1, font=('맑은 고딕', 10))
+        entry_development.pack(side=tk.LEFT, padx=(3, 0), fill=tk.X, expand=True)
         
         # Row 2: FAB, 모델명, 버전
         row2 = ttk.Frame(input_frame)
         row2.pack(fill=tk.X, pady=3)
         
-        ttk.Label(row2, text="FAB:", font=('맑은 고딕', 10)).pack(side=tk.LEFT)
-        entry_fab = ttk.Entry(row2, font=('맑은 고딕', 10), width=8)
-        entry_fab.pack(side=tk.LEFT, padx=(3, 10))
+        ttk.Label(row2, text="FAB:", font=('맑은 고딕', 10), width=6).pack(side=tk.LEFT)
+        entry_fab = ttk.Entry(row2, font=('맑은 고딕', 10))
+        entry_fab.pack(side=tk.LEFT, padx=(3, 10), fill=tk.X, expand=True)
         
-        ttk.Label(row2, text="모델:", font=('맑은 고딕', 10)).pack(side=tk.LEFT)
-        entry_model_name = ttk.Entry(row2, font=('맑은 고딕', 10), width=18)
-        entry_model_name.pack(side=tk.LEFT, padx=(3, 10))
+        ttk.Label(row2, text="모델:", font=('맑은 고딕', 10), width=5).pack(side=tk.LEFT)
+        entry_model_name = ttk.Entry(row2, font=('맑은 고딕', 10))
+        entry_model_name.pack(side=tk.LEFT, padx=(3, 10), fill=tk.X, expand=True)
         
-        ttk.Label(row2, text="버전:", font=('맑은 고딕', 10)).pack(side=tk.LEFT)
-        entry_version = ttk.Entry(row2, font=('맑은 고딕', 10), width=10)
-        entry_version.pack(side=tk.LEFT, padx=(3, 0))
+        ttk.Label(row2, text="버전:", font=('맑은 고딕', 10), width=5).pack(side=tk.LEFT)
+        entry_version = ttk.Entry(row2, font=('맑은 고딕', 10))
+        entry_version.pack(side=tk.LEFT, padx=(3, 0), fill=tk.X, expand=True)
         
         # Row 3: 전체예측, 사전감지
         row3 = ttk.Frame(input_frame)
         row3.pack(fill=tk.X, pady=3)
         
-        ttk.Label(row3, text="전체예측:", font=('맑은 고딕', 10)).pack(side=tk.LEFT)
-        entry_total_predict = ttk.Entry(row3, font=('맑은 고딕', 10), width=18)
-        entry_total_predict.pack(side=tk.LEFT, padx=(3, 10))
+        ttk.Label(row3, text="전체예측:", font=('맑은 고딕', 10), width=8).pack(side=tk.LEFT)
+        entry_total_predict = ttk.Entry(row3, font=('맑은 고딕', 10))
+        entry_total_predict.pack(side=tk.LEFT, padx=(3, 10), fill=tk.X, expand=True)
         
-        ttk.Label(row3, text="사전감지:", font=('맑은 고딕', 10)).pack(side=tk.LEFT)
-        entry_early_detect = ttk.Entry(row3, font=('맑은 고딕', 10), width=18)
-        entry_early_detect.pack(side=tk.LEFT, padx=(3, 0))
+        ttk.Label(row3, text="사전감지:", font=('맑은 고딕', 10), width=8).pack(side=tk.LEFT)
+        entry_early_detect = ttk.Entry(row3, font=('맑은 고딕', 10))
+        entry_early_detect.pack(side=tk.LEFT, padx=(3, 0), fill=tk.X, expand=True)
         
         # Row 4: 모델내용
         row4 = ttk.Frame(input_frame)
         row4.pack(fill=tk.X, pady=3)
         
-        ttk.Label(row4, text="내용:", font=('맑은 고딕', 10)).pack(side=tk.LEFT)
+        ttk.Label(row4, text="내용:", font=('맑은 고딕', 10), width=6).pack(side=tk.LEFT)
         entry_model_desc = ttk.Entry(row4, font=('맑은 고딕', 10))
         entry_model_desc.pack(side=tk.LEFT, padx=(3, 0), fill=tk.X, expand=True)
         
