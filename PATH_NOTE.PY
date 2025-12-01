@@ -54,9 +54,23 @@ class PatchNote:
         note.improved = data.get("improved", [])
         note.fixed = data.get("fixed", [])
         note.breaking = data.get("breaking", [])
-        note.metrics = data.get("metrics", [])
         note.files = data.get("files", [])
         note.next = data.get("next", [])
+        
+        # metrics 호환성 처리 (딕셔너리 → 리스트 변환)
+        metrics_data = data.get("metrics", [])
+        if isinstance(metrics_data, dict):
+            # 이전 형식 (딕셔너리) → 리스트로 변환
+            note.metrics = []
+            for name, info in metrics_data.items():
+                if isinstance(info, dict):
+                    note.metrics.append(f"{name}: {info.get('before', '-')} → {info.get('after', '-')} ({info.get('change', '')})")
+                else:
+                    note.metrics.append(f"{name}: {info}")
+        else:
+            # 새 형식 (리스트)
+            note.metrics = metrics_data
+        
         return note
 
 
@@ -553,10 +567,8 @@ class PatchNoteApp:
             
             if note.metrics:
                 lines.append("\n### 📊 성능 변화\n")
-                lines.append("| 지표 | Before | After | 변화 |\n")
-                lines.append("|------|--------|-------|------|\n")
-                for name, data in note.metrics.items():
-                    lines.append(f"| {name} | {data['before']} | {data['after']} | {data['change']} |\n")
+                for item in note.metrics:
+                    lines.append(f"- {item}\n")
             
             if note.fixed:
                 lines.append("\n### 🔧 버그 수정\n")
