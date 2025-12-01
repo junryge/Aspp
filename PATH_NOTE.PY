@@ -26,7 +26,7 @@ class PatchNote:
         self.date = date or datetime.now().strftime("%Y-%m-%d")
         self.type = note_type
         self.new: List[str] = []
-        self.improved: List[Dict] = []  # [{"item": "", "before": "", "after": ""}, ...]
+        self.improved: List[str] = []
         self.fixed: List[str] = []
         self.breaking: List[str] = []
         self.metrics: List[str] = []
@@ -56,29 +56,15 @@ class PatchNote:
         note.files = data.get("files", [])
         note.next = data.get("next", [])
         
-        # improved 호환성 처리 (문자열 리스트 → 딕셔너리 리스트 변환)
+        # improved 호환성 처리
         improved_data = data.get("improved", [])
-        if improved_data and isinstance(improved_data[0], str):
-            # 이전 형식 (문자열 리스트) → 딕셔너리 리스트로 변환
-            note.improved = []
-            for item in improved_data:
-                if "→" in item:
-                    parts = item.split("→")
-                    if ":" in parts[0]:
-                        name_before = parts[0].split(":")
-                        note.improved.append({
-                            "item": name_before[0].strip(),
-                            "before": name_before[1].strip() if len(name_before) > 1 else "",
-                            "after": parts[1].strip() if len(parts) > 1 else ""
-                        })
-                    else:
-                        note.improved.append({"item": parts[0].strip(), "before": "", "after": parts[1].strip() if len(parts) > 1 else ""})
-                else:
-                    note.improved.append({"item": item, "before": "", "after": ""})
+        if improved_data and isinstance(improved_data[0], dict):
+            # 딕셔너리 형식 → 문자열로 변환
+            note.improved = [f"{item.get('item', '')}: {item.get('before', '')} → {item.get('after', '')}" for item in improved_data]
         else:
             note.improved = improved_data
         
-        # metrics 호환성 처리 (딕셔너리 → 리스트 변환)
+        # metrics 호환성 처리
         metrics_data = data.get("metrics", [])
         if isinstance(metrics_data, dict):
             note.metrics = []
@@ -254,80 +240,21 @@ class PatchNoteApp:
         
         # 신규 기능
         ttk.Label(frame, text="✨ 신규 기능 (줄바꿈으로 구분):", style='Header.TLabel').pack(anchor='w')
-        self.text_new = scrolledtext.ScrolledText(frame, height=5, font=('맑은 고딕', 10),
+        self.text_new = scrolledtext.ScrolledText(frame, height=6, font=('맑은 고딕', 10),
                                                    bg=self.colors['input'], fg=self.colors['fg'])
         self.text_new.pack(fill=tk.X, pady=(5, 15))
         
-        # 개선사항 (Before/After)
-        ttk.Label(frame, text="⬆️ 개선사항 (항목 | Before | After):", style='Header.TLabel').pack(anchor='w')
-        
-        improved_frame = ttk.Frame(frame)
-        improved_frame.pack(fill=tk.X, pady=(5, 5))
-        
-        # 헤더
-        header_frame = ttk.Frame(improved_frame)
-        header_frame.pack(fill=tk.X)
-        ttk.Label(header_frame, text="항목", width=20, anchor='w').pack(side=tk.LEFT, padx=2)
-        ttk.Label(header_frame, text="Before", width=20, anchor='w').pack(side=tk.LEFT, padx=2)
-        ttk.Label(header_frame, text="After", width=20, anchor='w').pack(side=tk.LEFT, padx=2)
-        
-        # 테이블 (Treeview)
-        self.tree_improved = ttk.Treeview(improved_frame, columns=('item', 'before', 'after'), 
-                                           show='headings', height=5)
-        self.tree_improved.heading('item', text='항목')
-        self.tree_improved.heading('before', text='Before')
-        self.tree_improved.heading('after', text='After')
-        self.tree_improved.column('item', width=150)
-        self.tree_improved.column('before', width=150)
-        self.tree_improved.column('after', width=150)
-        self.tree_improved.pack(fill=tk.X, pady=5)
-        
-        # 입력 필드
-        input_frame = ttk.Frame(improved_frame)
-        input_frame.pack(fill=tk.X, pady=5)
-        
-        self.entry_item = ttk.Entry(input_frame, width=22, font=('맑은 고딕', 10))
-        self.entry_item.pack(side=tk.LEFT, padx=2)
-        self.entry_item.insert(0, "항목명")
-        self.entry_item.bind('<FocusIn>', lambda e: self.entry_item.delete(0, tk.END) if self.entry_item.get() == "항목명" else None)
-        
-        self.entry_before = ttk.Entry(input_frame, width=22, font=('맑은 고딕', 10))
-        self.entry_before.pack(side=tk.LEFT, padx=2)
-        self.entry_before.insert(0, "이전")
-        self.entry_before.bind('<FocusIn>', lambda e: self.entry_before.delete(0, tk.END) if self.entry_before.get() == "이전" else None)
-        
-        self.entry_after = ttk.Entry(input_frame, width=22, font=('맑은 고딕', 10))
-        self.entry_after.pack(side=tk.LEFT, padx=2)
-        self.entry_after.insert(0, "이후")
-        self.entry_after.bind('<FocusIn>', lambda e: self.entry_after.delete(0, tk.END) if self.entry_after.get() == "이후" else None)
-        
-        ttk.Button(input_frame, text="➕ 추가", command=self.add_improved_item, width=8).pack(side=tk.LEFT, padx=5)
-        ttk.Button(input_frame, text="🗑️ 삭제", command=self.delete_improved_item, width=8).pack(side=tk.LEFT, padx=2)
+        # 개선사항
+        ttk.Label(frame, text="⬆️ 개선사항 (줄바꿈으로 구분):", style='Header.TLabel').pack(anchor='w')
+        self.text_improved = scrolledtext.ScrolledText(frame, height=6, font=('맑은 고딕', 10),
+                                                        bg=self.colors['input'], fg=self.colors['fg'])
+        self.text_improved.pack(fill=tk.X, pady=(5, 15))
         
         # 버그 수정
-        ttk.Label(frame, text="🔧 버그 수정 (줄바꿈으로 구분):", style='Header.TLabel').pack(anchor='w', pady=(10,0))
-        self.text_fixed = scrolledtext.ScrolledText(frame, height=4, font=('맑은 고딕', 10),
+        ttk.Label(frame, text="🔧 버그 수정 (줄바꿈으로 구분):", style='Header.TLabel').pack(anchor='w')
+        self.text_fixed = scrolledtext.ScrolledText(frame, height=6, font=('맑은 고딕', 10),
                                                      bg=self.colors['input'], fg=self.colors['fg'])
         self.text_fixed.pack(fill=tk.X, pady=(5, 15))
-    
-    def add_improved_item(self):
-        """개선사항 항목 추가"""
-        item = self.entry_item.get().strip()
-        before = self.entry_before.get().strip()
-        after = self.entry_after.get().strip()
-        
-        if item and item != "항목명" and before and before != "이전" and after and after != "이후":
-            self.tree_improved.insert('', tk.END, values=(item, before, after))
-            # 입력 필드 초기화
-            self.entry_item.delete(0, tk.END)
-            self.entry_before.delete(0, tk.END)
-            self.entry_after.delete(0, tk.END)
-    
-    def delete_improved_item(self):
-        """개선사항 항목 삭제"""
-        selected = self.tree_improved.selection()
-        if selected:
-            self.tree_improved.delete(selected)
     
     def create_metrics_tab(self):
         """성능/파일 탭"""
@@ -383,10 +310,10 @@ class PatchNoteApp:
             "CURRENT_M16A_3F_JOB 대체 타겟 컬럼 추가",
         ]
         v8.improved = [
-            {"item": "입력 컬럼", "before": "19개", "after": "32개"},
-            {"item": "Feature 수", "before": "180개", "after": "222개"},
-            {"item": "수치형 가중치", "before": "없음", "after": "50+ 변화 3배"},
-            {"item": "범주형 가중치", "before": "없음", "after": "Class2 5배"},
+            "입력 컬럼: 19개 → 32개",
+            "Feature 수: 180개 → 222개",
+            "수치형 모델: 50+ 변화 샘플 3배 가중치 적용",
+            "범주형 모델: Class2(급증) 5배 가중치 적용",
         ]
         v8.metrics = [
             "MAE: 12.5 → 9.8 (↓21%)",
@@ -405,10 +332,7 @@ class PatchNoteApp:
         # V7
         v7 = PatchNote("V7.0.0", "2025-11-15", "Major")
         v7.new = ["M16HUB.QUE.ALL.CURRENTQCNT 컬럼 추가", "QUE 기반 병목 감지 Feature 추가"]
-        v7.improved = [
-            {"item": "입력 컬럼", "before": "17개", "after": "19개"},
-            {"item": "병목 감지", "before": "기본", "after": "로직 강화"},
-        ]
+        v7.improved = ["입력 컬럼: 17개 → 19개", "병목 감지 로직 강화"]
         v7.metrics = ["MAE: 14.2 → 12.5 (↓12%)"]
         v7.fixed = ["HUBROOMTOTAL 결측치 처리 오류 수정"]
         v7.breaking = ["V6 모델 파일과 호환되지 않음"]
@@ -418,10 +342,7 @@ class PatchNoteApp:
         # V6
         v6 = PatchNote("V6.0.0", "2025-10-20", "Major")
         v6.new = ["멀티아웃풋 구조 도입 (MIN/MAX/AVG)", "10분 구간 통계 예측"]
-        v6.improved = [
-            {"item": "Feature 수", "before": "120개", "after": "165개"},
-            {"item": "시퀀스 길이", "before": "20분", "after": "30분"},
-        ]
+        v6.improved = ["Feature 수: 120개 → 165개", "시퀀스 길이: 20분 → 30분"]
         v6.metrics = ["MAE: 18.5 → 14.2 (↓23%)"]
         v6.fixed = ["큰 변화 예측 누락 문제 해결"]
         v6.breaking = ["단일 출력 → 멀티 출력 구조 변경"]
@@ -468,15 +389,11 @@ class PatchNoteApp:
         self.text_new.delete('1.0', tk.END)
         self.text_new.insert('1.0', '\n'.join(note.new))
         
+        self.text_improved.delete('1.0', tk.END)
+        self.text_improved.insert('1.0', '\n'.join(note.improved))
+        
         self.text_fixed.delete('1.0', tk.END)
         self.text_fixed.insert('1.0', '\n'.join(note.fixed))
-        
-        # 개선사항 (Treeview)
-        for item in self.tree_improved.get_children():
-            self.tree_improved.delete(item)
-        for imp in note.improved:
-            if isinstance(imp, dict):
-                self.tree_improved.insert('', tk.END, values=(imp.get('item', ''), imp.get('before', ''), imp.get('after', '')))
         
         # 성능/파일
         self.text_metrics.delete('1.0', tk.END)
@@ -502,22 +419,12 @@ class PatchNoteApp:
         )
         
         note.new = [x.strip() for x in self.text_new.get('1.0', tk.END).strip().split('\n') if x.strip()]
+        note.improved = [x.strip() for x in self.text_improved.get('1.0', tk.END).strip().split('\n') if x.strip()]
         note.fixed = [x.strip() for x in self.text_fixed.get('1.0', tk.END).strip().split('\n') if x.strip()]
         note.breaking = [x.strip() for x in self.text_breaking.get('1.0', tk.END).strip().split('\n') if x.strip()]
         note.next = [x.strip() for x in self.text_next.get('1.0', tk.END).strip().split('\n') if x.strip()]
         note.files = [x.strip() for x in self.text_files.get('1.0', tk.END).strip().split('\n') if x.strip()]
         note.metrics = [x.strip() for x in self.text_metrics.get('1.0', tk.END).strip().split('\n') if x.strip()]
-        
-        # 개선사항 (Treeview에서 가져오기)
-        note.improved = []
-        for child in self.tree_improved.get_children():
-            values = self.tree_improved.item(child)['values']
-            if len(values) >= 3:
-                note.improved.append({
-                    "item": str(values[0]),
-                    "before": str(values[1]),
-                    "after": str(values[2])
-                })
         
         return note
     
@@ -549,13 +456,8 @@ class PatchNoteApp:
         
         if note.improved:
             lines.append(f"│  [IMPROVED] 개선사항".ljust(w) + " │")
-            lines.append(f"│    {'항목':<12} {'Before':<12} {'After':<12}".ljust(w) + " │")
-            lines.append(f"│    {'-'*12} {'-'*12} {'-'*12}".ljust(w) + " │")
-            for imp in note.improved:
-                if isinstance(imp, dict):
-                    line = f"│    {imp.get('item', ''):<12} {imp.get('before', ''):<12} {imp.get('after', ''):<12}"
-                else:
-                    line = f"│    • {imp}"
+            for item in note.improved:
+                line = f"│    • {item}"
                 lines.append(line[:w].ljust(w) + " │")
         
         if note.metrics:
@@ -665,13 +567,8 @@ class PatchNoteApp:
             
             if note.improved:
                 lines.append("\n### ⬆️ 개선사항\n")
-                lines.append("| 항목 | Before | After |\n")
-                lines.append("|------|--------|-------|\n")
-                for imp in note.improved:
-                    if isinstance(imp, dict):
-                        lines.append(f"| {imp.get('item', '')} | {imp.get('before', '')} | {imp.get('after', '')} |\n")
-                    else:
-                        lines.append(f"| {imp} | - | - |\n")
+                for item in note.improved:
+                    lines.append(f"- {item}\n")
             
             if note.metrics:
                 lines.append("\n### 📊 성능 변화\n")
