@@ -32,6 +32,7 @@ class PatchNote:
         self.metrics: List[str] = []
         self.files: List[str] = []
         self.next: List[str] = []
+        self.important: List[str] = []
     
     def to_dict(self) -> dict:
         return {
@@ -45,6 +46,7 @@ class PatchNote:
             "metrics": self.metrics,
             "files": self.files,
             "next": self.next,
+            "important": self.important,
         }
     
     @classmethod
@@ -55,6 +57,7 @@ class PatchNote:
         note.breaking = data.get("breaking", [])
         note.files = data.get("files", [])
         note.next = data.get("next", [])
+        note.important = data.get("important", [])
         
         # improved 호환성 처리
         improved_data = data.get("improved", [])
@@ -221,17 +224,23 @@ class PatchNoteApp:
         self.combo_type.grid(row=2, column=1, sticky='w', pady=5, padx=5)
         self.combo_type.set("Major")
         
+        # 중요 정보
+        ttk.Label(frame, text="⚠️ 중요 정보:").grid(row=3, column=0, sticky='nw', pady=5)
+        self.text_important = scrolledtext.ScrolledText(frame, height=4, width=50, font=('맑은 고딕', 10),
+                                                        bg=self.colors['input'], fg=self.colors['fg'])
+        self.text_important.grid(row=3, column=1, sticky='w', pady=5, padx=5)
+        
         # Breaking Changes
-        ttk.Label(frame, text="Breaking Changes:").grid(row=3, column=0, sticky='nw', pady=5)
+        ttk.Label(frame, text="Breaking Changes:").grid(row=4, column=0, sticky='nw', pady=5)
         self.text_breaking = scrolledtext.ScrolledText(frame, height=4, width=50, font=('맑은 고딕', 10),
                                                         bg=self.colors['input'], fg=self.colors['fg'])
-        self.text_breaking.grid(row=3, column=1, sticky='w', pady=5, padx=5)
+        self.text_breaking.grid(row=4, column=1, sticky='w', pady=5, padx=5)
         
         # 다음 버전 예고
-        ttk.Label(frame, text="다음 버전 예고:").grid(row=4, column=0, sticky='nw', pady=5)
+        ttk.Label(frame, text="다음 버전 예고:").grid(row=5, column=0, sticky='nw', pady=5)
         self.text_next = scrolledtext.ScrolledText(frame, height=4, width=50, font=('맑은 고딕', 10),
                                                     bg=self.colors['input'], fg=self.colors['fg'])
-        self.text_next.grid(row=4, column=1, sticky='w', pady=5, padx=5)
+        self.text_next.grid(row=5, column=1, sticky='w', pady=5, padx=5)
     
     def create_changes_tab(self):
         """변경사항 탭"""
@@ -303,6 +312,10 @@ class PatchNoteApp:
         """샘플 데이터 생성"""
         # V8
         v8 = PatchNote("V8.0.0", "2025-12-01", "Major")
+        v8.important = [
+            "V7 모델과 호환되지 않음 - 반드시 V8 코드 사용",
+            "기존 patch_notes.json 삭제 후 재실행 필요",
+        ]
         v8.new = [
             "범주형 3-Class 분류 모델 추가 (하락/소폭/급증)",
             "M16HUB QUE 컬럼 5개 추가",
@@ -379,6 +392,9 @@ class PatchNoteApp:
         
         self.combo_type.set(note.type)
         
+        self.text_important.delete('1.0', tk.END)
+        self.text_important.insert('1.0', '\n'.join(note.important))
+        
         self.text_breaking.delete('1.0', tk.END)
         self.text_breaking.insert('1.0', '\n'.join(note.breaking))
         
@@ -425,6 +441,7 @@ class PatchNoteApp:
         note.next = [x.strip() for x in self.text_next.get('1.0', tk.END).strip().split('\n') if x.strip()]
         note.files = [x.strip() for x in self.text_files.get('1.0', tk.END).strip().split('\n') if x.strip()]
         note.metrics = [x.strip() for x in self.text_metrics.get('1.0', tk.END).strip().split('\n') if x.strip()]
+        note.important = [x.strip() for x in self.text_important.get('1.0', tk.END).strip().split('\n') if x.strip()]
         
         return note
     
@@ -447,6 +464,12 @@ class PatchNoteApp:
         lines.append(f"│  AMHS 예측 모델 {note.version}".ljust(w) + " │")
         lines.append(f"│  {note.date} | {note.type} Update".ljust(w) + " │")
         lines.append("├" + "─" * w + "┤")
+        
+        if note.important:
+            lines.append(f"│  [⚠️ IMPORTANT] 중요 정보".ljust(w) + " │")
+            for item in note.important:
+                line = f"│    • {item}"
+                lines.append(line[:w].ljust(w) + " │")
         
         if note.new:
             lines.append(f"│  [NEW] 신규 기능".ljust(w) + " │")
@@ -559,6 +582,11 @@ class PatchNoteApp:
             lines.append(f"\n---\n")
             lines.append(f"## {note.version} ({note.date})\n")
             lines.append(f"**{note.type} Update**\n")
+            
+            if note.important:
+                lines.append("\n### ⚠️ 중요 정보\n")
+                for item in note.important:
+                    lines.append(f"- {item}\n")
             
             if note.new:
                 lines.append("\n### ✨ 신규 기능\n")
