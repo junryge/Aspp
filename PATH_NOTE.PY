@@ -383,10 +383,10 @@ class PatchNoteApp:
             "CURRENT_M16A_3F_JOB 대체 타겟 컬럼 추가",
         ]
         v8.improved = [
-            "입력 컬럼: 19개 → 32개",
-            "Feature 수: 180개 → 222개",
-            "수치형 모델: 50+ 변화 샘플 3배 가중치 적용",
-            "범주형 모델: Class2(급증) 5배 가중치 적용",
+            {"item": "입력 컬럼", "before": "19개", "after": "32개"},
+            {"item": "Feature 수", "before": "180개", "after": "222개"},
+            {"item": "수치형 가중치", "before": "없음", "after": "50+ 변화 3배"},
+            {"item": "범주형 가중치", "before": "없음", "after": "Class2 5배"},
         ]
         v8.metrics = [
             "MAE: 12.5 → 9.8 (↓21%)",
@@ -405,7 +405,10 @@ class PatchNoteApp:
         # V7
         v7 = PatchNote("V7.0.0", "2025-11-15", "Major")
         v7.new = ["M16HUB.QUE.ALL.CURRENTQCNT 컬럼 추가", "QUE 기반 병목 감지 Feature 추가"]
-        v7.improved = ["입력 컬럼: 17개 → 19개", "병목 감지 로직 강화"]
+        v7.improved = [
+            {"item": "입력 컬럼", "before": "17개", "after": "19개"},
+            {"item": "병목 감지", "before": "기본", "after": "로직 강화"},
+        ]
         v7.metrics = ["MAE: 14.2 → 12.5 (↓12%)"]
         v7.fixed = ["HUBROOMTOTAL 결측치 처리 오류 수정"]
         v7.breaking = ["V6 모델 파일과 호환되지 않음"]
@@ -415,7 +418,10 @@ class PatchNoteApp:
         # V6
         v6 = PatchNote("V6.0.0", "2025-10-20", "Major")
         v6.new = ["멀티아웃풋 구조 도입 (MIN/MAX/AVG)", "10분 구간 통계 예측"]
-        v6.improved = ["Feature 수: 120개 → 165개", "시퀀스 길이: 20분 → 30분"]
+        v6.improved = [
+            {"item": "Feature 수", "before": "120개", "after": "165개"},
+            {"item": "시퀀스 길이", "before": "20분", "after": "30분"},
+        ]
         v6.metrics = ["MAE: 18.5 → 14.2 (↓23%)"]
         v6.fixed = ["큰 변화 예측 누락 문제 해결"]
         v6.breaking = ["단일 출력 → 멀티 출력 구조 변경"]
@@ -462,11 +468,15 @@ class PatchNoteApp:
         self.text_new.delete('1.0', tk.END)
         self.text_new.insert('1.0', '\n'.join(note.new))
         
-        self.text_improved.delete('1.0', tk.END)
-        self.text_improved.insert('1.0', '\n'.join(note.improved))
-        
         self.text_fixed.delete('1.0', tk.END)
         self.text_fixed.insert('1.0', '\n'.join(note.fixed))
+        
+        # 개선사항 (Treeview)
+        for item in self.tree_improved.get_children():
+            self.tree_improved.delete(item)
+        for imp in note.improved:
+            if isinstance(imp, dict):
+                self.tree_improved.insert('', tk.END, values=(imp.get('item', ''), imp.get('before', ''), imp.get('after', '')))
         
         # 성능/파일
         self.text_metrics.delete('1.0', tk.END)
@@ -492,12 +502,22 @@ class PatchNoteApp:
         )
         
         note.new = [x.strip() for x in self.text_new.get('1.0', tk.END).strip().split('\n') if x.strip()]
-        note.improved = [x.strip() for x in self.text_improved.get('1.0', tk.END).strip().split('\n') if x.strip()]
         note.fixed = [x.strip() for x in self.text_fixed.get('1.0', tk.END).strip().split('\n') if x.strip()]
         note.breaking = [x.strip() for x in self.text_breaking.get('1.0', tk.END).strip().split('\n') if x.strip()]
         note.next = [x.strip() for x in self.text_next.get('1.0', tk.END).strip().split('\n') if x.strip()]
         note.files = [x.strip() for x in self.text_files.get('1.0', tk.END).strip().split('\n') if x.strip()]
         note.metrics = [x.strip() for x in self.text_metrics.get('1.0', tk.END).strip().split('\n') if x.strip()]
+        
+        # 개선사항 (Treeview에서 가져오기)
+        note.improved = []
+        for child in self.tree_improved.get_children():
+            values = self.tree_improved.item(child)['values']
+            if len(values) >= 3:
+                note.improved.append({
+                    "item": str(values[0]),
+                    "before": str(values[1]),
+                    "after": str(values[2])
+                })
         
         return note
     
@@ -529,8 +549,13 @@ class PatchNoteApp:
         
         if note.improved:
             lines.append(f"│  [IMPROVED] 개선사항".ljust(w) + " │")
-            for item in note.improved:
-                line = f"│    • {item}"
+            lines.append(f"│    {'항목':<12} {'Before':<12} {'After':<12}".ljust(w) + " │")
+            lines.append(f"│    {'-'*12} {'-'*12} {'-'*12}".ljust(w) + " │")
+            for imp in note.improved:
+                if isinstance(imp, dict):
+                    line = f"│    {imp.get('item', ''):<12} {imp.get('before', ''):<12} {imp.get('after', ''):<12}"
+                else:
+                    line = f"│    • {imp}"
                 lines.append(line[:w].ljust(w) + " │")
         
         if note.metrics:
@@ -640,8 +665,13 @@ class PatchNoteApp:
             
             if note.improved:
                 lines.append("\n### ⬆️ 개선사항\n")
-                for item in note.improved:
-                    lines.append(f"- {item}\n")
+                lines.append("| 항목 | Before | After |\n")
+                lines.append("|------|--------|-------|\n")
+                for imp in note.improved:
+                    if isinstance(imp, dict):
+                        lines.append(f"| {imp.get('item', '')} | {imp.get('before', '')} | {imp.get('after', '')} |\n")
+                    else:
+                        lines.append(f"| {imp} | - | - |\n")
             
             if note.metrics:
                 lines.append("\n### 📊 성능 변화\n")
