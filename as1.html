@@ -1,0 +1,679 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AMHS 예측 모델 개발 보고서</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Malgun Gothic', 'Apple SD Gothic Neo', sans-serif;
+            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+            color: #e4e4e4;
+            line-height: 1.7;
+            padding: 40px 20px;
+        }
+        
+        .container {
+            max-width: 1000px;
+            margin: 0 auto;
+        }
+        
+        .page {
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 20px;
+            padding: 40px;
+            margin-bottom: 40px;
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+        
+        .page-header {
+            text-align: center;
+            margin-bottom: 10px;
+            color: #64ffda;
+            font-size: 14px;
+        }
+        
+        h1 {
+            text-align: center;
+            font-size: 28px;
+            margin-bottom: 10px;
+            background: linear-gradient(90deg, #64ffda, #6dd5fa);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+        
+        .subtitle {
+            text-align: center;
+            color: #888;
+            margin-bottom: 30px;
+        }
+        
+        h2 {
+            font-size: 20px;
+            color: #64ffda;
+            margin: 30px 0 15px 0;
+            padding-bottom: 10px;
+            border-bottom: 2px solid rgba(100, 255, 218, 0.3);
+        }
+        
+        h3 {
+            font-size: 16px;
+            color: #6dd5fa;
+            margin: 25px 0 12px 0;
+        }
+        
+        h4 {
+            font-size: 14px;
+            color: #ffd93d;
+            margin: 20px 0 10px 0;
+        }
+        
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 15px 0;
+            font-size: 13px;
+        }
+        
+        th {
+            background: rgba(100, 255, 218, 0.2);
+            color: #64ffda;
+            padding: 12px 10px;
+            text-align: left;
+            border: 1px solid rgba(100, 255, 218, 0.3);
+        }
+        
+        td {
+            padding: 10px;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            background: rgba(255, 255, 255, 0.02);
+        }
+        
+        tr:hover td {
+            background: rgba(100, 255, 218, 0.05);
+        }
+        
+        .highlight-row td {
+            background: rgba(100, 255, 218, 0.15) !important;
+            font-weight: bold;
+        }
+        
+        .warning-box {
+            background: rgba(255, 107, 107, 0.15);
+            border-left: 4px solid #ff6b6b;
+            padding: 15px 20px;
+            margin: 15px 0;
+            border-radius: 0 10px 10px 0;
+        }
+        
+        .warning-box h4 {
+            color: #ff6b6b;
+            margin: 0 0 10px 0;
+        }
+        
+        .success-box {
+            background: rgba(100, 255, 218, 0.1);
+            border-left: 4px solid #64ffda;
+            padding: 15px 20px;
+            margin: 15px 0;
+            border-radius: 0 10px 10px 0;
+        }
+        
+        .formula-box {
+            background: rgba(109, 213, 250, 0.1);
+            border: 1px solid rgba(109, 213, 250, 0.3);
+            border-radius: 10px;
+            padding: 20px;
+            margin: 15px 0;
+        }
+        
+        .formula {
+            font-family: 'Times New Roman', serif;
+            font-size: 18px;
+            text-align: center;
+            color: #fff;
+            margin: 15px 0;
+            padding: 10px;
+            background: rgba(0, 0, 0, 0.3);
+            border-radius: 8px;
+        }
+        
+        .formula-desc {
+            font-size: 13px;
+            color: #aaa;
+            margin: 5px 0 5px 20px;
+        }
+        
+        .key-point {
+            background: linear-gradient(90deg, rgba(255, 217, 61, 0.2), rgba(255, 217, 61, 0.05));
+            border-left: 4px solid #ffd93d;
+            padding: 15px 20px;
+            margin: 15px 0;
+            border-radius: 0 10px 10px 0;
+        }
+        
+        .step-list {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 15px;
+            margin: 15px 0;
+        }
+        
+        .step-item {
+            flex: 1;
+            min-width: 200px;
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 10px;
+            padding: 15px;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+        
+        .step-item .step-num {
+            display: inline-block;
+            width: 28px;
+            height: 28px;
+            background: #64ffda;
+            color: #1a1a2e;
+            border-radius: 50%;
+            text-align: center;
+            line-height: 28px;
+            font-weight: bold;
+            margin-right: 10px;
+        }
+        
+        .step-item .step-title {
+            color: #64ffda;
+            font-weight: bold;
+        }
+        
+        .step-item p {
+            margin-top: 10px;
+            font-size: 13px;
+            color: #bbb;
+        }
+        
+        ul {
+            margin: 10px 0 10px 25px;
+        }
+        
+        li {
+            margin: 5px 0;
+            font-size: 14px;
+        }
+        
+        .reference {
+            font-size: 12px;
+            color: #888;
+            font-style: italic;
+            margin-top: 15px;
+            padding-top: 15px;
+            border-top: 1px solid rgba(255, 255, 255, 0.1);
+        }
+        
+        .conclusion-table {
+            margin-top: 20px;
+        }
+        
+        .conclusion-table td:first-child {
+            width: 120px;
+            font-weight: bold;
+            color: #64ffda;
+        }
+        
+        .tag {
+            display: inline-block;
+            padding: 2px 8px;
+            border-radius: 4px;
+            font-size: 11px;
+            margin: 2px;
+        }
+        
+        .tag-success {
+            background: rgba(100, 255, 218, 0.2);
+            color: #64ffda;
+        }
+        
+        .tag-fail {
+            background: rgba(255, 107, 107, 0.2);
+            color: #ff6b6b;
+        }
+        
+        .tag-current {
+            background: rgba(255, 217, 61, 0.2);
+            color: #ffd93d;
+        }
+        
+        .improvement-flow {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 20px;
+            margin: 20px 0;
+            flex-wrap: wrap;
+        }
+        
+        .flow-item {
+            text-align: center;
+            padding: 15px 20px;
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 10px;
+            min-width: 150px;
+        }
+        
+        .flow-item .version {
+            font-size: 20px;
+            font-weight: bold;
+            color: #64ffda;
+        }
+        
+        .flow-item .rate {
+            font-size: 24px;
+            font-weight: bold;
+            margin: 5px 0;
+        }
+        
+        .flow-arrow {
+            font-size: 24px;
+            color: #64ffda;
+        }
+        
+        @media print {
+            body {
+                background: white;
+                color: black;
+            }
+            .page {
+                background: white;
+                border: 1px solid #ddd;
+                page-break-after: always;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <!-- Page 1 -->
+        <div class="page">
+            <div class="page-header">PAGE 1 / 2</div>
+            <h1>AMHS 예측 모델 개발 보고서</h1>
+            <p class="subtitle">작성일: 2025년 12월</p>
+            
+            <h2>1. 예측 모델에 사용한 데이터</h2>
+            
+            <h3>데이터 소스</h3>
+            <table>
+                <tr>
+                    <th>구분</th>
+                    <th>대상</th>
+                    <th>주요 데이터</th>
+                </tr>
+                <tr>
+                    <td><strong>FAB</strong></td>
+                    <td>M14_Q</td>
+                    <td>CURRENT_M16A_3F_JOB_2 (예측대상), Storage 사용률, CMD 처리량, Inflow/Outflow Job 수</td>
+                </tr>
+                <tr>
+                    <td><strong>HUBROOM</strong></td>
+                    <td>HUB_M16</td>
+                    <td>HUBROOMTOTAL (가용 공간), Queue 대기량, OHT 가동률, 평균 처리시간, 지연 건수</td>
+                </tr>
+            </table>
+            
+            <h3>데이터 규모</h3>
+            <ul>
+                <li><strong>수집 기간:</strong> 2025년 1월 ~ 12월 (12개월)</li>
+                <li><strong>데이터 주기:</strong> 1분 단위 수집</li>
+                <li><strong>입력 컬럼:</strong> 32개 (V7 기존 19개 + V8 신규 13개)</li>
+                <li><strong>생성 Feature:</strong> 222개 (통계량 기반 파생)</li>
+            </ul>
+            
+            <h2>2. 어떤 모델을 사용해서 어떤 과정으로 만들었나</h2>
+            
+            <h3>2-1. 왜 XGBoost를 사용했는가?</h3>
+            
+            <h4>딥러닝 모델 (LSTM, GRU, Spike) 사용하지 않은 이유</h4>
+            
+            <div class="warning-box">
+                <h4>⚠️ 문제점: 급증 상황 사전감지 실패</h4>
+                <ul>
+                    <li>M14: <strong>1700 이상</strong> 급증 → 사전감지 못함</li>
+                    <li>HUB: <strong>300 이상</strong> 급증 → 사전감지 못함</li>
+                </ul>
+                <p style="margin-top: 10px; font-size: 13px;">
+                    <strong>원인:</strong> 급증 데이터가 전체의 5% 미만 (클래스 불균형), 딥러닝은 다수 클래스(정상)에 과적합, 가중치 조절 어려움
+                </p>
+            </div>
+            
+            <h4>여러 모델 비교 실험 결과</h4>
+            <table>
+                <tr>
+                    <th>모델</th>
+                    <th>전체예측</th>
+                    <th>사전감지</th>
+                    <th>급증감지</th>
+                    <th>문제점</th>
+                </tr>
+                <tr>
+                    <td>LSTM</td>
+                    <td>60%</td>
+                    <td>18%</td>
+                    <td><span class="tag tag-fail">M14 1700 ✗</span></td>
+                    <td>급증 미감지</td>
+                </tr>
+                <tr>
+                    <td>GRU</td>
+                    <td>58%</td>
+                    <td>15%</td>
+                    <td><span class="tag tag-fail">HUB 300 ✗</span></td>
+                    <td>급증 미감지</td>
+                </tr>
+                <tr>
+                    <td>Spike (극단감지)</td>
+                    <td>55%</td>
+                    <td>20%</td>
+                    <td>일부만 감지</td>
+                    <td>불안정</td>
+                </tr>
+                <tr>
+                    <td>앙상블 (RF+GB)</td>
+                    <td>80%</td>
+                    <td>15%</td>
+                    <td>일부만 감지</td>
+                    <td>사전감지↓</td>
+                </tr>
+                <tr class="highlight-row">
+                    <td><strong>XGBoost</strong></td>
+                    <td><strong>90%</strong></td>
+                    <td><strong>80%+</strong></td>
+                    <td><span class="tag tag-success">✓ 감지 성공</span></td>
+                    <td><strong>최종 선정</strong></td>
+                </tr>
+            </table>
+            
+            <h3>XGBoost 핵심 원리 및 수식</h3>
+            
+            <div class="formula-box">
+                <h4 style="margin-top: 0;">■ XGBoost = eXtreme Gradient Boosting</h4>
+                <p style="font-size: 13px; color: #aaa;">여러 개의 약한 학습기(Decision Tree)를 순차적으로 학습시켜 이전 모델의 오차를 보완하는 앙상블 기법</p>
+                
+                <h4>■ 목적 함수 (Objective Function)</h4>
+                <div class="formula">Obj = Σ L(yᵢ, ŷᵢ) + Σ Ω(fₖ)</div>
+                <p class="formula-desc">• L(yᵢ, ŷᵢ): 예측값과 실제값의 오차 (손실)</p>
+                <p class="formula-desc">• Ω(fₖ): 모델 복잡도 제어 (과적합 방지)</p>
+                
+                <h4>■ 정규화 항 (Regularization)</h4>
+                <div class="formula">Ω(f) = γT + ½λΣwⱼ²</div>
+                <p class="formula-desc">• γ (gamma): 리프 노드 수 페널티 → 트리 단순화</p>
+                <p class="formula-desc">• λ (lambda): 가중치 크기 페널티 → 과적합 방지</p>
+                
+                <h4>■ Gradient Boosting 업데이트</h4>
+                <div class="formula">ŷᵢ⁽ᵗ⁾ = ŷᵢ⁽ᵗ⁻¹⁾ + η · fₜ(xᵢ)</div>
+                <p class="formula-desc">• η (learning_rate): 학습률 (0.03 사용)</p>
+                <p class="formula-desc">• fₜ: t번째 트리의 예측값</p>
+            </div>
+            
+            <div class="key-point">
+                <h4 style="margin-top: 0;">🔥 본 프로젝트 적용 (급증 감지 핵심)</h4>
+                <div class="formula">L = Σ wᵢ · (yᵢ - ŷᵢ)²</div>
+                <table style="width: auto; margin: 10px 0;">
+                    <tr><td>일반 샘플</td><td>wᵢ = 1.0</td></tr>
+                    <tr><td><strong>급증 샘플 (M14 1700+, HUB 300+)</strong></td><td><strong>wᵢ = 3 ~ 5</strong></td></tr>
+                </table>
+                <p>→ 급증 샘플의 오차에 3~5배 페널티 부여 → 모델이 급증 패턴을 더 중요하게 학습</p>
+            </div>
+            
+            <div class="reference">
+                <strong>참고 레퍼런스:</strong><br>
+                • Chen & Guestrin (2016) "XGBoost: A Scalable Tree Boosting System", KDD<br>
+                • Friedman (2001) "Greedy Function Approximation: A Gradient Boosting Machine"
+            </div>
+            
+            <h3>2-2. 어떤 과정으로 모델을 만들었나?</h3>
+            
+            <div class="step-list">
+                <div class="step-item">
+                    <span class="step-num">1</span>
+                    <span class="step-title">데이터 수집</span>
+                    <p>2025년 1월 ~ 12월 (12개월)<br>FAB + HUBROOM 시스템</p>
+                </div>
+                <div class="step-item">
+                    <span class="step-num">2</span>
+                    <span class="step-title">전처리</span>
+                    <p>30분 시퀀스 → 222개 Feature<br>(mean, std, slope 등)</p>
+                </div>
+                <div class="step-item">
+                    <span class="step-num">3</span>
+                    <span class="step-title">모델 학습</span>
+                    <p>V100 GPU x 2, 약 3시간<br>n_estimators=250, max_depth=8</p>
+                </div>
+                <div class="step-item">
+                    <span class="step-num">4</span>
+                    <span class="step-title">핵심 적용</span>
+                    <p>급증 샘플에<br><strong>3~5배 가중치</strong> 적용</p>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Page 2 -->
+        <div class="page">
+            <div class="page-header">PAGE 2 / 2</div>
+            
+            <h2>3. 운영 데이터 적용 결과</h2>
+            
+            <h3>3-1. 현재 성능 (V8 기준)</h3>
+            
+            <table>
+                <tr>
+                    <th>적용 대상</th>
+                    <th>전체 예측 정확도</th>
+                    <th>사전 감지율</th>
+                    <th>예측 시점</th>
+                </tr>
+                <tr class="highlight-row">
+                    <td>M14_Q (FAB)</td>
+                    <td>90%</td>
+                    <td>80%</td>
+                    <td>10분 전</td>
+                </tr>
+                <tr class="highlight-row">
+                    <td>HUB_M16</td>
+                    <td>90%</td>
+                    <td>89%</td>
+                    <td>10분 전</td>
+                </tr>
+            </table>
+            
+            <div class="success-box">
+                <p>✅ <strong>모델 적용 시 약 70~80% 정도로 장애를 사전 예측 가능</strong></p>
+                <p>✅ <strong>M14 1700 이상, HUB 300 이상 급증 상황 사전감지 성공</strong></p>
+            </div>
+            
+            <h3>3-2. V1부터 V8까지 점점 좋아지는 과정</h3>
+            
+            <h4>M14_Q 모델 발전 과정</h4>
+            <table>
+                <tr>
+                    <th>버전</th>
+                    <th>날짜</th>
+                    <th>전체</th>
+                    <th>사전감지</th>
+                    <th>변경 내용</th>
+                </tr>
+                <tr>
+                    <td>V1</td>
+                    <td>2025-08-07</td>
+                    <td>60%</td>
+                    <td>0%</td>
+                    <td>초기 모델 (트렌드 잡기)</td>
+                </tr>
+                <tr>
+                    <td>V2</td>
+                    <td>2025-08-11</td>
+                    <td>70%</td>
+                    <td>10%</td>
+                    <td>예측값 관계성 개선</td>
+                </tr>
+                <tr>
+                    <td>V4</td>
+                    <td>2025-08-14</td>
+                    <td>80%</td>
+                    <td>8%</td>
+                    <td>앙상블 추가</td>
+                </tr>
+                <tr>
+                    <td>V5</td>
+                    <td>2025-08-18</td>
+                    <td>80%</td>
+                    <td>15%</td>
+                    <td>앙상블 확장 (운영 반영)</td>
+                </tr>
+                <tr>
+                    <td>V6</td>
+                    <td>2025-09-18</td>
+                    <td>80%</td>
+                    <td>18%</td>
+                    <td>딥러닝 시도 <span class="tag tag-fail">1700 감지 실패</span></td>
+                </tr>
+                <tr>
+                    <td>V7</td>
+                    <td>2025-09-24</td>
+                    <td>80%</td>
+                    <td>45%</td>
+                    <td><strong>XGBoost 전환 테스트</strong></td>
+                </tr>
+                <tr>
+                    <td>V8</td>
+                    <td>2025-10-01</td>
+                    <td>80%</td>
+                    <td>70%</td>
+                    <td>XGBoost 본격 적용 (운영 반영)</td>
+                </tr>
+                <tr class="highlight-row">
+                    <td>V8.2</td>
+                    <td>2025-11-07</td>
+                    <td>90%</td>
+                    <td>80%</td>
+                    <td>사전감지 컬럼 추가 <span class="tag tag-current">현재 운영</span></td>
+                </tr>
+            </table>
+            
+            <h4>HUB_M16 모델 발전 과정</h4>
+            <table>
+                <tr>
+                    <th>버전</th>
+                    <th>날짜</th>
+                    <th>전체</th>
+                    <th>사전감지</th>
+                    <th>변경 내용</th>
+                </tr>
+                <tr>
+                    <td>V1</td>
+                    <td>2025-08-07</td>
+                    <td>40%</td>
+                    <td>20%</td>
+                    <td>초기 모델</td>
+                </tr>
+                <tr>
+                    <td>V2</td>
+                    <td>2025-08-11</td>
+                    <td>50%</td>
+                    <td>15%</td>
+                    <td>딥러닝 수식화 <span class="tag tag-fail">300 감지 실패</span></td>
+                </tr>
+                <tr>
+                    <td>V4</td>
+                    <td>2025-08-14</td>
+                    <td>50%</td>
+                    <td>15%</td>
+                    <td>앙상블 추가</td>
+                </tr>
+                <tr>
+                    <td>V5</td>
+                    <td>2025-09-24</td>
+                    <td>60%</td>
+                    <td>25%</td>
+                    <td>극단 감지 기법 적용</td>
+                </tr>
+                <tr>
+                    <td>V6</td>
+                    <td>2025-10-18</td>
+                    <td>60%</td>
+                    <td>50%</td>
+                    <td><strong>XGBoost 전환</strong></td>
+                </tr>
+                <tr>
+                    <td>V6.2</td>
+                    <td>2025-10-23</td>
+                    <td>75%</td>
+                    <td>68%</td>
+                    <td>10/15/25분 다중 모델</td>
+                </tr>
+                <tr class="highlight-row">
+                    <td>V8.0</td>
+                    <td>2025-11-17</td>
+                    <td>90%</td>
+                    <td>89%</td>
+                    <td>수치형+범주형 완성 <span class="tag tag-current">현재 운영</span></td>
+                </tr>
+            </table>
+            
+            <h3>3-3. 핵심 개선 포인트</h3>
+            
+            <div class="improvement-flow">
+                <div class="flow-item">
+                    <div class="version">V1~V6</div>
+                    <div class="rate" style="color: #ff6b6b;">0~18%</div>
+                    <div>LSTM/GRU 시도<br>급증 감지 실패</div>
+                </div>
+                <div class="flow-arrow">→</div>
+                <div class="flow-item">
+                    <div class="version">V7</div>
+                    <div class="rate" style="color: #ffd93d;">45~50%</div>
+                    <div>XGBoost 전환<br>가중치 적용</div>
+                </div>
+                <div class="flow-arrow">→</div>
+                <div class="flow-item">
+                    <div class="version">V8</div>
+                    <div class="rate" style="color: #64ffda;">80~89%</div>
+                    <div>가중치 강화<br>Feature 추가</div>
+                </div>
+            </div>
+            
+            <h2>4. 결론</h2>
+            
+            <table class="conclusion-table">
+                <tr>
+                    <td>딥러닝 한계</td>
+                    <td>LSTM, GRU, Spike는 급증 상황(M14 1700+, HUB 300+) 사전감지 실패</td>
+                </tr>
+                <tr>
+                    <td>XGBoost 해결</td>
+                    <td>가중 손실함수(wᵢ=3~5)로 급증 패턴 학습 성공</td>
+                </tr>
+                <tr>
+                    <td>개선 성과</td>
+                    <td>V1 → V8 사전감지율 <strong>0% → 80~89%</strong> 달성</td>
+                </tr>
+                <tr>
+                    <td>현재 성능</td>
+                    <td>운영 환경에서 약 <strong>70~80%</strong> 정확도로 장애 사전 예측 가능</td>
+                </tr>
+            </table>
+            
+            <div class="success-box" style="margin-top: 30px; text-align: center;">
+                <p style="font-size: 16px; margin: 0;">
+                    🎯 <strong>V1 → V8 지속적 실험과 개선을 통해 최적 모델 도출 완료</strong>
+                </p>
+            </div>
+        </div>
+    </div>
+</body>
+</html>
