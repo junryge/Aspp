@@ -22,21 +22,38 @@ df2 = load_csv(FILE2)
 print(f"파일1 컬럼: {df1.columns.tolist()}")
 print(f"파일2 컬럼: {df2.columns.tolist()}")
 
-# === 2. 날짜 컬럼 통일 (CURRTIME 기준) ===
-# 파일1: CURRTIME (yyyyMMdd HHmm) -> datetime
-df1['CURRTIME'] = df1['CURRTIME'].astype(str).str.strip()
-df1['datetime'] = pd.to_datetime(df1['CURRTIME'], format='%Y%m%d %H%M', errors='coerce')
+# === 원본 데이터 확인 ===
+print(f"\n파일1 CURRTIME 샘플: {df1['CURRTIME'].head(3).tolist()}")
+print(f"파일2 CRT_TM 샘플: {df2['CRT_TM'].head(3).tolist()}")
 
-# 파일2: CRT_TM (yyyy-MM-dd H:mm) -> datetime
+# === 2. 날짜 컬럼 통일 ===
+# 파일1: CURRTIME (202507010000 형태, 공백 없음)
+df1['CURRTIME'] = df1['CURRTIME'].astype(str).str.replace(' ', '').str.strip()
+df1['datetime'] = pd.to_datetime(df1['CURRTIME'], format='%Y%m%d%H%M', errors='coerce')
+
+# 파일2: CRT_TM (2024-12-01 0:00 형태, 자동 파싱)
 df2['CRT_TM'] = df2['CRT_TM'].astype(str).str.strip()
-df2['datetime'] = pd.to_datetime(df2['CRT_TM'], format='%Y-%m-%d %H:%M', errors='coerce')
+df2['datetime'] = pd.to_datetime(df2['CRT_TM'], errors='coerce')
+
+# === 파싱 결과 확인 ===
+print(f"\n파일1 datetime 변환 성공: {df1['datetime'].notna().sum()} / {len(df1)}")
+print(f"파일2 datetime 변환 성공: {df2['datetime'].notna().sum()} / {len(df2)}")
+
+if df1['datetime'].notna().sum() > 0:
+    print(f"파일1 datetime 샘플: {df1['datetime'].dropna().head(3).tolist()}")
+if df2['datetime'].notna().sum() > 0:
+    print(f"파일2 datetime 샘플: {df2['datetime'].dropna().head(3).tolist()}")
 
 # === 3. 전체 시간 범위 생성 (1분 단위) ===
 all_times = pd.concat([df1['datetime'].dropna(), df2['datetime'].dropna()])
+
+if len(all_times) == 0:
+    raise Exception("날짜 파싱 실패! 원본 데이터 형식 확인 필요")
+
 start_time = all_times.min()
 end_time = all_times.max()
 
-print(f"시간 범위: {start_time} ~ {end_time}")
+print(f"\n시간 범위: {start_time} ~ {end_time}")
 
 # 전체 시간 인덱스 생성
 full_range = pd.date_range(start=start_time, end=end_time, freq='1min')
@@ -54,7 +71,7 @@ df2_cols = [c for c in df2.columns if c not in ['datetime', 'CRT_TM']]
 df_merged = df_merged.merge(df2[['datetime'] + df2_cols], on='datetime', how='left')
 
 # === 5. CURRTIME 형식 컬럼 추가 ===
-df_merged['CURRTIME'] = df_merged['datetime'].dt.strftime('%Y%m%d %H%M')
+df_merged['CURRTIME'] = df_merged['datetime'].dt.strftime('%Y%m%d%H%M')
 
 # 컬럼 순서 정리
 cols = ['CURRTIME', 'datetime'] + df1_cols + df2_cols
