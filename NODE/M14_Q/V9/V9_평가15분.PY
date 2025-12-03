@@ -1,7 +1,12 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-🚀 V9 평가 - 15분 후 예측
+🚀 V9 평가 - 현재값 하한선 적용! (15분 예측)
+
+핵심 수정:
+1. 예측값 >= 현재값 - 100 (물리적 하한선!)
+2. 상한선 제거 - 있는 그대로!
+3. Feature 간소화 (학습과 동일)
 """
 
 import numpy as np
@@ -14,15 +19,14 @@ import warnings
 warnings.filterwarnings('ignore')
 
 print("="*70)
-print("🚀 V9 평가 - 15분 후 예측")
+print("🚀 V9 평가 - 15분 예측 (현재값 하한선 + 상한선 제거)")
 print("="*70)
 
-PRED_OFFSET = 15
-
 # ========================================
-# Feature 생성 함수
+# Feature 생성 함수 (학습과 100% 동일!)
 # ========================================
 def create_features_v9(row_dict):
+    """핵심 컬럼 기반 60개 Feature"""
     features = {}
     
     seq_m14b = np.array(row_dict['M14AM14B'])
@@ -34,6 +38,7 @@ def create_features_v9(row_dict):
     
     seq_len = len(seq_m14b)
     
+    # 1. M14AM14B (8개)
     features['m14b_mean'] = np.mean(seq_m14b)
     features['m14b_max'] = np.max(seq_m14b)
     features['m14b_current'] = seq_m14b[-1]
@@ -43,6 +48,7 @@ def create_features_v9(row_dict):
     features['m14b_std'] = np.std(seq_m14b)
     features['m14b_trend10'] = seq_m14b[-1] - seq_m14b[-10]
     
+    # 2. M14AM14BSUM (8개)
     features['m14bsum_mean'] = np.mean(seq_m14bsum)
     features['m14bsum_max'] = np.max(seq_m14bsum)
     features['m14bsum_current'] = seq_m14bsum[-1]
@@ -52,6 +58,7 @@ def create_features_v9(row_dict):
     features['m14bsum_std'] = np.std(seq_m14bsum)
     features['m14bsum_trend10'] = seq_m14bsum[-1] - seq_m14bsum[-10]
     
+    # 3. TOTALCNT (10개)
     features['total_mean'] = np.mean(seq_totalcnt)
     features['total_max'] = np.max(seq_totalcnt)
     features['total_min'] = np.min(seq_totalcnt)
@@ -63,23 +70,27 @@ def create_features_v9(row_dict):
     features['total_std'] = np.std(seq_totalcnt)
     features['total_trend10'] = seq_totalcnt[-1] - seq_totalcnt[-10]
     
+    # 4. M10AM14A (5개)
     features['m10arev_mean'] = np.mean(seq_m10arev)
     features['m10arev_max'] = np.max(seq_m10arev)
     features['m10arev_current'] = seq_m10arev[-1]
     features['m10arev_last10'] = np.mean(seq_m10arev[-10:])
     features['m10arev_slope'] = np.polyfit(np.arange(seq_len), seq_m10arev, 1)[0]
     
+    # 5. TRANSPORT (5개)
     features['trans_mean'] = np.mean(seq_transport)
     features['trans_max'] = np.max(seq_transport)
     features['trans_current'] = seq_transport[-1]
     features['trans_last10'] = np.mean(seq_transport[-10:])
     features['trans_slope'] = np.polyfit(np.arange(seq_len), seq_transport, 1)[0]
     
+    # 6. OHT (4개)
     features['oht_mean'] = np.mean(seq_oht)
     features['oht_max'] = np.max(seq_oht)
     features['oht_current'] = seq_oht[-1]
     features['oht_last10'] = np.mean(seq_oht[-10:])
     
+    # Interaction (8개)
     features['m14b_x_sum'] = seq_m14b[-1] * seq_m14bsum[-1] / 1000
     features['m14b_x_sum_mean'] = np.mean(seq_m14b * seq_m14bsum) / 1000
     features['sum_per_m14b'] = seq_m14bsum[-1] / (seq_m14b[-1] + 1)
@@ -89,6 +100,7 @@ def create_features_v9(row_dict):
     features['ratio_m14b_total'] = seq_m14b[-1] / (seq_totalcnt[-1] + 1)
     features['ratio_sum_total'] = seq_m14bsum[-1] / (seq_totalcnt[-1] + 1)
     
+    # 임계값 (8개)
     features['m14b_over_520'] = np.sum(seq_m14b > 520)
     features['m14b_over_540'] = np.sum(seq_m14b > 540)
     features['m14bsum_over_600'] = np.sum(seq_m14bsum > 600)
@@ -98,6 +110,7 @@ def create_features_v9(row_dict):
     features['total_over_1650'] = np.sum(seq_totalcnt >= 1650)
     features['total_over_1700'] = np.sum(seq_totalcnt >= 1700)
     
+    # 황금 패턴 (4개)
     features['gold_strict'] = 1 if (seq_m14b[-1] > 540 and seq_m14bsum[-1] > 620) else 0
     features['gold_normal'] = 1 if (seq_m14b[-1] > 520 and seq_m14bsum[-1] > 600) else 0
     features['in_danger'] = 1 if seq_totalcnt[-1] >= 1700 else 0
@@ -106,21 +119,41 @@ def create_features_v9(row_dict):
     return features
 
 # ========================================
-# 보정 함수
+# 보정 함수 - 현재값 하한선!
 # ========================================
 def adjust_prediction(pred, current_total, m14b, m14bsum):
+    """
+    🔥 핵심 보정:
+    1. 현재값 하한선: 예측 >= 현재 - 100 (15분에 100 이상 하락 불가능!)
+    2. 황금패턴 시 상향 boost
+    3. 상한선 없음!
+    """
+    
+    # 🔥 1. 현재값 하한선 (가장 중요!)
     floor = current_total - 100
     if pred < floor:
         pred = floor
     
+    # 2. 황금패턴 boost (1650~1699 구간만)
     if 1650 <= pred < 1700:
+        boost = 0
+        
         if m14b > 540 and m14bsum > 620:
-            pred += 50
+            boost += 50
         elif m14b > 520 and m14bsum > 600:
-            pred += 40
+            boost += 40
+        
+        if m14b > 560:
+            boost += 20
+        if m14bsum > 650:
+            boost += 20
+            
+        pred = pred + boost
     
-    if current_total >= 1700 and pred < 1680:
-        pred = max(pred, current_total - 70)
+    # 3. 이미 위험 구간일 때
+    if current_total >= 1700:
+        if pred < 1680:
+            pred = max(pred, current_total - 70)
     
     return pred
 
@@ -128,7 +161,7 @@ def adjust_prediction(pred, current_total, m14b, m14bsum):
 # 메인
 # ========================================
 model = None
-for mf in ['model_v9_15min.pkl', 'model_13col_final.pkl']:
+for mf in ['model_v9_15min.pkl', 'model_v9.pkl']:
     if os.path.exists(mf):
         with open(mf, 'rb') as f:
             model = pickle.load(f)
@@ -136,7 +169,7 @@ for mf in ['model_v9_15min.pkl', 'model_13col_final.pkl']:
         break
 
 if not model:
-    print("❌ 모델 없음!")
+    print("❌ 모델 없음! model_v9_15min.pkl 필요")
     exit(1)
 
 DATA_FILE = 'data/M14_Q_20251014_TO_20251015.CSV'
@@ -146,10 +179,10 @@ df['CURRTIME'] = pd.to_datetime(df['CURRTIME'].astype(str), format='%Y%m%d%H%M')
 
 results = []
 seq_len = 280
-total = len(df) - seq_len - PRED_OFFSET
+total = len(df) - seq_len - 15
 print(f"\n🔄 평가 중... {total:,}개")
 
-for i in range(seq_len, len(df) - PRED_OFFSET):
+for i in range(seq_len, len(df) - 15):
     row_dict = {
         'M14AM14B': df['M14AM14B'].iloc[i-seq_len:i].values,
         'M14AM14BSUM': df['M14AM14BSUM'].iloc[i-seq_len:i].values,
@@ -165,11 +198,11 @@ for i in range(seq_len, len(df) - PRED_OFFSET):
     
     current_time = df['CURRTIME'].iloc[i-1]
     current_total = seq_totalcnt[-1]
-    actual = df['TOTALCNT'].iloc[i + PRED_OFFSET - 1]
+    actual = df['TOTALCNT'].iloc[i+14]
     
     seq_start_time = df['CURRTIME'].iloc[i-seq_len]
-    prediction_time = current_time + timedelta(minutes=PRED_OFFSET)
-    actual_time = df['CURRTIME'].iloc[i + PRED_OFFSET - 1]
+    prediction_time = current_time + timedelta(minutes=15)
+    actual_time = df['CURRTIME'].iloc[i+14]
     
     features = create_features_v9(row_dict)
     X = pd.DataFrame([features])
@@ -191,8 +224,12 @@ for i in range(seq_len, len(df) - PRED_OFFSET):
         '보정예측': round(pred, 2),
         '오차': round(actual - pred, 2),
         '절대오차': round(abs(actual - pred), 2),
+        '오차율(%)': round(abs(actual - pred) / max(actual, 1) * 100, 2),
         'M14AM14B': round(seq_m14b[-1], 2),
         'M14AM14BSUM': round(seq_m14bsum[-1], 2),
+        'M10AM14A': round(row_dict['M10AM14A'][-1], 2),
+        'TRANSPORT': round(row_dict['TRANSPORT'][-1], 2),
+        'OHT_UTIL': round(row_dict['OHT'][-1], 2),
         '황금패턴(엄격)': 'O' if gold_strict else '',
         '황금패턴(보통)': 'O' if gold_normal else '',
         '실제위험(1700+)': 'O' if actual >= 1700 else '',
@@ -210,17 +247,45 @@ output = 'evaluation_V9_15min.csv'
 df_result.to_csv(output, index=False, encoding='utf-8-sig')
 print(f"✅ 저장: {output}")
 
+del df
+gc.collect()
+
+# ===== 통계 =====
 print("\n" + "="*70)
-print(f"📊 V9 15분 평가 통계")
+print("📊 V9 15분 평가 통계")
 print("="*70)
+print(f"총 예측: {len(df_result):,}개")
 print(f"MAE: {df_result['절대오차'].mean():.2f}")
+print(f"오차율: {df_result['오차율(%)'].mean():.2f}%")
 
 actual_danger = df_result['실제위험(1700+)'] == 'O'
 pred_danger = df_result['예측위험(1700+)'] == 'O'
+
 actual_count = actual_danger.sum()
 detected = (actual_danger & pred_danger).sum()
 
+print(f"\n🔥 1700+ 감지:")
+print(f"  실제: {actual_count}개")
 if actual_count > 0:
-    print(f"1700+ 감지율: {detected/actual_count*100:.1f}% ({detected}/{actual_count})")
+    print(f"  감지: {detected}개")
+    print(f"  감지율: {detected/actual_count*100:.1f}%")
+    
+    missed = df_result[actual_danger & ~pred_danger]
+    if len(missed) > 0:
+        print(f"\n❌ 미감지 {len(missed)}개:")
+        cols = ['현재시간', '현재TOTALCNT', '실제값', '원본예측', '보정예측', 'M14AM14B', 'M14AM14BSUM']
+        print(missed[cols].head(10).to_string(index=False))
 
-print(f"\n✅ 완료! → {output}")
+if actual_count > 0:
+    danger_rows = df_result[actual_danger]
+    raw_detected = (danger_rows['원본예측'] >= 1700).sum()
+    adj_detected = (danger_rows['보정예측'] >= 1700).sum()
+    
+    print(f"\n📈 보정 효과:")
+    print(f"  원본 감지율: {raw_detected/actual_count*100:.1f}%")
+    print(f"  보정 감지율: {adj_detected/actual_count*100:.1f}%")
+    print(f"  개선: +{(adj_detected-raw_detected)/actual_count*100:.1f}%p")
+
+print("\n" + "="*70)
+print(f"✅ V9 15분 평가 완료! → {output}")
+print("="*70)
