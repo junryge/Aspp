@@ -2,9 +2,10 @@ import pandas as pd
 from datetime import datetime, timedelta
 
 # === 파일 경로 설정 ===
-FILE1 = 'file1.csv'  # CURRTIME 컬럼 있는 파일
-FILE2 = 'file2.csv'  # CRT_TM 컬럼 있는 파일
-OUTPUT = 'merged_output.csv'
+FILE1 = 'file1.csv'
+FILE2 = 'file2.csv'
+OUTPUT_MERGED = 'merged_output.csv'
+OUTPUT_MISSING = 'missing_data.csv'  # 누락 데이터 하나로
 
 # === 파일 로딩 함수 ===
 def load_csv(path):
@@ -19,78 +20,53 @@ def load_csv(path):
 df1 = load_csv(FILE1)
 df2 = load_csv(FILE2)
 
-print(f"파일1 컬럼: {df1.columns.tolist()}")
-print(f"파일2 컬럼: {df2.columns.tolist()}")
-
-# === 원본 데이터 확인 ===
-print(f"\n파일1 CURRTIME 샘플: {df1['CURRTIME'].head(3).tolist()}")
-print(f"파일2 CRT_TM 샘플: {df2['CRT_TM'].head(3).tolist()}")
-
 # === 2. 날짜 컬럼 통일 ===
-# 파일1: CURRTIME (202507010000 형태, 공백 없음)
 df1['CURRTIME'] = df1['CURRTIME'].astype(str).str.replace(' ', '').str.strip()
 df1['datetime'] = pd.to_datetime(df1['CURRTIME'], format='%Y%m%d%H%M', errors='coerce')
 
-# 파일2: CRT_TM (2024-12-01 0:00 형태, 자동 파싱)
 df2['CRT_TM'] = df2['CRT_TM'].astype(str).str.strip()
 df2['datetime'] = pd.to_datetime(df2['CRT_TM'], errors='coerce')
 
-# === 파싱 결과 확인 ===
-print(f"\n파일1 datetime 변환 성공: {df1['datetime'].notna().sum()} / {len(df1)}")
-print(f"파일2 datetime 변환 성공: {df2['datetime'].notna().sum()} / {len(df2)}")
-
-if df1['datetime'].notna().sum() > 0:
-    print(f"파일1 datetime 샘플: {df1['datetime'].dropna().head(3).tolist()}")
-if df2['datetime'].notna().sum() > 0:
-    print(f"파일2 datetime 샘플: {df2['datetime'].dropna().head(3).tolist()}")
-
-# === 3. 전체 시간 범위 생성 (1분 단위) ===
+# === 3. 전체 시간 범위 생성 ===
 all_times = pd.concat([df1['datetime'].dropna(), df2['datetime'].dropna()])
-
-if len(all_times) == 0:
-    raise Exception("날짜 파싱 실패! 원본 데이터 형식 확인 필요")
-
 start_time = all_times.min()
 end_time = all_times.max()
 
-print(f"\n시간 범위: {start_time} ~ {end_time}")
-
-# 전체 시간 인덱스 생성
 full_range = pd.date_range(start=start_time, end=end_time, freq='1min')
 df_base = pd.DataFrame({'datetime': full_range})
 
-print(f"전체 행 수: {len(df_base)}")
-
-# === 4. 파일1, 파일2 병합 ===
-# 파일1 병합
+# === 4. 병합 ===
 df1_cols = [c for c in df1.columns if c not in ['datetime', 'CURRTIME']]
-df_merged = df_base.merge(df1[['datetime'] + df1_cols], on='datetime', how='left')
-
-# 파일2 병합
 df2_cols = [c for c in df2.columns if c not in ['datetime', 'CRT_TM']]
-df_merged = df_merged.merge(df2[['datetime'] + df2_cols], on='datetime', how='left')
 
-# === 5. CURRTIME 형식 컬럼 추가 ===
+df_merged = df_base.merge(df1[['datetime'] + df1_cols], on='datetime', how='left')
+df_merged = df_merged.merge(df2[['datetime'] + df2_cols], on='datetime', how='left')
 df_merged['CURRTIME'] = df_merged['datetime'].dt.strftime('%Y%m%d%H%M')
 
-# 컬럼 순서 정리
+# === 5. 누락 데이터 추출 (하나로) ===
+file1_missing = df_merged[df1_cols[0]].isna()
+file2_missing = df_merged[df2_cols[0]].isna()
+any_missing = file1_missing | file2_missing
+
+df_missing = df_merged[any_missing][['CURRTIME', 'datetime']].copy()
+df_missing['FILE1_MISSING'] = file1_missing[any_missing].astype(int)
+df_missing['FILE2_MISSING'] = file2_missing[any_missing].astype(int)
+
+print(f"누락 행 수: {len(df_missing)}")
+df_missing.to_csv(OUTPUT_MISSING, index=False, encoding='utf-8-sig')
+print(f"누락 데이터 저장: {OUTPUT_MISSING}")
+
+# === 6. 선형 보간 ===
+numeric_cols = df1_cols + df2_cols
+for col in numeric_cols:
+    df_merged[col] = pd.to_numeric(df_merged[col], errors='coerce')
+
+df_merged[numeric_cols] = df_merged[numeric_cols].interpolate(method='linear', limit=30)
+df_merged[numeric_cols] = df_merged[numeric_cols].ffill(limit=10)
+df_merged[numeric_cols] = df_merged[numeric_cols].bfill(limit=10)
+
+# === 7. 저장 ===
 cols = ['CURRTIME', 'datetime'] + df1_cols + df2_cols
 df_merged = df_merged[cols]
-
-# === 6. 결과 확인 및 저장 ===
-print(f"\n=== 통합 결과 ===")
-print(f"총 행 수: {len(df_merged)}")
-print(f"파일1 데이터 있는 행: {df_merged[df1_cols[0]].notna().sum()}")
-print(f"파일2 데이터 있는 행: {df_merged[df2_cols[0]].notna().sum()}")
-print(f"둘 다 있는 행: {(df_merged[df1_cols[0]].notna() & df_merged[df2_cols[0]].notna()).sum()}")
-
-# 누락 통계
-print(f"\n=== 누락 통계 ===")
-for col in df1_cols + df2_cols:
-    missing = df_merged[col].isna().sum()
-    pct = missing / len(df_merged) * 100
-    print(f"{col}: {missing}개 누락 ({pct:.1f}%)")
-
-# 저장
-df_merged.to_csv(OUTPUT, index=False, encoding='utf-8-sig')
-print(f"\n저장 완료: {OUTPUT}")
+df_merged.to_csv(OUTPUT_MERGED, index=False, encoding='utf-8-sig')
+print(f"통합 파일 저장: {OUTPUT_MERGED}")
