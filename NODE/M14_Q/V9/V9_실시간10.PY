@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-🚀 실시간 예측 시스템 - V9 (Feature 간소화 버전)
-222개 → 60개 Feature
+🚀 실시간 예측 시스템 - V9.0 (queue_gap 복원!)
+60개 → 82개 Feature
 """
 
 import numpy as np
@@ -12,10 +12,10 @@ from datetime import datetime, timedelta
 import os
 
 # ========================================
-# Feature 생성 함수 (V9 - 60개!)
+# Feature 생성 함수 (V9.0 - 82개!)
 # ========================================
 def create_features_v9(row_dict):
-    """핵심 컬럼 기반 60개 Feature"""
+    """핵심 컬럼 + queue_gap 기반 82개 Feature"""
     features = {}
     
     seq_m14b = np.array(row_dict['M14AM14B'])
@@ -24,6 +24,11 @@ def create_features_v9(row_dict):
     seq_totalcnt = np.array(row_dict['TOTALCNT'])
     seq_transport = np.array(row_dict['TRANSPORT'])
     seq_oht = np.array(row_dict['OHT'])
+    seq_q_created = np.array(row_dict['Q_CREATED'])
+    seq_q_completed = np.array(row_dict['Q_COMPLETED'])
+    
+    # 🔥 queue_gap 계산!
+    seq_gap = seq_q_created - seq_q_completed
     
     seq_len = len(seq_m14b)
     
@@ -79,7 +84,19 @@ def create_features_v9(row_dict):
     features['oht_current'] = seq_oht[-1]
     features['oht_last10'] = np.mean(seq_oht[-10:])
     
-    # Interaction (8개)
+    # 7. 🔥 Queue Gap (10개)
+    features['gap_mean'] = np.mean(seq_gap)
+    features['gap_max'] = np.max(seq_gap)
+    features['gap_min'] = np.min(seq_gap)
+    features['gap_current'] = seq_gap[-1]
+    features['gap_last5'] = np.mean(seq_gap[-5:])
+    features['gap_last10'] = np.mean(seq_gap[-10:])
+    features['gap_last30'] = np.mean(seq_gap[-30:])
+    features['gap_slope'] = np.polyfit(np.arange(seq_len), seq_gap, 1)[0]
+    features['gap_std'] = np.std(seq_gap)
+    features['gap_trend10'] = seq_gap[-1] - seq_gap[-10]
+    
+    # Interaction (12개)
     features['m14b_x_sum'] = seq_m14b[-1] * seq_m14bsum[-1] / 1000
     features['m14b_x_sum_mean'] = np.mean(seq_m14b * seq_m14bsum) / 1000
     features['sum_per_m14b'] = seq_m14bsum[-1] / (seq_m14b[-1] + 1)
@@ -88,8 +105,12 @@ def create_features_v9(row_dict):
     features['trans_x_m14b'] = seq_transport[-1] * seq_m14b[-1] / 100
     features['ratio_m14b_total'] = seq_m14b[-1] / (seq_totalcnt[-1] + 1)
     features['ratio_sum_total'] = seq_m14bsum[-1] / (seq_totalcnt[-1] + 1)
+    features['gap_x_m14b'] = seq_gap[-1] * seq_m14b[-1] / 1000
+    features['gap_x_total'] = seq_gap[-1] * seq_totalcnt[-1] / 1000
+    features['gap_x_trans'] = seq_gap[-1] * seq_transport[-1] / 100
+    features['ratio_gap_total'] = seq_gap[-1] / (seq_totalcnt[-1] + 1)
     
-    # 임계값 (8개)
+    # 임계값 (12개)
     features['m14b_over_520'] = np.sum(seq_m14b > 520)
     features['m14b_over_540'] = np.sum(seq_m14b > 540)
     features['m14bsum_over_600'] = np.sum(seq_m14bsum > 600)
@@ -98,31 +119,56 @@ def create_features_v9(row_dict):
     features['total_over_1600'] = np.sum(seq_totalcnt >= 1600)
     features['total_over_1650'] = np.sum(seq_totalcnt >= 1650)
     features['total_over_1700'] = np.sum(seq_totalcnt >= 1700)
+    features['gap_over_200'] = np.sum(seq_gap > 200)
+    features['gap_over_250'] = np.sum(seq_gap > 250)
+    features['gap_over_300'] = np.sum(seq_gap > 300)
+    features['gap_over_350'] = np.sum(seq_gap > 350)
     
-    # 황금 패턴 (4개)
+    # 황금 패턴 (8개)
     features['gold_strict'] = 1 if (seq_m14b[-1] > 540 and seq_m14bsum[-1] > 620) else 0
     features['gold_normal'] = 1 if (seq_m14b[-1] > 520 and seq_m14bsum[-1] > 600) else 0
     features['in_danger'] = 1 if seq_totalcnt[-1] >= 1700 else 0
     features['near_danger'] = 1 if seq_totalcnt[-1] >= 1600 else 0
+    features['danger_gap'] = 1 if seq_gap[-1] > 300 else 0
+    features['danger_trans'] = 1 if seq_transport[-1] > 151 else 0
+    features['triple_check'] = 1 if (seq_m14b[-1] > 520 and seq_m14bsum[-1] > 600 and seq_gap[-1] > 250) else 0
+    features['quad_check'] = 1 if (seq_m14b[-1] > 520 and seq_m14bsum[-1] > 600 and seq_gap[-1] > 250 and seq_transport[-1] > 145) else 0
     
     return features
 
 # ========================================
-# 보정 함수 (V9!)
+# 보정 함수 (V9.0 - gap, trans 추가!)
 # ========================================
-def adjust_prediction_v9(pred, current_total, m14b, m14bsum):
-    """V9 보정 - 하한선 + 황금패턴 boost"""
+def adjust_prediction_v9(pred, current_total, m14b, m14bsum, gap, trans):
+    """V9.0 보정 - 하한선 + 황금패턴 boost + gap boost"""
     # 하한선 (10분이라 80)
     floor = current_total - 80
     if pred < floor:
         pred = floor
     
-    # 황금패턴 boost (1650~1699)
+    # 황금패턴 + gap boost (1650~1699)
     if 1650 <= pred < 1700:
+        boost = 0
         if m14b > 540 and m14bsum > 620:
-            pred += 50
+            boost += 50
         elif m14b > 520 and m14bsum > 600:
-            pred += 40
+            boost += 40
+        
+        # gap boost
+        if gap > 350:
+            boost += 40
+        elif gap > 300:
+            boost += 35
+        elif gap > 250:
+            boost += 25
+        
+        # trans boost
+        if trans > 180:
+            boost += 30
+        elif trans > 151:
+            boost += 20
+        
+        pred = pred + boost
     
     # 현재 1700+ 보정
     if current_total >= 1700 and pred < 1680:
@@ -152,7 +198,10 @@ def predict_latest():
     """
     
     # 1. 모델 로드
-    model_file = 'model_v9.pkl'
+    model_file = 'model_v9_10min.pkl'
+    if not os.path.exists(model_file):
+        model_file = 'model_v9.pkl'
+    
     try:
         with open(model_file, 'rb') as f:
             model = pickle.load(f)
@@ -202,10 +251,11 @@ def predict_latest():
             'error_message': 'CSV file is empty'
         }
     
-    # 5. 필수 컬럼 확인 (V9: 6개!)
+    # 5. 필수 컬럼 확인 (V9.0: 8개!)
     required_cols = [
         'M14AM14B', 'M14AM14BSUM', 'M10AM14A', 'TOTALCNT',
-        'M14.QUE.ALL.TRANSPORT4MINOVERCNT', 'M14.QUE.OHT.OHTUTIL'
+        'M14.QUE.ALL.TRANSPORT4MINOVERCNT', 'M14.QUE.OHT.OHTUTIL',
+        'M14.QUE.ALL.CURRENTQCREATED', 'M14.QUE.ALL.CURRENTQCOMPLETED'
     ]
     missing_cols = [col for col in required_cols if col not in df.columns]
     
@@ -261,7 +311,7 @@ def predict_latest():
     
     # 8. Feature 추출 및 예측
     try:
-        # 최근 280분 데이터 추출 (V9: 6개 컬럼!)
+        # 최근 280분 데이터 추출 (V9.0: 8개 컬럼!)
         row_dict = {
             'M14AM14B': df['M14AM14B'].iloc[-280:].values,
             'M14AM14BSUM': df['M14AM14BSUM'].iloc[-280:].values,
@@ -269,6 +319,8 @@ def predict_latest():
             'TOTALCNT': df['TOTALCNT'].iloc[-280:].values,
             'TRANSPORT': df['M14.QUE.ALL.TRANSPORT4MINOVERCNT'].iloc[-280:].values,
             'OHT': df['M14.QUE.OHT.OHTUTIL'].iloc[-280:].values,
+            'Q_CREATED': df['M14.QUE.ALL.CURRENTQCREATED'].iloc[-280:].values,
+            'Q_COMPLETED': df['M14.QUE.ALL.CURRENTQCOMPLETED'].iloc[-280:].values,
         }
         
         # 시간 정보
@@ -281,27 +333,33 @@ def predict_latest():
         seq_totalcnt = row_dict['TOTALCNT']
         seq_m14b = row_dict['M14AM14B']
         seq_m14bsum = row_dict['M14AM14BSUM']
+        seq_gap = row_dict['Q_CREATED'] - row_dict['Q_COMPLETED']
+        seq_trans = row_dict['TRANSPORT']
         
         current_totalcnt = seq_totalcnt[-1]
         current_m14b = seq_m14b[-1]
         current_m14bsum = seq_m14bsum[-1]
+        current_gap = seq_gap[-1]
+        current_trans = seq_trans[-1]
         
-        # Feature 생성 (V9!)
+        # Feature 생성 (V9.0!)
         features = create_features_v9(row_dict)
         X_pred = pd.DataFrame([features])
         
         # 원본 예측
         pred_raw = model.predict(X_pred)[0]
         
-        # V9 보정
-        pred = adjust_prediction_v9(pred_raw, current_totalcnt, current_m14b, current_m14bsum)
+        # V9.0 보정 (gap, trans 추가!)
+        pred = adjust_prediction_v9(pred_raw, current_totalcnt, current_m14b, current_m14bsum, current_gap, current_trans)
         
         # 상태 판정
         pred_status = get_status_info(pred)
         
-        # 패턴 감지 (V9 임계값!)
+        # 패턴 감지 (V9.0!)
         gold_strict = (current_m14b > 540 and current_m14bsum > 620)
         gold_normal = (current_m14b > 520 and current_m14bsum > 600)
+        danger_gap = current_gap > 300
+        triple_check = (current_m14b > 520 and current_m14bsum > 600 and current_gap > 250)
         
         # 1700+ 위험 확률 계산
         danger_prob = 0
@@ -327,6 +385,16 @@ def predict_latest():
         elif gold_normal:
             danger_prob = min(100, danger_prob + 15)
         elif (current_m14b > 509 and current_m14bsum > 570):
+            danger_prob = min(100, danger_prob + 10)
+        
+        # gap 보정
+        if danger_gap:
+            danger_prob = min(100, danger_prob + 15)
+        elif current_gap > 250:
+            danger_prob = min(100, danger_prob + 10)
+        
+        # triple_check 보정
+        if triple_check:
             danger_prob = min(100, danger_prob + 10)
         
         # 현재값 보정
