@@ -5,6 +5,7 @@ import pandas as pd
 FILE1 = 'M14_Q_20241201_2025120212_S2.csv'
 FILE2 = 'M14_Q_20250909_20251205_S1.csv'
 OUTPUT = 'merged_output.csv'
+REPORT = 'missing_report.csv'  # 누락 리포트
 
 # === 로딩 ===
 def load_csv(path):
@@ -42,41 +43,111 @@ df2_cols = [c for c in df2.columns if c not in ['datetime', 'CRT_TM']]
 df_merged = df_base.merge(df1[['datetime'] + df1_cols], on='datetime', how='left')
 df_merged = df_merged.merge(df2[['datetime'] + df2_cols], on='datetime', how='left')
 
-# === 누락 데이터 보간 (핵심 추가!) ===
 data_cols = df1_cols + df2_cols
-
-# 숫자 컬럼만 보간
 for col in data_cols:
     df_merged[col] = pd.to_numeric(df_merged[col], errors='coerce')
 
-print(f"\n=== 보간 전 누락 ===")
+# ==============================
+# 누락 분석 (보간 전)
+# ==============================
+print(f"\n{'='*50}")
+print("누락 분석 (보간 전)")
+print('='*50)
+
+# 1) 컬럼별 누락 통계
+missing_stats = []
+for col in data_cols:
+    missing_cnt = df_merged[col].isna().sum()
+    total = len(df_merged)
+    pct = missing_cnt / total * 100
+    source = 'FILE1' if col in df1_cols else 'FILE2'
+    missing_stats.append({
+        'column': col,
+        'source': source,
+        'missing_count': missing_cnt,
+        'total': total,
+        'missing_pct': round(pct, 2)
+    })
+
+df_missing = pd.DataFrame(missing_stats)
+df_missing = df_missing.sort_values('missing_pct', ascending=False)
+
+print(f"\n[컬럼별 누락률 TOP 20]")
+print(df_missing.head(20).to_string(index=False))
+
+# 2) 시간대별 누락 (일별)
+df_merged['date'] = df_merged['datetime'].dt.date
+daily_missing = df_merged.groupby('date')[data_cols].apply(lambda x: x.isna().sum().sum())
+daily_total = df_merged.groupby('date')[data_cols].apply(lambda x: x.size)
+daily_pct = (daily_missing / daily_total * 100).round(2)
+
+print(f"\n[일별 누락률]")
+for dt, pct in daily_pct.items():
+    if pct > 0:
+        print(f"  {dt}: {pct:.2f}%")
+
+# 3) FILE1 vs FILE2 비교
+file1_missing = df_merged[df1_cols].isna().sum().sum()
+file1_total = len(df_merged) * len(df1_cols)
+file2_missing = df_merged[df2_cols].isna().sum().sum()
+file2_total = len(df_merged) * len(df2_cols)
+
+print(f"\n[파일별 누락 요약]")
+print(f"  FILE1: {file1_missing:,}/{file1_total:,} ({file1_missing/file1_total*100:.2f}%)")
+print(f"  FILE2: {file2_missing:,}/{file2_total:,} ({file2_missing/file2_total*100:.2f}%)")
+
+# 4) 완전 누락 시간대 찾기
+df_merged['all_missing'] = df_merged[data_cols].isna().all(axis=1)
+missing_times = df_merged[df_merged['all_missing']]['datetime']
+print(f"\n[완전 누락 시간대]: {len(missing_times)}개")
+if len(missing_times) > 0 and len(missing_times) <= 20:
+    for t in missing_times:
+        print(f"  {t}")
+elif len(missing_times) > 20:
+    print(f"  처음 5개: {missing_times.head().tolist()}")
+    print(f"  마지막 5개: {missing_times.tail().tolist()}")
+
+# ==============================
+# 보간
+# ==============================
+print(f"\n{'='*50}")
+print("보간 수행")
+print('='*50)
+
 before_missing = df_merged[data_cols].isna().sum().sum()
-print(f"총 누락: {before_missing}")
 
-# 1) 선형 보간 (최대 10분 갭까지만)
 df_merged[data_cols] = df_merged[data_cols].interpolate(method='linear', limit=10, limit_direction='both')
-
-# 2) 남은 건 앞뒤값으로 채우기
 df_merged[data_cols] = df_merged[data_cols].ffill(limit=5)
 df_merged[data_cols] = df_merged[data_cols].bfill(limit=5)
 
-print(f"\n=== 보간 후 누락 ===")
 after_missing = df_merged[data_cols].isna().sum().sum()
-print(f"총 누락: {after_missing}")
-print(f"채운 개수: {before_missing - after_missing}")
+print(f"보간 전: {before_missing:,}개 누락")
+print(f"보간 후: {after_missing:,}개 누락")
+print(f"채운 개수: {before_missing - after_missing:,}개")
+
+# ==============================
+# 보간 후 누락 분석
+# ==============================
+print(f"\n[보간 후에도 남은 누락 컬럼]")
+for col in data_cols:
+    remaining = df_merged[col].isna().sum()
+    if remaining > 0:
+        pct = remaining / len(df_merged) * 100
+        print(f"  {col}: {remaining}개 ({pct:.2f}%)")
 
 # === CURRTIME 복원 ===
 df_merged['CURRTIME'] = df_merged['datetime'].dt.strftime('%Y%m%d%H%M')
 
-# === 컬럼 정리 ===
+# === 저장 ===
+# 1) 메인 데이터
 cols = ['CURRTIME'] + data_cols
-df_merged = df_merged[cols]
+df_merged[cols].to_csv(OUTPUT, index=False, encoding='utf-8-sig')
+print(f"\n데이터 저장: {OUTPUT}")
 
-# === 결과 ===
-print(f"\n=== 최종 결과 ===")
-print(f"총 행: {len(df_merged)}")
-print(f"FILE1 컬럼 채움률: {df_merged[df1_cols[0]].notna().sum()}/{len(df_merged)}")
-print(f"FILE2 컬럼 채움률: {df_merged[df2_cols[0]].notna().sum()}/{len(df_merged)}")
+# 2) 누락 리포트
+df_missing.to_csv(REPORT, index=False, encoding='utf-8-sig')
+print(f"리포트 저장: {REPORT}")
 
-df_merged.to_csv(OUTPUT, index=False, encoding='utf-8-sig')
-print(f"\n저장: {OUTPUT}")
+print(f"\n{'='*50}")
+print("완료!")
+print('='*50)
