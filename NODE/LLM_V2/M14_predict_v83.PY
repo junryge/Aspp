@@ -1,23 +1,23 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-M14 물류 예측 모듈 - V8.3 (queue_gap 복원!)
+M14 물류 예측 모듈 - V83 (queue_gap 복원!)
+8개 컬럼, 82개 Feature, 하한선 추가
 """
 
 import numpy as np
 import pandas as pd
 import pickle
 import os
+import json
 from datetime import datetime, timedelta
 
-# 모델 파일 (V8.3)
 MODEL_FILES = {
     10: 'M14_MODEL/model_v83_10min.pkl',
     15: 'M14_MODEL/model_v83_15min.pkl',
     25: 'M14_MODEL/model_v83_25min.pkl'
 }
 
-# 필수 컬럼 8개 (V8.3)
 REQUIRED_COLS = [
     'M14AM14B', 'M14AM14BSUM', 'M10AM14A', 'TOTALCNT',
     'M14.QUE.ALL.TRANSPORT4MINOVERCNT', 'M14.QUE.OHT.OHTUTIL',
@@ -25,7 +25,7 @@ REQUIRED_COLS = [
 ]
 
 def create_features_v83(row_dict):
-    """V8.3 Feature 생성 (82개)"""
+    """V83 Feature 생성 (82개)"""
     features = {}
     
     seq_m14b = np.array(row_dict['M14AM14B'])
@@ -37,7 +37,6 @@ def create_features_v83(row_dict):
     seq_q_created = np.array(row_dict['Q_CREATED'])
     seq_q_completed = np.array(row_dict['Q_COMPLETED'])
     seq_gap = seq_q_created - seq_q_completed
-    
     seq_len = len(seq_m14b)
     
     # M14AM14B (8)
@@ -92,7 +91,7 @@ def create_features_v83(row_dict):
     features['oht_current'] = seq_oht[-1]
     features['oht_last10'] = np.mean(seq_oht[-10:])
     
-    # Queue Gap (10) - 복원!
+    # Queue Gap (10) - 핵심!
     features['gap_mean'] = np.mean(seq_gap)
     features['gap_max'] = np.max(seq_gap)
     features['gap_min'] = np.min(seq_gap)
@@ -145,51 +144,37 @@ def create_features_v83(row_dict):
     return features
 
 def adjust_prediction_v83(pred, current_total, m14b, m14bsum, gap, trans, horizon_min):
-    """V8.3 예측 보정 (시간대별 하한선 포함)"""
-    
-    # 1. 시간대별 하한선
+    """V83 예측 보정 (시간대별 하한선 포함)"""
     floor_offsets = {10: 80, 15: 100, 25: 130}
-    floor_offset = floor_offsets.get(horizon_min, 80)
-    floor = current_total - floor_offset
+    floor = current_total - floor_offsets.get(horizon_min, 80)
     if pred < floor:
         pred = floor
     
-    # 2. 1650~1699 구간 boost
     if 1650 <= pred < 1700:
         boost = 0
-        
-        # 황금패턴
         if m14b > 540 and m14bsum > 620:
             boost += 50
         elif m14b > 520 and m14bsum > 600:
             boost += 40
-        
-        # Gap
         if gap > 350:
             boost += 40
         elif gap > 300:
             boost += 35
         elif gap > 250:
             boost += 25
-        
-        # Transport
         if trans > 180:
             boost += 30
         elif trans > 151:
             boost += 20
-        
         pred = pred + boost
     
-    # 3. 위험 구간 보정
     danger_offsets = {10: 50, 15: 70, 25: 100}
-    danger_offset = danger_offsets.get(horizon_min, 50)
     if current_total >= 1700 and pred < 1680:
-        pred = max(pred, current_total - danger_offset)
+        pred = max(pred, current_total - danger_offsets.get(horizon_min, 50))
     
     return min(pred, 2000)
 
 def get_status_info(value):
-    """상태 판정"""
     if value < 900:
         return 'LOW'
     elif value < 1600:
@@ -200,16 +185,12 @@ def get_status_info(value):
         return 'CRITICAL'
 
 def generate_dashboard_html(result):
-    """상세 HTML 대시보드 생성"""
-    
-    import json
-    
+    """HTML 대시보드 생성"""
     current_value = result['current_value']
     current_status = result['current_status']
     current_time = result['current_time']
     predictions = result['predictions']
     
-    # 최대 위험도
     max_danger = max(p['danger_probability'] for p in predictions)
     
     if max_danger >= 85:
@@ -221,19 +202,12 @@ def generate_dashboard_html(result):
     else:
         risk, risk_color = "NORMAL", "#38a169"
     
-    # 그래프 데이터
-    chart1_labels = result['time_labels'] + [p['pred_time_label'] if 'pred_time_label' in p else f"{p['horizon']}min" for p in predictions]
+    chart1_labels = result['time_labels'] + [f"{p['horizon']}min" for p in predictions]
     chart1_historical = result['totalcnt_data'] + [None] * len(predictions)
     chart1_predictions = [None] * len(result['totalcnt_data']) + [p['prediction'] for p in predictions]
     
-    chart2_labels = result['time_labels']
-    chart2_data = result['m14b_data']
-    chart3_data = result['m14bsum_data']
-    chart4_data = result['gap_data']
-    chart5_data = result['trans_data']
-    
     html = f"""<!DOCTYPE html>
-<html><head><meta charset="UTF-8"><title>M14 V8.3 예측 대시보드</title>
+<html><head><meta charset="UTF-8"><title>M14 V83 예측 대시보드</title>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 <style>
 *{{margin:0;padding:0;box-sizing:border-box}}
@@ -266,198 +240,58 @@ body{{font-family:sans-serif;background:linear-gradient(135deg,#667eea,#764ba2);
 .chart-title{{font-size:24px;font-weight:700;color:#2d3748;margin-bottom:20px;text-align:center}}
 .chart-grid{{display:grid;grid-template-columns:repeat(2,1fr);gap:20px}}
 </style></head><body>
-
 <div class="container">
-
 <div class="card">
-<div class="header">📊 M14 V8.3 예측 대시보드</div>
-<div class="subtitle">{current_time} | 82 Features | queue_gap 복원!</div>
-
+<div class="header">📊 M14 V83 예측 대시보드</div>
+<div class="subtitle">{current_time} | 8컬럼 82Feature | queue_gap 복원!</div>
 <div class="current">
 <div class="current-grid">
-<div class="current-item">
-<div class="current-label">TOTALCNT</div>
-<div class="current-value">{current_value:,}</div>
-<span class="current-status status-{current_status.lower()}">{current_status}</span>
-</div>
-<div class="current-item">
-<div class="current-label">M14AM14B</div>
-<div class="current-value">{result['current_m14b']:.0f}</div>
-</div>
-<div class="current-item">
-<div class="current-label">M14AM14BSUM</div>
-<div class="current-value">{result['current_m14bsum']:.0f}</div>
-</div>
-<div class="current-item">
-<div class="current-label">queue_gap</div>
-<div class="current-value">{result['current_gap']:.0f}</div>
-</div>
-<div class="current-item">
-<div class="current-label">TRANSPORT</div>
-<div class="current-value">{result['current_trans']:.0f}</div>
-</div>
-</div>
-</div>
-</div>
-
+<div class="current-item"><div class="current-label">TOTALCNT</div><div class="current-value">{current_value:,}</div><span class="current-status status-{current_status.lower()}">{current_status}</span></div>
+<div class="current-item"><div class="current-label">M14AM14B</div><div class="current-value">{result['current_m14b']:.0f}</div></div>
+<div class="current-item"><div class="current-label">M14AM14BSUM</div><div class="current-value">{result['current_m14bsum']:.0f}</div></div>
+<div class="current-item"><div class="current-label">queue_gap</div><div class="current-value">{result['current_gap']:.0f}</div></div>
+<div class="current-item"><div class="current-label">TRANSPORT</div><div class="current-value">{result['current_trans']:.0f}</div></div>
+</div></div></div>
 <div class="risk">위험도: {risk} ({max_danger}%)</div>
-
 <div class="grid">"""
     
     for p in predictions:
-        danger_class = 'danger-high' if p['danger_probability'] >= 60 else ('danger-medium' if p['danger_probability'] >= 30 else 'danger-low')
-        
-        html += f"""<div class="pred">
-<div class="time">⏱️ {p['horizon']}분 후</div>
-<div class="pred-value">{p['prediction']:,}</div>
-<div class="danger {danger_class}">🚨 {p['danger_probability']}%</div>
-<div class="metric"><span>변화</span><span style="font-weight:700">{p['change']:+,}</span></div>
-<div class="metric"><span>상태</span><span style="font-weight:700">{p['status']}</span></div>
-<span class="current-status status-{p['status'].lower()}">{p['status']}</span>
-</div>"""
+        dc = 'danger-high' if p['danger_probability'] >= 60 else ('danger-medium' if p['danger_probability'] >= 30 else 'danger-low')
+        html += f"""<div class="pred"><div class="time">⏱️ {p['horizon']}분 후</div><div class="pred-value">{p['prediction']:,}</div><div class="danger {dc}">🚨 {p['danger_probability']}%</div><div class="metric"><span>변화</span><span style="font-weight:700">{p['change']:+,}</span></div><span class="current-status status-{p['status'].lower()}">{p['status']}</span></div>"""
     
     html += f"""</div>
-
-<!-- 메인 그래프: 60분 과거 + 예측 -->
-<div class="chart-container">
-<div class="chart-title">📈 최근 60분 TOTALCNT + 예측 (10/15/25분)</div>
-<canvas id="chart1" height="100"></canvas>
-</div>
-
-<!-- 서브 그래프 그리드 -->
+<div class="chart-container"><div class="chart-title">📈 최근 60분 TOTALCNT + 예측</div><canvas id="chart1" height="100"></canvas></div>
 <div class="chart-grid">
-<div class="chart-container">
-<div class="chart-title">M14AM14B (최근 60분)</div>
-<canvas id="chart2" height="150"></canvas>
-</div>
-
-<div class="chart-container">
-<div class="chart-title">M14AM14BSUM (최근 60분)</div>
-<canvas id="chart3" height="150"></canvas>
-</div>
-
-<div class="chart-container">
-<div class="chart-title">queue_gap (최근 60분)</div>
-<canvas id="chart4" height="150"></canvas>
-</div>
-
-<div class="chart-container">
-<div class="chart-title">TRANSPORT (최근 60분)</div>
-<canvas id="chart5" height="150"></canvas>
-</div>
-</div>
-
-</div>
-
+<div class="chart-container"><div class="chart-title">M14AM14B</div><canvas id="chart2" height="150"></canvas></div>
+<div class="chart-container"><div class="chart-title">M14AM14BSUM</div><canvas id="chart3" height="150"></canvas></div>
+<div class="chart-container"><div class="chart-title">queue_gap</div><canvas id="chart4" height="150"></canvas></div>
+<div class="chart-container"><div class="chart-title">TRANSPORT</div><canvas id="chart5" height="150"></canvas></div>
+</div></div>
 <script>
-// Chart 1: TOTALCNT + 예측
-const ctx1 = document.getElementById('chart1').getContext('2d');
-new Chart(ctx1, {{
-    type: 'line',
-    data: {{
-        labels: {json.dumps(chart1_labels)},
-        datasets: [
-            {{
-                label: '최근 60분 데이터',
-                data: {json.dumps(chart1_historical)},
-                borderColor: '#667eea',
-                backgroundColor: 'rgba(102, 126, 234, 0.1)',
-                borderWidth: 3,
-                pointRadius: 3,
-                pointBackgroundColor: '#667eea',
-                tension: 0.4,
-                fill: false
-            }},
-            {{
-                label: '예측 (10/15/25분)',
-                data: {json.dumps(chart1_predictions)},
-                borderColor: '#e53e3e',
-                backgroundColor: 'rgba(229, 62, 62, 0.1)',
-                borderWidth: 3,
-                borderDash: [5, 5],
-                pointRadius: 8,
-                pointBackgroundColor: '#e53e3e',
-                tension: 0,
-                fill: false,
-                spanGaps: true
-            }}
-        ]
-    }},
-    options: {{
-        responsive: true,
-        maintainAspectRatio: true,
-        interaction: {{mode: 'index', intersect: false}},
-        plugins: {{
-            legend: {{display: true, position: 'top', labels: {{font: {{size: 14, weight: 'bold'}}, usePointStyle: true, padding: 20}}}},
-            tooltip: {{backgroundColor: 'rgba(0, 0, 0, 0.8)', padding: 12}}
-        }},
-        scales: {{
-            x: {{grid: {{display: true, color: 'rgba(0, 0, 0, 0.05)'}}, ticks: {{font: {{size: 11}}, maxRotation: 45, minRotation: 45}}}},
-            y: {{beginAtZero: false, grid: {{display: true, color: 'rgba(0, 0, 0, 0.1)'}}, ticks: {{font: {{size: 12}}}}}}
-        }}
-    }}
-}});
-
-// Chart 2: M14AM14B
-const ctx2 = document.getElementById('chart2').getContext('2d');
-new Chart(ctx2, {{
-    type: 'line',
-    data: {{labels: {json.dumps(chart2_labels)}, datasets: [{{label: 'M14AM14B', data: {json.dumps(chart2_data)}, borderColor: '#48bb78', backgroundColor: 'rgba(72, 187, 120, 0.1)', borderWidth: 2, pointRadius: 0, tension: 0.4, fill: true}}]}},
-    options: {{responsive: true, maintainAspectRatio: true, plugins: {{legend: {{display: false}}}}, scales: {{x: {{grid: {{display: false}}, ticks: {{maxRotation: 0, autoSkip: true, maxTicksLimit: 10, font: {{size: 9}}}}}}, y: {{grid: {{display: true, color: 'rgba(0, 0, 0, 0.05)'}}, ticks: {{font: {{size: 10}}}}}}}}}}
-}});
-
-// Chart 3: M14AM14BSUM
-const ctx3 = document.getElementById('chart3').getContext('2d');
-new Chart(ctx3, {{
-    type: 'line',
-    data: {{labels: {json.dumps(chart2_labels)}, datasets: [{{label: 'M14AM14BSUM', data: {json.dumps(chart3_data)}, borderColor: '#4299e1', backgroundColor: 'rgba(66, 153, 225, 0.1)', borderWidth: 2, pointRadius: 0, tension: 0.4, fill: true}}]}},
-    options: {{responsive: true, maintainAspectRatio: true, plugins: {{legend: {{display: false}}}}, scales: {{x: {{grid: {{display: false}}, ticks: {{maxRotation: 0, autoSkip: true, maxTicksLimit: 10, font: {{size: 9}}}}}}, y: {{grid: {{display: true, color: 'rgba(0, 0, 0, 0.05)'}}, ticks: {{font: {{size: 10}}}}}}}}}}
-}});
-
-// Chart 4: queue_gap
-const ctx4 = document.getElementById('chart4').getContext('2d');
-new Chart(ctx4, {{
-    type: 'line',
-    data: {{labels: {json.dumps(chart2_labels)}, datasets: [{{label: 'queue_gap', data: {json.dumps(chart4_data)}, borderColor: '#ed8936', backgroundColor: 'rgba(237, 137, 54, 0.1)', borderWidth: 2, pointRadius: 0, tension: 0.4, fill: true}}]}},
-    options: {{responsive: true, maintainAspectRatio: true, plugins: {{legend: {{display: false}}}}, scales: {{x: {{grid: {{display: false}}, ticks: {{maxRotation: 0, autoSkip: true, maxTicksLimit: 10, font: {{size: 9}}}}}}, y: {{grid: {{display: true, color: 'rgba(0, 0, 0, 0.05)'}}, ticks: {{font: {{size: 10}}}}}}}}}}
-}});
-
-// Chart 5: TRANSPORT
-const ctx5 = document.getElementById('chart5').getContext('2d');
-new Chart(ctx5, {{
-    type: 'line',
-    data: {{labels: {json.dumps(chart2_labels)}, datasets: [{{label: 'TRANSPORT', data: {json.dumps(chart5_data)}, borderColor: '#9f7aea', backgroundColor: 'rgba(159, 122, 234, 0.1)', borderWidth: 2, pointRadius: 0, tension: 0.4, fill: true}}]}},
-    options: {{responsive: true, maintainAspectRatio: true, plugins: {{legend: {{display: false}}}}, scales: {{x: {{grid: {{display: false}}, ticks: {{maxRotation: 0, autoSkip: true, maxTicksLimit: 10, font: {{size: 9}}}}}}, y: {{grid: {{display: true, color: 'rgba(0, 0, 0, 0.05)'}}, ticks: {{font: {{size: 10}}}}}}}}}}
-}});
-</script>
-
-</body></html>"""
-    
+const labels={json.dumps(result['time_labels'])};
+new Chart(document.getElementById('chart1'),{{type:'line',data:{{labels:{json.dumps(chart1_labels)},datasets:[{{label:'60분 데이터',data:{json.dumps(chart1_historical)},borderColor:'#667eea',borderWidth:3,pointRadius:2,tension:0.4}},{{label:'예측',data:{json.dumps(chart1_predictions)},borderColor:'#e53e3e',borderWidth:3,borderDash:[5,5],pointRadius:8,spanGaps:true}}]}},options:{{responsive:true,plugins:{{legend:{{display:true}}}}}}}});
+new Chart(document.getElementById('chart2'),{{type:'line',data:{{labels:labels,datasets:[{{data:{json.dumps(result['m14b_data'])},borderColor:'#48bb78',borderWidth:2,pointRadius:0,tension:0.4,fill:true,backgroundColor:'rgba(72,187,120,0.1)'}}]}},options:{{responsive:true,plugins:{{legend:{{display:false}}}}}}}});
+new Chart(document.getElementById('chart3'),{{type:'line',data:{{labels:labels,datasets:[{{data:{json.dumps(result['m14bsum_data'])},borderColor:'#4299e1',borderWidth:2,pointRadius:0,tension:0.4,fill:true,backgroundColor:'rgba(66,153,225,0.1)'}}]}},options:{{responsive:true,plugins:{{legend:{{display:false}}}}}}}});
+new Chart(document.getElementById('chart4'),{{type:'line',data:{{labels:labels,datasets:[{{data:{json.dumps(result['gap_data'])},borderColor:'#ed8936',borderWidth:2,pointRadius:0,tension:0.4,fill:true,backgroundColor:'rgba(237,137,54,0.1)'}}]}},options:{{responsive:true,plugins:{{legend:{{display:false}}}}}}}});
+new Chart(document.getElementById('chart5'),{{type:'line',data:{{labels:labels,datasets:[{{data:{json.dumps(result['trans_data'])},borderColor:'#9f7aea',borderWidth:2,pointRadius:0,tension:0.4,fill:true,backgroundColor:'rgba(159,122,234,0.1)'}}]}},options:{{responsive:true,plugins:{{legend:{{display:false}}}}}}}});
+</script></body></html>"""
     return html
 
 def predict_m14(csv_data):
-    """
-    M14 예측 실행 (V8.3)
-    csv_data: CSV 문자열 또는 DataFrame
-    """
-    
-    # DataFrame 변환
+    """M14 예측 실행 (V83)"""
     if isinstance(csv_data, str):
         from io import StringIO
         df = pd.read_csv(StringIO(csv_data))
     else:
         df = csv_data
     
-    # 필수 컬럼 확인
     missing_cols = [col for col in REQUIRED_COLS if col not in df.columns]
     if missing_cols:
         return {'error': 'Missing columns', 'message': f"Missing: {', '.join(missing_cols)}"}
     
-    # 데이터 부족 확인
     if len(df) < 280:
         return {'error': 'Insufficient data', 'message': f'Need 280 rows, got {len(df)}'}
     
-    # CURRTIME 파싱
     if 'CURRTIME' in df.columns:
         try:
             df['CURRTIME'] = df['CURRTIME'].astype(str).str.strip()
@@ -472,9 +306,8 @@ def predict_m14(csv_data):
         df['CURRTIME'] = [base_time - timedelta(minutes=len(df)-1-i) for i in range(len(df))]
     
     if len(df) < 280:
-        return {'error': 'Insufficient data', 'message': f'Need 280 rows after parsing, got {len(df)}'}
+        return {'error': 'Insufficient data', 'message': f'Need 280 rows after parsing'}
     
-    # 280분 데이터 추출 (V8.3 형식)
     row_dict = {
         'M14AM14B': df['M14AM14B'].iloc[-280:].values,
         'M14AM14BSUM': df['M14AM14BSUM'].iloc[-280:].values,
@@ -486,116 +319,78 @@ def predict_m14(csv_data):
         'Q_COMPLETED': df['M14.QUE.ALL.CURRENTQCOMPLETED'].iloc[-280:].values,
     }
     
-    # 시간 정보
     current_time = df['CURRTIME'].iloc[-1]
     if pd.isna(current_time):
         current_time = datetime.now()
     
-    # 현재 상태
     seq_totalcnt = row_dict['TOTALCNT']
     seq_m14b = row_dict['M14AM14B']
-    seq_m14b_sum = row_dict['M14AM14BSUM']
+    seq_m14bsum = row_dict['M14AM14BSUM']
     seq_gap = row_dict['Q_CREATED'] - row_dict['Q_COMPLETED']
     seq_trans = row_dict['TRANSPORT']
     
     current_totalcnt = seq_totalcnt[-1]
     current_m14b = seq_m14b[-1]
-    current_m14bsum = seq_m14b_sum[-1]
+    current_m14bsum = seq_m14bsum[-1]
     current_gap = seq_gap[-1]
     current_trans = seq_trans[-1]
     
-    # Feature 생성 (V8.3)
     try:
         features = create_features_v83(row_dict)
         X_pred = pd.DataFrame([features])
     except Exception as e:
         return {'error': 'Feature generation failed', 'message': str(e)}
     
-    # 그래프용 데이터 (최근 60분!)
-    totalcnt_data = seq_totalcnt[-60:].tolist()
-    m14b_data = seq_m14b[-60:].tolist()
-    m14bsum_data = seq_m14b_sum[-60:].tolist()
-    gap_data = seq_gap[-60:].tolist()
-    trans_data = seq_trans[-60:].tolist()
-    
-    # 시간 라벨 (60개)
-    time_labels = []
-    for i in range(60):
-        t = current_time - timedelta(minutes=59-i)
-        time_labels.append(t.strftime('%H:%M'))
-    
-    # 예측 실행
     results = []
-    
     for horizon_min in [10, 15, 25]:
         model_file = MODEL_FILES[horizon_min]
-        
         if not os.path.exists(model_file):
             continue
-        
         try:
             with open(model_file, 'rb') as f:
                 model = pickle.load(f)
-            
             pred_raw = model.predict(X_pred)[0]
             pred = adjust_prediction_v83(pred_raw, current_totalcnt, current_m14b, current_m14bsum, current_gap, current_trans, horizon_min)
-            pred_status = get_status_info(pred)
             
-            # 위험 확률
-            danger_prob = 0
-            if pred >= 1750:
-                danger_prob = 100
-            elif pred >= 1700:
-                danger_prob = 95
-            elif pred >= 1680:
-                danger_prob = 75
-            elif pred >= 1650:
-                danger_prob = 50
-            elif pred >= 1620:
-                danger_prob = 30
-            elif pred >= 1600:
-                danger_prob = 15
-            else:
-                danger_prob = 5
+            danger_prob = 5
+            if pred >= 1750: danger_prob = 100
+            elif pred >= 1700: danger_prob = 95
+            elif pred >= 1680: danger_prob = 75
+            elif pred >= 1650: danger_prob = 50
+            elif pred >= 1620: danger_prob = 30
+            elif pred >= 1600: danger_prob = 15
             
-            # 황금 패턴 보정 (V8.3 임계값)
-            if (current_m14b > 540 and current_m14bsum > 620):
+            if current_m14b > 540 and current_m14bsum > 620:
                 danger_prob = min(100, danger_prob + 20)
-            elif (current_m14b > 520 and current_m14bsum > 600):
+            elif current_m14b > 520 and current_m14bsum > 600:
                 danger_prob = min(100, danger_prob + 15)
-            
-            # Gap/Trans 보정
             if current_gap > 300:
                 danger_prob = min(100, danger_prob + 15)
             elif current_gap > 250:
                 danger_prob = min(100, danger_prob + 10)
             if current_trans > 151:
-                danger_prob = min(100, danger_prob + (10 if current_trans > 180 else 5))
-            
-            # triple_check 보정
+                danger_prob = min(100, danger_prob + 5)
             if current_m14b > 520 and current_m14bsum > 600 and current_gap > 250:
                 danger_prob = min(100, danger_prob + 10)
-            
             if current_totalcnt >= 1700:
                 danger_prob = max(danger_prob, 85)
             elif current_totalcnt >= 1650:
                 danger_prob = max(danger_prob, 60)
             
-            danger_prob = max(0, min(100, danger_prob))
-            
             results.append({
                 'horizon': horizon_min,
                 'prediction': int(pred),
-                'status': pred_status,
-                'danger_probability': danger_prob,
+                'status': get_status_info(pred),
+                'danger_probability': min(100, max(0, danger_prob)),
                 'change': int(pred - current_totalcnt)
             })
-            
-        except Exception as e:
+        except:
             continue
     
     if not results:
         return {'error': 'Prediction failed', 'message': 'All models failed'}
+    
+    time_labels = [(current_time - timedelta(minutes=59-i)).strftime('%H:%M') for i in range(60)]
     
     result = {
         'success': True,
@@ -607,15 +402,13 @@ def predict_m14(csv_data):
         'current_gap': float(current_gap),
         'current_trans': float(current_trans),
         'predictions': results,
-        'totalcnt_data': totalcnt_data,
-        'm14b_data': m14b_data,
-        'm14bsum_data': m14bsum_data,
-        'gap_data': gap_data,
-        'trans_data': trans_data,
+        'totalcnt_data': seq_totalcnt[-60:].tolist(),
+        'm14b_data': seq_m14b[-60:].tolist(),
+        'm14bsum_data': seq_m14bsum[-60:].tolist(),
+        'gap_data': seq_gap[-60:].tolist(),
+        'trans_data': seq_trans[-60:].tolist(),
         'time_labels': time_labels
     }
     
-    # HTML 대시보드 생성
     result['dashboard_html'] = generate_dashboard_html(result)
-    
     return result
