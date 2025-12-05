@@ -1,0 +1,598 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Mistral 3 14B vs Qwen 3 30B 비교</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+            min-height: 100vh;
+            padding: 40px 20px;
+            color: #e4e4e4;
+        }
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+        h1 {
+            text-align: center;
+            font-size: 2.5rem;
+            margin-bottom: 10px;
+            background: linear-gradient(90deg, #ff6b6b, #4ecdc4);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+        .subtitle {
+            text-align: center;
+            color: #888;
+            margin-bottom: 40px;
+            font-size: 0.95rem;
+        }
+        .verdict-box {
+            background: linear-gradient(135deg, #2d3436 0%, #1e272e 100%);
+            border-radius: 16px;
+            padding: 25px;
+            margin-bottom: 30px;
+            border-left: 4px solid #f39c12;
+        }
+        .verdict-box h2 {
+            color: #f39c12;
+            margin-bottom: 15px;
+            font-size: 1.3rem;
+        }
+        .verdict-box p {
+            line-height: 1.8;
+            color: #ccc;
+        }
+        .comparison-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(350px, 1fr));
+            gap: 25px;
+            margin-bottom: 40px;
+        }
+        .model-card {
+            background: linear-gradient(145deg, #2d3436, #1e272e);
+            border-radius: 16px;
+            padding: 25px;
+            border: 1px solid #3d3d3d;
+            transition: transform 0.3s ease;
+        }
+        .model-card:hover {
+            transform: translateY(-5px);
+        }
+        .model-card.mistral {
+            border-top: 4px solid #ff6b6b;
+        }
+        .model-card.qwen {
+            border-top: 4px solid #4ecdc4;
+        }
+        .model-card h3 {
+            font-size: 1.5rem;
+            margin-bottom: 20px;
+        }
+        .model-card.mistral h3 {
+            color: #ff6b6b;
+        }
+        .model-card.qwen h3 {
+            color: #4ecdc4;
+        }
+        .spec-item {
+            display: flex;
+            justify-content: space-between;
+            padding: 12px 0;
+            border-bottom: 1px solid #3d3d3d;
+        }
+        .spec-item:last-child {
+            border-bottom: none;
+        }
+        .spec-label {
+            color: #888;
+        }
+        .spec-value {
+            font-weight: 600;
+            color: #fff;
+        }
+        .benchmark-section {
+            background: linear-gradient(145deg, #2d3436, #1e272e);
+            border-radius: 16px;
+            padding: 30px;
+            margin-bottom: 30px;
+        }
+        .benchmark-section h2 {
+            color: #fff;
+            margin-bottom: 25px;
+            font-size: 1.4rem;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        .benchmark-table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+        .benchmark-table th,
+        .benchmark-table td {
+            padding: 15px;
+            text-align: center;
+            border-bottom: 1px solid #3d3d3d;
+        }
+        .benchmark-table th {
+            background: #1a1a2e;
+            color: #888;
+            font-weight: 500;
+            font-size: 0.9rem;
+        }
+        .benchmark-table th:first-child {
+            text-align: left;
+            border-radius: 8px 0 0 0;
+        }
+        .benchmark-table th:last-child {
+            border-radius: 0 8px 0 0;
+        }
+        .benchmark-table td:first-child {
+            text-align: left;
+            color: #ccc;
+        }
+        .winner {
+            background: rgba(78, 205, 196, 0.15);
+            color: #4ecdc4;
+            font-weight: 700;
+        }
+        .loser {
+            color: #888;
+        }
+        .tie {
+            background: rgba(243, 156, 18, 0.15);
+            color: #f39c12;
+            font-weight: 700;
+        }
+        .badge {
+            display: inline-block;
+            padding: 4px 10px;
+            border-radius: 20px;
+            font-size: 0.75rem;
+            font-weight: 600;
+            margin-left: 8px;
+        }
+        .badge.qwen-win {
+            background: rgba(78, 205, 196, 0.2);
+            color: #4ecdc4;
+        }
+        .badge.mistral-win {
+            background: rgba(255, 107, 107, 0.2);
+            color: #ff6b6b;
+        }
+        .badge.tie {
+            background: rgba(243, 156, 18, 0.2);
+            color: #f39c12;
+        }
+        .pros-cons-section {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(350px, 1fr));
+            gap: 25px;
+            margin-bottom: 40px;
+        }
+        .pros-cons-card {
+            background: linear-gradient(145deg, #2d3436, #1e272e);
+            border-radius: 16px;
+            padding: 25px;
+            border: 1px solid #3d3d3d;
+        }
+        .pros-cons-card.mistral {
+            border-top: 4px solid #ff6b6b;
+        }
+        .pros-cons-card.qwen {
+            border-top: 4px solid #4ecdc4;
+        }
+        .pros-cons-card h3 {
+            font-size: 1.3rem;
+            margin-bottom: 20px;
+        }
+        .pros-cons-card.mistral h3 {
+            color: #ff6b6b;
+        }
+        .pros-cons-card.qwen h3 {
+            color: #4ecdc4;
+        }
+        .pros-cons-list {
+            margin-bottom: 20px;
+        }
+        .pros-cons-list h4 {
+            font-size: 1rem;
+            margin-bottom: 12px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .pros-cons-list h4.pros {
+            color: #2ecc71;
+        }
+        .pros-cons-list h4.cons {
+            color: #e74c3c;
+        }
+        .pros-cons-list ul {
+            list-style: none;
+            padding-left: 0;
+        }
+        .pros-cons-list ul li {
+            padding: 8px 0;
+            padding-left: 24px;
+            position: relative;
+            color: #bbb;
+            font-size: 0.95rem;
+            line-height: 1.5;
+        }
+        .pros-cons-list ul li::before {
+            content: '';
+            position: absolute;
+            left: 0;
+            top: 12px;
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+        }
+        .pros-cons-list.pros ul li::before {
+            background: #2ecc71;
+        }
+        .pros-cons-list.cons ul li::before {
+            background: #e74c3c;
+        }
+        .use-case-section {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 20px;
+            margin-top: 30px;
+        }
+        .use-case-card {
+            background: linear-gradient(145deg, #2d3436, #1e272e);
+            border-radius: 12px;
+            padding: 20px;
+            border: 1px solid #3d3d3d;
+        }
+        .use-case-card h4 {
+            color: #fff;
+            margin-bottom: 12px;
+            font-size: 1.1rem;
+        }
+        .use-case-card p {
+            color: #888;
+            font-size: 0.9rem;
+            line-height: 1.6;
+        }
+        .use-case-card .recommend {
+            margin-top: 12px;
+            padding: 8px 12px;
+            background: rgba(255, 107, 107, 0.1);
+            border-radius: 8px;
+            color: #ff6b6b;
+            font-size: 0.85rem;
+            font-weight: 600;
+        }
+        .use-case-card .recommend.qwen {
+            background: rgba(78, 205, 196, 0.1);
+            color: #4ecdc4;
+        }
+        .footer {
+            text-align: center;
+            margin-top: 40px;
+            color: #666;
+            font-size: 0.85rem;
+        }
+        .highlight-row {
+            background: rgba(243, 156, 18, 0.08);
+        }
+        .model-size-tag {
+            display: inline-block;
+            background: rgba(255,255,255,0.1);
+            padding: 3px 10px;
+            border-radius: 12px;
+            font-size: 0.8rem;
+            margin-left: 8px;
+            color: #aaa;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🤖 Mistral 3 14B vs Qwen 3 30B</h1>
+        <p class="subtitle">수학 · 논리 · 추론 벤치마크 비교 (2025.12)</p>
+
+        <div class="verdict-box">
+            <h2>📊 결론 요약</h2>
+            <p>
+                <strong>AIME'25 수학 벤치마크에서 동점! 둘 다 85.0%</strong><br><br>
+                Mistral 3 14B와 Qwen 3 30B-A3B Thinking 모두 AIME'25에서 <strong>85.0점</strong>을 기록했다.
+                다만 Qwen 3 30B는 <strong>3B만 활성화</strong>되는 MoE 구조라 추론 비용이 훨씬 낮고,
+                Mistral 3 14B는 <strong>네이티브 멀티모달</strong>과 <strong>256K 컨텍스트</strong>가 강점이다.
+            </p>
+        </div>
+
+        <div class="comparison-grid">
+            <div class="model-card mistral">
+                <h3>🔶 Mistral 3 <span class="model-size-tag">14B</span></h3>
+                <div class="spec-item">
+                    <span class="spec-label">출시일</span>
+                    <span class="spec-value">2025년 12월 2일</span>
+                </div>
+                <div class="spec-item">
+                    <span class="spec-label">파라미터</span>
+                    <span class="spec-value">14B (Dense, 전체 활성)</span>
+                </div>
+                <div class="spec-item">
+                    <span class="spec-label">컨텍스트 윈도우</span>
+                    <span class="spec-value">256K tokens</span>
+                </div>
+                <div class="spec-item">
+                    <span class="spec-label">멀티모달</span>
+                    <span class="spec-value">✅ 텍스트 + 이미지</span>
+                </div>
+                <div class="spec-item">
+                    <span class="spec-label">다국어 지원</span>
+                    <span class="spec-value">40+ 언어</span>
+                </div>
+                <div class="spec-item">
+                    <span class="spec-label">라이선스</span>
+                    <span class="spec-value">Apache 2.0</span>
+                </div>
+                <div class="spec-item">
+                    <span class="spec-label">변형 모델</span>
+                    <span class="spec-value">Base / Instruct / Reasoning</span>
+                </div>
+            </div>
+
+            <div class="model-card qwen">
+                <h3>🔷 Qwen 3 <span class="model-size-tag">30B-A3B</span></h3>
+                <div class="spec-item">
+                    <span class="spec-label">출시일</span>
+                    <span class="spec-value">2025년 4월 (Thinking: 7월)</span>
+                </div>
+                <div class="spec-item">
+                    <span class="spec-label">파라미터</span>
+                    <span class="spec-value">30B MoE (3B만 활성화)</span>
+                </div>
+                <div class="spec-item">
+                    <span class="spec-label">컨텍스트 윈도우</span>
+                    <span class="spec-value">256K tokens</span>
+                </div>
+                <div class="spec-item">
+                    <span class="spec-label">멀티모달</span>
+                    <span class="spec-value">⚠️ 별도 VL 모델</span>
+                </div>
+                <div class="spec-item">
+                    <span class="spec-label">다국어 지원</span>
+                    <span class="spec-value">100+ 언어</span>
+                </div>
+                <div class="spec-item">
+                    <span class="spec-label">라이선스</span>
+                    <span class="spec-value">Apache 2.0</span>
+                </div>
+                <div class="spec-item">
+                    <span class="spec-label">변형 모델</span>
+                    <span class="spec-value">Instruct / Thinking</span>
+                </div>
+            </div>
+        </div>
+
+        <div class="benchmark-section">
+            <h2>📈 수학 / 논리 / 추론 벤치마크</h2>
+            <table class="benchmark-table">
+                <thead>
+                    <tr>
+                        <th>벤치마크</th>
+                        <th>Mistral 3 14B</th>
+                        <th>Qwen 3 30B</th>
+                        <th>결과</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr class="highlight-row">
+                        <td><strong>AIME'25</strong><br><small style="color:#666">수학 경시대회</small></td>
+                        <td class="tie">85.0%</td>
+                        <td class="tie">85.0%</td>
+                        <td><span class="badge tie">🤝 동점</span></td>
+                    </tr>
+                    <tr>
+                        <td><strong>AIME'24</strong><br><small style="color:#666">수학 경시대회</small></td>
+                        <td class="loser">-</td>
+                        <td class="winner">80.4%</td>
+                        <td><span class="badge qwen-win">Qwen</span></td>
+                    </tr>
+                    <tr>
+                        <td><strong>GPQA-Diamond</strong><br><small style="color:#666">전문가 추론</small></td>
+                        <td class="winner">우위</td>
+                        <td class="loser">65.8%</td>
+                        <td><span class="badge mistral-win">Mistral</span></td>
+                    </tr>
+                    <tr>
+                        <td><strong>MMMLU</strong><br><small style="color:#666">일반 지식</small></td>
+                        <td class="winner">우위</td>
+                        <td class="loser">-</td>
+                        <td><span class="badge mistral-win">Mistral</span></td>
+                    </tr>
+                    <tr>
+                        <td><strong>ArenaHard</strong><br><small style="color:#666">종합 평가</small></td>
+                        <td class="loser">-</td>
+                        <td class="winner">91.0%</td>
+                        <td><span class="badge qwen-win">Qwen</span></td>
+                    </tr>
+                    <tr>
+                        <td><strong>CodeForces</strong><br><small style="color:#666">코딩 대회</small></td>
+                        <td class="loser">-</td>
+                        <td class="winner">1974 Elo</td>
+                        <td><span class="badge qwen-win">Qwen</span></td>
+                    </tr>
+                    <tr>
+                        <td><strong>MultiIF</strong><br><small style="color:#666">다국어 추론</small></td>
+                        <td class="loser">-</td>
+                        <td class="winner">72.2%</td>
+                        <td><span class="badge qwen-win">Qwen</span></td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+
+        <!-- 장단점 섹션 -->
+        <div class="pros-cons-section">
+            <div class="pros-cons-card mistral">
+                <h3>🔶 Mistral 3 14B 장단점</h3>
+                
+                <div class="pros-cons-list pros">
+                    <h4 class="pros">✅ 장점</h4>
+                    <ul>
+                        <li><strong>네이티브 멀티모달</strong> - 텍스트+이미지 동시 처리 내장</li>
+                        <li><strong>256K 컨텍스트</strong> - 초장문 문서 처리에 최적</li>
+                        <li><strong>토큰 효율성</strong> - 동일 작업에 더 적은 토큰 생성</li>
+                        <li><strong>GPQA/MMMLU 강세</strong> - 전문가 추론, 일반 지식에서 우위</li>
+                        <li><strong>유럽 다국어 특화</strong> - 유럽 언어 처리 품질 높음</li>
+                        <li><strong>Agents API 연동</strong> - 에이전트 워크플로우 지원</li>
+                        <li><strong>엣지 배포 최적화</strong> - 4GB VRAM에서도 4bit 양자화 가능</li>
+                    </ul>
+                </div>
+                
+                <div class="pros-cons-list cons">
+                    <h4 class="cons">❌ 단점</h4>
+                    <ul>
+                        <li><strong>Dense 구조</strong> - 14B 전체 파라미터 활성화로 추론 비용 높음</li>
+                        <li><strong>코딩 벤치마크</strong> - Qwen 대비 코딩 점수 낮음</li>
+                        <li><strong>다국어 범위</strong> - 40개 언어 (Qwen 100+보다 적음)</li>
+                        <li><strong>신규 출시</strong> - 실전 검증 데이터 부족 (2025.12 출시)</li>
+                        <li><strong>ArenaHard 미공개</strong> - 종합 벤치마크 점수 부재</li>
+                    </ul>
+                </div>
+            </div>
+
+            <div class="pros-cons-card qwen">
+                <h3>🔷 Qwen 3 30B 장단점</h3>
+                
+                <div class="pros-cons-list pros">
+                    <h4 class="pros">✅ 장점</h4>
+                    <ul>
+                        <li><strong>MoE 효율성</strong> - 30B 중 3B만 활성화 → 추론 비용 대폭 절감</li>
+                        <li><strong>256K 컨텍스트</strong> - 장문 처리 동등</li>
+                        <li><strong>듀얼 모드</strong> - Thinking/Fast 모드 전환 가능</li>
+                        <li><strong>100+ 언어 지원</strong> - 다국어 범위 압도적</li>
+                        <li><strong>ArenaHard 91.0</strong> - 종합 벤치마크 최상위권</li>
+                        <li><strong>코딩 강세</strong> - CodeForces 1974 Elo</li>
+                        <li><strong>로컬 배포 친화적</strong> - 32GB RAM에서 양자화 버전 100+ tok/s</li>
+                    </ul>
+                </div>
+                
+                <div class="pros-cons-list cons">
+                    <h4 class="cons">❌ 단점</h4>
+                    <ul>
+                        <li><strong>멀티모달 미포함</strong> - 별도 VL 모델 필요</li>
+                        <li><strong>Thinking 버전 분리</strong> - 추론용/일반용 모델 따로 관리</li>
+                        <li><strong>GPQA 열세</strong> - 전문가 수준 추론에서 Mistral에 밀림</li>
+                        <li><strong>MoE 복잡성</strong> - 배포 환경 설정이 상대적으로 복잡</li>
+                        <li><strong>창작 작업 약세</strong> - SVG 등 창작 태스크에서 Thinking 버전 약함</li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+
+        <div class="benchmark-section">
+            <h2>⚖️ 종합 비교</h2>
+            <table class="benchmark-table">
+                <thead>
+                    <tr>
+                        <th>항목</th>
+                        <th>Mistral 3 14B</th>
+                        <th>Qwen 3 30B</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td>수학 경시대회 (AIME'25)</td>
+                        <td class="tie">⭐⭐⭐⭐⭐ (85%)</td>
+                        <td class="tie">⭐⭐⭐⭐⭐ (85%)</td>
+                    </tr>
+                    <tr>
+                        <td>전문가 추론 (GPQA)</td>
+                        <td class="winner">⭐⭐⭐⭐⭐</td>
+                        <td class="loser">⭐⭐⭐⭐</td>
+                    </tr>
+                    <tr>
+                        <td>코딩 능력</td>
+                        <td class="loser">⭐⭐⭐⭐</td>
+                        <td class="winner">⭐⭐⭐⭐⭐</td>
+                    </tr>
+                    <tr>
+                        <td>멀티모달 (이미지)</td>
+                        <td class="winner">⭐⭐⭐⭐⭐</td>
+                        <td class="loser">⭐⭐⭐</td>
+                    </tr>
+                    <tr>
+                        <td>다국어 지원</td>
+                        <td class="loser">⭐⭐⭐⭐ (40+)</td>
+                        <td class="winner">⭐⭐⭐⭐⭐ (100+)</td>
+                    </tr>
+                    <tr>
+                        <td>컨텍스트 길이</td>
+                        <td class="tie">⭐⭐⭐⭐⭐ (256K)</td>
+                        <td class="tie">⭐⭐⭐⭐⭐ (256K)</td>
+                    </tr>
+                    <tr>
+                        <td>추론 효율성 (비용)</td>
+                        <td class="loser">⭐⭐⭐ (14B 전체 활성)</td>
+                        <td class="winner">⭐⭐⭐⭐⭐ (3B만 활성)</td>
+                    </tr>
+                    <tr>
+                        <td>로컬 배포 용이성</td>
+                        <td class="winner">⭐⭐⭐⭐⭐</td>
+                        <td class="winner">⭐⭐⭐⭐⭐</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+
+        <div class="verdict-box">
+            <h2>🎯 용도별 추천</h2>
+        </div>
+
+        <div class="use-case-section">
+            <div class="use-case-card">
+                <h4>🧮 수학/과학 추론</h4>
+                <p>복잡한 수학 문제, 과학적 추론, 단계별 논리 전개</p>
+                <div class="recommend">둘 다 OK (AIME 85% 동점)</div>
+            </div>
+            <div class="use-case-card">
+                <h4>💻 코딩 어시스턴트</h4>
+                <p>코드 생성, 디버깅, 알고리즘 문제</p>
+                <div class="recommend qwen">추천: Qwen 3 30B</div>
+            </div>
+            <div class="use-case-card">
+                <h4>📄 이미지+텍스트 분석</h4>
+                <p>멀티모달 문서 분석, 이미지 이해</p>
+                <div class="recommend">추천: Mistral 3 14B</div>
+            </div>
+            <div class="use-case-card">
+                <h4>🌍 다국어 서비스</h4>
+                <p>100개 이상 언어 지원 필요</p>
+                <div class="recommend qwen">추천: Qwen 3 30B</div>
+            </div>
+            <div class="use-case-card">
+                <h4>💰 추론 비용 절감</h4>
+                <p>대량 요청 처리, 비용 효율</p>
+                <div class="recommend qwen">추천: Qwen 3 30B (MoE)</div>
+            </div>
+            <div class="use-case-card">
+                <h4>🔬 전문가 수준 Q&A</h4>
+                <p>GPQA 스타일 전문 지식 질의</p>
+                <div class="recommend">추천: Mistral 3 14B</div>
+            </div>
+        </div>
+
+        <div class="footer">
+            <p>📅 2025년 12월 기준 | 출처: Mistral AI, Qwen Team, HuggingFace, DataCamp</p>
+        </div>
+    </div>
+</body>
+</html>
