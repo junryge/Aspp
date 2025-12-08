@@ -50,6 +50,37 @@
             border: none;
         }
 
+        .llm-toggle {
+            display: flex;
+            background: #e2e8f0;
+            border-radius: 20px;
+            padding: 3px;
+            cursor: pointer;
+        }
+
+        .llm-option {
+            padding: 5px 12px;
+            border-radius: 17px;
+            font-size: 11px;
+            font-weight: 600;
+            color: #718096;
+            transition: all 0.3s;
+        }
+
+        .llm-option.active {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+        }
+
+        .llm-option:hover:not(.active) {
+            color: #4a5568;
+        }
+
+        .llm-toggle.disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
         .mode-selector {
             margin-bottom: 20px;
             display: flex;
@@ -617,6 +648,14 @@
                 <div class="status-bar">
                     <div class="status-indicator"></div>
                     <span id="statusText">시스템 준비됨 | CSV 직접 검색</span>
+                    <div style="margin-left: auto; display: flex; align-items: center; gap: 10px;">
+                        <span style="font-size: 12px; color: #888;">LLM:</span>
+                        <div class="llm-toggle" id="llmToggle" onclick="toggleLLMMode()">
+                            <div class="llm-option" id="llm-local">Local</div>
+                            <div class="llm-option active" id="llm-api">API</div>
+                        </div>
+                        <span id="llmStatusIcon" style="font-size: 14px;">🟢</span>
+                    </div>
                 </div>
 
                 <div class="mode-selector">
@@ -1027,11 +1066,118 @@ STAT_DT,CURRENT_M16A_3F_JOB_2,M16A_3F_STORAGE_UTIL,HUBROOMTOTAL,...
             }
         });
 
+        // ========================================
+        // LLM 모드 관리
+        // ========================================
+        let currentLLMMode = 'api';
+        let llmLocalAvailable = false;
+        let llmApiAvailable = false;
+
+        async function checkLLMStatus() {
+            try {
+                const response = await fetch('/llm_status');
+                if (response.ok) {
+                    const data = await response.json();
+                    currentLLMMode = data.mode;
+                    llmLocalAvailable = data.local_available;
+                    llmApiAvailable = data.api_available;
+                    
+                    updateLLMToggleUI();
+                    console.log('LLM 상태:', data);
+                }
+            } catch (error) {
+                console.error('LLM 상태 확인 실패:', error);
+                document.getElementById('llmStatusIcon').textContent = '🔴';
+            }
+        }
+
+        function updateLLMToggleUI() {
+            const localBtn = document.getElementById('llm-local');
+            const apiBtn = document.getElementById('llm-api');
+            const statusIcon = document.getElementById('llmStatusIcon');
+            const toggle = document.getElementById('llmToggle');
+
+            // 활성화 상태 표시
+            localBtn.classList.remove('active');
+            apiBtn.classList.remove('active');
+            
+            if (currentLLMMode === 'local') {
+                localBtn.classList.add('active');
+            } else {
+                apiBtn.classList.add('active');
+            }
+
+            // 사용 가능 여부 표시
+            if (currentLLMMode === 'api' && llmApiAvailable) {
+                statusIcon.textContent = '🟢';
+                statusIcon.title = 'API LLM 연결됨';
+            } else if (currentLLMMode === 'local' && llmLocalAvailable) {
+                statusIcon.textContent = '🟢';
+                statusIcon.title = '로컬 LLM 로드됨';
+            } else {
+                statusIcon.textContent = '🟡';
+                statusIcon.title = 'LLM 제한됨 (템플릿 모드)';
+            }
+
+            // 사용 불가 옵션 스타일
+            if (!llmLocalAvailable) {
+                localBtn.style.opacity = '0.4';
+                localBtn.title = '로컬 LLM 없음';
+            } else {
+                localBtn.style.opacity = '1';
+                localBtn.title = '로컬 LLM (Qwen3)';
+            }
+
+            if (!llmApiAvailable) {
+                apiBtn.style.opacity = '0.4';
+                apiBtn.title = 'API 토큰 없음';
+            } else {
+                apiBtn.style.opacity = '1';
+                apiBtn.title = 'API LLM (Qwen3-30B)';
+            }
+        }
+
+        async function toggleLLMMode() {
+            const newMode = currentLLMMode === 'api' ? 'local' : 'api';
+            
+            // 선택한 모드가 사용 가능한지 확인
+            if (newMode === 'local' && !llmLocalAvailable) {
+                alert('❌ 로컬 LLM이 로드되지 않았습니다.\n모델 파일을 확인하세요.');
+                return;
+            }
+            if (newMode === 'api' && !llmApiAvailable) {
+                alert('❌ API 토큰이 설정되지 않았습니다.\ntoken.txt 파일을 확인하세요.');
+                return;
+            }
+
+            try {
+                const response = await fetch('/set_llm_mode', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ llm_mode: newMode })
+                });
+
+                const data = await response.json();
+                
+                if (data.success) {
+                    currentLLMMode = data.mode;
+                    updateLLMToggleUI();
+                    console.log('LLM 모드 변경:', data.message);
+                } else {
+                    alert('❌ ' + data.message);
+                }
+            } catch (error) {
+                console.error('LLM 모드 변경 실패:', error);
+                alert('❌ LLM 모드 변경 실패');
+            }
+        }
+
         // 페이지 로드 시 초기화
         window.addEventListener('load', function () {
             updateExamples();
             questionInput.focus();
             renderHistoryList();
+            checkLLMStatus();  // LLM 상태 확인
         });
 
         // ========================================
