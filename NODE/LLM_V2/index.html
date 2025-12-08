@@ -518,7 +518,7 @@
         }
 
         .history-item {
-            padding: 10px;
+            padding: 8px 10px;
             border-radius: 5px;
             cursor: pointer;
             font-size: 14px;
@@ -529,18 +529,22 @@
             transition: background 0.3s;
             display: flex;
             align-items: center;
-            gap: 10px;
+            gap: 8px;
+            border-left: 2px solid transparent;
+            margin-left: 0;
         }
 
         .history-item:hover {
             background-color: #f0f0f0;
             color: #333;
+            border-left-color: #667eea;
         }
 
         .history-item.active {
             background-color: #e6e6fa;
             color: #667eea;
             font-weight: 600;
+            border-left-color: #667eea;
         }
 
         .history-icon {
@@ -639,7 +643,7 @@
     <div class="app-layout">
         <aside class="sidebar">
             <div class="new-chat-btn" onclick="startNewChat()">
-                <span>+</span> New Search
+                <span>+</span> 새 대화
             </div>
             <div style="padding: 0 10px 10px 10px; display: flex; justify-content: flex-end;">
                 <span onclick="clearHistory()"
@@ -771,8 +775,14 @@
 
         let currentMode = 'search';
 
-        // History Management
-        const HISTORY_KEY = 'amhs_query_history';
+        // History Management - Tree Structure
+        const HISTORY_KEY = 'amhs_query_history_tree';
+        let currentChatId = null;  // 현재 선택된 대화 ID
+        let activeItemId = null;   // 현재 활성화된 아이템 ID
+
+        function generateId() {
+            return Date.now().toString(36) + Math.random().toString(36).substr(2);
+        }
 
         function getHistory() {
             const history = localStorage.getItem(HISTORY_KEY);
@@ -789,17 +799,33 @@
             document.getElementById('result').className = '';
             document.getElementById('question').value = '';
 
+            // Reset current chat context
+            currentChatId = null;
+            activeItemId = null;
+
             // Remove active class from list
             document.querySelectorAll('.history-item').forEach(item => item.classList.remove('active'));
         }
 
-        function loadHistoryItem(index) {
+        function findItemById(history, id) {
+            for (const item of history) {
+                if (item.id === id) return item;
+                if (item.children && item.children.length > 0) {
+                    const found = findItemById(item.children, id);
+                    if (found) return found;
+                }
+            }
+            return null;
+        }
+
+        function loadHistoryItem(id) {
             const history = getHistory();
-            const item = history[index];
+            const item = findItemById(history, id);
 
             if (item) {
                 document.getElementById('question').value = item.question;
-                // Parse Markdown if it's a general conversation or if it looks like Markdown
+                
+                // Parse Markdown if needed
                 if (item.mode === 'general' || item.answer.includes('**') || item.answer.includes('###')) {
                     document.getElementById('result').innerHTML = marked.parse(item.answer);
                     document.getElementById('result').classList.add('markdown-content');
@@ -809,13 +835,17 @@
                 }
                 document.getElementById('result').className = 'success';
 
-                // Restore mode if needed (optional, keeping simple for now)
+                // Restore mode
                 if (item.mode && item.mode !== currentMode) {
                     setMode(item.mode);
                 }
 
-                // Highlight active item
-                renderHistoryList(index);
+                // Set current context
+                currentChatId = id;
+                activeItemId = id;
+
+                // Re-render with active highlight
+                renderHistoryList();
             }
         }
 
@@ -823,52 +853,87 @@
             const history = getHistory();
 
             const newItem = {
+                id: generateId(),
                 question: question,
                 answer: answer,
                 mode: mode,
                 timestamp: Date.now(),
-                title: question.length > 18 ? question.substring(0, 18) + '...' : question
+                title: question.length > 20 ? question.substring(0, 20) + '...' : question,
+                children: []
             };
 
-            // Add to beginning
-            history.unshift(newItem);
+            // 현재 대화 컨텍스트가 있으면 자식으로 추가
+            if (currentChatId) {
+                const parent = findItemById(history, currentChatId);
+                if (parent) {
+                    parent.children.unshift(newItem);
+                } else {
+                    // 부모를 찾지 못하면 루트에 추가
+                    history.unshift(newItem);
+                }
+            } else {
+                // 새 대화 시작
+                history.unshift(newItem);
+            }
 
-            // Limit to 50 items
-            if (history.length > 50) history.pop();
+            // Limit root items to 30
+            while (history.length > 30) history.pop();
 
             saveHistory(history);
-            renderHistoryList(0); // Highlight the new first item
+            
+            // 새로 추가된 아이템을 현재 컨텍스트로 설정
+            currentChatId = newItem.id;
+            activeItemId = newItem.id;
+            
+            renderHistoryList();
         }
 
-        function renderHistoryList(activeIndex = -1) {
+        function renderHistoryList() {
             const list = document.getElementById('historyList');
             list.innerHTML = '';
 
             const history = getHistory();
 
-            history.forEach((item, index) => {
+            function renderItem(item, depth = 0) {
                 const div = document.createElement('div');
-                div.className = `history-item ${index === activeIndex ? 'active' : ''}`;
-                div.onclick = () => loadHistoryItem(index);
+                div.className = `history-item ${item.id === activeItemId ? 'active' : ''}`;
+                div.style.paddingLeft = `${10 + depth * 15}px`;
+                div.onclick = (e) => {
+                    e.stopPropagation();
+                    loadHistoryItem(item.id);
+                };
 
                 // Format time
                 const date = new Date(item.timestamp);
                 const timeStr = `${date.getHours()}:${date.getMinutes().toString().padStart(2, '0')}`;
 
+                // Icon based on depth
+                const icon = depth === 0 ? '📂' : '└─ 💬';
+                const hasChildren = item.children && item.children.length > 0;
+
                 div.innerHTML = `
-                    <span class="history-icon">💬</span>
-                    <div style="display: flex; flex-direction: column; overflow: hidden;">
-                        <span style="font-weight: 500;">${item.title}</span>
-                        <span style="font-size: 11px; opacity: 0.7;">${timeStr} · ${item.mode}</span>
+                    <span class="history-icon" style="font-size: ${depth === 0 ? '14px' : '12px'};">${icon}</span>
+                    <div style="display: flex; flex-direction: column; overflow: hidden; flex: 1;">
+                        <span style="font-weight: ${depth === 0 ? '600' : '400'}; font-size: ${depth === 0 ? '13px' : '12px'};">${item.title}</span>
+                        <span style="font-size: 10px; opacity: 0.6;">${timeStr} · ${item.mode}${hasChildren ? ` · ${item.children.length}개 이어짐` : ''}</span>
                     </div>
                 `;
                 list.appendChild(div);
-            });
+
+                // Render children
+                if (item.children && item.children.length > 0) {
+                    item.children.forEach(child => renderItem(child, depth + 1));
+                }
+            }
+
+            history.forEach(item => renderItem(item, 0));
         }
 
         function clearHistory() {
             if (confirm('히스토리를 모두 삭제하시겠습니까?')) {
                 localStorage.removeItem(HISTORY_KEY);
+                currentChatId = null;
+                activeItemId = null;
                 renderHistoryList();
                 startNewChat();
             }
@@ -1190,11 +1255,38 @@ STAT_DT,CURRENT_M16A_3F_JOB_2,M16A_3F_STORAGE_UTIL,HUBROOMTOTAL,...
 
         // 페이지 로드 시 초기화
         window.addEventListener('load', function () {
+            migrateOldHistory();  // 기존 히스토리 마이그레이션
             updateExamples();
             questionInput.focus();
             renderHistoryList();
             checkLLMStatus();  // LLM 상태 확인
         });
+
+        // 기존 단순 배열 히스토리를 트리 구조로 마이그레이션
+        function migrateOldHistory() {
+            const oldKey = 'amhs_query_history';
+            const oldData = localStorage.getItem(oldKey);
+            
+            if (oldData && !localStorage.getItem(HISTORY_KEY)) {
+                try {
+                    const oldHistory = JSON.parse(oldData);
+                    const newHistory = oldHistory.map(item => ({
+                        id: generateId(),
+                        question: item.question,
+                        answer: item.answer,
+                        mode: item.mode,
+                        timestamp: item.timestamp,
+                        title: item.title || (item.question.length > 20 ? item.question.substring(0, 20) + '...' : item.question),
+                        children: []
+                    }));
+                    saveHistory(newHistory);
+                    localStorage.removeItem(oldKey);  // 마이그레이션 후 기존 데이터 삭제
+                    console.log('✅ 히스토리 마이그레이션 완료');
+                } catch (e) {
+                    console.error('히스토리 마이그레이션 실패:', e);
+                }
+            }
+        }
 
         // ========================================
         // 데이터 입력 기능
