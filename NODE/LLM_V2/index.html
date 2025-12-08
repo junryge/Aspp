@@ -535,6 +535,7 @@
             border-left: 2px solid transparent;
             margin-left: 0;
             margin-bottom: 2px;
+            position: relative;
         }
 
         .history-item:hover {
@@ -552,6 +553,26 @@
 
         .history-icon {
             font-size: 14px;
+        }
+
+        .history-delete {
+            opacity: 0;
+            font-size: 12px;
+            color: #999;
+            cursor: pointer;
+            padding: 2px 5px;
+            border-radius: 3px;
+            transition: all 0.2s;
+            margin-left: auto;
+        }
+
+        .history-item:hover .history-delete {
+            opacity: 1;
+        }
+
+        .history-delete:hover {
+            background: #fee2e2;
+            color: #dc2626;
         }
 
         /* Scrollbar for sidebar */
@@ -940,6 +961,7 @@
                         <span style="font-weight: ${depth === 0 ? '600' : '400'}; font-size: ${depth === 0 ? '12px' : '11px'};">${item.title}</span>
                         <span style="font-size: 10px; opacity: 0.6;">${timeStr} · ${item.mode}${hasChildren ? ` · ${item.children.length}개` : ''}</span>
                     </div>
+                    <span class="history-delete" onclick="event.stopPropagation(); deleteHistoryItem('${item.id}');">✕</span>
                 `;
                 list.appendChild(div);
 
@@ -950,6 +972,53 @@
             }
 
             history.forEach(item => renderItem(item, 0));
+        }
+
+        function deleteHistoryItem(id) {
+            let history = getHistory();
+            
+            // 루트에서 삭제 시도
+            const rootIndex = history.findIndex(item => item.id === id);
+            if (rootIndex !== -1) {
+                const item = history[rootIndex];
+                const childCount = item.children ? item.children.length : 0;
+                const msg = childCount > 0 
+                    ? `"${item.title}" 및 하위 ${childCount}개 항목을 삭제하시겠습니까?`
+                    : `"${item.title}"을(를) 삭제하시겠습니까?`;
+                
+                if (confirm(msg)) {
+                    history.splice(rootIndex, 1);
+                    saveHistory(history);
+                    
+                    // 삭제된 게 현재 컨텍스트면 초기화
+                    if (currentChatId === id) {
+                        currentChatId = null;
+                        activeItemId = null;
+                    }
+                    renderHistoryList();
+                }
+                return;
+            }
+            
+            // 자식에서 삭제 시도
+            for (const root of history) {
+                if (root.children && root.children.length > 0) {
+                    const childIndex = root.children.findIndex(child => child.id === id);
+                    if (childIndex !== -1) {
+                        const child = root.children[childIndex];
+                        if (confirm(`"${child.title}"을(를) 삭제하시겠습니까?`)) {
+                            root.children.splice(childIndex, 1);
+                            saveHistory(history);
+                            
+                            if (activeItemId === id) {
+                                activeItemId = null;
+                            }
+                            renderHistoryList();
+                        }
+                        return;
+                    }
+                }
+            }
         }
 
         function clearHistory() {
