@@ -827,6 +827,18 @@
             return null;
         }
 
+        // 자식 ID를 받아도 루트 부모 ID 반환
+        function findRootParentId(history, id) {
+            for (const item of history) {
+                if (item.id === id) return item.id; // 이미 루트
+                if (item.children && item.children.length > 0) {
+                    const found = findItemById(item.children, id);
+                    if (found) return item.id; // 이 루트의 자식임
+                }
+            }
+            return null;
+        }
+
         function loadHistoryItem(id) {
             const history = getHistory();
             const item = findItemById(history, id);
@@ -849,8 +861,8 @@
                     setMode(item.mode);
                 }
 
-                // Set current context
-                currentChatId = id;
+                // Set current context - 항상 루트 부모 ID 유지!
+                currentChatId = findRootParentId(history, id);
                 activeItemId = id;
 
                 // Re-render with active highlight
@@ -876,13 +888,16 @@
                 const parent = findItemById(history, currentChatId);
                 if (parent) {
                     parent.children.unshift(newItem);
+                    // currentChatId는 루트 유지! 바꾸지 않음
                 } else {
                     // 부모를 찾지 못하면 루트에 추가
                     history.unshift(newItem);
+                    currentChatId = newItem.id; // 새 루트
                 }
             } else {
                 // 새 대화 시작
                 history.unshift(newItem);
+                currentChatId = newItem.id; // 새 루트
             }
 
             // Limit root items to 30
@@ -890,8 +905,7 @@
 
             saveHistory(history);
             
-            // 새로 추가된 아이템을 현재 컨텍스트로 설정
-            currentChatId = newItem.id;
+            // activeItemId만 업데이트 (하이라이트용)
             activeItemId = newItem.id;
             
             renderHistoryList();
