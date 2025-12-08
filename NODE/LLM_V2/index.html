@@ -436,13 +436,13 @@
         }
 
         .sidebar {
-            width: 340px;
+            width: 280px;
             background: white;
             border-right: 1px solid #e2e8f0;
             color: #333;
             display: flex;
             flex-direction: column;
-            padding: 15px;
+            padding: 12px;
             flex-shrink: 0;
             height: 100vh;
             box-shadow: 2px 0 10px rgba(0, 0, 0, 0.05);
@@ -489,16 +489,16 @@
 
         /* Sidebar Components */
         .new-chat-btn {
-            border: 2px solid #667eea;
-            border-radius: 8px;
-            padding: 12px 14px;
+            border: 1px solid #667eea;
+            border-radius: 6px;
+            padding: 10px 12px;
             display: flex;
             align-items: center;
-            gap: 10px;
+            gap: 8px;
             cursor: pointer;
             transition: all 0.3s;
-            margin-bottom: 18px;
-            font-size: 15px;
+            margin-bottom: 15px;
+            font-size: 13px;
             background: white;
             color: #667eea;
             font-weight: 600;
@@ -520,10 +520,10 @@
         }
 
         .history-item {
-            padding: 12px 12px;
-            border-radius: 8px;
+            padding: 8px 10px;
+            border-radius: 6px;
             cursor: pointer;
-            font-size: 14px;
+            font-size: 13px;
             white-space: nowrap;
             overflow: hidden;
             text-overflow: ellipsis;
@@ -531,10 +531,10 @@
             transition: background 0.3s;
             display: flex;
             align-items: center;
-            gap: 10px;
-            border-left: 3px solid transparent;
+            gap: 8px;
+            border-left: 2px solid transparent;
             margin-left: 0;
-            margin-bottom: 3px;
+            margin-bottom: 2px;
         }
 
         .history-item:hover {
@@ -551,7 +551,7 @@
         }
 
         .history-icon {
-            font-size: 16px;
+            font-size: 14px;
         }
 
         /* Scrollbar for sidebar */
@@ -906,7 +906,7 @@
             function renderItem(item, depth = 0) {
                 const div = document.createElement('div');
                 div.className = `history-item ${item.id === activeItemId ? 'active' : ''}`;
-                div.style.paddingLeft = `${16 + depth * 22}px`;
+                div.style.paddingLeft = `${8 + depth * 12}px`;
                 div.onclick = (e) => {
                     e.stopPropagation();
                     loadHistoryItem(item.id);
@@ -921,10 +921,10 @@
                 const hasChildren = item.children && item.children.length > 0;
 
                 div.innerHTML = `
-                    <span class="history-icon" style="font-size: ${depth === 0 ? '22px' : '18px'};">${icon}</span>
+                    <span class="history-icon" style="font-size: ${depth === 0 ? '13px' : '11px'};">${icon}</span>
                     <div style="display: flex; flex-direction: column; overflow: hidden; flex: 1;">
-                        <span style="font-weight: ${depth === 0 ? '600' : '500'}; font-size: ${depth === 0 ? '17px' : '15px'};">${item.title}</span>
-                        <span style="font-size: 13px; opacity: 0.6; margin-top: 3px;">${timeStr} · ${item.mode}${hasChildren ? ` · ${item.children.length}개 이어짐` : ''}</span>
+                        <span style="font-weight: ${depth === 0 ? '600' : '400'}; font-size: ${depth === 0 ? '12px' : '11px'};">${item.title}</span>
+                        <span style="font-size: 10px; opacity: 0.6;">${timeStr} · ${item.mode}${hasChildren ? ` · ${item.children.length}개` : ''}</span>
                     </div>
                 `;
                 list.appendChild(div);
