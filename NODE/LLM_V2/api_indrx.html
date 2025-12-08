@@ -1,0 +1,1247 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <meta charset="UTF-8">
+    <title>AMHS RAG 시스템</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Arial, sans-serif;
+            background: none;
+            padding: 0;
+            margin: 0;
+            overflow: hidden;
+            color: #333;
+        }
+
+        /* Sidebar Layout */
+        .app-layout {
+            display: flex;
+            min-height: 100vh;
+            overflow: hidden;
+        }
+
+        .sidebar {
+            width: 180px;
+            background: #f8f9fa;
+            border-right: 1px solid #e2e8f0;
+            color: #333;
+            display: flex;
+            flex-direction: column;
+            padding: 8px;
+            flex-shrink: 0;
+            height: 100vh;
+            box-shadow: 2px 0 8px rgba(0, 0, 0, 0.05);
+            z-index: 10;
+        }
+
+        .main-content {
+            flex: 1;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            padding: 15px 25px;
+            overflow-y: auto;
+            height: 100vh;
+            position: relative;
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            background: white;
+            padding: 25px 35px;
+            border-radius: 15px;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
+        }
+
+        h1 {
+            color: #333;
+            text-align: center;
+            margin-bottom: 8px;
+            font-size: 28px;
+        }
+
+        .subtitle {
+            text-align: center;
+            color: #666;
+            margin-bottom: 20px;
+            font-size: 13px;
+        }
+
+        .status-bar {
+            background: #f0f0f0;
+            padding: 10px 15px;
+            border-radius: 8px;
+            margin-bottom: 15px;
+            font-size: 13px;
+            color: #666;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 10px;
+            border: none;
+        }
+
+        .status-left {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .status-indicator {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: #4CAF50;
+            animation: pulse 2s infinite;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+
+        /* LLM 선택 영역 */
+        .llm-selector {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            background: white;
+            padding: 6px 12px;
+            border-radius: 20px;
+            border: 1px solid #ddd;
+        }
+
+        .llm-selector label {
+            font-size: 12px;
+            font-weight: 600;
+            color: #555;
+        }
+
+        .llm-selector select {
+            padding: 4px 8px;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            font-size: 12px;
+            background: white;
+            cursor: pointer;
+        }
+
+        .llm-status {
+            font-size: 11px;
+            padding: 3px 8px;
+            border-radius: 10px;
+            font-weight: 600;
+        }
+
+        .llm-status.api {
+            background: #d4edda;
+            color: #155724;
+        }
+
+        .llm-status.local {
+            background: #fff3cd;
+            color: #856404;
+        }
+
+        .mode-selector {
+            margin-bottom: 15px;
+            display: flex;
+            gap: 8px;
+            background: #f8f9fa;
+            padding: 8px;
+            border-radius: 10px;
+        }
+
+        .mode-btn {
+            flex: 1;
+            padding: 12px 8px;
+            background: white;
+            border: 2px solid #ddd;
+            border-radius: 8px;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s;
+            text-align: center;
+            color: #333;
+        }
+
+        .mode-btn:hover {
+            border-color: #667eea;
+            transform: translateY(-2px);
+            color: #333;
+        }
+
+        .mode-btn.active {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border-color: #667eea;
+            box-shadow: none;
+        }
+
+        .mode-icon {
+            font-size: 20px;
+            display: block;
+            margin-bottom: 3px;
+        }
+
+        .input-box {
+            margin: 15px 0;
+            display: flex;
+            gap: 10px;
+        }
+
+        input {
+            flex: 1;
+            padding: 14px;
+            font-size: 15px;
+            border: 2px solid #ddd;
+            border-radius: 8px;
+            transition: all 0.3s;
+            background: white;
+            color: #333;
+        }
+
+        input::placeholder {
+            color: #999;
+        }
+
+        input:focus {
+            outline: none;
+            border-color: #667eea;
+            background: white;
+            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+        }
+
+        button {
+            padding: 14px 30px;
+            font-size: 15px;
+            font-weight: 600;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+
+        button:hover:not(:disabled) {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(102, 126, 234, 0.4);
+        }
+
+        button:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        #result {
+            margin-top: 15px;
+            padding: 20px;
+            background: #fafafa;
+            border-radius: 10px;
+            border-left: 4px solid #667eea;
+            white-space: pre-wrap;
+            min-height: 120px;
+            line-height: 1.7;
+            font-size: 14px;
+            color: #333;
+            box-shadow: none;
+            max-height: 400px;
+            overflow-y: auto;
+        }
+
+        .loading {
+            color: #667eea;
+            font-weight: 600;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .spinner {
+            width: 20px;
+            height: 20px;
+            border: 3px solid #f3f3f3;
+            border-top: 3px solid #667eea;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        .error {
+            color: #d32f2f;
+            background: #ffebee;
+            border-left-color: #d32f2f;
+        }
+
+        .success {
+            color: #333;
+        }
+
+        .examples {
+            margin-top: 15px;
+            padding: 15px;
+            background: #f8f9fa;
+            border-radius: 8px;
+        }
+
+        .examples h3 {
+            font-size: 13px;
+            color: #666;
+            margin-bottom: 8px;
+        }
+
+        .example-tags {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 6px;
+        }
+
+        .example-tag {
+            padding: 6px 12px;
+            background: white;
+            border: 1px solid #ddd;
+            border-radius: 20px;
+            font-size: 12px;
+            cursor: pointer;
+            transition: all 0.3s;
+            color: #333;
+        }
+
+        .example-tag:hover {
+            background: #667eea;
+            color: white;
+            border-color: #667eea;
+        }
+
+        .data-input-section {
+            margin-top: 15px;
+            background: #f7fafc;
+            border-radius: 10px;
+            overflow: hidden;
+            border: 2px solid #667eea;
+        }
+
+        .data-input-header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 12px 18px;
+            cursor: pointer;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            font-weight: 600;
+            font-size: 14px;
+            transition: all 0.3s;
+        }
+
+        .data-input-header:hover {
+            background: linear-gradient(135deg, #5568d3 0%, #6a3f8a 100%);
+        }
+
+        .data-input-header .icon {
+            font-size: 18px;
+            transition: transform 0.3s;
+        }
+
+        .data-input-header .icon.open {
+            transform: rotate(180deg);
+        }
+
+        .data-input-body {
+            padding: 18px;
+            display: none;
+        }
+
+        .data-input-body.show {
+            display: block;
+        }
+
+        .input-method {
+            display: flex;
+            gap: 8px;
+            margin-bottom: 15px;
+        }
+
+        .method-btn {
+            flex: 1;
+            padding: 10px;
+            background: white;
+            border: 2px solid #ddd;
+            border-radius: 8px;
+            cursor: pointer;
+            text-align: center;
+            font-weight: 600;
+            font-size: 13px;
+            transition: all 0.3s;
+        }
+
+        .method-btn:hover {
+            border-color: #667eea;
+        }
+
+        .method-btn.active {
+            background: #667eea;
+            color: white;
+            border-color: #667eea;
+        }
+
+        .input-area {
+            display: none;
+        }
+
+        .input-area.show {
+            display: block;
+        }
+
+        .file-upload {
+            border: 2px dashed #667eea;
+            border-radius: 10px;
+            padding: 25px;
+            text-align: center;
+            background: white;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+
+        .file-upload:hover {
+            background: #f7fafc;
+            border-color: #5568d3;
+        }
+
+        .file-upload input[type="file"] {
+            display: none;
+        }
+
+        .text-input textarea {
+            width: 100%;
+            min-height: 150px;
+            padding: 12px;
+            border: 2px solid #ddd;
+            border-radius: 8px;
+            font-family: 'Courier New', monospace;
+            font-size: 12px;
+            resize: vertical;
+        }
+
+        .text-input textarea:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+
+        .submit-btn {
+            margin-top: 12px;
+            width: 100%;
+            padding: 12px;
+            background: linear-gradient(135deg, #48bb78 0%, #38a169 100%);
+            color: white;
+            border: none;
+            border-radius: 8px;
+            font-size: 15px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+
+        .submit-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(72, 187, 120, 0.4);
+        }
+
+        .data-info {
+            background: #e6fffa;
+            border-left: 4px solid #38b2ac;
+            padding: 12px;
+            margin-bottom: 12px;
+            border-radius: 5px;
+            font-size: 12px;
+            line-height: 1.5;
+        }
+
+        /* Sidebar Components */
+        .new-chat-btn {
+            border: 1px solid #667eea;
+            border-radius: 5px;
+            padding: 8px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 6px;
+            cursor: pointer;
+            transition: all 0.3s;
+            margin-bottom: 12px;
+            font-size: 12px;
+            background: white;
+            color: #667eea;
+            font-weight: 600;
+        }
+
+        .new-chat-btn:hover {
+            background-color: #667eea;
+            color: white;
+        }
+
+        .history-list {
+            flex: 1;
+            overflow-y: auto;
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+        }
+
+        .history-item {
+            padding: 8px;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 11px;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            color: #666;
+            transition: background 0.3s;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .history-item:hover {
+            background-color: #f0f0f0;
+            color: #333;
+        }
+
+        .history-item.active {
+            background-color: #e6e6fa;
+            color: #667eea;
+            font-weight: 600;
+        }
+
+        .history-icon {
+            font-size: 12px;
+        }
+
+        .history-list::-webkit-scrollbar {
+            width: 4px;
+        }
+
+        .history-list::-webkit-scrollbar-thumb {
+            background-color: #ccc;
+            border-radius: 2px;
+        }
+
+        .history-list::-webkit-scrollbar-track {
+            background-color: transparent;
+        }
+
+        .sidebar-footer {
+            margin-top: auto;
+            padding-top: 10px;
+            border-top: 1px solid #e2e8f0;
+            font-size: 10px;
+            color: #999;
+            text-align: center;
+        }
+
+        .clear-btn {
+            font-size: 10px;
+            color: #999;
+            cursor: pointer;
+            text-decoration: underline;
+            display: block;
+            text-align: right;
+            margin-bottom: 8px;
+        }
+
+        .clear-btn:hover {
+            color: #667eea;
+        }
+
+        /* Markdown Styles */
+        .markdown-content {
+            line-height: 1.6;
+        }
+
+        .markdown-content h1,
+        .markdown-content h2,
+        .markdown-content h3 {
+            margin-top: 15px;
+            margin-bottom: 8px;
+            color: #2d3748;
+        }
+
+        .markdown-content p {
+            margin-bottom: 8px;
+        }
+
+        .markdown-content ul,
+        .markdown-content ol {
+            margin-left: 18px;
+            margin-bottom: 8px;
+        }
+
+        .markdown-content code {
+            background: #edf2f7;
+            padding: 2px 5px;
+            border-radius: 4px;
+            font-family: monospace;
+            font-size: 0.9em;
+        }
+
+        .markdown-content pre {
+            background: #2d3748;
+            color: #f7fafc;
+            padding: 12px;
+            border-radius: 8px;
+            overflow-x: auto;
+            margin-bottom: 12px;
+        }
+
+        .markdown-content pre code {
+            background: transparent;
+            padding: 0;
+            color: inherit;
+        }
+    </style>
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+</head>
+
+<body>
+    <div class="app-layout">
+        <aside class="sidebar">
+            <div class="new-chat-btn" onclick="startNewChat()">
+                <span>+</span> New
+            </div>
+            <span class="clear-btn" onclick="clearHistory()">Clear</span>
+            <div class="history-list" id="historyList">
+            </div>
+            <div class="sidebar-footer">
+                AMHS RAG v2.4
+            </div>
+        </aside>
+
+        <main class="main-content">
+            <div class="container">
+                <h1>🤖 AMHS RAG 시스템</h1>
+                <div class="subtitle">반도체 제조 물류 시스템 AI 분석</div>
+
+                <div class="status-bar">
+                    <div class="status-left">
+                        <div class="status-indicator"></div>
+                        <span id="statusText">시스템 준비됨</span>
+                    </div>
+                    <div class="llm-selector">
+                        <label>LLM:</label>
+                        <select id="llmSelect" onchange="changeLLMMode()">
+                            <option value="api">API (30B)</option>
+                            <option value="local">Local</option>
+                        </select>
+                        <span class="llm-status api" id="llmStatusBadge">API</span>
+                    </div>
+                </div>
+
+                <div class="mode-selector">
+                    <div class="mode-btn active" onclick="setMode('search')" id="mode-search">
+                        <span class="mode-icon">🔍</span>
+                        검색
+                    </div>
+                    <div class="mode-btn" onclick="setMode('m14')" id="mode-m14">
+                        <span class="mode-icon">📊</span>
+                        M14예측
+                    </div>
+                    <div class="mode-btn" onclick="setMode('hub')" id="mode-hub">
+                        <span class="mode-icon">🎯</span>
+                        HUB예측
+                    </div>
+                    <div class="mode-btn" onclick="setMode('general')" id="mode-general">
+                        <span class="mode-icon">💬</span>
+                        대화
+                    </div>
+                </div>
+
+                <div class="input-box">
+                    <input type="text" id="question" placeholder="질문을 입력하세요..." autocomplete="off">
+                    <button id="sendBtn" onclick="ask()">전송</button>
+                </div>
+
+                <div id="result">💡 모드를 선택하고 질문을 입력하세요.</div>
+
+                <div id="dataInputSection" class="data-input-section" style="display: none;">
+                    <div class="data-input-header" onclick="toggleDataInput()">
+                        <span id="dataInputHeaderText">📊 데이터 입력</span>
+                        <span class="icon" id="dataInputIcon">▼</span>
+                    </div>
+                    <div class="data-input-body" id="dataInputBody">
+                        <div class="data-info">
+                            <strong>ℹ️ 필요 데이터:</strong> 시계열 데이터가 필요합니다.
+                        </div>
+
+                        <div class="input-method">
+                            <div class="method-btn active" onclick="selectInputMethod('file')" id="method-file">
+                                📁 파일 업로드
+                            </div>
+                            <div class="method-btn" onclick="selectInputMethod('text')" id="method-text">
+                                📝 텍스트 입력
+                            </div>
+                        </div>
+
+                        <div class="input-area show" id="input-file">
+                            <div class="file-upload" onclick="document.getElementById('fileInput').click()">
+                                <div style="font-size: 36px; margin-bottom: 8px;">📁</div>
+                                <div style="font-size: 15px; font-weight: 600; margin-bottom: 4px;">CSV 파일 선택</div>
+                                <div style="font-size: 12px; color: #718096;">또는 드래그</div>
+                                <input type="file" id="fileInput" accept=".csv" onchange="handleFileSelect(event)">
+                            </div>
+                            <div id="fileInfo" style="margin-top: 12px; padding: 8px; background: white; border-radius: 5px; display: none; font-size: 12px;">
+                                <strong>파일:</strong> <span id="fileName"></span> (<span id="fileSize"></span>)
+                            </div>
+                            <button class="submit-btn" onclick="submitData()" id="submitFileBtn" style="display: none;">
+                                🚀 예측 시작
+                            </button>
+                        </div>
+
+                        <div class="input-area" id="input-text">
+                            <div class="text-input">
+                                <textarea id="textData" placeholder="CSV 데이터를 붙여넣으세요..."></textarea>
+                            </div>
+                            <button class="submit-btn" onclick="submitData()">
+                                🚀 예측 시작
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="examples">
+                    <h3 id="exampleTitle">📝 질문 예시</h3>
+                    <div class="example-tags" id="exampleTags">
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <script>
+        const questionInput = document.getElementById('question');
+        const resultDiv = document.getElementById('result');
+        const sendBtn = document.getElementById('sendBtn');
+        const exampleTags = document.getElementById('exampleTags');
+        const statusText = document.getElementById('statusText');
+
+        let currentMode = 'search';
+        let currentLLMMode = 'api';
+
+        // LLM 상태 확인
+        async function checkLLMStatus() {
+            try {
+                const response = await fetch('/llm_status');
+                const data = await response.json();
+                
+                currentLLMMode = data.mode;
+                document.getElementById('llmSelect').value = data.mode;
+                
+                const badge = document.getElementById('llmStatusBadge');
+                if (data.mode === 'api') {
+                    badge.textContent = 'API';
+                    badge.className = 'llm-status api';
+                } else {
+                    badge.textContent = 'Local';
+                    badge.className = 'llm-status local';
+                }
+                
+                // 사용 불가능한 옵션 비활성화
+                const select = document.getElementById('llmSelect');
+                select.options[0].disabled = !data.api_available;
+                select.options[1].disabled = !data.local_available;
+                
+                updateStatusText();
+            } catch (e) {
+                console.error('LLM 상태 확인 실패:', e);
+            }
+        }
+
+        // LLM 모드 변경
+        async function changeLLMMode() {
+            const newMode = document.getElementById('llmSelect').value;
+            
+            try {
+                const response = await fetch('/set_llm_mode', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ llm_mode: newMode })
+                });
+                
+                const data = await response.json();
+                
+                if (data.success) {
+                    currentLLMMode = data.mode;
+                    const badge = document.getElementById('llmStatusBadge');
+                    if (data.mode === 'api') {
+                        badge.textContent = 'API';
+                        badge.className = 'llm-status api';
+                    } else {
+                        badge.textContent = 'Local';
+                        badge.className = 'llm-status local';
+                    }
+                    updateStatusText();
+                    resultDiv.innerHTML = `✅ ${data.message}`;
+                } else {
+                    document.getElementById('llmSelect').value = currentLLMMode;
+                    resultDiv.innerHTML = `❌ ${data.message}`;
+                    resultDiv.className = 'error';
+                }
+            } catch (e) {
+                console.error('LLM 모드 변경 실패:', e);
+                document.getElementById('llmSelect').value = currentLLMMode;
+            }
+        }
+
+        function updateStatusText() {
+            const modeNames = {
+                search: 'CSV 검색',
+                m14: 'M14 예측',
+                hub: 'HUB 예측',
+                general: '일반 대화'
+            };
+            const llmLabel = currentLLMMode === 'api' ? 'API (30B)' : 'Local';
+            statusText.textContent = `${modeNames[currentMode]} | LLM: ${llmLabel}`;
+        }
+
+        // History Management
+        const HISTORY_KEY = 'amhs_query_history';
+
+        function getHistory() {
+            const history = localStorage.getItem(HISTORY_KEY);
+            return history ? JSON.parse(history) : [];
+        }
+
+        function saveHistory(history) {
+            localStorage.setItem(HISTORY_KEY, JSON.stringify(history));
+        }
+
+        function startNewChat() {
+            document.getElementById('result').innerHTML = '💡 모드를 선택하고 질문을 입력하세요.';
+            document.getElementById('result').className = '';
+            document.getElementById('question').value = '';
+            document.querySelectorAll('.history-item').forEach(item => item.classList.remove('active'));
+        }
+
+        function loadHistoryItem(index) {
+            const history = getHistory();
+            const item = history[index];
+
+            if (item) {
+                document.getElementById('question').value = item.question;
+                if (item.mode === 'general' || item.answer.includes('**') || item.answer.includes('###')) {
+                    document.getElementById('result').innerHTML = marked.parse(item.answer);
+                    document.getElementById('result').classList.add('markdown-content');
+                } else {
+                    document.getElementById('result').innerHTML = item.answer;
+                    document.getElementById('result').classList.remove('markdown-content');
+                }
+                document.getElementById('result').className = 'success';
+
+                if (item.mode && item.mode !== currentMode) {
+                    setMode(item.mode);
+                }
+
+                renderHistoryList(index);
+            }
+        }
+
+        function addToHistory(question, answer, mode) {
+            const history = getHistory();
+
+            const newItem = {
+                question: question,
+                answer: answer,
+                mode: mode,
+                timestamp: Date.now(),
+                title: question.length > 15 ? question.substring(0, 15) + '...' : question
+            };
+
+            history.unshift(newItem);
+
+            if (history.length > 30) history.pop();
+
+            saveHistory(history);
+            renderHistoryList(0);
+        }
+
+        function renderHistoryList(activeIndex = -1) {
+            const list = document.getElementById('historyList');
+            list.innerHTML = '';
+
+            const history = getHistory();
+
+            history.forEach((item, index) => {
+                const div = document.createElement('div');
+                div.className = `history-item ${index === activeIndex ? 'active' : ''}`;
+                div.onclick = () => loadHistoryItem(index);
+
+                const date = new Date(item.timestamp);
+                const timeStr = `${date.getHours()}:${date.getMinutes().toString().padStart(2, '0')}`;
+
+                div.innerHTML = `
+                    <span class="history-icon">💬</span>
+                    <span style="overflow: hidden; text-overflow: ellipsis;">${item.title}</span>
+                `;
+                div.title = `${item.question}\n${timeStr}`;
+                list.appendChild(div);
+            });
+        }
+
+        function clearHistory() {
+            if (confirm('히스토리를 모두 삭제하시겠습니까?')) {
+                localStorage.removeItem(HISTORY_KEY);
+                renderHistoryList();
+                startNewChat();
+            }
+        }
+
+        let currentInputMethod = 'file';
+        let uploadedFileData = null;
+
+        const modeExamples = {
+            search: [
+                { text: '202509210013 시간의 데이터', label: '시간별 조회' },
+                { text: 'HUBROOMTOTAL이 낮은 시간대', label: 'HUB 공간' },
+                { text: 'STAR 이천 접속정보', label: 'STAR DB' },
+                { text: 'MongoDB 청주', label: 'MongoDB' },
+                { text: 'Logpresso 우시', label: 'Logpresso' }
+            ],
+            m14: [
+                { text: 'M14 예측 분석', label: 'M14 예측' }
+            ],
+            hub: [
+                { text: 'HUB 예측 분석', label: 'HUB 예측' }
+            ],
+            general: [
+                { text: '안녕, 너는 누구야?', label: '자기소개' },
+                { text: '이 시스템은 뭘 할 수 있어?', label: '기능 설명' },
+                { text: 'AMHS가 뭐야?', label: 'AMHS 설명' }
+            ]
+        };
+
+        function setMode(mode) {
+            currentMode = mode;
+
+            document.querySelectorAll('.mode-btn').forEach(btn => {
+                btn.classList.remove('active');
+            });
+            document.getElementById('mode-' + mode).classList.add('active');
+
+            updateStatusText();
+
+            const questionInput = document.getElementById('question');
+            const resultDiv = document.getElementById('result');
+
+            if (mode === 'general') {
+                questionInput.placeholder = "AI에게 질문하세요...";
+                resultDiv.innerHTML = "💡 <strong>일반 대화 모드</strong><br>AI와 자유롭게 대화하세요.";
+            } else if (mode === 'search') {
+                questionInput.placeholder = "CSV/DB 검색 질문...";
+                resultDiv.innerHTML = "💡 <strong>검색 모드</strong><br>CSV, STAR DB, MongoDB 검색 가능";
+            } else {
+                questionInput.placeholder = "예측 관련 질문...";
+                resultDiv.innerHTML = "💡 <strong>예측 모드</strong><br>데이터를 입력하고 예측 버튼을 누르세요.";
+            }
+
+            const dataInputSection = document.getElementById('dataInputSection');
+            if (mode === 'm14' || mode === 'hub') {
+                dataInputSection.style.display = 'block';
+                updateDataInputInfo(mode);
+            } else {
+                dataInputSection.style.display = 'none';
+            }
+
+            updateExamples();
+        }
+
+        function updateDataInputInfo(mode) {
+            const dataInfo = document.querySelector('.data-info');
+            const headerText = document.getElementById('dataInputHeaderText');
+
+            if (mode === 'm14') {
+                headerText.textContent = '📊 M14 데이터 입력 (280분)';
+                dataInfo.innerHTML = `<strong>ℹ️ 필요 데이터:</strong> 280분 시계열 데이터`;
+            } else if (mode === 'hub') {
+                headerText.textContent = '📊 HUB 데이터 입력 (30분)';
+                dataInfo.innerHTML = `<strong>ℹ️ 필요 데이터:</strong> 30분 시계열 데이터`;
+            }
+        }
+
+        function updateExamples() {
+            exampleTags.innerHTML = '';
+            const examples = modeExamples[currentMode];
+
+            examples.forEach(example => {
+                const tag = document.createElement('span');
+                tag.className = 'example-tag';
+                tag.textContent = example.label;
+                tag.onclick = () => setQuestion(example.text);
+                exampleTags.appendChild(tag);
+            });
+        }
+
+        function setQuestion(text) {
+            questionInput.value = text;
+            questionInput.focus();
+        }
+
+        async function ask() {
+            const question = questionInput.value.trim();
+
+            if (!question) {
+                resultDiv.textContent = '❗ 질문을 입력하세요!';
+                resultDiv.className = 'error';
+                return;
+            }
+
+            resultDiv.innerHTML = '<div class="loading"><div class="spinner"></div>AI 처리 중...</div>';
+            resultDiv.className = '';
+            sendBtn.disabled = true;
+
+            try {
+                const response = await fetch('/ask', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        question: question,
+                        mode: currentMode
+                    })
+                });
+
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}`);
+                }
+
+                const data = await response.json();
+
+                if (currentMode === 'general' || data.answer.includes('**') || data.answer.includes('###')) {
+                    resultDiv.innerHTML = marked.parse(data.answer);
+                    resultDiv.classList.add('markdown-content');
+                } else {
+                    resultDiv.innerHTML = data.answer;
+                    resultDiv.classList.remove('markdown-content');
+                }
+
+                resultDiv.className = 'success';
+
+                addToHistory(question, data.answer, currentMode);
+
+                questionInput.value = '';
+
+            } catch (error) {
+                resultDiv.textContent = '❌ 오류: ' + error.message;
+                resultDiv.className = 'error';
+                console.error('Error:', error);
+            } finally {
+                sendBtn.disabled = false;
+                questionInput.focus();
+            }
+        }
+
+        questionInput.addEventListener('keypress', function (e) {
+            if (e.key === 'Enter' && !sendBtn.disabled) {
+                ask();
+            }
+        });
+
+        window.addEventListener('load', function () {
+            updateExamples();
+            questionInput.focus();
+            renderHistoryList();
+            checkLLMStatus();
+        });
+
+        function toggleDataInput() {
+            const body = document.getElementById('dataInputBody');
+            const icon = document.getElementById('dataInputIcon');
+
+            if (body.classList.contains('show')) {
+                body.classList.remove('show');
+                icon.classList.remove('open');
+            } else {
+                body.classList.add('show');
+                icon.classList.add('open');
+            }
+        }
+
+        function selectInputMethod(method) {
+            currentInputMethod = method;
+
+            document.querySelectorAll('.method-btn').forEach(btn => {
+                btn.classList.remove('active');
+            });
+            document.getElementById('method-' + method).classList.add('active');
+
+            document.querySelectorAll('.input-area').forEach(area => {
+                area.classList.remove('show');
+            });
+            document.getElementById('input-' + method).classList.add('show');
+        }
+
+        function handleFileSelect(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+
+            document.getElementById('fileName').textContent = file.name;
+            document.getElementById('fileSize').textContent = (file.size / 1024).toFixed(1) + ' KB';
+            document.getElementById('fileInfo').style.display = 'block';
+            document.getElementById('submitFileBtn').style.display = 'block';
+
+            const reader = new FileReader();
+            reader.onload = function (e) {
+                uploadedFileData = e.target.result;
+            };
+            reader.readAsText(file);
+        }
+
+        const fileUpload = document.querySelector('.file-upload');
+        if (fileUpload) {
+            fileUpload.addEventListener('dragover', (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                fileUpload.style.background = '#f0f4ff';
+            });
+
+            fileUpload.addEventListener('dragleave', (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                fileUpload.style.background = 'white';
+            });
+
+            fileUpload.addEventListener('drop', (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                fileUpload.style.background = 'white';
+
+                const files = e.dataTransfer.files;
+                if (files.length > 0) {
+                    document.getElementById('fileInput').files = files;
+                    handleFileSelect({ target: { files: files } });
+                }
+            });
+        }
+
+        async function submitData() {
+            let data = null;
+
+            if (currentInputMethod === 'file') {
+                if (!uploadedFileData) {
+                    resultDiv.textContent = '❗ 파일을 선택해주세요!';
+                    resultDiv.className = 'error';
+                    return;
+                }
+                data = uploadedFileData;
+            } else {
+                const textarea = document.getElementById('textData');
+                data = textarea.value.trim();
+
+                if (!data) {
+                    resultDiv.textContent = '❗ 데이터를 입력해주세요!';
+                    resultDiv.className = 'error';
+                    return;
+                }
+            }
+
+            resultDiv.innerHTML = '<div class="loading"><div class="spinner"></div>예측 분석 중...</div>';
+            resultDiv.className = '';
+
+            try {
+                const response = await fetch('/predict', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        mode: currentMode,
+                        data: data
+                    })
+                });
+
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}`);
+                }
+
+                const result = await response.json();
+
+                if (result.error) {
+                    resultDiv.textContent = '❌ ' + result.error + '\n' + result.message;
+                    resultDiv.className = 'error';
+                } else {
+                    displayPredictionResult(result);
+                    addToHistory(`예측: ${currentMode}`, resultDiv.innerHTML, currentMode);
+                }
+
+            } catch (error) {
+                resultDiv.textContent = '❌ 오류: ' + error.message;
+                resultDiv.className = 'error';
+                console.error('Error:', error);
+            }
+        }
+
+        function displayPredictionResult(result) {
+            let html = '<div style="padding: 8px;">';
+
+            if (result.summary) {
+                html += '<div style="background: #f7fafc; padding: 15px; border-radius: 8px; white-space: pre-wrap; margin-bottom: 15px;">';
+                html += '<h3 style="color: #667eea; margin-bottom: 10px; font-size: 16px;">📊 예측 요약</h3>';
+                html += result.summary;
+                html += '</div>';
+            }
+
+            if (result.llm_analysis) {
+                html += '<div style="background: #ebf8ff; padding: 15px; border-radius: 8px; border-left: 4px solid #4299e1; margin-bottom: 15px;">';
+                html += '<h3 style="color: #2c5282; margin-bottom: 10px; font-size: 16px;">🤖 AI 분석</h3>';
+                html += '<div style="line-height: 1.6; white-space: pre-wrap;" class="markdown-content">';
+                html += marked.parse(result.llm_analysis);
+                html += '</div></div>';
+            }
+
+            html += '<div style="text-align: center; margin: 15px 0;">';
+
+            if (result.dashboard_url) {
+                html += `<button onclick="window.open('${result.dashboard_url}', '_blank')" style="
+                    padding: 12px 25px; font-size: 15px; font-weight: 700;
+                    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                    color: white; border: none; border-radius: 8px; cursor: pointer;
+                    box-shadow: 0 4px 15px rgba(102, 126, 234, 0.4);">
+                    📊 대시보드 보기
+                </button>`;
+            }
+
+            if (result.dashboard_numerical_url && result.dashboard_categorical_url) {
+                html += `<button onclick="window.open('${result.dashboard_numerical_url}', '_blank')" style="
+                    padding: 12px 25px; font-size: 15px; font-weight: 700;
+                    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                    color: white; border: none; border-radius: 8px; cursor: pointer;
+                    margin-right: 10px;">
+                    📊 수치형
+                </button>`;
+
+                html += `<button onclick="window.open('${result.dashboard_categorical_url}', '_blank')" style="
+                    padding: 12px 25px; font-size: 15px; font-weight: 700;
+                    background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+                    color: white; border: none; border-radius: 8px; cursor: pointer;">
+                    🎯 범주형
+                </button>`;
+            }
+
+            html += '</div></div>';
+
+            resultDiv.innerHTML = html;
+            resultDiv.className = 'success';
+        }
+    </script>
+</body>
+
+</html>
