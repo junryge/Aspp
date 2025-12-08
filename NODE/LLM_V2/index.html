@@ -436,13 +436,13 @@
         }
 
         .sidebar {
-            width: 260px;
+            width: 450px;
             background: white;
             border-right: 1px solid #e2e8f0;
             color: #333;
             display: flex;
             flex-direction: column;
-            padding: 10px;
+            padding: 20px;
             flex-shrink: 0;
             height: 100vh;
             box-shadow: 2px 0 10px rgba(0, 0, 0, 0.05);
@@ -489,24 +489,27 @@
 
         /* Sidebar Components */
         .new-chat-btn {
-            border: 1px solid #667eea;
-            border-radius: 5px;
-            padding: 10px;
+            border: 2px solid #667eea;
+            border-radius: 12px;
+            padding: 18px 20px;
             display: flex;
             align-items: center;
-            gap: 10px;
+            gap: 14px;
             cursor: pointer;
             transition: all 0.3s;
-            margin-bottom: 20px;
-            font-size: 14px;
+            margin-bottom: 24px;
+            font-size: 18px;
             background: white;
             color: #667eea;
-            font-weight: 600;
+            font-weight: 700;
         }
 
         .new-chat-btn:hover {
-            background-color: #667eea;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
             color: white;
+            border-color: #667eea;
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(102, 126, 234, 0.3);
         }
 
         .history-list {
@@ -514,55 +517,62 @@
             overflow-y: auto;
             display: flex;
             flex-direction: column;
-            gap: 5px;
+            gap: 3px;
+            padding: 0 5px;
         }
 
         .history-item {
-            padding: 8px 10px;
-            border-radius: 5px;
+            padding: 18px 16px;
+            border-radius: 10px;
             cursor: pointer;
-            font-size: 14px;
+            font-size: 16px;
             white-space: nowrap;
             overflow: hidden;
             text-overflow: ellipsis;
-            color: #666;
+            color: #555;
             transition: background 0.3s;
             display: flex;
             align-items: center;
-            gap: 8px;
-            border-left: 2px solid transparent;
+            gap: 14px;
+            border-left: 4px solid transparent;
             margin-left: 0;
+            margin-bottom: 6px;
         }
 
         .history-item:hover {
-            background-color: #f0f0f0;
+            background-color: #f5f5f5;
             color: #333;
             border-left-color: #667eea;
         }
 
         .history-item.active {
-            background-color: #e6e6fa;
-            color: #667eea;
+            background-color: #ede9fe;
+            color: #5b21b6;
             font-weight: 600;
-            border-left-color: #667eea;
+            border-left-color: #7c3aed;
         }
 
         .history-icon {
-            font-size: 16px;
+            font-size: 22px;
         }
 
         /* Scrollbar for sidebar */
         .history-list::-webkit-scrollbar {
-            width: 6px;
+            width: 8px;
         }
 
         .history-list::-webkit-scrollbar-thumb {
-            background-color: #565869;
-            border-radius: 3px;
+            background-color: #cbd5e0;
+            border-radius: 4px;
+        }
+
+        .history-list::-webkit-scrollbar-thumb:hover {
+            background-color: #a0aec0;
         }
 
         .history-list::-webkit-scrollbar-track {
-            background-color: transparent;
+            background-color: #f7fafc;
+            border-radius: 4px;
         }
 
         /* Markdown Styles */
@@ -645,9 +655,10 @@
             <div class="new-chat-btn" onclick="startNewChat()">
                 <span>+</span> 새 대화
             </div>
-            <div style="padding: 0 10px 10px 10px; display: flex; justify-content: flex-end;">
+            <div style="padding: 0 12px 15px 12px; display: flex; justify-content: space-between; align-items: center;">
+                <span style="font-size: 13px; color: #888; font-weight: 600;">📜 대화 히스토리</span>
                 <span onclick="clearHistory()"
-                    style="font-size: 11px; color: #999; cursor: pointer; text-decoration: underline;">Clear All</span>
+                    style="font-size: 11px; color: #999; cursor: pointer; text-decoration: underline;">전체 삭제</span>
             </div>
             <div class="history-list" id="historyList">
                 <!-- History items will be added here -->
@@ -897,7 +908,7 @@
             function renderItem(item, depth = 0) {
                 const div = document.createElement('div');
                 div.className = `history-item ${item.id === activeItemId ? 'active' : ''}`;
-                div.style.paddingLeft = `${10 + depth * 15}px`;
+                div.style.paddingLeft = `${16 + depth * 22}px`;
                 div.onclick = (e) => {
                     e.stopPropagation();
                     loadHistoryItem(item.id);
@@ -912,10 +923,10 @@
                 const hasChildren = item.children && item.children.length > 0;
 
                 div.innerHTML = `
-                    <span class="history-icon" style="font-size: ${depth === 0 ? '14px' : '12px'};">${icon}</span>
+                    <span class="history-icon" style="font-size: ${depth === 0 ? '22px' : '18px'};">${icon}</span>
                     <div style="display: flex; flex-direction: column; overflow: hidden; flex: 1;">
-                        <span style="font-weight: ${depth === 0 ? '600' : '400'}; font-size: ${depth === 0 ? '13px' : '12px'};">${item.title}</span>
-                        <span style="font-size: 10px; opacity: 0.6;">${timeStr} · ${item.mode}${hasChildren ? ` · ${item.children.length}개 이어짐` : ''}</span>
+                        <span style="font-weight: ${depth === 0 ? '600' : '500'}; font-size: ${depth === 0 ? '17px' : '15px'};">${item.title}</span>
+                        <span style="font-size: 13px; opacity: 0.6; margin-top: 3px;">${timeStr} · ${item.mode}${hasChildren ? ` · ${item.children.length}개 이어짐` : ''}</span>
                     </div>
                 `;
                 list.appendChild(div);
