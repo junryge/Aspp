@@ -463,14 +463,16 @@
             color: #333;
         }
 
-        /* Adjust container to fit */
+        /* Adjust container to fit - 전체 너비 사용 */
         .container {
-            max-width: 1000px;
-            margin: 0 auto;
+            width: 100%;
+            max-width: none;
+            margin: 0;
             background: white;
-            padding: 30px;
-            border-radius: 15px;
-            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
+            padding: 30px 40px;
+            border-radius: 0;
+            box-shadow: none;
+            min-height: 100vh;
         }
 
         /* Sidebar Components */
@@ -1408,6 +1410,6 @@ STAT_DT,CURRENT_M16A_3F_JOB_2,M16A_3F_STORAGE_UTIL,HUBROOMTOTAL,...
             resultDiv.className = 'success';
         }
     </script>
-</body>ㅁ
+</body>
 
 </html>
