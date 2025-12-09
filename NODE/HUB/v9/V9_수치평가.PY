@@ -6,8 +6,8 @@ from datetime import datetime, timedelta
 def evaluate_v9_regression():
     """
     🎯 V9-수치형: MIN/MAX/AVG 구간 변화량 평가
-    - 핵심: 실제 구간값과 비교! (10분후 단일값 X)
-    - 추가: 10분후 값이 예측 범위 내인지 체크
+    - 실제 데이터 컬럼명 사용!
+    - 구간값과 비교 (올바른 평가!)
     """
     print("="*80)
     print("🎯 V9-수치형: MIN/MAX/AVG 구간 변화량 평가")
@@ -24,31 +24,31 @@ def evaluate_v9_regression():
         'maxcapa': ['M16A_6F_LFT_MAXCAPA', 'M16A_2F_LFT_MAXCAPA'],
     }
     
-    # ========== V9 신규 20개 ==========
+    # ========== V9 신규 20개 (실제 컬럼명!) ==========
     V9_ESSENTIAL = [
-        'M16A.QUE.LFT.LFTTOALLCURRENTQCNT',
-        'M16HUB.QUE.M16TOM14.CURRENTQCREATED',
-        'M16A.QUE.CNV.ALLTONORTHCNVCURRENTQCNT',
-        'M16A.QUE.CNV.NORTHCNVTOALLCURRENTQCNT',
-        'M16A.QUE.CNV.M16ATOM14ACURRNETQCNT',
-        'M14.QUE.ALL.TOTALCNVCURRENTQCNT',
-        'M16HUB.QUE.M16TOM14B.CURRENTQCREATED',
-        'M16HUB.QUE.M14TOM16.CURRENTQCREATED',
+        'M16A_LFTTOALL',
+        'M16HUB_M16TOM14_CREATED',
+        'M16A_ALLTONORTHCNV',
+        'M16A_NORTHCNVTOALL',
+        'M16A_M16ATOM14A',
+        'M14_TOTALCNVCURRENTQCNT',
+        'M16HUB_M16TOM14B_CREATED',
+        'M16HUB_M14TOM16_CREATED',
     ]
     
     V9_RECOMMENDED = [
-        'M16A.QUE.ALL.CURRENTQCNT',
-        'M16A.QUE.CNV.ALLTOSOUTHCNVCURRENTQCNT',
-        'M14.QUE.CNV.ALLTOSOUTHCNVCURRENTQCNT',
-        'M14.QUE.CNV.ALLTONORTHCNVCURRENTQCNT',
-        'M14.QUE.ALL.CURRENTQCREATED',
-        'M14.QUE.SFAB.RETURNTOM16',
-        'M14B.QUE.LFT.LFTTOALLCURRENTQCNT',
-        'M14B.QUE.LFT.M14BTOM16ACURRNETQCNT',
-        'M16B.QUE.ALL.CURRENTQCREATED',
-        'M16.QUE.SFAB.SENDTOM14',
-        'M16HUB.QUE.M14TOM16.MESCURRENTQCNT',
-        'M16HUB.QUE.ALL.MESCURRENTQCNT',
+        'M16A_CURRENTQCNT',
+        'M16A_ALLTOSOUTHCNV',
+        'M14_ALLTOSOUTHCNV',
+        'M14_ALLTONORTHCNV',
+        'M14_CURRENTQCREATED',
+        'M14_RETURNTOM16',
+        'M14B_LFTTOALL',
+        'M14B_M14BTOM16A',
+        'M16B_CURRENTQCREATED',
+        'M16_SENDTOM14',
+        'M16HUB_M14TOM16_MESCNT',
+        'M16HUB_MESCURRENTQCNT',
     ]
     
     V9_NEW_COLS = V9_ESSENTIAL + V9_RECOMMENDED
@@ -59,7 +59,7 @@ def evaluate_v9_regression():
     try:
         with open('xgboost_수치형_V9.pkl', 'rb') as f:
             model_dict = pickle.load(f)
-        models = model_dict['models']  # [MIN, MAX, AVG]
+        models = model_dict['models']
         print("✅ 모델 로드: xgboost_수치형_V9.pkl (3개 모델)")
     except Exception as e:
         print(f"❌ 모델 없음: {e}")
@@ -115,7 +115,7 @@ def evaluate_v9_regression():
         current_value = seq_target[-1]
         prediction_time = current_time + timedelta(minutes=10)
         
-        # 🔥 실제 구간 MIN/MAX/AVG (학습과 동일!)
+        # 실제 구간 MIN/MAX/AVG
         future_10min = df[TARGET_COL].iloc[i:i+10].values
         actual_min = np.min(future_10min)
         actual_max = np.max(future_10min)
@@ -129,7 +129,7 @@ def evaluate_v9_regression():
         actual_10min_value = df[TARGET_COL].iloc[i+9]
         actual_10min_change = actual_10min_value - current_value
         
-        # Feature 생성 (학습과 동일)
+        # Feature 생성
         features = {
             'target_mean': np.mean(seq_target),
             'target_std': np.std(seq_target),
@@ -162,7 +162,7 @@ def evaluate_v9_regression():
                     features[f'{col}_last_value'] = col_seq[-1]
                     features[f'{col}_last_5_mean'] = np.mean(col_seq[-5:])
                     features[f'{col}_slope'] = np.polyfit(np.arange(30), col_seq, 1)[0]
-                else:  # inflow, outflow
+                else:
                     features[f'{col}_mean'] = np.mean(col_seq)
                     features[f'{col}_last_value'] = col_seq[-1]
                     features[f'{col}_slope'] = np.polyfit(np.arange(30), col_seq, 1)[0]
@@ -211,7 +211,6 @@ def evaluate_v9_regression():
         features['total_cmd_low'] = 1 if cmd_sum < 220 else 0
         features['total_cmd_very_low'] = 1 if cmd_sum < 200 else 0
         
-        # 급증 위험도
         features['surge_risk_score'] = (
             features.get('hub_high', 0) * 3 +
             features.get('storage_util_critical', 0) * 2 +
@@ -220,18 +219,18 @@ def evaluate_v9_regression():
         )
         
         # V9 핵심 컬럼 Boolean
-        if 'M16A.QUE.LFT.LFTTOALLCURRENTQCNT' in available_cols:
-            lft = df['M16A.QUE.LFT.LFTTOALLCURRENTQCNT'].iloc[i-1]
+        if 'M16A_LFTTOALL' in available_cols:
+            lft = df['M16A_LFTTOALL'].iloc[i-1]
             features['lfttoall_high'] = 1 if lft >= 100 else 0
             features['lfttoall_critical'] = 1 if lft >= 150 else 0
         
-        if 'M16HUB.QUE.M16TOM14.CURRENTQCREATED' in available_cols:
-            m16tom14 = df['M16HUB.QUE.M16TOM14.CURRENTQCREATED'].iloc[i-1]
+        if 'M16HUB_M16TOM14_CREATED' in available_cols:
+            m16tom14 = df['M16HUB_M16TOM14_CREATED'].iloc[i-1]
             features['m16tom14_high'] = 1 if m16tom14 >= 50 else 0
             features['m16tom14_critical'] = 1 if m16tom14 >= 80 else 0
         
-        if 'M16HUB.QUE.M14TOM16.CURRENTQCREATED' in available_cols:
-            m14tom16 = df['M16HUB.QUE.M14TOM16.CURRENTQCREATED'].iloc[i-1]
+        if 'M16HUB_M14TOM16_CREATED' in available_cols:
+            m14tom16 = df['M16HUB_M14TOM16_CREATED'].iloc[i-1]
             features['m14tom16_high'] = 1 if m14tom16 >= 50 else 0
             features['m14tom16_critical'] = 1 if m14tom16 >= 80 else 0
         
@@ -246,38 +245,33 @@ def evaluate_v9_regression():
         pred_max = current_value + pred_change_max
         pred_avg = current_value + pred_change_avg
         
-        # 🔥 구간값과 비교! (핵심 수정)
+        # 구간값과 비교!
         error_min = abs(actual_change_min - pred_change_min)
         error_max = abs(actual_change_max - pred_change_max)
         error_avg = abs(actual_change_avg - pred_change_avg)
         
-        # 10분후 값이 예측 범위 내인지 체크
+        # 10분후 값이 예측 범위 내인지
         in_range = pred_min <= actual_10min_value <= pred_max
         
         results.append({
             '현재시간': current_time.strftime('%Y-%m-%d %H:%M'),
             '예측시점': prediction_time.strftime('%Y-%m-%d %H:%M'),
             '현재값': round(current_value, 2),
-            # 실제 구간값
             '실제_구간MIN': round(actual_min, 2),
             '실제_구간MAX': round(actual_max, 2),
             '실제_구간AVG': round(actual_avg, 2),
-            # 예측 구간값
             '예측_MIN': round(pred_min, 2),
             '예측_MAX': round(pred_max, 2),
             '예측_AVG': round(pred_avg, 2),
-            # 변화량
             '실제_변화량_MIN': round(actual_change_min, 2),
             '실제_변화량_MAX': round(actual_change_max, 2),
             '실제_변화량_AVG': round(actual_change_avg, 2),
             '예측_변화량_MIN': round(pred_change_min, 2),
             '예측_변화량_MAX': round(pred_change_max, 2),
             '예측_변화량_AVG': round(pred_change_avg, 2),
-            # 오차 (구간값 기준!)
             '오차_MIN': round(error_min, 2),
             '오차_MAX': round(error_max, 2),
             '오차_AVG': round(error_avg, 2),
-            # 10분후 단일값 (참고)
             '10분후_실제값': round(actual_10min_value, 2),
             '10분후_변화량': round(actual_10min_change, 2),
             '범위내': '✅' if in_range else '❌',
@@ -297,7 +291,7 @@ def evaluate_v9_regression():
     
     print(f"총 예측: {len(results_df)}개")
     
-    # 구간값 오차 (핵심!)
+    # 구간값 오차
     print(f"\n🎯 구간값 예측 성능 (올바른 비교!):")
     for name in ['MIN', 'MAX', 'AVG']:
         avg_error = results_df[f'오차_{name}'].mean()
