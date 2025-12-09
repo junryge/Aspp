@@ -580,4 +580,4 @@ if __name__ == '__main__':
     
     print("\n" + "="*80)
     print("✅ 분석 완료!")
-    print("="*80)
+    print("="*80)#
