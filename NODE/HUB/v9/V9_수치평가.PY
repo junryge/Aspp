@@ -1,0 +1,513 @@
+import numpy as np
+import pandas as pd
+import pickle
+from datetime import datetime, timedelta
+
+def evaluate_v9_regression():
+    """
+    🎯 V9-수치형 변화량 예측 모델 평가
+    """
+    print("="*80)
+    print("🎯 V9-수치형 변화량 예측 모델 평가")
+    print("="*80)
+    
+    # ========== V8 기존 컬럼 ==========
+    FEATURE_COLS_V8 = {
+        'storage': ['M16A_3F_STORAGE_UTIL'],
+        'fs_storage': ['CD_M163FSTORAGEUSE', 'CD_M163FSTORAGETOTAL', 'CD_M163FSTORAGEUTIL'],
+        'hub': ['HUBROOMTOTAL'],
+        'cmd': ['M16A_3F_CMD', 'M16A_6F_TO_HUB_CMD'],
+        'inflow': ['M16A_6F_TO_HUB_JOB', 'M16A_2F_TO_HUB_JOB2', 'M14A_3F_TO_HUB_JOB2'],
+        'outflow': ['M16A_3F_TO_M16A_6F_JOB', 'M16A_3F_TO_M16A_2F_JOB', 'M16A_3F_TO_M14A_3F_JOB'],
+        'maxcapa': ['M16A_6F_LFT_MAXCAPA', 'M16A_2F_LFT_MAXCAPA'],
+        'que': ['M16HUB.QUE.ALL.CURRENTQCNT', 'M16HUB.QUE.TIME.AVGTOTALTIME1MIN'],
+        'target_alt': ['CURRENT_M16A_3F_JOB'],
+        'm16hub_que': [
+            'M16HUB.QUE.ALL.CURRENTQCOMPLETED',
+            'M16HUB.QUE.ALL.FABTRANSJOBCNT',
+            'M16HUB.QUE.TIME.AVGTOTALTIME',
+            'M16HUB.QUE.OHT.CURRENTOHTQCNT',
+            'M16HUB.QUE.OHT.OHTUTIL'
+        ],
+        'm16a_que': [
+            'M16A.QUE.ALL.CURRENTQCOMPLETED',
+            'M16A.QUE.ALL.CURRENTQCREATED',
+            'M16A.QUE.OHT.CURRENTOHTQCNT',
+            'M16A.QUE.OHT.OHTUTIL',
+            'M16A.QUE.LOAD.AVGLOADTIME1MIN',
+            'M16A.QUE.ALL.TRANSPORT4MINOVERCNT',
+            'M16A.QUE.ABN.QUETIMEDELAY'
+        ]
+    }
+    
+    # ========== V9 신규 컬럼 ==========
+    FEATURE_COLS_V9_NEW = {
+        'm16hub_new': [
+            'M16HUB.QUE.M16TOM14B.CURRENTQCREATED',
+            'M16HUB.QUE.M14BTOM16.CURRENTQCREATED',
+            'M16HUB.QUE.M14TOM16.CURRENTQCREATED',
+            'M16HUB.QUE.M16TOM14.CURRENTQCREATED',
+            'M16HUB.QUE.M14TOM16.MESCURRENTQCNT',
+            'M16HUB.QUE.M16TOM14.MESCURRENTQCNT',
+            'M16HUB.QUE.ALL.MESCURRENTQCNT',
+            'M16HUB.QUE.M16TOM14A.MESCURRENTQCNT',
+            'M16HUB.QUE.M16TOM14B.MESCURRENTQCNT',
+            'M16HUB.QUE.ALL.M16HUBTOM14MANUAL_CURRENTQCNT'
+        ],
+        'm16a_new': [
+            'M16A.QUE.LFT.ALLTOLFTCURRENTQCNT',
+            'M16A.QUE.CNV.ALLTONORTHCNVCURRENTQCNT',
+            'M16A.QUE.CNV.ALLTOSOUTHCNVCURRENTQCNT',
+            'M16A.QUE.LFT.LFTTOALLCURRENTQCNT',
+            'M16A.QUE.LOAD.AVGFOUPLOADTIME',
+            'M16A.QUE.LOAD.AVGLOADTIME',
+            'M16A.QUE.LOAD.AVGRETICLELOADTIME',
+            'M16A.QUE.LOAD.CURRENTLOADQCNT',
+            'M16A.QUE.LOAD.CURRENTRETICLELOADQCNT',
+            'M16A.QUE.OHT.CURRENTRETICLEOHTQCNT',
+            'M16A.QUE.CNV.M16ATOM14ACURRNETQCNT',
+            'M16A.QUE.CNV.M16ATOM14BCURRNETQCNT',
+            'M16A.QUE.CNV.NORTHCNVTOALLCURRENTQCNT',
+            'M16A.QUE.CNV.SOUTHCNVTOALLCURRENTQCNT',
+            'M16A.QUE.ALL.CURRENTQCNT',
+            'M16A.QUE.ALL.CURRENTRETICLEQCNT',
+            'M16A.QUE.ALL.TRANSPORT4MINOVERRATIO',
+            'M16A.QUE.ALL.TRANSPORT4MINOVERTIMEAVG',
+            'M16A.QUE.OHT.RTCOHTUTIL'
+        ],
+        'm14': [
+            'M14.QUE.OHT.CURRENTRETICLEOHTQCNT',
+            'M14.QUE.SENDFAB.VERTICALQUEUECOUNT',
+            'M14.QUE.SENDFAB.CURRENTSENDFABCOMPLETED',
+            'M14.QUE.OHT.OHTUTIL',
+            'M14.QUE.LOAD.CURRENTLOADQCNT',
+            'M14.QUE.ALL.CURRENTQCNT',
+            'M14.QUE.ALL.CURRENTQCOMPLETED',
+            'M14.QUE.ALL.CURRENTQCREATED',
+            'M14.QUE.LOAD.AVGLOADTIME',
+            'M14.QUE.OHT.RTCOHTUTIL',
+            'M14.QUE.ALL.TRANSPORT4MINOVERCNT',
+            'M14.QUE.ALL.TRANSPORT4MINOVERTIMEAVG',
+            'M14.QUE.ALL.TRANSPORT4MINOVERRATIO',
+            'M14.QUE.CNV.M14ATOM16ACURRNETQCNT',
+            'M14.QUE.CNV.ALLTONORTHCNVCURRENTQCNT',
+            'M14.QUE.CNV.ALLTOSOUTHCNVCURRENTQCNT',
+            'M14.QUE.LOAD.AVGRETICLELOADTIME',
+            'M14.QUE.LOAD.AVGLOADTIME1MIN',
+            'M14.QUE.OHT.CURRENTOHTQCNT',
+            'M14.QUE.LOAD.AVGFOUPLOADTIME',
+            'M14.QUE.ALL.CURRENTRETICLEQCNT',
+            'M14.QUE.LOAD.CURRENTRETICLELOADQCNT',
+            'M14.QUE.STK.MANUALOUTCOUNT',
+            'M14.QUE.CNV.NORTHCNVTOALLCURRENTQCNT',
+            'M14.QUE.CNV.SOUTHCNVTOALLCURRENTQCNT',
+            'M14.QUE.ALL.TOTALCNVCURRENTQCNT',
+            'M14.QUE.ALL.M14ATOM10ACURRENTQCNT',
+            'M14.QUE.ALL.M14ATOM10CCURRENTQCNT',
+            'M14.QUE.CNV.NORTHM14TOCNVTIME',
+            'M14.QUE.CNV.SOUTHM14TOCNVTIME',
+            'M14.QUE.SFAB.SENDTOR3',
+            'M14.QUE.SFAB.SENDTOM16',
+            'M14.QUE.SFAB.SENDTOM10',
+            'M14.QUE.SFAB.SENDQUEUETOTAL',
+            'M14.QUE.SFAB.RECEIVETOR3',
+            'M14.QUE.SFAB.RECEIVETOM16',
+            'M14.QUE.SFAB.RECEIVETOM10',
+            'M14.QUE.SFAB.RECEIVEQUEUETOTAL',
+            'M14.QUE.SFAB.RETURNTOR3',
+            'M14.QUE.SFAB.RETURNTOM16',
+            'M14.QUE.SFAB.RETURNTOM10',
+            'M14.QUE.SFAB.RETURNQUEUETOTAL',
+            'M14.QUE.SFAB.COMPLETETOR3',
+            'M14.QUE.SFAB.COMPLETETOM16',
+            'M14.QUE.SFAB.COMPLETETOM10'
+        ],
+        'm14b': [
+            'M14B.QUE.LOAD.CURRENTRETICLELOADQCNT',
+            'M14B.QUE.SENDFAB.VERTICALQUEUECOUNT',
+            'M14B.QUE.SENDFAB.CURRENTSENDFABCOMPLETED',
+            'M14B.QUE.OHT.RTCOHTUTIL',
+            'M14B.QUE.LFT.ALLTOLFTCURRENTQCNT',
+            'M14B.QUE.LFT.LFTTOALLCURRENTQCNT',
+            'M14B.QUE.LOAD.CURRENTLOADQCNT',
+            'M14B.QUE.ALL.CURRENTQCNT',
+            'M14B.QUE.ALL.CURRENTQCOMPLETED',
+            'M14B.QUE.ALL.CURRENTQCREATED',
+            'M14B.QUE.LOAD.AVGLOADTIME',
+            'M14B.QUE.OHT.OHTUTIL',
+            'M14B.QUE.ABN.QUETIMEDELAY',
+            'M14B.QUE.OHT.CURRENTRETICLEOHTQCNT',
+            'M14B.QUE.LOAD.AVGRETICLELOADTIME',
+            'M14B.QUE.LOAD.AVGLOADTIME1MIN',
+            'M14B.QUE.OHT.CURRENTOHTQCNT',
+            'M14B.QUE.LOAD.AVGFOUPLOADTIME',
+            'M14B.QUE.ALL.CURRENTRETICLEQCNT',
+            'M14B.QUE.STK.MANUALOUTCOUNT',
+            'M14B.QUE.LFT.M14BTOM16ACURRNETQCNT',
+            'M14B.QUE.ALL.M14BTOM10ACURRENTQCNT',
+            'M14B.QUE.ALL.M14BTOM16CURRENTQCNT',
+            'M14B.QUE.ALL.FABOUTCURRENTQCNT',
+            'M14B.QUE.ALL.TRANSPORT4MINOVERCNT'
+        ],
+        'm16_sfab': [
+            'M16.QUE.SFAB.SENDTOR3',
+            'M16.QUE.SFAB.SENDTOM14',
+            'M16.QUE.SFAB.SENDTOM10',
+            'M16.QUE.SFAB.SENDQUEUETOTAL',
+            'M16.QUE.SFAB.RECEIVETOR3',
+            'M16.QUE.SFAB.RECEIVETOM14',
+            'M16.QUE.SFAB.RECEIVEQUEUETOTAL',
+            'M16.QUE.SFAB.RETURNTOR3',
+            'M16.QUE.SFAB.RETURNTOM14',
+            'M16.QUE.SFAB.RETURNQUEUETOTAL',
+            'M16.QUE.SFAB.COMPLETETOR3',
+            'M16.QUE.SFAB.COMPLETETOM14',
+            'M16.QUE.SFAB.COMPLETETOM10',
+            'M16.QUE.SFAB.COMPLETEQUEUETOTAL'
+        ],
+        'm16b': [
+            'M16B.QUE.OHT.CURRENTOHTQCNT',
+            'M16B.QUE.OHT.CURRENTRETICLEOHTQCNT',
+            'M16B.QUE.OHT.OHTUTIL',
+            'M16B.QUE.ALL.CURRENTQCREATED',
+            'M16B.QUE.ALL.CURRENTRETICLEQCNT',
+            'M16B.QUE.ALL.TRANSPORT4MINOVERCNT',
+            'M16B.QUE.ALL.TRANSPORT4MINOVERRATIO',
+            'M16B.QUE.ALL.TRANSPORT4MINOVERTIMEAVG',
+            'M16B.QUE.OHT.RTCOHTUTIL',
+            'M16B.QUE.ABN.QUETIMEDELAY',
+            'M16B.QUE.ALL.CURRENTQCNT',
+            'M16B.QUE.ALL.CURRENTQCOMPLETED',
+            'M16B.QUE.LOAD.AVGFOUPLOADTIME',
+            'M16B.QUE.LOAD.AVGLOADTIME',
+            'M16B.QUE.LOAD.AVGLOADTIME1MIN',
+            'M16B.QUE.LOAD.AVGRETICLELOADTIME',
+            'M16B.QUE.LOAD.CURRENTLOADQCNT',
+            'M16B.QUE.LOAD.CURRENTRETICLELOADQCNT'
+        ],
+        'm16e': [
+            'M16E.QUE.ALL.M16ETOM14BCURRENTQCNT',
+            'M16E.QUE.ALL.CURRENTQCNT',
+            'M16E.QUE.ALL.CURRENTQCOMPLETED',
+            'M16E.QUE.ALL.CURRENTQCREATED',
+            'M16E.QUE.ALL.CURRENTRETICLEQCNT',
+            'M16E.QUE.ALL.TRANSPORT4MINOVERCNT',
+            'M16E.QUE.ALL.TRANSPORT4MINOVERRATIO',
+            'M16E.QUE.ALL.TRANSPORT4MINOVERTIMEAVG',
+            'M16E.QUE.LOAD.AVGFOUPLOADTIME',
+            'M16E.QUE.LOAD.AVGLOADTIME',
+            'M16E.QUE.LOAD.AVGLOADTIME1MIN',
+            'M16E.QUE.LOAD.AVGRETICLELOADTIME',
+            'M16E.QUE.LOAD.CURRENTLOADQCNT',
+            'M16E.QUE.OHT.CURRENTOHTQCNT',
+            'M16E.QUE.OHT.CURRENTRETICLEOHTQCNT',
+            'M16E.QUE.OHT.OHTUTIL',
+            'M16E.QUE.OHT.RTCOHTUTIL',
+            'M16E.QUE.ALL.M14ATOM16ECURRENTQCNT',
+            'M16E.QUE.ALL.M14BTOM16ECURRENTQCNT',
+            'M16E.QUE.ALL.M16ETOM16ACURRENTQCNT'
+        ]
+    }
+    
+    FEATURE_COLS = {**FEATURE_COLS_V8, **FEATURE_COLS_V9_NEW}
+    
+    # 모델 로드
+    try:
+        with open('xgboost_수치형_V9.pkl', 'rb') as f:
+            model_dict = pickle.load(f)
+        models = model_dict['models']
+        print(f"✅ 모델 로드: xgboost_수치형_V9.pkl")
+        print(f"   버전: {model_dict.get('version', 'N/A')}")
+        print(f"   총 컬럼: {model_dict.get('total_columns', 'N/A')}개")
+    except Exception as e:
+        print(f"❌ 모델 없음: {e}")
+        return None
+    
+    # 데이터 로드
+    try:
+        df = pd.read_csv('HUB0905101512.csv', on_bad_lines='skip', encoding='utf-8', low_memory=False)
+    except:
+        try:
+            df = pd.read_csv('HUB0905101512.csv', on_bad_lines='skip', encoding='cp949', low_memory=False)
+        except:
+            df = pd.read_csv('HUB0905101512.csv', on_bad_lines='skip', encoding='euc-kr', low_memory=False)
+    
+    TARGET_COL = 'CURRENT_M16A_3F_JOB_2'
+    
+    df[TARGET_COL] = pd.to_numeric(df[TARGET_COL], errors='coerce')
+    df = df.dropna(subset=[TARGET_COL])
+    
+    print(f"✅ 데이터 로드: {len(df)}개 행")
+    
+    available_cols = set(df.columns)
+    
+    if 'STAT_DT' in df.columns:
+        try:
+            df['STAT_DT'] = pd.to_datetime(df['STAT_DT'].astype(str), format='%Y%m%d%H%M')
+        except:
+            base_time = datetime(2024, 1, 1, 0, 0)
+            df['STAT_DT'] = [base_time + timedelta(minutes=i) for i in range(len(df))]
+    
+    results = []
+    
+    print("\n평가 시작...")
+    
+    total_samples = len(df) - 40
+    
+    for idx, i in enumerate(range(30, len(df) - 10)):
+        if idx % 500 == 0:
+            print(f"  진행: {idx}/{total_samples} ({idx/total_samples*100:.1f}%)")
+        
+        seq_data = df.iloc[i-30:i].copy()
+        seq_target = seq_data[TARGET_COL].values
+        
+        current_time = seq_data['STAT_DT'].iloc[-1]
+        current_value = seq_target[-1]
+        prediction_time = current_time + timedelta(minutes=10)
+        
+        actual_value = df[TARGET_COL].iloc[i+9]
+        actual_change = actual_value - current_value
+        
+        future_10min = df[TARGET_COL].iloc[i:i+10].values
+        actual_min = np.min(future_10min)
+        actual_max = np.max(future_10min)
+        actual_avg = np.mean(future_10min)
+        
+        # Feature 생성
+        features = {
+            'target_mean': np.mean(seq_target),
+            'target_std': np.std(seq_target),
+            'target_max': np.max(seq_target),
+            'target_min': np.min(seq_target),
+            'target_last_value': seq_target[-1],
+            'target_last_5_mean': np.mean(seq_target[-5:]),
+            'target_slope': np.polyfit(np.arange(30), seq_target, 1)[0],
+            'target_acceleration': (seq_target[-5:].mean() - seq_target[-10:-5].mean()) / 5,
+            'target_is_rising': 1 if seq_target[-1] > seq_target[-5] else 0,
+            'target_rapid_rise': 1 if (seq_target[-1] - seq_target[-5] > 10) else 0,
+            'target_last_10_mean': np.mean(seq_target[-10:])
+        }
+        
+        for group_name, cols in FEATURE_COLS.items():
+            for col in cols:
+                if col not in available_cols:
+                    continue
+                
+                col_seq = seq_data[col].values
+                
+                if group_name == 'maxcapa':
+                    features[f'{col}_last_value'] = col_seq[-1]
+                elif group_name in ['inflow', 'outflow']:
+                    features[f'{col}_mean'] = np.mean(col_seq)
+                    features[f'{col}_last_value'] = col_seq[-1]
+                    features[f'{col}_slope'] = np.polyfit(np.arange(30), col_seq, 1)[0]
+                else:
+                    features[f'{col}_mean'] = np.mean(col_seq)
+                    features[f'{col}_std'] = np.std(col_seq)
+                    features[f'{col}_max'] = np.max(col_seq)
+                    features[f'{col}_min'] = np.min(col_seq)
+                    features[f'{col}_last_value'] = col_seq[-1]
+                    features[f'{col}_last_5_mean'] = np.mean(col_seq[-5:])
+                    features[f'{col}_slope'] = np.polyfit(np.arange(30), col_seq, 1)[0]
+        
+        # 특수 Feature (V8)
+        if all(col in available_cols for col in ['CD_M163FSTORAGEUSE', 'CD_M163FSTORAGETOTAL', 'CD_M163FSTORAGEUTIL']):
+            use_seq = seq_data['CD_M163FSTORAGEUSE'].values
+            total_seq = seq_data['CD_M163FSTORAGETOTAL'].values
+            util_seq = seq_data['CD_M163FSTORAGEUTIL'].values
+            features['storage_use_rate'] = (use_seq[-1] - use_seq[0]) / 30
+            features['storage_remaining'] = total_seq[-1] - use_seq[-1]
+            features['storage_util_last'] = util_seq[-1]
+            features['storage_util_high'] = 1 if util_seq[-1] >= 7 else 0
+            features['storage_util_critical'] = 1 if util_seq[-1] >= 10 else 0
+        
+        if 'HUBROOMTOTAL' in available_cols:
+            hub_seq = seq_data['HUBROOMTOTAL'].values
+            hub_last = hub_seq[-1]
+            features['hub_critical'] = 1 if hub_last < 590 else 0
+            features['hub_high'] = 1 if hub_last < 610 else 0
+            features['hub_warning'] = 1 if hub_last < 620 else 0
+            features['hub_decrease_rate'] = (hub_seq[0] - hub_last) / 30
+            if 'CD_M163FSTORAGEUTIL' in available_cols:
+                storage_util_last = df['CD_M163FSTORAGEUTIL'].iloc[i-1]
+                features['hub_storage_risk'] = 1 if (hub_last < 610 and storage_util_last >= 7) else 0
+        
+        inflow_sum = sum(df[col].iloc[i-1] for col in FEATURE_COLS_V8.get('inflow', []) if col in available_cols)
+        outflow_sum = sum(df[col].iloc[i-1] for col in FEATURE_COLS_V8.get('outflow', []) if col in available_cols)
+        features['net_flow'] = inflow_sum - outflow_sum
+        
+        cmd_sum = sum(df[col].iloc[i-1] for col in FEATURE_COLS_V8.get('cmd', []) if col in available_cols)
+        features['total_cmd'] = cmd_sum
+        features['total_cmd_low'] = 1 if cmd_sum < 220 else 0
+        features['total_cmd_very_low'] = 1 if cmd_sum < 200 else 0
+        
+        if 'HUBROOMTOTAL' in available_cols:
+            hub_last = df['HUBROOMTOTAL'].iloc[i-1]
+            features['hub_cmd_bottleneck'] = 1 if (hub_last < 610 and cmd_sum < 220) else 0
+        
+        if 'M16A_3F_STORAGE_UTIL' in available_cols:
+            storage_util = df['M16A_3F_STORAGE_UTIL'].iloc[i-1]
+            features['storage_util_critical'] = 1 if storage_util >= 205 else 0
+            features['storage_util_high_risk'] = 1 if storage_util >= 207 else 0
+        
+        features['surge_risk_score'] = (
+            features.get('hub_high', 0) * 3 +
+            features.get('storage_util_critical', 0) * 2 +
+            features.get('total_cmd_low', 0) * 1 +
+            features.get('storage_util_high', 0) * 1
+        )
+        
+        features['surge_imminent'] = 1 if (
+            seq_target[-1] > 280 and
+            features.get('target_acceleration', 0) > 0.5 and
+            features.get('hub_high', 0) == 1
+        ) else 0
+        
+        # Boolean Features
+        if 'M16HUB.QUE.ALL.CURRENTQCNT' in available_cols:
+            currentq = df['M16HUB.QUE.ALL.CURRENTQCNT'].iloc[i-1]
+            features['currentq_high'] = 1 if currentq >= 1200 else 0
+            features['currentq_critical'] = 1 if currentq >= 1400 else 0
+        
+        if 'M16HUB.QUE.TIME.AVGTOTALTIME1MIN' in available_cols:
+            avgtime = df['M16HUB.QUE.TIME.AVGTOTALTIME1MIN'].iloc[i-1]
+            features['avgtime1min_high'] = 1 if avgtime >= 4.0 else 0
+            features['avgtime1min_critical'] = 1 if avgtime >= 4.5 else 0
+        
+        if 'M16HUB.QUE.OHT.OHTUTIL' in available_cols:
+            ohtutil = df['M16HUB.QUE.OHT.OHTUTIL'].iloc[i-1]
+            features['m16hub_ohtutil_high'] = 1 if ohtutil >= 85.0 else 0
+            features['m16hub_ohtutil_critical'] = 1 if ohtutil >= 90.0 else 0
+        
+        if 'M16A.QUE.OHT.OHTUTIL' in available_cols:
+            ohtutil = df['M16A.QUE.OHT.OHTUTIL'].iloc[i-1]
+            features['m16a_ohtutil_high'] = 1 if ohtutil >= 85.0 else 0
+            features['m16a_ohtutil_critical'] = 1 if ohtutil >= 90.0 else 0
+        
+        # V9 신규 Boolean
+        if 'M14.QUE.OHT.OHTUTIL' in available_cols:
+            ohtutil = df['M14.QUE.OHT.OHTUTIL'].iloc[i-1]
+            features['m14_ohtutil_high'] = 1 if ohtutil >= 85.0 else 0
+            features['m14_ohtutil_critical'] = 1 if ohtutil >= 90.0 else 0
+        
+        if 'M14B.QUE.OHT.OHTUTIL' in available_cols:
+            ohtutil = df['M14B.QUE.OHT.OHTUTIL'].iloc[i-1]
+            features['m14b_ohtutil_high'] = 1 if ohtutil >= 85.0 else 0
+            features['m14b_ohtutil_critical'] = 1 if ohtutil >= 90.0 else 0
+        
+        if 'M16B.QUE.OHT.OHTUTIL' in available_cols:
+            ohtutil = df['M16B.QUE.OHT.OHTUTIL'].iloc[i-1]
+            features['m16b_ohtutil_high'] = 1 if ohtutil >= 85.0 else 0
+            features['m16b_ohtutil_critical'] = 1 if ohtutil >= 90.0 else 0
+        
+        if 'M16E.QUE.OHT.OHTUTIL' in available_cols:
+            ohtutil = df['M16E.QUE.OHT.OHTUTIL'].iloc[i-1]
+            features['m16e_ohtutil_high'] = 1 if ohtutil >= 85.0 else 0
+            features['m16e_ohtutil_critical'] = 1 if ohtutil >= 90.0 else 0
+        
+        if 'M16HUB.QUE.M16TOM14.CURRENTQCREATED' in available_cols:
+            m16tom14 = df['M16HUB.QUE.M16TOM14.CURRENTQCREATED'].iloc[i-1]
+            features['m16tom14_high'] = 1 if m16tom14 >= 50 else 0
+        
+        if 'M16HUB.QUE.M14TOM16.CURRENTQCREATED' in available_cols:
+            m14tom16 = df['M16HUB.QUE.M14TOM16.CURRENTQCREATED'].iloc[i-1]
+            features['m14tom16_high'] = 1 if m14tom16 >= 50 else 0
+        
+        X_pred = pd.DataFrame([features])
+        
+        # 예측
+        pred_change_min = models[0].predict(X_pred)[0]
+        pred_change_max = models[1].predict(X_pred)[0]
+        pred_change_avg = models[2].predict(X_pred)[0]
+        
+        pred_min = current_value + pred_change_min
+        pred_max = current_value + pred_change_max
+        pred_avg = current_value + pred_change_avg
+        
+        direction_match_min = (
+            (actual_change > 0 and pred_change_min > 0) or
+            (actual_change < 0 and pred_change_min < 0) or
+            (abs(actual_change) < 5 and abs(pred_change_min) < 5)
+        )
+        direction_match_max = (
+            (actual_change > 0 and pred_change_max > 0) or
+            (actual_change < 0 and pred_change_max < 0) or
+            (abs(actual_change) < 5 and abs(pred_change_max) < 5)
+        )
+        direction_match_avg = (
+            (actual_change > 0 and pred_change_avg > 0) or
+            (actual_change < 0 and pred_change_avg < 0) or
+            (abs(actual_change) < 5 and abs(pred_change_avg) < 5)
+        )
+        
+        results.append({
+            '현재시간': current_time.strftime('%Y-%m-%d %H:%M'),
+            '예측시점': prediction_time.strftime('%Y-%m-%d %H:%M'),
+            '현재값': round(current_value, 2),
+            '실제값': round(actual_value, 2),
+            '실제_변화량': round(actual_change, 2),
+            '구간_MIN': round(actual_min, 2),
+            '구간_MAX': round(actual_max, 2),
+            '구간_AVG': round(actual_avg, 2),
+            '예측_변화량_MIN': round(pred_change_min, 2),
+            '예측값_MIN': round(pred_min, 2),
+            '오차_MIN': round(abs(actual_change - pred_change_min), 2),
+            '방향일치_MIN': '✅' if direction_match_min else '❌',
+            '예측_변화량_MAX': round(pred_change_max, 2),
+            '예측값_MAX': round(pred_max, 2),
+            '오차_MAX': round(abs(actual_change - pred_change_max), 2),
+            '방향일치_MAX': '✅' if direction_match_max else '❌',
+            '예측_변화량_AVG': round(pred_change_avg, 2),
+            '예측값_AVG': round(pred_avg, 2),
+            '오차_AVG': round(abs(actual_change - pred_change_avg), 2),
+            '방향일치_AVG': '✅' if direction_match_avg else '❌',
+            'HUBROOMTOTAL': round(features.get('HUBROOMTOTAL_last_value', 0), 0),
+        })
+    
+    results_df = pd.DataFrame(results)
+    
+    output_file = '수치형_V9_평가결과.csv'
+    results_df.to_csv(output_file, index=False, encoding='utf-8-sig')
+    print(f"\n✅ 결과 저장: {output_file}")
+    
+    # 통계
+    print("\n" + "="*80)
+    print("📊 평가 통계 (V9-수치형)")
+    print("="*80)
+    
+    print(f"총 예측: {len(results_df)}개")
+    
+    for target_type in ['MIN', 'MAX', 'AVG']:
+        print(f"\n🎯 {target_type} 예측:")
+        
+        error_col = f'오차_{target_type}'
+        direction_col = f'방향일치_{target_type}'
+        pred_col = f'예측_변화량_{target_type}'
+        
+        avg_error = results_df[error_col].mean()
+        direction_correct = (results_df[direction_col] == '✅').sum()
+        direction_accuracy = direction_correct / len(results_df) * 100
+        
+        print(f"  - 평균 오차: {avg_error:.2f}")
+        print(f"  - 방향 정확도: {direction_accuracy:.1f}%")
+        
+        # 큰 변화 감지
+        large_increase = results_df[results_df['실제_변화량'] >= 50]
+        if len(large_increase) > 0:
+            detected = large_increase[large_increase[pred_col] >= 40]
+            print(f"  - 큰 상승(+50) 감지: {len(detected)}/{len(large_increase)}개 ({len(detected)/len(large_increase)*100:.1f}%)")
+        
+        large_decrease = results_df[results_df['실제_변화량'] <= -50]
+        if len(large_decrease) > 0:
+            detected = large_decrease[large_decrease[pred_col] <= -40]
+            print(f"  - 큰 하락(-50) 감지: {len(detected)}/{len(large_decrease)}개 ({len(detected)/len(large_decrease)*100:.1f}%)")
+    
+    return results_df
+
+if __name__ == '__main__':
+    print("🚀 V9-수치형 평가 시작...\n")
+    results = evaluate_v9_regression()
+    
+    if results is not None:
+        print(f"\n✅ 평가 완료!")
+        print(f"📁 결과: 수치형_V9_평가결과.csv")
