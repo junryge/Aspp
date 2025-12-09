@@ -12,15 +12,14 @@ warnings.filterwarnings('ignore')
 def train_v9_regression():
     """
     🎯 V9-수치형: MIN/MAX/AVG 구간 변화량 예측
-    - 타겟: [구간MIN-현재, 구간MAX-현재, 구간AVG-현재]
-    - 3개 모델 개별 학습
+    - 실제 데이터 컬럼명 사용!
     - V8 14개 + V9 신규 20개 = 34개 컬럼
     """
     print("="*80)
     print("🎯 V9-수치형: MIN/MAX/AVG 구간 변화량 예측")
     print("="*80)
     
-    # ========== V8 기존 14개 ==========
+    # ========== V8 기존 14개 (기존 그대로) ==========
     FEATURE_COLS_V8 = {
         'storage': ['M16A_3F_STORAGE_UTIL'],
         'fs_storage': ['CD_M163FSTORAGEUSE', 'CD_M163FSTORAGETOTAL', 'CD_M163FSTORAGEUTIL'],
@@ -31,31 +30,31 @@ def train_v9_regression():
         'maxcapa': ['M16A_6F_LFT_MAXCAPA', 'M16A_2F_LFT_MAXCAPA'],
     }
     
-    # ========== V9 신규 20개 ==========
+    # ========== V9 신규 20개 (실제 컬럼명!) ==========
     V9_ESSENTIAL = [
-        'M16A.QUE.LFT.LFTTOALLCURRENTQCNT',
-        'M16HUB.QUE.M16TOM14.CURRENTQCREATED',
-        'M16A.QUE.CNV.ALLTONORTHCNVCURRENTQCNT',
-        'M16A.QUE.CNV.NORTHCNVTOALLCURRENTQCNT',
-        'M16A.QUE.CNV.M16ATOM14ACURRNETQCNT',
-        'M14.QUE.ALL.TOTALCNVCURRENTQCNT',
-        'M16HUB.QUE.M16TOM14B.CURRENTQCREATED',
-        'M16HUB.QUE.M14TOM16.CURRENTQCREATED',
+        'M16A_LFTTOALL',              # 상관: -0.216
+        'M16HUB_M16TOM14_CREATED',    # 상관: +0.171
+        'M16A_ALLTONORTHCNV',         # 상관: -0.141
+        'M16A_NORTHCNVTOALL',         # 상관: -0.138
+        'M16A_M16ATOM14A',            # 상관: -0.126
+        'M14_TOTALCNVCURRENTQCNT',    # 상관: -0.113
+        'M16HUB_M16TOM14B_CREATED',   # 상관: +0.107
+        'M16HUB_M14TOM16_CREATED',    # 상관: +0.100
     ]
     
     V9_RECOMMENDED = [
-        'M16A.QUE.ALL.CURRENTQCNT',
-        'M16A.QUE.CNV.ALLTOSOUTHCNVCURRENTQCNT',
-        'M14.QUE.CNV.ALLTOSOUTHCNVCURRENTQCNT',
-        'M14.QUE.CNV.ALLTONORTHCNVCURRENTQCNT',
-        'M14.QUE.ALL.CURRENTQCREATED',
-        'M14.QUE.SFAB.RETURNTOM16',
-        'M14B.QUE.LFT.LFTTOALLCURRENTQCNT',
-        'M14B.QUE.LFT.M14BTOM16ACURRNETQCNT',
-        'M16B.QUE.ALL.CURRENTQCREATED',
-        'M16.QUE.SFAB.SENDTOM14',
-        'M16HUB.QUE.M14TOM16.MESCURRENTQCNT',
-        'M16HUB.QUE.ALL.MESCURRENTQCNT',
+        'M16A_CURRENTQCNT',           # 상관: -0.098
+        'M16A_ALLTOSOUTHCNV',         # 상관: -0.089
+        'M14_ALLTOSOUTHCNV',          # 상관: -0.082
+        'M14_ALLTONORTHCNV',          # 상관: -0.079
+        'M14_CURRENTQCREATED',        # 상관: -0.074
+        'M14_RETURNTOM16',            # 상관: +0.071
+        'M14B_LFTTOALL',              # 상관: -0.068
+        'M14B_M14BTOM16A',            # 상관: -0.063
+        'M16B_CURRENTQCREATED',       # 상관: -0.058
+        'M16_SENDTOM14',              # 상관: +0.055
+        'M16HUB_M14TOM16_MESCNT',     # 상관: +0.052
+        'M16HUB_MESCURRENTQCNT',      # 상관: +0.050
     ]
     
     V9_NEW_COLS = V9_ESSENTIAL + V9_RECOMMENDED
@@ -77,7 +76,7 @@ def train_v9_regression():
             seq_target = df[TARGET_COL].iloc[i-30:i].values
             current_value = seq_target[-1]
             
-            # 🔥 구간 MIN/MAX/AVG 타겟
+            # 구간 MIN/MAX/AVG 타겟
             future_10min = df[TARGET_COL].iloc[i:i+10].values
             future_min = np.min(future_10min)
             future_max = np.max(future_10min)
@@ -179,24 +178,24 @@ def train_v9_regression():
                 features.get('storage_util_high', 0) * 1
             )
             
-            # V9 핵심 컬럼 Boolean
-            if 'M16A.QUE.LFT.LFTTOALLCURRENTQCNT' in available_cols:
-                lft = df['M16A.QUE.LFT.LFTTOALLCURRENTQCNT'].iloc[i-1]
+            # V9 핵심 컬럼 Boolean (실제 컬럼명!)
+            if 'M16A_LFTTOALL' in available_cols:
+                lft = df['M16A_LFTTOALL'].iloc[i-1]
                 features['lfttoall_high'] = 1 if lft >= 100 else 0
                 features['lfttoall_critical'] = 1 if lft >= 150 else 0
             
-            if 'M16HUB.QUE.M16TOM14.CURRENTQCREATED' in available_cols:
-                m16tom14 = df['M16HUB.QUE.M16TOM14.CURRENTQCREATED'].iloc[i-1]
+            if 'M16HUB_M16TOM14_CREATED' in available_cols:
+                m16tom14 = df['M16HUB_M16TOM14_CREATED'].iloc[i-1]
                 features['m16tom14_high'] = 1 if m16tom14 >= 50 else 0
                 features['m16tom14_critical'] = 1 if m16tom14 >= 80 else 0
             
-            if 'M16HUB.QUE.M14TOM16.CURRENTQCREATED' in available_cols:
-                m14tom16 = df['M16HUB.QUE.M14TOM16.CURRENTQCREATED'].iloc[i-1]
+            if 'M16HUB_M14TOM16_CREATED' in available_cols:
+                m14tom16 = df['M16HUB_M14TOM16_CREATED'].iloc[i-1]
                 features['m14tom16_high'] = 1 if m14tom16 >= 50 else 0
                 features['m14tom16_critical'] = 1 if m14tom16 >= 80 else 0
             
             features_list.append(features)
-            labels.append([change_min, change_max, change_avg])  # 3개 타겟!
+            labels.append([change_min, change_max, change_avg])
             indices.append(i)
         
         return pd.DataFrame(features_list), np.array(labels), indices
@@ -231,6 +230,15 @@ def train_v9_regression():
     print(f"  V9 권장(12): {v9_recommend_count}개")
     print(f"  총: {v8_count + v9_essential_count + v9_recommend_count}개")
     
+    # 누락 컬럼 출력
+    missing_essential = [col for col in V9_ESSENTIAL if col not in available_cols]
+    missing_recommend = [col for col in V9_RECOMMENDED if col not in available_cols]
+    
+    if missing_essential:
+        print(f"\n⚠️ 누락된 필수 컬럼: {missing_essential}")
+    if missing_recommend:
+        print(f"⚠️ 누락된 권장 컬럼: {missing_recommend}")
+    
     # Feature 생성
     X_train, y_train, _ = create_features_v9(df_train, available_cols)
     
@@ -240,7 +248,7 @@ def train_v9_regression():
     
     # 가중치 계산 (MAX 기준, 큰 변화에 5배)
     print("\n🔥 가중치 계산 (±50 샘플 강조):")
-    large_changes = np.abs(y_train[:, 1]) >= 50  # MAX 기준
+    large_changes = np.abs(y_train[:, 1]) >= 50
     sample_weights = np.where(large_changes, 5.0, 1.0)
     
     large_count = large_changes.sum()
@@ -342,7 +350,7 @@ def train_v9_regression():
     
     # 모델 저장
     model_dict = {
-        'models': models,  # 3개 모델 [MIN, MAX, AVG]
+        'models': models,
         'feature_names': X_train.columns.tolist()
     }
     
