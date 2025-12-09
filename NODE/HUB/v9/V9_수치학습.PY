@@ -11,13 +11,13 @@ warnings.filterwarnings('ignore')
 
 def train_v9_regression():
     """
-    🎯 V9-수치형: AVG~MAX 범위 예측
-    - AVG: 하한 (기존 MIN 역할)
-    - MAX: 상한
-    - 범위폭 목표: 20~30
+    🎯 V9-수치형: MIN/MAX 구간 예측 (Quantile Regression)
+    - MIN: 10% 분위수 (더 낮게 예측)
+    - MAX: 90% 분위수 (더 높게 예측)
+    - last_5_mean 제거, last_10_mean 사용
     """
     print("="*80)
-    print("🎯 V9-수치형: AVG~MAX 범위 예측 (MIN 제외)")
+    print("🎯 V9-수치형: Quantile Regression (5분→10분 수정)")
     print("="*80)
     
     # V8 기존 14개
@@ -31,7 +31,7 @@ def train_v9_regression():
         'maxcapa': ['M16A_6F_LFT_MAXCAPA', 'M16A_2F_LFT_MAXCAPA'],
     }
     
-    # V9 신규 20개
+    # V9 신규 20개 (실제 컬럼명)
     V9_ESSENTIAL = [
         'M16A_LFTTOALL',
         'M16HUB_M16TOM14_CREATED',
@@ -63,7 +63,7 @@ def train_v9_regression():
     TARGET_COL = 'CURRENT_M16A_3F_JOB_2'
     
     def create_features_v9(df, available_cols, start_idx=30):
-        """V9 Feature 생성 - AVG/MAX 타겟"""
+        """V9 Feature 생성 - 5분 제거, 10분 사용"""
         features_list = []
         labels = []
         indices = []
@@ -77,30 +77,31 @@ def train_v9_regression():
             seq_target = df[TARGET_COL].iloc[i-30:i].values
             current_value = seq_target[-1]
             
-            # 구간 AVG/MAX 타겟 (MIN 제외!)
+            # 구간 MIN/MAX 타겟
             future_10min = df[TARGET_COL].iloc[i:i+10].values
+            future_min = np.min(future_10min)
             future_max = np.max(future_10min)
-            future_avg = np.mean(future_10min)
             
+            change_min = future_min - current_value
             change_max = future_max - current_value
-            change_avg = future_avg - current_value
             
-            # 타겟 기본 통계
+            # 🔥 타겟 기본 통계 (5분 제거, 10분/15분 사용)
             features = {
                 'target_mean': np.mean(seq_target),
                 'target_std': np.std(seq_target),
                 'target_max': np.max(seq_target),
                 'target_min': np.min(seq_target),
                 'target_last_value': seq_target[-1],
-                'target_last_5_mean': np.mean(seq_target[-5:]),
+                # last_5_mean 삭제!
+                'target_last_10_mean': np.mean(seq_target[-10:]),   # 10분 (예측 구간 동일)
+                'target_last_15_mean': np.mean(seq_target[-15:]),   # 15분 (1.5배)
                 'target_slope': np.polyfit(np.arange(30), seq_target, 1)[0],
-                'target_acceleration': (seq_target[-5:].mean() - seq_target[-10:-5].mean()) / 5,
-                'target_is_rising': 1 if seq_target[-1] > seq_target[-5] else 0,
-                'target_rapid_rise': 1 if (seq_target[-1] - seq_target[-5] > 10) else 0,
-                'target_last_10_mean': np.mean(seq_target[-10:]),
+                'target_acceleration': (seq_target[-10:].mean() - seq_target[-20:-10].mean()) / 10,  # 10분 기준
+                'target_is_rising': 1 if seq_target[-1] > seq_target[-10] else 0,      # 10분 비교
+                'target_rapid_rise': 1 if (seq_target[-1] - seq_target[-10] > 20) else 0,  # 10분, 임계값 20
             }
             
-            # V8 기존 컬럼 Feature
+            # V8 기존 컬럼 Feature (5분 제거, 10분 사용)
             for group_name, cols in FEATURE_COLS_V8.items():
                 for col in cols:
                     if col not in available_cols:
@@ -116,14 +117,15 @@ def train_v9_regression():
                         features[f'{col}_max'] = np.max(col_seq)
                         features[f'{col}_min'] = np.min(col_seq)
                         features[f'{col}_last_value'] = col_seq[-1]
-                        features[f'{col}_last_5_mean'] = np.mean(col_seq[-5:])
+                        # 🔥 last_5_mean → last_10_mean
+                        features[f'{col}_last_10_mean'] = np.mean(col_seq[-10:])
                         features[f'{col}_slope'] = np.polyfit(np.arange(30), col_seq, 1)[0]
-                    else:
+                    else:  # inflow, outflow
                         features[f'{col}_mean'] = np.mean(col_seq)
                         features[f'{col}_last_value'] = col_seq[-1]
                         features[f'{col}_slope'] = np.polyfit(np.arange(30), col_seq, 1)[0]
             
-            # V9 신규 컬럼 Feature
+            # V9 신규 컬럼 Feature (5분 제거, 10분 사용)
             for col in V9_NEW_COLS:
                 if col not in available_cols:
                     continue
@@ -134,7 +136,8 @@ def train_v9_regression():
                 features[f'{col}_max'] = np.max(col_seq)
                 features[f'{col}_min'] = np.min(col_seq)
                 features[f'{col}_last_value'] = col_seq[-1]
-                features[f'{col}_last_5_mean'] = np.mean(col_seq[-5:])
+                # 🔥 last_5_mean → last_10_mean
+                features[f'{col}_last_10_mean'] = np.mean(col_seq[-10:])
                 features[f'{col}_slope'] = np.polyfit(np.arange(30), col_seq, 1)[0]
             
             # FS Storage 특수 Feature
@@ -193,7 +196,7 @@ def train_v9_regression():
                 features['m14tom16_critical'] = 1 if m14tom16 >= 80 else 0
             
             features_list.append(features)
-            labels.append([change_avg, change_max])  # AVG, MAX만!
+            labels.append([change_min, change_max])  # MIN, MAX만!
             indices.append(i)
         
         return pd.DataFrame(features_list), np.array(labels), indices
@@ -234,9 +237,17 @@ def train_v9_regression():
     print(f"  - Feature: {len(X_train.columns)}개")
     print(f"  - 샘플: {len(X_train)}개")
     
+    # 🔥 변경점 출력
+    print(f"\n🔥 변경 사항:")
+    print(f"  - last_5_mean → 삭제")
+    print(f"  - last_10_mean → 사용 (예측 구간 동일)")
+    print(f"  - last_15_mean → 추가 (타겟만)")
+    print(f"  - acceleration: 5분→10분 기준")
+    print(f"  - is_rising/rapid_rise: 5분→10분 비교")
+    
     # 가중치 계산
     print("\n🔥 가중치 계산 (±50 샘플 강조):")
-    large_changes = np.abs(y_train[:, 1]) >= 50
+    large_changes = (np.abs(y_train[:, 0]) >= 50) | (np.abs(y_train[:, 1]) >= 50)
     sample_weights = np.where(large_changes, 5.0, 1.0)
     
     large_count = large_changes.sum()
@@ -264,14 +275,22 @@ def train_v9_regression():
         print("  ⚠️ CPU 모드\n")
         use_gpu = False
     
-    # 2개 모델 학습 (AVG, MAX)
-    print("모델 학습 중 (2개 모델: AVG, MAX)...")
+    # 🔥 Quantile Regression으로 MIN/MAX 학습
+    print("모델 학습 중 (Quantile Regression)...")
     print("="*60)
     
     models = []
     
-    for idx, name in enumerate(['AVG', 'MAX']):
+    for idx, name in enumerate(['MIN', 'MAX']):
         print(f"\n[{name}] 학습 중...")
+        
+        # MIN: 10% 분위수, MAX: 90% 분위수
+        if name == 'MIN':
+            quantile_alpha = 0.1
+            print(f"  → 10% 분위수 (하한 예측)")
+        else:
+            quantile_alpha = 0.9
+            print(f"  → 90% 분위수 (상한 예측)")
         
         if use_gpu:
             model = xgb.XGBRegressor(
@@ -287,7 +306,9 @@ def train_v9_regression():
                 random_state=42,
                 tree_method='gpu_hist',
                 gpu_id=0,
-                predictor='gpu_predictor'
+                predictor='gpu_predictor',
+                objective='reg:quantileerror',
+                quantile_alpha=quantile_alpha
             )
         else:
             model = xgb.XGBRegressor(
@@ -302,7 +323,9 @@ def train_v9_regression():
                 reg_lambda=0.8,
                 random_state=42,
                 tree_method='hist',
-                n_jobs=-1
+                n_jobs=-1,
+                objective='reg:quantileerror',
+                quantile_alpha=quantile_alpha
             )
         
         model.fit(X_tr, y_tr[:, idx], sample_weight=w_tr, verbose=False)
@@ -319,18 +342,29 @@ def train_v9_regression():
     ])
     
     print(f"\n📊 학습 성능:")
-    for idx, name in enumerate(['AVG', 'MAX']):
+    for idx, name in enumerate(['MIN', 'MAX']):
         mae = mean_absolute_error(y_val[:, idx], y_val_pred[:, idx])
-        rmse = np.sqrt(mean_squared_error(y_val[:, idx], y_val_pred[:, idx]))
-        r2 = r2_score(y_val[:, idx], y_val_pred[:, idx])
-        print(f"  {name} - MAE: {mae:.4f}, RMSE: {rmse:.4f}, R²: {r2:.4f}")
+        print(f"  {name} - MAE: {mae:.4f}")
     
     # 범위폭 분석
-    pred_widths = y_val_pred[:, 1] - y_val_pred[:, 0]  # MAX - AVG
-    print(f"\n📏 예측 범위폭 (AVG~MAX):")
+    pred_widths = y_val_pred[:, 1] - y_val_pred[:, 0]  # MAX - MIN
+    print(f"\n📏 예측 범위폭 (MIN~MAX):")
     print(f"  - 평균: {pred_widths.mean():.1f}")
     print(f"  - 최소: {pred_widths.min():.1f}")
     print(f"  - 최대: {pred_widths.max():.1f}")
+    
+    # 범위 적중률 (검증)
+    in_range = 0
+    for i in range(len(y_val)):
+        pred_min = y_val_pred[i, 0]
+        pred_max = y_val_pred[i, 1]
+        actual_min = y_val[i, 0]
+        actual_max = y_val[i, 1]
+        # 실제 구간이 예측 구간과 겹치면 OK
+        if pred_min <= actual_max and pred_max >= actual_min:
+            in_range += 1
+    
+    print(f"\n🎯 구간 겹침률 (검증): {in_range}/{len(y_val)}개 ({in_range/len(y_val)*100:.1f}%)")
     
     # 모델 저장
     model_dict = {
@@ -338,7 +372,7 @@ def train_v9_regression():
         'feature_names': X_train.columns.tolist()
     }
     
-    model_filename = 'xgboost_수치형_V9_AVG_MAX.pkl'
+    model_filename = 'xgboost_수치형_V9_Quantile_10min.pkl'
     with open(model_filename, 'wb') as f:
         pickle.dump(model_dict, f)
     print(f"\n✅ 모델 저장: {model_filename}")
@@ -353,9 +387,9 @@ def train_v9_regression():
     for idx, row in feature_importance.iterrows():
         print(f"  {row['feature']}: {row['importance']:.4f}")
     
-    print("\n✅ V9-수치형 (AVG~MAX) 학습 완료!")
+    print("\n✅ V9-수치형 (Quantile 10min) 학습 완료!")
 
 if __name__ == '__main__':
-    print("🚀 V9-수치형 AVG~MAX 범위 예측 학습\n")
+    print("🚀 V9-수치형 Quantile Regression 학습 (5분→10분)\n")
     train_v9_regression()
     print(f"\n🎉 완료!")
