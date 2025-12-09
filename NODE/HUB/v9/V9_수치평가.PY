@@ -5,15 +5,15 @@ from datetime import datetime, timedelta
 
 def evaluate_v9_regression():
     """
-    🎯 V9-수치형: MIN/MAX/AVG 구간 변화량 평가
-    - 실제 데이터 컬럼명 사용!
-    - 구간값과 비교 (올바른 평가!)
+    🎯 V9-수치형: Quantile Regression 평가
+    - MIN 10%, MAX 90% 분위수
+    - 10분후 값이 예측 범위 내인지 체크
     """
     print("="*80)
-    print("🎯 V9-수치형: MIN/MAX/AVG 구간 변화량 평가")
+    print("🎯 V9-수치형: Quantile Regression 평가")
     print("="*80)
     
-    # ========== V8 기존 14개 ==========
+    # V8 기존 14개
     FEATURE_COLS_V8 = {
         'storage': ['M16A_3F_STORAGE_UTIL'],
         'fs_storage': ['CD_M163FSTORAGEUSE', 'CD_M163FSTORAGETOTAL', 'CD_M163FSTORAGEUTIL'],
@@ -24,7 +24,7 @@ def evaluate_v9_regression():
         'maxcapa': ['M16A_6F_LFT_MAXCAPA', 'M16A_2F_LFT_MAXCAPA'],
     }
     
-    # ========== V9 신규 20개 (실제 컬럼명!) ==========
+    # V9 신규 20개
     V9_ESSENTIAL = [
         'M16A_LFTTOALL',
         'M16HUB_M16TOM14_CREATED',
@@ -57,10 +57,12 @@ def evaluate_v9_regression():
     
     # 모델 로드
     try:
-        with open('xgboost_수치형_V9.pkl', 'rb') as f:
+        with open('xgboost_수치형_V9_Quantile.pkl', 'rb') as f:
             model_dict = pickle.load(f)
         models = model_dict['models']
-        print("✅ 모델 로드: xgboost_수치형_V9.pkl (3개 모델)")
+        print("✅ 모델 로드: xgboost_수치형_V9_Quantile.pkl")
+        print("  - MIN: 10% 분위수")
+        print("  - MAX: 90% 분위수")
     except Exception as e:
         print(f"❌ 모델 없음: {e}")
         return None
@@ -80,16 +82,6 @@ def evaluate_v9_regression():
     print(f"✅ 데이터 로드: {len(df)}개 행")
     
     available_cols = set(df.columns)
-    
-    # V9 컬럼 확인
-    v8_count = sum(1 for cols in FEATURE_COLS_V8.values() for col in cols if col in available_cols)
-    v9_essential_count = sum(1 for col in V9_ESSENTIAL if col in available_cols)
-    v9_recommend_count = sum(1 for col in V9_RECOMMENDED if col in available_cols)
-    
-    print(f"\n📋 V9 컬럼 확인:")
-    print(f"  V8 기존: {v8_count}/14개")
-    print(f"  V9 필수(8): {v9_essential_count}개")
-    print(f"  V9 권장(12): {v9_recommend_count}개")
     
     if 'STAT_DT' in df.columns:
         try:
@@ -115,19 +107,13 @@ def evaluate_v9_regression():
         current_value = seq_target[-1]
         prediction_time = current_time + timedelta(minutes=10)
         
-        # 실제 구간 MIN/MAX/AVG
+        # 실제 구간 MIN/MAX
         future_10min = df[TARGET_COL].iloc[i:i+10].values
         actual_min = np.min(future_10min)
         actual_max = np.max(future_10min)
-        actual_avg = np.mean(future_10min)
         
-        actual_change_min = actual_min - current_value
-        actual_change_max = actual_max - current_value
-        actual_change_avg = actual_avg - current_value
-        
-        # 10분 후 단일값 (참고용)
+        # 10분 후 단일값
         actual_10min_value = df[TARGET_COL].iloc[i+9]
-        actual_10min_change = actual_10min_value - current_value
         
         # Feature 생성
         features = {
@@ -236,100 +222,93 @@ def evaluate_v9_regression():
         
         X_pred = pd.DataFrame([features])
         
-        # 예측 (3개 모델)
+        # 예측 (MIN, MAX)
         pred_change_min = models[0].predict(X_pred)[0]
         pred_change_max = models[1].predict(X_pred)[0]
-        pred_change_avg = models[2].predict(X_pred)[0]
         
         pred_min = current_value + pred_change_min
         pred_max = current_value + pred_change_max
-        pred_avg = current_value + pred_change_avg
         
-        # 구간값과 비교!
-        error_min = abs(actual_change_min - pred_change_min)
-        error_max = abs(actual_change_max - pred_change_max)
-        error_avg = abs(actual_change_avg - pred_change_avg)
-        
-        # 10분후 값이 예측 범위 내인지
+        # 🎯 10분후 값이 예측 범위 내인지!
         in_range = pred_min <= actual_10min_value <= pred_max
+        
+        # 구간 겹침 여부
+        range_overlap = pred_min <= actual_max and pred_max >= actual_min
         
         results.append({
             '현재시간': current_time.strftime('%Y-%m-%d %H:%M'),
             '예측시점': prediction_time.strftime('%Y-%m-%d %H:%M'),
-            '현재값': round(current_value, 2),
-            '실제_구간MIN': round(actual_min, 2),
-            '실제_구간MAX': round(actual_max, 2),
-            '실제_구간AVG': round(actual_avg, 2),
-            '예측_MIN': round(pred_min, 2),
-            '예측_MAX': round(pred_max, 2),
-            '예측_AVG': round(pred_avg, 2),
-            '실제_변화량_MIN': round(actual_change_min, 2),
-            '실제_변화량_MAX': round(actual_change_max, 2),
-            '실제_변화량_AVG': round(actual_change_avg, 2),
-            '예측_변화량_MIN': round(pred_change_min, 2),
-            '예측_변화량_MAX': round(pred_change_max, 2),
-            '예측_변화량_AVG': round(pred_change_avg, 2),
-            '오차_MIN': round(error_min, 2),
-            '오차_MAX': round(error_max, 2),
-            '오차_AVG': round(error_avg, 2),
-            '10분후_실제값': round(actual_10min_value, 2),
-            '10분후_변화량': round(actual_10min_change, 2),
+            '현재값': round(current_value, 1),
+            '실제_MIN': round(actual_min, 1),
+            '실제_MAX': round(actual_max, 1),
+            '예측_MIN': round(pred_min, 1),
+            '예측_MAX': round(pred_max, 1),
+            '예측_범위폭': round(pred_max - pred_min, 1),
+            '10분후_실제값': round(actual_10min_value, 1),
             '범위내': '✅' if in_range else '❌',
+            '구간겹침': '✅' if range_overlap else '❌',
             'HUBROOMTOTAL': round(features.get('HUBROOMTOTAL_last_value', 0), 0),
         })
     
     results_df = pd.DataFrame(results)
     
-    output_file = '수치형_V9_평가결과.csv'
+    output_file = '수치형_V9_Quantile_평가결과.csv'
     results_df.to_csv(output_file, index=False, encoding='utf-8-sig')
     print(f"\n✅ 결과 저장: {output_file}")
     
     # 통계
     print("\n" + "="*80)
-    print("📊 평가 통계 (V9-수치형)")
+    print("📊 평가 통계 (V9-Quantile)")
     print("="*80)
     
     print(f"총 예측: {len(results_df)}개")
     
-    # 구간값 오차
-    print(f"\n🎯 구간값 예측 성능 (올바른 비교!):")
-    for name in ['MIN', 'MAX', 'AVG']:
-        avg_error = results_df[f'오차_{name}'].mean()
-        print(f"  {name} 평균 오차: {avg_error:.2f}")
-    
-    # 범위 내 적중률
+    # 🎯 핵심 지표: 10분후 값이 범위 내
     in_range_count = (results_df['범위내'] == '✅').sum()
     in_range_rate = in_range_count / len(results_df) * 100
     print(f"\n🎯 10분후 값이 예측 범위 내:")
     print(f"  - 적중: {in_range_count}/{len(results_df)}개 ({in_range_rate:.1f}%)")
     
-    # 큰 변화 감지
-    print(f"\n🔥 큰 변화 감지 (구간 MAX 기준):")
+    # 구간 겹침
+    overlap_count = (results_df['구간겹침'] == '✅').sum()
+    overlap_rate = overlap_count / len(results_df) * 100
+    print(f"\n🎯 구간 겹침률:")
+    print(f"  - 겹침: {overlap_count}/{len(results_df)}개 ({overlap_rate:.1f}%)")
     
-    large_increase = results_df[results_df['실제_변화량_MAX'] >= 50]
+    # 예측 범위폭 분석
+    avg_width = results_df['예측_범위폭'].mean()
+    print(f"\n📏 예측 범위폭:")
+    print(f"  - 평균: {avg_width:.1f}")
+    print(f"  - 최소: {results_df['예측_범위폭'].min():.1f}")
+    print(f"  - 최대: {results_df['예측_범위폭'].max():.1f}")
+    
+    # 큰 변화 감지
+    print(f"\n🔥 큰 변화 감지:")
+    
+    large_increase = results_df[results_df['실제_MAX'] - results_df['현재값'] >= 50]
     if len(large_increase) > 0:
-        detected = large_increase[large_increase['예측_변화량_MAX'] >= 30]
+        detected = large_increase[large_increase['예측_MAX'] - large_increase['현재값'] >= 30]
         print(f"  - 큰 상승(+50) 감지: {len(detected)}/{len(large_increase)}개 ({len(detected)/len(large_increase)*100:.1f}%)")
     
-    large_decrease = results_df[results_df['실제_변화량_MIN'] <= -50]
+    large_decrease = results_df[results_df['실제_MIN'] - results_df['현재값'] <= -50]
     if len(large_decrease) > 0:
-        detected = large_decrease[large_decrease['예측_변화량_MIN'] <= -30]
+        detected = large_decrease[large_decrease['예측_MIN'] - large_decrease['현재값'] <= -30]
         print(f"  - 큰 하락(-50) 감지: {len(detected)}/{len(large_decrease)}개 ({len(detected)/len(large_decrease)*100:.1f}%)")
     
     # 샘플 출력
-    print(f"\n📋 예측 샘플 (처음 10개):")
-    print(f"{'현재':>6} {'실MIN':>6} {'실MAX':>6} {'예MIN':>6} {'예MAX':>6} {'10분후':>6} {'범위':>4}")
-    print("-"*50)
-    for i in range(min(10, len(results_df))):
+    print(f"\n📋 예측 샘플 (처음 15개):")
+    print(f"{'현재':>6} {'실MIN':>6} {'실MAX':>6} {'예MIN':>6} {'예MAX':>6} {'폭':>5} {'10분후':>6} {'범위':>4}")
+    print("-"*60)
+    for i in range(min(15, len(results_df))):
         row = results_df.iloc[i]
-        print(f"{row['현재값']:>6.0f} {row['실제_구간MIN']:>6.0f} {row['실제_구간MAX']:>6.0f} {row['예측_MIN']:>6.1f} {row['예측_MAX']:>6.1f} {row['10분후_실제값']:>6.0f} {row['범위내']:>4}")
+        print(f"{row['현재값']:>6.0f} {row['실제_MIN']:>6.0f} {row['실제_MAX']:>6.0f} {row['예측_MIN']:>6.0f} {row['예측_MAX']:>6.0f} {row['예측_범위폭']:>5.0f} {row['10분후_실제값']:>6.0f} {row['범위내']:>4}")
     
     return results_df
 
 if __name__ == '__main__':
-    print("🚀 V9-수치형 평가 시작...\n")
+    print("🚀 V9-Quantile 평가 시작...\n")
     results = evaluate_v9_regression()
     
     if results is not None:
         print(f"\n✅ 평가 완료!")
-        print(f"📁 결과: 수치형_V9_평가결과.csv")
+        print(f"📁 결과: 수치형_V9_Quantile_평가결과.csv")
