@@ -9,15 +9,15 @@ from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
 
 warnings.filterwarnings('ignore')
 
-def train_v9_regression():
+def train_v9_20_regression():
     """
-    🎯 V9-수치형 변화량 예측
-    - V8 기존 14개 + 신규 161개 = 총 175개 컬럼
+    🎯 V9-수치형 변화량 예측 (20개 핵심 컬럼)
+    - V8 기존 14개 + 신규 20개 = 총 34개 컬럼
     - 타겟: [MIN 변화량, MAX 변화량, AVG 변화량]
     - 50+ 가중치 적용
     """
     print("="*80)
-    print("🎯 V9-수치형 변화량 예측: 175개 컬럼 (기존14 + 신규161)")
+    print("🎯 V9-수치형 변화량 예측: 34개 컬럼 (기존14 + 핵심20)")
     print("="*80)
     
     # ========== V8 기존 컬럼 (14개) ==========
@@ -49,195 +49,44 @@ def train_v9_regression():
         ]
     }
     
-    # ========== V9 신규 컬럼 (161개) ==========
+    # ========== V9 핵심 20개 컬럼 ==========
+    # 필수 8개 (|r| >= 0.1)
+    # 권장 12개 (|r| >= 0.05)
     FEATURE_COLS_V9_NEW = {
-        # M16HUB 신규 (10개)
-        'm16hub_new': [
-            'M16HUB.QUE.M16TOM14B.CURRENTQCREATED',
-            'M16HUB.QUE.M14BTOM16.CURRENTQCREATED',
-            'M16HUB.QUE.M14TOM16.CURRENTQCREATED',
-            'M16HUB.QUE.M16TOM14.CURRENTQCREATED',
-            'M16HUB.QUE.M14TOM16.MESCURRENTQCNT',
-            'M16HUB.QUE.M16TOM14.MESCURRENTQCNT',
-            'M16HUB.QUE.ALL.MESCURRENTQCNT',
-            'M16HUB.QUE.M16TOM14A.MESCURRENTQCNT',
-            'M16HUB.QUE.M16TOM14B.MESCURRENTQCNT',
-            'M16HUB.QUE.ALL.M16HUBTOM14MANUAL_CURRENTQCNT'
+        # 필수 8개
+        'v9_essential': [
+            'M16A.QUE.LFT.LFTTOALLCURRENTQCNT',           # -0.216
+            'M16HUB.QUE.M16TOM14.CURRENTQCREATED',        # +0.171
+            'M16A.QUE.CNV.ALLTONORTHCNVCURRENTQCNT',      # -0.141
+            'M16A.QUE.CNV.NORTHCNVTOALLCURRENTQCNT',      # -0.132
+            'M16A.QUE.CNV.M16ATOM14ACURRNETQCNT',         # -0.120
+            'M14.QUE.ALL.TOTALCNVCURRENTQCNT',            # -0.114
+            'M16HUB.QUE.M16TOM14B.CURRENTQCREATED',       # +0.113
+            'M16HUB.QUE.M14TOM16.CURRENTQCREATED',        # +0.101
         ],
-        
-        # M16A 신규 (19개)
-        'm16a_new': [
-            'M16A.QUE.LFT.ALLTOLFTCURRENTQCNT',
-            'M16A.QUE.CNV.ALLTONORTHCNVCURRENTQCNT',
-            'M16A.QUE.CNV.ALLTOSOUTHCNVCURRENTQCNT',
-            'M16A.QUE.LFT.LFTTOALLCURRENTQCNT',
-            'M16A.QUE.LOAD.AVGFOUPLOADTIME',
-            'M16A.QUE.LOAD.AVGLOADTIME',
-            'M16A.QUE.LOAD.AVGRETICLELOADTIME',
-            'M16A.QUE.LOAD.CURRENTLOADQCNT',
-            'M16A.QUE.LOAD.CURRENTRETICLELOADQCNT',
-            'M16A.QUE.OHT.CURRENTRETICLEOHTQCNT',
-            'M16A.QUE.CNV.M16ATOM14ACURRNETQCNT',
-            'M16A.QUE.CNV.M16ATOM14BCURRNETQCNT',
-            'M16A.QUE.CNV.NORTHCNVTOALLCURRENTQCNT',
-            'M16A.QUE.CNV.SOUTHCNVTOALLCURRENTQCNT',
-            'M16A.QUE.ALL.CURRENTQCNT',
-            'M16A.QUE.ALL.CURRENTRETICLEQCNT',
-            'M16A.QUE.ALL.TRANSPORT4MINOVERRATIO',
-            'M16A.QUE.ALL.TRANSPORT4MINOVERTIMEAVG',
-            'M16A.QUE.OHT.RTCOHTUTIL'
-        ],
-        
-        # M14 (45개)
-        'm14': [
-            'M14.QUE.OHT.CURRENTRETICLEOHTQCNT',
-            'M14.QUE.SENDFAB.VERTICALQUEUECOUNT',
-            'M14.QUE.SENDFAB.CURRENTSENDFABCOMPLETED',
-            'M14.QUE.OHT.OHTUTIL',
-            'M14.QUE.LOAD.CURRENTLOADQCNT',
-            'M14.QUE.ALL.CURRENTQCNT',
-            'M14.QUE.ALL.CURRENTQCOMPLETED',
-            'M14.QUE.ALL.CURRENTQCREATED',
-            'M14.QUE.LOAD.AVGLOADTIME',
-            'M14.QUE.OHT.RTCOHTUTIL',
-            'M14.QUE.ALL.TRANSPORT4MINOVERCNT',
-            'M14.QUE.ALL.TRANSPORT4MINOVERTIMEAVG',
-            'M14.QUE.ALL.TRANSPORT4MINOVERRATIO',
-            'M14.QUE.CNV.M14ATOM16ACURRNETQCNT',
-            'M14.QUE.CNV.ALLTONORTHCNVCURRENTQCNT',
-            'M14.QUE.CNV.ALLTOSOUTHCNVCURRENTQCNT',
-            'M14.QUE.LOAD.AVGRETICLELOADTIME',
-            'M14.QUE.LOAD.AVGLOADTIME1MIN',
-            'M14.QUE.OHT.CURRENTOHTQCNT',
-            'M14.QUE.LOAD.AVGFOUPLOADTIME',
-            'M14.QUE.ALL.CURRENTRETICLEQCNT',
-            'M14.QUE.LOAD.CURRENTRETICLELOADQCNT',
-            'M14.QUE.STK.MANUALOUTCOUNT',
-            'M14.QUE.CNV.NORTHCNVTOALLCURRENTQCNT',
-            'M14.QUE.CNV.SOUTHCNVTOALLCURRENTQCNT',
-            'M14.QUE.ALL.TOTALCNVCURRENTQCNT',
-            'M14.QUE.ALL.M14ATOM10ACURRENTQCNT',
-            'M14.QUE.ALL.M14ATOM10CCURRENTQCNT',
-            'M14.QUE.CNV.NORTHM14TOCNVTIME',
-            'M14.QUE.CNV.SOUTHM14TOCNVTIME',
-            'M14.QUE.SFAB.SENDTOR3',
-            'M14.QUE.SFAB.SENDTOM16',
-            'M14.QUE.SFAB.SENDTOM10',
-            'M14.QUE.SFAB.SENDQUEUETOTAL',
-            'M14.QUE.SFAB.RECEIVETOR3',
-            'M14.QUE.SFAB.RECEIVETOM16',
-            'M14.QUE.SFAB.RECEIVETOM10',
-            'M14.QUE.SFAB.RECEIVEQUEUETOTAL',
-            'M14.QUE.SFAB.RETURNTOR3',
-            'M14.QUE.SFAB.RETURNTOM16',
-            'M14.QUE.SFAB.RETURNTOM10',
-            'M14.QUE.SFAB.RETURNQUEUETOTAL',
-            'M14.QUE.SFAB.COMPLETETOR3',
-            'M14.QUE.SFAB.COMPLETETOM16',
-            'M14.QUE.SFAB.COMPLETETOM10'
-        ],
-        
-        # M14B (25개)
-        'm14b': [
-            'M14B.QUE.LOAD.CURRENTRETICLELOADQCNT',
-            'M14B.QUE.SENDFAB.VERTICALQUEUECOUNT',
-            'M14B.QUE.SENDFAB.CURRENTSENDFABCOMPLETED',
-            'M14B.QUE.OHT.RTCOHTUTIL',
-            'M14B.QUE.LFT.ALLTOLFTCURRENTQCNT',
-            'M14B.QUE.LFT.LFTTOALLCURRENTQCNT',
-            'M14B.QUE.LOAD.CURRENTLOADQCNT',
-            'M14B.QUE.ALL.CURRENTQCNT',
-            'M14B.QUE.ALL.CURRENTQCOMPLETED',
-            'M14B.QUE.ALL.CURRENTQCREATED',
-            'M14B.QUE.LOAD.AVGLOADTIME',
-            'M14B.QUE.OHT.OHTUTIL',
-            'M14B.QUE.ABN.QUETIMEDELAY',
-            'M14B.QUE.OHT.CURRENTRETICLEOHTQCNT',
-            'M14B.QUE.LOAD.AVGRETICLELOADTIME',
-            'M14B.QUE.LOAD.AVGLOADTIME1MIN',
-            'M14B.QUE.OHT.CURRENTOHTQCNT',
-            'M14B.QUE.LOAD.AVGFOUPLOADTIME',
-            'M14B.QUE.ALL.CURRENTRETICLEQCNT',
-            'M14B.QUE.STK.MANUALOUTCOUNT',
-            'M14B.QUE.LFT.M14BTOM16ACURRNETQCNT',
-            'M14B.QUE.ALL.M14BTOM10ACURRENTQCNT',
-            'M14B.QUE.ALL.M14BTOM16CURRENTQCNT',
-            'M14B.QUE.ALL.FABOUTCURRENTQCNT',
-            'M14B.QUE.ALL.TRANSPORT4MINOVERCNT'
-        ],
-        
-        # M16 SFAB (14개)
-        'm16_sfab': [
-            'M16.QUE.SFAB.SENDTOR3',
-            'M16.QUE.SFAB.SENDTOM14',
-            'M16.QUE.SFAB.SENDTOM10',
-            'M16.QUE.SFAB.SENDQUEUETOTAL',
-            'M16.QUE.SFAB.RECEIVETOR3',
-            'M16.QUE.SFAB.RECEIVETOM14',
-            'M16.QUE.SFAB.RECEIVEQUEUETOTAL',
-            'M16.QUE.SFAB.RETURNTOR3',
-            'M16.QUE.SFAB.RETURNTOM14',
-            'M16.QUE.SFAB.RETURNQUEUETOTAL',
-            'M16.QUE.SFAB.COMPLETETOR3',
-            'M16.QUE.SFAB.COMPLETETOM14',
-            'M16.QUE.SFAB.COMPLETETOM10',
-            'M16.QUE.SFAB.COMPLETEQUEUETOTAL'
-        ],
-        
-        # M16B (18개)
-        'm16b': [
-            'M16B.QUE.OHT.CURRENTOHTQCNT',
-            'M16B.QUE.OHT.CURRENTRETICLEOHTQCNT',
-            'M16B.QUE.OHT.OHTUTIL',
-            'M16B.QUE.ALL.CURRENTQCREATED',
-            'M16B.QUE.ALL.CURRENTRETICLEQCNT',
-            'M16B.QUE.ALL.TRANSPORT4MINOVERCNT',
-            'M16B.QUE.ALL.TRANSPORT4MINOVERRATIO',
-            'M16B.QUE.ALL.TRANSPORT4MINOVERTIMEAVG',
-            'M16B.QUE.OHT.RTCOHTUTIL',
-            'M16B.QUE.ABN.QUETIMEDELAY',
-            'M16B.QUE.ALL.CURRENTQCNT',
-            'M16B.QUE.ALL.CURRENTQCOMPLETED',
-            'M16B.QUE.LOAD.AVGFOUPLOADTIME',
-            'M16B.QUE.LOAD.AVGLOADTIME',
-            'M16B.QUE.LOAD.AVGLOADTIME1MIN',
-            'M16B.QUE.LOAD.AVGRETICLELOADTIME',
-            'M16B.QUE.LOAD.CURRENTLOADQCNT',
-            'M16B.QUE.LOAD.CURRENTRETICLELOADQCNT'
-        ],
-        
-        # M16E (20개)
-        'm16e': [
-            'M16E.QUE.ALL.M16ETOM14BCURRENTQCNT',
-            'M16E.QUE.ALL.CURRENTQCNT',
-            'M16E.QUE.ALL.CURRENTQCOMPLETED',
-            'M16E.QUE.ALL.CURRENTQCREATED',
-            'M16E.QUE.ALL.CURRENTRETICLEQCNT',
-            'M16E.QUE.ALL.TRANSPORT4MINOVERCNT',
-            'M16E.QUE.ALL.TRANSPORT4MINOVERRATIO',
-            'M16E.QUE.ALL.TRANSPORT4MINOVERTIMEAVG',
-            'M16E.QUE.LOAD.AVGFOUPLOADTIME',
-            'M16E.QUE.LOAD.AVGLOADTIME',
-            'M16E.QUE.LOAD.AVGLOADTIME1MIN',
-            'M16E.QUE.LOAD.AVGRETICLELOADTIME',
-            'M16E.QUE.LOAD.CURRENTLOADQCNT',
-            'M16E.QUE.OHT.CURRENTOHTQCNT',
-            'M16E.QUE.OHT.CURRENTRETICLEOHTQCNT',
-            'M16E.QUE.OHT.OHTUTIL',
-            'M16E.QUE.OHT.RTCOHTUTIL',
-            'M16E.QUE.ALL.M14ATOM16ECURRENTQCNT',
-            'M16E.QUE.ALL.M14BTOM16ECURRENTQCNT',
-            'M16E.QUE.ALL.M16ETOM16ACURRENTQCNT'
+        # 권장 12개
+        'v9_recommended': [
+            'M16A.QUE.ALL.CURRENTQCNT',                   # M16A
+            'M16A.QUE.CNV.ALLTOSOUTHCNVCURRENTQCNT',      # M16A
+            'M14.QUE.CNV.ALLTOSOUTHCNVCURRENTQCNT',       # M14
+            'M14.QUE.CNV.ALLTONORTHCNVCURRENTQCNT',       # M14
+            'M14.QUE.ALL.CURRENTQCREATED',                # M14
+            'M14.QUE.SFAB.RETURNTOM16',                   # M14
+            'M14B.QUE.LFT.LFTTOALLCURRENTQCNT',           # M14B
+            'M14B.QUE.LFT.M14BTOM16ACURRNETQCNT',         # M14B
+            'M16B.QUE.ALL.CURRENTQCREATED',               # M16B
+            'M16.QUE.SFAB.SENDTOM14',                     # M16
+            'M16HUB.QUE.M14TOM16.MESCURRENTQCNT',         # M16HUB
+            'M16HUB.QUE.ALL.MESCURRENTQCNT',              # M16HUB
         ]
     }
     
-    # 전체 컬럼 합치기
     FEATURE_COLS = {**FEATURE_COLS_V8, **FEATURE_COLS_V9_NEW}
     
     TARGET_COL = 'CURRENT_M16A_3F_JOB_2'
     
     def create_features_v9(df, available_cols, start_idx=30):
-        """V9 Feature 생성 - 175개 컬럼"""
+        """V9 Feature 생성 - 34개 컬럼"""
         features_list = []
         labels = []
         indices = []
@@ -283,16 +132,13 @@ def train_v9_regression():
                     
                     col_seq = df[col].iloc[i-30:i].values
                     
-                    # 그룹별 Feature 생성 방식
                     if group_name == 'maxcapa':
                         features[f'{col}_last_value'] = col_seq[-1]
-                    
                     elif group_name in ['inflow', 'outflow']:
                         features[f'{col}_mean'] = np.mean(col_seq)
                         features[f'{col}_last_value'] = col_seq[-1]
                         features[f'{col}_slope'] = np.polyfit(np.arange(30), col_seq, 1)[0]
-                    
-                    else:  # 대부분의 컬럼 (V8 + V9 신규)
+                    else:
                         features[f'{col}_mean'] = np.mean(col_seq)
                         features[f'{col}_std'] = np.std(col_seq)
                         features[f'{col}_max'] = np.max(col_seq)
@@ -301,33 +147,30 @@ def train_v9_regression():
                         features[f'{col}_last_5_mean'] = np.mean(col_seq[-5:])
                         features[f'{col}_slope'] = np.polyfit(np.arange(30), col_seq, 1)[0]
             
-            # FS Storage 특수 Feature (V8)
+            # FS Storage 특수 Feature
             if all(col in available_cols for col in ['CD_M163FSTORAGEUSE', 'CD_M163FSTORAGETOTAL', 'CD_M163FSTORAGEUTIL']):
                 storage_use = df['CD_M163FSTORAGEUSE'].iloc[i-30:i].values
                 storage_total = df['CD_M163FSTORAGETOTAL'].iloc[i-30:i].values
                 storage_util = df['CD_M163FSTORAGEUTIL'].iloc[i-30:i].values
-                
                 features['storage_use_rate'] = (storage_use[-1] - storage_use[0]) / 30
                 features['storage_remaining'] = storage_total[-1] - storage_use[-1]
                 features['storage_util_last'] = storage_util[-1]
                 features['storage_util_high'] = 1 if storage_util[-1] >= 7 else 0
                 features['storage_util_critical'] = 1 if storage_util[-1] >= 10 else 0
             
-            # HUBROOMTOTAL 특수 Feature (V8)
+            # HUBROOMTOTAL 특수 Feature
             if 'HUBROOMTOTAL' in available_cols:
                 hub_seq = df['HUBROOMTOTAL'].iloc[i-30:i].values
                 hub_last = hub_seq[-1]
-                
                 features['hub_critical'] = 1 if hub_last < 590 else 0
                 features['hub_high'] = 1 if hub_last < 610 else 0
                 features['hub_warning'] = 1 if hub_last < 620 else 0
                 features['hub_decrease_rate'] = (hub_seq[0] - hub_last) / 30
-                
                 if 'CD_M163FSTORAGEUTIL' in available_cols:
                     storage_util_last = df['CD_M163FSTORAGEUTIL'].iloc[i-1]
                     features['hub_storage_risk'] = 1 if (hub_last < 610 and storage_util_last >= 7) else 0
             
-            # 복합 Feature (V8)
+            # 복합 Feature
             inflow_sum = sum(df[col].iloc[i-1] for col in FEATURE_COLS_V8.get('inflow', []) if col in available_cols)
             outflow_sum = sum(df[col].iloc[i-1] for col in FEATURE_COLS_V8.get('outflow', []) if col in available_cols)
             features['net_flow'] = inflow_sum - outflow_sum
@@ -380,39 +223,26 @@ def train_v9_regression():
                 features['m16a_ohtutil_high'] = 1 if ohtutil >= 85.0 else 0
                 features['m16a_ohtutil_critical'] = 1 if ohtutil >= 90.0 else 0
             
-            # V9 신규 Boolean Features
-            # M14 OHT
-            if 'M14.QUE.OHT.OHTUTIL' in available_cols:
-                ohtutil = df['M14.QUE.OHT.OHTUTIL'].iloc[i-1]
-                features['m14_ohtutil_high'] = 1 if ohtutil >= 85.0 else 0
-                features['m14_ohtutil_critical'] = 1 if ohtutil >= 90.0 else 0
-            
-            # M14B OHT
-            if 'M14B.QUE.OHT.OHTUTIL' in available_cols:
-                ohtutil = df['M14B.QUE.OHT.OHTUTIL'].iloc[i-1]
-                features['m14b_ohtutil_high'] = 1 if ohtutil >= 85.0 else 0
-                features['m14b_ohtutil_critical'] = 1 if ohtutil >= 90.0 else 0
-            
-            # M16B OHT
-            if 'M16B.QUE.OHT.OHTUTIL' in available_cols:
-                ohtutil = df['M16B.QUE.OHT.OHTUTIL'].iloc[i-1]
-                features['m16b_ohtutil_high'] = 1 if ohtutil >= 85.0 else 0
-                features['m16b_ohtutil_critical'] = 1 if ohtutil >= 90.0 else 0
-            
-            # M16E OHT
-            if 'M16E.QUE.OHT.OHTUTIL' in available_cols:
-                ohtutil = df['M16E.QUE.OHT.OHTUTIL'].iloc[i-1]
-                features['m16e_ohtutil_high'] = 1 if ohtutil >= 85.0 else 0
-                features['m16e_ohtutil_critical'] = 1 if ohtutil >= 90.0 else 0
-            
-            # FAB간 흐름 Boolean
+            # V9 핵심 Boolean Features
             if 'M16HUB.QUE.M16TOM14.CURRENTQCREATED' in available_cols:
                 m16tom14 = df['M16HUB.QUE.M16TOM14.CURRENTQCREATED'].iloc[i-1]
                 features['m16tom14_high'] = 1 if m16tom14 >= 50 else 0
+                features['m16tom14_critical'] = 1 if m16tom14 >= 80 else 0
             
             if 'M16HUB.QUE.M14TOM16.CURRENTQCREATED' in available_cols:
                 m14tom16 = df['M16HUB.QUE.M14TOM16.CURRENTQCREATED'].iloc[i-1]
                 features['m14tom16_high'] = 1 if m14tom16 >= 50 else 0
+                features['m14tom16_critical'] = 1 if m14tom16 >= 80 else 0
+            
+            if 'M16A.QUE.LFT.LFTTOALLCURRENTQCNT' in available_cols:
+                lfttoall = df['M16A.QUE.LFT.LFTTOALLCURRENTQCNT'].iloc[i-1]
+                features['lfttoall_high'] = 1 if lfttoall >= 30 else 0
+                features['lfttoall_critical'] = 1 if lfttoall >= 50 else 0
+            
+            if 'M14.QUE.ALL.TOTALCNVCURRENTQCNT' in available_cols:
+                m14cnv = df['M14.QUE.ALL.TOTALCNVCURRENTQCNT'].iloc[i-1]
+                features['m14_cnv_high'] = 1 if m14cnv >= 100 else 0
+                features['m14_cnv_critical'] = 1 if m14cnv >= 150 else 0
             
             features_list.append(features)
             labels.append([change_min, change_max, change_avg])
@@ -437,17 +267,17 @@ def train_v9_regression():
     
     print(f"학습 데이터: {len(df_train)}개 행")
     
-    # 컬럼 존재 확인
     available_cols = set(df_train.columns)
     
     print("\n📋 V9 컬럼 확인:")
     v8_count = sum(1 for cols in FEATURE_COLS_V8.values() for col in cols if col in available_cols)
-    v9_new_count = sum(1 for cols in FEATURE_COLS_V9_NEW.values() for col in cols if col in available_cols)
-    total_expected = sum(len(cols) for cols in FEATURE_COLS.values())
+    v9_essential = sum(1 for col in FEATURE_COLS_V9_NEW['v9_essential'] if col in available_cols)
+    v9_recommended = sum(1 for col in FEATURE_COLS_V9_NEW['v9_recommended'] if col in available_cols)
     
     print(f"  V8 기존: {v8_count}개")
-    print(f"  V9 신규: {v9_new_count}개")
-    print(f"  총 사용 가능: {v8_count + v9_new_count}/{total_expected}개")
+    print(f"  V9 필수(8): {v9_essential}개")
+    print(f"  V9 권장(12): {v9_recommended}개")
+    print(f"  총 사용 가능: {v8_count + v9_essential + v9_recommended}/34개")
     
     # Feature 생성
     print("\n[STEP 2] Feature 생성")
@@ -563,11 +393,11 @@ def train_v9_regression():
     model_dict = {
         'models': models,
         'feature_names': X_train.columns.tolist(),
-        'version': 'V9',
-        'total_columns': v8_count + v9_new_count
+        'version': 'V9_20',
+        'total_columns': v8_count + v9_essential + v9_recommended
     }
     
-    model_filename = 'xgboost_수치형_V9.pkl'
+    model_filename = 'xgboost_수치형_V9_20.pkl'
     with open(model_filename, 'wb') as f:
         pickle.dump(model_dict, f)
     print(f"\n✅ 모델 저장: {model_filename}")
@@ -582,9 +412,9 @@ def train_v9_regression():
     for rank, (idx, row) in enumerate(feature_importance.iterrows(), 1):
         print(f"  {rank:2d}. {row['feature']}: {row['importance']:.4f}")
     
-    print("\n✅ V9-수치형 학습 완료!")
+    print("\n✅ V9-수치형 (20개 핵심) 학습 완료!")
 
 if __name__ == '__main__':
-    print("🚀 V9-수치형 변화량 예측 모델 학습 (175개 컬럼)\n")
-    train_v9_regression()
+    print("🚀 V9-수치형 변화량 예측 모델 학습 (34개 컬럼: 기존14 + 핵심20)\n")
+    train_v9_20_regression()
     print(f"\n🎉 완료!")
