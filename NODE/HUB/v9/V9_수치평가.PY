@@ -3,12 +3,12 @@ import pandas as pd
 import pickle
 from datetime import datetime, timedelta
 
-def evaluate_v9_regression():
+def evaluate_v9_20_regression():
     """
-    🎯 V9-수치형 변화량 예측 모델 평가
+    🎯 V9-수치형 변화량 예측 모델 평가 (20개 핵심 컬럼)
     """
     print("="*80)
-    print("🎯 V9-수치형 변화량 예측 모델 평가")
+    print("🎯 V9-수치형 변화량 예측 모델 평가 (34개 컬럼)")
     print("="*80)
     
     # ========== V8 기존 컬럼 ==========
@@ -40,172 +40,31 @@ def evaluate_v9_regression():
         ]
     }
     
-    # ========== V9 신규 컬럼 ==========
+    # ========== V9 핵심 20개 ==========
     FEATURE_COLS_V9_NEW = {
-        'm16hub_new': [
-            'M16HUB.QUE.M16TOM14B.CURRENTQCREATED',
-            'M16HUB.QUE.M14BTOM16.CURRENTQCREATED',
-            'M16HUB.QUE.M14TOM16.CURRENTQCREATED',
-            'M16HUB.QUE.M16TOM14.CURRENTQCREATED',
-            'M16HUB.QUE.M14TOM16.MESCURRENTQCNT',
-            'M16HUB.QUE.M16TOM14.MESCURRENTQCNT',
-            'M16HUB.QUE.ALL.MESCURRENTQCNT',
-            'M16HUB.QUE.M16TOM14A.MESCURRENTQCNT',
-            'M16HUB.QUE.M16TOM14B.MESCURRENTQCNT',
-            'M16HUB.QUE.ALL.M16HUBTOM14MANUAL_CURRENTQCNT'
-        ],
-        'm16a_new': [
-            'M16A.QUE.LFT.ALLTOLFTCURRENTQCNT',
-            'M16A.QUE.CNV.ALLTONORTHCNVCURRENTQCNT',
-            'M16A.QUE.CNV.ALLTOSOUTHCNVCURRENTQCNT',
+        'v9_essential': [
             'M16A.QUE.LFT.LFTTOALLCURRENTQCNT',
-            'M16A.QUE.LOAD.AVGFOUPLOADTIME',
-            'M16A.QUE.LOAD.AVGLOADTIME',
-            'M16A.QUE.LOAD.AVGRETICLELOADTIME',
-            'M16A.QUE.LOAD.CURRENTLOADQCNT',
-            'M16A.QUE.LOAD.CURRENTRETICLELOADQCNT',
-            'M16A.QUE.OHT.CURRENTRETICLEOHTQCNT',
-            'M16A.QUE.CNV.M16ATOM14ACURRNETQCNT',
-            'M16A.QUE.CNV.M16ATOM14BCURRNETQCNT',
+            'M16HUB.QUE.M16TOM14.CURRENTQCREATED',
+            'M16A.QUE.CNV.ALLTONORTHCNVCURRENTQCNT',
             'M16A.QUE.CNV.NORTHCNVTOALLCURRENTQCNT',
-            'M16A.QUE.CNV.SOUTHCNVTOALLCURRENTQCNT',
-            'M16A.QUE.ALL.CURRENTQCNT',
-            'M16A.QUE.ALL.CURRENTRETICLEQCNT',
-            'M16A.QUE.ALL.TRANSPORT4MINOVERRATIO',
-            'M16A.QUE.ALL.TRANSPORT4MINOVERTIMEAVG',
-            'M16A.QUE.OHT.RTCOHTUTIL'
-        ],
-        'm14': [
-            'M14.QUE.OHT.CURRENTRETICLEOHTQCNT',
-            'M14.QUE.SENDFAB.VERTICALQUEUECOUNT',
-            'M14.QUE.SENDFAB.CURRENTSENDFABCOMPLETED',
-            'M14.QUE.OHT.OHTUTIL',
-            'M14.QUE.LOAD.CURRENTLOADQCNT',
-            'M14.QUE.ALL.CURRENTQCNT',
-            'M14.QUE.ALL.CURRENTQCOMPLETED',
-            'M14.QUE.ALL.CURRENTQCREATED',
-            'M14.QUE.LOAD.AVGLOADTIME',
-            'M14.QUE.OHT.RTCOHTUTIL',
-            'M14.QUE.ALL.TRANSPORT4MINOVERCNT',
-            'M14.QUE.ALL.TRANSPORT4MINOVERTIMEAVG',
-            'M14.QUE.ALL.TRANSPORT4MINOVERRATIO',
-            'M14.QUE.CNV.M14ATOM16ACURRNETQCNT',
-            'M14.QUE.CNV.ALLTONORTHCNVCURRENTQCNT',
-            'M14.QUE.CNV.ALLTOSOUTHCNVCURRENTQCNT',
-            'M14.QUE.LOAD.AVGRETICLELOADTIME',
-            'M14.QUE.LOAD.AVGLOADTIME1MIN',
-            'M14.QUE.OHT.CURRENTOHTQCNT',
-            'M14.QUE.LOAD.AVGFOUPLOADTIME',
-            'M14.QUE.ALL.CURRENTRETICLEQCNT',
-            'M14.QUE.LOAD.CURRENTRETICLELOADQCNT',
-            'M14.QUE.STK.MANUALOUTCOUNT',
-            'M14.QUE.CNV.NORTHCNVTOALLCURRENTQCNT',
-            'M14.QUE.CNV.SOUTHCNVTOALLCURRENTQCNT',
+            'M16A.QUE.CNV.M16ATOM14ACURRNETQCNT',
             'M14.QUE.ALL.TOTALCNVCURRENTQCNT',
-            'M14.QUE.ALL.M14ATOM10ACURRENTQCNT',
-            'M14.QUE.ALL.M14ATOM10CCURRENTQCNT',
-            'M14.QUE.CNV.NORTHM14TOCNVTIME',
-            'M14.QUE.CNV.SOUTHM14TOCNVTIME',
-            'M14.QUE.SFAB.SENDTOR3',
-            'M14.QUE.SFAB.SENDTOM16',
-            'M14.QUE.SFAB.SENDTOM10',
-            'M14.QUE.SFAB.SENDQUEUETOTAL',
-            'M14.QUE.SFAB.RECEIVETOR3',
-            'M14.QUE.SFAB.RECEIVETOM16',
-            'M14.QUE.SFAB.RECEIVETOM10',
-            'M14.QUE.SFAB.RECEIVEQUEUETOTAL',
-            'M14.QUE.SFAB.RETURNTOR3',
+            'M16HUB.QUE.M16TOM14B.CURRENTQCREATED',
+            'M16HUB.QUE.M14TOM16.CURRENTQCREATED',
+        ],
+        'v9_recommended': [
+            'M16A.QUE.ALL.CURRENTQCNT',
+            'M16A.QUE.CNV.ALLTOSOUTHCNVCURRENTQCNT',
+            'M14.QUE.CNV.ALLTOSOUTHCNVCURRENTQCNT',
+            'M14.QUE.CNV.ALLTONORTHCNVCURRENTQCNT',
+            'M14.QUE.ALL.CURRENTQCREATED',
             'M14.QUE.SFAB.RETURNTOM16',
-            'M14.QUE.SFAB.RETURNTOM10',
-            'M14.QUE.SFAB.RETURNQUEUETOTAL',
-            'M14.QUE.SFAB.COMPLETETOR3',
-            'M14.QUE.SFAB.COMPLETETOM16',
-            'M14.QUE.SFAB.COMPLETETOM10'
-        ],
-        'm14b': [
-            'M14B.QUE.LOAD.CURRENTRETICLELOADQCNT',
-            'M14B.QUE.SENDFAB.VERTICALQUEUECOUNT',
-            'M14B.QUE.SENDFAB.CURRENTSENDFABCOMPLETED',
-            'M14B.QUE.OHT.RTCOHTUTIL',
-            'M14B.QUE.LFT.ALLTOLFTCURRENTQCNT',
             'M14B.QUE.LFT.LFTTOALLCURRENTQCNT',
-            'M14B.QUE.LOAD.CURRENTLOADQCNT',
-            'M14B.QUE.ALL.CURRENTQCNT',
-            'M14B.QUE.ALL.CURRENTQCOMPLETED',
-            'M14B.QUE.ALL.CURRENTQCREATED',
-            'M14B.QUE.LOAD.AVGLOADTIME',
-            'M14B.QUE.OHT.OHTUTIL',
-            'M14B.QUE.ABN.QUETIMEDELAY',
-            'M14B.QUE.OHT.CURRENTRETICLEOHTQCNT',
-            'M14B.QUE.LOAD.AVGRETICLELOADTIME',
-            'M14B.QUE.LOAD.AVGLOADTIME1MIN',
-            'M14B.QUE.OHT.CURRENTOHTQCNT',
-            'M14B.QUE.LOAD.AVGFOUPLOADTIME',
-            'M14B.QUE.ALL.CURRENTRETICLEQCNT',
-            'M14B.QUE.STK.MANUALOUTCOUNT',
             'M14B.QUE.LFT.M14BTOM16ACURRNETQCNT',
-            'M14B.QUE.ALL.M14BTOM10ACURRENTQCNT',
-            'M14B.QUE.ALL.M14BTOM16CURRENTQCNT',
-            'M14B.QUE.ALL.FABOUTCURRENTQCNT',
-            'M14B.QUE.ALL.TRANSPORT4MINOVERCNT'
-        ],
-        'm16_sfab': [
-            'M16.QUE.SFAB.SENDTOR3',
-            'M16.QUE.SFAB.SENDTOM14',
-            'M16.QUE.SFAB.SENDTOM10',
-            'M16.QUE.SFAB.SENDQUEUETOTAL',
-            'M16.QUE.SFAB.RECEIVETOR3',
-            'M16.QUE.SFAB.RECEIVETOM14',
-            'M16.QUE.SFAB.RECEIVEQUEUETOTAL',
-            'M16.QUE.SFAB.RETURNTOR3',
-            'M16.QUE.SFAB.RETURNTOM14',
-            'M16.QUE.SFAB.RETURNQUEUETOTAL',
-            'M16.QUE.SFAB.COMPLETETOR3',
-            'M16.QUE.SFAB.COMPLETETOM14',
-            'M16.QUE.SFAB.COMPLETETOM10',
-            'M16.QUE.SFAB.COMPLETEQUEUETOTAL'
-        ],
-        'm16b': [
-            'M16B.QUE.OHT.CURRENTOHTQCNT',
-            'M16B.QUE.OHT.CURRENTRETICLEOHTQCNT',
-            'M16B.QUE.OHT.OHTUTIL',
             'M16B.QUE.ALL.CURRENTQCREATED',
-            'M16B.QUE.ALL.CURRENTRETICLEQCNT',
-            'M16B.QUE.ALL.TRANSPORT4MINOVERCNT',
-            'M16B.QUE.ALL.TRANSPORT4MINOVERRATIO',
-            'M16B.QUE.ALL.TRANSPORT4MINOVERTIMEAVG',
-            'M16B.QUE.OHT.RTCOHTUTIL',
-            'M16B.QUE.ABN.QUETIMEDELAY',
-            'M16B.QUE.ALL.CURRENTQCNT',
-            'M16B.QUE.ALL.CURRENTQCOMPLETED',
-            'M16B.QUE.LOAD.AVGFOUPLOADTIME',
-            'M16B.QUE.LOAD.AVGLOADTIME',
-            'M16B.QUE.LOAD.AVGLOADTIME1MIN',
-            'M16B.QUE.LOAD.AVGRETICLELOADTIME',
-            'M16B.QUE.LOAD.CURRENTLOADQCNT',
-            'M16B.QUE.LOAD.CURRENTRETICLELOADQCNT'
-        ],
-        'm16e': [
-            'M16E.QUE.ALL.M16ETOM14BCURRENTQCNT',
-            'M16E.QUE.ALL.CURRENTQCNT',
-            'M16E.QUE.ALL.CURRENTQCOMPLETED',
-            'M16E.QUE.ALL.CURRENTQCREATED',
-            'M16E.QUE.ALL.CURRENTRETICLEQCNT',
-            'M16E.QUE.ALL.TRANSPORT4MINOVERCNT',
-            'M16E.QUE.ALL.TRANSPORT4MINOVERRATIO',
-            'M16E.QUE.ALL.TRANSPORT4MINOVERTIMEAVG',
-            'M16E.QUE.LOAD.AVGFOUPLOADTIME',
-            'M16E.QUE.LOAD.AVGLOADTIME',
-            'M16E.QUE.LOAD.AVGLOADTIME1MIN',
-            'M16E.QUE.LOAD.AVGRETICLELOADTIME',
-            'M16E.QUE.LOAD.CURRENTLOADQCNT',
-            'M16E.QUE.OHT.CURRENTOHTQCNT',
-            'M16E.QUE.OHT.CURRENTRETICLEOHTQCNT',
-            'M16E.QUE.OHT.OHTUTIL',
-            'M16E.QUE.OHT.RTCOHTUTIL',
-            'M16E.QUE.ALL.M14ATOM16ECURRENTQCNT',
-            'M16E.QUE.ALL.M14BTOM16ECURRENTQCNT',
-            'M16E.QUE.ALL.M16ETOM16ACURRENTQCNT'
+            'M16.QUE.SFAB.SENDTOM14',
+            'M16HUB.QUE.M14TOM16.MESCURRENTQCNT',
+            'M16HUB.QUE.ALL.MESCURRENTQCNT',
         ]
     }
     
@@ -213,10 +72,10 @@ def evaluate_v9_regression():
     
     # 모델 로드
     try:
-        with open('xgboost_수치형_V9.pkl', 'rb') as f:
+        with open('xgboost_수치형_V9_20.pkl', 'rb') as f:
             model_dict = pickle.load(f)
         models = model_dict['models']
-        print(f"✅ 모델 로드: xgboost_수치형_V9.pkl")
+        print(f"✅ 모델 로드: xgboost_수치형_V9_20.pkl")
         print(f"   버전: {model_dict.get('version', 'N/A')}")
         print(f"   총 컬럼: {model_dict.get('total_columns', 'N/A')}개")
     except Exception as e:
@@ -310,7 +169,7 @@ def evaluate_v9_regression():
                     features[f'{col}_last_5_mean'] = np.mean(col_seq[-5:])
                     features[f'{col}_slope'] = np.polyfit(np.arange(30), col_seq, 1)[0]
         
-        # 특수 Feature (V8)
+        # 특수 Feature
         if all(col in available_cols for col in ['CD_M163FSTORAGEUSE', 'CD_M163FSTORAGETOTAL', 'CD_M163FSTORAGEUTIL']):
             use_seq = seq_data['CD_M163FSTORAGEUSE'].values
             total_seq = seq_data['CD_M163FSTORAGETOTAL'].values
@@ -384,34 +243,26 @@ def evaluate_v9_regression():
             features['m16a_ohtutil_high'] = 1 if ohtutil >= 85.0 else 0
             features['m16a_ohtutil_critical'] = 1 if ohtutil >= 90.0 else 0
         
-        # V9 신규 Boolean
-        if 'M14.QUE.OHT.OHTUTIL' in available_cols:
-            ohtutil = df['M14.QUE.OHT.OHTUTIL'].iloc[i-1]
-            features['m14_ohtutil_high'] = 1 if ohtutil >= 85.0 else 0
-            features['m14_ohtutil_critical'] = 1 if ohtutil >= 90.0 else 0
-        
-        if 'M14B.QUE.OHT.OHTUTIL' in available_cols:
-            ohtutil = df['M14B.QUE.OHT.OHTUTIL'].iloc[i-1]
-            features['m14b_ohtutil_high'] = 1 if ohtutil >= 85.0 else 0
-            features['m14b_ohtutil_critical'] = 1 if ohtutil >= 90.0 else 0
-        
-        if 'M16B.QUE.OHT.OHTUTIL' in available_cols:
-            ohtutil = df['M16B.QUE.OHT.OHTUTIL'].iloc[i-1]
-            features['m16b_ohtutil_high'] = 1 if ohtutil >= 85.0 else 0
-            features['m16b_ohtutil_critical'] = 1 if ohtutil >= 90.0 else 0
-        
-        if 'M16E.QUE.OHT.OHTUTIL' in available_cols:
-            ohtutil = df['M16E.QUE.OHT.OHTUTIL'].iloc[i-1]
-            features['m16e_ohtutil_high'] = 1 if ohtutil >= 85.0 else 0
-            features['m16e_ohtutil_critical'] = 1 if ohtutil >= 90.0 else 0
-        
+        # V9 핵심 Boolean
         if 'M16HUB.QUE.M16TOM14.CURRENTQCREATED' in available_cols:
             m16tom14 = df['M16HUB.QUE.M16TOM14.CURRENTQCREATED'].iloc[i-1]
             features['m16tom14_high'] = 1 if m16tom14 >= 50 else 0
+            features['m16tom14_critical'] = 1 if m16tom14 >= 80 else 0
         
         if 'M16HUB.QUE.M14TOM16.CURRENTQCREATED' in available_cols:
             m14tom16 = df['M16HUB.QUE.M14TOM16.CURRENTQCREATED'].iloc[i-1]
             features['m14tom16_high'] = 1 if m14tom16 >= 50 else 0
+            features['m14tom16_critical'] = 1 if m14tom16 >= 80 else 0
+        
+        if 'M16A.QUE.LFT.LFTTOALLCURRENTQCNT' in available_cols:
+            lfttoall = df['M16A.QUE.LFT.LFTTOALLCURRENTQCNT'].iloc[i-1]
+            features['lfttoall_high'] = 1 if lfttoall >= 30 else 0
+            features['lfttoall_critical'] = 1 if lfttoall >= 50 else 0
+        
+        if 'M14.QUE.ALL.TOTALCNVCURRENTQCNT' in available_cols:
+            m14cnv = df['M14.QUE.ALL.TOTALCNVCURRENTQCNT'].iloc[i-1]
+            features['m14_cnv_high'] = 1 if m14cnv >= 100 else 0
+            features['m14_cnv_critical'] = 1 if m14cnv >= 150 else 0
         
         X_pred = pd.DataFrame([features])
         
@@ -466,13 +317,13 @@ def evaluate_v9_regression():
     
     results_df = pd.DataFrame(results)
     
-    output_file = '수치형_V9_평가결과.csv'
+    output_file = '수치형_V9_20_평가결과.csv'
     results_df.to_csv(output_file, index=False, encoding='utf-8-sig')
     print(f"\n✅ 결과 저장: {output_file}")
     
     # 통계
     print("\n" + "="*80)
-    print("📊 평가 통계 (V9-수치형)")
+    print("📊 평가 통계 (V9-수치형 20개 핵심)")
     print("="*80)
     
     print(f"총 예측: {len(results_df)}개")
@@ -491,7 +342,6 @@ def evaluate_v9_regression():
         print(f"  - 평균 오차: {avg_error:.2f}")
         print(f"  - 방향 정확도: {direction_accuracy:.1f}%")
         
-        # 큰 변화 감지
         large_increase = results_df[results_df['실제_변화량'] >= 50]
         if len(large_increase) > 0:
             detected = large_increase[large_increase[pred_col] >= 40]
@@ -505,9 +355,9 @@ def evaluate_v9_regression():
     return results_df
 
 if __name__ == '__main__':
-    print("🚀 V9-수치형 평가 시작...\n")
-    results = evaluate_v9_regression()
+    print("🚀 V9-수치형 평가 시작 (34개 컬럼)...\n")
+    results = evaluate_v9_20_regression()
     
     if results is not None:
         print(f"\n✅ 평가 완료!")
-        print(f"📁 결과: 수치형_V9_평가결과.csv")
+        print(f"📁 결과: 수치형_V9_20_평가결과.csv")
