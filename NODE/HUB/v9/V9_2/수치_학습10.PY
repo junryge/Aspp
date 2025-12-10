@@ -86,7 +86,7 @@ def train_v9_regression():
             change_max = future_max - current_value
             change_avg = future_avg - current_value
             
-            # ========== 타겟 핵심 Feature (6개) ==========
+            # ========== 타겟 핵심 Feature (6개 + 급증/급락 6개) ==========
             features = {
                 'target_mean': np.mean(seq_target),
                 'target_std': np.std(seq_target),
@@ -94,6 +94,13 @@ def train_v9_regression():
                 'target_min': np.min(seq_target),
                 'target_last_value': seq_target[-1],
                 'target_slope': np.polyfit(np.arange(30), seq_target, 1)[0],
+                # 🔥 급증/급락 감지용 Feature
+                'target_is_rising': 1 if seq_target[-1] > seq_target[-10] else 0,
+                'target_is_falling': 1 if seq_target[-1] < seq_target[-10] else 0,
+                'target_rapid_rise': 1 if (seq_target[-1] - seq_target[-10] > 20) else 0,
+                'target_rapid_fall': 1 if (seq_target[-1] - seq_target[-10] < -20) else 0,
+                'target_change_10': seq_target[-1] - seq_target[-10],
+                'target_acceleration': (np.mean(seq_target[-10:]) - np.mean(seq_target[-20:-10])),
             }
             
             # ========== V8 기존 컬럼 Feature ==========
