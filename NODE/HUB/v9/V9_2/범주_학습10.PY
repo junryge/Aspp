@@ -281,7 +281,7 @@ def train_v9_classification():
     print("\n[STEP 4] 클래스 가중치")
     print("-"*40)
     
-    class_weights = {0: 1.0, 1: 1.0, 2: 5.0}
+    class_weights = {0: 1.0, 1: 1.0, 2: 10.0}
     sample_weights = np.array([class_weights[label] for label in y_tr])
     
     print(f"  Class 0 (<0): 1.0배")
