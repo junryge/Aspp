@@ -84,6 +84,7 @@ def train_v9_regression():
             
             change_min = future_min - current_value
             change_max = future_max - current_value
+            change_avg = np.mean(future_10min) - current_value  # 🔥 AVG 추가
             
             # 🔥 타겟 핵심 Feature만 (6개)
             features = {
@@ -197,7 +198,7 @@ def train_v9_regression():
                 features['m14tom16_critical'] = 1 if m14tom16 >= 80 else 0
             
             features_list.append(features)
-            labels.append([change_min, change_max])
+            labels.append([change_min, change_max, change_avg])  # 🔥 AVG 추가
             indices.append(i)
         
         return pd.DataFrame(features_list), np.array(labels), indices
@@ -251,7 +252,7 @@ def train_v9_regression():
     
     # 가중치 계산
     print("\n🔥 가중치 계산 (±50 샘플 강조):")
-    large_changes = (np.abs(y_train[:, 0]) >= 50) | (np.abs(y_train[:, 1]) >= 50)
+    large_changes = (np.abs(y_train[:, 0]) >= 50) | (np.abs(y_train[:, 1]) >= 50) | (np.abs(y_train[:, 2]) >= 50)
     sample_weights = np.where(large_changes, 5.0, 1.0)
     
     large_count = large_changes.sum()
@@ -279,22 +280,25 @@ def train_v9_regression():
         print("  ⚠️ CPU 모드\n")
         use_gpu = False
     
-    # 🔥 Quantile Regression으로 MIN/MAX 학습
+    # 🔥 Quantile Regression으로 MIN/MAX/AVG 학습
     print("모델 학습 중 (Quantile Regression)...")
     print("="*60)
     
     models = []
     
-    for idx, name in enumerate(['MIN', 'MAX']):
+    for idx, name in enumerate(['MIN', 'MAX', 'AVG']):
         print(f"\n[{name}] 학습 중...")
         
-        # MIN: 10% 분위수, MAX: 90% 분위수
+        # MIN: 25% 분위수, MAX: 75% 분위수, AVG: 50% 분위수
         if name == 'MIN':
-            quantile_alpha = 0.1
-            print(f"  → 10% 분위수 (하한 예측)")
-        else:
-            quantile_alpha = 0.9
-            print(f"  → 90% 분위수 (상한 예측)")
+            quantile_alpha = 0.25
+            print(f"  → 25% 분위수 (하한 예측)")
+        elif name == 'MAX':
+            quantile_alpha = 0.75
+            print(f"  → 75% 분위수 (상한 예측)")
+        else:  # AVG
+            quantile_alpha = 0.5
+            print(f"  → 50% 분위수 (중앙 예측)")
         
         if use_gpu:
             model = xgb.XGBRegressor(
@@ -342,11 +346,12 @@ def train_v9_regression():
     # 평가
     y_val_pred = np.column_stack([
         models[0].predict(X_val),
-        models[1].predict(X_val)
+        models[1].predict(X_val),
+        models[2].predict(X_val)
     ])
     
     print(f"\n📊 학습 성능:")
-    for idx, name in enumerate(['MIN', 'MAX']):
+    for idx, name in enumerate(['MIN', 'MAX', 'AVG']):
         mae = mean_absolute_error(y_val[:, idx], y_val_pred[:, idx])
         print(f"  {name} - MAE: {mae:.4f}")
     
