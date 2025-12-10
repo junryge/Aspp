@@ -6,13 +6,13 @@ from sklearn.metrics import accuracy_score, classification_report, confusion_mat
 
 def evaluate_v9_classification():
     """
-    🎯 V9-범주형: 3-Class 분류 평가 (단순화 버전)
+    🎯 V9-범주형: 3-Class 분류 평가
     """
     print("="*80)
-    print("🎯 V9-범주형 평가 (단순화 버전)")
+    print("🎯 V9-범주형 평가 (3-Class Classification)")
     print("="*80)
     
-    # V8 기존 14개
+    # ========== V8 기존 14개 ==========
     FEATURE_COLS_V8 = {
         'storage': ['M16A_3F_STORAGE_UTIL'],
         'fs_storage': ['CD_M163FSTORAGEUSE', 'CD_M163FSTORAGETOTAL', 'CD_M163FSTORAGEUTIL'],
@@ -23,8 +23,8 @@ def evaluate_v9_classification():
         'maxcapa': ['M16A_6F_LFT_MAXCAPA', 'M16A_2F_LFT_MAXCAPA'],
     }
     
-    # V9 신규 20개
-    V9_ESSENTIAL = [
+    # ========== V9 신규 20개 ==========
+    V9_NEW_COLS = [
         'M16A_LFTTOALL',
         'M16HUB_M16TOM14_CREATED',
         'M16A_ALLTONORTHCNV',
@@ -33,9 +33,6 @@ def evaluate_v9_classification():
         'M14_TOTALCNVCURRENTQCNT',
         'M16HUB_M16TOM14B_CREATED',
         'M16HUB_M14TOM16_CREATED',
-    ]
-    
-    V9_RECOMMENDED = [
         'M16A_CURRENTQCNT',
         'M16A_ALLTOSOUTHCNV',
         'M14_ALLTOSOUTHCNV',
@@ -49,8 +46,6 @@ def evaluate_v9_classification():
         'M16HUB_M14TOM16_MESCNT',
         'M16HUB_MESCURRENTQCNT',
     ]
-    
-    V9_NEW_COLS = V9_ESSENTIAL + V9_RECOMMENDED
     
     TARGET_COL = 'CURRENT_M16A_3F_JOB_2'
     
@@ -66,16 +61,16 @@ def evaluate_v9_classification():
         names = {0: 'Class 0 (<0)', 1: 'Class 1 (0~50)', 2: 'Class 2 (50+)'}
         return names.get(cls, f'Class {cls}')
     
-    # 모델 로드
+    # ========== 모델 로드 ==========
     try:
-        with open('xgboost_범주형_V9_Simple.pkl', 'rb') as f:
+        with open('xgboost_범주형_V9.pkl', 'rb') as f:
             model = pickle.load(f)
-        print("✅ 모델 로드: xgboost_범주형_V9_Simple.pkl")
+        print("✅ 모델 로드: xgboost_범주형_V9.pkl")
     except Exception as e:
         print(f"❌ 모델 없음: {e}")
         return None
     
-    # 데이터 로드
+    # ========== 데이터 로드 ==========
     try:
         df = pd.read_csv('test_data.csv', on_bad_lines='skip', encoding='utf-8', low_memory=False)
     except:
@@ -91,6 +86,7 @@ def evaluate_v9_classification():
     
     available_cols = set(df.columns)
     
+    # 시간 처리
     if 'STAT_DT' in df.columns:
         try:
             df['STAT_DT'] = pd.to_datetime(df['STAT_DT'].astype(str), format='%Y%m%d%H%M')
@@ -121,7 +117,7 @@ def evaluate_v9_classification():
         actual_change = actual_value - current_value
         actual_class = create_class_label(actual_change)
         
-        # 🔥 Feature 생성 (단순화 - 핵심만)
+        # ========== Feature 생성 ==========
         features = {
             'target_mean': np.mean(seq_target),
             'target_std': np.std(seq_target),
@@ -166,7 +162,7 @@ def evaluate_v9_classification():
             features[f'{col}_last_value'] = col_seq[-1]
             features[f'{col}_slope'] = np.polyfit(np.arange(30), col_seq, 1)[0]
         
-        # FS Storage 특수 Feature
+        # 특수 Feature
         if all(col in available_cols for col in ['CD_M163FSTORAGEUSE', 'CD_M163FSTORAGETOTAL', 'CD_M163FSTORAGEUTIL']):
             use_seq = seq_data['CD_M163FSTORAGEUSE'].values
             total_seq = seq_data['CD_M163FSTORAGETOTAL'].values
@@ -177,7 +173,6 @@ def evaluate_v9_classification():
             features['storage_util_high'] = 1 if util_seq[-1] >= 7 else 0
             features['storage_util_critical'] = 1 if util_seq[-1] >= 10 else 0
         
-        # HUBROOMTOTAL 특수 Feature
         if 'HUBROOMTOTAL' in available_cols:
             hub_seq = seq_data['HUBROOMTOTAL'].values
             hub_last = hub_seq[-1]
@@ -221,7 +216,7 @@ def evaluate_v9_classification():
         
         X_pred = pd.DataFrame([features])
         
-        # 예측
+        # ========== 예측 ==========
         pred_class = model.predict(X_pred)[0]
         pred_proba = model.predict_proba(X_pred)[0]
         
@@ -247,13 +242,13 @@ def evaluate_v9_classification():
     
     results_df = pd.DataFrame(results)
     
-    output_file = '범주형_V9_Simple_평가결과.csv'
+    output_file = '범주형_V9_평가결과.csv'
     results_df.to_csv(output_file, index=False, encoding='utf-8-sig')
     print(f"\n✅ 결과 저장: {output_file}")
     
-    # 통계
+    # ========== 통계 ==========
     print("\n" + "="*80)
-    print("📊 평가 통계 (V9-범주형 단순화)")
+    print("📊 평가 통계 (V9-범주형)")
     print("="*80)
     
     print(f"총 예측: {len(results_df)}개")
@@ -265,7 +260,7 @@ def evaluate_v9_classification():
     # Classification Report
     print(f"\n📋 Classification Report:")
     class_names = ['Class 0 (<0)', 'Class 1 (0~50)', 'Class 2 (50+)']
-    print(classification_report(all_true_labels, all_pred_labels, target_names=class_names))
+    print(classification_report(all_true_labels, all_pred_labels, target_names=class_names, zero_division=0))
     
     # Confusion Matrix
     print(f"\n🎯 Confusion Matrix:")
@@ -273,10 +268,15 @@ def evaluate_v9_classification():
     print(f"              예측")
     print(f"        Class 0  Class 1  Class 2")
     for i, row in enumerate(cm):
-        print(f"실제 {i}  {row[0]:7d}  {row[1]:7d}  {row[2]:7d}")
+        if len(row) >= 3:
+            print(f"실제 {i}  {row[0]:7d}  {row[1]:7d}  {row[2]:7d}")
+        elif len(row) == 2:
+            print(f"실제 {i}  {row[0]:7d}  {row[1]:7d}        0")
+        else:
+            print(f"실제 {i}  {row[0]:7d}        0        0")
     
     # Class 2 성능
-    if cm[:, 2].sum() > 0 and cm[2, :].sum() > 0:
+    if len(cm) >= 3 and cm[:, 2].sum() > 0 and cm[2, :].sum() > 0:
         class2_precision = cm[2, 2] / cm[:, 2].sum()
         class2_recall = cm[2, 2] / cm[2, :].sum()
         class2_f1 = 2 * (class2_precision * class2_recall) / (class2_precision + class2_recall) if (class2_precision + class2_recall) > 0 else 0
@@ -300,9 +300,9 @@ def evaluate_v9_classification():
     return results_df
 
 if __name__ == '__main__':
-    print("🚀 V9-범주형 평가 시작 (단순화)...\n")
+    print("🚀 V9-범주형 평가 시작...\n")
     results = evaluate_v9_classification()
     
     if results is not None:
         print(f"\n✅ 평가 완료!")
-        print(f"📁 결과: 범주형_V9_Simple_평가결과.csv")
+        print(f"📁 결과: 범주형_V9_평가결과.csv")
