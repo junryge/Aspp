@@ -105,9 +105,10 @@ def evaluate_v9_regression():
         
         # 실제 10분 후 구간
         future_10min = df[TARGET_COL].iloc[i:i+10].values
+        actual_value = df[TARGET_COL].iloc[i+9]  # 🔥 10분 후 실제값
         actual_min = np.min(future_10min)
         actual_max = np.max(future_10min)
-        actual_change = df[TARGET_COL].iloc[i+9] - current_value
+        actual_change = actual_value - current_value
         
         # 🔥 Feature 생성 (단순화 - 핵심만)
         features = {
@@ -212,9 +213,11 @@ def evaluate_v9_regression():
         # 예측
         pred_change_min = models[0].predict(X_pred)[0]
         pred_change_max = models[1].predict(X_pred)[0]
+        pred_change_avg = models[2].predict(X_pred)[0]  # 🔥 AVG 추가
         
         pred_min = current_value + pred_change_min
         pred_max = current_value + pred_change_max
+        pred_avg = current_value + pred_change_avg  # 🔥 AVG 추가
         
         # 범위 내 포함 여부
         in_range = (pred_min <= actual_max and pred_max >= actual_min)
@@ -227,13 +230,16 @@ def evaluate_v9_regression():
             '현재시간': current_time.strftime('%Y-%m-%d %H:%M'),
             '예측시점': prediction_time.strftime('%Y-%m-%d %H:%M'),
             '현재값': round(current_value, 2),
+            '실제값': round(actual_value, 2),  # 🔥 10분 후 실제값
             '실제_MIN': round(actual_min, 2),
             '실제_MAX': round(actual_max, 2),
             '실제_변화량': round(actual_change, 2),
             '예측_MIN': round(pred_min, 2),
             '예측_MAX': round(pred_max, 2),
+            '예측_AVG': round(pred_avg, 2),  # 🔥 AVG 추가
             '예측_MIN변화량': round(pred_change_min, 2),
             '예측_MAX변화량': round(pred_change_max, 2),
+            '예측_AVG변화량': round(pred_change_avg, 2),  # 🔥 AVG 추가
             '범위적중': '✅' if in_range else '❌',
             '예측범위폭': round(pred_width, 2),
             '실제범위폭': round(actual_width, 2),
