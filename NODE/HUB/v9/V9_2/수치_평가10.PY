@@ -5,13 +5,13 @@ from datetime import datetime, timedelta
 
 def evaluate_v9_regression():
     """
-    🎯 V9-수치형: MIN/MAX 구간 예측 평가 (단순화 버전)
+    🎯 V9-수치형: MIN/MAX/AVG 구간 예측 평가
     """
     print("="*80)
-    print("🎯 V9-수치형 평가 (단순화 버전)")
+    print("🎯 V9-수치형 평가 (Quantile 0.25 ~ 0.75)")
     print("="*80)
     
-    # V8 기존 14개
+    # ========== V8 기존 14개 ==========
     FEATURE_COLS_V8 = {
         'storage': ['M16A_3F_STORAGE_UTIL'],
         'fs_storage': ['CD_M163FSTORAGEUSE', 'CD_M163FSTORAGETOTAL', 'CD_M163FSTORAGEUTIL'],
@@ -22,8 +22,8 @@ def evaluate_v9_regression():
         'maxcapa': ['M16A_6F_LFT_MAXCAPA', 'M16A_2F_LFT_MAXCAPA'],
     }
     
-    # V9 신규 20개
-    V9_ESSENTIAL = [
+    # ========== V9 신규 20개 ==========
+    V9_NEW_COLS = [
         'M16A_LFTTOALL',
         'M16HUB_M16TOM14_CREATED',
         'M16A_ALLTONORTHCNV',
@@ -32,9 +32,6 @@ def evaluate_v9_regression():
         'M14_TOTALCNVCURRENTQCNT',
         'M16HUB_M16TOM14B_CREATED',
         'M16HUB_M14TOM16_CREATED',
-    ]
-    
-    V9_RECOMMENDED = [
         'M16A_CURRENTQCNT',
         'M16A_ALLTOSOUTHCNV',
         'M14_ALLTOSOUTHCNV',
@@ -49,21 +46,19 @@ def evaluate_v9_regression():
         'M16HUB_MESCURRENTQCNT',
     ]
     
-    V9_NEW_COLS = V9_ESSENTIAL + V9_RECOMMENDED
-    
     TARGET_COL = 'CURRENT_M16A_3F_JOB_2'
     
-    # 모델 로드
+    # ========== 모델 로드 ==========
     try:
-        with open('xgboost_수치형_V9_Simple.pkl', 'rb') as f:
+        with open('xgboost_수치형_V9.pkl', 'rb') as f:
             model_dict = pickle.load(f)
         models = model_dict['models']
-        print("✅ 모델 로드: xgboost_수치형_V9_Simple.pkl")
+        print("✅ 모델 로드: xgboost_수치형_V9.pkl")
     except Exception as e:
         print(f"❌ 모델 없음: {e}")
         return None
     
-    # 데이터 로드
+    # ========== 데이터 로드 ==========
     try:
         df = pd.read_csv('test_data.csv', on_bad_lines='skip', encoding='utf-8', low_memory=False)
     except:
@@ -79,6 +74,7 @@ def evaluate_v9_regression():
     
     available_cols = set(df.columns)
     
+    # 시간 처리
     if 'STAT_DT' in df.columns:
         try:
             df['STAT_DT'] = pd.to_datetime(df['STAT_DT'].astype(str), format='%Y%m%d%H%M')
@@ -103,14 +99,14 @@ def evaluate_v9_regression():
         current_value = seq_target[-1]
         prediction_time = current_time + timedelta(minutes=10)
         
-        # 실제 10분 후 구간
+        # 실제 10분 후
         future_10min = df[TARGET_COL].iloc[i:i+10].values
-        actual_value = df[TARGET_COL].iloc[i+9]  # 🔥 10분 후 실제값
+        actual_value = df[TARGET_COL].iloc[i+9]
         actual_min = np.min(future_10min)
         actual_max = np.max(future_10min)
         actual_change = actual_value - current_value
         
-        # 🔥 Feature 생성 (단순화 - 핵심만)
+        # ========== Feature 생성 ==========
         features = {
             'target_mean': np.mean(seq_target),
             'target_std': np.std(seq_target),
@@ -155,7 +151,7 @@ def evaluate_v9_regression():
             features[f'{col}_last_value'] = col_seq[-1]
             features[f'{col}_slope'] = np.polyfit(np.arange(30), col_seq, 1)[0]
         
-        # FS Storage 특수 Feature
+        # 특수 Feature
         if all(col in available_cols for col in ['CD_M163FSTORAGEUSE', 'CD_M163FSTORAGETOTAL', 'CD_M163FSTORAGEUTIL']):
             use_seq = seq_data['CD_M163FSTORAGEUSE'].values
             total_seq = seq_data['CD_M163FSTORAGETOTAL'].values
@@ -166,7 +162,6 @@ def evaluate_v9_regression():
             features['storage_util_high'] = 1 if util_seq[-1] >= 7 else 0
             features['storage_util_critical'] = 1 if util_seq[-1] >= 10 else 0
         
-        # HUBROOMTOTAL 특수 Feature
         if 'HUBROOMTOTAL' in available_cols:
             hub_seq = seq_data['HUBROOMTOTAL'].values
             hub_last = hub_seq[-1]
@@ -210,14 +205,14 @@ def evaluate_v9_regression():
         
         X_pred = pd.DataFrame([features])
         
-        # 예측
+        # ========== 예측 ==========
         pred_change_min = models[0].predict(X_pred)[0]
         pred_change_max = models[1].predict(X_pred)[0]
-        pred_change_avg = models[2].predict(X_pred)[0]  # 🔥 AVG 추가
+        pred_change_avg = models[2].predict(X_pred)[0]
         
         pred_min = current_value + pred_change_min
         pred_max = current_value + pred_change_max
-        pred_avg = current_value + pred_change_avg  # 🔥 AVG 추가
+        pred_avg = current_value + pred_change_avg
         
         # 범위 내 포함 여부
         in_range = (pred_min <= actual_max and pred_max >= actual_min)
@@ -230,16 +225,16 @@ def evaluate_v9_regression():
             '현재시간': current_time.strftime('%Y-%m-%d %H:%M'),
             '예측시점': prediction_time.strftime('%Y-%m-%d %H:%M'),
             '현재값': round(current_value, 2),
-            '실제값': round(actual_value, 2),  # 🔥 10분 후 실제값
+            '실제값': round(actual_value, 2),
             '실제_MIN': round(actual_min, 2),
             '실제_MAX': round(actual_max, 2),
             '실제_변화량': round(actual_change, 2),
             '예측_MIN': round(pred_min, 2),
             '예측_MAX': round(pred_max, 2),
-            '예측_AVG': round(pred_avg, 2),  # 🔥 AVG 추가
+            '예측_AVG': round(pred_avg, 2),
             '예측_MIN변화량': round(pred_change_min, 2),
             '예측_MAX변화량': round(pred_change_max, 2),
-            '예측_AVG변화량': round(pred_change_avg, 2),  # 🔥 AVG 추가
+            '예측_AVG변화량': round(pred_change_avg, 2),
             '범위적중': '✅' if in_range else '❌',
             '예측범위폭': round(pred_width, 2),
             '실제범위폭': round(actual_width, 2),
@@ -248,13 +243,13 @@ def evaluate_v9_regression():
     
     results_df = pd.DataFrame(results)
     
-    output_file = '수치형_V9_Simple_평가결과.csv'
+    output_file = '수치형_V9_평가결과.csv'
     results_df.to_csv(output_file, index=False, encoding='utf-8-sig')
     print(f"\n✅ 결과 저장: {output_file}")
     
-    # 통계
+    # ========== 통계 ==========
     print("\n" + "="*80)
-    print("📊 평가 통계 (V9-수치형 단순화)")
+    print("📊 평가 통계 (V9-수치형)")
     print("="*80)
     
     print(f"총 예측: {len(results_df)}개")
@@ -289,7 +284,7 @@ def evaluate_v9_regression():
     
     # 범위폭별 적중률
     print(f"\n📊 범위폭별 적중률:")
-    for width_threshold in [20, 30, 40, 50]:
+    for width_threshold in [30, 40, 50]:
         subset = results_df[results_df['예측범위폭'] <= width_threshold]
         if len(subset) > 0:
             hit_rate = (subset['범위적중'] == '✅').sum() / len(subset) * 100
@@ -298,9 +293,9 @@ def evaluate_v9_regression():
     return results_df
 
 if __name__ == '__main__':
-    print("🚀 V9-수치형 평가 시작 (단순화)...\n")
+    print("🚀 V9-수치형 평가 시작...\n")
     results = evaluate_v9_regression()
     
     if results is not None:
         print(f"\n✅ 평가 완료!")
-        print(f"📁 결과: 수치형_V9_Simple_평가결과.csv")
+        print(f"📁 결과: 수치형_V9_평가결과.csv")
