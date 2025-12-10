@@ -224,6 +224,9 @@ def evaluate_v9_regression():
         # 범위 내 포함 여부
         in_range = (pred_min <= actual_max and pred_max >= actual_min)
         
+        # 🔥 실제값이 예측 범위 안에 있는지
+        actual_in_range = (pred_min <= actual_value <= pred_max)
+        
         # 범위폭
         pred_width = pred_change_max - pred_change_min
         actual_width = actual_max - actual_min
@@ -243,6 +246,7 @@ def evaluate_v9_regression():
             '예측_MAX변화량': round(pred_change_max, 2),
             '예측_AVG변화량': round(pred_change_avg, 2),
             '범위적중': '✅' if in_range else '❌',
+            '실제값포함': '✅' if actual_in_range else '❌',
             '예측범위폭': round(pred_width, 2),
             '실제범위폭': round(actual_width, 2),
             'HUBROOMTOTAL': round(features.get('HUBROOMTOTAL_last_value', 0), 0),
@@ -264,6 +268,10 @@ def evaluate_v9_regression():
     # 범위 적중률
     in_range_count = (results_df['범위적중'] == '✅').sum()
     print(f"\n🎯 범위 적중률: {in_range_count}/{len(results_df)}개 ({in_range_count/len(results_df)*100:.1f}%)")
+    
+    # 🔥 실제값 포함률 (핵심!)
+    actual_in_count = (results_df['실제값포함'] == '✅').sum()
+    print(f"🎯 실제값 포함률: {actual_in_count}/{len(results_df)}개 ({actual_in_count/len(results_df)*100:.1f}%)")
     
     # 범위폭 분석
     print(f"\n📏 예측 범위폭:")
@@ -295,7 +303,8 @@ def evaluate_v9_regression():
         subset = results_df[results_df['예측범위폭'] <= width_threshold]
         if len(subset) > 0:
             hit_rate = (subset['범위적중'] == '✅').sum() / len(subset) * 100
-            print(f"  - 범위폭 ≤{width_threshold}: {len(subset)}개 중 {hit_rate:.1f}% 적중")
+            actual_rate = (subset['실제값포함'] == '✅').sum() / len(subset) * 100
+            print(f"  - 범위폭 ≤{width_threshold}: {len(subset)}개 중 범위적중 {hit_rate:.1f}%, 실제값포함 {actual_rate:.1f}%")
     
     return results_df
 
