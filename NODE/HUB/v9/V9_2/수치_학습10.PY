@@ -287,11 +287,11 @@ def train_v9_regression():
         print(f"\n[{name}] 학습 중...")
         
         if name == 'MIN':
-            quantile_alpha = 0.25
-            print(f"  → 25% 분위수 (하한)")
+            quantile_alpha = 0.3
+            print(f"  → 30% 분위수 (하한)")
         elif name == 'MAX':
-            quantile_alpha = 0.75
-            print(f"  → 75% 분위수 (상한)")
+            quantile_alpha = 0.7
+            print(f"  → 70% 분위수 (상한)")
         else:
             quantile_alpha = 0.5
             print(f"  → 50% 분위수 (중앙)")
