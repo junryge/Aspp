@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-🔬 나머지 컬럼 가치 분석
-- 핵심 5개 외 다른 컬럼이 미감지 70%를 잡을 수 있나?
+🔬 시퀀스 길이 최적화 검증
+280분 vs 100분 vs 60분 vs 30분
 """
 
 import pandas as pd
@@ -11,13 +11,13 @@ import numpy as np
 CSV_FILE = "YOUR_CSV_FILE.csv"  # ← 실제 파일 경로!
 
 print("="*70)
-print("🔬 컬럼 가치 분석")
+print("🔬 시퀀스 길이 최적화 검증")
 print("="*70)
 
 df = pd.read_csv(CSV_FILE, on_bad_lines='skip')
-print(f"총 {len(df):,}행 × {df.shape[1]}열")
+print(f"총 {len(df):,}행")
 
-# 핵심 컬럼
+# 컬럼 지정
 totalcnt_col = 'TOTALCNT'
 m14b_col = 'M14AM14B'
 m14bsum_col = 'M14AM14BSUM'
@@ -27,178 +27,141 @@ qcompleted_col = 'M14.QUE.ALL.CURRENTQCOMPLETED'
 # queue_gap 계산
 df['queue_gap'] = df[qcreated_col] - df[qcompleted_col]
 
-# 10분 후 TOTALCNT
-df['future_totalcnt'] = df[totalcnt_col].shift(-10)
+# 10분 후 타겟
+PRED_MINUTES = 10
+df['future_totalcnt'] = df[totalcnt_col].shift(-PRED_MINUTES)
 df['future_1700'] = df['future_totalcnt'] >= 1700
-df = df.dropna(subset=['future_totalcnt']).copy()
-
-# 현재 조건
-df['triple_check'] = (df[m14b_col] > 520) & (df[m14bsum_col] > 600) & (df['queue_gap'] > 250)
-
-# 미감지 케이스 (Triple Check로 못 잡은 1700+)
-df['missed'] = df['future_1700'] & ~df['triple_check']
-
-total_1700 = df['future_1700'].sum()
-missed_count = df['missed'].sum()
-print(f"\n📊 기본 통계:")
-print(f"  10분 후 1700+ 전체: {total_1700:,}개")
-print(f"  Triple Check 감지: {total_1700 - missed_count:,}개")
-print(f"  미감지: {missed_count:,}개 ({missed_count/total_1700*100:.1f}%)")
 
 # ============================================
-# V8.3 사용 컬럼들 분석
+# 시퀀스 길이별 Feature 생성 함수
 # ============================================
-print("\n" + "="*70)
-print("📊 V8.3 사용 컬럼 분석")
-print("="*70)
-
-v83_cols = [
-    'M10AM14A',
-    'M14.QUE.ALL.TRANSPORT4MINOVERCNT',
-    'M14.QUE.OHT.OHTUTIL',
-]
-
-for col in v83_cols:
-    if col in df.columns:
-        # 1700+ vs 정상 비교
-        val_1700 = df[df['future_1700']][col].mean()
-        val_normal = df[~df['future_1700']][col].mean()
-        val_missed = df[df['missed']][col].mean()
-        
-        print(f"\n🔍 {col}")
-        print(f"  정상 평균: {val_normal:.1f}")
-        print(f"  1700+ 평균: {val_1700:.1f} (차이: {val_1700-val_normal:+.1f})")
-        print(f"  미감지 평균: {val_missed:.1f}")
-        
-        # 상관관계
-        corr = df[col].corr(df['future_totalcnt'])
-        print(f"  10분 후 TOTALCNT 상관계수: {corr:.3f}")
+def create_features(df, idx, seq_len):
+    """간단한 Feature 생성 (시퀀스 길이별)"""
+    if idx < seq_len:
+        return None
+    
+    seq_total = df[totalcnt_col].iloc[idx-seq_len:idx].values
+    seq_m14b = df[m14b_col].iloc[idx-seq_len:idx].values
+    seq_m14bsum = df[m14bsum_col].iloc[idx-seq_len:idx].values
+    seq_gap = df['queue_gap'].iloc[idx-seq_len:idx].values
+    
+    features = {
+        'total_current': seq_total[-1],
+        'total_mean': np.mean(seq_total),
+        'total_max': np.max(seq_total),
+        'total_slope': np.polyfit(np.arange(seq_len), seq_total, 1)[0],
+        'm14b_current': seq_m14b[-1],
+        'm14b_mean': np.mean(seq_m14b),
+        'm14b_max': np.max(seq_m14b),
+        'm14bsum_current': seq_m14bsum[-1],
+        'm14bsum_mean': np.mean(seq_m14bsum),
+        'gap_current': seq_gap[-1],
+        'gap_mean': np.mean(seq_gap),
+        'gap_max': np.max(seq_gap),
+        'gap_slope': np.polyfit(np.arange(seq_len), seq_gap, 1)[0],
+    }
+    return features
 
 # ============================================
-# 전체 컬럼 상관관계 분석
+# 시퀀스 길이별 테스트
 # ============================================
 print("\n" + "="*70)
-print("📊 전체 컬럼 상관관계 TOP 20")
+print("📊 시퀀스 길이별 패턴 감지 테스트")
 print("="*70)
 
-correlations = []
-for col in df.columns:
-    if col in ['CURRTIME', 'future_totalcnt', 'future_1700', 'triple_check', 'missed', 'queue_gap']:
+seq_lengths = [30, 60, 100, 150, 200, 280]
+
+for seq_len in seq_lengths:
+    print(f"\n🔍 시퀀스 길이: {seq_len}분")
+    
+    # 유효 데이터 범위
+    valid_start = seq_len
+    valid_end = len(df) - PRED_MINUTES
+    
+    total_samples = valid_end - valid_start
+    actual_1700 = df['future_1700'].iloc[valid_start:valid_end].sum()
+    
+    # 패턴 체크 (현재 시점 기준 - 시퀀스 마지막 값)
+    triple_check_count = 0
+    triple_check_hit = 0
+    
+    for idx in range(valid_start, valid_end):
+        # 현재값 (시퀀스 끝)
+        current_m14b = df[m14b_col].iloc[idx-1]
+        current_m14bsum = df[m14bsum_col].iloc[idx-1]
+        current_gap = df['queue_gap'].iloc[idx-1]
+        future_1700 = df['future_1700'].iloc[idx]
+        
+        # Triple Check
+        if current_m14b > 520 and current_m14bsum > 600 and current_gap > 250:
+            triple_check_count += 1
+            if future_1700:
+                triple_check_hit += 1
+    
+    precision = triple_check_hit / triple_check_count * 100 if triple_check_count > 0 else 0
+    recall = triple_check_hit / actual_1700 * 100 if actual_1700 > 0 else 0
+    
+    print(f"  유효 샘플: {total_samples:,}개")
+    print(f"  실제 1700+: {actual_1700:,}개")
+    print(f"  Triple Check 감지: {triple_check_count:,}개")
+    print(f"  정밀도: {precision:.1f}%")
+    print(f"  재현율: {recall:.1f}%")
+
+# ============================================
+# slope 비교 (시퀀스 길이가 영향 주는 부분)
+# ============================================
+print("\n" + "="*70)
+print("📊 slope 비교 (시퀀스 길이 영향)")
+print("="*70)
+
+# 샘플 1000개로 테스트
+sample_indices = np.random.choice(range(280, len(df) - PRED_MINUTES), size=min(1000, len(df)-280-PRED_MINUTES), replace=False)
+
+results = {seq_len: {'slopes': [], 'targets': []} for seq_len in seq_lengths}
+
+for idx in sample_indices:
+    target = df['future_totalcnt'].iloc[idx]
+    if pd.isna(target):
         continue
-    try:
-        corr = df[col].corr(df['future_totalcnt'])
-        if not np.isnan(corr):
-            correlations.append((col, corr))
-    except:
-        pass
+    
+    for seq_len in seq_lengths:
+        if idx >= seq_len:
+            seq_total = df[totalcnt_col].iloc[idx-seq_len:idx].values
+            slope = np.polyfit(np.arange(seq_len), seq_total, 1)[0]
+            results[seq_len]['slopes'].append(slope)
+            results[seq_len]['targets'].append(target)
 
-correlations.sort(key=lambda x: abs(x[1]), reverse=True)
+print(f"\n{'시퀀스':<10} {'slope 평균':>12} {'slope std':>12} {'타겟 상관':>12}")
+print("-"*50)
 
-print(f"\n{'컬럼':<50} {'상관계수':>10}")
-print("-"*62)
-for col, corr in correlations[:20]:
-    marker = "⭐" if col in [totalcnt_col, m14b_col, m14bsum_col, qcreated_col, qcompleted_col] else ""
-    print(f"{col:<50} {corr:>10.4f} {marker}")
-
-# ============================================
-# 미감지 케이스 특성 분석
-# ============================================
-print("\n" + "="*70)
-print("🔍 미감지 케이스 vs 감지 케이스 비교")
-print("="*70)
-
-detected = df['future_1700'] & df['triple_check']
-
-key_cols = [totalcnt_col, m14b_col, m14bsum_col, 'queue_gap']
-if 'M10AM14A' in df.columns:
-    key_cols.append('M10AM14A')
-if 'M14.QUE.ALL.TRANSPORT4MINOVERCNT' in df.columns:
-    key_cols.append('M14.QUE.ALL.TRANSPORT4MINOVERCNT')
-if 'M14.QUE.OHT.OHTUTIL' in df.columns:
-    key_cols.append('M14.QUE.OHT.OHTUTIL')
-if 'M14.QUE.ALL.CURRENTQCNT' in df.columns:
-    key_cols.append('M14.QUE.ALL.CURRENTQCNT')
-
-print(f"\n{'컬럼':<45} {'감지 평균':>12} {'미감지 평균':>12} {'차이':>10}")
-print("-"*82)
-for col in key_cols:
-    if col in df.columns:
-        det_mean = df[detected][col].mean()
-        mis_mean = df[df['missed']][col].mean()
-        diff = mis_mean - det_mean
-        print(f"{col:<45} {det_mean:>12.1f} {mis_mean:>12.1f} {diff:>+10.1f}")
+for seq_len in seq_lengths:
+    slopes = results[seq_len]['slopes']
+    targets = results[seq_len]['targets']
+    
+    if len(slopes) > 0:
+        mean_slope = np.mean(slopes)
+        std_slope = np.std(slopes)
+        corr = np.corrcoef(slopes, targets)[0, 1]
+        print(f"{seq_len}분{'':<6} {mean_slope:>12.4f} {std_slope:>12.4f} {corr:>12.4f}")
 
 # ============================================
-# 미감지 케이스 보완 가능성
+# 추천
 # ============================================
 print("\n" + "="*70)
-print("🎯 미감지 보완 가능성 탐색")
+print("💡 결론")
 print("="*70)
+print("""
+패턴 기반 예측은 "현재 시점 값"만 사용:
+  - M14B[-1], SUM[-1], gap[-1], TOTALCNT[-1]
+  → 시퀀스 길이가 패턴 정확도에 영향 없음!
 
-# 미감지 케이스에서 다른 조건으로 잡을 수 있는지
-missed_df = df[df['missed']]
+시퀀스가 영향 주는 것:
+  - mean, max, slope 같은 통계 Feature
+  - ML 모델 성능
 
-print(f"\n미감지 {missed_count:,}개 중:")
+권장:
+  - 100분: 충분한 트렌드 + 빠른 처리
+  - 280분: 과도하게 김 (4시간 40분 전 데이터?)
+""")
 
-# 현재 TOTALCNT가 이미 높은 경우
-high_current = (missed_df[totalcnt_col] >= 1600).sum()
-print(f"  현재 TOTALCNT >= 1600: {high_current:,}개 ({high_current/missed_count*100:.1f}%)")
-
-high_current2 = (missed_df[totalcnt_col] >= 1650).sum()
-print(f"  현재 TOTALCNT >= 1650: {high_current2:,}개 ({high_current2/missed_count*100:.1f}%)")
-
-# M14B만 높은 경우
-m14b_high = (missed_df[m14b_col] > 450).sum()
-print(f"  M14B > 450: {m14b_high:,}개 ({m14b_high/missed_count*100:.1f}%)")
-
-# gap > 150
-gap_150 = (missed_df['queue_gap'] > 150).sum()
-print(f"  gap > 150: {gap_150:,}개 ({gap_150/missed_count*100:.1f}%)")
-
-gap_100 = (missed_df['queue_gap'] > 100).sum()
-print(f"  gap > 100: {gap_100:,}개 ({gap_100/missed_count*100:.1f}%)")
-
-# TRANSPORT 높은 경우
-if 'M14.QUE.ALL.TRANSPORT4MINOVERCNT' in df.columns:
-    trans_col = 'M14.QUE.ALL.TRANSPORT4MINOVERCNT'
-    trans_high = (missed_df[trans_col] > 100).sum()
-    print(f"  TRANSPORT > 100: {trans_high:,}개 ({trans_high/missed_count*100:.1f}%)")
-
-# ============================================
-# 보완 조건 테스트
-# ============================================
-print("\n" + "="*70)
-print("🧪 보완 조건 테스트")
-print("="*70)
-
-# 기존 Triple Check + 추가 조건
-base_cond = df['triple_check']
-
-# 추가 조건 후보
-additional_conditions = [
-    ("현재 TOTALCNT >= 1650", df[totalcnt_col] >= 1650),
-    ("현재 TOTALCNT >= 1600", df[totalcnt_col] >= 1600),
-    ("M14B > 450 & gap > 150", (df[m14b_col] > 450) & (df['queue_gap'] > 150)),
-    ("M14B > 400 & gap > 200", (df[m14b_col] > 400) & (df['queue_gap'] > 200)),
-    ("gap > 200 only", df['queue_gap'] > 200),
-]
-
-print(f"\n{'조건':<40} {'정밀도':>10} {'재현율':>10} {'감지수':>10}")
-print("-"*72)
-
-# 기본 Triple Check
-tc_pred = base_cond.sum()
-tc_hit = (base_cond & df['future_1700']).sum()
-tc_prec = tc_hit / tc_pred * 100 if tc_pred > 0 else 0
-tc_rec = tc_hit / total_1700 * 100
-print(f"{'Triple Check (기본)':<40} {tc_prec:>9.1f}% {tc_rec:>9.1f}% {tc_hit:>10,}")
-
-for name, add_cond in additional_conditions:
-    combined = base_cond | add_cond
-    pred = combined.sum()
-    hit = (combined & df['future_1700']).sum()
-    prec = hit / pred * 100 if pred > 0 else 0
-    rec = hit / total_1700 * 100
-    print(f"{'Triple + ' + name:<40} {prec:>9.1f}% {rec:>9.1f}% {hit:>10,}")
-
-print("\n✅ 분석 완료!")
+print("\n✅ 검증 완료!")
