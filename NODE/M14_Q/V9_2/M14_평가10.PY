@@ -2,9 +2,7 @@
 # -*- coding: utf-8 -*-
 """
 🚀 V9.2 평가 - 100분/10분 예측
-패턴 = 경보만! / 예측값 = 순수 ML!
-
-인위적 boost 없음!
+패턴을 Feature로! (학습과 동일!)
 """
 
 import numpy as np
@@ -18,7 +16,7 @@ warnings.filterwarnings('ignore')
 
 print("="*70)
 print("🚀 V9.2 평가 - 100분/10분 예측")
-print("   패턴=경보 / 예측=순수 ML!")
+print("   패턴 Feature 포함!")
 print("="*70)
 
 # ============================================
@@ -26,37 +24,13 @@ print("="*70)
 # ============================================
 SEQ_LEN = 100
 PRED_MINUTES = 10
-DATA_FILE = "YOUR_CSV_FILE.csv"  # ← 평가용 데이터!
+DATA_FILE = "YOUR_CSV_FILE.csv"  # ← 평가 데이터!
 
 # ============================================
-# 패턴 체크 (경보만!)
+# Feature 생성 (40개 = 학습과 동일!)
 # ============================================
-def get_alert_level(m14b, m14bsum, gap, totalcnt):
-    """패턴 → 경보 레벨만! 예측값에 영향 없음!"""
-    
-    if m14b > 520 and m14bsum > 600 and gap > 400:
-        return 'CRITICAL'
-    if gap > 500:
-        return 'CRITICAL'
-    if m14b > 520 and m14bsum > 600 and gap > 250:
-        return 'CRITICAL'
-    if gap > 400:
-        return 'HIGH'
-    if m14b > 520 and m14bsum > 600:
-        return 'HIGH'
-    if totalcnt >= 1680:
-        return 'HIGH'
-    if totalcnt >= 1650:
-        return 'WARNING'
-    if totalcnt >= 1600:
-        return 'CAUTION'
-    return 'NORMAL'
-
-# ============================================
-# Feature 생성 (34개)
-# ============================================
-def create_features_v9(row_dict):
-    """필수 5개 컬럼 기반 34개 Feature"""
+def create_features_v92(row_dict):
+    """34개 기본 + 6개 패턴 Feature"""
     features = {}
     
     seq_m14b = np.array(row_dict['M14B'])
@@ -68,8 +42,13 @@ def create_features_v9(row_dict):
     
     seq_len = len(seq_m14b)
     
+    cur_m14b = seq_m14b[-1]
+    cur_m14bsum = seq_m14bsum[-1]
+    cur_gap = seq_gap[-1]
+    cur_total = seq_totalcnt[-1]
+    
     # TOTALCNT (8개)
-    features['total_current'] = seq_totalcnt[-1]
+    features['total_current'] = cur_total
     features['total_mean'] = np.mean(seq_totalcnt)
     features['total_max'] = np.max(seq_totalcnt)
     features['total_min'] = np.min(seq_totalcnt)
@@ -79,7 +58,7 @@ def create_features_v9(row_dict):
     features['total_trend10'] = seq_totalcnt[-1] - seq_totalcnt[-10]
     
     # M14AM14B (6개)
-    features['m14b_current'] = seq_m14b[-1]
+    features['m14b_current'] = cur_m14b
     features['m14b_mean'] = np.mean(seq_m14b)
     features['m14b_max'] = np.max(seq_m14b)
     features['m14b_last10'] = np.mean(seq_m14b[-10:])
@@ -87,7 +66,7 @@ def create_features_v9(row_dict):
     features['m14b_trend10'] = seq_m14b[-1] - seq_m14b[-10]
     
     # M14AM14BSUM (6개)
-    features['m14bsum_current'] = seq_m14bsum[-1]
+    features['m14bsum_current'] = cur_m14bsum
     features['m14bsum_mean'] = np.mean(seq_m14bsum)
     features['m14bsum_max'] = np.max(seq_m14bsum)
     features['m14bsum_last10'] = np.mean(seq_m14bsum[-10:])
@@ -95,7 +74,7 @@ def create_features_v9(row_dict):
     features['m14bsum_trend10'] = seq_m14bsum[-1] - seq_m14bsum[-10]
     
     # Queue Gap (8개)
-    features['gap_current'] = seq_gap[-1]
+    features['gap_current'] = cur_gap
     features['gap_mean'] = np.mean(seq_gap)
     features['gap_max'] = np.max(seq_gap)
     features['gap_min'] = np.min(seq_gap)
@@ -105,12 +84,20 @@ def create_features_v9(row_dict):
     features['gap_trend10'] = seq_gap[-1] - seq_gap[-10]
     
     # 조합 (6개)
-    features['m14b_x_sum'] = seq_m14b[-1] * seq_m14bsum[-1] / 1000
-    features['gap_x_m14b'] = seq_gap[-1] * seq_m14b[-1] / 1000
-    features['ratio_gap_total'] = seq_gap[-1] / (seq_totalcnt[-1] + 1)
-    features['ratio_m14b_total'] = seq_m14b[-1] / (seq_totalcnt[-1] + 1)
-    features['m14b_plus_sum'] = seq_m14b[-1] + seq_m14bsum[-1]
-    features['gap_per_m14b'] = seq_gap[-1] / (seq_m14b[-1] + 1)
+    features['m14b_x_sum'] = cur_m14b * cur_m14bsum / 1000
+    features['gap_x_m14b'] = cur_gap * cur_m14b / 1000
+    features['ratio_gap_total'] = cur_gap / (cur_total + 1)
+    features['ratio_m14b_total'] = cur_m14b / (cur_total + 1)
+    features['m14b_plus_sum'] = cur_m14b + cur_m14bsum
+    features['gap_per_m14b'] = cur_gap / (cur_m14b + 1)
+    
+    # 🔥 패턴 Feature (6개)
+    features['is_gold_pattern'] = 1 if (cur_m14b > 520 and cur_m14bsum > 600) else 0
+    features['is_triple_check'] = 1 if (cur_m14b > 520 and cur_m14bsum > 600 and cur_gap > 250) else 0
+    features['is_gap_critical'] = 1 if cur_gap > 400 else 0
+    features['is_gap_extreme'] = 1 if cur_gap > 500 else 0
+    features['is_near_danger'] = 1 if cur_total >= 1650 else 0
+    features['is_in_danger'] = 1 if cur_total >= 1700 else 0
     
     return features
 
@@ -118,7 +105,7 @@ def create_features_v9(row_dict):
 # 모델 로드
 # ============================================
 model = None
-model_files = ['model_v9_100min_10min.pkl', 'model_v9.pkl']
+model_files = ['model_v92_100min_10min.pkl']
 for mf in model_files:
     if os.path.exists(mf):
         with open(mf, 'rb') as f:
@@ -127,7 +114,7 @@ for mf in model_files:
         break
 
 if not model:
-    print("❌ 모델 없음!")
+    print("❌ 모델 없음! 먼저 V92_학습 실행!")
     exit(1)
 
 # ============================================
@@ -157,13 +144,11 @@ for i in range(SEQ_LEN, len(df) - PRED_MINUTES):
         'Q_COMPLETED': df['M14.QUE.ALL.CURRENTQCOMPLETED'].iloc[i-SEQ_LEN:i].values,
     }
     
-    # 현재 상태
     current_total = row_dict['TOTALCNT'][-1]
     current_m14b = row_dict['M14B'][-1]
     current_m14bsum = row_dict['M14BSUM'][-1]
     current_gap = row_dict['Q_CREATED'][-1] - row_dict['Q_COMPLETED'][-1]
     
-    # 시간
     if 'CURRTIME' in df.columns and pd.notna(df['CURRTIME'].iloc[i-1]):
         current_time = df['CURRTIME'].iloc[i-1]
         time_str = current_time.strftime('%Y-%m-%d %H:%M')
@@ -174,18 +159,22 @@ for i in range(SEQ_LEN, len(df) - PRED_MINUTES):
     
     actual = df['TOTALCNT'].iloc[i + PRED_MINUTES - 1]
     
-    # ========== 경보 레벨 (예측에 영향 없음!) ==========
-    alert_level = get_alert_level(current_m14b, current_m14bsum, current_gap, current_total)
-    
-    # ========== 순수 ML 예측! ==========
-    features = create_features_v9(row_dict)
+    # Feature 생성 (패턴 포함!)
+    features = create_features_v92(row_dict)
     X = pd.DataFrame([features])
+    
+    # ML 예측
     pred = model.predict(X)[0]
     
-    # 하한선만 (물리적 제한)
+    # 하한선만
     floor = current_total - 80
     if pred < floor:
         pred = floor
+    
+    # 패턴 정보 (출력용)
+    is_triple = features['is_triple_check']
+    is_gold = features['is_gold_pattern']
+    is_gap_crit = features['is_gap_critical']
     
     results.append({
         '현재시간': time_str,
@@ -195,10 +184,12 @@ for i in range(SEQ_LEN, len(df) - PRED_MINUTES):
         '실제값': round(actual, 2),
         '오차': round(actual - pred, 2),
         '절대오차': round(abs(actual - pred), 2),
-        '경보레벨': alert_level,
         'M14B': round(current_m14b, 2),
         'M14BSUM': round(current_m14bsum, 2),
         'queue_gap': round(current_gap, 2),
+        'Triple체크': 'O' if is_triple else '',
+        '황금패턴': 'O' if is_gold else '',
+        'Gap위험': 'O' if is_gap_crit else '',
         '실제1700+': 'O' if actual >= 1700 else '',
         '예측1700+': 'O' if pred >= 1700 else ''
     })
@@ -221,7 +212,7 @@ print(f"\n💾 저장: {output_file}")
 # 통계
 # ============================================
 print("\n" + "="*70)
-print("📊 V9.2 평가 통계 (순수 ML)")
+print("📊 V9.2 평가 통계")
 print("="*70)
 
 print(f"\n총 예측: {len(df_result):,}개")
@@ -237,7 +228,7 @@ detected = (actual_danger & pred_danger).sum()
 false_alarm = (pred_danger & ~actual_danger).sum()
 missed = (actual_danger & ~pred_danger).sum()
 
-print(f"\n🔥 1700+ 감지 (순수 ML):")
+print(f"\n🔥 1700+ 감지:")
 print(f"  실제 1700+: {actual_count:,}개")
 print(f"  예측 1700+: {pred_count:,}개")
 if actual_count > 0:
@@ -247,24 +238,38 @@ if pred_count > 0:
     print(f"  🎯 정밀도(Precision): {detected}/{pred_count} ({detected/pred_count*100:.1f}%)")
 print(f"  ⚠️ 오탐: {false_alarm}개")
 
-# 경보 레벨별
-print(f"\n📊 경보 레벨별 실제 1700+ 발생률:")
-for level in ['CRITICAL', 'HIGH', 'WARNING', 'CAUTION', 'NORMAL']:
-    subset = df_result[df_result['경보레벨'] == level]
+# 패턴별 분석
+print(f"\n📊 패턴별 실제 1700+ 발생률:")
+triple = df_result['Triple체크'] == 'O'
+gold = df_result['황금패턴'] == 'O'
+gap_crit = df_result['Gap위험'] == 'O'
+
+for name, mask in [('Triple체크', triple), ('황금패턴', gold), ('Gap위험', gap_crit)]:
+    subset = df_result[mask]
     if len(subset) > 0:
         actual_1700 = (subset['실제1700+'] == 'O').sum()
-        print(f"  {level}: {actual_1700}/{len(subset)} ({actual_1700/len(subset)*100:.1f}%)")
+        print(f"  {name}: {actual_1700}/{len(subset)} ({actual_1700/len(subset)*100:.1f}%)")
 
-# 경보+예측 조합
-print(f"\n📊 경보+예측 조합 성능:")
-critical_high = df_result['경보레벨'].isin(['CRITICAL', 'HIGH'])
-alert_pred = critical_high | pred_danger
-combined_detected = (actual_danger & alert_pred).sum()
-combined_false = (alert_pred & ~actual_danger).sum()
-if actual_count > 0:
-    print(f"  경보(CRITICAL/HIGH) OR 예측(1700+):")
-    print(f"  감지율: {combined_detected}/{actual_count} ({combined_detected/actual_count*100:.1f}%)")
-    print(f"  오탐: {combined_false}개")
+# 패턴 없는 경우
+no_pattern = ~triple & ~gold & ~gap_crit
+subset = df_result[no_pattern]
+if len(subset) > 0:
+    actual_1700 = (subset['실제1700+'] == 'O').sum()
+    print(f"  패턴없음: {actual_1700}/{len(subset)} ({actual_1700/len(subset)*100:.2f}%)")
+
+# 미감지 분석
+if missed > 0:
+    print(f"\n📊 미감지 {missed}개 분석:")
+    missed_df = df_result[actual_danger & ~pred_danger]
+    print(f"  현재값 평균: {missed_df['현재TOTALCNT'].mean():.0f}")
+    print(f"  예측값 평균: {missed_df['예측값'].mean():.0f}")
+    print(f"  실제값 평균: {missed_df['실제값'].mean():.0f}")
+    
+    # 패턴 분포
+    print(f"\n  미감지 중 패턴 분포:")
+    print(f"    Triple체크: {(missed_df['Triple체크']=='O').sum()}개")
+    print(f"    황금패턴: {(missed_df['황금패턴']=='O').sum()}개")
+    print(f"    Gap위험: {(missed_df['Gap위험']=='O').sum()}개")
 
 print(f"\n" + "="*70)
 print(f"✅ V9.2 평가 완료!")
