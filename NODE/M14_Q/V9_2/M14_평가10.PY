@@ -1,13 +1,12 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-🚀 V9.0 평가 - 100분 시퀀스 / 10분 후 예측
-패턴 우선 + ML 보조 하이브리드!
+🚀 V9.1 평가 - 100분/10분 예측
+패턴 = 경보 + Boost / 예측값 = ML!
 
-핵심:
-1. 패턴 매칭 → 즉시 예측 (ML 안 거침!)
-2. 패턴 없음 → ML 예측
-3. 현재값 하한선 보정
+수정:
+- 패턴 매칭 → 경보 레벨만!
+- 예측값 → 항상 ML + 패턴 boost!
 """
 
 import numpy as np
@@ -20,8 +19,8 @@ import warnings
 warnings.filterwarnings('ignore')
 
 print("="*70)
-print("🚀 V9.0 평가 - 100분/10분 예측")
-print("   패턴 우선 + ML 보조 하이브리드!")
+print("🚀 V9.1 평가 - 100분/10분 예측")
+print("   패턴=경보 / 예측값=ML+Boost!")
 print("="*70)
 
 # ============================================
@@ -32,37 +31,44 @@ PRED_MINUTES = 10
 DATA_FILE = "YOUR_CSV_FILE.csv"  # ← 평가용 데이터!
 
 # ============================================
-# 패턴 체크 함수 (즉시 경보!)
+# 패턴 체크 (경보 레벨만!)
 # ============================================
 def check_pattern(m14b, m14bsum, gap, totalcnt):
     """
-    패턴 매칭 → 즉시 예측!
-    반환: (레벨, 예측값, 확률) or None
+    패턴 → 경보 레벨 + Boost값 반환
+    예측값은 ML이 담당!
     """
     # 1단계: 황금패턴 & gap>400 (100%)
     if m14b > 520 and m14bsum > 600 and gap > 400:
-        return ('CRITICAL', 1800, 100.0)
+        return ('CRITICAL', 150)  # boost +150
     
     # 2단계: gap>500 (99.7%)
     if gap > 500:
-        return ('CRITICAL', 1780, 99.7)
+        return ('CRITICAL', 130)
     
     # 3단계: Triple Check (96.5%)
     if m14b > 520 and m14bsum > 600 and gap > 250:
-        return ('CRITICAL', 1750, 96.5)
+        return ('CRITICAL', 100)
     
     # 4단계: gap>400 (96.2%)
     if gap > 400:
-        return ('HIGH', 1730, 96.2)
+        return ('HIGH', 80)
     
-    # 5단계: 현재값 높음
+    # 5단계: 황금패턴 (gap 없이)
+    if m14b > 520 and m14bsum > 600:
+        return ('HIGH', 60)
+    
+    # 6단계: 현재값 높음
     if totalcnt >= 1680:
-        return ('HIGH', 1720, 85.0)
+        return ('HIGH', 50)
     
     if totalcnt >= 1650:
-        return ('WARNING', 1700, 71.0)
+        return ('WARNING', 30)
     
-    return None
+    if totalcnt >= 1600:
+        return ('CAUTION', 15)
+    
+    return ('NORMAL', 0)
 
 # ============================================
 # Feature 생성 (34개)
@@ -127,14 +133,30 @@ def create_features_v9(row_dict):
     return features
 
 # ============================================
-# ML 보정 (패턴 없을 때만)
+# 예측 보정
 # ============================================
-def adjust_ml_prediction(pred, current_total):
-    """ML 예측값 보정 - 하한선만"""
-    # 하한선 (10분 = -80)
+def adjust_prediction(pred_raw, current_total, boost, level):
+    """ML 예측값 보정"""
+    pred = pred_raw
+    
+    # 1. 패턴 boost 적용
+    if boost > 0:
+        # 1650 이상일 때만 boost 적용 (과도한 boost 방지)
+        if pred >= 1600:
+            pred = pred + boost
+        elif pred >= 1550:
+            pred = pred + boost * 0.5
+    
+    # 2. 하한선 (10분 = -80)
     floor = current_total - 80
     if pred < floor:
         pred = floor
+    
+    # 3. 상한선 (비현실적 예측 방지)
+    ceiling = current_total + 200
+    if pred > ceiling:
+        pred = ceiling
+    
     return pred
 
 # ============================================
@@ -170,8 +192,7 @@ df['queue_gap'] = df['M14.QUE.ALL.CURRENTQCREATED'] - df['M14.QUE.ALL.CURRENTQCO
 # 평가 실행
 # ============================================
 results = []
-pattern_used = 0
-ml_used = 0
+level_counts = {'CRITICAL': 0, 'HIGH': 0, 'WARNING': 0, 'CAUTION': 0, 'NORMAL': 0}
 
 total = len(df) - SEQ_LEN - PRED_MINUTES
 print(f"\n🔄 평가 중... {total:,}개")
@@ -204,37 +225,30 @@ for i in range(SEQ_LEN, len(df) - PRED_MINUTES):
     # 실제값
     actual = df['TOTALCNT'].iloc[i + PRED_MINUTES - 1]
     
-    # ========== 핵심: 패턴 우선! ==========
-    pattern = check_pattern(current_m14b, current_m14bsum, current_gap, current_total)
+    # ========== 패턴 체크 (경보 레벨만!) ==========
+    level, boost = check_pattern(current_m14b, current_m14bsum, current_gap, current_total)
+    level_counts[level] += 1
     
-    if pattern:
-        # 패턴 매칭 → 즉시 예측!
-        level, pred, prob = pattern
-        pred_method = f'PATTERN_{level}'
-        pattern_used += 1
-    else:
-        # 패턴 없음 → ML 예측
-        features = create_features_v9(row_dict)
-        X = pd.DataFrame([features])
-        pred_raw = model.predict(X)[0]
-        pred = adjust_ml_prediction(pred_raw, current_total)
-        pred_method = 'ML'
-        level = 'NORMAL'
-        prob = 0
-        ml_used += 1
+    # ========== ML 예측 (항상!) ==========
+    features = create_features_v9(row_dict)
+    X = pd.DataFrame([features])
+    pred_raw = model.predict(X)[0]
+    
+    # ========== 보정 (ML + boost) ==========
+    pred = adjust_prediction(pred_raw, current_total, boost, level)
     
     # 결과 저장
     results.append({
         '현재시간': time_str,
         '예측시점': pred_time_str,
         '현재TOTALCNT': round(current_total, 2),
-        '예측값': round(pred, 2),
+        'ML원본': round(pred_raw, 2),
+        'Boost': boost,
+        '최종예측': round(pred, 2),
         '실제값': round(actual, 2),
         '오차': round(actual - pred, 2),
         '절대오차': round(abs(actual - pred), 2),
-        '예측방법': pred_method,
         '경보레벨': level,
-        '예측확률': prob,
         'M14B': round(current_m14b, 2),
         'M14BSUM': round(current_m14bsum, 2),
         'queue_gap': round(current_gap, 2),
@@ -247,14 +261,16 @@ for i in range(SEQ_LEN, len(df) - PRED_MINUTES):
         gc.collect()
 
 print(f"\n✅ 완료!")
-print(f"  패턴 사용: {pattern_used:,}개 ({pattern_used/total*100:.1f}%)")
-print(f"  ML 사용: {ml_used:,}개 ({ml_used/total*100:.1f}%)")
+print(f"\n📊 경보 레벨 분포:")
+for level, count in level_counts.items():
+    if count > 0:
+        print(f"  {level}: {count:,}개 ({count/total*100:.1f}%)")
 
 # ============================================
 # 결과 저장
 # ============================================
 df_result = pd.DataFrame(results)
-output_file = 'evaluation_V9_100min_10min.csv'
+output_file = 'evaluation_V91_100min_10min.csv'
 df_result.to_csv(output_file, index=False, encoding='utf-8-sig')
 print(f"\n💾 저장: {output_file}")
 
@@ -262,18 +278,12 @@ print(f"\n💾 저장: {output_file}")
 # 통계 분석
 # ============================================
 print("\n" + "="*70)
-print("📊 V9.0 평가 통계")
+print("📊 V9.1 평가 통계")
 print("="*70)
 
 print(f"\n총 예측: {len(df_result):,}개")
-print(f"MAE: {df_result['절대오차'].mean():.2f}")
-
-# 예측 방법별 통계
-print(f"\n📊 예측 방법별 성능:")
-for method in df_result['예측방법'].unique():
-    subset = df_result[df_result['예측방법'] == method]
-    mae = subset['절대오차'].mean()
-    print(f"  {method}: {len(subset):,}개, MAE: {mae:.2f}")
+print(f"MAE (전체): {df_result['절대오차'].mean():.2f}")
+print(f"MAE (ML원본): {abs(df_result['실제값'] - df_result['ML원본']).mean():.2f}")
 
 # 1700+ 감지 통계
 actual_danger = df_result['실제1700+'] == 'O'
@@ -282,39 +292,53 @@ actual_count = actual_danger.sum()
 pred_count = pred_danger.sum()
 detected = (actual_danger & pred_danger).sum()
 false_alarm = (pred_danger & ~actual_danger).sum()
+missed = (actual_danger & ~pred_danger).sum()
 
 print(f"\n🔥 1700+ 감지:")
 print(f"  실제 1700+: {actual_count:,}개")
 print(f"  예측 1700+: {pred_count:,}개")
 if actual_count > 0:
-    print(f"  감지(Recall): {detected:,}/{actual_count:,} ({detected/actual_count*100:.1f}%)")
+    print(f"  ✅ 감지(Recall): {detected:,}/{actual_count:,} ({detected/actual_count*100:.1f}%)")
+    print(f"  ❌ 미감지: {missed:,}개")
 if pred_count > 0:
-    print(f"  정밀도(Precision): {detected:,}/{pred_count:,} ({detected/pred_count*100:.1f}%)")
-print(f"  오탐(False Alarm): {false_alarm:,}개")
+    print(f"  🎯 정밀도(Precision): {detected:,}/{pred_count:,} ({detected/pred_count*100:.1f}%)")
+print(f"  ⚠️ 오탐(False Alarm): {false_alarm:,}개")
 
-# 패턴별 정확도
-print(f"\n📊 패턴별 정확도:")
-for level in ['CRITICAL', 'HIGH', 'WARNING']:
+# 경보 레벨별 정확도
+print(f"\n📊 경보 레벨별 1700+ 실제 발생률:")
+for level in ['CRITICAL', 'HIGH', 'WARNING', 'CAUTION', 'NORMAL']:
     subset = df_result[df_result['경보레벨'] == level]
     if len(subset) > 0:
         actual_1700 = (subset['실제1700+'] == 'O').sum()
-        precision = actual_1700 / len(subset) * 100
-        print(f"  {level}: {len(subset):,}개 중 실제 1700+: {actual_1700:,}개 ({precision:.1f}%)")
+        rate = actual_1700 / len(subset) * 100
+        print(f"  {level}: {actual_1700:,}/{len(subset):,} ({rate:.1f}%)")
 
-# ML만 따로
-ml_subset = df_result[df_result['예측방법'] == 'ML']
-if len(ml_subset) > 0:
-    ml_actual = (ml_subset['실제1700+'] == 'O').sum()
-    ml_pred = (ml_subset['예측1700+'] == 'O').sum()
-    ml_detected = ((ml_subset['실제1700+'] == 'O') & (ml_subset['예측1700+'] == 'O')).sum()
-    print(f"\n📊 ML 단독 성능:")
-    print(f"  ML로 처리된 케이스: {len(ml_subset):,}개")
-    print(f"  그 중 실제 1700+: {ml_actual:,}개")
-    if ml_actual > 0:
-        print(f"  ML 감지율: {ml_detected}/{ml_actual} ({ml_detected/ml_actual*100:.1f}%)")
+# Boost 효과
+print(f"\n📊 Boost 효과:")
+boosted = df_result[df_result['Boost'] > 0]
+if len(boosted) > 0:
+    mae_raw = abs(boosted['실제값'] - boosted['ML원본']).mean()
+    mae_final = boosted['절대오차'].mean()
+    print(f"  Boost 적용: {len(boosted):,}개")
+    print(f"  ML원본 MAE: {mae_raw:.2f}")
+    print(f"  Boost후 MAE: {mae_final:.2f}")
+    print(f"  개선: {mae_raw - mae_final:+.2f}")
+
+# 미감지 분석
+if missed > 0:
+    print(f"\n📊 미감지 {missed}개 분석:")
+    missed_df = df_result[actual_danger & ~pred_danger]
+    print(f"  현재값 평균: {missed_df['현재TOTALCNT'].mean():.0f}")
+    print(f"  ML원본 평균: {missed_df['ML원본'].mean():.0f}")
+    print(f"  최종예측 평균: {missed_df['최종예측'].mean():.0f}")
+    print(f"  실제값 평균: {missed_df['실제값'].mean():.0f}")
+    
+    # 현재값 분포
+    print(f"\n  현재값 분포 (미감지):")
+    for thresh in [1600, 1650, 1680]:
+        cnt = (missed_df['현재TOTALCNT'] >= thresh).sum()
+        print(f"    >= {thresh}: {cnt}개 ({cnt/missed*100:.1f}%)")
 
 print(f"\n" + "="*70)
-print(f"✅ V9.0 평가 완료!")
-print(f"   패턴 우선: {pattern_used:,}개 즉시 처리")
-print(f"   ML 보조: {ml_used:,}개")
+print(f"✅ V9.1 평가 완료!")
 print("="*70)
