@@ -1,279 +1,315 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-🔬 AMHS 심층 분석 - Leakage 제거 + 1700+ 집중 분석
+🔥 AMHS 전체 컬럼 분석 코드
+109개 컬럼 → 1700+ 급증/하락 예측 핵심 컬럼 발굴
 """
 
-import numpy as np
 import pandas as pd
+import numpy as np
+from scipy import stats
 import warnings
 warnings.filterwarnings('ignore')
 
+# ============================================================
+# 1. 데이터 로드
+# ============================================================
 print("="*80)
-print("🔬 AMHS 심층 분석 - Leakage 제거 + 1700+ 집중 분석")
+print("🔥 AMHS 전체 컬럼 분석 (109개 컬럼)")
 print("="*80)
 
-# ========================================
-# 📌 파일 경로 수정!
-# ========================================
-DATA_FILE = "data/M14_Q_3MONTH.csv"  # 여기 수정!
+# CSV 경로 설정 (필요시 수정)
+CSV_PATH = '/mnt/user-data/uploads/OP22.CSV'
 
-# 데이터 로드
-df = pd.read_csv(DATA_FILE, on_bad_lines='skip')
-print(f"✅ 데이터: {len(df):,}행 x {df.shape[1]}열")
+df = pd.read_csv(CSV_PATH, on_bad_lines='skip')
+print(f"\n📊 데이터: {len(df):,}행 × {df.shape[1]}열")
 
-# queue_gap 생성
+# 시간 파싱
+if 'CURRTIME' in df.columns:
+    df['CURRTIME'] = pd.to_datetime(df['CURRTIME'].astype(str), format='%Y%m%d%H%M', errors='coerce')
+    print(f"📅 기간: {df['CURRTIME'].min()} ~ {df['CURRTIME'].max()}")
+
+# ============================================================
+# 2. TOTALCNT 분포 분석
+# ============================================================
+print("\n" + "="*80)
+print("📊 TOTALCNT 분포")
+print("="*80)
+
+print(f"  범위: {df['TOTALCNT'].min():.0f} ~ {df['TOTALCNT'].max():.0f}")
+print(f"  평균: {df['TOTALCNT'].mean():.1f}")
+print(f"  표준편차: {df['TOTALCNT'].std():.1f}")
+
+# 구간별 분포
+thresholds = [1400, 1500, 1600, 1650, 1700, 1750, 1800]
+for t in thresholds:
+    cnt = (df['TOTALCNT'] >= t).sum()
+    pct = cnt / len(df) * 100
+    print(f"  {t}+: {cnt:,}개 ({pct:.2f}%)")
+
+# ============================================================
+# 3. 전체 컬럼 상관관계 분석
+# ============================================================
+print("\n" + "="*80)
+print("📈 전체 컬럼 TOTALCNT 상관관계")
+print("="*80)
+
+# 기존 사용 컬럼
+KNOWN_COLS = [
+    'CURRTIME', 'TOTALCNT', 'M14AM14B', 'M14AM14BSUM', 'M10AM14A',
+    'M14.QUE.ALL.TRANSPORT4MINOVERCNT', 'M14.QUE.OHT.OHTUTIL',
+    'M14.QUE.ALL.CURRENTQCREATED', 'M14.QUE.ALL.CURRENTQCOMPLETED'
+]
+
+correlations = []
+numeric_cols = df.select_dtypes(include=[np.number]).columns
+
+for col in numeric_cols:
+    if col == 'TOTALCNT':
+        continue
+    
+    valid = df[[col, 'TOTALCNT']].dropna()
+    if len(valid) < 10:
+        continue
+    
+    corr = valid[col].corr(valid['TOTALCNT'])
+    
+    # 통계
+    col_mean = valid[col].mean()
+    col_std = valid[col].std()
+    col_min = valid[col].min()
+    col_max = valid[col].max()
+    na_count = df[col].isna().sum()
+    
+    correlations.append({
+        'column': col,
+        'correlation': corr,
+        'abs_corr': abs(corr),
+        'mean': col_mean,
+        'std': col_std,
+        'min': col_min,
+        'max': col_max,
+        'na_count': na_count,
+        'is_new': col not in KNOWN_COLS
+    })
+
+corr_df = pd.DataFrame(correlations).sort_values('abs_corr', ascending=False)
+
+# TOP 30 출력
+print(f"\n🏆 상관관계 TOP 30:")
+print("-"*100)
+print(f"{'순위':>3} {'컬럼':<50} {'상관':>8} {'평균':>10} {'범위':>20} {'신규':>4}")
+print("-"*100)
+
+for idx, row in corr_df.head(30).iterrows():
+    rank = corr_df.index.get_loc(idx) + 1
+    new_flag = "🆕" if row['is_new'] else ""
+    range_str = f"{row['min']:.0f}~{row['max']:.0f}"
+    print(f"{rank:>3} {row['column']:<50} {row['correlation']:>8.4f} {row['mean']:>10.1f} {range_str:>20} {new_flag:>4}")
+
+# ============================================================
+# 4. 신규 컬럼만 분석
+# ============================================================
+print("\n" + "="*80)
+print("🆕 신규 컬럼 TOP 20 (기존 미사용)")
+print("="*80)
+
+new_cols = corr_df[corr_df['is_new']].head(20)
+print("-"*90)
+for idx, row in new_cols.iterrows():
+    rank = new_cols.index.get_loc(idx) + 1
+    print(f"{rank:>3}. {row['column']:<50} 상관: {row['correlation']:>8.4f}")
+
+# ============================================================
+# 5. 파생변수 생성 및 분석
+# ============================================================
+print("\n" + "="*80)
+print("🔧 파생변수 분석")
+print("="*80)
+
+derived = {}
+
+# queue_gap (기존)
 if 'M14.QUE.ALL.CURRENTQCREATED' in df.columns and 'M14.QUE.ALL.CURRENTQCOMPLETED' in df.columns:
     df['queue_gap'] = df['M14.QUE.ALL.CURRENTQCREATED'] - df['M14.QUE.ALL.CURRENTQCOMPLETED']
+    derived['queue_gap'] = df['queue_gap'].corr(df['TOTALCNT'])
 
-# ============================================================
-# 1. 기본 통계
-# ============================================================
-print("\n" + "="*60)
-print("📊 1. 기본 통계")
-print("="*60)
+# M14B queue_gap
+if 'M14B.QUE.ALL.CURRENTQCREATED' in df.columns and 'M14B.QUE.ALL.CURRENTQCOMPLETED' in df.columns:
+    df['queue_gap_M14B'] = df['M14B.QUE.ALL.CURRENTQCREATED'] - df['M14B.QUE.ALL.CURRENTQCOMPLETED']
+    derived['queue_gap_M14B'] = df['queue_gap_M14B'].corr(df['TOTALCNT'])
 
-target = 'TOTALCNT'
-print(f"TOTALCNT 평균: {df[target].mean():.2f}")
-print(f"TOTALCNT 중앙값: {df[target].median():.2f}")
-print(f"TOTALCNT 범위: {df[target].min()} ~ {df[target].max()}")
+# m14b_ratio
+if 'M14B.QUE.ALL.CURRENTQCNT' in df.columns and 'M14.QUE.ALL.CURRENTQCNT' in df.columns:
+    df['m14b_ratio'] = df['M14B.QUE.ALL.CURRENTQCNT'] / (df['M14.QUE.ALL.CURRENTQCNT'] + 1)
+    derived['m14b_ratio'] = df['m14b_ratio'].corr(df['TOTALCNT'])
 
-print(f"\n📌 위험 구간 분포:")
-for t in [1500, 1600, 1650, 1700, 1750, 1800, 1900, 2000]:
-    cnt = (df[target] >= t).sum()
-    print(f"  {t}+ : {cnt:,}개 ({cnt/len(df)*100:.3f}%)")
+# OHT 합계
+oht_cols = ['M14.QUE.OHT.CURRENTOHTQCNT', 'M14B.QUE.OHT.CURRENTOHTQCNT']
+if all(c in df.columns for c in oht_cols):
+    df['oht_total'] = df[oht_cols].sum(axis=1)
+    derived['oht_total'] = df['oht_total'].corr(df['TOTALCNT'])
 
-# ============================================================
-# 2. Leakage 변수 확인
-# ============================================================
-print("\n" + "="*60)
-print("⚠️ 2. Leakage 의심 변수 확인")
-print("="*60)
+# Transport ratio
+if 'M14.QUE.ALL.TRANSPORT4MINOVERCNT' in df.columns:
+    df['trans_ratio'] = df['M14.QUE.ALL.TRANSPORT4MINOVERCNT'] / (df['TOTALCNT'] + 1)
+    derived['trans_ratio'] = df['trans_ratio'].corr(df['TOTALCNT'])
 
-leakage_cols = ['M14.QUE.ALL.CURRENTQCNT', 'M14B.QUE.ALL.CURRENTQCNT']
-for col in leakage_cols:
-    if col in df.columns:
-        corr = df[col].corr(df[target])
-        print(f"  {col} ↔ TOTALCNT: {corr:.4f}")
-
-# ============================================================
-# 3. Leakage 제거 후 Feature Importance
-# ============================================================
-print("\n" + "="*60)
-print("🎯 3. Leakage 제거 후 Feature Importance")
-print("="*60)
-
-try:
-    import xgboost as xgb
-    from sklearn.model_selection import train_test_split
-    from sklearn.metrics import mean_absolute_error, r2_score
-    
-    # 제거할 컬럼
-    remove_cols = [
-        'CURRTIME', 'TOTALCNT',
-        # Leakage 의심
-        'M14.QUE.ALL.CURRENTQCNT',
-        'M14B.QUE.ALL.CURRENTQCNT',
-        # 결측치 100%
-        'M14.QUE.SFAB.SENDTOR3', 'M14.QUE.SFAB.SENDTOM16', 'M14.QUE.SFAB.SENDTOM10',
-        'M14.QUE.SFAB.SENDQUEUETOTAL', 'M14.QUE.SFAB.RECEIVETOR3', 'M14.QUE.SFAB.RECEIVETOM16',
-        'M14.QUE.SFAB.RECEIVETOM10', 'M14.QUE.SFAB.RECEIVEQUEUETOTAL',
-        'M14.QUE.SFAB.RETURNTOR3', 'M14.QUE.SFAB.RETURNTOM16', 'M14.QUE.SFAB.RETURNTOM10',
-        'M14.QUE.SFAB.RETURNQUEUETOTAL', 'M14.QUE.SFAB.COMPLETETOR3', 'M14.QUE.SFAB.COMPLETETOM16',
-        'M14.QUE.SFAB.COMPLETETOM10', 'M14.QUE.SFAB.COMPLETEQUEUETOTAL',
-        'M14B.QUE.ABN.QUETIMEDELAY',
-        'M16.QUE.SFAB.SENDTOM14', 'M16.QUE.SFAB.RECEIVETOM14',
-        'M16.QUE.SFAB.RETURNTOM14', 'M16.QUE.SFAB.COMPLETETOM14',
-    ]
-    
-    numeric_cols = df.select_dtypes(include=[np.number]).columns.tolist()
-    feature_cols = [c for c in numeric_cols if c not in remove_cols]
-    
-    print(f"✅ 사용 Feature: {len(feature_cols)}개")
-    
-    X = df[feature_cols].fillna(df[feature_cols].median())
-    y = df[target]
-    
-    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
-    
-    model = xgb.XGBRegressor(max_depth=6, learning_rate=0.1, n_estimators=100, 
-                              random_state=42, n_jobs=-1)
-    model.fit(X_train, y_train, eval_set=[(X_test, y_test)], verbose=False)
-    
-    y_pred = model.predict(X_test)
-    mae = mean_absolute_error(y_test, y_pred)
-    r2 = r2_score(y_test, y_pred)
-    print(f"\n📌 모델 성능: MAE={mae:.2f}, R²={r2:.4f}")
-    
-    importance = pd.DataFrame({
-        'feature': feature_cols,
-        'importance': model.feature_importances_
-    }).sort_values('importance', ascending=False)
-    
-    print(f"\n📌 Feature Importance TOP 30 (Leakage 제거 후):")
-    for i, row in importance.head(30).iterrows():
-        print(f"  {importance.index.get_loc(i)+1:2d}. {row['feature']}: {row['importance']:.4f}")
-    
-    # CSV 저장
-    importance.to_csv('importance_no_leakage.csv', index=False, encoding='utf-8-sig')
-    print(f"\n✅ 저장: importance_no_leakage.csv")
-    
-except ImportError:
-    print("❌ xgboost 필요")
-
-# ============================================================
-# 4. queue_gap 심층 분석
-# ============================================================
-print("\n" + "="*60)
-print("🔥 4. queue_gap 심층 분석")
-print("="*60)
-
-if 'queue_gap' in df.columns:
-    print(f"queue_gap 평균: {df['queue_gap'].mean():.2f}")
-    print(f"queue_gap 표준편차: {df['queue_gap'].std():.2f}")
-    print(f"queue_gap 범위: {df['queue_gap'].min():.0f} ~ {df['queue_gap'].max():.0f}")
-    
-    # 전체 상관계수
-    corr_all = df['queue_gap'].corr(df[target])
-    print(f"\n📌 전체 데이터 상관계수: {corr_all:.4f}")
-    
-    # 1600+ 구간만
-    high_mask = df[target] >= 1600
-    if high_mask.sum() > 0:
-        corr_high = df[high_mask]['queue_gap'].corr(df[high_mask][target])
-        print(f"📌 1600+ 구간 상관계수: {corr_high:.4f}")
-    
-    # 1700+ 구간만
-    danger_mask = df[target] >= 1700
-    if danger_mask.sum() > 0:
-        corr_danger = df[danger_mask]['queue_gap'].corr(df[danger_mask][target])
-        print(f"📌 1700+ 구간 상관계수: {corr_danger:.4f}")
-    
-    # 구간별 분석
-    print(f"\n📌 queue_gap 구간별 1700+ 확률:")
-    bins = [-9999, 50, 100, 150, 200, 250, 300, 350, 400, 500, 9999]
-    labels = ['<50', '50-100', '100-150', '150-200', '200-250', '250-300', '300-350', '350-400', '400-500', '500+']
-    df['gap_bin'] = pd.cut(df['queue_gap'], bins=bins, labels=labels)
-    
-    for label in labels:
-        mask = df['gap_bin'] == label
-        if mask.sum() > 0:
-            cnt = mask.sum()
-            avg = df[mask][target].mean()
-            rate_1700 = (df[mask][target] >= 1700).sum() / cnt * 100
-            print(f"    {label:10s}: {cnt:6,}개, 평균 {avg:6.0f}, 1700+ {rate_1700:5.2f}%")
-    
-    df.drop('gap_bin', axis=1, inplace=True)
-
-# ============================================================
-# 5. 황금 패턴 분석
-# ============================================================
-print("\n" + "="*60)
-print("✨ 5. 황금 패턴 분석")
-print("="*60)
-
+# M14+M14B 합계
 if 'M14AM14B' in df.columns and 'M14AM14BSUM' in df.columns:
-    print(f"M14AM14B 범위: {df['M14AM14B'].min()} ~ {df['M14AM14B'].max()}")
-    print(f"M14AM14BSUM 범위: {df['M14AM14BSUM'].min()} ~ {df['M14AM14BSUM'].max()}")
+    df['m14_combined'] = df['M14AM14B'] + df['M14AM14BSUM']
+    derived['m14_combined'] = df['m14_combined'].corr(df['TOTALCNT'])
+
+# CNV 시간 합계
+cnv_time_cols = ['M14.QUE.CNV.NORTHCNVTOM14TIME', 'M14.QUE.CNV.SOUTHCNVTOM14TIME']
+if all(c in df.columns for c in cnv_time_cols):
+    df['cnv_time_total'] = df[cnv_time_cols].sum(axis=1)
+    derived['cnv_time_total'] = df['cnv_time_total'].corr(df['TOTALCNT'])
+
+print("\n📊 파생변수 상관관계:")
+for name, corr in sorted(derived.items(), key=lambda x: abs(x[1]), reverse=True):
+    print(f"  {name:<25}: {corr:>8.4f}")
+
+# ============================================================
+# 6. 컬럼 그룹별 분석
+# ============================================================
+print("\n" + "="*80)
+print("📦 컬럼 그룹별 TOP 3")
+print("="*80)
+
+groups = {
+    'M14.QUE': [c for c in df.columns if c.startswith('M14.QUE')],
+    'M14B.QUE': [c for c in df.columns if c.startswith('M14B.QUE')],
+    'M16HUB': [c for c in df.columns if c.startswith('M16HUB')],
+    'M16A/E': [c for c in df.columns if c.startswith('M16A') or c.startswith('M16E')],
+    'M14AM': [c for c in df.columns if c.startswith('M14AM') or c.startswith('M14BM')],
+}
+
+for group_name, cols in groups.items():
+    if not cols:
+        continue
+    group_corr = corr_df[corr_df['column'].isin(cols)].head(3)
+    print(f"\n🔹 {group_name} ({len(cols)}개)")
+    for idx, row in group_corr.iterrows():
+        print(f"   - {row['column']}: {row['correlation']:.4f}")
+
+# ============================================================
+# 7. 시간 지연 분석 (10분 후 예측력)
+# ============================================================
+print("\n" + "="*80)
+print("⏰ 시간 지연 분석 (10분 후 TOTALCNT)")
+print("="*80)
+
+df['TOTALCNT_10min'] = df['TOTALCNT'].shift(-10)
+df['delta_10min'] = df['TOTALCNT_10min'] - df['TOTALCNT']
+
+# 각 컬럼의 10분 후 예측력
+future_corr = []
+for col in numeric_cols:
+    if col == 'TOTALCNT':
+        continue
+    valid = df[[col, 'TOTALCNT_10min']].dropna()
+    if len(valid) < 10:
+        continue
+    corr = valid[col].corr(valid['TOTALCNT_10min'])
+    future_corr.append({'column': col, 'corr_future': corr})
+
+future_df = pd.DataFrame(future_corr)
+future_df['abs_corr'] = future_df['corr_future'].abs()
+future_df = future_df.sort_values('abs_corr', ascending=False)
+
+print(f"\n🎯 10분 후 예측력 TOP 15:")
+for idx, row in future_df.head(15).iterrows():
+    print(f"  {row['column']:<50}: {row['corr_future']:.4f}")
+
+# ============================================================
+# 8. 급증/급락 패턴 분석
+# ============================================================
+print("\n" + "="*80)
+print("📈 급증/급락 패턴 분석")
+print("="*80)
+
+# 10분간 변화량
+df['change_10min'] = df['TOTALCNT'].diff(10)
+
+# 급증: 10분간 +100 이상
+surge_mask = df['change_10min'] >= 100
+# 급락: 10분간 -100 이상
+drop_mask = df['change_10min'] <= -100
+
+print(f"급증(+100 이상): {surge_mask.sum()}건")
+print(f"급락(-100 이상): {drop_mask.sum()}건")
+
+if surge_mask.sum() > 0:
+    print(f"\n🔺 급증 시점 컬럼 평균:")
+    surge_data = df[surge_mask]
+    normal_data = df[~surge_mask & ~drop_mask]
     
-    # 상관계수
-    corr_m14b = df['M14AM14B'].corr(df[target])
-    corr_m14bsum = df['M14AM14BSUM'].corr(df[target])
-    print(f"\n📌 TOTALCNT 상관계수:")
-    print(f"  M14AM14B: {corr_m14b:.4f}")
-    print(f"  M14AM14BSUM: {corr_m14bsum:.4f}")
-    
-    # 다양한 임계값 테스트
-    print(f"\n📌 황금 패턴 임계값별 1700+ 확률:")
-    thresholds = [
-        (500, 580), (510, 590), (520, 600), (530, 610), (540, 620),
-        (550, 630), (560, 640), (580, 660), (600, 680)
-    ]
-    
-    for m14b_th, sum_th in thresholds:
-        mask = (df['M14AM14B'] > m14b_th) & (df['M14AM14BSUM'] > sum_th)
-        if mask.sum() > 0:
-            cnt = mask.sum()
-            rate_1700 = (df[mask][target] >= 1700).sum() / cnt * 100
-            avg = df[mask][target].mean()
-            print(f"    M14B>{m14b_th} & SUM>{sum_th}: {cnt:5,}개, 평균 {avg:.0f}, 1700+ {rate_1700:5.1f}%")
+    # 급증 vs 정상 비교
+    compare_cols = ['M14AM14B', 'M14AM14BSUM', 'queue_gap', 'M14.QUE.OHT.CURRENTOHTQCNT']
+    for col in compare_cols:
+        if col in df.columns:
+            surge_mean = surge_data[col].mean()
+            normal_mean = normal_data[col].mean()
+            diff = surge_mean - normal_mean
+            print(f"  {col:<40}: 급증={surge_mean:.1f}, 정상={normal_mean:.1f}, 차이={diff:+.1f}")
 
 # ============================================================
-# 6. 1700+ 구간 특성 분석
+# 9. 데이터 누출 위험 컬럼 체크
 # ============================================================
-print("\n" + "="*60)
-print("🚨 6. 1700+ 구간 특성 분석")
-print("="*60)
+print("\n" + "="*80)
+print("⚠️ 데이터 누출 위험 체크 (상관 > 0.95)")
+print("="*80)
 
-danger_mask = df[target] >= 1700
-normal_mask = df[target] < 1600
-
-print(f"1700+ 데이터: {danger_mask.sum():,}개")
-print(f"정상(<1600) 데이터: {normal_mask.sum():,}개")
-
-# 주요 변수 비교
-key_vars = ['queue_gap', 'M14AM14B', 'M14AM14BSUM', 'M10AM14A', 
-            'M14.QUE.ALL.TRANSPORT4MINOVERCNT', 'M14.QUE.OHT.OHTUTIL',
-            'M14.QUE.LOAD.CURRENTLOADQCNT', 'M14.QUE.SENDFAB.CURRENTSENDFABCOMPLETED']
-
-print(f"\n📌 주요 변수 비교 (정상 vs 위험):")
-print(f"{'변수':<45} {'정상평균':>10} {'위험평균':>10} {'배율':>8}")
-print("-" * 75)
-
-for var in key_vars:
-    if var in df.columns:
-        normal_avg = df[normal_mask][var].mean()
-        danger_avg = df[danger_mask][var].mean()
-        ratio = danger_avg / normal_avg if normal_avg != 0 else 0
-        print(f"{var:<45} {normal_avg:>10.1f} {danger_avg:>10.1f} {ratio:>8.2f}x")
+leak_risk = corr_df[corr_df['abs_corr'] > 0.95]
+if len(leak_risk) > 0:
+    print("🚨 사용 금지 컬럼:")
+    for idx, row in leak_risk.iterrows():
+        print(f"  - {row['column']}: {row['correlation']:.4f}")
+else:
+    print("✅ 데이터 누출 위험 컬럼 없음")
 
 # ============================================================
-# 7. 복합 조건 분석 (Triple Check)
+# 10. 결측값 분석
 # ============================================================
-print("\n" + "="*60)
-print("🔥 7. 복합 조건 분석")
-print("="*60)
+print("\n" + "="*80)
+print("🔍 결측값 분석")
+print("="*80)
 
-if 'queue_gap' in df.columns and 'M14AM14B' in df.columns:
-    conditions = [
-        ("M14B>520 & SUM>600", (df['M14AM14B'] > 520) & (df['M14AM14BSUM'] > 600)),
-        ("M14B>520 & SUM>600 & gap>200", (df['M14AM14B'] > 520) & (df['M14AM14BSUM'] > 600) & (df['queue_gap'] > 200)),
-        ("M14B>520 & SUM>600 & gap>250", (df['M14AM14B'] > 520) & (df['M14AM14BSUM'] > 600) & (df['queue_gap'] > 250)),
-        ("M14B>520 & SUM>600 & gap>300", (df['M14AM14B'] > 520) & (df['M14AM14BSUM'] > 600) & (df['queue_gap'] > 300)),
-        ("gap>300 만", df['queue_gap'] > 300),
-        ("gap>350 만", df['queue_gap'] > 350),
-        ("gap>400 만", df['queue_gap'] > 400),
-    ]
-    
-    print(f"{'조건':<40} {'발생':>8} {'1700+':>8} {'확률':>8}")
-    print("-" * 70)
-    
-    for name, mask in conditions:
-        if mask.sum() > 0:
-            cnt = mask.sum()
-            danger_cnt = (df[mask][target] >= 1700).sum()
-            rate = danger_cnt / cnt * 100
-            print(f"{name:<40} {cnt:>8,} {danger_cnt:>8,} {rate:>7.1f}%")
+na_info = df.isna().sum()
+na_cols = na_info[na_info > 0]
+if len(na_cols) > 0:
+    print(f"결측값 있는 컬럼: {len(na_cols)}개")
+    for col, cnt in na_cols.items():
+        pct = cnt / len(df) * 100
+        if pct > 1:  # 1% 이상만 출력
+            print(f"  {col}: {cnt}개 ({pct:.1f}%)")
+else:
+    print("✅ 결측값 없음")
 
 # ============================================================
-# 8. 결과 요약 저장
+# 11. 최종 추천
 # ============================================================
-print("\n" + "="*60)
-print("💾 8. 결과 요약")
-print("="*60)
+print("\n" + "="*80)
+print("⭐ 최종 추천 컬럼")
+print("="*80)
 
-summary = []
-summary.append(f"총 데이터: {len(df):,}행")
-summary.append(f"1700+ 데이터: {(df[target]>=1700).sum():,}개 ({(df[target]>=1700).sum()/len(df)*100:.2f}%)")
-summary.append(f"TOTALCNT 범위: {df[target].min()} ~ {df[target].max()}")
+print("\n🔥 강력 추천 (상관 0.4 이상 신규):")
+strong = corr_df[(corr_df['is_new']) & (corr_df['abs_corr'] >= 0.4)]
+for idx, row in strong.iterrows():
+    print(f"  - {row['column']}: {row['correlation']:.4f}")
 
-if 'queue_gap' in df.columns:
-    summary.append(f"queue_gap 범위: {df['queue_gap'].min():.0f} ~ {df['queue_gap'].max():.0f}")
-    summary.append(f"queue_gap-TOTALCNT 상관: {df['queue_gap'].corr(df[target]):.4f}")
+print("\n📈 추천 (상관 0.3~0.4 신규):")
+medium = corr_df[(corr_df['is_new']) & (corr_df['abs_corr'] >= 0.3) & (corr_df['abs_corr'] < 0.4)]
+for idx, row in medium.iterrows():
+    print(f"  - {row['column']}: {row['correlation']:.4f}")
 
-with open('analysis_summary.txt', 'w', encoding='utf-8') as f:
-    f.write("\n".join(summary))
-print("✅ 저장: analysis_summary.txt")
+# ============================================================
+# 12. 결과 저장
+# ============================================================
+output_path = '/mnt/user-data/outputs/column_analysis_result.csv'
+corr_df.to_csv(output_path, index=False, encoding='utf-8-sig')
+print(f"\n💾 결과 저장: {output_path}")
 
 print("\n" + "="*80)
 print("✅ 분석 완료!")
