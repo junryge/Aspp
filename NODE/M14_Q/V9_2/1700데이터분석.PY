@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-🔬 황금패턴 이론 검증 - 수정판
-컬럼 직접 지정!
+🔬 10분 후 예측 정확도 검증
+- 현재 gap, M14B, SUM으로 → 10분 후 TOTALCNT 예측
 """
 
 import pandas as pd
@@ -11,135 +11,154 @@ import numpy as np
 CSV_FILE = "YOUR_CSV_FILE.csv"  # ← 실제 파일 경로!
 
 print("="*70)
-print("📂 데이터 로드")
+print("🔮 10분 후 예측 검증")
 print("="*70)
 
 df = pd.read_csv(CSV_FILE, on_bad_lines='skip')
-print(f"총 {len(df):,}행 × {df.shape[1]}열")
+print(f"총 {len(df):,}행")
 
-# ============================================
-# 컬럼 직접 지정! (자동탐지 X)
-# ============================================
+# 컬럼 지정
 totalcnt_col = 'TOTALCNT'
 m14b_col = 'M14AM14B'
 m14bsum_col = 'M14AM14BSUM'
-qcreated_col = 'M14.QUE.ALL.CURRENTQCREATED'      # ← 수정!
-qcompleted_col = 'M14.QUE.ALL.CURRENTQCOMPLETED'  # ← 수정!
+qcreated_col = 'M14.QUE.ALL.CURRENTQCREATED'
+qcompleted_col = 'M14.QUE.ALL.CURRENTQCOMPLETED'
 
-print(f"\n✅ 사용 컬럼:")
-print(f"  TOTALCNT: {totalcnt_col}")
-print(f"  M14AM14B: {m14b_col}")
-print(f"  M14AM14BSUM: {m14bsum_col}")
-print(f"  Q_CREATED: {qcreated_col}")
-print(f"  Q_COMPLETED: {qcompleted_col}")
-
-# ============================================
 # queue_gap 계산
-# ============================================
 df['queue_gap'] = df[qcreated_col] - df[qcompleted_col]
 
-print(f"\n📊 queue_gap 통계:")
-print(f"  min: {df['queue_gap'].min():.0f}")
-print(f"  max: {df['queue_gap'].max():.0f}")
-print(f"  mean: {df['queue_gap'].mean():.1f}")
+# ============================================
+# 10분 후 TOTALCNT (시프트!)
+# ============================================
+PRED_MINUTES = 10
+df['future_totalcnt'] = df[totalcnt_col].shift(-PRED_MINUTES)
+df['future_1700'] = df['future_totalcnt'] >= 1700
+
+# NaN 제거 (마지막 10행)
+df_valid = df.dropna(subset=['future_totalcnt']).copy()
+print(f"유효 데이터: {len(df_valid):,}행 (마지막 {PRED_MINUTES}행 제외)")
 
 # ============================================
-# 황금패턴 이론 검증
+# 현재 조건들
 # ============================================
-print("\n" + "="*70)
-print("🔬 황금패턴 이론 검증")
-print("="*70)
+df_valid['gap_over_300'] = df_valid['queue_gap'] > 300
+df_valid['gap_over_400'] = df_valid['queue_gap'] > 400
+df_valid['gap_over_500'] = df_valid['queue_gap'] > 500
+df_valid['gold_pattern'] = (df_valid[m14b_col] > 520) & (df_valid[m14bsum_col] > 600)
+df_valid['triple_check'] = (df_valid[m14b_col] > 520) & (df_valid[m14bsum_col] > 600) & (df_valid['queue_gap'] > 250)
 
-df['is_1700'] = df[totalcnt_col] >= 1700
-df['gap_over_300'] = df['queue_gap'] > 300
-df['gap_over_250'] = df['queue_gap'] > 250
-df['gold_pattern'] = (df[m14b_col] > 520) & (df[m14bsum_col] > 600)
-df['triple_check'] = (df[m14b_col] > 520) & (df[m14bsum_col] > 600) & (df['queue_gap'] > 250)
-
-total = len(df)
-cnt_1700 = df['is_1700'].sum()
+# ============================================
+# 기본 통계
+# ============================================
+total = len(df_valid)
+actual_1700 = df_valid['future_1700'].sum()
 
 print(f"\n📊 기본 통계:")
-print(f"  전체 데이터: {total:,}개")
-print(f"  1700+ 이벤트: {cnt_1700:,}개 ({cnt_1700/total*100:.2f}%)")
-
-# 이론 1: queue_gap > 300 → 위험
-print(f"\n🔥 이론 1: queue_gap > 300 → 1700+")
-gap_over = df['gap_over_300'].sum()
-gap_and_1700 = (df['gap_over_300'] & df['is_1700']).sum()
-print(f"  gap > 300: {gap_over:,}개")
-if gap_over > 0:
-    print(f"  그 중 1700+: {gap_and_1700:,}개 ({gap_and_1700/gap_over*100:.1f}%)")
-
-# 이론 2: 황금패턴 → 1700+
-print(f"\n🏆 이론 2: M14B>520 & SUM>600 → 1700+")
-gold = df['gold_pattern'].sum()
-gold_and_1700 = (df['gold_pattern'] & df['is_1700']).sum()
-print(f"  황금패턴: {gold:,}개")
-if gold > 0:
-    print(f"  그 중 1700+: {gold_and_1700:,}개 ({gold_and_1700/gold*100:.1f}%)")
-
-# 이론 3: Triple Check → 96.5%
-print(f"\n⚡ 이론 3: M14B>520 & SUM>600 & gap>250 → 96.5%")
-triple = df['triple_check'].sum()
-triple_and_1700 = (df['triple_check'] & df['is_1700']).sum()
-print(f"  Triple Check: {triple:,}개")
-if triple > 0:
-    print(f"  그 중 1700+: {triple_and_1700:,}개 ({triple_and_1700/triple*100:.1f}%)")
-
-# 1700+ 중 패턴 미충족
-print(f"\n⚠️ 1700+ 중 패턴 미충족 케이스:")
-no_pattern = df['is_1700'] & ~df['gold_pattern'] & ~df['gap_over_300']
-print(f"  황금패턴X & gap<=300 인데 1700+: {no_pattern.sum():,}개")
+print(f"  전체: {total:,}개")
+print(f"  10분 후 1700+ 실제 발생: {actual_1700:,}개 ({actual_1700/total*100:.2f}%)")
 
 # ============================================
-# 상세 임계값 분석
+# 예측 정확도 검증
 # ============================================
 print("\n" + "="*70)
-print("📊 queue_gap 임계값별 분석")
+print("🎯 10분 후 예측 정확도")
 print("="*70)
 
-for gap_th in [100, 150, 200, 250, 300, 350, 400, 500]:
-    cond = df['queue_gap'] > gap_th
-    cnt = cond.sum()
-    if cnt > 0:
-        hit = (cond & df['is_1700']).sum()
-        print(f"  gap > {gap_th}: {cnt:,}개 중 1700+: {hit:,}개 ({hit/cnt*100:.1f}%)")
+def calc_metrics(condition, actual, name):
+    """정밀도, 재현율, 감지 개수 계산"""
+    pred_positive = condition.sum()
+    true_positive = (condition & actual).sum()
+    actual_positive = actual.sum()
+    
+    precision = true_positive / pred_positive * 100 if pred_positive > 0 else 0
+    recall = true_positive / actual_positive * 100 if actual_positive > 0 else 0
+    
+    print(f"\n🔥 {name}")
+    print(f"  조건 충족: {pred_positive:,}개")
+    print(f"  실제 1700+ 감지: {true_positive:,}개 / {actual_positive:,}개")
+    print(f"  정밀도(Precision): {precision:.1f}% (경보 중 실제 위험)")
+    print(f"  재현율(Recall): {recall:.1f}% (실제 위험 중 감지)")
+    
+    return pred_positive, true_positive, precision, recall
 
+# 각 조건별 테스트
+print("\n" + "-"*50)
+print("📊 queue_gap 단독")
+print("-"*50)
+
+for gap_th in [200, 250, 300, 350, 400, 500]:
+    cond = df_valid['queue_gap'] > gap_th
+    calc_metrics(cond, df_valid['future_1700'], f"gap > {gap_th}")
+
+print("\n" + "-"*50)
+print("📊 황금패턴")
+print("-"*50)
+
+calc_metrics(df_valid['gold_pattern'], df_valid['future_1700'], "M14B>520 & SUM>600")
+
+print("\n" + "-"*50)
+print("📊 복합 조건 (Triple Check)")
+print("-"*50)
+
+calc_metrics(df_valid['triple_check'], df_valid['future_1700'], "M14B>520 & SUM>600 & gap>250")
+
+# 추가 복합 조건
+for gap_th in [200, 300, 400]:
+    cond = (df_valid[m14b_col] > 520) & (df_valid[m14bsum_col] > 600) & (df_valid['queue_gap'] > gap_th)
+    calc_metrics(cond, df_valid['future_1700'], f"황금패턴 & gap>{gap_th}")
+
+# ============================================
+# 미감지 분석
+# ============================================
 print("\n" + "="*70)
-print("📊 M14B 임계값별 분석")
+print("⚠️ 미감지 분석")
 print("="*70)
 
-for m14b_th in [400, 450, 480, 500, 520, 540, 560]:
-    cond = df[m14b_col] > m14b_th
-    cnt = cond.sum()
-    if cnt > 0:
-        hit = (cond & df['is_1700']).sum()
-        print(f"  M14B > {m14b_th}: {cnt:,}개 중 1700+: {hit:,}개 ({hit/cnt*100:.1f}%)")
+# Triple Check로 미감지된 케이스
+missed = df_valid['future_1700'] & ~df_valid['triple_check']
+print(f"\nTriple Check 미감지: {missed.sum():,}개 / {actual_1700:,}개")
 
+# gap > 400 미감지
+missed_gap400 = df_valid['future_1700'] & ~(df_valid['queue_gap'] > 400)
+print(f"gap > 400 미감지: {missed_gap400.sum():,}개 / {actual_1700:,}개")
+
+# 최적 조건 조합
 print("\n" + "="*70)
-print("📊 복합 조건 분석")
+print("🏆 최적 조건 탐색")
 print("="*70)
 
-# 다양한 조합 테스트
-combos = [
-    ("M14B>520 & SUM>600", (df[m14b_col] > 520) & (df[m14bsum_col] > 600)),
-    ("M14B>520 & gap>250", (df[m14b_col] > 520) & (df['queue_gap'] > 250)),
-    ("SUM>600 & gap>250", (df[m14bsum_col] > 600) & (df['queue_gap'] > 250)),
-    ("M14B>520 & SUM>600 & gap>200", (df[m14b_col] > 520) & (df[m14bsum_col] > 600) & (df['queue_gap'] > 200)),
-    ("M14B>520 & SUM>600 & gap>250", (df[m14b_col] > 520) & (df[m14bsum_col] > 600) & (df['queue_gap'] > 250)),
-    ("M14B>520 & SUM>600 & gap>300", (df[m14b_col] > 520) & (df[m14bsum_col] > 600) & (df['queue_gap'] > 300)),
-    ("gap>300 alone", df['queue_gap'] > 300),
-    ("gap>400 alone", df['queue_gap'] > 400),
-    ("gap>500 alone", df['queue_gap'] > 500),
+best_f1 = 0
+best_cond = ""
+
+conditions = [
+    ("gap>300", df_valid['queue_gap'] > 300),
+    ("gap>350", df_valid['queue_gap'] > 350),
+    ("gap>400", df_valid['queue_gap'] > 400),
+    ("gap>500", df_valid['queue_gap'] > 500),
+    ("Triple Check", df_valid['triple_check']),
+    ("황금패턴 & gap>300", (df_valid[m14b_col] > 520) & (df_valid[m14bsum_col] > 600) & (df_valid['queue_gap'] > 300)),
+    ("gap>300 OR 황금패턴", (df_valid['queue_gap'] > 300) | df_valid['gold_pattern']),
+    ("gap>250 OR 황금패턴", (df_valid['queue_gap'] > 250) | df_valid['gold_pattern']),
 ]
 
-for name, cond in combos:
-    cnt = cond.sum()
-    if cnt > 0:
-        hit = (cond & df['is_1700']).sum()
-        print(f"  {name}: {cnt:,}개 중 1700+: {hit:,}개 ({hit/cnt*100:.1f}%)")
-    else:
-        print(f"  {name}: 0개")
+print(f"\n{'조건':<30} {'정밀도':>8} {'재현율':>8} {'F1':>8} {'감지수':>8}")
+print("-"*70)
 
-print("\n✅ 검증 완료!")
+for name, cond in conditions:
+    pred_pos = cond.sum()
+    true_pos = (cond & df_valid['future_1700']).sum()
+    actual_pos = df_valid['future_1700'].sum()
+    
+    prec = true_pos / pred_pos * 100 if pred_pos > 0 else 0
+    rec = true_pos / actual_pos * 100 if actual_pos > 0 else 0
+    f1 = 2 * prec * rec / (prec + rec) if (prec + rec) > 0 else 0
+    
+    print(f"{name:<30} {prec:>7.1f}% {rec:>7.1f}% {f1:>7.1f} {true_pos:>7,}")
+    
+    if f1 > best_f1:
+        best_f1 = f1
+        best_cond = name
+
+print(f"\n🏆 최적 조건: {best_cond} (F1: {best_f1:.1f})")
+
+print("\n✅ 10분 후 예측 검증 완료!")
