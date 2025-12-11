@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-🔬 10분 후 예측 정확도 검증
-- 현재 gap, M14B, SUM으로 → 10분 후 TOTALCNT 예측
+🔬 나머지 컬럼 가치 분석
+- 핵심 5개 외 다른 컬럼이 미감지 70%를 잡을 수 있나?
 """
 
 import pandas as pd
@@ -11,13 +11,13 @@ import numpy as np
 CSV_FILE = "YOUR_CSV_FILE.csv"  # ← 실제 파일 경로!
 
 print("="*70)
-print("🔮 10분 후 예측 검증")
+print("🔬 컬럼 가치 분석")
 print("="*70)
 
 df = pd.read_csv(CSV_FILE, on_bad_lines='skip')
-print(f"총 {len(df):,}행")
+print(f"총 {len(df):,}행 × {df.shape[1]}열")
 
-# 컬럼 지정
+# 핵심 컬럼
 totalcnt_col = 'TOTALCNT'
 m14b_col = 'M14AM14B'
 m14bsum_col = 'M14AM14BSUM'
@@ -27,138 +27,178 @@ qcompleted_col = 'M14.QUE.ALL.CURRENTQCOMPLETED'
 # queue_gap 계산
 df['queue_gap'] = df[qcreated_col] - df[qcompleted_col]
 
-# ============================================
-# 10분 후 TOTALCNT (시프트!)
-# ============================================
-PRED_MINUTES = 10
-df['future_totalcnt'] = df[totalcnt_col].shift(-PRED_MINUTES)
+# 10분 후 TOTALCNT
+df['future_totalcnt'] = df[totalcnt_col].shift(-10)
 df['future_1700'] = df['future_totalcnt'] >= 1700
+df = df.dropna(subset=['future_totalcnt']).copy()
 
-# NaN 제거 (마지막 10행)
-df_valid = df.dropna(subset=['future_totalcnt']).copy()
-print(f"유효 데이터: {len(df_valid):,}행 (마지막 {PRED_MINUTES}행 제외)")
+# 현재 조건
+df['triple_check'] = (df[m14b_col] > 520) & (df[m14bsum_col] > 600) & (df['queue_gap'] > 250)
 
-# ============================================
-# 현재 조건들
-# ============================================
-df_valid['gap_over_300'] = df_valid['queue_gap'] > 300
-df_valid['gap_over_400'] = df_valid['queue_gap'] > 400
-df_valid['gap_over_500'] = df_valid['queue_gap'] > 500
-df_valid['gold_pattern'] = (df_valid[m14b_col] > 520) & (df_valid[m14bsum_col] > 600)
-df_valid['triple_check'] = (df_valid[m14b_col] > 520) & (df_valid[m14bsum_col] > 600) & (df_valid['queue_gap'] > 250)
+# 미감지 케이스 (Triple Check로 못 잡은 1700+)
+df['missed'] = df['future_1700'] & ~df['triple_check']
 
-# ============================================
-# 기본 통계
-# ============================================
-total = len(df_valid)
-actual_1700 = df_valid['future_1700'].sum()
-
+total_1700 = df['future_1700'].sum()
+missed_count = df['missed'].sum()
 print(f"\n📊 기본 통계:")
-print(f"  전체: {total:,}개")
-print(f"  10분 후 1700+ 실제 발생: {actual_1700:,}개 ({actual_1700/total*100:.2f}%)")
+print(f"  10분 후 1700+ 전체: {total_1700:,}개")
+print(f"  Triple Check 감지: {total_1700 - missed_count:,}개")
+print(f"  미감지: {missed_count:,}개 ({missed_count/total_1700*100:.1f}%)")
 
 # ============================================
-# 예측 정확도 검증
-# ============================================
-print("\n" + "="*70)
-print("🎯 10분 후 예측 정확도")
-print("="*70)
-
-def calc_metrics(condition, actual, name):
-    """정밀도, 재현율, 감지 개수 계산"""
-    pred_positive = condition.sum()
-    true_positive = (condition & actual).sum()
-    actual_positive = actual.sum()
-    
-    precision = true_positive / pred_positive * 100 if pred_positive > 0 else 0
-    recall = true_positive / actual_positive * 100 if actual_positive > 0 else 0
-    
-    print(f"\n🔥 {name}")
-    print(f"  조건 충족: {pred_positive:,}개")
-    print(f"  실제 1700+ 감지: {true_positive:,}개 / {actual_positive:,}개")
-    print(f"  정밀도(Precision): {precision:.1f}% (경보 중 실제 위험)")
-    print(f"  재현율(Recall): {recall:.1f}% (실제 위험 중 감지)")
-    
-    return pred_positive, true_positive, precision, recall
-
-# 각 조건별 테스트
-print("\n" + "-"*50)
-print("📊 queue_gap 단독")
-print("-"*50)
-
-for gap_th in [200, 250, 300, 350, 400, 500]:
-    cond = df_valid['queue_gap'] > gap_th
-    calc_metrics(cond, df_valid['future_1700'], f"gap > {gap_th}")
-
-print("\n" + "-"*50)
-print("📊 황금패턴")
-print("-"*50)
-
-calc_metrics(df_valid['gold_pattern'], df_valid['future_1700'], "M14B>520 & SUM>600")
-
-print("\n" + "-"*50)
-print("📊 복합 조건 (Triple Check)")
-print("-"*50)
-
-calc_metrics(df_valid['triple_check'], df_valid['future_1700'], "M14B>520 & SUM>600 & gap>250")
-
-# 추가 복합 조건
-for gap_th in [200, 300, 400]:
-    cond = (df_valid[m14b_col] > 520) & (df_valid[m14bsum_col] > 600) & (df_valid['queue_gap'] > gap_th)
-    calc_metrics(cond, df_valid['future_1700'], f"황금패턴 & gap>{gap_th}")
-
-# ============================================
-# 미감지 분석
+# V8.3 사용 컬럼들 분석
 # ============================================
 print("\n" + "="*70)
-print("⚠️ 미감지 분석")
+print("📊 V8.3 사용 컬럼 분석")
 print("="*70)
 
-# Triple Check로 미감지된 케이스
-missed = df_valid['future_1700'] & ~df_valid['triple_check']
-print(f"\nTriple Check 미감지: {missed.sum():,}개 / {actual_1700:,}개")
-
-# gap > 400 미감지
-missed_gap400 = df_valid['future_1700'] & ~(df_valid['queue_gap'] > 400)
-print(f"gap > 400 미감지: {missed_gap400.sum():,}개 / {actual_1700:,}개")
-
-# 최적 조건 조합
-print("\n" + "="*70)
-print("🏆 최적 조건 탐색")
-print("="*70)
-
-best_f1 = 0
-best_cond = ""
-
-conditions = [
-    ("gap>300", df_valid['queue_gap'] > 300),
-    ("gap>350", df_valid['queue_gap'] > 350),
-    ("gap>400", df_valid['queue_gap'] > 400),
-    ("gap>500", df_valid['queue_gap'] > 500),
-    ("Triple Check", df_valid['triple_check']),
-    ("황금패턴 & gap>300", (df_valid[m14b_col] > 520) & (df_valid[m14bsum_col] > 600) & (df_valid['queue_gap'] > 300)),
-    ("gap>300 OR 황금패턴", (df_valid['queue_gap'] > 300) | df_valid['gold_pattern']),
-    ("gap>250 OR 황금패턴", (df_valid['queue_gap'] > 250) | df_valid['gold_pattern']),
+v83_cols = [
+    'M10AM14A',
+    'M14.QUE.ALL.TRANSPORT4MINOVERCNT',
+    'M14.QUE.OHT.OHTUTIL',
 ]
 
-print(f"\n{'조건':<30} {'정밀도':>8} {'재현율':>8} {'F1':>8} {'감지수':>8}")
-print("-"*70)
+for col in v83_cols:
+    if col in df.columns:
+        # 1700+ vs 정상 비교
+        val_1700 = df[df['future_1700']][col].mean()
+        val_normal = df[~df['future_1700']][col].mean()
+        val_missed = df[df['missed']][col].mean()
+        
+        print(f"\n🔍 {col}")
+        print(f"  정상 평균: {val_normal:.1f}")
+        print(f"  1700+ 평균: {val_1700:.1f} (차이: {val_1700-val_normal:+.1f})")
+        print(f"  미감지 평균: {val_missed:.1f}")
+        
+        # 상관관계
+        corr = df[col].corr(df['future_totalcnt'])
+        print(f"  10분 후 TOTALCNT 상관계수: {corr:.3f}")
 
-for name, cond in conditions:
-    pred_pos = cond.sum()
-    true_pos = (cond & df_valid['future_1700']).sum()
-    actual_pos = df_valid['future_1700'].sum()
-    
-    prec = true_pos / pred_pos * 100 if pred_pos > 0 else 0
-    rec = true_pos / actual_pos * 100 if actual_pos > 0 else 0
-    f1 = 2 * prec * rec / (prec + rec) if (prec + rec) > 0 else 0
-    
-    print(f"{name:<30} {prec:>7.1f}% {rec:>7.1f}% {f1:>7.1f} {true_pos:>7,}")
-    
-    if f1 > best_f1:
-        best_f1 = f1
-        best_cond = name
+# ============================================
+# 전체 컬럼 상관관계 분석
+# ============================================
+print("\n" + "="*70)
+print("📊 전체 컬럼 상관관계 TOP 20")
+print("="*70)
 
-print(f"\n🏆 최적 조건: {best_cond} (F1: {best_f1:.1f})")
+correlations = []
+for col in df.columns:
+    if col in ['CURRTIME', 'future_totalcnt', 'future_1700', 'triple_check', 'missed', 'queue_gap']:
+        continue
+    try:
+        corr = df[col].corr(df['future_totalcnt'])
+        if not np.isnan(corr):
+            correlations.append((col, corr))
+    except:
+        pass
 
-print("\n✅ 10분 후 예측 검증 완료!")
+correlations.sort(key=lambda x: abs(x[1]), reverse=True)
+
+print(f"\n{'컬럼':<50} {'상관계수':>10}")
+print("-"*62)
+for col, corr in correlations[:20]:
+    marker = "⭐" if col in [totalcnt_col, m14b_col, m14bsum_col, qcreated_col, qcompleted_col] else ""
+    print(f"{col:<50} {corr:>10.4f} {marker}")
+
+# ============================================
+# 미감지 케이스 특성 분석
+# ============================================
+print("\n" + "="*70)
+print("🔍 미감지 케이스 vs 감지 케이스 비교")
+print("="*70)
+
+detected = df['future_1700'] & df['triple_check']
+
+key_cols = [totalcnt_col, m14b_col, m14bsum_col, 'queue_gap']
+if 'M10AM14A' in df.columns:
+    key_cols.append('M10AM14A')
+if 'M14.QUE.ALL.TRANSPORT4MINOVERCNT' in df.columns:
+    key_cols.append('M14.QUE.ALL.TRANSPORT4MINOVERCNT')
+if 'M14.QUE.OHT.OHTUTIL' in df.columns:
+    key_cols.append('M14.QUE.OHT.OHTUTIL')
+if 'M14.QUE.ALL.CURRENTQCNT' in df.columns:
+    key_cols.append('M14.QUE.ALL.CURRENTQCNT')
+
+print(f"\n{'컬럼':<45} {'감지 평균':>12} {'미감지 평균':>12} {'차이':>10}")
+print("-"*82)
+for col in key_cols:
+    if col in df.columns:
+        det_mean = df[detected][col].mean()
+        mis_mean = df[df['missed']][col].mean()
+        diff = mis_mean - det_mean
+        print(f"{col:<45} {det_mean:>12.1f} {mis_mean:>12.1f} {diff:>+10.1f}")
+
+# ============================================
+# 미감지 케이스 보완 가능성
+# ============================================
+print("\n" + "="*70)
+print("🎯 미감지 보완 가능성 탐색")
+print("="*70)
+
+# 미감지 케이스에서 다른 조건으로 잡을 수 있는지
+missed_df = df[df['missed']]
+
+print(f"\n미감지 {missed_count:,}개 중:")
+
+# 현재 TOTALCNT가 이미 높은 경우
+high_current = (missed_df[totalcnt_col] >= 1600).sum()
+print(f"  현재 TOTALCNT >= 1600: {high_current:,}개 ({high_current/missed_count*100:.1f}%)")
+
+high_current2 = (missed_df[totalcnt_col] >= 1650).sum()
+print(f"  현재 TOTALCNT >= 1650: {high_current2:,}개 ({high_current2/missed_count*100:.1f}%)")
+
+# M14B만 높은 경우
+m14b_high = (missed_df[m14b_col] > 450).sum()
+print(f"  M14B > 450: {m14b_high:,}개 ({m14b_high/missed_count*100:.1f}%)")
+
+# gap > 150
+gap_150 = (missed_df['queue_gap'] > 150).sum()
+print(f"  gap > 150: {gap_150:,}개 ({gap_150/missed_count*100:.1f}%)")
+
+gap_100 = (missed_df['queue_gap'] > 100).sum()
+print(f"  gap > 100: {gap_100:,}개 ({gap_100/missed_count*100:.1f}%)")
+
+# TRANSPORT 높은 경우
+if 'M14.QUE.ALL.TRANSPORT4MINOVERCNT' in df.columns:
+    trans_col = 'M14.QUE.ALL.TRANSPORT4MINOVERCNT'
+    trans_high = (missed_df[trans_col] > 100).sum()
+    print(f"  TRANSPORT > 100: {trans_high:,}개 ({trans_high/missed_count*100:.1f}%)")
+
+# ============================================
+# 보완 조건 테스트
+# ============================================
+print("\n" + "="*70)
+print("🧪 보완 조건 테스트")
+print("="*70)
+
+# 기존 Triple Check + 추가 조건
+base_cond = df['triple_check']
+
+# 추가 조건 후보
+additional_conditions = [
+    ("현재 TOTALCNT >= 1650", df[totalcnt_col] >= 1650),
+    ("현재 TOTALCNT >= 1600", df[totalcnt_col] >= 1600),
+    ("M14B > 450 & gap > 150", (df[m14b_col] > 450) & (df['queue_gap'] > 150)),
+    ("M14B > 400 & gap > 200", (df[m14b_col] > 400) & (df['queue_gap'] > 200)),
+    ("gap > 200 only", df['queue_gap'] > 200),
+]
+
+print(f"\n{'조건':<40} {'정밀도':>10} {'재현율':>10} {'감지수':>10}")
+print("-"*72)
+
+# 기본 Triple Check
+tc_pred = base_cond.sum()
+tc_hit = (base_cond & df['future_1700']).sum()
+tc_prec = tc_hit / tc_pred * 100 if tc_pred > 0 else 0
+tc_rec = tc_hit / total_1700 * 100
+print(f"{'Triple Check (기본)':<40} {tc_prec:>9.1f}% {tc_rec:>9.1f}% {tc_hit:>10,}")
+
+for name, add_cond in additional_conditions:
+    combined = base_cond | add_cond
+    pred = combined.sum()
+    hit = (combined & df['future_1700']).sum()
+    prec = hit / pred * 100 if pred > 0 else 0
+    rec = hit / total_1700 * 100
+    print(f"{'Triple + ' + name:<40} {prec:>9.1f}% {rec:>9.1f}% {hit:>10,}")
+
+print("\n✅ 분석 완료!")
