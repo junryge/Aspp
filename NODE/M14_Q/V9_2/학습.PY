@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-🚀 V9.3 학습 - 품질 데이터 기반
+🚀 V9.4 학습 - 전체 데이터 + Sample Weight
 
 핵심:
-1. 균형 데이터 사용 (증강 X!)
+1. 전체 데이터 유지 (샘플링/증강 X!)
 2. Sample Weight로 중요 구간 강조
-3. 패턴 Feature 포함
+3. 시계열 연속성 유지!
 """
 
 import numpy as np
@@ -19,8 +19,8 @@ import warnings
 warnings.filterwarnings('ignore')
 
 print("="*70)
-print("🚀 V9.3 학습 - 품질 데이터 기반")
-print("   증강 없이! Sample Weight 사용!")
+print("🚀 V9.4 학습 - 전체 데이터 + Sample Weight")
+print("   증강 없이! 시계열 연속성 유지!")
 print("="*70)
 
 # ============================================
@@ -28,13 +28,13 @@ print("="*70)
 # ============================================
 SEQ_LEN = 100
 PRED_MINUTES = 10
-CSV_FILE = "train_balanced.csv"  # ← 품질 처리된 데이터!
+CSV_FILE = "YOUR_CSV_FILE.csv"  # ← 전체 데이터!
 
 # ============================================
 # Feature 생성 (40개)
 # ============================================
-def create_features_v93(row_dict):
-    """40개 Feature (34 기본 + 6 패턴)"""
+def create_features_v94(row_dict):
+    """40개 Feature"""
     features = {}
     
     seq_m14b = np.array(row_dict['M14B'])
@@ -95,7 +95,7 @@ def create_features_v93(row_dict):
     features['m14b_plus_sum'] = cur_m14b + cur_m14bsum
     features['gap_per_m14b'] = cur_gap / (cur_m14b + 1)
     
-    # 패턴 Feature (6개)
+    # 패턴 (6개)
     features['is_gold_pattern'] = 1 if (cur_m14b > 520 and cur_m14bsum > 600) else 0
     features['is_triple_check'] = 1 if (cur_m14b > 520 and cur_m14bsum > 600 and cur_gap > 250) else 0
     features['is_gap_critical'] = 1 if cur_gap > 400 else 0
@@ -109,23 +109,21 @@ def create_features_v93(row_dict):
 # Sample Weight 계산
 # ============================================
 def calculate_weights(y):
-    """타겟 구간별 가중치"""
+    """타겟 기반 가중치 - 중요 구간 강조!"""
     weights = np.ones(len(y))
     
-    # 1700+ 가중치 높임
-    weights[y >= 1700] = 5.0
-    
-    # 1650~1700 (전이 구간) 가중치
-    weights[(y >= 1650) & (y < 1700)] = 3.0
-    
-    # 1600~1650 가중치
-    weights[(y >= 1600) & (y < 1650)] = 2.0
+    # 구간별 가중치
+    weights[y >= 1800] = 10.0   # 1800+ 매우 중요!
+    weights[(y >= 1700) & (y < 1800)] = 5.0   # 1700~1800
+    weights[(y >= 1650) & (y < 1700)] = 3.0   # 전이 구간
+    weights[(y >= 1600) & (y < 1650)] = 2.0   # 주의 구간
     
     print(f"\n📊 Sample Weight 분포:")
-    print(f"  weight=1.0: {(weights == 1.0).sum():,}개")
-    print(f"  weight=2.0: {(weights == 2.0).sum():,}개")
-    print(f"  weight=3.0: {(weights == 3.0).sum():,}개")
-    print(f"  weight=5.0: {(weights == 5.0).sum():,}개")
+    print(f"  weight=1.0 (~1600): {(weights == 1.0).sum():,}개")
+    print(f"  weight=2.0 (1600~1650): {(weights == 2.0).sum():,}개")
+    print(f"  weight=3.0 (1650~1700): {(weights == 3.0).sum():,}개")
+    print(f"  weight=5.0 (1700~1800): {(weights == 5.0).sum():,}개")
+    print(f"  weight=10.0 (1800+): {(weights == 10.0).sum():,}개")
     
     return weights
 
@@ -135,7 +133,7 @@ def calculate_weights(y):
 def prepare_data(csv_path):
     print(f"\n📂 데이터 로딩: {csv_path}")
     df = pd.read_csv(csv_path, on_bad_lines='skip')
-    print(f"✅ {len(df):,}행")
+    print(f"✅ 원본: {len(df):,}행")
     
     # 필수 컬럼
     required = {
@@ -152,16 +150,18 @@ def prepare_data(csv_path):
             return None, None, None
     
     df = df.dropna(subset=list(required.values()))
+    print(f"✅ NaN 제거 후: {len(df):,}행")
     
     # 분포 확인
-    print(f"\n📊 타겟 분포:")
-    print(f"  ~1400: {(df['TOTALCNT'] < 1400).sum():,}개")
+    print(f"\n📊 TOTALCNT 분포:")
+    print(f"  ~1400: {(df['TOTALCNT'] < 1400).sum():,}개 ({(df['TOTALCNT'] < 1400).sum()/len(df)*100:.1f}%)")
     print(f"  1400~1600: {((df['TOTALCNT'] >= 1400) & (df['TOTALCNT'] < 1600)).sum():,}개")
     print(f"  1600~1700: {((df['TOTALCNT'] >= 1600) & (df['TOTALCNT'] < 1700)).sum():,}개")
-    print(f"  1700+: {(df['TOTALCNT'] >= 1700).sum():,}개")
+    print(f"  1700~1800: {((df['TOTALCNT'] >= 1700) & (df['TOTALCNT'] < 1800)).sum():,}개")
+    print(f"  1800+: {(df['TOTALCNT'] >= 1800).sum():,}개")
     
     # Feature 생성
-    print(f"\n🔄 Feature 생성 중...")
+    print(f"\n🔄 Feature 생성 중... (전체 데이터!)")
     X_list, y_list = [], []
     
     total = len(df) - SEQ_LEN - PRED_MINUTES
@@ -179,10 +179,10 @@ def prepare_data(csv_path):
         if pd.isna(target):
             continue
         
-        X_list.append(create_features_v93(row_dict))
+        X_list.append(create_features_v94(row_dict))
         y_list.append(target)
         
-        if (i - SEQ_LEN) % 2000 == 0:
+        if (i - SEQ_LEN) % 10000 == 0:
             print(f"  {i-SEQ_LEN:,}/{total:,}")
     
     X = pd.DataFrame(X_list)
@@ -198,7 +198,8 @@ def prepare_data(csv_path):
     
     print(f"\n📊 최종:")
     print(f"  Feature: {X.shape[1]}개")
-    print(f"  샘플: {len(X):,}개")
+    print(f"  샘플: {len(X):,}개 (전체!)")
+    print(f"  1700+: {(y >= 1700).sum():,}개 ({(y >= 1700).sum()/len(y)*100:.2f}%)")
     
     return X, y, weights
 
@@ -206,13 +207,18 @@ def prepare_data(csv_path):
 # 모델 학습
 # ============================================
 def train_model(X, y, weights):
-    print(f"\n🚀 XGBoost 학습 (Sample Weight 적용!)")
+    print(f"\n🚀 XGBoost 학습")
+    print(f"   Sample Weight 적용!")
+    print(f"   증강 없음!")
     
-    # 분할
-    X_train, X_val, y_train, y_val, w_train, w_val = train_test_split(
-        X, y, weights, test_size=0.2, random_state=42
-    )
-    print(f"  Train: {len(X_train):,}, Val: {len(X_val):,}")
+    # 시계열 분할 (마지막 20%를 검증)
+    split_idx = int(len(X) * 0.8)
+    X_train, X_val = X.iloc[:split_idx], X.iloc[split_idx:]
+    y_train, y_val = y.iloc[:split_idx], y.iloc[split_idx:]
+    w_train = weights[:split_idx]
+    
+    print(f"  Train: {len(X_train):,} (처음 80%)")
+    print(f"  Val: {len(X_val):,} (마지막 20%)")
     
     model = xgb.XGBRegressor(
         objective='reg:squarederror',
@@ -250,19 +256,28 @@ def train_model(X, y, weights):
     print(f"  R²: {r2:.4f}")
     
     # 1700+ 감지
-    val_high = y_val >= 1700
-    if val_high.sum() > 0:
-        # 1680 이상이면 감지로 간주
-        detected_1680 = ((y_val >= 1700) & (y_val_pred >= 1680)).sum()
+    val_1700 = y_val >= 1700
+    if val_1700.sum() > 0:
         detected_1700 = ((y_val >= 1700) & (y_val_pred >= 1700)).sum()
+        detected_1680 = ((y_val >= 1700) & (y_val_pred >= 1680)).sum()
+        detected_1650 = ((y_val >= 1700) & (y_val_pred >= 1650)).sum()
         print(f"\n🔥 1700+ 감지율:")
-        print(f"  예측>=1680: {detected_1680}/{val_high.sum()} ({detected_1680/val_high.sum()*100:.1f}%)")
-        print(f"  예측>=1700: {detected_1700}/{val_high.sum()} ({detected_1700/val_high.sum()*100:.1f}%)")
+        print(f"  예측>=1700: {detected_1700}/{val_1700.sum()} ({detected_1700/val_1700.sum()*100:.1f}%)")
+        print(f"  예측>=1680: {detected_1680}/{val_1700.sum()} ({detected_1680/val_1700.sum()*100:.1f}%)")
+        print(f"  예측>=1650: {detected_1650}/{val_1700.sum()} ({detected_1650/val_1700.sum()*100:.1f}%)")
+    
+    # 1800+ 감지
+    val_1800 = y_val >= 1800
+    if val_1800.sum() > 0:
+        detected_1800 = ((y_val >= 1800) & (y_val_pred >= 1750)).sum()
+        print(f"\n🔥 1800+ 감지율:")
+        print(f"  예측>=1750: {detected_1800}/{val_1800.sum()} ({detected_1800/val_1800.sum()*100:.1f}%)")
     
     # 구간별 MAE
     print(f"\n📊 구간별 MAE:")
-    for low, high, name in [(0, 1400, '~1400'), (1400, 1600, '1400~1600'), 
-                            (1600, 1700, '1600~1700'), (1700, 9999, '1700+')]:
+    for low, high, name in [(0, 1400, '~1400'), (1400, 1600, '1400~1600'),
+                            (1600, 1700, '1600~1700'), (1700, 1800, '1700~1800'),
+                            (1800, 9999, '1800+')]:
         mask = (y_val >= low) & (y_val < high)
         if mask.sum() > 0:
             seg_mae = mean_absolute_error(y_val[mask], y_val_pred[mask])
@@ -284,7 +299,7 @@ def show_importance(model, X):
     
     # 패턴 Feature
     print(f"\n📊 패턴 Feature 중요도:")
-    patterns = ['is_gold_pattern', 'is_triple_check', 'is_gap_critical', 
+    patterns = ['is_gold_pattern', 'is_triple_check', 'is_gap_critical',
                 'is_gap_extreme', 'is_near_danger', 'is_in_danger']
     for pf in patterns:
         val = imp[imp['feature'] == pf]['importance'].values[0]
@@ -305,17 +320,17 @@ if __name__ == '__main__':
     show_importance(model, X)
     
     # 저장
-    with open('model_v93.pkl', 'wb') as f:
+    with open('model_v94.pkl', 'wb') as f:
         pickle.dump(model, f)
-    with open('features_v93.pkl', 'wb') as f:
+    with open('features_v94.pkl', 'wb') as f:
         pickle.dump(list(X.columns), f)
     
     print(f"\n💾 저장:")
-    print(f"  모델: model_v93.pkl")
-    print(f"  Feature: features_v93.pkl")
+    print(f"  모델: model_v94.pkl")
+    print(f"  Feature: features_v94.pkl")
     
     print(f"\n" + "="*70)
-    print(f"✅ V9.3 학습 완료!")
-    print(f"   데이터: 균형 샘플링 (증강 없음!)")
-    print(f"   Sample Weight: 1700+ = 5배 가중치")
+    print(f"✅ V9.4 학습 완료!")
+    print(f"   전체 데이터 (샘플링/증강 없음!)")
+    print(f"   Sample Weight로 중요 구간 강조!")
     print("="*70)
