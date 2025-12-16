@@ -1,0 +1,30 @@
+import pandas as pd
+import os
+
+# 설정
+input_file = 'your_file.csv'  # 원본 파일명
+chunk_size = 15000
+output_dir = 'split_output'
+
+# 출력 폴더 생성
+os.makedirs(output_dir, exist_ok=True)
+
+# CSV 읽기 (인코딩 자동 감지)
+try:
+    df = pd.read_csv(input_file, encoding='utf-8')
+except:
+    try:
+        df = pd.read_csv(input_file, encoding='cp949')
+    except:
+        df = pd.read_csv(input_file, encoding='euc-kr')
+
+print(f"총 행 수: {len(df)}")
+
+# 분할 저장
+for i, start in enumerate(range(0, len(df), chunk_size)):
+    chunk = df.iloc[start:start + chunk_size]
+    output_file = os.path.join(output_dir, f'split_{i+1:02d}.csv')
+    chunk.to_csv(output_file, index=False, encoding='utf-8-sig')
+    print(f"저장: {output_file} ({len(chunk)}행)")
+
+print(f"\n완료! 총 {i+1}개 파일 생성")
