@@ -1,113 +1,318 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-🚀 V13 평가: 값 예측(Regression) 결과 출력
-기능: 모든 데이터에 대해 10분 뒤 예상 최대값을 숫자로 표기
+🚀 V9.3 평가 - 상세 분석
+
+핵심:
+1. 순수 ML 예측 (boost 없음!)
+2. 구간별 상세 분석
+3. 패턴 매칭 정확도 확인
 """
 
-import pandas as pd
 import numpy as np
-import xgboost as xgb
+import pandas as pd
 import pickle
 from datetime import timedelta
+import os
+import gc
 import warnings
-
 warnings.filterwarnings('ignore')
 
-# ============================================
-# ⚙️ 설정
-# ============================================
-EVAL_FILE = "UF09.CSV"    # 평가 파일
-PRED_MINUTES = 10         # 10분 예지
-DANGER_LEVEL = 1700       # 이 값을 넘으면 '위험' 표시 (참고용)
-
-# 파일 컬럼명 (학습과 동일)
-COL_TIME  = 'CURRTIME'
-COL_TOTAL = 'TOTALCNT'
-COL_M14B  = 'M14AM14B'
-COL_SUM   = 'M14AM14BSUM'
-COL_Q_CR  = 'M14.QUE.ALL.CURRENTQCREATED'
-COL_Q_CP  = 'M14.QUE.ALL.CURRENTQCOMPLETED'
-
 print("="*70)
-print(f"🚀 V13 숫자 예측 평가: {EVAL_FILE}")
+print("🚀 V9.3 평가 - 상세 분석")
 print("="*70)
 
-def create_features(df):
-    df = df.copy()
-    if COL_TIME in df.columns:
-        df[COL_TIME] = pd.to_datetime(df[COL_TIME].astype(str), format='%Y%m%d%H%M', errors='coerce')
+# ============================================
+# 설정
+# ============================================
+SEQ_LEN = 100
+PRED_MINUTES = 10
+DATA_FILE = "YOUR_EVAL_FILE.csv"  # ← 평가 데이터!
+MODEL_FILE = "model_v93.pkl"
 
-    df['Queue_Gap'] = df[COL_Q_CR] - df[COL_Q_CP]
+# ============================================
+# Feature 생성 (학습과 동일!)
+# ============================================
+def create_features_v93(row_dict):
+    """40개 Feature"""
+    features = {}
     
-    for gap in [1, 3, 5, 10]:
-        df[f'Vel_Total_{gap}m'] = df[COL_TOTAL].diff(gap)
-        df[f'Vel_Gap_{gap}m'] = df['Queue_Gap'].diff(gap)
-        df[f'Vel_M14B_{gap}m'] = df[COL_M14B].diff(gap)
+    seq_m14b = np.array(row_dict['M14B'])
+    seq_m14bsum = np.array(row_dict['M14BSUM'])
+    seq_totalcnt = np.array(row_dict['TOTALCNT'])
+    seq_q_created = np.array(row_dict['Q_CREATED'])
+    seq_q_completed = np.array(row_dict['Q_COMPLETED'])
+    seq_gap = seq_q_created - seq_q_completed
     
-    df['Acc_Total'] = df['Vel_Total_3m'].diff(1)
-    df['Vol_Total_10m'] = df[COL_TOTAL].rolling(10).std()
-    df['Triple_Score'] = (df[COL_M14B]/500) + (df[COL_SUM]/600) + (df['Queue_Gap']/200)
+    seq_len = len(seq_m14b)
     
-    return df
+    cur_m14b = seq_m14b[-1]
+    cur_m14bsum = seq_m14bsum[-1]
+    cur_gap = seq_gap[-1]
+    cur_total = seq_totalcnt[-1]
+    
+    # TOTALCNT (8개)
+    features['total_current'] = cur_total
+    features['total_mean'] = np.mean(seq_totalcnt)
+    features['total_max'] = np.max(seq_totalcnt)
+    features['total_min'] = np.min(seq_totalcnt)
+    features['total_last10'] = np.mean(seq_totalcnt[-10:])
+    features['total_slope'] = np.polyfit(np.arange(seq_len), seq_totalcnt, 1)[0]
+    features['total_std'] = np.std(seq_totalcnt)
+    features['total_trend10'] = seq_totalcnt[-1] - seq_totalcnt[-10]
+    
+    # M14AM14B (6개)
+    features['m14b_current'] = cur_m14b
+    features['m14b_mean'] = np.mean(seq_m14b)
+    features['m14b_max'] = np.max(seq_m14b)
+    features['m14b_last10'] = np.mean(seq_m14b[-10:])
+    features['m14b_slope'] = np.polyfit(np.arange(seq_len), seq_m14b, 1)[0]
+    features['m14b_trend10'] = seq_m14b[-1] - seq_m14b[-10]
+    
+    # M14AM14BSUM (6개)
+    features['m14bsum_current'] = cur_m14bsum
+    features['m14bsum_mean'] = np.mean(seq_m14bsum)
+    features['m14bsum_max'] = np.max(seq_m14bsum)
+    features['m14bsum_last10'] = np.mean(seq_m14bsum[-10:])
+    features['m14bsum_slope'] = np.polyfit(np.arange(seq_len), seq_m14bsum, 1)[0]
+    features['m14bsum_trend10'] = seq_m14bsum[-1] - seq_m14bsum[-10]
+    
+    # Queue Gap (8개)
+    features['gap_current'] = cur_gap
+    features['gap_mean'] = np.mean(seq_gap)
+    features['gap_max'] = np.max(seq_gap)
+    features['gap_min'] = np.min(seq_gap)
+    features['gap_last10'] = np.mean(seq_gap[-10:])
+    features['gap_slope'] = np.polyfit(np.arange(seq_len), seq_gap, 1)[0]
+    features['gap_std'] = np.std(seq_gap)
+    features['gap_trend10'] = seq_gap[-1] - seq_gap[-10]
+    
+    # 조합 (6개)
+    features['m14b_x_sum'] = cur_m14b * cur_m14bsum / 1000
+    features['gap_x_m14b'] = cur_gap * cur_m14b / 1000
+    features['ratio_gap_total'] = cur_gap / (cur_total + 1)
+    features['ratio_m14b_total'] = cur_m14b / (cur_total + 1)
+    features['m14b_plus_sum'] = cur_m14b + cur_m14bsum
+    features['gap_per_m14b'] = cur_gap / (cur_m14b + 1)
+    
+    # 패턴 (6개)
+    features['is_gold_pattern'] = 1 if (cur_m14b > 520 and cur_m14bsum > 600) else 0
+    features['is_triple_check'] = 1 if (cur_m14b > 520 and cur_m14bsum > 600 and cur_gap > 250) else 0
+    features['is_gap_critical'] = 1 if cur_gap > 400 else 0
+    features['is_gap_extreme'] = 1 if cur_gap > 500 else 0
+    features['is_near_danger'] = 1 if cur_total >= 1650 else 0
+    features['is_in_danger'] = 1 if cur_total >= 1700 else 0
+    
+    return features
 
-def evaluate():
-    try:
-        with open('model_v13_reg.pkl', 'rb') as f: model = pickle.load(f)
-        with open('features_v13_reg.pkl', 'rb') as f: features = pickle.load(f)
-        print("✅ 모델 로드 성공")
-    except FileNotFoundError:
-        print("❌ 모델 파일이 없습니다. train_v13_reg.py를 먼저 실행하세요.")
-        return
+# ============================================
+# 모델 로드
+# ============================================
+if not os.path.exists(MODEL_FILE):
+    print(f"❌ 모델 없음: {MODEL_FILE}")
+    exit(1)
 
-    print("🔄 평가 데이터 처리 중...")
-    df = pd.read_csv(EVAL_FILE, on_bad_lines='skip')
-    df = create_features(df)
-    
-    # 정답지 (검증용 실제 미래값)
-    indexer = pd.api.indexers.FixedForwardWindowIndexer(window_size=PRED_MINUTES)
-    df['Real_Future_Max'] = df[COL_TOTAL].rolling(window=indexer).max().shift(-1)
-    
-    # 평가 데이터셋
-    df_eval = df.dropna(subset=features + ['Real_Future_Max']).reset_index(drop=True)
-    
-    # 🎯 예측 실행 (상승폭 예측)
-    pred_delta = model.predict(df_eval[features])
-    
-    # 최종 예측값 = 현재값 + 예측된 상승폭
-    df_eval['Pred_Future_Max'] = df_eval[COL_TOTAL] + pred_delta
-    
-    # 결과 정리
-    results = pd.DataFrame()
-    results['시간'] = df_eval[COL_TIME]
-    results['현재값'] = df_eval[COL_TOTAL]
-    
-    # 🔥 사용자 요청: 예측값과 실제값 비교
-    results['실제_MAX'] = df_eval['Real_Future_Max']      # 실제 10분내 최대값
-    results['예측_MAX'] = df_eval['Pred_Future_Max'].round(1) # 모델이 예측한 값
-    
-    # 오차 (실제 - 예측)
-    results['오차'] = (results['실제_MAX'] - results['예측_MAX']).round(1)
-    
-    # 1700 넘는지 여부 (O/X)
-    results['실제_1700+'] = np.where(results['실제_MAX'] >= DANGER_LEVEL, 'O', '')
-    results['예측_1700+'] = np.where(results['예측_MAX'] >= DANGER_LEVEL, 'O', '')
+with open(MODEL_FILE, 'rb') as f:
+    model = pickle.load(f)
+print(f"✅ 모델: {MODEL_FILE}")
 
-    # 주요 Feature 확인용
-    results['M14B'] = df_eval[COL_M14B]
-    results['Gap'] = df_eval['Queue_Gap']
-    
-    # 파일 저장
-    results.to_csv("eval_result_v13.csv", index=False, encoding='utf-8-sig')
-    print("\n💾 결과 저장 완료: eval_result_v13.csv")
-    print("   (모든 행에 예측값이 기입되었습니다)")
-    
-    # 간단 통계
-    mae = np.mean(np.abs(results['오차']))
-    print("\n" + "="*50)
-    print(f"📊 예측 성능 요약")
-    print(f"   평균 오차(MAE): {mae:.1f}")
-    print(f"   (예: 실제가 1700일 때, 예측은 {1700-mae:.0f} ~ {1700+mae:.0f} 사이)")
+# ============================================
+# 데이터 로드
+# ============================================
+df = pd.read_csv(DATA_FILE, on_bad_lines='skip')
+print(f"✅ 데이터: {len(df):,}행")
 
-if __name__ == "__main__":
-    evaluate()
+if 'CURRTIME' in df.columns:
+    df['CURRTIME'] = pd.to_datetime(df['CURRTIME'].astype(str), format='%Y%m%d%H%M', errors='coerce')
+
+df['queue_gap'] = df['M14.QUE.ALL.CURRENTQCREATED'] - df['M14.QUE.ALL.CURRENTQCOMPLETED']
+
+# 평가 데이터 분포
+print(f"\n📊 평가 데이터 분포:")
+print(f"  TOTALCNT 범위: {df['TOTALCNT'].min():.0f} ~ {df['TOTALCNT'].max():.0f}")
+print(f"  1700+: {(df['TOTALCNT'] >= 1700).sum()}개 ({(df['TOTALCNT'] >= 1700).sum()/len(df)*100:.2f}%)")
+print(f"  1800+: {(df['TOTALCNT'] >= 1800).sum()}개")
+
+# ============================================
+# 평가 실행
+# ============================================
+results = []
+total = len(df) - SEQ_LEN - PRED_MINUTES
+print(f"\n🔄 평가 중... {total:,}개")
+
+for i in range(SEQ_LEN, len(df) - PRED_MINUTES):
+    row_dict = {
+        'TOTALCNT': df['TOTALCNT'].iloc[i-SEQ_LEN:i].values,
+        'M14B': df['M14AM14B'].iloc[i-SEQ_LEN:i].values,
+        'M14BSUM': df['M14AM14BSUM'].iloc[i-SEQ_LEN:i].values,
+        'Q_CREATED': df['M14.QUE.ALL.CURRENTQCREATED'].iloc[i-SEQ_LEN:i].values,
+        'Q_COMPLETED': df['M14.QUE.ALL.CURRENTQCOMPLETED'].iloc[i-SEQ_LEN:i].values,
+    }
+    
+    current_total = row_dict['TOTALCNT'][-1]
+    current_m14b = row_dict['M14B'][-1]
+    current_m14bsum = row_dict['M14BSUM'][-1]
+    current_gap = row_dict['Q_CREATED'][-1] - row_dict['Q_COMPLETED'][-1]
+    
+    # 시간
+    if 'CURRTIME' in df.columns and pd.notna(df['CURRTIME'].iloc[i-1]):
+        current_time = df['CURRTIME'].iloc[i-1]
+        time_str = current_time.strftime('%Y-%m-%d %H:%M')
+        pred_time_str = (current_time + timedelta(minutes=PRED_MINUTES)).strftime('%Y-%m-%d %H:%M')
+    else:
+        time_str = ''
+        pred_time_str = ''
+    
+    actual = df['TOTALCNT'].iloc[i + PRED_MINUTES - 1]
+    
+    # Feature 생성
+    features = create_features_v93(row_dict)
+    X = pd.DataFrame([features])
+    
+    # 순수 ML 예측!
+    pred = model.predict(X)[0]
+    
+    # 하한선만 (물리적 제한)
+    floor = current_total - 80
+    if pred < floor:
+        pred = floor
+    
+    # 패턴 정보
+    is_gold = (current_m14b > 520 and current_m14bsum > 600)
+    is_triple = is_gold and current_gap > 250
+    
+    results.append({
+        '현재시간': time_str,
+        '예측시점': pred_time_str,
+        '현재TOTALCNT': round(current_total, 2),
+        '예측값': round(pred, 2),
+        '실제값': round(actual, 2),
+        '오차': round(actual - pred, 2),
+        '절대오차': round(abs(actual - pred), 2),
+        'M14B': round(current_m14b, 2),
+        'M14BSUM': round(current_m14bsum, 2),
+        'queue_gap': round(current_gap, 2),
+        '황금패턴': 'O' if is_gold else '',
+        'Triple': 'O' if is_triple else '',
+        '현재1650+': 'O' if current_total >= 1650 else '',
+        '실제1700+': 'O' if actual >= 1700 else '',
+        '예측1700+': 'O' if pred >= 1700 else '',
+        '실제1800+': 'O' if actual >= 1800 else '',
+        '예측1800+': 'O' if pred >= 1800 else ''
+    })
+    
+    if (i - SEQ_LEN) % 2000 == 0:
+        print(f"  {i-SEQ_LEN:,}/{total:,}")
+        gc.collect()
+
+print(f"✅ 완료!")
+
+# ============================================
+# 결과 저장
+# ============================================
+df_result = pd.DataFrame(results)
+output_file = 'evaluation_V93.csv'
+df_result.to_csv(output_file, index=False, encoding='utf-8-sig')
+print(f"\n💾 저장: {output_file}")
+
+# ============================================
+# 상세 통계
+# ============================================
+print("\n" + "="*70)
+print("📊 V9.3 평가 통계")
+print("="*70)
+
+print(f"\n총 예측: {len(df_result):,}개")
+print(f"MAE (전체): {df_result['절대오차'].mean():.2f}")
+print(f"RMSE: {np.sqrt((df_result['오차']**2).mean()):.2f}")
+
+# 구간별 MAE
+print(f"\n📊 구간별 MAE:")
+for low, high, name in [(0, 1400, '~1400'), (1400, 1600, '1400~1600'),
+                        (1600, 1700, '1600~1700'), (1700, 1800, '1700~1800'),
+                        (1800, 9999, '1800+')]:
+    mask = (df_result['실제값'] >= low) & (df_result['실제값'] < high)
+    if mask.sum() > 0:
+        seg_mae = df_result.loc[mask, '절대오차'].mean()
+        print(f"  {name}: MAE={seg_mae:.2f} ({mask.sum()}개)")
+
+# 1700+ 감지
+print(f"\n" + "="*70)
+print("🔥 1700+ 감지 성능")
+print("="*70)
+
+actual_1700 = df_result['실제1700+'] == 'O'
+pred_1700 = df_result['예측1700+'] == 'O'
+pred_1680 = df_result['예측값'] >= 1680
+pred_1650 = df_result['예측값'] >= 1650
+
+actual_count = actual_1700.sum()
+detected_1700 = (actual_1700 & pred_1700).sum()
+detected_1680 = (actual_1700 & pred_1680).sum()
+detected_1650 = (actual_1700 & pred_1650).sum()
+false_alarm = (pred_1700 & ~actual_1700).sum()
+
+print(f"\n실제 1700+: {actual_count}개")
+print(f"\n감지율 (Recall):")
+print(f"  예측>=1700: {detected_1700}/{actual_count} ({detected_1700/actual_count*100:.1f}%)")
+print(f"  예측>=1680: {detected_1680}/{actual_count} ({detected_1680/actual_count*100:.1f}%)")
+print(f"  예측>=1650: {detected_1650}/{actual_count} ({detected_1650/actual_count*100:.1f}%)")
+
+pred_count = pred_1700.sum()
+if pred_count > 0:
+    print(f"\n정밀도 (Precision):")
+    print(f"  예측>=1700: {detected_1700}/{pred_count} ({detected_1700/pred_count*100:.1f}%)")
+
+print(f"\n오탐: {false_alarm}개")
+print(f"미감지: {actual_count - detected_1700}개")
+
+# 1800+ 감지
+actual_1800 = df_result['실제1800+'] == 'O'
+pred_1800 = df_result['예측1800+'] == 'O'
+if actual_1800.sum() > 0:
+    detected_1800 = (actual_1800 & pred_1800).sum()
+    print(f"\n🔥 1800+ 감지:")
+    print(f"  실제: {actual_1800.sum()}개")
+    print(f"  감지: {detected_1800}/{actual_1800.sum()} ({detected_1800/actual_1800.sum()*100:.1f}%)")
+
+# 패턴별 분석
+print(f"\n" + "="*70)
+print("📊 패턴별 분석")
+print("="*70)
+
+gold = df_result['황금패턴'] == 'O'
+triple = df_result['Triple'] == 'O'
+cur_1650 = df_result['현재1650+'] == 'O'
+
+for name, mask in [('황금패턴', gold), ('Triple Check', triple), ('현재>=1650', cur_1650)]:
+    if mask.sum() > 0:
+        actual_in = (df_result.loc[mask, '실제1700+'] == 'O').sum()
+        print(f"\n{name}:")
+        print(f"  발생: {mask.sum()}개")
+        print(f"  실제 1700+: {actual_in}/{mask.sum()} ({actual_in/mask.sum()*100:.1f}%)")
+
+# 미감지 분석
+missed = actual_1700 & ~pred_1700
+if missed.sum() > 0:
+    print(f"\n" + "="*70)
+    print(f"📊 미감지 {missed.sum()}개 분석")
+    print("="*70)
+    
+    missed_df = df_result[missed]
+    print(f"  현재값 평균: {missed_df['현재TOTALCNT'].mean():.0f}")
+    print(f"  예측값 평균: {missed_df['예측값'].mean():.0f}")
+    print(f"  실제값 평균: {missed_df['실제값'].mean():.0f}")
+    print(f"  평균 오차: {missed_df['오차'].mean():.0f}")
+    
+    print(f"\n  현재값 분포:")
+    print(f"    >= 1650: {(missed_df['현재TOTALCNT'] >= 1650).sum()}개")
+    print(f"    >= 1600: {(missed_df['현재TOTALCNT'] >= 1600).sum()}개")
+    print(f"    >= 1550: {(missed_df['현재TOTALCNT'] >= 1550).sum()}개")
+    
+    print(f"\n  패턴 분포:")
+    print(f"    황금패턴: {(missed_df['황금패턴'] == 'O').sum()}개")
+    print(f"    Triple: {(missed_df['Triple'] == 'O').sum()}개")
+
+print(f"\n" + "="*70)
+print(f"✅ V9.3 평가 완료!")
+print("="*70)
