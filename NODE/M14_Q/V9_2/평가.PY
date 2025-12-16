@@ -197,6 +197,12 @@ for i in range(SEQ_LEN, len(df) - PRED_OFFSET):
     current_total = seq_total[-1]
     actual = df['TOTALCNT'].iloc[i + PRED_OFFSET - 1]
     
+    # 예측시점 계산
+    if pd.notna(current_time):
+        prediction_time = current_time + timedelta(minutes=PRED_OFFSET)
+    else:
+        prediction_time = None
+    
     features = create_features(row_dict)
     X = pd.DataFrame([features]).fillna(0).replace([np.inf, -np.inf], 0)
     
@@ -206,6 +212,7 @@ for i in range(SEQ_LEN, len(df) - PRED_OFFSET):
     results.append({
         '현재시간': current_time.strftime('%Y-%m-%d %H:%M') if pd.notna(current_time) else '',
         '현재TOTALCNT': round(current_total, 2),
+        '예측시점': prediction_time.strftime('%Y-%m-%d %H:%M') if prediction_time else '',
         '실제값': round(actual, 2),
         '원본예측': round(pred_raw, 2),
         '보정예측': round(pred, 2),
