@@ -166,8 +166,7 @@ model_base = xgb.XGBRegressor(
     min_child_weight=1,
     reg_alpha=0.0,
     reg_lambda=0.5,
-    n_jobs=4,
-    device='cuda',
+    n_jobs=-1,
     tree_method='hist',
     random_state=42
 )
