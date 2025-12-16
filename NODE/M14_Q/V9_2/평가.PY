@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-🚀 2단계: 평가 전용 (eval_v12.py) - 최종 수정
-기능: 현재값, 실제값, 예측값 출력 (실제 컬럼명 사용)
+🚀 V13 평가: 값 예측(Regression) 결과 출력
+기능: 모든 데이터에 대해 10분 뒤 예상 최대값을 숫자로 표기
 """
 
 import pandas as pd
@@ -17,95 +17,97 @@ warnings.filterwarnings('ignore')
 # ============================================
 # ⚙️ 설정
 # ============================================
-EVAL_FILE = "UF09.CSV"      # 평가 파일명
-PRED_MINUTES = 10           # 10분 예지
-THRESHOLD = 1700            # 위험 기준
-THRESHOLD_PROB = 0.45       # 45% 이상이면 위험(O)
+EVAL_FILE = "UF09.CSV"    # 평가 파일
+PRED_MINUTES = 10         # 10분 예지
+DANGER_LEVEL = 1700       # 이 값을 넘으면 '위험' 표시 (참고용)
+
+# 파일 컬럼명 (학습과 동일)
+COL_TIME  = 'CURRTIME'
+COL_TOTAL = 'TOTALCNT'
+COL_M14B  = 'M14AM14B'
+COL_SUM   = 'M14AM14BSUM'
+COL_Q_CR  = 'M14.QUE.ALL.CURRENTQCREATED'
+COL_Q_CP  = 'M14.QUE.ALL.CURRENTQCOMPLETED'
 
 print("="*70)
-print(f"🚀 V12 평가 시작: {EVAL_FILE}")
+print(f"🚀 V13 숫자 예측 평가: {EVAL_FILE}")
 print("="*70)
 
 def create_features(df):
     df = df.copy()
-    if 'CURRTIME' in df.columns:
-        df['CURRTIME'] = pd.to_datetime(df['CURRTIME'].astype(str), format='%Y%m%d%H%M', errors='coerce')
+    if COL_TIME in df.columns:
+        df[COL_TIME] = pd.to_datetime(df[COL_TIME].astype(str), format='%Y%m%d%H%M', errors='coerce')
 
-    # 실제 컬럼명 사용
-    df['Queue_Gap'] = df['M14.QUE.ALL.CURRENTQCREATED'] - df['M14.QUE.ALL.CURRENTQCOMPLETED']
-    df['Dist_to_Limit'] = THRESHOLD - df['TOTALCNT']
+    df['Queue_Gap'] = df[COL_Q_CR] - df[COL_Q_CP]
     
     for gap in [1, 3, 5, 10]:
-        df[f'Vel_Total_{gap}m'] = df['TOTALCNT'].diff(gap)
+        df[f'Vel_Total_{gap}m'] = df[COL_TOTAL].diff(gap)
         df[f'Vel_Gap_{gap}m'] = df['Queue_Gap'].diff(gap)
-        df[f'Vel_M14B_{gap}m'] = df['M14AM14B'].diff(gap)
+        df[f'Vel_M14B_{gap}m'] = df[COL_M14B].diff(gap)
     
     df['Acc_Total'] = df['Vel_Total_3m'].diff(1)
-    df['Vol_Total_10m'] = df['TOTALCNT'].rolling(10).std()
-    
-    df['Is_Triple_Danger'] = ((df['M14AM14B'] > 500) & (df['M14AM14BSUM'] > 600) & (df['Queue_Gap'] > 200)).astype(int)
-    df['Is_Gold_Pattern'] = ((df['M14AM14B'] > 520) & (df['M14AM14BSUM'] > 600)).astype(int)
+    df['Vol_Total_10m'] = df[COL_TOTAL].rolling(10).std()
+    df['Triple_Score'] = (df[COL_M14B]/500) + (df[COL_SUM]/600) + (df['Queue_Gap']/200)
     
     return df
 
 def evaluate():
     try:
-        with open('model_v12.pkl', 'rb') as f: model = pickle.load(f)
-        with open('features_v12.pkl', 'rb') as f: features = pickle.load(f)
+        with open('model_v13_reg.pkl', 'rb') as f: model = pickle.load(f)
+        with open('features_v13_reg.pkl', 'rb') as f: features = pickle.load(f)
         print("✅ 모델 로드 성공")
     except FileNotFoundError:
-        print("❌ 모델 파일이 없습니다. train_v12.py를 먼저 실행하세요.")
+        print("❌ 모델 파일이 없습니다. train_v13_reg.py를 먼저 실행하세요.")
         return
 
-    print(f"🔄 데이터 로딩 중...")
+    print("🔄 평가 데이터 처리 중...")
     df = pd.read_csv(EVAL_FILE, on_bad_lines='skip')
+    df = create_features(df)
     
-    try:
-        df = create_features(df)
-    except KeyError as e:
-        print(f"❌ 컬럼 에러: {e} 가 파일에 없습니다.")
-        return
-
-    # 실제값(Future Max)
+    # 정답지 (검증용 실제 미래값)
     indexer = pd.api.indexers.FixedForwardWindowIndexer(window_size=PRED_MINUTES)
-    df['Future_Max'] = df['TOTALCNT'].rolling(window=indexer).max().shift(-1)
+    df['Real_Future_Max'] = df[COL_TOTAL].rolling(window=indexer).max().shift(-1)
     
-    # 데이터 준비
-    df_eval = df.dropna(subset=features + ['Future_Max']).reset_index(drop=True)
-    print(f"📊 평가 데이터: {len(df_eval):,}개")
+    # 평가 데이터셋
+    df_eval = df.dropna(subset=features + ['Real_Future_Max']).reset_index(drop=True)
     
-    # 예측
-    y_prob = model.predict_proba(df_eval[features])[:, 1]
-    y_pred = (y_prob >= THRESHOLD_PROB).astype(int)
+    # 🎯 예측 실행 (상승폭 예측)
+    pred_delta = model.predict(df_eval[features])
     
-    # 결과 저장
+    # 최종 예측값 = 현재값 + 예측된 상승폭
+    df_eval['Pred_Future_Max'] = df_eval[COL_TOTAL] + pred_delta
+    
+    # 결과 정리
     results = pd.DataFrame()
-    results['현재시간'] = df_eval['CURRTIME']
-    results['예측시점'] = df_eval['CURRTIME'] + timedelta(minutes=PRED_MINUTES)
+    results['시간'] = df_eval[COL_TIME]
+    results['현재값'] = df_eval[COL_TOTAL]
     
-    # 요청하신 3대장
-    results['현재값'] = df_eval['TOTALCNT']
-    results['실제값'] = df_eval['Future_Max']
-    results['예측값'] = np.where(y_pred == 1, 'O', '')
+    # 🔥 사용자 요청: 예측값과 실제값 비교
+    results['실제_MAX'] = df_eval['Real_Future_Max']      # 실제 10분내 최대값
+    results['예측_MAX'] = df_eval['Pred_Future_Max'].round(1) # 모델이 예측한 값
     
-    # 보조 정보
-    results['예측확률'] = (y_prob * 100).round(1).astype(str) + '%'
-    results['M14B'] = df_eval['M14AM14B']
+    # 오차 (실제 - 예측)
+    results['오차'] = (results['실제_MAX'] - results['예측_MAX']).round(1)
+    
+    # 1700 넘는지 여부 (O/X)
+    results['실제_1700+'] = np.where(results['실제_MAX'] >= DANGER_LEVEL, 'O', '')
+    results['예측_1700+'] = np.where(results['예측_MAX'] >= DANGER_LEVEL, 'O', '')
+
+    # 주요 Feature 확인용
+    results['M14B'] = df_eval[COL_M14B]
     results['Gap'] = df_eval['Queue_Gap']
     
-    # 저장
-    results.to_csv("eval_result.csv", index=False, encoding='utf-8-sig')
-    print("\n💾 결과 저장 완료: eval_result.csv")
-
-    # 요약
-    actual_danger = (df_eval['Future_Max'] >= THRESHOLD)
-    detected = (actual_danger & (y_pred == 1)).sum()
-    total = actual_danger.sum()
+    # 파일 저장
+    results.to_csv("eval_result_v13.csv", index=False, encoding='utf-8-sig')
+    print("\n💾 결과 저장 완료: eval_result_v13.csv")
+    print("   (모든 행에 예측값이 기입되었습니다)")
     
+    # 간단 통계
+    mae = np.mean(np.abs(results['오차']))
     print("\n" + "="*50)
-    print(f"📊 요약: 실제 위험 {total}건 중 {detected}건 감지 성공")
-    if total > 0:
-        print(f"✅ 감지율: {detected/total*100:.1f}%")
+    print(f"📊 예측 성능 요약")
+    print(f"   평균 오차(MAE): {mae:.1f}")
+    print(f"   (예: 실제가 1700일 때, 예측은 {1700-mae:.0f} ~ {1700+mae:.0f} 사이)")
 
 if __name__ == "__main__":
     evaluate()
