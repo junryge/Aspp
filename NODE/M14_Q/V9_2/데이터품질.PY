@@ -165,14 +165,14 @@ df_clean = df_clean3  # 옵션3 (연속 동일값 제거)
 if '연속중복' in df_clean.columns:
     df_clean = df_clean.drop(columns=['연속중복'])
 
-output_file = 'data/M14_정제완료.csv'
+output_file = 'M14_정제완료.csv'
 df_clean.to_csv(output_file, index=False, encoding='utf-8-sig')
 print(f"✅ 저장: {output_file}")
 print(f"   {len(df_clean):,}행")
 
 # 1700+ 전용 파일 저장
 df_high = df_clean[df_clean['TOTALCNT'] >= 1700]
-df_high.to_csv('data/M14_1700plus.csv', index=False, encoding='utf-8-sig')
-print(f"✅ 1700+ 저장: data/M14_1700plus.csv ({len(df_high):,}행)")
+df_high.to_csv('M14_1700plus.csv', index=False, encoding='utf-8-sig')
+print(f"✅ 1700+ 저장: M14_1700plus.csv ({len(df_high):,}행)")
 
 print("\n✅ 데이터 품질 체크 완료!")
