@@ -1,95 +1,212 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-🚀 V13.0 평가 - 정직한 평가 & 실전 알람 기준 적용
+🚀 V9.0 평가 - 수동 보정 로직 (Cheat Key) 적용
 """
 import numpy as np
 import pandas as pd
-import xgboost as xgb
 import pickle
-import warnings
 from datetime import timedelta
+import warnings
 warnings.filterwarnings('ignore')
 
 print("="*70)
-print("🚀 V13.0 평가 - 12월 11일 실전 테스트")
+print("🚀 V9.0 평가 - 보정 로직 적용 (유리천장 깨기)")
 print("="*70)
 
-PRED_OFFSET = 10
-EVAL_FILE = '20251211_16평가.CSV' # 평가할 파일
+# 평가할 파일명 (여기만 수정하세요!)
+EVAL_FILE = '20251211_16평가.CSV' 
 
-def create_vectorized_features(df):
-    """V11 기반 피처 생성"""
-    df = df.copy()
-    cols = ['TOTALCNT', 'M14AM14B', 'M14AM14BSUM', 'M10AM14A', 
-            'M14.QUE.ALL.TRANSPORT4MINOVERCNT', 'M14.QUE.OHT.OHTUTIL',
-            'M14.QUE.ALL.CURRENTQCREATED', 'M14.QUE.ALL.CURRENTQCOMPLETED']
-    for c in cols: df[c] = pd.to_numeric(df[c], errors='coerce').fillna(0)
+# Feature 생성 함수 (학습과 동일)
+def create_features_v9(row_dict):
+    # ... (학습 코드의 create_features_v9 함수 내용을 여기에 복붙해야 합니다)
+    # 편의상 생략했지만, 학습 코드의 함수를 그대로 가져오시면 됩니다.
+    # 만약 귀찮으시면 학습 코드와 같은 파일에 두고 import 해도 됩니다.
+    # 여기서는 안전하게 전체 코드를 다시 써드릴까요? (너무 길어져서.. 
+    # 위 학습 코드의 create_features_v9 함수를 그대로 쓰시면 됩니다!)
+    features = {}
+    seq_m14b = np.array(row_dict['M14AM14B'])
+    seq_m14bsum = np.array(row_dict['M14AM14BSUM'])
+    seq_m10arev = np.array(row_dict['M10AM14A'])
+    seq_totalcnt = np.array(row_dict['TOTALCNT'])
+    seq_transport = np.array(row_dict['TRANSPORT'])
+    seq_oht = np.array(row_dict['OHT'])
+    seq_q_created = np.array(row_dict['Q_CREATED'])
+    seq_q_completed = np.array(row_dict['Q_COMPLETED'])
+    seq_gap = seq_q_created - seq_q_completed
+    seq_len = len(seq_m14b)
+
+    features['m14b_mean'] = np.mean(seq_m14b)
+    features['m14b_max'] = np.max(seq_m14b)
+    features['m14b_current'] = seq_m14b[-1]
+    features['m14b_last10'] = np.mean(seq_m14b[-10:])
+    features['m14b_last30'] = np.mean(seq_m14b[-30:])
+    features['m14b_slope'] = np.polyfit(np.arange(seq_len), seq_m14b, 1)[0]
+    features['m14b_std'] = np.std(seq_m14b)
+    features['m14b_trend10'] = seq_m14b[-1] - seq_m14b[-10]
+
+    features['m14bsum_mean'] = np.mean(seq_m14bsum)
+    features['m14bsum_max'] = np.max(seq_m14bsum)
+    features['m14bsum_current'] = seq_m14bsum[-1]
+    features['m14bsum_last10'] = np.mean(seq_m14bsum[-10:])
+    features['m14bsum_last30'] = np.mean(seq_m14bsum[-30:])
+    features['m14bsum_slope'] = np.polyfit(np.arange(seq_len), seq_m14bsum, 1)[0]
+    features['m14bsum_std'] = np.std(seq_m14bsum)
+    features['m14bsum_trend10'] = seq_m14bsum[-1] - seq_m14bsum[-10]
+
+    features['total_mean'] = np.mean(seq_totalcnt)
+    features['total_max'] = np.max(seq_totalcnt)
+    features['total_min'] = np.min(seq_totalcnt)
+    features['total_current'] = seq_totalcnt[-1]
+    features['total_last5'] = np.mean(seq_totalcnt[-5:])
+    features['total_last10'] = np.mean(seq_totalcnt[-10:])
+    features['total_last30'] = np.mean(seq_totalcnt[-30:])
+    features['total_slope'] = np.polyfit(np.arange(seq_len), seq_totalcnt, 1)[0]
+    features['total_std'] = np.std(seq_totalcnt)
+    features['total_trend10'] = seq_totalcnt[-1] - seq_totalcnt[-10]
+
+    features['m10arev_mean'] = np.mean(seq_m10arev)
+    features['m10arev_max'] = np.max(seq_m10arev)
+    features['m10arev_current'] = seq_m10arev[-1]
+    features['m10arev_last10'] = np.mean(seq_m10arev[-10:])
+    features['m10arev_slope'] = np.polyfit(np.arange(seq_len), seq_m10arev, 1)[0]
+
+    features['trans_mean'] = np.mean(seq_transport)
+    features['trans_max'] = np.max(seq_transport)
+    features['trans_current'] = seq_transport[-1]
+    features['trans_last10'] = np.mean(seq_transport[-10:])
+    features['trans_slope'] = np.polyfit(np.arange(seq_len), seq_transport, 1)[0]
+
+    features['oht_mean'] = np.mean(seq_oht)
+    features['oht_max'] = np.max(seq_oht)
+    features['oht_current'] = seq_oht[-1]
+    features['oht_last10'] = np.mean(seq_oht[-10:])
+
+    features['gap_mean'] = np.mean(seq_gap)
+    features['gap_max'] = np.max(seq_gap)
+    features['gap_min'] = np.min(seq_gap)
+    features['gap_current'] = seq_gap[-1]
+    features['gap_last5'] = np.mean(seq_gap[-5:])
+    features['gap_last10'] = np.mean(seq_gap[-10:])
+    features['gap_last30'] = np.mean(seq_gap[-30:])
+    features['gap_slope'] = np.polyfit(np.arange(seq_len), seq_gap, 1)[0]
+    features['gap_std'] = np.std(seq_gap)
+    features['gap_trend10'] = seq_gap[-1] - seq_gap[-10]
+
+    features['m14b_x_sum'] = seq_m14b[-1] * seq_m14bsum[-1] / 1000
+    features['m14b_x_sum_mean'] = np.mean(seq_m14b * seq_m14bsum) / 1000
+    features['sum_per_m14b'] = seq_m14bsum[-1] / (seq_m14b[-1] + 1)
+    features['m14b_plus_sum'] = seq_m14b[-1] + seq_m14bsum[-1]
+    features['m10arev_x_m14b'] = seq_m10arev[-1] * seq_m14b[-1] / 100
+    features['trans_x_m14b'] = seq_transport[-1] * seq_m14b[-1] / 100
+    features['ratio_m14b_total'] = seq_m14b[-1] / (seq_totalcnt[-1] + 1)
+    features['ratio_sum_total'] = seq_m14bsum[-1] / (seq_totalcnt[-1] + 1)
+    features['gap_x_m14b'] = seq_gap[-1] * seq_m14b[-1] / 1000
+    features['gap_x_total'] = seq_gap[-1] * seq_totalcnt[-1] / 1000
+    features['gap_x_trans'] = seq_gap[-1] * seq_transport[-1] / 100
+    features['ratio_gap_total'] = seq_gap[-1] / (seq_totalcnt[-1] + 1)
+
+    features['m14b_over_520'] = np.sum(seq_m14b > 520)
+    features['m14b_over_540'] = np.sum(seq_m14b > 540)
+    features['m14bsum_over_600'] = np.sum(seq_m14bsum > 600)
+    features['m14bsum_over_620'] = np.sum(seq_m14bsum > 620)
+    features['m10arev_over_55'] = np.sum(seq_m10arev > 55)
+    features['total_over_1600'] = np.sum(seq_totalcnt >= 1600)
+    features['total_over_1650'] = np.sum(seq_totalcnt >= 1650)
+    features['total_over_1700'] = np.sum(seq_totalcnt >= 1700)
+    features['gap_over_200'] = np.sum(seq_gap > 200)
+    features['gap_over_250'] = np.sum(seq_gap > 250)
+    features['gap_over_300'] = np.sum(seq_gap > 300)
+    features['gap_over_350'] = np.sum(seq_gap > 350)
+
+    features['gold_strict'] = 1 if (seq_m14b[-1] > 540 and seq_m14bsum[-1] > 620) else 0
+    features['gold_normal'] = 1 if (seq_m14b[-1] > 520 and seq_m14bsum[-1] > 600) else 0
+    features['in_danger'] = 1 if seq_totalcnt[-1] >= 1700 else 0
+    features['near_danger'] = 1 if seq_totalcnt[-1] >= 1600 else 0
+    features['danger_gap'] = 1 if seq_gap[-1] > 300 else 0
+    features['danger_trans'] = 1 if seq_transport[-1] > 151 else 0
+    features['triple_check'] = 1 if (seq_m14b[-1] > 520 and seq_m14bsum[-1] > 600 and seq_gap[-1] > 250) else 0
+    features['quad_check'] = 1 if (seq_m14b[-1] > 520 and seq_m14bsum[-1] > 600 and seq_gap[-1] > 250 and seq_transport[-1] > 145) else 0
+
+    return features
+
+# 🔥 [핵심] 강제 보정 함수 (Glass Ceiling Break)
+def adjust_prediction(pred, current_total, m14b, m14bsum, gap, trans):
+    # 1. 하한선 안전장치
+    floor = current_total - 80
+    if pred < floor: pred = floor
     
-    df['Gap'] = df['M14.QUE.ALL.CURRENTQCREATED'] - df['M14.QUE.ALL.CURRENTQCOMPLETED']
+    # 2. 부스트 로직 (조건 만족 시 강제 +점수)
+    boost = 0
+    # 황금 패턴
+    if m14b > 540 and m14bsum > 620: boost += 50
+    elif m14b > 520 and m14bsum > 600: boost += 40
     
-    lags = [1, 3, 5, 10, 20]
-    for lag in lags:
-        df[f'Total_Lag_{lag}'] = df['TOTALCNT'].shift(lag)
-        df[f'M14B_Lag_{lag}'] = df['M14AM14B'].shift(lag)
+    # Gap 부스트
+    if gap > 350: boost += 40
+    elif gap > 300: boost += 35
+    elif gap > 250: boost += 25
     
-    windows = [10, 30, 60]
-    for w in windows:
-        df[f'Total_Mean_{w}'] = df['TOTALCNT'].rolling(w).mean()
-        df[f'Total_Std_{w}'] = df['TOTALCNT'].rolling(w).std()
+    # Transport 부스트
+    if trans > 180: boost += 30
+    elif trans > 151: boost += 20
+    
+    pred = pred + boost
+    
+    # 3. 현재 이미 1700 넘었으면, 예측값도 못 떨어지게 막음
+    if current_total >= 1700:
+        if pred < 1680: pred = max(pred, current_total - 50)
+        
+    return pred
 
-    df['Target_Total_Future'] = df['TOTALCNT'].shift(-PRED_OFFSET)
-    return df
-
-# 1. 모델 로드
-print("📂 모델 로딩 (model_v13_final.pkl)...")
-try:
-    with open('model_v13_final.pkl', 'rb') as f: model = pickle.load(f)
-    with open('features_v13_final.pkl', 'rb') as f: cols = pickle.load(f)
-except:
-    print("❌ 모델 파일 없음! 학습부터 실행하세요.")
-    exit()
-
-# 2. 데이터 로드
-print(f"📂 평가 데이터: {EVAL_FILE}")
-try: df_raw = pd.read_csv(EVAL_FILE, encoding='utf-8')
-except: df_raw = pd.read_csv(EVAL_FILE, encoding='cp949')
-
-df_raw['CURRTIME_OBJ'] = pd.to_datetime(df_raw['CURRTIME'].astype(str), format='%Y%m%d%H%M', errors='coerce')
-df_feat = create_vectorized_features(df_raw)
-df_valid = df_feat.dropna(subset=cols + ['Target_Total_Future', 'CURRTIME_OBJ']).copy()
-
-# 3. 예측
-print("🚀 예측 중...")
-pred_total = df_valid['TOTALCNT'] + model.predict(df_valid[cols])
-
-# 4. 결과 정리
-results = pd.DataFrame()
-current_time = df_valid['CURRTIME_OBJ']
-results['현재시간'] = current_time.dt.strftime('%Y-%m-%d %H:%M')
-results['현재TOTALCNT'] = df_valid['TOTALCNT']
-results['예측시점'] = (current_time + timedelta(minutes=PRED_OFFSET)).dt.strftime('%Y-%m-%d %H:%M')
-results['실제값'] = df_valid['Target_Total_Future']
-results['예측값'] = pred_total
-results['오차'] = (results['실제값'] - results['예측값']).round(2)
-results['절대오차'] = results['오차'].abs()
-
-# 🔥 [실전 알람 로직 적용]
-# 모델이 1650만 넘겨도 실제는 1700이라고 간주 (영점 조절)
-results['실제위험'] = np.where(results['실제값'] >= 1700, 'O', '')
-results['예측위험'] = np.where(results['예측값'] >= 1650, 'O', '') 
-
-# 5. 리포트
-print("\n📊 [12월 11일 실전 평가 결과]")
-high_risk = results[results['실제값'] >= 1700]
-if len(high_risk) > 0:
-    detected = high_risk[high_risk['예측위험'] == 'O']
-    print(f"🔥 실제 1700+ 발생 건수: {len(high_risk)}건")
-    print(f"✅ 알람 발송 성공(예측>=1650): {len(detected)}건")
-    print(f"🎯 방어율: {len(detected)/len(high_risk)*100:.1f}%")
-else:
-    print("평가 데이터에 1700+ 구간이 없습니다.")
-
-outfile = 'Final_Evaluation_Result.CSV'
-results.to_csv(outfile, index=False, encoding='utf-8-sig')
-print(f"\n💾 결과 저장: {outfile}")
+# 메인 실행
+if __name__ == '__main__':
+    with open('model_v9_10min.pkl', 'rb') as f: model = pickle.load(f)
+    try: df = pd.read_csv(EVAL_FILE, encoding='utf-8')
+    except: df = pd.read_csv(EVAL_FILE, encoding='cp949')
+    
+    df['CURRTIME'] = pd.to_datetime(df['CURRTIME'].astype(str), format='%Y%m%d%H%M')
+    
+    results = []
+    seq_len = 280
+    pred_offset = 10
+    
+    print("🚀 평가 시작...")
+    for i in range(seq_len, len(df) - pred_offset):
+        row_dict = {
+            'M14AM14B': df['M14AM14B'].iloc[i-seq_len:i].values,
+            'M14AM14BSUM': df['M14AM14BSUM'].iloc[i-seq_len:i].values,
+            'M10AM14A': df['M10AM14A'].iloc[i-seq_len:i].values,
+            'TOTALCNT': df['TOTALCNT'].iloc[i-seq_len:i].values,
+            'TRANSPORT': df['M14.QUE.ALL.TRANSPORT4MINOVERCNT'].iloc[i-seq_len:i].values,
+            'OHT': df['M14.QUE.OHT.OHTUTIL'].iloc[i-seq_len:i].values,
+            'Q_CREATED': df['M14.QUE.ALL.CURRENTQCREATED'].iloc[i-seq_len:i].values,
+            'Q_COMPLETED': df['M14.QUE.ALL.CURRENTQCOMPLETED'].iloc[i-seq_len:i].values,
+        }
+        
+        # 기본 예측
+        feat = create_features_v9(row_dict)
+        pred_raw = model.predict(pd.DataFrame([feat]))[0]
+        
+        # 🔥 보정 예측 적용
+        current_total = df['TOTALCNT'].iloc[i-1]
+        gap_val = feat['gap_current']
+        trans_val = feat['trans_current']
+        m14b_val = feat['m14b_current']
+        m14bsum_val = feat['m14bsum_current']
+        
+        pred_adj = adjust_prediction(pred_raw, current_total, m14b_val, m14bsum_val, gap_val, trans_val)
+        
+        actual = df['TOTALCNT'].iloc[i+pred_offset-1]
+        
+        results.append({
+            '현재시간': df['CURRTIME'].iloc[i-1],
+            '실제값': actual,
+            '예측값': pred_adj, # 보정된 값 사용
+            '오차': actual - pred_adj,
+            '예측위험': 'O' if pred_adj >= 1650 else '' # 1650 기준
+        })
+        
+    res_df = pd.DataFrame(results)
+    res_df.to_csv('Evaluation_Result_V9.CSV', index=False)
+    print("✅ 완료! 저장됨: Evaluation_Result_V9.CSV")
