@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-🚀 V11.6 최종 - 패턴 기반 동적 보정 (Pattern-Based Boosting)
-핵심: '시간'을 보지 않고, '입고량(M14AM14B)의 강도'를 수식으로 계산하여 보정함.
-공식: 보정값 = (입고량 - 500) * 2.2
+🚀 V11.8 최종 평가 - AI vs Rule 판단형 시스템
+핵심 기능:
+  - 결과 파일에 'Source' 컬럼 추가 (AI / Rule)
+  - 사용자는 어떤 로직이 선택되었는지 눈으로 확인 가능
 """
 import numpy as np
 import pandas as pd
@@ -14,41 +15,34 @@ from datetime import timedelta
 warnings.filterwarnings('ignore')
 
 print("="*70)
-print("🚀 V11.6 평가 - 패턴 기반 정밀 보정")
+print("🚀 V11.8 평가 - 예측 출처(Source) 판단 시스템")
 print("="*70)
 
 PRED_OFFSET = 10
 EVAL_FILE = '20251211_16평가.CSV'
 
 # 1. 모델 로드
-print("📂 모델 로딩...")
 try:
     with open('model_v11_280seq.pkl', 'rb') as f: model_base = pickle.load(f)
     with open('features_v11_280seq.pkl', 'rb') as f: feature_cols = pickle.load(f)
 except:
-    try:
+    try: 
         with open('model_v10_base.pkl', 'rb') as f: model_base = pickle.load(f)
         with open('features_v10.pkl', 'rb') as f: feature_cols = pickle.load(f)
     except:
-        print("❌ 모델 파일이 없습니다.")
-        exit()
+        print("❌ 모델 파일 없음."); exit()
 
 # 2. 데이터 로드
-try:
-    df_raw = pd.read_csv(EVAL_FILE, on_bad_lines='skip', encoding='utf-8')
-except:
-    df_raw = pd.read_csv(EVAL_FILE, on_bad_lines='skip', encoding='cp949')
-
+try: df_raw = pd.read_csv(EVAL_FILE, encoding='utf-8')
+except: df_raw = pd.read_csv(EVAL_FILE, encoding='cp949')
 df_raw['CURRTIME_OBJ'] = pd.to_datetime(df_raw['CURRTIME'].astype(str), format='%Y%m%d%H%M', errors='coerce')
 
-# 3. 피처 생성 (학습과 동일)
-def create_vectorized_features(df):
+# 3. 피처 생성
+def create_features(df):
     df = df.copy()
-    cols = ['TOTALCNT', 'M14AM14B', 'M14AM14BSUM', 'M10AM14A', 
-            'M14.QUE.ALL.TRANSPORT4MINOVERCNT', 'M14.QUE.OHT.OHTUTIL',
-            'M14.QUE.ALL.CURRENTQCREATED', 'M14.QUE.ALL.CURRENTQCOMPLETED']
+    cols = ['TOTALCNT', 'M14AM14B', 'M14AM14BSUM', 'M10AM14A', 'M14.QUE.ALL.TRANSPORT4MINOVERCNT', 
+            'M14.QUE.OHT.OHTUTIL', 'M14.QUE.ALL.CURRENTQCREATED', 'M14.QUE.ALL.CURRENTQCOMPLETED']
     for c in cols: df[c] = pd.to_numeric(df[c], errors='coerce').fillna(0)
-    
     df['Gap'] = df['M14.QUE.ALL.CURRENTQCREATED'] - df['M14.QUE.ALL.CURRENTQCOMPLETED']
     
     lags = [1, 3, 5, 10, 20, 50, 100, 280]
@@ -65,94 +59,76 @@ def create_vectorized_features(df):
     df['Slope_3'] = df['TOTALCNT'] - df['TOTALCNT'].shift(3)
     df['Accel_1'] = df['Slope_1'] - df['Slope_1'].shift(1)
     df['Total_Delta_10'] = df['TOTALCNT'] - df['Total_Lag_10']
-
     df['Target_Total_Future'] = df['TOTALCNT'].shift(-PRED_OFFSET)
     return df
 
 print("🔄 피처 생성 중...")
-df_feat = create_vectorized_features(df_raw)
+df_feat = create_features(df_raw)
 df_valid = df_feat.dropna(subset=feature_cols + ['Target_Total_Future']).copy()
 
-# 4. AI 1차 예측
-print("🚀 AI 예측 수행...")
+# 4. 예측 수행
+print("🚀 AI 및 Rule 예측 계산 중...")
 X_eval = df_valid[feature_cols]
+
+# (1) AI 예측값
 pred_ai = df_valid['TOTALCNT'] + model_base.predict(X_eval)
 
-# =========================================================================
-# 🔥 [핵심 로직] 패턴 기반 수식 보정 (Formula-Based Boosting)
-# =========================================================================
-print("🔧 패턴 분석 및 수식 적용 중...")
-
-final_preds = []
-
-for i in range(len(pred_ai)):
-    # 값 추출
-    ai_val = pred_ai.iloc[i]
-    cur_val = df_valid['TOTALCNT'].iloc[i]
-    inp = df_valid['M14AM14B'].iloc[i]      # 입고량 (핵심 변수)
-    inp_sum = df_valid['M14AM14BSUM'].iloc[i]
-    
-    # --- [수식 적용] ---
-    boost = 0
-    
-    # 패턴 1: 입고량(M14AM14B) 과부하 패턴
-    # 분석 결과: 입고량 500을 넘으면, 초과분 1당 약 2.2의 오차가 발생함
+# (2) Rule 예측값 (패턴 보정)
+# 공식: (입고량 - 500) * 2.2
+def calculate_rule(row, ai_val):
+    inp = row['M14AM14B']
     if inp > 500:
-        # 공식: (현재입고량 - 500) * 2.2
-        # 예: 10:20분(549) -> (549-500)*2.2 = 107.8점 추가 -> 1718 예측 (정확!)
-        # 예: 17:34분(572) -> (572-500)*2.2 = 158.4점 추가 -> 1768 예측 (근접!)
-        pattern_boost = (inp - 500) * 2.2
-        
-        # AI가 이미 높게 예측했으면 보정량을 줄임 (중복 방지)
-        if ai_val > 1680:
-            pattern_boost *= 0.5 
-            
-        boost += pattern_boost
+        boost = (inp - 500) * 2.2
+        if ai_val > 1680: boost *= 0.5 # AI가 이미 높으면 보정 완화
+        return min(ai_val + boost, 1850)
+    return ai_val # 입고량 낮으면 AI값 그대로
 
-    # 패턴 2: "숨겨진 폭탄" (입고량은 높은데 AI가 너무 낮게 부른 경우)
-    # 입고량이 540이 넘는데 AI가 1650도 안 된다? -> 이건 100% 저평가임
-    if inp > 540 and ai_val < 1650:
-        boost += 30 # 안전마진 추가
+pred_rule = df_valid.apply(lambda row: calculate_rule(row, pred_ai.loc[row.name]), axis=1)
 
-    # 최종값 계산 (최대 1850 제한)
-    final_val = min(ai_val + boost, 1850)
-    final_preds.append(final_val)
+# 5. [핵심] 소스 결정 (Selection Logic)
+# 입고량 520 이상이면 'Rule' 선택, 아니면 'AI' 선택
+print("⚖️ Source(출처) 결정 중...")
 
-pred_final = pd.Series(final_preds, index=pred_ai.index)
+df_valid['AI_Pred'] = pred_ai
+df_valid['Rule_Pred'] = pred_rule
+df_valid['M14AM14B'] = df_valid['M14AM14B']
 
-# 5. 결과 저장
+# 조건문으로 Source 결정
+df_valid['Source'] = np.where(df_valid['M14AM14B'] >= 520, 'Rule', 'AI')
+
+# 최종값 매핑
+df_valid['Final_Pred'] = np.where(df_valid['Source'] == 'Rule', df_valid['Rule_Pred'], df_valid['AI_Pred'])
+
+# 6. 결과 정리 및 저장
 results = pd.DataFrame()
 results['현재시간'] = df_valid['CURRTIME_OBJ'].dt.strftime('%Y-%m-%d %H:%M')
-results['현재값'] = df_valid['TOTALCNT']
-results['실제값'] = df_valid['Target_Total_Future']
-results['AI예측'] = pred_ai.round(2)
-results['최종예측'] = pred_final.round(2)
-results['오차'] = (results['실제값'] - results['최종예측']).round(2)
-results['절대오차'] = results['오차'].abs()
-
-# 분석용 컬럼
 results['입고량'] = df_valid['M14AM14B']
-results['보정량'] = (results['최종예측'] - results['AI예측']).round(2)
+results['실제값'] = df_valid['Target_Total_Future']
+results['AI예측'] = df_valid['AI_Pred'].round(2)
+results['Rule예측'] = df_valid['Rule_Pred'].round(2)
+results['Source'] = df_valid['Source']  # ✅ 여기가 핵심 (AI vs Rule)
+results['최종예측'] = df_valid['Final_Pred'].round(2)
+results['오차'] = (results['실제값'] - results['최종예측']).abs().round(2)
 
-# 통계
-mae = results['절대오차'].mean()
-high_mask = results['실제값'] >= 1700
+# 통계 출력
+mae = results['오차'].mean()
+print(f"\n📊 [최종 분석 결과]")
+print(f"   - 전체 데이터 수: {len(results)}개")
+print(f"   - AI 선택 횟수: {(results['Source']=='AI').sum()}회 (안정 구간)")
+print(f"   - Rule 선택 횟수: {(results['Source']=='Rule').sum()}회 (위험 구간)")
+print(f"   - 전체 MAE: {mae:.2f}")
 
-print(f"\n📊 전체 MAE: {mae:.2f}")
+# 10:20분 구간 확인
+print("\n[🔎 10:20분 구간 판단 결과]")
+mask_10 = (results['현재시간'] >= '2025-12-11 10:20') & (results['현재시간'] <= '2025-12-11 10:23')
+print(results.loc[mask_10, ['현재시간', '입고량', 'AI예측', 'Rule예측', 'Source', '최종예측']].to_string(index=False))
 
-if high_mask.sum() > 0:
-    mae_high = results.loc[high_mask, '절대오차'].mean()
-    print(f"🔥 1700 이상 구간 MAE: {mae_high:.2f}")
-    
-    print("\n[패턴 수식 적용 결과 (10:20 vs 17:30 비교)]")
-    # 두 구간 샘플 출력
-    mask_10 = (results['현재시간'] >= '2025-12-11 10:20') & (results['현재시간'] <= '2025-12-11 10:23')
-    mask_17 = (results['현재시간'] >= '2025-12-11 17:30') & (results['현재시간'] <= '2025-12-11 17:35')
-    
-    print("--- 10시 구간 ---")
-    print(results.loc[mask_10, ['현재시간', '입고량', '실제값', 'AI예측', '보정량', '최종예측']].to_string(index=False))
-    print("\n--- 17시 구간 ---")
-    print(results.loc[mask_17, ['현재시간', '입고량', '실제값', 'AI예측', '보정량', '최종예측']].to_string(index=False))
+# 17:34분 구간 확인
+print("\n[🔎 17:34분 구간 판단 결과]")
+mask_17 = (results['현재시간'] >= '2025-12-11 17:33') & (results['현재시간'] <= '2025-12-11 17:36')
+print(results.loc[mask_17, ['현재시간', '입고량', 'AI예측', 'Rule예측', 'Source', '최종예측']].to_string(index=False))
 
-results.to_csv('Pattern_Boost_Result.CSV', index=False, encoding='utf-8-sig')
-print("\n💾 저장 완료: Pattern_Boost_Result.CSV")
+# 저장
+results.to_csv('Final_Eval_With_Source.CSV', index=False, encoding='utf-8-sig')
+print("\n💾 저장 완료: Final_Eval_With_Source.CSV")
+print("   👉 엑셀에서 'Source' 컬럼을 필터링해보세요!")
