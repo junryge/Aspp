@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-🚀 V9.0 학습 - 10분 예측 (Deep 버전)
-Feature 80개 (queue_gap 복원!)
+🚀 V9.0 학습 - 10분 예측 (Deep 버전 + 과적합 방지)
+Feature 82개 (queue_gap 복원!)
 """
 
 import numpy as np
@@ -15,14 +15,13 @@ import warnings
 warnings.filterwarnings('ignore')
 
 print("="*70)
-print("🚀 V9.0 학습 - 10분 예측 (Deep 버전)")
+print("🚀 V9.0 학습 - 10분 예측 (Deep + 과적합 방지)")
 print("="*70)
 
 # ========================================
-# Feature 생성 함수 (~80개) - 동일
+# Feature 생성 함수 (82개)
 # ========================================
 def create_features_v9(row_dict):
-    """핵심 컬럼 + queue_gap 기반 80개 Feature"""
     features = {}
     
     seq_m14b = np.array(row_dict['M14AM14B'])
@@ -33,11 +32,11 @@ def create_features_v9(row_dict):
     seq_oht = np.array(row_dict['OHT'])
     seq_q_created = np.array(row_dict['Q_CREATED'])
     seq_q_completed = np.array(row_dict['Q_COMPLETED'])
-    
     seq_gap = seq_q_created - seq_q_completed
+    
     seq_len = len(seq_m14b)
     
-    # 1. M14AM14B (8개)
+    # M14AM14B (8개)
     features['m14b_mean'] = np.mean(seq_m14b)
     features['m14b_max'] = np.max(seq_m14b)
     features['m14b_current'] = seq_m14b[-1]
@@ -47,7 +46,7 @@ def create_features_v9(row_dict):
     features['m14b_std'] = np.std(seq_m14b)
     features['m14b_trend10'] = seq_m14b[-1] - seq_m14b[-10]
     
-    # 2. M14AM14BSUM (8개)
+    # M14AM14BSUM (8개)
     features['m14bsum_mean'] = np.mean(seq_m14bsum)
     features['m14bsum_max'] = np.max(seq_m14bsum)
     features['m14bsum_current'] = seq_m14bsum[-1]
@@ -57,7 +56,7 @@ def create_features_v9(row_dict):
     features['m14bsum_std'] = np.std(seq_m14bsum)
     features['m14bsum_trend10'] = seq_m14bsum[-1] - seq_m14bsum[-10]
     
-    # 3. TOTALCNT (10개)
+    # TOTALCNT (10개)
     features['total_mean'] = np.mean(seq_totalcnt)
     features['total_max'] = np.max(seq_totalcnt)
     features['total_min'] = np.min(seq_totalcnt)
@@ -69,27 +68,27 @@ def create_features_v9(row_dict):
     features['total_std'] = np.std(seq_totalcnt)
     features['total_trend10'] = seq_totalcnt[-1] - seq_totalcnt[-10]
     
-    # 4. M10AM14A (5개)
+    # M10AM14A (5개)
     features['m10arev_mean'] = np.mean(seq_m10arev)
     features['m10arev_max'] = np.max(seq_m10arev)
     features['m10arev_current'] = seq_m10arev[-1]
     features['m10arev_last10'] = np.mean(seq_m10arev[-10:])
     features['m10arev_slope'] = np.polyfit(np.arange(seq_len), seq_m10arev, 1)[0]
     
-    # 5. TRANSPORT (5개)
+    # TRANSPORT (5개)
     features['trans_mean'] = np.mean(seq_transport)
     features['trans_max'] = np.max(seq_transport)
     features['trans_current'] = seq_transport[-1]
     features['trans_last10'] = np.mean(seq_transport[-10:])
     features['trans_slope'] = np.polyfit(np.arange(seq_len), seq_transport, 1)[0]
     
-    # 6. OHT (4개)
+    # OHT (4개)
     features['oht_mean'] = np.mean(seq_oht)
     features['oht_max'] = np.max(seq_oht)
     features['oht_current'] = seq_oht[-1]
     features['oht_last10'] = np.mean(seq_oht[-10:])
     
-    # 7. Queue Gap (10개)
+    # Queue Gap (10개)
     features['gap_mean'] = np.mean(seq_gap)
     features['gap_max'] = np.max(seq_gap)
     features['gap_min'] = np.min(seq_gap)
@@ -142,7 +141,7 @@ def create_features_v9(row_dict):
     return features
 
 # ========================================
-# 데이터 준비 - 동일
+# 데이터 준비
 # ========================================
 def prepare_data(csv_path, seq_len=280, pred_minutes=10):
     print(f"\n📂 데이터 로딩: {csv_path}")
@@ -214,7 +213,7 @@ def prepare_data(csv_path, seq_len=280, pred_minutes=10):
     return X, y
 
 # ========================================
-# 🔥 변경: multiplier 10 (1:1 비율)
+# 데이터 증강 (1:1 비율)
 # ========================================
 def augment_data(X, y, threshold=1700, multiplier=10):
     print(f"\n🔥 1700+ 데이터 {multiplier}배 증강 (1:1 비율)")
@@ -234,10 +233,10 @@ def augment_data(X, y, threshold=1700, multiplier=10):
     return X_aug, y_aug
 
 # ========================================
-# 🔥 변경: Deep 학습 + Early Stopping
+# 모델 학습 (Deep + 과적합 방지)
 # ========================================
 def train_model(X, y):
-    print(f"\n🚀 XGBoost Deep 학습")
+    print(f"\n🚀 XGBoost Deep 학습 (과적합 방지)")
     print(f"  X NaN: {X.isna().sum().sum()}, y NaN: {y.isna().sum()}")
     
     # 학습/검증 분리
@@ -246,39 +245,43 @@ def train_model(X, y):
     )
     print(f"  학습: {len(X_train):,}개, 검증: {len(X_val):,}개")
     
-    # 🔥 Deep 설정 (과적합 방지 포함)
+    # Deep + 과적합 방지 설정
     model = xgb.XGBRegressor(
         objective='reg:squarederror',
         
-        # 더 깊게
-        max_depth=12,              # 8 → 12
-        n_estimators=2000,         # 500 → 2000
-        learning_rate=0.01,        # 0.05 → 0.01
+        # Deep 설정
+        max_depth=10,              # 깊게 but 과적합 방지
+        n_estimators=2000,         # 충분히 많이
+        learning_rate=0.01,        # 천천히 세밀하게
         
-        # 과적합 방지
-        subsample=0.7,             # 0.8 → 0.7
-        colsample_bytree=0.7,      # 0.8 → 0.7
-        colsample_bylevel=0.6,     # 추가
-        min_child_weight=5,        # 3 → 5
-        gamma=0.2,                 # 0.1 → 0.2
-        reg_alpha=0.3,             # 0.1 → 0.3
-        reg_lambda=2.0,            # 1.0 → 2.0
+        # 과적합 방지 강화
+        subsample=0.6,
+        colsample_bytree=0.6,
+        colsample_bylevel=0.5,
+        min_child_weight=10,
+        gamma=0.3,
+        reg_alpha=0.5,
+        reg_lambda=3.0,
         
         random_state=42,
         n_jobs=-1,
         tree_method='hist'
     )
     
-    # Early Stopping
+    # Early Stopping으로 학습
     model.fit(
         X_train, y_train,
         eval_set=[(X_train, y_train), (X_val, y_val)],
+        early_stopping_rounds=100,  # 100회 개선 없으면 중단
         verbose=100
     )
     
     print(f"\n✅ Deep 학습 완료!")
     return model, X_val, y_val
 
+# ========================================
+# 성능 평가
+# ========================================
 def evaluate(model, X, y, X_val=None, y_val=None):
     print(f"\n" + "="*70)
     print(f"📊 성능 평가")
@@ -295,9 +298,18 @@ def evaluate(model, X, y, X_val=None, y_val=None):
     if X_val is not None and y_val is not None:
         y_val_pred = model.predict(X_val)
         val_mae = mean_absolute_error(y_val, y_val_pred)
+        val_rmse = np.sqrt(mean_squared_error(y_val, y_val_pred))
         val_r2 = r2_score(y_val, y_val_pred)
-        print(f"[검증] MAE: {val_mae:.2f}, R²: {val_r2:.4f}")
+        print(f"[검증] MAE: {val_mae:.2f}, RMSE: {val_rmse:.2f}, R²: {val_r2:.4f}")
+        
+        # 과적합 체크
+        gap = val_rmse - rmse
+        if gap > 5:
+            print(f"⚠️ 과적합 주의! (차이: {gap:.2f})")
+        else:
+            print(f"✅ 과적합 없음 (차이: {gap:.2f})")
     
+    # 1700+ 감지율
     high = y >= 1700
     if high.sum() > 0:
         detected = ((y >= 1700) & (y_pred >= 1680)).sum()
@@ -305,6 +317,9 @@ def evaluate(model, X, y, X_val=None, y_val=None):
     
     return mae, rmse, r2
 
+# ========================================
+# Feature 중요도
+# ========================================
 def show_importance(model, X):
     print(f"\n🏆 Feature 중요도 TOP 20")
     imp = pd.DataFrame({
@@ -314,18 +329,31 @@ def show_importance(model, X):
     print(imp.head(20).to_string(index=False))
     return imp
 
+# ========================================
+# 메인 실행
+# ========================================
 if __name__ == '__main__':
-    CSV_FILE = "data/M14_Q_20250802_TO_20251015.csv"
+    # 데이터 파일 경로
+    CSV_FILE = "1700_데이터_고품질데이터.csv"
     
+    # 1. 데이터 준비
     X, y = prepare_data(CSV_FILE, pred_minutes=10)
     if X is None:
         exit(1)
     
-    X_aug, y_aug = augment_data(X, y)  # multiplier=10
+    # 2. 데이터 증강 (1:1 비율)
+    X_aug, y_aug = augment_data(X, y, multiplier=10)
+    
+    # 3. 모델 학습
     model, X_val, y_val = train_model(X_aug, y_aug)
+    
+    # 4. 성능 평가
     mae, rmse, r2 = evaluate(model, X_aug, y_aug, X_val, y_val)
+    
+    # 5. Feature 중요도
     show_importance(model, X_aug)
     
+    # 6. 모델 저장
     with open('model_v9_10min.pkl', 'wb') as f:
         pickle.dump(model, f)
     with open('features_v9_10min.pkl', 'wb') as f:
