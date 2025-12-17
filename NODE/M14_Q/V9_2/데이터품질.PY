@@ -1,58 +1,100 @@
-#!/usr/bin/env python3
-# -*- coding: utf-8 -*-
-"""
-🛠️ 학습용 고부하(Over 1700) 데이터 추출기
-중요: 평가하려는 날짜(12월 11일)는 절대 포함하지 않습니다. (데이터 누수 방지)
-"""
 import pandas as pd
-import glob
-import warnings
-warnings.filterwarnings('ignore')
+import numpy as np
+import xgboost as xgb
+from sklearn.metrics import mean_squared_error, r2_score
+import matplotlib.pyplot as plt
 
-print("="*70)
-print("🛡️ 학습용 고부하 데이터 추출 (평가일 제외)")
-print("="*70)
+# 1. 데이터 로드
+# 업로드하신 파일명을 지정합니다.
+file_path = 'M14_Q_20241201_20251201610.CSV'
+df = pd.read_csv(file_path)
 
-# 🔴 평가할 날짜 (이 날짜는 학습 데이터에서 무조건 뺍니다)
-TEST_DATE = '2025-12-11'
-PRED_OFFSET = 10
+# 2. 전처리 (Preprocessing)
+# CURRTIME을 날짜/시간 형식으로 변환 (YYYYMMDDHHMM 형식 가정)
+df['CURRTIME'] = pd.to_datetime(df['CURRTIME'].astype(str), format='%Y%m%d%H%M')
+df = df.sort_values('CURRTIME')
 
-def load_data(path_pattern):
-    files = glob.glob(path_pattern)
-    if not files: files = glob.glob('M14_Q_*.CSV')
-    dfs = []
-    for f in sorted(files):
-        try: dfs.append(pd.read_csv(f, on_bad_lines='skip', encoding='utf-8'))
-        except: dfs.append(pd.read_csv(f, on_bad_lines='skip', encoding='cp949'))
-    return pd.concat(dfs, ignore_index=True)
+# 결측치 처리 (앞뒤 값으로 채움)
+df = df.ffill().bfill()
 
-# 1. 전체 데이터 로드
-df = load_data('M14_Q_*.CSV')
-df['CURRTIME_OBJ'] = pd.to_datetime(df['CURRTIME'].astype(str), format='%Y%m%d%H%M', errors='coerce')
+# 3. 철철이 분석 (계절성/시간 패턴 반영)
+# 시간, 분, 요일 정보를 추출하여 모델이 주기성을 학습하도록 함
+df['Hour'] = df['CURRTIME'].dt.hour
+df['Minute'] = df['CURRTIME'].dt.minute
+df['DayOfWeek'] = df['CURRTIME'].dt.dayofweek
 
-# 2. 피처 생성 (학습 때 쓰는 것과 동일하게 280 시퀀스 등)
-# (간단하게 타겟만 확인하기 위해 로직 최소화, 실제론 학습 코드의 피처 생성 함수 쓰면 됨)
-df['Target_Total_Future'] = df['TOTALCNT'].shift(-PRED_OFFSET)
+# 4. 시퀀스 280분 분석 (Feature Engineering)
+target_col = 'TOTALCNT'
 
-# 3. [중요] 평가일(12월 11일) 데이터 제거
-mask_not_test = df['CURRTIME_OBJ'].dt.date.astype(str) != TEST_DATE
-df_train_pool = df[mask_not_test].copy()
+# (1) 과거 특정 시점의 데이터 (Lag Features)
+# 직전, 10분전, 1시간전, 280분전 데이터를 변수로 추가
+lags = [1, 10, 60, 280]
+for lag in lags:
+    df[f'{target_col}_lag_{lag}'] = df[target_col].shift(lag)
 
-print(f"\n📉 데이터 필터링:")
-print(f" - 전체 데이터: {len(df):,}개")
-print(f" - 평가일({TEST_DATE}) 제외 후: {len(df_train_pool):,}개")
+# (2) 280분간의 흐름 요약 (Rolling Window Statistics)
+# 최근 280분의 평균, 표준편차 등을 변수로 추가하여 '시퀀스'의 상태를 반영
+window_size = 280
+df[f'{target_col}_roll_mean_{window_size}'] = df[target_col].rolling(window=window_size).mean()
+df[f'{target_col}_roll_std_{window_size}'] = df[target_col].rolling(window=window_size).std()
+df[f'{target_col}_roll_max_{window_size}'] = df[target_col].rolling(window=window_size).max()
+df[f'{target_col}_roll_min_{window_size}'] = df[target_col].rolling(window=window_size).min()
 
-# 4. 1700 이상인 데이터만 추출
-df_high_load = df_train_pool[df_train_pool['Target_Total_Future'] >= 1700].copy()
+# 5. 타겟 생성 (10분 후 예측)
+# 현재 시점(t)의 데이터로 10분 뒤(t+10)의 TOTALCNT를 예측해야 하므로
+# 타겟 컬럼을 -10만큼 shift 하여 생성합니다.
+df['Target'] = df[target_col].shift(-10)
 
-print(f"\n🔥 추출된 학습용 고부하 데이터:")
-print(f" - 개수: {len(df_high_load):,}개")
+# 시프트로 인해 생긴 결측치(NaN) 제거
+df_model = df.dropna()
 
-if len(df_high_load) > 0:
-    # 저장
-    filename = 'High_Load_Train_Only.csv'
-    df_high_load.to_csv(filename, index=False, encoding='utf-8-sig')
-    print(f"\n💾 저장 완료: {filename}")
-    print("👉 학습 코드에서 이 파일을 불러와서 50~100배 복사(pd.concat)해서 쓰세요.")
-else:
-    print("\n⚠ 12월 11일을 뺐더니 1700 넘는 게 하나도 없습니다. 데이터 기간을 확인하세요.")
+# 6. 학습/테스트 데이터 분리
+# 시계열 데이터이므로 랜덤 섞기(Shuffle) 대신 시간 순서대로 분리합니다. (마지막 20%를 테스트용으로 사용)
+train_size = int(len(df_model) * 0.8)
+train = df_model.iloc[:train_size]
+test = df_model.iloc[train_size:]
+
+# 학습에 사용할 변수 선택 (날짜와 타겟 제외)
+features = [c for c in df_model.columns if c not in ['CURRTIME', 'Target']]
+X_train, y_train = train[features], train['Target']
+X_test, y_test = test[features], test['Target']
+
+# 7. XGBoost 모델 학습 (XGBOOTING)
+print("모델 학습을 시작합니다...")
+model = xgb.XGBRegressor(
+    n_estimators=500,       # 트리 개수
+    learning_rate=0.05,     # 학습률
+    max_depth=6,            # 트리의 깊이
+    subsample=0.8,          # 데이터 샘플링 비율
+    colsample_bytree=0.8,   # 컬럼 샘플링 비율
+    random_state=42,
+    n_jobs=-1               # 모든 CPU 코어 사용
+)
+
+model.fit(X_train, y_train, 
+          eval_set=[(X_train, y_train), (X_test, y_test)],
+          early_stopping_rounds=50, # 성능 향상이 없으면 조기 종료
+          verbose=100)
+
+# 8. 예측 및 평가
+y_pred = model.predict(X_test)
+
+mse = mean_squared_error(y_test, y_pred)
+rmse = np.sqrt(mse)
+r2 = r2_score(y_test, y_pred)
+
+print(f"\n[Evaluation Result]")
+print(f"RMSE (평균 오차): {rmse:.4f}")
+print(f"R2 Score (설명력): {r2:.4f}")
+
+# 9. 결과 시각화 (마지막 300분)
+plt.figure(figsize=(15, 6))
+plt.plot(test['CURRTIME'].iloc[-300:], y_test.iloc[-300:].values, label='Actual (10min Later)', color='black')
+plt.plot(test['CURRTIME'].iloc[-300:], y_pred[-300:], label='Predicted (XGBoost)', color='red', linestyle='--')
+plt.title('TOTALCNT Prediction: Actual vs Predicted (Next 10 min)')
+plt.legend()
+plt.show()
+
+# 피처 중요도 확인 (어떤 변수가 예측에 가장 중요했는지)
+xgb.plot_importance(model, max_num_features=15)
+plt.show()
