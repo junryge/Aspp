@@ -239,22 +239,16 @@ def train_model(X, y):
     print(f"\n🚀 XGBoost Deep 학습 (과적합 방지)")
     print(f"  X NaN: {X.isna().sum().sum()}, y NaN: {y.isna().sum()}")
     
-    # 학습/검증 분리
     X_train, X_val, y_train, y_val = train_test_split(
         X, y, test_size=0.15, random_state=42
     )
     print(f"  학습: {len(X_train):,}개, 검증: {len(X_val):,}개")
     
-    # Deep + 과적합 방지 설정
     model = xgb.XGBRegressor(
         objective='reg:squarederror',
-        
-        # Deep 설정
-        max_depth=10,              # 깊게 but 과적합 방지
-        n_estimators=2000,         # 충분히 많이
-        learning_rate=0.01,        # 천천히 세밀하게
-        
-        # 과적합 방지 강화
+        max_depth=10,
+        n_estimators=2000,
+        learning_rate=0.01,
         subsample=0.6,
         colsample_bytree=0.6,
         colsample_bylevel=0.5,
@@ -262,17 +256,16 @@ def train_model(X, y):
         gamma=0.3,
         reg_alpha=0.5,
         reg_lambda=3.0,
-        
+        early_stopping_rounds=100,  # 🔥 여기로 이동!
         random_state=42,
         n_jobs=-1,
         tree_method='hist'
     )
     
-    # Early Stopping으로 학습
+    # fit()에서는 제거
     model.fit(
         X_train, y_train,
         eval_set=[(X_train, y_train), (X_val, y_val)],
-        early_stopping_rounds=100,  # 100회 개선 없으면 중단
         verbose=100
     )
     
