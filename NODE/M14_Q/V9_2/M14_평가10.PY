@@ -1,8 +1,13 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-🚀 V9.2 평가 - 100분/10분 예측
-패턴을 Feature로! (학습과 동일!)
+🚀 V8.3.1 평가 - 10분 예측
+변화량 예측 모델 평가
+
+출력 컬럼 (기존 형식 유지):
+- 현재시간, 현재TOTALCNT, 예측시점, 실제값
+- 원본예측, 보정예측, 오차, 절대오차
+- 실제위험(1700+), 예측위험(1700+)
 """
 
 import numpy as np
@@ -15,98 +20,107 @@ import warnings
 warnings.filterwarnings('ignore')
 
 print("="*70)
-print("🚀 V9.2 평가 - 100분/10분 예측")
-print("   패턴 Feature 포함!")
+print("🚀 V8.3.1 평가 - 10분 예측")
+print("   변화량 예측 방식")
 print("="*70)
 
-# ============================================
+# ========================================
 # 설정
-# ============================================
-SEQ_LEN = 100
-PRED_MINUTES = 10
-DATA_FILE = "YOUR_CSV_FILE.csv"  # ← 평가 데이터!
+# ========================================
+SEQ_LEN = 60
+PRED_OFFSET = 10
 
-# ============================================
-# Feature 생성 (40개 = 학습과 동일!)
-# ============================================
-def create_features_v92(row_dict):
-    """34개 기본 + 6개 패턴 Feature"""
+# ========================================
+# Feature 생성 함수 (학습과 동일)
+# ========================================
+def create_features_v831(row_dict):
+    """핵심 Feature만 (33개)"""
     features = {}
     
-    seq_m14b = np.array(row_dict['M14B'])
-    seq_m14bsum = np.array(row_dict['M14BSUM'])
     seq_totalcnt = np.array(row_dict['TOTALCNT'])
-    seq_q_created = np.array(row_dict['Q_CREATED'])
-    seq_q_completed = np.array(row_dict['Q_COMPLETED'])
-    seq_gap = seq_q_created - seq_q_completed
+    seq_m14b = np.array(row_dict['M14AM14B'])
+    seq_m14bsum = np.array(row_dict['M14AM14BSUM'])
+    seq_m10arev = np.array(row_dict['M10AM14A'])
+    seq_m16m14a = np.array(row_dict['M16M14A'])
+    seq_transport = np.array(row_dict['TRANSPORT'])
+    seq_oht = np.array(row_dict['OHT'])
+    seq_gap = np.array(row_dict['Q_CREATED']) - np.array(row_dict['Q_COMPLETED'])
     
-    seq_len = len(seq_m14b)
+    seq_len = len(seq_totalcnt)
     
-    cur_m14b = seq_m14b[-1]
-    cur_m14bsum = seq_m14bsum[-1]
-    cur_gap = seq_gap[-1]
-    cur_total = seq_totalcnt[-1]
-    
-    # TOTALCNT (8개)
-    features['total_current'] = cur_total
-    features['total_mean'] = np.mean(seq_totalcnt)
-    features['total_max'] = np.max(seq_totalcnt)
-    features['total_min'] = np.min(seq_totalcnt)
+    # 1. TOTALCNT (7개)
+    features['total_current'] = seq_totalcnt[-1]
+    features['total_last5'] = np.mean(seq_totalcnt[-5:])
     features['total_last10'] = np.mean(seq_totalcnt[-10:])
-    features['total_slope'] = np.polyfit(np.arange(seq_len), seq_totalcnt, 1)[0]
-    features['total_std'] = np.std(seq_totalcnt)
+    features['total_trend5'] = seq_totalcnt[-1] - seq_totalcnt[-5]
     features['total_trend10'] = seq_totalcnt[-1] - seq_totalcnt[-10]
+    features['total_slope'] = np.polyfit(np.arange(min(30, seq_len)), seq_totalcnt[-30:], 1)[0]
+    features['total_std10'] = np.std(seq_totalcnt[-10:])
     
-    # M14AM14B (6개)
-    features['m14b_current'] = cur_m14b
-    features['m14b_mean'] = np.mean(seq_m14b)
-    features['m14b_max'] = np.max(seq_m14b)
+    # 2. M14AM14B (4개)
+    features['m14b_current'] = seq_m14b[-1]
     features['m14b_last10'] = np.mean(seq_m14b[-10:])
-    features['m14b_slope'] = np.polyfit(np.arange(seq_len), seq_m14b, 1)[0]
     features['m14b_trend10'] = seq_m14b[-1] - seq_m14b[-10]
+    features['m14b_slope'] = np.polyfit(np.arange(min(30, seq_len)), seq_m14b[-30:], 1)[0]
     
-    # M14AM14BSUM (6개)
-    features['m14bsum_current'] = cur_m14bsum
-    features['m14bsum_mean'] = np.mean(seq_m14bsum)
-    features['m14bsum_max'] = np.max(seq_m14bsum)
+    # 3. M14AM14BSUM (4개)
+    features['m14bsum_current'] = seq_m14bsum[-1]
     features['m14bsum_last10'] = np.mean(seq_m14bsum[-10:])
-    features['m14bsum_slope'] = np.polyfit(np.arange(seq_len), seq_m14bsum, 1)[0]
     features['m14bsum_trend10'] = seq_m14bsum[-1] - seq_m14bsum[-10]
+    features['m14bsum_slope'] = np.polyfit(np.arange(min(30, seq_len)), seq_m14bsum[-30:], 1)[0]
     
-    # Queue Gap (8개)
-    features['gap_current'] = cur_gap
-    features['gap_mean'] = np.mean(seq_gap)
-    features['gap_max'] = np.max(seq_gap)
-    features['gap_min'] = np.min(seq_gap)
+    # 4. M16M14A (3개)
+    features['m16_current'] = seq_m16m14a[-1]
+    features['m16_last10'] = np.mean(seq_m16m14a[-10:])
+    features['m16_trend10'] = seq_m16m14a[-1] - seq_m16m14a[-10]
+    
+    # 5. M10AM14A (2개)
+    features['m10arev_current'] = seq_m10arev[-1]
+    features['m10arev_trend10'] = seq_m10arev[-1] - seq_m10arev[-10]
+    
+    # 6. TRANSPORT (2개)
+    features['trans_current'] = seq_transport[-1]
+    features['trans_trend10'] = seq_transport[-1] - seq_transport[-10]
+    
+    # 7. OHT (2개)
+    features['oht_current'] = seq_oht[-1]
+    features['oht_last10'] = np.mean(seq_oht[-10:])
+    
+    # 8. Queue Gap (3개)
+    features['gap_current'] = seq_gap[-1]
     features['gap_last10'] = np.mean(seq_gap[-10:])
-    features['gap_slope'] = np.polyfit(np.arange(seq_len), seq_gap, 1)[0]
-    features['gap_std'] = np.std(seq_gap)
     features['gap_trend10'] = seq_gap[-1] - seq_gap[-10]
     
-    # 조합 (6개)
-    features['m14b_x_sum'] = cur_m14b * cur_m14bsum / 1000
-    features['gap_x_m14b'] = cur_gap * cur_m14b / 1000
-    features['ratio_gap_total'] = cur_gap / (cur_total + 1)
-    features['ratio_m14b_total'] = cur_m14b / (cur_total + 1)
-    features['m14b_plus_sum'] = cur_m14b + cur_m14bsum
-    features['gap_per_m14b'] = cur_gap / (cur_m14b + 1)
+    # 9. 핵심 임계값 (4개)
+    features['is_over_1550'] = 1 if seq_totalcnt[-1] >= 1550 else 0
+    features['is_over_1580'] = 1 if seq_totalcnt[-1] >= 1580 else 0
+    features['is_over_1600'] = 1 if seq_totalcnt[-1] >= 1600 else 0
+    features['is_over_1650'] = 1 if seq_totalcnt[-1] >= 1650 else 0
     
-    # 🔥 패턴 Feature (6개)
-    features['is_gold_pattern'] = 1 if (cur_m14b > 520 and cur_m14bsum > 600) else 0
-    features['is_triple_check'] = 1 if (cur_m14b > 520 and cur_m14bsum > 600 and cur_gap > 250) else 0
-    features['is_gap_critical'] = 1 if cur_gap > 400 else 0
-    features['is_gap_extreme'] = 1 if cur_gap > 500 else 0
-    features['is_near_danger'] = 1 if cur_total >= 1650 else 0
-    features['is_in_danger'] = 1 if cur_total >= 1700 else 0
+    # 10. 복합 지표 (2개)
+    features['m14b_plus_sum'] = seq_m14b[-1] + seq_m14bsum[-1]
+    features['total_momentum'] = features['total_trend5'] + features['total_trend10']
     
     return features
 
-# ============================================
+# ========================================
+# 보정 함수
+# ========================================
+def adjust_prediction(pred, current_total):
+    """
+    보정: 하한선만 적용 (단순화)
+    - 10분 내 급락 제한: 현재값 - 100
+    """
+    floor = current_total - 100
+    if pred < floor:
+        pred = floor
+    return pred
+
+# ========================================
 # 모델 로드
-# ============================================
+# ========================================
 model = None
-model_files = ['model_v92_100min_10min.pkl']
-for mf in model_files:
+for mf in ['model_V8.3.1_10min.pkl', 'model_v831_10min.pkl']:
     if os.path.exists(mf):
         with open(mf, 'rb') as f:
             model = pickle.load(f)
@@ -114,163 +128,144 @@ for mf in model_files:
         break
 
 if not model:
-    print("❌ 모델 없음! 먼저 V92_학습 실행!")
+    print("❌ 모델 없음!")
     exit(1)
 
-# ============================================
+# ========================================
 # 데이터 로드
-# ============================================
+# ========================================
+DATA_FILE = '1211평가.CSV'  # 수정 필요!
+if not os.path.exists(DATA_FILE):
+    print(f"❌ 데이터 없음: {DATA_FILE}")
+    exit(1)
+
 df = pd.read_csv(DATA_FILE, on_bad_lines='skip')
 print(f"✅ 데이터: {len(df):,}행")
 
-if 'CURRTIME' in df.columns:
-    df['CURRTIME'] = pd.to_datetime(df['CURRTIME'].astype(str), format='%Y%m%d%H%M', errors='coerce')
+# 시간 파싱
+df['CURRTIME'] = pd.to_datetime(df['CURRTIME'].astype(str), format='%Y%m%d%H%M')
 
+# queue_gap
 df['queue_gap'] = df['M14.QUE.ALL.CURRENTQCREATED'] - df['M14.QUE.ALL.CURRENTQCOMPLETED']
 
-# ============================================
+# ========================================
 # 평가 실행
-# ============================================
+# ========================================
 results = []
-total = len(df) - SEQ_LEN - PRED_MINUTES
+total = len(df) - SEQ_LEN - PRED_OFFSET
 print(f"\n🔄 평가 중... {total:,}개")
 
-for i in range(SEQ_LEN, len(df) - PRED_MINUTES):
+for i in range(SEQ_LEN, len(df) - PRED_OFFSET):
     row_dict = {
+        'M14AM14B': df['M14AM14B'].iloc[i-SEQ_LEN:i].values,
+        'M14AM14BSUM': df['M14AM14BSUM'].iloc[i-SEQ_LEN:i].values,
+        'M10AM14A': df['M10AM14A'].iloc[i-SEQ_LEN:i].values,
         'TOTALCNT': df['TOTALCNT'].iloc[i-SEQ_LEN:i].values,
-        'M14B': df['M14AM14B'].iloc[i-SEQ_LEN:i].values,
-        'M14BSUM': df['M14AM14BSUM'].iloc[i-SEQ_LEN:i].values,
+        'M16M14A': df['M16M14A'].iloc[i-SEQ_LEN:i].values,
+        'TRANSPORT': df['M14.QUE.ALL.TRANSPORT4MINOVERCNT'].iloc[i-SEQ_LEN:i].values,
+        'OHT': df['M14.QUE.OHT.OHTUTIL'].iloc[i-SEQ_LEN:i].values,
         'Q_CREATED': df['M14.QUE.ALL.CURRENTQCREATED'].iloc[i-SEQ_LEN:i].values,
         'Q_COMPLETED': df['M14.QUE.ALL.CURRENTQCOMPLETED'].iloc[i-SEQ_LEN:i].values,
     }
     
-    current_total = row_dict['TOTALCNT'][-1]
-    current_m14b = row_dict['M14B'][-1]
-    current_m14bsum = row_dict['M14BSUM'][-1]
-    current_gap = row_dict['Q_CREATED'][-1] - row_dict['Q_COMPLETED'][-1]
+    # 현재 상태
+    current_time = df['CURRTIME'].iloc[i-1]
+    current_total = df['TOTALCNT'].iloc[i-1]
+    actual = df['TOTALCNT'].iloc[i + PRED_OFFSET - 1]
+    prediction_time = current_time + timedelta(minutes=PRED_OFFSET)
     
-    if 'CURRTIME' in df.columns and pd.notna(df['CURRTIME'].iloc[i-1]):
-        current_time = df['CURRTIME'].iloc[i-1]
-        time_str = current_time.strftime('%Y-%m-%d %H:%M')
-        pred_time_str = (current_time + timedelta(minutes=PRED_MINUTES)).strftime('%Y-%m-%d %H:%M')
-    else:
-        time_str = ''
-        pred_time_str = ''
+    # 추가 정보
+    m14b = row_dict['M14AM14B'][-1]
+    m14bsum = row_dict['M14AM14BSUM'][-1]
+    m16 = row_dict['M16M14A'][-1]
+    gap = row_dict['Q_CREATED'][-1] - row_dict['Q_COMPLETED'][-1]
+    transport = row_dict['TRANSPORT'][-1]
     
-    actual = df['TOTALCNT'].iloc[i + PRED_MINUTES - 1]
-    
-    # Feature 생성 (패턴 포함!)
-    features = create_features_v92(row_dict)
+    # Feature 생성
+    features = create_features_v831(row_dict)
     X = pd.DataFrame([features])
     
-    # ML 예측
-    pred = model.predict(X)[0]
+    # 예측 (변화량)
+    pred_change = model.predict(X)[0]
     
-    # 하한선만
-    floor = current_total - 80
-    if pred < floor:
-        pred = floor
+    # 원본 예측 = 현재값 + 변화량
+    pred_raw = current_total + pred_change
     
-    # 패턴 정보 (출력용)
-    is_triple = features['is_triple_check']
-    is_gold = features['is_gold_pattern']
-    is_gap_crit = features['is_gap_critical']
+    # 보정 예측
+    pred = adjust_prediction(pred_raw, current_total)
     
+    # 결과 저장 (기존 형식!)
     results.append({
-        '현재시간': time_str,
-        '예측시점': pred_time_str,
+        '현재시간': current_time.strftime('%Y-%m-%d %H:%M'),
         '현재TOTALCNT': round(current_total, 2),
-        '예측값': round(pred, 2),
+        '예측시점': prediction_time.strftime('%Y-%m-%d %H:%M'),
         '실제값': round(actual, 2),
+        '원본예측': round(pred_raw, 2),
+        '보정예측': round(pred, 2),
         '오차': round(actual - pred, 2),
         '절대오차': round(abs(actual - pred), 2),
-        'M14B': round(current_m14b, 2),
-        'M14BSUM': round(current_m14bsum, 2),
-        'queue_gap': round(current_gap, 2),
-        'Triple체크': 'O' if is_triple else '',
-        '황금패턴': 'O' if is_gold else '',
-        'Gap위험': 'O' if is_gap_crit else '',
-        '실제1700+': 'O' if actual >= 1700 else '',
-        '예측1700+': 'O' if pred >= 1700 else ''
+        'M14AM14B': round(m14b, 2),
+        'M14AM14BSUM': round(m14bsum, 2),
+        'M16M14A': round(m16, 2),
+        'queue_gap': round(gap, 2),
+        'TRANSPORT': round(transport, 2),
+        '>=1580': 'O' if current_total >= 1580 else '',
+        '실제위험(1700+)': 'O' if actual >= 1700 else '',
+        '예측위험(1700+)': 'O' if pred >= 1700 else ''
     })
     
-    if (i - SEQ_LEN) % 2000 == 0:
+    if (i - SEQ_LEN) % 500 == 0:
         print(f"  {i-SEQ_LEN:,}/{total:,}")
         gc.collect()
 
 print(f"✅ 완료!")
 
-# ============================================
+# ========================================
 # 결과 저장
-# ============================================
+# ========================================
 df_result = pd.DataFrame(results)
-output_file = 'evaluation_V92_100min_10min.csv'
-df_result.to_csv(output_file, index=False, encoding='utf-8-sig')
-print(f"\n💾 저장: {output_file}")
+output = 'evaluation_V8.3.1_10min.csv'
+df_result.to_csv(output, index=False, encoding='utf-8-sig')
+print(f"✅ 저장: {output}")
 
-# ============================================
+# ========================================
 # 통계
-# ============================================
+# ========================================
 print("\n" + "="*70)
-print("📊 V9.2 평가 통계")
+print("📊 V8.3.1 10분 평가 통계")
 print("="*70)
-
-print(f"\n총 예측: {len(df_result):,}개")
+print(f"총 예측: {len(df_result):,}개")
 print(f"MAE: {df_result['절대오차'].mean():.2f}")
-print(f"RMSE: {np.sqrt((df_result['오차']**2).mean()):.2f}")
 
-# 1700+ 감지
-actual_danger = df_result['실제1700+'] == 'O'
-pred_danger = df_result['예측1700+'] == 'O'
+actual_danger = df_result['실제위험(1700+)'] == 'O'
+pred_danger = df_result['예측위험(1700+)'] == 'O'
 actual_count = actual_danger.sum()
-pred_count = pred_danger.sum()
 detected = (actual_danger & pred_danger).sum()
-false_alarm = (pred_danger & ~actual_danger).sum()
-missed = (actual_danger & ~pred_danger).sum()
 
 print(f"\n🔥 1700+ 감지:")
-print(f"  실제 1700+: {actual_count:,}개")
-print(f"  예측 1700+: {pred_count:,}개")
+print(f"  실제: {actual_count}개")
 if actual_count > 0:
-    print(f"  ✅ 감지율(Recall): {detected}/{actual_count} ({detected/actual_count*100:.1f}%)")
-    print(f"  ❌ 미감지: {missed}개")
-if pred_count > 0:
-    print(f"  🎯 정밀도(Precision): {detected}/{pred_count} ({detected/pred_count*100:.1f}%)")
-print(f"  ⚠️ 오탐: {false_alarm}개")
-
-# 패턴별 분석
-print(f"\n📊 패턴별 실제 1700+ 발생률:")
-triple = df_result['Triple체크'] == 'O'
-gold = df_result['황금패턴'] == 'O'
-gap_crit = df_result['Gap위험'] == 'O'
-
-for name, mask in [('Triple체크', triple), ('황금패턴', gold), ('Gap위험', gap_crit)]:
-    subset = df_result[mask]
-    if len(subset) > 0:
-        actual_1700 = (subset['실제1700+'] == 'O').sum()
-        print(f"  {name}: {actual_1700}/{len(subset)} ({actual_1700/len(subset)*100:.1f}%)")
-
-# 패턴 없는 경우
-no_pattern = ~triple & ~gold & ~gap_crit
-subset = df_result[no_pattern]
-if len(subset) > 0:
-    actual_1700 = (subset['실제1700+'] == 'O').sum()
-    print(f"  패턴없음: {actual_1700}/{len(subset)} ({actual_1700/len(subset)*100:.2f}%)")
-
-# 미감지 분석
-if missed > 0:
-    print(f"\n📊 미감지 {missed}개 분석:")
-    missed_df = df_result[actual_danger & ~pred_danger]
-    print(f"  현재값 평균: {missed_df['현재TOTALCNT'].mean():.0f}")
-    print(f"  예측값 평균: {missed_df['예측값'].mean():.0f}")
-    print(f"  실제값 평균: {missed_df['실제값'].mean():.0f}")
+    print(f"  감지: {detected}개 ({detected/actual_count*100:.1f}%)")
     
-    # 패턴 분포
-    print(f"\n  미감지 중 패턴 분포:")
-    print(f"    Triple체크: {(missed_df['Triple체크']=='O').sum()}개")
-    print(f"    황금패턴: {(missed_df['황금패턴']=='O').sum()}개")
-    print(f"    Gap위험: {(missed_df['Gap위험']=='O').sum()}개")
+    # 오탐
+    fp = (pred_danger & ~actual_danger).sum()
+    print(f"  오탐(FP): {fp}개")
+    
+    # 정밀도
+    if pred_danger.sum() > 0:
+        precision = detected / pred_danger.sum() * 100
+        print(f"  정밀도: {precision:.1f}%")
+    
+    # 원본 vs 보정 비교
+    raw_detected = (df_result[actual_danger]['원본예측'] >= 1700).sum()
+    print(f"\n📈 보정 효과:")
+    print(f"  원본 감지율: {raw_detected/actual_count*100:.1f}%")
+    print(f"  보정 감지율: {detected/actual_count*100:.1f}%")
 
-print(f"\n" + "="*70)
-print(f"✅ V9.2 평가 완료!")
-print("="*70)
+# 단순 임계값 비교
+simple_pred = df_result['>=1580'] == 'O'
+simple_tp = (actual_danger & simple_pred).sum()
+print(f"\n📌 단순 임계값(>=1580) 비교:")
+print(f"  감지율: {simple_tp/actual_count*100:.1f}%" if actual_count > 0 else "  N/A")
+
+print(f"\n✅ V8.3.1 평가 완료! → {output}")
