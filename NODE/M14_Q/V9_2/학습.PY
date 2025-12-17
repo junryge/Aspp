@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-🚀 V9.0 학습 - 10분 예측 (Deep Learning 버전)
-더 깊고 세밀한 학습!
+🚀 V9.0 학습 - 10분 예측 (Deep 버전)
+Feature 80개 (queue_gap 복원!)
 """
 
 import numpy as np
@@ -15,11 +15,11 @@ import warnings
 warnings.filterwarnings('ignore')
 
 print("="*70)
-print("🚀 V9.0 학습 - 10분 예측 (Deep Learning 버전)")
+print("🚀 V9.0 학습 - 10분 예측 (Deep 버전)")
 print("="*70)
 
 # ========================================
-# Feature 생성 함수 (~80개)
+# Feature 생성 함수 (~80개) - 동일
 # ========================================
 def create_features_v9(row_dict):
     """핵심 컬럼 + queue_gap 기반 80개 Feature"""
@@ -142,7 +142,7 @@ def create_features_v9(row_dict):
     return features
 
 # ========================================
-# 데이터 준비
+# 데이터 준비 - 동일
 # ========================================
 def prepare_data(csv_path, seq_len=280, pred_minutes=10):
     print(f"\n📂 데이터 로딩: {csv_path}")
@@ -213,9 +213,11 @@ def prepare_data(csv_path, seq_len=280, pred_minutes=10):
     
     return X, y
 
+# ========================================
+# 🔥 변경: multiplier 10 (1:1 비율)
+# ========================================
 def augment_data(X, y, threshold=1700, multiplier=10):
-    """1:1 비율 맞추기 (multiplier=10)"""
-    print(f"\n🔥 1700+ 데이터 {multiplier}배 증강")
+    print(f"\n🔥 1700+ 데이터 {multiplier}배 증강 (1:1 비율)")
     high_mask = y >= threshold
     count = high_mask.sum()
     print(f"1700+ 원본: {count:,}개")
@@ -231,10 +233,12 @@ def augment_data(X, y, threshold=1700, multiplier=10):
     
     return X_aug, y_aug
 
-def train_model_deep(X, y):
-    """🔥 더 깊고 세밀한 학습"""
-    print(f"\n🚀 XGBoost Deep Learning 시작")
-    print(f"  X: {X.shape}, y: {len(y)}")
+# ========================================
+# 🔥 변경: Deep 학습 + Early Stopping
+# ========================================
+def train_model(X, y):
+    print(f"\n🚀 XGBoost Deep 학습")
+    print(f"  X NaN: {X.isna().sum().sum()}, y NaN: {y.isna().sum()}")
     
     # 학습/검증 분리
     X_train, X_val, y_train, y_val = train_test_split(
@@ -242,33 +246,30 @@ def train_model_deep(X, y):
     )
     print(f"  학습: {len(X_train):,}개, 검증: {len(X_val):,}개")
     
-    # 🔥 Deep 모델 설정
+    # 🔥 Deep 설정 (과적합 방지 포함)
     model = xgb.XGBRegressor(
         objective='reg:squarederror',
         
-        # 더 깊게!
+        # 더 깊게
         max_depth=12,              # 8 → 12
         n_estimators=2000,         # 500 → 2000
-        learning_rate=0.01,        # 0.05 → 0.01 (세밀하게)
+        learning_rate=0.01,        # 0.05 → 0.01
         
         # 과적합 방지
-        subsample=0.7,
-        colsample_bytree=0.7,
-        colsample_bylevel=0.6,
-        colsample_bynode=0.6,
-        
-        # 정규화
-        min_child_weight=5,
-        gamma=0.15,
-        reg_alpha=0.3,
-        reg_lambda=1.5,
+        subsample=0.7,             # 0.8 → 0.7
+        colsample_bytree=0.7,      # 0.8 → 0.7
+        colsample_bylevel=0.6,     # 추가
+        min_child_weight=5,        # 3 → 5
+        gamma=0.2,                 # 0.1 → 0.2
+        reg_alpha=0.3,             # 0.1 → 0.3
+        reg_lambda=2.0,            # 1.0 → 2.0
         
         random_state=42,
         n_jobs=-1,
         tree_method='hist'
     )
     
-    # Early Stopping으로 학습
+    # Early Stopping
     model.fit(
         X_train, y_train,
         eval_set=[(X_train, y_train), (X_val, y_val)],
@@ -283,22 +284,20 @@ def evaluate(model, X, y, X_val=None, y_val=None):
     print(f"📊 성능 평가")
     print("="*70)
     
-    # 전체 성능
     y_pred = model.predict(X)
     mae = mean_absolute_error(y, y_pred)
     rmse = np.sqrt(mean_squared_error(y, y_pred))
     r2 = r2_score(y, y_pred)
+    
     print(f"\n[전체] MAE: {mae:.2f}, RMSE: {rmse:.2f}, R²: {r2:.4f}")
     
     # 검증 성능
-    if X_val is not None:
+    if X_val is not None and y_val is not None:
         y_val_pred = model.predict(X_val)
         val_mae = mean_absolute_error(y_val, y_val_pred)
-        val_rmse = np.sqrt(mean_squared_error(y_val, y_val_pred))
         val_r2 = r2_score(y_val, y_val_pred)
-        print(f"[검증] MAE: {val_mae:.2f}, RMSE: {val_rmse:.2f}, R²: {val_r2:.4f}")
+        print(f"[검증] MAE: {val_mae:.2f}, R²: {val_r2:.4f}")
     
-    # 1700+ 감지율
     high = y >= 1700
     if high.sum() > 0:
         detected = ((y >= 1700) & (y_pred >= 1680)).sum()
@@ -318,26 +317,19 @@ def show_importance(model, X):
 if __name__ == '__main__':
     CSV_FILE = "data/M14_Q_20250802_TO_20251015.csv"
     
-    # 1. 데이터 준비
     X, y = prepare_data(CSV_FILE, pred_minutes=10)
     if X is None:
         exit(1)
     
-    # 2. 증강 (1:1 비율)
-    X_aug, y_aug = augment_data(X, y, multiplier=10)
-    
-    # 3. Deep 학습
-    model, X_val, y_val = train_model_deep(X_aug, y_aug)
-    
-    # 4. 평가
+    X_aug, y_aug = augment_data(X, y)  # multiplier=10
+    model, X_val, y_val = train_model(X_aug, y_aug)
     mae, rmse, r2 = evaluate(model, X_aug, y_aug, X_val, y_val)
     show_importance(model, X_aug)
     
-    # 5. 저장
-    with open('model_v9_10min_deep.pkl', 'wb') as f:
+    with open('model_v9_10min.pkl', 'wb') as f:
         pickle.dump(model, f)
     with open('features_v9_10min.pkl', 'wb') as f:
         pickle.dump(list(X.columns), f)
     
-    print(f"\n💾 저장: model_v9_10min_deep.pkl")
-    print(f"✅ V9.0 Deep 학습 완료!")
+    print(f"\n💾 저장: model_v9_10min.pkl, features_v9_10min.pkl")
+    print(f"✅ V9.0 Deep 학습 완료! Feature: {X.shape[1]}개")
