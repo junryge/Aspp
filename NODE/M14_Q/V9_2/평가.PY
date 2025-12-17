@@ -116,9 +116,9 @@ results['M14AM14BSUM'] = df_valid['M14AM14BSUM']
 results['queue_gap'] = df_valid['Gap']
 results['TRANSPORT'] = df_valid['M14.QUE.ALL.TRANSPORT4MINOVERCNT']
 
-# 위험 여부 (O/X)
+# 위험 여부 (O/X) - 1650 기준 적용 (튜닝)
 results['실제위험'] = np.where(results['실제값'] >= 1700, 'O', '')
-results['예측위험'] = np.where(results['예측값'] >= 1700, 'O', '')
+results['예측위험'] = np.where(results['예측값'] >= 1650, 'O', '')  # ⭐️ 예측은 1650으로 기준 완화
 
 # 통계용 구간 정보
 results['Load_Category'] = results['실제값'].apply(get_load_category)
