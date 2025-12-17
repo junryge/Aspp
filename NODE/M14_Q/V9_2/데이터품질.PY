@@ -1,133 +1,58 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-🚀 V11.5 평가 (수정판) - 280분 시퀀스 지원
-기능: 학습 모델이 요구하는 '280분 전 데이터'까지 모두 생성하여 에러 해결
+🛠️ 학습용 고부하(Over 1700) 데이터 추출기
+중요: 평가하려는 날짜(12월 11일)는 절대 포함하지 않습니다. (데이터 누수 방지)
 """
-import numpy as np
 import pandas as pd
-import xgboost as xgb
-import pickle
+import glob
 import warnings
-from datetime import timedelta
 warnings.filterwarnings('ignore')
 
 print("="*70)
-print("🚀 V11.5 평가 - 280분 시퀀스 매칭 (에러 수정)")
+print("🛡️ 학습용 고부하 데이터 추출 (평가일 제외)")
 print("="*70)
 
+# 🔴 평가할 날짜 (이 날짜는 학습 데이터에서 무조건 뺍니다)
+TEST_DATE = '2025-12-11'
 PRED_OFFSET = 10
-# 🔴 평가할 파일명을 확인하세요
-EVAL_FILE = '20251211_16평가.CSV' 
 
-def create_vectorized_features(df):
-    """
-    [수정] 학습 때 사용한 '280분 시퀀스' 피처를 똑같이 생성합니다.
-    """
-    df = df.copy()
-    cols = ['TOTALCNT', 'M14AM14B', 'M14AM14BSUM', 'M10AM14A', 
-            'M14.QUE.ALL.TRANSPORT4MINOVERCNT', 'M14.QUE.OHT.OHTUTIL',
-            'M14.QUE.ALL.CURRENTQCREATED', 'M14.QUE.ALL.CURRENTQCOMPLETED']
-    for c in cols: df[c] = pd.to_numeric(df[c], errors='coerce').fillna(0)
-    
-    df['Gap'] = df['M14.QUE.ALL.CURRENTQCREATED'] - df['M14.QUE.ALL.CURRENTQCOMPLETED']
-    
-    # ---------------------------------------------------------
-    # 🔥 [수정 포인트] 학습 코드와 동일하게 280까지 확장
-    # ---------------------------------------------------------
-    # 기존: [1, 3, 5, 10, 20] -> 수정: [..., 50, 100, 280] 추가
-    lags = [1, 3, 5, 10, 20, 50, 100, 280]
-    for lag in lags:
-        df[f'Total_Lag_{lag}'] = df['TOTALCNT'].shift(lag)
-        df[f'M14B_Lag_{lag}'] = df['M14AM14B'].shift(lag)
-    
-    # 기존: [10, 30, 60] -> 수정: [..., 100, 280] 추가
-    windows = [10, 30, 60, 100, 280]
-    for w in windows:
-        df[f'Total_Mean_{w}'] = df['TOTALCNT'].rolling(w).mean()
-        df[f'Total_Std_{w}'] = df['TOTALCNT'].rolling(w).std()
+def load_data(path_pattern):
+    files = glob.glob(path_pattern)
+    if not files: files = glob.glob('M14_Q_*.CSV')
+    dfs = []
+    for f in sorted(files):
+        try: dfs.append(pd.read_csv(f, on_bad_lines='skip', encoding='utf-8'))
+        except: dfs.append(pd.read_csv(f, on_bad_lines='skip', encoding='cp949'))
+    return pd.concat(dfs, ignore_index=True)
 
-    # 변화량 피처 (V11.5 핵심)
-    df['Slope_1'] = df['TOTALCNT'] - df['TOTALCNT'].shift(1)
-    df['Slope_3'] = df['TOTALCNT'] - df['TOTALCNT'].shift(3)
-    df['Slope_5'] = df['TOTALCNT'] - df['TOTALCNT'].shift(5)
-    df['Accel_1'] = df['Slope_1'] - df['Slope_1'].shift(1)
+# 1. 전체 데이터 로드
+df = load_data('M14_Q_*.CSV')
+df['CURRTIME_OBJ'] = pd.to_datetime(df['CURRTIME'].astype(str), format='%Y%m%d%H%M', errors='coerce')
 
-    df['Target_Total_Future'] = df['TOTALCNT'].shift(-PRED_OFFSET)
-    return df
+# 2. 피처 생성 (학습 때 쓰는 것과 동일하게 280 시퀀스 등)
+# (간단하게 타겟만 확인하기 위해 로직 최소화, 실제론 학습 코드의 피처 생성 함수 쓰면 됨)
+df['Target_Total_Future'] = df['TOTALCNT'].shift(-PRED_OFFSET)
 
-# 1. 모델 로드
-print("📂 모델 로딩 (model_v11_delta_focused.pkl)...")
-try:
-    with open('model_v11_delta_focused.pkl', 'rb') as f:
-        model = pickle.load(f)
-    with open('features_v11_delta_focused.pkl', 'rb') as f:
-        feature_cols = pickle.load(f)
-except FileNotFoundError:
-    print("❌ 모델 파일이 없습니다! 학습(train_v11_5.py)을 먼저 실행해주세요.")
-    exit()
+# 3. [중요] 평가일(12월 11일) 데이터 제거
+mask_not_test = df['CURRTIME_OBJ'].dt.date.astype(str) != TEST_DATE
+df_train_pool = df[mask_not_test].copy()
 
-# 2. 데이터 로드
-print(f"📂 평가 데이터: {EVAL_FILE}")
-try:
-    df_raw = pd.read_csv(EVAL_FILE, on_bad_lines='skip', encoding='utf-8')
-except:
-    df_raw = pd.read_csv(EVAL_FILE, on_bad_lines='skip', encoding='cp949')
+print(f"\n📉 데이터 필터링:")
+print(f" - 전체 데이터: {len(df):,}개")
+print(f" - 평가일({TEST_DATE}) 제외 후: {len(df_train_pool):,}개")
 
-df_raw['CURRTIME_OBJ'] = pd.to_datetime(df_raw['CURRTIME'].astype(str), format='%Y%m%d%H%M', errors='coerce')
+# 4. 1700 이상인 데이터만 추출
+df_high_load = df_train_pool[df_train_pool['Target_Total_Future'] >= 1700].copy()
 
-# 3. 피처 생성
-print("🔄 피처 생성 중 (280분 시퀀스 포함)...")
-df_feat = create_vectorized_features(df_raw)
+print(f"\n🔥 추출된 학습용 고부하 데이터:")
+print(f" - 개수: {len(df_high_load):,}개")
 
-# 유효 데이터 필터링
-df_valid = df_feat.dropna(subset=feature_cols + ['Target_Total_Future', 'CURRTIME_OBJ']).copy()
-print(f"✅ 유효 평가 샘플: {len(df_valid):,}개")
-
-# 4. 예측 수행
-print("🚀 예측 수행 중...")
-X_eval = df_valid[feature_cols]
-
-# 변화량(Delta) 예측
-pred_delta = model.predict(X_eval)
-
-# 최종값 = 현재값 + 예측된 변화량
-pred_total = df_valid['TOTALCNT'] + pred_delta
-
-# 5. 결과 정리
-results = pd.DataFrame()
-current_time = df_valid['CURRTIME_OBJ']
-
-results['현재시간'] = current_time.dt.strftime('%Y-%m-%d %H:%M')
-results['현재TOTALCNT'] = df_valid['TOTALCNT'].round(2)
-results['예측시점'] = (current_time + timedelta(minutes=PRED_OFFSET)).dt.strftime('%Y-%m-%d %H:%M')
-results['실제값'] = df_valid['Target_Total_Future'].round(2)
-results['예측값'] = pred_total.round(2)
-results['예측Delta'] = pred_delta.round(2)
-results['실제Delta'] = (results['실제값'] - results['현재TOTALCNT']).round(2)
-results['오차'] = (results['실제값'] - results['예측값']).round(2)
-results['절대오차'] = results['오차'].abs()
-
-# 위험 감지 여부 (1650 기준)
-results['실제위험'] = np.where(results['실제값'] >= 1700, 'O', '')
-results['예측위험'] = np.where(results['예측값'] >= 1650, 'O', '')
-
-# 6. 통계 출력
-mae = results['절대오차'].mean()
-print(f"\n📊 전체 평균 절대 오차 (MAE): {mae:.2f}")
-
-high_val_mask = results['실제값'] >= 1650
-if high_val_mask.sum() > 0:
-    mae_high = results.loc[high_val_mask, '절대오차'].mean()
-    acc_high = (results.loc[high_val_mask, '절대오차'] <= 20).mean() * 100
-    print(f"🔥 고부하 구간(>=1650) MAE: {mae_high:.2f}")
-    print(f"🔥 고부하 구간 정확도(±20): {acc_high:.1f}%")
-    
-    # 변화량 예측력 체크
-    print("\n[변화량(Delta) 예측 샘플]")
-    print(results.loc[high_val_mask, ['현재시간', '현재TOTALCNT', '예측Delta', '실제Delta', '예측값', '실제값']].head().to_string(index=False))
-
-# CSV 저장
-outfile = 'Evaluation_Result_V11_5.CSV'
-results.to_csv(outfile, index=False, encoding='utf-8-sig')
-print(f"\n💾 상세 결과 저장 완료: {outfile}")
+if len(df_high_load) > 0:
+    # 저장
+    filename = 'High_Load_Train_Only.csv'
+    df_high_load.to_csv(filename, index=False, encoding='utf-8-sig')
+    print(f"\n💾 저장 완료: {filename}")
+    print("👉 학습 코드에서 이 파일을 불러와서 50~100배 복사(pd.concat)해서 쓰세요.")
+else:
+    print("\n⚠ 12월 11일을 뺐더니 1700 넘는 게 하나도 없습니다. 데이터 기간을 확인하세요.")
