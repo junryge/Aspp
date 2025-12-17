@@ -1,38 +1,29 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-🛠️ 고부하(Over 1700) 학습 데이터 추출기 (V2 - 280분 시퀀스 반영)
-기능: '10분 뒤 1700 이상'이 되는 시점의 데이터를 280분 과거 흐름까지 포함해 추출
+🚀 V11.5 평가 (수정판) - 280분 시퀀스 지원
+기능: 학습 모델이 요구하는 '280분 전 데이터'까지 모두 생성하여 에러 해결
 """
 import numpy as np
 import pandas as pd
-import glob
+import xgboost as xgb
+import pickle
 import warnings
+from datetime import timedelta
 warnings.filterwarnings('ignore')
 
 print("="*70)
-print("🛠️ 고부하(1700+) 학습 데이터 추출 (280분 시퀀스 & 10분 예측)")
+print("🚀 V11.5 평가 - 280분 시퀀스 매칭 (에러 수정)")
 print("="*70)
 
-PRED_OFFSET = 10 # 10분 뒤 예측
-
-def load_data(path_pattern):
-    print(f"\n📂 원본 데이터 로딩: {path_pattern}")
-    files = glob.glob(path_pattern)
-    if not files: 
-        print("⚠ 파일이 없어 기본 파일(M14_Q_*.CSV)을 찾습니다.")
-        files = glob.glob('M14_Q_*.CSV')
-    
-    dfs = []
-    for f in sorted(files):
-        try: dfs.append(pd.read_csv(f, on_bad_lines='skip', encoding='utf-8'))
-        except: dfs.append(pd.read_csv(f, on_bad_lines='skip', encoding='cp949'))
-    
-    if not dfs: raise ValueError("❌ 데이터 파일이 없습니다!")
-    return pd.concat(dfs, ignore_index=True)
+PRED_OFFSET = 10
+# 🔴 평가할 파일명을 확인하세요
+EVAL_FILE = '20251211_16평가.CSV' 
 
 def create_vectorized_features(df):
-    """280분 시퀀스를 반영한 피처 생성"""
+    """
+    [수정] 학습 때 사용한 '280분 시퀀스' 피처를 똑같이 생성합니다.
+    """
     df = df.copy()
     cols = ['TOTALCNT', 'M14AM14B', 'M14AM14BSUM', 'M10AM14A', 
             'M14.QUE.ALL.TRANSPORT4MINOVERCNT', 'M14.QUE.OHT.OHTUTIL',
@@ -41,47 +32,102 @@ def create_vectorized_features(df):
     
     df['Gap'] = df['M14.QUE.ALL.CURRENTQCREATED'] - df['M14.QUE.ALL.CURRENTQCOMPLETED']
     
-    # 1. Lag (시차 변수)
-    # 280분 전의 상태와 비교하기 위해 Lag 280 추가
-    lags = [1, 3, 5, 10, 20, 50, 100, 280] 
+    # ---------------------------------------------------------
+    # 🔥 [수정 포인트] 학습 코드와 동일하게 280까지 확장
+    # ---------------------------------------------------------
+    # 기존: [1, 3, 5, 10, 20] -> 수정: [..., 50, 100, 280] 추가
+    lags = [1, 3, 5, 10, 20, 50, 100, 280]
     for lag in lags:
         df[f'Total_Lag_{lag}'] = df['TOTALCNT'].shift(lag)
         df[f'M14B_Lag_{lag}'] = df['M14AM14B'].shift(lag)
     
-    # 2. Rolling (이동평균) - 280분 추가!
-    windows = [10, 30, 60, 100, 280] 
+    # 기존: [10, 30, 60] -> 수정: [..., 100, 280] 추가
+    windows = [10, 30, 60, 100, 280]
     for w in windows:
         df[f'Total_Mean_{w}'] = df['TOTALCNT'].rolling(w).mean()
         df[f'Total_Std_{w}'] = df['TOTALCNT'].rolling(w).std()
 
-    # 3. 변화량 (Delta & Slope)
+    # 변화량 피처 (V11.5 핵심)
     df['Slope_1'] = df['TOTALCNT'] - df['TOTALCNT'].shift(1)
     df['Slope_3'] = df['TOTALCNT'] - df['TOTALCNT'].shift(3)
+    df['Slope_5'] = df['TOTALCNT'] - df['TOTALCNT'].shift(5)
     df['Accel_1'] = df['Slope_1'] - df['Slope_1'].shift(1)
 
-    # 4. 타겟 (10분 뒤 미래 값)
     df['Target_Total_Future'] = df['TOTALCNT'].shift(-PRED_OFFSET)
+    return df
+
+# 1. 모델 로드
+print("📂 모델 로딩 (model_v11_delta_focused.pkl)...")
+try:
+    with open('model_v11_delta_focused.pkl', 'rb') as f:
+        model = pickle.load(f)
+    with open('features_v11_delta_focused.pkl', 'rb') as f:
+        feature_cols = pickle.load(f)
+except FileNotFoundError:
+    print("❌ 모델 파일이 없습니다! 학습(train_v11_5.py)을 먼저 실행해주세요.")
+    exit()
+
+# 2. 데이터 로드
+print(f"📂 평가 데이터: {EVAL_FILE}")
+try:
+    df_raw = pd.read_csv(EVAL_FILE, on_bad_lines='skip', encoding='utf-8')
+except:
+    df_raw = pd.read_csv(EVAL_FILE, on_bad_lines='skip', encoding='cp949')
+
+df_raw['CURRTIME_OBJ'] = pd.to_datetime(df_raw['CURRTIME'].astype(str), format='%Y%m%d%H%M', errors='coerce')
+
+# 3. 피처 생성
+print("🔄 피처 생성 중 (280분 시퀀스 포함)...")
+df_feat = create_vectorized_features(df_raw)
+
+# 유효 데이터 필터링
+df_valid = df_feat.dropna(subset=feature_cols + ['Target_Total_Future', 'CURRTIME_OBJ']).copy()
+print(f"✅ 유효 평가 샘플: {len(df_valid):,}개")
+
+# 4. 예측 수행
+print("🚀 예측 수행 중...")
+X_eval = df_valid[feature_cols]
+
+# 변화량(Delta) 예측
+pred_delta = model.predict(X_eval)
+
+# 최종값 = 현재값 + 예측된 변화량
+pred_total = df_valid['TOTALCNT'] + pred_delta
+
+# 5. 결과 정리
+results = pd.DataFrame()
+current_time = df_valid['CURRTIME_OBJ']
+
+results['현재시간'] = current_time.dt.strftime('%Y-%m-%d %H:%M')
+results['현재TOTALCNT'] = df_valid['TOTALCNT'].round(2)
+results['예측시점'] = (current_time + timedelta(minutes=PRED_OFFSET)).dt.strftime('%Y-%m-%d %H:%M')
+results['실제값'] = df_valid['Target_Total_Future'].round(2)
+results['예측값'] = pred_total.round(2)
+results['예측Delta'] = pred_delta.round(2)
+results['실제Delta'] = (results['실제값'] - results['현재TOTALCNT']).round(2)
+results['오차'] = (results['실제값'] - results['예측값']).round(2)
+results['절대오차'] = results['오차'].abs()
+
+# 위험 감지 여부 (1650 기준)
+results['실제위험'] = np.where(results['실제값'] >= 1700, 'O', '')
+results['예측위험'] = np.where(results['예측값'] >= 1650, 'O', '')
+
+# 6. 통계 출력
+mae = results['절대오차'].mean()
+print(f"\n📊 전체 평균 절대 오차 (MAE): {mae:.2f}")
+
+high_val_mask = results['실제값'] >= 1650
+if high_val_mask.sum() > 0:
+    mae_high = results.loc[high_val_mask, '절대오차'].mean()
+    acc_high = (results.loc[high_val_mask, '절대오차'] <= 20).mean() * 100
+    print(f"🔥 고부하 구간(>=1650) MAE: {mae_high:.2f}")
+    print(f"🔥 고부하 구간 정확도(±20): {acc_high:.1f}%")
     
-    return df.dropna().reset_index(drop=True)
+    # 변화량 예측력 체크
+    print("\n[변화량(Delta) 예측 샘플]")
+    print(results.loc[high_val_mask, ['현재시간', '현재TOTALCNT', '예측Delta', '실제Delta', '예측값', '실제값']].head().to_string(index=False))
 
-# --- 메인 실행 ---
-df_raw = load_data('M14_Q_*.CSV')
-
-print("\n🔄 280분 시퀀스 피처 생성 중...")
-df_features = create_vectorized_features(df_raw)
-
-print("\n🔍 1700 이상 고부하 데이터 추출 중...")
-# 1700 이상인 데이터만 추출
-high_load_df = df_features[df_features['Target_Total_Future'] >= 1700].copy()
-
-count = len(high_load_df)
-print(f"\n📊 추출 결과")
-print(f"   - 1700+ 데이터: {count:,}개 추출됨")
-
-if count > 0:
-    outfile = 'High_Load_Training_Data.csv'
-    high_load_df.to_csv(outfile, index=False, encoding='utf-8-sig')
-    print(f"\n💾 저장 완료: {outfile}")
-    print("   (이 파일은 280분 전의 데이터까지 포함하고 있어 V11.5 학습에 최적입니다)")
-else:
-    print("\n⚠ 1700 이상인 데이터가 없습니다.")
+# CSV 저장
+outfile = 'Evaluation_Result_V11_5.CSV'
+results.to_csv(outfile, index=False, encoding='utf-8-sig')
+print(f"\n💾 상세 결과 저장 완료: {outfile}")
