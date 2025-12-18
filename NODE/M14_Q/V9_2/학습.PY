@@ -1,277 +1,148 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-🚀 V8.3.1 학습 - 10분 예측
-핵심 변경: 변화량 예측 방식
-
-변경사항:
-1. 타겟 = 변화량 (10분 후 - 현재)
-2. Feature = 33개 (82개 → 33개)
-3. 시계열 = 60분 (280분 → 60분)
-4. 증강 = 제거
-5. 예측값 = 현재값 + 예측_변화량
-6. M16M14A 추가, 새 임계값(1550/1580/1600/1650)
+🚀 V11.0 학습 - 10분 예측 (개선된 로직)
+시퀀스: 100분, 예측: 10분 후
+특징: 벡터화 연산, 가중치 학습, 2단계 모델 (원본+보정)
 """
-
 import numpy as np
 import pandas as pd
 import xgboost as xgb
-from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
 import pickle
+import glob
 import warnings
+from sklearn.metrics import mean_absolute_error
 warnings.filterwarnings('ignore')
-
 print("="*70)
-print("🚀 V8.3.1 학습 - 10분 예측")
-print("   전략: 현재값 + 변화량 예측")
+print("🚀 V11.0 학습 - 10분 예측 (고성능 최적화)")
 print("="*70)
-
-# ========================================
-# 설정
-# ========================================
-SEQ_LEN = 60       # 60분 시계열
-PRED_MINUTES = 10  # 10분 후 예측
-
-# ========================================
-# Feature 생성 함수 (33개)
-# ========================================
-def create_features_v831(row_dict):
-    """핵심 Feature만 (33개)"""
-    features = {}
-    
-    seq_totalcnt = np.array(row_dict['TOTALCNT'])
-    seq_m14b = np.array(row_dict['M14AM14B'])
-    seq_m14bsum = np.array(row_dict['M14AM14BSUM'])
-    seq_m10arev = np.array(row_dict['M10AM14A'])
-    seq_m16m14a = np.array(row_dict['M16M14A'])
-    seq_transport = np.array(row_dict['TRANSPORT'])
-    seq_oht = np.array(row_dict['OHT'])
-    seq_gap = np.array(row_dict['Q_CREATED']) - np.array(row_dict['Q_COMPLETED'])
-    
-    seq_len = len(seq_totalcnt)
-    
-    # 1. TOTALCNT (7개)
-    features['total_current'] = seq_totalcnt[-1]
-    features['total_last5'] = np.mean(seq_totalcnt[-5:])
-    features['total_last10'] = np.mean(seq_totalcnt[-10:])
-    features['total_trend5'] = seq_totalcnt[-1] - seq_totalcnt[-5]
-    features['total_trend10'] = seq_totalcnt[-1] - seq_totalcnt[-10]
-    features['total_slope'] = np.polyfit(np.arange(min(30, seq_len)), seq_totalcnt[-30:], 1)[0]
-    features['total_std10'] = np.std(seq_totalcnt[-10:])
-    
-    # 2. M14AM14B (4개)
-    features['m14b_current'] = seq_m14b[-1]
-    features['m14b_last10'] = np.mean(seq_m14b[-10:])
-    features['m14b_trend10'] = seq_m14b[-1] - seq_m14b[-10]
-    features['m14b_slope'] = np.polyfit(np.arange(min(30, seq_len)), seq_m14b[-30:], 1)[0]
-    
-    # 3. M14AM14BSUM (4개)
-    features['m14bsum_current'] = seq_m14bsum[-1]
-    features['m14bsum_last10'] = np.mean(seq_m14bsum[-10:])
-    features['m14bsum_trend10'] = seq_m14bsum[-1] - seq_m14bsum[-10]
-    features['m14bsum_slope'] = np.polyfit(np.arange(min(30, seq_len)), seq_m14bsum[-30:], 1)[0]
-    
-    # 4. M16M14A (3개)
-    features['m16_current'] = seq_m16m14a[-1]
-    features['m16_last10'] = np.mean(seq_m16m14a[-10:])
-    features['m16_trend10'] = seq_m16m14a[-1] - seq_m16m14a[-10]
-    
-    # 5. M10AM14A (2개)
-    features['m10arev_current'] = seq_m10arev[-1]
-    features['m10arev_trend10'] = seq_m10arev[-1] - seq_m10arev[-10]
-    
-    # 6. TRANSPORT (2개)
-    features['trans_current'] = seq_transport[-1]
-    features['trans_trend10'] = seq_transport[-1] - seq_transport[-10]
-    
-    # 7. OHT (2개)
-    features['oht_current'] = seq_oht[-1]
-    features['oht_last10'] = np.mean(seq_oht[-10:])
-    
-    # 8. Queue Gap (3개)
-    features['gap_current'] = seq_gap[-1]
-    features['gap_last10'] = np.mean(seq_gap[-10:])
-    features['gap_trend10'] = seq_gap[-1] - seq_gap[-10]
-    
-    # 9. 핵심 임계값 (4개)
-    features['is_over_1550'] = 1 if seq_totalcnt[-1] >= 1550 else 0
-    features['is_over_1580'] = 1 if seq_totalcnt[-1] >= 1580 else 0
-    features['is_over_1600'] = 1 if seq_totalcnt[-1] >= 1600 else 0
-    features['is_over_1650'] = 1 if seq_totalcnt[-1] >= 1650 else 0
-    
-    # 10. 복합 지표 (2개)
-    features['m14b_plus_sum'] = seq_m14b[-1] + seq_m14bsum[-1]
-    features['total_momentum'] = features['total_trend5'] + features['total_trend10']
-    
-    return features
-
-# ========================================
-# 데이터 준비
-# ========================================
-def prepare_data(csv_path, seq_len=SEQ_LEN, pred_minutes=PRED_MINUTES):
-    print(f"\n📂 데이터 로딩: {csv_path}")
-    df = pd.read_csv(csv_path)
-    print(f"✅ {len(df):,}행 × {df.shape[1]}열")
-    
-    required = ['M14AM14B', 'M14AM14BSUM', 'M10AM14A', 'TOTALCNT', 'M16M14A',
-                'M14.QUE.ALL.TRANSPORT4MINOVERCNT', 'M14.QUE.OHT.OHTUTIL',
-                'M14.QUE.ALL.CURRENTQCREATED', 'M14.QUE.ALL.CURRENTQCOMPLETED']
-    
-    missing = [c for c in required if c not in df.columns]
-    if missing:
-        print(f"❌ 누락 컬럼: {missing}")
-        return None, None, None
-    
-    print(f"✅ 9개 컬럼 확인")
-    
-    before = len(df)
-    df = df.dropna(subset=required)
-    after = len(df)
-    if before != after:
-        print(f"⚠️ NaN 제거: {before:,} → {after:,}")
-    
-    print(f"\n📊 TOTALCNT 분포:")
-    print(f"  범위: {df['TOTALCNT'].min():.0f} ~ {df['TOTALCNT'].max():.0f}")
-    print(f"  1700+: {(df['TOTALCNT']>=1700).sum()}개 ({(df['TOTALCNT']>=1700).sum()/len(df)*100:.2f}%)")
-    
-    print(f"\n🔄 Feature 생성 중...")
-    
-    X_list = []
-    y_change_list = []
-    y_actual_list = []
-    current_list = []
-    
-    pred_offset = pred_minutes
-    total = len(df) - seq_len - pred_offset
-    
-    for i in range(seq_len, len(df) - pred_offset):
-        row_dict = {
-            'M14AM14B': df['M14AM14B'].iloc[i-seq_len:i].values,
-            'M14AM14BSUM': df['M14AM14BSUM'].iloc[i-seq_len:i].values,
-            'M10AM14A': df['M10AM14A'].iloc[i-seq_len:i].values,
-            'TOTALCNT': df['TOTALCNT'].iloc[i-seq_len:i].values,
-            'M16M14A': df['M16M14A'].iloc[i-seq_len:i].values,
-            'TRANSPORT': df['M14.QUE.ALL.TRANSPORT4MINOVERCNT'].iloc[i-seq_len:i].values,
-            'OHT': df['M14.QUE.OHT.OHTUTIL'].iloc[i-seq_len:i].values,
-            'Q_CREATED': df['M14.QUE.ALL.CURRENTQCREATED'].iloc[i-seq_len:i].values,
-            'Q_COMPLETED': df['M14.QUE.ALL.CURRENTQCOMPLETED'].iloc[i-seq_len:i].values,
-        }
+PRED_OFFSET = 10
+def load_data(path_pattern):
+    print(f"\n📂 데이터 로딩: {path_pattern}")
+    files = glob.glob(path_pattern)
+    if not files:
+        print("⚠ 파일이 없습니다. 기본 파일명을 시도합니다.")
+        files = glob.glob('M14_Q_20241201_202512010_학습.CSV')
         
-        current_total = df['TOTALCNT'].iloc[i-1]
-        future_total = df['TOTALCNT'].iloc[i + pred_offset - 1]
+    dfs = []
+    for f in sorted(files):
+        try:
+            df = pd.read_csv(f, on_bad_lines='skip', encoding='utf-8')
+            print(f"  {f}: {len(df):,}행")
+            dfs.append(df)
+        except UnicodeDecodeError:
+            df = pd.read_csv(f, on_bad_lines='skip', encoding='cp949')
+            print(f"  {f} (cp949): {len(df):,}행")
+            dfs.append(df)
+            
+    if not dfs:
+        raise ValueError("데이터 파일을 찾을 수 없습니다!")
         
-        if pd.isna(future_total) or pd.isna(current_total):
-            continue
-        
-        change = future_total - current_total
-        
-        X_list.append(create_features_v831(row_dict))
-        y_change_list.append(change)
-        y_actual_list.append(future_total)
-        current_list.append(current_total)
-        
-        if (i - seq_len) % 5000 == 0:
-            print(f"  {i-seq_len:,}/{total:,}")
+    return pd.concat(dfs, ignore_index=True)
+def create_vectorized_features(df):
+    """벡터화된 피처 생성 (속도 최적화)"""
+    df = df.copy()
     
-    print(f"✅ 완료!")
+    # 숫자형 변환
+    cols = ['TOTALCNT', 'M14AM14B', 'M14AM14BSUM', 'M10AM14A', 
+            'M14.QUE.ALL.TRANSPORT4MINOVERCNT', 'M14.QUE.OHT.OHTUTIL',
+            'M14.QUE.ALL.CURRENTQCREATED', 'M14.QUE.ALL.CURRENTQCOMPLETED']
+    for c in cols:
+        df[c] = pd.to_numeric(df[c], errors='coerce').fillna(0)
+    # 기본 변수
+    df['Gap'] = df['M14.QUE.ALL.CURRENTQCREATED'] - df['M14.QUE.ALL.CURRENTQCOMPLETED']
+    df['Transport'] = df['M14.QUE.ALL.TRANSPORT4MINOVERCNT']
+    df['OHT'] = df['M14.QUE.OHT.OHTUTIL']
     
-    X = pd.DataFrame(X_list)
-    y_change = pd.Series(y_change_list)
-    y_actual = pd.Series(y_actual_list)
-    current = pd.Series(current_list)
+    # 1. 시차 변수 (Lags)
+    lags = [1, 3, 5, 10, 20]
+    for lag in lags:
+        df[f'Total_Lag_{lag}'] = df['TOTALCNT'].shift(lag)
+        df[f'M14B_Lag_{lag}'] = df['M14AM14B'].shift(lag)
+        df[f'Sum_Lag_{lag}'] = df['M14AM14BSUM'].shift(lag)
+        df[f'Gap_Lag_{lag}'] = df['Gap'].shift(lag)
+    # 2. 이동 평균/표준편차 (Rolling Stats)
+    windows = [10, 30, 60]
+    for w in windows:
+        df[f'Total_Mean_{w}'] = df['TOTALCNT'].rolling(w).mean()
+        df[f'Total_Std_{w}'] = df['TOTALCNT'].rolling(w).std()
+        df[f'Total_Max_{w}'] = df['TOTALCNT'].rolling(w).max()
+        df[f'Total_Min_{w}'] = df['TOTALCNT'].rolling(w).min()
+        df[f'M14B_Mean_{w}'] = df['M14AM14B'].rolling(w).mean()
+        df[f'Gap_Mean_{w}'] = df['Gap'].rolling(w).mean()
+    # 3. 변화량 (Delta)
+    df['Total_Delta_1'] = df['TOTALCNT'] - df['Total_Lag_1']
+    df['Total_Delta_5'] = df['TOTALCNT'] - df['Total_Lag_5']
+    df['Total_Delta_10'] = df['TOTALCNT'] - df['Total_Lag_10']
     
-    mask = ~(X.isna().any(axis=1) | y_change.isna())
-    X = X[mask].reset_index(drop=True)
-    y_change = y_change[mask].reset_index(drop=True)
-    y_actual = y_actual[mask].reset_index(drop=True)
-    current = current[mask].reset_index(drop=True)
+    df['M14B_Delta_10'] = df['M14AM14B'] - df['M14B_Lag_10']
+    df['Sum_Delta_10'] = df['M14AM14BSUM'] - df['Sum_Lag_10']
     
-    print(f"\n📊 결과:")
-    print(f"  Feature: {X.shape[1]}개")
-    print(f"  샘플: {len(X):,}개")
-    print(f"  변화량: {y_change.min():.0f} ~ {y_change.max():.0f}")
-    print(f"  10분 후 1700+: {(y_actual>=1700).sum()}개")
+    # 4. 상호작용 (Interaction)
+    df['Load_Ratio'] = df['M14AM14B'] / (df['TOTALCNT'] + 1)
+    df['Gap_Load'] = df['Gap'] * df['M14AM14B']
     
-    return X, y_change, pd.DataFrame({'current': current, 'actual': y_actual})
-
-# ========================================
-# 학습
-# ========================================
-def train_model(X, y):
-    print(f"\n🚀 XGBoost 학습")
+    # 5. 패턴 (Explicit Patterns)
+    df['Gold_Pattern'] = ((df['M14AM14B'] > 500) & (df['M14AM14BSUM'] > 600)).astype(int)
+    df['Danger_Gap'] = (df['Gap'] > 250).astype(int)
+    df['Danger_Total'] = (df['TOTALCNT'] >= 1600).astype(int)
+    df['Triple_Check'] = ((df['M14AM14B'] > 450) & (df['M14AM14BSUM'] > 550) & (df['Gap'] > 200)).astype(int)
     
-    model = xgb.XGBRegressor(
-        objective='reg:squarederror',
-        max_depth=6,
-        learning_rate=0.05,
-        n_estimators=300,
-        subsample=0.8,
-        colsample_bytree=0.8,
-        min_child_weight=5,
-        gamma=0.1,
-        reg_alpha=0.1,
-        reg_lambda=1.0,
-        random_state=42,
-        n_jobs=-1,
-        tree_method='hist'
-    )
+    # 6. 가속도 (Acceleration) 및 단기 변화
+    df['Accel_1'] = df['Total_Delta_1'] - df['Total_Delta_1'].shift(1)
+    df['Accel_3'] = df['Total_Delta_1'].diff(3)
     
-    model.fit(X, y, verbose=50)
-    print(f"\n✅ 학습 완료!")
-    return model
-
-# ========================================
-# 평가
-# ========================================
-def evaluate(model, X, y_change, meta):
-    print(f"\n" + "="*70)
-    print(f"📊 성능 평가")
-    print("="*70)
+    # 기울기 (Slope)
+    df['Slope_3'] = (df['TOTALCNT'] - df['TOTALCNT'].shift(3)) / 3
+    df['Slope_5'] = (df['TOTALCNT'] - df['TOTALCNT'].shift(5)) / 5
+    df['Gap_Slope_3'] = (df['Gap'] - df['Gap'].shift(3)) / 3
+    # 타겟 생성 (10분 후 예측)
+    df['Target_Total_Future'] = df['TOTALCNT'].shift(-PRED_OFFSET)
+    df['Target_Delta'] = df['Target_Total_Future'] - df['TOTALCNT']
     
-    pred_change = model.predict(X)
-    pred_actual = meta['current'] + pred_change
-    actual = meta['actual']
-    
-    mae = mean_absolute_error(actual, pred_actual)
-    rmse = np.sqrt(mean_squared_error(actual, pred_actual))
-    r2 = r2_score(actual, pred_actual)
-    
-    print(f"\nMAE: {mae:.2f}, RMSE: {rmse:.2f}, R²: {r2:.4f}")
-    
-    actual_danger = actual >= 1700
-    pred_danger = pred_actual >= 1700
-    
-    if actual_danger.sum() > 0:
-        tp = (actual_danger & pred_danger).sum()
-        recall = tp / actual_danger.sum() * 100
-        print(f"\n1700+ 감지율: {recall:.1f}% ({tp}/{actual_danger.sum()})")
-    
-    return mae, rmse, r2
-
-def show_importance(model, X):
-    print(f"\n🏆 Feature 중요도 TOP 15")
-    imp = pd.DataFrame({
-        'feature': X.columns,
-        'importance': model.feature_importances_
-    }).sort_values('importance', ascending=False)
-    print(imp.head(15).to_string(index=False))
-    return imp
-
-if __name__ == '__main__':
-    CSV_FILE = "data/M14_Q_20241108_TO_20251210.csv"  # 수정 필요!
-    
-    X, y_change, meta = prepare_data(CSV_FILE)
-    if X is None:
-        exit(1)
-    
-    model = train_model(X, y_change)
-    evaluate(model, X, y_change, meta)
-    show_importance(model, X)
-    
-    with open('model_V8.3.1_10min.pkl', 'wb') as f:
-        pickle.dump(model, f)
-    with open('features_V8.3.1_10min.pkl', 'wb') as f:
-        pickle.dump(list(X.columns), f)
-    
-    print(f"\n💾 저장: model_V8.3.1_10min.pkl")
-    print(f"✅ V8.3.1 학습 완료! Feature: {X.shape[1]}개")
+    # 결측 제거
+    df_clean = df.dropna().reset_index(drop=True)
+    return df_clean
+# --- 메인 실행 ---
+# 1. 데이터 로드
+df = load_data('M14_Q_*.CSV')
+# 2. 피처 생성
+print("\n🔄 피처 생성 중...")
+df_features = create_vectorized_features(df)
+print(f"✅ 생성 완료: {len(df_features):,}행, 컬럼 {df_features.shape[1]}개")
+# 3. 학습 준비
+exclude_cols = ['CURRTIME', 'Target_Total_Future', 'Target_Delta']
+feature_cols = [c for c in df_features.columns if c not in exclude_cols]
+X = df_features[feature_cols]
+y_delta = df_features['Target_Delta']
+y_total = df_features['Target_Total_Future']
+# 가중치: 고부하 20배, 중부하 5배
+weights = np.ones(len(y_total))
+weights[y_total >= 1500] = 5
+weights[y_total >= 1700] = 20
+# 모델 학습 (전체 데이터 사용)
+print("\n🚀 모델 학습 시작 (GPU 가속, 반응성 강화)...")
+# 원본 모델 (Base Model)
+print("  메인 모델 학습...")
+model_base = xgb.XGBRegressor(
+    n_estimators=1500, # 학습량 증가
+    learning_rate=0.02, # 정교하게
+    max_depth=10, # 깊이 증가 (복잡한 패턴)
+    subsample=0.8,
+    colsample_bytree=0.8,
+    min_child_weight=1, # 민감하게
+    reg_alpha=0.0, # 규제 완화
+    reg_lambda=0.5, # 규제 완화
+    n_jobs=4,
+    device='cuda',
+    tree_method='hist',
+    random_state=42
+)
+model_base.fit(X, y_delta, sample_weight=weights, verbose=False)
+# 저장
+print("\n💾 모델 저장 중...")
+with open('model_v10_base.pkl', 'wb') as f:
+    pickle.dump(model_base, f)
+with open('features_v10.pkl', 'wb') as f:
+    pickle.dump(list(feature_cols), f)
+print("✅ 학습 완료! (model_v10_base.pkl)")
