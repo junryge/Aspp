@@ -1,51 +1,31 @@
-[V11.0 최종 모델 변경 내역 및 상세 설명]
+        pred = adjust_prediction_V8_3(pred_raw, current_totalcnt, current_m14b, current_m14bsum, current_gap, current_trans)
+        pred_status = get_status_info(pred)
 
-■ 1. 변경된 핵심 내용 (Summary)
-   1) 모델 구조 단순화: 보정 모델을 제거하고 '고성능 단일 모델'로 변경하여 고부하 구간 예측 정확도 향상 (오차 17.84 달성)
-   2) GPU 가속 적용: PC 꺼짐 현상 방지를 위해 그래픽카드(CUDA) 연산 사용
-   3) 반응성 강화: 1분/3분 단위 급격한 변화(기울기, 가속도)를 캐치하는 피처 추가
 
---------------------------------------------------------------------------------
 
-■ 2. 사용된 컬럼 및 활용 이유 (Feature Explanation)
-   모델이 예측을 위해 사용하는 주요 데이터들입니다.
 
-   [핵심 변수]
-   1) TOTALCNT (전체 카운트)
-      - 용도: 예측의 대상이자 가장 중요한 과거 패턴 정보.
-      - 활용: 과거 1분, 3분, 5분, 10분 전의 값과 흐름(추세)을 분석하여 미래를 예측.
-   2) M14AM14B (공정 간 이동 물량)
-      - 용도: 특정 구간의 병목 현상을 나타내는 핵심 지표.
-      - 활용: 이 값이 급증하면 잠시 후 전체 TOTALCNT가 상승하는 '선행 지표'로 사용됨.
-   3) M14AM14BSUM (누적 이동 물량)
-      - 용도: M14AM14B와 함께 폭발적인 증가를 감지하는 'Gold Pattern'의 조건.
-      - 활용: 이 값이 높게 유지되면 물량이 해소되지 않고 쌓이고 있다는 신호.
-   4) Gap (Created - Completed)
-      - 용도: 대기열(Queue) 증감 속도. (생성된 것 - 처리된 것)
-      - 활용: Gap이 양수(+)로 커지면 앞으로 시스템 부하가 늘어날 것이라는 강력한 신호.
+        pred = adjust_prediction_V8_3(pred_raw, current_totalcnt, current_m14b, current_m14bsum, current_gap, current_trans)
+        
+        # 🔥 추세기반 예측
+        total_12min_ago = seq_totalcnt[-12]
+        trend_change = current_totalcnt - total_12min_ago
+        trend_pred = trend_change + pred
+        
+        if pred >= 1700:
+            final_pred = pred
+        elif current_totalcnt >= 1600:
+            final_pred = max(pred, trend_pred)
+        else:
+            final_pred = pred
+        
+        pred_status = get_status_info(final_pred)
 
-   [파생 변수 (모델이 직접 계산해 사용하는 값)]
-   5) 기울기 (Slope_3, Slope_5)
-      - 설명: 최근 3분, 5분 동안 TOTALCNT가 얼마나 가파르게 오르고 있는지 계산.
-      - 이유: 단순히 '현재 값이 높다'는 것보다 '얼마나 빨리 오르고 있는가'가 예측에 더 중요하기 때문.
-   6) 가속도 (Accel_1, Accel_3)
-      - 설명: 증가 속도가 더 빨라지는지(엑셀을 밟는지) 줄어드는지(브레이크를 밟는지) 판단.
-      - 이유: 정점(Peak)을 찍고 내려올 때를 빠르게 파악하기 위함.
-   7) Gold_Pattern / Triple_Check
-      - 설명: M14B, Sum, Gap이 동시에 위험 수치를 넘으면 1, 아니면 0으로 표시.
-      - 이유: "위험 상황"임을 모델에게 강제로 인식시켜 예측값을 과감하게 올리도록 유도.
 
---------------------------------------------------------------------------------
 
-■ 3. 12월 데이터(평가 데이터)의 특이점 및 문제 분석
-   학습 데이터와 평가 데이터(12월)의 성격이 달라서 예측이 어려웠던 이유를 분석했습니다.
+        return {
+            'prediction': int(pred),
 
-   [데이터 통계 비교]
-   - 학습 데이터 평균 TOTALCNT: 1304
-   - 평가 데이터 평균 TOTALCNT: 1355 (**약 50 더 높음**)
-   
-   [분석 결과]
-   1) **베이스 라인 상승**: 평가 데이터는 평소(학습 데이터)보다 기본적으로 물량이 50개 정도 더 많은 상태가 지속됨.
-   2) **변동성 증가**: 평균이 높은 상태에 있다 보니 작은 충격에도 1700, 1800까지 튀어 오르는 빈도가 더 잦음.
-   3) **결론**: 학습할 때 보지 못한 "지속적인 고부하 패턴"이 많아, 일반적인 학습 방식으로는 예측값을 보수적으로(낮게) 내는 경향이 있었음.
-      -> 이를 해결하기 위해 **가중치(Weight)**를 학습 시 강제로 부여하여, "평소보다 높은 값에 더 집중하라"고 모델을 튜닝함.
+
+
+        return {
+            'prediction': int(final_pred),
