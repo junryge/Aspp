@@ -222,11 +222,29 @@ for i in range(seq_len, len(df) - pred_offset):
     pred = adjust_prediction(pred_raw, current_total, seq_m14b[-1], seq_m14bsum[-1], seq_gap[-1], seq_trans[-1])
    
     # ============================================
-    # 🔥 추세기반 예측
+    # 🔥 추세기반 예측 (11개 변화 분석)
     # ============================================
-    # 12분 전 TOTALCNT
+    # 최근 12분 데이터 (현재 포함)
+    recent_12 = seq_totalcnt[-12:]
+    
+    # 11개 구간 변화량
+    diffs = np.diff(recent_12)
+    
+    # 상승/하락 카운트
+    rising_count = np.sum(diffs > 0)   # 상승 구간 수
+    falling_count = np.sum(diffs < 0)  # 하락 구간 수
+    
+    # 12분 전 값
     total_12min_ago = seq_totalcnt[-13]
-    trend_change = current_total - total_12min_ago
+    raw_change = current_total - total_12min_ago
+    
+    # 🔥 추세 판단: 상승 우세할 때만 변화량 적용
+    if rising_count > falling_count:
+        trend_change = raw_change  # 상승 추세 → 변화량 사용
+        trend_direction = '상승'
+    else:
+        trend_change = 0  # 하락/횡보 → 변화량 0
+        trend_direction = '하락' if falling_count > rising_count else '횡보'
     
     # 추세예측 = 변화량 + 보정예측
     trend_pred = trend_change + pred
@@ -258,7 +276,11 @@ for i in range(seq_len, len(df) - pred_offset):
         '현재시간': current_time.strftime('%Y-%m-%d %H:%M'),
         '현재TOTALCNT': round(current_total, 2),
         '12분전TOTALCNT': round(total_12min_ago, 2),
-        '12분변화량': round(trend_change, 2),
+        '12분변화량(raw)': round(raw_change, 2),
+        '상승구간수': rising_count,
+        '하락구간수': falling_count,
+        '추세방향': trend_direction,
+        '적용변화량': round(trend_change, 2),
         '예측시점': prediction_time.strftime('%Y-%m-%d %H:%M'),
         '실제값': round(actual, 2),
         '원본예측': round(pred_raw, 2),
