@@ -709,19 +709,28 @@ window.onclick = function(e) { if (e.target === document.getElementById('modal')
 Chart.defaults.color = '#a1a1aa';
 Chart.defaults.borderColor = 'rgba(255,255,255,.1)';
 
-new Chart(document.getElementById('dc'), {
+const dcCtx = document.getElementById('dc');
+const dateChart = new Chart(dcCtx, {
     type: 'bar',
     data: { labels: ''' + json.dumps(dl) + ''', datasets: [{ label: '결측률(%)', data: ''' + json.dumps(dp) + ''', backgroundColor: ''' + json.dumps(dc) + ''', borderRadius: 3 }] },
     options: {
         responsive: true,
         maintainAspectRatio: false,
         plugins: { legend: { display: false }, tooltip: { callbacks: { label: ctx => ['결측률: ' + ctx.raw + '%', '결측컬럼: ' + ''' + json.dumps(dmc) + '''[ctx.dataIndex] + '개'] } } },
-        scales: { y: { beginAtZero: true, title: { display: true, text: '결측률(%)' } }, x: { ticks: { maxRotation: 45, minRotation: 45, autoSkip: true, maxTicksLimit: 35 } } },
-        onClick: (evt, el) => { if (el.length > 0) showDateDetail(dateList[el[0].index]); }
+        scales: { y: { beginAtZero: true, title: { display: true, text: '결측률(%)' } }, x: { ticks: { maxRotation: 45, minRotation: 45, autoSkip: true, maxTicksLimit: 35 } } }
     }
 });
 
-new Chart(document.getElementById('ac'), {
+dcCtx.onclick = function(evt) {
+    const points = dateChart.getElementsAtEventForMode(evt, 'nearest', { intersect: true }, false);
+    if (points.length > 0) {
+        const idx = points[0].index;
+        showDateDetail(dateList[idx]);
+    }
+};
+
+const acCtx = document.getElementById('ac');
+const colChart = new Chart(acCtx, {
     type: 'bar',
     data: { labels: ''' + json.dumps(all_labels) + ''', datasets: [{ label: '결측률(%)', data: ''' + json.dumps(all_data) + ''', backgroundColor: ''' + json.dumps(all_colors) + ''', borderRadius: 3 }] },
     options: {
@@ -729,10 +738,20 @@ new Chart(document.getElementById('ac'), {
         maintainAspectRatio: false,
         indexAxis: 'y',
         plugins: { legend: { display: false } },
-        scales: { x: { beginAtZero: true } },
-        onClick: (evt, el) => { if (el.length > 0) { const col = allColNames[el[0].index]; if (colData[col].missing > 0) showColDetail(col); } }
+        scales: { x: { beginAtZero: true } }
     }
 });
+
+acCtx.onclick = function(evt) {
+    const points = colChart.getElementsAtEventForMode(evt, 'nearest', { intersect: true }, false);
+    if (points.length > 0) {
+        const idx = points[0].index;
+        const col = allColNames[idx];
+        if (colData[col] && colData[col].missing > 0) {
+            showColDetail(col);
+        }
+    }
+};
 </script>
 </body>
 </html>'''
