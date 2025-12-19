@@ -403,6 +403,16 @@ tr:hover{background:rgba(255,255,255,.05)}
 .lg i{width:10px;height:10px;border-radius:2px;display:inline-block}
 footer{text-align:center;padding:16px;color:#71717a;font-size:.75rem}
 .all-chart-wrap{max-height:''' + str(chart_height) + '''px;overflow-y:auto}
+.modal{display:none;position:fixed;z-index:1000;left:0;top:0;width:100%;height:100%;background:rgba(0,0,0,.8)}
+.mc{background:#1a1a2e;margin:5% auto;padding:18px;border-radius:12px;width:90%;max-width:700px;max-height:80vh;overflow-y:auto;border:1px solid rgba(255,255,255,.1)}
+.mh{display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;padding-bottom:10px;border-bottom:1px solid rgba(255,255,255,.1)}
+.mh h3{font-size:.95rem;color:#60a5fa}
+.mx{background:none;border:none;color:#a1a1aa;font-size:1.3rem;cursor:pointer}
+.mx:hover{color:#fff}
+.ds{display:grid;grid-template-columns:repeat(2,1fr);gap:10px;margin-bottom:12px}
+.ds div{background:rgba(0,0,0,.2);padding:10px;border-radius:6px;text-align:center}
+.ds .dv{font-size:1.1rem;font-weight:bold;color:#60a5fa}
+.ds .dl{font-size:.7rem;color:#a1a1aa;margin-top:2px}
 </style>
 </head>
 <body>
@@ -429,12 +439,12 @@ footer{text-align:center;padding:16px;color:#71717a;font-size:.75rem}
 </div>
 
 <div class="chb">
-<h3>날짜별 결측률 (%)</h3>
+<h3>날짜별 결측률 (%) - 막대 더블클릭시 상세</h3>
 <div class="chc" style="height:300px"><canvas id="dc"></canvas></div>
 </div>
 
 <div class="chb">
-<h3>전체 컬럼 결측률 (%) - ''' + str(len(all_cols)) + '''개</h3>
+<h3>전체 컬럼 결측률 (%) - ''' + str(len(all_cols)) + '''개 - 막대 더블클릭시 상세</h3>
 <div class="all-chart-wrap">
 <div class="chc" style="height:''' + str(chart_height) + '''px"><canvas id="ac"></canvas></div>
 </div>
@@ -469,13 +479,83 @@ footer{text-align:center;padding:16px;color:#71717a;font-size:.75rem}
 <footer>AMHS 결측치 분석 | V7</footer>
 </div>
 
+<div id="modal" class="modal">
+<div class="mc">
+<div class="mh"><h3 id="mtitle">상세</h3><button class="mx" onclick="closeModal()">&times;</button></div>
+<div class="ds" id="msum"></div>
+<div class="tw" id="mtable"></div>
+</div>
+</div>
+
 <script>
+const dateList = ''' + json.dumps(dl) + ''';
+const datePct = ''' + json.dumps(dp) + ''';
+const dateMcols = ''' + json.dumps(dmc) + ''';
+const colNames = ''' + json.dumps([c['column'] for c in all_cols]) + ''';
+const colData = ''' + json.dumps({c['column']: c for c in all_cols}) + ''';
+const dtcData = ''' + json.dumps(a['datetime_col_missing']) + ''';
+
+function showDateDetail(idx) {
+    const date = dateList[idx];
+    const pct = datePct[idx];
+    const mcols = dateMcols[idx];
+    
+    document.getElementById('mtitle').textContent = date + ' 결측 상세';
+    document.getElementById('msum').innerHTML = '<div><div class="dv">' + pct + '%</div><div class="dl">결측률</div></div><div><div class="dv">' + mcols + '</div><div class="dl">결측 컬럼수</div></div>';
+    
+    // 해당 날짜의 시간:분/컬럼 목록
+    const filtered = dtcData.filter(x => x.date === date);
+    if (filtered.length === 0) {
+        document.getElementById('mtable').innerHTML = '<p style="color:#4ade80;padding:16px">결측 없음</p>';
+    } else {
+        let h = '<table><thead><tr><th>시간</th><th>결측 컬럼</th></tr></thead><tbody>';
+        filtered.slice(0, 200).forEach(x => {
+            h += '<tr><td>' + x.time + '</td><td class="cn">' + x.column + '</td></tr>';
+        });
+        h += '</tbody></table>';
+        if (filtered.length > 200) {
+            h += '<p style="color:#a1a1aa;padding:8px;font-size:.75rem">외 ' + (filtered.length - 200) + '건 (CSV 확인)</p>';
+        }
+        document.getElementById('mtable').innerHTML = h;
+    }
+    document.getElementById('modal').style.display = 'block';
+}
+
+function showColDetail(idx) {
+    const col = colNames[idx];
+    const c = colData[col];
+    
+    document.getElementById('mtitle').textContent = col + ' 결측 상세';
+    document.getElementById('msum').innerHTML = '<div><div class="dv">' + c.missing.toLocaleString() + '</div><div class="dl">총 결측</div></div><div><div class="dv">' + c.pct + '%</div><div class="dl">결측률</div></div>';
+    
+    // 해당 컬럼의 날짜/시간 목록
+    const filtered = dtcData.filter(x => x.column === col);
+    if (filtered.length === 0) {
+        document.getElementById('mtable').innerHTML = '<p style="color:#4ade80;padding:16px">결측 없음</p>';
+    } else {
+        let h = '<table><thead><tr><th>날짜</th><th>시간</th></tr></thead><tbody>';
+        filtered.slice(0, 200).forEach(x => {
+            h += '<tr><td>' + x.date + '</td><td>' + x.time + '</td></tr>';
+        });
+        h += '</tbody></table>';
+        if (filtered.length > 200) {
+            h += '<p style="color:#a1a1aa;padding:8px;font-size:.75rem">외 ' + (filtered.length - 200) + '건 (CSV 확인)</p>';
+        }
+        document.getElementById('mtable').innerHTML = h;
+    }
+    document.getElementById('modal').style.display = 'block';
+}
+
+function closeModal() { document.getElementById('modal').style.display = 'none'; }
+window.onclick = function(e) { if (e.target === document.getElementById('modal')) closeModal(); }
+
 Chart.defaults.color = '#a1a1aa';
 Chart.defaults.borderColor = 'rgba(255,255,255,.1)';
 
-new Chart(document.getElementById('dc'), {
+const dcCanvas = document.getElementById('dc');
+const dateChart = new Chart(dcCanvas, {
     type: 'bar',
-    data: { labels: ''' + json.dumps(dl) + ''', datasets: [{ label: '결측률(%)', data: ''' + json.dumps(dp) + ''', backgroundColor: ''' + json.dumps(dc) + ''', borderRadius: 3 }] },
+    data: { labels: dateList, datasets: [{ label: '결측률(%)', data: datePct, backgroundColor: ''' + json.dumps(dc) + ''', borderRadius: 3 }] },
     options: {
         responsive: true,
         maintainAspectRatio: false,
@@ -484,7 +564,15 @@ new Chart(document.getElementById('dc'), {
     }
 });
 
-new Chart(document.getElementById('ac'), {
+dcCanvas.ondblclick = function(evt) {
+    const points = dateChart.getElementsAtEventForMode(evt, 'nearest', { intersect: true }, false);
+    if (points.length > 0) {
+        showDateDetail(points[0].index);
+    }
+};
+
+const acCanvas = document.getElementById('ac');
+const colChart = new Chart(acCanvas, {
     type: 'bar',
     data: { labels: ''' + json.dumps(all_labels) + ''', datasets: [{ label: '결측률(%)', data: ''' + json.dumps(all_data) + ''', backgroundColor: ''' + json.dumps(all_colors) + ''', borderRadius: 3 }] },
     options: {
@@ -495,6 +583,16 @@ new Chart(document.getElementById('ac'), {
         scales: { x: { beginAtZero: true } }
     }
 });
+
+acCanvas.ondblclick = function(evt) {
+    const points = colChart.getElementsAtEventForMode(evt, 'nearest', { intersect: true }, false);
+    if (points.length > 0) {
+        const col = colNames[points[0].index];
+        if (colData[col] && colData[col].missing > 0) {
+            showColDetail(points[0].index);
+        }
+    }
+};
 </script>
 </body>
 </html>'''
