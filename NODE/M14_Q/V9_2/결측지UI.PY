@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-AMHS 결측치 분석 UI (v6)
-- 날짜 클릭 → 시간별 결측 컬럼 상세
-- CSV: 날짜/시간/컬럼별 결측 저장
+AMHS 결측치 분석 UI (v7)
+- 날짜/시간:분/컬럼별 결측 상세
+- CSV: 날짜/시간:분/컬럼별 결측 저장
 """
 
 import tkinter as tk
@@ -22,7 +22,7 @@ warnings.filterwarnings('ignore')
 class MissingAnalyzerUI:
     def __init__(self, root):
         self.root = root
-        self.root.title("AMHS 결측치 분석 도구 v6")
+        self.root.title("AMHS 결측치 분석 도구 v7")
         self.root.geometry("1000x700")
         self.root.configure(bg='#1a1a2e')
         
@@ -50,7 +50,7 @@ class MissingAnalyzerUI:
         main_frame = ttk.Frame(self.root, padding=20)
         main_frame.pack(fill=tk.BOTH, expand=True)
         
-        ttk.Label(main_frame, text="[AMHS] 결측치 분석 도구 v6", style='Header.TLabel').pack(anchor=tk.W, pady=(0, 15))
+        ttk.Label(main_frame, text="[AMHS] 결측치 분석 도구 v7", style='Header.TLabel').pack(anchor=tk.W, pady=(0, 15))
         
         file_frame = ttk.Frame(main_frame)
         file_frame.pack(fill=tk.X, pady=(0, 10))
@@ -168,12 +168,12 @@ class MissingAnalyzerUI:
         df = self.df.copy()
         total = len(df)
         
-        exclude = ['DATE', 'HOUR']
+        exclude = ['DATE', 'TIME_STR']
         if 'CURRTIME' in df.columns:
-            df['DATE'] = df['CURRTIME'].dt.date
-            df['HOUR'] = df['CURRTIME'].dt.hour
+            df['DATE'] = df['CURRTIME'].dt.strftime('%Y-%m-%d')
+            df['TIME_STR'] = df['CURRTIME'].dt.strftime('%H:%M')
         
-        cols = [c for c in df.columns if c not in exclude]
+        cols = [c for c in df.columns if c not in exclude and c != 'CURRTIME']
         
         ds, de = '-', '-'
         if 'CURRTIME' in df.columns:
@@ -189,93 +189,55 @@ class MissingAnalyzerUI:
         mp = (mc / total * 100).round(2)
         
         col_sum = []
-        col_daily = {}
         for c in cols:
             col_sum.append({'column': c, 'missing': int(mc[c]), 'pct': float(mp[c]), 'valid': int(total - mc[c]), 'dtype': str(df[c].dtype)})
-            if mc[c] > 0 and 'DATE' in df.columns:
-                dd = []
-                for date in sorted(df['DATE'].dropna().unique()):
-                    ddf = df[df['DATE'] == date]
-                    dm = int(ddf[c].isnull().sum())
-                    if dm > 0:
-                        dd.append({'date': date.strftime('%Y-%m-%d') if hasattr(date, 'strftime') else str(date), 'missing': dm, 'total': len(ddf), 'pct': round(dm/len(ddf)*100, 2)})
-                col_daily[c] = dd
         
         col_sum = sorted(col_sum, key=lambda x: x['pct'], reverse=True)
         a['columns'] = col_sum
         a['missing_columns'] = [c for c in col_sum if c['missing'] > 0]
-        a['col_daily'] = col_daily
         a['cols'] = cols
         
-        # 날짜별 + 시간별 상세
+        # 날짜별
         daily = []
-        matrix = {}
-        date_col_detail = {}
-        date_hour_detail = {}  # 🔥 날짜+시간별 상세
-        
-        if 'CURRTIME' in df.columns:
-            vt = df['CURRTIME'].dropna()
-            if len(vt) > 0:
-                mind, maxd = vt.min().date(), vt.max().date()
-                alld = []
-                cur = mind
-                while cur <= maxd:
-                    alld.append(cur)
-                    cur += timedelta(days=1)
-                
+        if 'DATE' in df.columns:
+            for date in sorted(df['DATE'].dropna().unique()):
+                ddf = df[df['DATE'] == date]
+                dt = len(ddf)
                 nc = len(cols)
-                for date in alld:
-                    dstr = date.strftime('%Y-%m-%d')
-                    ddf = df[df['DATE'] == date]
-                    dt = len(ddf)
-                    
-                    row = {'날짜': dstr, '데이터수': dt}
-                    col_missing_list = []
-                    hour_detail = {}  # 🔥 시간별 상세
-                    
-                    if dt == 0:
-                        daily.append({'date': dstr, 'rows': 0, 'cells': 0, 'missing': 0, 'pct': 100.0, 'no_data': True, 'mcols': nc})
-                        for c in cols:
-                            row[c] = '-'
-                            col_missing_list.append({'column': c, 'missing': 0, 'total': 0, 'pct': 100})
-                        # 시간별은 모두 미수집
-                        for h in range(24):
-                            hour_detail[h] = {'hour': h, 'rows': 0, 'missing_cols': [], 'no_data': True}
-                    else:
-                        tc = dt * nc
-                        tmiss = int(ddf[cols].isnull().sum().sum())
-                        mcnt = int((ddf[cols].isnull().sum() > 0).sum())
-                        dp = round((tmiss / tc) * 100, 2) if tc > 0 else 0
-                        daily.append({'date': dstr, 'rows': dt, 'cells': tc, 'missing': tmiss, 'pct': dp, 'no_data': False, 'mcols': mcnt})
-                        
-                        for c in cols:
-                            m = int(ddf[c].isnull().sum())
-                            row[c] = m if m > 0 else 0
-                            if m > 0:
-                                col_missing_list.append({'column': c, 'missing': m, 'total': dt, 'pct': round(m/dt*100, 2)})
-                        
-                        # 🔥 시간별 분석
-                        for h in range(24):
-                            hdf = ddf[ddf['HOUR'] == h]
-                            hrows = len(hdf)
-                            if hrows == 0:
-                                hour_detail[h] = {'hour': h, 'rows': 0, 'missing_cols': [], 'no_data': True}
-                            else:
-                                missing_cols = []
-                                for c in cols:
-                                    hm = int(hdf[c].isnull().sum())
-                                    if hm > 0:
-                                        missing_cols.append({'column': c, 'missing': hm, 'total': hrows, 'pct': round(hm/hrows*100, 2)})
-                                hour_detail[h] = {'hour': h, 'rows': hrows, 'missing_cols': missing_cols, 'no_data': False}
-                    
-                    matrix[dstr] = row
-                    date_col_detail[dstr] = col_missing_list
-                    date_hour_detail[dstr] = hour_detail
+                tc = dt * nc
+                tmiss = int(ddf[cols].isnull().sum().sum())
+                mcnt = int((ddf[cols].isnull().sum() > 0).sum())
+                dp = round((tmiss / tc) * 100, 2) if tc > 0 else 0
+                daily.append({'date': date, 'rows': dt, 'cells': tc, 'missing': tmiss, 'pct': dp, 'mcols': mcnt})
         
         a['daily'] = daily
-        a['matrix'] = matrix
-        a['date_col_detail'] = date_col_detail
-        a['date_hour_detail'] = date_hour_detail  # 🔥
+        
+        # 🔥 날짜/시간:분/컬럼별 결측 상세
+        datetime_col_missing = []
+        if 'DATE' in df.columns and 'TIME_STR' in df.columns:
+            # 각 행(시간:분)별로 결측 컬럼 찾기
+            for idx, row in df.iterrows():
+                date = row['DATE']
+                time_str = row['TIME_STR']
+                
+                if pd.isna(date) or pd.isna(time_str):
+                    continue
+                
+                # 해당 행에서 결측인 컬럼들
+                missing_cols = []
+                for c in cols:
+                    if pd.isna(row[c]):
+                        missing_cols.append(c)
+                
+                if missing_cols:
+                    for mc in missing_cols:
+                        datetime_col_missing.append({
+                            'date': date,
+                            'time': time_str,
+                            'column': mc
+                        })
+        
+        a['datetime_col_missing'] = datetime_col_missing
         
         # 간격
         gaps = []
@@ -311,96 +273,34 @@ class MissingAnalyzerUI:
         if a['daily']:
             pd.DataFrame(a['daily']).to_csv(f'{self.output_dir}/missing_by_date.csv', index=False, encoding='utf-8-sig')
         
-        # 3. 날짜 x 컬럼 매트릭스
-        if a['matrix']:
-            rows = list(a['matrix'].values())
-            dfm = pd.DataFrame(rows)
-            order = ['날짜', '데이터수'] + a['cols']
-            order = [c for c in order if c in dfm.columns]
-            dfm[order].to_csv(f'{self.output_dir}/date_column_matrix.csv', index=False, encoding='utf-8-sig')
+        # 3. 🔥 날짜/시간:분/컬럼별 결측 CSV
+        if a['datetime_col_missing']:
+            df_dtc = pd.DataFrame(a['datetime_col_missing'])
+            df_dtc.to_csv(f'{self.output_dir}/date_time_column_missing.csv', index=False, encoding='utf-8-sig')
         
         # 4. 미수집 구간
         if a['gaps']:
             pd.DataFrame(a['gaps']).to_csv(f'{self.output_dir}/collection_gaps.csv', index=False, encoding='utf-8-sig')
-        
-        # 5. 컬럼별 날짜 상세
-        dr = []
-        for col, details in a['col_daily'].items():
-            for d in details:
-                dr.append({'column': col, 'date': d['date'], 'missing': d['missing'], 'total': d['total'], 'pct': d['pct']})
-        if dr:
-            pd.DataFrame(dr).to_csv(f'{self.output_dir}/column_daily_detail.csv', index=False, encoding='utf-8-sig')
-        
-        # 🔥 6. 날짜/시간/컬럼별 결측 상세 CSV
-        dthc_rows = []
-        for date, hour_data in a['date_hour_detail'].items():
-            for hour, hinfo in hour_data.items():
-                if hinfo['no_data']:
-                    dthc_rows.append({
-                        '날짜': date,
-                        '시간': f"{hour:02d}:00",
-                        '데이터수': 0,
-                        '결측컬럼수': len(a['cols']),
-                        '결측컬럼': '전체(미수집)',
-                        '상태': '미수집'
-                    })
-                elif hinfo['missing_cols']:
-                    for mc in hinfo['missing_cols']:
-                        dthc_rows.append({
-                            '날짜': date,
-                            '시간': f"{hour:02d}:00",
-                            '데이터수': hinfo['rows'],
-                            '컬럼': mc['column'],
-                            '결측수': mc['missing'],
-                            '결측률': f"{mc['pct']}%",
-                            '상태': '결측'
-                        })
-        if dthc_rows:
-            pd.DataFrame(dthc_rows).to_csv(f'{self.output_dir}/date_hour_column_missing.csv', index=False, encoding='utf-8-sig')
-        
-        # 🔥 7. 날짜/시간별 요약 CSV
-        dth_rows = []
-        for date, hour_data in a['date_hour_detail'].items():
-            for hour, hinfo in hour_data.items():
-                mcol_cnt = len(hinfo['missing_cols']) if not hinfo['no_data'] else len(a['cols'])
-                status = '미수집' if hinfo['no_data'] else ('결측' if mcol_cnt > 0 else '정상')
-                dth_rows.append({
-                    '날짜': date,
-                    '시간': f"{hour:02d}:00",
-                    '데이터수': hinfo['rows'],
-                    '결측컬럼수': mcol_cnt,
-                    '상태': status
-                })
-        if dth_rows:
-            pd.DataFrame(dth_rows).to_csv(f'{self.output_dir}/date_hour_summary.csv', index=False, encoding='utf-8-sig')
     
     def generate_html(self, a):
         # 날짜별 차트 데이터
         dl = [d['date'] for d in a['daily']]
         dp = [d['pct'] for d in a['daily']]
         dmc = [d['mcols'] for d in a['daily']]
-        dc = ['#ef4444' if d.get('no_data') else '#f59e0b' if d['pct']>5 else '#fbbf24' if d['pct']>0 else '#22c55e' for d in a['daily']]
+        dc = ['#f59e0b' if d['pct']>5 else '#fbbf24' if d['pct']>0 else '#22c55e' for d in a['daily']]
         
         # 전체 컬럼 차트 데이터
         all_cols = a['columns']
         all_labels = [c['column'][:40] for c in all_cols]
         all_data = [c['pct'] for c in all_cols]
         all_colors = ['#ef4444' if c['pct']>10 else '#f59e0b' if c['pct']>1 else '#22c55e' if c['pct']>0 else '#3b82f6' for c in all_cols]
-        all_col_names = [c['column'] for c in all_cols]
-        
-        # JSON
-        col_daily_json = json.dumps(a['col_daily'], ensure_ascii=False)
-        date_col_json = json.dumps(a['date_col_detail'], ensure_ascii=False)
-        col_data_json = json.dumps({c['column']: c for c in a['columns']}, ensure_ascii=False)
-        daily_data_json = json.dumps({d['date']: d for d in a['daily']}, ensure_ascii=False)
-        date_hour_json = json.dumps(a['date_hour_detail'], ensure_ascii=False)  # 🔥
         
         # 결측 컬럼 카드
         cards = ""
         for c in a['missing_columns'][:16]:
             ic = "error" if c['pct']>10 else "warn"
             nm = c['column'][:22] + ('...' if len(c['column'])>22 else '')
-            cards += '<div class="card" onclick="showColDetail(\'{}\')"><div class="ic {}">!</div><div class="inf"><div class="nm" title="{}">{}</div><div class="st">{:,}개 ({}%)</div></div></div>'.format(c['column'].replace("'","\\'"), ic, c['column'], nm, c['missing'], c['pct'])
+            cards += '<div class="card"><div class="ic {}">!</div><div class="inf"><div class="nm" title="{}">{}</div><div class="st">{:,}개 ({}%)</div></div></div>'.format(ic, c['column'], nm, c['missing'], c['pct'])
         if len(a['missing_columns']) > 16:
             cards += '<div class="card"><div class="ic ok">+</div><div class="inf"><div class="nm">외 {}개</div><div class="st">테이블 확인</div></div></div>'.format(len(a['missing_columns'])-16)
         
@@ -410,20 +310,25 @@ class MissingAnalyzerUI:
             pc = "pe" if c['pct']>10 else "pw" if c['pct']>1 else "po"
             bc = "be" if c['pct']>10 else "bw" if c['pct']>1 else "bo"
             bt = "심각" if c['pct']>10 else "주의" if c['pct']>1 else "양호"
-            cl = 'onclick="showColDetail(\'{}\')" class="clk"'.format(c['column'].replace("'","\\'")) if c['missing']>0 else ''
-            cr += '<tr {}><td>{}</td><td class="cn">{}</td><td>{:,}</td><td>{}%<div class="pg"><div class="{}" style="width:{}%"></div></div></td><td><span class="{}">{}</span></td></tr>'.format(cl, i+1, c['column'], c['missing'], c['pct'], pc, min(c['pct'],100), bc, bt)
+            cr += '<tr><td>{}</td><td class="cn">{}</td><td>{:,}</td><td>{}%<div class="pg"><div class="{}" style="width:{}%"></div></div></td><td><span class="{}">{}</span></td></tr>'.format(i+1, c['column'], c['missing'], c['pct'], pc, min(c['pct'],100), bc, bt)
         
         # 날짜 테이블
         drw = ""
         for d in a['daily']:
-            if d.get('no_data'):
-                drw += '<tr class="nd clk" onclick="showDateDetail(\'{}\')"><td>{}</td><td>0</td><td>-</td><td>100%</td><td>{}</td><td><span class="be">미수집</span></td></tr>'.format(d['date'], d['date'], d['mcols'])
-            else:
-                pc = "pe" if d['pct']>5 else "pw" if d['pct']>1 else "po"
-                bc = "be" if d['pct']>5 else "bw" if d['pct']>1 else "bo"
-                bt = "심각" if d['pct']>5 else "주의" if d['pct']>1 else "양호"
-                cl = 'onclick="showDateDetail(\'{}\')" class="clk"'.format(d['date'])
-                drw += '<tr {}><td>{}</td><td>{:,}</td><td>{:,}</td><td>{}%<div class="pg"><div class="{}" style="width:{}%"></div></div></td><td>{}</td><td><span class="{}">{}</span></td></tr>'.format(cl, d['date'], d['rows'], d['missing'], d['pct'], pc, min(d['pct']*10,100), d['mcols'], bc, bt)
+            pc = "pe" if d['pct']>5 else "pw" if d['pct']>1 else "po"
+            bc = "be" if d['pct']>5 else "bw" if d['pct']>1 else "bo"
+            bt = "심각" if d['pct']>5 else "주의" if d['pct']>1 else "양호"
+            drw += '<tr><td>{}</td><td>{:,}</td><td>{:,}</td><td>{}%<div class="pg"><div class="{}" style="width:{}%"></div></div></td><td>{}</td><td><span class="{}">{}</span></td></tr>'.format(d['date'], d['rows'], d['missing'], d['pct'], pc, min(d['pct']*10,100), d['mcols'], bc, bt)
+        
+        # 🔥 날짜/시간:분/컬럼별 테이블
+        dtc_rows = ""
+        for x in a['datetime_col_missing'][:1000]:  # 최대 1000개
+            dtc_rows += '<tr><td>{}</td><td>{}</td><td class="cn">{}</td></tr>'.format(x['date'], x['time'], x['column'])
+        
+        total_dtc = len(a['datetime_col_missing'])
+        dtc_note = ""
+        if total_dtc > 1000:
+            dtc_note = '<div class="ib" style="background:rgba(239,68,68,.1);border-color:rgba(239,68,68,.3)">총 {:,}건 중 1,000건만 표시. 전체는 CSV 확인</div>'.format(total_dtc)
         
         # 간격 테이블
         gr = ""
@@ -434,14 +339,12 @@ class MissingAnalyzerUI:
         
         gs = ""
         if a['gaps']:
-            gs = '<div class="sec"><h2>미수집 구간 ({}건, {:.0f}분)</h2><div class="ib">최대: {}분</div><div class="tw"><table><thead><tr><th>#</th><th>시작</th><th>종료</th><th>간격</th><th>상태</th></tr></thead><tbody>{}</tbody></table></div></div>'.format(a['gap_stats']['cnt'], a['gap_stats']['sum'], a['gap_stats']['max'], gr)
+            gs = '<div class="sec"><h2>미수집 구간 ({}건, {:.0f}분)</h2><div class="ib">최대: {}분</div><div class="tw"><table><thead><tr><th>#</th><th>시작</th><th>종료</th><th>간격(분)</th><th>상태</th></tr></thead><tbody>{}</tbody></table></div></div>'.format(a['gap_stats']['cnt'], a['gap_stats']['sum'], a['gap_stats']['max'], gr)
         
         # 상태
         mpc = "warn" if a['summary']['pct']>1 else "ok"
         mcc = "err" if a['summary']['mcols']>10 else "warn" if a['summary']['mcols']>0 else "ok"
         gc = "err" if a['gap_stats']['cnt']>10 else "warn" if a['gap_stats']['cnt']>0 else "ok"
-        ndd = sum(1 for d in a['daily'] if d.get('no_data'))
-        ndc = "err" if ndd>0 else "ok"
         
         chart_height = max(400, len(all_cols) * 18)
         
@@ -467,8 +370,7 @@ header p{color:#a1a1aa;font-size:.85rem}
 .sec{background:rgba(255,255,255,.05);border-radius:12px;padding:18px;margin-bottom:18px;border:1px solid rgba(255,255,255,.1)}
 .sec h2{font-size:.95rem;margin-bottom:12px;padding-bottom:8px;border-bottom:1px solid rgba(255,255,255,.1)}
 .cg{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:8px}
-.card{background:rgba(0,0,0,.2);border-radius:8px;padding:10px;display:flex;align-items:center;gap:8px;cursor:pointer}
-.card:hover{background:rgba(59,130,246,.2)}
+.card{background:rgba(0,0,0,.2);border-radius:8px;padding:10px;display:flex;align-items:center;gap:8px}
 .card .ic{width:28px;height:28px;display:flex;align-items:center;justify-content:center;border-radius:6px;font-weight:bold;font-size:.75rem}
 .card .ic.error{background:rgba(239,68,68,.2);color:#f87171}
 .card .ic.warn{background:rgba(245,158,11,.2);color:#fbbf24}
@@ -483,9 +385,6 @@ table{width:100%;border-collapse:collapse;font-size:.75rem}
 th,td{padding:6px 8px;text-align:left;border-bottom:1px solid rgba(255,255,255,.1)}
 th{background:rgba(0,0,0,.3);font-weight:600;color:#a1a1aa;font-size:.65rem;position:sticky;top:0}
 tr:hover{background:rgba(255,255,255,.05)}
-tr.clk{cursor:pointer}
-tr.clk:hover{background:rgba(59,130,246,.2)}
-tr.nd{background:rgba(239,68,68,.15)}
 .cn{max-width:280px;word-break:break-all}
 .be{background:#991b1b;color:#fca5a5;padding:2px 6px;border-radius:6px;font-size:.6rem;font-weight:600}
 .bw{background:#854d0e;color:#fbbf24;padding:2px 6px;border-radius:6px;font-size:.6rem;font-weight:600}
@@ -494,7 +393,7 @@ tr.nd{background:rgba(239,68,68,.15)}
 .pe{height:100%;background:#ef4444;border-radius:2px}
 .pw{height:100%;background:#f59e0b;border-radius:2px}
 .po{height:100%;background:#22c55e;border-radius:2px}
-.tw{max-height:350px;overflow-y:auto}
+.tw{max-height:400px;overflow-y:auto}
 .tw::-webkit-scrollbar{width:5px}
 .tw::-webkit-scrollbar-thumb{background:rgba(255,255,255,.2);border-radius:3px}
 .ib{background:rgba(59,130,246,.1);border:1px solid rgba(59,130,246,.3);border-radius:8px;padding:8px;margin-bottom:10px;font-size:.8rem}
@@ -503,31 +402,7 @@ tr.nd{background:rgba(239,68,68,.15)}
 .lg span{display:flex;align-items:center;gap:4px;font-size:.7rem;color:#a1a1aa}
 .lg i{width:10px;height:10px;border-radius:2px;display:inline-block}
 footer{text-align:center;padding:16px;color:#71717a;font-size:.75rem}
-.modal{display:none;position:fixed;z-index:1000;left:0;top:0;width:100%;height:100%;background:rgba(0,0,0,.8)}
-.mc{background:#1a1a2e;margin:3% auto;padding:18px;border-radius:12px;width:95%;max-width:900px;max-height:90vh;overflow-y:auto;border:1px solid rgba(255,255,255,.1)}
-.mh{display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;padding-bottom:10px;border-bottom:1px solid rgba(255,255,255,.1)}
-.mh h3{font-size:.95rem;color:#60a5fa}
-.mx{background:none;border:none;color:#a1a1aa;font-size:1.3rem;cursor:pointer}
-.mx:hover{color:#fff}
-.ds{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:12px}
-.ds div{background:rgba(0,0,0,.2);padding:10px;border-radius:6px;text-align:center}
-.ds .dv{font-size:1.1rem;font-weight:bold;color:#60a5fa}
-.ds .dl{font-size:.7rem;color:#a1a1aa;margin-top:2px}
 .all-chart-wrap{max-height:''' + str(chart_height) + '''px;overflow-y:auto}
-.tabs{display:flex;gap:8px;margin-bottom:12px}
-.tab{padding:8px 16px;background:rgba(0,0,0,.2);border:none;color:#a1a1aa;border-radius:6px;cursor:pointer;font-size:.8rem}
-.tab.active{background:#3b82f6;color:#fff}
-.tab-content{display:none}
-.tab-content.active{display:block}
-.hour-grid{display:grid;grid-template-columns:repeat(6,1fr);gap:6px;margin-bottom:12px}
-.hour-cell{background:rgba(0,0,0,.2);padding:8px;border-radius:6px;text-align:center;cursor:pointer;font-size:.7rem}
-.hour-cell:hover{background:rgba(59,130,246,.3)}
-.hour-cell.ok{border:2px solid #22c55e}
-.hour-cell.warn{border:2px solid #fbbf24}
-.hour-cell.err{border:2px solid #ef4444}
-.hour-cell.nd{background:rgba(239,68,68,.2);border:2px solid #ef4444}
-.hour-cell .hh{font-weight:bold;color:#60a5fa}
-.hour-cell .hc{font-size:.6rem;color:#a1a1aa;margin-top:2px}
 </style>
 </head>
 <body>
@@ -546,26 +421,23 @@ footer{text-align:center;padding:16px;color:#71717a;font-size:.75rem}
 <div class="sc ''' + mcc + '''"><div class="v">''' + str(a['summary']['mcols']) + '''</div><div class="l">결측 컬럼</div></div>
 <div class="sc ok"><div class="v">''' + str(a['summary']['ccols']) + '''</div><div class="l">완전 컬럼</div></div>
 <div class="sc ''' + gc + '''"><div class="v">''' + str(a['gap_stats']['cnt']) + '''</div><div class="l">미수집 구간</div></div>
-<div class="sc ''' + ndc + '''"><div class="v">''' + str(ndd) + '''</div><div class="l">미수집일</div></div>
 </div>
 
 <div class="sec">
-<h2>결측 컬럼 현황 (클릭시 상세)</h2>
+<h2>결측 컬럼 현황</h2>
 <div class="cg">''' + cards + '''</div>
 </div>
 
 <div class="chb">
-<h3>날짜별 전체 컬럼 결측률 (%) - 막대 클릭시 상세</h3>
-<div class="chc" style="height:320px"><canvas id="dc"></canvas></div>
-<div class="lg"><span><i style="background:#22c55e"></i>0%</span><span><i style="background:#fbbf24"></i>0~5%</span><span><i style="background:#f59e0b"></i>5%+</span><span><i style="background:#ef4444"></i>미수집</span></div>
+<h3>날짜별 결측률 (%)</h3>
+<div class="chc" style="height:300px"><canvas id="dc"></canvas></div>
 </div>
 
 <div class="chb">
-<h3>전체 컬럼 결측률 (%) - ''' + str(len(all_cols)) + '''개 컬럼 (막대 클릭시 상세)</h3>
+<h3>전체 컬럼 결측률 (%) - ''' + str(len(all_cols)) + '''개</h3>
 <div class="all-chart-wrap">
 <div class="chc" style="height:''' + str(chart_height) + '''px"><canvas id="ac"></canvas></div>
 </div>
-<div class="lg"><span><i style="background:#ef4444"></i>10%+</span><span><i style="background:#f59e0b"></i>1~10%</span><span><i style="background:#22c55e"></i>0~1%</span><span><i style="background:#3b82f6"></i>0%</span></div>
 </div>
 
 <div class="sec">
@@ -574,8 +446,14 @@ footer{text-align:center;padding:16px;color:#71717a;font-size:.75rem}
 </div>
 
 <div class="sec">
-<h2>날짜별 현황 (''' + str(len(a['daily'])) + '''일) - 클릭시 시간별 상세</h2>
+<h2>날짜별 현황 (''' + str(len(a['daily'])) + '''일)</h2>
 <div class="tw"><table><thead><tr><th>날짜</th><th>데이터</th><th>결측셀</th><th>결측률</th><th>결측컬럼</th><th>상태</th></tr></thead><tbody>''' + drw + '''</tbody></table></div>
+</div>
+
+<div class="sec">
+<h2>날짜/시간:분/컬럼별 결측 (''' + "{:,}".format(total_dtc) + '''건)</h2>
+''' + dtc_note + '''
+<div class="tw"><table><thead><tr><th>날짜</th><th>시간</th><th>결측 컬럼</th></tr></thead><tbody>''' + dtc_rows + '''</tbody></table></div>
 </div>
 
 ''' + gs + '''
@@ -588,149 +466,25 @@ footer{text-align:center;padding:16px;color:#71717a;font-size:.75rem}
 </div>
 </div>
 
-<footer>AMHS 결측치 분석 | V6</footer>
-</div>
-
-<div id="modal" class="modal">
-<div class="mc">
-<div class="mh"><h3 id="mtitle">상세</h3><button class="mx" onclick="closeModal()">&times;</button></div>
-<div class="ds" id="msum"></div>
-<div id="mtabs"></div>
-<div class="tw" id="mtable"></div>
-</div>
+<footer>AMHS 결측치 분석 | V7</footer>
 </div>
 
 <script>
-const colDaily = ''' + col_daily_json + ''';
-const dateCol = ''' + date_col_json + ''';
-const colData = ''' + col_data_json + ''';
-const dailyData = ''' + daily_data_json + ''';
-const dateHour = ''' + date_hour_json + ''';
-const dateList = ''' + json.dumps(dl) + ''';
-const allColNames = ''' + json.dumps(all_col_names) + ''';
-
-let currentDate = '';
-
-function showColDetail(col) {
-    const c = colData[col];
-    const d = colDaily[col] || [];
-    document.getElementById('mtitle').textContent = col + ' 결측 상세';
-    document.getElementById('msum').innerHTML = '<div><div class="dv">' + c.missing.toLocaleString() + '</div><div class="dl">총 결측</div></div><div><div class="dv">' + c.pct + '%</div><div class="dl">결측률</div></div><div><div class="dv">' + d.length + '</div><div class="dl">결측 발생일</div></div>';
-    document.getElementById('mtabs').innerHTML = '';
-    if (d.length === 0) {
-        document.getElementById('mtable').innerHTML = '<p style="color:#a1a1aa;padding:16px">결측 없음</p>';
-    } else {
-        let h = '<table><thead><tr><th>날짜</th><th>결측</th><th>전체</th><th>결측률</th></tr></thead><tbody>';
-        d.forEach(x => { const bc = x.pct > 50 ? 'be' : x.pct > 10 ? 'bw' : 'bo'; h += '<tr><td>' + x.date + '</td><td>' + x.missing.toLocaleString() + '</td><td>' + x.total.toLocaleString() + '</td><td><span class="' + bc + '">' + x.pct + '%</span></td></tr>'; });
-        h += '</tbody></table>';
-        document.getElementById('mtable').innerHTML = h;
-    }
-    document.getElementById('modal').style.display = 'block';
-}
-
-function showDateDetail(date) {
-    currentDate = date;
-    const d = dailyData[date];
-    const cols = dateCol[date] || [];
-    const hours = dateHour[date] || {};
-    
-    document.getElementById('mtitle').textContent = date + ' 결측 상세';
-    
-    const noData = d.no_data;
-    if (noData) {
-        document.getElementById('msum').innerHTML = '<div><div class="dv" style="color:#ef4444">미수집</div><div class="dl">상태</div></div><div><div class="dv">0</div><div class="dl">데이터</div></div><div><div class="dv">' + d.mcols + '</div><div class="dl">결측 컬럼</div></div>';
-        document.getElementById('mtabs').innerHTML = '';
-        document.getElementById('mtable').innerHTML = '<p style="color:#ef4444;padding:16px">이 날짜는 데이터가 수집되지 않았습니다.</p>';
-    } else {
-        document.getElementById('msum').innerHTML = '<div><div class="dv">' + d.rows.toLocaleString() + '</div><div class="dl">데이터</div></div><div><div class="dv">' + d.pct + '%</div><div class="dl">결측률</div></div><div><div class="dv">' + d.mcols + '</div><div class="dl">결측 컬럼</div></div>';
-        
-        // 탭 생성
-        document.getElementById('mtabs').innerHTML = '<div class="tabs"><button class="tab active" onclick="showTab(\'hour\')">시간별 현황</button><button class="tab" onclick="showTab(\'col\')">결측 컬럼 목록</button></div>';
-        
-        // 시간별 그리드 + 컬럼 테이블
-        let hourGrid = '<div id="tab-hour" class="tab-content active"><div class="hour-grid">';
-        for (let h = 0; h < 24; h++) {
-            const hd = hours[h] || {rows: 0, missing_cols: [], no_data: true};
-            const mc = hd.no_data ? '미수집' : (hd.missing_cols.length > 0 ? hd.missing_cols.length + '개 결측' : '정상');
-            const cls = hd.no_data ? 'nd' : (hd.missing_cols.length > 0 ? (hd.missing_cols.length > 5 ? 'err' : 'warn') : 'ok');
-            hourGrid += '<div class="hour-cell ' + cls + '" onclick="showHourDetail(' + h + ')"><div class="hh">' + String(h).padStart(2,'0') + ':00</div><div class="hc">' + mc + '</div></div>';
-        }
-        hourGrid += '</div><div id="hour-detail" style="margin-top:12px"></div></div>';
-        
-        let colTable = '<div id="tab-col" class="tab-content">';
-        if (cols.length === 0) {
-            colTable += '<p style="color:#4ade80;padding:16px">결측 컬럼 없음 (완전)</p>';
-        } else {
-            colTable += '<table><thead><tr><th>컬럼명</th><th>결측</th><th>전체</th><th>결측률</th></tr></thead><tbody>';
-            cols.forEach(x => { const bc = x.pct > 50 ? 'be' : x.pct > 10 ? 'bw' : 'bo'; colTable += '<tr><td class="cn">' + x.column + '</td><td>' + x.missing.toLocaleString() + '</td><td>' + x.total.toLocaleString() + '</td><td><span class="' + bc + '">' + x.pct + '%</span></td></tr>'; });
-            colTable += '</tbody></table>';
-        }
-        colTable += '</div>';
-        
-        document.getElementById('mtable').innerHTML = hourGrid + colTable;
-    }
-    document.getElementById('modal').style.display = 'block';
-}
-
-function showTab(tab) {
-    document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
-    document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
-    document.querySelector('.tab[onclick="showTab(\\''+tab+'\\')"]').classList.add('active');
-    document.getElementById('tab-' + tab).classList.add('active');
-}
-
-function showHourDetail(hour) {
-    const hours = dateHour[currentDate] || {};
-    const hd = hours[hour] || {rows: 0, missing_cols: [], no_data: true};
-    
-    let html = '<div style="background:rgba(0,0,0,.2);padding:12px;border-radius:8px"><h4 style="margin-bottom:8px;color:#60a5fa">' + String(hour).padStart(2,'0') + ':00 상세</h4>';
-    
-    if (hd.no_data) {
-        html += '<p style="color:#ef4444">이 시간대는 데이터가 수집되지 않았습니다.</p>';
-    } else if (hd.missing_cols.length === 0) {
-        html += '<p style="color:#4ade80">결측 없음 (데이터: ' + hd.rows + '개)</p>';
-    } else {
-        html += '<p style="margin-bottom:8px">데이터: ' + hd.rows + '개 | 결측 컬럼: ' + hd.missing_cols.length + '개</p>';
-        html += '<table><thead><tr><th>컬럼명</th><th>결측</th><th>결측률</th></tr></thead><tbody>';
-        hd.missing_cols.forEach(x => {
-            const bc = x.pct > 50 ? 'be' : x.pct > 10 ? 'bw' : 'bo';
-            html += '<tr><td class="cn">' + x.column + '</td><td>' + x.missing + '</td><td><span class="' + bc + '">' + x.pct + '%</span></td></tr>';
-        });
-        html += '</tbody></table>';
-    }
-    html += '</div>';
-    
-    document.getElementById('hour-detail').innerHTML = html;
-}
-
-function closeModal() { document.getElementById('modal').style.display = 'none'; }
-window.onclick = function(e) { if (e.target === document.getElementById('modal')) closeModal(); }
-
 Chart.defaults.color = '#a1a1aa';
 Chart.defaults.borderColor = 'rgba(255,255,255,.1)';
 
-const dcCtx = document.getElementById('dc');
-const dateChart = new Chart(dcCtx, {
+new Chart(document.getElementById('dc'), {
     type: 'bar',
     data: { labels: ''' + json.dumps(dl) + ''', datasets: [{ label: '결측률(%)', data: ''' + json.dumps(dp) + ''', backgroundColor: ''' + json.dumps(dc) + ''', borderRadius: 3 }] },
     options: {
         responsive: true,
         maintainAspectRatio: false,
-        plugins: { legend: { display: false }, tooltip: { callbacks: { label: ctx => ['결측률: ' + ctx.raw + '%', '결측컬럼: ' + ''' + json.dumps(dmc) + '''[ctx.dataIndex] + '개'] } } },
-        scales: { y: { beginAtZero: true, title: { display: true, text: '결측률(%)' } }, x: { ticks: { maxRotation: 45, minRotation: 45, autoSkip: true, maxTicksLimit: 35 } } }
+        plugins: { legend: { display: false } },
+        scales: { y: { beginAtZero: true }, x: { ticks: { maxRotation: 45, minRotation: 45, autoSkip: true, maxTicksLimit: 30 } } }
     }
 });
 
-dcCtx.onclick = function(evt) {
-    const points = dateChart.getElementsAtEventForMode(evt, 'nearest', { intersect: true }, false);
-    if (points.length > 0) {
-        const idx = points[0].index;
-        showDateDetail(dateList[idx]);
-    }
-};
-
-const acCtx = document.getElementById('ac');
-const colChart = new Chart(acCtx, {
+new Chart(document.getElementById('ac'), {
     type: 'bar',
     data: { labels: ''' + json.dumps(all_labels) + ''', datasets: [{ label: '결측률(%)', data: ''' + json.dumps(all_data) + ''', backgroundColor: ''' + json.dumps(all_colors) + ''', borderRadius: 3 }] },
     options: {
@@ -741,17 +495,6 @@ const colChart = new Chart(acCtx, {
         scales: { x: { beginAtZero: true } }
     }
 });
-
-acCtx.onclick = function(evt) {
-    const points = colChart.getElementsAtEventForMode(evt, 'nearest', { intersect: true }, false);
-    if (points.length > 0) {
-        const idx = points[0].index;
-        const col = allColNames[idx];
-        if (colData[col] && colData[col].missing > 0) {
-            showColDetail(col);
-        }
-    }
-};
 </script>
 </body>
 </html>'''
