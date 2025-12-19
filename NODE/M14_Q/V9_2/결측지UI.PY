@@ -295,30 +295,34 @@ class MissingAnalyzerUI:
         all_data = [c['pct'] for c in all_cols]
         all_colors = ['#ef4444' if c['pct']>10 else '#f59e0b' if c['pct']>1 else '#22c55e' if c['pct']>0 else '#3b82f6' for c in all_cols]
         
-        # 결측 컬럼 카드
+        # 결측 컬럼 카드 (클릭 이벤트 추가)
         cards = ""
-        for c in a['missing_columns'][:16]:
+        for i, c in enumerate(a['missing_columns'][:16]):
+            # 전체 컬럼 리스트에서 인덱스 찾기
+            col_idx = next((j for j, x in enumerate(a['columns']) if x['column'] == c['column']), 0)
             ic = "error" if c['pct']>10 else "warn"
             nm = c['column'][:22] + ('...' if len(c['column'])>22 else '')
-            cards += '<div class="card"><div class="ic {}">!</div><div class="inf"><div class="nm" title="{}">{}</div><div class="st">{:,}개 ({}%)</div></div></div>'.format(ic, c['column'], nm, c['missing'], c['pct'])
+            cards += '<div class="card" ondblclick="showColDetail({})"><div class="ic {}">!</div><div class="inf"><div class="nm" title="{}">{}</div><div class="st">{:,}개 ({}%)</div></div></div>'.format(col_idx, ic, c['column'], nm, c['missing'], c['pct'])
         if len(a['missing_columns']) > 16:
             cards += '<div class="card"><div class="ic ok">+</div><div class="inf"><div class="nm">외 {}개</div><div class="st">테이블 확인</div></div></div>'.format(len(a['missing_columns'])-16)
         
-        # 컬럼 테이블
+        # 컬럼 테이블 (클릭 이벤트 추가)
         cr = ""
         for i, c in enumerate(a['columns']):
             pc = "pe" if c['pct']>10 else "pw" if c['pct']>1 else "po"
             bc = "be" if c['pct']>10 else "bw" if c['pct']>1 else "bo"
             bt = "심각" if c['pct']>10 else "주의" if c['pct']>1 else "양호"
-            cr += '<tr><td>{}</td><td class="cn">{}</td><td>{:,}</td><td>{}%<div class="pg"><div class="{}" style="width:{}%"></div></div></td><td><span class="{}">{}</span></td></tr>'.format(i+1, c['column'], c['missing'], c['pct'], pc, min(c['pct'],100), bc, bt)
+            click = 'ondblclick="showColDetail({})" class="clk"'.format(i) if c['missing'] > 0 else ''
+            cr += '<tr {}><td>{}</td><td class="cn">{}</td><td>{:,}</td><td>{}%<div class="pg"><div class="{}" style="width:{}%"></div></div></td><td><span class="{}">{}</span></td></tr>'.format(click, i+1, c['column'], c['missing'], c['pct'], pc, min(c['pct'],100), bc, bt)
         
-        # 날짜 테이블
+        # 날짜 테이블 (클릭 이벤트 추가)
         drw = ""
-        for d in a['daily']:
+        for i, d in enumerate(a['daily']):
             pc = "pe" if d['pct']>5 else "pw" if d['pct']>1 else "po"
             bc = "be" if d['pct']>5 else "bw" if d['pct']>1 else "bo"
             bt = "심각" if d['pct']>5 else "주의" if d['pct']>1 else "양호"
-            drw += '<tr><td>{}</td><td>{:,}</td><td>{:,}</td><td>{}%<div class="pg"><div class="{}" style="width:{}%"></div></div></td><td>{}</td><td><span class="{}">{}</span></td></tr>'.format(d['date'], d['rows'], d['missing'], d['pct'], pc, min(d['pct']*10,100), d['mcols'], bc, bt)
+            click = 'ondblclick="showDateDetail({})" class="clk"'.format(i)
+            drw += '<tr {}><td>{}</td><td>{:,}</td><td>{:,}</td><td>{}%<div class="pg"><div class="{}" style="width:{}%"></div></div></td><td>{}</td><td><span class="{}">{}</span></td></tr>'.format(click, d['date'], d['rows'], d['missing'], d['pct'], pc, min(d['pct']*10,100), d['mcols'], bc, bt)
         
         # 🔥 날짜/시간:분/컬럼별 테이블
         dtc_rows = ""
@@ -370,7 +374,8 @@ header p{color:#a1a1aa;font-size:.85rem}
 .sec{background:rgba(255,255,255,.05);border-radius:12px;padding:18px;margin-bottom:18px;border:1px solid rgba(255,255,255,.1)}
 .sec h2{font-size:.95rem;margin-bottom:12px;padding-bottom:8px;border-bottom:1px solid rgba(255,255,255,.1)}
 .cg{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:8px}
-.card{background:rgba(0,0,0,.2);border-radius:8px;padding:10px;display:flex;align-items:center;gap:8px}
+.card{background:rgba(0,0,0,.2);border-radius:8px;padding:10px;display:flex;align-items:center;gap:8px;cursor:pointer}
+.card:hover{background:rgba(59,130,246,.2)}
 .card .ic{width:28px;height:28px;display:flex;align-items:center;justify-content:center;border-radius:6px;font-weight:bold;font-size:.75rem}
 .card .ic.error{background:rgba(239,68,68,.2);color:#f87171}
 .card .ic.warn{background:rgba(245,158,11,.2);color:#fbbf24}
@@ -385,6 +390,8 @@ table{width:100%;border-collapse:collapse;font-size:.75rem}
 th,td{padding:6px 8px;text-align:left;border-bottom:1px solid rgba(255,255,255,.1)}
 th{background:rgba(0,0,0,.3);font-weight:600;color:#a1a1aa;font-size:.65rem;position:sticky;top:0}
 tr:hover{background:rgba(255,255,255,.05)}
+tr.clk{cursor:pointer}
+tr.clk:hover{background:rgba(59,130,246,.2)}
 .cn{max-width:280px;word-break:break-all}
 .be{background:#991b1b;color:#fca5a5;padding:2px 6px;border-radius:6px;font-size:.6rem;font-weight:600}
 .bw{background:#854d0e;color:#fbbf24;padding:2px 6px;border-radius:6px;font-size:.6rem;font-weight:600}
@@ -434,7 +441,7 @@ footer{text-align:center;padding:16px;color:#71717a;font-size:.75rem}
 </div>
 
 <div class="sec">
-<h2>결측 컬럼 현황</h2>
+<h2>결측 컬럼 현황 - 더블클릭시 상세</h2>
 <div class="cg">''' + cards + '''</div>
 </div>
 
@@ -451,12 +458,12 @@ footer{text-align:center;padding:16px;color:#71717a;font-size:.75rem}
 </div>
 
 <div class="sec">
-<h2>전체 컬럼 현황 (''' + str(len(a['columns'])) + '''개)</h2>
+<h2>전체 컬럼 현황 (''' + str(len(a['columns'])) + '''개) - 더블클릭시 상세</h2>
 <div class="tw"><table><thead><tr><th>#</th><th>컬럼명</th><th>결측</th><th>결측률</th><th>상태</th></tr></thead><tbody>''' + cr + '''</tbody></table></div>
 </div>
 
 <div class="sec">
-<h2>날짜별 현황 (''' + str(len(a['daily'])) + '''일)</h2>
+<h2>날짜별 현황 (''' + str(len(a['daily'])) + '''일) - 더블클릭시 상세</h2>
 <div class="tw"><table><thead><tr><th>날짜</th><th>데이터</th><th>결측셀</th><th>결측률</th><th>결측컬럼</th><th>상태</th></tr></thead><tbody>''' + drw + '''</tbody></table></div>
 </div>
 
