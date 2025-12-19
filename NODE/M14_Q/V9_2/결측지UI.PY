@@ -1,11 +1,9 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-AMHS 결측치 분석 UI (v4)
-- 전체 컬럼 상태
-- 날짜 클릭 → 그 날짜에 빠진 컬럼
-- 컬럼 클릭 → 빠진 날짜
-- 날짜 x 컬럼 매트릭스 CSV
+AMHS 결측치 분석 UI (v5)
+- 날짜 차트 클릭 → 결측 컬럼 상세
+- 전체 컬럼 차트
 """
 
 import tkinter as tk
@@ -212,7 +210,7 @@ class MissingAnalyzerUI:
         # 날짜별 + 매트릭스
         daily = []
         matrix = {}
-        date_col_detail = {}  # 날짜별 결측 컬럼 상세
+        date_col_detail = {}
         
         if 'CURRTIME' in df.columns:
             vt = df['CURRTIME'].dropna()
@@ -231,7 +229,7 @@ class MissingAnalyzerUI:
                     dt = len(ddf)
                     
                     row = {'날짜': dstr, '데이터수': dt}
-                    col_missing_list = []  # 이 날짜에 결측 있는 컬럼들
+                    col_missing_list = []
                     
                     if dt == 0:
                         daily.append({'date': dstr, 'rows': 0, 'cells': 0, 'missing': 0, 'pct': 100.0, 'no_data': True, 'mcols': nc})
@@ -262,14 +260,14 @@ class MissingAnalyzerUI:
         gaps = []
         gs = {'cnt': 0, 'max': 0, 'sum': 0}
         if 'CURRTIME' in df.columns:
-            ds = df.dropna(subset=['CURRTIME']).sort_values('CURRTIME').reset_index(drop=True)
-            if len(ds) > 1:
-                ds['td'] = ds['CURRTIME'].diff().dt.total_seconds() / 60
-                gd = ds[ds['td'] > 1.5]
+            ds_df = df.dropna(subset=['CURRTIME']).sort_values('CURRTIME').reset_index(drop=True)
+            if len(ds_df) > 1:
+                ds_df['td'] = ds_df['CURRTIME'].diff().dt.total_seconds() / 60
+                gd = ds_df[ds_df['td'] > 1.5]
                 for idx, row in gd.head(50).iterrows():
                     pi = idx - 1
-                    if pi >= 0 and pi in ds.index:
-                        st = ds.loc[pi, 'CURRTIME']
+                    if pi >= 0 and pi in ds_df.index:
+                        st = ds_df.loc[pi, 'CURRTIME']
                         gaps.append({'start': st.strftime('%Y-%m-%d %H:%M') if pd.notna(st) else '-', 'end': row['CURRTIME'].strftime('%Y-%m-%d %H:%M') if pd.notna(row['CURRTIME']) else '-', 'gap': round(row['td'], 1)})
                 if len(gd) > 0:
                     gs = {'cnt': len(gd), 'max': round(gd['td'].max(), 1), 'sum': round(gd['td'].sum(), 0)}
@@ -305,16 +303,18 @@ class MissingAnalyzerUI:
             pd.DataFrame(dr).to_csv(f'{self.output_dir}/column_daily_detail.csv', index=False, encoding='utf-8-sig')
     
     def generate_html(self, a):
-        # 차트 데이터
+        # 날짜별 차트 데이터
         dl = [d['date'] for d in a['daily']]
         dp = [d['pct'] for d in a['daily']]
         dmc = [d['mcols'] for d in a['daily']]
         dc = ['#ef4444' if d.get('no_data') else '#f59e0b' if d['pct']>5 else '#fbbf24' if d['pct']>0 else '#22c55e' for d in a['daily']]
         
-        tm = a['missing_columns'][:30]
-        tl = [c['column'][:35] for c in tm]
-        td = [c['pct'] for c in tm]
-        tc = ['#ef4444' if c['pct']>10 else '#f59e0b' if c['pct']>1 else '#22c55e' for c in tm]
+        # 전체 컬럼 차트 데이터 (결측률 순 정렬)
+        all_cols = a['columns']  # 이미 결측률 순 정렬됨
+        all_labels = [c['column'][:40] for c in all_cols]
+        all_data = [c['pct'] for c in all_cols]
+        all_colors = ['#ef4444' if c['pct']>10 else '#f59e0b' if c['pct']>1 else '#22c55e' if c['pct']>0 else '#3b82f6' for c in all_cols]
+        all_col_names = [c['column'] for c in all_cols]
         
         # JSON
         col_daily_json = json.dumps(a['col_daily'], ensure_ascii=False)
@@ -322,7 +322,7 @@ class MissingAnalyzerUI:
         col_data_json = json.dumps({c['column']: c for c in a['columns']}, ensure_ascii=False)
         daily_data_json = json.dumps({d['date']: d for d in a['daily']}, ensure_ascii=False)
         
-        # 결측 컬럼 카드 (최대 16개)
+        # 결측 컬럼 카드
         cards = ""
         for c in a['missing_columns'][:16]:
             ic = "error" if c['pct']>10 else "warn"
@@ -344,7 +344,7 @@ class MissingAnalyzerUI:
         drw = ""
         for d in a['daily']:
             if d.get('no_data'):
-                drw += '<tr class="nd" onclick="showDateDetail(\'{}\')"><td>{}</td><td>0</td><td>-</td><td>100%</td><td>{}</td><td><span class="be">미수집</span></td></tr>'.format(d['date'], d['date'], d['mcols'])
+                drw += '<tr class="nd clk" onclick="showDateDetail(\'{}\')"><td>{}</td><td>0</td><td>-</td><td>100%</td><td>{}</td><td><span class="be">미수집</span></td></tr>'.format(d['date'], d['date'], d['mcols'])
             else:
                 pc = "pe" if d['pct']>5 else "pw" if d['pct']>1 else "po"
                 bc = "be" if d['pct']>5 else "bw" if d['pct']>1 else "bo"
@@ -369,6 +369,9 @@ class MissingAnalyzerUI:
         gc = "err" if a['gap_stats']['cnt']>10 else "warn" if a['gap_stats']['cnt']>0 else "ok"
         ndd = sum(1 for d in a['daily'] if d.get('no_data'))
         ndc = "err" if ndd>0 else "ok"
+        
+        # 차트 높이 계산 (전체 컬럼 수에 따라)
+        chart_height = max(400, len(all_cols) * 18)
         
         html = '''<!DOCTYPE html>
 <html lang="ko">
@@ -401,11 +404,9 @@ header p{color:#a1a1aa;font-size:.85rem}
 .card .inf{flex:1;overflow:hidden}
 .card .nm{font-weight:600;font-size:.72rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .card .st{color:#a1a1aa;font-size:.65rem}
-.chg{display:grid;grid-template-columns:1fr;gap:16px;margin-bottom:18px}
-.chb{background:rgba(255,255,255,.05);border-radius:12px;padding:16px;border:1px solid rgba(255,255,255,.1)}
+.chb{background:rgba(255,255,255,.05);border-radius:12px;padding:16px;border:1px solid rgba(255,255,255,.1);margin-bottom:18px}
 .chb h3{margin-bottom:10px;font-size:.9rem}
-.chc{height:300px;position:relative}
-.chc.tall{height:380px}
+.chc{position:relative}
 table{width:100%;border-collapse:collapse;font-size:.75rem}
 th,td{padding:6px 8px;text-align:left;border-bottom:1px solid rgba(255,255,255,.1)}
 th{background:rgba(0,0,0,.3);font-weight:600;color:#a1a1aa;font-size:.65rem;position:sticky;top:0}
@@ -440,6 +441,7 @@ footer{text-align:center;padding:16px;color:#71717a;font-size:.75rem}
 .ds div{background:rgba(0,0,0,.2);padding:10px;border-radius:6px;text-align:center}
 .ds .dv{font-size:1.1rem;font-weight:bold;color:#60a5fa}
 .ds .dl{font-size:.7rem;color:#a1a1aa;margin-top:2px}
+.all-chart-wrap{max-height:''' + str(chart_height) + '''px;overflow-y:auto}
 </style>
 </head>
 <body>
@@ -466,19 +468,18 @@ footer{text-align:center;padding:16px;color:#71717a;font-size:.75rem}
 <div class="cg">''' + cards + '''</div>
 </div>
 
-<div class="chg">
 <div class="chb">
-<h3>날짜별 전체 컬럼 결측률 (%)</h3>
-<div class="chc tall"><canvas id="dc"></canvas></div>
+<h3>날짜별 전체 컬럼 결측률 (%) - 막대 클릭시 상세</h3>
+<div class="chc" style="height:320px"><canvas id="dc"></canvas></div>
 <div class="lg"><span><i style="background:#22c55e"></i>0%</span><span><i style="background:#fbbf24"></i>0~5%</span><span><i style="background:#f59e0b"></i>5%+</span><span><i style="background:#ef4444"></i>미수집</span></div>
 </div>
-</div>
 
-<div class="chg">
 <div class="chb">
-<h3>결측 컬럼 TOP 30 (%) - 클릭시 상세</h3>
-<div class="chc tall"><canvas id="tc"></canvas></div>
+<h3>전체 컬럼 결측률 (%) - ''' + str(len(all_cols)) + '''개 컬럼 (막대 클릭시 상세)</h3>
+<div class="all-chart-wrap">
+<div class="chc" style="height:''' + str(chart_height) + '''px"><canvas id="ac"></canvas></div>
 </div>
+<div class="lg"><span><i style="background:#ef4444"></i>10%+</span><span><i style="background:#f59e0b"></i>1~10%</span><span><i style="background:#22c55e"></i>0~1%</span><span><i style="background:#3b82f6"></i>0%</span></div>
 </div>
 
 <div class="sec">
@@ -501,7 +502,7 @@ footer{text-align:center;padding:16px;color:#71717a;font-size:.75rem}
 </div>
 </div>
 
-<footer>AMHS 결측치 분석 | V4</footer>
+<footer>AMHS 결측치 분석 | V5</footer>
 </div>
 
 <div id="modal" class="modal">
@@ -517,6 +518,8 @@ const colDaily = ''' + col_daily_json + ''';
 const dateCol = ''' + date_col_json + ''';
 const colData = ''' + col_data_json + ''';
 const dailyData = ''' + daily_data_json + ''';
+const dateList = ''' + json.dumps(dl) + ''';
+const allColNames = ''' + json.dumps(all_col_names) + ''';
 
 function showColDetail(col) {
     const c = colData[col];
@@ -562,16 +565,31 @@ window.onclick = function(e) { if (e.target === document.getElementById('modal')
 Chart.defaults.color = '#a1a1aa';
 Chart.defaults.borderColor = 'rgba(255,255,255,.1)';
 
+// 날짜별 차트 (클릭 가능!)
 new Chart(document.getElementById('dc'), {
     type: 'bar',
     data: { labels: ''' + json.dumps(dl) + ''', datasets: [{ label: '결측률(%)', data: ''' + json.dumps(dp) + ''', backgroundColor: ''' + json.dumps(dc) + ''', borderRadius: 3 }] },
-    options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false }, tooltip: { callbacks: { label: ctx => ['결측률: ' + ctx.raw + '%', '결측컬럼: ' + ''' + json.dumps(dmc) + '''[ctx.dataIndex] + '개'] } } }, scales: { y: { beginAtZero: true, title: { display: true, text: '결측률(%)' } }, x: { ticks: { maxRotation: 45, minRotation: 45, autoSkip: true, maxTicksLimit: 35 } } } }
+    options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: { legend: { display: false }, tooltip: { callbacks: { label: ctx => ['결측률: ' + ctx.raw + '%', '결측컬럼: ' + ''' + json.dumps(dmc) + '''[ctx.dataIndex] + '개'] } } },
+        scales: { y: { beginAtZero: true, title: { display: true, text: '결측률(%)' } }, x: { ticks: { maxRotation: 45, minRotation: 45, autoSkip: true, maxTicksLimit: 35 } } },
+        onClick: (evt, el) => { if (el.length > 0) showDateDetail(dateList[el[0].index]); }
+    }
 });
 
-const topChart = new Chart(document.getElementById('tc'), {
+// 전체 컬럼 차트 (클릭 가능!)
+new Chart(document.getElementById('ac'), {
     type: 'bar',
-    data: { labels: ''' + json.dumps(tl) + ''', datasets: [{ label: '결측률(%)', data: ''' + json.dumps(td) + ''', backgroundColor: ''' + json.dumps(tc) + ''', borderRadius: 3 }] },
-    options: { responsive: true, maintainAspectRatio: false, indexAxis: 'y', plugins: { legend: { display: false } }, scales: { x: { beginAtZero: true } }, onClick: (evt, el) => { if (el.length > 0) showColDetail(''' + json.dumps([c['column'] for c in tm]) + '''[el[0].index]); } }
+    data: { labels: ''' + json.dumps(all_labels) + ''', datasets: [{ label: '결측률(%)', data: ''' + json.dumps(all_data) + ''', backgroundColor: ''' + json.dumps(all_colors) + ''', borderRadius: 3 }] },
+    options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        indexAxis: 'y',
+        plugins: { legend: { display: false } },
+        scales: { x: { beginAtZero: true } },
+        onClick: (evt, el) => { if (el.length > 0) { const col = allColNames[el[0].index]; if (colData[col].missing > 0) showColDetail(col); } }
+    }
 });
 </script>
 </body>
