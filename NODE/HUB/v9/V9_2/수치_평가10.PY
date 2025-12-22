@@ -213,32 +213,15 @@ def evaluate_v9_avg_max():
         pred_avg = current_value + pred_change_avg
         
         # ========== 최종 예측 결정 (AVG + MAX만) ==========
-        # 1순위: 현재값 기준 강제 선택
-        # 2순위: MAX변화량 기준
+        # MAX변화량 >= 40 → MAX
+        # 나머지 → AVG
         
-        if current_value >= 381 and current_value <= 400:
-            # 현재값 381~400 → AVG 무조건
-            final_pred = pred_avg
-            final_change = pred_change_avg
-            used_model = "AVG"
-            reason = f"현재값{current_value:.0f}(381~400)→AVG강제"
-        
-        elif current_value >= 401 and current_value <= 500:
-            # 현재값 401~500 → MAX 무조건
-            final_pred = pred_max
-            final_change = pred_change_max
-            used_model = "MAX"
-            reason = f"현재값{current_value:.0f}(401~500)→MAX강제"
-        
-        elif pred_change_max >= THRESHOLD:
-            # MAX변화량 >= 40 → MAX
+        if pred_change_max >= THRESHOLD:
             final_pred = pred_max
             final_change = pred_change_max
             used_model = "MAX"
             reason = f"급등징후(MAX:{pred_change_max:.0f}>={THRESHOLD})"
-        
         else:
-            # 나머지 → AVG
             final_pred = pred_avg
             final_change = pred_change_avg
             used_model = "AVG"
