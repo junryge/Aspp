@@ -6,10 +6,10 @@ from sklearn.metrics import accuracy_score, classification_report, confusion_mat
 
 def evaluate_v9_classification():
     """
-    🎯 V9-범주형: 3-Class 분류 평가
+    🎯 V9-범주형 평가 (수치형과 Feature 동일)
     """
     print("="*80)
-    print("🎯 V9-범주형 평가 (3-Class Classification)")
+    print("🎯 V9-범주형 평가 (수치형 Feature 동일)")
     print("="*80)
     
     # ========== V8 기존 14개 ==========
@@ -64,8 +64,15 @@ def evaluate_v9_classification():
     # ========== 모델 로드 ==========
     try:
         with open('xgboost_범주형_V9.pkl', 'rb') as f:
-            model = pickle.load(f)
-        print("✅ 모델 로드: xgboost_범주형_V9.pkl")
+            model_dict = pickle.load(f)
+        
+        # 새 형식 (dict) vs 구 형식 (model만)
+        if isinstance(model_dict, dict):
+            model = model_dict['model']
+            print("✅ 모델 로드: xgboost_범주형_V9.pkl (새 형식)")
+        else:
+            model = model_dict
+            print("✅ 모델 로드: xgboost_범주형_V9.pkl (구 형식)")
     except Exception as e:
         print(f"❌ 모델 없음: {e}")
         return None
@@ -117,7 +124,7 @@ def evaluate_v9_classification():
         actual_change = actual_value - current_value
         actual_class = create_class_label(actual_change)
         
-        # ========== Feature 생성 ==========
+        # ========== Feature 생성 (수치형과 동일) ==========
         features = {
             'target_mean': np.mean(seq_target),
             'target_std': np.std(seq_target),
@@ -125,13 +132,6 @@ def evaluate_v9_classification():
             'target_min': np.min(seq_target),
             'target_last_value': seq_target[-1],
             'target_slope': np.polyfit(np.arange(30), seq_target, 1)[0],
-            # 🔥 급증/급락 감지용 Feature
-            'target_is_rising': 1 if seq_target[-1] > seq_target[-10] else 0,
-            'target_is_falling': 1 if seq_target[-1] < seq_target[-10] else 0,
-            'target_rapid_rise': 1 if (seq_target[-1] - seq_target[-10] > 20) else 0,
-            'target_rapid_fall': 1 if (seq_target[-1] - seq_target[-10] < -20) else 0,
-            'target_change_10': seq_target[-1] - seq_target[-10],
-            'target_acceleration': (np.mean(seq_target[-10:]) - np.mean(seq_target[-20:-10])),
         }
         
         # V8 기존 컬럼
@@ -188,7 +188,6 @@ def evaluate_v9_classification():
             features['hub_warning'] = 1 if hub_last < 620 else 0
             features['hub_decrease_rate'] = (hub_seq[0] - hub_last) / 30
         
-        # 복합 Feature
         inflow_sum = sum(df[col].iloc[i-1] for col in FEATURE_COLS_V8['inflow'] if col in available_cols)
         outflow_sum = sum(df[col].iloc[i-1] for col in FEATURE_COLS_V8['outflow'] if col in available_cols)
         features['net_flow'] = inflow_sum - outflow_sum
@@ -205,7 +204,6 @@ def evaluate_v9_classification():
             features.get('storage_util_high', 0) * 1
         )
         
-        # V9 Boolean
         if 'M16A_LFTTOALL' in available_cols:
             lft = df['M16A_LFTTOALL'].iloc[i-1]
             features['lfttoall_high'] = 1 if lft >= 100 else 0
@@ -244,7 +242,7 @@ def evaluate_v9_classification():
             'Class0_확률': round(pred_proba[0] * 100, 1),
             'Class1_확률': round(pred_proba[1] * 100, 1),
             'Class2_확률': round(pred_proba[2] * 100, 1),
-            'HUBROOMTOTAL': round(features.get('HUBROOMTOTAL_last_value', 0), 0),
+            'HUBROOMTOTAL': round(seq_data['HUBROOMTOTAL'].iloc[-1], 0) if 'HUBROOMTOTAL' in available_cols else 0,
         })
     
     results_df = pd.DataFrame(results)
@@ -260,49 +258,27 @@ def evaluate_v9_classification():
     
     print(f"총 예측: {len(results_df)}개")
     
-    # 전체 정확도
     overall_accuracy = accuracy_score(all_true_labels, all_pred_labels)
     print(f"\n✅ 전체 정확도: {overall_accuracy:.4f} ({overall_accuracy*100:.1f}%)")
     
-    # Classification Report
     print(f"\n📋 Classification Report:")
     class_names = ['Class 0 (<0)', 'Class 1 (0~50)', 'Class 2 (50+)']
     print(classification_report(all_true_labels, all_pred_labels, target_names=class_names, zero_division=0))
     
-    # Confusion Matrix
-    print(f"\n🎯 Confusion Matrix:")
     cm = confusion_matrix(all_true_labels, all_pred_labels)
+    print(f"\n🎯 Confusion Matrix:")
     print(f"              예측")
     print(f"        Class 0  Class 1  Class 2")
     for i, row in enumerate(cm):
         if len(row) >= 3:
             print(f"실제 {i}  {row[0]:7d}  {row[1]:7d}  {row[2]:7d}")
-        elif len(row) == 2:
-            print(f"실제 {i}  {row[0]:7d}  {row[1]:7d}        0")
-        else:
-            print(f"실제 {i}  {row[0]:7d}        0        0")
     
-    # Class 2 성능
     if len(cm) >= 3 and cm[:, 2].sum() > 0 and cm[2, :].sum() > 0:
         class2_precision = cm[2, 2] / cm[:, 2].sum()
         class2_recall = cm[2, 2] / cm[2, :].sum()
-        class2_f1 = 2 * (class2_precision * class2_recall) / (class2_precision + class2_recall) if (class2_precision + class2_recall) > 0 else 0
-        
-        print(f"\n🔥 급증(Class 2) 감지 성능:")
+        print(f"\n🔥 급증(Class 2) 감지:")
         print(f"  - Precision: {class2_precision:.4f} ({class2_precision*100:.1f}%)")
         print(f"  - Recall: {class2_recall:.4f} ({class2_recall*100:.1f}%)")
-        print(f"  - F1-Score: {class2_f1:.4f}")
-    
-    # 클래스별 샘플
-    print(f"\n📋 각 클래스별 예측 샘플 (5개씩):")
-    for cls in [0, 1, 2]:
-        class_name = get_class_name(cls)
-        samples = results_df[results_df['실제_클래스'] == class_name].head(5)
-        if len(samples) > 0:
-            print(f"\n{class_name}:")
-            display_cols = ['현재시간', '실제_변화량', '실제_클래스', '예측_클래스', 
-                           'Class0_확률', 'Class1_확률', 'Class2_확률', '정확도']
-            print(samples[display_cols].to_string(index=False))
     
     return results_df
 
