@@ -60,19 +60,19 @@ def evaluate_v9_regression_balanced():
         - 급락 시: MIN 오차 15.0 (최적)
         - 평상시: AVG 오차 11.6 (최적)
         
-        기준:
-        - 예측_MIN변화량 <= -40 → 급락 징후 → MIN 사용
-        - 예측_MAX변화량 >= 40 → 급등 징후 → MAX 사용
+        기준 (급등/급락 감지 중심):
+        - 예측_MIN변화량 <= -30 → 급락 징후 → MIN 사용
+        - 예측_MAX변화량 >= 30 → 급등 징후 → MAX 사용
         - 그 외 → 평상시 → AVG 사용
         
         Returns:
             (최종_예측값, 최종_변화량, 판단근거, 사용모델)
         """
-        # 급락 징후: MIN변화량 <= -40
-        is_drop_signal = pred_min_change <= -40
+        # 급락 징후: MIN변화량 <= -30
+        is_drop_signal = pred_min_change <= -30
         
-        # 급등 징후: MAX변화량 >= 40
-        is_surge_signal = pred_max_change >= 40
+        # 급등 징후: MAX변화량 >= 30
+        is_surge_signal = pred_max_change >= 30
         
         # 둘 다 있으면 더 강한 쪽 선택
         if is_drop_signal and is_surge_signal:
