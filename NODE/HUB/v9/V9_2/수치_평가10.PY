@@ -6,13 +6,11 @@ from datetime import datetime, timedelta
 def evaluate_v9_regression_balanced():
     """
     🎯 V9-수치형 밸런스: MIN/MAX/AVG 구간 예측 평가
-    - MIN: 10% 분위수 (급락 감지 강화)
-    - MAX: 90% 분위수 (급등 감지 유지)
-    - 양방향 감지율 평가
+    - 최종_예측: 복합 로직으로 MIN/MAX/AVG 중 선택
     """
     print("="*80)
-    print("🎯 V9-수치형 밸런스 평가 (Quantile 0.10 ~ 0.90)")
-    print("   ⚖️ 급락/급등 균형 감지 버전")
+    print("🎯 V9-수치형 밸런스 평가 (최종_예측 포함)")
+    print("   ⚖️ 복합 로직: 예측값 + 추세 + HUB 종합 판단")
     print("="*80)
     
     # ========== V8 기존 14개 ==========
@@ -51,6 +49,51 @@ def evaluate_v9_regression_balanced():
     ]
     
     TARGET_COL = 'CURRENT_M16A_3F_JOB_2'
+    
+    def determine_final_prediction(pred_min, pred_max, pred_avg, 
+                                    pred_min_change, pred_max_change,
+                                    target_slope, hub_value):
+        """
+        복합 로직으로 최종 예측값 결정
+        
+        Returns:
+            (최종_예측값, 최종_변화량, 판단근거, 사용모델)
+        """
+        급락_점수 = 0
+        급등_점수 = 0
+        reasons = []
+        
+        # 1. 예측값 기준 (가중치 2)
+        if pred_min_change <= -40:
+            급락_점수 += 2
+            reasons.append("MIN변화량≤-40")
+        if pred_max_change >= 40:
+            급등_점수 += 2
+            reasons.append("MAX변화량≥40")
+        
+        # 2. 추세 기준 (가중치 1)
+        if target_slope < -2:
+            급락_점수 += 1
+            reasons.append("하락추세")
+        elif target_slope > 2:
+            급등_점수 += 1
+            reasons.append("상승추세")
+        
+        # 3. HUBROOMTOTAL 기준 (가중치 1)
+        if hub_value < 600:
+            급등_점수 += 1
+            reasons.append("HUB<600")
+        elif hub_value < 650:
+            # 약간 위험
+            급등_점수 += 0.5
+        
+        # 최종 결정
+        if 급락_점수 >= 2 and 급락_점수 > 급등_점수:
+            return pred_min, pred_min_change, "급락위험(" + ",".join(reasons) + ")", "MIN"
+        elif 급등_점수 >= 2 and 급등_점수 > 급락_점수:
+            return pred_max, pred_max_change, "급등위험(" + ",".join(reasons) + ")", "MAX"
+        else:
+            return pred_avg, (pred_avg - (pred_avg - pred_min_change - (pred_max_change - pred_avg)/2)), "평상시", "AVG"
     
     # ========== 모델 로드 ==========
     try:
@@ -122,6 +165,14 @@ def evaluate_v9_regression_balanced():
         actual_max = np.max(future_10min)
         actual_change = actual_value - current_value
         
+        # 추세 계산
+        target_slope = np.polyfit(np.arange(30), seq_target, 1)[0]
+        
+        # HUB 값
+        hub_value = 999
+        if 'HUBROOMTOTAL' in available_cols:
+            hub_value = seq_data['HUBROOMTOTAL'].iloc[-1]
+        
         # ========== Feature 생성 ==========
         features = {
             'target_mean': np.mean(seq_target),
@@ -129,7 +180,7 @@ def evaluate_v9_regression_balanced():
             'target_max': np.max(seq_target),
             'target_min': np.min(seq_target),
             'target_last_value': seq_target[-1],
-            'target_slope': np.polyfit(np.arange(30), seq_target, 1)[0],
+            'target_slope': target_slope,
         }
         
         # V8 기존 컬럼
@@ -230,6 +281,17 @@ def evaluate_v9_regression_balanced():
         pred_max = current_value + pred_change_max
         pred_avg = current_value + pred_change_avg
         
+        # ========== 최종 예측 결정 ==========
+        final_pred, final_change, reason, used_model = determine_final_prediction(
+            pred_min, pred_max, pred_avg,
+            pred_change_min, pred_change_max,
+            target_slope, hub_value
+        )
+        
+        # AVG일 경우 변화량 재계산
+        if used_model == "AVG":
+            final_change = pred_change_avg
+        
         # 범위 내 포함 여부
         in_range = (pred_min <= actual_max and pred_max >= actual_min)
         
@@ -245,127 +307,133 @@ def evaluate_v9_regression_balanced():
         surge_detected = pred_change_max >= 40 if is_surge else None
         drop_detected = pred_change_min <= -40 if is_drop else None
         
+        # 최종예측 정확도 (오차 범위 내)
+        final_error = abs(actual_value - final_pred)
+        final_accurate_10 = final_error <= 10
+        final_accurate_20 = final_error <= 20
+        final_accurate_30 = final_error <= 30
+        
         results.append({
             '현재시간': current_time.strftime('%Y-%m-%d %H:%M'),
             '예측시점': prediction_time.strftime('%Y-%m-%d %H:%M'),
             '현재값': round(current_value, 2),
             '실제값': round(actual_value, 2),
-            '실제_MIN': round(actual_min, 2),
-            '실제_MAX': round(actual_max, 2),
             '실제_변화량': round(actual_change, 2),
             '예측_MIN': round(pred_min, 2),
             '예측_MAX': round(pred_max, 2),
             '예측_AVG': round(pred_avg, 2),
-            '예측_MIN변화량': round(pred_change_min, 2),
-            '예측_MAX변화량': round(pred_change_max, 2),
-            '예측_AVG변화량': round(pred_change_avg, 2),
+            '최종_예측': round(final_pred, 2),
+            '최종_변화량': round(final_change, 2),
+            '사용모델': used_model,
+            '판단근거': reason,
+            '최종_오차': round(final_error, 2),
+            '오차≤10': '✅' if final_accurate_10 else '',
+            '오차≤20': '✅' if final_accurate_20 else '',
+            '오차≤30': '✅' if final_accurate_30 else '',
             '범위적중': '✅' if in_range else '❌',
             '예측범위폭': round(pred_width, 2),
-            '실제범위폭': round(actual_width, 2),
             '급등여부': '📈' if is_surge else '',
             '급락여부': '📉' if is_drop else '',
             '급등감지': '✅' if surge_detected == True else ('❌' if surge_detected == False else ''),
             '급락감지': '✅' if drop_detected == True else ('❌' if drop_detected == False else ''),
-            'HUBROOMTOTAL': round(features.get('HUBROOMTOTAL_last_value', 0), 0),
+            '추세': round(target_slope, 4),
+            'HUBROOMTOTAL': round(hub_value, 0),
         })
     
     results_df = pd.DataFrame(results)
     
-    output_file = '수치형_V9_밸런스_평가결과.csv'
+    output_file = '수치형_V9_최종예측_평가결과.csv'
     results_df.to_csv(output_file, index=False, encoding='utf-8-sig')
     print(f"\n✅ 결과 저장: {output_file}")
     
     # ========== 통계 ==========
     print("\n" + "="*80)
-    print("📊 평가 통계 (V9-수치형 밸런스)")
+    print("📊 평가 통계 (V9-수치형 최종예측)")
     print("="*80)
     
     print(f"총 예측: {len(results_df)}개")
+    
+    # ========== 최종예측 정확도 (핵심!) ==========
+    print(f"\n" + "="*60)
+    print(f"🎯 최종_예측 정확도 (핵심 지표)")
+    print("="*60)
+    
+    acc_10 = (results_df['오차≤10'] == '✅').sum()
+    acc_20 = (results_df['오차≤20'] == '✅').sum()
+    acc_30 = (results_df['오차≤30'] == '✅').sum()
+    
+    print(f"  오차 ≤ 10: {acc_10}/{len(results_df)}개 ({acc_10/len(results_df)*100:.1f}%)")
+    print(f"  오차 ≤ 20: {acc_20}/{len(results_df)}개 ({acc_20/len(results_df)*100:.1f}%)")
+    print(f"  오차 ≤ 30: {acc_30}/{len(results_df)}개 ({acc_30/len(results_df)*100:.1f}%)")
+    
+    avg_error = results_df['최종_오차'].mean()
+    median_error = results_df['최종_오차'].median()
+    print(f"\n  평균 오차: {avg_error:.2f}")
+    print(f"  중앙값 오차: {median_error:.2f}")
+    
+    # 사용 모델 분포
+    print(f"\n📊 사용 모델 분포:")
+    model_counts = results_df['사용모델'].value_counts()
+    for model, count in model_counts.items():
+        print(f"  {model}: {count}개 ({count/len(results_df)*100:.1f}%)")
+    
+    # 모델별 정확도
+    print(f"\n📊 모델별 정확도 (오차 ≤ 20):")
+    for model in ['MIN', 'MAX', 'AVG']:
+        subset = results_df[results_df['사용모델'] == model]
+        if len(subset) > 0:
+            acc = (subset['오차≤20'] == '✅').sum() / len(subset) * 100
+            avg_err = subset['최종_오차'].mean()
+            print(f"  {model}: {acc:.1f}% (평균오차: {avg_err:.1f})")
     
     # 범위 적중률
     in_range_count = (results_df['범위적중'] == '✅').sum()
     print(f"\n🎯 범위 적중률: {in_range_count}/{len(results_df)}개 ({in_range_count/len(results_df)*100:.1f}%)")
     
-    # 범위폭 분석
-    print(f"\n📏 예측 범위폭:")
-    print(f"  - 평균: {results_df['예측범위폭'].mean():.1f}")
-    print(f"  - 중앙값: {results_df['예측범위폭'].median():.1f}")
-    print(f"  - 최소: {results_df['예측범위폭'].min():.1f}")
-    print(f"  - 최대: {results_df['예측범위폭'].max():.1f}")
-    
-    print(f"\n📏 실제 범위폭:")
-    print(f"  - 평균: {results_df['실제범위폭'].mean():.1f}")
-    print(f"  - 중앙값: {results_df['실제범위폭'].median():.1f}")
-    
-    # ========== 급등/급락 감지 (핵심!) ==========
+    # ========== 급등/급락 감지 ==========
     print(f"\n" + "="*60)
-    print(f"📈📉 급등/급락 감지 성능 (핵심 지표)")
+    print(f"📈📉 급등/급락 감지 성능")
     print("="*60)
     
     # 급등 감지
     surge_samples = results_df[results_df['급등여부'] == '📈']
     if len(surge_samples) > 0:
         surge_detected = (surge_samples['급등감지'] == '✅').sum()
-        surge_missed = (surge_samples['급등감지'] == '❌').sum()
-        print(f"\n📈 급등 (+50 이상) 감지:")
-        print(f"  - 총 급등: {len(surge_samples)}건")
-        print(f"  - 감지 성공: {surge_detected}건 ({surge_detected/len(surge_samples)*100:.1f}%)")
-        print(f"  - 미감지: {surge_missed}건 ({surge_missed/len(surge_samples)*100:.1f}%)")
-    else:
-        print(f"\n📈 급등 (+50 이상): 해당 없음")
+        print(f"📈 급등 (+50 이상): {surge_detected}/{len(surge_samples)}개 감지 ({surge_detected/len(surge_samples)*100:.1f}%)")
     
     # 급락 감지
     drop_samples = results_df[results_df['급락여부'] == '📉']
     if len(drop_samples) > 0:
         drop_detected = (drop_samples['급락감지'] == '✅').sum()
-        drop_missed = (drop_samples['급락감지'] == '❌').sum()
-        print(f"\n📉 급락 (-50 이하) 감지:")
-        print(f"  - 총 급락: {len(drop_samples)}건")
-        print(f"  - 감지 성공: {drop_detected}건 ({drop_detected/len(drop_samples)*100:.1f}%)")
-        print(f"  - 미감지: {drop_missed}건 ({drop_missed/len(drop_samples)*100:.1f}%)")
-    else:
-        print(f"\n📉 급락 (-50 이하): 해당 없음")
+        print(f"📉 급락 (-50 이하): {drop_detected}/{len(drop_samples)}개 감지 ({drop_detected/len(drop_samples)*100:.1f}%)")
     
-    # 밸런스 종합
-    print(f"\n⚖️ 밸런스 종합:")
-    total_extreme = len(surge_samples) + len(drop_samples)
-    if total_extreme > 0:
-        total_detected = 0
-        if len(surge_samples) > 0:
-            total_detected += (surge_samples['급등감지'] == '✅').sum()
-        if len(drop_samples) > 0:
-            total_detected += (drop_samples['급락감지'] == '✅').sum()
-        print(f"  - 극단 변화(±50) 총: {total_extreme}건")
-        print(f"  - 감지 성공: {total_detected}건 ({total_detected/total_extreme*100:.1f}%)")
+    # ========== 판단근거별 분석 ==========
+    print(f"\n📊 판단근거별 분포:")
+    reason_counts = results_df['판단근거'].value_counts().head(10)
+    for reason, count in reason_counts.items():
+        print(f"  {reason}: {count}개")
     
-    # ========== 구간별 상세 ==========
-    print(f"\n📊 변화량 구간별 분포:")
+    # ========== 샘플 출력 ==========
+    print(f"\n📋 샘플 데이터 (급등/급락 각 5개):")
     
-    bins = [-np.inf, -100, -50, -20, 0, 20, 50, 100, np.inf]
-    labels = ['<-100', '-100~-50', '-50~-20', '-20~0', '0~20', '20~50', '50~100', '>100']
-    results_df['변화구간'] = pd.cut(results_df['실제_변화량'], bins=bins, labels=labels)
+    print(f"\n[급등 샘플]")
+    surge_sample = results_df[results_df['급등여부'] == '📈'].head(5)
+    if len(surge_sample) > 0:
+        display_cols = ['현재시간', '실제_변화량', '최종_예측', '최종_변화량', '사용모델', '판단근거', '최종_오차']
+        print(surge_sample[display_cols].to_string(index=False))
     
-    for label in labels:
-        count = (results_df['변화구간'] == label).sum()
-        if count > 0:
-            subset = results_df[results_df['변화구간'] == label]
-            hit_rate = (subset['범위적중'] == '✅').sum() / count * 100
-            print(f"  {label:>10}: {count:>5}건 (적중률 {hit_rate:.1f}%)")
-    
-    # ========== 급락 미감지 샘플 분석 ==========
-    if len(drop_samples) > 0:
-        missed_drops = drop_samples[drop_samples['급락감지'] == '❌']
-        if len(missed_drops) > 0:
-            print(f"\n⚠️ 급락 미감지 샘플 (최대 5개):")
-            display_cols = ['현재시간', '실제_변화량', '예측_MIN변화량', '예측_MAX변화량']
-            print(missed_drops[display_cols].head(5).to_string(index=False))
+    print(f"\n[급락 샘플]")
+    drop_sample = results_df[results_df['급락여부'] == '📉'].head(5)
+    if len(drop_sample) > 0:
+        display_cols = ['현재시간', '실제_변화량', '최종_예측', '최종_변화량', '사용모델', '판단근거', '최종_오차']
+        print(drop_sample[display_cols].to_string(index=False))
     
     return results_df
 
 if __name__ == '__main__':
-    print("🚀 V9-수치형 밸런스 평가 시작...\n")
+    print("🚀 V9-수치형 최종예측 평가 시작...\n")
     results = evaluate_v9_regression_balanced()
     
     if results is not None:
         print(f"\n✅ 평가 완료!")
-        print(f"📁 결과: 수치형_V9_밸런스_평가결과.csv")
+        print(f"📁 결과: 수치형_V9_최종예측_평가결과.csv")
