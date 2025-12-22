@@ -11,15 +11,13 @@ warnings.filterwarnings('ignore')
 
 def train_v9_classification():
     """
-    🎯 V9-범주형: 3-Class 분류
+    🎯 V9-범주형: 3-Class 분류 (수치형과 Feature 동일)
     - Class 0: < 0 (하락/정체)
     - Class 1: 0~50 (소폭 증가)
     - Class 2: 50+ (급증, 5배 가중치)
-    - 핵심 Feature: mean, std, max, min, last_value, slope
-    - V8 14개 + V9 20개 = 34개 컬럼
     """
     print("="*80)
-    print("🎯 V9-범주형: 3-Class Classification")
+    print("🎯 V9-범주형: 3-Class Classification (수치형 Feature 동일)")
     print("="*80)
     
     # ========== V8 기존 14개 ==========
@@ -60,16 +58,15 @@ def train_v9_classification():
     TARGET_COL = 'CURRENT_M16A_3F_JOB_2'
     
     def create_class_label(change):
-        """변화량을 클래스로 변환"""
         if change < 0:
-            return 0  # 하락/정체
+            return 0
         elif change < 50:
-            return 1  # 소폭 증가
+            return 1
         else:
-            return 2  # 급증
+            return 2
     
     def create_features_v9(df, available_cols, start_idx=30):
-        """V9 Feature 생성 - 핵심만 (mean, std, max, min, last_value, slope)"""
+        """V9 Feature 생성 - 수치형과 완전 동일"""
         features_list = []
         labels = []
         indices = []
@@ -83,14 +80,11 @@ def train_v9_classification():
             seq_target = df[TARGET_COL].iloc[i-30:i].values
             current_value = seq_target[-1]
             
-            # 10분 후 실제값
             future_actual = df[TARGET_COL].iloc[i+9]
             actual_change = future_actual - current_value
-            
-            # 클래스 라벨
             class_label = create_class_label(actual_change)
             
-            # ========== 타겟 핵심 Feature (6개 + 급증/급락 6개) ==========
+            # ========== 타겟 핵심 Feature (6개) ==========
             features = {
                 'target_mean': np.mean(seq_target),
                 'target_std': np.std(seq_target),
@@ -98,13 +92,6 @@ def train_v9_classification():
                 'target_min': np.min(seq_target),
                 'target_last_value': seq_target[-1],
                 'target_slope': np.polyfit(np.arange(30), seq_target, 1)[0],
-                # 🔥 급증/급락 감지용 Feature
-                'target_is_rising': 1 if seq_target[-1] > seq_target[-10] else 0,
-                'target_is_falling': 1 if seq_target[-1] < seq_target[-10] else 0,
-                'target_rapid_rise': 1 if (seq_target[-1] - seq_target[-10] > 20) else 0,
-                'target_rapid_fall': 1 if (seq_target[-1] - seq_target[-10] < -20) else 0,
-                'target_change_10': seq_target[-1] - seq_target[-10],
-                'target_acceleration': (np.mean(seq_target[-10:]) - np.mean(seq_target[-20:-10])),
             }
             
             # ========== V8 기존 컬럼 Feature ==========
@@ -124,7 +111,7 @@ def train_v9_classification():
                         features[f'{col}_min'] = np.min(col_seq)
                         features[f'{col}_last_value'] = col_seq[-1]
                         features[f'{col}_slope'] = np.polyfit(np.arange(30), col_seq, 1)[0]
-                    else:  # inflow, outflow
+                    else:
                         features[f'{col}_mean'] = np.mean(col_seq)
                         features[f'{col}_last_value'] = col_seq[-1]
                         features[f'{col}_slope'] = np.polyfit(np.arange(30), col_seq, 1)[0]
@@ -142,8 +129,7 @@ def train_v9_classification():
                 features[f'{col}_last_value'] = col_seq[-1]
                 features[f'{col}_slope'] = np.polyfit(np.arange(30), col_seq, 1)[0]
             
-            # ========== 특수 Feature ==========
-            # FS Storage
+            # ========== 특수 Feature (수치형과 동일) ==========
             if all(col in available_cols for col in ['CD_M163FSTORAGEUSE', 'CD_M163FSTORAGETOTAL', 'CD_M163FSTORAGEUTIL']):
                 storage_use = df['CD_M163FSTORAGEUSE'].iloc[i-30:i].values
                 storage_total = df['CD_M163FSTORAGETOTAL'].iloc[i-30:i].values
@@ -155,7 +141,6 @@ def train_v9_classification():
                 features['storage_util_high'] = 1 if storage_util[-1] >= 7 else 0
                 features['storage_util_critical'] = 1 if storage_util[-1] >= 10 else 0
             
-            # HUBROOMTOTAL
             if 'HUBROOMTOTAL' in available_cols:
                 hub_seq = df['HUBROOMTOTAL'].iloc[i-30:i].values
                 hub_last = hub_seq[-1]
@@ -165,7 +150,6 @@ def train_v9_classification():
                 features['hub_warning'] = 1 if hub_last < 620 else 0
                 features['hub_decrease_rate'] = (hub_seq[0] - hub_last) / 30
             
-            # 복합 Feature
             inflow_sum = sum(df[col].iloc[i-1] for col in FEATURE_COLS_V8['inflow'] if col in available_cols)
             outflow_sum = sum(df[col].iloc[i-1] for col in FEATURE_COLS_V8['outflow'] if col in available_cols)
             features['net_flow'] = inflow_sum - outflow_sum
@@ -182,7 +166,6 @@ def train_v9_classification():
                 features.get('storage_util_high', 0) * 1
             )
             
-            # V9 Boolean
             if 'M16A_LFTTOALL' in available_cols:
                 lft = df['M16A_LFTTOALL'].iloc[i-1]
                 features['lfttoall_high'] = 1 if lft >= 100 else 0
@@ -221,7 +204,6 @@ def train_v9_classification():
     
     print(f"학습 데이터: {len(df_train)}개 행")
     
-    # 컬럼 확인
     available_cols = set(df_train.columns)
     
     v8_count = sum(1 for cols in FEATURE_COLS_V8.values() for col in cols if col in available_cols)
@@ -230,13 +212,6 @@ def train_v9_classification():
     print(f"\n📋 컬럼 확인:")
     print(f"  V8 기존: {v8_count}/14개")
     print(f"  V9 신규: {v9_count}/20개")
-    print(f"  총: {v8_count + v9_count}/34개")
-    
-    # V9 컬럼 상세
-    print(f"\n📋 V9 컬럼 상세:")
-    for col in V9_NEW_COLS:
-        status = "✅" if col in available_cols else "❌"
-        print(f"  {status} {col}")
     
     # ========== Feature 생성 ==========
     print("\n[STEP 2] Feature 생성")
@@ -275,18 +250,17 @@ def train_v9_classification():
         print("  ✅ GPU 모드")
     except:
         print("  ⚠️ CPU 모드")
-        use_gpu = False
     
-    # ========== 가중치 ==========
+    # ========== 가중치 (급증 5배) ==========
     print("\n[STEP 4] 클래스 가중치")
     print("-"*40)
     
-    class_weights = {0: 1.0, 1: 1.0, 2: 10.0}
+    class_weights = {0: 1.0, 1: 1.0, 2: 5.0}
     sample_weights = np.array([class_weights[label] for label in y_tr])
     
     print(f"  Class 0 (<0): 1.0배")
     print(f"  Class 1 (0~50): 1.0배")
-    print(f"  Class 2 (50+): 5.0배 (급증 중점)")
+    print(f"  Class 2 (50+): 5.0배")
     
     # ========== 모델 학습 ==========
     print("\n[STEP 5] 모델 학습")
@@ -337,50 +311,39 @@ def train_v9_classification():
     print("-"*40)
     
     y_val_pred = model.predict(X_val)
-    y_val_proba = model.predict_proba(X_val)
-    
     accuracy = accuracy_score(y_val, y_val_pred)
     
     print(f"\n📊 검증 성능:")
     print(f"  전체 정확도: {accuracy:.4f} ({accuracy*100:.1f}%)")
     
-    # Classification Report
     print(f"\n📋 Classification Report:")
     class_names = ['Class 0 (<0)', 'Class 1 (0~50)', 'Class 2 (50+)']
     print(classification_report(y_val, y_val_pred, target_names=class_names))
     
-    # Confusion Matrix
-    print(f"\n🎯 Confusion Matrix:")
     cm = confusion_matrix(y_val, y_val_pred)
+    print(f"\n🎯 Confusion Matrix:")
     print(f"              예측")
     print(f"        Class 0  Class 1  Class 2")
     for i, row in enumerate(cm):
         print(f"실제 {i}  {row[0]:7d}  {row[1]:7d}  {row[2]:7d}")
     
-    # Class 2 성능
     if cm[:, 2].sum() > 0 and cm[2, :].sum() > 0:
         class2_precision = cm[2, 2] / cm[:, 2].sum()
         class2_recall = cm[2, 2] / cm[2, :].sum()
-        
-        print(f"\n🔥 급증(Class 2) 감지 성능:")
+        print(f"\n🔥 급증(Class 2) 감지:")
         print(f"  - Precision: {class2_precision:.4f} ({class2_precision*100:.1f}%)")
         print(f"  - Recall: {class2_recall:.4f} ({class2_recall*100:.1f}%)")
     
-    # ========== 모델 저장 ==========
+    # ========== 모델 저장 (Feature 이름 포함) ==========
+    model_dict = {
+        'model': model,
+        'feature_names': X_train.columns.tolist()
+    }
+    
     model_filename = 'xgboost_범주형_V9.pkl'
     with open(model_filename, 'wb') as f:
-        pickle.dump(model, f)
+        pickle.dump(model_dict, f)
     print(f"\n✅ 모델 저장: {model_filename}")
-    
-    # ========== Feature 중요도 ==========
-    print("\n🔥 Feature 중요도 Top 20:")
-    feature_importance = pd.DataFrame({
-        'feature': X_train.columns,
-        'importance': model.feature_importances_
-    }).sort_values('importance', ascending=False).head(20)
-    
-    for i, row in feature_importance.iterrows():
-        print(f"  {row['feature']}: {row['importance']:.4f}")
     
     print("\n" + "="*80)
     print("✅ V9-범주형 학습 완료!")
