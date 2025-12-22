@@ -51,49 +51,48 @@ def evaluate_v9_regression_balanced():
     TARGET_COL = 'CURRENT_M16A_3F_JOB_2'
     
     def determine_final_prediction(pred_min, pred_max, pred_avg, 
-                                    pred_min_change, pred_max_change,
-                                    target_slope, hub_value):
+                                    pred_min_change, pred_max_change, pred_avg_change):
         """
-        복합 로직으로 최종 예측값 결정
+        최종 예측값 결정 (데이터 검증 기반)
+        
+        검증 결과:
+        - 급등 시: MAX 오차 19.7 (최적)
+        - 급락 시: MIN 오차 15.0 (최적)
+        - 평상시: AVG 오차 11.6 (최적)
+        
+        기준:
+        - 예측_MIN변화량 <= -40 → 급락 징후 → MIN 사용
+        - 예측_MAX변화량 >= 40 → 급등 징후 → MAX 사용
+        - 그 외 → 평상시 → AVG 사용
         
         Returns:
             (최종_예측값, 최종_변화량, 판단근거, 사용모델)
         """
-        급락_점수 = 0
-        급등_점수 = 0
-        reasons = []
+        # 급락 징후: MIN변화량 <= -40
+        is_drop_signal = pred_min_change <= -40
         
-        # 1. 예측값 기준 (가중치 2)
-        if pred_min_change <= -40:
-            급락_점수 += 2
-            reasons.append("MIN변화량≤-40")
-        if pred_max_change >= 40:
-            급등_점수 += 2
-            reasons.append("MAX변화량≥40")
+        # 급등 징후: MAX변화량 >= 40
+        is_surge_signal = pred_max_change >= 40
         
-        # 2. 추세 기준 (가중치 1)
-        if target_slope < -2:
-            급락_점수 += 1
-            reasons.append("하락추세")
-        elif target_slope > 2:
-            급등_점수 += 1
-            reasons.append("상승추세")
+        # 둘 다 있으면 더 강한 쪽 선택
+        if is_drop_signal and is_surge_signal:
+            # 절대값 비교
+            if abs(pred_min_change) > abs(pred_max_change):
+                return pred_min, pred_min_change, f"급락우세(MIN:{pred_min_change:.0f},MAX:{pred_max_change:.0f})", "MIN"
+            else:
+                return pred_max, pred_max_change, f"급등우세(MIN:{pred_min_change:.0f},MAX:{pred_max_change:.0f})", "MAX"
         
-        # 3. HUBROOMTOTAL 기준 (가중치 1)
-        if hub_value < 600:
-            급등_점수 += 1
-            reasons.append("HUB<600")
-        elif hub_value < 650:
-            # 약간 위험
-            급등_점수 += 0.5
+        # 급락 징후만
+        elif is_drop_signal:
+            return pred_min, pred_min_change, f"급락징후(MIN변화량:{pred_min_change:.0f})", "MIN"
         
-        # 최종 결정
-        if 급락_점수 >= 2 and 급락_점수 > 급등_점수:
-            return pred_min, pred_min_change, "급락위험(" + ",".join(reasons) + ")", "MIN"
-        elif 급등_점수 >= 2 and 급등_점수 > 급락_점수:
-            return pred_max, pred_max_change, "급등위험(" + ",".join(reasons) + ")", "MAX"
+        # 급등 징후만
+        elif is_surge_signal:
+            return pred_max, pred_max_change, f"급등징후(MAX변화량:{pred_max_change:.0f})", "MAX"
+        
+        # 평상시
         else:
-            return pred_avg, (pred_avg - (pred_avg - pred_min_change - (pred_max_change - pred_avg)/2)), "평상시", "AVG"
+            return pred_avg, pred_avg_change, "평상시", "AVG"
     
     # ========== 모델 로드 ==========
     try:
@@ -284,13 +283,8 @@ def evaluate_v9_regression_balanced():
         # ========== 최종 예측 결정 ==========
         final_pred, final_change, reason, used_model = determine_final_prediction(
             pred_min, pred_max, pred_avg,
-            pred_change_min, pred_change_max,
-            target_slope, hub_value
+            pred_change_min, pred_change_max, pred_change_avg
         )
-        
-        # AVG일 경우 변화량 재계산
-        if used_model == "AVG":
-            final_change = pred_change_avg
         
         # 범위 내 포함 여부
         in_range = (pred_min <= actual_max and pred_max >= actual_min)
