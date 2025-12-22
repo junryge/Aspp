@@ -9,17 +9,17 @@ from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
 
 warnings.filterwarnings('ignore')
 
-def train_v9_regression():
+def train_v9_regression_balanced():
     """
-    🎯 V9-수치형: MIN/MAX/AVG 구간 예측 (Quantile Regression)
-    - MIN: 25% 분위수 (하한)
-    - MAX: 75% 분위수 (상한)
+    🎯 V9-수치형 밸런스: MIN/MAX/AVG 구간 예측 (급락+급등 균형)
+    - MIN: 10% 분위수 (급락 감지 강화)
+    - MAX: 90% 분위수 (급등 감지 유지)
     - AVG: 50% 분위수 (중앙)
-    - 핵심 Feature: mean, std, max, min, last_value, slope
-    - V8 14개 + V9 20개 = 34개 컬럼
+    - 양방향 가중치: 급락(-50) + 급등(+50) 둘 다 5배
     """
     print("="*80)
-    print("🎯 V9-수치형: Quantile Regression (0.25 ~ 0.75)")
+    print("🎯 V9-수치형 밸런스: Quantile Regression (0.10 ~ 0.90)")
+    print("   ⚖️ 급락/급등 균형 감지 버전")
     print("="*80)
     
     # ========== V8 기존 14개 ==========
@@ -86,7 +86,7 @@ def train_v9_regression():
             change_max = future_max - current_value
             change_avg = future_avg - current_value
             
-            # ========== 타겟 핵심 Feature (6개 + 급증/급락 6개) ==========
+            # ========== 타겟 핵심 Feature (6개) ==========
             features = {
                 'target_mean': np.mean(seq_target),
                 'target_std': np.std(seq_target),
@@ -94,13 +94,6 @@ def train_v9_regression():
                 'target_min': np.min(seq_target),
                 'target_last_value': seq_target[-1],
                 'target_slope': np.polyfit(np.arange(30), seq_target, 1)[0],
-                # 🔥 급증/급락 감지용 Feature
-                'target_is_rising': 1 if seq_target[-1] > seq_target[-10] else 0,
-                'target_is_falling': 1 if seq_target[-1] < seq_target[-10] else 0,
-                'target_rapid_rise': 1 if (seq_target[-1] - seq_target[-10] > 20) else 0,
-                'target_rapid_fall': 1 if (seq_target[-1] - seq_target[-10] < -20) else 0,
-                'target_change_10': seq_target[-1] - seq_target[-10],
-                'target_acceleration': (np.mean(seq_target[-10:]) - np.mean(seq_target[-20:-10])),
             }
             
             # ========== V8 기존 컬럼 Feature ==========
@@ -244,16 +237,24 @@ def train_v9_regression():
     print(f"  - Feature: {len(X_train.columns)}개")
     print(f"  - 샘플: {len(X_train)}개")
     
-    # ========== 가중치 계산 ==========
-    print("\n[STEP 3] 가중치 계산")
+    # ========== 양방향 가중치 계산 (급락+급등) ==========
+    print("\n[STEP 3] 양방향 가중치 계산 (급락 + 급등)")
     print("-"*40)
     
-    large_changes = (np.abs(y_train[:, 0]) >= 50) | (np.abs(y_train[:, 1]) >= 50) | (np.abs(y_train[:, 2]) >= 50)
-    sample_weights = np.where(large_changes, 5.0, 1.0)
+    # 급등: MAX 변화량 >= 50
+    large_increase = (y_train[:, 1] >= 50)
+    # 급락: MIN 변화량 <= -50
+    large_decrease = (y_train[:, 0] <= -50)
+    # 둘 다 5배 가중치
+    sample_weights = np.where(large_increase | large_decrease, 5.0, 1.0)
     
-    large_count = large_changes.sum()
-    print(f"  일반 샘플 (1.0배): {len(large_changes) - large_count}개")
-    print(f"  큰 변화 (5.0배): {large_count}개 ({large_count/len(large_changes)*100:.1f}%)")
+    increase_count = large_increase.sum()
+    decrease_count = large_decrease.sum()
+    normal_count = len(y_train) - increase_count - decrease_count
+    
+    print(f"  일반 샘플 (1.0배): {normal_count}개")
+    print(f"  📈 급등 +50 이상 (5.0배): {increase_count}개 ({increase_count/len(y_train)*100:.2f}%)")
+    print(f"  📉 급락 -50 이하 (5.0배): {decrease_count}개 ({decrease_count/len(y_train)*100:.2f}%)")
     
     # 학습/검증 분할
     X_tr, X_val, y_tr, y_val, w_tr, w_val = train_test_split(
@@ -277,24 +278,28 @@ def train_v9_regression():
         print("  ⚠️ CPU 모드")
         use_gpu = False
     
-    # ========== 모델 학습 ==========
-    print("\n[STEP 5] 모델 학습 (Quantile 0.25 / 0.75 / 0.50)")
+    # ========== 모델 학습 (밸런스 Quantile) ==========
+    print("\n[STEP 5] 모델 학습 (밸런스 Quantile 0.10 / 0.90 / 0.50)")
     print("-"*40)
+    print("  ⚖️ 급락/급등 균형 감지 설정:")
+    print("     MIN: 0.10 (10%) → 급락 감지 강화")
+    print("     MAX: 0.90 (90%) → 급등 감지 유지")
+    print("     AVG: 0.50 (50%) → 중앙값")
     
     models = []
+    
+    # 밸런스 Quantile 설정
+    quantile_settings = {
+        'MIN': 0.10,  # 급락 감지 강화 (기존 0.25 → 0.10)
+        'MAX': 0.90,  # 급등 감지 유지 (기존 0.75 → 0.90)
+        'AVG': 0.50   # 중앙값 유지
+    }
     
     for idx, name in enumerate(['MIN', 'MAX', 'AVG']):
         print(f"\n[{name}] 학습 중...")
         
-        if name == 'MIN':
-            quantile_alpha = 0.3
-            print(f"  → 30% 분위수 (하한)")
-        elif name == 'MAX':
-            quantile_alpha = 0.7
-            print(f"  → 70% 분위수 (상한)")
-        else:
-            quantile_alpha = 0.5
-            print(f"  → 50% 분위수 (중앙)")
+        quantile_alpha = quantile_settings[name]
+        print(f"  → {int(quantile_alpha*100)}% 분위수")
         
         if use_gpu:
             model = xgb.XGBRegressor(
@@ -368,13 +373,30 @@ def train_v9_regression():
             in_range += 1
     print(f"\n🎯 구간 겹침률: {in_range}/{len(y_val)}개 ({in_range/len(y_val)*100:.1f}%)")
     
+    # ========== 급락/급등 감지율 검증 ==========
+    print(f"\n📈📉 급락/급등 감지율 (검증셋):")
+    
+    # 급등 감지
+    val_increase = y_val[:, 1] >= 50
+    if val_increase.sum() > 0:
+        detected_increase = (y_val_pred[val_increase, 1] >= 40).sum()
+        print(f"  급등(+50): {detected_increase}/{val_increase.sum()}개 감지 ({detected_increase/val_increase.sum()*100:.1f}%)")
+    
+    # 급락 감지
+    val_decrease = y_val[:, 0] <= -50
+    if val_decrease.sum() > 0:
+        detected_decrease = (y_val_pred[val_decrease, 0] <= -40).sum()
+        print(f"  급락(-50): {detected_decrease}/{val_decrease.sum()}개 감지 ({detected_decrease/val_decrease.sum()*100:.1f}%)")
+    
     # ========== 모델 저장 ==========
     model_dict = {
         'models': models,
-        'feature_names': X_train.columns.tolist()
+        'feature_names': X_train.columns.tolist(),
+        'quantile_settings': quantile_settings,
+        'version': 'V9_balanced'
     }
     
-    model_filename = 'xgboost_수치형_V9.pkl'
+    model_filename = 'xgboost_수치형_V9_밸런스.pkl'
     with open(model_filename, 'wb') as f:
         pickle.dump(model_dict, f)
     print(f"\n✅ 모델 저장: {model_filename}")
@@ -390,10 +412,11 @@ def train_v9_regression():
         print(f"  {row['feature']}: {row['importance']:.4f}")
     
     print("\n" + "="*80)
-    print("✅ V9-수치형 학습 완료!")
+    print("✅ V9-수치형 밸런스 학습 완료!")
+    print("   ⚖️ 급락(0.10) + 급등(0.90) 균형 감지")
     print("="*80)
 
 if __name__ == '__main__':
-    print("🚀 V9-수치형 Quantile Regression 학습\n")
-    train_v9_regression()
+    print("🚀 V9-수치형 밸런스 Quantile Regression 학습\n")
+    train_v9_regression_balanced()
     print(f"\n🎉 완료!")
