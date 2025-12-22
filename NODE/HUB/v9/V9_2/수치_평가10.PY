@@ -3,12 +3,16 @@ import pandas as pd
 import pickle
 from datetime import datetime, timedelta
 
-def evaluate_v9_regression():
+def evaluate_v9_regression_balanced():
     """
-    🎯 V9-수치형: MIN/MAX/AVG 구간 예측 평가
+    🎯 V9-수치형 밸런스: MIN/MAX/AVG 구간 예측 평가
+    - MIN: 10% 분위수 (급락 감지 강화)
+    - MAX: 90% 분위수 (급등 감지 유지)
+    - 양방향 감지율 평가
     """
     print("="*80)
-    print("🎯 V9-수치형 평가 (Quantile 0.25 ~ 0.75)")
+    print("🎯 V9-수치형 밸런스 평가 (Quantile 0.10 ~ 0.90)")
+    print("   ⚖️ 급락/급등 균형 감지 버전")
     print("="*80)
     
     # ========== V8 기존 14개 ==========
@@ -50,13 +54,25 @@ def evaluate_v9_regression():
     
     # ========== 모델 로드 ==========
     try:
-        with open('xgboost_수치형_V9.pkl', 'rb') as f:
+        with open('xgboost_수치형_V9_밸런스.pkl', 'rb') as f:
             model_dict = pickle.load(f)
         models = model_dict['models']
-        print("✅ 모델 로드: xgboost_수치형_V9.pkl")
+        print("✅ 모델 로드: xgboost_수치형_V9_밸런스.pkl")
+        
+        if 'quantile_settings' in model_dict:
+            qs = model_dict['quantile_settings']
+            print(f"   Quantile 설정: MIN={qs['MIN']}, MAX={qs['MAX']}, AVG={qs['AVG']}")
     except Exception as e:
-        print(f"❌ 모델 없음: {e}")
-        return None
+        print(f"❌ 밸런스 모델 없음: {e}")
+        print("   → 기존 모델 시도...")
+        try:
+            with open('xgboost_수치형_V9.pkl', 'rb') as f:
+                model_dict = pickle.load(f)
+            models = model_dict['models']
+            print("✅ 기존 모델 로드: xgboost_수치형_V9.pkl")
+        except:
+            print("❌ 모델 없음")
+            return None
     
     # ========== 데이터 로드 ==========
     try:
@@ -114,13 +130,6 @@ def evaluate_v9_regression():
             'target_min': np.min(seq_target),
             'target_last_value': seq_target[-1],
             'target_slope': np.polyfit(np.arange(30), seq_target, 1)[0],
-            # 🔥 급증/급락 감지용 Feature
-            'target_is_rising': 1 if seq_target[-1] > seq_target[-10] else 0,
-            'target_is_falling': 1 if seq_target[-1] < seq_target[-10] else 0,
-            'target_rapid_rise': 1 if (seq_target[-1] - seq_target[-10] > 20) else 0,
-            'target_rapid_fall': 1 if (seq_target[-1] - seq_target[-10] < -20) else 0,
-            'target_change_10': seq_target[-1] - seq_target[-10],
-            'target_acceleration': (np.mean(seq_target[-10:]) - np.mean(seq_target[-20:-10])),
         }
         
         # V8 기존 컬럼
@@ -224,12 +233,17 @@ def evaluate_v9_regression():
         # 범위 내 포함 여부
         in_range = (pred_min <= actual_max and pred_max >= actual_min)
         
-        # 🔥 실제값이 예측 범위 안에 있는지
-        actual_in_range = (pred_min <= actual_value <= pred_max)
-        
         # 범위폭
         pred_width = pred_change_max - pred_change_min
         actual_width = actual_max - actual_min
+        
+        # 급등/급락 판정
+        is_surge = actual_change >= 50
+        is_drop = actual_change <= -50
+        
+        # 감지 여부
+        surge_detected = pred_change_max >= 40 if is_surge else None
+        drop_detected = pred_change_min <= -40 if is_drop else None
         
         results.append({
             '현재시간': current_time.strftime('%Y-%m-%d %H:%M'),
@@ -246,21 +260,24 @@ def evaluate_v9_regression():
             '예측_MAX변화량': round(pred_change_max, 2),
             '예측_AVG변화량': round(pred_change_avg, 2),
             '범위적중': '✅' if in_range else '❌',
-            '실제값포함': '✅' if actual_in_range else '❌',
             '예측범위폭': round(pred_width, 2),
             '실제범위폭': round(actual_width, 2),
+            '급등여부': '📈' if is_surge else '',
+            '급락여부': '📉' if is_drop else '',
+            '급등감지': '✅' if surge_detected == True else ('❌' if surge_detected == False else ''),
+            '급락감지': '✅' if drop_detected == True else ('❌' if drop_detected == False else ''),
             'HUBROOMTOTAL': round(features.get('HUBROOMTOTAL_last_value', 0), 0),
         })
     
     results_df = pd.DataFrame(results)
     
-    output_file = '수치형_V9_평가결과.csv'
+    output_file = '수치형_V9_밸런스_평가결과.csv'
     results_df.to_csv(output_file, index=False, encoding='utf-8-sig')
     print(f"\n✅ 결과 저장: {output_file}")
     
     # ========== 통계 ==========
     print("\n" + "="*80)
-    print("📊 평가 통계 (V9-수치형)")
+    print("📊 평가 통계 (V9-수치형 밸런스)")
     print("="*80)
     
     print(f"총 예측: {len(results_df)}개")
@@ -268,10 +285,6 @@ def evaluate_v9_regression():
     # 범위 적중률
     in_range_count = (results_df['범위적중'] == '✅').sum()
     print(f"\n🎯 범위 적중률: {in_range_count}/{len(results_df)}개 ({in_range_count/len(results_df)*100:.1f}%)")
-    
-    # 🔥 실제값 포함률 (핵심!)
-    actual_in_count = (results_df['실제값포함'] == '✅').sum()
-    print(f"🎯 실제값 포함률: {actual_in_count}/{len(results_df)}개 ({actual_in_count/len(results_df)*100:.1f}%)")
     
     # 범위폭 분석
     print(f"\n📏 예측 범위폭:")
@@ -284,34 +297,75 @@ def evaluate_v9_regression():
     print(f"  - 평균: {results_df['실제범위폭'].mean():.1f}")
     print(f"  - 중앙값: {results_df['실제범위폭'].median():.1f}")
     
-    # 급증/급락 감지
-    print(f"\n🔥 급증/급락 감지:")
+    # ========== 급등/급락 감지 (핵심!) ==========
+    print(f"\n" + "="*60)
+    print(f"📈📉 급등/급락 감지 성능 (핵심 지표)")
+    print("="*60)
     
-    large_increase = results_df[results_df['실제_변화량'] >= 50]
-    if len(large_increase) > 0:
-        detected = large_increase[large_increase['예측_MAX변화량'] >= 40]
-        print(f"  - 급증(+50) 감지: {len(detected)}/{len(large_increase)}개 ({len(detected)/len(large_increase)*100:.1f}%)")
+    # 급등 감지
+    surge_samples = results_df[results_df['급등여부'] == '📈']
+    if len(surge_samples) > 0:
+        surge_detected = (surge_samples['급등감지'] == '✅').sum()
+        surge_missed = (surge_samples['급등감지'] == '❌').sum()
+        print(f"\n📈 급등 (+50 이상) 감지:")
+        print(f"  - 총 급등: {len(surge_samples)}건")
+        print(f"  - 감지 성공: {surge_detected}건 ({surge_detected/len(surge_samples)*100:.1f}%)")
+        print(f"  - 미감지: {surge_missed}건 ({surge_missed/len(surge_samples)*100:.1f}%)")
+    else:
+        print(f"\n📈 급등 (+50 이상): 해당 없음")
     
-    large_decrease = results_df[results_df['실제_변화량'] <= -50]
-    if len(large_decrease) > 0:
-        detected = large_decrease[large_decrease['예측_MIN변화량'] <= -40]
-        print(f"  - 급락(-50) 감지: {len(detected)}/{len(large_decrease)}개 ({len(detected)/len(large_decrease)*100:.1f}%)")
+    # 급락 감지
+    drop_samples = results_df[results_df['급락여부'] == '📉']
+    if len(drop_samples) > 0:
+        drop_detected = (drop_samples['급락감지'] == '✅').sum()
+        drop_missed = (drop_samples['급락감지'] == '❌').sum()
+        print(f"\n📉 급락 (-50 이하) 감지:")
+        print(f"  - 총 급락: {len(drop_samples)}건")
+        print(f"  - 감지 성공: {drop_detected}건 ({drop_detected/len(drop_samples)*100:.1f}%)")
+        print(f"  - 미감지: {drop_missed}건 ({drop_missed/len(drop_samples)*100:.1f}%)")
+    else:
+        print(f"\n📉 급락 (-50 이하): 해당 없음")
     
-    # 범위폭별 적중률
-    print(f"\n📊 범위폭별 적중률:")
-    for width_threshold in [30, 40, 50]:
-        subset = results_df[results_df['예측범위폭'] <= width_threshold]
-        if len(subset) > 0:
-            hit_rate = (subset['범위적중'] == '✅').sum() / len(subset) * 100
-            actual_rate = (subset['실제값포함'] == '✅').sum() / len(subset) * 100
-            print(f"  - 범위폭 ≤{width_threshold}: {len(subset)}개 중 범위적중 {hit_rate:.1f}%, 실제값포함 {actual_rate:.1f}%")
+    # 밸런스 종합
+    print(f"\n⚖️ 밸런스 종합:")
+    total_extreme = len(surge_samples) + len(drop_samples)
+    if total_extreme > 0:
+        total_detected = 0
+        if len(surge_samples) > 0:
+            total_detected += (surge_samples['급등감지'] == '✅').sum()
+        if len(drop_samples) > 0:
+            total_detected += (drop_samples['급락감지'] == '✅').sum()
+        print(f"  - 극단 변화(±50) 총: {total_extreme}건")
+        print(f"  - 감지 성공: {total_detected}건 ({total_detected/total_extreme*100:.1f}%)")
+    
+    # ========== 구간별 상세 ==========
+    print(f"\n📊 변화량 구간별 분포:")
+    
+    bins = [-np.inf, -100, -50, -20, 0, 20, 50, 100, np.inf]
+    labels = ['<-100', '-100~-50', '-50~-20', '-20~0', '0~20', '20~50', '50~100', '>100']
+    results_df['변화구간'] = pd.cut(results_df['실제_변화량'], bins=bins, labels=labels)
+    
+    for label in labels:
+        count = (results_df['변화구간'] == label).sum()
+        if count > 0:
+            subset = results_df[results_df['변화구간'] == label]
+            hit_rate = (subset['범위적중'] == '✅').sum() / count * 100
+            print(f"  {label:>10}: {count:>5}건 (적중률 {hit_rate:.1f}%)")
+    
+    # ========== 급락 미감지 샘플 분석 ==========
+    if len(drop_samples) > 0:
+        missed_drops = drop_samples[drop_samples['급락감지'] == '❌']
+        if len(missed_drops) > 0:
+            print(f"\n⚠️ 급락 미감지 샘플 (최대 5개):")
+            display_cols = ['현재시간', '실제_변화량', '예측_MIN변화량', '예측_MAX변화량']
+            print(missed_drops[display_cols].head(5).to_string(index=False))
     
     return results_df
 
 if __name__ == '__main__':
-    print("🚀 V9-수치형 평가 시작...\n")
-    results = evaluate_v9_regression()
+    print("🚀 V9-수치형 밸런스 평가 시작...\n")
+    results = evaluate_v9_regression_balanced()
     
     if results is not None:
         print(f"\n✅ 평가 완료!")
-        print(f"📁 결과: 수치형_V9_평가결과.csv")
+        print(f"📁 결과: 수치형_V9_밸런스_평가결과.csv")
