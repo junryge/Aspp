@@ -3,23 +3,24 @@ import pandas as pd
 import pickle
 from datetime import datetime, timedelta
 
-def evaluate_v9_new_logic():
+def evaluate_v9_avg_max():
     """
-    🎯 V9-수치형 평가 (Storage/HUB 기반 새 로직)
+    🎯 V9-수치형 평가 (AVG + MAX만 사용, MIN 제거)
     
-    핵심 발견:
-    - CD_M163FSTORAGEUTIL 낮으면 → 급등 가능성
-    - HUBROOMTOTAL 낮으면 → 급등 가능성
-    - 이 조건에서 MIN 사용하면 대참사!
-    
-    새 로직:
-    1. Storage < 5 → MIN 사용 금지 (AVG 강제)
-    2. HUB < 550 → MIN 사용 금지 (AVG 강제)  
-    3. 그 외 → 기존 기준값 40 로직
+    로직:
+    - MAX변화량 >= 40 → MAX 사용
+    - 나머지 → AVG 사용
+    - MIN 사용 안 함!
     """
     print("="*80)
-    print("🎯 V9-수치형 평가 (Storage/HUB 기반 새 로직)")
+    print("🎯 V9-수치형 평가 (AVG + MAX만 사용)")
     print("="*80)
+    
+    # ========== 기준값 설정 ==========
+    THRESHOLD = 40  # MAX변화량 기준값
+    
+    print(f"📌 로직: MAX변화량 >= {THRESHOLD} → MAX, 나머지 → AVG")
+    print(f"📌 MIN 사용 안 함!")
     
     # ========== V8 기존 14개 ==========
     FEATURE_COLS_V8 = {
@@ -44,55 +45,6 @@ def evaluate_v9_new_logic():
     ]
     
     TARGET_COL = 'CURRENT_M16A_3F_JOB_2'
-    
-    def determine_final_prediction(pred_min, pred_max, pred_avg,
-                                    pred_min_change, pred_max_change, pred_avg_change,
-                                    storage_util, hub_value, slope):
-        """
-        최종 예측값 결정 (Storage/HUB 기반)
-        
-        새 로직:
-        1. Storage < 5 → 급등 가능성 → MIN 금지
-        2. HUB < 550 → 급등 가능성 → MIN 금지
-        3. 그 외 → 기준값 40 로직
-        """
-        # 급락 징후 (기준값 40)
-        is_drop_signal = pred_min_change <= -40
-        # 급등 징후 (기준값 40)
-        is_surge_signal = pred_max_change >= 40
-        
-        # ========== 새 조건: 급등 가능성 체크 ==========
-        # Storage 낮으면 급등 가능성
-        storage_low = storage_util < 5
-        # HUB 낮으면 급등 가능성
-        hub_low = hub_value < 550
-        
-        # 급등 가능성 있으면 MIN 사용 금지!
-        surge_possible = storage_low or hub_low
-        
-        # ========== 최종 판단 ==========
-        # 둘 다 신호 있으면
-        if is_drop_signal and is_surge_signal:
-            if abs(pred_min_change) > abs(pred_max_change):
-                if surge_possible:
-                    return pred_avg, pred_avg_change, f"급락신호+급등가능→AVG(Storage:{storage_util:.0f},HUB:{hub_value:.0f})", "AVG"
-                return pred_min, pred_min_change, f"급락우세", "MIN"
-            else:
-                return pred_max, pred_max_change, f"급등우세", "MAX"
-        
-        # 급락 신호만
-        elif is_drop_signal:
-            if surge_possible:
-                return pred_avg, pred_avg_change, f"급락신호+급등가능→AVG(Storage:{storage_util:.0f},HUB:{hub_value:.0f})", "AVG"
-            return pred_min, pred_min_change, f"급락징후(MIN:{pred_min_change:.0f})", "MIN"
-        
-        # 급등 신호만
-        elif is_surge_signal:
-            return pred_max, pred_max_change, f"급등징후(MAX:{pred_max_change:.0f})", "MAX"
-        
-        # 평상시
-        else:
-            return pred_avg, pred_avg_change, "평상시", "AVG"
     
     # ========== 모델 로드 ==========
     try:
@@ -131,7 +83,6 @@ def evaluate_v9_new_logic():
     results = []
     
     print("\n평가 시작...")
-    print("새 로직: Storage<5 또는 HUB<550 → MIN 사용 금지")
     
     total_samples = len(df) - 40
     
@@ -155,15 +106,6 @@ def evaluate_v9_new_logic():
         
         # 추세 계산
         target_slope = np.polyfit(np.arange(30), seq_target, 1)[0]
-        
-        # Storage, HUB 값 (새 로직용)
-        storage_util = 999
-        hub_value = 999
-        
-        if 'CD_M163FSTORAGEUTIL' in available_cols:
-            storage_util = seq_data['CD_M163FSTORAGEUTIL'].iloc[-1]
-        if 'HUBROOMTOTAL' in available_cols:
-            hub_value = seq_data['HUBROOMTOTAL'].iloc[-1]
         
         # ========== Feature 생성 ==========
         features = {
@@ -270,12 +212,19 @@ def evaluate_v9_new_logic():
         pred_max = current_value + pred_change_max
         pred_avg = current_value + pred_change_avg
         
-        # ========== 최종 예측 결정 (새 로직) ==========
-        final_pred, final_change, reason, used_model = determine_final_prediction(
-            pred_min, pred_max, pred_avg,
-            pred_change_min, pred_change_max, pred_change_avg,
-            storage_util, hub_value, target_slope
-        )
+        # ========== 최종 예측 결정 (AVG + MAX만) ==========
+        # MAX변화량 >= THRESHOLD → MAX
+        # 나머지 → AVG
+        if pred_change_max >= THRESHOLD:
+            final_pred = pred_max
+            final_change = pred_change_max
+            used_model = "MAX"
+            reason = f"급등징후(MAX:{pred_change_max:.0f}>={THRESHOLD})"
+        else:
+            final_pred = pred_avg
+            final_change = pred_change_avg
+            used_model = "AVG"
+            reason = "평상시"
         
         # 범위폭
         pred_width = pred_change_max - pred_change_min
@@ -284,8 +233,16 @@ def evaluate_v9_new_logic():
         is_surge = actual_change >= 50
         is_drop = actual_change <= -50
         
+        # 급등 감지 성공 여부
+        surge_detected = (used_model == "MAX") and is_surge
+        
         # 최종예측 오차
         final_error = abs(actual_value - final_pred)
+        
+        # HUBROOMTOTAL
+        hub_value = 0
+        if 'HUBROOMTOTAL' in available_cols:
+            hub_value = seq_data['HUBROOMTOTAL'].iloc[-1]
         
         results.append({
             '현재시간': current_time.strftime('%Y-%m-%d %H:%M'),
@@ -304,23 +261,24 @@ def evaluate_v9_new_logic():
             '오차≤10': '✅' if final_error <= 10 else '',
             '오차≤20': '✅' if final_error <= 20 else '',
             '오차≤30': '✅' if final_error <= 30 else '',
+            '범위적중': '✅' if (pred_min <= actual_max and pred_max >= actual_min) else '',
             '예측범위폭': round(pred_width, 2),
             '급등여부': '📈' if is_surge else '',
             '급락여부': '📉' if is_drop else '',
-            'Storage': round(storage_util, 1),
-            'HUB': round(hub_value, 0),
+            '급등감지': '✅' if surge_detected else '',
             '추세': round(target_slope, 4),
+            'HUBROOMTOTAL': round(hub_value, 0),
         })
     
     results_df = pd.DataFrame(results)
     
-    output_file = '수치형_V9_새로직_평가결과.csv'
+    output_file = '수치형_V9_AVG_MAX_평가결과.csv'
     results_df.to_csv(output_file, index=False, encoding='utf-8-sig')
     print(f"\n✅ 결과 저장: {output_file}")
     
     # ========== 통계 ==========
     print("\n" + "="*80)
-    print("📊 평가 통계 (V9-수치형 새 로직)")
+    print("📊 평가 통계 (AVG + MAX만 사용)")
     print("="*80)
     
     print(f"총 예측: {len(results_df)}개")
@@ -345,11 +303,11 @@ def evaluate_v9_new_logic():
     
     # 모델별 정확도
     print(f"\n📊 모델별 오차:")
-    for model in ['MIN', 'MAX', 'AVG']:
+    for model in ['AVG', 'MAX']:
         subset = results_df[results_df['사용모델'] == model]
         if len(subset) > 0:
             avg_err = subset['최종_오차'].mean()
-            print(f"  {model}: 평균오차 {avg_err:.1f}")
+            print(f"  {model}: 평균오차 {avg_err:.1f} ({len(subset)}개)")
     
     # 급등/급락 분석
     print(f"\n📈📉 급등/급락 성능:")
@@ -359,31 +317,27 @@ def evaluate_v9_new_logic():
     
     if len(surge_df) > 0:
         surge_error = surge_df['최종_오차'].mean()
-        surge_max_used = (surge_df['사용모델'] == 'MAX').sum()
-        print(f"  📈 급등 ({len(surge_df)}개): 평균오차 {surge_error:.1f}, MAX사용 {surge_max_used}개")
+        surge_detected = (surge_df['급등감지'] == '✅').sum()
+        print(f"  📈 급등 ({len(surge_df)}개):")
+        print(f"     평균오차: {surge_error:.1f}")
+        print(f"     감지 성공: {surge_detected}/{len(surge_df)}개 ({surge_detected/len(surge_df)*100:.1f}%)")
     
     if len(drop_df) > 0:
         drop_error = drop_df['최종_오차'].mean()
-        drop_min_used = (drop_df['사용모델'] == 'MIN').sum()
-        print(f"  📉 급락 ({len(drop_df)}개): 평균오차 {drop_error:.1f}, MIN사용 {drop_min_used}개")
+        print(f"  📉 급락 ({len(drop_df)}개):")
+        print(f"     평균오차: {drop_error:.1f}")
+        print(f"     (MIN 미사용으로 AVG 적용)")
     
-    # 새 로직 효과 분석
-    print(f"\n🆕 새 로직 효과 (급등가능→AVG 강제):")
-    avg_forced = results_df[results_df['판단근거'].str.contains('급등가능', na=False)]
-    if len(avg_forced) > 0:
-        print(f"  AVG 강제 적용: {len(avg_forced)}개")
-        print(f"  평균 오차: {avg_forced['최종_오차'].mean():.1f}")
-        # 그 중 실제 급등
-        avg_forced_surge = avg_forced[avg_forced['급등여부'] == '📈']
-        if len(avg_forced_surge) > 0:
-            print(f"  → 실제 급등이었던 케이스: {len(avg_forced_surge)}개, 오차 {avg_forced_surge['최종_오차'].mean():.1f}")
+    # 범위 적중률
+    range_hit = (results_df['범위적중'] == '✅').sum()
+    print(f"\n📏 범위 적중률: {range_hit}/{len(results_df)}개 ({range_hit/len(results_df)*100:.1f}%)")
     
     return results_df
 
 if __name__ == '__main__':
-    print("🚀 V9-수치형 새 로직 평가 시작...\n")
-    results = evaluate_v9_new_logic()
+    print("🚀 V9-수치형 평가 (AVG + MAX만) 시작...\n")
+    results = evaluate_v9_avg_max()
     
     if results is not None:
         print(f"\n✅ 평가 완료!")
-        print(f"📁 결과: 수치형_V9_새로직_평가결과.csv")
+        print(f"📁 결과: 수치형_V9_AVG_MAX_평가결과.csv")
