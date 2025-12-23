@@ -249,9 +249,10 @@ def train_v9_3stage():
         min_child_weight=2, gamma=0.05,
         reg_alpha=0.05, reg_lambda=0.8,
         random_state=42,
-        tree_method='gpu_hist', gpu_id=0, predictor='gpu_predictor',
+        tree_method='hist', n_jobs=-1,  # CPU 모드
         objective='multi:softprob', num_class=3
     )
+    print("  ⚠️ CPU 모드")
     
     clf_model.fit(X_tr, y_tr, sample_weight=w_tr, verbose=False)
     
@@ -303,7 +304,7 @@ def train_v9_3stage():
             min_child_weight=2, gamma=0.05,
             reg_alpha=0.05, reg_lambda=0.8,
             random_state=42,
-            tree_method='gpu_hist', gpu_id=0, predictor='gpu_predictor'
+            tree_method='hist', n_jobs=-1  # CPU 모드
         )
         
         reg_model.fit(X_tr_cls, y_tr_cls, sample_weight=w_tr_cls, verbose=False)
