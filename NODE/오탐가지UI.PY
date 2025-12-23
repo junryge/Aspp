@@ -167,12 +167,16 @@ class SurgeAnalyzer:
         idx = cols.index('실제값')
         df = df[cols[:idx+1] + ['사전감지OK_NG', '사전감지결과', '오탐/사전감지'] + cols[idx+1:]]
         
-        normal_correct = len(df[(df['실제값'] < threshold) & (df['예측값_MAX'] < threshold)])
+        # 정상 = 실제값 < threshold (단순히 실제가 임계값 미만)
+        normal_cond = df['실제값'] < threshold
+        normal_cnt = len(df[normal_cond])
+        # 정상예측 = 실제 정상 + 예측도 정상
+        normal_correct = len(df[normal_cond & (df['예측값_MAX'] < threshold)])
         
         return df, {
             'total_rows': len(df),
             'total': len(df[surge_cond]), 
-            'normal': len(df) - len(df[surge_cond]),
+            'normal': normal_cnt,
             'normal_correct': normal_correct,
             'ok': len(df[df['사전감지결과'] == 'OK']),
             'pre': len(df[df['사전감지결과'].str.contains('사전감지', na=False)]),
@@ -223,12 +227,16 @@ class SurgeAnalyzer:
         idx = cols.index('실제값')
         df = df[cols[:idx+1] + ['사전감지OK_NG', '사전감지결과', '오탐/사전감지'] + cols[idx+1:]]
         
-        normal_correct = len(df[(df['실제값'] < threshold) & (df['최종예측'] < threshold)])
+        # 정상 = 실제값 < threshold
+        normal_cond = df['실제값'] < threshold
+        normal_cnt = len(df[normal_cond])
+        # 정상예측 = 실제 정상 + 예측도 정상
+        normal_correct = len(df[normal_cond & (df['최종예측'] < threshold)])
         
         return df, {
             'total_rows': len(df),
             'total': len(df[surge_cond]), 
-            'normal': len(df) - len(df[surge_cond]),
+            'normal': normal_cnt,
             'normal_correct': normal_correct,
             'ok': len(df[df['사전감지결과'] == 'OK']),
             'pre': len(df[df['사전감지결과'].str.contains('사전감지', na=False)]),
@@ -307,7 +315,7 @@ class SurgeAnalyzer:
 전체: {s['total_rows']}개 | 정상: {s['normal']}개 | 급증: {s['total']}개
 정상예측: {s['normal_correct']}개({s['normal_correct']/n*100:.1f}%)
 급증감지 - OK: {s['ok']}({s['ok']/t*100:.1f}%) | 사전감지: {s['pre']}({s['pre']/t*100:.1f}%) | NG: {s['ng']}({s['ng']/t*100:.1f}%)
-감지율: {(s['ok']+s['pre'])/t*100:.1f}% | 오탐: {s['fp_real']}/{s['fp_total']}({s['fp_real']/f*100:.1f}%)
+사전예측 감지율: {(s['ok']+s['pre'])/t*100:.1f}% | 오탐: {s['fp_real']}/{s['fp_total']}({s['fp_real']/f*100:.1f}%)
 """
     
     def gen_html(self, hub_cmt, m14_cmt, anal_date):
@@ -382,8 +390,8 @@ h1{{font-size:2.5rem;text-align:center;background:linear-gradient(135deg,#00d4ff
 <div class="card"><div class="card-label">전체 데이터</div><div class="card-value">{s['total_rows']}</div></div>
 <div class="card"><div class="card-label">정상</div><div class="card-value ok">{s['normal']}</div><div class="card-sub">정상예측 {rt['norm']:.1f}%</div></div>
 <div class="card"><div class="card-label">급증 케이스</div><div class="card-value hub-c">{s['total']}</div></div>
-<div class="card"><div class="card-label">총 감지율</div><div class="card-value ok">{rt['det']:.1f}%</div></div>
-<div class="card"><div class="card-label">OK</div><div class="card-value ok">{s['ok']}</div><div class="card-sub">{rt['ok']:.1f}%</div></div>
+<div class="card"><div class="card-label">사전예측 감지율</div><div class="card-value ok">{rt['det']:.1f}%</div></div>
+<div class="card"><div class="card-label">10분전 사전감지OK</div><div class="card-value ok">{s['ok']}</div><div class="card-sub">{rt['ok']:.1f}%</div></div>
 <div class="card"><div class="card-label">사전감지</div><div class="card-value warn">{s['pre']}</div><div class="card-sub">{rt['pre']:.1f}%</div></div>
 <div class="card"><div class="card-label">NG</div><div class="card-value bad">{s['ng']}</div><div class="card-sub">{rt['ng']:.1f}%</div></div>
 <div class="card"><div class="card-label">오탐</div><div class="card-value bad">{s['fp_real']}</div><div class="card-sub">{rt['fp']:.1f}%</div></div>
@@ -395,7 +403,7 @@ h1{{font-size:2.5rem;text-align:center;background:linear-gradient(135deg,#00d4ff
 <div class="summary"><pre>=== HUBROOM V8.0 요약 (기준: 350) ===
 전체: {s['total_rows']}개 | 정상: {s['normal']}개 (정상예측 {s['normal_correct']}개, {rt['norm']:.1f}%) | 급증: {s['total']}개
 급증감지 - OK: {s['ok']}개({rt['ok']:.1f}%) | 사전감지: {s['pre']}개({rt['pre']:.1f}%) | NG: {s['ng']}개({rt['ng']:.1f}%)
-총 감지율: {rt['det']:.1f}% | 오탐: {s['fp_real']}/{s['fp_total']}개({rt['fp']:.1f}%)</pre></div>
+사전예측 감지율: {rt['det']:.1f}% | 오탐: {s['fp_real']}/{s['fp_total']}개({rt['fp']:.1f}%)</pre></div>
 {cmt_html}
 </div>
 '''
@@ -414,8 +422,8 @@ h1{{font-size:2.5rem;text-align:center;background:linear-gradient(135deg,#00d4ff
 <div class="card"><div class="card-label">전체 데이터</div><div class="card-value">{s['total_rows']}</div></div>
 <div class="card"><div class="card-label">정상</div><div class="card-value ok">{s['normal']}</div><div class="card-sub">정상예측 {rt['norm']:.1f}%</div></div>
 <div class="card"><div class="card-label">급증 케이스</div><div class="card-value m14-c">{s['total']}</div></div>
-<div class="card"><div class="card-label">총 감지율</div><div class="card-value ok">{rt['det']:.1f}%</div></div>
-<div class="card"><div class="card-label">OK</div><div class="card-value ok">{s['ok']}</div><div class="card-sub">{rt['ok']:.1f}%</div></div>
+<div class="card"><div class="card-label">사전예측 감지율</div><div class="card-value ok">{rt['det']:.1f}%</div></div>
+<div class="card"><div class="card-label">10분전 사전감지OK</div><div class="card-value ok">{s['ok']}</div><div class="card-sub">{rt['ok']:.1f}%</div></div>
 <div class="card"><div class="card-label">사전감지</div><div class="card-value warn">{s['pre']}</div><div class="card-sub">{rt['pre']:.1f}%</div></div>
 <div class="card"><div class="card-label">NG</div><div class="card-value bad">{s['ng']}</div><div class="card-sub">{rt['ng']:.1f}%</div></div>
 <div class="card"><div class="card-label">오탐</div><div class="card-value bad">{s['fp_real']}</div><div class="card-sub">{rt['fp']:.1f}%</div></div>
@@ -427,7 +435,7 @@ h1{{font-size:2.5rem;text-align:center;background:linear-gradient(135deg,#00d4ff
 <div class="summary"><pre>=== M14_Q V8.3.1 요약 (기준: 1700) ===
 전체: {s['total_rows']}개 | 정상: {s['normal']}개 (정상예측 {s['normal_correct']}개, {rt['norm']:.1f}%) | 급증: {s['total']}개
 급증감지 - OK: {s['ok']}개({rt['ok']:.1f}%) | 사전감지: {s['pre']}개({rt['pre']:.1f}%) | NG: {s['ng']}개({rt['ng']:.1f}%)
-총 감지율: {rt['det']:.1f}% | 오탐: {s['fp_real']}/{s['fp_total']}개({rt['fp']:.1f}%)</pre></div>
+사전예측 감지율: {rt['det']:.1f}% | 오탐: {s['fp_real']}/{s['fp_total']}개({rt['fp']:.1f}%)</pre></div>
 {cmt_html}
 </div>
 '''
