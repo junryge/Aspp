@@ -4,17 +4,19 @@ import pickle
 from datetime import datetime, timedelta
 from sklearn.metrics import accuracy_score
 
-def evaluate_v8_2stage():
+# ========== 임계값 설정 (여기서 조정!) ==========
+SUDDEN_THRESHOLD = 30  # 급변 확률 임계값 (%) - 30, 40, 50 등 테스트
+# ================================================
+
+def evaluate_v8_2stage_v2():
     """
-    🎯 V8 2단계 분리 모델 평가
+    🎯 V8 2단계 분리 모델 평가 (V2 - 임계값 조정 가능)
     
-    [1단계] 급변 탐지 → Yes/No
-    [2단계] 
-        급변 Yes → slope로 급등/급락 선택
-        급변 No  → 일반 3단계 모델
+    임계값: SUDDEN_THRESHOLD (현재 {SUDDEN_THRESHOLD}%)
+    → 급변 확률이 이 값 이상이면 급변으로 판정
     """
     print("="*80)
-    print("🎯 V8 2단계 분리 모델 평가")
+    print(f"🎯 V8 2단계 분리 모델 평가 (임계값: {SUDDEN_THRESHOLD}%)")
     print("="*80)
     
     FEATURE_COLS_V8 = {
@@ -32,7 +34,6 @@ def evaluate_v8_2stage():
     normal_class_names = {0: '소폭하락', 1: '정체', 2: '소폭상승'}
     
     def get_actual_class(change):
-        """실제 5단계 클래스"""
         if change <= -50: return '급락'
         elif change <= -20: return '소폭하락'
         elif change <= 20: return '정체'
@@ -41,14 +42,14 @@ def evaluate_v8_2stage():
     
     # 모델 로드
     try:
-        with open('xgboost_2stage_V8.pkl', 'rb') as f:
+        with open('xgboost_2stage_V8_v2.pkl', 'rb') as f:
             model_dict = pickle.load(f)
         sudden_detector = model_dict['sudden_detector']
         surge_model = model_dict['surge_model']
         drop_model = model_dict['drop_model']
         normal_clf = model_dict['normal_classifier']
         normal_regressors = model_dict['normal_regressors']
-        print("✅ 모델 로드: xgboost_2stage_V8.pkl")
+        print("✅ 모델 로드: xgboost_2stage_V8_v2.pkl")
     except Exception as e:
         print(f"❌ 모델 없음: {e}")
         return None
@@ -77,10 +78,10 @@ def evaluate_v8_2stage():
     results = []
     x_range = np.arange(30)
     
-    # 통계용
     sudden_true_list = []
     sudden_pred_list = []
     
+    print(f"\n⚙️ 급변 임계값: {SUDDEN_THRESHOLD}%")
     print("\n평가 시작...")
     total = len(df) - 40
     
@@ -148,39 +149,38 @@ def evaluate_v8_2stage():
         
         X_pred = pd.DataFrame([features])
         
-        # ========== [1단계] 급변 탐지 ==========
-        pred_sudden = sudden_detector.predict(X_pred)[0]
+        # ========== [1단계] 급변 탐지 (임계값 적용) ==========
         pred_sudden_proba = sudden_detector.predict_proba(X_pred)[0]
-        sudden_prob = pred_sudden_proba[1] * 100  # 급변 확률
+        sudden_prob = pred_sudden_proba[1] * 100
+        
+        # 임계값으로 판정 (핵심!)
+        pred_sudden = 1 if sudden_prob >= SUDDEN_THRESHOLD else 0
         
         sudden_true_list.append(actual_is_sudden)
         sudden_pred_list.append(pred_sudden)
         
         # ========== [2단계] 분기 ==========
-        if pred_sudden == 1:  # 급변 예측
-            # slope로 방향 결정
-            if slope >= 0:  # 상승 추세 → 급등
+        if pred_sudden == 1:
+            if slope >= 0:
                 if surge_model is not None:
                     final_change = surge_model.predict(X_pred)[0]
                 else:
-                    final_change = 60  # 기본값
+                    final_change = 60
                 used_model = "급등모델"
                 pred_class = "급등"
-            else:  # 하락 추세 → 급락
+            else:
                 if drop_model is not None:
                     final_change = drop_model.predict(X_pred)[0]
                 else:
-                    final_change = -60  # 기본값
+                    final_change = -60
                 used_model = "급락모델"
                 pred_class = "급락"
-        else:  # 일반 예측
-            # 일반 분류
+        else:
             normal_pred = normal_clf.predict(X_pred)[0]
             normal_proba = normal_clf.predict_proba(X_pred)[0]
             
             pred_class = normal_class_names[normal_pred]
             
-            # 일반 수치 예측
             if normal_regressors[normal_pred] is not None:
                 final_change = normal_regressors[normal_pred].predict(X_pred)[0]
             else:
@@ -192,7 +192,6 @@ def evaluate_v8_2stage():
         final_pred = current_value + final_change
         final_error = abs(actual_value - final_pred)
         
-        # 분류 정확 여부
         class_correct = (pred_class == actual_class)
         
         hub_value = seq_data['HUBROOMTOTAL'].iloc[-1] if 'HUBROOMTOTAL' in available_cols else 0
@@ -205,11 +204,9 @@ def evaluate_v8_2stage():
             '실제_변화량': round(actual_change, 2),
             '실제_클래스': actual_class,
             '실제_급변': '급변' if actual_is_sudden else '일반',
-            # 1단계 결과
             '급변탐지': '급변' if pred_sudden else '일반',
             '급변확률': round(sudden_prob, 1),
             '급변탐지정확': '✅' if pred_sudden == actual_is_sudden else '❌',
-            # 2단계 결과
             '예측_클래스': pred_class,
             '분류정확': '✅' if class_correct else '❌',
             '사용모델': used_model,
@@ -224,17 +221,18 @@ def evaluate_v8_2stage():
         })
     
     results_df = pd.DataFrame(results)
-    results_df.to_csv('2단계_V8_평가결과.csv', index=False, encoding='utf-8-sig')
-    print(f"\n✅ 저장: 2단계_V8_평가결과.csv")
+    output_file = f'2단계_V8_v2_임계값{SUDDEN_THRESHOLD}_평가결과.csv'
+    results_df.to_csv(output_file, index=False, encoding='utf-8-sig')
+    print(f"\n✅ 저장: {output_file}")
     
     # ========== 통계 ==========
     print("\n" + "="*80)
-    print("📊 평가 통계 (V8 2단계 분리)")
+    print(f"📊 평가 통계 (V8 2단계 V2, 임계값 {SUDDEN_THRESHOLD}%)")
     print("="*80)
     
     print(f"총 예측: {len(results_df)}개")
     
-    # 1단계: 급변 탐지 성능
+    # 1단계
     print(f"\n🔍 [1단계] 급변 탐지 성능:")
     sudden_true = np.array(sudden_true_list)
     sudden_pred = np.array(sudden_pred_list)
@@ -242,25 +240,22 @@ def evaluate_v8_2stage():
     sudden_acc = accuracy_score(sudden_true, sudden_pred)
     print(f"  전체 정확도: {sudden_acc:.1%}")
     
-    # 급변 Recall (실제 급변 중 맞춘 비율)
     actual_sudden_mask = sudden_true == 1
     if actual_sudden_mask.sum() > 0:
         recall = (sudden_pred[actual_sudden_mask] == 1).mean()
         print(f"  급변 Recall: {recall:.1%} ({(sudden_pred[actual_sudden_mask] == 1).sum()}/{actual_sudden_mask.sum()}개)")
     
-    # 급변 Precision (급변 예측 중 실제 급변 비율)
     pred_sudden_mask = sudden_pred == 1
     if pred_sudden_mask.sum() > 0:
         precision = (sudden_true[pred_sudden_mask] == 1).mean()
         print(f"  급변 Precision: {precision:.1%} ({(sudden_true[pred_sudden_mask] == 1).sum()}/{pred_sudden_mask.sum()}개)")
     
-    # 오탐 (일반인데 급변으로 예측)
     normal_mask = sudden_true == 0
     if normal_mask.sum() > 0:
         false_alarm = (sudden_pred[normal_mask] == 1).sum()
         print(f"  오탐 (일반→급변): {false_alarm}개 ({false_alarm/normal_mask.sum()*100:.2f}%)")
     
-    # 2단계: 최종 정확도
+    # 2단계
     print(f"\n🎯 [2단계] 최종 예측 정확도:")
     
     acc_10 = (results_df['오차≤10'] == '✅').sum() / len(results_df) * 100
@@ -273,7 +268,7 @@ def evaluate_v8_2stage():
     print(f"  오차 ≤ 30: {acc_30:.1f}%")
     print(f"  평균 오차: {avg_err:.2f}")
     
-    # 클래스별 성능
+    # 클래스별
     print(f"\n📊 실제 클래스별 성능:")
     for cls in ['급락', '소폭하락', '정체', '소폭상승', '급등']:
         subset = results_df[results_df['실제_클래스'] == cls]
@@ -282,7 +277,7 @@ def evaluate_v8_2stage():
             correct = (subset['분류정확'] == '✅').sum()
             print(f"  {cls}: 평균오차 {avg_err:.1f}, 분류정확 {correct}/{len(subset)}개 ({correct/len(subset)*100:.1f}%)")
     
-    # 급등/급락 감지율 (핵심!)
+    # 핵심!
     print(f"\n🔥 급등/급락 감지 성능 (핵심!):")
     
     surge_df = results_df[results_df['실제_클래스'] == '급등']
@@ -303,5 +298,5 @@ def evaluate_v8_2stage():
     return results_df
 
 if __name__ == '__main__':
-    print("🚀 V8 2단계 분리 모델 평가 시작...\n")
-    evaluate_v8_2stage()
+    print("🚀 V8 2단계 분리 모델 (V2) 평가 시작...\n")
+    evaluate_v8_2stage_v2()
