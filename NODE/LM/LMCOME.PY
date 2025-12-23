@@ -1,11 +1,14 @@
 import os
 os.environ["HF_HUB_OFFLINE"] = "1"
+os.environ["TF_ENABLE_ONEDNN_OPTS"] = "0"
+os.environ["TF_CPP_MIN_LOG_LEVEL"] = "3"
+os.environ["PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION"] = "python"
 
 import streamlit as st
 import tempfile
 import requests
 import logging
-from langchain_community.document_loaders import PyPDFLoader, TextLoader, UnstructuredFileLoader
+from langchain_community.document_loaders import PyPDFLoader, TextLoader
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_chroma import Chroma
@@ -127,10 +130,8 @@ def process_uploaded_files(uploaded_files):
         try:
             if uploaded_file.name.endswith(".pdf"):
                 loader = PyPDFLoader(tmp_file_path)
-            elif uploaded_file.name.endswith((".txt", ".md", ".py")):
-                loader = TextLoader(tmp_file_path, encoding='utf-8')
             else:
-                loader = UnstructuredFileLoader(tmp_file_path)
+                loader = TextLoader(tmp_file_path, encoding='utf-8')
             docs = loader.load()
             documents.extend(docs)
         except Exception as e:
@@ -195,16 +196,14 @@ def main():
                     context_text = format_docs(context_docs)
                     
                     if LLM_MODE == "api":
-                        # API 방식
                         answer = call_api_llm(prompt, context_text)
                     else:
-                        # 로컬 GGUF 방식
                         llm = get_local_llm()
                         if llm:
                             template = """<|im_start|>system
 You are a helpful AI assistant. Answer based on the context.
 Context:
-{context}<|im_end|>
+{context}<|im_end|}
 <|im_start|>user
 {question}<|im_end|>
 <|im_start|>assistant
