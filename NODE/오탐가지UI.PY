@@ -288,7 +288,35 @@ class SurgeAnalyzer:
             tk.Button(self.download_frame, text="📄 HTML 리포트", command=self.save_html,
                       font=('맑은 고딕', 10, 'bold'), bg='#00ff88', fg='black').pack(side=tk.LEFT, padx=5)
             
-            messagebox.showinfo("완료", "분석이 완료되었습니다!")
+            # 자동 저장
+            save_dir = filedialog.askdirectory(title="결과 저장할 폴더 선택")
+            if save_dir:
+                timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+                saved_files = []
+                
+                if self.hub_df is not None:
+                    hub_csv = os.path.join(save_dir, f"HUBROOM_결과_{timestamp}.csv")
+                    self.hub_df.to_csv(hub_csv, index=False, encoding='utf-8-sig')
+                    saved_files.append(hub_csv)
+                
+                if self.m14_df is not None:
+                    m14_csv = os.path.join(save_dir, f"M14_결과_{timestamp}.csv")
+                    self.m14_df.to_csv(m14_csv, index=False, encoding='utf-8-sig')
+                    saved_files.append(m14_csv)
+                
+                # HTML 리포트 저장
+                html_file = os.path.join(save_dir, f"급증감지_리포트_{timestamp}.html")
+                html = self.generate_html()
+                with open(html_file, 'w', encoding='utf-8') as f:
+                    f.write(html)
+                saved_files.append(html_file)
+                
+                # 브라우저에서 HTML 열기
+                webbrowser.open(html_file)
+                
+                messagebox.showinfo("완료", f"분석 완료!\n\n저장된 파일:\n" + "\n".join(saved_files))
+            else:
+                messagebox.showinfo("완료", "분석이 완료되었습니다!\n(저장 취소됨)")
             
         except Exception as e:
             messagebox.showerror("오류", f"분석 중 오류 발생:\n{str(e)}")
