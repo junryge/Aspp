@@ -156,6 +156,7 @@ def evaluate_v8_5stage():
         
         results.append({
             '현재시간': current_time.strftime('%Y-%m-%d %H:%M'),
+            '예측시점': (current_time + timedelta(minutes=10)).strftime('%Y-%m-%d %H:%M'),
             '현재값': round(current_value, 2),
             '실제값': round(actual_value, 2),
             '실제_변화량': round(actual_change, 2),
