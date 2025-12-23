@@ -57,10 +57,10 @@ actual_idx = cols.index('실제값')
 new_cols = cols[:actual_idx+1] + ['사전감지OK_NG', '사전감지결과', '오탐/사전감지'] + cols[actual_idx+1:]
 df = df[new_cols]
 
-# 저장
+# CSV 저장
 df.to_csv('H7_결과_최종.csv', index=False, encoding='utf-8-sig')
 
-# 집계 출력
+# 집계
 total_surge = len(df[surge_condition])
 ok_cnt = len(df[df['사전감지결과'] == 'OK'])
 pre_cnt = len(df[df['사전감지결과'].str.contains('사전감지', na=False)])
@@ -70,14 +70,31 @@ fp_total = len(fp_indices)
 fp_pre = len(df[df['오탐/사전감지'] == '오탐사전감지'])
 fp_real = len(df[df['오탐/사전감지'] == '오탐'])
 
-print("=== 급증 감지 결과 ===")
-print(f"급증 케이스: {total_surge}개")
+# 콘솔 출력
+print("=== 최종 요약 ===\n")
+print("[ 급증 감지 결과 ]")
+print(f"급증 케이스: {total_surge}개 (100%)")
 print(f"OK: {ok_cnt}개 ({ok_cnt/total_surge*100:.1f}%)")
 print(f"사전감지: {pre_cnt}개 ({pre_cnt/total_surge*100:.1f}%)")
 print(f"NG: {ng_cnt}개 ({ng_cnt/total_surge*100:.1f}%)")
-print(f"총 감지율: {(ok_cnt+pre_cnt)/total_surge*100:.1f}%")
-
-print(f"\n=== 오탐 분석 ===")
-print(f"오탐 후보: {fp_total}개")
+print(f"총 감지율: {(ok_cnt+pre_cnt)/total_surge*100:.1f}%\n")
+print("[ 오탐 분석 ]")
+print(f"오탐 후보: {fp_total}개 (100%)")
 print(f"오탐사전감지: {fp_pre}개 ({fp_pre/fp_total*100:.1f}%)")
 print(f"오탐: {fp_real}개 ({fp_real/fp_total*100:.1f}%)")
+
+# 텍스트 파일 저장
+with open('최종요약.txt', 'w', encoding='utf-8') as f:
+    f.write("=== 최종 요약 ===\n\n")
+    f.write("[ 급증 감지 결과 ]\n")
+    f.write(f"급증 케이스: {total_surge}개 (100%)\n")
+    f.write(f"OK: {ok_cnt}개 ({ok_cnt/total_surge*100:.1f}%)\n")
+    f.write(f"사전감지: {pre_cnt}개 ({pre_cnt/total_surge*100:.1f}%)\n")
+    f.write(f"NG: {ng_cnt}개 ({ng_cnt/total_surge*100:.1f}%)\n")
+    f.write(f"총 감지율: {(ok_cnt+pre_cnt)/total_surge*100:.1f}%\n\n")
+    f.write("[ 오탐 분석 ]\n")
+    f.write(f"오탐 후보: {fp_total}개 (100%)\n")
+    f.write(f"오탐사전감지: {fp_pre}개 ({fp_pre/fp_total*100:.1f}%)\n")
+    f.write(f"오탐: {fp_real}개 ({fp_real/fp_total*100:.1f}%)\n")
+
+print("\n최종요약.txt 저장 완료!")
