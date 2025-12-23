@@ -167,23 +167,22 @@ class SurgeAnalyzer:
         idx = cols.index('실제값')
         df = df[cols[:idx+1] + ['사전감지OK_NG', '사전감지결과', '오탐/사전감지'] + cols[idx+1:]]
         
-        # 정상 = 실제값 < threshold (단순히 실제가 임계값 미만)
-        normal_cond = df['실제값'] < threshold
-        normal_cnt = len(df[normal_cond])
-        # 정상예측 = 실제 정상 + 예측도 정상
-        normal_correct = len(df[normal_cond & (df['예측값_MAX'] < threshold)])
+        # 통계
+        ng_cnt = len(df[df['사전감지결과'] == 'NG'])
+        fp_real_cnt = len(df[df['오탐/사전감지'] == '오탐'])
+        # 정상 = 전체 - NG - 진짜오탐
+        normal_cnt = len(df) - ng_cnt - fp_real_cnt
         
         return df, {
             'total_rows': len(df),
             'total': len(df[surge_cond]), 
             'normal': normal_cnt,
-            'normal_correct': normal_correct,
             'ok': len(df[df['사전감지결과'] == 'OK']),
             'pre': len(df[df['사전감지결과'].str.contains('사전감지', na=False)]),
-            'ng': len(df[df['사전감지결과'] == 'NG']),
+            'ng': ng_cnt,
             'fp_total': len(df[fp_cond]),
             'fp_pre': len(df[df['오탐/사전감지'] == '오탐사전감지']),
-            'fp_real': len(df[df['오탐/사전감지'] == '오탐'])
+            'fp_real': fp_real_cnt
         }
     
     def analyze_m14(self, df, threshold=1700):
@@ -227,23 +226,22 @@ class SurgeAnalyzer:
         idx = cols.index('실제값')
         df = df[cols[:idx+1] + ['사전감지OK_NG', '사전감지결과', '오탐/사전감지'] + cols[idx+1:]]
         
-        # 정상 = 실제값 < threshold
-        normal_cond = df['실제값'] < threshold
-        normal_cnt = len(df[normal_cond])
-        # 정상예측 = 실제 정상 + 예측도 정상
-        normal_correct = len(df[normal_cond & (df['최종예측'] < threshold)])
+        # 통계
+        ng_cnt = len(df[df['사전감지결과'] == 'NG'])
+        fp_real_cnt = len(df[df['오탐/사전감지'] == '오탐'])
+        # 정상 = 전체 - NG - 진짜오탐
+        normal_cnt = len(df) - ng_cnt - fp_real_cnt
         
         return df, {
             'total_rows': len(df),
             'total': len(df[surge_cond]), 
             'normal': normal_cnt,
-            'normal_correct': normal_correct,
             'ok': len(df[df['사전감지결과'] == 'OK']),
             'pre': len(df[df['사전감지결과'].str.contains('사전감지', na=False)]),
-            'ng': len(df[df['사전감지결과'] == 'NG']),
+            'ng': ng_cnt,
             'fp_total': len(df[fp_cond]),
             'fp_pre': len(df[df['오탐/사전감지'] == '오탐사전감지']),
-            'fp_real': len(df[df['오탐/사전감지'] == '오탐'])
+            'fp_real': fp_real_cnt
         }
     
     def run_analysis(self):
@@ -307,13 +305,11 @@ class SurgeAnalyzer:
     def fmt(self, name, s, th):
         t = s['total'] or 1
         f = s['fp_total'] or 1
-        n = s['normal'] or 1
         return f"""
 {'='*50}
   {name} (기준: {th})
 {'='*50}
-전체: {s['total_rows']}개 | 정상: {s['normal']}개 | 급증: {s['total']}개
-정상예측: {s['normal_correct']}개({s['normal_correct']/n*100:.1f}%)
+전체: {s['total_rows']}개 | 정상: {s['normal']}개({s['normal']/s['total_rows']*100:.1f}%) | 급증: {s['total']}개
 급증감지 - OK: {s['ok']}({s['ok']/t*100:.1f}%) | 사전감지: {s['pre']}({s['pre']/t*100:.1f}%) | NG: {s['ng']}({s['ng']/t*100:.1f}%)
 사전예측 감지율: {(s['ok']+s['pre'])/t*100:.1f}% | 오탐: {s['fp_real']}/{s['fp_total']}({s['fp_real']/f*100:.1f}%)
 """
@@ -324,11 +320,11 @@ class SurgeAnalyzer:
         def r(s):
             t = s['total'] or 1
             f = s['fp_total'] or 1
-            n = s['normal'] or 1
+            tr = s['total_rows'] or 1
             return {
                 'ok': s['ok']/t*100, 'pre': s['pre']/t*100, 'ng': s['ng']/t*100,
                 'det': (s['ok']+s['pre'])/t*100, 'fp_pre': s['fp_pre']/f*100, 'fp': s['fp_real']/f*100,
-                'norm': s['normal_correct']/n*100
+                'norm': s['normal']/tr*100
             }
         
         html = f'''<!DOCTYPE html>
@@ -388,7 +384,7 @@ h1{{font-size:2.5rem;text-align:center;background:linear-gradient(135deg,#00d4ff
 <h2 class="stitle hub">🏠 HUBROOM V8.0</h2>
 <div class="grid">
 <div class="card"><div class="card-label">전체 데이터</div><div class="card-value">{s['total_rows']}</div></div>
-<div class="card"><div class="card-label">정상</div><div class="card-value ok">{s['normal']}</div><div class="card-sub">정상예측 {rt['norm']:.1f}%</div></div>
+<div class="card"><div class="card-label">정상</div><div class="card-value ok">{s['normal']}</div><div class="card-sub">{rt['norm']:.1f}%</div></div>
 <div class="card"><div class="card-label">급증 케이스</div><div class="card-value hub-c">{s['total']}</div></div>
 <div class="card"><div class="card-label">사전예측 감지율</div><div class="card-value ok">{rt['det']:.1f}%</div></div>
 <div class="card"><div class="card-label">10분전 사전감지OK</div><div class="card-value ok">{s['ok']}</div><div class="card-sub">{rt['ok']:.1f}%</div></div>
@@ -401,7 +397,7 @@ h1{{font-size:2.5rem;text-align:center;background:linear-gradient(135deg,#00d4ff
 <div class="cbox"><div class="ctitle">📉 오탐 분석</div><div class="cwrap"><canvas id="hubFp"></canvas></div></div>
 </div>
 <div class="summary"><pre>=== HUBROOM V8.0 요약 (기준: 350) ===
-전체: {s['total_rows']}개 | 정상: {s['normal']}개 (정상예측 {s['normal_correct']}개, {rt['norm']:.1f}%) | 급증: {s['total']}개
+전체: {s['total_rows']}개 | 정상: {s['normal']}개({rt['norm']:.1f}%) | 급증: {s['total']}개
 급증감지 - OK: {s['ok']}개({rt['ok']:.1f}%) | 사전감지: {s['pre']}개({rt['pre']:.1f}%) | NG: {s['ng']}개({rt['ng']:.1f}%)
 사전예측 감지율: {rt['det']:.1f}% | 오탐: {s['fp_real']}/{s['fp_total']}개({rt['fp']:.1f}%)</pre></div>
 {cmt_html}
@@ -420,7 +416,7 @@ h1{{font-size:2.5rem;text-align:center;background:linear-gradient(135deg,#00d4ff
 <h2 class="stitle m14">🏭 M14_Q V8.3.1</h2>
 <div class="grid">
 <div class="card"><div class="card-label">전체 데이터</div><div class="card-value">{s['total_rows']}</div></div>
-<div class="card"><div class="card-label">정상</div><div class="card-value ok">{s['normal']}</div><div class="card-sub">정상예측 {rt['norm']:.1f}%</div></div>
+<div class="card"><div class="card-label">정상</div><div class="card-value ok">{s['normal']}</div><div class="card-sub">{rt['norm']:.1f}%</div></div>
 <div class="card"><div class="card-label">급증 케이스</div><div class="card-value m14-c">{s['total']}</div></div>
 <div class="card"><div class="card-label">사전예측 감지율</div><div class="card-value ok">{rt['det']:.1f}%</div></div>
 <div class="card"><div class="card-label">10분전 사전감지OK</div><div class="card-value ok">{s['ok']}</div><div class="card-sub">{rt['ok']:.1f}%</div></div>
@@ -433,7 +429,7 @@ h1{{font-size:2.5rem;text-align:center;background:linear-gradient(135deg,#00d4ff
 <div class="cbox"><div class="ctitle">📉 오탐 분석</div><div class="cwrap"><canvas id="m14Fp"></canvas></div></div>
 </div>
 <div class="summary"><pre>=== M14_Q V8.3.1 요약 (기준: 1700) ===
-전체: {s['total_rows']}개 | 정상: {s['normal']}개 (정상예측 {s['normal_correct']}개, {rt['norm']:.1f}%) | 급증: {s['total']}개
+전체: {s['total_rows']}개 | 정상: {s['normal']}개({rt['norm']:.1f}%) | 급증: {s['total']}개
 급증감지 - OK: {s['ok']}개({rt['ok']:.1f}%) | 사전감지: {s['pre']}개({rt['pre']:.1f}%) | NG: {s['ng']}개({rt['ng']:.1f}%)
 사전예측 감지율: {rt['det']:.1f}% | 오탐: {s['fp_real']}/{s['fp_total']}개({rt['fp']:.1f}%)</pre></div>
 {cmt_html}
