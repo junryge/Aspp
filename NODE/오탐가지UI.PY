@@ -29,7 +29,32 @@ class SurgeAnalyzer:
         tk.Label(main_frame, text="📊 급증 감지 분석 시스템", font=('맑은 고딕', 24, 'bold'),
                  bg='#1a1a2e', fg='#00d4ff').pack(pady=(0, 5))
         tk.Label(main_frame, text="HUBROOM V8.0 | M14_Q V8.3.1", font=('맑은 고딕', 12),
-                 bg='#1a1a2e', fg='#888888').pack(pady=(0, 20))
+                 bg='#1a1a2e', fg='#888888').pack(pady=(0, 15))
+        
+        # 분석 날짜 입력
+        date_frame = tk.Frame(main_frame, bg='#252540', relief='ridge', bd=2)
+        date_frame.pack(fill=tk.X, pady=8, ipady=8, ipadx=15)
+        
+        tk.Label(date_frame, text="📅 분석 날짜", font=('맑은 고딕', 12, 'bold'),
+                 bg='#252540', fg='#00ff88').pack(side=tk.LEFT, padx=(10,15), pady=8)
+        
+        today = datetime.now()
+        
+        self.year_var = tk.StringVar(value=str(today.year))
+        self.month_var = tk.StringVar(value=str(today.month))
+        self.day_var = tk.StringVar(value=str(today.day))
+        
+        tk.Entry(date_frame, textvariable=self.year_var, font=('맑은 고딕', 11), width=6,
+                 bg='#0d0d15', fg='white', insertbackground='white', justify='center').pack(side=tk.LEFT)
+        tk.Label(date_frame, text="년", font=('맑은 고딕', 11), bg='#252540', fg='white').pack(side=tk.LEFT, padx=(3,10))
+        
+        tk.Entry(date_frame, textvariable=self.month_var, font=('맑은 고딕', 11), width=4,
+                 bg='#0d0d15', fg='white', insertbackground='white', justify='center').pack(side=tk.LEFT)
+        tk.Label(date_frame, text="월", font=('맑은 고딕', 11), bg='#252540', fg='white').pack(side=tk.LEFT, padx=(3,10))
+        
+        tk.Entry(date_frame, textvariable=self.day_var, font=('맑은 고딕', 11), width=4,
+                 bg='#0d0d15', fg='white', insertbackground='white', justify='center').pack(side=tk.LEFT)
+        tk.Label(date_frame, text="일", font=('맑은 고딕', 11), bg='#252540', fg='white').pack(side=tk.LEFT, padx=(3,10))
         
         # HUBROOM 프레임
         hub_frame = tk.Frame(main_frame, bg='#252540', relief='ridge', bd=2)
@@ -210,6 +235,13 @@ class SurgeAnalyzer:
         
         hub_cmt = self.hub_comment.get("1.0", tk.END).strip()
         m14_cmt = self.m14_comment.get("1.0", tk.END).strip()
+        
+        # 분석 날짜 가져오기
+        try:
+            anal_date = f"{self.year_var.get()}년 {self.month_var.get()}월 {self.day_var.get()}일"
+        except:
+            anal_date = datetime.now().strftime("%Y년 %m월 %d일")
+        
         result_text = ""
         
         try:
@@ -245,7 +277,7 @@ class SurgeAnalyzer:
                 
                 html_f = os.path.join(save_dir, f"급증감지_리포트_{ts}.html")
                 with open(html_f, 'w', encoding='utf-8') as f:
-                    f.write(self.gen_html(hub_cmt, m14_cmt))
+                    f.write(self.gen_html(hub_cmt, m14_cmt, anal_date))
                 files.append(html_f)
                 
                 webbrowser.open(html_f)
@@ -265,7 +297,7 @@ class SurgeAnalyzer:
 감지율: {(s['ok']+s['pre'])/t*100:.1f}% | 오탐: {s['fp_real']}/{s['fp_total']}({s['fp_real']/f*100:.1f}%)
 """
     
-    def gen_html(self, hub_cmt, m14_cmt):
+    def gen_html(self, hub_cmt, m14_cmt, anal_date):
         now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         
         def r(s):
@@ -318,7 +350,7 @@ h1{{font-size:2.5rem;text-align:center;background:linear-gradient(135deg,#00d4ff
 <body>
 <div class="container">
 <h1>📊 급증 감지 분석 리포트</h1>
-<p class="sub">생성: {now}</p>
+<p class="sub">📅 분석 날짜: {anal_date} | 생성: {now}</p>
 '''
         
         if self.hub_stats and self.hub_stats['total'] > 0:
