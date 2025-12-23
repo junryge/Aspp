@@ -4,14 +4,18 @@ import pickle
 from datetime import datetime, timedelta
 from sklearn.metrics import accuracy_score
 
-def evaluate_v8_5stage():
+def evaluate_v8_5stage_ensemble():
     """
-    🎯 V8 5단계 평가 (14개 컬럼)
+    🎯 V8 5단계 평가 - 확률 가중 앙상블
     
-    5단계: 급락/소폭하락/정체/소폭상승/급등
+    기존: 분류 결과 → 해당 모델만 사용
+    변경: 5개 모델 예측을 확률로 가중 평균
+    
+    예) 정체 60%, 소폭상승 30%, 급등 10%
+        → 정체예측×0.6 + 소폭상승예측×0.3 + 급등예측×0.1
     """
     print("="*80)
-    print("🎯 V8 5단계 평가: 급락/소폭하락/정체/소폭상승/급등")
+    print("🎯 V8 5단계 평가: 확률 가중 앙상블")
     print("="*80)
     
     FEATURE_COLS_V8 = {
@@ -147,10 +151,21 @@ def evaluate_v8_5stage():
                 default = {0: -60, 1: -35, 2: 0, 3: 35, 4: 60}
                 preds[cls] = default[cls]
         
-        # 최종 선택
-        final_change = preds[pred_class]
-        final_pred = current_value + final_change
-        final_error = abs(actual_value - final_pred)
+        # ========== 핵심: 확률 가중 앙상블 ==========
+        # 기존: final_change = preds[pred_class]
+        # 변경: 5개 모델 예측을 확률로 가중 평균
+        
+        ensemble_change = 0
+        for cls in range(5):
+            ensemble_change += preds[cls] * pred_proba[cls]
+        
+        ensemble_pred = current_value + ensemble_change
+        ensemble_error = abs(actual_value - ensemble_pred)
+        
+        # 기존 방식도 계산 (비교용)
+        old_change = preds[pred_class]
+        old_pred = current_value + old_change
+        old_error = abs(actual_value - old_pred)
         
         hub_value = seq_data['HUBROOMTOTAL'].iloc[-1] if 'HUBROOMTOTAL' in available_cols else 0
         
@@ -168,13 +183,18 @@ def evaluate_v8_5stage():
             '정체예측': round(preds[2], 2),
             '소폭상승예측': round(preds[3], 2),
             '급등예측': round(preds[4], 2),
-            '최종_변화량': round(final_change, 2),
-            '최종_예측': round(final_pred, 2),
-            '사용모델': class_names[pred_class],
-            '최종_오차': round(final_error, 2),
-            '오차≤10': '✅' if final_error <= 10 else '',
-            '오차≤20': '✅' if final_error <= 20 else '',
-            '오차≤30': '✅' if final_error <= 30 else '',
+            # 기존 방식
+            '기존_변화량': round(old_change, 2),
+            '기존_예측': round(old_pred, 2),
+            '기존_오차': round(old_error, 2),
+            # 앙상블 방식
+            '앙상블_변화량': round(ensemble_change, 2),
+            '앙상블_예측': round(ensemble_pred, 2),
+            '앙상블_오차': round(ensemble_error, 2),
+            '앙상블_오차≤10': '✅' if ensemble_error <= 10 else '',
+            '앙상블_오차≤20': '✅' if ensemble_error <= 20 else '',
+            '앙상블_오차≤30': '✅' if ensemble_error <= 30 else '',
+            # 확률
             '급락확률': round(pred_proba[0]*100, 1),
             '소폭하락확률': round(pred_proba[1]*100, 1),
             '정체확률': round(pred_proba[2]*100, 1),
@@ -184,45 +204,56 @@ def evaluate_v8_5stage():
         })
     
     results_df = pd.DataFrame(results)
-    results_df.to_csv('5단계_V8_평가결과.csv', index=False, encoding='utf-8-sig')
-    print(f"\n✅ 저장: 5단계_V8_평가결과.csv")
+    results_df.to_csv('5단계_V8_앙상블_평가결과.csv', index=False, encoding='utf-8-sig')
+    print(f"\n✅ 저장: 5단계_V8_앙상블_평가결과.csv")
     
     # 통계
     print("\n" + "="*80)
-    print("📊 평가 통계 (V8 5단계)")
+    print("📊 평가 통계 (V8 5단계 - 확률 가중 앙상블)")
     print("="*80)
     
     print(f"총 예측: {len(results_df)}개")
     
-    clf_acc = accuracy_score(all_true, all_pred)
-    print(f"\n🎯 분류 정확도: {clf_acc:.1%}")
+    # 기존 vs 앙상블 비교
+    print(f"\n🔄 기존 vs 앙상블 비교:")
     
-    print(f"\n📊 클래스별 분류:")
+    old_avg = results_df['기존_오차'].mean()
+    new_avg = results_df['앙상블_오차'].mean()
+    print(f"\n  평균 오차:")
+    print(f"    기존: {old_avg:.2f}")
+    print(f"    앙상블: {new_avg:.2f} ({'개선 ✅' if new_avg < old_avg else '악화 ❌'} {abs(old_avg-new_avg):.2f})")
+    
+    old_10 = (results_df['기존_오차'] <= 10).sum() / len(results_df) * 100
+    new_10 = (results_df['앙상블_오차≤10'] == '✅').sum() / len(results_df) * 100
+    print(f"\n  오차 ≤ 10:")
+    print(f"    기존: {old_10:.1f}%")
+    print(f"    앙상블: {new_10:.1f}% ({'개선 ✅' if new_10 > old_10 else '악화 ❌'} {abs(new_10-old_10):.1f}%p)")
+    
+    old_20 = (results_df['기존_오차'] <= 20).sum() / len(results_df) * 100
+    new_20 = (results_df['앙상블_오차≤20'] == '✅').sum() / len(results_df) * 100
+    print(f"\n  오차 ≤ 20:")
+    print(f"    기존: {old_20:.1f}%")
+    print(f"    앙상블: {new_20:.1f}% ({'개선 ✅' if new_20 > old_20 else '악화 ❌'} {abs(new_20-old_20):.1f}%p)")
+    
+    old_30 = (results_df['기존_오차'] <= 30).sum() / len(results_df) * 100
+    new_30 = (results_df['앙상블_오차≤30'] == '✅').sum() / len(results_df) * 100
+    print(f"\n  오차 ≤ 30:")
+    print(f"    기존: {old_30:.1f}%")
+    print(f"    앙상블: {new_30:.1f}% ({'개선 ✅' if new_30 > old_30 else '악화 ❌'} {abs(new_30-old_30):.1f}%p)")
+    
+    # 클래스별 개선
+    print(f"\n📊 실제 클래스별 앙상블 효과:")
     for cls in range(5):
-        mask = np.array(all_true) == cls
-        if mask.sum() > 0:
-            acc = (np.array(all_pred)[mask] == cls).mean()
-            print(f"  {class_names[cls]}: {acc:.1%} ({mask.sum()}개)")
-    
-    acc_10 = (results_df['오차≤10'] == '✅').sum() / len(results_df) * 100
-    acc_20 = (results_df['오차≤20'] == '✅').sum() / len(results_df) * 100
-    acc_30 = (results_df['오차≤30'] == '✅').sum() / len(results_df) * 100
-    avg_err = results_df['최종_오차'].mean()
-    
-    print(f"\n🎯 최종 예측 정확도:")
-    print(f"  오차 ≤ 10: {acc_10:.1f}%")
-    print(f"  오차 ≤ 20: {acc_20:.1f}%")
-    print(f"  오차 ≤ 30: {acc_30:.1f}%")
-    print(f"  평균 오차: {avg_err:.2f}")
-    
-    print(f"\n📊 모델별 오차:")
-    for cls in range(5):
-        subset = results_df[results_df['사용모델'] == class_names[cls]]
+        cls_name = class_names[cls]
+        subset = results_df[results_df['실제_클래스'] == cls_name]
         if len(subset) > 0:
-            print(f"  {class_names[cls]}: 평균오차 {subset['최종_오차'].mean():.1f} ({len(subset)}개)")
+            old_err = subset['기존_오차'].mean()
+            new_err = subset['앙상블_오차'].mean()
+            diff = old_err - new_err
+            print(f"  {cls_name}: {old_err:.1f} → {new_err:.1f} ({'↓' if diff > 0 else '↑'}{abs(diff):.1f})")
     
     return results_df
 
 if __name__ == '__main__':
-    print("🚀 V8 5단계 평가 시작...\n")
-    evaluate_v8_5stage()
+    print("🚀 V8 5단계 앙상블 평가 시작...\n")
+    evaluate_v8_5stage_ensemble()
