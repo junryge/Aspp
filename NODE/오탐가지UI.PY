@@ -1,5 +1,5 @@
 import tkinter as tk
-from tkinter import ttk, filedialog, messagebox
+from tkinter import ttk, filedialog, messagebox, scrolledtext
 import pandas as pd
 from datetime import datetime
 import webbrowser
@@ -9,7 +9,7 @@ class SurgeAnalyzer:
     def __init__(self, root):
         self.root = root
         self.root.title("급증 감지 분석 시스템 V8")
-        self.root.geometry("800x600")
+        self.root.geometry("900x750")
         self.root.configure(bg='#1a1a2e')
         
         self.hub_file = None
@@ -22,30 +22,23 @@ class SurgeAnalyzer:
         self.setup_ui()
     
     def setup_ui(self):
-        # 스타일 설정
-        style = ttk.Style()
-        style.theme_use('clam')
-        style.configure('TFrame', background='#1a1a2e')
-        style.configure('TLabel', background='#1a1a2e', foreground='white', font=('맑은 고딕', 10))
-        style.configure('Title.TLabel', font=('맑은 고딕', 24, 'bold'), foreground='#00d4ff')
-        style.configure('Sub.TLabel', font=('맑은 고딕', 12), foreground='#888888')
-        style.configure('TButton', font=('맑은 고딕', 11, 'bold'), padding=10)
-        
         # 메인 프레임
-        main_frame = ttk.Frame(self.root)
+        main_frame = tk.Frame(self.root, bg='#1a1a2e')
         main_frame.pack(fill=tk.BOTH, expand=True, padx=30, pady=20)
         
         # 타이틀
-        ttk.Label(main_frame, text="📊 급증 감지 분석 시스템", style='Title.TLabel').pack(pady=(0, 5))
-        ttk.Label(main_frame, text="HUBROOM V8.0 | M14_Q V8.3.1", style='Sub.TLabel').pack(pady=(0, 30))
+        tk.Label(main_frame, text="📊 급증 감지 분석 시스템", font=('맑은 고딕', 24, 'bold'),
+                 bg='#1a1a2e', fg='#00d4ff').pack(pady=(0, 5))
+        tk.Label(main_frame, text="HUBROOM V8.0 | M14_Q V8.3.1", font=('맑은 고딕', 12),
+                 bg='#1a1a2e', fg='#888888').pack(pady=(0, 20))
         
         # 파일 업로드 프레임
-        upload_frame = ttk.Frame(main_frame)
-        upload_frame.pack(fill=tk.X, pady=10)
+        upload_frame = tk.Frame(main_frame, bg='#1a1a2e')
+        upload_frame.pack(fill=tk.X, pady=5)
         
         # HUBROOM
         hub_frame = tk.Frame(upload_frame, bg='#252540', relief='ridge', bd=2)
-        hub_frame.pack(fill=tk.X, pady=10, ipady=15, ipadx=15)
+        hub_frame.pack(fill=tk.X, pady=8, ipady=12, ipadx=15)
         
         tk.Label(hub_frame, text="🏠 HUBROOM V8.0", font=('맑은 고딕', 14, 'bold'), 
                  bg='#252540', fg='#00d4ff').pack(anchor='w', padx=10, pady=(10,5))
@@ -53,7 +46,7 @@ class SurgeAnalyzer:
                  font=('맑은 고딕', 9), bg='#252540', fg='#888888').pack(anchor='w', padx=10)
         
         hub_btn_frame = tk.Frame(hub_frame, bg='#252540')
-        hub_btn_frame.pack(fill=tk.X, padx=10, pady=10)
+        hub_btn_frame.pack(fill=tk.X, padx=10, pady=8)
         
         tk.Button(hub_btn_frame, text="📁 파일 선택", command=self.select_hub_file,
                   font=('맑은 고딕', 10), bg='#00d4ff', fg='black', width=15).pack(side=tk.LEFT)
@@ -63,7 +56,7 @@ class SurgeAnalyzer:
         
         # M14_Q
         m14_frame = tk.Frame(upload_frame, bg='#252540', relief='ridge', bd=2)
-        m14_frame.pack(fill=tk.X, pady=10, ipady=15, ipadx=15)
+        m14_frame.pack(fill=tk.X, pady=8, ipady=12, ipadx=15)
         
         tk.Label(m14_frame, text="🏭 M14_Q V8.3.1", font=('맑은 고딕', 14, 'bold'), 
                  bg='#252540', fg='#ff6b35').pack(anchor='w', padx=10, pady=(10,5))
@@ -71,7 +64,7 @@ class SurgeAnalyzer:
                  font=('맑은 고딕', 9), bg='#252540', fg='#888888').pack(anchor='w', padx=10)
         
         m14_btn_frame = tk.Frame(m14_frame, bg='#252540')
-        m14_btn_frame.pack(fill=tk.X, padx=10, pady=10)
+        m14_btn_frame.pack(fill=tk.X, padx=10, pady=8)
         
         tk.Button(m14_btn_frame, text="📁 파일 선택", command=self.select_m14_file,
                   font=('맑은 고딕', 10), bg='#ff6b35', fg='black', width=15).pack(side=tk.LEFT)
@@ -79,25 +72,40 @@ class SurgeAnalyzer:
                                    font=('맑은 고딕', 9), bg='#252540', fg='#888888')
         self.m14_label.pack(side=tk.LEFT, padx=15)
         
+        # 결과 내용 입력란
+        comment_frame = tk.Frame(main_frame, bg='#252540', relief='ridge', bd=2)
+        comment_frame.pack(fill=tk.X, pady=15, ipady=10, ipadx=15)
+        
+        tk.Label(comment_frame, text="📝 결과 코멘트 (리포트에 포함됨)", font=('맑은 고딕', 12, 'bold'),
+                 bg='#252540', fg='#00ff88').pack(anchor='w', padx=10, pady=(10,5))
+        tk.Label(comment_frame, text="분석 결과에 대한 소견, 특이사항, 개선점 등을 입력하세요", 
+                 font=('맑은 고딕', 9), bg='#252540', fg='#888888').pack(anchor='w', padx=10)
+        
+        self.comment_text = scrolledtext.ScrolledText(comment_frame, font=('맑은 고딕', 10),
+                                                       bg='#0d0d15', fg='white', height=5,
+                                                       relief='flat', padx=10, pady=10,
+                                                       insertbackground='white')
+        self.comment_text.pack(fill=tk.X, padx=10, pady=10)
+        self.comment_text.insert(tk.END, "예시: 금일 HUBROOM 감지율 88%로 양호함. M14_Q는 급증 케이스 적어 추가 모니터링 필요.")
+        
         # 분석 버튼
-        tk.Button(main_frame, text="🔍 분석 시작", command=self.run_analysis,
+        tk.Button(main_frame, text="🔍 분석 시작 및 저장", command=self.run_analysis,
                   font=('맑은 고딕', 14, 'bold'), bg='#00ff88', fg='black',
-                  width=30, height=2).pack(pady=30)
+                  width=30, height=2).pack(pady=20)
         
         # 결과 영역
-        self.result_frame = tk.Frame(main_frame, bg='#1a1a2e')
-        self.result_frame.pack(fill=tk.BOTH, expand=True)
+        result_frame = tk.Frame(main_frame, bg='#1a1a2e')
+        result_frame.pack(fill=tk.BOTH, expand=True)
         
-        self.result_text = tk.Text(self.result_frame, font=('Consolas', 10), 
-                                    bg='#0d0d15', fg='white', height=12,
+        tk.Label(result_frame, text="📋 분석 결과", font=('맑은 고딕', 11, 'bold'),
+                 bg='#1a1a2e', fg='white').pack(anchor='w')
+        
+        self.result_text = tk.Text(result_frame, font=('Consolas', 10), 
+                                    bg='#0d0d15', fg='white', height=10,
                                     relief='flat', padx=15, pady=15)
-        self.result_text.pack(fill=tk.BOTH, expand=True)
+        self.result_text.pack(fill=tk.BOTH, expand=True, pady=(5,0))
         self.result_text.insert(tk.END, "CSV 파일을 선택하고 분석을 시작하세요...")
         self.result_text.config(state=tk.DISABLED)
-        
-        # 다운로드 버튼 프레임
-        self.download_frame = tk.Frame(main_frame, bg='#1a1a2e')
-        self.download_frame.pack(fill=tk.X, pady=15)
     
     def select_hub_file(self):
         file = filedialog.askopenfilename(filetypes=[("CSV files", "*.csv")])
@@ -254,6 +262,9 @@ class SurgeAnalyzer:
             messagebox.showwarning("경고", "CSV 파일을 선택하세요!")
             return
         
+        # 코멘트 가져오기
+        user_comment = self.comment_text.get("1.0", tk.END).strip()
+        
         result_text = ""
         
         try:
@@ -273,21 +284,6 @@ class SurgeAnalyzer:
             self.result_text.insert(tk.END, result_text)
             self.result_text.config(state=tk.DISABLED)
             
-            # 다운로드 버튼 추가
-            for widget in self.download_frame.winfo_children():
-                widget.destroy()
-            
-            if self.hub_df is not None:
-                tk.Button(self.download_frame, text="📥 HUBROOM CSV", command=self.save_hub_csv,
-                          font=('맑은 고딕', 10), bg='#00d4ff', fg='black').pack(side=tk.LEFT, padx=5)
-            
-            if self.m14_df is not None:
-                tk.Button(self.download_frame, text="📥 M14_Q CSV", command=self.save_m14_csv,
-                          font=('맑은 고딕', 10), bg='#ff6b35', fg='black').pack(side=tk.LEFT, padx=5)
-            
-            tk.Button(self.download_frame, text="📄 HTML 리포트", command=self.save_html,
-                      font=('맑은 고딕', 10, 'bold'), bg='#00ff88', fg='black').pack(side=tk.LEFT, padx=5)
-            
             # 자동 저장
             save_dir = filedialog.askdirectory(title="결과 저장할 폴더 선택")
             if save_dir:
@@ -306,7 +302,7 @@ class SurgeAnalyzer:
                 
                 # HTML 리포트 저장
                 html_file = os.path.join(save_dir, f"급증감지_리포트_{timestamp}.html")
-                html = self.generate_html()
+                html = self.generate_html(user_comment)
                 with open(html_file, 'w', encoding='utf-8') as f:
                     f.write(html)
                 saved_files.append(html_file)
@@ -314,7 +310,7 @@ class SurgeAnalyzer:
                 # 브라우저에서 HTML 열기
                 webbrowser.open(html_file)
                 
-                messagebox.showinfo("완료", f"분석 완료!\n\n저장된 파일:\n" + "\n".join(saved_files))
+                messagebox.showinfo("완료", f"분석 완료!\n\n저장된 파일:\n" + "\n".join([os.path.basename(f) for f in saved_files]))
             else:
                 messagebox.showinfo("완료", "분석이 완료되었습니다!\n(저장 취소됨)")
             
@@ -344,34 +340,7 @@ class SurgeAnalyzer:
 
 """
     
-    def save_hub_csv(self):
-        file = filedialog.asksaveasfilename(defaultextension=".csv", initialfile="HUBROOM_결과.csv",
-                                             filetypes=[("CSV files", "*.csv")])
-        if file:
-            self.hub_df.to_csv(file, index=False, encoding='utf-8-sig')
-            messagebox.showinfo("저장 완료", f"저장됨: {file}")
-    
-    def save_m14_csv(self):
-        file = filedialog.asksaveasfilename(defaultextension=".csv", initialfile="M14_결과.csv",
-                                             filetypes=[("CSV files", "*.csv")])
-        if file:
-            self.m14_df.to_csv(file, index=False, encoding='utf-8-sig')
-            messagebox.showinfo("저장 완료", f"저장됨: {file}")
-    
-    def save_html(self):
-        file = filedialog.asksaveasfilename(
-            defaultextension=".html", 
-            initialfile=f"급증감지_리포트_{datetime.now().strftime('%Y%m%d_%H%M%S')}.html",
-            filetypes=[("HTML files", "*.html")]
-        )
-        if file:
-            html = self.generate_html()
-            with open(file, 'w', encoding='utf-8') as f:
-                f.write(html)
-            messagebox.showinfo("저장 완료", f"저장됨: {file}")
-            webbrowser.open(file)
-    
-    def generate_html(self):
+    def generate_html(self, user_comment=""):
         now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         
         def calc_rates(stats):
@@ -386,18 +355,25 @@ class SurgeAnalyzer:
                 'fp_real_rate': stats['fp_real'] / fp_total * 100
             }
         
+        # 코멘트 이스케이프
+        user_comment_escaped = user_comment.replace('\n', '<br>').replace("'", "\\'")
+        
         html = f'''<!DOCTYPE html>
 <html lang="ko">
 <head>
     <meta charset="UTF-8">
     <title>급증 감지 분석 리포트</title>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2"></script>
     <style>
         * {{ margin: 0; padding: 0; box-sizing: border-box; }}
         body {{ font-family: '맑은 고딕', sans-serif; background: #0a0a0f; color: white; padding: 40px; }}
         .container {{ max-width: 1200px; margin: 0 auto; }}
         h1 {{ font-size: 2.5rem; text-align: center; background: linear-gradient(135deg, #00d4ff, #ff6b35); -webkit-background-clip: text; -webkit-text-fill-color: transparent; margin-bottom: 10px; }}
-        .subtitle {{ text-align: center; color: #888; margin-bottom: 40px; }}
+        .subtitle {{ text-align: center; color: #888; margin-bottom: 30px; }}
+        .comment-box {{ background: #1a3a1a; border: 2px solid #00ff88; border-radius: 12px; padding: 20px; margin-bottom: 40px; }}
+        .comment-title {{ color: #00ff88; font-size: 1.1rem; font-weight: bold; margin-bottom: 10px; }}
+        .comment-content {{ color: #ccc; line-height: 1.8; }}
         .section {{ margin-bottom: 50px; }}
         .section-title {{ font-size: 1.5rem; margin-bottom: 20px; padding-bottom: 10px; border-bottom: 2px solid #333; }}
         .section-title.hub {{ color: #00d4ff; border-color: #00d4ff; }}
@@ -415,9 +391,10 @@ class SurgeAnalyzer:
         .chart-grid {{ display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-bottom: 30px; }}
         .chart-box {{ background: #12121a; padding: 20px; border-radius: 12px; border: 1px solid #2a2a3a; }}
         .chart-title {{ font-size: 1rem; margin-bottom: 15px; }}
-        .chart-wrapper {{ height: 250px; }}
+        .chart-wrapper {{ height: 280px; }}
         .summary {{ background: #12121a; padding: 20px; border-radius: 12px; border: 1px solid #2a2a3a; }}
         .summary pre {{ font-family: Consolas, monospace; white-space: pre-wrap; color: #aaa; line-height: 1.6; }}
+        .footer {{ text-align: center; color: #555; margin-top: 50px; font-size: 0.85rem; }}
         @media (max-width: 768px) {{ .chart-grid {{ grid-template-columns: 1fr; }} }}
     </style>
 </head>
@@ -425,6 +402,15 @@ class SurgeAnalyzer:
 <div class="container">
     <h1>📊 급증 감지 분석 리포트</h1>
     <p class="subtitle">생성: {now}</p>
+'''
+        
+        # 사용자 코멘트
+        if user_comment.strip():
+            html += f'''
+    <div class="comment-box">
+        <div class="comment-title">📝 분석 코멘트</div>
+        <div class="comment-content">{user_comment_escaped}</div>
+    </div>
 '''
         
         if self.hub_stats and self.hub_stats['total'] > 0:
@@ -476,23 +462,40 @@ class SurgeAnalyzer:
 '''
         
         html += '''
+    <div class="footer">급증 감지 분석 시스템 V8 | AMHS 물류 예측 모델</div>
 </div>
 <script>
-const opts = { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'bottom', labels: { color: '#fff' } } } };
+Chart.register(ChartDataLabels);
+const opts = { 
+    responsive: true, 
+    maintainAspectRatio: false, 
+    plugins: { 
+        legend: { position: 'bottom', labels: { color: '#fff', font: { size: 12 } } },
+        datalabels: {
+            color: '#fff',
+            font: { weight: 'bold', size: 14 },
+            formatter: (value, ctx) => {
+                let sum = ctx.chart.data.datasets[0].data.reduce((a, b) => a + b, 0);
+                let percentage = sum > 0 ? (value / sum * 100).toFixed(1) + '%' : '0%';
+                return value > 0 ? percentage : '';
+            }
+        }
+    }
+};
 '''
         
         if self.hub_stats and self.hub_stats['total'] > 0:
             s = self.hub_stats
             html += f'''
-new Chart(document.getElementById('hubPie'), {{ type: 'doughnut', data: {{ labels: ['OK','사전감지','NG'], datasets: [{{ data: [{s['ok']},{s['pre']},{s['ng']}], backgroundColor: ['#00ff88','#ffcc00','#ff4466'] }}] }}, options: opts }});
-new Chart(document.getElementById('hubFp'), {{ type: 'doughnut', data: {{ labels: ['오탐사전감지','오탐'], datasets: [{{ data: [{s['fp_pre']},{s['fp_real']}], backgroundColor: ['#ffcc00','#ff4466'] }}] }}, options: opts }});
+new Chart(document.getElementById('hubPie'), {{ type: 'doughnut', data: {{ labels: ['OK ({s['ok']}개)','사전감지 ({s['pre']}개)','NG ({s['ng']}개)'], datasets: [{{ data: [{s['ok']},{s['pre']},{s['ng']}], backgroundColor: ['#00ff88','#ffcc00','#ff4466'] }}] }}, options: opts }});
+new Chart(document.getElementById('hubFp'), {{ type: 'doughnut', data: {{ labels: ['오탐사전감지 ({s['fp_pre']}개)','오탐 ({s['fp_real']}개)'], datasets: [{{ data: [{s['fp_pre']},{s['fp_real']}], backgroundColor: ['#ffcc00','#ff4466'] }}] }}, options: opts }});
 '''
         
         if self.m14_stats and self.m14_stats['total'] > 0:
             s = self.m14_stats
             html += f'''
-new Chart(document.getElementById('m14Pie'), {{ type: 'doughnut', data: {{ labels: ['OK','사전감지','NG'], datasets: [{{ data: [{s['ok']},{s['pre']},{s['ng']}], backgroundColor: ['#00ff88','#ffcc00','#ff4466'] }}] }}, options: opts }});
-new Chart(document.getElementById('m14Fp'), {{ type: 'doughnut', data: {{ labels: ['오탐사전감지','오탐'], datasets: [{{ data: [{s['fp_pre']},{s['fp_real']}], backgroundColor: ['#ffcc00','#ff4466'] }}] }}, options: opts }});
+new Chart(document.getElementById('m14Pie'), {{ type: 'doughnut', data: {{ labels: ['OK ({s['ok']}개)','사전감지 ({s['pre']}개)','NG ({s['ng']}개)'], datasets: [{{ data: [{s['ok']},{s['pre']},{s['ng']}], backgroundColor: ['#00ff88','#ffcc00','#ff4466'] }}] }}, options: opts }});
+new Chart(document.getElementById('m14Fp'), {{ type: 'doughnut', data: {{ labels: ['오탐사전감지 ({s['fp_pre']}개)','오탐 ({s['fp_real']}개)'], datasets: [{{ data: [{s['fp_pre']},{s['fp_real']}], backgroundColor: ['#ffcc00','#ff4466'] }}] }}, options: opts }});
 '''
         
         html += '''
