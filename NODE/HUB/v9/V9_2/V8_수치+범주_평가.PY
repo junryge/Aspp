@@ -4,18 +4,17 @@ import pickle
 from datetime import datetime, timedelta
 from sklearn.metrics import accuracy_score
 
-def evaluate_v8_5stage_ensemble():
+def evaluate_v8_2stage():
     """
-    🎯 V8 5단계 평가 - 확률 가중 앙상블
+    🎯 V8 2단계 분리 모델 평가
     
-    기존: 분류 결과 → 해당 모델만 사용
-    변경: 5개 모델 예측을 확률로 가중 평균
-    
-    예) 정체 60%, 소폭상승 30%, 급등 10%
-        → 정체예측×0.6 + 소폭상승예측×0.3 + 급등예측×0.1
+    [1단계] 급변 탐지 → Yes/No
+    [2단계] 
+        급변 Yes → slope로 급등/급락 선택
+        급변 No  → 일반 3단계 모델
     """
     print("="*80)
-    print("🎯 V8 5단계 평가: 확률 가중 앙상블")
+    print("🎯 V8 2단계 분리 모델 평가")
     print("="*80)
     
     FEATURE_COLS_V8 = {
@@ -30,22 +29,26 @@ def evaluate_v8_5stage_ensemble():
     
     TARGET_COL = 'CURRENT_M16A_3F_JOB_2'
     
-    class_names = {0: '급락', 1: '소폭하락', 2: '정체', 3: '소폭상승', 4: '급등'}
+    normal_class_names = {0: '소폭하락', 1: '정체', 2: '소폭상승'}
     
-    def get_class(change):
-        if change <= -50: return 0
-        elif change <= -20: return 1
-        elif change <= 20: return 2
-        elif change <= 50: return 3
-        else: return 4
+    def get_actual_class(change):
+        """실제 5단계 클래스"""
+        if change <= -50: return '급락'
+        elif change <= -20: return '소폭하락'
+        elif change <= 20: return '정체'
+        elif change <= 50: return '소폭상승'
+        else: return '급등'
     
     # 모델 로드
     try:
-        with open('xgboost_5stage_V8.pkl', 'rb') as f:
+        with open('xgboost_2stage_V8.pkl', 'rb') as f:
             model_dict = pickle.load(f)
-        clf_model = model_dict['classifier']
-        regressors = model_dict['regressors']
-        print("✅ 모델 로드: xgboost_5stage_V8.pkl")
+        sudden_detector = model_dict['sudden_detector']
+        surge_model = model_dict['surge_model']
+        drop_model = model_dict['drop_model']
+        normal_clf = model_dict['normal_classifier']
+        normal_regressors = model_dict['normal_regressors']
+        print("✅ 모델 로드: xgboost_2stage_V8.pkl")
     except Exception as e:
         print(f"❌ 모델 없음: {e}")
         return None
@@ -72,8 +75,11 @@ def evaluate_v8_5stage_ensemble():
             df['STAT_DT'] = [datetime(2024,1,1) + timedelta(minutes=i) for i in range(len(df))]
     
     results = []
-    all_true, all_pred = [], []
     x_range = np.arange(30)
+    
+    # 통계용
+    sudden_true_list = []
+    sudden_pred_list = []
     
     print("\n평가 시작...")
     total = len(df) - 40
@@ -89,7 +95,10 @@ def evaluate_v8_5stage_ensemble():
         current_value = seq_target[-1]
         actual_value = df[TARGET_COL].iloc[i+9]
         actual_change = actual_value - current_value
-        actual_class = get_class(actual_change)
+        actual_class = get_actual_class(actual_change)
+        actual_is_sudden = 1 if abs(actual_change) >= 50 else 0
+        
+        slope = np.polyfit(x_range, seq_target, 1)[0]
         
         # Feature 생성
         features = {
@@ -98,7 +107,11 @@ def evaluate_v8_5stage_ensemble():
             'target_max': np.max(seq_target),
             'target_min': np.min(seq_target),
             'target_last_value': seq_target[-1],
-            'target_slope': np.polyfit(x_range, seq_target, 1)[0],
+            'target_slope': slope,
+            'target_range': np.max(seq_target) - np.min(seq_target),
+            'target_momentum': seq_target[-1] - seq_target[-5] if len(seq_target) >= 5 else 0,
+            'target_accel': (seq_target[-1] - seq_target[-5]) - (seq_target[-5] - seq_target[-10]) if len(seq_target) >= 10 else 0,
+            'target_volatility': np.std(np.diff(seq_target)),
         }
         
         for group_name, cols in FEATURE_COLS_V8.items():
@@ -135,37 +148,52 @@ def evaluate_v8_5stage_ensemble():
         
         X_pred = pd.DataFrame([features])
         
-        # 분류
-        pred_class = clf_model.predict(X_pred)[0]
-        pred_proba = clf_model.predict_proba(X_pred)[0]
+        # ========== [1단계] 급변 탐지 ==========
+        pred_sudden = sudden_detector.predict(X_pred)[0]
+        pred_sudden_proba = sudden_detector.predict_proba(X_pred)[0]
+        sudden_prob = pred_sudden_proba[1] * 100  # 급변 확률
         
-        all_true.append(actual_class)
-        all_pred.append(pred_class)
+        sudden_true_list.append(actual_is_sudden)
+        sudden_pred_list.append(pred_sudden)
         
-        # 5개 모델 전부 예측
-        preds = {}
-        for cls in range(5):
-            if regressors[cls] is not None:
-                preds[cls] = regressors[cls].predict(X_pred)[0]
+        # ========== [2단계] 분기 ==========
+        if pred_sudden == 1:  # 급변 예측
+            # slope로 방향 결정
+            if slope >= 0:  # 상승 추세 → 급등
+                if surge_model is not None:
+                    final_change = surge_model.predict(X_pred)[0]
+                else:
+                    final_change = 60  # 기본값
+                used_model = "급등모델"
+                pred_class = "급등"
+            else:  # 하락 추세 → 급락
+                if drop_model is not None:
+                    final_change = drop_model.predict(X_pred)[0]
+                else:
+                    final_change = -60  # 기본값
+                used_model = "급락모델"
+                pred_class = "급락"
+        else:  # 일반 예측
+            # 일반 분류
+            normal_pred = normal_clf.predict(X_pred)[0]
+            normal_proba = normal_clf.predict_proba(X_pred)[0]
+            
+            pred_class = normal_class_names[normal_pred]
+            
+            # 일반 수치 예측
+            if normal_regressors[normal_pred] is not None:
+                final_change = normal_regressors[normal_pred].predict(X_pred)[0]
             else:
-                default = {0: -60, 1: -35, 2: 0, 3: 35, 4: 60}
-                preds[cls] = default[cls]
+                default = {0: -35, 1: 0, 2: 35}
+                final_change = default[normal_pred]
+            
+            used_model = f"{pred_class}모델"
         
-        # ========== 핵심: 확률 가중 앙상블 ==========
-        # 기존: final_change = preds[pred_class]
-        # 변경: 5개 모델 예측을 확률로 가중 평균
+        final_pred = current_value + final_change
+        final_error = abs(actual_value - final_pred)
         
-        ensemble_change = 0
-        for cls in range(5):
-            ensemble_change += preds[cls] * pred_proba[cls]
-        
-        ensemble_pred = current_value + ensemble_change
-        ensemble_error = abs(actual_value - ensemble_pred)
-        
-        # 기존 방식도 계산 (비교용)
-        old_change = preds[pred_class]
-        old_pred = current_value + old_change
-        old_error = abs(actual_value - old_pred)
+        # 분류 정확 여부
+        class_correct = (pred_class == actual_class)
         
         hub_value = seq_data['HUBROOMTOTAL'].iloc[-1] if 'HUBROOMTOTAL' in available_cols else 0
         
@@ -175,85 +203,105 @@ def evaluate_v8_5stage_ensemble():
             '현재값': round(current_value, 2),
             '실제값': round(actual_value, 2),
             '실제_변화량': round(actual_change, 2),
-            '실제_클래스': class_names[actual_class],
-            '예측_클래스': class_names[pred_class],
-            '분류정확': '✅' if pred_class == actual_class else '❌',
-            '급락예측': round(preds[0], 2),
-            '소폭하락예측': round(preds[1], 2),
-            '정체예측': round(preds[2], 2),
-            '소폭상승예측': round(preds[3], 2),
-            '급등예측': round(preds[4], 2),
-            # 기존 방식
-            '기존_변화량': round(old_change, 2),
-            '기존_예측': round(old_pred, 2),
-            '기존_오차': round(old_error, 2),
-            # 앙상블 방식
-            '앙상블_변화량': round(ensemble_change, 2),
-            '앙상블_예측': round(ensemble_pred, 2),
-            '앙상블_오차': round(ensemble_error, 2),
-            '앙상블_오차≤10': '✅' if ensemble_error <= 10 else '',
-            '앙상블_오차≤20': '✅' if ensemble_error <= 20 else '',
-            '앙상블_오차≤30': '✅' if ensemble_error <= 30 else '',
-            # 확률
-            '급락확률': round(pred_proba[0]*100, 1),
-            '소폭하락확률': round(pred_proba[1]*100, 1),
-            '정체확률': round(pred_proba[2]*100, 1),
-            '소폭상승확률': round(pred_proba[3]*100, 1),
-            '급등확률': round(pred_proba[4]*100, 1),
+            '실제_클래스': actual_class,
+            '실제_급변': '급변' if actual_is_sudden else '일반',
+            # 1단계 결과
+            '급변탐지': '급변' if pred_sudden else '일반',
+            '급변확률': round(sudden_prob, 1),
+            '급변탐지정확': '✅' if pred_sudden == actual_is_sudden else '❌',
+            # 2단계 결과
+            '예측_클래스': pred_class,
+            '분류정확': '✅' if class_correct else '❌',
+            '사용모델': used_model,
+            '최종_변화량': round(final_change, 2),
+            '최종_예측': round(final_pred, 2),
+            '최종_오차': round(final_error, 2),
+            '오차≤10': '✅' if final_error <= 10 else '',
+            '오차≤20': '✅' if final_error <= 20 else '',
+            '오차≤30': '✅' if final_error <= 30 else '',
+            'slope': round(slope, 4),
             'HUBROOMTOTAL': round(hub_value, 0),
         })
     
     results_df = pd.DataFrame(results)
-    results_df.to_csv('5단계_V8_앙상블_평가결과.csv', index=False, encoding='utf-8-sig')
-    print(f"\n✅ 저장: 5단계_V8_앙상블_평가결과.csv")
+    results_df.to_csv('2단계_V8_평가결과.csv', index=False, encoding='utf-8-sig')
+    print(f"\n✅ 저장: 2단계_V8_평가결과.csv")
     
-    # 통계
+    # ========== 통계 ==========
     print("\n" + "="*80)
-    print("📊 평가 통계 (V8 5단계 - 확률 가중 앙상블)")
+    print("📊 평가 통계 (V8 2단계 분리)")
     print("="*80)
     
     print(f"총 예측: {len(results_df)}개")
     
-    # 기존 vs 앙상블 비교
-    print(f"\n🔄 기존 vs 앙상블 비교:")
+    # 1단계: 급변 탐지 성능
+    print(f"\n🔍 [1단계] 급변 탐지 성능:")
+    sudden_true = np.array(sudden_true_list)
+    sudden_pred = np.array(sudden_pred_list)
     
-    old_avg = results_df['기존_오차'].mean()
-    new_avg = results_df['앙상블_오차'].mean()
-    print(f"\n  평균 오차:")
-    print(f"    기존: {old_avg:.2f}")
-    print(f"    앙상블: {new_avg:.2f} ({'개선 ✅' if new_avg < old_avg else '악화 ❌'} {abs(old_avg-new_avg):.2f})")
+    sudden_acc = accuracy_score(sudden_true, sudden_pred)
+    print(f"  전체 정확도: {sudden_acc:.1%}")
     
-    old_10 = (results_df['기존_오차'] <= 10).sum() / len(results_df) * 100
-    new_10 = (results_df['앙상블_오차≤10'] == '✅').sum() / len(results_df) * 100
-    print(f"\n  오차 ≤ 10:")
-    print(f"    기존: {old_10:.1f}%")
-    print(f"    앙상블: {new_10:.1f}% ({'개선 ✅' if new_10 > old_10 else '악화 ❌'} {abs(new_10-old_10):.1f}%p)")
+    # 급변 Recall (실제 급변 중 맞춘 비율)
+    actual_sudden_mask = sudden_true == 1
+    if actual_sudden_mask.sum() > 0:
+        recall = (sudden_pred[actual_sudden_mask] == 1).mean()
+        print(f"  급변 Recall: {recall:.1%} ({(sudden_pred[actual_sudden_mask] == 1).sum()}/{actual_sudden_mask.sum()}개)")
     
-    old_20 = (results_df['기존_오차'] <= 20).sum() / len(results_df) * 100
-    new_20 = (results_df['앙상블_오차≤20'] == '✅').sum() / len(results_df) * 100
-    print(f"\n  오차 ≤ 20:")
-    print(f"    기존: {old_20:.1f}%")
-    print(f"    앙상블: {new_20:.1f}% ({'개선 ✅' if new_20 > old_20 else '악화 ❌'} {abs(new_20-old_20):.1f}%p)")
+    # 급변 Precision (급변 예측 중 실제 급변 비율)
+    pred_sudden_mask = sudden_pred == 1
+    if pred_sudden_mask.sum() > 0:
+        precision = (sudden_true[pred_sudden_mask] == 1).mean()
+        print(f"  급변 Precision: {precision:.1%} ({(sudden_true[pred_sudden_mask] == 1).sum()}/{pred_sudden_mask.sum()}개)")
     
-    old_30 = (results_df['기존_오차'] <= 30).sum() / len(results_df) * 100
-    new_30 = (results_df['앙상블_오차≤30'] == '✅').sum() / len(results_df) * 100
-    print(f"\n  오차 ≤ 30:")
-    print(f"    기존: {old_30:.1f}%")
-    print(f"    앙상블: {new_30:.1f}% ({'개선 ✅' if new_30 > old_30 else '악화 ❌'} {abs(new_30-old_30):.1f}%p)")
+    # 오탐 (일반인데 급변으로 예측)
+    normal_mask = sudden_true == 0
+    if normal_mask.sum() > 0:
+        false_alarm = (sudden_pred[normal_mask] == 1).sum()
+        print(f"  오탐 (일반→급변): {false_alarm}개 ({false_alarm/normal_mask.sum()*100:.2f}%)")
     
-    # 클래스별 개선
-    print(f"\n📊 실제 클래스별 앙상블 효과:")
-    for cls in range(5):
-        cls_name = class_names[cls]
-        subset = results_df[results_df['실제_클래스'] == cls_name]
+    # 2단계: 최종 정확도
+    print(f"\n🎯 [2단계] 최종 예측 정확도:")
+    
+    acc_10 = (results_df['오차≤10'] == '✅').sum() / len(results_df) * 100
+    acc_20 = (results_df['오차≤20'] == '✅').sum() / len(results_df) * 100
+    acc_30 = (results_df['오차≤30'] == '✅').sum() / len(results_df) * 100
+    avg_err = results_df['최종_오차'].mean()
+    
+    print(f"  오차 ≤ 10: {acc_10:.1f}%")
+    print(f"  오차 ≤ 20: {acc_20:.1f}%")
+    print(f"  오차 ≤ 30: {acc_30:.1f}%")
+    print(f"  평균 오차: {avg_err:.2f}")
+    
+    # 클래스별 성능
+    print(f"\n📊 실제 클래스별 성능:")
+    for cls in ['급락', '소폭하락', '정체', '소폭상승', '급등']:
+        subset = results_df[results_df['실제_클래스'] == cls]
         if len(subset) > 0:
-            old_err = subset['기존_오차'].mean()
-            new_err = subset['앙상블_오차'].mean()
-            diff = old_err - new_err
-            print(f"  {cls_name}: {old_err:.1f} → {new_err:.1f} ({'↓' if diff > 0 else '↑'}{abs(diff):.1f})")
+            avg_err = subset['최종_오차'].mean()
+            correct = (subset['분류정확'] == '✅').sum()
+            print(f"  {cls}: 평균오차 {avg_err:.1f}, 분류정확 {correct}/{len(subset)}개 ({correct/len(subset)*100:.1f}%)")
+    
+    # 급등/급락 감지율 (핵심!)
+    print(f"\n🔥 급등/급락 감지 성능 (핵심!):")
+    
+    surge_df = results_df[results_df['실제_클래스'] == '급등']
+    if len(surge_df) > 0:
+        detected = (surge_df['예측_클래스'] == '급등').sum()
+        print(f"  급등 감지: {detected}/{len(surge_df)}개 ({detected/len(surge_df)*100:.1f}%)")
+    
+    drop_df = results_df[results_df['실제_클래스'] == '급락']
+    if len(drop_df) > 0:
+        detected = (drop_df['예측_클래스'] == '급락').sum()
+        print(f"  급락 감지: {detected}/{len(drop_df)}개 ({detected/len(drop_df)*100:.1f}%)")
+    
+    # 모델 사용 분포
+    print(f"\n📊 모델 사용 분포:")
+    for model in results_df['사용모델'].value_counts().items():
+        print(f"  {model[0]}: {model[1]}개 ({model[1]/len(results_df)*100:.1f}%)")
     
     return results_df
 
 if __name__ == '__main__':
-    print("🚀 V8 5단계 앙상블 평가 시작...\n")
-    evaluate_v8_5stage_ensemble()
+    print("🚀 V8 2단계 분리 모델 평가 시작...\n")
+    evaluate_v8_2stage()
