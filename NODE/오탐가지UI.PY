@@ -8,7 +8,7 @@ import os
 class SurgeAnalyzer:
     def __init__(self, root):
         self.root = root
-        self.root.title("급증 감지 분석 시스템 V8")
+        self.root.title("ML급증 감지 분석 시스템 V8")
         self.root.geometry("900x800")
         self.root.configure(bg='#1a1a2e')
         
@@ -26,7 +26,7 @@ class SurgeAnalyzer:
         main_frame.pack(fill=tk.BOTH, expand=True, padx=30, pady=20)
         
         # 타이틀
-        tk.Label(main_frame, text="📊 급증 감지 분석 시스템", font=('맑은 고딕', 24, 'bold'),
+        tk.Label(main_frame, text="📊 ML급증 감지 분석 시스템", font=('맑은 고딕', 24, 'bold'),
                  bg='#1a1a2e', fg='#00d4ff').pack(pady=(0, 5))
         tk.Label(main_frame, text="HUBROOM V8.0 | M14_Q V8.3.1", font=('맑은 고딕', 12),
                  bg='#1a1a2e', fg='#888888').pack(pady=(0, 15))
@@ -167,8 +167,13 @@ class SurgeAnalyzer:
         idx = cols.index('실제값')
         df = df[cols[:idx+1] + ['사전감지OK_NG', '사전감지결과', '오탐/사전감지'] + cols[idx+1:]]
         
+        normal_correct = len(df[(df['실제값'] < threshold) & (df['예측값_MAX'] < threshold)])
+        
         return df, {
+            'total_rows': len(df),
             'total': len(df[surge_cond]), 
+            'normal': len(df) - len(df[surge_cond]),
+            'normal_correct': normal_correct,
             'ok': len(df[df['사전감지결과'] == 'OK']),
             'pre': len(df[df['사전감지결과'].str.contains('사전감지', na=False)]),
             'ng': len(df[df['사전감지결과'] == 'NG']),
@@ -218,8 +223,13 @@ class SurgeAnalyzer:
         idx = cols.index('실제값')
         df = df[cols[:idx+1] + ['사전감지OK_NG', '사전감지결과', '오탐/사전감지'] + cols[idx+1:]]
         
+        normal_correct = len(df[(df['실제값'] < threshold) & (df['최종예측'] < threshold)])
+        
         return df, {
+            'total_rows': len(df),
             'total': len(df[surge_cond]), 
+            'normal': len(df) - len(df[surge_cond]),
+            'normal_correct': normal_correct,
             'ok': len(df[df['사전감지결과'] == 'OK']),
             'pre': len(df[df['사전감지결과'].str.contains('사전감지', na=False)]),
             'ng': len(df[df['사전감지결과'] == 'NG']),
@@ -275,7 +285,7 @@ class SurgeAnalyzer:
                     self.m14_df.to_csv(f, index=False, encoding='utf-8-sig')
                     files.append(f)
                 
-                html_f = os.path.join(save_dir, f"급증감지_리포트_{ts}.html")
+                html_f = os.path.join(save_dir, f"ML급증감지_리포트_{ts}.html")
                 with open(html_f, 'w', encoding='utf-8') as f:
                     f.write(self.gen_html(hub_cmt, m14_cmt, anal_date))
                 files.append(html_f)
@@ -289,11 +299,14 @@ class SurgeAnalyzer:
     def fmt(self, name, s, th):
         t = s['total'] or 1
         f = s['fp_total'] or 1
+        n = s['normal'] or 1
         return f"""
 {'='*50}
   {name} (기준: {th})
 {'='*50}
-급증: {s['total']}개 | OK: {s['ok']}({s['ok']/t*100:.1f}%) | 사전감지: {s['pre']}({s['pre']/t*100:.1f}%) | NG: {s['ng']}({s['ng']/t*100:.1f}%)
+전체: {s['total_rows']}개 | 정상: {s['normal']}개 | 급증: {s['total']}개
+정상예측: {s['normal_correct']}개({s['normal_correct']/n*100:.1f}%)
+급증감지 - OK: {s['ok']}({s['ok']/t*100:.1f}%) | 사전감지: {s['pre']}({s['pre']/t*100:.1f}%) | NG: {s['ng']}({s['ng']/t*100:.1f}%)
 감지율: {(s['ok']+s['pre'])/t*100:.1f}% | 오탐: {s['fp_real']}/{s['fp_total']}({s['fp_real']/f*100:.1f}%)
 """
     
@@ -303,16 +316,18 @@ class SurgeAnalyzer:
         def r(s):
             t = s['total'] or 1
             f = s['fp_total'] or 1
+            n = s['normal'] or 1
             return {
                 'ok': s['ok']/t*100, 'pre': s['pre']/t*100, 'ng': s['ng']/t*100,
-                'det': (s['ok']+s['pre'])/t*100, 'fp_pre': s['fp_pre']/f*100, 'fp': s['fp_real']/f*100
+                'det': (s['ok']+s['pre'])/t*100, 'fp_pre': s['fp_pre']/f*100, 'fp': s['fp_real']/f*100,
+                'norm': s['normal_correct']/n*100
             }
         
         html = f'''<!DOCTYPE html>
 <html lang="ko">
 <head>
 <meta charset="UTF-8">
-<title>급증 감지 분석 리포트</title>
+<title>ML급증 감지 분석 리포트</title>
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2"></script>
 <style>
@@ -325,7 +340,7 @@ h1{{font-size:2.5rem;text-align:center;background:linear-gradient(135deg,#00d4ff
 .stitle{{font-size:1.5rem;margin-bottom:20px;padding-bottom:10px;border-bottom:2px solid #333}}
 .stitle.hub{{color:#00d4ff;border-color:#00d4ff}}
 .stitle.m14{{color:#ff6b35;border-color:#ff6b35}}
-.grid{{display:grid;grid-template-columns:repeat(6,1fr);gap:15px;margin-bottom:25px}}
+.grid{{display:grid;grid-template-columns:repeat(4,1fr);gap:15px;margin-bottom:25px}}
 .card{{background:#12121a;padding:18px;border-radius:12px;text-align:center;border:1px solid #2a2a3a}}
 .card-label{{font-size:0.8rem;color:#888;margin-bottom:8px}}
 .card-value{{font-size:1.8rem;font-weight:bold}}
@@ -344,16 +359,16 @@ h1{{font-size:2.5rem;text-align:center;background:linear-gradient(135deg,#00d4ff
 .comment-title.m14{{color:#ff6b35}}
 .comment-content{{color:#ccc;line-height:1.7}}
 .footer{{text-align:center;color:#555;margin-top:50px;font-size:0.85rem}}
-@media(max-width:768px){{.grid{{grid-template-columns:repeat(3,1fr)}}.charts{{grid-template-columns:1fr}}}}
+@media(max-width:900px){{.grid{{grid-template-columns:repeat(2,1fr)}}.charts{{grid-template-columns:1fr}}}}
 </style>
 </head>
 <body>
 <div class="container">
-<h1>📊 급증 감지 분석 리포트</h1>
+<h1>📊 ML급증 감지 분석 리포트</h1>
 <p class="sub">📅 분석 날짜: {anal_date} | 생성: {now}</p>
 '''
         
-        if self.hub_stats and self.hub_stats['total'] > 0:
+        if self.hub_stats and self.hub_stats['total_rows'] > 0:
             s = self.hub_stats
             rt = r(s)
             cmt_html = ""
@@ -364,6 +379,8 @@ h1{{font-size:2.5rem;text-align:center;background:linear-gradient(135deg,#00d4ff
 <div class="section">
 <h2 class="stitle hub">🏠 HUBROOM V8.0</h2>
 <div class="grid">
+<div class="card"><div class="card-label">전체 데이터</div><div class="card-value">{s['total_rows']}</div></div>
+<div class="card"><div class="card-label">정상</div><div class="card-value ok">{s['normal']}</div><div class="card-sub">정상예측 {rt['norm']:.1f}%</div></div>
 <div class="card"><div class="card-label">급증 케이스</div><div class="card-value hub-c">{s['total']}</div></div>
 <div class="card"><div class="card-label">총 감지율</div><div class="card-value ok">{rt['det']:.1f}%</div></div>
 <div class="card"><div class="card-label">OK</div><div class="card-value ok">{s['ok']}</div><div class="card-sub">{rt['ok']:.1f}%</div></div>
@@ -376,13 +393,14 @@ h1{{font-size:2.5rem;text-align:center;background:linear-gradient(135deg,#00d4ff
 <div class="cbox"><div class="ctitle">📉 오탐 분석</div><div class="cwrap"><canvas id="hubFp"></canvas></div></div>
 </div>
 <div class="summary"><pre>=== HUBROOM V8.0 요약 (기준: 350) ===
-급증: {s['total']}개 | OK: {s['ok']}개({rt['ok']:.1f}%) | 사전감지: {s['pre']}개({rt['pre']:.1f}%) | NG: {s['ng']}개({rt['ng']:.1f}%)
+전체: {s['total_rows']}개 | 정상: {s['normal']}개 (정상예측 {s['normal_correct']}개, {rt['norm']:.1f}%) | 급증: {s['total']}개
+급증감지 - OK: {s['ok']}개({rt['ok']:.1f}%) | 사전감지: {s['pre']}개({rt['pre']:.1f}%) | NG: {s['ng']}개({rt['ng']:.1f}%)
 총 감지율: {rt['det']:.1f}% | 오탐: {s['fp_real']}/{s['fp_total']}개({rt['fp']:.1f}%)</pre></div>
 {cmt_html}
 </div>
 '''
         
-        if self.m14_stats and self.m14_stats['total'] > 0:
+        if self.m14_stats and self.m14_stats['total_rows'] > 0:
             s = self.m14_stats
             rt = r(s)
             cmt_html = ""
@@ -393,6 +411,8 @@ h1{{font-size:2.5rem;text-align:center;background:linear-gradient(135deg,#00d4ff
 <div class="section">
 <h2 class="stitle m14">🏭 M14_Q V8.3.1</h2>
 <div class="grid">
+<div class="card"><div class="card-label">전체 데이터</div><div class="card-value">{s['total_rows']}</div></div>
+<div class="card"><div class="card-label">정상</div><div class="card-value ok">{s['normal']}</div><div class="card-sub">정상예측 {rt['norm']:.1f}%</div></div>
 <div class="card"><div class="card-label">급증 케이스</div><div class="card-value m14-c">{s['total']}</div></div>
 <div class="card"><div class="card-label">총 감지율</div><div class="card-value ok">{rt['det']:.1f}%</div></div>
 <div class="card"><div class="card-label">OK</div><div class="card-value ok">{s['ok']}</div><div class="card-sub">{rt['ok']:.1f}%</div></div>
@@ -405,28 +425,29 @@ h1{{font-size:2.5rem;text-align:center;background:linear-gradient(135deg,#00d4ff
 <div class="cbox"><div class="ctitle">📉 오탐 분석</div><div class="cwrap"><canvas id="m14Fp"></canvas></div></div>
 </div>
 <div class="summary"><pre>=== M14_Q V8.3.1 요약 (기준: 1700) ===
-급증: {s['total']}개 | OK: {s['ok']}개({rt['ok']:.1f}%) | 사전감지: {s['pre']}개({rt['pre']:.1f}%) | NG: {s['ng']}개({rt['ng']:.1f}%)
+전체: {s['total_rows']}개 | 정상: {s['normal']}개 (정상예측 {s['normal_correct']}개, {rt['norm']:.1f}%) | 급증: {s['total']}개
+급증감지 - OK: {s['ok']}개({rt['ok']:.1f}%) | 사전감지: {s['pre']}개({rt['pre']:.1f}%) | NG: {s['ng']}개({rt['ng']:.1f}%)
 총 감지율: {rt['det']:.1f}% | 오탐: {s['fp_real']}/{s['fp_total']}개({rt['fp']:.1f}%)</pre></div>
 {cmt_html}
 </div>
 '''
         
         html += '''
-<div class="footer">급증 감지 분석 시스템 V8 | AMHS 물류 예측 모델</div>
+<div class="footer">ML급증 감지 분석 시스템 V8 | AMHS 물류 예측 모델</div>
 </div>
 <script>
 Chart.register(ChartDataLabels);
 const opt={responsive:true,maintainAspectRatio:false,plugins:{legend:{position:'bottom',labels:{color:'#fff',font:{size:11}}},datalabels:{color:'#fff',font:{weight:'bold',size:13},formatter:(v,ctx)=>{let sum=ctx.chart.data.datasets[0].data.reduce((a,b)=>a+b,0);return v>0?(v/sum*100).toFixed(1)+'%':''}}}};
 '''
         
-        if self.hub_stats and self.hub_stats['total'] > 0:
+        if self.hub_stats and self.hub_stats['total_rows'] > 0:
             s = self.hub_stats
             html += f'''
 new Chart(document.getElementById('hubPie'),{{type:'doughnut',data:{{labels:['OK ({s['ok']}개)','사전감지 ({s['pre']}개)','NG ({s['ng']}개)'],datasets:[{{data:[{s['ok']},{s['pre']},{s['ng']}],backgroundColor:['#00ff88','#ffcc00','#ff4466']}}]}},options:opt}});
 new Chart(document.getElementById('hubFp'),{{type:'doughnut',data:{{labels:['오탐사전감지 ({s['fp_pre']}개)','오탐 ({s['fp_real']}개)'],datasets:[{{data:[{s['fp_pre']},{s['fp_real']}],backgroundColor:['#ffcc00','#ff4466']}}]}},options:opt}});
 '''
         
-        if self.m14_stats and self.m14_stats['total'] > 0:
+        if self.m14_stats and self.m14_stats['total_rows'] > 0:
             s = self.m14_stats
             html += f'''
 new Chart(document.getElementById('m14Pie'),{{type:'doughnut',data:{{labels:['OK ({s['ok']}개)','사전감지 ({s['pre']}개)','NG ({s['ng']}개)'],datasets:[{{data:[{s['ok']},{s['pre']},{s['ng']}],backgroundColor:['#00ff88','#ffcc00','#ff4466']}}]}},options:opt}});
