@@ -9,25 +9,23 @@ from sklearn.metrics import accuracy_score, mean_absolute_error
 
 warnings.filterwarnings('ignore')
 
-# V9 3단계 학습 - 34개 컬럼 (V8 14개 + V9 20개)
-
-def train_v9_3stage():
+def train_v9_5stage():
     """
-    🎯 V9 3단계 학습 (GPU)
+    🎯 V9 5단계 학습 - 34개 컬럼 (V8 14개 + V9 20개)
     
-    1단계: 분류 모델 (급등/급락/유지)
-    2단계: 전용 수치 모델 3개
-      - 급등 모델: 급등 데이터만 학습
-      - 급락 모델: 급락 데이터만 학습
-      - 유지 모델: 유지 데이터만 학습
+    5단계 분류:
+      - Class 0: 급락 (< -50)
+      - Class 1: 소폭하락 (-50 ~ -20)
+      - Class 2: 정체 (-20 ~ +20)
+      - Class 3: 소폭상승 (+20 ~ +50)
+      - Class 4: 급등 (> +50)
     
-    저장: xgboost_3stage_V9.pkl
+    저장: xgboost_5stage_V9.pkl
     """
     print("="*80)
-    print("🎯 V9 3단계 학습: 분류 + 전용 수치모델 (GPU)")
+    print("🎯 V9 5단계 학습: 급락/소폭하락/정체/소폭상승/급등 (34개 컬럼)")
     print("="*80)
     
-    # ========== 컬럼 정의 ==========
     FEATURE_COLS_V8 = {
         'storage': ['M16A_3F_STORAGE_UTIL'],
         'fs_storage': ['CD_M163FSTORAGEUSE', 'CD_M163FSTORAGETOTAL', 'CD_M163FSTORAGEUTIL'],
@@ -49,9 +47,17 @@ def train_v9_3stage():
     ]
     
     TARGET_COL = 'CURRENT_M16A_3F_JOB_2'
-    class_names = {0: '급락', 1: '유지', 2: '급등'}
     
-    # ========== 데이터 로드 ==========
+    class_names = {0: '급락', 1: '소폭하락', 2: '정체', 3: '소폭상승', 4: '급등'}
+    
+    def get_class(change):
+        if change <= -50: return 0
+        elif change <= -20: return 1
+        elif change <= 20: return 2
+        elif change <= 50: return 3
+        else: return 4
+    
+    # 데이터 로드
     print("\n[STEP 1] 데이터 로드")
     print("-"*40)
     
@@ -68,38 +74,32 @@ def train_v9_3stage():
     print(f"학습 데이터: {len(df)}개 행")
     
     available_cols = set(df.columns)
+    v8_cols = [col for cols in FEATURE_COLS_V8.values() for col in cols]
+    all_cols = v8_cols + V9_NEW_COLS
     
-    # ========== numpy 배열 변환 ==========
+    v8_cnt = sum(1 for c in v8_cols if c in available_cols)
+    v9_cnt = sum(1 for c in V9_NEW_COLS if c in available_cols)
+    print(f"📋 V8: {v8_cnt}/14개, V9: {v9_cnt}/20개")
+    
+    # 배열 변환
     print("\n[STEP 2] 데이터 변환")
     print("-"*40)
     
     target_arr = df[TARGET_COL].values.astype(np.float32)
-    
-    col_arrays = {}
-    all_cols = []
-    for cols in FEATURE_COLS_V8.values():
-        all_cols.extend(cols)
-    all_cols.extend(V9_NEW_COLS)
-    
-    for col in all_cols:
-        if col in available_cols:
-            col_arrays[col] = pd.to_numeric(df[col], errors='coerce').fillna(0).values.astype(np.float32)
-    
+    col_arrays = {col: pd.to_numeric(df[col], errors='coerce').fillna(0).values.astype(np.float32) 
+                  for col in all_cols if col in available_cols}
     print(f"  변환 완료: {len(col_arrays)}개 컬럼")
     del df
     gc.collect()
     
-    # ========== Feature 생성 ==========
+    # Feature 생성
     print("\n[STEP 3] Feature 생성")
     print("-"*40)
     
     n_samples = len(target_arr) - 40
     x_range = np.arange(30, dtype=np.float32)
     
-    features_list = []
-    labels_class = []
-    labels_change = []
-    current_values = []
+    features_list, labels_class, labels_change, current_values = [], [], [], []
     
     for idx, i in enumerate(range(30, len(target_arr) - 10)):
         if idx % 10000 == 0:
@@ -108,18 +108,8 @@ def train_v9_3stage():
         
         seq_target = target_arr[i-30:i]
         current_value = seq_target[-1]
-        future_value = target_arr[i+9]
-        actual_change = future_value - current_value
+        actual_change = target_arr[i+9] - current_value
         
-        # 클래스
-        if actual_change >= 50:
-            class_label = 2
-        elif actual_change <= -50:
-            class_label = 0
-        else:
-            class_label = 1
-        
-        # Feature
         features = {
             'target_mean': np.mean(seq_target),
             'target_std': np.std(seq_target),
@@ -129,10 +119,10 @@ def train_v9_3stage():
             'target_slope': np.polyfit(x_range, seq_target, 1)[0],
         }
         
+        # V8 컬럼
         for group_name, cols in FEATURE_COLS_V8.items():
             for col in cols:
-                if col not in col_arrays:
-                    continue
+                if col not in col_arrays: continue
                 col_seq = col_arrays[col][i-30:i]
                 if group_name == 'maxcapa':
                     features[f'{col}_last_value'] = col_seq[-1]
@@ -148,9 +138,9 @@ def train_v9_3stage():
                     features[f'{col}_last_value'] = col_seq[-1]
                     features[f'{col}_slope'] = np.polyfit(x_range, col_seq, 1)[0]
         
+        # V9 컬럼
         for col in V9_NEW_COLS:
-            if col not in col_arrays:
-                continue
+            if col not in col_arrays: continue
             col_seq = col_arrays[col][i-30:i]
             features[f'{col}_mean'] = np.mean(col_seq)
             features[f'{col}_std'] = np.std(col_seq)
@@ -159,55 +149,22 @@ def train_v9_3stage():
             features[f'{col}_last_value'] = col_seq[-1]
             features[f'{col}_slope'] = np.polyfit(x_range, col_seq, 1)[0]
         
-        # 특수 Feature
         if 'CD_M163FSTORAGEUTIL' in col_arrays:
             util_last = col_arrays['CD_M163FSTORAGEUTIL'][i-1]
             features['storage_util_high'] = 1 if util_last >= 7 else 0
             features['storage_util_critical'] = 1 if util_last >= 10 else 0
-            features['storage_util_last'] = util_last
-        
-        if 'CD_M163FSTORAGEUSE' in col_arrays and 'CD_M163FSTORAGETOTAL' in col_arrays:
-            use_seq = col_arrays['CD_M163FSTORAGEUSE'][i-30:i]
-            total_seq = col_arrays['CD_M163FSTORAGETOTAL'][i-30:i]
-            features['storage_use_rate'] = (use_seq[-1] - use_seq[0]) / 30
-            features['storage_remaining'] = total_seq[-1] - use_seq[-1]
         
         if 'HUBROOMTOTAL' in col_arrays:
-            hub_seq = col_arrays['HUBROOMTOTAL'][i-30:i]
-            hub_last = hub_seq[-1]
+            hub_last = col_arrays['HUBROOMTOTAL'][i-1]
             features['hub_critical'] = 1 if hub_last < 590 else 0
             features['hub_high'] = 1 if hub_last < 610 else 0
-            features['hub_warning'] = 1 if hub_last < 620 else 0
-            features['hub_decrease_rate'] = (hub_seq[0] - hub_last) / 30
         
-        # 복합 Feature
-        inflow_sum = 0
-        outflow_sum = 0
-        for col in FEATURE_COLS_V8['inflow']:
-            if col in col_arrays:
-                inflow_sum += col_arrays[col][i-1]
-        for col in FEATURE_COLS_V8['outflow']:
-            if col in col_arrays:
-                outflow_sum += col_arrays[col][i-1]
-        features['net_flow'] = inflow_sum - outflow_sum
-        
-        cmd_sum = 0
-        for col in FEATURE_COLS_V8['cmd']:
-            if col in col_arrays:
-                cmd_sum += col_arrays[col][i-1]
-        features['total_cmd'] = cmd_sum
-        features['total_cmd_low'] = 1 if cmd_sum < 220 else 0
-        features['total_cmd_very_low'] = 1 if cmd_sum < 200 else 0
-        
-        features['surge_risk_score'] = (
-            features.get('hub_high', 0) * 3 +
-            features.get('storage_util_critical', 0) * 2 +
-            features.get('total_cmd_low', 0) * 1 +
-            features.get('storage_util_high', 0) * 1
-        )
+        inflow = sum(col_arrays[c][i-1] for c in FEATURE_COLS_V8['inflow'] if c in col_arrays)
+        outflow = sum(col_arrays[c][i-1] for c in FEATURE_COLS_V8['outflow'] if c in col_arrays)
+        features['net_flow'] = inflow - outflow
         
         features_list.append(features)
-        labels_class.append(class_label)
+        labels_class.append(get_class(actual_change))
         labels_change.append(actual_change)
         current_values.append(current_value)
     
@@ -219,123 +176,82 @@ def train_v9_3stage():
     del features_list, col_arrays
     gc.collect()
     
-    print(f"\n✅ Feature 생성 완료: {len(X_all)}개 샘플, {len(X_all.columns)}개 Feature")
+    print(f"\n✅ Feature: {len(X_all)}개 샘플, {len(X_all.columns)}개 Feature")
     
-    # 클래스 분포
-    print(f"\n📊 클래스 분포:")
-    for cls in [0, 1, 2]:
+    print(f"\n📊 5단계 클래스 분포:")
+    for cls in range(5):
         count = (y_class == cls).sum()
         print(f"  {class_names[cls]}: {count}개 ({count/len(y_class)*100:.1f}%)")
     
-    # ========== 1단계: 분류 모델 ==========
-    print("\n[STEP 4] 분류 모델 학습 (GPU)")
+    # 분류 모델
+    print("\n[STEP 4] 분류 모델 학습")
     print("-"*40)
     
-    # 가중치
     sample_weights = np.ones(len(y_class))
-    sample_weights[y_class == 0] = 10.0  # 급락
-    sample_weights[y_class == 2] = 10.0  # 급등
-    sample_weights[current_vals >= 400] *= 3  # 400대 추가
+    sample_weights[y_class == 0] = 15.0
+    sample_weights[y_class == 1] = 5.0
+    sample_weights[y_class == 3] = 5.0
+    sample_weights[y_class == 4] = 15.0
+    sample_weights[current_vals >= 400] *= 2
     
-    print(f"  가중치: 급락/급등 10배, 400대 추가 3배")
-    
-    X_tr, X_val, y_tr, y_val, w_tr, w_val = train_test_split(
+    X_tr, X_val, y_tr, y_val, w_tr, _ = train_test_split(
         X_all, y_class, sample_weights, test_size=0.2, random_state=42, stratify=y_class
     )
     
     clf_model = xgb.XGBClassifier(
         n_estimators=300, max_depth=8, learning_rate=0.03,
         subsample=0.85, colsample_bytree=0.85,
-        min_child_weight=2, gamma=0.05,
-        reg_alpha=0.05, reg_lambda=0.8,
-        random_state=42,
-        tree_method='hist', n_jobs=-1,  # CPU 모드
-        objective='multi:softprob', num_class=3
+        random_state=42, tree_method='hist', n_jobs=-1,
+        objective='multi:softprob', num_class=5
     )
-    print("  ⚠️ CPU 모드")
-    
     clf_model.fit(X_tr, y_tr, sample_weight=w_tr, verbose=False)
     
-    y_pred = clf_model.predict(X_val)
-    acc = accuracy_score(y_val, y_pred)
+    acc = accuracy_score(y_val, clf_model.predict(X_val))
     print(f"  ✅ 분류 정확도: {acc:.1%}")
     
-    for cls in [0, 1, 2]:
-        mask = y_val == cls
-        if mask.sum() > 0:
-            cls_acc = (y_pred[mask] == cls).mean()
-            print(f"    {class_names[cls]}: {cls_acc:.1%}")
-    
-    # ========== 2단계: 전용 수치 모델 ==========
-    print("\n[STEP 5] 전용 수치 모델 학습 (GPU)")
+    # 수치 모델 5개
+    print("\n[STEP 5] 전용 수치 모델 학습 (5개)")
     print("-"*40)
     
     regression_models = {}
-    
-    for cls in [0, 1, 2]:
-        cls_name = class_names[cls]
+    for cls in range(5):
         mask = y_class == cls
-        X_cls = X_all[mask]
-        y_cls = y_change[mask]
+        X_cls, y_cls = X_all[mask], y_change[mask]
+        print(f"\n  [{class_names[cls]}] {len(X_cls)}개")
         
-        print(f"\n  [{cls_name}] {len(X_cls)}개 데이터")
-        
-        if len(X_cls) < 100:
-            print(f"    ⚠️ 데이터 부족")
+        if len(X_cls) < 50:
             regression_models[cls] = None
             continue
         
-        # 가중치
-        weights = np.ones(len(y_cls))
-        if cls == 2:  # 급등
-            weights[y_cls >= 80] = 3.0
-            weights[y_cls >= 100] = 5.0
-        elif cls == 0:  # 급락
-            weights[y_cls <= -80] = 3.0
-            weights[y_cls <= -100] = 5.0
-        
-        X_tr_cls, X_val_cls, y_tr_cls, y_val_cls, w_tr_cls, _ = train_test_split(
-            X_cls, y_cls, weights, test_size=0.2, random_state=42
+        X_tr_cls, X_val_cls, y_tr_cls, y_val_cls = train_test_split(
+            X_cls, y_cls, test_size=0.2, random_state=42
         )
         
         reg_model = xgb.XGBRegressor(
             n_estimators=300, max_depth=8, learning_rate=0.03,
             subsample=0.85, colsample_bytree=0.85,
-            min_child_weight=2, gamma=0.05,
-            reg_alpha=0.05, reg_lambda=0.8,
-            random_state=42,
-            tree_method='hist', n_jobs=-1  # CPU 모드
+            random_state=42, tree_method='hist', n_jobs=-1
         )
+        reg_model.fit(X_tr_cls, y_tr_cls, verbose=False)
         
-        reg_model.fit(X_tr_cls, y_tr_cls, sample_weight=w_tr_cls, verbose=False)
-        
-        y_pred_cls = reg_model.predict(X_val_cls)
-        mae = mean_absolute_error(y_val_cls, y_pred_cls)
+        mae = mean_absolute_error(y_val_cls, reg_model.predict(X_val_cls))
         print(f"    ✅ MAE: {mae:.2f}")
-        
         regression_models[cls] = reg_model
     
-    # ========== 모델 저장 ==========
-    print("\n[STEP 6] 모델 저장")
-    print("-"*40)
-    
+    # 저장
     model_dict = {
         'classifier': clf_model,
-        'regressor_surge': regression_models[2],  # 급등
-        'regressor_drop': regression_models[0],   # 급락
-        'regressor_hold': regression_models[1],   # 유지
+        'regressors': regression_models,
         'feature_names': X_all.columns.tolist(),
-        'class_names': class_names
+        'class_names': class_names,
+        'version': 'V9_5stage'
     }
     
-    with open('xgboost_3stage_V9.pkl', 'wb') as f:
+    with open('xgboost_5stage_V9.pkl', 'wb') as f:
         pickle.dump(model_dict, f)
     
-    print(f"✅ 저장: xgboost_3stage_V9.pkl")
-    
-    print("\n" + "="*80)
-    print("🎉 V9 3단계 학습 완료!")
-    print("="*80)
+    print(f"\n✅ 저장: xgboost_5stage_V9.pkl")
+    print("🎉 V9 5단계 학습 완료!")
 
 if __name__ == '__main__':
-    train_v9_3stage()
+    train_v9_5stage()
