@@ -1,0 +1,492 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>엣지 트리거 (Edge Trigger) 방식</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+            color: #eee;
+            min-height: 100vh;
+            padding: 40px 20px;
+        }
+        .container {
+            max-width: 900px;
+            margin: 0 auto;
+        }
+        h1 {
+            text-align: center;
+            font-size: 2.5rem;
+            margin-bottom: 10px;
+            background: linear-gradient(90deg, #00d9ff, #00ff88);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+        .subtitle {
+            text-align: center;
+            color: #888;
+            margin-bottom: 40px;
+            font-size: 1.1rem;
+        }
+        .card {
+            background: rgba(255,255,255,0.05);
+            border-radius: 16px;
+            padding: 30px;
+            margin-bottom: 25px;
+            border: 1px solid rgba(255,255,255,0.1);
+            backdrop-filter: blur(10px);
+        }
+        .card h2 {
+            color: #00d9ff;
+            margin-bottom: 20px;
+            font-size: 1.4rem;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        .card h2 .icon {
+            font-size: 1.6rem;
+        }
+        
+        /* 핵심 개념 */
+        .concept-box {
+            background: linear-gradient(135deg, #0f3460 0%, #16213e 100%);
+            border-left: 4px solid #00ff88;
+            padding: 25px;
+            border-radius: 8px;
+            font-size: 1.3rem;
+            text-align: center;
+        }
+        .concept-box .highlight {
+            color: #00ff88;
+            font-weight: bold;
+        }
+        
+        /* 시각화 */
+        .visual-diagram {
+            background: #0a0a15;
+            border-radius: 12px;
+            padding: 25px;
+            overflow-x: auto;
+        }
+        .diagram-row {
+            display: flex;
+            align-items: center;
+            margin: 10px 0;
+            font-family: 'Consolas', monospace;
+        }
+        .diagram-label {
+            width: 80px;
+            color: #888;
+            font-size: 0.9rem;
+        }
+        .diagram-values {
+            display: flex;
+            gap: 5px;
+        }
+        .diagram-cell {
+            width: 50px;
+            height: 40px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: 6px;
+            font-size: 0.85rem;
+            font-weight: bold;
+        }
+        .cell-normal { background: #1e4d2b; color: #4ade80; }
+        .cell-danger { background: #4d1e1e; color: #f87171; }
+        .cell-alarm { 
+            background: linear-gradient(135deg, #ff6b6b, #ffd93d);
+            color: #000;
+            animation: pulse 1s infinite;
+        }
+        .cell-empty { background: transparent; color: #444; }
+        .arrow-down {
+            text-align: center;
+            color: #00d9ff;
+            font-size: 1.2rem;
+            margin: 5px 0;
+            padding-left: 80px;
+        }
+        @keyframes pulse {
+            0%, 100% { transform: scale(1); }
+            50% { transform: scale(1.05); }
+        }
+        
+        /* 비교 테이블 */
+        .compare-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 15px 0;
+        }
+        .compare-table th, .compare-table td {
+            padding: 15px 20px;
+            text-align: center;
+            border: 1px solid rgba(255,255,255,0.1);
+        }
+        .compare-table th {
+            background: rgba(0,217,255,0.2);
+            color: #00d9ff;
+            font-weight: 600;
+        }
+        .compare-table tr:nth-child(even) {
+            background: rgba(255,255,255,0.03);
+        }
+        .badge-good {
+            background: #166534;
+            color: #4ade80;
+            padding: 5px 12px;
+            border-radius: 20px;
+            font-size: 0.85rem;
+        }
+        .badge-bad {
+            background: #7f1d1d;
+            color: #fca5a5;
+            padding: 5px 12px;
+            border-radius: 20px;
+            font-size: 0.85rem;
+        }
+        
+        /* 엣지 타입 */
+        .edge-types {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 20px;
+            margin-top: 20px;
+        }
+        .edge-type-card {
+            background: rgba(0,0,0,0.3);
+            border-radius: 12px;
+            padding: 20px;
+            text-align: center;
+            border: 2px solid transparent;
+            transition: all 0.3s;
+        }
+        .edge-type-card:hover {
+            border-color: #00d9ff;
+            transform: translateY(-3px);
+        }
+        .edge-type-card .type-icon {
+            font-size: 3rem;
+            margin-bottom: 10px;
+        }
+        .edge-type-card h3 {
+            color: #00ff88;
+            margin-bottom: 8px;
+        }
+        .edge-type-card p {
+            color: #aaa;
+            font-size: 0.9rem;
+        }
+        .edge-type-card .example {
+            margin-top: 12px;
+            background: rgba(0,217,255,0.1);
+            padding: 8px 15px;
+            border-radius: 6px;
+            font-family: monospace;
+            color: #00d9ff;
+        }
+        
+        /* 코드 블록 */
+        .code-block {
+            background: #0d1117;
+            border-radius: 10px;
+            padding: 20px;
+            overflow-x: auto;
+            border: 1px solid #30363d;
+        }
+        .code-block pre {
+            margin: 0;
+            font-family: 'Consolas', 'Monaco', monospace;
+            font-size: 0.9rem;
+            line-height: 1.6;
+        }
+        .code-comment { color: #8b949e; }
+        .code-keyword { color: #ff7b72; }
+        .code-string { color: #a5d6ff; }
+        .code-number { color: #79c0ff; }
+        .code-function { color: #d2a8ff; }
+        .code-variable { color: #ffa657; }
+        
+        /* 활용 분야 */
+        .use-cases {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+            margin-top: 20px;
+        }
+        .use-case {
+            background: linear-gradient(135deg, rgba(0,217,255,0.1), rgba(0,255,136,0.1));
+            border-radius: 10px;
+            padding: 20px;
+            text-align: center;
+            border: 1px solid rgba(0,217,255,0.3);
+        }
+        .use-case .case-icon {
+            font-size: 2.5rem;
+            margin-bottom: 10px;
+        }
+        .use-case h4 {
+            color: #00d9ff;
+            margin-bottom: 5px;
+        }
+        .use-case p {
+            color: #888;
+            font-size: 0.85rem;
+        }
+        
+        /* 결과 박스 */
+        .result-box {
+            background: linear-gradient(135deg, #065f46 0%, #064e3b 100%);
+            border-radius: 12px;
+            padding: 25px;
+            text-align: center;
+            margin-top: 20px;
+        }
+        .result-box h3 {
+            color: #4ade80;
+            font-size: 1.3rem;
+            margin-bottom: 15px;
+        }
+        .result-numbers {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            gap: 20px;
+            flex-wrap: wrap;
+        }
+        .result-num {
+            font-size: 2.5rem;
+            font-weight: bold;
+        }
+        .result-num.before { color: #f87171; }
+        .result-num.after { color: #4ade80; }
+        .result-arrow {
+            font-size: 2rem;
+            color: #00d9ff;
+        }
+        .result-percent {
+            background: #4ade80;
+            color: #000;
+            padding: 8px 20px;
+            border-radius: 25px;
+            font-weight: bold;
+            font-size: 1.1rem;
+            margin-top: 15px;
+            display: inline-block;
+        }
+        
+        /* 푸터 */
+        .footer {
+            text-align: center;
+            margin-top: 40px;
+            color: #666;
+            font-size: 0.9rem;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>⚡ Edge Trigger</h1>
+        <p class="subtitle">엣지 트리거 알람 방식</p>
+        
+        <!-- 핵심 개념 -->
+        <div class="card">
+            <h2><span class="icon">💡</span> 핵심 개념</h2>
+            <div class="concept-box">
+                상태가 <span class="highlight">"변하는 순간"</span>에만 알람 발생<br>
+                <small style="color:#888; font-size:0.8rem;">연속된 위험 상태에서는 최초 1회만 알람</small>
+            </div>
+        </div>
+        
+        <!-- 시각화 -->
+        <div class="card">
+            <h2><span class="icon">📊</span> 동작 시각화</h2>
+            <div class="visual-diagram">
+                <div class="diagram-row">
+                    <span class="diagram-label">값</span>
+                    <div class="diagram-values">
+                        <div class="diagram-cell cell-normal">340</div>
+                        <div class="diagram-cell cell-normal">345</div>
+                        <div class="diagram-cell cell-danger">352</div>
+                        <div class="diagram-cell cell-danger">358</div>
+                        <div class="diagram-cell cell-danger">355</div>
+                        <div class="diagram-cell cell-danger">360</div>
+                        <div class="diagram-cell cell-normal">348</div>
+                        <div class="diagram-cell cell-danger">355</div>
+                    </div>
+                </div>
+                <div class="diagram-row">
+                    <span class="diagram-label">상태</span>
+                    <div class="diagram-values">
+                        <div class="diagram-cell cell-normal">정상</div>
+                        <div class="diagram-cell cell-normal">정상</div>
+                        <div class="diagram-cell cell-danger">위험</div>
+                        <div class="diagram-cell cell-danger">위험</div>
+                        <div class="diagram-cell cell-danger">위험</div>
+                        <div class="diagram-cell cell-danger">위험</div>
+                        <div class="diagram-cell cell-normal">정상</div>
+                        <div class="diagram-cell cell-danger">위험</div>
+                    </div>
+                </div>
+                <div class="arrow-down">▼ 알람 발생 시점 ▼</div>
+                <div class="diagram-row">
+                    <span class="diagram-label">알람</span>
+                    <div class="diagram-values">
+                        <div class="diagram-cell cell-empty">-</div>
+                        <div class="diagram-cell cell-empty">-</div>
+                        <div class="diagram-cell cell-alarm">🚨</div>
+                        <div class="diagram-cell cell-empty">-</div>
+                        <div class="diagram-cell cell-empty">-</div>
+                        <div class="diagram-cell cell-empty">-</div>
+                        <div class="diagram-cell cell-empty">-</div>
+                        <div class="diagram-cell cell-alarm">🚨</div>
+                    </div>
+                </div>
+            </div>
+            <p style="text-align:center; color:#888; margin-top:15px; font-size:0.9rem;">
+                ↑ 350 돌파 순간에만 알람 (연속 위험 시 무시)
+            </p>
+        </div>
+        
+        <!-- 레벨 vs 엣지 비교 -->
+        <div class="card">
+            <h2><span class="icon">⚖️</span> 레벨 트리거 vs 엣지 트리거</h2>
+            <table class="compare-table">
+                <tr>
+                    <th>구분</th>
+                    <th>레벨 트리거</th>
+                    <th>엣지 트리거</th>
+                </tr>
+                <tr>
+                    <td>동작 방식</td>
+                    <td>350 이상이면 <b>매번</b> 알람</td>
+                    <td>350 <b>넘는 순간</b>만 알람</td>
+                </tr>
+                <tr>
+                    <td>알람 횟수</td>
+                    <td><span class="badge-bad">876회</span></td>
+                    <td><span class="badge-good">98회</span></td>
+                </tr>
+                <tr>
+                    <td>장점</td>
+                    <td>놓침 없음</td>
+                    <td>알람 피로 방지</td>
+                </tr>
+                <tr>
+                    <td>단점</td>
+                    <td>알람 폭주</td>
+                    <td>지속 위험 시 추가 알림 없음</td>
+                </tr>
+            </table>
+        </div>
+        
+        <!-- 엣지 타입 -->
+        <div class="card">
+            <h2><span class="icon">📈</span> 엣지 트리거 종류</h2>
+            <div class="edge-types">
+                <div class="edge-type-card">
+                    <div class="type-icon">📈</div>
+                    <h3>Rising Edge</h3>
+                    <p>상승 엣지 (Low → High)</p>
+                    <div class="example">349 → 351 ✅</div>
+                </div>
+                <div class="edge-type-card">
+                    <div class="type-icon">📉</div>
+                    <h3>Falling Edge</h3>
+                    <p>하강 엣지 (High → Low)</p>
+                    <div class="example">351 → 349 ✅</div>
+                </div>
+                <div class="edge-type-card">
+                    <div class="type-icon">↕️</div>
+                    <h3>Both Edge</h3>
+                    <p>양방향 (둘 다 감지)</p>
+                    <div class="example">변화마다 ✅</div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- 구현 코드 -->
+        <div class="card">
+            <h2><span class="icon">💻</span> 구현 코드</h2>
+            <div class="code-block">
+<pre><span class="code-keyword">class</span> <span class="code-function">AlarmManager</span>:
+    <span class="code-keyword">def</span> <span class="code-function">__init__</span>(<span class="code-variable">self</span>, threshold=<span class="code-number">350</span>):
+        <span class="code-variable">self</span>.threshold = threshold
+        <span class="code-variable">self</span>.prev_over = <span class="code-keyword">False</span>  <span class="code-comment"># 이전 상태</span>
+    
+    <span class="code-keyword">def</span> <span class="code-function">check</span>(<span class="code-variable">self</span>, pred_max):
+        <span class="code-comment"># 현재 상태 확인</span>
+        current_over = (pred_max >= <span class="code-variable">self</span>.threshold)
+        
+        <span class="code-comment"># 상승 엣지: False → True 일 때만 알람</span>
+        trigger = current_over <span class="code-keyword">and not</span> <span class="code-variable">self</span>.prev_over
+        
+        <span class="code-comment"># 상태 업데이트</span>
+        <span class="code-variable">self</span>.prev_over = current_over
+        
+        <span class="code-keyword">return</span> trigger
+
+<span class="code-comment"># 사용 예시</span>
+alarm = AlarmManager(<span class="code-number">350</span>)
+<span class="code-keyword">if</span> alarm.check(pred_max):
+    send_alert(pred_max)  <span class="code-comment"># 최초 1회만!</span></pre>
+            </div>
+        </div>
+        
+        <!-- 활용 분야 -->
+        <div class="card">
+            <h2><span class="icon">🌐</span> 활용 분야</h2>
+            <div class="use-cases">
+                <div class="use-case">
+                    <div class="case-icon">🔌</div>
+                    <h4>전자회로</h4>
+                    <p>플립플롭, 인터럽트</p>
+                </div>
+                <div class="use-case">
+                    <div class="case-icon">🏭</div>
+                    <h4>PLC 자동화</h4>
+                    <p>산업용 센서 제어</p>
+                </div>
+                <div class="use-case">
+                    <div class="case-icon">📡</div>
+                    <h4>IoT 센서</h4>
+                    <p>스마트 알람 시스템</p>
+                </div>
+                <div class="use-case">
+                    <div class="case-icon">🤖</div>
+                    <h4>AMHS</h4>
+                    <p>물류 예측 알람</p>
+                </div>
+            </div>
+        </div>
+        
+        <!-- 적용 결과 -->
+        <div class="card">
+            <h2><span class="icon">✅</span> 적용 결과</h2>
+            <div class="result-box">
+                <h3>알람 횟수 감소</h3>
+                <div class="result-numbers">
+                    <span class="result-num before">876회</span>
+                    <span class="result-arrow">→</span>
+                    <span class="result-num after">98회</span>
+                </div>
+                <div class="result-percent">88.8% 감소!</div>
+            </div>
+        </div>
+        
+        <div class="footer">
+            AMHS 예측 시스템 - Edge Trigger 알람 방식 | 2025
+        </div>
+    </div>
+</body>
+</html>
