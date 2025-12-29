@@ -16,7 +16,7 @@ except ImportError:
 class SurgeAnalyzer:
     def __init__(self, root):
         self.root = root
-        self.root.title("ML급증 감지 분석 시스템 V9")
+        self.root.title("ML급증 감지 분석 시스템 V8")
         self.root.geometry("1200x900")
         self.root.configure(bg='#1a1a2e')
         
@@ -37,7 +37,7 @@ class SurgeAnalyzer:
         top_frame.pack(fill=tk.X)
         
         # 타이틀
-        tk.Label(top_frame, text="📊 ML급증 감지 분석 시스템 V9", font=('맑은 고딕', 20, 'bold'),
+        tk.Label(top_frame, text="📊 ML급증 감지 분석 시스템 V8", font=('맑은 고딕', 20, 'bold'),
                  bg='#1a1a2e', fg='#00d4ff').pack(pady=(0, 3))
         tk.Label(top_frame, text="이상탐지 / 급증사전감지 / 정상예측 / 미탐 / 정상사전감지 / 오탐 / 정상", font=('맑은 고딕', 10),
                  bg='#1a1a2e', fg='#888888').pack(pady=(0, 10))
@@ -303,8 +303,8 @@ class SurgeAnalyzer:
         self.ax.plot(x_pos, range_df['예측값_MAX'].values, 's--', color='#ff6b35', 
                      linewidth=2, markersize=5, label='예측값')
         
-        # 임계값 라인
-        self.ax.axhline(y=threshold, color='#ff4466', linestyle=':', linewidth=2, label=f'임계값 ({threshold})')
+        # 리미트값 라인
+        self.ax.axhline(y=threshold, color='#ff4466', linestyle=':', linewidth=2, label=f'리미트값 ({threshold})')
         
         # 현재 포인트 강조
         center_pos = row_pos - start_pos
@@ -400,7 +400,7 @@ class SurgeAnalyzer:
     
     def analyze_v9(self, df, threshold, pred_col, curr_col, actual_col):
         """
-        V9 분석 로직
+        V8 분석 로직
         급증(실제>=threshold):
           - 현재 예측>=threshold → 이상탐지
           - 과거 10분내 예측>=threshold → 급증사전감지
@@ -528,13 +528,13 @@ class SurgeAnalyzer:
             if self.hub_file:
                 df = pd.read_csv(self.hub_file, encoding='utf-8-sig')
                 self.hub_df, self.hub_stats = self.analyze_v9(df.copy(), 350, '예측값_MAX', '현재값', '실제값')
-                result_text += self.fmt("HUBROOM V9", self.hub_stats, 350)
+                result_text += self.fmt("HUBROOM V8.0", self.hub_stats, 350)
                 self.create_data_view(self.hub_data_frame, self.hub_df)
             
             if self.m14_file:
                 df = pd.read_csv(self.m14_file, encoding='utf-8-sig')
                 self.m14_df, self.m14_stats = self.analyze_v9(df.copy(), 1700, '최종예측', '현재TOTALCNT', '실제값')
-                result_text += self.fmt("M14_Q V9", self.m14_stats, 1700)
+                result_text += self.fmt("M14_Q V8.3.1", self.m14_stats, 1700)
                 self.create_data_view(self.m14_data_frame, self.m14_df)
             
             self.result_text.config(state=tk.NORMAL)
@@ -551,16 +551,16 @@ class SurgeAnalyzer:
                 files = []
                 
                 if self.hub_df is not None:
-                    f = os.path.join(save_dir, f"HUBROOM_V9_결과_{ts}.csv")
+                    f = os.path.join(save_dir, f"HUBROOM_V8_결과_{ts}.csv")
                     self.hub_df.to_csv(f, index=False, encoding='utf-8-sig')
                     files.append(f)
                 
                 if self.m14_df is not None:
-                    f = os.path.join(save_dir, f"M14_V9_결과_{ts}.csv")
+                    f = os.path.join(save_dir, f"M14_V8_결과_{ts}.csv")
                     self.m14_df.to_csv(f, index=False, encoding='utf-8-sig')
                     files.append(f)
                 
-                html_f = os.path.join(save_dir, f"ML급증감지_V9_리포트_{ts}.html")
+                html_f = os.path.join(save_dir, f"ML급증감지_V8_리포트_{ts}.html")
                 with open(html_f, 'w', encoding='utf-8') as f:
                     f.write(self.gen_html(hub_cmt, m14_cmt, anal_date))
                 files.append(html_f)
@@ -664,7 +664,7 @@ class SurgeAnalyzer:
 <html lang="ko">
 <head>
 <meta charset="UTF-8">
-<title>ML급증 감지 분석 리포트 V9</title>
+<title>ML급증 감지 분석 리포트 V8</title>
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2"></script>
 <style>
@@ -765,7 +765,7 @@ h1{{font-size:2rem;text-align:center;background:linear-gradient(135deg,#00d4ff,#
 </head>
 <body>
 <div class="container">
-<h1>📊 ML급증 감지 분석 리포트 V9</h1>
+<h1>📊 ML급증 감지 분석 리포트 V8</h1>
 <p class="sub">📅 분석 날짜: {anal_date} | 생성: {now}</p>
 '''
         
@@ -791,7 +791,7 @@ h1{{font-size:2rem;text-align:center;background:linear-gradient(135deg,#00d4ff,#
             html += f'''
 <div class="system">
 <div class="sys-header">
-<div class="sys-title hub">🏠 HUBROOM V9 (기준: 350)</div>
+<div class="sys-title hub">🏠 HUBROOM V8.0 (기준: 350)</div>
 <div class="sys-stats">
 <span>전체 <strong>{t}</strong>개</span>
 <span>급증 <strong style="color:#00d4ff">{s['surge_total']}</strong>개</span>
@@ -868,7 +868,7 @@ h1{{font-size:2rem;text-align:center;background:linear-gradient(135deg,#00d4ff,#
             html += f'''
 <div class="system">
 <div class="sys-header">
-<div class="sys-title m14">🏭 M14_Q V9 (기준: 1700)</div>
+<div class="sys-title m14">🏭 M14_Q V8.3.1 (기준: 1700)</div>
 <div class="sys-stats">
 <span>전체 <strong>{t}</strong>개</span>
 <span>급증 <strong style="color:#ff6b35">{s['surge_total']}</strong>개</span>
@@ -924,7 +924,7 @@ h1{{font-size:2rem;text-align:center;background:linear-gradient(135deg,#00d4ff,#
 '''
         
         html += '''
-<div class="footer">ML급증 감지 분석 시스템 V9 | AMHS 물류 예측 모델</div>
+<div class="footer">ML급증 감지 분석 시스템 V8 | AMHS 물류 예측 모델</div>
 </div>
 <script>
 Chart.register(ChartDataLabels);
@@ -1071,7 +1071,7 @@ function showGraph(filteredIdx) {{
                     pointBorderColor: pointColors
                 }},
                 {{
-                    label: '임계값 (' + currentThreshold + ')',
+                    label: '리미트값 (' + currentThreshold + ')',
                     data: rangeData.map(() => currentThreshold),
                     borderColor: '#ff4466',
                     borderDash: [5, 5],
@@ -1113,7 +1113,7 @@ function showGraph(filteredIdx) {{
                             }} else if (context.datasetIndex === 2) {{
                                 return '🟠 예측값: ' + d.pred.toFixed(1);
                             }} else {{
-                                return '🔴 임계값: ' + currentThreshold;
+                                return '🔴 리미트값: ' + currentThreshold;
                             }}
                         }},
                         afterBody: function(context) {{
