@@ -311,8 +311,8 @@ class SurgeAnalyzer:
         pred_val = row.get('예측값_MAX', 0)
         
         row_pos = df.index.get_loc(df_idx)
-        start_pos = max(0, row_pos - 10)
-        end_pos = min(len(df), row_pos + 11)
+        start_pos = max(0, row_pos - 30)
+        end_pos = min(len(df), row_pos + 31)
         
         range_df = df.iloc[start_pos:end_pos].copy()
         
@@ -345,7 +345,7 @@ class SurgeAnalyzer:
         self.canvas.draw()
         
         self.graph_title.config(text=f"📈 {system} - {cls}")
-        self.graph_info.config(text=f"시점: {center_time} | 실제값: {actual_val:.0f} | 예측값: {pred_val:.1f} | ±10분 범위")
+        self.graph_info.config(text=f"시점: {center_time} | 실제값: {actual_val:.0f} | 예측값: {pred_val:.1f} | ±30분 범위")
     
     def create_data_view(self, parent, df):
         for widget in parent.winfo_children():
@@ -1096,8 +1096,8 @@ function showGraph(filteredIdx) {{
     const sysName = currentSystem === 'hub' ? 'HUBROOM' : 'M14_Q';
     const centerIdx = item.idx;
     
-    const startIdx = Math.max(0, centerIdx - 20);
-    const endIdx = Math.min(data.length, centerIdx + 21);
+    const startIdx = Math.max(0, centerIdx - 30);
+    const endIdx = Math.min(data.length, centerIdx + 31);
     const rangeData = data.slice(startIdx, endIdx);
     const centerPos = centerIdx - startIdx;
     
