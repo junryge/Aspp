@@ -1017,7 +1017,7 @@ function showGraph(filteredIdx) {{
     const centerPos = centerIdx - startIdx;
     
     document.getElementById('chartTitle').innerHTML = `<button class="back-btn" onclick="backToList()">← 목록</button>${{sysName}} - ${{item.cls}}`;
-    document.getElementById('chartInfo').textContent = `시점: ${{item.time}} | 현재값: ${{item.current.toFixed(0)}} | 실제값: ${{item.actual.toFixed(0)}} | 예측값: ${{item.pred.toFixed(1)}} | ±10분 범위`;
+    document.getElementById('chartInfo').textContent = `현재시간: ${{item.time}} → 예측시점: ${{item.pred_time}} | 현재값: ${{item.current.toFixed(0)}} | 실제값: ${{item.actual.toFixed(0)}} | 예측값: ${{item.pred.toFixed(1)}}`;
     
     document.getElementById('listModal').classList.remove('show');
     document.getElementById('chartModal').classList.add('show');
@@ -1025,17 +1025,21 @@ function showGraph(filteredIdx) {{
     const ctx = document.getElementById('modalLineChart').getContext('2d');
     if (modalChart) modalChart.destroy();
     
-    // 포인트 색상 (현재 위치 강조)
-    const pointColors = rangeData.map((_, i) => i === centerPos ? '#ffcc00' : '#00d4ff');
+    // 포인트 색상 (현재 위치 강조 - 예측값에 적용)
+    const pointColors = rangeData.map((_, i) => i === centerPos ? '#ffcc00' : '#ff6b35');
     const pointSizes = rangeData.map((_, i) => i === centerPos ? 12 : 4);
     
     modalChart = new Chart(ctx, {{
         type: 'line',
         data: {{
-            labels: rangeData.map(d => d.time.split(' ')[1] || d.time),
+            labels: rangeData.map(d => {{
+                const t1 = (d.time.split(' ')[1] || d.time).substring(0,5);
+                const t2 = (d.pred_time.split(' ')[1] || d.pred_time).substring(0,5);
+                return t1 + '→' + t2;
+            }}),
             datasets: [
                 {{
-                    label: '현재값',
+                    label: '현재값 (현재시간)',
                     data: rangeData.map(d => d.current),
                     borderColor: '#00ff88',
                     backgroundColor: 'rgba(0,255,136,0.1)',
@@ -1045,7 +1049,7 @@ function showGraph(filteredIdx) {{
                     borderWidth: 2
                 }},
                 {{
-                    label: '실제값',
+                    label: '실제값 (예측시점)',
                     data: rangeData.map(d => d.actual),
                     borderColor: '#00d4ff',
                     backgroundColor: 'rgba(0,212,255,0.1)',
@@ -1054,7 +1058,7 @@ function showGraph(filteredIdx) {{
                     pointRadius: 4
                 }},
                 {{
-                    label: '예측값',
+                    label: '예측값 (예측시점)',
                     data: rangeData.map(d => d.pred),
                     borderColor: '#ff6b35',
                     backgroundColor: 'rgba(255,107,53,0.1)',
@@ -1083,7 +1087,7 @@ function showGraph(filteredIdx) {{
                 annotation: {{}}
             }},
             scales: {{
-                x: {{ ticks: {{ color: '#888' }}, grid: {{ color: '#333' }} }},
+                x: {{ ticks: {{ color: '#888', maxRotation: 45, font: {{ size: 9 }} }}, grid: {{ color: '#333' }} }},
                 y: {{ ticks: {{ color: '#888' }}, grid: {{ color: '#333' }} }}
             }}
         }}
