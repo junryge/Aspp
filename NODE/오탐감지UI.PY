@@ -1,8 +1,9 @@
 # -*- coding: utf-8 -*-
 """
-Created on Mon Dec 29 20:52:49 2025
-
-@author: ggg3g
+Created on Mon Dec 30 2025
+V8.1 - 분류 체계 단순화
+- 정상예측 → 이상(정상(-N분))으로 이상탐지에 포함
+- 급증연속 → 정상(급증(-N분))으로 정상에 포함
 """
 import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
@@ -22,7 +23,7 @@ except ImportError:
 class SurgeAnalyzer:
     def __init__(self, root):
         self.root = root
-        self.root.title("ML급증 감지 분석 시스템 V8")
+        self.root.title("ML급증 감지 분석 시스템 V8.1")
         self.root.geometry("1200x900")
         self.root.configure(bg='#1a1a2e')
         
@@ -43,9 +44,9 @@ class SurgeAnalyzer:
         top_frame.pack(fill=tk.X)
         
         # 타이틀
-        tk.Label(top_frame, text="📊 ML급증 감지 분석 시스템 V8", font=('맑은 고딕', 20, 'bold'),
+        tk.Label(top_frame, text="📊 ML급증 감지 분석 시스템 V8.1", font=('맑은 고딕', 20, 'bold'),
                  bg='#1a1a2e', fg='#00d4ff').pack(pady=(0, 3))
-        tk.Label(top_frame, text="이상탐지 / 정상예측 / 미탐 / 급증연속 / 오탐 / 정상", font=('맑은 고딕', 10),
+        tk.Label(top_frame, text="이상탐지 / 미탐 / 정상 / 오탐", font=('맑은 고딕', 10),
                  bg='#1a1a2e', fg='#888888').pack(pady=(0, 10))
         
         # 분석 날짜
@@ -168,17 +169,9 @@ class SurgeAnalyzer:
         tk.Label(ctrl_frame, text="분류:", font=('맑은 고딕', 10, 'bold'),
                  bg='#252540', fg='white').pack(side=tk.LEFT, padx=(20,5))
         self.ev_class = ttk.Combobox(ctrl_frame, values=[
-            '전체',
-            '─ 이상탐지 (전체)',
-            '    이상탐지',
-            '    이상탐지(정상-N분)',
-            '─ 미탐',
-            '─ 오탐',
-            '─ 정상 (전체)',
-            '    정상',
-            '    정상(급증-N분)'
-        ], width=20, state='readonly')
-        self.ev_class.set('─ 이상탐지 (전체)')
+            '전체', '이상탐지', '미탐', '정상', '오탐'
+        ], width=15, state='readonly')
+        self.ev_class.set('이상탐지')
         self.ev_class.pack(side=tk.LEFT, padx=5)
         self.ev_class.bind('<<ComboboxSelected>>', lambda e: self.refresh_event_list())
         
@@ -258,33 +251,21 @@ class SurgeAnalyzer:
             self.ev_count_label.config(text="이벤트: 0개")
             return
         
-        # 필터링
-        cls_filter = cls_filter.strip()
+        # 필터링 - 변경된 분류 체계
         if cls_filter == '전체':
             filtered = df
-        elif cls_filter == '─ 이상탐지 (전체)':
-            # 이상탐지 + 이상탐지(정상-N분)
-            filtered = df[df['분류'].str.contains('이상탐지', na=False)]
         elif cls_filter == '이상탐지':
-            # 정확히 이상탐지만
-            filtered = df[df['분류'] == '이상탐지']
-        elif cls_filter == '이상탐지(정상-N분)':
-            # 이상탐지(정상-N분) 패턴
-            filtered = df[df['분류'].str.contains(r'이상탐지\(정상-', na=False, regex=True)]
-        elif cls_filter == '─ 미탐':
+            # 이상탐지 + 이상(정상(-N분))
+            filtered = df[df['분류'].str.contains('이상', na=False)]
+        elif cls_filter == '미탐':
             # 미탐 + 미탐(N분후)
             filtered = df[df['분류'].str.contains('미탐', na=False)]
-        elif cls_filter == '─ 오탐':
-            filtered = df[df['분류'] == '오탐']
-        elif cls_filter == '─ 정상 (전체)':
-            # 정상 + 정상(급증-N분)
-            filtered = df[df['분류'].str.startswith('정상', na=False)]
         elif cls_filter == '정상':
-            # 정확히 정상만
-            filtered = df[df['분류'] == '정상']
-        elif cls_filter == '정상(급증-N분)':
-            # 정상(급증-N분) 패턴
-            filtered = df[df['분류'].str.contains(r'정상\(급증-', na=False, regex=True)]
+            # 정상 + 정상(급증(-N분))
+            filtered = df[df['분류'].str.contains('정상', na=False) & ~df['분류'].str.contains('이상', na=False)]
+        elif cls_filter == '오탐':
+            # 오탐만
+            filtered = df[df['분류'] == '오탐']
         else:
             filtered = df[df['분류'].str.contains(cls_filter, na=False)]
         
@@ -292,15 +273,15 @@ class SurgeAnalyzer:
         
         # 리스트에 추가
         for i, (idx, row) in enumerate(filtered.iterrows()):
-            time_str = str(row.get('현재시간', ''))[-11:]  # HH:MM:SS 또는 날짜시간
+            time_str = str(row.get('현재시간', ''))[-11:]
             pred_time = str(row.get('예측시점', ''))[-11:]
             actual = row.get('실제값', 0)
             pred = row.get('예측값_MAX', 0)
-            cls = str(row.get('분류', ''))[:10]
+            cls = str(row.get('분류', ''))[:12]
             
             display = f"{i+1:4d} | {time_str} → {pred_time} | 실:{actual:6.0f} 예:{pred:6.0f} | {cls}"
             self.event_listbox.insert(tk.END, display)
-            self.event_data.append(idx)  # 원본 인덱스 저장
+            self.event_data.append(idx)
     
     def on_event_select(self, event):
         """이벤트 선택 시 그래프 표시"""
@@ -323,42 +304,35 @@ class SurgeAnalyzer:
         if df is None:
             return
         
-        # 해당 행
         row = df.loc[df_idx]
         center_time = str(row.get('현재시간', ''))
         cls = str(row.get('분류', ''))
         actual_val = row.get('실제값', 0)
         pred_val = row.get('예측값_MAX', 0)
         
-        # ±30분 범위 데이터 추출 (총 60분)
         row_pos = df.index.get_loc(df_idx)
-        start_pos = max(0, row_pos - 30)
-        end_pos = min(len(df), row_pos + 30)
+        start_pos = max(0, row_pos - 10)
+        end_pos = min(len(df), row_pos + 11)
         
         range_df = df.iloc[start_pos:end_pos].copy()
         
-        # 그래프 그리기
         self.ax.clear()
         self.ax.set_facecolor('#15151f')
         
         x_labels = [str(t)[-8:] for t in range_df['현재시간'].values]
         x_pos = range(len(range_df))
         
-        # 실제값, 예측값 라인
         self.ax.plot(x_pos, range_df['실제값'].values, 'o-', color='#00d4ff', 
                      linewidth=2, markersize=6, label='실제값')
         self.ax.plot(x_pos, range_df['예측값_MAX'].values, 's--', color='#ff6b35', 
                      linewidth=2, markersize=5, label='예측값')
         
-        # 리미트값 라인
         self.ax.axhline(y=threshold, color='#ff4466', linestyle=':', linewidth=2, label=f'리미트값 ({threshold})')
         
-        # 현재 포인트 강조
         center_pos = row_pos - start_pos
         self.ax.axvline(x=center_pos, color='#ffcc00', linestyle='-', linewidth=2, alpha=0.5)
         self.ax.scatter([center_pos], [actual_val], color='#ffcc00', s=150, zorder=5, marker='*')
         
-        # 스타일
         self.ax.set_xticks(x_pos)
         self.ax.set_xticklabels(x_labels, rotation=45, ha='right', fontsize=8)
         self.ax.set_xlabel('시간', fontsize=10, color='white')
@@ -370,9 +344,8 @@ class SurgeAnalyzer:
         self.fig.tight_layout()
         self.canvas.draw()
         
-        # 정보 업데이트
         self.graph_title.config(text=f"📈 {system} - {cls}")
-        self.graph_info.config(text=f"시점: {center_time} | 실제값: {actual_val:.0f} | 예측값: {pred_val:.1f} | ±30분 범위")
+        self.graph_info.config(text=f"시점: {center_time} | 실제값: {actual_val:.0f} | 예측값: {pred_val:.1f} | ±10분 범위")
     
     def create_data_view(self, parent, df):
         for widget in parent.winfo_children():
@@ -407,22 +380,19 @@ class SurgeAnalyzer:
             tag = ''
             if '분류' in df.columns:
                 분류 = str(row.get('분류', ''))
-                if 분류 == '이상탐지':
+                if '이상' in 분류:
                     tag = 'detect'
-                elif '정상예측' in 분류:
-                    tag = 'normal_pred'
                 elif '미탐' in 분류:
                     tag = 'miss'
-                elif '급증연속' in 분류:
-                    tag = 'surge_cont'
+                elif '정상' in 분류:
+                    tag = 'normal'
                 elif '오탐' in 분류:
                     tag = 'false'
             tree.insert('', tk.END, values=values, tags=(tag,))
         
         tree.tag_configure('detect', background='#1a3a1a')
-        tree.tag_configure('normal_pred', background='#1a2a3a')
         tree.tag_configure('miss', background='#3a1a1a')
-        tree.tag_configure('surge_cont', background='#2a2a1a')
+        tree.tag_configure('normal', background='#1a1a2a')
         tree.tag_configure('false', background='#3a1a2a')
         
         tree.pack(fill=tk.BOTH, expand=True)
@@ -439,17 +409,16 @@ class SurgeAnalyzer:
             self.m14_file = file
             self.m14_label.config(text=f"✅ {os.path.basename(file)[:25]}", fg='#00ff88')
     
-    def analyze_v9(self, df, threshold, pred_col, curr_col, actual_col):
+    def analyze_v81(self, df, threshold, pred_col, curr_col, actual_col):
         """
-        V8 분석 로직
+        V8.1 분석 로직 (단순화)
         급증(실제>=threshold):
           - 현재 예측>=threshold → 이상탐지
-          - 과거 10분내 예측>=threshold → 정상예측(N분전)
-          - 미래 10분내 예측>=threshold → 미탐(N분후)
-          - 다 아니면 → 미탐
+          - 과거 10분내 예측>=threshold → 이상(정상(-N분))
+          - 그 외 → 미탐 또는 미탐(N분후)
         정상(실제<threshold):
           - 예측<threshold → 정상
-          - 예측>=threshold + 과거10분내 급증 → 급증연속
+          - 예측>=threshold + 과거10분내 급증 → 정상(급증(-N분))
           - 예측>=threshold + 과거 급증 없음 → 오탐
         """
         df = df.copy()
@@ -471,16 +440,16 @@ class SurgeAnalyzer:
                 if pred >= threshold:
                     df.loc[idx, '분류'] = '이상탐지'
                 else:
-                    # 1) 과거 10분내 예측 >= threshold → 정상예측 (미리 예측함 = OK)
+                    # 1) 과거 10분내 예측 >= threshold → 이상(정상(-N분))
                     found_past = False
                     for back in range(1, 11):
                         if idx - back >= 0 and df.loc[idx - back, pred_col] >= threshold:
-                            df.loc[idx, '분류'] = f'이상탐지(정상-{back}분)'
+                            df.loc[idx, '분류'] = f'이상(정상(-{back}분))'
                             found_past = True
                             break
                     
                     if not found_past:
-                        # 2) 미래 10분내 예측 >= threshold → 미탐 (늦게 예측함 = NG)
+                        # 2) 미래 10분내 예측 >= threshold → 미탐(N분후)
                         found_future = False
                         for fwd in range(1, 11):
                             if idx + fwd < len(df) and df.loc[idx + fwd, pred_col] >= threshold:
@@ -493,12 +462,12 @@ class SurgeAnalyzer:
             else:
                 # 정상 케이스 (실제값 < threshold)
                 if pred >= threshold:
-                    # 10분 전에 급증 있는지 체크 → 급증연속
+                    # 10분 전에 급증 있는지 체크 → 정상(급증(-N분))
                     found_past = False
                     for back in range(1, 11):
                         if idx - back >= 0 and df.loc[idx - back, actual_col] >= threshold:
                             found_past = True
-                            df.loc[idx, '분류'] = f'정상(급증-{back}분)'
+                            df.loc[idx, '분류'] = f'정상(급증(-{back}분))'
                             break
                     
                     if not found_past:
@@ -507,27 +476,26 @@ class SurgeAnalyzer:
                 else:
                     df.loc[idx, '분류'] = '정상'
         
-        # 통계
+        # 통계 - 단순화된 4개 분류
         total = len(df)
         surge_total = len(df[df[actual_col] >= threshold])
-        detect = len(df[df['분류'] == '이상탐지'])
-        pre_past = len(df[df['분류'].str.contains('분전', na=False)])  # 정상예측(N분전) + 급증연속(N분전)
-        surge_cont = len(df[df['분류'].str.contains('급증연속', na=False)])  # 급증연속
-        normal_pred = len(df[df['분류'].str.contains('정상예측', na=False)])
-        miss = len(df[df['분류'].str.contains('미탐', na=False)])  # 미탐 + 미탐(N분후)
-        false_alarm = len(df[df['분류'] == '오탐'])  # 오탐
-        normal = len(df[df['분류'] == '정상'])
+        
+        # 이상탐지 = 이상탐지 + 이상(정상(-N분))
+        detect = len(df[df['분류'].str.contains('이상', na=False)])
+        # 미탐 = 미탐 + 미탐(N분후)
+        miss = len(df[df['분류'].str.contains('미탐', na=False)])
+        # 정상 = 정상 + 정상(급증(-N분))
+        normal = len(df[df['분류'].str.contains('정상', na=False) & ~df['분류'].str.contains('이상', na=False)])
+        # 오탐
+        false_alarm = len(df[df['분류'] == '오탐'])
         
         stats = {
             'total_rows': total,
             'surge_total': surge_total,
-            'detect': detect,
-            'pre_past': pre_past,        # 정상예측(N분전) + 급증연속(N분전)
-            'surge_cont': surge_cont,    # 급증연속
-            'normal_pred': normal_pred,
-            'miss': miss,                # 미탐 + 미탐(N분후)
-            'false': false_alarm,        # 오탐
-            'normal': normal
+            'detect': detect,      # 이상탐지 전체
+            'miss': miss,          # 미탐 전체
+            'normal': normal,      # 정상 전체
+            'false': false_alarm   # 오탐
         }
         
         # 컬럼 순서 정리
@@ -556,16 +524,15 @@ class SurgeAnalyzer:
         
         try:
             if self.hub_file:
-                #df = pd.read_csv(self.hub_file, encoding='utf-8-sig')
                 df = self.read_csv_auto(self.hub_file)
-                self.hub_df, self.hub_stats = self.analyze_v9(df.copy(), 350, '예측값_MAX', '현재값', '실제값')
-                result_text += self.fmt("HUBROOM V8.0", self.hub_stats, 350)
+                self.hub_df, self.hub_stats = self.analyze_v81(df.copy(), 350, '예측값_MAX', '현재값', '실제값')
+                result_text += self.fmt("HUBROOM V8.1", self.hub_stats, 350)
                 self.create_data_view(self.hub_data_frame, self.hub_df)
             
             if self.m14_file:
-                df = pd.read_csv(self.m14_file, encoding='utf-8-sig')
-                self.m14_df, self.m14_stats = self.analyze_v9(df.copy(), 1700, '최종예측', '현재TOTALCNT', '실제값')
-                result_text += self.fmt("M14_Q V8.3.1", self.m14_stats, 1700)
+                df = self.read_csv_auto(self.m14_file)
+                self.m14_df, self.m14_stats = self.analyze_v81(df.copy(), 1700, '최종예측', '현재TOTALCNT', '실제값')
+                result_text += self.fmt("M14_Q V8.1", self.m14_stats, 1700)
                 self.create_data_view(self.m14_data_frame, self.m14_df)
             
             self.result_text.config(state=tk.NORMAL)
@@ -573,7 +540,6 @@ class SurgeAnalyzer:
             self.result_text.insert(tk.END, result_text)
             self.result_text.config(state=tk.DISABLED)
             
-            # 이벤트 뷰어 새로고침
             self.refresh_event_list()
             
             save_dir = filedialog.askdirectory(title="결과 저장할 폴더 선택")
@@ -582,16 +548,16 @@ class SurgeAnalyzer:
                 files = []
                 
                 if self.hub_df is not None:
-                    f = os.path.join(save_dir, f"HUB수치형_V8_평가결과_{ts}.csv")
+                    f = os.path.join(save_dir, f"HUB수치형_V8.1_평가결과_{ts}.csv")
                     self.hub_df.to_csv(f, index=False, encoding='utf-8-sig')
                     files.append(f)
                 
                 if self.m14_df is not None:
-                    f = os.path.join(save_dir, f"M14수치형_V8.3.1_평가결과_{ts}.csv")
+                    f = os.path.join(save_dir, f"M14수치형_V8.1_평가결과_{ts}.csv")
                     self.m14_df.to_csv(f, index=False, encoding='utf-8-sig')
                     files.append(f)
                 
-                html_f = os.path.join(save_dir, f"ML급증감지_V8_리포트_{ts}.html")
+                html_f = os.path.join(save_dir, f"ML급증감지_V8.1_리포트_{ts}.html")
                 with open(html_f, 'w', encoding='utf-8') as f:
                     f.write(self.gen_html(hub_cmt, m14_cmt, anal_date))
                 files.append(html_f)
@@ -599,7 +565,6 @@ class SurgeAnalyzer:
                 webbrowser.open(html_f)
                 messagebox.showinfo("완료", "저장 완료!\n\n" + "\n".join([os.path.basename(x) for x in files]))
             
-            # 이벤트 뷰어 새로고침
             self.refresh_event_list()
             
         except Exception as e:
@@ -610,13 +575,15 @@ class SurgeAnalyzer:
         t = s['total_rows'] or 1
         surge = s['surge_total'] or 1
         normal_case = t - surge if t - surge > 0 else 1
-        detect_rate = (s['detect'] + s['normal_pred']) / surge * 100 if surge > 0 else 0
         
-        # 요약 계산
-        surge_ok = s['detect'] + s['normal_pred']
+        # 급증 케이스: 이상탐지 vs 미탐
+        surge_ok = s['detect']
         surge_ng = s['miss']
-        normal_ok = s['normal'] + s['surge_cont']
+        
+        # 정상 케이스: 정상 vs 오탐
+        normal_ok = s['normal']
         normal_ng = s['false']
+        
         total_ok = surge_ok + normal_ok
         total_ng = surge_ng + normal_ng
         
@@ -633,35 +600,19 @@ class SurgeAnalyzer:
 
 [ 급증 케이스: {s['surge_total']}개 ]
   ✅ 이상탐지: {s['detect']}개 ({s['detect']/surge*100:.1f}%)
-  ✅ 정상예측: {s['normal_pred']}개 ({s['normal_pred']/surge*100:.1f}%)
   ❌ 미탐: {s['miss']}개 ({s['miss']/surge*100:.1f}%)
-  ─────────────────────────────
-  📊 탐지OK: {surge_ok}개 ({surge_ok/surge*100:.1f}%)
-  📊 미탐: {surge_ng}개 ({surge_ng/surge*100:.1f}%)
-  ─────────────────────────────
-  ✅ 예측OK: {surge_ok}개 ({surge_ok/surge*100:.1f}%)
-  ❌ 예측NG: {surge_ng}개 ({surge_ng/surge*100:.1f}%)
 
 [ 정상 케이스: {t - surge}개 ]
-  ✔️ 정상: {s['normal']}개 ({s['normal']/normal_case*100:.1f}%)
-  🔄 급증연속: {s['surge_cont']}개 ({s['surge_cont']/normal_case*100:.1f}%)
-  ⚠️ 오탐: {s['false']}개 ({s['false']/normal_case*100:.1f}%)
-  ─────────────────────────────
-  📊 정상탐지: {normal_ok}개 ({normal_ok/normal_case*100:.1f}%)
-  📊 오탐: {normal_ng}개 ({normal_ng/normal_case*100:.1f}%)
-  ─────────────────────────────
-  ✅ 예측OK: {normal_ok}개 ({normal_ok/normal_case*100:.1f}%)
-  ❌ 예측NG: {normal_ng}개 ({normal_ng/normal_case*100:.1f}%)
+  ✅ 정상: {s['normal']}개 ({s['normal']/normal_case*100:.1f}%)
+  ❌ 오탐: {s['false']}개 ({s['false']/normal_case*100:.1f}%)
 """
     
     def gen_html(self, hub_cmt, m14_cmt, anal_date):
         now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         
-        # 데이터를 JSON으로 변환 (그래프용)
+        # 데이터를 JSON으로 변환
         hub_json = "[]"
         m14_json = "[]"
-        
-        # 통계 데이터 JS용
         hub_stats_json = "{}"
         m14_stats_json = "{}"
         
@@ -693,17 +644,14 @@ class SurgeAnalyzer:
                 })
             m14_json = str(m14_data).replace("'", '"')
         
-        # 통계 JSON 생성
         if self.hub_stats:
             s = self.hub_stats
             hub_stats_json = str({
                 'total': s['total_rows'],
                 'surge_total': s['surge_total'],
                 'detect': s['detect'],
-                'normal_pred': s['normal_pred'],
                 'miss': s['miss'],
                 'normal': s['normal'],
-                'surge_cont': s['surge_cont'],
                 'false': s['false']
             }).replace("'", '"')
         
@@ -713,10 +661,8 @@ class SurgeAnalyzer:
                 'total': s['total_rows'],
                 'surge_total': s['surge_total'],
                 'detect': s['detect'],
-                'normal_pred': s['normal_pred'],
                 'miss': s['miss'],
                 'normal': s['normal'],
-                'surge_cont': s['surge_cont'],
                 'false': s['false']
             }).replace("'", '"')
         
@@ -724,7 +670,7 @@ class SurgeAnalyzer:
 <html lang="ko">
 <head>
 <meta charset="UTF-8">
-<title>ML급증 감지 분석 리포트 V8</title>
+<title>ML급증 감지 분석 리포트 V8.1</title>
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2"></script>
 <style>
@@ -752,33 +698,14 @@ h1{{font-size:2rem;text-align:center;background:linear-gradient(135deg,#00d4ff,#
 .case-title{{font-size:1rem;font-weight:bold;margin-bottom:15px;display:flex;justify-content:space-between;align-items:center}}
 .case-title.surge{{color:#00d4ff}}
 .case-title.normal{{color:#888}}
-.items{{display:grid;grid-template-columns:repeat(auto-fit,minmax(100px,1fr));gap:10px}}
+.items{{display:grid;grid-template-columns:repeat(2,1fr);gap:10px}}
 .item{{background:#15151f;padding:12px;border-radius:8px;text-align:center;cursor:pointer;transition:all 0.2s}}
 .item:hover{{background:#1a1a2a;transform:scale(1.02);box-shadow:0 0 10px rgba(0,212,255,0.3)}}
 .item-label{{font-size:0.7rem;color:#666;margin-bottom:4px}}
 .item-value{{font-size:1.3rem;font-weight:bold}}
 .item-sub{{font-size:0.75rem;color:#888;margin-top:3px}}
 .ok{{color:#00ff88}}.warn{{color:#ffcc00}}.bad{{color:#ff4466}}.gray{{color:#aaa}}
-.mid-summary{{display:flex;gap:10px;margin-top:12px;padding:10px;background:#0a0a12;border-radius:8px}}
-.mid-item{{flex:1;display:flex;align-items:center;justify-content:center;gap:10px;padding:12px 15px;border-radius:8px;cursor:pointer;transition:all 0.2s}}
-.mid-item:hover{{transform:scale(1.02)}}
-.mid-item.ok-box{{background:#0d4d0d;border:2px solid #00ff88}}
-.mid-item.ng-box{{background:#4d0d0d;border:2px solid #ff4466}}
-.mid-item.warn-box{{background:#4d3d0d;border:2px solid #ff9500}}
-.mid-label{{font-size:0.85rem;color:#aaa;font-weight:bold;white-space:nowrap}}
-.mid-item.ok-box .mid-label{{color:#00ff88}}
-.mid-item.ng-box .mid-label{{color:#ff4466}}
-.mid-item.warn-box .mid-label{{color:#ff9500}}
-.mid-item strong{{font-size:1.3rem;color:#fff}}
-.mid-item.ok-box strong{{color:#00ff88}}
-.mid-item.ng-box strong{{color:#ff4466}}
-.mid-item.warn-box strong{{color:#ff9500}}
-.mid-pct{{font-size:0.9rem;color:#888;font-weight:bold}}
-.mid-item.ok-box .mid-pct{{color:#88ffaa}}
-.mid-item.ng-box .mid-pct{{color:#ff8888}}
-.mid-item.warn-box .mid-pct{{color:#ffcc88}}
 .total-summary{{display:flex;gap:15px;margin-bottom:15px;padding:15px;background:#0a0a12;border-radius:10px;border:1px solid #333}}
-.total-summary.vertical{{flex-direction:column}}
 .total-ok,.total-ng{{flex:1;padding:12px 15px;border-radius:8px;font-size:0.95rem;text-align:center}}
 .total-ok{{background:#1a3a1a;color:#00ff88;border:1px solid #00ff88}}
 .total-ng{{background:#3a1a1a;color:#ff4466;border:1px solid #ff4466}}
@@ -813,7 +740,7 @@ h1{{font-size:2rem;text-align:center;background:linear-gradient(135deg,#00d4ff,#
 .modal-stat-label{{font-size:0.75rem;color:#666;margin-bottom:4px}}
 .modal-stat-value{{font-size:1.1rem;font-weight:bold}}
 .event-list{{max-height:60vh;overflow-y:auto;background:#0a0a12;border-radius:8px;padding:10px}}
-.event-item{{display:grid;grid-template-columns:50px 1fr 1fr 80px 80px 80px 100px;gap:10px;padding:10px 15px;border-bottom:1px solid #222;cursor:pointer;transition:all 0.2s;font-size:0.85rem}}
+.event-item{{display:grid;grid-template-columns:50px 1fr 1fr 80px 80px 80px 120px;gap:10px;padding:10px 15px;border-bottom:1px solid #222;cursor:pointer;transition:all 0.2s;font-size:0.85rem}}
 .event-item:hover{{background:#1a1a2a}}
 .event-item.header{{background:#15151f;font-weight:bold;color:#888;cursor:default}}
 .event-item.header:hover{{background:#15151f}}
@@ -824,21 +751,18 @@ h1{{font-size:2rem;text-align:center;background:linear-gradient(135deg,#00d4ff,#
 .event-pred{{color:#ff6b35;text-align:right}}
 .event-cls{{text-align:center;padding:2px 8px;border-radius:4px;font-size:0.75rem}}
 .event-cls.detect{{background:#1a3a1a;color:#00ff88}}
-.event-cls.pre{{background:#2a2a1a;color:#ffcc00}}
 .event-cls.miss{{background:#3a1a1a;color:#ff4466}}
-.event-cls.normal{{background:#1a1a1a;color:#888}}
+.event-cls.normal{{background:#1a1a2a;color:#888}}
 .event-cls.false{{background:#3a1a2a;color:#ff4466}}
 .back-btn{{background:#333;color:#fff;border:none;padding:8px 15px;border-radius:6px;cursor:pointer;margin-right:10px}}
 .back-btn:hover{{background:#444}}
 .mode-desc{{text-align:center;color:#666;font-size:0.8rem;margin-top:8px}}
-.false-only-section{{display:none;margin-top:20px}}
-.false-only-section.show{{display:block}}
 @media(max-width:800px){{.case-row,.charts,.items,.modal-info{{grid-template-columns:1fr}}.sys-header{{flex-direction:column;gap:10px}}.sys-stats{{flex-wrap:wrap}}.view-toggle{{flex-direction:column}}}}
 </style>
 </head>
 <body>
 <div class="container">
-<h1>📊 ML급증 감지 분석 리포트 V8</h1>
+<h1>📊 ML급증 감지 분석 리포트 V8.1</h1>
 <p class="sub">📅 분석 날짜: {anal_date} | 생성: {now}</p>
 <div class="view-toggle">
 <button class="toggle-btn active" onclick="setViewMode('all')">📊 전체 보기</button>
@@ -854,9 +778,9 @@ h1{{font-size:2rem;text-align:center;background:linear-gradient(135deg,#00d4ff,#
             surge = s['surge_total'] or 1
             normal_case = t - surge if t - surge > 0 else 1
             
-            surge_ok = s['detect'] + s['normal_pred']
+            surge_ok = s['detect']
             surge_ng = s['miss']
-            normal_ok = s['normal'] + s['surge_cont']
+            normal_ok = s['normal']
             normal_ng = s['false']
             total_ok = surge_ok + normal_ok
             total_ng = surge_ng + normal_ng
@@ -868,7 +792,7 @@ h1{{font-size:2rem;text-align:center;background:linear-gradient(135deg,#00d4ff,#
             html += f'''
 <div class="system" id="hubSystem">
 <div class="sys-header">
-<div class="sys-title hub">🏠 HUBROOM V8.0 (기준: 350)</div>
+<div class="sys-title hub">🏠 HUBROOM V8.1 (기준: 350)</div>
 <div class="sys-stats">
 <span>분석대상 <strong id="hubTotalCount">{t}</strong>개</span>
 <span>급증 <strong style="color:#00d4ff">{s['surge_total']}</strong>개</span>
@@ -888,38 +812,30 @@ h1{{font-size:2rem;text-align:center;background:linear-gradient(135deg,#00d4ff,#
 <div class="case-title surge" id="hubSurgeCaseTitle">📈 급증 케이스 ({s['surge_total']}개)</div>
 <div class="items" id="hubSurgeItems">
 <div class="item" onclick="showList('hub','이상탐지',350)"><div class="item-label">이상탐지</div><div class="item-value ok">{s['detect']}</div><div class="item-sub">{s['detect']/surge*100:.1f}%</div></div>
-<div class="item" onclick="showList('hub','정상예측',350)"><div class="item-label">정상예측</div><div class="item-value ok">{s['normal_pred']}</div><div class="item-sub">{s['normal_pred']/surge*100:.1f}%</div></div>
 <div class="item" onclick="showList('hub','미탐',350)"><div class="item-label">미탐</div><div class="item-value bad">{s['miss']}</div><div class="item-sub">{s['miss']/surge*100:.1f}%</div></div>
-</div>
-<div class="mid-summary" id="hubSurgeMid">
-<div class="mid-item ok-box" onclick="showList('hub','이상탐지_ALL',350)"><span class="mid-label">탐지OK</span><strong>{surge_ok}</strong><span class="mid-pct">{surge_ok/surge*100:.1f}%</span></div>
-<div class="mid-item ng-box" onclick="showList('hub','미탐',350)"><span class="mid-label">미탐</span><strong>{surge_ng}</strong><span class="mid-pct">{surge_ng/surge*100:.1f}%</span></div>
 </div>
 </div>
 <div class="case-box normal-section">
 <div class="case-title normal">📊 정상 케이스 ({t-s['surge_total']}개)</div>
 <div class="items">
 <div class="item" onclick="showList('hub','정상',350)"><div class="item-label">정상</div><div class="item-value gray">{s['normal']}</div><div class="item-sub">{s['normal']/normal_case*100:.1f}%</div></div>
-<div class="item" onclick="showList('hub','급증연속',350)"><div class="item-label">급증연속</div><div class="item-value warn">{s['surge_cont']}</div><div class="item-sub">{s['surge_cont']/normal_case*100:.1f}%</div></div>
 <div class="item" onclick="showList('hub','오탐',350)"><div class="item-label">오탐</div><div class="item-value bad">{s['false']}</div><div class="item-sub">{s['false']/normal_case*100:.1f}%</div></div>
-</div>
-<div class="mid-summary">
-<div class="mid-item ok-box" onclick="showList('hub','정상탐지_ALL',350)"><span class="mid-label">정상탐지</span><strong>{normal_ok}</strong><span class="mid-pct">{normal_ok/normal_case*100:.1f}%</span></div>
-<div class="mid-item ng-box" onclick="showList('hub','오탐',350)"><span class="mid-label">오탐</span><strong>{normal_ng}</strong><span class="mid-pct">{normal_ng/normal_case*100:.1f}%</span></div>
 </div>
 </div>
 </div>
 {cmt_html}
 </div>
 '''
+        
+        if self.m14_stats and self.m14_stats['total_rows'] > 0:
             s = self.m14_stats
             t = s['total_rows']
             surge = s['surge_total'] or 1
             normal_case = t - surge if t - surge > 0 else 1
             
-            surge_ok = s['detect'] + s['normal_pred']
+            surge_ok = s['detect']
             surge_ng = s['miss']
-            normal_ok = s['normal'] + s['surge_cont']
+            normal_ok = s['normal']
             normal_ng = s['false']
             total_ok = surge_ok + normal_ok
             total_ng = surge_ng + normal_ng
@@ -931,7 +847,7 @@ h1{{font-size:2rem;text-align:center;background:linear-gradient(135deg,#00d4ff,#
             html += f'''
 <div class="system" id="m14System">
 <div class="sys-header">
-<div class="sys-title m14">🏭 M14_Q V8.3.1 (기준: 1700)</div>
+<div class="sys-title m14">🏭 M14_Q V8.1 (기준: 1700)</div>
 <div class="sys-stats">
 <span>분석대상 <strong id="m14TotalCount">{t}</strong>개</span>
 <span>급증 <strong style="color:#ff6b35">{s['surge_total']}</strong>개</span>
@@ -951,24 +867,14 @@ h1{{font-size:2rem;text-align:center;background:linear-gradient(135deg,#00d4ff,#
 <div class="case-title surge" style="color:#ff6b35" id="m14SurgeCaseTitle">📈 급증 케이스 ({s['surge_total']}개)</div>
 <div class="items" id="m14SurgeItems">
 <div class="item" onclick="showList('m14','이상탐지',1700)"><div class="item-label">이상탐지</div><div class="item-value ok">{s['detect']}</div><div class="item-sub">{s['detect']/surge*100:.1f}%</div></div>
-<div class="item" onclick="showList('m14','정상예측',1700)"><div class="item-label">정상예측</div><div class="item-value ok">{s['normal_pred']}</div><div class="item-sub">{s['normal_pred']/surge*100:.1f}%</div></div>
 <div class="item" onclick="showList('m14','미탐',1700)"><div class="item-label">미탐</div><div class="item-value bad">{s['miss']}</div><div class="item-sub">{s['miss']/surge*100:.1f}%</div></div>
-</div>
-<div class="mid-summary" id="m14SurgeMid">
-<div class="mid-item ok-box" onclick="showList('m14','이상탐지_ALL',1700)"><span class="mid-label">탐지OK</span><strong>{surge_ok}</strong><span class="mid-pct">{surge_ok/surge*100:.1f}%</span></div>
-<div class="mid-item ng-box" onclick="showList('m14','미탐',1700)"><span class="mid-label">미탐</span><strong>{surge_ng}</strong><span class="mid-pct">{surge_ng/surge*100:.1f}%</span></div>
 </div>
 </div>
 <div class="case-box normal-section">
 <div class="case-title normal">📊 정상 케이스 ({t-s['surge_total']}개)</div>
 <div class="items">
 <div class="item" onclick="showList('m14','정상',1700)"><div class="item-label">정상</div><div class="item-value gray">{s['normal']}</div><div class="item-sub">{s['normal']/normal_case*100:.1f}%</div></div>
-<div class="item" onclick="showList('m14','급증연속',1700)"><div class="item-label">급증연속</div><div class="item-value warn">{s['surge_cont']}</div><div class="item-sub">{s['surge_cont']/normal_case*100:.1f}%</div></div>
 <div class="item" onclick="showList('m14','오탐',1700)"><div class="item-label">오탐</div><div class="item-value bad">{s['false']}</div><div class="item-sub">{s['false']/normal_case*100:.1f}%</div></div>
-</div>
-<div class="mid-summary">
-<div class="mid-item ok-box" onclick="showList('m14','정상탐지_ALL',1700)"><span class="mid-label">정상탐지</span><strong>{normal_ok}</strong><span class="mid-pct">{normal_ok/normal_case*100:.1f}%</span></div>
-<div class="mid-item ng-box" onclick="showList('m14','오탐',1700)"><span class="mid-label">오탐</span><strong>{normal_ng}</strong><span class="mid-pct">{normal_ng/normal_case*100:.1f}%</span></div>
 </div>
 </div>
 </div>
@@ -977,31 +883,22 @@ h1{{font-size:2rem;text-align:center;background:linear-gradient(135deg,#00d4ff,#
 '''
         
         html += f'''
-<div class="footer">ML급증 감지 분석 시스템 V8 | AMHS 물류 예측 모델</div>
+<div class="footer">ML급증 감지 분석 시스템 V8.1 | AMHS 물류 예측 모델</div>
 </div>
 <script>
-// 통계 데이터
 const hubStats = {hub_stats_json};
 const m14Stats = {m14_stats_json};
-
-// 차트 인스턴스
 let hubSurgeChart = null;
 let hubNormalChart = null;
 let m14SurgeChart = null;
 let m14NormalChart = null;
-
-// 현재 모드
 let currentMode = 'all';
 
-// 뷰 모드 전환
 function setViewMode(mode) {{
     currentMode = mode;
-    
-    // 버튼 상태 변경
     document.querySelectorAll('.toggle-btn').forEach(btn => btn.classList.remove('active', 'active-warn'));
     event.target.classList.add(mode === 'false' ? 'active-warn' : 'active');
     
-    // 모드 설명 업데이트
     const descEl = document.getElementById('modeDesc');
     if (mode === 'all') {{
         descEl.textContent = '전체 데이터 (급증 + 정상 케이스)';
@@ -1011,35 +908,22 @@ function setViewMode(mode) {{
         descEl.textContent = '급증 케이스 + 오탐만 표시';
     }}
     
-    // 정상 섹션 숨김/표시
     document.querySelectorAll('.normal-section').forEach(el => {{
         el.classList.toggle('hidden', mode !== 'all');
     }});
     
-    // 차트 레이아웃 조정 (급증+오탐 모드에서 단일 차트)
     const isSingle = (mode !== 'all');
-    document.querySelectorAll('.charts').forEach(el => {{
-        el.classList.toggle('single', isSingle);
-    }});
-    document.querySelectorAll('.chart-box:not(.normal-section)').forEach(el => {{
-        el.classList.toggle('full', isSingle);
-    }});
-    document.querySelectorAll('.chart-box:not(.normal-section) .chart-wrap').forEach(el => {{
-        el.classList.toggle('tall', isSingle);
-    }});
-    document.querySelectorAll('.case-row').forEach(el => {{
-        el.classList.toggle('single', isSingle);
-    }});
+    document.querySelectorAll('.charts').forEach(el => el.classList.toggle('single', isSingle));
+    document.querySelectorAll('.chart-box:not(.normal-section)').forEach(el => el.classList.toggle('full', isSingle));
+    document.querySelectorAll('.chart-box:not(.normal-section) .chart-wrap').forEach(el => el.classList.toggle('tall', isSingle));
+    document.querySelectorAll('.case-row').forEach(el => el.classList.toggle('single', isSingle));
     
-    // 차트 업데이트 (급증+오탐 모드에서 오탐 포함)
     updateSurgeChart('hub', hubStats, mode, 350);
     updateSurgeChart('m14', m14Stats, mode, 1700);
     
-    // 차트 리사이즈
     if (hubSurgeChart) hubSurgeChart.resize();
     if (m14SurgeChart) m14SurgeChart.resize();
     
-    // 통계 업데이트
     updateStats('hub', hubStats, mode);
     updateStats('m14', m14Stats, mode);
 }}
@@ -1051,75 +935,44 @@ function updateSurgeChart(sys, stats, mode, threshold) {{
     const titleEl = document.getElementById(sys + 'SurgeTitle');
     const caseTitleEl = document.getElementById(sys + 'SurgeCaseTitle');
     const itemsEl = document.getElementById(sys + 'SurgeItems');
-    const midEl = document.getElementById(sys + 'SurgeMid');
     
     if (mode === 'false') {{
-        // 급증+오탐 모드: 4개 항목
+        const total = stats.surge_total + stats.false;
         chart.data.labels = [
             '이상탐지 (' + stats.detect + '개)',
-            '정상예측 (' + stats.normal_pred + '개)',
             '미탐 (' + stats.miss + '개)',
             '오탐 (' + stats.false + '개)'
         ];
-        chart.data.datasets[0].data = [stats.detect, stats.normal_pred, stats.miss, stats.false];
-        chart.data.datasets[0].backgroundColor = ['#00ff88', '#00d4ff', '#ff4466', '#ff9500'];
+        chart.data.datasets[0].data = [stats.detect, stats.miss, stats.false];
+        chart.data.datasets[0].backgroundColor = ['#00ff88', '#ff4466', '#ff9500'];
         if (titleEl) titleEl.textContent = '급증 + 오탐 분포';
-        
-        // 케이스 타이틀 변경
-        const total = stats.surge_total + stats.false;
         if (caseTitleEl) caseTitleEl.innerHTML = '📈 급증 + 오탐 케이스 (' + total + '개)';
         
-        // items에 오탐 추가 - 전체(total) 기준 퍼센트
         if (itemsEl) {{
             itemsEl.innerHTML = `
                 <div class="item" onclick="showList('${{sys}}','이상탐지',${{threshold}})"><div class="item-label">이상탐지</div><div class="item-value ok">${{stats.detect}}</div><div class="item-sub">${{(stats.detect/total*100).toFixed(1)}}%</div></div>
-                <div class="item" onclick="showList('${{sys}}','정상예측',${{threshold}})"><div class="item-label">정상예측</div><div class="item-value ok">${{stats.normal_pred}}</div><div class="item-sub">${{(stats.normal_pred/total*100).toFixed(1)}}%</div></div>
                 <div class="item" onclick="showList('${{sys}}','미탐',${{threshold}})"><div class="item-label">미탐</div><div class="item-value bad">${{stats.miss}}</div><div class="item-sub">${{(stats.miss/total*100).toFixed(1)}}%</div></div>
                 <div class="item" onclick="showList('${{sys}}','오탐',${{threshold}})"><div class="item-label">오탐</div><div class="item-value warn">${{stats.false}}</div><div class="item-sub">${{(stats.false/total*100).toFixed(1)}}%</div></div>
             `;
-        }}
-        
-        // mid-summary에 오탐 추가 - 전체(total) 기준 퍼센트
-        if (midEl) {{
-            const surgeOk = stats.detect + stats.normal_pred;
-            midEl.innerHTML = `
-                <div class="mid-item ok-box" onclick="showList('${{sys}}','이상탐지_ALL',${{threshold}})"><span class="mid-label">탐지OK</span><strong>${{surgeOk}}</strong><span class="mid-pct">${{(surgeOk/total*100).toFixed(1)}}%</span></div>
-                <div class="mid-item ng-box" onclick="showList('${{sys}}','미탐',${{threshold}})"><span class="mid-label">미탐</span><strong>${{stats.miss}}</strong><span class="mid-pct">${{(stats.miss/total*100).toFixed(1)}}%</span></div>
-                <div class="mid-item warn-box" onclick="showList('${{sys}}','오탐',${{threshold}})"><span class="mid-label">오탐</span><strong>${{stats.false}}</strong><span class="mid-pct">${{(stats.false/total*100).toFixed(1)}}%</span></div>
-            `;
+            itemsEl.style.gridTemplateColumns = 'repeat(3, 1fr)';
         }}
     }} else {{
-        // 기본 모드: 3개 항목
+        const surgeTotal = stats.surge_total || 1;
         chart.data.labels = [
             '이상탐지 (' + stats.detect + '개)',
-            '정상예측 (' + stats.normal_pred + '개)',
             '미탐 (' + stats.miss + '개)'
         ];
-        chart.data.datasets[0].data = [stats.detect, stats.normal_pred, stats.miss];
-        chart.data.datasets[0].backgroundColor = ['#00ff88', '#00d4ff', '#ff4466'];
+        chart.data.datasets[0].data = [stats.detect, stats.miss];
+        chart.data.datasets[0].backgroundColor = ['#00ff88', '#ff4466'];
         if (titleEl) titleEl.textContent = '급증 탐지 분포';
-        
-        // 케이스 타이틀 원복
         if (caseTitleEl) caseTitleEl.innerHTML = '📈 급증 케이스 (' + stats.surge_total + '개)';
         
-        // items 원복
         if (itemsEl) {{
-            const surgeTotal = stats.surge_total || 1;
             itemsEl.innerHTML = `
                 <div class="item" onclick="showList('${{sys}}','이상탐지',${{threshold}})"><div class="item-label">이상탐지</div><div class="item-value ok">${{stats.detect}}</div><div class="item-sub">${{(stats.detect/surgeTotal*100).toFixed(1)}}%</div></div>
-                <div class="item" onclick="showList('${{sys}}','정상예측',${{threshold}})"><div class="item-label">정상예측</div><div class="item-value ok">${{stats.normal_pred}}</div><div class="item-sub">${{(stats.normal_pred/surgeTotal*100).toFixed(1)}}%</div></div>
                 <div class="item" onclick="showList('${{sys}}','미탐',${{threshold}})"><div class="item-label">미탐</div><div class="item-value bad">${{stats.miss}}</div><div class="item-sub">${{(stats.miss/surgeTotal*100).toFixed(1)}}%</div></div>
             `;
-        }}
-        
-        // mid-summary 원복
-        if (midEl) {{
-            const surgeOk = stats.detect + stats.normal_pred;
-            const surgeTotal = stats.surge_total || 1;
-            midEl.innerHTML = `
-                <div class="mid-item ok-box" onclick="showList('${{sys}}','이상탐지_ALL',${{threshold}})"><span class="mid-label">탐지OK</span><strong>${{surgeOk}}</strong><span class="mid-pct">${{(surgeOk/surgeTotal*100).toFixed(1)}}%</span></div>
-                <div class="mid-item ng-box" onclick="showList('${{sys}}','미탐',${{threshold}})"><span class="mid-label">미탐</span><strong>${{stats.miss}}</strong><span class="mid-pct">${{(stats.miss/surgeTotal*100).toFixed(1)}}%</span></div>
-            `;
+            itemsEl.style.gridTemplateColumns = 'repeat(2, 1fr)';
         }}
     }}
     chart.update();
@@ -1131,27 +984,19 @@ function updateStats(sys, stats, mode) {{
     let totalCount, totalOk, totalNg;
     
     if (mode === 'all') {{
-        // 전체: 급증OK + 정상OK, 급증NG + 정상NG
-        const surgeOk = stats.detect + stats.normal_pred;
-        const surgeNg = stats.miss;
-        const normalOk = stats.normal + stats.surge_cont;
-        const normalNg = stats.false;
         totalCount = stats.total;
-        totalOk = surgeOk + normalOk;
-        totalNg = surgeNg + normalNg;
+        totalOk = stats.detect + stats.normal;
+        totalNg = stats.miss + stats.false;
     }} else if (mode === 'surge') {{
-        // 급증만: 급증 케이스만
         totalCount = stats.surge_total;
-        totalOk = stats.detect + stats.normal_pred;
+        totalOk = stats.detect;
         totalNg = stats.miss;
     }} else {{
-        // 급증 + 오탐: 급증 케이스 + 오탐
         totalCount = stats.surge_total + stats.false;
-        totalOk = stats.detect + stats.normal_pred;
+        totalOk = stats.detect;
         totalNg = stats.miss + stats.false;
     }}
     
-    // DOM 업데이트
     const prefix = sys === 'hub' ? 'hub' : 'm14';
     const countEl = document.getElementById(prefix + 'TotalCount');
     const okEl = document.getElementById(prefix + 'TotalOk');
@@ -1173,15 +1018,15 @@ const opt={{responsive:true,maintainAspectRatio:false,plugins:{{legend:{{positio
         if self.hub_stats and self.hub_stats['total_rows'] > 0:
             s = self.hub_stats
             html += f'''
-hubSurgeChart = new Chart(document.getElementById('hubSurge'),{{type:'doughnut',data:{{labels:['이상탐지 ({s['detect']}개)','정상예측 ({s['normal_pred']}개)','미탐 ({s['miss']}개)'],datasets:[{{data:[{s['detect']},{s['normal_pred']},{s['miss']}],backgroundColor:['#00ff88','#00d4ff','#ff4466']}}]}},options:{{...opt,onClick:(e,els)=>{{if(els.length){{const clsList=currentMode==='false'?['이상탐지','정상예측','미탐','오탐']:['이상탐지','정상예측','미탐'];showList('hub',clsList[els[0].index],350);}}}}}}}});
-hubNormalChart = new Chart(document.getElementById('hubNormal'),{{type:'doughnut',data:{{labels:['정상 ({s['normal']}개)','급증연속 ({s['surge_cont']}개)','오탐 ({s['false']}개)'],datasets:[{{data:[{s['normal']},{s['surge_cont']},{s['false']}],backgroundColor:['#666666','#ff9500','#ff4466']}}]}},options:{{...opt,onClick:(e,els)=>{{if(els.length){{const cls=['정상','급증연속','오탐'][els[0].index];showList('hub',cls,350);}}}}}}}});
+hubSurgeChart = new Chart(document.getElementById('hubSurge'),{{type:'doughnut',data:{{labels:['이상탐지 ({s['detect']}개)','미탐 ({s['miss']}개)'],datasets:[{{data:[{s['detect']},{s['miss']}],backgroundColor:['#00ff88','#ff4466']}}]}},options:{{...opt,onClick:(e,els)=>{{if(els.length){{const clsList=currentMode==='false'?['이상탐지','미탐','오탐']:['이상탐지','미탐'];showList('hub',clsList[els[0].index],350);}}}}}}}});
+hubNormalChart = new Chart(document.getElementById('hubNormal'),{{type:'doughnut',data:{{labels:['정상 ({s['normal']}개)','오탐 ({s['false']}개)'],datasets:[{{data:[{s['normal']},{s['false']}],backgroundColor:['#666666','#ff4466']}}]}},options:{{...opt,onClick:(e,els)=>{{if(els.length){{const cls=['정상','오탐'][els[0].index];showList('hub',cls,350);}}}}}}}});
 '''
         
         if self.m14_stats and self.m14_stats['total_rows'] > 0:
             s = self.m14_stats
             html += f'''
-m14SurgeChart = new Chart(document.getElementById('m14Surge'),{{type:'doughnut',data:{{labels:['이상탐지 ({s['detect']}개)','정상예측 ({s['normal_pred']}개)','미탐 ({s['miss']}개)'],datasets:[{{data:[{s['detect']},{s['normal_pred']},{s['miss']}],backgroundColor:['#00ff88','#00d4ff','#ff4466']}}]}},options:{{...opt,onClick:(e,els)=>{{if(els.length){{const clsList=currentMode==='false'?['이상탐지','정상예측','미탐','오탐']:['이상탐지','정상예측','미탐'];showList('m14',clsList[els[0].index],1700);}}}}}}}});
-m14NormalChart = new Chart(document.getElementById('m14Normal'),{{type:'doughnut',data:{{labels:['정상 ({s['normal']}개)','급증연속 ({s['surge_cont']}개)','오탐 ({s['false']}개)'],datasets:[{{data:[{s['normal']},{s['surge_cont']},{s['false']}],backgroundColor:['#666666','#ff9500','#ff4466']}}]}},options:{{...opt,onClick:(e,els)=>{{if(els.length){{const cls=['정상','급증연속','오탐'][els[0].index];showList('m14',cls,1700);}}}}}}}});
+m14SurgeChart = new Chart(document.getElementById('m14Surge'),{{type:'doughnut',data:{{labels:['이상탐지 ({s['detect']}개)','미탐 ({s['miss']}개)'],datasets:[{{data:[{s['detect']},{s['miss']}],backgroundColor:['#00ff88','#ff4466']}}]}},options:{{...opt,onClick:(e,els)=>{{if(els.length){{const clsList=currentMode==='false'?['이상탐지','미탐','오탐']:['이상탐지','미탐'];showList('m14',clsList[els[0].index],1700);}}}}}}}});
+m14NormalChart = new Chart(document.getElementById('m14Normal'),{{type:'doughnut',data:{{labels:['정상 ({s['normal']}개)','오탐 ({s['false']}개)'],datasets:[{{data:[{s['normal']},{s['false']}],backgroundColor:['#666666','#ff4466']}}]}},options:{{...opt,onClick:(e,els)=>{{if(els.length){{const cls=['정상','오탐'][els[0].index];showList('m14',cls,1700);}}}}}}}});
 '''
         
         html += f'''
@@ -1199,12 +1044,14 @@ function showList(system, cls, threshold) {{
     currentThreshold = threshold;
     
     let filtered = [];
-    if (cls === '이상탐지_ALL') {{
-        filtered = data.filter(d => d.cls === '이상탐지' || d.cls.includes('정상예측'));
-    }} else if (cls === '정상탐지_ALL') {{
-        filtered = data.filter(d => d.cls === '정상' || d.cls.includes('급증연속'));
-    }} else if (cls === '정상' || cls === '이상탐지' || cls === '오탐') {{
-        filtered = data.filter(d => d.cls === cls);
+    if (cls === '이상탐지') {{
+        filtered = data.filter(d => d.cls.includes('이상'));
+    }} else if (cls === '미탐') {{
+        filtered = data.filter(d => d.cls.includes('미탐'));
+    }} else if (cls === '정상') {{
+        filtered = data.filter(d => d.cls.includes('정상') && !d.cls.includes('이상'));
+    }} else if (cls === '오탐') {{
+        filtered = data.filter(d => d.cls === '오탐');
     }} else {{
         filtered = data.filter(d => d.cls.includes(cls));
     }}
@@ -1221,8 +1068,7 @@ function showList(system, cls, threshold) {{
     
     filtered.forEach((d, i) => {{
         let clsClass = 'normal';
-        if (d.cls === '이상탐지') clsClass = 'detect';
-        else if (d.cls.includes('정상예측')) clsClass = 'pre';
+        if (d.cls.includes('이상')) clsClass = 'detect';
         else if (d.cls.includes('미탐')) clsClass = 'miss';
         else if (d.cls === '오탐') clsClass = 'false';
         
@@ -1236,7 +1082,7 @@ function showList(system, cls, threshold) {{
             <div class="event-current">${{d.current.toFixed(0)}}</div>
             <div class="event-actual">${{d.actual.toFixed(0)}}</div>
             <div class="event-pred">${{d.pred.toFixed(1)}}</div>
-            <div class="event-cls ${{clsClass}}">${{d.cls.substring(0,8)}}</div>
+            <div class="event-cls ${{clsClass}}">${{d.cls.substring(0,12)}}</div>
         </div>`;
     }});
     
@@ -1250,8 +1096,8 @@ function showGraph(filteredIdx) {{
     const sysName = currentSystem === 'hub' ? 'HUBROOM' : 'M14_Q';
     const centerIdx = item.idx;
     
-    const startIdx = Math.max(0, centerIdx - 30);
-    const endIdx = Math.min(data.length, centerIdx + 30);
+    const startIdx = Math.max(0, centerIdx - 20);
+    const endIdx = Math.min(data.length, centerIdx + 21);
     const rangeData = data.slice(startIdx, endIdx);
     const centerPos = centerIdx - startIdx;
     
@@ -1325,10 +1171,7 @@ function showGraph(filteredIdx) {{
         options: {{
             responsive: true,
             maintainAspectRatio: false,
-            interaction: {{
-                mode: 'index',
-                intersect: false
-            }},
+            interaction: {{mode: 'index', intersect: false}},
             plugins: {{
                 legend: {{ 
                     position: 'top', 
@@ -1338,10 +1181,8 @@ function showGraph(filteredIdx) {{
                         const ci = legend.chart;
                         const meta = ci.getDatasetMeta(index);
                         meta.hidden = meta.hidden === null ? !ci.data.datasets[index].hidden : null;
-                        
                         if (index === 0) {{
-                            const isHidden = meta.hidden;
-                            ci.data.labels = isHidden ? labelsShort : labelsFull;
+                            ci.data.labels = meta.hidden ? labelsShort : labelsFull;
                         }}
                         ci.update();
                     }}
@@ -1357,28 +1198,20 @@ function showGraph(filteredIdx) {{
                     padding: 12,
                     displayColors: true,
                     callbacks: {{
-                        title: function(context) {{
-                            return context[0].label;
-                        }},
+                        title: function(context) {{ return context[0].label; }},
                         label: function(context) {{
                             const idx = context.dataIndex;
                             const d = rangeData[idx];
-                            if (context.datasetIndex === 0) {{
-                                return '🟢 현재값: ' + d.current.toFixed(0);
-                            }} else if (context.datasetIndex === 1) {{
-                                return '🔵 실제값: ' + d.actual.toFixed(0);
-                            }} else if (context.datasetIndex === 2) {{
-                                return '🟠 예측값: ' + d.pred.toFixed(1);
-                            }} else {{
-                                return '🔴 리미트값: ' + currentThreshold;
-                            }}
+                            if (context.datasetIndex === 0) return '🟢 현재값: ' + d.current.toFixed(0);
+                            else if (context.datasetIndex === 1) return '🔵 실제값: ' + d.actual.toFixed(0);
+                            else if (context.datasetIndex === 2) return '🟠 예측값: ' + d.pred.toFixed(1);
+                            else return '🔴 리미트값: ' + currentThreshold;
                         }},
                         afterBody: function(context) {{
                             const idx = context[0].dataIndex;
                             const d = rangeData[idx];
                             const diff = d.pred - d.actual;
-                            const diffStr = diff >= 0 ? '+' + diff.toFixed(1) : diff.toFixed(1);
-                            return ['', '예측 오차: ' + diffStr];
+                            return ['', '예측 오차: ' + (diff >= 0 ? '+' : '') + diff.toFixed(1)];
                         }}
                     }}
                 }}
@@ -1390,7 +1223,6 @@ function showGraph(filteredIdx) {{
         }}
     }});
     
-    const currents = rangeData.map(d => d.current);
     const actuals = rangeData.map(d => d.actual);
     const preds = rangeData.map(d => d.pred);
     document.getElementById('statCount').textContent = rangeData.length + '분';
@@ -1406,21 +1238,14 @@ function backToList() {{
     if (modalChart) {{ modalChart.destroy(); modalChart = null; }}
 }}
 
-function closeListModal() {{
-    document.getElementById('listModal').classList.remove('show');
-}}
-
+function closeListModal() {{ document.getElementById('listModal').classList.remove('show'); }}
 function closeChartModal() {{
     document.getElementById('chartModal').classList.remove('show');
     if (modalChart) {{ modalChart.destroy(); modalChart = null; }}
 }}
 
-document.getElementById('listModal').addEventListener('click', function(e) {{
-    if (e.target === this) closeListModal();
-}});
-document.getElementById('chartModal').addEventListener('click', function(e) {{
-    if (e.target === this) closeChartModal();
-}});
+document.getElementById('listModal').addEventListener('click', function(e) {{ if (e.target === this) closeListModal(); }});
+document.getElementById('chartModal').addEventListener('click', function(e) {{ if (e.target === this) closeChartModal(); }});
 </script>
 
 <div id="listModal" class="modal">
