@@ -403,12 +403,12 @@ class SurgeAnalyzer:
         V8 분석 로직
         급증(실제>=threshold):
           - 현재 예측>=threshold → 이상탐지
-          - 과거 10분내 예측>=threshold → 미탐(급증사전감지 N분전)
+          - 과거 10분내 예측>=threshold → 미탐(급증-N분)
           - 미래 10분내 예측>=threshold → 정상예측
           - 다 아니면 → 미탐
         정상(실제<threshold):
           - 예측>=threshold + 과거10분내 급증 → 급증연속
-          - 예측>=threshold + 미래10분내 급증 → 오탐(정상사전감지 N분후)
+          - 예측>=threshold + 미래10분내 급증 → 오탐(정상-N분)
           - 예측>=threshold + 앞뒤 급증 없음 → 오탐
           - 예측<threshold → 정상
         """
@@ -431,11 +431,11 @@ class SurgeAnalyzer:
                 if pred >= threshold:
                     df.loc[idx, '분류'] = '이상탐지'
                 else:
-                    # 1) 과거 10분내 예측 >= threshold → 미탐(급증사전감지)
+                    # 1) 과거 10분내 예측 >= threshold → 미탐(급증-N분)
                     found_past = False
                     for back in range(1, 11):
                         if idx - back >= 0 and df.loc[idx - back, pred_col] >= threshold:
-                            df.loc[idx, '분류'] = f'미탐(급증사전감지 {back}분전)'
+                            df.loc[idx, '분류'] = f'미탐(급증-{back}분)'
                             found_past = True
                             break
                     
@@ -462,12 +462,12 @@ class SurgeAnalyzer:
                             break
                     
                     if not found_past:
-                        # 2) 10분 후에 급증 있는지 체크 → 오탐(정상사전감지)
+                        # 2) 10분 후에 급증 있는지 체크 → 오탐(정상-N분)
                         found_future = False
                         for fwd in range(1, 11):
                             if idx + fwd < len(df) and df.loc[idx + fwd, actual_col] >= threshold:
                                 found_future = True
-                                df.loc[idx, '분류'] = f'오탐(정상사전감지 {fwd}분후)'
+                                df.loc[idx, '분류'] = f'오탐(정상-{fwd}분)'
                                 break
                         
                         if not found_future:
@@ -480,24 +480,24 @@ class SurgeAnalyzer:
         total = len(df)
         surge_total = len(df[df[actual_col] >= threshold])
         detect = len(df[df['분류'] == '이상탐지'])
-        pre_past = len(df[df['분류'].str.contains('급증사전감지', na=False)])  # 미탐(급증사전감지)
-        pre_future = len(df[df['분류'].str.contains('정상사전감지', na=False)])  # 오탐(정상사전감지)
+        pre_past = len(df[df['분류'].str.contains('급증-', na=False)])  # 미탐(급증-N분)
+        pre_future = len(df[df['분류'].str.contains('정상-', na=False)])  # 오탐(정상-N분)
         surge_cont = len(df[df['분류'].str.contains('급증연속', na=False)])  # 급증연속
         normal_pred = len(df[df['분류'].str.contains('정상예측', na=False)])
-        miss = len(df[df['분류'].str.contains('미탐', na=False)])  # 미탐 + 미탐(급증사전감지)
-        false_alarm = len(df[df['분류'].str.contains('오탐', na=False)])  # 오탐 + 오탐(정상사전감지)
+        miss = len(df[df['분류'].str.contains('미탐', na=False)])  # 미탐 + 미탐(급증-N분)
+        false_alarm = len(df[df['분류'].str.contains('오탐', na=False)])  # 오탐 + 오탐(정상-N분)
         normal = len(df[df['분류'] == '정상'])
         
         stats = {
             'total_rows': total,
             'surge_total': surge_total,
             'detect': detect,
-            'pre_past': pre_past,        # 급증사전감지 (미탐에 포함됨)
-            'pre_future': pre_future,    # 정상사전감지 (오탐에 포함됨)
+            'pre_past': pre_past,        # 미탐(급증-N분)
+            'pre_future': pre_future,    # 오탐(정상-N분)
             'surge_cont': surge_cont,    # 급증연속
             'normal_pred': normal_pred,
-            'miss': miss,                # 미탐 + 급증사전감지
-            'false': false_alarm,        # 오탐 + 정상사전감지
+            'miss': miss,                # 미탐 + 미탐(급증-N분)
+            'false': false_alarm,        # 오탐 + 오탐(정상-N분)
             'normal': normal
         }
         
