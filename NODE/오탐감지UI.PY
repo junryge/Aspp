@@ -634,9 +634,11 @@ class SurgeAnalyzer:
         
         if self.hub_df is not None and len(self.hub_df) > 0:
             hub_data = []
-            for _, row in self.hub_df.iterrows():
+            for i, (idx, row) in enumerate(self.hub_df.iterrows()):
                 hub_data.append({
+                    'idx': i,
                     'time': str(row.get('현재시간', '')),
+                    'pred_time': str(row.get('예측시점', '')),
                     'actual': float(row.get('실제값', 0)),
                     'pred': float(row.get('예측값_MAX', 0)),
                     'cls': str(row.get('분류', ''))
@@ -645,9 +647,11 @@ class SurgeAnalyzer:
         
         if self.m14_df is not None and len(self.m14_df) > 0:
             m14_data = []
-            for _, row in self.m14_df.iterrows():
+            for i, (idx, row) in enumerate(self.m14_df.iterrows()):
                 m14_data.append({
+                    'idx': i,
                     'time': str(row.get('현재시간', '')),
+                    'pred_time': str(row.get('예측시점', '')),
                     'actual': float(row.get('실제값', 0)),
                     'pred': float(row.get('예측값_MAX', 0)),
                     'cls': str(row.get('분류', ''))
@@ -736,6 +740,23 @@ h1{{font-size:2rem;text-align:center;background:linear-gradient(135deg,#00d4ff,#
 .modal-stat{{background:#0a0a12;padding:12px;border-radius:8px;text-align:center}}
 .modal-stat-label{{font-size:0.75rem;color:#666;margin-bottom:4px}}
 .modal-stat-value{{font-size:1.1rem;font-weight:bold}}
+.event-list{{max-height:60vh;overflow-y:auto;background:#0a0a12;border-radius:8px;padding:10px}}
+.event-item{{display:grid;grid-template-columns:50px 1fr 1fr 80px 80px 100px;gap:10px;padding:10px 15px;border-bottom:1px solid #222;cursor:pointer;transition:all 0.2s;font-size:0.85rem}}
+.event-item:hover{{background:#1a1a2a}}
+.event-item.header{{background:#15151f;font-weight:bold;color:#888;cursor:default}}
+.event-item.header:hover{{background:#15151f}}
+.event-num{{color:#00d4ff}}
+.event-time{{color:#aaa}}
+.event-actual{{color:#00d4ff;text-align:right}}
+.event-pred{{color:#ff6b35;text-align:right}}
+.event-cls{{text-align:center;padding:2px 8px;border-radius:4px;font-size:0.75rem}}
+.event-cls.detect{{background:#1a3a1a;color:#00ff88}}
+.event-cls.pre{{background:#2a2a1a;color:#ffcc00}}
+.event-cls.miss{{background:#3a1a1a;color:#ff4466}}
+.event-cls.normal{{background:#1a1a1a;color:#888}}
+.event-cls.false{{background:#3a1a2a;color:#ff4466}}
+.back-btn{{background:#333;color:#fff;border:none;padding:8px 15px;border-radius:6px;cursor:pointer;margin-right:10px}}
+.back-btn:hover{{background:#444}}
 @media(max-width:800px){{.case-row,.charts,.items,.modal-info{{grid-template-columns:1fr}}.sys-header{{flex-direction:column;gap:10px}}.sys-stats{{flex-wrap:wrap}}}}
 </style>
 </head>
@@ -782,14 +803,14 @@ h1{{font-size:2rem;text-align:center;background:linear-gradient(135deg,#00d4ff,#
 <div class="case-box">
 <div class="case-title surge">📈 급증 케이스 ({s['surge_total']}개)</div>
 <div class="items">
-<div class="item" onclick="showChart('hub','이상탐지',350)"><div class="item-label">이상탐지</div><div class="item-value ok">{s['detect']}</div><div class="item-sub">{s['detect']/surge*100:.1f}%</div></div>
-<div class="item" onclick="showChart('hub','급증사전감지',350)"><div class="item-label">급증사전감지</div><div class="item-value warn">{s['pre_past']}</div><div class="item-sub">{s['pre_past']/surge*100:.1f}%</div></div>
-<div class="item" onclick="showChart('hub','정상예측',350)"><div class="item-label">정상예측</div><div class="item-value ok">{s['normal_pred']}</div><div class="item-sub">{s['normal_pred']/surge*100:.1f}%</div></div>
-<div class="item" onclick="showChart('hub','미탐',350)"><div class="item-label">미탐</div><div class="item-value bad">{s['miss']}</div><div class="item-sub">{s['miss']/surge*100:.1f}%</div></div>
+<div class="item" onclick="showList('hub','이상탐지',350)"><div class="item-label">이상탐지</div><div class="item-value ok">{s['detect']}</div><div class="item-sub">{s['detect']/surge*100:.1f}%</div></div>
+<div class="item" onclick="showList('hub','급증사전감지',350)"><div class="item-label">급증사전감지</div><div class="item-value warn">{s['pre_past']}</div><div class="item-sub">{s['pre_past']/surge*100:.1f}%</div></div>
+<div class="item" onclick="showList('hub','정상예측',350)"><div class="item-label">정상예측</div><div class="item-value ok">{s['normal_pred']}</div><div class="item-sub">{s['normal_pred']/surge*100:.1f}%</div></div>
+<div class="item" onclick="showList('hub','미탐',350)"><div class="item-label">미탐</div><div class="item-value bad">{s['miss']}</div><div class="item-sub">{s['miss']/surge*100:.1f}%</div></div>
 </div>
 <div class="mid-summary">
-<div class="mid-item ok-box" onclick="showChart('hub','이상탐지_ALL',350)"><span class="mid-label">이상탐지(±10분)</span><strong>{surge_ok}</strong><span class="mid-pct">{surge_ok/surge*100:.1f}%</span></div>
-<div class="mid-item ng-box" onclick="showChart('hub','미탐',350)"><span class="mid-label">미탐</span><strong>{surge_ng}</strong><span class="mid-pct">{surge_ng/surge*100:.1f}%</span></div>
+<div class="mid-item ok-box" onclick="showList('hub','이상탐지_ALL',350)"><span class="mid-label">이상탐지(±10분)</span><strong>{surge_ok}</strong><span class="mid-pct">{surge_ok/surge*100:.1f}%</span></div>
+<div class="mid-item ng-box" onclick="showList('hub','미탐',350)"><span class="mid-label">미탐</span><strong>{surge_ng}</strong><span class="mid-pct">{surge_ng/surge*100:.1f}%</span></div>
 </div>
 <div class="summary-row">
 <div class="sum-ok">✅ 예측OK <strong>{surge_ok}</strong> <span>({surge_ok/surge*100:.1f}%)</span></div>
@@ -799,14 +820,14 @@ h1{{font-size:2rem;text-align:center;background:linear-gradient(135deg,#00d4ff,#
 <div class="case-box">
 <div class="case-title normal">📊 정상 케이스 ({t-s['surge_total']}개)</div>
 <div class="items">
-<div class="item" onclick="showChart('hub','정상',350)"><div class="item-label">정상</div><div class="item-value gray">{s['normal']}</div><div class="item-sub">{s['normal']/normal_case*100:.1f}%</div></div>
-<div class="item" onclick="showChart('hub','급증연속',350)"><div class="item-label">급증연속</div><div class="item-value warn">{s['surge_cont']}</div><div class="item-sub">{s['surge_cont']/normal_case*100:.1f}%</div></div>
-<div class="item" onclick="showChart('hub','정상사전감지',350)"><div class="item-label">정상사전감지</div><div class="item-value warn">{s['pre_future']}</div><div class="item-sub">{s['pre_future']/normal_case*100:.1f}%</div></div>
-<div class="item" onclick="showChart('hub','오탐',350)"><div class="item-label">오탐</div><div class="item-value bad">{s['false']}</div><div class="item-sub">{s['false']/normal_case*100:.1f}%</div></div>
+<div class="item" onclick="showList('hub','정상',350)"><div class="item-label">정상</div><div class="item-value gray">{s['normal']}</div><div class="item-sub">{s['normal']/normal_case*100:.1f}%</div></div>
+<div class="item" onclick="showList('hub','급증연속',350)"><div class="item-label">급증연속</div><div class="item-value warn">{s['surge_cont']}</div><div class="item-sub">{s['surge_cont']/normal_case*100:.1f}%</div></div>
+<div class="item" onclick="showList('hub','정상사전감지',350)"><div class="item-label">정상사전감지</div><div class="item-value warn">{s['pre_future']}</div><div class="item-sub">{s['pre_future']/normal_case*100:.1f}%</div></div>
+<div class="item" onclick="showList('hub','오탐',350)"><div class="item-label">오탐</div><div class="item-value bad">{s['false']}</div><div class="item-sub">{s['false']/normal_case*100:.1f}%</div></div>
 </div>
 <div class="mid-summary">
-<div class="mid-item ok-box" onclick="showChart('hub','정상탐지_ALL',350)"><span class="mid-label">정상탐지</span><strong>{normal_ok}</strong><span class="mid-pct">{normal_ok/normal_case*100:.1f}%</span></div>
-<div class="mid-item ng-box" onclick="showChart('hub','오탐',350)"><span class="mid-label">오탐</span><strong>{normal_ng}</strong><span class="mid-pct">{normal_ng/normal_case*100:.1f}%</span></div>
+<div class="mid-item ok-box" onclick="showList('hub','정상탐지_ALL',350)"><span class="mid-label">정상탐지</span><strong>{normal_ok}</strong><span class="mid-pct">{normal_ok/normal_case*100:.1f}%</span></div>
+<div class="mid-item ng-box" onclick="showList('hub','오탐',350)"><span class="mid-label">오탐</span><strong>{normal_ng}</strong><span class="mid-pct">{normal_ng/normal_case*100:.1f}%</span></div>
 </div>
 <div class="summary-row">
 <div class="sum-ok">✅ 예측OK <strong>{normal_ok}</strong> <span>({normal_ok/normal_case*100:.1f}%)</span></div>
@@ -859,14 +880,14 @@ h1{{font-size:2rem;text-align:center;background:linear-gradient(135deg,#00d4ff,#
 <div class="case-box">
 <div class="case-title surge" style="color:#ff6b35">📈 급증 케이스 ({s['surge_total']}개)</div>
 <div class="items">
-<div class="item" onclick="showChart('m14','이상탐지',1700)"><div class="item-label">이상탐지</div><div class="item-value ok">{s['detect']}</div><div class="item-sub">{s['detect']/surge*100:.1f}%</div></div>
-<div class="item" onclick="showChart('m14','급증사전감지',1700)"><div class="item-label">급증사전감지</div><div class="item-value warn">{s['pre_past']}</div><div class="item-sub">{s['pre_past']/surge*100:.1f}%</div></div>
-<div class="item" onclick="showChart('m14','정상예측',1700)"><div class="item-label">정상예측</div><div class="item-value ok">{s['normal_pred']}</div><div class="item-sub">{s['normal_pred']/surge*100:.1f}%</div></div>
-<div class="item" onclick="showChart('m14','미탐',1700)"><div class="item-label">미탐</div><div class="item-value bad">{s['miss']}</div><div class="item-sub">{s['miss']/surge*100:.1f}%</div></div>
+<div class="item" onclick="showList('m14','이상탐지',1700)"><div class="item-label">이상탐지</div><div class="item-value ok">{s['detect']}</div><div class="item-sub">{s['detect']/surge*100:.1f}%</div></div>
+<div class="item" onclick="showList('m14','급증사전감지',1700)"><div class="item-label">급증사전감지</div><div class="item-value warn">{s['pre_past']}</div><div class="item-sub">{s['pre_past']/surge*100:.1f}%</div></div>
+<div class="item" onclick="showList('m14','정상예측',1700)"><div class="item-label">정상예측</div><div class="item-value ok">{s['normal_pred']}</div><div class="item-sub">{s['normal_pred']/surge*100:.1f}%</div></div>
+<div class="item" onclick="showList('m14','미탐',1700)"><div class="item-label">미탐</div><div class="item-value bad">{s['miss']}</div><div class="item-sub">{s['miss']/surge*100:.1f}%</div></div>
 </div>
 <div class="mid-summary">
-<div class="mid-item ok-box" onclick="showChart('m14','이상탐지_ALL',1700)"><span class="mid-label">이상탐지(±10분)</span><strong>{surge_ok}</strong><span class="mid-pct">{surge_ok/surge*100:.1f}%</span></div>
-<div class="mid-item ng-box" onclick="showChart('m14','미탐',1700)"><span class="mid-label">미탐</span><strong>{surge_ng}</strong><span class="mid-pct">{surge_ng/surge*100:.1f}%</span></div>
+<div class="mid-item ok-box" onclick="showList('m14','이상탐지_ALL',1700)"><span class="mid-label">이상탐지(±10분)</span><strong>{surge_ok}</strong><span class="mid-pct">{surge_ok/surge*100:.1f}%</span></div>
+<div class="mid-item ng-box" onclick="showList('m14','미탐',1700)"><span class="mid-label">미탐</span><strong>{surge_ng}</strong><span class="mid-pct">{surge_ng/surge*100:.1f}%</span></div>
 </div>
 <div class="summary-row">
 <div class="sum-ok">✅ 예측OK <strong>{surge_ok}</strong> <span>({surge_ok/surge*100:.1f}%)</span></div>
@@ -876,14 +897,14 @@ h1{{font-size:2rem;text-align:center;background:linear-gradient(135deg,#00d4ff,#
 <div class="case-box">
 <div class="case-title normal">📊 정상 케이스 ({t-s['surge_total']}개)</div>
 <div class="items">
-<div class="item" onclick="showChart('m14','정상',1700)"><div class="item-label">정상</div><div class="item-value gray">{s['normal']}</div><div class="item-sub">{s['normal']/normal_case*100:.1f}%</div></div>
-<div class="item" onclick="showChart('m14','급증연속',1700)"><div class="item-label">급증연속</div><div class="item-value warn">{s['surge_cont']}</div><div class="item-sub">{s['surge_cont']/normal_case*100:.1f}%</div></div>
-<div class="item" onclick="showChart('m14','정상사전감지',1700)"><div class="item-label">정상사전감지</div><div class="item-value warn">{s['pre_future']}</div><div class="item-sub">{s['pre_future']/normal_case*100:.1f}%</div></div>
-<div class="item" onclick="showChart('m14','오탐',1700)"><div class="item-label">오탐</div><div class="item-value bad">{s['false']}</div><div class="item-sub">{s['false']/normal_case*100:.1f}%</div></div>
+<div class="item" onclick="showList('m14','정상',1700)"><div class="item-label">정상</div><div class="item-value gray">{s['normal']}</div><div class="item-sub">{s['normal']/normal_case*100:.1f}%</div></div>
+<div class="item" onclick="showList('m14','급증연속',1700)"><div class="item-label">급증연속</div><div class="item-value warn">{s['surge_cont']}</div><div class="item-sub">{s['surge_cont']/normal_case*100:.1f}%</div></div>
+<div class="item" onclick="showList('m14','정상사전감지',1700)"><div class="item-label">정상사전감지</div><div class="item-value warn">{s['pre_future']}</div><div class="item-sub">{s['pre_future']/normal_case*100:.1f}%</div></div>
+<div class="item" onclick="showList('m14','오탐',1700)"><div class="item-label">오탐</div><div class="item-value bad">{s['false']}</div><div class="item-sub">{s['false']/normal_case*100:.1f}%</div></div>
 </div>
 <div class="mid-summary">
-<div class="mid-item ok-box" onclick="showChart('m14','정상탐지_ALL',1700)"><span class="mid-label">정상탐지</span><strong>{normal_ok}</strong><span class="mid-pct">{normal_ok/normal_case*100:.1f}%</span></div>
-<div class="mid-item ng-box" onclick="showChart('m14','오탐',1700)"><span class="mid-label">오탐</span><strong>{normal_ng}</strong><span class="mid-pct">{normal_ng/normal_case*100:.1f}%</span></div>
+<div class="mid-item ok-box" onclick="showList('m14','정상탐지_ALL',1700)"><span class="mid-label">정상탐지</span><strong>{normal_ok}</strong><span class="mid-pct">{normal_ok/normal_case*100:.1f}%</span></div>
+<div class="mid-item ng-box" onclick="showList('m14','오탐',1700)"><span class="mid-label">오탐</span><strong>{normal_ng}</strong><span class="mid-pct">{normal_ng/normal_case*100:.1f}%</span></div>
 </div>
 <div class="summary-row">
 <div class="sum-ok">✅ 예측OK <strong>{normal_ok}</strong> <span>({normal_ok/normal_case*100:.1f}%)</span></div>
@@ -926,10 +947,15 @@ new Chart(document.getElementById('m14Normal'),{{type:'doughnut',data:{{labels:[
 const hubData = {hub_json};
 const m14Data = {m14_json};
 let modalChart = null;
+let currentSystem = '';
+let currentThreshold = 350;
+let currentFiltered = [];
 
-function showChart(system, cls, threshold) {{
+function showList(system, cls, threshold) {{
     const data = system === 'hub' ? hubData : m14Data;
     const sysName = system === 'hub' ? 'HUBROOM' : 'M14_Q';
+    currentSystem = system;
+    currentThreshold = threshold;
     
     let filtered = [];
     if (cls === '이상탐지_ALL') {{
@@ -945,44 +971,87 @@ function showChart(system, cls, threshold) {{
         return;
     }}
     
-    // 최대 500개만 샘플링 (성능)
-    if (filtered.length > 500) {{
-        const step = Math.ceil(filtered.length / 500);
-        filtered = filtered.filter((_, i) => i % step === 0);
-    }}
+    currentFiltered = filtered;
+    document.getElementById('listTitle').textContent = `${{sysName}} - ${{cls}} (${{filtered.length}}개)`;
     
-    document.getElementById('modalTitle').textContent = `${{sysName}} - ${{cls}} (${{filtered.length}}개)`;
+    let html = '<div class="event-item header"><div>No.</div><div>현재시간</div><div>예측시점</div><div>실제값</div><div>예측값</div><div>분류</div></div>';
+    
+    filtered.forEach((d, i) => {{
+        let clsClass = 'normal';
+        if (d.cls === '이상탐지') clsClass = 'detect';
+        else if (d.cls.includes('사전감지')) clsClass = 'pre';
+        else if (d.cls === '미탐') clsClass = 'miss';
+        else if (d.cls === '오탐') clsClass = 'false';
+        
+        const timeShort = d.time.split(' ')[1] || d.time;
+        const predTimeShort = d.pred_time.split(' ')[1] || d.pred_time;
+        
+        html += `<div class="event-item" onclick="showGraph(${{i}})">
+            <div class="event-num">${{i+1}}</div>
+            <div class="event-time">${{timeShort}}</div>
+            <div class="event-time">${{predTimeShort}}</div>
+            <div class="event-actual">${{d.actual.toFixed(0)}}</div>
+            <div class="event-pred">${{d.pred.toFixed(1)}}</div>
+            <div class="event-cls ${{clsClass}}">${{d.cls.substring(0,8)}}</div>
+        </div>`;
+    }});
+    
+    document.getElementById('eventListContainer').innerHTML = html;
+    document.getElementById('listModal').classList.add('show');
+}}
+
+function showGraph(filteredIdx) {{
+    const item = currentFiltered[filteredIdx];
+    const data = currentSystem === 'hub' ? hubData : m14Data;
+    const sysName = currentSystem === 'hub' ? 'HUBROOM' : 'M14_Q';
+    const centerIdx = item.idx;
+    
+    // ±10분 범위 데이터
+    const startIdx = Math.max(0, centerIdx - 10);
+    const endIdx = Math.min(data.length, centerIdx + 11);
+    const rangeData = data.slice(startIdx, endIdx);
+    const centerPos = centerIdx - startIdx;
+    
+    document.getElementById('chartTitle').innerHTML = `<button class="back-btn" onclick="backToList()">← 목록</button>${{sysName}} - ${{item.cls}}`;
+    document.getElementById('chartInfo').textContent = `시점: ${{item.time}} | 실제값: ${{item.actual.toFixed(0)}} | 예측값: ${{item.pred.toFixed(1)}} | ±10분 범위`;
+    
+    document.getElementById('listModal').classList.remove('show');
     document.getElementById('chartModal').classList.add('show');
     
     const ctx = document.getElementById('modalLineChart').getContext('2d');
     if (modalChart) modalChart.destroy();
     
+    // 포인트 색상 (현재 위치 강조)
+    const pointColors = rangeData.map((_, i) => i === centerPos ? '#ffcc00' : '#00d4ff');
+    const pointSizes = rangeData.map((_, i) => i === centerPos ? 12 : 4);
+    
     modalChart = new Chart(ctx, {{
         type: 'line',
         data: {{
-            labels: filtered.map(d => d.time.split(' ')[1] || d.time),
+            labels: rangeData.map(d => d.time.split(' ')[1] || d.time),
             datasets: [
                 {{
                     label: '실제값',
-                    data: filtered.map(d => d.actual),
+                    data: rangeData.map(d => d.actual),
                     borderColor: '#00d4ff',
                     backgroundColor: 'rgba(0,212,255,0.1)',
                     fill: true,
                     tension: 0.3,
-                    pointRadius: 2
+                    pointBackgroundColor: pointColors,
+                    pointRadius: pointSizes
                 }},
                 {{
                     label: '예측값',
-                    data: filtered.map(d => d.pred),
+                    data: rangeData.map(d => d.pred),
                     borderColor: '#ff6b35',
                     backgroundColor: 'rgba(255,107,53,0.1)',
                     fill: false,
                     tension: 0.3,
-                    pointRadius: 2
+                    pointRadius: 3
                 }},
                 {{
-                    label: '임계값',
-                    data: filtered.map(() => threshold),
+                    label: '임계값 (' + currentThreshold + ')',
+                    data: rangeData.map(() => currentThreshold),
                     borderColor: '#ff4466',
                     borderDash: [5, 5],
                     fill: false,
@@ -995,43 +1064,68 @@ function showChart(system, cls, threshold) {{
             maintainAspectRatio: false,
             plugins: {{
                 legend: {{ position: 'top', labels: {{ color: '#fff' }} }},
-                datalabels: {{ display: false }}
+                datalabels: {{ display: false }},
+                annotation: {{}}
             }},
             scales: {{
-                x: {{ ticks: {{ color: '#888', maxTicksLimit: 20 }}, grid: {{ color: '#333' }} }},
+                x: {{ ticks: {{ color: '#888' }}, grid: {{ color: '#333' }} }},
                 y: {{ ticks: {{ color: '#888' }}, grid: {{ color: '#333' }} }}
             }}
         }}
     }});
     
     // 통계
-    const actuals = filtered.map(d => d.actual);
-    const preds = filtered.map(d => d.pred);
-    document.getElementById('statCount').textContent = filtered.length;
+    const actuals = rangeData.map(d => d.actual);
+    const preds = rangeData.map(d => d.pred);
+    document.getElementById('statCount').textContent = rangeData.length + '분';
     document.getElementById('statActualAvg').textContent = (actuals.reduce((a,b)=>a+b,0)/actuals.length).toFixed(1);
     document.getElementById('statPredAvg').textContent = (preds.reduce((a,b)=>a+b,0)/preds.length).toFixed(1);
     document.getElementById('statActualMax').textContent = Math.max(...actuals).toFixed(1);
 }}
 
-function closeModal() {{
+function backToList() {{
+    document.getElementById('chartModal').classList.remove('show');
+    document.getElementById('listModal').classList.add('show');
+    if (modalChart) {{ modalChart.destroy(); modalChart = null; }}
+}}
+
+function closeListModal() {{
+    document.getElementById('listModal').classList.remove('show');
+}}
+
+function closeChartModal() {{
     document.getElementById('chartModal').classList.remove('show');
     if (modalChart) {{ modalChart.destroy(); modalChart = null; }}
 }}
 
+document.getElementById('listModal').addEventListener('click', function(e) {{
+    if (e.target === this) closeListModal();
+}});
 document.getElementById('chartModal').addEventListener('click', function(e) {{
-    if (e.target === this) closeModal();
+    if (e.target === this) closeChartModal();
 }});
 </script>
+
+<div id="listModal" class="modal">
+<div class="modal-content">
+<div class="modal-header">
+<div id="listTitle" class="modal-title">이벤트 목록</div>
+<button class="modal-close" onclick="closeListModal()">&times;</button>
+</div>
+<div id="eventListContainer" class="event-list"></div>
+</div>
+</div>
 
 <div id="chartModal" class="modal">
 <div class="modal-content">
 <div class="modal-header">
-<div id="modalTitle" class="modal-title">그래프</div>
-<button class="modal-close" onclick="closeModal()">&times;</button>
+<div id="chartTitle" class="modal-title">그래프</div>
+<button class="modal-close" onclick="closeChartModal()">&times;</button>
 </div>
+<div id="chartInfo" style="text-align:center;color:#888;margin-bottom:15px;font-size:0.9rem"></div>
 <div class="modal-chart"><canvas id="modalLineChart"></canvas></div>
 <div class="modal-info">
-<div class="modal-stat"><div class="modal-stat-label">데이터 수</div><div id="statCount" class="modal-stat-value ok">0</div></div>
+<div class="modal-stat"><div class="modal-stat-label">범위</div><div id="statCount" class="modal-stat-value ok">0</div></div>
 <div class="modal-stat"><div class="modal-stat-label">실제값 평균</div><div id="statActualAvg" class="modal-stat-value" style="color:#00d4ff">0</div></div>
 <div class="modal-stat"><div class="modal-stat-label">예측값 평균</div><div id="statPredAvg" class="modal-stat-value" style="color:#ff6b35">0</div></div>
 <div class="modal-stat"><div class="modal-stat-label">실제값 최대</div><div id="statActualMax" class="modal-stat-value bad">0</div></div>
