@@ -5,6 +5,14 @@ from datetime import datetime
 import webbrowser
 import os
 
+try:
+    import matplotlib.pyplot as plt
+    from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
+    from matplotlib.figure import Figure
+    HAS_MATPLOTLIB = True
+except ImportError:
+    HAS_MATPLOTLIB = False
+
 class SurgeAnalyzer:
     def __init__(self, root):
         self.root = root
@@ -122,6 +130,202 @@ class SurgeAnalyzer:
         
         self.m14_data_frame = tk.Frame(self.notebook, bg='#0d0d15')
         self.notebook.add(self.m14_data_frame, text='🏭 M14_Q 데이터')
+        
+        # 이벤트 뷰어 탭 추가
+        self.event_frame = tk.Frame(self.notebook, bg='#0d0d15')
+        self.notebook.add(self.event_frame, text='📈 이벤트 그래프')
+        self.setup_event_viewer()
+    
+    def setup_event_viewer(self):
+        """이벤트 뷰어 탭 설정"""
+        # 상단 컨트롤
+        ctrl_frame = tk.Frame(self.event_frame, bg='#252540')
+        ctrl_frame.pack(fill=tk.X, padx=10, pady=10)
+        
+        tk.Label(ctrl_frame, text="시스템:", font=('맑은 고딕', 10, 'bold'),
+                 bg='#252540', fg='white').pack(side=tk.LEFT, padx=(10,5))
+        self.ev_system = ttk.Combobox(ctrl_frame, values=['HUBROOM', 'M14_Q'], width=12, state='readonly')
+        self.ev_system.set('HUBROOM')
+        self.ev_system.pack(side=tk.LEFT, padx=5)
+        self.ev_system.bind('<<ComboboxSelected>>', lambda e: self.refresh_event_list())
+        
+        tk.Label(ctrl_frame, text="분류:", font=('맑은 고딕', 10, 'bold'),
+                 bg='#252540', fg='white').pack(side=tk.LEFT, padx=(20,5))
+        self.ev_class = ttk.Combobox(ctrl_frame, values=[
+            '전체', '이상탐지', '급증사전감지', '정상예측', '미탐',
+            '정상', '급증연속', '정상사전감지', '오탐'
+        ], width=15, state='readonly')
+        self.ev_class.set('이상탐지')
+        self.ev_class.pack(side=tk.LEFT, padx=5)
+        self.ev_class.bind('<<ComboboxSelected>>', lambda e: self.refresh_event_list())
+        
+        tk.Button(ctrl_frame, text="🔄 새로고침", command=self.refresh_event_list,
+                  font=('맑은 고딕', 9), bg='#00d4ff', fg='black').pack(side=tk.LEFT, padx=20)
+        
+        self.ev_count_label = tk.Label(ctrl_frame, text="이벤트: 0개", font=('맑은 고딕', 10),
+                                        bg='#252540', fg='#00ff88')
+        self.ev_count_label.pack(side=tk.RIGHT, padx=10)
+        
+        # 메인 영역 (리스트 + 그래프)
+        main_pane = tk.PanedWindow(self.event_frame, orient=tk.HORIZONTAL, bg='#1a1a2e', sashwidth=5)
+        main_pane.pack(fill=tk.BOTH, expand=True, padx=10, pady=(0,10))
+        
+        # 왼쪽: 이벤트 리스트
+        list_frame = tk.Frame(main_pane, bg='#0d0d15')
+        main_pane.add(list_frame, width=400)
+        
+        tk.Label(list_frame, text="📋 이벤트 목록 (클릭 → 그래프)", font=('맑은 고딕', 10, 'bold'),
+                 bg='#0d0d15', fg='#ffcc00').pack(pady=(10,5))
+        
+        # 리스트박스
+        list_container = tk.Frame(list_frame, bg='#0d0d15')
+        list_container.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
+        
+        y_scroll = ttk.Scrollbar(list_container, orient=tk.VERTICAL)
+        y_scroll.pack(side=tk.RIGHT, fill=tk.Y)
+        
+        self.event_listbox = tk.Listbox(list_container, font=('Consolas', 9), bg='#15151f', fg='white',
+                                         selectmode=tk.SINGLE, activestyle='none',
+                                         yscrollcommand=y_scroll.set, selectbackground='#00d4ff',
+                                         selectforeground='black')
+        self.event_listbox.pack(fill=tk.BOTH, expand=True)
+        y_scroll.config(command=self.event_listbox.yview)
+        self.event_listbox.bind('<<ListboxSelect>>', self.on_event_select)
+        
+        # 오른쪽: 그래프
+        graph_frame = tk.Frame(main_pane, bg='#0d0d15')
+        main_pane.add(graph_frame, width=700)
+        
+        self.graph_title = tk.Label(graph_frame, text="📈 이벤트 선택 시 그래프 표시", 
+                                     font=('맑은 고딕', 11, 'bold'), bg='#0d0d15', fg='#00d4ff')
+        self.graph_title.pack(pady=(10,5))
+        
+        # 그래프 정보
+        self.graph_info = tk.Label(graph_frame, text="", font=('맑은 고딕', 9), bg='#0d0d15', fg='#888')
+        self.graph_info.pack()
+        
+        # matplotlib 캔버스
+        self.graph_container = tk.Frame(graph_frame, bg='#0d0d15')
+        self.graph_container.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+        
+        if HAS_MATPLOTLIB:
+            plt.style.use('dark_background')
+            self.fig = Figure(figsize=(8, 5), dpi=100, facecolor='#0d0d15')
+            self.ax = self.fig.add_subplot(111)
+            self.ax.set_facecolor('#15151f')
+            self.canvas = FigureCanvasTkAgg(self.fig, master=self.graph_container)
+            self.canvas.get_tk_widget().pack(fill=tk.BOTH, expand=True)
+        else:
+            tk.Label(self.graph_container, text="matplotlib 설치 필요\npip install matplotlib",
+                     font=('맑은 고딕', 12), bg='#0d0d15', fg='#ff4466').pack(pady=50)
+        
+        self.event_data = []  # 현재 표시중인 이벤트 리스트
+    
+    def refresh_event_list(self):
+        """이벤트 리스트 새로고침"""
+        self.event_listbox.delete(0, tk.END)
+        self.event_data = []
+        
+        system = self.ev_system.get()
+        cls_filter = self.ev_class.get()
+        
+        df = self.hub_df if system == 'HUBROOM' else self.m14_df
+        
+        if df is None or len(df) == 0 or '분류' not in df.columns:
+            self.ev_count_label.config(text="이벤트: 0개")
+            return
+        
+        # 필터링
+        if cls_filter == '전체':
+            filtered = df
+        else:
+            filtered = df[df['분류'].str.contains(cls_filter, na=False)]
+        
+        self.ev_count_label.config(text=f"이벤트: {len(filtered)}개")
+        
+        # 리스트에 추가
+        for i, (idx, row) in enumerate(filtered.iterrows()):
+            time_str = str(row.get('현재시간', ''))[-11:]  # HH:MM:SS 또는 날짜시간
+            pred_time = str(row.get('예측시점', ''))[-11:]
+            actual = row.get('실제값', 0)
+            pred = row.get('예측값_MAX', 0)
+            cls = str(row.get('분류', ''))[:10]
+            
+            display = f"{i+1:4d} | {time_str} → {pred_time} | 실:{actual:6.0f} 예:{pred:6.0f} | {cls}"
+            self.event_listbox.insert(tk.END, display)
+            self.event_data.append(idx)  # 원본 인덱스 저장
+    
+    def on_event_select(self, event):
+        """이벤트 선택 시 그래프 표시"""
+        if not HAS_MATPLOTLIB:
+            return
+        
+        selection = self.event_listbox.curselection()
+        if not selection:
+            return
+        
+        list_idx = selection[0]
+        if list_idx >= len(self.event_data):
+            return
+        
+        df_idx = self.event_data[list_idx]
+        system = self.ev_system.get()
+        df = self.hub_df if system == 'HUBROOM' else self.m14_df
+        threshold = 350 if system == 'HUBROOM' else 1700
+        
+        if df is None:
+            return
+        
+        # 해당 행
+        row = df.loc[df_idx]
+        center_time = str(row.get('현재시간', ''))
+        cls = str(row.get('분류', ''))
+        actual_val = row.get('실제값', 0)
+        pred_val = row.get('예측값_MAX', 0)
+        
+        # ±10분 범위 데이터 추출
+        row_pos = df.index.get_loc(df_idx)
+        start_pos = max(0, row_pos - 10)
+        end_pos = min(len(df), row_pos + 11)
+        
+        range_df = df.iloc[start_pos:end_pos].copy()
+        
+        # 그래프 그리기
+        self.ax.clear()
+        self.ax.set_facecolor('#15151f')
+        
+        x_labels = [str(t)[-8:] for t in range_df['현재시간'].values]
+        x_pos = range(len(range_df))
+        
+        # 실제값, 예측값 라인
+        self.ax.plot(x_pos, range_df['실제값'].values, 'o-', color='#00d4ff', 
+                     linewidth=2, markersize=6, label='실제값')
+        self.ax.plot(x_pos, range_df['예측값_MAX'].values, 's--', color='#ff6b35', 
+                     linewidth=2, markersize=5, label='예측값')
+        
+        # 임계값 라인
+        self.ax.axhline(y=threshold, color='#ff4466', linestyle=':', linewidth=2, label=f'임계값 ({threshold})')
+        
+        # 현재 포인트 강조
+        center_pos = row_pos - start_pos
+        self.ax.axvline(x=center_pos, color='#ffcc00', linestyle='-', linewidth=2, alpha=0.5)
+        self.ax.scatter([center_pos], [actual_val], color='#ffcc00', s=150, zorder=5, marker='*')
+        
+        # 스타일
+        self.ax.set_xticks(x_pos)
+        self.ax.set_xticklabels(x_labels, rotation=45, ha='right', fontsize=8)
+        self.ax.set_xlabel('시간', fontsize=10, color='white')
+        self.ax.set_ylabel('값', fontsize=10, color='white')
+        self.ax.legend(loc='upper right', fontsize=9)
+        self.ax.grid(True, alpha=0.3, color='#333')
+        self.ax.tick_params(colors='white')
+        
+        self.fig.tight_layout()
+        self.canvas.draw()
+        
+        # 정보 업데이트
+        self.graph_title.config(text=f"📈 {system} - {cls}")
+        self.graph_info.config(text=f"시점: {center_time} | 실제값: {actual_val:.0f} | 예측값: {pred_val:.1f} | ±10분 범위")
     
     def create_data_view(self, parent, df):
         for widget in parent.winfo_children():
@@ -338,6 +542,9 @@ class SurgeAnalyzer:
             self.result_text.insert(tk.END, result_text)
             self.result_text.config(state=tk.DISABLED)
             
+            # 이벤트 뷰어 새로고침
+            self.refresh_event_list()
+            
             save_dir = filedialog.askdirectory(title="결과 저장할 폴더 선택")
             if save_dir:
                 ts = datetime.now().strftime('%Y%m%d_%H%M%S')
@@ -360,6 +567,9 @@ class SurgeAnalyzer:
                 
                 webbrowser.open(html_f)
                 messagebox.showinfo("완료", "저장 완료!\n\n" + "\n".join([os.path.basename(x) for x in files]))
+            
+            # 이벤트 뷰어 새로고침
+            self.refresh_event_list()
             
         except Exception as e:
             import traceback
