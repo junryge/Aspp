@@ -1017,7 +1017,9 @@ function showGraph(filteredIdx) {{
     const centerPos = centerIdx - startIdx;
     
     document.getElementById('chartTitle').innerHTML = `<button class="back-btn" onclick="backToList()">← 목록</button>${{sysName}} - ${{item.cls}}`;
-    document.getElementById('chartInfo').textContent = `현재시간: ${{item.time}} → 예측시점: ${{item.pred_time}} | 현재값: ${{item.current.toFixed(0)}} | 실제값: ${{item.actual.toFixed(0)}} | 예측값: ${{item.pred.toFixed(1)}}`;
+    const t1 = (item.time.split(' ')[1] || item.time).substring(0,5);
+    const t2 = (item.pred_time.split(' ')[1] || item.pred_time).substring(0,5);
+    document.getElementById('chartInfo').textContent = `${{t1}}(현재)->${{t2}}(예측) | 현재값: ${{item.current.toFixed(0)}} | 실제값: ${{item.actual.toFixed(0)}} | 예측값: ${{item.pred.toFixed(1)}}`;
     
     document.getElementById('listModal').classList.remove('show');
     document.getElementById('chartModal').classList.add('show');
@@ -1035,7 +1037,7 @@ function showGraph(filteredIdx) {{
             labels: rangeData.map(d => {{
                 const t1 = (d.time.split(' ')[1] || d.time).substring(0,5);
                 const t2 = (d.pred_time.split(' ')[1] || d.pred_time).substring(0,5);
-                return t1 + '→' + t2;
+                return t1 + '(현재)->' + t2 + '(예측)';
             }}),
             datasets: [
                 {{
@@ -1087,7 +1089,7 @@ function showGraph(filteredIdx) {{
                 annotation: {{}}
             }},
             scales: {{
-                x: {{ ticks: {{ color: '#888', maxRotation: 45, font: {{ size: 9 }} }}, grid: {{ color: '#333' }} }},
+                x: {{ ticks: {{ color: '#888', maxRotation: 60, font: {{ size: 8 }} }}, grid: {{ color: '#333' }} }},
                 y: {{ ticks: {{ color: '#888' }}, grid: {{ color: '#333' }} }}
             }}
         }}
