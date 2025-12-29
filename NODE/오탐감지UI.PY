@@ -639,6 +639,7 @@ class SurgeAnalyzer:
                     'idx': i,
                     'time': str(row.get('현재시간', '')),
                     'pred_time': str(row.get('예측시점', '')),
+                    'current': float(row.get('현재값', 0)),
                     'actual': float(row.get('실제값', 0)),
                     'pred': float(row.get('예측값_MAX', 0)),
                     'cls': str(row.get('분류', ''))
@@ -652,8 +653,9 @@ class SurgeAnalyzer:
                     'idx': i,
                     'time': str(row.get('현재시간', '')),
                     'pred_time': str(row.get('예측시점', '')),
+                    'current': float(row.get('현재TOTALCNT', 0)),
                     'actual': float(row.get('실제값', 0)),
-                    'pred': float(row.get('예측값_MAX', 0)),
+                    'pred': float(row.get('예측값_MAX', row.get('최종예측', 0))),
                     'cls': str(row.get('분류', ''))
                 })
             m14_json = str(m14_data).replace("'", '"')
@@ -736,17 +738,18 @@ h1{{font-size:2rem;text-align:center;background:linear-gradient(135deg,#00d4ff,#
 .modal-close{{background:none;border:none;color:#888;font-size:1.5rem;cursor:pointer}}
 .modal-close:hover{{color:#fff}}
 .modal-chart{{height:400px;margin-bottom:20px}}
-.modal-info{{display:grid;grid-template-columns:repeat(4,1fr);gap:10px}}
+.modal-info{{display:grid;grid-template-columns:repeat(5,1fr);gap:10px}}
 .modal-stat{{background:#0a0a12;padding:12px;border-radius:8px;text-align:center}}
 .modal-stat-label{{font-size:0.75rem;color:#666;margin-bottom:4px}}
 .modal-stat-value{{font-size:1.1rem;font-weight:bold}}
 .event-list{{max-height:60vh;overflow-y:auto;background:#0a0a12;border-radius:8px;padding:10px}}
-.event-item{{display:grid;grid-template-columns:50px 1fr 1fr 80px 80px 100px;gap:10px;padding:10px 15px;border-bottom:1px solid #222;cursor:pointer;transition:all 0.2s;font-size:0.85rem}}
+.event-item{{display:grid;grid-template-columns:50px 1fr 1fr 80px 80px 80px 100px;gap:10px;padding:10px 15px;border-bottom:1px solid #222;cursor:pointer;transition:all 0.2s;font-size:0.85rem}}
 .event-item:hover{{background:#1a1a2a}}
 .event-item.header{{background:#15151f;font-weight:bold;color:#888;cursor:default}}
 .event-item.header:hover{{background:#15151f}}
 .event-num{{color:#00d4ff}}
 .event-time{{color:#aaa}}
+.event-current{{color:#00ff88;text-align:right}}
 .event-actual{{color:#00d4ff;text-align:right}}
 .event-pred{{color:#ff6b35;text-align:right}}
 .event-cls{{text-align:center;padding:2px 8px;border-radius:4px;font-size:0.75rem}}
@@ -974,7 +977,7 @@ function showList(system, cls, threshold) {{
     currentFiltered = filtered;
     document.getElementById('listTitle').textContent = `${{sysName}} - ${{cls}} (${{filtered.length}}개)`;
     
-    let html = '<div class="event-item header"><div>No.</div><div>현재시간</div><div>예측시점</div><div>실제값</div><div>예측값</div><div>분류</div></div>';
+    let html = '<div class="event-item header"><div>No.</div><div>현재시간</div><div>예측시점</div><div>현재값</div><div>실제값</div><div>예측값</div><div>분류</div></div>';
     
     filtered.forEach((d, i) => {{
         let clsClass = 'normal';
@@ -990,6 +993,7 @@ function showList(system, cls, threshold) {{
             <div class="event-num">${{i+1}}</div>
             <div class="event-time">${{timeShort}}</div>
             <div class="event-time">${{predTimeShort}}</div>
+            <div class="event-current">${{d.current.toFixed(0)}}</div>
             <div class="event-actual">${{d.actual.toFixed(0)}}</div>
             <div class="event-pred">${{d.pred.toFixed(1)}}</div>
             <div class="event-cls ${{clsClass}}">${{d.cls.substring(0,8)}}</div>
@@ -1013,7 +1017,7 @@ function showGraph(filteredIdx) {{
     const centerPos = centerIdx - startIdx;
     
     document.getElementById('chartTitle').innerHTML = `<button class="back-btn" onclick="backToList()">← 목록</button>${{sysName}} - ${{item.cls}}`;
-    document.getElementById('chartInfo').textContent = `시점: ${{item.time}} | 실제값: ${{item.actual.toFixed(0)}} | 예측값: ${{item.pred.toFixed(1)}} | ±10분 범위`;
+    document.getElementById('chartInfo').textContent = `시점: ${{item.time}} | 현재값: ${{item.current.toFixed(0)}} | 실제값: ${{item.actual.toFixed(0)}} | 예측값: ${{item.pred.toFixed(1)}} | ±10분 범위`;
     
     document.getElementById('listModal').classList.remove('show');
     document.getElementById('chartModal').classList.add('show');
@@ -1078,6 +1082,7 @@ function showGraph(filteredIdx) {{
     const actuals = rangeData.map(d => d.actual);
     const preds = rangeData.map(d => d.pred);
     document.getElementById('statCount').textContent = rangeData.length + '분';
+    document.getElementById('statCurrent').textContent = item.current.toFixed(0);
     document.getElementById('statActualAvg').textContent = (actuals.reduce((a,b)=>a+b,0)/actuals.length).toFixed(1);
     document.getElementById('statPredAvg').textContent = (preds.reduce((a,b)=>a+b,0)/preds.length).toFixed(1);
     document.getElementById('statActualMax').textContent = Math.max(...actuals).toFixed(1);
@@ -1126,6 +1131,7 @@ document.getElementById('chartModal').addEventListener('click', function(e) {{
 <div class="modal-chart"><canvas id="modalLineChart"></canvas></div>
 <div class="modal-info">
 <div class="modal-stat"><div class="modal-stat-label">범위</div><div id="statCount" class="modal-stat-value ok">0</div></div>
+<div class="modal-stat"><div class="modal-stat-label">현재값</div><div id="statCurrent" class="modal-stat-value" style="color:#00ff88">0</div></div>
 <div class="modal-stat"><div class="modal-stat-label">실제값 평균</div><div id="statActualAvg" class="modal-stat-value" style="color:#00d4ff">0</div></div>
 <div class="modal-stat"><div class="modal-stat-label">예측값 평균</div><div id="statPredAvg" class="modal-stat-value" style="color:#ff6b35">0</div></div>
 <div class="modal-stat"><div class="modal-stat-label">실제값 최대</div><div id="statActualMax" class="modal-stat-value bad">0</div></div>
