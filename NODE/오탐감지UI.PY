@@ -1083,10 +1083,48 @@ function showGraph(filteredIdx) {{
         options: {{
             responsive: true,
             maintainAspectRatio: false,
+            interaction: {{
+                mode: 'index',
+                intersect: false
+            }},
             plugins: {{
                 legend: {{ position: 'top', labels: {{ color: '#fff' }} }},
                 datalabels: {{ display: false }},
-                annotation: {{}}
+                tooltip: {{
+                    enabled: true,
+                    backgroundColor: 'rgba(0,0,0,0.9)',
+                    titleColor: '#fff',
+                    bodyColor: '#fff',
+                    borderColor: '#444',
+                    borderWidth: 1,
+                    padding: 12,
+                    displayColors: true,
+                    callbacks: {{
+                        title: function(context) {{
+                            return context[0].label;
+                        }},
+                        label: function(context) {{
+                            const idx = context.dataIndex;
+                            const d = rangeData[idx];
+                            if (context.datasetIndex === 0) {{
+                                return '🟢 현재값: ' + d.current.toFixed(0);
+                            }} else if (context.datasetIndex === 1) {{
+                                return '🔵 실제값: ' + d.actual.toFixed(0);
+                            }} else if (context.datasetIndex === 2) {{
+                                return '🟠 예측값: ' + d.pred.toFixed(1);
+                            }} else {{
+                                return '🔴 임계값: ' + currentThreshold;
+                            }}
+                        }},
+                        afterBody: function(context) {{
+                            const idx = context[0].dataIndex;
+                            const d = rangeData[idx];
+                            const diff = d.pred - d.actual;
+                            const diffStr = diff >= 0 ? '+' + diff.toFixed(1) : diff.toFixed(1);
+                            return ['', '예측 오차: ' + diffStr];
+                        }}
+                    }}
+                }}
             }},
             scales: {{
                 x: {{ ticks: {{ color: '#888', maxRotation: 60, font: {{ size: 8 }} }}, grid: {{ color: '#333' }} }},
