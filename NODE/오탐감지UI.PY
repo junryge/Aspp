@@ -1011,8 +1011,8 @@ function showGraph(filteredIdx) {{
     const centerIdx = item.idx;
     
     // ±10분 범위 데이터
-    const startIdx = Math.max(0, centerIdx - 10);
-    const endIdx = Math.min(data.length, centerIdx + 11);
+    const startIdx = Math.max(0, centerIdx - 20);
+    const endIdx = Math.min(data.length, centerIdx + 21);
     const rangeData = data.slice(startIdx, endIdx);
     const centerPos = centerIdx - startIdx;
     
@@ -1031,14 +1031,18 @@ function showGraph(filteredIdx) {{
     const pointColors = rangeData.map((_, i) => i === centerPos ? '#ffcc00' : '#ff6b35');
     const pointSizes = rangeData.map((_, i) => i === centerPos ? 12 : 4);
     
+    // x축 레이블 (현재값 숨김이면 예측시점만, 열림이면 둘 다)
+    const labelsShort = rangeData.map(d => (d.pred_time.split(' ')[1] || d.pred_time).substring(0,5) + '(예측)');
+    const labelsFull = rangeData.map(d => {{
+        const t1 = (d.time.split(' ')[1] || d.time).substring(0,5);
+        const t2 = (d.pred_time.split(' ')[1] || d.pred_time).substring(0,5);
+        return t1 + '(현재)->' + t2 + '(예측)';
+    }});
+    
     modalChart = new Chart(ctx, {{
         type: 'line',
         data: {{
-            labels: rangeData.map(d => {{
-                const t1 = (d.time.split(' ')[1] || d.time).substring(0,5);
-                const t2 = (d.pred_time.split(' ')[1] || d.pred_time).substring(0,5);
-                return t1 + '(현재)->' + t2 + '(예측)';
-            }}),
+            labels: labelsShort,
             datasets: [
                 {{
                     label: '현재값 (현재시간)',
@@ -1089,7 +1093,23 @@ function showGraph(filteredIdx) {{
                 intersect: false
             }},
             plugins: {{
-                legend: {{ position: 'top', labels: {{ color: '#fff' }} }},
+                legend: {{ 
+                    position: 'top', 
+                    labels: {{ color: '#fff' }},
+                    onClick: function(e, legendItem, legend) {{
+                        const index = legendItem.datasetIndex;
+                        const ci = legend.chart;
+                        const meta = ci.getDatasetMeta(index);
+                        meta.hidden = meta.hidden === null ? !ci.data.datasets[index].hidden : null;
+                        
+                        // 현재값(index 0) 토글시 라벨 변경
+                        if (index === 0) {{
+                            const isHidden = meta.hidden;
+                            ci.data.labels = isHidden ? labelsShort : labelsFull;
+                        }}
+                        ci.update();
+                    }}
+                }},
                 datalabels: {{ display: false }},
                 tooltip: {{
                     enabled: true,
