@@ -168,9 +168,17 @@ class SurgeAnalyzer:
         tk.Label(ctrl_frame, text="분류:", font=('맑은 고딕', 10, 'bold'),
                  bg='#252540', fg='white').pack(side=tk.LEFT, padx=(20,5))
         self.ev_class = ttk.Combobox(ctrl_frame, values=[
-            '전체', '이상탐지', '미탐', '오탐', '정상'
-        ], width=15, state='readonly')
-        self.ev_class.set('이상탐지')
+            '전체',
+            '─ 이상탐지 (전체)',
+            '    이상탐지',
+            '    이상탐지(정상-N분)',
+            '─ 미탐',
+            '─ 오탐',
+            '─ 정상 (전체)',
+            '    정상',
+            '    정상(급증-N분)'
+        ], width=20, state='readonly')
+        self.ev_class.set('─ 이상탐지 (전체)')
         self.ev_class.pack(side=tk.LEFT, padx=5)
         self.ev_class.bind('<<ComboboxSelected>>', lambda e: self.refresh_event_list())
         
@@ -251,19 +259,32 @@ class SurgeAnalyzer:
             return
         
         # 필터링
+        cls_filter = cls_filter.strip()
         if cls_filter == '전체':
             filtered = df
-        elif cls_filter == '이상탐지':
+        elif cls_filter == '─ 이상탐지 (전체)':
             # 이상탐지 + 이상탐지(정상-N분)
             filtered = df[df['분류'].str.contains('이상탐지', na=False)]
-        elif cls_filter == '미탐':
+        elif cls_filter == '이상탐지':
+            # 정확히 이상탐지만
+            filtered = df[df['분류'] == '이상탐지']
+        elif cls_filter == '이상탐지(정상-N분)':
+            # 이상탐지(정상-N분) 패턴
+            filtered = df[df['분류'].str.contains(r'이상탐지\(정상-', na=False, regex=True)]
+        elif cls_filter == '─ 미탐':
             # 미탐 + 미탐(N분후)
             filtered = df[df['분류'].str.contains('미탐', na=False)]
-        elif cls_filter == '정상':
+        elif cls_filter == '─ 오탐':
+            filtered = df[df['분류'] == '오탐']
+        elif cls_filter == '─ 정상 (전체)':
             # 정상 + 정상(급증-N분)
             filtered = df[df['분류'].str.startswith('정상', na=False)]
-        elif cls_filter == '오탐':
-            filtered = df[df['분류'] == '오탐']
+        elif cls_filter == '정상':
+            # 정확히 정상만
+            filtered = df[df['분류'] == '정상']
+        elif cls_filter == '정상(급증-N분)':
+            # 정상(급증-N분) 패턴
+            filtered = df[df['분류'].str.contains(r'정상\(급증-', na=False, regex=True)]
         else:
             filtered = df[df['분류'].str.contains(cls_filter, na=False)]
         
