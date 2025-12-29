@@ -355,6 +355,12 @@ class SurgeAnalyzer:
         normal_case = t - surge if t - surge > 0 else 1
         detect_rate = (s['detect'] + s['pre_past'] + s['normal_pred']) / surge * 100 if surge > 0 else 0
         
+        # 요약 계산
+        surge_ok = s['detect'] + s['pre_past'] + s['normal_pred']
+        surge_ng = s['miss']
+        normal_ok = s['normal'] + s['pre_future']
+        normal_ng = s['false']
+        
         return f"""
 {'='*60}
   {name} (기준: {th})
@@ -366,12 +372,17 @@ class SurgeAnalyzer:
   ⏰ 급증사전감지: {s['pre_past']}개 ({s['pre_past']/surge*100:.1f}%)
   ✅ 정상예측: {s['normal_pred']}개 ({s['normal_pred']/surge*100:.1f}%)
   ❌ 미탐: {s['miss']}개 ({s['miss']/surge*100:.1f}%)
-  → 탐지율: {detect_rate:.1f}%
+  ─────────────────────────────
+  ✅ 예측OK: {surge_ok}개 ({surge_ok/surge*100:.1f}%)
+  ❌ 예측NG: {surge_ng}개 ({surge_ng/surge*100:.1f}%)
 
 [ 정상 케이스: {t - surge}개 ]
   ✔️ 정상: {s['normal']}개 ({s['normal']/normal_case*100:.1f}%)
   ⏰ 정상사전감지: {s['pre_future']}개 ({s['pre_future']/normal_case*100:.1f}%)
   ⚠️ 오탐: {s['false']}개 ({s['false']/normal_case*100:.1f}%)
+  ─────────────────────────────
+  ✅ 정상OK: {normal_ok}개 ({normal_ok/normal_case*100:.1f}%)
+  ❌ 예측NG: {normal_ng}개 ({normal_ng/normal_case*100:.1f}%)
 """
     
     def gen_html(self, hub_cmt, m14_cmt, anal_date):
@@ -412,6 +423,13 @@ h1{{font-size:2rem;text-align:center;background:linear-gradient(135deg,#00d4ff,#
 .item-value{{font-size:1.3rem;font-weight:bold}}
 .item-sub{{font-size:0.75rem;color:#888;margin-top:3px}}
 .ok{{color:#00ff88}}.warn{{color:#ffcc00}}.bad{{color:#ff4466}}.gray{{color:#aaa}}
+.summary-row{{display:flex;gap:10px;margin-top:15px;padding-top:12px;border-top:1px solid #333}}
+.sum-ok,.sum-ng{{flex:1;padding:10px 12px;border-radius:8px;font-size:0.85rem}}
+.sum-ok{{background:#1a2a1a;color:#00ff88}}
+.sum-ng{{background:#2a1a1a;color:#ff4466}}
+.sum-ok strong,.sum-ng strong{{font-size:1.1rem;margin:0 5px}}
+.sum-ok span,.sum-ng span{{opacity:0.8}}
+.items-3{{grid-template-columns:repeat(3,1fr)}}
 .charts{{display:grid;grid-template-columns:1fr 1fr;gap:15px}}
 .chart-box{{background:#0a0a12;border-radius:12px;padding:15px;border:1px solid #333}}
 .chart-title{{font-size:0.85rem;color:#888;text-align:center;margin-bottom:10px}}
@@ -439,6 +457,12 @@ h1{{font-size:2rem;text-align:center;background:linear-gradient(135deg,#00d4ff,#
             normal_case = t - surge if t - surge > 0 else 1
             det_rate = (s['detect']+s['pre_past']+s['normal_pred'])/surge*100
             
+            # 요약 계산
+            surge_ok = s['detect'] + s['pre_past'] + s['normal_pred']
+            surge_ng = s['miss']
+            normal_ok = s['normal'] + s['pre_future']
+            normal_ng = s['false']
+            
             cmt_html = ""
             if hub_cmt:
                 cmt_html = f'<div class="comment"><div class="comment-title hub">📝 코멘트</div><div class="comment-content">{hub_cmt.replace(chr(10),"<br>")}</div></div>'
@@ -455,21 +479,28 @@ h1{{font-size:2rem;text-align:center;background:linear-gradient(135deg,#00d4ff,#
 </div>
 <div class="case-row">
 <div class="case-box">
-<div class="case-title surge">📈 급증 케이스 ({s['surge_total']}개)<span class="rate good">탐지율 {det_rate:.1f}%</span></div>
+<div class="case-title surge">📈 급증 케이스 ({s['surge_total']}개)</div>
 <div class="items">
 <div class="item"><div class="item-label">이상탐지</div><div class="item-value ok">{s['detect']}</div><div class="item-sub">{s['detect']/surge*100:.1f}%</div></div>
 <div class="item"><div class="item-label">급증사전감지</div><div class="item-value warn">{s['pre_past']}</div><div class="item-sub">{s['pre_past']/surge*100:.1f}%</div></div>
 <div class="item"><div class="item-label">정상예측</div><div class="item-value ok">{s['normal_pred']}</div><div class="item-sub">{s['normal_pred']/surge*100:.1f}%</div></div>
 <div class="item"><div class="item-label">미탐</div><div class="item-value bad">{s['miss']}</div><div class="item-sub">{s['miss']/surge*100:.1f}%</div></div>
 </div>
+<div class="summary-row">
+<div class="sum-ok">✅ 예측OK <strong>{surge_ok}</strong> <span>({surge_ok/surge*100:.1f}%)</span></div>
+<div class="sum-ng">❌ 예측NG <strong>{surge_ng}</strong> <span>({surge_ng/surge*100:.1f}%)</span></div>
+</div>
 </div>
 <div class="case-box">
-<div class="case-title normal">📊 정상 케이스 ({t-s['surge_total']}개)<span class="rate" style="background:#1a1a2a;color:#888">오탐률 {s['false']/normal_case*100:.1f}%</span></div>
-<div class="items">
+<div class="case-title normal">📊 정상 케이스 ({t-s['surge_total']}개)</div>
+<div class="items items-3">
 <div class="item"><div class="item-label">정상</div><div class="item-value gray">{s['normal']}</div><div class="item-sub">{s['normal']/normal_case*100:.1f}%</div></div>
 <div class="item"><div class="item-label">정상사전감지</div><div class="item-value warn">{s['pre_future']}</div><div class="item-sub">{s['pre_future']/normal_case*100:.1f}%</div></div>
 <div class="item"><div class="item-label">오탐</div><div class="item-value bad">{s['false']}</div><div class="item-sub">{s['false']/normal_case*100:.1f}%</div></div>
-
+</div>
+<div class="summary-row">
+<div class="sum-ok">✅ 정상OK <strong>{normal_ok}</strong> <span>({normal_ok/normal_case*100:.1f}%)</span></div>
+<div class="sum-ng">❌ 예측NG <strong>{normal_ng}</strong> <span>({normal_ng/normal_case*100:.1f}%)</span></div>
 </div>
 </div>
 </div>
@@ -488,6 +519,12 @@ h1{{font-size:2rem;text-align:center;background:linear-gradient(135deg,#00d4ff,#
             det_rate = (s['detect']+s['pre_past']+s['normal_pred'])/surge*100
             normal_case = t - surge if t - surge > 0 else 1
             
+            # 요약 계산
+            surge_ok = s['detect'] + s['pre_past'] + s['normal_pred']
+            surge_ng = s['miss']
+            normal_ok = s['normal'] + s['pre_future']
+            normal_ng = s['false']
+            
             cmt_html = ""
             if m14_cmt:
                 cmt_html = f'<div class="comment m14"><div class="comment-title m14">📝 코멘트</div><div class="comment-content">{m14_cmt.replace(chr(10),"<br>")}</div></div>'
@@ -504,21 +541,28 @@ h1{{font-size:2rem;text-align:center;background:linear-gradient(135deg,#00d4ff,#
 </div>
 <div class="case-row">
 <div class="case-box">
-<div class="case-title surge" style="color:#ff6b35">📈 급증 케이스 ({s['surge_total']}개)<span class="rate good">탐지율 {det_rate:.1f}%</span></div>
+<div class="case-title surge" style="color:#ff6b35">📈 급증 케이스 ({s['surge_total']}개)</div>
 <div class="items">
 <div class="item"><div class="item-label">이상탐지</div><div class="item-value ok">{s['detect']}</div><div class="item-sub">{s['detect']/surge*100:.1f}%</div></div>
 <div class="item"><div class="item-label">급증사전감지</div><div class="item-value warn">{s['pre_past']}</div><div class="item-sub">{s['pre_past']/surge*100:.1f}%</div></div>
 <div class="item"><div class="item-label">정상예측</div><div class="item-value ok">{s['normal_pred']}</div><div class="item-sub">{s['normal_pred']/surge*100:.1f}%</div></div>
 <div class="item"><div class="item-label">미탐</div><div class="item-value bad">{s['miss']}</div><div class="item-sub">{s['miss']/surge*100:.1f}%</div></div>
 </div>
+<div class="summary-row">
+<div class="sum-ok">✅ 예측OK <strong>{surge_ok}</strong> <span>({surge_ok/surge*100:.1f}%)</span></div>
+<div class="sum-ng">❌ 예측NG <strong>{surge_ng}</strong> <span>({surge_ng/surge*100:.1f}%)</span></div>
+</div>
 </div>
 <div class="case-box">
-<div class="case-title normal">📊 정상 케이스 ({t-s['surge_total']}개)<span class="rate" style="background:#1a1a2a;color:#888">오탐률 {s['false']/normal_case*100:.1f}%</span></div>
-<div class="items">
+<div class="case-title normal">📊 정상 케이스 ({t-s['surge_total']}개)</div>
+<div class="items items-3">
 <div class="item"><div class="item-label">정상</div><div class="item-value gray">{s['normal']}</div><div class="item-sub">{s['normal']/normal_case*100:.1f}%</div></div>
 <div class="item"><div class="item-label">정상사전감지</div><div class="item-value warn">{s['pre_future']}</div><div class="item-sub">{s['pre_future']/normal_case*100:.1f}%</div></div>
 <div class="item"><div class="item-label">오탐</div><div class="item-value bad">{s['false']}</div><div class="item-sub">{s['false']/normal_case*100:.1f}%</div></div>
-
+</div>
+<div class="summary-row">
+<div class="sum-ok">✅ 정상OK <strong>{normal_ok}</strong> <span>({normal_ok/normal_case*100:.1f}%)</span></div>
+<div class="sum-ng">❌ 예측NG <strong>{normal_ng}</strong> <span>({normal_ng/normal_case*100:.1f}%)</span></div>
 </div>
 </div>
 </div>
