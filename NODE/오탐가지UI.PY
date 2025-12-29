@@ -386,34 +386,44 @@ class SurgeAnalyzer:
 <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2"></script>
 <style>
 *{{margin:0;padding:0;box-sizing:border-box}}
-body{{font-family:'맑은 고딕',sans-serif;background:#0a0a0f;color:#fff;padding:40px}}
-.container{{max-width:1400px;margin:0 auto}}
-h1{{font-size:2.2rem;text-align:center;background:linear-gradient(135deg,#00d4ff,#ff6b35);-webkit-background-clip:text;-webkit-text-fill-color:transparent;margin-bottom:10px}}
-.sub{{text-align:center;color:#888;margin-bottom:25px}}
-.section{{margin-bottom:50px}}
-.stitle{{font-size:1.4rem;margin-bottom:20px;padding-bottom:10px;border-bottom:2px solid #333}}
-.stitle.hub{{color:#00d4ff;border-color:#00d4ff}}
-.stitle.m14{{color:#ff6b35;border-color:#ff6b35}}
-.grid{{display:grid;grid-template-columns:repeat(5,1fr);gap:12px;margin-bottom:20px}}
-.card{{background:#12121a;padding:15px;border-radius:10px;text-align:center;border:1px solid #2a2a3a}}
-.card-label{{font-size:0.75rem;color:#888;margin-bottom:6px}}
-.card-value{{font-size:1.5rem;font-weight:bold}}
-.card-sub{{font-size:0.8rem;color:#888;margin-top:4px}}
-.ok{{color:#00ff88}}.warn{{color:#ffcc00}}.bad{{color:#ff4466}}.blue{{color:#00d4ff}}.orange{{color:#ff6b35}}.gray{{color:#aaa}}
-.charts{{display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-bottom:25px}}
-.cbox{{background:#12121a;padding:20px;border-radius:12px;border:1px solid #2a2a3a}}
-.ctitle{{font-size:1rem;margin-bottom:15px;text-align:center}}
-.cwrap{{height:280px}}
-.summary{{background:#12121a;padding:20px;border-radius:12px;border:1px solid #2a2a3a;margin-bottom:15px}}
-.summary pre{{font-family:Consolas,monospace;white-space:pre-wrap;color:#aaa;line-height:1.8;font-size:0.9rem}}
-.comment{{background:#1a2a1a;border:2px solid #00ff88;border-radius:12px;padding:18px;margin-top:15px}}
+body{{font-family:'맑은 고딕',sans-serif;background:#0a0a0f;color:#fff;padding:30px}}
+.container{{max-width:1200px;margin:0 auto}}
+h1{{font-size:2rem;text-align:center;background:linear-gradient(135deg,#00d4ff,#ff6b35);-webkit-background-clip:text;-webkit-text-fill-color:transparent;margin-bottom:8px}}
+.sub{{text-align:center;color:#888;margin-bottom:30px;font-size:0.9rem}}
+.system{{background:#12121a;border-radius:16px;padding:25px;margin-bottom:30px;border:1px solid #2a2a3a}}
+.sys-header{{display:flex;justify-content:space-between;align-items:center;margin-bottom:20px;padding-bottom:15px;border-bottom:2px solid #333}}
+.sys-title{{font-size:1.3rem;font-weight:bold}}
+.sys-title.hub{{color:#00d4ff}}
+.sys-title.m14{{color:#ff6b35}}
+.sys-stats{{display:flex;gap:20px;font-size:0.95rem}}
+.sys-stats span{{color:#aaa}}
+.sys-stats strong{{margin-left:5px}}
+.case-row{{display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-bottom:20px}}
+.case-box{{background:#0a0a12;border-radius:12px;padding:20px;border:1px solid #333}}
+.case-title{{font-size:1rem;font-weight:bold;margin-bottom:15px;display:flex;justify-content:space-between;align-items:center}}
+.case-title.surge{{color:#00d4ff}}
+.case-title.normal{{color:#888}}
+.rate{{font-size:0.85rem;padding:4px 10px;border-radius:20px}}
+.rate.good{{background:#1a3a1a;color:#00ff88}}
+.rate.bad{{background:#3a1a1a;color:#ff4466}}
+.items{{display:grid;grid-template-columns:repeat(4,1fr);gap:10px}}
+.item{{background:#15151f;padding:12px;border-radius:8px;text-align:center}}
+.item-label{{font-size:0.7rem;color:#666;margin-bottom:4px}}
+.item-value{{font-size:1.3rem;font-weight:bold}}
+.item-sub{{font-size:0.75rem;color:#888;margin-top:3px}}
+.ok{{color:#00ff88}}.warn{{color:#ffcc00}}.bad{{color:#ff4466}}.gray{{color:#aaa}}
+.charts{{display:grid;grid-template-columns:1fr 1fr;gap:15px}}
+.chart-box{{background:#0a0a12;border-radius:12px;padding:15px;border:1px solid #333}}
+.chart-title{{font-size:0.85rem;color:#888;text-align:center;margin-bottom:10px}}
+.chart-wrap{{height:200px}}
+.comment{{background:#1a2a1a;border:2px solid #00ff88;border-radius:10px;padding:15px;margin-top:15px}}
 .comment.m14{{background:#2a1a1a;border-color:#ff6b35}}
-.comment-title{{font-weight:bold;margin-bottom:8px}}
+.comment-title{{font-weight:bold;margin-bottom:6px;font-size:0.9rem}}
 .comment-title.hub{{color:#00d4ff}}
 .comment-title.m14{{color:#ff6b35}}
-.comment-content{{color:#ccc;line-height:1.7}}
-.footer{{text-align:center;color:#555;margin-top:50px;font-size:0.85rem}}
-@media(max-width:900px){{.grid{{grid-template-columns:repeat(2,1fr)}}.charts{{grid-template-columns:1fr}}}}
+.comment-content{{color:#ccc;line-height:1.6;font-size:0.9rem}}
+.footer{{text-align:center;color:#555;margin-top:40px;font-size:0.8rem}}
+@media(max-width:800px){{.case-row,.charts,.items{{grid-template-columns:1fr}}.sys-header{{flex-direction:column;gap:10px}}.sys-stats{{flex-wrap:wrap}}}}
 </style>
 </head>
 <body>
@@ -426,42 +436,47 @@ h1{{font-size:2.2rem;text-align:center;background:linear-gradient(135deg,#00d4ff
             s = self.hub_stats
             t = s['total_rows']
             surge = s['surge_total'] or 1
+            normal_case = t - surge if t - surge > 0 else 1
             det_rate = (s['detect']+s['pre_past']+s['normal_pred'])/surge*100
             
             cmt_html = ""
             if hub_cmt:
-                cmt_html = f'<div class="comment"><div class="comment-title hub">📝 HUBROOM 코멘트</div><div class="comment-content">{hub_cmt.replace(chr(10),"<br>")}</div></div>'
+                cmt_html = f'<div class="comment"><div class="comment-title hub">📝 코멘트</div><div class="comment-content">{hub_cmt.replace(chr(10),"<br>")}</div></div>'
             
             html += f'''
-<div class="section">
-<h2 class="stitle hub">🏠 HUBROOM V9 (기준: 350)</h2>
-<div class="grid">
-<div class="card"><div class="card-label">전체 데이터</div><div class="card-value">{t}</div></div>
-<div class="card"><div class="card-label">급증 케이스</div><div class="card-value blue">{s['surge_total']}</div></div>
-<div class="card"><div class="card-label">정상 케이스</div><div class="card-value gray">{t-s['surge_total']}</div></div>
-<div class="card"><div class="card-label">탐지율</div><div class="card-value ok">{det_rate:.1f}%</div></div>
-<div class="card"><div class="card-label">미탐</div><div class="card-value bad">{s['miss']}</div><div class="card-sub">{s['miss']/surge*100:.1f}%</div></div>
+<div class="system">
+<div class="sys-header">
+<div class="sys-title hub">🏠 HUBROOM V9 (기준: 350)</div>
+<div class="sys-stats">
+<span>전체 <strong>{t}</strong>개</span>
+<span>급증 <strong style="color:#00d4ff">{s['surge_total']}</strong>개</span>
+<span>정상 <strong style="color:#aaa">{t-s['surge_total']}</strong>개</span>
 </div>
-<div class="grid">
-<div class="card"><div class="card-label">이상탐지</div><div class="card-value ok">{s['detect']}</div><div class="card-sub">{s['detect']/surge*100:.1f}%</div></div>
-<div class="card"><div class="card-label">급증사전감지</div><div class="card-value warn">{s['pre_past']}</div><div class="card-sub">{s['pre_past']/surge*100:.1f}%</div></div>
-<div class="card"><div class="card-label">정상예측</div><div class="card-value ok">{s['normal_pred']}</div><div class="card-sub">{s['normal_pred']/surge*100:.1f}%</div></div>
-<div class="card"><div class="card-label">오탐</div><div class="card-value bad">{s['false']}</div><div class="card-sub">{s['false']/(t-surge)*100:.1f}%</div></div>
-<div class="card"><div class="card-label">정상</div><div class="card-value gray">{s['normal']}</div><div class="card-sub">{s['normal']/(t-surge)*100:.1f}%</div></div>
+</div>
+<div class="case-row">
+<div class="case-box">
+<div class="case-title surge">📈 급증 케이스 ({s['surge_total']}개)<span class="rate good">탐지율 {det_rate:.1f}%</span></div>
+<div class="items">
+<div class="item"><div class="item-label">이상탐지</div><div class="item-value ok">{s['detect']}</div><div class="item-sub">{s['detect']/surge*100:.1f}%</div></div>
+<div class="item"><div class="item-label">급증사전감지</div><div class="item-value warn">{s['pre_past']}</div><div class="item-sub">{s['pre_past']/surge*100:.1f}%</div></div>
+<div class="item"><div class="item-label">정상예측</div><div class="item-value ok">{s['normal_pred']}</div><div class="item-sub">{s['normal_pred']/surge*100:.1f}%</div></div>
+<div class="item"><div class="item-label">미탐</div><div class="item-value bad">{s['miss']}</div><div class="item-sub">{s['miss']/surge*100:.1f}%</div></div>
+</div>
+</div>
+<div class="case-box">
+<div class="case-title normal">📊 정상 케이스 ({t-s['surge_total']}개)<span class="rate" style="background:#1a1a2a;color:#888">오탐률 {s['false']/normal_case*100:.1f}%</span></div>
+<div class="items">
+<div class="item"><div class="item-label">정상</div><div class="item-value gray">{s['normal']}</div><div class="item-sub">{s['normal']/normal_case*100:.1f}%</div></div>
+<div class="item"><div class="item-label">정상사전감지</div><div class="item-value warn">{s['pre_future']}</div><div class="item-sub">{s['pre_future']/normal_case*100:.1f}%</div></div>
+<div class="item"><div class="item-label">오탐</div><div class="item-value bad">{s['false']}</div><div class="item-sub">{s['false']/normal_case*100:.1f}%</div></div>
+
+</div>
+</div>
 </div>
 <div class="charts">
-<div class="cbox"><div class="ctitle">📈 급증 탐지 분포</div><div class="cwrap"><canvas id="hubSurge"></canvas></div></div>
-<div class="cbox"><div class="ctitle">📊 정상 케이스 분포</div><div class="cwrap"><canvas id="hubNormal"></canvas></div></div>
+<div class="chart-box"><div class="chart-title">급증 탐지 분포</div><div class="chart-wrap"><canvas id="hubSurge"></canvas></div></div>
+<div class="chart-box"><div class="chart-title">정상 케이스 분포</div><div class="chart-wrap"><canvas id="hubNormal"></canvas></div></div>
 </div>
-<div class="summary"><pre>=== HUBROOM V9 요약 (기준: 350) ===
-전체: {t}개 | 급증: {s['surge_total']}개 | 정상케이스: {t-s['surge_total']}개
-
-[급증 탐지]
-이상탐지: {s['detect']}개({s['detect']/surge*100:.1f}%) | 급증사전감지: {s['pre_past']}개({s['pre_past']/surge*100:.1f}%) | 정상예측: {s['normal_pred']}개({s['normal_pred']/surge*100:.1f}%) | 미탐: {s['miss']}개({s['miss']/surge*100:.1f}%)
-→ 탐지율: {det_rate:.1f}%
-
-[정상 케이스]
-정상: {s['normal']}개 | 정상사전감지: {s['pre_future']}개 | 오탐: {s['false']}개</pre></div>
 {cmt_html}
 </div>
 '''
@@ -475,38 +490,42 @@ h1{{font-size:2.2rem;text-align:center;background:linear-gradient(135deg,#00d4ff
             
             cmt_html = ""
             if m14_cmt:
-                cmt_html = f'<div class="comment m14"><div class="comment-title m14">📝 M14_Q 코멘트</div><div class="comment-content">{m14_cmt.replace(chr(10),"<br>")}</div></div>'
+                cmt_html = f'<div class="comment m14"><div class="comment-title m14">📝 코멘트</div><div class="comment-content">{m14_cmt.replace(chr(10),"<br>")}</div></div>'
             
             html += f'''
-<div class="section">
-<h2 class="stitle m14">🏭 M14_Q V9 (기준: 1700)</h2>
-<div class="grid">
-<div class="card"><div class="card-label">전체 데이터</div><div class="card-value">{t}</div></div>
-<div class="card"><div class="card-label">급증 케이스</div><div class="card-value orange">{s['surge_total']}</div></div>
-<div class="card"><div class="card-label">정상 케이스</div><div class="card-value gray">{t-s['surge_total']}</div></div>
-<div class="card"><div class="card-label">탐지율</div><div class="card-value ok">{det_rate:.1f}%</div></div>
-<div class="card"><div class="card-label">미탐</div><div class="card-value bad">{s['miss']}</div><div class="card-sub">{s['miss']/surge*100:.1f}%</div></div>
+<div class="system">
+<div class="sys-header">
+<div class="sys-title m14">🏭 M14_Q V9 (기준: 1700)</div>
+<div class="sys-stats">
+<span>전체 <strong>{t}</strong>개</span>
+<span>급증 <strong style="color:#ff6b35">{s['surge_total']}</strong>개</span>
+<span>정상 <strong style="color:#aaa">{t-s['surge_total']}</strong>개</span>
 </div>
-<div class="grid">
-<div class="card"><div class="card-label">이상탐지</div><div class="card-value ok">{s['detect']}</div><div class="card-sub">{s['detect']/surge*100:.1f}%</div></div>
-<div class="card"><div class="card-label">급증사전감지</div><div class="card-value warn">{s['pre_past']}</div><div class="card-sub">{s['pre_past']/surge*100:.1f}%</div></div>
-<div class="card"><div class="card-label">정상예측</div><div class="card-value ok">{s['normal_pred']}</div><div class="card-sub">{s['normal_pred']/surge*100:.1f}%</div></div>
-<div class="card"><div class="card-label">오탐</div><div class="card-value bad">{s['false']}</div><div class="card-sub">{s['false']/normal_case*100:.1f}%</div></div>
-<div class="card"><div class="card-label">정상</div><div class="card-value gray">{s['normal']}</div><div class="card-sub">{s['normal']/normal_case*100:.1f}%</div></div>
+</div>
+<div class="case-row">
+<div class="case-box">
+<div class="case-title surge" style="color:#ff6b35">📈 급증 케이스 ({s['surge_total']}개)<span class="rate good">탐지율 {det_rate:.1f}%</span></div>
+<div class="items">
+<div class="item"><div class="item-label">이상탐지</div><div class="item-value ok">{s['detect']}</div><div class="item-sub">{s['detect']/surge*100:.1f}%</div></div>
+<div class="item"><div class="item-label">급증사전감지</div><div class="item-value warn">{s['pre_past']}</div><div class="item-sub">{s['pre_past']/surge*100:.1f}%</div></div>
+<div class="item"><div class="item-label">정상예측</div><div class="item-value ok">{s['normal_pred']}</div><div class="item-sub">{s['normal_pred']/surge*100:.1f}%</div></div>
+<div class="item"><div class="item-label">미탐</div><div class="item-value bad">{s['miss']}</div><div class="item-sub">{s['miss']/surge*100:.1f}%</div></div>
+</div>
+</div>
+<div class="case-box">
+<div class="case-title normal">📊 정상 케이스 ({t-s['surge_total']}개)<span class="rate" style="background:#1a1a2a;color:#888">오탐률 {s['false']/normal_case*100:.1f}%</span></div>
+<div class="items">
+<div class="item"><div class="item-label">정상</div><div class="item-value gray">{s['normal']}</div><div class="item-sub">{s['normal']/normal_case*100:.1f}%</div></div>
+<div class="item"><div class="item-label">정상사전감지</div><div class="item-value warn">{s['pre_future']}</div><div class="item-sub">{s['pre_future']/normal_case*100:.1f}%</div></div>
+<div class="item"><div class="item-label">오탐</div><div class="item-value bad">{s['false']}</div><div class="item-sub">{s['false']/normal_case*100:.1f}%</div></div>
+
+</div>
+</div>
 </div>
 <div class="charts">
-<div class="cbox"><div class="ctitle">📈 급증 탐지 분포</div><div class="cwrap"><canvas id="m14Surge"></canvas></div></div>
-<div class="cbox"><div class="ctitle">📊 정상 케이스 분포</div><div class="cwrap"><canvas id="m14Normal"></canvas></div></div>
+<div class="chart-box"><div class="chart-title">급증 탐지 분포</div><div class="chart-wrap"><canvas id="m14Surge"></canvas></div></div>
+<div class="chart-box"><div class="chart-title">정상 케이스 분포</div><div class="chart-wrap"><canvas id="m14Normal"></canvas></div></div>
 </div>
-<div class="summary"><pre>=== M14_Q V9 요약 (기준: 1700) ===
-전체: {t}개 | 급증: {s['surge_total']}개 | 정상케이스: {t-s['surge_total']}개
-
-[급증 탐지]
-이상탐지: {s['detect']}개({s['detect']/surge*100:.1f}%) | 급증사전감지: {s['pre_past']}개({s['pre_past']/surge*100:.1f}%) | 정상예측: {s['normal_pred']}개({s['normal_pred']/surge*100:.1f}%) | 미탐: {s['miss']}개({s['miss']/surge*100:.1f}%)
-→ 탐지율: {det_rate:.1f}%
-
-[정상 케이스]
-정상: {s['normal']}개 | 정상사전감지: {s['pre_future']}개 | 오탐: {s['false']}개</pre></div>
 {cmt_html}
 </div>
 '''
@@ -516,7 +535,7 @@ h1{{font-size:2.2rem;text-align:center;background:linear-gradient(135deg,#00d4ff
 </div>
 <script>
 Chart.register(ChartDataLabels);
-const opt={responsive:true,maintainAspectRatio:false,plugins:{legend:{position:'bottom',labels:{color:'#fff',font:{size:11}}},datalabels:{color:'#fff',font:{weight:'bold',size:12},formatter:(v,ctx)=>{let sum=ctx.chart.data.datasets[0].data.reduce((a,b)=>a+b,0);return v>0?(v/sum*100).toFixed(1)+'%':''}}}};
+const opt={responsive:true,maintainAspectRatio:false,plugins:{legend:{position:'bottom',labels:{color:'#fff',font:{size:10},padding:8}},datalabels:{color:'#fff',font:{weight:'bold',size:11},formatter:(v,ctx)=>{let sum=ctx.chart.data.datasets[0].data.reduce((a,b)=>a+b,0);return v>0?(v/sum*100).toFixed(1)+'%':''}}}};
 '''
         
         if self.hub_stats and self.hub_stats['total_rows'] > 0:
