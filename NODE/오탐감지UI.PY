@@ -1035,6 +1035,16 @@ function showGraph(filteredIdx) {{
             labels: rangeData.map(d => d.time.split(' ')[1] || d.time),
             datasets: [
                 {{
+                    label: '현재값',
+                    data: rangeData.map(d => d.current),
+                    borderColor: '#00ff88',
+                    backgroundColor: 'rgba(0,255,136,0.1)',
+                    fill: false,
+                    tension: 0.3,
+                    pointRadius: 3,
+                    borderWidth: 2
+                }},
+                {{
                     label: '실제값',
                     data: rangeData.map(d => d.actual),
                     borderColor: '#00d4ff',
@@ -1079,6 +1089,7 @@ function showGraph(filteredIdx) {{
     }});
     
     // 통계
+    const currents = rangeData.map(d => d.current);
     const actuals = rangeData.map(d => d.actual);
     const preds = rangeData.map(d => d.pred);
     document.getElementById('statCount').textContent = rangeData.length + '분';
