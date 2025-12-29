@@ -164,6 +164,8 @@ class SurgeAnalyzer:
                     tag = 'normal_pred'
                 elif 분류 == '미탐':
                     tag = 'miss'
+                elif '급증연속' in 분류:
+                    tag = 'surge_cont'
                 elif '정상사전감지' in 분류:
                     tag = 'pre_future'
                 elif '오탐' in 분류:
@@ -174,6 +176,7 @@ class SurgeAnalyzer:
         tree.tag_configure('pre', background='#2a3a1a')
         tree.tag_configure('normal_pred', background='#1a2a3a')
         tree.tag_configure('miss', background='#3a1a1a')
+        tree.tag_configure('surge_cont', background='#2a2a1a')
         tree.tag_configure('pre_future', background='#2a2a3a')
         tree.tag_configure('false', background='#3a1a2a')
         
@@ -243,17 +246,28 @@ class SurgeAnalyzer:
                         if not found_future:
                             df.loc[idx, '분류'] = '미탐'
             else:
-                # 정상 케이스
+                # 정상 케이스 (실제값 < threshold)
                 if pred >= threshold:
-                    # 10분내 급증 있는지 체크
-                    is_pre = False
-                    for fwd in range(1, 11):
-                        if idx + fwd < len(df) and df.loc[idx + fwd, actual_col] >= threshold:
-                            is_pre = True
-                            df.loc[idx, '분류'] = f'정상사전감지({fwd}분후)'
+                    # 1) 10분 전에 급증 있는지 체크 → 급증연속
+                    found_past = False
+                    for back in range(1, 11):
+                        if idx - back >= 0 and df.loc[idx - back, actual_col] >= threshold:
+                            found_past = True
+                            df.loc[idx, '분류'] = f'급증연속({back}분전)'
                             break
-                    if not is_pre:
-                        df.loc[idx, '분류'] = '오탐'
+                    
+                    if not found_past:
+                        # 2) 10분 후에 급증 있는지 체크 → 정상사전감지
+                        found_future = False
+                        for fwd in range(1, 11):
+                            if idx + fwd < len(df) and df.loc[idx + fwd, actual_col] >= threshold:
+                                found_future = True
+                                df.loc[idx, '분류'] = f'정상사전감지({fwd}분후)'
+                                break
+                        
+                        if not found_future:
+                            # 3) 둘 다 없으면 진짜 오탐
+                            df.loc[idx, '분류'] = '오탐'
                 else:
                     df.loc[idx, '분류'] = '정상'
         
@@ -263,6 +277,7 @@ class SurgeAnalyzer:
         detect = len(df[df['분류'] == '이상탐지'])
         pre_past = len(df[df['분류'].str.contains('급증사전감지', na=False)])  # 급증케이스 사전감지
         pre_future = len(df[df['분류'].str.contains('정상사전감지', na=False)])  # 정상케이스 사전감지
+        surge_cont = len(df[df['분류'].str.contains('급증연속', na=False)])  # 급증연속
         normal_pred = len(df[df['분류'].str.contains('정상예측', na=False)])
         miss = len(df[df['분류'] == '미탐'])
         false_alarm = len(df[df['분류'] == '오탐'])
@@ -274,6 +289,7 @@ class SurgeAnalyzer:
             'detect': detect,
             'pre_past': pre_past,        # 급증 케이스 사전감지 (N분전)
             'pre_future': pre_future,    # 정상 케이스 사전감지 (N분후)
+            'surge_cont': surge_cont,    # 급증연속
             'normal_pred': normal_pred,
             'miss': miss,
             'false': false_alarm,
@@ -358,7 +374,7 @@ class SurgeAnalyzer:
         # 요약 계산
         surge_ok = s['detect'] + s['pre_past'] + s['normal_pred']
         surge_ng = s['miss']
-        normal_ok = s['normal'] + s['pre_future']
+        normal_ok = s['normal'] + s['pre_future'] + s['surge_cont']
         normal_ng = s['false']
         
         return f"""
@@ -378,6 +394,7 @@ class SurgeAnalyzer:
 
 [ 정상 케이스: {t - surge}개 ]
   ✔️ 정상: {s['normal']}개 ({s['normal']/normal_case*100:.1f}%)
+  🔄 급증연속: {s['surge_cont']}개 ({s['surge_cont']/normal_case*100:.1f}%)
   ⏰ 정상사전감지: {s['pre_future']}개 ({s['pre_future']/normal_case*100:.1f}%)
   ⚠️ 오탐: {s['false']}개 ({s['false']/normal_case*100:.1f}%)
   ─────────────────────────────
@@ -460,7 +477,7 @@ h1{{font-size:2rem;text-align:center;background:linear-gradient(135deg,#00d4ff,#
             # 요약 계산
             surge_ok = s['detect'] + s['pre_past'] + s['normal_pred']
             surge_ng = s['miss']
-            normal_ok = s['normal'] + s['pre_future']
+            normal_ok = s['normal'] + s['pre_future'] + s['surge_cont']
             normal_ng = s['false']
             
             cmt_html = ""
@@ -493,8 +510,9 @@ h1{{font-size:2rem;text-align:center;background:linear-gradient(135deg,#00d4ff,#
 </div>
 <div class="case-box">
 <div class="case-title normal">📊 정상 케이스 ({t-s['surge_total']}개)</div>
-<div class="items items-3">
+<div class="items">
 <div class="item"><div class="item-label">정상</div><div class="item-value gray">{s['normal']}</div><div class="item-sub">{s['normal']/normal_case*100:.1f}%</div></div>
+<div class="item"><div class="item-label">급증연속</div><div class="item-value warn">{s['surge_cont']}</div><div class="item-sub">{s['surge_cont']/normal_case*100:.1f}%</div></div>
 <div class="item"><div class="item-label">정상사전감지</div><div class="item-value warn">{s['pre_future']}</div><div class="item-sub">{s['pre_future']/normal_case*100:.1f}%</div></div>
 <div class="item"><div class="item-label">오탐</div><div class="item-value bad">{s['false']}</div><div class="item-sub">{s['false']/normal_case*100:.1f}%</div></div>
 </div>
@@ -522,7 +540,7 @@ h1{{font-size:2rem;text-align:center;background:linear-gradient(135deg,#00d4ff,#
             # 요약 계산
             surge_ok = s['detect'] + s['pre_past'] + s['normal_pred']
             surge_ng = s['miss']
-            normal_ok = s['normal'] + s['pre_future']
+            normal_ok = s['normal'] + s['pre_future'] + s['surge_cont']
             normal_ng = s['false']
             
             cmt_html = ""
@@ -555,8 +573,9 @@ h1{{font-size:2rem;text-align:center;background:linear-gradient(135deg,#00d4ff,#
 </div>
 <div class="case-box">
 <div class="case-title normal">📊 정상 케이스 ({t-s['surge_total']}개)</div>
-<div class="items items-3">
+<div class="items">
 <div class="item"><div class="item-label">정상</div><div class="item-value gray">{s['normal']}</div><div class="item-sub">{s['normal']/normal_case*100:.1f}%</div></div>
+<div class="item"><div class="item-label">급증연속</div><div class="item-value warn">{s['surge_cont']}</div><div class="item-sub">{s['surge_cont']/normal_case*100:.1f}%</div></div>
 <div class="item"><div class="item-label">정상사전감지</div><div class="item-value warn">{s['pre_future']}</div><div class="item-sub">{s['pre_future']/normal_case*100:.1f}%</div></div>
 <div class="item"><div class="item-label">오탐</div><div class="item-value bad">{s['false']}</div><div class="item-sub">{s['false']/normal_case*100:.1f}%</div></div>
 </div>
@@ -586,14 +605,14 @@ const opt={responsive:true,maintainAspectRatio:false,plugins:{legend:{position:'
             s = self.hub_stats
             html += f'''
 new Chart(document.getElementById('hubSurge'),{{type:'doughnut',data:{{labels:['이상탐지 ({s['detect']}개)','급증사전감지 ({s['pre_past']}개)','정상예측 ({s['normal_pred']}개)','미탐 ({s['miss']}개)'],datasets:[{{data:[{s['detect']},{s['pre_past']},{s['normal_pred']},{s['miss']}],backgroundColor:['#00ff88','#ffcc00','#00d4ff','#ff4466']}}]}},options:opt}});
-new Chart(document.getElementById('hubNormal'),{{type:'doughnut',data:{{labels:['정상 ({s['normal']}개)','정상사전감지 ({s['pre_future']}개)','오탐 ({s['false']}개)'],datasets:[{{data:[{s['normal']},{s['pre_future']},{s['false']}],backgroundColor:['#666666','#ffcc00','#ff4466']}}]}},options:opt}});
+new Chart(document.getElementById('hubNormal'),{{type:'doughnut',data:{{labels:['정상 ({s['normal']}개)','급증연속 ({s['surge_cont']}개)','정상사전감지 ({s['pre_future']}개)','오탐 ({s['false']}개)'],datasets:[{{data:[{s['normal']},{s['surge_cont']},{s['pre_future']},{s['false']}],backgroundColor:['#666666','#ff9500','#ffcc00','#ff4466']}}]}},options:opt}});
 '''
         
         if self.m14_stats and self.m14_stats['total_rows'] > 0:
             s = self.m14_stats
             html += f'''
 new Chart(document.getElementById('m14Surge'),{{type:'doughnut',data:{{labels:['이상탐지 ({s['detect']}개)','급증사전감지 ({s['pre_past']}개)','정상예측 ({s['normal_pred']}개)','미탐 ({s['miss']}개)'],datasets:[{{data:[{s['detect']},{s['pre_past']},{s['normal_pred']},{s['miss']}],backgroundColor:['#00ff88','#ffcc00','#00d4ff','#ff4466']}}]}},options:opt}});
-new Chart(document.getElementById('m14Normal'),{{type:'doughnut',data:{{labels:['정상 ({s['normal']}개)','정상사전감지 ({s['pre_future']}개)','오탐 ({s['false']}개)'],datasets:[{{data:[{s['normal']},{s['pre_future']},{s['false']}],backgroundColor:['#666666','#ffcc00','#ff4466']}}]}},options:opt}});
+new Chart(document.getElementById('m14Normal'),{{type:'doughnut',data:{{labels:['정상 ({s['normal']}개)','급증연속 ({s['surge_cont']}개)','정상사전감지 ({s['pre_future']}개)','오탐 ({s['false']}개)'],datasets:[{{data:[{s['normal']},{s['surge_cont']},{s['pre_future']},{s['false']}],backgroundColor:['#666666','#ff9500','#ffcc00','#ff4466']}}]}},options:opt}});
 '''
         
         html += '</script></body></html>'
