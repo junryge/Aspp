@@ -1048,7 +1048,8 @@ function showGraph(filteredIdx) {{
                     fill: false,
                     tension: 0.3,
                     pointRadius: 3,
-                    borderWidth: 2
+                    borderWidth: 2,
+                    hidden: true
                 }},
                 {{
                     label: '실제값 (예측시점)',
