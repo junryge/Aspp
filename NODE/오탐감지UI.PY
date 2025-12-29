@@ -551,12 +551,12 @@ class SurgeAnalyzer:
                 files = []
                 
                 if self.hub_df is not None:
-                    f = os.path.join(save_dir, f"HUBROOM_V8_결과_{ts}.csv")
+                    f = os.path.join(save_dir, f"HUB수치형_V8_평가결과_{ts}.csv")
                     self.hub_df.to_csv(f, index=False, encoding='utf-8-sig')
                     files.append(f)
                 
                 if self.m14_df is not None:
-                    f = os.path.join(save_dir, f"M14_V8_결과_{ts}.csv")
+                    f = os.path.join(save_dir, f"M14수치형_V8.3.1_평가결과_{ts}.csv")
                     self.m14_df.to_csv(f, index=False, encoding='utf-8-sig')
                     files.append(f)
                 
