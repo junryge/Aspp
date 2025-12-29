@@ -1051,8 +1051,7 @@ function showGraph(filteredIdx) {{
                     backgroundColor: 'rgba(0,212,255,0.1)',
                     fill: true,
                     tension: 0.3,
-                    pointBackgroundColor: pointColors,
-                    pointRadius: pointSizes
+                    pointRadius: 4
                 }},
                 {{
                     label: '예측값',
@@ -1061,7 +1060,9 @@ function showGraph(filteredIdx) {{
                     backgroundColor: 'rgba(255,107,53,0.1)',
                     fill: false,
                     tension: 0.3,
-                    pointRadius: 3
+                    pointBackgroundColor: pointColors,
+                    pointRadius: pointSizes,
+                    pointBorderColor: pointColors
                 }},
                 {{
                     label: '임계값 (' + currentThreshold + ')',
