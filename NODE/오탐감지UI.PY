@@ -338,27 +338,48 @@ class SurgeAnalyzer:
         self.ax.set_facecolor('#15151f')
         
         x_labels = [str(t)[-8:] for t in range_df['현재시간'].values]
-        x_pos = range(len(range_df))
+        x_pos = list(range(len(range_df)))
         
-        # 알람/쿨다운/미발생 구간 배경 표시
+        # 예측값 포인트 색상/크기 설정 (알람 상태에 따라)
+        pred_colors = []
+        pred_sizes = []
         alarm_count = 0
         cooldown_count = 0
         miss_count = 0
+        miss_cd_count = 0
+        
         for i, (idx, r) in enumerate(range_df.iterrows()):
             if '알람' in range_df.columns and pd.notna(r.get('알람')) and str(r.get('알람', '')).strip():
-                self.ax.axvspan(i - 0.4, i + 0.4, color='#ff4466', alpha=0.3, zorder=0)
+                pred_colors.append('#ff4466')  # 알람: 빨간색
+                pred_sizes.append(100)
                 alarm_count += 1
             elif '알람쿨다운' in range_df.columns and pd.notna(r.get('알람쿨다운')) and str(r.get('알람쿨다운', '')).strip():
-                self.ax.axvspan(i - 0.4, i + 0.4, color='#4488ff', alpha=0.2, zorder=0)
+                pred_colors.append('#4488ff')  # 쿨다운: 파란색
+                pred_sizes.append(60)
                 cooldown_count += 1
             elif '알람미발생' in range_df.columns and pd.notna(r.get('알람미발생')) and str(r.get('알람미발생', '')).strip():
-                self.ax.axvspan(i - 0.4, i + 0.4, color='#00ff88', alpha=0.25, zorder=0)
+                pred_colors.append('#aa44ff')  # 미발생: 보라색
+                pred_sizes.append(100)
                 miss_count += 1
+            elif '알람미발생쿨다운' in range_df.columns and pd.notna(r.get('알람미발생쿨다운')) and str(r.get('알람미발생쿨다운', '')).strip():
+                pred_colors.append('#ddaaff')  # 미발생쿨다운: 연보라색
+                pred_sizes.append(60)
+                miss_cd_count += 1
+            else:
+                pred_colors.append('#ff6b35')  # 기본: 주황색
+                pred_sizes.append(25)
         
+        # 실제값 라인
         self.ax.plot(x_pos, range_df['실제값'].values, 'o-', color='#00d4ff', 
                      linewidth=2, markersize=6, label='실제값')
-        self.ax.plot(x_pos, range_df['예측값_MAX'].values, 's--', color='#ff6b35', 
-                     linewidth=2, markersize=5, label='예측값')
+        
+        # 예측값 라인 (기본)
+        self.ax.plot(x_pos, range_df['예측값_MAX'].values, '--', color='#ff6b35', 
+                     linewidth=2, label='예측값')
+        
+        # 예측값 포인트 (알람 색상 적용)
+        self.ax.scatter(x_pos, range_df['예측값_MAX'].values, c=pred_colors, s=pred_sizes, 
+                        marker='s', zorder=4, edgecolors='white', linewidths=0.5)
         
         self.ax.axhline(y=threshold, color='#ff4466', linestyle=':', linewidth=2, label=f'리미트값 ({threshold})')
         
@@ -380,11 +401,13 @@ class SurgeAnalyzer:
         # 상태 텍스트
         status_text = ""
         if alarm_count > 0:
-            status_text += f" | 🚨알람 {alarm_count}"
+            status_text += f" | 🔴알람 {alarm_count}"
         if cooldown_count > 0:
             status_text += f" | 🔵쿨다운 {cooldown_count}"
         if miss_count > 0:
-            status_text += f" | 🟢미발생 {miss_count}"
+            status_text += f" | 🟣미발생 {miss_count}"
+        if miss_cd_count > 0:
+            status_text += f" | 💜미발생CD {miss_cd_count}"
         
         self.graph_title.config(text=f"📈 {system} - {cls}")
         self.graph_info.config(text=f"시점: {center_time} | 실제값: {actual_val:.0f} | 예측값: {pred_val:.1f} | ±30분 범위{status_text}")
@@ -481,11 +504,11 @@ class SurgeAnalyzer:
             return None
     
     def match_alarm(self, df, alarm_df, pred_time_col='예측시점', pred_col='예측값_MAX', threshold=1700):
-        """데이터프레임에 알람 매칭 (LSTM_FCAST_TM 기준)
-        - 알람: 실제 알람 발생 (빨간색)
-        - 알람쿨다운: 알람 발생 후 60분 이내 (파란색)
-        - 알람미발생: 예측값>=threshold인데 알람도 없고 쿨다운도 아닌 경우 (보라색)
-        - 알람미발생쿨다운: 알람미발생 후 60분 이내 (연보라색)
+        """데이터프레임에 알람 매칭 (최초 1개 + 60분 쿨다운 방식)
+        - 알람: 최초 알람 발생 (60분 내 재발생은 쿨다운)
+        - 알람쿨다운: 알람 발생 후 60분 이내
+        - 알람미발생: 최초 미발생 (예측>=threshold인데 알람도 쿨다운도 아님)
+        - 알람미발생쿨다운: 미발생 후 60분 이내
         """
         df = df.copy()
         df['알람'] = ''
@@ -494,27 +517,23 @@ class SurgeAnalyzer:
         df['알람미발생쿨다운'] = ''
         
         if alarm_df is None or len(alarm_df) == 0:
-            # 알람 데이터 없으면 예측값>=threshold인 곳 처리
-            miss_indices = []
+            # 알람 데이터 없으면 예측값>=threshold인 곳만 미발생 처리
+            last_miss_idx = -61
             for idx in range(len(df)):
                 pred_val = df.loc[idx, pred_col] if pred_col in df.columns else 0
                 if pred_val >= threshold:
-                    # 이전 60분 내에 미발생이 있는지 체크
-                    is_miss_cooldown = False
-                    for miss_idx in miss_indices:
-                        if miss_idx < idx and (idx - miss_idx) <= 60:
-                            is_miss_cooldown = True
-                            break
-                    
-                    if is_miss_cooldown:
-                        df.loc[idx, '알람미발생쿨다운'] = '미발생쿨다운'
-                    else:
+                    if idx - last_miss_idx > 60:
+                        # 60분 지났으니 새 미발생
                         df.loc[idx, '알람미발생'] = '미발생알람'
-                        miss_indices.append(idx)
+                        last_miss_idx = idx
+                    else:
+                        # 60분 안이니 미발생쿨다운
+                        df.loc[idx, '알람미발생쿨다운'] = '미발생쿨다운'
             return df
         
-        # 1단계: 알람 발생 시점 먼저 찾기
-        alarm_indices = []
+        # 1단계: 알람 발생 시점 찾기 (최초만 기록, 60분 내 재발생은 쿨다운)
+        last_alarm_idx = -61  # 마지막 최초 알람 인덱스
+        
         for idx in range(len(df)):
             pred_time_str = str(df.loc[idx, pred_time_col])
             time_key = pred_time_str.replace('-', '').replace(':', '').replace(' ', '')[:12]
@@ -525,6 +544,7 @@ class SurgeAnalyzer:
                 matched = alarm_df[alarm_df['MEAS_TM'].str[:12] == time_key]
             
             if len(matched) > 0:
+                # 알람이 있는 시점
                 alarm_texts = []
                 for _, row in matched.head(2).iterrows():
                     meas_tm = str(row.get('MEAS_TM', ''))
@@ -533,41 +553,35 @@ class SurgeAnalyzer:
                     else:
                         meas_formatted = meas_tm
                     alarm_texts.append(f"[{meas_formatted}] Y 예측값{threshold}초과")
-                df.loc[idx, '알람'] = ' / '.join(alarm_texts)
-                alarm_indices.append(idx)
+                alarm_text = ' / '.join(alarm_texts)
+                
+                if idx - last_alarm_idx > 60:
+                    # 60분 지났으니 새 알람 (최초)
+                    df.loc[idx, '알람'] = alarm_text
+                    last_alarm_idx = idx
+                else:
+                    # 60분 안이니 쿨다운
+                    df.loc[idx, '알람쿨다운'] = '쿨다운'
         
-        # 2단계: 알람쿨다운 및 알람미발생 체크
-        miss_indices = []
+        # 2단계: 예측값>=threshold인데 알람도 쿨다운도 아닌 곳 → 미발생 처리
+        last_miss_idx = -61
+        
         for idx in range(len(df)):
-            if df.loc[idx, '알람'] != '':
-                continue  # 알람 발생한 곳은 스킵
+            # 이미 알람 또는 알람쿨다운이면 스킵
+            if df.loc[idx, '알람'] != '' or df.loc[idx, '알람쿨다운'] != '':
+                continue
             
             pred_val = df.loc[idx, pred_col] if pred_col in df.columns else 0
             if pred_val < threshold:
                 continue  # 예측값 threshold 미만이면 스킵
             
-            # 이전 60분(60행) 내에 알람 발생했는지 체크
-            is_alarm_cooldown = False
-            for alarm_idx in alarm_indices:
-                if alarm_idx < idx and (idx - alarm_idx) <= 60:
-                    is_alarm_cooldown = True
-                    break
-            
-            if is_alarm_cooldown:
-                df.loc[idx, '알람쿨다운'] = '쿨다운'
+            if idx - last_miss_idx > 60:
+                # 60분 지났으니 새 미발생 (최초)
+                df.loc[idx, '알람미발생'] = '미발생알람'
+                last_miss_idx = idx
             else:
-                # 이전 60분 내에 알람미발생이 있는지 체크
-                is_miss_cooldown = False
-                for miss_idx in miss_indices:
-                    if miss_idx < idx and (idx - miss_idx) <= 60:
-                        is_miss_cooldown = True
-                        break
-                
-                if is_miss_cooldown:
-                    df.loc[idx, '알람미발생쿨다운'] = '미발생쿨다운'
-                else:
-                    df.loc[idx, '알람미발생'] = '미발생알람'
-                    miss_indices.append(idx)
+                # 60분 안이니 미발생쿨다운
+                df.loc[idx, '알람미발생쿨다운'] = '미발생쿨다운'
         
         return df
     
@@ -859,7 +873,6 @@ class SurgeAnalyzer:
 <title>ML급증 감지 분석 리포트 V8.1</title>
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2"></script>
-<script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-annotation@2"></script>
 <style>
 *{{margin:0;padding:0;box-sizing:border-box}}
 body{{font-family:'맑은 고딕',sans-serif;background:#0a0a0f;color:#fff;padding:30px}}
@@ -1333,65 +1346,22 @@ function showGraph(filteredIdx) {{
     const ctx = document.getElementById('modalLineChart').getContext('2d');
     if (modalChart) modalChart.destroy();
     
-    const pointColors = rangeData.map((_, i) => i === centerPos ? '#ffcc00' : '#ff6b35');
-    const pointSizes = rangeData.map((_, i) => i === centerPos ? 12 : 4);
-    
-    // 알람/쿨다운/미발생/미발생쿨다운 포인트 색상 (실제값에 적용)
-    const actualPointColors = rangeData.map((d, i) => {{
+    // 알람/쿨다운/미발생/미발생쿨다운 포인트 색상 (예측값에 적용!)
+    const predPointColors = rangeData.map((d, i) => {{
+        if (i === centerPos) return '#ffcc00';  // 현재 선택 포인트: 노란색
         if (d.alarm && d.alarm.length > 0) return '#ff4466';  // 알람: 빨간색
         if (d.cooldown && d.cooldown.length > 0) return '#4488ff';  // 쿨다운: 파란색
         if (d.alarm_miss && d.alarm_miss.length > 0) return '#aa44ff';  // 미발생: 보라색
         if (d.alarm_miss_cd && d.alarm_miss_cd.length > 0) return '#ddaaff';  // 미발생쿨다운: 연보라
-        return '#00d4ff';  // 기본 하늘색
+        return '#ff6b35';  // 기본 주황색
     }});
-    const actualPointSizes = rangeData.map((d, i) => {{
+    const predPointSizes = rangeData.map((d, i) => {{
+        if (i === centerPos) return 12;  // 현재 선택 포인트: 크게
         if (d.alarm && d.alarm.length > 0) return 10;  // 알람: 크게
         if (d.cooldown && d.cooldown.length > 0) return 8;  // 쿨다운: 중간
         if (d.alarm_miss && d.alarm_miss.length > 0) return 10;  // 미발생: 크게
         if (d.alarm_miss_cd && d.alarm_miss_cd.length > 0) return 8;  // 미발생쿨다운: 중간
         return 4;
-    }});
-    
-    // 알람/쿨다운/미발생/미발생쿨다운 annotation 생성
-    const alarmAnnotations = {{}};
-    rangeData.forEach((d, i) => {{
-        if (d.alarm && d.alarm.length > 0) {{
-            alarmAnnotations['alarm' + i] = {{
-                type: 'box',
-                xMin: i - 0.4,
-                xMax: i + 0.4,
-                backgroundColor: 'rgba(255, 68, 102, 0.25)',
-                borderColor: 'rgba(255, 68, 102, 0.5)',
-                borderWidth: 1
-            }};
-        }} else if (d.cooldown && d.cooldown.length > 0) {{
-            alarmAnnotations['cooldown' + i] = {{
-                type: 'box',
-                xMin: i - 0.4,
-                xMax: i + 0.4,
-                backgroundColor: 'rgba(68, 136, 255, 0.2)',
-                borderColor: 'rgba(68, 136, 255, 0.4)',
-                borderWidth: 1
-            }};
-        }} else if (d.alarm_miss && d.alarm_miss.length > 0) {{
-            alarmAnnotations['miss' + i] = {{
-                type: 'box',
-                xMin: i - 0.4,
-                xMax: i + 0.4,
-                backgroundColor: 'rgba(170, 68, 255, 0.25)',
-                borderColor: 'rgba(170, 68, 255, 0.5)',
-                borderWidth: 1
-            }};
-        }} else if (d.alarm_miss_cd && d.alarm_miss_cd.length > 0) {{
-            alarmAnnotations['misscd' + i] = {{
-                type: 'box',
-                xMin: i - 0.4,
-                xMax: i + 0.4,
-                backgroundColor: 'rgba(221, 170, 255, 0.2)',
-                borderColor: 'rgba(221, 170, 255, 0.4)',
-                borderWidth: 1
-            }};
-        }}
     }});
     
     const labelsShort = rangeData.map(d => (d.pred_time.split(' ')[1] || d.pred_time).substring(0,5) + '(예측)');
@@ -1424,9 +1394,7 @@ function showGraph(filteredIdx) {{
                     backgroundColor: 'rgba(0,212,255,0.1)',
                     fill: true,
                     tension: 0.3,
-                    pointBackgroundColor: actualPointColors,
-                    pointBorderColor: actualPointColors,
-                    pointRadius: actualPointSizes
+                    pointRadius: 4
                 }},
                 {{
                     label: '예측값 (예측시점)',
@@ -1435,9 +1403,9 @@ function showGraph(filteredIdx) {{
                     backgroundColor: 'rgba(255,107,53,0.1)',
                     fill: false,
                     tension: 0.3,
-                    pointBackgroundColor: pointColors,
-                    pointRadius: pointSizes,
-                    pointBorderColor: pointColors
+                    pointBackgroundColor: predPointColors,
+                    pointRadius: predPointSizes,
+                    pointBorderColor: predPointColors
                 }},
                 {{
                     label: '리미트값 (' + currentThreshold + ')',
@@ -1469,7 +1437,6 @@ function showGraph(filteredIdx) {{
                     }}
                 }},
                 datalabels: {{ display: false }},
-                annotation: {{ annotations: alarmAnnotations }},
                 tooltip: {{
                     enabled: true,
                     backgroundColor: 'rgba(0,0,0,0.9)',
