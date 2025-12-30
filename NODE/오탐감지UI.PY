@@ -757,7 +757,21 @@ h1{{font-size:2rem;text-align:center;background:linear-gradient(135deg,#00d4ff,#
 .back-btn{{background:#333;color:#fff;border:none;padding:8px 15px;border-radius:6px;cursor:pointer;margin-right:10px}}
 .back-btn:hover{{background:#444}}
 .mode-desc{{text-align:center;color:#666;font-size:0.8rem;margin-top:8px}}
-@media(max-width:800px){{.case-row,.charts,.items,.modal-info{{grid-template-columns:1fr}}.sys-header{{flex-direction:column;gap:10px}}.sys-stats{{flex-wrap:wrap}}.view-toggle{{flex-direction:column}}}}
+.help-box{{position:fixed;right:15px;top:50%;transform:translateY(-50%);width:180px;background:#1a1a2a;border:2px solid #00d4ff;border-radius:12px;padding:15px;z-index:100;box-shadow:0 0 20px rgba(0,212,255,0.3)}}
+.help-box h3{{font-size:0.85rem;color:#00d4ff;margin-bottom:12px;text-align:center;border-bottom:1px solid #333;padding-bottom:8px}}
+.help-box .close-btn{{position:absolute;top:8px;right:10px;background:none;border:none;color:#666;font-size:1rem;cursor:pointer}}
+.help-box .close-btn:hover{{color:#fff}}
+.help-item{{margin-bottom:10px;font-size:0.75rem;line-height:1.4}}
+.help-item:last-child{{margin-bottom:0}}
+.help-label{{font-weight:bold;margin-bottom:2px}}
+.help-label.ok{{color:#00ff88}}
+.help-label.bad{{color:#ff4466}}
+.help-label.gray{{color:#aaa}}
+.help-desc{{color:#888}}
+.help-toggle{{position:fixed;right:15px;top:50%;transform:translateY(-50%);width:36px;height:36px;background:#00d4ff;border:none;border-radius:50%;cursor:pointer;font-size:1.2rem;z-index:101;display:none}}
+.help-box.hidden{{display:none}}
+.help-box.hidden+.help-toggle{{display:block}}
+@media(max-width:800px){{.case-row,.charts,.items,.modal-info{{grid-template-columns:1fr}}.sys-header{{flex-direction:column;gap:10px}}.sys-stats{{flex-wrap:wrap}}.view-toggle{{flex-direction:column}}.help-box{{display:none}}.help-toggle{{display:block}}}}
 </style>
 </head>
 <body>
@@ -883,6 +897,15 @@ h1{{font-size:2rem;text-align:center;background:linear-gradient(135deg,#00d4ff,#
 '''
         
         html += f'''
+<div class="help-box" id="helpBox">
+<button class="close-btn" onclick="this.parentElement.classList.add('hidden')">&times;</button>
+<h3>📖 분류 용어 설명</h3>
+<div class="help-item"><div class="help-label ok">✅ 이상탐지</div><div class="help-desc">임계값 초과 → 예측 정상 탐지</div></div>
+<div class="help-item"><div class="help-label bad">❌ 미탐</div><div class="help-desc">임계값 초과 → 예측 탐지 불가</div></div>
+<div class="help-item"><div class="help-label gray">✅ 정상</div><div class="help-desc">임계값 미만 → 예측 정상 탐지</div></div>
+<div class="help-item"><div class="help-label bad">❌ 오탐</div><div class="help-desc">임계값 미만 → 예측이 초과 탐지</div></div>
+</div>
+<button class="help-toggle" onclick="document.getElementById('helpBox').classList.remove('hidden')">❓</button>
 <div class="footer">ML급증 감지 분석 시스템 V8.1 | AMHS 물류 예측 모델</div>
 </div>
 <script>
