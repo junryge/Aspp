@@ -503,6 +503,7 @@ class SurgeAnalyzer:
         - 알람미발생: 예측>=threshold인데 알람도 쿨다운도 아님 (전부 표시)
         """
         df = df.copy()
+        df = df.reset_index(drop=True)  # 인덱스 0부터 리셋!
         df['알람'] = ''
         df['알람쿨다운'] = ''
         df['알람미발생'] = ''
@@ -560,22 +561,27 @@ class SurgeAnalyzer:
                     # 60분 안이니 쿨다운
                     df.loc[idx, '알람쿨다운'] = '쿨다운'
         
-        # 2단계: 예측값>=threshold인데 알람도 쿨다운도 아닌 곳 → 미발생 처리
-        # 단, 알람 쿨다운 기간(60분) 내면 미발생도 안 생김!
+        # 2단계: 예측값>=threshold인데 알람 아닌 곳 처리
+        # - 60분 이내: 알람쿨다운 (알람 CSV에 없어도!)
+        # - 60분 초과: 알람미발생
         for idx in range(len(df)):
-            # 이미 알람 또는 알람쿨다운이면 스킵
-            if df.loc[idx, '알람'] != '' or df.loc[idx, '알람쿨다운'] != '':
+            # 이미 알람이면 스킵
+            if df.loc[idx, '알람'] != '':
                 continue
             
-            # 알람 쿨다운 기간 내면 미발생도 스킵!
-            if idx - last_alarm_idx <= 60:
-                continue
-            
+            # 예측값이 threshold 미만이면 스킵
             pred_val = df.loc[idx, actual_pred_col]
             if pred_val < threshold:
-                continue  # 예측값 threshold 미만이면 스킵
+                continue
             
-            df.loc[idx, '알람미발생'] = '미발생알람'
+            # 예측값 >= threshold인데...
+            if idx - last_alarm_idx <= 60:
+                # 60분 이내면 알람쿨다운 (알람 CSV 매칭 여부 상관없이!)
+                if df.loc[idx, '알람쿨다운'] == '':  # 이미 설정 안 됐으면
+                    df.loc[idx, '알람쿨다운'] = '쿨다운'
+            else:
+                # 60분 초과면 알람미발생
+                df.loc[idx, '알람미발생'] = '미발생알람'
         
         return df
     
