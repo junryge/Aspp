@@ -658,9 +658,12 @@ class SurgeAnalyzer:
         last_miss_idx = -9999
         for idx in range(len(df)):
             pred = df.loc[idx, pred_col]
-            alarm_val = str(df.loc[idx, '알람']).strip()
-            cooldown_val = str(df.loc[idx, '알람쿨다운']).strip()
-            has_alarm = len(alarm_val) > 0 or len(cooldown_val) > 0
+            
+            # 알람/쿨다운 있는지 확실하게 체크
+            alarm_val = df.at[idx, '알람']
+            cooldown_val = df.at[idx, '알람쿨다운']
+            has_alarm = (pd.notna(alarm_val) and str(alarm_val).strip() != '') or \
+                        (pd.notna(cooldown_val) and str(cooldown_val).strip() != '')
             
             if pred >= threshold and not has_alarm:
                 # 알람미발생 (60분 쿨다운 적용)
