@@ -1,0 +1,671 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>V10 ML 예측 모델 아키텍처</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+            min-height: 100vh;
+            padding: 20px;
+            color: #fff;
+        }
+        
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+        }
+        
+        .header {
+            text-align: center;
+            margin-bottom: 30px;
+            padding: 20px;
+            background: rgba(255,255,255,0.1);
+            border-radius: 15px;
+            backdrop-filter: blur(10px);
+        }
+        
+        .header h1 {
+            font-size: 2.2em;
+            margin-bottom: 10px;
+            background: linear-gradient(90deg, #00d9ff, #00ff88);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+        
+        .header .subtitle {
+            color: #aaa;
+            font-size: 1.1em;
+        }
+        
+        .info-box {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+            margin-bottom: 30px;
+        }
+        
+        .info-item {
+            background: rgba(255,255,255,0.05);
+            padding: 15px;
+            border-radius: 10px;
+            border-left: 4px solid #00d9ff;
+        }
+        
+        .info-item .label {
+            color: #888;
+            font-size: 0.85em;
+            margin-bottom: 5px;
+        }
+        
+        .info-item .value {
+            font-size: 1.1em;
+            font-weight: 600;
+        }
+        
+        .architecture {
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+        }
+        
+        /* Input Section */
+        .input-section {
+            background: linear-gradient(135deg, #2d3436 0%, #636e72 100%);
+            padding: 20px;
+            border-radius: 15px;
+            text-align: center;
+        }
+        
+        .input-section h3 {
+            margin-bottom: 15px;
+            color: #dfe6e9;
+        }
+        
+        .data-flow {
+            display: flex;
+            justify-content: center;
+            gap: 20px;
+            flex-wrap: wrap;
+        }
+        
+        .data-item {
+            background: rgba(0,0,0,0.3);
+            padding: 10px 20px;
+            border-radius: 8px;
+            font-size: 0.9em;
+        }
+        
+        /* Arrow */
+        .arrow {
+            text-align: center;
+            font-size: 2em;
+            color: #00d9ff;
+            animation: pulse 1.5s infinite;
+        }
+        
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+        
+        /* PyOD Section */
+        .pyod-section {
+            background: linear-gradient(135deg, #e74c3c 0%, #c0392b 100%);
+            padding: 25px;
+            border-radius: 15px;
+        }
+        
+        .pyod-section h3 {
+            text-align: center;
+            margin-bottom: 20px;
+            font-size: 1.4em;
+        }
+        
+        .pyod-content {
+            display: flex;
+            justify-content: center;
+            gap: 40px;
+            flex-wrap: wrap;
+        }
+        
+        .pyod-result {
+            background: rgba(0,0,0,0.3);
+            padding: 20px 30px;
+            border-radius: 10px;
+            text-align: center;
+            min-width: 200px;
+        }
+        
+        .pyod-result.abnormal {
+            border: 2px solid #ff6b6b;
+        }
+        
+        .pyod-result.normal {
+            border: 2px solid #51cf66;
+        }
+        
+        .pyod-result .icon {
+            font-size: 2em;
+            margin-bottom: 10px;
+        }
+        
+        /* Models Section */
+        .models-section {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+        }
+        
+        @media (max-width: 900px) {
+            .models-section {
+                grid-template-columns: 1fr;
+            }
+        }
+        
+        .model-group {
+            background: rgba(255,255,255,0.05);
+            border-radius: 15px;
+            padding: 20px;
+            border: 2px solid transparent;
+        }
+        
+        .model-group.xgboost {
+            border-color: #3498db;
+            background: linear-gradient(135deg, rgba(52,152,219,0.2) 0%, rgba(41,128,185,0.1) 100%);
+        }
+        
+        .model-group.lightgbm {
+            border-color: #9b59b6;
+            background: linear-gradient(135deg, rgba(155,89,182,0.2) 0%, rgba(142,68,173,0.1) 100%);
+        }
+        
+        .model-group h3 {
+            text-align: center;
+            margin-bottom: 20px;
+            padding-bottom: 10px;
+            border-bottom: 1px solid rgba(255,255,255,0.2);
+        }
+        
+        .model-group.xgboost h3 {
+            color: #3498db;
+        }
+        
+        .model-group.lightgbm h3 {
+            color: #9b59b6;
+        }
+        
+        .model-type {
+            font-size: 0.85em;
+            color: #aaa;
+            text-align: center;
+            margin-bottom: 15px;
+        }
+        
+        .model-list {
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+        
+        .model-item {
+            background: rgba(0,0,0,0.3);
+            padding: 15px;
+            border-radius: 10px;
+            display: flex;
+            align-items: center;
+            gap: 15px;
+        }
+        
+        .model-item .num {
+            width: 30px;
+            height: 30px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: bold;
+            font-size: 0.9em;
+        }
+        
+        .xgboost .model-item .num {
+            background: #3498db;
+        }
+        
+        .lightgbm .model-item .num {
+            background: #9b59b6;
+        }
+        
+        .model-item .info {
+            flex: 1;
+        }
+        
+        .model-item .name {
+            font-weight: 600;
+            margin-bottom: 3px;
+        }
+        
+        .model-item .desc {
+            font-size: 0.85em;
+            color: #aaa;
+        }
+        
+        .model-item .output {
+            background: rgba(255,255,255,0.1);
+            padding: 5px 12px;
+            border-radius: 5px;
+            font-size: 0.8em;
+        }
+        
+        /* Voting Section */
+        .voting-section {
+            background: linear-gradient(135deg, #f39c12 0%, #e67e22 100%);
+            padding: 25px;
+            border-radius: 15px;
+            text-align: center;
+        }
+        
+        .voting-section h3 {
+            font-size: 1.4em;
+            margin-bottom: 15px;
+        }
+        
+        .voting-desc {
+            margin-bottom: 20px;
+            color: rgba(255,255,255,0.9);
+        }
+        
+        .voting-models {
+            display: flex;
+            justify-content: center;
+            gap: 15px;
+            flex-wrap: wrap;
+            margin-bottom: 20px;
+        }
+        
+        .voting-chip {
+            background: rgba(0,0,0,0.3);
+            padding: 8px 16px;
+            border-radius: 20px;
+            font-size: 0.9em;
+        }
+        
+        /* Result Section */
+        .result-section {
+            background: linear-gradient(135deg, #27ae60 0%, #2ecc71 100%);
+            padding: 30px;
+            border-radius: 15px;
+            text-align: center;
+        }
+        
+        .result-section h3 {
+            font-size: 1.5em;
+            margin-bottom: 20px;
+        }
+        
+        .result-options {
+            display: flex;
+            justify-content: center;
+            gap: 30px;
+            flex-wrap: wrap;
+        }
+        
+        .result-option {
+            background: rgba(0,0,0,0.3);
+            padding: 20px 30px;
+            border-radius: 15px;
+            min-width: 250px;
+        }
+        
+        .result-option .icon {
+            font-size: 2.5em;
+            margin-bottom: 10px;
+        }
+        
+        .result-option .text {
+            font-size: 1.1em;
+            font-weight: 600;
+        }
+        
+        .result-option .limit {
+            font-size: 0.9em;
+            color: rgba(255,255,255,0.8);
+            margin-top: 8px;
+        }
+        
+        /* Timeline */
+        .timeline {
+            background: rgba(255,255,255,0.05);
+            padding: 20px;
+            border-radius: 15px;
+            margin-top: 30px;
+        }
+        
+        .timeline h3 {
+            text-align: center;
+            margin-bottom: 20px;
+            color: #00d9ff;
+        }
+        
+        .timeline-content {
+            display: flex;
+            justify-content: space-around;
+            flex-wrap: wrap;
+            gap: 20px;
+        }
+        
+        .timeline-item {
+            text-align: center;
+        }
+        
+        .timeline-item .period {
+            background: linear-gradient(135deg, #00d9ff 0%, #00ff88 100%);
+            padding: 10px 25px;
+            border-radius: 25px;
+            font-weight: 600;
+            color: #1a1a2e;
+            margin-bottom: 10px;
+            display: inline-block;
+        }
+        
+        .timeline-item .label {
+            color: #aaa;
+            font-size: 0.9em;
+        }
+        
+        /* Flow Diagram */
+        .flow-example {
+            background: rgba(255,255,255,0.05);
+            padding: 20px;
+            border-radius: 15px;
+            margin-top: 20px;
+        }
+        
+        .flow-example h3 {
+            text-align: center;
+            margin-bottom: 20px;
+            color: #f39c12;
+        }
+        
+        .flow-steps {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            flex-wrap: wrap;
+            gap: 10px;
+        }
+        
+        .flow-step {
+            background: rgba(0,0,0,0.3);
+            padding: 12px 20px;
+            border-radius: 10px;
+            text-align: center;
+            min-width: 120px;
+        }
+        
+        .flow-step .time {
+            font-size: 0.8em;
+            color: #00d9ff;
+            margin-bottom: 5px;
+        }
+        
+        .flow-step .value {
+            font-weight: 600;
+        }
+        
+        .flow-arrow {
+            color: #f39c12;
+            font-size: 1.5em;
+        }
+        
+        /* Footer */
+        .footer {
+            text-align: center;
+            margin-top: 30px;
+            padding: 20px;
+            color: #666;
+            font-size: 0.9em;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <!-- Header -->
+        <div class="header">
+            <h1>🤖 V10 ML 예측 모델 아키텍처</h1>
+            <div class="subtitle">HUBROOM / M14 Q(타겟) 30분 내 리미트 초과 예측 시스템</div>
+        </div>
+        
+        <!-- Info Box -->
+        <div class="info-box">
+            <div class="info-item">
+                <div class="label">타겟</div>
+                <div class="value">HUBROOM, M14 Q</div>
+            </div>
+            <div class="info-item">
+                <div class="label">리미트 값</div>
+                <div class="value">HUB: 350 / M14: 1700</div>
+            </div>
+            <div class="info-item">
+                <div class="label">예측 윈도우</div>
+                <div class="value">30분</div>
+            </div>
+            <div class="info-item">
+                <div class="label">시퀀스 길이</div>
+                <div class="value">60분 / 120분</div>
+            </div>
+            <div class="info-item">
+                <div class="label">총 모델 수</div>
+                <div class="value">6개 (메인 3 + 보조 3)</div>
+            </div>
+        </div>
+        
+        <!-- Architecture -->
+        <div class="architecture">
+            
+            <!-- Input -->
+            <div class="input-section">
+                <h3>📊 입력 데이터</h3>
+                <div class="data-flow">
+                    <div class="data-item">시퀀스 60분/120분</div>
+                    <div class="data-item">현재값 (예: 260)</div>
+                    <div class="data-item">예측시간 (예: 3:10)</div>
+                    <div class="data-item">Feature 그룹</div>
+                </div>
+            </div>
+            
+            <div class="arrow">▼</div>
+            
+            <!-- PyOD -->
+            <div class="pyod-section">
+                <h3>🔍 1단계: PyOD (현재 상태 검색)</h3>
+                <p style="text-align:center; margin-bottom:20px; opacity:0.9;">비지도 학습 기반 현재 이상 유무 판단</p>
+                <div class="pyod-content">
+                    <div class="pyod-result abnormal">
+                        <div class="icon">⚠️</div>
+                        <div class="status">이상 감지</div>
+                        <div style="font-size:0.85em; margin-top:10px; color:#ff6b6b;">
+                            리미트 한계선 돌파 가능성 높음<br>
+                            → 경고 모드 진입
+                        </div>
+                    </div>
+                    <div class="pyod-result normal">
+                        <div class="icon">✅</div>
+                        <div class="status">정상 상태</div>
+                        <div style="font-size:0.85em; margin-top:10px; color:#51cf66;">
+                            일반 상태<br>
+                            → 예측 모델 진행
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="arrow">▼</div>
+            
+            <!-- Models -->
+            <div class="models-section">
+                <!-- XGBoost -->
+                <div class="model-group xgboost">
+                    <h3>📈 V10 XGBoost (회귀)</h3>
+                    <div class="model-type">수치 예측 → 임계값 비교</div>
+                    <div class="model-list">
+                        <div class="model-item">
+                            <div class="num">1</div>
+                            <div class="info">
+                                <div class="name">타겟 지표 모델</div>
+                                <div class="desc">HUBROOM/M14 Q 직접 예측</div>
+                            </div>
+                            <div class="output">30분 예측값</div>
+                        </div>
+                        <div class="model-item">
+                            <div class="num">2</div>
+                            <div class="info">
+                                <div class="name">중요 지표 모델</div>
+                                <div class="desc">Storage, CMD 등 핵심 Feature</div>
+                            </div>
+                            <div class="output">30분 예측값</div>
+                        </div>
+                        <div class="model-item">
+                            <div class="num">3</div>
+                            <div class="info">
+                                <div class="name">보조 지표 모델</div>
+                                <div class="desc">Inflow, Outflow 등 보조 Feature</div>
+                            </div>
+                            <div class="output">30분 예측값</div>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- LightGBM -->
+                <div class="model-group lightgbm">
+                    <h3>🎯 LightGBM (분류)</h3>
+                    <div class="model-type">이진 분류 → 돌파 여부</div>
+                    <div class="model-list">
+                        <div class="model-item">
+                            <div class="num">1</div>
+                            <div class="info">
+                                <div class="name">타겟 지표 모델</div>
+                                <div class="desc">HUBROOM/M14 Q 돌파 여부</div>
+                            </div>
+                            <div class="output">0 / 1</div>
+                        </div>
+                        <div class="model-item">
+                            <div class="num">2</div>
+                            <div class="info">
+                                <div class="name">중요 지표 모델</div>
+                                <div class="desc">핵심 Feature 기반 돌파 예측</div>
+                            </div>
+                            <div class="output">0 / 1</div>
+                        </div>
+                        <div class="model-item">
+                            <div class="num">3</div>
+                            <div class="info">
+                                <div class="name">보조 지표 모델</div>
+                                <div class="desc">보조 Feature 기반 돌파 예측</div>
+                            </div>
+                            <div class="output">0 / 1</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="arrow">▼</div>
+            
+            <!-- Voting -->
+            <div class="voting-section">
+                <h3>🗳️ 2단계: 다수결 결정</h3>
+                <div class="voting-desc">6개 모델 결과 종합 (XGBoost 3개 + LightGBM 3개)</div>
+                <div class="voting-models">
+                    <div class="voting-chip">XGB 타겟</div>
+                    <div class="voting-chip">XGB 중요</div>
+                    <div class="voting-chip">XGB 보조</div>
+                    <div class="voting-chip">LGBM 타겟</div>
+                    <div class="voting-chip">LGBM 중요</div>
+                    <div class="voting-chip">LGBM 보조</div>
+                </div>
+                <div style="background:rgba(0,0,0,0.2); padding:15px; border-radius:10px; display:inline-block;">
+                    <strong>다수결 규칙:</strong> 4개 이상 돌파 예측 → 최종 돌파 판정
+                </div>
+            </div>
+            
+            <div class="arrow">▼</div>
+            
+            <!-- Result -->
+            <div class="result-section">
+                <h3>📢 최종 결과</h3>
+                <div class="result-options">
+                    <div class="result-option">
+                        <div class="icon">🚨</div>
+                        <div class="text">30분 내 리미트 초과 예상</div>
+                        <div class="limit">HUB ≥ 350 / M14 ≥ 1700</div>
+                    </div>
+                    <div class="result-option">
+                        <div class="icon">✅</div>
+                        <div class="text">30분 내 리미트 초과 없음</div>
+                        <div class="limit">HUB < 350 / M14 < 1700</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Example Flow -->
+        <div class="flow-example">
+            <h3>💡 예시 시나리오</h3>
+            <div class="flow-steps">
+                <div class="flow-step">
+                    <div class="time">현재 3:10</div>
+                    <div class="value">실제값: 260</div>
+                </div>
+                <div class="flow-arrow">→</div>
+                <div class="flow-step">
+                    <div class="time">예측 구간</div>
+                    <div class="value">3:11 ~ 3:41</div>
+                </div>
+                <div class="flow-arrow">→</div>
+                <div class="flow-step">
+                    <div class="time">모델 판단</div>
+                    <div class="value">6개 모델 실행</div>
+                </div>
+                <div class="flow-arrow">→</div>
+                <div class="flow-step">
+                    <div class="time">다수결</div>
+                    <div class="value">5/6 돌파 예측</div>
+                </div>
+                <div class="flow-arrow">→</div>
+                <div class="flow-step" style="background:#e74c3c;">
+                    <div class="time">최종 결과</div>
+                    <div class="value">🚨 돌파 예상</div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Timeline -->
+        <div class="timeline">
+            <h3>📅 학습 및 평가 일정</h3>
+            <div class="timeline-content">
+                <div class="timeline-item">
+                    <div class="period">2024.09 ~ 12</div>
+                    <div class="label">학습 데이터 (3개월)</div>
+                </div>
+                <div class="timeline-item">
+                    <div class="period">1주일</div>
+                    <div class="label">평가 테스트</div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Footer -->
+        <div class="footer">
+            V10 ML 예측 모델 아키텍처 | HUBROOM & M14 리미트 초과 예측 시스템
+        </div>
+    </div>
+</body>
+</html>
