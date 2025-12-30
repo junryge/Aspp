@@ -346,25 +346,20 @@ class SurgeAnalyzer:
         alarm_count = 0
         cooldown_count = 0
         miss_count = 0
-        miss_cd_count = 0
         
         for i, (idx, r) in enumerate(range_df.iterrows()):
             if '알람' in range_df.columns and pd.notna(r.get('알람')) and str(r.get('알람', '')).strip():
                 pred_colors.append('#ff4466')  # 알람: 빨간색
-                pred_sizes.append(100)
+                pred_sizes.append(80)
                 alarm_count += 1
             elif '알람쿨다운' in range_df.columns and pd.notna(r.get('알람쿨다운')) and str(r.get('알람쿨다운', '')).strip():
                 pred_colors.append('#4488ff')  # 쿨다운: 파란색
-                pred_sizes.append(60)
+                pred_sizes.append(30)
                 cooldown_count += 1
             elif '알람미발생' in range_df.columns and pd.notna(r.get('알람미발생')) and str(r.get('알람미발생', '')).strip():
                 pred_colors.append('#aa44ff')  # 미발생: 보라색
-                pred_sizes.append(100)
+                pred_sizes.append(80)
                 miss_count += 1
-            elif '알람미발생쿨다운' in range_df.columns and pd.notna(r.get('알람미발생쿨다운')) and str(r.get('알람미발생쿨다운', '')).strip():
-                pred_colors.append('#ddaaff')  # 미발생쿨다운: 연보라색
-                pred_sizes.append(60)
-                miss_cd_count += 1
             else:
                 pred_colors.append('#ff6b35')  # 기본: 주황색
                 pred_sizes.append(25)
@@ -406,8 +401,6 @@ class SurgeAnalyzer:
             status_text += f" | 🔵쿨다운 {cooldown_count}"
         if miss_count > 0:
             status_text += f" | 🟣미발생 {miss_count}"
-        if miss_cd_count > 0:
-            status_text += f" | 💜미발생CD {miss_cd_count}"
         
         self.graph_title.config(text=f"📈 {system} - {cls}")
         self.graph_info.config(text=f"시점: {center_time} | 실제값: {actual_val:.0f} | 예측값: {pred_val:.1f} | ±30분 범위{status_text}")
@@ -507,28 +500,19 @@ class SurgeAnalyzer:
         """데이터프레임에 알람 매칭 (최초 1개 + 60분 쿨다운 방식)
         - 알람: 최초 알람 발생 (60분 내 재발생은 쿨다운)
         - 알람쿨다운: 알람 발생 후 60분 이내
-        - 알람미발생: 최초 미발생 (예측>=threshold인데 알람도 쿨다운도 아님)
-        - 알람미발생쿨다운: 미발생 후 60분 이내
+        - 알람미발생: 예측>=threshold인데 알람도 쿨다운도 아님 (전부 표시)
         """
         df = df.copy()
         df['알람'] = ''
         df['알람쿨다운'] = ''
         df['알람미발생'] = ''
-        df['알람미발생쿨다운'] = ''
         
         if alarm_df is None or len(alarm_df) == 0:
-            # 알람 데이터 없으면 예측값>=threshold인 곳만 미발생 처리
-            last_miss_idx = -61
+            # 알람 데이터 없으면 예측값>=threshold인 곳 전부 미발생 처리
             for idx in range(len(df)):
                 pred_val = df.loc[idx, pred_col] if pred_col in df.columns else 0
                 if pred_val >= threshold:
-                    if idx - last_miss_idx > 60:
-                        # 60분 지났으니 새 미발생
-                        df.loc[idx, '알람미발생'] = '미발생알람'
-                        last_miss_idx = idx
-                    else:
-                        # 60분 안이니 미발생쿨다운
-                        df.loc[idx, '알람미발생쿨다운'] = '미발생쿨다운'
+                    df.loc[idx, '알람미발생'] = '미발생알람'
             return df
         
         # 1단계: 알람 발생 시점 찾기 (최초만 기록, 60분 내 재발생은 쿨다운)
@@ -563,9 +547,7 @@ class SurgeAnalyzer:
                     # 60분 안이니 쿨다운
                     df.loc[idx, '알람쿨다운'] = '쿨다운'
         
-        # 2단계: 예측값>=threshold인데 알람도 쿨다운도 아닌 곳 → 미발생 처리
-        last_miss_idx = -61
-        
+        # 2단계: 예측값>=threshold인데 알람도 쿨다운도 아닌 곳 → 미발생 처리 (전부)
         for idx in range(len(df)):
             # 이미 알람 또는 알람쿨다운이면 스킵
             if df.loc[idx, '알람'] != '' or df.loc[idx, '알람쿨다운'] != '':
@@ -575,13 +557,7 @@ class SurgeAnalyzer:
             if pred_val < threshold:
                 continue  # 예측값 threshold 미만이면 스킵
             
-            if idx - last_miss_idx > 60:
-                # 60분 지났으니 새 미발생 (최초)
-                df.loc[idx, '알람미발생'] = '미발생알람'
-                last_miss_idx = idx
-            else:
-                # 60분 안이니 미발생쿨다운
-                df.loc[idx, '알람미발생쿨다운'] = '미발생쿨다운'
+            df.loc[idx, '알람미발생'] = '미발생알람'
         
         return df
     
@@ -806,7 +782,6 @@ class SurgeAnalyzer:
                 alarm_val = str(row.get('알람', '')) if pd.notna(row.get('알람')) else ''
                 cooldown_val = str(row.get('알람쿨다운', '')) if pd.notna(row.get('알람쿨다운')) else ''
                 miss_val = str(row.get('알람미발생', '')) if pd.notna(row.get('알람미발생')) else ''
-                miss_cd_val = str(row.get('알람미발생쿨다운', '')) if pd.notna(row.get('알람미발생쿨다운')) else ''
                 hub_data.append({
                     'idx': i,
                     'time': str(row.get('현재시간', '')),
@@ -817,8 +792,7 @@ class SurgeAnalyzer:
                     'cls': str(row.get('분류', '')),
                     'alarm': alarm_val,
                     'cooldown': cooldown_val,
-                    'alarm_miss': miss_val,
-                    'alarm_miss_cd': miss_cd_val
+                    'alarm_miss': miss_val
                 })
             hub_json = str(hub_data).replace("'", '"')
         
@@ -828,7 +802,6 @@ class SurgeAnalyzer:
                 alarm_val = str(row.get('알람', '')) if pd.notna(row.get('알람')) else ''
                 cooldown_val = str(row.get('알람쿨다운', '')) if pd.notna(row.get('알람쿨다운')) else ''
                 miss_val = str(row.get('알람미발생', '')) if pd.notna(row.get('알람미발생')) else ''
-                miss_cd_val = str(row.get('알람미발생쿨다운', '')) if pd.notna(row.get('알람미발생쿨다운')) else ''
                 m14_data.append({
                     'idx': i,
                     'time': str(row.get('현재시간', '')),
@@ -839,8 +812,7 @@ class SurgeAnalyzer:
                     'cls': str(row.get('분류', '')),
                     'alarm': alarm_val,
                     'cooldown': cooldown_val,
-                    'alarm_miss': miss_val,
-                    'alarm_miss_cd': miss_cd_val
+                    'alarm_miss': miss_val
                 })
             m14_json = str(m14_data).replace("'", '"')
         
@@ -1324,16 +1296,14 @@ function showGraph(filteredIdx) {{
     const rangeData = data.slice(startIdx, endIdx);
     const centerPos = centerIdx - startIdx;
     
-    // 알람/쿨다운/미발생/미발생쿨다운 개수 세기
+    // 알람/쿨다운/미발생 개수 세기
     const alarmCount = rangeData.filter(d => d.alarm && d.alarm.length > 0).length;
     const cooldownCount = rangeData.filter(d => d.cooldown && d.cooldown.length > 0).length;
     const missCount = rangeData.filter(d => d.alarm_miss && d.alarm_miss.length > 0).length;
-    const missCdCount = rangeData.filter(d => d.alarm_miss_cd && d.alarm_miss_cd.length > 0).length;
     let statusText = '';
     if (alarmCount > 0) statusText += ` | 🔴알람 ${{alarmCount}}`;
     if (cooldownCount > 0) statusText += ` | 🔵쿨다운 ${{cooldownCount}}`;
     if (missCount > 0) statusText += ` | 🟣미발생 ${{missCount}}`;
-    if (missCdCount > 0) statusText += ` | 💜미발생CD ${{missCdCount}}`;
     
     document.getElementById('chartTitle').innerHTML = `<button class="back-btn" onclick="backToList()">← 목록</button>${{sysName}} - ${{item.cls}}`;
     const t1 = (item.time.split(' ')[1] || item.time).substring(0,5);
@@ -1346,21 +1316,19 @@ function showGraph(filteredIdx) {{
     const ctx = document.getElementById('modalLineChart').getContext('2d');
     if (modalChart) modalChart.destroy();
     
-    // 알람/쿨다운/미발생/미발생쿨다운 포인트 색상 (예측값에 적용!)
+    // 알람/쿨다운/미발생 포인트 색상 (예측값에 적용!)
     const predPointColors = rangeData.map((d, i) => {{
         if (i === centerPos) return '#ffcc00';  // 현재 선택 포인트: 노란색
         if (d.alarm && d.alarm.length > 0) return '#ff4466';  // 알람: 빨간색
         if (d.cooldown && d.cooldown.length > 0) return '#4488ff';  // 쿨다운: 파란색
         if (d.alarm_miss && d.alarm_miss.length > 0) return '#aa44ff';  // 미발생: 보라색
-        if (d.alarm_miss_cd && d.alarm_miss_cd.length > 0) return '#ddaaff';  // 미발생쿨다운: 연보라
         return '#ff6b35';  // 기본 주황색
     }});
     const predPointSizes = rangeData.map((d, i) => {{
         if (i === centerPos) return 12;  // 현재 선택 포인트: 크게
-        if (d.alarm && d.alarm.length > 0) return 10;  // 알람: 크게
-        if (d.cooldown && d.cooldown.length > 0) return 8;  // 쿨다운: 중간
-        if (d.alarm_miss && d.alarm_miss.length > 0) return 10;  // 미발생: 크게
-        if (d.alarm_miss_cd && d.alarm_miss_cd.length > 0) return 8;  // 미발생쿨다운: 중간
+        if (d.alarm && d.alarm.length > 0) return 8;  // 알람
+        if (d.cooldown && d.cooldown.length > 0) return 5;  // 쿨다운: 작게
+        if (d.alarm_miss && d.alarm_miss.length > 0) return 8;  // 미발생
         return 4;
     }});
     
