@@ -1433,15 +1433,14 @@ function showGraph(filteredIdx) {{
                             const idx = context[0].dataIndex;
                             const d = rangeData[idx];
                             const diff = d.pred - d.actual;
+                            const timeStr = (d.pred_time.split(' ')[1] || d.pred_time).substring(0,8);
                             let result = ['', '예측 오차: ' + (diff >= 0 ? '+' : '') + diff.toFixed(1)];
                             if (d.alarm && d.alarm.length > 0) {{
-                                result.push('🚨 알람: ' + d.alarm);
-                            }}
-                            if (d.cooldown && d.cooldown.length > 0) {{
-                                result.push('🔵 쿨다운 (60분 이내)');
-                            }}
-                            if (d.alarm_miss && d.alarm_miss.length > 0) {{
-                                result.push('🟢 알람미발생');
+                                result.push('🔴 알람발생 [' + timeStr + ']');
+                            }} else if (d.cooldown && d.cooldown.length > 0) {{
+                                result.push('🔵 알람발생쿨다운 (60분 이내)');
+                            }} else if (d.alarm_miss && d.alarm_miss.length > 0) {{
+                                result.push('🟣 알람미발생 [' + timeStr + ']');
                             }}
                             return result;
                         }}
