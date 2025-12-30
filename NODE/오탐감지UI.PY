@@ -507,10 +507,23 @@ class SurgeAnalyzer:
         df['알람쿨다운'] = ''
         df['알람미발생'] = ''
         
+        # 예측 컬럼 확인 (예측값_MAX 또는 최종예측)
+        actual_pred_col = None
+        if pred_col in df.columns:
+            actual_pred_col = pred_col
+        elif '예측값_MAX' in df.columns:
+            actual_pred_col = '예측값_MAX'
+        elif '최종예측' in df.columns:
+            actual_pred_col = '최종예측'
+        
+        if actual_pred_col is None:
+            print(f"경고: 예측 컬럼을 찾을 수 없습니다. 컬럼 목록: {df.columns.tolist()}")
+            return df
+        
         if alarm_df is None or len(alarm_df) == 0:
             # 알람 데이터 없으면 예측값>=threshold인 곳 전부 미발생 처리
             for idx in range(len(df)):
-                pred_val = df.loc[idx, pred_col] if pred_col in df.columns else 0
+                pred_val = df.loc[idx, actual_pred_col]
                 if pred_val >= threshold:
                     df.loc[idx, '알람미발생'] = '미발생알람'
             return df
@@ -558,7 +571,7 @@ class SurgeAnalyzer:
             if idx - last_alarm_idx <= 60:
                 continue
             
-            pred_val = df.loc[idx, pred_col] if pred_col in df.columns else 0
+            pred_val = df.loc[idx, actual_pred_col]
             if pred_val < threshold:
                 continue  # 예측값 threshold 미만이면 스킵
             
