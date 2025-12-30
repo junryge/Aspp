@@ -460,13 +460,16 @@ class SurgeAnalyzer:
             if 'MEAS_TM' in df.columns:
                 # MEAS_TM을 문자열로 변환 (202512291354 형식)
                 df['MEAS_TM'] = df['MEAS_TM'].astype(str)
+            if 'LSTM_FCAST_TM' in df.columns:
+                # LSTM_FCAST_TM을 문자열로 변환 (예측시점과 매칭용)
+                df['LSTM_FCAST_TM'] = df['LSTM_FCAST_TM'].astype(str)
             return df
         except Exception as e:
             print(f"알람 파일 로드 실패: {e}")
             return None
     
-    def match_alarm(self, df, alarm_df, time_col):
-        """데이터프레임에 알람 매칭"""
+    def match_alarm(self, df, alarm_df, pred_time_col='예측시점'):
+        """데이터프레임에 알람 매칭 (LSTM_FCAST_TM 기준)"""
         if alarm_df is None or len(alarm_df) == 0:
             df['알람'] = ''
             return df
@@ -474,18 +477,31 @@ class SurgeAnalyzer:
         df = df.copy()
         df['알람'] = ''
         
-        # 현재시간 컬럼을 알람 형식으로 변환 (2025-12-29 13:54:00 -> 202512291354)
+        # 예측시점 컬럼을 알람 형식으로 변환 (2025-12-29 13:54:00 -> 202512291354)
         for idx in range(len(df)):
-            time_str = str(df.loc[idx, time_col])
+            pred_time_str = str(df.loc[idx, pred_time_col])
             # 다양한 형식 처리
-            time_key = time_str.replace('-', '').replace(':', '').replace(' ', '')[:12]
+            time_key = pred_time_str.replace('-', '').replace(':', '').replace(' ', '')[:12]
             
-            # 알람 데이터에서 매칭
-            matched = alarm_df[alarm_df['MEAS_TM'].str[:12] == time_key]
+            # 알람 데이터에서 LSTM_FCAST_TM으로 매칭
+            if 'LSTM_FCAST_TM' in alarm_df.columns:
+                matched = alarm_df[alarm_df['LSTM_FCAST_TM'].str[:12] == time_key]
+            else:
+                matched = alarm_df[alarm_df['MEAS_TM'].str[:12] == time_key]
+            
             if len(matched) > 0:
-                # 알람 설명 추가
-                alarm_descs = matched['ALARM_DESC'].unique()
-                df.loc[idx, '알람'] = ', '.join(alarm_descs[:2])  # 최대 2개
+                # 알람 설명에 MEAS_TM(울린시간) 포함
+                alarm_texts = []
+                for _, row in matched.head(2).iterrows():  # 최대 2개
+                    meas_tm = str(row.get('MEAS_TM', ''))
+                    # MEAS_TM 포맷팅 (202512291354 -> 12-29 13:54)
+                    if len(meas_tm) >= 12:
+                        meas_formatted = f"{meas_tm[4:6]}-{meas_tm[6:8]} {meas_tm[8:10]}:{meas_tm[10:12]}"
+                    else:
+                        meas_formatted = meas_tm
+                    alarm_desc = str(row.get('ALARM_DESC', ''))
+                    alarm_texts.append(f"[{meas_formatted}] {alarm_desc}")
+                df.loc[idx, '알람'] = ' / '.join(alarm_texts)
         
         return df
     
@@ -611,7 +627,7 @@ class SurgeAnalyzer:
                 df = self.read_csv_auto(self.hub_file)
                 self.hub_df, self.hub_stats = self.analyze_v81(df.copy(), 350, '예측값_MAX', '현재값', '실제값')
                 # 알람 매칭
-                self.hub_df = self.match_alarm(self.hub_df, self.hub_alarm_df, '현재시간')
+                self.hub_df = self.match_alarm(self.hub_df, self.hub_alarm_df, '예측시점')
                 result_text += self.fmt("HUBROOM V8.1", self.hub_stats, 350)
                 self.create_data_view(self.hub_data_frame, self.hub_df)
             
@@ -619,7 +635,7 @@ class SurgeAnalyzer:
                 df = self.read_csv_auto(self.m14_file)
                 self.m14_df, self.m14_stats = self.analyze_v81(df.copy(), 1700, '최종예측', '현재TOTALCNT', '실제값')
                 # 알람 매칭
-                self.m14_df = self.match_alarm(self.m14_df, self.m14_alarm_df, '현재시간')
+                self.m14_df = self.match_alarm(self.m14_df, self.m14_alarm_df, '예측시점')
                 result_text += self.fmt("M14_Q V8.1", self.m14_stats, 1700)
                 self.create_data_view(self.m14_data_frame, self.m14_df)
             
