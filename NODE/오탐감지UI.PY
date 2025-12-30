@@ -1424,25 +1424,27 @@ function showGraph(filteredIdx) {{
                         label: function(context) {{
                             const idx = context.dataIndex;
                             const d = rangeData[idx];
+                            const timeStr = (d.pred_time.split(' ')[1] || d.pred_time).substring(0,8);
                             if (context.datasetIndex === 0) return '🟢 현재값: ' + d.current.toFixed(0);
                             else if (context.datasetIndex === 1) return '🔵 실제값: ' + d.actual.toFixed(0);
-                            else if (context.datasetIndex === 2) return '🟠 예측값: ' + d.pred.toFixed(1);
+                            else if (context.datasetIndex === 2) {{
+                                let label = '🟠 예측값: ' + d.pred.toFixed(1);
+                                if (d.alarm && d.alarm.length > 0) {{
+                                    label += ' | 🔴 알람발생 [' + timeStr + ']';
+                                }} else if (d.cooldown && d.cooldown.length > 0) {{
+                                    label += ' | 🔵 알람발생쿨다운';
+                                }} else if (d.alarm_miss && d.alarm_miss.length > 0) {{
+                                    label += ' | 🟣 알람미발생 [' + timeStr + ']';
+                                }}
+                                return label;
+                            }}
                             else return '🔴 리미트값: ' + currentThreshold;
                         }},
                         afterBody: function(context) {{
                             const idx = context[0].dataIndex;
                             const d = rangeData[idx];
                             const diff = d.pred - d.actual;
-                            const timeStr = (d.pred_time.split(' ')[1] || d.pred_time).substring(0,8);
-                            let result = ['', '예측 오차: ' + (diff >= 0 ? '+' : '') + diff.toFixed(1)];
-                            if (d.alarm && d.alarm.length > 0) {{
-                                result.push('🔴 알람발생 [' + timeStr + ']');
-                            }} else if (d.cooldown && d.cooldown.length > 0) {{
-                                result.push('🔵 알람발생쿨다운 (60분 이내)');
-                            }} else if (d.alarm_miss && d.alarm_miss.length > 0) {{
-                                result.push('🟣 알람미발생 [' + timeStr + ']');
-                            }}
-                            return result;
+                            return ['', '예측 오차: ' + (diff >= 0 ? '+' : '') + diff.toFixed(1)];
                         }}
                     }}
                 }}
