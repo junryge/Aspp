@@ -619,6 +619,8 @@ class SurgeAnalyzer:
         # 알람 컬럼 초기화
         df['알람'] = ''
         df['알람쿨다운'] = ''
+        df['알람미발생'] = ''
+        df['알람미발생쿨다운'] = ''
         df['분류'] = ''
         
         # 알람 매칭 (60분 쿨다운)
@@ -651,6 +653,21 @@ class SurgeAnalyzer:
                     else:
                         minutes_ago = idx - last_alarm_idx
                         df.loc[idx, '알람쿨다운'] = f'{minutes_ago}분전'
+        
+        # 알람미발생 처리 (실제값 >= threshold인데 알람 없는 경우) + 60분 쿨다운
+        last_miss_idx = -9999
+        for idx in range(len(df)):
+            actual = df.loc[idx, actual_col]
+            has_alarm = df.loc[idx, '알람'] != '' or df.loc[idx, '알람쿨다운'] != ''
+            
+            if actual >= threshold and not has_alarm:
+                # 알람미발생 (60분 쿨다운 적용)
+                if last_miss_idx < 0 or idx - last_miss_idx > 60:
+                    df.loc[idx, '알람미발생'] = '미발생'
+                    last_miss_idx = idx
+                else:
+                    minutes_ago = idx - last_miss_idx
+                    df.loc[idx, '알람미발생쿨다운'] = f'{minutes_ago}분전'
         
         # 분류 (알람 또는 쿨다운 = 알람발생으로 취급)
         for idx in range(len(df)):
