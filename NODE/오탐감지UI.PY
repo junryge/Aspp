@@ -530,7 +530,8 @@ class SurgeAnalyzer:
             return df
         
         # 1단계: 알람 발생 시점 찾기 (최초만 기록, 60분 내 재발생은 쿨다운)
-        last_alarm_idx = -61  # 마지막 최초 알람 인덱스
+        last_alarm_idx = -9999  # 마지막 최초 알람 인덱스 (아직 없음)
+        last_alarm_at = {}  # 각 idx 시점에서의 last_alarm_idx 저장
         
         for idx in range(len(df)):
             pred_time_str = str(df.loc[idx, pred_time_col])
@@ -553,7 +554,7 @@ class SurgeAnalyzer:
                     alarm_texts.append(f"[{meas_formatted}] Y 예측값{threshold}초과")
                 alarm_text = ' / '.join(alarm_texts)
                 
-                if idx - last_alarm_idx > 60:
+                if last_alarm_idx < 0 or idx - last_alarm_idx > 60:
                     # 60분 지났으니 새 알람 (최초)
                     df.loc[idx, '알람'] = alarm_text
                     last_alarm_idx = idx
@@ -561,6 +562,9 @@ class SurgeAnalyzer:
                     # 60분 안이니 쿨다운 - 몇 분 전 알람인지 표시
                     minutes_ago = idx - last_alarm_idx
                     df.loc[idx, '알람쿨다운'] = f'{minutes_ago}분전알람'
+            
+            # 현재 idx 시점의 last_alarm_idx 저장
+            last_alarm_at[idx] = last_alarm_idx
         
         # 2단계: 예측값>=threshold인데 알람 아닌 곳 처리
         # - 60분 이내: 알람쿨다운 (알람 CSV에 없어도!)
@@ -575,12 +579,15 @@ class SurgeAnalyzer:
             if pred_val < threshold:
                 continue
             
+            # 해당 시점까지의 마지막 알람 인덱스
+            my_last_alarm = last_alarm_at.get(idx, -9999)
+            
             # 예측값 >= threshold인데...
-            if last_alarm_idx < 0:
+            if my_last_alarm < 0:
                 # 아직 알람 발생 전
                 df.loc[idx, '알람미발생'] = '이전알람없음'
             else:
-                minutes_ago = idx - last_alarm_idx
+                minutes_ago = idx - my_last_alarm
                 if minutes_ago <= 60:
                     # 60분 이내면 알람쿨다운 (알람 CSV 매칭 여부 상관없이!)
                     if df.loc[idx, '알람쿨다운'] == '':  # 이미 설정 안 됐으면
