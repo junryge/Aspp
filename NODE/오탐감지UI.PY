@@ -526,7 +526,7 @@ class SurgeAnalyzer:
             for idx in range(len(df)):
                 pred_val = df.loc[idx, actual_pred_col]
                 if pred_val >= threshold:
-                    df.loc[idx, '알람미발생'] = '미발생알람'
+                    df.loc[idx, '알람미발생'] = '알람데이터없음'
             return df
         
         # 1단계: 알람 발생 시점 찾기 (최초만 기록, 60분 내 재발생은 쿨다운)
@@ -558,8 +558,9 @@ class SurgeAnalyzer:
                     df.loc[idx, '알람'] = alarm_text
                     last_alarm_idx = idx
                 else:
-                    # 60분 안이니 쿨다운
-                    df.loc[idx, '알람쿨다운'] = '쿨다운'
+                    # 60분 안이니 쿨다운 - 몇 분 전 알람인지 표시
+                    minutes_ago = idx - last_alarm_idx
+                    df.loc[idx, '알람쿨다운'] = f'{minutes_ago}분전알람'
         
         # 2단계: 예측값>=threshold인데 알람 아닌 곳 처리
         # - 60분 이내: 알람쿨다운 (알람 CSV에 없어도!)
@@ -575,13 +576,18 @@ class SurgeAnalyzer:
                 continue
             
             # 예측값 >= threshold인데...
-            if idx - last_alarm_idx <= 60:
-                # 60분 이내면 알람쿨다운 (알람 CSV 매칭 여부 상관없이!)
-                if df.loc[idx, '알람쿨다운'] == '':  # 이미 설정 안 됐으면
-                    df.loc[idx, '알람쿨다운'] = '쿨다운'
+            if last_alarm_idx < 0:
+                # 아직 알람 발생 전
+                df.loc[idx, '알람미발생'] = '이전알람없음'
             else:
-                # 60분 초과면 알람미발생
-                df.loc[idx, '알람미발생'] = '미발생알람'
+                minutes_ago = idx - last_alarm_idx
+                if minutes_ago <= 60:
+                    # 60분 이내면 알람쿨다운 (알람 CSV 매칭 여부 상관없이!)
+                    if df.loc[idx, '알람쿨다운'] == '':  # 이미 설정 안 됐으면
+                        df.loc[idx, '알람쿨다운'] = f'{minutes_ago}분전알람'
+                else:
+                    # 60분 초과면 알람미발생 (마지막 알람에서 몇 분 지났는지 표시)
+                    df.loc[idx, '알람미발생'] = f'{minutes_ago}분전알람'
         
         return df
     
@@ -1459,9 +1465,9 @@ function showGraph(filteredIdx) {{
                             if (d.alarm && d.alarm.length > 0) {{
                                 result.push('🔴 알람발생 [' + timeStr + ']');
                             }} else if (d.cooldown && d.cooldown.length > 0) {{
-                                result.push('🔵 알람발생쿨다운 (60분 이내)');
+                                result.push('🔵 알람쿨다운 (' + d.cooldown + ')');
                             }} else if (d.alarm_miss && d.alarm_miss.length > 0) {{
-                                result.push('🟣 알람미발생 [' + timeStr + ']');
+                                result.push('🟣 알람미발생 (' + d.alarm_miss + ')');
                             }}
                             
                             result.push('');
