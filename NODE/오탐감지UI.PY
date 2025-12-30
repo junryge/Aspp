@@ -919,6 +919,11 @@ h1{{font-size:2rem;text-align:center;background:linear-gradient(135deg,#00d4ff,#
 .item-value{{font-size:1.3rem;font-weight:bold}}
 .item-sub{{font-size:0.75rem;color:#888;margin-top:3px}}
 .ok{{color:#00ff88}}.warn{{color:#ffcc00}}.bad{{color:#ff4466}}.gray{{color:#aaa}}
+.stat-row{{display:grid;grid-template-columns:repeat(4,1fr);gap:15px;margin-bottom:15px}}
+.stat-box{{background:#0a0a12;border-radius:12px;padding:20px;text-align:center;cursor:pointer;transition:all 0.2s;border:1px solid #333}}
+.stat-box:hover{{background:#15151f;transform:scale(1.02);box-shadow:0 0 15px rgba(0,212,255,0.3)}}
+.stat-label{{font-size:0.9rem;margin-bottom:8px;font-weight:bold}}
+.stat-value{{font-size:2rem;font-weight:bold}}
 .total-summary{{display:flex;gap:15px;margin-bottom:15px;padding:15px;background:#0a0a12;border-radius:10px;border:1px solid #333}}
 .total-ok,.total-ng{{flex:1;padding:12px 15px;border-radius:8px;font-size:0.95rem;text-align:center}}
 .total-ok{{background:#1a3a1a;color:#00ff88;border:1px solid #00ff88}}
@@ -985,19 +990,13 @@ h1{{font-size:2rem;text-align:center;background:linear-gradient(135deg,#00d4ff,#
 .help-toggle{{position:fixed;right:15px;top:50%;transform:translateY(-50%);width:36px;height:36px;background:#00d4ff;border:none;border-radius:50%;cursor:pointer;font-size:1.2rem;z-index:101;display:none}}
 .help-box.hidden{{display:none}}
 .help-box.hidden+.help-toggle{{display:block}}
-@media(max-width:800px){{.case-row,.charts,.items,.modal-info{{grid-template-columns:1fr}}.sys-header{{flex-direction:column;gap:10px}}.sys-stats{{flex-wrap:wrap}}.view-toggle{{flex-direction:column}}.help-box{{display:none}}.help-toggle{{display:block}}}}
+@media(max-width:800px){{.stat-row{{grid-template-columns:repeat(2,1fr)}}.sys-header{{flex-direction:column;gap:10px}}.sys-stats{{flex-wrap:wrap}}.modal-info{{grid-template-columns:1fr}}.help-box{{display:none}}.help-toggle{{display:block}}}}
 </style>
 </head>
 <body>
 <div class="container">
 <h1>📊 ML급증 감지 분석 리포트 V8.1</h1>
 <p class="sub">📅 분석 날짜: {anal_date} | 생성: {now}</p>
-<div class="view-toggle">
-<button class="toggle-btn active" onclick="setViewMode('all')">📊 전체 보기</button>
-<button class="toggle-btn" onclick="setViewMode('surge')">📈 급증만 보기</button>
-<button class="toggle-btn" onclick="setViewMode('false')">⚠️ 급증 + 오탐만</button>
-</div>
-<div class="mode-desc" id="modeDesc">전체 데이터 (급증 + 정상 케이스)</div>
 '''
         
         if self.hub_stats and self.hub_stats['total_rows'] > 0:
@@ -1022,34 +1021,14 @@ h1{{font-size:2rem;text-align:center;background:linear-gradient(135deg,#00d4ff,#
 <div class="sys-header">
 <div class="sys-title hub">🏠 HUBROOM V8.1 (기준: 350)</div>
 <div class="sys-stats">
-<span>분석대상 <strong id="hubTotalCount">{t}</strong>개</span>
-<span>급증 <strong style="color:#00d4ff">{s['surge_total']}</strong>개</span>
-<span class="normal-section">정상 <strong style="color:#aaa">{t-s['surge_total']}</strong>개</span>
+<span>분석대상 <strong>{t}</strong>개</span>
 </div>
 </div>
-<div class="total-summary">
-<div class="total-ok">✅ 예측OK <strong id="hubTotalOk">{total_ok}</strong>개 <span id="hubTotalOkPct">({total_ok/t*100:.1f}%)</span></div>
-<div class="total-ng">❌ 예측NG <strong id="hubTotalNg">{total_ng}</strong>개 <span id="hubTotalNgPct">({total_ng/t*100:.1f}%)</span></div>
-</div>
-<div class="charts">
-<div class="chart-box"><div class="chart-title" id="hubSurgeTitle">급증 탐지 분포</div><div class="chart-wrap"><canvas id="hubSurge"></canvas></div></div>
-<div class="chart-box normal-section"><div class="chart-title">정상 케이스 분포</div><div class="chart-wrap"><canvas id="hubNormal"></canvas></div></div>
-</div>
-<div class="case-row">
-<div class="case-box">
-<div class="case-title surge" id="hubSurgeCaseTitle">📈 급증 케이스 ({s['surge_total']}개)</div>
-<div class="items" id="hubSurgeItems">
-<div class="item" onclick="showList('hub','이상탐지',350)"><div class="item-label">이상탐지</div><div class="item-value ok">{s['detect']}</div><div class="item-sub">{s['detect']/surge*100:.1f}%</div></div>
-<div class="item" onclick="showList('hub','미탐',350)"><div class="item-label">미탐</div><div class="item-value bad">{s['miss']}</div><div class="item-sub">{s['miss']/surge*100:.1f}%</div></div>
-</div>
-</div>
-<div class="case-box normal-section">
-<div class="case-title normal">📊 정상 케이스 ({t-s['surge_total']}개)</div>
-<div class="items">
-<div class="item" onclick="showList('hub','정상',350)"><div class="item-label">정상</div><div class="item-value gray">{s['normal']}</div><div class="item-sub">{s['normal']/normal_case*100:.1f}%</div></div>
-<div class="item" onclick="showList('hub','오탐',350)"><div class="item-label">오탐</div><div class="item-value bad">{s['false']}</div><div class="item-sub">{s['false']/normal_case*100:.1f}%</div></div>
-</div>
-</div>
+<div class="stat-row">
+<div class="stat-box" onclick="showList('hub','이상탐지',350)"><div class="stat-label ok">이상탐지</div><div class="stat-value ok">{s['detect']}</div></div>
+<div class="stat-box" onclick="showList('hub','오탐',350)"><div class="stat-label bad">오탐</div><div class="stat-value bad">{s['false']}</div></div>
+<div class="stat-box" onclick="showList('hub','미탐',350)"><div class="stat-label bad">미탐</div><div class="stat-value bad">{s['miss']}</div></div>
+<div class="stat-box" onclick="showList('hub','정상',350)"><div class="stat-label gray">정상</div><div class="stat-value gray">{s['normal']}</div></div>
 </div>
 {cmt_html}
 </div>
@@ -1077,34 +1056,14 @@ h1{{font-size:2rem;text-align:center;background:linear-gradient(135deg,#00d4ff,#
 <div class="sys-header">
 <div class="sys-title m14">🏭 M14_Q V8.1 (기준: 1700)</div>
 <div class="sys-stats">
-<span>분석대상 <strong id="m14TotalCount">{t}</strong>개</span>
-<span>급증 <strong style="color:#ff6b35">{s['surge_total']}</strong>개</span>
-<span class="normal-section">정상 <strong style="color:#aaa">{t-s['surge_total']}</strong>개</span>
+<span>분석대상 <strong>{t}</strong>개</span>
 </div>
 </div>
-<div class="total-summary">
-<div class="total-ok">✅ 예측OK <strong id="m14TotalOk">{total_ok}</strong>개 <span id="m14TotalOkPct">({total_ok/t*100:.1f}%)</span></div>
-<div class="total-ng">❌ 예측NG <strong id="m14TotalNg">{total_ng}</strong>개 <span id="m14TotalNgPct">({total_ng/t*100:.1f}%)</span></div>
-</div>
-<div class="charts">
-<div class="chart-box"><div class="chart-title" id="m14SurgeTitle">급증 탐지 분포</div><div class="chart-wrap"><canvas id="m14Surge"></canvas></div></div>
-<div class="chart-box normal-section"><div class="chart-title">정상 케이스 분포</div><div class="chart-wrap"><canvas id="m14Normal"></canvas></div></div>
-</div>
-<div class="case-row">
-<div class="case-box">
-<div class="case-title surge" style="color:#ff6b35" id="m14SurgeCaseTitle">📈 급증 케이스 ({s['surge_total']}개)</div>
-<div class="items" id="m14SurgeItems">
-<div class="item" onclick="showList('m14','이상탐지',1700)"><div class="item-label">이상탐지</div><div class="item-value ok">{s['detect']}</div><div class="item-sub">{s['detect']/surge*100:.1f}%</div></div>
-<div class="item" onclick="showList('m14','미탐',1700)"><div class="item-label">미탐</div><div class="item-value bad">{s['miss']}</div><div class="item-sub">{s['miss']/surge*100:.1f}%</div></div>
-</div>
-</div>
-<div class="case-box normal-section">
-<div class="case-title normal">📊 정상 케이스 ({t-s['surge_total']}개)</div>
-<div class="items">
-<div class="item" onclick="showList('m14','정상',1700)"><div class="item-label">정상</div><div class="item-value gray">{s['normal']}</div><div class="item-sub">{s['normal']/normal_case*100:.1f}%</div></div>
-<div class="item" onclick="showList('m14','오탐',1700)"><div class="item-label">오탐</div><div class="item-value bad">{s['false']}</div><div class="item-sub">{s['false']/normal_case*100:.1f}%</div></div>
-</div>
-</div>
+<div class="stat-row">
+<div class="stat-box" onclick="showList('m14','이상탐지',1700)"><div class="stat-label ok">이상탐지</div><div class="stat-value ok">{s['detect']}</div></div>
+<div class="stat-box" onclick="showList('m14','오탐',1700)"><div class="stat-label bad">오탐</div><div class="stat-value bad">{s['false']}</div></div>
+<div class="stat-box" onclick="showList('m14','미탐',1700)"><div class="stat-label bad">미탐</div><div class="stat-value bad">{s['miss']}</div></div>
+<div class="stat-box" onclick="showList('m14','정상',1700)"><div class="stat-label gray">정상</div><div class="stat-value gray">{s['normal']}</div></div>
 </div>
 {cmt_html}
 </div>
@@ -1125,145 +1084,6 @@ h1{{font-size:2rem;text-align:center;background:linear-gradient(135deg,#00d4ff,#
 <script>
 const hubStats = {hub_stats_json};
 const m14Stats = {m14_stats_json};
-let hubSurgeChart = null;
-let hubNormalChart = null;
-let m14SurgeChart = null;
-let m14NormalChart = null;
-let currentMode = 'all';
-
-function setViewMode(mode) {{
-    currentMode = mode;
-    document.querySelectorAll('.toggle-btn').forEach(btn => btn.classList.remove('active', 'active-warn'));
-    event.target.classList.add(mode === 'false' ? 'active-warn' : 'active');
-    
-    const descEl = document.getElementById('modeDesc');
-    if (mode === 'all') {{
-        descEl.textContent = '전체 데이터 (급증 + 정상 케이스)';
-    }} else if (mode === 'surge') {{
-        descEl.textContent = '급증 케이스만 표시 (정상 케이스 제외)';
-    }} else {{
-        descEl.textContent = '급증 케이스 + 오탐만 표시';
-    }}
-    
-    document.querySelectorAll('.normal-section').forEach(el => {{
-        el.classList.toggle('hidden', mode !== 'all');
-    }});
-    
-    const isSingle = (mode !== 'all');
-    document.querySelectorAll('.charts').forEach(el => el.classList.toggle('single', isSingle));
-    document.querySelectorAll('.chart-box:not(.normal-section)').forEach(el => el.classList.toggle('full', isSingle));
-    document.querySelectorAll('.chart-box:not(.normal-section) .chart-wrap').forEach(el => el.classList.toggle('tall', isSingle));
-    document.querySelectorAll('.case-row').forEach(el => el.classList.toggle('single', isSingle));
-    
-    updateSurgeChart('hub', hubStats, mode, 350);
-    updateSurgeChart('m14', m14Stats, mode, 1700);
-    
-    if (hubSurgeChart) hubSurgeChart.resize();
-    if (m14SurgeChart) m14SurgeChart.resize();
-    
-    updateStats('hub', hubStats, mode);
-    updateStats('m14', m14Stats, mode);
-}}
-
-function updateSurgeChart(sys, stats, mode, threshold) {{
-    if (!stats || !stats.total) return;
-    
-    const chart = sys === 'hub' ? hubSurgeChart : m14SurgeChart;
-    const titleEl = document.getElementById(sys + 'SurgeTitle');
-    const caseTitleEl = document.getElementById(sys + 'SurgeCaseTitle');
-    const itemsEl = document.getElementById(sys + 'SurgeItems');
-    
-    if (mode === 'false') {{
-        const total = stats.surge_total + stats.false;
-        chart.data.labels = [
-            '이상탐지 (' + stats.detect + '개)',
-            '미탐 (' + stats.miss + '개)',
-            '오탐 (' + stats.false + '개)'
-        ];
-        chart.data.datasets[0].data = [stats.detect, stats.miss, stats.false];
-        chart.data.datasets[0].backgroundColor = ['#00ff88', '#ff4466', '#ff9500'];
-        if (titleEl) titleEl.textContent = '급증 + 오탐 분포';
-        if (caseTitleEl) caseTitleEl.innerHTML = '📈 급증 + 오탐 케이스 (' + total + '개)';
-        
-        if (itemsEl) {{
-            itemsEl.innerHTML = `
-                <div class="item" onclick="showList('${{sys}}','이상탐지',${{threshold}})"><div class="item-label">이상탐지</div><div class="item-value ok">${{stats.detect}}</div><div class="item-sub">${{(stats.detect/total*100).toFixed(1)}}%</div></div>
-                <div class="item" onclick="showList('${{sys}}','미탐',${{threshold}})"><div class="item-label">미탐</div><div class="item-value bad">${{stats.miss}}</div><div class="item-sub">${{(stats.miss/total*100).toFixed(1)}}%</div></div>
-                <div class="item" onclick="showList('${{sys}}','오탐',${{threshold}})"><div class="item-label">오탐</div><div class="item-value warn">${{stats.false}}</div><div class="item-sub">${{(stats.false/total*100).toFixed(1)}}%</div></div>
-            `;
-            itemsEl.style.gridTemplateColumns = 'repeat(3, 1fr)';
-        }}
-    }} else {{
-        const surgeTotal = stats.surge_total || 1;
-        chart.data.labels = [
-            '이상탐지 (' + stats.detect + '개)',
-            '미탐 (' + stats.miss + '개)'
-        ];
-        chart.data.datasets[0].data = [stats.detect, stats.miss];
-        chart.data.datasets[0].backgroundColor = ['#00ff88', '#ff4466'];
-        if (titleEl) titleEl.textContent = '급증 탐지 분포';
-        if (caseTitleEl) caseTitleEl.innerHTML = '📈 급증 케이스 (' + stats.surge_total + '개)';
-        
-        if (itemsEl) {{
-            itemsEl.innerHTML = `
-                <div class="item" onclick="showList('${{sys}}','이상탐지',${{threshold}})"><div class="item-label">이상탐지</div><div class="item-value ok">${{stats.detect}}</div><div class="item-sub">${{(stats.detect/surgeTotal*100).toFixed(1)}}%</div></div>
-                <div class="item" onclick="showList('${{sys}}','미탐',${{threshold}})"><div class="item-label">미탐</div><div class="item-value bad">${{stats.miss}}</div><div class="item-sub">${{(stats.miss/surgeTotal*100).toFixed(1)}}%</div></div>
-            `;
-            itemsEl.style.gridTemplateColumns = 'repeat(2, 1fr)';
-        }}
-    }}
-    chart.update();
-}}
-
-function updateStats(sys, stats, mode) {{
-    if (!stats || !stats.total) return;
-    
-    let totalCount, totalOk, totalNg;
-    
-    if (mode === 'all') {{
-        totalCount = stats.total;
-        totalOk = stats.detect + stats.normal;
-        totalNg = stats.miss + stats.false;
-    }} else if (mode === 'surge') {{
-        totalCount = stats.surge_total;
-        totalOk = stats.detect;
-        totalNg = stats.miss;
-    }} else {{
-        totalCount = stats.surge_total + stats.false;
-        totalOk = stats.detect;
-        totalNg = stats.miss + stats.false;
-    }}
-    
-    const prefix = sys === 'hub' ? 'hub' : 'm14';
-    const countEl = document.getElementById(prefix + 'TotalCount');
-    const okEl = document.getElementById(prefix + 'TotalOk');
-    const ngEl = document.getElementById(prefix + 'TotalNg');
-    const okPctEl = document.getElementById(prefix + 'TotalOkPct');
-    const ngPctEl = document.getElementById(prefix + 'TotalNgPct');
-    
-    if (countEl) countEl.textContent = totalCount;
-    if (okEl) okEl.textContent = totalOk;
-    if (ngEl) ngEl.textContent = totalNg;
-    if (okPctEl) okPctEl.textContent = '(' + (totalOk/totalCount*100).toFixed(1) + '%)';
-    if (ngPctEl) ngPctEl.textContent = '(' + (totalNg/totalCount*100).toFixed(1) + '%)';
-}}
-
-Chart.register(ChartDataLabels);
-const opt={{responsive:true,maintainAspectRatio:false,plugins:{{legend:{{position:'bottom',labels:{{color:'#fff',font:{{size:10}},padding:8}}}},datalabels:{{color:'#fff',font:{{weight:'bold',size:11}},formatter:(v,ctx)=>{{let sum=ctx.chart.data.datasets[0].data.reduce((a,b)=>a+b,0);return v>0?(v/sum*100).toFixed(1)+'%':''}}}}}}}};
-'''
-        
-        if self.hub_stats and self.hub_stats['total_rows'] > 0:
-            s = self.hub_stats
-            html += f'''
-hubSurgeChart = new Chart(document.getElementById('hubSurge'),{{type:'doughnut',data:{{labels:['이상탐지 ({s['detect']}개)','미탐 ({s['miss']}개)'],datasets:[{{data:[{s['detect']},{s['miss']}],backgroundColor:['#00ff88','#ff4466']}}]}},options:{{...opt,onClick:(e,els)=>{{if(els.length){{const clsList=currentMode==='false'?['이상탐지','미탐','오탐']:['이상탐지','미탐'];showList('hub',clsList[els[0].index],350);}}}}}}}});
-hubNormalChart = new Chart(document.getElementById('hubNormal'),{{type:'doughnut',data:{{labels:['정상 ({s['normal']}개)','오탐 ({s['false']}개)'],datasets:[{{data:[{s['normal']},{s['false']}],backgroundColor:['#666666','#ff4466']}}]}},options:{{...opt,onClick:(e,els)=>{{if(els.length){{const cls=['정상','오탐'][els[0].index];showList('hub',cls,350);}}}}}}}});
-'''
-        
-        if self.m14_stats and self.m14_stats['total_rows'] > 0:
-            s = self.m14_stats
-            html += f'''
-m14SurgeChart = new Chart(document.getElementById('m14Surge'),{{type:'doughnut',data:{{labels:['이상탐지 ({s['detect']}개)','미탐 ({s['miss']}개)'],datasets:[{{data:[{s['detect']},{s['miss']}],backgroundColor:['#00ff88','#ff4466']}}]}},options:{{...opt,onClick:(e,els)=>{{if(els.length){{const clsList=currentMode==='false'?['이상탐지','미탐','오탐']:['이상탐지','미탐'];showList('m14',clsList[els[0].index],1700);}}}}}}}});
-m14NormalChart = new Chart(document.getElementById('m14Normal'),{{type:'doughnut',data:{{labels:['정상 ({s['normal']}개)','오탐 ({s['false']}개)'],datasets:[{{data:[{s['normal']},{s['false']}],backgroundColor:['#666666','#ff4466']}}]}},options:{{...opt,onClick:(e,els)=>{{if(els.length){{const cls=['정상','오탐'][els[0].index];showList('m14',cls,1700);}}}}}}}});
 '''
         
         html += f'''
