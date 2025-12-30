@@ -29,8 +29,12 @@ class SurgeAnalyzer:
         
         self.hub_file = None
         self.m14_file = None
+        self.hub_alarm_file = None
+        self.m14_alarm_file = None
         self.hub_df = None
         self.m14_df = None
+        self.hub_alarm_df = None
+        self.m14_alarm_df = None
         self.hub_stats = None
         self.m14_stats = None
         
@@ -89,6 +93,13 @@ class SurgeAnalyzer:
         self.hub_label = tk.Label(hub_btn_frame, text="선택 안됨", font=('맑은 고딕', 8), bg='#252540', fg='#888')
         self.hub_label.pack(side=tk.LEFT, padx=5)
         
+        hub_alarm_frame = tk.Frame(hub_frame, bg='#252540')
+        hub_alarm_frame.pack(fill=tk.X, padx=10, pady=2)
+        tk.Button(hub_alarm_frame, text="🚨 알람", command=self.select_hub_alarm_file,
+                  font=('맑은 고딕', 9), bg='#ffcc00', fg='black', width=8).pack(side=tk.LEFT)
+        self.hub_alarm_label = tk.Label(hub_alarm_frame, text="(선택)", font=('맑은 고딕', 8), bg='#252540', fg='#666')
+        self.hub_alarm_label.pack(side=tk.LEFT, padx=5)
+        
         self.hub_comment = tk.Text(hub_frame, font=('맑은 고딕', 9), bg='#0d0d15', fg='white', 
                                     height=2, relief='flat', padx=5, pady=3, insertbackground='white')
         self.hub_comment.pack(fill=tk.X, padx=10, pady=(0,5))
@@ -106,6 +117,13 @@ class SurgeAnalyzer:
                   font=('맑은 고딕', 9), bg='#ff6b35', fg='black', width=8).pack(side=tk.LEFT)
         self.m14_label = tk.Label(m14_btn_frame, text="선택 안됨", font=('맑은 고딕', 8), bg='#252540', fg='#888')
         self.m14_label.pack(side=tk.LEFT, padx=5)
+        
+        m14_alarm_frame = tk.Frame(m14_frame, bg='#252540')
+        m14_alarm_frame.pack(fill=tk.X, padx=10, pady=2)
+        tk.Button(m14_alarm_frame, text="🚨 알람", command=self.select_m14_alarm_file,
+                  font=('맑은 고딕', 9), bg='#ffcc00', fg='black', width=8).pack(side=tk.LEFT)
+        self.m14_alarm_label = tk.Label(m14_alarm_frame, text="(선택)", font=('맑은 고딕', 8), bg='#252540', fg='#666')
+        self.m14_alarm_label.pack(side=tk.LEFT, padx=5)
         
         self.m14_comment = tk.Text(m14_frame, font=('맑은 고딕', 9), bg='#0d0d15', fg='white', 
                                     height=2, relief='flat', padx=5, pady=3, insertbackground='white')
@@ -322,6 +340,12 @@ class SurgeAnalyzer:
         x_labels = [str(t)[-8:] for t in range_df['현재시간'].values]
         x_pos = range(len(range_df))
         
+        # 알람 있는 구간 빨간색 배경 표시
+        if '알람' in range_df.columns:
+            for i, (idx, r) in enumerate(range_df.iterrows()):
+                if pd.notna(r.get('알람')) and str(r.get('알람', '')).strip():
+                    self.ax.axvspan(i - 0.4, i + 0.4, color='#ff4466', alpha=0.3, zorder=0)
+        
         self.ax.plot(x_pos, range_df['실제값'].values, 'o-', color='#00d4ff', 
                      linewidth=2, markersize=6, label='실제값')
         self.ax.plot(x_pos, range_df['예측값_MAX'].values, 's--', color='#ff6b35', 
@@ -344,8 +368,14 @@ class SurgeAnalyzer:
         self.fig.tight_layout()
         self.canvas.draw()
         
+        # 알람 개수 표시
+        alarm_count = 0
+        if '알람' in range_df.columns:
+            alarm_count = len(range_df[range_df['알람'].notna() & (range_df['알람'] != '')])
+        alarm_text = f" | 🚨알람 {alarm_count}건" if alarm_count > 0 else ""
+        
         self.graph_title.config(text=f"📈 {system} - {cls}")
-        self.graph_info.config(text=f"시점: {center_time} | 실제값: {actual_val:.0f} | 예측값: {pred_val:.1f} | ±30분 범위")
+        self.graph_info.config(text=f"시점: {center_time} | 실제값: {actual_val:.0f} | 예측값: {pred_val:.1f} | ±30분 범위{alarm_text}")
     
     def create_data_view(self, parent, df):
         for widget in parent.winfo_children():
@@ -408,6 +438,56 @@ class SurgeAnalyzer:
         if file:
             self.m14_file = file
             self.m14_label.config(text=f"✅ {os.path.basename(file)[:25]}", fg='#00ff88')
+    
+    def select_hub_alarm_file(self):
+        file = filedialog.askopenfilename(filetypes=[("CSV files", "*.csv"), ("All files", "*.*")])
+        if file:
+            self.hub_alarm_file = file
+            self.hub_alarm_label.config(text=f"✅ {os.path.basename(file)[:20]}", fg='#ffcc00')
+    
+    def select_m14_alarm_file(self):
+        file = filedialog.askopenfilename(filetypes=[("CSV files", "*.csv"), ("All files", "*.*")])
+        if file:
+            self.m14_alarm_file = file
+            self.m14_alarm_label.config(text=f"✅ {os.path.basename(file)[:20]}", fg='#ffcc00')
+    
+    def load_alarm_data(self, alarm_file):
+        """알람 CSV 로드 및 시간 형식 변환"""
+        if not alarm_file:
+            return None
+        try:
+            df = self.read_csv_auto(alarm_file)
+            if 'MEAS_TM' in df.columns:
+                # MEAS_TM을 문자열로 변환 (202512291354 형식)
+                df['MEAS_TM'] = df['MEAS_TM'].astype(str)
+            return df
+        except Exception as e:
+            print(f"알람 파일 로드 실패: {e}")
+            return None
+    
+    def match_alarm(self, df, alarm_df, time_col):
+        """데이터프레임에 알람 매칭"""
+        if alarm_df is None or len(alarm_df) == 0:
+            df['알람'] = ''
+            return df
+        
+        df = df.copy()
+        df['알람'] = ''
+        
+        # 현재시간 컬럼을 알람 형식으로 변환 (2025-12-29 13:54:00 -> 202512291354)
+        for idx in range(len(df)):
+            time_str = str(df.loc[idx, time_col])
+            # 다양한 형식 처리
+            time_key = time_str.replace('-', '').replace(':', '').replace(' ', '')[:12]
+            
+            # 알람 데이터에서 매칭
+            matched = alarm_df[alarm_df['MEAS_TM'].str[:12] == time_key]
+            if len(matched) > 0:
+                # 알람 설명 추가
+                alarm_descs = matched['ALARM_DESC'].unique()
+                df.loc[idx, '알람'] = ', '.join(alarm_descs[:2])  # 최대 2개
+        
+        return df
     
     def analyze_v81(self, df, threshold, pred_col, curr_col, actual_col):
         """
@@ -523,15 +603,23 @@ class SurgeAnalyzer:
         result_text = ""
         
         try:
+            # 알람 데이터 로드
+            self.hub_alarm_df = self.load_alarm_data(self.hub_alarm_file)
+            self.m14_alarm_df = self.load_alarm_data(self.m14_alarm_file)
+            
             if self.hub_file:
                 df = self.read_csv_auto(self.hub_file)
                 self.hub_df, self.hub_stats = self.analyze_v81(df.copy(), 350, '예측값_MAX', '현재값', '실제값')
+                # 알람 매칭
+                self.hub_df = self.match_alarm(self.hub_df, self.hub_alarm_df, '현재시간')
                 result_text += self.fmt("HUBROOM V8.1", self.hub_stats, 350)
                 self.create_data_view(self.hub_data_frame, self.hub_df)
             
             if self.m14_file:
                 df = self.read_csv_auto(self.m14_file)
                 self.m14_df, self.m14_stats = self.analyze_v81(df.copy(), 1700, '최종예측', '현재TOTALCNT', '실제값')
+                # 알람 매칭
+                self.m14_df = self.match_alarm(self.m14_df, self.m14_alarm_df, '현재시간')
                 result_text += self.fmt("M14_Q V8.1", self.m14_stats, 1700)
                 self.create_data_view(self.m14_data_frame, self.m14_df)
             
@@ -619,6 +707,7 @@ class SurgeAnalyzer:
         if self.hub_df is not None and len(self.hub_df) > 0:
             hub_data = []
             for i, (idx, row) in enumerate(self.hub_df.iterrows()):
+                alarm_val = str(row.get('알람', '')) if pd.notna(row.get('알람')) else ''
                 hub_data.append({
                     'idx': i,
                     'time': str(row.get('현재시간', '')),
@@ -626,13 +715,15 @@ class SurgeAnalyzer:
                     'current': float(row.get('현재값', 0)),
                     'actual': float(row.get('실제값', 0)),
                     'pred': float(row.get('예측값_MAX', 0)),
-                    'cls': str(row.get('분류', ''))
+                    'cls': str(row.get('분류', '')),
+                    'alarm': alarm_val
                 })
             hub_json = str(hub_data).replace("'", '"')
         
         if self.m14_df is not None and len(self.m14_df) > 0:
             m14_data = []
             for i, (idx, row) in enumerate(self.m14_df.iterrows()):
+                alarm_val = str(row.get('알람', '')) if pd.notna(row.get('알람')) else ''
                 m14_data.append({
                     'idx': i,
                     'time': str(row.get('현재시간', '')),
@@ -640,7 +731,8 @@ class SurgeAnalyzer:
                     'current': float(row.get('현재TOTALCNT', 0)),
                     'actual': float(row.get('실제값', 0)),
                     'pred': float(row.get('예측값_MAX', row.get('최종예측', 0))),
-                    'cls': str(row.get('분류', ''))
+                    'cls': str(row.get('분류', '')),
+                    'alarm': alarm_val
                 })
             m14_json = str(m14_data).replace("'", '"')
         
@@ -673,6 +765,7 @@ class SurgeAnalyzer:
 <title>ML급증 감지 분석 리포트 V8.1</title>
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2"></script>
+<script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-annotation@2"></script>
 <style>
 *{{margin:0;padding:0;box-sizing:border-box}}
 body{{font-family:'맑은 고딕',sans-serif;background:#0a0a0f;color:#fff;padding:30px}}
@@ -1124,10 +1217,14 @@ function showGraph(filteredIdx) {{
     const rangeData = data.slice(startIdx, endIdx);
     const centerPos = centerIdx - startIdx;
     
+    // 알람 개수 세기
+    const alarmCount = rangeData.filter(d => d.alarm && d.alarm.length > 0).length;
+    const alarmText = alarmCount > 0 ? ` | 🚨알람 ${{alarmCount}}건` : '';
+    
     document.getElementById('chartTitle').innerHTML = `<button class="back-btn" onclick="backToList()">← 목록</button>${{sysName}} - ${{item.cls}}`;
     const t1 = (item.time.split(' ')[1] || item.time).substring(0,5);
     const t2 = (item.pred_time.split(' ')[1] || item.pred_time).substring(0,5);
-    document.getElementById('chartInfo').textContent = `${{t1}}(현재)->${{t2}}(예측) | 현재값: ${{item.current.toFixed(0)}} | 실제값: ${{item.actual.toFixed(0)}} | 예측값: ${{item.pred.toFixed(1)}}`;
+    document.getElementById('chartInfo').textContent = `${{t1}}(현재)->${{t2}}(예측) | 현재값: ${{item.current.toFixed(0)}} | 실제값: ${{item.actual.toFixed(0)}} | 예측값: ${{item.pred.toFixed(1)}}${{alarmText}}`;
     
     document.getElementById('listModal').classList.remove('show');
     document.getElementById('chartModal').classList.add('show');
@@ -1137,6 +1234,31 @@ function showGraph(filteredIdx) {{
     
     const pointColors = rangeData.map((_, i) => i === centerPos ? '#ffcc00' : '#ff6b35');
     const pointSizes = rangeData.map((_, i) => i === centerPos ? 12 : 4);
+    
+    // 알람 있는 포인트 색상 (실제값에 적용)
+    const actualPointColors = rangeData.map((d, i) => {{
+        if (d.alarm && d.alarm.length > 0) return '#ff4466';  // 알람 있으면 빨간색
+        return '#00d4ff';  // 기본 파란색
+    }});
+    const actualPointSizes = rangeData.map((d, i) => {{
+        if (d.alarm && d.alarm.length > 0) return 10;  // 알람 있으면 크게
+        return 4;
+    }});
+    
+    // 알람 annotation 생성
+    const alarmAnnotations = {{}};
+    rangeData.forEach((d, i) => {{
+        if (d.alarm && d.alarm.length > 0) {{
+            alarmAnnotations['alarm' + i] = {{
+                type: 'box',
+                xMin: i - 0.4,
+                xMax: i + 0.4,
+                backgroundColor: 'rgba(255, 68, 102, 0.25)',
+                borderColor: 'rgba(255, 68, 102, 0.5)',
+                borderWidth: 1
+            }};
+        }}
+    }});
     
     const labelsShort = rangeData.map(d => (d.pred_time.split(' ')[1] || d.pred_time).substring(0,5) + '(예측)');
     const labelsFull = rangeData.map(d => {{
@@ -1168,7 +1290,9 @@ function showGraph(filteredIdx) {{
                     backgroundColor: 'rgba(0,212,255,0.1)',
                     fill: true,
                     tension: 0.3,
-                    pointRadius: 4
+                    pointBackgroundColor: actualPointColors,
+                    pointBorderColor: actualPointColors,
+                    pointRadius: actualPointSizes
                 }},
                 {{
                     label: '예측값 (예측시점)',
@@ -1211,6 +1335,7 @@ function showGraph(filteredIdx) {{
                     }}
                 }},
                 datalabels: {{ display: false }},
+                annotation: {{ annotations: alarmAnnotations }},
                 tooltip: {{
                     enabled: true,
                     backgroundColor: 'rgba(0,0,0,0.9)',
@@ -1234,7 +1359,11 @@ function showGraph(filteredIdx) {{
                             const idx = context[0].dataIndex;
                             const d = rangeData[idx];
                             const diff = d.pred - d.actual;
-                            return ['', '예측 오차: ' + (diff >= 0 ? '+' : '') + diff.toFixed(1)];
+                            let result = ['', '예측 오차: ' + (diff >= 0 ? '+' : '') + diff.toFixed(1)];
+                            if (d.alarm && d.alarm.length > 0) {{
+                                result.push('🚨 알람: ' + d.alarm.substring(0, 30));
+                            }}
+                            return result;
                         }}
                     }}
                 }}
