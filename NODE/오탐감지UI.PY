@@ -547,10 +547,15 @@ class SurgeAnalyzer:
                     # 60분 안이니 쿨다운
                     df.loc[idx, '알람쿨다운'] = '쿨다운'
         
-        # 2단계: 예측값>=threshold인데 알람도 쿨다운도 아닌 곳 → 미발생 처리 (전부)
+        # 2단계: 예측값>=threshold인데 알람도 쿨다운도 아닌 곳 → 미발생 처리
+        # 단, 알람 쿨다운 기간(60분) 내면 미발생도 안 생김!
         for idx in range(len(df)):
             # 이미 알람 또는 알람쿨다운이면 스킵
             if df.loc[idx, '알람'] != '' or df.loc[idx, '알람쿨다운'] != '':
+                continue
+            
+            # 알람 쿨다운 기간 내면 미발생도 스킵!
+            if idx - last_alarm_idx <= 60:
                 continue
             
             pred_val = df.loc[idx, pred_col] if pred_col in df.columns else 0
