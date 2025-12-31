@@ -150,7 +150,7 @@ def perform_eda(df, target_col='TOTALCNT'):
 # ========================================
 # 4. 상관관계 분석
 # ========================================
-def analyze_correlations(df, target_col='TOTALCNT', top_n=30):
+def analyze_correlations(df, target_col='TOTALCNT', top_n=None):
     """타겟과의 상관관계 분석"""
     print(f"\n🔗 상관관계 분석 (타겟: {target_col})")
     print("-"*60)
@@ -161,9 +161,10 @@ def analyze_correlations(df, target_col='TOTALCNT', top_n=30):
     # 타겟과의 상관계수
     correlations = numeric_df.corr()[target_col].drop(target_col).abs().sort_values(ascending=False)
     
-    print(f"\n📈 상위 {top_n}개 상관 Feature:")
-    for i, (col, corr) in enumerate(correlations.head(top_n).items(), 1):
-        print(f"  {i:2d}. {col[:50]:<50} : {corr:.4f}")
+    print(f"\n📈 상관 Feature (전체 {len(correlations)}개):")
+    display_n = top_n if top_n else len(correlations)
+    for i, (col, corr) in enumerate(correlations.head(display_n).items(), 1):
+        print(f"  {i:3d}. {col:<55} : {corr:.4f}")
     
     # 0.998 이상 (데이터 누수 의심)
     leakage_candidates = correlations[correlations > 0.95]
@@ -251,23 +252,26 @@ class FeatureSelector:
         self.results['correlation'] = selected
         return selected
     
-    def mutual_info_selection(self, k=30):
+    def mutual_info_selection(self, k=None):
         """Mutual Information 기반 선택"""
         print("\n🔮 3. Mutual Information")
         
-        selector = SelectKBest(score_func=mutual_info_regression, k=min(k, len(self.feature_cols)))
+        k = k if k else len(self.feature_cols)
+        selector = SelectKBest(score_func=mutual_info_regression, k=k)
         selector.fit(self.X, self.y)
         
         scores = pd.Series(selector.scores_, index=self.feature_cols).sort_values(ascending=False)
-        selected = scores.head(k).index.tolist()
+        selected = scores.index.tolist()
         
-        print(f"  상위 {k}개 선택")
-        print(f"  Top 5: {list(scores.head(5).items())}")
+        print(f"  전체 {len(selected)}개 분석 완료")
+        print(f"  전체 Feature MI 점수:")
+        for i, (col, score) in enumerate(scores.items(), 1):
+            print(f"    {i:3d}. {col:<55} : {score:.4f}")
         
         self.results['mutual_info'] = selected
         return selected
     
-    def tree_importance(self, n_estimators=100, top_n=30):
+    def tree_importance(self, n_estimators=100, top_n=None):
         """Tree 기반 Feature Importance"""
         print("\n🌲 4. Tree-based Feature Importance")
         
@@ -289,12 +293,13 @@ class FeatureSelector:
         avg_importance = (rf_importance + et_importance) / 2
         avg_importance = avg_importance.sort_values(ascending=False)
         
+        top_n = top_n if top_n else len(avg_importance)
         selected = avg_importance.head(top_n).index.tolist()
         
-        print(f"  상위 {top_n}개 선택")
-        print(f"  Top 10:")
-        for i, (col, imp) in enumerate(avg_importance.head(10).items(), 1):
-            print(f"    {i:2d}. {col[:45]:<45} : {imp:.4f}")
+        print(f"  전체 {len(avg_importance)}개 분석 완료")
+        print(f"  전체 Feature 중요도:")
+        for i, (col, imp) in enumerate(avg_importance.items(), 1):
+            print(f"    {i:3d}. {col:<55} : {imp:.4f}")
         
         self.results['tree_importance'] = selected
         self.results['tree_scores'] = avg_importance
@@ -315,16 +320,19 @@ class FeatureSelector:
         
         print(f"  선택: {len(selected)}개 (비영 계수)")
         print(f"  최적 alpha: {lasso.alpha_:.4f}")
-        print(f"  Top 10:")
-        for i, (col, c) in enumerate(coef.head(10).items(), 1):
-            print(f"    {i:2d}. {col[:45]:<45} : {c:.4f}")
+        print(f"  전체 Feature LASSO 계수:")
+        for i, (col, c) in enumerate(coef.items(), 1):
+            marker = "✓" if c > 0 else " "
+            print(f"    {marker} {i:3d}. {col:<55} : {c:.4f}")
         
         self.results['lasso'] = selected
         return selected
     
-    def rfe_selection(self, n_features=30, step=5):
+    def rfe_selection(self, n_features=None, step=5):
         """Recursive Feature Elimination"""
         print("\n🔄 6. RFE (Recursive Feature Elimination)")
+        
+        n_features = n_features if n_features else len(self.feature_cols) // 2
         
         estimator = RandomForestRegressor(n_estimators=50, max_depth=8, 
                                          n_jobs=-1, random_state=42)
@@ -336,9 +344,10 @@ class FeatureSelector:
         ranking = pd.Series(rfe.ranking_, index=self.feature_cols).sort_values()
         
         print(f"  선택: {len(selected)}개")
-        print(f"  Top 10:")
-        for i, (col, rank) in enumerate(ranking.head(10).items(), 1):
-            print(f"    {i:2d}. {col[:45]:<45} : rank {rank}")
+        print(f"  전체 Feature RFE 순위:")
+        for i, (col, rank) in enumerate(ranking.items(), 1):
+            marker = "✓" if rank == 1 else " "
+            print(f"    {marker} {i:3d}. {col:<55} : rank {rank}")
         
         self.results['rfe'] = selected
         return selected
@@ -370,10 +379,11 @@ class FeatureSelector:
         consensus = feature_counts[feature_counts >= min_methods].index.tolist()
         
         print(f"\n📌 {min_methods}개 이상 방법에서 선택된 Feature: {len(consensus)}개")
-        print("\n  Feature별 선택 횟수:")
-        for i, (feat, cnt) in enumerate(feature_counts.head(20).items(), 1):
+        print("\n  전체 Feature별 선택 횟수:")
+        for i, (feat, cnt) in enumerate(feature_counts.items(), 1):
             methods = [m for m, f in self.results.items() if isinstance(f, list) and feat in f]
-            print(f"    {i:2d}. {feat[:40]:<40} : {cnt}회 ({', '.join(methods[:3])})")
+            marker = "✓" if cnt >= min_methods else " "
+            print(f"    {marker} {i:3d}. {feat:<50} : {cnt}회 ({', '.join(methods)})")
         
         self.results['ensemble'] = consensus
         return consensus
@@ -490,7 +500,7 @@ def evaluate_baseline_models(df, feature_cols, target_col='TOTALCNT', pred_offse
 # ========================================
 # 7. 최종 추천 Feature Set 생성
 # ========================================
-def generate_recommended_features(selector, correlations, top_n=30):
+def generate_recommended_features(selector, correlations, top_n=None):
     """최종 추천 Feature Set 생성"""
     print("\n" + "="*80)
     print("🏆 최종 추천 Feature Set")
@@ -504,46 +514,49 @@ def generate_recommended_features(selector, correlations, top_n=30):
         'queue_gap'  # 파생 변수
     ]
     
-    # 2. 상관관계 기반 상위
-    corr_top = correlations.head(20).index.tolist()
+    # 2. 상관관계 기반 전체
+    corr_all = correlations.index.tolist()
     
     # 3. Ensemble Selection
     ensemble = selector.results.get('ensemble', [])
     
     # 4. Tree Importance
-    tree_top = selector.results.get('tree_importance', [])[:20]
+    tree_all = selector.results.get('tree_importance', [])
     
     # 통합
     all_recommended = set(core_features)
-    all_recommended.update(corr_top)
+    all_recommended.update(corr_all)
     all_recommended.update(ensemble)
-    all_recommended.update(tree_top)
+    all_recommended.update(tree_all)
     
     # 존재하는 컬럼만
     available_cols = set(selector.feature_cols)
-    final_features = [f for f in all_recommended if f in available_cols or f in ['queue_gap']]
+    final_features = [f for f in all_recommended if f in available_cols or f in ['queue_gap', 'queue_gap_B']]
     
     # 상관관계 순 정렬
     final_features = sorted(final_features, 
                            key=lambda x: correlations.get(x, 0) if x in correlations else 0,
-                           reverse=True)[:top_n]
+                           reverse=True)
     
-    print(f"\n📌 추천 Feature ({len(final_features)}개):")
-    print("-"*60)
+    if top_n:
+        final_features = final_features[:top_n]
+    
+    print(f"\n📌 전체 추천 Feature ({len(final_features)}개):")
+    print("-"*80)
     
     for i, feat in enumerate(final_features, 1):
         corr = correlations.get(feat, 0)
         source = []
         if feat in core_features:
             source.append('Core')
-        if feat in corr_top:
+        if feat in corr_all:
             source.append('Corr')
         if feat in ensemble:
             source.append('Ensemble')
-        if feat in tree_top:
+        if feat in tree_all:
             source.append('Tree')
         
-        print(f"  {i:2d}. {feat:<50} (상관:{corr:.3f}, {'/'.join(source)})")
+        print(f"  {i:3d}. {feat:<55} (상관:{corr:.4f}, {'/'.join(source)})")
     
     return final_features
 
@@ -606,24 +619,24 @@ if __name__ == '__main__':
     
     selector = FeatureSelector(df, target_col='TOTALCNT')
     
-    # 각 방법 실행
+    # 각 방법 실행 (전체 분석!)
     selector.variance_threshold()
     selector.correlation_filter()
-    selector.mutual_info_selection(k=30)
-    selector.tree_importance(top_n=30)
+    selector.mutual_info_selection()  # 전체
+    selector.tree_importance()  # 전체
     selector.lasso_selection()
     
     # RFE는 시간이 오래 걸려서 선택적
     print("\n⏳ RFE 실행 중 (시간 소요)...")
     try:
-        selector.rfe_selection(n_features=25)
+        selector.rfe_selection()  # 전체
     except Exception as e:
         print(f"  RFE 스킵: {e}")
     
     # Ensemble
     selector.ensemble_selection(min_methods=3)
     
-    # 6. 추천 Feature Set
+    # 6. 추천 Feature Set (전체!)
     recommended = generate_recommended_features(selector, correlations)
     
     # 7. Baseline 모델 평가
