@@ -1,0 +1,778 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>8단계: Feature Engineering 수행 결과</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+            color: #eee;
+            min-height: 100vh;
+            padding: 20px;
+        }
+        .container { max-width: 1400px; margin: 0 auto; }
+        h1 {
+            text-align: center;
+            font-size: 2.5rem;
+            margin-bottom: 10px;
+            background: linear-gradient(90deg, #00d4ff, #7b2cbf);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+        .subtitle { text-align: center; color: #888; margin-bottom: 30px; }
+        
+        .summary-grid {
+            display: grid;
+            grid-template-columns: repeat(5, 1fr);
+            gap: 15px;
+            margin-bottom: 30px;
+        }
+        .summary-card {
+            background: rgba(255,255,255,0.08);
+            border-radius: 12px;
+            padding: 20px;
+            text-align: center;
+        }
+        .summary-card .value {
+            font-size: 2.2rem;
+            font-weight: bold;
+            background: linear-gradient(90deg, #00d4ff, #7b2cbf);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+        .summary-card .label { color: #888; margin-top: 5px; font-size: 0.9rem; }
+        .summary-card.highlight {
+            background: linear-gradient(135deg, rgba(0,212,255,0.2), rgba(123,44,191,0.2));
+            border: 1px solid #00d4ff;
+        }
+        
+        .section {
+            background: rgba(255,255,255,0.05);
+            border-radius: 12px;
+            padding: 25px;
+            margin-bottom: 25px;
+            border: 1px solid rgba(255,255,255,0.1);
+        }
+        .section h2 {
+            font-size: 1.4rem;
+            margin-bottom: 20px;
+            padding-bottom: 10px;
+            border-bottom: 2px solid #7b2cbf;
+        }
+        
+        .feature-group {
+            background: rgba(0,0,0,0.2);
+            border-radius: 10px;
+            padding: 15px;
+            margin-bottom: 15px;
+        }
+        .feature-group-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 10px;
+            cursor: pointer;
+        }
+        .feature-group-title {
+            font-size: 1.1rem;
+            font-weight: bold;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        .feature-count {
+            background: #7b2cbf;
+            padding: 4px 12px;
+            border-radius: 20px;
+            font-size: 0.85rem;
+        }
+        .badge {
+            padding: 4px 10px;
+            border-radius: 15px;
+            font-size: 0.75rem;
+            font-weight: 600;
+        }
+        .badge-s { background: linear-gradient(90deg, #ffd700, #ff8c00); color: #000; }
+        .badge-a { background: #00d4ff; color: #000; }
+        .badge-b { background: #666; color: #fff; }
+        .badge-new { background: #ff416c; color: #fff; }
+        .badge-existing { background: #7b2cbf; color: #fff; }
+        .badge-interaction { background: #34e89e; color: #000; }
+        
+        .feature-list {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 6px;
+            margin-top: 10px;
+        }
+        .feature-tag {
+            background: rgba(255,255,255,0.1);
+            padding: 4px 10px;
+            border-radius: 4px;
+            font-size: 0.75rem;
+            color: #aaa;
+        }
+        .feature-tag.stat { border-left: 3px solid #00d4ff; }
+        .feature-tag.lag { border-left: 3px solid #7b2cbf; }
+        .feature-tag.trend { border-left: 3px solid #ff416c; }
+        .feature-tag.threshold { border-left: 3px solid #ffcc00; }
+        .feature-tag.rolling { border-left: 3px solid #34e89e; }
+        .feature-tag.special { border-left: 3px solid #ff8c00; }
+        
+        table { width: 100%; border-collapse: collapse; }
+        th, td {
+            padding: 12px;
+            text-align: left;
+            border-bottom: 1px solid rgba(255,255,255,0.1);
+        }
+        th { background: rgba(123,44,191,0.3); }
+        tr:hover { background: rgba(255,255,255,0.05); }
+        
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 20px;
+        }
+        .stat-box {
+            background: rgba(0,0,0,0.3);
+            border-radius: 10px;
+            padding: 20px;
+            text-align: center;
+        }
+        .stat-box .value {
+            font-size: 1.8rem;
+            font-weight: bold;
+            color: #00d4ff;
+        }
+        .stat-box .label { color: #888; margin-top: 5px; }
+        
+        .progress-container {
+            margin-top: 20px;
+        }
+        .progress-label {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 5px;
+            font-size: 0.9rem;
+        }
+        .progress-bar {
+            height: 25px;
+            background: rgba(255,255,255,0.1);
+            border-radius: 12px;
+            overflow: hidden;
+        }
+        .progress-fill {
+            height: 100%;
+            border-radius: 12px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 0.8rem;
+            font-weight: bold;
+        }
+        .progress-fill.normal { background: linear-gradient(90deg, #34e89e, #0f3443); width: 82%; }
+        .progress-fill.caution { background: linear-gradient(90deg, #ffcc00, #ff8c00); width: 16%; }
+        .progress-fill.danger { background: linear-gradient(90deg, #ff416c, #ff4b2b); width: 1.61%; }
+        
+        .interaction-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 15px;
+        }
+        .interaction-card {
+            background: rgba(52, 232, 158, 0.1);
+            border: 1px solid rgba(52, 232, 158, 0.3);
+            border-radius: 8px;
+            padding: 15px;
+        }
+        .interaction-card.pattern {
+            background: rgba(255, 65, 108, 0.1);
+            border-color: rgba(255, 65, 108, 0.3);
+        }
+        .interaction-card h4 { color: #34e89e; margin-bottom: 8px; font-size: 0.95rem; }
+        .interaction-card.pattern h4 { color: #ff416c; }
+        .interaction-card p { color: #888; font-size: 0.85rem; }
+        
+        .file-info {
+            background: linear-gradient(135deg, #0f3443, #34e89e20);
+            border: 2px solid #34e89e;
+            border-radius: 12px;
+            padding: 20px;
+            margin-top: 20px;
+        }
+        .file-info h3 { color: #34e89e; margin-bottom: 15px; }
+        .file-item {
+            display: flex;
+            justify-content: space-between;
+            padding: 10px;
+            background: rgba(0,0,0,0.2);
+            border-radius: 6px;
+            margin-bottom: 8px;
+        }
+        .file-item .name { color: #00d4ff; }
+        .file-item .size { color: #888; }
+        
+        .legend {
+            display: flex;
+            gap: 20px;
+            flex-wrap: wrap;
+            margin-bottom: 15px;
+            padding: 10px;
+            background: rgba(0,0,0,0.2);
+            border-radius: 8px;
+        }
+        .legend-item {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            font-size: 0.8rem;
+            color: #888;
+        }
+        .legend-color {
+            width: 15px;
+            height: 15px;
+            border-radius: 3px;
+        }
+        
+        footer { text-align: center; padding: 30px; color: #666; }
+        
+        @media (max-width: 900px) {
+            .summary-grid { grid-template-columns: repeat(2, 1fr); }
+            .stats-grid { grid-template-columns: 1fr; }
+            .interaction-grid { grid-template-columns: 1fr; }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🚀 8단계: Feature Engineering 수행 결과</h1>
+        <p class="subtitle">7단계 계획 기반 346개 Feature 생성 완료 | V8.3.0+ 프로젝트</p>
+
+        <!-- 요약 카드 -->
+        <div class="summary-grid">
+            <div class="summary-card highlight">
+                <div class="value">346</div>
+                <div class="label">총 Feature 수</div>
+            </div>
+            <div class="summary-card">
+                <div class="value">162,247</div>
+                <div class="label">총 샘플 수</div>
+            </div>
+            <div class="summary-card">
+                <div class="value">2,616</div>
+                <div class="label">1700+ 샘플</div>
+            </div>
+            <div class="summary-card">
+                <div class="value">1.61%</div>
+                <div class="label">위험 비율</div>
+            </div>
+            <div class="summary-card">
+                <div class="value">12</div>
+                <div class="label">핵심 컬럼</div>
+            </div>
+        </div>
+
+        <!-- 타겟 분포 -->
+        <div class="section">
+            <h2>📊 타겟 (TOTALCNT) 분포</h2>
+            <div class="stats-grid">
+                <div class="stat-box">
+                    <div class="value">1,295</div>
+                    <div class="label">평균</div>
+                </div>
+                <div class="stat-box">
+                    <div class="value">753</div>
+                    <div class="label">최소</div>
+                </div>
+                <div class="stat-box">
+                    <div class="value">3,051</div>
+                    <div class="label">최대</div>
+                </div>
+            </div>
+            
+            <div class="progress-container">
+                <div class="progress-label">
+                    <span>샘플 분포</span>
+                </div>
+                <div style="display: flex; gap: 2px;">
+                    <div class="progress-bar" style="flex: 82;">
+                        <div class="progress-fill normal">NORMAL (82%)</div>
+                    </div>
+                    <div class="progress-bar" style="flex: 16;">
+                        <div class="progress-fill caution" style="width: 100%;">CAUTION</div>
+                    </div>
+                    <div class="progress-bar" style="flex: 2;">
+                        <div class="progress-fill danger" style="width: 100%;">1700+</div>
+                    </div>
+                </div>
+                <div style="display: flex; justify-content: space-between; margin-top: 5px; font-size: 0.8rem; color: #888;">
+                    <span>< 1600: ~133,000개</span>
+                    <span>1600-1699: ~26,600개</span>
+                    <span>≥ 1700: 2,616개</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- Feature 그룹별 상세 -->
+        <div class="section">
+            <h2>📦 Feature 그룹별 상세 (346개)</h2>
+            
+            <div class="legend">
+                <div class="legend-item"><div class="legend-color" style="background: #00d4ff;"></div> 통계 (stat)</div>
+                <div class="legend-item"><div class="legend-color" style="background: #7b2cbf;"></div> 시차 (lag)</div>
+                <div class="legend-item"><div class="legend-color" style="background: #ff416c;"></div> 추세 (trend)</div>
+                <div class="legend-item"><div class="legend-color" style="background: #ffcc00;"></div> 임계값 (threshold)</div>
+                <div class="legend-item"><div class="legend-color" style="background: #34e89e;"></div> 롤링 (rolling)</div>
+                <div class="legend-item"><div class="legend-color" style="background: #ff8c00;"></div> 특수 (special)</div>
+            </div>
+
+            <!-- M14AM14B -->
+            <div class="feature-group">
+                <div class="feature-group-header">
+                    <div class="feature-group-title">
+                        <span>M14AM14B</span>
+                        <span class="badge badge-s">S등급</span>
+                        <span class="badge badge-existing">기존</span>
+                    </div>
+                    <span class="feature-count">35개</span>
+                </div>
+                <div class="feature-list">
+                    <span class="feature-tag stat">mean</span>
+                    <span class="feature-tag stat">max</span>
+                    <span class="feature-tag stat">min</span>
+                    <span class="feature-tag stat">std</span>
+                    <span class="feature-tag stat">median</span>
+                    <span class="feature-tag stat">skew</span>
+                    <span class="feature-tag lag">current</span>
+                    <span class="feature-tag lag">last5</span>
+                    <span class="feature-tag lag">last10</span>
+                    <span class="feature-tag lag">last20</span>
+                    <span class="feature-tag lag">last30</span>
+                    <span class="feature-tag lag">last60</span>
+                    <span class="feature-tag trend">slope</span>
+                    <span class="feature-tag trend">trend5</span>
+                    <span class="feature-tag trend">trend10</span>
+                    <span class="feature-tag trend">trend20</span>
+                    <span class="feature-tag trend">accel</span>
+                    <span class="feature-tag threshold">over_450</span>
+                    <span class="feature-tag threshold">over_500</span>
+                    <span class="feature-tag threshold">over_520</span>
+                    <span class="feature-tag threshold">over_540</span>
+                    <span class="feature-tag threshold">over_560</span>
+                    <span class="feature-tag rolling">roll5_mean</span>
+                    <span class="feature-tag rolling">roll5_std</span>
+                    <span class="feature-tag rolling">roll10_mean</span>
+                    <span class="feature-tag rolling">roll10_std</span>
+                    <span class="feature-tag rolling">roll20_mean</span>
+                    <span class="feature-tag rolling">roll20_std</span>
+                    <span class="feature-tag rolling">roll30_mean</span>
+                    <span class="feature-tag rolling">roll30_std</span>
+                    <span class="feature-tag rolling">roll60_mean</span>
+                    <span class="feature-tag rolling">roll60_std</span>
+                    <span class="feature-tag special">surge</span>
+                    <span class="feature-tag special">peak_count</span>
+                    <span class="feature-tag special">volatility</span>
+                </div>
+            </div>
+
+            <!-- M14AM14BSUM -->
+            <div class="feature-group">
+                <div class="feature-group-header">
+                    <div class="feature-group-title">
+                        <span>M14AM14BSUM</span>
+                        <span class="badge badge-s">S등급</span>
+                        <span class="badge badge-existing">기존</span>
+                    </div>
+                    <span class="feature-count">35개</span>
+                </div>
+                <div class="feature-list">
+                    <span class="feature-tag stat">mean, max, min, std, median, skew</span>
+                    <span class="feature-tag lag">current, last5~60</span>
+                    <span class="feature-tag trend">slope, trend5~20, accel</span>
+                    <span class="feature-tag threshold">over_550~700 (5개)</span>
+                    <span class="feature-tag rolling">roll5~60 (10개)</span>
+                    <span class="feature-tag special">surge, peak_count, volatility</span>
+                </div>
+            </div>
+
+            <!-- VERTICALQUEUECOUNT -->
+            <div class="feature-group">
+                <div class="feature-group-header">
+                    <div class="feature-group-title">
+                        <span>SENDFAB_VERTICALQUEUECOUNT</span>
+                        <span class="badge badge-s">S등급</span>
+                        <span class="badge badge-new">🆕 신규</span>
+                    </div>
+                    <span class="feature-count">35개</span>
+                </div>
+                <div class="feature-list">
+                    <span class="feature-tag stat">mean, max, min, std, median, skew</span>
+                    <span class="feature-tag lag">current, last5~60</span>
+                    <span class="feature-tag trend">slope, trend5~20, accel</span>
+                    <span class="feature-tag threshold">over_150, 200, 230, 250, 280</span>
+                    <span class="feature-tag rolling">roll5~60 (10개)</span>
+                    <span class="feature-tag special">surge, peak_count, volatility</span>
+                </div>
+            </div>
+
+            <!-- M10AM14A -->
+            <div class="feature-group">
+                <div class="feature-group-header">
+                    <div class="feature-group-title">
+                        <span>M10AM14A</span>
+                        <span class="badge badge-a">A등급</span>
+                        <span class="badge badge-existing">기존</span>
+                    </div>
+                    <span class="feature-count">22개</span>
+                </div>
+                <div class="feature-list">
+                    <span class="feature-tag stat">mean, max, min, std</span>
+                    <span class="feature-tag lag">current, last5~30</span>
+                    <span class="feature-tag trend">slope, trend10, trend20</span>
+                    <span class="feature-tag threshold">over_45, 50, 55, 60</span>
+                    <span class="feature-tag rolling">roll10~30 (6개)</span>
+                </div>
+            </div>
+
+            <!-- M14AM16SUM -->
+            <div class="feature-group">
+                <div class="feature-group-header">
+                    <div class="feature-group-title">
+                        <span>M14AM16SUM</span>
+                        <span class="badge badge-a">A등급</span>
+                        <span class="badge badge-new">🆕 신규</span>
+                    </div>
+                    <span class="feature-count">22개</span>
+                </div>
+                <div class="feature-list">
+                    <span class="feature-tag stat">mean, max, min, std</span>
+                    <span class="feature-tag lag">current, last5~30</span>
+                    <span class="feature-tag trend">slope, trend10, trend20</span>
+                    <span class="feature-tag threshold">over_150, 180, 200, 220</span>
+                    <span class="feature-tag rolling">roll10~30 (6개)</span>
+                </div>
+            </div>
+
+            <!-- M16M14A -->
+            <div class="feature-group">
+                <div class="feature-group-header">
+                    <div class="feature-group-title">
+                        <span>M16M14A</span>
+                        <span class="badge badge-a">A등급</span>
+                        <span class="badge badge-new">🆕 신규</span>
+                    </div>
+                    <span class="feature-count">22개</span>
+                </div>
+                <div class="feature-list">
+                    <span class="feature-tag stat">mean, max, min, std</span>
+                    <span class="feature-tag lag">current, last5~30</span>
+                    <span class="feature-tag trend">slope, trend10, trend20</span>
+                    <span class="feature-tag threshold">over_80, 100, 110, 120</span>
+                    <span class="feature-tag rolling">roll10~30 (6개)</span>
+                </div>
+            </div>
+
+            <!-- OHT_OHTUTIL -->
+            <div class="feature-group">
+                <div class="feature-group-header">
+                    <div class="feature-group-title">
+                        <span>OHT_OHTUTIL</span>
+                        <span class="badge badge-a">A등급</span>
+                        <span class="badge badge-existing">기존</span>
+                    </div>
+                    <span class="feature-count">22개</span>
+                </div>
+                <div class="feature-list">
+                    <span class="feature-tag stat">mean, max, min, std</span>
+                    <span class="feature-tag lag">current, last5~30</span>
+                    <span class="feature-tag trend">slope, trend10, trend20</span>
+                    <span class="feature-tag threshold">over_80, 85, 90, 95</span>
+                    <span class="feature-tag rolling">roll10~30 (6개)</span>
+                </div>
+            </div>
+
+            <!-- OHT_CURRENTOHTQCNT -->
+            <div class="feature-group">
+                <div class="feature-group-header">
+                    <div class="feature-group-title">
+                        <span>OHT_CURRENTOHTQCNT</span>
+                        <span class="badge badge-a">A등급</span>
+                        <span class="badge badge-new">🆕 신규</span>
+                    </div>
+                    <span class="feature-count">21개</span>
+                </div>
+                <div class="feature-list">
+                    <span class="feature-tag stat">mean, max, min, std</span>
+                    <span class="feature-tag lag">current, last5~30</span>
+                    <span class="feature-tag trend">slope, trend10, trend20</span>
+                    <span class="feature-tag threshold">over_800, 900, 950</span>
+                    <span class="feature-tag rolling">roll10~30 (6개)</span>
+                </div>
+            </div>
+
+            <!-- CNV_SOUTH -->
+            <div class="feature-group">
+                <div class="feature-group-header">
+                    <div class="feature-group-title">
+                        <span>CNV_SOUTHQCNT</span>
+                        <span class="badge badge-a">A등급</span>
+                        <span class="badge badge-new">🆕 신규</span>
+                    </div>
+                    <span class="feature-count">21개</span>
+                </div>
+                <div class="feature-list">
+                    <span class="feature-tag stat">mean, max, min, std</span>
+                    <span class="feature-tag lag">current, last5~30</span>
+                    <span class="feature-tag trend">slope, trend10, trend20</span>
+                    <span class="feature-tag threshold">over_40, 50, 55</span>
+                    <span class="feature-tag rolling">roll10~30 (6개)</span>
+                </div>
+            </div>
+
+            <!-- CNV_NORTH -->
+            <div class="feature-group">
+                <div class="feature-group-header">
+                    <div class="feature-group-title">
+                        <span>CNV_NORTHQCNT</span>
+                        <span class="badge badge-a">A등급</span>
+                        <span class="badge badge-new">🆕 신규</span>
+                    </div>
+                    <span class="feature-count">21개</span>
+                </div>
+                <div class="feature-list">
+                    <span class="feature-tag stat">mean, max, min, std</span>
+                    <span class="feature-tag lag">current, last5~30</span>
+                    <span class="feature-tag trend">slope, trend10, trend20</span>
+                    <span class="feature-tag threshold">over_45, 50, 55</span>
+                    <span class="feature-tag rolling">roll10~30 (6개)</span>
+                </div>
+            </div>
+
+            <!-- TRANSPORT -->
+            <div class="feature-group">
+                <div class="feature-group-header">
+                    <div class="feature-group-title">
+                        <span>ALL_TRANSPORT4MINOVERCNT</span>
+                        <span class="badge badge-b">B등급</span>
+                        <span class="badge badge-existing">기존</span>
+                    </div>
+                    <span class="feature-count">21개</span>
+                </div>
+                <div class="feature-list">
+                    <span class="feature-tag stat">mean, max, min, std</span>
+                    <span class="feature-tag lag">current, last5~20</span>
+                    <span class="feature-tag trend">slope, trend10</span>
+                    <span class="feature-tag threshold">over_100, 120, 151, 180</span>
+                    <span class="feature-tag rolling">roll10~30 (6개)</span>
+                    <span class="feature-tag special">surge</span>
+                </div>
+            </div>
+
+            <!-- queue_gap -->
+            <div class="feature-group">
+                <div class="feature-group-header">
+                    <div class="feature-group-title">
+                        <span>queue_gap (파생)</span>
+                        <span class="badge badge-b">B등급</span>
+                        <span class="badge badge-existing">기존</span>
+                    </div>
+                    <span class="feature-count">24개</span>
+                </div>
+                <div class="feature-list">
+                    <span class="feature-tag stat">mean, max, min, std</span>
+                    <span class="feature-tag lag">current, last5~20</span>
+                    <span class="feature-tag trend">slope, trend10</span>
+                    <span class="feature-tag threshold">over_150, 200, 250, 300, 350</span>
+                    <span class="feature-tag rolling">roll10~30 (6개)</span>
+                    <span class="feature-tag special">surge, cumsum, consec_increase</span>
+                </div>
+            </div>
+
+            <!-- TOTALCNT 자체 -->
+            <div class="feature-group">
+                <div class="feature-group-header">
+                    <div class="feature-group-title">
+                        <span>total (TOTALCNT 자체)</span>
+                        <span class="badge badge-interaction">타겟</span>
+                    </div>
+                    <span class="feature-count">15개</span>
+                </div>
+                <div class="feature-list">
+                    <span class="feature-tag stat">mean, max, min, std, median</span>
+                    <span class="feature-tag lag">current, last5, last10, last30</span>
+                    <span class="feature-tag trend">slope, trend10, trend20</span>
+                    <span class="feature-tag threshold">over_1600, over_1650, over_1700</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- 상호작용 Feature -->
+        <div class="section">
+            <h2>🔗 상호작용 Feature (25개)</h2>
+            
+            <div class="interaction-grid">
+                <!-- 패턴 Feature -->
+                <div class="interaction-card pattern">
+                    <h4>gold_strict</h4>
+                    <p>M14B > 540 AND SUM > 620</p>
+                </div>
+                <div class="interaction-card pattern">
+                    <h4>gold_normal</h4>
+                    <p>M14B > 520 AND SUM > 600</p>
+                </div>
+                <div class="interaction-card pattern">
+                    <h4>triple_check</h4>
+                    <p>M14B > 520 AND SUM > 600 AND gap > 250</p>
+                </div>
+                <div class="interaction-card pattern">
+                    <h4>quad_check</h4>
+                    <p>triple + TRANSPORT > 145</p>
+                </div>
+                <div class="interaction-card pattern">
+                    <h4>vertical_gold 🆕</h4>
+                    <p>VERTICAL > 230 AND M14B > 500</p>
+                </div>
+                <div class="interaction-card pattern">
+                    <h4>cnv_imbalance 🆕</h4>
+                    <p>abs(SOUTH - NORTH) > 20</p>
+                </div>
+                <div class="interaction-card pattern">
+                    <h4>cnv_total_high 🆕</h4>
+                    <p>SOUTH + NORTH > 100</p>
+                </div>
+                <div class="interaction-card pattern">
+                    <h4>oht_overload 🆕</h4>
+                    <p>OHTUTIL > 90 AND OHTQCNT > 900</p>
+                </div>
+                <div class="interaction-card pattern">
+                    <h4>m16_surge 🆕</h4>
+                    <p>M16M14A > 110 AND M14AM16SUM > 200</p>
+                </div>
+                <div class="interaction-card pattern">
+                    <h4>inflow_surge 🆕</h4>
+                    <p>M10A > 55 AND M16M14A > 100</p>
+                </div>
+                <div class="interaction-card pattern">
+                    <h4>queue_accel_danger 🆕</h4>
+                    <p>gap > 200 AND gap_trend10 > 30</p>
+                </div>
+                
+                <!-- 곱셈/비율 -->
+                <div class="interaction-card">
+                    <h4>m14b_x_sum</h4>
+                    <p>M14B × SUM / 1000</p>
+                </div>
+                <div class="interaction-card">
+                    <h4>m14b_x_vertical</h4>
+                    <p>M14B × VERTICAL / 1000</p>
+                </div>
+                <div class="interaction-card">
+                    <h4>gap_x_m14b</h4>
+                    <p>gap × M14B / 1000</p>
+                </div>
+                <div class="interaction-card">
+                    <h4>gap_x_oht</h4>
+                    <p>gap × OHTQCNT / 10000</p>
+                </div>
+                <div class="interaction-card">
+                    <h4>cnv_ratio / cnv_total</h4>
+                    <p>SOUTH / NORTH, SOUTH + NORTH</p>
+                </div>
+                <div class="interaction-card">
+                    <h4>inflow_total / inflow_ratio</h4>
+                    <p>M10A + M16, M16 / M10A</p>
+                </div>
+                <div class="interaction-card">
+                    <h4>oht_efficiency</h4>
+                    <p>OHTQCNT / OHTUTIL</p>
+                </div>
+                <div class="interaction-card">
+                    <h4>m14_m16_ratio</h4>
+                    <p>M14BSUM / M14AM16SUM</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- Feature 수 요약 -->
+        <div class="section">
+            <h2>📈 Feature 수 요약</h2>
+            <table>
+                <thead>
+                    <tr>
+                        <th>그룹</th>
+                        <th>등급</th>
+                        <th>구분</th>
+                        <th>Feature 수</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr><td>M14AM14B</td><td><span class="badge badge-s">S</span></td><td>기존</td><td>35</td></tr>
+                    <tr><td>M14AM14BSUM</td><td><span class="badge badge-s">S</span></td><td>기존</td><td>35</td></tr>
+                    <tr><td>VERTICALQUEUECOUNT</td><td><span class="badge badge-s">S</span></td><td style="color:#ff416c;">🆕 신규</td><td>35</td></tr>
+                    <tr><td>M10AM14A</td><td><span class="badge badge-a">A</span></td><td>기존</td><td>22</td></tr>
+                    <tr><td>M14AM16SUM</td><td><span class="badge badge-a">A</span></td><td style="color:#ff416c;">🆕 신규</td><td>22</td></tr>
+                    <tr><td>M16M14A</td><td><span class="badge badge-a">A</span></td><td style="color:#ff416c;">🆕 신규</td><td>22</td></tr>
+                    <tr><td>OHT_OHTUTIL</td><td><span class="badge badge-a">A</span></td><td>기존</td><td>22</td></tr>
+                    <tr><td>OHT_CURRENTOHTQCNT</td><td><span class="badge badge-a">A</span></td><td style="color:#ff416c;">🆕 신규</td><td>21</td></tr>
+                    <tr><td>CNV_SOUTHQCNT</td><td><span class="badge badge-a">A</span></td><td style="color:#ff416c;">🆕 신규</td><td>21</td></tr>
+                    <tr><td>CNV_NORTHQCNT</td><td><span class="badge badge-a">A</span></td><td style="color:#ff416c;">🆕 신규</td><td>21</td></tr>
+                    <tr><td>TRANSPORT4MINOVERCNT</td><td><span class="badge badge-b">B</span></td><td>기존</td><td>21</td></tr>
+                    <tr><td>queue_gap</td><td><span class="badge badge-b">B</span></td><td>기존</td><td>24</td></tr>
+                    <tr><td>상호작용 (패턴)</td><td><span class="badge badge-interaction">-</span></td><td>혼합</td><td>11</td></tr>
+                    <tr><td>상호작용 (곱셈/비율)</td><td><span class="badge badge-interaction">-</span></td><td>혼합</td><td>14</td></tr>
+                    <tr><td>TOTALCNT 자체</td><td><span class="badge badge-interaction">-</span></td><td>타겟</td><td>15</td></tr>
+                    <tr><td colspan="3" style="text-align: right; font-weight: bold;">메타 컬럼 (CURRTIME, target 등)</td><td>5</td></tr>
+                    <tr style="background: rgba(0,212,255,0.1);"><td colspan="3" style="text-align: right; font-weight: bold; font-size: 1.1rem;">총계</td><td style="font-size: 1.3rem; color: #00d4ff;"><strong>346</strong></td></tr>
+                </tbody>
+            </table>
+        </div>
+
+        <!-- 출력 파일 -->
+        <div class="section">
+            <h2>💾 출력 파일</h2>
+            <div class="file-info">
+                <h3>생성된 파일</h3>
+                <div class="file-item">
+                    <span class="name">step8_features_10min.csv</span>
+                    <span class="size">162,247행 × 346컬럼</span>
+                </div>
+                <div class="file-item">
+                    <span class="name">step8_feature_list.txt</span>
+                    <span class="size">Feature 목록 (341개)</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- 다음 단계 -->
+        <div class="section" style="background: linear-gradient(135deg, #0f3443, #34e89e10); border-color: #34e89e;">
+            <h2>🚀 다음 단계</h2>
+            <table>
+                <tbody>
+                    <tr>
+                        <td><strong>9단계</strong></td>
+                        <td>Feature Selection 2차 전략</td>
+                        <td>346개 Feature 중요도 분석</td>
+                    </tr>
+                    <tr>
+                        <td><strong>10단계</strong></td>
+                        <td>Feature Selection 2차 수행</td>
+                        <td>346개 → 80~120개 축소</td>
+                    </tr>
+                    <tr>
+                        <td><strong>11단계</strong></td>
+                        <td>모델 학습</td>
+                        <td>최종 Feature로 XGBoost 학습</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+
+        <footer>
+            <p>생성일: 2024-12-31 | V8.3.0+ 프로젝트 | 8단계 완료</p>
+        </footer>
+    </div>
+</body>
+</html>
