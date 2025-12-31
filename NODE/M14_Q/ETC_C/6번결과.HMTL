@@ -1,0 +1,694 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>6단계: Baseline 모델 및 Feature Selection 전략 수립 결과</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+            color: #eee;
+            min-height: 100vh;
+            padding: 20px;
+        }
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+        }
+        h1 {
+            text-align: center;
+            font-size: 2.5rem;
+            margin-bottom: 10px;
+            background: linear-gradient(90deg, #00d4ff, #7b2cbf);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+        .subtitle {
+            text-align: center;
+            color: #888;
+            margin-bottom: 30px;
+            font-size: 1.1rem;
+        }
+        .alert-box {
+            background: linear-gradient(135deg, #ff416c, #ff4b2b);
+            border-radius: 12px;
+            padding: 20px;
+            margin-bottom: 30px;
+            box-shadow: 0 4px 15px rgba(255, 65, 108, 0.3);
+        }
+        .alert-box h2 {
+            font-size: 1.5rem;
+            margin-bottom: 10px;
+        }
+        .alert-box .leak-item {
+            background: rgba(0,0,0,0.3);
+            padding: 15px;
+            border-radius: 8px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-top: 10px;
+        }
+        .alert-box .leak-value {
+            font-size: 2rem;
+            font-weight: bold;
+        }
+        .section {
+            background: rgba(255,255,255,0.05);
+            border-radius: 12px;
+            padding: 25px;
+            margin-bottom: 25px;
+            border: 1px solid rgba(255,255,255,0.1);
+        }
+        .section h2 {
+            font-size: 1.4rem;
+            margin-bottom: 20px;
+            padding-bottom: 10px;
+            border-bottom: 2px solid #7b2cbf;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        .section h2 .icon {
+            font-size: 1.6rem;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 15px;
+        }
+        th, td {
+            padding: 12px 15px;
+            text-align: left;
+            border-bottom: 1px solid rgba(255,255,255,0.1);
+        }
+        th {
+            background: rgba(123, 44, 191, 0.3);
+            font-weight: 600;
+            position: sticky;
+            top: 0;
+        }
+        tr:hover {
+            background: rgba(255,255,255,0.05);
+        }
+        .corr-high { color: #00ff88; font-weight: bold; }
+        .corr-mid { color: #ffcc00; }
+        .corr-low { color: #888; }
+        .badge {
+            display: inline-block;
+            padding: 4px 10px;
+            border-radius: 20px;
+            font-size: 0.8rem;
+            font-weight: 600;
+        }
+        .badge-new { background: #00d4ff; color: #000; }
+        .badge-existing { background: #7b2cbf; color: #fff; }
+        .badge-danger { background: #ff4b2b; color: #fff; }
+        .badge-core { background: #00ff88; color: #000; }
+        .method-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+            margin-top: 15px;
+        }
+        .method-card {
+            background: rgba(255,255,255,0.08);
+            border-radius: 10px;
+            padding: 20px;
+            text-align: center;
+        }
+        .method-card .count {
+            font-size: 2.5rem;
+            font-weight: bold;
+            background: linear-gradient(90deg, #00d4ff, #7b2cbf);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+        .method-card .label {
+            color: #888;
+            margin-top: 5px;
+        }
+        .comparison-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+        }
+        @media (max-width: 900px) {
+            .comparison-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+        .recommendation-box {
+            background: linear-gradient(135deg, #0f3443, #34e89e20);
+            border: 2px solid #34e89e;
+            border-radius: 12px;
+            padding: 25px;
+            margin-top: 20px;
+        }
+        .recommendation-box h3 {
+            color: #34e89e;
+            margin-bottom: 15px;
+        }
+        .feature-list {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            margin-top: 10px;
+        }
+        .feature-tag {
+            background: rgba(0, 212, 255, 0.2);
+            border: 1px solid #00d4ff;
+            padding: 6px 12px;
+            border-radius: 6px;
+            font-size: 0.85rem;
+        }
+        .feature-tag.new {
+            background: rgba(255, 204, 0, 0.2);
+            border-color: #ffcc00;
+        }
+        .progress-bar {
+            height: 8px;
+            background: rgba(255,255,255,0.1);
+            border-radius: 4px;
+            overflow: hidden;
+            margin-top: 5px;
+        }
+        .progress-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #00d4ff, #7b2cbf);
+            border-radius: 4px;
+        }
+        .summary-stats {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 15px;
+            margin-bottom: 25px;
+        }
+        .stat-card {
+            background: rgba(255,255,255,0.08);
+            border-radius: 10px;
+            padding: 20px;
+            text-align: center;
+        }
+        .stat-card .value {
+            font-size: 2rem;
+            font-weight: bold;
+            color: #00d4ff;
+        }
+        .stat-card .label {
+            color: #888;
+            font-size: 0.9rem;
+            margin-top: 5px;
+        }
+        .scrollable-table {
+            max-height: 500px;
+            overflow-y: auto;
+        }
+        .rank-1 { background: rgba(255, 215, 0, 0.2) !important; }
+        .rank-2 { background: rgba(192, 192, 192, 0.15) !important; }
+        .rank-3 { background: rgba(205, 127, 50, 0.15) !important; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>📊 6단계: Baseline 모델 및 Feature Selection 전략 수립</h1>
+        <p class="subtitle">3개월 데이터 기반 원본 컬럼 분석 결과 | TOTALCNT 예측용</p>
+
+        <!-- 요약 통계 -->
+        <div class="summary-stats">
+            <div class="stat-card">
+                <div class="value">109</div>
+                <div class="label">전체 컬럼 수</div>
+            </div>
+            <div class="stat-card">
+                <div class="value" style="color: #ff4b2b;">1</div>
+                <div class="label">데이터 누수 컬럼</div>
+            </div>
+            <div class="stat-card">
+                <div class="value" style="color: #00ff88;">12</div>
+                <div class="label">핵심 추천 컬럼</div>
+            </div>
+            <div class="stat-card">
+                <div class="value" style="color: #ffcc00;">6</div>
+                <div class="label">신규 발굴 컬럼</div>
+            </div>
+        </div>
+
+        <!-- 데이터 누수 경고 -->
+        <div class="alert-box">
+            <h2>🚨 데이터 누수 발견! (반드시 제거)</h2>
+            <div class="leak-item">
+                <div>
+                    <strong>M14.QUE.ALL.CURRENTQCNT</strong>
+                    <p style="color: rgba(255,255,255,0.7); margin-top: 5px;">TOTALCNT와 거의 동일한 값 → 학습 시 제거 필수</p>
+                </div>
+                <div class="leak-value">0.9987</div>
+            </div>
+            <div class="leak-item" style="margin-top: 10px;">
+                <div>
+                    <strong>Unnamed: 108, Unnamed: 109</strong>
+                    <p style="color: rgba(255,255,255,0.7); margin-top: 5px;">빈 컬럼 → 제거</p>
+                </div>
+                <div class="leak-value">N/A</div>
+            </div>
+        </div>
+
+        <!-- 상관관계 분석 -->
+        <div class="section">
+            <h2><span class="icon">📈</span> 상관관계 분석 (전체 109개)</h2>
+            <p style="color: #888; margin-bottom: 15px;">TOTALCNT와의 Pearson 상관계수 기준 정렬 (데이터 누수 컬럼 제외)</p>
+            
+            <div class="scrollable-table">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>순위</th>
+                            <th>컬럼명</th>
+                            <th>상관계수</th>
+                            <th>강도</th>
+                            <th>V8.3 사용</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr class="rank-1">
+                            <td>1</td>
+                            <td>M14AM14BSUM</td>
+                            <td class="corr-high">0.8618</td>
+                            <td><div class="progress-bar"><div class="progress-fill" style="width: 86%"></div></div></td>
+                            <td><span class="badge badge-existing">기존</span></td>
+                        </tr>
+                        <tr class="rank-2">
+                            <td>2</td>
+                            <td>M14AM14B</td>
+                            <td class="corr-high">0.8445</td>
+                            <td><div class="progress-bar"><div class="progress-fill" style="width: 84%"></div></div></td>
+                            <td><span class="badge badge-existing">기존</span></td>
+                        </tr>
+                        <tr class="rank-3">
+                            <td>3</td>
+                            <td>M14.QUE.SENDFAB.VERTICALQUEUECOUNT</td>
+                            <td class="corr-high">0.8445</td>
+                            <td><div class="progress-bar"><div class="progress-fill" style="width: 84%"></div></div></td>
+                            <td><span class="badge badge-new">🆕 신규</span></td>
+                        </tr>
+                        <tr>
+                            <td>4</td>
+                            <td>M14AM16SUM</td>
+                            <td class="corr-high">0.6928</td>
+                            <td><div class="progress-bar"><div class="progress-fill" style="width: 69%"></div></div></td>
+                            <td><span class="badge badge-new">🆕 신규</span></td>
+                        </tr>
+                        <tr>
+                            <td>5</td>
+                            <td>M16M14A</td>
+                            <td class="corr-high">0.6654</td>
+                            <td><div class="progress-bar"><div class="progress-fill" style="width: 67%"></div></div></td>
+                            <td><span class="badge badge-new">🆕 신규</span></td>
+                        </tr>
+                        <tr>
+                            <td>6</td>
+                            <td>M14.QUE.CNV.SOUTHCURRENTQCNT</td>
+                            <td class="corr-high">0.6007</td>
+                            <td><div class="progress-bar"><div class="progress-fill" style="width: 60%"></div></div></td>
+                            <td><span class="badge badge-new">🆕 신규</span></td>
+                        </tr>
+                        <tr>
+                            <td>7</td>
+                            <td>M14.QUE.CNV.SOUTHCNVTOALLCURRENTQCNT</td>
+                            <td class="corr-mid">0.5888</td>
+                            <td><div class="progress-bar"><div class="progress-fill" style="width: 59%"></div></div></td>
+                            <td><span class="badge badge-new">🆕 신규</span></td>
+                        </tr>
+                        <tr>
+                            <td>8</td>
+                            <td>M14.QUE.CNV.NORTHCURRENTQCNT</td>
+                            <td class="corr-mid">0.5531</td>
+                            <td><div class="progress-bar"><div class="progress-fill" style="width: 55%"></div></div></td>
+                            <td><span class="badge badge-new">🆕 신규</span></td>
+                        </tr>
+                        <tr>
+                            <td>9</td>
+                            <td>M14.QUE.CNV.NORTHCNVTOALLCURRENTQCNT</td>
+                            <td class="corr-mid">0.5434</td>
+                            <td><div class="progress-bar"><div class="progress-fill" style="width: 54%"></div></div></td>
+                            <td><span class="badge badge-new">🆕 신규</span></td>
+                        </tr>
+                        <tr>
+                            <td>10</td>
+                            <td>M10AM14A</td>
+                            <td class="corr-mid">0.5302</td>
+                            <td><div class="progress-bar"><div class="progress-fill" style="width: 53%"></div></div></td>
+                            <td><span class="badge badge-existing">기존</span></td>
+                        </tr>
+                        <tr>
+                            <td>11</td>
+                            <td>M14.QUE.OHT.CURRENTOHTQCNT</td>
+                            <td class="corr-mid">0.4861</td>
+                            <td><div class="progress-bar"><div class="progress-fill" style="width: 49%"></div></div></td>
+                            <td><span class="badge badge-new">🆕 신규</span></td>
+                        </tr>
+                        <tr>
+                            <td>12</td>
+                            <td>M14.QUE.OHT.OHTUTIL</td>
+                            <td class="corr-mid">0.4773</td>
+                            <td><div class="progress-bar"><div class="progress-fill" style="width: 48%"></div></div></td>
+                            <td><span class="badge badge-existing">기존</span></td>
+                        </tr>
+                        <tr>
+                            <td>13</td>
+                            <td>M14.QUE.CNV.NORTHCNVTOM14TIME</td>
+                            <td class="corr-mid">0.4602</td>
+                            <td><div class="progress-bar"><div class="progress-fill" style="width: 46%"></div></div></td>
+                            <td><span class="badge badge-new">🆕 신규</span></td>
+                        </tr>
+                        <tr>
+                            <td>14</td>
+                            <td>M14.QUE.CNV.SOUTHCNVTOM14TIME</td>
+                            <td class="corr-mid">0.4550</td>
+                            <td><div class="progress-bar"><div class="progress-fill" style="width: 46%"></div></div></td>
+                            <td><span class="badge badge-new">🆕 신규</span></td>
+                        </tr>
+                        <tr>
+                            <td>15</td>
+                            <td>M14AM10ASUM</td>
+                            <td class="corr-mid">0.4482</td>
+                            <td><div class="progress-bar"><div class="progress-fill" style="width: 45%"></div></div></td>
+                            <td><span class="badge badge-new">🆕 신규</span></td>
+                        </tr>
+                        <tr>
+                            <td>16</td>
+                            <td>M14.QUE.LOAD.AVGFOUPLOADTIME</td>
+                            <td class="corr-mid">0.4448</td>
+                            <td><div class="progress-bar"><div class="progress-fill" style="width: 44%"></div></div></td>
+                            <td><span class="badge badge-new">🆕 신규</span></td>
+                        </tr>
+                        <tr>
+                            <td>17</td>
+                            <td>M14.QUE.LOAD.AVGLOADTIME</td>
+                            <td class="corr-mid">0.4400</td>
+                            <td><div class="progress-bar"><div class="progress-fill" style="width: 44%"></div></div></td>
+                            <td><span class="badge badge-new">🆕 신규</span></td>
+                        </tr>
+                        <tr>
+                            <td>18</td>
+                            <td>M14.QUE.STK.MANUALOUTCOUNT</td>
+                            <td class="corr-mid">0.4260</td>
+                            <td><div class="progress-bar"><div class="progress-fill" style="width: 43%"></div></div></td>
+                            <td><span class="badge badge-new">🆕 신규</span></td>
+                        </tr>
+                        <tr>
+                            <td>19</td>
+                            <td>M14AM16</td>
+                            <td class="corr-mid">0.4185</td>
+                            <td><div class="progress-bar"><div class="progress-fill" style="width: 42%"></div></div></td>
+                            <td><span class="badge badge-new">🆕 신규</span></td>
+                        </tr>
+                        <tr>
+                            <td>20</td>
+                            <td>M14.QUE.ALL.TRANSPORT4MINOVERRATIO</td>
+                            <td class="corr-mid">0.4087</td>
+                            <td><div class="progress-bar"><div class="progress-fill" style="width: 41%"></div></div></td>
+                            <td><span class="badge badge-new">🆕 신규</span></td>
+                        </tr>
+                        <tr>
+                            <td>21</td>
+                            <td>M16HUB.QUE.M16TOM14A.MESCURRENTQCNT</td>
+                            <td class="corr-mid">0.4036</td>
+                            <td><div class="progress-bar"><div class="progress-fill" style="width: 40%"></div></div></td>
+                            <td><span class="badge badge-new">🆕 신규</span></td>
+                        </tr>
+                        <tr>
+                            <td>22</td>
+                            <td>M16HUB.QUE.M16TOM14.MESCURRENTQCNT</td>
+                            <td class="corr-low">0.3879</td>
+                            <td><div class="progress-bar"><div class="progress-fill" style="width: 39%"></div></div></td>
+                            <td><span class="badge badge-new">🆕 신규</span></td>
+                        </tr>
+                        <tr>
+                            <td>23</td>
+                            <td>M14B.QUE.SENDFAB.VERTICALQUEUECOUNT</td>
+                            <td class="corr-low">0.3869</td>
+                            <td><div class="progress-bar"><div class="progress-fill" style="width: 39%"></div></div></td>
+                            <td><span class="badge badge-new">🆕 신규</span></td>
+                        </tr>
+                        <tr>
+                            <td>24</td>
+                            <td>M14.QUE.LOAD.CURRENTLOADQCNT</td>
+                            <td class="corr-low">0.3803</td>
+                            <td><div class="progress-bar"><div class="progress-fill" style="width: 38%"></div></div></td>
+                            <td><span class="badge badge-new">🆕 신규</span></td>
+                        </tr>
+                        <tr>
+                            <td>25</td>
+                            <td>M14B.QUE.ALL.CURRENTQCNT</td>
+                            <td class="corr-low">0.3772</td>
+                            <td><div class="progress-bar"><div class="progress-fill" style="width: 38%"></div></div></td>
+                            <td><span class="badge badge-new">🆕 신규</span></td>
+                        </tr>
+                        <tr>
+                            <td>26</td>
+                            <td>queue_gap (파생)</td>
+                            <td class="corr-low">0.3593</td>
+                            <td><div class="progress-bar"><div class="progress-fill" style="width: 36%"></div></div></td>
+                            <td><span class="badge badge-existing">기존</span></td>
+                        </tr>
+                        <tr>
+                            <td>27</td>
+                            <td>M14.QUE.CNV.SOUTHCNVTOM14TIME1MIN</td>
+                            <td class="corr-low">0.3527</td>
+                            <td><div class="progress-bar"><div class="progress-fill" style="width: 35%"></div></div></td>
+                            <td><span class="badge badge-new">🆕 신규</span></td>
+                        </tr>
+                        <tr>
+                            <td>28</td>
+                            <td>M14.QUE.LOAD.AVGLOADTIME1MIN</td>
+                            <td class="corr-low">0.3500</td>
+                            <td><div class="progress-bar"><div class="progress-fill" style="width: 35%"></div></div></td>
+                            <td><span class="badge badge-new">🆕 신규</span></td>
+                        </tr>
+                        <tr>
+                            <td>29</td>
+                            <td>M14.QUE.ALL.TOTALCNVCURRENTQCNT</td>
+                            <td class="corr-low">0.3442</td>
+                            <td><div class="progress-bar"><div class="progress-fill" style="width: 34%"></div></div></td>
+                            <td><span class="badge badge-new">🆕 신규</span></td>
+                        </tr>
+                        <tr>
+                            <td>30</td>
+                            <td>M14.QUE.ALL.TRANSPORT4MINOVERCNT</td>
+                            <td class="corr-low">0.3364</td>
+                            <td><div class="progress-bar"><div class="progress-fill" style="width: 34%"></div></div></td>
+                            <td><span class="badge badge-existing">기존</span></td>
+                        </tr>
+                        <tr>
+                            <td>31</td>
+                            <td>M14.QUE.ALL.M14ATOM16MANUAL_CURRENTQCNT</td>
+                            <td class="corr-low">0.3350</td>
+                            <td><div class="progress-bar"><div class="progress-fill" style="width: 34%"></div></div></td>
+                            <td><span class="badge badge-new">🆕 신규</span></td>
+                        </tr>
+                        <tr>
+                            <td>32</td>
+                            <td>M14.QUE.CNV.NORTHCNVTOM14TIME1MIN</td>
+                            <td class="corr-low">0.3151</td>
+                            <td><div class="progress-bar"><div class="progress-fill" style="width: 32%"></div></div></td>
+                            <td><span class="badge badge-new">🆕 신규</span></td>
+                        </tr>
+                        <tr>
+                            <td>33</td>
+                            <td>M14BM14A</td>
+                            <td class="corr-low">0.3108</td>
+                            <td><div class="progress-bar"><div class="progress-fill" style="width: 31%"></div></div></td>
+                            <td><span class="badge badge-new">🆕 신규</span></td>
+                        </tr>
+                        <tr>
+                            <td>34~</td>
+                            <td colspan="4" style="color: #888; text-align: center;">... 이하 75개 컬럼 (상관계수 0.31 미만) ...</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- 방법별 선택 결과 -->
+        <div class="section">
+            <h2><span class="icon">🔬</span> Feature Selection 방법별 결과</h2>
+            <div class="method-grid">
+                <div class="method-card">
+                    <div class="count">109</div>
+                    <div class="label">Variance Threshold</div>
+                    <p style="font-size: 0.8rem; color: #666; margin-top: 8px;">전체 통과 (분산 충분)</p>
+                </div>
+                <div class="method-card">
+                    <div class="count">26</div>
+                    <div class="label">Correlation Filter</div>
+                    <p style="font-size: 0.8rem; color: #666; margin-top: 8px;">상관 ≥ 0.3 & 다중공선성 제거</p>
+                </div>
+                <div class="method-card">
+                    <div class="count">109</div>
+                    <div class="label">Mutual Information</div>
+                    <p style="font-size: 0.8rem; color: #666; margin-top: 8px;">전체 분석 완료</p>
+                </div>
+                <div class="method-card">
+                    <div class="count">109</div>
+                    <div class="label">Tree Importance</div>
+                    <p style="font-size: 0.8rem; color: #666; margin-top: 8px;">RF + ExtraTrees 평균</p>
+                </div>
+                <div class="method-card">
+                    <div class="count">29</div>
+                    <div class="label">LASSO</div>
+                    <p style="font-size: 0.8rem; color: #666; margin-top: 8px;">비영 계수 선택</p>
+                </div>
+                <div class="method-card">
+                    <div class="count">57</div>
+                    <div class="label">RFE</div>
+                    <p style="font-size: 0.8rem; color: #666; margin-top: 8px;">재귀적 제거</p>
+                </div>
+                <div class="method-card" style="background: rgba(0, 212, 255, 0.15); border: 1px solid #00d4ff;">
+                    <div class="count">105</div>
+                    <div class="label">Ensemble (3개+)</div>
+                    <p style="font-size: 0.8rem; color: #00d4ff; margin-top: 8px;">3개 이상 방법에서 선택</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- V8.3 기존 vs 신규 비교 -->
+        <div class="section">
+            <h2><span class="icon">⚖️</span> V8.3 기존 컬럼 vs 신규 발굴 비교</h2>
+            <div class="comparison-grid">
+                <div>
+                    <h3 style="color: #7b2cbf; margin-bottom: 15px;">📦 V8.3 기존 8개 컬럼</h3>
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>컬럼</th>
+                                <th>상관계수</th>
+                                <th>순위</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr><td>M14AM14BSUM</td><td class="corr-high">0.862</td><td>1위</td></tr>
+                            <tr><td>M14AM14B</td><td class="corr-high">0.845</td><td>2위</td></tr>
+                            <tr><td>M10AM14A</td><td class="corr-mid">0.530</td><td>10위</td></tr>
+                            <tr><td>M14.QUE.OHT.OHTUTIL</td><td class="corr-mid">0.477</td><td>12위</td></tr>
+                            <tr><td>queue_gap (파생)</td><td class="corr-low">0.359</td><td>26위</td></tr>
+                            <tr><td>TRANSPORT4MINOVERCNT</td><td class="corr-low">0.336</td><td>30위</td></tr>
+                            <tr><td>CURRENTQCREATED</td><td class="corr-low">0.173</td><td>43위</td></tr>
+                            <tr><td>CURRENTQCOMPLETED</td><td class="corr-low">0.114</td><td>60위</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+                <div>
+                    <h3 style="color: #ffcc00; margin-bottom: 15px;">🆕 신규 발굴 고상관 컬럼</h3>
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>컬럼</th>
+                                <th>상관계수</th>
+                                <th>의미</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr><td>SENDFAB.VERTICALQUEUECOUNT</td><td class="corr-high">0.845</td><td>수직 큐 대기</td></tr>
+                            <tr><td>M14AM16SUM</td><td class="corr-high">0.693</td><td>M14↔M16 물류</td></tr>
+                            <tr><td>M16M14A</td><td class="corr-high">0.665</td><td>M16→M14A 물류</td></tr>
+                            <tr><td>CNV.SOUTHCURRENTQCNT</td><td class="corr-high">0.601</td><td>남쪽 컨베이어</td></tr>
+                            <tr><td>CNV.NORTHCURRENTQCNT</td><td class="corr-mid">0.553</td><td>북쪽 컨베이어</td></tr>
+                            <tr><td>OHT.CURRENTOHTQCNT</td><td class="corr-mid">0.486</td><td>OHT 대기 수</td></tr>
+                            <tr><td>LOAD.AVGFOUPLOADTIME</td><td class="corr-mid">0.445</td><td>평균 로드 시간</td></tr>
+                            <tr><td>STK.MANUALOUTCOUNT</td><td class="corr-mid">0.426</td><td>수동 출고 수</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <!-- 최종 추천 -->
+        <div class="section">
+            <h2><span class="icon">🏆</span> 7단계 Feature Engineering 추천 컬럼</h2>
+            
+            <div class="recommendation-box">
+                <h3>✅ 핵심 컬럼 12개 (Feature Engineering 대상)</h3>
+                <p style="color: #888; margin-bottom: 15px;">V8.3 기존 6개 + 신규 발굴 6개</p>
+                
+                <h4 style="margin-top: 20px; margin-bottom: 10px;">기존 유지 (6개)</h4>
+                <div class="feature-list">
+                    <span class="feature-tag">M14AM14B (0.845)</span>
+                    <span class="feature-tag">M14AM14BSUM (0.862)</span>
+                    <span class="feature-tag">M10AM14A (0.530)</span>
+                    <span class="feature-tag">M14.QUE.OHT.OHTUTIL (0.477)</span>
+                    <span class="feature-tag">TRANSPORT4MINOVERCNT (0.336)</span>
+                    <span class="feature-tag">queue_gap (0.359)</span>
+                </div>
+                
+                <h4 style="margin-top: 20px; margin-bottom: 10px;">신규 추가 (6개)</h4>
+                <div class="feature-list">
+                    <span class="feature-tag new">SENDFAB.VERTICALQUEUECOUNT (0.845)</span>
+                    <span class="feature-tag new">M14AM16SUM (0.693)</span>
+                    <span class="feature-tag new">M16M14A (0.665)</span>
+                    <span class="feature-tag new">CNV.SOUTHCURRENTQCNT (0.601)</span>
+                    <span class="feature-tag new">CNV.NORTHCURRENTQCNT (0.553)</span>
+                    <span class="feature-tag new">OHT.CURRENTOHTQCNT (0.486)</span>
+                </div>
+            </div>
+
+            <div class="recommendation-box" style="background: linear-gradient(135deg, #2d1b4e, #ff416c20); border-color: #ff416c; margin-top: 20px;">
+                <h3 style="color: #ff416c;">❌ 제거 대상 (3개)</h3>
+                <div class="feature-list" style="margin-top: 10px;">
+                    <span class="feature-tag" style="background: rgba(255,75,43,0.3); border-color: #ff4b2b;">M14.QUE.ALL.CURRENTQCNT (누수 0.999)</span>
+                    <span class="feature-tag" style="background: rgba(255,75,43,0.3); border-color: #ff4b2b;">Unnamed: 108</span>
+                    <span class="feature-tag" style="background: rgba(255,75,43,0.3); border-color: #ff4b2b;">Unnamed: 109</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- 다음 단계 -->
+        <div class="section" style="background: linear-gradient(135deg, #0f3443, #34e89e10); border-color: #34e89e;">
+            <h2><span class="icon">🚀</span> 다음 단계 (7~10단계)</h2>
+            <table style="margin-top: 15px;">
+                <thead>
+                    <tr>
+                        <th>단계</th>
+                        <th>작업 내용</th>
+                        <th>예상 결과</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td><strong>7단계</strong></td>
+                        <td>Feature Engineering 계획 수립</td>
+                        <td>Rolling, Lag, Interaction 설계</td>
+                    </tr>
+                    <tr>
+                        <td><strong>8단계</strong></td>
+                        <td>Feature Engineering 수행</td>
+                        <td>12개 → 150~200개 Feature 생성</td>
+                    </tr>
+                    <tr>
+                        <td><strong>9단계</strong></td>
+                        <td>Feature Selection 2차 전략</td>
+                        <td>생성된 Feature 중요도 분석</td>
+                    </tr>
+                    <tr>
+                        <td><strong>10단계</strong></td>
+                        <td>Feature Selection 2차 수행</td>
+                        <td>최종 50~80개 Feature 확정</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+
+        <footer style="text-align: center; padding: 30px; color: #666;">
+            <p>생성일: 2024-12-31 | V8.3.0 프로젝트 | 6단계 완료</p>
+        </footer>
+    </div>
+</body>
+</html>
