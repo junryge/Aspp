@@ -666,17 +666,22 @@ class SurgeAnalyzer:
             if df.loc[idx, '알람'] or df.loc[idx, '알람쿨다운']:
                 continue
             
-            # 최근 60분 내 알람 발생했으면 스킵 (쿨다운 기간)
-            skip_due_to_cooldown = False
-            for back in range(1, 61):
-                if idx - back >= 0 and df.loc[idx - back, '알람']:
-                    skip_due_to_cooldown = True
-                    break
-            if skip_due_to_cooldown:
+            pred = df.loc[idx, pred_col]
+            if pred < threshold:
                 continue
             
-            pred = df.loc[idx, pred_col]
-            if pred >= threshold:
+            # 최근 60분 내 알람 발생했으면 → 알람쿨다운으로 표시!
+            alarm_cooldown_back = 0
+            for back in range(1, 61):
+                if idx - back >= 0 and df.loc[idx - back, '알람']:
+                    alarm_cooldown_back = back
+                    break
+            
+            if alarm_cooldown_back > 0:
+                # 알람 쿨다운 기간이라 알람 안 울림 → 알람쿨다운 표시
+                df.loc[idx, '알람쿨다운'] = f'쿨다운중({alarm_cooldown_back}분전)'
+            else:
+                # 60분 내 알람 없음 → 알람미발생
                 if last_miss_idx < 0 or idx - last_miss_idx > 60:
                     df.loc[idx, '알람미발생'] = '미발생'
                     last_miss_idx = idx
