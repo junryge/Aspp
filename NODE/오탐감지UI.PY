@@ -1274,11 +1274,11 @@ function showList(system, cls, threshold) {{
     
     let filtered = [];
     if (cls === '이상탐지') {{
-        filtered = data.filter(d => d.cls.includes('이상'));
+        filtered = data.filter(d => d.cls === '이상탐지');
     }} else if (cls === '미탐') {{
-        filtered = data.filter(d => d.cls.includes('미탐'));
+        filtered = data.filter(d => d.cls === '미탐');
     }} else if (cls === '정상') {{
-        filtered = data.filter(d => d.cls.includes('정상') && !d.cls.includes('이상'));
+        filtered = data.filter(d => d.cls === '정상');
     }} else if (cls === '오탐') {{
         filtered = data.filter(d => d.cls === '오탐');
     }} else {{
