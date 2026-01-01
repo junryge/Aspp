@@ -269,20 +269,16 @@ class SurgeAnalyzer:
             self.ev_count_label.config(text="이벤트: 0개")
             return
         
-        # 필터링 - 변경된 분류 체계
+        # 필터링 - 정확히 일치만 (쿨다운 제외)
         if cls_filter == '전체':
             filtered = df
         elif cls_filter == '이상탐지':
-            # 이상탐지 + 이상(정상(-N분))
-            filtered = df[df['분류'].str.contains('이상', na=False)]
+            filtered = df[df['분류'] == '이상탐지']
         elif cls_filter == '미탐':
-            # 미탐 + 미탐(N분후)
-            filtered = df[df['분류'].str.contains('미탐', na=False)]
+            filtered = df[df['분류'] == '미탐']
         elif cls_filter == '정상':
-            # 정상 + 정상(급증(-N분))
-            filtered = df[df['분류'].str.contains('정상', na=False) & ~df['분류'].str.contains('이상', na=False)]
+            filtered = df[df['분류'] == '정상']
         elif cls_filter == '오탐':
-            # 오탐만
             filtered = df[df['분류'] == '오탐']
         else:
             filtered = df[df['분류'].str.contains(cls_filter, na=False)]
@@ -712,12 +708,13 @@ class SurgeAnalyzer:
         
         # 통계 (쿨다운 제외한 순수 개수)
         total = len(df)
-        surge_total = len(df[df[actual_col] >= threshold])  # 급증 건수
+        surge_total = len(df[df[actual_col] >= threshold])  # 급증 건수 전체
         detect = len(df[df['분류'] == '이상탐지'])  # 쿨다운 제외
         miss = len(df[df['분류'] == '미탐'])
         normal = len(df[df['분류'] == '정상'])
         false_alarm = len(df[df['분류'] == '오탐'])  # 쿨다운 제외
         alarm_total = detect + false_alarm  # 쿨다운 제외한 알람발생
+        surge_base = detect + miss  # 쿨다운 제외한 급증 케이스 (탐지율/미탐율 기준)
         
         stats = {
             'total_rows': total,
@@ -726,7 +723,8 @@ class SurgeAnalyzer:
             'miss': miss,
             'normal': normal,
             'false': false_alarm,
-            'alarm_total': alarm_total  # 오탐율 계산용
+            'alarm_total': alarm_total,  # 오탐율 계산용
+            'surge_base': surge_base     # 탐지율/미탐율 계산용
         }
         
         # 컬럼 순서 정리
@@ -923,6 +921,7 @@ class SurgeAnalyzer:
         t = s['total_rows'] or 1
         surge = s['surge_total'] or 1
         alarm_total = s.get('alarm_total', 1) or 1
+        surge_base = s.get('surge_base', 1) or 1  # 이상탐지 + 미탐
         
         return f"""
 {'='*60}
@@ -931,8 +930,8 @@ class SurgeAnalyzer:
 전체: {s['total_rows']}개 | 급증: {s['surge_total']}개 | 알람발생: {s.get('alarm_total', 0)}개
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-✅ 이상탐지: {s['detect']}개 (탐지율: {s['detect']/surge*100:.1f}%)
-❌ 미탐: {s['miss']}개 (미탐율: {s['miss']/surge*100:.1f}%)
+✅ 이상탐지: {s['detect']}개 (탐지율: {s['detect']/surge_base*100:.1f}%)
+❌ 미탐: {s['miss']}개 (미탐율: {s['miss']/surge_base*100:.1f}%)
 ❌ 오탐: {s['false']}개 (오탐율: {s['false']/alarm_total*100:.1f}%)
 ✅ 정상: {s['normal']}개
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -1164,16 +1163,21 @@ h1{{font-size:2rem;text-align:center;background:linear-gradient(135deg,#00d4ff,#
             # 알람파일 유무 체크
             hub_has_alarm = self.hub_alarm_df is not None and len(self.hub_alarm_df) > 0
             alarm_total = s.get('alarm_total', 0) or 1
+            surge_base = s.get('surge_base', 1) or 1  # 이상탐지 + 미탐
             
             if hub_has_alarm:
                 mode_text = "알람기반"
                 mode_color = "#00ff88"
                 stats_html = f'<span>분석대상 <strong>{t}</strong>개</span><span style="color:{mode_color};font-weight:bold">📡 {mode_text}</span>'
+                detect_rate = s['detect']/surge_base*100
+                miss_rate = s['miss']/surge_base*100
                 ohtam_rate = s['false']/alarm_total*100
             else:
                 mode_text = "예측기반"
                 mode_color = "#ffcc00"
                 stats_html = f'<span>분석대상 <strong>{t}</strong>개</span><span style="color:{mode_color};font-weight:bold">📊 {mode_text}</span>'
+                detect_rate = s['detect']/surge*100
+                miss_rate = s['miss']/surge*100
                 ohtam_rate = s['false']/normal_case*100
             
             cmt_html = ""
@@ -1189,9 +1193,9 @@ h1{{font-size:2rem;text-align:center;background:linear-gradient(135deg,#00d4ff,#
 </div>
 </div>
 <div class="stat-row">
-<div class="stat-box" onclick="showList('hub','이상탐지',350)"><div class="stat-label ok">이상탐지</div><div class="stat-value ok">{s['detect']}</div><div class="stat-sub">탐지율 {s['detect']/surge*100:.1f}%</div></div>
+<div class="stat-box" onclick="showList('hub','이상탐지',350)"><div class="stat-label ok">이상탐지</div><div class="stat-value ok">{s['detect']}</div><div class="stat-sub">탐지율 {detect_rate:.1f}%</div></div>
 <div class="stat-box" onclick="showList('hub','오탐',350)"><div class="stat-label bad">오탐</div><div class="stat-value bad">{s['false']}</div><div class="stat-sub">오탐율 {ohtam_rate:.1f}%</div></div>
-<div class="stat-box" onclick="showList('hub','미탐',350)"><div class="stat-label bad">미탐</div><div class="stat-value bad">{s['miss']}</div><div class="stat-sub">미탐율 {s['miss']/surge*100:.1f}%</div></div>
+<div class="stat-box" onclick="showList('hub','미탐',350)"><div class="stat-label bad">미탐</div><div class="stat-value bad">{s['miss']}</div><div class="stat-sub">미탐율 {miss_rate:.1f}%</div></div>
 <div class="stat-box" onclick="showList('hub','정상',350)"><div class="stat-label gray">정상</div><div class="stat-value gray">{s['normal']}</div><div class="stat-sub">&nbsp;</div></div>
 </div>
 {cmt_html}
@@ -1207,16 +1211,21 @@ h1{{font-size:2rem;text-align:center;background:linear-gradient(135deg,#00d4ff,#
             # 알람파일 유무 체크
             m14_has_alarm = self.m14_alarm_df is not None and len(self.m14_alarm_df) > 0
             alarm_total = s.get('alarm_total', 0) or 1
+            surge_base = s.get('surge_base', 1) or 1  # 이상탐지 + 미탐
             
             if m14_has_alarm:
                 mode_text = "알람기반"
                 mode_color = "#00ff88"
                 stats_html = f'<span>분석대상 <strong>{t}</strong>개</span><span style="color:{mode_color};font-weight:bold">📡 {mode_text}</span>'
+                detect_rate = s['detect']/surge_base*100
+                miss_rate = s['miss']/surge_base*100
                 ohtam_rate = s['false']/alarm_total*100
             else:
                 mode_text = "예측기반"
                 mode_color = "#ffcc00"
                 stats_html = f'<span>분석대상 <strong>{t}</strong>개</span><span style="color:{mode_color};font-weight:bold">📊 {mode_text}</span>'
+                detect_rate = s['detect']/surge*100
+                miss_rate = s['miss']/surge*100
                 ohtam_rate = s['false']/normal_case*100
             
             cmt_html = ""
@@ -1232,9 +1241,9 @@ h1{{font-size:2rem;text-align:center;background:linear-gradient(135deg,#00d4ff,#
 </div>
 </div>
 <div class="stat-row">
-<div class="stat-box" onclick="showList('m14','이상탐지',1700)"><div class="stat-label ok">이상탐지</div><div class="stat-value ok">{s['detect']}</div><div class="stat-sub">탐지율 {s['detect']/surge*100:.1f}%</div></div>
+<div class="stat-box" onclick="showList('m14','이상탐지',1700)"><div class="stat-label ok">이상탐지</div><div class="stat-value ok">{s['detect']}</div><div class="stat-sub">탐지율 {detect_rate:.1f}%</div></div>
 <div class="stat-box" onclick="showList('m14','오탐',1700)"><div class="stat-label bad">오탐</div><div class="stat-value bad">{s['false']}</div><div class="stat-sub">오탐율 {ohtam_rate:.1f}%</div></div>
-<div class="stat-box" onclick="showList('m14','미탐',1700)"><div class="stat-label bad">미탐</div><div class="stat-value bad">{s['miss']}</div><div class="stat-sub">미탐율 {s['miss']/surge*100:.1f}%</div></div>
+<div class="stat-box" onclick="showList('m14','미탐',1700)"><div class="stat-label bad">미탐</div><div class="stat-value bad">{s['miss']}</div><div class="stat-sub">미탐율 {miss_rate:.1f}%</div></div>
 <div class="stat-box" onclick="showList('m14','정상',1700)"><div class="stat-label gray">정상</div><div class="stat-value gray">{s['normal']}</div><div class="stat-sub">&nbsp;</div></div>
 </div>
 {cmt_html}
