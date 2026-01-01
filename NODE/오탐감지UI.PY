@@ -816,13 +816,18 @@ class SurgeAnalyzer:
         # 오탐
         false_alarm = len(df[df['분류'] == '오탐'])
         
+        surge_base = detect + miss  # 탐지율/미탐율 기준
+        alarm_total = detect + false_alarm  # 오탐율 기준
+        
         stats = {
             'total_rows': total,
             'surge_total': surge_total,
             'detect': detect,      # 이상탐지 전체
             'miss': miss,          # 미탐 전체
             'normal': normal,      # 정상 전체
-            'false': false_alarm   # 오탐
+            'false': false_alarm,  # 오탐
+            'surge_base': surge_base,
+            'alarm_total': alarm_total
         }
         
         # 컬럼 순서 정리
@@ -931,8 +936,8 @@ class SurgeAnalyzer:
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 ✅ 이상탐지: {s['detect']}개 (탐지율: {s['detect']/surge_base*100:.1f}%)
-❌ 미탐: {s['miss']}개 (미탐율: {s['miss']/surge_base*100:.1f}%)
 ❌ 오탐: {s['false']}개 (오탐율: {s['false']/alarm_total*100:.1f}%)
+❌ 미탐: {s['miss']}개 (미탐율: {s['miss']/surge_base*100:.1f}%)
 ✅ 정상: {s['normal']}개
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 """
@@ -941,7 +946,8 @@ class SurgeAnalyzer:
         """예측값 기준 포맷"""
         t = s['total_rows'] or 1
         surge = s['surge_total'] or 1
-        normal_case = t - surge if t - surge > 0 else 1
+        surge_base = s.get('surge_base', 1) or 1
+        alarm_total = s.get('alarm_total', 1) or 1
         
         return f"""
 {'='*60}
@@ -950,10 +956,10 @@ class SurgeAnalyzer:
 전체: {s['total_rows']}개 | 급증: {s['surge_total']}개 | 정상: {t - surge}개
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-✅ 이상탐지: {s['detect']}개 ({s['detect']/surge*100:.1f}%)
-❌ 미탐: {s['miss']}개 ({s['miss']/surge*100:.1f}%)
-❌ 오탐: {s['false']}개 ({s['false']/normal_case*100:.1f}%)
-✅ 정상: {s['normal']}개 ({s['normal']/normal_case*100:.1f}%)
+✅ 이상탐지: {s['detect']}개 (탐지율: {s['detect']/surge_base*100:.1f}%)
+❌ 오탐: {s['false']}개 (오탐율: {s['false']/alarm_total*100:.1f}%)
+❌ 미탐: {s['miss']}개 (미탐율: {s['miss']/surge_base*100:.1f}%)
+✅ 정상: {s['normal']}개
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 """
     
@@ -1169,16 +1175,15 @@ h1{{font-size:2rem;text-align:center;background:linear-gradient(135deg,#00d4ff,#
                 mode_text = "알람기반"
                 mode_color = "#00ff88"
                 stats_html = f'<span>분석대상 <strong>{t}</strong>개</span><span style="color:{mode_color};font-weight:bold">📡 {mode_text}</span>'
-                detect_rate = s['detect']/surge_base*100
-                miss_rate = s['miss']/surge_base*100
-                ohtam_rate = s['false']/alarm_total*100
             else:
                 mode_text = "예측기반"
                 mode_color = "#ffcc00"
                 stats_html = f'<span>분석대상 <strong>{t}</strong>개</span><span style="color:{mode_color};font-weight:bold">📊 {mode_text}</span>'
-                detect_rate = s['detect']/surge*100
-                miss_rate = s['miss']/surge*100
-                ohtam_rate = s['false']/normal_case*100
+            
+            # 퍼센트 계산 (알람/예측 기반 동일)
+            detect_rate = s['detect']/surge_base*100
+            miss_rate = s['miss']/surge_base*100
+            ohtam_rate = s['false']/alarm_total*100
             
             cmt_html = ""
             if hub_cmt:
@@ -1217,16 +1222,15 @@ h1{{font-size:2rem;text-align:center;background:linear-gradient(135deg,#00d4ff,#
                 mode_text = "알람기반"
                 mode_color = "#00ff88"
                 stats_html = f'<span>분석대상 <strong>{t}</strong>개</span><span style="color:{mode_color};font-weight:bold">📡 {mode_text}</span>'
-                detect_rate = s['detect']/surge_base*100
-                miss_rate = s['miss']/surge_base*100
-                ohtam_rate = s['false']/alarm_total*100
             else:
                 mode_text = "예측기반"
                 mode_color = "#ffcc00"
                 stats_html = f'<span>분석대상 <strong>{t}</strong>개</span><span style="color:{mode_color};font-weight:bold">📊 {mode_text}</span>'
-                detect_rate = s['detect']/surge*100
-                miss_rate = s['miss']/surge*100
-                ohtam_rate = s['false']/normal_case*100
+            
+            # 퍼센트 계산 (알람/예측 기반 동일)
+            detect_rate = s['detect']/surge_base*100
+            miss_rate = s['miss']/surge_base*100
+            ohtam_rate = s['false']/alarm_total*100
             
             cmt_html = ""
             if m14_cmt:
@@ -1261,8 +1265,8 @@ h1{{font-size:2rem;text-align:center;background:linear-gradient(135deg,#00d4ff,#
 <hr style="border-color:#333;margin:12px 0">
 <h3 style="margin-bottom:8px">📊 퍼센트 기준 (쿨다운 제외)</h3>
 <div class="help-item"><div class="help-label">탐지율</div><div class="help-desc">이상탐지 / (이상탐지 + 미탐)</div></div>
-<div class="help-item"><div class="help-label">미탐율</div><div class="help-desc">미탐 / (이상탐지 + 미탐)</div></div>
 <div class="help-item"><div class="help-label">오탐율</div><div class="help-desc">오탐 / (이상탐지 + 오탐)</div></div>
+<div class="help-item"><div class="help-label">미탐율</div><div class="help-desc">미탐 / (이상탐지 + 미탐)</div></div>
 </div>
 <button class="help-toggle" onclick="document.getElementById('helpBox').classList.remove('hidden')">❓</button>
 <div class="footer">ML급증 감지 분석 시스템 V8.2 (알람기반) | AMHS 물류 예측 모델</div>
