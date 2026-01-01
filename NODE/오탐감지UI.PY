@@ -1255,9 +1255,14 @@ h1{{font-size:2rem;text-align:center;background:linear-gradient(135deg,#00d4ff,#
 <button class="close-btn" onclick="this.parentElement.classList.add('hidden')">&times;</button>
 <h3>📖 분류 용어 설명</h3>
 <div class="help-item"><div class="help-label ok">✅ 이상탐지</div><div class="help-desc">실제 초과 + 알람 발생</div></div>
-<div class="help-item"><div class="help-label bad">❌ 미탐</div><div class="help-desc">실제 초과 + 알람 미발생</div></div>
-<div class="help-item"><div class="help-label bad">❌ 오탐</div><div class="help-desc">실제 미만 + 알람 발생</div></div>
+<div class="help-item"><div class="help-label bad">❌ 미탐</div><div class="help-desc">실제 초과 + 알람 미발생 (급증인데 못 잡음)</div></div>
+<div class="help-item"><div class="help-label bad">❌ 오탐</div><div class="help-desc">실제 미만 + 알람 발생 (정상인데 알람 울림)</div></div>
 <div class="help-item"><div class="help-label gray">✅ 정상</div><div class="help-desc">실제 미만 + 알람 미발생</div></div>
+<hr style="border-color:#333;margin:12px 0">
+<h3 style="margin-bottom:8px">📊 퍼센트 기준 (쿨다운 제외)</h3>
+<div class="help-item"><div class="help-label">탐지율</div><div class="help-desc">이상탐지 / (이상탐지 + 미탐)</div></div>
+<div class="help-item"><div class="help-label">미탐율</div><div class="help-desc">미탐 / (이상탐지 + 미탐)</div></div>
+<div class="help-item"><div class="help-label">오탐율</div><div class="help-desc">오탐 / (이상탐지 + 오탐)</div></div>
 </div>
 <button class="help-toggle" onclick="document.getElementById('helpBox').classList.remove('hidden')">❓</button>
 <div class="footer">ML급증 감지 분석 시스템 V8.2 (알람기반) | AMHS 물류 예측 모델</div>
