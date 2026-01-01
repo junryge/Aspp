@@ -623,11 +623,15 @@ class SurgeAnalyzer:
         df['알람미발생쿨다운'] = ''
         df['분류'] = ''
         
-        # 알람 매칭 (60분 쿨다운)
+        # 알람 매칭 (60분 쿨다운) - 예측값 >= threshold인 경우에만 표시!
         last_alarm_idx = -9999
         
         if alarm_df is not None and len(alarm_df) > 0:
             for idx in range(len(df)):
+                pred = df.loc[idx, pred_col]
+                if pred < threshold:
+                    continue  # 예측값 < threshold면 알람 표시 안함
+                
                 pred_time_str = str(df.loc[idx, pred_time_col])
                 time_key = pred_time_str.replace('-', '').replace(':', '').replace(' ', '')[:12]
                 
