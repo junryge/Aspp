@@ -680,30 +680,35 @@ class SurgeAnalyzer:
                     minutes_ago = idx - last_miss_idx
                     df.loc[idx, '알람미발생쿨다운'] = f'{minutes_ago}분전'
         
-        # 분류 (알람 또는 쿨다운 = 알람발생으로 취급)
+        # 분류 (쿨다운 구분)
         for idx in range(len(df)):
             actual = df.loc[idx, actual_col]
-            has_alarm = df.loc[idx, '알람'] != '' or df.loc[idx, '알람쿨다운'] != ''
+            has_alarm = df.loc[idx, '알람'] != ''
+            has_alarm_cd = df.loc[idx, '알람쿨다운'] != ''
             
             if actual >= threshold:
                 if has_alarm:
                     df.loc[idx, '분류'] = '이상탐지'
+                elif has_alarm_cd:
+                    df.loc[idx, '분류'] = '이상탐지(쿨다운)'
                 else:
                     df.loc[idx, '분류'] = '미탐'
             else:
                 if has_alarm:
                     df.loc[idx, '분류'] = '오탐'
+                elif has_alarm_cd:
+                    df.loc[idx, '분류'] = '오탐(쿨다운)'
                 else:
                     df.loc[idx, '분류'] = '정상'
         
-        # 통계
+        # 통계 (쿨다운 제외한 순수 개수)
         total = len(df)
         surge_total = len(df[df[actual_col] >= threshold])  # 급증 건수
-        detect = len(df[df['분류'] == '이상탐지'])
+        detect = len(df[df['분류'] == '이상탐지'])  # 쿨다운 제외
         miss = len(df[df['분류'] == '미탐'])
         normal = len(df[df['분류'] == '정상'])
-        false_alarm = len(df[df['분류'] == '오탐'])
-        alarm_total = detect + false_alarm  # 전체 알람발생 횟수
+        false_alarm = len(df[df['분류'] == '오탐'])  # 쿨다운 제외
+        alarm_total = detect + false_alarm  # 쿨다운 제외한 알람발생
         
         stats = {
             'total_rows': total,
