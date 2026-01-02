@@ -269,15 +269,15 @@ class SurgeAnalyzer:
             self.ev_count_label.config(text="이벤트: 0개")
             return
         
-        # 필터링 - 정확히 일치만 (쿨다운 제외)
+        # 필터링 - includes 사용 + 쿨다운 제외
         if cls_filter == '전체':
             filtered = df
         elif cls_filter == '이상탐지':
-            filtered = df[df['분류'] == '이상탐지']
+            filtered = df[df['분류'].str.contains('이상', na=False) & ~df['분류'].str.contains('쿨다운', na=False)]
         elif cls_filter == '미탐':
-            filtered = df[df['분류'] == '미탐']
+            filtered = df[df['분류'].str.contains('미탐', na=False) & ~df['분류'].str.contains('쿨다운', na=False)]
         elif cls_filter == '정상':
-            filtered = df[df['분류'] == '정상']
+            filtered = df[df['분류'].str.contains('정상', na=False) & ~df['분류'].str.contains('이상', na=False)]
         elif cls_filter == '오탐':
             filtered = df[df['분류'] == '오탐']
         else:
@@ -1073,7 +1073,7 @@ class SurgeAnalyzer:
 <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2"></script>
 <style>
 *{{margin:0;padding:0;box-sizing:border-box}}
-body{{font-family:'맑은 고딕',sans-serif;background:#0a0a0f;color:#fff;padding:30px}}
+body{{font-family:'맑은 고딕',sans-serif;background:#0a0a0f;color:#fff;padding:30px;zoom:0.9}}
 .container{{max-width:1200px;margin:0 auto}}
 h1{{font-size:2rem;text-align:center;background:linear-gradient(135deg,#00d4ff,#ff6b35);-webkit-background-clip:text;-webkit-text-fill-color:transparent;margin-bottom:8px}}
 .sub{{text-align:center;color:#888;margin-bottom:20px;font-size:0.9rem}}
@@ -1321,11 +1321,11 @@ function showList(system, cls, threshold) {{
     
     let filtered = [];
     if (cls === '이상탐지') {{
-        filtered = data.filter(d => d.cls === '이상탐지');
+        filtered = data.filter(d => d.cls.includes('이상') && !d.cls.includes('쿨다운'));
     }} else if (cls === '미탐') {{
-        filtered = data.filter(d => d.cls === '미탐');
+        filtered = data.filter(d => d.cls.includes('미탐') && !d.cls.includes('쿨다운'));
     }} else if (cls === '정상') {{
-        filtered = data.filter(d => d.cls === '정상');
+        filtered = data.filter(d => d.cls.includes('정상') && !d.cls.includes('이상'));
     }} else if (cls === '오탐') {{
         filtered = data.filter(d => d.cls === '오탐');
     }} else {{
