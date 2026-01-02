@@ -1282,10 +1282,15 @@ h1{{font-size:2rem;text-align:center;background:linear-gradient(135deg,#00d4ff,#
 <div class="help-box" id="helpBox">
 <button class="close-btn" onclick="this.parentElement.classList.add('hidden')">&times;</button>
 <h3>📖 분류 용어 설명</h3>
-<div class="help-item"><div class="help-label ok">✅ 이상탐지</div><div class="help-desc">실제 초과 + 알람 발생</div></div>
-<div class="help-item"><div class="help-label bad">❌ 오탐</div><div class="help-desc">실제 미만 + 알람 발생 (정상인데 알람 울림)</div></div>
-<div class="help-item"><div class="help-label bad">❌ 미탐</div><div class="help-desc">실제 초과 + 알람 미발생 (급증인데 못 잡음)</div></div>
-<div class="help-item"><div class="help-label gray">✅ 정상</div><div class="help-desc">실제 미만 + 알람 미발생</div></div>
+<div class="help-item"><div class="help-label ok">✅ 이상탐지</div><div class="help-desc">실제 초과 + 알람 발생 (최초)</div></div>
+<div class="help-item"><div class="help-label bad">❌ 오탐</div><div class="help-desc">실제 미만 + 알람 발생 (최초, 정상인데 알람)</div></div>
+<div class="help-item"><div class="help-label bad">❌ 미탐</div><div class="help-desc">실제 초과 + 알람미발생 (최초, 급증인데 못잡음)</div></div>
+<div class="help-item"><div class="help-label gray">✅ 정상</div><div class="help-desc">실제 미만 + 알람/알람미발생 없음</div></div>
+<hr style="border-color:#333;margin:12px 0">
+<h3 style="margin-bottom:8px">🕐 쿨다운 분류 (60분 이내, 통계 제외)</h3>
+<div class="help-item"><div class="help-label" style="color:#888">이상탐지(쿨다운)</div><div class="help-desc">60분내 알람 있었음</div></div>
+<div class="help-item"><div class="help-label" style="color:#888">오탐(쿨다운)</div><div class="help-desc">60분내 알람 있었음</div></div>
+<div class="help-item"><div class="help-label" style="color:#888">미탐(쿨다운)</div><div class="help-desc">60분내 알람미발생 있었음</div></div>
 <hr style="border-color:#333;margin:12px 0">
 <h3 style="margin-bottom:8px">📊 퍼센트 기준 (쿨다운 제외)</h3>
 <div class="help-item"><div class="help-label">탐지율</div><div class="help-desc">이상탐지 / (이상탐지 + 미탐)</div></div>
