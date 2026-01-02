@@ -685,29 +685,47 @@ class SurgeAnalyzer:
                     minutes_ago = idx - last_miss_idx
                     df.loc[idx, '알람미발생쿨다운'] = f'{minutes_ago}분전'
         
-        # 분류 (쿨다운 구분)
+        # 분류 (쿨다운 구분) - 60분 이내 알람/알람미발생 있으면 쿨다운
         for idx in range(len(df)):
             actual = df.loc[idx, actual_col]
+            
+            # 현재 행의 상태
             has_alarm = df.loc[idx, '알람'] != ''
             has_alarm_cd = df.loc[idx, '알람쿨다운'] != ''
             has_miss = df.loc[idx, '알람미발생'] != ''
             has_miss_cd = df.loc[idx, '알람미발생쿨다운'] != ''
             
+            # 60분 이내 알람/알람미발생 있었는지 체크
+            in_alarm_cooldown = False
+            in_miss_cooldown = False
+            for back in range(1, 61):
+                if idx - back >= 0:
+                    if df.loc[idx - back, '알람'] != '':
+                        in_alarm_cooldown = True
+                        break
+            for back in range(1, 61):
+                if idx - back >= 0:
+                    if df.loc[idx - back, '알람미발생'] != '':
+                        in_miss_cooldown = True
+                        break
+            
             if actual >= threshold:
+                # 급증 케이스
                 if has_alarm:
                     df.loc[idx, '분류'] = '이상탐지'
-                elif has_alarm_cd:
+                elif has_alarm_cd or in_alarm_cooldown:
                     df.loc[idx, '분류'] = '이상탐지(쿨다운)'
                 elif has_miss:
                     df.loc[idx, '분류'] = '미탐'
-                elif has_miss_cd:
+                elif has_miss_cd or in_miss_cooldown:
                     df.loc[idx, '분류'] = '미탐(쿨다운)'
                 else:
                     df.loc[idx, '분류'] = '미탐'
             else:
+                # 정상 케이스
                 if has_alarm:
                     df.loc[idx, '분류'] = '오탐'
-                elif has_alarm_cd:
+                elif has_alarm_cd or in_alarm_cooldown:
                     df.loc[idx, '분류'] = '오탐(쿨다운)'
                 else:
                     df.loc[idx, '분류'] = '정상'
