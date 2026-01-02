@@ -1073,8 +1073,8 @@ class SurgeAnalyzer:
 <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2"></script>
 <style>
 *{{margin:0;padding:0;box-sizing:border-box}}
-body{{font-family:'맑은 고딕',sans-serif;background:#0a0a0f;color:#fff;padding:30px;zoom:0.9}}
-.container{{max-width:1200px;margin:0 auto}}
+body{{font-family:'맑은 고딕',sans-serif;background:#0a0a0f;color:#fff;padding:25px;font-size:0.9rem}}
+.container{{max-width:1400px;margin:0 auto}}
 h1{{font-size:2rem;text-align:center;background:linear-gradient(135deg,#00d4ff,#ff6b35);-webkit-background-clip:text;-webkit-text-fill-color:transparent;margin-bottom:8px}}
 .sub{{text-align:center;color:#888;margin-bottom:20px;font-size:0.9rem}}
 .view-toggle{{display:flex;justify-content:center;gap:15px;margin-bottom:25px;padding:15px;background:#12121a;border-radius:12px;border:1px solid #2a2a3a}}
@@ -1161,11 +1161,11 @@ h1{{font-size:2rem;text-align:center;background:linear-gradient(135deg,#00d4ff,#
 .back-btn{{background:#333;color:#fff;border:none;padding:8px 15px;border-radius:6px;cursor:pointer;margin-right:10px}}
 .back-btn:hover{{background:#444}}
 .mode-desc{{text-align:center;color:#666;font-size:0.8rem;margin-top:8px}}
-.help-box{{position:fixed;right:15px;top:50%;transform:translateY(-50%);width:180px;background:#1a1a2a;border:2px solid #00d4ff;border-radius:12px;padding:15px;z-index:100;box-shadow:0 0 20px rgba(0,212,255,0.3)}}
-.help-box h3{{font-size:0.85rem;color:#00d4ff;margin-bottom:12px;text-align:center;border-bottom:1px solid #333;padding-bottom:8px}}
+.help-box{{position:fixed;right:15px;top:50%;transform:translateY(-50%);width:220px;background:#1a1a2a;border:2px solid #00d4ff;border-radius:12px;padding:12px;z-index:100;box-shadow:0 0 20px rgba(0,212,255,0.3);max-height:85vh;overflow-y:auto}}
+.help-box h3{{font-size:0.8rem;color:#00d4ff;margin-bottom:10px;text-align:center;border-bottom:1px solid #333;padding-bottom:6px}}
 .help-box .close-btn{{position:absolute;top:8px;right:10px;background:none;border:none;color:#666;font-size:1rem;cursor:pointer}}
 .help-box .close-btn:hover{{color:#fff}}
-.help-item{{margin-bottom:10px;font-size:0.75rem;line-height:1.4}}
+.help-item{{margin-bottom:6px;font-size:0.7rem;line-height:1.3}}
 .help-item:last-child{{margin-bottom:0}}
 .help-label{{font-weight:bold;margin-bottom:2px}}
 .help-label.ok{{color:#00ff88}}
@@ -1474,7 +1474,8 @@ function showGraph(filteredIdx) {{
         options: {{
             responsive: true,
             maintainAspectRatio: false,
-            interaction: {{mode: 'nearest', axis: 'x', intersect: false}},
+            events: ['click'],
+            interaction: {{mode: 'nearest', intersect: true}},
             plugins: {{
                 legend: {{ 
                     position: 'top', 
