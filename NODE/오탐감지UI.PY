@@ -1475,7 +1475,7 @@ function showGraph(filteredIdx) {{
             responsive: true,
             maintainAspectRatio: false,
             events: ['click'],
-            interaction: {{mode: 'nearest', intersect: true}},
+            interaction: {{mode: 'index', intersect: false}},
             plugins: {{
                 legend: {{ 
                     position: 'top', 
