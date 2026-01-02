@@ -1503,9 +1503,6 @@ function showGraph(filteredIdx) {{
                     displayColors: true,
                     titleFont: {{ size: 11 }},
                     bodyFont: {{ size: 10 }},
-                    filter: function(tooltipItem) {{
-                        return tooltipItem.datasetIndex !== 3;
-                    }},
                     callbacks: {{
                         title: function(context) {{ return context[0].label; }},
                         label: function(context) {{
@@ -1514,7 +1511,7 @@ function showGraph(filteredIdx) {{
                             if (context.datasetIndex === 0) return '🟢 현재값: ' + d.current.toFixed(0);
                             else if (context.datasetIndex === 1) return '🔵 실제값: ' + d.actual.toFixed(0);
                             else if (context.datasetIndex === 2) return '🟠 예측값: ' + d.pred.toFixed(1);
-                            else return null;
+                            else return '🔴 리미트값: ' + currentThreshold;
                         }},
                         afterBody: function(context) {{
                             const idx = context[0].dataIndex;
