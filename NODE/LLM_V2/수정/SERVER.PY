@@ -507,6 +507,86 @@ async def reload_token():
         logger.error(f"Token reload failed: {e}")
         return {"success": False, "message": f"토큰 리로드 실패: {str(e)}"}
 
+# ========================================
+# 프롬프트 관리 API
+# ========================================
+PROMPT_FILE_MAP = {
+    'system_api': 'AMHS_LOG_ANALYSIS_SYSTEM_PROMPT.md',
+    'system_local': 'AMHS_LOG_ANALYSIS_SYSTEM_PROMPT_LOCAL.md',
+    'fewshot_api': 'AMHS_LOG_ANALYSIS_FEWSHOT_PROMPT.md',
+    'fewshot_local': 'AMHS_LOG_ANALYSIS_FEWSHOT_PROMPT_LOCAL.md'
+}
+
+@app.post("/get_prompt")
+async def get_prompt(data: dict):
+    """Get prompt content"""
+    prompt_type = data.get("prompt_type", "")
+    
+    if prompt_type not in PROMPT_FILE_MAP:
+        return {"success": False, "message": "잘못된 프롬프트 타입"}
+    
+    filepath = PROMPT_FILE_MAP[prompt_type]
+    
+    try:
+        if not os.path.exists(filepath):
+            return {"success": False, "message": f"파일이 없습니다: {filepath}"}
+        
+        with open(filepath, "r", encoding="utf-8") as f:
+            content = f.read()
+        
+        return {"success": True, "content": content, "filename": filepath}
+    
+    except Exception as e:
+        logger.error(f"Prompt load failed: {e}")
+        return {"success": False, "message": str(e)}
+
+@app.post("/save_prompt")
+async def save_prompt(data: dict):
+    """Save prompt content"""
+    global AMHS_SYSTEM_PROMPT_LOCAL, AMHS_FEWSHOT_PROMPT_LOCAL
+    global AMHS_SYSTEM_PROMPT_API, AMHS_FEWSHOT_PROMPT_API
+    
+    prompt_type = data.get("prompt_type", "")
+    content = data.get("content", "")
+    
+    if prompt_type not in PROMPT_FILE_MAP:
+        return {"success": False, "message": "잘못된 프롬프트 타입"}
+    
+    if not content.strip():
+        return {"success": False, "message": "내용이 비어있습니다"}
+    
+    filepath = PROMPT_FILE_MAP[prompt_type]
+    
+    try:
+        # 백업 생성
+        if os.path.exists(filepath):
+            backup_path = filepath + ".backup"
+            with open(filepath, "r", encoding="utf-8") as f:
+                backup_content = f.read()
+            with open(backup_path, "w", encoding="utf-8") as f:
+                f.write(backup_content)
+        
+        # 새 내용 저장
+        with open(filepath, "w", encoding="utf-8") as f:
+            f.write(content)
+        
+        # 메모리에 로드된 프롬프트도 업데이트
+        if prompt_type == 'system_api':
+            AMHS_SYSTEM_PROMPT_API = content
+        elif prompt_type == 'system_local':
+            AMHS_SYSTEM_PROMPT_LOCAL = content
+        elif prompt_type == 'fewshot_api':
+            AMHS_FEWSHOT_PROMPT_API = content
+        elif prompt_type == 'fewshot_local':
+            AMHS_FEWSHOT_PROMPT_LOCAL = content
+        
+        logger.info(f"Prompt saved: {filepath}")
+        return {"success": True, "message": "저장 완료", "filename": filepath}
+    
+    except Exception as e:
+        logger.error(f"Prompt save failed: {e}")
+        return {"success": False, "message": str(e)}
+
 @app.post("/ask")
 async def ask(query: Query):
     """Question handler"""
