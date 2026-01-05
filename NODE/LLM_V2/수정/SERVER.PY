@@ -1,40 +1,22 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-CSV 직접 검색 RAG 서버 (csv_searcher 모듈 사용)
-v2.5 - 프롬프트 편집 + 토큰 초기화 기능 추가
+AMHS Log Analysis Server
+- CSV upload and AMHS log analysis
+- Uses system prompt and fewshot examples for analysis
 """
 
 import os
+import re
 import requests
-from fastapi import FastAPI
+import pandas as pd
+from io import StringIO
+from fastapi import FastAPI, UploadFile, File, Form
 from fastapi.responses import FileResponse, JSONResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
+from typing import Optional
 import logging
-from datetime import datetime
-import json
-
-# CSV 검색 모듈
-import csv_searcher
-
-# STAR DB 검색 모듈
-import star_searcher
-
-# MongoDB/Logpresso 검색 모듈
-import mongo_searcher
-
-# M14 예측 모듈
-import m14_predictor
-
-# HUB 예측 모듈
-import hub_predictor_numerical
-import hub_predictor_categorical
-
-# LLM 후처리 모듈
-from llm_postprocessor import clean_llm_response, get_llm_analysis, get_prediction_llm_analysis
-
-# 프롬프트 관리 모듈
-import prompt_manager
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -42,129 +24,139 @@ logger = logging.getLogger(__name__)
 app = FastAPI()
 
 # ========================================
-# 전역 변수
+# Global Variables
 # ========================================
-llm = None  # 로컬 LLM
-COLUMN_DEFINITIONS = ""
+llm = None  # Local LLM
 
-# LLM 설정
-LLM_MODE = "api"  # "local" 또는 "api"
+# LLM Settings
+LLM_MODE = "api"  # "local" or "api"
 API_URL = "http://dev.assistant.llm.skhynix.com/v1/chat/completions"
 API_MODEL = "Qwen3-Coder-30B-A3B-Instruct"
 API_TOKEN = None
 
+# AMHS Prompts (LOCAL = 14B용 경량, API = 전체)
+AMHS_SYSTEM_PROMPT_LOCAL = ""
+AMHS_FEWSHOT_PROMPT_LOCAL = ""
+AMHS_SYSTEM_PROMPT_API = ""
+AMHS_FEWSHOT_PROMPT_API = ""
+
 # ========================================
-# API LLM 함수
+# Load AMHS Prompts
+# ========================================
+def load_amhs_prompts():
+    """Load AMHS system and fewshot prompts from markdown files"""
+    global AMHS_SYSTEM_PROMPT_LOCAL, AMHS_FEWSHOT_PROMPT_LOCAL
+    global AMHS_SYSTEM_PROMPT_API, AMHS_FEWSHOT_PROMPT_API
+
+    # LOCAL 프롬프트 (14B 경량 버전)
+    try:
+        with open("AMHS_LOG_ANALYSIS_SYSTEM_PROMPT_LOCAL.md", "r", encoding="utf-8") as f:
+            AMHS_SYSTEM_PROMPT_LOCAL = f.read()
+        logger.info("AMHS System Prompt (LOCAL) loaded")
+    except Exception as e:
+        logger.error(f"Failed to load LOCAL system prompt: {e}")
+        AMHS_SYSTEM_PROMPT_LOCAL = "You are an AMHS log analysis expert."
+
+    try:
+        with open("AMHS_LOG_ANALYSIS_FEWSHOT_PROMPT_LOCAL.md", "r", encoding="utf-8") as f:
+            AMHS_FEWSHOT_PROMPT_LOCAL = f.read()
+        logger.info("AMHS Fewshot Prompt (LOCAL) loaded")
+    except Exception as e:
+        logger.error(f"Failed to load LOCAL fewshot prompt: {e}")
+        AMHS_FEWSHOT_PROMPT_LOCAL = ""
+
+    # API 프롬프트 (전체 버전)
+    try:
+        with open("AMHS_LOG_ANALYSIS_SYSTEM_PROMPT.md", "r", encoding="utf-8") as f:
+            AMHS_SYSTEM_PROMPT_API = f.read()
+        logger.info("AMHS System Prompt (API) loaded")
+    except Exception as e:
+        logger.error(f"Failed to load API system prompt: {e}")
+        AMHS_SYSTEM_PROMPT_API = AMHS_SYSTEM_PROMPT_LOCAL
+
+    try:
+        with open("AMHS_LOG_ANALYSIS_FEWSHOT_PROMPT.md", "r", encoding="utf-8") as f:
+            AMHS_FEWSHOT_PROMPT_API = f.read()
+        logger.info("AMHS Fewshot Prompt (API) loaded")
+    except Exception as e:
+        logger.error(f"Failed to load API fewshot prompt: {e}")
+        AMHS_FEWSHOT_PROMPT_API = AMHS_FEWSHOT_PROMPT_LOCAL
+
+# ========================================
+# API LLM Functions
 # ========================================
 def load_api_token():
-    """토큰 파일에서 API 토큰 로드"""
+    """Load API token from file"""
     global API_TOKEN
     token_path = "token.txt"
-    
+
     if os.path.exists(token_path):
         try:
-            with open(token_path, "r") as f:
+            with open(token_path, "r", encoding='utf-8') as f:
                 API_TOKEN = f.read().strip()
-            logger.info("✅ API 토큰 로드 완료")
-            return True
+            if API_TOKEN and "REPLACE" not in API_TOKEN:
+                logger.info("API token loaded")
+                return True
+            else:
+                logger.warning("Token file has default value")
+                return False
         except Exception as e:
-            logger.error(f"❌ API 토큰 로드 실패: {e}")
+            logger.error(f"Failed to load API token: {e}")
             return False
     else:
-        logger.warning(f"⚠️ 토큰 파일 없음: {token_path}")
+        logger.warning(f"Token file not found: {token_path}")
         return False
 
-def call_api_llm(prompt: str, system_prompt: str = "한국어로 답변해주세요.", max_tokens: int = 4000) -> str:
-    """API LLM 호출 (컨텍스트 포함)"""
+def call_api_llm(prompt: str, system_prompt: str = "", max_tokens: int = 4000) -> str:
+    """Call API LLM"""
     global API_TOKEN
-    
+
     if not API_TOKEN:
-        logger.warning("API 토큰이 없습니다.")
-        return ""
-    
+        return "API token not loaded. Please check token.txt."
+
     try:
         headers = {
             "Authorization": f"Bearer {API_TOKEN}",
             "Content-Type": "application/json"
         }
-        
+
         messages = []
         if system_prompt:
             messages.append({"role": "system", "content": system_prompt})
-        
-        # 이전 대화 컨텍스트 추가 (최근 10개)
-        messages.extend(prompt_manager.get_history(10))
         messages.append({"role": "user", "content": prompt})
-        
+
         data = {
             "model": API_MODEL,
             "messages": messages,
             "max_tokens": max_tokens,
             "temperature": 0.3
         }
-        
+
         response = requests.post(API_URL, headers=headers, json=data, timeout=120)
-        
+
         if response.status_code == 200:
             result = response.json()
             answer = result["choices"][0]["message"]["content"]
-            logger.info(f"✅ API LLM 응답: {answer[:100]}...")
-            
-            # 히스토리에 추가
-            prompt_manager.add_to_history("user", prompt)
-            prompt_manager.add_to_history("assistant", answer)
-            
             return answer
         else:
-            logger.error(f"❌ API 오류: {response.status_code} - {response.text}")
-            return ""
-            
-    except Exception as e:
-        logger.error(f"❌ API 호출 실패: {e}")
-        return ""
+            logger.error(f"API error: {response.status_code} - {response.text}")
+            return f"API error: {response.status_code}\n{response.text}"
 
-def call_local_llm(prompt: str, max_tokens: int = 200) -> str:
-    """로컬 LLM 호출"""
+    except Exception as e:
+        logger.error(f"API call failed: {e}")
+        return f"API call failed: {e}"
+
+def call_local_llm(prompt: str, max_tokens: int = 1500) -> str:
+    """Call local LLM with LOCAL (lightweight) prompts"""
     global llm
-    
-    if llm is None:
-        return ""
-    
-    try:
-        # 컨텍스트 포함 (최근 6개)
-        context = ""
-        for msg in prompt_manager.get_history(6):
-            role = "User" if msg["role"] == "user" else "Assistant"
-            context += f"{role}: {msg['content']}\n"
-        
-        full_prompt = f"{context}User: {prompt}\nAssistant:"
-        
-        response = llm(
-            full_prompt,
-            max_tokens=max_tokens,
-            temperature=0.3,
-            stop=["<|im_end|>", "\n\n\n", "User:"]
-        )
-        answer = response['choices'][0]['text'].strip()
-        
-        # 히스토리에 추가
-        prompt_manager.add_to_history("user", prompt)
-        prompt_manager.add_to_history("assistant", answer)
-        
-        return answer
-    except Exception as e:
-        logger.error(f"❌ 로컬 LLM 호출 실패: {e}")
-        return ""
 
-def get_llm_response(prompt: str, system_prompt: str = "한국어로만 답변하세요.", max_tokens: int = 200) -> str:
-    """LLM 응답 (모드에 따라 로컬/API 선택)"""
-    global LLM_MODE
-    
-    if LLM_MODE == "api":
-        return call_api_llm(prompt, system_prompt, max_tokens)
-    else:
-        # 로컬 LLM용 ChatML 프롬프트
-        chatml_prompt = f"""<|im_start|>system
+    if llm is None:
+        return "Local LLM not loaded."
+
+    try:
+        # LOCAL 경량 프롬프트 사용
+        system_prompt = AMHS_SYSTEM_PROMPT_LOCAL + "\n\n" + AMHS_FEWSHOT_PROMPT_LOCAL
+        formatted_prompt = f"""<|im_start|>system
 {system_prompt}
 <|im_end|>
 <|im_start|>user
@@ -172,893 +164,516 @@ def get_llm_response(prompt: str, system_prompt: str = "한국어로만 답변�
 <|im_end|>
 <|im_start|>assistant
 """
-        return call_local_llm(chatml_prompt, max_tokens)
+        response = llm(
+            formatted_prompt,
+            max_tokens=max_tokens,
+            temperature=0.3,
+            stop=["<|im_end|>", "\n\n\n"]
+        )
+        result = response['choices'][0]['text'].strip()
 
+        # Qwen3 thinking 태그 제거 (reasoning 출력 제거)
+        import re
+        # <think>...</think> 블록 제거
+        result = re.sub(r'<think>.*?</think>', '', result, flags=re.DOTALL)
+        # 혹시 닫히지 않은 <think> 태그도 제거
+        result = re.sub(r'<think>.*', '', result, flags=re.DOTALL)
 
-def load_column_definitions():
-    """컬럼 정의 파일 로드"""
-    try:
-        with open("column_definitions_short.txt", "r", encoding="utf-8") as f:
-            return f.read()
-    except:
+        # 영어 thinking 블록 제거 (Okay, let's... / First, I need... 등으로 시작하는 부분)
+        # 한글 내용이 시작되는 부분 찾기
+        korean_match = re.search(r'[가-힣]', result)
+        if korean_match:
+            # 한글 시작 위치 찾기
+            korean_start = korean_match.start()
+            # 한글 시작 전에 영어가 많으면 (100자 이상) 그 부분 제거
+            if korean_start > 100:
+                # 한글 시작 직전의 줄바꿈 찾기
+                before_korean = result[:korean_start]
+                last_newline = before_korean.rfind('\n')
+                if last_newline > 0:
+                    result = result[last_newline+1:]
+                else:
+                    result = result[korean_start:]
+
+        return result.strip()
+    except Exception as e:
+        logger.error(f"Local LLM call failed: {e}")
+        return f"Local LLM call failed: {e}"
+
+# ========================================
+# CSV Analysis Functions
+# ========================================
+def parse_csv_data(csv_content: str) -> pd.DataFrame:
+    """Parse CSV content to DataFrame"""
+    for encoding in ['utf-8', 'cp949', 'euc-kr']:
         try:
-            with open("column_definitions.txt", "r", encoding="utf-8") as f:
-                return f.read()
-        except Exception as e:
-            logger.error(f"컬럼 정의 로드 실패: {e}")
-            return ""
+            df = pd.read_csv(StringIO(csv_content), encoding=encoding)
+            return df
+        except:
+            continue
+    raise ValueError("Failed to parse CSV with any encoding")
 
+def analyze_csv_basic(df: pd.DataFrame) -> dict:
+    """Basic CSV analysis"""
+    analysis = {
+        "row_count": len(df),
+        "columns": list(df.columns),
+        "message_types": {},
+        "time_range": {},
+        "levels": {},
+        "machines": set(),
+        "carriers": set()
+    }
+
+    # Message type distribution
+    if 'MESSAGENAME' in df.columns:
+        analysis["message_types"] = df['MESSAGENAME'].value_counts().to_dict()
+
+    # Time range
+    if 'TIME_EX' in df.columns:
+        times = df['TIME_EX'].dropna().tolist()
+        if times:
+            analysis["time_range"] = {
+                "start": str(times[0]) if times else "",
+                "end": str(times[-1]) if times else ""
+            }
+
+    # Level distribution
+    if 'LEVEL' in df.columns:
+        analysis["levels"] = df['LEVEL'].value_counts().to_dict()
+
+    # Unique machines
+    if 'MACHINENAME' in df.columns:
+        analysis["machines"] = list(df['MACHINENAME'].dropna().unique()[:10])
+
+    # Unique carriers
+    if 'CARRIER' in df.columns:
+        analysis["carriers"] = list(df['CARRIER'].dropna().unique()[:5])
+
+    return analysis
+
+def create_analysis_prompt(df: pd.DataFrame, analysis: dict, user_question: str = "") -> str:
+    """Create prompt for LLM analysis (API용 - 상세)"""
+
+    # Get sample data (first and last few rows)
+    sample_head = df.head(5).to_string()
+    sample_tail = df.tail(5).to_string()
+
+    prompt = f"""## CSV 데이터 분석 요청
+
+### 파일 기본 정보
+- 총 레코드 수: {analysis['row_count']}건
+- 컬럼: {', '.join(analysis['columns'][:10])}
+- 시간 범위: {analysis['time_range'].get('start', 'N/A')} ~ {analysis['time_range'].get('end', 'N/A')}
+
+### 메시지 유형 분포
+{dict(list(analysis['message_types'].items())[:10])}
+
+### LEVEL 분포
+{analysis['levels']}
+
+### 관련 장비
+{analysis['machines']}
+
+### 캐리어
+{analysis['carriers']}
+
+### 데이터 샘플 (처음 5개)
+{sample_head}
+
+### 데이터 샘플 (마지막 5개)
+{sample_tail}
+
+"""
+
+    if user_question:
+        prompt += f"""### 사용자 질문
+{user_question}
+
+위 데이터를 분석하고 사용자 질문에 답변해주세요.
+"""
+    else:
+        prompt += """### 요청
+위 AMHS 로그 데이터를 분석하고, 자연스러운 한국어로 설명해주세요.
+이송 경로, 소요시간, 정상/이상 여부 등을 포함해주세요.
+"""
+
+    return prompt
+
+
+def create_analysis_prompt_local(df: pd.DataFrame, analysis: dict, user_question: str = "") -> str:
+    """Create prompt for LOCAL LLM (경량 - 핵심 정보만)"""
+
+    # 핵심 컬럼만 추출
+    key_cols = ['TIME_EX', 'MESSAGENAME', 'LEVEL', 'MACHINENAME', 'RESULTCODE']
+    available_cols = [c for c in key_cols if c in df.columns]
+
+    # 시퀀스 요약 (메시지 순서만)
+    msg_sequence = ""
+    if 'MESSAGENAME' in df.columns:
+        msgs = df['MESSAGENAME'].tolist()
+        # 중복 연속 제거하고 핵심만
+        unique_msgs = []
+        for m in msgs:
+            if not unique_msgs or unique_msgs[-1] != m:
+                unique_msgs.append(m)
+        msg_sequence = " → ".join(unique_msgs[:15])  # 최대 15개
+
+    # 에러 체크
+    errors = []
+    if 'LEVEL' in df.columns:
+        error_rows = df[df['LEVEL'].isin(['ERROR', 'WARN'])]
+        if len(error_rows) > 0:
+            for _, row in error_rows.head(3).iterrows():
+                errors.append(f"- {row.get('MESSAGENAME', 'N/A')}: {row.get('LEVEL', 'N/A')}")
+
+    # 결과코드 이상 체크
+    if 'RESULTCODE' in df.columns:
+        bad_codes = df[(df['RESULTCODE'] != 0) & (df['RESULTCODE'] != 4) & (df['RESULTCODE'].notna())]
+        if len(bad_codes) > 0:
+            for _, row in bad_codes.head(2).iterrows():
+                errors.append(f"- 결과코드 {row.get('RESULTCODE')}: {row.get('MESSAGENAME', 'N/A')}")
+
+    # 첫/끝 데이터 (3개씩, 핵심 컬럼만)
+    if available_cols:
+        sample_df = df[available_cols]
+        sample_head = sample_df.head(3).to_string(index=False)
+        sample_tail = sample_df.tail(2).to_string(index=False)
+    else:
+        sample_head = df.head(3).to_string(index=False)
+        sample_tail = df.tail(2).to_string(index=False)
+
+    # 장비 유형 판별
+    equip_type = "AMHS"
+    msg_types = list(analysis.get('message_types', {}).keys())
+    if any('RAIL-' in m and 'INTERRAIL' not in m for m in msg_types):
+        equip_type = "OHT"
+    elif any('INTERRAIL-' in m for m in msg_types):
+        equip_type = "Conveyor"
+    elif any('STORAGE-' in m for m in msg_types):
+        equip_type = "Lifter"
+
+    prompt = f"""## {equip_type} 로그 ({analysis['row_count']}건)
+
+시간: {analysis['time_range'].get('start', '')} ~ {analysis['time_range'].get('end', '')}
+장비: {', '.join(analysis['machines'][:3])}
+LEVEL: {analysis['levels']}
+
+시퀀스: {msg_sequence}
+
+"""
+
+    if errors:
+        prompt += f"""⚠️ 이상:
+{chr(10).join(errors)}
+
+"""
+
+    prompt += f"""처음:
+{sample_head}
+
+끝:
+{sample_tail}
+
+"""
+
+    if user_question:
+        prompt += f"질문: {user_question}\n"
+    else:
+        prompt += "분석: 경로, 시간, 정상여부 알려줘.\n"
+
+    return prompt
+
+# ========================================
+# FastAPI Endpoints
+# ========================================
 @app.on_event("startup")
 async def startup():
-    """서버 시작 시 초기화"""
-    global llm, COLUMN_DEFINITIONS, LLM_MODE
-    
-    # 0. 컬럼 정의 로드
-    COLUMN_DEFINITIONS = load_column_definitions()
-    logger.info("✅ 컬럼 정의 로드 완료")
-    
-    # 0.5. 프롬프트 로드
-    prompt_manager.load_prompts()
-    logger.info("✅ 프롬프트 로드 완료")
-    
-    # 1. CSV 로드 (csv_searcher 사용)
-    CSV_PATH = "./csv/with.csv"
-    
-    if os.path.exists(CSV_PATH):
-        if csv_searcher.load_csv(CSV_PATH):
-            logger.info("✅ CSV 로드 완료 (csv_searcher)")
-        else:
-            logger.error("❌ CSV 로드 실패")
-    else:
-        logger.error(f"❌ CSV 파일 없음: {CSV_PATH}")
-    
-    # 1.5. STAR DB 문서 로드
-    if star_searcher.load_md():
-        logger.info("✅ STAR DB 문서 로드 완료")
-    else:
-        logger.warning("⚠️ STAR DB 문서 로드 실패 (STAR_READ.md 없음)")
-    
-    # 1.6. MongoDB/Logpresso 문서 로드
-    if mongo_searcher.load_md():
-        logger.info("✅ MongoDB/Logpresso 문서 로드 완료")
-    else:
-        logger.warning("⚠️ MongoDB/Logpresso 문서 로드 실패 (MOGO_Read.md 없음)")
-    
-    # 2. API 토큰 로드 (API 모드용)
+    """Server startup initialization"""
+    global llm, LLM_MODE
+
+    # Load AMHS prompts
+    load_amhs_prompts()
+
+    # Load API token
     if load_api_token():
         LLM_MODE = "api"
-        logger.info("✅ LLM 모드: API")
+        logger.info("LLM Mode: API")
     else:
         LLM_MODE = "local"
-        logger.info("⚠️ API 토큰 없음 → 로컬 모드 시도")
-    
-    # 3. 로컬 LLM 로드 (로컬 모드용 또는 백업)
-    MODEL_PATH = "Qwen3-4B-Q8_0.gguf"
-    
+        logger.info("No API token -> trying local mode")
+
+    # Load local LLM (backup)
+    MODEL_PATH = "Qwen3-14B-Q4_K_M.gguf"
+
     if os.path.exists(MODEL_PATH):
-        logger.info(f"LLM 로드 시작: {MODEL_PATH}")
-        
         try:
             from llama_cpp import Llama
-            
+            logger.info(f"Loading LLM: {MODEL_PATH}")
             llm = Llama(
                 model_path=MODEL_PATH,
-                n_ctx=3000,
-                n_batch=512,
-                n_gpu_layers=0,
-                n_threads=8,
+                n_ctx=32768,  # 4096 -> 32768로 확장
+                n_gpu_layers=-1,
                 verbose=False
             )
-            
-            logger.info("✅ 로컬 LLM 로드 성공!")
-            
-            # API 토큰 없으면 로컬 모드
+            logger.info("Local LLM loaded!")
+
             if not API_TOKEN:
                 LLM_MODE = "local"
-                
         except Exception as e:
-            logger.error(f"❌ 로컬 LLM 로드 실패: {e}")
-            if not API_TOKEN:
-                logger.warning("⚠️ LLM 없이 실행 (템플릿 기반)")
+            logger.warning(f"Local LLM load failed (API only): {e}")
     else:
-        logger.warning(f"⚠️ 로컬 LLM 모델 없음: {MODEL_PATH}")
-    
-    logger.info(f"🚀 최종 LLM 모드: {LLM_MODE}")
+        logger.warning(f"Model file not found: {MODEL_PATH}")
 
-
-def format_star_result(section_key: str, context: str) -> str:
-    """STAR 검색 결과를 보기 좋게 포맷팅"""
-    import re
-    
-    section_titles = {
-        '청주_운영': '🔵 청주 운영 환경',
-        '청주_QA': '🟡 청주 QA 환경',
-        '이천_운영': '🔵 이천 운영 환경',
-        '이천_QA': '🟡 이천 QA 환경',
-        '계정': '👤 공통 계정 정보',
-        '요약': '📊 전체 요약',
-        'Failover': '🔧 Failover 설정'
-    }
-    
-    title = section_titles.get(section_key, f'📂 {section_key}')
-    
-    result = f"{title}\n"
-    result += "=" * 45 + "\n\n"
-    
-    lines = context.split('\n')
-    
-    for line in lines:
-        line = line.strip()
-        
-        if not line or line.startswith('|--') or line.startswith('---'):
-            continue
-        
-        if line.startswith('#'):
-            continue
-        
-        if line.startswith('|') and line.endswith('|'):
-            cells = [c.strip() for c in line.split('|') if c.strip()]
-            if len(cells) >= 2:
-                key = cells[0]
-                value = cells[1]
-                
-                if key in ['항목', '사이트'] or value in ['값', '환경']:
-                    continue
-                
-                if 'Service' in key:
-                    result += f"📌 {key}: {value}\n"
-                elif 'Node' in key:
-                    result += f"   🖥️ {key}: {value}\n"
-                elif '계정' in key:
-                    result += f"👤 {key}: {value}\n"
-                elif '비밀번호' in key:
-                    result += f"🔑 {key}: {value}\n"
-                elif '사이트' in key or '청주' in key or '이천' in key:
-                    if len(cells) >= 4:
-                        result += f"📍 {cells[0]} {cells[1]}: {cells[2]} ({cells[3]})\n"
-                    else:
-                        result += f"📍 {key}: {value}\n"
-                else:
-                    result += f"   {key}: {value}\n"
-        
-        elif line.startswith('*'):
-            item = line[1:].strip()
-            result += f"  • {item}\n"
-    
-    return result
-
+    logger.info(f"Server ready. Mode: {LLM_MODE}")
 
 class Query(BaseModel):
     question: str
-    mode: str = "search"
+    mode: str = "general"
 
-class PredictQuery(BaseModel):
-    mode: str
-    data: str
-
-class LLMConfigQuery(BaseModel):
-    llm_mode: str  # "local" 또는 "api"
-
-class SavePromptsRequest(BaseModel):
-    system_local: str
-    fewshot_local: str
-    system_api: str
-    fewshot_api: str
-    save_to_file: bool = False
+class CSVAnalysisRequest(BaseModel):
+    csv_data: str
+    question: Optional[str] = ""
 
 @app.get("/")
 async def home():
-    """메인 페이지"""
     return FileResponse("index.html")
 
-@app.get("/columns")
-async def get_columns():
-    """컬럼 목록 반환"""
-    return {"columns": csv_searcher.get_columns()}
-
-@app.get("/stats/{column}")
-async def get_column_stats(column: str):
-    """컬럼 통계 반환"""
-    return csv_searcher.get_statistics(column)
-
 @app.get("/llm_status")
-async def get_llm_status():
-    """현재 LLM 상태 반환"""
-    global LLM_MODE, llm, API_TOKEN
-    
+async def llm_status():
+    """Return LLM status"""
     return {
         "mode": LLM_MODE,
         "local_available": llm is not None,
-        "api_available": API_TOKEN is not None,
-        "api_model": API_MODEL if API_TOKEN else None
+        "api_available": API_TOKEN is not None
     }
 
 @app.post("/set_llm_mode")
-async def set_llm_mode(config: LLMConfigQuery):
-    """LLM 모드 변경"""
-    global LLM_MODE, llm, API_TOKEN
-    
-    new_mode = config.llm_mode.lower()
-    
-    if new_mode == "api":
-        if API_TOKEN:
-            LLM_MODE = "api"
-            logger.info("✅ LLM 모드 변경: API")
-            return {"success": True, "mode": "api", "message": "API 모드로 변경됨"}
-        else:
-            return {"success": False, "mode": LLM_MODE, "message": "API 토큰이 없습니다"}
-    
-    elif new_mode == "local":
-        if llm is not None:
-            LLM_MODE = "local"
-            logger.info("✅ LLM 모드 변경: Local")
-            return {"success": True, "mode": "local", "message": "로컬 모드로 변경됨"}
-        else:
-            return {"success": False, "mode": LLM_MODE, "message": "로컬 LLM이 로드되지 않았습니다"}
-    
-    else:
-        return {"success": False, "mode": LLM_MODE, "message": "유효하지 않은 모드"}
+async def set_llm_mode(data: dict):
+    """Set LLM mode"""
+    global LLM_MODE
+    new_mode = data.get("llm_mode", "api")
 
-# ========================================
-# 프롬프트 관리 API
-# ========================================
-@app.get("/get_prompts")
-async def get_prompts():
-    """프롬프트 4개 반환"""
-    return prompt_manager.get_prompts()
+    if new_mode == "local" and llm is None:
+        return {"success": False, "message": "Local LLM not available"}
+    if new_mode == "api" and API_TOKEN is None:
+        return {"success": False, "message": "API token not available"}
 
-@app.post("/save_prompts")
-async def save_prompts(request: SavePromptsRequest):
-    """프롬프트 저장"""
-    prompt_manager.set_prompts({
-        "system_local": request.system_local,
-        "fewshot_local": request.fewshot_local,
-        "system_api": request.system_api,
-        "fewshot_api": request.fewshot_api
-    })
+    LLM_MODE = new_mode
+    return {"success": True, "mode": LLM_MODE, "message": f"Changed to {LLM_MODE} mode"}
+
+@app.post("/reload_token")
+async def reload_token():
+    """Reload API token from file"""
+    global API_TOKEN, LLM_MODE
     
-    if request.save_to_file:
-        try:
-            prompt_manager.save_prompts_to_file()
-            return {"success": True, "message": "메모리 + 파일 저장 완료"}
-        except Exception as e:
-            return {"success": False, "message": f"파일 저장 실패: {e}"}
-    
-    return {"success": True, "message": "메모리 저장 완료 (재시작 시 초기화)"}
-
-@app.post("/reload_prompts")
-async def reload_prompts():
-    """파일에서 프롬프트 다시 로드"""
-    prompt_manager.load_prompts()
-    return {"success": True, "message": "프롬프트 리로드 완료"}
-
-# ========================================
-# 컨텍스트 관리 API
-# ========================================
-@app.post("/reset_context")
-async def reset_context():
-    """대화 컨텍스트 초기화"""
-    count = prompt_manager.reset_history()
-    return {"success": True, "message": f"{count}개 메시지 삭제됨", "cleared_count": count}
-
-@app.get("/context_status")
-async def context_status():
-    """컨텍스트 상태"""
-    return prompt_manager.get_context_status()
+    try:
+        token_path = "token.txt"
+        
+        if not os.path.exists(token_path):
+            return {"success": False, "message": f"토큰 파일이 없습니다: {token_path}"}
+        
+        with open(token_path, "r", encoding='utf-8') as f:
+            new_token = f.read().strip()
+        
+        if not new_token:
+            return {"success": False, "message": "토큰 파일이 비어있습니다"}
+        
+        if "REPLACE" in new_token:
+            return {"success": False, "message": "토큰이 기본값입니다. 실제 토큰으로 교체하세요"}
+        
+        # 토큰 업데이트
+        API_TOKEN = new_token
+        LLM_MODE = "api"
+        
+        logger.info("API token reloaded successfully")
+        return {
+            "success": True, 
+            "message": "토큰이 성공적으로 리로드되었습니다",
+            "mode": LLM_MODE
+        }
+        
+    except Exception as e:
+        logger.error(f"Token reload failed: {e}")
+        return {"success": False, "message": f"토큰 리로드 실패: {str(e)}"}
 
 @app.post("/ask")
 async def ask(query: Query):
-    """RAG 질문 처리"""
-    global COLUMN_DEFINITIONS, LLM_MODE
-    
-    try:
-        logger.info(f"질문: {query.question} | 모드: {query.mode} | LLM: {LLM_MODE}")
-        
-        if query.mode == "search":
-            
-            # ⭐ MongoDB/Logpresso 쿼리 먼저 체크
-            if mongo_searcher.is_mongo_query(query.question):
-                logger.info("MongoDB/Logpresso 검색 감지")
-                section_key, answer = mongo_searcher.search(query.question)
-                
-                # LLM 요약 추가
-                try:
-                    summary = get_llm_response(
-                        f"{answer[:500]}\n\n위 접속 정보를 한국어 1문장으로 요약하세요.",
-                        "반드시 한국어로만 답변하세요. 생각 과정 없이 바로 답변하세요.",
-                        60
-                    )
-                    
-                    import re
-                    summary = re.sub(r'<think>.*?</think>', '', summary, flags=re.DOTALL).strip()
-                    
-                    if not summary or len(summary) < 5:
-                        if 'MongoDB' in answer and '이천' in answer:
-                            summary = "이천 MongoDB 클러스터 접속 정보입니다."
-                        elif 'MongoDB' in answer and '청주' in answer:
-                            summary = "청주 MongoDB 클러스터 접속 정보입니다."
-                        elif 'Logpresso' in answer:
-                            summary = "Logpresso 로그 서버 접속 정보입니다."
-                        else:
-                            summary = "MongoDB/Logpresso 접속 정보입니다."
-                    
-                    answer += f"\n---\n🤖 요약: {summary}"
-                except Exception as e:
-                    logger.warning(f"LLM 요약 실패: {e}")
-                
-                return {"answer": answer}
-            
-            # ⭐ STAR DB 쿼리 체크
-            if star_searcher.is_star_query(query.question):
-                logger.info("STAR DB 검색 감지")
-                section_key, answer = star_searcher.search(query.question)
-                
-                # LLM 요약 추가
-                try:
-                    summary = get_llm_response(
-                        f"{answer}\n\n위 DB 접속 정보를 한국어 1문장으로 요약하세요.",
-                        "반드시 한국어로만 답변하세요. 생각 과정 없이 바로 답변하세요.",
-                        60
-                    )
-                    
-                    import re
-                    summary = re.sub(r'<think>.*?</think>', '', summary, flags=re.DOTALL).strip()
-                    
-                    if not summary or len(summary) < 5:
-                        if '청주' in answer and '운영' in answer:
-                            summary = "청주 운영 환경 Oracle RAC DB 접속 정보입니다."
-                        elif '이천' in answer:
-                            summary = "이천 Oracle RAC DB 접속 정보입니다."
-                        else:
-                            summary = "STAR DB 접속 정보입니다."
-                    
-                    answer += f"\n---\n🤖 요약: {summary}"
-                except Exception as e:
-                    logger.warning(f"LLM 요약 실패: {e}")
-                
-                return {"answer": answer}
-            
-            # CSV 검색
-            result, data_text = csv_searcher.search_csv(query.question)
-            
-            if result is None:
-                return {"answer": data_text}
-            
-            answer = f"📊 검색 결과\n{data_text}\n"
-            
-            # LLM 분석 추가
-            if "🔮 예측 분석" in data_text:
-                analysis = get_prediction_llm_analysis(data_text, llm if LLM_MODE == "local" else None)
-            else:
-                data_type = "hub" if "HUB" in data_text else "m14"
-                analysis = get_llm_analysis(data_text, llm if LLM_MODE == "local" else None, data_type)
-            
-            # API 모드면 추가 분석
-            if LLM_MODE == "api" and analysis and "템플릿" not in analysis:
-                pass  # 이미 처리됨
-            elif LLM_MODE == "api":
-                api_analysis = get_llm_response(
-                    f"{data_text[:800]}\n\n위 데이터를 한국어 2-3문장으로 분석하세요.",
-                    "당신은 AMHS 물류 분석 전문가입니다. 한국어로만 답변하세요.",
-                    150
-                )
-                if api_analysis and len(api_analysis) > 10:
-                    analysis = api_analysis
-            
-            answer += f"\n---\n🤖 LLM 분석 ({LLM_MODE.upper()})\n{analysis}"
-            
-            return {"answer": answer}
-        
-        elif query.mode == "m14":
-            return {"answer": "M14 예측 기능은 데이터 입력 섹션을 사용해주세요."}
-        
-        elif query.mode == "hub":
-            return {"answer": "HUB 예측 기능은 데이터 입력 섹션을 사용해주세요."}
-        
-        elif query.mode == "general":
-            # 일반 대화 - 프롬프트 매니저에서 프롬프트 가져오기
-            if LLM_MODE == "api":
-                system_prompt = prompt_manager.get_full_prompt("api")
-                if not system_prompt:
-                    system_prompt = "당신은 AMHS 물류 AI 어시스턴트입니다. 친절하고 전문적으로 한국어로 답변하세요."
-                
-                answer = get_llm_response(
-                    query.question,
-                    system_prompt,
-                    4000
-                )
-                if answer:
-                    return {"answer": answer}
-                else:
-                    return {"answer": "❌ API 호출에 실패했습니다."}
-            
-            elif llm is not None:
-                # 로컬 LLM
-                system_prompt = prompt_manager.get_full_prompt("local")
-                if not system_prompt:
-                    system_prompt = "당신은 AMHS 물류 AI 어시스턴트입니다. 한국어로 짧게 답변하세요."
-                
-                answer = get_llm_response(query.question, system_prompt, 300)
-                
-                if answer:
-                    import re
-                    answer = re.sub(r'<think>.*?</think>', '', answer, flags=re.DOTALL).strip()
-                    return {"answer": answer}
-                else:
-                    return {"answer": "❌ LLM 응답 생성에 실패했습니다."}
-            
-            else:
-                return {"answer": "❌ LLM 모델이 로드되지 않았습니다."}
-        
-        else:
-            result, data_text = csv_searcher.search_csv(query.question)
-            if result is None:
-                return {"answer": data_text}
-            return {"answer": data_text}
-        
-    except Exception as e:
-        logger.error(f"처리 실패: {e}")
-        import traceback
-        logger.error(traceback.format_exc())
-        return {"answer": f"❌ 오류: {str(e)}"}
-
-@app.post("/predict")
-async def predict(query: PredictQuery):
-    """M14/HUB 예측 처리"""
+    """Question handler"""
     global LLM_MODE
-    
+
+    if LLM_MODE == "api":
+        # API: 전체 프롬프트 사용
+        system_prompt = AMHS_SYSTEM_PROMPT_API + "\n\n" + AMHS_FEWSHOT_PROMPT_API
+        answer = call_api_llm(query.question, system_prompt)
+    else:
+        # LOCAL: 경량 프롬프트 (call_local_llm 내부에서 처리)
+        answer = call_local_llm(query.question)
+
+    return {"answer": answer}
+
+@app.post("/analyze_csv")
+async def analyze_csv(request: CSVAnalysisRequest):
+    """Analyze CSV data with AMHS prompts"""
     try:
-        logger.info(f"예측 요청: 모드={query.mode}")
-        
-        if query.mode == "m14":
-            result = m14_predictor.predict_m14(query.data)
-            
-            if 'error' in result:
-                return JSONResponse(content=result, status_code=400)
-            
-            timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-            dashboard_filename = f'M14_Dashboard_{timestamp}.html'
-            dashboard_path = os.path.join('dashboards', dashboard_filename)
-            
-            os.makedirs('dashboards', exist_ok=True)
-            with open(dashboard_path, 'w', encoding='utf-8') as f:
-                f.write(result['dashboard_html'])
-            
-            logger.info(f"대시보드 저장: {dashboard_filename}")
-            
-            summary = generate_prediction_summary(result)
-            
-            llm_analysis = ""
-            try:
-                if LLM_MODE == "api":
-                    llm_analysis = generate_llm_analysis_api(result)
-                elif llm is not None:
-                    llm_analysis = generate_llm_analysis(result)
-            except Exception as e:
-                logger.warning(f"LLM 분석 실패: {e}")
-            
-            return {
-                "success": True,
-                "summary": summary,
-                "llm_analysis": llm_analysis,
-                "dashboard_url": f"/dashboard/{dashboard_filename}",
-                "predictions": result['predictions'],
-                "current_value": result['current_value'],
-                "current_status": result['current_status']
-            }
-        
-        elif query.mode == "hub":
-            result_numerical = hub_predictor_numerical.predict_hub_numerical(query.data)
-            result_categorical = hub_predictor_categorical.predict_hub_categorical(query.data)
-            
-            if 'error' in result_numerical:
-                return JSONResponse(content=result_numerical, status_code=400)
-            
-            if 'error' in result_categorical:
-                return JSONResponse(content=result_categorical, status_code=400)
-            
-            timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-            
-            dashboard_numerical_filename = f'HUB_Numerical_{timestamp}.html'
-            dashboard_numerical_path = os.path.join('dashboards', dashboard_numerical_filename)
-            
-            dashboard_categorical_filename = f'HUB_Categorical_{timestamp}.html'
-            dashboard_categorical_path = os.path.join('dashboards', dashboard_categorical_filename)
-            
-            os.makedirs('dashboards', exist_ok=True)
-            
-            with open(dashboard_numerical_path, 'w', encoding='utf-8') as f:
-                f.write(result_numerical['dashboard_html'])
-            
-            with open(dashboard_categorical_path, 'w', encoding='utf-8') as f:
-                f.write(result_categorical['dashboard_html'])
-            
-            logger.info(f"대시보드 저장: {dashboard_numerical_filename}, {dashboard_categorical_filename}")
-            
-            summary = generate_hub_summary(result_numerical, result_categorical)
-            
-            llm_analysis = ""
-            try:
-                if LLM_MODE == "api":
-                    llm_analysis = generate_hub_llm_analysis_api(result_numerical, result_categorical)
-                elif llm is not None:
-                    llm_analysis = generate_hub_llm_analysis(result_numerical, result_categorical)
-            except Exception as e:
-                logger.warning(f"LLM 분석 실패: {e}")
-            
-            return {
-                "success": True,
-                "summary": summary,
-                "llm_analysis": llm_analysis,
-                "dashboard_numerical_url": f"/dashboard/{dashboard_numerical_filename}",
-                "dashboard_categorical_url": f"/dashboard/{dashboard_categorical_filename}",
-                "predictions_numerical": result_numerical['predictions'],
-                "predictions_categorical": result_categorical['predictions'],
-                "current_value": result_numerical['current_value']
-            }
-        
+        # Parse CSV
+        df = parse_csv_data(request.csv_data)
+
+        # Basic analysis
+        analysis = analyze_csv_basic(df)
+
+        # Create prompt (모드별 다른 프롬프트)
+        if LLM_MODE == "api":
+            prompt = create_analysis_prompt(df, analysis, request.question)
+            system_prompt = AMHS_SYSTEM_PROMPT_API + "\n\n" + AMHS_FEWSHOT_PROMPT_API
+            llm_response = call_api_llm(prompt, system_prompt)
         else:
-            return {
-                "error": "Invalid mode",
-                "message": "mode는 'm14' 또는 'hub'여야 합니다."
-            }
-        
+            # LOCAL: 경량 프롬프트 사용
+            prompt = create_analysis_prompt_local(df, analysis, request.question)
+            llm_response = call_local_llm(prompt)
+
+        return {
+            "success": True,
+            "basic_info": {
+                "row_count": analysis["row_count"],
+                "time_range": analysis["time_range"],
+                "message_types": dict(list(analysis["message_types"].items())[:5]),
+                "levels": analysis["levels"]
+            },
+            "analysis": llm_response
+        }
+
     except Exception as e:
-        logger.error(f"예측 실패: {e}")
-        import traceback
-        logger.error(traceback.format_exc())
+        logger.error(f"CSV analysis failed: {e}")
+        return {
+            "success": False,
+            "error": str(e)
+        }
+
+@app.post("/upload_csv")
+async def upload_csv(file: UploadFile = File(...), question: str = Form("")):
+    """Upload and analyze CSV file"""
+    try:
+        # Read file
+        content = await file.read()
+
+        # Try different encodings
+        csv_text = None
+        for encoding in ['utf-8', 'cp949', 'euc-kr']:
+            try:
+                csv_text = content.decode(encoding)
+                break
+            except:
+                continue
+
+        if csv_text is None:
+            return JSONResponse(
+                status_code=400,
+                content={"success": False, "error": "Failed to decode CSV file"}
+            )
+
+        # Parse CSV
+        df = parse_csv_data(csv_text)
+
+        # Basic analysis
+        analysis = analyze_csv_basic(df)
+
+        # Create prompt (모드별 다른 프롬프트)
+        if LLM_MODE == "api":
+            prompt = create_analysis_prompt(df, analysis, question)
+            system_prompt = AMHS_SYSTEM_PROMPT_API + "\n\n" + AMHS_FEWSHOT_PROMPT_API
+            llm_response = call_api_llm(prompt, system_prompt)
+        else:
+            # LOCAL: 경량 프롬프트 사용
+            prompt = create_analysis_prompt_local(df, analysis, question)
+            llm_response = call_local_llm(prompt)
+
+        return {
+            "success": True,
+            "filename": file.filename,
+            "basic_info": {
+                "row_count": analysis["row_count"],
+                "time_range": analysis["time_range"],
+                "message_types": dict(list(analysis["message_types"].items())[:5]),
+                "levels": analysis["levels"],
+                "machines": analysis["machines"][:5] if analysis["machines"] else [],
+                "carriers": list(analysis["carriers"])[:5] if analysis["carriers"] else []
+            },
+            "analysis": llm_response
+        }
+
+    except Exception as e:
+        logger.error(f"CSV upload failed: {e}")
         return JSONResponse(
-            content={"error": "Prediction failed", "message": str(e)},
-            status_code=500
+            status_code=500,
+            content={"success": False, "error": str(e)}
         )
 
-def generate_prediction_summary(result):
-    """M14 예측 결과 간단 요약"""
-    predictions = result['predictions']
-    current_val = result['current_value']
-    current_status = result['current_status']
-    
-    summary = f"📊 현재: {current_val:,} ({current_status})\n\n"
-    summary += "🔮 예측:\n"
-    
-    for pred in predictions:
-        status_emoji = {
-            'LOW': '✅',
-            'NORMAL': '🟢',
-            'CAUTION': '⚠️',
-            'CRITICAL': '🚨'
-        }.get(pred['status'], '❓')
-        
-        summary += f"• {pred['horizon']}분: {pred['prediction']:,} {status_emoji} (위험 {pred['danger_probability']}%)\n"
-    
-    return summary
+# Get list of available POI CSV files
+@app.get("/poi_files")
+async def get_poi_files():
+    """Get list of CSV files in POI folder"""
+    poi_folder = "POI"
+    if not os.path.exists(poi_folder):
+        return {"files": []}
 
-def generate_hub_summary(result_numerical, result_categorical):
-    """HUB 예측 결과 간단 요약"""
-    current_val = result_numerical['current_value']
-    
-    pred_num = result_numerical['predictions']
-    pred_cat = result_categorical['predictions']
-    
-    summary = f"📊 현재: {current_val:,.1f}\n\n"
-    summary += "🔢 수치형 예측:\n"
-    
-    for pred in pred_num:
-        status_emoji = {
-            'NORMAL': '✅',
-            'CAUTION': '⚠️',
-            'WARNING': '🟠',
-            'CRITICAL': '🚨'
-        }.get(pred['status'], '❓')
-        
-        summary += f"• {pred['horizon']}분: {pred['pred_min']:.1f} ~ {pred['pred_max']:.1f} {status_emoji}\n"
-    
-    summary += "\n🎯 범주형 예측:\n"
-    
-    for pred in pred_cat:
-        status_emoji = {
-            'LOW': '✅',
-            'MEDIUM': '⚠️',
-            'HIGH': '🟠',
-            'CRITICAL': '🚨'
-        }.get(pred['status'], '❓')
-        
-        summary += f"• {pred['horizon']}분: {pred['class_name']} (급증 {pred['prob2']:.1f}%) {status_emoji}\n"
-    
-    return summary
+    files = [f for f in os.listdir(poi_folder) if f.endswith('.csv')]
+    return {"files": files}
 
-def generate_llm_analysis_api(result):
-    """API LLM으로 M14 예측 결과 분석"""
-    predictions = result['predictions']
-    current_val = result['current_value']
-    current_status = result['current_status']
-    
-    current_m14b = result.get('current_m14b', 0)
-    current_m14bsum = result.get('current_m14bsum', 0)
-    current_gap = result.get('current_gap', 0)
-    current_trans = result.get('current_trans', 0)
-    
-    pred_text = ""
-    for pred in predictions:
-        pred_text += f"{pred['horizon']}분 후: {pred['prediction']:,} (위험도 {pred['danger_probability']}%)\n"
-    
-    prompt = f"""현재 AMHS 물류 상황:
-- TOTALCNT: {current_val:,} ({current_status})
-- M14AM14B: {current_m14b:.0f}
-- M14AM14BSUM: {current_m14bsum:.0f}
-- queue_gap: {current_gap:.0f}
-- TRANSPORT: {current_trans:.0f}
+@app.post("/analyze_poi_file")
+async def analyze_poi_file(data: dict):
+    """Analyze a POI CSV file"""
+    filename = data.get("filename", "")
+    question = data.get("question", "")
 
-예측 결과:
-{pred_text}
+    filepath = os.path.join("POI", filename)
 
-위 데이터를 바탕으로 한국어 3-4문장으로 분석하세요. 위험도가 높은 이유와 권장 조치사항을 포함하세요."""
-    
-    analysis = get_llm_response(prompt, "당신은 AMHS 물류 분석 전문가입니다. 한국어로만 답변하세요.", 250)
-    
-    if not analysis or len(analysis) < 20:
-        return generate_m14_template_analysis(result, [], max(p['danger_probability'] for p in predictions))
-    
-    return analysis
-
-def generate_hub_llm_analysis_api(result_numerical, result_categorical):
-    """API LLM으로 HUB 예측 결과 분석"""
-    current_val = result_numerical['current_value']
-    pred_num = result_numerical['predictions']
-    pred_cat = result_categorical['predictions']
-    
-    max_surge_prob = max(p['prob2'] for p in pred_cat)
-    max_pred_value = max(p['pred_max'] for p in pred_num)
-    
-    pred_num_text = ""
-    for pred in pred_num:
-        pred_num_text += f"{pred['horizon']}분 후: {pred['pred_min']:.1f} ~ {pred['pred_max']:.1f}\n"
-    
-    pred_cat_text = ""
-    for pred in pred_cat:
-        pred_cat_text += f"{pred['horizon']}분 후: 급증 확률 {pred['prob2']:.1f}%\n"
-    
-    prompt = f"""현재 HUB 물류 상황:
-- 현재값: {current_val:.1f}
-- 최대 예측값: {max_pred_value:.1f}
-- 최대 급증 확률: {max_surge_prob:.1f}%
-
-수치형 예측:
-{pred_num_text}
-
-범주형 예측:
-{pred_cat_text}
-
-위 데이터를 바탕으로 한국어 3-4문장으로 분석하세요. 위험 시간대와 권장 조치사항을 포함하세요."""
-    
-    analysis = get_llm_response(prompt, "당신은 AMHS 물류 분석 전문가입니다. 한국어로만 답변하세요.", 250)
-    
-    if not analysis or len(analysis) < 20:
-        return generate_hub_template_analysis(result_numerical, result_categorical, [], max_surge_prob, max_pred_value)
-    
-    return analysis
-
-def generate_hub_llm_analysis(result_numerical, result_categorical):
-    """로컬 LLM으로 HUB 예측 결과 분석"""
-    current_val = result_numerical['current_value']
-    pred_num = result_numerical['predictions']
-    pred_cat = result_categorical['predictions']
-    
-    max_surge_prob = max(p['prob2'] for p in pred_cat)
-    max_pred_value = max(p['pred_max'] for p in pred_num)
-    
-    risk_factors = []
-    
-    if max_pred_value >= 300:
-        risk_factors.append(f"예측 최대값({max_pred_value:.0f})이 심각 임계값(300) 초과 예상")
-    elif max_pred_value >= 280:
-        risk_factors.append(f"예측 최대값({max_pred_value:.0f})이 주의 임계값(280) 초과 예상")
-    
-    if max_surge_prob >= 70:
-        risk_factors.append(f"급증 확률({max_surge_prob:.1f}%)이 매우 높음")
-    elif max_surge_prob >= 50:
-        risk_factors.append(f"급증 확률({max_surge_prob:.1f}%)이 높음")
-    
-    pred_num_text = ""
-    for pred in pred_num:
-        pred_num_text += f"{pred['horizon']}분 후: {pred['pred_min']:.1f} ~ {pred['pred_max']:.1f}\n"
-    
-    pred_cat_text = ""
-    for pred in pred_cat:
-        pred_cat_text += f"{pred['horizon']}분 후: {pred['class_name']} (급증 {pred['prob2']:.1f}%)\n"
-    
-    risk_text = "\n- ".join(risk_factors) if risk_factors else "현재 위험 요인 없음"
-    
-    prompt = f"""현재 HUB 물류:
-- 현재값: {current_val:.1f}
-- 최대 예측값: {max_pred_value:.1f}
-- 최대 급증 확률: {max_surge_prob:.1f}%
-
-수치형 예측:
-{pred_num_text}
-
-범주형 예측:
-{pred_cat_text}
-
-위험 요인:
-- {risk_text}
-
-한국어 3-4문장으로 분석하세요."""
-    
-    try:
-        response = llm(
-            f"<|im_start|>system\n한국어로만 답변하세요.\n<|im_end|>\n<|im_start|>user\n{prompt}\n<|im_end|>\n<|im_start|>assistant\n",
-            max_tokens=250,
-            temperature=0.2,
-            stop=["<|im_end|>"]
-        )
-        
-        raw_answer = response['choices'][0]['text'].strip()
-        cleaned = clean_llm_response(raw_answer)
-        
-        if not cleaned or len(cleaned) < 20:
-            return generate_hub_template_analysis(result_numerical, result_categorical, risk_factors, max_surge_prob, max_pred_value)
-        
-        return cleaned
-        
-    except Exception as e:
-        logger.error(f"LLM 분석 실패: {e}")
-        return generate_hub_template_analysis(result_numerical, result_categorical, risk_factors, max_surge_prob, max_pred_value)
-
-def generate_hub_template_analysis(result_numerical, result_categorical, risk_factors, max_surge_prob, max_pred_value):
-    """템플릿 기반 HUB 분석"""
-    current_val = result_numerical['current_value']
-    pred_num = result_numerical['predictions']
-    pred_cat = result_categorical['predictions']
-    
-    max_horizon = max(pred_num, key=lambda x: x['pred_max'])
-    
-    if max_pred_value < 280 and max_surge_prob < 30:
-        return f"현재값 {current_val:.1f}로 정상 범위입니다. 급증 확률이 낮아 안정적인 상태입니다."
-    
-    analysis = f"⚠️ 위험 분석:\n\n"
-    
-    analysis += f"🔢 수치형 예측:\n"
-    for p in pred_num:
-        if p['pred_max'] >= 300:
-            analysis += f"  🚨 {p['horizon']}분 후: {p['pred_min']:.0f} ~ {p['pred_max']:.0f} (심각)\n"
-        elif p['pred_max'] >= 280:
-            analysis += f"  ⚠️ {p['horizon']}분 후: {p['pred_min']:.0f} ~ {p['pred_max']:.0f} (주의)\n"
-        else:
-            analysis += f"  ✅ {p['horizon']}분 후: {p['pred_min']:.0f} ~ {p['pred_max']:.0f} (정상)\n"
-    
-    analysis += f"\n🎯 범주형 근거:\n"
-    for p in pred_cat:
-        if p['prob2'] >= 70:
-            analysis += f"  🚨 {p['horizon']}분 후: 급증 확률 {p['prob2']:.1f}%\n"
-        elif p['prob2'] >= 50:
-            analysis += f"  ⚠️ {p['horizon']}분 후: 급증 확률 {p['prob2']:.1f}%\n"
-        elif p['prob2'] >= 30:
-            analysis += f"  🟡 {p['horizon']}분 후: 급증 확률 {p['prob2']:.1f}%\n"
-    
-    analysis += f"\n📋 결론:\n"
-    if max_pred_value >= 300 and max_surge_prob >= 70:
-        analysis += f"  → {max_horizon['horizon']}분 후 {max_pred_value:.0f}까지 상승 예측, 즉시 조치 필요!"
-    elif max_pred_value >= 280 or max_surge_prob >= 50:
-        analysis += f"  → 모니터링 강화 필요"
-    else:
-        analysis += f"  → 현재 안정적"
-    
-    return analysis
-
-def generate_llm_analysis(result):
-    """로컬 LLM으로 M14 예측 결과 분석"""
-    predictions = result['predictions']
-    current_val = result['current_value']
-    current_status = result['current_status']
-    
-    current_m14b = result.get('current_m14b', 0)
-    current_m14bsum = result.get('current_m14bsum', 0)
-    current_gap = result.get('current_gap', 0)
-    current_trans = result.get('current_trans', 0)
-    
-    max_danger = max(p['danger_probability'] for p in predictions)
-    
-    risk_factors = []
-    if current_m14b > 520:
-        risk_factors.append(f"M14AM14B({current_m14b:.0f}) 임계값 초과")
-    if current_m14bsum > 588:
-        risk_factors.append(f"M14AM14BSUM({current_m14bsum:.0f}) 임계값 초과")
-    if current_gap > 300:
-        risk_factors.append(f"queue_gap({current_gap:.0f}) 임계값 초과")
-    if current_trans > 151:
-        risk_factors.append(f"TRANSPORT({current_trans:.0f}) 임계값 초과")
-    
-    pred_text = ""
-    for pred in predictions:
-        pred_text += f"{pred['horizon']}분 후: {pred['prediction']:,} (위험도 {pred['danger_probability']}%)\n"
-    
-    risk_text = "\n- ".join(risk_factors) if risk_factors else "모든 지표 정상"
-    
-    prompt = f"""현재 AMHS 물류:
-- TOTALCNT: {current_val:,} ({current_status})
-- M14AM14B: {current_m14b:.0f}
-- M14AM14BSUM: {current_m14bsum:.0f}
-- queue_gap: {current_gap:.0f}
-- TRANSPORT: {current_trans:.0f}
-
-위험 요인:
-- {risk_text}
-
-예측:
-{pred_text}
-
-한국어 3-4문장으로 분석하세요."""
-    
-    try:
-        response = llm(
-            f"<|im_start|>system\n한국어로만 답변하세요.\n<|im_end|>\n<|im_start|>user\n{prompt}\n<|im_end|>\n<|im_start|>assistant\n",
-            max_tokens=250,
-            temperature=0.2,
-            stop=["<|im_end|>"]
-        )
-        
-        raw_answer = response['choices'][0]['text'].strip()
-        cleaned = clean_llm_response(raw_answer)
-        
-        if not cleaned or len(cleaned) < 20:
-            return generate_m14_template_analysis(result, risk_factors, max_danger)
-        
-        return cleaned
-        
-    except Exception as e:
-        logger.error(f"LLM 분석 실패: {e}")
-        return generate_m14_template_analysis(result, risk_factors, max_danger)
-
-def generate_m14_template_analysis(result, risk_factors, max_danger):
-    """템플릿 기반 M14 분석"""
-    predictions = result['predictions']
-    current_val = result['current_value']
-    max_pred = max(p['prediction'] for p in predictions)
-    
-    analysis = ""
-    
-    if risk_factors:
-        analysis += f"⚠️ 현재 지표 위험 요인:\n"
-        for factor in risk_factors:
-            analysis += f"  🚨 {factor}\n"
-        analysis += "\n"
-    
-    critical_preds = [p for p in predictions if p['prediction'] >= 1700]
-    
-    if critical_preds:
-        analysis += f"🔮 예측 기반 위험:\n"
-        for p in predictions:
-            if p['prediction'] >= 1700:
-                analysis += f"  🚨 {p['horizon']}분 후: {p['prediction']:,} (CRITICAL)\n"
-            elif p['prediction'] >= 1650:
-                analysis += f"  ⚠️ {p['horizon']}분 후: {p['prediction']:,} (CAUTION)\n"
-    
-    analysis += f"\n📋 결론:\n"
-    if max_pred >= 1700:
-        analysis += f"  → 예측 최대값 {max_pred:,}으로 CRITICAL 상태 예상, 즉시 조치 필요!"
-    elif max_pred >= 1650:
-        analysis += f"  → 예측 최대값 {max_pred:,}으로 CAUTION 상태 예상"
-    else:
-        analysis += f"  → 현재 안정적, 모니터링 권장"
-    
-    if not analysis.strip():
-        return "현재 모든 지표가 정상 범위입니다."
-    
-    return analysis
-
-@app.get("/dashboard/{filename}")
-async def get_dashboard(filename: str):
-    """생성된 HTML 대시보드 반환"""
-    filepath = os.path.join("dashboards", filename)
-    
     if not os.path.exists(filepath):
-        return JSONResponse(
-            content={"error": "File not found"},
-            status_code=404
-        )
-    
-    return FileResponse(filepath)
+        return {"success": False, "error": f"File not found: {filename}"}
+
+    try:
+        # Read file
+        df = None
+        for encoding in ['utf-8', 'cp949', 'euc-kr']:
+            try:
+                df = pd.read_csv(filepath, encoding=encoding)
+                break
+            except:
+                continue
+
+        if df is None:
+            return {"success": False, "error": "Failed to read CSV file"}
+
+        # Basic analysis
+        analysis = analyze_csv_basic(df)
+
+        # Create prompt (모드별 다른 프롬프트)
+        if LLM_MODE == "api":
+            prompt = create_analysis_prompt(df, analysis, question)
+            system_prompt = AMHS_SYSTEM_PROMPT_API + "\n\n" + AMHS_FEWSHOT_PROMPT_API
+            llm_response = call_api_llm(prompt, system_prompt)
+        else:
+            # LOCAL: 경량 프롬프트 사용
+            prompt = create_analysis_prompt_local(df, analysis, question)
+            llm_response = call_local_llm(prompt)
+
+        return {
+            "success": True,
+            "filename": filename,
+            "basic_info": {
+                "row_count": analysis["row_count"],
+                "time_range": analysis["time_range"],
+                "message_types": dict(list(analysis["message_types"].items())[:5]),
+                "levels": analysis["levels"],
+                "machines": analysis["machines"][:5] if analysis["machines"] else [],
+                "carriers": list(analysis["carriers"])[:5] if analysis["carriers"] else []
+            },
+            "analysis": llm_response
+        }
+
+    except Exception as e:
+        logger.error(f"POI file analysis failed: {e}")
+        return {"success": False, "error": str(e)}
 
 if __name__ == "__main__":
     import uvicorn
