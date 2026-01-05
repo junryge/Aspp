@@ -242,25 +242,25 @@ votes = np.vstack([
 
 vote_sum = votes.sum(axis=0)
 
-# 최종 판정 (다수결 + 추가 규칙) - FP 감소 버전
-# 규칙1: 다수결 4/6 이상 (신뢰도 높음)
-# 규칙2: LGBM_중요_확률 >= 0.92 AND 현재값 >= 1580 AND 투표 >= 3 (조건 강화)
-# 규칙3: XGB_중요_예측값 >= 1720 AND 현재값 >= 1580 AND 투표 >= 3 (조건 강화)
-# 규칙4: 현재값 >= 1650 AND 투표 >= 4 (투표 기준 상향)
+# 최종 판정 (다수결 + 추가 규칙) - FN 20건 버전
+# 규칙1: 다수결 4/6 이상
+# 규칙2: LGBM_중요_확률 >= 0.92 AND 현재값 >= 1520
+# 규칙3: XGB_중요_예측값 >= 1710 AND 현재값 >= 1520
+# 규칙4: 현재값 >= 1650 AND 투표 >= 3
 current_values_arr = np.array(current_values)
 
 rule1 = (vote_sum >= 4)
-rule2 = (prob_lgb_important >= 0.92) & (current_values_arr >= 1580) & (vote_sum >= 3)
-rule3 = (pred_xgb_important >= 1720) & (current_values_arr >= 1580) & (vote_sum >= 3)
-rule4 = (current_values_arr >= 1650) & (vote_sum >= 4)
+rule2 = (prob_lgb_important >= 0.92) & (current_values_arr >= 1520)
+rule3 = (pred_xgb_important >= 1710) & (current_values_arr >= 1520)
+rule4 = (current_values_arr >= 1650) & (vote_sum >= 3)
 
 final_pred = (rule1 | rule2 | rule3 | rule4).astype(int)
 
 print(f"\n  [최종 판정 규칙]")
 print(f"    - 규칙1) 다수결 4/6 이상: {rule1.sum()}건")
-print(f"    - 규칙2) LGBM_중요_확률 >= 0.92 AND 현재값 >= 1580 AND 투표 >= 3: {rule2.sum()}건")
-print(f"    - 규칙3) XGB_중요_예측값 >= 1720 AND 현재값 >= 1580 AND 투표 >= 3: {rule3.sum()}건")
-print(f"    - 규칙4) 현재값 >= 1650 AND 투표 >= 4: {rule4.sum()}건")
+print(f"    - 규칙2) LGBM_중요_확률 >= 0.92 AND 현재값 >= 1520: {rule2.sum()}건")
+print(f"    - 규칙3) XGB_중요_예측값 >= 1710 AND 현재값 >= 1520: {rule3.sum()}건")
+print(f"    - 규칙4) 현재값 >= 1650 AND 투표 >= 3: {rule4.sum()}건")
 print(f"    - 최종 돌파 예측: {final_pred.sum()}건")
 
 # ============================================================================
@@ -351,6 +351,49 @@ result_df = pd.DataFrame({
     'PyOD_IForest_이상': pyod_iforest_pred,
     'PyOD_COPOD_이상': pyod_copod_pred
 })
+
+# 예측상태 컬럼 추가 (10분 전/후 분석)
+print("  - 예측상태 분석 중...")
+pred_status = []
+
+for i, row in result_df.iterrows():
+    actual = row['실제_돌파여부']
+    pred = row['최종예측_돌파여부']
+    current_time = row['현재시간']
+    
+    # 10분 전/후 데이터 찾기
+    time_10min_ago = current_time - pd.Timedelta(minutes=10)
+    time_10min_later = current_time + pd.Timedelta(minutes=10)
+    
+    prev_data = result_df[result_df['현재시간'] == time_10min_ago]
+    later_data = result_df[result_df['현재시간'] == time_10min_later]
+    
+    if actual == 1 and pred == 1:
+        # TP: 정상예측
+        pred_status.append('정상예측_TP')
+    elif actual == 0 and pred == 0:
+        # TN: 정상예측
+        pred_status.append('정상예측_TN')
+    elif actual == 1 and pred == 0:
+        # FN: 10분 전 예측 있었는지 확인
+        if len(prev_data) > 0 and prev_data['최종예측_돌파여부'].values[0] == 1:
+            pred_status.append('FN_10분전예측')
+        else:
+            pred_status.append('FN_완전놓침')
+    elif actual == 0 and pred == 1:
+        # FP: 10분 후 돌파 발생했는지 확인
+        if len(later_data) > 0 and later_data['실제_돌파여부'].values[0] == 1:
+            pred_status.append('FP_10분후돌파')
+        else:
+            pred_status.append('FP_잘못된경고')
+
+result_df['예측상태'] = pred_status
+
+# 예측상태별 집계 출력
+print("\n  [예측상태 집계]")
+status_counts = result_df['예측상태'].value_counts()
+for status, cnt in status_counts.items():
+    print(f"    - {status}: {cnt}건")
 
 # 예측 결과 저장
 result_path = os.path.join(EVAL_CONFIG['result_dir'],
