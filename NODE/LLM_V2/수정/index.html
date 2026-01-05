@@ -336,6 +336,96 @@
             color: #333;
         }
 
+        /* 템플릿 섹션 스타일 */
+        .template-section {
+            margin-bottom: 15px;
+            border: 1px solid #e2e8f0;
+            border-radius: 8px;
+            overflow: hidden;
+        }
+
+        .template-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 10px 15px;
+            background: #f8f9fa;
+            cursor: pointer;
+            font-size: 13px;
+            font-weight: 600;
+            color: #555;
+            transition: background 0.2s;
+        }
+
+        .template-header:hover {
+            background: #e9ecef;
+        }
+
+        .template-toggle {
+            transition: transform 0.3s;
+        }
+
+        .template-toggle.open {
+            transform: rotate(180deg);
+        }
+
+        .template-buttons {
+            padding: 15px;
+            background: white;
+            border-top: 1px solid #e2e8f0;
+        }
+
+        .template-desc {
+            padding: 12px 15px;
+            margin-bottom: 12px;
+            background: #f0f4ff;
+            border-left: 3px solid #667eea;
+            border-radius: 5px;
+            font-size: 12px;
+            line-height: 1.6;
+            color: #555;
+        }
+
+        .template-desc strong {
+            color: #667eea;
+        }
+
+        .template-group {
+            margin-bottom: 12px;
+        }
+
+        .template-group:last-child {
+            margin-bottom: 0;
+        }
+
+        .template-group-title {
+            font-size: 11px;
+            font-weight: 600;
+            color: #888;
+            margin-bottom: 8px;
+            text-transform: uppercase;
+        }
+
+        .template-btn {
+            padding: 6px 12px;
+            margin: 3px;
+            font-size: 12px;
+            font-weight: 500;
+            background: white;
+            color: #555;
+            border: 1px solid #ddd;
+            border-radius: 15px;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .template-btn:hover {
+            background: #667eea;
+            color: white;
+            border-color: #667eea;
+            transform: translateY(-1px);
+        }
+
         .mode-selector {
             margin-bottom: 20px;
             display: flex;
@@ -1156,6 +1246,42 @@
                     <span id="promptFileName">AMHS_LOG_ANALYSIS_SYSTEM_PROMPT.md</span>
                     <span id="promptCharCount">0 자</span>
                 </div>
+                
+                <!-- 예제 템플릿 버튼 -->
+                <div class="template-section">
+                    <div class="template-header" onclick="toggleTemplates()">
+                        <span>📋 예제 템플릿 (클릭하여 삽입)</span>
+                        <span class="template-toggle" id="templateToggle">▼</span>
+                    </div>
+                    <div class="template-buttons" id="templateButtons" style="display: none;">
+                        <!-- 설명 -->
+                        <div class="template-desc" id="systemDesc">
+                            <strong>SYSTEM_PROMPT</strong> = "너는 이런 전문가야, 이런 지식을 알아"<br>
+                            • 장비 설명, 메시지 유형, 분석 방법<br>
+                            • 여기에 도메인 지식 추가!
+                        </div>
+                        <div class="template-desc" id="fewshotDesc">
+                            <strong>FEWSHOT_PROMPT</strong> = "이렇게 질문하면 이렇게 답해"<br>
+                            • 질문-답변 예시<br>
+                            • 여기에 원하는 답변 스타일/형식 예시 추가!
+                        </div>
+                        
+                        <div class="template-group" id="systemTemplates">
+                            <div class="template-group-title">SYSTEM 프롬프트용</div>
+                            <button class="template-btn" onclick="insertTemplate('equipment')">🔧 장비 설명</button>
+                            <button class="template-btn" onclick="insertTemplate('errorcode')">❌ 에러 코드</button>
+                            <button class="template-btn" onclick="insertTemplate('duration')">⏱️ 소요시간 기준</button>
+                            <button class="template-btn" onclick="insertTemplate('fabrule')">🏭 FAB 규칙</button>
+                            <button class="template-btn" onclick="insertTemplate('problems')">⚠️ 자주 발생 문제</button>
+                        </div>
+                        <div class="template-group" id="fewshotTemplates">
+                            <div class="template-group-title">FEWSHOT 프롬프트용</div>
+                            <button class="template-btn" onclick="insertTemplate('answerformat')">📝 답변 형식</button>
+                            <button class="template-btn" onclick="insertTemplate('qna')">💬 질문-답변 예시</button>
+                        </div>
+                    </div>
+                </div>
+                
                 <textarea id="promptEditor" placeholder="프롬프트 내용을 불러오는 중..."></textarea>
             </div>
             <div class="modal-footer">
@@ -1997,6 +2123,144 @@ STAT_DT,CURRENT_M16A_3F_JOB_2,M16A_3F_STORAGE_UTIL,HUBROOMTOTAL,...
             const editor = document.getElementById('promptEditor');
             const count = document.getElementById('promptCharCount');
             count.textContent = editor.value.length.toLocaleString() + ' 자';
+        }
+
+        // ========================================
+        // 템플릿 기능
+        // ========================================
+        const TEMPLATES = {
+            // SYSTEM 프롬프트용 템플릿
+            equipment: `
+[장비 설명]
+
+장비명: (예: 4AFC3301)
+유형: (예: Conveyor, OHT, Lifter, Stocker)
+위치: (예: M14A 3F)
+역할: (예: FAB간 캐리어 이송)
+특이사항: (예: 센서 오류 빈발)
+`,
+            errorcode: `
+[에러 코드]
+
+코드: (예: E001)
+설명: (예: 센서 감지 실패)
+원인: (예: 먼지 축적, 센서 노후화)
+조치: (예: 센서 청소, 교체)
+`,
+            duration: `
+[소요시간 기준]
+
+구간: (예: M14A OHT → Conveyor)
+정상 시간: (예: 2분)
+주의 시간: (예: 3분 이상)
+경고 시간: (예: 5분 이상)
+원인: (예: 피크 시간 혼잡)
+`,
+            fabrule: `
+[FAB 규칙]
+
+규칙명: (예: 우선순위 처리)
+적용 조건: (예: HOT LOT인 경우)
+동작: (예: 일반 LOT보다 먼저 처리)
+주의사항: (예: 피크 시간에는 지연 가능)
+`,
+            problems: `
+[자주 발생하는 문제]
+
+문제: (예: OHT 할당 지연)
+발생 조건: (예: 피크 시간 09:00~11:00)
+증상: (예: VEHICLEASSIGNED 3분 이상 대기)
+해결: (예: 차량 증설, 경로 최적화)
+`,
+            // FEWSHOT 프롬프트용 템플릿
+            answerformat: `
+[답변 형식]
+
+질문: (예: 로그 분석해줘)
+
+답변:
+1. 기본 정보
+- 캐리어 ID: (값)
+- 소요시간: (값)
+
+2. 이송 경로
+(출발지) → (경유지) → (도착지)
+
+3. 상태
+- 정상/이상 여부
+- 에러 내용
+
+4. 결론
+(요약)
+`,
+            qna: `
+[질문-답변 예시]
+
+질문: (예: 에러 있어?)
+
+답변:
+1. 에러 발견: (개수)건
+- (시간) (메시지) (상세)
+
+2. 지연 구간: (구간명) (+XX초 초과)
+
+3. 권장 조치
+- (조치 내용)
+
+4. 결론: (요약)
+`
+        };
+
+        function toggleTemplates() {
+            const buttons = document.getElementById('templateButtons');
+            const toggle = document.getElementById('templateToggle');
+            
+            if (buttons.style.display === 'none') {
+                buttons.style.display = 'block';
+                toggle.classList.add('open');
+                updateTemplateVisibility();
+            } else {
+                buttons.style.display = 'none';
+                toggle.classList.remove('open');
+            }
+        }
+
+        function updateTemplateVisibility() {
+            const isSystem = currentPromptTab.includes('system');
+            const isFewshot = currentPromptTab.includes('fewshot');
+            
+            document.getElementById('systemTemplates').style.display = isSystem ? 'block' : 'none';
+            document.getElementById('fewshotTemplates').style.display = isFewshot ? 'block' : 'none';
+            document.getElementById('systemDesc').style.display = isSystem ? 'block' : 'none';
+            document.getElementById('fewshotDesc').style.display = isFewshot ? 'block' : 'none';
+        }
+
+        function insertTemplate(templateKey) {
+            const editor = document.getElementById('promptEditor');
+            const template = TEMPLATES[templateKey];
+            
+            if (!template) {
+                alert('❌ 템플릿을 찾을 수 없습니다.');
+                return;
+            }
+
+            // 커서 위치에 삽입 (또는 맨 끝에)
+            const cursorPos = editor.selectionStart;
+            const textBefore = editor.value.substring(0, cursorPos);
+            const textAfter = editor.value.substring(cursorPos);
+            
+            editor.value = textBefore + template + textAfter;
+            
+            // 커서를 삽입된 템플릿 끝으로 이동
+            const newPos = cursorPos + template.length;
+            editor.setSelectionRange(newPos, newPos);
+            editor.focus();
+            
+            // 글자 수 업데이트
+            updateCharCount();
+            
+            // 캐시 업데이트
+            promptCache[currentPromptTab] = editor.value;
         }
 
         // 에디터 입력 시 글자 수 업데이트
