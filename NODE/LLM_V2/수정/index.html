@@ -25,6 +25,10 @@
             min-height: 100vh;
         }
 
+        .container {
+            /* Restored white background in previous chunk */
+        }
+
         h1 {
             color: #333;
             text-align: center;
@@ -49,7 +53,6 @@
             align-items: center;
             gap: 10px;
             border: none;
-            flex-wrap: wrap;
         }
 
         .llm-toggle {
@@ -83,225 +86,31 @@
             cursor: not-allowed;
         }
 
-        /* 컨텍스트 컨트롤 */
-        .context-controls {
-            display: flex;
-            align-items: center;
-            gap: 10px;
-            margin-left: auto;
-            padding-left: 15px;
-            border-left: 1px solid #ddd;
-        }
-
-        .context-info {
+        .token-reload-btn {
+            padding: 5px 10px;
             font-size: 11px;
-            color: #888;
-            background: #fff;
-            padding: 4px 8px;
-            border-radius: 4px;
-        }
-
-        .btn-edit-prompt {
-            padding: 5px 12px;
+            font-weight: 600;
             background: linear-gradient(135deg, #48bb78 0%, #38a169 100%);
             color: white;
             border: none;
             border-radius: 15px;
-            font-size: 11px;
-            font-weight: 600;
             cursor: pointer;
             transition: all 0.3s;
+            white-space: nowrap;
         }
 
-        .btn-edit-prompt:hover {
-            transform: translateY(-1px);
-            box-shadow: 0 3px 10px rgba(72, 187, 120, 0.4);
+        .token-reload-btn:hover {
+            transform: scale(1.05);
+            box-shadow: 0 2px 8px rgba(72, 187, 120, 0.4);
         }
 
-        .btn-reset-context {
-            padding: 5px 12px;
-            background: linear-gradient(135deg, #ed8936 0%, #dd6b20 100%);
-            color: white;
-            border: none;
-            border-radius: 15px;
-            font-size: 11px;
-            font-weight: 600;
-            cursor: pointer;
-            transition: all 0.3s;
+        .token-reload-btn:active {
+            transform: scale(0.95);
         }
 
-        .btn-reset-context:hover {
-            transform: translateY(-1px);
-            box-shadow: 0 3px 10px rgba(237, 137, 54, 0.4);
-        }
-
-        /* 모달 스타일 */
-        .modal-overlay {
-            display: none;
-            position: fixed;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            background: rgba(0, 0, 0, 0.6);
-            z-index: 9999;
-            justify-content: center;
-            align-items: center;
-        }
-
-        .modal-overlay.show {
-            display: flex;
-        }
-
-        .modal-content {
-            background: white;
-            width: 90%;
-            max-width: 900px;
-            max-height: 85vh;
-            border-radius: 15px;
-            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
-            display: flex;
-            flex-direction: column;
-            overflow: hidden;
-        }
-
-        .modal-header {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            color: white;
-            padding: 20px 25px;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-        }
-
-        .modal-header h2 {
-            margin: 0;
-            font-size: 20px;
-        }
-
-        .modal-close {
-            background: rgba(255, 255, 255, 0.2);
-            border: none;
-            color: white;
-            width: 35px;
-            height: 35px;
-            border-radius: 50%;
-            font-size: 20px;
-            cursor: pointer;
-            transition: all 0.3s;
-        }
-
-        .modal-close:hover {
-            background: rgba(255, 255, 255, 0.3);
-            transform: rotate(90deg);
-        }
-
-        .modal-body {
-            flex: 1;
-            overflow-y: auto;
-            padding: 20px 25px;
-        }
-
-        .modal-footer {
-            padding: 15px 25px;
-            background: #f7fafc;
-            border-top: 1px solid #e2e8f0;
-            display: flex;
-            gap: 10px;
-            justify-content: flex-end;
-        }
-
-        .modal-footer button {
-            padding: 10px 20px;
-            border-radius: 8px;
-            font-weight: 600;
-            cursor: pointer;
-            transition: all 0.3s;
-        }
-
-        .btn-reload {
-            background: #e2e8f0;
-            color: #4a5568;
-            border: none;
-        }
-
-        .btn-reload:hover {
-            background: #cbd5e0;
-        }
-
-        .btn-save-memory {
-            background: linear-gradient(135deg, #48bb78 0%, #38a169 100%);
-            color: white;
-            border: none;
-        }
-
-        .btn-save-file {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            color: white;
-            border: none;
-        }
-
-        /* 프롬프트 탭 */
-        .prompt-tabs {
-            display: flex;
-            gap: 5px;
-            margin-bottom: 15px;
-            border-bottom: 2px solid #e2e8f0;
-            padding-bottom: 10px;
-        }
-
-        .prompt-tab {
-            padding: 10px 20px;
-            background: #f7fafc;
-            border: 1px solid #e2e8f0;
-            border-radius: 8px 8px 0 0;
-            cursor: pointer;
-            font-size: 13px;
-            font-weight: 600;
-            color: #718096;
-            transition: all 0.3s;
-        }
-
-        .prompt-tab:hover {
-            background: #edf2f7;
-        }
-
-        .prompt-tab.active {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            color: white;
-            border-color: #667eea;
-        }
-
-        .prompt-editor {
-            display: none;
-        }
-
-        .prompt-editor.active {
-            display: block;
-        }
-
-        .prompt-editor textarea {
-            width: 100%;
-            height: 400px;
-            padding: 15px;
-            border: 2px solid #e2e8f0;
-            border-radius: 8px;
-            font-family: 'Courier New', monospace;
-            font-size: 13px;
-            line-height: 1.5;
-            resize: vertical;
-        }
-
-        .prompt-editor textarea:focus {
-            outline: none;
-            border-color: #667eea;
-        }
-
-        .prompt-editor-label {
-            font-size: 12px;
-            color: #718096;
-            margin-bottom: 8px;
-            display: block;
+        .token-reload-btn.loading {
+            opacity: 0.7;
+            cursor: wait;
         }
 
         .mode-selector {
@@ -355,8 +164,15 @@
         }
 
         @keyframes pulse {
-            0%, 100% { opacity: 1; }
-            50% { opacity: 0.5; }
+
+            0%,
+            100% {
+                opacity: 1;
+            }
+
+            50% {
+                opacity: 0.5;
+            }
         }
 
         .input-box {
@@ -442,8 +258,13 @@
         }
 
         @keyframes spin {
-            0% { transform: rotate(0deg); }
-            100% { transform: rotate(360deg); }
+            0% {
+                transform: rotate(0deg);
+            }
+
+            100% {
+                transform: rotate(360deg);
+            }
         }
 
         .error {
@@ -670,14 +491,17 @@
             display: none;
         }
 
+        /* Override body background since it's now on main-content */
         body {
             background: none;
             padding: 0;
             margin: 0;
             overflow: hidden;
+            /* Prevent double scrollbars */
             color: #333;
         }
 
+        /* Adjust container to fit */
         .container {
             width: calc(100% - 40px);
             max-width: none;
@@ -778,6 +602,7 @@
             color: #dc2626;
         }
 
+        /* Scrollbar for sidebar */
         .history-list::-webkit-scrollbar {
             width: 8px;
         }
@@ -866,6 +691,7 @@
             background-color: #f7fafc;
         }
     </style>
+    <!-- Add marked.js for Markdown rendering -->
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
 </head>
 
@@ -881,9 +707,11 @@
                     style="font-size: 11px; color: #999; cursor: pointer; text-decoration: underline;">전체 삭제</span>
             </div>
             <div class="history-list" id="historyList">
+                <!-- History items will be added here -->
             </div>
-            <div style="margin-top: auto; padding-top: 20px; border-top: 1px solid #e2e8f0; font-size: 12px; color: #8e8ea0; text-align: center;">
-                AMHS RAG System v2.5
+            <div
+                style="margin-top: auto; padding-top: 20px; border-top: 1px solid #565869; font-size: 12px; color: #8e8ea0; text-align: center;">
+                AMHS RAG System
             </div>
         </aside>
 
@@ -895,20 +723,16 @@
                 <div class="status-bar">
                     <div class="status-indicator"></div>
                     <span id="statusText">시스템 준비됨 | CSV 직접 검색</span>
-                    <div style="display: flex; align-items: center; gap: 10px;">
+                    <div style="margin-left: auto; display: flex; align-items: center; gap: 10px;">
                         <span style="font-size: 12px; color: #888;">LLM:</span>
                         <div class="llm-toggle" id="llmToggle" onclick="toggleLLMMode()">
                             <div class="llm-option" id="llm-local">Local</div>
                             <div class="llm-option active" id="llm-api">API</div>
                         </div>
                         <span id="llmStatusIcon" style="font-size: 14px;">🟢</span>
-                    </div>
-                    
-                    <!-- 컨텍스트 컨트롤 -->
-                    <div class="context-controls">
-                        <button class="btn-edit-prompt" onclick="openPromptModal()">📝 프롬프트 편집</button>
-                        <span class="context-info" id="contextInfo">💬 0개 | ~0 토큰</span>
-                        <button class="btn-reset-context" onclick="resetContext()">🔄 초기화</button>
+                        <button onclick="reloadToken()" class="token-reload-btn" title="API 토큰 다시 로드">
+                            🔄 토큰
+                        </button>
                     </div>
                 </div>
 
@@ -925,13 +749,13 @@
                         <span class="mode-icon">🎯</span>
                         HUB예측
                     </div>
-                    <div class="mode-btn" onclick="setMode('amhs')" id="mode-amhs">
-                        <span class="mode-icon">🏭</span>
-                        AMHS분석
-                    </div>
                     <div class="mode-btn" onclick="setMode('general')" id="mode-general">
                         <span class="mode-icon">💬</span>
                         일반대화
+                    </div>
+                    <div class="mode-btn" onclick="setMode('amhs')" id="mode-amhs">
+                        <span class="mode-icon">📋</span>
+                        AMHS분석
                     </div>
                 </div>
 
@@ -942,7 +766,7 @@
 
                 <div id="result">💡 모드를 선택하고 질문을 입력하세요.</div>
 
-                <!-- 데이터 입력 섹션 -->
+                <!-- 데이터 입력 섹션 (M14/HUB 모드에서만 표시) -->
                 <div id="dataInputSection" class="data-input-section" style="display: none;">
                     <div class="data-input-header" onclick="toggleDataInput()">
                         <span id="dataInputHeaderText">📊 데이터 입력 (280분 시계열 데이터)</span>
@@ -952,8 +776,9 @@
                         <div class="data-info">
                             <strong>ℹ️ 필요 데이터:</strong> 최근 280분(4시간 40분) 데이터가 필요합니다.<br>
                             <strong>📋 필수 컬럼 13개:</strong> M14AM14B, M14AM14BSUM, M14BM14A, M14AM10A, M10AM14A, M16M14A,
-                            M14AM16SUM, TOTALCNT, M14.QUE.ALL.CURRENTQCREATED, M14.QUE.ALL.CURRENTQCOMPLETED, 
-                            M14.QUE.OHT.OHTUTIL, M14.QUE.ALL.TRANSPORT4MINOVERCNT, CURRTIME
+                            M14AM16SUM, TOTALCNT,
+                            M14.QUE.ALL.CURRENTQCREATED, M14.QUE.ALL.CURRENTQCOMPLETED, M14.QUE.OHT.OHTUTIL,
+                            M14.QUE.ALL.TRANSPORT4MINOVERCNT, CURRTIME
                         </div>
 
                         <div class="input-method">
@@ -965,6 +790,7 @@
                             </div>
                         </div>
 
+                        <!-- 파일 업로드 -->
                         <div class="input-area show" id="input-file">
                             <div class="file-upload" onclick="document.getElementById('fileInput').click()">
                                 <div style="font-size: 48px; margin-bottom: 10px;">📁</div>
@@ -972,7 +798,8 @@
                                 <div style="font-size: 14px; color: #718096;">또는 드래그 앤 드롭</div>
                                 <input type="file" id="fileInput" accept=".csv" onchange="handleFileSelect(event)">
                             </div>
-                            <div id="fileInfo" style="margin-top: 15px; padding: 10px; background: white; border-radius: 5px; display: none;">
+                            <div id="fileInfo"
+                                style="margin-top: 15px; padding: 10px; background: white; border-radius: 5px; display: none;">
                                 <strong>선택된 파일:</strong> <span id="fileName"></span><br>
                                 <strong>크기:</strong> <span id="fileSize"></span>
                             </div>
@@ -981,6 +808,7 @@
                             </button>
                         </div>
 
+                        <!-- 텍스트 입력 -->
                         <div class="input-area" id="input-text">
                             <div class="text-input">
                                 <textarea id="textData"></textarea>
@@ -992,53 +820,77 @@
                     </div>
                 </div>
 
+                <!-- AMHS 로그 분석 섹션 -->
+                <div id="amhsSection" class="data-input-section" style="display: none;">
+                    <div class="data-input-header" onclick="toggleAmhsSection()">
+                        <span>📋 AMHS 로그 분석 - CSV 파일 선택</span>
+                        <span class="icon" id="amhsIcon">▼</span>
+                    </div>
+                    <div class="data-input-body show" id="amhsBody">
+                        <div class="data-info">
+                            <strong>ℹ️ AMHS 로그 분석:</strong> POI 폴더의 CSV 파일을 선택하거나 직접 업로드하세요.<br>
+                            <strong>📊 지원 형식:</strong> OHT, Conveyor, Lifter, FABJOB 등 AMHS 장비 로그
+                        </div>
+
+                        <div class="input-method">
+                            <div class="method-btn active" onclick="selectAmhsMethod('poi')" id="amhs-method-poi">
+                                📂 POI 파일 선택
+                            </div>
+                            <div class="method-btn" onclick="selectAmhsMethod('upload')" id="amhs-method-upload">
+                                📁 파일 업로드
+                            </div>
+                        </div>
+
+                        <!-- POI 파일 선택 -->
+                        <div class="input-area show" id="amhs-input-poi">
+                            <div style="margin-bottom: 15px;">
+                                <label style="font-weight: 600; margin-bottom: 8px; display: block;">POI 폴더 CSV 파일:</label>
+                                <select id="poiFileSelect" style="width: 100%; padding: 12px; border: 2px solid #ddd; border-radius: 8px; font-size: 14px; cursor: pointer;">
+                                    <option value="">-- 파일을 선택하세요 --</option>
+                                </select>
+                            </div>
+                            <div style="margin-bottom: 15px;">
+                                <label style="font-weight: 600; margin-bottom: 8px; display: block;">추가 질문 (선택사항):</label>
+                                <input type="text" id="amhsQuestion" placeholder="예: 이송 시간 분석해줘, 에러 있어?"
+                                    style="width: 100%; padding: 12px; border: 2px solid #ddd; border-radius: 8px; font-size: 14px;">
+                            </div>
+                            <button class="submit-btn" onclick="analyzePoiFile()">
+                                🔍 분석 시작
+                            </button>
+                        </div>
+
+                        <!-- 파일 업로드 -->
+                        <div class="input-area" id="amhs-input-upload">
+                            <div class="file-upload" onclick="document.getElementById('amhsFileInput').click()">
+                                <div style="font-size: 48px; margin-bottom: 10px;">📋</div>
+                                <div style="font-size: 18px; font-weight: 600; margin-bottom: 5px;">AMHS 로그 CSV 파일 선택</div>
+                                <div style="font-size: 14px; color: #718096;">클릭하거나 드래그 앤 드롭</div>
+                                <input type="file" id="amhsFileInput" accept=".csv" onchange="handleAmhsFileSelect(event)">
+                            </div>
+                            <div id="amhsFileInfo" style="margin-top: 15px; padding: 10px; background: white; border-radius: 5px; display: none;">
+                                <strong>선택된 파일:</strong> <span id="amhsFileName"></span><br>
+                                <strong>크기:</strong> <span id="amhsFileSize"></span>
+                            </div>
+                            <div style="margin: 15px 0;">
+                                <label style="font-weight: 600; margin-bottom: 8px; display: block;">추가 질문 (선택사항):</label>
+                                <input type="text" id="amhsUploadQuestion" placeholder="예: 에러 원인 분석해줘"
+                                    style="width: 100%; padding: 12px; border: 2px solid #ddd; border-radius: 8px; font-size: 14px;">
+                            </div>
+                            <button class="submit-btn" onclick="uploadAndAnalyzeAmhs()" id="amhsUploadBtn" style="display: none;">
+                                🔍 분석 시작
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
                 <div class="examples">
                     <h3 id="exampleTitle">📝 질문 예시 (클릭하면 입력됩니다)</h3>
                     <div class="example-tags" id="exampleTags">
+                        <!-- 동적으로 생성됨 -->
                     </div>
                 </div>
             </div>
         </main>
-    </div>
-
-    <!-- 프롬프트 편집 모달 -->
-    <div class="modal-overlay" id="promptModal">
-        <div class="modal-content">
-            <div class="modal-header">
-                <h2>📝 프롬프트 편집기</h2>
-                <button class="modal-close" onclick="closePromptModal()">×</button>
-            </div>
-            <div class="modal-body">
-                <div class="prompt-tabs">
-                    <div class="prompt-tab active" onclick="switchPromptTab('system_local')">LOCAL 시스템</div>
-                    <div class="prompt-tab" onclick="switchPromptTab('fewshot_local')">LOCAL Few-shot</div>
-                    <div class="prompt-tab" onclick="switchPromptTab('system_api')">API 시스템</div>
-                    <div class="prompt-tab" onclick="switchPromptTab('fewshot_api')">API Few-shot</div>
-                </div>
-                
-                <div class="prompt-editor active" id="editor-system_local">
-                    <label class="prompt-editor-label">로컬 LLM용 시스템 프롬프트 (14B 모델 경량화)</label>
-                    <textarea id="prompt-system_local" placeholder="시스템 프롬프트를 입력하세요..."></textarea>
-                </div>
-                <div class="prompt-editor" id="editor-fewshot_local">
-                    <label class="prompt-editor-label">로컬 LLM용 Few-shot 예시</label>
-                    <textarea id="prompt-fewshot_local" placeholder="Few-shot 예시를 입력하세요..."></textarea>
-                </div>
-                <div class="prompt-editor" id="editor-system_api">
-                    <label class="prompt-editor-label">API LLM용 시스템 프롬프트 (30B 모델 전체)</label>
-                    <textarea id="prompt-system_api" placeholder="시스템 프롬프트를 입력하세요..."></textarea>
-                </div>
-                <div class="prompt-editor" id="editor-fewshot_api">
-                    <label class="prompt-editor-label">API LLM용 Few-shot 예시</label>
-                    <textarea id="prompt-fewshot_api" placeholder="Few-shot 예시를 입력하세요..."></textarea>
-                </div>
-            </div>
-            <div class="modal-footer">
-                <button class="btn-reload" onclick="reloadPrompts()">📂 파일에서 리로드</button>
-                <button class="btn-save-memory" onclick="savePrompts(false)">💾 메모리 저장</button>
-                <button class="btn-save-file" onclick="savePrompts(true)">📁 파일 저장</button>
-            </div>
-        </div>
     </div>
 
     <script>
@@ -1049,12 +901,11 @@
         const statusText = document.getElementById('statusText');
 
         let currentMode = 'search';
-        let currentPromptTab = 'system_local';
 
-        // History Management
+        // History Management - Tree Structure
         const HISTORY_KEY = 'amhs_query_history_tree';
-        let currentChatId = null;
-        let activeItemId = null;
+        let currentChatId = null;  // 현재 선택된 대화 ID
+        let activeItemId = null;   // 현재 활성화된 아이템 ID
 
         function generateId() {
             return Date.now().toString(36) + Math.random().toString(36).substr(2);
@@ -1070,11 +921,16 @@
         }
 
         function startNewChat() {
+            // Clear UI for new search
             document.getElementById('result').innerHTML = '💡 모드를 선택하고 질문을 입력하세요.';
             document.getElementById('result').className = '';
             document.getElementById('question').value = '';
+
+            // Reset current chat context
             currentChatId = null;
             activeItemId = null;
+
+            // Remove active class from list
             document.querySelectorAll('.history-item').forEach(item => item.classList.remove('active'));
         }
 
@@ -1089,12 +945,13 @@
             return null;
         }
 
+        // 자식 ID를 받아도 루트 부모 ID 반환
         function findRootParentId(history, id) {
             for (const item of history) {
-                if (item.id === id) return item.id;
+                if (item.id === id) return item.id; // 이미 루트
                 if (item.children && item.children.length > 0) {
                     const found = findItemById(item.children, id);
-                    if (found) return item.id;
+                    if (found) return item.id; // 이 루트의 자식임
                 }
             }
             return null;
@@ -1107,6 +964,7 @@
             if (item) {
                 document.getElementById('question').value = item.question;
                 
+                // Parse Markdown if needed
                 if (item.mode === 'general' || item.answer.includes('**') || item.answer.includes('###')) {
                     document.getElementById('result').innerHTML = marked.parse(item.answer);
                     document.getElementById('result').classList.add('markdown-content');
@@ -1116,12 +974,16 @@
                 }
                 document.getElementById('result').className = 'success';
 
+                // Restore mode
                 if (item.mode && item.mode !== currentMode) {
                     setMode(item.mode);
                 }
 
+                // Set current context - 항상 루트 부모 ID 유지!
                 currentChatId = findRootParentId(history, id);
                 activeItemId = id;
+
+                // Re-render with active highlight
                 renderHistoryList();
             }
         }
@@ -1139,29 +1001,38 @@
                 children: []
             };
 
+            // 현재 대화 컨텍스트가 있으면 자식으로 추가
             if (currentChatId) {
                 const parent = findItemById(history, currentChatId);
                 if (parent) {
                     parent.children.unshift(newItem);
+                    // currentChatId는 루트 유지! 바꾸지 않음
                 } else {
+                    // 부모를 찾지 못하면 루트에 추가
                     history.unshift(newItem);
-                    currentChatId = newItem.id;
+                    currentChatId = newItem.id; // 새 루트
                 }
             } else {
+                // 새 대화 시작
                 history.unshift(newItem);
-                currentChatId = newItem.id;
+                currentChatId = newItem.id; // 새 루트
             }
 
+            // Limit root items to 30
             while (history.length > 30) history.pop();
 
             saveHistory(history);
+            
+            // activeItemId만 업데이트 (하이라이트용)
             activeItemId = newItem.id;
+            
             renderHistoryList();
         }
 
         function renderHistoryList() {
             const list = document.getElementById('historyList');
             list.innerHTML = '';
+
             const history = getHistory();
 
             function renderItem(item, depth = 0) {
@@ -1173,8 +1044,11 @@
                     loadHistoryItem(item.id);
                 };
 
+                // Format time
                 const date = new Date(item.timestamp);
                 const timeStr = `${date.getHours()}:${date.getMinutes().toString().padStart(2, '0')}`;
+
+                // Icon based on depth
                 const icon = depth === 0 ? '📂' : '└─ 💬';
                 const hasChildren = item.children && item.children.length > 0;
 
@@ -1188,6 +1062,7 @@
                 `;
                 list.appendChild(div);
 
+                // Render children
                 if (item.children && item.children.length > 0) {
                     item.children.forEach(child => renderItem(child, depth + 1));
                 }
@@ -1199,6 +1074,7 @@
         function deleteHistoryItem(id) {
             let history = getHistory();
             
+            // 루트에서 삭제 시도
             const rootIndex = history.findIndex(item => item.id === id);
             if (rootIndex !== -1) {
                 const item = history[rootIndex];
@@ -1211,6 +1087,7 @@
                     history.splice(rootIndex, 1);
                     saveHistory(history);
                     
+                    // 삭제된 게 현재 컨텍스트면 초기화
                     if (currentChatId === id) {
                         currentChatId = null;
                         activeItemId = null;
@@ -1220,6 +1097,7 @@
                 return;
             }
             
+            // 자식에서 삭제 시도
             for (const root of history) {
                 if (root.children && root.children.length > 0) {
                     const childIndex = root.children.findIndex(child => child.id === id);
@@ -1249,10 +1127,10 @@
                 startNewChat();
             }
         }
-
         let currentInputMethod = 'file';
         let uploadedFileData = null;
 
+        // 모드별 질문 예시
         const modeExamples = {
             search: [
                 { text: '202509210013 시간의 데이터 보여줘', label: '시간별 데이터 조회' },
@@ -1275,72 +1153,87 @@
                 { text: 'HUB 범주형 15분 예측', label: 'HUB 범주형 15분' },
                 { text: 'HUB 범주형 25분 예측', label: 'HUB 범주형 25분' }
             ],
-            amhs: [
-                { text: 'OHT 에러 로그 분석해줘', label: 'OHT 에러 분석' },
-                { text: 'E84 타임아웃 원인 찾아줘', label: 'E84 타임아웃' },
-                { text: 'FOUP 이송 실패 패턴 분석', label: 'FOUP 이송 실패' },
-                { text: 'MCS 통신 장애 로그 해석해줘', label: 'MCS 통신 장애' },
-                { text: '반복되는 알람 패턴 찾아줘', label: '반복 알람 패턴' },
-                { text: 'Stocker 적재 오류 원인 분석', label: 'Stocker 오류' }
-            ],
             general: [
                 { text: '안녕, 너는 누구니?', label: '자기소개' },
                 { text: '이 시스템은 어떤 데이터를 가지고 있어?', label: '데이터 보유 현황' },
                 { text: '청주랑 이천 접속 정보 알려줘', label: '접속 정보 요약' },
                 { text: 'CSV 파일에는 어떤 컬럼들이 있어?', label: 'CSV 컬럼 정보' },
                 { text: 'AMHS가 뭐야?', label: 'AMHS 정의' }
+            ],
+            amhs: [
+                { text: '이 파일 분석해줘', label: '전체 분석' },
+                { text: '이송 시간 얼마나 걸렸어?', label: '소요시간 분석' },
+                { text: '에러 있어?', label: '에러 탐지' },
+                { text: '이송 경로 알려줘', label: '경로 추적' },
+                { text: '어디서 지연됐어?', label: '지연 구간 분석' },
+                { text: '정상 완료됐어?', label: '완료 여부' }
             ]
         };
 
         function setMode(mode) {
             currentMode = mode;
 
+            // 모드 버튼 활성화
             document.querySelectorAll('.mode-btn').forEach(btn => {
                 btn.classList.remove('active');
             });
             document.getElementById('mode-' + mode).classList.add('active');
 
+            // 상태 텍스트 업데이트
             const modeNames = {
                 search: 'CSV 직접 검색',
                 m14: 'M14 예측 모드',
                 hub: 'HUB 예측 모드',
-                amhs: 'AMHS 로그 분석 모드',
-                general: '일반 대화 모드 (전체 데이터 컨텍스트)'
+                general: '일반 대화 모드 (전체 데이터 컨텍스트)',
+                amhs: 'AMHS 로그 분석 모드'
             };
             statusText.textContent = `시스템 준비됨 | ${modeNames[mode]}`;
 
+            // UI 텍스트 업데이트
             const questionInput = document.getElementById('question');
             const resultDiv = document.getElementById('result');
 
             if (mode === 'general') {
                 questionInput.placeholder = "AI에게 자유롭게 말을 걸어보세요... (예: 안녕, 데이터 뭐 있어?)";
                 resultDiv.innerHTML = "💡 <strong>일반 대화 모드</strong><br>AI와 자유롭게 대화하거나 시스템 데이터에 대해 물어보세요.<br>전체 데이터 컨텍스트가 제공됩니다.";
-            } else if (mode === 'amhs') {
-                questionInput.placeholder = "AMHS 로그를 붙여넣거나 분석 질문을 입력하세요...";
-                resultDiv.innerHTML = "💡 <strong>AMHS 로그 분석 모드</strong><br>OHT, MCS, Stocker 등 AMHS 장비 로그를 분석합니다.<br>로그를 붙여넣거나 에러 코드를 입력하세요.";
             } else if (mode === 'search') {
                 questionInput.placeholder = "CSV 데이터 검색 질문을 입력하세요...";
                 resultDiv.innerHTML = "💡 <strong>데이터 검색 모드</strong><br>질문을 입력하면 AI가 CSV 데이터를 정밀하게 검색하여 답변합니다.";
+            } else if (mode === 'amhs') {
+                questionInput.placeholder = "분석 후 추가 질문을 입력하세요...";
+                resultDiv.innerHTML = "💡 <strong>AMHS 로그 분석 모드</strong><br>아래에서 POI 폴더의 CSV 파일을 선택하거나 직접 업로드하세요.<br>AI가 AMHS 로그를 분석하여 이송 경로, 소요시간, 에러 여부 등을 알려드립니다.";
+                loadPoiFiles();  // POI 파일 목록 로드
             } else {
                 questionInput.placeholder = "예측 관련 질문을 입력하세요...";
                 resultDiv.innerHTML = "💡 <strong>예측 모드</strong><br>데이터를 입력하고 예측 버튼을 누르세요.";
             }
 
+            // 데이터 입력 섹션 표시/숨김
             const dataInputSection = document.getElementById('dataInputSection');
+            const amhsSection = document.getElementById('amhsSection');
+
+            // 모든 섹션 숨기기
+            dataInputSection.style.display = 'none';
+            amhsSection.style.display = 'none';
+
             if (mode === 'm14' || mode === 'hub') {
                 dataInputSection.style.display = 'block';
                 updateDataInputInfo(mode);
+            } else if (mode === 'amhs') {
+                amhsSection.style.display = 'block';
+            }
 
+            // M14/HUB 모드 헤더 텍스트 변경
+            if (mode === 'm14' || mode === 'hub') {
                 const headerText = document.getElementById('dataInputHeaderText');
                 if (mode === 'm14') {
                     headerText.textContent = '📊 데이터 입력 (280분 시계열 데이터)';
                 } else if (mode === 'hub') {
                     headerText.textContent = '📊 데이터 입력 (30분 시계열 데이터)';
                 }
-            } else {
-                dataInputSection.style.display = 'none';
             }
 
+            // 질문 예시 업데이트
             updateExamples();
         }
 
@@ -1352,12 +1245,29 @@
                 dataInfo.innerHTML = `
                     <strong>ℹ️ 필요 데이터:</strong> 최근 280분(4시간 40분) 데이터가 필요합니다.
                 `;
-                textarea.placeholder = `CSV 데이터를 붙여넣으세요... (280행)`;
+
+                textarea.placeholder = `CSV 데이터를 붙여넣으세요... (280행)
+
+예시:
+CURRTIME,M14AM14B,M14AM14BSUM,M14BM14A,...
+202509210000,305,425,180,...
+202509210001,310,430,185,...
+...
+202509210279,342,489,195,...`;
+
             } else if (mode === 'hub') {
                 dataInfo.innerHTML = `
                     <strong>ℹ️ 필요 데이터:</strong> 최근 30분 데이터가 필요합니다.
                 `;
-                textarea.placeholder = `CSV 데이터를 붙여넣으세요... (30행)`;
+
+                textarea.placeholder = `CSV 데이터를 붙여넣으세요... (30행)
+
+예시:
+STAT_DT,CURRENT_M16A_3F_JOB_2,M16A_3F_STORAGE_UTIL,HUBROOMTOTAL,...
+202509210000,1234,78.5,450,...
+202509210001,1245,79.2,448,...
+...
+202509210029,1267,80.1,445,...`;
             }
         }
 
@@ -1388,6 +1298,7 @@
                 return;
             }
 
+            // UI 업데이트
             resultDiv.innerHTML = '<div class="loading"><div class="spinner"></div>AI 답변 생성 중... (전체 데이터 분석)</div>';
             resultDiv.className = '';
             sendBtn.disabled = true;
@@ -1395,14 +1306,22 @@
             try {
                 const response = await fetch('/ask', {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ question: question, mode: currentMode })
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        question: question,
+                        mode: currentMode
+                    })
                 });
 
-                if (!response.ok) throw new Error(`HTTP ${response.status}`);
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}`);
+                }
 
                 const data = await response.json();
 
+                // Parse Markdown for rendering
                 if (currentMode === 'general' || data.answer.includes('**') || data.answer.includes('###')) {
                     resultDiv.innerHTML = marked.parse(data.answer);
                     resultDiv.classList.add('markdown-content');
@@ -1413,12 +1332,13 @@
 
                 resultDiv.className = 'success';
 
+                // Save to history (m14, hub 예측 모드는 제외)
                 if (currentMode !== 'm14' && currentMode !== 'hub') {
                     addToHistory(question, data.answer, currentMode);
                 }
 
+                // 입력창 비우기
                 questionInput.value = '';
-                updateContextStatus();
 
             } catch (error) {
                 resultDiv.textContent = '❌ 오류: ' + error.message;
@@ -1430,6 +1350,7 @@
             }
         }
 
+        // Enter 키로 전송
         questionInput.addEventListener('keypress', function (e) {
             if (e.key === 'Enter' && !sendBtn.disabled) {
                 ask();
@@ -1451,7 +1372,9 @@
                     currentLLMMode = data.mode;
                     llmLocalAvailable = data.local_available;
                     llmApiAvailable = data.api_available;
+                    
                     updateLLMToggleUI();
+                    console.log('LLM 상태:', data);
                 }
             } catch (error) {
                 console.error('LLM 상태 확인 실패:', error);
@@ -1463,7 +1386,9 @@
             const localBtn = document.getElementById('llm-local');
             const apiBtn = document.getElementById('llm-api');
             const statusIcon = document.getElementById('llmStatusIcon');
+            const toggle = document.getElementById('llmToggle');
 
+            // 활성화 상태 표시
             localBtn.classList.remove('active');
             apiBtn.classList.remove('active');
             
@@ -1473,6 +1398,7 @@
                 apiBtn.classList.add('active');
             }
 
+            // 사용 가능 여부 표시
             if (currentLLMMode === 'api' && llmApiAvailable) {
                 statusIcon.textContent = '🟢';
                 statusIcon.title = 'API LLM 연결됨';
@@ -1484,16 +1410,28 @@
                 statusIcon.title = 'LLM 제한됨 (템플릿 모드)';
             }
 
-            localBtn.style.opacity = llmLocalAvailable ? '1' : '0.4';
-            localBtn.title = llmLocalAvailable ? '로컬 LLM (Qwen3)' : '로컬 LLM 없음';
+            // 사용 불가 옵션 스타일
+            if (!llmLocalAvailable) {
+                localBtn.style.opacity = '0.4';
+                localBtn.title = '로컬 LLM 없음';
+            } else {
+                localBtn.style.opacity = '1';
+                localBtn.title = '로컬 LLM (Qwen3)';
+            }
 
-            apiBtn.style.opacity = llmApiAvailable ? '1' : '0.4';
-            apiBtn.title = llmApiAvailable ? 'API LLM (Qwen3-30B)' : 'API 토큰 없음';
+            if (!llmApiAvailable) {
+                apiBtn.style.opacity = '0.4';
+                apiBtn.title = 'API 토큰 없음';
+            } else {
+                apiBtn.style.opacity = '1';
+                apiBtn.title = 'API LLM (Qwen3-30B)';
+            }
         }
 
         async function toggleLLMMode() {
             const newMode = currentLLMMode === 'api' ? 'local' : 'api';
             
+            // 선택한 모드가 사용 가능한지 확인
             if (newMode === 'local' && !llmLocalAvailable) {
                 alert('❌ 로컬 LLM이 로드되지 않았습니다.\n모델 파일을 확인하세요.');
                 return;
@@ -1515,6 +1453,7 @@
                 if (data.success) {
                     currentLLMMode = data.mode;
                     updateLLMToggleUI();
+                    console.log('LLM 모드 변경:', data.message);
                 } else {
                     alert('❌ ' + data.message);
                 }
@@ -1524,144 +1463,315 @@
             }
         }
 
-        // ========================================
-        // 컨텍스트 관리
-        // ========================================
-        async function updateContextStatus() {
-            try {
-                const response = await fetch('/context_status');
-                if (response.ok) {
-                    const data = await response.json();
-                    document.getElementById('contextInfo').textContent = 
-                        `💬 ${data.message_count}개 | ~${data.estimated_tokens} 토큰`;
-                }
-            } catch (error) {
-                console.error('컨텍스트 상태 확인 실패:', error);
-            }
-        }
-
-        async function resetContext() {
-            if (!confirm('대화 컨텍스트를 초기화하시겠습니까?\n(LLM이 이전 대화를 잊게 됩니다)')) {
-                return;
-            }
-
-            try {
-                const response = await fetch('/reset_context', { method: 'POST' });
-                const data = await response.json();
-                
-                if (data.success) {
-                    alert(`✅ ${data.cleared_count}개 메시지가 삭제되었습니다.`);
-                    updateContextStatus();
-                }
-            } catch (error) {
-                console.error('컨텍스트 초기화 실패:', error);
-                alert('❌ 컨텍스트 초기화 실패');
-            }
-        }
-
-        // ========================================
-        // 프롬프트 편집 모달
-        // ========================================
-        function openPromptModal() {
-            document.getElementById('promptModal').classList.add('show');
-            loadPrompts();
-        }
-
-        function closePromptModal() {
-            document.getElementById('promptModal').classList.remove('show');
-        }
-
-        function switchPromptTab(tab) {
-            currentPromptTab = tab;
+        async function reloadToken() {
+            const btn = document.querySelector('.token-reload-btn');
+            const originalText = btn.innerHTML;
             
-            document.querySelectorAll('.prompt-tab').forEach(t => t.classList.remove('active'));
-            document.querySelectorAll('.prompt-editor').forEach(e => e.classList.remove('active'));
-            
-            event.target.classList.add('active');
-            document.getElementById('editor-' + tab).classList.add('active');
-        }
-
-        async function loadPrompts() {
-            try {
-                const response = await fetch('/get_prompts');
-                if (response.ok) {
-                    const data = await response.json();
-                    document.getElementById('prompt-system_local').value = data.system_local || '';
-                    document.getElementById('prompt-fewshot_local').value = data.fewshot_local || '';
-                    document.getElementById('prompt-system_api').value = data.system_api || '';
-                    document.getElementById('prompt-fewshot_api').value = data.fewshot_api || '';
-                }
-            } catch (error) {
-                console.error('프롬프트 로드 실패:', error);
-                alert('❌ 프롬프트 로드 실패');
-            }
-        }
-
-        async function savePrompts(saveToFile) {
-            const prompts = {
-                system_local: document.getElementById('prompt-system_local').value,
-                fewshot_local: document.getElementById('prompt-fewshot_local').value,
-                system_api: document.getElementById('prompt-system_api').value,
-                fewshot_api: document.getElementById('prompt-fewshot_api').value,
-                save_to_file: saveToFile
-            };
+            btn.innerHTML = '⏳ 로딩...';
+            btn.classList.add('loading');
+            btn.disabled = true;
 
             try {
-                const response = await fetch('/save_prompts', {
+                const response = await fetch('/reload_token', {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(prompts)
+                    headers: { 'Content-Type': 'application/json' }
                 });
 
                 const data = await response.json();
                 
                 if (data.success) {
-                    alert('✅ ' + data.message);
+                    // 토큰 리로드 성공 시 LLM 상태 다시 확인
+                    await checkLLMStatus();
+                    
+                    btn.innerHTML = '✅ 완료!';
+                    btn.style.background = 'linear-gradient(135deg, #48bb78 0%, #38a169 100%)';
+                    
+                    setTimeout(() => {
+                        btn.innerHTML = originalText;
+                        btn.style.background = '';
+                    }, 1500);
+                    
+                    console.log('토큰 리로드 성공:', data.message);
                 } else {
+                    btn.innerHTML = '❌ 실패';
+                    btn.style.background = 'linear-gradient(135deg, #f56565 0%, #c53030 100%)';
+                    
+                    setTimeout(() => {
+                        btn.innerHTML = originalText;
+                        btn.style.background = '';
+                    }, 2000);
+                    
                     alert('❌ ' + data.message);
                 }
             } catch (error) {
-                console.error('프롬프트 저장 실패:', error);
-                alert('❌ 프롬프트 저장 실패');
+                console.error('토큰 리로드 실패:', error);
+                btn.innerHTML = '❌ 오류';
+                btn.style.background = 'linear-gradient(135deg, #f56565 0%, #c53030 100%)';
+                
+                setTimeout(() => {
+                    btn.innerHTML = originalText;
+                    btn.style.background = '';
+                }, 2000);
+                
+                alert('❌ 토큰 리로드 실패: ' + error.message);
+            } finally {
+                btn.classList.remove('loading');
+                btn.disabled = false;
             }
         }
 
-        async function reloadPrompts() {
-            if (!confirm('파일에서 프롬프트를 다시 로드하시겠습니까?\n(현재 편집 내용은 사라집니다)')) {
+        // 페이지 로드 시 초기화
+        window.addEventListener('load', function () {
+            migrateOldHistory();  // 기존 히스토리 마이그레이션
+            updateExamples();
+            questionInput.focus();
+            renderHistoryList();
+            checkLLMStatus();  // LLM 상태 확인
+        });
+
+        // 기존 단순 배열 히스토리를 트리 구조로 마이그레이션
+        function migrateOldHistory() {
+            const oldKey = 'amhs_query_history';
+            const oldData = localStorage.getItem(oldKey);
+            
+            if (oldData && !localStorage.getItem(HISTORY_KEY)) {
+                try {
+                    const oldHistory = JSON.parse(oldData);
+                    const newHistory = oldHistory.map(item => ({
+                        id: generateId(),
+                        question: item.question,
+                        answer: item.answer,
+                        mode: item.mode,
+                        timestamp: item.timestamp,
+                        title: item.title || (item.question.length > 20 ? item.question.substring(0, 20) + '...' : item.question),
+                        children: []
+                    }));
+                    saveHistory(newHistory);
+                    localStorage.removeItem(oldKey);  // 마이그레이션 후 기존 데이터 삭제
+                    console.log('✅ 히스토리 마이그레이션 완료');
+                } catch (e) {
+                    console.error('히스토리 마이그레이션 실패:', e);
+                }
+            }
+        }
+
+        // ========================================
+        // AMHS 로그 분석 기능
+        // ========================================
+
+        let amhsUploadedFile = null;
+        let currentAmhsMethod = 'poi';
+
+        async function loadPoiFiles() {
+            try {
+                const response = await fetch('/poi_files');
+                const data = await response.json();
+
+                const select = document.getElementById('poiFileSelect');
+                select.innerHTML = '<option value="">-- 파일을 선택하세요 --</option>';
+
+                data.files.forEach(file => {
+                    const option = document.createElement('option');
+                    option.value = file;
+                    option.textContent = file;
+                    select.appendChild(option);
+                });
+
+                console.log('POI 파일 목록 로드:', data.files.length, '개');
+            } catch (error) {
+                console.error('POI 파일 목록 로드 실패:', error);
+            }
+        }
+
+        function toggleAmhsSection() {
+            const body = document.getElementById('amhsBody');
+            const icon = document.getElementById('amhsIcon');
+
+            if (body.classList.contains('show')) {
+                body.classList.remove('show');
+                icon.classList.remove('open');
+            } else {
+                body.classList.add('show');
+                icon.classList.add('open');
+            }
+        }
+
+        function selectAmhsMethod(method) {
+            currentAmhsMethod = method;
+
+            // 버튼 활성화
+            document.querySelectorAll('#amhsSection .method-btn').forEach(btn => {
+                btn.classList.remove('active');
+            });
+            document.getElementById('amhs-method-' + method).classList.add('active');
+
+            // 입력 영역 표시
+            document.getElementById('amhs-input-poi').classList.remove('show');
+            document.getElementById('amhs-input-upload').classList.remove('show');
+            document.getElementById('amhs-input-' + method).classList.add('show');
+        }
+
+        function handleAmhsFileSelect(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+
+            amhsUploadedFile = file;
+
+            // 파일 정보 표시
+            document.getElementById('amhsFileName').textContent = file.name;
+            document.getElementById('amhsFileSize').textContent = (file.size / 1024).toFixed(2) + ' KB';
+            document.getElementById('amhsFileInfo').style.display = 'block';
+            document.getElementById('amhsUploadBtn').style.display = 'block';
+
+            console.log('AMHS 파일 선택:', file.name);
+        }
+
+        async function analyzePoiFile() {
+            const filename = document.getElementById('poiFileSelect').value;
+            const question = document.getElementById('amhsQuestion').value;
+
+            if (!filename) {
+                resultDiv.textContent = '파일을 선택해주세요!';
+                resultDiv.className = 'error';
                 return;
             }
 
+            // UI 업데이트
+            resultDiv.innerHTML = '<div class="loading"><div class="spinner"></div>AMHS 로그 분석 중... (AI가 데이터를 분석하고 있습니다)</div>';
+            resultDiv.className = '';
+
             try {
-                const response = await fetch('/reload_prompts', { method: 'POST' });
+                const response = await fetch('/analyze_poi_file', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        filename: filename,
+                        question: question
+                    })
+                });
+
                 const data = await response.json();
-                
+
                 if (data.success) {
-                    alert('✅ ' + data.message);
-                    loadPrompts();
+                    displayAmhsResult(data);
+                } else {
+                    resultDiv.textContent = '분석 실패: ' + data.error;
+                    resultDiv.className = 'error';
                 }
+
             } catch (error) {
-                console.error('프롬프트 리로드 실패:', error);
-                alert('❌ 프롬프트 리로드 실패');
+                resultDiv.textContent = '오류: ' + error.message;
+                resultDiv.className = 'error';
+                console.error('Error:', error);
             }
         }
 
-        // ESC로 모달 닫기
-        document.addEventListener('keydown', function(e) {
-            if (e.key === 'Escape') {
-                closePromptModal();
+        async function uploadAndAnalyzeAmhs() {
+            if (!amhsUploadedFile) {
+                resultDiv.textContent = '파일을 선택해주세요!';
+                resultDiv.className = 'error';
+                return;
             }
-        });
 
-        // 모달 외부 클릭으로 닫기
-        document.getElementById('promptModal').addEventListener('click', function(e) {
-            if (e.target === this) {
-                closePromptModal();
+            const question = document.getElementById('amhsUploadQuestion').value;
+
+            // UI 업데이트
+            resultDiv.innerHTML = '<div class="loading"><div class="spinner"></div>AMHS 로그 분석 중... (파일 업로드 및 분석)</div>';
+            resultDiv.className = '';
+
+            try {
+                const formData = new FormData();
+                formData.append('file', amhsUploadedFile);
+                formData.append('question', question);
+
+                const response = await fetch('/upload_csv', {
+                    method: 'POST',
+                    body: formData
+                });
+
+                const data = await response.json();
+
+                if (data.success) {
+                    displayAmhsResult(data);
+                } else {
+                    resultDiv.textContent = '분석 실패: ' + data.error;
+                    resultDiv.className = 'error';
+                }
+
+            } catch (error) {
+                resultDiv.textContent = '오류: ' + error.message;
+                resultDiv.className = 'error';
+                console.error('Error:', error);
             }
-        });
+        }
+
+        function displayAmhsResult(data) {
+            let html = '<div style="padding: 10px;">';
+
+            // 1. 파일 기본 정보
+            html += '<div style="background: #f0fdf4; padding: 15px; border-radius: 10px; border-left: 4px solid #22c55e; margin-bottom: 20px;">';
+            html += '<h3 style="color: #15803d; margin-bottom: 10px;">📁 파일 정보</h3>';
+            html += '<div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; font-size: 14px;">';
+
+            if (data.filename) {
+                html += `<div><strong>파일명:</strong> ${data.filename}</div>`;
+            }
+            if (data.basic_info) {
+                html += `<div><strong>레코드 수:</strong> ${data.basic_info.row_count}건</div>`;
+                if (data.basic_info.time_range && data.basic_info.time_range.start) {
+                    html += `<div><strong>시작 시간:</strong> ${data.basic_info.time_range.start}</div>`;
+                    html += `<div><strong>종료 시간:</strong> ${data.basic_info.time_range.end}</div>`;
+                }
+                if (data.basic_info.levels) {
+                    const levels = Object.entries(data.basic_info.levels).map(([k, v]) => `${k}: ${v}`).join(', ');
+                    html += `<div><strong>LEVEL 분포:</strong> ${levels}</div>`;
+                }
+                if (data.basic_info.machines && data.basic_info.machines.length > 0) {
+                    html += `<div><strong>장비:</strong> ${data.basic_info.machines.join(', ')}</div>`;
+                }
+            }
+            html += '</div></div>';
+
+            // 2. 메시지 유형 분포
+            if (data.basic_info && data.basic_info.message_types) {
+                html += '<div style="background: #eff6ff; padding: 15px; border-radius: 10px; border-left: 4px solid #3b82f6; margin-bottom: 20px;">';
+                html += '<h3 style="color: #1d4ed8; margin-bottom: 10px;">📊 메시지 유형 분포</h3>';
+                html += '<div style="display: flex; flex-wrap: wrap; gap: 8px;">';
+
+                Object.entries(data.basic_info.message_types).forEach(([type, count]) => {
+                    const color = type.startsWith('RAIL-') ? '#8b5cf6' :
+                                  type.startsWith('INTERRAIL-') ? '#06b6d4' :
+                                  type.startsWith('STORAGE-') ? '#f59e0b' :
+                                  type.startsWith('VM-') ? '#ec4899' : '#6b7280';
+                    html += `<span style="background: ${color}22; color: ${color}; padding: 5px 12px; border-radius: 15px; font-size: 13px; font-weight: 500;">${type}: ${count}</span>`;
+                });
+
+                html += '</div></div>';
+            }
+
+            // 3. AI 분석 결과
+            html += '<div style="background: #faf5ff; padding: 20px; border-radius: 10px; border-left: 4px solid #a855f7; margin-bottom: 20px;">';
+            html += '<h3 style="color: #7e22ce; margin-bottom: 15px;">🤖 AI 분석 결과</h3>';
+            html += '<div class="markdown-content" style="line-height: 1.8;">';
+            html += marked.parse(data.analysis);
+            html += '</div></div>';
+
+            html += '</div>';
+
+            resultDiv.innerHTML = html;
+            resultDiv.className = 'success';
+
+            // 히스토리에 저장
+            const question = document.getElementById('amhsQuestion').value || document.getElementById('amhsUploadQuestion').value || '파일 분석';
+            addToHistory(`[AMHS] ${data.filename || 'CSV'}: ${question}`, data.analysis, 'amhs');
+        }
 
         // ========================================
         // 데이터 입력 기능
         // ========================================
+
         function toggleDataInput() {
             const body = document.getElementById('dataInputBody');
             const icon = document.getElementById('dataInputIcon');
@@ -1678,11 +1788,13 @@
         function selectInputMethod(method) {
             currentInputMethod = method;
 
+            // 버튼 활성화
             document.querySelectorAll('.method-btn').forEach(btn => {
                 btn.classList.remove('active');
             });
             document.getElementById('method-' + method).classList.add('active');
 
+            // 입력 영역 표시
             document.querySelectorAll('.input-area').forEach(area => {
                 area.classList.remove('show');
             });
@@ -1693,18 +1805,22 @@
             const file = event.target.files[0];
             if (!file) return;
 
+            // 파일 정보 표시
             document.getElementById('fileName').textContent = file.name;
             document.getElementById('fileSize').textContent = (file.size / 1024).toFixed(2) + ' KB';
             document.getElementById('fileInfo').style.display = 'block';
             document.getElementById('submitFileBtn').style.display = 'block';
 
+            // 파일 읽기
             const reader = new FileReader();
             reader.onload = function (e) {
                 uploadedFileData = e.target.result;
+                console.log('✅ 파일 로드 완료');
             };
             reader.readAsText(file);
         }
 
+        // 드래그 앤 드롭
         const fileUpload = document.querySelector('.file-upload');
         if (fileUpload) {
             fileUpload.addEventListener('dragover', (e) => {
@@ -1753,25 +1869,35 @@
                 }
             }
 
+            // UI 업데이트
             resultDiv.innerHTML = '<div class="loading"><div class="spinner"></div>데이터 분석 중... (예측 실행 중)</div>';
             resultDiv.className = '';
 
             try {
                 const response = await fetch('/predict', {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ mode: currentMode, data: data })
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        mode: currentMode,
+                        data: data
+                    })
                 });
 
-                if (!response.ok) throw new Error(`HTTP ${response.status}`);
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}`);
+                }
 
                 const result = await response.json();
 
+                // 결과 표시
                 if (result.error) {
                     resultDiv.textContent = '❌ ' + result.error + '\n' + result.message;
                     resultDiv.className = 'error';
                 } else {
                     displayPredictionResult(result);
+                    // M14/HUB 예측은 히스토리에 저장하지 않음
                 }
 
             } catch (error) {
@@ -1784,6 +1910,7 @@
         function displayPredictionResult(result) {
             let html = '<div style="padding: 10px;">';
 
+            // 1. 간단 요약
             if (result.summary) {
                 html += '<div style="background: #f7fafc; padding: 20px; border-radius: 10px; white-space: pre-wrap; margin-bottom: 20px;">';
                 html += '<h3 style="color: #667eea; margin-bottom: 15px;">📊 예측 요약</h3>';
@@ -1791,86 +1918,82 @@
                 html += '</div>';
             }
 
+            // 2. LLM 분석
             if (result.llm_analysis) {
                 html += '<div style="background: #ebf8ff; padding: 20px; border-radius: 10px; border-left: 4px solid #4299e1; margin-bottom: 20px;">';
                 html += '<h3 style="color: #2c5282; margin-bottom: 15px;">🤖 AI 분석</h3>';
+                html += '<div style="line-height: 1.8; white-space: pre-wrap;">';
                 html += '<div style="line-height: 1.8; white-space: pre-wrap;" class="markdown-content">';
+                // Parse Markdown for LLM analysis
                 html += marked.parse(result.llm_analysis);
                 html += '</div>';
                 html += '</div>';
             }
 
+            // 3. 대시보드 버튼
             html += '<div style="text-align: center; margin: 20px 0;">';
 
+            // M14 모드: 1개 대시보드
             if (result.dashboard_url) {
                 html += `<button onclick="window.open('${result.dashboard_url}', '_blank')" style="
-                    padding: 15px 30px; font-size: 18px; font-weight: 700;
+                    padding: 15px 30px;
+                    font-size: 18px;
+                    font-weight: 700;
                     background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-                    color: white; border: none; border-radius: 10px; cursor: pointer;
-                    box-shadow: 0 4px 15px rgba(102, 126, 234, 0.4); transition: all 0.3s;
-                ">📊 상세 대시보드 보기</button>`;
+                    color: white;
+                    border: none;
+                    border-radius: 10px;
+                    cursor: pointer;
+                    box-shadow: 0 4px 15px rgba(102, 126, 234, 0.4);
+                    transition: all 0.3s;
+                " onmouseover="this.style.transform='translateY(-2px)'; this.style.boxShadow='0 6px 20px rgba(102, 126, 234, 0.6)';" 
+                   onmouseout="this.style.transform='translateY(0)'; this.style.boxShadow='0 4px 15px rgba(102, 126, 234, 0.4)';">
+                    📊 상세 대시보드 보기
+                </button>`;
             }
 
+            // HUB 모드: 2개 대시보드
             if (result.dashboard_numerical_url && result.dashboard_categorical_url) {
                 html += `<button onclick="window.open('${result.dashboard_numerical_url}', '_blank')" style="
-                    padding: 15px 30px; font-size: 18px; font-weight: 700;
+                    padding: 15px 30px;
+                    font-size: 18px;
+                    font-weight: 700;
                     background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-                    color: white; border: none; border-radius: 10px; cursor: pointer;
-                    box-shadow: 0 4px 15px rgba(102, 126, 234, 0.4); margin-right: 15px;
-                ">📊 수치형 대시보드</button>`;
+                    color: white;
+                    border: none;
+                    border-radius: 10px;
+                    cursor: pointer;
+                    box-shadow: 0 4px 15px rgba(102, 126, 234, 0.4);
+                    transition: all 0.3s;
+                    margin-right: 15px;
+                " onmouseover="this.style.transform='translateY(-2px)'; this.style.boxShadow='0 6px 20px rgba(102, 126, 234, 0.6)';" 
+                   onmouseout="this.style.transform='translateY(0)'; this.style.boxShadow='0 4px 15px rgba(102, 126, 234, 0.4)';">
+                    📊 수치형 대시보드
+                </button>`;
 
                 html += `<button onclick="window.open('${result.dashboard_categorical_url}', '_blank')" style="
-                    padding: 15px 30px; font-size: 18px; font-weight: 700;
+                    padding: 15px 30px;
+                    font-size: 18px;
+                    font-weight: 700;
                     background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
-                    color: white; border: none; border-radius: 10px; cursor: pointer;
+                    color: white;
+                    border: none;
+                    border-radius: 10px;
+                    cursor: pointer;
                     box-shadow: 0 4px 15px rgba(240, 147, 251, 0.4);
-                ">🎯 범주형 대시보드</button>`;
+                    transition: all 0.3s;
+                " onmouseover="this.style.transform='translateY(-2px)'; this.style.boxShadow='0 6px 20px rgba(240, 147, 251, 0.6)';" 
+                   onmouseout="this.style.transform='translateY(0)'; this.style.boxShadow='0 4px 15px rgba(240, 147, 251, 0.4)';">
+                    🎯 범주형 대시보드
+                </button>`;
             }
 
-            html += '</div></div>';
+            html += '</div>';
+            html += '</div>';
 
             resultDiv.innerHTML = html;
             resultDiv.className = 'success';
         }
-
-        // ========================================
-        // 초기화
-        // ========================================
-        function migrateOldHistory() {
-            const oldKey = 'amhs_query_history';
-            const oldData = localStorage.getItem(oldKey);
-            
-            if (oldData && !localStorage.getItem(HISTORY_KEY)) {
-                try {
-                    const oldHistory = JSON.parse(oldData);
-                    const newHistory = oldHistory.map(item => ({
-                        id: generateId(),
-                        question: item.question,
-                        answer: item.answer,
-                        mode: item.mode,
-                        timestamp: item.timestamp,
-                        title: item.title || (item.question.length > 20 ? item.question.substring(0, 20) + '...' : item.question),
-                        children: []
-                    }));
-                    saveHistory(newHistory);
-                    localStorage.removeItem(oldKey);
-                } catch (e) {
-                    console.error('히스토리 마이그레이션 실패:', e);
-                }
-            }
-        }
-
-        window.addEventListener('load', function () {
-            migrateOldHistory();
-            updateExamples();
-            questionInput.focus();
-            renderHistoryList();
-            checkLLMStatus();
-            updateContextStatus();
-            
-            // 5초마다 컨텍스트 상태 업데이트
-            setInterval(updateContextStatus, 5000);
-        });
     </script>
 </body>
 
