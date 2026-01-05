@@ -64,11 +64,11 @@ CONFIG = {
 
     # 시퀀스 설정
     'sequence_length': 240,  # 240분 (4시간)
-    'prediction_window': 30,  # 30분 예측
+    'prediction_window': 60,  # 60분 예측
     'limit_value': 1700,      # 리미트 값
 
     # 타겟 컬럼
-    'target_column': 'TOTALCNT',  # TOTALCNT
+    'target_column': 'M14.QUE.ALL.CURRENTQCNT',  # M14 Q
 
     # 모델 파라미터 (GPU)
     'xgb_params': {
@@ -100,7 +100,7 @@ CONFIG = {
 # Feature 그룹 정의
 FEATURE_GROUPS = {
     'target': [
-        'TOTALCNT'  # TOTALCNT (타겟)
+        'M14.QUE.ALL.CURRENTQCNT'  # M14 Q (타겟)
     ],
     'important': [
         # Storage 관련
@@ -521,7 +521,7 @@ save_data = {
     }
 }
 
-model_path = os.path.join(CONFIG['model_dir'], 'v10_m14_model.pkl')
+model_path = os.path.join(CONFIG['model_dir'], 'v10_m14_model_60min.pkl')
 with open(model_path, 'wb') as f:
     pickle.dump(save_data, f)
 
