@@ -190,6 +190,126 @@
             box-shadow: 0 20px 60px rgba(0,0,0,0.3);
         }
 
+        .modal-content.modal-wide {
+            max-width: 1300px;
+        }
+
+        .modal-body-wrapper {
+            display: flex;
+            flex: 1;
+            overflow: hidden;
+        }
+
+        /* 참고 버튼 */
+        .guide-toggle-btn {
+            padding: 6px 12px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 13px;
+            font-weight: 600;
+            transition: all 0.2s;
+        }
+
+        .guide-toggle-btn:hover {
+            transform: scale(1.05);
+            box-shadow: 0 2px 8px rgba(102, 126, 234, 0.4);
+        }
+
+        .guide-toggle-btn.active {
+            background: linear-gradient(135deg, #f56565 0%, #c53030 100%);
+        }
+
+        /* 오른쪽 참고 패널 */
+        .guide-panel {
+            width: 0;
+            overflow: hidden;
+            transition: width 0.3s ease;
+            background: #f8fafc;
+            border-left: 1px solid #e2e8f0;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .guide-panel.open {
+            width: 380px;
+        }
+
+        .guide-panel-header {
+            padding: 12px 15px;
+            background: #667eea;
+            color: white;
+            font-weight: 700;
+            font-size: 14px;
+        }
+
+        .guide-panel-content {
+            flex: 1;
+            overflow-y: auto;
+            padding: 15px;
+        }
+
+        .guide-panel .guide-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 11px;
+            margin-bottom: 15px;
+        }
+
+        .guide-panel .guide-table th {
+            background: #4a5568;
+            color: white;
+            padding: 6px 8px;
+            text-align: left;
+            font-weight: 600;
+        }
+
+        .guide-panel .guide-table td {
+            padding: 6px 8px;
+            border-bottom: 1px solid #e2e8f0;
+            font-size: 11px;
+        }
+
+        .guide-panel .guide-table tr:nth-child(even) td {
+            background: #f1f5f9;
+        }
+
+        .guide-panel .guide-item {
+            padding: 10px;
+            margin-bottom: 10px;
+            background: white;
+            border-left: 3px solid #667eea;
+            border-radius: 4px;
+            font-size: 11px;
+            line-height: 1.5;
+            color: #555;
+        }
+
+        .guide-panel .guide-item strong {
+            color: #667eea;
+            font-size: 12px;
+        }
+
+        .guide-panel .template-group {
+            margin-bottom: 12px;
+        }
+
+        .guide-panel .template-group-title {
+            font-size: 10px;
+            font-weight: 600;
+            color: #888;
+            margin-bottom: 6px;
+            text-transform: uppercase;
+        }
+
+        .guide-panel .template-btn {
+            padding: 4px 8px;
+            margin: 2px;
+            font-size: 10px;
+        }
+
         .modal-header {
             display: flex;
             justify-content: space-between;
@@ -1286,10 +1406,13 @@
 
     <!-- 프롬프트 편집 모달 -->
     <div id="promptModal" class="modal-overlay" style="display: none;">
-        <div class="modal-content">
+        <div class="modal-content modal-wide">
             <div class="modal-header">
                 <h2>📝 AMHS 분석 프롬프트 편집</h2>
-                <button class="modal-close" onclick="closePromptModal()">✕</button>
+                <div style="display: flex; align-items: center; gap: 10px;">
+                    <button class="guide-toggle-btn" onclick="toggleGuidePanel()" id="guidePanelBtn">📋 참고</button>
+                    <button class="modal-close" onclick="closePromptModal()">✕</button>
+                </div>
             </div>
             <div class="modal-tabs">
                 <button class="modal-tab active" onclick="selectPromptTab('system_api')" id="tab-system_api">
@@ -1305,47 +1428,46 @@
                     Fewshot (Local)
                 </button>
             </div>
-            <div class="modal-body">
-                <div class="prompt-info">
-                    <span id="promptFileName">AMHS_LOG_ANALYSIS_SYSTEM_PROMPT.md</span>
-                    <span id="promptCharCount">0 자</span>
+            <div class="modal-body-wrapper">
+                <!-- 왼쪽: 에디터 -->
+                <div class="modal-body">
+                    <div class="prompt-info">
+                        <span id="promptFileName">AMHS_LOG_ANALYSIS_SYSTEM_PROMPT.md</span>
+                        <span id="promptCharCount">0 자</span>
+                    </div>
+                    <textarea id="promptEditor" placeholder="프롬프트 내용을 불러오는 중..."></textarea>
                 </div>
                 
-                <!-- 예제 템플릿 버튼 -->
-                <div class="template-section">
-                    <div class="template-header" onclick="toggleTemplates()">
-                        <span>📋 예제 템플릿 (클릭하여 접기/펼치기)</span>
-                        <span class="template-toggle open" id="templateToggle">▼</span>
+                <!-- 오른쪽: 참고 패널 -->
+                <div class="guide-panel" id="guidePanel">
+                    <div class="guide-panel-header">
+                        <span>📌 참고 내용</span>
                     </div>
-                    <div class="template-buttons" id="templateButtons" style="display: block;">
-                        <!-- 참고 내용 가이드 -->
-                        <div class="template-guide">
-                            <div class="guide-title">📌 참고 내용</div>
-                            <table class="guide-table">
-                                <tr>
-                                    <th>추가할 내용</th>
-                                    <th>파일</th>
-                                </tr>
-                                <tr><td>장비 설명, 에러 코드</td><td>SYSTEM_PROMPT</td></tr>
-                                <tr><td>소요시간 기준</td><td>SYSTEM_PROMPT</td></tr>
-                                <tr><td>특정 FAB 규칙</td><td>SYSTEM_PROMPT</td></tr>
-                                <tr><td>자주 발생하는 문제</td><td>SYSTEM_PROMPT</td></tr>
-                                <tr><td>원하는 답변 형식</td><td>FEWSHOT_PROMPT</td></tr>
-                                <tr><td>질문-답변 예시</td><td>FEWSHOT_PROMPT</td></tr>
-                            </table>
-                            
-                            <div class="guide-desc">
-                                <div class="guide-item">
-                                    <strong>SYSTEM_PROMPT</strong> = "너는 이런 전문가야, 이런 지식을 알아"<br>
-                                    • 장비 설명, 메시지 유형, 분석 방법<br>
-                                    • 여기에 도메인 지식 추가!
-                                </div>
-                                <div class="guide-item">
-                                    <strong>FEWSHOT_PROMPT</strong> = "이렇게 질문하면 이렇게 답해"<br>
-                                    • 질문-답변 예시<br>
-                                    • 여기에 원하는 답변 스타일/형식 예시 추가!
-                                </div>
-                            </div>
+                    <div class="guide-panel-content">
+                        <table class="guide-table">
+                            <tr>
+                                <th>추가할 내용</th>
+                                <th>파일</th>
+                            </tr>
+                            <tr><td>장비 설명, 에러 코드</td><td>SYSTEM_PROMPT</td></tr>
+                            <tr><td>소요시간 기준</td><td>SYSTEM_PROMPT</td></tr>
+                            <tr><td>특정 FAB 규칙</td><td>SYSTEM_PROMPT</td></tr>
+                            <tr><td>자주 발생하는 문제</td><td>SYSTEM_PROMPT</td></tr>
+                            <tr><td>원하는 답변 형식</td><td>FEWSHOT_PROMPT</td></tr>
+                            <tr><td>질문-답변 예시</td><td>FEWSHOT_PROMPT</td></tr>
+                        </table>
+                        
+                        <div class="guide-item">
+                            <strong>SYSTEM_PROMPT</strong><br>
+                            "너는 이런 전문가야, 이런 지식을 알아"<br>
+                            • 장비 설명, 메시지 유형, 분석 방법<br>
+                            • 여기에 도메인 지식 추가!
+                        </div>
+                        <div class="guide-item">
+                            <strong>FEWSHOT_PROMPT</strong><br>
+                            "이렇게 질문하면 이렇게 답해"<br>
+                            • 질문-답변 예시<br>
+                            • 여기에 원하는 답변 스타일/형식 예시 추가!
                         </div>
                         
                         <div class="template-group" id="systemTemplates">
@@ -1363,8 +1485,6 @@
                         </div>
                     </div>
                 </div>
-                
-                <textarea id="promptEditor" placeholder="프롬프트 내용을 불러오는 중..."></textarea>
             </div>
             <div class="modal-footer">
                 <button class="modal-btn secondary" onclick="reloadPrompt()">🔄 새로고침</button>
@@ -2313,6 +2433,21 @@ STAT_DT,CURRENT_M16A_3F_JOB_2,M16A_3F_STORAGE_UTIL,HUBROOMTOTAL,...
             
             document.getElementById('systemTemplates').style.display = isSystem ? 'block' : 'none';
             document.getElementById('fewshotTemplates').style.display = isFewshot ? 'block' : 'none';
+        }
+
+        function toggleGuidePanel() {
+            const panel = document.getElementById('guidePanel');
+            const btn = document.getElementById('guidePanelBtn');
+            
+            panel.classList.toggle('open');
+            btn.classList.toggle('active');
+            
+            if (panel.classList.contains('open')) {
+                btn.textContent = '📋 닫기';
+                updateTemplateVisibility();
+            } else {
+                btn.textContent = '📋 참고';
+            }
         }
 
         function insertTemplate(templateKey) {
