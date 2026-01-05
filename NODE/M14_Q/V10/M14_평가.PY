@@ -394,7 +394,7 @@ with open(report_path, 'w', encoding='utf-8') as f:
 print(f"  - 평가 리포트 저장: {report_path}")
 
 # ============================================================================
-# 오분류 분석
+# 오분류 분석 및 CSV 저장
 # ============================================================================
 print("\n" + "=" * 80)
 print("오분류 분석")
@@ -403,24 +403,32 @@ print("=" * 80)
 # False Negative (돌파인데 안전으로 예측) - 가장 위험
 fn_mask = (y_classification == 1) & (final_pred == 0)
 fn_count = np.sum(fn_mask)
+fn_df = result_df[fn_mask].copy()
 print(f"\n[False Negative (놓친 돌파)] : {fn_count}건")
+
 if fn_count > 0:
-    fn_df = result_df[fn_mask].head(10)
-    print(f"  - 상위 {min(10, fn_count)}건:")
-    for _, row in fn_df.iterrows():
-        print(f"    {row['현재시간']} | 예측범위: {row['예측범위']} | 현재값: {row['현재_TOTALCNT']:.0f} | 실제최대: {row['실제_최대값']:.0f} | "
-              f"투표: {row['투표수_6개중']}/6")
+    fn_path = os.path.join(EVAL_CONFIG['result_dir'], 
+                           f'놓친돌파_FN_{datetime.now().strftime("%Y%m%d_%H%M%S")}.csv')
+    fn_df.to_csv(fn_path, index=False, encoding='utf-8-sig')
+    print(f"  - 저장 완료: {fn_path}")
+    print(f"  - 상위 5건:")
+    for _, row in fn_df.head(5).iterrows():
+        print(f"    {row['현재시간']} | 예측범위: {row['예측범위']} | 현재값: {row['현재_TOTALCNT']:.0f} | 실제최대: {row['실제_최대값']:.0f} | 투표: {row['투표수_6개중']}/6")
 
 # False Positive (안전인데 돌파로 예측)
 fp_mask = (y_classification == 0) & (final_pred == 1)
 fp_count = np.sum(fp_mask)
+fp_df = result_df[fp_mask].copy()
 print(f"\n[False Positive (잘못된 경고)] : {fp_count}건")
+
 if fp_count > 0:
-    fp_df = result_df[fp_mask].head(10)
-    print(f"  - 상위 {min(10, fp_count)}건:")
-    for _, row in fp_df.iterrows():
-        print(f"    {row['현재시간']} | 예측범위: {row['예측범위']} | 현재값: {row['현재_TOTALCNT']:.0f} | 실제최대: {row['실제_최대값']:.0f} | "
-              f"투표: {row['투표수_6개중']}/6")
+    fp_path = os.path.join(EVAL_CONFIG['result_dir'], 
+                           f'잘못된경고_FP_{datetime.now().strftime("%Y%m%d_%H%M%S")}.csv')
+    fp_df.to_csv(fp_path, index=False, encoding='utf-8-sig')
+    print(f"  - 저장 완료: {fp_path}")
+    print(f"  - 상위 5건:")
+    for _, row in fp_df.head(5).iterrows():
+        print(f"    {row['현재시간']} | 예측범위: {row['예측범위']} | 현재값: {row['현재_TOTALCNT']:.0f} | 실제최대: {row['실제_최대값']:.0f} | 투표: {row['투표수_6개중']}/6")
 
 print("\n" + "=" * 80)
 print("평가 완료!")
