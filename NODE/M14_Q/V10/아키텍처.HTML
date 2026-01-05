@@ -1,0 +1,752 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>V10 ML 예측 모델 아키텍처</title>
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@300;400;500;700&display=swap" rel="stylesheet">
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Noto Sans KR', sans-serif;
+            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%);
+            min-height: 100vh;
+            padding: 40px 20px;
+            color: #fff;
+        }
+        
+        .container {
+            max-width: 1600px;
+            margin: 0 auto;
+        }
+        
+        .header {
+            text-align: center;
+            margin-bottom: 50px;
+        }
+        
+        .header h1 {
+            font-size: 2.5rem;
+            font-weight: 700;
+            background: linear-gradient(90deg, #00d4ff, #00ff88);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            margin-bottom: 10px;
+        }
+        
+        .header p {
+            font-size: 1.1rem;
+            color: #8892b0;
+        }
+        
+        .architecture {
+            display: flex;
+            flex-direction: column;
+            gap: 30px;
+        }
+        
+        .layer {
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 20px;
+            padding: 25px;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            backdrop-filter: blur(10px);
+        }
+        
+        .layer-title {
+            font-size: 1.1rem;
+            font-weight: 600;
+            color: #00d4ff;
+            margin-bottom: 20px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        
+        .layer-title .step {
+            background: linear-gradient(135deg, #00d4ff, #00ff88);
+            color: #1a1a2e;
+            width: 32px;
+            height: 32px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: 700;
+            font-size: 1rem;
+        }
+        
+        .data-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 20px;
+        }
+        
+        .data-box {
+            background: rgba(255, 255, 255, 0.08);
+            border-radius: 15px;
+            padding: 20px;
+            border: 1px solid rgba(255, 255, 255, 0.15);
+        }
+        
+        .data-box.target { border-top: 4px solid #ffd700; }
+        .data-box.important { border-top: 4px solid #00ff88; }
+        .data-box.auxiliary { border-top: 4px solid #a855f7; }
+        
+        .data-box-title {
+            font-weight: 600;
+            font-size: 1rem;
+            margin-bottom: 5px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        
+        .data-box-title .count {
+            background: rgba(255, 255, 255, 0.2);
+            padding: 2px 8px;
+            border-radius: 10px;
+            font-size: 0.75rem;
+            font-weight: 500;
+        }
+        
+        .data-box-desc {
+            font-size: 0.8rem;
+            color: #8892b0;
+            margin-bottom: 15px;
+        }
+        
+        .column-list {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+        
+        .column-group {
+            margin-bottom: 10px;
+        }
+        
+        .column-group-title {
+            font-size: 0.75rem;
+            color: #00d4ff;
+            font-weight: 500;
+            margin-bottom: 6px;
+            padding-left: 5px;
+            border-left: 2px solid #00d4ff;
+        }
+        
+        .column-item {
+            background: rgba(0, 0, 0, 0.3);
+            padding: 6px 10px;
+            border-radius: 6px;
+            font-size: 0.7rem;
+            font-family: 'Consolas', monospace;
+            color: #e2e8f0;
+        }
+        
+        .arrow-down {
+            text-align: center;
+            padding: 15px 0;
+            font-size: 2rem;
+            color: #00d4ff;
+            animation: bounce 1.5s infinite;
+        }
+        
+        @keyframes bounce {
+            0%, 100% { transform: translateY(0); }
+            50% { transform: translateY(5px); }
+        }
+        
+        /* Feature Engineering */
+        .feature-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 20px;
+        }
+        
+        .feature-box {
+            background: rgba(0, 255, 136, 0.1);
+            border: 1px solid rgba(0, 255, 136, 0.3);
+            border-radius: 15px;
+            padding: 20px;
+        }
+        
+        .feature-box-title {
+            font-weight: 600;
+            font-size: 1rem;
+            color: #00ff88;
+            margin-bottom: 15px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        
+        .feature-list {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 8px;
+        }
+        
+        .feature-item {
+            background: rgba(0, 0, 0, 0.3);
+            padding: 8px 12px;
+            border-radius: 8px;
+            font-size: 0.8rem;
+        }
+        
+        .feature-item .name {
+            color: #fff;
+            font-weight: 500;
+        }
+        
+        .feature-item .desc {
+            color: #8892b0;
+            font-size: 0.7rem;
+            margin-top: 2px;
+        }
+        
+        /* Model Section */
+        .model-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 20px;
+        }
+        
+        .model-section {
+            background: rgba(0, 0, 0, 0.2);
+            border-radius: 15px;
+            padding: 20px;
+        }
+        
+        .model-section-title {
+            font-size: 1rem;
+            font-weight: 600;
+            margin-bottom: 15px;
+            padding-bottom: 10px;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+        }
+        
+        .model-section-title.xgb { color: #ff6b6b; }
+        .model-section-title.lgb { color: #4ecdc4; }
+        
+        .model-items {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+        
+        .model-item {
+            background: rgba(255, 255, 255, 0.05);
+            padding: 12px 15px;
+            border-radius: 8px;
+            font-size: 0.85rem;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        
+        .model-item .input {
+            font-size: 0.75rem;
+            color: #8892b0;
+        }
+        
+        /* Rules */
+        .rules-grid {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 15px;
+        }
+        
+        .rule-box {
+            background: rgba(249, 115, 22, 0.1);
+            border: 1px solid rgba(249, 115, 22, 0.3);
+            border-radius: 12px;
+            padding: 15px;
+        }
+        
+        .rule-box .rule-num {
+            font-size: 0.75rem;
+            color: #f97316;
+            font-weight: 600;
+            margin-bottom: 8px;
+        }
+        
+        .rule-box .rule-content {
+            font-size: 0.8rem;
+            color: #e2e8f0;
+            line-height: 1.6;
+        }
+        
+        .rule-box .rule-code {
+            background: rgba(0, 0, 0, 0.3);
+            padding: 8px;
+            border-radius: 6px;
+            margin-top: 8px;
+            font-family: 'Consolas', monospace;
+            font-size: 0.7rem;
+            color: #ffd700;
+        }
+        
+        /* Status */
+        .status-grid {
+            display: grid;
+            grid-template-columns: repeat(6, 1fr);
+            gap: 12px;
+        }
+        
+        .status-box {
+            padding: 15px;
+            border-radius: 10px;
+            text-align: center;
+        }
+        
+        .status-box.tp { background: rgba(34, 197, 94, 0.2); border: 1px solid #22c55e; }
+        .status-box.tn { background: rgba(59, 130, 246, 0.2); border: 1px solid #3b82f6; }
+        .status-box.fn-ok { background: rgba(251, 191, 36, 0.2); border: 1px solid #fbbf24; }
+        .status-box.fn-bad { background: rgba(239, 68, 68, 0.2); border: 1px solid #ef4444; }
+        .status-box.fp-ok { background: rgba(168, 85, 247, 0.2); border: 1px solid #a855f7; }
+        .status-box.fp-bad { background: rgba(249, 115, 22, 0.2); border: 1px solid #f97316; }
+        
+        .status-title {
+            font-weight: 600;
+            font-size: 0.85rem;
+            margin-bottom: 5px;
+        }
+        
+        .status-desc {
+            font-size: 0.7rem;
+            color: #8892b0;
+        }
+        
+        /* Summary */
+        .summary {
+            margin-top: 40px;
+            background: linear-gradient(135deg, rgba(0, 212, 255, 0.1), rgba(0, 255, 136, 0.1));
+            border-radius: 20px;
+            padding: 30px;
+            border: 1px solid rgba(0, 212, 255, 0.3);
+        }
+        
+        .summary h3 {
+            font-size: 1.2rem;
+            margin-bottom: 20px;
+            color: #00d4ff;
+        }
+        
+        .summary-grid {
+            display: grid;
+            grid-template-columns: repeat(6, 1fr);
+            gap: 20px;
+        }
+        
+        .summary-item {
+            text-align: center;
+        }
+        
+        .summary-value {
+            font-size: 1.8rem;
+            font-weight: 700;
+            background: linear-gradient(90deg, #00d4ff, #00ff88);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+        
+        .summary-value.bad {
+            background: linear-gradient(90deg, #ff6b6b, #f97316);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+        
+        .summary-label {
+            font-size: 0.8rem;
+            color: #8892b0;
+            margin-top: 5px;
+        }
+        
+        @media (max-width: 1200px) {
+            .data-grid { grid-template-columns: 1fr; }
+            .feature-grid { grid-template-columns: 1fr; }
+            .rules-grid { grid-template-columns: repeat(2, 1fr); }
+            .status-grid { grid-template-columns: repeat(3, 1fr); }
+            .summary-grid { grid-template-columns: repeat(3, 1fr); }
+        }
+        
+        @media (max-width: 768px) {
+            .model-grid { grid-template-columns: 1fr; }
+            .rules-grid { grid-template-columns: 1fr; }
+            .status-grid { grid-template-columns: repeat(2, 1fr); }
+            .summary-grid { grid-template-columns: repeat(2, 1fr); }
+            .feature-list { grid-template-columns: 1fr; }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>V10 ML 예측 모델 아키텍처</h1>
+            <p>M14 TOTALCNT 30분 내 리미트(1700) 초과 예측 시스템</p>
+        </div>
+        
+        <div class="architecture">
+            <!-- Step 1: 입력 데이터 -->
+            <div class="layer">
+                <div class="layer-title">
+                    <span class="step">1</span>
+                    입력 데이터 (Input Data) - 240분 시퀀스
+                </div>
+                <div class="data-grid">
+                    <!-- Target 그룹 -->
+                    <div class="data-box target">
+                        <div class="data-box-title">
+                            🎯 Target 그룹 <span class="count">1개</span>
+                        </div>
+                        <div class="data-box-desc">예측 대상 (타겟)</div>
+                        <div class="column-list">
+                            <div class="column-item">TOTALCNT</div>
+                        </div>
+                    </div>
+                    
+                    <!-- Important 그룹 -->
+                    <div class="data-box important">
+                        <div class="data-box-title">
+                            ⭐ Important 그룹 <span class="count">17개</span>
+                        </div>
+                        <div class="data-box-desc">주요 영향 지표</div>
+                        <div class="column-list">
+                            <div class="column-group">
+                                <div class="column-group-title">Load 관련 (6개)</div>
+                                <div class="column-item">LOAD.CURRENTLOADQCNT</div>
+                                <div class="column-item">LOAD.AVGLOADTIME</div>
+                                <div class="column-item">LOAD.AVGLOADTIME1MIN</div>
+                                <div class="column-item">LOAD.AVGFOUPLOADTIME</div>
+                                <div class="column-item">LOAD.AVGRETICLELOADTIME</div>
+                                <div class="column-item">LOAD.CURRENTRETICLELOADQCNT</div>
+                            </div>
+                            <div class="column-group">
+                                <div class="column-group-title">CMD 관련 (5개)</div>
+                                <div class="column-item">ALL.CURRENTQCOMPLETED</div>
+                                <div class="column-item">ALL.CURRENTQCREATED</div>
+                                <div class="column-item">ALL.TRANSPORT4MINOVERCNT</div>
+                                <div class="column-item">ALL.TRANSPORT4MINOVERTIMEAVG</div>
+                                <div class="column-item">ALL.TRANSPORT4MINOVERRATIO</div>
+                            </div>
+                            <div class="column-group">
+                                <div class="column-group-title">Hub 관련 (6개)</div>
+                                <div class="column-item">M16TOM14B.CURRENTQCREATED</div>
+                                <div class="column-item">M14BTOM16.CURRENTQCREATED</div>
+                                <div class="column-item">M14TOM16.CURRENTQCREATED</div>
+                                <div class="column-item">M16TOM14.CURRENTQCREATED</div>
+                                <div class="column-item">M14TOM16.MESCURRENTQCNT</div>
+                                <div class="column-item">M16TOM14.MESCURRENTQCNT</div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Auxiliary 그룹 -->
+                    <div class="data-box auxiliary">
+                        <div class="data-box-title">
+                            📊 Auxiliary 그룹 <span class="count">16개</span>
+                        </div>
+                        <div class="data-box-desc">보조 지표</div>
+                        <div class="column-list">
+                            <div class="column-group">
+                                <div class="column-group-title">Inflow (9개)</div>
+                                <div class="column-item">M14AM10A, M10AM14A, M14AM10ASUM</div>
+                                <div class="column-item">M14AM14B, M14BM14A, M14AM14BSUM</div>
+                                <div class="column-item">M14AM16, M16M14A, M14AM16SUM</div>
+                            </div>
+                            <div class="column-group">
+                                <div class="column-group-title">Outflow (4개)</div>
+                                <div class="column-item">SFAB.SENDQUEUETOTAL</div>
+                                <div class="column-item">SFAB.RECEIVEQUEUETOTAL</div>
+                                <div class="column-item">SFAB.RETURNQUEUETOTAL</div>
+                                <div class="column-item">SFAB.COMPLETEQUEUETOTAL</div>
+                            </div>
+                            <div class="column-group">
+                                <div class="column-group-title">OHT (4개)</div>
+                                <div class="column-item">OHT.OHTUTIL, OHT.RTCOHTUTIL</div>
+                                <div class="column-item">OHT.CURRENTOHTQCNT</div>
+                                <div class="column-item">OHT.CURRENTRETICLEOHTQCNT</div>
+                            </div>
+                            <div class="column-group">
+                                <div class="column-group-title">CNV (4개)</div>
+                                <div class="column-item">CNV.NORTHCURRENTQCNT</div>
+                                <div class="column-item">CNV.SOUTHCURRENTQCNT</div>
+                                <div class="column-item">CNV.ALLTONORTHCNVCURRENTQCNT</div>
+                                <div class="column-item">CNV.ALLTOSOUTHCNVCURRENTQCNT</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="arrow-down">▼</div>
+            
+            <!-- Step 2: Feature 엔지니어링 -->
+            <div class="layer">
+                <div class="layer-title">
+                    <span class="step">2</span>
+                    Feature 엔지니어링 (각 컬럼당 20개 Feature 생성)
+                </div>
+                <div class="feature-grid">
+                    <div class="feature-box">
+                        <div class="feature-box-title">📈 기본 통계 Feature (10개)</div>
+                        <div class="feature-list">
+                            <div class="feature-item">
+                                <div class="name">mean</div>
+                                <div class="desc">240분 평균</div>
+                            </div>
+                            <div class="feature-item">
+                                <div class="name">std</div>
+                                <div class="desc">표준편차</div>
+                            </div>
+                            <div class="feature-item">
+                                <div class="name">min</div>
+                                <div class="desc">최소값</div>
+                            </div>
+                            <div class="feature-item">
+                                <div class="name">max</div>
+                                <div class="desc">최대값</div>
+                            </div>
+                            <div class="feature-item">
+                                <div class="name">current_val</div>
+                                <div class="desc">현재값</div>
+                            </div>
+                            <div class="feature-item">
+                                <div class="name">change_240m</div>
+                                <div class="desc">240분 변화량</div>
+                            </div>
+                            <div class="feature-item">
+                                <div class="name">percentile_25</div>
+                                <div class="desc">25% 분위수</div>
+                            </div>
+                            <div class="feature-item">
+                                <div class="name">percentile_75</div>
+                                <div class="desc">75% 분위수</div>
+                            </div>
+                            <div class="feature-item">
+                                <div class="name">recent_trend</div>
+                                <div class="desc">최근 추세</div>
+                            </div>
+                            <div class="feature-item">
+                                <div class="name">max_30m</div>
+                                <div class="desc">최근 30분 최대</div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="feature-box">
+                        <div class="feature-box-title">🚀 급증 감지 Feature (10개)</div>
+                        <div class="feature-list">
+                            <div class="feature-item">
+                                <div class="name">change_10m</div>
+                                <div class="desc">최근 10분 변화량</div>
+                            </div>
+                            <div class="feature-item">
+                                <div class="name">change_30m</div>
+                                <div class="desc">최근 30분 변화량</div>
+                            </div>
+                            <div class="feature-item">
+                                <div class="name">change_60m</div>
+                                <div class="desc">최근 60분 변화량</div>
+                            </div>
+                            <div class="feature-item">
+                                <div class="name">slope_10m</div>
+                                <div class="desc">10분 기울기</div>
+                            </div>
+                            <div class="feature-item">
+                                <div class="name">slope_30m</div>
+                                <div class="desc">30분 기울기</div>
+                            </div>
+                            <div class="feature-item">
+                                <div class="name">volatility_10m</div>
+                                <div class="desc">10분 변동폭</div>
+                            </div>
+                            <div class="feature-item">
+                                <div class="name">volatility_30m</div>
+                                <div class="desc">30분 변동폭</div>
+                            </div>
+                            <div class="feature-item">
+                                <div class="name">dist_to_limit</div>
+                                <div class="desc">리미트(1700)까지 거리</div>
+                            </div>
+                            <div class="feature-item">
+                                <div class="name">above_1500</div>
+                                <div class="desc">1500 이상 여부</div>
+                            </div>
+                            <div class="feature-item">
+                                <div class="name">above_1600</div>
+                                <div class="desc">1600 이상 여부</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div style="margin-top: 15px; text-align: center; color: #8892b0; font-size: 0.85rem;">
+                    총 Feature 수: (1 + 17 + 16) × 20 = <strong style="color: #00ff88;">680개</strong>
+                </div>
+            </div>
+            
+            <div class="arrow-down">▼</div>
+            
+            <!-- Step 3: 모델 예측 -->
+            <div class="layer">
+                <div class="layer-title">
+                    <span class="step">3</span>
+                    앙상블 모델 예측 (6개 모델)
+                </div>
+                <div class="model-grid">
+                    <div class="model-section">
+                        <div class="model-section-title xgb">🔴 XGBoost 회귀 모델 (3개) → 30분 후 최대값 예측</div>
+                        <div class="model-items">
+                            <div class="model-item">
+                                <span>XGB 타겟</span>
+                                <span class="input">Target Feature (20개)</span>
+                            </div>
+                            <div class="model-item">
+                                <span>XGB 중요</span>
+                                <span class="input">Important Feature (340개)</span>
+                            </div>
+                            <div class="model-item">
+                                <span>XGB 보조</span>
+                                <span class="input">Auxiliary Feature (320개)</span>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="model-section">
+                        <div class="model-section-title lgb">🟢 LightGBM 분류 모델 (3개) → 돌파 여부 + 확률</div>
+                        <div class="model-items">
+                            <div class="model-item">
+                                <span>LGBM 타겟</span>
+                                <span class="input">Target Feature (20개)</span>
+                            </div>
+                            <div class="model-item">
+                                <span>LGBM 중요</span>
+                                <span class="input">Important Feature (340개)</span>
+                            </div>
+                            <div class="model-item">
+                                <span>LGBM 보조</span>
+                                <span class="input">Auxiliary Feature (320개)</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="arrow-down">▼</div>
+            
+            <!-- Step 4: 다수결 + 규칙 -->
+            <div class="layer">
+                <div class="layer-title">
+                    <span class="step">4</span>
+                    최종 판정 규칙 (OR 조건)
+                </div>
+                <div class="rules-grid">
+                    <div class="rule-box">
+                        <div class="rule-num">규칙 1</div>
+                        <div class="rule-content">
+                            <strong>다수결 투표</strong><br>
+                            6개 모델 중 4개 이상 돌파 예측
+                        </div>
+                        <div class="rule-code">vote_sum >= 4</div>
+                    </div>
+                    <div class="rule-box">
+                        <div class="rule-num">규칙 2</div>
+                        <div class="rule-content">
+                            <strong>LGBM 확률 기반</strong><br>
+                            높은 확률 + 위험 구간
+                        </div>
+                        <div class="rule-code">prob >= 0.92 AND<br>현재값 >= 1520</div>
+                    </div>
+                    <div class="rule-box">
+                        <div class="rule-num">규칙 3</div>
+                        <div class="rule-content">
+                            <strong>XGB 예측값 기반</strong><br>
+                            높은 예측 + 위험 구간
+                        </div>
+                        <div class="rule-code">예측값 >= 1710 AND<br>현재값 >= 1520</div>
+                    </div>
+                    <div class="rule-box">
+                        <div class="rule-num">규칙 4</div>
+                        <div class="rule-content">
+                            <strong>고위험 구간</strong><br>
+                            리미트 근접 + 투표 3개
+                        </div>
+                        <div class="rule-code">현재값 >= 1650 AND<br>vote >= 3</div>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="arrow-down">▼</div>
+            
+            <!-- Step 5: 예측상태 분류 -->
+            <div class="layer">
+                <div class="layer-title">
+                    <span class="step">5</span>
+                    예측상태 분류 (10분 전/후 분석)
+                </div>
+                <div class="status-grid">
+                    <div class="status-box tp">
+                        <div class="status-title">✅ 정상예측_TP</div>
+                        <div class="status-desc">돌파 정확히 예측</div>
+                    </div>
+                    <div class="status-box tn">
+                        <div class="status-title">✅ 정상예측_TN</div>
+                        <div class="status-desc">안전 정확히 예측</div>
+                    </div>
+                    <div class="status-box fn-ok">
+                        <div class="status-title">⚠️ FN_10분전예측</div>
+                        <div class="status-desc">10분 전 경고 있음</div>
+                    </div>
+                    <div class="status-box fn-bad">
+                        <div class="status-title">❌ FN_완전놓침</div>
+                        <div class="status-desc">완전히 놓친 돌파</div>
+                    </div>
+                    <div class="status-box fp-ok">
+                        <div class="status-title">⚠️ FP_10분후돌파</div>
+                        <div class="status-desc">조기 경고 (유효)</div>
+                    </div>
+                    <div class="status-box fp-bad">
+                        <div class="status-title">❌ FP_잘못된경고</div>
+                        <div class="status-desc">진짜 오경보</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- 성능 요약 -->
+        <div class="summary">
+            <h3>📊 실질적 성능 요약 (10분 기준)</h3>
+            <div class="summary-grid">
+                <div class="summary-item">
+                    <div class="summary-value">240분</div>
+                    <div class="summary-label">입력 시퀀스</div>
+                </div>
+                <div class="summary-item">
+                    <div class="summary-value">30분</div>
+                    <div class="summary-label">예측 범위</div>
+                </div>
+                <div class="summary-item">
+                    <div class="summary-value">680개</div>
+                    <div class="summary-label">총 Feature</div>
+                </div>
+                <div class="summary-item">
+                    <div class="summary-value">6개</div>
+                    <div class="summary-label">앙상블 모델</div>
+                </div>
+                <div class="summary-item">
+                    <div class="summary-value">7건</div>
+                    <div class="summary-label">실질 FN (완전놓침)</div>
+                </div>
+                <div class="summary-item">
+                    <div class="summary-value bad">338건</div>
+                    <div class="summary-label">실질 FP (오경보)</div>
+                </div>
+            </div>
+        </div>
+    </div>
+</body>
+</html>
