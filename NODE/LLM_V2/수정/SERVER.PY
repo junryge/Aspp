@@ -114,37 +114,47 @@ def call_api_llm(prompt: str, system_prompt: str = "", max_tokens: int = 4000) -
     if not API_TOKEN:
         return "API token not loaded. Please check token.txt."
 
-    try:
-        headers = {
-            "Authorization": f"Bearer {API_TOKEN}",
-            "Content-Type": "application/json"
-        }
+    headers = {
+        "Authorization": f"Bearer {API_TOKEN}",
+        "Content-Type": "application/json"
+    }
 
-        messages = []
-        if system_prompt:
-            messages.append({"role": "system", "content": system_prompt})
-        messages.append({"role": "user", "content": prompt})
+    messages = []
+    if system_prompt:
+        messages.append({"role": "system", "content": system_prompt})
+    messages.append({"role": "user", "content": prompt})
 
-        data = {
-            "model": API_MODEL,
-            "messages": messages,
-            "max_tokens": max_tokens,
-            "temperature": 0.3
-        }
+    data = {
+        "model": API_MODEL,
+        "messages": messages,
+        "max_tokens": max_tokens,
+        "temperature": 0.3
+    }
 
-        response = requests.post(API_URL, headers=headers, json=data, timeout=120)
+    # 재시도 1번 포함 (총 2번 시도)
+    for attempt in range(2):
+        try:
+            response = requests.post(API_URL, headers=headers, json=data, timeout=300)
 
-        if response.status_code == 200:
-            result = response.json()
-            answer = result["choices"][0]["message"]["content"]
-            return answer
-        else:
-            logger.error(f"API error: {response.status_code} - {response.text}")
-            return f"API error: {response.status_code}\n{response.text}"
+            if response.status_code == 200:
+                result = response.json()
+                answer = result["choices"][0]["message"]["content"]
+                return answer
+            else:
+                logger.error(f"API error: {response.status_code} - {response.text}")
+                return f"API error: {response.status_code}\n{response.text}"
 
-    except Exception as e:
-        logger.error(f"API call failed: {e}")
-        return f"API call failed: {e}"
+        except requests.exceptions.Timeout:
+            logger.warning(f"API timeout (attempt {attempt + 1}/2)")
+            if attempt == 0:
+                logger.info("Retrying...")
+                continue
+            return "API 요청 시간 초과 (5분). 서버 상태를 확인하세요."
+        except Exception as e:
+            logger.error(f"API call failed: {e}")
+            return f"API call failed: {e}"
+    
+    return "API 호출 실패"
 
 def call_local_llm(prompt: str, max_tokens: int = 1500) -> str:
     """Call local LLM with LOCAL (lightweight) prompts"""
