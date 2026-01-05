@@ -1,57 +1,28 @@
 # -*- coding: utf-8 -*-
 """
 ================================================================================
-급증 패턴 분석 - 새로운 피처 발굴
+미사용 컬럼 분석 - TOTALCNT와의 상관관계 및 선행 지표 분석
 ================================================================================
-
-분석 내용:
-1. Hub/CMD 선행 지표 - TOTALCNT보다 먼저 급증하는지
-2. 가속도 (acceleration) - 기울기의 변화율
-3. 연속 상승 (consecutive_rise) - 최근 N분 중 상승한 분 수
-4. 급등 횟수 (spike_count) - 순간 점프 카운트
-
-사용법:
-    python surge_pattern_analysis.py
 """
 
 import pandas as pd
 import numpy as np
-from datetime import datetime
 
 # ============================================================================
 # 설정
 # ============================================================================
-TRAIN_FILE = 'M14_학습_20251101_20251231_C_109.CSV'  # 학습 파일명 수정 필요
+TRAIN_FILE = 'M14_학습_20251101_20251231_C_109.CSV'  # 파일명 수정 필요
 TARGET_COL = 'TOTALCNT'
 LIMIT_VALUE = 1700
-
-# Important 그룹 컬럼 (선행 지표 분석용)
-HUB_COLS = [
-    'M16HUB.QUE.M16TOM14B.CURRENTQCREATED',
-    'M16HUB.QUE.M14BTOM16.CURRENTQCREATED',
-    'M16HUB.QUE.M14TOM16.CURRENTQCREATED',
-    'M16HUB.QUE.M16TOM14.CURRENTQCREATED',
-]
-
-CMD_COLS = [
-    'M14.QUE.ALL.CURRENTQCOMPLETED',
-    'M14.QUE.ALL.CURRENTQCREATED',
-    'M14.QUE.ALL.TRANSPORT4MINOVERCNT',
-]
-
-LOAD_COLS = [
-    'M14.QUE.LOAD.CURRENTLOADQCNT',
-    'M14.QUE.LOAD.AVGLOADTIME',
-]
 
 # ============================================================================
 # 데이터 로드
 # ============================================================================
 print("=" * 80)
-print("급증 패턴 분석 시작")
+print("미사용 컬럼 분석 시작")
 print("=" * 80)
 
-print("\n[1/5] 데이터 로드 중...")
+print("\n[1/4] 데이터 로드 중...")
 
 try:
     df = pd.read_csv(TRAIN_FILE, encoding='utf-8')
@@ -61,167 +32,118 @@ except:
     except:
         df = pd.read_csv(TRAIN_FILE, encoding='euc-kr')
 
-print(f"  - 원본 데이터: {len(df):,}행")
+print(f"  - 원본 데이터: {len(df):,}행, {len(df.columns)}컬럼")
 
 # CURRTIME을 datetime으로 변환
 df['CURRTIME'] = pd.to_datetime(df['CURRTIME'], format='%Y%m%d%H%M')
 df = df.sort_values('CURRTIME').reset_index(drop=True)
 
 # 숫자형 변환
-df[TARGET_COL] = pd.to_numeric(df[TARGET_COL], errors='coerce').fillna(0)
+for col in df.columns:
+    if col != 'CURRTIME':
+        df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
 
 # ============================================================================
 # 급증 케이스 식별
 # ============================================================================
-print("\n[2/5] 급증 케이스 식별 중...")
+print("\n[2/4] 급증 케이스 식별 중...")
 
-# 30분 후 최대값 계산
 df['future_max_30'] = df[TARGET_COL].rolling(window=30, min_periods=1).max().shift(-30)
 df['is_surge'] = ((df[TARGET_COL] < 1600) & (df['future_max_30'] >= LIMIT_VALUE)).astype(int)
 
 surge_count = df['is_surge'].sum()
-print(f"  - 급증 케이스 (현재<1600 → 30분 후≥1700): {surge_count:,}건")
+print(f"  - 급증 케이스: {surge_count:,}건")
 
 # ============================================================================
-# 분석 1: Hub/CMD 선행 지표
+# 상관관계 분석
 # ============================================================================
-print("\n[3/5] Hub/CMD 선행 지표 분석...")
+print("\n[3/4] 상관관계 분석...")
 
-def analyze_leading_indicator(df, indicator_cols, target_col, name):
-    """선행 지표 분석: 지표가 타겟보다 먼저 급증하는지"""
-    results = []
+# 분석할 컬럼 (CURRTIME, 이미 분석한 컬럼 제외)
+exclude_cols = ['CURRTIME', 'future_max_30', 'is_surge']
+analyze_cols = [c for c in df.columns if c not in exclude_cols]
+
+results = []
+
+for col in analyze_cols:
+    if col == TARGET_COL:
+        continue
     
-    for col in indicator_cols:
-        if col not in df.columns:
-            continue
-            
-        df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
-        
-        # 각 컬럼의 변화량 계산
-        df[f'{col}_change_10'] = df[col].diff(10)
-        df[f'{target_col}_change_10'] = df[target_col].diff(10)
-        
-        # 급증 케이스에서 지표가 먼저 상승한 비율
-        surge_df = df[df['is_surge'] == 1].copy()
-        if len(surge_df) == 0:
-            continue
-            
-        # 10분 전 지표 변화 > 타겟 변화인 비율
-        leading = (surge_df[f'{col}_change_10'] > surge_df[f'{target_col}_change_10']).mean()
-        
-        # 상관관계
-        corr = df[col].corr(df[target_col])
-        
-        results.append({
-            'column': col.split('.')[-1][:30],
-            'leading_ratio': leading,
-            'correlation': corr
-        })
+    # 상관관계
+    corr = df[col].corr(df[TARGET_COL])
     
-    if results:
-        print(f"\n  [{name}]")
-        print(f"  {'컬럼':<35} {'선행비율':>10} {'상관관계':>10}")
-        print("  " + "-" * 55)
-        for r in results:
-            print(f"  {r['column']:<35} {r['leading_ratio']:>10.2%} {r['correlation']:>10.3f}")
-
-analyze_leading_indicator(df, HUB_COLS, TARGET_COL, "Hub 지표")
-analyze_leading_indicator(df, CMD_COLS, TARGET_COL, "CMD 지표")
-analyze_leading_indicator(df, LOAD_COLS, TARGET_COL, "Load 지표")
-
-# ============================================================================
-# 분석 2: 가속도 (Acceleration) 분석
-# ============================================================================
-print("\n[4/5] 가속도 패턴 분석...")
-
-# 기울기 계산
-df['slope_5'] = df[TARGET_COL].diff(5) / 5
-df['slope_10'] = df[TARGET_COL].diff(10) / 10
-
-# 가속도 = 기울기의 변화
-df['acceleration_5'] = df['slope_5'].diff(5)
-df['acceleration_10'] = df['slope_10'].diff(10)
-
-# 급증 케이스 vs 일반 케이스 비교
-surge_df = df[df['is_surge'] == 1]
-normal_df = df[df['is_surge'] == 0]
-
-print(f"\n  [가속도 비교]")
-print(f"  {'지표':<20} {'급증케이스':>15} {'일반케이스':>15} {'차이':>10}")
-print("  " + "-" * 60)
-
-for col in ['slope_5', 'slope_10', 'acceleration_5', 'acceleration_10']:
-    surge_mean = surge_df[col].mean()
-    normal_mean = normal_df[col].mean()
-    diff = surge_mean - normal_mean
-    print(f"  {col:<20} {surge_mean:>15.3f} {normal_mean:>15.3f} {diff:>+10.3f}")
-
-# ============================================================================
-# 분석 3: 연속 상승 패턴
-# ============================================================================
-print("\n  [연속 상승 패턴]")
-
-# 연속 상승 분 수 계산
-df['is_rising'] = (df[TARGET_COL].diff() > 0).astype(int)
-
-for window in [5, 10, 15, 20]:
-    df[f'consecutive_rise_{window}'] = df['is_rising'].rolling(window=window, min_periods=1).sum()
+    # 변화량 상관관계 (10분)
+    col_change = df[col].diff(10)
+    target_change = df[TARGET_COL].diff(10)
+    change_corr = col_change.corr(target_change)
     
-    surge_mean = surge_df[f'consecutive_rise_{window}'].mean() if f'consecutive_rise_{window}' in surge_df.columns else df[df['is_surge']==1][f'consecutive_rise_{window}'].mean()
-    normal_mean = normal_df[f'consecutive_rise_{window}'].mean() if f'consecutive_rise_{window}' in normal_df.columns else df[df['is_surge']==0][f'consecutive_rise_{window}'].mean()
+    # 급증 케이스에서 평균 vs 일반 케이스 평균
+    surge_mean = df[df['is_surge'] == 1][col].mean()
+    normal_mean = df[df['is_surge'] == 0][col].mean()
+    diff_ratio = (surge_mean - normal_mean) / (normal_mean + 0.001) * 100
     
-    # 다시 계산
-    surge_df = df[df['is_surge'] == 1]
-    normal_df = df[df['is_surge'] == 0]
+    # 선행 지표 분석: 10분 전 값이 타겟보다 먼저 상승하는 비율
+    col_lead = df[col].shift(10)  # 10분 전 값
+    lead_corr = col_lead.corr(df[TARGET_COL])
     
-    surge_mean = surge_df[f'consecutive_rise_{window}'].mean()
-    normal_mean = normal_df[f'consecutive_rise_{window}'].mean()
-    diff = surge_mean - normal_mean
-    
-    print(f"  최근{window:>2}분 상승횟수      {surge_mean:>15.2f} {normal_mean:>15.2f} {diff:>+10.2f}")
+    results.append({
+        'column': col,
+        'corr': corr,
+        'change_corr': change_corr,
+        'lead_corr': lead_corr,
+        'surge_mean': surge_mean,
+        'normal_mean': normal_mean,
+        'diff_ratio': diff_ratio
+    })
+
+# 결과 정렬 (상관관계 절대값 기준)
+results_df = pd.DataFrame(results)
+results_df['abs_corr'] = results_df['corr'].abs()
+results_df = results_df.sort_values('abs_corr', ascending=False)
 
 # ============================================================================
-# 분석 4: 급등 횟수 (Spike Count)
+# 결과 출력
 # ============================================================================
-print("\n  [급등 횟수 (1분 변화량 > N)]")
+print("\n[4/4] 분석 결과")
+print("=" * 120)
 
-df['change_1min'] = df[TARGET_COL].diff()
+print("\n[상관관계 TOP 30]")
+print(f"{'컬럼':<50} {'상관관계':>10} {'변화상관':>10} {'선행상관':>10} {'급증차이%':>10}")
+print("-" * 90)
 
-for threshold in [10, 20, 30, 50]:
-    df[f'spike_{threshold}'] = (df['change_1min'] > threshold).astype(int)
-    
-    for window in [10, 30]:
-        col_name = f'spike_{threshold}_last{window}'
-        df[col_name] = df[f'spike_{threshold}'].rolling(window=window, min_periods=1).sum()
-        
-        surge_df = df[df['is_surge'] == 1]
-        normal_df = df[df['is_surge'] == 0]
-        
-        surge_mean = surge_df[col_name].mean()
-        normal_mean = normal_df[col_name].mean()
-        diff = surge_mean - normal_mean
-        
-        if window == 30:
-            print(f"  최근{window}분 +{threshold:>2} 점프횟수  {surge_mean:>15.2f} {normal_mean:>15.2f} {diff:>+10.2f}")
+for _, row in results_df.head(30).iterrows():
+    col_short = row['column'][-50:] if len(row['column']) > 50 else row['column']
+    print(f"{col_short:<50} {row['corr']:>10.3f} {row['change_corr']:>10.3f} {row['lead_corr']:>10.3f} {row['diff_ratio']:>+10.1f}%")
 
-# ============================================================================
-# 분석 5: 추천 피처 요약
-# ============================================================================
-print("\n" + "=" * 80)
-print("[5/5] 추천 새 피처 요약")
-print("=" * 80)
+# 선행 지표 분석 (lead_corr 기준)
+print("\n" + "=" * 120)
+print("\n[선행 지표 TOP 20] (10분 전 값과 현재 TOTALCNT 상관관계)")
+results_df_lead = results_df.copy()
+results_df_lead['abs_lead'] = results_df_lead['lead_corr'].abs()
+results_df_lead = results_df_lead.sort_values('abs_lead', ascending=False)
 
-print("""
-┌─────────────────────────────────────────────────────────────────────────────┐
-│ 추천 피처                                                                    │
-├─────────────────────────────────────────────────────────────────────────────┤
-│ 1. acceleration_5/10    : 기울기의 변화율 (급증 직전 급가속 감지)              │
-│ 2. consecutive_rise_10  : 최근 10분 중 상승한 분 수                           │
-│ 3. spike_20_last30      : 최근 30분 내 +20 이상 점프 횟수                      │
-│ 4. hub_change_ratio     : Hub 변화량 / Target 변화량 (선행 비율)              │
-│ 5. momentum             : slope_5 - slope_10 (단기-장기 기울기 차이)          │
-└─────────────────────────────────────────────────────────────────────────────┘
-""")
+print(f"{'컬럼':<50} {'선행상관':>10} {'일반상관':>10} {'차이':>10}")
+print("-" * 80)
 
-print("\n분석 완료!")
-print("=" * 80)
+for _, row in results_df_lead.head(20).iterrows():
+    col_short = row['column'][-50:] if len(row['column']) > 50 else row['column']
+    diff = row['lead_corr'] - row['corr']
+    print(f"{col_short:<50} {row['lead_corr']:>10.3f} {row['corr']:>10.3f} {diff:>+10.3f}")
+
+# 급증 케이스 차이 분석
+print("\n" + "=" * 120)
+print("\n[급증 케이스 차이 TOP 20] (급증 시 평균 vs 일반 시 평균)")
+results_df_surge = results_df.copy()
+results_df_surge['abs_diff'] = results_df_surge['diff_ratio'].abs()
+results_df_surge = results_df_surge.sort_values('abs_diff', ascending=False)
+
+print(f"{'컬럼':<50} {'급증평균':>12} {'일반평균':>12} {'차이%':>10}")
+print("-" * 84)
+
+for _, row in results_df_surge.head(20).iterrows():
+    col_short = row['column'][-50:] if len(row['column']) > 50 else row['column']
+    print(f"{col_short:<50} {row['surge_mean']:>12.1f} {row['normal_mean']:>12.1f} {row['diff_ratio']:>+10.1f}%")
+
+print("\n" + "=" * 120)
+print("분석 완료!")
+print("=" * 120)
