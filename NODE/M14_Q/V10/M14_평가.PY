@@ -1,113 +1,146 @@
 # -*- coding: utf-8 -*-
 """
 ================================================================================
-V10 ML 예측 모델 - 평가 코드
-M14 Q 30분 내 리미트(1700) 초과 예측 시스템
+V11 ML 예측 모델 - 평가 코드
+M14 TOTALCNT 30분 내 리미트(1700) 초과 예측 시스템
 ================================================================================
 
+V11 변경사항:
+    - Important 그룹에 급증 신호 강한 5개 컬럼 추가
+
 사용법:
-    python m14_v10_evaluate.py
-
-입력:
-    - models/v10_m14_model.pkl (학습된 모델)
-    - 평가 데이터 파일
-
-출력:
-    - 평가 결과 리포트
-    - results/ 폴더에 예측 결과 저장
+    python m14_v11_evaluate.py
 """
 
 import os
-import sys
 import pickle
 import warnings
 import numpy as np
 import pandas as pd
-from datetime import datetime
-from pathlib import Path
+from datetime import datetime, timedelta
 
-# 경고 무시
 warnings.filterwarnings('ignore')
-
-from sklearn.metrics import (
-    accuracy_score, precision_score, recall_score, f1_score,
-    confusion_matrix, classification_report, roc_auc_score
-)
-
-print("=" * 80)
-print("V10 ML 예측 모델 - 평가 시작")
-print("=" * 80)
 
 # ============================================================================
 # 설정
 # ============================================================================
-EVAL_CONFIG = {
-    'eval_file': 'M14_평가_20260101_20260102_C_109.CSV',
-    'model_file': 'models/v10_m14_model.pkl',
-    'result_dir': 'results'
+CONFIG = {
+    'model_file': 'models/v11_m14_model.pkl',
+    'eval_file': 'M14_평가_20250101_20250104.CSV',  # 평가 파일명 수정 필요
+    'output_file': f'v11_평가결과_{datetime.now().strftime("%Y%m%d_%H%M%S")}.csv',
+    'sequence_length': 240,
+    'prediction_window': 30,
+    'limit_value': 1700,
+    'target_column': 'TOTALCNT',
 }
 
-os.makedirs(EVAL_CONFIG['result_dir'], exist_ok=True)
+# Feature 그룹 (V11)
+FEATURE_GROUPS = {
+    'target': [
+        'TOTALCNT'
+    ],
+    'important': [
+        'M14.QUE.LOAD.CURRENTLOADQCNT',
+        'M14.QUE.LOAD.AVGLOADTIME',
+        'M14.QUE.LOAD.AVGLOADTIME1MIN',
+        'M14.QUE.LOAD.AVGFOUPLOADTIME',
+        'M14.QUE.LOAD.AVGRETICLELOADTIME',
+        'M14.QUE.LOAD.CURRENTRETICLELOADQCNT',
+        'M14.QUE.ALL.CURRENTQCOMPLETED',
+        'M14.QUE.ALL.CURRENTQCREATED',
+        'M14.QUE.ALL.TRANSPORT4MINOVERCNT',
+        'M14.QUE.ALL.TRANSPORT4MINOVERTIMEAVG',
+        'M14.QUE.ALL.TRANSPORT4MINOVERRATIO',
+        'M16HUB.QUE.M16TOM14B.CURRENTQCREATED',
+        'M16HUB.QUE.M14BTOM16.CURRENTQCREATED',
+        'M16HUB.QUE.M14TOM16.CURRENTQCREATED',
+        'M16HUB.QUE.M16TOM14.CURRENTQCREATED',
+        'M16HUB.QUE.M14TOM16.MESCURRENTQCNT',
+        'M16HUB.QUE.M16TOM14.MESCURRENTQCNT',
+        # V11 신규 추가
+        'M14.QUE.ALL.M14ATOM16MANUAL_CURRENTQCNT',
+        'M14.QUE.STK.MANUALOUTCOUNT',
+        'M16HUB.QUE.M16TOM14A.MESCURRENTQCNT',
+        'M14B.QUE.ALL.M14BTOM16CURRENTQCNT',
+        'M14.QUE.SENDFAB.VERTICALQUEUECOUNT',
+    ],
+    'auxiliary': [
+        'M14AM10A', 'M10AM14A', 'M14AM10ASUM',
+        'M14AM14B', 'M14BM14A', 'M14AM14BSUM',
+        'M14AM16', 'M16M14A', 'M14AM16SUM',
+        'M14.QUE.SFAB.SENDQUEUETOTAL',
+        'M14.QUE.SFAB.RECEIVEQUEUETOTAL',
+        'M14.QUE.SFAB.RETURNQUEUETOTAL',
+        'M14.QUE.SFAB.COMPLETEQUEUETOTAL',
+        'M14.QUE.OHT.OHTUTIL',
+        'M14.QUE.OHT.RTCOHTUTIL',
+        'M14.QUE.OHT.CURRENTOHTQCNT',
+        'M14.QUE.OHT.CURRENTRETICLEOHTQCNT',
+        'M14.QUE.CNV.NORTHCURRENTQCNT',
+        'M14.QUE.CNV.SOUTHCURRENTQCNT',
+        'M14.QUE.CNV.ALLTONORTHCNVCURRENTQCNT',
+        'M14.QUE.CNV.ALLTOSOUTHCNVCURRENTQCNT',
+    ]
+}
+
+print("=" * 80)
+print("V11 ML 예측 모델 - 평가 시작")
+print("=" * 80)
 
 # ============================================================================
 # 모델 로드
 # ============================================================================
 print("\n[1/5] 모델 로드 중...")
 
-with open(EVAL_CONFIG['model_file'], 'rb') as f:
-    save_data = pickle.load(f)
+with open(CONFIG['model_file'], 'rb') as f:
+    model_data = pickle.load(f)
 
-models = save_data['models']
-pyod_iforest = save_data['pyod_iforest']
-pyod_copod = save_data['pyod_copod']
-scalers = save_data['scalers']
-config = save_data['config']
-feature_groups = save_data['feature_groups']
-feature_indices = save_data['feature_indices']
-training_info = save_data['training_info']
+models = model_data['models']
+scalers = model_data['scalers']
+feature_indices = model_data['feature_indices']
 
-print(f"  - 모델 로드 완료")
-print(f"  - 학습 일시: {training_info['train_date']}")
-print(f"  - 학습 샘플 수: {training_info['total_samples']:,}")
+print(f"  - 모델 버전: {model_data['training_info'].get('version', 'V11')}")
+print(f"  - 학습일: {model_data['training_info']['train_date']}")
 
 # ============================================================================
-# 평가 데이터 로드
+# 데이터 로드
 # ============================================================================
 print("\n[2/5] 평가 데이터 로드 중...")
 
-df = pd.read_csv(EVAL_CONFIG['eval_file'], encoding='utf-8')
+try:
+    df = pd.read_csv(CONFIG['eval_file'], encoding='utf-8')
+except:
+    try:
+        df = pd.read_csv(CONFIG['eval_file'], encoding='cp949')
+    except:
+        df = pd.read_csv(CONFIG['eval_file'], encoding='euc-kr')
+
 print(f"  - 원본 데이터: {len(df):,}행")
 
-# CURRTIME을 datetime으로 변환
 df['CURRTIME'] = pd.to_datetime(df['CURRTIME'], format='%Y%m%d%H%M')
 df = df.sort_values('CURRTIME').reset_index(drop=True)
 
-# 숫자형 컬럼만 선택
-numeric_cols = df.select_dtypes(include=[np.number]).columns.tolist()
-df[numeric_cols] = df[numeric_cols].fillna(0)
+# Feature 그룹 필터링
+for group_name in FEATURE_GROUPS:
+    FEATURE_GROUPS[group_name] = [f for f in FEATURE_GROUPS[group_name] if f in df.columns]
+
+# 숫자형 변환
+all_feature_cols = FEATURE_GROUPS['target'] + FEATURE_GROUPS['important'] + FEATURE_GROUPS['auxiliary']
+for col in all_feature_cols:
+    if col in df.columns:
+        df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
+
+print(f"  - Important 컬럼 수: {len(FEATURE_GROUPS['important'])}개")
 
 # ============================================================================
-# 시퀀스 Feature 생성
+# Feature 생성 함수
 # ============================================================================
-print("\n[3/5] 시퀀스 Feature 생성 중...")
-
-seq_len = config['sequence_length']
-pred_window = config['prediction_window']
-limit_val = config['limit_value']
-target_col = config['target_column']
-
 def create_sequence_features(df, feature_cols, seq_len, idx, limit_val=1700):
-    """특정 인덱스에서 seq_len 만큼의 시퀀스 Feature 추출 (급증 감지 강화)"""
     features = []
     for col in feature_cols:
-        if col not in df.columns:
-            # 컬럼이 없으면 0으로 채움 (기본 10개 + 급증감지 10개 = 20개)
-            features.extend([0] * 20)
-            continue
         seq = df[col].iloc[idx - seq_len:idx].values
         current_val = seq[-1]
 
-        # 기본 통계 Feature
         features.extend([
             np.mean(seq),
             np.std(seq),
@@ -121,7 +154,6 @@ def create_sequence_features(df, feature_cols, seq_len, idx, limit_val=1700):
             np.max(seq[-30:]) if len(seq) >= 30 else np.max(seq),
         ])
 
-        # 급증 감지 Feature 추가
         features.extend([
             seq[-1] - seq[-10] if len(seq) >= 10 else 0,
             seq[-1] - seq[-30] if len(seq) >= 30 else 0,
@@ -136,343 +168,202 @@ def create_sequence_features(df, feature_cols, seq_len, idx, limit_val=1700):
         ])
     return features
 
-def create_target(df, target_col, pred_window, limit_val, idx):
-    """30분 내 최대값과 돌파 여부 반환"""
-    future_vals = df[target_col].iloc[idx:idx + pred_window].values
-    if len(future_vals) == 0:
-        return None, None
-    max_val = np.max(future_vals)
-    breach = 1 if max_val >= limit_val else 0
-    return max_val, breach
-
-# 데이터 생성
-print("  - 시퀀스 Feature 추출 중...")
-
-X_target, X_important, X_auxiliary = [], [], []
-y_regression, y_classification = [], []
-timestamps = []
-current_values = []  # 현재 시점 M14 Q 값
-
-for idx in range(seq_len, len(df) - pred_window):
-    max_val, breach = create_target(df, target_col, pred_window, limit_val, idx)
-    if max_val is None:
-        continue
-
-    feat_target = create_sequence_features(df, feature_groups['target'], seq_len, idx)
-    feat_important = create_sequence_features(df, feature_groups['important'], seq_len, idx)
-    feat_auxiliary = create_sequence_features(df, feature_groups['auxiliary'], seq_len, idx)
-
-    X_target.append(feat_target)
-    X_important.append(feat_important)
-    X_auxiliary.append(feat_auxiliary)
-    y_regression.append(max_val)
-    y_classification.append(breach)
-    timestamps.append(df['CURRTIME'].iloc[idx])
-    current_values.append(df[target_col].iloc[idx])  # 현재 시점 값 저장
-
-X_target = np.array(X_target)
-X_important = np.array(X_important)
-X_auxiliary = np.array(X_auxiliary)
-y_regression = np.array(y_regression)
-y_classification = np.array(y_classification)
-
-print(f"  - 총 샘플 수: {len(y_classification):,}")
-print(f"  - 돌파 샘플 수: {np.sum(y_classification):,} ({100*np.mean(y_classification):.2f}%)")
-
 # ============================================================================
-# 스케일링
+# 평가 수행
 # ============================================================================
-print("\n[4/5] 예측 수행 중...")
+print("\n[3/5] 예측 수행 중...")
 
-X_target_scaled = scalers['target'].transform(X_target)
-X_important_scaled = scalers['important'].transform(X_important)
-X_auxiliary_scaled = scalers['auxiliary'].transform(X_auxiliary)
-
-X_all = np.hstack([X_target_scaled, X_important_scaled, X_auxiliary_scaled])
+seq_len = CONFIG['sequence_length']
+pred_window = CONFIG['prediction_window']
+limit_val = CONFIG['limit_value']
+target_col = CONFIG['target_column']
 
 target_end = feature_indices['target_end']
 important_end = feature_indices['important_end']
-auxiliary_end = feature_indices['auxiliary_end']
+
+results = []
+
+for idx in range(seq_len, len(df)):
+    if idx % 1000 == 0:
+        print(f"    진행률: {idx:,}/{len(df):,} ({100*idx/len(df):.1f}%)")
+
+    current_time = df['CURRTIME'].iloc[idx]
+    current_val = df[target_col].iloc[idx]
+
+    # 실제 30분 후 최대값
+    future_end = min(idx + pred_window, len(df))
+    future_vals = df[target_col].iloc[idx:future_end].values
+    actual_max = np.max(future_vals) if len(future_vals) > 0 else current_val
+    actual_breach = 1 if actual_max >= limit_val else 0
+
+    # Feature 생성
+    feat_target = create_sequence_features(df, FEATURE_GROUPS['target'], seq_len, idx)
+    feat_important = create_sequence_features(df, FEATURE_GROUPS['important'], seq_len, idx)
+    feat_auxiliary = create_sequence_features(df, FEATURE_GROUPS['auxiliary'], seq_len, idx)
+
+    X_target = scalers['target'].transform([feat_target])
+    X_important = scalers['important'].transform([feat_important])
+    X_auxiliary = scalers['auxiliary'].transform([feat_auxiliary])
+
+    # 예측
+    pred_xgb_target = models['xgb_target'].predict(X_target)[0]
+    pred_xgb_important = models['xgb_important'].predict(X_important)[0]
+    pred_xgb_auxiliary = models['xgb_auxiliary'].predict(X_auxiliary)[0]
+
+    pred_lgb_target = models['lgb_target'].predict(X_target)[0]
+    pred_lgb_important = models['lgb_important'].predict(X_important)[0]
+    pred_lgb_auxiliary = models['lgb_auxiliary'].predict(X_auxiliary)[0]
+
+    prob_lgb_target = models['lgb_target'].predict_proba(X_target)[0][1]
+    prob_lgb_important = models['lgb_important'].predict_proba(X_important)[0][1]
+    prob_lgb_auxiliary = models['lgb_auxiliary'].predict_proba(X_auxiliary)[0][1]
+
+    # 투표
+    votes = [
+        1 if pred_xgb_target >= limit_val else 0,
+        1 if pred_xgb_important >= limit_val else 0,
+        1 if pred_xgb_auxiliary >= limit_val else 0,
+        pred_lgb_target,
+        pred_lgb_important,
+        pred_lgb_auxiliary
+    ]
+    vote_sum = sum(votes)
+
+    # 최종 판정 규칙
+    rule1 = vote_sum >= 4
+    rule2 = (prob_lgb_important >= 0.92) and (current_val >= 1520)
+    rule3 = (pred_xgb_important >= 1710) and (current_val >= 1520)
+    rule4 = (current_val >= 1650) and (vote_sum >= 3)
+
+    final_pred = 1 if (rule1 or rule2 or rule3 or rule4) else 0
+
+    # 예측 범위
+    pred_start = current_time
+    pred_end = current_time + timedelta(minutes=30)
+    pred_range = f"{pred_start.strftime('%Y-%m-%d %H:%M')} ~ {pred_end.strftime('%H:%M')}"
+
+    results.append({
+        '현재시간': current_time.strftime('%Y-%m-%d %H:%M'),
+        '예측범위': pred_range,
+        '현재_TOTALCNT': current_val,
+        '실제_최대값': actual_max,
+        '실제_돌파여부': actual_breach,
+        'XGB_타겟_예측값': round(pred_xgb_target, 1),
+        'XGB_중요_예측값': round(pred_xgb_important, 1),
+        'XGB_보조_예측값': round(pred_xgb_auxiliary, 1),
+        'LGBM_타겟_확률': round(prob_lgb_target, 3),
+        'LGBM_중요_확률': round(prob_lgb_important, 3),
+        'LGBM_보조_확률': round(prob_lgb_auxiliary, 3),
+        '투표수_6개중': vote_sum,
+        '최종예측_돌파여부': final_pred,
+    })
+
+result_df = pd.DataFrame(results)
 
 # ============================================================================
-# PyOD 이상 탐지
+# 예측상태 분류 (10분 전/후 분석)
 # ============================================================================
-print("\n  [PyOD 이상 탐지]")
+print("\n[4/5] 예측상태 분류 중 (10분 전/후 분석)...")
 
-pyod_iforest_pred = pyod_iforest.predict(X_target_scaled)
-pyod_copod_pred = pyod_copod.predict(X_target_scaled)
+result_df['현재시간_dt'] = pd.to_datetime(result_df['현재시간'])
 
-print(f"    - IsolationForest 이상 감지: {np.sum(pyod_iforest_pred):,}건 ({100*np.mean(pyod_iforest_pred):.2f}%)")
-print(f"    - COPOD 이상 감지: {np.sum(pyod_copod_pred):,}건 ({100*np.mean(pyod_copod_pred):.2f}%)")
+def get_prediction_status(row, all_df):
+    actual = row['실제_돌파여부']
+    pred = row['최종예측_돌파여부']
+    current_time = row['현재시간_dt']
+    
+    if actual == 1 and pred == 1:
+        return '정상예측_TP'
+    elif actual == 0 and pred == 0:
+        return '정상예측_TN'
+    elif actual == 1 and pred == 0:
+        # FN: 10분 전에 예측했는지 확인
+        time_10min_ago = current_time - timedelta(minutes=10)
+        prev_data = all_df[all_df['현재시간_dt'] == time_10min_ago]
+        if len(prev_data) > 0 and prev_data['최종예측_돌파여부'].values[0] == 1:
+            return 'FN_10분전예측'
+        else:
+            return 'FN_완전놓침'
+    else:
+        # FP: 10분 후에 실제 돌파 있는지 확인
+        time_10min_later = current_time + timedelta(minutes=10)
+        later_data = all_df[all_df['현재시간_dt'] == time_10min_later]
+        if len(later_data) > 0 and later_data['실제_돌파여부'].values[0] == 1:
+            return 'FP_10분후돌파'
+        else:
+            return 'FP_잘못된경고'
 
-# ============================================================================
-# 6개 모델 예측
-# ============================================================================
-print("\n  [6개 모델 예측]")
-
-# XGBoost 회귀 예측
-pred_xgb_target = models['xgb_target'].predict(X_all[:, :target_end])
-pred_xgb_important = models['xgb_important'].predict(X_all[:, target_end:important_end])
-pred_xgb_auxiliary = models['xgb_auxiliary'].predict(X_all[:, important_end:auxiliary_end])
-
-# LightGBM 분류 예측
-pred_lgb_target = models['lgb_target'].predict(X_all[:, :target_end])
-pred_lgb_important = models['lgb_important'].predict(X_all[:, target_end:important_end])
-pred_lgb_auxiliary = models['lgb_auxiliary'].predict(X_all[:, important_end:auxiliary_end])
-
-# LightGBM 확률 예측
-prob_lgb_target = models['lgb_target'].predict_proba(X_all[:, :target_end])[:, 1]
-prob_lgb_important = models['lgb_important'].predict_proba(X_all[:, target_end:important_end])[:, 1]
-prob_lgb_auxiliary = models['lgb_auxiliary'].predict_proba(X_all[:, important_end:auxiliary_end])[:, 1]
-
-# XGBoost 결과를 이진 분류로 변환
-xgb_target_breach = (pred_xgb_target >= limit_val).astype(int)
-xgb_important_breach = (pred_xgb_important >= limit_val).astype(int)
-xgb_auxiliary_breach = (pred_xgb_auxiliary >= limit_val).astype(int)
-
-# 다수결
-votes = np.vstack([
-    xgb_target_breach,
-    xgb_important_breach,
-    xgb_auxiliary_breach,
-    pred_lgb_target,
-    pred_lgb_important,
-    pred_lgb_auxiliary
-])
-
-vote_sum = votes.sum(axis=0)
-
-# 최종 판정 (다수결 + 추가 규칙) - FN 20건 버전
-# 규칙1: 다수결 4/6 이상
-# 규칙2: LGBM_중요_확률 >= 0.92 AND 현재값 >= 1520
-# 규칙3: XGB_중요_예측값 >= 1710 AND 현재값 >= 1520
-# 규칙4: 현재값 >= 1650 AND 투표 >= 3
-current_values_arr = np.array(current_values)
-
-rule1 = (vote_sum >= 4)
-rule2 = (prob_lgb_important >= 0.92) & (current_values_arr >= 1520)
-rule3 = (pred_xgb_important >= 1710) & (current_values_arr >= 1520)
-rule4 = (current_values_arr >= 1650) & (vote_sum >= 3)
-
-final_pred = (rule1 | rule2 | rule3 | rule4).astype(int)
-
-print(f"\n  [최종 판정 규칙]")
-print(f"    - 규칙1) 다수결 4/6 이상: {rule1.sum()}건")
-print(f"    - 규칙2) LGBM_중요_확률 >= 0.92 AND 현재값 >= 1520: {rule2.sum()}건")
-print(f"    - 규칙3) XGB_중요_예측값 >= 1710 AND 현재값 >= 1520: {rule3.sum()}건")
-print(f"    - 규칙4) 현재값 >= 1650 AND 투표 >= 3: {rule4.sum()}건")
-print(f"    - 최종 돌파 예측: {final_pred.sum()}건")
+result_df['예측상태'] = result_df.apply(lambda row: get_prediction_status(row, result_df), axis=1)
+result_df = result_df.drop(columns=['현재시간_dt'])
 
 # ============================================================================
 # 성능 평가
 # ============================================================================
 print("\n[5/5] 성능 평가...")
 
+actual = result_df['실제_돌파여부'].values
+pred = result_df['최종예측_돌파여부'].values
+
+TP = ((actual == 1) & (pred == 1)).sum()
+TN = ((actual == 0) & (pred == 0)).sum()
+FP = ((actual == 0) & (pred == 1)).sum()
+FN = ((actual == 1) & (pred == 0)).sum()
+
+accuracy = (TP + TN) / len(actual) if len(actual) > 0 else 0
+precision = TP / (TP + FP) if (TP + FP) > 0 else 0
+recall = TP / (TP + FN) if (TP + FN) > 0 else 0
+f1 = 2 * precision * recall / (precision + recall) if (precision + recall) > 0 else 0
+
 print("\n" + "=" * 80)
-print("평가 결과")
+print("V11 평가 결과")
 print("=" * 80)
 
-print("\n[개별 모델 성능]")
-model_results = {
-    'XGB 타겟': xgb_target_breach,
-    'XGB 중요': xgb_important_breach,
-    'XGB 보조': xgb_auxiliary_breach,
-    'LGBM 타겟': pred_lgb_target,
-    'LGBM 중요': pred_lgb_important,
-    'LGBM 보조': pred_lgb_auxiliary,
-}
+print(f"\n[기본 성능]")
+print(f"  Accuracy:  {accuracy:.4f}")
+print(f"  Precision: {precision:.4f}")
+print(f"  Recall:    {recall:.4f}")
+print(f"  F1 Score:  {f1:.4f}")
 
-print(f"{'모델':<12} {'Accuracy':>10} {'Precision':>10} {'Recall':>10} {'F1':>10}")
-print("-" * 52)
+print(f"\n[혼동 행렬]")
+print(f"  TP (정확한 돌파 예측): {TP:,}건")
+print(f"  TN (정확한 안전 예측): {TN:,}건")
+print(f"  FP (잘못된 경고):      {FP:,}건")
+print(f"  FN (놓친 돌파):        {FN:,}건")
 
-for name, pred in model_results.items():
-    acc = accuracy_score(y_classification, pred)
-    prec = precision_score(y_classification, pred, zero_division=0)
-    rec = recall_score(y_classification, pred, zero_division=0)
-    f1 = f1_score(y_classification, pred, zero_division=0)
-    print(f"{name:<12} {acc:>10.4f} {prec:>10.4f} {rec:>10.4f} {f1:>10.4f}")
+# 예측상태별 집계
+print(f"\n[예측상태 분류]")
+status_counts = result_df['예측상태'].value_counts()
+for status, count in status_counts.items():
+    print(f"  {status}: {count:,}건")
 
-print("\n[다수결 앙상블 성능]")
-print("-" * 52)
+# 실질 FN/FP
+real_fn = status_counts.get('FN_완전놓침', 0)
+real_fp = status_counts.get('FP_잘못된경고', 0)
 
-acc = accuracy_score(y_classification, final_pred)
-prec = precision_score(y_classification, final_pred, zero_division=0)
-rec = recall_score(y_classification, final_pred, zero_division=0)
-f1 = f1_score(y_classification, final_pred, zero_division=0)
-
-print(f"{'다수결(4/6)':<12} {acc:>10.4f} {prec:>10.4f} {rec:>10.4f} {f1:>10.4f}")
-
-# ROC-AUC (평균 확률 기반)
-avg_prob = (prob_lgb_target + prob_lgb_important + prob_lgb_auxiliary) / 3
-if len(np.unique(y_classification)) > 1:
-    auc = roc_auc_score(y_classification, avg_prob)
-    print(f"\n  ROC-AUC: {auc:.4f}")
-
-print("\n[혼동 행렬]")
-cm = confusion_matrix(y_classification, final_pred)
-print(f"                예측 안전   예측 돌파")
-print(f"  실제 안전     {cm[0,0]:>8,}   {cm[0,1]:>8,}")
-print(f"  실제 돌파     {cm[1,0]:>8,}   {cm[1,1]:>8,}")
-
-print("\n[분류 리포트]")
-print(classification_report(y_classification, final_pred,
-                          target_names=['안전(0)', '돌파(1)'],
-                          zero_division=0))
+print(f"\n[실질적 성능 (10분 기준)]")
+print(f"  실질 FN (완전 놓침):    {real_fn:,}건")
+print(f"  실질 FP (잘못된 경고):  {real_fp:,}건")
 
 # ============================================================================
 # 결과 저장
 # ============================================================================
-print("\n" + "=" * 80)
-print("결과 저장")
-print("=" * 80)
+result_df.to_csv(CONFIG['output_file'], index=False, encoding='utf-8-sig')
+print(f"\n결과 저장: {CONFIG['output_file']}")
 
-# 상세 결과 DataFrame 생성 (한글 컬럼명)
-# 예측 범위 시간 생성 (현재시간 ~ 현재시간+pred_window분)
-pred_end_times = [t + pd.Timedelta(minutes=pred_window) for t in timestamps]
-pred_range = [f"{s.strftime('%Y-%m-%d %H:%M')} ~ {e.strftime('%H:%M')}" for s, e in zip(timestamps, pred_end_times)]
+# 오분류 CSV 저장
+fn_df = result_df[result_df['예측상태'].str.startswith('FN')]
+fp_df = result_df[result_df['예측상태'].str.startswith('FP')]
 
-result_df = pd.DataFrame({
-    '현재시간': timestamps,
-    '예측범위': pred_range,
-    '현재_TOTALCNT': current_values,
-    '실제_최대값': y_regression,
-    '실제_돌파여부': y_classification,
-    'XGB_타겟_예측값': pred_xgb_target,
-    'XGB_중요_예측값': pred_xgb_important,
-    'XGB_보조_예측값': pred_xgb_auxiliary,
-    'LGBM_타겟_돌파': pred_lgb_target,
-    'LGBM_중요_돌파': pred_lgb_important,
-    'LGBM_보조_돌파': pred_lgb_auxiliary,
-    'LGBM_타겟_확률': prob_lgb_target,
-    'LGBM_중요_확률': prob_lgb_important,
-    'LGBM_보조_확률': prob_lgb_auxiliary,
-    '투표수_6개중': vote_sum,
-    '최종예측_돌파여부': final_pred,
-    'PyOD_IForest_이상': pyod_iforest_pred,
-    'PyOD_COPOD_이상': pyod_copod_pred
-})
+if len(fn_df) > 0:
+    fn_file = f"v11_놓친돌파_FN_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
+    fn_df.to_csv(fn_file, index=False, encoding='utf-8-sig')
+    print(f"FN 저장: {fn_file}")
 
-# 예측상태 컬럼 추가 (10분 전/후 분석)
-print("  - 예측상태 분석 중...")
-pred_status = []
-
-for i, row in result_df.iterrows():
-    actual = row['실제_돌파여부']
-    pred = row['최종예측_돌파여부']
-    current_time = row['현재시간']
-    
-    # 10분 전/후 데이터 찾기
-    time_10min_ago = current_time - pd.Timedelta(minutes=10)
-    time_10min_later = current_time + pd.Timedelta(minutes=10)
-    
-    prev_data = result_df[result_df['현재시간'] == time_10min_ago]
-    later_data = result_df[result_df['현재시간'] == time_10min_later]
-    
-    if actual == 1 and pred == 1:
-        # TP: 정상예측
-        pred_status.append('정상예측_TP')
-    elif actual == 0 and pred == 0:
-        # TN: 정상예측
-        pred_status.append('정상예측_TN')
-    elif actual == 1 and pred == 0:
-        # FN: 10분 전 예측 있었는지 확인
-        if len(prev_data) > 0 and prev_data['최종예측_돌파여부'].values[0] == 1:
-            pred_status.append('FN_10분전예측')
-        else:
-            pred_status.append('FN_완전놓침')
-    elif actual == 0 and pred == 1:
-        # FP: 10분 후 돌파 발생했는지 확인
-        if len(later_data) > 0 and later_data['실제_돌파여부'].values[0] == 1:
-            pred_status.append('FP_10분후돌파')
-        else:
-            pred_status.append('FP_잘못된경고')
-
-result_df['예측상태'] = pred_status
-
-# 예측상태별 집계 출력
-print("\n  [예측상태 집계]")
-status_counts = result_df['예측상태'].value_counts()
-for status, cnt in status_counts.items():
-    print(f"    - {status}: {cnt}건")
-
-# 예측 결과 저장
-result_path = os.path.join(EVAL_CONFIG['result_dir'],
-                          f'eval_result_{datetime.now().strftime("%Y%m%d_%H%M%S")}.csv')
-result_df.to_csv(result_path, index=False, encoding='utf-8-sig')
-print(f"  - 예측 결과 저장: {result_path}")
-
-# 요약 리포트 저장
-report_path = os.path.join(EVAL_CONFIG['result_dir'],
-                          f'eval_report_{datetime.now().strftime("%Y%m%d_%H%M%S")}.txt')
-
-with open(report_path, 'w', encoding='utf-8') as f:
-    f.write("=" * 80 + "\n")
-    f.write("V10 ML 예측 모델 평가 리포트\n")
-    f.write("=" * 80 + "\n\n")
-
-    f.write(f"평가 시간: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
-    f.write(f"평가 파일: {EVAL_CONFIG['eval_file']}\n")
-    f.write(f"총 샘플 수: {len(y_classification):,}\n")
-    f.write(f"돌파 샘플 수: {np.sum(y_classification):,} ({100*np.mean(y_classification):.2f}%)\n\n")
-
-    f.write("=" * 80 + "\n")
-    f.write("다수결 앙상블 성능\n")
-    f.write("=" * 80 + "\n")
-    f.write(f"  Accuracy:  {acc:.4f}\n")
-    f.write(f"  Precision: {prec:.4f}\n")
-    f.write(f"  Recall:    {rec:.4f}\n")
-    f.write(f"  F1 Score:  {f1:.4f}\n")
-    if len(np.unique(y_classification)) > 1:
-        f.write(f"  ROC-AUC:   {auc:.4f}\n")
-
-    f.write("\n[혼동 행렬]\n")
-    f.write(f"  TN={cm[0,0]:,}, FP={cm[0,1]:,}\n")
-    f.write(f"  FN={cm[1,0]:,}, TP={cm[1,1]:,}\n")
-
-    f.write("\n[분류 리포트]\n")
-    f.write(classification_report(y_classification, final_pred,
-                                target_names=['안전(0)', '돌파(1)'],
-                                zero_division=0))
-
-print(f"  - 평가 리포트 저장: {report_path}")
-
-# ============================================================================
-# 오분류 분석 및 CSV 저장
-# ============================================================================
-print("\n" + "=" * 80)
-print("오분류 분석")
-print("=" * 80)
-
-# False Negative (돌파인데 안전으로 예측) - 가장 위험
-fn_mask = (y_classification == 1) & (final_pred == 0)
-fn_count = np.sum(fn_mask)
-fn_df = result_df[fn_mask].copy()
-print(f"\n[False Negative (놓친 돌파)] : {fn_count}건")
-
-if fn_count > 0:
-    fn_path = os.path.join(EVAL_CONFIG['result_dir'], 
-                           f'놓친돌파_FN_{datetime.now().strftime("%Y%m%d_%H%M%S")}.csv')
-    fn_df.to_csv(fn_path, index=False, encoding='utf-8-sig')
-    print(f"  - 저장 완료: {fn_path}")
-    print(f"  - 상위 5건:")
-    for _, row in fn_df.head(5).iterrows():
-        print(f"    {row['현재시간']} | 예측범위: {row['예측범위']} | 현재값: {row['현재_TOTALCNT']:.0f} | 실제최대: {row['실제_최대값']:.0f} | 투표: {row['투표수_6개중']}/6")
-
-# False Positive (안전인데 돌파로 예측)
-fp_mask = (y_classification == 0) & (final_pred == 1)
-fp_count = np.sum(fp_mask)
-fp_df = result_df[fp_mask].copy()
-print(f"\n[False Positive (잘못된 경고)] : {fp_count}건")
-
-if fp_count > 0:
-    fp_path = os.path.join(EVAL_CONFIG['result_dir'], 
-                           f'잘못된경고_FP_{datetime.now().strftime("%Y%m%d_%H%M%S")}.csv')
-    fp_df.to_csv(fp_path, index=False, encoding='utf-8-sig')
-    print(f"  - 저장 완료: {fp_path}")
-    print(f"  - 상위 5건:")
-    for _, row in fp_df.head(5).iterrows():
-        print(f"    {row['현재시간']} | 예측범위: {row['예측범위']} | 현재값: {row['현재_TOTALCNT']:.0f} | 실제최대: {row['실제_최대값']:.0f} | 투표: {row['투표수_6개중']}/6")
+if len(fp_df) > 0:
+    fp_file = f"v11_잘못된경고_FP_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
+    fp_df.to_csv(fp_file, index=False, encoding='utf-8-sig')
+    print(f"FP 저장: {fp_file}")
 
 print("\n" + "=" * 80)
-print("평가 완료!")
+print("V11 평가 완료!")
 print("=" * 80)
