@@ -86,6 +86,39 @@
             cursor: not-allowed;
         }
 
+        /* 개발/운영 토글 */
+        .env-toggle {
+            display: flex;
+            background: #e2e8f0;
+            border-radius: 20px;
+            padding: 3px;
+            cursor: pointer;
+        }
+
+        .env-option {
+            padding: 5px 10px;
+            border-radius: 17px;
+            font-size: 10px;
+            font-weight: 600;
+            color: #718096;
+            transition: all 0.3s;
+            white-space: nowrap;
+        }
+
+        .env-option.active#env-dev {
+            background: linear-gradient(135deg, #48bb78 0%, #38a169 100%);
+            color: white;
+        }
+
+        .env-option.active#env-prod {
+            background: linear-gradient(135deg, #f56565 0%, #c53030 100%);
+            color: white;
+        }
+
+        .env-option:hover:not(.active) {
+            color: #4a5568;
+        }
+
         .token-reload-btn {
             padding: 5px 10px;
             font-size: 11px;
@@ -920,6 +953,15 @@
                             <div class="llm-option active" id="llm-api">API</div>
                         </div>
                         <span id="llmStatusIcon" style="font-size: 14px;">🟢</span>
+                        
+                        <div style="border-left: 1px solid #ccc; height: 20px; margin: 0 8px;"></div>
+                        
+                        <span style="font-size: 12px; color: #888;">서버:</span>
+                        <div class="env-toggle" id="envToggle" onclick="toggleEnvMode()">
+                            <div class="env-option active" id="env-dev">개발(30B)</div>
+                            <div class="env-option" id="env-prod">운영(80B)</div>
+                        </div>
+                        
                         <button onclick="reloadToken()" class="token-reload-btn" title="API 토큰 다시 로드">
                             🔄 토큰
                         </button>
@@ -1694,6 +1736,70 @@ STAT_DT,CURRENT_M16A_3F_JOB_2,M16A_3F_STORAGE_UTIL,HUBROOMTOTAL,...
             }
         }
 
+        // ========================================
+        // 개발/운영 환경 관리
+        // ========================================
+        let currentEnvMode = 'dev';  // 'dev' or 'prod'
+
+        async function checkEnvStatus() {
+            try {
+                const response = await fetch('/env_status');
+                if (response.ok) {
+                    const data = await response.json();
+                    currentEnvMode = data.env;
+                    updateEnvToggleUI();
+                    console.log('환경 상태:', data);
+                }
+            } catch (error) {
+                console.error('환경 상태 확인 실패:', error);
+            }
+        }
+
+        function updateEnvToggleUI() {
+            const devBtn = document.getElementById('env-dev');
+            const prodBtn = document.getElementById('env-prod');
+
+            devBtn.classList.remove('active');
+            prodBtn.classList.remove('active');
+
+            if (currentEnvMode === 'dev') {
+                devBtn.classList.add('active');
+            } else {
+                prodBtn.classList.add('active');
+            }
+        }
+
+        async function toggleEnvMode() {
+            const newEnv = currentEnvMode === 'dev' ? 'prod' : 'dev';
+            const envName = newEnv === 'dev' ? '개발(30B)' : '운영(80B)';
+
+            try {
+                const response = await fetch('/set_env_mode', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ env: newEnv })
+                });
+
+                const data = await response.json();
+
+                if (data.success) {
+                    currentEnvMode = data.env;
+                    updateEnvToggleUI();
+                    console.log('환경 변경:', data.message);
+                    
+                    // 환경 변경 알림
+                    const resultDiv = document.getElementById('result');
+                    const currentContent = resultDiv.innerHTML;
+                    resultDiv.innerHTML = `✅ ${envName} 서버로 전환되었습니다.\n\n` + currentContent;
+                } else {
+                    alert('❌ ' + data.message);
+                }
+            } catch (error) {
+                console.error('환경 변경 실패:', error);
+                alert('❌ 환경 변경 실패');
+            }
+        }
+
         async function reloadToken() {
             const btn = document.querySelector('.token-reload-btn');
             const originalText = btn.innerHTML;
@@ -1918,6 +2024,7 @@ STAT_DT,CURRENT_M16A_3F_JOB_2,M16A_3F_STORAGE_UTIL,HUBROOMTOTAL,...
             questionInput.focus();
             renderHistoryList();
             checkLLMStatus();  // LLM 상태 확인
+            checkEnvStatus();  // 환경 상태 확인
         });
 
         // 기존 단순 배열 히스토리를 트리 구조로 마이그레이션
