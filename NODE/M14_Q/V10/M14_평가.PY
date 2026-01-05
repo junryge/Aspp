@@ -244,20 +244,23 @@ vote_sum = votes.sum(axis=0)
 
 # 최종 판정 (다수결 + 추가 규칙)
 # 규칙1: 다수결 4/6 이상
-# 규칙2: LGBM_중요_확률 >= 0.95 AND 현재값 >= 1550 (FP 감소 강화)
-# 규칙3: XGB_중요_예측값 >= 1720 AND 현재값 >= 1550 (과대예측 보정)
+# 규칙2: LGBM_중요_확률 >= 0.92 AND 현재값 >= 1520 (FN/FP 균형)
+# 규칙3: XGB_중요_예측값 >= 1710 AND 현재값 >= 1520 (FN/FP 균형)
+# 규칙4: 현재값 >= 1650 AND 투표 >= 3 (고위험 구간 추가 감지)
 current_values_arr = np.array(current_values)
 
 rule1 = (vote_sum >= 4)
-rule2 = (prob_lgb_important >= 0.95) & (current_values_arr >= 1550)
-rule3 = (pred_xgb_important >= 1720) & (current_values_arr >= 1550)
+rule2 = (prob_lgb_important >= 0.92) & (current_values_arr >= 1520)
+rule3 = (pred_xgb_important >= 1710) & (current_values_arr >= 1520)
+rule4 = (current_values_arr >= 1650) & (vote_sum >= 3)
 
-final_pred = (rule1 | rule2 | rule3).astype(int)
+final_pred = (rule1 | rule2 | rule3 | rule4).astype(int)
 
 print(f"\n  [최종 판정 규칙]")
 print(f"    - 규칙1) 다수결 4/6 이상: {rule1.sum()}건")
-print(f"    - 규칙2) LGBM_중요_확률 >= 0.95 AND 현재값 >= 1550: {rule2.sum()}건")
-print(f"    - 규칙3) XGB_중요_예측값 >= 1720 AND 현재값 >= 1550: {rule3.sum()}건")
+print(f"    - 규칙2) LGBM_중요_확률 >= 0.92 AND 현재값 >= 1520: {rule2.sum()}건")
+print(f"    - 규칙3) XGB_중요_예측값 >= 1710 AND 현재값 >= 1520: {rule3.sum()}건")
+print(f"    - 규칙4) 현재값 >= 1650 AND 투표 >= 3: {rule4.sum()}건")
 print(f"    - 최종 돌파 예측: {final_pred.sum()}건")
 
 # ============================================================================
