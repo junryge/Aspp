@@ -322,12 +322,11 @@ print("\n" + "=" * 80)
 print("결과 저장")
 print("=" * 80)
 
-# 예측 범위 시간 생성 (현재시간 ~ 현재시간+30분)
-pred_start_times = timestamps
-pred_end_times = [t + pd.Timedelta(minutes=pred_window) for t in timestamps]
-pred_range = [f"{s.strftime('%Y-%m-%d %H:%M')} ~ {e.strftime('%H:%M')}" for s, e in zip(pred_start_times, pred_end_times)]
-
 # 상세 결과 DataFrame 생성 (한글 컬럼명)
+# 예측 범위 시간 생성 (현재시간 ~ 현재시간+30분)
+pred_end_times = [t + pd.Timedelta(minutes=pred_window) for t in timestamps]
+pred_range = [f"{s.strftime('%Y-%m-%d %H:%M')} ~ {e.strftime('%H:%M')}" for s, e in zip(timestamps, pred_end_times)]
+
 result_df = pd.DataFrame({
     '현재시간': timestamps,
     '예측범위': pred_range,
