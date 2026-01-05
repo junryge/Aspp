@@ -1,15 +1,16 @@
 # -*- coding: utf-8 -*-
 """
 ================================================================================
-V11 ML 예측 모델 - 평가 코드
+V12 ML 예측 모델 - 평가 코드 (불필요 피처 제거)
 M14 TOTALCNT 30분 내 리미트(1700) 초과 예측 시스템
 ================================================================================
 
-V11 변경사항:
-    - Important 그룹에 급증 신호 강한 5개 컬럼 추가
+V12 변경사항:
+    - Important 그룹: 5개 컬럼 제거
+    - Auxiliary 그룹: 11개 컬럼 제거
 
 사용법:
-    python m14_v11_evaluate.py
+    python m14_v12_evaluate.py
 """
 
 import os
@@ -25,66 +26,50 @@ warnings.filterwarnings('ignore')
 # 설정
 # ============================================================================
 CONFIG = {
-    'model_file': 'models/v11_m14_model.pkl',
+    'model_file': 'models/v12_m14_model.pkl',
     'eval_file': 'M14_평가_20250101_20250104.CSV',  # 평가 파일명 수정 필요
-    'output_file': f'v11_평가결과_{datetime.now().strftime("%Y%m%d_%H%M%S")}.csv',
+    'output_file': f'v12_평가결과_{datetime.now().strftime("%Y%m%d_%H%M%S")}.csv',
     'sequence_length': 240,
     'prediction_window': 30,
     'limit_value': 1700,
     'target_column': 'TOTALCNT',
 }
 
-# Feature 그룹 (V11)
+# Feature 그룹 (V12 - 불필요 피처 제거)
 FEATURE_GROUPS = {
     'target': [
         'TOTALCNT'
     ],
     'important': [
+        'M14.QUE.ALL.CURRENTQCOMPLETED',
+        'M16HUB.QUE.M16TOM14.MESCURRENTQCNT',
+        'M16HUB.QUE.M14TOM16.MESCURRENTQCNT',
+        'M14.QUE.LOAD.AVGFOUPLOADTIME',
         'M14.QUE.LOAD.CURRENTLOADQCNT',
         'M14.QUE.LOAD.AVGLOADTIME',
-        'M14.QUE.LOAD.AVGLOADTIME1MIN',
-        'M14.QUE.LOAD.AVGFOUPLOADTIME',
-        'M14.QUE.LOAD.AVGRETICLELOADTIME',
-        'M14.QUE.LOAD.CURRENTRETICLELOADQCNT',
-        'M14.QUE.ALL.CURRENTQCOMPLETED',
-        'M14.QUE.ALL.CURRENTQCREATED',
-        'M14.QUE.ALL.TRANSPORT4MINOVERCNT',
-        'M14.QUE.ALL.TRANSPORT4MINOVERTIMEAVG',
         'M14.QUE.ALL.TRANSPORT4MINOVERRATIO',
+        'M14.QUE.LOAD.AVGLOADTIME1MIN',
         'M16HUB.QUE.M16TOM14B.CURRENTQCREATED',
         'M16HUB.QUE.M14BTOM16.CURRENTQCREATED',
         'M16HUB.QUE.M14TOM16.CURRENTQCREATED',
         'M16HUB.QUE.M16TOM14.CURRENTQCREATED',
-        'M16HUB.QUE.M14TOM16.MESCURRENTQCNT',
-        'M16HUB.QUE.M16TOM14.MESCURRENTQCNT',
-        # V11 신규 추가
-        'M14.QUE.ALL.M14ATOM16MANUAL_CURRENTQCNT',
-        'M14.QUE.STK.MANUALOUTCOUNT',
-        'M16HUB.QUE.M16TOM14A.MESCURRENTQCNT',
-        'M14B.QUE.ALL.M14BTOM16CURRENTQCNT',
-        'M14.QUE.SENDFAB.VERTICALQUEUECOUNT',
     ],
     'auxiliary': [
-        'M14AM10A', 'M10AM14A', 'M14AM10ASUM',
-        'M14AM14B', 'M14BM14A', 'M14AM14BSUM',
-        'M14AM16', 'M16M14A', 'M14AM16SUM',
-        'M14.QUE.SFAB.SENDQUEUETOTAL',
-        'M14.QUE.SFAB.RECEIVEQUEUETOTAL',
-        'M14.QUE.SFAB.RETURNQUEUETOTAL',
-        'M14.QUE.SFAB.COMPLETEQUEUETOTAL',
-        'M14.QUE.OHT.OHTUTIL',
-        'M14.QUE.OHT.RTCOHTUTIL',
-        'M14.QUE.OHT.CURRENTOHTQCNT',
-        'M14.QUE.OHT.CURRENTRETICLEOHTQCNT',
-        'M14.QUE.CNV.NORTHCURRENTQCNT',
+        'M10AM14A',
         'M14.QUE.CNV.SOUTHCURRENTQCNT',
-        'M14.QUE.CNV.ALLTONORTHCNVCURRENTQCNT',
+        'M14AM14BSUM',
+        'M14AM10A',
         'M14.QUE.CNV.ALLTOSOUTHCNVCURRENTQCNT',
+        'M14AM14B',
+        'M14.QUE.OHT.CURRENTOHTQCNT',
+        'M14.QUE.CNV.ALLTONORTHCNVCURRENTQCNT',
+        'M14AM10ASUM',
+        'M14AM16SUM',
     ]
 }
 
 print("=" * 80)
-print("V11 ML 예측 모델 - 평가 시작")
+print("V12 ML 예측 모델 - 평가 시작 (불필요 피처 제거)")
 print("=" * 80)
 
 # ============================================================================
@@ -99,7 +84,7 @@ models = model_data['models']
 scalers = model_data['scalers']
 feature_indices = model_data['feature_indices']
 
-print(f"  - 모델 버전: {model_data['training_info'].get('version', 'V11')}")
+print(f"  - 모델 버전: {model_data['training_info'].get('version', 'V12')}")
 print(f"  - 학습일: {model_data['training_info']['train_date']}")
 
 # ============================================================================
@@ -131,6 +116,7 @@ for col in all_feature_cols:
         df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
 
 print(f"  - Important 컬럼 수: {len(FEATURE_GROUPS['important'])}개")
+print(f"  - Auxiliary 컬럼 수: {len(FEATURE_GROUPS['auxiliary'])}개")
 
 # ============================================================================
 # Feature 생성 함수
@@ -277,7 +263,6 @@ def get_prediction_status(row, all_df):
     elif actual == 0 and pred == 0:
         return '정상예측_TN'
     elif actual == 1 and pred == 0:
-        # FN: 10분 전에 예측했는지 확인
         time_10min_ago = current_time - timedelta(minutes=10)
         prev_data = all_df[all_df['현재시간_dt'] == time_10min_ago]
         if len(prev_data) > 0 and prev_data['최종예측_돌파여부'].values[0] == 1:
@@ -285,7 +270,6 @@ def get_prediction_status(row, all_df):
         else:
             return 'FN_완전놓침'
     else:
-        # FP: 10분 후에 실제 돌파 있는지 확인
         time_10min_later = current_time + timedelta(minutes=10)
         later_data = all_df[all_df['현재시간_dt'] == time_10min_later]
         if len(later_data) > 0 and later_data['실제_돌파여부'].values[0] == 1:
@@ -315,7 +299,7 @@ recall = TP / (TP + FN) if (TP + FN) > 0 else 0
 f1 = 2 * precision * recall / (precision + recall) if (precision + recall) > 0 else 0
 
 print("\n" + "=" * 80)
-print("V11 평가 결과")
+print("V12 평가 결과 (불필요 피처 제거)")
 print("=" * 80)
 
 print(f"\n[기본 성능]")
@@ -344,26 +328,17 @@ print(f"\n[실질적 성능 (10분 기준)]")
 print(f"  실질 FN (완전 놓침):    {real_fn:,}건")
 print(f"  실질 FP (잘못된 경고):  {real_fp:,}건")
 
+# V10 대비 비교
+print(f"\n[V10 대비 비교]")
+print(f"  V10: 실질 FN=7건, 실질 FP=338건")
+print(f"  V12: 실질 FN={real_fn}건, 실질 FP={real_fp}건")
+
 # ============================================================================
 # 결과 저장
 # ============================================================================
 result_df.to_csv(CONFIG['output_file'], index=False, encoding='utf-8-sig')
 print(f"\n결과 저장: {CONFIG['output_file']}")
 
-# 오분류 CSV 저장
-fn_df = result_df[result_df['예측상태'].str.startswith('FN')]
-fp_df = result_df[result_df['예측상태'].str.startswith('FP')]
-
-if len(fn_df) > 0:
-    fn_file = f"v11_놓친돌파_FN_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
-    fn_df.to_csv(fn_file, index=False, encoding='utf-8-sig')
-    print(f"FN 저장: {fn_file}")
-
-if len(fp_df) > 0:
-    fp_file = f"v11_잘못된경고_FP_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
-    fp_df.to_csv(fp_file, index=False, encoding='utf-8-sig')
-    print(f"FP 저장: {fp_file}")
-
 print("\n" + "=" * 80)
-print("V11 평가 완료!")
+print("V12 평가 완료!")
 print("=" * 80)
