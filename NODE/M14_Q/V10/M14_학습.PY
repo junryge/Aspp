@@ -1,20 +1,17 @@
 # -*- coding: utf-8 -*-
 """
 ================================================================================
-V11 ML 예측 모델 - 학습 코드 (새 피처 추가)
+V12 ML 예측 모델 - 학습 코드 (불필요 피처 제거)
 M14 TOTALCNT 30분 내 리미트(1700) 초과 예측 시스템
 ================================================================================
 
-V10 → V11 변경사항:
-    - Important 그룹에 급증 신호 강한 5개 컬럼 추가
-    - M14.QUE.ALL.M14ATOM16MANUAL_CURRENTQCNT (+212% 차이)
-    - M14.QUE.STK.MANUALOUTCOUNT (+66% 차이)
-    - M16HUB.QUE.M16TOM14A.MESCURRENTQCNT (+36%, 선행효과)
-    - M14B.QUE.ALL.M14BTOM16CURRENTQCNT (+67% 차이)
-    - M14.QUE.SENDFAB.VERTICALQUEUECOUNT (상관 0.842)
+V10 → V12 변경사항:
+    - Important 그룹: 5개 컬럼 제거 (Importance < 0.01)
+    - Auxiliary 그룹: 11개 컬럼 제거 (Importance < 0.01)
+    - 총 피처 수: 680개 → 360개 (47% 감소)
 
 사용법:
-    python m14_v11_train.py
+    python m14_v12_train.py
 """
 
 import os
@@ -39,7 +36,7 @@ from pyod.models.iforest import IForest
 from pyod.models.copod import COPOD
 
 print("=" * 80)
-print("V11 ML 예측 모델 - 학습 시작 (새 피처 추가)")
+print("V12 ML 예측 모델 - 학습 시작 (불필요 피처 제거)")
 print("=" * 80)
 
 # ============================================================================
@@ -73,59 +70,61 @@ CONFIG = {
     'log_dir': 'logs'
 }
 
-# Feature 그룹 정의 (V11 - 새 피처 추가)
+# ============================================================================
+# Feature 그룹 정의 (V12 - 불필요 피처 제거)
+# ============================================================================
 FEATURE_GROUPS = {
     'target': [
         'TOTALCNT'
     ],
     'important': [
-        # 기존 Load 관련
-        'M14.QUE.LOAD.CURRENTLOADQCNT',
-        'M14.QUE.LOAD.AVGLOADTIME',
-        'M14.QUE.LOAD.AVGLOADTIME1MIN',
-        'M14.QUE.LOAD.AVGFOUPLOADTIME',
-        'M14.QUE.LOAD.AVGRETICLELOADTIME',
-        'M14.QUE.LOAD.CURRENTRETICLELOADQCNT',
-        # 기존 CMD 관련
-        'M14.QUE.ALL.CURRENTQCOMPLETED',
-        'M14.QUE.ALL.CURRENTQCREATED',
-        'M14.QUE.ALL.TRANSPORT4MINOVERCNT',
-        'M14.QUE.ALL.TRANSPORT4MINOVERTIMEAVG',
-        'M14.QUE.ALL.TRANSPORT4MINOVERRATIO',
-        # 기존 Hub 관련
+        # ✓ 유지 (Importance >= 0.01)
+        'M14.QUE.ALL.CURRENTQCOMPLETED',        # 0.568 ★ 핵심
+        'M16HUB.QUE.M16TOM14.MESCURRENTQCNT',   # 0.094
+        'M16HUB.QUE.M14TOM16.MESCURRENTQCNT',   # (Hub 관련)
+        'M14.QUE.LOAD.AVGFOUPLOADTIME',         # 0.078
+        'M14.QUE.LOAD.CURRENTLOADQCNT',         # 0.056
+        'M14.QUE.LOAD.AVGLOADTIME',             # 0.033
+        'M14.QUE.ALL.TRANSPORT4MINOVERRATIO',   # 0.026
+        'M14.QUE.LOAD.AVGLOADTIME1MIN',         # 0.011
+        # Hub CURRENTQCREATED 유지 (다른 컬럼임)
         'M16HUB.QUE.M16TOM14B.CURRENTQCREATED',
         'M16HUB.QUE.M14BTOM16.CURRENTQCREATED',
         'M16HUB.QUE.M14TOM16.CURRENTQCREATED',
         'M16HUB.QUE.M16TOM14.CURRENTQCREATED',
-        'M16HUB.QUE.M14TOM16.MESCURRENTQCNT',
-        'M16HUB.QUE.M16TOM14.MESCURRENTQCNT',
-        # ★ V11 신규 추가 (급증 신호 강한 컬럼)
-        'M14.QUE.ALL.M14ATOM16MANUAL_CURRENTQCNT',  # +212% 급증 차이
-        'M14.QUE.STK.MANUALOUTCOUNT',               # +66% 급증 차이
-        'M16HUB.QUE.M16TOM14A.MESCURRENTQCNT',      # +36% 급증 차이, 선행효과
-        'M14B.QUE.ALL.M14BTOM16CURRENTQCNT',        # +67% 급증 차이
-        'M14.QUE.SENDFAB.VERTICALQUEUECOUNT',       # 상관관계 0.842
+        
+        # ❌ 제거됨 (Importance < 0.01):
+        # - M14.QUE.ALL.CURRENTQCREATED (0.010)
+        # - M14.QUE.ALL.TRANSPORT4MINOVERCNT (0.009)
+        # - M14.QUE.ALL.TRANSPORT4MINOVERTIMEAVG (0.005)
+        # - M14.QUE.LOAD.CURRENTRETICLELOADQCNT (0.004)
+        # - M14.QUE.LOAD.AVGRETICLELOADTIME (0.003)
     ],
     'auxiliary': [
-        # Inflow
-        'M14AM10A', 'M10AM14A', 'M14AM10ASUM',
-        'M14AM14B', 'M14BM14A', 'M14AM14BSUM',
-        'M14AM16', 'M16M14A', 'M14AM16SUM',
-        # Outflow
-        'M14.QUE.SFAB.SENDQUEUETOTAL',
-        'M14.QUE.SFAB.RECEIVEQUEUETOTAL',
-        'M14.QUE.SFAB.RETURNQUEUETOTAL',
-        'M14.QUE.SFAB.COMPLETEQUEUETOTAL',
-        # OHT
-        'M14.QUE.OHT.OHTUTIL',
-        'M14.QUE.OHT.RTCOHTUTIL',
-        'M14.QUE.OHT.CURRENTOHTQCNT',
-        'M14.QUE.OHT.CURRENTRETICLEOHTQCNT',
-        # CNV
-        'M14.QUE.CNV.NORTHCURRENTQCNT',
-        'M14.QUE.CNV.SOUTHCURRENTQCNT',
-        'M14.QUE.CNV.ALLTONORTHCNVCURRENTQCNT',
-        'M14.QUE.CNV.ALLTOSOUTHCNVCURRENTQCNT',
+        # ✓ 유지 (Importance >= 0.01)
+        'M10AM14A',                              # 0.539 ★ 핵심
+        'M14.QUE.CNV.SOUTHCURRENTQCNT',          # 0.100
+        'M14AM14BSUM',                           # 0.092
+        'M14AM10A',                              # 0.090
+        'M14.QUE.CNV.ALLTOSOUTHCNVCURRENTQCNT',  # 0.048
+        'M14AM14B',                              # 0.020
+        'M14.QUE.OHT.CURRENTOHTQCNT',            # 0.015
+        'M14.QUE.CNV.ALLTONORTHCNVCURRENTQCNT',  # 0.013
+        'M14AM10ASUM',                           # 0.013
+        'M14AM16SUM',                            # 0.011
+        
+        # ❌ 제거됨 (Importance < 0.01):
+        # - M16M14A (0.008)
+        # - M14BM14A (0.008)
+        # - M14AM16 (0.008)
+        # - M14.QUE.OHT.OHTUTIL (0.007)
+        # - M14.QUE.SFAB.RECEIVEQUEUETOTAL (0.007)
+        # - M14.QUE.SFAB.RETURNQUEUETOTAL (0.005)
+        # - M14.QUE.CNV.NORTHCURRENTQCNT (0.004)
+        # - M14.QUE.SFAB.SENDQUEUETOTAL (0.004)
+        # - M14.QUE.OHT.CURRENTRETICLEOHTQCNT (0.004)
+        # - M14.QUE.OHT.RTCOHTUTIL (0.002)
+        # - M14.QUE.SFAB.COMPLETEQUEUETOTAL (0.002)
     ]
 }
 
@@ -151,19 +150,12 @@ df['CURRTIME'] = pd.to_datetime(df['CURRTIME'], format='%Y%m%d%H%M')
 df = df.sort_values('CURRTIME').reset_index(drop=True)
 
 # Feature 그룹별로 실제 사용 가능한 것만 필터링
-all_features = FEATURE_GROUPS['target'] + FEATURE_GROUPS['important'] + FEATURE_GROUPS['auxiliary']
-available_features = [col for col in all_features if col in df.columns]
-missing_features = [col for col in all_features if col not in df.columns]
-
-if missing_features:
-    print(f"  - 누락된 Feature: {missing_features}")
-
 for group_name in FEATURE_GROUPS:
     FEATURE_GROUPS[group_name] = [f for f in FEATURE_GROUPS[group_name] if f in df.columns]
 
 print(f"  - Target: {len(FEATURE_GROUPS['target'])}개")
-print(f"  - Important: {len(FEATURE_GROUPS['important'])}개")
-print(f"  - Auxiliary: {len(FEATURE_GROUPS['auxiliary'])}개")
+print(f"  - Important: {len(FEATURE_GROUPS['important'])}개 (V10: 17개 → V12: 12개)")
+print(f"  - Auxiliary: {len(FEATURE_GROUPS['auxiliary'])}개 (V10: 21개 → V12: 10개)")
 
 # ============================================================================
 # 결측치 처리
@@ -298,7 +290,7 @@ X_all = np.hstack([X_target_scaled, X_important_scaled, X_auxiliary_scaled])
 print(f"  - 타겟 Feature: {X_target_scaled.shape}")
 print(f"  - 중요 Feature: {X_important_scaled.shape}")
 print(f"  - 보조 Feature: {X_auxiliary_scaled.shape}")
-print(f"  - 전체 Feature: {X_all.shape}")
+print(f"  - 전체 Feature: {X_all.shape} (V10: 680개 → V12: {X_all.shape[1]}개)")
 
 # ============================================================================
 # PyOD 이상 탐지
@@ -431,22 +423,32 @@ save_data = {
         'auxiliary_end': auxiliary_end
     },
     'training_info': {
-        'version': 'V11',
+        'version': 'V12',
         'total_samples': valid_count,
         'breach_samples': breach_count,
         'train_date': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
         'validation_accuracy': acc,
         'validation_recall': rec,
-        'validation_f1': f1
+        'validation_f1': f1,
+        'removed_features': {
+            'important': ['CURRENTQCREATED', 'TRANSPORT4MINOVERCNT', 'TRANSPORT4MINOVERTIMEAVG', 
+                         'CURRENTRETICLELOADQCNT', 'AVGRETICLELOADTIME'],
+            'auxiliary': ['M16M14A', 'M14BM14A', 'M14AM16', 'OHTUTIL', 'RECEIVEQUEUETOTAL',
+                         'RETURNQUEUETOTAL', 'NORTHCURRENTQCNT', 'SENDQUEUETOTAL', 
+                         'CURRENTRETICLEOHTQCNT', 'RTCOHTUTIL', 'COMPLETEQUEUETOTAL']
+        }
     }
 }
 
-model_path = os.path.join(CONFIG['model_dir'], 'v11_m14_model.pkl')
+model_path = os.path.join(CONFIG['model_dir'], 'v12_m14_model.pkl')
 with open(model_path, 'wb') as f:
     pickle.dump(save_data, f)
 
 print(f"  - 모델 저장 완료: {model_path}")
 
 print("\n" + "=" * 80)
-print("V11 학습 완료!")
+print("V12 학습 완료!")
+print(f"  - 제거된 Important 컬럼: 5개")
+print(f"  - 제거된 Auxiliary 컬럼: 11개")
+print(f"  - 총 피처 수: {X_all.shape[1]}개 (V10 대비 47% 감소)")
 print("=" * 80)
