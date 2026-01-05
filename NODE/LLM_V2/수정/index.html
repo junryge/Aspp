@@ -375,6 +375,70 @@
             border-top: 1px solid #e2e8f0;
         }
 
+        /* 참고 내용 가이드 */
+        .template-guide {
+            margin-bottom: 15px;
+            padding: 15px;
+            background: #f8fafc;
+            border-radius: 8px;
+            border: 1px solid #e2e8f0;
+        }
+
+        .guide-title {
+            font-size: 14px;
+            font-weight: 700;
+            color: #333;
+            margin-bottom: 12px;
+        }
+
+        .guide-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 12px;
+            margin-bottom: 15px;
+        }
+
+        .guide-table th {
+            background: #667eea;
+            color: white;
+            padding: 8px 12px;
+            text-align: left;
+            font-weight: 600;
+        }
+
+        .guide-table td {
+            padding: 8px 12px;
+            border-bottom: 1px solid #e2e8f0;
+        }
+
+        .guide-table tr:nth-child(even) td {
+            background: #f1f5f9;
+        }
+
+        .guide-table tr:hover td {
+            background: #e0e7ff;
+        }
+
+        .guide-desc {
+            display: flex;
+            gap: 15px;
+        }
+
+        .guide-item {
+            flex: 1;
+            padding: 12px;
+            background: white;
+            border-left: 3px solid #667eea;
+            border-radius: 5px;
+            font-size: 12px;
+            line-height: 1.6;
+            color: #555;
+        }
+
+        .guide-item strong {
+            color: #667eea;
+        }
+
         .template-desc {
             padding: 12px 15px;
             margin-bottom: 12px;
@@ -1254,20 +1318,38 @@
                         <span class="template-toggle" id="templateToggle">▼</span>
                     </div>
                     <div class="template-buttons" id="templateButtons" style="display: none;">
-                        <!-- 설명 -->
-                        <div class="template-desc" id="systemDesc">
-                            <strong>SYSTEM_PROMPT</strong> = "너는 이런 전문가야, 이런 지식을 알아"<br>
-                            • 장비 설명, 메시지 유형, 분석 방법<br>
-                            • 여기에 도메인 지식 추가!
-                        </div>
-                        <div class="template-desc" id="fewshotDesc">
-                            <strong>FEWSHOT_PROMPT</strong> = "이렇게 질문하면 이렇게 답해"<br>
-                            • 질문-답변 예시<br>
-                            • 여기에 원하는 답변 스타일/형식 예시 추가!
+                        <!-- 참고 내용 가이드 -->
+                        <div class="template-guide">
+                            <div class="guide-title">📌 참고 내용</div>
+                            <table class="guide-table">
+                                <tr>
+                                    <th>추가할 내용</th>
+                                    <th>파일</th>
+                                </tr>
+                                <tr><td>장비 설명, 에러 코드</td><td>SYSTEM_PROMPT</td></tr>
+                                <tr><td>소요시간 기준</td><td>SYSTEM_PROMPT</td></tr>
+                                <tr><td>특정 FAB 규칙</td><td>SYSTEM_PROMPT</td></tr>
+                                <tr><td>자주 발생하는 문제</td><td>SYSTEM_PROMPT</td></tr>
+                                <tr><td>원하는 답변 형식</td><td>FEWSHOT_PROMPT</td></tr>
+                                <tr><td>질문-답변 예시</td><td>FEWSHOT_PROMPT</td></tr>
+                            </table>
+                            
+                            <div class="guide-desc">
+                                <div class="guide-item">
+                                    <strong>SYSTEM_PROMPT</strong> = "너는 이런 전문가야, 이런 지식을 알아"<br>
+                                    • 장비 설명, 메시지 유형, 분석 방법<br>
+                                    • 여기에 도메인 지식 추가!
+                                </div>
+                                <div class="guide-item">
+                                    <strong>FEWSHOT_PROMPT</strong> = "이렇게 질문하면 이렇게 답해"<br>
+                                    • 질문-답변 예시<br>
+                                    • 여기에 원하는 답변 스타일/형식 예시 추가!
+                                </div>
+                            </div>
                         </div>
                         
                         <div class="template-group" id="systemTemplates">
-                            <div class="template-group-title">SYSTEM 프롬프트용</div>
+                            <div class="template-group-title">SYSTEM 프롬프트용 템플릿</div>
                             <button class="template-btn" onclick="insertTemplate('equipment')">🔧 장비 설명</button>
                             <button class="template-btn" onclick="insertTemplate('errorcode')">❌ 에러 코드</button>
                             <button class="template-btn" onclick="insertTemplate('duration')">⏱️ 소요시간 기준</button>
@@ -1275,7 +1357,7 @@
                             <button class="template-btn" onclick="insertTemplate('problems')">⚠️ 자주 발생 문제</button>
                         </div>
                         <div class="template-group" id="fewshotTemplates">
-                            <div class="template-group-title">FEWSHOT 프롬프트용</div>
+                            <div class="template-group-title">FEWSHOT 프롬프트용 템플릿</div>
                             <button class="template-btn" onclick="insertTemplate('answerformat')">📝 답변 형식</button>
                             <button class="template-btn" onclick="insertTemplate('qna')">💬 질문-답변 예시</button>
                         </div>
@@ -2231,8 +2313,6 @@ STAT_DT,CURRENT_M16A_3F_JOB_2,M16A_3F_STORAGE_UTIL,HUBROOMTOTAL,...
             
             document.getElementById('systemTemplates').style.display = isSystem ? 'block' : 'none';
             document.getElementById('fewshotTemplates').style.display = isFewshot ? 'block' : 'none';
-            document.getElementById('systemDesc').style.display = isSystem ? 'block' : 'none';
-            document.getElementById('fewshotDesc').style.display = isFewshot ? 'block' : 'none';
         }
 
         function insertTemplate(templateKey) {
