@@ -30,9 +30,28 @@ llm = None  # Local LLM
 
 # LLM Settings
 LLM_MODE = "api"  # "local" or "api"
-API_URL = "http://dev.assistant.llm.skhynix.com/v1/chat/completions"
-API_MODEL = "Qwen3-Coder-30B-A3B-Instruct"
 API_TOKEN = None
+
+# 개발/운영 환경 설정
+ENV_MODE = "dev"  # "dev" or "prod"
+
+# 환경별 설정
+ENV_CONFIG = {
+    "dev": {
+        "url": "http://dev.assistant.llm.skhynix.com/v1/chat/completions",
+        "model": "Qwen3-Coder-30B-A3B-Instruct",
+        "name": "개발(30B)"
+    },
+    "prod": {
+        "url": "http://summary.llm.skhynix.com/v1/chat/completions",
+        "model": "Qwen3-Next-80B-A3B-Instruct",
+        "name": "운영(80B)"
+    }
+}
+
+# 현재 사용 중인 URL/Model (ENV_MODE에 따라 변경됨)
+API_URL = ENV_CONFIG["dev"]["url"]
+API_MODEL = ENV_CONFIG["dev"]["model"]
 
 # AMHS Prompts (LOCAL = 14B용 경량, API = 전체)
 AMHS_SYSTEM_PROMPT_LOCAL = ""
@@ -506,6 +525,43 @@ async def reload_token():
     except Exception as e:
         logger.error(f"Token reload failed: {e}")
         return {"success": False, "message": f"토큰 리로드 실패: {str(e)}"}
+
+# ========================================
+# 개발/운영 환경 관리 API
+# ========================================
+@app.get("/env_status")
+async def env_status():
+    """Return current environment status"""
+    return {
+        "env": ENV_MODE,
+        "url": API_URL,
+        "model": API_MODEL,
+        "name": ENV_CONFIG[ENV_MODE]["name"]
+    }
+
+@app.post("/set_env_mode")
+async def set_env_mode(data: dict):
+    """Set environment mode (dev/prod)"""
+    global ENV_MODE, API_URL, API_MODEL
+    
+    new_env = data.get("env", "dev")
+    
+    if new_env not in ENV_CONFIG:
+        return {"success": False, "message": "잘못된 환경입니다. 'dev' 또는 'prod'만 가능합니다."}
+    
+    ENV_MODE = new_env
+    API_URL = ENV_CONFIG[new_env]["url"]
+    API_MODEL = ENV_CONFIG[new_env]["model"]
+    
+    logger.info(f"Environment changed to {new_env}: {API_URL} ({API_MODEL})")
+    
+    return {
+        "success": True,
+        "env": ENV_MODE,
+        "url": API_URL,
+        "model": API_MODEL,
+        "message": f"{ENV_CONFIG[new_env]['name']} 환경으로 전환되었습니다."
+    }
 
 # ========================================
 # 프롬프트 관리 API
