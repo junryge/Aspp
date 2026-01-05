@@ -113,6 +113,196 @@
             cursor: wait;
         }
 
+        /* 프롬프트 편집 버튼 */
+        .prompt-edit-btn {
+            padding: 5px 12px;
+            font-size: 11px;
+            font-weight: 600;
+            background: rgba(255,255,255,0.2);
+            color: white;
+            border: 1px solid rgba(255,255,255,0.3);
+            border-radius: 15px;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+
+        .prompt-edit-btn:hover {
+            background: rgba(255,255,255,0.3);
+            transform: scale(1.05);
+        }
+
+        /* 모달 스타일 */
+        .modal-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0,0,0,0.6);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            z-index: 1000;
+            backdrop-filter: blur(3px);
+        }
+
+        .modal-content {
+            background: white;
+            border-radius: 15px;
+            width: 90%;
+            max-width: 900px;
+            max-height: 85vh;
+            display: flex;
+            flex-direction: column;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+        }
+
+        .modal-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 20px 25px;
+            border-bottom: 1px solid #e2e8f0;
+        }
+
+        .modal-header h2 {
+            margin: 0;
+            font-size: 18px;
+            color: #333;
+        }
+
+        .modal-close {
+            background: none;
+            border: none;
+            font-size: 24px;
+            cursor: pointer;
+            color: #666;
+            padding: 5px 10px;
+            border-radius: 5px;
+            transition: all 0.2s;
+        }
+
+        .modal-close:hover {
+            background: #f0f0f0;
+            color: #333;
+        }
+
+        .modal-tabs {
+            display: flex;
+            gap: 5px;
+            padding: 15px 25px;
+            background: #f8f9fa;
+            border-bottom: 1px solid #e2e8f0;
+            flex-wrap: wrap;
+        }
+
+        .modal-tab {
+            padding: 10px 16px;
+            border: none;
+            background: white;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 13px;
+            font-weight: 500;
+            color: #666;
+            transition: all 0.2s;
+            border: 1px solid #ddd;
+        }
+
+        .modal-tab:hover {
+            background: #667eea;
+            color: white;
+            border-color: #667eea;
+        }
+
+        .modal-tab.active {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border-color: #667eea;
+        }
+
+        .modal-body {
+            flex: 1;
+            padding: 20px 25px;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .prompt-info {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 10px;
+            font-size: 12px;
+            color: #666;
+        }
+
+        #promptFileName {
+            font-weight: 600;
+            color: #667eea;
+        }
+
+        #promptEditor {
+            flex: 1;
+            width: 100%;
+            min-height: 400px;
+            padding: 15px;
+            border: 2px solid #ddd;
+            border-radius: 8px;
+            font-family: 'Consolas', 'Monaco', monospace;
+            font-size: 13px;
+            line-height: 1.6;
+            resize: none;
+            transition: border-color 0.3s;
+        }
+
+        #promptEditor:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+
+        .modal-footer {
+            display: flex;
+            justify-content: flex-end;
+            gap: 10px;
+            padding: 15px 25px;
+            border-top: 1px solid #e2e8f0;
+            background: #f8f9fa;
+            border-radius: 0 0 15px 15px;
+        }
+
+        .modal-btn {
+            padding: 10px 20px;
+            border: none;
+            border-radius: 8px;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .modal-btn.primary {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+        }
+
+        .modal-btn.primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+        }
+
+        .modal-btn.secondary {
+            background: white;
+            color: #666;
+            border: 1px solid #ddd;
+        }
+
+        .modal-btn.secondary:hover {
+            background: #f0f0f0;
+            color: #333;
+        }
+
         .mode-selector {
             margin-bottom: 20px;
             display: flex;
@@ -824,7 +1014,12 @@
                 <div id="amhsSection" class="data-input-section" style="display: none;">
                     <div class="data-input-header" onclick="toggleAmhsSection()">
                         <span>📋 AMHS 로그 분석 - CSV 파일 선택</span>
-                        <span class="icon" id="amhsIcon">▼</span>
+                        <div style="display: flex; align-items: center; gap: 10px;">
+                            <button onclick="event.stopPropagation(); openPromptModal()" class="prompt-edit-btn" title="프롬프트 편집">
+                                📝 프롬프트
+                            </button>
+                            <span class="icon" id="amhsIcon">▼</span>
+                        </div>
                     </div>
                     <div class="data-input-body show" id="amhsBody">
                         <div class="data-info">
@@ -891,6 +1086,42 @@
                 </div>
             </div>
         </main>
+    </div>
+
+    <!-- 프롬프트 편집 모달 -->
+    <div id="promptModal" class="modal-overlay" style="display: none;">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>📝 AMHS 분석 프롬프트 편집</h2>
+                <button class="modal-close" onclick="closePromptModal()">✕</button>
+            </div>
+            <div class="modal-tabs">
+                <button class="modal-tab active" onclick="selectPromptTab('system_api')" id="tab-system_api">
+                    System (API)
+                </button>
+                <button class="modal-tab" onclick="selectPromptTab('system_local')" id="tab-system_local">
+                    System (Local)
+                </button>
+                <button class="modal-tab" onclick="selectPromptTab('fewshot_api')" id="tab-fewshot_api">
+                    Fewshot (API)
+                </button>
+                <button class="modal-tab" onclick="selectPromptTab('fewshot_local')" id="tab-fewshot_local">
+                    Fewshot (Local)
+                </button>
+            </div>
+            <div class="modal-body">
+                <div class="prompt-info">
+                    <span id="promptFileName">AMHS_LOG_ANALYSIS_SYSTEM_PROMPT.md</span>
+                    <span id="promptCharCount">0 자</span>
+                </div>
+                <textarea id="promptEditor" placeholder="프롬프트 내용을 불러오는 중..."></textarea>
+            </div>
+            <div class="modal-footer">
+                <button class="modal-btn secondary" onclick="reloadPrompt()">🔄 새로고침</button>
+                <button class="modal-btn secondary" onclick="closePromptModal()">취소</button>
+                <button class="modal-btn primary" onclick="savePrompt()">💾 저장</button>
+            </div>
+        </div>
     </div>
 
     <script>
@@ -1519,6 +1750,166 @@ STAT_DT,CURRENT_M16A_3F_JOB_2,M16A_3F_STORAGE_UTIL,HUBROOMTOTAL,...
                 btn.disabled = false;
             }
         }
+
+        // ========================================
+        // 프롬프트 편집 기능
+        // ========================================
+        const PROMPT_FILES = {
+            'system_api': 'AMHS_LOG_ANALYSIS_SYSTEM_PROMPT.md',
+            'system_local': 'AMHS_LOG_ANALYSIS_SYSTEM_PROMPT_LOCAL.md',
+            'fewshot_api': 'AMHS_LOG_ANALYSIS_FEWSHOT_PROMPT.md',
+            'fewshot_local': 'AMHS_LOG_ANALYSIS_FEWSHOT_PROMPT_LOCAL.md'
+        };
+
+        let currentPromptTab = 'system_api';
+        let promptCache = {};  // 수정된 내용 임시 저장
+
+        function openPromptModal() {
+            document.getElementById('promptModal').style.display = 'flex';
+            currentPromptTab = 'system_api';
+            updatePromptTabs();
+            loadPrompt(currentPromptTab);
+        }
+
+        function closePromptModal() {
+            document.getElementById('promptModal').style.display = 'none';
+            promptCache = {};  // 캐시 초기화
+        }
+
+        function selectPromptTab(tabId) {
+            // 현재 내용 캐시에 저장
+            promptCache[currentPromptTab] = document.getElementById('promptEditor').value;
+            
+            currentPromptTab = tabId;
+            updatePromptTabs();
+            
+            // 캐시에 있으면 캐시에서, 없으면 서버에서 로드
+            if (promptCache[tabId] !== undefined) {
+                document.getElementById('promptEditor').value = promptCache[tabId];
+                document.getElementById('promptFileName').textContent = PROMPT_FILES[tabId];
+                updateCharCount();
+            } else {
+                loadPrompt(tabId);
+            }
+        }
+
+        function updatePromptTabs() {
+            document.querySelectorAll('.modal-tab').forEach(tab => {
+                tab.classList.remove('active');
+            });
+            document.getElementById('tab-' + currentPromptTab).classList.add('active');
+        }
+
+        async function loadPrompt(tabId) {
+            const editor = document.getElementById('promptEditor');
+            const fileName = document.getElementById('promptFileName');
+            
+            editor.value = '불러오는 중...';
+            editor.disabled = true;
+            fileName.textContent = PROMPT_FILES[tabId];
+
+            try {
+                const response = await fetch('/get_prompt', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ prompt_type: tabId })
+                });
+
+                const data = await response.json();
+                
+                if (data.success) {
+                    editor.value = data.content;
+                    promptCache[tabId] = data.content;
+                    updateCharCount();
+                } else {
+                    editor.value = '❌ 로드 실패: ' + data.message;
+                }
+            } catch (error) {
+                editor.value = '❌ 오류: ' + error.message;
+            } finally {
+                editor.disabled = false;
+            }
+        }
+
+        async function savePrompt() {
+            const editor = document.getElementById('promptEditor');
+            const content = editor.value;
+            
+            if (!content.trim()) {
+                alert('❌ 프롬프트 내용이 비어있습니다.');
+                return;
+            }
+
+            const saveBtn = document.querySelector('.modal-btn.primary');
+            const originalText = saveBtn.innerHTML;
+            saveBtn.innerHTML = '⏳ 저장 중...';
+            saveBtn.disabled = true;
+
+            try {
+                const response = await fetch('/save_prompt', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        prompt_type: currentPromptTab,
+                        content: content
+                    })
+                });
+
+                const data = await response.json();
+                
+                if (data.success) {
+                    saveBtn.innerHTML = '✅ 저장 완료!';
+                    saveBtn.style.background = 'linear-gradient(135deg, #48bb78 0%, #38a169 100%)';
+                    
+                    // 캐시 업데이트
+                    promptCache[currentPromptTab] = content;
+                    
+                    setTimeout(() => {
+                        saveBtn.innerHTML = originalText;
+                        saveBtn.style.background = '';
+                    }, 1500);
+                    
+                    console.log('프롬프트 저장 성공');
+                } else {
+                    alert('❌ 저장 실패: ' + data.message);
+                    saveBtn.innerHTML = originalText;
+                }
+            } catch (error) {
+                alert('❌ 저장 오류: ' + error.message);
+                saveBtn.innerHTML = originalText;
+            } finally {
+                saveBtn.disabled = false;
+            }
+        }
+
+        function reloadPrompt() {
+            delete promptCache[currentPromptTab];
+            loadPrompt(currentPromptTab);
+        }
+
+        function updateCharCount() {
+            const editor = document.getElementById('promptEditor');
+            const count = document.getElementById('promptCharCount');
+            count.textContent = editor.value.length.toLocaleString() + ' 자';
+        }
+
+        // 에디터 입력 시 글자 수 업데이트
+        document.addEventListener('DOMContentLoaded', function() {
+            const editor = document.getElementById('promptEditor');
+            if (editor) {
+                editor.addEventListener('input', updateCharCount);
+            }
+        });
+
+        // ESC 키로 모달 닫기
+        document.addEventListener('keydown', function(e) {
+            if (e.key === 'Escape') {
+                const modal = document.getElementById('promptModal');
+                if (modal.style.display === 'flex') {
+                    closePromptModal();
+                }
+            }
+        });
 
         // 페이지 로드 시 초기화
         window.addEventListener('load', function () {
