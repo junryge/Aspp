@@ -379,18 +379,19 @@ print("\n  [Validation 성능 평가]")
 
 pred_xgb_target = models['xgb_target'].predict(X_val[:, :target_end])
 pred_xgb_important = models['xgb_important'].predict(X_val[:, target_end:important_end])
-pred_lgb_important = models['lgb_important'].predict(X_val[:, target_end:important_end])
-prob_lgb_important = models['lgb_important'].predict_proba(X_val[:, target_end:important_end])[:, 1]
+pred_xgb_auxiliary = models['xgb_auxiliary'].predict(X_val[:, important_end:auxiliary_end])
 
-xgb_breach = (pred_xgb_target >= limit_val).astype(int)
+pred_lgb_target = models['lgb_target'].predict(X_val[:, :target_end])
+pred_lgb_important = models['lgb_important'].predict(X_val[:, target_end:important_end])
+pred_lgb_auxiliary = models['lgb_auxiliary'].predict(X_val[:, important_end:auxiliary_end])
 
 votes = np.vstack([
     (pred_xgb_target >= limit_val).astype(int),
     (pred_xgb_important >= limit_val).astype(int),
-    (models['xgb_auxiliary'].predict(X_val[:, important_end:auxiliary_end]) >= limit_val).astype(int),
-    models['lgb_target'].predict(X_val[:, :target_end]),
-    lgb_important,
-    models['lgb_auxiliary'].predict(X_val[:, important_end:auxiliary_end])
+    (pred_xgb_auxiliary >= limit_val).astype(int),
+    pred_lgb_target,
+    pred_lgb_important,
+    pred_lgb_auxiliary
 ])
 vote_sum = votes.sum(axis=0)
 
