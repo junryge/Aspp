@@ -43,7 +43,7 @@ print("=" * 80)
 # ============================================================================
 EVAL_CONFIG = {
     'eval_file': 'M14_평가_20260101_20260102_C_109.CSV',
-    'model_file': 'models/v10_m14_model.pkl',
+    'model_file': 'models/v10_m14_model_60min.pkl',
     'result_dir': 'results'
 }
 
