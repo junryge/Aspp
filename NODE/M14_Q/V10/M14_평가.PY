@@ -43,7 +43,7 @@ print("=" * 80)
 # ============================================================================
 EVAL_CONFIG = {
     'eval_file': 'M14_평가_20260101_20260102_C_109.CSV',
-    'model_file': 'models/v10_m14_model_60min.pkl',
+    'model_file': 'models/v10_m14_model.pkl',
     'result_dir': 'results'
 }
 
@@ -244,20 +244,19 @@ vote_sum = votes.sum(axis=0)
 
 # 최종 판정 (다수결 + 추가 규칙)
 # 규칙1: 다수결 4/6 이상
-# 규칙2: LGBM_중요_확률 >= 0.95 AND 현재값 >= 1550 (FP 감소 강화)
-# 규칙3: XGB_중요_예측값 >= 1720 AND 현재값 >= 1550 (과대예측 보정)
+# 규칙2: LGBM_중요_확률 >= 0.9 AND 현재값 >= 1500 (FP 감소)
+# 규칙3: XGB_중요_예측값 >= 1700 (직접 1700 초과 예측)
 current_values_arr = np.array(current_values)
-
-rule1 = (vote_sum >= 4)
-rule2 = (prob_lgb_important >= 0.95) & (current_values_arr >= 1550)
-rule3 = (pred_xgb_important >= 1720) & (current_values_arr >= 1550)
-
-final_pred = (rule1 | rule2 | rule3).astype(int)
+final_pred = (
+    (vote_sum >= 4) |
+    ((prob_lgb_important >= 0.9) & (current_values_arr >= 1500)) |
+    (pred_xgb_important >= 1700)
+).astype(int)
 
 print(f"\n  [최종 판정 규칙]")
-print(f"    - 규칙1) 다수결 4/6 이상: {rule1.sum()}건")
-print(f"    - 규칙2) LGBM_중요_확률 >= 0.95 AND 현재값 >= 1550: {rule2.sum()}건")
-print(f"    - 규칙3) XGB_중요_예측값 >= 1720 AND 현재값 >= 1550: {rule3.sum()}건")
+print(f"    - 다수결 4/6 이상: {(vote_sum >= 4).sum()}건")
+print(f"    - LGBM_중요_확률 >= 0.9 AND 현재값 >= 1500: {((prob_lgb_important >= 0.9) & (current_values_arr >= 1500)).sum()}건")
+print(f"    - XGB_중요_예측값 >= 1700: {(pred_xgb_important >= 1700).sum()}건")
 print(f"    - 최종 돌파 예측: {final_pred.sum()}건")
 
 # ============================================================================
@@ -323,11 +322,17 @@ print("\n" + "=" * 80)
 print("결과 저장")
 print("=" * 80)
 
+# 예측 범위 시간 생성 (현재시간 ~ 현재시간+30분)
+pred_start_times = timestamps
+pred_end_times = [t + pd.Timedelta(minutes=pred_window) for t in timestamps]
+pred_range = [f"{s.strftime('%Y-%m-%d %H:%M')} ~ {e.strftime('%H:%M')}" for s, e in zip(pred_start_times, pred_end_times)]
+
 # 상세 결과 DataFrame 생성 (한글 컬럼명)
 result_df = pd.DataFrame({
-    '시간': timestamps,
-    '현재_M14_Q값': current_values,
-    '실제_30분내_최대값': y_regression,
+    '현재시간': timestamps,
+    '예측범위': pred_range,
+    '현재_TOTALCNT': current_values,
+    '실제_최대값': y_regression,
     '실제_돌파여부': y_classification,
     'XGB_타겟_예측값': pred_xgb_target,
     'XGB_중요_예측값': pred_xgb_important,
@@ -400,7 +405,7 @@ if fn_count > 0:
     fn_df = result_df[fn_mask].head(10)
     print(f"  - 상위 {min(10, fn_count)}건:")
     for _, row in fn_df.iterrows():
-        print(f"    {row['시간']} | 현재값: {row['현재_M14_Q값']:.0f} | 실제최대: {row['실제_30분내_최대값']:.0f} | "
+        print(f"    {row['현재시간']} | 예측범위: {row['예측범위']} | 현재값: {row['현재_TOTALCNT']:.0f} | 실제최대: {row['실제_최대값']:.0f} | "
               f"투표: {row['투표수_6개중']}/6")
 
 # False Positive (안전인데 돌파로 예측)
@@ -411,7 +416,7 @@ if fp_count > 0:
     fp_df = result_df[fp_mask].head(10)
     print(f"  - 상위 {min(10, fp_count)}건:")
     for _, row in fp_df.iterrows():
-        print(f"    {row['시간']} | 현재값: {row['현재_M14_Q값']:.0f} | 실제최대: {row['실제_30분내_최대값']:.0f} | "
+        print(f"    {row['현재시간']} | 예측범위: {row['예측범위']} | 현재값: {row['현재_TOTALCNT']:.0f} | 실제최대: {row['실제_최대값']:.0f} | "
               f"투표: {row['투표수_6개중']}/6")
 
 print("\n" + "=" * 80)
