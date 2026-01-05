@@ -1,149 +1,205 @@
 # -*- coding: utf-8 -*-
 """
 ================================================================================
-미사용 컬럼 분석 - TOTALCNT와의 상관관계 및 선행 지표 분석
+Feature Importance 분석 - 불필요한 피처 찾기
 ================================================================================
 """
 
-import pandas as pd
+import pickle
 import numpy as np
+import pandas as pd
 
 # ============================================================================
 # 설정
 # ============================================================================
-TRAIN_FILE = 'M14_학습_20251101_20251231_C_109.CSV'  # 파일명 수정 필요
-TARGET_COL = 'TOTALCNT'
-LIMIT_VALUE = 1700
+MODEL_FILE = 'models/v10_m14_model.pkl'  # V10 모델 파일 경로
 
-# ============================================================================
-# 데이터 로드
-# ============================================================================
+# Feature 그룹 (V10 기준)
+FEATURE_GROUPS = {
+    'target': ['TOTALCNT'],
+    'important': [
+        'M14.QUE.LOAD.CURRENTLOADQCNT',
+        'M14.QUE.LOAD.AVGLOADTIME',
+        'M14.QUE.LOAD.AVGLOADTIME1MIN',
+        'M14.QUE.LOAD.AVGFOUPLOADTIME',
+        'M14.QUE.LOAD.AVGRETICLELOADTIME',
+        'M14.QUE.LOAD.CURRENTRETICLELOADQCNT',
+        'M14.QUE.ALL.CURRENTQCOMPLETED',
+        'M14.QUE.ALL.CURRENTQCREATED',
+        'M14.QUE.ALL.TRANSPORT4MINOVERCNT',
+        'M14.QUE.ALL.TRANSPORT4MINOVERTIMEAVG',
+        'M14.QUE.ALL.TRANSPORT4MINOVERRATIO',
+        'M16HUB.QUE.M16TOM14B.CURRENTQCREATED',
+        'M16HUB.QUE.M14BTOM16.CURRENTQCREATED',
+        'M16HUB.QUE.M14TOM16.CURRENTQCREATED',
+        'M16HUB.QUE.M16TOM14.CURRENTQCREATED',
+        'M16HUB.QUE.M14TOM16.MESCURRENTQCNT',
+        'M16HUB.QUE.M16TOM14.MESCURRENTQCNT',
+    ],
+    'auxiliary': [
+        'M14AM10A', 'M10AM14A', 'M14AM10ASUM',
+        'M14AM14B', 'M14BM14A', 'M14AM14BSUM',
+        'M14AM16', 'M16M14A', 'M14AM16SUM',
+        'M14.QUE.SFAB.SENDQUEUETOTAL',
+        'M14.QUE.SFAB.RECEIVEQUEUETOTAL',
+        'M14.QUE.SFAB.RETURNQUEUETOTAL',
+        'M14.QUE.SFAB.COMPLETEQUEUETOTAL',
+        'M14.QUE.OHT.OHTUTIL',
+        'M14.QUE.OHT.RTCOHTUTIL',
+        'M14.QUE.OHT.CURRENTOHTQCNT',
+        'M14.QUE.OHT.CURRENTRETICLEOHTQCNT',
+        'M14.QUE.CNV.NORTHCURRENTQCNT',
+        'M14.QUE.CNV.SOUTHCURRENTQCNT',
+        'M14.QUE.CNV.ALLTONORTHCNVCURRENTQCNT',
+        'M14.QUE.CNV.ALLTOSOUTHCNVCURRENTQCNT',
+    ]
+}
+
+# 피처 이름 (컬럼당 20개 통계)
+STAT_NAMES = [
+    'mean', 'std', 'min', 'max', 'current', 'change_240m',
+    'pct25', 'pct75', 'trend', 'max_30m',
+    'change_10m', 'change_30m', 'change_60m', 'slope_10m', 'slope_30m',
+    'vol_10m', 'vol_30m', 'dist_limit', 'above_1500', 'above_1600'
+]
+
 print("=" * 80)
-print("미사용 컬럼 분석 시작")
+print("Feature Importance 분석")
 print("=" * 80)
 
-print("\n[1/4] 데이터 로드 중...")
+# ============================================================================
+# 모델 로드
+# ============================================================================
+print("\n[1/3] 모델 로드 중...")
 
-try:
-    df = pd.read_csv(TRAIN_FILE, encoding='utf-8')
-except:
-    try:
-        df = pd.read_csv(TRAIN_FILE, encoding='cp949')
-    except:
-        df = pd.read_csv(TRAIN_FILE, encoding='euc-kr')
+with open(MODEL_FILE, 'rb') as f:
+    model_data = pickle.load(f)
 
-print(f"  - 원본 데이터: {len(df):,}행, {len(df.columns)}컬럼")
-
-# CURRTIME을 datetime으로 변환
-df['CURRTIME'] = pd.to_datetime(df['CURRTIME'], format='%Y%m%d%H%M')
-df = df.sort_values('CURRTIME').reset_index(drop=True)
-
-# 숫자형 변환
-for col in df.columns:
-    if col != 'CURRTIME':
-        df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
+models = model_data['models']
+print(f"  - 로드 완료")
 
 # ============================================================================
-# 급증 케이스 식별
+# Feature Importance 분석
 # ============================================================================
-print("\n[2/4] 급증 케이스 식별 중...")
+print("\n[2/3] Feature Importance 분석...")
 
-df['future_max_30'] = df[TARGET_COL].rolling(window=30, min_periods=1).max().shift(-30)
-df['is_surge'] = ((df[TARGET_COL] < 1600) & (df['future_max_30'] >= LIMIT_VALUE)).astype(int)
-
-surge_count = df['is_surge'].sum()
-print(f"  - 급증 케이스: {surge_count:,}건")
-
-# ============================================================================
-# 상관관계 분석
-# ============================================================================
-print("\n[3/4] 상관관계 분석...")
-
-# 분석할 컬럼 (CURRTIME, 이미 분석한 컬럼 제외)
-exclude_cols = ['CURRTIME', 'future_max_30', 'is_surge']
-analyze_cols = [c for c in df.columns if c not in exclude_cols]
-
-results = []
-
-for col in analyze_cols:
-    if col == TARGET_COL:
-        continue
+def analyze_importance(model, model_name, col_list):
+    """모델별 Feature Importance 분석"""
+    importance = model.feature_importances_
     
-    # 상관관계
-    corr = df[col].corr(df[TARGET_COL])
+    # 피처 이름 생성
+    feature_names = []
+    for col in col_list:
+        col_short = col.split('.')[-1][:20] if '.' in col else col[:20]
+        for stat in STAT_NAMES:
+            feature_names.append(f"{col_short}_{stat}")
     
-    # 변화량 상관관계 (10분)
-    col_change = df[col].diff(10)
-    target_change = df[TARGET_COL].diff(10)
-    change_corr = col_change.corr(target_change)
-    
-    # 급증 케이스에서 평균 vs 일반 케이스 평균
-    surge_mean = df[df['is_surge'] == 1][col].mean()
-    normal_mean = df[df['is_surge'] == 0][col].mean()
-    diff_ratio = (surge_mean - normal_mean) / (normal_mean + 0.001) * 100
-    
-    # 선행 지표 분석: 10분 전 값이 타겟보다 먼저 상승하는 비율
-    col_lead = df[col].shift(10)  # 10분 전 값
-    lead_corr = col_lead.corr(df[TARGET_COL])
-    
-    results.append({
-        'column': col,
-        'corr': corr,
-        'change_corr': change_corr,
-        'lead_corr': lead_corr,
-        'surge_mean': surge_mean,
-        'normal_mean': normal_mean,
-        'diff_ratio': diff_ratio
+    # DataFrame 생성
+    df = pd.DataFrame({
+        'feature': feature_names[:len(importance)],
+        'importance': importance
     })
+    df = df.sort_values('importance', ascending=False)
+    
+    print(f"\n[{model_name}]")
+    print(f"  총 피처 수: {len(importance)}")
+    print(f"  importance = 0: {(importance == 0).sum()}개")
+    print(f"  importance < 0.001: {(importance < 0.001).sum()}개")
+    
+    print(f"\n  ★ Top 15 피처:")
+    for i, row in df.head(15).iterrows():
+        print(f"    {row['feature']:<35} {row['importance']:.4f}")
+    
+    print(f"\n  ✗ Bottom 15 피처 (기여도 낮음):")
+    for i, row in df.tail(15).iterrows():
+        print(f"    {row['feature']:<35} {row['importance']:.6f}")
+    
+    return df
 
-# 결과 정렬 (상관관계 절대값 기준)
-results_df = pd.DataFrame(results)
-results_df['abs_corr'] = results_df['corr'].abs()
-results_df = results_df.sort_values('abs_corr', ascending=False)
+# XGB Important 모델 분석 (가장 중요)
+df_important = analyze_importance(
+    models['xgb_important'], 
+    'XGB_Important (핵심)', 
+    FEATURE_GROUPS['important']
+)
+
+# XGB Target 모델 분석
+df_target = analyze_importance(
+    models['xgb_target'], 
+    'XGB_Target', 
+    FEATURE_GROUPS['target']
+)
+
+# XGB Auxiliary 모델 분석
+df_auxiliary = analyze_importance(
+    models['xgb_auxiliary'], 
+    'XGB_Auxiliary', 
+    FEATURE_GROUPS['auxiliary']
+)
 
 # ============================================================================
-# 결과 출력
+# 컬럼별 합산 Importance
 # ============================================================================
-print("\n[4/4] 분석 결과")
-print("=" * 120)
+print("\n" + "=" * 80)
+print("[3/3] 컬럼별 합산 Importance (XGB_Important)")
+print("=" * 80)
 
-print("\n[상관관계 TOP 30]")
-print(f"{'컬럼':<50} {'상관관계':>10} {'변화상관':>10} {'선행상관':>10} {'급증차이%':>10}")
-print("-" * 90)
+# 컬럼별로 20개 피처 importance 합산
+col_importance = {}
+importance = models['xgb_important'].feature_importances_
 
-for _, row in results_df.head(30).iterrows():
-    col_short = row['column'][-50:] if len(row['column']) > 50 else row['column']
-    print(f"{col_short:<50} {row['corr']:>10.3f} {row['change_corr']:>10.3f} {row['lead_corr']:>10.3f} {row['diff_ratio']:>+10.1f}%")
+for i, col in enumerate(FEATURE_GROUPS['important']):
+    col_short = col.split('.')[-1][:25] if '.' in col else col[:25]
+    start_idx = i * 20
+    end_idx = start_idx + 20
+    if end_idx <= len(importance):
+        col_importance[col_short] = importance[start_idx:end_idx].sum()
 
-# 선행 지표 분석 (lead_corr 기준)
-print("\n" + "=" * 120)
-print("\n[선행 지표 TOP 20] (10분 전 값과 현재 TOTALCNT 상관관계)")
-results_df_lead = results_df.copy()
-results_df_lead['abs_lead'] = results_df_lead['lead_corr'].abs()
-results_df_lead = results_df_lead.sort_values('abs_lead', ascending=False)
+# 정렬
+sorted_cols = sorted(col_importance.items(), key=lambda x: x[1], reverse=True)
 
-print(f"{'컬럼':<50} {'선행상관':>10} {'일반상관':>10} {'차이':>10}")
-print("-" * 80)
+print(f"\n{'컬럼':<30} {'합산 Importance':>15} {'판정'}")
+print("-" * 55)
 
-for _, row in results_df_lead.head(20).iterrows():
-    col_short = row['column'][-50:] if len(row['column']) > 50 else row['column']
-    diff = row['lead_corr'] - row['corr']
-    print(f"{col_short:<50} {row['lead_corr']:>10.3f} {row['corr']:>10.3f} {diff:>+10.3f}")
+for col, imp in sorted_cols:
+    if imp < 0.01:
+        status = "❌ 제거 검토"
+    elif imp < 0.03:
+        status = "⚠️ 낮음"
+    else:
+        status = "✓"
+    print(f"{col:<30} {imp:>15.4f} {status}")
 
-# 급증 케이스 차이 분석
-print("\n" + "=" * 120)
-print("\n[급증 케이스 차이 TOP 20] (급증 시 평균 vs 일반 시 평균)")
-results_df_surge = results_df.copy()
-results_df_surge['abs_diff'] = results_df_surge['diff_ratio'].abs()
-results_df_surge = results_df_surge.sort_values('abs_diff', ascending=False)
+# Auxiliary 그룹도 분석
+print("\n" + "=" * 80)
+print("컬럼별 합산 Importance (XGB_Auxiliary)")
+print("=" * 80)
 
-print(f"{'컬럼':<50} {'급증평균':>12} {'일반평균':>12} {'차이%':>10}")
-print("-" * 84)
+col_importance_aux = {}
+importance_aux = models['xgb_auxiliary'].feature_importances_
 
-for _, row in results_df_surge.head(20).iterrows():
-    col_short = row['column'][-50:] if len(row['column']) > 50 else row['column']
-    print(f"{col_short:<50} {row['surge_mean']:>12.1f} {row['normal_mean']:>12.1f} {row['diff_ratio']:>+10.1f}%")
+for i, col in enumerate(FEATURE_GROUPS['auxiliary']):
+    col_short = col.split('.')[-1][:25] if '.' in col else col[:25]
+    start_idx = i * 20
+    end_idx = start_idx + 20
+    if end_idx <= len(importance_aux):
+        col_importance_aux[col_short] = importance_aux[start_idx:end_idx].sum()
 
-print("\n" + "=" * 120)
+sorted_cols_aux = sorted(col_importance_aux.items(), key=lambda x: x[1], reverse=True)
+
+print(f"\n{'컬럼':<30} {'합산 Importance':>15} {'판정'}")
+print("-" * 55)
+
+for col, imp in sorted_cols_aux:
+    if imp < 0.01:
+        status = "❌ 제거 검토"
+    elif imp < 0.03:
+        status = "⚠️ 낮음"
+    else:
+        status = "✓"
+    print(f"{col:<30} {imp:>15.4f} {status}")
+
+print("\n" + "=" * 80)
 print("분석 완료!")
-print("=" * 120)
+print("=" * 80)
+print("\n★ 제거 검토 대상: 합산 Importance < 0.01인 컬럼들")
