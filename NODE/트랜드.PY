@@ -7,11 +7,11 @@ import json
 df = pd.read_csv('RAL', encoding='utf-8')
 df = df.dropna(subset=['CRT_TM'])
 df['CRT_TM'] = pd.to_datetime(df['CRT_TM'])
-df['CRT_TM_STR'] = df['CRT_TM'].dt.strftime('%Y-%m-%d %H:%M')  # 날짜 형식 변경
+df['CRT_TM_STR'] = df['CRT_TM'].dt.strftime('%Y-%m-%d %H:%M')
 
 # 2. 파생 컬럼
 df['6ECMB101_ratio'] = (df['6ECMB101_WELL'] / df['RAIL-TRANSFERPAUSED_WELL'] * 100).fillna(0)
-df['date_str'] = df['CRT_TM'].dt.strftime('%Y-%m-%d')  # 일별도 변경
+df['date_str'] = df['CRT_TM'].dt.strftime('%Y-%m-%d')
 df['hour'] = df['CRT_TM'].dt.hour
 df['is_anomaly'] = ((df['CURRENT_M16A_3F_JOB_2_max'] >= 400) | (df['6ECMB101_ratio'] >= 70))
 
@@ -42,7 +42,7 @@ ratio_6ecmb = total_6ecmb / total_pause * 100
 max_job2 = df['CURRENT_M16A_3F_JOB_2_max'].max()
 max_avgtime = df['M16HUB_AVGTOTALTIME1MIN_max'].max()
 
-# ========== JSON 데이터 준비 ==========
+# JSON 데이터
 trend_time = df['CRT_TM_STR'].tolist()
 trend_pause = df['RAIL-TRANSFERPAUSED_WELL'].tolist()
 trend_6ecmb = df['6ECMB101_WELL'].tolist()
@@ -50,7 +50,6 @@ trend_job2_mean = df['CURRENT_M16A_3F_JOB_2_mean'].tolist()
 trend_job2_max = df['CURRENT_M16A_3F_JOB_2_max'].tolist()
 trend_avgtime_mean = df['M16HUB_AVGTOTALTIME1MIN_mean'].fillna(0).tolist()
 trend_avgtime_max = df['M16HUB_AVGTOTALTIME1MIN_max'].fillna(0).tolist()
-trend_ratio = df['6ECMB101_ratio'].tolist()
 
 daily_date = daily['date_str'].tolist()
 daily_pause = daily['RAIL-TRANSFERPAUSED_WELL'].tolist()
@@ -70,7 +69,7 @@ scatter_y = df['6ECMB101_WELL'].tolist()
 scatter_color = df['M16HUB_AVGTOTALTIME1MIN_mean'].fillna(0).tolist()
 scatter_text = df['CRT_TM_STR'].tolist()
 
-# ========== HTML 생성 ==========
+# HTML 생성
 html_content = f'''
 <!DOCTYPE html>
 <html lang="ko">
@@ -98,6 +97,7 @@ html_content = f'''
         .tab-content {{ display: none; padding: 20px 30px; }}
         .tab-content.active {{ display: block; }}
         .chart {{ background: #1e293b; border-radius: 10px; padding: 15px; }}
+        .chart-title {{ font-size: 18px; font-weight: bold; margin-bottom: 15px; color: #e2e8f0; }}
     </style>
 </head>
 <body>
@@ -122,11 +122,36 @@ html_content = f'''
         <div class="tab" onclick="showTab('scatter')">🔍 산점도</div>
     </div>
 
-    <div id="trend" class="tab-content active"><div class="chart" id="chart_trend"></div></div>
-    <div id="daily" class="tab-content"><div class="chart" id="chart_daily"></div></div>
-    <div id="hourly" class="tab-content"><div class="chart" id="chart_hourly"></div></div>
-    <div id="corr" class="tab-content"><div class="chart" id="chart_corr"></div></div>
-    <div id="scatter" class="tab-content"><div class="chart" id="chart_scatter"></div></div>
+    <div id="trend" class="tab-content active">
+        <div class="chart">
+            <div class="chart-title">📈 RAIL-TRANSFERPAUSED 전체 트렌드 (PAUSE / JOB_2 / AvgTime)</div>
+            <div id="chart_trend"></div>
+        </div>
+    </div>
+    <div id="daily" class="tab-content">
+        <div class="chart">
+            <div class="chart-title">📊 일별 요약 (PAUSE / JOB_2 / AvgTime)</div>
+            <div id="chart_daily"></div>
+        </div>
+    </div>
+    <div id="hourly" class="tab-content">
+        <div class="chart">
+            <div class="chart-title">🕐 시간대별 평균 PAUSE 건수</div>
+            <div id="chart_hourly"></div>
+        </div>
+    </div>
+    <div id="corr" class="tab-content">
+        <div class="chart">
+            <div class="chart-title">🔗 상관관계 분석 (1: 양의 상관, -1: 음의 상관)</div>
+            <div id="chart_corr"></div>
+        </div>
+    </div>
+    <div id="scatter" class="tab-content">
+        <div class="chart">
+            <div class="chart-title">🔍 JOB_2 vs 6ECMB101 산점도 (색상: AvgTime)</div>
+            <div id="chart_scatter"></div>
+        </div>
+    </div>
 
     <script>
         function showTab(tabId) {{
@@ -144,7 +169,7 @@ html_content = f'''
             hovermode: 'x unified'
         }};
 
-        // 트렌드 - 한 화면에 전부
+        // 트렌드
         var trendData = [
             {{ x: {json.dumps(trend_time)}, y: {json.dumps(trend_pause)}, name: 'RAIL-TRANSFERPAUSED', type: 'scatter', line: {{ color: '#3b82f6', width: 1.5 }} }},
             {{ x: {json.dumps(trend_time)}, y: {json.dumps(trend_6ecmb)}, name: '6ECMB101', type: 'scatter', line: {{ color: '#ef4444', width: 1.5 }} }},
@@ -154,14 +179,13 @@ html_content = f'''
             {{ x: {json.dumps(trend_time)}, y: {json.dumps(trend_avgtime_max)}, name: 'AvgTime 최대', type: 'scatter', line: {{ color: '#ec4899', width: 1.5, dash: 'dot' }}, yaxis: 'y3' }}
         ];
         var trendLayout = Object.assign({{}}, darkLayout, {{
-            height: 650,
-            title: {{ text: 'RAIL-TRANSFERPAUSED 전체 트렌드 (PAUSE / JOB_2 / AvgTime)', y: 0.95 }},
-            margin: {{ t: 100, b: 80, l: 70, r: 120 }},
+            height: 600,
+            margin: {{ t: 50, b: 80, l: 70, r: 120 }},
             xaxis: {{ title: '시간', rangeslider: {{ visible: true }} }},
             yaxis: {{ title: 'PAUSE 건수', side: 'left', color: '#3b82f6' }},
             yaxis2: {{ title: 'JOB_2', side: 'right', overlaying: 'y', color: '#22c55e' }},
             yaxis3: {{ title: 'AvgTime (분)', side: 'right', overlaying: 'y', position: 0.92, color: '#a855f7' }},
-            legend: {{ orientation: 'h', y: 1.15, x: 0.5, xanchor: 'center' }},
+            legend: {{ orientation: 'h', y: -0.25, x: 0.5, xanchor: 'center' }},
             shapes: [
                 {{ type: 'line', y0: 300, y1: 300, x0: 0, x1: 1, xref: 'paper', yref: 'y2', line: {{ color: 'red', width: 2 }} }},
                 {{ type: 'line', y0: 10, y1: 10, x0: 0, x1: 1, xref: 'paper', yref: 'y3', line: {{ color: 'orange', width: 2, dash: 'dash' }} }}
@@ -177,15 +201,14 @@ html_content = f'''
             {{ x: {json.dumps(daily_date)}, y: {json.dumps(daily_avgtime)}, name: 'AvgTime Max', type: 'scatter', mode: 'lines+markers', line: {{ color: '#a855f7', width: 2 }}, yaxis: 'y3' }}
         ];
         var dailyLayout = Object.assign({{}}, darkLayout, {{
-            height: 650,
-            title: {{ text: '일별 요약 (PAUSE / JOB_2 / AvgTime)', y: 0.95 }},
-            margin: {{ t: 100, b: 80, l: 70, r: 120 }},
+            height: 600,
+            margin: {{ t: 50, b: 80, l: 70, r: 120 }},
             barmode: 'group',
             xaxis: {{ title: '날짜' }},
             yaxis: {{ title: 'PAUSE 건수', side: 'left' }},
             yaxis2: {{ title: 'JOB_2 Max', side: 'right', overlaying: 'y' }},
             yaxis3: {{ title: 'AvgTime Max', side: 'right', overlaying: 'y', position: 0.92 }},
-            legend: {{ orientation: 'h', y: 1.15, x: 0.5, xanchor: 'center' }},
+            legend: {{ orientation: 'h', y: -0.25, x: 0.5, xanchor: 'center' }},
             shapes: [
                 {{ type: 'line', y0: 300, y1: 300, x0: 0, x1: 1, xref: 'paper', yref: 'y2', line: {{ color: 'red', width: 2 }} }},
                 {{ type: 'line', y0: 10, y1: 10, x0: 0, x1: 1, xref: 'paper', yref: 'y3', line: {{ color: 'orange', width: 2, dash: 'dash' }} }}
@@ -200,12 +223,11 @@ html_content = f'''
         ];
         var hourlyLayout = Object.assign({{}}, darkLayout, {{
             height: 500,
-            title: {{ text: '시간대별 평균 PAUSE 건수', y: 0.95 }},
-            margin: {{ t: 80, b: 60, l: 60, r: 40 }},
+            margin: {{ t: 30, b: 60, l: 60, r: 40 }},
             barmode: 'group',
             xaxis: {{ title: '시간 (0~23시)', dtick: 1 }},
             yaxis: {{ title: '평균 건수' }},
-            legend: {{ orientation: 'h', y: 1.1, x: 0.5, xanchor: 'center' }}
+            legend: {{ orientation: 'h', y: -0.2, x: 0.5, xanchor: 'center' }}
         }});
         Plotly.newPlot('chart_hourly', hourlyData, hourlyLayout, {{responsive: true}});
 
@@ -223,8 +245,7 @@ html_content = f'''
         }}];
         var corrLayout = Object.assign({{}}, darkLayout, {{
             height: 500,
-            title: {{ text: '상관관계 분석 (1: 양의 상관, -1: 음의 상관)', y: 0.95 }},
-            margin: {{ t: 80, b: 60, l: 120, r: 40 }}
+            margin: {{ t: 30, b: 60, l: 150, r: 40 }}
         }});
         Plotly.newPlot('chart_corr', corrData, corrLayout, {{responsive: true}});
 
@@ -245,9 +266,8 @@ html_content = f'''
             hovertemplate: '시간: %{{text}}<br>JOB_2: %{{x:.1f}}<br>6ECMB101: %{{y}}<extra></extra>'
         }}];
         var scatterLayout = Object.assign({{}}, darkLayout, {{
-            height: 600,
-            title: {{ text: 'JOB_2 vs 6ECMB101 산점도 (색상: AvgTime)', y: 0.95 }},
-            margin: {{ t: 80, b: 60, l: 70, r: 40 }},
+            height: 550,
+            margin: {{ t: 30, b: 60, l: 70, r: 40 }},
             xaxis: {{ title: 'CURRENT_M16A_3F_JOB_2 평균' }},
             yaxis: {{ title: '6ECMB101 PAUSE 건수' }},
             shapes: [
