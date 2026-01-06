@@ -1,6 +1,7 @@
 import pandas as pd
 import plotly.graph_objects as go
 import numpy as np
+import json
 
 # 1. CSV 읽기
 df = pd.read_csv('RAL', encoding='utf-8')
@@ -41,109 +42,38 @@ ratio_6ecmb = total_6ecmb / total_pause * 100
 max_job2 = df['CURRENT_M16A_3F_JOB_2_max'].max()
 max_avgtime = df['M16HUB_AVGTOTALTIME1MIN_max'].max()
 
-# ========== 차트 생성 ==========
+# ========== JSON 데이터 준비 ==========
+# 트렌드용 (리스트로 변환)
+trend_time = df['CRT_TM'].dt.strftime('%Y-%m-%d %H:%M').tolist()
+trend_pause = df['RAIL-TRANSFERPAUSED_WELL'].tolist()
+trend_6ecmb = df['6ECMB101_WELL'].tolist()
+trend_job2_mean = df['CURRENT_M16A_3F_JOB_2_mean'].tolist()
+trend_job2_max = df['CURRENT_M16A_3F_JOB_2_max'].tolist()
+trend_avgtime_mean = df['M16HUB_AVGTOTALTIME1MIN_mean'].fillna(0).tolist()
+trend_avgtime_max = df['M16HUB_AVGTOTALTIME1MIN_max'].fillna(0).tolist()
+trend_ratio = df['6ECMB101_ratio'].tolist()
 
-# 1) 트렌드 - PAUSE 건수 (한 화면)
-fig_trend1 = go.Figure()
-fig_trend1.add_trace(go.Scatter(x=df['CRT_TM'], y=df['RAIL-TRANSFERPAUSED_WELL'], name='전체 PAUSE', line=dict(color='#3b82f6', width=1.5)))
-fig_trend1.add_trace(go.Scatter(x=df['CRT_TM'], y=df['6ECMB101_WELL'], name='6ECMB101', line=dict(color='#ef4444', width=1.5)))
-fig_trend1.add_hline(y=100, line_dash="solid", line_color="red", annotation_text="경고선 (100)")
-fig_trend1.update_layout(
-    height=500,
-    template='plotly_dark',
-    title='PAUSE 건수 트렌드 (전체 vs 6ECMB101)',
-    xaxis_title='시간',
-    yaxis_title='건수',
-    hovermode='x unified',
-    xaxis=dict(rangeslider=dict(visible=True))
-)
+# 일별용
+daily_date = daily['date_str'].tolist()
+daily_pause = daily['RAIL-TRANSFERPAUSED_WELL'].tolist()
+daily_6ecmb = daily['6ECMB101_WELL'].tolist()
+daily_job2 = daily['CURRENT_M16A_3F_JOB_2_max'].tolist()
+daily_avgtime = daily['M16HUB_AVGTOTALTIME1MIN_max'].tolist()
 
-# 2) 트렌드 - JOB_2 (한 화면)
-fig_trend2 = go.Figure()
-fig_trend2.add_trace(go.Scatter(x=df['CRT_TM'], y=df['CURRENT_M16A_3F_JOB_2_mean'], name='JOB_2 평균', line=dict(color='#22c55e', width=1.5)))
-fig_trend2.add_trace(go.Scatter(x=df['CRT_TM'], y=df['CURRENT_M16A_3F_JOB_2_max'], name='JOB_2 최대', line=dict(color='#f97316', width=1.5)))
-fig_trend2.add_hline(y=300, line_dash="solid", line_color="red", annotation_text="급증 임계값 (300)")
-fig_trend2.add_hline(y=400, line_dash="solid", line_color="darkred", annotation_text="위험 (400)")
-fig_trend2.update_layout(
-    height=500,
-    template='plotly_dark',
-    title='CURRENT_M16A_3F_JOB_2 트렌드',
-    xaxis_title='시간',
-    yaxis_title='JOB 수',
-    hovermode='x unified',
-    xaxis=dict(rangeslider=dict(visible=True))
-)
+# 시간대별용
+hourly_hour = hourly['hour'].tolist()
+hourly_pause = hourly['RAIL-TRANSFERPAUSED_WELL'].tolist()
+hourly_6ecmb = hourly['6ECMB101_WELL'].tolist()
 
-# 3) 트렌드 - AvgTime (한 화면)
-fig_trend3 = go.Figure()
-fig_trend3.add_trace(go.Scatter(x=df['CRT_TM'], y=df['M16HUB_AVGTOTALTIME1MIN_mean'], name='AvgTime 평균', line=dict(color='#a855f7', width=1.5)))
-fig_trend3.add_trace(go.Scatter(x=df['CRT_TM'], y=df['M16HUB_AVGTOTALTIME1MIN_max'], name='AvgTime 최대', line=dict(color='#ec4899', width=1.5)))
-fig_trend3.add_hline(y=10, line_dash="solid", line_color="orange", annotation_text="경고 (10분)")
-fig_trend3.add_hline(y=20, line_dash="solid", line_color="red", annotation_text="위험 (20분)")
-fig_trend3.update_layout(
-    height=500,
-    template='plotly_dark',
-    title='M16HUB_AVGTOTALTIME1MIN 트렌드',
-    xaxis_title='시간',
-    yaxis_title='시간 (분)',
-    hovermode='x unified',
-    xaxis=dict(rangeslider=dict(visible=True))
-)
+# 상관관계용
+corr_z = corr_matrix.values.tolist()
+corr_text = np.round(corr_matrix.values, 2).tolist()
 
-# 4) 트렌드 - 비율 (한 화면)
-fig_trend4 = go.Figure()
-fig_trend4.add_trace(go.Scatter(x=df['CRT_TM'], y=df['6ECMB101_ratio'], name='6ECMB101 비율', line=dict(color='#78716c', width=1.5)))
-fig_trend4.add_hline(y=50, line_dash="solid", line_color="red", annotation_text="50%")
-fig_trend4.update_layout(
-    height=500,
-    template='plotly_dark',
-    title='6ECMB101 비율 (%) 트렌드',
-    xaxis_title='시간',
-    yaxis_title='비율 (%)',
-    hovermode='x unified',
-    xaxis=dict(rangeslider=dict(visible=True))
-)
-
-# 5) 일별 차트 - PAUSE
-fig_daily1 = go.Figure()
-fig_daily1.add_trace(go.Bar(x=daily['date_str'], y=daily['RAIL-TRANSFERPAUSED_WELL'], name='전체', marker_color='#3b82f6'))
-fig_daily1.add_trace(go.Bar(x=daily['date_str'], y=daily['6ECMB101_WELL'], name='6ECMB101', marker_color='#ef4444'))
-fig_daily1.update_layout(height=500, template='plotly_dark', title='일별 PAUSE 건수', barmode='group')
-
-# 6) 일별 차트 - JOB_2
-colors_job = ['#ef4444' if v >= 400 else '#f97316' if v >= 300 else '#22c55e' for v in daily['CURRENT_M16A_3F_JOB_2_max']]
-fig_daily2 = go.Figure()
-fig_daily2.add_trace(go.Bar(x=daily['date_str'], y=daily['CURRENT_M16A_3F_JOB_2_max'], name='JOB_2 Max', marker_color=colors_job))
-fig_daily2.add_hline(y=300, line_dash="solid", line_color="orange")
-fig_daily2.add_hline(y=400, line_dash="solid", line_color="red")
-fig_daily2.update_layout(height=500, template='plotly_dark', title='일별 JOB_2 최대값')
-
-# 7) 시간대별
-fig_hourly = go.Figure()
-fig_hourly.add_trace(go.Bar(x=hourly['hour'], y=hourly['RAIL-TRANSFERPAUSED_WELL'], name='전체', marker_color='#3b82f6'))
-fig_hourly.add_trace(go.Bar(x=hourly['hour'], y=hourly['6ECMB101_WELL'], name='6ECMB101', marker_color='#ef4444'))
-fig_hourly.update_layout(height=500, template='plotly_dark', title='시간대별 평균 PAUSE 건수', barmode='group', xaxis=dict(dtick=1))
-
-# 8) 상관관계
-fig_corr = go.Figure(data=go.Heatmap(
-    z=corr_matrix.values,
-    x=['전체PAUSE', '6ECMB101', 'JOB_2', 'AvgTime'],
-    y=['전체PAUSE', '6ECMB101', 'JOB_2', 'AvgTime'],
-    colorscale='RdBu', zmid=0,
-    text=np.round(corr_matrix.values, 2), texttemplate='%{text}', textfont={"size": 16}
-))
-fig_corr.update_layout(height=500, template='plotly_dark', title='상관관계 분석')
-
-# 9) 산점도
-fig_scatter = go.Figure()
-fig_scatter.add_trace(go.Scatter(
-    x=df['CURRENT_M16A_3F_JOB_2_mean'], y=df['6ECMB101_WELL'], mode='markers',
-    marker=dict(size=5, color=df['M16HUB_AVGTOTALTIME1MIN_mean'].fillna(0), colorscale='Viridis', showscale=True, colorbar=dict(title='AvgTime')),
-    text=df['CRT_TM_STR'], hovertemplate='시간: %{text}<br>JOB_2: %{x:.1f}<br>6ECMB101: %{y}<extra></extra>'
-))
-fig_scatter.add_vline(x=300, line_dash="solid", line_color="red")
-fig_scatter.add_hline(y=50, line_dash="solid", line_color="orange")
-fig_scatter.update_layout(height=500, template='plotly_dark', title='JOB_2 vs 6ECMB101 (색상: AvgTime)', xaxis_title='JOB_2', yaxis_title='6ECMB101')
+# 산점도용
+scatter_x = df['CURRENT_M16A_3F_JOB_2_mean'].tolist()
+scatter_y = df['6ECMB101_WELL'].tolist()
+scatter_color = df['M16HUB_AVGTOTALTIME1MIN_mean'].fillna(0).tolist()
+scatter_text = df['CRT_TM_STR'].tolist()
 
 # ========== HTML 생성 ==========
 html_content = f'''
@@ -190,24 +120,16 @@ html_content = f'''
     </div>
 
     <div class="tabs">
-        <div class="tab active" onclick="showTab('t1')">📈 PAUSE 트렌드</div>
-        <div class="tab" onclick="showTab('t2')">📈 JOB_2 트렌드</div>
-        <div class="tab" onclick="showTab('t3')">📈 AvgTime 트렌드</div>
-        <div class="tab" onclick="showTab('t4')">📈 비율 트렌드</div>
-        <div class="tab" onclick="showTab('d1')">📊 일별 PAUSE</div>
-        <div class="tab" onclick="showTab('d2')">📊 일별 JOB_2</div>
-        <div class="tab" onclick="showTab('h1')">🕐 시간대별</div>
+        <div class="tab active" onclick="showTab('trend')">📈 트렌드</div>
+        <div class="tab" onclick="showTab('daily')">📊 일별</div>
+        <div class="tab" onclick="showTab('hourly')">🕐 시간대별</div>
         <div class="tab" onclick="showTab('corr')">🔗 상관관계</div>
         <div class="tab" onclick="showTab('scatter')">🔍 산점도</div>
     </div>
 
-    <div id="t1" class="tab-content active"><div class="chart" id="chart_t1"></div></div>
-    <div id="t2" class="tab-content"><div class="chart" id="chart_t2"></div></div>
-    <div id="t3" class="tab-content"><div class="chart" id="chart_t3"></div></div>
-    <div id="t4" class="tab-content"><div class="chart" id="chart_t4"></div></div>
-    <div id="d1" class="tab-content"><div class="chart" id="chart_d1"></div></div>
-    <div id="d2" class="tab-content"><div class="chart" id="chart_d2"></div></div>
-    <div id="h1" class="tab-content"><div class="chart" id="chart_h1"></div></div>
+    <div id="trend" class="tab-content active"><div class="chart" id="chart_trend"></div></div>
+    <div id="daily" class="tab-content"><div class="chart" id="chart_daily"></div></div>
+    <div id="hourly" class="tab-content"><div class="chart" id="chart_hourly"></div></div>
     <div id="corr" class="tab-content"><div class="chart" id="chart_corr"></div></div>
     <div id="scatter" class="tab-content"><div class="chart" id="chart_scatter"></div></div>
 
@@ -220,15 +142,121 @@ html_content = f'''
             window.dispatchEvent(new Event('resize'));
         }}
 
-        Plotly.newPlot('chart_t1', {fig_trend1.to_json()}.data, {fig_trend1.to_json()}.layout, {{responsive: true}});
-        Plotly.newPlot('chart_t2', {fig_trend2.to_json()}.data, {fig_trend2.to_json()}.layout, {{responsive: true}});
-        Plotly.newPlot('chart_t3', {fig_trend3.to_json()}.data, {fig_trend3.to_json()}.layout, {{responsive: true}});
-        Plotly.newPlot('chart_t4', {fig_trend4.to_json()}.data, {fig_trend4.to_json()}.layout, {{responsive: true}});
-        Plotly.newPlot('chart_d1', {fig_daily1.to_json()}.data, {fig_daily1.to_json()}.layout, {{responsive: true}});
-        Plotly.newPlot('chart_d2', {fig_daily2.to_json()}.data, {fig_daily2.to_json()}.layout, {{responsive: true}});
-        Plotly.newPlot('chart_h1', {fig_hourly.to_json()}.data, {fig_hourly.to_json()}.layout, {{responsive: true}});
-        Plotly.newPlot('chart_corr', {fig_corr.to_json()}.data, {fig_corr.to_json()}.layout, {{responsive: true}});
-        Plotly.newPlot('chart_scatter', {fig_scatter.to_json()}.data, {fig_scatter.to_json()}.layout, {{responsive: true}});
+        var darkLayout = {{
+            paper_bgcolor: '#1e293b',
+            plot_bgcolor: '#1e293b',
+            font: {{ color: '#e2e8f0' }},
+            margin: {{ t: 50, b: 80, l: 60, r: 60 }},
+            hovermode: 'x unified'
+        }};
+
+        // 트렌드 - 한 화면에 전부!
+        var trendData = [
+            {{ x: {json.dumps(trend_time)}, y: {json.dumps(trend_pause)}, name: '전체 PAUSE', type: 'scatter', line: {{ color: '#3b82f6', width: 1.5 }} }},
+            {{ x: {json.dumps(trend_time)}, y: {json.dumps(trend_6ecmb)}, name: '6ECMB101', type: 'scatter', line: {{ color: '#ef4444', width: 1.5 }} }},
+            {{ x: {json.dumps(trend_time)}, y: {json.dumps(trend_job2_mean)}, name: 'JOB_2 평균', type: 'scatter', line: {{ color: '#22c55e', width: 1.5 }}, yaxis: 'y2' }},
+            {{ x: {json.dumps(trend_time)}, y: {json.dumps(trend_job2_max)}, name: 'JOB_2 최대', type: 'scatter', line: {{ color: '#f97316', width: 1.5, dash: 'dot' }}, yaxis: 'y2' }},
+            {{ x: {json.dumps(trend_time)}, y: {json.dumps(trend_avgtime_mean)}, name: 'AvgTime 평균', type: 'scatter', line: {{ color: '#a855f7', width: 1.5 }}, yaxis: 'y3' }},
+            {{ x: {json.dumps(trend_time)}, y: {json.dumps(trend_avgtime_max)}, name: 'AvgTime 최대', type: 'scatter', line: {{ color: '#ec4899', width: 1.5, dash: 'dot' }}, yaxis: 'y3' }}
+        ];
+        var trendLayout = Object.assign({{}}, darkLayout, {{
+            height: 600,
+            title: 'RAIL-TRANSFERPAUSED 전체 트렌드 (PAUSE / JOB_2 / AvgTime)',
+            xaxis: {{ title: '시간', rangeslider: {{ visible: true }} }},
+            yaxis: {{ title: 'PAUSE 건수', side: 'left', color: '#3b82f6' }},
+            yaxis2: {{ title: 'JOB_2', side: 'right', overlaying: 'y', color: '#22c55e' }},
+            yaxis3: {{ title: 'AvgTime (분)', side: 'right', overlaying: 'y', position: 0.95, color: '#a855f7' }},
+            legend: {{ orientation: 'h', y: 1.12 }},
+            shapes: [
+                {{ type: 'line', y0: 300, y1: 300, x0: 0, x1: 1, xref: 'paper', yref: 'y2', line: {{ color: 'red', width: 2 }} }},
+                {{ type: 'line', y0: 10, y1: 10, x0: 0, x1: 1, xref: 'paper', yref: 'y3', line: {{ color: 'orange', width: 2, dash: 'dash' }} }}
+            ]
+        }});
+        Plotly.newPlot('chart_trend', trendData, trendLayout, {{responsive: true}});
+
+        // 일별
+        var dailyData = [
+            {{ x: {json.dumps(daily_date)}, y: {json.dumps(daily_pause)}, name: '전체 PAUSE', type: 'bar', marker: {{ color: '#3b82f6' }} }},
+            {{ x: {json.dumps(daily_date)}, y: {json.dumps(daily_6ecmb)}, name: '6ECMB101', type: 'bar', marker: {{ color: '#ef4444' }} }},
+            {{ x: {json.dumps(daily_date)}, y: {json.dumps(daily_job2)}, name: 'JOB_2 Max', type: 'scatter', mode: 'lines+markers', line: {{ color: '#22c55e', width: 2 }}, yaxis: 'y2' }},
+            {{ x: {json.dumps(daily_date)}, y: {json.dumps(daily_avgtime)}, name: 'AvgTime Max', type: 'scatter', mode: 'lines+markers', line: {{ color: '#a855f7', width: 2 }}, yaxis: 'y3' }}
+        ];
+        var dailyLayout = Object.assign({{}}, darkLayout, {{
+            height: 600,
+            title: '일별 요약 (PAUSE / JOB_2 / AvgTime)',
+            barmode: 'group',
+            xaxis: {{ title: '날짜' }},
+            yaxis: {{ title: 'PAUSE 건수', side: 'left' }},
+            yaxis2: {{ title: 'JOB_2 Max', side: 'right', overlaying: 'y' }},
+            yaxis3: {{ title: 'AvgTime Max', side: 'right', overlaying: 'y', position: 0.95 }},
+            legend: {{ orientation: 'h', y: 1.12 }},
+            shapes: [
+                {{ type: 'line', y0: 300, y1: 300, x0: 0, x1: 1, xref: 'paper', yref: 'y2', line: {{ color: 'red', width: 2 }} }},
+                {{ type: 'line', y0: 10, y1: 10, x0: 0, x1: 1, xref: 'paper', yref: 'y3', line: {{ color: 'orange', width: 2, dash: 'dash' }} }}
+            ]
+        }});
+        Plotly.newPlot('chart_daily', dailyData, dailyLayout, {{responsive: true}});
+
+        // 시간대별
+        var hourlyData = [
+            {{ x: {json.dumps(hourly_hour)}, y: {json.dumps(hourly_pause)}, name: '전체', type: 'bar', marker: {{ color: '#3b82f6' }} }},
+            {{ x: {json.dumps(hourly_hour)}, y: {json.dumps(hourly_6ecmb)}, name: '6ECMB101', type: 'bar', marker: {{ color: '#ef4444' }} }}
+        ];
+        var hourlyLayout = Object.assign({{}}, darkLayout, {{
+            height: 500,
+            title: '시간대별 평균 PAUSE 건수',
+            barmode: 'group',
+            xaxis: {{ title: '시간 (0~23시)', dtick: 1 }},
+            yaxis: {{ title: '평균 건수' }},
+            legend: {{ orientation: 'h', y: 1.1 }}
+        }});
+        Plotly.newPlot('chart_hourly', hourlyData, hourlyLayout, {{responsive: true}});
+
+        // 상관관계
+        var corrData = [{{
+            z: {json.dumps(corr_z)},
+            x: ['전체PAUSE', '6ECMB101', 'JOB_2', 'AvgTime'],
+            y: ['전체PAUSE', '6ECMB101', 'JOB_2', 'AvgTime'],
+            type: 'heatmap',
+            colorscale: 'RdBu',
+            zmid: 0,
+            text: {json.dumps(corr_text)},
+            texttemplate: '%{{text}}',
+            hovertemplate: '%{{x}} vs %{{y}}: %{{z:.3f}}<extra></extra>'
+        }}];
+        var corrLayout = Object.assign({{}}, darkLayout, {{
+            height: 500,
+            title: '상관관계 분석 (1: 양의 상관, -1: 음의 상관)'
+        }});
+        Plotly.newPlot('chart_corr', corrData, corrLayout, {{responsive: true}});
+
+        // 산점도
+        var scatterData = [{{
+            x: {json.dumps(scatter_x)},
+            y: {json.dumps(scatter_y)},
+            mode: 'markers',
+            type: 'scatter',
+            marker: {{
+                size: 5,
+                color: {json.dumps(scatter_color)},
+                colorscale: 'Viridis',
+                showscale: true,
+                colorbar: {{ title: 'AvgTime' }}
+            }},
+            text: {json.dumps(scatter_text)},
+            hovertemplate: '시간: %{{text}}<br>JOB_2: %{{x:.1f}}<br>6ECMB101: %{{y}}<extra></extra>'
+        }}];
+        var scatterLayout = Object.assign({{}}, darkLayout, {{
+            height: 600,
+            title: 'JOB_2 vs 6ECMB101 산점도 (색상: AvgTime)',
+            xaxis: {{ title: 'CURRENT_M16A_3F_JOB_2 평균' }},
+            yaxis: {{ title: '6ECMB101 PAUSE 건수' }},
+            shapes: [
+                {{ type: 'line', x0: 300, x1: 300, y0: 0, y1: 1, yref: 'paper', line: {{ color: 'red', width: 2 }} }},
+                {{ type: 'line', y0: 50, y1: 50, x0: 0, x1: 1, xref: 'paper', line: {{ color: 'orange', width: 2, dash: 'dash' }} }}
+            ]
+        }});
+        Plotly.newPlot('chart_scatter', scatterData, scatterLayout, {{responsive: true}});
     </script>
 </body>
 </html>
