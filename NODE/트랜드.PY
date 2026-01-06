@@ -7,11 +7,11 @@ import json
 df = pd.read_csv('RAL', encoding='utf-8')
 df = df.dropna(subset=['CRT_TM'])
 df['CRT_TM'] = pd.to_datetime(df['CRT_TM'])
-df['CRT_TM_STR'] = df['CRT_TM'].dt.strftime('%Y%m%d%H%M')
+df['CRT_TM_STR'] = df['CRT_TM'].dt.strftime('%Y-%m-%d %H:%M')  # 날짜 형식 변경
 
 # 2. 파생 컬럼
 df['6ECMB101_ratio'] = (df['6ECMB101_WELL'] / df['RAIL-TRANSFERPAUSED_WELL'] * 100).fillna(0)
-df['date_str'] = df['CRT_TM'].dt.strftime('%Y%m%d')
+df['date_str'] = df['CRT_TM'].dt.strftime('%Y-%m-%d')  # 일별도 변경
 df['hour'] = df['CRT_TM'].dt.hour
 df['is_anomaly'] = ((df['CURRENT_M16A_3F_JOB_2_max'] >= 400) | (df['6ECMB101_ratio'] >= 70))
 
@@ -43,8 +43,7 @@ max_job2 = df['CURRENT_M16A_3F_JOB_2_max'].max()
 max_avgtime = df['M16HUB_AVGTOTALTIME1MIN_max'].max()
 
 # ========== JSON 데이터 준비 ==========
-# 트렌드용 (리스트로 변환)
-trend_time = df['CRT_TM'].dt.strftime('%Y-%m-%d %H:%M').tolist()
+trend_time = df['CRT_TM_STR'].tolist()
 trend_pause = df['RAIL-TRANSFERPAUSED_WELL'].tolist()
 trend_6ecmb = df['6ECMB101_WELL'].tolist()
 trend_job2_mean = df['CURRENT_M16A_3F_JOB_2_mean'].tolist()
@@ -53,23 +52,19 @@ trend_avgtime_mean = df['M16HUB_AVGTOTALTIME1MIN_mean'].fillna(0).tolist()
 trend_avgtime_max = df['M16HUB_AVGTOTALTIME1MIN_max'].fillna(0).tolist()
 trend_ratio = df['6ECMB101_ratio'].tolist()
 
-# 일별용
 daily_date = daily['date_str'].tolist()
 daily_pause = daily['RAIL-TRANSFERPAUSED_WELL'].tolist()
 daily_6ecmb = daily['6ECMB101_WELL'].tolist()
 daily_job2 = daily['CURRENT_M16A_3F_JOB_2_max'].tolist()
 daily_avgtime = daily['M16HUB_AVGTOTALTIME1MIN_max'].tolist()
 
-# 시간대별용
 hourly_hour = hourly['hour'].tolist()
 hourly_pause = hourly['RAIL-TRANSFERPAUSED_WELL'].tolist()
 hourly_6ecmb = hourly['6ECMB101_WELL'].tolist()
 
-# 상관관계용
 corr_z = corr_matrix.values.tolist()
 corr_text = np.round(corr_matrix.values, 2).tolist()
 
-# 산점도용
 scatter_x = df['CURRENT_M16A_3F_JOB_2_mean'].tolist()
 scatter_y = df['6ECMB101_WELL'].tolist()
 scatter_color = df['M16HUB_AVGTOTALTIME1MIN_mean'].fillna(0).tolist()
@@ -108,11 +103,11 @@ html_content = f'''
 <body>
     <div class="header">
         <h1>🚦 RAIL-TRANSFERPAUSED 분석 대시보드</h1>
-        <p>📅 202511250000 ~ 202601060700 | 📊 10분 단위 {len(df):,}건</p>
+        <p>📅 2025-11-25 00:00 ~ 2026-01-06 07:00 | 📊 10분 단위 {len(df):,}건</p>
     </div>
 
     <div class="cards">
-        <div class="card"><h3>📊 총 PAUSE</h3><div class="value">{total_pause:,.0f}</div></div>
+        <div class="card"><h3>📊 RAIL-TRANSFERPAUSED</h3><div class="value">{total_pause:,.0f}</div></div>
         <div class="card"><h3>🔴 6ECMB101</h3><div class="value">{total_6ecmb:,.0f}</div><div class="sub">{ratio_6ecmb:.1f}%</div></div>
         <div class="card {'warning' if max_job2 >= 400 else ''}"><h3>📈 JOB_2 최대</h3><div class="value">{max_job2:.0f}</div></div>
         <div class="card {'danger' if max_avgtime >= 20 else 'warning' if max_avgtime >= 10 else ''}"><h3>⏱️ AvgTime 최대</h3><div class="value">{max_avgtime:.1f}분</div></div>
@@ -146,13 +141,12 @@ html_content = f'''
             paper_bgcolor: '#1e293b',
             plot_bgcolor: '#1e293b',
             font: {{ color: '#e2e8f0' }},
-            margin: {{ t: 50, b: 80, l: 60, r: 60 }},
             hovermode: 'x unified'
         }};
 
-        // 트렌드 - 한 화면에 전부!
+        // 트렌드 - 한 화면에 전부
         var trendData = [
-            {{ x: {json.dumps(trend_time)}, y: {json.dumps(trend_pause)}, name: '전체 PAUSE', type: 'scatter', line: {{ color: '#3b82f6', width: 1.5 }} }},
+            {{ x: {json.dumps(trend_time)}, y: {json.dumps(trend_pause)}, name: 'RAIL-TRANSFERPAUSED', type: 'scatter', line: {{ color: '#3b82f6', width: 1.5 }} }},
             {{ x: {json.dumps(trend_time)}, y: {json.dumps(trend_6ecmb)}, name: '6ECMB101', type: 'scatter', line: {{ color: '#ef4444', width: 1.5 }} }},
             {{ x: {json.dumps(trend_time)}, y: {json.dumps(trend_job2_mean)}, name: 'JOB_2 평균', type: 'scatter', line: {{ color: '#22c55e', width: 1.5 }}, yaxis: 'y2' }},
             {{ x: {json.dumps(trend_time)}, y: {json.dumps(trend_job2_max)}, name: 'JOB_2 최대', type: 'scatter', line: {{ color: '#f97316', width: 1.5, dash: 'dot' }}, yaxis: 'y2' }},
@@ -160,13 +154,14 @@ html_content = f'''
             {{ x: {json.dumps(trend_time)}, y: {json.dumps(trend_avgtime_max)}, name: 'AvgTime 최대', type: 'scatter', line: {{ color: '#ec4899', width: 1.5, dash: 'dot' }}, yaxis: 'y3' }}
         ];
         var trendLayout = Object.assign({{}}, darkLayout, {{
-            height: 600,
-            title: 'RAIL-TRANSFERPAUSED 전체 트렌드 (PAUSE / JOB_2 / AvgTime)',
+            height: 650,
+            title: {{ text: 'RAIL-TRANSFERPAUSED 전체 트렌드 (PAUSE / JOB_2 / AvgTime)', y: 0.95 }},
+            margin: {{ t: 100, b: 80, l: 70, r: 120 }},
             xaxis: {{ title: '시간', rangeslider: {{ visible: true }} }},
             yaxis: {{ title: 'PAUSE 건수', side: 'left', color: '#3b82f6' }},
             yaxis2: {{ title: 'JOB_2', side: 'right', overlaying: 'y', color: '#22c55e' }},
-            yaxis3: {{ title: 'AvgTime (분)', side: 'right', overlaying: 'y', position: 0.95, color: '#a855f7' }},
-            legend: {{ orientation: 'h', y: 1.12 }},
+            yaxis3: {{ title: 'AvgTime (분)', side: 'right', overlaying: 'y', position: 0.92, color: '#a855f7' }},
+            legend: {{ orientation: 'h', y: 1.15, x: 0.5, xanchor: 'center' }},
             shapes: [
                 {{ type: 'line', y0: 300, y1: 300, x0: 0, x1: 1, xref: 'paper', yref: 'y2', line: {{ color: 'red', width: 2 }} }},
                 {{ type: 'line', y0: 10, y1: 10, x0: 0, x1: 1, xref: 'paper', yref: 'y3', line: {{ color: 'orange', width: 2, dash: 'dash' }} }}
@@ -176,20 +171,21 @@ html_content = f'''
 
         // 일별
         var dailyData = [
-            {{ x: {json.dumps(daily_date)}, y: {json.dumps(daily_pause)}, name: '전체 PAUSE', type: 'bar', marker: {{ color: '#3b82f6' }} }},
+            {{ x: {json.dumps(daily_date)}, y: {json.dumps(daily_pause)}, name: 'RAIL-TRANSFERPAUSED', type: 'bar', marker: {{ color: '#3b82f6' }} }},
             {{ x: {json.dumps(daily_date)}, y: {json.dumps(daily_6ecmb)}, name: '6ECMB101', type: 'bar', marker: {{ color: '#ef4444' }} }},
             {{ x: {json.dumps(daily_date)}, y: {json.dumps(daily_job2)}, name: 'JOB_2 Max', type: 'scatter', mode: 'lines+markers', line: {{ color: '#22c55e', width: 2 }}, yaxis: 'y2' }},
             {{ x: {json.dumps(daily_date)}, y: {json.dumps(daily_avgtime)}, name: 'AvgTime Max', type: 'scatter', mode: 'lines+markers', line: {{ color: '#a855f7', width: 2 }}, yaxis: 'y3' }}
         ];
         var dailyLayout = Object.assign({{}}, darkLayout, {{
-            height: 600,
-            title: '일별 요약 (PAUSE / JOB_2 / AvgTime)',
+            height: 650,
+            title: {{ text: '일별 요약 (PAUSE / JOB_2 / AvgTime)', y: 0.95 }},
+            margin: {{ t: 100, b: 80, l: 70, r: 120 }},
             barmode: 'group',
             xaxis: {{ title: '날짜' }},
             yaxis: {{ title: 'PAUSE 건수', side: 'left' }},
             yaxis2: {{ title: 'JOB_2 Max', side: 'right', overlaying: 'y' }},
-            yaxis3: {{ title: 'AvgTime Max', side: 'right', overlaying: 'y', position: 0.95 }},
-            legend: {{ orientation: 'h', y: 1.12 }},
+            yaxis3: {{ title: 'AvgTime Max', side: 'right', overlaying: 'y', position: 0.92 }},
+            legend: {{ orientation: 'h', y: 1.15, x: 0.5, xanchor: 'center' }},
             shapes: [
                 {{ type: 'line', y0: 300, y1: 300, x0: 0, x1: 1, xref: 'paper', yref: 'y2', line: {{ color: 'red', width: 2 }} }},
                 {{ type: 'line', y0: 10, y1: 10, x0: 0, x1: 1, xref: 'paper', yref: 'y3', line: {{ color: 'orange', width: 2, dash: 'dash' }} }}
@@ -199,24 +195,25 @@ html_content = f'''
 
         // 시간대별
         var hourlyData = [
-            {{ x: {json.dumps(hourly_hour)}, y: {json.dumps(hourly_pause)}, name: '전체', type: 'bar', marker: {{ color: '#3b82f6' }} }},
+            {{ x: {json.dumps(hourly_hour)}, y: {json.dumps(hourly_pause)}, name: 'RAIL-TRANSFERPAUSED', type: 'bar', marker: {{ color: '#3b82f6' }} }},
             {{ x: {json.dumps(hourly_hour)}, y: {json.dumps(hourly_6ecmb)}, name: '6ECMB101', type: 'bar', marker: {{ color: '#ef4444' }} }}
         ];
         var hourlyLayout = Object.assign({{}}, darkLayout, {{
             height: 500,
-            title: '시간대별 평균 PAUSE 건수',
+            title: {{ text: '시간대별 평균 PAUSE 건수', y: 0.95 }},
+            margin: {{ t: 80, b: 60, l: 60, r: 40 }},
             barmode: 'group',
             xaxis: {{ title: '시간 (0~23시)', dtick: 1 }},
             yaxis: {{ title: '평균 건수' }},
-            legend: {{ orientation: 'h', y: 1.1 }}
+            legend: {{ orientation: 'h', y: 1.1, x: 0.5, xanchor: 'center' }}
         }});
         Plotly.newPlot('chart_hourly', hourlyData, hourlyLayout, {{responsive: true}});
 
         // 상관관계
         var corrData = [{{
             z: {json.dumps(corr_z)},
-            x: ['전체PAUSE', '6ECMB101', 'JOB_2', 'AvgTime'],
-            y: ['전체PAUSE', '6ECMB101', 'JOB_2', 'AvgTime'],
+            x: ['RAIL-TRANSFERPAUSED', '6ECMB101', 'JOB_2', 'AvgTime'],
+            y: ['RAIL-TRANSFERPAUSED', '6ECMB101', 'JOB_2', 'AvgTime'],
             type: 'heatmap',
             colorscale: 'RdBu',
             zmid: 0,
@@ -226,7 +223,8 @@ html_content = f'''
         }}];
         var corrLayout = Object.assign({{}}, darkLayout, {{
             height: 500,
-            title: '상관관계 분석 (1: 양의 상관, -1: 음의 상관)'
+            title: {{ text: '상관관계 분석 (1: 양의 상관, -1: 음의 상관)', y: 0.95 }},
+            margin: {{ t: 80, b: 60, l: 120, r: 40 }}
         }});
         Plotly.newPlot('chart_corr', corrData, corrLayout, {{responsive: true}});
 
@@ -248,7 +246,8 @@ html_content = f'''
         }}];
         var scatterLayout = Object.assign({{}}, darkLayout, {{
             height: 600,
-            title: 'JOB_2 vs 6ECMB101 산점도 (색상: AvgTime)',
+            title: {{ text: 'JOB_2 vs 6ECMB101 산점도 (색상: AvgTime)', y: 0.95 }},
+            margin: {{ t: 80, b: 60, l: 70, r: 40 }},
             xaxis: {{ title: 'CURRENT_M16A_3F_JOB_2 평균' }},
             yaxis: {{ title: '6ECMB101 PAUSE 건수' }},
             shapes: [
