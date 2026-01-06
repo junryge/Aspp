@@ -1,5 +1,4 @@
 import pandas as pd
-import plotly.graph_objects as go
 import numpy as np
 import json
 
@@ -9,7 +8,7 @@ df = df.dropna(subset=['CRT_TM'])
 df['CRT_TM'] = pd.to_datetime(df['CRT_TM'])
 df['CRT_TM_STR'] = df['CRT_TM'].dt.strftime('%Y-%m-%d %H:%M')
 
-# 2. 파생 컬럼
+# 2. 파생 컬럼 (원본 컬럼명 사용!)
 df['6ECMB101_ratio'] = (df['6ECMB101_WELL'] / df['RAIL-TRANSFERPAUSED_WELL'] * 100).replace([np.inf, -np.inf], 0).fillna(0)
 df['date_str'] = df['CRT_TM'].dt.strftime('%Y-%m-%d')
 df['hour'] = df['CRT_TM'].dt.hour
@@ -22,7 +21,6 @@ daily = df.groupby('date_str').agg({
     'CURRENT_M16A_3F_JOB_2': 'max',
     'M16HUB_AVGTOTALTIME1MIN': 'max'
 }).reset_index()
-daily['ratio'] = daily['6ECMB101_WELL'] / daily['RAIL-TRANSFERPAUSED_WELL'] * 100
 
 # 4. 시간대별 집계
 hourly = df.groupby('hour').agg({
@@ -69,7 +67,6 @@ scatter_y = df['6ECMB101_WELL'].tolist()
 scatter_color = df['M16HUB_AVGTOTALTIME1MIN'].fillna(0).tolist()
 scatter_text = df['CRT_TM_STR'].tolist()
 
-# 시작/종료 시간
 start_time = df['CRT_TM'].min().strftime('%Y-%m-%d %H:%M')
 end_time = df['CRT_TM'].max().strftime('%Y-%m-%d %H:%M')
 
