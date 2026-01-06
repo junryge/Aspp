@@ -8,9 +8,13 @@ df = pd.read_csv('RAL', encoding='utf-8')
 df = df.dropna(subset=['CRT_TM'])
 df['CRT_TM'] = pd.to_datetime(df['CRT_TM'])
 
+# 날짜 포맷 변환 (202601010000 형식)
+df['CRT_TM_STR'] = df['CRT_TM'].dt.strftime('%Y%m%d%H%M')
+
 # 2. 파생 컬럼 생성
 df['6ECMB101_ratio'] = (df['6ECMB101_WELL'] / df['RAIL-TRANSFERPAUSED_WELL'] * 100).fillna(0)
 df['date'] = df['CRT_TM'].dt.date
+df['date_str'] = df['CRT_TM'].dt.strftime('%Y%m%d')
 df['hour'] = df['CRT_TM'].dt.hour
 df['weekday'] = df['CRT_TM'].dt.dayofweek
 
@@ -18,7 +22,7 @@ df['weekday'] = df['CRT_TM'].dt.dayofweek
 df['is_anomaly'] = ((df['CURRENT_M16A_3F_JOB_2_max'] >= 400) | (df['6ECMB101_ratio'] >= 70))
 
 # 4. 일별 집계
-daily = df.groupby('date').agg({
+daily = df.groupby(['date', 'date_str']).agg({
     'RAIL-TRANSFERPAUSED_WELL': 'sum',
     '6ECMB101_WELL': 'sum',
     'CURRENT_M16A_3F_JOB_2_max': 'max',
@@ -64,37 +68,37 @@ fig1 = make_subplots(
 )
 
 # 1) PAUSE 건수
-fig1.add_trace(go.Scatter(x=df['CRT_TM'], y=df['RAIL-TRANSFERPAUSED_WELL'], name='전체 PAUSE', line=dict(color='blue', width=1), opacity=0.7), row=1, col=1)
-fig1.add_trace(go.Scatter(x=df['CRT_TM'], y=df['6ECMB101_WELL'], name='6ECMB101', line=dict(color='red', width=1), opacity=0.7), row=1, col=1)
+fig1.add_trace(go.Scatter(x=df['CRT_TM_STR'], y=df['RAIL-TRANSFERPAUSED_WELL'], name='전체 PAUSE', line=dict(color='blue', width=1), opacity=0.7), row=1, col=1)
+fig1.add_trace(go.Scatter(x=df['CRT_TM_STR'], y=df['6ECMB101_WELL'], name='6ECMB101', line=dict(color='red', width=1), opacity=0.7), row=1, col=1)
 
 # 2) JOB_2
-fig1.add_trace(go.Scatter(x=df['CRT_TM'], y=df['CURRENT_M16A_3F_JOB_2_mean'], name='JOB_2 평균', line=dict(color='green', width=1), opacity=0.7), row=2, col=1)
-fig1.add_trace(go.Scatter(x=df['CRT_TM'], y=df['CURRENT_M16A_3F_JOB_2_max'], name='JOB_2 최대', line=dict(color='orange', width=1), opacity=0.5), row=2, col=1)
+fig1.add_trace(go.Scatter(x=df['CRT_TM_STR'], y=df['CURRENT_M16A_3F_JOB_2_mean'], name='JOB_2 평균', line=dict(color='green', width=1), opacity=0.7), row=2, col=1)
+fig1.add_trace(go.Scatter(x=df['CRT_TM_STR'], y=df['CURRENT_M16A_3F_JOB_2_max'], name='JOB_2 최대', line=dict(color='orange', width=1), opacity=0.5), row=2, col=1)
 fig1.add_hline(y=300, line_dash="dash", line_color="red", annotation_text="급증 임계값 (300)", row=2, col=1)
 fig1.add_hline(y=400, line_dash="dash", line_color="darkred", annotation_text="위험 (400)", row=2, col=1)
 
 # 3) AvgTime
-fig1.add_trace(go.Scatter(x=df['CRT_TM'], y=df['M16HUB_AVGTOTALTIME1MIN_mean'], name='AvgTime 평균', line=dict(color='purple', width=1), opacity=0.7), row=3, col=1)
-fig1.add_trace(go.Scatter(x=df['CRT_TM'], y=df['M16HUB_AVGTOTALTIME1MIN_max'], name='AvgTime 최대', line=dict(color='magenta', width=1), opacity=0.5), row=3, col=1)
+fig1.add_trace(go.Scatter(x=df['CRT_TM_STR'], y=df['M16HUB_AVGTOTALTIME1MIN_mean'], name='AvgTime 평균', line=dict(color='purple', width=1), opacity=0.7), row=3, col=1)
+fig1.add_trace(go.Scatter(x=df['CRT_TM_STR'], y=df['M16HUB_AVGTOTALTIME1MIN_max'], name='AvgTime 최대', line=dict(color='magenta', width=1), opacity=0.5), row=3, col=1)
 fig1.add_hline(y=10, line_dash="dash", line_color="orange", annotation_text="경고 (10분)", row=3, col=1)
 fig1.add_hline(y=20, line_dash="dash", line_color="red", annotation_text="위험 (20분)", row=3, col=1)
 
 # 4) 비율
-fig1.add_trace(go.Scatter(x=df['CRT_TM'], y=df['6ECMB101_ratio'], name='6ECMB101 비율', line=dict(color='brown', width=1), opacity=0.7), row=4, col=1)
+fig1.add_trace(go.Scatter(x=df['CRT_TM_STR'], y=df['6ECMB101_ratio'], name='6ECMB101 비율', line=dict(color='brown', width=1), opacity=0.7), row=4, col=1)
 fig1.add_hline(y=50, line_dash="dash", line_color="red", annotation_text="50%", row=4, col=1)
 
 # 이상치 마커
 anomaly_df = df[df['is_anomaly']]
-fig1.add_trace(go.Scatter(x=anomaly_df['CRT_TM'], y=anomaly_df['CURRENT_M16A_3F_JOB_2_max'], mode='markers', name='⚠️ 이상치', marker=dict(color='red', size=8, symbol='x')), row=2, col=1)
+fig1.add_trace(go.Scatter(x=anomaly_df['CRT_TM_STR'], y=anomaly_df['CURRENT_M16A_3F_JOB_2_max'], mode='markers', name='⚠️ 이상치', marker=dict(color='red', size=8, symbol='x')), row=2, col=1)
 
 fig1.update_layout(
     height=1200,
-    title_text='<b>RAIL-TRANSFERPAUSED 트렌드 분석 대시보드</b><br><sup>기간: 2025-11-25 ~ 2026-01-06 (10분 단위)</sup>',
+    title_text='<b>RAIL-TRANSFERPAUSED 트렌드 분석 대시보드</b><br><sup>기간: 202511250000 ~ 202601060700 (10분 단위)</sup>',
     showlegend=True,
     hovermode='x unified',
     xaxis4=dict(
         rangeslider=dict(visible=True),
-        type='date'
+        type='category'
     )
 )
 
@@ -112,23 +116,23 @@ fig2 = make_subplots(
 )
 
 # 1) 일별 PAUSE
-fig2.add_trace(go.Bar(x=daily['date'].astype(str), y=daily['RAIL-TRANSFERPAUSED_WELL'], name='전체', marker_color='blue', opacity=0.7), row=1, col=1)
-fig2.add_trace(go.Bar(x=daily['date'].astype(str), y=daily['6ECMB101_WELL'], name='6ECMB101', marker_color='red', opacity=0.7), row=1, col=1)
+fig2.add_trace(go.Bar(x=daily['date_str'], y=daily['RAIL-TRANSFERPAUSED_WELL'], name='전체', marker_color='blue', opacity=0.7), row=1, col=1)
+fig2.add_trace(go.Bar(x=daily['date_str'], y=daily['6ECMB101_WELL'], name='6ECMB101', marker_color='red', opacity=0.7), row=1, col=1)
 
 # 2) 일별 JOB_2 Max
 colors_job = ['red' if v >= 400 else 'orange' if v >= 300 else 'green' for v in daily['CURRENT_M16A_3F_JOB_2_max']]
-fig2.add_trace(go.Bar(x=daily['date'].astype(str), y=daily['CURRENT_M16A_3F_JOB_2_max'], name='JOB_2 Max', marker_color=colors_job), row=1, col=2)
+fig2.add_trace(go.Bar(x=daily['date_str'], y=daily['CURRENT_M16A_3F_JOB_2_max'], name='JOB_2 Max', marker_color=colors_job), row=1, col=2)
 fig2.add_hline(y=300, line_dash="dash", line_color="orange", row=1, col=2)
 fig2.add_hline(y=400, line_dash="dash", line_color="red", row=1, col=2)
 
 # 3) 일별 비율
 colors_ratio = ['red' if v >= 70 else 'orange' if v >= 50 else 'green' for v in daily['ratio']]
-fig2.add_trace(go.Bar(x=daily['date'].astype(str), y=daily['ratio'], name='비율', marker_color=colors_ratio), row=2, col=1)
+fig2.add_trace(go.Bar(x=daily['date_str'], y=daily['ratio'], name='비율', marker_color=colors_ratio), row=2, col=1)
 fig2.add_hline(y=50, line_dash="dash", line_color="red", row=2, col=1)
 
 # 4) 일별 AvgTime Max
 colors_time = ['red' if v >= 20 else 'orange' if v >= 10 else 'purple' for v in daily['M16HUB_AVGTOTALTIME1MIN_max']]
-fig2.add_trace(go.Bar(x=daily['date'].astype(str), y=daily['M16HUB_AVGTOTALTIME1MIN_max'], name='AvgTime Max', marker_color=colors_time), row=2, col=2)
+fig2.add_trace(go.Bar(x=daily['date_str'], y=daily['M16HUB_AVGTOTALTIME1MIN_max'], name='AvgTime Max', marker_color=colors_time), row=2, col=2)
 fig2.add_hline(y=10, line_dash="dash", line_color="orange", row=2, col=2)
 fig2.add_hline(y=20, line_dash="dash", line_color="red", row=2, col=2)
 
@@ -163,7 +167,7 @@ fig3.add_trace(go.Bar(x=weekday_agg['weekday_name'], y=weekday_agg['RAIL-TRANSFE
 fig3.add_trace(go.Bar(x=weekday_agg['weekday_name'], y=weekday_agg['6ECMB101_WELL'], name='6ECMB101', marker_color='red', opacity=0.7), row=1, col=3)
 
 fig3.update_layout(
-    height=400,
+    height=500,
     title_text='<b>시간대별/요일별 패턴 분석</b>',
     showlegend=True,
     barmode='group'
@@ -200,7 +204,7 @@ fig5.add_trace(go.Scatter(
         showscale=True,
         colorbar=dict(title='AvgTime')
     ),
-    text=df['CRT_TM'].dt.strftime('%Y-%m-%d %H:%M'),
+    text=df['CRT_TM_STR'],
     hovertemplate='시간: %{text}<br>JOB_2: %{x:.1f}<br>6ECMB101: %{y}<br>AvgTime: %{marker.color:.1f}<extra></extra>'
 ))
 
@@ -294,11 +298,6 @@ html_content = f'''
             padding-bottom: 10px;
             border-bottom: 2px solid #1e3c72;
         }}
-        .grid-2 {{
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(500px, 1fr));
-            gap: 20px;
-        }}
         .insight-box {{
             background: #fff3cd;
             border-left: 4px solid #ffc107;
@@ -322,7 +321,7 @@ html_content = f'''
 <body>
     <div class="header">
         <h1>🚦 RAIL-TRANSFERPAUSED 분석 대시보드</h1>
-        <p>📅 분석 기간: 2025-11-25 ~ 2026-01-06 | 📊 데이터: 10분 단위 {len(df):,}건</p>
+        <p>📅 분석 기간: 202511250000 ~ 202601060700 | 📊 데이터: 10분 단위 {len(df):,}건</p>
     </div>
 
     <div class="summary-cards">
@@ -377,15 +376,14 @@ html_content = f'''
         <div id="chart2"></div>
     </div>
 
-    <div class="grid-2">
-        <div class="chart-container">
-            <div class="section-title">🕐 시간대별/요일별 패턴</div>
-            <div id="chart3"></div>
-        </div>
-        <div class="chart-container">
-            <div class="section-title">🔗 상관관계 분석</div>
-            <div id="chart4"></div>
-        </div>
+    <div class="chart-container">
+        <div class="section-title">🕐 시간대별/요일별 패턴</div>
+        <div id="chart3"></div>
+    </div>
+
+    <div class="chart-container">
+        <div class="section-title">🔗 상관관계 분석</div>
+        <div id="chart4"></div>
     </div>
 
     <div class="chart-container">
