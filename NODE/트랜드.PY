@@ -98,10 +98,6 @@ html_content = f'''
         .tab-content.active {{ display: block; }}
         .chart {{ background: #1e293b; border-radius: 10px; padding: 15px; }}
         .chart-title {{ font-size: 18px; font-weight: bold; margin-bottom: 15px; color: #e2e8f0; }}
-        .legend-box {{ display: flex; flex-wrap: wrap; gap: 15px; margin-bottom: 15px; padding: 10px; background: #0f172a; border-radius: 8px; }}
-        .legend-item {{ display: flex; align-items: center; gap: 5px; font-size: 13px; }}
-        .legend-color {{ width: 20px; height: 3px; }}
-        .legend-color.dot {{ border-style: dotted; border-width: 2px; height: 0; }}
     </style>
 </head>
 <body>
@@ -128,39 +124,19 @@ html_content = f'''
 
     <div id="trend" class="tab-content active">
         <div class="chart">
-            <div class="chart-title">📈 RAIL-TRANSFERPAUSED 전체 트렌드</div>
-            <div class="legend-box">
-                <div class="legend-item"><div class="legend-color" style="background:#3b82f6"></div>RAIL-TRANSFERPAUSED</div>
-                <div class="legend-item"><div class="legend-color" style="background:#ef4444"></div>6ECMB101</div>
-                <div class="legend-item"><div class="legend-color" style="background:#22c55e"></div>JOB_2 평균</div>
-                <div class="legend-item"><div class="legend-color dot" style="border-color:#f97316"></div>JOB_2 최대</div>
-                <div class="legend-item"><div class="legend-color" style="background:#a855f7"></div>AvgTime 평균</div>
-                <div class="legend-item"><div class="legend-color dot" style="border-color:#ec4899"></div>AvgTime 최대</div>
-                <div class="legend-item"><div class="legend-color" style="background:red"></div>JOB_2 임계값(300)</div>
-                <div class="legend-item"><div class="legend-color dot" style="border-color:orange"></div>AvgTime 경고(10분)</div>
-            </div>
+            <div class="chart-title">📈 RAIL-TRANSFERPAUSED 전체 트렌드 (클릭하여 ON/OFF)</div>
             <div id="chart_trend"></div>
         </div>
     </div>
     <div id="daily" class="tab-content">
         <div class="chart">
-            <div class="chart-title">📊 일별 요약</div>
-            <div class="legend-box">
-                <div class="legend-item"><div class="legend-color" style="background:#3b82f6"></div>RAIL-TRANSFERPAUSED</div>
-                <div class="legend-item"><div class="legend-color" style="background:#ef4444"></div>6ECMB101</div>
-                <div class="legend-item"><div class="legend-color" style="background:#22c55e"></div>JOB_2 Max</div>
-                <div class="legend-item"><div class="legend-color" style="background:#a855f7"></div>AvgTime Max</div>
-            </div>
+            <div class="chart-title">📊 일별 요약 (클릭하여 ON/OFF)</div>
             <div id="chart_daily"></div>
         </div>
     </div>
     <div id="hourly" class="tab-content">
         <div class="chart">
             <div class="chart-title">🕐 시간대별 평균 PAUSE 건수</div>
-            <div class="legend-box">
-                <div class="legend-item"><div class="legend-color" style="background:#3b82f6"></div>RAIL-TRANSFERPAUSED</div>
-                <div class="legend-item"><div class="legend-color" style="background:#ef4444"></div>6ECMB101</div>
-            </div>
             <div id="chart_hourly"></div>
         </div>
     </div>
@@ -190,8 +166,7 @@ html_content = f'''
             paper_bgcolor: '#1e293b',
             plot_bgcolor: '#1e293b',
             font: {{ color: '#e2e8f0' }},
-            hovermode: 'x unified',
-            showlegend: false
+            hovermode: 'x unified'
         }};
 
         // 트렌드
@@ -204,12 +179,13 @@ html_content = f'''
             {{ x: {json.dumps(trend_time)}, y: {json.dumps(trend_avgtime_max)}, name: 'AvgTime 최대', type: 'scatter', line: {{ color: '#ec4899', width: 1.5, dash: 'dot' }}, yaxis: 'y3' }}
         ];
         var trendLayout = Object.assign({{}}, darkLayout, {{
-            height: 550,
-            margin: {{ t: 20, b: 80, l: 70, r: 120 }},
+            height: 650,
+            margin: {{ t: 10, b: 100, l: 70, r: 120 }},
             xaxis: {{ title: '시간', rangeslider: {{ visible: true }} }},
             yaxis: {{ title: 'PAUSE 건수', side: 'left', color: '#3b82f6' }},
             yaxis2: {{ title: 'JOB_2', side: 'right', overlaying: 'y', color: '#22c55e' }},
             yaxis3: {{ title: 'AvgTime (분)', side: 'right', overlaying: 'y', position: 0.92, color: '#a855f7' }},
+            legend: {{ orientation: 'h', y: 1.15, x: 0.5, xanchor: 'center', bgcolor: 'rgba(30,41,59,0.8)' }},
             shapes: [
                 {{ type: 'line', y0: 300, y1: 300, x0: 0, x1: 1, xref: 'paper', yref: 'y2', line: {{ color: 'red', width: 2 }} }},
                 {{ type: 'line', y0: 10, y1: 10, x0: 0, x1: 1, xref: 'paper', yref: 'y3', line: {{ color: 'orange', width: 2, dash: 'dash' }} }}
@@ -225,13 +201,14 @@ html_content = f'''
             {{ x: {json.dumps(daily_date)}, y: {json.dumps(daily_avgtime)}, name: 'AvgTime Max', type: 'scatter', mode: 'lines+markers', line: {{ color: '#a855f7', width: 2 }}, yaxis: 'y3' }}
         ];
         var dailyLayout = Object.assign({{}}, darkLayout, {{
-            height: 550,
-            margin: {{ t: 20, b: 80, l: 70, r: 120 }},
+            height: 600,
+            margin: {{ t: 10, b: 80, l: 70, r: 120 }},
             barmode: 'group',
             xaxis: {{ title: '날짜' }},
             yaxis: {{ title: 'PAUSE 건수', side: 'left' }},
             yaxis2: {{ title: 'JOB_2 Max', side: 'right', overlaying: 'y' }},
             yaxis3: {{ title: 'AvgTime Max', side: 'right', overlaying: 'y', position: 0.92 }},
+            legend: {{ orientation: 'h', y: 1.1, x: 0.5, xanchor: 'center', bgcolor: 'rgba(30,41,59,0.8)' }},
             shapes: [
                 {{ type: 'line', y0: 300, y1: 300, x0: 0, x1: 1, xref: 'paper', yref: 'y2', line: {{ color: 'red', width: 2 }} }},
                 {{ type: 'line', y0: 10, y1: 10, x0: 0, x1: 1, xref: 'paper', yref: 'y3', line: {{ color: 'orange', width: 2, dash: 'dash' }} }}
@@ -245,11 +222,12 @@ html_content = f'''
             {{ x: {json.dumps(hourly_hour)}, y: {json.dumps(hourly_6ecmb)}, name: '6ECMB101', type: 'bar', marker: {{ color: '#ef4444' }} }}
         ];
         var hourlyLayout = Object.assign({{}}, darkLayout, {{
-            height: 450,
-            margin: {{ t: 20, b: 60, l: 60, r: 40 }},
+            height: 500,
+            margin: {{ t: 10, b: 60, l: 60, r: 40 }},
             barmode: 'group',
             xaxis: {{ title: '시간 (0~23시)', dtick: 1 }},
-            yaxis: {{ title: '평균 건수' }}
+            yaxis: {{ title: '평균 건수' }},
+            legend: {{ orientation: 'h', y: 1.1, x: 0.5, xanchor: 'center', bgcolor: 'rgba(30,41,59,0.8)' }}
         }});
         Plotly.newPlot('chart_hourly', hourlyData, hourlyLayout, {{responsive: true}});
 
@@ -266,8 +244,8 @@ html_content = f'''
             hovertemplate: '%{{x}} vs %{{y}}: %{{z:.3f}}<extra></extra>'
         }}];
         var corrLayout = Object.assign({{}}, darkLayout, {{
-            height: 450,
-            margin: {{ t: 20, b: 60, l: 150, r: 40 }}
+            height: 500,
+            margin: {{ t: 10, b: 60, l: 150, r: 40 }}
         }});
         Plotly.newPlot('chart_corr', corrData, corrLayout, {{responsive: true}});
 
@@ -288,8 +266,8 @@ html_content = f'''
             hovertemplate: '시간: %{{text}}<br>JOB_2: %{{x:.1f}}<br>6ECMB101: %{{y}}<extra></extra>'
         }}];
         var scatterLayout = Object.assign({{}}, darkLayout, {{
-            height: 500,
-            margin: {{ t: 20, b: 60, l: 70, r: 40 }},
+            height: 550,
+            margin: {{ t: 10, b: 60, l: 70, r: 40 }},
             xaxis: {{ title: 'CURRENT_M16A_3F_JOB_2 평균' }},
             yaxis: {{ title: '6ECMB101 PAUSE 건수' }},
             shapes: [
