@@ -7,13 +7,13 @@ import json
 df = pd.read_csv('RAL', encoding='utf-8')
 df = df.dropna(subset=['CRT_TM'])
 df['CRT_TM'] = pd.to_datetime(df['CRT_TM'])
-df['CRT_TM_STR'] = df['CRT_TM'].dt.strftime('%Y-%m-%d %H:%M')
+df['CRT_TM_STR'] = df['CRT_TM'].dt.strftime('%Y-%m-%d %H:%M')  # 2026-01-01 15:10 형식
 
 # 2. 파생 컬럼
 df['6ECMB101_ratio'] = (df['6ECMB101_WELL'] / df['RAIL-TRANSFERPAUSED_WELL'] * 100).fillna(0)
 df['date_str'] = df['CRT_TM'].dt.strftime('%Y-%m-%d')
 df['hour'] = df['CRT_TM'].dt.hour
-df['is_anomaly'] = ((df['CURRENT_M16A_3F_JOB_2_max'] >= 400) | (df['6ECMB101_ratio'] >= 70))
+df['is_anomaly'] = ((df['CURRENT_M16A_3F_JOB_2_max'] >= 350) | (df['6ECMB101_ratio'] >= 70))  # 350으로 변경
 
 # 3. 집계
 daily = df.groupby('date_str').agg({
@@ -109,7 +109,7 @@ html_content = f'''
     <div class="cards">
         <div class="card"><h3>📊 RAIL-TRANSFERPAUSED</h3><div class="value">{total_pause:,.0f}</div></div>
         <div class="card"><h3>🔴 6ECMB101</h3><div class="value">{total_6ecmb:,.0f}</div><div class="sub">{ratio_6ecmb:.1f}%</div></div>
-        <div class="card {'warning' if max_job2 >= 400 else ''}"><h3>📈 JOB_2 최대</h3><div class="value">{max_job2:.0f}</div></div>
+        <div class="card {'warning' if max_job2 >= 350 else ''}"><h3>📈 JOB_2 최대</h3><div class="value">{max_job2:.0f}</div></div>
         <div class="card {'danger' if max_avgtime >= 20 else 'warning' if max_avgtime >= 10 else ''}"><h3>⏱️ AvgTime 최대</h3><div class="value">{max_avgtime:.1f}분</div></div>
         <div class="card"><h3>⚠️ 이상치</h3><div class="value">{len(anomaly_df):,}건</div></div>
     </div>
@@ -181,14 +181,17 @@ html_content = f'''
         var trendLayout = Object.assign({{}}, darkLayout, {{
             height: 650,
             margin: {{ t: 10, b: 100, l: 70, r: 120 }},
-            xaxis: {{ title: '시간', rangeslider: {{ visible: true }} }},
+            xaxis: {{ title: '시간', rangeslider: {{ visible: true }}, tickformat: '%Y-%m-%d %H:%M' }},
             yaxis: {{ title: 'PAUSE 건수', side: 'left', color: '#3b82f6' }},
             yaxis2: {{ title: 'JOB_2', side: 'right', overlaying: 'y', color: '#22c55e' }},
             yaxis3: {{ title: 'AvgTime (분)', side: 'right', overlaying: 'y', position: 0.92, color: '#a855f7' }},
             legend: {{ orientation: 'h', y: 1.15, x: 0.5, xanchor: 'center', bgcolor: 'rgba(30,41,59,0.8)' }},
             shapes: [
-                {{ type: 'line', y0: 300, y1: 300, x0: 0, x1: 1, xref: 'paper', yref: 'y2', line: {{ color: 'red', width: 2 }} }},
+                {{ type: 'line', y0: 350, y1: 350, x0: 0, x1: 1, xref: 'paper', yref: 'y2', line: {{ color: 'red', width: 2 }} }},
                 {{ type: 'line', y0: 10, y1: 10, x0: 0, x1: 1, xref: 'paper', yref: 'y3', line: {{ color: 'orange', width: 2, dash: 'dash' }} }}
+            ],
+            annotations: [
+                {{ x: 1.01, y: 350, xref: 'paper', yref: 'y2', text: '임계값(350)', showarrow: false, font: {{ color: 'red', size: 11 }} }}
             ]
         }});
         Plotly.newPlot('chart_trend', trendData, trendLayout, {{responsive: true}});
@@ -204,13 +207,13 @@ html_content = f'''
             height: 600,
             margin: {{ t: 10, b: 80, l: 70, r: 120 }},
             barmode: 'group',
-            xaxis: {{ title: '날짜' }},
+            xaxis: {{ title: '날짜', tickformat: '%Y-%m-%d' }},
             yaxis: {{ title: 'PAUSE 건수', side: 'left' }},
             yaxis2: {{ title: 'JOB_2 Max', side: 'right', overlaying: 'y' }},
             yaxis3: {{ title: 'AvgTime Max', side: 'right', overlaying: 'y', position: 0.92 }},
             legend: {{ orientation: 'h', y: 1.1, x: 0.5, xanchor: 'center', bgcolor: 'rgba(30,41,59,0.8)' }},
             shapes: [
-                {{ type: 'line', y0: 300, y1: 300, x0: 0, x1: 1, xref: 'paper', yref: 'y2', line: {{ color: 'red', width: 2 }} }},
+                {{ type: 'line', y0: 350, y1: 350, x0: 0, x1: 1, xref: 'paper', yref: 'y2', line: {{ color: 'red', width: 2 }} }},
                 {{ type: 'line', y0: 10, y1: 10, x0: 0, x1: 1, xref: 'paper', yref: 'y3', line: {{ color: 'orange', width: 2, dash: 'dash' }} }}
             ]
         }});
@@ -271,7 +274,7 @@ html_content = f'''
             xaxis: {{ title: 'CURRENT_M16A_3F_JOB_2 평균' }},
             yaxis: {{ title: '6ECMB101 PAUSE 건수' }},
             shapes: [
-                {{ type: 'line', x0: 300, x1: 300, y0: 0, y1: 1, yref: 'paper', line: {{ color: 'red', width: 2 }} }},
+                {{ type: 'line', x0: 350, x1: 350, y0: 0, y1: 1, yref: 'paper', line: {{ color: 'red', width: 2 }} }},
                 {{ type: 'line', y0: 50, y1: 50, x0: 0, x1: 1, xref: 'paper', line: {{ color: 'orange', width: 2, dash: 'dash' }} }}
             ]
         }});
