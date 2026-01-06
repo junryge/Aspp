@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-V13 데이터 병합 - 신규 컬럼 추가
+V13 PDT 데이터 - 누락 시간 0으로 채우기
 """
 import pandas as pd
 import numpy as np
@@ -8,80 +8,46 @@ import numpy as np
 # ============================================================
 # 설정
 # ============================================================
-TRAIN_FILE = 'M14_학습_20250909_20251231_C_109.CSV'  # 기존 학습 데이터
-PDT_FILE = 'V13_PDT_20250909_20251231.csv'           # 신규 PDT 데이터
-OUTPUT_FILE = 'M14_학습_V13_20250909_20251231.CSV'   # 병합 결과
+PDT_FILE = 'V13_PDT_20250909_20251231.csv'
+OUTPUT_FILE = 'V13_PDT_FILLED_20250909_20251231.csv'
 
 # ============================================================
 # 데이터 로드
 # ============================================================
-print("=" * 60)
-print("V13 데이터 병합")
-print("=" * 60)
-
-# 기존 학습 데이터
-print("\n[1/4] 기존 학습 데이터 로드...")
+print("데이터 로드...")
 try:
-    df_train = pd.read_csv(TRAIN_FILE, encoding='utf-8')
+    df = pd.read_csv(PDT_FILE, encoding='utf-8')
 except:
     try:
-        df_train = pd.read_csv(TRAIN_FILE, encoding='cp949')
+        df = pd.read_csv(PDT_FILE, encoding='cp949')
     except:
-        df_train = pd.read_csv(TRAIN_FILE, encoding='euc-kr')
+        df = pd.read_csv(PDT_FILE, encoding='euc-kr')
 
-print(f"  - 기존 데이터: {len(df_train):,}행, {len(df_train.columns)}컬럼")
+print(f"원본: {len(df):,}행")
 
-# 신규 PDT 데이터
-print("\n[2/4] 신규 PDT 데이터 로드...")
-try:
-    df_pdt = pd.read_csv(PDT_FILE, encoding='utf-8')
-except:
-    try:
-        df_pdt = pd.read_csv(PDT_FILE, encoding='cp949')
-    except:
-        df_pdt = pd.read_csv(PDT_FILE, encoding='euc-kr')
+# CURRTIME → datetime
+df['CURRTIME'] = pd.to_datetime(df['CURRTIME'], format='%Y%m%d%H%M')
+df = df.drop_duplicates(subset='CURRTIME', keep='last')
 
-print(f"  - PDT 데이터: {len(df_pdt):,}행, {len(df_pdt.columns)}컬럼")
+# 전체 시간 범위 생성 (1분 간격)
+full_range = pd.date_range(start='2025-09-09 00:00', end='2025-12-31 23:59', freq='1min')
+df_full = pd.DataFrame({'CURRTIME': full_range})
 
-# ============================================================
-# CURRTIME 형식 맞추기
-# ============================================================
-print("\n[3/4] CURRTIME 형식 맞추기...")
+print(f"전체 시간: {len(df_full):,}행")
 
-# 기존 데이터 CURRTIME 형식 확인 및 변환
-df_train['CURRTIME'] = df_train['CURRTIME'].astype(str).str.replace('-', '').str.replace(':', '').str.replace(' ', '').str[:12]
-df_pdt['CURRTIME'] = df_pdt['CURRTIME'].astype(str).str.replace('-', '').str.replace(':', '').str.replace(' ', '').str[:12]
-
-print(f"  - 기존 CURRTIME 샘플: {df_train['CURRTIME'].iloc[0]}")
-print(f"  - PDT CURRTIME 샘플: {df_pdt['CURRTIME'].iloc[0]}")
-
-# 중복 제거 (PDT)
-df_pdt = df_pdt.drop_duplicates(subset='CURRTIME', keep='last')
-print(f"  - PDT 중복 제거 후: {len(df_pdt):,}행")
-
-# ============================================================
 # 병합
-# ============================================================
-print("\n[4/4] 데이터 병합...")
+df_merged = df_full.merge(df, on='CURRTIME', how='left')
 
-df_merged = df_train.merge(df_pdt, on='CURRTIME', how='left')
+# 누락값 0으로
+for col in df_merged.columns:
+    if col != 'CURRTIME':
+        df_merged[col] = df_merged[col].fillna(0)
 
-# 누락값 0으로 채우기
-new_cols = [c for c in df_pdt.columns if c != 'CURRTIME']
-for col in new_cols:
-    df_merged[col] = df_merged[col].fillna(0)
-    
-print(f"  - 병합 결과: {len(df_merged):,}행, {len(df_merged.columns)}컬럼")
-print(f"  - 신규 컬럼: {new_cols}")
+# CURRTIME 형식 변환 (YYYYMMDDHHMM)
+df_merged['CURRTIME'] = df_merged['CURRTIME'].dt.strftime('%Y%m%d%H%M')
 
-# 누락 확인
-for col in new_cols:
-    null_cnt = (df_merged[col] == 0).sum()
-    print(f"  - {col}: 0값 {null_cnt:,}개 ({100*null_cnt/len(df_merged):.1f}%)")
+print(f"결과: {len(df_merged):,}행")
 
-# ============================================================
 # 저장
-# ============================================================
 df_merged.to_csv(OUTPUT_FILE, index=False, encoding='utf-8-sig')
-print(f"\n저장 완료: {OUTPUT_FILE}")
-print("=" * 60)
+print(f"저장: {OUTPUT_FILE}")
