@@ -2,7 +2,7 @@
 """
 ================================================================================
 V13 ML 예측 모델 - 학습 코드
-N2_RATIO + CNV 2개 신규 컬럼 추가
+N2_RATIO + CNV + HUBROOM 3개 신규 컬럼 추가
 ================================================================================
 """
 
@@ -13,8 +13,7 @@ import numpy as np
 import pandas as pd
 from datetime import datetime
 from sklearn.preprocessing import StandardScaler
-from sklearn.model_selection import train_test_split
-from xgboost import XGBRegressor, XGBClassifier
+from xgboost import XGBRegressor
 from lightgbm import LGBMClassifier
 
 warnings.filterwarnings('ignore')
@@ -23,7 +22,7 @@ warnings.filterwarnings('ignore')
 # 설정
 # ============================================================================
 CONFIG = {
-    'train_file': 'M14_학습_V13_20250909_20251231.CSV',  # V13 병합 데이터
+    'train_file': 'M14_학습_V13_20250909_20251231.CSV',
     'model_file': 'models/v13_m14_model.pkl',
     'sequence_length': 240,
     'prediction_window': 30,
@@ -31,7 +30,6 @@ CONFIG = {
     'target_column': 'TOTALCNT',
 }
 
-# V13: 기존 V10 + 신규 2개 컬럼
 FEATURE_GROUPS = {
     'target': ['TOTALCNT'],
     'important': [
@@ -70,15 +68,17 @@ FEATURE_GROUPS = {
         'M14.QUE.CNV.ALLTONORTHCNVCURRENTQCNT',
         'M14.QUE.CNV.ALLTOSOUTHCNVCURRENTQCNT',
     ],
-    # ★ V13 신규 그룹
+    # ★ V13 신규 (3개)
     'v13_new': [
-        'M14.STRATE.N2.STORAGERATIO',                        # N2 저장율
-        'M14.PDT.LAYOUT.M14A_M14ATOM14ACNV_CURRENTQCNT',     # CNV 큐 (선행지표)
+        'M14.STRATE.N2.STORAGERATIO',                        # N2 저장율 (상관 0.58)
+        'M14.PDT.LAYOUT.M14A_M14ATOM14ACNV_CURRENTQCNT',     # CNV 큐 (50↑ → 2배)
+        'M14.PDT.LAYOUT.HUBROOM_M14TOM16_CURRENTQCNT',       # HUBROOM (역상관 = 막힘 신호)
     ]
 }
 
 print("=" * 70)
-print("V13 ML 예측 모델 - 학습 시작 (N2_RATIO + CNV 추가)")
+print("V13 ML 예측 모델 - 학습 시작")
+print("신규 컬럼: N2_RATIO + CNV + HUBROOM")
 print("=" * 70)
 
 # ============================================================================
@@ -99,12 +99,10 @@ df = df.sort_values('CURRTIME').reset_index(drop=True)
 
 print(f"  - 데이터: {len(df):,}행")
 
-# 컬럼 필터링
 for group_name in FEATURE_GROUPS:
     FEATURE_GROUPS[group_name] = [f for f in FEATURE_GROUPS[group_name] if f in df.columns]
     print(f"  - {group_name} 컬럼: {len(FEATURE_GROUPS[group_name])}개")
 
-# 수치형 변환
 all_cols = []
 for group in FEATURE_GROUPS.values():
     all_cols.extend(group)
@@ -115,7 +113,7 @@ for col in all_cols:
         df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
 
 # ============================================================================
-# 시퀀스 피처 생성 함수
+# 시퀀스 피처 생성
 # ============================================================================
 def create_sequence_features(df, feature_cols, seq_len, idx, limit_val=1700):
     features = []
@@ -158,12 +156,10 @@ for idx in range(seq_len, len(df) - pred_window):
     if idx % 10000 == 0:
         print(f"    진행: {idx:,}/{len(df) - pred_window:,}")
     
-    # 타겟 (30분 후 최대값)
     future_max = df[target_col].iloc[idx:idx + pred_window].max()
     y_reg.append(future_max)
     y_clf.append(1 if future_max >= limit_val else 0)
     
-    # 피처 생성
     X_target.append(create_sequence_features(df, FEATURE_GROUPS['target'], seq_len, idx))
     X_important.append(create_sequence_features(df, FEATURE_GROUPS['important'], seq_len, idx))
     X_auxiliary.append(create_sequence_features(df, FEATURE_GROUPS['auxiliary'], seq_len, idx))
@@ -203,7 +199,6 @@ print("\n[4/6] 모델 학습 중...")
 
 models = {}
 
-# XGBoost 회귀 모델
 print("  - XGB Target...")
 models['xgb_target'] = XGBRegressor(n_estimators=200, max_depth=6, learning_rate=0.05, random_state=42, n_jobs=-1)
 models['xgb_target'].fit(X_target_scaled, y_reg)
@@ -220,7 +215,6 @@ print("  - XGB V13 New...")
 models['xgb_v13_new'] = XGBRegressor(n_estimators=200, max_depth=6, learning_rate=0.05, random_state=42, n_jobs=-1)
 models['xgb_v13_new'].fit(X_v13_new_scaled, y_reg)
 
-# LightGBM 분류 모델
 print("  - LGBM Target...")
 models['lgb_target'] = LGBMClassifier(n_estimators=200, max_depth=6, learning_rate=0.05, random_state=42, n_jobs=-1, verbose=-1)
 models['lgb_target'].fit(X_target_scaled, y_clf)
@@ -238,17 +232,7 @@ models['lgb_v13_new'] = LGBMClassifier(n_estimators=200, max_depth=6, learning_r
 models['lgb_v13_new'].fit(X_v13_new_scaled, y_clf)
 
 # ============================================================================
-# 피처 인덱스 저장
-# ============================================================================
-feature_indices = {
-    'target_end': X_target.shape[1],
-    'important_end': X_target.shape[1] + X_important.shape[1],
-    'auxiliary_end': X_target.shape[1] + X_important.shape[1] + X_auxiliary.shape[1],
-    'v13_new_end': X_target.shape[1] + X_important.shape[1] + X_auxiliary.shape[1] + X_v13_new.shape[1],
-}
-
-# ============================================================================
-# 모델 저장
+# 저장
 # ============================================================================
 print("\n[5/6] 모델 저장...")
 
@@ -257,7 +241,12 @@ os.makedirs('models', exist_ok=True)
 model_data = {
     'models': models,
     'scalers': scalers,
-    'feature_indices': feature_indices,
+    'feature_indices': {
+        'target_end': X_target.shape[1],
+        'important_end': X_target.shape[1] + X_important.shape[1],
+        'auxiliary_end': X_target.shape[1] + X_important.shape[1] + X_auxiliary.shape[1],
+        'v13_new_end': X_target.shape[1] + X_important.shape[1] + X_auxiliary.shape[1] + X_v13_new.shape[1],
+    },
     'config': CONFIG,
     'feature_groups': FEATURE_GROUPS,
     'version': 'V13',
@@ -269,12 +258,9 @@ with open(CONFIG['model_file'], 'wb') as f:
 
 print(f"  - 저장: {CONFIG['model_file']}")
 
-# ============================================================================
-# 완료
-# ============================================================================
 print("\n[6/6] 학습 완료!")
 print("=" * 70)
-print(f"V13 모델 학습 완료!")
-print(f"  - 신규 컬럼: N2_RATIO, CNV")
+print("V13 모델 학습 완료!")
+print("  - 신규 컬럼: N2_RATIO, CNV, HUBROOM (3개)")
 print(f"  - 모델 수: {len(models)}개")
 print("=" * 70)
