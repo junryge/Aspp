@@ -395,20 +395,48 @@ function initTrendChart() {{
             plugins: {{
                 legend: {{ position: 'top', labels: {{ color: '#fff', font: {{ size: 11 }} }} }},
                 tooltip: {{
-                    backgroundColor: 'rgba(0,0,0,0.95)',
-                    titleColor: '#fff',
+                    backgroundColor: 'rgba(10,10,26,0.98)',
+                    titleColor: '#00d4ff',
                     bodyColor: '#fff',
-                    padding: 12,
+                    padding: 15,
+                    titleFont: {{ size: 13, weight: 'bold' }},
+                    bodyFont: {{ size: 11 }},
+                    borderColor: '#00d4ff',
+                    borderWidth: 1,
+                    displayColors: false,
                     callbacks: {{
+                        title: function(context) {{
+                            const idx = context[0].dataIndex;
+                            const d = data[idx];
+                            return `📊 ${{d.time}} | ${{d.status}}`;
+                        }},
+                        label: function() {{ return null; }},
                         afterBody: function(context) {{
                             const idx = context[0].dataIndex;
                             const d = data[idx];
-                            let result = [''];
-                            result.push('📊 상태: ' + d.status);
-                            result.push('🗳️ 투표: ' + d.votes + '/6');
-                            if (d.pred_max >= 1700) result.push('🚨 예측MAX 1700 초과!');
-                            if (d.actual_max >= 1700) result.push('🔥 실제 돌파!');
-                            return result;
+                            return [
+                                '',
+                                `━━━ 현재/실제 ━━━`,
+                                `현재 TOTALCNT: ${{d.current.toFixed(0)}}`,
+                                `실제 최대값: ${{d.actual_max.toFixed(0)}}`,
+                                `실제 돌파: ${{d.actual_breach ? '⚠️ YES' : '✅ NO'}}`,
+                                '',
+                                `━━━ XGB 예측 ━━━`,
+                                `XGB 타겟: ${{d.xgb_target.toFixed(1)}}`,
+                                `XGB 중요: ${{d.xgb_important.toFixed(1)}}`,
+                                `XGB 보조: ${{d.xgb_auxiliary.toFixed(1)}}`,
+                                `예측 MAX: ${{d.pred_max.toFixed(1)}} ${{d.pred_max >= 1700 ? '🚨' : ''}}`,
+                                `예측 MIN: ${{d.pred_min.toFixed(1)}}`,
+                                '',
+                                `━━━ LGBM 확률 ━━━`,
+                                `LGBM 타겟: ${{(d.lgbm_target_prob * 100).toFixed(1)}}%`,
+                                `LGBM 중요: ${{(d.lgbm_important_prob * 100).toFixed(1)}}%`,
+                                `LGBM 보조: ${{(d.lgbm_auxiliary_prob * 100).toFixed(1)}}%`,
+                                '',
+                                `━━━ 판정 ━━━`,
+                                `투표: ${{d.votes}}/6`,
+                                `최종 예측: ${{d.pred_breach ? '🔴 돌파' : '🟢 안전'}}`
+                            ];
                         }}
                     }}
                 }}
@@ -599,15 +627,48 @@ function showDetail(idx) {{
             plugins: {{
                 legend: {{ position: 'top', labels: {{ color: '#fff' }} }},
                 tooltip: {{
-                    backgroundColor: 'rgba(0,0,0,0.95)',
+                    backgroundColor: 'rgba(10,10,26,0.98)',
+                    titleColor: '#00d4ff',
+                    bodyColor: '#fff',
+                    padding: 15,
+                    titleFont: {{ size: 13, weight: 'bold' }},
+                    bodyFont: {{ size: 11 }},
+                    borderColor: '#00d4ff',
+                    borderWidth: 1,
+                    displayColors: false,
                     callbacks: {{
+                        title: function(context) {{
+                            const i = context[0].dataIndex;
+                            const d = rangeData[i];
+                            return `📊 ${{d.time}} | ${{d.status}}`;
+                        }},
+                        label: function() {{ return null; }},
                         afterBody: function(context) {{
                             const i = context[0].dataIndex;
                             const d = rangeData[i];
-                            let result = ['', '상태: ' + d.status];
-                            if (d.pred_max >= 1700) result.push('🚨 예측MAX 1700+');
-                            if (d.actual_max >= 1700) result.push('🔥 실제 돌파');
-                            return result;
+                            return [
+                                '',
+                                `━━━ 현재/실제 ━━━`,
+                                `현재 TOTALCNT: ${{d.current.toFixed(0)}}`,
+                                `실제 최대값: ${{d.actual_max.toFixed(0)}}`,
+                                `실제 돌파: ${{d.actual_breach ? '⚠️ YES' : '✅ NO'}}`,
+                                '',
+                                `━━━ XGB 예측 ━━━`,
+                                `XGB 타겟: ${{d.xgb_target.toFixed(1)}}`,
+                                `XGB 중요: ${{d.xgb_important.toFixed(1)}}`,
+                                `XGB 보조: ${{d.xgb_auxiliary.toFixed(1)}}`,
+                                `예측 MAX: ${{d.pred_max.toFixed(1)}} ${{d.pred_max >= 1700 ? '🚨' : ''}}`,
+                                `예측 MIN: ${{d.pred_min.toFixed(1)}}`,
+                                '',
+                                `━━━ LGBM 확률 ━━━`,
+                                `LGBM 타겟: ${{(d.lgbm_target_prob * 100).toFixed(1)}}%`,
+                                `LGBM 중요: ${{(d.lgbm_important_prob * 100).toFixed(1)}}%`,
+                                `LGBM 보조: ${{(d.lgbm_auxiliary_prob * 100).toFixed(1)}}%`,
+                                '',
+                                `━━━ 판정 ━━━`,
+                                `투표: ${{d.votes}}/6`,
+                                `최종 예측: ${{d.pred_breach ? '🔴 돌파' : '🟢 안전'}}`
+                            ];
                         }}
                     }}
                 }}
