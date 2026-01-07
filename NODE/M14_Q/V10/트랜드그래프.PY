@@ -127,9 +127,23 @@ body {{ font-family: 'Noto Sans KR', sans-serif; background: linear-gradient(135
 .event-title {{ font-size: 1.2rem; font-weight: 600; color: #ff6b35; }}
 .event-count {{ color: #00ff88; font-size: 1rem; }}
 .event-list {{ max-height: 500px; overflow-y: auto; }}
-.event-item {{ display: grid; grid-template-columns: 50px 120px 90px 90px 90px 90px 70px 110px; gap: 8px; padding: 12px 15px; border-bottom: 1px solid #222; cursor: pointer; transition: all 0.2s; font-size: 0.8rem; align-items: center; }}
+.event-item {{ display: grid; grid-template-columns: 50px 120px 90px 90px 90px 90px 70px 110px; gap: 8px; padding: 12px 15px; border-bottom: 1px solid #222; cursor: pointer; transition: all 0.2s; font-size: 0.8rem; align-items: center; position: relative; }}
 .event-item:hover {{ background: rgba(0,212,255,0.1); }}
 .event-item.header {{ background: #15151f; font-weight: bold; color: #888; cursor: default; position: sticky; top: 0; z-index: 10; }}
+.event-item .tooltip {{ display: none; position: absolute; left: 50%; top: 100%; transform: translateX(-50%); background: #1a1a2e; border: 1px solid #00d4ff; border-radius: 12px; padding: 15px; z-index: 100; min-width: 320px; box-shadow: 0 10px 40px rgba(0,0,0,0.8); }}
+.event-item:hover .tooltip {{ display: block; }}
+.event-item.header:hover .tooltip {{ display: none; }}
+.tooltip-title {{ font-weight: bold; color: #00d4ff; margin-bottom: 10px; font-size: 0.9rem; border-bottom: 1px solid #333; padding-bottom: 8px; }}
+.tooltip-grid {{ display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }}
+.tooltip-item {{ display: flex; justify-content: space-between; padding: 4px 0; }}
+.tooltip-label {{ color: #888; font-size: 0.75rem; }}
+.tooltip-value {{ font-weight: bold; font-size: 0.85rem; }}
+.tooltip-value.green {{ color: #00ff88; }}
+.tooltip-value.red {{ color: #ff4466; }}
+.tooltip-value.cyan {{ color: #00d4ff; }}
+.tooltip-value.orange {{ color: #ff6b35; }}
+.tooltip-value.yellow {{ color: #ffcc00; }}
+.tooltip-value.purple {{ color: #a855f7; }}
 .event-num {{ color: #00d4ff; }}
 .event-time {{ color: #aaa; }}
 .event-val {{ text-align: right; }}
@@ -454,6 +468,23 @@ function renderEventList(data) {{
             <div class="event-val pred">${{d.pred_min.toFixed(0)}}</div>
             <div style="text-align:center">${{d.votes}}/6</div>
             <div class="event-status ${{statusClass}}">${{d.status.substring(0,10)}}</div>
+            <div class="tooltip">
+                <div class="tooltip-title">📊 ${{d.time}} | ${{d.status}}</div>
+                <div class="tooltip-grid">
+                    <div class="tooltip-item"><span class="tooltip-label">현재 TOTALCNT</span><span class="tooltip-value green">${{d.current.toFixed(0)}}</span></div>
+                    <div class="tooltip-item"><span class="tooltip-label">실제 최대값</span><span class="tooltip-value cyan">${{d.actual_max.toFixed(0)}}</span></div>
+                    <div class="tooltip-item"><span class="tooltip-label">XGB 타겟</span><span class="tooltip-value orange">${{d.xgb_target.toFixed(1)}}</span></div>
+                    <div class="tooltip-item"><span class="tooltip-label">XGB 중요</span><span class="tooltip-value orange">${{d.xgb_important.toFixed(1)}}</span></div>
+                    <div class="tooltip-item"><span class="tooltip-label">XGB 보조</span><span class="tooltip-value orange">${{d.xgb_auxiliary.toFixed(1)}}</span></div>
+                    <div class="tooltip-item"><span class="tooltip-label">예측 MAX</span><span class="tooltip-value ${{d.pred_max >= 1700 ? 'red' : 'orange'}}">${{d.pred_max.toFixed(1)}}</span></div>
+                    <div class="tooltip-item"><span class="tooltip-label">예측 MIN</span><span class="tooltip-value orange">${{d.pred_min.toFixed(1)}}</span></div>
+                    <div class="tooltip-item"><span class="tooltip-label">LGBM 타겟</span><span class="tooltip-value purple">${{(d.lgbm_target_prob * 100).toFixed(1)}}%</span></div>
+                    <div class="tooltip-item"><span class="tooltip-label">LGBM 중요</span><span class="tooltip-value purple">${{(d.lgbm_important_prob * 100).toFixed(1)}}%</span></div>
+                    <div class="tooltip-item"><span class="tooltip-label">LGBM 보조</span><span class="tooltip-value purple">${{(d.lgbm_auxiliary_prob * 100).toFixed(1)}}%</span></div>
+                    <div class="tooltip-item"><span class="tooltip-label">투표수</span><span class="tooltip-value yellow">${{d.votes}}/6</span></div>
+                    <div class="tooltip-item"><span class="tooltip-label">실제 돌파</span><span class="tooltip-value ${{d.actual_breach ? 'red' : 'green'}}">${{d.actual_breach ? '⚠️ YES' : '✅ NO'}}</span></div>
+                </div>
+            </div>
         </div>`;
     }});
     
