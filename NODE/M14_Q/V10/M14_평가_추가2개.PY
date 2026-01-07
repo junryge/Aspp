@@ -2,7 +2,7 @@
 """
 ================================================================================
 V13 ML 예측 모델 - 평가 코드
-N2_RATIO + CNV 2개 신규 컬럼 추가
+N2_RATIO + CNV + HUBROOM 3개 신규 컬럼 추가
 ================================================================================
 """
 
@@ -20,7 +20,7 @@ warnings.filterwarnings('ignore')
 # ============================================================================
 CONFIG = {
     'model_file': 'models/v13_m14_model.pkl',
-    'eval_file': 'M14_평가_V13.CSV',  # V13 병합된 평가 데이터
+    'eval_file': 'M14_평가_V13.CSV',
     'output_file': f'V13_평가결과_{datetime.now().strftime("%Y%m%d_%H%M%S")}.csv',
     'sequence_length': 240,
     'prediction_window': 30,
@@ -69,11 +69,13 @@ FEATURE_GROUPS = {
     'v13_new': [
         'M14.STRATE.N2.STORAGERATIO',
         'M14.PDT.LAYOUT.M14A_M14ATOM14ACNV_CURRENTQCNT',
+        'M14.PDT.LAYOUT.HUBROOM_M14TOM16_CURRENTQCNT',
     ]
 }
 
 print("=" * 70)
-print("V13 ML 예측 모델 - 평가 시작 (N2_RATIO + CNV 추가)")
+print("V13 ML 예측 모델 - 평가 시작")
+print("신규 컬럼: N2_RATIO + CNV + HUBROOM")
 print("=" * 70)
 
 # ============================================================================
@@ -86,7 +88,6 @@ with open(CONFIG['model_file'], 'rb') as f:
 
 models = model_data['models']
 scalers = model_data['scalers']
-feature_indices = model_data['feature_indices']
 
 print(f"  - 모델 버전: {model_data.get('version', 'V13')}")
 print(f"  - 학습일: {model_data.get('trained_at', 'N/A')}")
@@ -109,12 +110,10 @@ df = df.sort_values('CURRTIME').reset_index(drop=True)
 
 print(f"  - 원본 데이터: {len(df):,}행")
 
-# 컬럼 필터링
 for group_name in FEATURE_GROUPS:
     FEATURE_GROUPS[group_name] = [f for f in FEATURE_GROUPS[group_name] if f in df.columns]
     print(f"  - {group_name} 컬럼 수: {len(FEATURE_GROUPS[group_name])}개")
 
-# 수치형 변환
 all_cols = []
 for group in FEATURE_GROUPS.values():
     all_cols.extend(group)
@@ -125,7 +124,7 @@ for col in all_cols:
         df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
 
 # ============================================================================
-# 시퀀스 피처 생성 함수
+# 시퀀스 피처 생성
 # ============================================================================
 def create_sequence_features(df, feature_cols, seq_len, idx, limit_val=1700):
     features = []
@@ -170,25 +169,21 @@ for idx in range(seq_len, len(df)):
     current_time = df['CURRTIME'].iloc[idx]
     current_val = df[target_col].iloc[idx]
     
-    # 실제값 (30분 후 최대값)
     future_end = min(idx + pred_window, len(df))
     future_vals = df[target_col].iloc[idx:future_end].values
     actual_max = np.max(future_vals) if len(future_vals) > 0 else current_val
     actual_breach = 1 if actual_max >= limit_val else 0
     
-    # 피처 생성
     feat_target = create_sequence_features(df, FEATURE_GROUPS['target'], seq_len, idx)
     feat_important = create_sequence_features(df, FEATURE_GROUPS['important'], seq_len, idx)
     feat_auxiliary = create_sequence_features(df, FEATURE_GROUPS['auxiliary'], seq_len, idx)
     feat_v13_new = create_sequence_features(df, FEATURE_GROUPS['v13_new'], seq_len, idx)
     
-    # 스케일링
     X_target = scalers['target'].transform([feat_target])
     X_important = scalers['important'].transform([feat_important])
     X_auxiliary = scalers['auxiliary'].transform([feat_auxiliary])
     X_v13_new = scalers['v13_new'].transform([feat_v13_new])
     
-    # 예측
     pred_xgb_target = models['xgb_target'].predict(X_target)[0]
     pred_xgb_important = models['xgb_important'].predict(X_important)[0]
     pred_xgb_auxiliary = models['xgb_auxiliary'].predict(X_auxiliary)[0]
@@ -215,18 +210,19 @@ for idx in range(seq_len, len(df)):
     ]
     vote_sum = sum(votes)
     
-    # 판정 규칙 (V10 기반 + V13 신규)
+    # 판정 규칙 (V10 기반 + V13)
     rule1 = vote_sum >= 5                                              # 8개 중 5개 이상
-    rule2 = (prob_lgb_important >= 0.92) and (current_val >= 1520)     # Important 확률 높음
-    rule3 = (pred_xgb_important >= 1710) and (current_val >= 1520)     # Important 예측 높음
-    rule4 = (current_val >= 1650) and (vote_sum >= 4)                  # 현재값 높고 4표 이상
-    rule5 = (prob_lgb_v13_new >= 0.85) and (current_val >= 1550)       # V13 신규 확률 높음
+    rule2 = (prob_lgb_important >= 0.92) and (current_val >= 1520)
+    rule3 = (pred_xgb_important >= 1710) and (current_val >= 1520)
+    rule4 = (current_val >= 1650) and (vote_sum >= 4)
+    rule5 = (prob_lgb_v13_new >= 0.85) and (current_val >= 1550)       # V13 신규 규칙
     
     final_pred = 1 if (rule1 or rule2 or rule3 or rule4 or rule5) else 0
     
     # 신규 컬럼 현재값
     n2_ratio = df['M14.STRATE.N2.STORAGERATIO'].iloc[idx] if 'M14.STRATE.N2.STORAGERATIO' in df.columns else 0
     cnv_val = df['M14.PDT.LAYOUT.M14A_M14ATOM14ACNV_CURRENTQCNT'].iloc[idx] if 'M14.PDT.LAYOUT.M14A_M14ATOM14ACNV_CURRENTQCNT' in df.columns else 0
+    hubroom = df['M14.PDT.LAYOUT.HUBROOM_M14TOM16_CURRENTQCNT'].iloc[idx] if 'M14.PDT.LAYOUT.HUBROOM_M14TOM16_CURRENTQCNT' in df.columns else 0
     
     pred_end = current_time + timedelta(minutes=30)
     
@@ -245,6 +241,7 @@ for idx in range(seq_len, len(df)):
         '최종예측_돌파여부': final_pred,
         'N2_RATIO': round(n2_ratio, 2),
         'CNV': round(cnv_val, 1),
+        'HUBROOM': round(hubroom, 1),
     })
 
 # ============================================================================
@@ -288,7 +285,6 @@ status_counts = result_df['예측상태'].value_counts()
 tp = status_counts.get('정상예측_TP', 0)
 tn = status_counts.get('정상예측_TN', 0)
 fp_wrong = status_counts.get('FP_잘못된경고', 0)
-fp_10min = status_counts.get('FP_10분후돌파', 0)
 fn_miss = status_counts.get('FN_완전놓침', 0)
 fn_10min = status_counts.get('FN_10분전예측', 0)
 
@@ -296,7 +292,7 @@ real_fn = fn_miss
 real_fp = fp_wrong
 
 print("\n" + "=" * 70)
-print("V13 평가 결과 (N2_RATIO + CNV 추가)")
+print("V13 평가 결과 (N2_RATIO + CNV + HUBROOM)")
 print("=" * 70)
 
 print(f"\n[혼동 행렬]")
