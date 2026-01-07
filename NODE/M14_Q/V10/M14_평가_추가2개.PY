@@ -1,8 +1,8 @@
 # -*- coding: utf-8 -*-
 """
 ================================================================================
-V13 ML 예측 모델 - 평가 코드
-N2_RATIO + CNV + HUBROOM 3개 신규 컬럼 추가
+V12 ML 예측 모델 - 수정 평가 코드
+판정 규칙 민감도 높임 (FN 감소, FP 증가 예상)
 ================================================================================
 """
 
@@ -19,9 +19,9 @@ warnings.filterwarnings('ignore')
 # 설정
 # ============================================================================
 CONFIG = {
-    'model_file': 'models/v13_m14_model.pkl',
-    'eval_file': 'M14_평가_V13.CSV',
-    'output_file': f'V13_평가결과_{datetime.now().strftime("%Y%m%d_%H%M%S")}.csv',
+    'model_file': 'models/v12_m14_model.pkl',
+    'eval_file': 'M14_평가_20250101_20250104.CSV',
+    'output_file': f'V12_수정_평가결과_{datetime.now().strftime("%Y%m%d_%H%M%S")}.csv',
     'sequence_length': 240,
     'prediction_window': 30,
     'limit_value': 1700,
@@ -35,13 +35,7 @@ FEATURE_GROUPS = {
         'M14.QUE.LOAD.AVGLOADTIME',
         'M14.QUE.LOAD.AVGLOADTIME1MIN',
         'M14.QUE.LOAD.AVGFOUPLOADTIME',
-        'M14.QUE.LOAD.AVGRETICLELOADTIME',
-        'M14.QUE.LOAD.CURRENTRETICLELOADQCNT',
         'M14.QUE.ALL.CURRENTQCOMPLETED',
-        'M14.QUE.ALL.CURRENTQCREATED',
-        'M14.QUE.ALL.TRANSPORT4MINOVERCNT',
-        'M14.QUE.ALL.TRANSPORT4MINOVERTIMEAVG',
-        'M14.QUE.ALL.TRANSPORT4MINOVERRATIO',
         'M16HUB.QUE.M16TOM14B.CURRENTQCREATED',
         'M16HUB.QUE.M14BTOM16.CURRENTQCREATED',
         'M16HUB.QUE.M14TOM16.CURRENTQCREATED',
@@ -52,30 +46,15 @@ FEATURE_GROUPS = {
     'auxiliary': [
         'M14AM10A', 'M10AM14A', 'M14AM10ASUM',
         'M14AM14B', 'M14BM14A', 'M14AM14BSUM',
-        'M14AM16', 'M16M14A', 'M14AM16SUM',
         'M14.QUE.SFAB.SENDQUEUETOTAL',
         'M14.QUE.SFAB.RECEIVEQUEUETOTAL',
-        'M14.QUE.SFAB.RETURNQUEUETOTAL',
-        'M14.QUE.SFAB.COMPLETEQUEUETOTAL',
-        'M14.QUE.OHT.OHTUTIL',
-        'M14.QUE.OHT.RTCOHTUTIL',
-        'M14.QUE.OHT.CURRENTOHTQCNT',
-        'M14.QUE.OHT.CURRENTRETICLEOHTQCNT',
-        'M14.QUE.CNV.NORTHCURRENTQCNT',
         'M14.QUE.CNV.SOUTHCURRENTQCNT',
-        'M14.QUE.CNV.ALLTONORTHCNVCURRENTQCNT',
         'M14.QUE.CNV.ALLTOSOUTHCNVCURRENTQCNT',
     ],
-    'v13_new': [
-        'M14.STRATE.N2.STORAGERATIO',
-        'M14.PDT.LAYOUT.M14A_M14ATOM14ACNV_CURRENTQCNT',
-        'M14.PDT.LAYOUT.HUBROOM_M14TOM16_CURRENTQCNT',
-    ]
 }
 
 print("=" * 70)
-print("V13 ML 예측 모델 - 평가 시작")
-print("신규 컬럼: N2_RATIO + CNV + HUBROOM")
+print("V12 ML 예측 모델 - 수정 평가 (판정 규칙 민감도 ↑)")
 print("=" * 70)
 
 # ============================================================================
@@ -89,7 +68,7 @@ with open(CONFIG['model_file'], 'rb') as f:
 models = model_data['models']
 scalers = model_data['scalers']
 
-print(f"  - 모델 버전: {model_data.get('version', 'V13')}")
+print(f"  - 모델 버전: {model_data.get('version', 'V12')}")
 print(f"  - 학습일: {model_data.get('trained_at', 'N/A')}")
 
 # ============================================================================
@@ -177,52 +156,43 @@ for idx in range(seq_len, len(df)):
     feat_target = create_sequence_features(df, FEATURE_GROUPS['target'], seq_len, idx)
     feat_important = create_sequence_features(df, FEATURE_GROUPS['important'], seq_len, idx)
     feat_auxiliary = create_sequence_features(df, FEATURE_GROUPS['auxiliary'], seq_len, idx)
-    feat_v13_new = create_sequence_features(df, FEATURE_GROUPS['v13_new'], seq_len, idx)
     
     X_target = scalers['target'].transform([feat_target])
     X_important = scalers['important'].transform([feat_important])
     X_auxiliary = scalers['auxiliary'].transform([feat_auxiliary])
-    X_v13_new = scalers['v13_new'].transform([feat_v13_new])
     
     pred_xgb_target = models['xgb_target'].predict(X_target)[0]
     pred_xgb_important = models['xgb_important'].predict(X_important)[0]
     pred_xgb_auxiliary = models['xgb_auxiliary'].predict(X_auxiliary)[0]
-    pred_xgb_v13_new = models['xgb_v13_new'].predict(X_v13_new)[0]
     
     pred_lgb_target = models['lgb_target'].predict(X_target)[0]
     pred_lgb_important = models['lgb_important'].predict(X_important)[0]
     pred_lgb_auxiliary = models['lgb_auxiliary'].predict(X_auxiliary)[0]
-    pred_lgb_v13_new = models['lgb_v13_new'].predict(X_v13_new)[0]
     
+    prob_lgb_target = models['lgb_target'].predict_proba(X_target)[0][1]
     prob_lgb_important = models['lgb_important'].predict_proba(X_important)[0][1]
-    prob_lgb_v13_new = models['lgb_v13_new'].predict_proba(X_v13_new)[0][1]
+    prob_lgb_auxiliary = models['lgb_auxiliary'].predict_proba(X_auxiliary)[0][1]
     
-    # 투표 (8개 모델)
+    # 투표 (6개 모델)
     votes = [
         1 if pred_xgb_target >= limit_val else 0,
         1 if pred_xgb_important >= limit_val else 0,
         1 if pred_xgb_auxiliary >= limit_val else 0,
-        1 if pred_xgb_v13_new >= limit_val else 0,
         pred_lgb_target,
         pred_lgb_important,
         pred_lgb_auxiliary,
-        pred_lgb_v13_new,
     ]
     vote_sum = sum(votes)
     
-    # 판정 규칙 (V10 기반 + V13)
-    rule1 = vote_sum >= 5                                              # 8개 중 5개 이상
-    rule2 = (prob_lgb_important >= 0.92) and (current_val >= 1520)
-    rule3 = (pred_xgb_important >= 1710) and (current_val >= 1520)
-    rule4 = (current_val >= 1650) and (vote_sum >= 4)
-    rule5 = (prob_lgb_v13_new >= 0.85) and (current_val >= 1550)       # V13 신규 규칙
+    # ================================================================
+    # ★ 수정된 판정 규칙 (민감도 높임)
+    # ================================================================
+    rule1 = vote_sum >= 3                                              # 4→3
+    rule2 = (prob_lgb_important >= 0.50) and (current_val >= 1550)     # 0.92→0.50
+    rule3 = (pred_xgb_important >= 1680) and (current_val >= 1500)     # 1710→1680
+    rule4 = (current_val >= 1600) and (vote_sum >= 2)                  # 1650→1600, 3→2
     
-    final_pred = 1 if (rule1 or rule2 or rule3 or rule4 or rule5) else 0
-    
-    # 신규 컬럼 현재값
-    n2_ratio = df['M14.STRATE.N2.STORAGERATIO'].iloc[idx] if 'M14.STRATE.N2.STORAGERATIO' in df.columns else 0
-    cnv_val = df['M14.PDT.LAYOUT.M14A_M14ATOM14ACNV_CURRENTQCNT'].iloc[idx] if 'M14.PDT.LAYOUT.M14A_M14ATOM14ACNV_CURRENTQCNT' in df.columns else 0
-    hubroom = df['M14.PDT.LAYOUT.HUBROOM_M14TOM16_CURRENTQCNT'].iloc[idx] if 'M14.PDT.LAYOUT.HUBROOM_M14TOM16_CURRENTQCNT' in df.columns else 0
+    final_pred = 1 if (rule1 or rule2 or rule3 or rule4) else 0
     
     pred_end = current_time + timedelta(minutes=30)
     
@@ -234,14 +204,12 @@ for idx in range(seq_len, len(df)):
         '실제_돌파여부': actual_breach,
         'XGB_타겟_예측값': round(pred_xgb_target, 1),
         'XGB_중요_예측값': round(pred_xgb_important, 1),
-        'XGB_V13_예측값': round(pred_xgb_v13_new, 1),
+        'XGB_보조_예측값': round(pred_xgb_auxiliary, 1),
+        'LGBM_타겟_확률': round(prob_lgb_target, 3),
         'LGBM_중요_확률': round(prob_lgb_important, 3),
-        'LGBM_V13_확률': round(prob_lgb_v13_new, 3),
-        '투표수_8개중': vote_sum,
+        'LGBM_보조_확률': round(prob_lgb_auxiliary, 3),
+        '투표수_6개중': vote_sum,
         '최종예측_돌파여부': final_pred,
-        'N2_RATIO': round(n2_ratio, 2),
-        'CNV': round(cnv_val, 1),
-        'HUBROOM': round(hubroom, 1),
     })
 
 # ============================================================================
@@ -292,8 +260,14 @@ real_fn = fn_miss
 real_fp = fp_wrong
 
 print("\n" + "=" * 70)
-print("V13 평가 결과 (N2_RATIO + CNV + HUBROOM)")
+print("V12 수정 평가 결과 (판정 규칙 민감도 ↑)")
 print("=" * 70)
+
+print("\n[수정된 판정 규칙]")
+print("  rule1: 투표수 >= 3 (기존 4)")
+print("  rule2: LGBM확률 >= 0.50 & 현재값 >= 1550 (기존 0.92, 1520)")
+print("  rule3: XGB예측 >= 1680 & 현재값 >= 1500 (기존 1710, 1520)")
+print("  rule4: 현재값 >= 1600 & 투표수 >= 2 (기존 1650, 3)")
 
 print(f"\n[혼동 행렬]")
 print(f"  TP (정확한 돌파 예측): {tp}건")
@@ -309,9 +283,10 @@ print(f"\n[실질적 성능 (10분 기준)]")
 print(f"  실질 FN (완전 놓침):    {real_fn}건")
 print(f"  실질 FP (잘못된 경고):  {real_fp}건")
 
-print(f"\n[V10 대비 비교]")
-print(f"  V10: 실질 FN=7건, 실질 FP=338건")
-print(f"  V13: 실질 FN={real_fn}건, 실질 FP={real_fp}건")
+print(f"\n[비교]")
+print(f"  V10 기존:  실질 FN=7건, 실질 FP=338건")
+print(f"  V12 기존:  실질 FN=92건, 실질 FP=118건")
+print(f"  V12 수정:  실질 FN={real_fn}건, 실질 FP={real_fp}건")
 
 # ============================================================================
 # 저장
@@ -320,5 +295,5 @@ result_df.to_csv(CONFIG['output_file'], index=False, encoding='utf-8-sig')
 print(f"\n결과 저장: {CONFIG['output_file']}")
 
 print("\n" + "=" * 70)
-print("V13 평가 완료!")
+print("V12 수정 평가 완료!")
 print("=" * 70)
