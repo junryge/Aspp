@@ -131,8 +131,7 @@ body {{ font-family: 'Noto Sans KR', sans-serif; background: linear-gradient(135
 .event-item:hover {{ background: rgba(0,212,255,0.1); }}
 .event-item.header {{ background: #15151f; font-weight: bold; color: #888; cursor: default; position: sticky; top: 0; z-index: 10; }}
 .event-item .tooltip {{ display: none; position: absolute; left: 50%; top: 100%; transform: translateX(-50%); background: #1a1a2e; border: 1px solid #00d4ff; border-radius: 12px; padding: 15px; z-index: 100; min-width: 320px; box-shadow: 0 10px 40px rgba(0,0,0,0.8); }}
-.event-item:hover .tooltip {{ display: block; }}
-.event-item.header:hover .tooltip {{ display: none; }}
+.event-item .tooltip.show {{ display: block; }}
 .tooltip-title {{ font-weight: bold; color: #00d4ff; margin-bottom: 10px; font-size: 0.9rem; border-bottom: 1px solid #333; padding-bottom: 8px; }}
 .tooltip-grid {{ display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }}
 .tooltip-item {{ display: flex; justify-content: space-between; padding: 4px 0; }}
@@ -392,6 +391,7 @@ function initTrendChart() {{
             responsive: true,
             maintainAspectRatio: false,
             interaction: {{ mode: 'index', intersect: false }},
+            events: ['click'],
             plugins: {{
                 legend: {{ position: 'top', labels: {{ color: '#fff', font: {{ size: 11 }} }} }},
                 tooltip: {{
@@ -444,12 +444,6 @@ function initTrendChart() {{
             scales: {{
                 x: {{ ticks: {{ color: '#888', maxRotation: 45, font: {{ size: 9 }} }}, grid: {{ color: '#333' }} }},
                 y: {{ ticks: {{ color: '#888' }}, grid: {{ color: '#333' }}, min: 1300, max: 1900 }}
-            }},
-            onClick: function(e, elements) {{
-                if (elements.length > 0) {{
-                    const idx = elements[0].index;
-                    showDetail(start + idx);
-                }}
             }}
         }}
     }});
@@ -487,7 +481,7 @@ function renderEventList(data) {{
         const timeShort = d.time.split(' ')[1] || d.time;
         const predMaxClass = d.pred_max >= 1700 ? 'pred-max' : 'pred';
         
-        html += `<div class="event-item" onclick="showDetail(${{d.idx}})">
+        html += `<div class="event-item" onclick="toggleTooltip(event, ${{d.idx}})" ondblclick="showDetail(${{d.idx}})">
             <div class="event-num">${{i + 1}}</div>
             <div class="event-time">${{timeShort}}</div>
             <div class="event-val current">${{d.current.toFixed(0)}}</div>
@@ -496,7 +490,7 @@ function renderEventList(data) {{
             <div class="event-val pred">${{d.pred_min.toFixed(0)}}</div>
             <div style="text-align:center">${{d.votes}}/6</div>
             <div class="event-status ${{statusClass}}">${{d.status.substring(0,10)}}</div>
-            <div class="tooltip">
+            <div class="tooltip" id="tooltip-${{d.idx}}">
                 <div class="tooltip-title">📊 ${{d.time}} | ${{d.status}}</div>
                 <div class="tooltip-grid">
                     <div class="tooltip-item"><span class="tooltip-label">현재 TOTALCNT</span><span class="tooltip-value green">${{d.current.toFixed(0)}}</span></div>
@@ -512,6 +506,7 @@ function renderEventList(data) {{
                     <div class="tooltip-item"><span class="tooltip-label">투표수</span><span class="tooltip-value yellow">${{d.votes}}/6</span></div>
                     <div class="tooltip-item"><span class="tooltip-label">실제 돌파</span><span class="tooltip-value ${{d.actual_breach ? 'red' : 'green'}}">${{d.actual_breach ? '⚠️ YES' : '✅ NO'}}</span></div>
                 </div>
+                <div style="margin-top:10px;text-align:center;color:#666;font-size:0.7rem">더블클릭: 상세 차트 보기</div>
             </div>
         </div>`;
     }});
@@ -519,6 +514,30 @@ function renderEventList(data) {{
     container.innerHTML = html;
     document.getElementById('eventCount').textContent = `필터: ${{data.length}}개`;
 }}
+
+let activeTooltip = null;
+
+function toggleTooltip(event, idx) {{
+    event.stopPropagation();
+    const tooltip = document.getElementById('tooltip-' + idx);
+    
+    // 다른 툴팁 닫기
+    if (activeTooltip && activeTooltip !== tooltip) {{
+        activeTooltip.classList.remove('show');
+    }}
+    
+    // 현재 툴팁 토글
+    tooltip.classList.toggle('show');
+    activeTooltip = tooltip.classList.contains('show') ? tooltip : null;
+}}
+
+// 다른 곳 클릭하면 툴팁 닫기
+document.addEventListener('click', function(e) {{
+    if (activeTooltip && !e.target.closest('.event-item')) {{
+        activeTooltip.classList.remove('show');
+        activeTooltip = null;
+    }}
+}});
 
 function filterEvents(type) {{
     document.querySelectorAll('.filter-tab').forEach(t => t.classList.remove('active'));
@@ -624,6 +643,7 @@ function showDetail(idx) {{
         options: {{
             responsive: true,
             maintainAspectRatio: false,
+            events: ['click'],
             plugins: {{
                 legend: {{ position: 'top', labels: {{ color: '#fff' }} }},
                 tooltip: {{
