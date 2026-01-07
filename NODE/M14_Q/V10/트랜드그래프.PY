@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-V12 평가 결과 대시보드 생성기
+V10_3 평가 결과 대시보드 생성기
 - 3개 XGB 예측값(타겟/중요/보조) 중 MIN/MAX 계산
 - 트렌드 그래프에 1700 알람 라인 + 예측 MIN/MAX 표시
 """
@@ -51,7 +51,7 @@ def analyze_results(df):
     
     return stats
 
-def generate_dashboard_html(df, stats, output_path, title="V12 TOTALCNT 예측 대시보드"):
+def generate_dashboard_html(df, stats, output_path, title="V10_3 TOTALCNT 예측 대시보드"):
     """HTML 대시보드 생성 - 3개 XGB 중 MIN/MAX 포함"""
     
     # 데이터를 JSON으로 변환
@@ -539,6 +539,14 @@ document.addEventListener('click', function(e) {{
     }}
 }});
 
+// ESC 키로 툴팁 닫기
+document.addEventListener('keydown', function(e) {{
+    if (e.key === 'Escape' && activeTooltip) {{
+        activeTooltip.classList.remove('show');
+        activeTooltip = null;
+    }}
+}});
+
 function filterEvents(type) {{
     document.querySelectorAll('.filter-tab').forEach(t => t.classList.remove('active'));
     if (event && event.target) event.target.classList.add('active');
@@ -733,7 +741,7 @@ document.getElementById('detailModal').addEventListener('click', function(e) {{
 
 def main():
     print("="*60)
-    print("📊 V12 평가 결과 대시보드 생성기")
+    print("📊 V10_3 평가 결과 대시보드 생성기")
     print("   3개 XGB 예측값 중 MIN/MAX 그래프 표시")
     print("="*60)
     
@@ -755,7 +763,7 @@ def main():
     print(f"  - 총 예측: {stats['total']:,}개")
     print(f"  - Recall: {stats['recall']:.1f}%")
     
-    output_path = f"v12_dashboard_{datetime.now().strftime('%Y%m%d_%H%M%S')}.html"
+    output_path = f"v10_3_dashboard_{datetime.now().strftime('%Y%m%d_%H%M%S')}.html"
     print(f"\n🔧 HTML 대시보드 생성 중...")
     generate_dashboard_html(df, stats, output_path)
     print(f"✅ 저장 완료: {output_path}")
