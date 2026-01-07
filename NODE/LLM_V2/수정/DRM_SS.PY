@@ -1,4 +1,12 @@
 """
+# SK하이닉스 DRM 해제 설정
+# 아래 값들을 입력하세요
+
+CDN_KEY=여기에_CDN키_입력
+DRM_TOKEN=여기에_DRM토큰_입력
+EMP_NO=여기에_사번_입력
+
+
 SK하이닉스 DRM 해제 통합 도구
 로컬 파일 → CDN 업로드 → DRM 해제 → CSV/Excel 저장
 
