@@ -1,5 +1,14 @@
 # -*- coding: utf-8 -*-
 """
+
+# 수정된 판정 규칙
+rule1 = vote_sum >= 3
+rule2 = (prob_lgb_important >= 0.50) and (current_val >= 1450)     # 1550→1450
+rule3 = (pred_xgb_important >= 1680) and (current_val >= 1500)
+rule4 = (current_val >= 1600) and (vote_sum >= 2)
+rule5 = (pred_xgb_important >= 1700)                               # 신규! XGB 1700 이상
+
+final_pred = 1 if (rule1 or rule2 or rule3 or rule4 or rule5) else 0
 ================================================================================
 V12 ML 예측 모델 - 평가 코드 (불필요 피처 제거)
 M14 TOTALCNT 30분 내 리미트(1700) 초과 예측 시스템
