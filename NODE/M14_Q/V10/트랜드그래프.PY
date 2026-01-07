@@ -541,9 +541,21 @@ document.addEventListener('click', function(e) {{
 
 // ESC 키로 툴팁 닫기
 document.addEventListener('keydown', function(e) {{
-    if (e.key === 'Escape' && activeTooltip) {{
-        activeTooltip.classList.remove('show');
-        activeTooltip = null;
+    if (e.key === 'Escape') {{
+        // 이벤트 목록 툴팁 닫기
+        if (activeTooltip) {{
+            activeTooltip.classList.remove('show');
+            activeTooltip = null;
+        }}
+        // 그래프 툴팁 닫기
+        if (trendChart) {{
+            trendChart.tooltip.setActiveElements([]);
+            trendChart.update();
+        }}
+        if (modalChart) {{
+            modalChart.tooltip.setActiveElements([]);
+            modalChart.update();
+        }}
     }}
 }});
 
