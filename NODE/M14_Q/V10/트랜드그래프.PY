@@ -1,8 +1,8 @@
 # -*- coding: utf-8 -*-
 """
 V12 평가 결과 대시보드 생성기
-- 30분 범위 예측 MAX/MIN 계산
-- 트렌드 그래프에 1700 알람 라인 + 예측 MAX/MIN 표시
+- 3개 XGB 예측값(타겟/중요/보조) 중 MIN/MAX 계산
+- 트렌드 그래프에 1700 알람 라인 + 예측 MIN/MAX 표시
 """
 
 import pandas as pd
@@ -20,18 +20,14 @@ def load_csv(filepath):
             continue
     raise ValueError(f"파일 인코딩을 알 수 없습니다: {filepath}")
 
-def calculate_pred_max_min(df, pred_col='XGB_중요_예측값', window=30):
-    """30분 범위 내 예측값 MAX/MIN 계산"""
-    pred_max_list = []
-    pred_min_list = []
-    
-    for idx in range(len(df)):
-        end_idx = min(idx + window, len(df))
-        window_preds = df[pred_col].iloc[idx:end_idx].values
-        pred_max_list.append(float(max(window_preds)) if len(window_preds) > 0 else 0)
-        pred_min_list.append(float(min(window_preds)) if len(window_preds) > 0 else 0)
-    
-    return pred_max_list, pred_min_list
+def calculate_pred_max_min(row):
+    """3개 XGB 예측값 중 MIN/MAX 계산"""
+    vals = [
+        float(row.get('XGB_타겟_예측값', 0)),
+        float(row.get('XGB_중요_예측값', 0)),
+        float(row.get('XGB_보조_예측값', 0))
+    ]
+    return max(vals), min(vals)
 
 def analyze_results(df):
     """평가 결과 통계 분석"""
@@ -56,15 +52,12 @@ def analyze_results(df):
     return stats
 
 def generate_dashboard_html(df, stats, output_path, title="V12 TOTALCNT 예측 대시보드"):
-    """HTML 대시보드 생성 - 예측 MAX/MIN 포함"""
-    
-    # 30분 범위 예측 MAX/MIN 계산
-    print("  - 30분 범위 예측 MAX/MIN 계산 중...")
-    pred_max_list, pred_min_list = calculate_pred_max_min(df, 'XGB_중요_예측값', 30)
+    """HTML 대시보드 생성 - 3개 XGB 중 MIN/MAX 포함"""
     
     # 데이터를 JSON으로 변환
     data_json = []
     for idx, row in df.iterrows():
+        pred_max, pred_min = calculate_pred_max_min(row)
         data_json.append({
             'idx': idx,
             'time': str(row.get('현재시간', '')),
@@ -75,8 +68,8 @@ def generate_dashboard_html(df, stats, output_path, title="V12 TOTALCNT 예측 �
             'xgb_target': float(row.get('XGB_타겟_예측값', 0)),
             'xgb_important': float(row.get('XGB_중요_예측값', 0)),
             'xgb_auxiliary': float(row.get('XGB_보조_예측값', 0)),
-            'pred_max': pred_max_list[idx],
-            'pred_min': pred_min_list[idx],
+            'pred_max': pred_max,
+            'pred_min': pred_min,
             'lgbm_target_prob': float(row.get('LGBM_타겟_확률', 0)),
             'lgbm_important_prob': float(row.get('LGBM_중요_확률', 0)),
             'lgbm_auxiliary_prob': float(row.get('LGBM_보조_확률', 0)),
@@ -178,7 +171,7 @@ body {{ font-family: 'Noto Sans KR', sans-serif; background: linear-gradient(135
 <div class="container">
     <div class="header">
         <h1>📊 {title}</h1>
-        <p class="subtitle">M14 TOTALCNT 30분 내 리미트(1700) 초과 예측 | 예측 MAX/MIN 포함</p>
+        <p class="subtitle">M14 TOTALCNT 30분 내 리미트(1700) 초과 예측 | 3개 XGB 모델 MIN/MAX</p>
         <div class="period">📅 {period_start} ~ {period_end}</div>
     </div>
     
@@ -235,7 +228,7 @@ body {{ font-family: 'Noto Sans KR', sans-serif; background: linear-gradient(135
     </div>
     
     <div class="chart-section">
-        <div class="chart-title">📈 TOTALCNT 트렌드 & 예측 MAX/MIN (30분 범위)</div>
+        <div class="chart-title">📈 TOTALCNT 트렌드 & 예측 MAX/MIN (3개 XGB 모델 중)</div>
         <div class="chart-controls">
             <label>시작:</label>
             <input type="number" id="chartStart" value="0" min="0" style="width:80px">
@@ -251,8 +244,8 @@ body {{ font-family: 'Noto Sans KR', sans-serif; background: linear-gradient(135
         <div class="legend">
             <div class="legend-item"><div class="legend-color" style="background:#00d4ff"></div>현재 TOTALCNT</div>
             <div class="legend-item"><div class="legend-color" style="background:#00ff88"></div>실제 최대값</div>
-            <div class="legend-item"><div class="legend-color" style="background:#ff4466"></div>예측 MAX (30분)</div>
-            <div class="legend-item"><div class="legend-color" style="background:#ff6b35;opacity:0.5"></div>예측 MIN (30분)</div>
+            <div class="legend-item"><div class="legend-color" style="background:#ff4466"></div>예측 MAX (3 XGB 중)</div>
+            <div class="legend-item"><div class="legend-color" style="background:#ff6b35;opacity:0.5"></div>예측 MIN (3 XGB 중)</div>
             <div class="legend-item"><div class="legend-line" style="background:#ffcc00"></div>1700 리미트</div>
         </div>
     </div>
@@ -346,7 +339,7 @@ function initTrendChart() {{
                     order: 2
                 }},
                 {{
-                    label: '예측 MAX (30분)',
+                    label: '예측 MAX (3 XGB 중)',
                     data: data.map(d => d.pred_max),
                     borderColor: '#ff4466',
                     backgroundColor: 'rgba(255,68,102,0.15)',
@@ -358,7 +351,7 @@ function initTrendChart() {{
                     order: 1
                 }},
                 {{
-                    label: '예측 MIN (30분)',
+                    label: '예측 MIN (3 XGB 중)',
                     data: data.map(d => d.pred_min),
                     borderColor: 'rgba(255,107,53,0.5)',
                     backgroundColor: 'rgba(255,107,53,0.05)',
@@ -629,7 +622,7 @@ document.getElementById('detailModal').addEventListener('click', function(e) {{
 def main():
     print("="*60)
     print("📊 V12 평가 결과 대시보드 생성기")
-    print("   예측 MAX/MIN 30분 범위 계산 + 그래프 표시")
+    print("   3개 XGB 예측값 중 MIN/MAX 그래프 표시")
     print("="*60)
     
     csv_path = input("\nCSV 파일 경로 입력: ").strip()
