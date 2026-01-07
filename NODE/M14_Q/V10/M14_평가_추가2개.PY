@@ -1,4 +1,11 @@
 # -*- coding: utf-8 -*-
+
+
+# 수정 V12 규칙 (민감도 높임)
+rule1 = vote_sum >= 3                                              # 4→3
+rule2 = (prob_lgb_important >= 0.50) and (current_val >= 1550)     # 0.92→0.50
+rule3 = (pred_xgb_important >= 1680) and (current_val >= 1500)     # 1710→1680
+rule4 = (current_val >= 1600) and (vote_sum >= 2)                  # 1650→1600, 3→2
 """
 ================================================================================
 V12 ML 예측 모델 - 수정 평가 코드
