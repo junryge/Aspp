@@ -141,7 +141,10 @@ for idx in range(seq_len, len(df) - pred_offset):
     current_time = df['CURRTIME'].iloc[idx - 1]
     current_total = df[target_col].iloc[idx - 1]
     prediction_time = current_time + timedelta(minutes=pred_offset)
-    actual = df[target_col].iloc[idx + pred_offset - 1]
+    
+    # 실제값: 10분 내 최대값 (V10_3 방식)
+    future_end = min(idx - 1 + pred_offset, len(df))
+    actual = df[target_col].iloc[idx - 1:future_end].max()
     
     # Feature 생성
     feat_target = create_sequence_features(df, FEATURE_GROUPS['target'], seq_len, idx)
