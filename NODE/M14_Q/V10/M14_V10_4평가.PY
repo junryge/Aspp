@@ -1,15 +1,8 @@
 # -*- coding: utf-8 -*-
 """
 ================================================================================
-V11 ML 예측 모델 - 평가 코드
-V8.3.1 + V10.3 통합 (XGBoost 전용)
-
-특징:
-    - 시퀀스: 280분 (V8.3.1 기준)
-    - 예측: 10분 후 단일값 (V8.3.1 기준)
-    - 출력: V8.3.1 형식 (추세예측 포함)
-    - Feature 그룹: target, important, auxiliary (V10.3 구조)
-    - 모델: XGBoost만 사용
+V10_4 ML 예측 모델 - 평가 코드
+V10_3 방식 (XGBoost 회귀 + LightGBM 분류 + 투표) + 10분 예측
 ================================================================================
 """
 
@@ -27,9 +20,9 @@ warnings.filterwarnings('ignore')
 # 설정
 # ============================================================================
 CONFIG = {
-    'model_file': 'models/v11_m14_model.pkl',
-    'eval_file': 'M14_평가.CSV',  # 평가 파일명 수정 필요
-    'output_file': f'V11_평가결과_{datetime.now().strftime("%Y%m%d_%H%M%S")}.csv',
+    'model_file': 'models/v10_4_m14_model.pkl',
+    'eval_file': 'M14_평가.CSV',
+    'output_file': f'V10_4_평가결과_{datetime.now().strftime("%Y%m%d_%H%M%S")}.csv',
     'sequence_length': 280,
     'prediction_offset': 10,
     'limit_value': 1700,
@@ -37,8 +30,8 @@ CONFIG = {
 }
 
 print("=" * 70)
-print("🚀 V11 ML 예측 모델 - 평가 시작")
-print("   V8.3.1 + V10.3 통합 (XGBoost 전용)")
+print("🚀 V10_4 ML 예측 모델 - 평가 시작")
+print("   V10_3 방식 (XGB 회귀 + LGBM 분류 + 투표)")
 print("   시퀀스: 280분, 예측: 10분 후")
 print("=" * 70)
 
@@ -55,9 +48,9 @@ scalers = model_data['scalers']
 FEATURE_GROUPS = model_data['feature_groups']
 training_info = model_data.get('training_info', {})
 
-print(f"  - 모델 버전: {training_info.get('version', 'V11')}")
+print(f"  - 모델 버전: {training_info.get('version', 'V10_4')}")
 print(f"  - 학습일: {training_info.get('train_date', 'N/A')}")
-print(f"  - 학습 샘플: {training_info.get('samples', 'N/A'):,}개")
+print(f"  - 모델 수: {len(models)}개")
 
 # ============================================================================
 # 데이터 로드
@@ -74,10 +67,8 @@ except:
 
 print(f"  - 원본 데이터: {len(df):,}행")
 
-# CURRTIME 파싱
 df['CURRTIME'] = pd.to_datetime(df['CURRTIME'].astype(str), format='%Y%m%d%H%M', errors='coerce')
-df = df.dropna(subset=['CURRTIME'])
-df = df.sort_values('CURRTIME').reset_index(drop=True)
+df = df.dropna(subset=['CURRTIME']).sort_values('CURRTIME').reset_index(drop=True)
 print(f"  - 파싱 후 데이터: {len(df):,}행")
 
 # Feature 그룹 필터링
@@ -86,48 +77,34 @@ for group_name in FEATURE_GROUPS:
     FEATURE_GROUPS[group_name] = [f for f in FEATURE_GROUPS[group_name] if f in df.columns]
     missing = set(original) - set(FEATURE_GROUPS[group_name])
     if missing:
-        print(f"  ⚠ {group_name} 누락 컬럼: {missing}")
+        print(f"  ⚠ {group_name} 누락: {missing}")
 
 # 숫자형 변환
 all_cols = []
 for group in FEATURE_GROUPS.values():
     all_cols.extend(group)
-all_cols = list(set(all_cols))
-
-for col in all_cols:
+for col in list(set(all_cols)):
     if col in df.columns:
         df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
 
-# queue_gap 파생 변수
+# QUEUE_GAP 파생
 if 'M14.QUE.ALL.CURRENTQCREATED' in df.columns and 'M14.QUE.ALL.CURRENTQCOMPLETED' in df.columns:
     df['QUEUE_GAP'] = df['M14.QUE.ALL.CURRENTQCREATED'] - df['M14.QUE.ALL.CURRENTQCOMPLETED']
     if 'QUEUE_GAP' not in FEATURE_GROUPS['auxiliary']:
         FEATURE_GROUPS['auxiliary'].append('QUEUE_GAP')
 
-print(f"  - Target 컬럼: {len(FEATURE_GROUPS['target'])}개")
-print(f"  - Important 컬럼: {len(FEATURE_GROUPS['important'])}개")
-print(f"  - Auxiliary 컬럼: {len(FEATURE_GROUPS['auxiliary'])}개")
-
 # ============================================================================
 # Feature 생성 함수
 # ============================================================================
 def create_sequence_features(df, feature_cols, seq_len, idx, limit_val=1700):
-    """시퀀스 기반 Feature 생성"""
     features = []
-    
     for col in feature_cols:
         seq = df[col].iloc[idx - seq_len:idx].values
         current_val = seq[-1]
-        
         features.extend([
-            np.mean(seq),
-            np.std(seq),
-            np.min(seq),
-            np.max(seq),
-            current_val,
+            np.mean(seq), np.std(seq), np.min(seq), np.max(seq), current_val,
             seq[-1] - seq[0],
-            np.percentile(seq, 25),
-            np.percentile(seq, 75),
+            np.percentile(seq, 25), np.percentile(seq, 75),
             np.mean(seq[-10:]) - np.mean(seq[:10]),
             np.max(seq[-30:]) if len(seq) >= 30 else np.max(seq),
             seq[-1] - seq[-10] if len(seq) >= 10 else 0,
@@ -141,7 +118,6 @@ def create_sequence_features(df, feature_cols, seq_len, idx, limit_val=1700):
             1 if current_val >= 1500 else 0,
             1 if current_val >= 1600 else 0,
         ])
-    
     return features
 
 # ============================================================================
@@ -160,49 +136,82 @@ print(f"  → 예상 평가 수: {total:,}개")
 
 for idx in range(seq_len, len(df) - pred_offset):
     if (idx - seq_len) % 1000 == 0:
-        print(f"    진행: {idx - seq_len:,}/{total:,} ({100*(idx-seq_len)/total:.1f}%)")
+        print(f"    진행: {idx - seq_len:,}/{total:,}")
         gc.collect()
     
-    # 현재 시간 및 값
     current_time = df['CURRTIME'].iloc[idx - 1]
     current_total = df[target_col].iloc[idx - 1]
     prediction_time = current_time + timedelta(minutes=pred_offset)
-    
-    # 실제값 (10분 후)
     actual = df[target_col].iloc[idx + pred_offset - 1]
-    
-    # 보조 변수 추출
-    m14b = df['M14AM14B'].iloc[idx - 1] if 'M14AM14B' in df.columns else None
-    m14bsum = df['M14AM14BSUM'].iloc[idx - 1] if 'M14AM14BSUM' in df.columns else None
-    gap = df['QUEUE_GAP'].iloc[idx - 1] if 'QUEUE_GAP' in df.columns else None
-    trans = df['M14.QUE.ALL.TRANSPORT4MINOVERCNT'].iloc[idx - 1] if 'M14.QUE.ALL.TRANSPORT4MINOVERCNT' in df.columns else None
     
     # Feature 생성
     feat_target = create_sequence_features(df, FEATURE_GROUPS['target'], seq_len, idx)
     feat_important = create_sequence_features(df, FEATURE_GROUPS['important'], seq_len, idx)
     feat_auxiliary = create_sequence_features(df, FEATURE_GROUPS['auxiliary'], seq_len, idx)
-    feat_pdt_new = create_sequence_features(df, FEATURE_GROUPS.get('pdt_new', []), seq_len, idx)
     
-    # 스케일링
     X_target = scalers['target'].transform([feat_target])
     X_important = scalers['important'].transform([feat_important])
     X_auxiliary = scalers['auxiliary'].transform([feat_auxiliary])
     
-    # XGBoost 예측
+    # XGB 회귀 예측
     pred_xgb_target = models['xgb_target'].predict(X_target)[0]
     pred_xgb_important = models['xgb_important'].predict(X_important)[0]
     pred_xgb_auxiliary = models['xgb_auxiliary'].predict(X_auxiliary)[0]
     
-    # pdt_new 모델 예측 (있는 경우)
-    if 'xgb_pdt_new' in models and 'pdt_new' in scalers and len(feat_pdt_new) > 0:
-        X_pdt_new = scalers['pdt_new'].transform([feat_pdt_new])
-        pred_xgb_pdt_new = models['xgb_pdt_new'].predict(X_pdt_new)[0]
-        # 앙상블 (4개 평균)
-        final_pred = (pred_xgb_target + pred_xgb_important + pred_xgb_auxiliary + pred_xgb_pdt_new) / 4
+    # LGBM 분류 예측
+    pred_lgb_target = models['lgb_target'].predict(X_target)[0]
+    pred_lgb_important = models['lgb_important'].predict(X_important)[0]
+    pred_lgb_auxiliary = models['lgb_auxiliary'].predict(X_auxiliary)[0]
+    
+    prob_lgb_target = models['lgb_target'].predict_proba(X_target)[0][1]
+    prob_lgb_important = models['lgb_important'].predict_proba(X_important)[0][1]
+    prob_lgb_auxiliary = models['lgb_auxiliary'].predict_proba(X_auxiliary)[0][1]
+    
+    # PDT 모델 (있으면)
+    pred_xgb_pdt, pred_lgb_pdt, prob_lgb_pdt = None, None, None
+    if 'xgb_pdt_new' in models and 'pdt_new' in scalers:
+        feat_pdt = create_sequence_features(df, FEATURE_GROUPS.get('pdt_new', []), seq_len, idx)
+        if feat_pdt:
+            X_pdt = scalers['pdt_new'].transform([feat_pdt])
+            pred_xgb_pdt = models['xgb_pdt_new'].predict(X_pdt)[0]
+            pred_lgb_pdt = models['lgb_pdt_new'].predict(X_pdt)[0]
+            prob_lgb_pdt = models['lgb_pdt_new'].predict_proba(X_pdt)[0][1]
+    
+    # ============================================
+    # 투표 (V10_3 방식)
+    # ============================================
+    votes = [
+        1 if pred_xgb_target >= limit_val else 0,
+        1 if pred_xgb_important >= limit_val else 0,
+        1 if pred_xgb_auxiliary >= limit_val else 0,
+        pred_lgb_target,
+        pred_lgb_important,
+        pred_lgb_auxiliary,
+    ]
+    
+    if pred_xgb_pdt is not None:
+        votes.append(1 if pred_xgb_pdt >= limit_val else 0)
+        votes.append(pred_lgb_pdt)
+    
+    vote_sum = sum(votes)
+    total_votes = len(votes)
+    
+    # ============================================
+    # 최종 판정 규칙 (V10_3 방식)
+    # ============================================
+    rule1 = vote_sum >= 3
+    rule2 = (prob_lgb_important >= 0.50) and (current_total >= 1450)
+    rule3 = (pred_xgb_important >= 1680) and (current_total >= 1500)
+    rule4 = (current_total >= 1600) and (vote_sum >= 2)
+    rule5 = (pred_xgb_important >= 1700)
+    
+    final_pred_danger = 1 if (rule1 or rule2 or rule3 or rule4 or rule5) else 0
+    
+    # 앙상블 평균 (회귀값)
+    if pred_xgb_pdt is not None:
+        ensemble_pred = (pred_xgb_target + pred_xgb_important + pred_xgb_auxiliary + pred_xgb_pdt) / 4
     else:
-        pred_xgb_pdt_new = None
-        # 앙상블 (3개 평균)
-        final_pred = (pred_xgb_target + pred_xgb_important + pred_xgb_auxiliary) / 3
+        ensemble_pred = (pred_xgb_target + pred_xgb_important + pred_xgb_auxiliary) / 3
     
     # 결과 저장
     results.append({
@@ -213,16 +222,12 @@ for idx in range(seq_len, len(df) - pred_offset):
         'XGB_타겟': round(pred_xgb_target, 2),
         'XGB_중요': round(pred_xgb_important, 2),
         'XGB_보조': round(pred_xgb_auxiliary, 2),
-        'XGB_PDT': round(pred_xgb_pdt_new, 2) if pred_xgb_pdt_new is not None else '',
-        '최종예측': round(final_pred, 2),
-        '오차': round(actual - final_pred, 2),
-        '절대오차': round(abs(actual - final_pred), 2),
-        'M14AM14B': round(m14b, 2) if m14b else '',
-        'M14AM14BSUM': round(m14bsum, 2) if m14bsum else '',
-        'queue_gap': round(gap, 2) if gap else '',
-        'TRANSPORT': round(trans, 2) if trans else '',
-        '실제위험(1700+)': 'O' if actual >= 1700 else '',
-        '예측위험(1700+)': 'O' if final_pred >= 1700 else ''
+        'XGB_PDT': round(pred_xgb_pdt, 2) if pred_xgb_pdt else '',
+        'LGBM_중요_확률': round(prob_lgb_important, 3),
+        '앙상블예측': round(ensemble_pred, 2),
+        f'투표({total_votes}개중)': vote_sum,
+        '최종판정': final_pred_danger,
+        '실제위험(1700+)': 1 if actual >= limit_val else 0,
     })
 
 print(f"  ✅ 완료!")
@@ -242,59 +247,38 @@ print(f"  → 저장: {CONFIG['output_file']}")
 print("\n[5/5] 성능 평가...")
 
 print("\n" + "=" * 70)
-print("📊 V11 10분 평가 통계")
+print("📊 V10_4 10분 평가 통계")
 print("=" * 70)
 
-print(f"총 예측: {len(df_result):,}개")
-print(f"MAE: {df_result['절대오차'].mean():.2f}")
+actual_danger = df_result['실제위험(1700+)'] == 1
+pred_danger = df_result['최종판정'] == 1
 
-actual_danger = df_result['실제위험(1700+)'] == 'O'
-pred_danger = df_result['예측위험(1700+)'] == 'O'
-actual_count = actual_danger.sum()
-detected = (actual_danger & pred_danger).sum()
-
-print(f"\n🔥 1700+ 감지 (최종예측 기준):")
-print(f"  실제: {actual_count}개")
-
-if actual_count > 0:
-    recall = detected / actual_count * 100
-    print(f"  감지(TP): {detected}개 ({recall:.1f}%)")
-    
-    # 미감지 분석
-    fn = actual_count - detected
-    print(f"  미감지(FN): {fn}개 ({fn/actual_count*100:.1f}%)")
-
-# 오탐 분석
-fp = (pred_danger & ~actual_danger).sum()
-print(f"\n⚠️ 오탐(FP): {fp}개")
-
-if pred_danger.sum() > 0:
-    precision = detected / pred_danger.sum() * 100
-    print(f"정밀도: {precision:.1f}%")
-
-# 구간별 MAE
-print(f"\n📊 구간별 MAE:")
-for low, high in [(0, 1500), (1500, 1600), (1600, 1700), (1700, 2000)]:
-    mask = (df_result['실제값'] >= low) & (df_result['실제값'] < high)
-    if mask.sum() > 0:
-        mae = df_result.loc[mask, '절대오차'].mean()
-        print(f"  {low}~{high}: MAE={mae:.2f} ({mask.sum():,}개)")
-
-# 혼동 행렬
-TP = detected
+TP = (actual_danger & pred_danger).sum()
 TN = (~actual_danger & ~pred_danger).sum()
-FP = fp
+FP = (~actual_danger & pred_danger).sum()
 FN = (actual_danger & ~pred_danger).sum()
 
+print(f"총 예측: {len(df_result):,}개")
+print(f"실제 1700+: {actual_danger.sum()}개")
+
+print(f"\n🔥 1700+ 감지:")
+if actual_danger.sum() > 0:
+    recall = TP / actual_danger.sum() * 100
+    print(f"  감지(TP): {TP}개 ({recall:.1f}%)")
+    print(f"  미감지(FN): {FN}개 ({100-recall:.1f}%)")
+
+print(f"\n⚠️ 오탐(FP): {FP}개")
+if pred_danger.sum() > 0:
+    precision = TP / pred_danger.sum() * 100
+    print(f"정밀도: {precision:.1f}%")
+
 print(f"\n[혼동 행렬]")
-print(f"  TP (정확한 위험 예측): {TP:,}건")
-print(f"  TN (정확한 안전 예측): {TN:,}건")
-print(f"  FP (오탐):              {FP:,}건")
-print(f"  FN (미감지):            {FN:,}건")
+print(f"  TP: {TP:,}건 | FN: {FN:,}건")
+print(f"  FP: {FP:,}건 | TN: {TN:,}건")
 
 if (TP + TN + FP + FN) > 0:
     accuracy = (TP + TN) / (TP + TN + FP + FN) * 100
     print(f"\n정확도: {accuracy:.2f}%")
 
-print(f"\n✅ V11 10분 평가 완료! → {CONFIG['output_file']}")
+print(f"\n✅ V10_4 평가 완료! → {CONFIG['output_file']}")
 print("=" * 70)
