@@ -237,6 +237,41 @@ print(f"  ✅ 완료!")
 print("\n[4/5] 결과 저장...")
 
 df_result = pd.DataFrame(results)
+
+# ============================================================================
+# 예측상태 분류 (10분 전/후 분석)
+# ============================================================================
+print("\n  → 예측상태 분류 중 (10분 전/후 분석)...")
+
+df_result['현재시간_dt'] = pd.to_datetime(df_result['현재시간'])
+
+def get_prediction_status(row, all_df):
+    actual = row['실제위험(1700+)']
+    pred = row['최종판정']
+    current_time = row['현재시간_dt']
+    
+    if actual == 1 and pred == 1:
+        return '정상예측_TP'
+    elif actual == 0 and pred == 0:
+        return '정상예측_TN'
+    elif actual == 1 and pred == 0:
+        time_10min_ago = current_time - timedelta(minutes=10)
+        prev_data = all_df[all_df['현재시간_dt'] == time_10min_ago]
+        if len(prev_data) > 0 and prev_data['최종판정'].values[0] == 1:
+            return 'FN_10분전예측'
+        else:
+            return 'FN_완전놓침'
+    else:
+        time_10min_later = current_time + timedelta(minutes=10)
+        later_data = all_df[all_df['현재시간_dt'] == time_10min_later]
+        if len(later_data) > 0 and later_data['실제위험(1700+)'].values[0] == 1:
+            return 'FP_10분후돌파'
+        else:
+            return 'FP_잘못된경고'
+
+df_result['예측상태'] = df_result.apply(lambda row: get_prediction_status(row, df_result), axis=1)
+df_result = df_result.drop(columns=['현재시간_dt'])
+
 df_result.to_csv(CONFIG['output_file'], index=False, encoding='utf-8-sig')
 print(f"  → 저장: {CONFIG['output_file']}")
 
@@ -274,6 +309,20 @@ if pred_danger.sum() > 0:
 print(f"\n[혼동 행렬]")
 print(f"  TP: {TP:,}건 | FN: {FN:,}건")
 print(f"  FP: {FP:,}건 | TN: {TN:,}건")
+
+# 예측상태별 집계
+print(f"\n[예측상태 분류]")
+status_counts = df_result['예측상태'].value_counts()
+for status, count in status_counts.items():
+    print(f"  {status}: {count:,}건")
+
+# 실질 FN/FP
+real_fn = status_counts.get('FN_완전놓침', 0)
+real_fp = status_counts.get('FP_잘못된경고', 0)
+
+print(f"\n[실질적 성능 (10분 기준)]")
+print(f"  실질 FN (완전 놓침):    {real_fn:,}건")
+print(f"  실질 FP (잘못된 경고):  {real_fp:,}건")
 
 if (TP + TN + FP + FN) > 0:
     accuracy = (TP + TN) / (TP + TN + FP + FN) * 100
