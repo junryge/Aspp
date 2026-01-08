@@ -176,7 +176,8 @@ for idx in range(seq_len, len(df) - pred_offset):
     if idx % 10000 == 0:
         print(f"    진행: {idx:,}/{len(df) - pred_offset:,}")
     
-    future_val = df[target_col].iloc[idx + pred_offset]
+    # 타겟: 10분 내 최대값 (V10_3 방식)
+    future_val = df[target_col].iloc[idx:idx + pred_offset].max()
     y_reg.append(future_val)
     y_clf.append(1 if future_val >= limit_val else 0)
     
