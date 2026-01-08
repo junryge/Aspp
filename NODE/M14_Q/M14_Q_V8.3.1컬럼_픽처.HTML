@@ -1,0 +1,970 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>V8.3 TOTALCNT 예측 시스템 아키텍처</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+            color: #e0e0e0;
+            min-height: 100vh;
+            padding: 40px 20px;
+        }
+        .container { max-width: 1400px; margin: 0 auto; }
+        h1 {
+            text-align: center;
+            font-size: 2.5rem;
+            margin-bottom: 10px;
+            background: linear-gradient(90deg, #00d9ff, #00ff88);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+        .subtitle { text-align: center; color: #888; margin-bottom: 40px; font-size: 1.1rem; }
+        .section {
+            background: rgba(255,255,255,0.03);
+            border-radius: 20px;
+            padding: 30px;
+            margin-bottom: 30px;
+            border: 1px solid rgba(255,255,255,0.08);
+        }
+        .section h2 {
+            color: #00ff88;
+            margin-bottom: 25px;
+            font-size: 1.4rem;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        .section h2 .num {
+            background: #00ff88;
+            color: #1a1a2e;
+            width: 35px;
+            height: 35px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: bold;
+        }
+        .flow-diagram {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            flex-wrap: wrap;
+            gap: 15px;
+            padding: 20px;
+        }
+        .flow-box {
+            background: linear-gradient(145deg, #2a2a4a, #1a1a3a);
+            border-radius: 12px;
+            padding: 20px 25px;
+            text-align: center;
+            min-width: 140px;
+            border: 2px solid #3a3a5a;
+            transition: all 0.3s;
+        }
+        .flow-box:hover {
+            transform: translateY(-5px);
+            border-color: #00d9ff;
+            box-shadow: 0 10px 30px rgba(0, 217, 255, 0.2);
+        }
+        .flow-box .icon { font-size: 2rem; margin-bottom: 10px; }
+        .flow-box .label { font-weight: bold; color: #fff; }
+        .flow-box .detail { font-size: 0.8rem; color: #aaa; margin-top: 5px; }
+        .flow-arrow { font-size: 2rem; color: #00ff88; }
+        .column-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+            gap: 15px;
+        }
+        .column-card {
+            background: linear-gradient(145deg, #252545, #1f1f3f);
+            border-radius: 12px;
+            padding: 18px 20px;
+            border-left: 4px solid #00d9ff;
+            display: flex;
+            align-items: center;
+            gap: 15px;
+        }
+        .column-card .num {
+            background: rgba(0, 217, 255, 0.2);
+            color: #00d9ff;
+            min-width: 30px;
+            height: 30px;
+            border-radius: 8px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: bold;
+            font-size: 0.9rem;
+        }
+        .column-card .name {
+            font-family: 'Consolas', monospace;
+            color: #fff;
+            font-size: 0.9rem;
+        }
+        .column-card .desc { color: #888; font-size: 0.8rem; margin-top: 3px; }
+        .derived { border-left-color: #ff6b6b; }
+        .derived .num { background: rgba(255, 107, 107, 0.2); color: #ff6b6b; }
+        .feature-group { margin-bottom: 25px; }
+        .feature-group h3 {
+            color: #ffd93d;
+            margin-bottom: 15px;
+            font-size: 1.1rem;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        .feature-group h3 .count {
+            background: #ffd93d;
+            color: #1a1a2e;
+            padding: 2px 10px;
+            border-radius: 12px;
+            font-size: 0.8rem;
+        }
+        .feature-list {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+            gap: 8px;
+        }
+        .feature-item {
+            background: rgba(255,255,255,0.05);
+            border-radius: 8px;
+            padding: 10px 14px;
+            font-family: 'Consolas', monospace;
+            font-size: 0.82rem;
+            color: #ccc;
+            border: 1px solid rgba(255,255,255,0.08);
+        }
+        .feature-item:hover {
+            background: rgba(255, 217, 61, 0.1);
+            border-color: #ffd93d;
+        }
+        .code-box {
+            background: #0d1117;
+            border-radius: 12px;
+            padding: 20px;
+            margin: 15px 0;
+            border: 1px solid #30363d;
+            overflow-x: auto;
+        }
+        .code-box code {
+            font-family: 'Consolas', 'Monaco', monospace;
+            font-size: 0.9rem;
+            line-height: 1.7;
+            color: #e6edf3;
+            white-space: pre;
+        }
+        .code-box .keyword { color: #ff7b72; }
+        .code-box .function { color: #d2a8ff; }
+        .code-box .number { color: #79c0ff; }
+        .code-box .string { color: #a5d6ff; }
+        .code-box .comment { color: #8b949e; }
+        .code-box .var { color: #ffa657; }
+        .pipeline { display: flex; flex-direction: column; gap: 0; }
+        .pipeline-step {
+            display: flex;
+            align-items: stretch;
+            gap: 20px;
+        }
+        .step-line {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            width: 50px;
+        }
+        .step-num {
+            background: linear-gradient(145deg, #00d9ff, #0099cc);
+            color: #fff;
+            width: 50px;
+            height: 50px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: bold;
+            font-size: 1.2rem;
+            flex-shrink: 0;
+            z-index: 1;
+        }
+        .step-connector {
+            width: 3px;
+            flex: 1;
+            background: linear-gradient(180deg, #00d9ff, #00ff88);
+            min-height: 20px;
+        }
+        .step-content {
+            flex: 1;
+            background: rgba(255,255,255,0.03);
+            border-radius: 12px;
+            padding: 20px;
+            margin-bottom: 15px;
+            border: 1px solid rgba(255,255,255,0.08);
+        }
+        .step-content h4 { color: #00d9ff; margin-bottom: 10px; font-size: 1.1rem; }
+        .step-content p { color: #aaa; font-size: 0.9rem; line-height: 1.6; }
+        .summary-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+            gap: 15px;
+            margin-top: 20px;
+        }
+        .summary-card {
+            background: linear-gradient(145deg, #2a2a4a, #1a1a3a);
+            border-radius: 12px;
+            padding: 20px;
+            text-align: center;
+        }
+        .summary-card .value {
+            font-size: 2.2rem;
+            font-weight: bold;
+            background: linear-gradient(90deg, #00d9ff, #00ff88);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+        .summary-card .label { color: #888; font-size: 0.85rem; margin-top: 5px; }
+        .pattern-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 15px;
+        }
+        .pattern-card {
+            background: rgba(255,107,107,0.08);
+            border: 1px solid rgba(255,107,107,0.25);
+            border-radius: 12px;
+            padding: 18px;
+        }
+        .pattern-card h4 { color: #ff6b6b; margin-bottom: 10px; font-size: 1rem; }
+        .pattern-card .condition {
+            font-family: 'Consolas', monospace;
+            color: #ffd93d;
+            font-size: 0.85rem;
+            background: rgba(0,0,0,0.3);
+            padding: 10px 12px;
+            border-radius: 6px;
+            margin-bottom: 8px;
+        }
+        .pattern-card .meaning { color: #aaa; font-size: 0.85rem; }
+        .logic-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 15px 0;
+        }
+        .logic-table th, .logic-table td {
+            padding: 12px 15px;
+            text-align: left;
+            border-bottom: 1px solid rgba(255,255,255,0.1);
+        }
+        .logic-table th {
+            background: rgba(0, 217, 255, 0.1);
+            color: #00d9ff;
+            font-weight: 600;
+        }
+        .logic-table td { color: #ccc; }
+        .logic-table tr:hover td { background: rgba(255,255,255,0.03); }
+        .logic-table code {
+            background: rgba(0,0,0,0.3);
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-family: 'Consolas', monospace;
+            color: #ffd93d;
+        }
+        .highlight-box {
+            background: linear-gradient(145deg, rgba(0, 255, 136, 0.1), rgba(0, 217, 255, 0.1));
+            border: 1px solid rgba(0, 255, 136, 0.3);
+            border-radius: 12px;
+            padding: 20px;
+            margin: 20px 0;
+        }
+        .highlight-box h4 { color: #00ff88; margin-bottom: 10px; }
+        .decision-flow {
+            background: rgba(0,0,0,0.2);
+            border-radius: 12px;
+            padding: 25px;
+            margin: 20px 0;
+        }
+        .decision-node {
+            background: linear-gradient(145deg, #2a2a4a, #1a1a3a);
+            border-radius: 10px;
+            padding: 15px 20px;
+            margin: 10px 0;
+            border-left: 4px solid #00d9ff;
+        }
+        .decision-node.yes { border-left-color: #00ff88; }
+        .decision-node.no { border-left-color: #ff6b6b; }
+        .decision-node .condition { color: #ffd93d; font-family: 'Consolas', monospace; margin-bottom: 5px; }
+        .decision-node .result { color: #aaa; font-size: 0.9rem; }
+        .decision-arrow {
+            text-align: center;
+            color: #666;
+            font-size: 1.5rem;
+            margin: 5px 0;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🏭 V8.3 TOTALCNT 예측 시스템</h1>
+        <p class="subtitle">반도체 공장 물류량 10분 후 예측 아키텍처 (1700+ 위험 사전 경고)</p>
+
+        <!-- 전체 흐름도 -->
+        <div class="section">
+            <h2><span class="num">0</span> 전체 예측 흐름</h2>
+            <div class="flow-diagram">
+                <div class="flow-box">
+                    <div class="icon">📊</div>
+                    <div class="label">Raw Data</div>
+                    <div class="detail">8개 컬럼<br>280분 시계열</div>
+                </div>
+                <div class="flow-arrow">→</div>
+                <div class="flow-box">
+                    <div class="icon">⚙️</div>
+                    <div class="label">Feature 생성</div>
+                    <div class="detail">82개 Feature<br>통계/패턴/임계값</div>
+                </div>
+                <div class="flow-arrow">→</div>
+                <div class="flow-box">
+                    <div class="icon">🤖</div>
+                    <div class="label">XGBoost</div>
+                    <div class="detail">원본 예측값<br>생성</div>
+                </div>
+                <div class="flow-arrow">→</div>
+                <div class="flow-box">
+                    <div class="icon">🔧</div>
+                    <div class="label">보정</div>
+                    <div class="detail">하한선/Boost<br>적용</div>
+                </div>
+                <div class="flow-arrow">→</div>
+                <div class="flow-box">
+                    <div class="icon">📈</div>
+                    <div class="label">추세 반영</div>
+                    <div class="detail">12분 변화량<br>적용</div>
+                </div>
+                <div class="flow-arrow">→</div>
+                <div class="flow-box" style="border-color: #00ff88;">
+                    <div class="icon">✅</div>
+                    <div class="label">최종 예측</div>
+                    <div class="detail">1700+ 여부<br>판정</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 입력 컬럼 -->
+        <div class="section">
+            <h2><span class="num">1</span> 입력 컬럼 (8개 원본 + 1개 파생)</h2>
+            <div class="column-grid">
+                <div class="column-card">
+                    <div class="num">1</div>
+                    <div class="info">
+                        <div class="name">M14AM14B</div>
+                        <div class="desc">M14A→M14B 팹간 물류량</div>
+                    </div>
+                </div>
+                <div class="column-card">
+                    <div class="num">2</div>
+                    <div class="info">
+                        <div class="name">M14AM14BSUM</div>
+                        <div class="desc">M14A↔M14B 양방향 합계</div>
+                    </div>
+                </div>
+                <div class="column-card">
+                    <div class="num">3</div>
+                    <div class="info">
+                        <div class="name">M10AM14A</div>
+                        <div class="desc">M10A→M14A 팹간 물류량</div>
+                    </div>
+                </div>
+                <div class="column-card">
+                    <div class="num">4</div>
+                    <div class="info">
+                        <div class="name">TOTALCNT</div>
+                        <div class="desc">⭐ 전체 물류 총량 (예측 목표)</div>
+                    </div>
+                </div>
+                <div class="column-card">
+                    <div class="num">5</div>
+                    <div class="info">
+                        <div class="name">M14.QUE.ALL.TRANSPORT4MINOVERCNT</div>
+                        <div class="desc">4분 초과 대기 운송 건수</div>
+                    </div>
+                </div>
+                <div class="column-card">
+                    <div class="num">6</div>
+                    <div class="info">
+                        <div class="name">M14.QUE.OHT.OHTUTIL</div>
+                        <div class="desc">OHT 설비 가동률</div>
+                    </div>
+                </div>
+                <div class="column-card">
+                    <div class="num">7</div>
+                    <div class="info">
+                        <div class="name">M14.QUE.ALL.CURRENTQCREATED</div>
+                        <div class="desc">현재 생성된 큐 수</div>
+                    </div>
+                </div>
+                <div class="column-card">
+                    <div class="num">8</div>
+                    <div class="info">
+                        <div class="name">M14.QUE.ALL.CURRENTQCOMPLETED</div>
+                        <div class="desc">현재 완료된 큐 수</div>
+                    </div>
+                </div>
+                <div class="column-card derived">
+                    <div class="num">★</div>
+                    <div class="info">
+                        <div class="name">queue_gap (파생)</div>
+                        <div class="desc">= CURRENTQCREATED - CURRENTQCOMPLETED<br>🔥 대기 작업량 (핵심 지표!)</div>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="highlight-box" style="margin-top: 20px;">
+                <h4>💡 queue_gap이 중요한 이유</h4>
+                <p style="color: #ccc; line-height: 1.7;">
+                    생성된 작업(Created) - 완료된 작업(Completed) = <strong style="color: #00ff88;">대기 중인 작업량</strong><br>
+                    이 값이 높으면 물류가 체류되어 TOTALCNT가 상승할 조짐!<br>
+                    상관계수 4.2x로 가장 강력한 선행 지표입니다.
+                </p>
+            </div>
+        </div>
+
+        <!-- Feature Engineering -->
+        <div class="section">
+            <h2><span class="num">2</span> Feature Engineering (82개)</h2>
+            
+            <div class="summary-grid">
+                <div class="summary-card">
+                    <div class="value">82</div>
+                    <div class="label">총 Feature 수</div>
+                </div>
+                <div class="summary-card">
+                    <div class="value">280</div>
+                    <div class="label">시퀀스 길이(분)</div>
+                </div>
+                <div class="summary-card">
+                    <div class="value">8</div>
+                    <div class="label">원본 컬럼</div>
+                </div>
+                <div class="summary-card">
+                    <div class="value">10</div>
+                    <div class="label">분 후 예측</div>
+                </div>
+            </div>
+
+            <!-- M14AM14B -->
+            <div class="feature-group">
+                <h3>📦 M14AM14B <span class="count">8개</span></h3>
+                <div class="feature-list">
+                    <div class="feature-item">m14b_mean (평균)</div>
+                    <div class="feature-item">m14b_max (최대)</div>
+                    <div class="feature-item">m14b_current (현재값)</div>
+                    <div class="feature-item">m14b_last10 (최근10분평균)</div>
+                    <div class="feature-item">m14b_last30 (최근30분평균)</div>
+                    <div class="feature-item">m14b_slope (기울기)</div>
+                    <div class="feature-item">m14b_std (표준편차)</div>
+                    <div class="feature-item">m14b_trend10 (10분변화)</div>
+                </div>
+            </div>
+
+            <!-- M14AM14BSUM -->
+            <div class="feature-group">
+                <h3>📦 M14AM14BSUM <span class="count">8개</span></h3>
+                <div class="feature-list">
+                    <div class="feature-item">m14bsum_mean</div>
+                    <div class="feature-item">m14bsum_max</div>
+                    <div class="feature-item">m14bsum_current</div>
+                    <div class="feature-item">m14bsum_last10</div>
+                    <div class="feature-item">m14bsum_last30</div>
+                    <div class="feature-item">m14bsum_slope</div>
+                    <div class="feature-item">m14bsum_std</div>
+                    <div class="feature-item">m14bsum_trend10</div>
+                </div>
+            </div>
+
+            <!-- TOTALCNT -->
+            <div class="feature-group">
+                <h3>⭐ TOTALCNT <span class="count">10개</span></h3>
+                <div class="feature-list">
+                    <div class="feature-item">total_mean</div>
+                    <div class="feature-item">total_max</div>
+                    <div class="feature-item">total_min</div>
+                    <div class="feature-item">total_current</div>
+                    <div class="feature-item">total_last5</div>
+                    <div class="feature-item">total_last10</div>
+                    <div class="feature-item">total_last30</div>
+                    <div class="feature-item">total_slope</div>
+                    <div class="feature-item">total_std</div>
+                    <div class="feature-item">total_trend10</div>
+                </div>
+            </div>
+
+            <!-- M10AM14A -->
+            <div class="feature-group">
+                <h3>📦 M10AM14A <span class="count">5개</span></h3>
+                <div class="feature-list">
+                    <div class="feature-item">m10arev_mean</div>
+                    <div class="feature-item">m10arev_max</div>
+                    <div class="feature-item">m10arev_current</div>
+                    <div class="feature-item">m10arev_last10</div>
+                    <div class="feature-item">m10arev_slope</div>
+                </div>
+            </div>
+
+            <!-- TRANSPORT -->
+            <div class="feature-group">
+                <h3>🚚 TRANSPORT <span class="count">5개</span></h3>
+                <div class="feature-list">
+                    <div class="feature-item">trans_mean</div>
+                    <div class="feature-item">trans_max</div>
+                    <div class="feature-item">trans_current</div>
+                    <div class="feature-item">trans_last10</div>
+                    <div class="feature-item">trans_slope</div>
+                </div>
+            </div>
+
+            <!-- OHT -->
+            <div class="feature-group">
+                <h3>🏭 OHT <span class="count">4개</span></h3>
+                <div class="feature-list">
+                    <div class="feature-item">oht_mean</div>
+                    <div class="feature-item">oht_max</div>
+                    <div class="feature-item">oht_current</div>
+                    <div class="feature-item">oht_last10</div>
+                </div>
+            </div>
+
+            <!-- Queue Gap -->
+            <div class="feature-group">
+                <h3>🔥 Queue Gap (핵심!) <span class="count">10개</span></h3>
+                <div class="feature-list">
+                    <div class="feature-item">gap_mean</div>
+                    <div class="feature-item">gap_max</div>
+                    <div class="feature-item">gap_min</div>
+                    <div class="feature-item">gap_current</div>
+                    <div class="feature-item">gap_last5</div>
+                    <div class="feature-item">gap_last10</div>
+                    <div class="feature-item">gap_last30</div>
+                    <div class="feature-item">gap_slope</div>
+                    <div class="feature-item">gap_std</div>
+                    <div class="feature-item">gap_trend10</div>
+                </div>
+            </div>
+
+            <!-- Interaction -->
+            <div class="feature-group">
+                <h3>🔗 Interaction (상호작용) <span class="count">12개</span></h3>
+                <div class="feature-list">
+                    <div class="feature-item">m14b_x_sum (M14B × SUM)</div>
+                    <div class="feature-item">m14b_x_sum_mean</div>
+                    <div class="feature-item">sum_per_m14b (비율)</div>
+                    <div class="feature-item">m14b_plus_sum (합계)</div>
+                    <div class="feature-item">m10arev_x_m14b</div>
+                    <div class="feature-item">trans_x_m14b</div>
+                    <div class="feature-item">ratio_m14b_total</div>
+                    <div class="feature-item">ratio_sum_total</div>
+                    <div class="feature-item">gap_x_m14b</div>
+                    <div class="feature-item">gap_x_total</div>
+                    <div class="feature-item">gap_x_trans</div>
+                    <div class="feature-item">ratio_gap_total</div>
+                </div>
+            </div>
+
+            <!-- 임계값 -->
+            <div class="feature-group">
+                <h3>📏 임계값 카운트 <span class="count">12개</span></h3>
+                <div class="feature-list">
+                    <div class="feature-item">m14b_over_520</div>
+                    <div class="feature-item">m14b_over_540</div>
+                    <div class="feature-item">m14bsum_over_600</div>
+                    <div class="feature-item">m14bsum_over_620</div>
+                    <div class="feature-item">m10arev_over_55</div>
+                    <div class="feature-item">total_over_1600</div>
+                    <div class="feature-item">total_over_1650</div>
+                    <div class="feature-item">total_over_1700</div>
+                    <div class="feature-item">gap_over_200</div>
+                    <div class="feature-item">gap_over_250</div>
+                    <div class="feature-item">gap_over_300</div>
+                    <div class="feature-item">gap_over_350</div>
+                </div>
+            </div>
+
+            <!-- 황금 패턴 -->
+            <div class="feature-group">
+                <h3>🏆 황금 패턴 플래그 <span class="count">8개</span></h3>
+                <div class="feature-list">
+                    <div class="feature-item">gold_strict (엄격)</div>
+                    <div class="feature-item">gold_normal (보통)</div>
+                    <div class="feature-item">in_danger (위험)</div>
+                    <div class="feature-item">near_danger (근접)</div>
+                    <div class="feature-item">danger_gap</div>
+                    <div class="feature-item">danger_trans</div>
+                    <div class="feature-item">triple_check (3중)</div>
+                    <div class="feature-item">quad_check (4중)</div>
+                </div>
+            </div>
+
+            <!-- Feature 계산 코드 -->
+            <h3 style="color: #00d9ff; margin-top: 30px; margin-bottom: 15px;">💻 Feature 생성 핵심 코드</h3>
+            <div class="code-box">
+<code><span class="comment"># 280분 시퀀스에서 Feature 추출</span>
+seq_m14b = np.array(row_dict[<span class="string">'M14AM14B'</span>])  <span class="comment"># 280개 값</span>
+seq_gap = seq_q_created - seq_q_completed   <span class="comment"># 🔥 핵심 파생변수</span>
+
+<span class="comment"># 통계 Feature</span>
+features[<span class="string">'m14b_mean'</span>] = np.mean(seq_m14b)
+features[<span class="string">'m14b_current'</span>] = seq_m14b[-<span class="number">1</span>]     <span class="comment"># 현재값</span>
+features[<span class="string">'m14b_last10'</span>] = np.mean(seq_m14b[-<span class="number">10</span>:])  <span class="comment"># 최근 10분 평균</span>
+features[<span class="string">'m14b_slope'</span>] = np.polyfit(np.arange(seq_len), seq_m14b, <span class="number">1</span>)[<span class="number">0</span>]  <span class="comment"># 추세 기울기</span>
+features[<span class="string">'m14b_trend10'</span>] = seq_m14b[-<span class="number">1</span>] - seq_m14b[-<span class="number">10</span>]  <span class="comment"># 10분 변화량</span>
+
+<span class="comment"># 임계값 카운트 (280분 중 몇 분이 임계값 초과?)</span>
+features[<span class="string">'gap_over_250'</span>] = np.sum(seq_gap > <span class="number">250</span>)
+
+<span class="comment"># 황금 패턴 플래그</span>
+features[<span class="string">'gold_strict'</span>] = <span class="number">1</span> <span class="keyword">if</span> (seq_m14b[-<span class="number">1</span>] > <span class="number">540</span> <span class="keyword">and</span> seq_m14bsum[-<span class="number">1</span>] > <span class="number">620</span>) <span class="keyword">else</span> <span class="number">0</span>
+features[<span class="string">'triple_check'</span>] = <span class="number">1</span> <span class="keyword">if</span> (m14b > <span class="number">520</span> <span class="keyword">and</span> sum > <span class="number">600</span> <span class="keyword">and</span> gap > <span class="number">250</span>) <span class="keyword">else</span> <span class="number">0</span></code>
+            </div>
+        </div>
+
+        <!-- 예측 처리 파이프라인 -->
+        <div class="section">
+            <h2><span class="num">3</span> 예측 처리 파이프라인 (4단계)</h2>
+            
+            <div class="pipeline">
+                <!-- Step 1 -->
+                <div class="pipeline-step">
+                    <div class="step-line">
+                        <div class="step-num">1</div>
+                        <div class="step-connector"></div>
+                    </div>
+                    <div class="step-content">
+                        <h4>🤖 원본 예측 (XGBoost)</h4>
+                        <p>82개 Feature를 XGBoost 모델에 입력하여 원본 예측값 생성</p>
+                        <div class="code-box">
+<code>features = create_features_V8_3(row_dict)  <span class="comment"># 82개 Feature</span>
+X = pd.DataFrame([features])
+<span class="var">pred_raw</span> = model.predict(X)[<span class="number">0</span>]  <span class="comment"># ← 원본 예측값</span></code>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Step 2 -->
+                <div class="pipeline-step">
+                    <div class="step-line">
+                        <div class="step-num">2</div>
+                        <div class="step-connector"></div>
+                    </div>
+                    <div class="step-content">
+                        <h4>🔧 보정 예측 (adjust_prediction)</h4>
+                        <p>물리적 제약과 도메인 지식을 반영하여 예측값 보정</p>
+                        
+                        <table class="logic-table">
+                            <tr>
+                                <th>보정 단계</th>
+                                <th>조건</th>
+                                <th>적용</th>
+                            </tr>
+                            <tr>
+                                <td><strong>① 하한선</strong></td>
+                                <td><code>pred &lt; 현재값 - 80</code></td>
+                                <td>pred = 현재값 - 80<br><span style="color:#888; font-size:0.8rem;">10분 내 -80 이상 급락은 물리적으로 불가</span></td>
+                            </tr>
+                            <tr>
+                                <td><strong>② 황금패턴 Boost</strong></td>
+                                <td><code>1650 ≤ pred &lt; 1700</code></td>
+                                <td>
+                                    M14B&gt;540 &amp; SUM&gt;620 → <span style="color:#00ff88;">+50</span><br>
+                                    M14B&gt;520 &amp; SUM&gt;600 → <span style="color:#00ff88;">+40</span>
+                                </td>
+                            </tr>
+                            <tr>
+                                <td><strong>③ Gap Boost</strong></td>
+                                <td><code>1650 ≤ pred &lt; 1700</code></td>
+                                <td>
+                                    gap &gt; 350 → <span style="color:#00ff88;">+40</span><br>
+                                    gap &gt; 300 → <span style="color:#00ff88;">+35</span><br>
+                                    gap &gt; 250 → <span style="color:#00ff88;">+25</span>
+                                </td>
+                            </tr>
+                            <tr>
+                                <td><strong>④ Transport Boost</strong></td>
+                                <td><code>1650 ≤ pred &lt; 1700</code></td>
+                                <td>
+                                    trans &gt; 180 → <span style="color:#00ff88;">+30</span><br>
+                                    trans &gt; 151 → <span style="color:#00ff88;">+20</span>
+                                </td>
+                            </tr>
+                            <tr>
+                                <td><strong>⑤ 위험구간 보정</strong></td>
+                                <td><code>현재 ≥ 1700 &amp; pred &lt; 1680</code></td>
+                                <td>pred = max(pred, 현재값-50)<br><span style="color:#888; font-size:0.8rem;">이미 위험인데 예측이 낮으면 보정</span></td>
+                            </tr>
+                        </table>
+                        
+                        <div class="code-box">
+<code><span class="keyword">def</span> <span class="function">adjust_prediction</span>(pred, current_total, m14b, m14bsum, gap, trans):
+    <span class="comment"># ① 하한선 (10분 = -80)</span>
+    floor = current_total - <span class="number">80</span>
+    <span class="keyword">if</span> pred &lt; floor:
+        pred = floor
+    
+    <span class="comment"># ② ~ ④ 1650~1699 구간 Boost</span>
+    <span class="keyword">if</span> <span class="number">1650</span> &lt;= pred &lt; <span class="number">1700</span>:
+        boost = <span class="number">0</span>
+        <span class="keyword">if</span> m14b &gt; <span class="number">540</span> <span class="keyword">and</span> m14bsum &gt; <span class="number">620</span>: boost += <span class="number">50</span>
+        <span class="keyword">elif</span> m14b &gt; <span class="number">520</span> <span class="keyword">and</span> m14bsum &gt; <span class="number">600</span>: boost += <span class="number">40</span>
+        <span class="keyword">if</span> gap &gt; <span class="number">350</span>: boost += <span class="number">40</span>
+        <span class="keyword">elif</span> gap &gt; <span class="number">300</span>: boost += <span class="number">35</span>
+        <span class="keyword">elif</span> gap &gt; <span class="number">250</span>: boost += <span class="number">25</span>
+        <span class="keyword">if</span> trans &gt; <span class="number">180</span>: boost += <span class="number">30</span>
+        <span class="keyword">elif</span> trans &gt; <span class="number">151</span>: boost += <span class="number">20</span>
+        pred = pred + boost
+    
+    <span class="comment"># ⑤ 위험구간 보정</span>
+    <span class="keyword">if</span> current_total &gt;= <span class="number">1700</span> <span class="keyword">and</span> pred &lt; <span class="number">1680</span>:
+        pred = max(pred, current_total - <span class="number">50</span>)
+    
+    <span class="keyword">return</span> <span class="var">pred</span>  <span class="comment"># ← 보정 예측값</span></code>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Step 3 -->
+                <div class="pipeline-step">
+                    <div class="step-line">
+                        <div class="step-num">3</div>
+                        <div class="step-connector"></div>
+                    </div>
+                    <div class="step-content">
+                        <h4>📈 추세 예측 (Trend-based)</h4>
+                        <p>최근 12분간의 변화량을 반영하여 상승 추세 포착</p>
+                        
+                        <div class="highlight-box">
+                            <h4>🔥 추세 예측 공식</h4>
+                            <p style="font-family: 'Consolas', monospace; font-size: 1.1rem; color: #00ff88;">
+                                추세예측 = (현재값 - 12분전값) + 보정예측
+                            </p>
+                        </div>
+                        
+                        <div class="code-box">
+<code><span class="comment"># 12분 전 TOTALCNT 추출</span>
+total_12min_ago = seq_totalcnt[-<span class="number">12</span>]  <span class="comment"># 시퀀스 끝에서 12번째</span>
+
+<span class="comment"># 12분간 변화량 계산</span>
+trend_change = current_total - total_12min_ago
+
+<span class="comment"># 추세 예측 = 변화량 + 보정예측</span>
+<span class="var">trend_pred</span> = trend_change + pred
+<span class="comment"># 예: 변화량 +30, 보정예측 1680 → 추세예측 1710</span></code>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Step 4 -->
+                <div class="pipeline-step">
+                    <div class="step-line">
+                        <div class="step-num">4</div>
+                    </div>
+                    <div class="step-content">
+                        <h4>✅ 최종 예측 결정</h4>
+                        <p>조건에 따라 보정예측 또는 추세예측 중 선택</p>
+                        
+                        <div class="decision-flow">
+                            <div class="decision-node">
+                                <div class="condition">IF 보정예측 ≥ 1700</div>
+                                <div class="result">→ <strong style="color:#00ff88;">보정예측 사용</strong> (ML이 이미 위험 판단)</div>
+                            </div>
+                            <div class="decision-arrow">↓ ELSE</div>
+                            <div class="decision-node">
+                                <div class="condition">IF 현재값 ≥ 1600 AND 추세예측 &gt; 보정예측</div>
+                                <div class="result">→ <strong style="color:#ffd93d;">추세예측 사용</strong> (위험 근접 + 상승 추세)</div>
+                            </div>
+                            <div class="decision-arrow">↓ ELSE</div>
+                            <div class="decision-node no">
+                                <div class="condition">OTHERWISE</div>
+                                <div class="result">→ <strong style="color:#aaa;">보정예측 사용</strong> (안전 구간)</div>
+                            </div>
+                        </div>
+                        
+                        <div class="code-box">
+<code><span class="keyword">if</span> pred &gt;= <span class="number">1700</span>:
+    <span class="comment"># ML이 이미 위험 예측 → 신뢰</span>
+    final_pred = pred
+    trend_applied = <span class="string">''</span>
+    
+<span class="keyword">elif</span> current_total &gt;= <span class="number">1600</span>:
+    <span class="comment"># 위험 근접 → 추세 반영 고려</span>
+    <span class="keyword">if</span> trend_pred &gt; pred:
+        final_pred = trend_pred
+        trend_applied = <span class="string">'O'</span>  <span class="comment"># 추세 적용됨 표시</span>
+    <span class="keyword">else</span>:
+        final_pred = pred
+        trend_applied = <span class="string">''</span>
+        
+<span class="keyword">else</span>:
+    <span class="comment"># 안전 구간 → ML 예측 신뢰</span>
+    final_pred = pred
+    trend_applied = <span class="string">''</span>
+
+<span class="comment"># 🎯 최종 위험 판정</span>
+is_danger = <span class="keyword">True</span> <span class="keyword">if</span> final_pred &gt;= <span class="number">1700</span> <span class="keyword">else</span> <span class="keyword">False</span></code>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 황금 패턴 상세 -->
+        <div class="section">
+            <h2><span class="num">4</span> 황금 패턴 (Golden Pattern)</h2>
+            <p style="color: #aaa; margin-bottom: 20px;">도메인 지식 기반 위험 신호 패턴 (96.7% 정확도)</p>
+            
+            <div class="pattern-grid">
+                <div class="pattern-card">
+                    <h4>🥇 Gold Strict (엄격)</h4>
+                    <div class="condition">M14B &gt; 540 AND SUM &gt; 620</div>
+                    <div class="meaning">가장 확실한 위험 신호. Boost +50 적용</div>
+                </div>
+                <div class="pattern-card">
+                    <h4>🥈 Gold Normal (보통)</h4>
+                    <div class="condition">M14B &gt; 520 AND SUM &gt; 600</div>
+                    <div class="meaning">높은 위험 신호. Boost +40 적용</div>
+                </div>
+                <div class="pattern-card">
+                    <h4>🔺 Triple Check (3중 확인)</h4>
+                    <div class="condition">M14B &gt; 520 AND SUM &gt; 600 AND gap &gt; 250</div>
+                    <div class="meaning">3가지 조건 동시 충족. 매우 높은 위험</div>
+                </div>
+                <div class="pattern-card">
+                    <h4>⚠️ Quad Check (4중 확인)</h4>
+                    <div class="condition">Triple + TRANSPORT &gt; 145</div>
+                    <div class="meaning">4가지 조건 모두 충족. 거의 확실한 위험</div>
+                </div>
+                <div class="pattern-card">
+                    <h4>📊 Danger Gap</h4>
+                    <div class="condition">queue_gap &gt; 300</div>
+                    <div class="meaning">대기 작업 과다. 물류 체류 조짐</div>
+                </div>
+                <div class="pattern-card">
+                    <h4>🚚 Danger Transport</h4>
+                    <div class="condition">TRANSPORT &gt; 151</div>
+                    <div class="meaning">지연 운송 과다. 시스템 과부하</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- XGBoost 모델 -->
+        <div class="section">
+            <h2><span class="num">5</span> XGBoost 모델 설정</h2>
+            
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px;">
+                <div class="summary-card">
+                    <div class="value" style="font-size: 1.5rem;">8</div>
+                    <div class="label">max_depth</div>
+                </div>
+                <div class="summary-card">
+                    <div class="value" style="font-size: 1.5rem;">0.05</div>
+                    <div class="label">learning_rate</div>
+                </div>
+                <div class="summary-card">
+                    <div class="value" style="font-size: 1.5rem;">500</div>
+                    <div class="label">n_estimators</div>
+                </div>
+                <div class="summary-card">
+                    <div class="value" style="font-size: 1.5rem;">0.8</div>
+                    <div class="label">subsample</div>
+                </div>
+                <div class="summary-card">
+                    <div class="value" style="font-size: 1.5rem;">50x</div>
+                    <div class="label">1700+ 증강</div>
+                </div>
+            </div>
+            
+            <div class="code-box" style="margin-top: 20px;">
+<code>model = xgb.XGBRegressor(
+    objective=<span class="string">'reg:squarederror'</span>,
+    max_depth=<span class="number">8</span>,
+    learning_rate=<span class="number">0.05</span>,
+    n_estimators=<span class="number">500</span>,
+    subsample=<span class="number">0.8</span>,
+    colsample_bytree=<span class="number">0.8</span>,
+    min_child_weight=<span class="number">3</span>,
+    gamma=<span class="number">0.1</span>,
+    reg_alpha=<span class="number">0.1</span>,
+    reg_lambda=<span class="number">1.0</span>,
+    tree_method=<span class="string">'hist'</span>
+)
+
+<span class="comment"># 1700+ 데이터 50배 증강 (클래스 불균형 해소)</span>
+X_aug, y_aug = augment_data(X, y, threshold=<span class="number">1700</span>, multiplier=<span class="number">50</span>)
+model.fit(X_aug, y_aug)</code>
+            </div>
+        </div>
+
+        <!-- 출력 결과 -->
+        <div class="section">
+            <h2><span class="num">6</span> 평가 결과 CSV 컬럼</h2>
+            
+            <table class="logic-table">
+                <tr>
+                    <th>컬럼명</th>
+                    <th>설명</th>
+                    <th>예시</th>
+                </tr>
+                <tr><td>현재시간</td><td>예측 시점</td><td>2024-12-11 14:30</td></tr>
+                <tr><td>현재TOTALCNT</td><td>현재 물류량</td><td>1650</td></tr>
+                <tr><td>12분전TOTALCNT</td><td>12분 전 물류량</td><td>1620</td></tr>
+                <tr><td>12분변화량</td><td>현재 - 12분전</td><td>+30</td></tr>
+                <tr><td>예측시점</td><td>10분 후 시간</td><td>2024-12-11 14:40</td></tr>
+                <tr><td>실제값</td><td>10분 후 실제 TOTALCNT</td><td>1720</td></tr>
+                <tr><td>원본예측</td><td>XGBoost 출력값</td><td>1665</td></tr>
+                <tr><td>보정예측</td><td>하한선/boost 적용 후</td><td>1680</td></tr>
+                <tr><td>추세예측</td><td>변화량 + 보정예측</td><td>1710</td></tr>
+                <tr><td><strong>최종예측</strong></td><td>실제 사용 예측값</td><td><strong>1710</strong></td></tr>
+                <tr><td>추세적용</td><td>추세가 적용됐으면 O</td><td>O</td></tr>
+                <tr><td>실제위험(1700+)</td><td>실제값 1700+ 여부</td><td>O</td></tr>
+                <tr><td>예측위험(1700+)</td><td>최종예측 1700+ 여부</td><td>O</td></tr>
+            </table>
+        </div>
+
+        <!-- 요약 -->
+        <div class="section" style="background: linear-gradient(145deg, rgba(0, 255, 136, 0.05), rgba(0, 217, 255, 0.05)); border-color: rgba(0, 255, 136, 0.2);">
+            <h2 style="color: #00ff88;"><span class="num">✓</span> 핵심 요약</h2>
+            
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 20px; margin-top: 20px;">
+                <div style="background: rgba(0,0,0,0.2); border-radius: 12px; padding: 20px;">
+                    <h4 style="color: #00d9ff; margin-bottom: 10px;">📊 입력</h4>
+                    <p style="color: #ccc;">8개 컬럼 × 280분 시계열<br>+ queue_gap 파생변수</p>
+                </div>
+                <div style="background: rgba(0,0,0,0.2); border-radius: 12px; padding: 20px;">
+                    <h4 style="color: #ffd93d; margin-bottom: 10px;">⚙️ Feature</h4>
+                    <p style="color: #ccc;">82개 Feature 생성<br>(통계/상호작용/임계값/패턴)</p>
+                </div>
+                <div style="background: rgba(0,0,0,0.2); border-radius: 12px; padding: 20px;">
+                    <h4 style="color: #ff6b6b; margin-bottom: 10px;">🤖 모델</h4>
+                    <p style="color: #ccc;">XGBoost 회귀<br>1700+ 50배 증강 학습</p>
+                </div>
+                <div style="background: rgba(0,0,0,0.2); border-radius: 12px; padding: 20px;">
+                    <h4 style="color: #00ff88; margin-bottom: 10px;">🔧 보정</h4>
+                    <p style="color: #ccc;">하한선 -80 + 황금패턴 Boost<br>+ Gap/Transport Boost</p>
+                </div>
+                <div style="background: rgba(0,0,0,0.2); border-radius: 12px; padding: 20px;">
+                    <h4 style="color: #00d9ff; margin-bottom: 10px;">📈 추세</h4>
+                    <p style="color: #ccc;">12분 변화량 반영<br>(현재 ≥ 1600일 때만)</p>
+                </div>
+                <div style="background: rgba(0,0,0,0.2); border-radius: 12px; padding: 20px;">
+                    <h4 style="color: #ffd93d; margin-bottom: 10px;">🎯 목표</h4>
+                    <p style="color: #ccc;">10분 후 TOTALCNT 예측<br><strong style="color:#ff6b6b;">1700+ 위험 사전 경고</strong></p>
+                </div>
+            </div>
+        </div>
+
+        <p style="text-align: center; color: #666; margin-top: 40px; font-size: 0.9rem;">
+            V8.3 TOTALCNT 예측 시스템 아키텍처 문서 | 작성일: 2025-01-08
+        </p>
+    </div>
+</body>
+</html>
