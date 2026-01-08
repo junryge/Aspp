@@ -71,6 +71,11 @@ df['CURRTIME'] = pd.to_datetime(df['CURRTIME'].astype(str), format='%Y%m%d%H%M',
 df = df.dropna(subset=['CURRTIME']).sort_values('CURRTIME').reset_index(drop=True)
 print(f"  - 파싱 후 데이터: {len(df):,}행")
 
+# QUEUE_GAP 파생 (먼저!)
+if 'M14.QUE.ALL.CURRENTQCREATED' in df.columns and 'M14.QUE.ALL.CURRENTQCOMPLETED' in df.columns:
+    df['QUEUE_GAP'] = df['M14.QUE.ALL.CURRENTQCREATED'] - df['M14.QUE.ALL.CURRENTQCOMPLETED']
+    print("  - QUEUE_GAP 파생 변수 생성!")
+
 # Feature 그룹 필터링
 for group_name in FEATURE_GROUPS:
     original = FEATURE_GROUPS[group_name].copy()
@@ -86,12 +91,6 @@ for group in FEATURE_GROUPS.values():
 for col in list(set(all_cols)):
     if col in df.columns:
         df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
-
-# QUEUE_GAP 파생
-if 'M14.QUE.ALL.CURRENTQCREATED' in df.columns and 'M14.QUE.ALL.CURRENTQCOMPLETED' in df.columns:
-    df['QUEUE_GAP'] = df['M14.QUE.ALL.CURRENTQCREATED'] - df['M14.QUE.ALL.CURRENTQCOMPLETED']
-    if 'QUEUE_GAP' not in FEATURE_GROUPS['auxiliary']:
-        FEATURE_GROUPS['auxiliary'].append('QUEUE_GAP')
 
 # ============================================================================
 # Feature 생성 함수
