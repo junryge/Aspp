@@ -1,21 +1,35 @@
 import win32com.client
+import os
+
+output_dir = r"C:\ppt_output"
+os.makedirs(output_dir, exist_ok=True)
+os.makedirs(f"{output_dir}/images", exist_ok=True)
 
 ppt = win32com.client.Dispatch("PowerPoint.Application")
-ppt.Visible = True
+presentation = ppt.ActivePresentation  # 이미 열린 PPT
 
-# DRM 걸린 원본 열기 (수동으로 이미 열려있으면 생략)
-src = ppt.Presentations.Open(r"C:\경로\원본.pptx")
+md_content = []
+img_count = 0
 
-# 새 PPT 생성
-dst = ppt.Presentations.Add()
+for slide_num, slide in enumerate(presentation.Slides, 1):
+    md_content.append(f"\n## 슬라이드 {slide_num}\n")
+    
+    for shape in slide.Shapes:
+        # 텍스트 추출
+        if shape.HasTextFrame:
+            text = shape.TextFrame.TextRange.Text.strip()
+            if text:
+                md_content.append(text + "\n")
+        
+        # 이미지 추출
+        if shape.Type == 13:  # msoLinkedPicture or msoPicture
+            img_count += 1
+            img_path = f"{output_dir}/images/img_{img_count}.png"
+            shape.Export(img_path, 2)  # 2 = PNG
+            md_content.append(f"\n![이미지{img_count}](images/img_{img_count}.png)\n")
 
-# 모든 슬라이드 복사
-for i in range(1, src.Slides.Count + 1):
-    src.Slides(i).Copy()
-    dst.Slides.Paste()
+# MD 저장
+with open(f"{output_dir}/output.md", "w", encoding="utf-8") as f:
+    f.write("\n".join(md_content))
 
-# 새 파일로 저장 (DRM 없음)
-dst.SaveAs(r"C:\경로\새파일.pptx")
-
-dst.Close()
-src.Close()
+print(f"완료! {output_dir}/output.md")
