@@ -227,7 +227,7 @@ for idx in range(seq_len, len(df) - pred_offset):
         '현재시간': current_time.strftime('%Y-%m-%d %H:%M'),
         '현재TOTALCNT': round(current_total, 2),
         '예측시점': prediction_time.strftime('%Y-%m-%d %H:%M'),
-        '실제값': round(actual_max, 2),
+        '실제값10min': round(actual_max, 2),
         '실제단일값': round(actual_single, 2),
         'XGB_타겟': round(pred_xgb_target, 2),
         'XGB_중요': round(pred_xgb_important, 2),
