@@ -271,7 +271,7 @@ def get_prediction_status(row, all_df):
             time_ago = current_time - timedelta(minutes=minutes_ago)
             prev_data = all_df[all_df['현재시간_dt'] == time_ago]
             if len(prev_data) > 0 and prev_data['최종판정'].values[0] == 1:
-                return 'FN_20분내예측'
+                return f'FN_{minutes_ago}분전예측'
         return 'FN_완전놓침'
     else:
         # 30분 예측: 20분 이내에 실제 돌파가 있는지 확인
@@ -279,7 +279,7 @@ def get_prediction_status(row, all_df):
             time_later = current_time + timedelta(minutes=minutes_later)
             later_data = all_df[all_df['현재시간_dt'] == time_later]
             if len(later_data) > 0 and later_data['실제위험(1700+)'].values[0] == 1:
-                return 'FP_20분내돌파'
+                return f'FP_{minutes_later}분후돌파'
         return 'FP_잘못된경고'
 
 df_result['예측상태'] = df_result.apply(lambda row: get_prediction_status(row, df_result), axis=1)
@@ -332,12 +332,23 @@ for status, count in status_counts.items():
 # 실질 FN/FP
 real_fn = status_counts.get('FN_완전놓침', 0)
 real_fp = status_counts.get('FP_잘못된경고', 0)
-fn_early = status_counts.get('FN_20분내예측', 0)
-fp_early = status_counts.get('FP_20분내돌파', 0)
+
+# FN 조기감지 집계 (1~20분전)
+fn_early_total = sum(status_counts.get(f'FN_{i}분전예측', 0) for i in range(1, 21))
+# FP 유효경고 집계 (1~20분후)
+fp_early_total = sum(status_counts.get(f'FP_{i}분후돌파', 0) for i in range(1, 21))
 
 print(f"\n[실질적 성능 (20분 기준)]")
-print(f"  FN 20분내예측 (조기감지): {fn_early:,}건")
-print(f"  FP 20분내돌파 (유효경고): {fp_early:,}건")
+print(f"  FN 조기감지 합계: {fn_early_total:,}건")
+for i in range(1, 21):
+    cnt = status_counts.get(f'FN_{i}분전예측', 0)
+    if cnt > 0:
+        print(f"    - FN_{i}분전예측: {cnt:,}건")
+print(f"  FP 유효경고 합계: {fp_early_total:,}건")
+for i in range(1, 21):
+    cnt = status_counts.get(f'FP_{i}분후돌파', 0)
+    if cnt > 0:
+        print(f"    - FP_{i}분후돌파: {cnt:,}건")
 print(f"  실질 FN (완전 놓침):    {real_fn:,}건")
 print(f"  실질 FP (잘못된 경고):  {real_fp:,}건")
 
