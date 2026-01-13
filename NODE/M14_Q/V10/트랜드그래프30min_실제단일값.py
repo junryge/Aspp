@@ -233,8 +233,10 @@ body {{ font-family: 'Noto Sans KR', sans-serif; background: linear-gradient(135
             <div class="filter-tab active" onclick="filterEvents('all')">전체</div>
             <div class="filter-tab" onclick="filterEvents('TP')">✅ TP ({stats['TP']})</div>
             <div class="filter-tab" onclick="filterEvents('TN')">✅ TN ({stats['TN']})</div>
-            <div class="filter-tab" onclick="filterEvents('FN')">❌ FN ({stats['FN_early'] + stats['FN_miss']})</div>
-            <div class="filter-tab" onclick="filterEvents('FP')">⚠️ FP ({stats['FP_early'] + stats['FP_false']})</div>
+            <div class="filter-tab" onclick="filterEvents('FN_early')">⚠️ FN 조기감지 ({stats['FN_early']})</div>
+            <div class="filter-tab" onclick="filterEvents('FN_miss')">❌ FN 완전놓침 ({stats['FN_miss']})</div>
+            <div class="filter-tab" onclick="filterEvents('FP_early')">⚠️ FP 유효경고 ({stats['FP_early']})</div>
+            <div class="filter-tab" onclick="filterEvents('FP_false')">❌ FP 잘못된경고 ({stats['FP_false']})</div>
             <div class="filter-tab" onclick="filterEvents('breach')">🔥 돌파 ({stats['actual_breach']})</div>
             <div class="filter-tab" onclick="filterEvents('alarm')">🚨 MAX 1700+</div>
         </div>
@@ -401,10 +403,8 @@ function filterEvents(type) {{
     let filtered = allData;
     if (type === 'TP') filtered = allData.filter(d => d.status === '정상예측_TP');
     else if (type === 'TN') filtered = allData.filter(d => d.status === '정상예측_TN');
-    else if (type === 'FN') filtered = allData.filter(d => d.status.includes('FN'));
     else if (type === 'FN_early') filtered = allData.filter(d => d.status.includes('FN') && d.status.includes('분전예측'));
     else if (type === 'FN_miss') filtered = allData.filter(d => d.status === 'FN_완전놓침');
-    else if (type === 'FP') filtered = allData.filter(d => d.status.includes('FP'));
     else if (type === 'FP_early') filtered = allData.filter(d => d.status.includes('FP') && d.status.includes('분후돌파'));
     else if (type === 'FP_false') filtered = allData.filter(d => d.status === 'FP_잘못된경고');
     else if (type === 'breach') filtered = allData.filter(d => d.actual_breach === 1);
