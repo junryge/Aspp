@@ -65,7 +65,7 @@ def generate_dashboard_html(df, stats, output_path, title="V10_4 TOTALCNT 10분 
             'time': str(row.get('현재시간', '')),
             'pred_time': str(row.get('예측시점', '')),
             'current': float(row.get('현재TOTALCNT', 0)),
-            'actual_max': float(row.get('실제값10min', 0)),
+            'actual_max': float(row.get('실제값10min', row.get('실제값', 0))),
             'actual_breach': int(row.get('실제위험(1700+)', 0)),
             'xgb_target': xgb_target,
             'xgb_important': float(row.get('XGB_중요', 0)),
