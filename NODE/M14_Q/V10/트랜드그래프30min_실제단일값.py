@@ -29,14 +29,18 @@ def analyze_results(df):
     status_counts = df['예측상태'].value_counts().to_dict()
     stats['TP'] = status_counts.get('정상예측_TP', 0)
     stats['TN'] = status_counts.get('정상예측_TN', 0)
-    stats['FN_10min'] = status_counts.get('FN_30분전예측', 0)
+    
+    # FN 조기감지 (1~20분전 합계)
+    stats['FN_early'] = sum(status_counts.get(f'FN_{i}분전예측', 0) for i in range(1, 21))
     stats['FN_miss'] = status_counts.get('FN_완전놓침', 0)
-    stats['FP_10min'] = status_counts.get('FP_30분후돌파', 0)
+    
+    # FP 유효경고 (1~20분후 합계)
+    stats['FP_early'] = sum(status_counts.get(f'FP_{i}분후돌파', 0) for i in range(1, 21))
     stats['FP_false'] = status_counts.get('FP_잘못된경고', 0)
     
-    total_positive = stats['TP'] + stats['FN_10min'] + stats['FN_miss']
+    total_positive = stats['TP'] + stats['FN_early'] + stats['FN_miss']
     stats['recall'] = stats['TP'] / total_positive * 100 if total_positive > 0 else 0
-    stats['precision'] = stats['TP'] / (stats['TP'] + stats['FP_10min'] + stats['FP_false']) * 100 if (stats['TP'] + stats['FP_10min'] + stats['FP_false']) > 0 else 0
+    stats['precision'] = stats['TP'] / (stats['TP'] + stats['FP_early'] + stats['FP_false']) * 100 if (stats['TP'] + stats['FP_early'] + stats['FP_false']) > 0 else 0
     return stats
 
 def generate_dashboard_html(df, stats, output_path, title="V10_4 TOTALCNT 30분 예측 대시보드"):
@@ -61,7 +65,7 @@ def generate_dashboard_html(df, stats, output_path, title="V10_4 TOTALCNT 30분 
             'idx': idx,
             'pred_time': str(row.get('예측시점', '')),
             'actual_single': float(row.get('실제단일값', 0)),
-            'actual_max': float(row.get('실제값10min', row.get('실제값', 0))),
+            'actual_max': float(row.get('실제값30min', row.get('실제값', 0))),
             'actual_breach': int(row.get('실제위험(1700+)', 0)),
             'xgb_target': xgb_target,
             'xgb_important': float(row.get('XGB_중요', 0)),
@@ -188,9 +192,9 @@ body {{ font-family: 'Noto Sans KR', sans-serif; background: linear-gradient(135
     <div class="stats-grid">
         <div class="stat-card highlight" onclick="filterEvents('TP')"><div class="stat-label">✅ 정상예측 TP</div><div class="stat-value green">{stats['TP']}</div><div class="stat-sub">정확한 돌파 예측</div></div>
         <div class="stat-card" onclick="filterEvents('TN')"><div class="stat-label">✅ 정상예측 TN</div><div class="stat-value gray">{stats['TN']}</div><div class="stat-sub">정확한 안전 예측</div></div>
-        <div class="stat-card" onclick="filterEvents('FN_10min')"><div class="stat-label">⚠️ FN 30분전예측</div><div class="stat-value yellow">{stats['FN_10min']}</div><div class="stat-sub">조기 감지됨</div></div>
+        <div class="stat-card" onclick="filterEvents('FN_early')"><div class="stat-label">⚠️ FN 20분내예측</div><div class="stat-value yellow">{stats['FN_early']}</div><div class="stat-sub">조기 감지됨</div></div>
         <div class="stat-card warning" onclick="filterEvents('FN_miss')"><div class="stat-label">❌ FN 완전놓침</div><div class="stat-value red">{stats['FN_miss']}</div><div class="stat-sub">실질 놓침</div></div>
-        <div class="stat-card" onclick="filterEvents('FP_10min')"><div class="stat-label">⚠️ FP 30분후돌파</div><div class="stat-value yellow">{stats['FP_10min']}</div><div class="stat-sub">유효 조기 경고</div></div>
+        <div class="stat-card" onclick="filterEvents('FP_early')"><div class="stat-label">⚠️ FP 20분내돌파</div><div class="stat-value yellow">{stats['FP_early']}</div><div class="stat-sub">유효 조기 경고</div></div>
         <div class="stat-card warning" onclick="filterEvents('FP_false')"><div class="stat-label">❌ FP 잘못된경고</div><div class="stat-value red">{stats['FP_false']}</div><div class="stat-sub">실질 오탐</div></div>
     </div>
     
@@ -229,8 +233,8 @@ body {{ font-family: 'Noto Sans KR', sans-serif; background: linear-gradient(135
             <div class="filter-tab active" onclick="filterEvents('all')">전체</div>
             <div class="filter-tab" onclick="filterEvents('TP')">✅ TP ({stats['TP']})</div>
             <div class="filter-tab" onclick="filterEvents('TN')">✅ TN ({stats['TN']})</div>
-            <div class="filter-tab" onclick="filterEvents('FN')">❌ FN ({stats['FN_10min'] + stats['FN_miss']})</div>
-            <div class="filter-tab" onclick="filterEvents('FP')">⚠️ FP ({stats['FP_10min'] + stats['FP_false']})</div>
+            <div class="filter-tab" onclick="filterEvents('FN')">❌ FN ({stats['FN_early'] + stats['FN_miss']})</div>
+            <div class="filter-tab" onclick="filterEvents('FP')">⚠️ FP ({stats['FP_early'] + stats['FP_false']})</div>
             <div class="filter-tab" onclick="filterEvents('breach')">🔥 돌파 ({stats['actual_breach']})</div>
             <div class="filter-tab" onclick="filterEvents('alarm')">🚨 MAX 1700+</div>
         </div>
@@ -398,10 +402,10 @@ function filterEvents(type) {{
     if (type === 'TP') filtered = allData.filter(d => d.status === '정상예측_TP');
     else if (type === 'TN') filtered = allData.filter(d => d.status === '정상예측_TN');
     else if (type === 'FN') filtered = allData.filter(d => d.status.includes('FN'));
-    else if (type === 'FN_10min') filtered = allData.filter(d => d.status === 'FN_30분전예측');
+    else if (type === 'FN_early') filtered = allData.filter(d => d.status.includes('FN') && d.status.includes('분전예측'));
     else if (type === 'FN_miss') filtered = allData.filter(d => d.status === 'FN_완전놓침');
     else if (type === 'FP') filtered = allData.filter(d => d.status.includes('FP'));
-    else if (type === 'FP_10min') filtered = allData.filter(d => d.status === 'FP_30분후돌파');
+    else if (type === 'FP_early') filtered = allData.filter(d => d.status.includes('FP') && d.status.includes('분후돌파'));
     else if (type === 'FP_false') filtered = allData.filter(d => d.status === 'FP_잘못된경고');
     else if (type === 'breach') filtered = allData.filter(d => d.actual_breach === 1);
     else if (type === 'alarm') filtered = allData.filter(d => d.pred_max >= 1700);
