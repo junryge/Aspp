@@ -13,8 +13,12 @@ from collections import deque
 import warnings
 warnings.filterwarnings('ignore')
 
-# 한글 폰트 설정
-plt.rcParams['font.family'] = ['DejaVu Sans', 'sans-serif']
+# 윈도우 한글 폰트 설정
+import platform
+if platform.system() == 'Windows':
+    plt.rcParams['font.family'] = 'Malgun Gothic'
+else:
+    plt.rcParams['font.family'] = ['DejaVu Sans', 'sans-serif']
 plt.rcParams['axes.unicode_minus'] = False
 
 class SurgePredictionSimulator:
@@ -294,9 +298,13 @@ if __name__ == '__main__':
     
     fig, anim = create_animation()
     
-    # GIF로 저장
-    print("\nGIF 저장 중...")
-    anim.save('/home/claude/surge_prediction.gif', writer='pillow', fps=5, dpi=100)
-    print("저장 완료: surge_prediction.gif")
+    # GIF 저장 여부 선택
+    save_gif = input("\nGIF로 저장하시겠습니까? (y/n): ").strip().lower()
+    if save_gif == 'y':
+        import os
+        save_path = os.path.join(os.path.expanduser('~'), 'Desktop', 'surge_prediction.gif')
+        print(f"GIF 저장 중... {save_path}")
+        anim.save(save_path, writer='pillow', fps=5, dpi=100)
+        print("저장 완료!")
     
     plt.show()
