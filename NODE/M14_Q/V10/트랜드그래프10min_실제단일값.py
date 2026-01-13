@@ -3,7 +3,6 @@
 V10_4 평가 결과 대시보드 생성기 (10분 예측)
 - XGB_타겟: MAX, XGB_보조: MIN
 - 실제값: 10분 내 최대값
-- 수정: 현재값→실제단일값, 현재시간→예측시점
 """
 
 import pandas as pd
@@ -29,14 +28,18 @@ def analyze_results(df):
     status_counts = df['예측상태'].value_counts().to_dict()
     stats['TP'] = status_counts.get('정상예측_TP', 0)
     stats['TN'] = status_counts.get('정상예측_TN', 0)
-    stats['FN_10min'] = status_counts.get('FN_10분전예측', 0)
+    
+    # FN 조기감지 (1~5분전 합계)
+    stats['FN_early'] = sum(status_counts.get(f'FN_{i}분전예측', 0) for i in range(1, 6))
     stats['FN_miss'] = status_counts.get('FN_완전놓침', 0)
-    stats['FP_10min'] = status_counts.get('FP_10분후돌파', 0)
+    
+    # FP 유효경고 (1~5분후 합계)
+    stats['FP_early'] = sum(status_counts.get(f'FP_{i}분후돌파', 0) for i in range(1, 6))
     stats['FP_false'] = status_counts.get('FP_잘못된경고', 0)
     
-    total_positive = stats['TP'] + stats['FN_10min'] + stats['FN_miss']
+    total_positive = stats['TP'] + stats['FN_early'] + stats['FN_miss']
     stats['recall'] = stats['TP'] / total_positive * 100 if total_positive > 0 else 0
-    stats['precision'] = stats['TP'] / (stats['TP'] + stats['FP_10min'] + stats['FP_false']) * 100 if (stats['TP'] + stats['FP_10min'] + stats['FP_false']) > 0 else 0
+    stats['precision'] = stats['TP'] / (stats['TP'] + stats['FP_early'] + stats['FP_false']) * 100 if (stats['TP'] + stats['FP_early'] + stats['FP_false']) > 0 else 0
     return stats
 
 def generate_dashboard_html(df, stats, output_path, title="V10_4 TOTALCNT 10분 예측 대시보드"):
@@ -59,9 +62,10 @@ def generate_dashboard_html(df, stats, output_path, title="V10_4 TOTALCNT 10분 
                 votes = 0
         data_json.append({
             'idx': idx,
+            'time': str(row.get('현재시간', '')),
             'pred_time': str(row.get('예측시점', '')),
-            'actual_single': float(row.get('실제단일값', 0)),
-            'actual_max': float(row.get('실제값10min', row.get('실제값', 0))),
+            'current': float(row.get('현재TOTALCNT', 0)),
+            'actual_max': float(row.get('실제값', 0)),
             'actual_breach': int(row.get('실제위험(1700+)', 0)),
             'xgb_target': xgb_target,
             'xgb_important': float(row.get('XGB_중요', 0)),
@@ -75,8 +79,8 @@ def generate_dashboard_html(df, stats, output_path, title="V10_4 TOTALCNT 10분 
             'status': str(row.get('예측상태', ''))
         })
     
-    period_start = df['예측시점'].iloc[0] if len(df) > 0 else ''
-    period_end = df['예측시점'].iloc[-1] if len(df) > 0 else ''
+    period_start = df['현재시간'].iloc[0] if len(df) > 0 else ''
+    period_end = df['현재시간'].iloc[-1] if len(df) > 0 else ''
     
     html = f'''<!DOCTYPE html>
 <html lang="ko">
@@ -188,9 +192,9 @@ body {{ font-family: 'Noto Sans KR', sans-serif; background: linear-gradient(135
     <div class="stats-grid">
         <div class="stat-card highlight" onclick="filterEvents('TP')"><div class="stat-label">✅ 정상예측 TP</div><div class="stat-value green">{stats['TP']}</div><div class="stat-sub">정확한 돌파 예측</div></div>
         <div class="stat-card" onclick="filterEvents('TN')"><div class="stat-label">✅ 정상예측 TN</div><div class="stat-value gray">{stats['TN']}</div><div class="stat-sub">정확한 안전 예측</div></div>
-        <div class="stat-card" onclick="filterEvents('FN_10min')"><div class="stat-label">⚠️ FN 10분전예측</div><div class="stat-value yellow">{stats['FN_10min']}</div><div class="stat-sub">조기 감지됨</div></div>
+        <div class="stat-card" onclick="filterEvents('FN_early')"><div class="stat-label">⚠️ FN 5분내예측</div><div class="stat-value yellow">{stats['FN_early']}</div><div class="stat-sub">조기 감지됨</div></div>
         <div class="stat-card warning" onclick="filterEvents('FN_miss')"><div class="stat-label">❌ FN 완전놓침</div><div class="stat-value red">{stats['FN_miss']}</div><div class="stat-sub">실질 놓침</div></div>
-        <div class="stat-card" onclick="filterEvents('FP_10min')"><div class="stat-label">⚠️ FP 10분후돌파</div><div class="stat-value yellow">{stats['FP_10min']}</div><div class="stat-sub">유효 조기 경고</div></div>
+        <div class="stat-card" onclick="filterEvents('FP_early')"><div class="stat-label">⚠️ FP 5분내돌파</div><div class="stat-value yellow">{stats['FP_early']}</div><div class="stat-sub">유효 조기 경고</div></div>
         <div class="stat-card warning" onclick="filterEvents('FP_false')"><div class="stat-label">❌ FP 잘못된경고</div><div class="stat-value red">{stats['FP_false']}</div><div class="stat-sub">실질 오탐</div></div>
     </div>
     
@@ -212,7 +216,7 @@ body {{ font-family: 'Noto Sans KR', sans-serif; background: linear-gradient(135
         </div>
         <div class="chart-container"><canvas id="trendChart"></canvas></div>
         <div class="legend">
-            <div class="legend-item"><div class="legend-color" style="background:#00d4ff"></div>실제단일값</div>
+            <div class="legend-item"><div class="legend-color" style="background:#00d4ff"></div>현재 TOTALCNT</div>
             <div class="legend-item"><div class="legend-color" style="background:#00ff88"></div>실제 최대값 (10분)</div>
             <div class="legend-item"><div class="legend-color" style="background:#ff4466"></div>XGB_타겟 (MAX)</div>
             <div class="legend-item"><div class="legend-color" style="background:#ff6b35;opacity:0.5"></div>XGB_보조 (MIN)</div>
@@ -229,8 +233,8 @@ body {{ font-family: 'Noto Sans KR', sans-serif; background: linear-gradient(135
             <div class="filter-tab active" onclick="filterEvents('all')">전체</div>
             <div class="filter-tab" onclick="filterEvents('TP')">✅ TP ({stats['TP']})</div>
             <div class="filter-tab" onclick="filterEvents('TN')">✅ TN ({stats['TN']})</div>
-            <div class="filter-tab" onclick="filterEvents('FN')">❌ FN ({stats['FN_10min'] + stats['FN_miss']})</div>
-            <div class="filter-tab" onclick="filterEvents('FP')">⚠️ FP ({stats['FP_10min'] + stats['FP_false']})</div>
+            <div class="filter-tab" onclick="filterEvents('FN')">❌ FN ({stats['FN_early'] + stats['FN_miss']})</div>
+            <div class="filter-tab" onclick="filterEvents('FP')">⚠️ FP ({stats['FP_early'] + stats['FP_false']})</div>
             <div class="filter-tab" onclick="filterEvents('breach')">🔥 돌파 ({stats['actual_breach']})</div>
             <div class="filter-tab" onclick="filterEvents('alarm')">🚨 MAX 1700+</div>
         </div>
@@ -272,9 +276,9 @@ function initTrendChart() {{
     trendChart = new Chart(ctx, {{
         type: 'line',
         data: {{
-            labels: data.map(d => d.pred_time.split(' ')[1] || d.pred_time),
+            labels: data.map(d => d.time.split(' ')[1] || d.time),
             datasets: [
-                {{ label: '실제단일값', data: data.map(d => d.actual_single), borderColor: '#00d4ff', fill: false, tension: 0.3, pointRadius: 1, borderWidth: 2, order: 3 }},
+                {{ label: '현재 TOTALCNT', data: data.map(d => d.current), borderColor: '#00d4ff', fill: false, tension: 0.3, pointRadius: 1, borderWidth: 2, order: 3 }},
                 {{ label: '실제 최대값 (10분)', data: data.map(d => d.actual_max), borderColor: '#00ff88', backgroundColor: 'rgba(0,255,136,0.1)', fill: true, tension: 0.3, pointRadius: 1, borderWidth: 2, order: 2 }},
                 {{ label: 'XGB_타겟 (MAX)', data: data.map(d => d.pred_max), borderColor: '#ff4466', backgroundColor: 'rgba(255,68,102,0.15)', fill: '+1', tension: 0.3, pointRadius: data.map(d => d.pred_max >= 1700 ? 4 : 1), pointBackgroundColor: data.map(d => d.pred_max >= 1700 ? '#ff4466' : '#ff6b35'), borderWidth: 2, order: 1 }},
                 {{ label: 'XGB_보조 (MIN)', data: data.map(d => d.pred_min), borderColor: 'rgba(255,107,53,0.5)', fill: false, tension: 0.3, pointRadius: 0, borderWidth: 1, borderDash: [3, 3], order: 4 }},
@@ -295,12 +299,12 @@ function initTrendChart() {{
                     padding: 15,
                     displayColors: false,
                     callbacks: {{
-                        title: function(context) {{ const d = data[context[0].dataIndex]; return `📊 ${{d.pred_time}} | ${{d.status}}`; }},
+                        title: function(context) {{ const d = data[context[0].dataIndex]; return `📊 ${{d.time}} | ${{d.status}}`; }},
                         label: function() {{ return null; }},
                         afterBody: function(context) {{
                             const d = data[context[0].dataIndex];
                             return [
-                                `실제단일값: ${{d.actual_single.toFixed(0)}} | 실제MAX: ${{d.actual_max.toFixed(0)}} | ${{d.actual_breach ? '⚠️돌파' : '✅안전'}}`,
+                                `현재: ${{d.current.toFixed(0)}} | 실제MAX: ${{d.actual_max.toFixed(0)}} | ${{d.actual_breach ? '⚠️돌파' : '✅안전'}}`,
                                 `XGB타겟(MAX): ${{d.pred_max.toFixed(1)}} ${{d.pred_max >= 1700 ? '🚨' : ''}}`,
                                 `XGB중요: ${{d.xgb_important.toFixed(1)}} | XGB보조(MIN): ${{d.pred_min.toFixed(1)}}`,
                                 `LGBM확률: ${{(d.lgbm_important_prob * 100).toFixed(1)}}% | 투표: ${{d.votes}}/8`,
@@ -328,7 +332,7 @@ function jumpToAlarm() {{
 
 function renderEventList(data) {{
     const container = document.getElementById('eventList');
-    let html = '<div class="event-item header"><div>No.</div><div>예측시점</div><div>실제단일값</div><div>실제MAX</div><div>XGB타겟</div><div>XGB보조</div><div>투표</div><div>상태</div></div>';
+    let html = '<div class="event-item header"><div>No.</div><div>현재시간</div><div>현재값</div><div>실제MAX</div><div>XGB타겟</div><div>XGB보조</div><div>투표</div><div>상태</div></div>';
     
     data.forEach((d, i) => {{
         let sc = 'tn';
@@ -336,22 +340,22 @@ function renderEventList(data) {{
         else if (d.status.includes('FN')) sc = 'fn';
         else if (d.status.includes('FP')) sc = 'fp';
         
-        const ts = d.pred_time.split(' ')[1] || d.pred_time;
+        const ts = d.time.split(' ')[1] || d.time;
         const pc = d.pred_max >= 1700 ? 'pred-max' : 'pred';
         
         html += `<div class="event-item" onclick="toggleTooltip(event, ${{d.idx}})" ondblclick="showDetail(${{d.idx}})">
             <div class="event-num">${{i + 1}}</div>
             <div class="event-time">${{ts}}</div>
-            <div class="event-val current">${{d.actual_single.toFixed(0)}}</div>
+            <div class="event-val current">${{d.current.toFixed(0)}}</div>
             <div class="event-val actual">${{d.actual_max.toFixed(0)}}</div>
             <div class="event-val ${{pc}}">${{d.pred_max.toFixed(0)}}</div>
             <div class="event-val pred">${{d.pred_min.toFixed(0)}}</div>
             <div style="text-align:center">${{d.votes}}/8</div>
             <div class="event-status ${{sc}}">${{d.status.substring(0,10)}}</div>
             <div class="tooltip" id="tooltip-${{d.idx}}">
-                <div class="tooltip-title">📊 ${{d.pred_time}} | ${{d.status}}</div>
+                <div class="tooltip-title">📊 ${{d.time}} | ${{d.status}}</div>
                 <div class="tooltip-grid">
-                    <div class="tooltip-item"><span class="tooltip-label">실제단일값</span><span class="tooltip-value green">${{d.actual_single.toFixed(0)}}</span></div>
+                    <div class="tooltip-item"><span class="tooltip-label">현재</span><span class="tooltip-value green">${{d.current.toFixed(0)}}</span></div>
                     <div class="tooltip-item"><span class="tooltip-label">실제MAX</span><span class="tooltip-value cyan">${{d.actual_max.toFixed(0)}}</span></div>
                     <div class="tooltip-item"><span class="tooltip-label">XGB타겟(MAX)</span><span class="tooltip-value ${{d.pred_max >= 1700 ? 'red' : 'orange'}}">${{d.xgb_target.toFixed(1)}}</span></div>
                     <div class="tooltip-item"><span class="tooltip-label">XGB중요</span><span class="tooltip-value orange">${{d.xgb_important.toFixed(1)}}</span></div>
@@ -398,10 +402,10 @@ function filterEvents(type) {{
     if (type === 'TP') filtered = allData.filter(d => d.status === '정상예측_TP');
     else if (type === 'TN') filtered = allData.filter(d => d.status === '정상예측_TN');
     else if (type === 'FN') filtered = allData.filter(d => d.status.includes('FN'));
-    else if (type === 'FN_10min') filtered = allData.filter(d => d.status === 'FN_10분전예측');
+    else if (type === 'FN_early') filtered = allData.filter(d => d.status.includes('FN') && d.status.includes('분전예측'));
     else if (type === 'FN_miss') filtered = allData.filter(d => d.status === 'FN_완전놓침');
     else if (type === 'FP') filtered = allData.filter(d => d.status.includes('FP'));
-    else if (type === 'FP_10min') filtered = allData.filter(d => d.status === 'FP_10분후돌파');
+    else if (type === 'FP_early') filtered = allData.filter(d => d.status.includes('FP') && d.status.includes('분후돌파'));
     else if (type === 'FP_false') filtered = allData.filter(d => d.status === 'FP_잘못된경고');
     else if (type === 'breach') filtered = allData.filter(d => d.actual_breach === 1);
     else if (type === 'alarm') filtered = allData.filter(d => d.pred_max >= 1700);
@@ -416,8 +420,8 @@ function showDetail(idx) {{
     const rd = allData.slice(start, end);
     const cp = idx - start;
     
-    document.getElementById('modalTitle').textContent = `📈 ${{item.pred_time}} - ${{item.status}}`;
-    document.getElementById('modalInfo').innerHTML = `실제단일값:<b style="color:#00ff88">${{item.actual_single.toFixed(0)}}</b> | 실제MAX:<b style="color:#00d4ff">${{item.actual_max.toFixed(0)}}</b> | XGB타겟:<b style="color:#ff4466">${{item.pred_max.toFixed(0)}}</b> | XGB보조:<b style="color:#ff6b35">${{item.pred_min.toFixed(0)}}</b>`;
+    document.getElementById('modalTitle').textContent = `📈 ${{item.time}} - ${{item.status}}`;
+    document.getElementById('modalInfo').innerHTML = `현재:<b style="color:#00ff88">${{item.current.toFixed(0)}}</b> | 실제MAX:<b style="color:#00d4ff">${{item.actual_max.toFixed(0)}}</b> | XGB타겟:<b style="color:#ff4466">${{item.pred_max.toFixed(0)}}</b> | XGB보조:<b style="color:#ff6b35">${{item.pred_min.toFixed(0)}}</b>`;
     
     const ctx = document.getElementById('modalChart').getContext('2d');
     if (modalChart) modalChart.destroy();
@@ -428,9 +432,9 @@ function showDetail(idx) {{
     modalChart = new Chart(ctx, {{
         type: 'line',
         data: {{
-            labels: rd.map(d => (d.pred_time.split(' ')[1] || d.pred_time).substring(0,5)),
+            labels: rd.map(d => (d.time.split(' ')[1] || d.time).substring(0,5)),
             datasets: [
-                {{ label: '실제단일값', data: rd.map(d => d.actual_single), borderColor: '#00d4ff', fill: false, tension: 0.3, pointRadius: ps, pointBackgroundColor: pc, borderWidth: 2 }},
+                {{ label: '현재', data: rd.map(d => d.current), borderColor: '#00d4ff', fill: false, tension: 0.3, pointRadius: ps, pointBackgroundColor: pc, borderWidth: 2 }},
                 {{ label: '실제MAX', data: rd.map(d => d.actual_max), borderColor: '#00ff88', fill: true, backgroundColor: 'rgba(0,255,136,0.1)', tension: 0.3, pointRadius: 3, borderWidth: 2 }},
                 {{ label: 'XGB타겟', data: rd.map(d => d.pred_max), borderColor: '#ff4466', fill: '+1', backgroundColor: 'rgba(255,68,102,0.15)', tension: 0.3, pointRadius: rd.map(d => d.pred_max >= 1700 ? 6 : 2), borderWidth: 2 }},
                 {{ label: 'XGB보조', data: rd.map(d => d.pred_min), borderColor: 'rgba(255,107,53,0.5)', fill: false, tension: 0.3, pointRadius: 0, borderWidth: 1, borderDash: [3, 3] }},
@@ -450,11 +454,11 @@ function showDetail(idx) {{
                     padding: 15,
                     displayColors: false,
                     callbacks: {{
-                        title: function(c) {{ const d = rd[c[0].dataIndex]; return `📊 ${{d.pred_time}} | ${{d.status}}`; }},
+                        title: function(c) {{ const d = rd[c[0].dataIndex]; return `📊 ${{d.time}} | ${{d.status}}`; }},
                         label: function() {{ return null; }},
                         afterBody: function(c) {{
                             const d = rd[c[0].dataIndex];
-                            return [`실제단일값: ${{d.actual_single.toFixed(0)}} | 실제MAX: ${{d.actual_max.toFixed(0)}}`, `XGB타겟: ${{d.pred_max.toFixed(1)}} ${{d.pred_max >= 1700 ? '🚨' : ''}}`, `XGB보조: ${{d.pred_min.toFixed(1)}} | LGBM: ${{(d.lgbm_important_prob * 100).toFixed(1)}}%`, `투표: ${{d.votes}}/8 | 최종: ${{d.pred_breach ? '🔴' : '🟢'}}`];
+                            return [`현재: ${{d.current.toFixed(0)}} | 실제MAX: ${{d.actual_max.toFixed(0)}}`, `XGB타겟: ${{d.pred_max.toFixed(1)}} ${{d.pred_max >= 1700 ? '🚨' : ''}}`, `XGB보조: ${{d.pred_min.toFixed(1)}} | LGBM: ${{(d.lgbm_important_prob * 100).toFixed(1)}}%`, `투표: ${{d.votes}}/8 | 최종: ${{d.pred_breach ? '🔴' : '🟢'}}`];
                         }}
                     }}
                 }}
@@ -466,7 +470,7 @@ function showDetail(idx) {{
     const ac = rd.filter(d => d.pred_max >= 1700).length;
     document.getElementById('modalStats').innerHTML = `
         <div class="modal-stat"><div class="modal-stat-label">범위</div><div class="modal-stat-value" style="color:#00d4ff">${{rd.length}}분</div></div>
-        <div class="modal-stat"><div class="modal-stat-label">실제단일값</div><div class="modal-stat-value" style="color:#00ff88">${{item.actual_single.toFixed(0)}}</div></div>
+        <div class="modal-stat"><div class="modal-stat-label">현재값</div><div class="modal-stat-value" style="color:#00ff88">${{item.current.toFixed(0)}}</div></div>
         <div class="modal-stat"><div class="modal-stat-label">실제MAX</div><div class="modal-stat-value" style="color:#00d4ff">${{Math.max(...rd.map(d=>d.actual_max)).toFixed(0)}}</div></div>
         <div class="modal-stat"><div class="modal-stat-label">XGB타겟 MAX</div><div class="modal-stat-value" style="color:#ff4466">${{Math.max(...rd.map(d=>d.pred_max)).toFixed(0)}}</div></div>
         <div class="modal-stat"><div class="modal-stat-label">1700+예측</div><div class="modal-stat-value" style="color:#ffcc00">${{ac}}개</div></div>
@@ -490,7 +494,6 @@ def main():
     print("="*60)
     print("📊 V10_4 평가 결과 대시보드 생성기 (10분 예측)")
     print("   XGB_타겟=MAX, XGB_보조=MIN")
-    print("   수정: 현재값→실제단일값, 현재시간→예측시점")
     print("="*60)
     
     csv_path = input("\nCSV 파일 경로 입력: ").strip()
