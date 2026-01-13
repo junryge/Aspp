@@ -1,10 +1,9 @@
 # -*- coding: utf-8 -*-
 """
 ================================================================================
-🚀 "갑자기 튀는" 데이터 추출기
-- 각 범위(3000, 2500, 2200, 2000, 1700대)로 처음 진입하는 순간 30개씩
-- 원본 데이터 형식 그대로 유지
-- 범위별 별도 CSV 저장
+🚀 급상승 구간 데이터 추출기
+- 3000대, 2500대, 2200대, 2000대, 1700대 각각 1개 이벤트 선택
+- 해당 이벤트 전후 30개 데이터 추출 → 범위별 CSV 저장
 ================================================================================
 """
 
@@ -17,30 +16,27 @@ import os
 # 설정
 # ============================================================================
 CONFIG = {
-    'input_file': 'M14_평가.CSV',  # 데이터 파일
+    'input_file': 'M14_평가.CSV',
     'target_column': 'TOTALCNT',
-    
-    # 범위 설정: 해당 값 이상으로 "튀어오르는" 순간 추출
     'thresholds': [3000, 2500, 2200, 2000, 1700],
-    'samples_per_range': 30,
+    'data_range': 30,  # 전후 30개 데이터 (총 30개)
 }
 
 print("=" * 70)
-print("🚀 '갑자기 튀는' 데이터 추출기")
-print("   각 범위로 진입하는 순간 추출 → 원본 형식 그대로 저장")
+print("🚀 급상승 구간 데이터 추출기")
+print("   각 범위별 1개 이벤트 → 전후 30개 데이터 CSV 저장")
 print("=" * 70)
 
 # ============================================================================
 # 데이터 로드
 # ============================================================================
-print(f"\n[1/3] 데이터 로드 중... ({CONFIG['input_file']})")
+print(f"\n[1/3] 데이터 로드 중...")
 
 encodings = ['utf-8', 'cp949', 'euc-kr']
 df = None
 for enc in encodings:
     try:
         df = pd.read_csv(CONFIG['input_file'], encoding=enc, on_bad_lines='skip')
-        print(f"  ✅ 인코딩: {enc}")
         break
     except:
         continue
@@ -48,109 +44,106 @@ for enc in encodings:
 if df is None:
     raise ValueError("파일을 읽을 수 없습니다!")
 
-print(f"  → 총 데이터: {len(df):,}행, {len(df.columns)}개 컬럼")
+print(f"  → 총 데이터: {len(df):,}행")
 
-# 원본 컬럼 저장
-original_columns = df.columns.tolist()
-
-# 시간 정렬 (CURRTIME 있으면)
+# 시간 파싱
 if 'CURRTIME' in df.columns:
-    df['_CURRTIME_DT'] = pd.to_datetime(df['CURRTIME'].astype(str), format='%Y%m%d%H%M', errors='coerce')
-    df = df.dropna(subset=['_CURRTIME_DT']).sort_values('_CURRTIME_DT').reset_index(drop=True)
+    df['CURRTIME'] = pd.to_datetime(df['CURRTIME'].astype(str), format='%Y%m%d%H%M', errors='coerce')
+    df = df.dropna(subset=['CURRTIME']).sort_values('CURRTIME').reset_index(drop=True)
 
-# 숫자 변환
 df[CONFIG['target_column']] = pd.to_numeric(df[CONFIG['target_column']], errors='coerce').fillna(0)
-
-# 이전 값 계산 (추출용, 저장 안함)
-df['_이전값'] = df[CONFIG['target_column']].shift(1)
-df['_변화량'] = df[CONFIG['target_column']] - df['_이전값']
+df['이전값'] = df[CONFIG['target_column']].shift(1)
+df['변화량'] = df[CONFIG['target_column']] - df['이전값']
 
 # ============================================================================
-# 범위별 "갑자기 튀는" 구간 추출
+# 범위별 추출
 # ============================================================================
-print("\n[2/3] 범위별 급상승 진입 구간 추출 중...")
-
-output_files = []
+print("\n[2/3] 범위별 급상승 이벤트 탐색...")
 
 for threshold in CONFIG['thresholds']:
     range_name = f"{threshold}대"
-    output_file = f"급상승_{threshold}대_30개.csv"
+    print(f"\n  🔍 {range_name} 처리 중...")
     
-    print(f"\n  🔍 {range_name} 추출 중...")
+    # 해당 범위로 처음 진입하는 순간 찾기
+    if threshold == 3000:
+        mask = (df[CONFIG['target_column']] >= 3000)
+    elif threshold == 2500:
+        mask = (df[CONFIG['target_column']] >= 2500) & (df[CONFIG['target_column']] < 3000)
+    elif threshold == 2200:
+        mask = (df[CONFIG['target_column']] >= 2200) & (df[CONFIG['target_column']] < 2500)
+    elif threshold == 2000:
+        mask = (df[CONFIG['target_column']] >= 2000) & (df[CONFIG['target_column']] < 2200)
+    else:  # 1700
+        mask = (df[CONFIG['target_column']] >= 1700) & (df[CONFIG['target_column']] < 2000)
     
-    # "갑자기 튀는" 조건:
-    # - 현재값 >= threshold
-    # - 이전값 < threshold (처음 진입)
-    mask = (df[CONFIG['target_column']] >= threshold) & (df['_이전값'] < threshold)
+    # 이전값이 해당 범위 미만인 경우 (진입 순간)
+    entry_mask = mask & (df['이전값'] < threshold)
+    candidates = df[entry_mask]
     
-    jump_df = df[mask].copy()
+    if len(candidates) == 0:
+        print(f"     ⚠️ 진입 이벤트 없음, 최대값 구간으로 대체")
+        # 대안: 해당 범위 내 최대값 시점
+        range_df = df[mask]
+        if len(range_df) == 0:
+            print(f"     ❌ {range_name} 데이터 없음")
+            continue
+        peak_idx = range_df[CONFIG['target_column']].idxmax()
+    else:
+        # 변화량이 가장 큰 진입 이벤트 선택
+        peak_idx = candidates['변화량'].idxmax()
     
-    if len(jump_df) == 0:
-        print(f"     ⚠️ {range_name}: 진입 구간 없음")
-        continue
+    peak_value = df.loc[peak_idx, CONFIG['target_column']]
+    peak_time = df.loc[peak_idx, 'CURRTIME'] if 'CURRTIME' in df.columns else ''
     
-    print(f"     → 전체 진입 구간: {len(jump_df)}개")
+    print(f"     → 선택된 이벤트: {peak_time} | TOTALCNT: {peak_value:.0f}")
     
-    # 변화량이 큰 순으로 정렬 (더 "확" 튀는 순)
-    jump_df = jump_df.sort_values('_변화량', ascending=False)
+    # 전후 30개 데이터 추출 (15개 전 ~ 14개 후 = 30개)
+    start_idx = max(0, peak_idx - 15)
+    end_idx = min(len(df), peak_idx + 15)
     
-    # 상위 N개 추출 (중복 시간대 제거)
-    selected_indices = []
-    used_times = set()
-    
-    for idx, row in jump_df.iterrows():
-        if len(selected_indices) >= CONFIG['samples_per_range']:
-            break
-        
-        # 30분 이내 중복 제거
-        is_duplicate = False
-        if '_CURRTIME_DT' in row and pd.notna(row['_CURRTIME_DT']):
-            current_time = row['_CURRTIME_DT']
-            for ut in used_times:
-                if abs((current_time - ut).total_seconds()) < 1800:  # 30분
-                    is_duplicate = True
-                    break
-            
-            if not is_duplicate:
-                selected_indices.append(idx)
-                used_times.add(current_time)
+    # 정확히 30개 맞추기
+    if end_idx - start_idx < CONFIG['data_range']:
+        if start_idx == 0:
+            end_idx = min(len(df), CONFIG['data_range'])
         else:
-            selected_indices.append(idx)
+            start_idx = max(0, end_idx - CONFIG['data_range'])
     
-    print(f"     ✅ 추출: {len(selected_indices)}개")
+    range_data = df.iloc[start_idx:end_idx].copy()
     
-    if len(selected_indices) == 0:
-        continue
+    # 피크 지점 표시
+    range_data['피크여부'] = ''
+    range_data.loc[peak_idx, '피크여부'] = '★'
     
-    # 원본 컬럼만 추출하여 저장
-    result_df = df.loc[selected_indices, original_columns].copy()
+    # 필요한 컬럼만 선택
+    output_cols = ['CURRTIME', CONFIG['target_column'], '이전값', '변화량', '피크여부']
     
-    # 시간순 정렬
-    if 'CURRTIME' in result_df.columns:
-        result_df = result_df.sort_values('CURRTIME')
+    # 추가 컬럼 (있으면)
+    extra_cols = ['M14AM14B', 'M14AM14BSUM', 'M14BM14A', 'M14AM10ASUM',
+                  'M14.QUE.ALL.CURRENTQCREATED', 'M14.QUE.ALL.CURRENTQCOMPLETED',
+                  'M14.QUE.OHT.OHTUTIL', 'M14.QUE.ALL.TRANSPORT4MINOVERCNT']
+    
+    for col in extra_cols:
+        if col in df.columns:
+            output_cols.append(col)
+    
+    # 존재하는 컬럼만 필터
+    output_cols = [c for c in output_cols if c in range_data.columns]
+    output_df = range_data[output_cols].copy()
+    
+    # 시간 포맷
+    if 'CURRTIME' in output_df.columns:
+        output_df['CURRTIME'] = output_df['CURRTIME'].dt.strftime('%Y-%m-%d %H:%M')
     
     # CSV 저장
-    result_df.to_csv(output_file, index=False, encoding='utf-8-sig')
-    output_files.append((range_name, output_file, len(result_df)))
-    print(f"     💾 저장: {output_file}")
+    filename = f"급상승_{threshold}대_30개.csv"
+    output_df.to_csv(filename, index=False, encoding='utf-8-sig')
+    print(f"     ✅ 저장: {filename} ({len(output_df)}개 데이터)")
 
 # ============================================================================
-# 결과 요약
+# 완료
 # ============================================================================
 print("\n" + "=" * 70)
-print("📊 추출 결과 요약")
-print("=" * 70)
-
-print(f"\n{'범위':<12} {'파일명':<30} {'개수':>6}")
-print("-" * 50)
-
-total_count = 0
-for range_name, filename, count in output_files:
-    print(f"{range_name:<12} {filename:<30} {count:>6}개")
-    total_count += count
-
-print("-" * 50)
-print(f"{'총계':<12} {'':<30} {total_count:>6}개")
-
-print(f"\n✅ 완료! {len(output_files)}개 파일 생성")
+print("✅ 완료! 생성된 파일:")
+for threshold in CONFIG['thresholds']:
+    print(f"   → 급상승_{threshold}대_30개.csv")
 print("=" * 70)
