@@ -1,0 +1,892 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>V10.4 컬럼 분석 가이드</title>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+:root {
+    --bg: #0f172a;
+    --bg-card: #1e293b;
+    --bg-table: #334155;
+    --border: #475569;
+    --text: #f1f5f9;
+    --text-dim: #94a3b8;
+    --accent-cyan: #22d3ee;
+    --accent-blue: #3b82f6;
+    --accent-purple: #a855f7;
+    --accent-pink: #ec4899;
+    --accent-orange: #f97316;
+    --accent-yellow: #eab308;
+    --accent-green: #22c55e;
+    --accent-red: #ef4444;
+}
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+body {
+    font-family: 'Noto Sans KR', sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.7;
+    padding: 40px 20px;
+}
+
+.container {
+    max-width: 1200px;
+    margin: 0 auto;
+}
+
+/* Header */
+.header {
+    text-align: center;
+    margin-bottom: 50px;
+    padding-bottom: 30px;
+    border-bottom: 1px solid var(--border);
+}
+
+.header h1 {
+    font-size: 2.5rem;
+    font-weight: 700;
+    margin-bottom: 10px;
+    background: linear-gradient(135deg, var(--accent-cyan), var(--accent-blue));
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+}
+
+.header p {
+    color: var(--text-dim);
+    font-size: 1.1rem;
+}
+
+/* Stats */
+.stats-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 20px;
+    margin-bottom: 50px;
+}
+
+.stat-box {
+    background: var(--bg-card);
+    border-radius: 16px;
+    padding: 25px;
+    text-align: center;
+    border: 1px solid var(--border);
+}
+
+.stat-num {
+    font-size: 2.5rem;
+    font-weight: 700;
+    color: var(--accent-cyan);
+}
+
+.stat-label {
+    color: var(--text-dim);
+    font-size: 0.9rem;
+    margin-top: 5px;
+}
+
+/* Section */
+.section {
+    margin-bottom: 50px;
+}
+
+.section-header {
+    display: flex;
+    align-items: center;
+    gap: 15px;
+    margin-bottom: 20px;
+    padding-bottom: 15px;
+    border-bottom: 2px solid var(--border);
+}
+
+.section-num {
+    width: 40px;
+    height: 40px;
+    border-radius: 10px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: 700;
+    font-size: 1.2rem;
+    color: #000;
+}
+
+.section-num.target { background: var(--accent-pink); }
+.section-num.important { background: var(--accent-cyan); }
+.section-num.auxiliary { background: var(--accent-orange); }
+.section-num.pdt { background: var(--accent-purple); }
+.section-num.logic { background: var(--accent-green); }
+.section-num.compare { background: var(--accent-blue); }
+
+.section-title {
+    font-size: 1.4rem;
+    font-weight: 600;
+}
+
+.section-count {
+    margin-left: auto;
+    background: var(--bg-table);
+    padding: 5px 15px;
+    border-radius: 20px;
+    font-size: 0.85rem;
+    color: var(--text-dim);
+}
+
+/* Subsection */
+.subsection {
+    margin-bottom: 25px;
+}
+
+.subsection-title {
+    font-size: 1rem;
+    font-weight: 600;
+    color: var(--accent-yellow);
+    margin-bottom: 12px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+/* Table */
+.table-wrap {
+    background: var(--bg-card);
+    border-radius: 12px;
+    overflow: hidden;
+    border: 1px solid var(--border);
+    margin-bottom: 20px;
+}
+
+table {
+    width: 100%;
+    border-collapse: collapse;
+}
+
+th {
+    background: var(--bg-table);
+    padding: 14px 20px;
+    text-align: left;
+    font-weight: 600;
+    font-size: 0.85rem;
+    color: var(--text-dim);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+td {
+    padding: 14px 20px;
+    border-top: 1px solid var(--border);
+    vertical-align: top;
+}
+
+tr:hover td {
+    background: rgba(34, 211, 238, 0.05);
+}
+
+.col-name {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.8rem;
+    color: var(--accent-cyan);
+    word-break: break-all;
+}
+
+.col-reason {
+    color: var(--text);
+    font-size: 0.9rem;
+}
+
+.col-reason strong {
+    color: var(--accent-yellow);
+}
+
+/* Tags */
+.tag {
+    display: inline-block;
+    padding: 3px 10px;
+    border-radius: 12px;
+    font-size: 0.7rem;
+    font-weight: 500;
+    margin-right: 5px;
+    margin-top: 5px;
+}
+
+.tag.critical { background: rgba(239, 68, 68, 0.2); color: var(--accent-red); }
+.tag.core { background: rgba(34, 211, 238, 0.2); color: var(--accent-cyan); }
+.tag.golden { background: rgba(234, 179, 8, 0.2); color: var(--accent-yellow); }
+.tag.derived { background: rgba(168, 85, 247, 0.2); color: var(--accent-purple); }
+
+/* Highlight row */
+tr.highlight td {
+    background: rgba(234, 179, 8, 0.08);
+}
+
+/* Note box */
+.note-box {
+    background: linear-gradient(135deg, rgba(34, 211, 238, 0.1), rgba(59, 130, 246, 0.1));
+    border: 1px solid var(--accent-cyan);
+    border-radius: 12px;
+    padding: 20px;
+    margin-top: 15px;
+}
+
+.note-box .icon {
+    font-size: 1.2rem;
+    margin-right: 10px;
+}
+
+.note-box p {
+    color: var(--text);
+    font-size: 0.95rem;
+}
+
+/* Diagram */
+.diagram {
+    background: var(--bg-card);
+    border-radius: 16px;
+    padding: 40px;
+    text-align: center;
+    border: 1px solid var(--border);
+}
+
+.diagram-root {
+    display: inline-block;
+    background: linear-gradient(135deg, var(--accent-pink), var(--accent-orange));
+    color: #000;
+    font-weight: 700;
+    padding: 15px 30px;
+    border-radius: 12px;
+    margin-bottom: 30px;
+}
+
+.diagram-arrow {
+    font-size: 2rem;
+    color: var(--text-dim);
+    margin-bottom: 20px;
+}
+
+.diagram-branches {
+    display: flex;
+    justify-content: center;
+    gap: 30px;
+    flex-wrap: wrap;
+}
+
+.branch {
+    background: var(--bg-table);
+    border-radius: 12px;
+    padding: 20px 25px;
+    width: 250px;
+    text-align: left;
+}
+
+.branch.inflow { border-top: 3px solid var(--accent-blue); }
+.branch.delay { border-top: 3px solid var(--accent-orange); }
+.branch.bottleneck { border-top: 3px solid var(--accent-purple); }
+
+.branch-title {
+    font-weight: 600;
+    margin-bottom: 12px;
+    font-size: 1rem;
+}
+
+.branch.inflow .branch-title { color: var(--accent-blue); }
+.branch.delay .branch-title { color: var(--accent-orange); }
+.branch.bottleneck .branch-title { color: var(--accent-purple); }
+
+.branch ul {
+    list-style: none;
+}
+
+.branch li {
+    padding: 6px 0;
+    font-size: 0.85rem;
+    color: var(--text-dim);
+    border-bottom: 1px solid var(--border);
+}
+
+.branch li:last-child {
+    border-bottom: none;
+}
+
+.branch li::before {
+    content: "→ ";
+    color: var(--text-dim);
+}
+
+/* Comparison */
+.compare-table th:first-child {
+    width: 120px;
+}
+
+.badge {
+    display: inline-block;
+    padding: 4px 12px;
+    border-radius: 6px;
+    font-size: 0.8rem;
+    font-weight: 600;
+}
+
+.badge.v8 {
+    background: rgba(249, 115, 22, 0.2);
+    color: var(--accent-orange);
+}
+
+.badge.v10 {
+    background: rgba(34, 211, 238, 0.2);
+    color: var(--accent-cyan);
+}
+
+/* Summary box */
+.summary-box {
+    background: var(--bg-card);
+    border-radius: 16px;
+    padding: 30px;
+    border: 1px solid var(--border);
+    margin-top: 30px;
+}
+
+.summary-title {
+    font-size: 1.1rem;
+    font-weight: 600;
+    color: var(--accent-green);
+    margin-bottom: 15px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.summary-list {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 15px;
+}
+
+.summary-item {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    padding: 12px 15px;
+    background: var(--bg-table);
+    border-radius: 10px;
+}
+
+.summary-item .num {
+    width: 24px;
+    height: 24px;
+    border-radius: 6px;
+    background: var(--accent-cyan);
+    color: #000;
+    font-weight: 700;
+    font-size: 0.8rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+}
+
+.summary-item p {
+    font-size: 0.9rem;
+    color: var(--text);
+}
+
+/* Responsive */
+@media (max-width: 768px) {
+    .stats-grid { grid-template-columns: repeat(2, 1fr); }
+    .diagram-branches { flex-direction: column; align-items: center; }
+    .summary-list { grid-template-columns: 1fr; }
+}
+</style>
+</head>
+<body>
+
+<div class="container">
+
+    <!-- Header -->
+    <header class="header">
+        <h1>📊 V10.4 컬럼 분석 가이드</h1>
+        <p>TOTALCNT 예측 모델 Feature Groups 상세 분석</p>
+    </header>
+
+    <!-- Stats -->
+    <div class="stats-grid">
+        <div class="stat-box">
+            <div class="stat-num">~40</div>
+            <div class="stat-label">전체 컬럼</div>
+        </div>
+        <div class="stat-box">
+            <div class="stat-num">4</div>
+            <div class="stat-label">Feature 그룹</div>
+        </div>
+        <div class="stat-box">
+            <div class="stat-num">280</div>
+            <div class="stat-label">시퀀스 길이</div>
+        </div>
+        <div class="stat-box">
+            <div class="stat-num">8</div>
+            <div class="stat-label">앙상블 모델</div>
+        </div>
+    </div>
+
+    <!-- 1. Target Group -->
+    <section class="section">
+        <div class="section-header">
+            <div class="section-num target">1</div>
+            <h2 class="section-title">Target Group (예측 대상)</h2>
+            <span class="section-count">1개 컬럼</span>
+        </div>
+        <div class="table-wrap">
+            <table>
+                <thead>
+                    <tr><th style="width:35%">컬럼명</th><th>사용 이유</th></tr>
+                </thead>
+                <tbody>
+                    <tr class="highlight">
+                        <td><span class="col-name">TOTALCNT</span></td>
+                        <td class="col-reason">
+                            <strong>예측 목표 변수.</strong> 전체 물류 Queue 총량으로, <strong>1700 이상이면 위험 상태</strong>
+                            <br><span class="tag critical">예측 대상</span><span class="tag core">임계값 1700</span>
+                        </td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+    </section>
+
+    <!-- 2. Important Group -->
+    <section class="section">
+        <div class="section-header">
+            <div class="section-num important">2</div>
+            <h2 class="section-title">Important Group (핵심 지표)</h2>
+            <span class="section-count">17개 컬럼</span>
+        </div>
+
+        <!-- Load Queue -->
+        <div class="subsection">
+            <h3 class="subsection-title">📦 Load Queue 관련 (6개)</h3>
+            <div class="table-wrap">
+                <table>
+                    <thead>
+                        <tr><th style="width:40%">컬럼명</th><th>사용 이유</th></tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td><span class="col-name">M14.QUE.LOAD.CURRENTLOADQCNT</span></td>
+                            <td class="col-reason">현재 적재 대기 Queue 수 → <strong>병목 발생 선행 지표</strong></td>
+                        </tr>
+                        <tr>
+                            <td><span class="col-name">M14.QUE.LOAD.AVGLOADTIME</span></td>
+                            <td class="col-reason">평균 적재 시간 → 처리 속도 저하 감지</td>
+                        </tr>
+                        <tr>
+                            <td><span class="col-name">M14.QUE.LOAD.AVGLOADTIME1MIN</span></td>
+                            <td class="col-reason">1분 평균 적재 시간 → 단기 변동 감지</td>
+                        </tr>
+                        <tr>
+                            <td><span class="col-name">M14.QUE.LOAD.AVGFOUPLOADTIME</span></td>
+                            <td class="col-reason">FOUP(웨이퍼 캐리어) 평균 적재 시간</td>
+                        </tr>
+                        <tr>
+                            <td><span class="col-name">M14.QUE.LOAD.AVGRETICLELOADTIME</span></td>
+                            <td class="col-reason">Reticle 평균 적재 시간</td>
+                        </tr>
+                        <tr>
+                            <td><span class="col-name">M14.QUE.LOAD.CURRENTRETICLELOADQCNT</span></td>
+                            <td class="col-reason">Reticle 적재 Queue 수</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- Queue All -->
+        <div class="subsection">
+            <h3 class="subsection-title">📋 Queue 전체 상태 (6개)</h3>
+            <div class="table-wrap">
+                <table>
+                    <thead>
+                        <tr><th style="width:40%">컬럼명</th><th>사용 이유</th></tr>
+                    </thead>
+                    <tbody>
+                        <tr class="highlight">
+                            <td><span class="col-name">M14.QUE.ALL.CURRENTQCOMPLETED</span></td>
+                            <td class="col-reason">
+                                <strong>완료된 작업 수</strong> → queue_gap 계산에 필수
+                                <br><span class="tag derived">파생변수 기반</span>
+                            </td>
+                        </tr>
+                        <tr class="highlight">
+                            <td><span class="col-name">M14.QUE.ALL.CURRENTQCREATED</span></td>
+                            <td class="col-reason">
+                                <strong>생성된 작업 수</strong> → queue_gap 계산에 필수
+                                <br><span class="tag derived">파생변수 기반</span>
+                            </td>
+                        </tr>
+                        <tr>
+                            <td><span class="col-name">M14.QUE.ALL.TRANSPORT4MINOVERCNT</span></td>
+                            <td class="col-reason"><strong>4분 초과 운송 건수</strong> → 지연 징후</td>
+                        </tr>
+                        <tr>
+                            <td><span class="col-name">M14.QUE.ALL.TRANSPORT4MINOVERTIMEAVG</span></td>
+                            <td class="col-reason">4분 초과 평균 시간</td>
+                        </tr>
+                        <tr>
+                            <td><span class="col-name">M14.QUE.ALL.TRANSPORT4MINOVERRATIO</span></td>
+                            <td class="col-reason">4분 초과 비율</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- M16 Hub -->
+        <div class="subsection">
+            <h3 class="subsection-title">🔗 M16 Hub 연결 (6개)</h3>
+            <div class="table-wrap">
+                <table>
+                    <thead>
+                        <tr><th style="width:40%">컬럼명</th><th>사용 이유</th></tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td><span class="col-name">M16HUB.QUE.M16TOM14B.CURRENTQCREATED</span></td>
+                            <td class="col-reason">M16→M14B 물류 유입량</td>
+                        </tr>
+                        <tr>
+                            <td><span class="col-name">M16HUB.QUE.M14BTOM16.CURRENTQCREATED</span></td>
+                            <td class="col-reason">M14B→M16 물류 유출량</td>
+                        </tr>
+                        <tr>
+                            <td><span class="col-name">M16HUB.QUE.M14TOM16.CURRENTQCREATED</span></td>
+                            <td class="col-reason">M14→M16 물류 유출량</td>
+                        </tr>
+                        <tr>
+                            <td><span class="col-name">M16HUB.QUE.M16TOM14.CURRENTQCREATED</span></td>
+                            <td class="col-reason">M16→M14 물류 유입량</td>
+                        </tr>
+                        <tr>
+                            <td><span class="col-name">M16HUB.QUE.M14TOM16.MESCURRENTQCNT</span></td>
+                            <td class="col-reason">MES 기준 현재 Queue</td>
+                        </tr>
+                        <tr>
+                            <td><span class="col-name">M16HUB.QUE.M16TOM14.MESCURRENTQCNT</span></td>
+                            <td class="col-reason">MES 기준 현재 Queue</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+            <div class="note-box">
+                <p><span class="icon">💡</span><strong>핵심 포인트:</strong> Hub 간 물류 흐름이 불균형하면 특정 Fab에 병목 발생</p>
+            </div>
+        </div>
+    </section>
+
+    <!-- 3. Auxiliary Group -->
+    <section class="section">
+        <div class="section-header">
+            <div class="section-num auxiliary">3</div>
+            <h2 class="section-title">Auxiliary Group (보조 지표)</h2>
+            <span class="section-count">22개 컬럼</span>
+        </div>
+
+        <!-- Fab 간 물류 -->
+        <div class="subsection">
+            <h3 class="subsection-title">🏭 Fab 간 물류량 (9개)</h3>
+            <div class="table-wrap">
+                <table>
+                    <thead>
+                        <tr><th style="width:30%">컬럼명</th><th>사용 이유</th></tr>
+                    </thead>
+                    <tbody>
+                        <tr class="highlight">
+                            <td><span class="col-name">M14AM14B</span></td>
+                            <td class="col-reason">
+                                M14A↔M14B 현재 이동량 → <strong>황금패턴 핵심</strong>
+                                <br><span class="tag golden">황금패턴</span><span class="tag critical">520+ 위험</span>
+                            </td>
+                        </tr>
+                        <tr>
+                            <td><span class="col-name">M14BM14A</span></td>
+                            <td class="col-reason">M14B→M14A 역방향</td>
+                        </tr>
+                        <tr class="highlight">
+                            <td><span class="col-name">M14AM14BSUM</span></td>
+                            <td class="col-reason">
+                                양방향 합계 → <strong>황금패턴 핵심</strong>
+                                <br><span class="tag golden">황금패턴</span><span class="tag critical">600+ 위험</span>
+                            </td>
+                        </tr>
+                        <tr>
+                            <td><span class="col-name">M14AM10A</span></td>
+                            <td class="col-reason">M14A↔M10A 이동량</td>
+                        </tr>
+                        <tr>
+                            <td><span class="col-name">M10AM14A</span></td>
+                            <td class="col-reason">M10A→M14A 역방향</td>
+                        </tr>
+                        <tr>
+                            <td><span class="col-name">M14AM10ASUM</span></td>
+                            <td class="col-reason">양방향 합계</td>
+                        </tr>
+                        <tr>
+                            <td><span class="col-name">M14AM16</span></td>
+                            <td class="col-reason">M14A↔M16 이동량</td>
+                        </tr>
+                        <tr>
+                            <td><span class="col-name">M16M14A</span></td>
+                            <td class="col-reason">M16→M14A 역방향</td>
+                        </tr>
+                        <tr>
+                            <td><span class="col-name">M14AM16SUM</span></td>
+                            <td class="col-reason">양방향 합계</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- SFAB Queue -->
+        <div class="subsection">
+            <h3 class="subsection-title">📤 SFAB Queue (4개)</h3>
+            <div class="table-wrap">
+                <table>
+                    <thead>
+                        <tr><th style="width:40%">컬럼명</th><th>사용 이유</th></tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td><span class="col-name">M14.QUE.SFAB.SENDQUEUETOTAL</span></td>
+                            <td class="col-reason">발송 대기 Queue</td>
+                        </tr>
+                        <tr>
+                            <td><span class="col-name">M14.QUE.SFAB.RECEIVEQUEUETOTAL</span></td>
+                            <td class="col-reason">수신 대기 Queue</td>
+                        </tr>
+                        <tr>
+                            <td><span class="col-name">M14.QUE.SFAB.RETURNQUEUETOTAL</span></td>
+                            <td class="col-reason">반환 대기 Queue</td>
+                        </tr>
+                        <tr>
+                            <td><span class="col-name">M14.QUE.SFAB.COMPLETEQUEUETOTAL</span></td>
+                            <td class="col-reason">완료 Queue</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- OHT -->
+        <div class="subsection">
+            <h3 class="subsection-title">🚚 OHT 무인반송 (4개)</h3>
+            <div class="table-wrap">
+                <table>
+                    <thead>
+                        <tr><th style="width:40%">컬럼명</th><th>사용 이유</th></tr>
+                    </thead>
+                    <tbody>
+                        <tr class="highlight">
+                            <td><span class="col-name">M14.QUE.OHT.OHTUTIL</span></td>
+                            <td class="col-reason">
+                                <strong>OHT 가동률</strong> → 높으면 운송 병목 가능
+                                <br><span class="tag critical">병목 지표</span>
+                            </td>
+                        </tr>
+                        <tr>
+                            <td><span class="col-name">M14.QUE.OHT.RTCOHTUTIL</span></td>
+                            <td class="col-reason">RTC OHT 가동률</td>
+                        </tr>
+                        <tr>
+                            <td><span class="col-name">M14.QUE.OHT.CURRENTOHTQCNT</span></td>
+                            <td class="col-reason">현재 OHT Queue 수</td>
+                        </tr>
+                        <tr>
+                            <td><span class="col-name">M14.QUE.OHT.CURRENTRETICLEOHTQCNT</span></td>
+                            <td class="col-reason">Reticle OHT Queue</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- Conveyor -->
+        <div class="subsection">
+            <h3 class="subsection-title">🔄 Conveyor (4개)</h3>
+            <div class="table-wrap">
+                <table>
+                    <thead>
+                        <tr><th style="width:40%">컬럼명</th><th>사용 이유</th></tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td><span class="col-name">M14.QUE.CNV.NORTHCURRENTQCNT</span></td>
+                            <td class="col-reason">북측 컨베이어 Queue</td>
+                        </tr>
+                        <tr>
+                            <td><span class="col-name">M14.QUE.CNV.SOUTHCURRENTQCNT</span></td>
+                            <td class="col-reason">남측 컨베이어 Queue</td>
+                        </tr>
+                        <tr>
+                            <td><span class="col-name">M14.QUE.CNV.ALLTONORTHCNVCURRENTQCNT</span></td>
+                            <td class="col-reason">북측행 전체 Queue</td>
+                        </tr>
+                        <tr>
+                            <td><span class="col-name">M14.QUE.CNV.ALLTOSOUTHCNVCURRENTQCNT</span></td>
+                            <td class="col-reason">남측행 전체 Queue</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- 파생 변수 -->
+        <div class="subsection">
+            <h3 class="subsection-title">⭐ 파생 변수 (1개)</h3>
+            <div class="table-wrap">
+                <table>
+                    <thead>
+                        <tr><th style="width:40%">컬럼명</th><th>사용 이유</th></tr>
+                    </thead>
+                    <tbody>
+                        <tr class="highlight">
+                            <td><span class="col-name">QUEUE_GAP</span><br><small style="color:var(--text-dim)">= CREATED - COMPLETED</small></td>
+                            <td class="col-reason">
+                                <strong>🏆 가장 강력한 예측 변수</strong><br>
+                                생성 작업 - 완료 작업 = 적체량<br>
+                                <strong>상관계수 0.4+ 달성</strong>
+                                <br><span class="tag golden">핵심</span><span class="tag derived">파생</span><span class="tag core">상관 0.4+</span>
+                            </td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </section>
+
+    <!-- 4. PDT New Group -->
+    <section class="section">
+        <div class="section-header">
+            <div class="section-num pdt">4</div>
+            <h2 class="section-title">PDT New Group (신규 추가)</h2>
+            <span class="section-count">3개 컬럼</span>
+        </div>
+        <div class="table-wrap">
+            <table>
+                <thead>
+                    <tr><th style="width:45%">컬럼명</th><th>사용 이유</th></tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td><span class="col-name">M14.STRATE.N2.STORAGERATIO</span></td>
+                        <td class="col-reason">N2 저장 비율 → 버퍼 상태</td>
+                    </tr>
+                    <tr>
+                        <td><span class="col-name">M14.PDT.LAYOUT.M14A_M14ATOM14ACNV_CURRENTQCNT</span></td>
+                        <td class="col-reason">M14A 내부 컨베이어 Queue</td>
+                    </tr>
+                    <tr>
+                        <td><span class="col-name">M14.PDT.LAYOUT.HUBROOM_M14TOM16_CURRENTQCNT</span></td>
+                        <td class="col-reason">Hub실 M14→M16 Queue</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+    </section>
+
+    <!-- 5. 컬럼 선정 논리 -->
+    <section class="section">
+        <div class="section-header">
+            <div class="section-num logic">5</div>
+            <h2 class="section-title">컬럼 선정 핵심 논리</h2>
+        </div>
+        <div class="diagram">
+            <div class="diagram-root">TOTALCNT 상승 원인</div>
+            <div class="diagram-arrow">▼</div>
+            <div class="diagram-branches">
+                <div class="branch inflow">
+                    <div class="branch-title">📥 유입 증가</div>
+                    <ul>
+                        <li>M16→M14 물류</li>
+                        <li>M14AM14B 급증</li>
+                        <li>외부 Fab 물량 집중</li>
+                    </ul>
+                </div>
+                <div class="branch delay">
+                    <div class="branch-title">⏱️ 처리 지연</div>
+                    <ul>
+                        <li>Load Time 증가</li>
+                        <li>Queue Gap 확대</li>
+                        <li>작업 완료율 저하</li>
+                    </ul>
+                </div>
+                <div class="branch bottleneck">
+                    <div class="branch-title">🚧 운송 병목</div>
+                    <ul>
+                        <li>OHT Util 상승</li>
+                        <li>4min Over 증가</li>
+                        <li>컨베이어 적체</li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- 6. V8.3 vs V10.4 비교 -->
+    <section class="section">
+        <div class="section-header">
+            <div class="section-num compare">6</div>
+            <h2 class="section-title">V8.3 대비 V10.4 컬럼 변화</h2>
+        </div>
+        <div class="table-wrap">
+            <table class="compare-table">
+                <thead>
+                    <tr>
+                        <th>구분</th>
+                        <th><span class="badge v8">V8.3</span></th>
+                        <th><span class="badge v10">V10.4</span></th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td><strong>컬럼 수</strong></td>
+                        <td>8개</td>
+                        <td>~40개</td>
+                    </tr>
+                    <tr>
+                        <td><strong>핵심</strong></td>
+                        <td>TOTALCNT, M14AM14B,<br>M14AM14BSUM, queue_gap</td>
+                        <td>동일 + Load Queue 상세</td>
+                    </tr>
+                    <tr>
+                        <td><strong>추가</strong></td>
+                        <td>-</td>
+                        <td>M16 Hub 연결, SFAB, CNV 상세</td>
+                    </tr>
+                    <tr>
+                        <td><strong>모델</strong></td>
+                        <td>XGBoost 1개</td>
+                        <td>XGB 3~4개 + LGBM 3~4개</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+
+        <div class="summary-box">
+            <h3 class="summary-title">💡 V10.4가 더 많은 컬럼을 사용하는 이유</h3>
+            <div class="summary-list">
+                <div class="summary-item">
+                    <span class="num">1</span>
+                    <p>앙상블로 <strong>다양한 관점</strong>의 Feature 활용</p>
+                </div>
+                <div class="summary-item">
+                    <span class="num">2</span>
+                    <p><strong>급상승</strong>(황금패턴) + <strong>점진상승</strong>(Load 지연) 모두 감지</p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+</div>
+
+</body>
+</html>
