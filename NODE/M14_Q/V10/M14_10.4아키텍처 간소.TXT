@@ -1,0 +1,50 @@
+V10.4 사용 컬럼 분석
+V10.4 모델의 Feature Groups를 분석해서 각 컬럼의 사용 이유를 설명드릴게요.
+
+1. Target Group (예측 대상)
+컬럼사용 이유TOTALCNT예측 목표 변수. 전체 물류 Queue 총량으로, 1700 이상이면 위험 상태
+
+2. Important Group (핵심 지표)
+Load Queue 관련 (6개)
+컬럼사용 이유M14.QUE.LOAD.CURRENTLOADQCNT현재 적재 대기 Queue 수 → 병목 발생 선행 지표M14.QUE.LOAD.AVGLOADTIME평균 적재 시간 → 처리 속도 저하 감지M14.QUE.LOAD.AVGLOADTIME1MIN1분 평균 적재 시간 → 단기 변동 감지M14.QUE.LOAD.AVGFOUPLOADTIMEFOUP(웨이퍼 캐리어) 평균 적재 시간M14.QUE.LOAD.AVGRETICLELOADTIMEReticle 평균 적재 시간M14.QUE.LOAD.CURRENTRETICLELOADQCNTReticle 적재 Queue 수
+Queue 전체 상태 (6개)
+컬럼사용 이유M14.QUE.ALL.CURRENTQCOMPLETED완료된 작업 수 → queue_gap 계산에 필수M14.QUE.ALL.CURRENTQCREATED생성된 작업 수 → queue_gap 계산에 필수M14.QUE.ALL.TRANSPORT4MINOVERCNT4분 초과 운송 건수 → 지연 징후M14.QUE.ALL.TRANSPORT4MINOVERTIMEAVG4분 초과 평균 시간M14.QUE.ALL.TRANSPORT4MINOVERRATIO4분 초과 비율
+M16 Hub 연결 (5개)
+컬럼사용 이유M16HUB.QUE.M16TOM14B.CURRENTQCREATEDM16→M14B 물류 유입량M16HUB.QUE.M14BTOM16.CURRENTQCREATEDM14B→M16 물류 유출량M16HUB.QUE.M14TOM16.CURRENTQCREATEDM14→M16 물류 유출량M16HUB.QUE.M16TOM14.CURRENTQCREATEDM16→M14 물류 유입량M16HUB.QUE.M14TOM16.MESCURRENTQCNTMES 기준 현재 QueueM16HUB.QUE.M16TOM14.MESCURRENTQCNTMES 기준 현재 Queue
+핵심 포인트: Hub 간 물류 흐름이 불균형하면 특정 Fab에 병목 발생
+
+3. Auxiliary Group (보조 지표)
+Fab 간 물류량 (9개)
+컬럼사용 이유M14AM14BM14A↔M14B 현재 이동량 → 황금패턴 핵심M14BM14AM14B→M14A 역방향M14AM14BSUM양방향 합계 → 황금패턴 핵심M14AM10AM14A↔M10A 이동량M10AM14AM10A→M14A 역방향M14AM10ASUM양방향 합계M14AM16M14A↔M16 이동량M16M14AM16→M14A 역방향M14AM16SUM양방향 합계
+SFAB Queue (4개)
+컬럼사용 이유M14.QUE.SFAB.SENDQUEUETOTAL발송 대기 QueueM14.QUE.SFAB.RECEIVEQUEUETOTAL수신 대기 QueueM14.QUE.SFAB.RETURNQUEUETOTAL반환 대기 QueueM14.QUE.SFAB.COMPLETEQUEUETOTAL완료 Queue
+OHT (무인반송) (4개)
+컬럼사용 이유M14.QUE.OHT.OHTUTILOHT 가동률 → 높으면 운송 병목 가능M14.QUE.OHT.RTCOHTUTILRTC OHT 가동률M14.QUE.OHT.CURRENTOHTQCNT현재 OHT Queue 수M14.QUE.OHT.CURRENTRETICLEOHTQCNTReticle OHT Queue
+Conveyor (4개)
+컬럼사용 이유M14.QUE.CNV.NORTHCURRENTQCNT북측 컨베이어 QueueM14.QUE.CNV.SOUTHCURRENTQCNT남측 컨베이어 QueueM14.QUE.CNV.ALLTONORTHCNVCURRENTQCNT북측행 전체 QueueM14.QUE.CNV.ALLTOSOUTHCNVCURRENTQCNT남측행 전체 Queue
+파생 변수 (1개)
+컬럼사용 이유QUEUE_GAPCREATED - COMPLETED → 가장 강력한 예측 변수 (상관계수 0.4+)
+
+4. PDT New Group (신규 추가)
+컬럼사용 이유M14.STRATE.N2.STORAGERATION2 저장 비율 → 버퍼 상태M14.PDT.LAYOUT.M14A_M14ATOM14ACNV_CURRENTQCNTM14A 내부 컨베이어 QueueM14.PDT.LAYOUT.HUBROOM_M14TOM16_CURRENTQCNTHub실 M14→M16 Queue
+
+5. 컬럼 선정 핵심 논리
+                    ┌─────────────────────────────────────┐
+                    │         TOTALCNT 상승 원인          │
+                    └─────────────────────────────────────┘
+                                    │
+          ┌─────────────────────────┼─────────────────────────┐
+          ▼                         ▼                         ▼
+    ┌───────────┐            ┌───────────┐            ┌───────────┐
+    │  유입 증가 │            │  처리 지연 │            │  운송 병목 │
+    └───────────┘            └───────────┘            └───────────┘
+          │                         │                         │
+    M16→M14 물류            Load Time 증가              OHT Util 상승
+    M14AM14B 급증           Queue Gap 확대             4min Over 증가
+
+6. V8.3 대비 V10.4 컬럼 변화
+구분V8.3 (8개)V10.4 (~40개)핵심TOTALCNT, M14AM14B, M14AM14BSUM, queue_gap동일 + Load Queue 상세추가-M16 Hub 연결, SFAB, CNV 상세모델XGBoost 1개XGB 34개 + LGBM 34개
+V10.4가 더 많은 컬럼을 사용하는 이유:
+
+앙상블로 다양한 관점의 Feature 활용
+급상승(황금패턴) + 점진상승(Load 지연) 모두 감지
