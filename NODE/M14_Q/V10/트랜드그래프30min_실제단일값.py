@@ -61,19 +61,11 @@ def generate_dashboard_html(df, stats, output_path, title="V10_4 TOTALCNT 30분 
                 votes = int(row[vote_col])
             except:
                 votes = 0
-        # 실제값30min 컬럼 읽기
-        if '실제값30min' in df.columns:
-            actual_max_val = float(row['실제값30min']) if pd.notna(row['실제값30min']) else 0
-        elif '실제값' in df.columns:
-            actual_max_val = float(row['실제값']) if pd.notna(row['실제값']) else 0
-        else:
-            actual_max_val = 0
-            
         data_json.append({
             'idx': idx,
             'pred_time': str(row.get('예측시점', '')),
             'actual_single': float(row.get('실제단일값', 0)),
-            'actual_max': actual_max_val,
+            'actual_max': float(row.get('실제값30min', row.get('실제값', 0))),
             'actual_breach': int(row.get('실제위험(1700+)', 0)),
             'xgb_target': xgb_target,
             'xgb_important': float(row.get('XGB_중요', 0)),
