@@ -1,0 +1,1183 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>V10.4 Feature Architecture | TOTALCNT 예측 시스템</title>
+<link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;500;600;700;800;900&family=Rajdhani:wght@300;400;500;600;700&family=JetBrains+Mono:wght@300;400;500&display=swap" rel="stylesheet">
+<style>
+:root {
+    --bg-primary: #0a0e14;
+    --bg-secondary: #111923;
+    --bg-card: #151d28;
+    --bg-highlight: #1a2433;
+    --accent-cyan: #00f5d4;
+    --accent-magenta: #f72585;
+    --accent-orange: #ff9f1c;
+    --accent-yellow: #fee440;
+    --accent-blue: #3a86ff;
+    --accent-purple: #9d4edd;
+    --text-primary: #e8f0f7;
+    --text-secondary: #7a8a9e;
+    --text-muted: #4a5a6e;
+    --border-color: #243040;
+    --glow-cyan: 0 0 30px rgba(0, 245, 212, 0.3);
+    --glow-magenta: 0 0 30px rgba(247, 37, 133, 0.3);
+    --glow-orange: 0 0 30px rgba(255, 159, 28, 0.3);
+}
+
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+body {
+    font-family: 'Rajdhani', sans-serif;
+    background: var(--bg-primary);
+    color: var(--text-primary);
+    min-height: 100vh;
+    overflow-x: hidden;
+}
+
+/* Animated Background */
+.bg-grid {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background-image: 
+        linear-gradient(rgba(0, 245, 212, 0.03) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(0, 245, 212, 0.03) 1px, transparent 1px);
+    background-size: 50px 50px;
+    pointer-events: none;
+    z-index: 0;
+}
+
+.container {
+    position: relative;
+    z-index: 1;
+    max-width: 1600px;
+    margin: 0 auto;
+    padding: 40px 30px;
+}
+
+/* Header */
+.header {
+    text-align: center;
+    margin-bottom: 60px;
+    position: relative;
+}
+
+.header::before {
+    content: '';
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    width: 600px;
+    height: 200px;
+    background: radial-gradient(ellipse, rgba(0, 245, 212, 0.1) 0%, transparent 70%);
+    pointer-events: none;
+}
+
+.title {
+    font-family: 'Orbitron', sans-serif;
+    font-size: 3.5rem;
+    font-weight: 900;
+    letter-spacing: 8px;
+    background: linear-gradient(135deg, var(--accent-cyan), var(--accent-blue), var(--accent-purple));
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    text-shadow: 0 0 60px rgba(0, 245, 212, 0.5);
+    margin-bottom: 15px;
+    animation: glow-pulse 3s ease-in-out infinite;
+}
+
+@keyframes glow-pulse {
+    0%, 100% { filter: brightness(1); }
+    50% { filter: brightness(1.2); }
+}
+
+.subtitle {
+    font-size: 1.3rem;
+    color: var(--text-secondary);
+    font-weight: 400;
+    letter-spacing: 3px;
+}
+
+.version-badge {
+    display: inline-block;
+    margin-top: 20px;
+    padding: 8px 25px;
+    background: linear-gradient(135deg, rgba(0, 245, 212, 0.15), rgba(58, 134, 255, 0.15));
+    border: 1px solid var(--accent-cyan);
+    border-radius: 30px;
+    font-family: 'Orbitron', sans-serif;
+    font-size: 0.9rem;
+    color: var(--accent-cyan);
+    letter-spacing: 2px;
+}
+
+/* Stats Row */
+.stats-row {
+    display: flex;
+    justify-content: center;
+    gap: 40px;
+    margin-bottom: 50px;
+    flex-wrap: wrap;
+}
+
+.stat-item {
+    text-align: center;
+    padding: 25px 40px;
+    background: var(--bg-card);
+    border: 1px solid var(--border-color);
+    border-radius: 16px;
+    position: relative;
+    overflow: hidden;
+    transition: all 0.3s ease;
+}
+
+.stat-item:hover {
+    transform: translateY(-5px);
+    border-color: var(--accent-cyan);
+    box-shadow: var(--glow-cyan);
+}
+
+.stat-item::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 3px;
+    background: linear-gradient(90deg, var(--accent-cyan), var(--accent-blue));
+}
+
+.stat-number {
+    font-family: 'Orbitron', sans-serif;
+    font-size: 2.8rem;
+    font-weight: 700;
+    color: var(--accent-cyan);
+    line-height: 1;
+}
+
+.stat-label {
+    font-size: 0.9rem;
+    color: var(--text-secondary);
+    margin-top: 8px;
+    letter-spacing: 1px;
+}
+
+/* Architecture Flow */
+.architecture-flow {
+    background: var(--bg-secondary);
+    border-radius: 24px;
+    padding: 40px;
+    margin-bottom: 50px;
+    border: 1px solid var(--border-color);
+    position: relative;
+    overflow: hidden;
+}
+
+.architecture-flow::before {
+    content: 'PREDICTION FLOW';
+    position: absolute;
+    top: 15px;
+    left: 25px;
+    font-family: 'Orbitron', sans-serif;
+    font-size: 0.75rem;
+    color: var(--text-muted);
+    letter-spacing: 3px;
+}
+
+.flow-container {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 20px;
+    padding-top: 20px;
+}
+
+.flow-box {
+    flex: 1;
+    text-align: center;
+    padding: 25px 15px;
+    background: var(--bg-card);
+    border-radius: 16px;
+    border: 2px solid transparent;
+    position: relative;
+    transition: all 0.4s ease;
+}
+
+.flow-box:hover {
+    transform: scale(1.05);
+}
+
+.flow-box.input { border-color: var(--accent-blue); }
+.flow-box.process { border-color: var(--accent-purple); }
+.flow-box.output { border-color: var(--accent-magenta); }
+.flow-box.result { border-color: var(--accent-cyan); }
+
+.flow-box.input:hover { box-shadow: 0 0 40px rgba(58, 134, 255, 0.3); }
+.flow-box.process:hover { box-shadow: 0 0 40px rgba(157, 78, 221, 0.3); }
+.flow-box.output:hover { box-shadow: 0 0 40px rgba(247, 37, 133, 0.3); }
+.flow-box.result:hover { box-shadow: 0 0 40px rgba(0, 245, 212, 0.3); }
+
+.flow-icon {
+    font-size: 2rem;
+    margin-bottom: 10px;
+}
+
+.flow-title {
+    font-family: 'Orbitron', sans-serif;
+    font-size: 0.9rem;
+    font-weight: 600;
+    margin-bottom: 8px;
+    letter-spacing: 1px;
+}
+
+.flow-box.input .flow-title { color: var(--accent-blue); }
+.flow-box.process .flow-title { color: var(--accent-purple); }
+.flow-box.output .flow-title { color: var(--accent-magenta); }
+.flow-box.result .flow-title { color: var(--accent-cyan); }
+
+.flow-desc {
+    font-size: 0.8rem;
+    color: var(--text-secondary);
+}
+
+.flow-arrow {
+    font-size: 1.5rem;
+    color: var(--text-muted);
+    animation: arrow-pulse 1.5s ease-in-out infinite;
+}
+
+@keyframes arrow-pulse {
+    0%, 100% { opacity: 0.3; transform: translateX(0); }
+    50% { opacity: 1; transform: translateX(5px); }
+}
+
+/* Feature Groups */
+.feature-section {
+    margin-bottom: 50px;
+}
+
+.section-header {
+    display: flex;
+    align-items: center;
+    gap: 15px;
+    margin-bottom: 25px;
+}
+
+.section-icon {
+    width: 50px;
+    height: 50px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.5rem;
+    border-radius: 12px;
+}
+
+.section-icon.target { background: linear-gradient(135deg, var(--accent-magenta), #d63384); }
+.section-icon.important { background: linear-gradient(135deg, var(--accent-cyan), var(--accent-blue)); }
+.section-icon.auxiliary { background: linear-gradient(135deg, var(--accent-orange), var(--accent-yellow)); }
+.section-icon.derived { background: linear-gradient(135deg, var(--accent-purple), var(--accent-magenta)); }
+
+.section-title {
+    font-family: 'Orbitron', sans-serif;
+    font-size: 1.5rem;
+    font-weight: 600;
+    letter-spacing: 2px;
+}
+
+.section-count {
+    font-size: 0.9rem;
+    color: var(--text-muted);
+    margin-left: auto;
+    font-family: 'JetBrains Mono', monospace;
+}
+
+/* Feature Grid */
+.feature-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+    gap: 20px;
+}
+
+.feature-card {
+    background: var(--bg-card);
+    border: 1px solid var(--border-color);
+    border-radius: 16px;
+    padding: 20px;
+    position: relative;
+    overflow: hidden;
+    transition: all 0.3s ease;
+    cursor: pointer;
+}
+
+.feature-card:hover {
+    transform: translateY(-3px);
+    border-color: var(--accent-cyan);
+    box-shadow: 0 10px 40px rgba(0, 0, 0, 0.3);
+}
+
+.feature-card.critical::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 3px;
+    background: linear-gradient(90deg, var(--accent-magenta), var(--accent-orange));
+}
+
+.feature-card.core::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 3px;
+    background: linear-gradient(90deg, var(--accent-cyan), var(--accent-blue));
+}
+
+.feature-name {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.85rem;
+    color: var(--accent-cyan);
+    margin-bottom: 10px;
+    word-break: break-all;
+}
+
+.feature-reason {
+    font-size: 0.95rem;
+    color: var(--text-primary);
+    line-height: 1.6;
+    margin-bottom: 12px;
+}
+
+.feature-tags {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+
+.tag {
+    padding: 4px 10px;
+    border-radius: 20px;
+    font-size: 0.7rem;
+    font-weight: 500;
+    letter-spacing: 0.5px;
+}
+
+.tag.queue { background: rgba(0, 245, 212, 0.15); color: var(--accent-cyan); }
+.tag.flow { background: rgba(58, 134, 255, 0.15); color: var(--accent-blue); }
+.tag.delay { background: rgba(255, 159, 28, 0.15); color: var(--accent-orange); }
+.tag.bottleneck { background: rgba(247, 37, 133, 0.15); color: var(--accent-magenta); }
+.tag.golden { background: rgba(254, 228, 64, 0.15); color: var(--accent-yellow); }
+.tag.derived { background: rgba(157, 78, 221, 0.15); color: var(--accent-purple); }
+
+/* Cause Analysis */
+.cause-section {
+    background: var(--bg-secondary);
+    border-radius: 24px;
+    padding: 40px;
+    margin-bottom: 50px;
+    border: 1px solid var(--border-color);
+}
+
+.cause-title {
+    font-family: 'Orbitron', sans-serif;
+    font-size: 1.3rem;
+    color: var(--accent-orange);
+    margin-bottom: 30px;
+    text-align: center;
+    letter-spacing: 3px;
+}
+
+.cause-diagram {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 30px;
+}
+
+.cause-root {
+    background: linear-gradient(135deg, rgba(247, 37, 133, 0.2), rgba(255, 159, 28, 0.2));
+    border: 2px solid var(--accent-magenta);
+    border-radius: 20px;
+    padding: 20px 40px;
+    text-align: center;
+}
+
+.cause-root-text {
+    font-family: 'Orbitron', sans-serif;
+    font-size: 1.1rem;
+    color: var(--accent-magenta);
+    letter-spacing: 2px;
+}
+
+.cause-branches {
+    display: flex;
+    justify-content: center;
+    gap: 40px;
+    flex-wrap: wrap;
+}
+
+.cause-branch {
+    background: var(--bg-card);
+    border-radius: 16px;
+    padding: 25px;
+    width: 280px;
+    border: 1px solid var(--border-color);
+    transition: all 0.3s ease;
+}
+
+.cause-branch:hover {
+    transform: translateY(-5px);
+    box-shadow: 0 15px 40px rgba(0, 0, 0, 0.3);
+}
+
+.cause-branch.inflow { border-top: 3px solid var(--accent-blue); }
+.cause-branch.process { border-top: 3px solid var(--accent-orange); }
+.cause-branch.transport { border-top: 3px solid var(--accent-purple); }
+
+.branch-icon {
+    font-size: 2rem;
+    margin-bottom: 15px;
+}
+
+.branch-title {
+    font-family: 'Orbitron', sans-serif;
+    font-size: 1rem;
+    margin-bottom: 15px;
+    letter-spacing: 1px;
+}
+
+.cause-branch.inflow .branch-title { color: var(--accent-blue); }
+.cause-branch.process .branch-title { color: var(--accent-orange); }
+.cause-branch.transport .branch-title { color: var(--accent-purple); }
+
+.branch-items {
+    list-style: none;
+}
+
+.branch-items li {
+    padding: 8px 0;
+    border-bottom: 1px solid var(--border-color);
+    font-size: 0.85rem;
+    color: var(--text-secondary);
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.branch-items li:last-child {
+    border-bottom: none;
+}
+
+.branch-items li::before {
+    content: '▸';
+    color: var(--text-muted);
+}
+
+/* Comparison Table */
+.comparison-section {
+    background: var(--bg-secondary);
+    border-radius: 24px;
+    padding: 40px;
+    margin-bottom: 50px;
+    border: 1px solid var(--border-color);
+}
+
+.comparison-title {
+    font-family: 'Orbitron', sans-serif;
+    font-size: 1.3rem;
+    color: var(--accent-cyan);
+    margin-bottom: 30px;
+    text-align: center;
+    letter-spacing: 3px;
+}
+
+.comparison-table {
+    width: 100%;
+    border-collapse: collapse;
+}
+
+.comparison-table th,
+.comparison-table td {
+    padding: 15px 20px;
+    text-align: left;
+    border-bottom: 1px solid var(--border-color);
+}
+
+.comparison-table th {
+    font-family: 'Orbitron', sans-serif;
+    font-size: 0.85rem;
+    color: var(--text-muted);
+    letter-spacing: 1px;
+    background: var(--bg-card);
+}
+
+.comparison-table td {
+    font-size: 0.95rem;
+}
+
+.comparison-table tr:hover td {
+    background: rgba(0, 245, 212, 0.05);
+}
+
+.badge-v8 {
+    display: inline-block;
+    padding: 4px 12px;
+    background: rgba(255, 159, 28, 0.2);
+    color: var(--accent-orange);
+    border-radius: 20px;
+    font-size: 0.8rem;
+    font-family: 'Orbitron', sans-serif;
+}
+
+.badge-v10 {
+    display: inline-block;
+    padding: 4px 12px;
+    background: rgba(0, 245, 212, 0.2);
+    color: var(--accent-cyan);
+    border-radius: 20px;
+    font-size: 0.8rem;
+    font-family: 'Orbitron', sans-serif;
+}
+
+/* Key Insight */
+.insight-box {
+    background: linear-gradient(135deg, rgba(0, 245, 212, 0.1), rgba(58, 134, 255, 0.1));
+    border: 1px solid var(--accent-cyan);
+    border-radius: 20px;
+    padding: 30px 40px;
+    margin-top: 30px;
+    display: flex;
+    align-items: center;
+    gap: 20px;
+}
+
+.insight-icon {
+    font-size: 2.5rem;
+}
+
+.insight-text {
+    flex: 1;
+}
+
+.insight-title {
+    font-family: 'Orbitron', sans-serif;
+    font-size: 1rem;
+    color: var(--accent-cyan);
+    margin-bottom: 8px;
+    letter-spacing: 2px;
+}
+
+.insight-desc {
+    color: var(--text-secondary);
+    line-height: 1.6;
+}
+
+/* Footer */
+.footer {
+    text-align: center;
+    padding: 40px 0;
+    border-top: 1px solid var(--border-color);
+    margin-top: 50px;
+}
+
+.footer-text {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.8rem;
+    color: var(--text-muted);
+    letter-spacing: 1px;
+}
+
+/* Responsive */
+@media (max-width: 768px) {
+    .title { font-size: 2rem; letter-spacing: 4px; }
+    .flow-container { flex-direction: column; }
+    .flow-arrow { transform: rotate(90deg); }
+    .cause-branches { flex-direction: column; align-items: center; }
+    .stats-row { gap: 20px; }
+    .stat-item { padding: 20px 30px; }
+}
+
+/* Animations */
+@keyframes fadeInUp {
+    from {
+        opacity: 0;
+        transform: translateY(30px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+.feature-section {
+    animation: fadeInUp 0.6s ease-out forwards;
+}
+
+.feature-section:nth-child(2) { animation-delay: 0.1s; }
+.feature-section:nth-child(3) { animation-delay: 0.2s; }
+.feature-section:nth-child(4) { animation-delay: 0.3s; }
+.feature-section:nth-child(5) { animation-delay: 0.4s; }
+</style>
+</head>
+<body>
+
+<div class="bg-grid"></div>
+
+<div class="container">
+    <!-- Header -->
+    <header class="header">
+        <h1 class="title">V10.4 FEATURE ARCHITECTURE</h1>
+        <p class="subtitle">TOTALCNT 예측 시스템 컬럼 분석</p>
+        <div class="version-badge">XGBoost + LightGBM ENSEMBLE</div>
+    </header>
+
+    <!-- Stats -->
+    <div class="stats-row">
+        <div class="stat-item">
+            <div class="stat-number">~40</div>
+            <div class="stat-label">TOTAL COLUMNS</div>
+        </div>
+        <div class="stat-item">
+            <div class="stat-number">4</div>
+            <div class="stat-label">FEATURE GROUPS</div>
+        </div>
+        <div class="stat-item">
+            <div class="stat-number">280</div>
+            <div class="stat-label">SEQUENCE LENGTH</div>
+        </div>
+        <div class="stat-item">
+            <div class="stat-number">8</div>
+            <div class="stat-label">ENSEMBLE MODELS</div>
+        </div>
+    </div>
+
+    <!-- Architecture Flow -->
+    <div class="architecture-flow">
+        <div class="flow-container">
+            <div class="flow-box input">
+                <div class="flow-icon">📊</div>
+                <div class="flow-title">INPUT</div>
+                <div class="flow-desc">280분 시계열<br>40+ 컬럼</div>
+            </div>
+            <div class="flow-arrow">▶</div>
+            <div class="flow-box process">
+                <div class="flow-icon">⚙️</div>
+                <div class="flow-title">FEATURE ENG</div>
+                <div class="flow-desc">통계/추세/임계값<br>200+ Features</div>
+            </div>
+            <div class="flow-arrow">▶</div>
+            <div class="flow-box output">
+                <div class="flow-icon">🧠</div>
+                <div class="flow-title">ENSEMBLE</div>
+                <div class="flow-desc">XGB 4개 + LGBM 4개<br>투표 시스템</div>
+            </div>
+            <div class="flow-arrow">▶</div>
+            <div class="flow-box result">
+                <div class="flow-icon">🎯</div>
+                <div class="flow-title">PREDICTION</div>
+                <div class="flow-desc">10/30분 후<br>1700+ 위험 경고</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Target Group -->
+    <section class="feature-section">
+        <div class="section-header">
+            <div class="section-icon target">🎯</div>
+            <h2 class="section-title">TARGET GROUP</h2>
+            <span class="section-count">1 COLUMN</span>
+        </div>
+        <div class="feature-grid">
+            <div class="feature-card critical">
+                <div class="feature-name">TOTALCNT</div>
+                <div class="feature-reason">
+                    <strong>예측 목표 변수.</strong> M14 Fab의 전체 물류 Queue 총량으로, 
+                    이 값이 1700을 초과하면 공장 운영에 위험 상태가 됨
+                </div>
+                <div class="feature-tags">
+                    <span class="tag bottleneck">예측 대상</span>
+                    <span class="tag queue">임계값 1700</span>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Important Group -->
+    <section class="feature-section">
+        <div class="section-header">
+            <div class="section-icon important">⚡</div>
+            <h2 class="section-title">IMPORTANT GROUP</h2>
+            <span class="section-count">17 COLUMNS</span>
+        </div>
+        <div class="feature-grid">
+            <!-- Load Queue -->
+            <div class="feature-card core">
+                <div class="feature-name">M14.QUE.LOAD.CURRENTLOADQCNT</div>
+                <div class="feature-reason">
+                    현재 적재 대기 Queue 수. 이 값이 급증하면 병목 발생의 선행 지표
+                </div>
+                <div class="feature-tags">
+                    <span class="tag queue">Queue</span>
+                    <span class="tag bottleneck">병목 선행</span>
+                </div>
+            </div>
+            <div class="feature-card">
+                <div class="feature-name">M14.QUE.LOAD.AVGLOADTIME</div>
+                <div class="feature-reason">
+                    평균 적재 시간. 처리 속도 저하를 감지하는 핵심 지표
+                </div>
+                <div class="feature-tags">
+                    <span class="tag delay">처리 시간</span>
+                </div>
+            </div>
+            <div class="feature-card">
+                <div class="feature-name">M14.QUE.LOAD.AVGLOADTIME1MIN</div>
+                <div class="feature-reason">
+                    1분 평균 적재 시간. 단기 변동 감지에 민감한 실시간 지표
+                </div>
+                <div class="feature-tags">
+                    <span class="tag delay">단기 변동</span>
+                </div>
+            </div>
+            <div class="feature-card">
+                <div class="feature-name">M14.QUE.LOAD.AVGFOUPLOADTIME</div>
+                <div class="feature-reason">
+                    FOUP(웨이퍼 캐리어) 평균 적재 시간. 웨이퍼 이동 효율성 측정
+                </div>
+                <div class="feature-tags">
+                    <span class="tag flow">FOUP</span>
+                </div>
+            </div>
+            <!-- Queue All -->
+            <div class="feature-card critical">
+                <div class="feature-name">M14.QUE.ALL.CURRENTQCREATED</div>
+                <div class="feature-reason">
+                    <strong>생성된 작업 수.</strong> queue_gap 계산의 핵심 요소. 유입량 측정
+                </div>
+                <div class="feature-tags">
+                    <span class="tag queue">Queue</span>
+                    <span class="tag derived">파생변수 기반</span>
+                </div>
+            </div>
+            <div class="feature-card critical">
+                <div class="feature-name">M14.QUE.ALL.CURRENTQCOMPLETED</div>
+                <div class="feature-reason">
+                    <strong>완료된 작업 수.</strong> queue_gap 계산의 핵심 요소. 처리량 측정
+                </div>
+                <div class="feature-tags">
+                    <span class="tag queue">Queue</span>
+                    <span class="tag derived">파생변수 기반</span>
+                </div>
+            </div>
+            <div class="feature-card core">
+                <div class="feature-name">M14.QUE.ALL.TRANSPORT4MINOVERCNT</div>
+                <div class="feature-reason">
+                    <strong>4분 초과 운송 건수.</strong> 운송 지연의 직접적 징후를 나타내는 핵심 지표
+                </div>
+                <div class="feature-tags">
+                    <span class="tag delay">지연 징후</span>
+                    <span class="tag bottleneck">병목</span>
+                </div>
+            </div>
+            <div class="feature-card">
+                <div class="feature-name">M14.QUE.ALL.TRANSPORT4MINOVERTIMEAVG</div>
+                <div class="feature-reason">
+                    4분 초과 운송의 평균 시간. 지연 심각도 측정
+                </div>
+                <div class="feature-tags">
+                    <span class="tag delay">지연 심각도</span>
+                </div>
+            </div>
+            <!-- M16 Hub -->
+            <div class="feature-card">
+                <div class="feature-name">M16HUB.QUE.M16TOM14B.CURRENTQCREATED</div>
+                <div class="feature-reason">
+                    M16→M14B 물류 유입량. Hub 간 물류 불균형이 특정 Fab 병목의 원인
+                </div>
+                <div class="feature-tags">
+                    <span class="tag flow">Hub 연결</span>
+                    <span class="tag queue">유입</span>
+                </div>
+            </div>
+            <div class="feature-card">
+                <div class="feature-name">M16HUB.QUE.M14BTOM16.CURRENTQCREATED</div>
+                <div class="feature-reason">
+                    M14B→M16 물류 유출량. 유출이 유입보다 적으면 적체 발생
+                </div>
+                <div class="feature-tags">
+                    <span class="tag flow">Hub 연결</span>
+                    <span class="tag queue">유출</span>
+                </div>
+            </div>
+            <div class="feature-card">
+                <div class="feature-name">M16HUB.QUE.M14TOM16.MESCURRENTQCNT</div>
+                <div class="feature-reason">
+                    MES 기준 현재 Queue. 제조실행시스템 기준의 정확한 대기 현황
+                </div>
+                <div class="feature-tags">
+                    <span class="tag queue">MES</span>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Auxiliary Group -->
+    <section class="feature-section">
+        <div class="section-header">
+            <div class="section-icon auxiliary">🔧</div>
+            <h2 class="section-title">AUXILIARY GROUP</h2>
+            <span class="section-count">22 COLUMNS</span>
+        </div>
+        <div class="feature-grid">
+            <!-- Fab 간 물류 -->
+            <div class="feature-card critical">
+                <div class="feature-name">M14AM14B</div>
+                <div class="feature-reason">
+                    <strong>M14A↔M14B 현재 이동량.</strong> 황금패턴의 핵심 변수. 
+                    520 이상이면 위험 신호
+                </div>
+                <div class="feature-tags">
+                    <span class="tag golden">황금패턴</span>
+                    <span class="tag flow">Fab 간</span>
+                </div>
+            </div>
+            <div class="feature-card critical">
+                <div class="feature-name">M14AM14BSUM</div>
+                <div class="feature-reason">
+                    <strong>M14A↔M14B 양방향 합계.</strong> 황금패턴 핵심. 
+                    600 이상이면 Triple Check 조건
+                </div>
+                <div class="feature-tags">
+                    <span class="tag golden">황금패턴</span>
+                    <span class="tag flow">Fab 간</span>
+                </div>
+            </div>
+            <div class="feature-card">
+                <div class="feature-name">M14BM14A</div>
+                <div class="feature-reason">
+                    M14B→M14A 역방향 이동. 양방향 흐름 불균형 감지
+                </div>
+                <div class="feature-tags">
+                    <span class="tag flow">역방향</span>
+                </div>
+            </div>
+            <div class="feature-card">
+                <div class="feature-name">M14AM10A / M10AM14A / M14AM10ASUM</div>
+                <div class="feature-reason">
+                    M14↔M10 Fab 간 이동량. 다른 Fab와의 물류 흐름 파악
+                </div>
+                <div class="feature-tags">
+                    <span class="tag flow">M10 연결</span>
+                </div>
+            </div>
+            <div class="feature-card">
+                <div class="feature-name">M14AM16 / M16M14A / M14AM16SUM</div>
+                <div class="feature-reason">
+                    M14↔M16 Fab 간 이동량. Hub 없이 직접 연결된 물류
+                </div>
+                <div class="feature-tags">
+                    <span class="tag flow">M16 연결</span>
+                </div>
+            </div>
+            <!-- OHT -->
+            <div class="feature-card core">
+                <div class="feature-name">M14.QUE.OHT.OHTUTIL</div>
+                <div class="feature-reason">
+                    <strong>OHT 가동률.</strong> 무인반송차 사용률이 높으면 운송 병목 가능성 증가
+                </div>
+                <div class="feature-tags">
+                    <span class="tag bottleneck">운송 병목</span>
+                    <span class="tag delay">가동률</span>
+                </div>
+            </div>
+            <div class="feature-card">
+                <div class="feature-name">M14.QUE.OHT.CURRENTOHTQCNT</div>
+                <div class="feature-reason">
+                    현재 OHT Queue 수. 대기 중인 운송 작업 현황
+                </div>
+                <div class="feature-tags">
+                    <span class="tag queue">OHT</span>
+                </div>
+            </div>
+            <!-- SFAB -->
+            <div class="feature-card">
+                <div class="feature-name">M14.QUE.SFAB.SENDQUEUETOTAL</div>
+                <div class="feature-reason">
+                    발송 대기 Queue. 외부로 나가는 물류 적체 상황
+                </div>
+                <div class="feature-tags">
+                    <span class="tag queue">SFAB</span>
+                </div>
+            </div>
+            <div class="feature-card">
+                <div class="feature-name">M14.QUE.SFAB.RECEIVEQUEUETOTAL</div>
+                <div class="feature-reason">
+                    수신 대기 Queue. 외부에서 들어오는 물류 대기 현황
+                </div>
+                <div class="feature-tags">
+                    <span class="tag queue">SFAB</span>
+                </div>
+            </div>
+            <!-- Conveyor -->
+            <div class="feature-card">
+                <div class="feature-name">M14.QUE.CNV.NORTHCURRENTQCNT</div>
+                <div class="feature-reason">
+                    북측 컨베이어 Queue. 물리적 위치별 병목 감지
+                </div>
+                <div class="feature-tags">
+                    <span class="tag queue">컨베이어</span>
+                </div>
+            </div>
+            <div class="feature-card">
+                <div class="feature-name">M14.QUE.CNV.SOUTHCURRENTQCNT</div>
+                <div class="feature-reason">
+                    남측 컨베이어 Queue. 물리적 위치별 병목 감지
+                </div>
+                <div class="feature-tags">
+                    <span class="tag queue">컨베이어</span>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Derived Variables -->
+    <section class="feature-section">
+        <div class="section-header">
+            <div class="section-icon derived">💡</div>
+            <h2 class="section-title">DERIVED VARIABLES</h2>
+            <span class="section-count">핵심 파생</span>
+        </div>
+        <div class="feature-grid">
+            <div class="feature-card critical">
+                <div class="feature-name">QUEUE_GAP = CREATED - COMPLETED</div>
+                <div class="feature-reason">
+                    <strong>가장 강력한 예측 변수.</strong> 생성된 작업에서 완료된 작업을 뺀 값으로,
+                    양수가 클수록 적체 심각. 상관계수 0.4+ 달성
+                </div>
+                <div class="feature-tags">
+                    <span class="tag derived">파생 변수</span>
+                    <span class="tag bottleneck">핵심 지표</span>
+                    <span class="tag golden">상관 0.4+</span>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- PDT New Group -->
+    <section class="feature-section">
+        <div class="section-header">
+            <div class="section-icon" style="background: linear-gradient(135deg, #00f5d4, #9d4edd);">🆕</div>
+            <h2 class="section-title">PDT NEW GROUP</h2>
+            <span class="section-count">3 COLUMNS</span>
+        </div>
+        <div class="feature-grid">
+            <div class="feature-card">
+                <div class="feature-name">M14.STRATE.N2.STORAGERATIO</div>
+                <div class="feature-reason">
+                    N2 저장 비율. 버퍼 스토리지 사용률로 여유 공간 파악
+                </div>
+                <div class="feature-tags">
+                    <span class="tag queue">Storage</span>
+                </div>
+            </div>
+            <div class="feature-card">
+                <div class="feature-name">M14.PDT.LAYOUT.M14A_M14ATOM14ACNV_CURRENTQCNT</div>
+                <div class="feature-reason">
+                    M14A 내부 컨베이어 Queue. Fab 내부 세부 흐름 파악
+                </div>
+                <div class="feature-tags">
+                    <span class="tag flow">내부 흐름</span>
+                </div>
+            </div>
+            <div class="feature-card">
+                <div class="feature-name">M14.PDT.LAYOUT.HUBROOM_M14TOM16_CURRENTQCNT</div>
+                <div class="feature-reason">
+                    Hub실 M14→M16 Queue. 핵심 연결 지점의 적체 현황
+                </div>
+                <div class="feature-tags">
+                    <span class="tag flow">Hub</span>
+                    <span class="tag bottleneck">연결점</span>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Cause Analysis -->
+    <div class="cause-section">
+        <h2 class="cause-title">⚡ TOTALCNT 상승 원인 분석</h2>
+        <div class="cause-diagram">
+            <div class="cause-root">
+                <div class="cause-root-text">TOTALCNT ≥ 1700 위험 상태</div>
+            </div>
+            <div style="font-size: 1.5rem; color: var(--text-muted);">▲</div>
+            <div class="cause-branches">
+                <div class="cause-branch inflow">
+                    <div class="branch-icon">📥</div>
+                    <div class="branch-title">유입 증가</div>
+                    <ul class="branch-items">
+                        <li>M16→M14 물류 급증</li>
+                        <li>M14AM14B 급상승</li>
+                        <li>외부 Fab 물량 집중</li>
+                        <li>SFAB Receive Queue 증가</li>
+                    </ul>
+                </div>
+                <div class="cause-branch process">
+                    <div class="branch-icon">⏱️</div>
+                    <div class="branch-title">처리 지연</div>
+                    <ul class="branch-items">
+                        <li>Load Time 증가</li>
+                        <li>Queue Gap 확대</li>
+                        <li>작업 완료율 저하</li>
+                        <li>설비 가동률 저하</li>
+                    </ul>
+                </div>
+                <div class="cause-branch transport">
+                    <div class="branch-icon">🚚</div>
+                    <div class="branch-title">운송 병목</div>
+                    <ul class="branch-items">
+                        <li>OHT Util 상승</li>
+                        <li>4min Over 건수 증가</li>
+                        <li>컨베이어 적체</li>
+                        <li>Hub 연결 지연</li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Version Comparison -->
+    <div class="comparison-section">
+        <h2 class="comparison-title">📊 V8.3 vs V10.4 비교</h2>
+        <table class="comparison-table">
+            <thead>
+                <tr>
+                    <th>구분</th>
+                    <th><span class="badge-v8">V8.3</span></th>
+                    <th><span class="badge-v10">V10.4</span></th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td>컬럼 수</td>
+                    <td>8개</td>
+                    <td>~40개</td>
+                </tr>
+                <tr>
+                    <td>Feature 수</td>
+                    <td>82개</td>
+                    <td>200+개</td>
+                </tr>
+                <tr>
+                    <td>모델</td>
+                    <td>XGBoost 1개</td>
+                    <td>XGB 4개 + LGBM 4개</td>
+                </tr>
+                <tr>
+                    <td>핵심 변수</td>
+                    <td>TOTALCNT, M14AM14B, queue_gap</td>
+                    <td>동일 + Load Queue, Hub 연결 상세</td>
+                </tr>
+                <tr>
+                    <td>판정 방식</td>
+                    <td>단일 예측값 + 보정</td>
+                    <td>8개 모델 투표 + 5개 규칙</td>
+                </tr>
+                <tr>
+                    <td>감지 유형</td>
+                    <td>급상승 (황금패턴)</td>
+                    <td>급상승 + 점진상승</td>
+                </tr>
+            </tbody>
+        </table>
+        
+        <div class="insight-box">
+            <div class="insight-icon">💡</div>
+            <div class="insight-text">
+                <div class="insight-title">KEY INSIGHT</div>
+                <div class="insight-desc">
+                    V10.4는 다양한 관점의 Feature를 앙상블로 활용하여 <strong>급상승(황금패턴)</strong>과 
+                    <strong>점진상승(Load 지연)</strong> 패턴 모두 감지. queue_gap은 여전히 
+                    가장 강력한 예측 변수로, 상관계수 0.4+ 달성
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Footer -->
+    <footer class="footer">
+        <p class="footer-text">V10.4 FEATURE ARCHITECTURE | TOTALCNT PREDICTION SYSTEM | 2024</p>
+    </footer>
+</div>
+
+<script>
+// Add subtle parallax effect to cards
+document.addEventListener('mousemove', (e) => {
+    const cards = document.querySelectorAll('.feature-card');
+    cards.forEach(card => {
+        const rect = card.getBoundingClientRect();
+        const x = e.clientX - rect.left - rect.width / 2;
+        const y = e.clientY - rect.top - rect.height / 2;
+        
+        if (Math.abs(x) < rect.width && Math.abs(y) < rect.height) {
+            card.style.transform = `translateY(-3px) rotateX(${-y * 0.02}deg) rotateY(${x * 0.02}deg)`;
+        }
+    });
+});
+
+// Reset card transform on mouse leave
+document.querySelectorAll('.feature-card').forEach(card => {
+    card.addEventListener('mouseleave', () => {
+        card.style.transform = 'translateY(0) rotateX(0) rotateY(0)';
+    });
+});
+
+// Animate stats on scroll
+const observerOptions = {
+    threshold: 0.5
+};
+
+const statsObserver = new IntersectionObserver((entries) => {
+    entries.forEach(entry => {
+        if (entry.isIntersecting) {
+            entry.target.style.opacity = '1';
+            entry.target.style.transform = 'translateY(0)';
+        }
+    });
+}, observerOptions);
+
+document.querySelectorAll('.stat-item').forEach(item => {
+    item.style.opacity = '0';
+    item.style.transform = 'translateY(20px)';
+    item.style.transition = 'all 0.6s ease';
+    statsObserver.observe(item);
+});
+
+// Flow box hover effect
+document.querySelectorAll('.flow-box').forEach(box => {
+    box.addEventListener('mouseenter', () => {
+        document.querySelectorAll('.flow-arrow').forEach(arrow => {
+            arrow.style.color = 'var(--accent-cyan)';
+        });
+    });
+    box.addEventListener('mouseleave', () => {
+        document.querySelectorAll('.flow-arrow').forEach(arrow => {
+            arrow.style.color = 'var(--text-muted)';
+        });
+    });
+});
+</script>
+
+</body>
+</html>
