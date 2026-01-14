@@ -99,7 +99,7 @@
             color: var(--text-secondary);
         }
         
-        input[type="date"] {
+        input[type="date"], input[type="time"] {
             padding: 8px 12px;
             background: var(--bg-secondary);
             border: 1px solid var(--border);
@@ -109,7 +109,8 @@
             font-size: 13px;
         }
         
-        input[type="date"]::-webkit-calendar-picker-indicator {
+        input[type="date"]::-webkit-calendar-picker-indicator,
+        input[type="time"]::-webkit-calendar-picker-indicator {
             filter: invert(1);
         }
         
@@ -287,12 +288,23 @@
     
     <div class="controls">
         <div class="control-group">
-            <span class="control-label">날짜 선택:</span>
-            <input type="date" id="date-picker" onchange="loadData()">
+            <span class="control-label">날짜:</span>
+            <input type="date" id="date-picker">
+        </div>
+        <div class="control-group">
+            <span class="control-label">시작:</span>
+            <input type="time" id="time-start" value="00:00">
+        </div>
+        <div class="control-group">
+            <span class="control-label">종료:</span>
+            <input type="time" id="time-end" value="23:59">
         </div>
         <button class="btn btn-primary" onclick="loadData()">조회</button>
         <button class="btn" onclick="loadYesterday()">어제</button>
         <button class="btn" onclick="loadToday()">오늘</button>
+        <button class="btn" onclick="setMorning()">오전</button>
+        <button class="btn" onclick="setAfternoon()">오후</button>
+        <button class="btn" onclick="setFullDay()">전체</button>
     </div>
     
     <div class="stats-row" id="stats-row" style="display: none;">
@@ -357,6 +369,7 @@
         
         function loadToday() {
             document.getElementById('date-picker').value = formatDate(new Date());
+            setFullDay();
             loadData();
         }
         
@@ -364,17 +377,40 @@
             const yesterday = new Date();
             yesterday.setDate(yesterday.getDate() - 1);
             document.getElementById('date-picker').value = formatDate(yesterday);
+            setFullDay();
             loadData();
+        }
+        
+        function setMorning() {
+            document.getElementById('time-start').value = '00:00';
+            document.getElementById('time-end').value = '11:59';
+        }
+        
+        function setAfternoon() {
+            document.getElementById('time-start').value = '12:00';
+            document.getElementById('time-end').value = '23:59';
+        }
+        
+        function setFullDay() {
+            document.getElementById('time-start').value = '00:00';
+            document.getElementById('time-end').value = '23:59';
         }
         
         async function loadData() {
             const dateInput = document.getElementById('date-picker').value;
+            const timeStart = document.getElementById('time-start').value;
+            const timeEnd = document.getElementById('time-end').value;
+            
             if (!dateInput) {
                 alert('날짜를 선택하세요');
                 return;
             }
             
             const dateStr = dateInput.replace(/-/g, '');
+            
+            // 시간 범위를 HHMM 형식으로 변환
+            const startHHMM = timeStart.replace(':', '');
+            const endHHMM = timeEnd.replace(':', '');
             
             document.getElementById('table-container').innerHTML = '<div class="loading">로딩 중...</div>';
             
@@ -406,18 +442,65 @@
                     return;
                 }
                 
+                // 시간 범위 필터링
+                const filteredData = data.data.filter(row => {
+                    const currtime = String(row.CURRTIME);
+                    if (currtime.length >= 12) {
+                        const timeHHMM = currtime.slice(8, 12);
+                        return timeHHMM >= startHHMM && timeHHMM <= endHHMM;
+                    }
+                    return true;
+                });
+                
+                // 알람도 필터링
+                const filteredAlerts10 = (data.alerts_10 || []).filter(a => {
+                    const currtime = String(a.CURRTIME);
+                    if (currtime.length >= 12) {
+                        const timeHHMM = currtime.slice(8, 12);
+                        return timeHHMM >= startHHMM && timeHHMM <= endHHMM;
+                    }
+                    return true;
+                });
+                
+                const filteredAlerts30 = (data.alerts_30 || []).filter(a => {
+                    const currtime = String(a.CURRTIME);
+                    if (currtime.length >= 12) {
+                        const timeHHMM = currtime.slice(8, 12);
+                        return timeHHMM >= startHHMM && timeHHMM <= endHHMM;
+                    }
+                    return true;
+                });
+                
+                if (filteredData.length === 0) {
+                    document.getElementById('table-container').innerHTML = `
+                        <div class="empty-state">
+                            <div class="empty-icon">🕐</div>
+                            <div>선택한 시간 범위에 데이터가 없습니다<br><small>${timeStart} ~ ${timeEnd}</small></div>
+                        </div>
+                    `;
+                    document.getElementById('stats-row').style.display = 'none';
+                    document.getElementById('chart-section').style.display = 'none';
+                    return;
+                }
+                
+                const filteredResult = {
+                    data: filteredData,
+                    alerts_10: filteredAlerts10,
+                    alerts_30: filteredAlerts30
+                };
+                
                 // 통계 계산
-                updateStats(data);
+                updateStats(filteredResult);
                 
                 // 차트 그리기
-                drawChart(data);
+                drawChart(filteredResult);
                 
                 // 테이블 그리기
-                drawTable(data);
+                drawTable(filteredResult);
                 
                 document.getElementById('stats-row').style.display = 'flex';
                 document.getElementById('chart-section').style.display = 'block';
-                document.getElementById('table-info').textContent = `${dateInput} | ${data.data.length}개 데이터`;
+                document.getElementById('table-info').textContent = `${dateInput} ${timeStart}~${timeEnd} | ${filteredData.length}개 데이터`;
                 
             } catch (e) {
                 console.error(e);
