@@ -505,6 +505,7 @@
         <div class="controls">
             <button class="btn btn-primary" id="btn-start" onclick="startUpdate()">▶ Start</button>
             <button class="btn btn-danger" onclick="stopUpdate()">■ Stop</button>
+            <button class="btn" onclick="openMini()">📌 Mini</button>
             <button class="btn btn-warning" onclick="testAlarm()">🔔 Test Alarm</button>
         </div>
     </div>
@@ -561,6 +562,10 @@
         }
 
         function testAlarm() { triggerAlarm(1750, getFormattedTime()); }
+        
+        function openMini() {
+            window.open('/mini', 'M14_Mini', 'width=220,height=200,top=100,left=100,resizable=yes,alwaysRaised=yes');
+        }
         
         function showAlertList(type) {
             const listEl = document.getElementById('alert-list');
