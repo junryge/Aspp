@@ -22,6 +22,9 @@ app = Flask(__name__)
 # 데이터 매니저 (280분 윈도우)
 data_manager = m14_data.M14DataManager(window_minutes=280)
 
+# 예측 모듈 연결
+data_manager.set_predictors(predictor_10min, predictor_30min)
+
 
 @app.route('/')
 def index():
@@ -32,8 +35,7 @@ def index():
 def get_data():
     """
     실시간 데이터 + 예측값 API
-    - 280분 데이터 조회
-    - 10분, 30분 예측 수행
+    - 데이터 매니저에서 저장된 데이터/예측값 반환
     """
     
     # 데이터가 없으면 초기화
@@ -42,18 +44,16 @@ def get_data():
             return jsonify({'error': 'Data load failed'}), 500
     
     df = data_manager.get_data()
+    predict_10_all, predict_30_all = data_manager.get_predictions()
     
     if df is None or len(df) == 0:
         return jsonify({'error': 'No data'}), 500
     
-    # 10분 예측
-    pred_10 = predictor_10min.predict(df)
-    
-    # 30분 예측
-    pred_30 = predictor_30min.predict(df)
-    
     # 차트용 데이터 (최근 60분만)
-    df_chart = df.tail(60).reset_index(drop=True)
+    chart_len = min(60, len(df))
+    df_chart = df.tail(chart_len).reset_index(drop=True)
+    predict_10_list = predict_10_all[-chart_len:]
+    predict_30_list = predict_30_all[-chart_len:]
     
     # 시간 포맷 변환
     times = []
@@ -67,17 +67,6 @@ def get_data():
             times.append(t_str)
             times_full.append(t_str)
     
-    # 예측 리스트 (차트용 - 60개)
-    # 모델 없으면 0으로 표시
-    predict_10_list = [0] * len(df_chart)
-    predict_30_list = [0] * len(df_chart)
-    
-    # 마지막 값은 실제 예측값으로 (모델 없으면 0)
-    if predict_10_list:
-        predict_10_list[-1] = pred_10['predict_value']
-    if predict_30_list:
-        predict_30_list[-1] = pred_30['predict_value']
-    
     # 현재 시간 포맷
     last_t = str(df['CURRTIME'].iloc[-1])
     if len(last_t) >= 12:
@@ -85,19 +74,17 @@ def get_data():
     else:
         full_time = last_t
     
+    current_val = int(df['TOTALCNT'].iloc[-1]) if pd.notna(df['TOTALCNT'].iloc[-1]) else 0
+    
     return jsonify({
         'x': times,
         'x_full': times_full,
         'y': df_chart['TOTALCNT'].fillna(0).astype(int).tolist(),
         'predict_10_list': predict_10_list,
         'predict_30_list': predict_30_list,
-        'current': pred_10['current_value'],
-        'predict_10': pred_10['predict_value'],
-        'predict_30': pred_30['predict_value'],
-        'danger_10': pred_10['danger'],
-        'danger_30': pred_30['danger'],
-        'prob_10': pred_10.get('prob', 0),
-        'prob_30': pred_30.get('prob', 0),
+        'current': current_val,
+        'predict_10': predict_10_list[-1] if predict_10_list else 0,
+        'predict_30': predict_30_list[-1] if predict_30_list else 0,
         'currtime': full_time,
         'idx': len(df),
         'total': len(df)
