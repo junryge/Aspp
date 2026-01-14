@@ -68,25 +68,11 @@ def get_data():
             times_full.append(t_str)
     
     # 예측 리스트 (차트용 - 60개)
-    predict_10_list = []
-    predict_30_list = []
+    # 모델 없으면 0으로 표시
+    predict_10_list = [0] * len(df_chart)
+    predict_30_list = [0] * len(df_chart)
     
-    # 각 시점별 예측값 계산 (차트 표시용)
-    for i in range(len(df_chart)):
-        # 간단한 폴백: 현재값 + 트렌드
-        if i < 5:
-            predict_10_list.append(int(df_chart['TOTALCNT'].iloc[i]))
-            predict_30_list.append(int(df_chart['TOTALCNT'].iloc[i]))
-        else:
-            recent = df_chart['TOTALCNT'].iloc[max(0, i-5):i+1].tolist()
-            avg = sum(recent) / len(recent)
-            trend = (recent[-1] - recent[0]) / len(recent) if len(recent) >= 2 else 0
-            p10 = int(max(1000, min(2000, avg + trend * 10)))
-            p30 = int(max(1000, min(2000, avg + trend * 30)))
-            predict_10_list.append(p10)
-            predict_30_list.append(p30)
-    
-    # 마지막 값은 실제 ML 예측값으로 대체
+    # 마지막 값은 실제 예측값으로 (모델 없으면 0)
     if predict_10_list:
         predict_10_list[-1] = pred_10['predict_value']
     if predict_30_list:
