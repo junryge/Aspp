@@ -723,11 +723,42 @@
             try {
                 const res = await fetch('/api/data');
                 chartData = await res.json();
+                
+                // 서버에서 알람 기록 로드
+                if (chartData.alert_10 && alertHistory10.length === 0) {
+                    alertHistory10 = chartData.alert_10.map(a => ({
+                        time: formatCurrtime(a.CURRTIME),
+                        value: a.VALUE,
+                        isAlarm: true,
+                        alarmNo: 0,
+                        cooldownMins: null
+                    }));
+                    document.getElementById('stat-over-10').textContent = alertHistory10.length;
+                }
+                if (chartData.alert_30 && alertHistory30.length === 0) {
+                    alertHistory30 = chartData.alert_30.map(a => ({
+                        time: formatCurrtime(a.CURRTIME),
+                        value: a.VALUE,
+                        isAlarm: true,
+                        alarmNo: 0,
+                        cooldownMins: null
+                    }));
+                    document.getElementById('stat-over-30').textContent = alertHistory30.length;
+                }
+                
                 updateChart();
                 updateStatus(chartData.current, chartData.predict_10, chartData.predict_30, chartData.currtime, chartData.idx, chartData.total);
             } catch (e) {
                 console.error(e);
             }
+        }
+        
+        function formatCurrtime(ct) {
+            const s = String(ct);
+            if (s.length >= 12) {
+                return `${s.slice(0,4)}-${s.slice(4,6)}-${s.slice(6,8)} ${s.slice(8,10)}:${s.slice(10,12)}`;
+            }
+            return s;
         }
         
         function updateChart() {
