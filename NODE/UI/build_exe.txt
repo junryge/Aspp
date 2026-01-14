@@ -1,0 +1,29 @@
+@echo off
+chcp 65001 >nul
+echo ========================================
+echo M14 Queue Monitor - EXE 빌드
+echo ========================================
+
+:: PyInstaller 설치 확인
+pip show pyinstaller >nul 2>&1
+if errorlevel 1 (
+    echo PyInstaller 설치 중...
+    pip install pyinstaller
+)
+
+:: 빌드
+echo.
+echo 빌드 시작...
+pyinstaller --noconfirm --add-data "index.html;." --add-data "mini.html;." --add-data "models;models" main.py
+
+:: data 폴더 생성
+if not exist "dist\main\data" mkdir "dist\main\data"
+
+echo.
+echo ========================================
+echo 빌드 완료!
+echo.
+echo 실행: dist\main\main.exe
+echo 브라우저: http://localhost:5000
+echo ========================================
+pause
