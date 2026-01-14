@@ -782,6 +782,12 @@
                 const total = chartData.y[i];
                 const p10 = chartData.predict_10_list[i];
                 const p30 = chartData.predict_30_list[i];
+                const currTime = chartData.x_full[i];  // 현재 시점
+                
+                // 예측 시점 계산
+                const pred10Time = addMinutesToTime(currTime, 10);
+                const pred30Time = addMinutesToTime(currTime, 30);
+                
                 const total_color = total >= 1700 ? '#ef4444' : (total >= 1600 ? '#eab308' : '#fafafa');
                 const p10_color = p10 >= 1700 ? '#ef4444' : (p10 >= 1600 ? '#eab308' : '#fafafa');
                 const p30_color = p30 >= 1700 ? '#ef4444' : (p30 >= 1600 ? '#eab308' : '#fafafa');
@@ -802,9 +808,21 @@
                 }
                 
                 return [
-                    p10_str, p30_str, chartData.x_full[i], total_str, cooldownStr
+                    p10_str, p30_str, currTime, total_str, cooldownStr, pred10Time, pred30Time
                 ];
             });
+            
+            // 시간에 분 더하기
+            function addMinutesToTime(timeStr, mins) {
+                if (!timeStr) return '';
+                const [date, time] = timeStr.split(' ');
+                if (!time) return timeStr;
+                const [h, m] = time.split(':').map(Number);
+                const totalMins = h * 60 + m + mins;
+                const newH = Math.floor(totalMins / 60) % 24;
+                const newM = totalMins % 60;
+                return `${date} ${String(newH).padStart(2,'0')}:${String(newM).padStart(2,'0')}`;
+            }
             
             // 예측값용 x축 (미래로 shift)
             const x_pred10 = chartData.x.map((t, i) => {
@@ -836,10 +854,10 @@
                     marker: { size: 5, color: '#3b82f6' },
                     fill: 'tozeroy',
                     fillcolor: 'rgba(59, 130, 246, 0.08)',
-                    hovertemplate: '<b>시간</b>: %{customdata[2]}<br>' +
+                    hovertemplate: '<b>📍 현재</b>: %{customdata[2]}<br>' +
                                    '<b>TOTALCNT</b>: %{customdata[3]}<br>' +
-                                   '<b>예측(10분)</b>: %{customdata[0]}<br>' +
-                                   '<b>예측(30분)</b>: %{customdata[1]}<br>' +
+                                   '<b>🔮 %{customdata[5]} 예측</b>: %{customdata[0]}<br>' +
+                                   '<b>🔮 %{customdata[6]} 예측</b>: %{customdata[1]}<br>' +
                                    '<b>알람</b>: %{customdata[4]}<br>' +
                                    '<extra></extra>'
                 });
