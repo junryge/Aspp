@@ -165,23 +165,26 @@ def get_history():
         return jsonify({'error': f'{date_str[:4]}-{date_str[4:6]}-{date_str[6:8]} 데이터가 없습니다'})
     
     try:
-        # 데이터 로드
-        df_data = pd.read_csv(data_file)
-        
-        # 예측 파일 로드
+        # 예측 파일 먼저 확인 (TOTALCNT 포함된 경우)
         if os.path.exists(pred_file):
             df_pred = pd.read_csv(pred_file)
-            # 데이터와 예측 merge
-            if 'CURRTIME' in df_pred.columns:
-                df_merged = pd.merge(df_data, df_pred, on='CURRTIME', how='left')
+            
+            # pred 파일에 TOTALCNT 있으면 바로 사용
+            if 'TOTALCNT' in df_pred.columns and 'CURRTIME' in df_pred.columns:
+                df_merged = df_pred
             else:
-                # 기존 형식 (CURRTIME 없는 경우)
-                for col in ['PREDICT_10', 'PREDICT_30', 'PRED_TIME_10', 'PRED_TIME_30']:
-                    if col in df_pred.columns:
-                        df_data[col] = df_pred[col].values[:len(df_data)]
-                df_merged = df_data
+                # 없으면 data 파일과 merge
+                df_data = pd.read_csv(data_file)
+                if 'CURRTIME' in df_pred.columns:
+                    df_merged = pd.merge(df_data, df_pred, on='CURRTIME', how='left')
+                else:
+                    for col in ['PREDICT_10', 'PREDICT_30', 'PRED_TIME_10', 'PRED_TIME_30']:
+                        if col in df_pred.columns:
+                            df_data[col] = df_pred[col].values[:len(df_data)]
+                    df_merged = df_data
         else:
-            df_merged = df_data
+            # pred 파일 없으면 data만
+            df_merged = pd.read_csv(data_file)
         
         # NaN 처리
         df_merged = df_merged.fillna(0)
