@@ -160,8 +160,10 @@ class M14DataManager:
     M14 데이터 관리자
     - 날짜별 파일 저장 (m14_data_20250114.csv)
     - 알람 기록도 저장 (m14_alert_20250114.csv)
-    - 빠진 시간대만 API로 가져옴
+    - 알람 상태 저장 (쿨타임, 알람 횟수)
     """
+    
+    ALARM_COOLDOWN = 60 * 60  # 쿨타임 1시간 (초)
     
     def __init__(self, window_minutes=280, data_dir='data'):
         self.window_minutes = window_minutes
@@ -171,6 +173,8 @@ class M14DataManager:
         self.predict_30_list = []
         self.alert_10_list = []  # 10분 예측 1700+ 알람 기록
         self.alert_30_list = []  # 30분 예측 1700+ 알람 기록
+        self.alarm_count = 0     # 총 알람 발생 횟수
+        self.last_alarm_time = None  # 마지막 알람 시간 (쿨타임용)
         self.last_update = None
         self._predictor_10 = None
         self._predictor_30 = None
@@ -180,33 +184,69 @@ class M14DataManager:
             os.makedirs(data_dir)
     
     def _get_file_path(self, date_str):
-        """날짜별 파일 경로"""
         return os.path.join(self.data_dir, f'm14_data_{date_str}.csv')
     
     def _get_pred_file_path(self, date_str):
-        """날짜별 예측 파일 경로"""
         return os.path.join(self.data_dir, f'm14_pred_{date_str}.csv')
     
     def _get_alert_file_path(self, date_str):
-        """날짜별 알람 파일 경로"""
         return os.path.join(self.data_dir, f'm14_alert_{date_str}.csv')
+    
+    def _get_state_file_path(self):
+        """알람 상태 파일 (쿨타임, 카운트)"""
+        return os.path.join(self.data_dir, 'm14_alarm_state.csv')
     
     def set_predictors(self, pred_10, pred_30):
         self._predictor_10 = pred_10
         self._predictor_30 = pred_30
     
+    def _load_alarm_state(self):
+        """알람 상태 로드"""
+        state_file = self._get_state_file_path()
+        if os.path.exists(state_file):
+            state_df = pd.read_csv(state_file)
+            if len(state_df) > 0:
+                self.alarm_count = int(state_df['ALARM_COUNT'].iloc[0])
+                last_time_str = state_df['LAST_ALARM_TIME'].iloc[0]
+                if pd.notna(last_time_str) and last_time_str != '':
+                    self.last_alarm_time = datetime.strptime(last_time_str, '%Y-%m-%d %H:%M:%S')
+                print(f"[M14] 알람 상태 로드: count={self.alarm_count}, last={self.last_alarm_time}")
+    
+    def _save_alarm_state(self):
+        """알람 상태 저장"""
+        state_file = self._get_state_file_path()
+        pd.DataFrame({
+            'ALARM_COUNT': [self.alarm_count],
+            'LAST_ALARM_TIME': [self.last_alarm_time.strftime('%Y-%m-%d %H:%M:%S') if self.last_alarm_time else '']
+        }).to_csv(state_file, index=False)
+    
+    def _is_in_cooldown(self):
+        """쿨타임 중인지 확인"""
+        if self.last_alarm_time is None:
+            return False
+        elapsed = (datetime.now() - self.last_alarm_time).total_seconds()
+        return elapsed < self.ALARM_COOLDOWN
+    
+    def _get_cooldown_mins(self):
+        """남은 쿨타임 (분)"""
+        if self.last_alarm_time is None:
+            return 0
+        elapsed = (datetime.now() - self.last_alarm_time).total_seconds()
+        remaining = self.ALARM_COOLDOWN - elapsed
+        return max(0, int(remaining / 60))
+    
     def initialize(self):
-        """초기화 - 최근 날짜 파일들 로드 + 빠진 데이터 API로"""
-        
-        # 오늘, 어제 날짜 (280분이면 최대 이틀치 필요)
+        """초기화"""
         today = datetime.now().strftime("%Y%m%d")
         yesterday = (datetime.now() - timedelta(days=1)).strftime("%Y%m%d")
+        
+        # 알람 상태 로드
+        self._load_alarm_state()
         
         all_data = []
         all_pred_10 = []
         all_pred_30 = []
         
-        # 어제 + 오늘 파일 로드
         for date_str in [yesterday, today]:
             data_file = self._get_file_path(date_str)
             pred_file = self._get_pred_file_path(date_str)
@@ -230,18 +270,14 @@ class M14DataManager:
             self.alert_30_list = alert_df[alert_df['TYPE'] == '30'].to_dict('records')
             print(f"[M14] 알람 로드: 10분={len(self.alert_10_list)}개, 30분={len(self.alert_30_list)}개")
         
-        # 합치기
         if all_data:
             self.data = pd.concat(all_data, ignore_index=True)
             self.data = self.data.drop_duplicates(subset=['CURRTIME']).sort_values('CURRTIME').reset_index(drop=True)
             self.predict_10_list = all_pred_10
             self.predict_30_list = all_pred_30
             print(f"[M14] 로드 완료: {len(self.data)} rows")
-            
-            # 빠진 데이터 가져오기
             self._fetch_missing()
         else:
-            # 파일 없으면 API 조회
             print(f"[M14] 파일 없음, API 조회...")
             self.data = get_realtime_data(minutes=self.window_minutes)
             
@@ -251,9 +287,7 @@ class M14DataManager:
             self._calculate_predictions_for_new(len(self.data))
             self._save()
         
-        # 윈도우 유지
         if len(self.data) > self.window_minutes:
-            cut = len(self.data) - self.window_minutes
             self.data = self.data.tail(self.window_minutes).reset_index(drop=True)
             self.predict_10_list = self.predict_10_list[-self.window_minutes:] if len(self.predict_10_list) > self.window_minutes else self.predict_10_list
             self.predict_30_list = self.predict_30_list[-self.window_minutes:] if len(self.predict_30_list) > self.window_minutes else self.predict_30_list
@@ -262,7 +296,6 @@ class M14DataManager:
         return True
     
     def _fetch_missing(self):
-        """마지막 시간 이후 데이터만 가져오기"""
         if self.data is None or len(self.data) == 0:
             return
         
@@ -298,7 +331,6 @@ class M14DataManager:
             print(f"[M14] 빠진 데이터 조회 실패: {e}")
     
     def _calculate_predictions_for_new(self, new_count):
-        """새로 추가된 데이터만 예측"""
         if self._predictor_10 is None or self._predictor_30 is None:
             self.predict_10_list.extend([0] * new_count)
             self.predict_30_list.extend([0] * new_count)
@@ -328,37 +360,48 @@ class M14DataManager:
                 self.predict_30_list.append(0)
     
     def _add_alert(self, alert_type, curr_time, value):
-        """알람 기록 추가"""
+        """알람 기록 추가 (쿨타임, 알람번호 포함)"""
         alert_list = self.alert_10_list if alert_type == '10' else self.alert_30_list
         
         # 중복 체크
-        if any(a['CURRTIME'] == curr_time for a in alert_list):
+        if any(str(a.get('CURRTIME')) == curr_time for a in alert_list):
             return
+        
+        # 쿨타임 체크
+        in_cooldown = self._is_in_cooldown()
+        cooldown_mins = self._get_cooldown_mins() if in_cooldown else 0
+        
+        # 알람 발생 여부
+        is_alarm = not in_cooldown
+        
+        if is_alarm:
+            self.alarm_count += 1
+            self.last_alarm_time = datetime.now()
+            self._save_alarm_state()
         
         alert_list.append({
             'TYPE': alert_type,
             'CURRTIME': curr_time,
             'VALUE': value,
-            'TIMESTAMP': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+            'TIMESTAMP': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+            'ALARM_NO': self.alarm_count,
+            'IS_ALARM': is_alarm,
+            'COOLDOWN_MINS': cooldown_mins if not is_alarm else 0
         })
     
     def _save(self):
-        """날짜별 파일 저장"""
         if self.data is None or len(self.data) == 0:
             return
         
-        # 날짜별로 분리해서 저장
         self.data['DATE'] = self.data['CURRTIME'].str[:8]
         
         for date_str, group in self.data.groupby('DATE'):
             data_file = self._get_file_path(date_str)
             pred_file = self._get_pred_file_path(date_str)
             
-            # 데이터 저장
             group_save = group.drop(columns=['DATE'])
             group_save.to_csv(data_file, index=False)
             
-            # 예측값 저장 (해당 날짜 인덱스 찾기)
             indices = group.index.tolist()
             pred_10 = [self.predict_10_list[i] if i < len(self.predict_10_list) else 0 for i in indices]
             pred_30 = [self.predict_30_list[i] if i < len(self.predict_30_list) else 0 for i in indices]
@@ -369,33 +412,21 @@ class M14DataManager:
             }).to_csv(pred_file, index=False)
         
         self.data = self.data.drop(columns=['DATE'])
-        
-        # 오늘 알람 저장
         self._save_alerts()
-        
         print(f"[M14] 파일 저장 완료")
     
     def _save_alerts(self):
-        """알람 기록 저장"""
         today = datetime.now().strftime("%Y%m%d")
         alert_file = self._get_alert_file_path(today)
         
-        all_alerts = []
-        for a in self.alert_10_list:
-            a['TYPE'] = '10'
-            all_alerts.append(a)
-        for a in self.alert_30_list:
-            a['TYPE'] = '30'
-            all_alerts.append(a)
+        all_alerts = self.alert_10_list + self.alert_30_list
         
         if all_alerts:
             pd.DataFrame(all_alerts).to_csv(alert_file, index=False)
     
     def update(self):
-        """새 데이터 추가"""
         self._fetch_missing()
         
-        # 윈도우 유지
         if len(self.data) > self.window_minutes:
             self.data = self.data.tail(self.window_minutes).reset_index(drop=True)
             self.predict_10_list = self.predict_10_list[-self.window_minutes:]
@@ -411,8 +442,16 @@ class M14DataManager:
         return self.predict_10_list, self.predict_30_list
     
     def get_alerts(self):
-        """알람 기록 반환"""
         return self.alert_10_list, self.alert_30_list
+    
+    def get_alarm_state(self):
+        """알람 상태 반환 (웹에서 사용)"""
+        return {
+            'alarm_count': self.alarm_count,
+            'last_alarm_time': self.last_alarm_time.strftime('%Y-%m-%d %H:%M:%S') if self.last_alarm_time else None,
+            'in_cooldown': self._is_in_cooldown(),
+            'cooldown_mins': self._get_cooldown_mins()
+        }
     
     def get_latest(self):
         if self.data is not None and len(self.data) > 0:
@@ -420,7 +459,6 @@ class M14DataManager:
         return None
     
     def load_date(self, date_str):
-        """특정 날짜 데이터 로드"""
         data_file = self._get_file_path(date_str)
         pred_file = self._get_pred_file_path(date_str)
         alert_file = self._get_alert_file_path(date_str)
@@ -445,24 +483,17 @@ class M14DataManager:
         return None, [], [], [], []
     
     def refresh(self):
-        """오늘 데이터만 새로고침"""
         today = datetime.now().strftime("%Y%m%d")
-        data_file = self._get_file_path(today)
-        pred_file = self._get_pred_file_path(today)
-        alert_file = self._get_alert_file_path(today)
-        
-        if os.path.exists(data_file):
-            os.remove(data_file)
-        if os.path.exists(pred_file):
-            os.remove(pred_file)
-        if os.path.exists(alert_file):
-            os.remove(alert_file)
+        for f in [self._get_file_path(today), self._get_pred_file_path(today), self._get_alert_file_path(today)]:
+            if os.path.exists(f):
+                os.remove(f)
         
         self.data = None
         self.predict_10_list = []
         self.predict_30_list = []
         self.alert_10_list = []
         self.alert_30_list = []
+        # 알람 상태는 유지 (쿨타임 때문에)
         return self.initialize()
 
 
