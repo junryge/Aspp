@@ -589,12 +589,10 @@
                 <table>
                     <thead>
                         <tr>
-                            <th>시간</th>
-                            <th>TOTALCNT</th>
-                            <th>예측시점(10분)</th>
-                            <th>예측값(10분)</th>
-                            <th>예측시점(30분)</th>
-                            <th>예측값(30분)</th>
+                            <th style="width: 80px;">시간</th>
+                            <th style="width: 100px;">TOTALCNT</th>
+                            <th style="width: 150px;">10분후 예측</th>
+                            <th style="width: 150px;">30분후 예측</th>
                             <th>알람</th>
                         </tr>
                     </thead>
@@ -603,8 +601,13 @@
             
             rows.forEach(row => {
                 const currtime = String(row.CURRTIME);
+                const timeDisplay = formatTime(currtime);
                 const alert10 = alertMap10[currtime];
                 const alert30 = alertMap30[currtime];
+                
+                // 예측 시점 계산
+                const predTime10 = row.PRED_TIME_10 ? formatTime(String(row.PRED_TIME_10)) : '-';
+                const predTime30 = row.PRED_TIME_30 ? formatTime(String(row.PRED_TIME_30)) : '-';
                 
                 let alertHtml = '';
                 if (alert10) {
@@ -624,12 +627,16 @@
                 
                 html += `
                     <tr>
-                        <td>${formatTimeFull(row.CURRTIME)}</td>
-                        <td class="${getValueClass(row.TOTALCNT)}">${(row.TOTALCNT || 0).toLocaleString()}</td>
-                        <td>${formatTimeFull(row.PRED_TIME_10) || '-'}</td>
-                        <td class="${getValueClass(row.PREDICT_10)}">${(row.PREDICT_10 || 0).toLocaleString()}</td>
-                        <td>${formatTimeFull(row.PRED_TIME_30) || '-'}</td>
-                        <td class="${getValueClass(row.PREDICT_30)}">${(row.PREDICT_30 || 0).toLocaleString()}</td>
+                        <td style="font-weight: 600; color: #3b82f6;">${timeDisplay}</td>
+                        <td class="${getValueClass(row.TOTALCNT)}" style="font-weight: 600;">${(row.TOTALCNT || 0).toLocaleString()}</td>
+                        <td>
+                            <span class="${getValueClass(row.PREDICT_10)}" style="font-weight: 600;">${(row.PREDICT_10 || 0).toLocaleString()}</span>
+                            <span style="color: #52525b; font-size: 10px; margin-left: 5px;">→ ${predTime10}</span>
+                        </td>
+                        <td>
+                            <span class="${getValueClass(row.PREDICT_30)}" style="font-weight: 600;">${(row.PREDICT_30 || 0).toLocaleString()}</span>
+                            <span style="color: #52525b; font-size: 10px; margin-left: 5px;">→ ${predTime30}</span>
+                        </td>
                         <td>${alertHtml || '-'}</td>
                     </tr>
                 `;
