@@ -1,6 +1,5 @@
 # -*- coding: utf-8 -*-
 """
-#Predictor_10min.py
 ================================================================================
 V10_4 ML 예측 모듈 - 10분 예측
 main.py에서 import해서 사용
@@ -216,44 +215,27 @@ def predict(df):
 
 
 def _fallback_predict(df, offset):
-    """모델 없을 때 단순 이동평균 폴백"""
-    if len(df) < 5:
-        return {
-            'predict_value': 0,
-            'current_value': 0,
-            'current_time': datetime.now(),
-            'predict_time': datetime.now() + timedelta(minutes=offset),
-            'danger': 0,
-            'prob': 0,
-            'vote': 0,
-        }
+    """모델 없을 때 - 예측값 0 반환"""
+    current_val = 0
+    curr_time = datetime.now()
     
-    values = df['TOTALCNT'].fillna(0).tolist()
-    recent = values[-5:]
-    avg = sum(recent) / len(recent)
-    trend = (recent[-1] - recent[0]) / len(recent) if len(recent) >= 2 else 0
-    pred = int(avg + trend * offset)
-    pred = max(1000, min(2000, pred))
-    
-    current_val = int(values[-1])
-    
-    # CURRTIME 처리
-    if 'CURRTIME' in df.columns:
-        curr_time = df['CURRTIME'].iloc[-1]
-        if isinstance(curr_time, str):
+    if df is not None and len(df) > 0:
+        current_val = int(df['TOTALCNT'].fillna(0).iloc[-1])
+        
+        if 'CURRTIME' in df.columns:
             try:
-                curr_time = datetime.strptime(str(curr_time), '%Y%m%d%H%M')
+                t = df['CURRTIME'].iloc[-1]
+                if isinstance(t, str) and len(t) >= 12:
+                    curr_time = datetime.strptime(str(t), '%Y%m%d%H%M')
             except:
-                curr_time = datetime.now()
-    else:
-        curr_time = datetime.now()
+                pass
     
     return {
-        'predict_value': pred,
+        'predict_value': 0,  # 모델 없으면 0
         'current_value': current_val,
         'current_time': curr_time,
         'predict_time': curr_time + timedelta(minutes=offset),
-        'danger': 1 if pred >= 1700 else 0,
+        'danger': 0,
         'prob': 0,
         'vote': 0,
     }
