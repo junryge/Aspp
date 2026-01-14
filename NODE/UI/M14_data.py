@@ -402,14 +402,45 @@ class M14DataManager:
             group_save = group.drop(columns=['DATE'])
             group_save.to_csv(data_file, index=False)
             
+            # 예측 파일에 현재시간, 현재값, 예측시간, 예측값 저장
             indices = group.index.tolist()
-            pred_10 = [self.predict_10_list[i] if i < len(self.predict_10_list) else 0 for i in indices]
-            pred_30 = [self.predict_30_list[i] if i < len(self.predict_30_list) else 0 for i in indices]
+            pred_data = []
             
-            pd.DataFrame({
-                'PREDICT_10': pred_10,
-                'PREDICT_30': pred_30
-            }).to_csv(pred_file, index=False)
+            for idx in indices:
+                curr_time = str(self.data['CURRTIME'].iloc[idx])
+                total_cnt = int(self.data['TOTALCNT'].iloc[idx]) if idx < len(self.data) else 0
+                pred_10 = self.predict_10_list[idx] if idx < len(self.predict_10_list) else 0
+                pred_30 = self.predict_30_list[idx] if idx < len(self.predict_30_list) else 0
+                
+                # 예측 시간 계산 (YYYYMMDDHHMM + 10분/30분)
+                pred_time_10 = self._add_minutes_to_time(curr_time, 10)
+                pred_time_30 = self._add_minutes_to_time(curr_time, 30)
+                
+                pred_data.append({
+                    'CURRTIME': curr_time,
+                    'TOTALCNT': total_cnt,
+                    'PRED_TIME_10': pred_time_10,
+                    'PREDICT_10': pred_10,
+                    'PRED_TIME_30': pred_time_30,
+                    'PREDICT_30': pred_30
+                })
+            
+            pd.DataFrame(pred_data).to_csv(pred_file, index=False)
+        
+        self.data = self.data.drop(columns=['DATE'])
+        self._save_alerts()
+        print(f"[M14] 파일 저장 완료")
+    
+    def _add_minutes_to_time(self, time_str, mins):
+        """YYYYMMDDHHMM 형식에 분 더하기"""
+        try:
+            if len(time_str) >= 12:
+                dt = datetime.strptime(time_str[:12], "%Y%m%d%H%M")
+                dt = dt + timedelta(minutes=mins)
+                return dt.strftime("%Y%m%d%H%M")
+        except:
+            pass
+        return time_str
         
         self.data = self.data.drop(columns=['DATE'])
         self._save_alerts()
