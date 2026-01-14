@@ -76,6 +76,9 @@ def get_data():
     
     current_val = int(df['TOTALCNT'].iloc[-1]) if pd.notna(df['TOTALCNT'].iloc[-1]) else 0
     
+    # 알람 기록
+    alert_10, alert_30 = data_manager.get_alerts()
+    
     return jsonify({
         'x': times,
         'x_full': times_full,
@@ -87,7 +90,9 @@ def get_data():
         'predict_30': predict_30_list[-1] if predict_30_list else 0,
         'currtime': full_time,
         'idx': len(df),
-        'total': len(df)
+        'total': len(df),
+        'alert_10': alert_10,
+        'alert_30': alert_30
     })
 
 
