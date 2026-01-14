@@ -1,0 +1,643 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>M14 History</title>
+    <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg-primary: #09090b;
+            --bg-secondary: #18181b;
+            --bg-card: #1f1f23;
+            --border: #27272a;
+            --text-primary: #fafafa;
+            --text-secondary: #a1a1aa;
+            --accent: #3b82f6;
+            --success: #22c55e;
+            --warning: #eab308;
+            --danger: #ef4444;
+        }
+        
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        
+        body {
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            font-family: 'Space Grotesk', system-ui, sans-serif;
+            padding: 20px;
+        }
+        
+        .header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+            padding-bottom: 15px;
+            border-bottom: 1px solid var(--border);
+        }
+        
+        .logo {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        
+        .logo-icon {
+            width: 32px;
+            height: 32px;
+            background: linear-gradient(135deg, #f97316, #ef4444);
+            border-radius: 8px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: 700;
+            font-size: 14px;
+        }
+        
+        .logo-text {
+            font-size: 18px;
+            font-weight: 600;
+        }
+        
+        .logo-text span {
+            color: var(--text-secondary);
+            font-weight: 400;
+        }
+        
+        .back-btn {
+            padding: 8px 16px;
+            background: var(--bg-secondary);
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            color: var(--text-primary);
+            cursor: pointer;
+            font-family: inherit;
+            font-size: 13px;
+        }
+        
+        .back-btn:hover {
+            background: var(--bg-card);
+        }
+        
+        .controls {
+            display: flex;
+            gap: 15px;
+            margin-bottom: 20px;
+            flex-wrap: wrap;
+            align-items: center;
+        }
+        
+        .control-group {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        
+        .control-label {
+            font-size: 13px;
+            color: var(--text-secondary);
+        }
+        
+        input[type="date"] {
+            padding: 8px 12px;
+            background: var(--bg-secondary);
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            color: var(--text-primary);
+            font-family: inherit;
+            font-size: 13px;
+        }
+        
+        input[type="date"]::-webkit-calendar-picker-indicator {
+            filter: invert(1);
+        }
+        
+        .btn {
+            padding: 8px 20px;
+            border-radius: 6px;
+            font-size: 13px;
+            font-weight: 500;
+            font-family: inherit;
+            cursor: pointer;
+            border: 1px solid var(--border);
+            background: var(--bg-secondary);
+            color: var(--text-primary);
+        }
+        
+        .btn:hover { background: var(--bg-card); }
+        .btn-primary { background: var(--accent); border-color: var(--accent); }
+        .btn-primary:hover { background: #2563eb; }
+        
+        .stats-row {
+            display: flex;
+            gap: 15px;
+            margin-bottom: 20px;
+            flex-wrap: wrap;
+        }
+        
+        .stat-card {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            padding: 15px 20px;
+            min-width: 150px;
+        }
+        
+        .stat-label {
+            font-size: 11px;
+            color: var(--text-secondary);
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            margin-bottom: 5px;
+        }
+        
+        .stat-value {
+            font-size: 24px;
+            font-weight: 600;
+        }
+        
+        .stat-sub {
+            font-size: 11px;
+            color: var(--text-secondary);
+            margin-top: 3px;
+        }
+        
+        .chart-section {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 15px 20px;
+            margin-bottom: 20px;
+        }
+        
+        .chart-title {
+            font-size: 14px;
+            font-weight: 600;
+            margin-bottom: 10px;
+        }
+        
+        #chart {
+            width: 100%;
+            height: 400px;
+        }
+        
+        .table-section {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 15px 20px;
+            overflow-x: auto;
+        }
+        
+        .table-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 10px;
+        }
+        
+        .table-title {
+            font-size: 14px;
+            font-weight: 600;
+        }
+        
+        .table-info {
+            font-size: 12px;
+            color: var(--text-secondary);
+        }
+        
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 12px;
+        }
+        
+        th, td {
+            padding: 10px 12px;
+            text-align: left;
+            border-bottom: 1px solid var(--border);
+        }
+        
+        th {
+            background: var(--bg-card);
+            color: var(--text-secondary);
+            font-weight: 500;
+            text-transform: uppercase;
+            font-size: 10px;
+            letter-spacing: 0.5px;
+        }
+        
+        tr:hover {
+            background: rgba(255,255,255,0.02);
+        }
+        
+        .value-normal { color: var(--text-primary); }
+        .value-warning { color: var(--warning); }
+        .value-danger { color: var(--danger); }
+        
+        .accuracy-good { color: var(--success); }
+        .accuracy-ok { color: var(--warning); }
+        .accuracy-bad { color: var(--danger); }
+        
+        .empty-state {
+            text-align: center;
+            padding: 60px 20px;
+            color: var(--text-secondary);
+        }
+        
+        .empty-icon {
+            font-size: 48px;
+            margin-bottom: 15px;
+        }
+        
+        .loading {
+            text-align: center;
+            padding: 40px;
+            color: var(--text-secondary);
+        }
+        
+        .alert-badge {
+            display: inline-block;
+            padding: 2px 8px;
+            border-radius: 10px;
+            font-size: 10px;
+            font-weight: 600;
+        }
+        
+        .alert-badge.alarm {
+            background: rgba(239, 68, 68, 0.2);
+            color: var(--danger);
+        }
+        
+        .alert-badge.cooldown {
+            background: rgba(234, 179, 8, 0.2);
+            color: var(--warning);
+        }
+    </style>
+</head>
+<body>
+    <header class="header">
+        <div class="logo">
+            <div class="logo-icon">H</div>
+            <div class="logo-text">M14 <span>History</span></div>
+        </div>
+        <button class="back-btn" onclick="location.href='/'">← 실시간 모니터</button>
+    </header>
+    
+    <div class="controls">
+        <div class="control-group">
+            <span class="control-label">날짜 선택:</span>
+            <input type="date" id="date-picker" onchange="loadData()">
+        </div>
+        <button class="btn btn-primary" onclick="loadData()">조회</button>
+        <button class="btn" onclick="loadYesterday()">어제</button>
+        <button class="btn" onclick="loadToday()">오늘</button>
+    </div>
+    
+    <div class="stats-row" id="stats-row" style="display: none;">
+        <div class="stat-card">
+            <div class="stat-label">데이터 수</div>
+            <div class="stat-value" id="stat-count">-</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-label">평균 TOTALCNT</div>
+            <div class="stat-value" id="stat-avg">-</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-label">최대 TOTALCNT</div>
+            <div class="stat-value" id="stat-max">-</div>
+            <div class="stat-sub" id="stat-max-time">-</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-label">1700+ 초과</div>
+            <div class="stat-value value-danger" id="stat-over">-</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-label">예측10분 정확도</div>
+            <div class="stat-value" id="stat-acc10">-</div>
+            <div class="stat-sub">오차 ±100 이내</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-label">예측30분 정확도</div>
+            <div class="stat-value" id="stat-acc30">-</div>
+            <div class="stat-sub">오차 ±100 이내</div>
+        </div>
+    </div>
+    
+    <div class="chart-section" id="chart-section" style="display: none;">
+        <div class="chart-title">📈 TOTALCNT vs 예측값</div>
+        <div id="chart"></div>
+    </div>
+    
+    <div class="table-section">
+        <div class="table-header">
+            <div class="table-title">📋 상세 데이터</div>
+            <div class="table-info" id="table-info">날짜를 선택하세요</div>
+        </div>
+        <div id="table-container">
+            <div class="empty-state">
+                <div class="empty-icon">📅</div>
+                <div>날짜를 선택하고 조회 버튼을 누르세요</div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // 오늘 날짜로 초기화
+        const today = new Date();
+        document.getElementById('date-picker').value = formatDate(today);
+        
+        function formatDate(date) {
+            const y = date.getFullYear();
+            const m = String(date.getMonth() + 1).padStart(2, '0');
+            const d = String(date.getDate()).padStart(2, '0');
+            return `${y}-${m}-${d}`;
+        }
+        
+        function loadToday() {
+            document.getElementById('date-picker').value = formatDate(new Date());
+            loadData();
+        }
+        
+        function loadYesterday() {
+            const yesterday = new Date();
+            yesterday.setDate(yesterday.getDate() - 1);
+            document.getElementById('date-picker').value = formatDate(yesterday);
+            loadData();
+        }
+        
+        async function loadData() {
+            const dateInput = document.getElementById('date-picker').value;
+            if (!dateInput) {
+                alert('날짜를 선택하세요');
+                return;
+            }
+            
+            const dateStr = dateInput.replace(/-/g, '');
+            
+            document.getElementById('table-container').innerHTML = '<div class="loading">로딩 중...</div>';
+            
+            try {
+                const res = await fetch(`/api/history?date=${dateStr}`);
+                const data = await res.json();
+                
+                if (data.error) {
+                    document.getElementById('table-container').innerHTML = `
+                        <div class="empty-state">
+                            <div class="empty-icon">❌</div>
+                            <div>${data.error}</div>
+                        </div>
+                    `;
+                    document.getElementById('stats-row').style.display = 'none';
+                    document.getElementById('chart-section').style.display = 'none';
+                    return;
+                }
+                
+                if (!data.data || data.data.length === 0) {
+                    document.getElementById('table-container').innerHTML = `
+                        <div class="empty-state">
+                            <div class="empty-icon">📭</div>
+                            <div>해당 날짜에 데이터가 없습니다</div>
+                        </div>
+                    `;
+                    document.getElementById('stats-row').style.display = 'none';
+                    document.getElementById('chart-section').style.display = 'none';
+                    return;
+                }
+                
+                // 통계 계산
+                updateStats(data);
+                
+                // 차트 그리기
+                drawChart(data);
+                
+                // 테이블 그리기
+                drawTable(data);
+                
+                document.getElementById('stats-row').style.display = 'flex';
+                document.getElementById('chart-section').style.display = 'block';
+                document.getElementById('table-info').textContent = `${dateInput} | ${data.data.length}개 데이터`;
+                
+            } catch (e) {
+                console.error(e);
+                document.getElementById('table-container').innerHTML = `
+                    <div class="empty-state">
+                        <div class="empty-icon">⚠️</div>
+                        <div>데이터 조회 실패</div>
+                    </div>
+                `;
+            }
+        }
+        
+        function updateStats(data) {
+            const rows = data.data;
+            const totalcnts = rows.map(r => r.TOTALCNT || 0);
+            
+            // 기본 통계
+            document.getElementById('stat-count').textContent = rows.length;
+            document.getElementById('stat-avg').textContent = Math.round(totalcnts.reduce((a,b) => a+b, 0) / totalcnts.length);
+            
+            const maxVal = Math.max(...totalcnts);
+            const maxIdx = totalcnts.indexOf(maxVal);
+            document.getElementById('stat-max').textContent = maxVal;
+            document.getElementById('stat-max').className = 'stat-value ' + getValueClass(maxVal);
+            document.getElementById('stat-max-time').textContent = formatTime(rows[maxIdx].CURRTIME);
+            
+            const overCount = totalcnts.filter(v => v >= 1700).length;
+            document.getElementById('stat-over').textContent = overCount;
+            
+            // 예측 정확도 계산 (10분 예측)
+            let acc10Count = 0;
+            let acc10Total = 0;
+            let acc30Count = 0;
+            let acc30Total = 0;
+            
+            for (let i = 0; i < rows.length; i++) {
+                const row = rows[i];
+                
+                // 10분 예측 검증: i번째 예측이 i+10번째 실제값과 비교
+                if (i + 10 < rows.length && row.PREDICT_10) {
+                    const actual = rows[i + 10].TOTALCNT;
+                    const predicted = row.PREDICT_10;
+                    const error = Math.abs(actual - predicted);
+                    acc10Total++;
+                    if (error <= 100) acc10Count++;
+                }
+                
+                // 30분 예측 검증
+                if (i + 30 < rows.length && row.PREDICT_30) {
+                    const actual = rows[i + 30].TOTALCNT;
+                    const predicted = row.PREDICT_30;
+                    const error = Math.abs(actual - predicted);
+                    acc30Total++;
+                    if (error <= 100) acc30Count++;
+                }
+            }
+            
+            const acc10 = acc10Total > 0 ? Math.round(acc10Count / acc10Total * 100) : 0;
+            const acc30 = acc30Total > 0 ? Math.round(acc30Count / acc30Total * 100) : 0;
+            
+            document.getElementById('stat-acc10').textContent = acc10 + '%';
+            document.getElementById('stat-acc10').className = 'stat-value ' + getAccuracyClass(acc10);
+            
+            document.getElementById('stat-acc30').textContent = acc30 + '%';
+            document.getElementById('stat-acc30').className = 'stat-value ' + getAccuracyClass(acc30);
+        }
+        
+        function getValueClass(val) {
+            if (val >= 1700) return 'value-danger';
+            if (val >= 1600) return 'value-warning';
+            return 'value-normal';
+        }
+        
+        function getAccuracyClass(acc) {
+            if (acc >= 70) return 'accuracy-good';
+            if (acc >= 50) return 'accuracy-ok';
+            return 'accuracy-bad';
+        }
+        
+        function formatTime(currtime) {
+            const s = String(currtime);
+            if (s.length >= 12) {
+                return `${s.slice(8,10)}:${s.slice(10,12)}`;
+            }
+            return s;
+        }
+        
+        function formatTimeFull(currtime) {
+            const s = String(currtime);
+            if (s.length >= 12) {
+                return `${s.slice(0,4)}-${s.slice(4,6)}-${s.slice(6,8)} ${s.slice(8,10)}:${s.slice(10,12)}`;
+            }
+            return s;
+        }
+        
+        function drawChart(data) {
+            const rows = data.data;
+            
+            const times = rows.map(r => formatTime(r.CURRTIME));
+            const totalcnts = rows.map(r => r.TOTALCNT || 0);
+            const pred10s = rows.map(r => r.PREDICT_10 || 0);
+            const pred30s = rows.map(r => r.PREDICT_30 || 0);
+            
+            const traces = [
+                {
+                    x: times,
+                    y: totalcnts,
+                    name: 'TOTALCNT',
+                    type: 'scatter',
+                    mode: 'lines',
+                    line: { color: '#3b82f6', width: 2 }
+                },
+                {
+                    x: times,
+                    y: pred10s,
+                    name: '예측(10분)',
+                    type: 'scatter',
+                    mode: 'lines',
+                    line: { color: '#22c55e', width: 1, dash: 'dot' }
+                },
+                {
+                    x: times,
+                    y: pred30s,
+                    name: '예측(30분)',
+                    type: 'scatter',
+                    mode: 'lines',
+                    line: { color: '#f97316', width: 1, dash: 'dash' }
+                }
+            ];
+            
+            const layout = {
+                paper_bgcolor: 'transparent',
+                plot_bgcolor: 'transparent',
+                font: { color: '#a1a1aa', family: 'Space Grotesk', size: 11 },
+                showlegend: true,
+                legend: { x: 0, y: 1.1, orientation: 'h' },
+                xaxis: {
+                    gridcolor: '#27272a',
+                    tickangle: -45
+                },
+                yaxis: {
+                    gridcolor: '#27272a',
+                    range: [1000, 2000]
+                },
+                margin: { t: 30, r: 20, b: 60, l: 50 },
+                shapes: [{
+                    type: 'line',
+                    y0: 1700, y1: 1700,
+                    x0: 0, x1: 1, xref: 'paper',
+                    line: { color: '#ef4444', width: 2, dash: 'solid' }
+                }]
+            };
+            
+            Plotly.newPlot('chart', traces, layout, { responsive: true, displayModeBar: false });
+        }
+        
+        function drawTable(data) {
+            const rows = data.data;
+            const alerts10 = data.alerts_10 || [];
+            const alerts30 = data.alerts_30 || [];
+            
+            // 알람 맵 만들기
+            const alertMap10 = {};
+            alerts10.forEach(a => { alertMap10[String(a.CURRTIME)] = a; });
+            const alertMap30 = {};
+            alerts30.forEach(a => { alertMap30[String(a.CURRTIME)] = a; });
+            
+            let html = `
+                <table>
+                    <thead>
+                        <tr>
+                            <th>시간</th>
+                            <th>TOTALCNT</th>
+                            <th>예측시점(10분)</th>
+                            <th>예측값(10분)</th>
+                            <th>예측시점(30분)</th>
+                            <th>예측값(30분)</th>
+                            <th>알람</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+            `;
+            
+            rows.forEach(row => {
+                const currtime = String(row.CURRTIME);
+                const alert10 = alertMap10[currtime];
+                const alert30 = alertMap30[currtime];
+                
+                let alertHtml = '';
+                if (alert10) {
+                    if (alert10.IS_ALARM) {
+                        alertHtml += `<span class="alert-badge alarm">🔔 10분 #${alert10.ALARM_NO}</span> `;
+                    } else {
+                        alertHtml += `<span class="alert-badge cooldown">⏱ 10분 쿨타임</span> `;
+                    }
+                }
+                if (alert30) {
+                    if (alert30.IS_ALARM) {
+                        alertHtml += `<span class="alert-badge alarm">🔔 30분 #${alert30.ALARM_NO}</span> `;
+                    } else {
+                        alertHtml += `<span class="alert-badge cooldown">⏱ 30분 쿨타임</span> `;
+                    }
+                }
+                
+                html += `
+                    <tr>
+                        <td>${formatTimeFull(row.CURRTIME)}</td>
+                        <td class="${getValueClass(row.TOTALCNT)}">${(row.TOTALCNT || 0).toLocaleString()}</td>
+                        <td>${formatTimeFull(row.PRED_TIME_10) || '-'}</td>
+                        <td class="${getValueClass(row.PREDICT_10)}">${(row.PREDICT_10 || 0).toLocaleString()}</td>
+                        <td>${formatTimeFull(row.PRED_TIME_30) || '-'}</td>
+                        <td class="${getValueClass(row.PREDICT_30)}">${(row.PREDICT_30 || 0).toLocaleString()}</td>
+                        <td>${alertHtml || '-'}</td>
+                    </tr>
+                `;
+            });
+            
+            html += '</tbody></table>';
+            document.getElementById('table-container').innerHTML = html;
+        }
+    </script>
+</body>
+</html>
