@@ -155,6 +155,8 @@
 
     <script>
         let isAlarm = false;
+        let lastDataTime = null;
+        let sameTimeCount = 0;
         
         function getValueClass(val) {
             if (val >= 1700) return 'danger';
@@ -186,12 +188,33 @@
         
         async function fetchData() {
             try {
-                const res = await fetch('/api/data');
+                // /api/next로 새 데이터 가져오기
+                const res = await fetch('/api/next');
                 const data = await res.json();
                 
                 const total = data.current || 0;
                 const pred10 = data.predict_10 || 0;
                 const pred30 = data.predict_30 || 0;
+                const currTime = data.currtime || '';
+                
+                // 상태 체크: 5분(5번) 동안 데이터 안 바뀌면 STOP
+                const statusDot = document.getElementById('status-dot');
+                const statusText = document.getElementById('status-text');
+                
+                if (lastDataTime === currTime) {
+                    sameTimeCount++;
+                    if (sameTimeCount >= 5) {
+                        statusText.textContent = 'STOP';
+                        statusDot.style.background = '#ef4444';
+                        statusDot.style.animation = 'none';
+                    }
+                } else {
+                    sameTimeCount = 0;
+                    statusText.textContent = 'RUN';
+                    statusDot.style.background = '#22c55e';
+                    statusDot.style.animation = 'blink 1.5s infinite';
+                }
+                lastDataTime = currTime;
                 
                 // 값 업데이트
                 const totalEl = document.getElementById('total-value');
@@ -255,9 +278,9 @@
             }
         }
         
-        // 5초마다 업데이트
+        // 60초마다 업데이트 (1분 데이터니까)
         fetchData();
-        setInterval(fetchData, 5000);
+        setInterval(fetchData, 60000);
     </script>
 </body>
 </html>
