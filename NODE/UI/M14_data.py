@@ -158,46 +158,75 @@ def get_latest_row():
 class M14DataManager:
     """
     M14 데이터 관리자
-    - 파일에 데이터 저장
+    - 날짜별 파일 저장 (m14_data_20250114.csv)
     - 빠진 시간대만 API로 가져옴
     """
     
-    def __init__(self, window_minutes=280, data_file='m14_data.csv'):
+    def __init__(self, window_minutes=280, data_dir='data'):
         self.window_minutes = window_minutes
-        self.data_file = data_file
-        self.pred_file = data_file.replace('.csv', '_pred.csv')
+        self.data_dir = data_dir
         self.data = None
         self.predict_10_list = []
         self.predict_30_list = []
         self.last_update = None
         self._predictor_10 = None
         self._predictor_30 = None
+        
+        # 폴더 생성
+        if not os.path.exists(data_dir):
+            os.makedirs(data_dir)
+    
+    def _get_file_path(self, date_str):
+        """날짜별 파일 경로"""
+        return os.path.join(self.data_dir, f'm14_data_{date_str}.csv')
+    
+    def _get_pred_file_path(self, date_str):
+        """날짜별 예측 파일 경로"""
+        return os.path.join(self.data_dir, f'm14_pred_{date_str}.csv')
     
     def set_predictors(self, pred_10, pred_30):
         self._predictor_10 = pred_10
         self._predictor_30 = pred_30
     
     def initialize(self):
-        """초기화 - 파일 로드 + 빠진 데이터만 API로"""
+        """초기화 - 최근 날짜 파일들 로드 + 빠진 데이터 API로"""
         
-        # 1) 파일 있으면 로드
-        if os.path.exists(self.data_file):
-            print(f"[M14] 파일 로드: {self.data_file}")
-            self.data = pd.read_csv(self.data_file)
-            self.data['CURRTIME'] = self.data['CURRTIME'].astype(str)
+        # 오늘, 어제 날짜 (280분이면 최대 이틀치 필요)
+        today = datetime.now().strftime("%Y%m%d")
+        yesterday = (datetime.now() - timedelta(days=1)).strftime("%Y%m%d")
+        
+        all_data = []
+        all_pred_10 = []
+        all_pred_30 = []
+        
+        # 어제 + 오늘 파일 로드
+        for date_str in [yesterday, today]:
+            data_file = self._get_file_path(date_str)
+            pred_file = self._get_pred_file_path(date_str)
             
-            if os.path.exists(self.pred_file):
-                pred_df = pd.read_csv(self.pred_file)
-                self.predict_10_list = pred_df['PREDICT_10'].tolist()
-                self.predict_30_list = pred_df['PREDICT_30'].tolist()
-            
-            print(f"  → {len(self.data)} rows")
+            if os.path.exists(data_file):
+                print(f"[M14] 파일 로드: {data_file}")
+                df = pd.read_csv(data_file)
+                df['CURRTIME'] = df['CURRTIME'].astype(str)
+                all_data.append(df)
+                
+                if os.path.exists(pred_file):
+                    pred_df = pd.read_csv(pred_file)
+                    all_pred_10.extend(pred_df['PREDICT_10'].tolist())
+                    all_pred_30.extend(pred_df['PREDICT_30'].tolist())
+        
+        # 합치기
+        if all_data:
+            self.data = pd.concat(all_data, ignore_index=True)
+            self.data = self.data.drop_duplicates(subset=['CURRTIME']).sort_values('CURRTIME').reset_index(drop=True)
+            self.predict_10_list = all_pred_10
+            self.predict_30_list = all_pred_30
+            print(f"[M14] 로드 완료: {len(self.data)} rows")
             
             # 빠진 데이터 가져오기
             self._fetch_missing()
-        
-        # 2) 파일 없으면 전체 조회
         else:
+            # 파일 없으면 API 조회
             print(f"[M14] 파일 없음, API 조회...")
             self.data = get_realtime_data(minutes=self.window_minutes)
             
@@ -206,6 +235,13 @@ class M14DataManager:
             
             self._calculate_predictions_for_new(len(self.data))
             self._save()
+        
+        # 윈도우 유지
+        if len(self.data) > self.window_minutes:
+            cut = len(self.data) - self.window_minutes
+            self.data = self.data.tail(self.window_minutes).reset_index(drop=True)
+            self.predict_10_list = self.predict_10_list[-self.window_minutes:] if len(self.predict_10_list) > self.window_minutes else self.predict_10_list
+            self.predict_30_list = self.predict_30_list[-self.window_minutes:] if len(self.predict_30_list) > self.window_minutes else self.predict_30_list
         
         self.last_update = datetime.now()
         return True
@@ -218,21 +254,16 @@ class M14DataManager:
         last_time = str(self.data['CURRTIME'].iloc[-1])
         print(f"[M14] 마지막 데이터: {last_time}")
         
-        # 마지막 시간 이후부터 현재까지 조회
         try:
-            from_time = last_time  # 마지막 시간
-            to_time = datetime.now().strftime("%Y%m%d%H%M")
-            
-            # 1분 더해서 조회 (중복 방지)
-            from_dt = datetime.strptime(from_time, "%Y%m%d%H%M") + timedelta(minutes=1)
+            from_dt = datetime.strptime(last_time, "%Y%m%d%H%M") + timedelta(minutes=1)
             from_time = from_dt.strftime("%Y%m%d%H%M")
+            to_time = datetime.now().strftime("%Y%m%d%H%M")
             
             if from_time >= to_time:
                 print(f"[M14] 빠진 데이터 없음")
                 return
             
             print(f"[M14] 빠진 데이터 조회: {from_time} ~ {to_time}")
-            
             new_data = get_realtime_data_range(from_time, to_time)
             
             if new_data is not None and len(new_data) > 0:
@@ -242,28 +273,18 @@ class M14DataManager:
                 self.data = pd.concat([self.data, new_data], ignore_index=True)
                 self.data = self.data.drop_duplicates(subset=['CURRTIME']).sort_values('CURRTIME').reset_index(drop=True)
                 
-                # 새로 추가된 것들만 예측
                 new_count = len(self.data) - old_len
                 if new_count > 0:
                     self._calculate_predictions_for_new(new_count)
                 
-                # 윈도우 유지
-                if len(self.data) > self.window_minutes:
-                    cut = len(self.data) - self.window_minutes
-                    self.data = self.data.tail(self.window_minutes).reset_index(drop=True)
-                    self.predict_10_list = self.predict_10_list[cut:]
-                    self.predict_30_list = self.predict_30_list[cut:]
-                
                 self._save()
-            else:
-                print(f"[M14] 새 데이터 없음")
                 
         except Exception as e:
             print(f"[M14] 빠진 데이터 조회 실패: {e}")
     
     def _calculate_predictions_for_new(self, new_count):
         """새로 추가된 데이터만 예측"""
-        if self._predictor_10 is None or self._predictor_10 is None:
+        if self._predictor_10 is None or self._predictor_30 is None:
             self.predict_10_list.extend([0] * new_count)
             self.predict_30_list.extend([0] * new_count)
             return
@@ -283,16 +304,44 @@ class M14DataManager:
                 self.predict_30_list.append(0)
     
     def _save(self):
-        """파일 저장"""
-        self.data.to_csv(self.data_file, index=False)
-        pd.DataFrame({
-            'PREDICT_10': self.predict_10_list,
-            'PREDICT_30': self.predict_30_list
-        }).to_csv(self.pred_file, index=False)
+        """날짜별 파일 저장"""
+        if self.data is None or len(self.data) == 0:
+            return
+        
+        # 날짜별로 분리해서 저장
+        self.data['DATE'] = self.data['CURRTIME'].str[:8]
+        
+        for date_str, group in self.data.groupby('DATE'):
+            data_file = self._get_file_path(date_str)
+            pred_file = self._get_pred_file_path(date_str)
+            
+            # 데이터 저장
+            group_save = group.drop(columns=['DATE'])
+            group_save.to_csv(data_file, index=False)
+            
+            # 예측값 저장 (해당 날짜 인덱스 찾기)
+            indices = group.index.tolist()
+            pred_10 = [self.predict_10_list[i] if i < len(self.predict_10_list) else 0 for i in indices]
+            pred_30 = [self.predict_30_list[i] if i < len(self.predict_30_list) else 0 for i in indices]
+            
+            pd.DataFrame({
+                'PREDICT_10': pred_10,
+                'PREDICT_30': pred_30
+            }).to_csv(pred_file, index=False)
+        
+        self.data = self.data.drop(columns=['DATE'])
+        print(f"[M14] 파일 저장 완료")
     
     def update(self):
-        """새 데이터 1개 추가"""
+        """새 데이터 추가"""
         self._fetch_missing()
+        
+        # 윈도우 유지
+        if len(self.data) > self.window_minutes:
+            self.data = self.data.tail(self.window_minutes).reset_index(drop=True)
+            self.predict_10_list = self.predict_10_list[-self.window_minutes:]
+            self.predict_30_list = self.predict_30_list[-self.window_minutes:]
+        
         self.last_update = datetime.now()
         return True
     
@@ -307,12 +356,36 @@ class M14DataManager:
             return self.data.iloc[-1].to_dict()
         return None
     
+    def load_date(self, date_str):
+        """특정 날짜 데이터 로드"""
+        data_file = self._get_file_path(date_str)
+        pred_file = self._get_pred_file_path(date_str)
+        
+        if os.path.exists(data_file):
+            df = pd.read_csv(data_file)
+            df['CURRTIME'] = df['CURRTIME'].astype(str)
+            
+            pred_10 = []
+            pred_30 = []
+            if os.path.exists(pred_file):
+                pred_df = pd.read_csv(pred_file)
+                pred_10 = pred_df['PREDICT_10'].tolist()
+                pred_30 = pred_df['PREDICT_30'].tolist()
+            
+            return df, pred_10, pred_30
+        return None, [], []
+    
     def refresh(self):
-        """전체 새로고침"""
-        if os.path.exists(self.data_file):
-            os.remove(self.data_file)
-        if os.path.exists(self.pred_file):
-            os.remove(self.pred_file)
+        """오늘 데이터만 새로고침"""
+        today = datetime.now().strftime("%Y%m%d")
+        data_file = self._get_file_path(today)
+        pred_file = self._get_pred_file_path(today)
+        
+        if os.path.exists(data_file):
+            os.remove(data_file)
+        if os.path.exists(pred_file):
+            os.remove(pred_file)
+        
         self.data = None
         self.predict_10_list = []
         self.predict_30_list = []
