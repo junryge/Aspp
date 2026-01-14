@@ -159,6 +159,7 @@ class M14DataManager:
     """
     M14 데이터 관리자
     - 날짜별 파일 저장 (m14_data_20250114.csv)
+    - 알람 기록도 저장 (m14_alert_20250114.csv)
     - 빠진 시간대만 API로 가져옴
     """
     
@@ -168,6 +169,8 @@ class M14DataManager:
         self.data = None
         self.predict_10_list = []
         self.predict_30_list = []
+        self.alert_10_list = []  # 10분 예측 1700+ 알람 기록
+        self.alert_30_list = []  # 30분 예측 1700+ 알람 기록
         self.last_update = None
         self._predictor_10 = None
         self._predictor_30 = None
@@ -183,6 +186,10 @@ class M14DataManager:
     def _get_pred_file_path(self, date_str):
         """날짜별 예측 파일 경로"""
         return os.path.join(self.data_dir, f'm14_pred_{date_str}.csv')
+    
+    def _get_alert_file_path(self, date_str):
+        """날짜별 알람 파일 경로"""
+        return os.path.join(self.data_dir, f'm14_alert_{date_str}.csv')
     
     def set_predictors(self, pred_10, pred_30):
         self._predictor_10 = pred_10
@@ -214,6 +221,14 @@ class M14DataManager:
                     pred_df = pd.read_csv(pred_file)
                     all_pred_10.extend(pred_df['PREDICT_10'].tolist())
                     all_pred_30.extend(pred_df['PREDICT_30'].tolist())
+        
+        # 오늘 알람 기록 로드
+        alert_file = self._get_alert_file_path(today)
+        if os.path.exists(alert_file):
+            alert_df = pd.read_csv(alert_file)
+            self.alert_10_list = alert_df[alert_df['TYPE'] == '10'].to_dict('records')
+            self.alert_30_list = alert_df[alert_df['TYPE'] == '30'].to_dict('records')
+            print(f"[M14] 알람 로드: 10분={len(self.alert_10_list)}개, 30분={len(self.alert_30_list)}개")
         
         # 합치기
         if all_data:
@@ -297,11 +312,35 @@ class M14DataManager:
                 df_slice = self.data.iloc[:i + 1]
                 p10 = self._predictor_10.predict(df_slice)
                 p30 = self._predictor_30.predict(df_slice)
-                self.predict_10_list.append(p10['predict_value'])
-                self.predict_30_list.append(p30['predict_value'])
+                pred_10_val = p10['predict_value']
+                pred_30_val = p30['predict_value']
+                self.predict_10_list.append(pred_10_val)
+                self.predict_30_list.append(pred_30_val)
+                
+                # 1700+ 알람 기록
+                curr_time = str(self.data['CURRTIME'].iloc[i])
+                if pred_10_val >= 1700:
+                    self._add_alert('10', curr_time, pred_10_val)
+                if pred_30_val >= 1700:
+                    self._add_alert('30', curr_time, pred_30_val)
             else:
                 self.predict_10_list.append(0)
                 self.predict_30_list.append(0)
+    
+    def _add_alert(self, alert_type, curr_time, value):
+        """알람 기록 추가"""
+        alert_list = self.alert_10_list if alert_type == '10' else self.alert_30_list
+        
+        # 중복 체크
+        if any(a['CURRTIME'] == curr_time for a in alert_list):
+            return
+        
+        alert_list.append({
+            'TYPE': alert_type,
+            'CURRTIME': curr_time,
+            'VALUE': value,
+            'TIMESTAMP': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        })
     
     def _save(self):
         """날짜별 파일 저장"""
@@ -330,7 +369,27 @@ class M14DataManager:
             }).to_csv(pred_file, index=False)
         
         self.data = self.data.drop(columns=['DATE'])
+        
+        # 오늘 알람 저장
+        self._save_alerts()
+        
         print(f"[M14] 파일 저장 완료")
+    
+    def _save_alerts(self):
+        """알람 기록 저장"""
+        today = datetime.now().strftime("%Y%m%d")
+        alert_file = self._get_alert_file_path(today)
+        
+        all_alerts = []
+        for a in self.alert_10_list:
+            a['TYPE'] = '10'
+            all_alerts.append(a)
+        for a in self.alert_30_list:
+            a['TYPE'] = '30'
+            all_alerts.append(a)
+        
+        if all_alerts:
+            pd.DataFrame(all_alerts).to_csv(alert_file, index=False)
     
     def update(self):
         """새 데이터 추가"""
@@ -351,6 +410,10 @@ class M14DataManager:
     def get_predictions(self):
         return self.predict_10_list, self.predict_30_list
     
+    def get_alerts(self):
+        """알람 기록 반환"""
+        return self.alert_10_list, self.alert_30_list
+    
     def get_latest(self):
         if self.data is not None and len(self.data) > 0:
             return self.data.iloc[-1].to_dict()
@@ -360,35 +423,46 @@ class M14DataManager:
         """특정 날짜 데이터 로드"""
         data_file = self._get_file_path(date_str)
         pred_file = self._get_pred_file_path(date_str)
+        alert_file = self._get_alert_file_path(date_str)
         
         if os.path.exists(data_file):
             df = pd.read_csv(data_file)
             df['CURRTIME'] = df['CURRTIME'].astype(str)
             
-            pred_10 = []
-            pred_30 = []
+            pred_10, pred_30 = [], []
             if os.path.exists(pred_file):
                 pred_df = pd.read_csv(pred_file)
                 pred_10 = pred_df['PREDICT_10'].tolist()
                 pred_30 = pred_df['PREDICT_30'].tolist()
             
-            return df, pred_10, pred_30
-        return None, [], []
+            alert_10, alert_30 = [], []
+            if os.path.exists(alert_file):
+                alert_df = pd.read_csv(alert_file)
+                alert_10 = alert_df[alert_df['TYPE'] == '10'].to_dict('records')
+                alert_30 = alert_df[alert_df['TYPE'] == '30'].to_dict('records')
+            
+            return df, pred_10, pred_30, alert_10, alert_30
+        return None, [], [], [], []
     
     def refresh(self):
         """오늘 데이터만 새로고침"""
         today = datetime.now().strftime("%Y%m%d")
         data_file = self._get_file_path(today)
         pred_file = self._get_pred_file_path(today)
+        alert_file = self._get_alert_file_path(today)
         
         if os.path.exists(data_file):
             os.remove(data_file)
         if os.path.exists(pred_file):
             os.remove(pred_file)
+        if os.path.exists(alert_file):
+            os.remove(alert_file)
         
         self.data = None
         self.predict_10_list = []
         self.predict_30_list = []
+        self.alert_10_list = []
+        self.alert_30_list = []
         return self.initialize()
 
 
