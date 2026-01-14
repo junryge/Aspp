@@ -1,8 +1,8 @@
 # -*- coding: utf-8 -*-
 """
 ================================================================================
-V10_4b ML 예측 모델 - 학습 코드 (30분 예측)
-V10_4 + Job Feature (JobPrep_Count, Reserved_Count, JobEnd_Count) 추가
+V10_4c ML 예측 모델 - 학습 코드 (30분 예측)
+V10_4b + LGBM 분류기 튜닝 (class_weight, threshold 조정)
 ================================================================================
 """
 
@@ -14,7 +14,7 @@ import numpy as np
 import pandas as pd
 from datetime import datetime
 from sklearn.preprocessing import StandardScaler
-from xgboost import XGBRegressor
+from xgboost import XGBRegressor, XGBClassifier
 from lightgbm import LGBMClassifier
 
 warnings.filterwarnings('ignore')
@@ -24,9 +24,9 @@ warnings.filterwarnings('ignore')
 # ============================================================================
 CONFIG = {
     'train_file': 'M14_학습*.CSV',
-    'model_file': 'models/v10_4b_30min_m14_model.pkl',  # 변경: v10_4b_30min
+    'model_file': 'models/v10_4c_30min_m14_model.pkl',
     'sequence_length': 280,
-    'prediction_offset': 30,  # 30분!
+    'prediction_offset': 30,
     'limit_value': 1700,
     'target_column': 'TOTALCNT',
 }
@@ -74,7 +74,6 @@ FEATURE_GROUPS = {
         'M14.PDT.LAYOUT.M14A_M14ATOM14ACNV_CURRENTQCNT',
         'M14.PDT.LAYOUT.HUBROOM_M14TOM16_CURRENTQCNT',
     ],
-    # ★ 신규 추가: Job Feature 그룹
     'job_features': [
         'JobPrep_Count',
         'Reserved_Count', 
@@ -85,8 +84,8 @@ FEATURE_GROUPS = {
 }
 
 print("=" * 70)
-print("🚀 V10_4b ML 예측 모델 - 학습 시작")
-print("   V10_4 + Job Feature (JobPrep, Reserved, JobEnd) 추가")
+print("🚀 V10_4c ML 예측 모델 - 학습 시작")
+print("   V10_4b + LGBM 튜닝 (class_weight, scale_pos_weight)")
 print("   시퀀스: 280분, 예측: 30분 후")
 print("=" * 70)
 
@@ -130,7 +129,7 @@ if 'M14.QUE.ALL.CURRENTQCREATED' in df.columns and 'M14.QUE.ALL.CURRENTQCOMPLETE
     FEATURE_GROUPS['auxiliary'].append('QUEUE_GAP')
     print("  - QUEUE_GAP 파생 변수 추가!")
 
-# ★ Job Feature 파생변수 생성
+# Job Feature 파생변수 생성
 job_cols_exist = all(col in df.columns for col in ['JobPrep_Count', 'Reserved_Count', 'JobEnd_Count'])
 if job_cols_exist:
     df['Job_Total'] = df['JobPrep_Count'] + df['Reserved_Count'] + df['JobEnd_Count']
@@ -210,7 +209,6 @@ for idx in range(seq_len, len(df) - pred_offset):
     if FEATURE_GROUPS['pdt_new']:
         X_pdt_new.append(create_sequence_features(df, FEATURE_GROUPS['pdt_new'], seq_len, idx))
     
-    # ★ Job Features
     if FEATURE_GROUPS['job_features']:
         X_job.append(create_sequence_features(df, FEATURE_GROUPS['job_features'], seq_len, idx))
 
@@ -222,7 +220,14 @@ X_job = np.array(X_job) if X_job else np.array([])
 y_reg = np.array(y_reg)
 y_clf = np.array(y_clf)
 
-print(f"  → 샘플: {len(y_reg):,}개, 1700+: {sum(y_clf):,}개 ({100*sum(y_clf)/len(y_clf):.2f}%)")
+# ★ 클래스 불균형 계산
+n_danger = sum(y_clf)
+n_safe = len(y_clf) - n_danger
+class_ratio = n_safe / n_danger if n_danger > 0 else 1
+
+print(f"  → 샘플: {len(y_reg):,}개")
+print(f"  → 1700+: {n_danger:,}개 ({100*n_danger/len(y_clf):.2f}%)")
+print(f"  → 클래스 비율: 1:{class_ratio:.1f} (scale_pos_weight에 사용)")
 
 # ============================================================================
 # 스케일링
@@ -243,62 +248,105 @@ if len(X_pdt_new) > 0:
     scalers['pdt_new'] = StandardScaler()
     X_pdt_new_scaled = scalers['pdt_new'].fit_transform(X_pdt_new)
 
-# ★ Job Features 스케일링
 if len(X_job) > 0:
     scalers['job_features'] = StandardScaler()
     X_job_scaled = scalers['job_features'].fit_transform(X_job)
 
 # ============================================================================
-# 모델 학습
+# 모델 학습 (★ LGBM 튜닝!)
 # ============================================================================
 print("\n[5/6] 모델 학습 중...")
 
 models = {}
 
-xgb_params = {'n_estimators': 200, 'max_depth': 6, 'learning_rate': 0.05, 'random_state': 42, 'n_jobs': -1}
-lgb_params = {'n_estimators': 200, 'max_depth': 6, 'learning_rate': 0.05, 'random_state': 42, 'n_jobs': -1, 'verbose': -1}
+# XGB 회귀 파라미터 (기존과 동일)
+xgb_reg_params = {
+    'n_estimators': 200, 
+    'max_depth': 6, 
+    'learning_rate': 0.05, 
+    'random_state': 42, 
+    'n_jobs': -1
+}
 
-print("  - XGB Target...")
-models['xgb_target'] = XGBRegressor(**xgb_params)
+# ★ LGBM 분류 파라미터 튜닝 (클래스 불균형 처리)
+lgb_clf_params = {
+    'n_estimators': 300,           # 더 많은 트리
+    'max_depth': 8,                # 더 깊게
+    'learning_rate': 0.03,         # 더 작은 학습률
+    'num_leaves': 50,              # 더 많은 리프
+    'min_child_samples': 20,       # 과적합 방지
+    'scale_pos_weight': class_ratio,  # ★ 클래스 불균형 보정
+    'random_state': 42, 
+    'n_jobs': -1, 
+    'verbose': -1,
+    'force_col_wise': True,
+}
+
+# ★ XGB 분류도 추가 (LGBM 보완용)
+xgb_clf_params = {
+    'n_estimators': 300,
+    'max_depth': 8,
+    'learning_rate': 0.03,
+    'scale_pos_weight': class_ratio,  # ★ 클래스 불균형 보정
+    'random_state': 42,
+    'n_jobs': -1,
+    'use_label_encoder': False,
+    'eval_metric': 'logloss',
+}
+
+# Target 그룹
+print("  - XGB Target (회귀)...")
+models['xgb_target'] = XGBRegressor(**xgb_reg_params)
 models['xgb_target'].fit(X_target_scaled, y_reg)
 
-print("  - XGB Important...")
-models['xgb_important'] = XGBRegressor(**xgb_params)
-models['xgb_important'].fit(X_important_scaled, y_reg)
-
-print("  - XGB Auxiliary...")
-models['xgb_auxiliary'] = XGBRegressor(**xgb_params)
-models['xgb_auxiliary'].fit(X_auxiliary_scaled, y_reg)
-
-print("  - LGBM Target...")
-models['lgb_target'] = LGBMClassifier(**lgb_params)
+print("  - LGBM Target (분류, 튜닝)...")
+models['lgb_target'] = LGBMClassifier(**lgb_clf_params)
 models['lgb_target'].fit(X_target_scaled, y_clf)
 
-print("  - LGBM Important...")
-models['lgb_important'] = LGBMClassifier(**lgb_params)
+print("  - XGB Target (분류, 추가)...")
+models['xgb_target_clf'] = XGBClassifier(**xgb_clf_params)
+models['xgb_target_clf'].fit(X_target_scaled, y_clf)
+
+# Important 그룹
+print("  - XGB Important (회귀)...")
+models['xgb_important'] = XGBRegressor(**xgb_reg_params)
+models['xgb_important'].fit(X_important_scaled, y_reg)
+
+print("  - LGBM Important (분류, 튜닝)...")
+models['lgb_important'] = LGBMClassifier(**lgb_clf_params)
 models['lgb_important'].fit(X_important_scaled, y_clf)
 
-print("  - LGBM Auxiliary...")
-models['lgb_auxiliary'] = LGBMClassifier(**lgb_params)
+print("  - XGB Important (분류, 추가)...")
+models['xgb_important_clf'] = XGBClassifier(**xgb_clf_params)
+models['xgb_important_clf'].fit(X_important_scaled, y_clf)
+
+# Auxiliary 그룹
+print("  - XGB Auxiliary (회귀)...")
+models['xgb_auxiliary'] = XGBRegressor(**xgb_reg_params)
+models['xgb_auxiliary'].fit(X_auxiliary_scaled, y_reg)
+
+print("  - LGBM Auxiliary (분류, 튜닝)...")
+models['lgb_auxiliary'] = LGBMClassifier(**lgb_clf_params)
 models['lgb_auxiliary'].fit(X_auxiliary_scaled, y_clf)
 
+# PDT 그룹
 if len(X_pdt_new) > 0:
-    print("  - XGB PDT...")
-    models['xgb_pdt_new'] = XGBRegressor(**xgb_params)
+    print("  - XGB PDT (회귀)...")
+    models['xgb_pdt_new'] = XGBRegressor(**xgb_reg_params)
     models['xgb_pdt_new'].fit(X_pdt_new_scaled, y_reg)
     
-    print("  - LGBM PDT...")
-    models['lgb_pdt_new'] = LGBMClassifier(**lgb_params)
+    print("  - LGBM PDT (분류, 튜닝)...")
+    models['lgb_pdt_new'] = LGBMClassifier(**lgb_clf_params)
     models['lgb_pdt_new'].fit(X_pdt_new_scaled, y_clf)
 
-# ★ Job Features 모델
+# Job 그룹
 if len(X_job) > 0:
-    print("  - XGB Job Features...")
-    models['xgb_job'] = XGBRegressor(**xgb_params)
+    print("  - XGB Job (회귀)...")
+    models['xgb_job'] = XGBRegressor(**xgb_reg_params)
     models['xgb_job'].fit(X_job_scaled, y_reg)
     
-    print("  - LGBM Job Features...")
-    models['lgb_job'] = LGBMClassifier(**lgb_params)
+    print("  - LGBM Job (분류, 튜닝)...")
+    models['lgb_job'] = LGBMClassifier(**lgb_clf_params)
     models['lgb_job'].fit(X_job_scaled, y_clf)
 
 # ============================================================================
@@ -314,11 +362,13 @@ model_data = {
     'config': CONFIG,
     'feature_groups': FEATURE_GROUPS,
     'training_info': {
-        'version': 'V10_4b',
+        'version': 'V10_4c',
         'train_date': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
         'samples': len(y_reg),
-        'danger_samples': int(sum(y_clf)),
+        'danger_samples': int(n_danger),
+        'class_ratio': round(class_ratio, 2),
         'job_features_enabled': len(X_job) > 0,
+        'tuning': 'LGBM scale_pos_weight + XGB분류 추가',
     }
 }
 
@@ -327,11 +377,7 @@ with open(CONFIG['model_file'], 'wb') as f:
 
 print(f"  → 저장: {CONFIG['model_file']}")
 print("\n" + "=" * 70)
-print("✅ V10_4b 학습 완료! (30분 예측)")
-model_count = "XGB 회귀 3개 + LGBM 분류 3개"
-if len(X_pdt_new) > 0:
-    model_count += " + PDT 2개"
-if len(X_job) > 0:
-    model_count += " + Job 2개"
-print(f"   모델: {model_count}")
+print("✅ V10_4c 학습 완료! (30분 예측, LGBM 튜닝)")
+print(f"   클래스 비율: 1:{class_ratio:.1f}")
+print(f"   모델 수: {len(models)}개")
 print("=" * 70)
