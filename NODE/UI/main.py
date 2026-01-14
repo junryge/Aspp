@@ -128,6 +128,95 @@ def status():
     })
 
 
+@app.route('/history')
+def history():
+    """과거 데이터 조회 페이지"""
+    return send_file('history.html')
+
+
+@app.route('/api/history')
+def get_history():
+    """
+    과거 데이터 조회 API
+    
+    Parameters:
+        date: YYYYMMDD 형식의 날짜
+    
+    Returns:
+        data: 해당 날짜의 데이터 + 예측값
+        alerts_10: 10분 예측 알람 기록
+        alerts_30: 30분 예측 알람 기록
+    """
+    from flask import request
+    import os
+    
+    date_str = request.args.get('date', '')
+    
+    if not date_str or len(date_str) != 8:
+        return jsonify({'error': '날짜 형식이 잘못되었습니다 (YYYYMMDD)'}), 400
+    
+    data_dir = data_manager.data_dir
+    data_file = os.path.join(data_dir, f'm14_data_{date_str}.csv')
+    pred_file = os.path.join(data_dir, f'm14_pred_{date_str}.csv')
+    alert_file = os.path.join(data_dir, f'm14_alert_{date_str}.csv')
+    
+    # 데이터 파일 확인
+    if not os.path.exists(data_file):
+        return jsonify({'error': f'{date_str[:4]}-{date_str[4:6]}-{date_str[6:8]} 데이터가 없습니다'})
+    
+    try:
+        # 데이터 로드
+        df_data = pd.read_csv(data_file)
+        
+        # 예측 파일 로드
+        if os.path.exists(pred_file):
+            df_pred = pd.read_csv(pred_file)
+            # 데이터와 예측 merge
+            if 'CURRTIME' in df_pred.columns:
+                df_merged = pd.merge(df_data, df_pred, on='CURRTIME', how='left')
+            else:
+                # 기존 형식 (CURRTIME 없는 경우)
+                for col in ['PREDICT_10', 'PREDICT_30', 'PRED_TIME_10', 'PRED_TIME_30']:
+                    if col in df_pred.columns:
+                        df_data[col] = df_pred[col].values[:len(df_data)]
+                df_merged = df_data
+        else:
+            df_merged = df_data
+        
+        # NaN 처리
+        df_merged = df_merged.fillna(0)
+        
+        # 알람 기록 로드
+        alerts_10 = []
+        alerts_30 = []
+        
+        if os.path.exists(alert_file):
+            df_alert = pd.read_csv(alert_file)
+            for _, row in df_alert.iterrows():
+                alert_item = {
+                    'CURRTIME': row.get('CURRTIME', ''),
+                    'VALUE': int(row.get('VALUE', 0)),
+                    'ALARM_NO': int(row.get('ALARM_NO', 0)),
+                    'IS_ALARM': bool(row.get('IS_ALARM', False)),
+                    'COOLDOWN_MINS': int(row.get('COOLDOWN_MINS', 0)) if pd.notna(row.get('COOLDOWN_MINS')) else 0
+                }
+                if row.get('TYPE') == 'PRED_10':
+                    alerts_10.append(alert_item)
+                elif row.get('TYPE') == 'PRED_30':
+                    alerts_30.append(alert_item)
+        
+        # 결과 반환
+        return jsonify({
+            'date': date_str,
+            'data': df_merged.to_dict('records'),
+            'alerts_10': alerts_10,
+            'alerts_30': alerts_30
+        })
+        
+    except Exception as e:
+        return jsonify({'error': f'데이터 로드 실패: {str(e)}'}), 500
+
+
 if __name__ == '__main__':
     print('=' * 60)
     print('M14 반송 큐 모니터링 서버')
