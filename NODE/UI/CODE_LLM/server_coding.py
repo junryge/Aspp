@@ -25,9 +25,16 @@ app = FastAPI(title="Coding LLM Tool")
 # Global Variables
 # ========================================
 API_TOKEN = None
+llm = None  # 로컬 LLM (GGUF)
+
+# LLM 모드: "api" 또는 "local"
+LLM_MODE = "api"
 
 # 개발/운영 환경 설정
 ENV_MODE = "dev"
+
+# 로컬 모델 경로 (폴백용)
+LOCAL_MODEL_PATH = "Qwen3-14B-Q4_K_M.gguf"  # 또는 다른 GGUF 모델
 
 ENV_CONFIG = {
     "dev": {
@@ -179,6 +186,82 @@ def load_api_token():
 
 
 # ========================================
+# 로컬 LLM 로드 (GGUF)
+# ========================================
+def load_local_llm():
+    """로컬 GGUF 모델 로드"""
+    global llm
+    
+    if not os.path.exists(LOCAL_MODEL_PATH):
+        logger.warning(f"⚠️ 로컬 모델 없음: {LOCAL_MODEL_PATH}")
+        return False
+    
+    try:
+        from llama_cpp import Llama
+        logger.info(f"📦 로컬 LLM 로딩 중: {LOCAL_MODEL_PATH}")
+        llm = Llama(
+            model_path=LOCAL_MODEL_PATH,
+            n_ctx=32768,
+            n_gpu_layers=-1,  # GPU 전체 사용
+            verbose=False
+        )
+        logger.info("✅ 로컬 LLM 로드 완료!")
+        return True
+    except ImportError:
+        logger.warning("⚠️ llama-cpp-python 미설치. pip install llama-cpp-python")
+        return False
+    except Exception as e:
+        logger.error(f"❌ 로컬 LLM 로드 실패: {e}")
+        return False
+
+
+# ========================================
+# 로컬 LLM 호출
+# ========================================
+def call_local_llm(prompt: str, system_prompt: str = "", max_tokens: int = 2000) -> dict:
+    """로컬 GGUF 모델 호출"""
+    global llm
+    
+    if llm is None:
+        return {"success": False, "error": "로컬 LLM이 로드되지 않았습니다."}
+    
+    try:
+        # ChatML 형식 (Qwen3용)
+        if not system_prompt:
+            system_prompt = "당신은 숙련된 프로그래머입니다. 한국어로 답변하세요."
+        
+        formatted_prompt = f"""<|im_start|>system
+{system_prompt}
+<|im_end|>
+<|im_start|>user
+{prompt}
+<|im_end|>
+<|im_start|>assistant
+"""
+        
+        logger.info("🖥️ 로컬 LLM 호출 중...")
+        response = llm(
+            formatted_prompt,
+            max_tokens=max_tokens,
+            temperature=0.3,
+            stop=["<|im_end|>", "\n\n\n"]
+        )
+        
+        content = response['choices'][0]['text'].strip()
+        
+        # <think> 태그 제거
+        content = re.sub(r'<think>.*?</think>', '', content, flags=re.DOTALL)
+        content = re.sub(r'<think>.*', '', content, flags=re.DOTALL)
+        content = content.strip()
+        
+        return {"success": True, "content": content}
+        
+    except Exception as e:
+        logger.error(f"❌ 로컬 LLM 호출 실패: {e}")
+        return {"success": False, "error": f"로컬 LLM 호출 실패: {str(e)}"}
+
+
+# ========================================
 # LLM API 호출
 # ========================================
 def call_llm_api(prompt: str, system_prompt: str = "", max_tokens: int = 4000) -> dict:
@@ -235,6 +318,32 @@ def call_llm_api(prompt: str, system_prompt: str = "", max_tokens: int = 4000) -
 
 
 # ========================================
+# 통합 LLM 호출 (API → Local 폴백)
+# ========================================
+def call_llm(prompt: str, system_prompt: str = "", max_tokens: int = 4000) -> dict:
+    """LLM 호출 (모드에 따라 API 또는 Local 사용, 폴백 지원)"""
+    global LLM_MODE
+    
+    if LLM_MODE == "api":
+        # API 모드
+        result = call_llm_api(prompt, system_prompt, max_tokens)
+        
+        # API 실패 시 로컬로 폴백
+        if not result["success"] and llm is not None:
+            logger.info("⚠️ API 실패 → 로컬 LLM 폴백")
+            result = call_local_llm(prompt, system_prompt, min(max_tokens, 2000))
+            if result["success"]:
+                result["fallback"] = True  # 폴백 사용 표시
+        
+        return result
+    else:
+        # 로컬 모드
+        if llm is None:
+            return {"success": False, "error": "로컬 LLM이 로드되지 않았습니다."}
+        return call_local_llm(prompt, system_prompt, min(max_tokens, 2000))
+
+
+# ========================================
 # Pydantic Models
 # ========================================
 class CodingQuery(BaseModel):
@@ -256,8 +365,27 @@ class ConvertRequest(BaseModel):
 @app.on_event("startup")
 async def startup():
     """서버 시작 시 초기화"""
-    load_api_token()
-    logger.info(f"🚀 코딩 LLM 서버 시작! 환경: {ENV_MODE}")
+    global LLM_MODE
+    
+    # API 토큰 로드
+    if load_api_token():
+        LLM_MODE = "api"
+        logger.info("✅ API 모드로 시작")
+    else:
+        LLM_MODE = "local"
+        logger.info("⚠️ API 토큰 없음 → 로컬 모드 시도")
+    
+    # 로컬 LLM 로드 (백업용)
+    if load_local_llm():
+        logger.info("✅ 로컬 LLM 준비 완료 (폴백 가능)")
+        if not API_TOKEN:
+            LLM_MODE = "local"
+    else:
+        logger.info("ℹ️ 로컬 LLM 없음 (API 전용 모드)")
+        if not API_TOKEN:
+            logger.warning("⚠️ API 토큰도 없고 로컬 LLM도 없음!")
+    
+    logger.info(f"🚀 코딩 LLM 서버 시작! 모드: {LLM_MODE}, 환경: {ENV_MODE}")
 
 
 # ========================================
@@ -273,10 +401,34 @@ async def home():
 async def api_status():
     """API 상태 확인"""
     return {
+        "llm_mode": LLM_MODE,
         "api_available": API_TOKEN is not None,
+        "local_available": llm is not None,
         "env": ENV_MODE,
-        "model": API_MODEL,
+        "model": API_MODEL if LLM_MODE == "api" else LOCAL_MODEL_PATH,
         "env_name": ENV_CONFIG[ENV_MODE]["name"]
+    }
+
+
+@app.post("/api/set_llm_mode")
+async def set_llm_mode(data: dict):
+    """LLM 모드 전환 (api/local)"""
+    global LLM_MODE
+    
+    new_mode = data.get("mode", "api")
+    
+    if new_mode == "local" and llm is None:
+        return {"success": False, "message": "로컬 LLM이 로드되지 않았습니다."}
+    if new_mode == "api" and API_TOKEN is None:
+        return {"success": False, "message": "API 토큰이 설정되지 않았습니다."}
+    
+    LLM_MODE = new_mode
+    logger.info(f"🔄 LLM 모드 변경: {new_mode}")
+    
+    return {
+        "success": True,
+        "mode": LLM_MODE,
+        "message": f"{new_mode.upper()} 모드로 전환되었습니다."
     }
 
 
@@ -339,8 +491,8 @@ async def ask(query: CodingQuery):
         if code:
             prompt += f"\n\n```{language}\n{code}\n```"
     
-    # LLM 호출
-    result = call_llm_api(prompt, system_prompt)
+    # LLM 호출 (API → GGUF 폴백)
+    result = call_llm(prompt, system_prompt)
     
     if result["success"]:
         return {"success": True, "answer": result["content"]}
@@ -360,7 +512,7 @@ async def convert_code(request: ConvertRequest):
 
 변환 시 {request.to_lang}의 관용적인 표현과 베스트 프랙티스를 따라주세요."""
     
-    result = call_llm_api(prompt, system_prompt)
+    result = call_llm(prompt, system_prompt)
     
     if result["success"]:
         return {"success": True, "answer": result["content"]}
@@ -396,7 +548,7 @@ async def quick_action(data: dict):
 {code}
 ```"""
     
-    result = call_llm_api(prompt, SYSTEM_PROMPTS["refactor"])
+    result = call_llm(prompt, SYSTEM_PROMPTS["refactor"])
     
     if result["success"]:
         return {"success": True, "answer": result["content"]}
