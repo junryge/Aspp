@@ -11,10 +11,26 @@ if errorlevel 1 (
     pip install pyinstaller
 )
 
+:: 기존 빌드 삭제
+echo.
+echo 기존 빌드 삭제...
+rmdir /s /q build 2>nul
+rmdir /s /q dist 2>nul
+del main.spec 2>nul
+
 :: 빌드
 echo.
 echo 빌드 시작...
-pyinstaller --noconfirm --add-data "index.html;." --add-data "mini.html;." --add-data "models;models" main.py
+pyinstaller --noconfirm --exclude PyQt5 --exclude PySide6 --exclude PyQt6 --add-data "index.html;." --add-data "mini.html;." --add-data "models;models" main.py
+
+if errorlevel 1 (
+    echo.
+    echo ========================================
+    echo 빌드 실패! 에러 확인하세요.
+    echo ========================================
+    pause
+    exit /b 1
+)
 
 :: data 폴더 생성
 if not exist "dist\main\data" mkdir "dist\main\data"
