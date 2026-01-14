@@ -305,6 +305,7 @@
         <button class="btn" onclick="setMorning()">오전</button>
         <button class="btn" onclick="setAfternoon()">오후</button>
         <button class="btn" onclick="setFullDay()">전체</button>
+        <button class="btn" onclick="downloadCSV()" style="background: #22c55e; border-color: #22c55e;">📥 CSV 다운로드</button>
     </div>
     
     <div class="stats-row" id="stats-row" style="display: none;">
@@ -360,6 +361,8 @@
         const today = new Date();
         document.getElementById('date-picker').value = formatDate(today);
         
+        let currentData = null;  // 현재 조회된 데이터 저장
+        
         function formatDate(date) {
             const y = date.getFullYear();
             const m = String(date.getMonth() + 1).padStart(2, '0');
@@ -394,6 +397,36 @@
         function setFullDay() {
             document.getElementById('time-start').value = '00:00';
             document.getElementById('time-end').value = '23:59';
+        }
+        
+        function downloadCSV() {
+            if (!currentData || !currentData.data || currentData.data.length === 0) {
+                alert('먼저 데이터를 조회하세요');
+                return;
+            }
+            
+            const dateInput = document.getElementById('date-picker').value;
+            const timeStart = document.getElementById('time-start').value.replace(':', '');
+            const timeEnd = document.getElementById('time-end').value.replace(':', '');
+            
+            // CSV 헤더
+            const headers = ['CURRTIME', 'TOTALCNT', 'PRED_TIME_10', 'PREDICT_10', 'PRED_TIME_30', 'PREDICT_30'];
+            let csv = headers.join(',') + '\n';
+            
+            // CSV 데이터
+            currentData.data.forEach(row => {
+                const values = headers.map(h => row[h] !== undefined ? row[h] : '');
+                csv += values.join(',') + '\n';
+            });
+            
+            // 다운로드
+            const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8;' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `m14_history_${dateInput.replace(/-/g, '')}_${timeStart}-${timeEnd}.csv`;
+            a.click();
+            URL.revokeObjectURL(url);
         }
         
         async function loadData() {
@@ -488,6 +521,8 @@
                     alerts_10: filteredAlerts10,
                     alerts_30: filteredAlerts30
                 };
+                
+                currentData = filteredResult;  // 다운로드용 저장
                 
                 // 통계 계산
                 updateStats(filteredResult);
