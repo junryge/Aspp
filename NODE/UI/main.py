@@ -31,6 +31,11 @@ def index():
     return send_file('index.html')
 
 
+@app.route('/mini')
+def mini():
+    return send_file('mini.html')
+
+
 @app.route('/api/data')
 def get_data():
     """
