@@ -19,8 +19,8 @@ import predictor_30min
 
 app = Flask(__name__)
 
-# 데이터 매니저 (280분 윈도우)
-data_manager = m14_data.M14DataManager(window_minutes=280)
+# 데이터 매니저 (280분 윈도우, data 폴더에 저장)
+data_manager = m14_data.M14DataManager(window_minutes=280, data_dir='data')
 
 # 예측 모듈 연결
 data_manager.set_predictors(predictor_10min, predictor_30min)
