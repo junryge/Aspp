@@ -450,14 +450,6 @@
             </div>
             <div class="stats-row">
                 <div class="stat-card">
-                    <div class="stat-label">Index</div>
-                    <div class="stat-value" id="stat-idx">-</div>
-                </div>
-                <div class="stat-card">
-                    <div class="stat-label">Total</div>
-                    <div class="stat-value" id="stat-total">-</div>
-                </div>
-                <div class="stat-card">
                     <div class="stat-label">Limit</div>
                     <div class="stat-value" style="color: var(--danger);">1700</div>
                 </div>
@@ -963,8 +955,6 @@
             pred10El.textContent = predict10.toLocaleString();
             pred30El.textContent = predict30.toLocaleString();
             document.getElementById('data-time').textContent = currtime;
-            document.getElementById('stat-idx').textContent = idx;
-            document.getElementById('stat-total').textContent = total;
 
             // 10분 예측 상태
             const diff10 = predict10 - value;
@@ -1114,7 +1104,8 @@
             await fetchData();
         }
 
-        fetchData();
+        // 페이지 로드 시 자동 시작
+        startUpdate();
     </script>
 </body>
 </html>
