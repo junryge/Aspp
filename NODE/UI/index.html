@@ -724,14 +724,22 @@
                 const res = await fetch('/api/data');
                 chartData = await res.json();
                 
+                // 서버에서 알람 상태 로드
+                if (chartData.alarm_state) {
+                    alarmCount = chartData.alarm_state.alarm_count || 0;
+                    if (chartData.alarm_state.last_alarm_time) {
+                        lastAlarmTime = new Date(chartData.alarm_state.last_alarm_time).getTime();
+                    }
+                }
+                
                 // 서버에서 알람 기록 로드
                 if (chartData.alert_10 && alertHistory10.length === 0) {
                     alertHistory10 = chartData.alert_10.map(a => ({
                         time: formatCurrtime(a.CURRTIME),
                         value: a.VALUE,
-                        isAlarm: true,
-                        alarmNo: 0,
-                        cooldownMins: null
+                        isAlarm: a.IS_ALARM,
+                        alarmNo: a.ALARM_NO,
+                        cooldownMins: a.COOLDOWN_MINS
                     }));
                     document.getElementById('stat-over-10').textContent = alertHistory10.length;
                 }
@@ -739,13 +747,14 @@
                     alertHistory30 = chartData.alert_30.map(a => ({
                         time: formatCurrtime(a.CURRTIME),
                         value: a.VALUE,
-                        isAlarm: true,
-                        alarmNo: 0,
-                        cooldownMins: null
+                        isAlarm: a.IS_ALARM,
+                        alarmNo: a.ALARM_NO,
+                        cooldownMins: a.COOLDOWN_MINS
                     }));
                     document.getElementById('stat-over-30').textContent = alertHistory30.length;
                 }
                 
+                updateCooldownText();
                 updateChart();
                 updateStatus(chartData.current, chartData.predict_10, chartData.predict_30, chartData.currtime, chartData.idx, chartData.total);
             } catch (e) {
