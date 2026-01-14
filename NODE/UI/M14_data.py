@@ -402,17 +402,16 @@ class M14DataManager:
             group_save = group.drop(columns=['DATE'])
             group_save.to_csv(data_file, index=False)
             
-            # 예측 파일에 현재시간, 현재값, 예측시간, 예측값 저장
+            # 예측 파일: CURRTIME, TOTALCNT, 예측시간, 예측값
             indices = group.index.tolist()
             pred_data = []
             
             for idx in indices:
                 curr_time = str(self.data['CURRTIME'].iloc[idx])
-                total_cnt = int(self.data['TOTALCNT'].iloc[idx]) if idx < len(self.data) else 0
+                total_cnt = int(self.data['TOTALCNT'].iloc[idx]) if pd.notna(self.data['TOTALCNT'].iloc[idx]) else 0
                 pred_10 = self.predict_10_list[idx] if idx < len(self.predict_10_list) else 0
                 pred_30 = self.predict_30_list[idx] if idx < len(self.predict_30_list) else 0
                 
-                # 예측 시간 계산 (YYYYMMDDHHMM + 10분/30분)
                 pred_time_10 = self._add_minutes_to_time(curr_time, 10)
                 pred_time_30 = self._add_minutes_to_time(curr_time, 30)
                 
