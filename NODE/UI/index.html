@@ -563,8 +563,14 @@
 
         function testAlarm() { triggerAlarm(1750, getFormattedTime()); }
         
+        let miniWindow = null;
         function openMini() {
-            window.open('/mini', 'M14_Mini', 'width=220,height=200,top=100,left=100,resizable=yes,alwaysRaised=yes');
+            // 이미 열려있으면 focus만
+            if (miniWindow && !miniWindow.closed) {
+                miniWindow.focus();
+                return;
+            }
+            miniWindow = window.open('/mini', 'M14_Mini', 'width=220,height=200,top=100,left=100,resizable=yes');
         }
         
         function showAlertList(type) {
