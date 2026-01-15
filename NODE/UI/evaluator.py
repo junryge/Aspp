@@ -6,6 +6,7 @@ M14 예측 평가 모듈
 - 외부: 로그프레소 API 직접 조회
 - 10분/30분 예측 평가
 - 백그라운드 실행 지원 (실시간 모니터링에 영향 없음)
+- ★ alert 파일의 알람 정보(ALARM_NO, IS_ALARM, COOLDOWN_MINS) 포함
 ================================================================================
 """
 
@@ -376,6 +377,48 @@ def load_data_files(data_dir, date_start, date_end):
     return df
 
 
+def load_alert_files(data_dir, date_start, date_end, pred_type):
+    """
+    ★ alert 파일 로드 (알람 정보 포함)
+    
+    Returns:
+        dict: {CURRTIME: {ALARM_NO, IS_ALARM, COOLDOWN_MINS}} 형태
+    """
+    alert_map = {}
+    
+    start = datetime.strptime(date_start, "%Y%m%d")
+    end = datetime.strptime(date_end, "%Y%m%d")
+    
+    current = start
+    while current <= end:
+        date_str = current.strftime("%Y%m%d")
+        alert_file = os.path.join(data_dir, f'm14_alert_{date_str}.csv')
+        
+        if os.path.exists(alert_file):
+            try:
+                df_alert = pd.read_csv(alert_file)
+                df_alert['TYPE'] = df_alert['TYPE'].astype(str)
+                
+                # 해당 pred_type만 필터링
+                df_filtered = df_alert[df_alert['TYPE'] == pred_type]
+                
+                for _, row in df_filtered.iterrows():
+                    currtime = str(row.get('CURRTIME', ''))
+                    alert_map[currtime] = {
+                        'ALARM_NO': int(row.get('ALARM_NO', 0)) if pd.notna(row.get('ALARM_NO')) else 0,
+                        'IS_ALARM': bool(row.get('IS_ALARM', False)),
+                        'COOLDOWN_MINS': int(row.get('COOLDOWN_MINS', 0)) if pd.notna(row.get('COOLDOWN_MINS')) else 0
+                    }
+                
+                print(f"  [Alert] 로드: {alert_file} ({len(df_filtered)}개)")
+            except Exception as e:
+                print(f"  [Alert] 에러: {alert_file} - {e}")
+        
+        current += timedelta(days=1)
+    
+    return alert_map
+
+
 def load_data_logpresso(date_start, date_end, time_start, time_end, progress_callback=None):
     """외부: 로그프레소에서 데이터 조회"""
     print(f"[평가-외부] 로그프레소 데이터 조회 시작")
@@ -443,7 +486,7 @@ def evaluate(data_dir, date_start, date_end, time_start='0000', time_end='2359',
         progress_callback: 진행 상태 콜백 함수
     
     Returns:
-        dict: 평가 결과
+        dict: 평가 결과 (★ 알람 정보 포함)
     """
     source_name = "내부(파일)" if data_source == 'internal' else "외부(로그프레소)"
     print(f"\n[평가] {pred_type}분 예측 평가 시작 - {source_name}")
@@ -465,8 +508,13 @@ def evaluate(data_dir, date_start, date_end, time_start='0000', time_end='2359',
     scalers = model_data['scalers']
     feature_groups = model_data['feature_groups']
     
+    # ★ Alert 파일 로드 (알람 정보)
+    print(f"\n[1-1] Alert 파일 로드...")
+    alert_map = load_alert_files(data_dir, date_start, date_end, pred_type)
+    print(f"  → 알람 기록 {len(alert_map)}개 로드")
+    
     # 데이터 로드 (내부 vs 외부)
-    print(f"\n[1] 데이터 로드... ({source_name})")
+    print(f"\n[1-2] 데이터 로드... ({source_name})")
     
     if data_source == 'external':
         # 외부: 로그프레소 직접 조회
@@ -606,8 +654,15 @@ def evaluate(data_dir, date_start, date_end, time_start='0000', time_end='2359',
             vote_sum = 0
             final_danger = 0
         
-        results.append({
+        # ★ CURRTIME 문자열로 변환 (alert_map 키와 매칭용)
+        currtime_str = current_time.strftime('%Y%m%d%H%M') if hasattr(current_time, 'strftime') else str(current_time).replace('-', '').replace(' ', '').replace(':', '')[:12]
+        
+        # ★ Alert 정보 조회
+        alert_info = alert_map.get(currtime_str, {})
+        
+        result_row = {
             'currtime': current_time.strftime('%Y-%m-%d %H:%M') if hasattr(current_time, 'strftime') else str(current_time),
+            'currtime_raw': currtime_str,
             'current': round(current_total, 0),
             'pred_time': prediction_time.strftime('%Y-%m-%d %H:%M') if hasattr(prediction_time, 'strftime') else str(prediction_time),
             'actual_max': round(float(actual_max), 0),
@@ -617,7 +672,15 @@ def evaluate(data_dir, date_start, date_end, time_start='0000', time_end='2359',
             'vote': int(vote_sum),
             'danger': int(final_danger),
             'actual_danger': 1 if actual_max >= limit_val else 0,
-        })
+        }
+        
+        # ★ 알람 정보 추가 (있는 경우만)
+        if alert_info:
+            result_row['alarm_no'] = alert_info.get('ALARM_NO', '')
+            result_row['is_alarm'] = alert_info.get('IS_ALARM', '')
+            result_row['cooldown_mins'] = alert_info.get('COOLDOWN_MINS', '')
+        
+        results.append(result_row)
     
     if progress_callback:
         progress_callback(total + progress_offset, total + progress_offset)
@@ -678,7 +741,10 @@ def evaluate(data_dir, date_start, date_end, time_start='0000', time_end='2359',
     recall = round(TP / actual_danger.sum() * 100, 2) if actual_danger.sum() > 0 else 0
     precision = round(TP / pred_danger.sum() * 100, 2) if pred_danger.sum() > 0 else 0
     
-    # ★★★ 수정: 전체 데이터 반환 (100개 제한 제거) ★★★
+    # ★ 알람 정보가 있는 건수 카운트
+    alarm_count = df_result['alarm_no'].notna().sum() if 'alarm_no' in df_result.columns else 0
+    
+    # 전체 데이터 반환
     df_result = df_result.drop(columns=['currtime_dt'], errors='ignore')
     result_data = df_result.to_dict('records')
     
@@ -692,6 +758,7 @@ def evaluate(data_dir, date_start, date_end, time_start='0000', time_end='2359',
         'time_end': time_end,
         'total_count': len(results),
         'actual_danger_count': int(actual_danger.sum()),
+        'alarm_record_count': int(alarm_count),  # ★ 알람 기록 건수
         'missing_cols': missing_cols[:10],
         'stats': {
             'TP': TP,
@@ -708,7 +775,7 @@ def evaluate(data_dir, date_start, date_end, time_start='0000', time_end='2359',
         },
         'status_counts': status_counts,
         'analysis_range': analysis_range,
-        'data': result_data,  # ★ status가 포함된 데이터
+        'data': result_data,  # ★ status + 알람 정보가 포함된 데이터
     }
 
 
