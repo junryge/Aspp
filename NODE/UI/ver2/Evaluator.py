@@ -71,10 +71,10 @@ _model_data_30 = None
 # 상태 분류 한글 매핑
 # ============================================================================
 STATUS_LABELS = {
-    'TP': '✅ 정상감지',
-    'TN': '✅ 정상',
-    'FN_놓침': '❌ 완전미탐',
-    'FP_오탐': '❌ 오탐',
+    'TP': '✅ 위험적중',
+    'TN': '✅ 정상적중',
+    'FN_놓침': '❌ 미감지',
+    'FP_오탐': '❌ 과예측',
 }
 
 def get_status_label(status):
@@ -84,11 +84,11 @@ def get_status_label(status):
     
     if status.startswith('FN_') and '분전' in status:
         mins = status.replace('FN_', '').replace('분전', '')
-        return f'⚠️ {mins}분전 조기감지'
+        return f'⚠️ {mins}분전감지'
     
     if status.startswith('FP_') and '분후' in status:
         mins = status.replace('FP_', '').replace('분후', '')
-        return f'⚠️ {mins}분후 실현'
+        return f'⚠️ {mins}분후발생'
     
     return status
 
@@ -730,10 +730,10 @@ def evaluate(data_dir, date_start, date_end, time_start='0000', time_end='2359',
     precision = round(TP / pred_danger.sum() * 100, 2) if pred_danger.sum() > 0 else 0
     
     # 결과에 상태 정보 추가
-    for i, row in df_result.iterrows():
-        results[i]['status'] = row['status']
-        results[i]['status_label'] = row['status_label']
-        results[i]['status_category'] = row['status_category']
+    for i in range(len(results)):
+        results[i]['status'] = df_result.iloc[i]['status']
+        results[i]['status_label'] = df_result.iloc[i]['status_label']
+        results[i]['status_category'] = df_result.iloc[i]['status_category']
     
     return {
         'pred_type': pred_type,
