@@ -5,10 +5,11 @@ M14 반송 큐 모니터링 서버
 - m14_data.py: 로그프레소에서 280분 데이터 조회
 - predictor_10min.py: 10분 예측
 - predictor_30min.py: 30분 예측
+- evaluator.py: 예측 평가 (내부/외부 데이터 소스 지원)
 ================================================================================
 """
 
-from flask import Flask, jsonify, send_file
+from flask import Flask, jsonify, send_file, request
 import pandas as pd
 from datetime import datetime
 
@@ -16,6 +17,7 @@ from datetime import datetime
 import m14_data
 import predictor_10min
 import predictor_30min
+import evaluator
 
 app = Flask(__name__)
 
@@ -147,7 +149,6 @@ def get_history():
         alerts_10: 10분 예측 알람 기록
         alerts_30: 30분 예측 알람 기록
     """
-    from flask import request
     import os
     
     date_str = request.args.get('date', '')
@@ -223,6 +224,94 @@ def get_history():
         return jsonify({'error': f'데이터 로드 실패: {str(e)}'}), 500
 
 
+# ============================================================================
+# 평가 관련 라우트 (백그라운드 실행)
+# ============================================================================
+
+@app.route('/evaluate')
+def evaluate_page():
+    """예측 평가 페이지"""
+    return send_file('evaluate.html')
+
+
+@app.route('/api/evaluate/start', methods=['POST', 'GET'])
+def start_evaluate():
+    """
+    백그라운드 평가 시작 API
+    
+    Parameters:
+        date_start: 시작 날짜 (YYYYMMDD)
+        date_end: 종료 날짜 (YYYYMMDD)
+        time_start: 시작 시간 (HHMM)
+        time_end: 종료 시간 (HHMM)
+        pred_type: '10' 또는 '30'
+        data_source: 'internal' (파일) 또는 'external' (로그프레소)
+    """
+    date_start = request.args.get('date_start', '')
+    date_end = request.args.get('date_end', '')
+    time_start = request.args.get('time_start', '0000')
+    time_end = request.args.get('time_end', '2359')
+    pred_type = request.args.get('pred_type', '10')
+    data_source = request.args.get('data_source', 'internal')  # 기본값: 내부(파일)
+    
+    if not date_start or not date_end:
+        return jsonify({'error': '시작/종료 날짜를 지정해주세요'}), 400
+    
+    if len(date_start) != 8 or len(date_end) != 8:
+        return jsonify({'error': '날짜 형식이 잘못되었습니다 (YYYYMMDD)'}), 400
+    
+    if pred_type not in ['10', '30']:
+        return jsonify({'error': 'pred_type은 10 또는 30이어야 합니다'}), 400
+    
+    if data_source not in ['internal', 'external']:
+        return jsonify({'error': 'data_source는 internal 또는 external이어야 합니다'}), 400
+    
+    success, msg = evaluator.eval_manager.start(
+        data_dir=data_manager.data_dir,
+        date_start=date_start,
+        date_end=date_end,
+        time_start=time_start,
+        time_end=time_end,
+        pred_type=pred_type,
+        data_source=data_source
+    )
+    
+    if success:
+        return jsonify({'status': 'started', 'message': msg, 'data_source': data_source})
+    else:
+        return jsonify({'error': msg}), 400
+
+
+@app.route('/api/evaluate/status')
+def get_evaluate_status():
+    """평가 진행 상태 조회"""
+    return jsonify(evaluator.eval_manager.get_status())
+
+
+@app.route('/api/evaluate/result')
+def get_evaluate_result():
+    """평가 결과 조회"""
+    result = evaluator.eval_manager.get_result()
+    if result:
+        return jsonify(result)
+    else:
+        return jsonify({'error': '결과가 없습니다 (평가 진행 중이거나 시작되지 않음)'}), 400
+
+
+@app.route('/api/evaluate/reset')
+def reset_evaluate():
+    """평가 상태 초기화"""
+    evaluator.eval_manager.reset()
+    return jsonify({'status': 'reset'})
+
+
+@app.route('/api/evaluate/dates')
+def get_available_dates():
+    """사용 가능한 날짜 목록 반환 (내부 파일용)"""
+    dates = evaluator.get_available_dates(data_manager.data_dir)
+    return jsonify({'dates': dates})
+
+
 if __name__ == '__main__':
     print('=' * 60)
     print('M14 반송 큐 모니터링 서버')
@@ -231,8 +320,12 @@ if __name__ == '__main__':
     print('  - m14_data.py: 로그프레소 280분 데이터 조회')
     print('  - predictor_10min.py: V10_4 10분 예측')
     print('  - predictor_30min.py: V10_4 30분 예측')
+    print('  - evaluator.py: 예측 평가 (내부/외부 지원)')
     print('=' * 60)
     print('🌐 http://localhost:5000')
+    print('   /evaluate - 예측 평가 페이지')
+    print('     📁 내부: data 폴더 CSV 파일 사용')
+    print('     🌐 외부: 로그프레소 API 직접 조회')
     print('=' * 60)
     
     # 초기 데이터 로드
@@ -240,4 +333,4 @@ if __name__ == '__main__':
     data_manager.initialize()
     
     # 서버 시작
-    app.run(debug=False, port=5000, host='0.0.0.0')
+    app.run(debug=False, port=5000)#, host='0.0.0.0')
