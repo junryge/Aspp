@@ -325,6 +325,9 @@ def preprocess_data(df, feature_groups):
     """데이터 전처리"""
     df = df.copy()
     
+    # ★ CURRTIME_RAW 저장 (원본 문자열 유지)
+    df['CURRTIME_RAW'] = df['CURRTIME'].astype(str).str.strip()
+    
     if not pd.api.types.is_datetime64_any_dtype(df['CURRTIME']):
         df['CURRTIME'] = pd.to_datetime(df['CURRTIME'].astype(str), format='%Y%m%d%H%M', errors='coerce')
     
@@ -397,24 +400,46 @@ def load_alert_files(data_dir, date_start, date_end, pred_type):
         if os.path.exists(alert_file):
             try:
                 df_alert = pd.read_csv(alert_file)
-                df_alert['TYPE'] = df_alert['TYPE'].astype(str)
+                
+                # ★ TYPE 컬럼 문자열 변환 (정수/문자열 모두 처리)
+                df_alert['TYPE'] = df_alert['TYPE'].astype(str).str.strip()
+                
+                # ★ CURRTIME도 문자열로 정규화 (정수로 읽힐 수 있음)
+                df_alert['CURRTIME'] = df_alert['CURRTIME'].astype(str).str.strip()
                 
                 # 해당 pred_type만 필터링
-                df_filtered = df_alert[df_alert['TYPE'] == pred_type]
+                df_filtered = df_alert[df_alert['TYPE'] == str(pred_type)]
                 
                 for _, row in df_filtered.iterrows():
-                    currtime = str(row.get('CURRTIME', ''))
+                    # ★ CURRTIME을 12자리 문자열로 정규화
+                    currtime = str(row['CURRTIME']).strip()
+                    # 혹시 소수점이 있으면 제거 (예: 202501141300.0 -> 202501141300)
+                    if '.' in currtime:
+                        currtime = currtime.split('.')[0]
+                    currtime = currtime[:12]  # 12자리만
+                    
                     alert_map[currtime] = {
-                        'ALARM_NO': int(row.get('ALARM_NO', 0)) if pd.notna(row.get('ALARM_NO')) else 0,
-                        'IS_ALARM': bool(row.get('IS_ALARM', False)),
-                        'COOLDOWN_MINS': int(row.get('COOLDOWN_MINS', 0)) if pd.notna(row.get('COOLDOWN_MINS')) else 0
+                        'ALARM_NO': int(row['ALARM_NO']) if pd.notna(row.get('ALARM_NO')) else 0,
+                        'IS_ALARM': bool(row['IS_ALARM']) if pd.notna(row.get('IS_ALARM')) else False,
+                        'COOLDOWN_MINS': int(row['COOLDOWN_MINS']) if pd.notna(row.get('COOLDOWN_MINS')) else 0
                     }
                 
-                print(f"  [Alert] 로드: {alert_file} ({len(df_filtered)}개)")
+                print(f"  [Alert] 로드: {alert_file} (TYPE={pred_type}: {len(df_filtered)}개)")
             except Exception as e:
                 print(f"  [Alert] 에러: {alert_file} - {e}")
+                import traceback
+                traceback.print_exc()
+        else:
+            print(f"  [Alert] 파일 없음: {alert_file}")
         
         current += timedelta(days=1)
+    
+    print(f"  [Alert] 총 {len(alert_map)}개 알람 기록 로드 완료")
+    
+    # ★ 디버그: 샘플 키 출력
+    if alert_map:
+        sample_keys = list(alert_map.keys())[:3]
+        print(f"  [Alert] 샘플 키: {sample_keys}")
     
     return alert_map
 
@@ -508,10 +533,9 @@ def evaluate(data_dir, date_start, date_end, time_start='0000', time_end='2359',
     scalers = model_data['scalers']
     feature_groups = model_data['feature_groups']
     
-    # ★ Alert 파일 로드 (알람 정보)
+    # ★ Alert 파일 로드 (알람 정보) - 내부/외부 모두 시도
     print(f"\n[1-1] Alert 파일 로드...")
     alert_map = load_alert_files(data_dir, date_start, date_end, pred_type)
-    print(f"  → 알람 기록 {len(alert_map)}개 로드")
     
     # 데이터 로드 (내부 vs 외부)
     print(f"\n[1-2] 데이터 로드... ({source_name})")
@@ -583,13 +607,16 @@ def evaluate(data_dir, date_start, date_end, time_start='0000', time_end='2359',
     if progress_callback:
         progress_callback(progress_offset, total + progress_offset)
     
+    # ★ 알람 매칭 카운터
+    alarm_match_count = 0
+    
     for idx in range(seq_len, len(df_filtered) - pred_offset):
         current_progress = idx - seq_len
         
         if current_progress % 100 == 0:
             if progress_callback:
                 progress_callback(current_progress + progress_offset, total + progress_offset)
-            print(f"    진행: {current_progress:,}/{total:,}")
+            print(f"    진행: {current_progress:,}/{total:,} (알람매칭: {alarm_match_count})")
             gc.collect()
         
         current_time = df_filtered['CURRTIME'].iloc[idx - 1]
@@ -654,12 +681,25 @@ def evaluate(data_dir, date_start, date_end, time_start='0000', time_end='2359',
             vote_sum = 0
             final_danger = 0
         
-        # ★ CURRTIME 문자열로 변환 (alert_map 키와 매칭용)
-        currtime_str = current_time.strftime('%Y%m%d%H%M') if hasattr(current_time, 'strftime') else str(current_time).replace('-', '').replace(' ', '').replace(':', '')[:12]
+        # ★ CURRTIME 문자열 (CURRTIME_RAW 사용)
+        if 'CURRTIME_RAW' in df_filtered.columns:
+            currtime_str = str(df_filtered['CURRTIME_RAW'].iloc[idx - 1]).strip()
+        else:
+            # fallback: datetime에서 변환
+            currtime_str = current_time.strftime('%Y%m%d%H%M') if hasattr(current_time, 'strftime') else str(current_time)
+        
+        # 정규화: 12자리만, 소수점 제거
+        if '.' in currtime_str:
+            currtime_str = currtime_str.split('.')[0]
+        currtime_str = currtime_str.replace('-', '').replace(' ', '').replace(':', '')[:12]
         
         # ★ Alert 정보 조회
         alert_info = alert_map.get(currtime_str, {})
         
+        if alert_info:
+            alarm_match_count += 1
+        
+        # ★ 결과 행 생성 - 알람 컬럼 항상 포함 (없으면 빈 문자열)
         result_row = {
             'currtime': current_time.strftime('%Y-%m-%d %H:%M') if hasattr(current_time, 'strftime') else str(current_time),
             'currtime_raw': currtime_str,
@@ -672,20 +712,18 @@ def evaluate(data_dir, date_start, date_end, time_start='0000', time_end='2359',
             'vote': int(vote_sum),
             'danger': int(final_danger),
             'actual_danger': 1 if actual_max >= limit_val else 0,
+            # ★ 알람 정보 - 항상 포함 (없으면 빈 값)
+            'alarm_no': alert_info.get('ALARM_NO', '') if alert_info else '',
+            'is_alarm': alert_info.get('IS_ALARM', '') if alert_info else '',
+            'cooldown_mins': alert_info.get('COOLDOWN_MINS', '') if alert_info else '',
         }
-        
-        # ★ 알람 정보 추가 (있는 경우만)
-        if alert_info:
-            result_row['alarm_no'] = alert_info.get('ALARM_NO', '')
-            result_row['is_alarm'] = alert_info.get('IS_ALARM', '')
-            result_row['cooldown_mins'] = alert_info.get('COOLDOWN_MINS', '')
         
         results.append(result_row)
     
     if progress_callback:
         progress_callback(total + progress_offset, total + progress_offset)
     
-    print(f"  ✅ 예측 완료: {len(results):,}개")
+    print(f"  ✅ 예측 완료: {len(results):,}개 (알람 매칭: {alarm_match_count}개)")
     
     # 통계 계산
     print(f"\n[4] 통계 계산...")
@@ -742,7 +780,7 @@ def evaluate(data_dir, date_start, date_end, time_start='0000', time_end='2359',
     precision = round(TP / pred_danger.sum() * 100, 2) if pred_danger.sum() > 0 else 0
     
     # ★ 알람 정보가 있는 건수 카운트
-    alarm_count = df_result['alarm_no'].notna().sum() if 'alarm_no' in df_result.columns else 0
+    alarm_count = df_result[df_result['alarm_no'] != ''].shape[0]
     
     # 전체 데이터 반환
     df_result = df_result.drop(columns=['currtime_dt'], errors='ignore')
