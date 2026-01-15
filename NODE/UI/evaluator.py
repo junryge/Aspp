@@ -68,50 +68,6 @@ _model_data_30 = None
 
 
 # ============================================================================
-# 상태 분류 한글 매핑
-# ============================================================================
-STATUS_LABELS = {
-    'TP': '✅ 위험적중',
-    'TN': '✅ 정상적중',
-    'FN_놓침': '❌ 미감지',
-    'FP_오탐': '❌ 과예측',
-}
-
-def get_status_label(status):
-    """상태 코드를 한글 라벨로 변환"""
-    if status in STATUS_LABELS:
-        return STATUS_LABELS[status]
-    
-    if status.startswith('FN_') and '분전' in status:
-        mins = status.replace('FN_', '').replace('분전', '')
-        return f'⚠️ {mins}분전감지'
-    
-    if status.startswith('FP_') and '분후' in status:
-        mins = status.replace('FP_', '').replace('분후', '')
-        return f'⚠️ {mins}분후발생'
-    
-    return status
-
-def get_status_category(status):
-    """상태를 카테고리로 분류"""
-    if status == 'TP':
-        return 'tp'
-    elif status == 'TN':
-        return 'tn'
-    elif status.startswith('FN_'):
-        if status == 'FN_놓침':
-            return 'fn_miss'
-        else:
-            return 'fn_early'
-    elif status.startswith('FP_'):
-        if status == 'FP_오탐':
-            return 'fp_false'
-        else:
-            return 'fp_valid'
-    return 'unknown'
-
-
-# ============================================================================
 # 로그프레소 API 함수 (외부 조회용)
 # ============================================================================
 def query_logpresso(query, timeout=180):
@@ -709,14 +665,7 @@ def evaluate(data_dir, date_start, date_end, time_start='0000', time_end='2359',
     
     df_result['status'] = df_result.apply(get_status, axis=1)
     
-    # 한글 라벨과 카테고리 추가
-    df_result['status_label'] = df_result['status'].apply(get_status_label)
-    df_result['status_category'] = df_result['status'].apply(get_status_category)
-    
     status_counts = df_result['status'].value_counts().to_dict()
-    
-    # 카테고리별 집계
-    category_counts = df_result['status_category'].value_counts().to_dict()
     
     real_fn = status_counts.get('FN_놓침', 0)
     real_fp = status_counts.get('FP_오탐', 0)
@@ -729,11 +678,9 @@ def evaluate(data_dir, date_start, date_end, time_start='0000', time_end='2359',
     recall = round(TP / actual_danger.sum() * 100, 2) if actual_danger.sum() > 0 else 0
     precision = round(TP / pred_danger.sum() * 100, 2) if pred_danger.sum() > 0 else 0
     
-    # 결과에 상태 정보 추가
-    for i in range(len(results)):
-        results[i]['status'] = df_result.iloc[i]['status']
-        results[i]['status_label'] = df_result.iloc[i]['status_label']
-        results[i]['status_category'] = df_result.iloc[i]['status_category']
+    # ★★★ 수정: 전체 데이터 반환 (100개 제한 제거) ★★★
+    df_result = df_result.drop(columns=['currtime_dt'], errors='ignore')
+    result_data = df_result.to_dict('records')
     
     return {
         'pred_type': pred_type,
@@ -760,9 +707,8 @@ def evaluate(data_dir, date_start, date_end, time_start='0000', time_end='2359',
             'fp_valid': fp_valid,
         },
         'status_counts': status_counts,
-        'category_counts': category_counts,
         'analysis_range': analysis_range,
-        'data': results,  # 전체 데이터 반환 (100개 제한 제거)
+        'data': result_data,  # ★ status가 포함된 데이터
     }
 
 
