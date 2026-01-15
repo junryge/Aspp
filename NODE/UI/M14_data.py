@@ -192,52 +192,43 @@ class M14DataManager:
     def _get_alert_file_path(self, date_str):
         return os.path.join(self.data_dir, f'm14_alert_{date_str}.csv')
     
-    def _get_state_file_path(self):
-        """알람 상태 파일 (쿨타임, 카운트)"""
-        return os.path.join(self.data_dir, 'm14_alarm_state.csv')
-    
     def set_predictors(self, pred_10, pred_30):
         self._predictor_10 = pred_10
         self._predictor_30 = pred_30
     
-    def _load_alarm_state(self):
-        """알람 상태 로드 (날짜 바뀌면 리셋)"""
-        state_file = self._get_state_file_path()
-        today = datetime.now().strftime("%Y-%m-%d")
+    def _calc_alarm_state_from_alerts(self):
+        """alert 기록에서 알람 상태 계산 (서버 재시작 시 사용)"""
+        all_alerts = self.alert_10_list + self.alert_30_list
         
-        if os.path.exists(state_file):
-            state_df = pd.read_csv(state_file)
-            if len(state_df) > 0:
-                # 저장된 날짜 확인
-                saved_date = state_df.get('DATE', pd.Series([None])).iloc[0]
-                
-                if saved_date == today:
-                    # 같은 날이면 상태 유지
-                    self.alarm_count = int(state_df['ALARM_COUNT'].iloc[0])
-                    last_time_str = state_df['LAST_ALARM_TIME'].iloc[0]
-                    if pd.notna(last_time_str) and last_time_str != '':
-                        self.last_alarm_time = datetime.strptime(last_time_str, '%Y-%m-%d %H:%M:%S')
-                    print(f"[M14] 알람 상태 로드: count={self.alarm_count}, last={self.last_alarm_time}")
-                else:
-                    # 날짜가 바뀌었으면 리셋
-                    print(f"[M14] 날짜 변경 감지 ({saved_date} → {today}), 알람 카운트 리셋")
-                    self.alarm_count = 0
-                    self.last_alarm_time = None
-                    self._save_alarm_state()
-        else:
-            # 파일 없으면 초기화
+        # IS_ALARM=True인 것만 필터
+        alarm_records = [a for a in all_alerts if a.get('IS_ALARM') == True]
+        
+        if not alarm_records:
             self.alarm_count = 0
             self.last_alarm_time = None
-    
-    def _save_alarm_state(self):
-        """알람 상태 저장 (날짜 포함)"""
-        state_file = self._get_state_file_path()
-        today = datetime.now().strftime("%Y-%m-%d")
-        pd.DataFrame({
-            'DATE': [today],
-            'ALARM_COUNT': [self.alarm_count],
-            'LAST_ALARM_TIME': [self.last_alarm_time.strftime('%Y-%m-%d %H:%M:%S') if self.last_alarm_time else '']
-        }).to_csv(state_file, index=False)
+            print(f"[M14] 알람 상태 계산: count=0, last=None")
+            return
+        
+        # 알람 번호 중 최대값 = 오늘 알람 횟수
+        self.alarm_count = max(a.get('ALARM_NO', 0) for a in alarm_records)
+        
+        # 가장 마지막 알람 시간 찾기
+        last_timestamp = None
+        for a in alarm_records:
+            ts = a.get('TIMESTAMP')
+            if ts:
+                try:
+                    if isinstance(ts, str):
+                        t = datetime.strptime(ts, '%Y-%m-%d %H:%M:%S')
+                    else:
+                        t = ts
+                    if last_timestamp is None or t > last_timestamp:
+                        last_timestamp = t
+                except:
+                    pass
+        
+        self.last_alarm_time = last_timestamp
+        print(f"[M14] 알람 상태 계산: count={self.alarm_count}, last={self.last_alarm_time}")
     
     def _is_in_cooldown(self):
         """쿨타임 중인지 확인"""
@@ -258,9 +249,6 @@ class M14DataManager:
         """초기화"""
         today = datetime.now().strftime("%Y%m%d")
         yesterday = (datetime.now() - timedelta(days=1)).strftime("%Y%m%d")
-        
-        # 알람 상태 로드
-        self._load_alarm_state()
         
         all_data = []
         all_pred_10 = []
@@ -295,6 +283,9 @@ class M14DataManager:
             self.alert_10_list = []
             self.alert_30_list = []
             print(f"[M14] 알람 기록 없음 (신규)")
+        
+        # alert 기록에서 알람 상태 계산 (alarm_count, last_alarm_time)
+        self._calc_alarm_state_from_alerts()
         
         if all_data:
             self.data = pd.concat(all_data, ignore_index=True)
@@ -403,7 +394,6 @@ class M14DataManager:
         if is_alarm:
             self.alarm_count += 1
             self.last_alarm_time = datetime.now()
-            self._save_alarm_state()
         
         alert_list.append({
             'TYPE': alert_type,
