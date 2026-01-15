@@ -657,16 +657,47 @@
             document.getElementById('filter-total').textContent = allTableData.length.toLocaleString();
         }
         
+        // ★ 수정된 drawChart 함수 - 시작~종료 시간 표시, hover 시 YYYY-MM-DD-HH:MM:(값) 형식
         function drawChart(data, predType) {
-            const times = data.map(d => (d.pred_time || '').split(' ')[1] || d.pred_time);
+            // x축: 예측시점 전체 표시 (YYYY-MM-DD HH:MM)
+            const times = data.map(d => d.pred_time || '');
             const actualMax = data.map(d => d.actual_max);
             const actualSingle = data.map(d => d.actual_single);
             const predicts = data.map(d => d.predict);
             
+            // customdata 생성 (hover용) - YYYY-MM-DD-HH:MM:(값) 형식
+            const customData = data.map(d => {
+                const pt = d.pred_time || '';
+                // YYYY-MM-DD HH:MM -> YYYY-MM-DD-HH:MM 형식 변환
+                let formatted = pt;
+                if (pt && pt.includes(' ')) {
+                    const [datePart, timePart] = pt.split(' ');
+                    if (timePart) {
+                        formatted = `${datePart}-${timePart}`;
+                    }
+                }
+                return [formatted, d.actual_max, d.actual_single, d.predict];
+            });
+            
             const traces = [
-                { x: times, y: actualMax, name: `실제(최대)`, type: 'scatter', mode: 'lines', line: { color: '#22c55e', width: 2 } },
-                { x: times, y: actualSingle, name: `실제(단일)`, type: 'scatter', mode: 'lines', line: { color: '#3b82f6', width: 2 } },
-                { x: times, y: predicts, name: '예측값', type: 'scatter', mode: 'lines', line: { color: '#f97316', width: 2 } }
+                { 
+                    x: times, y: actualMax, name: `실제(최대)`, type: 'scatter', mode: 'lines', 
+                    line: { color: '#22c55e', width: 2 },
+                    customdata: customData,
+                    hovertemplate: '%{customdata[0]}:(%{customdata[1]})<extra>실제(최대)</extra>'
+                },
+                { 
+                    x: times, y: actualSingle, name: `실제(단일)`, type: 'scatter', mode: 'lines', 
+                    line: { color: '#3b82f6', width: 2 },
+                    customdata: customData,
+                    hovertemplate: '%{customdata[0]}:(%{customdata[2]})<extra>실제(단일)</extra>'
+                },
+                { 
+                    x: times, y: predicts, name: '예측값', type: 'scatter', mode: 'lines', 
+                    line: { color: '#f97316', width: 2 },
+                    customdata: customData,
+                    hovertemplate: '%{customdata[0]}:(%{customdata[3]})<extra>예측값</extra>'
+                }
             ];
             
             const layout = {
