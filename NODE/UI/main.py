@@ -195,6 +195,8 @@ def get_history():
         
         if os.path.exists(alert_file):
             df_alert = pd.read_csv(alert_file)
+            # TYPE을 문자열로 변환 (CSV에서 정수로 읽힐 수 있음)
+            df_alert['TYPE'] = df_alert['TYPE'].astype(str)
             for _, row in df_alert.iterrows():
                 alert_item = {
                     'CURRTIME': row.get('CURRTIME', ''),
@@ -203,9 +205,10 @@ def get_history():
                     'IS_ALARM': bool(row.get('IS_ALARM', False)),
                     'COOLDOWN_MINS': int(row.get('COOLDOWN_MINS', 0)) if pd.notna(row.get('COOLDOWN_MINS')) else 0
                 }
-                if row.get('TYPE') == 'PRED_10':
+                # TYPE이 '10' 또는 '30'으로 저장됨
+                if row.get('TYPE') == '10':
                     alerts_10.append(alert_item)
-                elif row.get('TYPE') == 'PRED_30':
+                elif row.get('TYPE') == '30':
                     alerts_30.append(alert_item)
         
         # 결과 반환
