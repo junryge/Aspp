@@ -742,37 +742,37 @@
         
         <!-- 카테고리별 요약 -->
         <div class="section">
-            <div class="section-title">📊 상태별 분류 요약 (클릭하여 필터링)</div>
+            <div class="section-title">📊 예측상태별 분류 요약 (클릭하여 필터링)</div>
             <div class="category-summary" id="category-summary">
                 <div class="category-card cat-tp" data-category="tp" onclick="filterByCategory('tp')">
-                    <div class="category-label">✅ 정상감지</div>
+                    <div class="category-label">✅ 위험적중</div>
                     <div class="category-value" id="cat-tp">0</div>
                     <div class="category-desc">위험예측→실제위험</div>
                 </div>
                 <div class="category-card cat-tn" data-category="tn" onclick="filterByCategory('tn')">
-                    <div class="category-label">✅ 정상</div>
+                    <div class="category-label">✅ 정상적중</div>
                     <div class="category-value" id="cat-tn">0</div>
                     <div class="category-desc">정상예측→실제정상</div>
                 </div>
                 <div class="category-card cat-fn-miss" data-category="fn_miss" onclick="filterByCategory('fn_miss')">
-                    <div class="category-label">❌ 완전미탐</div>
+                    <div class="category-label">❌ 미감지</div>
                     <div class="category-value" id="cat-fn-miss">0</div>
-                    <div class="category-desc">놓침 (사전예측없음)</div>
+                    <div class="category-desc">정상예측→실제위험</div>
                 </div>
                 <div class="category-card cat-fn-early" data-category="fn_early" onclick="filterByCategory('fn_early')">
-                    <div class="category-label">⚠️ 조기감지</div>
+                    <div class="category-label">⚠️ 사전감지</div>
                     <div class="category-value" id="cat-fn-early">0</div>
                     <div class="category-desc">이전에 예측됨</div>
                 </div>
                 <div class="category-card cat-fp-false" data-category="fp_false" onclick="filterByCategory('fp_false')">
-                    <div class="category-label">❌ 오탐</div>
+                    <div class="category-label">❌ 과예측</div>
                     <div class="category-value" id="cat-fp-false">0</div>
-                    <div class="category-desc">위험예측→미발생</div>
+                    <div class="category-desc">위험예측→실제정상</div>
                 </div>
                 <div class="category-card cat-fp-valid" data-category="fp_valid" onclick="filterByCategory('fp_valid')">
-                    <div class="category-label">⚠️ 유효경고</div>
+                    <div class="category-label">⚠️ 선행경고</div>
                     <div class="category-value" id="cat-fp-valid">0</div>
-                    <div class="category-desc">이후 실제 돌파</div>
+                    <div class="category-desc">이후 실제 발생</div>
                 </div>
             </div>
         </div>
@@ -843,10 +843,10 @@
             <div class="table-header-row">
                 <div class="filter-buttons">
                     <button class="btn filter-btn filter-all active" onclick="filterTable('all')">전체</button>
-                    <button class="btn filter-btn filter-tp" onclick="filterTable('tp')">✅ 정상감지 (TP)</button>
-                    <button class="btn filter-btn filter-tn" onclick="filterTable('tn')">✅ 정상 (TN)</button>
-                    <button class="btn filter-btn filter-fn" onclick="filterTable('fn')">❌ 미탐 (FN)</button>
-                    <button class="btn filter-btn filter-fp" onclick="filterTable('fp')">⚠️ 오탐 (FP)</button>
+                    <button class="btn filter-btn filter-tp" onclick="filterTable('tp')">✅ 위험적중</button>
+                    <button class="btn filter-btn filter-tn" onclick="filterTable('tn')">✅ 정상적중</button>
+                    <button class="btn filter-btn filter-fn" onclick="filterTable('fn')">❌ 미감지</button>
+                    <button class="btn filter-btn filter-fp" onclick="filterTable('fp')">⚠️ 과예측/선행</button>
                 </div>
                 <div style="display: flex; align-items: center; gap: 10px;">
                     <span class="pagination-info" id="table-info">0개</span>
@@ -1134,19 +1134,19 @@
                 let cls = '';
                 let label = status;
                 
-                if (status === 'TP') { cls = 'tp'; label = '✅ 정상감지'; }
-                else if (status === 'TN') { cls = 'tn'; label = '✅ 정상'; }
-                else if (status === 'FN_놓침') { cls = 'fn'; label = '❌ 완전미탐'; }
+                if (status === 'TP') { cls = 'tp'; label = '✅ 위험적중'; }
+                else if (status === 'TN') { cls = 'tn'; label = '✅ 정상적중'; }
+                else if (status === 'FN_놓침') { cls = 'fn'; label = '❌ 미감지'; }
                 else if (status.startsWith('FN_')) { 
                     cls = 'fn'; 
                     const mins = status.replace('FN_', '').replace('분전', '');
-                    label = `⚠️ ${mins}분전 조기감지`; 
+                    label = `⚠️ ${mins}분전감지`; 
                 }
-                else if (status === 'FP_오탐') { cls = 'fp'; label = '❌ 오탐'; }
+                else if (status === 'FP_오탐') { cls = 'fp'; label = '❌ 과예측'; }
                 else if (status.startsWith('FP_')) { 
                     cls = 'fp'; 
                     const mins = status.replace('FP_', '').replace('분후', '');
-                    label = `⚠️ ${mins}분후 실현`; 
+                    label = `⚠️ ${mins}분후발생`; 
                 }
                 
                 statusHtml += `
