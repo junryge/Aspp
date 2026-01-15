@@ -115,7 +115,7 @@
             color: var(--text-secondary);
         }
         
-        input[type="date"] {
+        input[type="date"], input[type="time"] {
             padding: 8px 12px;
             background: var(--bg-card);
             border: 1px solid var(--border);
@@ -125,7 +125,8 @@
             font-size: 13px;
         }
         
-        input[type="date"]::-webkit-calendar-picker-indicator {
+        input[type="date"]::-webkit-calendar-picker-indicator,
+        input[type="time"]::-webkit-calendar-picker-indicator {
             filter: invert(1);
         }
         
@@ -403,6 +404,27 @@
         .results-container.active {
             display: block;
         }
+        
+        .progress-bar {
+            width: 100%;
+            height: 20px;
+            background: var(--bg-card);
+            border-radius: 10px;
+            overflow: hidden;
+            margin-top: 15px;
+        }
+        
+        .progress-fill {
+            height: 100%;
+            background: linear-gradient(90deg, var(--accent), var(--purple));
+            transition: width 0.3s ease;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 11px;
+            font-weight: 600;
+            color: white;
+        }
     </style>
 </head>
 <body>
@@ -419,12 +441,14 @@
     
     <div class="controls">
         <div class="control-group">
-            <span class="control-label">시작일:</span>
+            <span class="control-label">시작:</span>
             <input type="date" id="date-start">
+            <input type="time" id="time-start" value="00:00">
         </div>
         <div class="control-group">
-            <span class="control-label">종료일:</span>
+            <span class="control-label">종료:</span>
             <input type="date" id="date-end">
+            <input type="time" id="time-end" value="23:59">
         </div>
         <div class="control-group">
             <span class="control-label">예측 타입:</span>
@@ -439,7 +463,7 @@
                 </label>
             </div>
         </div>
-        <button class="btn btn-primary" id="btn-evaluate" onclick="runEvaluation()">🔍 평가 실행</button>
+        <button class="btn btn-primary" id="btn-evaluate" onclick="startEvaluation()">🔍 평가 실행</button>
         <button class="btn" onclick="loadToday()">오늘</button>
         <button class="btn" onclick="loadYesterday()">어제</button>
         <button class="btn" onclick="loadLast3Days()">최근 3일</button>
@@ -449,9 +473,10 @@
     <div id="initial-state">
         <div class="empty-state">
             <div class="empty-icon">📊</div>
-            <div>날짜를 선택하고 <strong>평가 실행</strong> 버튼을 누르세요</div>
+            <div>날짜/시간을 선택하고 <strong>평가 실행</strong> 버튼을 누르세요</div>
             <div style="color: var(--text-secondary); margin-top: 10px; font-size: 13px;">
-                data 폴더의 m14_data_YYYYMMDD.csv 파일을 사용하여 예측 성능을 평가합니다
+                data 폴더의 m14_data_YYYYMMDD.csv 파일을 사용하여 예측 성능을 평가합니다<br>
+                <span style="color: var(--success);">✅ 백그라운드 실행 - 실시간 모니터링에 영향 없음</span>
             </div>
         </div>
     </div>
@@ -459,10 +484,14 @@
     <div id="loading-state" style="display: none;">
         <div class="loading">
             <div class="loading-spinner"></div>
-            <div>평가 진행 중... 잠시 기다려주세요</div>
+            <div id="loading-text">평가 진행 중... 잠시 기다려주세요</div>
             <div style="font-size: 12px; color: var(--text-secondary); margin-top: 10px;">
-                데이터 양에 따라 수 분이 소요될 수 있습니다
+                백그라운드에서 실행 중 (실시간 모니터링에 영향 없음)
             </div>
+            <div class="progress-bar">
+                <div class="progress-fill" id="progress-fill" style="width: 0%;">0%</div>
+            </div>
+            <div id="progress-text" style="font-size: 12px; color: var(--text-secondary); margin-top: 10px;">0 / 0</div>
         </div>
     </div>
     
@@ -567,6 +596,8 @@
         document.getElementById('date-start').value = formatDate(today);
         document.getElementById('date-end').value = formatDate(today);
         
+        let pollInterval = null;
+        
         // 라디오 버튼 스타일
         document.querySelectorAll('input[name="pred-type"]').forEach(radio => {
             radio.addEventListener('change', function() {
@@ -585,6 +616,8 @@
         function loadToday() {
             document.getElementById('date-start').value = formatDate(today);
             document.getElementById('date-end').value = formatDate(today);
+            document.getElementById('time-start').value = '00:00';
+            document.getElementById('time-end').value = '23:59';
         }
         
         function loadYesterday() {
@@ -592,6 +625,8 @@
             yesterday.setDate(yesterday.getDate() - 1);
             document.getElementById('date-start').value = formatDate(yesterday);
             document.getElementById('date-end').value = formatDate(yesterday);
+            document.getElementById('time-start').value = '00:00';
+            document.getElementById('time-end').value = '23:59';
         }
         
         function loadLast3Days() {
@@ -599,6 +634,8 @@
             threeDaysAgo.setDate(threeDaysAgo.getDate() - 2);
             document.getElementById('date-start').value = formatDate(threeDaysAgo);
             document.getElementById('date-end').value = formatDate(today);
+            document.getElementById('time-start').value = '00:00';
+            document.getElementById('time-end').value = '23:59';
         }
         
         function loadThisWeek() {
@@ -606,11 +643,15 @@
             weekAgo.setDate(weekAgo.getDate() - 6);
             document.getElementById('date-start').value = formatDate(weekAgo);
             document.getElementById('date-end').value = formatDate(today);
+            document.getElementById('time-start').value = '00:00';
+            document.getElementById('time-end').value = '23:59';
         }
         
-        async function runEvaluation() {
+        async function startEvaluation() {
             const dateStart = document.getElementById('date-start').value.replace(/-/g, '');
             const dateEnd = document.getElementById('date-end').value.replace(/-/g, '');
+            const timeStart = document.getElementById('time-start').value.replace(':', '');
+            const timeEnd = document.getElementById('time-end').value.replace(':', '');
             const predType = document.querySelector('input[name="pred-type"]:checked').value;
             
             if (!dateStart || !dateEnd) {
@@ -623,15 +664,66 @@
             document.getElementById('loading-state').style.display = 'block';
             document.getElementById('results-container').classList.remove('active');
             document.getElementById('btn-evaluate').disabled = true;
+            document.getElementById('progress-fill').style.width = '0%';
+            document.getElementById('progress-fill').textContent = '0%';
+            document.getElementById('progress-text').textContent = '시작 중...';
             
             try {
-                const res = await fetch(`/api/evaluate?date_start=${dateStart}&date_end=${dateEnd}&pred_type=${predType}`);
+                // 백그라운드 평가 시작
+                const startRes = await fetch(`/api/evaluate/start?date_start=${dateStart}&date_end=${dateEnd}&time_start=${timeStart}&time_end=${timeEnd}&pred_type=${predType}`);
+                const startData = await startRes.json();
+                
+                if (startData.error) {
+                    alert(startData.error);
+                    resetUI();
+                    return;
+                }
+                
+                // 진행 상태 폴링 시작
+                pollInterval = setInterval(pollStatus, 1000);
+                
+            } catch (e) {
+                console.error(e);
+                alert('평가 시작 중 오류가 발생했습니다');
+                resetUI();
+            }
+        }
+        
+        async function pollStatus() {
+            try {
+                const res = await fetch('/api/evaluate/status');
+                const data = await res.json();
+                
+                // 진행률 업데이트
+                document.getElementById('progress-fill').style.width = data.percent + '%';
+                document.getElementById('progress-fill').textContent = data.percent + '%';
+                document.getElementById('progress-text').textContent = `${data.progress.toLocaleString()} / ${data.total.toLocaleString()}`;
+                document.getElementById('loading-text').textContent = `평가 진행 중... (${data.percent}%)`;
+                
+                if (data.status === 'completed') {
+                    clearInterval(pollInterval);
+                    pollInterval = null;
+                    await loadResult();
+                } else if (data.status === 'error') {
+                    clearInterval(pollInterval);
+                    pollInterval = null;
+                    alert('평가 중 오류가 발생했습니다');
+                    resetUI();
+                }
+                
+            } catch (e) {
+                console.error(e);
+            }
+        }
+        
+        async function loadResult() {
+            try {
+                const res = await fetch('/api/evaluate/result');
                 const data = await res.json();
                 
                 if (data.error) {
                     alert(data.error);
-                    document.getElementById('initial-state').style.display = 'block';
-                    document.getElementById('loading-state').style.display = 'none';
+                    resetUI();
                     return;
                 }
                 
@@ -639,15 +731,25 @@
                 
             } catch (e) {
                 console.error(e);
-                alert('평가 실행 중 오류가 발생했습니다');
-                document.getElementById('initial-state').style.display = 'block';
-            } finally {
-                document.getElementById('loading-state').style.display = 'none';
-                document.getElementById('btn-evaluate').disabled = false;
+                alert('결과 로드 중 오류가 발생했습니다');
+                resetUI();
+            }
+        }
+        
+        function resetUI() {
+            document.getElementById('initial-state').style.display = 'block';
+            document.getElementById('loading-state').style.display = 'none';
+            document.getElementById('btn-evaluate').disabled = false;
+            if (pollInterval) {
+                clearInterval(pollInterval);
+                pollInterval = null;
             }
         }
         
         function displayResults(data) {
+            document.getElementById('loading-state').style.display = 'none';
+            document.getElementById('btn-evaluate').disabled = false;
+            
             // 경고 박스
             const warningBox = document.getElementById('warning-box');
             if (data.missing_cols && data.missing_cols.length > 0) {
@@ -660,9 +762,13 @@
             const stats = data.stats;
             const predTypeText = data.pred_type === '10' ? '10분' : '30분';
             
+            // 시간 포맷팅
+            const timeStartFmt = data.time_start ? `${data.time_start.slice(0,2)}:${data.time_start.slice(2,4)}` : '00:00';
+            const timeEndFmt = data.time_end ? `${data.time_end.slice(0,2)}:${data.time_end.slice(2,4)}` : '23:59';
+            
             // 기본 통계
             document.getElementById('stat-total').textContent = data.total_count.toLocaleString();
-            document.getElementById('stat-period').textContent = `${data.date_start.slice(0,4)}-${data.date_start.slice(4,6)}-${data.date_start.slice(6,8)} ~ ${data.date_end.slice(0,4)}-${data.date_end.slice(4,6)}-${data.date_end.slice(6,8)} (${predTypeText})`;
+            document.getElementById('stat-period').textContent = `${data.date_start.slice(0,4)}-${data.date_start.slice(4,6)}-${data.date_start.slice(6,8)} ${timeStartFmt} ~ ${data.date_end.slice(0,4)}-${data.date_end.slice(4,6)}-${data.date_end.slice(6,8)} ${timeEndFmt} (${predTypeText})`;
             document.getElementById('stat-actual').textContent = data.actual_danger_count.toLocaleString();
             document.getElementById('stat-accuracy').textContent = stats.accuracy + '%';
             document.getElementById('stat-recall').textContent = stats.recall + '%';
@@ -686,9 +792,7 @@
             const statusList = document.getElementById('status-list');
             let statusHtml = '';
             
-            // 정렬: TP, TN, FN류, FP류
             const sortedStatuses = Object.entries(data.status_counts).sort((a, b) => {
-                const order = {'TP': 0, 'TN': 1};
                 const getOrder = (s) => {
                     if (s === 'TP') return 0;
                     if (s === 'TN') return 1;
