@@ -957,13 +957,14 @@
         }
         
         function drawChart(data, predType) {
-            const times = data.map(d => d.currtime.split(' ')[1] || d.currtime);
+            const times = data.map(d => d.pred_time.split(' ')[1] || d.pred_time);
             const actuals = data.map(d => d.actual_max);
+            const actualSingles = data.map(d => d.actual_single);
             const predicts = data.map(d => d.predict);
             const currents = data.map(d => d.current);
             
             // y축 범위 동적 계산
-            const allValues = [...actuals, ...predicts, ...currents, 1700];
+            const allValues = [...actuals, ...actualSingles, ...predicts, ...currents, 1700];
             const minVal = Math.min(...allValues);
             const maxVal = Math.max(...allValues);
             const padding = (maxVal - minVal) * 0.1;  // 10% 여백
@@ -982,10 +983,18 @@
                 {
                     x: times,
                     y: actuals,
-                    name: `실제 ${predType}분 최대`,
+                    name: `실제(최대) ${predType}분`,
                     type: 'scatter',
                     mode: 'lines',
                     line: { color: '#22c55e', width: 2 }
+                },
+                {
+                    x: times,
+                    y: actualSingles,
+                    name: `실제(단일) ${predType}분`,
+                    type: 'scatter',
+                    mode: 'lines',
+                    line: { color: '#8b5cf6', width: 2, dash: 'dash' }
                 },
                 {
                     x: times,
@@ -1009,14 +1018,15 @@
                     tickangle: -45,
                     tickfont: { size: 10 },
                     range: [-0.5, times.length - 0.5],
-                    autorange: false
+                    autorange: false,
+                    title: { text: '예측시점', font: { size: 11 } }
                 },
                 yaxis: { 
                     gridcolor: '#27272a', 
                     range: [yMin, yMax],
                     tickfont: { size: 11 }
                 },
-                margin: { t: 40, r: 20, b: 70, l: 55 },
+                margin: { t: 40, r: 20, b: 80, l: 55 },
                 shapes: [{
                     type: 'line',
                     y0: 1700, y1: 1700,
