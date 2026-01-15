@@ -324,14 +324,14 @@
             <div class="stat-value value-danger" id="stat-over">-</div>
         </div>
         <div class="stat-card">
-            <div class="stat-label">예측10분 정확도</div>
+            <div class="stat-label">예측10분 1700+ 적중률</div>
             <div class="stat-value" id="stat-acc10">-</div>
-            <div class="stat-sub">오차 ±100 이내</div>
+            <div class="stat-sub" id="stat-acc10-sub">예측→실제</div>
         </div>
         <div class="stat-card">
-            <div class="stat-label">예측30분 정확도</div>
+            <div class="stat-label">예측30분 1700+ 적중률</div>
             <div class="stat-value" id="stat-acc30">-</div>
-            <div class="stat-sub">오차 ±100 이내</div>
+            <div class="stat-sub" id="stat-acc30-sub">예측→실제</div>
         </div>
     </div>
     
@@ -658,42 +658,40 @@
             const overCount = totalcnts.filter(v => v >= 1700).length;
             document.getElementById('stat-over').textContent = overCount;
             
-            // 예측 정확도 계산 (10분 예측)
-            let acc10Count = 0;
-            let acc10Total = 0;
-            let acc30Count = 0;
+            // 예측 정확도 계산 (1700+ 예측 적중률)
+            let acc10Hit = 0;   // 1700+ 예측 성공
+            let acc10Total = 0; // 1700+ 예측 시도
+            let acc30Hit = 0;
             let acc30Total = 0;
             
             for (let i = 0; i < rows.length; i++) {
                 const row = rows[i];
                 
-                // 10분 예측 검증: i번째 예측이 i+10번째 실제값과 비교
-                if (i + 10 < rows.length && row.PREDICT_10) {
+                // 10분 예측 검증: 예측이 1700+일 때, 실제로 10분 후 1700+ 됐는지
+                if (i + 10 < rows.length && row.PREDICT_10 >= 1700) {
                     const actual = rows[i + 10].TOTALCNT;
-                    const predicted = row.PREDICT_10;
-                    const error = Math.abs(actual - predicted);
-                    acc10Total++;
-                    if (error <= 100) acc10Count++;
+                    acc10Total++;  // 1700+ 예측 횟수
+                    if (actual >= 1700) acc10Hit++;  // 실제로 1700+ 된 횟수
                 }
                 
                 // 30분 예측 검증
-                if (i + 30 < rows.length && row.PREDICT_30) {
+                if (i + 30 < rows.length && row.PREDICT_30 >= 1700) {
                     const actual = rows[i + 30].TOTALCNT;
-                    const predicted = row.PREDICT_30;
-                    const error = Math.abs(actual - predicted);
                     acc30Total++;
-                    if (error <= 100) acc30Count++;
+                    if (actual >= 1700) acc30Hit++;
                 }
             }
             
-            const acc10 = acc10Total > 0 ? Math.round(acc10Count / acc10Total * 100) : 0;
-            const acc30 = acc30Total > 0 ? Math.round(acc30Count / acc30Total * 100) : 0;
+            const acc10 = acc10Total > 0 ? Math.round(acc10Hit / acc10Total * 100) : 0;
+            const acc30 = acc30Total > 0 ? Math.round(acc30Hit / acc30Total * 100) : 0;
             
-            document.getElementById('stat-acc10').textContent = acc10 + '%';
+            document.getElementById('stat-acc10').textContent = acc10Total > 0 ? acc10 + '%' : '-';
             document.getElementById('stat-acc10').className = 'stat-value ' + getAccuracyClass(acc10);
+            document.getElementById('stat-acc10-sub').textContent = `${acc10Hit}/${acc10Total} 적중`;
             
-            document.getElementById('stat-acc30').textContent = acc30 + '%';
+            document.getElementById('stat-acc30').textContent = acc30Total > 0 ? acc30 + '%' : '-';
             document.getElementById('stat-acc30').className = 'stat-value ' + getAccuracyClass(acc30);
+            document.getElementById('stat-acc30-sub').textContent = `${acc30Hit}/${acc30Total} 적중`;
         }
         
         function getValueClass(val) {
