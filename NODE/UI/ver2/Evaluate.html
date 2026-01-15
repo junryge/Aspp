@@ -234,7 +234,7 @@
             <div>날짜/시간을 선택하고 <strong>평가 실행</strong> 버튼을 누르세요</div>
             <div style="color: var(--text-secondary); margin-top: 15px; font-size: 13px;">
                 <div style="margin-bottom: 8px;"><span class="source-badge internal">📁 내부</span> data 폴더의 CSV 파일 + alert 파일 사용</div>
-                <div style="margin-bottom: 8px;"><span class="source-badge external">🌐 외부</span> 로그프레소 API 직접 조회</div>
+                <div style="margin-bottom: 8px;"><span class="source-badge external">🌐 외부</span> 로그프레소 API 직접 조회 (alert 파일은 내부 사용)</div>
                 <div style="color: var(--success); margin-top: 10px;">✅ CSV 다운로드 시 알람번호, 쿨타임 정보 포함</div>
             </div>
         </div>
@@ -401,7 +401,7 @@
             document.getElementById('time-end').value = '23:59';
         }
         
-        // ★ CSV 다운로드 (알람 정보 포함)
+        // ★ CSV 다운로드 (알람 정보 포함) - 수정됨
         function downloadCSV() {
             if (!currentResultData || !currentResultData.data || currentResultData.data.length === 0) {
                 alert('먼저 평가를 실행하세요');
@@ -417,7 +417,25 @@
             const headers = ['현재시간','현재값','예측시점','예측값','실제(최대)','실제(단일)','확률','투표수','판정','실제위험','상태','알람번호','알람발생','쿨타임(분)'];
             let csv = headers.join(',') + '\n';
             
+            // ★ 알람 있는 행 카운트
+            let alarmRowCount = 0;
+            
             data.forEach(row => {
+                // ★ 알람 정보 추출 (undefined, null, '' 모두 처리)
+                const hasAlarm = row.alarm_no !== undefined && row.alarm_no !== null && row.alarm_no !== '';
+                
+                let alarmNoStr = '';
+                let isAlarmStr = '';
+                let cooldownStr = '';
+                
+                if (hasAlarm) {
+                    alarmRowCount++;
+                    alarmNoStr = String(row.alarm_no);
+                    isAlarmStr = row.is_alarm === true ? '발생' : '쿨타임';
+                    cooldownStr = row.cooldown_mins !== undefined && row.cooldown_mins !== null && row.cooldown_mins !== '' 
+                                  ? String(row.cooldown_mins) : '0';
+                }
+                
                 const values = [
                     row.currtime || '',
                     row.current || '',
@@ -430,12 +448,14 @@
                     row.danger === 1 ? '위험' : '정상',
                     row.actual_danger === 1 ? '위험' : '정상',
                     row.status || '',
-                    row.alarm_no !== undefined && row.alarm_no !== '' ? row.alarm_no : '',
-                    row.is_alarm !== undefined && row.is_alarm !== '' ? (row.is_alarm ? '발생' : '쿨타임') : '',
-                    row.cooldown_mins !== undefined && row.cooldown_mins !== '' ? row.cooldown_mins : ''
+                    alarmNoStr,
+                    isAlarmStr,
+                    cooldownStr
                 ];
                 csv += values.join(',') + '\n';
             });
+            
+            console.log(`CSV 생성: 총 ${data.length}행, 알람 정보 있는 행: ${alarmRowCount}개`);
             
             const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8;' });
             const url = URL.createObjectURL(blob);
@@ -468,7 +488,7 @@
             progressFill.className = 'progress-fill' + (dataSource === 'external' ? ' external' : '');
             
             document.getElementById('progress-text').textContent = '시작 중...';
-            document.getElementById('loading-source').innerHTML = dataSource === 'internal' ? '📁 내부(파일) + Alert 파일' : '🌐 외부(로그프레소)';
+            document.getElementById('loading-source').innerHTML = dataSource === 'internal' ? '📁 내부(파일) + Alert 파일' : '🌐 외부(로그프레소) + Alert 파일';
             
             try {
                 const startRes = await fetch(`/api/evaluate/start?date_start=${dateStart}&date_end=${dateEnd}&time_start=${timeStart}&time_end=${timeEnd}&pred_type=${predType}&data_source=${dataSource}`);
@@ -513,6 +533,16 @@
                 
                 if (data.error) { alert(data.error); resetUI(); return; }
                 currentResultData = data;
+                
+                // ★ 결과 데이터 디버그 로그
+                console.log('평가 결과:', data);
+                console.log('알람 기록 수:', data.alarm_record_count);
+                if (data.data && data.data.length > 0) {
+                    const sampleRow = data.data[0];
+                    console.log('샘플 행:', sampleRow);
+                    console.log('alarm_no 필드:', sampleRow.alarm_no);
+                }
+                
                 displayResults(data);
             } catch (e) {
                 console.error(e);
@@ -536,10 +566,10 @@
             
             const sourceInfoBox = document.getElementById('source-info-box');
             if (data.data_source === 'external') {
-                sourceInfoBox.innerHTML = '🌐 외부(로그프레소) 평가 완료';
+                sourceInfoBox.innerHTML = `🌐 외부(로그프레소) 평가 완료 | 알람 기록: ${data.alarm_record_count}개`;
                 sourceInfoBox.className = 'source-info-box';
             } else {
-                sourceInfoBox.innerHTML = '📁 내부(파일) + Alert 파일 평가 완료';
+                sourceInfoBox.innerHTML = `📁 내부(파일) 평가 완료 | 알람 기록: ${data.alarm_record_count}개`;
                 sourceInfoBox.className = 'info-box';
             }
             sourceInfoBox.style.display = 'block';
@@ -611,7 +641,7 @@
             if (filter === 'all') filteredData = allTableData;
             else if (filter === 'FN') filteredData = allTableData.filter(row => row.status && row.status.startsWith('FN'));
             else if (filter === 'FP') filteredData = allTableData.filter(row => row.status && row.status.startsWith('FP'));
-            else if (filter === 'alarm') filteredData = allTableData.filter(row => row.alarm_no !== undefined && row.alarm_no !== '');
+            else if (filter === 'alarm') filteredData = allTableData.filter(row => row.alarm_no !== undefined && row.alarm_no !== null && row.alarm_no !== '');
             else filteredData = allTableData.filter(row => row.status === filter);
             
             drawTable(filteredData);
@@ -666,12 +696,15 @@
                         else if (row.status.startsWith('FP')) statusBadge = `<span class="badge badge-fp">${row.status}</span>`;
                     }
                     
+                    // ★ 알람 정보 표시 (수정됨)
                     let alarmInfo = '-';
-                    if (row.alarm_no !== undefined && row.alarm_no !== '') {
+                    const hasAlarm = row.alarm_no !== undefined && row.alarm_no !== null && row.alarm_no !== '';
+                    if (hasAlarm) {
                         if (row.is_alarm === true) {
                             alarmInfo = `<span class="badge badge-alarm">🔔 ${row.alarm_no}번째 알람</span>`;
                         } else {
-                            alarmInfo = `<span class="badge badge-cooldown">⏱ ${row.alarm_no}번째 후 쿨타임 ${row.cooldown_mins}분</span>`;
+                            const cooldown = row.cooldown_mins !== undefined && row.cooldown_mins !== null ? row.cooldown_mins : 0;
+                            alarmInfo = `<span class="badge badge-cooldown">⏱ ${row.alarm_no}번째 후 쿨타임 ${cooldown}분</span>`;
                         }
                     }
                     
