@@ -2,8 +2,7 @@
 """
 ================================================================================
 M14 예측 평가 모듈
-- 내부: data 폴더의 m14_data_YYYYMMDD.csv 파일 사용
-- 외부: 로그프레소 API 직접 조회
+- data 폴더의 m14_data_YYYYMMDD.csv 파일 사용
 - 10분/30분 예측 평가
 - 백그라운드 실행 지원 (실시간 모니터링에 영향 없음)
 ================================================================================
@@ -16,35 +15,12 @@ import gc
 import threading
 import numpy as np
 import pandas as pd
-import requests
-import urllib.parse
-from io import StringIO
 from datetime import datetime, timedelta
 
 warnings.filterwarnings('ignore')
-requests.packages.urllib3.disable_warnings()
 
 # ============================================================================
-# 로그프레소 설정 (외부 조회용)
-# ============================================================================
-LOGPRESSO_HOST = "10.40.42.27"
-LOGPRESSO_PORT = 8888
-LOGPRESSO_API_KEY = "db1d2335-49cf-e859-3519-1ca132922e38"
-
-FINAL_COLUMNS = [
-    'CURRTIME', 'TOTALCNT',
-    'M14AM10A', 'M10AM14A', 'M14AM10ASUM',
-    'M14AM14B', 'M14BM14A', 'M14AM14BSUM',
-    'M14AM16', 'M16M14A', 'M14AM16SUM',
-    'M14.QUE.ALL.CURRENTQCREATED',
-    'M14.QUE.ALL.CURRENTQCOMPLETED',
-    'M14.QUE.OHT.OHTUTIL',
-    'M14.QUE.ALL.TRANSPORT4MINOVERCNT',
-    'M14B.QUE.SENDFAB.VERTICALQUEUECOUNT'
-]
-
-# ============================================================================
-# 모델 설정
+# 설정
 # ============================================================================
 CONFIG_10 = {
     'model_file': 'models/v10_4_m14_model.pkl',
@@ -66,86 +42,6 @@ CONFIG_30 = {
 _model_data_10 = None
 _model_data_30 = None
 
-
-# ============================================================================
-# 로그프레소 API 함수 (외부 조회용)
-# ============================================================================
-def query_logpresso(query, timeout=180):
-    """로그프레소 쿼리 실행"""
-    query_clean = ' '.join(query.split())
-    encoded = urllib.parse.quote(query_clean, safe='')
-    url = f"http://{LOGPRESSO_HOST}:{LOGPRESSO_PORT}/logpresso/httpexport/query.csv?_apikey={LOGPRESSO_API_KEY}&_q={encoded}"
-    
-    try:
-        resp = requests.get(url, verify=False, timeout=timeout)
-        
-        if resp.status_code == 200 and resp.text.strip() and not resp.text.startswith('<!'):
-            df = pd.read_csv(StringIO(resp.text))
-            return df
-        else:
-            print(f"[평가-외부] 쿼리 에러: Status {resp.status_code}")
-            return None
-            
-    except Exception as e:
-        print(f"[평가-외부] 쿼리 예외: {e}")
-        return None
-
-
-def get_logpresso_data_range(from_time, to_time):
-    """로그프레소에서 특정 시간대 데이터 조회"""
-    print(f"[평가-외부] 로그프레소 조회: {from_time} ~ {to_time}")
-    
-    # ts_current_job 집계
-    query_job = f'''
-    table from={from_time} to={to_time} ts_current_job
-    | search FAB == "M14"
-    | eval A = case(trim(DESTMACHINENAME) == "4ABL_M10", 1, 0)
-    | eval B = case(substr(trim(SOURCEMACHINENAME), 0, 7) == "4ABL330", 1, 0)
-    | eval C = case(substr(trim(DESTMACHINENAME), 0, 4) == "4ALF", 1, 0)
-    | eval D = case(substr(trim(SOURCEMACHINENAME), 0, 4) == "4ALF", 1, 0)
-    | eval E = case(substr(trim(DESTMACHINENAME), 0, 4) == "4AFC", 1, 0)
-    | eval F = case(substr(trim(SOURCEMACHINENAME), 0, 4) == "4AFC", 1, 0)
-    | stats sum(A), sum(B), sum(C), sum(D), sum(E), sum(F), count by CURRTIME
-    | rename count as TOTALCNT, sum(A) as M14AM10A, sum(B) as M10AM14A, sum(C) as M14AM14B, sum(D) as M14BM14A, sum(E) as M14AM16, sum(F) as M16M14A
-    | eval M14AM10ASUM = M10AM14A + M14AM10A,
-           M14AM14BSUM = M14AM14B + M14BM14A,
-           M14AM16SUM = M14AM16 + M16M14A
-    | sort CURRTIME
-    '''
-    df_job = query_logpresso(query_job)
-    
-    if df_job is None or len(df_job) == 0:
-        return None
-    
-    # star_transport_view
-    query_star = f'''
-    table from={from_time} to={to_time} star_transport_view
-    | eval CURRTIME = string(CRT_TM, "yyyyMMddHHmm")
-    | pivot last(IDC_VAL) for IDC_NM by CURRTIME
-    | sort CURRTIME
-    '''
-    df_star = query_logpresso(query_star)
-    
-    # Merge
-    if df_star is not None and len(df_star) > 0:
-        df_merged = pd.merge(df_job, df_star, on='CURRTIME', how='left')
-    else:
-        df_merged = df_job
-    
-    # 컬럼 정리
-    for col in FINAL_COLUMNS:
-        if col not in df_merged.columns:
-            df_merged[col] = 0
-    
-    df_final = df_merged[FINAL_COLUMNS].copy()
-    df_final = df_final.sort_values('CURRTIME').reset_index(drop=True)
-    df_final = df_final.fillna(0)
-    df_final['CURRTIME'] = df_final['CURRTIME'].astype(str)
-    
-    print(f"  → {len(df_final)} rows")
-    return df_final
-
-
 # ============================================================================
 # 백그라운드 작업 관리
 # ============================================================================
@@ -162,12 +58,8 @@ class EvaluationManager:
         self.lock = threading.Lock()
         self.thread = None
     
-    def start(self, data_dir, date_start, date_end, time_start, time_end, pred_type, data_source='internal'):
-        """백그라운드 평가 시작
-        
-        Args:
-            data_source: 'internal' (파일) 또는 'external' (로그프레소)
-        """
+    def start(self, data_dir, date_start, date_end, time_start, time_end, pred_type):
+        """백그라운드 평가 시작"""
         with self.lock:
             if self.is_running:
                 return False, '이미 평가가 진행 중입니다'
@@ -181,13 +73,13 @@ class EvaluationManager:
         
         self.thread = threading.Thread(
             target=self._run_evaluation,
-            args=(data_dir, date_start, date_end, time_start, time_end, pred_type, data_source),
+            args=(data_dir, date_start, date_end, time_start, time_end, pred_type),
             daemon=True
         )
         self.thread.start()
         return True, '평가 시작됨'
     
-    def _run_evaluation(self, data_dir, date_start, date_end, time_start, time_end, pred_type, data_source):
+    def _run_evaluation(self, data_dir, date_start, date_end, time_start, time_end, pred_type):
         """실제 평가 수행 (백그라운드 스레드)"""
         try:
             result = evaluate(
@@ -197,7 +89,6 @@ class EvaluationManager:
                 time_start=time_start,
                 time_end=time_end,
                 pred_type=pred_type,
-                data_source=data_source,
                 progress_callback=self._update_progress
             )
             
@@ -345,7 +236,7 @@ def preprocess_data(df, feature_groups):
 
 
 def load_data_files(data_dir, date_start, date_end):
-    """내부: 날짜 범위의 데이터 파일 로드"""
+    """날짜 범위의 데이터 파일 로드"""
     all_data = []
     
     start = datetime.strptime(date_start, "%Y%m%d")
@@ -361,9 +252,9 @@ def load_data_files(data_dir, date_start, date_end):
                 df = pd.read_csv(file_path)
                 df['CURRTIME'] = df['CURRTIME'].astype(str)
                 all_data.append(df)
-                print(f"  [내부] 로드: {file_path} ({len(df)}행)")
+                print(f"  로드: {file_path} ({len(df)}행)")
             except Exception as e:
-                print(f"  [내부] 에러: {file_path} - {e}")
+                print(f"  에러: {file_path} - {e}")
         
         current += timedelta(days=1)
     
@@ -373,80 +264,27 @@ def load_data_files(data_dir, date_start, date_end):
     df = pd.concat(all_data, ignore_index=True)
     df = df.drop_duplicates(subset=['CURRTIME']).sort_values('CURRTIME').reset_index(drop=True)
     
-    return df
-
-
-def load_data_logpresso(date_start, date_end, time_start, time_end, progress_callback=None):
-    """외부: 로그프레소에서 데이터 조회"""
-    print(f"[평가-외부] 로그프레소 데이터 조회 시작")
-    
-    # 날짜 범위 계산 (일 단위로 나눠서 조회 - 대용량 대응)
-    start = datetime.strptime(date_start, "%Y%m%d")
-    end = datetime.strptime(date_end, "%Y%m%d")
-    total_days = (end - start).days + 1
-    
-    all_data = []
-    current = start
-    day_count = 0
-    
-    while current <= end:
-        day_count += 1
-        date_str = current.strftime("%Y%m%d")
-        
-        # 해당 날짜의 시작/종료 시간 설정
-        if current == start:
-            day_from = f"{date_str}{time_start}"
-        else:
-            day_from = f"{date_str}0000"
-        
-        if current == end:
-            day_to = f"{date_str}{time_end}"
-        else:
-            day_to = f"{date_str}2359"
-        
-        print(f"  [{day_count}/{total_days}] {day_from} ~ {day_to} 조회 중...")
-        
-        if progress_callback:
-            progress_callback(day_count, total_days * 2)  # 데이터 로드 50%, 평가 50%
-        
-        df = get_logpresso_data_range(day_from, day_to)
-        
-        if df is not None and len(df) > 0:
-            all_data.append(df)
-            print(f"      → {len(df)}행 로드")
-        
-        current += timedelta(days=1)
-    
-    if not all_data:
-        return None
-    
-    df = pd.concat(all_data, ignore_index=True)
-    df = df.drop_duplicates(subset=['CURRTIME']).sort_values('CURRTIME').reset_index(drop=True)
-    
-    print(f"[평가-외부] 총 {len(df)}행 로드 완료")
     return df
 
 
 def evaluate(data_dir, date_start, date_end, time_start='0000', time_end='2359', 
-             pred_type='10', data_source='internal', progress_callback=None):
+             pred_type='10', progress_callback=None):
     """
     평가 수행
     
     Args:
-        data_dir: 데이터 폴더 경로 (내부 조회 시)
+        data_dir: 데이터 폴더 경로
         date_start: 시작 날짜 (YYYYMMDD)
         date_end: 종료 날짜 (YYYYMMDD)
         time_start: 시작 시간 (HHMM)
         time_end: 종료 시간 (HHMM)
         pred_type: '10' 또는 '30'
-        data_source: 'internal' (파일) 또는 'external' (로그프레소)
         progress_callback: 진행 상태 콜백 함수
     
     Returns:
         dict: 평가 결과
     """
-    source_name = "내부(파일)" if data_source == 'internal' else "외부(로그프레소)"
-    print(f"\n[평가] {pred_type}분 예측 평가 시작 - {source_name}")
+    print(f"\n[평가] {pred_type}분 예측 평가 시작")
     print(f"  기간: {date_start} {time_start} ~ {date_end} {time_end}")
     
     if pred_type == '10':
@@ -465,36 +303,23 @@ def evaluate(data_dir, date_start, date_end, time_start='0000', time_end='2359',
     scalers = model_data['scalers']
     feature_groups = model_data['feature_groups']
     
-    # 데이터 로드 (내부 vs 외부)
-    print(f"\n[1] 데이터 로드... ({source_name})")
-    
-    if data_source == 'external':
-        # 외부: 로그프레소 직접 조회
-        df = load_data_logpresso(date_start, date_end, time_start, time_end, progress_callback)
-    else:
-        # 내부: 파일에서 로드
-        df = load_data_files(data_dir, date_start, date_end)
+    # 데이터 로드
+    print(f"\n[1] 데이터 로드...")
+    df = load_data_files(data_dir, date_start, date_end)
     
     if df is None or len(df) == 0:
-        if data_source == 'external':
-            return {'error': '로그프레소에서 데이터를 조회할 수 없습니다. 네트워크 또는 API 연결을 확인하세요.'}
-        else:
-            return {'error': '해당 기간에 데이터 파일이 없습니다. 외부(로그프레소) 조회를 사용해보세요.'}
+        return {'error': '해당 기간에 데이터가 없습니다'}
     
     print(f"  총 {len(df):,}행 로드됨")
     
-    # 시간 필터링 (내부 조회 시에만 필요)
-    if data_source == 'internal':
-        start_datetime = date_start + time_start
-        end_datetime = date_end + time_end
-        
-        df_filtered = df[
-            (df['CURRTIME'].astype(str).str[:12] >= start_datetime) & 
-            (df['CURRTIME'].astype(str).str[:12] <= end_datetime)
-        ].copy()
-    else:
-        # 외부 조회는 이미 시간 필터링됨
-        df_filtered = df.copy()
+    # 시간 필터링
+    start_datetime = date_start + time_start
+    end_datetime = date_end + time_end
+    
+    df_filtered = df[
+        (df['CURRTIME'].astype(str).str[:12] >= start_datetime) & 
+        (df['CURRTIME'].astype(str).str[:12] <= end_datetime)
+    ].copy()
     
     if len(df_filtered) == 0:
         return {'error': f'선택한 시간 범위에 데이터가 없습니다 ({date_start} {time_start} ~ {date_end} {time_end})'}
@@ -529,18 +354,15 @@ def evaluate(data_dir, date_start, date_end, time_start='0000', time_end='2359',
     results = []
     total = len(df_filtered) - seq_len - pred_offset
     
-    # 외부 조회 시 진행률 조정 (데이터 로드가 50% 차지)
-    progress_offset = total if data_source == 'external' else 0
-    
     if progress_callback:
-        progress_callback(progress_offset, total + progress_offset)
+        progress_callback(0, total)
     
     for idx in range(seq_len, len(df_filtered) - pred_offset):
         current_progress = idx - seq_len
         
         if current_progress % 100 == 0:
             if progress_callback:
-                progress_callback(current_progress + progress_offset, total + progress_offset)
+                progress_callback(current_progress, total)
             print(f"    진행: {current_progress:,}/{total:,}")
             gc.collect()
         
@@ -620,7 +442,7 @@ def evaluate(data_dir, date_start, date_end, time_start='0000', time_end='2359',
         })
     
     if progress_callback:
-        progress_callback(total + progress_offset, total + progress_offset)
+        progress_callback(total, total)
     
     print(f"  ✅ 예측 완료: {len(results):,}개")
     
@@ -665,6 +487,10 @@ def evaluate(data_dir, date_start, date_end, time_start='0000', time_end='2359',
     
     df_result['status'] = df_result.apply(get_status, axis=1)
     
+    # 결과에 status 추가
+    for i, row in df_result.iterrows():
+        results[i]['status'] = row['status']
+    
     status_counts = df_result['status'].value_counts().to_dict()
     
     real_fn = status_counts.get('FN_놓침', 0)
@@ -680,8 +506,6 @@ def evaluate(data_dir, date_start, date_end, time_start='0000', time_end='2359',
     
     return {
         'pred_type': pred_type,
-        'data_source': data_source,
-        'data_source_name': source_name,
         'date_start': date_start,
         'date_end': date_end,
         'time_start': time_start,
@@ -704,12 +528,12 @@ def evaluate(data_dir, date_start, date_end, time_start='0000', time_end='2359',
         },
         'status_counts': status_counts,
         'analysis_range': analysis_range,
-        'data': results[-100:],
+        'data': results,  # 전체 데이터 반환 (제한 없음)
     }
 
 
 def get_available_dates(data_dir):
-    """사용 가능한 날짜 목록 반환 (내부용)"""
+    """사용 가능한 날짜 목록 반환"""
     dates = []
     
     if not os.path.exists(data_dir):
@@ -726,6 +550,5 @@ def get_available_dates(data_dir):
 
 # 테스트
 if __name__ == "__main__":
-    # 내부 테스트
-    result = evaluate('data', '20250114', '20250114', '0000', '2359', '10', 'internal')
+    result = evaluate('data', '20250114', '20250114', '0000', '2359', '10')
     print(result)
