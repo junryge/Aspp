@@ -201,21 +201,40 @@ class M14DataManager:
         self._predictor_30 = pred_30
     
     def _load_alarm_state(self):
-        """알람 상태 로드"""
+        """알람 상태 로드 (날짜 바뀌면 리셋)"""
         state_file = self._get_state_file_path()
+        today = datetime.now().strftime("%Y-%m-%d")
+        
         if os.path.exists(state_file):
             state_df = pd.read_csv(state_file)
             if len(state_df) > 0:
-                self.alarm_count = int(state_df['ALARM_COUNT'].iloc[0])
-                last_time_str = state_df['LAST_ALARM_TIME'].iloc[0]
-                if pd.notna(last_time_str) and last_time_str != '':
-                    self.last_alarm_time = datetime.strptime(last_time_str, '%Y-%m-%d %H:%M:%S')
-                print(f"[M14] 알람 상태 로드: count={self.alarm_count}, last={self.last_alarm_time}")
+                # 저장된 날짜 확인
+                saved_date = state_df.get('DATE', pd.Series([None])).iloc[0]
+                
+                if saved_date == today:
+                    # 같은 날이면 상태 유지
+                    self.alarm_count = int(state_df['ALARM_COUNT'].iloc[0])
+                    last_time_str = state_df['LAST_ALARM_TIME'].iloc[0]
+                    if pd.notna(last_time_str) and last_time_str != '':
+                        self.last_alarm_time = datetime.strptime(last_time_str, '%Y-%m-%d %H:%M:%S')
+                    print(f"[M14] 알람 상태 로드: count={self.alarm_count}, last={self.last_alarm_time}")
+                else:
+                    # 날짜가 바뀌었으면 리셋
+                    print(f"[M14] 날짜 변경 감지 ({saved_date} → {today}), 알람 카운트 리셋")
+                    self.alarm_count = 0
+                    self.last_alarm_time = None
+                    self._save_alarm_state()
+        else:
+            # 파일 없으면 초기화
+            self.alarm_count = 0
+            self.last_alarm_time = None
     
     def _save_alarm_state(self):
-        """알람 상태 저장"""
+        """알람 상태 저장 (날짜 포함)"""
         state_file = self._get_state_file_path()
+        today = datetime.now().strftime("%Y-%m-%d")
         pd.DataFrame({
+            'DATE': [today],
             'ALARM_COUNT': [self.alarm_count],
             'LAST_ALARM_TIME': [self.last_alarm_time.strftime('%Y-%m-%d %H:%M:%S') if self.last_alarm_time else '']
         }).to_csv(state_file, index=False)
@@ -266,9 +285,16 @@ class M14DataManager:
         alert_file = self._get_alert_file_path(today)
         if os.path.exists(alert_file):
             alert_df = pd.read_csv(alert_file)
+            # TYPE을 문자열로 변환 (CSV에서 정수로 읽힐 수 있음)
+            alert_df['TYPE'] = alert_df['TYPE'].astype(str)
             self.alert_10_list = alert_df[alert_df['TYPE'] == '10'].to_dict('records')
             self.alert_30_list = alert_df[alert_df['TYPE'] == '30'].to_dict('records')
             print(f"[M14] 알람 로드: 10분={len(self.alert_10_list)}개, 30분={len(self.alert_30_list)}개")
+        else:
+            # 파일 없으면 빈 리스트로 초기화
+            self.alert_10_list = []
+            self.alert_30_list = []
+            print(f"[M14] 알람 기록 없음 (신규)")
         
         if all_data:
             self.data = pd.concat(all_data, ignore_index=True)
