@@ -436,22 +436,25 @@
                 const alert10 = alertMap10[currtime];
                 const alert30 = alertMap30[currtime];
                 
-                // 알람 텍스트 생성
+                // 날짜 추출 (MM-DD)
+                const dateStr = currtime.length >= 8 ? `${currtime.slice(4,6)}-${currtime.slice(6,8)}` : '';
+                
+                // 알람 텍스트 생성 (날짜 포함)
                 let alert10Text = '';
                 if (alert10) {
                     if (alert10.IS_ALARM) {
-                        alert10Text = `알람 ${alert10.ALARM_NO}번째`;
+                        alert10Text = `${dateStr} 알람 ${alert10.ALARM_NO}번째`;
                     } else {
-                        alert10Text = `알람 ${alert10.ALARM_NO}번째 후 쿨타임 ${alert10.COOLDOWN_MINS}분`;
+                        alert10Text = `${dateStr} 알람 ${alert10.ALARM_NO}번째 후 쿨타임 ${alert10.COOLDOWN_MINS}분`;
                     }
                 }
                 
                 let alert30Text = '';
                 if (alert30) {
                     if (alert30.IS_ALARM) {
-                        alert30Text = `알람 ${alert30.ALARM_NO}번째`;
+                        alert30Text = `${dateStr} 알람 ${alert30.ALARM_NO}번째`;
                     } else {
-                        alert30Text = `알람 ${alert30.ALARM_NO}번째 후 쿨타임 ${alert30.COOLDOWN_MINS}분`;
+                        alert30Text = `${dateStr} 알람 ${alert30.ALARM_NO}번째 후 쿨타임 ${alert30.COOLDOWN_MINS}분`;
                     }
                 }
                 
