@@ -288,23 +288,20 @@
     
     <div class="controls">
         <div class="control-group">
-            <span class="control-label">날짜:</span>
-            <input type="date" id="date-picker">
-        </div>
-        <div class="control-group">
             <span class="control-label">시작:</span>
+            <input type="date" id="date-start">
             <input type="time" id="time-start" value="00:00">
         </div>
         <div class="control-group">
             <span class="control-label">종료:</span>
+            <input type="date" id="date-end">
             <input type="time" id="time-end" value="23:59">
         </div>
         <button class="btn btn-primary" onclick="loadData()">조회</button>
         <button class="btn" onclick="loadYesterday()">어제</button>
         <button class="btn" onclick="loadToday()">오늘</button>
-        <button class="btn" onclick="setMorning()">오전</button>
-        <button class="btn" onclick="setAfternoon()">오후</button>
-        <button class="btn" onclick="setFullDay()">전체</button>
+        <button class="btn" onclick="loadLast3Days()">최근3일</button>
+        <button class="btn" onclick="loadThisWeek()">이번주</button>
         <button class="btn" onclick="downloadCSV()" style="background: #22c55e; border-color: #22c55e;">📥 CSV 다운로드</button>
     </div>
     
@@ -359,7 +356,8 @@
     <script>
         // 오늘 날짜로 초기화
         const today = new Date();
-        document.getElementById('date-picker').value = formatDate(today);
+        document.getElementById('date-start').value = formatDate(today);
+        document.getElementById('date-end').value = formatDate(today);
         
         let currentData = null;  // 현재 조회된 데이터 저장
         
@@ -371,32 +369,44 @@
         }
         
         function loadToday() {
-            document.getElementById('date-picker').value = formatDate(new Date());
-            setFullDay();
+            const today = new Date();
+            document.getElementById('date-start').value = formatDate(today);
+            document.getElementById('date-end').value = formatDate(today);
+            document.getElementById('time-start').value = '00:00';
+            document.getElementById('time-end').value = '23:59';
             loadData();
         }
         
         function loadYesterday() {
             const yesterday = new Date();
             yesterday.setDate(yesterday.getDate() - 1);
-            document.getElementById('date-picker').value = formatDate(yesterday);
-            setFullDay();
+            document.getElementById('date-start').value = formatDate(yesterday);
+            document.getElementById('date-end').value = formatDate(yesterday);
+            document.getElementById('time-start').value = '00:00';
+            document.getElementById('time-end').value = '23:59';
             loadData();
         }
         
-        function setMorning() {
-            document.getElementById('time-start').value = '00:00';
-            document.getElementById('time-end').value = '11:59';
-        }
-        
-        function setAfternoon() {
-            document.getElementById('time-start').value = '12:00';
-            document.getElementById('time-end').value = '23:59';
-        }
-        
-        function setFullDay() {
+        function loadLast3Days() {
+            const today = new Date();
+            const threeDaysAgo = new Date();
+            threeDaysAgo.setDate(threeDaysAgo.getDate() - 2);
+            document.getElementById('date-start').value = formatDate(threeDaysAgo);
+            document.getElementById('date-end').value = formatDate(today);
             document.getElementById('time-start').value = '00:00';
             document.getElementById('time-end').value = '23:59';
+            loadData();
+        }
+        
+        function loadThisWeek() {
+            const today = new Date();
+            const weekAgo = new Date();
+            weekAgo.setDate(weekAgo.getDate() - 6);
+            document.getElementById('date-start').value = formatDate(weekAgo);
+            document.getElementById('date-end').value = formatDate(today);
+            document.getElementById('time-start').value = '00:00';
+            document.getElementById('time-end').value = '23:59';
+            loadData();
         }
         
         function downloadCSV() {
@@ -405,7 +415,8 @@
                 return;
             }
             
-            const dateInput = document.getElementById('date-picker').value;
+            const dateStart = document.getElementById('date-start').value.replace(/-/g, '');
+            const dateEnd = document.getElementById('date-end').value.replace(/-/g, '');
             const timeStart = document.getElementById('time-start').value.replace(':', '');
             const timeEnd = document.getElementById('time-end').value.replace(':', '');
             
@@ -424,50 +435,62 @@
             const url = URL.createObjectURL(blob);
             const a = document.createElement('a');
             a.href = url;
-            a.download = `m14_history_${dateInput.replace(/-/g, '')}_${timeStart}-${timeEnd}.csv`;
+            a.download = `m14_history_${dateStart}_${dateEnd}_${timeStart}-${timeEnd}.csv`;
             a.click();
             URL.revokeObjectURL(url);
         }
         
         async function loadData() {
-            const dateInput = document.getElementById('date-picker').value;
+            const dateStartInput = document.getElementById('date-start').value;
+            const dateEndInput = document.getElementById('date-end').value;
             const timeStart = document.getElementById('time-start').value;
             const timeEnd = document.getElementById('time-end').value;
             
-            if (!dateInput) {
-                alert('날짜를 선택하세요');
+            if (!dateStartInput || !dateEndInput) {
+                alert('시작/종료 날짜를 선택하세요');
                 return;
             }
             
-            const dateStr = dateInput.replace(/-/g, '');
+            // 날짜 범위 생성
+            const dateList = getDateRange(dateStartInput, dateEndInput);
+            if (dateList.length === 0) {
+                alert('시작 날짜가 종료 날짜보다 큽니다');
+                return;
+            }
+            
+            if (dateList.length > 30) {
+                alert('최대 30일까지만 조회 가능합니다');
+                return;
+            }
             
             // 시간 범위를 HHMM 형식으로 변환
             const startHHMM = timeStart.replace(':', '');
             const endHHMM = timeEnd.replace(':', '');
             
-            document.getElementById('table-container').innerHTML = '<div class="loading">로딩 중...</div>';
+            document.getElementById('table-container').innerHTML = `<div class="loading">로딩 중... (${dateList.length}일)</div>`;
             
             try {
-                const res = await fetch(`/api/history?date=${dateStr}`);
-                const data = await res.json();
+                // 각 날짜별로 API 호출
+                let allData = [];
+                let allAlerts10 = [];
+                let allAlerts30 = [];
                 
-                if (data.error) {
-                    document.getElementById('table-container').innerHTML = `
-                        <div class="empty-state">
-                            <div class="empty-icon">❌</div>
-                            <div>${data.error}</div>
-                        </div>
-                    `;
-                    document.getElementById('stats-row').style.display = 'none';
-                    document.getElementById('chart-section').style.display = 'none';
-                    return;
+                for (const dateStr of dateList) {
+                    const res = await fetch(`/api/history?date=${dateStr}`);
+                    const data = await res.json();
+                    
+                    if (!data.error && data.data && data.data.length > 0) {
+                        allData = allData.concat(data.data);
+                        allAlerts10 = allAlerts10.concat(data.alerts_10 || []);
+                        allAlerts30 = allAlerts30.concat(data.alerts_30 || []);
+                    }
                 }
                 
-                if (!data.data || data.data.length === 0) {
+                if (allData.length === 0) {
                     document.getElementById('table-container').innerHTML = `
                         <div class="empty-state">
                             <div class="empty-icon">📭</div>
-                            <div>해당 날짜에 데이터가 없습니다</div>
+                            <div>해당 기간에 데이터가 없습니다</div>
                         </div>
                     `;
                     document.getElementById('stats-row').style.display = 'none';
@@ -475,31 +498,34 @@
                     return;
                 }
                 
-                // 시간 범위 필터링
-                const filteredData = data.data.filter(row => {
+                // 시간 범위 필터링 (시작일 시작시간 ~ 종료일 종료시간)
+                const startDateTime = dateStartInput.replace(/-/g, '') + startHHMM;
+                const endDateTime = dateEndInput.replace(/-/g, '') + endHHMM;
+                
+                const filteredData = allData.filter(row => {
                     const currtime = String(row.CURRTIME);
                     if (currtime.length >= 12) {
-                        const timeHHMM = currtime.slice(8, 12);
-                        return timeHHMM >= startHHMM && timeHHMM <= endHHMM;
+                        const rowDateTime = currtime.slice(0, 12);
+                        return rowDateTime >= startDateTime && rowDateTime <= endDateTime;
                     }
                     return true;
                 });
                 
                 // 알람도 필터링
-                const filteredAlerts10 = (data.alerts_10 || []).filter(a => {
+                const filteredAlerts10 = allAlerts10.filter(a => {
                     const currtime = String(a.CURRTIME);
                     if (currtime.length >= 12) {
-                        const timeHHMM = currtime.slice(8, 12);
-                        return timeHHMM >= startHHMM && timeHHMM <= endHHMM;
+                        const rowDateTime = currtime.slice(0, 12);
+                        return rowDateTime >= startDateTime && rowDateTime <= endDateTime;
                     }
                     return true;
                 });
                 
-                const filteredAlerts30 = (data.alerts_30 || []).filter(a => {
+                const filteredAlerts30 = allAlerts30.filter(a => {
                     const currtime = String(a.CURRTIME);
                     if (currtime.length >= 12) {
-                        const timeHHMM = currtime.slice(8, 12);
-                        return timeHHMM >= startHHMM && timeHHMM <= endHHMM;
+                        const rowDateTime = currtime.slice(0, 12);
+                        return rowDateTime >= startDateTime && rowDateTime <= endDateTime;
                     }
                     return true;
                 });
@@ -508,13 +534,16 @@
                     document.getElementById('table-container').innerHTML = `
                         <div class="empty-state">
                             <div class="empty-icon">🕐</div>
-                            <div>선택한 시간 범위에 데이터가 없습니다<br><small>${timeStart} ~ ${timeEnd}</small></div>
+                            <div>선택한 기간에 데이터가 없습니다<br><small>${dateStartInput} ${timeStart} ~ ${dateEndInput} ${timeEnd}</small></div>
                         </div>
                     `;
                     document.getElementById('stats-row').style.display = 'none';
                     document.getElementById('chart-section').style.display = 'none';
                     return;
                 }
+                
+                // CURRTIME 기준 정렬
+                filteredData.sort((a, b) => String(a.CURRTIME).localeCompare(String(b.CURRTIME)));
                 
                 const filteredResult = {
                     data: filteredData,
@@ -535,7 +564,11 @@
                 
                 document.getElementById('stats-row').style.display = 'flex';
                 document.getElementById('chart-section').style.display = 'block';
-                document.getElementById('table-info').textContent = `${dateInput} ${timeStart}~${timeEnd} | ${filteredData.length}개 데이터`;
+                
+                const rangeText = dateStartInput === dateEndInput 
+                    ? `${dateStartInput} ${timeStart}~${timeEnd}`
+                    : `${dateStartInput} ${timeStart} ~ ${dateEndInput} ${timeEnd}`;
+                document.getElementById('table-info').textContent = `${rangeText} | ${filteredData.length}개 데이터`;
                 
             } catch (e) {
                 console.error(e);
@@ -546,6 +579,25 @@
                     </div>
                 `;
             }
+        }
+        
+        // 날짜 범위 생성 함수
+        function getDateRange(startDate, endDate) {
+            const dates = [];
+            const start = new Date(startDate);
+            const end = new Date(endDate);
+            
+            if (start > end) return [];
+            
+            const current = new Date(start);
+            while (current <= end) {
+                const y = current.getFullYear();
+                const m = String(current.getMonth() + 1).padStart(2, '0');
+                const d = String(current.getDate()).padStart(2, '0');
+                dates.push(`${y}${m}${d}`);
+                current.setDate(current.getDate() + 1);
+            }
+            return dates;
         }
         
         function updateStats(data) {
@@ -623,6 +675,15 @@
             return s;
         }
         
+        function formatTimeChart(currtime) {
+            // 차트용: MM-DD HH:MM 형식
+            const s = String(currtime);
+            if (s.length >= 12) {
+                return `${s.slice(4,6)}-${s.slice(6,8)} ${s.slice(8,10)}:${s.slice(10,12)}`;
+            }
+            return s;
+        }
+        
         function formatTimeFull(currtime) {
             const s = String(currtime);
             if (s.length >= 12) {
@@ -634,7 +695,12 @@
         function drawChart(data) {
             const rows = data.data;
             
-            const times = rows.map(r => formatTime(r.CURRTIME));
+            // 여러 날짜인지 확인
+            const dates = new Set(rows.map(r => String(r.CURRTIME).slice(0, 8)));
+            const isMultipleDays = dates.size > 1;
+            
+            // 여러 날짜면 MM-DD HH:MM, 하루면 HH:MM
+            const times = rows.map(r => isMultipleDays ? formatTimeChart(r.CURRTIME) : formatTime(r.CURRTIME));
             const totalcnts = rows.map(r => r.TOTALCNT || 0);
             const pred10s = rows.map(r => r.PREDICT_10 || 0);
             const pred30s = rows.map(r => r.PREDICT_30 || 0);
@@ -697,6 +763,10 @@
             const alerts10 = data.alerts_10 || [];
             const alerts30 = data.alerts_30 || [];
             
+            // 여러 날짜인지 확인
+            const dates = new Set(rows.map(r => String(r.CURRTIME).slice(0, 8)));
+            const isMultipleDays = dates.size > 1;
+            
             // 알람 맵 만들기
             const alertMap10 = {};
             alerts10.forEach(a => { alertMap10[String(a.CURRTIME)] = a; });
@@ -707,7 +777,7 @@
                 <table>
                     <thead>
                         <tr>
-                            <th style="width: 80px;">시간</th>
+                            <th style="width: ${isMultipleDays ? '120px' : '80px'};">시간</th>
                             <th style="width: 100px;">TOTALCNT</th>
                             <th style="width: 150px;">10분후 예측</th>
                             <th style="width: 150px;">30분후 예측</th>
@@ -719,7 +789,7 @@
             
             rows.forEach(row => {
                 const currtime = String(row.CURRTIME);
-                const timeDisplay = formatTime(currtime);
+                const timeDisplay = isMultipleDays ? formatTimeChart(currtime) : formatTime(currtime);
                 const alert10 = alertMap10[currtime];
                 const alert30 = alertMap30[currtime];
                 
