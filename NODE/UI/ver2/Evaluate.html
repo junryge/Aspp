@@ -413,7 +413,7 @@
             const dateStart = currentResultData.date_start;
             const dateEnd = currentResultData.date_end;
             
-            // CSV 헤더
+            // CSV 헤더 (실제단일 포함)
             const headers = ['현재시간','현재값','예측시점','예측값','실제(최대)','실제(단일)','확률','투표수','판정','실제위험','상태','알람번호','알람발생','쿨타임(분)'];
             let csv = headers.join(',') + '\n';
             
@@ -442,7 +442,7 @@
                     row.pred_time || '',
                     row.predict || '',
                     row.actual_max || '',
-                    row.actual_single || '',
+                    row.actual_single || '',  // ★ 실제(단일) 포함
                     row.prob || '',
                     row.vote || '',
                     row.danger === 1 ? '위험' : '정상',
@@ -657,10 +657,8 @@
             const times = data.map(d => (d.pred_time || '').split(' ')[1] || d.pred_time);
             const actuals = data.map(d => d.actual_max);
             const predicts = data.map(d => d.predict);
-            const currents = data.map(d => d.current);
             
             const traces = [
-                { x: times, y: currents, name: '현재', type: 'scatter', mode: 'lines', line: { color: '#3b82f6', width: 2 } },
                 { x: times, y: actuals, name: `실제(${predType}분)`, type: 'scatter', mode: 'lines', line: { color: '#22c55e', width: 2 } },
                 { x: times, y: predicts, name: '예측값', type: 'scatter', mode: 'lines', line: { color: '#f97316', width: 2 } }
             ];
@@ -679,14 +677,15 @@
         }
         
         function drawTable(data) {
-            let html = `<table><thead><tr><th>현재시간</th><th>현재값</th><th>예측시점</th><th>예측값</th><th>실제(최대)</th><th>확률</th><th>판정</th><th>실제위험</th><th>상태</th><th>알람정보</th></tr></thead><tbody>`;
+            let html = `<table><thead><tr><th>현재시간</th><th>현재값</th><th>예측시점</th><th>예측값</th><th>실제(최대)</th><th>실제(단일)</th><th>확률</th><th>판정</th><th>실제위험</th><th>상태</th><th>알람정보</th></tr></thead><tbody>`;
             
             if (data.length === 0) {
-                html += `<tr><td colspan="10" style="text-align: center; padding: 40px;">데이터 없음</td></tr>`;
+                html += `<tr><td colspan="11" style="text-align: center; padding: 40px;">데이터 없음</td></tr>`;
             } else {
                 data.forEach(row => {
                     const predClass = row.predict >= 1700 ? 'value-danger' : row.predict >= 1600 ? 'value-warning' : '';
-                    const actualClass = row.actual_max >= 1700 ? 'value-danger' : row.actual_max >= 1600 ? 'value-warning' : '';
+                    const actualMaxClass = row.actual_max >= 1700 ? 'value-danger' : row.actual_max >= 1600 ? 'value-warning' : '';
+                    const actualSingleClass = row.actual_single >= 1700 ? 'value-danger' : row.actual_single >= 1600 ? 'value-warning' : '';
                     
                     let statusBadge = '-';
                     if (row.status) {
@@ -696,7 +695,7 @@
                         else if (row.status.startsWith('FP')) statusBadge = `<span class="badge badge-fp">${row.status}</span>`;
                     }
                     
-                    // ★ 알람 정보 표시 (수정됨)
+                    // ★ 알람 정보 표시
                     let alarmInfo = '-';
                     const hasAlarm = row.alarm_no !== undefined && row.alarm_no !== null && row.alarm_no !== '';
                     if (hasAlarm) {
@@ -713,7 +712,8 @@
                         <td>${row.current ? row.current.toLocaleString() : '-'}</td>
                         <td>${row.pred_time || '-'}</td>
                         <td class="${predClass}" style="font-weight: 600;">${row.predict ? row.predict.toLocaleString() : '-'}</td>
-                        <td class="${actualClass}" style="font-weight: 600;">${row.actual_max ? row.actual_max.toLocaleString() : '-'}</td>
+                        <td class="${actualMaxClass}" style="font-weight: 600;">${row.actual_max ? row.actual_max.toLocaleString() : '-'}</td>
+                        <td class="${actualSingleClass}" style="font-weight: 600;">${row.actual_single ? row.actual_single.toLocaleString() : '-'}</td>
                         <td>${row.prob !== undefined ? row.prob : '-'}</td>
                         <td>${row.danger ? '⚠️' : '✅'}</td>
                         <td>${row.actual_danger ? '🔴' : '🟢'}</td>
