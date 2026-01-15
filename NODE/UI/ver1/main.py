@@ -225,7 +225,7 @@ def get_history():
 
 
 # ============================================================================
-# 평가 관련 라우트
+# 평가 관련 라우트 (백그라운드 실행)
 # ============================================================================
 
 @app.route('/evaluate')
@@ -234,21 +234,22 @@ def evaluate_page():
     return send_file('evaluate.html')
 
 
-@app.route('/api/evaluate')
-def run_evaluate():
+@app.route('/api/evaluate/start', methods=['POST', 'GET'])
+def start_evaluate():
     """
-    예측 평가 API
+    백그라운드 평가 시작 API
     
     Parameters:
         date_start: 시작 날짜 (YYYYMMDD)
         date_end: 종료 날짜 (YYYYMMDD)
+        time_start: 시작 시간 (HHMM)
+        time_end: 종료 시간 (HHMM)
         pred_type: '10' 또는 '30'
-    
-    Returns:
-        평가 결과 (통계, 상태별 집계, 샘플 데이터)
     """
     date_start = request.args.get('date_start', '')
     date_end = request.args.get('date_end', '')
+    time_start = request.args.get('time_start', '0000')
+    time_end = request.args.get('time_end', '2359')
     pred_type = request.args.get('pred_type', '10')
     
     if not date_start or not date_end:
@@ -260,18 +261,42 @@ def run_evaluate():
     if pred_type not in ['10', '30']:
         return jsonify({'error': 'pred_type은 10 또는 30이어야 합니다'}), 400
     
-    try:
-        result = evaluator.evaluate(
-            data_dir=data_manager.data_dir,
-            date_start=date_start,
-            date_end=date_end,
-            pred_type=pred_type
-        )
+    success, msg = evaluator.eval_manager.start(
+        data_dir=data_manager.data_dir,
+        date_start=date_start,
+        date_end=date_end,
+        time_start=time_start,
+        time_end=time_end,
+        pred_type=pred_type
+    )
+    
+    if success:
+        return jsonify({'status': 'started', 'message': msg})
+    else:
+        return jsonify({'error': msg}), 400
+
+
+@app.route('/api/evaluate/status')
+def get_evaluate_status():
+    """평가 진행 상태 조회"""
+    return jsonify(evaluator.eval_manager.get_status())
+
+
+@app.route('/api/evaluate/result')
+def get_evaluate_result():
+    """평가 결과 조회"""
+    result = evaluator.eval_manager.get_result()
+    if result:
         return jsonify(result)
-    except Exception as e:
-        import traceback
-        traceback.print_exc()
-        return jsonify({'error': f'평가 실행 실패: {str(e)}'}), 500
+    else:
+        return jsonify({'error': '결과가 없습니다 (평가 진행 중이거나 시작되지 않음)'}), 400
+
+
+@app.route('/api/evaluate/reset')
+def reset_evaluate():
+    """평가 상태 초기화"""
+    evaluator.eval_manager.reset()
+    return jsonify({'status': 'reset'})
 
 
 @app.route('/api/evaluate/dates')
