@@ -308,18 +308,6 @@
             padding: 10px 15px;
             background: var(--bg-card);
             border-radius: 6px;
-            cursor: pointer;
-            transition: all 0.2s;
-            border: 2px solid transparent;
-        }
-        
-        .status-item:hover {
-            border-color: var(--accent);
-        }
-        
-        .status-item.active {
-            border-color: var(--accent);
-            background: rgba(59, 130, 246, 0.1);
         }
         
         .status-name {
@@ -342,7 +330,7 @@
         }
         
         .table-container {
-            max-height: 500px;
+            max-height: 400px;
             overflow-y: auto;
         }
         
@@ -488,53 +476,6 @@
             background: var(--border);
             margin: 0 5px;
         }
-        
-        /* 필터 컨트롤 스타일 */
-        .filter-controls {
-            display: flex;
-            gap: 10px;
-            margin-bottom: 15px;
-            flex-wrap: wrap;
-            align-items: center;
-        }
-        
-        .filter-btn {
-            padding: 6px 12px;
-            border-radius: 20px;
-            font-size: 12px;
-            font-weight: 500;
-            cursor: pointer;
-            border: 1px solid var(--border);
-            background: var(--bg-card);
-            color: var(--text-secondary);
-            transition: all 0.2s;
-        }
-        
-        .filter-btn:hover {
-            border-color: var(--accent);
-            color: var(--text-primary);
-        }
-        
-        .filter-btn.active {
-            background: var(--accent);
-            border-color: var(--accent);
-            color: white;
-        }
-        
-        .filter-btn.active.tp { background: var(--success); border-color: var(--success); }
-        .filter-btn.active.tn { background: var(--accent); border-color: var(--accent); }
-        .filter-btn.active.fn { background: var(--danger); border-color: var(--danger); }
-        .filter-btn.active.fp { background: var(--warning); border-color: var(--warning); color: #000; }
-        
-        .filter-info {
-            font-size: 12px;
-            color: var(--text-secondary);
-            margin-left: auto;
-        }
-        
-        .filter-info strong {
-            color: var(--accent);
-        }
     </style>
 </head>
 <body>
@@ -594,6 +535,7 @@
         </div>
         
         <button class="btn btn-primary" id="btn-evaluate" onclick="startEvaluation()">🔍 평가 실행</button>
+        <button class="btn btn-success" id="btn-download" onclick="downloadCSV()" style="display: none;">📥 결과 다운로드</button>
     </div>
     
     <div style="margin-bottom: 20px; display: flex; gap: 10px; flex-wrap: wrap;">
@@ -720,7 +662,7 @@
         </div>
         
         <div class="section">
-            <div class="section-title">📊 예측 상태 분류 <span style="font-size: 12px; color: var(--text-secondary); font-weight: 400; margin-left: 10px;">클릭하면 테이블 필터링</span></div>
+            <div class="section-title">📊 예측 상태 분류</div>
             <div class="status-list" id="status-list"></div>
         </div>
         
@@ -730,22 +672,7 @@
         </div>
         
         <div class="section">
-            <div class="section-title">📋 상세 데이터 <span style="font-size: 12px; color: var(--text-secondary); font-weight: 400; margin-left: 10px;">위 예측상태분류 클릭하면 필터링됨</span></div>
-            
-            <!-- 필터 컨트롤 추가 -->
-            <div class="filter-controls">
-                <button class="filter-btn active" data-filter="all" onclick="filterTable('all')">전체</button>
-                <button class="filter-btn tp" data-filter="TP" onclick="filterTable('TP')">TP</button>
-                <button class="filter-btn tn" data-filter="TN" onclick="filterTable('TN')">TN</button>
-                <button class="filter-btn fn" data-filter="FN" onclick="filterTable('FN')">FN 전체</button>
-                <button class="filter-btn fn" data-filter="FN_놓침" onclick="filterTable('FN_놓침')">FN_놓침</button>
-                <button class="filter-btn fp" data-filter="FP" onclick="filterTable('FP')">FP 전체</button>
-                <button class="filter-btn fp" data-filter="FP_오탐" onclick="filterTable('FP_오탐')">FP_오탐</button>
-                <div class="filter-info">
-                    표시: <strong id="filter-count">0</strong>개 / 전체 <span id="filter-total">0</span>개
-                </div>
-            </div>
-            
+            <div class="section-title">📋 상세 데이터 (최근 100개)</div>
             <div class="table-container" id="table-container"></div>
         </div>
     </div>
@@ -756,10 +683,8 @@
         document.getElementById('date-end').value = formatDate(today);
         
         let pollInterval = null;
-        let allTableData = [];  // 전체 테이블 데이터 저장
-        let currentFilter = 'all';
+        let currentResult = null;  // 다운로드용 결과 저장
         
-        // 데이터 소스 라디오 버튼 스타일
         document.querySelectorAll('input[name="data-source"]').forEach(radio => {
             radio.addEventListener('change', function() {
                 document.getElementById('radio-internal').classList.remove('selected');
@@ -772,7 +697,6 @@
             });
         });
         
-        // 예측 타입 라디오 버튼 스타일
         document.querySelectorAll('input[name="pred-type"]').forEach(radio => {
             radio.addEventListener('change', function() {
                 document.getElementById('radio-10').classList.remove('selected');
@@ -822,6 +746,100 @@
             document.getElementById('time-end').value = '23:59';
         }
         
+        // CSV 다운로드 함수
+        function downloadCSV() {
+            if (!currentResult || !currentResult.data || currentResult.data.length === 0) {
+                alert('다운로드할 데이터가 없습니다');
+                return;
+            }
+            
+            const data = currentResult;
+            const stats = data.stats;
+            const predType = data.pred_type;
+            
+            // CSV 헤더
+            const headers = [
+                '현재시간',
+                '현재값',
+                '예측시점',
+                '예측값',
+                '실제_최대',
+                '실제_단일',
+                '확률',
+                '투표',
+                '예측판정',
+                '실제위험',
+                '상태'
+            ];
+            
+            let csv = headers.join(',') + '\n';
+            
+            // 데이터 행
+            data.data.forEach(row => {
+                const values = [
+                    row.currtime,
+                    row.current,
+                    row.pred_time,
+                    row.predict,
+                    row.actual_max,
+                    row.actual_single,
+                    row.prob,
+                    row.vote,
+                    row.danger === 1 ? '위험' : '정상',
+                    row.actual_danger === 1 ? '위험' : '정상',
+                    row.status || ''
+                ];
+                csv += values.join(',') + '\n';
+            });
+            
+            // 요약 정보 추가
+            csv += '\n';
+            csv += '=== 평가 요약 ===\n';
+            csv += `평가기간,${data.date_start} ${data.time_start} ~ ${data.date_end} ${data.time_end}\n`;
+            csv += `예측타입,${predType}분\n`;
+            csv += `데이터소스,${data.data_source === 'internal' ? '내부(파일)' : '외부(로그프레소)'}\n`;
+            csv += `총 평가수,${data.total_count}\n`;
+            csv += `실제 1700+ 발생,${data.actual_danger_count}\n`;
+            csv += '\n';
+            csv += '=== 성능 지표 ===\n';
+            csv += `정확도,${stats.accuracy}%\n`;
+            csv += `재현율(Recall),${stats.recall}%\n`;
+            csv += `정밀도(Precision),${stats.precision}%\n`;
+            csv += '\n';
+            csv += '=== 혼동 행렬 ===\n';
+            csv += `TP (정상 감지),${stats.TP}\n`;
+            csv += `TN (정상→정상),${stats.TN}\n`;
+            csv += `FP (오탐),${stats.FP}\n`;
+            csv += `FN (미탐),${stats.FN}\n`;
+            csv += '\n';
+            csv += '=== 실질 성능 ===\n`;
+            csv += `FN 조기감지 (${data.analysis_range}분 이내 사전예측),${stats.fn_early}\n`;
+            csv += `실질 FN (완전 놓침),${stats.real_fn}\n`;
+            csv += `FP 유효경고 (${data.analysis_range}분 이내 실제돌파),${stats.fp_valid}\n`;
+            csv += `실질 FP (오탐),${stats.real_fp}\n`;
+            
+            // 상태별 집계
+            if (data.status_counts) {
+                csv += '\n';
+                csv += '=== 상태별 집계 ===\n';
+                Object.entries(data.status_counts).forEach(([status, count]) => {
+                    csv += `${status},${count}\n`;
+                });
+            }
+            
+            // 파일명 생성
+            const filename = `m14_evaluate_${predType}min_${data.date_start}_${data.date_end}.csv`;
+            
+            // 다운로드
+            const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8;' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = filename;
+            a.click();
+            URL.revokeObjectURL(url);
+        }
+        
         async function startEvaluation() {
             const dateStart = document.getElementById('date-start').value.replace(/-/g, '');
             const dateEnd = document.getElementById('date-end').value.replace(/-/g, '');
@@ -839,6 +857,7 @@
             document.getElementById('loading-state').style.display = 'block';
             document.getElementById('results-container').classList.remove('active');
             document.getElementById('btn-evaluate').disabled = true;
+            document.getElementById('btn-download').style.display = 'none';
             
             const progressFill = document.getElementById('progress-fill');
             progressFill.style.width = '0%';
@@ -907,6 +926,7 @@
                     return;
                 }
                 
+                currentResult = data;  // 다운로드용 저장
                 displayResults(data);
                 
             } catch (e) {
@@ -920,6 +940,7 @@
             document.getElementById('initial-state').style.display = 'block';
             document.getElementById('loading-state').style.display = 'none';
             document.getElementById('btn-evaluate').disabled = false;
+            document.getElementById('btn-download').style.display = 'none';
             if (pollInterval) {
                 clearInterval(pollInterval);
                 pollInterval = null;
@@ -929,6 +950,7 @@
         function displayResults(data) {
             document.getElementById('loading-state').style.display = 'none';
             document.getElementById('btn-evaluate').disabled = false;
+            document.getElementById('btn-download').style.display = 'inline-block';  // 다운로드 버튼 표시
             
             const sourceInfoBox = document.getElementById('source-info-box');
             if (data.data_source === 'external') {
@@ -974,7 +996,6 @@
             document.getElementById('stat-fp-valid-sub').textContent = `${data.analysis_range}분 이내 실제 돌파`;
             document.getElementById('stat-real-fp').textContent = stats.real_fp.toLocaleString();
             
-            // 상태 리스트 (클릭 가능하게)
             const statusList = document.getElementById('status-list');
             let statusHtml = '';
             
@@ -997,7 +1018,7 @@
                 else if (status.startsWith('FP')) cls = 'fp';
                 
                 statusHtml += `
-                    <div class="status-item ${cls}" onclick="filterTable('${status}')" data-status="${status}">
+                    <div class="status-item ${cls}">
                         <span class="status-name">${status}</span>
                         <span class="status-count">${count.toLocaleString()}</span>
                     </div>
@@ -1006,59 +1027,9 @@
             statusList.innerHTML = statusHtml;
             
             drawChart(data.data, data.pred_type);
-            
-            // 테이블 데이터 저장 후 그리기
-            allTableData = data.data;
-            currentFilter = 'all';
-            drawTable(allTableData);
-            updateFilterInfo();
+            drawTable(data.data);
             
             document.getElementById('results-container').classList.add('active');
-        }
-        
-        // 필터링 함수
-        function filterTable(filter) {
-            currentFilter = filter;
-            
-            // 버튼 활성화 상태 업데이트
-            document.querySelectorAll('.filter-btn').forEach(btn => {
-                btn.classList.remove('active');
-                if (btn.dataset.filter === filter) {
-                    btn.classList.add('active');
-                }
-            });
-            
-            // 상태 리스트 아이템 활성화
-            document.querySelectorAll('.status-item').forEach(item => {
-                item.classList.remove('active');
-                if (item.dataset.status === filter) {
-                    item.classList.add('active');
-                }
-            });
-            
-            let filteredData;
-            if (filter === 'all') {
-                filteredData = allTableData;
-            } else if (filter === 'FN') {
-                // FN 전체 (FN으로 시작하는 모든 상태)
-                filteredData = allTableData.filter(row => row.status && row.status.startsWith('FN'));
-            } else if (filter === 'FP') {
-                // FP 전체 (FP로 시작하는 모든 상태)
-                filteredData = allTableData.filter(row => row.status && row.status.startsWith('FP'));
-            } else {
-                // 특정 상태만
-                filteredData = allTableData.filter(row => row.status === filter);
-            }
-            
-            drawTable(filteredData);
-            updateFilterInfo(filteredData.length);
-        }
-        
-        function updateFilterInfo(count) {
-            const total = allTableData.length;
-            const shown = count !== undefined ? count : total;
-            document.getElementById('filter-count').textContent = shown.toLocaleString();
-            document.getElementById('filter-total').textContent = total.toLocaleString();
         }
         
         function drawChart(data, predType) {
@@ -1173,38 +1144,34 @@
                     <tbody>
             `;
             
-            if (data.length === 0) {
-                html += `<tr><td colspan="10" style="text-align: center; padding: 40px; color: var(--text-secondary);">필터 조건에 맞는 데이터가 없습니다</td></tr>`;
-            } else {
-                data.forEach(row => {
-                    const predClass = row.predict >= 1700 ? 'value-danger' : row.predict >= 1600 ? 'value-warning' : '';
-                    const actualMaxClass = row.actual_max >= 1700 ? 'value-danger' : row.actual_max >= 1600 ? 'value-warning' : '';
-                    const actualSingleClass = row.actual_single >= 1700 ? 'value-danger' : row.actual_single >= 1600 ? 'value-warning' : '';
-                    
-                    let statusBadge = '-';
-                    if (row.status) {
-                        if (row.status === 'TP') statusBadge = '<span class="badge badge-tp">TP</span>';
-                        else if (row.status === 'TN') statusBadge = '<span class="badge badge-tn">TN</span>';
-                        else if (row.status.startsWith('FN')) statusBadge = `<span class="badge badge-fn">${row.status}</span>`;
-                        else if (row.status.startsWith('FP')) statusBadge = `<span class="badge badge-fp">${row.status}</span>`;
-                    }
-                    
-                    html += `
-                        <tr>
-                            <td>${row.currtime || '-'}</td>
-                            <td>${row.current ? row.current.toLocaleString() : '-'}</td>
-                            <td>${row.pred_time || '-'}</td>
-                            <td class="${predClass}" style="font-weight: 600;">${row.predict ? row.predict.toLocaleString() : '-'}</td>
-                            <td class="${actualMaxClass}" style="font-weight: 600;">${row.actual_max ? row.actual_max.toLocaleString() : '-'}</td>
-                            <td class="${actualSingleClass}" style="font-weight: 600;">${row.actual_single ? row.actual_single.toLocaleString() : '-'}</td>
-                            <td>${row.prob !== undefined ? row.prob : '-'}</td>
-                            <td>${row.danger !== undefined ? (row.danger ? '⚠️' : '✅') : '-'}</td>
-                            <td>${row.actual_danger !== undefined ? (row.actual_danger ? '🔴' : '🟢') : '-'}</td>
-                            <td>${statusBadge}</td>
-                        </tr>
-                    `;
-                });
-            }
+            data.forEach(row => {
+                const predClass = row.predict >= 1700 ? 'value-danger' : row.predict >= 1600 ? 'value-warning' : '';
+                const actualMaxClass = row.actual_max >= 1700 ? 'value-danger' : row.actual_max >= 1600 ? 'value-warning' : '';
+                const actualSingleClass = row.actual_single >= 1700 ? 'value-danger' : row.actual_single >= 1600 ? 'value-warning' : '';
+                
+                let statusBadge = '';
+                if (row.status) {
+                    if (row.status === 'TP') statusBadge = '<span class="badge badge-tp">TP</span>';
+                    else if (row.status === 'TN') statusBadge = '<span class="badge badge-tn">TN</span>';
+                    else if (row.status.startsWith('FN')) statusBadge = `<span class="badge badge-fn">${row.status}</span>`;
+                    else if (row.status.startsWith('FP')) statusBadge = `<span class="badge badge-fp">${row.status}</span>`;
+                }
+                
+                html += `
+                    <tr>
+                        <td>${row.currtime}</td>
+                        <td>${row.current.toLocaleString()}</td>
+                        <td>${row.pred_time}</td>
+                        <td class="${predClass}" style="font-weight: 600;">${row.predict.toLocaleString()}</td>
+                        <td class="${actualMaxClass}" style="font-weight: 600;">${row.actual_max.toLocaleString()}</td>
+                        <td class="${actualSingleClass}" style="font-weight: 600;">${row.actual_single.toLocaleString()}</td>
+                        <td>${row.prob}</td>
+                        <td>${row.danger ? '⚠️' : '✅'}</td>
+                        <td>${row.actual_danger ? '🔴' : '🟢'}</td>
+                        <td>${statusBadge}</td>
+                    </tr>
+                `;
+            });
             
             html += '</tbody></table>';
             document.getElementById('table-container').innerHTML = html;
