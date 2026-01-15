@@ -1026,7 +1026,20 @@
             };
             
             Plotly.newPlot('chart', traces, layout, { responsive: true, displayModeBar: false });
+            
+            // 초기 렌더링 후 강제 리사이즈 (컨테이너 크기 재계산)
+            setTimeout(() => {
+                Plotly.Plots.resize('chart');
+            }, 100);
         }
+        
+        // 창 크기 변경 시 차트 리사이즈
+        window.addEventListener('resize', () => {
+            const chartEl = document.getElementById('chart');
+            if (chartEl && chartEl.data) {
+                Plotly.Plots.resize('chart');
+            }
+        });
         
         function drawTable(data) {
             let html = `
@@ -1038,6 +1051,7 @@
                             <th>예측시점</th>
                             <th>예측값</th>
                             <th>실제(최대)</th>
+                            <th>실제(단일)</th>
                             <th>확률</th>
                             <th>판정</th>
                             <th>실제위험</th>
@@ -1049,7 +1063,8 @@
             
             data.forEach(row => {
                 const predClass = row.predict >= 1700 ? 'value-danger' : row.predict >= 1600 ? 'value-warning' : '';
-                const actualClass = row.actual_max >= 1700 ? 'value-danger' : row.actual_max >= 1600 ? 'value-warning' : '';
+                const actualMaxClass = row.actual_max >= 1700 ? 'value-danger' : row.actual_max >= 1600 ? 'value-warning' : '';
+                const actualSingleClass = row.actual_single >= 1700 ? 'value-danger' : row.actual_single >= 1600 ? 'value-warning' : '';
                 
                 let statusBadge = '';
                 if (row.status) {
@@ -1065,7 +1080,8 @@
                         <td>${row.current.toLocaleString()}</td>
                         <td>${row.pred_time}</td>
                         <td class="${predClass}" style="font-weight: 600;">${row.predict.toLocaleString()}</td>
-                        <td class="${actualClass}" style="font-weight: 600;">${row.actual_max.toLocaleString()}</td>
+                        <td class="${actualMaxClass}" style="font-weight: 600;">${row.actual_max.toLocaleString()}</td>
+                        <td class="${actualSingleClass}" style="font-weight: 600;">${row.actual_single.toLocaleString()}</td>
                         <td>${row.prob}</td>
                         <td>${row.danger ? '⚠️' : '✅'}</td>
                         <td>${row.actual_danger ? '🔴' : '🟢'}</td>
