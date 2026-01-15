@@ -92,7 +92,9 @@
         .btn-warning { background: var(--warning); border-color: var(--warning); color: #000; }
         .btn-purple { background: var(--purple); border-color: var(--purple); }
         .btn-orange { background: var(--orange); border-color: var(--orange); color: #000; }
+        .btn-danger { background: var(--danger); border-color: var(--danger); }
         .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+        .btn.active { box-shadow: 0 0 0 2px var(--accent); }
         
         .controls {
             display: flex;
@@ -162,7 +164,6 @@
             border-color: var(--accent);
         }
         
-        /* 데이터 소스 라디오 스타일 */
         .radio-label.source-internal.selected {
             background: rgba(34, 197, 94, 0.1);
             border-color: var(--success);
@@ -309,6 +310,17 @@
             padding: 10px 15px;
             background: var(--bg-card);
             border-radius: 6px;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        
+        .status-item:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+        }
+        
+        .status-item.active {
+            box-shadow: 0 0 0 2px var(--accent);
         }
         
         .status-name {
@@ -330,8 +342,65 @@
             height: 500px;
         }
         
+        .table-header-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 15px;
+            flex-wrap: wrap;
+            gap: 10px;
+        }
+        
+        .filter-buttons {
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+        }
+        
+        .filter-btn {
+            padding: 6px 12px;
+            font-size: 12px;
+            border-radius: 20px;
+        }
+        
+        .filter-btn.filter-all { border-color: var(--text-secondary); }
+        .filter-btn.filter-tp { border-color: var(--success); color: var(--success); }
+        .filter-btn.filter-tn { border-color: var(--accent); color: var(--accent); }
+        .filter-btn.filter-fn { border-color: var(--danger); color: var(--danger); }
+        .filter-btn.filter-fp { border-color: var(--warning); color: var(--warning); }
+        
+        .filter-btn.active.filter-all { background: var(--text-secondary); color: #000; }
+        .filter-btn.active.filter-tp { background: var(--success); color: #000; }
+        .filter-btn.active.filter-tn { background: var(--accent); color: #fff; }
+        .filter-btn.active.filter-fn { background: var(--danger); color: #fff; }
+        .filter-btn.active.filter-fp { background: var(--warning); color: #000; }
+        
+        .pagination {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            gap: 10px;
+            margin-top: 15px;
+            flex-wrap: wrap;
+        }
+        
+        .pagination-info {
+            font-size: 13px;
+            color: var(--text-secondary);
+        }
+        
+        .page-size-select {
+            padding: 6px 10px;
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            color: var(--text-primary);
+            font-family: inherit;
+            font-size: 12px;
+        }
+        
         .table-container {
-            max-height: 400px;
+            max-height: 600px;
             overflow-y: auto;
         }
         
@@ -356,6 +425,7 @@
             letter-spacing: 0.5px;
             position: sticky;
             top: 0;
+            z-index: 10;
         }
         
         tr:hover { background: rgba(255,255,255,0.02); }
@@ -366,16 +436,18 @@
         
         .badge {
             display: inline-block;
-            padding: 2px 8px;
-            border-radius: 10px;
-            font-size: 10px;
+            padding: 4px 10px;
+            border-radius: 12px;
+            font-size: 11px;
             font-weight: 600;
         }
         
         .badge-tp { background: rgba(34, 197, 94, 0.2); color: var(--success); }
         .badge-tn { background: rgba(59, 130, 246, 0.2); color: var(--accent); }
         .badge-fn { background: rgba(239, 68, 68, 0.2); color: var(--danger); }
+        .badge-fn-early { background: rgba(139, 92, 246, 0.2); color: var(--purple); }
         .badge-fp { background: rgba(234, 179, 8, 0.2); color: var(--warning); }
+        .badge-fp-valid { background: rgba(249, 115, 22, 0.2); color: var(--orange); }
         
         .loading {
             text-align: center;
@@ -477,6 +549,63 @@
             background: var(--border);
             margin: 0 5px;
         }
+        
+        /* 카테고리별 요약 카드 */
+        .category-summary {
+            display: grid;
+            grid-template-columns: repeat(6, 1fr);
+            gap: 10px;
+            margin-bottom: 20px;
+        }
+        
+        .category-card {
+            background: var(--bg-card);
+            border-radius: 8px;
+            padding: 12px;
+            text-align: center;
+            cursor: pointer;
+            transition: all 0.2s;
+            border: 2px solid transparent;
+        }
+        
+        .category-card:hover {
+            transform: translateY(-2px);
+        }
+        
+        .category-card.active {
+            border-color: var(--accent);
+        }
+        
+        .category-card.cat-tp { border-left: 4px solid var(--success); }
+        .category-card.cat-tn { border-left: 4px solid var(--accent); }
+        .category-card.cat-fn-miss { border-left: 4px solid var(--danger); }
+        .category-card.cat-fn-early { border-left: 4px solid var(--purple); }
+        .category-card.cat-fp-false { border-left: 4px solid var(--warning); }
+        .category-card.cat-fp-valid { border-left: 4px solid var(--orange); }
+        
+        .category-label {
+            font-size: 10px;
+            color: var(--text-secondary);
+            margin-bottom: 4px;
+        }
+        
+        .category-value {
+            font-size: 20px;
+            font-weight: 700;
+        }
+        
+        .category-card.cat-tp .category-value { color: var(--success); }
+        .category-card.cat-tn .category-value { color: var(--accent); }
+        .category-card.cat-fn-miss .category-value { color: var(--danger); }
+        .category-card.cat-fn-early .category-value { color: var(--purple); }
+        .category-card.cat-fp-false .category-value { color: var(--warning); }
+        .category-card.cat-fp-valid .category-value { color: var(--orange); }
+        
+        .category-desc {
+            font-size: 9px;
+            color: var(--text-secondary);
+            margin-top: 4px;
+        }
     </style>
 </head>
 <body>
@@ -492,7 +621,6 @@
     </header>
     
     <div class="controls">
-        <!-- 데이터 소스 선택 -->
         <div class="control-group">
             <span class="control-label">데이터 소스:</span>
             <div class="radio-group">
@@ -509,7 +637,6 @@
         
         <div class="divider"></div>
         
-        <!-- 날짜/시간 선택 -->
         <div class="control-group">
             <span class="control-label">시작:</span>
             <input type="date" id="date-start">
@@ -523,7 +650,6 @@
         
         <div class="divider"></div>
         
-        <!-- 예측 타입 선택 -->
         <div class="control-group">
             <span class="control-label">예측:</span>
             <div class="radio-group">
@@ -541,7 +667,6 @@
         <button class="btn btn-primary" id="btn-evaluate" onclick="startEvaluation()">🔍 평가 실행</button>
     </div>
     
-    <!-- 빠른 날짜 선택 -->
     <div style="margin-bottom: 20px; display: flex; gap: 10px; flex-wrap: wrap;">
         <button class="btn" onclick="loadToday()">오늘</button>
         <button class="btn" onclick="loadYesterday()">어제</button>
@@ -615,6 +740,43 @@
             </div>
         </div>
         
+        <!-- 카테고리별 요약 -->
+        <div class="section">
+            <div class="section-title">📊 예측상태별 분류 요약 (클릭하여 필터링)</div>
+            <div class="category-summary" id="category-summary">
+                <div class="category-card cat-tp" data-category="tp" onclick="filterByCategory('tp')">
+                    <div class="category-label">✅ 위험적중</div>
+                    <div class="category-value" id="cat-tp">0</div>
+                    <div class="category-desc">위험예측→실제위험</div>
+                </div>
+                <div class="category-card cat-tn" data-category="tn" onclick="filterByCategory('tn')">
+                    <div class="category-label">✅ 정상적중</div>
+                    <div class="category-value" id="cat-tn">0</div>
+                    <div class="category-desc">정상예측→실제정상</div>
+                </div>
+                <div class="category-card cat-fn-miss" data-category="fn_miss" onclick="filterByCategory('fn_miss')">
+                    <div class="category-label">❌ 미감지</div>
+                    <div class="category-value" id="cat-fn-miss">0</div>
+                    <div class="category-desc">정상예측→실제위험</div>
+                </div>
+                <div class="category-card cat-fn-early" data-category="fn_early" onclick="filterByCategory('fn_early')">
+                    <div class="category-label">⚠️ 사전감지</div>
+                    <div class="category-value" id="cat-fn-early">0</div>
+                    <div class="category-desc">이전에 예측됨</div>
+                </div>
+                <div class="category-card cat-fp-false" data-category="fp_false" onclick="filterByCategory('fp_false')">
+                    <div class="category-label">❌ 과예측</div>
+                    <div class="category-value" id="cat-fp-false">0</div>
+                    <div class="category-desc">위험예측→실제정상</div>
+                </div>
+                <div class="category-card cat-fp-valid" data-category="fp_valid" onclick="filterByCategory('fp_valid')">
+                    <div class="category-label">⚠️ 선행경고</div>
+                    <div class="category-value" id="cat-fp-valid">0</div>
+                    <div class="category-desc">이후 실제 발생</div>
+                </div>
+            </div>
+        </div>
+        
         <div class="section">
             <div class="section-title">📐 혼동 행렬 (Confusion Matrix)</div>
             <div class="confusion-matrix">
@@ -666,7 +828,7 @@
         </div>
         
         <div class="section">
-            <div class="section-title">📊 예측 상태 분류</div>
+            <div class="section-title">📊 예측 상태 상세 분류</div>
             <div class="status-list" id="status-list"></div>
         </div>
         
@@ -676,20 +838,48 @@
         </div>
         
         <div class="section">
-            <div class="section-title">📋 상세 데이터 (최근 100개)</div>
+            <div class="section-title">📋 상세 데이터</div>
+            
+            <div class="table-header-row">
+                <div class="filter-buttons">
+                    <button class="btn filter-btn filter-all active" onclick="filterTable('all')">전체</button>
+                    <button class="btn filter-btn filter-tp" onclick="filterTable('tp')">✅ 위험적중</button>
+                    <button class="btn filter-btn filter-tn" onclick="filterTable('tn')">✅ 정상적중</button>
+                    <button class="btn filter-btn filter-fn" onclick="filterTable('fn')">❌ 미감지</button>
+                    <button class="btn filter-btn filter-fp" onclick="filterTable('fp')">⚠️ 과예측/선행</button>
+                </div>
+                <div style="display: flex; align-items: center; gap: 10px;">
+                    <span class="pagination-info" id="table-info">0개</span>
+                    <select class="page-size-select" id="page-size" onchange="changePageSize()">
+                        <option value="50">50개씩</option>
+                        <option value="100" selected>100개씩</option>
+                        <option value="200">200개씩</option>
+                        <option value="500">500개씩</option>
+                        <option value="all">전체보기</option>
+                    </select>
+                </div>
+            </div>
+            
             <div class="table-container" id="table-container"></div>
+            
+            <div class="pagination" id="pagination"></div>
         </div>
     </div>
 
     <script>
-        // 날짜 초기화
         const today = new Date();
         document.getElementById('date-start').value = formatDate(today);
         document.getElementById('date-end').value = formatDate(today);
         
         let pollInterval = null;
+        let allData = [];  // 전체 데이터
+        let filteredData = [];  // 필터링된 데이터
+        let currentPage = 1;
+        let pageSize = 100;
+        let currentFilter = 'all';
+        let currentCategoryFilter = null;
         
-        // 데이터 소스 라디오 버튼 스타일
+        // 데이터 소스 라디오 버튼
         document.querySelectorAll('input[name="data-source"]').forEach(radio => {
             radio.addEventListener('change', function() {
                 document.getElementById('radio-internal').classList.remove('selected');
@@ -702,7 +892,7 @@
             });
         });
         
-        // 예측 타입 라디오 버튼 스타일
+        // 예측 타입 라디오 버튼
         document.querySelectorAll('input[name="pred-type"]').forEach(radio => {
             radio.addEventListener('change', function() {
                 document.getElementById('radio-10').classList.remove('selected');
@@ -765,7 +955,6 @@
                 return;
             }
             
-            // UI 상태 변경
             document.getElementById('initial-state').style.display = 'none';
             document.getElementById('loading-state').style.display = 'block';
             document.getElementById('results-container').classList.remove('active');
@@ -778,13 +967,11 @@
             
             document.getElementById('progress-text').textContent = '시작 중...';
             
-            // 로딩 메시지 설정
             const sourceText = dataSource === 'internal' ? '📁 내부(파일)' : '🌐 외부(로그프레소)';
             document.getElementById('loading-source').innerHTML = 
                 `<span style="color: ${dataSource === 'external' ? 'var(--orange)' : 'var(--success)'};">${sourceText}</span> 에서 데이터 조회 중...`;
             
             try {
-                // 백그라운드 평가 시작 (data_source 파라미터 추가)
                 const startRes = await fetch(`/api/evaluate/start?date_start=${dateStart}&date_end=${dateEnd}&time_start=${timeStart}&time_end=${timeEnd}&pred_type=${predType}&data_source=${dataSource}`);
                 const startData = await startRes.json();
                 
@@ -794,7 +981,6 @@
                     return;
                 }
                 
-                // 진행 상태 폴링 시작
                 pollInterval = setInterval(pollStatus, 1000);
                 
             } catch (e) {
@@ -809,7 +995,6 @@
                 const res = await fetch('/api/evaluate/status');
                 const data = await res.json();
                 
-                // 진행률 업데이트
                 document.getElementById('progress-fill').style.width = data.percent + '%';
                 document.getElementById('progress-fill').textContent = data.percent + '%';
                 document.getElementById('progress-text').textContent = `${data.progress.toLocaleString()} / ${data.total.toLocaleString()}`;
@@ -865,6 +1050,13 @@
             document.getElementById('loading-state').style.display = 'none';
             document.getElementById('btn-evaluate').disabled = false;
             
+            // 전체 데이터 저장
+            allData = data.data || [];
+            filteredData = [...allData];
+            currentPage = 1;
+            currentFilter = 'all';
+            currentCategoryFilter = null;
+            
             // 데이터 소스 표시
             const sourceInfoBox = document.getElementById('source-info-box');
             if (data.data_source === 'external') {
@@ -876,7 +1068,7 @@
                 sourceInfoBox.style.display = 'block';
             }
             
-            // 경고 박스
+            // 경고
             const warningBox = document.getElementById('warning-box');
             if (data.missing_cols && data.missing_cols.length > 0) {
                 warningBox.innerHTML = `⚠️ 누락/0인 컬럼 ${data.missing_cols.length}개: ${data.missing_cols.slice(0, 5).join(', ')}${data.missing_cols.length > 5 ? '...' : ''}`;
@@ -889,7 +1081,6 @@
             const predTypeText = data.pred_type === '10' ? '10분' : '30분';
             const sourceText = data.data_source === 'internal' ? '내부' : '외부';
             
-            // 시간 포맷팅
             const timeStartFmt = data.time_start ? `${data.time_start.slice(0,2)}:${data.time_start.slice(2,4)}` : '00:00';
             const timeEndFmt = data.time_end ? `${data.time_end.slice(0,2)}:${data.time_end.slice(2,4)}` : '23:59';
             
@@ -915,6 +1106,15 @@
             document.getElementById('stat-fp-valid-sub').textContent = `${data.analysis_range}분 이내 실제 돌파`;
             document.getElementById('stat-real-fp').textContent = stats.real_fp.toLocaleString();
             
+            // 카테고리별 요약
+            const catCounts = data.category_counts || {};
+            document.getElementById('cat-tp').textContent = (catCounts['tp'] || 0).toLocaleString();
+            document.getElementById('cat-tn').textContent = (catCounts['tn'] || 0).toLocaleString();
+            document.getElementById('cat-fn-miss').textContent = (catCounts['fn_miss'] || 0).toLocaleString();
+            document.getElementById('cat-fn-early').textContent = (catCounts['fn_early'] || 0).toLocaleString();
+            document.getElementById('cat-fp-false').textContent = (catCounts['fp_false'] || 0).toLocaleString();
+            document.getElementById('cat-fp-valid').textContent = (catCounts['fp_valid'] || 0).toLocaleString();
+            
             // 상태 리스트
             const statusList = document.getElementById('status-list');
             let statusHtml = '';
@@ -932,14 +1132,26 @@
             
             sortedStatuses.forEach(([status, count]) => {
                 let cls = '';
-                if (status === 'TP') cls = 'tp';
-                else if (status === 'TN') cls = 'tn';
-                else if (status.startsWith('FN')) cls = 'fn';
-                else if (status.startsWith('FP')) cls = 'fp';
+                let label = status;
+                
+                if (status === 'TP') { cls = 'tp'; label = '✅ 위험적중'; }
+                else if (status === 'TN') { cls = 'tn'; label = '✅ 정상적중'; }
+                else if (status === 'FN_놓침') { cls = 'fn'; label = '❌ 미감지'; }
+                else if (status.startsWith('FN_')) { 
+                    cls = 'fn'; 
+                    const mins = status.replace('FN_', '').replace('분전', '');
+                    label = `⚠️ ${mins}분전감지`; 
+                }
+                else if (status === 'FP_오탐') { cls = 'fp'; label = '❌ 과예측'; }
+                else if (status.startsWith('FP_')) { 
+                    cls = 'fp'; 
+                    const mins = status.replace('FP_', '').replace('분후', '');
+                    label = `⚠️ ${mins}분후발생`; 
+                }
                 
                 statusHtml += `
-                    <div class="status-item ${cls}">
-                        <span class="status-name">${status}</span>
+                    <div class="status-item ${cls}" onclick="filterByStatus('${status}')">
+                        <span class="status-name">${label}</span>
                         <span class="status-count">${count.toLocaleString()}</span>
                     </div>
                 `;
@@ -947,13 +1159,129 @@
             statusList.innerHTML = statusHtml;
             
             // 차트
-            drawChart(data.data, data.pred_type);
+            drawChart(allData.slice(-200), data.pred_type);
             
             // 테이블
-            drawTable(data.data);
+            updateTable();
             
-            // 결과 표시
             document.getElementById('results-container').classList.add('active');
+        }
+        
+        function filterByCategory(category) {
+            // 카테고리 카드 active 토글
+            document.querySelectorAll('.category-card').forEach(el => el.classList.remove('active'));
+            
+            if (currentCategoryFilter === category) {
+                currentCategoryFilter = null;
+                filteredData = [...allData];
+            } else {
+                currentCategoryFilter = category;
+                document.querySelector(`.category-card[data-category="${category}"]`).classList.add('active');
+                filteredData = allData.filter(row => row.status_category === category);
+            }
+            
+            currentPage = 1;
+            currentFilter = 'all';
+            document.querySelectorAll('.filter-btn').forEach(el => el.classList.remove('active'));
+            document.querySelector('.filter-btn.filter-all').classList.add('active');
+            
+            updateTable();
+        }
+        
+        function filterByStatus(status) {
+            currentCategoryFilter = null;
+            document.querySelectorAll('.category-card').forEach(el => el.classList.remove('active'));
+            
+            filteredData = allData.filter(row => row.status === status);
+            currentPage = 1;
+            currentFilter = 'all';
+            document.querySelectorAll('.filter-btn').forEach(el => el.classList.remove('active'));
+            document.querySelector('.filter-btn.filter-all').classList.add('active');
+            
+            updateTable();
+        }
+        
+        function filterTable(filter) {
+            currentFilter = filter;
+            currentCategoryFilter = null;
+            document.querySelectorAll('.category-card').forEach(el => el.classList.remove('active'));
+            
+            document.querySelectorAll('.filter-btn').forEach(el => el.classList.remove('active'));
+            document.querySelector(`.filter-btn.filter-${filter}`).classList.add('active');
+            
+            if (filter === 'all') {
+                filteredData = [...allData];
+            } else if (filter === 'tp') {
+                filteredData = allData.filter(row => row.status === 'TP');
+            } else if (filter === 'tn') {
+                filteredData = allData.filter(row => row.status === 'TN');
+            } else if (filter === 'fn') {
+                filteredData = allData.filter(row => row.status && row.status.startsWith('FN'));
+            } else if (filter === 'fp') {
+                filteredData = allData.filter(row => row.status && row.status.startsWith('FP'));
+            }
+            
+            currentPage = 1;
+            updateTable();
+        }
+        
+        function changePageSize() {
+            const select = document.getElementById('page-size');
+            if (select.value === 'all') {
+                pageSize = filteredData.length || 1;
+            } else {
+                pageSize = parseInt(select.value);
+            }
+            currentPage = 1;
+            updateTable();
+        }
+        
+        function goToPage(page) {
+            const totalPages = Math.ceil(filteredData.length / pageSize);
+            if (page < 1 || page > totalPages) return;
+            currentPage = page;
+            updateTable();
+        }
+        
+        function updateTable() {
+            const totalPages = Math.ceil(filteredData.length / pageSize);
+            const startIdx = (currentPage - 1) * pageSize;
+            const endIdx = Math.min(startIdx + pageSize, filteredData.length);
+            const pageData = filteredData.slice(startIdx, endIdx);
+            
+            // 테이블 정보
+            document.getElementById('table-info').textContent = 
+                `${filteredData.length.toLocaleString()}개 중 ${startIdx + 1}~${endIdx}`;
+            
+            // 테이블 그리기
+            drawTable(pageData);
+            
+            // 페이지네이션
+            let paginationHtml = '';
+            if (totalPages > 1) {
+                paginationHtml += `<button class="btn" onclick="goToPage(1)" ${currentPage === 1 ? 'disabled' : ''}>≪</button>`;
+                paginationHtml += `<button class="btn" onclick="goToPage(${currentPage - 1})" ${currentPage === 1 ? 'disabled' : ''}>◀</button>`;
+                
+                const startPage = Math.max(1, currentPage - 2);
+                const endPage = Math.min(totalPages, currentPage + 2);
+                
+                if (startPage > 1) {
+                    paginationHtml += `<span style="color: var(--text-secondary);">...</span>`;
+                }
+                
+                for (let i = startPage; i <= endPage; i++) {
+                    paginationHtml += `<button class="btn ${i === currentPage ? 'btn-primary' : ''}" onclick="goToPage(${i})">${i}</button>`;
+                }
+                
+                if (endPage < totalPages) {
+                    paginationHtml += `<span style="color: var(--text-secondary);">...</span>`;
+                }
+                
+                paginationHtml += `<button class="btn" onclick="goToPage(${currentPage + 1})" ${currentPage === totalPages ? 'disabled' : ''}>▶</button>`;
+                paginationHtml += `<button class="btn" onclick="goToPage(${totalPages})" ${currentPage === totalPages ? 'disabled' : ''}>≫</button>`;
+                paginationHtml += `<span class="pagination-info">${currentPage} / ${totalPages} 페이지</span>`;
+            }
+            document.getElementById('pagination').innerHTML = paginationHtml;
         }
         
         function drawChart(data, predType) {
@@ -963,11 +1291,10 @@
             const predicts = data.map(d => d.predict);
             const currents = data.map(d => d.current);
             
-            // y축 범위 동적 계산
             const allValues = [...actuals, ...actualSingles, ...predicts, ...currents, 1700];
             const minVal = Math.min(...allValues);
             const maxVal = Math.max(...allValues);
-            const padding = (maxVal - minVal) * 0.1;  // 10% 여백
+            const padding = (maxVal - minVal) * 0.1;
             const yMin = Math.max(0, Math.floor((minVal - padding) / 100) * 100);
             const yMax = Math.ceil((maxVal + padding) / 100) * 100;
             
@@ -1017,8 +1344,6 @@
                     gridcolor: '#27272a', 
                     tickangle: -45,
                     tickfont: { size: 10 },
-                    range: [-0.5, times.length - 0.5],
-                    autorange: false,
                     title: { text: '예측시점', font: { size: 11 } }
                 },
                 yaxis: { 
@@ -1037,13 +1362,11 @@
             
             Plotly.newPlot('chart', traces, layout, { responsive: true, displayModeBar: false });
             
-            // 초기 렌더링 후 강제 리사이즈 (컨테이너 크기 재계산)
             setTimeout(() => {
                 Plotly.Plots.resize('chart');
             }, 100);
         }
         
-        // 창 크기 변경 시 차트 리사이즈
         window.addEventListener('resize', () => {
             const chartEl = document.getElementById('chart');
             if (chartEl && chartEl.data) {
@@ -1056,6 +1379,7 @@
                 <table>
                     <thead>
                         <tr>
+                            <th>#</th>
                             <th>현재시간</th>
                             <th>현재값</th>
                             <th>예측시점</th>
@@ -1063,29 +1387,43 @@
                             <th>실제(최대)</th>
                             <th>실제(단일)</th>
                             <th>확률</th>
-                            <th>판정</th>
+                            <th>예측판정</th>
                             <th>실제위험</th>
-                            <th>상태</th>
+                            <th>예측상태</th>
                         </tr>
                     </thead>
                     <tbody>
             `;
             
-            data.forEach(row => {
+            const startIdx = (currentPage - 1) * pageSize;
+            
+            data.forEach((row, idx) => {
                 const predClass = row.predict >= 1700 ? 'value-danger' : row.predict >= 1600 ? 'value-warning' : '';
                 const actualMaxClass = row.actual_max >= 1700 ? 'value-danger' : row.actual_max >= 1600 ? 'value-warning' : '';
                 const actualSingleClass = row.actual_single >= 1700 ? 'value-danger' : row.actual_single >= 1600 ? 'value-warning' : '';
                 
+                // 상태 배지
                 let statusBadge = '';
-                if (row.status) {
-                    if (row.status === 'TP') statusBadge = '<span class="badge badge-tp">TP</span>';
-                    else if (row.status === 'TN') statusBadge = '<span class="badge badge-tn">TN</span>';
-                    else if (row.status.startsWith('FN')) statusBadge = `<span class="badge badge-fn">${row.status}</span>`;
-                    else if (row.status.startsWith('FP')) statusBadge = `<span class="badge badge-fp">${row.status}</span>`;
+                let statusLabel = row.status_label || row.status || '-';
+                const status = row.status || '';
+                
+                if (status === 'TP') {
+                    statusBadge = '<span class="badge badge-tp">TP</span>';
+                } else if (status === 'TN') {
+                    statusBadge = '<span class="badge badge-tn">TN</span>';
+                } else if (status === 'FN_놓침') {
+                    statusBadge = '<span class="badge badge-fn">FN</span>';
+                } else if (status.startsWith('FN_')) {
+                    statusBadge = '<span class="badge badge-fn-early">FN</span>';
+                } else if (status === 'FP_오탐') {
+                    statusBadge = '<span class="badge badge-fp">FP</span>';
+                } else if (status.startsWith('FP_')) {
+                    statusBadge = '<span class="badge badge-fp-valid">FP</span>';
                 }
                 
                 html += `
                     <tr>
+                        <td style="color: var(--text-secondary);">${startIdx + idx + 1}</td>
                         <td>${row.currtime}</td>
                         <td>${row.current.toLocaleString()}</td>
                         <td>${row.pred_time}</td>
@@ -1093,9 +1431,9 @@
                         <td class="${actualMaxClass}" style="font-weight: 600;">${row.actual_max.toLocaleString()}</td>
                         <td class="${actualSingleClass}" style="font-weight: 600;">${row.actual_single.toLocaleString()}</td>
                         <td>${row.prob}</td>
-                        <td>${row.danger ? '⚠️' : '✅'}</td>
-                        <td>${row.actual_danger ? '🔴' : '🟢'}</td>
-                        <td>${statusBadge}</td>
+                        <td>${row.danger ? '<span style="color: var(--danger);">⚠️ 위험</span>' : '<span style="color: var(--success);">✅ 정상</span>'}</td>
+                        <td>${row.actual_danger ? '<span style="color: var(--danger);">🔴 위험</span>' : '<span style="color: var(--success);">🟢 정상</span>'}</td>
+                        <td>${statusBadge} ${statusLabel}</td>
                     </tr>
                 `;
             });
