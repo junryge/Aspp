@@ -655,11 +655,13 @@
         
         function drawChart(data, predType) {
             const times = data.map(d => (d.pred_time || '').split(' ')[1] || d.pred_time);
-            const actuals = data.map(d => d.actual_max);
+            const actualMax = data.map(d => d.actual_max);
+            const actualSingle = data.map(d => d.actual_single);
             const predicts = data.map(d => d.predict);
             
             const traces = [
-                { x: times, y: actuals, name: `실제(${predType}분)`, type: 'scatter', mode: 'lines', line: { color: '#22c55e', width: 2 } },
+                { x: times, y: actualMax, name: `실제(최대)`, type: 'scatter', mode: 'lines', line: { color: '#22c55e', width: 2 } },
+                { x: times, y: actualSingle, name: `실제(단일)`, type: 'scatter', mode: 'lines', line: { color: '#3b82f6', width: 2 } },
                 { x: times, y: predicts, name: '예측값', type: 'scatter', mode: 'lines', line: { color: '#f97316', width: 2 } }
             ];
             
@@ -667,13 +669,20 @@
                 paper_bgcolor: 'transparent', plot_bgcolor: 'transparent',
                 font: { color: '#a1a1aa', family: 'Space Grotesk' },
                 showlegend: true, legend: { x: 0, y: 1.1, orientation: 'h' },
-                xaxis: { gridcolor: '#27272a', tickangle: -45 },
+                xaxis: { gridcolor: '#27272a', tickangle: -45, autorange: true },
                 yaxis: { gridcolor: '#27272a', range: [1000, 2000] },
                 margin: { t: 40, r: 20, b: 80, l: 55 },
                 shapes: [{ type: 'line', y0: 1700, y1: 1700, x0: 0, x1: 1, xref: 'paper', line: { color: '#ef4444', width: 2 } }]
             };
             
+            // 기존 차트 삭제 후 새로 생성
+            Plotly.purge('chart');
             Plotly.newPlot('chart', traces, layout, { responsive: true, displayModeBar: false });
+            
+            // 윈도우 리사이즈 시 차트 재조정
+            window.addEventListener('resize', function() {
+                Plotly.Plots.resize('chart');
+            });
         }
         
         function drawTable(data) {
