@@ -17,6 +17,7 @@
             --success: #22c55e;
             --warning: #eab308;
             --danger: #ef4444;
+            --purple: #8b5cf6;
         }
         
         * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -129,6 +130,9 @@
         .btn:hover { background: var(--bg-card); }
         .btn-primary { background: var(--accent); border-color: var(--accent); }
         .btn-primary:hover { background: #2563eb; }
+        .btn-success { background: var(--success); border-color: var(--success); color: #000; }
+        .btn-purple { background: var(--purple); border-color: var(--purple); }
+        .btn-purple:hover { background: #7c3aed; }
         
         .stats-row {
             display: flex;
@@ -302,7 +306,8 @@
         <button class="btn" onclick="loadToday()">오늘</button>
         <button class="btn" onclick="loadLast3Days()">최근3일</button>
         <button class="btn" onclick="loadThisWeek()">이번주</button>
-        <button class="btn" onclick="downloadCSV()" style="background: #22c55e; border-color: #22c55e;">📥 CSV 다운로드</button>
+        <button class="btn btn-success" onclick="downloadCSV()">📥 CSV 다운로드</button>
+        <button class="btn btn-purple" onclick="location.href='/evaluate'">📊 평가 데이터 분석</button>
     </div>
     
     <div class="stats-row" id="stats-row" style="display: none;">
