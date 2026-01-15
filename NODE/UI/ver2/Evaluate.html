@@ -1389,8 +1389,7 @@
                             <th>확률</th>
                             <th>예측판정</th>
                             <th>실제위험</th>
-                            <th>상태</th>
-                            <th>상태설명</th>
+                            <th>예측상태</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -1434,8 +1433,7 @@
                         <td>${row.prob}</td>
                         <td>${row.danger ? '<span style="color: var(--danger);">⚠️ 위험</span>' : '<span style="color: var(--success);">✅ 정상</span>'}</td>
                         <td>${row.actual_danger ? '<span style="color: var(--danger);">🔴 위험</span>' : '<span style="color: var(--success);">🟢 정상</span>'}</td>
-                        <td>${statusBadge}</td>
-                        <td style="font-size: 11px;">${statusLabel}</td>
+                        <td>${statusBadge} ${statusLabel}</td>
                     </tr>
                 `;
             });
