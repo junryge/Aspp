@@ -829,13 +829,60 @@
         // ========== CSV 다운로드 ==========
         
         function downloadResultCSV() {
-            if (!allTableData || allTableData.length === 0) {
+            if (!allTableData || allTableData.length === 0 || !evalResultData) {
                 alert('먼저 평가를 실행하세요');
                 return;
             }
             
+            const stats = evalResultData.stats;
+            const statusCounts = evalResultData.status_counts || {};
+            
+            let csv = '';
+            
+            // ===== 통계 요약 =====
+            csv += '=== M14 예측 평가 결과 ===\n';
+            csv += `평가기간,${evalResultData.date_start} ~ ${evalResultData.date_end}\n`;
+            csv += `시간범위,${evalResultData.time_start} ~ ${evalResultData.time_end}\n`;
+            csv += `예측타입,${evalResultData.pred_type}분\n`;
+            csv += `데이터소스,${evalResultData.data_source_name}\n`;
+            csv += `총 평가수,${evalResultData.total_count}\n`;
+            csv += `실제 1700+ 발생,${evalResultData.actual_danger_count}\n`;
+            csv += '\n';
+            
+            // 혼동행렬
+            csv += '=== 혼동행렬 ===\n';
+            csv += `TP (정상감지),${stats.TP}\n`;
+            csv += `TN (정상→정상),${stats.TN}\n`;
+            csv += `FP (오탐),${stats.FP}\n`;
+            csv += `FN (미탐),${stats.FN}\n`;
+            csv += '\n';
+            
+            // 성능지표
+            csv += '=== 성능지표 ===\n';
+            csv += `정확도,${stats.accuracy}%\n`;
+            csv += `재현율 (Recall),${stats.recall}%\n`;
+            csv += `정밀도 (Precision),${stats.precision}%\n`;
+            csv += '\n';
+            
+            // 상세분석
+            csv += '=== 상세분석 ===\n';
+            csv += `FN 조기감지 (${evalResultData.analysis_range}분 이내),${stats.fn_early}\n`;
+            csv += `실질 FN (완전 놓침),${stats.real_fn}\n`;
+            csv += `FP 유효경고 (${evalResultData.analysis_range}분 이내),${stats.fp_valid}\n`;
+            csv += `실질 FP (오탐),${stats.real_fp}\n`;
+            csv += '\n';
+            
+            // 상태별 카운트
+            csv += '=== 예측상태 분류 ===\n';
+            Object.entries(statusCounts).sort().forEach(([status, count]) => {
+                csv += `${status},${count}\n`;
+            });
+            csv += '\n';
+            
+            // ===== 상세 데이터 =====
+            csv += '=== 상세 데이터 ===\n';
             const headers = ['현재시간', '현재값', '예측시점', '예측값', '실제_최대', '실제_단일', '확률', '투표', '예측위험', '실제위험', '상태'];
-            let csv = headers.join(',') + '\n';
+            csv += headers.join(',') + '\n';
             
             allTableData.forEach(row => {
                 const values = [
@@ -854,9 +901,9 @@
                 csv += values.join(',') + '\n';
             });
             
-            const dateStart = evalResultData ? evalResultData.date_start : 'unknown';
-            const dateEnd = evalResultData ? evalResultData.date_end : 'unknown';
-            const predType = evalResultData ? evalResultData.pred_type : '10';
+            const dateStart = evalResultData.date_start;
+            const dateEnd = evalResultData.date_end;
+            const predType = evalResultData.pred_type;
             
             const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8;' });
             const url = URL.createObjectURL(blob);
