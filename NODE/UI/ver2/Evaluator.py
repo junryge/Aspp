@@ -678,9 +678,9 @@ def evaluate(data_dir, date_start, date_end, time_start='0000', time_end='2359',
     recall = round(TP / actual_danger.sum() * 100, 2) if actual_danger.sum() > 0 else 0
     precision = round(TP / pred_danger.sum() * 100, 2) if pred_danger.sum() > 0 else 0
     
-    # ★★★ 수정된 부분: status가 포함된 데이터로 변환 ★★★
+    # ★★★ 수정: 전체 데이터 반환 (100개 제한 제거) ★★★
     df_result = df_result.drop(columns=['currtime_dt'], errors='ignore')
-    result_data = df_result.tail(100).to_dict('records')
+    result_data = df_result.to_dict('records')
     
     return {
         'pred_type': pred_type,
