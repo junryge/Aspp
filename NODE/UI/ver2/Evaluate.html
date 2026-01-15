@@ -162,7 +162,6 @@
             border-color: var(--accent);
         }
         
-        /* 데이터 소스 라디오 스타일 */
         .radio-label.source-internal.selected {
             background: rgba(34, 197, 94, 0.1);
             border-color: var(--success);
@@ -309,6 +308,18 @@
             padding: 10px 15px;
             background: var(--bg-card);
             border-radius: 6px;
+            cursor: pointer;
+            transition: all 0.2s;
+            border: 2px solid transparent;
+        }
+        
+        .status-item:hover {
+            border-color: var(--accent);
+        }
+        
+        .status-item.active {
+            border-color: var(--accent);
+            background: rgba(59, 130, 246, 0.1);
         }
         
         .status-name {
@@ -331,7 +342,7 @@
         }
         
         .table-container {
-            max-height: 400px;
+            max-height: 500px;
             overflow-y: auto;
         }
         
@@ -477,6 +488,52 @@
             background: var(--border);
             margin: 0 5px;
         }
+        
+        .filter-controls {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 15px;
+            flex-wrap: wrap;
+            align-items: center;
+        }
+        
+        .filter-btn {
+            padding: 6px 12px;
+            border-radius: 20px;
+            font-size: 12px;
+            font-weight: 500;
+            cursor: pointer;
+            border: 1px solid var(--border);
+            background: var(--bg-card);
+            color: var(--text-secondary);
+            transition: all 0.2s;
+        }
+        
+        .filter-btn:hover {
+            border-color: var(--accent);
+            color: var(--text-primary);
+        }
+        
+        .filter-btn.active {
+            background: var(--accent);
+            border-color: var(--accent);
+            color: white;
+        }
+        
+        .filter-btn.active.tp { background: var(--success); border-color: var(--success); }
+        .filter-btn.active.tn { background: var(--accent); border-color: var(--accent); }
+        .filter-btn.active.fn { background: var(--danger); border-color: var(--danger); }
+        .filter-btn.active.fp { background: var(--warning); border-color: var(--warning); color: #000; }
+        
+        .filter-info {
+            font-size: 12px;
+            color: var(--text-secondary);
+            margin-left: auto;
+        }
+        
+        .filter-info strong {
+            color: var(--accent);
+        }
     </style>
 </head>
 <body>
@@ -492,7 +549,6 @@
     </header>
     
     <div class="controls">
-        <!-- 데이터 소스 선택 -->
         <div class="control-group">
             <span class="control-label">데이터 소스:</span>
             <div class="radio-group">
@@ -509,7 +565,6 @@
         
         <div class="divider"></div>
         
-        <!-- 날짜/시간 선택 -->
         <div class="control-group">
             <span class="control-label">시작:</span>
             <input type="date" id="date-start">
@@ -523,7 +578,6 @@
         
         <div class="divider"></div>
         
-        <!-- 예측 타입 선택 -->
         <div class="control-group">
             <span class="control-label">예측:</span>
             <div class="radio-group">
@@ -539,10 +593,8 @@
         </div>
         
         <button class="btn btn-primary" id="btn-evaluate" onclick="startEvaluation()">🔍 평가 실행</button>
-        <button class="btn btn-success" id="btn-download" onclick="downloadResult()" style="display: none;">📥 결과 다운로드</button>
     </div>
     
-    <!-- 빠른 날짜 선택 -->
     <div style="margin-bottom: 20px; display: flex; gap: 10px; flex-wrap: wrap;">
         <button class="btn" onclick="loadToday()">오늘</button>
         <button class="btn" onclick="loadYesterday()">어제</button>
@@ -587,6 +639,11 @@
     </div>
     
     <div id="results-container" class="results-container">
+        <!-- 다운로드 버튼 -->
+        <div style="margin-bottom: 15px;">
+            <button class="btn btn-success" onclick="downloadResultCSV()">📥 결과 CSV 다운로드</button>
+        </div>
+        
         <div id="source-info-box" class="source-info-box" style="display: none;"></div>
         <div id="warning-box" class="warning-box" style="display: none;"></div>
         
@@ -667,7 +724,7 @@
         </div>
         
         <div class="section">
-            <div class="section-title">📊 예측 상태 분류</div>
+            <div class="section-title">📊 예측 상태 분류 <span style="font-size: 12px; color: var(--text-secondary); font-weight: 400; margin-left: 10px;">클릭하면 테이블 필터링</span></div>
             <div class="status-list" id="status-list"></div>
         </div>
         
@@ -677,19 +734,34 @@
         </div>
         
         <div class="section">
-            <div class="section-title">📋 상세 데이터 (최근 100개)</div>
+            <div class="section-title">📋 상세 데이터 <span style="font-size: 12px; color: var(--text-secondary); font-weight: 400; margin-left: 10px;">위 예측상태분류 클릭하면 필터링됨</span></div>
+            
+            <div class="filter-controls">
+                <button class="filter-btn active" data-filter="all" onclick="filterTable('all')">전체</button>
+                <button class="filter-btn tp" data-filter="TP" onclick="filterTable('TP')">TP</button>
+                <button class="filter-btn tn" data-filter="TN" onclick="filterTable('TN')">TN</button>
+                <button class="filter-btn fn" data-filter="FN" onclick="filterTable('FN')">FN 전체</button>
+                <button class="filter-btn fn" data-filter="FN_놓침" onclick="filterTable('FN_놓침')">FN_놓침</button>
+                <button class="filter-btn fp" data-filter="FP" onclick="filterTable('FP')">FP 전체</button>
+                <button class="filter-btn fp" data-filter="FP_오탐" onclick="filterTable('FP_오탐')">FP_오탐</button>
+                <div class="filter-info">
+                    표시: <strong id="filter-count">0</strong>개 / 전체 <span id="filter-total">0</span>개
+                </div>
+            </div>
+            
             <div class="table-container" id="table-container"></div>
         </div>
     </div>
 
     <script>
-        // 오늘 날짜로 초기화
         const today = new Date();
         document.getElementById('date-start').value = formatDate(today);
         document.getElementById('date-end').value = formatDate(today);
         
         let pollInterval = null;
-        let currentResult = null;  // 다운로드용 결과 저장
+        let allTableData = [];
+        let currentFilter = 'all';
+        let evalResultData = null;
         
         // 데이터 소스 라디오 버튼 스타일
         document.querySelectorAll('input[name="data-source"]').forEach(radio => {
@@ -754,87 +826,50 @@
             document.getElementById('time-end').value = '23:59';
         }
         
-        // ===================== 다운로드 기능 추가 =====================
-        function downloadResult() {
-            if (!currentResult || !currentResult.data || currentResult.data.length === 0) {
-                alert('다운로드할 데이터가 없습니다');
+        // ========== CSV 다운로드 ==========
+        
+        function downloadResultCSV() {
+            if (!allTableData || allTableData.length === 0) {
+                alert('먼저 평가를 실행하세요');
                 return;
             }
             
-            const data = currentResult;
-            const stats = data.stats;
-            const predType = data.pred_type;
-            
-            // CSV 헤더
-            const headers = ['현재시간', '현재값', '예측시점', '예측값', '실제_최대', '실제_단일', '확률', '투표', '예측판정', '실제위험', '상태'];
+            const headers = ['현재시간', '현재값', '예측시점', '예측값', '실제_최대', '실제_단일', '확률', '투표', '예측위험', '실제위험', '상태'];
             let csv = headers.join(',') + '\n';
             
-            // 데이터 행
-            data.data.forEach(row => {
+            allTableData.forEach(row => {
                 const values = [
-                    row.currtime,
-                    row.current,
-                    row.pred_time,
-                    row.predict,
-                    row.actual_max,
-                    row.actual_single,
-                    row.prob,
-                    row.vote,
-                    row.danger === 1 ? '위험' : '정상',
-                    row.actual_danger === 1 ? '위험' : '정상',
+                    row.currtime || '',
+                    row.current || '',
+                    row.pred_time || '',
+                    row.predict || '',
+                    row.actual_max || '',
+                    row.actual_single || '',
+                    row.prob || '',
+                    row.vote || '',
+                    row.danger !== undefined ? (row.danger ? '위험' : '정상') : '',
+                    row.actual_danger !== undefined ? (row.actual_danger ? '위험' : '정상') : '',
                     row.status || ''
                 ];
                 csv += values.join(',') + '\n';
             });
             
-            // 요약 정보
-            csv += '\n';
-            csv += '=== 평가 요약 ===\n';
-            csv += `평가기간,${data.date_start} ${data.time_start} ~ ${data.date_end} ${data.time_end}\n`;
-            csv += `예측타입,${predType}분\n`;
-            csv += `데이터소스,${data.data_source === 'internal' ? '내부(파일)' : '외부(로그프레소)'}\n`;
-            csv += `총 평가수,${data.total_count}\n`;
-            csv += `실제 1700+ 발생,${data.actual_danger_count}\n`;
-            csv += '\n';
-            csv += '=== 성능 지표 ===\n';
-            csv += `정확도,${stats.accuracy}%\n`;
-            csv += `재현율(Recall),${stats.recall}%\n`;
-            csv += `정밀도(Precision),${stats.precision}%\n`;
-            csv += '\n';
-            csv += '=== 혼동 행렬 ===\n';
-            csv += `TP (정상 감지),${stats.TP}\n`;
-            csv += `TN (정상→정상),${stats.TN}\n`;
-            csv += `FP (오탐),${stats.FP}\n`;
-            csv += `FN (미탐),${stats.FN}\n`;
-            csv += '\n';
-            csv += '=== 실질 성능 ===\n';
-            csv += `FN 조기감지,${stats.fn_early}\n`;
-            csv += `실질 FN (완전 놓침),${stats.real_fn}\n`;
-            csv += `FP 유효경고,${stats.fp_valid}\n`;
-            csv += `실질 FP (오탐),${stats.real_fp}\n`;
+            const dateStart = evalResultData ? evalResultData.date_start : 'unknown';
+            const dateEnd = evalResultData ? evalResultData.date_end : 'unknown';
+            const predType = evalResultData ? evalResultData.pred_type : '10';
             
-            // 상태별 집계
-            if (data.status_counts) {
-                csv += '\n';
-                csv += '=== 상태별 집계 ===\n';
-                Object.entries(data.status_counts).forEach(([status, count]) => {
-                    csv += `${status},${count}\n`;
-                });
-            }
-            
-            // 파일명
-            const filename = `m14_evaluate_${predType}min_${data.date_start}_${data.date_end}.csv`;
-            
-            // 다운로드
             const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8;' });
             const url = URL.createObjectURL(blob);
             const a = document.createElement('a');
             a.href = url;
-            a.download = filename;
+            a.download = `m14_평가결과_${predType}분_${dateStart}_${dateEnd}.csv`;
+            document.body.appendChild(a);
             a.click();
+            document.body.removeChild(a);
             URL.revokeObjectURL(url);
         }
-        // ===================== 다운로드 기능 끝 =====================
+        
+        // ========== 평가 실행 ==========
         
         async function startEvaluation() {
             const dateStart = document.getElementById('date-start').value.replace(/-/g, '');
@@ -849,12 +884,10 @@
                 return;
             }
             
-            // UI 상태 변경
             document.getElementById('initial-state').style.display = 'none';
             document.getElementById('loading-state').style.display = 'block';
             document.getElementById('results-container').classList.remove('active');
             document.getElementById('btn-evaluate').disabled = true;
-            document.getElementById('btn-download').style.display = 'none';
             
             const progressFill = document.getElementById('progress-fill');
             progressFill.style.width = '0%';
@@ -863,13 +896,11 @@
             
             document.getElementById('progress-text').textContent = '시작 중...';
             
-            // 로딩 메시지 설정
             const sourceText = dataSource === 'internal' ? '📁 내부(파일)' : '🌐 외부(로그프레소)';
             document.getElementById('loading-source').innerHTML = 
                 `<span style="color: ${dataSource === 'external' ? 'var(--orange)' : 'var(--success)'};">${sourceText}</span> 에서 데이터 조회 중...`;
             
             try {
-                // 백그라운드 평가 시작 (data_source 파라미터 추가)
                 const startRes = await fetch(`/api/evaluate/start?date_start=${dateStart}&date_end=${dateEnd}&time_start=${timeStart}&time_end=${timeEnd}&pred_type=${predType}&data_source=${dataSource}`);
                 const startData = await startRes.json();
                 
@@ -879,7 +910,6 @@
                     return;
                 }
                 
-                // 진행 상태 폴링 시작
                 pollInterval = setInterval(pollStatus, 1000);
                 
             } catch (e) {
@@ -894,7 +924,6 @@
                 const res = await fetch('/api/evaluate/status');
                 const data = await res.json();
                 
-                // 진행률 업데이트
                 document.getElementById('progress-fill').style.width = data.percent + '%';
                 document.getElementById('progress-fill').textContent = data.percent + '%';
                 document.getElementById('progress-text').textContent = `${data.progress.toLocaleString()} / ${data.total.toLocaleString()}`;
@@ -927,7 +956,7 @@
                     return;
                 }
                 
-                currentResult = data;  // 다운로드용 저장
+                evalResultData = data;  // 전체 결과 저장
                 displayResults(data);
                 
             } catch (e) {
@@ -941,7 +970,6 @@
             document.getElementById('initial-state').style.display = 'block';
             document.getElementById('loading-state').style.display = 'none';
             document.getElementById('btn-evaluate').disabled = false;
-            document.getElementById('btn-download').style.display = 'none';
             if (pollInterval) {
                 clearInterval(pollInterval);
                 pollInterval = null;
@@ -951,9 +979,7 @@
         function displayResults(data) {
             document.getElementById('loading-state').style.display = 'none';
             document.getElementById('btn-evaluate').disabled = false;
-            document.getElementById('btn-download').style.display = 'inline-block';  // 다운로드 버튼 표시
             
-            // 데이터 소스 표시
             const sourceInfoBox = document.getElementById('source-info-box');
             if (data.data_source === 'external') {
                 sourceInfoBox.innerHTML = `🌐 <strong>외부(로그프레소)</strong>에서 데이터 조회하여 평가 완료`;
@@ -964,7 +990,6 @@
                 sourceInfoBox.style.display = 'block';
             }
             
-            // 경고 박스
             const warningBox = document.getElementById('warning-box');
             if (data.missing_cols && data.missing_cols.length > 0) {
                 warningBox.innerHTML = `⚠️ 누락/0인 컬럼 ${data.missing_cols.length}개: ${data.missing_cols.slice(0, 5).join(', ')}${data.missing_cols.length > 5 ? '...' : ''}`;
@@ -977,11 +1002,9 @@
             const predTypeText = data.pred_type === '10' ? '10분' : '30분';
             const sourceText = data.data_source === 'internal' ? '내부' : '외부';
             
-            // 시간 포맷팅
             const timeStartFmt = data.time_start ? `${data.time_start.slice(0,2)}:${data.time_start.slice(2,4)}` : '00:00';
             const timeEndFmt = data.time_end ? `${data.time_end.slice(0,2)}:${data.time_end.slice(2,4)}` : '23:59';
             
-            // 기본 통계
             document.getElementById('stat-total').textContent = data.total_count.toLocaleString();
             document.getElementById('stat-period').textContent = `${data.date_start.slice(0,4)}-${data.date_start.slice(4,6)}-${data.date_start.slice(6,8)} ${timeStartFmt} ~ ${data.date_end.slice(0,4)}-${data.date_end.slice(4,6)}-${data.date_end.slice(6,8)} ${timeEndFmt} (${predTypeText}, ${sourceText})`;
             document.getElementById('stat-actual').textContent = data.actual_danger_count.toLocaleString();
@@ -989,13 +1012,11 @@
             document.getElementById('stat-recall').textContent = stats.recall + '%';
             document.getElementById('stat-precision').textContent = stats.precision + '%';
             
-            // 혼동 행렬
             document.getElementById('cm-tp').textContent = stats.TP.toLocaleString();
             document.getElementById('cm-tn').textContent = stats.TN.toLocaleString();
             document.getElementById('cm-fp').textContent = stats.FP.toLocaleString();
             document.getElementById('cm-fn').textContent = stats.FN.toLocaleString();
             
-            // 실질 성능
             document.getElementById('stat-fn-early').textContent = stats.fn_early.toLocaleString();
             document.getElementById('stat-fn-early-sub').textContent = `${data.analysis_range}분 이내 사전 예측`;
             document.getElementById('stat-real-fn').textContent = stats.real_fn.toLocaleString();
@@ -1026,7 +1047,7 @@
                 else if (status.startsWith('FP')) cls = 'fp';
                 
                 statusHtml += `
-                    <div class="status-item ${cls}">
+                    <div class="status-item ${cls}" onclick="filterTable('${status}')" data-status="${status}">
                         <span class="status-name">${status}</span>
                         <span class="status-count">${count.toLocaleString()}</span>
                     </div>
@@ -1034,14 +1055,54 @@
             });
             statusList.innerHTML = statusHtml;
             
-            // 차트
             drawChart(data.data, data.pred_type);
             
-            // 테이블
-            drawTable(data.data);
+            // 테이블 데이터 저장
+            allTableData = data.data;
+            currentFilter = 'all';
+            drawTable(allTableData);
+            updateFilterInfo();
             
-            // 결과 표시
             document.getElementById('results-container').classList.add('active');
+        }
+        
+        function filterTable(filter) {
+            currentFilter = filter;
+            
+            document.querySelectorAll('.filter-btn').forEach(btn => {
+                btn.classList.remove('active');
+                if (btn.dataset.filter === filter) {
+                    btn.classList.add('active');
+                }
+            });
+            
+            document.querySelectorAll('.status-item').forEach(item => {
+                item.classList.remove('active');
+                if (item.dataset.status === filter) {
+                    item.classList.add('active');
+                }
+            });
+            
+            let filteredData;
+            if (filter === 'all') {
+                filteredData = allTableData;
+            } else if (filter === 'FN') {
+                filteredData = allTableData.filter(row => row.status && row.status.startsWith('FN'));
+            } else if (filter === 'FP') {
+                filteredData = allTableData.filter(row => row.status && row.status.startsWith('FP'));
+            } else {
+                filteredData = allTableData.filter(row => row.status === filter);
+            }
+            
+            drawTable(filteredData);
+            updateFilterInfo(filteredData.length);
+        }
+        
+        function updateFilterInfo(count) {
+            const total = allTableData.length;
+            const shown = count !== undefined ? count : total;
+            document.getElementById('filter-count').textContent = shown.toLocaleString();
+            document.getElementById('filter-total').textContent = total.toLocaleString();
         }
         
         function drawChart(data, predType) {
@@ -1051,11 +1112,10 @@
             const predicts = data.map(d => d.predict);
             const currents = data.map(d => d.current);
             
-            // y축 범위 동적 계산
             const allValues = [...actuals, ...actualSingles, ...predicts, ...currents, 1700];
             const minVal = Math.min(...allValues);
             const maxVal = Math.max(...allValues);
-            const padding = (maxVal - minVal) * 0.1;  // 10% 여백
+            const padding = (maxVal - minVal) * 0.1;
             const yMin = Math.max(0, Math.floor((minVal - padding) / 100) * 100);
             const yMax = Math.ceil((maxVal + padding) / 100) * 100;
             
@@ -1125,13 +1185,11 @@
             
             Plotly.newPlot('chart', traces, layout, { responsive: true, displayModeBar: false });
             
-            // 초기 렌더링 후 강제 리사이즈 (컨테이너 크기 재계산)
             setTimeout(() => {
                 Plotly.Plots.resize('chart');
             }, 100);
         }
         
-        // 창 크기 변경 시 차트 리사이즈
         window.addEventListener('resize', () => {
             const chartEl = document.getElementById('chart');
             if (chartEl && chartEl.data) {
@@ -1159,34 +1217,38 @@
                     <tbody>
             `;
             
-            data.forEach(row => {
-                const predClass = row.predict >= 1700 ? 'value-danger' : row.predict >= 1600 ? 'value-warning' : '';
-                const actualMaxClass = row.actual_max >= 1700 ? 'value-danger' : row.actual_max >= 1600 ? 'value-warning' : '';
-                const actualSingleClass = row.actual_single >= 1700 ? 'value-danger' : row.actual_single >= 1600 ? 'value-warning' : '';
-                
-                let statusBadge = '';
-                if (row.status) {
-                    if (row.status === 'TP') statusBadge = '<span class="badge badge-tp">TP</span>';
-                    else if (row.status === 'TN') statusBadge = '<span class="badge badge-tn">TN</span>';
-                    else if (row.status.startsWith('FN')) statusBadge = `<span class="badge badge-fn">${row.status}</span>`;
-                    else if (row.status.startsWith('FP')) statusBadge = `<span class="badge badge-fp">${row.status}</span>`;
-                }
-                
-                html += `
-                    <tr>
-                        <td>${row.currtime}</td>
-                        <td>${row.current.toLocaleString()}</td>
-                        <td>${row.pred_time}</td>
-                        <td class="${predClass}" style="font-weight: 600;">${row.predict.toLocaleString()}</td>
-                        <td class="${actualMaxClass}" style="font-weight: 600;">${row.actual_max.toLocaleString()}</td>
-                        <td class="${actualSingleClass}" style="font-weight: 600;">${row.actual_single.toLocaleString()}</td>
-                        <td>${row.prob}</td>
-                        <td>${row.danger ? '⚠️' : '✅'}</td>
-                        <td>${row.actual_danger ? '🔴' : '🟢'}</td>
-                        <td>${statusBadge}</td>
-                    </tr>
-                `;
-            });
+            if (data.length === 0) {
+                html += `<tr><td colspan="10" style="text-align: center; padding: 40px; color: var(--text-secondary);">필터 조건에 맞는 데이터가 없습니다</td></tr>`;
+            } else {
+                data.forEach(row => {
+                    const predClass = row.predict >= 1700 ? 'value-danger' : row.predict >= 1600 ? 'value-warning' : '';
+                    const actualMaxClass = row.actual_max >= 1700 ? 'value-danger' : row.actual_max >= 1600 ? 'value-warning' : '';
+                    const actualSingleClass = row.actual_single >= 1700 ? 'value-danger' : row.actual_single >= 1600 ? 'value-warning' : '';
+                    
+                    let statusBadge = '-';
+                    if (row.status) {
+                        if (row.status === 'TP') statusBadge = '<span class="badge badge-tp">TP</span>';
+                        else if (row.status === 'TN') statusBadge = '<span class="badge badge-tn">TN</span>';
+                        else if (row.status.startsWith('FN')) statusBadge = `<span class="badge badge-fn">${row.status}</span>`;
+                        else if (row.status.startsWith('FP')) statusBadge = `<span class="badge badge-fp">${row.status}</span>`;
+                    }
+                    
+                    html += `
+                        <tr>
+                            <td>${row.currtime || '-'}</td>
+                            <td>${row.current ? row.current.toLocaleString() : '-'}</td>
+                            <td>${row.pred_time || '-'}</td>
+                            <td class="${predClass}" style="font-weight: 600;">${row.predict ? row.predict.toLocaleString() : '-'}</td>
+                            <td class="${actualMaxClass}" style="font-weight: 600;">${row.actual_max ? row.actual_max.toLocaleString() : '-'}</td>
+                            <td class="${actualSingleClass}" style="font-weight: 600;">${row.actual_single ? row.actual_single.toLocaleString() : '-'}</td>
+                            <td>${row.prob !== undefined ? row.prob : '-'}</td>
+                            <td>${row.danger !== undefined ? (row.danger ? '⚠️' : '✅') : '-'}</td>
+                            <td>${row.actual_danger !== undefined ? (row.actual_danger ? '🔴' : '🟢') : '-'}</td>
+                            <td>${statusBadge}</td>
+                        </tr>
+                    `;
+                });
+            }
             
             html += '</tbody></table>';
             document.getElementById('table-container').innerHTML = html;
