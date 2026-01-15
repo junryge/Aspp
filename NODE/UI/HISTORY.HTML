@@ -730,16 +730,16 @@
                 let alertHtml = '';
                 if (alert10) {
                     if (alert10.IS_ALARM) {
-                        alertHtml += `<span class="alert-badge alarm">🔔 10분 #${alert10.ALARM_NO}</span> `;
+                        alertHtml += `<span class="alert-badge alarm">🔔 예측10분 알람 ${alert10.ALARM_NO}번째</span> `;
                     } else {
-                        alertHtml += `<span class="alert-badge cooldown">⏱ 10분 쿨타임</span> `;
+                        alertHtml += `<span class="alert-badge cooldown">⏱ 예측10분 알람 ${alert10.ALARM_NO}번째 후 쿨타임 ${alert10.COOLDOWN_MINS}분</span> `;
                     }
                 }
                 if (alert30) {
                     if (alert30.IS_ALARM) {
-                        alertHtml += `<span class="alert-badge alarm">🔔 30분 #${alert30.ALARM_NO}</span> `;
+                        alertHtml += `<span class="alert-badge alarm">🔔 예측30분 알람 ${alert30.ALARM_NO}번째</span> `;
                     } else {
-                        alertHtml += `<span class="alert-badge cooldown">⏱ 30분 쿨타임</span> `;
+                        alertHtml += `<span class="alert-badge cooldown">⏱ 예측30분 알람 ${alert30.ALARM_NO}번째 후 쿨타임 ${alert30.COOLDOWN_MINS}분</span> `;
                     }
                 }
                 
