@@ -1,0 +1,1063 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>M14 예측 평가</title>
+    <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg-primary: #09090b;
+            --bg-secondary: #18181b;
+            --bg-card: #1f1f23;
+            --border: #27272a;
+            --text-primary: #fafafa;
+            --text-secondary: #a1a1aa;
+            --accent: #3b82f6;
+            --success: #22c55e;
+            --warning: #eab308;
+            --danger: #ef4444;
+            --purple: #8b5cf6;
+            --orange: #f97316;
+        }
+        
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        
+        body {
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            font-family: 'Space Grotesk', system-ui, sans-serif;
+            padding: 20px;
+            min-height: 100vh;
+        }
+        
+        .header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+            padding-bottom: 15px;
+            border-bottom: 1px solid var(--border);
+        }
+        
+        .logo {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        
+        .logo-icon {
+            width: 32px;
+            height: 32px;
+            background: linear-gradient(135deg, var(--purple), var(--accent));
+            border-radius: 8px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: 700;
+            font-size: 14px;
+        }
+        
+        .logo-text {
+            font-size: 18px;
+            font-weight: 600;
+        }
+        
+        .logo-text span {
+            color: var(--text-secondary);
+            font-weight: 400;
+        }
+        
+        .nav-btns {
+            display: flex;
+            gap: 10px;
+        }
+        
+        .btn {
+            padding: 8px 16px;
+            background: var(--bg-secondary);
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            color: var(--text-primary);
+            cursor: pointer;
+            font-family: inherit;
+            font-size: 13px;
+            transition: all 0.2s;
+        }
+        
+        .btn:hover { background: var(--bg-card); border-color: var(--text-secondary); }
+        .btn-primary { background: var(--accent); border-color: var(--accent); }
+        .btn-primary:hover { background: #2563eb; }
+        .btn-success { background: var(--success); border-color: var(--success); color: #000; }
+        .btn-warning { background: var(--warning); border-color: var(--warning); color: #000; }
+        .btn-purple { background: var(--purple); border-color: var(--purple); }
+        .btn-orange { background: var(--orange); border-color: var(--orange); color: #000; }
+        .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+        
+        .controls {
+            display: flex;
+            gap: 15px;
+            margin-bottom: 20px;
+            flex-wrap: wrap;
+            align-items: center;
+            background: var(--bg-secondary);
+            padding: 15px 20px;
+            border-radius: 10px;
+            border: 1px solid var(--border);
+        }
+        
+        .control-group {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        
+        .control-label {
+            font-size: 13px;
+            color: var(--text-secondary);
+        }
+        
+        input[type="date"], input[type="time"] {
+            padding: 8px 12px;
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            color: var(--text-primary);
+            font-family: inherit;
+            font-size: 13px;
+        }
+        
+        input[type="date"]::-webkit-calendar-picker-indicator,
+        input[type="time"]::-webkit-calendar-picker-indicator {
+            filter: invert(1);
+        }
+        
+        .radio-group {
+            display: flex;
+            gap: 10px;
+        }
+        
+        .radio-label {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            cursor: pointer;
+            padding: 6px 12px;
+            border-radius: 6px;
+            border: 1px solid var(--border);
+            transition: all 0.2s;
+            font-size: 13px;
+        }
+        
+        .radio-label:hover {
+            border-color: var(--accent);
+        }
+        
+        .radio-label input {
+            accent-color: var(--accent);
+        }
+        
+        .radio-label.selected {
+            background: rgba(59, 130, 246, 0.1);
+            border-color: var(--accent);
+        }
+        
+        /* 데이터 소스 라디오 스타일 */
+        .radio-label.source-internal.selected {
+            background: rgba(34, 197, 94, 0.1);
+            border-color: var(--success);
+        }
+        
+        .radio-label.source-external.selected {
+            background: rgba(249, 115, 22, 0.1);
+            border-color: var(--orange);
+        }
+        
+        .source-badge {
+            font-size: 10px;
+            padding: 2px 6px;
+            border-radius: 4px;
+            margin-left: 4px;
+        }
+        
+        .source-badge.internal {
+            background: rgba(34, 197, 94, 0.2);
+            color: var(--success);
+        }
+        
+        .source-badge.external {
+            background: rgba(249, 115, 22, 0.2);
+            color: var(--orange);
+        }
+        
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+            margin-bottom: 20px;
+        }
+        
+        .stat-card {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            padding: 15px 20px;
+        }
+        
+        .stat-card.highlight {
+            border-color: var(--accent);
+            background: rgba(59, 130, 246, 0.05);
+        }
+        
+        .stat-card.danger {
+            border-color: var(--danger);
+            background: rgba(239, 68, 68, 0.05);
+        }
+        
+        .stat-card.success {
+            border-color: var(--success);
+            background: rgba(34, 197, 94, 0.05);
+        }
+        
+        .stat-card.warning {
+            border-color: var(--warning);
+            background: rgba(234, 179, 8, 0.05);
+        }
+        
+        .stat-label {
+            font-size: 11px;
+            color: var(--text-secondary);
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            margin-bottom: 5px;
+        }
+        
+        .stat-value {
+            font-size: 28px;
+            font-weight: 700;
+        }
+        
+        .stat-sub {
+            font-size: 11px;
+            color: var(--text-secondary);
+            margin-top: 3px;
+        }
+        
+        .section {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 20px;
+            margin-bottom: 20px;
+        }
+        
+        .section-title {
+            font-size: 16px;
+            font-weight: 600;
+            margin-bottom: 15px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        
+        .confusion-matrix {
+            display: grid;
+            grid-template-columns: auto 1fr 1fr;
+            gap: 2px;
+            max-width: 400px;
+            margin: 0 auto;
+        }
+        
+        .cm-cell {
+            padding: 15px 20px;
+            text-align: center;
+            border-radius: 6px;
+        }
+        
+        .cm-header {
+            background: var(--bg-card);
+            font-weight: 600;
+            font-size: 12px;
+            color: var(--text-secondary);
+        }
+        
+        .cm-tp { background: rgba(34, 197, 94, 0.2); color: var(--success); }
+        .cm-tn { background: rgba(59, 130, 246, 0.2); color: var(--accent); }
+        .cm-fp { background: rgba(234, 179, 8, 0.2); color: var(--warning); }
+        .cm-fn { background: rgba(239, 68, 68, 0.2); color: var(--danger); }
+        
+        .cm-value {
+            font-size: 24px;
+            font-weight: 700;
+        }
+        
+        .cm-label {
+            font-size: 10px;
+            margin-top: 3px;
+        }
+        
+        .status-list {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+            gap: 10px;
+        }
+        
+        .status-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 10px 15px;
+            background: var(--bg-card);
+            border-radius: 6px;
+        }
+        
+        .status-name {
+            font-size: 13px;
+        }
+        
+        .status-count {
+            font-weight: 600;
+            font-size: 14px;
+        }
+        
+        .status-item.tp .status-count { color: var(--success); }
+        .status-item.tn .status-count { color: var(--accent); }
+        .status-item.fn .status-count { color: var(--danger); }
+        .status-item.fp .status-count { color: var(--warning); }
+        
+        #chart {
+            width: 100%;
+            height: 350px;
+        }
+        
+        .table-container {
+            max-height: 400px;
+            overflow-y: auto;
+        }
+        
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 12px;
+        }
+        
+        th, td {
+            padding: 10px 12px;
+            text-align: left;
+            border-bottom: 1px solid var(--border);
+        }
+        
+        th {
+            background: var(--bg-card);
+            color: var(--text-secondary);
+            font-weight: 500;
+            text-transform: uppercase;
+            font-size: 10px;
+            letter-spacing: 0.5px;
+            position: sticky;
+            top: 0;
+        }
+        
+        tr:hover { background: rgba(255,255,255,0.02); }
+        
+        .value-normal { color: var(--text-primary); }
+        .value-warning { color: var(--warning); }
+        .value-danger { color: var(--danger); }
+        
+        .badge {
+            display: inline-block;
+            padding: 2px 8px;
+            border-radius: 10px;
+            font-size: 10px;
+            font-weight: 600;
+        }
+        
+        .badge-tp { background: rgba(34, 197, 94, 0.2); color: var(--success); }
+        .badge-tn { background: rgba(59, 130, 246, 0.2); color: var(--accent); }
+        .badge-fn { background: rgba(239, 68, 68, 0.2); color: var(--danger); }
+        .badge-fp { background: rgba(234, 179, 8, 0.2); color: var(--warning); }
+        
+        .loading {
+            text-align: center;
+            padding: 60px 20px;
+            color: var(--text-secondary);
+        }
+        
+        .loading-spinner {
+            width: 40px;
+            height: 40px;
+            border: 3px solid var(--border);
+            border-top-color: var(--accent);
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 15px;
+        }
+        
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+        
+        .empty-state {
+            text-align: center;
+            padding: 60px 20px;
+            color: var(--text-secondary);
+        }
+        
+        .empty-icon {
+            font-size: 48px;
+            margin-bottom: 15px;
+        }
+        
+        .warning-box {
+            background: rgba(234, 179, 8, 0.1);
+            border: 1px solid rgba(234, 179, 8, 0.3);
+            border-radius: 8px;
+            padding: 12px 16px;
+            margin-bottom: 15px;
+            font-size: 13px;
+            color: var(--warning);
+        }
+        
+        .info-box {
+            background: rgba(59, 130, 246, 0.1);
+            border: 1px solid rgba(59, 130, 246, 0.3);
+            border-radius: 8px;
+            padding: 12px 16px;
+            margin-bottom: 15px;
+            font-size: 13px;
+            color: var(--accent);
+        }
+        
+        .source-info-box {
+            background: rgba(249, 115, 22, 0.1);
+            border: 1px solid rgba(249, 115, 22, 0.3);
+            border-radius: 8px;
+            padding: 12px 16px;
+            margin-bottom: 15px;
+            font-size: 13px;
+            color: var(--orange);
+        }
+        
+        .results-container {
+            display: none;
+        }
+        
+        .results-container.active {
+            display: block;
+        }
+        
+        .progress-bar {
+            width: 100%;
+            height: 20px;
+            background: var(--bg-card);
+            border-radius: 10px;
+            overflow: hidden;
+            margin-top: 15px;
+        }
+        
+        .progress-fill {
+            height: 100%;
+            background: linear-gradient(90deg, var(--accent), var(--purple));
+            transition: width 0.3s ease;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 11px;
+            font-weight: 600;
+            color: white;
+        }
+        
+        .progress-fill.external {
+            background: linear-gradient(90deg, var(--orange), var(--danger));
+        }
+        
+        .divider {
+            width: 1px;
+            height: 30px;
+            background: var(--border);
+            margin: 0 5px;
+        }
+    </style>
+</head>
+<body>
+    <header class="header">
+        <div class="logo">
+            <div class="logo-icon">E</div>
+            <div class="logo-text">M14 <span>예측 평가</span></div>
+        </div>
+        <div class="nav-btns">
+            <button class="btn" onclick="location.href='/'">← 실시간 모니터</button>
+            <button class="btn" onclick="location.href='/history'">📊 히스토리</button>
+        </div>
+    </header>
+    
+    <div class="controls">
+        <!-- 데이터 소스 선택 -->
+        <div class="control-group">
+            <span class="control-label">데이터 소스:</span>
+            <div class="radio-group">
+                <label class="radio-label source-internal selected" id="radio-internal">
+                    <input type="radio" name="data-source" value="internal" checked>
+                    📁 내부 (파일)
+                </label>
+                <label class="radio-label source-external" id="radio-external">
+                    <input type="radio" name="data-source" value="external">
+                    🌐 외부 (로그프레소)
+                </label>
+            </div>
+        </div>
+        
+        <div class="divider"></div>
+        
+        <!-- 날짜/시간 선택 -->
+        <div class="control-group">
+            <span class="control-label">시작:</span>
+            <input type="date" id="date-start">
+            <input type="time" id="time-start" value="00:00">
+        </div>
+        <div class="control-group">
+            <span class="control-label">종료:</span>
+            <input type="date" id="date-end">
+            <input type="time" id="time-end" value="23:59">
+        </div>
+        
+        <div class="divider"></div>
+        
+        <!-- 예측 타입 선택 -->
+        <div class="control-group">
+            <span class="control-label">예측:</span>
+            <div class="radio-group">
+                <label class="radio-label selected" id="radio-10">
+                    <input type="radio" name="pred-type" value="10" checked>
+                    10분
+                </label>
+                <label class="radio-label" id="radio-30">
+                    <input type="radio" name="pred-type" value="30">
+                    30분
+                </label>
+            </div>
+        </div>
+        
+        <button class="btn btn-primary" id="btn-evaluate" onclick="startEvaluation()">🔍 평가 실행</button>
+    </div>
+    
+    <!-- 빠른 날짜 선택 -->
+    <div style="margin-bottom: 20px; display: flex; gap: 10px; flex-wrap: wrap;">
+        <button class="btn" onclick="loadToday()">오늘</button>
+        <button class="btn" onclick="loadYesterday()">어제</button>
+        <button class="btn" onclick="loadLast3Days()">최근 3일</button>
+        <button class="btn" onclick="loadThisWeek()">이번주</button>
+        <span style="color: var(--text-secondary); font-size: 12px; display: flex; align-items: center; margin-left: 10px;">
+            💡 <strong style="margin-left: 5px;">내부</strong>: data 폴더 CSV 사용 &nbsp;|&nbsp; 
+            <strong>외부</strong>: 로그프레소 API 직접 조회 (파일 없어도 가능)
+        </span>
+    </div>
+    
+    <div id="initial-state">
+        <div class="empty-state">
+            <div class="empty-icon">📊</div>
+            <div>날짜/시간을 선택하고 <strong>평가 실행</strong> 버튼을 누르세요</div>
+            <div style="color: var(--text-secondary); margin-top: 15px; font-size: 13px;">
+                <div style="margin-bottom: 8px;">
+                    <span class="source-badge internal">📁 내부</span> data 폴더의 m14_data_YYYYMMDD.csv 파일 사용
+                </div>
+                <div style="margin-bottom: 8px;">
+                    <span class="source-badge external">🌐 외부</span> 로그프레소 API에서 직접 데이터 조회 (파일 없어도 평가 가능)
+                </div>
+                <div style="color: var(--success); margin-top: 10px;">
+                    ✅ 백그라운드 실행 - 실시간 모니터링에 영향 없음
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <div id="loading-state" style="display: none;">
+        <div class="loading">
+            <div class="loading-spinner"></div>
+            <div id="loading-text">평가 진행 중... 잠시 기다려주세요</div>
+            <div id="loading-source" style="font-size: 12px; color: var(--text-secondary); margin-top: 10px;">
+                백그라운드에서 실행 중 (실시간 모니터링에 영향 없음)
+            </div>
+            <div class="progress-bar">
+                <div class="progress-fill" id="progress-fill" style="width: 0%;">0%</div>
+            </div>
+            <div id="progress-text" style="font-size: 12px; color: var(--text-secondary); margin-top: 10px;">0 / 0</div>
+        </div>
+    </div>
+    
+    <div id="results-container" class="results-container">
+        <div id="source-info-box" class="source-info-box" style="display: none;"></div>
+        <div id="warning-box" class="warning-box" style="display: none;"></div>
+        
+        <div class="stats-grid">
+            <div class="stat-card highlight">
+                <div class="stat-label">총 평가 수</div>
+                <div class="stat-value" id="stat-total">-</div>
+                <div class="stat-sub" id="stat-period">-</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-label">실제 1700+ 발생</div>
+                <div class="stat-value" id="stat-actual" style="color: var(--danger);">-</div>
+            </div>
+            <div class="stat-card success">
+                <div class="stat-label">정확도</div>
+                <div class="stat-value" id="stat-accuracy" style="color: var(--success);">-</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-label">재현율 (Recall)</div>
+                <div class="stat-value" id="stat-recall">-</div>
+                <div class="stat-sub">1700+ 감지 성공률</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-label">정밀도 (Precision)</div>
+                <div class="stat-value" id="stat-precision">-</div>
+                <div class="stat-sub">경고 정확률</div>
+            </div>
+        </div>
+        
+        <div class="section">
+            <div class="section-title">📐 혼동 행렬 (Confusion Matrix)</div>
+            <div class="confusion-matrix">
+                <div class="cm-cell"></div>
+                <div class="cm-cell cm-header">예측: 정상</div>
+                <div class="cm-cell cm-header">예측: 위험</div>
+                
+                <div class="cm-cell cm-header">실제: 정상</div>
+                <div class="cm-cell cm-tn">
+                    <div class="cm-value" id="cm-tn">-</div>
+                    <div class="cm-label">TN (정상→정상)</div>
+                </div>
+                <div class="cm-cell cm-fp">
+                    <div class="cm-value" id="cm-fp">-</div>
+                    <div class="cm-label">FP (오탐)</div>
+                </div>
+                
+                <div class="cm-cell cm-header">실제: 위험</div>
+                <div class="cm-cell cm-fn">
+                    <div class="cm-value" id="cm-fn">-</div>
+                    <div class="cm-label">FN (미탐)</div>
+                </div>
+                <div class="cm-cell cm-tp">
+                    <div class="cm-value" id="cm-tp">-</div>
+                    <div class="cm-label">TP (정상 감지)</div>
+                </div>
+            </div>
+        </div>
+        
+        <div class="stats-grid" style="grid-template-columns: repeat(4, 1fr);">
+            <div class="stat-card success">
+                <div class="stat-label">FN 조기감지</div>
+                <div class="stat-value" id="stat-fn-early" style="color: var(--success);">-</div>
+                <div class="stat-sub" id="stat-fn-early-sub">사전에 예측됨</div>
+            </div>
+            <div class="stat-card danger">
+                <div class="stat-label">실질 FN (완전 놓침)</div>
+                <div class="stat-value" id="stat-real-fn" style="color: var(--danger);">-</div>
+            </div>
+            <div class="stat-card warning">
+                <div class="stat-label">FP 유효경고</div>
+                <div class="stat-value" id="stat-fp-valid" style="color: var(--warning);">-</div>
+                <div class="stat-sub" id="stat-fp-valid-sub">이후 실제 돌파</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-label">실질 FP (오탐)</div>
+                <div class="stat-value" id="stat-real-fp">-</div>
+            </div>
+        </div>
+        
+        <div class="section">
+            <div class="section-title">📊 예측 상태 분류</div>
+            <div class="status-list" id="status-list"></div>
+        </div>
+        
+        <div class="section">
+            <div class="section-title">📈 예측 vs 실제 차트</div>
+            <div id="chart"></div>
+        </div>
+        
+        <div class="section">
+            <div class="section-title">📋 상세 데이터 (최근 100개)</div>
+            <div class="table-container" id="table-container"></div>
+        </div>
+    </div>
+
+    <script>
+        // 날짜 초기화
+        const today = new Date();
+        document.getElementById('date-start').value = formatDate(today);
+        document.getElementById('date-end').value = formatDate(today);
+        
+        let pollInterval = null;
+        
+        // 데이터 소스 라디오 버튼 스타일
+        document.querySelectorAll('input[name="data-source"]').forEach(radio => {
+            radio.addEventListener('change', function() {
+                document.getElementById('radio-internal').classList.remove('selected');
+                document.getElementById('radio-external').classList.remove('selected');
+                if (this.value === 'internal') {
+                    document.getElementById('radio-internal').classList.add('selected');
+                } else {
+                    document.getElementById('radio-external').classList.add('selected');
+                }
+            });
+        });
+        
+        // 예측 타입 라디오 버튼 스타일
+        document.querySelectorAll('input[name="pred-type"]').forEach(radio => {
+            radio.addEventListener('change', function() {
+                document.getElementById('radio-10').classList.remove('selected');
+                document.getElementById('radio-30').classList.remove('selected');
+                this.parentElement.classList.add('selected');
+            });
+        });
+        
+        function formatDate(date) {
+            const y = date.getFullYear();
+            const m = String(date.getMonth() + 1).padStart(2, '0');
+            const d = String(date.getDate()).padStart(2, '0');
+            return `${y}-${m}-${d}`;
+        }
+        
+        function loadToday() {
+            document.getElementById('date-start').value = formatDate(today);
+            document.getElementById('date-end').value = formatDate(today);
+            document.getElementById('time-start').value = '00:00';
+            document.getElementById('time-end').value = '23:59';
+        }
+        
+        function loadYesterday() {
+            const yesterday = new Date();
+            yesterday.setDate(yesterday.getDate() - 1);
+            document.getElementById('date-start').value = formatDate(yesterday);
+            document.getElementById('date-end').value = formatDate(yesterday);
+            document.getElementById('time-start').value = '00:00';
+            document.getElementById('time-end').value = '23:59';
+        }
+        
+        function loadLast3Days() {
+            const threeDaysAgo = new Date();
+            threeDaysAgo.setDate(threeDaysAgo.getDate() - 2);
+            document.getElementById('date-start').value = formatDate(threeDaysAgo);
+            document.getElementById('date-end').value = formatDate(today);
+            document.getElementById('time-start').value = '00:00';
+            document.getElementById('time-end').value = '23:59';
+        }
+        
+        function loadThisWeek() {
+            const weekAgo = new Date();
+            weekAgo.setDate(weekAgo.getDate() - 6);
+            document.getElementById('date-start').value = formatDate(weekAgo);
+            document.getElementById('date-end').value = formatDate(today);
+            document.getElementById('time-start').value = '00:00';
+            document.getElementById('time-end').value = '23:59';
+        }
+        
+        async function startEvaluation() {
+            const dateStart = document.getElementById('date-start').value.replace(/-/g, '');
+            const dateEnd = document.getElementById('date-end').value.replace(/-/g, '');
+            const timeStart = document.getElementById('time-start').value.replace(':', '');
+            const timeEnd = document.getElementById('time-end').value.replace(':', '');
+            const predType = document.querySelector('input[name="pred-type"]:checked').value;
+            const dataSource = document.querySelector('input[name="data-source"]:checked').value;
+            
+            if (!dateStart || !dateEnd) {
+                alert('날짜를 선택해주세요');
+                return;
+            }
+            
+            // UI 상태 변경
+            document.getElementById('initial-state').style.display = 'none';
+            document.getElementById('loading-state').style.display = 'block';
+            document.getElementById('results-container').classList.remove('active');
+            document.getElementById('btn-evaluate').disabled = true;
+            
+            const progressFill = document.getElementById('progress-fill');
+            progressFill.style.width = '0%';
+            progressFill.textContent = '0%';
+            progressFill.className = 'progress-fill' + (dataSource === 'external' ? ' external' : '');
+            
+            document.getElementById('progress-text').textContent = '시작 중...';
+            
+            // 로딩 메시지 설정
+            const sourceText = dataSource === 'internal' ? '📁 내부(파일)' : '🌐 외부(로그프레소)';
+            document.getElementById('loading-source').innerHTML = 
+                `<span style="color: ${dataSource === 'external' ? 'var(--orange)' : 'var(--success)'};">${sourceText}</span> 에서 데이터 조회 중...`;
+            
+            try {
+                // 백그라운드 평가 시작 (data_source 파라미터 추가)
+                const startRes = await fetch(`/api/evaluate/start?date_start=${dateStart}&date_end=${dateEnd}&time_start=${timeStart}&time_end=${timeEnd}&pred_type=${predType}&data_source=${dataSource}`);
+                const startData = await startRes.json();
+                
+                if (startData.error) {
+                    alert(startData.error);
+                    resetUI();
+                    return;
+                }
+                
+                // 진행 상태 폴링 시작
+                pollInterval = setInterval(pollStatus, 1000);
+                
+            } catch (e) {
+                console.error(e);
+                alert('평가 시작 중 오류가 발생했습니다');
+                resetUI();
+            }
+        }
+        
+        async function pollStatus() {
+            try {
+                const res = await fetch('/api/evaluate/status');
+                const data = await res.json();
+                
+                // 진행률 업데이트
+                document.getElementById('progress-fill').style.width = data.percent + '%';
+                document.getElementById('progress-fill').textContent = data.percent + '%';
+                document.getElementById('progress-text').textContent = `${data.progress.toLocaleString()} / ${data.total.toLocaleString()}`;
+                document.getElementById('loading-text').textContent = `평가 진행 중... (${data.percent}%)`;
+                
+                if (data.status === 'completed') {
+                    clearInterval(pollInterval);
+                    pollInterval = null;
+                    await loadResult();
+                } else if (data.status === 'error') {
+                    clearInterval(pollInterval);
+                    pollInterval = null;
+                    alert('평가 중 오류가 발생했습니다');
+                    resetUI();
+                }
+                
+            } catch (e) {
+                console.error(e);
+            }
+        }
+        
+        async function loadResult() {
+            try {
+                const res = await fetch('/api/evaluate/result');
+                const data = await res.json();
+                
+                if (data.error) {
+                    alert(data.error);
+                    resetUI();
+                    return;
+                }
+                
+                displayResults(data);
+                
+            } catch (e) {
+                console.error(e);
+                alert('결과 로드 중 오류가 발생했습니다');
+                resetUI();
+            }
+        }
+        
+        function resetUI() {
+            document.getElementById('initial-state').style.display = 'block';
+            document.getElementById('loading-state').style.display = 'none';
+            document.getElementById('btn-evaluate').disabled = false;
+            if (pollInterval) {
+                clearInterval(pollInterval);
+                pollInterval = null;
+            }
+        }
+        
+        function displayResults(data) {
+            document.getElementById('loading-state').style.display = 'none';
+            document.getElementById('btn-evaluate').disabled = false;
+            
+            // 데이터 소스 표시
+            const sourceInfoBox = document.getElementById('source-info-box');
+            if (data.data_source === 'external') {
+                sourceInfoBox.innerHTML = `🌐 <strong>외부(로그프레소)</strong>에서 데이터 조회하여 평가 완료`;
+                sourceInfoBox.style.display = 'block';
+            } else {
+                sourceInfoBox.innerHTML = `📁 <strong>내부(파일)</strong>에서 데이터 로드하여 평가 완료`;
+                sourceInfoBox.className = 'info-box';
+                sourceInfoBox.style.display = 'block';
+            }
+            
+            // 경고 박스
+            const warningBox = document.getElementById('warning-box');
+            if (data.missing_cols && data.missing_cols.length > 0) {
+                warningBox.innerHTML = `⚠️ 누락/0인 컬럼 ${data.missing_cols.length}개: ${data.missing_cols.slice(0, 5).join(', ')}${data.missing_cols.length > 5 ? '...' : ''}`;
+                warningBox.style.display = 'block';
+            } else {
+                warningBox.style.display = 'none';
+            }
+            
+            const stats = data.stats;
+            const predTypeText = data.pred_type === '10' ? '10분' : '30분';
+            const sourceText = data.data_source === 'internal' ? '내부' : '외부';
+            
+            // 시간 포맷팅
+            const timeStartFmt = data.time_start ? `${data.time_start.slice(0,2)}:${data.time_start.slice(2,4)}` : '00:00';
+            const timeEndFmt = data.time_end ? `${data.time_end.slice(0,2)}:${data.time_end.slice(2,4)}` : '23:59';
+            
+            // 기본 통계
+            document.getElementById('stat-total').textContent = data.total_count.toLocaleString();
+            document.getElementById('stat-period').textContent = `${data.date_start.slice(0,4)}-${data.date_start.slice(4,6)}-${data.date_start.slice(6,8)} ${timeStartFmt} ~ ${data.date_end.slice(0,4)}-${data.date_end.slice(4,6)}-${data.date_end.slice(6,8)} ${timeEndFmt} (${predTypeText}, ${sourceText})`;
+            document.getElementById('stat-actual').textContent = data.actual_danger_count.toLocaleString();
+            document.getElementById('stat-accuracy').textContent = stats.accuracy + '%';
+            document.getElementById('stat-recall').textContent = stats.recall + '%';
+            document.getElementById('stat-precision').textContent = stats.precision + '%';
+            
+            // 혼동 행렬
+            document.getElementById('cm-tp').textContent = stats.TP.toLocaleString();
+            document.getElementById('cm-tn').textContent = stats.TN.toLocaleString();
+            document.getElementById('cm-fp').textContent = stats.FP.toLocaleString();
+            document.getElementById('cm-fn').textContent = stats.FN.toLocaleString();
+            
+            // 실질 성능
+            document.getElementById('stat-fn-early').textContent = stats.fn_early.toLocaleString();
+            document.getElementById('stat-fn-early-sub').textContent = `${data.analysis_range}분 이내 사전 예측`;
+            document.getElementById('stat-real-fn').textContent = stats.real_fn.toLocaleString();
+            document.getElementById('stat-fp-valid').textContent = stats.fp_valid.toLocaleString();
+            document.getElementById('stat-fp-valid-sub').textContent = `${data.analysis_range}분 이내 실제 돌파`;
+            document.getElementById('stat-real-fp').textContent = stats.real_fp.toLocaleString();
+            
+            // 상태 리스트
+            const statusList = document.getElementById('status-list');
+            let statusHtml = '';
+            
+            const sortedStatuses = Object.entries(data.status_counts).sort((a, b) => {
+                const getOrder = (s) => {
+                    if (s === 'TP') return 0;
+                    if (s === 'TN') return 1;
+                    if (s.startsWith('FN')) return 2;
+                    if (s.startsWith('FP')) return 3;
+                    return 4;
+                };
+                return getOrder(a[0]) - getOrder(b[0]);
+            });
+            
+            sortedStatuses.forEach(([status, count]) => {
+                let cls = '';
+                if (status === 'TP') cls = 'tp';
+                else if (status === 'TN') cls = 'tn';
+                else if (status.startsWith('FN')) cls = 'fn';
+                else if (status.startsWith('FP')) cls = 'fp';
+                
+                statusHtml += `
+                    <div class="status-item ${cls}">
+                        <span class="status-name">${status}</span>
+                        <span class="status-count">${count.toLocaleString()}</span>
+                    </div>
+                `;
+            });
+            statusList.innerHTML = statusHtml;
+            
+            // 차트
+            drawChart(data.data, data.pred_type);
+            
+            // 테이블
+            drawTable(data.data);
+            
+            // 결과 표시
+            document.getElementById('results-container').classList.add('active');
+        }
+        
+        function drawChart(data, predType) {
+            const times = data.map(d => d.currtime.split(' ')[1] || d.currtime);
+            const actuals = data.map(d => d.actual_max);
+            const predicts = data.map(d => d.predict);
+            const currents = data.map(d => d.current);
+            
+            const traces = [
+                {
+                    x: times,
+                    y: currents,
+                    name: '현재 TOTALCNT',
+                    type: 'scatter',
+                    mode: 'lines',
+                    line: { color: '#3b82f6', width: 1 }
+                },
+                {
+                    x: times,
+                    y: actuals,
+                    name: `실제 ${predType}분 최대`,
+                    type: 'scatter',
+                    mode: 'lines',
+                    line: { color: '#22c55e', width: 2 }
+                },
+                {
+                    x: times,
+                    y: predicts,
+                    name: `예측값`,
+                    type: 'scatter',
+                    mode: 'lines',
+                    line: { color: '#f97316', width: 2, dash: 'dot' }
+                }
+            ];
+            
+            const layout = {
+                paper_bgcolor: 'transparent',
+                plot_bgcolor: 'transparent',
+                font: { color: '#a1a1aa', family: 'Space Grotesk', size: 11 },
+                showlegend: true,
+                legend: { x: 0, y: 1.1, orientation: 'h' },
+                xaxis: { gridcolor: '#27272a', tickangle: -45 },
+                yaxis: { gridcolor: '#27272a', range: [1000, 2000] },
+                margin: { t: 30, r: 20, b: 60, l: 50 },
+                shapes: [{
+                    type: 'line',
+                    y0: 1700, y1: 1700,
+                    x0: 0, x1: 1, xref: 'paper',
+                    line: { color: '#ef4444', width: 2, dash: 'solid' }
+                }]
+            };
+            
+            Plotly.newPlot('chart', traces, layout, { responsive: true, displayModeBar: false });
+        }
+        
+        function drawTable(data) {
+            let html = `
+                <table>
+                    <thead>
+                        <tr>
+                            <th>현재시간</th>
+                            <th>현재값</th>
+                            <th>예측시점</th>
+                            <th>예측값</th>
+                            <th>실제(최대)</th>
+                            <th>확률</th>
+                            <th>판정</th>
+                            <th>실제위험</th>
+                            <th>상태</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+            `;
+            
+            data.forEach(row => {
+                const predClass = row.predict >= 1700 ? 'value-danger' : row.predict >= 1600 ? 'value-warning' : '';
+                const actualClass = row.actual_max >= 1700 ? 'value-danger' : row.actual_max >= 1600 ? 'value-warning' : '';
+                
+                let statusBadge = '';
+                if (row.status) {
+                    if (row.status === 'TP') statusBadge = '<span class="badge badge-tp">TP</span>';
+                    else if (row.status === 'TN') statusBadge = '<span class="badge badge-tn">TN</span>';
+                    else if (row.status.startsWith('FN')) statusBadge = `<span class="badge badge-fn">${row.status}</span>`;
+                    else if (row.status.startsWith('FP')) statusBadge = `<span class="badge badge-fp">${row.status}</span>`;
+                }
+                
+                html += `
+                    <tr>
+                        <td>${row.currtime}</td>
+                        <td>${row.current.toLocaleString()}</td>
+                        <td>${row.pred_time}</td>
+                        <td class="${predClass}" style="font-weight: 600;">${row.predict.toLocaleString()}</td>
+                        <td class="${actualClass}" style="font-weight: 600;">${row.actual_max.toLocaleString()}</td>
+                        <td>${row.prob}</td>
+                        <td>${row.danger ? '⚠️' : '✅'}</td>
+                        <td>${row.actual_danger ? '🔴' : '🟢'}</td>
+                        <td>${statusBadge}</td>
+                    </tr>
+                `;
+            });
+            
+            html += '</tbody></table>';
+            document.getElementById('table-container').innerHTML = html;
+        }
+    </script>
+</body>
+</html>
