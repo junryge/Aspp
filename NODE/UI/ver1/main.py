@@ -5,7 +5,7 @@ M14 반송 큐 모니터링 서버
 - m14_data.py: 로그프레소에서 280분 데이터 조회
 - predictor_10min.py: 10분 예측
 - predictor_30min.py: 30분 예측
-- evaluator.py: 예측 평가
+- evaluator.py: 예측 평가 (내부/외부 데이터 소스 지원)
 ================================================================================
 """
 
@@ -245,12 +245,14 @@ def start_evaluate():
         time_start: 시작 시간 (HHMM)
         time_end: 종료 시간 (HHMM)
         pred_type: '10' 또는 '30'
+        data_source: 'internal' (파일) 또는 'external' (로그프레소)
     """
     date_start = request.args.get('date_start', '')
     date_end = request.args.get('date_end', '')
     time_start = request.args.get('time_start', '0000')
     time_end = request.args.get('time_end', '2359')
     pred_type = request.args.get('pred_type', '10')
+    data_source = request.args.get('data_source', 'internal')  # 기본값: 내부(파일)
     
     if not date_start or not date_end:
         return jsonify({'error': '시작/종료 날짜를 지정해주세요'}), 400
@@ -261,17 +263,21 @@ def start_evaluate():
     if pred_type not in ['10', '30']:
         return jsonify({'error': 'pred_type은 10 또는 30이어야 합니다'}), 400
     
+    if data_source not in ['internal', 'external']:
+        return jsonify({'error': 'data_source는 internal 또는 external이어야 합니다'}), 400
+    
     success, msg = evaluator.eval_manager.start(
         data_dir=data_manager.data_dir,
         date_start=date_start,
         date_end=date_end,
         time_start=time_start,
         time_end=time_end,
-        pred_type=pred_type
+        pred_type=pred_type,
+        data_source=data_source
     )
     
     if success:
-        return jsonify({'status': 'started', 'message': msg})
+        return jsonify({'status': 'started', 'message': msg, 'data_source': data_source})
     else:
         return jsonify({'error': msg}), 400
 
@@ -301,7 +307,7 @@ def reset_evaluate():
 
 @app.route('/api/evaluate/dates')
 def get_available_dates():
-    """사용 가능한 날짜 목록 반환"""
+    """사용 가능한 날짜 목록 반환 (내부 파일용)"""
     dates = evaluator.get_available_dates(data_manager.data_dir)
     return jsonify({'dates': dates})
 
@@ -314,10 +320,12 @@ if __name__ == '__main__':
     print('  - m14_data.py: 로그프레소 280분 데이터 조회')
     print('  - predictor_10min.py: V10_4 10분 예측')
     print('  - predictor_30min.py: V10_4 30분 예측')
-    print('  - evaluator.py: 예측 평가')
+    print('  - evaluator.py: 예측 평가 (내부/외부 지원)')
     print('=' * 60)
     print('🌐 http://localhost:5000')
     print('   /evaluate - 예측 평가 페이지')
+    print('     📁 내부: data 폴더 CSV 파일 사용')
+    print('     🌐 외부: 로그프레소 API 직접 조회')
     print('=' * 60)
     
     # 초기 데이터 로드
