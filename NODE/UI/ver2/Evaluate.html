@@ -327,7 +327,7 @@
         
         #chart {
             width: 100%;
-            height: 350px;
+            height: 500px;
         }
         
         .table-container {
@@ -962,6 +962,14 @@
             const predicts = data.map(d => d.predict);
             const currents = data.map(d => d.current);
             
+            // y축 범위 동적 계산
+            const allValues = [...actuals, ...predicts, ...currents, 1700];
+            const minVal = Math.min(...allValues);
+            const maxVal = Math.max(...allValues);
+            const padding = (maxVal - minVal) * 0.1;  // 10% 여백
+            const yMin = Math.max(0, Math.floor((minVal - padding) / 100) * 100);
+            const yMax = Math.ceil((maxVal + padding) / 100) * 100;
+            
             const traces = [
                 {
                     x: times,
@@ -969,7 +977,7 @@
                     name: '현재 TOTALCNT',
                     type: 'scatter',
                     mode: 'lines',
-                    line: { color: '#3b82f6', width: 1 }
+                    line: { color: '#3b82f6', width: 2 }
                 },
                 {
                     x: times,
@@ -984,8 +992,9 @@
                     y: predicts,
                     name: `예측값`,
                     type: 'scatter',
-                    mode: 'lines',
-                    line: { color: '#f97316', width: 2, dash: 'dot' }
+                    mode: 'lines+markers',
+                    line: { color: '#f97316', width: 2 },
+                    marker: { size: 4 }
                 }
             ];
             
@@ -994,10 +1003,18 @@
                 plot_bgcolor: 'transparent',
                 font: { color: '#a1a1aa', family: 'Space Grotesk', size: 11 },
                 showlegend: true,
-                legend: { x: 0, y: 1.1, orientation: 'h' },
-                xaxis: { gridcolor: '#27272a', tickangle: -45 },
-                yaxis: { gridcolor: '#27272a', range: [1000, 2000] },
-                margin: { t: 30, r: 20, b: 60, l: 50 },
+                legend: { x: 0, y: 1.08, orientation: 'h' },
+                xaxis: { 
+                    gridcolor: '#27272a', 
+                    tickangle: -45,
+                    tickfont: { size: 10 }
+                },
+                yaxis: { 
+                    gridcolor: '#27272a', 
+                    range: [yMin, yMax],
+                    tickfont: { size: 11 }
+                },
+                margin: { t: 40, r: 20, b: 70, l: 55 },
                 shapes: [{
                     type: 'line',
                     y0: 1700, y1: 1700,
