@@ -420,13 +420,51 @@
             const timeStart = document.getElementById('time-start').value.replace(':', '');
             const timeEnd = document.getElementById('time-end').value.replace(':', '');
             
-            // CSV 헤더
-            const headers = ['CURRTIME', 'TOTALCNT', 'PRED_TIME_10', 'PREDICT_10', 'PRED_TIME_30', 'PREDICT_30'];
+            // 알람 맵 생성
+            const alertMap10 = {};
+            const alertMap30 = {};
+            (currentData.alerts_10 || []).forEach(a => { alertMap10[String(a.CURRTIME)] = a; });
+            (currentData.alerts_30 || []).forEach(a => { alertMap30[String(a.CURRTIME)] = a; });
+            
+            // CSV 헤더 (알람 컬럼 추가)
+            const headers = ['CURRTIME', 'TOTALCNT', 'PRED_TIME_10', 'PREDICT_10', 'ALERT_10', 'PRED_TIME_30', 'PREDICT_30', 'ALERT_30'];
             let csv = headers.join(',') + '\n';
             
             // CSV 데이터
             currentData.data.forEach(row => {
-                const values = headers.map(h => row[h] !== undefined ? row[h] : '');
+                const currtime = String(row.CURRTIME);
+                const alert10 = alertMap10[currtime];
+                const alert30 = alertMap30[currtime];
+                
+                // 알람 텍스트 생성
+                let alert10Text = '';
+                if (alert10) {
+                    if (alert10.IS_ALARM) {
+                        alert10Text = `알람 ${alert10.ALARM_NO}번째`;
+                    } else {
+                        alert10Text = `알람 ${alert10.ALARM_NO}번째 후 쿨타임 ${alert10.COOLDOWN_MINS}분`;
+                    }
+                }
+                
+                let alert30Text = '';
+                if (alert30) {
+                    if (alert30.IS_ALARM) {
+                        alert30Text = `알람 ${alert30.ALARM_NO}번째`;
+                    } else {
+                        alert30Text = `알람 ${alert30.ALARM_NO}번째 후 쿨타임 ${alert30.COOLDOWN_MINS}분`;
+                    }
+                }
+                
+                const values = [
+                    row.CURRTIME || '',
+                    row.TOTALCNT || '',
+                    row.PRED_TIME_10 || '',
+                    row.PREDICT_10 || '',
+                    alert10Text,
+                    row.PRED_TIME_30 || '',
+                    row.PREDICT_30 || '',
+                    alert30Text
+                ];
                 csv += values.join(',') + '\n';
             });
             
