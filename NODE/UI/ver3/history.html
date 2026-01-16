@@ -793,6 +793,7 @@
             const progAlarmTimes = [];
             const progAlarmValues = [];
             const progAlarmTexts = [];
+            const progAlarmFullTimes = [];
             
             rows.forEach((r, i) => {
                 const currtime = String(r.CURRTIME);
@@ -802,6 +803,10 @@
                 if ((alert10 && alert10.IS_ALARM) || (alert30 && alert30.IS_ALARM)) {
                     progAlarmTimes.push(times[i]);
                     progAlarmValues.push(r.TOTALCNT || 0);
+                    // YYYY-MM-DD HH:MM 형식
+                    const fullTime = currtime.length >= 12 ? 
+                        `${currtime.slice(0,4)}-${currtime.slice(4,6)}-${currtime.slice(6,8)} ${currtime.slice(8,10)}:${currtime.slice(10,12)}` : currtime;
+                    progAlarmFullTimes.push(fullTime);
                     let text = '';
                     if (alert10 && alert10.IS_ALARM) text += `10분 알람 ${alert10.ALARM_NO}번째`;
                     if (alert30 && alert30.IS_ALARM) text += (text ? ', ' : '') + `30분 알람 ${alert30.ALARM_NO}번째`;
@@ -813,6 +818,7 @@
             const logAlarmTimes = [];
             const logAlarmValues = [];
             const logAlarmTexts = [];
+            const logAlarmFullTimes = [];
             
             rows.forEach((r, i) => {
                 const currtime = String(r.CURRTIME);
@@ -821,54 +827,73 @@
                 if (logAlarm) {
                     logAlarmTimes.push(times[i]);
                     logAlarmValues.push(r.TOTALCNT || 0);
+                    // YYYY-MM-DD HH:MM 형식
+                    const fullTime = currtime.length >= 12 ? 
+                        `${currtime.slice(0,4)}-${currtime.slice(4,6)}-${currtime.slice(6,8)} ${currtime.slice(8,10)}:${currtime.slice(10,12)}` : currtime;
+                    logAlarmFullTimes.push(fullTime);
                     logAlarmTexts.push(logAlarm.ALARM_DESC || '로그프레소 알람');
                 }
+            });
+            
+            // customdata: YYYY-MM-DD HH:MM 형식
+            const timesFullFormat = rows.map(r => {
+                const s = String(r.CURRTIME);
+                if (s.length >= 12) {
+                    return `${s.slice(0,4)}-${s.slice(4,6)}-${s.slice(6,8)} ${s.slice(8,10)}:${s.slice(10,12)}`;
+                }
+                return s;
             });
             
             const traces = [
                 {
                     x: times,
                     y: totalcnts,
+                    customdata: timesFullFormat,
                     name: 'TOTALCNT',
                     type: 'scatter',
                     mode: 'lines',
-                    line: { color: '#3b82f6', width: 2 }
+                    line: { color: '#3b82f6', width: 2 },
+                    hovertemplate: '%{customdata} (%{y:,})<extra>TOTALCNT</extra>'
                 },
                 {
                     x: times,
                     y: pred10s,
+                    customdata: timesFullFormat,
                     name: '예측(10분)',
                     type: 'scatter',
                     mode: 'lines',
-                    line: { color: '#22c55e', width: 1, dash: 'dot' }
+                    line: { color: '#22c55e', width: 1, dash: 'dot' },
+                    hovertemplate: '%{customdata} (%{y:,})<extra>예측(10분)</extra>'
                 },
                 {
                     x: times,
                     y: pred30s,
+                    customdata: timesFullFormat,
                     name: '예측(30분)',
                     type: 'scatter',
                     mode: 'lines',
-                    line: { color: '#f97316', width: 1, dash: 'dash' }
+                    line: { color: '#f97316', width: 1, dash: 'dash' },
+                    hovertemplate: '%{customdata} (%{y:,})<extra>예측(30분)</extra>'
                 },
                 {
                     x: progAlarmTimes,
                     y: progAlarmValues,
+                    customdata: progAlarmFullTimes.map((t, i) => [t, progAlarmTexts[i]]),
                     name: '프로그램알람',
                     type: 'scatter',
                     mode: 'markers',
                     marker: { color: '#ef4444', size: 12, symbol: 'circle' },
-                    text: progAlarmTexts,
-                    hovertemplate: '%{text}<br>시간: %{x}<br>값: %{y}<extra>프로그램알람</extra>'
+                    hovertemplate: '%{customdata[1]}<br>%{customdata[0]} (%{y:,})<extra>프로그램알람</extra>'
                 },
                 {
                     x: logAlarmTimes,
                     y: logAlarmValues,
+                    customdata: logAlarmFullTimes.map((t, i) => [t, logAlarmTexts[i]]),
                     name: '로그프레소알람',
                     type: 'scatter',
                     mode: 'markers',
                     marker: { color: '#8b5cf6', size: 12, symbol: 'diamond' },
-                    text: logAlarmTexts,
-                    hovertemplate: '%{text}<br>시간: %{x}<br>값: %{y}<extra>로그프레소알람</extra>'
+                    hovertemplate: '%{customdata[1]}<br>%{customdata[0]} (%{y:,})<extra>로그프레소알람</extra>'
                 }
             ];
             
