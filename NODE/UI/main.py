@@ -6,6 +6,7 @@ M14 반송 큐 모니터링 서버
 - predictor_10min.py: 10분 예측
 - predictor_30min.py: 30분 예측
 - evaluator.py: 예측 평가 (내부/외부 데이터 소스 지원)
+- logpresso_alarm.py: 로그프레소 알람 조회
 ================================================================================
 """
 
@@ -18,6 +19,7 @@ import m14_data
 import predictor_10min
 import predictor_30min
 import evaluator
+import logpresso_alarm
 
 app = Flask(__name__)
 
@@ -225,6 +227,40 @@ def get_history():
 
 
 # ============================================================================
+# 로그프레소 알람 API
+# ============================================================================
+
+@app.route('/api/logpresso_alarm')
+def get_logpresso_alarm():
+    """
+    로그프레소 알람 조회 API
+    
+    Parameters:
+        from: 시작 시간 (YYYYMMDDHHMM00)
+        to: 종료 시간 (YYYYMMDDHHMM00)
+    
+    Returns:
+        data: 알람 리스트 [{MEAS_TM, LSTM_FCAST_TM, ALARM_DESC, ALARM_YN}, ...]
+    """
+    from_time = request.args.get('from', '')
+    to_time = request.args.get('to', '')
+    
+    if not from_time or not to_time:
+        return jsonify({'error': 'from, to 파라미터 필요'}), 400
+    
+    try:
+        alarms = logpresso_alarm.get_alarm_data(from_time, to_time)
+        return jsonify({
+            'from': from_time,
+            'to': to_time,
+            'count': len(alarms),
+            'data': alarms
+        })
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+# ============================================================================
 # 평가 관련 라우트 (백그라운드 실행)
 # ============================================================================
 
@@ -321,11 +357,13 @@ if __name__ == '__main__':
     print('  - predictor_10min.py: V10_4 10분 예측')
     print('  - predictor_30min.py: V10_4 30분 예측')
     print('  - evaluator.py: 예측 평가 (내부/외부 지원)')
+    print('  - logpresso_alarm.py: 로그프레소 알람 조회')
     print('=' * 60)
     print('🌐 http://localhost:5000')
     print('   /evaluate - 예측 평가 페이지')
     print('     📁 내부: data 폴더 CSV 파일 사용')
     print('     🌐 외부: 로그프레소 API 직접 조회')
+    print('   /api/logpresso_alarm - 로그프레소 알람 조회')
     print('=' * 60)
     
     # 초기 데이터 로드
