@@ -275,11 +275,6 @@
             color: var(--danger);
         }
         
-        .alert-badge.cooldown {
-            background: rgba(234, 179, 8, 0.2);
-            color: var(--warning);
-        }
-        
         .alert-badge.logpresso {
             background: rgba(139, 92, 246, 0.2);
             color: var(--purple);
@@ -448,26 +443,15 @@
                 const alert30 = alertMap30[currtime];
                 const logpressoAlarm = logpressoAlarmMap[currtime];
                 
-                // 날짜 추출 (MM-DD)
-                const dateStr = currtime.length >= 8 ? `${currtime.slice(4,6)}-${currtime.slice(6,8)}` : '';
-                
-                // 프로그램 알람 텍스트 생성 (날짜 포함)
+                // 프로그램 알람 텍스트 생성 (IS_ALARM=true인 것만, "10분 알람 N번째" 형식)
                 let alert10Text = '';
-                if (alert10) {
-                    if (alert10.IS_ALARM) {
-                        alert10Text = `${dateStr} 알람 ${alert10.ALARM_NO}번째`;
-                    } else {
-                        alert10Text = `${dateStr} 알람 ${alert10.ALARM_NO}번째 후 쿨타임 ${alert10.COOLDOWN_MINS}분`;
-                    }
+                if (alert10 && alert10.IS_ALARM) {
+                    alert10Text = `10분 알람 ${alert10.ALARM_NO}번째`;
                 }
                 
                 let alert30Text = '';
-                if (alert30) {
-                    if (alert30.IS_ALARM) {
-                        alert30Text = `${dateStr} 알람 ${alert30.ALARM_NO}번째`;
-                    } else {
-                        alert30Text = `${dateStr} 알람 ${alert30.ALARM_NO}번째 후 쿨타임 ${alert30.COOLDOWN_MINS}분`;
-                    }
+                if (alert30 && alert30.IS_ALARM) {
+                    alert30Text = `30분 알람 ${alert30.ALARM_NO}번째`;
                 }
                 
                 // 로그프레소 알람 텍스트
@@ -755,7 +739,7 @@
         }
         
         function formatTimeChart(currtime) {
-            // 차트용: MM-DD HH:MM 형식
+            // 차트용: MM-DD HH:MM 형식 (항상 날짜 포함)
             const s = String(currtime);
             if (s.length >= 12) {
                 return `${s.slice(4,6)}-${s.slice(6,8)} ${s.slice(8,10)}:${s.slice(10,12)}`;
@@ -782,17 +766,17 @@
             alerts10.forEach(a => { alertMap10[String(a.CURRTIME)] = a; });
             alerts30.forEach(a => { alertMap30[String(a.CURRTIME)] = a; });
             
-            // 여러 날짜인지 확인
+            // 여러 날짜인지 확인 (테이블용)
             const dates = new Set(rows.map(r => String(r.CURRTIME).slice(0, 8)));
             const isMultipleDays = dates.size > 1;
             
-            // 여러 날짜면 MM-DD HH:MM, 하루면 HH:MM
-            const times = rows.map(r => isMultipleDays ? formatTimeChart(r.CURRTIME) : formatTime(r.CURRTIME));
+            // 그래프 x축: 항상 날짜 포함 (MM-DD HH:MM)
+            const times = rows.map(r => formatTimeChart(r.CURRTIME));
             const totalcnts = rows.map(r => r.TOTALCNT || 0);
             const pred10s = rows.map(r => r.PREDICT_10 || 0);
             const pred30s = rows.map(r => r.PREDICT_30 || 0);
             
-            // 프로그램 알람 점 데이터 (IS_ALARM=true인 것만)
+            // 프로그램 알람 점 데이터 (IS_ALARM=true인 것만, "10분 알람 N번째" 형식)
             const progAlarmTimes = [];
             const progAlarmValues = [];
             const progAlarmTexts = [];
@@ -806,8 +790,8 @@
                     progAlarmTimes.push(times[i]);
                     progAlarmValues.push(r.TOTALCNT || 0);
                     let text = '';
-                    if (alert10 && alert10.IS_ALARM) text += `10분예측 알람${alert10.ALARM_NO}`;
-                    if (alert30 && alert30.IS_ALARM) text += (text ? ', ' : '') + `30분예측 알람${alert30.ALARM_NO}`;
+                    if (alert10 && alert10.IS_ALARM) text += `10분 알람 ${alert10.ALARM_NO}번째`;
+                    if (alert30 && alert30.IS_ALARM) text += (text ? ', ' : '') + `30분 알람 ${alert30.ALARM_NO}번째`;
                     progAlarmTexts.push(text);
                 }
             });
@@ -942,21 +926,13 @@
                 const predTime10 = row.PRED_TIME_10 ? formatTime(String(row.PRED_TIME_10)) : '-';
                 const predTime30 = row.PRED_TIME_30 ? formatTime(String(row.PRED_TIME_30)) : '-';
                 
-                // 프로그램 알람 HTML
+                // 프로그램 알람 HTML (IS_ALARM=true인 것만, "10분 알람 N번째" 형식)
                 let progAlarmHtml = '';
-                if (alert10) {
-                    if (alert10.IS_ALARM) {
-                        progAlarmHtml += `<span class="alert-badge alarm">🔔 10분 알람 ${alert10.ALARM_NO}번째</span> `;
-                    } else {
-                        progAlarmHtml += `<span class="alert-badge cooldown">⏱ 10분 알람 ${alert10.ALARM_NO}번째 후 쿨타임 ${alert10.COOLDOWN_MINS}분</span> `;
-                    }
+                if (alert10 && alert10.IS_ALARM) {
+                    progAlarmHtml += `<span class="alert-badge alarm">🔔 10분 알람 ${alert10.ALARM_NO}번째</span> `;
                 }
-                if (alert30) {
-                    if (alert30.IS_ALARM) {
-                        progAlarmHtml += `<span class="alert-badge alarm">🔔 30분 알람 ${alert30.ALARM_NO}번째</span> `;
-                    } else {
-                        progAlarmHtml += `<span class="alert-badge cooldown">⏱ 30분 알람 ${alert30.ALARM_NO}번째 후 쿨타임 ${alert30.COOLDOWN_MINS}분</span> `;
-                    }
+                if (alert30 && alert30.IS_ALARM) {
+                    progAlarmHtml += `<span class="alert-badge alarm">🔔 30분 알람 ${alert30.ALARM_NO}번째</span> `;
                 }
                 
                 // 로그프레소 알람 HTML
