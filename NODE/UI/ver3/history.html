@@ -275,6 +275,11 @@
             color: var(--danger);
         }
         
+        .alert-badge.cooldown {
+            background: rgba(234, 179, 8, 0.2);
+            color: var(--warning);
+        }
+        
         .alert-badge.logpresso {
             background: rgba(139, 92, 246, 0.2);
             color: var(--purple);
@@ -443,15 +448,23 @@
                 const alert30 = alertMap30[currtime];
                 const logpressoAlarm = logpressoAlarmMap[currtime];
                 
-                // 프로그램 알람 텍스트 생성 (IS_ALARM=true인 것만, "10분 알람 N번째" 형식)
+                // 프로그램 알람 텍스트 생성 (쿨타임 포함)
                 let alert10Text = '';
-                if (alert10 && alert10.IS_ALARM) {
-                    alert10Text = `10분 알람 ${alert10.ALARM_NO}번째`;
+                if (alert10) {
+                    if (alert10.IS_ALARM) {
+                        alert10Text = `10분 알람 ${alert10.ALARM_NO}번째`;
+                    } else {
+                        alert10Text = `10분 알람 ${alert10.ALARM_NO}번째 후 쿨타임 ${alert10.COOLDOWN_MINS}분`;
+                    }
                 }
                 
                 let alert30Text = '';
-                if (alert30 && alert30.IS_ALARM) {
-                    alert30Text = `30분 알람 ${alert30.ALARM_NO}번째`;
+                if (alert30) {
+                    if (alert30.IS_ALARM) {
+                        alert30Text = `30분 알람 ${alert30.ALARM_NO}번째`;
+                    } else {
+                        alert30Text = `30분 알람 ${alert30.ALARM_NO}번째 후 쿨타임 ${alert30.COOLDOWN_MINS}분`;
+                    }
                 }
                 
                 // 로그프레소 알람 텍스트
@@ -926,13 +939,21 @@
                 const predTime10 = row.PRED_TIME_10 ? formatTime(String(row.PRED_TIME_10)) : '-';
                 const predTime30 = row.PRED_TIME_30 ? formatTime(String(row.PRED_TIME_30)) : '-';
                 
-                // 프로그램 알람 HTML (IS_ALARM=true인 것만, "10분 알람 N번째" 형식)
+                // 프로그램 알람 HTML (상세 데이터는 쿨타임 포함)
                 let progAlarmHtml = '';
-                if (alert10 && alert10.IS_ALARM) {
-                    progAlarmHtml += `<span class="alert-badge alarm">🔔 10분 알람 ${alert10.ALARM_NO}번째</span> `;
+                if (alert10) {
+                    if (alert10.IS_ALARM) {
+                        progAlarmHtml += `<span class="alert-badge alarm">🔔 10분 알람 ${alert10.ALARM_NO}번째</span> `;
+                    } else {
+                        progAlarmHtml += `<span class="alert-badge cooldown">⏱ 10분 알람 ${alert10.ALARM_NO}번째 후 쿨타임 ${alert10.COOLDOWN_MINS}분</span> `;
+                    }
                 }
-                if (alert30 && alert30.IS_ALARM) {
-                    progAlarmHtml += `<span class="alert-badge alarm">🔔 30분 알람 ${alert30.ALARM_NO}번째</span> `;
+                if (alert30) {
+                    if (alert30.IS_ALARM) {
+                        progAlarmHtml += `<span class="alert-badge alarm">🔔 30분 알람 ${alert30.ALARM_NO}번째</span> `;
+                    } else {
+                        progAlarmHtml += `<span class="alert-badge cooldown">⏱ 30분 알람 ${alert30.ALARM_NO}번째 후 쿨타임 ${alert30.COOLDOWN_MINS}분</span> `;
+                    }
                 }
                 
                 // 로그프레소 알람 HTML
