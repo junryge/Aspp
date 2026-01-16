@@ -352,7 +352,7 @@
     </div>
     
     <div class="chart-section" id="chart-section" style="display: none;">
-        <div class="chart-title">📈 TOTALCNT vs 예측값 (● 프로그램알람  ◆ 로그프레소알람)</div>
+        <div class="chart-title">📈 TOTALCNT vs 예측값 (●○ 프로그램알람  ◆◇ 로그프레소알람)</div>
         <div id="chart"></div>
     </div>
     
@@ -849,30 +849,52 @@
             const pred10s = rows.map(r => r.PREDICT_10 || 0);
             const pred30s = rows.map(r => r.PREDICT_30 || 0);
             
-            // 프로그램 알람 점 데이터 (IS_ALARM=true인 것만, "10분 알람 N번째" 형식)
-            const progAlarmTimes = [];
-            const progAlarmValues = [];
-            const progAlarmTexts = [];
-            const progAlarmFullTimes = [];
+            // 프로그램 알람 점 데이터 (알람/쿨타임 구분)
+            const progAlarmData = [];  // {time, value, fullTime, isAlarm, text}
             
             rows.forEach((r, i) => {
                 const currtime = String(r.CURRTIME);
                 const alert10 = alertMap10[currtime];
                 const alert30 = alertMap30[currtime];
                 
-                if ((alert10 && alert10.IS_ALARM) || (alert30 && alert30.IS_ALARM)) {
-                    progAlarmTimes.push(times[i]);
-                    progAlarmValues.push(r.TOTALCNT || 0);
-                    // YYYY-MM-DD HH:MM 형식
+                // 10분 또는 30분 알람 기록 있으면
+                if (alert10 || alert30) {
                     const fullTime = currtime.length >= 12 ? 
                         `${currtime.slice(0,4)}-${currtime.slice(4,6)}-${currtime.slice(6,8)} ${currtime.slice(8,10)}:${currtime.slice(10,12)}` : currtime;
-                    progAlarmFullTimes.push(fullTime);
+                    
+                    // IS_ALARM 여부 확인 (10분/30분 중 하나라도 알람이면 알람)
+                    const isAlarm = (alert10 && alert10.IS_ALARM) || (alert30 && alert30.IS_ALARM);
+                    
                     let text = '';
-                    if (alert10 && alert10.IS_ALARM) text += `10분 알람 ${alert10.ALARM_NO}번째`;
-                    if (alert30 && alert30.IS_ALARM) text += (text ? ', ' : '') + `30분 알람 ${alert30.ALARM_NO}번째`;
-                    progAlarmTexts.push(text);
+                    if (alert10) {
+                        if (alert10.IS_ALARM) {
+                            text += `10분 알람 ${alert10.ALARM_NO}번째`;
+                        } else {
+                            text += `10분 알람 ${alert10.ALARM_NO}번째 후 쿨타임 ${alert10.COOLDOWN_MINS}분`;
+                        }
+                    }
+                    if (alert30) {
+                        if (alert30.IS_ALARM) {
+                            text += (text ? '<br>' : '') + `30분 알람 ${alert30.ALARM_NO}번째`;
+                        } else {
+                            text += (text ? '<br>' : '') + `30분 알람 ${alert30.ALARM_NO}번째 후 쿨타임 ${alert30.COOLDOWN_MINS}분`;
+                        }
+                    }
+                    
+                    progAlarmData.push({
+                        time: times[i],
+                        value: r.TOTALCNT || 0,
+                        fullTime: fullTime,
+                        isAlarm: isAlarm,
+                        text: text
+                    });
                 }
             });
+            
+            // 알람만 필터
+            const progAlarmOnly = progAlarmData.filter(d => d.isAlarm);
+            // 쿨타임만 필터
+            const progCooldownOnly = progAlarmData.filter(d => !d.isAlarm);
             
             // 로그프레소 알람 점 데이터 (알람/쿨타임 구분)
             const logAlarmData = [];  // {time, value, fullTime, isAlarm, alarmNo, cooldownMins, desc}
@@ -953,14 +975,24 @@
                     hovertemplate: '예측시점: %{customdata[0]} (%{y:,})<br>기준시점: %{customdata[1]}<extra>예측(30분)</extra>'
                 },
                 {
-                    x: progAlarmTimes,
-                    y: progAlarmValues,
-                    customdata: progAlarmFullTimes.map((t, i) => [t, progAlarmTexts[i]]),
-                    name: '프로그램알람',
+                    x: progAlarmOnly.map(d => d.time),
+                    y: progAlarmOnly.map(d => d.value),
+                    customdata: progAlarmOnly.map(d => [d.fullTime, d.text]),
+                    name: '●프로그램알람',
                     type: 'scatter',
                     mode: 'markers',
                     marker: { color: '#ef4444', size: 12, symbol: 'circle' },
-                    hovertemplate: '%{customdata[1]}<br>%{customdata[0]} (%{y:,})<extra>프로그램알람</extra>'
+                    hovertemplate: '%{customdata[1]}<br>%{customdata[0]}<extra></extra>'
+                },
+                {
+                    x: progCooldownOnly.map(d => d.time),
+                    y: progCooldownOnly.map(d => d.value),
+                    customdata: progCooldownOnly.map(d => [d.fullTime, d.text]),
+                    name: '○프로그램쿨타임',
+                    type: 'scatter',
+                    mode: 'markers',
+                    marker: { color: '#f87171', size: 8, symbol: 'circle-open', line: { width: 2, color: '#f87171' } },
+                    hovertemplate: '%{customdata[1]}<br>%{customdata[0]}<extra></extra>'
                 },
                 {
                     x: logAlarmOnly.map(d => d.time),
