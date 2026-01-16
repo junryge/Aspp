@@ -992,7 +992,8 @@
                     type: 'scatter',
                     mode: 'markers',
                     marker: { color: '#f87171', size: 8, symbol: 'circle-open', line: { width: 2, color: '#f87171' } },
-                    hovertemplate: '%{customdata[1]}<br>%{customdata[0]}<extra></extra>'
+                    hovertemplate: '%{customdata[1]}<br>%{customdata[0]}<extra></extra>',
+                    visible: 'legendonly'
                 },
                 {
                     x: logAlarmOnly.map(d => d.time),
@@ -1012,7 +1013,8 @@
                     type: 'scatter',
                     mode: 'markers',
                     marker: { color: '#a855f7', size: 8, symbol: 'diamond-open', line: { width: 2, color: '#a855f7' } },
-                    hovertemplate: '%{customdata[0]}<br>%{customdata[2]}<br>%{customdata[1]}<extra></extra>'
+                    hovertemplate: '%{customdata[0]}<br>%{customdata[2]}<br>%{customdata[1]}<extra></extra>',
+                    visible: 'legendonly'
                 }
             ];
             
