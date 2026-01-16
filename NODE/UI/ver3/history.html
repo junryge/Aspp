@@ -844,6 +844,17 @@
                 return s;
             });
             
+            // 예측용 customdata: [예측시점, 기준시점]
+            const customdata_pred10 = [];
+            for (let i = 0; i < times.length - 10; i++) {
+                customdata_pred10.push([timesFullFormat[i + 10], timesFullFormat[i]]);
+            }
+            
+            const customdata_pred30 = [];
+            for (let i = 0; i < times.length - 30; i++) {
+                customdata_pred30.push([timesFullFormat[i + 30], timesFullFormat[i]]);
+            }
+            
             const traces = [
                 {
                     x: times,
@@ -858,22 +869,22 @@
                 {
                     x: times.slice(10),
                     y: pred10s.slice(0, -10),
-                    customdata: timesFullFormat.slice(10),
+                    customdata: customdata_pred10,
                     name: '예측(10분)',
                     type: 'scatter',
                     mode: 'lines',
                     line: { color: '#22c55e', width: 1, dash: 'dot' },
-                    hovertemplate: '%{customdata} (%{y:,})<extra>예측(10분)</extra>'
+                    hovertemplate: '예측시점: %{customdata[0]} (%{y:,})<br>기준시점: %{customdata[1]}<extra>예측(10분)</extra>'
                 },
                 {
                     x: times.slice(30),
                     y: pred30s.slice(0, -30),
-                    customdata: timesFullFormat.slice(30),
+                    customdata: customdata_pred30,
                     name: '예측(30분)',
                     type: 'scatter',
                     mode: 'lines',
                     line: { color: '#f97316', width: 1, dash: 'dash' },
-                    hovertemplate: '%{customdata} (%{y:,})<extra>예측(30분)</extra>'
+                    hovertemplate: '예측시점: %{customdata[0]} (%{y:,})<br>기준시점: %{customdata[1]}<extra>예측(30분)</extra>'
                 },
                 {
                     x: progAlarmTimes,
