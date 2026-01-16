@@ -279,6 +279,17 @@
             background: rgba(234, 179, 8, 0.2);
             color: var(--warning);
         }
+        
+        .alert-badge.logpresso {
+            background: rgba(139, 92, 246, 0.2);
+            color: var(--purple);
+        }
+        
+        .alert-badge.logpresso-cooldown {
+            background: rgba(168, 85, 247, 0.15);
+            color: #a855f7;
+            border: 1px dashed #a855f7;
+        }
     </style>
 </head>
 <body>
@@ -307,7 +318,7 @@
         <button class="btn" onclick="loadLast3Days()">최근3일</button>
         <button class="btn" onclick="loadThisWeek()">이번주</button>
         <button class="btn btn-success" onclick="downloadCSV()">📥 CSV 다운로드</button>
-        <button class="btn btn-purple" onclick="location.href='/evaluate'">📊 평가 데이터 분석</button>
+        <button class="btn btn-purple" onclick="location.href='/evaluate'">📊 평가 데이터 분석 V10.4</button>
     </div>
     
     <div class="stats-row" id="stats-row" style="display: none;">
@@ -341,7 +352,7 @@
     </div>
     
     <div class="chart-section" id="chart-section" style="display: none;">
-        <div class="chart-title">📈 TOTALCNT vs 예측값</div>
+        <div class="chart-title">📈 TOTALCNT vs 예측값 (●○ 프로그램알람  ◆◇ 로그프레소알람)</div>
         <div id="chart"></div>
     </div>
     
@@ -365,6 +376,7 @@
         document.getElementById('date-end').value = formatDate(today);
         
         let currentData = null;  // 현재 조회된 데이터 저장
+        let logpressoAlarmMap = {};  // 로그프레소 알람 맵
         
         function formatDate(date) {
             const y = date.getFullYear();
@@ -425,14 +437,14 @@
             const timeStart = document.getElementById('time-start').value.replace(':', '');
             const timeEnd = document.getElementById('time-end').value.replace(':', '');
             
-            // 알람 맵 생성
+            // 프로그램 알람 맵 생성
             const alertMap10 = {};
             const alertMap30 = {};
             (currentData.alerts_10 || []).forEach(a => { alertMap10[String(a.CURRTIME)] = a; });
             (currentData.alerts_30 || []).forEach(a => { alertMap30[String(a.CURRTIME)] = a; });
             
-            // CSV 헤더 (알람 컬럼 추가)
-            const headers = ['CURRTIME', 'TOTALCNT', 'PRED_TIME_10', 'PREDICT_10', 'ALERT_10', 'PRED_TIME_30', 'PREDICT_30', 'ALERT_30'];
+            // CSV 헤더 (로그프레소 알람 컬럼 추가)
+            const headers = ['CURRTIME', 'TOTALCNT', 'PRED_TIME_10', 'PREDICT_10', 'PROG_ALERT_10', 'PRED_TIME_30', 'PREDICT_30', 'PROG_ALERT_30', 'LOGPRESSO_ALARM'];
             let csv = headers.join(',') + '\n';
             
             // CSV 데이터
@@ -440,26 +452,34 @@
                 const currtime = String(row.CURRTIME);
                 const alert10 = alertMap10[currtime];
                 const alert30 = alertMap30[currtime];
+                const logpressoAlarm = logpressoAlarmMap[currtime];
                 
-                // 날짜 추출 (MM-DD)
-                const dateStr = currtime.length >= 8 ? `${currtime.slice(4,6)}-${currtime.slice(6,8)}` : '';
-                
-                // 알람 텍스트 생성 (날짜 포함)
+                // 프로그램 알람 텍스트 생성 (쿨타임 포함)
                 let alert10Text = '';
                 if (alert10) {
                     if (alert10.IS_ALARM) {
-                        alert10Text = `${dateStr} 알람 ${alert10.ALARM_NO}번째`;
+                        alert10Text = `10분 알람 ${alert10.ALARM_NO}번째`;
                     } else {
-                        alert10Text = `${dateStr} 알람 ${alert10.ALARM_NO}번째 후 쿨타임 ${alert10.COOLDOWN_MINS}분`;
+                        alert10Text = `10분 알람 ${alert10.ALARM_NO}번째 후 쿨타임 ${alert10.COOLDOWN_MINS}분`;
                     }
                 }
                 
                 let alert30Text = '';
                 if (alert30) {
                     if (alert30.IS_ALARM) {
-                        alert30Text = `${dateStr} 알람 ${alert30.ALARM_NO}번째`;
+                        alert30Text = `30분 알람 ${alert30.ALARM_NO}번째`;
                     } else {
-                        alert30Text = `${dateStr} 알람 ${alert30.ALARM_NO}번째 후 쿨타임 ${alert30.COOLDOWN_MINS}분`;
+                        alert30Text = `30분 알람 ${alert30.ALARM_NO}번째 후 쿨타임 ${alert30.COOLDOWN_MINS}분`;
+                    }
+                }
+                
+                // 로그프레소 알람 텍스트 (알람/쿨타임 구분)
+                let logpressoText = '';
+                if (logpressoAlarm) {
+                    if (logpressoAlarm.IS_ALARM) {
+                        logpressoText = `로그프레소 알람 ${logpressoAlarm.ALARM_NO}번째`;
+                    } else {
+                        logpressoText = `로그프레소 알람 ${logpressoAlarm.ALARM_NO}번째 후 쿨타임 ${logpressoAlarm.COOLDOWN_MINS}분`;
                     }
                 }
                 
@@ -471,7 +491,8 @@
                     alert10Text,
                     row.PRED_TIME_30 || '',
                     row.PREDICT_30 || '',
-                    alert30Text
+                    alert30Text,
+                    logpressoText
                 ];
                 csv += values.join(',') + '\n';
             });
@@ -530,6 +551,77 @@
                         allAlerts10 = allAlerts10.concat(data.alerts_10 || []);
                         allAlerts30 = allAlerts30.concat(data.alerts_30 || []);
                     }
+                }
+                
+                // 로그프레소 알람 조회
+                const fromTime = dateStartInput.replace(/-/g, '') + startHHMM + '00';
+                const toTime = dateEndInput.replace(/-/g, '') + endHHMM + '00';
+                
+                try {
+                    const alarmRes = await fetch(`/api/logpresso_alarm?from=${fromTime}&to=${toTime}`);
+                    const alarmData = await alarmRes.json();
+                    
+                    logpressoAlarmMap = {};
+                    if (alarmData.data && alarmData.data.length > 0) {
+                        // 시간순 정렬
+                        const sortedAlarms = alarmData.data.sort((a, b) => String(a.MEAS_TM).localeCompare(String(b.MEAS_TM)));
+                        
+                        // 쿨타임 계산 (60분)
+                        let lastAlarmTime = null;
+                        let alarmNo = 0;
+                        
+                        sortedAlarms.forEach(a => {
+                            const measTm = String(a.MEAS_TM);
+                            const currentTime = parseTime(measTm);
+                            
+                            let isAlarm = false;
+                            let cooldownMins = 0;
+                            
+                            if (lastAlarmTime === null) {
+                                // 첫 번째 알람
+                                isAlarm = true;
+                                alarmNo = 1;
+                                lastAlarmTime = currentTime;
+                            } else {
+                                const diffMins = (currentTime - lastAlarmTime) / (1000 * 60);
+                                if (diffMins >= 60) {
+                                    // 60분 지남 - 새 알람
+                                    isAlarm = true;
+                                    alarmNo++;
+                                    lastAlarmTime = currentTime;
+                                } else {
+                                    // 쿨타임 중
+                                    isAlarm = false;
+                                    cooldownMins = Math.round(60 - diffMins);
+                                }
+                            }
+                            
+                            logpressoAlarmMap[measTm] = {
+                                ...a,
+                                IS_ALARM: isAlarm,
+                                ALARM_NO: alarmNo,
+                                COOLDOWN_MINS: cooldownMins
+                            };
+                        });
+                        console.log(`로그프레소 알람 ${alarmData.data.length}개 로드 (알람 ${alarmNo}회)`);
+                    }
+                } catch (e) {
+                    console.log('로그프레소 알람 조회 실패:', e);
+                    logpressoAlarmMap = {};
+                }
+                
+                // YYYYMMDDHHMM -> Date 변환
+                function parseTime(timeStr) {
+                    const s = String(timeStr);
+                    if (s.length >= 12) {
+                        const y = parseInt(s.slice(0,4));
+                        const m = parseInt(s.slice(4,6)) - 1;
+                        const d = parseInt(s.slice(6,8));
+                        const h = parseInt(s.slice(8,10));
+                        const min = parseInt(s.slice(10,12));
+                        return new Date(y, m, d, h, min);
+                    }
+                    return new Date();
                 }
                 
                 if (allData.length === 0) {
@@ -720,7 +812,7 @@
         }
         
         function formatTimeChart(currtime) {
-            // 차트용: MM-DD HH:MM 형식
+            // 차트용: MM-DD HH:MM 형식 (항상 날짜 포함)
             const s = String(currtime);
             if (s.length >= 12) {
                 return `${s.slice(4,6)}-${s.slice(6,8)} ${s.slice(8,10)}:${s.slice(10,12)}`;
@@ -738,41 +830,191 @@
         
         function drawChart(data) {
             const rows = data.data;
+            const alerts10 = data.alerts_10 || [];
+            const alerts30 = data.alerts_30 || [];
             
-            // 여러 날짜인지 확인
+            // 프로그램 알람 맵 생성
+            const alertMap10 = {};
+            const alertMap30 = {};
+            alerts10.forEach(a => { alertMap10[String(a.CURRTIME)] = a; });
+            alerts30.forEach(a => { alertMap30[String(a.CURRTIME)] = a; });
+            
+            // 여러 날짜인지 확인 (테이블용)
             const dates = new Set(rows.map(r => String(r.CURRTIME).slice(0, 8)));
             const isMultipleDays = dates.size > 1;
             
-            // 여러 날짜면 MM-DD HH:MM, 하루면 HH:MM
-            const times = rows.map(r => isMultipleDays ? formatTimeChart(r.CURRTIME) : formatTime(r.CURRTIME));
+            // 그래프 x축: 항상 날짜 포함 (MM-DD HH:MM)
+            const times = rows.map(r => formatTimeChart(r.CURRTIME));
             const totalcnts = rows.map(r => r.TOTALCNT || 0);
             const pred10s = rows.map(r => r.PREDICT_10 || 0);
             const pred30s = rows.map(r => r.PREDICT_30 || 0);
+            
+            // 프로그램 알람 점 데이터 (알람/쿨타임 구분)
+            const progAlarmData = [];  // {time, value, fullTime, isAlarm, text}
+            
+            rows.forEach((r, i) => {
+                const currtime = String(r.CURRTIME);
+                const alert10 = alertMap10[currtime];
+                const alert30 = alertMap30[currtime];
+                
+                // 10분 또는 30분 알람 기록 있으면
+                if (alert10 || alert30) {
+                    const fullTime = currtime.length >= 12 ? 
+                        `${currtime.slice(0,4)}-${currtime.slice(4,6)}-${currtime.slice(6,8)} ${currtime.slice(8,10)}:${currtime.slice(10,12)}` : currtime;
+                    
+                    // IS_ALARM 여부 확인 (10분/30분 중 하나라도 알람이면 알람)
+                    const isAlarm = (alert10 && alert10.IS_ALARM) || (alert30 && alert30.IS_ALARM);
+                    
+                    let text = '';
+                    if (alert10) {
+                        if (alert10.IS_ALARM) {
+                            text += `10분 알람 ${alert10.ALARM_NO}번째`;
+                        } else {
+                            text += `10분 알람 ${alert10.ALARM_NO}번째 후 쿨타임 ${alert10.COOLDOWN_MINS}분`;
+                        }
+                    }
+                    if (alert30) {
+                        if (alert30.IS_ALARM) {
+                            text += (text ? '<br>' : '') + `30분 알람 ${alert30.ALARM_NO}번째`;
+                        } else {
+                            text += (text ? '<br>' : '') + `30분 알람 ${alert30.ALARM_NO}번째 후 쿨타임 ${alert30.COOLDOWN_MINS}분`;
+                        }
+                    }
+                    
+                    progAlarmData.push({
+                        time: times[i],
+                        value: r.TOTALCNT || 0,
+                        fullTime: fullTime,
+                        isAlarm: isAlarm,
+                        text: text
+                    });
+                }
+            });
+            
+            // 알람만 필터
+            const progAlarmOnly = progAlarmData.filter(d => d.isAlarm);
+            // 쿨타임만 필터
+            const progCooldownOnly = progAlarmData.filter(d => !d.isAlarm);
+            
+            // 로그프레소 알람 점 데이터 (알람/쿨타임 구분)
+            const logAlarmData = [];  // {time, value, fullTime, isAlarm, alarmNo, cooldownMins, desc}
+            
+            rows.forEach((r, i) => {
+                const currtime = String(r.CURRTIME);
+                const logAlarm = logpressoAlarmMap[currtime];
+                
+                if (logAlarm) {
+                    const fullTime = currtime.length >= 12 ? 
+                        `${currtime.slice(0,4)}-${currtime.slice(4,6)}-${currtime.slice(6,8)} ${currtime.slice(8,10)}:${currtime.slice(10,12)}` : currtime;
+                    logAlarmData.push({
+                        time: times[i],
+                        value: r.TOTALCNT || 0,
+                        fullTime: fullTime,
+                        isAlarm: logAlarm.IS_ALARM,
+                        alarmNo: logAlarm.ALARM_NO,
+                        cooldownMins: logAlarm.COOLDOWN_MINS,
+                        desc: logAlarm.ALARM_DESC || '로그프레소 알람'
+                    });
+                }
+            });
+            
+            // 알람만 필터
+            const logAlarmOnly = logAlarmData.filter(d => d.isAlarm);
+            // 쿨타임만 필터
+            const logCooldownOnly = logAlarmData.filter(d => !d.isAlarm);
+            
+            // customdata: YYYY-MM-DD HH:MM 형식
+            const timesFullFormat = rows.map(r => {
+                const s = String(r.CURRTIME);
+                if (s.length >= 12) {
+                    return `${s.slice(0,4)}-${s.slice(4,6)}-${s.slice(6,8)} ${s.slice(8,10)}:${s.slice(10,12)}`;
+                }
+                return s;
+            });
+            
+            // 예측용 customdata: [예측시점, 기준시점]
+            const customdata_pred10 = [];
+            for (let i = 0; i < times.length - 10; i++) {
+                customdata_pred10.push([timesFullFormat[i + 10], timesFullFormat[i]]);
+            }
+            
+            const customdata_pred30 = [];
+            for (let i = 0; i < times.length - 30; i++) {
+                customdata_pred30.push([timesFullFormat[i + 30], timesFullFormat[i]]);
+            }
             
             const traces = [
                 {
                     x: times,
                     y: totalcnts,
+                    customdata: timesFullFormat,
                     name: 'TOTALCNT',
                     type: 'scatter',
                     mode: 'lines',
-                    line: { color: '#3b82f6', width: 2 }
+                    line: { color: '#3b82f6', width: 2 },
+                    hovertemplate: '%{customdata} (%{y:,})<extra>TOTALCNT</extra>'
                 },
                 {
-                    x: times,
-                    y: pred10s,
+                    x: times.slice(10),
+                    y: pred10s.slice(0, -10),
+                    customdata: customdata_pred10,
                     name: '예측(10분)',
                     type: 'scatter',
                     mode: 'lines',
-                    line: { color: '#22c55e', width: 1, dash: 'dot' }
+                    line: { color: '#22c55e', width: 1, dash: 'dot' },
+                    hovertemplate: '예측시점: %{customdata[0]} (%{y:,})<br>기준시점: %{customdata[1]}<extra>예측(10분)</extra>'
                 },
                 {
-                    x: times,
-                    y: pred30s,
+                    x: times.slice(30),
+                    y: pred30s.slice(0, -30),
+                    customdata: customdata_pred30,
                     name: '예측(30분)',
                     type: 'scatter',
                     mode: 'lines',
-                    line: { color: '#f97316', width: 1, dash: 'dash' }
+                    line: { color: '#f97316', width: 1, dash: 'dash' },
+                    hovertemplate: '예측시점: %{customdata[0]} (%{y:,})<br>기준시점: %{customdata[1]}<extra>예측(30분)</extra>'
+                },
+                {
+                    x: progAlarmOnly.map(d => d.time),
+                    y: progAlarmOnly.map(d => d.value),
+                    customdata: progAlarmOnly.map(d => [d.fullTime, d.text]),
+                    name: '●프로그램알람',
+                    type: 'scatter',
+                    mode: 'markers',
+                    marker: { color: '#ef4444', size: 12, symbol: 'circle' },
+                    hovertemplate: '%{customdata[1]}<br>%{customdata[0]}<extra></extra>'
+                },
+                {
+                    x: progCooldownOnly.map(d => d.time),
+                    y: progCooldownOnly.map(d => d.value),
+                    customdata: progCooldownOnly.map(d => [d.fullTime, d.text]),
+                    name: '○프로그램쿨타임',
+                    type: 'scatter',
+                    mode: 'markers',
+                    marker: { color: '#f87171', size: 8, symbol: 'circle-open', line: { width: 2, color: '#f87171' } },
+                    hovertemplate: '%{customdata[1]}<br>%{customdata[0]}<extra></extra>',
+                    visible: 'legendonly'
+                },
+                {
+                    x: logAlarmOnly.map(d => d.time),
+                    y: logAlarmOnly.map(d => d.value),
+                    customdata: logAlarmOnly.map(d => [`로그프레소 알람 ${d.alarmNo}번째`, d.fullTime, d.desc]),
+                    name: '◆로그프레소알람',
+                    type: 'scatter',
+                    mode: 'markers',
+                    marker: { color: '#8b5cf6', size: 12, symbol: 'diamond' },
+                    hovertemplate: '%{customdata[0]}<br>%{customdata[2]}<br>%{customdata[1]}<extra></extra>'
+                },
+                {
+                    x: logCooldownOnly.map(d => d.time),
+                    y: logCooldownOnly.map(d => d.value),
+                    customdata: logCooldownOnly.map(d => [`로그프레소 쿨타임 (${d.alarmNo}번째 후 ${d.cooldownMins}분)`, d.fullTime, d.desc]),
+                    name: '◇로그프레소쿨타임',
+                    type: 'scatter',
+                    mode: 'markers',
+                    marker: { color: '#a855f7', size: 8, symbol: 'diamond-open', line: { width: 2, color: '#a855f7' } },
+                    hovertemplate: '%{customdata[0]}<br>%{customdata[2]}<br>%{customdata[1]}<extra></extra>',
+                    visible: 'legendonly'
                 }
             ];
             
@@ -811,7 +1053,7 @@
             const dates = new Set(rows.map(r => String(r.CURRTIME).slice(0, 8)));
             const isMultipleDays = dates.size > 1;
             
-            // 알람 맵 만들기
+            // 프로그램 알람 맵 만들기
             const alertMap10 = {};
             alerts10.forEach(a => { alertMap10[String(a.CURRTIME)] = a; });
             const alertMap30 = {};
@@ -825,7 +1067,8 @@
                             <th style="width: 100px;">TOTALCNT</th>
                             <th style="width: 150px;">10분후 예측</th>
                             <th style="width: 150px;">30분후 예측</th>
-                            <th>알람</th>
+                            <th>프로그램알람</th>
+                            <th>로그프레소알람</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -836,24 +1079,36 @@
                 const timeDisplay = isMultipleDays ? formatTimeChart(currtime) : formatTime(currtime);
                 const alert10 = alertMap10[currtime];
                 const alert30 = alertMap30[currtime];
+                const logAlarm = logpressoAlarmMap[currtime];
                 
                 // 예측 시점 계산
                 const predTime10 = row.PRED_TIME_10 ? formatTime(String(row.PRED_TIME_10)) : '-';
                 const predTime30 = row.PRED_TIME_30 ? formatTime(String(row.PRED_TIME_30)) : '-';
                 
-                let alertHtml = '';
+                // 프로그램 알람 HTML (상세 데이터는 쿨타임 포함)
+                let progAlarmHtml = '';
                 if (alert10) {
                     if (alert10.IS_ALARM) {
-                        alertHtml += `<span class="alert-badge alarm">🔔 예측10분 알람 ${alert10.ALARM_NO}번째</span> `;
+                        progAlarmHtml += `<span class="alert-badge alarm">🔔 10분 알람 ${alert10.ALARM_NO}번째</span> `;
                     } else {
-                        alertHtml += `<span class="alert-badge cooldown">⏱ 예측10분 알람 ${alert10.ALARM_NO}번째 후 쿨타임 ${alert10.COOLDOWN_MINS}분</span> `;
+                        progAlarmHtml += `<span class="alert-badge cooldown">⏱ 10분 알람 ${alert10.ALARM_NO}번째 후 쿨타임 ${alert10.COOLDOWN_MINS}분</span> `;
                     }
                 }
                 if (alert30) {
                     if (alert30.IS_ALARM) {
-                        alertHtml += `<span class="alert-badge alarm">🔔 예측30분 알람 ${alert30.ALARM_NO}번째</span> `;
+                        progAlarmHtml += `<span class="alert-badge alarm">🔔 30분 알람 ${alert30.ALARM_NO}번째</span> `;
                     } else {
-                        alertHtml += `<span class="alert-badge cooldown">⏱ 예측30분 알람 ${alert30.ALARM_NO}번째 후 쿨타임 ${alert30.COOLDOWN_MINS}분</span> `;
+                        progAlarmHtml += `<span class="alert-badge cooldown">⏱ 30분 알람 ${alert30.ALARM_NO}번째 후 쿨타임 ${alert30.COOLDOWN_MINS}분</span> `;
+                    }
+                }
+                
+                // 로그프레소 알람 HTML
+                let logAlarmHtml = '-';
+                if (logAlarm) {
+                    if (logAlarm.IS_ALARM) {
+                        logAlarmHtml = `<span class="alert-badge logpresso">◆ ${logAlarm.ALARM_NO}번째 알람</span>`;
+                    } else {
+                        logAlarmHtml = `<span class="alert-badge logpresso-cooldown">◇ ${logAlarm.ALARM_NO}번째 후 쿨타임 ${logAlarm.COOLDOWN_MINS}분</span>`;
                     }
                 }
                 
@@ -869,7 +1124,8 @@
                             <span class="${getValueClass(row.PREDICT_30)}" style="font-weight: 600;">${(row.PREDICT_30 || 0).toLocaleString()}</span>
                             <span style="color: #52525b; font-size: 10px; margin-left: 5px;">→ ${predTime30}</span>
                         </td>
-                        <td>${alertHtml || '-'}</td>
+                        <td>${progAlarmHtml || '-'}</td>
+                        <td>${logAlarmHtml}</td>
                     </tr>
                 `;
             });
