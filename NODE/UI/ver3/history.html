@@ -844,6 +844,66 @@
                 return s;
             });
             
+            // 예측값용 x축 (미래로 shift)
+            const times_pred10 = rows.map(r => {
+                const s = String(r.CURRTIME);
+                if (s.length >= 12) {
+                    const mm = parseInt(s.slice(4,6));
+                    const dd = parseInt(s.slice(6,8));
+                    const h = parseInt(s.slice(8,10));
+                    const m = parseInt(s.slice(10,12));
+                    const totalMins = h * 60 + m + 10;
+                    const newH = Math.floor(totalMins / 60) % 24;
+                    const newM = totalMins % 60;
+                    const newDD = totalMins >= 1440 ? dd + 1 : dd;
+                    return `${String(mm).padStart(2,'0')}-${String(newDD).padStart(2,'0')} ${String(newH).padStart(2,'0')}:${String(newM).padStart(2,'0')}`;
+                }
+                return s;
+            });
+            
+            const times_pred30 = rows.map(r => {
+                const s = String(r.CURRTIME);
+                if (s.length >= 12) {
+                    const mm = parseInt(s.slice(4,6));
+                    const dd = parseInt(s.slice(6,8));
+                    const h = parseInt(s.slice(8,10));
+                    const m = parseInt(s.slice(10,12));
+                    const totalMins = h * 60 + m + 30;
+                    const newH = Math.floor(totalMins / 60) % 24;
+                    const newM = totalMins % 60;
+                    const newDD = totalMins >= 1440 ? dd + 1 : dd;
+                    return `${String(mm).padStart(2,'0')}-${String(newDD).padStart(2,'0')} ${String(newH).padStart(2,'0')}:${String(newM).padStart(2,'0')}`;
+                }
+                return s;
+            });
+            
+            // 예측용 customdata (예측 시점 표시)
+            const timesFull_pred10 = rows.map(r => {
+                const s = String(r.CURRTIME);
+                if (s.length >= 12) {
+                    const h = parseInt(s.slice(8,10));
+                    const m = parseInt(s.slice(10,12));
+                    const totalMins = h * 60 + m + 10;
+                    const newH = Math.floor(totalMins / 60) % 24;
+                    const newM = totalMins % 60;
+                    return `${s.slice(0,4)}-${s.slice(4,6)}-${s.slice(6,8)} ${String(newH).padStart(2,'0')}:${String(newM).padStart(2,'0')}`;
+                }
+                return s;
+            });
+            
+            const timesFull_pred30 = rows.map(r => {
+                const s = String(r.CURRTIME);
+                if (s.length >= 12) {
+                    const h = parseInt(s.slice(8,10));
+                    const m = parseInt(s.slice(10,12));
+                    const totalMins = h * 60 + m + 30;
+                    const newH = Math.floor(totalMins / 60) % 24;
+                    const newM = totalMins % 60;
+                    return `${s.slice(0,4)}-${s.slice(4,6)}-${s.slice(6,8)} ${String(newH).padStart(2,'0')}:${String(newM).padStart(2,'0')}`;
+                }
+                return s;
+            });
+            
             const traces = [
                 {
                     x: times,
@@ -856,9 +916,9 @@
                     hovertemplate: '%{customdata} (%{y:,})<extra>TOTALCNT</extra>'
                 },
                 {
-                    x: times,
+                    x: times_pred10,
                     y: pred10s,
-                    customdata: timesFullFormat,
+                    customdata: timesFull_pred10,
                     name: '예측(10분)',
                     type: 'scatter',
                     mode: 'lines',
@@ -866,9 +926,9 @@
                     hovertemplate: '%{customdata} (%{y:,})<extra>예측(10분)</extra>'
                 },
                 {
-                    x: times,
+                    x: times_pred30,
                     y: pred30s,
-                    customdata: timesFullFormat,
+                    customdata: timesFull_pred30,
                     name: '예측(30분)',
                     type: 'scatter',
                     mode: 'lines',
