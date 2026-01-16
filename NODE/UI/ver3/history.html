@@ -284,6 +284,12 @@
             background: rgba(139, 92, 246, 0.2);
             color: var(--purple);
         }
+        
+        .alert-badge.logpresso-cooldown {
+            background: rgba(168, 85, 247, 0.15);
+            color: #a855f7;
+            border: 1px dashed #a855f7;
+        }
     </style>
 </head>
 <body>
@@ -467,10 +473,14 @@
                     }
                 }
                 
-                // 로그프레소 알람 텍스트
+                // 로그프레소 알람 텍스트 (알람/쿨타임 구분)
                 let logpressoText = '';
                 if (logpressoAlarm) {
-                    logpressoText = logpressoAlarm.ALARM_DESC || 'Y';
+                    if (logpressoAlarm.IS_ALARM) {
+                        logpressoText = `로그프레소 알람 ${logpressoAlarm.ALARM_NO}번째`;
+                    } else {
+                        logpressoText = `로그프레소 알람 ${logpressoAlarm.ALARM_NO}번째 후 쿨타임 ${logpressoAlarm.COOLDOWN_MINS}분`;
+                    }
                 }
                 
                 const values = [
@@ -553,15 +563,65 @@
                     
                     logpressoAlarmMap = {};
                     if (alarmData.data && alarmData.data.length > 0) {
-                        alarmData.data.forEach(a => {
+                        // 시간순 정렬
+                        const sortedAlarms = alarmData.data.sort((a, b) => String(a.MEAS_TM).localeCompare(String(b.MEAS_TM)));
+                        
+                        // 쿨타임 계산 (60분)
+                        let lastAlarmTime = null;
+                        let alarmNo = 0;
+                        
+                        sortedAlarms.forEach(a => {
                             const measTm = String(a.MEAS_TM);
-                            logpressoAlarmMap[measTm] = a;
+                            const currentTime = parseTime(measTm);
+                            
+                            let isAlarm = false;
+                            let cooldownMins = 0;
+                            
+                            if (lastAlarmTime === null) {
+                                // 첫 번째 알람
+                                isAlarm = true;
+                                alarmNo = 1;
+                                lastAlarmTime = currentTime;
+                            } else {
+                                const diffMins = (currentTime - lastAlarmTime) / (1000 * 60);
+                                if (diffMins >= 60) {
+                                    // 60분 지남 - 새 알람
+                                    isAlarm = true;
+                                    alarmNo++;
+                                    lastAlarmTime = currentTime;
+                                } else {
+                                    // 쿨타임 중
+                                    isAlarm = false;
+                                    cooldownMins = Math.round(60 - diffMins);
+                                }
+                            }
+                            
+                            logpressoAlarmMap[measTm] = {
+                                ...a,
+                                IS_ALARM: isAlarm,
+                                ALARM_NO: alarmNo,
+                                COOLDOWN_MINS: cooldownMins
+                            };
                         });
-                        console.log(`로그프레소 알람 ${alarmData.data.length}개 로드`);
+                        console.log(`로그프레소 알람 ${alarmData.data.length}개 로드 (알람 ${alarmNo}회)`);
                     }
                 } catch (e) {
                     console.log('로그프레소 알람 조회 실패:', e);
                     logpressoAlarmMap = {};
+                }
+                
+                // YYYYMMDDHHMM -> Date 변환
+                function parseTime(timeStr) {
+                    const s = String(timeStr);
+                    if (s.length >= 12) {
+                        const y = parseInt(s.slice(0,4));
+                        const m = parseInt(s.slice(4,6)) - 1;
+                        const d = parseInt(s.slice(6,8));
+                        const h = parseInt(s.slice(8,10));
+                        const min = parseInt(s.slice(10,12));
+                        return new Date(y, m, d, h, min);
+                    }
+                    return new Date();
                 }
                 
                 if (allData.length === 0) {
@@ -814,26 +874,32 @@
                 }
             });
             
-            // 로그프레소 알람 점 데이터
-            const logAlarmTimes = [];
-            const logAlarmValues = [];
-            const logAlarmTexts = [];
-            const logAlarmFullTimes = [];
+            // 로그프레소 알람 점 데이터 (알람/쿨타임 구분)
+            const logAlarmData = [];  // {time, value, fullTime, isAlarm, alarmNo, cooldownMins, desc}
             
             rows.forEach((r, i) => {
                 const currtime = String(r.CURRTIME);
                 const logAlarm = logpressoAlarmMap[currtime];
                 
                 if (logAlarm) {
-                    logAlarmTimes.push(times[i]);
-                    logAlarmValues.push(r.TOTALCNT || 0);
-                    // YYYY-MM-DD HH:MM 형식
                     const fullTime = currtime.length >= 12 ? 
                         `${currtime.slice(0,4)}-${currtime.slice(4,6)}-${currtime.slice(6,8)} ${currtime.slice(8,10)}:${currtime.slice(10,12)}` : currtime;
-                    logAlarmFullTimes.push(fullTime);
-                    logAlarmTexts.push(logAlarm.ALARM_DESC || '로그프레소 알람');
+                    logAlarmData.push({
+                        time: times[i],
+                        value: r.TOTALCNT || 0,
+                        fullTime: fullTime,
+                        isAlarm: logAlarm.IS_ALARM,
+                        alarmNo: logAlarm.ALARM_NO,
+                        cooldownMins: logAlarm.COOLDOWN_MINS,
+                        desc: logAlarm.ALARM_DESC || '로그프레소 알람'
+                    });
                 }
             });
+            
+            // 알람만 필터
+            const logAlarmOnly = logAlarmData.filter(d => d.isAlarm);
+            // 쿨타임만 필터
+            const logCooldownOnly = logAlarmData.filter(d => !d.isAlarm);
             
             // customdata: YYYY-MM-DD HH:MM 형식
             const timesFullFormat = rows.map(r => {
@@ -897,14 +963,24 @@
                     hovertemplate: '%{customdata[1]}<br>%{customdata[0]} (%{y:,})<extra>프로그램알람</extra>'
                 },
                 {
-                    x: logAlarmTimes,
-                    y: logAlarmValues,
-                    customdata: logAlarmFullTimes.map((t, i) => [t, logAlarmTexts[i]]),
-                    name: '로그프레소알람',
+                    x: logAlarmOnly.map(d => d.time),
+                    y: logAlarmOnly.map(d => d.value),
+                    customdata: logAlarmOnly.map(d => [`로그프레소 알람 ${d.alarmNo}번째`, d.fullTime, d.desc]),
+                    name: '◆로그프레소알람',
                     type: 'scatter',
                     mode: 'markers',
                     marker: { color: '#8b5cf6', size: 12, symbol: 'diamond' },
-                    hovertemplate: '%{customdata[1]}<br>%{customdata[0]} (%{y:,})<extra>로그프레소알람</extra>'
+                    hovertemplate: '%{customdata[0]}<br>%{customdata[2]}<br>%{customdata[1]}<extra></extra>'
+                },
+                {
+                    x: logCooldownOnly.map(d => d.time),
+                    y: logCooldownOnly.map(d => d.value),
+                    customdata: logCooldownOnly.map(d => [`로그프레소 쿨타임 (${d.alarmNo}번째 후 ${d.cooldownMins}분)`, d.fullTime, d.desc]),
+                    name: '◇로그프레소쿨타임',
+                    type: 'scatter',
+                    mode: 'markers',
+                    marker: { color: '#a855f7', size: 8, symbol: 'diamond-open', line: { width: 2, color: '#a855f7' } },
+                    hovertemplate: '%{customdata[0]}<br>%{customdata[2]}<br>%{customdata[1]}<extra></extra>'
                 }
             ];
             
@@ -995,7 +1071,11 @@
                 // 로그프레소 알람 HTML
                 let logAlarmHtml = '-';
                 if (logAlarm) {
-                    logAlarmHtml = `<span class="alert-badge logpresso">◆ ${logAlarm.ALARM_DESC || '알람'}</span>`;
+                    if (logAlarm.IS_ALARM) {
+                        logAlarmHtml = `<span class="alert-badge logpresso">◆ ${logAlarm.ALARM_NO}번째 알람</span>`;
+                    } else {
+                        logAlarmHtml = `<span class="alert-badge logpresso-cooldown">◇ ${logAlarm.ALARM_NO}번째 후 쿨타임 ${logAlarm.COOLDOWN_MINS}분</span>`;
+                    }
                 }
                 
                 html += `
