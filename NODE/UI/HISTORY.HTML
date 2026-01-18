@@ -290,6 +290,421 @@
             color: #a855f7;
             border: 1px dashed #a855f7;
         }
+
+        /* LLM 분석 모달 스타일 */
+        .modal-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0, 0, 0, 0.8);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 1000;
+        }
+
+        .modal-content {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border);
+            border-radius: 16px;
+            width: 90%;
+            max-width: 900px;
+            max-height: 85vh;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .modal-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 16px 20px;
+            border-bottom: 1px solid var(--border);
+            background: var(--bg-card);
+        }
+
+        .modal-header h3 {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 18px;
+            font-weight: 600;
+        }
+
+        .modal-close {
+            background: none;
+            border: none;
+            color: var(--text-secondary);
+            font-size: 28px;
+            cursor: pointer;
+            padding: 0;
+            line-height: 1;
+        }
+
+        .modal-close:hover { color: var(--text-primary); }
+
+        .modal-body {
+            padding: 20px;
+            overflow-y: auto;
+            flex: 1;
+        }
+
+        .llm-data-info {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            padding: 6px;
+            margin-bottom: 10px;
+        }
+
+        .llm-stats-grid {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 4px;
+        }
+
+        .llm-stat {
+            background: var(--bg-secondary);
+            padding: 3px 6px;
+            border-radius: 4px;
+            display: flex;
+            align-items: center;
+            gap: 4px;
+        }
+
+        .llm-stat-label {
+            font-size: 9px;
+            color: var(--text-secondary);
+        }
+
+        .llm-stat-value {
+            font-size: 11px;
+            font-weight: 600;
+        }
+
+        .llm-stat-value.danger { color: var(--danger); }
+        .llm-stat-value.warning { color: var(--warning); }
+        .llm-stat-value.success { color: var(--success); }
+
+        .llm-type-selector {
+            margin-bottom: 15px;
+        }
+
+        .llm-type-selector label {
+            font-size: 13px;
+            color: var(--text-secondary);
+            margin-bottom: 8px;
+            display: block;
+        }
+
+        .llm-type-btns {
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+        }
+
+        .llm-type-btn {
+            padding: 10px 18px;
+            border-radius: 8px;
+            border: 1px solid var(--border);
+            background: var(--bg-card);
+            color: var(--text-primary);
+            font-size: 13px;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .llm-type-btn:hover {
+            border-color: var(--accent);
+        }
+
+        .llm-type-btn.active {
+            background: var(--accent);
+            border-color: var(--accent);
+        }
+
+        /* LLM 모드 선택기 */
+        .llm-mode-selector {
+            display: flex;
+            gap: 8px;
+            margin-bottom: 8px;
+        }
+
+        .llm-mode-btn {
+            flex: 1;
+            padding: 8px 12px;
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            background: var(--bg-secondary);
+            color: var(--text-primary);
+            cursor: pointer;
+            font-size: 12px;
+            transition: all 0.2s;
+        }
+
+        .llm-mode-btn:hover {
+            border-color: var(--accent);
+        }
+
+        .llm-mode-btn.active {
+            background: var(--accent);
+            border-color: var(--accent);
+            color: white;
+        }
+
+        .llm-mode-btn[data-mode="dev"].active {
+            background: var(--warning);
+            border-color: var(--warning);
+        }
+
+        .llm-mode-btn[data-mode="prod"].active {
+            background: var(--success);
+            border-color: var(--success);
+        }
+
+        .llm-mode-btn[data-mode="local"].active {
+            background: var(--purple);
+            border-color: var(--purple);
+        }
+
+        .llm-mode-section {
+            margin-bottom: 15px;
+            padding: 10px;
+            background: var(--bg-card);
+            border-radius: 8px;
+            border: 1px solid var(--border);
+        }
+
+        .llm-model-info {
+            background: var(--bg-secondary);
+            border-radius: 6px;
+            padding: 10px 12px;
+            font-size: 11px;
+        }
+
+        .llm-model-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 4px 0;
+        }
+
+        .llm-model-row:not(:last-child) {
+            border-bottom: 1px solid var(--border);
+            margin-bottom: 4px;
+            padding-bottom: 6px;
+        }
+
+        .llm-model-label {
+            color: var(--text-secondary);
+        }
+
+        .llm-model-value {
+            color: var(--accent);
+            font-weight: 600;
+            font-family: 'Consolas', monospace;
+        }
+
+        .modal-footer {
+            padding: 15px 20px;
+            border-top: 1px solid var(--border);
+            display: flex;
+            justify-content: flex-end;
+            gap: 10px;
+        }
+
+        .btn-llm {
+            background: linear-gradient(135deg, #8b5cf6, #3b82f6);
+            border: none;
+            padding: 10px 24px;
+        }
+
+        .btn-llm:hover {
+            background: linear-gradient(135deg, #7c3aed, #2563eb);
+        }
+
+        .llm-result-section {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            padding: 15px;
+            min-height: 200px;
+            margin-top: 15px;
+        }
+
+        .llm-result-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 12px;
+            padding-bottom: 10px;
+            border-bottom: 1px solid var(--border);
+        }
+
+        .llm-result-title {
+            font-size: 14px;
+            font-weight: 600;
+            color: var(--accent);
+        }
+
+        .llm-result-meta {
+            font-size: 11px;
+            color: var(--text-secondary);
+        }
+
+        .llm-result-content {
+            font-size: 13px;
+            line-height: 1.7;
+        }
+
+        .llm-result-content h1, .llm-result-content h2, .llm-result-content h3 {
+            margin: 16px 0 8px 0;
+            color: var(--accent);
+        }
+
+        .llm-result-content h2 { font-size: 16px; }
+        .llm-result-content h3 { font-size: 14px; }
+
+        .llm-result-content table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 12px 0;
+            font-size: 12px;
+        }
+
+        .llm-result-content th, .llm-result-content td {
+            padding: 8px 12px;
+            border: 1px solid var(--border);
+            text-align: left;
+        }
+
+        .llm-result-content th {
+            background: var(--bg-secondary);
+            color: var(--accent);
+        }
+
+        .llm-result-content ul, .llm-result-content ol {
+            margin: 10px 0;
+            padding-left: 20px;
+        }
+
+        .llm-result-content li { margin: 4px 0; }
+
+        .llm-result-content strong { color: var(--warning); }
+
+        .llm-loading {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            padding: 40px;
+        }
+
+        .llm-loading-spinner {
+            width: 36px;
+            height: 36px;
+            border: 3px solid var(--border);
+            border-top-color: var(--accent);
+            border-radius: 50%;
+            animation: llm-spin 1s linear infinite;
+            margin-bottom: 12px;
+        }
+
+        @keyframes llm-spin {
+            to { transform: rotate(360deg); }
+        }
+
+        .llm-empty {
+            text-align: center;
+            padding: 40px;
+            color: var(--text-secondary);
+        }
+
+        .llm-empty-icon {
+            font-size: 40px;
+            margin-bottom: 10px;
+        }
+
+        .streaming-cursor {
+            display: inline-block;
+            color: var(--accent);
+            animation: blink-cursor 0.8s infinite;
+            font-weight: bold;
+        }
+
+        @keyframes blink-cursor {
+            0%, 50% { opacity: 1; }
+            51%, 100% { opacity: 0; }
+        }
+
+        /* 프롬프트 설정 모달 스타일 */
+        .prompt-modal-content {
+            max-width: 900px;
+            max-height: 90vh;
+            overflow-y: auto;
+        }
+
+        .prompt-tab {
+            padding: 8px 16px;
+            border-radius: 6px;
+            border: 1px solid var(--border);
+            background: var(--bg-card);
+            color: var(--text-secondary);
+            font-size: 12px;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .prompt-tab:hover {
+            border-color: var(--accent);
+        }
+
+        .prompt-tab.active {
+            background: var(--accent) !important;
+            border-color: var(--accent) !important;
+            color: white !important;
+        }
+
+        .template-textarea {
+            width: 100%;
+            padding: 12px;
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            color: var(--text-primary);
+            font-size: 12px;
+            font-family: monospace;
+            resize: vertical;
+        }
+
+        .template-textarea:focus {
+            outline: none;
+            border-color: var(--accent);
+        }
+
+        .form-label {
+            display: block;
+            font-size: 14px;
+            font-weight: 600;
+            margin-bottom: 8px;
+        }
+
+        .form-group {
+            margin-bottom: 15px;
+        }
+
+        .btn-prompt-settings {
+            background: var(--purple);
+            border-color: var(--purple);
+        }
+
+        .btn-prompt-settings:hover {
+            background: #7c3aed;
+            border-color: #7c3aed;
+        }
     </style>
 </head>
 <body>
@@ -319,6 +734,7 @@
         <button class="btn" onclick="loadThisWeek()">이번주</button>
         <button class="btn btn-success" onclick="downloadCSV()">📥 CSV 다운로드</button>
         <button class="btn btn-purple" onclick="location.href='/evaluate'">📊 평가 데이터 분석 V10.4</button>
+        <button class="btn" onclick="openLlmAnalysisModal()" style="background: linear-gradient(135deg, #8b5cf6, #3b82f6); border: none;">🤖 LLM 분석</button>
     </div>
     
     <div class="stats-row" id="stats-row" style="display: none;">
@@ -369,14 +785,404 @@
         </div>
     </div>
 
+    <!-- LLM 분석 모달 -->
+    <div class="modal-overlay" id="llm-modal" style="display: none;">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3>🤖 LLM 데이터 분석</h3>
+                <div style="display: flex; align-items: center; gap: 10px;">
+                    <button class="btn btn-prompt-settings" onclick="openPromptModal()" style="padding: 6px 12px; font-size: 12px;">⚙️ 프롬프트 설정</button>
+                    <button class="modal-close" onclick="closeLlmModal()">&times;</button>
+                </div>
+            </div>
+            <div class="modal-body">
+                <!-- LLM 모드 선택 -->
+                <div class="llm-mode-section">
+                    <div class="llm-mode-selector">
+                        <button class="llm-mode-btn" data-mode="dev" onclick="setLlmMode('dev')">
+                            🌐 개발 API
+                        </button>
+                        <button class="llm-mode-btn" data-mode="prod" onclick="setLlmMode('prod')">
+                            🏢 운영 API
+                        </button>
+                        <button class="llm-mode-btn active" data-mode="local" onclick="setLlmMode('local')">
+                            💻 로컬 GGUF
+                        </button>
+                    </div>
+                    <div class="llm-model-info">
+                        <div class="llm-model-row" id="current-model-row">
+                            <span class="llm-model-label" id="current-model-label">💻 로컬 GGUF:</span>
+                            <span class="llm-model-value" id="current-model-name">-</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 데이터 정보 -->
+                <div class="llm-data-info">
+                    <div class="llm-stats-grid" id="llm-stats-grid">
+                        <div class="llm-stat"><span class="llm-stat-label">총 로그 수:</span><span class="llm-stat-value" id="llm-stat-count">-</span></div>
+                        <div class="llm-stat"><span class="llm-stat-label">평균 응답시간:</span><span class="llm-stat-value" id="llm-stat-avg">-</span></div>
+                        <div class="llm-stat"><span class="llm-stat-label">최대 응답시간:</span><span class="llm-stat-value" id="llm-stat-max">-</span></div>
+                        <div class="llm-stat"><span class="llm-stat-label">위험 건수:</span><span class="llm-stat-value danger" id="llm-stat-over">-</span></div>
+                        <div class="llm-stat"><span class="llm-stat-label">LLM 정확도:</span><span class="llm-stat-value success" id="llm-stat-accuracy">-</span></div>
+                        <div class="llm-stat"><span class="llm-stat-label">TP(정탐):</span><span class="llm-stat-value success" id="llm-stat-tp">-</span></div>
+                        <div class="llm-stat"><span class="llm-stat-label">TN(정상):</span><span class="llm-stat-value" id="llm-stat-tn" style="color: var(--accent);">-</span></div>
+                        <div class="llm-stat"><span class="llm-stat-label">FP(오탐):</span><span class="llm-stat-value warning" id="llm-stat-fp">-</span></div>
+                        <div class="llm-stat"><span class="llm-stat-label">FN(미탐):</span><span class="llm-stat-value danger" id="llm-stat-fn">-</span></div>
+                        <div class="llm-stat"><span class="llm-stat-label">10분 알람:</span><span class="llm-stat-value warning" id="llm-stat-alert10">-</span></div>
+                        <div class="llm-stat"><span class="llm-stat-label">30분 알람:</span><span class="llm-stat-value" id="llm-stat-alert30" style="color: var(--accent);">-</span></div>
+                        <div class="llm-stat"><span class="llm-stat-label">로그프레소 알람:</span><span class="llm-stat-value" id="llm-stat-logpresso" style="color: var(--purple);">-</span></div>
+                    </div>
+                </div>
+
+                <!-- 분석 유형 선택 -->
+                <div class="llm-type-selector">
+                    <label>분석 유형 선택</label>
+                    <div class="llm-type-btns">
+                        <button class="llm-type-btn active" data-type="summary" onclick="selectLlmType('summary')">
+                            📋 요약 분석
+                        </button>
+                        <button class="llm-type-btn" data-type="pattern" onclick="selectLlmType('pattern')">
+                            📈 패턴 분석
+                        </button>
+                        <button class="llm-type-btn" data-type="prediction" onclick="selectLlmType('prediction')">
+                            🔮 예측 분석
+                        </button>
+                    </div>
+                </div>
+
+                <!-- 분석 결과 -->
+                <div class="llm-result-section" id="llm-result-section">
+                    <div class="llm-result-header">
+                        <div class="llm-result-title">📝 분석 결과</div>
+                        <div class="llm-result-meta" id="llm-result-meta"></div>
+                    </div>
+                    <div id="llm-result-container">
+                        <div class="llm-empty">
+                            <div class="llm-empty-icon">🤖</div>
+                            <div>분석 유형을 선택하고 <strong>분석 실행</strong> 버튼을 클릭하세요</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn" onclick="closeLlmModal()">닫기</button>
+                <button class="btn btn-llm" id="btn-llm-analyze" onclick="runLlmAnalysis()">
+                    🔍 분석 실행
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 프롬프트 설정 모달 -->
+    <div class="modal-overlay" id="prompt-modal" style="display: none;">
+        <div class="modal-content prompt-modal-content">
+            <div class="modal-header">
+                <h3>⚙️ 프롬프트 설정</h3>
+                <button class="modal-close" onclick="closePromptModal()">×</button>
+            </div>
+            <div class="modal-body" style="padding: 20px;">
+                <!-- 시스템 프롬프트 -->
+                <div class="form-group" style="margin-bottom: 20px;">
+                    <label class="form-label" style="color: var(--accent);">
+                        🤖 시스템 프롬프트 (LLM 역할 정의)
+                    </label>
+                    <textarea id="system-prompt" class="template-textarea" style="height: 200px;"></textarea>
+                </div>
+
+                <!-- 분석 프롬프트 탭 -->
+                <div style="margin-bottom: 15px;">
+                    <label class="form-label" style="color: var(--success);">
+                        📝 분석 프롬프트 템플릿
+                    </label>
+                    <div style="display: flex; gap: 8px; margin-top: 8px;">
+                        <button class="prompt-tab active" data-tab="summary" onclick="switchPromptTab('summary')">📋 요약 분석</button>
+                        <button class="prompt-tab" data-tab="pattern" onclick="switchPromptTab('pattern')">📈 패턴 분석</button>
+                        <button class="prompt-tab" data-tab="prediction" onclick="switchPromptTab('prediction')">🔮 예측 분석</button>
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <textarea id="template-summary" class="template-textarea" style="height: 180px;"></textarea>
+                    <textarea id="template-pattern" class="template-textarea" style="height: 180px; display: none;"></textarea>
+                    <textarea id="template-prediction" class="template-textarea" style="height: 180px; display: none;"></textarea>
+                </div>
+
+                <div style="display: flex; gap: 10px; justify-content: flex-end; margin-top: 20px;">
+                    <button class="btn" onclick="resetPrompts()">🔄 기본값 복원</button>
+                    <button class="btn btn-primary" onclick="savePrompts()">💾 저장</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <script>
         // 오늘 날짜로 초기화
         const today = new Date();
         document.getElementById('date-start').value = formatDate(today);
         document.getElementById('date-end').value = formatDate(today);
-        
+
         let currentData = null;  // 현재 조회된 데이터 저장
         let logpressoAlarmMap = {};  // 로그프레소 알람 맵
+
+        // ========================================
+        // 프롬프트 관리
+        // ========================================
+        const defaultPrompts = {
+            system: `당신은 M14 반송 큐 예측 모델 분석 전문가입니다.
+
+## 분석 원칙
+1. **결론 먼저** - 핵심 수치와 판단을 먼저 제시
+2. **간결하게** - 불필요한 설명 없이 핵심만
+3. **숫자 중심** - 정확한 수치와 비율 제시
+4. **문제점 명확히** - 무엇이 문제인지 직접적으로
+
+## 출력 형식
+- 테이블은 마크다운 형식, 최소한의 컬럼만
+- 이모지 적절히 사용 (📊 ✅ ⚠️ 🔴 💡 🔔)
+- 섹션은 ## 헤더로 구분
+- 긴 설명 대신 핵심 bullet point
+
+## M14 기준값
+- 위험 임계값: TOTALCNT >= 1700
+- 경고 임계값: TOTALCNT >= 1600
+- 예측 모델: XGB (10분 후, 30분 후 예측)
+- 알람 시스템: 10분 알람, 30분 알람, 로그프레소 알람
+
+## 제공되는 통계 데이터
+- 총 로그 수, 평균/최대 응답시간, 위험 건수(1700+)
+- LLM 정확도, TP(정탐), TN(정상), FP(오탐), FN(미탐)
+- 10분 알람, 30분 알람, 로그프레소 알람 발생 횟수`,
+            templates: {
+                summary: `위 데이터를 종합 분석해주세요.
+
+다음 형식으로 출력:
+## 📊 핵심 요약
+| 지표 | 값 | 평가 |
+|---|---|---|
+- 정확도, 재현율(TP/(TP+FN)), 정밀도(TP/(TP+FP))
+
+## 🔔 알람 현황
+- 10분 알람 vs 30분 알람 vs 로그프레소 알람 비교
+- 알람 효율성 평가 (실제 위험 대비)
+
+## ✅ 좋은 점
+- (1-2개, 수치 포함)
+
+## ⚠️ 문제점
+- 핵심 문제 (FN이 높으면 놓친 위험, FP가 높으면 오탐 과다)
+- 알람 시스템 문제점
+
+## 💡 개선 제안
+- 구체적 조치`,
+                pattern: `시간대별 패턴을 분석해주세요.
+
+다음 형식으로 출력:
+## 📈 시간대별 패턴
+| 시간대 | 평균 | 위험발생 | 특징 |
+|---|---|---|---|
+
+## 🔴 위험 집중 시간대
+- 1700+ 자주 발생하는 시간대
+- 알람 발생 집중 시간대
+
+## 🔔 알람 패턴
+- 10분/30분/로그프레소 알람 발생 시간대 특성
+- 알람 간 시간 간격 분석
+
+## 💡 운영 제안
+- 모니터링 강화 시간대
+- 알람 임계값 조정 제안`,
+                prediction: `예측 모델 성능을 분석해주세요.
+
+다음 형식으로 출력:
+## 🎯 모델 성능 요약
+| 지표 | 값 | 판정 |
+|---|---|---|
+- 정확도, 재현율, 정밀도, F1-Score
+
+## 📊 혼동 행렬 분석
+- TP(정탐): 위험 예측 → 실제 위험 ✅
+- TN(정상): 정상 예측 → 실제 정상 ✅
+- FP(오탐): 위험 예측 → 실제 정상 ⚠️
+- FN(미탐): 정상 예측 → 실제 위험 🔴
+
+## 🔔 알람 vs 예측 비교
+- 10분/30분 예측 알람 정확도
+- 로그프레소 알람과의 일치율
+
+## ⚠️ 개선 필요 사항
+- FN 감소 방안 (놓친 위험 줄이기)
+- FP 감소 방안 (오탐 줄이기)`
+            }
+        };
+
+        // 프롬프트 모달 열기
+        function openPromptModal() {
+            loadPrompts();
+            loadLlmStatus();
+            document.getElementById('prompt-modal').style.display = 'flex';
+        }
+
+        // 프롬프트 모달 닫기
+        function closePromptModal() {
+            document.getElementById('prompt-modal').style.display = 'none';
+        }
+
+        // LLM 상태 로드
+        async function loadLlmStatus() {
+            try {
+                const res = await fetch('/api/status');
+                const data = await res.json();
+
+                // 버튼 상태 업데이트
+                document.querySelectorAll('.llm-mode-btn').forEach(btn => {
+                    btn.classList.remove('active');
+                });
+
+                let activeMode = 'local';
+
+                if (data.llm_mode === 'api') {
+                    if (data.env === 'prod') {
+                        activeMode = 'prod';
+                    } else {
+                        activeMode = 'dev';
+                    }
+                }
+
+                const activeBtn = document.querySelector(`.llm-mode-btn[data-mode="${activeMode}"]`);
+                if (activeBtn) activeBtn.classList.add('active');
+
+                // 현재 선택된 모델만 표시
+                if (data.models) {
+                    const labelEl = document.getElementById('current-model-label');
+                    const nameEl = document.getElementById('current-model-name');
+
+                    if (activeMode === 'dev') {
+                        labelEl.textContent = '🌐 개발 API:';
+                        nameEl.textContent = data.models.dev || '-';
+                    } else if (activeMode === 'prod') {
+                        labelEl.textContent = '🏢 운영 API:';
+                        nameEl.textContent = data.models.prod || '-';
+                    } else {
+                        labelEl.textContent = '💻 로컬 GGUF:';
+                        nameEl.textContent = data.models.local || '-';
+                    }
+                }
+            } catch (e) {
+                console.error('LLM 상태 로드 실패:', e);
+            }
+        }
+
+        // LLM 모드 변경
+        async function setLlmMode(mode) {
+            try {
+                let apiMode = 'local';
+                let env = 'dev';
+
+                if (mode === 'dev') {
+                    apiMode = 'api';
+                    env = 'dev';
+                } else if (mode === 'prod') {
+                    apiMode = 'api';
+                    env = 'prod';
+                }
+
+                const res = await fetch('/api/llm_mode', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ mode: apiMode, env: env })
+                });
+
+                const data = await res.json();
+
+                if (data.success) {
+                    loadLlmStatus();
+                    alert(`LLM 모드 변경: ${mode === 'local' ? '로컬 GGUF' : mode === 'dev' ? '개발 API' : '운영 API'}`);
+                } else {
+                    alert(`모드 변경 실패: ${data.message || '알 수 없는 오류'}`);
+                }
+            } catch (e) {
+                console.error('LLM 모드 변경 실패:', e);
+                alert('LLM 모드 변경 실패');
+            }
+        }
+
+        // 프롬프트 로드
+        async function loadPrompts() {
+            try {
+                const res = await fetch('/api/prompts');
+                const data = await res.json();
+
+                document.getElementById('system-prompt').value = data.system_prompt || defaultPrompts.system;
+                document.getElementById('template-summary').value = data.templates?.summary || defaultPrompts.templates.summary;
+                document.getElementById('template-pattern').value = data.templates?.pattern || defaultPrompts.templates.pattern;
+                document.getElementById('template-prediction').value = data.templates?.prediction || defaultPrompts.templates.prediction;
+            } catch (e) {
+                console.error('프롬프트 로드 실패:', e);
+                // 기본값 사용
+                document.getElementById('system-prompt').value = defaultPrompts.system;
+                document.getElementById('template-summary').value = defaultPrompts.templates.summary;
+                document.getElementById('template-pattern').value = defaultPrompts.templates.pattern;
+                document.getElementById('template-prediction').value = defaultPrompts.templates.prediction;
+            }
+        }
+
+        // 프롬프트 저장
+        async function savePrompts() {
+            try {
+                const res = await fetch('/api/prompts', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        system_prompt: document.getElementById('system-prompt').value,
+                        templates: {
+                            summary: document.getElementById('template-summary').value,
+                            pattern: document.getElementById('template-pattern').value,
+                            prediction: document.getElementById('template-prediction').value
+                        }
+                    })
+                });
+                const data = await res.json();
+
+                if (data.success) {
+                    alert('✅ 프롬프트가 저장되었습니다!');
+                    closePromptModal();
+                } else {
+                    alert('❌ 저장 실패: ' + data.message);
+                }
+            } catch (e) {
+                console.error('프롬프트 저장 실패:', e);
+                alert('❌ 저장 실패');
+            }
+        }
+
+        // 프롬프트 탭 전환
+        function switchPromptTab(tab) {
+            // 탭 버튼 활성화
+            document.querySelectorAll('.prompt-tab').forEach(btn => {
+                btn.classList.remove('active');
+            });
+            document.querySelector(`.prompt-tab[data-tab="${tab}"]`).classList.add('active');
+
+            // textarea 표시/숨김
+            document.querySelectorAll('.template-textarea').forEach(ta => {
+                if (ta.id.startsWith('template-')) {
+                    ta.style.display = 'none';
+                }
+            });
+            document.getElementById('template-' + tab).style.display = 'block';
+        }
+
+        // 프롬프트 기본값 복원
+        function resetPrompts() {
+            if (confirm('기본값으로 복원하시겠습니까?')) {
+                document.getElementById('system-prompt').value = defaultPrompts.system;
+                document.getElementById('template-summary').value = defaultPrompts.templates.summary;
+                document.getElementById('template-pattern').value = defaultPrompts.templates.pattern;
+                document.getElementById('template-prediction').value = defaultPrompts.templates.prediction;
+            }
+        }
         
         function formatDate(date) {
             const y = date.getFullYear();
@@ -1133,6 +1939,364 @@
             html += '</tbody></table>';
             document.getElementById('table-container').innerHTML = html;
         }
+
+        // ========================================
+        // LLM 분석 기능
+        // ========================================
+        let selectedLlmType = 'summary';
+        let llmIsLoading = false;
+
+        function openLlmAnalysisModal() {
+            if (!currentData || !currentData.data || currentData.data.length === 0) {
+                alert('먼저 데이터를 조회하세요');
+                return;
+            }
+
+            // 모달 표시
+            document.getElementById('llm-modal').style.display = 'flex';
+
+            // LLM 상태 로드
+            loadLlmStatus();
+
+            // 통계 업데이트
+            updateLlmStats();
+
+            // 결과 초기화
+            document.getElementById('llm-result-container').innerHTML = `
+                <div class="llm-empty">
+                    <div class="llm-empty-icon">🤖</div>
+                    <div>분석 유형을 선택하고 <strong>분석 실행</strong> 버튼을 클릭하세요</div>
+                </div>
+            `;
+            document.getElementById('llm-result-meta').textContent = '';
+        }
+
+        function closeLlmModal() {
+            document.getElementById('llm-modal').style.display = 'none';
+        }
+
+        function updateLlmStats() {
+            if (!currentData || !currentData.data) return;
+
+            const rows = currentData.data;
+            const totalcnts = rows.map(r => r.TOTALCNT || 0);
+
+            // 통계 계산
+            const count = rows.length;
+            const avg = Math.round(totalcnts.reduce((a, b) => a + b, 0) / count);
+            const max = Math.max(...totalcnts);
+            const over1700 = totalcnts.filter(v => v >= 1700).length;
+
+            // 알람 맵 생성 (10분 예측 기준)
+            const alertMap10 = {};
+            (currentData.alerts_10 || []).forEach(a => {
+                alertMap10[String(a.CURRTIME)] = a;
+            });
+
+            // TP/TN/FP/FN 계산 (10분 예측 기준)
+            let tp = 0, tn = 0, fp = 0, fn = 0;
+            rows.forEach(row => {
+                const currtime = String(row.CURRTIME);
+                const actual = (row.TOTALCNT || 0) >= 1700;
+                const alert = alertMap10[currtime];
+                const predicted = alert ? alert.IS_ALARM : false;
+
+                if (predicted && actual) tp++;      // 예측O, 실제O
+                else if (!predicted && !actual) tn++; // 예측X, 실제X
+                else if (predicted && !actual) fp++;  // 예측O, 실제X (오탐)
+                else if (!predicted && actual) fn++;  // 예측X, 실제O (놓침)
+            });
+
+            // 정확도 계산
+            const total = tp + tn + fp + fn;
+            const accuracy = total > 0 ? Math.round((tp + tn) / total * 100) : 0;
+
+            // 알람 개수
+            const alerts10 = (currentData.alerts_10 || []).filter(a => a.IS_ALARM).length;
+            const alerts30 = (currentData.alerts_30 || []).filter(a => a.IS_ALARM).length;
+            const logpressoAlarms = Object.values(logpressoAlarmMap).filter(a => a.IS_ALARM).length;
+
+            // UI 업데이트
+            document.getElementById('llm-stat-count').textContent = count.toLocaleString();
+            document.getElementById('llm-stat-avg').textContent = avg.toLocaleString();
+            document.getElementById('llm-stat-max').textContent = max.toLocaleString();
+            document.getElementById('llm-stat-over').textContent = over1700;
+            document.getElementById('llm-stat-accuracy').textContent = accuracy + '%';
+            document.getElementById('llm-stat-tp').textContent = tp;
+            document.getElementById('llm-stat-tn').textContent = tn;
+            document.getElementById('llm-stat-fp').textContent = fp;
+            document.getElementById('llm-stat-fn').textContent = fn;
+            document.getElementById('llm-stat-alert10').textContent = alerts10;
+            document.getElementById('llm-stat-alert30').textContent = alerts30;
+            document.getElementById('llm-stat-logpresso').textContent = logpressoAlarms;
+        }
+
+        function selectLlmType(type) {
+            selectedLlmType = type;
+
+            // 버튼 상태 업데이트
+            document.querySelectorAll('.llm-type-btn').forEach(btn => {
+                btn.classList.toggle('active', btn.dataset.type === type);
+            });
+        }
+
+        async function runLlmAnalysis() {
+            if (llmIsLoading) return;
+            if (!currentData || !currentData.data || currentData.data.length === 0) {
+                alert('분석할 데이터가 없습니다');
+                return;
+            }
+
+            llmIsLoading = true;
+            document.getElementById('btn-llm-analyze').disabled = true;
+            document.getElementById('btn-llm-analyze').textContent = '⏳ 분석 중...';
+
+            // 로딩 표시
+            document.getElementById('llm-result-container').innerHTML = `
+                <div class="llm-loading">
+                    <div class="llm-loading-spinner"></div>
+                    <div style="color: var(--text-secondary); font-size: 13px;">
+                        LLM이 데이터를 분석하고 있습니다...
+                    </div>
+                </div>
+            `;
+
+            try {
+                // 데이터 준비
+                const analysisData = prepareDataForLlm();
+
+                // API 호출 (스트리밍)
+                const res = await fetch('/api/llm_history_analyze', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        data: analysisData.data,
+                        stats: analysisData.stats,
+                        analysis_type: selectedLlmType
+                    })
+                });
+
+                if (!res.ok) {
+                    throw new Error(`HTTP ${res.status}`);
+                }
+
+                // 스트리밍 응답 처리
+                const reader = res.body.getReader();
+                const decoder = new TextDecoder();
+                let fullText = '';
+                const contentEl = document.getElementById('llm-result-container');
+                contentEl.innerHTML = '<div class="llm-result-content" id="llm-streaming-content" style="white-space: pre-wrap;"><span class="streaming-cursor">▌</span></div>';
+                const streamingEl = document.getElementById('llm-streaming-content');
+
+                while (true) {
+                    const { done, value } = await reader.read();
+                    if (done) break;
+
+                    const chunk = decoder.decode(value);
+                    const lines = chunk.split('\n');
+
+                    for (const line of lines) {
+                        if (line.startsWith('data: ')) {
+                            const data = line.slice(6);
+
+                            if (data === '[DONE]') {
+                                // 완료 - 마크다운 변환
+                                streamingEl.style.whiteSpace = 'normal';
+                                streamingEl.innerHTML = formatMarkdownSimple(fullText);
+                                document.getElementById('llm-result-meta').textContent =
+                                    `${getTypeName(selectedLlmType)} | ${new Date().toLocaleTimeString()}`;
+                            } else if (data.startsWith('[ERROR]')) {
+                                streamingEl.innerHTML = `<span style="color: var(--danger);">${data}</span>`;
+                            } else {
+                                // 줄바꿈 복원
+                                fullText += data.replace(/⏎/g, '\n');
+                                streamingEl.textContent = fullText;
+                                streamingEl.innerHTML = streamingEl.textContent + '<span class="streaming-cursor">▌</span>';
+                                streamingEl.scrollTop = streamingEl.scrollHeight;
+                            }
+                        }
+                    }
+                }
+
+            } catch (e) {
+                console.error('LLM 분석 실패:', e);
+                document.getElementById('llm-result-container').innerHTML = `
+                    <div class="llm-empty">
+                        <div class="llm-empty-icon">❌</div>
+                        <div>분석 실패: ${e.message}</div>
+                        <div style="margin-top: 10px; font-size: 12px; color: var(--text-secondary);">
+                            llm_analysis_server.py 가 실행 중인지 확인해주세요
+                        </div>
+                    </div>
+                `;
+            } finally {
+                llmIsLoading = false;
+                document.getElementById('btn-llm-analyze').disabled = false;
+                document.getElementById('btn-llm-analyze').textContent = '🔍 분석 실행';
+            }
+        }
+
+        function prepareDataForLlm() {
+            const rows = currentData.data;
+            const totalcnts = rows.map(r => r.TOTALCNT || 0);
+
+            // 시간대별 통계 계산
+            const hourlyStats = {};
+            rows.forEach(row => {
+                const currtime = String(row.CURRTIME);
+                if (currtime.length >= 10) {
+                    const hour = currtime.slice(8, 10);
+                    if (!hourlyStats[hour]) {
+                        hourlyStats[hour] = { values: [], over1700: 0 };
+                    }
+                    hourlyStats[hour].values.push(row.TOTALCNT || 0);
+                    if ((row.TOTALCNT || 0) >= 1700) {
+                        hourlyStats[hour].over1700++;
+                    }
+                }
+            });
+
+            // 시간대별 평균 계산
+            const hourlyAvg = {};
+            Object.entries(hourlyStats).forEach(([hour, data]) => {
+                const avg = Math.round(data.values.reduce((a, b) => a + b, 0) / data.values.length);
+                hourlyAvg[hour + '시'] = { avg: avg, over1700: data.over1700 };
+            });
+
+            // 알람 맵 생성
+            const alertMap10 = {};
+            (currentData.alerts_10 || []).forEach(a => {
+                alertMap10[String(a.CURRTIME)] = a;
+            });
+
+            // TP/TN/FP/FN 계산 (10분 예측 기준)
+            let tp = 0, tn = 0, fp = 0, fn = 0;
+            rows.forEach(row => {
+                const currtime = String(row.CURRTIME);
+                const actual = (row.TOTALCNT || 0) >= 1700;
+                const alert = alertMap10[currtime];
+                const predicted = alert ? alert.IS_ALARM : false;
+
+                if (predicted && actual) tp++;
+                else if (!predicted && !actual) tn++;
+                else if (predicted && !actual) fp++;
+                else if (!predicted && actual) fn++;
+            });
+
+            // 알람 정보
+            const alerts10 = (currentData.alerts_10 || []).filter(a => a.IS_ALARM);
+            const alerts30 = (currentData.alerts_30 || []).filter(a => a.IS_ALARM);
+
+            // 로그프레소 알람 정보
+            const logpressoAlarms = Object.values(logpressoAlarmMap).filter(a => a.IS_ALARM);
+
+            // 기간 정보
+            const dateStart = document.getElementById('date-start').value;
+            const dateEnd = document.getElementById('date-end').value;
+            const timeStart = document.getElementById('time-start').value;
+            const timeEnd = document.getElementById('time-end').value;
+
+            // 정확도 계산
+            const total = tp + tn + fp + fn;
+            const accuracy = total > 0 ? Math.round((tp + tn) / total * 100) : 0;
+
+            return {
+                data: rows.slice(0, 500), // 최대 500개 샘플
+                stats: {
+                    period: `${dateStart} ${timeStart} ~ ${dateEnd} ${timeEnd}`,
+                    total_count: rows.length,
+                    avg_totalcnt: Math.round(totalcnts.reduce((a, b) => a + b, 0) / rows.length),
+                    max_totalcnt: Math.max(...totalcnts),
+                    min_totalcnt: Math.min(...totalcnts),
+                    over_1700_count: totalcnts.filter(v => v >= 1700).length,
+                    over_1600_count: totalcnts.filter(v => v >= 1600).length,
+                    alerts_10_count: alerts10.length,
+                    alerts_30_count: alerts30.length,
+                    logpresso_alarms: logpressoAlarms.length,
+                    hourly_stats: hourlyAvg,
+                    // 예측 성능 지표
+                    accuracy: accuracy,
+                    tp: tp,
+                    tn: tn,
+                    fp: fp,
+                    fn: fn
+                }
+            };
+        }
+
+        function getTypeName(type) {
+            const names = {
+                'summary': '📋 요약 분석',
+                'pattern': '📈 패턴 분석',
+                'prediction': '🔮 예측 분석'
+            };
+            return names[type] || type;
+        }
+
+        // 간단한 마크다운 변환
+        function formatMarkdownSimple(text) {
+            if (!text) return '';
+
+            let html = text;
+
+            // 테이블 처리
+            const tableRegex = /(\|[^\n]+\|\n)(\|[-:\s|]+\|\n)((?:\|[^\n]+\|\n?)+)/g;
+            html = html.replace(tableRegex, function(match, headerRow, sepRow, bodyRows) {
+                const headers = headerRow.split('|').filter(c => c.trim());
+                const thRow = '<tr>' + headers.map(h => `<th>${h.trim()}</th>`).join('') + '</tr>';
+
+                const rows = bodyRows.trim().split('\n').map(row => {
+                    const cells = row.split('|').filter(c => c.trim());
+                    return '<tr>' + cells.map(c => `<td>${c.trim()}</td>`).join('') + '</tr>';
+                }).join('');
+
+                return `<table><thead>${thRow}</thead><tbody>${rows}</tbody></table>\n`;
+            });
+
+            // 코드 블록
+            html = html.replace(/```(\w*)\n([\s\S]*?)```/g, '<pre><code>$2</code></pre>');
+            html = html.replace(/`([^`]+)`/g, '<code>$1</code>');
+
+            // 헤더
+            html = html.replace(/^#### (.+)$/gm, '<h4>$1</h4>');
+            html = html.replace(/^### (.+)$/gm, '<h3>$1</h3>');
+            html = html.replace(/^## (.+)$/gm, '<h2>$1</h2>');
+            html = html.replace(/^# (.+)$/gm, '<h1>$1</h1>');
+
+            // 수평선
+            html = html.replace(/^---+$/gm, '<hr>');
+
+            // 볼드/이탤릭
+            html = html.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+            html = html.replace(/\*([^*]+)\*/g, '<em>$1</em>');
+
+            // 리스트
+            html = html.replace(/^(\d+)\. (.+)$/gm, '<li>$2</li>');
+            html = html.replace(/^- (.+)$/gm, '<li>$1</li>');
+
+            // 줄바꿈
+            html = html.replace(/\n\n+/g, '</p><p>');
+            html = html.replace(/\n/g, '<br>');
+
+            // p 태그 정리
+            html = '<p>' + html + '</p>';
+            html = html.replace(/<p>\s*<\/p>/g, '');
+            html = html.replace(/<p>\s*(<h[1-4]>)/g, '$1');
+            html = html.replace(/(<\/h[1-4]>)\s*<\/p>/g, '$1');
+            html = html.replace(/<p>\s*(<table>)/g, '$1');
+            html = html.replace(/(<\/table>)\s*<\/p>/g, '$1');
+            html = html.replace(/<p>\s*(<hr>)/g, '$1');
+            html = html.replace(/<p><br>/g, '<p>');
+
+            return html;
+        }
+
+        // 모달 외부 클릭시 닫기
+        document.getElementById('llm-modal').addEventListener('click', function(e) {
+            if (e.target === this) {
+                closeLlmModal();
+            }
+        });
     </script>
 </body>
 </html>
