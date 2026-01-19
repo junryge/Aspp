@@ -2,29 +2,26 @@
 # -*- coding: utf-8 -*-
 """
 Tool Planner 테스트 서버
-- build_tool_artifacts.py 기능 (Tool Registry 빌드)
-- test_tool_planner_debug.py 기능 (Planner 테스트)
-- service_langgraph_app.py 기능 (전체 파이프라인 실행)
+- 하이닉스 LLM API 사용 (OpenAI 호환)
+- TF-IDF 기반 Tool Retrieval
+- token.txt에서 API 토큰 로드
 
-.env 파일에 GOOGLE_API_KEY 설정 필요
+필요 패키지:
+pip install fastapi uvicorn pydantic requests scikit-learn
 """
 
 import os
+import re
 import json
 import hashlib
+import requests
 from dataclasses import dataclass, asdict
 from typing import Any, Dict, List, Optional, Tuple, Set, Iterable
-from datetime import datetime
 
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse, JSONResponse
-from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 import logging
-
-# 환경변수 로드
-from dotenv import load_dotenv
-load_dotenv(override=True)
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -36,15 +33,34 @@ app = FastAPI(title="Tool Planner 테스트 시스템")
 # =========================================================
 tool_specs: Dict[str, Any] = {}
 retriever = None
-llm = None
 ARTIFACTS_DIR = "test"
-API_STATUS = {"available": False, "message": ""}
+
+# API 설정
 API_TOKEN = None
+ENV_MODE = "dev"  # "dev" or "prod"
+
+ENV_CONFIG = {
+    "dev": {
+        "url": "http://dev.assistant.llm.skhynix.com/v1/chat/completions",
+        "model": "Qwen3-Coder-30B-A3B-Instruct",
+        "name": "개발(30B)"
+    },
+    "prod": {
+        "url": "http://summary.llm.skhynix.com/v1/chat/completions",
+        "model": "Qwen3-Next-80B-A3B-Instruct",
+        "name": "운영(80B)"
+    }
+}
+
+API_STATUS = {"available": False, "message": "", "env": "dev"}
 
 
+# =========================================================
+# API 토큰 로드
+# =========================================================
 def load_api_token():
-    """token.txt에서 API 토큰 로드 (하이닉스 개발/운영 키)"""
-    global API_TOKEN
+    """token.txt에서 API 토큰 로드"""
+    global API_TOKEN, API_STATUS
     
     token_paths = ["token.txt", "./token.txt", "../token.txt"]
     
@@ -53,27 +69,76 @@ def load_api_token():
             try:
                 with open(path, "r", encoding="utf-8") as f:
                     token = f.read().strip()
-                    if token:
+                    if token and not token.startswith("#"):
                         API_TOKEN = token
-                        # 환경변수로도 설정 (google-genai 라이브러리용)
-                        os.environ["GOOGLE_API_KEY"] = token
-                        logger.info(f"✅ token.txt에서 API 토큰 로드 완료: {path}")
+                        API_STATUS = {
+                            "available": True,
+                            "message": f"토큰 로드 완료 ({path})",
+                            "env": ENV_MODE
+                        }
+                        logger.info(f"✅ token.txt 로드 완료: {path}")
                         return True
             except Exception as e:
                 logger.warning(f"⚠️ token.txt 읽기 실패: {e}")
     
-    # .env에서도 확인
-    token = os.getenv("GOOGLE_API_KEY") or os.getenv("GEMINI_API_KEY")
-    if token:
-        API_TOKEN = token
-        os.environ["GOOGLE_API_KEY"] = token
-        logger.info("✅ 환경변수에서 API 토큰 로드 완료")
-        return True
-    
+    API_STATUS = {"available": False, "message": "token.txt 없음", "env": ENV_MODE}
     return False
 
+
 # =========================================================
-# ToolSpec 정의 (공통)
+# LLM API 호출
+# =========================================================
+def call_llm_api(prompt: str, system_prompt: str = "", max_tokens: int = 2000) -> str:
+    """하이닉스 LLM API 호출"""
+    global API_TOKEN, ENV_MODE
+    
+    if not API_TOKEN:
+        return "ERROR: API 토큰이 없습니다. token.txt를 확인하세요."
+    
+    config = ENV_CONFIG[ENV_MODE]
+    
+    headers = {
+        "Authorization": f"Bearer {API_TOKEN}",
+        "Content-Type": "application/json"
+    }
+    
+    messages = []
+    if system_prompt:
+        messages.append({"role": "system", "content": system_prompt})
+    messages.append({"role": "user", "content": prompt})
+    
+    data = {
+        "model": config["model"],
+        "messages": messages,
+        "max_tokens": max_tokens,
+        "temperature": 0.1
+    }
+    
+    try:
+        response = requests.post(config["url"], headers=headers, json=data, timeout=120)
+        
+        if response.status_code == 200:
+            result = response.json()
+            content = result["choices"][0]["message"]["content"]
+            
+            # Qwen3 thinking 태그 제거
+            content = re.sub(r'<think>.*?</think>', '', content, flags=re.DOTALL)
+            content = re.sub(r'<think>.*', '', content, flags=re.DOTALL)
+            
+            return content.strip()
+        else:
+            logger.error(f"API error: {response.status_code} - {response.text}")
+            return f"ERROR: API {response.status_code}"
+            
+    except requests.exceptions.Timeout:
+        return "ERROR: API 타임아웃"
+    except Exception as e:
+        logger.error(f"API 호출 실패: {e}")
+        return f"ERROR: {e}"
+
+
+# =========================================================
+# ToolSpec 정의
 # =========================================================
 @dataclass
 class ToolSpec:
@@ -108,27 +173,21 @@ def sha256_of_registry(registry: List[ToolSpec]) -> str:
 
 
 # =========================================================
-# Pydantic Models (API)
+# Pydantic Models
 # =========================================================
 class BuildRequest(BaseModel):
-    tools: Optional[List[dict]] = None  # 커스텀 툴 정의 (없으면 기본값 사용)
+    tools: Optional[List[dict]] = None
 
 
 class TestQueryRequest(BaseModel):
     query: str
     k: int = 4
     max_iters: int = 3
-    model: str = "gemini-2.0-flash"
     fab_list: List[str] = ["M12", "M14", "M16"]
-    refresh_retrieve: bool = False
 
 
-class RunPipelineRequest(BaseModel):
-    query: str
-    model: str = "gemini-2.0-flash"
-    fab_list: List[str] = ["M12", "M14", "M16"]
-    max_iters: int = 3
-    k: int = 4
+class EnvSwitchRequest(BaseModel):
+    env: str  # "dev" or "prod"
 
 
 # =========================================================
@@ -211,39 +270,24 @@ DEFAULT_REGISTRY = [
 
 
 # =========================================================
-# Tool Retriever 클래스
+# Tool Retriever (TF-IDF 기반)
 # =========================================================
-class ToolRetriever:
-    def __init__(self, tool_index_path: str):
-        import joblib
-        import numpy as np
-        from google import genai
+class ToolRetrieverTFIDF:
+    def __init__(self, tool_names: List[str], tool_texts: List[str]):
+        from sklearn.feature_extraction.text import TfidfVectorizer
+        from sklearn.metrics.pairwise import cosine_similarity
         
-        self.idx = joblib.load(tool_index_path)
-        self.model_name = self.idx["embedding_model"]
-        self.tool_names = list(self.idx["tool_names"])
-        self.tool_texts = list(self.idx.get("tool_texts", []))
-        self.tool_vectors = np.asarray(self.idx["tool_vectors"], dtype=np.float32)
-        
-        # L2 정규화
-        n = np.linalg.norm(self.tool_vectors, axis=-1, keepdims=True)
-        self.tool_vectors = self.tool_vectors / np.maximum(n, 1e-12)
-        
-        self.client = genai.Client()
-    
-    def embed_query(self, query: str):
-        import numpy as np
-        res = self.client.models.embed_content(model=self.model_name, contents=query)
-        v = np.asarray(res.embeddings[0].values, dtype=np.float32)
-        n = np.linalg.norm(v)
-        return v / max(n, 1e-12)
+        self.tool_names = tool_names
+        self.tool_texts = tool_texts
+        self.vectorizer = TfidfVectorizer()
+        self.tool_vectors = self.vectorizer.fit_transform(tool_texts)
+        self._cosine_similarity = cosine_similarity
     
     def retrieve_with_scores(self, query: str, k: int = 4) -> List[Tuple[str, float]]:
-        import numpy as np
-        qv = self.embed_query(query)
-        sims = self.tool_vectors @ qv
-        idxs = np.argsort(sims)[::-1][:k]
-        return [(self.tool_names[i], float(sims[i])) for i in idxs]
+        query_vec = self.vectorizer.transform([query])
+        sims = self._cosine_similarity(query_vec, self.tool_vectors)[0]
+        indices = sims.argsort()[::-1][:k]
+        return [(self.tool_names[i], float(sims[i])) for i in indices]
 
 
 # =========================================================
@@ -285,7 +329,6 @@ def static_validate_plan(plan_dict: dict, specs: Dict[str, ToolSpec]) -> dict:
     errors = []
     steps = plan_dict.get("steps", [])
     
-    # 0) tool 존재 확인
     for i, step in enumerate(steps, start=1):
         tool_name = step.get("tool", "")
         if tool_name not in specs:
@@ -301,7 +344,6 @@ def static_validate_plan(plan_dict: dict, specs: Dict[str, ToolSpec]) -> dict:
         spec = specs[tool_name]
         args = step.get("args", {}) or {}
         
-        # 1) preconditions
         for pc in (spec.preconditions or []):
             key = _parse_requires_key(pc)
             if not key:
@@ -313,7 +355,6 @@ def static_validate_plan(plan_dict: dict, specs: Dict[str, ToolSpec]) -> dict:
                 if not _has_any([key], args, produced_keys, runtime_fillable):
                     errors.append(f"STEP{i}: PRECONDITION '{pc}' not satisfied for '{tool_name}'")
         
-        # 2) forbidden
         for fb in (spec.forbidden or []):
             key = _parse_do_not_run_without_key(fb)
             if not key:
@@ -325,46 +366,36 @@ def static_validate_plan(plan_dict: dict, specs: Dict[str, ToolSpec]) -> dict:
                 if not _has_any([key], args, produced_keys, runtime_fillable):
                     errors.append(f"STEP{i}: FORBIDDEN '{fb}' violated for '{tool_name}'")
         
-        # 3) required_inputs
         for req_key in (spec.required_inputs or {}).keys():
             if req_key in runtime_fillable or req_key in nullable_inputs:
                 continue
             if not _has_any([req_key], args, produced_keys, runtime_fillable):
                 errors.append(f"STEP{i}: REQUIRED_INPUT '{req_key}' missing for '{tool_name}'")
         
-        # 4) outputs 반영
         for out_key in (spec.outputs or {}).keys():
             produced_keys.add(out_key)
     
     ok = len(errors) == 0
-    suggested_fix = ""
-    if not ok:
-        suggested_fix = "정적(I/O) 검증 실패: Plan을 '실행 가능'하게 수정하세요."
+    suggested_fix = "" if ok else "정적(I/O) 검증 실패: Plan을 '실행 가능'하게 수정하세요."
     
     return {"ok": ok, "errors": errors, "suggested_fix": suggested_fix}
 
 
 # =========================================================
-# 서버 시작 이벤트
+# 서버 시작
 # =========================================================
 @app.on_event("startup")
 async def startup():
-    global API_STATUS, tool_specs, retriever
+    global tool_specs, retriever
     
-    # 디렉토리 생성
     os.makedirs(ARTIFACTS_DIR, exist_ok=True)
     
-    # API 토큰 로드 (token.txt 우선)
-    if load_api_token():
-        API_STATUS = {"available": True, "message": "API 토큰 설정됨 (token.txt)"}
-        logger.info("✅ API 토큰 설정됨")
-    else:
-        API_STATUS = {"available": False, "message": "token.txt 파일이 없거나 비어있습니다"}
-        logger.warning("⚠️ API 토큰이 설정되지 않았습니다. token.txt 파일을 확인하세요.")
+    # API 토큰 로드
+    load_api_token()
     
-    # 기존 아티팩트 로드 시도
+    # 기존 아티팩트 로드
     registry_path = os.path.join(ARTIFACTS_DIR, "tool_registry.json")
-    index_path = os.path.join(ARTIFACTS_DIR, "tool_index.joblib")
+    index_path = os.path.join(ARTIFACTS_DIR, "tool_index.json")
     
     if os.path.exists(registry_path):
         try:
@@ -373,9 +404,11 @@ async def startup():
         except Exception as e:
             logger.warning(f"⚠️ Tool Registry 로드 실패: {e}")
     
-    if os.path.exists(index_path) and API_STATUS["available"]:
+    if os.path.exists(index_path):
         try:
-            retriever = ToolRetriever(index_path)
+            with open(index_path, "r", encoding="utf-8") as f:
+                idx_data = json.load(f)
+            retriever = ToolRetrieverTFIDF(idx_data["tool_names"], idx_data["tool_texts"])
             logger.info("✅ Tool Index 로드 완료")
         except Exception as e:
             logger.warning(f"⚠️ Tool Index 로드 실패: {e}")
@@ -391,15 +424,17 @@ async def home():
 
 @app.get("/api/status")
 async def get_status():
-    """시스템 상태 반환"""
-    global tool_specs, retriever, API_STATUS
+    global tool_specs, retriever, API_STATUS, ENV_MODE
     
     registry_path = os.path.join(ARTIFACTS_DIR, "tool_registry.json")
-    index_path = os.path.join(ARTIFACTS_DIR, "tool_index.joblib")
+    index_path = os.path.join(ARTIFACTS_DIR, "tool_index.json")
     
     return {
         "api_available": API_STATUS["available"],
         "api_message": API_STATUS["message"],
+        "env_mode": ENV_MODE,
+        "env_name": ENV_CONFIG[ENV_MODE]["name"],
+        "env_model": ENV_CONFIG[ENV_MODE]["model"],
         "registry_exists": os.path.exists(registry_path),
         "index_exists": os.path.exists(index_path),
         "tool_count": len(tool_specs),
@@ -408,64 +443,68 @@ async def get_status():
     }
 
 
+@app.post("/api/switch_env")
+async def switch_env(request: EnvSwitchRequest):
+    """개발/운영 환경 전환"""
+    global ENV_MODE, API_STATUS
+    
+    if request.env not in ["dev", "prod"]:
+        raise HTTPException(status_code=400, detail="env는 'dev' 또는 'prod'여야 합니다.")
+    
+    ENV_MODE = request.env
+    API_STATUS["env"] = ENV_MODE
+    
+    config = ENV_CONFIG[ENV_MODE]
+    logger.info(f"✅ 환경 전환: {config['name']}")
+    
+    return {
+        "success": True,
+        "env": ENV_MODE,
+        "name": config["name"],
+        "model": config["model"]
+    }
+
+
 @app.post("/api/build")
 async def build_artifacts(request: BuildRequest):
     """Tool Registry 및 Index 빌드"""
     global tool_specs, retriever
     
-    if not API_STATUS["available"]:
-        raise HTTPException(status_code=500, detail="token.txt 파일이 없거나 비어있습니다. API 토큰을 설정하세요.")
-    
     try:
-        import numpy as np
-        import joblib
-        from google import genai
-        
-        # 1) Registry 정의
         if request.tools:
             registry = [ToolSpec(**t) for t in request.tools]
         else:
             registry = DEFAULT_REGISTRY
         
         registry_hash = sha256_of_registry(registry)
-        
-        # 2) Tool description text 생성
+        tool_names = [t.tool_name for t in registry]
         tool_texts = [tool_to_desc_text(t) for t in registry]
         
-        # 3) 임베딩 생성
-        EMBEDDING_MODEL = "gemini-embedding-001"
-        client = genai.Client()
-        result = client.models.embed_content(model=EMBEDDING_MODEL, contents=tool_texts)
-        vectors = [emb.values for emb in result.embeddings]
-        tool_vecs = np.asarray(vectors, dtype=np.float32)
-        
-        # 4) 아티팩트 저장
+        # Registry 저장
         registry_path = os.path.join(ARTIFACTS_DIR, "tool_registry.json")
-        index_path = os.path.join(ARTIFACTS_DIR, "tool_index.joblib")
-        
         with open(registry_path, "w", encoding="utf-8") as f:
             json.dump([asdict(t) for t in registry], f, ensure_ascii=False, indent=2)
         
-        joblib.dump({
-            "embedding_model": EMBEDDING_MODEL,
-            "registry_hash": registry_hash,
-            "tool_names": [t.tool_name for t in registry],
-            "tool_texts": tool_texts,
-            "tool_vectors": tool_vecs,
-        }, index_path)
+        # Index 저장
+        index_path = os.path.join(ARTIFACTS_DIR, "tool_index.json")
+        with open(index_path, "w", encoding="utf-8") as f:
+            json.dump({
+                "registry_hash": registry_hash,
+                "tool_names": tool_names,
+                "tool_texts": tool_texts,
+            }, f, ensure_ascii=False, indent=2)
         
-        # 5) 전역 변수 업데이트
+        # 전역 변수 업데이트
         tool_specs = {t.tool_name: t for t in registry}
-        retriever = ToolRetriever(index_path)
+        retriever = ToolRetrieverTFIDF(tool_names, tool_texts)
         
-        logger.info(f"✅ 빌드 완료: {len(registry)} tools, shape={tool_vecs.shape}")
+        logger.info(f"✅ 빌드 완료: {len(registry)} tools")
         
         return {
             "success": True,
             "message": f"빌드 완료: {len(registry)} tools",
             "registry_hash": registry_hash,
-            "embedding_shape": list(tool_vecs.shape),
-            "tools": [t.tool_name for t in registry]
+            "tools": tool_names
         }
         
     except Exception as e:
@@ -477,58 +516,54 @@ async def build_artifacts(request: BuildRequest):
 
 @app.post("/api/test")
 async def test_query(request: TestQueryRequest):
-    """Tool Planner 테스트 (단일 쿼리)"""
-    global tool_specs, retriever
-    
-    if not API_STATUS["available"]:
-        raise HTTPException(status_code=500, detail="token.txt 파일이 없거나 비어있습니다. API 토큰을 설정하세요.")
+    """Tool Planner 테스트"""
+    global tool_specs, retriever, API_STATUS
     
     if not retriever:
         raise HTTPException(status_code=400, detail="먼저 빌드를 실행하세요")
     
+    if not API_STATUS["available"]:
+        raise HTTPException(status_code=400, detail="token.txt가 없습니다. API 토큰을 설정하세요.")
+    
     try:
-        from langchain_google_genai import ChatGoogleGenerativeAI
-        from langchain_core.messages import SystemMessage, HumanMessage
-        
-        llm = ChatGoogleGenerativeAI(model=request.model, temperature=0.0)
-        
         feedbacks = []
         trace = []
         
         # 1) ReQuery
-        requery_sys = SystemMessage(content=(
-            "너는 Re-Query 정규화기다.\n"
-            "할 일:\n"
-            "1) 입력 문장의 오타/비문을 자연스럽게 고치고 핵심 질문으로 요약한다.\n"
-            "2) fab_list(공식 fab 코드 목록)에 해당한다고 '확신'하면, 그 fab 코드를 fabs 리스트에 넣고,\n"
-            "   normalized_query에는 fab 코드를 반영한다. (예: '14번 공장' -> 'M14')\n"
-            "3) fab_list에 매핑할 수 없으면(예: ABC123), 억지로 fab로 바꾸지 말고 원문 의미를 유지한다.\n"
-            "4) carrier/lot 등 ID로 보이는 토큰이 있으면 id_candidates에 넣는다(복수 가능).\n"
-            "출력은 순수 JSON만.\n"
-            "스키마:\n"
-            "{\n"
-            '  "normalized_query": "...",\n'
-            '  "fabs": ["M14"],\n'
-            '  "id_candidates": ["ABC123"],\n'
-            '  "notes": "..."\n'
-            "}\n"
-        ))
-        requery_user = HumanMessage(content=f"[INPUT QUERY]\n{request.query}\n\n[fab_list]\n{request.fab_list}\n\nReturn JSON only.")
+        requery_system = """너는 Re-Query 정규화기다.
+할 일:
+1) 입력 문장의 오타/비문을 자연스럽게 고치고 핵심 질문으로 요약한다.
+2) fab_list(공식 fab 코드 목록)에 해당한다고 '확신'하면, 그 fab 코드를 fabs 리스트에 넣고, normalized_query에는 fab 코드를 반영한다. (예: '14번 공장' -> 'M14')
+3) fab_list에 매핑할 수 없으면(예: ABC123), 억지로 fab로 바꾸지 말고 원문 의미를 유지한다.
+4) carrier/lot 등 ID로 보이는 토큰이 있으면 id_candidates에 넣는다(복수 가능).
+출력은 순수 JSON만. 코드블록/설명 금지.
+스키마:
+{
+  "normalized_query": "...",
+  "fabs": ["M14"],
+  "id_candidates": ["ABC123"],
+  "notes": "..."
+}"""
         
-        requery_raw = llm.invoke([requery_sys, requery_user]).content or ""
+        requery_user = f"""[INPUT QUERY]
+{request.query}
+
+[fab_list]
+{request.fab_list}
+
+Return JSON only."""
+        
+        requery_raw = call_llm_api(requery_user, requery_system, max_tokens=500)
         requery_json = extract_json_object(requery_raw)
         
         if requery_json:
-            requery_result = json.loads(requery_json)
+            try:
+                requery_result = json.loads(requery_json)
+            except:
+                requery_result = {"normalized_query": request.query, "fabs": [], "id_candidates": [], "notes": "PARSE_FAIL"}
         else:
-            requery_result = {
-                "normalized_query": request.query,
-                "fabs": [],
-                "id_candidates": [],
-                "notes": "REQUERY_PARSE_FAIL"
-            }
+            requery_result = {"normalized_query": request.query, "fabs": [], "id_candidates": [], "notes": "NO_JSON"}
         
-        # fab_list에 있는 것만 필터
         fabs = [x for x in requery_result.get("fabs", []) if x in request.fab_list]
         normalized_query = requery_result.get("normalized_query", request.query)
         id_candidates = requery_result.get("id_candidates", [])
@@ -562,18 +597,15 @@ async def test_query(request: TestQueryRequest):
             if feedbacks:
                 feedback_block = "\n\n[FEEDBACK]\n" + "\n".join(f"- {x}" for x in feedbacks[-3:])
             
-            plan_sys = SystemMessage(content=(
-                "너는 Tool Planner다. 사용자 질의에 답하기 위해 tool 실행 계획(순서 포함)을 만든다.\n"
-                "출력 규칙(매우 중요):\n"
-                "1) 출력은 순수 JSON만. 코드블록/설명 금지.\n"
-                "2) 최상위 키는 steps, can_answer_after 두 개만.\n"
-                "3) steps의 각 step은 tool, args, expects 키만.\n"
-                "4) expects는 list[str].\n"
-                "5) args에는 placeholder(예: {{...}})를 넣지 말 것.\n"
-                "   이전 step 결과가 필요하면 args에서 생략해라(실행기에서 자동 주입한다).\n"
-            ))
+            plan_system = """너는 Tool Planner다. 사용자 질의에 답하기 위해 tool 실행 계획(순서 포함)을 만든다.
+출력 규칙(매우 중요):
+1) 출력은 순수 JSON만. 코드블록/설명 금지.
+2) 최상위 키는 steps, can_answer_after 두 개만.
+3) steps의 각 step은 tool, args, expects 키만.
+4) expects는 list[str].
+5) args에는 placeholder(예: {{...}})를 넣지 말 것. 이전 step 결과가 필요하면 args에서 생략해라(실행기에서 자동 주입한다)."""
             
-            plan_user = HumanMessage(content=f"""[ORIGINAL QUERY]
+            plan_user = f"""[ORIGINAL QUERY]
 {request.query}
 
 [NORMALIZED QUERY]
@@ -589,19 +621,16 @@ async def test_query(request: TestQueryRequest):
 [CONTEXT]
 - fab_list: {request.fab_list}
 
-Return Plan JSON only.
-""")
+Return Plan JSON only."""
             
             try:
-                plan_raw = llm.invoke([plan_sys, plan_user]).content or ""
+                plan_raw = call_llm_api(plan_user, plan_system, max_tokens=1000)
                 plan_json = extract_json_object(plan_raw)
                 
                 if not plan_json:
                     raise ValueError("No JSON object found in planner output")
                 
                 plan_dict = json.loads(plan_json)
-                
-                # Validation
                 validation = static_validate_plan(plan_dict, tool_specs)
                 
                 trace.append({
