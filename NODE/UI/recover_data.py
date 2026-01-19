@@ -2,7 +2,7 @@
 """
 ================================================================================
 M14 데이터 복구 스크립트
-- m14_data.py의 함수 사용하여 로그프레소에서 데이터 조회
+- evaluator.py의 get_logpresso_data_range 함수 활용
 - predictor로 예측값 계산하여 data, pred CSV 파일 재생성
 - 사용법: python recover_data.py 20250115 20250119
 ================================================================================
@@ -13,8 +13,8 @@ import sys
 import pandas as pd
 from datetime import datetime, timedelta
 
-# 기존 모듈 import
-import m14_data
+# evaluator.py에서 로그프레소 조회 함수 import
+import evaluator
 
 DATA_DIR = 'data'
 
@@ -51,8 +51,8 @@ def get_data_for_date(date_str):
     
     print(f"\n[조회] {date_str} ({from_time} ~ {to_time})")
     
-    # m14_data.py의 함수 사용
-    df = m14_data.get_realtime_data_range(from_time, to_time)
+    # evaluator.py의 함수 사용
+    df = evaluator.get_logpresso_data_range(from_time, to_time)
     
     if df is None or len(df) == 0:
         print("  → 데이터 없음")
@@ -84,7 +84,6 @@ def calculate_predictions(df_all, target_date):
         pred_30 = 0
         
         if PREDICTOR_AVAILABLE:
-            # 현재 위치까지의 데이터 (시퀀스용)
             # df_all에서 현재 시간까지의 인덱스 찾기
             mask = df_all['CURRTIME'] <= curr_time
             idx = mask.sum()
@@ -111,8 +110,8 @@ def calculate_predictions(df_all, target_date):
             'PREDICT_30': pred_30
         })
         
-        # 진행률 표시 (50개마다)
-        if (count + 1) % 50 == 0 or count + 1 == total:
+        # 진행률 표시 (100개마다)
+        if (count + 1) % 100 == 0 or count + 1 == total:
             pct = (count + 1) / total * 100
             print(f"  → 예측 진행: {count + 1}/{total} ({pct:.1f}%)")
     
@@ -169,11 +168,11 @@ def recover_date(date_str, df_prev=None):
 def recover_range(start_date, end_date):
     """날짜 범위 복구"""
     print("=" * 60)
-    print("M14 데이터 복구 시작")
+    print("M14 데이터 복구 시작 (evaluator 로그프레소 사용)")
     print("=" * 60)
     print(f"기간: {start_date} ~ {end_date}")
     print(f"저장 경로: {DATA_DIR}/")
-    print(f"예측 모듈: {'사용 가능' if PREDICTOR_AVAILABLE else '사용 불가 (예측값 0)'}")
+    print(f"예측 모듈: {'✅ 사용 가능' if PREDICTOR_AVAILABLE else '❌ 사용 불가 (예측값 0)'}")
     print("=" * 60)
     
     # 날짜 리스트 생성
@@ -207,13 +206,25 @@ def recover_range(start_date, end_date):
             success_count += 1
     
     print("\n" + "=" * 60)
-    print(f"복구 완료: {success_count}/{len(dates)}일")
+    print(f"✅ 복구 완료: {success_count}/{len(dates)}일")
     print("=" * 60)
+    
+    if success_count > 0:
+        print(f"\n생성된 파일:")
+        for date_str in dates:
+            data_file = os.path.join(DATA_DIR, f'm14_data_{date_str}.csv')
+            pred_file = os.path.join(DATA_DIR, f'm14_pred_{date_str}.csv')
+            if os.path.exists(data_file):
+                print(f"  ✅ {data_file}")
+                print(f"  ✅ {pred_file}")
 
 
 def main():
     if len(sys.argv) < 2:
-        print("사용법:")
+        print("=" * 60)
+        print("M14 데이터 복구 스크립트")
+        print("=" * 60)
+        print("\n사용법:")
         print("  python recover_data.py 20250115           # 특정 날짜")
         print("  python recover_data.py 20250115 20250119  # 날짜 범위")
         print("")
