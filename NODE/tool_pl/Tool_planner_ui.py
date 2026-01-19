@@ -50,6 +50,14 @@
             border: 1px solid #2a2a4a;
         }
 
+        .status-card .api-note {
+            font-size: 10px;
+            color: #666;
+            margin-top: 8px;
+            padding-top: 8px;
+            border-top: 1px solid #2a2a4a;
+        }
+
         .status-item {
             display: flex;
             justify-content: space-between;
@@ -482,6 +490,9 @@
                 <div class="status-item">
                     <span>Tool 수</span>
                     <span id="toolCount">0</span>
+                </div>
+                <div class="api-note">
+                    💡 API 토큰: token.txt
                 </div>
             </div>
             
