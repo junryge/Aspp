@@ -1,8 +1,29 @@
-# 서버 (UDP 6000, TCP 8000)
-python run_server.py --udp-port 6000 --tcp-port 8000
+# 터미널 1: 서버
+python run_server.py --udp-port 6000 --tcp-port 7000
 
-# 시뮬레이터 (서버 UDP 6000으로 송신)
-python run_simulator.py --host 127.0.0.1 --port 6000
+# 터미널 2: 시뮬레이터 (UDP 6000으로 송신)
+python run_simulator.py --port 6000
 
-# 클라이언트 (서버 TCP 8000으로 접속)
-python run_client.py --host 127.0.0.1 --port 8000
+# 터미널 3: 클라이언트 (TCP 7000으로 접속)
+python run_client.py --port 7000
+```
+
+---
+
+## 구조
+```
+┌─────────────────┐
+│  MCP Simulator  │
+└────────┬────────┘
+         │ UDP :6000
+         ▼
+┌─────────────────┐
+│   OHT Server    │
+│  UDP:6000 수신  │
+│  TCP:7000 서비스│
+└────────┬────────┘
+         │ TCP :7000
+         ▼
+┌─────────────────┐
+│   OHT Client    │
+└─────────────────┘
