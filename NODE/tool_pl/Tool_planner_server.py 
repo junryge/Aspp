@@ -39,6 +39,38 @@ retriever = None
 llm = None
 ARTIFACTS_DIR = "test"
 API_STATUS = {"available": False, "message": ""}
+API_TOKEN = None
+
+
+def load_api_token():
+    """token.txt에서 API 토큰 로드 (하이닉스 개발/운영 키)"""
+    global API_TOKEN
+    
+    token_paths = ["token.txt", "./token.txt", "../token.txt"]
+    
+    for path in token_paths:
+        if os.path.exists(path):
+            try:
+                with open(path, "r", encoding="utf-8") as f:
+                    token = f.read().strip()
+                    if token:
+                        API_TOKEN = token
+                        # 환경변수로도 설정 (google-genai 라이브러리용)
+                        os.environ["GOOGLE_API_KEY"] = token
+                        logger.info(f"✅ token.txt에서 API 토큰 로드 완료: {path}")
+                        return True
+            except Exception as e:
+                logger.warning(f"⚠️ token.txt 읽기 실패: {e}")
+    
+    # .env에서도 확인
+    token = os.getenv("GOOGLE_API_KEY") or os.getenv("GEMINI_API_KEY")
+    if token:
+        API_TOKEN = token
+        os.environ["GOOGLE_API_KEY"] = token
+        logger.info("✅ 환경변수에서 API 토큰 로드 완료")
+        return True
+    
+    return False
 
 # =========================================================
 # ToolSpec 정의 (공통)
@@ -322,14 +354,13 @@ async def startup():
     # 디렉토리 생성
     os.makedirs(ARTIFACTS_DIR, exist_ok=True)
     
-    # API 키 확인
-    api_key = os.getenv("GOOGLE_API_KEY") or os.getenv("GEMINI_API_KEY")
-    if api_key:
-        API_STATUS = {"available": True, "message": "Google API 키 설정됨"}
-        logger.info("✅ Google API 키 설정됨")
+    # API 토큰 로드 (token.txt 우선)
+    if load_api_token():
+        API_STATUS = {"available": True, "message": "API 토큰 설정됨 (token.txt)"}
+        logger.info("✅ API 토큰 설정됨")
     else:
-        API_STATUS = {"available": False, "message": "GOOGLE_API_KEY가 .env에 없습니다"}
-        logger.warning("⚠️ GOOGLE_API_KEY가 설정되지 않았습니다")
+        API_STATUS = {"available": False, "message": "token.txt 파일이 없거나 비어있습니다"}
+        logger.warning("⚠️ API 토큰이 설정되지 않았습니다. token.txt 파일을 확인하세요.")
     
     # 기존 아티팩트 로드 시도
     registry_path = os.path.join(ARTIFACTS_DIR, "tool_registry.json")
@@ -383,7 +414,7 @@ async def build_artifacts(request: BuildRequest):
     global tool_specs, retriever
     
     if not API_STATUS["available"]:
-        raise HTTPException(status_code=500, detail="GOOGLE_API_KEY가 설정되지 않았습니다")
+        raise HTTPException(status_code=500, detail="token.txt 파일이 없거나 비어있습니다. API 토큰을 설정하세요.")
     
     try:
         import numpy as np
@@ -450,7 +481,7 @@ async def test_query(request: TestQueryRequest):
     global tool_specs, retriever
     
     if not API_STATUS["available"]:
-        raise HTTPException(status_code=500, detail="GOOGLE_API_KEY가 설정되지 않았습니다")
+        raise HTTPException(status_code=500, detail="token.txt 파일이 없거나 비어있습니다. API 토큰을 설정하세요.")
     
     if not retriever:
         raise HTTPException(status_code=400, detail="먼저 빌드를 실행하세요")
