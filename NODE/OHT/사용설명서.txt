@@ -1,16 +1,15 @@
 netstat -ano | findstr "5000 9000"
+# 터미널 1: 서버 (UDP 6000, TCP 7000)
+python run_server.py --udp-port 6000 --tcp-port 7000
 
-# 터미널 1: 서버 (UDP 5000, TCP 9000)
-python run_server.py
+# 터미널 2: 시뮬레이터 (UDP 6000으로 송신)
+python run_simulator.py --port 6000 --vehicles 20
 
-# 터미널 2: 시뮬레이터 (UDP 5000으로 송신)
-python run_simulator.py --vehicles 20
+# 터미널 3: 클라이언트 (TCP 7000)
+python run_client.py --port 7000
 
-# 터미널 3: 클라이언트 (CLI, TCP 9000)
-python run_client.py
-
-# 터미널 4: 웹 (HTTP 8080 → TCP 9000 연결)
-python run_web.py
+# 터미널 4: 웹 (HTTP 8080 → TCP 7000)
+python run_web.py --oht-port 7000
 ```
 ```
 
