@@ -1,3 +1,5 @@
+netstat -ano | findstr "5000 9000"
+
 # 터미널 1: 서버
 python run_server.py
 
