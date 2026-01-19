@@ -1,8 +1,8 @@
-# 터미널 1: 서버 실행
-python run_server.py
+# 서버 (UDP 6000, TCP 8000)
+python run_server.py --udp-port 6000 --tcp-port 8000
 
-# 터미널 2: 시뮬레이터 실행 (가짜 데이터 UDP 송신)
-python run_simulator.py --vehicles 20
+# 시뮬레이터 (서버 UDP 6000으로 송신)
+python run_simulator.py --host 127.0.0.1 --port 6000
 
-# 터미널 3: 클라이언트 실행 (조회/모니터링)
-python run_client.py
+# 클라이언트 (서버 TCP 8000으로 접속)
+python run_client.py --host 127.0.0.1 --port 8000
