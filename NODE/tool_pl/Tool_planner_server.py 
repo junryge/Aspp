@@ -1,0 +1,654 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+Tool Planner 테스트 서버
+- build_tool_artifacts.py 기능 (Tool Registry 빌드)
+- test_tool_planner_debug.py 기능 (Planner 테스트)
+- service_langgraph_app.py 기능 (전체 파이프라인 실행)
+
+.env 파일에 GOOGLE_API_KEY 설정 필요
+"""
+
+import os
+import json
+import hashlib
+from dataclasses import dataclass, asdict
+from typing import Any, Dict, List, Optional, Tuple, Set, Iterable
+from datetime import datetime
+
+from fastapi import FastAPI, HTTPException
+from fastapi.responses import FileResponse, JSONResponse
+from fastapi.staticfiles import StaticFiles
+from pydantic import BaseModel, Field
+import logging
+
+# 환경변수 로드
+from dotenv import load_dotenv
+load_dotenv(override=True)
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+app = FastAPI(title="Tool Planner 테스트 시스템")
+
+# =========================================================
+# 전역 변수
+# =========================================================
+tool_specs: Dict[str, Any] = {}
+retriever = None
+llm = None
+ARTIFACTS_DIR = "test"
+API_STATUS = {"available": False, "message": ""}
+
+# =========================================================
+# ToolSpec 정의 (공통)
+# =========================================================
+@dataclass
+class ToolSpec:
+    tool_name: str
+    tool_type: str
+    purpose: str
+    required_inputs: Dict[str, str]
+    optional_inputs: Dict[str, str]
+    outputs: Dict[str, str]
+    preconditions: List[str]
+    forbidden: List[str]
+    failure_modes: List[str]
+
+
+def tool_to_desc_text(t: ToolSpec) -> str:
+    return "\n".join([
+        f"[TOOL] {t.tool_name}",
+        f"Type: {t.tool_type}",
+        f"Purpose: {t.purpose}",
+        f"Required Inputs: {json.dumps(t.required_inputs, ensure_ascii=False)}",
+        f"Optional Inputs: {json.dumps(t.optional_inputs, ensure_ascii=False)}",
+        f"Outputs: {json.dumps(t.outputs, ensure_ascii=False)}",
+        f"Preconditions: {t.preconditions}",
+        f"Forbidden: {t.forbidden}",
+        f"Failure Modes: {t.failure_modes}",
+    ])
+
+
+def sha256_of_registry(registry: List[ToolSpec]) -> str:
+    raw = json.dumps([asdict(t) for t in registry], ensure_ascii=False, sort_keys=True).encode("utf-8")
+    return hashlib.sha256(raw).hexdigest()
+
+
+# =========================================================
+# Pydantic Models (API)
+# =========================================================
+class BuildRequest(BaseModel):
+    tools: Optional[List[dict]] = None  # 커스텀 툴 정의 (없으면 기본값 사용)
+
+
+class TestQueryRequest(BaseModel):
+    query: str
+    k: int = 4
+    max_iters: int = 3
+    model: str = "gemini-2.0-flash"
+    fab_list: List[str] = ["M12", "M14", "M16"]
+    refresh_retrieve: bool = False
+
+
+class RunPipelineRequest(BaseModel):
+    query: str
+    model: str = "gemini-2.0-flash"
+    fab_list: List[str] = ["M12", "M14", "M16"]
+    max_iters: int = 3
+    k: int = 4
+
+
+# =========================================================
+# 유틸리티 함수
+# =========================================================
+def extract_json_object(text: str) -> str:
+    if not text:
+        return ""
+    t = text.strip()
+    if t.startswith("```"):
+        t = t.strip().strip("`").strip()
+        lines = t.splitlines()
+        if lines and lines[0].strip().lower().startswith("json"):
+            t = "\n".join(lines[1:]).strip()
+    s = t.find("{")
+    e = t.rfind("}")
+    if s == -1 or e == -1 or e <= s:
+        return ""
+    return t[s:e + 1]
+
+
+def load_tool_registry_from_file(path: str) -> Dict[str, ToolSpec]:
+    with open(path, "r", encoding="utf-8") as f:
+        raw = json.load(f)
+    specs = {}
+    for t in raw:
+        specs[t["tool_name"]] = ToolSpec(**t)
+    return specs
+
+
+# =========================================================
+# 기본 Tool Registry
+# =========================================================
+DEFAULT_REGISTRY = [
+    ToolSpec(
+        tool_name="id_extract_tool",
+        tool_type="llm_tool",
+        purpose="사용자 질의에서 carrier_id 또는 lot_id 후보를 추출/정규화한다.",
+        required_inputs={"query": "string", "fab_list": "list[string]"},
+        optional_inputs={},
+        outputs={"carrier_id": "string?", "lot_id": "string?", "raw_token": "string?", "confidence": "float"},
+        preconditions=[],
+        forbidden=[],
+        failure_modes=["NO_ID_FOUND", "AMBIGUOUS_ID"]
+    ),
+    ToolSpec(
+        tool_name="fab_extract_tool",
+        tool_type="llm_tool",
+        purpose="사용자 질의에서 fab 코드를 추출한다(fab_list 기준).",
+        required_inputs={"query": "string", "fab_list": "list[string]"},
+        optional_inputs={},
+        outputs={"fab": "string?", "confidence": "float"},
+        preconditions=[],
+        forbidden=[],
+        failure_modes=["NO_FAB_FOUND", "AMBIGUOUS_FAB"]
+    ),
+    ToolSpec(
+        tool_name="mcs_db_search_tool",
+        tool_type="runtime_tool",
+        purpose="carrier_id 또는 lot_id로 현재 위치(fab/eqp/port)를 조회한다.",
+        required_inputs={"carrier_id": "string?", "lot_id": "string?"},
+        optional_inputs={"timestamp": "string?"},
+        outputs={"fab": "string", "eqp": "string", "port": "string", "datetime": "string"},
+        preconditions=["requires:carrier_id_or_lot_id"],
+        forbidden=["do_not_run_without:carrier_id_or_lot_id"],
+        failure_modes=["ID_NOT_FOUND", "MULTIPLE_MATCH"]
+    ),
+    ToolSpec(
+        tool_name="star_db_search_tool",
+        tool_type="runtime_tool",
+        purpose="fab 기반으로 반송(리턴/셔틀) 현황을 조회한다.",
+        required_inputs={"fab": "string"},
+        optional_inputs={"time_window": "string?"},
+        outputs={"fab": "string", "return_status": "string", "queue": "int", "avg_queue": "int", "updated_at": "string"},
+        preconditions=["requires:fab"],
+        forbidden=["do_not_run_without:fab"],
+        failure_modes=["FAB_NOT_FOUND", "DB_TIMEOUT"]
+    ),
+]
+
+
+# =========================================================
+# Tool Retriever 클래스
+# =========================================================
+class ToolRetriever:
+    def __init__(self, tool_index_path: str):
+        import joblib
+        import numpy as np
+        from google import genai
+        
+        self.idx = joblib.load(tool_index_path)
+        self.model_name = self.idx["embedding_model"]
+        self.tool_names = list(self.idx["tool_names"])
+        self.tool_texts = list(self.idx.get("tool_texts", []))
+        self.tool_vectors = np.asarray(self.idx["tool_vectors"], dtype=np.float32)
+        
+        # L2 정규화
+        n = np.linalg.norm(self.tool_vectors, axis=-1, keepdims=True)
+        self.tool_vectors = self.tool_vectors / np.maximum(n, 1e-12)
+        
+        self.client = genai.Client()
+    
+    def embed_query(self, query: str):
+        import numpy as np
+        res = self.client.models.embed_content(model=self.model_name, contents=query)
+        v = np.asarray(res.embeddings[0].values, dtype=np.float32)
+        n = np.linalg.norm(v)
+        return v / max(n, 1e-12)
+    
+    def retrieve_with_scores(self, query: str, k: int = 4) -> List[Tuple[str, float]]:
+        import numpy as np
+        qv = self.embed_query(query)
+        sims = self.tool_vectors @ qv
+        idxs = np.argsort(sims)[::-1][:k]
+        return [(self.tool_names[i], float(sims[i])) for i in idxs]
+
+
+# =========================================================
+# Static Validator
+# =========================================================
+def _parse_requires_key(s: str) -> Optional[str]:
+    if s.startswith("requires:"):
+        return s.split("requires:", 1)[1].strip()
+    return None
+
+
+def _parse_do_not_run_without_key(s: str) -> Optional[str]:
+    if s.startswith("do_not_run_without:"):
+        return s.split("do_not_run_without:", 1)[1].strip()
+    return None
+
+
+def _is_present(v: Any) -> bool:
+    if v is None:
+        return False
+    if isinstance(v, str) and v.strip() == "":
+        return False
+    if isinstance(v, (list, dict)) and len(v) == 0:
+        return False
+    return True
+
+
+def _has_any(keys: Iterable[str], args: Dict[str, Any], produced_keys: Set[str], runtime_fillable: Set[str]) -> bool:
+    for k in keys:
+        if _is_present(args.get(k)) or (k in produced_keys) or (k in runtime_fillable):
+            return True
+    return False
+
+
+def static_validate_plan(plan_dict: dict, specs: Dict[str, ToolSpec]) -> dict:
+    runtime_fillable = {"query", "fab_list", "timestamp", "time_window", "normalized_query", "fabs", "id_candidates"}
+    nullable_inputs = {"carrier_id", "lot_id"}
+    
+    errors = []
+    steps = plan_dict.get("steps", [])
+    
+    # 0) tool 존재 확인
+    for i, step in enumerate(steps, start=1):
+        tool_name = step.get("tool", "")
+        if tool_name not in specs:
+            errors.append(f"STEP{i}: UNKNOWN_TOOL '{tool_name}'")
+    
+    if errors:
+        return {"ok": False, "errors": errors, "suggested_fix": "Plan에 registry에 없는 tool이 포함되어 있습니다."}
+    
+    produced_keys: Set[str] = set()
+    
+    for i, step in enumerate(steps, start=1):
+        tool_name = step.get("tool", "")
+        spec = specs[tool_name]
+        args = step.get("args", {}) or {}
+        
+        # 1) preconditions
+        for pc in (spec.preconditions or []):
+            key = _parse_requires_key(pc)
+            if not key:
+                continue
+            if key == "carrier_id_or_lot_id":
+                if not _has_any(["carrier_id", "lot_id"], args, produced_keys, runtime_fillable):
+                    errors.append(f"STEP{i}: PRECONDITION '{pc}' not satisfied for '{tool_name}'")
+            else:
+                if not _has_any([key], args, produced_keys, runtime_fillable):
+                    errors.append(f"STEP{i}: PRECONDITION '{pc}' not satisfied for '{tool_name}'")
+        
+        # 2) forbidden
+        for fb in (spec.forbidden or []):
+            key = _parse_do_not_run_without_key(fb)
+            if not key:
+                continue
+            if key == "carrier_id_or_lot_id":
+                if not _has_any(["carrier_id", "lot_id"], args, produced_keys, runtime_fillable):
+                    errors.append(f"STEP{i}: FORBIDDEN '{fb}' violated for '{tool_name}'")
+            else:
+                if not _has_any([key], args, produced_keys, runtime_fillable):
+                    errors.append(f"STEP{i}: FORBIDDEN '{fb}' violated for '{tool_name}'")
+        
+        # 3) required_inputs
+        for req_key in (spec.required_inputs or {}).keys():
+            if req_key in runtime_fillable or req_key in nullable_inputs:
+                continue
+            if not _has_any([req_key], args, produced_keys, runtime_fillable):
+                errors.append(f"STEP{i}: REQUIRED_INPUT '{req_key}' missing for '{tool_name}'")
+        
+        # 4) outputs 반영
+        for out_key in (spec.outputs or {}).keys():
+            produced_keys.add(out_key)
+    
+    ok = len(errors) == 0
+    suggested_fix = ""
+    if not ok:
+        suggested_fix = "정적(I/O) 검증 실패: Plan을 '실행 가능'하게 수정하세요."
+    
+    return {"ok": ok, "errors": errors, "suggested_fix": suggested_fix}
+
+
+# =========================================================
+# 서버 시작 이벤트
+# =========================================================
+@app.on_event("startup")
+async def startup():
+    global API_STATUS, tool_specs, retriever
+    
+    # 디렉토리 생성
+    os.makedirs(ARTIFACTS_DIR, exist_ok=True)
+    
+    # API 키 확인
+    api_key = os.getenv("GOOGLE_API_KEY") or os.getenv("GEMINI_API_KEY")
+    if api_key:
+        API_STATUS = {"available": True, "message": "Google API 키 설정됨"}
+        logger.info("✅ Google API 키 설정됨")
+    else:
+        API_STATUS = {"available": False, "message": "GOOGLE_API_KEY가 .env에 없습니다"}
+        logger.warning("⚠️ GOOGLE_API_KEY가 설정되지 않았습니다")
+    
+    # 기존 아티팩트 로드 시도
+    registry_path = os.path.join(ARTIFACTS_DIR, "tool_registry.json")
+    index_path = os.path.join(ARTIFACTS_DIR, "tool_index.joblib")
+    
+    if os.path.exists(registry_path):
+        try:
+            tool_specs = load_tool_registry_from_file(registry_path)
+            logger.info(f"✅ Tool Registry 로드 완료: {len(tool_specs)} tools")
+        except Exception as e:
+            logger.warning(f"⚠️ Tool Registry 로드 실패: {e}")
+    
+    if os.path.exists(index_path) and API_STATUS["available"]:
+        try:
+            retriever = ToolRetriever(index_path)
+            logger.info("✅ Tool Index 로드 완료")
+        except Exception as e:
+            logger.warning(f"⚠️ Tool Index 로드 실패: {e}")
+
+
+# =========================================================
+# API 엔드포인트
+# =========================================================
+@app.get("/")
+async def home():
+    return FileResponse("tool_planner_ui.html")
+
+
+@app.get("/api/status")
+async def get_status():
+    """시스템 상태 반환"""
+    global tool_specs, retriever, API_STATUS
+    
+    registry_path = os.path.join(ARTIFACTS_DIR, "tool_registry.json")
+    index_path = os.path.join(ARTIFACTS_DIR, "tool_index.joblib")
+    
+    return {
+        "api_available": API_STATUS["available"],
+        "api_message": API_STATUS["message"],
+        "registry_exists": os.path.exists(registry_path),
+        "index_exists": os.path.exists(index_path),
+        "tool_count": len(tool_specs),
+        "retriever_ready": retriever is not None,
+        "tools": list(tool_specs.keys()) if tool_specs else []
+    }
+
+
+@app.post("/api/build")
+async def build_artifacts(request: BuildRequest):
+    """Tool Registry 및 Index 빌드"""
+    global tool_specs, retriever
+    
+    if not API_STATUS["available"]:
+        raise HTTPException(status_code=500, detail="GOOGLE_API_KEY가 설정되지 않았습니다")
+    
+    try:
+        import numpy as np
+        import joblib
+        from google import genai
+        
+        # 1) Registry 정의
+        if request.tools:
+            registry = [ToolSpec(**t) for t in request.tools]
+        else:
+            registry = DEFAULT_REGISTRY
+        
+        registry_hash = sha256_of_registry(registry)
+        
+        # 2) Tool description text 생성
+        tool_texts = [tool_to_desc_text(t) for t in registry]
+        
+        # 3) 임베딩 생성
+        EMBEDDING_MODEL = "gemini-embedding-001"
+        client = genai.Client()
+        result = client.models.embed_content(model=EMBEDDING_MODEL, contents=tool_texts)
+        vectors = [emb.values for emb in result.embeddings]
+        tool_vecs = np.asarray(vectors, dtype=np.float32)
+        
+        # 4) 아티팩트 저장
+        registry_path = os.path.join(ARTIFACTS_DIR, "tool_registry.json")
+        index_path = os.path.join(ARTIFACTS_DIR, "tool_index.joblib")
+        
+        with open(registry_path, "w", encoding="utf-8") as f:
+            json.dump([asdict(t) for t in registry], f, ensure_ascii=False, indent=2)
+        
+        joblib.dump({
+            "embedding_model": EMBEDDING_MODEL,
+            "registry_hash": registry_hash,
+            "tool_names": [t.tool_name for t in registry],
+            "tool_texts": tool_texts,
+            "tool_vectors": tool_vecs,
+        }, index_path)
+        
+        # 5) 전역 변수 업데이트
+        tool_specs = {t.tool_name: t for t in registry}
+        retriever = ToolRetriever(index_path)
+        
+        logger.info(f"✅ 빌드 완료: {len(registry)} tools, shape={tool_vecs.shape}")
+        
+        return {
+            "success": True,
+            "message": f"빌드 완료: {len(registry)} tools",
+            "registry_hash": registry_hash,
+            "embedding_shape": list(tool_vecs.shape),
+            "tools": [t.tool_name for t in registry]
+        }
+        
+    except Exception as e:
+        logger.error(f"빌드 실패: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/test")
+async def test_query(request: TestQueryRequest):
+    """Tool Planner 테스트 (단일 쿼리)"""
+    global tool_specs, retriever
+    
+    if not API_STATUS["available"]:
+        raise HTTPException(status_code=500, detail="GOOGLE_API_KEY가 설정되지 않았습니다")
+    
+    if not retriever:
+        raise HTTPException(status_code=400, detail="먼저 빌드를 실행하세요")
+    
+    try:
+        from langchain_google_genai import ChatGoogleGenerativeAI
+        from langchain_core.messages import SystemMessage, HumanMessage
+        
+        llm = ChatGoogleGenerativeAI(model=request.model, temperature=0.0)
+        
+        feedbacks = []
+        trace = []
+        
+        # 1) ReQuery
+        requery_sys = SystemMessage(content=(
+            "너는 Re-Query 정규화기다.\n"
+            "할 일:\n"
+            "1) 입력 문장의 오타/비문을 자연스럽게 고치고 핵심 질문으로 요약한다.\n"
+            "2) fab_list(공식 fab 코드 목록)에 해당한다고 '확신'하면, 그 fab 코드를 fabs 리스트에 넣고,\n"
+            "   normalized_query에는 fab 코드를 반영한다. (예: '14번 공장' -> 'M14')\n"
+            "3) fab_list에 매핑할 수 없으면(예: ABC123), 억지로 fab로 바꾸지 말고 원문 의미를 유지한다.\n"
+            "4) carrier/lot 등 ID로 보이는 토큰이 있으면 id_candidates에 넣는다(복수 가능).\n"
+            "출력은 순수 JSON만.\n"
+            "스키마:\n"
+            "{\n"
+            '  "normalized_query": "...",\n'
+            '  "fabs": ["M14"],\n'
+            '  "id_candidates": ["ABC123"],\n'
+            '  "notes": "..."\n'
+            "}\n"
+        ))
+        requery_user = HumanMessage(content=f"[INPUT QUERY]\n{request.query}\n\n[fab_list]\n{request.fab_list}\n\nReturn JSON only.")
+        
+        requery_raw = llm.invoke([requery_sys, requery_user]).content or ""
+        requery_json = extract_json_object(requery_raw)
+        
+        if requery_json:
+            requery_result = json.loads(requery_json)
+        else:
+            requery_result = {
+                "normalized_query": request.query,
+                "fabs": [],
+                "id_candidates": [],
+                "notes": "REQUERY_PARSE_FAIL"
+            }
+        
+        # fab_list에 있는 것만 필터
+        fabs = [x for x in requery_result.get("fabs", []) if x in request.fab_list]
+        normalized_query = requery_result.get("normalized_query", request.query)
+        id_candidates = requery_result.get("id_candidates", [])
+        
+        # 2) Retrieval
+        retrieved_scores = retriever.retrieve_with_scores(normalized_query, k=request.k)
+        retrieved_tools = [name for name, _ in retrieved_scores]
+        
+        # 3) Planning Loop
+        for it in range(1, request.max_iters + 1):
+            # Tool context 생성
+            ctx = []
+            for name in retrieved_tools:
+                spec = tool_specs.get(name)
+                if not spec:
+                    continue
+                ctx.append("\n".join([
+                    f"[TOOL] {spec.tool_name}",
+                    f"Type: {spec.tool_type}",
+                    f"Purpose: {spec.purpose}",
+                    f"Required Inputs: {json.dumps(spec.required_inputs, ensure_ascii=False)}",
+                    f"Optional Inputs: {json.dumps(spec.optional_inputs, ensure_ascii=False)}",
+                    f"Outputs: {json.dumps(spec.outputs, ensure_ascii=False)}",
+                    f"Preconditions: {spec.preconditions}",
+                    f"Forbidden: {spec.forbidden}",
+                    f"Failure Modes: {spec.failure_modes}",
+                ]))
+            tool_context = "\n\n".join(ctx)
+            
+            feedback_block = ""
+            if feedbacks:
+                feedback_block = "\n\n[FEEDBACK]\n" + "\n".join(f"- {x}" for x in feedbacks[-3:])
+            
+            plan_sys = SystemMessage(content=(
+                "너는 Tool Planner다. 사용자 질의에 답하기 위해 tool 실행 계획(순서 포함)을 만든다.\n"
+                "출력 규칙(매우 중요):\n"
+                "1) 출력은 순수 JSON만. 코드블록/설명 금지.\n"
+                "2) 최상위 키는 steps, can_answer_after 두 개만.\n"
+                "3) steps의 각 step은 tool, args, expects 키만.\n"
+                "4) expects는 list[str].\n"
+                "5) args에는 placeholder(예: {{...}})를 넣지 말 것.\n"
+                "   이전 step 결과가 필요하면 args에서 생략해라(실행기에서 자동 주입한다).\n"
+            ))
+            
+            plan_user = HumanMessage(content=f"""[ORIGINAL QUERY]
+{request.query}
+
+[NORMALIZED QUERY]
+{normalized_query}{feedback_block}
+
+[REQUERY ENTITIES]
+- fabs: {fabs}
+- id_candidates: {id_candidates}
+
+[AVAILABLE TOOLS]
+{tool_context}
+
+[CONTEXT]
+- fab_list: {request.fab_list}
+
+Return Plan JSON only.
+""")
+            
+            try:
+                plan_raw = llm.invoke([plan_sys, plan_user]).content or ""
+                plan_json = extract_json_object(plan_raw)
+                
+                if not plan_json:
+                    raise ValueError("No JSON object found in planner output")
+                
+                plan_dict = json.loads(plan_json)
+                
+                # Validation
+                validation = static_validate_plan(plan_dict, tool_specs)
+                
+                trace.append({
+                    "iter": it,
+                    "requery": {
+                        "normalized_query": normalized_query,
+                        "fabs": fabs,
+                        "id_candidates": id_candidates,
+                        "notes": requery_result.get("notes", "")
+                    },
+                    "retrieved_scores": [[name, score] for name, score in retrieved_scores],
+                    "plan": plan_dict,
+                    "static_validation": validation,
+                    "feedbacks": list(feedbacks)
+                })
+                
+                if validation["ok"]:
+                    break
+                
+                feedbacks.append("STATIC_VALIDATION_FAIL:\n" + "\n".join(validation["errors"]))
+                if validation.get("suggested_fix"):
+                    feedbacks.append(validation["suggested_fix"])
+                    
+            except Exception as e:
+                trace.append({
+                    "iter": it,
+                    "requery": {
+                        "normalized_query": normalized_query,
+                        "fabs": fabs,
+                        "id_candidates": id_candidates
+                    },
+                    "retrieved_scores": [[name, score] for name, score in retrieved_scores],
+                    "plan": None,
+                    "static_validation": {
+                        "ok": False,
+                        "errors": [f"PLANNER_FAILED: {e}"],
+                        "suggested_fix": "Planner가 순수 JSON + steps/args/expects 스키마를 지키도록 조정하세요."
+                    },
+                    "feedbacks": list(feedbacks)
+                })
+                feedbacks.append(f"PLANNER_FAILED: {e}")
+        
+        final_ok = bool(trace and trace[-1]["static_validation"]["ok"])
+        
+        return {
+            "success": True,
+            "query": request.query,
+            "final_ok": final_ok,
+            "trace": trace
+        }
+        
+    except Exception as e:
+        logger.error(f"테스트 실패: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/registry")
+async def get_registry():
+    """현재 Tool Registry 반환"""
+    registry_path = os.path.join(ARTIFACTS_DIR, "tool_registry.json")
+    
+    if not os.path.exists(registry_path):
+        return {"tools": [], "message": "Registry가 없습니다. 먼저 빌드하세요."}
+    
+    with open(registry_path, "r", encoding="utf-8") as f:
+        registry = json.load(f)
+    
+    return {"tools": registry}
+
+
+@app.get("/api/default-registry")
+async def get_default_registry():
+    """기본 Tool Registry 반환"""
+    return {"tools": [asdict(t) for t in DEFAULT_REGISTRY]}
+
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(app, host="127.0.0.1", port=8080)
