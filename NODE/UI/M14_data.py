@@ -456,10 +456,6 @@ class M14DataManager:
         except:
             pass
         return time_str
-        
-        self.data = self.data.drop(columns=['DATE'])
-        self._save_alerts()
-        print(f"[M14] 파일 저장 완료")
     
     def _save_alerts(self):
         today = datetime.now().strftime("%Y%m%d")
@@ -529,11 +525,7 @@ class M14DataManager:
         return None, [], [], [], []
     
     def refresh(self):
-        today = datetime.now().strftime("%Y%m%d")
-        for f in [self._get_file_path(today), self._get_pred_file_path(today), self._get_alert_file_path(today)]:
-            if os.path.exists(f):
-                os.remove(f)
-        
+        """리셋 - 메모리만 새로고침 (파일은 유지)"""
         self.data = None
         self.predict_10_list = []
         self.predict_30_list = []
