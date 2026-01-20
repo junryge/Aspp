@@ -756,6 +756,21 @@
             <div class="stat-value value-danger" id="stat-over">-</div>
         </div>
         <div class="stat-card">
+            <div class="stat-label">10분 알람</div>
+            <div class="stat-value" id="stat-alert10" style="color: var(--warning);">-</div>
+            <div class="stat-sub" id="stat-alert10-sub">IS_ALARM=True</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-label">30분 알람</div>
+            <div class="stat-value" id="stat-alert30" style="color: var(--accent);">-</div>
+            <div class="stat-sub" id="stat-alert30-sub">IS_ALARM=True</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-label">로그프레소 알람</div>
+            <div class="stat-value" id="stat-logpresso" style="color: var(--purple);">-</div>
+            <div class="stat-sub" id="stat-logpresso-sub">IS_ALARM=True</div>
+        </div>
+        <div class="stat-card">
             <div class="stat-label">예측10분 안에 1700+ 적중률</div>
             <div class="stat-value" id="stat-acc10">-</div>
             <div class="stat-sub" id="stat-acc10-sub">예측→실제</div>
@@ -1560,6 +1575,18 @@
             
             const overCount = totalcnts.filter(v => v >= 1700).length;
             document.getElementById('stat-over').textContent = overCount;
+            
+            // 알람 개수 계산 (IS_ALARM=True만)
+            const alert10Count = (currentData.alerts_10 || []).filter(a => a.IS_ALARM).length;
+            const alert30Count = (currentData.alerts_30 || []).filter(a => a.IS_ALARM).length;
+            const logpressoCount = Object.values(logpressoAlarmMap).filter(a => a.IS_ALARM).length;
+            
+            document.getElementById('stat-alert10').textContent = alert10Count;
+            document.getElementById('stat-alert10-sub').textContent = `쿨타임 제외`;
+            document.getElementById('stat-alert30').textContent = alert30Count;
+            document.getElementById('stat-alert30-sub').textContent = `쿨타임 제외`;
+            document.getElementById('stat-logpresso').textContent = logpressoCount;
+            document.getElementById('stat-logpresso-sub').textContent = `쿨타임 제외`;
             
             // 예측 정확도 계산 (IS_ALARM=True인 알람만, 범위 내 1700+ 발생 시 적중)
             // 10분 예측: -10분 ~ +60분 범위
