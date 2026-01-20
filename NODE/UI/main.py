@@ -348,6 +348,342 @@ def get_available_dates():
     return jsonify({'dates': dates})
 
 
+@app.route('/api/detail')
+def get_detail():
+    """
+    상세 분석 API - 특정 시점의 컬럼별 변화량 분석
+    
+    Parameters:
+        date: YYYYMMDD 형식의 날짜
+        time: HHMM 형식의 시간
+        range: 분석 범위 (분 단위, 기본값 10)
+    
+    Returns:
+        current: 현재 시점 데이터
+        previous: 이전 시점 데이터 (range분 전)
+        changes: 컬럼별 변화량/변화율
+    
+    분석 대상 컬럼:
+        - M14AM10A, M10AM14A, M14AM10ASUM
+        - M14AM14B, M14BM14A, M14AM14BSUM
+        - M14AM16, M16M14A, M14AM16SUM
+        - M14.QUE.ALL.CURRENTQCREATED (미수집 가능)
+        - M14.QUE.ALL.CURRENTQCOMPLETED (미수집 가능)
+        - M14.QUE.OHT.OHTUTIL (미수집 가능)
+        - M14.QUE.ALL.TRANSPORT4MINOVERCNT (미수집 가능)
+        - M14B.QUE.SENDFAB.VERTICALQUEUECOUNT (미수집 가능)
+    """
+    import os
+    
+    date_str = request.args.get('date', '')
+    time_str = request.args.get('time', '')
+    range_min = int(request.args.get('range', '10'))
+    
+    if not date_str or len(date_str) != 8:
+        return jsonify({'error': '날짜 형식이 잘못되었습니다 (YYYYMMDD)'}), 400
+    
+    if not time_str or len(time_str) != 4:
+        return jsonify({'error': '시간 형식이 잘못되었습니다 (HHMM)'}), 400
+    
+    # 분석 대상 컬럼
+    ANALYSIS_COLUMNS = [
+        'M14AM10A', 'M10AM14A', 'M14AM10ASUM',
+        'M14AM14B', 'M14BM14A', 'M14AM14BSUM',
+        'M14AM16', 'M16M14A', 'M14AM16SUM',
+        'M14.QUE.ALL.CURRENTQCREATED',
+        'M14.QUE.ALL.CURRENTQCOMPLETED',
+        'M14.QUE.OHT.OHTUTIL',
+        'M14.QUE.ALL.TRANSPORT4MINOVERCNT',
+        'M14B.QUE.SENDFAB.VERTICALQUEUECOUNT'
+    ]
+    
+    # 미수집 가능 컬럼 (star_transport_view에서 오는 컬럼)
+    UNCOLLECTED_COLUMNS = [
+        'M14.QUE.ALL.CURRENTQCREATED',
+        'M14.QUE.ALL.CURRENTQCOMPLETED',
+        'M14.QUE.OHT.OHTUTIL',
+        'M14.QUE.ALL.TRANSPORT4MINOVERCNT',
+        'M14B.QUE.SENDFAB.VERTICALQUEUECOUNT'
+    ]
+    
+    data_dir = data_manager.data_dir
+    
+    # 현재 시간과 이전 시간 계산
+    current_time = date_str + time_str
+    
+    # 이전 시간 계산 (range분 전)
+    try:
+        from datetime import datetime, timedelta
+        dt = datetime.strptime(current_time, "%Y%m%d%H%M")
+        dt_prev = dt - timedelta(minutes=range_min)
+        prev_date_str = dt_prev.strftime("%Y%m%d")
+        prev_time_str = dt_prev.strftime("%H%M")
+        prev_time_full = dt_prev.strftime("%Y%m%d%H%M")
+    except Exception as e:
+        return jsonify({'error': f'시간 계산 실패: {str(e)}'}), 400
+    
+    # 데이터 파일들 로드 (현재 날짜 + 이전 날짜가 다르면 둘 다)
+    all_data = []
+    dates_to_load = list(set([date_str, prev_date_str]))
+    
+    for d in dates_to_load:
+        data_file = os.path.join(data_dir, f'm14_data_{d}.csv')
+        if os.path.exists(data_file):
+            try:
+                df = pd.read_csv(data_file)
+                df['CURRTIME'] = df['CURRTIME'].astype(str)
+                all_data.append(df)
+            except Exception as e:
+                print(f"[detail] 파일 로드 실패 {d}: {e}")
+    
+    if not all_data:
+        return jsonify({'error': '데이터 파일이 없습니다'}), 404
+    
+    # 데이터 병합
+    df_all = pd.concat(all_data, ignore_index=True)
+    df_all = df_all.drop_duplicates(subset=['CURRTIME'], keep='last')
+    df_all = df_all.sort_values('CURRTIME').reset_index(drop=True)
+    
+    # 현재 시점 데이터 찾기
+    current_row = df_all[df_all['CURRTIME'] == current_time]
+    if len(current_row) == 0:
+        return jsonify({'error': f'{date_str} {time_str[:2]}:{time_str[2:]} 데이터가 없습니다'}), 404
+    
+    current_row = current_row.iloc[0]
+    
+    # 이전 시점 데이터 찾기
+    prev_row = df_all[df_all['CURRTIME'] == prev_time_full]
+    if len(prev_row) == 0:
+        # 정확한 시간이 없으면 가장 가까운 이전 시간 찾기
+        prev_candidates = df_all[df_all['CURRTIME'] < current_time]
+        if len(prev_candidates) > 0:
+            prev_row = prev_candidates.iloc[-1]
+            prev_time_full = prev_row['CURRTIME']
+        else:
+            return jsonify({'error': f'{range_min}분 전 데이터가 없습니다'}), 404
+    else:
+        prev_row = prev_row.iloc[0]
+    
+    # 변화량 계산
+    changes = []
+    for col in ANALYSIS_COLUMNS:
+        current_val = current_row.get(col, 0) if col in current_row.index else 0
+        prev_val = prev_row.get(col, 0) if col in prev_row.index else 0
+        
+        # NaN 처리
+        if pd.isna(current_val):
+            current_val = 0
+        if pd.isna(prev_val):
+            prev_val = 0
+        
+        current_val = float(current_val)
+        prev_val = float(prev_val)
+        
+        change = current_val - prev_val
+        change_rate = (change / prev_val * 100) if prev_val != 0 else 0
+        
+        # 미수집 여부 판단 (값이 모두 0이면 미수집 가능성)
+        is_uncollected = col in UNCOLLECTED_COLUMNS and current_val == 0 and prev_val == 0
+        
+        changes.append({
+            'column': col,
+            'current': current_val,
+            'previous': prev_val,
+            'change': change,
+            'change_rate': round(change_rate, 1),
+            'is_uncollected': is_uncollected
+        })
+    
+    # 변화량 절대값 기준 정렬
+    changes.sort(key=lambda x: abs(x['change']), reverse=True)
+    
+    return jsonify({
+        'current_time': current_time,
+        'previous_time': prev_time_full,
+        'range': range_min,
+        'current': {
+            'CURRTIME': str(current_row.get('CURRTIME', '')),
+            'TOTALCNT': int(current_row.get('TOTALCNT', 0)) if pd.notna(current_row.get('TOTALCNT')) else 0
+        },
+        'previous': {
+            'CURRTIME': str(prev_row.get('CURRTIME', '')),
+            'TOTALCNT': int(prev_row.get('TOTALCNT', 0)) if pd.notna(prev_row.get('TOTALCNT')) else 0
+        },
+        'changes': changes
+    })
+
+
+# ============================================================================
+# LLM 분석 서버 프록시 (llm_analysis_server.py:8002로 전달)
+# ============================================================================
+LLM_SERVER_URL = "http://127.0.0.1:8002"
+
+@app.route('/api/llm_mode', methods=['POST'])
+def proxy_llm_mode():
+    """LLM 모드 설정 프록시"""
+    import requests as req
+    try:
+        resp = req.post(f"{LLM_SERVER_URL}/api/llm_mode", json=request.get_json(), timeout=30)
+        return jsonify(resp.json()), resp.status_code
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/llm_history_analyze', methods=['POST'])
+def proxy_llm_history_analyze():
+    """LLM 히스토리 분석 프록시 (스트리밍)"""
+    import requests as req
+    try:
+        resp = req.post(
+            f"{LLM_SERVER_URL}/api/llm_history_analyze",
+            json=request.get_json(),
+            stream=True,
+            timeout=300
+        )
+        
+        def generate():
+            for chunk in resp.iter_content(chunk_size=1024):
+                if chunk:
+                    yield chunk
+        
+        return app.response_class(generate(), mimetype='text/event-stream')
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/prompts', methods=['GET', 'POST'])
+def proxy_prompts():
+    """프롬프트 설정 프록시"""
+    import requests as req
+    try:
+        if request.method == 'GET':
+            resp = req.get(f"{LLM_SERVER_URL}/api/prompts", timeout=30)
+        else:
+            resp = req.post(f"{LLM_SERVER_URL}/api/prompts", json=request.get_json(), timeout=30)
+        return jsonify(resp.json()), resp.status_code
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/llm_status', methods=['GET'])
+def proxy_llm_status():
+    """LLM 상태 조회 프록시"""
+    import requests as req
+    try:
+        resp = req.get(f"{LLM_SERVER_URL}/api/status", timeout=30)
+        return jsonify(resp.json()), resp.status_code
+    except Exception as e:
+        return jsonify({'error': str(e), 'status': 'offline'}), 500
+
+
+@app.route('/api/realtime_detail')
+def get_realtime_detail():
+    """
+    실시간 상세 분석 API - 메모리 데이터에서 컬럼별 변화량 분석
+    
+    Parameters:
+        time: YYYYMMDDHHMM 형식의 시간
+        range: 분석 범위 (분 단위, 기본값 10)
+    
+    Returns:
+        current: 현재 시점 데이터
+        previous: 이전 시점 데이터 (range분 전)
+        changes: 컬럼별 변화량/변화율
+    """
+    time_str = request.args.get('time', '')
+    range_min = int(request.args.get('range', '10'))
+    
+    if not time_str or len(time_str) != 12:
+        return jsonify({'error': '시간 형식이 잘못되었습니다 (YYYYMMDDHHMM)'}), 400
+    
+    # 분석 대상 컬럼
+    ANALYSIS_COLUMNS = [
+        'M14AM10A', 'M10AM14A', 'M14AM10ASUM',
+        'M14AM14B', 'M14BM14A', 'M14AM14BSUM',
+        'M14AM16', 'M16M14A', 'M14AM16SUM',
+        'M14.QUE.ALL.CURRENTQCREATED',
+        'M14.QUE.ALL.CURRENTQCOMPLETED',
+        'M14.QUE.OHT.OHTUTIL',
+        'M14.QUE.ALL.TRANSPORT4MINOVERCNT',
+        'M14B.QUE.SENDFAB.VERTICALQUEUECOUNT'
+    ]
+    
+    # 미수집 가능 컬럼
+    UNCOLLECTED_COLUMNS = [
+        'M14.QUE.ALL.CURRENTQCREATED',
+        'M14.QUE.ALL.CURRENTQCOMPLETED',
+        'M14.QUE.OHT.OHTUTIL',
+        'M14.QUE.ALL.TRANSPORT4MINOVERCNT',
+        'M14B.QUE.SENDFAB.VERTICALQUEUECOUNT'
+    ]
+    
+    # 메모리에서 데이터 가져오기
+    df = data_manager.get_data()
+    
+    if df is None or len(df) == 0:
+        return jsonify({'error': '실시간 데이터가 없습니다'}), 404
+    
+    df['CURRTIME'] = df['CURRTIME'].astype(str)
+    
+    # 현재 시점 데이터 찾기
+    current_row = df[df['CURRTIME'] == time_str]
+    if len(current_row) == 0:
+        return jsonify({'error': f'{time_str} 시점 데이터가 없습니다'}), 404
+    
+    current_idx = current_row.index[0]
+    current_row = current_row.iloc[0]
+    
+    # 이전 시점 찾기 (range_min 전)
+    prev_idx = max(0, current_idx - range_min)
+    prev_row = df.iloc[prev_idx]
+    prev_time_full = str(prev_row['CURRTIME'])
+    
+    # 변화량 계산
+    changes = []
+    for col in ANALYSIS_COLUMNS:
+        current_val = current_row.get(col, 0) if col in current_row.index else 0
+        prev_val = prev_row.get(col, 0) if col in prev_row.index else 0
+        
+        # NaN 처리
+        if pd.isna(current_val):
+            current_val = 0
+        if pd.isna(prev_val):
+            prev_val = 0
+        
+        current_val = float(current_val)
+        prev_val = float(prev_val)
+        
+        change = current_val - prev_val
+        change_rate = (change / prev_val * 100) if prev_val != 0 else 0
+        
+        # 미수집 여부 판단
+        is_uncollected = col in UNCOLLECTED_COLUMNS and current_val == 0 and prev_val == 0
+        
+        changes.append({
+            'column': col,
+            'current': current_val,
+            'previous': prev_val,
+            'change': change,
+            'change_rate': round(change_rate, 1),
+            'is_uncollected': is_uncollected
+        })
+    
+    # 변화량 절대값 기준 정렬
+    changes.sort(key=lambda x: abs(x['change']), reverse=True)
+    
+    return jsonify({
+        'current_time': time_str,
+        'previous_time': prev_time_full,
+        'range': range_min,
+        'current': {
+            'CURRTIME': str(current_row.get('CURRTIME', '')),
+            'TOTALCNT': int(current_row.get('TOTALCNT', 0)) if pd.notna(current_row.get('TOTALCNT')) else 0
+        },
+        'previous': {
+            'CURRTIME': str(prev_row.get('CURRTIME', '')),
+            'TOTALCNT': int(prev_row.get('TOTALCNT', 0)) if pd.notna(prev_row.get('TOTALCNT')) else 0
+        },
+        'changes': changes
+    })
+
+
 if __name__ == '__main__':
     print('=' * 60)
     print('M14 반송 큐 모니터링 서버')
