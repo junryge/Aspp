@@ -33,6 +33,11 @@ LLM_MODE = "api"
 # 개발/운영 환경 설정
 ENV_MODE = "dev"
 
+# 요청 취소 관리
+import threading
+active_requests = {}  # {request_id: threading.Event}
+request_lock = threading.Lock()
+
 # 로컬 모델 경로 (폴백용)
 LOCAL_MODEL_PATH = "Qwen3-14B-Q4_K_M.gguf"  # 또는 다른 GGUF 모델
 
@@ -276,7 +281,7 @@ def call_local_llm(prompt: str, system_prompt: str = "", max_tokens: int = 2000)
 # ========================================
 # LLM API 호출
 # ========================================
-def call_llm_api(prompt: str, system_prompt: str = "", max_tokens: int = 4000) -> dict:
+def call_llm_api(prompt: str, system_prompt: str = "", max_tokens: int = 4000, request_id: str = None) -> dict:
     """LLM API 호출"""
     global API_TOKEN
     
@@ -300,10 +305,28 @@ def call_llm_api(prompt: str, system_prompt: str = "", max_tokens: int = 4000) -
         "temperature": 0.3
     }
     
+    # 취소 이벤트 등록
+    cancel_event = None
+    if request_id:
+        cancel_event = threading.Event()
+        with request_lock:
+            active_requests[request_id] = cancel_event
+    
     for attempt in range(2):
         try:
+            # 취소 확인
+            if cancel_event and cancel_event.is_set():
+                return {"success": False, "error": "요청이 취소되었습니다.", "cancelled": True}
+            
             logger.info(f"🚀 API 호출 중... (시도 {attempt + 1}/2)")
-            response = requests.post(API_URL, headers=headers, json=data, timeout=300)
+            
+            # 짧은 timeout으로 여러번 체크하면서 요청
+            session = requests.Session()
+            response = session.post(API_URL, headers=headers, json=data, timeout=300)
+            
+            # 취소 확인
+            if cancel_event and cancel_event.is_set():
+                return {"success": False, "error": "요청이 취소되었습니다.", "cancelled": True}
             
             if response.status_code == 200:
                 result = response.json()
@@ -325,6 +348,11 @@ def call_llm_api(prompt: str, system_prompt: str = "", max_tokens: int = 4000) -
         except Exception as e:
             logger.error(f"❌ API 호출 실패: {e}")
             return {"success": False, "error": f"API 호출 실패: {str(e)}"}
+        finally:
+            # 요청 완료 시 정리
+            if request_id:
+                with request_lock:
+                    active_requests.pop(request_id, None)
     
     return {"success": False, "error": "API 호출 실패"}
 
@@ -332,16 +360,16 @@ def call_llm_api(prompt: str, system_prompt: str = "", max_tokens: int = 4000) -
 # ========================================
 # 통합 LLM 호출 (API → Local 폴백)
 # ========================================
-def call_llm(prompt: str, system_prompt: str = "", max_tokens: int = 4000) -> dict:
+def call_llm(prompt: str, system_prompt: str = "", max_tokens: int = 4000, request_id: str = None) -> dict:
     """LLM 호출 (모드에 따라 API 또는 Local 사용, 폴백 지원)"""
     global LLM_MODE
     
     if LLM_MODE == "api":
         # API 모드
-        result = call_llm_api(prompt, system_prompt, max_tokens)
+        result = call_llm_api(prompt, system_prompt, max_tokens, request_id)
         
-        # API 실패 시 로컬로 폴백
-        if not result["success"] and llm is not None:
+        # API 실패 시 로컬로 폴백 (취소된 경우 제외)
+        if not result["success"] and not result.get("cancelled") and llm is not None:
             logger.info("⚠️ API 실패 → 로컬 LLM 폴백")
             result = call_local_llm(prompt, system_prompt, min(max_tokens, 2000))
             if result["success"]:
@@ -363,6 +391,7 @@ class CodingQuery(BaseModel):
     mode: str = "general"
     language: str = "python"
     code: Optional[str] = ""
+    request_id: Optional[str] = None
 
 
 class ConvertRequest(BaseModel):
@@ -476,6 +505,23 @@ async def set_env(data: dict):
     }
 
 
+@app.post("/api/cancel")
+async def cancel_request(data: dict):
+    """요청 취소"""
+    request_id = data.get("request_id")
+    
+    if not request_id:
+        return {"success": False, "message": "request_id가 필요합니다."}
+    
+    with request_lock:
+        if request_id in active_requests:
+            active_requests[request_id].set()  # 취소 신호
+            logger.info(f"⏹ 요청 취소: {request_id}")
+            return {"success": True, "message": "요청이 취소되었습니다."}
+        else:
+            return {"success": False, "message": "해당 요청을 찾을 수 없습니다."}
+
+
 @app.post("/api/ask")
 async def ask(query: CodingQuery):
     """메인 질문 처리"""
@@ -483,6 +529,7 @@ async def ask(query: CodingQuery):
     question = query.question.strip()
     code = query.code.strip() if query.code else ""
     language = query.language
+    request_id = query.request_id
     
     # 시스템 프롬프트 선택
     system_prompt = SYSTEM_PROMPTS.get(mode, SYSTEM_PROMPTS["general"])
@@ -504,7 +551,7 @@ async def ask(query: CodingQuery):
             prompt += f"\n\n```{language}\n{code}\n```"
     
     # LLM 호출 (API → GGUF 폴백)
-    result = call_llm(prompt, system_prompt)
+    result = call_llm(prompt, system_prompt, request_id=request_id)
     
     if result["success"]:
         return {"success": True, "answer": result["content"]}
