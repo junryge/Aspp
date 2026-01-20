@@ -1112,7 +1112,7 @@
         // LLM 상태 로드
         async function loadLlmStatus() {
             try {
-                const res = await fetch('/api/status');
+                const res = await fetch('http://localhost:8002/api/status');
                 const data = await res.json();
 
                 // 버튼 상태 업데이트
@@ -1168,7 +1168,7 @@
                     env = 'prod';
                 }
 
-                const res = await fetch('/api/llm_mode', {
+                const res = await fetch('http://localhost:8002/api/llm_mode', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ mode: apiMode, env: env })
@@ -1191,7 +1191,7 @@
         // 프롬프트 로드
         async function loadPrompts() {
             try {
-                const res = await fetch('/api/prompts');
+                const res = await fetch('http://localhost:8002/api/prompts');
                 const data = await res.json();
 
                 document.getElementById('system-prompt').value = data.system_prompt || defaultPrompts.system;
@@ -1211,7 +1211,7 @@
         // 프롬프트 저장
         async function savePrompts() {
             try {
-                const res = await fetch('/api/prompts', {
+                const res = await fetch('http://localhost:8002/api/prompts', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
@@ -2122,27 +2122,35 @@
                     const diffSign = change.diff > 0 ? '+' : '';
                     const pctSign = change.pct > 0 ? '+' : '';
                     const isSpike = change.diff >= 50; // 50 이상 증가면 급상승
-                    const rowBg = isSpike ? 'background: rgba(239, 68, 68, 0.1);' : '';
+                    const isMissing = change.missing; // 누락 컬럼
+                    const rowBg = isSpike ? 'background: rgba(239, 68, 68, 0.1);' : (isMissing ? 'background: rgba(113, 113, 122, 0.1);' : '');
+                    const colStyle = isMissing ? 'color: var(--text-secondary); font-style: italic;' : 'font-weight: 600;';
+                    const missingTag = isMissing ? ' <span style="font-size: 9px; color: var(--warning);">(미수집)</span>' : '';
                     
                     tableHtml += `
                         <tr style="${rowBg}">
-                            <td style="font-weight: 600;">${isSpike ? '🔺 ' : ''}${change.column}</td>
-                            <td>${change.previous.toLocaleString()}</td>
-                            <td style="font-weight: 600;">${change.current.toLocaleString()}</td>
-                            <td style="color: ${diffColor}; font-weight: 600;">${diffSign}${change.diff.toLocaleString()}</td>
-                            <td style="color: ${diffColor};">${pctSign}${change.pct}%</td>
+                            <td style="${colStyle}">${isSpike ? '🔺 ' : ''}${change.column}${missingTag}</td>
+                            <td>${isMissing ? '-' : change.previous.toLocaleString()}</td>
+                            <td style="${isMissing ? '' : 'font-weight: 600;'}">${isMissing ? '-' : change.current.toLocaleString()}</td>
+                            <td style="color: ${isMissing ? 'var(--text-secondary)' : diffColor}; ${isMissing ? '' : 'font-weight: 600;'}">${isMissing ? '-' : diffSign + change.diff.toLocaleString()}</td>
+                            <td style="color: ${isMissing ? 'var(--text-secondary)' : diffColor};">${isMissing ? '-' : pctSign + change.pct + '%'}</td>
                         </tr>
                     `;
                 });
                 document.getElementById('detail-changes-table').innerHTML = tableHtml;
                 
                 // 급상승 컬럼 요약
-                const spikes = data.changes.filter(c => c.diff >= 50);
+                const spikes = data.changes.filter(c => c.diff >= 50 && !c.missing);
                 if (spikes.length > 0) {
                     const spikeText = spikes.map(s => `<strong>${s.column}</strong>: +${s.diff} (+${s.pct}%)`).join('<br>');
                     document.getElementById('detail-spike-summary').innerHTML = spikeText;
                 } else {
                     document.getElementById('detail-spike-summary').innerHTML = '<span style="color: var(--success);">급상승 컬럼 없음 (변화량 50 미만)</span>';
+                }
+                
+                // 누락 컬럼 경고
+                if (data.missing_cols && data.missing_cols.length > 0) {
+                    document.getElementById('detail-spike-summary').innerHTML += `<br><br><span style="color: var(--warning); font-size: 12px;">⚠️ 미수집 컬럼 ${data.missing_cols.length}개: ${data.missing_cols.join(', ')}</span>`;
                 }
                 
             } catch (e) {
@@ -2287,7 +2295,7 @@
                 const analysisData = prepareDataForLlm();
 
                 // API 호출 (스트리밍)
-                const res = await fetch('/api/llm_history_analyze', {
+                const res = await fetch('http://localhost:8002/api/llm_history_analyze', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
