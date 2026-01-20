@@ -5,6 +5,7 @@ Hynix LLM API 모델 정보 확인
 """
 
 import requests
+import json
 
 # API 엔드포인트들
 ENDPOINTS = {
@@ -39,17 +40,32 @@ def main():
         print(f"=== {name.upper()} ({url}) ===")
         result = get_models(url, token)
         
-        if "error" in result:
+        # 에러 체크
+        if isinstance(result, dict) and "error" in result:
             print(f"  ❌ 오류: {result['error']}")
+            continue
+        
+        # 리스트로 바로 오는 경우
+        if isinstance(result, list):
+            models = result
+        # {"data": [...]} 형식인 경우
+        elif isinstance(result, dict):
+            models = result.get("data", [result])
         else:
-            # OpenAI 호환 형식: {"data": [{"id": "model-name", ...}]}
-            models = result.get("data", result)
-            if isinstance(models, list):
-                for m in models:
-                    model_id = m.get("id", m) if isinstance(m, dict) else m
-                    print(f"  ✅ {model_id}")
+            print(f"  알 수 없는 형식: {type(result)}")
+            continue
+        
+        # 모델 출력
+        for m in models:
+            if isinstance(m, dict):
+                model_id = m.get("id", m.get("model", "unknown"))
+                owned_by = m.get("owned_by", "")
+                print(f"  ✅ {model_id}" + (f" ({owned_by})" if owned_by else ""))
             else:
-                print(f"  응답: {result}")
+                print(f"  ✅ {m}")
+        
+        # 전체 응답도 출력 (디버깅용)
+        print(f"\n  [RAW] {json.dumps(result, indent=2, ensure_ascii=False)[:500]}")
         print()
 
 if __name__ == "__main__":
