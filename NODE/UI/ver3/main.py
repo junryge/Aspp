@@ -348,6 +348,87 @@ def get_available_dates():
     return jsonify({'dates': dates})
 
 
+# ============================================================================
+# LLM 분석 서버 프록시 (llm_analysis_server.py -> port 8002)
+# ============================================================================
+import requests as http_requests
+
+LLM_SERVER_URL = "http://localhost:8002"
+
+@app.route('/api/llm_status')
+def proxy_llm_status():
+    """LLM 상태 프록시"""
+    try:
+        res = http_requests.get(f"{LLM_SERVER_URL}/status", timeout=5)
+        return jsonify(res.json())
+    except Exception as e:
+        return jsonify({'error': str(e), 'mode': 'unknown'}), 500
+
+@app.route('/api/llm_mode', methods=['POST'])
+def proxy_llm_mode():
+    """LLM 모드 변경 프록시"""
+    try:
+        res = http_requests.post(
+            f"{LLM_SERVER_URL}/mode",
+            json=request.get_json(),
+            timeout=10
+        )
+        return jsonify(res.json())
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/prompts', methods=['GET'])
+def proxy_get_prompts():
+    """프롬프트 조회 프록시"""
+    try:
+        res = http_requests.get(f"{LLM_SERVER_URL}/prompts", timeout=5)
+        return jsonify(res.json())
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/prompts', methods=['POST'])
+def proxy_save_prompts():
+    """프롬프트 저장 프록시"""
+    try:
+        res = http_requests.post(
+            f"{LLM_SERVER_URL}/prompts",
+            json=request.get_json(),
+            timeout=10
+        )
+        return jsonify(res.json())
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/llm_analyze', methods=['POST'])
+def proxy_llm_analyze():
+    """LLM 분석 프록시 (스트리밍)"""
+    from flask import Response, stream_with_context
+    
+    try:
+        res = http_requests.post(
+            f"{LLM_SERVER_URL}/analyze",
+            json=request.get_json(),
+            stream=True,
+            timeout=300
+        )
+        
+        def generate():
+            for chunk in res.iter_content(chunk_size=1024):
+                if chunk:
+                    yield chunk
+        
+        return Response(
+            stream_with_context(generate()),
+            content_type='text/event-stream',
+            headers={
+                'Cache-Control': 'no-cache',
+                'X-Accel-Buffering': 'no'
+            }
+        )
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
 @app.route('/api/detail')
 def get_detail():
     """
@@ -390,7 +471,12 @@ def get_detail():
             'TOTALCNT',
             'M14AM10A', 'M10AM14A', 'M14AM10ASUM',
             'M14AM14B', 'M14BM14A', 'M14AM14BSUM',
-            'M14AM16', 'M16M14A', 'M14AM16SUM'
+            'M14AM16', 'M16M14A', 'M14AM16SUM',
+            'M14.QUE.ALL.CURRENTQCREATED',
+            'M14.QUE.ALL.CURRENTQCOMPLETED',
+            'M14.QUE.OHT.OHTUTIL',
+            'M14.QUE.ALL.TRANSPORT4MINOVERCNT',
+            'M14B.QUE.SENDFAB.VERTICALQUEUECOUNT'
         ]
         
         # 현재 시점 데이터
