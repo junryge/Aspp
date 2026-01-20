@@ -513,6 +513,66 @@ def get_detail():
     })
 
 
+# ============================================================================
+# LLM 분석 서버 프록시 (llm_analysis_server.py:8002로 전달)
+# ============================================================================
+LLM_SERVER_URL = "http://127.0.0.1:8002"
+
+@app.route('/api/llm_mode', methods=['POST'])
+def proxy_llm_mode():
+    """LLM 모드 설정 프록시"""
+    import requests as req
+    try:
+        resp = req.post(f"{LLM_SERVER_URL}/api/llm_mode", json=request.get_json(), timeout=30)
+        return jsonify(resp.json()), resp.status_code
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/llm_history_analyze', methods=['POST'])
+def proxy_llm_history_analyze():
+    """LLM 히스토리 분석 프록시 (스트리밍)"""
+    import requests as req
+    try:
+        resp = req.post(
+            f"{LLM_SERVER_URL}/api/llm_history_analyze",
+            json=request.get_json(),
+            stream=True,
+            timeout=300
+        )
+        
+        def generate():
+            for chunk in resp.iter_content(chunk_size=1024):
+                if chunk:
+                    yield chunk
+        
+        return app.response_class(generate(), mimetype='text/event-stream')
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/prompts', methods=['GET', 'POST'])
+def proxy_prompts():
+    """프롬프트 설정 프록시"""
+    import requests as req
+    try:
+        if request.method == 'GET':
+            resp = req.get(f"{LLM_SERVER_URL}/api/prompts", timeout=30)
+        else:
+            resp = req.post(f"{LLM_SERVER_URL}/api/prompts", json=request.get_json(), timeout=30)
+        return jsonify(resp.json()), resp.status_code
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/llm_status', methods=['GET'])
+def proxy_llm_status():
+    """LLM 상태 조회 프록시"""
+    import requests as req
+    try:
+        resp = req.get(f"{LLM_SERVER_URL}/api/status", timeout=30)
+        return jsonify(resp.json()), resp.status_code
+    except Exception as e:
+        return jsonify({'error': str(e), 'status': 'offline'}), 500
+
+
 if __name__ == '__main__':
     print('=' * 60)
     print('M14 반송 큐 모니터링 서버')
