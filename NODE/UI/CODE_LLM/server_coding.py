@@ -1,4 +1,17 @@
 #!/usr/bin/env python3
+
+ENV_CONFIG = {
+    "dev": {
+        "url": "http://hcp.llm.skhynix.com/v1/chat/completions",
+        "model": "Qwen3-Coder-480B-A35B-Instruct",
+        "name": "HCP(480B)"
+    },
+    "prod": {
+        "url": "http://summary.llm.skhynix.com/v1/chat/completions",
+        "model": "Qwen3-Next-80B-A3B-Instruct",
+        "name": "운영(80B)"
+    }
+}
 # -*- coding: utf-8 -*-
 """
 코딩 전용 LLM 서버 (v1.0)
