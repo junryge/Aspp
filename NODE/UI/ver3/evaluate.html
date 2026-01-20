@@ -173,8 +173,16 @@
     <div class="controls">
         <div class="control-group">
             <span class="control-label">데이터 소스:</span>
-            <span style="color: var(--orange); font-weight: 500;">🌐 로그프레소</span>
-            <input type="hidden" name="data-source" value="external">
+            <div class="radio-group">
+                <label class="radio-label source-internal selected" id="radio-internal">
+                    <input type="radio" name="data-source" value="internal" checked>
+                    📁 내부 (파일)
+                </label>
+                <label class="radio-label source-external" id="radio-external">
+                    <input type="radio" name="data-source" value="external">
+                    🌐 외부 (로그프레소)
+                </label>
+            </div>
         </div>
         
         <div class="divider"></div>
@@ -225,7 +233,8 @@
             <div class="empty-icon">📊</div>
             <div>날짜/시간을 선택하고 <strong>평가 실행</strong> 버튼을 누르세요</div>
             <div style="color: var(--text-secondary); margin-top: 15px; font-size: 13px;">
-                <div style="margin-bottom: 8px;"><span class="source-badge external">🌐 로그프레소</span> API 직접 조회 (alert 파일은 내부 사용)</div>
+                <div style="margin-bottom: 8px;"><span class="source-badge internal">📁 내부</span> data 폴더의 CSV 파일 + alert 파일 사용</div>
+                <div style="margin-bottom: 8px;"><span class="source-badge external">🌐 외부</span> 로그프레소 API 직접 조회 (alert 파일은 내부 사용)</div>
                 <div style="color: var(--success); margin-top: 10px;">✅ CSV 다운로드 시 알람번호, 쿨타임 정보 포함</div>
             </div>
         </div>
@@ -334,6 +343,14 @@
         let allTableData = [];
         let currentFilter = 'all';
         let currentResultData = null;
+        
+        document.querySelectorAll('input[name="data-source"]').forEach(radio => {
+            radio.addEventListener('change', function() {
+                document.getElementById('radio-internal').classList.remove('selected');
+                document.getElementById('radio-external').classList.remove('selected');
+                this.parentElement.classList.add('selected');
+            });
+        });
         
         document.querySelectorAll('input[name="pred-type"]').forEach(radio => {
             radio.addEventListener('change', function() {
@@ -471,7 +488,7 @@
             progressFill.className = 'progress-fill' + (dataSource === 'external' ? ' external' : '');
             
             document.getElementById('progress-text').textContent = '시작 중...';
-            document.getElementById('loading-source').innerHTML = '🌐 로그프레소 + Alert 파일';
+            document.getElementById('loading-source').innerHTML = dataSource === 'internal' ? '📁 내부(파일) + Alert 파일' : '🌐 외부(로그프레소) + Alert 파일';
             
             try {
                 const startRes = await fetch(`/api/evaluate/start?date_start=${dateStart}&date_end=${dateEnd}&time_start=${timeStart}&time_end=${timeEnd}&pred_type=${predType}&data_source=${dataSource}`);
@@ -548,8 +565,13 @@
             document.getElementById('btn-download').style.display = 'inline-block';
             
             const sourceInfoBox = document.getElementById('source-info-box');
-            sourceInfoBox.innerHTML = `🌐 로그프레소 평가 완료 | 알람 기록: ${data.alarm_record_count}개`;
-            sourceInfoBox.className = 'source-info-box';
+            if (data.data_source === 'external') {
+                sourceInfoBox.innerHTML = `🌐 외부(로그프레소) 평가 완료 | 알람 기록: ${data.alarm_record_count}개`;
+                sourceInfoBox.className = 'source-info-box';
+            } else {
+                sourceInfoBox.innerHTML = `📁 내부(파일) 평가 완료 | 알람 기록: ${data.alarm_record_count}개`;
+                sourceInfoBox.className = 'info-box';
+            }
             sourceInfoBox.style.display = 'block';
             
             const warningBox = document.getElementById('warning-box');
