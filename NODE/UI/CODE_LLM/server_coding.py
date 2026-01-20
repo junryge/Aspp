@@ -31,7 +31,7 @@ llm = None  # 로컬 LLM (GGUF)
 LLM_MODE = "api"
 
 # 개발/운영 환경 설정
-ENV_MODE = "dev"
+ENV_MODE = "common"
 
 # 요청 취소 관리
 import threading
@@ -59,8 +59,8 @@ ENV_CONFIG = {
     }
 }
 
-API_URL = ENV_CONFIG["dev"]["url"]
-API_MODEL = ENV_CONFIG["dev"]["model"]
+API_URL = ENV_CONFIG["common"]["url"]
+API_MODEL = ENV_CONFIG["common"]["model"]
 
 # 팀 권한으로 사용 가능한 모델
 # - Qwen3-Coder-30B-A3B-Instruct (코딩 특화)
@@ -617,4 +617,4 @@ async def quick_action(data: dict):
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="127.0.0.1", port=8001)
+    uvicorn.run(app, host="0.0.0.0", port=8001)
