@@ -573,6 +573,117 @@ def proxy_llm_status():
         return jsonify({'error': str(e), 'status': 'offline'}), 500
 
 
+@app.route('/api/realtime_detail')
+def get_realtime_detail():
+    """
+    실시간 상세 분석 API - 메모리 데이터에서 컬럼별 변화량 분석
+    
+    Parameters:
+        time: YYYYMMDDHHMM 형식의 시간
+        range: 분석 범위 (분 단위, 기본값 10)
+    
+    Returns:
+        current: 현재 시점 데이터
+        previous: 이전 시점 데이터 (range분 전)
+        changes: 컬럼별 변화량/변화율
+    """
+    time_str = request.args.get('time', '')
+    range_min = int(request.args.get('range', '10'))
+    
+    if not time_str or len(time_str) != 12:
+        return jsonify({'error': '시간 형식이 잘못되었습니다 (YYYYMMDDHHMM)'}), 400
+    
+    # 분석 대상 컬럼
+    ANALYSIS_COLUMNS = [
+        'M14AM10A', 'M10AM14A', 'M14AM10ASUM',
+        'M14AM14B', 'M14BM14A', 'M14AM14BSUM',
+        'M14AM16', 'M16M14A', 'M14AM16SUM',
+        'M14.QUE.ALL.CURRENTQCREATED',
+        'M14.QUE.ALL.CURRENTQCOMPLETED',
+        'M14.QUE.OHT.OHTUTIL',
+        'M14.QUE.ALL.TRANSPORT4MINOVERCNT',
+        'M14B.QUE.SENDFAB.VERTICALQUEUECOUNT'
+    ]
+    
+    # 미수집 가능 컬럼
+    UNCOLLECTED_COLUMNS = [
+        'M14.QUE.ALL.CURRENTQCREATED',
+        'M14.QUE.ALL.CURRENTQCOMPLETED',
+        'M14.QUE.OHT.OHTUTIL',
+        'M14.QUE.ALL.TRANSPORT4MINOVERCNT',
+        'M14B.QUE.SENDFAB.VERTICALQUEUECOUNT'
+    ]
+    
+    # 메모리에서 데이터 가져오기
+    df = data_manager.get_data()
+    
+    if df is None or len(df) == 0:
+        return jsonify({'error': '실시간 데이터가 없습니다'}), 404
+    
+    df['CURRTIME'] = df['CURRTIME'].astype(str)
+    
+    # 현재 시점 데이터 찾기
+    current_row = df[df['CURRTIME'] == time_str]
+    if len(current_row) == 0:
+        return jsonify({'error': f'{time_str} 시점 데이터가 없습니다'}), 404
+    
+    current_idx = current_row.index[0]
+    current_row = current_row.iloc[0]
+    
+    # 이전 시점 찾기 (range_min 전)
+    prev_idx = max(0, current_idx - range_min)
+    prev_row = df.iloc[prev_idx]
+    prev_time_full = str(prev_row['CURRTIME'])
+    
+    # 변화량 계산
+    changes = []
+    for col in ANALYSIS_COLUMNS:
+        current_val = current_row.get(col, 0) if col in current_row.index else 0
+        prev_val = prev_row.get(col, 0) if col in prev_row.index else 0
+        
+        # NaN 처리
+        if pd.isna(current_val):
+            current_val = 0
+        if pd.isna(prev_val):
+            prev_val = 0
+        
+        current_val = float(current_val)
+        prev_val = float(prev_val)
+        
+        change = current_val - prev_val
+        change_rate = (change / prev_val * 100) if prev_val != 0 else 0
+        
+        # 미수집 여부 판단
+        is_uncollected = col in UNCOLLECTED_COLUMNS and current_val == 0 and prev_val == 0
+        
+        changes.append({
+            'column': col,
+            'current': current_val,
+            'previous': prev_val,
+            'change': change,
+            'change_rate': round(change_rate, 1),
+            'is_uncollected': is_uncollected
+        })
+    
+    # 변화량 절대값 기준 정렬
+    changes.sort(key=lambda x: abs(x['change']), reverse=True)
+    
+    return jsonify({
+        'current_time': time_str,
+        'previous_time': prev_time_full,
+        'range': range_min,
+        'current': {
+            'CURRTIME': str(current_row.get('CURRTIME', '')),
+            'TOTALCNT': int(current_row.get('TOTALCNT', 0)) if pd.notna(current_row.get('TOTALCNT')) else 0
+        },
+        'previous': {
+            'CURRTIME': str(prev_row.get('CURRTIME', '')),
+            'TOTALCNT': int(prev_row.get('TOTALCNT', 0)) if pd.notna(prev_row.get('TOTALCNT')) else 0
+        },
+        'changes': changes
+    })
+
+
 if __name__ == '__main__':
     print('=' * 60)
     print('M14 반송 큐 모니터링 서버')
