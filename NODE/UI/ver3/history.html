@@ -1561,7 +1561,9 @@
             const overCount = totalcnts.filter(v => v >= 1700).length;
             document.getElementById('stat-over').textContent = overCount;
             
-            // 예측 정확도 계산 (IS_ALARM=True인 알람만 적중률 계산)
+            // 예측 정확도 계산 (IS_ALARM=True인 알람만, 범위 내 1700+ 발생 시 적중)
+            // 10분 예측: -10분 ~ +60분 범위
+            // 30분 예측: -30분 ~ +60분 범위
             let acc10Hit = 0;   // 알람 적중
             let acc10Total = 0; // 알람 발생 횟수
             let acc30Hit = 0;
@@ -1573,32 +1575,54 @@
                 timeToIdx[String(row.CURRTIME)] = idx;
             });
             
-            // 10분 예측: IS_ALARM=True인 알람만 검증
+            // 10분 예측: IS_ALARM=True인 알람, -10분 ~ +60분 내 1700+ 발생 여부
             const alerts10 = currentData.alerts_10 || [];
             alerts10.forEach(alert => {
                 if (!alert.IS_ALARM) return;  // 쿨타임 중인 건 제외
                 
                 const currtime = String(alert.CURRTIME);
                 const idx = timeToIdx[currtime];
-                if (idx !== undefined && idx + 10 < rows.length) {
-                    const actual = rows[idx + 10].TOTALCNT;
-                    acc10Total++;
-                    if (actual >= 1700) acc10Hit++;
+                if (idx === undefined) return;
+                
+                acc10Total++;
+                
+                // -10분 ~ +60분 범위에서 1700+ 있는지 확인
+                let hit = false;
+                for (let offset = -10; offset <= 60; offset++) {
+                    const checkIdx = idx + offset;
+                    if (checkIdx >= 0 && checkIdx < rows.length) {
+                        if (rows[checkIdx].TOTALCNT >= 1700) {
+                            hit = true;
+                            break;
+                        }
+                    }
                 }
+                if (hit) acc10Hit++;
             });
             
-            // 30분 예측: IS_ALARM=True인 알람만 검증
+            // 30분 예측: IS_ALARM=True인 알람, -30분 ~ +60분 내 1700+ 발생 여부
             const alerts30 = currentData.alerts_30 || [];
             alerts30.forEach(alert => {
                 if (!alert.IS_ALARM) return;  // 쿨타임 중인 건 제외
                 
                 const currtime = String(alert.CURRTIME);
                 const idx = timeToIdx[currtime];
-                if (idx !== undefined && idx + 30 < rows.length) {
-                    const actual = rows[idx + 30].TOTALCNT;
-                    acc30Total++;
-                    if (actual >= 1700) acc30Hit++;
+                if (idx === undefined) return;
+                
+                acc30Total++;
+                
+                // -30분 ~ +60분 범위에서 1700+ 있는지 확인
+                let hit = false;
+                for (let offset = -30; offset <= 60; offset++) {
+                    const checkIdx = idx + offset;
+                    if (checkIdx >= 0 && checkIdx < rows.length) {
+                        if (rows[checkIdx].TOTALCNT >= 1700) {
+                            hit = true;
+                            break;
+                        }
+                    }
                 }
+                if (hit) acc30Hit++;
             });
             
             const acc10 = acc10Total > 0 ? Math.round(acc10Hit / acc10Total * 100) : 0;
