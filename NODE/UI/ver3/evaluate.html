@@ -657,7 +657,7 @@
             document.getElementById('filter-total').textContent = allTableData.length.toLocaleString();
         }
         
-        // ★ 수정된 drawChart 함수 - 시작~종료 시간 표시, hover 시 YYYY-MM-DD-HH:MM:(값) 형식
+        // ★ 수정된 drawChart 함수 - 시작~종료 시간 표시, hover 시 YYYY-MM-DD-HH:MM:(값) 형식, 알람 마커 추가
         function drawChart(data, predType) {
             // x축: 예측시점 전체 표시 (YYYY-MM-DD HH:MM)
             const times = data.map(d => d.pred_time || '');
@@ -677,6 +677,26 @@
                     }
                 }
                 return [formatted, d.actual_max, d.actual_single, d.predict];
+            });
+            
+            // ★ 알람 마커 데이터 추출 (IS_ALARM=True만, 현재시간 기준)
+            const alarmData = data.filter(d => d.is_alarm === true);
+            const alarmTimes = alarmData.map(d => {
+                // currtime을 pred_time 형식으로 변환 (YYYY-MM-DD HH:MM)
+                const ct = String(d.currtime || '');
+                if (ct.length >= 12) {
+                    return `${ct.slice(0,4)}-${ct.slice(4,6)}-${ct.slice(6,8)} ${ct.slice(8,10)}:${ct.slice(10,12)}`;
+                }
+                return ct;
+            });
+            const alarmValues = alarmData.map(d => d.predict);
+            const alarmCustom = alarmData.map(d => {
+                const ct = String(d.currtime || '');
+                let formatted = ct;
+                if (ct.length >= 12) {
+                    formatted = `${ct.slice(0,4)}-${ct.slice(4,6)}-${ct.slice(6,8)}-${ct.slice(8,10)}:${ct.slice(10,12)}`;
+                }
+                return [formatted, d.alarm_no, d.predict];
             });
             
             const traces = [
@@ -699,6 +719,20 @@
                     hovertemplate: '%{customdata[0]}:(%{customdata[3]})<extra>예측값</extra>'
                 }
             ];
+            
+            // ★ 알람 마커 추가 (IS_ALARM=True만)
+            if (alarmTimes.length > 0) {
+                traces.push({
+                    x: alarmTimes,
+                    y: alarmValues,
+                    name: '🔔 알람',
+                    type: 'scatter',
+                    mode: 'markers',
+                    marker: { color: '#ef4444', size: 12, symbol: 'circle' },
+                    customdata: alarmCustom,
+                    hovertemplate: '%{customdata[0]}<br>🔔 %{customdata[1]}번째 알람<br>예측값: %{customdata[2]}<extra></extra>'
+                });
+            }
             
             const layout = {
                 paper_bgcolor: 'transparent', plot_bgcolor: 'transparent',
