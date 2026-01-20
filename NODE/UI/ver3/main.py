@@ -359,7 +359,7 @@ LLM_SERVER_URL = "http://localhost:8002"
 def proxy_llm_status():
     """LLM 상태 프록시"""
     try:
-        res = http_requests.get(f"{LLM_SERVER_URL}/status", timeout=5)
+        res = http_requests.get(f"{LLM_SERVER_URL}/api/status", timeout=5)
         return jsonify(res.json())
     except Exception as e:
         return jsonify({'error': str(e), 'mode': 'unknown'}), 500
@@ -369,7 +369,7 @@ def proxy_llm_mode():
     """LLM 모드 변경 프록시"""
     try:
         res = http_requests.post(
-            f"{LLM_SERVER_URL}/mode",
+            f"{LLM_SERVER_URL}/api/llm_mode",
             json=request.get_json(),
             timeout=10
         )
@@ -381,7 +381,7 @@ def proxy_llm_mode():
 def proxy_get_prompts():
     """프롬프트 조회 프록시"""
     try:
-        res = http_requests.get(f"{LLM_SERVER_URL}/prompts", timeout=5)
+        res = http_requests.get(f"{LLM_SERVER_URL}/api/prompts", timeout=5)
         return jsonify(res.json())
     except Exception as e:
         return jsonify({'error': str(e)}), 500
@@ -391,7 +391,7 @@ def proxy_save_prompts():
     """프롬프트 저장 프록시"""
     try:
         res = http_requests.post(
-            f"{LLM_SERVER_URL}/prompts",
+            f"{LLM_SERVER_URL}/api/prompts",
             json=request.get_json(),
             timeout=10
         )
@@ -406,7 +406,7 @@ def proxy_llm_analyze():
     
     try:
         res = http_requests.post(
-            f"{LLM_SERVER_URL}/analyze",
+            f"{LLM_SERVER_URL}/api/analyze",
             json=request.get_json(),
             stream=True,
             timeout=300
@@ -491,20 +491,25 @@ def get_detail():
         prev_idx = max(0, current_idx - range_mins)
         prev_row = df.iloc[prev_idx]
         
-        # 현재 데이터
+        # 현재 데이터 (컬럼 없으면 0)
         current_data = {}
         for col in analysis_cols:
             if col in df.columns:
                 current_data[col] = int(current_row[col]) if pd.notna(current_row[col]) else 0
+            else:
+                current_data[col] = 0  # 컬럼 없으면 0
         
-        # 이전 데이터
+        # 이전 데이터 (컬럼 없으면 0)
         prev_data = {}
         for col in analysis_cols:
             if col in df.columns:
                 prev_data[col] = int(prev_row[col]) if pd.notna(prev_row[col]) else 0
+            else:
+                prev_data[col] = 0  # 컬럼 없으면 0
         
         # 변화율 분석
         changes = []
+        missing_cols = []  # 누락된 컬럼 추적
         for col in analysis_cols:
             if col == 'TOTALCNT':
                 continue  # TOTALCNT는 별도 표시
@@ -518,12 +523,18 @@ def get_detail():
             else:
                 pct = 0 if diff == 0 else 100
             
+            # 컬럼 존재 여부 체크
+            col_exists = col in df.columns
+            if not col_exists:
+                missing_cols.append(col)
+            
             changes.append({
                 'column': col,
                 'current': curr_val,
                 'previous': prev_val,
                 'diff': diff,
-                'pct': pct
+                'pct': pct,
+                'missing': not col_exists  # 누락 여부 표시
             })
         
         # 변화량 기준 내림차순 정렬
@@ -535,7 +546,8 @@ def get_detail():
             'range_mins': range_mins,
             'current': current_data,
             'previous': prev_data,
-            'changes': changes
+            'changes': changes,
+            'missing_cols': missing_cols  # 누락된 컬럼 목록
         })
         
     except Exception as e:
