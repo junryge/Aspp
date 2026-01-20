@@ -348,6 +348,114 @@ def get_available_dates():
     return jsonify({'dates': dates})
 
 
+@app.route('/api/detail')
+def get_detail():
+    """
+    특정 시간의 상세 데이터 + 변화율 분석 API
+    
+    Parameters:
+        date: YYYYMMDD 형식의 날짜
+        time: YYYYMMDDHHMM 형식의 시간
+        range: 분석 범위 (분, 기본값 10)
+    
+    Returns:
+        current: 현재 시점 상세 데이터
+        previous: 이전 시점 상세 데이터
+        changes: 변화율 분석 (상승/하락 컬럼)
+    """
+    import os
+    
+    date_str = request.args.get('date', '')
+    time_str = request.args.get('time', '')
+    range_mins = int(request.args.get('range', '10'))
+    
+    if not date_str or len(date_str) != 8:
+        return jsonify({'error': '날짜 형식이 잘못되었습니다 (YYYYMMDD)'}), 400
+    
+    if not time_str or len(time_str) < 12:
+        return jsonify({'error': '시간 형식이 잘못되었습니다 (YYYYMMDDHHMM)'}), 400
+    
+    data_dir = data_manager.data_dir
+    data_file = os.path.join(data_dir, f'm14_data_{date_str}.csv')
+    
+    if not os.path.exists(data_file):
+        return jsonify({'error': f'{date_str} 데이터 파일이 없습니다'})
+    
+    try:
+        df = pd.read_csv(data_file)
+        df['CURRTIME'] = df['CURRTIME'].astype(str)
+        
+        # 분석 대상 컬럼
+        analysis_cols = [
+            'TOTALCNT',
+            'M14AM10A', 'M10AM14A', 'M14AM10ASUM',
+            'M14AM14B', 'M14BM14A', 'M14AM14BSUM',
+            'M14AM16', 'M16M14A', 'M14AM16SUM'
+        ]
+        
+        # 현재 시점 데이터
+        current_idx = df[df['CURRTIME'] == time_str].index
+        if len(current_idx) == 0:
+            return jsonify({'error': f'{time_str} 시간 데이터가 없습니다'})
+        
+        current_idx = current_idx[0]
+        current_row = df.iloc[current_idx]
+        
+        # 이전 시점 데이터 (range_mins분 전)
+        prev_idx = max(0, current_idx - range_mins)
+        prev_row = df.iloc[prev_idx]
+        
+        # 현재 데이터
+        current_data = {}
+        for col in analysis_cols:
+            if col in df.columns:
+                current_data[col] = int(current_row[col]) if pd.notna(current_row[col]) else 0
+        
+        # 이전 데이터
+        prev_data = {}
+        for col in analysis_cols:
+            if col in df.columns:
+                prev_data[col] = int(prev_row[col]) if pd.notna(prev_row[col]) else 0
+        
+        # 변화율 분석
+        changes = []
+        for col in analysis_cols:
+            if col == 'TOTALCNT':
+                continue  # TOTALCNT는 별도 표시
+            
+            curr_val = current_data.get(col, 0)
+            prev_val = prev_data.get(col, 0)
+            diff = curr_val - prev_val
+            
+            if prev_val > 0:
+                pct = round((diff / prev_val) * 100, 1)
+            else:
+                pct = 0 if diff == 0 else 100
+            
+            changes.append({
+                'column': col,
+                'current': curr_val,
+                'previous': prev_val,
+                'diff': diff,
+                'pct': pct
+            })
+        
+        # 변화량 기준 내림차순 정렬
+        changes.sort(key=lambda x: abs(x['diff']), reverse=True)
+        
+        return jsonify({
+            'time': time_str,
+            'prev_time': str(prev_row['CURRTIME']),
+            'range_mins': range_mins,
+            'current': current_data,
+            'previous': prev_data,
+            'changes': changes
+        })
+        
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
 if __name__ == '__main__':
     print('=' * 60)
     print('M14 반송 큐 모니터링 서버')
