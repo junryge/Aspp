@@ -680,10 +680,20 @@
             });
             
             // ★ 알람 마커 데이터 추출 (IS_ALARM=True만, currtime 위치에 표시)
-            const alarmData = data.filter(d => d.is_alarm === true);
+            // is_alarm이 true, 'True', 'true', 1 등 다양한 형태일 수 있음
+            const alarmData = data.filter(d => d.is_alarm === true || d.is_alarm === 'True' || d.is_alarm === 'true' || d.is_alarm === 1);
+            console.log('알람 데이터 개수:', alarmData.length, alarmData);
+            
             // x좌표는 currtime (현재시간) 위치에 표시
             const alarmTimes = alarmData.map(d => {
-                const ct = String(d.currtime || '');
+                // currtime_raw 또는 currtime 사용
+                let ct = String(d.currtime_raw || d.currtime || '');
+                // 이미 YYYY-MM-DD HH:MM 형식이면 그대로
+                if (ct.includes('-') && ct.includes(':')) {
+                    return ct;
+                }
+                // YYYYMMDDHHMM 형식이면 변환
+                ct = ct.replace(/[^0-9]/g, '');  // 숫자만 추출
                 if (ct.length >= 12) {
                     return `${ct.slice(0,4)}-${ct.slice(4,6)}-${ct.slice(6,8)} ${ct.slice(8,10)}:${ct.slice(10,12)}`;
                 }
@@ -691,14 +701,19 @@
             });
             const alarmValues = alarmData.map(d => d.predict);
             const alarmCustom = alarmData.map(d => {
-                // currtime 포맷팅 (YYYY-MM-DD HH:MM)
-                const ct = String(d.currtime || '');
+                let ct = String(d.currtime_raw || d.currtime || '');
+                if (ct.includes('-') && ct.includes(':')) {
+                    return [ct, d.alarm_no, d.predict];
+                }
+                ct = ct.replace(/[^0-9]/g, '');
                 let currFormatted = ct;
                 if (ct.length >= 12) {
                     currFormatted = `${ct.slice(0,4)}-${ct.slice(4,6)}-${ct.slice(6,8)} ${ct.slice(8,10)}:${ct.slice(10,12)}`;
                 }
                 return [currFormatted, d.alarm_no, d.predict];
             });
+            console.log('알람 시간:', alarmTimes);
+            console.log('알람 값:', alarmValues);
             
             const traces = [
                 { 
