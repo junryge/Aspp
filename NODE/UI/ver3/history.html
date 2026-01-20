@@ -1234,7 +1234,7 @@
         // LLM 상태 로드
         async function loadLlmStatus() {
             try {
-                const res = await fetch('/api/status');
+                const res = await fetch('/api/llm_status');
                 const data = await res.json();
 
                 // 버튼 상태 업데이트
