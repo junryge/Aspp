@@ -392,6 +392,132 @@
             cursor: pointer;
             font-family: inherit;
         }
+
+        /* 상세 분석 모달 스타일 */
+        .detail-overlay {
+            display: none;
+            position: fixed;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background: rgba(0, 0, 0, 0.8);
+            z-index: 2000;
+        }
+        .detail-modal {
+            display: none;
+            position: fixed;
+            top: 50%; left: 50%;
+            transform: translate(-50%, -50%);
+            background: var(--bg-secondary);
+            border: 1px solid var(--border);
+            border-radius: 16px;
+            width: 800px;
+            max-height: 85vh;
+            overflow: hidden;
+            z-index: 2001;
+        }
+        .detail-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 16px 20px;
+            border-bottom: 1px solid var(--border);
+            background: var(--bg-card);
+        }
+        .detail-header h3 {
+            font-size: 18px;
+            font-weight: 600;
+        }
+        .detail-close {
+            background: none;
+            border: none;
+            color: var(--text-secondary);
+            font-size: 28px;
+            cursor: pointer;
+        }
+        .detail-close:hover { color: var(--text-primary); }
+        .detail-body {
+            padding: 20px;
+            overflow-y: auto;
+            max-height: calc(85vh - 60px);
+        }
+        .detail-header-info {
+            display: flex;
+            gap: 20px;
+            margin-bottom: 15px;
+            padding: 12px;
+            background: var(--bg-card);
+            border-radius: 8px;
+        }
+        .detail-time-box {
+            flex: 1;
+            text-align: center;
+        }
+        .detail-time-label {
+            font-size: 11px;
+            color: var(--text-secondary);
+            margin-bottom: 4px;
+        }
+        .detail-time-value {
+            font-size: 16px;
+            font-weight: 600;
+        }
+        .detail-totalcnt {
+            font-size: 24px;
+            font-weight: 700;
+        }
+        .detail-range-selector {
+            display: flex;
+            gap: 8px;
+            margin-bottom: 15px;
+        }
+        .detail-range-btn {
+            padding: 8px 16px;
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            background: var(--bg-card);
+            color: var(--text-primary);
+            cursor: pointer;
+            font-size: 13px;
+            font-family: inherit;
+        }
+        .detail-range-btn:hover { border-color: var(--accent); }
+        .detail-range-btn.active { background: var(--accent); border-color: var(--accent); }
+        .detail-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 13px;
+        }
+        .detail-table th, .detail-table td {
+            padding: 10px 12px;
+            border-bottom: 1px solid var(--border);
+            text-align: right;
+        }
+        .detail-table th {
+            background: var(--bg-card);
+            color: var(--text-secondary);
+            font-weight: 500;
+            text-align: left;
+        }
+        .detail-table th:first-child, .detail-table td:first-child { text-align: left; }
+        .detail-table td:first-child { font-weight: 500; }
+        .detail-change-positive { color: var(--danger); }
+        .detail-change-negative { color: var(--success); }
+        .detail-spike { background: rgba(239, 68, 68, 0.15) !important; }
+        .detail-spike-icon { color: var(--danger); font-weight: bold; }
+        .detail-uncollected { color: var(--text-secondary); font-style: italic; }
+        .detail-uncollected-tag {
+            display: inline-block;
+            padding: 2px 6px;
+            background: rgba(161, 161, 170, 0.2);
+            border-radius: 4px;
+            font-size: 10px;
+            color: var(--text-secondary);
+            margin-left: 5px;
+        }
+        .detail-loading {
+            text-align: center;
+            padding: 40px;
+            color: var(--text-secondary);
+        }
     </style>
 </head>
 <body>
@@ -411,6 +537,46 @@
         </div>
         <div class="alert-list" id="alert-list">
             <div class="alert-empty">초과 기록 없음</div>
+        </div>
+    </div>
+
+    <!-- 상세 분석 모달 -->
+    <div class="detail-overlay" id="detail-overlay" onclick="closeDetailModal()"></div>
+    <div class="detail-modal" id="detail-modal">
+        <div class="detail-header">
+            <h3>🔍 컬럼별 변화량 분석</h3>
+            <button class="detail-close" onclick="closeDetailModal()">&times;</button>
+        </div>
+        <div class="detail-body">
+            <div class="detail-header-info">
+                <div class="detail-time-box">
+                    <div class="detail-time-label">현재 시점</div>
+                    <div class="detail-time-value" id="detail-current-time">-</div>
+                    <div class="detail-totalcnt" id="detail-current-totalcnt" style="color: var(--accent);">-</div>
+                </div>
+                <div class="detail-time-box" style="display: flex; align-items: center; justify-content: center;">
+                    <span style="font-size: 24px; color: var(--text-secondary);">←</span>
+                </div>
+                <div class="detail-time-box">
+                    <div class="detail-time-label">이전 시점</div>
+                    <div class="detail-time-value" id="detail-prev-time">-</div>
+                    <div class="detail-totalcnt" id="detail-prev-totalcnt" style="color: var(--text-secondary);">-</div>
+                </div>
+                <div class="detail-time-box">
+                    <div class="detail-time-label">TOTALCNT 변화</div>
+                    <div class="detail-totalcnt" id="detail-totalcnt-change">-</div>
+                </div>
+            </div>
+            <div class="detail-range-selector">
+                <span style="color: var(--text-secondary); font-size: 13px; margin-right: 10px;">분석 범위:</span>
+                <button class="detail-range-btn" data-range="5" onclick="changeDetailRange(5)">5분</button>
+                <button class="detail-range-btn active" data-range="10" onclick="changeDetailRange(10)">10분</button>
+                <button class="detail-range-btn" data-range="20" onclick="changeDetailRange(20)">20분</button>
+                <button class="detail-range-btn" data-range="30" onclick="changeDetailRange(30)">30분</button>
+            </div>
+            <div id="detail-table-container">
+                <div class="detail-loading">데이터 로딩 중...</div>
+            </div>
         </div>
     </div>
     
@@ -1157,8 +1323,171 @@
             await fetchData();
         }
 
+        // ========================================
+        // 상세 분석 모달 기능
+        // ========================================
+        let detailCurrentTime = null;
+        let detailRange = 10;
+        let lastClickTime = 0;
+        let lastClickPoint = null;
+
+        function openDetailModal(currtime) {
+            detailCurrentTime = currtime;
+            detailRange = 10;
+            
+            // 범위 버튼 초기화
+            document.querySelectorAll('.detail-range-btn').forEach(btn => {
+                btn.classList.toggle('active', btn.dataset.range === '10');
+            });
+            
+            document.getElementById('detail-overlay').style.display = 'block';
+            document.getElementById('detail-modal').style.display = 'block';
+            loadDetailData();
+        }
+
+        function closeDetailModal() {
+            document.getElementById('detail-overlay').style.display = 'none';
+            document.getElementById('detail-modal').style.display = 'none';
+        }
+
+        function changeDetailRange(range) {
+            detailRange = range;
+            
+            document.querySelectorAll('.detail-range-btn').forEach(btn => {
+                btn.classList.toggle('active', parseInt(btn.dataset.range) === range);
+            });
+            
+            loadDetailData();
+        }
+
+        async function loadDetailData() {
+            if (!detailCurrentTime) return;
+            
+            document.getElementById('detail-table-container').innerHTML = '<div class="detail-loading">데이터 로딩 중...</div>';
+            
+            try {
+                // 실시간 데이터용 API 호출
+                const res = await fetch(`/api/realtime_detail?time=${detailCurrentTime}&range=${detailRange}`);
+                const data = await res.json();
+                
+                if (data.error) {
+                    document.getElementById('detail-table-container').innerHTML = `
+                        <div class="detail-loading" style="color: var(--danger);">
+                            ⚠️ ${data.error}
+                        </div>
+                    `;
+                    return;
+                }
+                
+                renderDetailData(data);
+                
+            } catch (e) {
+                console.error('상세 데이터 로드 실패:', e);
+                document.getElementById('detail-table-container').innerHTML = `
+                    <div class="detail-loading" style="color: var(--danger);">
+                        ⚠️ 데이터 로드 실패: ${e.message}
+                    </div>
+                `;
+            }
+        }
+
+        function renderDetailData(data) {
+            const formatDetailTime = (t) => {
+                if (t && t.length >= 12) {
+                    return `${t.slice(4,6)}-${t.slice(6,8)} ${t.slice(8,10)}:${t.slice(10,12)}`;
+                }
+                return t || '-';
+            };
+            
+            document.getElementById('detail-current-time').textContent = formatDetailTime(data.current_time);
+            document.getElementById('detail-prev-time').textContent = formatDetailTime(data.previous_time);
+            document.getElementById('detail-current-totalcnt').textContent = (data.current.TOTALCNT || 0).toLocaleString();
+            document.getElementById('detail-prev-totalcnt').textContent = (data.previous.TOTALCNT || 0).toLocaleString();
+            
+            const totalcntChange = (data.current.TOTALCNT || 0) - (data.previous.TOTALCNT || 0);
+            const totalcntEl = document.getElementById('detail-totalcnt-change');
+            totalcntEl.textContent = (totalcntChange >= 0 ? '+' : '') + totalcntChange.toLocaleString();
+            totalcntEl.style.color = totalcntChange >= 50 ? 'var(--danger)' : (totalcntChange <= -50 ? 'var(--success)' : 'var(--text-primary)');
+            
+            let html = `
+                <table class="detail-table">
+                    <thead>
+                        <tr>
+                            <th>컬럼명</th>
+                            <th>이전값</th>
+                            <th>현재값</th>
+                            <th>변화량</th>
+                            <th>변화율</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+            `;
+            
+            data.changes.forEach(item => {
+                const isSpike = item.change >= 50;
+                const rowClass = isSpike ? 'detail-spike' : '';
+                
+                let changeClass = '';
+                if (item.change > 0) changeClass = 'detail-change-positive';
+                else if (item.change < 0) changeClass = 'detail-change-negative';
+                
+                const changeText = item.change >= 0 ? '+' + item.change : item.change;
+                const rateText = item.change_rate >= 0 ? '+' + item.change_rate + '%' : item.change_rate + '%';
+                const spikeIcon = isSpike ? '<span class="detail-spike-icon">🔺</span> ' : '';
+                
+                let colName = item.column;
+                if (item.is_uncollected) {
+                    colName += '<span class="detail-uncollected-tag">미수집</span>';
+                }
+                
+                html += `
+                    <tr class="${rowClass}">
+                        <td>${colName}</td>
+                        <td class="${item.is_uncollected ? 'detail-uncollected' : ''}">${item.previous}</td>
+                        <td class="${item.is_uncollected ? 'detail-uncollected' : ''}">${item.current}</td>
+                        <td class="${changeClass}">${spikeIcon}${changeText}</td>
+                        <td class="${changeClass}">${rateText}</td>
+                    </tr>
+                `;
+            });
+            
+            html += '</tbody></table>';
+            html += `<div style="margin-top: 10px; font-size: 11px; color: var(--text-secondary);">
+                💡 변화량 절대값 기준 정렬 | 🔺 +50 이상 급상승 표시
+            </div>`;
+            
+            document.getElementById('detail-table-container').innerHTML = html;
+        }
+
+        // Plotly 차트 더블클릭 이벤트 설정
+        function setupChartDoubleClick() {
+            const chartEl = document.getElementById('chart');
+            
+            chartEl.on('plotly_click', function(data) {
+                const now = Date.now();
+                const point = data.points[0];
+                
+                // 300ms 이내 같은 점 클릭 = 더블클릭
+                if (now - lastClickTime < 300 && lastClickPoint === point.pointIndex) {
+                    // x_full에서 시간 가져오기 (YYYY-MM-DD HH:MM 형식)
+                    if (chartData && chartData.x_full && chartData.x_full[point.pointIndex]) {
+                        const timeStr = chartData.x_full[point.pointIndex]; // "2025-01-20 14:30"
+                        // YYYYMMDDHHMM 형식으로 변환
+                        const currtime = timeStr.replace(/-/g, '').replace(' ', '').replace(':', '');
+                        openDetailModal(currtime);
+                    }
+                }
+                
+                lastClickTime = now;
+                lastClickPoint = point.pointIndex;
+            });
+        }
+
         // 페이지 로드 시 자동 시작
         startUpdate();
+        
+        // 차트 이벤트 설정 (약간의 딜레이 후)
+        setTimeout(setupChartDoubleClick, 1000);
     </script>
 </body>
 </html>
