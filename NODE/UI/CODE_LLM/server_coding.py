@@ -1,17 +1,4 @@
 #!/usr/bin/env python3
-
-ENV_CONFIG = {
-    "dev": {
-        "url": "http://hcp.llm.skhynix.com/v1/chat/completions",
-        "model": "Qwen3-Coder-480B-A35B-Instruct",
-        "name": "HCP(480B)"
-    },
-    "prod": {
-        "url": "http://summary.llm.skhynix.com/v1/chat/completions",
-        "model": "Qwen3-Next-80B-A3B-Instruct",
-        "name": "운영(80B)"
-    }
-}
 # -*- coding: utf-8 -*-
 """
 코딩 전용 LLM 서버 (v1.0)
@@ -53,17 +40,29 @@ ENV_CONFIG = {
     "dev": {
         "url": "http://dev.assistant.llm.skhynix.com/v1/chat/completions",
         "model": "Qwen3-Coder-30B-A3B-Instruct",
-        "name": "개발(30B)"
+        "name": "DEV(30B)"
     },
     "prod": {
         "url": "http://summary.llm.skhynix.com/v1/chat/completions",
         "model": "Qwen3-Next-80B-A3B-Instruct",
-        "name": "운영(80B)"
+        "name": "PROD(80B)"
+    },
+    "common": {
+        "url": "http://common.llm.skhynix.com/v1/chat/completions",
+        "model": "gpt-oss-20b",
+        "name": "COMMON(20B)"
     }
 }
 
 API_URL = ENV_CONFIG["dev"]["url"]
 API_MODEL = ENV_CONFIG["dev"]["model"]
+
+# 팀 권한으로 사용 가능한 모델
+# - Qwen3-Coder-30B-A3B-Instruct (코딩 특화)
+# - Qwen3-Next-80B-A3B-Instruct (범용 대형)
+# - Qwen3-VL-30B-A3B-Instruct (비전+언어)
+# - InternVL3_5-241B-A28B (비전)
+# 480B 모델은 팀 권한 필요!
 
 # ========================================
 # 모드별 시스템 프롬프트
