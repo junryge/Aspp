@@ -348,210 +348,169 @@ def get_available_dates():
     return jsonify({'dates': dates})
 
 
-# ============================================================================
-# LLM 분석 서버 프록시 (llm_analysis_server.py -> port 8002)
-# ============================================================================
-import requests as http_requests
-
-LLM_SERVER_URL = "http://localhost:8002"
-
-@app.route('/api/llm_status')
-def proxy_llm_status():
-    """LLM 상태 프록시"""
-    try:
-        res = http_requests.get(f"{LLM_SERVER_URL}/api/status", timeout=5)
-        return jsonify(res.json())
-    except Exception as e:
-        return jsonify({'error': str(e), 'mode': 'unknown'}), 500
-
-@app.route('/api/llm_mode', methods=['POST'])
-def proxy_llm_mode():
-    """LLM 모드 변경 프록시"""
-    try:
-        res = http_requests.post(
-            f"{LLM_SERVER_URL}/api/llm_mode",
-            json=request.get_json(),
-            timeout=10
-        )
-        return jsonify(res.json())
-    except Exception as e:
-        return jsonify({'success': False, 'error': str(e)}), 500
-
-@app.route('/api/prompts', methods=['GET'])
-def proxy_get_prompts():
-    """프롬프트 조회 프록시"""
-    try:
-        res = http_requests.get(f"{LLM_SERVER_URL}/api/prompts", timeout=5)
-        return jsonify(res.json())
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
-
-@app.route('/api/prompts', methods=['POST'])
-def proxy_save_prompts():
-    """프롬프트 저장 프록시"""
-    try:
-        res = http_requests.post(
-            f"{LLM_SERVER_URL}/api/prompts",
-            json=request.get_json(),
-            timeout=10
-        )
-        return jsonify(res.json())
-    except Exception as e:
-        return jsonify({'success': False, 'error': str(e)}), 500
-
-@app.route('/api/llm_analyze', methods=['POST'])
-def proxy_llm_analyze():
-    """LLM 분석 프록시 (스트리밍)"""
-    from flask import Response, stream_with_context
-    
-    try:
-        res = http_requests.post(
-            f"{LLM_SERVER_URL}/api/analyze",
-            json=request.get_json(),
-            stream=True,
-            timeout=300
-        )
-        
-        def generate():
-            for chunk in res.iter_content(chunk_size=1024):
-                if chunk:
-                    yield chunk
-        
-        return Response(
-            stream_with_context(generate()),
-            content_type='text/event-stream',
-            headers={
-                'Cache-Control': 'no-cache',
-                'X-Accel-Buffering': 'no'
-            }
-        )
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
-
-
 @app.route('/api/detail')
 def get_detail():
     """
-    특정 시간의 상세 데이터 + 변화율 분석 API
+    상세 분석 API - 특정 시점의 컬럼별 변화량 분석
     
     Parameters:
         date: YYYYMMDD 형식의 날짜
-        time: YYYYMMDDHHMM 형식의 시간
-        range: 분석 범위 (분, 기본값 10)
+        time: HHMM 형식의 시간
+        range: 분석 범위 (분 단위, 기본값 10)
     
     Returns:
-        current: 현재 시점 상세 데이터
-        previous: 이전 시점 상세 데이터
-        changes: 변화율 분석 (상승/하락 컬럼)
+        current: 현재 시점 데이터
+        previous: 이전 시점 데이터 (range분 전)
+        changes: 컬럼별 변화량/변화율
+    
+    분석 대상 컬럼:
+        - M14AM10A, M10AM14A, M14AM10ASUM
+        - M14AM14B, M14BM14A, M14AM14BSUM
+        - M14AM16, M16M14A, M14AM16SUM
+        - M14.QUE.ALL.CURRENTQCREATED (미수집 가능)
+        - M14.QUE.ALL.CURRENTQCOMPLETED (미수집 가능)
+        - M14.QUE.OHT.OHTUTIL (미수집 가능)
+        - M14.QUE.ALL.TRANSPORT4MINOVERCNT (미수집 가능)
+        - M14B.QUE.SENDFAB.VERTICALQUEUECOUNT (미수집 가능)
     """
     import os
     
     date_str = request.args.get('date', '')
     time_str = request.args.get('time', '')
-    range_mins = int(request.args.get('range', '10'))
+    range_min = int(request.args.get('range', '10'))
     
     if not date_str or len(date_str) != 8:
         return jsonify({'error': '날짜 형식이 잘못되었습니다 (YYYYMMDD)'}), 400
     
-    if not time_str or len(time_str) < 12:
-        return jsonify({'error': '시간 형식이 잘못되었습니다 (YYYYMMDDHHMM)'}), 400
+    if not time_str or len(time_str) != 4:
+        return jsonify({'error': '시간 형식이 잘못되었습니다 (HHMM)'}), 400
+    
+    # 분석 대상 컬럼
+    ANALYSIS_COLUMNS = [
+        'M14AM10A', 'M10AM14A', 'M14AM10ASUM',
+        'M14AM14B', 'M14BM14A', 'M14AM14BSUM',
+        'M14AM16', 'M16M14A', 'M14AM16SUM',
+        'M14.QUE.ALL.CURRENTQCREATED',
+        'M14.QUE.ALL.CURRENTQCOMPLETED',
+        'M14.QUE.OHT.OHTUTIL',
+        'M14.QUE.ALL.TRANSPORT4MINOVERCNT',
+        'M14B.QUE.SENDFAB.VERTICALQUEUECOUNT'
+    ]
+    
+    # 미수집 가능 컬럼 (star_transport_view에서 오는 컬럼)
+    UNCOLLECTED_COLUMNS = [
+        'M14.QUE.ALL.CURRENTQCREATED',
+        'M14.QUE.ALL.CURRENTQCOMPLETED',
+        'M14.QUE.OHT.OHTUTIL',
+        'M14.QUE.ALL.TRANSPORT4MINOVERCNT',
+        'M14B.QUE.SENDFAB.VERTICALQUEUECOUNT'
+    ]
     
     data_dir = data_manager.data_dir
-    data_file = os.path.join(data_dir, f'm14_data_{date_str}.csv')
     
-    if not os.path.exists(data_file):
-        return jsonify({'error': f'{date_str} 데이터 파일이 없습니다'})
+    # 현재 시간과 이전 시간 계산
+    current_time = date_str + time_str
     
+    # 이전 시간 계산 (range분 전)
     try:
-        df = pd.read_csv(data_file)
-        df['CURRTIME'] = df['CURRTIME'].astype(str)
-        
-        # 분석 대상 컬럼
-        analysis_cols = [
-            'TOTALCNT',
-            'M14AM10A', 'M10AM14A', 'M14AM10ASUM',
-            'M14AM14B', 'M14BM14A', 'M14AM14BSUM',
-            'M14AM16', 'M16M14A', 'M14AM16SUM',
-            'M14.QUE.ALL.CURRENTQCREATED',
-            'M14.QUE.ALL.CURRENTQCOMPLETED',
-            'M14.QUE.OHT.OHTUTIL',
-            'M14.QUE.ALL.TRANSPORT4MINOVERCNT',
-            'M14B.QUE.SENDFAB.VERTICALQUEUECOUNT'
-        ]
-        
-        # 현재 시점 데이터
-        current_idx = df[df['CURRTIME'] == time_str].index
-        if len(current_idx) == 0:
-            return jsonify({'error': f'{time_str} 시간 데이터가 없습니다'})
-        
-        current_idx = current_idx[0]
-        current_row = df.iloc[current_idx]
-        
-        # 이전 시점 데이터 (range_mins분 전)
-        prev_idx = max(0, current_idx - range_mins)
-        prev_row = df.iloc[prev_idx]
-        
-        # 현재 데이터 (컬럼 없으면 0)
-        current_data = {}
-        for col in analysis_cols:
-            if col in df.columns:
-                current_data[col] = int(current_row[col]) if pd.notna(current_row[col]) else 0
-            else:
-                current_data[col] = 0  # 컬럼 없으면 0
-        
-        # 이전 데이터 (컬럼 없으면 0)
-        prev_data = {}
-        for col in analysis_cols:
-            if col in df.columns:
-                prev_data[col] = int(prev_row[col]) if pd.notna(prev_row[col]) else 0
-            else:
-                prev_data[col] = 0  # 컬럼 없으면 0
-        
-        # 변화율 분석
-        changes = []
-        missing_cols = []  # 누락된 컬럼 추적
-        for col in analysis_cols:
-            if col == 'TOTALCNT':
-                continue  # TOTALCNT는 별도 표시
-            
-            curr_val = current_data.get(col, 0)
-            prev_val = prev_data.get(col, 0)
-            diff = curr_val - prev_val
-            
-            if prev_val > 0:
-                pct = round((diff / prev_val) * 100, 1)
-            else:
-                pct = 0 if diff == 0 else 100
-            
-            # 컬럼 존재 여부 체크
-            col_exists = col in df.columns
-            if not col_exists:
-                missing_cols.append(col)
-            
-            changes.append({
-                'column': col,
-                'current': curr_val,
-                'previous': prev_val,
-                'diff': diff,
-                'pct': pct,
-                'missing': not col_exists  # 누락 여부 표시
-            })
-        
-        # 변화량 기준 내림차순 정렬
-        changes.sort(key=lambda x: abs(x['diff']), reverse=True)
-        
-        return jsonify({
-            'time': time_str,
-            'prev_time': str(prev_row['CURRTIME']),
-            'range_mins': range_mins,
-            'current': current_data,
-            'previous': prev_data,
-            'changes': changes,
-            'missing_cols': missing_cols  # 누락된 컬럼 목록
-        })
-        
+        from datetime import datetime, timedelta
+        dt = datetime.strptime(current_time, "%Y%m%d%H%M")
+        dt_prev = dt - timedelta(minutes=range_min)
+        prev_date_str = dt_prev.strftime("%Y%m%d")
+        prev_time_str = dt_prev.strftime("%H%M")
+        prev_time_full = dt_prev.strftime("%Y%m%d%H%M")
     except Exception as e:
-        return jsonify({'error': str(e)}), 500
+        return jsonify({'error': f'시간 계산 실패: {str(e)}'}), 400
+    
+    # 데이터 파일들 로드 (현재 날짜 + 이전 날짜가 다르면 둘 다)
+    all_data = []
+    dates_to_load = list(set([date_str, prev_date_str]))
+    
+    for d in dates_to_load:
+        data_file = os.path.join(data_dir, f'm14_data_{d}.csv')
+        if os.path.exists(data_file):
+            try:
+                df = pd.read_csv(data_file)
+                df['CURRTIME'] = df['CURRTIME'].astype(str)
+                all_data.append(df)
+            except Exception as e:
+                print(f"[detail] 파일 로드 실패 {d}: {e}")
+    
+    if not all_data:
+        return jsonify({'error': '데이터 파일이 없습니다'}), 404
+    
+    # 데이터 병합
+    df_all = pd.concat(all_data, ignore_index=True)
+    df_all = df_all.drop_duplicates(subset=['CURRTIME'], keep='last')
+    df_all = df_all.sort_values('CURRTIME').reset_index(drop=True)
+    
+    # 현재 시점 데이터 찾기
+    current_row = df_all[df_all['CURRTIME'] == current_time]
+    if len(current_row) == 0:
+        return jsonify({'error': f'{date_str} {time_str[:2]}:{time_str[2:]} 데이터가 없습니다'}), 404
+    
+    current_row = current_row.iloc[0]
+    
+    # 이전 시점 데이터 찾기
+    prev_row = df_all[df_all['CURRTIME'] == prev_time_full]
+    if len(prev_row) == 0:
+        # 정확한 시간이 없으면 가장 가까운 이전 시간 찾기
+        prev_candidates = df_all[df_all['CURRTIME'] < current_time]
+        if len(prev_candidates) > 0:
+            prev_row = prev_candidates.iloc[-1]
+            prev_time_full = prev_row['CURRTIME']
+        else:
+            return jsonify({'error': f'{range_min}분 전 데이터가 없습니다'}), 404
+    else:
+        prev_row = prev_row.iloc[0]
+    
+    # 변화량 계산
+    changes = []
+    for col in ANALYSIS_COLUMNS:
+        current_val = current_row.get(col, 0) if col in current_row.index else 0
+        prev_val = prev_row.get(col, 0) if col in prev_row.index else 0
+        
+        # NaN 처리
+        if pd.isna(current_val):
+            current_val = 0
+        if pd.isna(prev_val):
+            prev_val = 0
+        
+        current_val = float(current_val)
+        prev_val = float(prev_val)
+        
+        change = current_val - prev_val
+        change_rate = (change / prev_val * 100) if prev_val != 0 else 0
+        
+        # 미수집 여부 판단 (값이 모두 0이면 미수집 가능성)
+        is_uncollected = col in UNCOLLECTED_COLUMNS and current_val == 0 and prev_val == 0
+        
+        changes.append({
+            'column': col,
+            'current': current_val,
+            'previous': prev_val,
+            'change': change,
+            'change_rate': round(change_rate, 1),
+            'is_uncollected': is_uncollected
+        })
+    
+    # 변화량 절대값 기준 정렬
+    changes.sort(key=lambda x: abs(x['change']), reverse=True)
+    
+    return jsonify({
+        'current_time': current_time,
+        'previous_time': prev_time_full,
+        'range': range_min,
+        'current': {
+            'CURRTIME': str(current_row.get('CURRTIME', '')),
+            'TOTALCNT': int(current_row.get('TOTALCNT', 0)) if pd.notna(current_row.get('TOTALCNT')) else 0
+        },
+        'previous': {
+            'CURRTIME': str(prev_row.get('CURRTIME', '')),
+            'TOTALCNT': int(prev_row.get('TOTALCNT', 0)) if pd.notna(prev_row.get('TOTALCNT')) else 0
+        },
+        'changes': changes
+    })
 
 
 if __name__ == '__main__':
