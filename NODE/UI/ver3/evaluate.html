@@ -680,20 +680,15 @@
             });
             
             // ★ 알람 마커 데이터 추출 (IS_ALARM=True만, currtime 위치에 표시)
-            // is_alarm이 true, 'True', 'true', 1 등 다양한 형태일 수 있음
             const alarmData = data.filter(d => d.is_alarm === true || d.is_alarm === 'True' || d.is_alarm === 'true' || d.is_alarm === 1);
-            console.log('알람 데이터 개수:', alarmData.length, alarmData);
             
             // x좌표는 currtime (현재시간) 위치에 표시
             const alarmTimes = alarmData.map(d => {
-                // currtime_raw 또는 currtime 사용
                 let ct = String(d.currtime_raw || d.currtime || '');
-                // 이미 YYYY-MM-DD HH:MM 형식이면 그대로
                 if (ct.includes('-') && ct.includes(':')) {
                     return ct;
                 }
-                // YYYYMMDDHHMM 형식이면 변환
-                ct = ct.replace(/[^0-9]/g, '');  // 숫자만 추출
+                ct = ct.replace(/[^0-9]/g, '');
                 if (ct.length >= 12) {
                     return `${ct.slice(0,4)}-${ct.slice(4,6)}-${ct.slice(6,8)} ${ct.slice(8,10)}:${ct.slice(10,12)}`;
                 }
@@ -712,8 +707,6 @@
                 }
                 return [currFormatted, d.alarm_no, d.predict];
             });
-            console.log('알람 시간:', alarmTimes);
-            console.log('알람 값:', alarmValues);
             
             const traces = [
                 { 
@@ -744,7 +737,7 @@
                     name: '🔔 알람',
                     type: 'scatter',
                     mode: 'markers',
-                    marker: { color: '#ef4444', size: 12, symbol: 'circle' },
+                    marker: { color: '#facc15', size: 14, symbol: 'diamond', line: { color: '#000', width: 1 } },
                     customdata: alarmCustom,
                     hovertemplate: '%{customdata[0]}<br>🔔 %{customdata[1]}번째 알람<br>예측값: %{customdata[2]}<extra></extra>'
                 });
