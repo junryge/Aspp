@@ -2160,13 +2160,6 @@
                 openDetailModal(currentDetailTime);
             }
         }
-        
-        // 모달 외부 클릭시 닫기
-        document.getElementById('detail-modal').addEventListener('click', function(e) {
-            if (e.target === this) {
-                closeDetailModal();
-            }
-        });
 
         // ========================================
         // LLM 분석 기능
@@ -2523,6 +2516,13 @@
         document.getElementById('llm-modal').addEventListener('click', function(e) {
             if (e.target === this) {
                 closeLlmModal();
+            }
+        });
+        
+        // detail-modal 외부 클릭시 닫기
+        document.getElementById('detail-modal').addEventListener('click', function(e) {
+            if (e.target === this) {
+                closeDetailModal();
             }
         });
     </script>
