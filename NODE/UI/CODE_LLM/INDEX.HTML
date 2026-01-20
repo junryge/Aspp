@@ -389,6 +389,23 @@
             cursor: not-allowed;
         }
 
+        .stop-btn {
+            padding: 15px 25px;
+            background: var(--danger);
+            color: white;
+            border: none;
+            border-radius: 10px;
+            font-size: 15px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .stop-btn:hover {
+            background: #dc2626;
+            transform: translateY(-2px);
+        }
+
         /* 결과 영역 */
         .result-section {
             flex: 1;
@@ -737,9 +754,10 @@
                         <div class="status-dot" id="statusDot"></div>
                         <span id="statusText">준비됨</span>
                     </div>
-                    <div class="env-toggle" onclick="toggleEnv()">
-                        <div class="env-option active" id="env-dev">DEV</div>
-                        <div class="env-option" id="env-prod">PROD</div>
+                    <div class="env-toggle">
+                        <div class="env-option active" id="env-dev" onclick="setEnv('dev')">DEV</div>
+                        <div class="env-option" id="env-prod" onclick="setEnv('prod')">PROD</div>
+                        <div class="env-option" id="env-common" onclick="setEnv('common')">COMMON</div>
                     </div>
                     <button class="reload-btn" onclick="reloadToken()">🔄 토큰</button>
                 </div>
@@ -782,6 +800,7 @@
                 <div class="question-input-wrapper">
                     <input type="text" class="question-input" id="questionInput" placeholder="요청사항이나 추가 질문을 입력하세요...">
                     <button class="send-btn" id="sendBtn" onclick="sendRequest()">전송</button>
+                    <button class="stop-btn" id="stopBtn" onclick="stopRequest()" style="display: none;">⏹ 중지</button>
                 </div>
 
                 <!-- 예시 -->
@@ -848,6 +867,7 @@
         let currentMode = 'generate';
         let currentEnv = 'dev';
         let history = [];
+        let abortController = null;  // 요청 취소용
 
         // 모드별 설정
         const modeConfig = {
@@ -1032,6 +1052,13 @@
             
             showLoading();
             
+            // AbortController 생성
+            abortController = new AbortController();
+            
+            // 버튼 전환
+            document.getElementById('sendBtn').style.display = 'none';
+            document.getElementById('stopBtn').style.display = 'inline-block';
+            
             try {
                 const response = await fetch('/api/ask', {
                     method: 'POST',
@@ -1041,7 +1068,8 @@
                         mode: currentMode,
                         language: language,
                         code: code
-                    })
+                    }),
+                    signal: abortController.signal
                 });
                 
                 const data = await response.json();
@@ -1053,7 +1081,23 @@
                     showError(data.answer);
                 }
             } catch (error) {
-                showError('❌ 요청 실패: ' + error.message);
+                if (error.name === 'AbortError') {
+                    showError('⏹ 요청이 중지되었습니다.');
+                } else {
+                    showError('❌ 요청 실패: ' + error.message);
+                }
+            } finally {
+                // 버튼 복원
+                document.getElementById('sendBtn').style.display = 'inline-block';
+                document.getElementById('stopBtn').style.display = 'none';
+                abortController = null;
+            }
+        }
+
+        // 요청 중지
+        function stopRequest() {
+            if (abortController) {
+                abortController.abort();
             }
         }
 
@@ -1069,6 +1113,13 @@
             
             showLoading();
             
+            // AbortController 생성
+            abortController = new AbortController();
+            
+            // 버튼 전환
+            document.getElementById('sendBtn').style.display = 'none';
+            document.getElementById('stopBtn').style.display = 'inline-block';
+            
             try {
                 const response = await fetch('/api/quick', {
                     method: 'POST',
@@ -1077,7 +1128,8 @@
                         action: action,
                         code: code,
                         language: language
-                    })
+                    }),
+                    signal: abortController.signal
                 });
                 
                 const data = await response.json();
@@ -1088,7 +1140,16 @@
                     showError(data.answer);
                 }
             } catch (error) {
-                showError('❌ 요청 실패: ' + error.message);
+                if (error.name === 'AbortError') {
+                    showError('⏹ 요청이 중지되었습니다.');
+                } else {
+                    showError('❌ 요청 실패: ' + error.message);
+                }
+            } finally {
+                // 버튼 복원
+                document.getElementById('sendBtn').style.display = 'inline-block';
+                document.getElementById('stopBtn').style.display = 'none';
+                abortController = null;
             }
         }
 
@@ -1115,6 +1176,13 @@
             closeConvertModal();
             showLoading();
             
+            // AbortController 생성
+            abortController = new AbortController();
+            
+            // 버튼 전환
+            document.getElementById('sendBtn').style.display = 'none';
+            document.getElementById('stopBtn').style.display = 'inline-block';
+            
             try {
                 const response = await fetch('/api/convert', {
                     method: 'POST',
@@ -1123,7 +1191,8 @@
                         code: code,
                         from_lang: fromLang,
                         to_lang: toLang
-                    })
+                    }),
+                    signal: abortController.signal
                 });
                 
                 const data = await response.json();
@@ -1135,7 +1204,16 @@
                     showError(data.answer);
                 }
             } catch (error) {
-                showError('❌ 변환 실패: ' + error.message);
+                if (error.name === 'AbortError') {
+                    showError('⏹ 요청이 중지되었습니다.');
+                } else {
+                    showError('❌ 변환 실패: ' + error.message);
+                }
+            } finally {
+                // 버튼 복원
+                document.getElementById('sendBtn').style.display = 'inline-block';
+                document.getElementById('stopBtn').style.display = 'none';
+                abortController = null;
             }
         }
 
@@ -1173,14 +1251,12 @@
         }
 
         // 환경 전환
-        async function toggleEnv() {
-            const newEnv = currentEnv === 'dev' ? 'prod' : 'dev';
-            
+        async function setEnv(env) {
             try {
                 const response = await fetch('/api/set_env', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ env: newEnv })
+                    body: JSON.stringify({ env: env })
                 });
                 
                 const data = await response.json();
@@ -1198,6 +1274,7 @@
         function updateEnvUI() {
             document.getElementById('env-dev').classList.toggle('active', currentEnv === 'dev');
             document.getElementById('env-prod').classList.toggle('active', currentEnv === 'prod');
+            document.getElementById('env-common').classList.toggle('active', currentEnv === 'common');
         }
 
         // 토큰 리로드
