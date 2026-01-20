@@ -868,6 +868,7 @@
         let currentEnv = 'dev';
         let history = [];
         let abortController = null;  // 요청 취소용
+        let currentRequestId = null;  // 서버 요청 ID
 
         // 모드별 설정
         const modeConfig = {
@@ -1052,8 +1053,9 @@
             
             showLoading();
             
-            // AbortController 생성
+            // AbortController 및 요청 ID 생성
             abortController = new AbortController();
+            currentRequestId = 'req_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
             
             // 버튼 전환
             document.getElementById('sendBtn').style.display = 'none';
@@ -1067,7 +1069,8 @@
                         question: question,
                         mode: currentMode,
                         language: language,
-                        code: code
+                        code: code,
+                        request_id: currentRequestId
                     }),
                     signal: abortController.signal
                 });
@@ -1091,13 +1094,29 @@
                 document.getElementById('sendBtn').style.display = 'inline-block';
                 document.getElementById('stopBtn').style.display = 'none';
                 abortController = null;
+                currentRequestId = null;
             }
         }
 
         // 요청 중지
-        function stopRequest() {
+        async function stopRequest() {
+            // 클라이언트 취소
             if (abortController) {
                 abortController.abort();
+            }
+            
+            // 서버 취소 요청
+            if (currentRequestId) {
+                try {
+                    await fetch('/api/cancel', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ request_id: currentRequestId })
+                    });
+                    console.log('서버 요청 취소 완료');
+                } catch (e) {
+                    console.error('서버 취소 실패:', e);
+                }
             }
         }
 
