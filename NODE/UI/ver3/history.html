@@ -889,6 +889,71 @@
         </div>
     </div>
 
+    <!-- 상세 데이터 분석 모달 -->
+    <div class="modal-overlay" id="detail-modal" style="display: none;">
+        <div class="modal-content" style="max-width: 800px;">
+            <div class="modal-header">
+                <h3>🔍 상세 데이터 분석</h3>
+                <button class="modal-close" onclick="closeDetailModal()">&times;</button>
+            </div>
+            <div class="modal-body">
+                <!-- 시간 정보 -->
+                <div style="display: flex; gap: 15px; margin-bottom: 15px;">
+                    <div class="stat-card" style="flex: 1;">
+                        <div class="stat-label">현재 시점</div>
+                        <div class="stat-value" id="detail-time" style="font-size: 18px;">-</div>
+                    </div>
+                    <div class="stat-card" style="flex: 1;">
+                        <div class="stat-label">비교 시점</div>
+                        <div class="stat-value" id="detail-prev-time" style="font-size: 18px;">-</div>
+                    </div>
+                    <div class="stat-card" style="flex: 1;">
+                        <div class="stat-label">TOTALCNT 변화</div>
+                        <div class="stat-value" id="detail-totalcnt-change" style="font-size: 18px;">-</div>
+                    </div>
+                </div>
+                
+                <!-- 분석 범위 선택 -->
+                <div style="margin-bottom: 15px; display: flex; align-items: center; gap: 10px;">
+                    <span class="control-label">분석 범위:</span>
+                    <select id="detail-range" onchange="reloadDetail()" style="padding: 8px 12px; background: var(--bg-secondary); border: 1px solid var(--border); border-radius: 6px; color: var(--text-primary);">
+                        <option value="5">5분 전</option>
+                        <option value="10" selected>10분 전</option>
+                        <option value="20">20분 전</option>
+                        <option value="30">30분 전</option>
+                    </select>
+                </div>
+                
+                <!-- 변화율 분석 테이블 -->
+                <div style="background: var(--bg-card); border-radius: 8px; padding: 15px; margin-bottom: 15px;">
+                    <div style="font-size: 14px; font-weight: 600; margin-bottom: 10px;">📊 컬럼별 변화량 (큰 순서)</div>
+                    <table style="width: 100%;">
+                        <thead>
+                            <tr>
+                                <th>컬럼</th>
+                                <th>이전값</th>
+                                <th>현재값</th>
+                                <th>변화량</th>
+                                <th>변화율</th>
+                            </tr>
+                        </thead>
+                        <tbody id="detail-changes-table">
+                        </tbody>
+                    </table>
+                </div>
+                
+                <!-- 급상승 컬럼 요약 -->
+                <div style="background: rgba(239, 68, 68, 0.1); border: 1px solid var(--danger); border-radius: 8px; padding: 15px;">
+                    <div style="font-size: 14px; font-weight: 600; margin-bottom: 10px; color: var(--danger);">🚨 급상승 컬럼</div>
+                    <div id="detail-spike-summary" style="font-size: 13px;">-</div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn" onclick="closeDetailModal()">닫기</button>
+            </div>
+        </div>
+    </div>
+
     <!-- 프롬프트 설정 모달 -->
     <div class="modal-overlay" id="prompt-modal" style="display: none;">
         <div class="modal-content prompt-modal-content">
@@ -1985,8 +2050,16 @@
                     }
                 }
                 
+                // 1700 이상 예측값이 있으면 더블클릭 가능 표시
+                const pred10 = row.PREDICT_10 || 0;
+                const pred30 = row.PREDICT_30 || 0;
+                const totalcnt = row.TOTALCNT || 0;
+                const hasHighValue = pred10 >= 1700 || pred30 >= 1700 || totalcnt >= 1700;
+                const rowStyle = hasHighValue ? 'cursor: pointer;' : '';
+                const rowTitle = hasHighValue ? 'title="더블클릭하여 상세 분석"' : '';
+                
                 html += `
-                    <tr>
+                    <tr style="${rowStyle}" ${rowTitle} ondblclick="openDetailModal('${currtime}')">
                         <td style="font-weight: 600; color: #3b82f6;">${timeDisplay}</td>
                         <td class="${getValueClass(row.TOTALCNT)}" style="font-weight: 600;">${(row.TOTALCNT || 0).toLocaleString()}</td>
                         <td>
@@ -2006,6 +2079,94 @@
             html += '</tbody></table>';
             document.getElementById('table-container').innerHTML = html;
         }
+
+        // ========================================
+        // 상세 데이터 분석 기능
+        // ========================================
+        let currentDetailTime = null;
+        
+        async function openDetailModal(currtime) {
+            currentDetailTime = currtime;
+            const dateStr = currtime.slice(0, 8);
+            const rangeMins = document.getElementById('detail-range').value || 10;
+            
+            document.getElementById('detail-modal').style.display = 'flex';
+            document.getElementById('detail-changes-table').innerHTML = '<tr><td colspan="5" style="text-align: center;">로딩 중...</td></tr>';
+            
+            try {
+                const res = await fetch(`/api/detail?date=${dateStr}&time=${currtime}&range=${rangeMins}`);
+                const data = await res.json();
+                
+                if (data.error) {
+                    document.getElementById('detail-changes-table').innerHTML = `<tr><td colspan="5" style="text-align: center; color: var(--danger);">${data.error}</td></tr>`;
+                    return;
+                }
+                
+                // 시간 정보 표시
+                const timeFormatted = formatTimeFull(data.time);
+                const prevTimeFormatted = formatTimeFull(data.prev_time);
+                document.getElementById('detail-time').textContent = timeFormatted;
+                document.getElementById('detail-prev-time').textContent = prevTimeFormatted + ` (${data.range_mins}분 전)`;
+                
+                // TOTALCNT 변화
+                const totalcntCurr = data.current.TOTALCNT || 0;
+                const totalcntPrev = data.previous.TOTALCNT || 0;
+                const totalcntDiff = totalcntCurr - totalcntPrev;
+                const totalcntEl = document.getElementById('detail-totalcnt-change');
+                totalcntEl.innerHTML = `${totalcntPrev.toLocaleString()} → ${totalcntCurr.toLocaleString()} <span style="color: ${totalcntDiff >= 0 ? 'var(--danger)' : 'var(--success)'};">(${totalcntDiff >= 0 ? '+' : ''}${totalcntDiff.toLocaleString()})</span>`;
+                
+                // 변화율 테이블
+                let tableHtml = '';
+                data.changes.forEach((change, idx) => {
+                    const diffColor = change.diff > 0 ? 'var(--danger)' : (change.diff < 0 ? 'var(--success)' : 'var(--text-secondary)');
+                    const diffSign = change.diff > 0 ? '+' : '';
+                    const pctSign = change.pct > 0 ? '+' : '';
+                    const isSpike = change.diff >= 50; // 50 이상 증가면 급상승
+                    const rowBg = isSpike ? 'background: rgba(239, 68, 68, 0.1);' : '';
+                    
+                    tableHtml += `
+                        <tr style="${rowBg}">
+                            <td style="font-weight: 600;">${isSpike ? '🔺 ' : ''}${change.column}</td>
+                            <td>${change.previous.toLocaleString()}</td>
+                            <td style="font-weight: 600;">${change.current.toLocaleString()}</td>
+                            <td style="color: ${diffColor}; font-weight: 600;">${diffSign}${change.diff.toLocaleString()}</td>
+                            <td style="color: ${diffColor};">${pctSign}${change.pct}%</td>
+                        </tr>
+                    `;
+                });
+                document.getElementById('detail-changes-table').innerHTML = tableHtml;
+                
+                // 급상승 컬럼 요약
+                const spikes = data.changes.filter(c => c.diff >= 50);
+                if (spikes.length > 0) {
+                    const spikeText = spikes.map(s => `<strong>${s.column}</strong>: +${s.diff} (+${s.pct}%)`).join('<br>');
+                    document.getElementById('detail-spike-summary').innerHTML = spikeText;
+                } else {
+                    document.getElementById('detail-spike-summary').innerHTML = '<span style="color: var(--success);">급상승 컬럼 없음 (변화량 50 미만)</span>';
+                }
+                
+            } catch (e) {
+                console.error('상세 데이터 로드 실패:', e);
+                document.getElementById('detail-changes-table').innerHTML = `<tr><td colspan="5" style="text-align: center; color: var(--danger);">로드 실패: ${e.message}</td></tr>`;
+            }
+        }
+        
+        function closeDetailModal() {
+            document.getElementById('detail-modal').style.display = 'none';
+        }
+        
+        function reloadDetail() {
+            if (currentDetailTime) {
+                openDetailModal(currentDetailTime);
+            }
+        }
+        
+        // 모달 외부 클릭시 닫기
+        document.getElementById('detail-modal').addEventListener('click', function(e) {
+            if (e.target === this) {
+                closeDetailModal();
+            }
+        });
 
         // ========================================
         // LLM 분석 기능
