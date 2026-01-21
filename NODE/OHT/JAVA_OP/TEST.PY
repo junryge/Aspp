@@ -1,22 +1,26 @@
-
-java -version
-```
-
-**설치되어 있으면:**
-```
-java version "17.0.x" 2023-xx-xx
-Java(TM) SE Runtime Environment ...
-```
-
-**설치 안 되어 있으면:**
-```
-'java'은(는) 내부 또는 외부 명령... 이 아닙니다
-
 import subprocess
+import os
 
-# 자바 파일 컴파일
-subprocess.run(['javac', 'MyClass.java'])
+# 현재 경로 확인
+print("현재 경로:", os.getcwd())
+
+# 간단한 자바 파일 생성
+java_code = '''
+public class Test {
+    public static void main(String[] args) {
+        System.out.println("Hello from Java!");
+    }
+}
+'''
+
+with open('Test.java', 'w') as f:
+    f.write(java_code)
+
+# 컴파일
+comp = subprocess.run(['javac', 'Test.java'], capture_output=True, text=True)
+print("컴파일 에러:", comp.stderr)
 
 # 실행
-result = subprocess.run(['java', 'MyClass'], capture_output=True, text=True)
-print(result.stdout)
+run = subprocess.run(['java', 'Test'], capture_output=True, text=True)
+print("결과:", run.stdout)
+print("실행 에러:", run.stderr)
