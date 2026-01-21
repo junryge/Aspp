@@ -51,7 +51,13 @@ def header():
   ║                                                              ║
   ║            {C.MAG}★★★  Ralph Wiggum Edition  ★★★{C.CYN}               ║
   ║                                                              ║
-  ║          {C.WHT}반도체 FAB 물류시스템 AI 분석 v1.0{C.CYN}                  ║
+  ║    {C.YEL}      .-~~~~-.                                      {C.CYN}      ║
+  ║    {C.YEL}     /        \\            {C.WHT}반도체 FAB 물류시스템{C.CYN}        ║
+  ║    {C.YEL}    |  {C.WHT}O    O{C.YEL}  |               {C.WHT}AI 분석 v1.0{C.CYN}            ║
+  ║    {C.YEL}    |    __    |                                    {C.CYN}      ║
+  ║    {C.YEL}     \\  {C.RED}\\__/{C.YEL}  /      {C.GRN}"I'm helping!"{C.CYN}                   ║
+  ║    {C.YEL}      '------'                                      {C.CYN}      ║
+  ║                                                              ║
   ╚══════════════════════════════════════════════════════════════╝{C.R}
 """)
 
