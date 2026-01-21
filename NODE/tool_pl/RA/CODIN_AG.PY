@@ -1,14 +1,14 @@
 """
-🤖 Coding Agent Desktop App
-- Ralph 에이전트들이 코드 생성 (직원)
-- 관리자가 최종 확인/승인
-- 로그인 없이 바로 시작
+🤖 Coding Agent - Workflow Map UI
+워크플로우 맵 시각화 & 설정
+- 노드별 작업 설정
+- 반복 횟수 설정
+- 단계별 진행 (Previous/Next)
 """
 
 import tkinter as tk
 from tkinter import ttk, messagebox, scrolledtext
 import json
-import os
 from datetime import datetime
 import threading
 import time
@@ -28,61 +28,171 @@ COLORS = {
     'danger': '#ef4444',
     'text_light': '#cdd6f4',
     'text_muted': '#6c7086',
+    'node_admin': '#ec4899',
+    'node_prd': '#8b5cf6',
+    'node_ralph': '#3b82f6',
+    'node_process': '#f59e0b',
+    'node_decision': '#6366f1',
+    'node_done': '#10b981',
+    'node_implement': '#22c55e',
 }
 
-# ========================================
-# 메인 애플리케이션
-# ========================================
-class CodingAgentApp:
+
+class WorkflowMapApp:
     def __init__(self):
         self.root = tk.Tk()
-        self.root.title("🤖 Coding Agent - Ralph Team Manager")
+        self.root.title("🤖 Coding Agent - Workflow Map")
         self.root.geometry("1400x900")
         self.root.configure(bg=COLORS['bg_darker'])
         
-        # Ralph 에이전트들 (직원)
-        self.ralphs = [
-            {
-                'id': 1, 
-                'name': 'Backend Ralph', 
-                'role': '백엔드', 
-                'icon': '👨‍💻', 
-                'status': 'idle',  # idle, working, done
-                'specialty': ['python', 'java', 'csharp'],
-            },
-            {
-                'id': 2, 
-                'name': 'Frontend Ralph', 
-                'role': '프론트엔드', 
-                'icon': '🎨', 
-                'status': 'idle',
-                'specialty': ['javascript', 'html', 'css'],
-            },
-            {
-                'id': 3, 
-                'name': 'Test Ralph', 
-                'role': 'QA', 
-                'icon': '🧪', 
-                'status': 'idle',
-                'specialty': ['pytest', 'unittest'],
-            },
-        ]
+        # 워크플로우 노드 정의
+        self.nodes = self.create_workflow_nodes()
+        self.connections = self.create_connections()
         
-        # 작업 목록 (승인 대기)
-        self.pending_tasks = []
-        
-        # 승인된 작업
-        self.approved_tasks = []
-        
-        # 거절된 작업
-        self.rejected_tasks = []
-        
-        # 현재 선택된 작업
-        self.selected_task = None
+        # 현재 단계
+        self.current_step = 0
+        self.total_steps = len(self.nodes)
+        self.selected_node = None
         
         # UI 생성
         self.create_ui()
         
+        # 워크플로우 그리기
+        self.root.after(100, self.draw_workflow)
+    
+    def create_workflow_nodes(self):
+        """워크플로우 노드 생성"""
+        return [
+            {
+                'id': 'prd_write',
+                'type': 'admin',
+                'title': 'PRD 작성',
+                'desc': '만들고 싶은 것 정의',
+                'x': 120, 'y': 60,
+                'color': COLORS['node_prd'],
+                'status': 'pending',
+                'settings': {
+                    'template': 'default',
+                }
+            },
+            {
+                'id': 'prd_convert',
+                'type': 'process',
+                'title': 'prd.json 변환',
+                'desc': '유저 스토리로 분할',
+                'x': 120, 'y': 160,
+                'color': COLORS['node_process'],
+                'status': 'pending',
+                'settings': {}
+            },
+            {
+                'id': 'ralph_start',
+                'type': 'process',
+                'title': 'Ralph 실행',
+                'desc': '자기수정 루프 시작',
+                'x': 120, 'y': 260,
+                'color': COLORS['node_process'],
+                'status': 'pending',
+                'settings': {
+                    'max_retries': 10,
+                }
+            },
+            {
+                'id': 'pick_story',
+                'type': 'ralph',
+                'title': '스토리 선택',
+                'desc': 'passes: false 찾기',
+                'x': 120, 'y': 380,
+                'color': COLORS['node_ralph'],
+                'status': 'pending',
+                'settings': {
+                    'assigned_ralph': 'auto',
+                }
+            },
+            {
+                'id': 'more_stories',
+                'type': 'decision',
+                'title': '더 있나?',
+                'desc': '남은 스토리 확인',
+                'x': 70, 'y': 510,
+                'color': COLORS['node_decision'],
+                'status': 'pending',
+                'settings': {}
+            },
+            {
+                'id': 'implement',
+                'type': 'implement',
+                'title': '구현',
+                'desc': '코드 작성, 테스트 실행',
+                'x': 420, 'y': 300,
+                'color': COLORS['node_implement'],
+                'status': 'pending',
+                'settings': {
+                    'language': 'python',
+                    'max_retries': 10,
+                    'run_tests': True,
+                }
+            },
+            {
+                'id': 'update_prd',
+                'type': 'process',
+                'title': 'prd.json 업데이트',
+                'desc': 'passes: true 설정',
+                'x': 420, 'y': 420,
+                'color': COLORS['node_process'],
+                'status': 'pending',
+                'settings': {}
+            },
+            {
+                'id': 'commit',
+                'type': 'process',
+                'title': '커밋',
+                'desc': '변경사항 저장',
+                'x': 580, 'y': 300,
+                'color': COLORS['node_process'],
+                'status': 'pending',
+                'settings': {
+                    'auto_commit': True,
+                }
+            },
+            {
+                'id': 'log_progress',
+                'type': 'process',
+                'title': 'progress.txt 로그',
+                'desc': '진행 상황 기록',
+                'x': 250, 'y': 510,
+                'color': COLORS['node_process'],
+                'status': 'pending',
+                'settings': {}
+            },
+            {
+                'id': 'done',
+                'type': 'done',
+                'title': '완료!',
+                'desc': '모든 스토리 완료',
+                'x': 70, 'y': 620,
+                'color': COLORS['node_done'],
+                'status': 'pending',
+                'settings': {}
+            },
+        ]
+    
+    def create_connections(self):
+        """노드 연결 정의"""
+        return [
+            ('prd_write', 'prd_convert'),
+            ('prd_convert', 'ralph_start'),
+            ('ralph_start', 'pick_story'),
+            ('pick_story', 'more_stories'),
+            ('pick_story', 'implement'),
+            ('more_stories', 'done', 'No'),
+            ('more_stories', 'log_progress', 'Yes'),
+            ('implement', 'commit'),
+            ('implement', 'update_prd'),
+            ('update_prd', 'log_progress'),
+            ('log_progress', 'pick_story'),
+        ]
+    
     def run(self):
         self.root.mainloop()
     
@@ -93,18 +203,18 @@ class CodingAgentApp:
         # 상단 헤더
         self.create_header()
         
-        # 메인 영역 (3분할)
+        # 메인 영역
         main_frame = tk.Frame(self.root, bg=COLORS['bg_darker'])
         main_frame.pack(fill='both', expand=True, padx=10, pady=10)
         
-        # 왼쪽: Ralph 팀 (직원들)
-        self.create_ralph_panel(main_frame)
+        # 왼쪽: 워크플로우 맵 캔버스
+        self.create_canvas(main_frame)
         
-        # 중앙: 작업 입력 & 대기열
-        self.create_task_panel(main_frame)
+        # 오른쪽: 설정 패널
+        self.create_settings_panel(main_frame)
         
-        # 오른쪽: 승인 패널 (관리자)
-        self.create_approval_panel(main_frame)
+        # 하단: 네비게이션
+        self.create_navigation()
     
     def create_header(self):
         """상단 헤더"""
@@ -115,776 +225,584 @@ class CodingAgentApp:
         # 로고
         logo = tk.Label(
             header,
-            text="🤖 Coding Agent",
+            text="🤖 Coding Agent - Workflow Map",
             font=('Segoe UI', 18, 'bold'),
             bg=COLORS['bg_dark'],
             fg=COLORS['primary']
         )
         logo.pack(side='left', padx=20, pady=15)
         
-        # 상태 표시
-        status_frame = tk.Frame(header, bg=COLORS['bg_dark'])
-        status_frame.pack(side='right', padx=20)
-        
-        self.pending_label = tk.Label(
-            status_frame,
-            text="⏳ 대기: 0",
-            font=('Segoe UI', 11),
-            bg=COLORS['bg_dark'],
-            fg=COLORS['warning']
-        )
-        self.pending_label.pack(side='left', padx=10)
-        
-        self.approved_label = tk.Label(
-            status_frame,
-            text="✅ 승인: 0",
+        # 상태
+        self.status_label = tk.Label(
+            header,
+            text="Ready",
             font=('Segoe UI', 11),
             bg=COLORS['bg_dark'],
             fg=COLORS['success']
         )
-        self.approved_label.pack(side='left', padx=10)
+        self.status_label.pack(side='right', padx=20)
     
-    def create_ralph_panel(self, parent):
-        """왼쪽: Ralph 팀 패널"""
-        panel = tk.Frame(parent, bg=COLORS['bg_surface'], width=300)
-        panel.pack(side='left', fill='y', padx=(0, 10))
-        panel.pack_propagate(False)
+    def create_canvas(self, parent):
+        """워크플로우 맵 캔버스"""
+        canvas_frame = tk.Frame(parent, bg=COLORS['bg_surface'])
+        canvas_frame.pack(side='left', fill='both', expand=True, padx=(0, 10))
         
-        # 제목
+        # 캔버스 제목
         title = tk.Label(
-            panel,
-            text="👥 Ralph 팀 (직원)",
+            canvas_frame,
+            text="📍 Workflow Map",
             font=('Segoe UI', 14, 'bold'),
             bg=COLORS['bg_surface'],
             fg=COLORS['text_light']
         )
-        title.pack(pady=15)
+        title.pack(anchor='w', padx=15, pady=10)
         
-        # Ralph 카드들
-        self.ralph_frames = {}
-        for ralph in self.ralphs:
-            self.create_ralph_card(panel, ralph)
-    
-    def create_ralph_card(self, parent, ralph):
-        """Ralph 카드 생성"""
-        card = tk.Frame(parent, bg=COLORS['bg_overlay'])
-        card.pack(fill='x', padx=10, pady=5)
-        
-        # 상단: 아이콘 + 이름 + 상태
-        top = tk.Frame(card, bg=COLORS['bg_overlay'])
-        top.pack(fill='x', padx=10, pady=10)
-        
-        icon_label = tk.Label(
-            top,
-            text=ralph['icon'],
-            font=('Segoe UI Emoji', 28),
-            bg=COLORS['bg_overlay']
-        )
-        icon_label.pack(side='left')
-        
-        info_frame = tk.Frame(top, bg=COLORS['bg_overlay'])
-        info_frame.pack(side='left', padx=10)
-        
-        name_label = tk.Label(
-            info_frame,
-            text=ralph['name'],
-            font=('Segoe UI', 12, 'bold'),
-            bg=COLORS['bg_overlay'],
-            fg=COLORS['text_light']
-        )
-        name_label.pack(anchor='w')
-        
-        role_label = tk.Label(
-            info_frame,
-            text=ralph['role'],
-            font=('Segoe UI', 10),
-            bg=COLORS['bg_overlay'],
-            fg=COLORS['text_muted']
-        )
-        role_label.pack(anchor='w')
-        
-        # 상태 표시
-        status_colors = {
-            'idle': COLORS['text_muted'],
-            'working': COLORS['warning'],
-            'done': COLORS['success']
-        }
-        status_texts = {
-            'idle': '● 대기 중',
-            'working': '● 작업 중...',
-            'done': '● 완료'
-        }
-        
-        status_label = tk.Label(
-            top,
-            text=status_texts[ralph['status']],
-            font=('Segoe UI', 10),
-            bg=COLORS['bg_overlay'],
-            fg=status_colors[ralph['status']]
-        )
-        status_label.pack(side='right')
-        
-        # 저장 (나중에 업데이트용)
-        self.ralph_frames[ralph['id']] = {
-            'card': card,
-            'status_label': status_label
-        }
-    
-    def create_task_panel(self, parent):
-        """중앙: 작업 입력 & 대기열"""
-        panel = tk.Frame(parent, bg=COLORS['bg_darker'])
-        panel.pack(side='left', fill='both', expand=True, padx=10)
-        
-        # === 작업 입력 영역 ===
-        input_frame = tk.Frame(panel, bg=COLORS['bg_surface'])
-        input_frame.pack(fill='x', pady=(0, 10))
-        
-        input_title = tk.Label(
-            input_frame,
-            text="📝 새 작업 요청",
-            font=('Segoe UI', 14, 'bold'),
-            bg=COLORS['bg_surface'],
-            fg=COLORS['text_light']
-        )
-        input_title.pack(anchor='w', padx=15, pady=(15, 10))
-        
-        # 작업 설명 입력
-        self.task_entry = tk.Entry(
-            input_frame,
-            font=('Segoe UI', 12),
+        # 캔버스
+        self.canvas = tk.Canvas(
+            canvas_frame,
             bg=COLORS['bg_dark'],
-            fg=COLORS['text_light'],
-            insertbackground=COLORS['text_light'],
-            relief='flat'
+            highlightthickness=0,
+            width=700,
+            height=700
         )
-        self.task_entry.pack(fill='x', padx=15, pady=5, ipady=10)
-        self.task_entry.insert(0, "예: Calculator 클래스 만들어줘")
-        self.task_entry.bind('<FocusIn>', lambda e: self.task_entry.delete(0, 'end') if self.task_entry.get().startswith('예:') else None)
+        self.canvas.pack(fill='both', expand=True, padx=10, pady=(0, 10))
         
-        # 옵션 행
-        options_frame = tk.Frame(input_frame, bg=COLORS['bg_surface'])
-        options_frame.pack(fill='x', padx=15, pady=10)
-        
-        # 담당 Ralph 선택
-        tk.Label(
-            options_frame,
-            text="담당:",
-            font=('Segoe UI', 10),
-            bg=COLORS['bg_surface'],
-            fg=COLORS['text_muted']
-        ).pack(side='left')
-        
-        self.ralph_var = tk.StringVar(value='auto')
-        ralph_menu = ttk.Combobox(
-            options_frame,
-            textvariable=self.ralph_var,
-            values=['auto (자동 배정)', 'Backend Ralph', 'Frontend Ralph', 'Test Ralph'],
-            state='readonly',
-            width=18
-        )
-        ralph_menu.pack(side='left', padx=(5, 15))
-        
-        # 언어 선택
-        tk.Label(
-            options_frame,
-            text="언어:",
-            font=('Segoe UI', 10),
-            bg=COLORS['bg_surface'],
-            fg=COLORS['text_muted']
-        ).pack(side='left')
-        
-        self.lang_var = tk.StringVar(value='python')
-        lang_menu = ttk.Combobox(
-            options_frame,
-            textvariable=self.lang_var,
-            values=['python', 'java', 'javascript', 'html', 'csharp'],
-            state='readonly',
-            width=12
-        )
-        lang_menu.pack(side='left', padx=5)
-        
-        # 작업 시작 버튼
-        start_btn = tk.Button(
-            options_frame,
-            text="🚀 Ralph에게 시키기",
-            font=('Segoe UI', 11, 'bold'),
-            bg=COLORS['primary'],
-            fg='white',
-            relief='flat',
-            cursor='hand2',
-            command=self.assign_task
-        )
-        start_btn.pack(side='right')
-        
-        # === 작업 대기열 ===
-        queue_frame = tk.Frame(panel, bg=COLORS['bg_surface'])
-        queue_frame.pack(fill='both', expand=True)
-        
-        queue_title = tk.Label(
-            queue_frame,
-            text="⏳ 승인 대기 작업",
-            font=('Segoe UI', 14, 'bold'),
-            bg=COLORS['bg_surface'],
-            fg=COLORS['text_light']
-        )
-        queue_title.pack(anchor='w', padx=15, pady=15)
-        
-        # 스크롤 가능한 작업 목록
-        self.queue_container = tk.Frame(queue_frame, bg=COLORS['bg_surface'])
-        self.queue_container.pack(fill='both', expand=True, padx=15, pady=(0, 15))
-        
-        # 빈 상태 메시지
-        self.empty_label = tk.Label(
-            self.queue_container,
-            text="아직 대기 중인 작업이 없습니다.\n위에서 작업을 요청하세요!",
-            font=('Segoe UI', 11),
-            bg=COLORS['bg_surface'],
-            fg=COLORS['text_muted']
-        )
-        self.empty_label.pack(pady=50)
+        # 클릭 이벤트
+        self.canvas.bind('<Button-1>', self.on_canvas_click)
     
-    def create_approval_panel(self, parent):
-        """오른쪽: 승인 패널 (관리자)"""
-        panel = tk.Frame(parent, bg=COLORS['bg_surface'], width=450)
-        panel.pack(side='right', fill='y', padx=(10, 0))
+    def create_settings_panel(self, parent):
+        """오른쪽 설정 패널"""
+        panel = tk.Frame(parent, bg=COLORS['bg_surface'], width=400)
+        panel.pack(side='right', fill='y')
         panel.pack_propagate(False)
         
-        # 제목
-        title = tk.Label(
-            panel,
-            text="🛡️ 관리자 검토",
+        # 노드 정보
+        info_frame = tk.Frame(panel, bg=COLORS['bg_overlay'])
+        info_frame.pack(fill='x', padx=10, pady=10)
+        
+        self.node_title = tk.Label(
+            info_frame,
+            text="노드를 선택하세요",
             font=('Segoe UI', 14, 'bold'),
-            bg=COLORS['bg_surface'],
-            fg=COLORS['text_light']
-        )
-        title.pack(pady=15)
-        
-        # 선택된 작업 정보
-        self.review_frame = tk.Frame(panel, bg=COLORS['bg_overlay'])
-        self.review_frame.pack(fill='x', padx=10, pady=5)
-        
-        self.review_title = tk.Label(
-            self.review_frame,
-            text="작업을 선택하세요",
-            font=('Segoe UI', 12, 'bold'),
             bg=COLORS['bg_overlay'],
             fg=COLORS['text_light']
         )
-        self.review_title.pack(anchor='w', padx=15, pady=(15, 5))
+        self.node_title.pack(anchor='w', padx=15, pady=(15, 5))
         
-        self.review_info = tk.Label(
-            self.review_frame,
-            text="왼쪽 대기열에서 작업을 클릭하면\n코드를 검토할 수 있습니다.",
+        self.node_desc = tk.Label(
+            info_frame,
+            text="왼쪽 맵에서 노드를 클릭하면\n설정을 변경할 수 있습니다.",
             font=('Segoe UI', 10),
             bg=COLORS['bg_overlay'],
             fg=COLORS['text_muted'],
             justify='left'
         )
-        self.review_info.pack(anchor='w', padx=15, pady=(0, 15))
+        self.node_desc.pack(anchor='w', padx=15, pady=(0, 15))
         
-        # 코드 미리보기
-        code_label = tk.Label(
+        # 설정 영역
+        settings_label = tk.Label(
             panel,
-            text="📄 생성된 코드",
-            font=('Segoe UI', 11, 'bold'),
+            text="⚙️ 노드 설정",
+            font=('Segoe UI', 12, 'bold'),
             bg=COLORS['bg_surface'],
             fg=COLORS['text_light']
         )
-        code_label.pack(anchor='w', padx=15, pady=(15, 5))
+        settings_label.pack(anchor='w', padx=15, pady=(15, 10))
         
-        self.code_preview = scrolledtext.ScrolledText(
+        # 설정 컨테이너
+        self.settings_container = tk.Frame(panel, bg=COLORS['bg_surface'])
+        self.settings_container.pack(fill='x', padx=15)
+        
+        # 기본 설정 표시
+        self.show_default_settings()
+        
+        # JSON 미리보기
+        json_label = tk.Label(
             panel,
-            font=('Consolas', 10),
+            text="📄 JSON 미리보기",
+            font=('Segoe UI', 12, 'bold'),
+            bg=COLORS['bg_surface'],
+            fg=COLORS['text_light']
+        )
+        json_label.pack(anchor='w', padx=15, pady=(20, 10))
+        
+        self.json_preview = scrolledtext.ScrolledText(
+            panel,
+            font=('Consolas', 9),
             bg=COLORS['bg_dark'],
             fg=COLORS['text_light'],
             relief='flat',
-            height=20
+            height=12
         )
-        self.code_preview.pack(fill='both', expand=True, padx=10, pady=5)
-        self.code_preview.insert('1.0', "# 작업을 선택하면 코드가 여기 표시됩니다")
-        self.code_preview.config(state='disabled')
+        self.json_preview.pack(fill='x', padx=10, pady=(0, 10))
+        self.update_json_preview()
+    
+    def show_default_settings(self):
+        """기본 설정 표시"""
+        for widget in self.settings_container.winfo_children():
+            widget.destroy()
         
-        # 승인/거절 버튼
-        btn_frame = tk.Frame(panel, bg=COLORS['bg_surface'])
-        btn_frame.pack(fill='x', padx=10, pady=15)
+        tk.Label(
+            self.settings_container,
+            text="노드를 선택하면 설정이 표시됩니다.",
+            font=('Segoe UI', 10),
+            bg=COLORS['bg_surface'],
+            fg=COLORS['text_muted']
+        ).pack(pady=20)
+    
+    def show_node_settings(self, node):
+        """선택된 노드 설정 표시"""
+        for widget in self.settings_container.winfo_children():
+            widget.destroy()
         
-        self.reject_btn = tk.Button(
-            btn_frame,
-            text="❌ 거절 (재작업)",
-            font=('Segoe UI', 11, 'bold'),
-            bg=COLORS['danger'],
+        settings = node.get('settings', {})
+        
+        # 노드 타입별 설정
+        if node['type'] in ['ralph', 'implement']:
+            # 담당 Ralph 선택
+            row = tk.Frame(self.settings_container, bg=COLORS['bg_surface'])
+            row.pack(fill='x', pady=5)
+            
+            tk.Label(
+                row, text="담당 Ralph:",
+                font=('Segoe UI', 10),
+                bg=COLORS['bg_surface'],
+                fg=COLORS['text_muted']
+            ).pack(side='left')
+            
+            ralph_var = tk.StringVar(value=settings.get('assigned_ralph', 'auto'))
+            ralph_menu = ttk.Combobox(
+                row,
+                textvariable=ralph_var,
+                values=['auto', 'Backend Ralph', 'Frontend Ralph', 'Test Ralph'],
+                state='readonly',
+                width=18
+            )
+            ralph_menu.pack(side='right')
+            ralph_menu.bind('<<ComboboxSelected>>', 
+                lambda e, n=node, v=ralph_var: self.update_node_setting(n, 'assigned_ralph', v.get()))
+        
+        if 'max_retries' in settings:
+            # 최대 반복 횟수
+            row = tk.Frame(self.settings_container, bg=COLORS['bg_surface'])
+            row.pack(fill='x', pady=5)
+            
+            tk.Label(
+                row, text="최대 반복 횟수:",
+                font=('Segoe UI', 10),
+                bg=COLORS['bg_surface'],
+                fg=COLORS['text_muted']
+            ).pack(side='left')
+            
+            retry_var = tk.StringVar(value=str(settings.get('max_retries', 10)))
+            retry_spin = tk.Spinbox(
+                row,
+                from_=1, to=20,
+                textvariable=retry_var,
+                width=5,
+                font=('Segoe UI', 10),
+                bg=COLORS['bg_dark'],
+                fg=COLORS['text_light']
+            )
+            retry_spin.pack(side='right')
+            retry_spin.bind('<FocusOut>', 
+                lambda e, n=node, v=retry_var: self.update_node_setting(n, 'max_retries', int(v.get())))
+        
+        if 'language' in settings:
+            # 언어 선택
+            row = tk.Frame(self.settings_container, bg=COLORS['bg_surface'])
+            row.pack(fill='x', pady=5)
+            
+            tk.Label(
+                row, text="언어:",
+                font=('Segoe UI', 10),
+                bg=COLORS['bg_surface'],
+                fg=COLORS['text_muted']
+            ).pack(side='left')
+            
+            lang_var = tk.StringVar(value=settings.get('language', 'python'))
+            lang_menu = ttk.Combobox(
+                row,
+                textvariable=lang_var,
+                values=['python', 'java', 'javascript', 'csharp', 'html'],
+                state='readonly',
+                width=15
+            )
+            lang_menu.pack(side='right')
+            lang_menu.bind('<<ComboboxSelected>>', 
+                lambda e, n=node, v=lang_var: self.update_node_setting(n, 'language', v.get()))
+        
+        if 'run_tests' in settings:
+            # 테스트 실행 여부
+            row = tk.Frame(self.settings_container, bg=COLORS['bg_surface'])
+            row.pack(fill='x', pady=5)
+            
+            test_var = tk.BooleanVar(value=settings.get('run_tests', True))
+            test_check = tk.Checkbutton(
+                row,
+                text="테스트 자동 실행",
+                variable=test_var,
+                font=('Segoe UI', 10),
+                bg=COLORS['bg_surface'],
+                fg=COLORS['text_light'],
+                selectcolor=COLORS['bg_dark'],
+                activebackground=COLORS['bg_surface'],
+                command=lambda n=node, v=test_var: self.update_node_setting(n, 'run_tests', v.get())
+            )
+            test_check.pack(side='left')
+        
+        if 'auto_commit' in settings:
+            # 자동 커밋 여부
+            row = tk.Frame(self.settings_container, bg=COLORS['bg_surface'])
+            row.pack(fill='x', pady=5)
+            
+            commit_var = tk.BooleanVar(value=settings.get('auto_commit', True))
+            commit_check = tk.Checkbutton(
+                row,
+                text="자동 커밋",
+                variable=commit_var,
+                font=('Segoe UI', 10),
+                bg=COLORS['bg_surface'],
+                fg=COLORS['text_light'],
+                selectcolor=COLORS['bg_dark'],
+                activebackground=COLORS['bg_surface'],
+                command=lambda n=node, v=commit_var: self.update_node_setting(n, 'auto_commit', v.get())
+            )
+            commit_check.pack(side='left')
+        
+        # 설정이 없는 노드
+        if not settings:
+            tk.Label(
+                self.settings_container,
+                text="이 노드는 설정이 없습니다.",
+                font=('Segoe UI', 10),
+                bg=COLORS['bg_surface'],
+                fg=COLORS['text_muted']
+            ).pack(pady=10)
+    
+    def update_node_setting(self, node, key, value):
+        """노드 설정 업데이트"""
+        node['settings'][key] = value
+        self.update_json_preview()
+    
+    def update_json_preview(self):
+        """JSON 미리보기 업데이트"""
+        if self.selected_node:
+            data = {
+                'id': self.selected_node['id'],
+                'title': self.selected_node['title'],
+                'type': self.selected_node['type'],
+                'status': self.selected_node['status'],
+                'settings': self.selected_node['settings']
+            }
+        else:
+            # 전체 워크플로우 요약
+            data = {
+                'total_nodes': len(self.nodes),
+                'current_step': self.current_step + 1,
+                'nodes': [{'id': n['id'], 'status': n['status']} for n in self.nodes]
+            }
+        
+        self.json_preview.config(state='normal')
+        self.json_preview.delete('1.0', 'end')
+        self.json_preview.insert('1.0', json.dumps(data, indent=2, ensure_ascii=False))
+        self.json_preview.config(state='disabled')
+    
+    def create_navigation(self):
+        """하단 네비게이션"""
+        nav = tk.Frame(self.root, bg=COLORS['bg_dark'], height=60)
+        nav.pack(fill='x', side='bottom')
+        nav.pack_propagate(False)
+        
+        # 중앙 정렬용 프레임
+        center = tk.Frame(nav, bg=COLORS['bg_dark'])
+        center.pack(expand=True)
+        
+        # Previous 버튼
+        self.prev_btn = tk.Button(
+            center,
+            text="◀ Previous",
+            font=('Segoe UI', 11),
+            bg=COLORS['bg_surface'],
+            fg=COLORS['text_light'],
+            relief='flat',
+            padx=20, pady=8,
+            cursor='hand2',
+            command=self.prev_step
+        )
+        self.prev_btn.pack(side='left', padx=5)
+        
+        # 단계 표시
+        self.step_label = tk.Label(
+            center,
+            text=f"Step {self.current_step + 1} of {self.total_steps}",
+            font=('Segoe UI', 12, 'bold'),
+            bg=COLORS['bg_dark'],
+            fg=COLORS['text_light'],
+            padx=30
+        )
+        self.step_label.pack(side='left')
+        
+        # Next 버튼
+        self.next_btn = tk.Button(
+            center,
+            text="Next ▶",
+            font=('Segoe UI', 11),
+            bg=COLORS['primary'],
             fg='white',
             relief='flat',
+            padx=20, pady=8,
             cursor='hand2',
-            state='disabled',
-            command=self.reject_task
+            command=self.next_step
         )
-        self.reject_btn.pack(side='left', expand=True, fill='x', padx=(0, 5))
+        self.next_btn.pack(side='left', padx=5)
         
-        self.approve_btn = tk.Button(
-            btn_frame,
-            text="✅ 승인",
+        # Reset 버튼
+        self.reset_btn = tk.Button(
+            center,
+            text="Reset",
+            font=('Segoe UI', 11),
+            bg=COLORS['bg_surface'],
+            fg=COLORS['text_light'],
+            relief='flat',
+            padx=20, pady=8,
+            cursor='hand2',
+            command=self.reset_workflow
+        )
+        self.reset_btn.pack(side='left', padx=20)
+        
+        # Run All 버튼
+        self.run_btn = tk.Button(
+            center,
+            text="▶ Run All",
             font=('Segoe UI', 11, 'bold'),
             bg=COLORS['success'],
             fg='white',
             relief='flat',
+            padx=20, pady=8,
             cursor='hand2',
-            state='disabled',
-            command=self.approve_task
+            command=self.run_all
         )
-        self.approve_btn.pack(side='right', expand=True, fill='x', padx=(5, 0))
+        self.run_btn.pack(side='left', padx=5)
     
     # ========================================
-    # 작업 처리
+    # 워크플로우 그리기
     # ========================================
-    def assign_task(self):
-        """Ralph에게 작업 할당"""
-        task_desc = self.task_entry.get().strip()
-        if not task_desc or task_desc.startswith('예:'):
-            messagebox.showwarning("경고", "작업 설명을 입력해주세요!")
+    def draw_workflow(self):
+        """워크플로우 맵 그리기"""
+        self.canvas.delete('all')
+        
+        # 연결선 먼저 그리기
+        for conn in self.connections:
+            self.draw_connection(conn)
+        
+        # 노드 그리기
+        for i, node in enumerate(self.nodes):
+            self.draw_node(node, is_current=(i == self.current_step))
+    
+    def draw_connection(self, conn):
+        """연결선 그리기"""
+        from_id = conn[0]
+        to_id = conn[1]
+        label = conn[2] if len(conn) > 2 else None
+        
+        from_node = next((n for n in self.nodes if n['id'] == from_id), None)
+        to_node = next((n for n in self.nodes if n['id'] == to_id), None)
+        
+        if not from_node or not to_node:
             return
         
-        # 담당 Ralph 결정
-        ralph_choice = self.ralph_var.get()
-        if ralph_choice.startswith('auto'):
-            # 자동 배정: 언어에 따라
-            lang = self.lang_var.get()
-            if lang in ['python', 'java', 'csharp']:
-                assigned_ralph = self.ralphs[0]  # Backend
-            elif lang in ['javascript', 'html', 'css']:
-                assigned_ralph = self.ralphs[1]  # Frontend
-            else:
-                assigned_ralph = self.ralphs[0]
+        # 시작점, 끝점 계산
+        x1 = from_node['x'] + 70
+        y1 = from_node['y'] + 30
+        x2 = to_node['x'] + 70
+        y2 = to_node['y'] + 30
+        
+        # 곡선 연결
+        if abs(x2 - x1) > 100:
+            # 수평 이동이 큰 경우 베지어 곡선
+            mid_x = (x1 + x2) / 2
+            self.canvas.create_line(
+                x1, y1, mid_x, y1, mid_x, y2, x2, y2,
+                fill=COLORS['text_muted'],
+                width=2,
+                smooth=True,
+                arrow=tk.LAST
+            )
         else:
-            # 지정된 Ralph
-            ralph_name = ralph_choice
-            assigned_ralph = next((r for r in self.ralphs if r['name'] == ralph_name), self.ralphs[0])
-        
-        # 작업 생성
-        task = {
-            'id': len(self.pending_tasks) + len(self.approved_tasks) + 1,
-            'description': task_desc,
-            'language': self.lang_var.get(),
-            'ralph': assigned_ralph,
-            'status': 'working',
-            'code': None,
-            'created_at': datetime.now().strftime('%H:%M:%S'),
-            'attempts': 0
-        }
-        
-        # Ralph 상태 업데이트
-        self.update_ralph_status(assigned_ralph['id'], 'working')
-        
-        # 입력 초기화
-        self.task_entry.delete(0, 'end')
-        
-        # 백그라운드에서 코드 생성 시뮬레이션
-        threading.Thread(target=self.simulate_code_generation, args=(task,), daemon=True).start()
-    
-    def simulate_code_generation(self, task):
-        """코드 생성 시뮬레이션 (실제로는 LLM API 호출)"""
-        time.sleep(2)  # 시뮬레이션 딜레이
-        
-        # 샘플 코드 생성
-        sample_codes = {
-            'python': '''# {desc}
-class Calculator:
-    """기본 계산기 클래스"""
-    
-    def add(self, a: float, b: float) -> float:
-        """두 수를 더합니다"""
-        return a + b
-    
-    def subtract(self, a: float, b: float) -> float:
-        """두 수를 뺍니다"""
-        return a - b
-    
-    def multiply(self, a: float, b: float) -> float:
-        """두 수를 곱합니다"""
-        return a * b
-    
-    def divide(self, a: float, b: float) -> float:
-        """두 수를 나눕니다"""
-        if b == 0:
-            raise ValueError("0으로 나눌 수 없습니다")
-        return a / b
-
-
-if __name__ == "__main__":
-    calc = Calculator()
-    print(calc.add(10, 5))  # 15
-''',
-            'javascript': '''// {desc}
-class Calculator {{
-    add(a, b) {{
-        return a + b;
-    }}
-    
-    subtract(a, b) {{
-        return a - b;
-    }}
-    
-    multiply(a, b) {{
-        return a * b;
-    }}
-    
-    divide(a, b) {{
-        if (b === 0) throw new Error("0으로 나눌 수 없습니다");
-        return a / b;
-    }}
-}}
-
-// 사용 예시
-const calc = new Calculator();
-console.log(calc.add(10, 5)); // 15
-''',
-            'html': '''<!-- {desc} -->
-<!DOCTYPE html>
-<html lang="ko">
-<head>
-    <meta charset="UTF-8">
-    <title>Login Form</title>
-    <style>
-        body {{ font-family: Arial; background: #1e1e2e; }}
-        .login-form {{
-            max-width: 400px;
-            margin: 100px auto;
-            padding: 30px;
-            background: #313244;
-            border-radius: 10px;
-        }}
-        input {{
-            width: 100%;
-            padding: 12px;
-            margin: 10px 0;
-            border: none;
-            border-radius: 5px;
-        }}
-        button {{
-            width: 100%;
-            padding: 12px;
-            background: #6366f1;
-            color: white;
-            border: none;
-            border-radius: 5px;
-            cursor: pointer;
-        }}
-    </style>
-</head>
-<body>
-    <div class="login-form">
-        <h2 style="color: white;">로그인</h2>
-        <input type="email" placeholder="이메일">
-        <input type="password" placeholder="비밀번호">
-        <button>로그인</button>
-    </div>
-</body>
-</html>
-''',
-            'java': '''// {desc}
-public class Calculator {{
-    
-    public double add(double a, double b) {{
-        return a + b;
-    }}
-    
-    public double subtract(double a, double b) {{
-        return a - b;
-    }}
-    
-    public double multiply(double a, double b) {{
-        return a * b;
-    }}
-    
-    public double divide(double a, double b) {{
-        if (b == 0) {{
-            throw new ArithmeticException("0으로 나눌 수 없습니다");
-        }}
-        return a / b;
-    }}
-    
-    public static void main(String[] args) {{
-        Calculator calc = new Calculator();
-        System.out.println(calc.add(10, 5)); // 15.0
-    }}
-}}
-''',
-            'csharp': '''// {desc}
-using System;
-
-public class Calculator
-{{
-    public double Add(double a, double b)
-    {{
-        return a + b;
-    }}
-    
-    public double Subtract(double a, double b)
-    {{
-        return a - b;
-    }}
-    
-    public double Multiply(double a, double b)
-    {{
-        return a * b;
-    }}
-    
-    public double Divide(double a, double b)
-    {{
-        if (b == 0)
-            throw new DivideByZeroException("0으로 나눌 수 없습니다");
-        return a / b;
-    }}
-    
-    public static void Main()
-    {{
-        var calc = new Calculator();
-        Console.WriteLine(calc.Add(10, 5)); // 15
-    }}
-}}
-'''
-        }
-        
-        lang = task['language']
-        code_template = sample_codes.get(lang, sample_codes['python'])
-        task['code'] = code_template.format(desc=task['description'])
-        task['status'] = 'pending_approval'
-        task['attempts'] += 1
-        
-        # UI 업데이트 (메인 스레드에서)
-        self.root.after(0, lambda: self.on_code_generated(task))
-    
-    def on_code_generated(self, task):
-        """코드 생성 완료 후 UI 업데이트"""
-        # Ralph 상태 업데이트
-        self.update_ralph_status(task['ralph']['id'], 'done')
-        
-        # 대기열에 추가
-        self.pending_tasks.append(task)
-        
-        # UI 업데이트
-        self.refresh_queue()
-        self.update_status_labels()
-        
-        # 2초 후 Ralph 상태 idle로
-        self.root.after(2000, lambda: self.update_ralph_status(task['ralph']['id'], 'idle'))
-    
-    def update_ralph_status(self, ralph_id, status):
-        """Ralph 상태 업데이트"""
-        for ralph in self.ralphs:
-            if ralph['id'] == ralph_id:
-                ralph['status'] = status
-                break
-        
-        # UI 업데이트
-        if ralph_id in self.ralph_frames:
-            frame_data = self.ralph_frames[ralph_id]
-            status_label = frame_data['status_label']
-            
-            status_colors = {
-                'idle': COLORS['text_muted'],
-                'working': COLORS['warning'],
-                'done': COLORS['success']
-            }
-            status_texts = {
-                'idle': '● 대기 중',
-                'working': '● 작업 중...',
-                'done': '● 완료!'
-            }
-            
-            status_label.config(
-                text=status_texts.get(status, '● 대기 중'),
-                fg=status_colors.get(status, COLORS['text_muted'])
+            # 직선
+            self.canvas.create_line(
+                x1, y1, x2, y2,
+                fill=COLORS['text_muted'],
+                width=2,
+                arrow=tk.LAST
             )
-    
-    def refresh_queue(self):
-        """대기열 UI 새로고침"""
-        # 기존 위젯 삭제
-        for widget in self.queue_container.winfo_children():
-            widget.destroy()
         
-        if not self.pending_tasks:
-            self.empty_label = tk.Label(
-                self.queue_container,
-                text="아직 대기 중인 작업이 없습니다.\n위에서 작업을 요청하세요!",
-                font=('Segoe UI', 11),
-                bg=COLORS['bg_surface'],
-                fg=COLORS['text_muted']
-            )
-            self.empty_label.pack(pady=50)
-            return
-        
-        # 작업 카드 생성
-        for task in self.pending_tasks:
-            self.create_task_card(task)
-    
-    def create_task_card(self, task):
-        """작업 카드 생성"""
-        card = tk.Frame(self.queue_container, bg=COLORS['bg_overlay'], cursor='hand2')
-        card.pack(fill='x', pady=5)
-        
-        # 클릭 이벤트
-        card.bind('<Button-1>', lambda e, t=task: self.select_task(t))
-        
-        inner = tk.Frame(card, bg=COLORS['bg_overlay'])
-        inner.pack(fill='x', padx=15, pady=12)
-        inner.bind('<Button-1>', lambda e, t=task: self.select_task(t))
-        
-        # 상단: 작업명 + 시간
-        top = tk.Frame(inner, bg=COLORS['bg_overlay'])
-        top.pack(fill='x')
-        top.bind('<Button-1>', lambda e, t=task: self.select_task(t))
-        
-        title = tk.Label(
-            top,
-            text=task['description'][:40] + ('...' if len(task['description']) > 40 else ''),
-            font=('Segoe UI', 11, 'bold'),
-            bg=COLORS['bg_overlay'],
-            fg=COLORS['text_light']
-        )
-        title.pack(side='left')
-        title.bind('<Button-1>', lambda e, t=task: self.select_task(t))
-        
-        time_label = tk.Label(
-            top,
-            text=task['created_at'],
-            font=('Segoe UI', 9),
-            bg=COLORS['bg_overlay'],
-            fg=COLORS['text_muted']
-        )
-        time_label.pack(side='right')
-        time_label.bind('<Button-1>', lambda e, t=task: self.select_task(t))
-        
-        # 하단: Ralph + 언어 + 시도 횟수
-        bottom = tk.Frame(inner, bg=COLORS['bg_overlay'])
-        bottom.pack(fill='x', pady=(8, 0))
-        bottom.bind('<Button-1>', lambda e, t=task: self.select_task(t))
-        
-        ralph_label = tk.Label(
-            bottom,
-            text=f"{task['ralph']['icon']} {task['ralph']['name']}",
-            font=('Segoe UI', 10),
-            bg=COLORS['bg_overlay'],
-            fg=COLORS['primary']
-        )
-        ralph_label.pack(side='left')
-        ralph_label.bind('<Button-1>', lambda e, t=task: self.select_task(t))
-        
-        lang_label = tk.Label(
-            bottom,
-            text=task['language'],
-            font=('Segoe UI', 9),
-            bg=COLORS['primary'],
-            fg='white',
-            padx=8,
-            pady=2
-        )
-        lang_label.pack(side='left', padx=10)
-        lang_label.bind('<Button-1>', lambda e, t=task: self.select_task(t))
-        
-        if task['attempts'] > 1:
-            retry_label = tk.Label(
-                bottom,
-                text=f"재시도 {task['attempts']}회",
+        # 라벨 (Yes/No)
+        if label:
+            mid_x = (x1 + x2) / 2
+            mid_y = (y1 + y2) / 2
+            self.canvas.create_text(
+                mid_x + 20, mid_y,
+                text=label,
                 font=('Segoe UI', 9),
-                bg=COLORS['bg_overlay'],
-                fg=COLORS['warning']
+                fill=COLORS['warning'] if label == 'Yes' else COLORS['danger']
             )
-            retry_label.pack(side='right')
-            retry_label.bind('<Button-1>', lambda e, t=task: self.select_task(t))
     
-    def select_task(self, task):
-        """작업 선택"""
-        self.selected_task = task
+    def draw_node(self, node, is_current=False):
+        """노드 그리기"""
+        x, y = node['x'], node['y']
+        w, h = 140, 60
         
-        # 검토 정보 업데이트
-        self.review_title.config(text=task['description'][:50])
-        self.review_info.config(
-            text=f"담당: {task['ralph']['name']}\n"
-                 f"언어: {task['language']}\n"
-                 f"시도: {task['attempts']}회"
+        # 상태별 색상
+        if node['status'] == 'completed':
+            fill_color = COLORS['success']
+            outline_color = COLORS['success']
+        elif node['status'] == 'running':
+            fill_color = node['color']
+            outline_color = COLORS['warning']
+        elif is_current:
+            fill_color = node['color']
+            outline_color = COLORS['primary']
+        else:
+            fill_color = COLORS['bg_overlay']
+            outline_color = node['color']
+        
+        # 현재 단계 강조
+        outline_width = 4 if is_current else 2
+        
+        # 둥근 사각형
+        radius = 10
+        self.canvas.create_rectangle(
+            x, y, x + w, y + h,
+            fill=fill_color,
+            outline=outline_color,
+            width=outline_width
         )
         
-        # 코드 미리보기 업데이트
-        self.code_preview.config(state='normal')
-        self.code_preview.delete('1.0', 'end')
-        self.code_preview.insert('1.0', task['code'] or '코드 없음')
-        self.code_preview.config(state='disabled')
+        # 제목
+        self.canvas.create_text(
+            x + w/2, y + 20,
+            text=node['title'],
+            font=('Segoe UI', 10, 'bold'),
+            fill='white' if node['status'] in ['completed', 'running'] or is_current else COLORS['text_light']
+        )
         
-        # 버튼 활성화
-        self.approve_btn.config(state='normal')
-        self.reject_btn.config(state='normal')
+        # 설명
+        self.canvas.create_text(
+            x + w/2, y + 40,
+            text=node['desc'][:20],
+            font=('Segoe UI', 8),
+            fill=COLORS['text_muted']
+        )
+        
+        # 노드 ID 저장 (클릭 감지용)
+        node['canvas_coords'] = (x, y, x + w, y + h)
     
-    def approve_task(self):
-        """작업 승인"""
-        if not self.selected_task:
-            return
+    def on_canvas_click(self, event):
+        """캔버스 클릭 이벤트"""
+        x, y = event.x, event.y
         
-        task = self.selected_task
+        for node in self.nodes:
+            coords = node.get('canvas_coords')
+            if coords:
+                x1, y1, x2, y2 = coords
+                if x1 <= x <= x2 and y1 <= y <= y2:
+                    self.select_node(node)
+                    return
         
-        # 대기열에서 제거
-        self.pending_tasks.remove(task)
-        
-        # 승인 목록에 추가
-        task['status'] = 'approved'
-        self.approved_tasks.append(task)
-        
-        # UI 초기화
-        self.selected_task = None
-        self.review_title.config(text="작업을 선택하세요")
-        self.review_info.config(text="승인되었습니다! ✅")
-        self.code_preview.config(state='normal')
-        self.code_preview.delete('1.0', 'end')
-        self.code_preview.insert('1.0', "# 승인 완료! 다음 작업을 선택하세요.")
-        self.code_preview.config(state='disabled')
-        
-        self.approve_btn.config(state='disabled')
-        self.reject_btn.config(state='disabled')
-        
-        # 새로고침
-        self.refresh_queue()
-        self.update_status_labels()
-        
-        messagebox.showinfo("승인 완료", f"'{task['description'][:30]}...' 작업이 승인되었습니다!")
+        # 빈 공간 클릭시 선택 해제
+        self.selected_node = None
+        self.node_title.config(text="노드를 선택하세요")
+        self.node_desc.config(text="왼쪽 맵에서 노드를 클릭하면\n설정을 변경할 수 있습니다.")
+        self.show_default_settings()
+        self.update_json_preview()
+        self.draw_workflow()
     
-    def reject_task(self):
-        """작업 거절 (재작업 요청)"""
-        if not self.selected_task:
-            return
+    def select_node(self, node):
+        """노드 선택"""
+        self.selected_node = node
         
-        task = self.selected_task
+        # 정보 업데이트
+        self.node_title.config(text=f"{node['title']}")
+        self.node_desc.config(text=f"타입: {node['type']}\n상태: {node['status']}\n{node['desc']}")
         
-        # 대기열에서 제거
-        self.pending_tasks.remove(task)
+        # 설정 표시
+        self.show_node_settings(node)
         
-        # Ralph에게 재작업 요청
-        task['status'] = 'working'
-        self.update_ralph_status(task['ralph']['id'], 'working')
+        # JSON 업데이트
+        self.update_json_preview()
         
-        # UI 초기화
-        self.selected_task = None
-        self.review_title.config(text="작업을 선택하세요")
-        self.review_info.config(text="재작업 요청됨 🔄")
-        
-        self.approve_btn.config(state='disabled')
-        self.reject_btn.config(state='disabled')
-        
-        # 새로고침
-        self.refresh_queue()
-        self.update_status_labels()
-        
-        # 재작업 시뮬레이션
-        threading.Thread(target=self.simulate_code_generation, args=(task,), daemon=True).start()
+        # 맵 다시 그리기 (선택 표시)
+        self.draw_workflow()
     
-    def update_status_labels(self):
-        """상태 레이블 업데이트"""
-        self.pending_label.config(text=f"⏳ 대기: {len(self.pending_tasks)}")
-        self.approved_label.config(text=f"✅ 승인: {len(self.approved_tasks)}")
+    # ========================================
+    # 네비게이션
+    # ========================================
+    def prev_step(self):
+        """이전 단계"""
+        if self.current_step > 0:
+            self.current_step -= 1
+            self.update_step_ui()
+    
+    def next_step(self):
+        """다음 단계"""
+        if self.current_step < self.total_steps - 1:
+            # 현재 노드 완료 처리
+            self.nodes[self.current_step]['status'] = 'completed'
+            self.current_step += 1
+            self.nodes[self.current_step]['status'] = 'running'
+            self.update_step_ui()
+    
+    def reset_workflow(self):
+        """워크플로우 리셋"""
+        self.current_step = 0
+        for node in self.nodes:
+            node['status'] = 'pending'
+        self.nodes[0]['status'] = 'running'
+        self.update_step_ui()
+    
+    def update_step_ui(self):
+        """단계 UI 업데이트"""
+        self.step_label.config(text=f"Step {self.current_step + 1} of {self.total_steps}")
+        self.status_label.config(text=f"현재: {self.nodes[self.current_step]['title']}")
+        
+        # 선택된 노드 업데이트
+        self.select_node(self.nodes[self.current_step])
+        
+        # 버튼 상태
+        self.prev_btn.config(state='normal' if self.current_step > 0 else 'disabled')
+        self.next_btn.config(state='normal' if self.current_step < self.total_steps - 1 else 'disabled')
+        
+        self.draw_workflow()
+    
+    def run_all(self):
+        """전체 실행"""
+        def run_steps():
+            for i in range(self.current_step, self.total_steps):
+                self.root.after(0, lambda idx=i: self.set_step_running(idx))
+                time.sleep(1)
+                self.root.after(0, lambda idx=i: self.set_step_completed(idx))
+            
+            self.root.after(0, lambda: messagebox.showinfo("완료", "모든 단계가 완료되었습니다!"))
+        
+        threading.Thread(target=run_steps, daemon=True).start()
+    
+    def set_step_running(self, idx):
+        """단계 실행 중으로 설정"""
+        self.nodes[idx]['status'] = 'running'
+        self.current_step = idx
+        self.update_step_ui()
+    
+    def set_step_completed(self, idx):
+        """단계 완료로 설정"""
+        self.nodes[idx]['status'] = 'completed'
+        self.draw_workflow()
 
 
 # ========================================
 # 앱 실행
 # ========================================
 if __name__ == "__main__":
-    app = CodingAgentApp()
+    app = WorkflowMapApp()
     app.run()
