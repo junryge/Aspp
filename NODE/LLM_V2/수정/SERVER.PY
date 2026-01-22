@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-AMHS Log Analysis Server (v2.1)
+AMHS Log Analysis Server (v3.0 - AMHS 분석 전용)
 - CSV upload and AMHS log analysis
 - 설비별 프롬프트 자동 적용 (OHT, CONVEYOR, LIFTER, FABJOB)
-- FABJOB 전처리 추가: 시간 계산, HCACK 분석, 구간별 소요시간 자동 계산
+- FABJOB 전처리: 시간 계산, HCACK 분석, 구간별 소요시간 자동 계산
 """
 
 import os
@@ -346,11 +346,7 @@ def analyze_csv_basic(df: pd.DataFrame) -> dict:
 
 def create_analysis_prompt(df: pd.DataFrame, analysis: dict, user_question: str = "", 
                           fabjob_preprocess: str = "") -> str:
-    """Create prompt for LLM analysis
-    
-    Args:
-        fabjob_preprocess: FABJOB 전처리 결과 텍스트 (있으면 추가)
-    """
+    """Create prompt for LLM analysis"""
     
     # FABJOB 전처리 결과가 있으면 그걸 메인으로 사용
     if fabjob_preprocess:
@@ -426,9 +422,7 @@ def analyze_amhs_log(df: pd.DataFrame, question: str = "", filename: str = "") -
     filename_hint = detect_equipment_from_filename(filename)
     logger.info(f"Detected equipment: {equipment_type} (file hint: {filename_hint})")
     
-    # ========================================
-    # FABJOB 전처리 (핵심 추가!)
-    # ========================================
+    # FABJOB 전처리
     fabjob_preprocess = ""
     fabjob_analysis = None
     
@@ -442,7 +436,7 @@ def analyze_amhs_log(df: pd.DataFrame, question: str = "", filename: str = "") -
             logger.error(f"FABJOB preprocessing failed: {e}")
             fabjob_preprocess = ""
     
-    # 프롬프트 생성 (FABJOB 전처리 결과 포함)
+    # 프롬프트 생성
     prompt = create_analysis_prompt(df, analysis, question, fabjob_preprocess)
     
     # 설비별 프롬프트 로드
@@ -477,7 +471,7 @@ def analyze_amhs_log(df: pd.DataFrame, question: str = "", filename: str = "") -
         "analysis": llm_response
     }
     
-    # FABJOB 전처리 결과 추가 (프론트엔드에서 활용 가능)
+    # FABJOB 전처리 결과 추가
     if fabjob_analysis:
         result["fabjob_details"] = {
             "carrier_id": fabjob_analysis.get('carrier_id'),
@@ -540,15 +534,6 @@ async def startup():
         logger.warning("FABJOB preprocessor NOT available")
 
     logger.info(f"Server ready. Mode: {LLM_MODE}")
-
-
-class Query(BaseModel):
-    question: str
-    mode: str = "general"
-
-class CSVAnalysisRequest(BaseModel):
-    csv_data: str
-    question: Optional[str] = ""
 
 
 # ========================================
@@ -653,31 +638,6 @@ async def get_equipment_types():
     return {"types": EQUIPMENT_TYPES}
 
 
-@app.post("/detect_equipment")
-async def detect_equipment_api(data: dict):
-    """CSV 데이터에서 설비 유형 감지"""
-    try:
-        csv_data = data.get("csv_data", "")
-        filename = data.get("filename", "")
-        
-        if not csv_data:
-            return {"success": False, "message": "CSV 데이터 없음"}
-        
-        df = pd.read_csv(StringIO(csv_data))
-        equip_type, details = detect_equipment_type(df)
-        filename_type = detect_equipment_from_filename(filename)
-        
-        return {
-            "success": True,
-            "equipment_type": equip_type,
-            "details": details,
-            "filename_hint": filename_type
-        }
-    except Exception as e:
-        logger.error(f"Equipment detection failed: {e}")
-        return {"success": False, "message": str(e)}
-
-
 @app.get("/equip_prompts")
 async def get_equip_prompts():
     """모든 설비별 프롬프트 조회"""
@@ -746,30 +706,6 @@ async def save_equipment_prompt(data: dict):
 # ========================================
 # AMHS 분석 API
 # ========================================
-@app.post("/ask")
-async def ask(query: Query):
-    """일반 질문 핸들러"""
-    system_prompt = get_default_prompt()
-    
-    if LLM_MODE == "api":
-        answer = call_api_llm(query.question, system_prompt)
-    else:
-        answer = call_local_llm(query.question, system_prompt)
-    
-    return {"answer": answer}
-
-
-@app.post("/analyze_csv")
-async def analyze_csv(request: CSVAnalysisRequest):
-    """Analyze CSV data"""
-    try:
-        df = parse_csv_data(request.csv_data)
-        return analyze_amhs_log(df, request.question)
-    except Exception as e:
-        logger.error(f"CSV analysis failed: {e}")
-        return {"success": False, "error": str(e)}
-
-
 @app.post("/upload_csv")
 async def upload_csv(file: UploadFile = File(...), question: str = Form("")):
     """Upload and analyze CSV file"""
