@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-AMHS Log Analysis Server
+AMHS Log Analysis Server (v2.1)
 - CSV upload and AMHS log analysis
-- Uses system prompt and fewshot examples for analysis
+- 설비별 프롬프트 자동 적용 (OHT, CONVEYOR, LIFTER, FABJOB)
+- FABJOB 전처리 추가: 시간 계산, HCACK 분석, 구간별 소요시간 자동 계산
 """
 
 import os
@@ -13,10 +14,17 @@ import pandas as pd
 from io import StringIO
 from fastapi import FastAPI, UploadFile, File, Form
 from fastapi.responses import FileResponse, JSONResponse
-from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from typing import Optional
 import logging
+
+# FABJOB 전처리 모듈 import
+try:
+    from fabjob_preprocessor import analyze_fabjob, is_fabjob_data
+    FABJOB_PREPROCESSOR_AVAILABLE = True
+except ImportError:
+    FABJOB_PREPROCESSOR_AVAILABLE = False
+    logging.warning("fabjob_preprocessor.py not found. FABJOB preprocessing disabled.")
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -35,7 +43,6 @@ API_TOKEN = None
 # 개발/운영 환경 설정
 ENV_MODE = "dev"  # "dev" or "prod"
 
-# 환경별 설정
 ENV_CONFIG = {
     "dev": {
         "url": "http://dev.assistant.llm.skhynix.com/v1/chat/completions",
@@ -49,57 +56,125 @@ ENV_CONFIG = {
     }
 }
 
-# 현재 사용 중인 URL/Model (ENV_MODE에 따라 변경됨)
 API_URL = ENV_CONFIG["dev"]["url"]
 API_MODEL = ENV_CONFIG["dev"]["model"]
 
-# AMHS Prompts (LOCAL = 14B용 경량, API = 전체)
-AMHS_SYSTEM_PROMPT_LOCAL = ""
-AMHS_FEWSHOT_PROMPT_LOCAL = ""
-AMHS_SYSTEM_PROMPT_API = ""
-AMHS_FEWSHOT_PROMPT_API = ""
+# ========================================
+# 설비별 프롬프트 설정
+# ========================================
+EQUIP_PROMPT_DIR = "prompts"
+
+EQUIPMENT_TYPES = {
+    "OHT": {"name": "OHT (천장 이송)", "color": "#3B82F6", "prefix": "RAIL-"},
+    "CONVEYOR": {"name": "Conveyor (바닥 컨베이어)", "color": "#10B981", "prefix": "INTERRAIL-"},
+    "LIFTER": {"name": "Lifter (층간 이송)", "color": "#F59E0B", "prefix": "STORAGE-"},
+    "FABJOB": {"name": "FABJOB (FAB간 이송)", "color": "#8B5CF6", "prefix": "VM-"}
+}
+
 
 # ========================================
-# Load AMHS Prompts
+# 설비 감지 함수
 # ========================================
-def load_amhs_prompts():
-    """Load AMHS system and fewshot prompts from markdown files"""
-    global AMHS_SYSTEM_PROMPT_LOCAL, AMHS_FEWSHOT_PROMPT_LOCAL
-    global AMHS_SYSTEM_PROMPT_API, AMHS_FEWSHOT_PROMPT_API
+def detect_equipment_type(df: pd.DataFrame) -> tuple:
+    """DataFrame에서 설비 유형 감지"""
+    if 'MESSAGENAME' not in df.columns:
+        return "UNKNOWN", {"error": "MESSAGENAME 컬럼 없음"}
+    
+    messages = df['MESSAGENAME'].dropna().astype(str).tolist()
+    if not messages:
+        return "UNKNOWN", {"error": "메시지 없음"}
+    
+    counts = {"OHT": 0, "CONVEYOR": 0, "LIFTER": 0, "FABJOB": 0, "UI": 0, "INV": 0}
+    
+    for msg in messages:
+        msg_upper = str(msg).upper()
+        if msg_upper.startswith("RAIL-") and "INTERRAIL" not in msg_upper:
+            counts["OHT"] += 1
+        elif msg_upper.startswith("INTERRAIL-"):
+            counts["CONVEYOR"] += 1
+        elif msg_upper.startswith("STORAGE-"):
+            counts["LIFTER"] += 1
+        elif msg_upper.startswith("VM-"):
+            counts["FABJOB"] += 1
+        elif msg_upper.startswith("UI-"):
+            counts["UI"] += 1
+        elif msg_upper.startswith("INV-"):
+            counts["INV"] += 1
+    
+    main_counts = {k: v for k, v in counts.items() if k in ["OHT", "CONVEYOR", "LIFTER", "FABJOB"]}
+    total = sum(main_counts.values())
+    
+    if total == 0:
+        return "UNKNOWN", {"counts": counts}
+    
+    max_type = max(main_counts, key=main_counts.get)
+    max_count = main_counts[max_type]
+    
+    # FABJOB + 다른 설비 = FABJOB (FAB간 이송은 여러 설비 포함)
+    if counts["FABJOB"] > 0 and sum(v for k, v in main_counts.items() if k != "FABJOB") > 0:
+        equipment_type = "FABJOB"
+    else:
+        equipment_type = max_type
+    
+    return equipment_type, {
+        "counts": counts,
+        "primary": max_type,
+        "ratio": round(max_count / total * 100, 1) if total > 0 else 0
+    }
 
-    # LOCAL 프롬프트 (14B 경량 버전)
-    try:
-        with open("AMHS_LOG_ANALYSIS_SYSTEM_PROMPT_LOCAL.md", "r", encoding="utf-8") as f:
-            AMHS_SYSTEM_PROMPT_LOCAL = f.read()
-        logger.info("AMHS System Prompt (LOCAL) loaded")
-    except Exception as e:
-        logger.error(f"Failed to load LOCAL system prompt: {e}")
-        AMHS_SYSTEM_PROMPT_LOCAL = "You are an AMHS log analysis expert."
 
-    try:
-        with open("AMHS_LOG_ANALYSIS_FEWSHOT_PROMPT_LOCAL.md", "r", encoding="utf-8") as f:
-            AMHS_FEWSHOT_PROMPT_LOCAL = f.read()
-        logger.info("AMHS Fewshot Prompt (LOCAL) loaded")
-    except Exception as e:
-        logger.error(f"Failed to load LOCAL fewshot prompt: {e}")
-        AMHS_FEWSHOT_PROMPT_LOCAL = ""
+def detect_equipment_from_filename(filename: str) -> str:
+    """파일명에서 설비 유형 추정"""
+    if not filename:
+        return None
+    fn = filename.upper()
+    if "LIFTER" in fn or "LFT" in fn:
+        return "LIFTER"
+    elif "CONVEYOR" in fn or "CNV" in fn:
+        return "CONVEYOR"
+    elif "OHT" in fn:
+        return "OHT"
+    elif "FABJOB" in fn:
+        return "FABJOB"
+    return None
 
-    # API 프롬프트 (전체 버전)
-    try:
-        with open("AMHS_LOG_ANALYSIS_SYSTEM_PROMPT.md", "r", encoding="utf-8") as f:
-            AMHS_SYSTEM_PROMPT_API = f.read()
-        logger.info("AMHS System Prompt (API) loaded")
-    except Exception as e:
-        logger.error(f"Failed to load API system prompt: {e}")
-        AMHS_SYSTEM_PROMPT_API = AMHS_SYSTEM_PROMPT_LOCAL
 
-    try:
-        with open("AMHS_LOG_ANALYSIS_FEWSHOT_PROMPT.md", "r", encoding="utf-8") as f:
-            AMHS_FEWSHOT_PROMPT_API = f.read()
-        logger.info("AMHS Fewshot Prompt (API) loaded")
-    except Exception as e:
-        logger.error(f"Failed to load API fewshot prompt: {e}")
-        AMHS_FEWSHOT_PROMPT_API = AMHS_FEWSHOT_PROMPT_LOCAL
+def get_equipment_prompts(equipment_type: str) -> tuple:
+    """설비별 프롬프트 로드 (common + system + fewshot)"""
+    # 공통 프롬프트
+    common_path = os.path.join(EQUIP_PROMPT_DIR, "BASE", "common.txt")
+    common = ""
+    if os.path.exists(common_path):
+        with open(common_path, "r", encoding="utf-8") as f:
+            common = f.read()
+    
+    # 설비별 프롬프트
+    system_path = os.path.join(EQUIP_PROMPT_DIR, equipment_type, "system.txt")
+    fewshot_path = os.path.join(EQUIP_PROMPT_DIR, equipment_type, "fewshot.txt")
+    
+    system = ""
+    fewshot = ""
+    
+    if os.path.exists(system_path):
+        with open(system_path, "r", encoding="utf-8") as f:
+            system = f.read()
+    
+    if os.path.exists(fewshot_path):
+        with open(fewshot_path, "r", encoding="utf-8") as f:
+            fewshot = f.read()
+    
+    full_system = f"{common}\n\n{system}"
+    return full_system, fewshot
+
+
+def get_default_prompt() -> str:
+    """기본 프롬프트 (설비 감지 실패 시)"""
+    common_path = os.path.join(EQUIP_PROMPT_DIR, "BASE", "common.txt")
+    if os.path.exists(common_path):
+        with open(common_path, "r", encoding="utf-8") as f:
+            return f.read()
+    return "You are an AMHS log analysis expert. Analyze the data in Korean."
+
 
 # ========================================
 # API LLM Functions
@@ -126,6 +201,7 @@ def load_api_token():
         logger.warning(f"Token file not found: {token_path}")
         return False
 
+
 def call_api_llm(prompt: str, system_prompt: str = "", max_tokens: int = 4000) -> str:
     """Call API LLM"""
     global API_TOKEN
@@ -150,15 +226,13 @@ def call_api_llm(prompt: str, system_prompt: str = "", max_tokens: int = 4000) -
         "temperature": 0.3
     }
 
-    # 재시도 1번 포함 (총 2번 시도)
     for attempt in range(2):
         try:
             response = requests.post(API_URL, headers=headers, json=data, timeout=300)
 
             if response.status_code == 200:
                 result = response.json()
-                answer = result["choices"][0]["message"]["content"]
-                return answer
+                return result["choices"][0]["message"]["content"]
             else:
                 logger.error(f"API error: {response.status_code} - {response.text}")
                 return f"API error: {response.status_code}\n{response.text}"
@@ -166,7 +240,6 @@ def call_api_llm(prompt: str, system_prompt: str = "", max_tokens: int = 4000) -
         except requests.exceptions.Timeout:
             logger.warning(f"API timeout (attempt {attempt + 1}/2)")
             if attempt == 0:
-                logger.info("Retrying...")
                 continue
             return "API 요청 시간 초과 (5분). 서버 상태를 확인하세요."
         except Exception as e:
@@ -175,16 +248,18 @@ def call_api_llm(prompt: str, system_prompt: str = "", max_tokens: int = 4000) -
     
     return "API 호출 실패"
 
-def call_local_llm(prompt: str, max_tokens: int = 1500) -> str:
-    """Call local LLM with LOCAL (lightweight) prompts"""
+
+def call_local_llm(prompt: str, system_prompt: str = "", max_tokens: int = 1500) -> str:
+    """Call local LLM"""
     global llm
 
     if llm is None:
         return "Local LLM not loaded."
 
     try:
-        # LOCAL 경량 프롬프트 사용
-        system_prompt = AMHS_SYSTEM_PROMPT_LOCAL + "\n\n" + AMHS_FEWSHOT_PROMPT_LOCAL
+        if not system_prompt:
+            system_prompt = get_default_prompt()
+            
         formatted_prompt = f"""<|im_start|>system
 {system_prompt}
 <|im_end|>
@@ -201,22 +276,15 @@ def call_local_llm(prompt: str, max_tokens: int = 1500) -> str:
         )
         result = response['choices'][0]['text'].strip()
 
-        # Qwen3 thinking 태그 제거 (reasoning 출력 제거)
-        import re
-        # <think>...</think> 블록 제거
+        # Qwen3 thinking 태그 제거
         result = re.sub(r'<think>.*?</think>', '', result, flags=re.DOTALL)
-        # 혹시 닫히지 않은 <think> 태그도 제거
         result = re.sub(r'<think>.*', '', result, flags=re.DOTALL)
 
-        # 영어 thinking 블록 제거 (Okay, let's... / First, I need... 등으로 시작하는 부분)
-        # 한글 내용이 시작되는 부분 찾기
+        # 영어 thinking 블록 제거
         korean_match = re.search(r'[가-힣]', result)
         if korean_match:
-            # 한글 시작 위치 찾기
             korean_start = korean_match.start()
-            # 한글 시작 전에 영어가 많으면 (100자 이상) 그 부분 제거
             if korean_start > 100:
-                # 한글 시작 직전의 줄바꿈 찾기
                 before_korean = result[:korean_start]
                 last_newline = before_korean.rfind('\n')
                 if last_newline > 0:
@@ -228,6 +296,7 @@ def call_local_llm(prompt: str, max_tokens: int = 1500) -> str:
     except Exception as e:
         logger.error(f"Local LLM call failed: {e}")
         return f"Local LLM call failed: {e}"
+
 
 # ========================================
 # CSV Analysis Functions
@@ -242,6 +311,7 @@ def parse_csv_data(csv_content: str) -> pd.DataFrame:
             continue
     raise ValueError("Failed to parse CSV with any encoding")
 
+
 def analyze_csv_basic(df: pd.DataFrame) -> dict:
     """Basic CSV analysis"""
     analysis = {
@@ -250,41 +320,54 @@ def analyze_csv_basic(df: pd.DataFrame) -> dict:
         "message_types": {},
         "time_range": {},
         "levels": {},
-        "machines": set(),
-        "carriers": set()
+        "machines": [],
+        "carriers": []
     }
 
-    # Message type distribution
     if 'MESSAGENAME' in df.columns:
         analysis["message_types"] = df['MESSAGENAME'].value_counts().to_dict()
 
-    # Time range
     if 'TIME_EX' in df.columns:
         times = df['TIME_EX'].dropna().tolist()
         if times:
-            analysis["time_range"] = {
-                "start": str(times[0]) if times else "",
-                "end": str(times[-1]) if times else ""
-            }
+            analysis["time_range"] = {"start": str(times[0]), "end": str(times[-1])}
 
-    # Level distribution
     if 'LEVEL' in df.columns:
         analysis["levels"] = df['LEVEL'].value_counts().to_dict()
 
-    # Unique machines
     if 'MACHINENAME' in df.columns:
         analysis["machines"] = list(df['MACHINENAME'].dropna().unique()[:10])
 
-    # Unique carriers
     if 'CARRIER' in df.columns:
         analysis["carriers"] = list(df['CARRIER'].dropna().unique()[:5])
 
     return analysis
 
-def create_analysis_prompt(df: pd.DataFrame, analysis: dict, user_question: str = "") -> str:
-    """Create prompt for LLM analysis (API용 - 상세)"""
 
-    # Get sample data (first and last few rows)
+def create_analysis_prompt(df: pd.DataFrame, analysis: dict, user_question: str = "", 
+                          fabjob_preprocess: str = "") -> str:
+    """Create prompt for LLM analysis
+    
+    Args:
+        fabjob_preprocess: FABJOB 전처리 결과 텍스트 (있으면 추가)
+    """
+    
+    # FABJOB 전처리 결과가 있으면 그걸 메인으로 사용
+    if fabjob_preprocess:
+        prompt = f"""## FABJOB 로그 분석 요청
+
+{fabjob_preprocess}
+
+"""
+        if user_question:
+            prompt += f"""### 추가 질문
+{user_question}
+
+위 분석 결과와 추가 질문을 바탕으로 답변해주세요.
+"""
+        return prompt
+    
+    # 일반 분석 (기존 로직)
     sample_head = df.head(5).to_string()
     sample_tail = df.tail(5).to_string()
 
@@ -330,101 +413,92 @@ def create_analysis_prompt(df: pd.DataFrame, analysis: dict, user_question: str 
     return prompt
 
 
-def create_analysis_prompt_local(df: pd.DataFrame, analysis: dict, user_question: str = "") -> str:
-    """Create prompt for LOCAL LLM (경량 - 핵심 정보만)"""
-
-    # 핵심 컬럼만 추출
-    key_cols = ['TIME_EX', 'MESSAGENAME', 'LEVEL', 'MACHINENAME', 'RESULTCODE']
-    available_cols = [c for c in key_cols if c in df.columns]
-
-    # 시퀀스 요약 (메시지 순서만)
-    msg_sequence = ""
-    if 'MESSAGENAME' in df.columns:
-        msgs = df['MESSAGENAME'].tolist()
-        # 중복 연속 제거하고 핵심만
-        unique_msgs = []
-        for m in msgs:
-            if not unique_msgs or unique_msgs[-1] != m:
-                unique_msgs.append(m)
-        msg_sequence = " → ".join(unique_msgs[:15])  # 최대 15개
-
-    # 에러 체크
-    errors = []
-    if 'LEVEL' in df.columns:
-        error_rows = df[df['LEVEL'].isin(['ERROR', 'WARN'])]
-        if len(error_rows) > 0:
-            for _, row in error_rows.head(3).iterrows():
-                errors.append(f"- {row.get('MESSAGENAME', 'N/A')}: {row.get('LEVEL', 'N/A')}")
-
-    # 결과코드 이상 체크
-    if 'RESULTCODE' in df.columns:
-        bad_codes = df[(df['RESULTCODE'] != 0) & (df['RESULTCODE'] != 4) & (df['RESULTCODE'].notna())]
-        if len(bad_codes) > 0:
-            for _, row in bad_codes.head(2).iterrows():
-                errors.append(f"- 결과코드 {row.get('RESULTCODE')}: {row.get('MESSAGENAME', 'N/A')}")
-
-    # 첫/끝 데이터 (3개씩, 핵심 컬럼만)
-    if available_cols:
-        sample_df = df[available_cols]
-        sample_head = sample_df.head(3).to_string(index=False)
-        sample_tail = sample_df.tail(2).to_string(index=False)
+# ========================================
+# 공통 분석 함수
+# ========================================
+def analyze_amhs_log(df: pd.DataFrame, question: str = "", filename: str = "") -> dict:
+    """AMHS 로그 분석 공통 함수 - 설비별 프롬프트 자동 적용 + FABJOB 전처리"""
+    # 기본 분석
+    analysis = analyze_csv_basic(df)
+    
+    # 설비 유형 감지
+    equipment_type, equip_details = detect_equipment_type(df)
+    filename_hint = detect_equipment_from_filename(filename)
+    logger.info(f"Detected equipment: {equipment_type} (file hint: {filename_hint})")
+    
+    # ========================================
+    # FABJOB 전처리 (핵심 추가!)
+    # ========================================
+    fabjob_preprocess = ""
+    fabjob_analysis = None
+    
+    if equipment_type == "FABJOB" and FABJOB_PREPROCESSOR_AVAILABLE:
+        try:
+            logger.info("FABJOB detected - running preprocessor...")
+            fabjob_analysis = analyze_fabjob(df)
+            fabjob_preprocess = fabjob_analysis.get('preprocessed_text', '')
+            logger.info(f"FABJOB preprocessing complete. Text length: {len(fabjob_preprocess)}")
+        except Exception as e:
+            logger.error(f"FABJOB preprocessing failed: {e}")
+            fabjob_preprocess = ""
+    
+    # 프롬프트 생성 (FABJOB 전처리 결과 포함)
+    prompt = create_analysis_prompt(df, analysis, question, fabjob_preprocess)
+    
+    # 설비별 프롬프트 로드
+    equip_prompt_path = os.path.join(EQUIP_PROMPT_DIR, equipment_type)
+    if equipment_type != "UNKNOWN" and os.path.exists(equip_prompt_path):
+        equip_system, equip_fewshot = get_equipment_prompts(equipment_type)
+        system_prompt = equip_system + "\n\n" + equip_fewshot
+        logger.info(f"Using equipment-specific prompt for {equipment_type}")
     else:
-        sample_head = df.head(3).to_string(index=False)
-        sample_tail = df.tail(2).to_string(index=False)
-
-    # 장비 유형 판별
-    equip_type = "AMHS"
-    msg_types = list(analysis.get('message_types', {}).keys())
-    if any('RAIL-' in m and 'INTERRAIL' not in m for m in msg_types):
-        equip_type = "OHT"
-    elif any('INTERRAIL-' in m for m in msg_types):
-        equip_type = "Conveyor"
-    elif any('STORAGE-' in m for m in msg_types):
-        equip_type = "Lifter"
-
-    prompt = f"""## {equip_type} 로그 ({analysis['row_count']}건)
-
-시간: {analysis['time_range'].get('start', '')} ~ {analysis['time_range'].get('end', '')}
-장비: {', '.join(analysis['machines'][:3])}
-LEVEL: {analysis['levels']}
-
-시퀀스: {msg_sequence}
-
-"""
-
-    if errors:
-        prompt += f"""⚠️ 이상:
-{chr(10).join(errors)}
-
-"""
-
-    prompt += f"""처음:
-{sample_head}
-
-끝:
-{sample_tail}
-
-"""
-
-    if user_question:
-        prompt += f"질문: {user_question}\n"
+        system_prompt = get_default_prompt()
+        logger.info("Using default prompt")
+    
+    # LLM 호출
+    if LLM_MODE == "api":
+        llm_response = call_api_llm(prompt, system_prompt)
     else:
-        prompt += "분석: 경로, 시간, 정상여부 알려줘.\n"
+        llm_response = call_local_llm(prompt, system_prompt)
+    
+    # 결과 구성
+    result = {
+        "success": True,
+        "equipment_type": equipment_type,
+        "equipment_details": equip_details,
+        "basic_info": {
+            "row_count": analysis["row_count"],
+            "time_range": analysis["time_range"],
+            "message_types": dict(list(analysis["message_types"].items())[:5]),
+            "levels": analysis["levels"],
+            "machines": analysis["machines"][:5] if analysis["machines"] else [],
+            "carriers": analysis["carriers"][:5] if analysis["carriers"] else []
+        },
+        "analysis": llm_response
+    }
+    
+    # FABJOB 전처리 결과 추가 (프론트엔드에서 활용 가능)
+    if fabjob_analysis:
+        result["fabjob_details"] = {
+            "carrier_id": fabjob_analysis.get('carrier_id'),
+            "lot_id": fabjob_analysis.get('lot_id'),
+            "total_duration_sec": fabjob_analysis.get('total_duration_sec', 0),
+            "final_status": fabjob_analysis.get('final_status'),
+            "delays": fabjob_analysis.get('delays', []),
+            "hcack_errors": len([h for h in fabjob_analysis.get('hcack_events', []) if h.get('hcack') == '2']),
+        }
+    
+    return result
 
-    return prompt
 
 # ========================================
-# FastAPI Endpoints
+# FastAPI Startup
 # ========================================
 @app.on_event("startup")
 async def startup():
     """Server startup initialization"""
     global llm, LLM_MODE
 
-    # Load AMHS prompts
-    load_amhs_prompts()
-
-    # Load API token
     if load_api_token():
         LLM_MODE = "api"
         logger.info("LLM Mode: API")
@@ -433,7 +507,7 @@ async def startup():
         logger.info("No API token -> trying local mode")
 
     # Load local LLM (backup)
-    MODEL_PATH = "Qwen3-14B-Q4_K_M.gguf"
+    MODEL_PATH = "Qwen3-8B-Q6_K.gguf"
 
     if os.path.exists(MODEL_PATH):
         try:
@@ -441,20 +515,32 @@ async def startup():
             logger.info(f"Loading LLM: {MODEL_PATH}")
             llm = Llama(
                 model_path=MODEL_PATH,
-                n_ctx=32768,  # 4096 -> 32768로 확장
+                n_ctx=32768,
                 n_gpu_layers=-1,
                 verbose=False
             )
             logger.info("Local LLM loaded!")
-
             if not API_TOKEN:
                 LLM_MODE = "local"
         except Exception as e:
-            logger.warning(f"Local LLM load failed (API only): {e}")
+            logger.warning(f"Local LLM load failed: {e}")
     else:
         logger.warning(f"Model file not found: {MODEL_PATH}")
 
+    # 설비별 프롬프트 폴더 확인
+    if os.path.exists(EQUIP_PROMPT_DIR):
+        logger.info(f"Equipment prompts found: {EQUIP_PROMPT_DIR}")
+    else:
+        logger.warning(f"Equipment prompts not found: {EQUIP_PROMPT_DIR}")
+
+    # FABJOB 전처리 모듈 확인
+    if FABJOB_PREPROCESSOR_AVAILABLE:
+        logger.info("FABJOB preprocessor available")
+    else:
+        logger.warning("FABJOB preprocessor NOT available")
+
     logger.info(f"Server ready. Mode: {LLM_MODE}")
+
 
 class Query(BaseModel):
     question: str
@@ -464,22 +550,27 @@ class CSVAnalysisRequest(BaseModel):
     csv_data: str
     question: Optional[str] = ""
 
+
+# ========================================
+# 기본 API
+# ========================================
 @app.get("/")
 async def home():
     return FileResponse("index.html")
 
+
 @app.get("/llm_status")
 async def llm_status():
-    """Return LLM status"""
     return {
         "mode": LLM_MODE,
         "local_available": llm is not None,
-        "api_available": API_TOKEN is not None
+        "api_available": API_TOKEN is not None,
+        "fabjob_preprocessor": FABJOB_PREPROCESSOR_AVAILABLE
     }
+
 
 @app.post("/set_llm_mode")
 async def set_llm_mode(data: dict):
-    """Set LLM mode"""
     global LLM_MODE
     new_mode = data.get("llm_mode", "api")
 
@@ -491,14 +582,13 @@ async def set_llm_mode(data: dict):
     LLM_MODE = new_mode
     return {"success": True, "mode": LLM_MODE, "message": f"Changed to {LLM_MODE} mode"}
 
+
 @app.post("/reload_token")
 async def reload_token():
-    """Reload API token from file"""
     global API_TOKEN, LLM_MODE
     
     try:
         token_path = "token.txt"
-        
         if not os.path.exists(token_path):
             return {"success": False, "message": f"토큰 파일이 없습니다: {token_path}"}
         
@@ -507,31 +597,23 @@ async def reload_token():
         
         if not new_token:
             return {"success": False, "message": "토큰 파일이 비어있습니다"}
-        
         if "REPLACE" in new_token:
             return {"success": False, "message": "토큰이 기본값입니다. 실제 토큰으로 교체하세요"}
         
-        # 토큰 업데이트
         API_TOKEN = new_token
         LLM_MODE = "api"
-        
         logger.info("API token reloaded successfully")
-        return {
-            "success": True, 
-            "message": "토큰이 성공적으로 리로드되었습니다",
-            "mode": LLM_MODE
-        }
-        
+        return {"success": True, "message": "토큰이 성공적으로 리로드되었습니다", "mode": LLM_MODE}
     except Exception as e:
         logger.error(f"Token reload failed: {e}")
         return {"success": False, "message": f"토큰 리로드 실패: {str(e)}"}
 
+
 # ========================================
-# 개발/운영 환경 관리 API
+# 환경 관리 API
 # ========================================
 @app.get("/env_status")
 async def env_status():
-    """Return current environment status"""
     return {
         "env": ENV_MODE,
         "url": API_URL,
@@ -539,13 +621,12 @@ async def env_status():
         "name": ENV_CONFIG[ENV_MODE]["name"]
     }
 
+
 @app.post("/set_env_mode")
 async def set_env_mode(data: dict):
-    """Set environment mode (dev/prod)"""
     global ENV_MODE, API_URL, API_MODEL
     
     new_env = data.get("env", "dev")
-    
     if new_env not in ENV_CONFIG:
         return {"success": False, "message": "잘못된 환경입니다. 'dev' 또는 'prod'만 가능합니다."}
     
@@ -554,7 +635,6 @@ async def set_env_mode(data: dict):
     API_MODEL = ENV_CONFIG[new_env]["model"]
     
     logger.info(f"Environment changed to {new_env}: {API_URL} ({API_MODEL})")
-    
     return {
         "success": True,
         "env": ENV_MODE,
@@ -563,147 +643,139 @@ async def set_env_mode(data: dict):
         "message": f"{ENV_CONFIG[new_env]['name']} 환경으로 전환되었습니다."
     }
 
-# ========================================
-# 프롬프트 관리 API
-# ========================================
-PROMPT_FILE_MAP = {
-    'system_api': 'AMHS_LOG_ANALYSIS_SYSTEM_PROMPT.md',
-    'system_local': 'AMHS_LOG_ANALYSIS_SYSTEM_PROMPT_LOCAL.md',
-    'fewshot_api': 'AMHS_LOG_ANALYSIS_FEWSHOT_PROMPT.md',
-    'fewshot_local': 'AMHS_LOG_ANALYSIS_FEWSHOT_PROMPT_LOCAL.md'
-}
 
-@app.post("/get_prompt")
-async def get_prompt(data: dict):
-    """Get prompt content"""
-    prompt_type = data.get("prompt_type", "")
-    
-    if prompt_type not in PROMPT_FILE_MAP:
-        return {"success": False, "message": "잘못된 프롬프트 타입"}
-    
-    filepath = PROMPT_FILE_MAP[prompt_type]
-    
+# ========================================
+# 설비별 프롬프트 관리 API
+# ========================================
+@app.get("/equipment_types")
+async def get_equipment_types():
+    """설비 유형 정보 반환"""
+    return {"types": EQUIPMENT_TYPES}
+
+
+@app.post("/detect_equipment")
+async def detect_equipment_api(data: dict):
+    """CSV 데이터에서 설비 유형 감지"""
     try:
-        if not os.path.exists(filepath):
-            return {"success": False, "message": f"파일이 없습니다: {filepath}"}
+        csv_data = data.get("csv_data", "")
+        filename = data.get("filename", "")
         
-        with open(filepath, "r", encoding="utf-8") as f:
-            content = f.read()
+        if not csv_data:
+            return {"success": False, "message": "CSV 데이터 없음"}
         
-        return {"success": True, "content": content, "filename": filepath}
-    
+        df = pd.read_csv(StringIO(csv_data))
+        equip_type, details = detect_equipment_type(df)
+        filename_type = detect_equipment_from_filename(filename)
+        
+        return {
+            "success": True,
+            "equipment_type": equip_type,
+            "details": details,
+            "filename_hint": filename_type
+        }
     except Exception as e:
-        logger.error(f"Prompt load failed: {e}")
+        logger.error(f"Equipment detection failed: {e}")
         return {"success": False, "message": str(e)}
 
-@app.post("/save_prompt")
-async def save_prompt(data: dict):
-    """Save prompt content"""
-    global AMHS_SYSTEM_PROMPT_LOCAL, AMHS_FEWSHOT_PROMPT_LOCAL
-    global AMHS_SYSTEM_PROMPT_API, AMHS_FEWSHOT_PROMPT_API
-    
-    prompt_type = data.get("prompt_type", "")
-    content = data.get("content", "")
-    
-    if prompt_type not in PROMPT_FILE_MAP:
-        return {"success": False, "message": "잘못된 프롬프트 타입"}
-    
-    if not content.strip():
-        return {"success": False, "message": "내용이 비어있습니다"}
-    
-    filepath = PROMPT_FILE_MAP[prompt_type]
-    
+
+@app.get("/equip_prompts")
+async def get_equip_prompts():
+    """모든 설비별 프롬프트 조회"""
     try:
-        # 백업 생성
+        result = {}
+        
+        # BASE
+        base_path = os.path.join(EQUIP_PROMPT_DIR, "BASE", "common.txt")
+        if os.path.exists(base_path):
+            with open(base_path, "r", encoding="utf-8") as f:
+                result["BASE"] = {"common": f.read()}
+        else:
+            result["BASE"] = {"common": ""}
+        
+        # 각 설비별
+        for equip in ["OHT", "CONVEYOR", "LIFTER", "FABJOB"]:
+            result[equip] = {}
+            for ptype in ["system", "fewshot"]:
+                filepath = os.path.join(EQUIP_PROMPT_DIR, equip, f"{ptype}.txt")
+                if os.path.exists(filepath):
+                    with open(filepath, "r", encoding="utf-8") as f:
+                        result[equip][ptype] = f.read()
+                else:
+                    result[equip][ptype] = ""
+        
+        return {"success": True, "prompts": result}
+    except Exception as e:
+        logger.error(f"Get prompts failed: {e}")
+        return {"success": False, "message": str(e)}
+
+
+@app.post("/save_equip_prompt")
+async def save_equipment_prompt(data: dict):
+    """설비별 프롬프트 저장"""
+    try:
+        equip_type = data.get("equipment_type", "")
+        prompt_type = data.get("prompt_type", "")
+        content = data.get("content", "")
+        
+        if not equip_type or not prompt_type:
+            return {"success": False, "message": "설비 타입과 프롬프트 타입 필요"}
+        
+        dir_path = os.path.join(EQUIP_PROMPT_DIR, equip_type)
+        if not os.path.exists(dir_path):
+            os.makedirs(dir_path)
+        
+        filepath = os.path.join(dir_path, f"{prompt_type}.txt")
+        
+        # 백업
         if os.path.exists(filepath):
             backup_path = filepath + ".backup"
             with open(filepath, "r", encoding="utf-8") as f:
-                backup_content = f.read()
-            with open(backup_path, "w", encoding="utf-8") as f:
-                f.write(backup_content)
+                with open(backup_path, "w", encoding="utf-8") as bf:
+                    bf.write(f.read())
         
-        # 새 내용 저장
         with open(filepath, "w", encoding="utf-8") as f:
             f.write(content)
         
-        # 메모리에 로드된 프롬프트도 업데이트
-        if prompt_type == 'system_api':
-            AMHS_SYSTEM_PROMPT_API = content
-        elif prompt_type == 'system_local':
-            AMHS_SYSTEM_PROMPT_LOCAL = content
-        elif prompt_type == 'fewshot_api':
-            AMHS_FEWSHOT_PROMPT_API = content
-        elif prompt_type == 'fewshot_local':
-            AMHS_FEWSHOT_PROMPT_LOCAL = content
-        
-        logger.info(f"Prompt saved: {filepath}")
-        return {"success": True, "message": "저장 완료", "filename": filepath}
-    
+        logger.info(f"Equipment prompt saved: {filepath}")
+        return {"success": True, "message": "저장 완료", "filepath": filepath}
     except Exception as e:
-        logger.error(f"Prompt save failed: {e}")
+        logger.error(f"Save prompt failed: {e}")
         return {"success": False, "message": str(e)}
 
+
+# ========================================
+# AMHS 분석 API
+# ========================================
 @app.post("/ask")
 async def ask(query: Query):
-    """Question handler"""
-    global LLM_MODE
-
+    """일반 질문 핸들러"""
+    system_prompt = get_default_prompt()
+    
     if LLM_MODE == "api":
-        # API: 전체 프롬프트 사용
-        system_prompt = AMHS_SYSTEM_PROMPT_API + "\n\n" + AMHS_FEWSHOT_PROMPT_API
         answer = call_api_llm(query.question, system_prompt)
     else:
-        # LOCAL: 경량 프롬프트 (call_local_llm 내부에서 처리)
-        answer = call_local_llm(query.question)
-
+        answer = call_local_llm(query.question, system_prompt)
+    
     return {"answer": answer}
+
 
 @app.post("/analyze_csv")
 async def analyze_csv(request: CSVAnalysisRequest):
-    """Analyze CSV data with AMHS prompts"""
+    """Analyze CSV data"""
     try:
-        # Parse CSV
         df = parse_csv_data(request.csv_data)
-
-        # Basic analysis
-        analysis = analyze_csv_basic(df)
-
-        # Create prompt (모드별 다른 프롬프트)
-        if LLM_MODE == "api":
-            prompt = create_analysis_prompt(df, analysis, request.question)
-            system_prompt = AMHS_SYSTEM_PROMPT_API + "\n\n" + AMHS_FEWSHOT_PROMPT_API
-            llm_response = call_api_llm(prompt, system_prompt)
-        else:
-            # LOCAL: 경량 프롬프트 사용
-            prompt = create_analysis_prompt_local(df, analysis, request.question)
-            llm_response = call_local_llm(prompt)
-
-        return {
-            "success": True,
-            "basic_info": {
-                "row_count": analysis["row_count"],
-                "time_range": analysis["time_range"],
-                "message_types": dict(list(analysis["message_types"].items())[:5]),
-                "levels": analysis["levels"]
-            },
-            "analysis": llm_response
-        }
-
+        return analyze_amhs_log(df, request.question)
     except Exception as e:
         logger.error(f"CSV analysis failed: {e}")
-        return {
-            "success": False,
-            "error": str(e)
-        }
+        return {"success": False, "error": str(e)}
+
 
 @app.post("/upload_csv")
 async def upload_csv(file: UploadFile = File(...), question: str = Form("")):
     """Upload and analyze CSV file"""
     try:
-        # Read file
         content = await file.read()
-
-        # Try different encodings
+        
         csv_text = None
         for encoding in ['utf-8', 'cp949', 'euc-kr']:
             try:
@@ -713,58 +785,27 @@ async def upload_csv(file: UploadFile = File(...), question: str = Form("")):
                 continue
 
         if csv_text is None:
-            return JSONResponse(
-                status_code=400,
-                content={"success": False, "error": "Failed to decode CSV file"}
-            )
+            return JSONResponse(status_code=400, content={"success": False, "error": "Failed to decode CSV file"})
 
-        # Parse CSV
         df = parse_csv_data(csv_text)
-
-        # Basic analysis
-        analysis = analyze_csv_basic(df)
-
-        # Create prompt (모드별 다른 프롬프트)
-        if LLM_MODE == "api":
-            prompt = create_analysis_prompt(df, analysis, question)
-            system_prompt = AMHS_SYSTEM_PROMPT_API + "\n\n" + AMHS_FEWSHOT_PROMPT_API
-            llm_response = call_api_llm(prompt, system_prompt)
-        else:
-            # LOCAL: 경량 프롬프트 사용
-            prompt = create_analysis_prompt_local(df, analysis, question)
-            llm_response = call_local_llm(prompt)
-
-        return {
-            "success": True,
-            "filename": file.filename,
-            "basic_info": {
-                "row_count": analysis["row_count"],
-                "time_range": analysis["time_range"],
-                "message_types": dict(list(analysis["message_types"].items())[:5]),
-                "levels": analysis["levels"],
-                "machines": analysis["machines"][:5] if analysis["machines"] else [],
-                "carriers": list(analysis["carriers"])[:5] if analysis["carriers"] else []
-            },
-            "analysis": llm_response
-        }
+        result = analyze_amhs_log(df, question, file.filename)
+        result["filename"] = file.filename
+        return result
 
     except Exception as e:
         logger.error(f"CSV upload failed: {e}")
-        return JSONResponse(
-            status_code=500,
-            content={"success": False, "error": str(e)}
-        )
+        return JSONResponse(status_code=500, content={"success": False, "error": str(e)})
 
-# Get list of available POI CSV files
+
 @app.get("/poi_files")
 async def get_poi_files():
     """Get list of CSV files in POI folder"""
     poi_folder = "POI"
     if not os.path.exists(poi_folder):
         return {"files": []}
-
     files = [f for f in os.listdir(poi_folder) if f.endswith('.csv')]
     return {"files": files}
+
 
 @app.post("/analyze_poi_file")
 async def analyze_poi_file(data: dict):
@@ -773,12 +814,10 @@ async def analyze_poi_file(data: dict):
     question = data.get("question", "")
 
     filepath = os.path.join("POI", filename)
-
     if not os.path.exists(filepath):
         return {"success": False, "error": f"File not found: {filename}"}
 
     try:
-        # Read file
         df = None
         for encoding in ['utf-8', 'cp949', 'euc-kr']:
             try:
@@ -790,36 +829,14 @@ async def analyze_poi_file(data: dict):
         if df is None:
             return {"success": False, "error": "Failed to read CSV file"}
 
-        # Basic analysis
-        analysis = analyze_csv_basic(df)
-
-        # Create prompt (모드별 다른 프롬프트)
-        if LLM_MODE == "api":
-            prompt = create_analysis_prompt(df, analysis, question)
-            system_prompt = AMHS_SYSTEM_PROMPT_API + "\n\n" + AMHS_FEWSHOT_PROMPT_API
-            llm_response = call_api_llm(prompt, system_prompt)
-        else:
-            # LOCAL: 경량 프롬프트 사용
-            prompt = create_analysis_prompt_local(df, analysis, question)
-            llm_response = call_local_llm(prompt)
-
-        return {
-            "success": True,
-            "filename": filename,
-            "basic_info": {
-                "row_count": analysis["row_count"],
-                "time_range": analysis["time_range"],
-                "message_types": dict(list(analysis["message_types"].items())[:5]),
-                "levels": analysis["levels"],
-                "machines": analysis["machines"][:5] if analysis["machines"] else [],
-                "carriers": list(analysis["carriers"])[:5] if analysis["carriers"] else []
-            },
-            "analysis": llm_response
-        }
+        result = analyze_amhs_log(df, question, filename)
+        result["filename"] = filename
+        return result
 
     except Exception as e:
         logger.error(f"POI file analysis failed: {e}")
         return {"success": False, "error": str(e)}
+
 
 if __name__ == "__main__":
     import uvicorn
