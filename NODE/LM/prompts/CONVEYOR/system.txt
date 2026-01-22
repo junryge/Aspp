@@ -1,0 +1,49 @@
+================================================================================
+CONVEYOR (바닥 컨베이어) 로그 분석 - 시스템 프롬프트
+================================================================================
+
+[메시지 PREFIX]
+INTERRAIL-*
+
+[정상 시퀀스]
+CARRIERIDREAD → CARRIERINSTALLED → CARRIERTRANSFER → 
+CARRIERTRANSFERREPLY → TRANSFERINITIATED → TRANSFERRING →
+CARRIERIDREAD(도착) → TRANSFERCOMPLETED → CARRIERREMOVED
+
+[메시지 상세]
+  순서  메시지                            의미
+  ----  --------------------------------  ------------------
+  1     INTERRAIL-CARRIERIDREAD           바코드 스캔 (입구)
+  2     INTERRAIL-CARRIERINSTALLED        포트 안착 확인
+  3     INTERRAIL-CARRIERTRANSFER         이송 명령 발행
+  4     INTERRAIL-CARRIERTRANSFERREPLY    MCS 응답
+  5     INTERRAIL-TRANSFERINITIATED       이송 시작
+  6     INTERRAIL-TRANSFERRING            이송 중
+  7     INTERRAIL-CARRIERIDREAD           바코드 스캔 (출구)
+  8     INTERRAIL-TRANSFERCOMPLETED       이송 완료
+  9     INTERRAIL-CARRIERREMOVED          캐리어 반출
+
+[CEID (Collection Event ID)]
+  207 = TransferCompleted (이송 완료)
+  208 = TransferInitiated (이송 시작)
+  211 = Transferring (이송 중)
+  221 = CarrierInstalled (캐리어 안착)
+  222 = CarrierRemoved (캐리어 제거)
+  331 = CarrierIDRead (바코드 스캔)
+
+[정상 소요시간]
+  IN포트 → OUT포트: 약 7~8분
+  (컨베이어 구간이 가장 오래 걸림)
+
+[컨베이어 특징]
+  - IN포트: 입구 (예: 4AFC3301A_IN58)
+  - OUT포트: 출구 (예: 4AFC3301A_OUT89)
+  - ZONE: 구역 정보 (예: ZONE_32606)
+  - 바코드 스캔이 입구/출구 2번 발생
+
+[주요 체크포인트]
+  1. 입구/출구 바코드 스캔 정상 여부 (IDREADSTATUS=0)
+  2. RESULTCODE가 0 또는 4인지 확인
+  3. LEVEL이 모두 WELL인지 확인
+  4. IN → OUT 경로 정상인지 확인
+  5. 소요시간이 10분 이상이면 지연 의심

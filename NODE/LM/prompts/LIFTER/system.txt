@@ -1,0 +1,58 @@
+================================================================================
+LIFTER (층간 이송) 로그 분석 - 시스템 프롬프트
+================================================================================
+
+[메시지 PREFIX]
+STORAGE-* (주로 STORAGE-ZIPTOWER*)
+
+[정상 시퀀스]
+ZIPTOWERCARRIERIDREAD → ZIPTOWERCARRIERWAITIN → 
+ZIPTOWERCARRIERLOCATIONCHANGED → CARRIERTRANSFER → CARRIERTRANSFERREPLY →
+ZIPTOWERCRANEACTIVE → ZIPTOWERTRANSFERINITIATED → ZIPTOWERCARRIERTRANSFERRING →
+ZIPTOWERTRANSFERCOMPLETED → ZIPTOWERCRANEIDLE → 
+ZIPTOWERCARRIERIDREAD → ZIPTOWERCARRIERWAITOUT → ZIPTOWERCARRIERREMOVED
+
+[메시지 상세]
+  메시지                                    의미
+  ----------------------------------------  ----------------------
+  STORAGE-ZIPTOWERCARRIERIDREAD             바코드 스캔
+  STORAGE-ZIPTOWERCARRIERWAITIN             입고 대기
+  STORAGE-ZIPTOWERCARRIERLOCATIONCHANGED    위치 변경
+  STORAGE-CARRIERTRANSFER                   이송 명령 발행
+  STORAGE-CARRIERTRANSFERREPLY              MCS 응답
+  STORAGE-ZIPTOWERCRANEACTIVE               크레인 동작 시작
+  STORAGE-ZIPTOWERTRANSFERINITIATED         리프터 이송 시작
+  STORAGE-ZIPTOWERCARRIERTRANSFERRING       리프터 이송 중
+  STORAGE-ZIPTOWERTRANSFERCOMPLETED         리프터 이송 완료
+  STORAGE-ZIPTOWERCRANEIDLE                 크레인 대기
+  STORAGE-ZIPTOWERCARRIERWAITOUT            출고 대기
+  STORAGE-ZIPTOWERCARRIERREMOVED            캐리어 반출
+
+[CEID (Collection Event ID)]
+  107 = TransferCompleted (이송 완료)
+  153 = CarrierRemoved (캐리어 제거)
+  158 = CarrierWaitIn (입고 대기)
+  159 = CarrierWaitOut (출고 대기)
+  251 = CarrierIDRead (바코드 스캔)
+  255 = CarrierLocationChanged (위치 변경)
+
+[리프터 포트 명명 규칙]
+  예: 6ABL6022_AI311 → 6ABL6022_AOG6
+  - AI: Auto Input (입구)
+  - AO: Auto Output (출구)
+  - 숫자: 층/위치 정보 (311=3층입구, 623=6층)
+
+[정상 소요시간]
+  층간 이동 (3F → 6F): 약 2분
+  전체 리프터 구간: 약 2~3분
+
+[HANDOFFTYPE]
+  1 = OHT에서 받음
+  2 = OHT로 전달
+
+[주요 체크포인트]
+  1. IDREADSTATUS가 0인지 확인
+  2. CRANEACTIVE → CRANEIDLE 정상 전환
+  3. RESULTCODE가 0인지 확인
+  4. 입구(AI) → 출구(AO) 경로 확인
+  5. 소요시간 3분 이상이면 지연 의심
