@@ -1,123 +1,247 @@
-function displaySingleResult(data) {
-    const equipColor = EQUIP_COLORS[data.equipment_type] || EQUIP_COLORS['UNKNOWN'];
-    const preprocess = data.preprocess_details || {};
-    const hasDelay = preprocess.delays?.length > 0;
-    const totalDuration = preprocess.total_duration_sec || 0;
-    
+function displayBatchResult(data) {
+    const summary = data.summary;
     let html = `<div style="padding: 10px;">`;
     
     // ========================================
-    // 1. 📌 최종 결론 (맨 위)
+    // 1. 📌 최종 결론 (맨 위에!)
     // ========================================
-    html += `<div style="background: ${hasDelay ? 'linear-gradient(135deg, #fef3c7 0%, #fde68a 100%)' : 'linear-gradient(135deg, #d1fae5 0%, #a7f3d0 100%)'}; border-radius: 12px; padding: 20px; margin-bottom: 20px; border-left: 5px solid ${hasDelay ? '#f59e0b' : '#10b981'};">`;
-    html += `<h2 style="margin: 0 0 15px 0; color: ${hasDelay ? '#92400e' : '#065f46'};">📌 최종 결론</h2>`;
+    const hasDelays = summary.delay_file_count > 0;
+    const hasFails = summary.fail_count > 0;
     
-    // 핵심 한 줄 요약
-    if (hasDelay) {
-        html += `<div style="font-size: 18px; font-weight: 700; color: #92400e; margin-bottom: 12px;">🔴 지연 발생 - 총 소요시간: ${formatDuration(totalDuration)}</div>`;
+    html += `<div style="background: ${hasDelays || hasFails ? 'linear-gradient(135deg, #fef3c7 0%, #fde68a 100%)' : 'linear-gradient(135deg, #d1fae5 0%, #a7f3d0 100%)'}; border-radius: 12px; padding: 20px; margin-bottom: 20px; border-left: 5px solid ${hasDelays || hasFails ? '#f59e0b' : '#10b981'};">`;
+    html += `<h2 style="margin: 0 0 15px 0; color: ${hasDelays || hasFails ? '#92400e' : '#065f46'};">📌 최종 결론</h2>`;
+    
+    if (hasFails) {
+        html += `<div style="font-size: 18px; font-weight: 700; color: #dc2626; margin-bottom: 12px;">⚠️ ${summary.fail_count}개 파일 분석 실패</div>`;
+    }
+    
+    if (hasDelays) {
+        html += `<div style="font-size: 18px; font-weight: 700; color: #92400e; margin-bottom: 12px;">🔴 ${summary.delay_file_count}개 파일에서 지연 발생</div>`;
         
-        // 지연 구간 상세
         html += `<div style="background: white; border-radius: 8px; padding: 15px; margin-top: 10px;">`;
-        html += `<div style="font-weight: 600; margin-bottom: 10px;">📍 지연 구간:</div>`;
+        html += `<div style="font-weight: 600; margin-bottom: 10px;">📍 지연 발생 파일:</div>`;
         html += `<ul style="margin: 0; padding-left: 20px;">`;
-        preprocess.delays.forEach(d => {
-            html += `<li style="margin-bottom: 5px;"><strong>${d.segment}</strong>: ${d.duration_str}`;
-            if (d.cause) html += ` - ${d.cause}`;
+        summary.delay_files.slice(0, 5).forEach(function(df) {
+            html += `<li style="margin-bottom: 5px;"><strong>${df.filename}</strong> - ${df.total_duration_str}`;
+            if (df.main_delay) {
+                html += ` (${df.main_delay.segment}: ${df.main_delay.cause || '소요시간 초과'})`;
+            }
             html += `</li>`;
         });
+        if (summary.delay_files.length > 5) {
+            html += `<li style="color: #666;">... 외 ${summary.delay_files.length - 5}개</li>`;
+        }
         html += `</ul></div>`;
         
-        // 권장 조치
         html += `<div style="background: white; border-radius: 8px; padding: 15px; margin-top: 10px;">`;
         html += `<div style="font-weight: 600; margin-bottom: 10px;">💡 권장 조치:</div>`;
         html += `<ul style="margin: 0; padding-left: 20px;">`;
-        
-        const allCauses = preprocess.delays.map(d => d.cause || '').join(' ');
-        if (allCauses.includes('HCACK') || allCauses.includes('OHT') || allCauses.includes('Vehicle')) {
+        var allCauses = summary.delay_files.map(function(df) { return df.main_delay ? df.main_delay.cause || '' : ''; }).join(' ');
+        if (allCauses.includes('HCACK') || allCauses.includes('OHT')) {
             html += `<li>OHT 차량 가용성 점검 및 Rail Cut 여부 확인</li>`;
         }
-        if (allCauses.includes('Conveyor') || allCauses.includes('컨베이어') || allCauses.includes('적체')) {
-            html += `<li>컨베이어 적체 구간 및 센서 점검</li>`;
+        if (allCauses.includes('Conveyor') || allCauses.includes('컨베이어')) {
+            html += `<li>컨베이어 적체 구간 점검</li>`;
         }
-        if (allCauses.includes('Lifter') || allCauses.includes('크레인') || allCauses.includes('층간')) {
+        if (allCauses.includes('Lifter') || allCauses.includes('크레인')) {
             html += `<li>Lifter 크레인 상태 점검</li>`;
         }
-        if (allCauses.includes('포트') || allCauses.includes('점유')) {
-            html += `<li>포트 점유 상태 및 작업 스케줄 확인</li>`;
-        }
-        html += `<li>해당 시간대 전체 작업 부하 분석</li>`;
+        html += `<li>해당 시간대 작업 부하 분석</li>`;
         html += `</ul></div>`;
         
-    } else {
-        html += `<div style="font-size: 18px; font-weight: 700; color: #065f46; margin-bottom: 12px;">✅ 정상 완료</div>`;
-        if (totalDuration > 0) {
-            html += `<div style="color: #047857;">총 소요시간: ${formatDuration(totalDuration)} - 정상 범위 내 완료</div>`;
+    } else if (!hasFails) {
+        html += `<div style="font-size: 18px; font-weight: 700; color: #065f46; margin-bottom: 12px;">✅ 전체 ${summary.success_count}개 파일 정상 완료</div>`;
+        html += `<div style="color: #047857;">모든 이송 작업이 정상 범위 내에서 완료되었습니다.</div>`;
+    }
+    
+    html += `</div>`;
+    
+    // ========================================
+    // 2. 📊 배치 분석 요약
+    // ========================================
+    html += `<div class="batch-summary"><h3>📊 배치 분석 요약 (${data.total_files}개 파일)</h3>`;
+    html += `<div class="batch-summary-grid">`;
+    html += `<div class="batch-summary-item"><div class="value">${summary.success_count}</div><div class="label">✅ 성공</div></div>`;
+    html += `<div class="batch-summary-item"><div class="value">${summary.fail_count}</div><div class="label">❌ 실패</div></div>`;
+    html += `<div class="batch-summary-item"><div class="value">${summary.delay_file_count}</div><div class="label">⚠️ 지연 발생</div></div>`;
+    html += `<div class="batch-summary-item"><div class="value">${summary.total_duration_str || 'N/A'}</div><div class="label">⏱️ 총 소요시간</div></div>`;
+    html += `<div class="batch-summary-item"><div class="value">${summary.total_records ? summary.total_records.toLocaleString() : 0}</div><div class="label">📋 총 레코드</div></div>`;
+    html += `</div>`;
+    
+    if (summary.equipment_distribution && Object.keys(summary.equipment_distribution).length > 0) {
+        html += `<div style="margin-top: 15px;"><strong>설비 분포:</strong> `;
+        Object.entries(summary.equipment_distribution).forEach(function(entry) {
+            var k = entry[0], v = entry[1];
+            var color = EQUIP_COLORS[k] || '#666';
+            html += `<span class="equip-badge" style="background: ${color}22; color: ${color}; margin: 2px;">${k}: ${v}</span>`;
+        });
+        html += `</div>`;
+    }
+    html += `</div>`;
+    
+    // ========================================
+    // 3. 🔍 개별 분석 결과
+    // ========================================
+    html += `<h3 style="margin: 20px 0 15px 0;">🔍 개별 분석 결과</h3>`;
+    data.results.forEach(function(r, i) {
+        var equipColor = EQUIP_COLORS[r.equipment_type] || EQUIP_COLORS['UNKNOWN'];
+        var hasDelay = r.preprocess_details && r.preprocess_details.delays && r.preprocess_details.delays.length > 0;
+        var statusClass = !r.success ? 'error' : (hasDelay ? 'delay' : 'success');
+        var statusText = !r.success ? '❌ 실패' : (hasDelay ? '⚠️ 지연' : '✅ 정상');
+        
+        html += `<div class="batch-result-item">`;
+        html += `<div class="batch-result-header" onclick="toggleBatchDetail(${i})">`;
+        html += `<span class="order">${r.order || i+1}</span>`;
+        html += `<span class="filename">${r.filename}</span>`;
+        if (r.success) html += `<span class="equip-badge" style="background: ${equipColor}22; color: ${equipColor};">${r.equipment_type}</span>`;
+        html += `<span class="status-badge ${statusClass}">${statusText}</span>`;
+        html += `<span class="expand-icon" id="expand-${i}">▼</span>`;
+        html += `</div>`;
+        html += `<div class="batch-result-body" id="detail-${i}">`;
+        
+        if (r.success) {
+            if (hasDelay) {
+                html += `<div style="background: #fef3c7; border-left: 4px solid #f59e0b; padding: 12px; border-radius: 4px; margin-bottom: 15px;">`;
+                html += `<strong>⚠️ 지연 발생:</strong> ${r.preprocess_details.delays.map(function(d) { return d.segment; }).join(', ')}`;
+                html += `</div>`;
+            }
+            html += `<div class="markdown-content">${marked.parse(r.analysis || '분석 결과 없음')}</div>`;
         } else {
-            html += `<div style="color: #047857;">이송 작업이 정상적으로 완료되었습니다.</div>`;
+            html += `<div style="color: #dc2626;">오류: ${r.error}</div>`;
+        }
+        html += `</div></div>`;
+    });
+    
+    html += `</div>`;
+    resultDiv.innerHTML = html;
+    resultDiv.className = 'success';
+    
+    var summaryText = '배치 분석 완료: ' + summary.success_count + '/' + data.total_files + ' 성공, ' + summary.delay_file_count + '개 지연';
+    addToHistory('[배치] ' + data.total_files + '개 파일', summaryText, 'batch');
+}
+
+
+
+#######-----------
+function displaySingleResult(data) {
+    var equipColor = EQUIP_COLORS[data.equipment_type] || EQUIP_COLORS['UNKNOWN'];
+    var preprocess = data.preprocess_details || {};
+    var hasDelay = preprocess.delays && preprocess.delays.length > 0;
+    var totalDuration = preprocess.total_duration_sec || 0;
+    
+    // 소요시간 포맷 함수
+    function formatDur(seconds) {
+        if (!seconds || seconds < 0) return 'N/A';
+        if (seconds < 60) return Math.round(seconds) + '초';
+        if (seconds < 3600) {
+            var mins = Math.floor(seconds / 60);
+            var secs = Math.round(seconds % 60);
+            return mins + '분 ' + secs + '초';
+        }
+        var hours = Math.floor(seconds / 3600);
+        var mins2 = Math.floor((seconds % 3600) / 60);
+        return hours + '시간 ' + mins2 + '분';
+    }
+    
+    var html = '<div style="padding: 10px;">';
+    
+    // ========================================
+    // 1. 📌 최종 결론 (맨 위!)
+    // ========================================
+    html += '<div style="background: ' + (hasDelay ? 'linear-gradient(135deg, #fef3c7 0%, #fde68a 100%)' : 'linear-gradient(135deg, #d1fae5 0%, #a7f3d0 100%)') + '; border-radius: 12px; padding: 20px; margin-bottom: 20px; border-left: 5px solid ' + (hasDelay ? '#f59e0b' : '#10b981') + ';">';
+    html += '<h2 style="margin: 0 0 15px 0; color: ' + (hasDelay ? '#92400e' : '#065f46') + ';">📌 최종 결론</h2>';
+    
+    if (hasDelay) {
+        html += '<div style="font-size: 18px; font-weight: 700; color: #92400e; margin-bottom: 12px;">🔴 지연 발생 - 총 소요시간: ' + formatDur(totalDuration) + '</div>';
+        
+        // 지연 구간 상세
+        html += '<div style="background: white; border-radius: 8px; padding: 15px; margin-top: 10px;">';
+        html += '<div style="font-weight: 600; margin-bottom: 10px;">📍 지연 구간:</div>';
+        html += '<ul style="margin: 0; padding-left: 20px;">';
+        preprocess.delays.forEach(function(d) {
+            html += '<li style="margin-bottom: 5px;"><strong>' + d.segment + '</strong>: ' + d.duration_str;
+            if (d.cause) html += ' - ' + d.cause;
+            html += '</li>';
+        });
+        html += '</ul></div>';
+        
+        // 권장 조치
+        html += '<div style="background: white; border-radius: 8px; padding: 15px; margin-top: 10px;">';
+        html += '<div style="font-weight: 600; margin-bottom: 10px;">💡 권장 조치:</div>';
+        html += '<ul style="margin: 0; padding-left: 20px;">';
+        
+        var allCauses = preprocess.delays.map(function(d) { return d.cause || ''; }).join(' ');
+        if (allCauses.includes('HCACK') || allCauses.includes('OHT') || allCauses.includes('Vehicle')) {
+            html += '<li>OHT 차량 가용성 점검 및 Rail Cut 여부 확인</li>';
+        }
+        if (allCauses.includes('Conveyor') || allCauses.includes('컨베이어') || allCauses.includes('적체')) {
+            html += '<li>컨베이어 적체 구간 및 센서 점검</li>';
+        }
+        if (allCauses.includes('Lifter') || allCauses.includes('크레인') || allCauses.includes('층간')) {
+            html += '<li>Lifter 크레인 상태 점검</li>';
+        }
+        if (allCauses.includes('포트') || allCauses.includes('점유')) {
+            html += '<li>포트 점유 상태 및 작업 스케줄 확인</li>';
+        }
+        html += '<li>해당 시간대 전체 작업 부하 분석</li>';
+        html += '</ul></div>';
+        
+    } else {
+        html += '<div style="font-size: 18px; font-weight: 700; color: #065f46; margin-bottom: 12px;">✅ 정상 완료</div>';
+        if (totalDuration > 0) {
+            html += '<div style="color: #047857;">총 소요시간: ' + formatDur(totalDuration) + ' - 정상 범위 내 완료</div>';
+        } else {
+            html += '<div style="color: #047857;">이송 작업이 정상적으로 완료되었습니다.</div>';
         }
     }
     
     // 캐리어/LOT 정보
     if (preprocess.carrier_id || preprocess.lot_id) {
-        html += `<div style="margin-top: 12px; font-size: 14px; color: #666;">`;
-        if (preprocess.carrier_id) html += `<span style="margin-right: 15px;">📦 캐리어: <strong>${preprocess.carrier_id}</strong></span>`;
-        if (preprocess.lot_id) html += `<span>🏷️ LOT: <strong>${preprocess.lot_id}</strong></span>`;
-        html += `</div>`;
+        html += '<div style="margin-top: 12px; font-size: 14px; color: #666;">';
+        if (preprocess.carrier_id) html += '<span style="margin-right: 15px;">📦 캐리어: <strong>' + preprocess.carrier_id + '</strong></span>';
+        if (preprocess.lot_id) html += '<span>🏷️ LOT: <strong>' + preprocess.lot_id + '</strong></span>';
+        html += '</div>';
     }
     
-    html += `</div>`;
+    html += '</div>';
     
     // ========================================
     // 2. 📊 파일 정보
     // ========================================
-    html += `<div style="background: #f0fdf4; padding: 15px; border-radius: 10px; border-left: 4px solid #22c55e; margin-bottom: 20px;">`;
-    html += `<h3 style="color: #15803d; margin: 0 0 10px 0;">📊 파일 정보 <span class="equip-badge" style="background: ${equipColor}22; color: ${equipColor}; margin-left: 10px;">🔧 ${data.equipment_type}</span></h3>`;
-    html += `<div style="font-size: 14px; display: flex; flex-wrap: wrap; gap: 15px;">`;
-    html += `<span><strong>파일명:</strong> ${data.filename || 'N/A'}</span>`;
-    html += `<span><strong>레코드:</strong> ${data.basic_info?.row_count || 0}건</span>`;
-    if (data.basic_info?.time_range?.start) {
-        html += `<span><strong>시간:</strong> ${data.basic_info.time_range.start} ~ ${data.basic_info.time_range.end}</span>`;
+    html += '<div style="background: #f0fdf4; padding: 15px; border-radius: 10px; border-left: 4px solid #22c55e; margin-bottom: 20px;">';
+    html += '<h3 style="color: #15803d; margin: 0 0 10px 0;">📊 파일 정보 <span class="equip-badge" style="background: ' + equipColor + '22; color: ' + equipColor + '; margin-left: 10px;">🔧 ' + data.equipment_type + '</span></h3>';
+    html += '<div style="font-size: 14px; display: flex; flex-wrap: wrap; gap: 15px;">';
+    html += '<span><strong>파일명:</strong> ' + (data.filename || 'N/A') + '</span>';
+    html += '<span><strong>레코드:</strong> ' + (data.basic_info ? data.basic_info.row_count : 0) + '건</span>';
+    if (data.basic_info && data.basic_info.time_range && data.basic_info.time_range.start) {
+        html += '<span><strong>시간:</strong> ' + data.basic_info.time_range.start + ' ~ ' + data.basic_info.time_range.end + '</span>';
     }
-    html += `</div>`;
+    html += '</div>';
     
     // 설비별 추가 정보
     if (data.equipment_type === 'OHT' && preprocess.vehicle_id) {
-        html += `<div style="margin-top: 8px; font-size: 13px; color: #666;">🚃 차량: ${preprocess.vehicle_id} | 경로: ${preprocess.source_port || 'N/A'} → ${preprocess.dest_port || 'N/A'}</div>`;
+        html += '<div style="margin-top: 8px; font-size: 13px; color: #666;">🚃 차량: ' + preprocess.vehicle_id + ' | 경로: ' + (preprocess.source_port || 'N/A') + ' → ' + (preprocess.dest_port || 'N/A') + '</div>';
     } else if (data.equipment_type === 'CONVEYOR' && preprocess.machine_name) {
-        html += `<div style="margin-top: 8px; font-size: 13px; color: #666;">🔄 장비: ${preprocess.machine_name} | Zone: ${preprocess.source_zone || 'N/A'} → ${preprocess.dest_zone || 'N/A'}</div>`;
+        html += '<div style="margin-top: 8px; font-size: 13px; color: #666;">🔄 장비: ' + preprocess.machine_name + ' | Zone: ' + (preprocess.source_zone || 'N/A') + ' → ' + (preprocess.dest_zone || 'N/A') + '</div>';
     } else if (data.equipment_type === 'LIFTER' && preprocess.machine_name) {
-        html += `<div style="margin-top: 8px; font-size: 13px; color: #666;">🏗️ 장비: ${preprocess.machine_name} | 층: ${preprocess.source_floor || 'N/A'} → ${preprocess.dest_floor || 'N/A'}</div>`;
+        html += '<div style="margin-top: 8px; font-size: 13px; color: #666;">🏗️ 장비: ' + preprocess.machine_name + ' | 층: ' + (preprocess.source_floor || 'N/A') + ' → ' + (preprocess.dest_floor || 'N/A') + '</div>';
     } else if (data.equipment_type === 'FABJOB' && preprocess.hcack_errors > 0) {
-        html += `<div style="margin-top: 8px; font-size: 13px; color: #dc2626;">⚠️ HCACK=2 거절: ${preprocess.hcack_errors}회 발생</div>`;
+        html += '<div style="margin-top: 8px; font-size: 13px; color: #dc2626;">⚠️ HCACK=2 거절: ' + preprocess.hcack_errors + '회 발생</div>';
     }
     
-    html += `</div>`;
+    html += '</div>';
     
     // ========================================
     // 3. 🤖 AI 분석 결과
     // ========================================
-    html += `<div style="background: #faf5ff; padding: 20px; border-radius: 10px; border-left: 4px solid #a855f7;">`;
-    html += `<h3 style="color: #7e22ce; margin: 0 0 15px 0;">🤖 AI 분석 결과</h3>`;
-    html += `<div class="markdown-content">${marked.parse(data.analysis || '분석 결과 없음')}</div>`;
-    html += `</div>`;
+    html += '<div style="background: #faf5ff; padding: 20px; border-radius: 10px; border-left: 4px solid #a855f7;">';
+    html += '<h3 style="color: #7e22ce; margin: 0 0 15px 0;">🤖 AI 분석 결과</h3>';
+    html += '<div class="markdown-content">' + marked.parse(data.analysis || '분석 결과 없음') + '</div>';
+    html += '</div>';
     
-    html += `</div>`;
+    html += '</div>';
     
     resultDiv.innerHTML = html;
     resultDiv.className = 'success';
-    addToHistory(`[${data.equipment_type}] ${data.filename}`, data.analysis, 'amhs');
-}
-
-// 소요시간 포맷 헬퍼 함수 (없으면 추가)
-function formatDuration(seconds) {
-    if (!seconds || seconds < 0) return 'N/A';
-    if (seconds < 60) return `${Math.round(seconds)}초`;
-    if (seconds < 3600) {
-        const mins = Math.floor(seconds / 60);
-        const secs = Math.round(seconds % 60);
-        return `${mins}분 ${secs}초`;
-    }
-    const hours = Math.floor(seconds / 3600);
-    const mins = Math.floor((seconds % 3600) / 60);
-    return `${hours}시간 ${mins}분`;
+    addToHistory('[' + data.equipment_type + '] ' + data.filename, data.analysis, 'amhs');
 }
