@@ -1,12 +1,13 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Java 소스 파일 → 한 줄로 변환 (보안 우회)
-- 줄바꿈을 특수문자로 치환하여 Java 코드로 인식 못하게 함
+Java 소스 파일 들여쓰기 제거 (보안 우회)
+- 앞 공백/탭 제거하여 Java 코드 패턴 인식 방지
 - 나중에 다시 복원 가능
 """
 
 import os
+import re
 from datetime import datetime
 
 JAVA_FILES = [
@@ -25,44 +26,85 @@ JAVA_FILES = [
     "Vhl.java",
 ]
 
-# 줄바꿈 대체 문자 (나중에 복원용)
-LINE_BREAK = "§§§"
-
-OUTPUT_FILE = "oht_java_oneline.txt"
+OUTPUT_FILE = "oht_java_no_indent.txt"
 RESTORE_FILE = "oht_java_restored.py"
 
+# 들여쓰기 대체 문자
+INDENT_MARK = "►"  # 탭/4스페이스 1개 = ► 1개
 
-def convert_to_oneline(folder):
-    """Java 파일들을 한 줄로 변환"""
+
+def remove_indent(content):
+    """들여쓰기 제거"""
+    lines = content.split('\n')
+    result = []
+    
+    for line in lines:
+        # 앞 공백 개수 세기
+        stripped = line.lstrip()
+        indent_count = len(line) - len(stripped)
+        
+        # 탭 또는 4스페이스 단위로 마킹
+        indent_level = indent_count // 4
+        if '\t' in line[:indent_count]:
+            indent_level = line[:indent_count].count('\t')
+        
+        # 들여쓰기 마크 + 내용
+        marked_line = (INDENT_MARK * indent_level) + stripped
+        result.append(marked_line)
+    
+    return '\n'.join(result)
+
+
+def restore_indent(content):
+    """들여쓰기 복원"""
+    lines = content.split('\n')
+    result = []
+    
+    for line in lines:
+        # 마크 개수 세기
+        indent_level = 0
+        while line.startswith(INDENT_MARK):
+            indent_level += 1
+            line = line[1:]
+        
+        # 들여쓰기 복원 (4스페이스)
+        restored_line = ("    " * indent_level) + line
+        result.append(restored_line)
+    
+    return '\n'.join(result)
+
+
+def convert(folder):
+    """Java 파일 들여쓰기 제거"""
     
     with open(OUTPUT_FILE, 'w', encoding='utf-8') as out:
         for file_name in JAVA_FILES:
             file_path = os.path.join(folder, file_name)
             
-            out.write(f"###FILE:{file_name}###")
+            out.write(f"### {file_name} ###\n")
             
             if os.path.isfile(file_path):
                 try:
                     with open(file_path, 'r', encoding='utf-8') as f:
                         content = f.read()
-                    # 줄바꿈을 특수문자로 치환
-                    oneline = content.replace('\n', LINE_BREAK)
-                    out.write(oneline)
+                    no_indent = remove_indent(content)
+                    out.write(no_indent)
+                    out.write("\n")
                     print(f"  ✓ {file_name}")
                 except Exception as e:
-                    out.write(f"ERROR:{e}")
+                    out.write(f"ERROR: {e}\n")
                     print(f"  ✗ {file_name}: {e}")
             else:
-                out.write("FILE_NOT_FOUND")
+                out.write("(파일 없음)\n")
                 print(f"  - {file_name} 없음")
             
-            out.write("###END###")
+            out.write("### END ###\n\n")
     
     print(f"\n저장: {OUTPUT_FILE}")
 
 
-def restore_from_oneline():
-    """한 줄 파일을 원래 형태로 복원"""
+def restore():
+    """들여쓰기 복원"""
     
     if not os.path.isfile(OUTPUT_FILE):
         print(f"파일 없음: {OUTPUT_FILE}")
@@ -78,9 +120,8 @@ def restore_from_oneline():
         out.write("# " + "=" * 68 + "\n\n")
         
         # 각 파일 추출
-        import re
-        pattern = r'###FILE:(.+?)###(.+?)###END###'
-        matches = re.findall(pattern, content)
+        pattern = r'### (.+?) ###\n(.*?)### END ###'
+        matches = re.findall(pattern, content, re.DOTALL)
         
         for file_name, file_content in matches:
             out.write("\n# " + "=" * 68 + "\n")
@@ -88,16 +129,14 @@ def restore_from_oneline():
             out.write("# " + "=" * 68 + "\n")
             out.write('"""\n')
             
-            if file_content not in ["FILE_NOT_FOUND", ""] and not file_content.startswith("ERROR:"):
-                # 줄바꿈 복원
-                restored = file_content.replace(LINE_BREAK, '\n')
+            if file_content.strip() and not file_content.startswith("ERROR") and file_content.strip() != "(파일 없음)":
+                restored = restore_indent(file_content.strip())
                 out.write(restored)
-                if not restored.endswith('\n'):
-                    out.write('\n')
+                out.write('\n')
                 print(f"  ✓ {file_name} 복원됨")
             else:
-                out.write(f"({file_content})\n")
-                print(f"  - {file_name}: {file_content}")
+                out.write(f"{file_content.strip()}\n")
+                print(f"  - {file_name}")
             
             out.write('"""\n')
     
@@ -106,10 +145,10 @@ def restore_from_oneline():
 
 def main():
     print("=" * 70)
-    print("  Java 파일 → 한 줄 변환 (보안 우회)")
+    print("  Java 파일 들여쓰기 제거 (보안 우회)")
     print("=" * 70)
-    print("\n  [1] 변환 (Java → 한 줄)")
-    print("  [2] 복원 (한 줄 → 원본)")
+    print("\n  [1] 변환 (들여쓰기 제거)")
+    print("  [2] 복원 (들여쓰기 복원)")
     
     choice = input("\n  선택: ").strip()
     
@@ -118,14 +157,13 @@ def main():
         if not folder:
             folder = "."
         print()
-        convert_to_oneline(folder)
-        print("\n  → 이제 oht_java_oneline.txt 파일 복사 가능!")
-        print("  → 복사 후 [2] 복원 실행하면 원본 형태로!")
+        convert(folder)
+        print("\n  → oht_java_no_indent.txt 복사 가능!")
         
     elif choice == "2":
         print()
-        restore_from_oneline()
-        print("\n  → oht_java_restored.py 파일에서 코드 확인!")
+        restore()
+        print("\n  → oht_java_restored.py 에서 코드 확인!")
 
 
 if __name__ == "__main__":
