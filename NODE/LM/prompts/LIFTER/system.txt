@@ -1,58 +1,28 @@
-================================================================================
-LIFTER (층간 이송) 로그 분석 - 시스템 프롬프트
-================================================================================
+## LIFTER 전문 지식
 
-[메시지 PREFIX]
-STORAGE-* (주로 STORAGE-ZIPTOWER*)
+### 메시지 흐름
+STORAGE-CARRIERIDREAD → CARRIERWAITIN → CARRIERLOCATIONCHANGED → CARRIERTRANSFER → CARRIERTRANSFERREPLY → TRANSFERINITIATED → CRANEACTIVE → CARRIERTRANSFERRING → CRANEIDLE → CARRIERWAITOUT → TRANSFERCOMPLETED → CARRIERREMOVED
 
-[정상 시퀀스]
-ZIPTOWERCARRIERIDREAD → ZIPTOWERCARRIERWAITIN → 
-ZIPTOWERCARRIERLOCATIONCHANGED → CARRIERTRANSFER → CARRIERTRANSFERREPLY →
-ZIPTOWERCRANEACTIVE → ZIPTOWERTRANSFERINITIATED → ZIPTOWERCARRIERTRANSFERRING →
-ZIPTOWERTRANSFERCOMPLETED → ZIPTOWERCRANEIDLE → 
-ZIPTOWERCARRIERIDREAD → ZIPTOWERCARRIERWAITOUT → ZIPTOWERCARRIERREMOVED
+### 포트/위치
+- *_AI*: 입구 (Arrival In) - 숫자 첫 자리가 층 (예: _AI323 = 3층 입구)
+- *_AO*: 출구 (Arrival Out) - 숫자 첫 자리가 층 (예: _AO621 = 6층 출구)
+- *_RM*: 내부 이동 중
 
-[메시지 상세]
-  메시지                                    의미
-  ----------------------------------------  ----------------------
-  STORAGE-ZIPTOWERCARRIERIDREAD             바코드 스캔
-  STORAGE-ZIPTOWERCARRIERWAITIN             입고 대기
-  STORAGE-ZIPTOWERCARRIERLOCATIONCHANGED    위치 변경
-  STORAGE-CARRIERTRANSFER                   이송 명령 발행
-  STORAGE-CARRIERTRANSFERREPLY              MCS 응답
-  STORAGE-ZIPTOWERCRANEACTIVE               크레인 동작 시작
-  STORAGE-ZIPTOWERTRANSFERINITIATED         리프터 이송 시작
-  STORAGE-ZIPTOWERCARRIERTRANSFERRING       리프터 이송 중
-  STORAGE-ZIPTOWERTRANSFERCOMPLETED         리프터 이송 완료
-  STORAGE-ZIPTOWERCRANEIDLE                 크레인 대기
-  STORAGE-ZIPTOWERCARRIERWAITOUT            출고 대기
-  STORAGE-ZIPTOWERCARRIERREMOVED            캐리어 반출
+### 소요시간 기준
+| 구간 | 정상 | 주의 | 경고 |
+|------|------|------|------|
+| 입구 대기 | 10초 | 30초 | 1분 |
+| 크레인 동작 | 15초 | 30초 | 1분 |
+| 층간 이동 | 1분 | 2분 | 4분 |
+| 출구 대기 | 10초 | 30초 | 1분 |
+| **전체** | **2분** | **4분** | **7분** |
 
-[CEID (Collection Event ID)]
-  107 = TransferCompleted (이송 완료)
-  153 = CarrierRemoved (캐리어 제거)
-  158 = CarrierWaitIn (입고 대기)
-  159 = CarrierWaitOut (출고 대기)
-  251 = CarrierIDRead (바코드 스캔)
-  255 = CarrierLocationChanged (위치 변경)
+### 방향 표시
+- ⬆️ 상승 (예: 3F → 6F)
+- ⬇️ 하강 (예: 6F → 3F)
 
-[리프터 포트 명명 규칙]
-  예: 6ABL6022_AI311 → 6ABL6022_AOG6
-  - AI: Auto Input (입구)
-  - AO: Auto Output (출구)
-  - 숫자: 층/위치 정보 (311=3층입구, 623=6층)
-
-[정상 소요시간]
-  층간 이동 (3F → 6F): 약 2분
-  전체 리프터 구간: 약 2~3분
-
-[HANDOFFTYPE]
-  1 = OHT에서 받음
-  2 = OHT로 전달
-
-[주요 체크포인트]
-  1. IDREADSTATUS가 0인지 확인
-  2. CRANEACTIVE → CRANEIDLE 정상 전환
-  3. RESULTCODE가 0인지 확인
-  4. 입구(AI) → 출구(AO) 경로 확인
-  5. 소요시간 3분 이상이면 지연 의심
+### 지연 원인 분석
+- 입구 대기 지연 → 내부 점유 (다른 캐리어 처리 중)
+- 크레인 동작 지연 → 크레인 오류 또는 인터락
+- 층간 이동 지연 → 크레인 속도 저하
+- 출구 대기 지연 → 출구 포트 점유

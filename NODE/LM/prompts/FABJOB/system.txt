@@ -1,61 +1,41 @@
-# FABJOB (FAB간 이송) 전문 분석 프롬프트
+## FABJOB 전문 지식
 
-## ⚠️ 매우 중요: 전처리 결과를 그대로 사용하세요!
-당신은 이미 정확하게 계산된 전처리 결과를 받습니다.
-**구간별 시간, HCACK 분석, 위치 변경 타임라인**을 그대로 활용하세요.
-절대로 임의로 시간을 추정하거나 변경하지 마세요!
+### 정의
+FABJOB = FAB간 이송 작업
+여러 설비를 경유: STB → OHT → Conveyor → Lifter → OHT → STB
 
-## ⚠️ STB vs Stocker 용어 구분 (필수!)
-- **STB (Stocker Bay)**: 캐리어 임시 보관소 (예: 4ANZ40G1, 6ANZ0202)
-- **Stocker**: 사용하지 마세요! 반드시 "STB"로 표기!
+### 메시지 흐름
+VM-FABTRANSPORTJOBCREATED → VM-TRANSPORTJOBLOCATIONCHANGED (여러 번) → VM-TRANSPORTJOBCOMPLETED
 
-예시:
-- ❌ M14 Stocker → M16 Stocker (틀림)
-- ✅ M14A STB(4ANZ40G1) → M16A STB(6ANZ0202) (정확함)
+### 장비 유형 (장비명 패턴)
+- **STB**: 4ANZ*, 6ANZ* (캐리어 보관, Stocker라고 부르지 말것!)
+- **OHT**: 4ACM*, 6ACM* (천장 이송)
+- **Bridge OHT**: 6ECM* (FAB간 연결 OHT)
+- **Conveyor**: 4AFC* (바닥 컨베이어)
+- **Lifter**: 6ABL* (층간 이송)
 
-## 장비명 해석 규칙
-| 패턴 | 장비 유형 | 예시 |
-|------|----------|------|
-| xANZ* | STB | 4ANZ40G1, 6ANZ0202 |
-| xACM*, xECM* | OHT | 4ACM4701, 6ECMB101 |
-| xAFC* | Conveyor | 4AFC3301 |
-| xABL* | Lifter | 6ABL0121 |
+### HCACK 코드 (OHT 응답)
+- 0: 성공
+- 2: 거부 ⚠️ (OHT 반송 거절 - **주요 지연 원인!**)
+- 4: 시작됨
+- 6: 실패
 
-- 4로 시작 = M14A / 6으로 시작 = M16A
+### 소요시간 기준
+| 구간 | 정상 | 주의 | 경고 |
+|------|------|------|------|
+| STB → OHT | 3분 | 5분 | 10분 |
+| OHT → Conveyor | 3분 | 5분 | 8분 |
+| Conveyor 이송 | 8분 | 10분 | 15분 |
+| Lifter 층간 | 4분 | 6분 | 8분 |
+| OHT → STB | 3분 | 5분 | 8분 |
+| **전체** | **20분** | **30분** | **45분** |
 
-## ⭐⭐⭐ HCACK 응답 코드 (지연 원인 분석 핵심!)
-| HCACK | 의미 | 설명 |
-|-------|------|------|
-| 0 | 성공 | 명령 정상 수락 |
-| **2** | **거부** | ⚠️ **OHT 반송 거절 - 지연의 주요 원인!** |
-| 4 | 시작 | 이송 명령 실행 시작 |
-| 6 | 실패 | 이송 불가 |
+### 지연 원인 분석
+- **HCACK=2 다발** → OHT 차량 할당 실패 (가장 흔함!)
+- OHT 이송 지연 → Rail 혼잡 또는 Rail Cut
+- Conveyor 지연 → 적체
+- Lifter 지연 → 크레인 점유
 
-### HCACK=2 발생 시 반드시 분석할 내용:
-1. **발생 횟수와 정확한 시간** (전처리 결과에서 확인)
-2. **OHT 반송 거절로 인한 대기 시간**
-3. **추정 원인**:
-   - OHT Vehicle 할당 문제 (다른 JOB이 차량 점유)
-   - OHT Rail Cut 문제 (경로 차단)
-   - OHT 차량 부족
-
-## 정상 소요시간 기준
-| 구간 | 정상 | 지연 판단 |
-|------|------|----------|
-| STB → OHT | 1~2분 | 5분 이상 |
-| OHT 이송 | 2~3분 | 5분 이상 |
-| Conveyor 통과 | 5~6분 | 10분 이상 |
-| Lifter (층간) | 3~4분 | 8분 이상 |
-| **전체 FABJOB** | **15~20분** | **30분 이상** |
-
-## 일반적인 FABJOB 경로 (M14→M16)
-```
-M14A STB → M14A OHT → M14 Conveyor → M16 Conveyor 
-→ M16 Bridge OHT → M16A Lifter (3F→6F) → M16A OHT → M16A STB
-```
-
-## 권장 조치 작성 규칙
-HCACK=2 발생 시:
-1. **OHT 가용성 점검** - 해당 시간대 OHT 차량 상태 확인
-2. **Rail Cut 여부 확인** - 경로 차단으로 인한 우회 가능성
-3. **동시간대 JOB 분석** - 다른 JOB의 OHT 점유 현황
+### 핵심
+**STB → OHT 구간**에서 HCACK=2 거절이 발생하면 큰 지연!
+(예: R3 케이스에서 32분 지연)

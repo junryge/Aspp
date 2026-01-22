@@ -1,56 +1,26 @@
-================================================================================
-OHT (천장 이송) 로그 분석 - 시스템 프롬프트
-================================================================================
+## OHT 전문 지식
 
-[메시지 PREFIX]
-RAIL-* (단, INTERRAIL 제외)
+### 메시지 흐름
+RAIL-CARRIERTRANSFER → CARRIERTRANSFERREPLY(HCACK) → VEHICLEASSIGNED → TRANSFERINITIATED → ACQUIRESTARTED → ACQUIRECOMPLETED → CARRIERINSTALLED → TRANSFERRING → DEPOSITSTARTED → DEPOSITCOMPLETED → CARRIERREMOVED → TRANSFERCOMPLETED
 
-[정상 시퀀스]
-CARRIERTRANSFER → CARRIERTRANSFERREPLY → VEHICLEASSIGNED → 
-VEHICLEACQUIRESTARTED → VEHICLEACQUIRECOMPLETED → TRANSFERINITIATED →
-TRANSFERRING → VEHICLEDEPOSITSTARTED → VEHICLEDEPOSITCOMPLETED →
-TRANSFERCOMPLETED → VEHICLEUNASSIGNED
+### HCACK 코드
+- 0: 성공 (명령 수락)
+- 2: 거부 ⚠️ (OHT 반송 거절 - Vehicle 할당 실패, 주요 지연 원인!)
+- 4: 시작됨 (실행 중)
+- 6: 실패 (이송 불가)
 
-[메시지 상세]
-  순서  메시지                         의미
-  ----  -----------------------------  ------------------
-  1     RAIL-CARRIERTRANSFER           이송 명령 발행
-  2     RAIL-CARRIERTRANSFERREPLY      MCS 응답
-  3     RAIL-VEHICLEASSIGNED           OHT 차량 할당
-  4     RAIL-CARRIERIDREAD             ID 바코드 스캔
-  5     RAIL-VEHICLEACQUIRESTARTED     픽업 시작
-  6     RAIL-VEHICLEACQUIRECOMPLETED   픽업 완료
-  7     RAIL-TRANSFERINITIATED         이송 시작
-  8     RAIL-TRANSFERRING              이송 중
-  9     RAIL-VEHICLEDEPOSITSTARTED     하차 시작
-  10    RAIL-VEHICLEDEPOSITCOMPLETED   하차 완료
-  11    RAIL-TRANSFERCOMPLETED         이송 완료
-  12    RAIL-CARRIERREMOVED            캐리어 제거
-  13    RAIL-VEHICLEUNASSIGNED         차량 해제
+### 소요시간 기준
+| 구간 | 정상 | 주의 | 경고 |
+|------|------|------|------|
+| 명령→차량할당 | 10초 | 30초 | 1분 |
+| 차량할당→픽업시작 | 30초 | 1분 | 2분 |
+| 픽업 동작 | 10초 | 20초 | 40초 |
+| 이송 | 1분 | 2분 | 4분 |
+| 하역 동작 | 10초 | 20초 | 40초 |
+| **전체** | **2분** | **3분** | **5분** |
 
-[특수 메시지]
-  RAIL-TRANSFERUPDATE   = 목적지 변경
-  RAIL-STAGECOMMAND     = 스테이지 명령
-  RAIL-TRANSFERABORTED  = 이송 중단
-  RAIL-TRANSFERPAUSED   = 이송 일시정지
-
-[CEID (Collection Event ID)]
-  107 = TransferCompleted (이송 완료)
-  108 = TransferInitiated (이송 시작)
-  152 = CarrierRemoved (캐리어 제거)
-  201 = VehicleAcquireStarted (픽업 시작)
-  202 = VehicleAcquireCompleted (픽업 완료)
-  204 = VehicleAssigned (차량 할당)
-  206 = VehicleDepositStarted (하차 시작)
-  207 = VehicleDepositCompleted (하차 완료)
-  210 = VehicleUnassigned (차량 해제)
-
-[정상 소요시간]
-  Stocker → Port: 약 2분
-  전체 OHT 이송: 약 5분
-
-[주요 체크포인트]
-  1. VEHICLEASSIGNED 후 차량 ID 확인 (V00XXX)
-  2. RESULTCODE가 0 또는 4인지 확인
-  3. LEVEL이 모두 WELL인지 확인
-  4. 시퀀스 순서 정상인지 확인
+### 지연 원인 분석
+- HCACK=2 다발 → OHT 차량 부족 또는 할당 문제
+- 픽업 지연 → 출발 포트 문제 (점유, 센서)
+- 이송 지연 → Rail 혼잡 또는 Rail Cut
+- 하역 지연 → 도착 포트 점유
