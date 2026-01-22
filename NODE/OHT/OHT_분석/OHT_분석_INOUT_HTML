@@ -1,0 +1,746 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <title>Smart ATLAS OHT - RailEdge In/Out 트래픽 분석</title>
+    <style>
+        body { font-family: 'Malgun Gothic', sans-serif; max-width: 1200px; margin: 0 auto; padding: 20px; background: #f5f5f5; line-height: 1.8; }
+        h1 { background: linear-gradient(135deg, #1e3a5f, #2d5a87); color: white; padding: 25px; border-radius: 10px; margin-bottom: 30px; }
+        h2 { color: #1e3a5f; border-bottom: 3px solid #667eea; padding-bottom: 10px; margin-top: 50px; font-size: 24px; }
+        h3 { color: #2d5a87; margin-top: 30px; font-size: 18px; background: #e3f2fd; padding: 10px 15px; border-radius: 5px; }
+        h4 { color: #333; margin-top: 20px; }
+        table { width: 100%; border-collapse: collapse; margin: 15px 0; background: white; box-shadow: 0 2px 5px rgba(0,0,0,0.1); }
+        th, td { border: 1px solid #ddd; padding: 12px; text-align: left; vertical-align: top; }
+        th { background: #1e3a5f; color: white; }
+        tr:nth-child(even) { background: #f9f9f9; }
+        tr:hover { background: #e8f4fc; }
+        .section { background: white; padding: 25px; border-radius: 10px; margin: 20px 0; box-shadow: 0 3px 10px rgba(0,0,0,0.1); }
+        .flow-diagram { background: #1a1a2e; color: #00ff00; padding: 20px; font-family: 'Consolas', monospace; font-size: 13px; white-space: pre; overflow-x: auto; border-radius: 8px; line-height: 1.5; }
+        .code-block { background: #2d2d2d; color: #f8f8f2; padding: 20px; font-family: 'Consolas', monospace; font-size: 13px; white-space: pre; overflow-x: auto; border-radius: 8px; line-height: 1.5; }
+        .highlight { background: #fff3cd; padding: 15px; border-left: 5px solid #ffc107; margin: 15px 0; border-radius: 0 8px 8px 0; }
+        .important { background: #e8f5e9; padding: 15px; border-left: 5px solid #4caf50; margin: 15px 0; border-radius: 0 8px 8px 0; }
+        .warning { background: #ffebee; padding: 15px; border-left: 5px solid #f44336; margin: 15px 0; border-radius: 0 8px 8px 0; }
+        .info { background: #e3f2fd; padding: 15px; border-left: 5px solid #2196f3; margin: 15px 0; border-radius: 0 8px 8px 0; }
+        code { background: #e0e0e0; padding: 2px 8px; border-radius: 4px; font-family: 'Consolas', monospace; }
+        .formula { background: #f5f5f5; padding: 20px; border: 2px solid #667eea; border-radius: 8px; text-align: center; font-size: 18px; margin: 20px 0; }
+        ul, ol { margin: 10px 0; padding-left: 25px; }
+        li { margin: 8px 0; }
+        .tag { display: inline-block; padding: 3px 10px; border-radius: 15px; font-size: 12px; margin-right: 5px; }
+        .tag-in { background: #e8f5e9; color: #2e7d32; }
+        .tag-out { background: #ffebee; color: #c62828; }
+        .tag-count { background: #e3f2fd; color: #1565c0; }
+        .tag-java { background: #fff3e0; color: #e65100; }
+        .toc { background: #fafafa; padding: 20px; border-radius: 8px; margin-bottom: 30px; }
+        .toc ul { list-style: none; padding-left: 0; }
+        .toc li { padding: 5px 0; }
+        .toc a { color: #1e3a5f; text-decoration: none; }
+        .toc a:hover { text-decoration: underline; }
+        .keyword { color: #ff79c6; }
+        .string { color: #f1fa8c; }
+        .comment { color: #6272a4; }
+        .method { color: #50fa7b; }
+        .number { color: #bd93f9; }
+        .summary-box { display: flex; gap: 20px; flex-wrap: wrap; margin: 20px 0; }
+        .summary-item { flex: 1; min-width: 200px; background: linear-gradient(135deg, #667eea, #764ba2); color: white; padding: 20px; border-radius: 10px; text-align: center; }
+        .summary-item h4 { margin: 0 0 10px 0; font-size: 14px; opacity: 0.9; }
+        .summary-item .value { font-size: 24px; font-weight: bold; }
+    </style>
+</head>
+<body>
+
+<h1>🚗 Smart ATLAS OHT - RailEdge In/Out 트래픽 분석</h1>
+
+<div class="section">
+    <p><strong>📄 분석 목적:</strong> RailEdge 단위로 Vehicle의 진입(In) 및 이탈(Out) 수량을 1분 주기로 집계하여 트래픽 현황 파악</p>
+    <p><strong>📅 분석 일자:</strong> 2025.01</p>
+    <p><strong>🎯 활용 목표:</strong></p>
+    <ul>
+        <li>RailEdge별 트래픽 밀도 실시간 모니터링</li>
+        <li>병목 구간 사전 감지 및 경로 최적화</li>
+        <li>시간대별 트래픽 패턴 분석</li>
+    </ul>
+</div>
+
+<div class="toc">
+    <h3>📑 목차</h3>
+    <ul>
+        <li><a href="#section1">1. 요구사항 정의</a></li>
+        <li><a href="#section2">2. 현재 시스템 분석</a></li>
+        <li><a href="#section3">3. In/Out 카운트 처리 로직 (Java 소스 분석)</a></li>
+        <li><a href="#section4">4. 기존 테이블 활용 가능 데이터</a></li>
+        <li><a href="#section5">5. 구현 방안 제안</a></li>
+        <li><a href="#section6">6. 데이터 흐름도</a></li>
+        <li><a href="#section7">7. 예상 산출물</a></li>
+    </ul>
+</div>
+
+<!-- Section 1 -->
+<h2 id="section1">1. 요구사항 정의</h2>
+<div class="section">
+    <h3>1.1 핵심 요구사항</h3>
+    <div class="summary-box">
+        <div class="summary-item">
+            <h4>집계 단위</h4>
+            <div class="value">RailEdge</div>
+        </div>
+        <div class="summary-item">
+            <h4>집계 주기</h4>
+            <div class="value">1분</div>
+        </div>
+        <div class="summary-item">
+            <h4>측정 항목</h4>
+            <div class="value">In / Out 수량</div>
+        </div>
+        <div class="summary-item">
+            <h4>데이터 소스</h4>
+            <div class="value">UDP 메시지</div>
+        </div>
+    </div>
+
+    <h3>1.2 상세 요구사항</h3>
+    <table>
+        <tr>
+            <th style="width:15%">항목</th>
+            <th style="width:25%">정의</th>
+            <th>설명</th>
+        </tr>
+        <tr>
+            <td><span class="tag tag-in">IN</span></td>
+            <td>RailEdge 진입 수량</td>
+            <td>해당 RailEdge로 새로 진입한 Vehicle 수</td>
+        </tr>
+        <tr>
+            <td><span class="tag tag-out">OUT</span></td>
+            <td>RailEdge 이탈 수량</td>
+            <td>해당 RailEdge에서 빠져나간 Vehicle 수</td>
+        </tr>
+        <tr>
+            <td><span class="tag tag-count">PASS</span></td>
+            <td>통과 수량</td>
+            <td>해당 RailEdge를 완전히 통과한 Vehicle 수 (= OUT과 동일 개념)</td>
+        </tr>
+        <tr>
+            <td>집계 주기</td>
+            <td>1분 (60초)</td>
+            <td>TrafficBatch와 동일한 주기로 집계</td>
+        </tr>
+        <tr>
+            <td>집계 범위</td>
+            <td>전체 RailEdge</td>
+            <td>FAB/MCP별 모든 RailEdge 대상</td>
+        </tr>
+    </table>
+</div>
+
+<!-- Section 2 -->
+<h2 id="section2">2. 현재 시스템 분석</h2>
+<div class="section">
+    <h3>2.1 현재 시스템에서 In/Out 처리 현황</h3>
+    
+    <div class="important">
+        <strong>✅ 좋은 소식:</strong> 현재 시스템에 이미 In/Out 카운트 로직이 구현되어 있습니다!
+    </div>
+
+    <table>
+        <tr>
+            <th>구분</th>
+            <th>클래스/메서드</th>
+            <th>현재 상태</th>
+            <th>비고</th>
+        </tr>
+        <tr>
+            <td><span class="tag tag-in">IN 처리</span></td>
+            <td><code>RailEdge.addVhlId()</code></td>
+            <td>✅ 구현됨</td>
+            <td>Vehicle 진입 시 vhlIdMap에 추가</td>
+        </tr>
+        <tr>
+            <td><span class="tag tag-out">OUT 처리</span></td>
+            <td><code>RailEdge.removeVhlId()</code></td>
+            <td>✅ 구현됨</td>
+            <td>Vehicle 이탈 시 vhlIdMap에서 제거</td>
+        </tr>
+        <tr>
+            <td><span class="tag tag-count">통과 카운트</span></td>
+            <td><code>RailEdge.addHistory()</code></td>
+            <td>✅ 구현됨</td>
+            <td>hisCnt 증가 (누적 통과 수)</td>
+        </tr>
+        <tr>
+            <td>1분 집계</td>
+            <td><code>TrafficBatch._buildBase()</code></td>
+            <td>✅ 구현됨</td>
+            <td>passCnt 필드로 1분간 통과 수 계산</td>
+        </tr>
+        <tr>
+            <td>현재 Vehicle 수</td>
+            <td><code>RailEdge.getVhlIdMap().size()</code></td>
+            <td>✅ 구현됨</td>
+            <td>현재 RailEdge에 위치한 Vehicle 수</td>
+        </tr>
+    </table>
+
+    <h3>2.2 관련 Java 클래스 구조</h3>
+    <div class="flow-diagram">
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                        In/Out 카운트 관련 클래스 구조                         │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                             │
+│   OhtUdpListener.java                                                       │
+│        │                                                                    │
+│        │ UDP 메시지 수신                                                    │
+│        ▼                                                                    │
+│   OhtMsgWorkerRunnable.java ─────────────────────────────────────────────┐  │
+│        │                                                                 │  │
+│        │ _updateVehicle()                                               │  │
+│        │ _setRailEdgeVelocity()  ◄─── 핵심 In/Out 처리 위치             │  │
+│        │                                                                 │  │
+│        ├──────────────────┬──────────────────┐                          │  │
+│        ▼                  ▼                  ▼                          │  │
+│   ┌─────────┐       ┌─────────┐       ┌─────────────┐                   │  │
+│   │ IN 처리 │       │OUT 처리 │       │ PASS 카운트 │                   │  │
+│   │ addVhlId│       │removeVhl│       │ addHistory  │                   │  │
+│   └────┬────┘       └────┬────┘       └──────┬──────┘                   │  │
+│        │                 │                   │                          │  │
+│        └─────────────────┼───────────────────┘                          │  │
+│                          ▼                                              │  │
+│                    RailEdge.java                                        │  │
+│                    ├─ vhlIdMap (현재 Vehicle 목록)                       │  │
+│                    └─ hisCnt (누적 통과 수)                              │  │
+│                          │                                              │  │
+│                          ▼                                              │  │
+│                    TrafficBatch.java (1분 주기)                         │  │
+│                    └─ passCnt = hisCnt - lastHisCnt                     │  │
+│                          │                                              │  │
+│                          ▼                                              │  │
+│                    ATLAS_RAIL_TRAFFIC (Logpresso)                       │  │
+│                                                                         │  │
+└─────────────────────────────────────────────────────────────────────────┘
+    </div>
+</div>
+
+<!-- Section 3 -->
+<h2 id="section3">3. In/Out 카운트 처리 로직 (Java 소스 분석)</h2>
+<div class="section">
+    <h3>3.1 핵심 코드: OhtMsgWorkerRunnable.java</h3>
+    
+    <div class="info">
+        <strong>📍 위치:</strong> <code>OhtMsgWorkerRunnable._setRailEdgeVelocity()</code> 메서드 (라인 708-776)
+    </div>
+
+    <h4>Case 1: 연속 RailEdge 이동 (직선 주행)</h4>
+    <div class="code-block"><span class="comment">// OhtMsgWorkerRunnable.java - 라인 715-730</span>
+<span class="comment">// 조건: lastRailEdge의 끝점 = 현재 railEdge의 시작점</span>
+<span class="keyword">if</span> (lastRailEdge.getToNodeId().<span class="method">equals</span>(railEdge.getFromNodeId())) {
+    
+    <span class="comment">// ✅ OUT 처리: 이전 RailEdge에서 제거</span>
+    lastRailEdge.<span class="method">getVhlIdMap</span>().<span class="method">remove</span>(vehicleId);  <span class="comment">// ← OUT</span>
+    lastRailEdge.<span class="method">addHistory</span>();                      <span class="comment">// ← 통과 카운트 증가</span>
+    
+    <span class="comment">// ✅ IN 처리: 현재 RailEdge에 추가</span>
+    railEdge.<span class="method">addVhlId</span>(vehicleId);                    <span class="comment">// ← IN</span>
+}</div>
+
+    <h4>Case 2: 비연속 RailEdge 이동 (분기/우회)</h4>
+    <div class="code-block"><span class="comment">// OhtMsgWorkerRunnable.java - 라인 731-765</span>
+<span class="comment">// 조건: 이전 RailEdge와 현재 RailEdge가 직접 연결되지 않음</span>
+<span class="keyword">else if</span> (lastRailEdge != <span class="keyword">null</span> && !railEdge.getId().<span class="method">equals</span>(lastRailEdge.getId())) {
+    
+    <span class="comment">// ✅ OUT 처리: 이전 RailEdge에서 제거</span>
+    lastRailEdge.<span class="method">addHistory</span>();
+    lastRailEdge.<span class="method">getVhlIdMap</span>().<span class="method">remove</span>(vehicleId);  <span class="comment">// ← OUT</span>
+    
+    <span class="comment">// ✅ IN 처리: 현재 RailEdge에 추가</span>
+    railEdge.<span class="method">addVhlId</span>(vehicleId);                    <span class="comment">// ← IN</span>
+    
+    <span class="comment">// 경로 추정하여 중간 RailEdge들도 통과 처리</span>
+    ConcurrentLinkedQueue&lt;RailEdge&gt; predictedEdges;
+    predictedEdges = <span class="keyword">new</span> DijkstraVhlRouteFind(vehicle, sourceNode, destinationNode)
+                        .<span class="method">getRailEdgeList</span>();
+    
+    <span class="keyword">for</span> (RailEdge predictedEdge : predictedEdges) {
+        predictedEdge.<span class="method">addHistory</span>();               <span class="comment">// ← 중간 경로도 통과 처리</span>
+    }
+}</div>
+
+    <h3>3.2 RailEdge 클래스의 In/Out 관련 메서드</h3>
+    <div class="code-block"><span class="comment">// RailEdge.java</span>
+
+<span class="comment">// Vehicle 목록 관리 (현재 RailEdge에 위치한 Vehicle들)</span>
+<span class="keyword">private</span> ConcurrentHashMap&lt;String, Integer&gt; vhlIdMap = <span class="keyword">new</span> ConcurrentHashMap&lt;&gt;();
+
+<span class="comment">// 누적 통과 수</span>
+<span class="keyword">transient private long</span> hisCnt = <span class="number">0</span>;
+
+<span class="comment">// ✅ IN 처리: Vehicle 진입</span>
+<span class="keyword">public void</span> <span class="method">addVhlId</span>(String vhlId) {
+    <span class="keyword">if</span> (vhlIdMap == <span class="keyword">null</span>) {
+        <span class="keyword">this</span>.vhlIdMap = <span class="keyword">new</span> ConcurrentHashMap&lt;&gt;();
+    }
+    vhlIdMap.<span class="method">put</span>(vhlId, <span class="number">0</span>);  <span class="comment">// Vehicle 추가</span>
+}
+
+<span class="comment">// ✅ OUT 처리: Vehicle 이탈</span>
+<span class="keyword">public void</span> <span class="method">removeVhlId</span>(String vhlId) {
+    <span class="keyword">if</span> (<span class="keyword">this</span>.vhlIdMap == <span class="keyword">null</span>) {
+        <span class="keyword">this</span>.vhlIdMap = <span class="keyword">new</span> ConcurrentHashMap&lt;&gt;();
+    }
+    <span class="keyword">this</span>.vhlIdMap.<span class="method">remove</span>(vhlId);  <span class="comment">// Vehicle 제거</span>
+}
+
+<span class="comment">// ✅ 통과 카운트 증가</span>
+<span class="keyword">public void</span> <span class="method">addHistory</span>() {
+    <span class="keyword">this</span>.hisCnt++;  <span class="comment">// 누적 통과 수 증가</span>
+}
+
+<span class="comment">// 현재 Vehicle 수 조회</span>
+<span class="keyword">public</span> ConcurrentHashMap&lt;String, Integer&gt; <span class="method">getVhlIdMap</span>() {
+    <span class="keyword">return</span> vhlIdMap;  <span class="comment">// .size()로 현재 수량 확인 가능</span>
+}
+
+<span class="comment">// 누적 통과 수 조회</span>
+<span class="keyword">public long</span> <span class="method">getHisCnt</span>() {
+    <span class="keyword">return this</span>.hisCnt;
+}</div>
+
+    <h3>3.3 TrafficBatch에서 1분간 통과 수 계산</h3>
+    <div class="code-block"><span class="comment">// TrafficBatch.java - _buildBase() 메서드</span>
+
+<span class="comment">// 이전 집계 시점의 통과 수 저장</span>
+<span class="keyword">private static</span> ConcurrentMap&lt;String, Long&gt; lastHisCntMap = <span class="keyword">new</span> ConcurrentHashMap&lt;&gt;();
+
+<span class="comment">// 1분간 통과 수 계산</span>
+<span class="keyword">if</span> (functionItem.<span class="method">isUseRailTrafficPassCnt</span>()) {
+    <span class="keyword">long</span> passedCount = railEdge.<span class="method">getHisCnt</span>();           <span class="comment">// 현재 누적 통과 수</span>
+    <span class="keyword">long</span> lastPassedCount = lastHisCntMap.<span class="method">get</span>(railEdgeId); <span class="comment">// 이전 누적 통과 수</span>
+    <span class="keyword">long</span> passingCount = passedCount - lastPassedCount;   <span class="comment">// ← 1분간 통과 수!</span>
+    
+    <span class="keyword">if</span> (passingCount &lt; <span class="number">0</span>) {
+        passingCount = <span class="number">0</span>;
+        lastHisCntMap.<span class="method">put</span>(railEdgeId, <span class="number">0L</span>);
+    }
+    
+    result.<span class="method">put</span>(<span class="string">"passCnt"</span>, passingCount);  <span class="comment">// Logpresso에 저장</span>
+}
+
+<span class="comment">// 현재 Vehicle 수</span>
+<span class="keyword">if</span> (functionItem.<span class="method">isUseRailTrafficVhlCnt</span>()) {
+    result.<span class="method">put</span>(<span class="string">"vhlCnt"</span>, railEdge.<span class="method">getVhlIdMap</span>().<span class="method">size</span>());  <span class="comment">// 현재 수량</span>
+}</div>
+</div>
+
+<!-- Section 4 -->
+<h2 id="section4">4. 기존 테이블 활용 가능 데이터</h2>
+<div class="section">
+    <h3>4.1 ATLAS_RAIL_TRAFFIC 테이블</h3>
+    
+    <div class="highlight">
+        <strong>💡 핵심:</strong> 이 테이블에 이미 <code>passCnt</code>, <code>vhlCnt</code> 필드가 있어 활용 가능!
+    </div>
+
+    <table>
+        <tr>
+            <th>컬럼명</th>
+            <th>타입</th>
+            <th>설명</th>
+            <th>In/Out 활용</th>
+        </tr>
+        <tr>
+            <td><code>railEdgeId</code></td>
+            <td>String</td>
+            <td>RailEdge ID</td>
+            <td>집계 기준</td>
+        </tr>
+        <tr>
+            <td><code>createTime</code></td>
+            <td>Long</td>
+            <td>데이터 생성 시간</td>
+            <td>시간대별 분석</td>
+        </tr>
+        <tr>
+            <td><strong><code>passCnt</code></strong></td>
+            <td>Long</td>
+            <td><strong>1분간 통과한 Vehicle 수</strong></td>
+            <td><span class="tag tag-out">OUT 수량</span> 활용 가능</td>
+        </tr>
+        <tr>
+            <td><strong><code>vhlCnt</code></strong></td>
+            <td>Integer</td>
+            <td><strong>현재 RailEdge의 Vehicle 수</strong></td>
+            <td>현재 상태 파악</td>
+        </tr>
+        <tr>
+            <td><code>velocity</code></td>
+            <td>Double</td>
+            <td>현재 속도 (m/min)</td>
+            <td>트래픽 밀도 연계</td>
+        </tr>
+        <tr>
+            <td><code>fabId</code></td>
+            <td>String</td>
+            <td>Factory ID</td>
+            <td>FAB별 필터링</td>
+        </tr>
+        <tr>
+            <td><code>mcpName</code></td>
+            <td>String</td>
+            <td>MCP 이름</td>
+            <td>MCP별 필터링</td>
+        </tr>
+    </table>
+
+    <h3>4.2 ATLAS_AREA_TRAFFIC 테이블</h3>
+    <table>
+        <tr>
+            <th>컬럼명</th>
+            <th>설명</th>
+            <th>In/Out 활용</th>
+        </tr>
+        <tr>
+            <td><code>railTrafficInputCnt</code></td>
+            <td>Area 내 DEPOSIT 또는 Assign Command 수</td>
+            <td><span class="tag tag-in">IN 관련</span></td>
+        </tr>
+        <tr>
+            <td><code>railTrafficOutputCnt</code></td>
+            <td>Area 내 ACQUIRE 또는 Assign Command 수</td>
+            <td><span class="tag tag-out">OUT 관련</span></td>
+        </tr>
+        <tr>
+            <td><code>vhlCnt</code></td>
+            <td>현재 Area의 Vehicle 수</td>
+            <td>Area별 현황</td>
+        </tr>
+    </table>
+
+    <h3>4.3 ATLAS_BRANCH_TRAFFIC 테이블</h3>
+    <table>
+        <tr>
+            <th>컬럼명</th>
+            <th>설명</th>
+            <th>In/Out 활용</th>
+        </tr>
+        <tr>
+            <td><code>passCnt</code></td>
+            <td>최근 10초간 BranchJoinEdge 통과 수량</td>
+            <td><span class="tag tag-count">통과 수</span></td>
+        </tr>
+        <tr>
+            <td><code>railTrafficInOutCnt</code></td>
+            <td>Input + Output 합계</td>
+            <td><span class="tag tag-in">IN</span> + <span class="tag tag-out">OUT</span></td>
+        </tr>
+    </table>
+</div>
+
+<!-- Section 5 -->
+<h2 id="section5">5. 구현 방안 제안</h2>
+<div class="section">
+    <h3>5.1 방안 비교</h3>
+    <table>
+        <tr>
+            <th>방안</th>
+            <th>설명</th>
+            <th>장점</th>
+            <th>단점</th>
+            <th>추천도</th>
+        </tr>
+        <tr>
+            <td><strong>방안 A</strong><br>기존 테이블 활용</td>
+            <td>ATLAS_RAIL_TRAFFIC의 passCnt, vhlCnt 활용</td>
+            <td>• 추가 개발 불필요<br>• 즉시 사용 가능<br>• 검증된 데이터</td>
+            <td>• IN 카운트 별도 없음<br>• 1분 단위 고정</td>
+            <td>⭐⭐⭐⭐⭐</td>
+        </tr>
+        <tr>
+            <td><strong>방안 B</strong><br>신규 필드 추가</td>
+            <td>RailEdge에 inCnt, outCnt 필드 추가</td>
+            <td>• 정확한 In/Out 구분<br>• 유연한 집계</td>
+            <td>• Java 코드 수정 필요<br>• 테스트 필요</td>
+            <td>⭐⭐⭐⭐</td>
+        </tr>
+        <tr>
+            <td><strong>방안 C</strong><br>별도 모니터링 시스템</td>
+            <td>Python으로 별도 집계 시스템 구축</td>
+            <td>• 기존 시스템 영향 없음<br>• 커스텀 가능</td>
+            <td>• 신규 개발 필요<br>• UDP 직접 수신 필요</td>
+            <td>⭐⭐⭐</td>
+        </tr>
+    </table>
+
+    <h3>5.2 권장 방안: 방안 A (기존 테이블 활용)</h3>
+    
+    <div class="important">
+        <strong>✅ 권장 이유:</strong>
+        <ul>
+            <li>이미 <code>passCnt</code>로 1분간 통과(OUT) 수량 집계 중</li>
+            <li><code>vhlCnt</code>로 현재 상태 파악 가능</li>
+            <li>IN 수량 = 현재 vhlCnt - 이전 vhlCnt + passCnt 로 계산 가능</li>
+            <li>추가 개발 없이 Logpresso 쿼리로 즉시 활용 가능</li>
+        </ul>
+    </div>
+
+    <h4>In 수량 계산 공식</h4>
+    <div class="formula">
+        <strong>IN = (현재 vhlCnt) - (이전 vhlCnt) + (passCnt)</strong>
+        <br><br>
+        <small>
+            • 현재 vhlCnt: 현재 RailEdge에 있는 Vehicle 수<br>
+            • 이전 vhlCnt: 1분 전 RailEdge에 있던 Vehicle 수<br>
+            • passCnt: 1분간 통과(나간) Vehicle 수
+        </small>
+    </div>
+
+    <h4>Logpresso 쿼리 예시</h4>
+    <div class="code-block"><span class="comment">-- 1분 단위 In/Out 집계 쿼리</span>
+<span class="keyword">SELECT</span>
+    railEdgeId,
+    createTime,
+    passCnt <span class="keyword">AS</span> outCount,                    <span class="comment">-- OUT 수량</span>
+    vhlCnt <span class="keyword">AS</span> currentVhlCount,               <span class="comment">-- 현재 Vehicle 수</span>
+    (vhlCnt - LAG(vhlCnt) + passCnt) <span class="keyword">AS</span> inCount  <span class="comment">-- IN 수량 (계산)</span>
+<span class="keyword">FROM</span>
+    ATLAS_RAIL_TRAFFIC
+<span class="keyword">WHERE</span>
+    fabId = <span class="string">'M14A'</span>
+    <span class="keyword">AND</span> createTime >= <span class="number">1723082383000</span>
+<span class="keyword">ORDER BY</span>
+    railEdgeId, createTime</div>
+</div>
+
+<!-- Section 6 -->
+<h2 id="section6">6. 데이터 흐름도</h2>
+<div class="section">
+    <h3>6.1 In/Out 카운트 전체 흐름</h3>
+    <div class="flow-diagram">
+┌────────────────────────────────────────────────────────────────────────────────┐
+│                       RailEdge In/Out 카운트 데이터 흐름                         │
+├────────────────────────────────────────────────────────────────────────────────┤
+│                                                                                │
+│   ┌──────────────┐                                                             │
+│   │     MCP      │                                                             │
+│   │ (UDP 송신)   │                                                             │
+│   └──────┬───────┘                                                             │
+│          │ UDP 메시지                                                          │
+│          │ "2,OHT,V00399,1,1,0000,1,4176,20,4177,4,4,..."                      │
+│          ▼                                                                     │
+│   ┌──────────────────────────────────────────────────────┐                     │
+│   │              OhtUdpListener.java                      │                     │
+│   │              (포트 수신, Queue 적재)                   │                     │
+│   └──────────────────────┬───────────────────────────────┘                     │
+│                          │                                                     │
+│                          ▼                                                     │
+│   ┌──────────────────────────────────────────────────────┐                     │
+│   │           OhtMsgWorkerRunnable.java                   │                     │
+│   │           _setRailEdgeVelocity() 메서드               │                     │
+│   │                                                       │                     │
+│   │   ┌─────────────────────────────────────────────┐    │                     │
+│   │   │  Vehicle 이동 감지                           │    │                     │
+│   │   │                                             │    │                     │
+│   │   │  이전 위치: lastRailEdge (예: RE:01945)     │    │                     │
+│   │   │  현재 위치: railEdge (예: RE:01946)         │    │                     │
+│   │   └─────────────────────────────────────────────┘    │                     │
+│   │                    │                                  │                     │
+│   │          ┌─────────┴─────────┐                       │                     │
+│   │          ▼                   ▼                       │                     │
+│   │   ┌─────────────┐     ┌─────────────┐               │                     │
+│   │   │ OUT 처리    │     │ IN 처리     │               │                     │
+│   │   │             │     │             │               │                     │
+│   │   │ lastRailEdge│     │ railEdge    │               │                     │
+│   │   │ .removeVhlId│     │ .addVhlId() │               │                     │
+│   │   │ .addHistory │     │             │               │                     │
+│   │   └──────┬──────┘     └──────┬──────┘               │                     │
+│   │          │                   │                       │                     │
+│   └──────────┼───────────────────┼───────────────────────┘                     │
+│              │                   │                                             │
+│              ▼                   ▼                                             │
+│   ┌──────────────────────────────────────────────────────┐                     │
+│   │                  RailEdge.java                        │                     │
+│   │                                                       │                     │
+│   │   vhlIdMap: { "V00399": 0, "V00401": 0, ... }        │ ← 현재 Vehicle 목록 │
+│   │   hisCnt: 1523                                        │ ← 누적 통과 수      │
+│   │                                                       │                     │
+│   └──────────────────────┬───────────────────────────────┘                     │
+│                          │                                                     │
+│                          │ (1분 주기)                                          │
+│                          ▼                                                     │
+│   ┌──────────────────────────────────────────────────────┐                     │
+│   │               TrafficBatch.java                       │                     │
+│   │                                                       │                     │
+│   │   passCnt = hisCnt(현재) - hisCnt(1분전)             │ ← 1분간 통과 수     │
+│   │   vhlCnt = vhlIdMap.size()                           │ ← 현재 Vehicle 수   │
+│   │                                                       │                     │
+│   └──────────────────────┬───────────────────────────────┘                     │
+│                          │                                                     │
+│                          ▼                                                     │
+│   ┌──────────────────────────────────────────────────────┐                     │
+│   │              ATLAS_RAIL_TRAFFIC                       │                     │
+│   │              (Logpresso 테이블)                       │                     │
+│   │                                                       │                     │
+│   │   railEdgeId | createTime    | passCnt | vhlCnt      │                     │
+│   │   -----------|---------------|---------|--------      │                     │
+│   │   RE:01945   | 1723082383001 |    5    |   2         │                     │
+│   │   RE:01946   | 1723082383001 |    3    |   1         │                     │
+│   │   ...        | ...           |   ...   |  ...        │                     │
+│   │                                                       │                     │
+│   └──────────────────────────────────────────────────────┘                     │
+│                                                                                │
+└────────────────────────────────────────────────────────────────────────────────┘
+    </div>
+
+    <h3>6.2 시간축 기반 In/Out 흐름 예시</h3>
+    <div class="flow-diagram">
+시간축 예시: RailEdge "M14A:RE:A:01945-01946"
+
+T=0분 (초기)
+┌────────────────────────────────────────┐
+│  RailEdge: 01945-01946                 │
+│  ├─ vhlIdMap: {V001, V002}  (2대)     │
+│  └─ hisCnt: 100                        │
+└────────────────────────────────────────┘
+
+T=0~1분 사이 이벤트:
+  • V001 → OUT (다음 RailEdge로 이동)    → hisCnt: 101, vhlIdMap: {V002}
+  • V003 → IN  (이 RailEdge로 진입)      → vhlIdMap: {V002, V003}
+  • V002 → OUT (다음 RailEdge로 이동)    → hisCnt: 102, vhlIdMap: {V003}
+  • V004 → IN  (이 RailEdge로 진입)      → vhlIdMap: {V003, V004}
+  • V005 → IN  (이 RailEdge로 진입)      → vhlIdMap: {V003, V004, V005}
+
+T=1분 (TrafficBatch 실행)
+┌────────────────────────────────────────┐
+│  RailEdge: 01945-01946                 │
+│  ├─ vhlIdMap: {V003, V004, V005} (3대)│
+│  ├─ hisCnt: 102                        │
+│  │                                     │
+│  │  ▶ 계산 결과:                       │
+│  │    passCnt = 102 - 100 = 2 (OUT)   │
+│  │    vhlCnt = 3 (현재)               │
+│  │    inCount = 3 - 2 + 2 = 3 (IN)    │
+│  │                                     │
+└────────────────────────────────────────┘
+
+※ IN 계산: 현재vhlCnt(3) - 이전vhlCnt(2) + passCnt(2) = 3
+    </div>
+</div>
+
+<!-- Section 7 -->
+<h2 id="section7">7. 예상 산출물</h2>
+<div class="section">
+    <h3>7.1 1분 주기 집계 데이터 예시</h3>
+    <table>
+        <tr>
+            <th>시간</th>
+            <th>RailEdge ID</th>
+            <th>FAB</th>
+            <th style="background:#2e7d32;"><span class="tag tag-in">IN</span></th>
+            <th style="background:#c62828;"><span class="tag tag-out">OUT</span></th>
+            <th>현재 수량</th>
+            <th>속도(m/min)</th>
+        </tr>
+        <tr>
+            <td>10:00:00</td>
+            <td>M14A:RE:A:01945-01946</td>
+            <td>M14A</td>
+            <td>5</td>
+            <td>3</td>
+            <td>2</td>
+            <td>280.5</td>
+        </tr>
+        <tr>
+            <td>10:00:00</td>
+            <td>M14A:RE:A:01946-01947</td>
+            <td>M14A</td>
+            <td>3</td>
+            <td>4</td>
+            <td>1</td>
+            <td>295.2</td>
+        </tr>
+        <tr>
+            <td>10:00:00</td>
+            <td>M14A:RE:A:01947-01948</td>
+            <td>M14A</td>
+            <td>4</td>
+            <td>2</td>
+            <td>3</td>
+            <td>245.8</td>
+        </tr>
+        <tr>
+            <td>10:01:00</td>
+            <td>M14A:RE:A:01945-01946</td>
+            <td>M14A</td>
+            <td>2</td>
+            <td>4</td>
+            <td>0</td>
+            <td>310.1</td>
+        </tr>
+        <tr>
+            <td>10:01:00</td>
+            <td>M14A:RE:A:01946-01947</td>
+            <td>M14A</td>
+            <td>4</td>
+            <td>3</td>
+            <td>2</td>
+            <td>288.7</td>
+        </tr>
+    </table>
+
+    <h3>7.2 활용 시나리오</h3>
+    <table>
+        <tr>
+            <th>시나리오</th>
+            <th>활용 데이터</th>
+            <th>기대 효과</th>
+        </tr>
+        <tr>
+            <td><strong>병목 구간 감지</strong></td>
+            <td>IN > OUT 지속되는 RailEdge</td>
+            <td>정체 발생 전 사전 경고</td>
+        </tr>
+        <tr>
+            <td><strong>트래픽 밸런싱</strong></td>
+            <td>RailEdge별 In/Out 비율</td>
+            <td>경로 분산 최적화</td>
+        </tr>
+        <tr>
+            <td><strong>시간대별 패턴 분석</strong></td>
+            <td>시간대별 In/Out 추이</td>
+            <td>피크 시간 예측 및 대응</td>
+        </tr>
+        <tr>
+            <td><strong>이상 감지</strong></td>
+            <td>평균 대비 급격한 변화</td>
+            <td>장애 조기 발견</td>
+        </tr>
+    </table>
+
+    <h3>7.3 다음 단계</h3>
+    <div class="info">
+        <strong>📋 향후 진행 사항:</strong>
+        <ol>
+            <li><strong>방안 A 적용 시:</strong> Logpresso 쿼리 작성 및 대시보드 구성</li>
+            <li><strong>방안 B 적용 시:</strong> Java 코드 수정 (inCnt, outCnt 필드 추가)</li>
+            <li><strong>방안 C 적용 시:</strong> Python 모니터링 시스템 개발</li>
+        </ol>
+    </div>
+</div>
+
+<div class="section" style="background: linear-gradient(135deg, #1e3a5f, #2d5a87); color: white;">
+    <h3 style="color: white; background: transparent;">📌 결론</h3>
+    <p>현재 Smart ATLAS 시스템에는 이미 <strong>RailEdge별 In/Out 카운트 로직이 구현</strong>되어 있으며,
+    <code>ATLAS_RAIL_TRAFFIC</code> 테이블의 <code>passCnt</code>, <code>vhlCnt</code> 필드를 활용하여
+    <strong>추가 개발 없이 1분 단위 In/Out 집계가 가능</strong>합니다.</p>
+    
+    <p style="margin-top: 20px;">
+        <strong>핵심 Java 코드 위치:</strong><br>
+        • In/Out 처리: <code>OhtMsgWorkerRunnable._setRailEdgeVelocity()</code><br>
+        • 1분 집계: <code>TrafficBatch._buildBase()</code><br>
+        • 데이터 저장: <code>RailEdge.java</code> (vhlIdMap, hisCnt)
+    </p>
+</div>
+
+<footer style="text-align: center; margin-top: 50px; padding: 20px; color: #666;">
+    <p>문서 버전: 1.0 | 작성일: 2025.01 | Smart ATLAS OHT 시스템</p>
+</footer>
+
+</body>
+</html>
