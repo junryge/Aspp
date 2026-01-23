@@ -105,6 +105,9 @@ def get_data():
         current_row = df.iloc[-1]
         prev_row = df.iloc[-11]  # 10분 전
         
+        # 컬럼별 임계값 설정 (warning, danger)
+        THRESHOLD_60_COLS = ['M14.QUE.ALL.CURRENTQCREATED', 'M14.QUE.ALL.CURRENTQCOMPLETED']
+        
         for col in ANALYSIS_COLS:
             if col in df.columns:
                 curr_val = current_row.get(col, 0)
@@ -112,12 +115,21 @@ def get_data():
                 
                 if pd.notna(curr_val) and pd.notna(prev_val):
                     change = float(curr_val) - float(prev_val)
-                    if change >= SPIKE_THRESHOLD:
+                    
+                    # 컬럼별 임계값
+                    if col in THRESHOLD_60_COLS:
+                        warn_threshold, danger_threshold = 60, 70
+                    else:
+                        warn_threshold, danger_threshold = 50, 60
+                    
+                    if change >= warn_threshold:
+                        level = 'danger' if change >= danger_threshold else 'warning'
                         spike_columns.append({
                             'column': col,
                             'change': int(change),
                             'current': int(curr_val),
-                            'previous': int(prev_val)
+                            'previous': int(prev_val),
+                            'level': level
                         })
         
         # 변화량 기준 정렬
@@ -261,6 +273,9 @@ def get_history():
                          'M14B.QUE.SENDFAB.VERTICALQUEUECOUNT']
         
         spike_info_list = []
+        # 컬럼별 임계값 설정 (warning, danger)
+        THRESHOLD_60_COLS = ['M14.QUE.ALL.CURRENTQCREATED', 'M14.QUE.ALL.CURRENTQCOMPLETED']
+        
         for idx in range(len(df_merged)):
             spike_cols = []
             if idx >= 10:  # 10분 전 데이터가 있어야 비교 가능
@@ -274,8 +289,16 @@ def get_history():
                         
                         if pd.notna(curr_val) and pd.notna(prev_val):
                             change = float(curr_val) - float(prev_val)
-                            if change >= SPIKE_THRESHOLD:
-                                spike_cols.append(f"{col} +{int(change)}")
+                            
+                            # 컬럼별 임계값
+                            if col in THRESHOLD_60_COLS:
+                                warn_threshold, danger_threshold = 60, 70
+                            else:
+                                warn_threshold, danger_threshold = 50, 60
+                            
+                            if change >= warn_threshold:
+                                level = 'D' if change >= danger_threshold else 'W'
+                                spike_cols.append(f"{level}:{col} +{int(change)}")
             
             spike_info_list.append(', '.join(spike_cols) if spike_cols else '')
         
