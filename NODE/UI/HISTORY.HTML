@@ -1451,12 +1451,12 @@
             (currentData.alerts_10 || []).forEach(a => { alertMap10[String(a.CURRTIME)] = a; });
             (currentData.alerts_30 || []).forEach(a => { alertMap30[String(a.CURRTIME)] = a; });
             
-            // CSV 헤더 (로그프레소 알람 컬럼 추가)
-            const headers = ['CURRTIME', 'TOTALCNT', 'PRED_TIME_10', 'PREDICT_10', 'PROG_ALERT_10', 'PRED_TIME_30', 'PREDICT_30', 'PROG_ALERT_30', 'LOGPRESSO_ALARM'];
+            // CSV 헤더 (10분 급증컬럼 + 예상 컬럼 추가)
+            const headers = ['CURRTIME', 'TOTALCNT', 'PRED_TIME_10', 'PREDICT_10', 'PROG_ALERT_10', 'PRED_TIME_30', 'PREDICT_30', 'PROG_ALERT_30', 'LOGPRESSO_ALARM', 'SPIKE_COLUMN', 'STATUS_PREDICTION'];
             let csv = headers.join(',') + '\n';
             
             // CSV 데이터
-            currentData.data.forEach(row => {
+            currentData.data.forEach((row, idx) => {
                 const currtime = String(row.CURRTIME);
                 const alert10 = alertMap10[currtime];
                 const alert30 = alertMap30[currtime];
@@ -1491,6 +1491,27 @@
                     }
                 }
                 
+                // 10분 급증컬럼: 프론트엔드 계산 결과 사용 (D:/W: 제거)
+                let spikeColumnText = '';
+                const spikeInfo = (currentData.spikeInfoList && currentData.spikeInfoList[idx]) 
+                    ? currentData.spikeInfoList[idx] 
+                    : (row.SPIKE_INFO || '');
+                if (spikeInfo && spikeInfo.length > 0) {
+                    const parts = spikeInfo.split(', ');
+                    const columns = parts.map(part => {
+                        if (part.startsWith('D:') || part.startsWith('W:')) {
+                            return part.slice(2);
+                        }
+                        return part;
+                    });
+                    spikeColumnText = columns.join(' | ');
+                }
+                
+                // 상태 예상 (프론트엔드에서 계산된 값 사용)
+                const statusPrediction = (currentData.statusPredictions && currentData.statusPredictions[idx]) 
+                    ? currentData.statusPredictions[idx] 
+                    : (row.STATUS_PREDICTION || '양호예상');
+                
                 const values = [
                     row.CURRTIME || '',
                     row.TOTALCNT || '',
@@ -1500,7 +1521,9 @@
                     row.PRED_TIME_30 || '',
                     row.PREDICT_30 || '',
                     alert30Text,
-                    logpressoText
+                    logpressoText,
+                    `"${spikeColumnText}"`,
+                    statusPrediction
                 ];
                 csv += values.join(',') + '\n';
             });
@@ -2119,6 +2142,148 @@
             const alertMap30 = {};
             alerts30.forEach(a => { alertMap30[String(a.CURRTIME)] = a; });
             
+            // ========================================
+            // 프론트엔드에서 급증 컬럼 + 상태 예상 재계산 (날짜 연속성 유지)
+            // ========================================
+            const ANALYSIS_COLS = ['M14AM10A', 'M10AM14A', 'M14AM10ASUM', 
+                                   'M14AM14B', 'M14BM14A', 'M14AM14BSUM',
+                                   'M14AM16', 'M16M14A', 'M14AM16SUM',
+                                   'M14.QUE.ALL.CURRENTQCREATED',
+                                   'M14.QUE.ALL.CURRENTQCOMPLETED',
+                                   'M14.QUE.OHT.OHTUTIL',
+                                   'M14.QUE.ALL.TRANSPORT4MINOVERCNT',
+                                   'M14B.QUE.SENDFAB.VERTICALQUEUECOUNT'];
+            const THRESHOLD_60_COLS = ['M14.QUE.ALL.CURRENTQCREATED', 'M14.QUE.ALL.CURRENTQCOMPLETED'];
+            
+            // CURRTIME 파싱 함수
+            function parseCurrtime(ct) {
+                const s = String(ct);
+                if (s.length >= 12) {
+                    return new Date(
+                        parseInt(s.slice(0,4)), 
+                        parseInt(s.slice(4,6)) - 1, 
+                        parseInt(s.slice(6,8)), 
+                        parseInt(s.slice(8,10)), 
+                        parseInt(s.slice(10,12))
+                    );
+                }
+                return null;
+            }
+            
+            // 쿨타임 추적 변수
+            let lastDangerTime = null;
+            let lastBottleneckTime = null;
+            
+            // 각 행에 대해 급증 컬럼 + 상태 예상 재계산
+            const spikeInfoList = [];
+            const statusPredictions = [];
+            
+            for (let idx = 0; idx < rows.length; idx++) {
+                const row = rows[idx];
+                let warningCount = 0;
+                let dangerCount = 0;
+                const spikeItems = [];
+                
+                // 전체 데이터에서 10분 전 행과 비교 (날짜 경계 무시)
+                if (idx >= 10) {
+                    const prevRow = rows[idx - 10];
+                    
+                    ANALYSIS_COLS.forEach(col => {
+                        const currVal = parseFloat(row[col]) || 0;
+                        const prevVal = parseFloat(prevRow[col]) || 0;
+                        const change = currVal - prevVal;
+                        
+                        // 컬럼별 임계값
+                        let warnThreshold = 50, dangerThreshold = 60;
+                        if (THRESHOLD_60_COLS.includes(col)) {
+                            warnThreshold = 60;
+                            dangerThreshold = 70;
+                        }
+                        
+                        if (change >= warnThreshold) {
+                            if (change >= dangerThreshold) {
+                                dangerCount++;
+                                spikeItems.push({ level: 'D', col: col, change: Math.floor(change) });
+                            } else {
+                                warningCount++;
+                                spikeItems.push({ level: 'W', col: col, change: Math.floor(change) });
+                            }
+                        }
+                    });
+                    
+                    // 변화량 기준 정렬
+                    spikeItems.sort((a, b) => b.change - a.change);
+                }
+                
+                // SPIKE_INFO 문자열 생성
+                const spikeInfo = spikeItems.map(s => `${s.level}:${s.col} +${s.change}`).join(', ');
+                spikeInfoList.push(spikeInfo);
+                
+                // 현재 상태 판단 (TOTALCNT + 급증 컬럼 기준)
+                const totalcnt = parseFloat(row.TOTALCNT) || 0;
+                const predict10 = parseFloat(row.PREDICT_10) || 0;
+                const predict30 = parseFloat(row.PREDICT_30) || 0;
+                let currentStatus = '양호예상';
+                
+                if (totalcnt >= 1650 && dangerCount >= 3) {
+                    currentStatus = '병목예상';
+                } else if (totalcnt >= 1550 && dangerCount >= 2) {
+                    currentStatus = '위험예상';
+                } else if (totalcnt < 1550 && dangerCount >= 2) {
+                    currentStatus = '관찰';
+                }
+                
+                // 양호예상일 때 예측값 추가 체크 (쿨타임 없음)
+                let predictBasedStatus = null;
+                if (currentStatus === '양호예상') {
+                    if (predict10 >= 1700 && predict30 >= 1700) {
+                        predictBasedStatus = '병목(1700예측-10분,30분)';
+                    } else if (predict10 >= 1700) {
+                        predictBasedStatus = '병목(1700예측-10분)';
+                    } else if (predict30 >= 1700) {
+                        predictBasedStatus = '병목(1700예측-30분)';
+                    } else if (predict10 >= 1650 || predict30 >= 1650) {
+                        predictBasedStatus = '병목예상';
+                    }
+                }
+                
+                // 현재 시간 파싱
+                const currTime = parseCurrtime(row.CURRTIME);
+                
+                // 쿨타임 갱신 (급증 컬럼 기준 상태만)
+                if (currentStatus === '병목예상' && currTime) {
+                    lastBottleneckTime = currTime;
+                } else if (currentStatus === '위험예상' && currTime) {
+                    lastDangerTime = currTime;
+                }
+                
+                // 최종 상태 결정
+                let statusPred = currentStatus;
+                
+                // 예측 기반 상태가 있으면 우선 (쿨타임 없음)
+                if (predictBasedStatus) {
+                    statusPred = predictBasedStatus;
+                } else if ((currentStatus === '양호예상' || currentStatus === '관찰') && currTime) {
+                    // 쿨타임 확인
+                    if (lastBottleneckTime) {
+                        const elapsed = (currTime - lastBottleneckTime) / (1000 * 60);
+                        if (elapsed < 30 && elapsed > 0) {
+                            const cooldownMins = Math.floor(30 - elapsed);
+                            statusPred = `병목 쿨타임 ${cooldownMins}분`;
+                        }
+                    }
+                    if (!statusPred.includes('쿨타임') && lastDangerTime) {
+                        const elapsed = (currTime - lastDangerTime) / (1000 * 60);
+                        if (elapsed < 30 && elapsed > 0) {
+                            const cooldownMins = Math.floor(30 - elapsed);
+                            statusPred = `위험 쿨타임 ${cooldownMins}분`;
+                        }
+                    }
+                }
+                
+                statusPredictions.push(statusPred);
+            }
+            
             let html = `
                 <table>
                     <thead>
@@ -2129,12 +2294,14 @@
                             <th style="width: 150px;">30분후 예측</th>
                             <th>프로그램알람</th>
                             <th>로그프레소알람</th>
+                            <th>10분 급증컬럼</th>
+                            <th>예상</th>
                         </tr>
                     </thead>
                     <tbody>
             `;
             
-            rows.forEach(row => {
+            rows.forEach((row, idx) => {
                 const currtime = String(row.CURRTIME);
                 const timeDisplay = isMultipleDays ? formatTimeChart(currtime) : formatTime(currtime);
                 const alert10 = alertMap10[currtime];
@@ -2172,6 +2339,45 @@
                     }
                 }
                 
+                // 급증 컬럼 HTML (프론트엔드에서 재계산한 값 사용)
+                let spikeHtml = '-';
+                const spikeInfo = spikeInfoList[idx] || '';
+                if (spikeInfo && spikeInfo.length > 0) {
+                    const spikeParts = spikeInfo.split(', ').map(part => {
+                        if (part.startsWith('D:')) {
+                            // Danger (빨간색)
+                            return `<span style="color: var(--danger); font-size: 11px;">🔺 ${part.slice(2)}</span>`;
+                        } else if (part.startsWith('W:')) {
+                            // Warning (노란색)
+                            return `<span style="color: var(--warning); font-size: 11px;">🔺 ${part.slice(2)}</span>`;
+                        } else {
+                            // 기존 형식 (노란색)
+                            return `<span style="color: var(--warning); font-size: 11px;">🔺 ${part}</span>`;
+                        }
+                    });
+                    spikeHtml = spikeParts.join(', ');
+                }
+                
+                // 상태 예상 HTML (프론트엔드에서 재계산한 값 사용)
+                let statusPredHtml = statusPredictions[idx] || '양호예상';
+                let statusColor = 'var(--success)';
+                let statusOpacity = '1';
+                if (statusPredHtml && statusPredHtml.startsWith('병목(1700예측')) {
+                    statusColor = '#7c3aed';  // 진한 보라색
+                } else if (statusPredHtml === '병목예상') {
+                    statusColor = 'var(--danger)';
+                } else if (statusPredHtml === '위험예상') {
+                    statusColor = '#f97316';
+                } else if (statusPredHtml === '관찰') {
+                    statusColor = 'var(--warning)';
+                } else if (statusPredHtml.includes('병목 쿨타임')) {
+                    statusColor = '#ef4444';
+                    statusOpacity = '0.7';
+                } else if (statusPredHtml.includes('위험 쿨타임')) {
+                    statusColor = '#f97316';
+                    statusOpacity = '0.7';
+                }
+                
                 html += `
                     <tr ondblclick="openDetailModal('${currtime}')" title="더블클릭하여 상세 분석">
                         <td style="font-weight: 600; color: #3b82f6;">${timeDisplay}</td>
@@ -2186,12 +2392,18 @@
                         </td>
                         <td>${progAlarmHtml || '-'}</td>
                         <td>${logAlarmHtml}</td>
+                        <td>${spikeHtml}</td>
+                        <td style="color: ${statusColor}; font-weight: 600; opacity: ${statusOpacity};">${statusPredHtml}</td>
                     </tr>
                 `;
             });
             
             html += '</tbody></table>';
             document.getElementById('table-container').innerHTML = html;
+            
+            // CSV 다운로드용으로 저장
+            currentData.statusPredictions = statusPredictions;
+            currentData.spikeInfoList = spikeInfoList;
         }
 
         // ========================================
