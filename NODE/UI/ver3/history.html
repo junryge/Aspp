@@ -1451,8 +1451,8 @@
             (currentData.alerts_10 || []).forEach(a => { alertMap10[String(a.CURRTIME)] = a; });
             (currentData.alerts_30 || []).forEach(a => { alertMap30[String(a.CURRTIME)] = a; });
             
-            // CSV 헤더 (10분 급증컬럼 + 구분 2개 컬럼 추가)
-            const headers = ['CURRTIME', 'TOTALCNT', 'PRED_TIME_10', 'PREDICT_10', 'PROG_ALERT_10', 'PRED_TIME_30', 'PREDICT_30', 'PROG_ALERT_30', 'LOGPRESSO_ALARM', 'SPIKE_COLUMN', 'SPIKE_LEVEL'];
+            // CSV 헤더 (10분 급증컬럼 + 예상 컬럼 추가)
+            const headers = ['CURRTIME', 'TOTALCNT', 'PRED_TIME_10', 'PREDICT_10', 'PROG_ALERT_10', 'PRED_TIME_30', 'PREDICT_30', 'PROG_ALERT_30', 'LOGPRESSO_ALARM', 'SPIKE_COLUMN', 'STATUS_PREDICTION'];
             let csv = headers.join(',') + '\n';
             
             // CSV 데이터
@@ -1491,28 +1491,21 @@
                     }
                 }
                 
-                // 10분 급증컬럼: 컬럼명+변화량 / 구분(경고/위험) 분리
+                // 10분 급증컬럼: 컬럼명+변화량 (D:/W: 제거)
                 let spikeColumnText = '';
-                let spikeLevelText = '';
                 if (row.SPIKE_INFO && row.SPIKE_INFO.length > 0) {
                     const parts = row.SPIKE_INFO.split(', ');
-                    const columns = [];
-                    const levels = [];
-                    parts.forEach(part => {
-                        if (part.startsWith('D:')) {
-                            columns.push(part.slice(2));
-                            levels.push('위험');
-                        } else if (part.startsWith('W:')) {
-                            columns.push(part.slice(2));
-                            levels.push('경고');
-                        } else {
-                            columns.push(part);
-                            levels.push('경고');
+                    const columns = parts.map(part => {
+                        if (part.startsWith('D:') || part.startsWith('W:')) {
+                            return part.slice(2);
                         }
+                        return part;
                     });
                     spikeColumnText = columns.join(' | ');
-                    spikeLevelText = levels.join(' | ');
                 }
+                
+                // 상태 예상
+                const statusPrediction = row.STATUS_PREDICTION || '양호예상';
                 
                 const values = [
                     row.CURRTIME || '',
@@ -1525,7 +1518,7 @@
                     alert30Text,
                     logpressoText,
                     `"${spikeColumnText}"`,
-                    `"${spikeLevelText}"`
+                    statusPrediction
                 ];
                 csv += values.join(',') + '\n';
             });
@@ -2155,6 +2148,7 @@
                             <th>프로그램알람</th>
                             <th>로그프레소알람</th>
                             <th>10분 급증컬럼</th>
+                            <th>예상</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -2216,6 +2210,17 @@
                     spikeHtml = spikeParts.join(', ');
                 }
                 
+                // 상태 예상 HTML
+                let statusPredHtml = row.STATUS_PREDICTION || '양호예상';
+                let statusColor = 'var(--success)';
+                if (statusPredHtml === '병목예상') {
+                    statusColor = 'var(--danger)';
+                } else if (statusPredHtml === '위험예상') {
+                    statusColor = '#f97316';
+                } else if (statusPredHtml === '관찰') {
+                    statusColor = 'var(--warning)';
+                }
+                
                 html += `
                     <tr ondblclick="openDetailModal('${currtime}')" title="더블클릭하여 상세 분석">
                         <td style="font-weight: 600; color: #3b82f6;">${timeDisplay}</td>
@@ -2231,6 +2236,7 @@
                         <td>${progAlarmHtml || '-'}</td>
                         <td>${logAlarmHtml}</td>
                         <td>${spikeHtml}</td>
+                        <td style="color: ${statusColor}; font-weight: 600;">${statusPredHtml}</td>
                     </tr>
                 `;
             });
