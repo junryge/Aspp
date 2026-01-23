@@ -244,6 +244,33 @@ def get_history():
                 elif row.get('TYPE') == '30':
                     alerts_30.append(alert_item)
         
+        # 10분 대비 급증 컬럼 계산 (+50 이상)
+        SPIKE_THRESHOLD = 50
+        ANALYSIS_COLS = ['M14AM10A', 'M10AM14A', 'M14AM10ASUM', 
+                         'M14AM14B', 'M14BM14A', 'M14AM14BSUM',
+                         'M14AM16', 'M16M14A', 'M14AM16SUM']
+        
+        spike_info_list = []
+        for idx in range(len(df_merged)):
+            spike_cols = []
+            if idx >= 10:  # 10분 전 데이터가 있어야 비교 가능
+                current_row = df_merged.iloc[idx]
+                prev_row = df_merged.iloc[idx - 10]
+                
+                for col in ANALYSIS_COLS:
+                    if col in df_merged.columns:
+                        curr_val = current_row.get(col, 0)
+                        prev_val = prev_row.get(col, 0)
+                        
+                        if pd.notna(curr_val) and pd.notna(prev_val):
+                            change = float(curr_val) - float(prev_val)
+                            if change >= SPIKE_THRESHOLD:
+                                spike_cols.append(f"{col} +{int(change)}")
+            
+            spike_info_list.append(', '.join(spike_cols) if spike_cols else '')
+        
+        df_merged['SPIKE_INFO'] = spike_info_list
+        
         # 결과 반환
         return jsonify({
             'date': date_str,
