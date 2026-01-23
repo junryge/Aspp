@@ -1451,8 +1451,8 @@
             (currentData.alerts_10 || []).forEach(a => { alertMap10[String(a.CURRTIME)] = a; });
             (currentData.alerts_30 || []).forEach(a => { alertMap30[String(a.CURRTIME)] = a; });
             
-            // CSV 헤더 (로그프레소 알람 컬럼 추가)
-            const headers = ['CURRTIME', 'TOTALCNT', 'PRED_TIME_10', 'PREDICT_10', 'PROG_ALERT_10', 'PRED_TIME_30', 'PREDICT_30', 'PROG_ALERT_30', 'LOGPRESSO_ALARM'];
+            // CSV 헤더 (10분 급증컬럼 + 구분 2개 컬럼 추가)
+            const headers = ['CURRTIME', 'TOTALCNT', 'PRED_TIME_10', 'PREDICT_10', 'PROG_ALERT_10', 'PRED_TIME_30', 'PREDICT_30', 'PROG_ALERT_30', 'LOGPRESSO_ALARM', 'SPIKE_COLUMN', 'SPIKE_LEVEL'];
             let csv = headers.join(',') + '\n';
             
             // CSV 데이터
@@ -1491,6 +1491,29 @@
                     }
                 }
                 
+                // 10분 급증컬럼: 컬럼명+변화량 / 구분(경고/위험) 분리
+                let spikeColumnText = '';
+                let spikeLevelText = '';
+                if (row.SPIKE_INFO && row.SPIKE_INFO.length > 0) {
+                    const parts = row.SPIKE_INFO.split(', ');
+                    const columns = [];
+                    const levels = [];
+                    parts.forEach(part => {
+                        if (part.startsWith('D:')) {
+                            columns.push(part.slice(2));
+                            levels.push('위험');
+                        } else if (part.startsWith('W:')) {
+                            columns.push(part.slice(2));
+                            levels.push('경고');
+                        } else {
+                            columns.push(part);
+                            levels.push('경고');
+                        }
+                    });
+                    spikeColumnText = columns.join(' | ');
+                    spikeLevelText = levels.join(' | ');
+                }
+                
                 const values = [
                     row.CURRTIME || '',
                     row.TOTALCNT || '',
@@ -1500,7 +1523,9 @@
                     row.PRED_TIME_30 || '',
                     row.PREDICT_30 || '',
                     alert30Text,
-                    logpressoText
+                    logpressoText,
+                    `"${spikeColumnText}"`,
+                    `"${spikeLevelText}"`
                 ];
                 csv += values.join(',') + '\n';
             });
