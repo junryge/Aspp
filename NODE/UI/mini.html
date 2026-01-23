@@ -286,7 +286,10 @@
                 statusDetailEl.textContent = `경고 ${warningCount} / 위험 ${dangerCount}`;
                 
                 // 상태별 색상
-                if (statusPred === '병목예상') {
+                statusPredEl.style.opacity = '1';
+                if (statusPred === '병목') {
+                    statusPredEl.style.color = '#7c3aed';  // 진한 보라색
+                } else if (statusPred === '병목예상') {
                     statusPredEl.style.color = '#ef4444';
                 } else if (statusPred === '위험예상') {
                     statusPredEl.style.color = '#f97316';
@@ -300,7 +303,6 @@
                     statusPredEl.style.opacity = '0.7';
                 } else {
                     statusPredEl.style.color = '#22c55e';
-                    statusPredEl.style.opacity = '1';
                 }
                 
                 // 알람 체크
