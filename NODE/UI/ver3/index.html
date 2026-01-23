@@ -636,6 +636,11 @@
                     <div class="stat-value" id="stat-over-30" style="color: var(--danger);">0</div>
                     <div id="cooldown-text-30" style="font-size: 9px; color: var(--text-secondary); margin-top: 4px;">더블클릭</div>
                 </div>
+                <div class="stat-card" id="spike-box" style="min-width: 120px;">
+                    <div class="stat-label">급증 컬럼</div>
+                    <div class="stat-value" id="spike-column" style="font-size: 12px; color: var(--warning);">-</div>
+                    <div id="spike-detail" style="font-size: 9px; color: var(--text-secondary); margin-top: 4px;">10분 대비</div>
+                </div>
             </div>
         </section>
         
@@ -889,6 +894,33 @@
         }
         setInterval(updateTime, 1000);
         updateTime();
+        
+        // 급증 컬럼 표시 함수
+        function updateSpikeColumn(spikeColumns) {
+            const spikeEl = document.getElementById('spike-column');
+            const spikeDetail = document.getElementById('spike-detail');
+            const spikeBox = document.getElementById('spike-box');
+            
+            if (!spikeColumns || spikeColumns.length === 0) {
+                spikeEl.textContent = '-';
+                spikeEl.style.color = 'var(--text-secondary)';
+                spikeDetail.textContent = '10분 대비';
+                spikeBox.style.borderColor = 'var(--border)';
+            } else {
+                // 가장 급증한 컬럼 표시
+                const top = spikeColumns[0];
+                spikeEl.textContent = top.column;
+                spikeEl.style.color = 'var(--warning)';
+                spikeDetail.textContent = `+${top.change} 증가중`;
+                spikeDetail.style.color = 'var(--danger)';
+                spikeBox.style.borderColor = 'var(--warning)';
+                
+                // 여러개면 추가 표시
+                if (spikeColumns.length > 1) {
+                    spikeDetail.textContent = `+${top.change} 외 ${spikeColumns.length - 1}개`;
+                }
+            }
+        }
 
         async function fetchData() {
             try {
@@ -924,6 +956,9 @@
                     }));
                     document.getElementById('stat-over-30').textContent = alertHistory30.length;
                 }
+                
+                // 급증 컬럼 표시
+                updateSpikeColumn(chartData.spike_columns);
                 
                 updateCooldownText();
                 updateChart();
@@ -1265,6 +1300,9 @@
                     }));
                     document.getElementById('stat-over-30').textContent = alertHistory30.length;
                 }
+                
+                // 급증 컬럼 표시
+                updateSpikeColumn(chartData.spike_columns);
                 
                 updateCooldownText();
                 updateChart();
