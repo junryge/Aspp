@@ -2173,10 +2173,22 @@
                     }
                 }
                 
-                // 급증 컬럼 HTML
+                // 급증 컬럼 HTML (D:위험, W:경고 구분)
                 let spikeHtml = '-';
                 if (row.SPIKE_INFO && row.SPIKE_INFO.length > 0) {
-                    spikeHtml = `<span style="color: var(--warning); font-size: 11px;">🔺 ${row.SPIKE_INFO}</span>`;
+                    const spikeParts = row.SPIKE_INFO.split(', ').map(part => {
+                        if (part.startsWith('D:')) {
+                            // Danger (빨간색)
+                            return `<span style="color: var(--danger); font-size: 11px;">🔺 ${part.slice(2)}</span>`;
+                        } else if (part.startsWith('W:')) {
+                            // Warning (노란색)
+                            return `<span style="color: var(--warning); font-size: 11px;">🔺 ${part.slice(2)}</span>`;
+                        } else {
+                            // 기존 형식 (노란색)
+                            return `<span style="color: var(--warning); font-size: 11px;">🔺 ${part}</span>`;
+                        }
+                    });
+                    spikeHtml = spikeParts.join(', ');
                 }
                 
                 html += `
