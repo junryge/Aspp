@@ -89,6 +89,35 @@ def get_data():
     alert_10, alert_30 = data_manager.get_alerts()
     alarm_state = data_manager.get_alarm_state()
     
+    # 급증 컬럼 계산 (최근 10분 대비)
+    spike_columns = []
+    SPIKE_THRESHOLD = 50  # 50 이상 증가 시 급증으로 판단
+    ANALYSIS_COLS = ['M14AM10A', 'M10AM14A', 'M14AM10ASUM', 
+                     'M14AM14B', 'M14BM14A', 'M14AM14BSUM',
+                     'M14AM16', 'M16M14A', 'M14AM16SUM']
+    
+    if len(df) >= 11:  # 최소 11개 데이터 필요 (현재 + 10분전)
+        current_row = df.iloc[-1]
+        prev_row = df.iloc[-11]  # 10분 전
+        
+        for col in ANALYSIS_COLS:
+            if col in df.columns:
+                curr_val = current_row.get(col, 0)
+                prev_val = prev_row.get(col, 0)
+                
+                if pd.notna(curr_val) and pd.notna(prev_val):
+                    change = float(curr_val) - float(prev_val)
+                    if change >= SPIKE_THRESHOLD:
+                        spike_columns.append({
+                            'column': col,
+                            'change': int(change),
+                            'current': int(curr_val),
+                            'previous': int(prev_val)
+                        })
+        
+        # 변화량 기준 정렬
+        spike_columns.sort(key=lambda x: x['change'], reverse=True)
+    
     return jsonify({
         'x': times,
         'x_full': times_full,
@@ -103,7 +132,8 @@ def get_data():
         'total': len(df),
         'alert_10': alert_10,
         'alert_30': alert_30,
-        'alarm_state': alarm_state
+        'alarm_state': alarm_state,
+        'spike_columns': spike_columns
     })
 
 
