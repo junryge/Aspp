@@ -2213,12 +2213,19 @@
                 // 상태 예상 HTML
                 let statusPredHtml = row.STATUS_PREDICTION || '양호예상';
                 let statusColor = 'var(--success)';
+                let statusOpacity = '1';
                 if (statusPredHtml === '병목예상') {
                     statusColor = 'var(--danger)';
                 } else if (statusPredHtml === '위험예상') {
                     statusColor = '#f97316';
                 } else if (statusPredHtml === '관찰') {
                     statusColor = 'var(--warning)';
+                } else if (statusPredHtml.includes('병목 쿨타임')) {
+                    statusColor = '#ef4444';
+                    statusOpacity = '0.7';
+                } else if (statusPredHtml.includes('위험 쿨타임')) {
+                    statusColor = '#f97316';
+                    statusOpacity = '0.7';
                 }
                 
                 html += `
@@ -2236,7 +2243,7 @@
                         <td>${progAlarmHtml || '-'}</td>
                         <td>${logAlarmHtml}</td>
                         <td>${spikeHtml}</td>
-                        <td style="color: ${statusColor}; font-weight: 600;">${statusPredHtml}</td>
+                        <td style="color: ${statusColor}; font-weight: 600; opacity: ${statusOpacity};">${statusPredHtml}</td>
                     </tr>
                 `;
             });
