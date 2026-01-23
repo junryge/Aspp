@@ -135,6 +135,20 @@ def get_data():
         # 변화량 기준 정렬
         spike_columns.sort(key=lambda x: x['change'], reverse=True)
     
+    # 상태 예상 계산 (30분 예측값 기준)
+    warning_count = len([s for s in spike_columns if s.get('level') == 'warning'])
+    danger_count = len([s for s in spike_columns if s.get('level') == 'danger'])
+    predict_30_val = predict_30_list[-1] if predict_30_list else 0
+    
+    if predict_30_val >= 1660 and danger_count >= 3:
+        status_prediction = '병목예상'
+    elif predict_30_val >= 1550 and danger_count >= 2:
+        status_prediction = '위험예상'
+    elif predict_30_val < 1550 and danger_count >= 2:
+        status_prediction = '관찰'
+    else:
+        status_prediction = '양호예상'
+    
     return jsonify({
         'x': times,
         'x_full': times_full,
@@ -150,7 +164,10 @@ def get_data():
         'alert_10': alert_10,
         'alert_30': alert_30,
         'alarm_state': alarm_state,
-        'spike_columns': spike_columns
+        'spike_columns': spike_columns,
+        'status_prediction': status_prediction,
+        'warning_count': warning_count,
+        'danger_count': danger_count
     })
 
 
@@ -273,11 +290,15 @@ def get_history():
                          'M14B.QUE.SENDFAB.VERTICALQUEUECOUNT']
         
         spike_info_list = []
+        status_prediction_list = []
         # 컬럼별 임계값 설정 (warning, danger)
         THRESHOLD_60_COLS = ['M14.QUE.ALL.CURRENTQCREATED', 'M14.QUE.ALL.CURRENTQCOMPLETED']
         
         for idx in range(len(df_merged)):
             spike_cols = []
+            warning_count = 0
+            danger_count = 0
+            
             if idx >= 10:  # 10분 전 데이터가 있어야 비교 가능
                 current_row = df_merged.iloc[idx]
                 prev_row = df_merged.iloc[idx - 10]
@@ -297,12 +318,35 @@ def get_history():
                                 warn_threshold, danger_threshold = 50, 60
                             
                             if change >= warn_threshold:
-                                level = 'D' if change >= danger_threshold else 'W'
+                                if change >= danger_threshold:
+                                    level = 'D'
+                                    danger_count += 1
+                                else:
+                                    level = 'W'
+                                    warning_count += 1
                                 spike_cols.append(f"{level}:{col} +{int(change)}")
             
             spike_info_list.append(', '.join(spike_cols) if spike_cols else '')
+            
+            # 상태 예상 계산 (30분 예측값 기준)
+            predict_30 = df_merged.iloc[idx].get('PREDICT_30', 0)
+            if pd.isna(predict_30):
+                predict_30 = 0
+            predict_30 = float(predict_30)
+            
+            if predict_30 >= 1660 and danger_count >= 3:
+                status_pred = '병목예상'
+            elif predict_30 >= 1550 and danger_count >= 2:
+                status_pred = '위험예상'
+            elif predict_30 < 1550 and danger_count >= 2:
+                status_pred = '관찰'
+            else:
+                status_pred = '양호예상'
+            
+            status_prediction_list.append(status_pred)
         
         df_merged['SPIKE_INFO'] = spike_info_list
+        df_merged['STATUS_PREDICTION'] = status_prediction_list
         
         # 결과 반환
         return jsonify({
