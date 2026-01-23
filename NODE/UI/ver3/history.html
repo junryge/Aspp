@@ -2129,6 +2129,7 @@
                             <th style="width: 150px;">30분후 예측</th>
                             <th>프로그램알람</th>
                             <th>로그프레소알람</th>
+                            <th>10분 급증컬럼</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -2172,6 +2173,12 @@
                     }
                 }
                 
+                // 급증 컬럼 HTML
+                let spikeHtml = '-';
+                if (row.SPIKE_INFO && row.SPIKE_INFO.length > 0) {
+                    spikeHtml = `<span style="color: var(--warning); font-size: 11px;">🔺 ${row.SPIKE_INFO}</span>`;
+                }
+                
                 html += `
                     <tr ondblclick="openDetailModal('${currtime}')" title="더블클릭하여 상세 분석">
                         <td style="font-weight: 600; color: #3b82f6;">${timeDisplay}</td>
@@ -2186,6 +2193,7 @@
                         </td>
                         <td>${progAlarmHtml || '-'}</td>
                         <td>${logAlarmHtml}</td>
+                        <td>${spikeHtml}</td>
                     </tr>
                 `;
             });
