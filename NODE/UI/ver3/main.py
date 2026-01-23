@@ -135,19 +135,75 @@ def get_data():
         # 변화량 기준 정렬
         spike_columns.sort(key=lambda x: x['change'], reverse=True)
     
-    # 상태 예상 계산 (30분 예측값 기준)
+    # 상태 예상 계산 (30분 예측값 기준) + 쿨타임 로직
     warning_count = len([s for s in spike_columns if s.get('level') == 'warning'])
     danger_count = len([s for s in spike_columns if s.get('level') == 'danger'])
     predict_30_val = predict_30_list[-1] if predict_30_list else 0
     
-    if predict_30_val >= 1660 and danger_count >= 3:
-        status_prediction = '병목예상'
+    # 현재 상태 판단
+    if predict_30_val >= 1650 and danger_count >= 3:
+        current_status = '병목예상'
     elif predict_30_val >= 1550 and danger_count >= 2:
-        status_prediction = '위험예상'
+        current_status = '위험예상'
     elif predict_30_val < 1550 and danger_count >= 2:
-        status_prediction = '관찰'
+        current_status = '관찰'
     else:
-        status_prediction = '양호예상'
+        current_status = '양호예상'
+    
+    # 쿨타임 상태 관리 (파일 기반)
+    import os
+    from datetime import datetime, timedelta
+    
+    status_cooldown_file = os.path.join(data_manager.data_dir, 'm14_status_cooldown.csv')
+    last_danger_time = None
+    last_bottleneck_time = None
+    
+    # 기존 쿨타임 상태 로드
+    if os.path.exists(status_cooldown_file):
+        try:
+            df_cooldown = pd.read_csv(status_cooldown_file)
+            if len(df_cooldown) > 0:
+                row = df_cooldown.iloc[0]
+                if pd.notna(row.get('last_danger_time')) and row.get('last_danger_time'):
+                    last_danger_time = datetime.strptime(str(row['last_danger_time']), '%Y%m%d%H%M')
+                if pd.notna(row.get('last_bottleneck_time')) and row.get('last_bottleneck_time'):
+                    last_bottleneck_time = datetime.strptime(str(row['last_bottleneck_time']), '%Y%m%d%H%M')
+        except:
+            pass
+    
+    # 현재 시간
+    now = datetime.now()
+    
+    # 새로운 위험/병목 발생 시 쿨타임 갱신
+    if current_status == '병목예상':
+        last_bottleneck_time = now
+    elif current_status == '위험예상':
+        last_danger_time = now
+    
+    # 쿨타임 상태 저장
+    cooldown_data = {
+        'last_danger_time': [last_danger_time.strftime('%Y%m%d%H%M') if last_danger_time else ''],
+        'last_bottleneck_time': [last_bottleneck_time.strftime('%Y%m%d%H%M') if last_bottleneck_time else '']
+    }
+    pd.DataFrame(cooldown_data).to_csv(status_cooldown_file, index=False)
+    
+    # 최종 상태 결정 (쿨타임 포함)
+    status_prediction = current_status
+    cooldown_mins = 0
+    
+    if current_status in ['양호예상', '관찰']:
+        # 병목 쿨타임 확인 (30분)
+        if last_bottleneck_time:
+            elapsed = (now - last_bottleneck_time).total_seconds() / 60
+            if elapsed < 30:
+                cooldown_mins = int(30 - elapsed)
+                status_prediction = f'병목 쿨타임 {cooldown_mins}분'
+        # 위험 쿨타임 확인 (30분) - 병목 쿨타임이 없을 때만
+        if '쿨타임' not in status_prediction and last_danger_time:
+            elapsed = (now - last_danger_time).total_seconds() / 60
+            if elapsed < 30:
+                cooldown_mins = int(30 - elapsed)
+                status_prediction = f'위험 쿨타임 {cooldown_mins}분'
     
     return jsonify({
         'x': times,
@@ -294,6 +350,20 @@ def get_history():
         # 컬럼별 임계값 설정 (warning, danger)
         THRESHOLD_60_COLS = ['M14.QUE.ALL.CURRENTQCREATED', 'M14.QUE.ALL.CURRENTQCOMPLETED']
         
+        # 쿨타임 추적용 변수
+        last_danger_time = None
+        last_bottleneck_time = None
+        
+        # CURRTIME을 datetime으로 변환하는 함수
+        def parse_currtime(ct):
+            try:
+                s = str(int(ct))
+                if len(s) >= 12:
+                    return datetime(int(s[0:4]), int(s[4:6]), int(s[6:8]), int(s[8:10]), int(s[10:12]))
+            except:
+                pass
+            return None
+        
         for idx in range(len(df_merged)):
             spike_cols = []
             warning_count = 0
@@ -328,20 +398,47 @@ def get_history():
             
             spike_info_list.append(', '.join(spike_cols) if spike_cols else '')
             
-            # 상태 예상 계산 (30분 예측값 기준)
+            # 상태 예상 계산 (30분 예측값 기준) + 쿨타임
             predict_30 = df_merged.iloc[idx].get('PREDICT_30', 0)
             if pd.isna(predict_30):
                 predict_30 = 0
             predict_30 = float(predict_30)
             
-            if predict_30 >= 1660 and danger_count >= 3:
-                status_pred = '병목예상'
+            # 현재 상태 판단
+            if predict_30 >= 1650 and danger_count >= 3:
+                current_status = '병목예상'
             elif predict_30 >= 1550 and danger_count >= 2:
-                status_pred = '위험예상'
+                current_status = '위험예상'
             elif predict_30 < 1550 and danger_count >= 2:
-                status_pred = '관찰'
+                current_status = '관찰'
             else:
-                status_pred = '양호예상'
+                current_status = '양호예상'
+            
+            # 현재 시간 파싱
+            curr_time = parse_currtime(df_merged.iloc[idx].get('CURRTIME', 0))
+            
+            # 새로운 위험/병목 발생 시 쿨타임 갱신
+            if current_status == '병목예상' and curr_time:
+                last_bottleneck_time = curr_time
+            elif current_status == '위험예상' and curr_time:
+                last_danger_time = curr_time
+            
+            # 최종 상태 결정 (쿨타임 포함)
+            status_pred = current_status
+            
+            if current_status in ['양호예상', '관찰'] and curr_time:
+                # 병목 쿨타임 확인 (30분)
+                if last_bottleneck_time:
+                    elapsed = (curr_time - last_bottleneck_time).total_seconds() / 60
+                    if elapsed < 30 and elapsed > 0:
+                        cooldown_mins = int(30 - elapsed)
+                        status_pred = f'병목 쿨타임 {cooldown_mins}분'
+                # 위험 쿨타임 확인 (30분) - 병목 쿨타임이 없을 때만
+                if '쿨타임' not in status_pred and last_danger_time:
+                    elapsed = (curr_time - last_danger_time).total_seconds() / 60
+                    if elapsed < 30 and elapsed > 0:
+                        cooldown_mins = int(30 - elapsed)
+                        status_pred = f'위험 쿨타임 {cooldown_mins}분'
             
             status_prediction_list.append(status_pred)
         
