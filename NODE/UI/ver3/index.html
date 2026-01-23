@@ -956,9 +956,18 @@
             } else if (statusPrediction === '관찰') {
                 statusEl.style.color = 'var(--warning)';
                 detailEl.style.color = 'var(--warning)';
+            } else if (statusPrediction && statusPrediction.includes('병목 쿨타임')) {
+                statusEl.style.color = '#ef4444';  // 빨간색 (연하게)
+                detailEl.style.color = '#ef4444';
+                statusEl.style.opacity = '0.7';
+            } else if (statusPrediction && statusPrediction.includes('위험 쿨타임')) {
+                statusEl.style.color = '#f97316';  // 주황색 (연하게)
+                detailEl.style.color = '#f97316';
+                statusEl.style.opacity = '0.7';
             } else {
                 statusEl.style.color = 'var(--success)';
                 detailEl.style.color = 'var(--text-secondary)';
+                statusEl.style.opacity = '1';
             }
         }
 
