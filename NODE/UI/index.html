@@ -948,7 +948,7 @@
             statusEl.style.opacity = '1';
             
             // 상태별 색상
-            if (statusPrediction === '병목') {
+            if (statusPrediction && statusPrediction.startsWith('병목(1700예측')) {
                 statusEl.style.color = '#7c3aed';  // 진한 보라색
                 detailEl.style.color = '#7c3aed';
             } else if (statusPrediction === '병목예상') {
