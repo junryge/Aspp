@@ -94,7 +94,12 @@ def get_data():
     SPIKE_THRESHOLD = 50  # 50 이상 증가 시 급증으로 판단
     ANALYSIS_COLS = ['M14AM10A', 'M10AM14A', 'M14AM10ASUM', 
                      'M14AM14B', 'M14BM14A', 'M14AM14BSUM',
-                     'M14AM16', 'M16M14A', 'M14AM16SUM']
+                     'M14AM16', 'M16M14A', 'M14AM16SUM',
+                     'M14.QUE.ALL.CURRENTQCREATED',
+                     'M14.QUE.ALL.CURRENTQCOMPLETED',
+                     'M14.QUE.OHT.OHTUTIL',
+                     'M14.QUE.ALL.TRANSPORT4MINOVERCNT',
+                     'M14B.QUE.SENDFAB.VERTICALQUEUECOUNT']
     
     if len(df) >= 11:  # 최소 11개 데이터 필요 (현재 + 10분전)
         current_row = df.iloc[-1]
@@ -248,7 +253,12 @@ def get_history():
         SPIKE_THRESHOLD = 50
         ANALYSIS_COLS = ['M14AM10A', 'M10AM14A', 'M14AM10ASUM', 
                          'M14AM14B', 'M14BM14A', 'M14AM14BSUM',
-                         'M14AM16', 'M16M14A', 'M14AM16SUM']
+                         'M14AM16', 'M16M14A', 'M14AM16SUM',
+                         'M14.QUE.ALL.CURRENTQCREATED',
+                         'M14.QUE.ALL.CURRENTQCOMPLETED',
+                         'M14.QUE.OHT.OHTUTIL',
+                         'M14.QUE.ALL.TRANSPORT4MINOVERCNT',
+                         'M14B.QUE.SENDFAB.VERTICALQUEUECOUNT']
         
         spike_info_list = []
         for idx in range(len(df_merged)):
