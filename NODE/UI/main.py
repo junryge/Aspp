@@ -89,6 +89,135 @@ def get_data():
     alert_10, alert_30 = data_manager.get_alerts()
     alarm_state = data_manager.get_alarm_state()
     
+    # 급증 컬럼 계산 (최근 10분 대비)
+    spike_columns = []
+    SPIKE_THRESHOLD = 50  # 50 이상 증가 시 급증으로 판단
+    ANALYSIS_COLS = ['M14AM10A', 'M10AM14A', 'M14AM10ASUM', 
+                     'M14AM14B', 'M14BM14A', 'M14AM14BSUM',
+                     'M14AM16', 'M16M14A', 'M14AM16SUM',
+                     'M14.QUE.ALL.CURRENTQCREATED',
+                     'M14.QUE.ALL.CURRENTQCOMPLETED',
+                     'M14.QUE.OHT.OHTUTIL',
+                     'M14.QUE.ALL.TRANSPORT4MINOVERCNT',
+                     'M14B.QUE.SENDFAB.VERTICALQUEUECOUNT']
+    
+    if len(df) >= 11:  # 최소 11개 데이터 필요 (현재 + 10분전)
+        current_row = df.iloc[-1]
+        prev_row = df.iloc[-11]  # 10분 전
+        
+        # 컬럼별 임계값 설정 (warning, danger)
+        THRESHOLD_60_COLS = ['M14.QUE.ALL.CURRENTQCREATED', 'M14.QUE.ALL.CURRENTQCOMPLETED']
+        
+        for col in ANALYSIS_COLS:
+            if col in df.columns:
+                curr_val = current_row.get(col, 0)
+                prev_val = prev_row.get(col, 0)
+                
+                if pd.notna(curr_val) and pd.notna(prev_val):
+                    change = float(curr_val) - float(prev_val)
+                    
+                    # 컬럼별 임계값
+                    if col in THRESHOLD_60_COLS:
+                        warn_threshold, danger_threshold = 60, 70
+                    else:
+                        warn_threshold, danger_threshold = 50, 60
+                    
+                    if change >= warn_threshold:
+                        level = 'danger' if change >= danger_threshold else 'warning'
+                        spike_columns.append({
+                            'column': col,
+                            'change': int(change),
+                            'current': int(curr_val),
+                            'previous': int(prev_val),
+                            'level': level
+                        })
+        
+        # 변화량 기준 정렬
+        spike_columns.sort(key=lambda x: x['change'], reverse=True)
+    
+    # 상태 예상 계산 (급증 컬럼 기준) + 쿨타임 로직
+    warning_count = len([s for s in spike_columns if s.get('level') == 'warning'])
+    danger_count = len([s for s in spike_columns if s.get('level') == 'danger'])
+    predict_10_val = predict_10_list[-1] if predict_10_list else 0
+    predict_30_val = predict_30_list[-1] if predict_30_list else 0
+    
+    # 현재 상태 판단 (TOTALCNT + 급증 컬럼 기준)
+    if current_val >= 1650 and danger_count >= 3:
+        current_status = '병목예상'
+    elif current_val >= 1550 and danger_count >= 2:
+        current_status = '위험예상'
+    elif current_val < 1550 and danger_count >= 2:
+        current_status = '관찰'
+    else:
+        current_status = '양호예상'
+    
+    # 양호예상일 때 예측값 추가 체크 (쿨타임 없음)
+    predict_based_status = None
+    if current_status == '양호예상':
+        max_predict = max(predict_10_val, predict_30_val)
+        if max_predict >= 1700:
+            predict_based_status = '병목'
+        elif max_predict >= 1650:
+            predict_based_status = '병목예상'
+    
+    # 쿨타임 상태 관리 (파일 기반)
+    import os
+    from datetime import datetime, timedelta
+    
+    status_cooldown_file = os.path.join(data_manager.data_dir, 'm14_status_cooldown.csv')
+    last_danger_time = None
+    last_bottleneck_time = None
+    
+    # 기존 쿨타임 상태 로드
+    if os.path.exists(status_cooldown_file):
+        try:
+            df_cooldown = pd.read_csv(status_cooldown_file)
+            if len(df_cooldown) > 0:
+                row = df_cooldown.iloc[0]
+                if pd.notna(row.get('last_danger_time')) and row.get('last_danger_time'):
+                    last_danger_time = datetime.strptime(str(row['last_danger_time']), '%Y%m%d%H%M')
+                if pd.notna(row.get('last_bottleneck_time')) and row.get('last_bottleneck_time'):
+                    last_bottleneck_time = datetime.strptime(str(row['last_bottleneck_time']), '%Y%m%d%H%M')
+        except:
+            pass
+    
+    # 현재 시간
+    now = datetime.now()
+    
+    # 쿨타임 갱신 (급증 컬럼 기준 상태만, 예측 기반은 쿨타임 없음)
+    if current_status == '병목예상':
+        last_bottleneck_time = now
+    elif current_status == '위험예상':
+        last_danger_time = now
+    
+    # 쿨타임 상태 저장
+    cooldown_data = {
+        'last_danger_time': [last_danger_time.strftime('%Y%m%d%H%M') if last_danger_time else ''],
+        'last_bottleneck_time': [last_bottleneck_time.strftime('%Y%m%d%H%M') if last_bottleneck_time else '']
+    }
+    pd.DataFrame(cooldown_data).to_csv(status_cooldown_file, index=False)
+    
+    # 최종 상태 결정
+    status_prediction = current_status
+    
+    # 예측 기반 상태가 있으면 우선 (쿨타임 없음)
+    if predict_based_status:
+        status_prediction = predict_based_status
+    elif current_status in ['양호예상', '관찰']:
+        # 쿨타임 확인
+        # 병목 쿨타임 확인 (30분)
+        if last_bottleneck_time:
+            elapsed = (now - last_bottleneck_time).total_seconds() / 60
+            if elapsed < 30:
+                cooldown_mins = int(30 - elapsed)
+                status_prediction = f'병목 쿨타임 {cooldown_mins}분'
+        # 위험 쿨타임 확인 (30분) - 병목 쿨타임이 없을 때만
+        if '쿨타임' not in status_prediction and last_danger_time:
+            elapsed = (now - last_danger_time).total_seconds() / 60
+            if elapsed < 30:
+                cooldown_mins = int(30 - elapsed)
+                status_prediction = f'위험 쿨타임 {cooldown_mins}분'
+    
     return jsonify({
         'x': times,
         'x_full': times_full,
@@ -103,7 +232,11 @@ def get_data():
         'total': len(df),
         'alert_10': alert_10,
         'alert_30': alert_30,
-        'alarm_state': alarm_state
+        'alarm_state': alarm_state,
+        'spike_columns': spike_columns,
+        'status_prediction': status_prediction,
+        'warning_count': warning_count,
+        'danger_count': danger_count
     })
 
 
@@ -168,26 +301,26 @@ def get_history():
         return jsonify({'error': f'{date_str[:4]}-{date_str[4:6]}-{date_str[6:8]} 데이터가 없습니다'})
     
     try:
-        # 예측 파일 먼저 확인 (TOTALCNT 포함된 경우)
+        # 항상 data 파일 로드 (분석 컬럼 포함)
+        df_data = pd.read_csv(data_file)
+        
+        # 예측 파일이 있으면 merge
         if os.path.exists(pred_file):
             df_pred = pd.read_csv(pred_file)
             
-            # pred 파일에 TOTALCNT 있으면 바로 사용
-            if 'TOTALCNT' in df_pred.columns and 'CURRTIME' in df_pred.columns:
-                df_merged = df_pred
+            if 'CURRTIME' in df_pred.columns:
+                # 예측 컬럼만 merge
+                pred_cols = ['CURRTIME', 'PREDICT_10', 'PREDICT_30', 'PRED_TIME_10', 'PRED_TIME_30']
+                pred_cols_exist = [c for c in pred_cols if c in df_pred.columns]
+                df_merged = pd.merge(df_data, df_pred[pred_cols_exist], on='CURRTIME', how='left')
             else:
-                # 없으면 data 파일과 merge
-                df_data = pd.read_csv(data_file)
-                if 'CURRTIME' in df_pred.columns:
-                    df_merged = pd.merge(df_data, df_pred, on='CURRTIME', how='left')
-                else:
-                    for col in ['PREDICT_10', 'PREDICT_30', 'PRED_TIME_10', 'PRED_TIME_30']:
-                        if col in df_pred.columns:
-                            df_data[col] = df_pred[col].values[:len(df_data)]
-                    df_merged = df_data
+                # CURRTIME 없으면 직접 복사
+                for col in ['PREDICT_10', 'PREDICT_30', 'PRED_TIME_10', 'PRED_TIME_30']:
+                    if col in df_pred.columns:
+                        df_data[col] = df_pred[col].values[:len(df_data)]
+                df_merged = df_data
         else:
-            # pred 파일 없으면 data만
-            df_merged = pd.read_csv(data_file)
+            df_merged = df_data
         
         # NaN 처리
         df_merged = df_merged.fillna(0)
@@ -213,6 +346,117 @@ def get_history():
                     alerts_10.append(alert_item)
                 elif row.get('TYPE') == '30':
                     alerts_30.append(alert_item)
+        
+        # 10분 대비 급증 컬럼 계산 (+50 이상)
+        SPIKE_THRESHOLD = 50
+        ANALYSIS_COLS = ['M14AM10A', 'M10AM14A', 'M14AM10ASUM', 
+                         'M14AM14B', 'M14BM14A', 'M14AM14BSUM',
+                         'M14AM16', 'M16M14A', 'M14AM16SUM',
+                         'M14.QUE.ALL.CURRENTQCREATED',
+                         'M14.QUE.ALL.CURRENTQCOMPLETED',
+                         'M14.QUE.OHT.OHTUTIL',
+                         'M14.QUE.ALL.TRANSPORT4MINOVERCNT',
+                         'M14B.QUE.SENDFAB.VERTICALQUEUECOUNT']
+        
+        spike_info_list = []
+        status_prediction_list = []
+        # 컬럼별 임계값 설정 (warning, danger)
+        THRESHOLD_60_COLS = ['M14.QUE.ALL.CURRENTQCREATED', 'M14.QUE.ALL.CURRENTQCOMPLETED']
+        
+        # 쿨타임 추적용 변수
+        last_danger_time = None
+        last_bottleneck_time = None
+        
+        # CURRTIME을 datetime으로 변환하는 함수
+        def parse_currtime(ct):
+            try:
+                s = str(int(ct))
+                if len(s) >= 12:
+                    return datetime(int(s[0:4]), int(s[4:6]), int(s[6:8]), int(s[8:10]), int(s[10:12]))
+            except:
+                pass
+            return None
+        
+        for idx in range(len(df_merged)):
+            spike_cols = []
+            warning_count = 0
+            danger_count = 0
+            
+            if idx >= 10:  # 10분 전 데이터가 있어야 비교 가능
+                current_row = df_merged.iloc[idx]
+                prev_row = df_merged.iloc[idx - 10]
+                
+                for col in ANALYSIS_COLS:
+                    if col in df_merged.columns:
+                        curr_val = current_row.get(col, 0)
+                        prev_val = prev_row.get(col, 0)
+                        
+                        if pd.notna(curr_val) and pd.notna(prev_val):
+                            change = float(curr_val) - float(prev_val)
+                            
+                            # 컬럼별 임계값
+                            if col in THRESHOLD_60_COLS:
+                                warn_threshold, danger_threshold = 60, 70
+                            else:
+                                warn_threshold, danger_threshold = 50, 60
+                            
+                            if change >= warn_threshold:
+                                if change >= danger_threshold:
+                                    level = 'D'
+                                    danger_count += 1
+                                else:
+                                    level = 'W'
+                                    warning_count += 1
+                                spike_cols.append(f"{level}:{col} +{int(change)}")
+            
+            spike_info_list.append(', '.join(spike_cols) if spike_cols else '')
+            
+            # 상태 예상 계산 (30분 예측값 기준) + 쿨타임
+            predict_30 = df_merged.iloc[idx].get('PREDICT_30', 0)
+            if pd.isna(predict_30):
+                predict_30 = 0
+            predict_30 = float(predict_30)
+            
+            # 현재 상태 판단
+            if predict_30 >= 1650 and danger_count >= 3:
+                current_status = '병목예상'
+            elif predict_30 >= 1550 and danger_count >= 2:
+                current_status = '위험예상'
+            elif predict_30 < 1550 and danger_count >= 2:
+                current_status = '관찰'
+            else:
+                current_status = '양호예상'
+            
+            # 현재 시간 파싱
+            curr_time = parse_currtime(df_merged.iloc[idx].get('CURRTIME', 0))
+            
+            # 새로운 위험/병목 발생 시 쿨타임 갱신
+            if current_status == '병목예상' and curr_time:
+                last_bottleneck_time = curr_time
+            elif current_status == '위험예상' and curr_time:
+                last_danger_time = curr_time
+            
+            # 최종 상태 결정 (쿨타임 포함)
+            status_pred = current_status
+            
+            if current_status in ['양호예상', '관찰'] and curr_time:
+                # 병목 쿨타임 확인 (30분)
+                if last_bottleneck_time:
+                    elapsed = (curr_time - last_bottleneck_time).total_seconds() / 60
+                    if elapsed < 30 and elapsed > 0:
+                        cooldown_mins = int(30 - elapsed)
+                        status_pred = f'병목 쿨타임 {cooldown_mins}분'
+                # 위험 쿨타임 확인 (30분) - 병목 쿨타임이 없을 때만
+                if '쿨타임' not in status_pred and last_danger_time:
+                    elapsed = (curr_time - last_danger_time).total_seconds() / 60
+                    if elapsed < 30 and elapsed > 0:
+                        cooldown_mins = int(30 - elapsed)
+                        status_pred = f'위험 쿨타임 {cooldown_mins}분'
+            
+            status_prediction_list.append(status_pred)
+        
+        df_merged['SPIKE_INFO'] = spike_info_list
+        df_merged['STATUS_PREDICTION'] = status_prediction_list
         
         # 결과 반환
         return jsonify({
