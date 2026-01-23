@@ -154,10 +154,13 @@ def get_data():
     # 양호예상일 때 예측값 추가 체크 (쿨타임 없음)
     predict_based_status = None
     if current_status == '양호예상':
-        max_predict = max(predict_10_val, predict_30_val)
-        if max_predict >= 1700:
-            predict_based_status = '병목'
-        elif max_predict >= 1650:
+        if predict_10_val >= 1700 and predict_30_val >= 1700:
+            predict_based_status = '병목(1700예측-10분,30분)'
+        elif predict_10_val >= 1700:
+            predict_based_status = '병목(1700예측-10분)'
+        elif predict_30_val >= 1700:
+            predict_based_status = '병목(1700예측-30분)'
+        elif predict_10_val >= 1650 or predict_30_val >= 1650:
             predict_based_status = '병목예상'
     
     # 쿨타임 상태 관리 (파일 기반)
