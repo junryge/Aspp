@@ -617,6 +617,11 @@
                 <div class="main-value normal" id="predict-30" style="font-size: 48px; color: var(--accent);">---</div>
                 <div class="predict-status" id="predict-30-status" style="font-size: 12px; color: var(--text-secondary); margin-top: 8px;">-</div>
             </div>
+            <div class="main-value-box" id="status-prediction-box">
+                <div class="main-label">상태 예상</div>
+                <div class="main-value normal" id="status-prediction" style="font-size: 28px; color: var(--success);">양호예상</div>
+                <div class="predict-status" id="status-prediction-detail" style="font-size: 11px; color: var(--text-secondary); margin-top: 8px;">경고 0 / 위험 0</div>
+            </div>
             <div class="stats-row">
                 <div class="stat-card">
                     <div class="stat-label">Limit</div>
@@ -635,6 +640,11 @@
                     <div class="stat-label">예측30분 1700+</div>
                     <div class="stat-value" id="stat-over-30" style="color: var(--danger);">0</div>
                     <div id="cooldown-text-30" style="font-size: 9px; color: var(--text-secondary); margin-top: 4px;">더블클릭</div>
+                </div>
+                <div class="stat-card" id="spike-box" style="min-width: 120px;">
+                    <div class="stat-label">급증 컬럼</div>
+                    <div class="stat-value" id="spike-column" style="font-size: 12px; color: var(--warning);">-</div>
+                    <div id="spike-detail" style="font-size: 9px; color: var(--text-secondary); margin-top: 4px;">10분 대비</div>
                 </div>
             </div>
         </section>
@@ -889,6 +899,80 @@
         }
         setInterval(updateTime, 1000);
         updateTime();
+        
+        // 급증 컬럼 표시 함수
+        function updateSpikeColumn(spikeColumns) {
+            const spikeEl = document.getElementById('spike-column');
+            const spikeDetail = document.getElementById('spike-detail');
+            const spikeBox = document.getElementById('spike-box');
+            
+            if (!spikeColumns || spikeColumns.length === 0) {
+                spikeEl.textContent = '-';
+                spikeEl.style.color = 'var(--text-secondary)';
+                spikeDetail.textContent = '10분 대비';
+                spikeDetail.style.color = 'var(--text-secondary)';
+                spikeBox.style.borderColor = 'var(--border)';
+            } else {
+                // 가장 급증한 컬럼 표시
+                const top = spikeColumns[0];
+                const isDanger = top.level === 'danger';
+                const color = isDanger ? 'var(--danger)' : 'var(--warning)';
+                const icon = isDanger ? '🔺' : '🔺';
+                
+                spikeEl.innerHTML = `<span style="color:${color}">${icon} ${top.column}</span>`;
+                spikeDetail.textContent = `+${top.change} 증가중`;
+                spikeDetail.style.color = color;
+                spikeBox.style.borderColor = color;
+                
+                // 여러개면 추가 표시
+                if (spikeColumns.length > 1) {
+                    // danger 개수 확인
+                    const dangerCount = spikeColumns.filter(s => s.level === 'danger').length;
+                    if (dangerCount > 0) {
+                        spikeDetail.innerHTML = `+${top.change} 외 <span style="color:var(--danger)">${dangerCount}개 위험</span>`;
+                    } else {
+                        spikeDetail.textContent = `+${top.change} 외 ${spikeColumns.length - 1}개`;
+                    }
+                }
+            }
+        }
+        
+        // 상태 예상 업데이트 함수
+        function updateStatusPrediction(statusPrediction, warningCount, dangerCount) {
+            const statusEl = document.getElementById('status-prediction');
+            const detailEl = document.getElementById('status-prediction-detail');
+            const boxEl = document.getElementById('status-prediction-box');
+            
+            statusEl.textContent = statusPrediction || '양호예상';
+            detailEl.textContent = `경고 ${warningCount || 0} / 위험 ${dangerCount || 0}`;
+            statusEl.style.opacity = '1';
+            
+            // 상태별 색상
+            if (statusPrediction === '병목') {
+                statusEl.style.color = '#7c3aed';  // 진한 보라색
+                detailEl.style.color = '#7c3aed';
+            } else if (statusPrediction === '병목예상') {
+                statusEl.style.color = 'var(--danger)';
+                detailEl.style.color = 'var(--danger)';
+            } else if (statusPrediction === '위험예상') {
+                statusEl.style.color = '#f97316';  // orange
+                detailEl.style.color = '#f97316';
+            } else if (statusPrediction === '관찰') {
+                statusEl.style.color = 'var(--warning)';
+                detailEl.style.color = 'var(--warning)';
+            } else if (statusPrediction && statusPrediction.includes('병목 쿨타임')) {
+                statusEl.style.color = '#ef4444';
+                detailEl.style.color = '#ef4444';
+                statusEl.style.opacity = '0.7';
+            } else if (statusPrediction && statusPrediction.includes('위험 쿨타임')) {
+                statusEl.style.color = '#f97316';
+                detailEl.style.color = '#f97316';
+                statusEl.style.opacity = '0.7';
+            } else {
+                statusEl.style.color = 'var(--success)';
+                detailEl.style.color = 'var(--text-secondary)';
+            }
+        }
 
         async function fetchData() {
             try {
@@ -924,6 +1008,12 @@
                     }));
                     document.getElementById('stat-over-30').textContent = alertHistory30.length;
                 }
+                
+                // 급증 컬럼 표시
+                updateSpikeColumn(chartData.spike_columns);
+                
+                // 상태 예상 표시
+                updateStatusPrediction(chartData.status_prediction, chartData.warning_count, chartData.danger_count);
                 
                 updateCooldownText();
                 updateChart();
@@ -1265,6 +1355,12 @@
                     }));
                     document.getElementById('stat-over-30').textContent = alertHistory30.length;
                 }
+                
+                // 급증 컬럼 표시
+                updateSpikeColumn(chartData.spike_columns);
+                
+                // 상태 예상 표시
+                updateStatusPrediction(chartData.status_prediction, chartData.warning_count, chartData.danger_count);
                 
                 updateCooldownText();
                 updateChart();
