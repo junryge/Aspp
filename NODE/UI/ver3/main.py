@@ -135,20 +135,30 @@ def get_data():
         # 변화량 기준 정렬
         spike_columns.sort(key=lambda x: x['change'], reverse=True)
     
-    # 상태 예상 계산 (30분 예측값 기준) + 쿨타임 로직
+    # 상태 예상 계산 (급증 컬럼 기준) + 쿨타임 로직
     warning_count = len([s for s in spike_columns if s.get('level') == 'warning'])
     danger_count = len([s for s in spike_columns if s.get('level') == 'danger'])
+    predict_10_val = predict_10_list[-1] if predict_10_list else 0
     predict_30_val = predict_30_list[-1] if predict_30_list else 0
     
-    # 현재 상태 판단
-    if predict_30_val >= 1650 and danger_count >= 3:
+    # 현재 상태 판단 (TOTALCNT + 급증 컬럼 기준)
+    if current_val >= 1650 and danger_count >= 3:
         current_status = '병목예상'
-    elif predict_30_val >= 1550 and danger_count >= 2:
+    elif current_val >= 1550 and danger_count >= 2:
         current_status = '위험예상'
-    elif predict_30_val < 1550 and danger_count >= 2:
+    elif current_val < 1550 and danger_count >= 2:
         current_status = '관찰'
     else:
         current_status = '양호예상'
+    
+    # 양호예상일 때 예측값 추가 체크 (쿨타임 없음)
+    predict_based_status = None
+    if current_status == '양호예상':
+        max_predict = max(predict_10_val, predict_30_val)
+        if max_predict >= 1700:
+            predict_based_status = '병목'
+        elif max_predict >= 1650:
+            predict_based_status = '병목예상'
     
     # 쿨타임 상태 관리 (파일 기반)
     import os
@@ -174,7 +184,7 @@ def get_data():
     # 현재 시간
     now = datetime.now()
     
-    # 새로운 위험/병목 발생 시 쿨타임 갱신
+    # 쿨타임 갱신 (급증 컬럼 기준 상태만, 예측 기반은 쿨타임 없음)
     if current_status == '병목예상':
         last_bottleneck_time = now
     elif current_status == '위험예상':
@@ -187,11 +197,14 @@ def get_data():
     }
     pd.DataFrame(cooldown_data).to_csv(status_cooldown_file, index=False)
     
-    # 최종 상태 결정 (쿨타임 포함)
+    # 최종 상태 결정
     status_prediction = current_status
-    cooldown_mins = 0
     
-    if current_status in ['양호예상', '관찰']:
+    # 예측 기반 상태가 있으면 우선 (쿨타임 없음)
+    if predict_based_status:
+        status_prediction = predict_based_status
+    elif current_status in ['양호예상', '관찰']:
+        # 쿨타임 확인
         # 병목 쿨타임 확인 (30분)
         if last_bottleneck_time:
             elapsed = (now - last_bottleneck_time).total_seconds() / 60
