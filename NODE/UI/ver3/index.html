@@ -905,19 +905,29 @@
                 spikeEl.textContent = '-';
                 spikeEl.style.color = 'var(--text-secondary)';
                 spikeDetail.textContent = '10분 대비';
+                spikeDetail.style.color = 'var(--text-secondary)';
                 spikeBox.style.borderColor = 'var(--border)';
             } else {
                 // 가장 급증한 컬럼 표시
                 const top = spikeColumns[0];
-                spikeEl.textContent = top.column;
-                spikeEl.style.color = 'var(--warning)';
+                const isDanger = top.level === 'danger';
+                const color = isDanger ? 'var(--danger)' : 'var(--warning)';
+                const icon = isDanger ? '🔺' : '🔺';
+                
+                spikeEl.innerHTML = `<span style="color:${color}">${icon} ${top.column}</span>`;
                 spikeDetail.textContent = `+${top.change} 증가중`;
-                spikeDetail.style.color = 'var(--danger)';
-                spikeBox.style.borderColor = 'var(--warning)';
+                spikeDetail.style.color = color;
+                spikeBox.style.borderColor = color;
                 
                 // 여러개면 추가 표시
                 if (spikeColumns.length > 1) {
-                    spikeDetail.textContent = `+${top.change} 외 ${spikeColumns.length - 1}개`;
+                    // danger 개수 확인
+                    const dangerCount = spikeColumns.filter(s => s.level === 'danger').length;
+                    if (dangerCount > 0) {
+                        spikeDetail.innerHTML = `+${top.change} 외 <span style="color:var(--danger)">${dangerCount}개 위험</span>`;
+                    } else {
+                        spikeDetail.textContent = `+${top.change} 외 ${spikeColumns.length - 1}개`;
+                    }
                 }
             }
         }
