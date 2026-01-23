@@ -2236,10 +2236,13 @@
                 // 양호예상일 때 예측값 추가 체크 (쿨타임 없음)
                 let predictBasedStatus = null;
                 if (currentStatus === '양호예상') {
-                    const maxPredict = Math.max(predict10, predict30);
-                    if (maxPredict >= 1700) {
-                        predictBasedStatus = '병목';
-                    } else if (maxPredict >= 1650) {
+                    if (predict10 >= 1700 && predict30 >= 1700) {
+                        predictBasedStatus = '병목(1700예측-10분,30분)';
+                    } else if (predict10 >= 1700) {
+                        predictBasedStatus = '병목(1700예측-10분)';
+                    } else if (predict30 >= 1700) {
+                        predictBasedStatus = '병목(1700예측-30분)';
+                    } else if (predict10 >= 1650 || predict30 >= 1650) {
                         predictBasedStatus = '병목예상';
                     }
                 }
@@ -2359,7 +2362,7 @@
                 let statusPredHtml = statusPredictions[idx] || '양호예상';
                 let statusColor = 'var(--success)';
                 let statusOpacity = '1';
-                if (statusPredHtml === '병목') {
+                if (statusPredHtml && statusPredHtml.startsWith('병목(1700예측')) {
                     statusColor = '#7c3aed';  // 진한 보라색
                 } else if (statusPredHtml === '병목예상') {
                     statusColor = 'var(--danger)';
