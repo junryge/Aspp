@@ -120,6 +120,27 @@
             0%, 100% { background: #ef4444; }
             50% { background: #dc2626; }
         }
+        .status-box {
+            background: #27272a;
+            border-radius: 6px;
+            padding: 6px 8px;
+            text-align: center;
+            margin-top: 6px;
+        }
+        .status-label {
+            font-size: 9px;
+            color: #71717a;
+            margin-bottom: 2px;
+        }
+        .status-value {
+            font-size: 12px;
+            font-weight: 600;
+        }
+        .status-detail {
+            font-size: 8px;
+            color: #52525b;
+            margin-top: 2px;
+        }
     </style>
 </head>
 <body onclick="window.open('/', '_blank')">
@@ -147,6 +168,12 @@
             <div class="pred-value" id="pred30-value">---</div>
             <div class="pred-time" id="pred30-time">--:--</div>
         </div>
+    </div>
+    
+    <div class="status-box">
+        <div class="status-label">상태 예상</div>
+        <div class="status-value" id="status-prediction" style="color: #22c55e;">양호예상</div>
+        <div class="status-detail" id="status-detail">경고 0 / 위험 0</div>
     </div>
     
     <div class="alarm-bar" id="alarm-bar">🚨 1700 초과!</div>
@@ -246,6 +273,34 @@
                         document.getElementById('pred30-time').textContent = 
                             `${String(Math.floor(t30/60)%24).padStart(2,'0')}:${String(t30%60).padStart(2,'0')}`;
                     }
+                }
+                
+                // 상태 예상 업데이트
+                const statusPredEl = document.getElementById('status-prediction');
+                const statusDetailEl = document.getElementById('status-detail');
+                const statusPred = data.status_prediction || '양호예상';
+                const warningCount = data.warning_count || 0;
+                const dangerCount = data.danger_count || 0;
+                
+                statusPredEl.textContent = statusPred;
+                statusDetailEl.textContent = `경고 ${warningCount} / 위험 ${dangerCount}`;
+                
+                // 상태별 색상
+                if (statusPred === '병목예상') {
+                    statusPredEl.style.color = '#ef4444';
+                } else if (statusPred === '위험예상') {
+                    statusPredEl.style.color = '#f97316';
+                } else if (statusPred === '관찰') {
+                    statusPredEl.style.color = '#eab308';
+                } else if (statusPred.includes('병목 쿨타임')) {
+                    statusPredEl.style.color = '#ef4444';
+                    statusPredEl.style.opacity = '0.7';
+                } else if (statusPred.includes('위험 쿨타임')) {
+                    statusPredEl.style.color = '#f97316';
+                    statusPredEl.style.opacity = '0.7';
+                } else {
+                    statusPredEl.style.color = '#22c55e';
+                    statusPredEl.style.opacity = '1';
                 }
                 
                 // 알람 체크
