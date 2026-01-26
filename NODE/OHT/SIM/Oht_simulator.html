@@ -1,0 +1,879 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SK Hynix M14 OHT 속도 분석 시뮬레이터</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+            color: #eee;
+            overflow: hidden;
+        }
+
+        #header {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            background: linear-gradient(90deg, #16213e 0%, #0f3460 100%);
+            padding: 12px 24px;
+            z-index: 1000;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.3);
+        }
+
+        #header h1 {
+            font-size: 20px;
+            color: #00d4ff;
+            text-shadow: 0 0 10px rgba(0,212,255,0.5);
+        }
+
+        #header .stats {
+            display: flex;
+            gap: 20px;
+            font-size: 12px;
+        }
+
+        #header .stat {
+            background: rgba(0,212,255,0.1);
+            padding: 4px 12px;
+            border-radius: 4px;
+            border: 1px solid rgba(0,212,255,0.3);
+        }
+
+        #header .stat span {
+            color: #00d4ff;
+            font-weight: bold;
+        }
+
+        #controls {
+            position: fixed;
+            top: 60px;
+            left: 10px;
+            background: rgba(22,33,62,0.98);
+            padding: 18px;
+            border-radius: 10px;
+            z-index: 1000;
+            font-size: 13px;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.4);
+            max-width: 320px;
+            border: 1px solid rgba(0,212,255,0.2);
+        }
+
+        #controls h3 {
+            color: #00d4ff;
+            margin-bottom: 12px;
+            font-size: 14px;
+            border-bottom: 1px solid rgba(0,212,255,0.3);
+            padding-bottom: 6px;
+        }
+
+        #controls label {
+            display: block;
+            margin: 8px 0;
+            color: #a0d2eb;
+            font-size: 12px;
+        }
+
+        #controls input[type="range"] {
+            width: 100%;
+            margin: 5px 0;
+        }
+
+        #controls input[type="checkbox"] {
+            margin-right: 6px;
+        }
+
+        #controls button {
+            margin: 6px 4px;
+            padding: 8px 14px;
+            background: linear-gradient(135deg, #0077b6 0%, #00b4d8 100%);
+            border: none;
+            color: white;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 12px;
+            transition: all 0.3s;
+            box-shadow: 0 2px 8px rgba(0,119,182,0.3);
+        }
+
+        #controls button:hover {
+            background: linear-gradient(135deg, #0096c7 0%, #00d4ff 100%);
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(0,119,182,0.5);
+        }
+
+        #controls input[type="file"] {
+            display: none;
+        }
+
+        .file-label {
+            display: inline-block;
+            margin: 6px 4px;
+            padding: 8px 14px;
+            background: linear-gradient(135deg, #6a4c93 0%, #8b5cf6 100%);
+            color: white;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 12px;
+            transition: all 0.3s;
+            box-shadow: 0 2px 8px rgba(106,76,147,0.3);
+        }
+
+        .file-label:hover {
+            background: linear-gradient(135deg, #7c5295 0%, #a78bfa 100%);
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(106,76,147,0.5);
+        }
+
+        #info {
+            position: fixed;
+            bottom: 10px;
+            left: 10px;
+            background: rgba(22,33,62,0.98);
+            padding: 15px;
+            border-radius: 10px;
+            z-index: 1000;
+            font-size: 12px;
+            max-width: 350px;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.4);
+            border: 1px solid rgba(0,212,255,0.2);
+        }
+
+        #info b {
+            color: #00d4ff;
+            font-size: 13px;
+        }
+
+        #info .info-row {
+            margin: 6px 0;
+            padding: 4px 0;
+            border-bottom: 1px solid rgba(255,255,255,0.1);
+        }
+
+        #info .info-row:last-child {
+            border-bottom: none;
+        }
+
+        #legend {
+            position: fixed;
+            top: 60px;
+            right: 10px;
+            background: rgba(22,33,62,0.98);
+            padding: 18px;
+            border-radius: 10px;
+            z-index: 1000;
+            font-size: 12px;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.4);
+            border: 1px solid rgba(0,212,255,0.2);
+        }
+
+        #legend h3 {
+            color: #00d4ff;
+            margin-bottom: 10px;
+            font-size: 14px;
+        }
+
+        .legend-item {
+            display: flex;
+            align-items: center;
+            margin: 8px 0;
+        }
+
+        .legend-color {
+            width: 30px;
+            height: 16px;
+            border-radius: 3px;
+            margin-right: 10px;
+            border: 1px solid rgba(255,255,255,0.2);
+        }
+
+        canvas {
+            display: block;
+        }
+
+        #dataStatus {
+            position: fixed;
+            top: 60px;
+            right: 10px;
+            background: rgba(22,33,62,0.98);
+            padding: 12px 18px;
+            border-radius: 8px;
+            z-index: 999;
+            font-size: 11px;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.4);
+            border: 1px solid rgba(0,212,255,0.2);
+        }
+
+        .status-ok {
+            color: #4ade80;
+        }
+
+        .status-error {
+            color: #f87171;
+        }
+
+        #simulationControls {
+            margin-top: 15px;
+            padding-top: 15px;
+            border-top: 1px solid rgba(0,212,255,0.3);
+        }
+
+        .speed-indicator {
+            display: inline-block;
+            padding: 2px 8px;
+            border-radius: 3px;
+            font-size: 11px;
+            font-weight: bold;
+        }
+
+        .speed-high {
+            background: rgba(34,197,94,0.3);
+            color: #4ade80;
+        }
+
+        .speed-medium {
+            background: rgba(250,204,21,0.3);
+            color: #facc15;
+        }
+
+        .speed-low {
+            background: rgba(239,68,68,0.3);
+            color: #f87171;
+        }
+
+        .speed-stopped {
+            background: rgba(148,163,184,0.3);
+            color: #94a3b8;
+        }
+    </style>
+</head>
+<body>
+    <div id="header">
+        <h1>🚀 SK Hynix M14 OHT 속도 분석 시뮬레이터</h1>
+        <div class="stats">
+            <div class="stat">Vehicles: <span id="vhlCount">0</span></div>
+            <div class="stat">RailEdges: <span id="edgeCount">0</span></div>
+            <div class="stat">Avg Speed: <span id="avgSpeed">0</span> m/min</div>
+            <div class="stat">Running: <span id="runningCount">0</span></div>
+        </div>
+    </div>
+
+    <div id="controls">
+        <h3>📊 시뮬레이션 제어</h3>
+        
+        <div id="simulationControls">
+            <label>
+                <input type="checkbox" id="autoPlay" checked> 자동 재생
+            </label>
+            <label>
+                재생 속도: <span id="speedValue">1.0x</span>
+                <input type="range" id="playSpeed" min="0.1" max="5" step="0.1" value="1.0">
+            </label>
+            <div>
+                <button onclick="toggleSimulation()">⏯️ 시작/정지</button>
+                <button onclick="stepForward()">⏭️ 한 스텝</button>
+                <button onclick="resetSimulation()">🔄 초기화</button>
+            </div>
+        </div>
+
+        <h3 style="margin-top: 15px; padding-top: 15px; border-top: 1px solid rgba(0,212,255,0.3);">🗺️ 뷰 제어</h3>
+        <label>
+            줌: <span id="zoomValue">100%</span>
+            <input type="range" id="zoom" min="10" max="500" value="100">
+        </label>
+        <div style="margin: 10px 0;">
+            <label><input type="checkbox" id="showRails" checked> RailEdge 표시</label>
+            <label><input type="checkbox" id="showVehicles" checked> Vehicle 표시</label>
+            <label><input type="checkbox" id="showLabels" checked> 라벨 표시</label>
+            <label><input type="checkbox" id="showSpeed"> 속도 표시</label>
+        </div>
+        <div>
+            <button onclick="fitView()">📐 화면 맞춤</button>
+            <button onclick="resetView()">🎯 뷰 초기화</button>
+        </div>
+
+        <h3 style="margin-top: 15px; padding-top: 15px; border-top: 1px solid rgba(0,212,255,0.3);">📁 데이터 로드</h3>
+        <input type="file" id="vehicleFileInput" accept=".csv">
+        <label for="vehicleFileInput" class="file-label">🚗 Vehicle CSV</label>
+        
+        <input type="file" id="railedgeFileInput" accept=".csv">
+        <label for="railedgeFileInput" class="file-label">🛤️ RailEdge CSV</label>
+        
+        <div style="margin-top: 10px;">
+            <button onclick="reloadData()">🔃 데이터 새로고침</button>
+        </div>
+    </div>
+
+    <div id="legend">
+        <h3>🎨 속도 범례</h3>
+        <div class="legend-item">
+            <div class="legend-color" style="background: #22c55e;"></div>
+            <span>고속 (250+ m/min)</span>
+        </div>
+        <div class="legend-item">
+            <div class="legend-color" style="background: #eab308;"></div>
+            <span>중속 (150-250 m/min)</span>
+        </div>
+        <div class="legend-item">
+            <div class="legend-color" style="background: #f97316;"></div>
+            <span>저속 (50-150 m/min)</span>
+        </div>
+        <div class="legend-item">
+            <div class="legend-color" style="background: #ef4444;"></div>
+            <span>매우 느림 (0-50 m/min)</span>
+        </div>
+        <div class="legend-item">
+            <div class="legend-color" style="background: #64748b;"></div>
+            <span>정지 (0 m/min)</span>
+        </div>
+    </div>
+
+    <div id="info">
+        <b>📍 정보 패널</b>
+        <div id="infoContent">
+            <div class="info-row">마우스로 드래그하여 이동, 스크롤로 확대/축소</div>
+            <div class="info-row">Vehicle 또는 RailEdge 클릭으로 상세 정보 확인</div>
+        </div>
+    </div>
+
+    <canvas id="canvas"></canvas>
+
+    <script>
+        // ========== 전역 변수 ==========
+        const canvas = document.getElementById('canvas');
+        const ctx = canvas.getContext('2d');
+        
+        let vehicles = [];
+        let railEdges = [];
+        let simulation = {
+            running: true,
+            time: 0,
+            speed: 1.0
+        };
+        
+        let view = {
+            scale: 0.5,
+            offsetX: 0,
+            offsetY: 0,
+            dragging: false,
+            lastX: 0,
+            lastY: 0
+        };
+        
+        let bounds = {
+            minX: 0, maxX: 11389,
+            minY: 0, maxY: 4769
+        };
+
+        // ========== CSV 파싱 함수 ==========
+        function parseCSV(text) {
+            const lines = text.trim().split('\n');
+            const headers = lines[0].split(',').map(h => h.trim());
+            const data = [];
+            
+            for (let i = 1; i < lines.length; i++) {
+                const values = lines[i].split(',');
+                const obj = {};
+                headers.forEach((header, index) => {
+                    obj[header] = values[index] ? values[index].trim() : '';
+                });
+                data.push(obj);
+            }
+            
+            return data;
+        }
+
+        // ========== 데이터 로드 ==========
+        async function loadDefaultData() {
+            try {
+                // Vehicle 데이터 로드
+                const vhlResponse = await fetch('vehicle_data.csv');
+                if (vhlResponse.ok) {
+                    const vhlText = await vhlResponse.text();
+                    const vhlData = parseCSV(vhlText);
+                    processVehicleData(vhlData);
+                }
+                
+                // RailEdge 데이터 로드
+                const edgeResponse = await fetch('railedge_data.csv');
+                if (edgeResponse.ok) {
+                    const edgeText = await edgeResponse.text();
+                    const edgeData = parseCSV(edgeText);
+                    processRailEdgeData(edgeData);
+                }
+                
+                updateStats();
+                render();
+            } catch (error) {
+                console.error('기본 데이터 로드 실패:', error);
+            }
+        }
+
+        // ========== Vehicle 데이터 처리 ==========
+        function processVehicleData(data) {
+            vehicles = data.map(v => ({
+                id: v.vehicleId,
+                mcp: v.mcpName,
+                currentAddr: parseInt(v.currentAddr),
+                currentDist: parseFloat(v.currentDist),
+                nextAddr: parseInt(v.nextAddr),
+                status: parseInt(v.status),
+                cycle: parseInt(v.cycle),
+                cyclePeriod: parseInt(v.cyclePeriod),
+                carrierId: v.carrierId,
+                destination: parseInt(v.destination),
+                velocity: parseFloat(v.velocity),
+                timestamp: v.timestamp,
+                // 시뮬레이션용 위치 (현재는 랜덤, 실제로는 레이아웃 데이터 기반으로 계산)
+                x: Math.random() * (bounds.maxX - bounds.minX) + bounds.minX,
+                y: Math.random() * (bounds.maxY - bounds.minY) + bounds.minY,
+                angle: Math.random() * Math.PI * 2
+            }));
+        }
+
+        // ========== RailEdge 데이터 처리 ==========
+        function processRailEdgeData(data) {
+            railEdges = data.map(e => {
+                const velocity = parseFloat(e.velocity);
+                const maxVelocity = parseFloat(e.maxVelocity);
+                
+                return {
+                    id: e.railEdgeId,
+                    fabId: e.fabId,
+                    mcp: e.mcpName,
+                    length: parseFloat(e.length),
+                    velocity: velocity,
+                    maxVelocity: maxVelocity,
+                    density: parseFloat(e.density),
+                    vhlCnt: parseInt(e.vhlCnt),
+                    passCnt: parseInt(e.passCnt),
+                    isAvailable: e.isAvailable === 'true',
+                    // 시뮬레이션용 위치
+                    x1: Math.random() * (bounds.maxX - bounds.minX) + bounds.minX,
+                    y1: Math.random() * (bounds.maxY - bounds.minY) + bounds.minY,
+                    x2: Math.random() * (bounds.maxX - bounds.minX) + bounds.minX,
+                    y2: Math.random() * (bounds.maxY - bounds.minY) + bounds.minY,
+                    color: getSpeedColor(velocity, maxVelocity)
+                };
+            });
+        }
+
+        // ========== 속도에 따른 색상 ==========
+        function getSpeedColor(velocity, maxVelocity) {
+            if (velocity === 0) return '#64748b'; // 정지
+            
+            const ratio = maxVelocity > 0 ? velocity / maxVelocity : 0;
+            
+            if (ratio >= 0.8) return '#22c55e'; // 고속
+            if (ratio >= 0.5) return '#eab308'; // 중속
+            if (ratio >= 0.25) return '#f97316'; // 저속
+            return '#ef4444'; // 매우 느림
+        }
+
+        // ========== 좌표 변환 ==========
+        function worldToScreen(wx, wy) {
+            return {
+                x: (wx - bounds.minX) * view.scale + view.offsetX,
+                y: canvas.height - ((wy - bounds.minY) * view.scale + view.offsetY)
+            };
+        }
+
+        function screenToWorld(sx, sy) {
+            return {
+                x: (sx - view.offsetX) / view.scale + bounds.minX,
+                y: (canvas.height - sy - view.offsetY) / view.scale + bounds.minY
+            };
+        }
+
+        // ========== 렌더링 ==========
+        function render() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            
+            // 배경 그리드
+            drawGrid();
+            
+            // RailEdge 그리기
+            if (document.getElementById('showRails').checked) {
+                drawRailEdges();
+            }
+            
+            // Vehicle 그리기
+            if (document.getElementById('showVehicles').checked) {
+                drawVehicles();
+            }
+        }
+
+        function drawGrid() {
+            ctx.strokeStyle = 'rgba(255, 255, 255, 0.05)';
+            ctx.lineWidth = 1;
+            
+            const gridSize = 1000; // 1000mm 간격
+            
+            for (let x = bounds.minX; x <= bounds.maxX; x += gridSize) {
+                const screenPos = worldToScreen(x, bounds.minY);
+                ctx.beginPath();
+                ctx.moveTo(screenPos.x, 0);
+                ctx.lineTo(screenPos.x, canvas.height);
+                ctx.stroke();
+            }
+            
+            for (let y = bounds.minY; y <= bounds.maxY; y += gridSize) {
+                const screenPos = worldToScreen(bounds.minX, y);
+                ctx.beginPath();
+                ctx.moveTo(0, screenPos.y);
+                ctx.lineTo(canvas.width, screenPos.y);
+                ctx.stroke();
+            }
+        }
+
+        function drawRailEdges() {
+            railEdges.forEach(edge => {
+                const p1 = worldToScreen(edge.x1, edge.y1);
+                const p2 = worldToScreen(edge.x2, edge.y2);
+                
+                // RailEdge 선
+                ctx.strokeStyle = edge.color;
+                ctx.lineWidth = Math.max(2, view.scale * 0.5);
+                ctx.beginPath();
+                ctx.moveTo(p1.x, p1.y);
+                ctx.lineTo(p2.x, p2.y);
+                ctx.stroke();
+                
+                // 속도 라벨
+                if (document.getElementById('showSpeed').checked && view.scale > 0.3) {
+                    const midX = (p1.x + p2.x) / 2;
+                    const midY = (p1.y + p2.y) / 2;
+                    
+                    ctx.fillStyle = edge.color;
+                    ctx.font = '10px sans-serif';
+                    ctx.fillText(`${edge.velocity.toFixed(1)}`, midX, midY - 5);
+                }
+            });
+        }
+
+        function drawVehicles() {
+            vehicles.forEach(vhl => {
+                const pos = worldToScreen(vhl.x, vhl.y);
+                const size = Math.max(4, view.scale * 2);
+                
+                // Vehicle 상태에 따른 색상
+                let color = '#00d4ff';
+                if (vhl.status === 2) color = '#ef4444'; // 정지
+                else if (vhl.status === 3) color = '#facc15'; // 정체
+                else if (vhl.velocity > 250) color = '#22c55e'; // 고속
+                
+                // Vehicle 그리기
+                ctx.fillStyle = color;
+                ctx.beginPath();
+                ctx.arc(pos.x, pos.y, size, 0, Math.PI * 2);
+                ctx.fill();
+                
+                // 외곽선
+                ctx.strokeStyle = 'rgba(255, 255, 255, 0.5)';
+                ctx.lineWidth = 1;
+                ctx.stroke();
+                
+                // 라벨
+                if (document.getElementById('showLabels').checked && view.scale > 0.5) {
+                    ctx.fillStyle = '#fff';
+                    ctx.font = '9px sans-serif';
+                    ctx.fillText(vhl.id, pos.x + size + 3, pos.y + 3);
+                }
+            });
+        }
+
+        // ========== 통계 업데이트 ==========
+        function updateStats() {
+            document.getElementById('vhlCount').textContent = vehicles.length;
+            document.getElementById('edgeCount').textContent = railEdges.length;
+            
+            const runningVehicles = vehicles.filter(v => v.status === 1);
+            document.getElementById('runningCount').textContent = runningVehicles.length;
+            
+            const avgSpeed = runningVehicles.length > 0
+                ? runningVehicles.reduce((sum, v) => sum + v.velocity, 0) / runningVehicles.length
+                : 0;
+            document.getElementById('avgSpeed').textContent = avgSpeed.toFixed(1);
+        }
+
+        // ========== 시뮬레이션 업데이트 ==========
+        function updateSimulation() {
+            if (!simulation.running) return;
+            
+            const deltaTime = 0.016 * simulation.speed; // ~60fps
+            
+            vehicles.forEach(vhl => {
+                if (vhl.status === 1 && vhl.velocity > 0) {
+                    // 간단한 이동 시뮬레이션
+                    const distance = vhl.velocity * deltaTime / 60; // m/min -> m/frame
+                    vhl.x += Math.cos(vhl.angle) * distance;
+                    vhl.y += Math.sin(vhl.angle) * distance;
+                    
+                    // 경계 체크
+                    if (vhl.x < bounds.minX || vhl.x > bounds.maxX) vhl.angle = Math.PI - vhl.angle;
+                    if (vhl.y < bounds.minY || vhl.y > bounds.maxY) vhl.angle = -vhl.angle;
+                }
+            });
+            
+            simulation.time += deltaTime;
+        }
+
+        // ========== 애니메이션 루프 ==========
+        function animate() {
+            if (document.getElementById('autoPlay').checked) {
+                updateSimulation();
+            }
+            render();
+            updateStats();
+            requestAnimationFrame(animate);
+        }
+
+        // ========== 컨트롤 함수들 ==========
+        function toggleSimulation() {
+            simulation.running = !simulation.running;
+        }
+
+        function stepForward() {
+            simulation.running = false;
+            updateSimulation();
+            render();
+        }
+
+        function resetSimulation() {
+            simulation.time = 0;
+            loadDefaultData();
+        }
+
+        function fitView() {
+            const w = canvas.width;
+            const h = canvas.height - 60;
+            const layoutW = bounds.maxX - bounds.minX;
+            const layoutH = bounds.maxY - bounds.minY;
+            
+            view.scale = Math.min((w - 100) / layoutW, (h - 100) / layoutH);
+            view.offsetX = (w - layoutW * view.scale) / 2;
+            view.offsetY = (h - layoutH * view.scale) / 2;
+            
+            document.getElementById('zoom').value = view.scale * 100;
+            document.getElementById('zoomValue').textContent = Math.round(view.scale * 100) + '%';
+            render();
+        }
+
+        function resetView() {
+            view.scale = 0.5;
+            view.offsetX = 0;
+            view.offsetY = 0;
+            document.getElementById('zoom').value = 50;
+            document.getElementById('zoomValue').textContent = '50%';
+            render();
+        }
+
+        function reloadData() {
+            loadDefaultData();
+        }
+
+        // ========== 이벤트 리스너 ==========
+        window.addEventListener('resize', () => {
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+            render();
+        });
+
+        // 줌 컨트롤
+        document.getElementById('zoom').addEventListener('input', (e) => {
+            view.scale = e.target.value / 100;
+            document.getElementById('zoomValue').textContent = Math.round(view.scale * 100) + '%';
+            render();
+        });
+
+        // 재생 속도
+        document.getElementById('playSpeed').addEventListener('input', (e) => {
+            simulation.speed = parseFloat(e.target.value);
+            document.getElementById('speedValue').textContent = simulation.speed.toFixed(1) + 'x';
+        });
+
+        // 체크박스
+        ['showRails', 'showVehicles', 'showLabels', 'showSpeed'].forEach(id => {
+            document.getElementById(id).addEventListener('change', render);
+        });
+
+        // 파일 업로드
+        document.getElementById('vehicleFileInput').addEventListener('change', (e) => {
+            const file = e.target.files[0];
+            if (file) {
+                const reader = new FileReader();
+                reader.onload = (event) => {
+                    const data = parseCSV(event.target.result);
+                    processVehicleData(data);
+                    updateStats();
+                    render();
+                };
+                reader.readAsText(file);
+            }
+        });
+
+        document.getElementById('railedgeFileInput').addEventListener('change', (e) => {
+            const file = e.target.files[0];
+            if (file) {
+                const reader = new FileReader();
+                reader.onload = (event) => {
+                    const data = parseCSV(event.target.result);
+                    processRailEdgeData(data);
+                    updateStats();
+                    render();
+                };
+                reader.readAsText(file);
+            }
+        });
+
+        // 마우스 드래그
+        canvas.addEventListener('mousedown', (e) => {
+            view.dragging = true;
+            view.lastX = e.clientX;
+            view.lastY = e.clientY;
+        });
+
+        canvas.addEventListener('mousemove', (e) => {
+            if (view.dragging) {
+                view.offsetX += e.clientX - view.lastX;
+                view.offsetY -= e.clientY - view.lastY;
+                view.lastX = e.clientX;
+                view.lastY = e.clientY;
+                render();
+            }
+        });
+
+        canvas.addEventListener('mouseup', () => {
+            view.dragging = false;
+        });
+
+        // 마우스 휠 줌
+        canvas.addEventListener('wheel', (e) => {
+            e.preventDefault();
+            const zoom = e.deltaY > 0 ? 0.9 : 1.1;
+            const mouseX = e.clientX;
+            const mouseY = e.clientY;
+            
+            const worldBefore = screenToWorld(mouseX, mouseY);
+            view.scale *= zoom;
+            view.scale = Math.max(0.05, Math.min(10, view.scale));
+            const screenAfter = worldToScreen(worldBefore.x, worldBefore.y);
+            
+            view.offsetX += mouseX - screenAfter.x;
+            view.offsetY -= mouseY - (canvas.height - screenAfter.y);
+            
+            document.getElementById('zoom').value = view.scale * 100;
+            document.getElementById('zoomValue').textContent = Math.round(view.scale * 100) + '%';
+            render();
+        });
+
+        // 클릭 정보 표시
+        canvas.addEventListener('click', (e) => {
+            const worldPos = screenToWorld(e.clientX, e.clientY);
+            
+            // Vehicle 클릭 체크
+            for (const vhl of vehicles) {
+                const dx = worldPos.x - vhl.x;
+                const dy = worldPos.y - vhl.y;
+                const distance = Math.sqrt(dx * dx + dy * dy);
+                
+                if (distance < 50) {
+                    showVehicleInfo(vhl);
+                    return;
+                }
+            }
+            
+            // RailEdge 클릭 체크
+            for (const edge of railEdges) {
+                if (pointToLineDistance(worldPos, edge) < 100) {
+                    showRailEdgeInfo(edge);
+                    return;
+                }
+            }
+        });
+
+        function pointToLineDistance(point, edge) {
+            const dx = edge.x2 - edge.x1;
+            const dy = edge.y2 - edge.y1;
+            const lenSq = dx * dx + dy * dy;
+            
+            if (lenSq === 0) {
+                const px = point.x - edge.x1;
+                const py = point.y - edge.y1;
+                return Math.sqrt(px * px + py * py);
+            }
+            
+            let t = ((point.x - edge.x1) * dx + (point.y - edge.y1) * dy) / lenSq;
+            t = Math.max(0, Math.min(1, t));
+            
+            const projX = edge.x1 + t * dx;
+            const projY = edge.y1 + t * dy;
+            const distX = point.x - projX;
+            const distY = point.y - projY;
+            
+            return Math.sqrt(distX * distX + distY * distY);
+        }
+
+        function showVehicleInfo(vhl) {
+            const statusText = ['', 'RUN', 'OBS_STOP', 'JAM', 'E84_TIMEOUT'][vhl.status] || 'UNKNOWN';
+            const speedClass = vhl.velocity > 250 ? 'speed-high' : 
+                              vhl.velocity > 150 ? 'speed-medium' :
+                              vhl.velocity > 0 ? 'speed-low' : 'speed-stopped';
+            
+            document.getElementById('infoContent').innerHTML = `
+                <div class="info-row"><b>🚗 Vehicle: ${vhl.id}</b></div>
+                <div class="info-row">현재 주소: ${vhl.currentAddr}</div>
+                <div class="info-row">다음 주소: ${vhl.nextAddr}</div>
+                <div class="info-row">상태: ${statusText}</div>
+                <div class="info-row">
+                    속도: <span class="speed-indicator ${speedClass}">${vhl.velocity.toFixed(1)} m/min</span>
+                </div>
+                <div class="info-row">Carrier: ${vhl.carrierId}</div>
+                <div class="info-row">목적지: ${vhl.destination}</div>
+                <div class="info-row">Cycle: ${vhl.cycle} / Period: ${vhl.cyclePeriod}</div>
+            `;
+        }
+
+        function showRailEdgeInfo(edge) {
+            const utilization = ((edge.velocity / edge.maxVelocity) * 100).toFixed(1);
+            const speedClass = edge.velocity > 250 ? 'speed-high' : 
+                              edge.velocity > 150 ? 'speed-medium' :
+                              edge.velocity > 0 ? 'speed-low' : 'speed-stopped';
+            
+            document.getElementById('infoContent').innerHTML = `
+                <div class="info-row"><b>🛤️ RailEdge</b></div>
+                <div class="info-row" style="font-size: 10px;">${edge.id}</div>
+                <div class="info-row">Factory: ${edge.fabId}</div>
+                <div class="info-row">길이: ${edge.length.toFixed(0)} mm</div>
+                <div class="info-row">
+                    속도: <span class="speed-indicator ${speedClass}">${edge.velocity.toFixed(1)} m/min</span>
+                </div>
+                <div class="info-row">최대 속도: ${edge.maxVelocity} m/min</div>
+                <div class="info-row">활용률: ${utilization}%</div>
+                <div class="info-row">밀도: ${(edge.density * 100).toFixed(1)}%</div>
+                <div class="info-row">Vehicle 수: ${edge.vhlCnt}대</div>
+                <div class="info-row">통과 수: ${edge.passCnt}회</div>
+                <div class="info-row">사용 가능: ${edge.isAvailable ? '✅ Yes' : '❌ No'}</div>
+            `;
+        }
+
+        // ========== 초기화 ==========
+        canvas.width = window.innerWidth;
+        canvas.height = window.innerHeight;
+        
+        loadDefaultData();
+        animate();
+    </script>
+</body>
+</html>
