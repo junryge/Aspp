@@ -14,6 +14,7 @@ import json
 import random
 import math
 import asyncio
+import shutil  # ← 추가
 from datetime import datetime
 from dataclasses import dataclass, field, asdict
 from typing import Dict, List, Tuple, Optional
@@ -33,6 +34,7 @@ import uvicorn
 LAYOUT_PATH = "F:/M14_Q/OHT/OHT_LAYOUT_INFO/layout/layout/layout.html"
 OUTPUT_DIR = "F:/M14_Q/OHT/simulator/output"
 CSV_SAVE_INTERVAL = 10  # 10초마다 CSV 저장
+OUTPUT_CLEANUP_INTERVAL = 1800  # 30분(1800초)마다 output 디렉토리 삭제  # ← 추가
 VEHICLE_COUNT = 50  # OHT 대수
 SIMULATION_INTERVAL = 0.5  # 0.5초마다 업데이트
 FAB_ID = "M14Q"
@@ -983,9 +985,11 @@ async def startup():
     # 백그라운드 태스크 시작
     asyncio.create_task(simulation_loop())
     asyncio.create_task(csv_save_loop())
+    asyncio.create_task(output_cleanup_loop())  # ← 추가
 
     print(f"\n서버 시작: http://localhost:8000")
-    print(f"OHT {VEHICLE_COUNT}대 시뮬레이션 시작\n")
+    print(f"OHT {VEHICLE_COUNT}대 시뮬레이션 시작")
+    print(f"Output 자동 정리: 30분마다\n")  # ← 추가
 
 async def simulation_loop():
     """시뮬레이션 메인 루프"""
@@ -1001,6 +1005,28 @@ async def csv_save_loop():
     while is_running:
         await asyncio.sleep(CSV_SAVE_INTERVAL)
         engine.save_csv()
+
+# ============================================================
+# 30분마다 output 디렉토리 삭제 (추가)
+# ============================================================
+async def output_cleanup_loop():
+    """30분마다 output 디렉토리 완전 삭제 및 재생성"""
+    global is_running
+    while is_running:
+        await asyncio.sleep(OUTPUT_CLEANUP_INTERVAL)
+        
+        try:
+            if os.path.exists(OUTPUT_DIR):
+                # 디렉토리 완전 삭제
+                shutil.rmtree(OUTPUT_DIR)
+                print(f"\n[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Output 디렉토리 삭제 완료")
+            
+            # 디렉토리 재생성
+            os.makedirs(OUTPUT_DIR, exist_ok=True)
+            print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Output 디렉토리 재생성 완료\n")
+            
+        except Exception as e:
+            print(f"Output 디렉토리 정리 오류: {e}")
 
 # WebSocket 연결 관리
 connections: List[WebSocket] = []
