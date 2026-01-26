@@ -1,10 +1,10 @@
 # -*- coding: utf-8 -*-
-#python recover_data.py 20260115 20260119
+# python recover_data.py 20260115 20260119
 """
 ================================================================================
 M14 데이터 복구 스크립트
 - evaluator.py의 get_logpresso_data_range 함수 활용
-- predictor로 예측값 계산하여 data, pred CSV 파일 재생성
+- predictor로 예측값 계산하여 data, pred, alert CSV 파일 재생성
 - 사용법: python recover_data.py 20250115 20250119
 ================================================================================
 """
@@ -18,6 +18,7 @@ from datetime import datetime, timedelta
 import evaluator
 
 DATA_DIR = 'data'
+ALARM_COOLDOWN = 60 * 60  # 쿨타임 1시간 (초)
 
 # ============================================================================
 # 예측 모듈 로드
@@ -30,7 +31,7 @@ try:
 except ImportError as e:
     PREDICTOR_AVAILABLE = False
     print(f"[복구] ⚠️ 예측 모듈 로드 실패: {e}")
-    print("       → pred 파일은 예측값 0으로 생성됩니다")
+    print("       → pred 파일은 예측값 0으로, alert 파일은 생성되지 않습니다")
 
 
 def add_minutes_to_time(time_str, mins):
@@ -43,6 +44,22 @@ def add_minutes_to_time(time_str, mins):
     except:
         pass
     return time_str
+
+
+def currtime_to_datetime(curr_time):
+    """YYYYMMDDHHMM → datetime"""
+    try:
+        return datetime.strptime(str(curr_time)[:12], "%Y%m%d%H%M")
+    except:
+        return None
+
+
+def currtime_to_timestamp(curr_time):
+    """YYYYMMDDHHMM → YYYY-MM-DD HH:MM:SS"""
+    dt = currtime_to_datetime(curr_time)
+    if dt:
+        return dt.strftime('%Y-%m-%d %H:%M:%S')
+    return ''
 
 
 def get_data_for_date(date_str):
@@ -63,17 +80,26 @@ def get_data_for_date(date_str):
     return df
 
 
-def calculate_predictions(df_all, target_date):
-    """예측값 계산 (280분 시퀀스 필요)"""
+def calculate_predictions_and_alerts(df_all, target_date, last_alarm_time=None, alarm_count=0):
+    """
+    예측값 및 알람 기록 계산 (280분 시퀀스 필요)
+    
+    Returns:
+        pred_data: 예측 데이터 리스트
+        alert_data: 알람 기록 리스트
+        last_alarm_time: 마지막 알람 시간 (다음 날짜로 전달)
+        alarm_count: 현재 알람 카운트 (다음 날짜로 전달)
+    """
     seq_len = 280
     
     # 해당 날짜 데이터만 필터
     df_target = df_all[df_all['CURRTIME'].str.startswith(target_date)].copy()
     
     if len(df_target) == 0:
-        return []
+        return [], [], last_alarm_time, alarm_count
     
     pred_data = []
+    alert_data = []
     total = len(df_target)
     
     for count, (orig_idx, row) in enumerate(df_target.iterrows()):
@@ -111,15 +137,71 @@ def calculate_predictions(df_all, target_date):
             'PREDICT_30': pred_30
         })
         
+        # ========== 알람 기록 생성 ==========
+        current_dt = currtime_to_datetime(curr_time)
+        timestamp = currtime_to_timestamp(curr_time)
+        
+        # 10분 예측 알람
+        if pred_10 >= 1700:
+            in_cooldown = False
+            cooldown_mins = 0
+            
+            if last_alarm_time:
+                elapsed = (current_dt - last_alarm_time).total_seconds()
+                if elapsed < ALARM_COOLDOWN:
+                    in_cooldown = True
+                    cooldown_mins = int((ALARM_COOLDOWN - elapsed) / 60)
+            
+            is_alarm = not in_cooldown
+            if is_alarm:
+                alarm_count += 1
+                last_alarm_time = current_dt
+            
+            alert_data.append({
+                'TYPE': '10',
+                'CURRTIME': curr_time,
+                'VALUE': pred_10,
+                'TIMESTAMP': timestamp,
+                'ALARM_NO': alarm_count,
+                'IS_ALARM': is_alarm,
+                'COOLDOWN_MINS': cooldown_mins if not is_alarm else 0
+            })
+        
+        # 30분 예측 알람
+        if pred_30 >= 1700:
+            in_cooldown = False
+            cooldown_mins = 0
+            
+            if last_alarm_time:
+                elapsed = (current_dt - last_alarm_time).total_seconds()
+                if elapsed < ALARM_COOLDOWN:
+                    in_cooldown = True
+                    cooldown_mins = int((ALARM_COOLDOWN - elapsed) / 60)
+            
+            is_alarm = not in_cooldown
+            if is_alarm:
+                alarm_count += 1
+                last_alarm_time = current_dt
+            
+            alert_data.append({
+                'TYPE': '30',
+                'CURRTIME': curr_time,
+                'VALUE': pred_30,
+                'TIMESTAMP': timestamp,
+                'ALARM_NO': alarm_count,
+                'IS_ALARM': is_alarm,
+                'COOLDOWN_MINS': cooldown_mins if not is_alarm else 0
+            })
+        
         # 진행률 표시 (100개마다)
         if (count + 1) % 100 == 0 or count + 1 == total:
             pct = (count + 1) / total * 100
             print(f"  → 예측 진행: {count + 1}/{total} ({pct:.1f}%)")
     
-    return pred_data
+    return pred_data, alert_data, last_alarm_time, alarm_count
 
 
-def recover_date(date_str, df_prev=None):
+def recover_date(date_str, df_prev=None, last_alarm_time=None, alarm_count=0):
     """특정 날짜 데이터 복구"""
     
     # 데이터 조회
@@ -127,7 +209,7 @@ def recover_date(date_str, df_prev=None):
     
     if df is None or len(df) == 0:
         print(f"  [실패] {date_str} 데이터 조회 실패")
-        return None
+        return None, last_alarm_time, alarm_count
     
     # 폴더 생성
     if not os.path.exists(DATA_DIR):
@@ -145,9 +227,11 @@ def recover_date(date_str, df_prev=None):
     else:
         df_combined = df.copy()
     
-    # pred 파일 생성
-    print(f"  → 예측값 계산 중... (총 {len(df)}개)")
-    pred_data = calculate_predictions(df_combined, date_str)
+    # pred 및 alert 파일 생성
+    print(f"  → 예측값 및 알람 계산 중... (총 {len(df)}개)")
+    pred_data, alert_data, last_alarm_time, alarm_count = calculate_predictions_and_alerts(
+        df_combined, date_str, last_alarm_time, alarm_count
+    )
     
     if pred_data:
         pred_file = os.path.join(DATA_DIR, f'm14_pred_{date_str}.csv')
@@ -163,7 +247,22 @@ def recover_date(date_str, df_prev=None):
         print(f"         10분 예측 1700+ : {over_1700_10}개")
         print(f"         30분 예측 1700+ : {over_1700_30}개")
     
-    return df_combined
+    # alert 파일 저장
+    if alert_data:
+        alert_file = os.path.join(DATA_DIR, f'm14_alert_{date_str}.csv')
+        pd.DataFrame(alert_data).to_csv(alert_file, index=False)
+        
+        # 알람 통계
+        is_alarm_count = sum(1 for a in alert_data if a['IS_ALARM'] == True)
+        cooldown_count = sum(1 for a in alert_data if a['IS_ALARM'] == False)
+        
+        print(f"  [저장] {alert_file}")
+        print(f"         실제 알람 발생: {is_alarm_count}개")
+        print(f"         쿨타임 중 억제: {cooldown_count}개")
+    else:
+        print(f"  [알람] 1700+ 예측 없음 → alert 파일 미생성")
+    
+    return df_combined, last_alarm_time, alarm_count
 
 
 def recover_range(start_date, end_date):
@@ -174,6 +273,7 @@ def recover_range(start_date, end_date):
     print(f"기간: {start_date} ~ {end_date}")
     print(f"저장 경로: {DATA_DIR}/")
     print(f"예측 모듈: {'✅ 사용 가능' if PREDICTOR_AVAILABLE else '❌ 사용 불가 (예측값 0)'}")
+    print(f"알람 쿨타임: {ALARM_COOLDOWN // 60}분")
     print("=" * 60)
     
     # 날짜 리스트 생성
@@ -197,17 +297,24 @@ def recover_range(start_date, end_date):
         print("  → 전날 데이터 없음, 첫 날은 시퀀스 부족할 수 있음")
         df_all = pd.DataFrame()
     
+    # 알람 상태 초기화
+    last_alarm_time = None
+    alarm_count = 0
+    
     # 각 날짜 복구
     success_count = 0
     for i, date_str in enumerate(dates):
         print(f"\n[{i+1}/{len(dates)}] {date_str} 복구 중...")
-        result = recover_date(date_str, df_all)
+        result, last_alarm_time, alarm_count = recover_date(
+            date_str, df_all, last_alarm_time, alarm_count
+        )
         if result is not None:
             df_all = result
             success_count += 1
     
     print("\n" + "=" * 60)
     print(f"✅ 복구 완료: {success_count}/{len(dates)}일")
+    print(f"   총 알람 발생 횟수: {alarm_count}회")
     print("=" * 60)
     
     if success_count > 0:
@@ -215,9 +322,14 @@ def recover_range(start_date, end_date):
         for date_str in dates:
             data_file = os.path.join(DATA_DIR, f'm14_data_{date_str}.csv')
             pred_file = os.path.join(DATA_DIR, f'm14_pred_{date_str}.csv')
+            alert_file = os.path.join(DATA_DIR, f'm14_alert_{date_str}.csv')
             if os.path.exists(data_file):
                 print(f"  ✅ {data_file}")
                 print(f"  ✅ {pred_file}")
+                if os.path.exists(alert_file):
+                    print(f"  ✅ {alert_file}")
+                else:
+                    print(f"  ⚪ {alert_file} (1700+ 없음)")
 
 
 def main():
