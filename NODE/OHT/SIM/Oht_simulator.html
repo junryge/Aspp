@@ -165,96 +165,204 @@
             border-bottom: none;
         }
 
-        #legend {
+        #dataManager {
             position: fixed;
             top: 60px;
             right: 10px;
             background: rgba(22,33,62,0.98);
             padding: 18px;
             border-radius: 10px;
-            z-index: 1000;
+            z-index: 999;
             font-size: 12px;
             box-shadow: 0 4px 20px rgba(0,0,0,0.4);
             border: 1px solid rgba(0,212,255,0.2);
+            max-width: 400px;
+            max-height: 80vh;
+            overflow-y: auto;
+            display: none;
         }
 
-        #legend h3 {
-            color: #00d4ff;
-            margin-bottom: 10px;
-            font-size: 14px;
-        }
-
-        .legend-item {
-            display: flex;
-            align-items: center;
-            margin: 8px 0;
-        }
-
-        .legend-color {
-            width: 30px;
-            height: 16px;
-            border-radius: 3px;
-            margin-right: 10px;
-            border: 1px solid rgba(255,255,255,0.2);
-        }
-
-        canvas {
+        #dataManager.active {
             display: block;
         }
 
-        #dataStatus {
-            position: fixed;
-            top: 60px;
-            right: 10px;
-            background: rgba(22,33,62,0.98);
-            padding: 12px 18px;
-            border-radius: 8px;
-            z-index: 999;
+        #dataManager h3 {
+            color: #00d4ff;
+            margin-bottom: 12px;
+            font-size: 14px;
+            border-bottom: 1px solid rgba(0,212,255,0.3);
+            padding-bottom: 6px;
+        }
+
+        .tab-buttons {
+            display: flex;
+            gap: 5px;
+            margin-bottom: 15px;
+        }
+
+        .tab-btn {
+            flex: 1;
+            padding: 8px;
+            background: rgba(0,119,182,0.3);
+            border: 1px solid rgba(0,212,255,0.3);
+            color: #00d4ff;
+            border-radius: 5px;
+            cursor: pointer;
             font-size: 11px;
-            box-shadow: 0 4px 20px rgba(0,0,0,0.4);
-            border: 1px solid rgba(0,212,255,0.2);
+            transition: all 0.3s;
         }
 
-        .status-ok {
-            color: #4ade80;
+        .tab-btn.active {
+            background: linear-gradient(135deg, #0077b6 0%, #00b4d8 100%);
+            color: white;
         }
 
-        .status-error {
-            color: #f87171;
+        .tab-content {
+            display: none;
         }
 
-        #simulationControls {
+        .tab-content.active {
+            display: block;
+        }
+
+        .form-group {
+            margin-bottom: 12px;
+        }
+
+        .form-group label {
+            display: block;
+            color: #a0d2eb;
+            font-size: 11px;
+            margin-bottom: 4px;
+        }
+
+        .form-group input,
+        .form-group select {
+            width: 100%;
+            padding: 6px 10px;
+            background: rgba(26,26,46,0.8);
+            border: 1px solid rgba(0,212,255,0.3);
+            color: #fff;
+            border-radius: 4px;
+            font-size: 11px;
+        }
+
+        .form-group input:focus,
+        .form-group select:focus {
+            outline: none;
+            border-color: #00d4ff;
+        }
+
+        .btn-group {
+            display: flex;
+            gap: 8px;
             margin-top: 15px;
-            padding-top: 15px;
-            border-top: 1px solid rgba(0,212,255,0.3);
         }
 
-        .speed-indicator {
-            display: inline-block;
-            padding: 2px 8px;
+        .btn-primary {
+            flex: 1;
+            padding: 8px 14px;
+            background: linear-gradient(135deg, #22c55e 0%, #16a34a 100%);
+            border: none;
+            color: white;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 12px;
+            transition: all 0.3s;
+        }
+
+        .btn-primary:hover {
+            background: linear-gradient(135deg, #16a34a 0%, #15803d 100%);
+            transform: translateY(-2px);
+        }
+
+        .btn-secondary {
+            flex: 1;
+            padding: 8px 14px;
+            background: linear-gradient(135deg, #64748b 0%, #475569 100%);
+            border: none;
+            color: white;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 12px;
+            transition: all 0.3s;
+        }
+
+        .btn-secondary:hover {
+            background: linear-gradient(135deg, #475569 0%, #334155 100%);
+            transform: translateY(-2px);
+        }
+
+        .data-table {
+            width: 100%;
+            margin-top: 15px;
+            font-size: 10px;
+            border-collapse: collapse;
+        }
+
+        .data-table th {
+            background: rgba(0,119,182,0.3);
+            color: #00d4ff;
+            padding: 6px 4px;
+            text-align: left;
+            border-bottom: 1px solid rgba(0,212,255,0.3);
+        }
+
+        .data-table td {
+            padding: 6px 4px;
+            border-bottom: 1px solid rgba(255,255,255,0.1);
+            color: #eee;
+        }
+
+        .data-table tr:hover {
+            background: rgba(0,212,255,0.1);
+        }
+
+        .btn-edit,
+        .btn-delete {
+            padding: 3px 8px;
+            border: none;
             border-radius: 3px;
-            font-size: 11px;
-            font-weight: bold;
+            cursor: pointer;
+            font-size: 10px;
+            margin-right: 4px;
         }
 
-        .speed-high {
-            background: rgba(34,197,94,0.3);
-            color: #4ade80;
+        .btn-edit {
+            background: #3b82f6;
+            color: white;
         }
 
-        .speed-medium {
-            background: rgba(250,204,21,0.3);
-            color: #facc15;
+        .btn-delete {
+            background: #ef4444;
+            color: white;
         }
 
-        .speed-low {
-            background: rgba(239,68,68,0.3);
-            color: #f87171;
+        .toggle-panel-btn {
+            position: fixed;
+            top: 70px;
+            right: 20px;
+            background: linear-gradient(135deg, #8b5cf6 0%, #6d28d9 100%);
+            color: white;
+            border: none;
+            padding: 10px 16px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 12px;
+            z-index: 1001;
+            box-shadow: 0 4px 12px rgba(139,92,246,0.4);
+            transition: all 0.3s;
         }
 
-        .speed-stopped {
-            background: rgba(148,163,184,0.3);
-            color: #94a3b8;
+        .toggle-panel-btn:hover {
+            background: linear-gradient(135deg, #7c3aed 0%, #5b21b6 100%);
+            transform: translateY(-2px);
+        }
+
+        .form-row {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 8px;
         }
     </style>
 </head>
@@ -313,29 +421,14 @@
         <div style="margin-top: 10px;">
             <button onclick="reloadData()">🔃 데이터 새로고침</button>
         </div>
-    </div>
 
-    <div id="legend">
-        <h3>🎨 속도 범례</h3>
-        <div class="legend-item">
-            <div class="legend-color" style="background: #22c55e;"></div>
-            <span>고속 (250+ m/min)</span>
-        </div>
-        <div class="legend-item">
-            <div class="legend-color" style="background: #eab308;"></div>
-            <span>중속 (150-250 m/min)</span>
-        </div>
-        <div class="legend-item">
-            <div class="legend-color" style="background: #f97316;"></div>
-            <span>저속 (50-150 m/min)</span>
-        </div>
-        <div class="legend-item">
-            <div class="legend-color" style="background: #ef4444;"></div>
-            <span>매우 느림 (0-50 m/min)</span>
-        </div>
-        <div class="legend-item">
-            <div class="legend-color" style="background: #64748b;"></div>
-            <span>정지 (0 m/min)</span>
+        <h3 style="margin-top: 15px; padding-top: 15px; border-top: 1px solid rgba(0,212,255,0.3);">🎨 속도 범례</h3>
+        <div style="font-size: 10px; line-height: 1.6;">
+            <div style="margin: 4px 0;">🟢 250+ m/min (고속)</div>
+            <div style="margin: 4px 0;">🟡 150-250 (중속)</div>
+            <div style="margin: 4px 0;">🟠 50-150 (저속)</div>
+            <div style="margin: 4px 0;">🔴 0-50 (매우 느림)</div>
+            <div style="margin: 4px 0;">⚫ 0 (정지)</div>
         </div>
     </div>
 
@@ -344,6 +437,179 @@
         <div id="infoContent">
             <div class="info-row">마우스로 드래그하여 이동, 스크롤로 확대/축소</div>
             <div class="info-row">Vehicle 또는 RailEdge 클릭으로 상세 정보 확인</div>
+        </div>
+    </div>
+
+    <button class="toggle-panel-btn" onclick="toggleDataManager()">📝 데이터 관리</button>
+
+    <div id="dataManager">
+        <h3>📝 데이터 관리</h3>
+        
+        <div class="tab-buttons">
+            <button class="tab-btn active" onclick="switchTab('vehicle')">🚗 Vehicle</button>
+            <button class="tab-btn" onclick="switchTab('railedge')">🛤️ RailEdge</button>
+        </div>
+
+        <!-- Vehicle 탭 -->
+        <div id="vehicleTab" class="tab-content active">
+            <h4 style="color: #00d4ff; font-size: 12px; margin-bottom: 10px;">Vehicle 데이터 추가</h4>
+            
+            <div class="form-group">
+                <label>Vehicle ID *</label>
+                <input type="text" id="vhl_id" placeholder="V00001" maxlength="6">
+            </div>
+            
+            <div class="form-row">
+                <div class="form-group">
+                    <label>MCP Name</label>
+                    <input type="text" id="vhl_mcp" value="OHT">
+                </div>
+                <div class="form-group">
+                    <label>현재 주소 *</label>
+                    <input type="number" id="vhl_currentAddr" placeholder="4176">
+                </div>
+            </div>
+
+            <div class="form-row">
+                <div class="form-group">
+                    <label>현재 거리</label>
+                    <input type="number" id="vhl_currentDist" placeholder="20" step="0.1">
+                </div>
+                <div class="form-group">
+                    <label>다음 주소</label>
+                    <input type="number" id="vhl_nextAddr" placeholder="4177">
+                </div>
+            </div>
+
+            <div class="form-row">
+                <div class="form-group">
+                    <label>상태 *</label>
+                    <select id="vhl_status">
+                        <option value="1">1-RUN</option>
+                        <option value="2">2-OBS_STOP</option>
+                        <option value="3">3-JAM</option>
+                        <option value="4">4-E84_TIMEOUT</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>속도 (m/min) *</label>
+                    <input type="number" id="vhl_velocity" placeholder="280.5" step="0.1">
+                </div>
+            </div>
+
+            <div class="form-row">
+                <div class="form-group">
+                    <label>Cycle</label>
+                    <select id="vhl_cycle">
+                        <option value="3">3-ACQUIRE</option>
+                        <option value="4" selected>4-DEPOSIT</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>Cycle Period</label>
+                    <select id="vhl_cyclePeriod">
+                        <option value="3">3-ACQUIRE_MOVING</option>
+                        <option value="4" selected>4-DEPOSIT_MOVING</option>
+                    </select>
+                </div>
+            </div>
+
+            <div class="form-row">
+                <div class="form-group">
+                    <label>Carrier ID</label>
+                    <input type="text" id="vhl_carrier" placeholder="4PDMG440">
+                </div>
+                <div class="form-group">
+                    <label>목적지</label>
+                    <input type="number" id="vhl_destination" placeholder="4011">
+                </div>
+            </div>
+
+            <div class="btn-group">
+                <button class="btn-primary" onclick="addVehicle()">➕ 추가</button>
+                <button class="btn-secondary" onclick="clearVehicleForm()">🔄 초기화</button>
+            </div>
+
+            <div style="margin-top: 15px; padding-top: 15px; border-top: 1px solid rgba(0,212,255,0.3);">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+                    <h4 style="color: #00d4ff; font-size: 12px; margin: 0;">Vehicle 목록 (<span id="vhlListCount">0</span>)</h4>
+                    <button class="btn-secondary" style="padding: 4px 10px; font-size: 10px;" onclick="downloadVehicleCSV()">💾 CSV 저장</button>
+                </div>
+                <div id="vehicleList" style="max-height: 200px; overflow-y: auto;"></div>
+            </div>
+        </div>
+
+        <!-- RailEdge 탭 -->
+        <div id="railedgeTab" class="tab-content">
+            <h4 style="color: #00d4ff; font-size: 12px; margin-bottom: 10px;">RailEdge 데이터 추가</h4>
+            
+            <div class="form-group">
+                <label>RailEdge ID *</label>
+                <input type="text" id="edge_id" placeholder="M14A:RE:BR:M14A:RN:BR:04176-M14A:RN:BR:04177">
+            </div>
+            
+            <div class="form-row">
+                <div class="form-group">
+                    <label>Factory ID</label>
+                    <input type="text" id="edge_fabId" value="M14A">
+                </div>
+                <div class="form-group">
+                    <label>MCP Name</label>
+                    <input type="text" id="edge_mcp" value="OHT">
+                </div>
+            </div>
+
+            <div class="form-row">
+                <div class="form-group">
+                    <label>길이 (mm) *</label>
+                    <input type="number" id="edge_length" placeholder="3500">
+                </div>
+                <div class="form-group">
+                    <label>속도 (m/min) *</label>
+                    <input type="number" id="edge_velocity" placeholder="280.5" step="0.1">
+                </div>
+            </div>
+
+            <div class="form-row">
+                <div class="form-group">
+                    <label>최대 속도 *</label>
+                    <input type="number" id="edge_maxVelocity" placeholder="320">
+                </div>
+                <div class="form-group">
+                    <label>밀도 (0~1)</label>
+                    <input type="number" id="edge_density" placeholder="0.15" step="0.01" min="0" max="1">
+                </div>
+            </div>
+
+            <div class="form-row">
+                <div class="form-group">
+                    <label>Vehicle 수</label>
+                    <input type="number" id="edge_vhlCnt" placeholder="2" min="0">
+                </div>
+                <div class="form-group">
+                    <label>통과 수</label>
+                    <input type="number" id="edge_passCnt" placeholder="5" min="0">
+                </div>
+            </div>
+
+            <div class="form-group">
+                <label>
+                    <input type="checkbox" id="edge_isAvailable" checked> 사용 가능
+                </label>
+            </div>
+
+            <div class="btn-group">
+                <button class="btn-primary" onclick="addRailEdge()">➕ 추가</button>
+                <button class="btn-secondary" onclick="clearRailEdgeForm()">🔄 초기화</button>
+            </div>
+
+            <div style="margin-top: 15px; padding-top: 15px; border-top: 1px solid rgba(0,212,255,0.3);">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+                    <h4 style="color: #00d4ff; font-size: 12px; margin: 0;">RailEdge 목록 (<span id="edgeListCount">0</span>)</h4>
+                    <button class="btn-secondary" style="padding: 4px 10px; font-size: 10px;" onclick="downloadRailEdgeCSV()">💾 CSV 저장</button>
+                </div>
+                <div id="railedgeList" style="max-height: 200px; overflow-y: auto;"></div>
+            </div>
         </div>
     </div>
 
@@ -874,6 +1140,404 @@
         
         loadDefaultData();
         animate();
+
+        // ========== 데이터 관리 함수들 ==========
+        
+        // 패널 토글
+        function toggleDataManager() {
+            const panel = document.getElementById('dataManager');
+            panel.classList.toggle('active');
+            updateVehicleList();
+            updateRailEdgeList();
+        }
+
+        // 탭 전환
+        function switchTab(tab) {
+            // 탭 버튼 활성화
+            document.querySelectorAll('.tab-btn').forEach(btn => {
+                btn.classList.remove('active');
+            });
+            event.target.classList.add('active');
+
+            // 탭 컨텐츠 표시
+            document.querySelectorAll('.tab-content').forEach(content => {
+                content.classList.remove('active');
+            });
+            
+            if (tab === 'vehicle') {
+                document.getElementById('vehicleTab').classList.add('active');
+                updateVehicleList();
+            } else {
+                document.getElementById('railedgeTab').classList.add('active');
+                updateRailEdgeList();
+            }
+        }
+
+        // ========== Vehicle 관리 ==========
+        
+        let editingVehicleId = null;
+
+        function addVehicle() {
+            const id = document.getElementById('vhl_id').value.trim();
+            const mcp = document.getElementById('vhl_mcp').value.trim();
+            const currentAddr = parseInt(document.getElementById('vhl_currentAddr').value);
+            const currentDist = parseFloat(document.getElementById('vhl_currentDist').value) || 0;
+            const nextAddr = parseInt(document.getElementById('vhl_nextAddr').value) || currentAddr;
+            const status = parseInt(document.getElementById('vhl_status').value);
+            const velocity = parseFloat(document.getElementById('vhl_velocity').value);
+            const cycle = parseInt(document.getElementById('vhl_cycle').value);
+            const cyclePeriod = parseInt(document.getElementById('vhl_cyclePeriod').value);
+            const carrier = document.getElementById('vhl_carrier').value.trim() || 'EMPTY';
+            const destination = parseInt(document.getElementById('vhl_destination').value) || 0;
+
+            // 유효성 검사
+            if (!id || !currentAddr || velocity === undefined || isNaN(velocity)) {
+                alert('필수 항목을 모두 입력해주세요 (Vehicle ID, 현재 주소, 속도)');
+                return;
+            }
+
+            // ID 중복 검사 (편집 모드가 아닐 때만)
+            if (!editingVehicleId && vehicles.find(v => v.id === id)) {
+                alert('이미 존재하는 Vehicle ID입니다.');
+                return;
+            }
+
+            const timestamp = new Date().toISOString();
+
+            const newVehicle = {
+                id: id,
+                mcp: mcp,
+                currentAddr: currentAddr,
+                currentDist: currentDist,
+                nextAddr: nextAddr,
+                status: status,
+                cycle: cycle,
+                cyclePeriod: cyclePeriod,
+                carrierId: carrier,
+                destination: destination,
+                velocity: velocity,
+                timestamp: timestamp,
+                x: Math.random() * (bounds.maxX - bounds.minX) + bounds.minX,
+                y: Math.random() * (bounds.maxY - bounds.minY) + bounds.minY,
+                angle: Math.random() * Math.PI * 2
+            };
+
+            if (editingVehicleId) {
+                // 수정 모드
+                const index = vehicles.findIndex(v => v.id === editingVehicleId);
+                if (index !== -1) {
+                    vehicles[index] = newVehicle;
+                }
+                editingVehicleId = null;
+            } else {
+                // 추가 모드
+                vehicles.push(newVehicle);
+            }
+
+            clearVehicleForm();
+            updateVehicleList();
+            updateStats();
+            render();
+            
+            alert(editingVehicleId ? 'Vehicle이 수정되었습니다!' : 'Vehicle이 추가되었습니다!');
+        }
+
+        function editVehicle(id) {
+            const vhl = vehicles.find(v => v.id === id);
+            if (!vhl) return;
+
+            editingVehicleId = id;
+
+            document.getElementById('vhl_id').value = vhl.id;
+            document.getElementById('vhl_mcp').value = vhl.mcp;
+            document.getElementById('vhl_currentAddr').value = vhl.currentAddr;
+            document.getElementById('vhl_currentDist').value = vhl.currentDist;
+            document.getElementById('vhl_nextAddr').value = vhl.nextAddr;
+            document.getElementById('vhl_status').value = vhl.status;
+            document.getElementById('vhl_velocity').value = vhl.velocity;
+            document.getElementById('vhl_cycle').value = vhl.cycle;
+            document.getElementById('vhl_cyclePeriod').value = vhl.cyclePeriod;
+            document.getElementById('vhl_carrier').value = vhl.carrierId;
+            document.getElementById('vhl_destination').value = vhl.destination;
+
+            document.querySelector('#vehicleTab .btn-primary').textContent = '✏️ 수정';
+            document.getElementById('vhl_id').readOnly = true;
+        }
+
+        function deleteVehicle(id) {
+            if (!confirm(`Vehicle ${id}를 삭제하시겠습니까?`)) return;
+
+            const index = vehicles.findIndex(v => v.id === id);
+            if (index !== -1) {
+                vehicles.splice(index, 1);
+                updateVehicleList();
+                updateStats();
+                render();
+                alert('Vehicle이 삭제되었습니다.');
+            }
+        }
+
+        function clearVehicleForm() {
+            editingVehicleId = null;
+            document.getElementById('vhl_id').value = '';
+            document.getElementById('vhl_mcp').value = 'OHT';
+            document.getElementById('vhl_currentAddr').value = '';
+            document.getElementById('vhl_currentDist').value = '';
+            document.getElementById('vhl_nextAddr').value = '';
+            document.getElementById('vhl_status').value = '1';
+            document.getElementById('vhl_velocity').value = '';
+            document.getElementById('vhl_cycle').value = '4';
+            document.getElementById('vhl_cyclePeriod').value = '4';
+            document.getElementById('vhl_carrier').value = '';
+            document.getElementById('vhl_destination').value = '';
+            
+            document.querySelector('#vehicleTab .btn-primary').textContent = '➕ 추가';
+            document.getElementById('vhl_id').readOnly = false;
+        }
+
+        function updateVehicleList() {
+            const listDiv = document.getElementById('vehicleList');
+            document.getElementById('vhlListCount').textContent = vehicles.length;
+
+            if (vehicles.length === 0) {
+                listDiv.innerHTML = '<div style="color: #94a3b8; padding: 10px; text-align: center;">데이터가 없습니다</div>';
+                return;
+            }
+
+            let html = '<table class="data-table"><thead><tr>';
+            html += '<th>ID</th><th>주소</th><th>속도</th><th>상태</th><th>작업</th>';
+            html += '</tr></thead><tbody>';
+
+            vehicles.forEach(vhl => {
+                const statusText = ['', 'RUN', 'STOP', 'JAM', 'TIMEOUT'][vhl.status] || '-';
+                html += `<tr>
+                    <td>${vhl.id}</td>
+                    <td>${vhl.currentAddr}</td>
+                    <td>${vhl.velocity.toFixed(1)}</td>
+                    <td>${statusText}</td>
+                    <td>
+                        <button class="btn-edit" onclick="editVehicle('${vhl.id}')">✏️</button>
+                        <button class="btn-delete" onclick="deleteVehicle('${vhl.id}')">🗑️</button>
+                    </td>
+                </tr>`;
+            });
+
+            html += '</tbody></table>';
+            listDiv.innerHTML = html;
+        }
+
+        function downloadVehicleCSV() {
+            if (vehicles.length === 0) {
+                alert('다운로드할 데이터가 없습니다.');
+                return;
+            }
+
+            const headers = ['vehicleId', 'mcpName', 'currentAddr', 'currentDist', 'nextAddr', 
+                            'status', 'cycle', 'cyclePeriod', 'carrierId', 'destination', 
+                            'velocity', 'timestamp'];
+            
+            let csv = headers.join(',') + '\n';
+            
+            vehicles.forEach(vhl => {
+                const row = [
+                    vhl.id, vhl.mcp, vhl.currentAddr, vhl.currentDist, vhl.nextAddr,
+                    vhl.status, vhl.cycle, vhl.cyclePeriod, vhl.carrierId, vhl.destination,
+                    vhl.velocity, vhl.timestamp
+                ];
+                csv += row.join(',') + '\n';
+            });
+
+            downloadCSVFile(csv, 'vehicle_data.csv');
+        }
+
+        // ========== RailEdge 관리 ==========
+        
+        let editingRailEdgeId = null;
+
+        function addRailEdge() {
+            const id = document.getElementById('edge_id').value.trim();
+            const fabId = document.getElementById('edge_fabId').value.trim();
+            const mcp = document.getElementById('edge_mcp').value.trim();
+            const length = parseFloat(document.getElementById('edge_length').value);
+            const velocity = parseFloat(document.getElementById('edge_velocity').value);
+            const maxVelocity = parseFloat(document.getElementById('edge_maxVelocity').value);
+            const density = parseFloat(document.getElementById('edge_density').value) || 0;
+            const vhlCnt = parseInt(document.getElementById('edge_vhlCnt').value) || 0;
+            const passCnt = parseInt(document.getElementById('edge_passCnt').value) || 0;
+            const isAvailable = document.getElementById('edge_isAvailable').checked;
+
+            // 유효성 검사
+            if (!id || !length || velocity === undefined || !maxVelocity) {
+                alert('필수 항목을 모두 입력해주세요 (RailEdge ID, 길이, 속도, 최대 속도)');
+                return;
+            }
+
+            // ID 중복 검사
+            if (!editingRailEdgeId && railEdges.find(e => e.id === id)) {
+                alert('이미 존재하는 RailEdge ID입니다.');
+                return;
+            }
+
+            const newEdge = {
+                id: id,
+                fabId: fabId,
+                mcp: mcp,
+                length: length,
+                velocity: velocity,
+                maxVelocity: maxVelocity,
+                density: density,
+                vhlCnt: vhlCnt,
+                passCnt: passCnt,
+                isAvailable: isAvailable,
+                x1: Math.random() * (bounds.maxX - bounds.minX) + bounds.minX,
+                y1: Math.random() * (bounds.maxY - bounds.minY) + bounds.minY,
+                x2: Math.random() * (bounds.maxX - bounds.minX) + bounds.minX,
+                y2: Math.random() * (bounds.maxY - bounds.minY) + bounds.minY,
+                color: getSpeedColor(velocity, maxVelocity)
+            };
+
+            if (editingRailEdgeId) {
+                // 수정 모드
+                const index = railEdges.findIndex(e => e.id === editingRailEdgeId);
+                if (index !== -1) {
+                    railEdges[index] = newEdge;
+                }
+                editingRailEdgeId = null;
+            } else {
+                // 추가 모드
+                railEdges.push(newEdge);
+            }
+
+            clearRailEdgeForm();
+            updateRailEdgeList();
+            updateStats();
+            render();
+            
+            alert(editingRailEdgeId ? 'RailEdge가 수정되었습니다!' : 'RailEdge가 추가되었습니다!');
+        }
+
+        function editRailEdge(id) {
+            const edge = railEdges.find(e => e.id === id);
+            if (!edge) return;
+
+            editingRailEdgeId = id;
+
+            document.getElementById('edge_id').value = edge.id;
+            document.getElementById('edge_fabId').value = edge.fabId;
+            document.getElementById('edge_mcp').value = edge.mcp;
+            document.getElementById('edge_length').value = edge.length;
+            document.getElementById('edge_velocity').value = edge.velocity;
+            document.getElementById('edge_maxVelocity').value = edge.maxVelocity;
+            document.getElementById('edge_density').value = edge.density;
+            document.getElementById('edge_vhlCnt').value = edge.vhlCnt;
+            document.getElementById('edge_passCnt').value = edge.passCnt;
+            document.getElementById('edge_isAvailable').checked = edge.isAvailable;
+
+            document.querySelector('#railedgeTab .btn-primary').textContent = '✏️ 수정';
+            document.getElementById('edge_id').readOnly = true;
+        }
+
+        function deleteRailEdge(id) {
+            if (!confirm(`RailEdge ${id}를 삭제하시겠습니까?`)) return;
+
+            const index = railEdges.findIndex(e => e.id === id);
+            if (index !== -1) {
+                railEdges.splice(index, 1);
+                updateRailEdgeList();
+                updateStats();
+                render();
+                alert('RailEdge가 삭제되었습니다.');
+            }
+        }
+
+        function clearRailEdgeForm() {
+            editingRailEdgeId = null;
+            document.getElementById('edge_id').value = '';
+            document.getElementById('edge_fabId').value = 'M14A';
+            document.getElementById('edge_mcp').value = 'OHT';
+            document.getElementById('edge_length').value = '';
+            document.getElementById('edge_velocity').value = '';
+            document.getElementById('edge_maxVelocity').value = '';
+            document.getElementById('edge_density').value = '';
+            document.getElementById('edge_vhlCnt').value = '';
+            document.getElementById('edge_passCnt').value = '';
+            document.getElementById('edge_isAvailable').checked = true;
+            
+            document.querySelector('#railedgeTab .btn-primary').textContent = '➕ 추가';
+            document.getElementById('edge_id').readOnly = false;
+        }
+
+        function updateRailEdgeList() {
+            const listDiv = document.getElementById('railedgeList');
+            document.getElementById('edgeListCount').textContent = railEdges.length;
+
+            if (railEdges.length === 0) {
+                listDiv.innerHTML = '<div style="color: #94a3b8; padding: 10px; text-align: center;">데이터가 없습니다</div>';
+                return;
+            }
+
+            let html = '<table class="data-table"><thead><tr>';
+            html += '<th>ID (축약)</th><th>속도</th><th>최대</th><th>작업</th>';
+            html += '</tr></thead><tbody>';
+
+            railEdges.forEach(edge => {
+                // ID를 축약해서 표시
+                const shortId = edge.id.length > 20 ? edge.id.substring(0, 17) + '...' : edge.id;
+                html += `<tr>
+                    <td title="${edge.id}">${shortId}</td>
+                    <td>${edge.velocity.toFixed(1)}</td>
+                    <td>${edge.maxVelocity}</td>
+                    <td>
+                        <button class="btn-edit" onclick="editRailEdge('${edge.id}')">✏️</button>
+                        <button class="btn-delete" onclick="deleteRailEdge('${edge.id}')">🗑️</button>
+                    </td>
+                </tr>`;
+            });
+
+            html += '</tbody></table>';
+            listDiv.innerHTML = html;
+        }
+
+        function downloadRailEdgeCSV() {
+            if (railEdges.length === 0) {
+                alert('다운로드할 데이터가 없습니다.');
+                return;
+            }
+
+            const headers = ['railEdgeId', 'fabId', 'mcpName', 'length', 'velocity', 
+                            'maxVelocity', 'density', 'vhlCnt', 'passCnt', 'isAvailable', 'createTime'];
+            
+            let csv = headers.join(',') + '\n';
+            
+            railEdges.forEach(edge => {
+                const row = [
+                    edge.id, edge.fabId, edge.mcp, edge.length, edge.velocity,
+                    edge.maxVelocity, edge.density, edge.vhlCnt, edge.passCnt,
+                    edge.isAvailable, new Date().toISOString()
+                ];
+                csv += row.join(',') + '\n';
+            });
+
+            downloadCSVFile(csv, 'railedge_data.csv');
+        }
+
+        // CSV 다운로드 헬퍼 함수
+        function downloadCSVFile(content, filename) {
+            const blob = new Blob([content], { type: 'text/csv;charset=utf-8;' });
+            const link = document.createElement('a');
+            
+            if (navigator.msSaveBlob) {
+                // IE 10+
+                navigator.msSaveBlob(blob, filename);
+            } else {
+                link.href = URL.createObjectURL(blob);
+                link.download = filename;
+                link.style.display = 'none';
+                document.body.appendChild(link);
+                link.click();
+                document.body.removeChild(link);
+            }
+        }
     </script>
 </body>
 </html>
