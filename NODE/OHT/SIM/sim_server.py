@@ -523,14 +523,15 @@ def parse_hid_zones(filepath: str) -> Dict[int, HIDZone]:
                             if lane:
                                 out_lanes.append(lane)
 
-                    # 시뮬레이션용 임계값 조정 (원본 CSV 값은 37/35로 너무 높음)
-                    # OHT 수가 적을 때도 상태 변화가 보이도록 낮춤
+                    # 시뮬레이션용 임계값 조정
+                    # OHT 대수에 따라 적절한 Zone 용량 설정
+                    # 원본: 37/35, 시뮬레이션: 더 여유있게 설정
                     csv_max = int(row.get('Vehicle_Max', 37))
                     csv_precaution = int(row.get('Vehicle_Precaution', 35))
 
-                    # 시뮬레이션용: 원본 값의 약 1/10로 조정 (최소 3/2)
-                    sim_max = max(3, csv_max // 10)
-                    sim_precaution = max(2, csv_precaution // 10)
+                    # 시뮬레이션용: 원본 값의 약 1/3로 조정 (OHT 500대 기준)
+                    sim_max = max(10, csv_max // 3)  # 최소 10대
+                    sim_precaution = max(7, csv_precaution // 3)  # 최소 7대
 
                     zone = HIDZone(
                         zoneId=zone_id,
@@ -779,8 +780,9 @@ class SimulationEngine:
         return None
 
     def _get_blocking_vehicle_ahead(self, v: Vehicle) -> Optional[Vehicle]:
-        """같은 엣지에서 앞에 정지/정체 중인 차량 확인
-        Returns: 앞에 있는 정지 차량, 없으면 None
+        """같은 엣지에서 앞에 정체(JAM) 중인 차량 확인
+        Returns: 앞에 있는 JAM 차량, 없으면 None
+        Note: STOP 상태(작업 대기)는 blocking으로 처리하지 않음
         """
         # 같은 엣지 (currentNode -> nextNode) 에 있는 다른 차량들 확인
         for other_v in self.vehicles.values():
@@ -791,18 +793,18 @@ class SimulationEngine:
             if other_v.currentNode == v.currentNode and other_v.nextNode == v.nextNode:
                 # 앞에 있는지 확인 (positionRatio가 더 큰 차량)
                 if other_v.positionRatio > v.positionRatio:
-                    # 정지/정체 상태인지 확인
-                    if other_v.udpState.state in (VHL_STATE.JAM, VHL_STATE.STOP) or other_v.velocity < 1.0:
-                        # 충분히 가까운 거리 (positionRatio 차이가 0.15 이하)
-                        if other_v.positionRatio - v.positionRatio < 0.15:
+                    # JAM 상태인 경우만 blocking (STOP은 작업 대기이므로 제외)
+                    if other_v.udpState.state == VHL_STATE.JAM:
+                        # 충분히 가까운 거리 (positionRatio 차이가 0.1 이하)
+                        if other_v.positionRatio - v.positionRatio < 0.1:
                             return other_v
 
-            # 다음 엣지에 정지 차량이 있는지 확인 (내가 곧 그 엣지에 진입할 때)
-            if v.positionRatio > 0.85:  # 현재 엣지 거의 끝
+            # 다음 엣지에 JAM 차량이 있는지 확인 (내가 곧 그 엣지에 진입할 때)
+            if v.positionRatio > 0.9:  # 현재 엣지 거의 끝
                 if other_v.currentNode == v.nextNode:
-                    # 다음 엣지의 시작 부분에 정지 차량
-                    if other_v.positionRatio < 0.15:
-                        if other_v.udpState.state in (VHL_STATE.JAM, VHL_STATE.STOP) or other_v.velocity < 1.0:
+                    # 다음 엣지의 시작 부분에 JAM 차량
+                    if other_v.positionRatio < 0.1:
+                        if other_v.udpState.state == VHL_STATE.JAM:
                             return other_v
 
         return None
@@ -981,14 +983,24 @@ class SimulationEngine:
         if v.udpState.state == VHL_STATE.JAM:
             edge_id = f"{FAB_ID}:RE:{MCP_NAME}:{v.currentNode}-{v.nextNode}"
             rail_edge = self.rail_edge_map.get(edge_id)
+
+            # JAM 복구 조건 완화 - 더 빨리 복구되도록
+            recovery_chance = 0.15  # 기본 15% 복구 확률
             if rail_edge:
                 density = rail_edge.getDensity()
-                # 밀도가 30% 이하로 떨어지면 복구 (5% 확률)
-                if density < 30 and random.random() < 0.05:
-                    v.udpState.state = VHL_STATE.RUN
-                    v.velocity = 50.0  # 저속으로 재출발
+                # 밀도가 낮을수록 복구 확률 증가
+                if density < 50:
+                    recovery_chance = 0.3  # 밀도 50% 미만이면 30%
+                if density < 30:
+                    recovery_chance = 0.5  # 밀도 30% 미만이면 50%
+
+            if random.random() < recovery_chance:
+                v.udpState.state = VHL_STATE.RUN
+                v.velocity = 50.0  # 저속으로 재출발
+                if rail_edge:
                     rail_edge.recordOut()  # 정체 해소 시 Out 기록
-            return  # JAM 상태면 이동 안함
+            else:
+                return  # JAM 상태 유지, 이동 안함
 
         # 정지 상태이면 일정 확률로 작업 할당
         if v.udpState.state != VHL_STATE.RUN or not v.path:
@@ -1067,27 +1079,28 @@ class SimulationEngine:
         # ============================================================
         current_zone = self.get_vehicle_zone(v)
         if current_zone:
-            # Zone이 주의 레벨 이상이면 속도 감소
+            # Zone이 주의 레벨 이상이면 속도 감소 (완만하게)
             if current_zone.isPrecautionLevel:
                 occupancy = current_zone.occupancyRate
-                # 점유율에 따른 속도 조절: 90%이면 10%로, 100%이면 0%로
-                speed_factor = max(0.1, 1.0 - (occupancy / 100.0))
+                # 점유율에 따른 속도 조절: 70%에서 시작, 100%이면 30%로
+                speed_factor = max(0.3, 1.0 - (occupancy - 70) / 100.0)
                 v.velocity *= speed_factor
 
-            # Zone이 꽉 찬 경우 정체 가능성
+            # Zone이 꽉 찬 경우 정체 가능성 (확률 낮춤)
             if current_zone.isFull:
-                if random.random() < 0.3:  # 30% 확률로 정체
+                if random.random() < 0.05:  # 5% 확률로 정체 (기존 30%)
                     v.udpState.state = VHL_STATE.JAM
                     v.velocity = 0.0
                     return
 
         # 자연스러운 데드락 발생 - 밀도 높고 In >> Out이면 JAM 상태로 전환
+        # (확률 대폭 낮춤 - 500대에서도 원활하게 동작하도록)
         if rail_edge:
             density = rail_edge.getDensity()
             in_out_ratio = rail_edge.getInOutRatio()
-            # 조건: 밀도 > 60% AND In/Out 비율 > 1.5 이면 정체 발생 (확률적)
-            if density > 60 and in_out_ratio > 1.5:
-                jam_probability = min(0.8, (density - 50) / 100 + (in_out_ratio - 1) * 0.2)
+            # 조건: 밀도 > 80% AND In/Out 비율 > 2.0 이면 정체 발생 (확률적)
+            if density > 80 and in_out_ratio > 2.0:
+                jam_probability = min(0.2, (density - 80) / 200 + (in_out_ratio - 2) * 0.05)
                 if random.random() < jam_probability:
                     v.udpState.state = VHL_STATE.JAM
                     v.velocity = 0.0
