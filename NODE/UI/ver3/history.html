@@ -989,6 +989,39 @@
                         <div class="llm-stat"><span class="llm-stat-label">30분 알람:</span><span class="llm-stat-value" id="llm-stat-alert30" style="color: var(--accent);">-</span></div>
                         <div class="llm-stat"><span class="llm-stat-label">로그프레소 알람:</span><span class="llm-stat-value" id="llm-stat-logpresso" style="color: var(--purple);">-</span></div>
                     </div>
+                    
+                    <!-- 급증 컬럼 & 상태 예상 통계 -->
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin-top: 12px;">
+                        <!-- 급증 컬럼 통계 -->
+                        <div style="background: rgba(239,68,68,0.1); border: 1px solid rgba(239,68,68,0.3); border-radius: 8px; padding: 12px;">
+                            <div style="font-size: 12px; font-weight: 600; color: var(--danger); margin-bottom: 8px;">
+                                📊 10분 급증 컬럼 통계
+                            </div>
+                            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 6px; font-size: 11px;">
+                                <div style="color: var(--text-secondary);">위험급증(D):</div>
+                                <div style="color: var(--danger); font-weight: 600;" id="llm-stat-danger-spikes">-</div>
+                                <div style="color: var(--text-secondary);">경고급증(W):</div>
+                                <div style="color: var(--warning); font-weight: 600;" id="llm-stat-warning-spikes">-</div>
+                                <div style="color: var(--text-secondary);">1위 컬럼:</div>
+                                <div style="color: var(--text-primary); font-weight: 500; font-size: 10px;" id="llm-stat-top-spike-col">-</div>
+                            </div>
+                        </div>
+                        
+                        <!-- 상태 예상 분포 -->
+                        <div style="background: rgba(139,92,246,0.1); border: 1px solid rgba(139,92,246,0.3); border-radius: 8px; padding: 12px;">
+                            <div style="font-size: 12px; font-weight: 600; color: var(--purple); margin-bottom: 8px;">
+                                🔮 상태 예상 분포
+                            </div>
+                            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 6px; font-size: 11px;">
+                                <div style="color: var(--text-secondary);">병목예상:</div>
+                                <div style="color: var(--danger); font-weight: 600;" id="llm-stat-bottleneck">-</div>
+                                <div style="color: var(--text-secondary);">위험예상:</div>
+                                <div style="color: var(--warning); font-weight: 600;" id="llm-stat-danger-status">-</div>
+                                <div style="color: var(--text-secondary);">관찰/양호:</div>
+                                <div style="color: var(--success); font-weight: 500;" id="llm-stat-normal-status">-</div>
+                            </div>
+                        </div>
+                    </div>
                 </div>
 
                 <!-- 분석 유형 선택 -->
@@ -2482,6 +2515,60 @@
             const alerts30 = (currentData.alerts_30 || []).filter(a => a.IS_ALARM).length;
             const logpressoAlarms = Object.values(logpressoAlarmMap).filter(a => a.IS_ALARM).length;
 
+            // 급증 컬럼 통계 계산
+            const spikeColumnCounts = {};
+            let totalDangerSpikes = 0;
+            let totalWarningSpikes = 0;
+            
+            rows.forEach(row => {
+                const spikeInfo = row.SPIKE_INFO || '';
+                if (spikeInfo) {
+                    const spikes = spikeInfo.split(', ').filter(s => s);
+                    spikes.forEach(spike => {
+                        const match = spike.match(/^(D|W):([^ ]+) \+(\d+)$/);
+                        if (match) {
+                            const level = match[1];
+                            const colName = match[2];
+                            
+                            if (!spikeColumnCounts[colName]) {
+                                spikeColumnCounts[colName] = { danger: 0, warning: 0, total: 0 };
+                            }
+                            spikeColumnCounts[colName].total++;
+                            
+                            if (level === 'D') {
+                                spikeColumnCounts[colName].danger++;
+                                totalDangerSpikes++;
+                            } else {
+                                spikeColumnCounts[colName].warning++;
+                                totalWarningSpikes++;
+                            }
+                        }
+                    });
+                }
+            });
+            
+            // 1위 급증 컬럼 찾기
+            const topSpikeCol = Object.entries(spikeColumnCounts)
+                .sort((a, b) => b[1].total - a[1].total)[0];
+            
+            // 상태 예상 분포 계산
+            const statusCounts = {
+                '병목예상': 0,
+                '위험예상': 0,
+                '관찰': 0,
+                '양호예상': 0,
+                '쿨타임': 0
+            };
+            
+            rows.forEach(row => {
+                const status = row.STATUS_PREDICTION || '양호예상';
+                if (status === '병목예상') statusCounts['병목예상']++;
+                else if (status === '위험예상') statusCounts['위험예상']++;
+                else if (status === '관찰') statusCounts['관찰']++;
+                else if (status.includes('쿨타임')) statusCounts['쿨타임']++;
+                else statusCounts['양호예상']++;
+            });
+
             // UI 업데이트
             document.getElementById('llm-stat-count').textContent = count.toLocaleString();
             document.getElementById('llm-stat-avg').textContent = avg.toLocaleString();
@@ -2495,6 +2582,21 @@
             document.getElementById('llm-stat-alert10').textContent = alerts10;
             document.getElementById('llm-stat-alert30').textContent = alerts30;
             document.getElementById('llm-stat-logpresso').textContent = logpressoAlarms;
+            
+            // 급증 컬럼 통계 UI 업데이트
+            document.getElementById('llm-stat-danger-spikes').textContent = totalDangerSpikes + '회';
+            document.getElementById('llm-stat-warning-spikes').textContent = totalWarningSpikes + '회';
+            document.getElementById('llm-stat-top-spike-col').textContent = topSpikeCol 
+                ? `${topSpikeCol[0]} (${topSpikeCol[1].total}회)` 
+                : '-';
+            
+            // 상태 예상 분포 UI 업데이트
+            document.getElementById('llm-stat-bottleneck').textContent = 
+                `${statusCounts['병목예상']}건 (${count > 0 ? Math.round(statusCounts['병목예상'] / count * 100) : 0}%)`;
+            document.getElementById('llm-stat-danger-status').textContent = 
+                `${statusCounts['위험예상']}건 (${count > 0 ? Math.round(statusCounts['위험예상'] / count * 100) : 0}%)`;
+            document.getElementById('llm-stat-normal-status').textContent = 
+                `${statusCounts['관찰'] + statusCounts['양호예상']}건`;
         }
 
         function selectLlmType(type) {
@@ -2606,7 +2708,115 @@
             const rows = currentData.data;
             const totalcnts = rows.map(r => r.TOTALCNT || 0);
 
+            // ========================================
+            // 급증 컬럼(SPIKE_INFO) 통계 계산
+            // ========================================
+            const spikeColumnCounts = {};  // 컬럼별 급증 횟수
+            let totalDangerSpikes = 0;     // 위험(D) 급증 총 횟수
+            let totalWarningSpikes = 0;    // 경고(W) 급증 총 횟수
+            const spikeTimeList = [];      // 급증 발생 시간 목록
+            
+            rows.forEach(row => {
+                const spikeInfo = row.SPIKE_INFO || '';
+                if (spikeInfo) {
+                    // SPIKE_INFO 형식: "D:M14AM10A +65, W:M10AM14A +52"
+                    const spikes = spikeInfo.split(', ').filter(s => s);
+                    spikes.forEach(spike => {
+                        const match = spike.match(/^(D|W):([^ ]+) \+(\d+)$/);
+                        if (match) {
+                            const level = match[1];  // D 또는 W
+                            const colName = match[2]; // 컬럼명
+                            const change = parseInt(match[3]); // 변화량
+                            
+                            // 컬럼별 카운트
+                            if (!spikeColumnCounts[colName]) {
+                                spikeColumnCounts[colName] = { danger: 0, warning: 0, total: 0, maxChange: 0 };
+                            }
+                            spikeColumnCounts[colName].total++;
+                            spikeColumnCounts[colName].maxChange = Math.max(spikeColumnCounts[colName].maxChange, change);
+                            
+                            if (level === 'D') {
+                                spikeColumnCounts[colName].danger++;
+                                totalDangerSpikes++;
+                            } else {
+                                spikeColumnCounts[colName].warning++;
+                                totalWarningSpikes++;
+                            }
+                        }
+                    });
+                    
+                    // 급증 발생 시간 기록
+                    const currtime = String(row.CURRTIME);
+                    if (currtime.length >= 12) {
+                        spikeTimeList.push({
+                            time: currtime.slice(8, 10) + ':' + currtime.slice(10, 12),
+                            info: spikeInfo,
+                            totalcnt: row.TOTALCNT || 0
+                        });
+                    }
+                }
+            });
+            
+            // 급증 컬럼 순위 (총 횟수 기준 정렬)
+            const spikeColumnRanking = Object.entries(spikeColumnCounts)
+                .sort((a, b) => b[1].total - a[1].total)
+                .map(([col, stats]) => ({
+                    column: col,
+                    danger_count: stats.danger,
+                    warning_count: stats.warning,
+                    total_count: stats.total,
+                    max_change: stats.maxChange
+                }));
+
+            // ========================================
+            // 상태 예상(STATUS_PREDICTION) 분포 계산
+            // ========================================
+            const statusCounts = {
+                '병목예상': 0,
+                '위험예상': 0,
+                '관찰': 0,
+                '양호예상': 0,
+                '병목_쿨타임': 0,
+                '위험_쿨타임': 0
+            };
+            const statusChanges = [];  // 상태 변화 목록
+            let prevStatus = null;
+            
+            rows.forEach((row, idx) => {
+                const status = row.STATUS_PREDICTION || '양호예상';
+                
+                // 상태 카운트
+                if (status === '병목예상') statusCounts['병목예상']++;
+                else if (status === '위험예상') statusCounts['위험예상']++;
+                else if (status === '관찰') statusCounts['관찰']++;
+                else if (status.includes('병목 쿨타임')) statusCounts['병목_쿨타임']++;
+                else if (status.includes('위험 쿨타임')) statusCounts['위험_쿨타임']++;
+                else statusCounts['양호예상']++;
+                
+                // 상태 변화 감지 (중요 상태 전환만)
+                const normalizedStatus = status.includes('쿨타임') ? status.split(' ')[0] + '_쿨타임' : status;
+                if (prevStatus && normalizedStatus !== prevStatus) {
+                    // 양호→위험, 관찰→병목 등 주요 변화만 기록
+                    if ((prevStatus === '양호예상' && (normalizedStatus === '위험예상' || normalizedStatus === '병목예상')) ||
+                        (prevStatus === '관찰' && normalizedStatus === '병목예상') ||
+                        (prevStatus === '위험예상' && normalizedStatus === '병목예상')) {
+                        const currtime = String(row.CURRTIME);
+                        if (currtime.length >= 12) {
+                            statusChanges.push({
+                                time: currtime.slice(8, 10) + ':' + currtime.slice(10, 12),
+                                from: prevStatus,
+                                to: normalizedStatus,
+                                totalcnt: row.TOTALCNT || 0
+                            });
+                        }
+                    }
+                }
+                prevStatus = normalizedStatus;
+            });
+
+            // ========================================
             // 시간대별 통계 계산
+            // ========================================
             const hourlyStats = {};
             rows.forEach(row => {
                 const currtime = String(row.CURRTIME);
@@ -2685,7 +2895,24 @@
                     tp: tp,
                     tn: tn,
                     fp: fp,
-                    fn: fn
+                    fn: fn,
+                    // 급증 컬럼 통계 (10분 대비)
+                    spike_stats: {
+                        total_danger_spikes: totalDangerSpikes,      // 위험(D) 급증 총 횟수
+                        total_warning_spikes: totalWarningSpikes,    // 경고(W) 급증 총 횟수
+                        total_spikes: totalDangerSpikes + totalWarningSpikes,
+                        column_ranking: spikeColumnRanking.slice(0, 10),  // 상위 10개 컬럼
+                        spike_times: spikeTimeList.slice(0, 30)      // 최근 30개 급증 시점
+                    },
+                    // 상태 예상 분포
+                    status_stats: {
+                        distribution: statusCounts,                   // 상태별 분포
+                        status_changes: statusChanges.slice(0, 20),  // 주요 상태 변화 (최대 20개)
+                        bottleneck_ratio: rows.length > 0 ? 
+                            Math.round((statusCounts['병목예상'] / rows.length) * 100) : 0,
+                        danger_ratio: rows.length > 0 ? 
+                            Math.round((statusCounts['위험예상'] / rows.length) * 100) : 0
+                    }
                 }
             };
         }
