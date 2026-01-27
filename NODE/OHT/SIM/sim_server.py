@@ -1647,7 +1647,7 @@ async def set_vehicle_count(count: int):
                 v.udpState.currentAddress = v.currentNode
                 v.udpState.nextAddress = v.nextNode
                 engine.vehicles[new_id] = v
-                engine._assign_initial_zone(v)
+                engine._assign_vehicle_to_zone(v)
                 added += 1
         return {"status": "ok", "message": f"{added}대 추가됨", "total": len(engine.vehicles)}
 
