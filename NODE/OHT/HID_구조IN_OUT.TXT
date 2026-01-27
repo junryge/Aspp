@@ -2,6 +2,11 @@
                         ATLAS_HID_INOUT 테이블 명세서
 ================================================================================
 
+ATLAS_HID_INOUT → OhtMsgWorkerRunnable.java에 추가
+// 이렇게 저장하면 됨
+LogpressoAPI.setInsertTuples("ATLAS_HID_INOUT", List.of(tuple), 20);
+
+
 1. 테이블 개요
 --------------------------------------------------------------------------------
   테이블명    : ATLAS_HID_INOUT
