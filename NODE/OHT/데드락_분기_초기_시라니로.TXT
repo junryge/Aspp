@@ -1,0 +1,174 @@
+M14 OHT Zone HID 구간 분석 및 운영 시나리오
+============================================
+
+1. 시스템 현황 요약
+-------------------
+
+총 Zone 수: 187개
+총 IN Lane: 754개
+총 OUT Lane: 763개
+총 허용 차량: 5,509대 (전 Zone 합산)
+
+대형 Zone (Vehicle_Max 37) - 134개 - 주요 생산구역
+중형 Zone (Vehicle_Max 31~36) - 14개 - Rail Junction
+소형 Zone (Vehicle_Max 5) - 38개 - Inter-FAB 연결
+특수 Zone (Vehicle_Max 3) - 1개 - 단일 통로
+
+
+2. IN/OUT Lane 구간 분석
+------------------------
+
+2.1 트래픽 집중 구간 (Top 5)
+
+1위: Zone 28 - IN 12개 / OUT 12개 (최대 규모)
+    특징: 16xxx번대 노드 연결, FAB간 핵심 허브
+    IN 예시: 4524→4542, 4649→4588, 16020→4550
+    OUT 예시: 4532→4533, 4548→16001, 4558→16021
+
+2위: Zone 54 - IN 11개 / OUT 10개 (+1 불균형)
+    특징: 진입 초과, Bridge 근처 병목 위험
+
+3위: Zone 57 - IN 10개 / OUT 11개 (-1 불균형)
+    특징: 대규모 교차점
+
+4위: Zone 105 - IN 10개 / OUT 10개 (균형)
+    특징: Rail Junction 핵심 구간
+
+5위: Zone 121 - IN 11개 / OUT 10개 (+1 불균형)
+    특징: Rail Junction, 모니터링 필요
+
+
+2.2 IN/OUT 불균형 구간 (병목 위험)
+
+진입 초과 구간 (IN > OUT) - 정체 위험
+
+Zone 120: IN 7 / OUT 5 / 차이 +2 / 위험도 높음
+Zone 54: IN 11 / OUT 10 / 차이 +1 / 위험도 중간
+Zone 121: IN 11 / OUT 10 / 차이 +1 / 위험도 중간
+Zone 143: IN 2 / OUT 1 / 차이 +1 / 위험도 낮음 (소규모)
+
+진출 초과 구간 (OUT > IN) - 공급 부족 가능
+
+Zone 32: IN 5 / OUT 6 / 차이 -1
+Zone 86: IN 6 / OUT 7 / 차이 -1
+Zone 102: IN 5 / OUT 6 / 차이 -1
+Zone 139: IN 3 / OUT 4 / 차이 -1
+
+
+3. Zone 네트워크 구조
+---------------------
+
+3.1 계층별 흐름
+
+1단계 (생산 영역): Zone 1~42
+    Vehicle_Max 37, IN/OUT 4~6개
+
+2단계 (Rail Junction): Zone 79~142
+    Vehicle_Max 31~37, IN/OUT 5~10개
+
+3단계 (Inter-FAB Bridge): Zone 143~167
+    Vehicle_Max 5, IN/OUT 1~2개
+
+
+3.2 노드 주소 범위별 영역
+
+노드 33~999 → Bay 01-10 영역 (Zone 72-78)
+노드 1000~1999 → Bay 11-20 영역 (Zone 43-62)
+노드 2000~2999 → Bay 21-30 영역 (Zone 43-46, 101-102)
+노드 3000~3999 → Bay 31-40 영역 (Zone 1-18, 79-84)
+노드 4000~4999 → Bay 41-50 영역 (Zone 19-35)
+노드 5000~5999 → Bay 51-60 영역 (Zone 36-42, 116)
+노드 6000~9999 → Rail/Junction 영역 (Zone 79-142)
+노드 12000~13999 → Hub/Bridge 영역 (Zone 169-179)
+노드 15000~15999 → Inter-FAB A 연결 (Zone 153-167)
+노드 16000~16999 → Inter-FAB B 연결 (Zone 143-152)
+
+
+4. 운영 시나리오
+----------------
+
+시나리오 1: 정상 운영 상태
+
+OHT가 생산 영역(Zone 1~42)에서 FOUP 픽업
+→ Rail Junction(Zone 79~142) 통과
+→ 목적지 Bay 또는 Inter-FAB Bridge(Zone 143~167) 진입
+→ 각 Zone IN Lane으로 진입, OUT Lane으로 진출
+
+모니터링 포인트:
+- Zone별 Vehicle 수량이 Vehicle_Precaution(Max-2) 이하 유지
+- IN/OUT 비율 1:1 근처 유지
+
+
+시나리오 2: 병목 발생 상황
+
+Zone 120에서 IN(7) > OUT(5) 불균형 심화
+→ 차량 누적으로 Vehicle_Precaution(35) 도달
+→ 알람 발생
+→ 인접 Zone(119, 121)으로 트래픽 우회 필요
+
+대응 방안:
+- Zone 120 진입 차량 임시 제한
+- OUT Lane 5개의 처리량 확인
+- 인접 Zone의 여유 용량 확인 후 경로 재배정
+
+
+시나리오 3: Inter-FAB 연결 구간 혼잡
+
+Zone 143~152(16xxx노드)에서 FAB간 반송 증가
+→ Vehicle_Max 5 제한으로 대기 발생
+→ Zone 28(허브)에 차량 정체
+
+대응 방안:
+- Inter-FAB 반송 우선순위 조정
+- Zone 28 IN Lane 12개 중 특정 Lane 전용화
+- 피크타임 분산 스케줄링
+
+
+시나리오 4: Junction 교차점 충돌 위험
+
+Zone 105, 121에서 다방향 IN Lane 동시 진입
+→ 10개 이상 IN Lane에서 동시 차량 진입 시 충돌 위험
+
+대응 방안:
+- IN Lane별 진입 타이밍 조절 (속도 계산 5가지 조건 활용)
+- Vehicle 상태(RUN, JAM) 실시간 모니터링
+- pathPredictQueue로 1~5분 후 도착 예상 차량 사전 파악
+
+
+5. 핵심 모니터링 지표
+---------------------
+
+Zone별 실시간 감시 항목
+
+1. Vehicle 수량 vs Vehicle_Max (용량 초과 여부)
+2. IN/OUT 비율 (1:1 이탈 시 병목 징후)
+3. 속도(velocity) 저하 여부 (정상 117~200 m/min)
+4. JAM 상태 Vehicle 발생 여부
+
+우선 관리 Zone
+
+1순위: Zone 28 (최대 규모, FAB 허브)
+2순위: Zone 120 (IN/OUT 불균형 +2)
+3순위: Zone 54, 121 (대규모 + 불균형)
+4순위: Zone 143~152 (Inter-FAB 병목 구간)
+
+
+6. 데이터 연계 방안
+-------------------
+
+HID Zone 데이터와 Smart ATLAS 연동:
+
+1. ATLAS_AREA_TRAFFIC 테이블의 speed, vhlCnt와 Zone별 Vehicle_Max 비교
+2. ATLAS_RAIL_TRAFFIC의 passCnt로 IN/OUT Lane 실제 통과량 검증
+3. pathPredictQCnts로 향후 1~5분 트래픽 예측
+4. density 값으로 구간별 혼잡도 수치화
+
+속도 계산 적용:
+- 5가지 필수 조건 충족 시에만 유효 속도 산출
+- 메시지 수신 시간 1분 미만, RUN/JAM 상태, ACQUIRE/DEPOSIT 사이클 확인
+- Zone 진입/진출 시점의 속도 변화로 병목 조기 탐지
+
+
+============================================
+작성일: 2025-01-27
+대상: SK하이닉스 M14 반도체 공장 OHT 시스템
