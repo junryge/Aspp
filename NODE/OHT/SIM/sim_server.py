@@ -1174,7 +1174,16 @@ class SimulationEngine:
                 'overallOccupancy': round((total_zone_vehicles / max(total_zone_capacity, 1)) * 100, 1)
             },
             'precautionZoneList': precaution_zones[:5],  # 상위 5개
-            'fullZoneList': full_zones[:5]  # 상위 5개
+            'fullZoneList': full_zones[:5],  # 상위 5개
+            # Zone별 현재 상태 (렌더링용)
+            'zoneStatusMap': {
+                z.zoneId: {
+                    'status': z.status,
+                    'vehicleCount': z.vehicleCount,
+                    'occupancyRate': round(z.occupancyRate, 1)
+                }
+                for z in self.hid_zones.values()
+            }
         }
 
     def generate_udp_message(self, v: Vehicle) -> str:
@@ -1348,15 +1357,26 @@ async def startup():
     # 레이아웃 로드
     nodes, edges = parse_layout(LAYOUT_PATH)
 
-    # 프론트엔드용 레이아웃 데이터
-    layout_data = {
-        'nodes': [{'no': n.no, 'x': n.x, 'y': n.y} for n in nodes.values()],
-        'edges': [{'from': e[0], 'to': e[1]} for e in edges]
-    }
-
     # 엔진 초기화
     engine = SimulationEngine(nodes, edges)
     engine.init_vehicles(VEHICLE_COUNT)
+
+    # 프론트엔드용 레이아웃 데이터 (Zone Lane 정보 포함)
+    layout_data = {
+        'nodes': [{'no': n.no, 'x': n.x, 'y': n.y} for n in nodes.values()],
+        'edges': [{'from': e[0], 'to': e[1]} for e in edges],
+        # HID Zone Lane 정보
+        'hidZones': [
+            {
+                'zoneId': z.zoneId,
+                'inLanes': [{'from': lane.fromNode, 'to': lane.toNode} for lane in z.inLanes],
+                'outLanes': [{'from': lane.fromNode, 'to': lane.toNode} for lane in z.outLanes],
+                'vehicleMax': z.vehicleMax,
+                'vehiclePrecaution': z.vehiclePrecaution
+            }
+            for z in engine.hid_zones.values()
+        ]
+    }
 
     is_running = True
 
@@ -1365,7 +1385,8 @@ async def startup():
     asyncio.create_task(csv_save_loop())
 
     print(f"\n서버 시작: http://localhost:8000")
-    print(f"OHT {VEHICLE_COUNT}대 시뮬레이션 시작\n")
+    print(f"OHT {VEHICLE_COUNT}대 시뮬레이션 시작")
+    print(f"HID Zone {len(engine.hid_zones)}개 로드됨\n")
 
 async def simulation_loop():
     """시뮬레이션 메인 루프"""
@@ -1607,6 +1628,15 @@ canvas { display: block; }
         <div class="stat-row"><span>주의</span><span class="val" id="statPrecautionZones" style="color:#ffaa00">-</span></div>
         <div class="stat-row"><span>포화</span><span class="val" id="statFullZones" style="color:#ff3366">-</span></div>
         <div class="stat-row"><span>전체 점유율</span><span class="val" id="statZoneOccupancy">- %</span></div>
+        <div style="margin-top:10px;">
+            <button id="btnToggleZones" style="width:100%;padding:6px 8px;background:#00d4ff;color:#000;border:none;border-radius:4px;cursor:pointer;font-size:11px;font-weight:bold;">Zone 표시 ON</button>
+        </div>
+        <div class="legend" style="margin-top:8px;">
+            <div class="legend-item"><div style="width:20px;height:3px;background:#00ff88;margin-right:8px;"></div>정상 Zone</div>
+            <div class="legend-item"><div style="width:20px;height:3px;background:#ffaa00;margin-right:8px;"></div>주의 Zone</div>
+            <div class="legend-item"><div style="width:20px;height:3px;background:#ff3366;margin-right:8px;"></div>포화 Zone</div>
+            <div style="font-size:10px;color:#888;margin-top:4px;">실선: IN Lane, 점선: OUT Lane</div>
+        </div>
         <div id="zoneAlertList" style="margin-top:8px;font-size:10px;max-height:60px;overflow-y:auto;"></div>
     </div>
 
@@ -1685,6 +1715,11 @@ ws.onmessage = (e) => {
         nodeMap = {};
         layout.nodes.forEach(n => nodeMap[n.no] = n);
         document.getElementById('nodeCount').textContent = layout.nodes.length.toLocaleString();
+
+        // HID Zone 정보 저장
+        window.hidZones = layout.hidZones || [];
+        console.log('HID Zones 로드:', window.hidZones.length + '개');
+
         fitView();
     }
     else if (msg.type === 'update') {
@@ -1766,6 +1801,9 @@ ws.onmessage = (e) => {
 
             alertList.innerHTML = alertHtml || '<span style="color:#888;">정상 운영 중</span>';
         }
+
+        // Zone 상태 맵 저장 (렌더링용)
+        window.zoneStatusMap = msg.data.zoneStatusMap || {};
     }
 };
 
@@ -1824,6 +1862,75 @@ function render() {
         ctx.arc(n.x, n.y, nodeSize, 0, Math.PI * 2);
         ctx.fill();
     });
+
+    // ============================================================
+    // HID Zone Lane 표시
+    // ============================================================
+    if (window.hidZones && window.showZones !== false) {
+        const zoneStatusMap = window.zoneStatusMap || {};
+
+        window.hidZones.forEach(zone => {
+            const status = zoneStatusMap[zone.zoneId];
+            let zoneColor, zoneAlpha;
+
+            // 상태별 색상
+            if (status && status.status === 'FULL') {
+                zoneColor = '#ff3366';
+                zoneAlpha = 0.8;
+            } else if (status && status.status === 'PRECAUTION') {
+                zoneColor = '#ffaa00';
+                zoneAlpha = 0.6;
+            } else {
+                zoneColor = '#00ff88';
+                zoneAlpha = 0.3;
+            }
+
+            // IN Lane (진입) - 실선
+            ctx.strokeStyle = zoneColor;
+            ctx.lineWidth = Math.max(3, 5 / scale);
+            ctx.globalAlpha = zoneAlpha;
+            ctx.setLineDash([]);
+
+            zone.inLanes.forEach(lane => {
+                const from = nodeMap[lane.from];
+                const to = nodeMap[lane.to];
+                if (from && to) {
+                    ctx.beginPath();
+                    ctx.moveTo(from.x, from.y);
+                    ctx.lineTo(to.x, to.y);
+                    ctx.stroke();
+
+                    // 화살표 (진입 방향)
+                    const angle = Math.atan2(to.y - from.y, to.x - from.x);
+                    const arrowLen = 15 / scale;
+                    const midX = (from.x + to.x) / 2;
+                    const midY = (from.y + to.y) / 2;
+                    ctx.beginPath();
+                    ctx.moveTo(midX, midY);
+                    ctx.lineTo(midX - arrowLen * Math.cos(angle - 0.4), midY - arrowLen * Math.sin(angle - 0.4));
+                    ctx.moveTo(midX, midY);
+                    ctx.lineTo(midX - arrowLen * Math.cos(angle + 0.4), midY - arrowLen * Math.sin(angle + 0.4));
+                    ctx.stroke();
+                }
+            });
+
+            // OUT Lane (진출) - 점선
+            ctx.setLineDash([6/scale, 3/scale]);
+            zone.outLanes.forEach(lane => {
+                const from = nodeMap[lane.from];
+                const to = nodeMap[lane.to];
+                if (from && to) {
+                    ctx.beginPath();
+                    ctx.moveTo(from.x, from.y);
+                    ctx.lineTo(to.x, to.y);
+                    ctx.stroke();
+                }
+            });
+        });
+
+        ctx.globalAlpha = 1.0;
+        ctx.setLineDash([]);
+    }
 
     // OHT 크기
     const vehSize = Math.max(4, 7 / scale);
@@ -2102,6 +2209,23 @@ document.getElementById('btnResetInOut').addEventListener('click', async () => {
     }
 
     btn.disabled = false;
+});
+
+// Zone 표시 토글 버튼
+window.showZones = true;  // 기본값: 표시
+document.getElementById('btnToggleZones').addEventListener('click', () => {
+    const btn = document.getElementById('btnToggleZones');
+    window.showZones = !window.showZones;
+
+    if (window.showZones) {
+        btn.textContent = 'Zone 표시 ON';
+        btn.style.background = '#00d4ff';
+        btn.style.color = '#000';
+    } else {
+        btn.textContent = 'Zone 표시 OFF';
+        btn.style.background = '#555';
+        btn.style.color = '#fff';
+    }
 });
 </script>
 </body>
