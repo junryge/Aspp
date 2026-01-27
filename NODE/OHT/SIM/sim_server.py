@@ -1720,6 +1720,34 @@ ws.onmessage = (e) => {
         window.hidZones = layout.hidZones || [];
         console.log('HID Zones 로드:', window.hidZones.length + '개');
 
+        // 디버깅: Zone Lane 노드 존재 여부 확인
+        if (window.hidZones.length > 0) {
+            let foundCount = 0, notFoundCount = 0;
+            const notFoundNodes = new Set();
+            window.hidZones.forEach(zone => {
+                zone.inLanes.forEach(lane => {
+                    if (nodeMap[lane.from] && nodeMap[lane.to]) foundCount++;
+                    else {
+                        notFoundCount++;
+                        if (!nodeMap[lane.from]) notFoundNodes.add(lane.from);
+                        if (!nodeMap[lane.to]) notFoundNodes.add(lane.to);
+                    }
+                });
+                zone.outLanes.forEach(lane => {
+                    if (nodeMap[lane.from] && nodeMap[lane.to]) foundCount++;
+                    else {
+                        notFoundCount++;
+                        if (!nodeMap[lane.from]) notFoundNodes.add(lane.from);
+                        if (!nodeMap[lane.to]) notFoundNodes.add(lane.to);
+                    }
+                });
+            });
+            console.log('Zone Lane 노드 매칭: 성공=' + foundCount + ', 실패=' + notFoundCount);
+            if (notFoundNodes.size > 0) {
+                console.log('누락된 노드 (샘플):', Array.from(notFoundNodes).slice(0, 10));
+            }
+        }
+
         fitView();
     }
     else if (msg.type === 'update') {
