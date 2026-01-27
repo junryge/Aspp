@@ -31,9 +31,13 @@ import uvicorn
 # ============================================================
 # 설정
 # ============================================================
-LAYOUT_PATH = "F:/M14_Q/OHT/OHT_LAYOUT_INFO/layout/layout/layout.html"
-OUTPUT_DIR = "F:/M14_Q/OHT/simulator/output"
-HID_ZONE_CSV_PATH = "HID_구역.CSV"  # HID Zone 구성 파일
+# 스크립트 디렉토리 기준 상대 경로 사용
+import pathlib
+_SCRIPT_DIR = pathlib.Path(__file__).parent.resolve()
+
+LAYOUT_PATH = str(_SCRIPT_DIR / "layout" / "layout" / "layout.html")
+OUTPUT_DIR = str(_SCRIPT_DIR / "output")
+HID_ZONE_CSV_PATH = str(_SCRIPT_DIR / "HID_구역.CSV")  # HID Zone 구성 파일
 CSV_SAVE_INTERVAL = 10  # 10초마다 CSV 저장
 VEHICLE_COUNT = 50  # OHT 대수
 SIMULATION_INTERVAL = 0.5  # 0.5초마다 업데이트
