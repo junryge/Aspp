@@ -1,0 +1,346 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>M14 OHT Zone HID 구간 분석 보고서</title>
+    <style>
+        body {
+            font-family: 'Malgun Gothic', 'Apple SD Gothic Neo', sans-serif;
+            line-height: 1.6;
+            max-width: 1000px;
+            margin: 0 auto;
+            padding: 20px;
+            background: #f5f5f5;
+            color: #333;
+        }
+        h1 {
+            color: #1a365d;
+            border-bottom: 3px solid #2b6cb0;
+            padding-bottom: 10px;
+        }
+        h2 {
+            color: #2b6cb0;
+            margin-top: 30px;
+            border-left: 4px solid #2b6cb0;
+            padding-left: 10px;
+        }
+        h3 {
+            color: #2c5282;
+            margin-top: 20px;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 15px 0;
+            background: white;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+        }
+        th, td {
+            border: 1px solid #e2e8f0;
+            padding: 10px 12px;
+            text-align: left;
+        }
+        th {
+            background: #2b6cb0;
+            color: white;
+            font-weight: 600;
+        }
+        tr:nth-child(even) {
+            background: #f7fafc;
+        }
+        tr:hover {
+            background: #edf2f7;
+        }
+        .info-box {
+            background: white;
+            padding: 15px;
+            border-radius: 8px;
+            margin: 15px 0;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+        }
+        pre {
+            background: #1a202c;
+            color: #e2e8f0;
+            padding: 15px;
+            border-radius: 6px;
+            overflow-x: auto;
+            font-size: 13px;
+        }
+        .highlight {
+            background: #fefcbf;
+            padding: 2px 5px;
+            border-radius: 3px;
+        }
+        strong {
+            color: #2b6cb0;
+        }
+        hr {
+            border: none;
+            border-top: 1px solid #e2e8f0;
+            margin: 30px 0;
+        }
+        .header-info {
+            color: #718096;
+            font-size: 14px;
+            margin-bottom: 20px;
+        }
+    </style>
+</head>
+<body>
+
+<h1>M14 OHT Zone HID 구간 분석 보고서</h1>
+
+<div class="header-info">
+    <strong>분석일</strong>: 2025-01-27<br>
+    <strong>대상</strong>: SK하이닉스 M14 반도체 공장 OHT Zone HID 데이터
+</div>
+
+<hr>
+
+<h2>1. 데이터 개요</h2>
+
+<div class="info-box">
+<table>
+    <tr><th>항목</th><th>값</th></tr>
+    <tr><td>총 Zone 수</td><td><strong>187개</strong></td></tr>
+    <tr><td>Territory</td><td>전체 1 (단일 영역)</td></tr>
+    <tr><td>Type</td><td>전체 HID (Hoist ID)</td></tr>
+    <tr><td>데이터 범위</td><td>Zone_ID 1 ~ 187</td></tr>
+</table>
+</div>
+
+<hr>
+
+<h2>2. Zone 용량 분석</h2>
+
+<h3>2.1 Vehicle_Max (최대 차량 수) 분포</h3>
+
+<table>
+    <tr><th>Vehicle_Max</th><th>Zone 수</th><th>비율</th><th>Zone ID 예시</th></tr>
+    <tr><td><strong>37</strong></td><td>134개</td><td>71.7%</td><td>1~14, 16~42, 44~91 등</td></tr>
+    <tr><td><strong>36</strong></td><td>5개</td><td>2.7%</td><td>15, 40, 54, 118, 173</td></tr>
+    <tr><td><strong>31</strong></td><td>9개</td><td>4.8%</td><td>83, 84, 97, 109, 113, 119, 133, 168, 169</td></tr>
+    <tr><td><strong>5</strong></td><td>38개</td><td>20.3%</td><td>143~167, 180~187</td></tr>
+    <tr><td><strong>3</strong></td><td>1개</td><td>0.5%</td><td>137</td></tr>
+</table>
+
+<h3>2.2 Vehicle_Precaution (주의 차량 수) 분포</h3>
+
+<table>
+    <tr><th>Vehicle_Precaution</th><th>Zone 수</th><th>비율</th></tr>
+    <tr><td><strong>35</strong></td><td>134개</td><td>71.7%</td></tr>
+    <tr><td><strong>34</strong></td><td>5개</td><td>2.7%</td></tr>
+    <tr><td><strong>29</strong></td><td>9개</td><td>4.8%</td></tr>
+    <tr><td><strong>3</strong></td><td>38개</td><td>20.3%</td></tr>
+    <tr><td><strong>1</strong></td><td>1개</td><td>0.5%</td></tr>
+</table>
+
+<p><strong>패턴</strong>: Vehicle_Precaution = Vehicle_Max - 2 (일관된 규칙)</p>
+
+<hr>
+
+<h2>3. IN/OUT Lane 분석</h2>
+
+<h3>3.1 IN_Count / OUT_Count 분포</h3>
+
+<table>
+    <tr><th>IN_Count</th><th>Zone 수</th><th>OUT_Count</th><th>Zone 수</th></tr>
+    <tr><td>1</td><td>25개</td><td>1</td><td>24개</td></tr>
+    <tr><td>2</td><td>14개</td><td>2</td><td>14개</td></tr>
+    <tr><td>3</td><td>6개</td><td>3</td><td>5개</td></tr>
+    <tr><td>4</td><td>60개</td><td>4</td><td>58개</td></tr>
+    <tr><td>5</td><td>43개</td><td>5</td><td>47개</td></tr>
+    <tr><td>6</td><td>23개</td><td>6</td><td>22개</td></tr>
+    <tr><td>7</td><td>5개</td><td>7</td><td>7개</td></tr>
+    <tr><td>8</td><td>3개</td><td>8</td><td>3개</td></tr>
+    <tr><td>9</td><td>3개</td><td>9</td><td>3개</td></tr>
+    <tr><td>10</td><td>2개</td><td>10</td><td>3개</td></tr>
+    <tr><td>11</td><td>2개</td><td>11</td><td>1개</td></tr>
+    <tr><td>12</td><td>1개</td><td>12</td><td>0개</td></tr>
+</table>
+
+<h3>3.2 IN/OUT 불균형 Zone (잠재적 병목 구간)</h3>
+
+<p><strong>IN > OUT (정체 위험):</strong></p>
+<table>
+    <tr><th>Zone_ID</th><th>IN_Count</th><th>OUT_Count</th><th>차이</th><th>비고</th></tr>
+    <tr><td>28</td><td>12</td><td>12</td><td>0</td><td>최대 규모 (균형)</td></tr>
+    <tr><td>54</td><td>11</td><td>10</td><td>+1</td><td>진입 약간 초과</td></tr>
+    <tr><td>57</td><td>10</td><td>11</td><td>-1</td><td>진출 약간 초과</td></tr>
+    <tr><td>120</td><td>7</td><td>5</td><td><strong>+2</strong></td><td>진입 초과 - 주의</td></tr>
+    <tr><td>143</td><td>2</td><td>1</td><td><strong>+1</strong></td><td>소규모 불균형</td></tr>
+</table>
+
+<p><strong>OUT > IN (공급 부족 가능):</strong></p>
+<table>
+    <tr><th>Zone_ID</th><th>IN_Count</th><th>OUT_Count</th><th>차이</th></tr>
+    <tr><td>32</td><td>5</td><td>6</td><td>-1</td></tr>
+    <tr><td>86</td><td>6</td><td>7</td><td>-1</td></tr>
+    <tr><td>102</td><td>5</td><td>6</td><td>-1</td></tr>
+    <tr><td>139</td><td>3</td><td>4</td><td>-1</td></tr>
+</table>
+
+<hr>
+
+<h2>4. 주요 Zone 상세 분석</h2>
+
+<h3>4.1 최대 규모 Zone (Zone 28)</h3>
+
+<pre>
+Zone_ID: 28
+IN_Count: 12, OUT_Count: 12 (완전 균형)
+Vehicle_Max: 37, Vehicle_Precaution: 35
+
+IN_Lanes (12개):
+4524→4542, 4649→4588, 5648→4545, 6159→4530, 8447→4578
+16020→4550, 16046→4559, 16065→4572, 16091→4593
+16080→4616, 16152→4582, 16133→4603
+
+OUT_Lanes (12개):
+4532→4533, 4560→4561, 4611→4628, 4620→6163, 4577→8451
+4548→16001, 4558→16021, 4571→16047, 4615→16066
+4591→16092, 4602→16081, 4581→16136
+</pre>
+
+<p><strong>특징</strong>: 16xxx번대 노드 연결 - FAB 간 연결 구간으로 추정</p>
+
+<h3>4.2 Inter-FAB 연결 Zone (143~167)</h3>
+
+<table>
+    <tr><th>Zone_ID</th><th>연결 노드 범위</th><th>Vehicle_Max</th><th>용도 추정</th></tr>
+    <tr><td>143-152</td><td>16xxx번대</td><td>5</td><td>M14↔M16 연결</td></tr>
+    <tr><td>153-167</td><td>15xxx번대</td><td>5</td><td>M14↔다른FAB 연결</td></tr>
+</table>
+
+<p><strong>특징</strong>: 소규모 용량 (Max 5대), 단일 IN/OUT Lane (1~2개), FAB 간 브릿지 역할</p>
+
+<h3>4.3 소규모 보조 Zone (180~187)</h3>
+
+<table>
+    <tr><th>Zone_ID</th><th>IN Lane</th><th>OUT Lane</th><th>노드 범위</th></tr>
+    <tr><td>180</td><td>2016→5715</td><td>5729→5244</td><td>5xxx번대</td></tr>
+    <tr><td>181</td><td>5027→5702</td><td>5713→1640</td><td>5xxx번대</td></tr>
+    <tr><td>182</td><td>4824→5650</td><td>5661→1428</td><td>5xxx번대</td></tr>
+    <tr><td>183</td><td>1331→5632</td><td>5648→4545</td><td>5xxx번대</td></tr>
+    <tr><td>184</td><td>4237→5616</td><td>5629→962</td><td>5xxx번대</td></tr>
+    <tr><td>185</td><td>779→5602</td><td>5613→3859</td><td>5xxx번대</td></tr>
+    <tr><td>186</td><td>3448→5685</td><td>5699→389</td><td>5xxx번대</td></tr>
+    <tr><td>187</td><td>137→5668</td><td>5682→3165</td><td>5xxx번대</td></tr>
+</table>
+
+<p><strong>특징</strong>: 5xxx번대 노드 - STB(Side Track Buffer) 또는 특수 경로 추정</p>
+
+<hr>
+
+<h2>5. 노드 주소 범위 분석</h2>
+
+<h3>5.1 주요 노드 범위별 Zone 분포</h3>
+
+<table>
+    <tr><th>노드 범위</th><th>추정 영역</th><th>관련 Zone</th></tr>
+    <tr><td>33 ~ 999</td><td>Bay 01-10</td><td>72-78</td></tr>
+    <tr><td>1000 ~ 1999</td><td>Bay 11-20</td><td>43-62</td></tr>
+    <tr><td>2000 ~ 2999</td><td>Bay 21-30</td><td>43-46, 101-102</td></tr>
+    <tr><td>3000 ~ 3999</td><td>Bay 31-40</td><td>1-18, 79-84</td></tr>
+    <tr><td>4000 ~ 4999</td><td>Bay 41-50</td><td>19-35</td></tr>
+    <tr><td>5000 ~ 5999</td><td>Bay 51-60</td><td>36-42, 116</td></tr>
+    <tr><td>6000 ~ 6999</td><td>Intra-bay</td><td>79-102</td></tr>
+    <tr><td>7000 ~ 7999</td><td>Rail/Junction</td><td>103-137</td></tr>
+    <tr><td>8000 ~ 8999</td><td>Rail/Junction</td><td>108-132</td></tr>
+    <tr><td>9000 ~ 9999</td><td>Rail/Junction</td><td>111, 131-142</td></tr>
+    <tr><td>12000 ~ 13999</td><td>Hub/Bridge</td><td>107, 124, 138-139, 169-179</td></tr>
+    <tr><td>15000 ~ 15999</td><td>Inter-FAB (A)</td><td>153-167</td></tr>
+    <tr><td>16000 ~ 16999</td><td>Inter-FAB (B)</td><td>143-152</td></tr>
+</table>
+
+<hr>
+
+<h2>6. 병목 위험 분석</h2>
+
+<h3>6.1 고위험 Zone (트래픽 집중)</h3>
+
+<table>
+    <tr><th>우선순위</th><th>Zone_ID</th><th>IN</th><th>OUT</th><th>특징</th></tr>
+    <tr><td>1</td><td>28</td><td>12</td><td>12</td><td>최대 규모, 다중 FAB 연결</td></tr>
+    <tr><td>2</td><td>54</td><td>11</td><td>10</td><td>진입 초과, Bridge 근처</td></tr>
+    <tr><td>3</td><td>57</td><td>10</td><td>11</td><td>대규모 교차점</td></tr>
+    <tr><td>4</td><td>105</td><td>10</td><td>10</td><td>Rail Junction</td></tr>
+    <tr><td>5</td><td>121</td><td>11</td><td>10</td><td>Rail Junction</td></tr>
+</table>
+
+<h3>6.2 Zone 연결 네트워크 특성</h3>
+
+<pre>
+[일반 생산 영역]          [Rail Junction]          [Inter-FAB Bridge]
+Zone 1-42 ───────────► Zone 79-102 ───────────► Zone 143-167
+(4-6 IN/OUT)            (5-6 IN/OUT)             (1-2 IN/OUT)
+Vehicle_Max: 37         Vehicle_Max: 31-37       Vehicle_Max: 5
+</pre>
+
+<hr>
+
+<h2>7. 통계 요약</h2>
+
+<h3>7.1 전체 통계</h3>
+
+<table>
+    <tr><th>항목</th><th>값</th></tr>
+    <tr><td>총 Zone 수</td><td>187개</td></tr>
+    <tr><td>총 IN Lane 수</td><td><strong>754개</strong></td></tr>
+    <tr><td>총 OUT Lane 수</td><td><strong>763개</strong></td></tr>
+    <tr><td>평균 IN/Zone</td><td>4.03개</td></tr>
+    <tr><td>평균 OUT/Zone</td><td>4.08개</td></tr>
+    <tr><td>최대 IN</td><td>12개 (Zone 28)</td></tr>
+    <tr><td>최대 OUT</td><td>12개 (Zone 28)</td></tr>
+    <tr><td>총 허용 차량</td><td><strong>5,509대</strong> (모든 Zone Vehicle_Max 합)</td></tr>
+</table>
+
+<h3>7.2 Zone 유형별 분류</h3>
+
+<table>
+    <tr><th>유형</th><th>Zone 수</th><th>특징</th></tr>
+    <tr><td><strong>대형 (Max 37)</strong></td><td>134개</td><td>주요 생산 영역</td></tr>
+    <tr><td><strong>중형 (Max 31-36)</strong></td><td>14개</td><td>Rail Junction</td></tr>
+    <tr><td><strong>소형 (Max 5)</strong></td><td>38개</td><td>Inter-FAB 연결</td></tr>
+    <tr><td><strong>특수 (Max 3)</strong></td><td>1개</td><td>단일 통로</td></tr>
+</table>
+
+<hr>
+
+<h2>8. 데이터 컬럼 설명</h2>
+
+<table>
+    <tr><th>컬럼명</th><th>설명</th><th>예시</th></tr>
+    <tr><td><strong>Zone_ID</strong></td><td>Zone 고유 식별 번호</td><td>1, 28, 143</td></tr>
+    <tr><td><strong>Territory</strong></td><td>소속 영역 번호</td><td>1</td></tr>
+    <tr><td><strong>Type</strong></td><td>Zone 유형 (HID = Hoist ID 구간)</td><td>HID</td></tr>
+    <tr><td><strong>IN_Count</strong></td><td>해당 Zone으로 진입하는 Lane 개수</td><td>12</td></tr>
+    <tr><td><strong>IN_Node</strong></td><td>진입 Lane의 노드 쌍 (시작노드→종료노드)</td><td>4524→4542</td></tr>
+    <tr><td><strong>OUT_Count</strong></td><td>해당 Zone에서 진출하는 Lane 개수</td><td>12</td></tr>
+    <tr><td><strong>OUT_Node</strong></td><td>진출 Lane의 노드 쌍 (시작노드→종료노드)</td><td>4532→4533</td></tr>
+    <tr><td><strong>Vehicle_Max</strong></td><td>Zone 내 최대 허용 OHT 대수</td><td>37</td></tr>
+    <tr><td><strong>Vehicle_Precaution</strong></td><td>주의 알람 발생 기준 OHT 대수</td><td>35</td></tr>
+</table>
+
+<hr>
+
+<h2>9. 결론</h2>
+
+<div class="info-box">
+<ol>
+    <li><strong>네트워크 구조</strong>: 187개 Zone이 계층적으로 구성 (생산영역 → Junction → Bridge)</li>
+    <li><strong>용량 설계</strong>: Vehicle_Max 37이 표준, Inter-FAB는 5로 제한</li>
+    <li><strong>균형 상태</strong>: 대부분 IN/OUT 균형 (±1), Zone 120만 +2 불균형</li>
+    <li><strong>모니터링 필요</strong>: Zone 28, 54, 57, 105, 121 집중 관리 권장</li>
+</ol>
+</div>
+
+<hr>
+
+<p style="color: #718096; font-size: 13px; text-align: center;">
+    <em>분석 기준: Zone HID 원본 데이터 (187개 Zone)</em>
+</p>
+
+</body>
+</html>
