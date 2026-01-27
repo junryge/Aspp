@@ -6,6 +6,7 @@ OHT 실시간 시뮬레이터 - FastAPI 웹서버
 - 속도 계산 5가지 조건 적용
 - WebSocket으로 프론트엔드에 전송
 - CSV 자동 저장 (ATLAS 테이블 형식)
+- HID Zone 기반 차량 관리 (HID_구역.CSV 연동)
 """
 
 import os
@@ -14,10 +15,9 @@ import json
 import random
 import math
 import asyncio
-import shutil  # ← 추가
 from datetime import datetime
 from dataclasses import dataclass, field, asdict
-from typing import Dict, List, Tuple, Optional
+from typing import Dict, List, Tuple, Optional, Set
 from collections import defaultdict
 from enum import Enum
 import heapq
@@ -33,8 +33,8 @@ import uvicorn
 # ============================================================
 LAYOUT_PATH = "F:/M14_Q/OHT/OHT_LAYOUT_INFO/layout/layout/layout.html"
 OUTPUT_DIR = "F:/M14_Q/OHT/simulator/output"
+HID_ZONE_CSV_PATH = "HID_구역.CSV"  # HID Zone 구성 파일
 CSV_SAVE_INTERVAL = 10  # 10초마다 CSV 저장
-OUTPUT_CLEANUP_INTERVAL = 1800  # 30분(1800초)마다 output 디렉토리 삭제  # ← 추가
 VEHICLE_COUNT = 50  # OHT 대수
 SIMULATION_INTERVAL = 0.5  # 0.5초마다 업데이트
 FAB_ID = "M14Q"
@@ -351,6 +351,228 @@ class RailEdge:
 
 
 # ============================================================
+# HID Zone 클래스 - HID_구역.CSV 기반
+# ============================================================
+@dataclass
+class LanePair:
+    """Lane 쌍 (시작노드→종료노드)"""
+    fromNode: int
+    toNode: int
+
+    @staticmethod
+    def parse(lane_str: str) -> 'LanePair':
+        """'3048→3023' 형식 파싱"""
+        parts = lane_str.strip().split('→')
+        if len(parts) == 2:
+            return LanePair(int(parts[0]), int(parts[1]))
+        return None
+
+@dataclass
+class HIDZone:
+    """
+    HID Zone 데이터 - HID_구역.CSV 기반
+
+    컬럼:
+    - Zone_ID: Zone 고유 식별 번호
+    - Territory: 소속 영역 번호 (전체 1)
+    - Type: Zone 유형 (HID = Hoist ID 구간)
+    - IN_Count: 진입 Lane 개수
+    - OUT_Count: 진출 Lane 개수
+    - IN_Lanes: 진입 Lane 노드 쌍 리스트
+    - OUT_Lanes: 진출 Lane 노드 쌍 리스트
+    - Vehicle_Max: Zone 내 최대 허용 OHT 대수
+    - Vehicle_Precaution: 주의 알람 발생 기준 OHT 대수
+    """
+    zoneId: int
+    territory: int
+    zoneType: str
+    inCount: int
+    outCount: int
+    inLanes: List[LanePair] = field(default_factory=list)
+    outLanes: List[LanePair] = field(default_factory=list)
+    vehicleMax: int = 37
+    vehiclePrecaution: int = 35
+
+    # 실시간 상태
+    currentVehicles: Set[str] = field(default_factory=set)
+
+    # 통계
+    totalInCount: int = 0   # 총 진입 횟수
+    totalOutCount: int = 0  # 총 진출 횟수
+
+    def __post_init__(self):
+        if self.currentVehicles is None:
+            self.currentVehicles = set()
+
+    @property
+    def vehicleCount(self) -> int:
+        """현재 Zone 내 차량 수"""
+        return len(self.currentVehicles)
+
+    @property
+    def isFull(self) -> bool:
+        """Zone이 꽉 찼는지 여부"""
+        return self.vehicleCount >= self.vehicleMax
+
+    @property
+    def isPrecautionLevel(self) -> bool:
+        """주의 레벨인지 여부"""
+        return self.vehicleCount >= self.vehiclePrecaution
+
+    @property
+    def occupancyRate(self) -> float:
+        """점유율 (%)"""
+        if self.vehicleMax <= 0:
+            return 0.0
+        return (self.vehicleCount / self.vehicleMax) * 100.0
+
+    @property
+    def status(self) -> str:
+        """Zone 상태: NORMAL, PRECAUTION, FULL"""
+        if self.isFull:
+            return "FULL"
+        elif self.isPrecautionLevel:
+            return "PRECAUTION"
+        return "NORMAL"
+
+    def addVehicle(self, vehicleId: str) -> bool:
+        """차량 추가 (성공 여부 반환)"""
+        if self.isFull:
+            return False
+        self.currentVehicles.add(vehicleId)
+        self.totalInCount += 1
+        return True
+
+    def removeVehicle(self, vehicleId: str):
+        """차량 제거"""
+        if vehicleId in self.currentVehicles:
+            self.currentVehicles.discard(vehicleId)
+            self.totalOutCount += 1
+
+    def hasVehicle(self, vehicleId: str) -> bool:
+        """차량 존재 여부"""
+        return vehicleId in self.currentVehicles
+
+    def getInOutRatio(self) -> float:
+        """In/Out 비율"""
+        if self.totalOutCount == 0:
+            return float(self.totalInCount) if self.totalInCount > 0 else 1.0
+        return self.totalInCount / self.totalOutCount
+
+    def resetStats(self):
+        """통계 초기화"""
+        self.totalInCount = 0
+        self.totalOutCount = 0
+
+    def containsLane(self, fromNode: int, toNode: int) -> Tuple[bool, bool]:
+        """
+        특정 Lane이 이 Zone의 IN 또는 OUT Lane인지 확인
+        Returns: (isInLane, isOutLane)
+        """
+        isIn = any(lane.fromNode == fromNode and lane.toNode == toNode for lane in self.inLanes)
+        isOut = any(lane.fromNode == fromNode and lane.toNode == toNode for lane in self.outLanes)
+        return (isIn, isOut)
+
+
+def parse_hid_zones(filepath: str) -> Dict[int, HIDZone]:
+    """
+    HID_구역.CSV 파일 파싱
+
+    CSV 컬럼:
+    Zone_ID,Territory,Type,IN_Count,OUT_Count,IN_Lanes,OUT_Lanes,Vehicle_Max,Vehicle_Precaution
+    """
+    zones: Dict[int, HIDZone] = {}
+
+    # 파일 경로 처리 (상대경로면 스크립트 위치 기준)
+    if not os.path.isabs(filepath):
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+        filepath = os.path.join(script_dir, filepath)
+
+    if not os.path.exists(filepath):
+        print(f"[경고] HID Zone 파일 없음: {filepath}")
+        return zones
+
+    print(f"HID Zone 파싱: {filepath}")
+
+    try:
+        with open(filepath, 'r', encoding='utf-8-sig') as f:
+            reader = csv.DictReader(f)
+            for row in reader:
+                try:
+                    zone_id = int(row['Zone_ID'])
+
+                    # IN Lanes 파싱 (세미콜론으로 구분)
+                    in_lanes = []
+                    in_lanes_str = row.get('IN_Lanes', '')
+                    if in_lanes_str:
+                        for lane_str in in_lanes_str.split(';'):
+                            lane = LanePair.parse(lane_str.strip())
+                            if lane:
+                                in_lanes.append(lane)
+
+                    # OUT Lanes 파싱
+                    out_lanes = []
+                    out_lanes_str = row.get('OUT_Lanes', '')
+                    if out_lanes_str:
+                        for lane_str in out_lanes_str.split(';'):
+                            lane = LanePair.parse(lane_str.strip())
+                            if lane:
+                                out_lanes.append(lane)
+
+                    zone = HIDZone(
+                        zoneId=zone_id,
+                        territory=int(row.get('Territory', 1)),
+                        zoneType=row.get('Type', 'HID'),
+                        inCount=int(row.get('IN_Count', 0)),
+                        outCount=int(row.get('OUT_Count', 0)),
+                        inLanes=in_lanes,
+                        outLanes=out_lanes,
+                        vehicleMax=int(row.get('Vehicle_Max', 37)),
+                        vehiclePrecaution=int(row.get('Vehicle_Precaution', 35))
+                    )
+                    zones[zone_id] = zone
+
+                except (ValueError, KeyError) as e:
+                    print(f"  [경고] Zone 파싱 오류 (행 무시): {e}")
+                    continue
+
+        print(f"  로드된 Zone: {len(zones)}개")
+
+        # 통계 출력
+        total_in_lanes = sum(len(z.inLanes) for z in zones.values())
+        total_out_lanes = sum(len(z.outLanes) for z in zones.values())
+        total_capacity = sum(z.vehicleMax for z in zones.values())
+        print(f"  총 IN Lane: {total_in_lanes}, OUT Lane: {total_out_lanes}")
+        print(f"  총 허용 차량: {total_capacity}대")
+
+    except Exception as e:
+        print(f"[오류] HID Zone 파일 읽기 실패: {e}")
+
+    return zones
+
+
+def build_lane_to_zone_map(zones: Dict[int, HIDZone]) -> Tuple[Dict[Tuple[int,int], int], Dict[Tuple[int,int], int]]:
+    """
+    Lane -> Zone 매핑 테이블 생성
+
+    Returns:
+        (in_lane_map, out_lane_map):
+        - in_lane_map: {(fromNode, toNode): zoneId} - IN Lane이 속한 Zone
+        - out_lane_map: {(fromNode, toNode): zoneId} - OUT Lane이 속한 Zone
+    """
+    in_lane_map = {}
+    out_lane_map = {}
+
+    for zone_id, zone in zones.items():
+        for lane in zone.inLanes:
+            in_lane_map[(lane.fromNode, lane.toNode)] = zone_id
+        for lane in zone.outLanes:
+            out_lane_map[(lane.fromNode, lane.toNode)] = zone_id
+
+    return in_lane_map, out_lane_map
+
+
+# ============================================================
 # 레이아웃 파서
 # ============================================================
 def parse_layout(filepath: str) -> Tuple[Dict[int, Node], List[Tuple[int, int, float]]]:
@@ -412,6 +634,15 @@ class SimulationEngine:
                 velocity=MAX_VELOCITY * 0.8  # 초기 속도
             )
 
+        # ============================================================
+        # HID Zone 관리 - HID_구역.CSV 기반
+        # ============================================================
+        self.hid_zones: Dict[int, HIDZone] = parse_hid_zones(HID_ZONE_CSV_PATH)
+        self.in_lane_to_zone, self.out_lane_to_zone = build_lane_to_zone_map(self.hid_zones)
+
+        # 차량 -> Zone 매핑 (현재 어느 Zone에 있는지)
+        self.vehicle_zone_map: Dict[str, int] = {}
+
         # 속도 설정 - MCP 속도 테이블 기반
         self.base_velocity = 180.0  # m/min 기본 속도
         self.alpha = 0.3  # EMA 평활화 계수
@@ -419,13 +650,14 @@ class SimulationEngine:
         # CSV 데이터 버퍼
         self.vehicle_buffer: List[dict] = []
         self.rail_buffer: Dict[Tuple[int,int], dict] = defaultdict(lambda: {'pass_cnt': 0, 'velocities': []})
+        self.zone_buffer: List[dict] = []  # Zone 상태 버퍼
 
         # 시작 시간
         self.start_time = datetime.now()
         self.simulation_tick = 0
 
     def init_vehicles(self, count: int):
-        """Vehicle 초기화 - Java Vhl 기반"""
+        """Vehicle 초기화 - Java Vhl 기반 + HID Zone 연동"""
         node_list = list(self.nodes.keys())
         for i in range(count):
             vid = f"V{i+1:05d}"  # Java 형식: V00001
@@ -446,7 +678,80 @@ class SimulationEngine:
             v.udpState.receivedTime = int(datetime.now().timestamp() * 1000)
 
             self.vehicles[vid] = v
+
+            # Zone에 차량 할당 (시작 노드 기반)
+            self._assign_vehicle_to_zone(v)
+
             self._assign_task(v)
+
+    def _assign_vehicle_to_zone(self, v: Vehicle):
+        """차량을 적절한 Zone에 할당"""
+        # 현재 Lane으로 Zone 찾기
+        lane_key = (v.currentNode, v.nextNode if v.nextNode else v.currentNode)
+
+        # IN Lane에서 Zone 찾기
+        if lane_key in self.in_lane_to_zone:
+            zone_id = self.in_lane_to_zone[lane_key]
+            if zone_id in self.hid_zones:
+                zone = self.hid_zones[zone_id]
+                if zone.addVehicle(v.vehicleId):
+                    self.vehicle_zone_map[v.vehicleId] = zone_id
+                    v.udpState.hidId = zone_id
+                    return
+
+        # OUT Lane에서 Zone 찾기
+        if lane_key in self.out_lane_to_zone:
+            zone_id = self.out_lane_to_zone[lane_key]
+            if zone_id in self.hid_zones:
+                zone = self.hid_zones[zone_id]
+                if zone.addVehicle(v.vehicleId):
+                    self.vehicle_zone_map[v.vehicleId] = zone_id
+                    v.udpState.hidId = zone_id
+                    return
+
+        # 어떤 Lane에도 매칭되지 않으면 랜덤 Zone 할당 (시뮬레이션 용)
+        if self.hid_zones:
+            available_zones = [z for z in self.hid_zones.values() if not z.isFull]
+            if available_zones:
+                zone = random.choice(available_zones)
+                zone.addVehicle(v.vehicleId)
+                self.vehicle_zone_map[v.vehicleId] = zone.zoneId
+                v.udpState.hidId = zone.zoneId
+
+    def _update_vehicle_zone(self, v: Vehicle, old_lane: Tuple[int, int], new_lane: Tuple[int, int]):
+        """차량이 이동할 때 Zone 업데이트"""
+        old_zone_id = self.vehicle_zone_map.get(v.vehicleId)
+
+        # 새로운 Lane이 어느 Zone의 IN Lane인지 확인
+        new_zone_id = self.in_lane_to_zone.get(new_lane)
+
+        # IN Lane이 아니면 OUT Lane 확인
+        if new_zone_id is None:
+            new_zone_id = self.out_lane_to_zone.get(new_lane)
+
+        # Zone이 바뀌었으면 업데이트
+        if new_zone_id is not None and new_zone_id != old_zone_id:
+            # 이전 Zone에서 제거
+            if old_zone_id is not None and old_zone_id in self.hid_zones:
+                self.hid_zones[old_zone_id].removeVehicle(v.vehicleId)
+
+            # 새 Zone에 추가
+            if new_zone_id in self.hid_zones:
+                new_zone = self.hid_zones[new_zone_id]
+                if new_zone.addVehicle(v.vehicleId):
+                    self.vehicle_zone_map[v.vehicleId] = new_zone_id
+                    v.udpState.hidId = new_zone_id
+                else:
+                    # Zone이 꽉 찬 경우 - 정체 발생 가능
+                    v.udpState.state = VHL_STATE.JAM
+                    v.velocity = 0.0
+
+    def get_vehicle_zone(self, v: Vehicle) -> Optional[HIDZone]:
+        """차량이 속한 Zone 반환"""
+        zone_id = self.vehicle_zone_map.get(v.vehicleId)
+        if zone_id is not None:
+            return self.hid_zones.get(zone_id)
+        return None
 
     def _find_path(self, start: int, end: int) -> List[int]:
         if start == end or start not in self.nodes or end not in self.nodes:
@@ -688,6 +993,25 @@ class SimulationEngine:
         self.rail_buffer[key]['pass_cnt'] += 1
         self.rail_buffer[key]['velocities'].append(v.velocity)
 
+        # ============================================================
+        # HID Zone 기반 정체 체크 (Vehicle_Max, Vehicle_Precaution)
+        # ============================================================
+        current_zone = self.get_vehicle_zone(v)
+        if current_zone:
+            # Zone이 주의 레벨 이상이면 속도 감소
+            if current_zone.isPrecautionLevel:
+                occupancy = current_zone.occupancyRate
+                # 점유율에 따른 속도 조절: 90%이면 10%로, 100%이면 0%로
+                speed_factor = max(0.1, 1.0 - (occupancy / 100.0))
+                v.velocity *= speed_factor
+
+            # Zone이 꽉 찬 경우 정체 가능성
+            if current_zone.isFull:
+                if random.random() < 0.3:  # 30% 확률로 정체
+                    v.udpState.state = VHL_STATE.JAM
+                    v.velocity = 0.0
+                    return
+
         # 자연스러운 데드락 발생 - 밀도 높고 In >> Out이면 JAM 상태로 전환
         if rail_edge:
             density = rail_edge.getDensity()
@@ -710,6 +1034,7 @@ class SimulationEngine:
 
         # 다음 노드 도달
         if v.positionRatio >= 1.0:
+            old_lane = (v.currentNode, v.nextNode)
             v.positionRatio = 0.0
             v.udpState.distance = 0.0
             v.pathIndex += 1
@@ -719,6 +1044,10 @@ class SimulationEngine:
                 v.nextNode = v.path[v.pathIndex + 1]
                 v.udpState.currentAddress = v.currentNode
                 v.udpState.nextAddress = v.nextNode
+
+                # Zone 업데이트 (Lane 변경 시)
+                new_lane = (v.currentNode, v.nextNode)
+                self._update_vehicle_zone(v, old_lane, new_lane)
             else:
                 # 목적지 도착
                 v.currentNode = v.destination
@@ -728,13 +1057,16 @@ class SimulationEngine:
                 v.path = []
 
     def get_state(self) -> dict:
-        """현재 상태 반환 (WebSocket용) - Java 기반 확장"""
+        """현재 상태 반환 (WebSocket용) - Java 기반 확장 + HID Zone 정보"""
         vehicles = []
         for v in self.vehicles.values():
             # 남은 경로 (현재 위치부터 목적지까지)
             remaining_path = []
             if v.path and v.pathIndex < len(v.path):
                 remaining_path = v.path[v.pathIndex:]
+
+            # 차량이 속한 Zone 정보
+            zone_id = self.vehicle_zone_map.get(v.vehicleId, -1)
 
             vehicles.append({
                 'vehicleId': v.vehicleId,
@@ -755,7 +1087,9 @@ class SimulationEngine:
                 'vhlCycle': v.udpState.vhlCycle.value,
                 'vhlCycleName': v.udpState.vhlCycle.name,
                 'distance': round(v.udpState.distance, 2),
-                'detailState': v.udpState.detailState.name
+                'detailState': v.udpState.detailState.name,
+                # HID Zone 정보
+                'hidZoneId': zone_id
             })
 
         # RailEdge In/Out 통계 계산
@@ -777,6 +1111,38 @@ class SimulationEngine:
                     'vhlCount': len(re.vhlIdMap)
                 })
 
+        # ============================================================
+        # HID Zone 통계
+        # ============================================================
+        zone_stats = []
+        precaution_zones = []
+        full_zones = []
+
+        for zone in self.hid_zones.values():
+            zone_data = {
+                'zoneId': zone.zoneId,
+                'vehicleCount': zone.vehicleCount,
+                'vehicleMax': zone.vehicleMax,
+                'vehiclePrecaution': zone.vehiclePrecaution,
+                'occupancyRate': round(zone.occupancyRate, 1),
+                'status': zone.status,
+                'totalIn': zone.totalInCount,
+                'totalOut': zone.totalOutCount,
+                'inOutRatio': round(zone.getInOutRatio(), 2)
+            }
+            zone_stats.append(zone_data)
+
+            if zone.status == 'PRECAUTION':
+                precaution_zones.append(zone_data)
+            elif zone.status == 'FULL':
+                full_zones.append(zone_data)
+
+        # Zone 통계 요약
+        total_zones = len(self.hid_zones)
+        normal_zones = total_zones - len(precaution_zones) - len(full_zones)
+        total_zone_capacity = sum(z.vehicleMax for z in self.hid_zones.values())
+        total_zone_vehicles = sum(z.vehicleCount for z in self.hid_zones.values())
+
         return {
             'timestamp': datetime.now().isoformat(),
             'fabId': FAB_ID,
@@ -796,7 +1162,19 @@ class SimulationEngine:
                 'ratio': round(total_in / max(total_out, 1), 2),
                 'deadlockRiskCount': len(deadlock_edges)
             },
-            'deadlockEdges': deadlock_edges[:10]  # 상위 10개만
+            'deadlockEdges': deadlock_edges[:10],  # 상위 10개만
+            # HID Zone 통계
+            'zoneStats': {
+                'totalZones': total_zones,
+                'normalZones': normal_zones,
+                'precautionZones': len(precaution_zones),
+                'fullZones': len(full_zones),
+                'totalCapacity': total_zone_capacity,
+                'totalVehiclesInZones': total_zone_vehicles,
+                'overallOccupancy': round((total_zone_vehicles / max(total_zone_capacity, 1)) * 100, 1)
+            },
+            'precautionZoneList': precaution_zones[:5],  # 상위 5개
+            'fullZoneList': full_zones[:5]  # 상위 5개
         }
 
     def generate_udp_message(self, v: Vehicle) -> str:
@@ -985,11 +1363,9 @@ async def startup():
     # 백그라운드 태스크 시작
     asyncio.create_task(simulation_loop())
     asyncio.create_task(csv_save_loop())
-    asyncio.create_task(output_cleanup_loop())  # ← 추가
 
     print(f"\n서버 시작: http://localhost:8000")
-    print(f"OHT {VEHICLE_COUNT}대 시뮬레이션 시작")
-    print(f"Output 자동 정리: 30분마다\n")  # ← 추가
+    print(f"OHT {VEHICLE_COUNT}대 시뮬레이션 시작\n")
 
 async def simulation_loop():
     """시뮬레이션 메인 루프"""
@@ -1005,28 +1381,6 @@ async def csv_save_loop():
     while is_running:
         await asyncio.sleep(CSV_SAVE_INTERVAL)
         engine.save_csv()
-
-# ============================================================
-# 30분마다 output 디렉토리 삭제 (추가)
-# ============================================================
-async def output_cleanup_loop():
-    """30분마다 output 디렉토리 완전 삭제 및 재생성"""
-    global is_running
-    while is_running:
-        await asyncio.sleep(OUTPUT_CLEANUP_INTERVAL)
-        
-        try:
-            if os.path.exists(OUTPUT_DIR):
-                # 디렉토리 완전 삭제
-                shutil.rmtree(OUTPUT_DIR)
-                print(f"\n[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Output 디렉토리 삭제 완료")
-            
-            # 디렉토리 재생성
-            os.makedirs(OUTPUT_DIR, exist_ok=True)
-            print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Output 디렉토리 재생성 완료\n")
-            
-        except Exception as e:
-            print(f"Output 디렉토리 정리 오류: {e}")
 
 # WebSocket 연결 관리
 connections: List[WebSocket] = []
@@ -1247,6 +1601,16 @@ canvas { display: block; }
     </div>
 
     <div class="section">
+        <h3>HID Zone 현황</h3>
+        <div class="stat-row"><span>총 Zone</span><span class="val" id="statTotalZones">187</span></div>
+        <div class="stat-row"><span>정상</span><span class="val" id="statNormalZones" style="color:#00ff88">-</span></div>
+        <div class="stat-row"><span>주의</span><span class="val" id="statPrecautionZones" style="color:#ffaa00">-</span></div>
+        <div class="stat-row"><span>포화</span><span class="val" id="statFullZones" style="color:#ff3366">-</span></div>
+        <div class="stat-row"><span>전체 점유율</span><span class="val" id="statZoneOccupancy">- %</span></div>
+        <div id="zoneAlertList" style="margin-top:8px;font-size:10px;max-height:60px;overflow-y:auto;"></div>
+    </div>
+
+    <div class="section">
         <h3>시스템 정보</h3>
         <div class="stat-row"><span>FAB ID</span><span class="val">M14Q</span></div>
         <div class="stat-row"><span>차량 길이</span><span class="val">1084mm</span></div>
@@ -1372,6 +1736,36 @@ ws.onmessage = (e) => {
 
         // 데드락 위험 구간 저장 (렌더링용)
         window.deadlockEdges = msg.data.deadlockEdges || [];
+
+        // HID Zone 통계 업데이트
+        if (msg.data.zoneStats) {
+            const zs = msg.data.zoneStats;
+            document.getElementById('statTotalZones').textContent = zs.totalZones;
+            document.getElementById('statNormalZones').textContent = zs.normalZones;
+            document.getElementById('statPrecautionZones').textContent = zs.precautionZones;
+            document.getElementById('statFullZones').textContent = zs.fullZones;
+            document.getElementById('statZoneOccupancy').textContent = zs.overallOccupancy + ' %';
+
+            // 주의/포화 Zone 목록 표시
+            const alertList = document.getElementById('zoneAlertList');
+            let alertHtml = '';
+
+            if (msg.data.fullZoneList && msg.data.fullZoneList.length > 0) {
+                alertHtml += '<div style="color:#ff3366;margin-bottom:4px;"><b>포화 Zone:</b></div>';
+                msg.data.fullZoneList.forEach(z => {
+                    alertHtml += `<div style="color:#ff3366;">Zone ${z.zoneId}: ${z.vehicleCount}/${z.vehicleMax}</div>`;
+                });
+            }
+
+            if (msg.data.precautionZoneList && msg.data.precautionZoneList.length > 0) {
+                alertHtml += '<div style="color:#ffaa00;margin-bottom:4px;margin-top:4px;"><b>주의 Zone:</b></div>';
+                msg.data.precautionZoneList.forEach(z => {
+                    alertHtml += `<div style="color:#ffaa00;">Zone ${z.zoneId}: ${z.vehicleCount}/${z.vehicleMax} (${z.occupancyRate}%)</div>`;
+                });
+            }
+
+            alertList.innerHTML = alertHtml || '<span style="color:#888;">정상 운영 중</span>';
+        }
     }
 };
 
@@ -1631,6 +2025,7 @@ function updateTooltip(e) {
             <div class="row"><span class="label">다음번지</span><span class="value">${closest.nextNode || '-'}</span></div>
             <div class="row"><span class="label">거리</span><span class="value">${distanceDisplay}</span></div>
             <div class="row"><span class="label">목적지</span><span class="value">${closest.destination || '-'}</span></div>
+            <div class="row"><span class="label">HID Zone</span><span class="value" style="color:#00d4ff;">${closest.hidZoneId >= 0 ? 'Zone ' + closest.hidZoneId : '-'}</span></div>
             <hr style="border:none;border-top:1px solid #444;margin:6px 0;">
             <div class="row"><span class="label">RunCycle</span><span class="value">${closest.runCycleName || closest.runCycle}</span></div>
             <div class="row"><span class="label">VhlCycle</span><span class="value">${closest.vhlCycleName || closest.vhlCycle}</span></div>
