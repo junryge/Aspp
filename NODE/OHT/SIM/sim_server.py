@@ -1923,7 +1923,9 @@ function render() {
             ctx.globalAlpha = zoneAlpha;
             ctx.setLineDash([]);
 
-            zone.inLanes.forEach(lane => {
+            let firstLaneMid = null;  // 첫 번째 Lane 중간점 저장
+
+            zone.inLanes.forEach((lane, idx) => {
                 const from = nodeMap[lane.from];
                 const to = nodeMap[lane.to];
                 if (from && to) {
@@ -1931,6 +1933,14 @@ function render() {
                     ctx.moveTo(from.x, from.y);
                     ctx.lineTo(to.x, to.y);
                     ctx.stroke();
+
+                    // 첫 번째 Lane의 중간점 저장 (Zone ID 표시용)
+                    if (idx === 0) {
+                        firstLaneMid = {
+                            x: (from.x + to.x) / 2,
+                            y: (from.y + to.y) / 2
+                        };
+                    }
 
                     // 화살표 (진입 방향)
                     const angle = Math.atan2(to.y - from.y, to.x - from.x);
@@ -1958,6 +1968,53 @@ function render() {
                     ctx.stroke();
                 }
             });
+
+            // Zone ID 텍스트 표시
+            if (firstLaneMid) {
+                ctx.globalAlpha = 1.0;
+                ctx.setLineDash([]);
+
+                // 배경 박스
+                const fontSize = Math.max(10, 14 / scale);
+                const label = 'HID' + zone.zoneId;
+                ctx.font = 'bold ' + fontSize + 'px sans-serif';
+                const textWidth = ctx.measureText(label).width;
+                const padding = 3 / scale;
+
+                ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
+                ctx.fillRect(
+                    firstLaneMid.x - textWidth/2 - padding,
+                    firstLaneMid.y - fontSize/2 - padding,
+                    textWidth + padding * 2,
+                    fontSize + padding * 2
+                );
+
+                // 텍스트
+                ctx.fillStyle = zoneColor;
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'middle';
+                ctx.fillText(label, firstLaneMid.x, firstLaneMid.y);
+
+                // 차량 수 표시 (상태가 있으면)
+                if (status) {
+                    const countLabel = status.vehicleCount + '/' + zone.vehicleMax;
+                    const countY = firstLaneMid.y + fontSize + padding * 2;
+                    const countFontSize = Math.max(8, 11 / scale);
+                    ctx.font = countFontSize + 'px sans-serif';
+                    const countWidth = ctx.measureText(countLabel).width;
+
+                    ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
+                    ctx.fillRect(
+                        firstLaneMid.x - countWidth/2 - padding,
+                        countY - countFontSize/2 - padding,
+                        countWidth + padding * 2,
+                        countFontSize + padding * 2
+                    );
+
+                    ctx.fillStyle = '#ffffff';
+                    ctx.fillText(countLabel, firstLaneMid.x, countY);
+                }
+            }
         });
 
         ctx.globalAlpha = 1.0;
