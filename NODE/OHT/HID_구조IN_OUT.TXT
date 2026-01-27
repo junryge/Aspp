@@ -1,0 +1,113 @@
+================================================================================
+                        ATLAS_HID_INOUT 테이블 명세서
+================================================================================
+
+1. 테이블 개요
+--------------------------------------------------------------------------------
+  테이블명    : ATLAS_HID_INOUT
+  목적        : OHT(Overhead Hoist Transport) 차량의 HID 구역 진입/이탈 이벤트 기록
+  저장위치    : Logpresso
+  생성주기    : 실시간 (OHT가 HID 구역 경계 통과 시)
+  관련소스    : OhtMsgWorkerRunnable.java → _setRailEdgeVelocity() 메서드
+
+================================================================================
+
+2. 컬럼 정의
+--------------------------------------------------------------------------------
+  No  컬럼명         타입      길이    NULL    설명
+--------------------------------------------------------------------------------
+  1   createTime     long      -       N       이벤트 발생 시간 (milliseconds)
+  2   fabId          String    10      N       FAB ID (M14A, M14B, M16A, M16B 등)
+  3   mcpName        String    10      N       MCP 이름
+  4   vhlId          String    50      N       OHT 차량 ID (전체 키)
+  5   vhlName        String    20      N       OHT 차량 이름
+  6   eventType      String    3       N       이벤트 유형 ("IN" / "OUT")
+  7   fromHidId      int       -       N       출발 HID 구역 ID (-1: 구역 외부)
+  8   toHidId        int       -       N       도착 HID 구역 ID (-1: 구역 외부)
+--------------------------------------------------------------------------------
+
+================================================================================
+
+3. 이벤트 유형 정의
+--------------------------------------------------------------------------------
+  eventType    fromHidId    toHidId    설명
+--------------------------------------------------------------------------------
+  IN           -1 or 다른값  > 0        HID 구역 진입
+  OUT          > 0          -1 or 다른값 HID 구역 이탈
+--------------------------------------------------------------------------------
+
+================================================================================
+
+4. 예시 데이터
+--------------------------------------------------------------------------------
+  createTime       fabId  mcpName  vhlId              vhlName  eventType  fromHidId  toHidId
+--------------------------------------------------------------------------------
+  1706512345678    M14A   A        M14A:VHL:A:OHT001  OHT001   IN         -1         5
+  1706512350123    M14A   A        M14A:VHL:A:OHT001  OHT001   OUT        5          7
+  1706512355456    M16A   A        M16A:VHL:A:OHT025  OHT025   IN         3          4
+--------------------------------------------------------------------------------
+
+================================================================================
+
+5. JAVA 수정 위치
+--------------------------------------------------------------------------------
+  파일    : OhtMsgWorkerRunnable.java
+  메서드  : _setRailEdgeVelocity(Vhl vehicle, RailEdge railEdge, RailEdge lastRailEdge)
+  조건    : lastRailEdge.getHIDId() != railEdge.getHIDId()
+
+================================================================================
+
+6. 수정 코드 (추가할 내용)
+--------------------------------------------------------------------------------
+
+// _setRailEdgeVelocity() 메서드 초반에 추가
+if (lastRailEdge != null && railEdge != null) {
+    int lastHid = lastRailEdge.getHIDId();
+    int currHid = railEdge.getHIDId();
+    
+    if (lastHid != currHid) {
+        Tuple tuple = new Tuple();
+        tuple.put("createTime", System.currentTimeMillis());
+        tuple.put("fabId", this.fabId);
+        tuple.put("mcpName", this.mcpName);
+        tuple.put("vhlId", vehicle.getId());
+        tuple.put("vhlName", vehicle.getName());
+        tuple.put("eventType", currHid > 0 ? "IN" : "OUT");
+        tuple.put("fromHidId", lastHid);
+        tuple.put("toHidId", currHid);
+        
+        Util.insertInLogpressoDatabase(
+            List.of(tuple), 
+            "ATLAS_HID_INOUT",
+            "OhtMsgWorkerRunnable"
+        );
+    }
+}
+
+--------------------------------------------------------------------------------
+
+================================================================================
+
+7. Logpresso 조회 쿼리 예시
+--------------------------------------------------------------------------------
+
+-- 최근 1시간 HID IN/OUT 이벤트 조회
+table ATLAS_HID_INOUT duration=1h
+| sort createTime desc
+
+-- HID 구역별 진입 횟수 집계
+table ATLAS_HID_INOUT duration=1d
+| where eventType == "IN"
+| stats count as in_count by toHidId, fabId
+| sort in_count desc
+
+-- 특정 OHT 이동 경로 추적
+table ATLAS_HID_INOUT duration=1d
+| where vhlName == "OHT001"
+| sort createTime
+
+--------------------------------------------------------------------------------
+
+================================================================================
+                              문서 작성일: 2026-01-28
+================================================================================
