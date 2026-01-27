@@ -1465,6 +1465,7 @@ async def startup():
     # 백그라운드 태스크 시작
     asyncio.create_task(simulation_loop())
     asyncio.create_task(csv_save_loop())
+    asyncio.create_task(output_cleanup_loop())  # 10분마다 OUTPUT 파일 삭제
 
     print(f"\n서버 시작: http://localhost:8000")
     print(f"OHT {VEHICLE_COUNT}대 시뮬레이션 시작")
@@ -1484,6 +1485,32 @@ async def csv_save_loop():
     while is_running:
         await asyncio.sleep(CSV_SAVE_INTERVAL)
         engine.save_csv()
+
+async def output_cleanup_loop():
+    """OUTPUT 디렉토리 정리 루프 - 10분마다 파일 완전 삭제"""
+    global is_running
+    cleanup_interval = 600  # 10분 = 600초
+
+    while is_running:
+        await asyncio.sleep(cleanup_interval)
+        try:
+            deleted_count = 0
+            deleted_size = 0
+
+            if os.path.exists(OUTPUT_DIR):
+                for filename in os.listdir(OUTPUT_DIR):
+                    filepath = os.path.join(OUTPUT_DIR, filename)
+                    if os.path.isfile(filepath):
+                        file_size = os.path.getsize(filepath)
+                        os.remove(filepath)  # 완전 삭제 (휴지통 X)
+                        deleted_count += 1
+                        deleted_size += file_size
+
+            if deleted_count > 0:
+                size_mb = deleted_size / (1024 * 1024)
+                print(f"[OUTPUT 정리] {deleted_count}개 파일 삭제됨 ({size_mb:.2f} MB 확보)")
+        except Exception as e:
+            print(f"[OUTPUT 정리 오류] {e}")
 
 # WebSocket 연결 관리
 connections: List[WebSocket] = []
@@ -1589,6 +1616,58 @@ async def reset_inout():
         rail_edge.resetInOut()
     return {"status": "ok", "message": "In/Out counters reset"}
 
+@app.post("/api/set-vehicle-count")
+async def set_vehicle_count(count: int):
+    """OHT 대수 변경"""
+    global engine
+    current_count = len(engine.vehicles)
+
+    if count < 1:
+        return {"status": "error", "message": "최소 1대 이상이어야 합니다"}
+    if count > 2000:
+        return {"status": "error", "message": "최대 2000대까지 가능합니다"}
+
+    if count > current_count:
+        # OHT 추가
+        added = 0
+        node_list = list(engine.nodes.keys())
+        for i in range(count - current_count):
+            new_id = f"V{current_count + i + 1:04d}"
+            if new_id not in engine.vehicles:
+                start_node = random.choice(node_list)
+                v = Vehicle(vehicleId=new_id, currentNode=start_node, x=0, y=0)
+                n = engine.nodes.get(start_node)
+                if n:
+                    v.x, v.y = n.x, n.y
+                # 인접 노드 찾기
+                if engine.graph[start_node]:
+                    v.nextNode = engine.graph[start_node][0][0]
+                else:
+                    v.nextNode = start_node
+                v.udpState.currentAddress = v.currentNode
+                v.udpState.nextAddress = v.nextNode
+                engine.vehicles[new_id] = v
+                engine._assign_initial_zone(v)
+                added += 1
+        return {"status": "ok", "message": f"{added}대 추가됨", "total": len(engine.vehicles)}
+
+    elif count < current_count:
+        # OHT 제거
+        removed = 0
+        vehicles_to_remove = list(engine.vehicles.keys())[count:]
+        for vid in vehicles_to_remove:
+            # Zone에서 제거
+            if vid in engine.vehicle_zone_map:
+                zone_id = engine.vehicle_zone_map[vid]
+                if zone_id in engine.hid_zones:
+                    engine.hid_zones[zone_id].removeVehicle(vid)
+                del engine.vehicle_zone_map[vid]
+            del engine.vehicles[vid]
+            removed += 1
+        return {"status": "ok", "message": f"{removed}대 제거됨", "total": len(engine.vehicles)}
+
+    return {"status": "ok", "message": "변경 없음", "total": current_count}
+
 # ============================================================
 # HTML 프론트엔드
 # ============================================================
@@ -1673,6 +1752,22 @@ canvas { display: block; }
 </div>
 
 <div id="sidebar">
+    <div class="section">
+        <h3>OHT 대수 설정</h3>
+        <div style="display:flex;gap:5px;align-items:center;">
+            <input type="number" id="inputVehicleCount" min="1" max="2000" value="50"
+                   style="flex:1;padding:6px 8px;background:#1a1a3e;color:#fff;border:1px solid #444;border-radius:4px;font-size:12px;width:80px;">
+            <span style="font-size:11px;color:#888;">대</span>
+        </div>
+        <div style="margin-top:8px;display:flex;gap:5px;">
+            <button id="btnSetVehicles" style="flex:1;padding:6px 8px;background:#00d4ff;color:#000;border:none;border-radius:4px;cursor:pointer;font-size:11px;font-weight:bold;">적용</button>
+            <button id="btnQuick50" style="padding:6px 8px;background:#333;color:#fff;border:none;border-radius:4px;cursor:pointer;font-size:10px;">50</button>
+            <button id="btnQuick100" style="padding:6px 8px;background:#333;color:#fff;border:none;border-radius:4px;cursor:pointer;font-size:10px;">100</button>
+            <button id="btnQuick500" style="padding:6px 8px;background:#333;color:#fff;border:none;border-radius:4px;cursor:pointer;font-size:10px;">500</button>
+        </div>
+        <div id="vehicleMsg" style="margin-top:6px;font-size:10px;color:#888;"></div>
+    </div>
+
     <div class="section">
         <h3>실시간 통계</h3>
         <div class="stat-row"><span>총 OHT</span><span class="val" id="statTotal">-</span></div>
@@ -2392,6 +2487,76 @@ document.getElementById('btnToggleZones').addEventListener('click', () => {
         btn.textContent = 'Zone 표시 OFF';
         btn.style.background = '#555';
         btn.style.color = '#fff';
+    }
+});
+
+// OHT 대수 변경 기능
+async function setVehicleCount(count) {
+    const msgEl = document.getElementById('vehicleMsg');
+    const inputEl = document.getElementById('inputVehicleCount');
+    const btn = document.getElementById('btnSetVehicles');
+
+    btn.disabled = true;
+    btn.textContent = '처리중...';
+    msgEl.textContent = '요청 중...';
+    msgEl.style.color = '#888';
+
+    try {
+        const response = await fetch('/api/set-vehicle-count?count=' + count, {
+            method: 'POST'
+        });
+        const data = await response.json();
+
+        if (data.status === 'ok') {
+            msgEl.textContent = data.message + ' (총 ' + data.total + '대)';
+            msgEl.style.color = '#00ff88';
+            inputEl.value = data.total;
+        } else {
+            msgEl.textContent = data.message;
+            msgEl.style.color = '#ff3366';
+        }
+    } catch (e) {
+        msgEl.textContent = '오류: ' + e.message;
+        msgEl.style.color = '#ff3366';
+    }
+
+    btn.disabled = false;
+    btn.textContent = '적용';
+
+    setTimeout(() => {
+        msgEl.textContent = '';
+    }, 3000);
+}
+
+document.getElementById('btnSetVehicles').addEventListener('click', () => {
+    const count = parseInt(document.getElementById('inputVehicleCount').value);
+    if (count && count > 0) {
+        setVehicleCount(count);
+    }
+});
+
+document.getElementById('btnQuick50').addEventListener('click', () => {
+    document.getElementById('inputVehicleCount').value = 50;
+    setVehicleCount(50);
+});
+
+document.getElementById('btnQuick100').addEventListener('click', () => {
+    document.getElementById('inputVehicleCount').value = 100;
+    setVehicleCount(100);
+});
+
+document.getElementById('btnQuick500').addEventListener('click', () => {
+    document.getElementById('inputVehicleCount').value = 500;
+    setVehicleCount(500);
+});
+
+// Enter 키로 적용
+document.getElementById('inputVehicleCount').addEventListener('keypress', (e) => {
+    if (e.key === 'Enter') {
+        const count = parseInt(e.target.value);
+        if (count && count > 0) {
+            setVehicleCount(count);
+        }
     }
 });
 </script>
