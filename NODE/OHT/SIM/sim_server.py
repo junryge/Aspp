@@ -523,6 +523,15 @@ def parse_hid_zones(filepath: str) -> Dict[int, HIDZone]:
                             if lane:
                                 out_lanes.append(lane)
 
+                    # 시뮬레이션용 임계값 조정 (원본 CSV 값은 37/35로 너무 높음)
+                    # OHT 수가 적을 때도 상태 변화가 보이도록 낮춤
+                    csv_max = int(row.get('Vehicle_Max', 37))
+                    csv_precaution = int(row.get('Vehicle_Precaution', 35))
+
+                    # 시뮬레이션용: 원본 값의 약 1/10로 조정 (최소 3/2)
+                    sim_max = max(3, csv_max // 10)
+                    sim_precaution = max(2, csv_precaution // 10)
+
                     zone = HIDZone(
                         zoneId=zone_id,
                         territory=int(row.get('Territory', 1)),
@@ -531,8 +540,8 @@ def parse_hid_zones(filepath: str) -> Dict[int, HIDZone]:
                         outCount=int(row.get('OUT_Count', 0)),
                         inLanes=in_lanes,
                         outLanes=out_lanes,
-                        vehicleMax=int(row.get('Vehicle_Max', 37)),
-                        vehiclePrecaution=int(row.get('Vehicle_Precaution', 35))
+                        vehicleMax=sim_max,
+                        vehiclePrecaution=sim_precaution
                     )
                     zones[zone_id] = zone
 
@@ -723,30 +732,42 @@ class SimulationEngine:
                 v.udpState.hidId = zone.zoneId
 
     def _update_vehicle_zone(self, v: Vehicle, old_lane: Tuple[int, int], new_lane: Tuple[int, int]):
-        """차량이 이동할 때 Zone 업데이트"""
-        old_zone_id = self.vehicle_zone_map.get(v.vehicleId)
+        """차량이 이동할 때 Zone 업데이트
+        - IN Lane 진입 시: Zone에 추가 (카운터 증가)
+        - OUT Lane 이탈 시: Zone에서 제거 (카운터 감소)
+        """
+        current_zone_id = self.vehicle_zone_map.get(v.vehicleId)
 
-        # 새로운 Lane이 어느 Zone의 IN Lane인지 확인
-        new_zone_id = self.in_lane_to_zone.get(new_lane)
+        # 1. old_lane이 OUT Lane인 경우 -> Zone에서 나감 (카운터 감소)
+        out_zone_id = self.out_lane_to_zone.get(old_lane)
+        if out_zone_id is not None and out_zone_id == current_zone_id:
+            # OUT Lane을 통과해서 나가는 중 - Zone에서 제거
+            if current_zone_id in self.hid_zones:
+                self.hid_zones[current_zone_id].removeVehicle(v.vehicleId)
+            if v.vehicleId in self.vehicle_zone_map:
+                del self.vehicle_zone_map[v.vehicleId]
+            v.udpState.hidId = -1
+            current_zone_id = None  # 업데이트된 상태 반영
 
-        # IN Lane이 아니면 OUT Lane 확인
-        if new_zone_id is None:
-            new_zone_id = self.out_lane_to_zone.get(new_lane)
+        # 2. new_lane이 IN Lane인 경우 -> Zone에 들어감 (카운터 증가)
+        in_zone_id = self.in_lane_to_zone.get(new_lane)
+        if in_zone_id is not None:
+            # 이미 같은 Zone에 있으면 무시
+            if in_zone_id == current_zone_id:
+                return
 
-        # Zone이 바뀌었으면 업데이트
-        if new_zone_id is not None and new_zone_id != old_zone_id:
-            # 이전 Zone에서 제거
-            if old_zone_id is not None and old_zone_id in self.hid_zones:
-                self.hid_zones[old_zone_id].removeVehicle(v.vehicleId)
+            # 다른 Zone에 있었으면 먼저 제거
+            if current_zone_id is not None and current_zone_id in self.hid_zones:
+                self.hid_zones[current_zone_id].removeVehicle(v.vehicleId)
 
             # 새 Zone에 추가
-            if new_zone_id in self.hid_zones:
-                new_zone = self.hid_zones[new_zone_id]
+            if in_zone_id in self.hid_zones:
+                new_zone = self.hid_zones[in_zone_id]
                 if new_zone.addVehicle(v.vehicleId):
-                    self.vehicle_zone_map[v.vehicleId] = new_zone_id
-                    v.udpState.hidId = new_zone_id
+                    self.vehicle_zone_map[v.vehicleId] = in_zone_id
+                    v.udpState.hidId = in_zone_id
                 else:
-                    # Zone이 꽉 찬 경우 - 정체 발생 가능
+                    # Zone이 꽉 찬 경우 - 정체 발생
                     v.udpState.state = VHL_STATE.JAM
                     v.velocity = 0.0
 
@@ -755,6 +776,35 @@ class SimulationEngine:
         zone_id = self.vehicle_zone_map.get(v.vehicleId)
         if zone_id is not None:
             return self.hid_zones.get(zone_id)
+        return None
+
+    def _get_blocking_vehicle_ahead(self, v: Vehicle) -> Optional[Vehicle]:
+        """같은 엣지에서 앞에 정지/정체 중인 차량 확인
+        Returns: 앞에 있는 정지 차량, 없으면 None
+        """
+        # 같은 엣지 (currentNode -> nextNode) 에 있는 다른 차량들 확인
+        for other_v in self.vehicles.values():
+            if other_v.vehicleId == v.vehicleId:
+                continue
+
+            # 같은 엣지에 있는지 확인
+            if other_v.currentNode == v.currentNode and other_v.nextNode == v.nextNode:
+                # 앞에 있는지 확인 (positionRatio가 더 큰 차량)
+                if other_v.positionRatio > v.positionRatio:
+                    # 정지/정체 상태인지 확인
+                    if other_v.udpState.state in (VHL_STATE.JAM, VHL_STATE.STOP) or other_v.velocity < 1.0:
+                        # 충분히 가까운 거리 (positionRatio 차이가 0.15 이하)
+                        if other_v.positionRatio - v.positionRatio < 0.15:
+                            return other_v
+
+            # 다음 엣지에 정지 차량이 있는지 확인 (내가 곧 그 엣지에 진입할 때)
+            if v.positionRatio > 0.85:  # 현재 엣지 거의 끝
+                if other_v.currentNode == v.nextNode:
+                    # 다음 엣지의 시작 부분에 정지 차량
+                    if other_v.positionRatio < 0.15:
+                        if other_v.udpState.state in (VHL_STATE.JAM, VHL_STATE.STOP) or other_v.velocity < 1.0:
+                            return other_v
+
         return None
 
     def _find_path(self, start: int, end: int) -> List[int]:
@@ -945,6 +995,21 @@ class SimulationEngine:
             if random.random() < 0.05:
                 self._assign_task(v)
             return
+
+        # ============================================================
+        # 앞 차량 정지 시 뒤 차량도 정지 (충돌 방지)
+        # ============================================================
+        blocking_vehicle = self._get_blocking_vehicle_ahead(v)
+        if blocking_vehicle:
+            # 앞에 정지 차량이 있으면 속도 감소 또는 정지
+            distance_ratio = blocking_vehicle.positionRatio - v.positionRatio
+            if distance_ratio < 0.05:  # 매우 가까우면 완전 정지
+                v.velocity = 0.0
+                return  # 이동 중단
+            elif distance_ratio < 0.1:  # 가까우면 서행
+                v.velocity = min(v.velocity, 10.0)
+            else:
+                v.velocity = min(v.velocity, 30.0)  # 속도 제한
 
         # 이전 상태 저장
         v.copyCurrentVhlUdpStateToLast()
@@ -1976,7 +2041,7 @@ function render() {
 
                 // 배경 박스
                 const fontSize = Math.max(10, 14 / scale);
-                const label = 'HID' + zone.zoneId;
+                const label = 'HID ' + zone.zoneId;
                 ctx.font = 'bold ' + fontSize + 'px sans-serif';
                 const textWidth = ctx.measureText(label).width;
                 const padding = 3 / scale;
