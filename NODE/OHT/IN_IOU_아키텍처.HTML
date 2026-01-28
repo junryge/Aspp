@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>ATLAS_HID_INOUT 아키텍처</title>
+    <title>ATLAS HID 데이터 아키텍처</title>
     <style>
         * {
             margin: 0;
@@ -105,6 +105,14 @@
             box-shadow: 0 5px 30px rgba(107, 203, 119, 0.3);
         }
         
+        /* Batch */
+        .batch {
+            background: linear-gradient(135deg, #ffa657, #f97316);
+            border: 2px solid #fb923c;
+            color: #1a1a2e;
+            box-shadow: 0 5px 30px rgba(255, 166, 87, 0.3);
+        }
+        
         /* 데이터 */
         .data {
             background: linear-gradient(135deg, #4d96ff, #3b82f6);
@@ -131,6 +139,17 @@
             font-size: 0.65rem;
             font-weight: bold;
             animation: pulse 2s infinite;
+        }
+        .batch-tag {
+            position: absolute;
+            top: -10px;
+            right: -10px;
+            background: #ffa657;
+            color: #1a1a2e;
+            padding: 3px 8px;
+            border-radius: 10px;
+            font-size: 0.65rem;
+            font-weight: bold;
         }
         @keyframes pulse {
             0%, 100% { transform: scale(1); }
@@ -177,7 +196,7 @@
         .branch-arrows {
             display: flex;
             justify-content: center;
-            gap: 200px;
+            gap: 300px;
             height: 60px;
             position: relative;
         }
@@ -187,7 +206,7 @@
             top: 0;
             left: 50%;
             transform: translateX(-50%);
-            width: 250px;
+            width: 350px;
             height: 3px;
             background: linear-gradient(90deg, #00d4ff, #00ff88, #00d4ff);
             border-radius: 2px;
@@ -197,6 +216,11 @@
             flex-direction: column;
             align-items: center;
             margin-top: 3px;
+        }
+        .branch-label {
+            font-size: 0.7rem;
+            color: #888;
+            margin-top: 5px;
         }
         
         /* 조건 박스 */
@@ -244,7 +268,7 @@
         
         /* 플로우 설명 */
         .flow-desc {
-            max-width: 900px;
+            max-width: 1000px;
             margin: 40px auto 0;
             background: rgba(255, 255, 255, 0.03);
             border-radius: 12px;
@@ -275,6 +299,9 @@
             font-weight: bold;
             flex-shrink: 0;
         }
+        .step-num-orange {
+            background: #ffa657;
+        }
         .step-text {
             font-size: 0.85rem;
             color: #ccc;
@@ -283,11 +310,80 @@
         .step-text strong {
             color: #fff;
         }
+        .flow-divider {
+            border-top: 1px dashed rgba(255, 255, 255, 0.2);
+            margin: 20px 0;
+            padding-top: 15px;
+        }
+        .flow-divider h4 {
+            color: #ffa657;
+            font-size: 0.9rem;
+            margin-bottom: 15px;
+        }
+
+        /* 테이블 상세 */
+        .table-detail {
+            max-width: 1000px;
+            margin: 30px auto 0;
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+        }
+        .table-card {
+            background: rgba(255, 255, 255, 0.03);
+            border-radius: 12px;
+            padding: 20px;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+        .table-card h4 {
+            color: #00d4ff;
+            margin-bottom: 15px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        .table-card.existing h4 {
+            color: #ffa657;
+        }
+        .table-card ul {
+            list-style: none;
+            padding: 0;
+        }
+        .table-card li {
+            padding: 8px 0;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+            font-size: 0.85rem;
+            color: #aaa;
+        }
+        .table-card li:last-child {
+            border-bottom: none;
+        }
+        .table-card li strong {
+            color: #fff;
+            display: inline-block;
+            width: 120px;
+        }
+        .badge-small {
+            display: inline-block;
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-size: 0.7rem;
+            font-weight: 600;
+            margin-left: 10px;
+        }
+        .badge-new-small {
+            background: rgba(255, 51, 102, 0.3);
+            color: #ff3366;
+        }
+        .badge-existing-small {
+            background: rgba(255, 166, 87, 0.2);
+            color: #ffa657;
+        }
     </style>
 </head>
 <body>
-    <h1>🏗️ ATLAS_HID_INOUT 아키텍처</h1>
-    <p class="subtitle">OHT HID 구역 IN/OUT 이벤트 데이터 흐름</p>
+    <h1>🏗️ ATLAS HID 데이터 아키텍처</h1>
+    <p class="subtitle">OHT HID 관련 데이터 흐름 (ATLAS_RAIL_TRAFFIC + ATLAS_HID_INOUT)</p>
 
     <div class="architecture">
         
@@ -363,51 +459,64 @@
             <div class="box java" style="min-width: 250px;">
                 <div class="icon">🔄</div>
                 <div class="title">_setRailEdgeVelocity()</div>
-                <div class="desc">RailEdge 변경 감지</div>
+                <div class="desc">RailEdge 정보 업데이트</div>
             </div>
         </div>
 
-        <!-- Condition -->
-        <div class="layer">
-            <div class="condition">
-                <code>if (lastRailEdge.getHIDId() != railEdge.getHIDId())</code>
-            </div>
-        </div>
-
-        <!-- Branch Arrows -->
+        <!-- Branch to two paths -->
         <div class="branch-arrows">
             <div class="branch-arrow">
-                <div class="arrow-line"></div>
-                <div class="arrow-head"></div>
+                <div class="arrow-line" style="background: linear-gradient(180deg, #ffa657, #f97316);"></div>
+                <div class="arrow-head" style="border-top-color: #f97316;"></div>
+                <span class="branch-label">1분 배치 집계</span>
             </div>
             <div class="branch-arrow">
                 <div class="arrow-line"></div>
                 <div class="arrow-head"></div>
+                <span class="branch-label">실시간 이벤트</span>
             </div>
         </div>
 
-        <!-- Layer 5: Data -->
-        <div class="layer">
-            <div class="layer-label">Data Layer</div>
+        <!-- Layer 5: Two processing paths -->
+        <div class="layer" style="gap: 100px;">
+            <div class="box batch">
+                <span class="batch-tag">1분 배치</span>
+                <div class="icon">⏱️</div>
+                <div class="title">TrafficBatch</div>
+                <div class="desc">RailEdge 데이터 집계</div>
+            </div>
+            <div class="box java">
+                <span class="new-tag">NEW</span>
+                <div class="icon">⚡</div>
+                <div class="title">HID 변경 감지</div>
+                <div class="desc">lastHid != currHid</div>
+            </div>
+        </div>
+
+        <!-- Layer 5-1: Data objects -->
+        <div class="layer" style="gap: 100px; margin-top: 30px;">
             <div class="box data">
                 <div class="icon">📊</div>
                 <div class="title">RailEdge</div>
-                <div class="desc">hidId, velocity, vhlIdMap</div>
+                <div class="desc">hidId, velocity, vhlCnt, passCnt</div>
             </div>
             <div class="box data">
                 <div class="icon">🚗</div>
                 <div class="title">Vhl (Vehicle)</div>
-                <div class="desc">id, name, state</div>
+                <div class="desc">id, name, fromHid, toHid</div>
             </div>
         </div>
 
-        <!-- Arrow -->
-        <div class="arrow-container">
-            <div class="arrow">
-                <div class="arrow-line"></div>
-                <div class="arrow-head"></div>
+        <!-- Arrow to storage -->
+        <div class="branch-arrows" style="margin-top: 20px;">
+            <div class="branch-arrow">
+                <div class="arrow-line" style="background: linear-gradient(180deg, #ffa657, #a855f7);"></div>
+                <div class="arrow-head" style="border-top-color: #a855f7;"></div>
             </div>
-            <span class="arrow-label">LogpressoAPI.setInsertTuples()</span>
+            <div class="branch-arrow">
+                <div class="arrow-line" style="background: linear-gradient(180deg, #00ff88, #a855f7);"></div>
+                <div class="arrow-head" style="border-top-color: #a855f7;"></div>
+            </div>
         </div>
 
         <!-- Layer 6: Logpresso Tables -->
@@ -415,24 +524,58 @@
             <div class="layer-label">Storage Layer</div>
             <div class="tables-row">
                 <div class="box logpresso">
-                    <span class="new-tag">NEW</span>
-                    <div class="icon">💾</div>
-                    <div class="title">ATLAS_HID_INOUT</div>
-                    <div class="desc">HID IN/OUT 이벤트</div>
-                </div>
-                <div class="box logpresso" style="opacity: 0.6;">
+                    <span class="batch-tag">1분</span>
                     <div class="icon">📈</div>
                     <div class="title">ATLAS_RAIL_TRAFFIC</div>
                     <div class="desc">레일 트래픽 (기존)</div>
                 </div>
-                <div class="box logpresso" style="opacity: 0.6;">
+                <div class="box logpresso">
+                    <span class="new-tag">NEW</span>
+                    <div class="icon">🚪</div>
+                    <div class="title">ATLAS_HID_INOUT</div>
+                    <div class="desc">HID IN/OUT 이벤트</div>
+                </div>
+                <div class="box logpresso" style="opacity: 0.5;">
                     <div class="icon">ℹ️</div>
                     <div class="title">ATLAS_HID_INFO</div>
-                    <div class="desc">HID 기본정보 (기존)</div>
+                    <div class="desc">HID 기본정보</div>
                 </div>
             </div>
         </div>
 
+    </div>
+
+    <!-- 테이블 상세 -->
+    <div class="table-detail">
+        <div class="table-card existing">
+            <h4>📈 ATLAS_RAIL_TRAFFIC <span class="badge-small badge-existing-small">기존 1분 배치</span></h4>
+            <ul>
+                <li><strong>createTime</strong> 배치 실행 시간</li>
+                <li><strong>railEdgeId</strong> M14A:RE:A:00001:00002</li>
+                <li><strong>fabId</strong> M14A, M16A ...</li>
+                <li><strong>HID_ID</strong> HID 구역 ID</li>
+                <li><strong>velocity</strong> 현재 속도 (45.3)</li>
+                <li><strong>maxVelocity</strong> 최대 속도 (60.0)</li>
+                <li><strong>absoluteVelocity</strong> 상대 속도 (0.755)</li>
+                <li><strong>vhlCnt</strong> 현재 OHT 수</li>
+                <li><strong>passCnt</strong> 1분간 통과 수</li>
+                <li><strong>vhlStageWaitCnt</strong> 대기 OHT 수</li>
+                <li><strong>is_initialized</strong> 속도 변화 여부</li>
+            </ul>
+        </div>
+        <div class="table-card">
+            <h4>🚪 ATLAS_HID_INOUT <span class="badge-small badge-new-small">NEW 실시간</span></h4>
+            <ul>
+                <li><strong>createTime</strong> 이벤트 발생 시간</li>
+                <li><strong>fabId</strong> M14A, M16A ...</li>
+                <li><strong>mcpName</strong> MCP 이름</li>
+                <li><strong>vhlId</strong> OHT 차량 ID</li>
+                <li><strong>vhlName</strong> OHT001, OHT002 ...</li>
+                <li><strong>eventType</strong> IN / OUT</li>
+                <li><strong>fromHidId</strong> 출발 HID 구역</li>
+                <li><strong>toHidId</strong> 도착 HID 구역</li>
+            </ul>
+        </div>
     </div>
 
     <!-- 범례 -->
@@ -450,6 +593,10 @@
             <span>Java 처리</span>
         </div>
         <div class="legend-item">
+            <div class="legend-color" style="background: linear-gradient(135deg, #ffa657, #f97316);"></div>
+            <span>배치 처리</span>
+        </div>
+        <div class="legend-item">
             <div class="legend-color" style="background: linear-gradient(135deg, #4d96ff, #3b82f6);"></div>
             <span>데이터 객체</span>
         </div>
@@ -462,6 +609,7 @@
     <!-- 플로우 설명 -->
     <div class="flow-desc">
         <h3>📋 데이터 흐름 설명</h3>
+        
         <div class="flow-step">
             <span class="step-num">1</span>
             <span class="step-text"><strong>OHT 차량</strong>이 FAB 내에서 이동하며 위치/상태 정보를 UDP로 전송</span>
@@ -472,15 +620,31 @@
         </div>
         <div class="flow-step">
             <span class="step-num">3</span>
-            <span class="step-text"><strong>OhtMsgWorkerRunnable</strong> 워커가 큐에서 메시지를 꺼내 처리</span>
+            <span class="step-text"><strong>OhtMsgWorkerRunnable</strong> 워커가 큐에서 메시지를 꺼내 RailEdge 정보 업데이트</span>
+        </div>
+
+        <div class="flow-divider">
+            <h4>🟠 경로 A: ATLAS_RAIL_TRAFFIC (1분 배치)</h4>
         </div>
         <div class="flow-step">
-            <span class="step-num">4</span>
+            <span class="step-num step-num-orange">4A</span>
+            <span class="step-text"><strong>TrafficBatch</strong>가 1분마다 실행되어 모든 RailEdge 데이터 집계</span>
+        </div>
+        <div class="flow-step">
+            <span class="step-num step-num-orange">5A</span>
+            <span class="step-text"><strong>ATLAS_RAIL_TRAFFIC</strong>에 HID_ID, velocity, vhlCnt, passCnt 저장</span>
+        </div>
+
+        <div class="flow-divider">
+            <h4>🔵 경로 B: ATLAS_HID_INOUT (실시간) - NEW</h4>
+        </div>
+        <div class="flow-step">
+            <span class="step-num">4B</span>
             <span class="step-text"><strong>_setRailEdgeVelocity()</strong>에서 이전 RailEdge와 현재 RailEdge의 HID_ID 비교</span>
         </div>
         <div class="flow-step">
-            <span class="step-num">5</span>
-            <span class="step-text">HID_ID가 다르면 → <strong>ATLAS_HID_INOUT</strong> 테이블에 IN/OUT 이벤트 저장</span>
+            <span class="step-num">5B</span>
+            <span class="step-text">HID_ID가 다르면 → <strong>ATLAS_HID_INOUT</strong>에 IN/OUT 이벤트 즉시 저장</span>
         </div>
     </div>
 
