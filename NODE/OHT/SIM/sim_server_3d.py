@@ -39,7 +39,7 @@ LAYOUT_PATH = str(_SCRIPT_DIR / "layout" / "layout" / "layout.html")
 OUTPUT_DIR = str(_SCRIPT_DIR / "output")
 HID_ZONE_CSV_PATH = str(_SCRIPT_DIR / "HID_Zone_Master.csv")  # HID Zone 마스터 파일
 CSV_SAVE_INTERVAL = 10  # 10초마다 CSV 저장
-VEHICLE_COUNT = 50  # OHT 대수
+VEHICLE_COUNT = 450  # OHT 대수
 SIMULATION_INTERVAL = 0.5  # 0.5초마다 업데이트
 FAB_ID = "M14Q"
 MCP_NAME = "OHT"
@@ -1995,7 +1995,7 @@ canvas { display: block; }
     <div class="section">
         <h3>OHT 대수 설정</h3>
         <div style="display:flex;gap:5px;align-items:center;">
-            <input type="number" id="inputVehicleCount" min="1" max="2000" value="50"
+            <input type="number" id="inputVehicleCount" min="1" max="2000" value="450"
                    style="flex:1;padding:6px 8px;background:#1a1a3e;color:#fff;border:1px solid #444;border-radius:4px;font-size:12px;width:80px;">
             <span style="font-size:11px;color:#888;">대</span>
         </div>
@@ -2196,7 +2196,18 @@ function updateOhtList() {
         console.log('OHT 목록 요소를 찾을 수 없음');
         return;
     }
-    if (!vehicles || Object.keys(vehicles).length === 0) {
+
+    // vehicles 변수 접근 확인
+    if (typeof vehicles === 'undefined') {
+        console.log('vehicles 변수가 정의되지 않음');
+        listEl.innerHTML = '<div style="text-align:center;color:#888;padding:20px;">초기화 중...</div>';
+        return;
+    }
+
+    const vehCount = Object.keys(vehicles).length;
+    console.log('updateOhtList 호출됨, vehicles 수:', vehCount);
+
+    if (vehCount === 0) {
         listEl.innerHTML = '<div style="text-align:center;color:#888;padding:20px;">OHT 데이터 로딩 중...</div>';
         return;
     }
@@ -2507,6 +2518,7 @@ ws.onmessage = (e) => {
     }
     else if (msg.type === 'update') {
         // 부드러운 보간을 위해 타겟 위치 설정
+        const receivedCount = msg.data.vehicles ? msg.data.vehicles.length : 0;
         msg.data.vehicles.forEach(v => {
             if (!vehicles[v.vehicleId]) {
                 vehicles[v.vehicleId] = {...v, dispX: v.x, dispY: v.y};
@@ -2514,6 +2526,7 @@ ws.onmessage = (e) => {
                 Object.assign(vehicles[v.vehicleId], v);
             }
         });
+        console.log('WebSocket update - 수신:', receivedCount, '현재 vehicles:', Object.keys(vehicles).length);
 
         // 통계 업데이트
         const stats = msg.data.stats;
