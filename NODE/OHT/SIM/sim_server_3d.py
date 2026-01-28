@@ -2094,14 +2094,14 @@ canvas { display: block; }
     </div>
 </div>
 
-<div id="canvas-container" class="expanded">
+<div id="canvas-container" class="expanded right-expanded">
     <canvas id="canvas"></canvas>
     <div id="three-container" style="display:none;width:100%;height:100%;"></div>
 </div>
 
-<!-- 오른쪽 사이드바: OHT 상태 -->
-<div id="right-sidebar-toggle" onclick="toggleRightSidebar()" title="OHT 목록 접기/펼치기">▶</div>
-<div id="right-sidebar">
+<!-- 오른쪽 사이드바: OHT 상태 (기본 접힘) -->
+<div id="right-sidebar-toggle" class="collapsed" onclick="toggleRightSidebar()" title="OHT 목록 접기/펼치기">◀</div>
+<div id="right-sidebar" class="collapsed">
     <h3>OHT 상태 목록</h3>
     <div class="oht-filter">
         <button class="active" data-filter="all">전체</button>
