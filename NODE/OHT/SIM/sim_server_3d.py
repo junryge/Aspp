@@ -1955,6 +1955,39 @@ canvas { display: block; }
 .oht-filter button:hover { background: #444; }
 .oht-filter button.active:hover { background: #00b8e6; }
 
+/* Zone 필터 */
+.zone-filter { display: flex; gap: 4px; flex-wrap: wrap; margin-bottom: 10px; }
+.zone-filter button { padding: 4px 8px; font-size: 10px; background: #333; color: #fff; border: none; border-radius: 3px; cursor: pointer; }
+.zone-filter button.active { background: #00d4ff; color: #000; }
+.zone-filter button:hover { background: #444; }
+.zone-filter button.active:hover { background: #00b8e6; }
+
+/* Zone 리스트 */
+.zone-list { max-height: calc(100vh - 500px); overflow-y: auto; }
+.zone-item {
+    background: #1a1a2e; padding: 8px 10px; border-radius: 6px;
+    margin-bottom: 6px; cursor: pointer; transition: all 0.2s ease;
+    border-left: 3px solid #444;
+}
+.zone-item:hover { background: #252550; }
+.zone-item.selected { background: #1a3a5e; border-left-color: #00d4ff; }
+.zone-item.normal { border-left-color: #00ff88; }
+.zone-item.precaution { border-left-color: #ff9900; }
+.zone-item.full { border-left-color: #ff3366; animation: blink 0.5s infinite; }
+.zone-item .zone-header { display: flex; justify-content: space-between; align-items: center; }
+.zone-item .zone-id { font-weight: bold; color: #00d4ff; font-size: 12px; }
+.zone-item .zone-state { font-size: 10px; padding: 2px 6px; border-radius: 3px; background: #333; }
+.zone-item .zone-detail { display: none; margin-top: 8px; padding-top: 8px; border-top: 1px solid #333; font-size: 11px; }
+.zone-item .zone-detail.show { display: block; }
+.zone-item .zone-info { display: flex; justify-content: space-between; margin-bottom: 4px; }
+.zone-item .zone-info .label { color: #888; }
+.zone-item .zone-info .value { color: #fff; }
+.zone-item .zone-progress { height: 4px; background: #333; border-radius: 2px; margin-top: 6px; }
+.zone-item .zone-progress-bar { height: 100%; border-radius: 2px; transition: width 0.3s ease; }
+.zone-item.normal .zone-progress-bar { background: #00ff88; }
+.zone-item.precaution .zone-progress-bar { background: #ff9900; }
+.zone-item.full .zone-progress-bar { background: #ff3366; }
+
 #tooltip {
     position: fixed; background: rgba(0,20,40,0.95); border: 2px solid #00d4ff;
     padding: 12px; border-radius: 8px; font-size: 11px; display: none; z-index: 2000;
@@ -2120,7 +2153,22 @@ canvas { display: block; }
     <div style="margin-top:10px;padding:8px;background:#1a1a2e;border-radius:6px;font-size:10px;color:#888;">
         <div>클릭: 선택/해제</div>
         <div>더블클릭: 상세정보 보기</div>
-        <div>선택 시 캔버스에서 경로 표시</div>
+    </div>
+
+    <!-- HID Zone 상태 섹션 -->
+    <h3 style="margin-top:20px;border-top:1px solid #333;padding-top:15px;">HID Zone 상태</h3>
+    <div class="zone-filter">
+        <button class="active" data-zone-filter="all">전체</button>
+        <button data-zone-filter="full">포화</button>
+        <button data-zone-filter="precaution">주의</button>
+        <button data-zone-filter="normal">정상</button>
+    </div>
+    <div style="margin:8px 0;">
+        <input type="text" id="zoneSearch" placeholder="Zone ID 검색..."
+               style="width:100%;padding:6px 8px;background:#1a1a3e;color:#fff;border:1px solid #444;border-radius:4px;font-size:11px;">
+    </div>
+    <div class="zone-list" id="zoneList">
+        <!-- Zone 목록이 여기에 동적으로 추가됨 -->
     </div>
 </div>
 
@@ -2174,6 +2222,12 @@ function toggleRightSidebar() {
 let ohtFilter = 'all';
 let ohtSearchText = '';
 let expandedOhtId = null;
+
+// Zone 필터 및 검색 상태
+let zoneFilter = 'all';
+let zoneSearchText = '';
+let expandedZoneId = null;
+let selectedZoneId = null;
 
 // OHT 상태에 따른 클래스 반환
 // VHL_STATE enum: RUN="1", STOP="2", ABNORMAL="3", MANUAL="4", REMOVING="5", OBS_BZ_STOP="6", JAM="7"
@@ -2307,6 +2361,137 @@ function updateOhtList() {
     });
 }
 
+// Zone 상태에 따른 클래스 반환
+function getZoneStateClass(zone) {
+    const count = zone.vehicleCount || 0;
+    const max = zone.vehicleMax || 1;
+    const precaution = zone.vehiclePrecaution || Math.ceil(max * 0.7);
+
+    if (count >= max) return 'full';
+    if (count >= precaution) return 'precaution';
+    return 'normal';
+}
+
+// Zone 상태 텍스트 반환
+function getZoneStateText(zone) {
+    const stateClass = getZoneStateClass(zone);
+    if (stateClass === 'full') return '포화';
+    if (stateClass === 'precaution') return '주의';
+    return '정상';
+}
+
+// Zone 리스트 업데이트
+function updateZoneList() {
+    const listEl = document.getElementById('zoneList');
+    if (!listEl) {
+        return;
+    }
+
+    if (!window.hidZones || window.hidZones.length === 0) {
+        listEl.innerHTML = '<div style="text-align:center;color:#888;padding:20px;">Zone 데이터 로딩 중...</div>';
+        return;
+    }
+
+    let filtered = window.hidZones.slice();
+
+    // 필터링
+    if (zoneFilter !== 'all') {
+        filtered = filtered.filter(z => {
+            const stateClass = getZoneStateClass(z);
+            return stateClass === zoneFilter;
+        });
+    }
+
+    // 검색 필터
+    if (zoneSearchText) {
+        const searchLower = zoneSearchText.toLowerCase();
+        filtered = filtered.filter(z => {
+            const name = (z.fullName || z.label || String(z.zoneId)).toLowerCase();
+            return name.includes(searchLower);
+        });
+    }
+
+    // 정렬 (포화 > 주의 > 정상, 같은 상태 내에서는 ID 순)
+    filtered.sort((a, b) => {
+        const aState = getZoneStateClass(a);
+        const bState = getZoneStateClass(b);
+        const stateOrder = { 'full': 0, 'precaution': 1, 'normal': 2 };
+        if (stateOrder[aState] !== stateOrder[bState]) {
+            return stateOrder[aState] - stateOrder[bState];
+        }
+        return (a.zoneId || 0) - (b.zoneId || 0);
+    });
+
+    // HTML 생성
+    let html = '';
+    filtered.forEach(z => {
+        const stateClass = getZoneStateClass(z);
+        const isSelected = selectedZoneId === z.zoneId;
+        const isExpanded = expandedZoneId === z.zoneId;
+        const displayName = z.fullName || z.label || 'Zone ' + z.zoneId;
+        const count = z.vehicleCount || 0;
+        const max = z.vehicleMax || 1;
+        const percent = Math.min(100, Math.round((count / max) * 100));
+        const precaution = z.vehiclePrecaution || Math.ceil(max * 0.7);
+
+        html += '<div class="zone-item ' + stateClass + (isSelected ? ' selected' : '') + '" data-id="' + z.zoneId + '">';
+        html += '  <div class="zone-header">';
+        html += '    <span class="zone-id">' + displayName + '</span>';
+        html += '    <span class="zone-state" style="background:' + (stateClass === 'full' ? '#ff3366' : stateClass === 'precaution' ? '#ff9900' : '#00ff88') + ';color:#000;">' + getZoneStateText(z) + '</span>';
+        html += '  </div>';
+        html += '  <div class="zone-progress"><div class="zone-progress-bar" style="width:' + percent + '%;"></div></div>';
+        html += '  <div class="zone-detail' + (isExpanded ? ' show' : '') + '">';
+        html += '    <div class="zone-info"><span class="label">현재 OHT:</span><span class="value">' + count + ' / ' + max + '</span></div>';
+        html += '    <div class="zone-info"><span class="label">주의 기준:</span><span class="value">' + precaution + '</span></div>';
+        if (z.bayZone) html += '    <div class="zone-info"><span class="label">Bay Zone:</span><span class="value">' + z.bayZone + '</span></div>';
+        if (z.subRegion) html += '    <div class="zone-info"><span class="label">Sub Region:</span><span class="value">' + z.subRegion + '</span></div>';
+        if (z.inCount || z.outCount) html += '    <div class="zone-info"><span class="label">IN/OUT:</span><span class="value">' + (z.inCount || 0) + ' / ' + (z.outCount || 0) + '</span></div>';
+        html += '  </div>';
+        html += '</div>';
+    });
+
+    if (filtered.length === 0) {
+        html = '<div style="text-align:center;color:#888;padding:20px;">표시할 Zone이 없습니다</div>';
+    }
+
+    listEl.innerHTML = html;
+
+    // 클릭 이벤트 바인딩
+    listEl.querySelectorAll('.zone-item').forEach(item => {
+        const id = parseInt(item.dataset.id);
+
+        // 클릭: 선택
+        item.addEventListener('click', () => {
+            // 선택된 zone 토글
+            if (selectedZoneId === id) {
+                selectedZoneId = null;
+                item.classList.remove('selected');
+            } else {
+                // 이전 선택 해제
+                listEl.querySelectorAll('.zone-item.selected').forEach(el => el.classList.remove('selected'));
+                selectedZoneId = id;
+                item.classList.add('selected');
+            }
+            draw();
+        });
+
+        // 더블클릭: 상세정보 토글
+        item.addEventListener('dblclick', (e) => {
+            e.stopPropagation();
+            const detail = item.querySelector('.zone-detail');
+            if (expandedZoneId === id) {
+                expandedZoneId = null;
+                if (detail) detail.classList.remove('show');
+            } else {
+                // 이전 확장된 항목 닫기
+                listEl.querySelectorAll('.zone-detail.show').forEach(el => el.classList.remove('show'));
+                expandedZoneId = id;
+                if (detail) detail.classList.add('show');
+            }
+        });
+    });
+}
+
 // 필터 버튼 및 검색 이벤트 (DOM 로드 후)
 document.addEventListener('DOMContentLoaded', () => {
     // 필터 버튼 이벤트
@@ -2328,7 +2513,26 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
-    console.log('OHT 목록 이벤트 리스너 등록 완료');
+    // Zone 필터 버튼 이벤트
+    document.querySelectorAll('.zone-filter button').forEach(btn => {
+        btn.addEventListener('click', () => {
+            document.querySelectorAll('.zone-filter button').forEach(b => b.classList.remove('active'));
+            btn.classList.add('active');
+            zoneFilter = btn.dataset.zoneFilter;
+            updateZoneList();
+        });
+    });
+
+    // Zone 검색 이벤트
+    const zoneSearchEl = document.getElementById('zoneSearch');
+    if (zoneSearchEl) {
+        zoneSearchEl.addEventListener('input', (e) => {
+            zoneSearchText = e.target.value;
+            updateZoneList();
+        });
+    }
+
+    console.log('OHT 목록 및 Zone 목록 이벤트 리스너 등록 완료');
 });
 
 const canvas = document.getElementById('canvas');
@@ -2522,6 +2726,9 @@ ws.onmessage = (e) => {
         }
 
         fitView();
+
+        // Zone 목록 초기화
+        updateZoneList();
     }
     else if (msg.type === 'update') {
         // 부드러운 보간을 위해 타겟 위치 설정
@@ -2615,8 +2822,23 @@ ws.onmessage = (e) => {
         // Zone 상태 맵 저장 (렌더링용)
         window.zoneStatusMap = msg.data.zoneStatusMap || {};
 
+        // HID Zone 데이터 실시간 업데이트 (zoneStatusMap 사용)
+        if (window.zoneStatusMap && window.hidZones) {
+            window.hidZones.forEach(zone => {
+                const statusInfo = window.zoneStatusMap[zone.zoneId];
+                if (statusInfo) {
+                    zone.vehicleCount = statusInfo.vehicleCount;
+                    zone.occupancyRate = statusInfo.occupancyRate;
+                    zone.status = statusInfo.status;
+                }
+            });
+        }
+
         // OHT 목록 업데이트 (오른쪽 사이드바)
         updateOhtList();
+
+        // Zone 목록 업데이트 (오른쪽 사이드바)
+        updateZoneList();
     }
 };
 
