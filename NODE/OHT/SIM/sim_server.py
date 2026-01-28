@@ -1782,6 +1782,119 @@ async def get_path_info(start: int, end: int):
         "alternatives": alt_infos
     }
 
+@app.get("/api/jam-history")
+async def get_jam_history(limit: int = 100):
+    """JAM(정체) 이력 데이터 조회 - CSV에서 HIGH 위험 구간 검색"""
+    global engine
+
+    jam_records = []
+
+    # OUTPUT 디렉토리에서 RAIL_TRAFFIC CSV 파일들 검색
+    if os.path.exists(OUTPUT_DIR):
+        csv_files = sorted(
+            [f for f in os.listdir(OUTPUT_DIR) if f.startswith('ATLAS_RAIL_TRAFFIC')],
+            reverse=True  # 최신순
+        )
+
+        for csv_file in csv_files[:10]:  # 최근 10개 파일만
+            filepath = os.path.join(OUTPUT_DIR, csv_file)
+            try:
+                with open(filepath, 'r', encoding='utf-8') as f:
+                    reader = csv.DictReader(f)
+                    for row in reader:
+                        if row.get('deadlockRisk') in ('HIGH', 'MEDIUM'):
+                            jam_records.append({
+                                'time': row.get('createTime', ''),
+                                'edgeId': row.get('railEdgeId', ''),
+                                'fromNode': row.get('fromNode', ''),
+                                'toNode': row.get('toNode', ''),
+                                'density': float(row.get('density', 0)),
+                                'inCount': int(row.get('inCount', 0)),
+                                'outCount': int(row.get('outCount', 0)),
+                                'inOutRatio': float(row.get('inOutRatio', 0)),
+                                'risk': row.get('deadlockRisk', ''),
+                                'vhlCount': int(row.get('vhlCount', 0)),
+                                'avgVelocity': float(row.get('avgVelocity', 0))
+                            })
+
+                        if len(jam_records) >= limit:
+                            break
+
+            except Exception as e:
+                print(f"CSV 읽기 오류: {csv_file} - {e}")
+
+            if len(jam_records) >= limit:
+                break
+
+    # 현재 실시간 JAM 상태도 추가
+    current_jams = []
+    for edge_id, rail_edge in engine.rail_edge_map.items():
+        density = rail_edge.getDensity()
+        in_out_ratio = rail_edge.getInOutRatio()
+
+        if rail_edge.inCount > rail_edge.outCount * 1.5 and density > 50:
+            current_jams.append({
+                'time': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+                'edgeId': edge_id,
+                'fromNode': rail_edge.fromNodeId,
+                'toNode': rail_edge.toNodeId,
+                'density': round(density, 2),
+                'inCount': rail_edge.inCount,
+                'outCount': rail_edge.outCount,
+                'inOutRatio': round(in_out_ratio, 2),
+                'risk': 'HIGH',
+                'vhlCount': len(rail_edge.vhlIdMap),
+                'avgVelocity': round(rail_edge.getAvgVelocity(), 2),
+                'current': True
+            })
+
+    return {
+        "status": "ok",
+        "currentJams": current_jams,
+        "historyJams": jam_records[:limit],
+        "totalFiles": len(csv_files) if os.path.exists(OUTPUT_DIR) else 0
+    }
+
+@app.get("/api/jam-stats")
+async def get_jam_stats():
+    """JAM 통계 데이터"""
+    global engine
+
+    # 현재 JAM 상태 차량
+    jam_vehicles = [v for v in engine.vehicles.values() if v.udpState.state == VHL_STATE.JAM]
+
+    # 위험 구간 수
+    high_risk_edges = []
+    medium_risk_edges = []
+
+    for edge_id, rail_edge in engine.rail_edge_map.items():
+        density = rail_edge.getDensity()
+        in_cnt = rail_edge.inCount
+        out_cnt = rail_edge.outCount
+
+        if in_cnt > out_cnt * 1.5 and density > 50:
+            high_risk_edges.append({
+                'edgeId': edge_id,
+                'density': round(density, 2),
+                'inOut': f"{in_cnt}/{out_cnt}"
+            })
+        elif in_cnt > out_cnt and density > 30:
+            medium_risk_edges.append({
+                'edgeId': edge_id,
+                'density': round(density, 2),
+                'inOut': f"{in_cnt}/{out_cnt}"
+            })
+
+    return {
+        "status": "ok",
+        "jamVehicleCount": len(jam_vehicles),
+        "jamVehicles": [v.vehicleId for v in jam_vehicles[:20]],
+        "highRiskCount": len(high_risk_edges),
+        "mediumRiskCount": len(medium_risk_edges),
+        "highRiskEdges": high_risk_edges[:10],
+        "mediumRiskEdges": medium_risk_edges[:10]
+    }
+
 @app.post("/api/set-vehicle-count")
 async def set_vehicle_count(count: int):
     """OHT 대수 변경"""
@@ -1981,6 +2094,21 @@ canvas { display: block; }
             <div style="font-size:10px;color:#888;margin-top:4px;">실선: IN Lane, 점선: OUT Lane</div>
         </div>
         <div id="zoneAlertList" style="margin-top:8px;font-size:10px;max-height:60px;overflow-y:auto;"></div>
+    </div>
+
+    <div class="section">
+        <h3>정체(JAM) 데이터</h3>
+        <div class="stat-row"><span>현재 JAM 차량</span><span class="val" id="jamStatVehicles" style="color:#ff0000">0</span></div>
+        <div class="stat-row"><span>HIGH 위험 구간</span><span class="val" id="jamStatHigh" style="color:#ff3366">0</span></div>
+        <div class="stat-row"><span>MEDIUM 위험</span><span class="val" id="jamStatMedium" style="color:#ffaa00">0</span></div>
+        <div style="margin-top:10px;">
+            <input type="number" id="jamSearchLimit" value="50" min="10" max="500" style="width:60px;padding:4px;border:1px solid #444;background:#222;color:#fff;border-radius:4px;">
+            <button id="btnSearchJam" style="padding:6px 12px;background:#ff3366;color:#fff;border:none;border-radius:4px;cursor:pointer;font-size:11px;margin-left:4px;">JAM 이력 검색</button>
+        </div>
+        <div style="margin-top:8px;">
+            <button id="btnRefreshJamStats" style="width:100%;padding:6px 8px;background:#555;color:#fff;border:none;border-radius:4px;cursor:pointer;font-size:11px;">통계 새로고침</button>
+        </div>
+        <div id="jamHistoryList" style="margin-top:8px;font-size:10px;max-height:120px;overflow-y:auto;background:#111;padding:6px;border-radius:4px;"></div>
     </div>
 
     <div class="section">
@@ -2732,6 +2860,78 @@ document.getElementById('inputVehicleCount').addEventListener('keypress', (e) =>
         }
     }
 });
+
+// JAM 데이터 검색 기능
+async function loadJamStats() {
+    try {
+        const res = await fetch('/api/jam-stats');
+        const data = await res.json();
+        document.getElementById('jamStatVehicles').textContent = data.jam_vehicle_count || 0;
+        document.getElementById('jamStatHigh').textContent = data.high_risk_edges || 0;
+        document.getElementById('jamStatMedium').textContent = data.medium_risk_edges || 0;
+    } catch (e) {
+        console.error('JAM 통계 로드 실패:', e);
+    }
+}
+
+async function searchJamHistory() {
+    const limit = parseInt(document.getElementById('jamSearchLimit').value) || 50;
+    const listEl = document.getElementById('jamHistoryList');
+    const btn = document.getElementById('btnSearchJam');
+
+    btn.disabled = true;
+    btn.textContent = '검색중...';
+    listEl.innerHTML = '<span style="color:#888;">검색 중...</span>';
+
+    try {
+        const res = await fetch('/api/jam-history?limit=' + limit);
+        const data = await res.json();
+
+        let html = '';
+
+        // 현재 실시간 JAM 상태
+        if (data.current_jam && data.current_jam.length > 0) {
+            html += '<div style="color:#ff3366;margin-bottom:6px;font-weight:bold;">▶ 실시간 JAM (' + data.current_jam.length + '건)</div>';
+            data.current_jam.slice(0, 5).forEach(jam => {
+                html += '<div style="padding:2px 0;border-bottom:1px solid #333;">';
+                html += '<span style="color:#ff0000;">[' + jam.risk_level + ']</span> ';
+                html += 'OHT ' + jam.oht_no + ' @ ' + jam.edge_id.split(':').pop();
+                html += '</div>';
+            });
+            if (data.current_jam.length > 5) {
+                html += '<div style="color:#888;">... 외 ' + (data.current_jam.length - 5) + '건</div>';
+            }
+        }
+
+        // CSV 히스토리
+        if (data.history && data.history.length > 0) {
+            html += '<div style="color:#ffaa00;margin:8px 0 6px 0;font-weight:bold;">▶ CSV 이력 (' + data.history.length + '건)</div>';
+            data.history.forEach(record => {
+                html += '<div style="padding:2px 0;border-bottom:1px solid #222;">';
+                html += '<span style="color:' + (record.risk_level === 'HIGH' ? '#ff3366' : '#ffaa00') + ';">[' + record.risk_level + ']</span> ';
+                html += record.timestamp + ' - ' + record.edge_id.split(':').pop();
+                html += '</div>';
+            });
+        }
+
+        if (!html) {
+            html = '<span style="color:#888;">JAM 데이터가 없습니다.</span>';
+        }
+
+        listEl.innerHTML = html;
+    } catch (e) {
+        listEl.innerHTML = '<span style="color:#ff3366;">검색 실패: ' + e.message + '</span>';
+    }
+
+    btn.disabled = false;
+    btn.textContent = 'JAM 이력 검색';
+}
+
+document.getElementById('btnSearchJam').addEventListener('click', searchJamHistory);
+document.getElementById('btnRefreshJamStats').addEventListener('click', loadJamStats);
+
+// 초기 JAM 통계 로드
+loadJamStats();
 </script>
 </body>
 </html>
