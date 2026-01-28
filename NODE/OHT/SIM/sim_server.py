@@ -35,6 +35,9 @@ import uvicorn
 import pathlib
 _SCRIPT_DIR = pathlib.Path(__file__).parent.resolve()
 
+# 최적 경로 알고리즘 모듈
+from path_optimizer import PathOptimizer, PathStrategy, create_optimizer_from_engine, update_optimizer_from_engine
+
 LAYOUT_PATH = str(_SCRIPT_DIR / "layout" / "layout" / "layout.html")
 OUTPUT_DIR = str(_SCRIPT_DIR / "output")
 HID_ZONE_CSV_PATH = str(_SCRIPT_DIR / "HID_구역.CSV")  # HID Zone 구성 파일
@@ -666,6 +669,14 @@ class SimulationEngine:
         self.rail_buffer: Dict[Tuple[int,int], dict] = defaultdict(lambda: {'pass_cnt': 0, 'velocities': []})
         self.zone_buffer: List[dict] = []  # Zone 상태 버퍼
 
+        # ============================================================
+        # 최적 경로 알고리즘 초기화
+        # ============================================================
+        self.path_optimizer = PathOptimizer(self.nodes, edges, dict(self.graph))
+        self.path_optimizer.strategy = PathStrategy.BALANCED
+        self.reroute_check_interval = 10  # 10틱마다 경로 재탐색 체크
+        print(f"[PathOptimizer] 최적 경로 알고리즘 연동 완료")
+
         # 시작 시간
         self.start_time = datetime.now()
         self.simulation_tick = 0
@@ -828,10 +839,27 @@ class SimulationEngine:
 
         return closest_blocking, min_distance if closest_blocking else 0
 
-    def _find_path(self, start: int, end: int) -> List[int]:
+    def _find_path(self, start: int, end: int, use_optimizer: bool = True) -> List[int]:
+        """경로 탐색 - PathOptimizer 사용 또는 기본 Dijkstra
+
+        Args:
+            start: 출발 노드
+            end: 도착 노드
+            use_optimizer: PathOptimizer 사용 여부 (기본 True)
+
+        Returns:
+            경로 노드 리스트
+        """
         if start == end or start not in self.nodes or end not in self.nodes:
             return []
 
+        # PathOptimizer 사용 (교통 상황 반영)
+        if use_optimizer and hasattr(self, 'path_optimizer'):
+            path = self.path_optimizer.find_optimal_path(start, end)
+            if path:
+                return path
+
+        # 기본 Dijkstra (fallback)
         dist = {start: 0}
         prev = {}
         pq = [(0, start)]
@@ -908,8 +936,62 @@ class SimulationEngine:
         self.simulation_tick += 1
         current_time_ms = int(datetime.now().timestamp() * 1000)
 
+        # 주기적으로 경로 최적화 교통 정보 업데이트
+        if self.simulation_tick % 5 == 0:  # 5틱마다
+            self._update_path_optimizer()
+
+        # 주기적으로 경로 재탐색 체크
+        if self.simulation_tick % self.reroute_check_interval == 0:
+            self._check_and_reroute_vehicles()
+
         for v in self.vehicles.values():
             self._update_vehicle(v, dt, current_time_ms)
+
+    def _update_path_optimizer(self):
+        """경로 최적화기에 실시간 교통 정보 업데이트"""
+        lane_to_zone = {}
+        lane_to_zone.update(self.in_lane_to_zone)
+        lane_to_zone.update(self.out_lane_to_zone)
+
+        self.path_optimizer.update_traffic(
+            rail_edge_map=self.rail_edge_map,
+            hid_zones=self.hid_zones,
+            vehicles=self.vehicles,
+            lane_to_zone=lane_to_zone
+        )
+
+    def _check_and_reroute_vehicles(self):
+        """막힌 경로의 차량들 재탐색"""
+        rerouted_count = 0
+
+        for v in self.vehicles.values():
+            if not v.path or v.udpState.state != VHL_STATE.RUN:
+                continue
+
+            # 경로 재탐색 필요 여부 확인
+            should_reroute, reason = self.path_optimizer.should_reroute(
+                v.vehicleId, v.path, v.pathIndex
+            )
+
+            if should_reroute:
+                # 현재 위치에서 목적지까지 새 경로 탐색
+                current_node = v.currentNode
+                destination = v.destination
+
+                new_path = self.path_optimizer.get_rerouted_path(
+                    current_node, destination, v.path
+                )
+
+                if new_path and len(new_path) > 1:
+                    v.path = new_path
+                    v.pathIndex = 0
+                    v.nextNode = new_path[1] if len(new_path) > 1 else current_node
+                    v.udpState.nextAddress = v.nextNode
+                    rerouted_count += 1
+                    # print(f"[재경로] {v.vehicleId}: {reason}")
+
+        if rerouted_count > 0:
+            print(f"[PathOptimizer] {rerouted_count}대 경로 재탐색 완료")
 
     def _check_velocity_conditions(self, v: Vehicle) -> bool:
         """
@@ -1644,6 +1726,61 @@ async def reset_inout():
     for rail_edge in engine.rail_edge_map.values():
         rail_edge.resetInOut()
     return {"status": "ok", "message": "In/Out counters reset"}
+
+@app.post("/api/reroute-all")
+async def reroute_all():
+    """모든 차량 경로 재탐색 (수동)"""
+    global engine
+    rerouted = 0
+
+    # 교통 정보 업데이트
+    engine._update_path_optimizer()
+
+    for v in engine.vehicles.values():
+        if not v.path or v.udpState.state != VHL_STATE.RUN:
+            continue
+
+        current_node = v.currentNode
+        destination = v.destination
+
+        new_path = engine.path_optimizer.get_rerouted_path(
+            current_node, destination, v.path
+        )
+
+        if new_path and len(new_path) > 1:
+            v.path = new_path
+            v.pathIndex = 0
+            v.nextNode = new_path[1] if len(new_path) > 1 else current_node
+            v.udpState.nextAddress = v.nextNode
+            rerouted += 1
+
+    return {
+        "status": "ok",
+        "message": f"{rerouted}대 경로 재탐색 완료",
+        "reroutedCount": rerouted
+    }
+
+@app.get("/api/path-info")
+async def get_path_info(start: int, end: int):
+    """두 노드 간 경로 정보 조회"""
+    global engine
+
+    # 교통 정보 업데이트
+    engine._update_path_optimizer()
+
+    # 최적 경로 탐색
+    path = engine.path_optimizer.find_optimal_path(start, end)
+    info = engine.path_optimizer.get_path_info(path)
+
+    # 대안 경로들
+    alternatives = engine.path_optimizer.find_alternative_paths(start, end, path, count=3)
+    alt_infos = [engine.path_optimizer.get_path_info(p) for p in alternatives]
+
+    return {
+        "status": "ok",
+        "optimal": info,
+        "alternatives": alt_infos
+    }
 
 @app.post("/api/set-vehicle-count")
 async def set_vehicle_count(count: int):
