@@ -1908,7 +1908,19 @@ body { font-family: 'Segoe UI', sans-serif; background: #0a0a1a; color: #eee; ov
     overflow-y: auto;
     scrollbar-width: thin;
     scrollbar-color: #444 #1a1a2e;
+    transition: transform 0.3s ease;
 }
+#sidebar.collapsed { transform: translateX(-240px); }
+#sidebar-toggle {
+    position: fixed; top: 55px; left: 240px; z-index: 950;
+    width: 24px; height: 50px; background: rgba(20, 20, 40, 0.95);
+    border: 1px solid #333; border-left: none;
+    border-radius: 0 8px 8px 0; cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+    color: #00d4ff; font-size: 14px; transition: left 0.3s ease;
+}
+#sidebar-toggle:hover { background: rgba(0, 212, 255, 0.2); }
+#sidebar-toggle.collapsed { left: 0; }
 #sidebar::-webkit-scrollbar { width: 6px; }
 #sidebar::-webkit-scrollbar-track { background: #1a1a2e; }
 #sidebar::-webkit-scrollbar-thumb { background: #444; border-radius: 3px; }
@@ -1922,7 +1934,8 @@ body { font-family: 'Segoe UI', sans-serif; background: #0a0a1a; color: #eee; ov
 .legend-item { display: flex; align-items: center; gap: 8px; padding: 4px 0; font-size: 11px; }
 .legend-dot { width: 14px; height: 14px; border-radius: 50%; border: 2px solid #fff; }
 
-#canvas-container { position: fixed; top: 50px; left: 240px; right: 0; bottom: 0; }
+#canvas-container { position: fixed; top: 50px; left: 240px; right: 0; bottom: 0; transition: left 0.3s ease; }
+#canvas-container.expanded { left: 0; }
 canvas { display: block; }
 
 #tooltip {
@@ -1960,6 +1973,7 @@ canvas { display: block; }
     </div>
 </div>
 
+<div id="sidebar-toggle" onclick="toggleSidebar()" title="사이드바 접기/펼치기">◀</div>
 <div id="sidebar">
     <div class="section">
         <h3>OHT 대수 설정</h3>
@@ -2080,6 +2094,23 @@ canvas { display: block; }
 <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
 
 <script>
+// 사이드바 토글 함수
+function toggleSidebar() {
+    const sidebar = document.getElementById('sidebar');
+    const toggle = document.getElementById('sidebar-toggle');
+    const container = document.getElementById('canvas-container');
+
+    sidebar.classList.toggle('collapsed');
+    toggle.classList.toggle('collapsed');
+    container.classList.toggle('expanded');
+
+    // 아이콘 변경
+    toggle.textContent = sidebar.classList.contains('collapsed') ? '▶' : '◀';
+
+    // 캔버스 리사이즈
+    setTimeout(resize, 350);
+}
+
 const canvas = document.getElementById('canvas');
 const ctx = canvas.getContext('2d');
 
