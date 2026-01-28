@@ -2094,14 +2094,14 @@ canvas { display: block; }
     </div>
 </div>
 
-<div id="canvas-container" class="expanded right-expanded">
+<div id="canvas-container" class="expanded">
     <canvas id="canvas"></canvas>
     <div id="three-container" style="display:none;width:100%;height:100%;"></div>
 </div>
 
 <!-- 오른쪽 사이드바: OHT 상태 -->
-<div id="right-sidebar-toggle" class="collapsed" onclick="toggleRightSidebar()" title="OHT 목록 접기/펼치기">◀</div>
-<div id="right-sidebar" class="collapsed">
+<div id="right-sidebar-toggle" onclick="toggleRightSidebar()" title="OHT 목록 접기/펼치기">▶</div>
+<div id="right-sidebar">
     <h3>OHT 상태 목록</h3>
     <div class="oht-filter">
         <button class="active" data-filter="all">전체</button>
@@ -2176,17 +2176,24 @@ let ohtSearchText = '';
 let expandedOhtId = null;
 
 // OHT 상태에 따른 클래스 반환
+// VHL_STATE enum: RUN="1", STOP="2", ABNORMAL="3", MANUAL="4", REMOVING="5", OBS_BZ_STOP="6", JAM="7"
 function getOhtStateClass(v) {
-    if (v.state === 5) return 'jam';  // JAM
-    if (v.state === 4 || v.state === 3) return 'stopped';  // STOP, PAUSE
+    const state = String(v.state);
+    if (state === '7') return 'jam';  // JAM
+    if (state === '2' || state === '6' || state === '8') return 'stopped';  // STOP, OBS_BZ_STOP, HT_STOP
     if (v.loaded) return 'loaded';
-    return 'running';
+    if (state === '1') return 'running';  // RUN
+    return 'stopped';  // 기타 상태는 정지로 표시
 }
 
 // OHT 상태 텍스트
+// VHL_STATE enum: RUN="1", STOP="2", ABNORMAL="3", MANUAL="4", REMOVING="5", OBS_BZ_STOP="6", JAM="7", HT_STOP="8", E84_TIMEOUT="9"
 function getOhtStateText(v) {
-    const states = {0: 'IDLE', 1: 'ASSIGNED', 2: 'RUN', 3: 'PAUSE', 4: 'STOP', 5: 'JAM'};
-    return states[v.state] || 'UNKNOWN';
+    const states = {
+        '1': 'RUN', '2': 'STOP', '3': 'ABNORMAL', '4': 'MANUAL',
+        '5': 'REMOVING', '6': 'OBS_STOP', '7': 'JAM', '8': 'HT_STOP', '9': 'E84_TIMEOUT'
+    };
+    return states[String(v.state)] || 'UNKNOWN';
 }
 
 // OHT 목록 업데이트
