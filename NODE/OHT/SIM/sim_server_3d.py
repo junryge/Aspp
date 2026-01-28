@@ -2844,17 +2844,25 @@ canvas.addEventListener('mousemove', e => {
 canvas.addEventListener('mouseup', () => isDragging = false);
 canvas.addEventListener('mouseleave', () => { isDragging = false; document.getElementById('tooltip').style.display = 'none'; });
 
-// 더블클릭 - OHT 선택 토글 (여러개 선택 가능)
+// 더블클릭 - OHT 선택 토글 (여러개 선택 가능) - pseudo-3D 좌표 변환 적용
 canvas.addEventListener('dblclick', e => {
     const rect = canvas.getBoundingClientRect();
     const mx = (e.clientX - rect.left - offsetX) / scale;
     const my = (e.clientY - rect.top - offsetY) / scale;
 
     let clicked = null;
-    let minDist = 20 / scale;
+    let minDist = 25 / scale;
     Object.values(vehicles).forEach(v => {
-        const d = Math.hypot(v.dispX - mx, v.dispY - my);
-        if (d < minDist) { minDist = d; clicked = v.vehicleId; }
+        // pseudo-3D 모드에서는 변환된 좌표로 비교
+        if (isPseudo3D) {
+            const ohtZ = RAIL_HEIGHT / scale + OHT_HEIGHT / scale * 0.5;
+            const vIso = toIso(v.dispX, v.dispY, ohtZ);
+            const d = Math.hypot(vIso.x - mx, vIso.y - my);
+            if (d < minDist) { minDist = d; clicked = v.vehicleId; }
+        } else {
+            const d = Math.hypot(v.dispX - mx, v.dispY - my);
+            if (d < minDist) { minDist = d; clicked = v.vehicleId; }
+        }
     });
 
     if (clicked) {
@@ -2889,8 +2897,16 @@ function updateTooltip(e) {
 
     let closest = null, minDist = 20 / scale;
     Object.values(vehicles).forEach(v => {
-        const d = Math.hypot(v.dispX - mx, v.dispY - my);
-        if (d < minDist) { minDist = d; closest = v; }
+        // pseudo-3D 모드에서는 변환된 좌표로 비교
+        if (isPseudo3D) {
+            const ohtZ = RAIL_HEIGHT / scale + OHT_HEIGHT / scale * 0.5;
+            const vIso = toIso(v.dispX, v.dispY, ohtZ);
+            const d = Math.hypot(vIso.x - mx, vIso.y - my);
+            if (d < minDist) { minDist = d; closest = v; }
+        } else {
+            const d = Math.hypot(v.dispX - mx, v.dispY - my);
+            if (d < minDist) { minDist = d; closest = v; }
+        }
     });
 
     const tooltip = document.getElementById('tooltip');
