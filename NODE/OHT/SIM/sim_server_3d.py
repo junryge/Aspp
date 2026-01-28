@@ -2496,10 +2496,8 @@ function render() {
 
                 // 배경 박스
                 const fontSize = Math.max(10, 14 / scale);
-                // Bay_Zone + Sub_Region 형식 (예: B01-1) 또는 HID No
-                let label = zone.bayZone && zone.subRegion ?
-                    zone.bayZone + '-' + zone.subRegion :
-                    (zone.bayZone || 'HID ' + zone.zoneId);
+                // Full_Name 우선, 없으면 HID_No 표시
+                let label = zone.fullName || zone.hidNo || ('HID ' + zone.zoneId);
                 ctx.font = 'bold ' + fontSize + 'px sans-serif';
                 const textWidth = ctx.measureText(label).width;
                 const padding = 3 / scale;
