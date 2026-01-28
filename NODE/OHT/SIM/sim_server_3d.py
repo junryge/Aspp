@@ -1926,8 +1926,19 @@ canvas { display: block; }
 #right-sidebar::-webkit-scrollbar-track { background: #1a1a2e; }
 #right-sidebar::-webkit-scrollbar-thumb { background: #444; border-radius: 3px; }
 
+/* 사이드바 탭 스타일 */
+.sidebar-tabs { display: flex; gap: 4px; margin-bottom: 12px; }
+.sidebar-tab {
+    flex: 1; padding: 8px 4px; font-size: 12px; font-weight: bold;
+    background: #1a1a2e; color: #888; border: 1px solid #333;
+    border-radius: 6px; cursor: pointer; transition: all 0.2s ease;
+}
+.sidebar-tab:hover { background: #252550; color: #aaa; }
+.sidebar-tab.active { background: #00d4ff; color: #000; border-color: #00d4ff; }
+.tab-content { display: block; }
+
 /* OHT 리스트 스타일 */
-.oht-list { max-height: calc(100vh - 200px); overflow-y: auto; }
+.oht-list { max-height: calc(100vh - 220px); overflow-y: auto; }
 .oht-item {
     background: #1a1a2e; padding: 8px 10px; border-radius: 6px;
     margin-bottom: 6px; cursor: pointer; transition: all 0.2s ease;
@@ -1963,7 +1974,7 @@ canvas { display: block; }
 .zone-filter button.active:hover { background: #00b8e6; }
 
 /* Zone 리스트 */
-.zone-list { max-height: calc(100vh - 500px); overflow-y: auto; }
+.zone-list { max-height: calc(100vh - 220px); overflow-y: auto; }
 .zone-item {
     background: #1a1a2e; padding: 8px 10px; border-radius: 6px;
     margin-bottom: 6px; cursor: pointer; transition: all 0.2s ease;
@@ -2132,43 +2143,54 @@ canvas { display: block; }
     <div id="three-container" style="display:none;width:100%;height:100%;"></div>
 </div>
 
-<!-- 오른쪽 사이드바: OHT 상태 (기본 접힘) -->
-<div id="right-sidebar-toggle" class="collapsed" onclick="toggleRightSidebar()" title="OHT 목록 접기/펼치기">◀</div>
+<!-- 오른쪽 사이드바: OHT/Zone 상태 (기본 접힘) -->
+<div id="right-sidebar-toggle" class="collapsed" onclick="toggleRightSidebar()" title="목록 접기/펼치기">◀</div>
 <div id="right-sidebar" class="collapsed">
-    <h3>OHT 상태 목록</h3>
-    <div class="oht-filter">
-        <button class="active" data-filter="all">전체</button>
-        <button data-filter="running">운행</button>
-        <button data-filter="loaded">적재</button>
-        <button data-filter="stopped">정지</button>
-        <button data-filter="jam">JAM</button>
-    </div>
-    <div style="margin-bottom:8px;">
-        <input type="text" id="ohtSearch" placeholder="OHT ID 검색..."
-               style="width:100%;padding:6px 8px;background:#1a1a3e;color:#fff;border:1px solid #444;border-radius:4px;font-size:11px;">
-    </div>
-    <div class="oht-list" id="ohtList">
-        <!-- OHT 목록이 여기에 동적으로 추가됨 -->
-    </div>
-    <div style="margin-top:10px;padding:8px;background:#1a1a2e;border-radius:6px;font-size:10px;color:#888;">
-        <div>클릭: 선택/해제</div>
-        <div>더블클릭: 상세정보 보기</div>
+    <!-- 탭 버튼 -->
+    <div class="sidebar-tabs">
+        <button class="sidebar-tab active" data-tab="oht">OHT 상태</button>
+        <button class="sidebar-tab" data-tab="zone">HID Zone</button>
     </div>
 
-    <!-- HID Zone 상태 섹션 -->
-    <h3 style="margin-top:20px;border-top:1px solid #333;padding-top:15px;">HID Zone 상태</h3>
-    <div class="zone-filter">
-        <button class="active" data-zone-filter="all">전체</button>
-        <button data-zone-filter="full">포화</button>
-        <button data-zone-filter="precaution">주의</button>
-        <button data-zone-filter="normal">정상</button>
+    <!-- OHT 탭 콘텐츠 -->
+    <div class="tab-content" id="tab-oht">
+        <div class="oht-filter">
+            <button class="active" data-filter="all">전체</button>
+            <button data-filter="running">운행</button>
+            <button data-filter="loaded">적재</button>
+            <button data-filter="stopped">정지</button>
+            <button data-filter="jam">JAM</button>
+        </div>
+        <div style="margin-bottom:8px;">
+            <input type="text" id="ohtSearch" placeholder="OHT ID 검색..."
+                   style="width:100%;padding:6px 8px;background:#1a1a3e;color:#fff;border:1px solid #444;border-radius:4px;font-size:11px;">
+        </div>
+        <div class="oht-list" id="ohtList">
+            <!-- OHT 목록이 여기에 동적으로 추가됨 -->
+        </div>
+        <div style="margin-top:10px;padding:8px;background:#1a1a2e;border-radius:6px;font-size:10px;color:#888;">
+            <div>클릭: 선택/해제 | 더블클릭: 상세정보</div>
+        </div>
     </div>
-    <div style="margin:8px 0;">
-        <input type="text" id="zoneSearch" placeholder="Zone ID 검색..."
-               style="width:100%;padding:6px 8px;background:#1a1a3e;color:#fff;border:1px solid #444;border-radius:4px;font-size:11px;">
-    </div>
-    <div class="zone-list" id="zoneList">
-        <!-- Zone 목록이 여기에 동적으로 추가됨 -->
+
+    <!-- HID Zone 탭 콘텐츠 -->
+    <div class="tab-content" id="tab-zone" style="display:none;">
+        <div class="zone-filter">
+            <button class="active" data-zone-filter="all">전체</button>
+            <button data-zone-filter="full">포화</button>
+            <button data-zone-filter="precaution">주의</button>
+            <button data-zone-filter="normal">정상</button>
+        </div>
+        <div style="margin-bottom:8px;">
+            <input type="text" id="zoneSearch" placeholder="Zone ID 검색..."
+                   style="width:100%;padding:6px 8px;background:#1a1a3e;color:#fff;border:1px solid #444;border-radius:4px;font-size:11px;">
+        </div>
+        <div class="zone-list" id="zoneList">
+            <!-- Zone 목록이 여기에 동적으로 추가됨 -->
+        </div>
+        <div style="margin-top:10px;padding:8px;background:#1a1a2e;border-radius:6px;font-size:10px;color:#888;">
+            <div>클릭: 선택 | 더블클릭: 상세정보</div>
+        </div>
     </div>
 </div>
 
@@ -2531,6 +2553,28 @@ document.addEventListener('DOMContentLoaded', () => {
             updateZoneList();
         });
     }
+
+    // 사이드바 탭 전환 이벤트
+    document.querySelectorAll('.sidebar-tab').forEach(tab => {
+        tab.addEventListener('click', () => {
+            // 모든 탭 버튼 비활성화
+            document.querySelectorAll('.sidebar-tab').forEach(t => t.classList.remove('active'));
+            // 클릭한 탭 활성화
+            tab.classList.add('active');
+
+            // 모든 탭 콘텐츠 숨기기
+            document.querySelectorAll('.tab-content').forEach(content => {
+                content.style.display = 'none';
+            });
+
+            // 선택한 탭 콘텐츠 보이기
+            const tabId = tab.dataset.tab;
+            const targetContent = document.getElementById('tab-' + tabId);
+            if (targetContent) {
+                targetContent.style.display = 'block';
+            }
+        });
+    });
 
     console.log('OHT 목록 및 Zone 목록 이벤트 리스너 등록 완료');
 });
