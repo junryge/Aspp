@@ -2806,324 +2806,180 @@ loadJamStats();
 setInterval(loadJamStats, 5000);
 
 // ============================================================
-// Three.js 3D 렌더링 - 실제 OHT 시스템 (천장 레일 + 매달린 OHT)
+// Three.js 아이소메트릭 2.5D (고정 시점 + 입체감)
 // ============================================================
 let is3DMode = false;
-let scene, camera, renderer, controls;
+let scene, camera, renderer;
 let railMeshes = [];
-let pillarMeshes = [];
 let ohtMeshes = {};
-let floorMesh;
+let cameraTarget = { x: 0, z: 0 };
+let zoomLevel = 1;
+let isDragging3D = false;
+let lastMouse3D = { x: 0, y: 0 };
 
 // 상수
-const RAIL_HEIGHT = 800;      // 레일 높이 (천장)
-const RAIL_RADIUS = 15;       // 레일 파이프 반경
-const OHT_HANG_LENGTH = 100;  // OHT 매달림 길이
-const SCALE_FACTOR = 0.3;     // 좌표 스케일
+const RAIL_HEIGHT = 120;
+const SCALE_FACTOR = 0.25;
 const CENTER_X = 10000;
 const CENTER_Y = 10000;
 
-// 3D 초기화
+// 아이소메트릭 초기화
 function init3D() {
     const container = document.getElementById('three-container');
+    const w = container.clientWidth;
+    const h = container.clientHeight;
 
-    // Scene
     scene = new THREE.Scene();
-    scene.background = new THREE.Color(0x1a1a2e);
-    scene.fog = new THREE.Fog(0x1a1a2e, 5000, 25000);
+    scene.background = new THREE.Color(0x0a0a1a);
 
-    // Camera - 더 좋은 시점
-    camera = new THREE.PerspectiveCamera(50, container.clientWidth / container.clientHeight, 10, 50000);
-    camera.position.set(3000, 2000, 4000);
-    camera.lookAt(0, RAIL_HEIGHT / 2, 0);
+    // Orthographic 카메라 (아이소메트릭)
+    const viewSize = 2500;
+    const aspect = w / h;
+    camera = new THREE.OrthographicCamera(
+        -viewSize * aspect, viewSize * aspect, viewSize, -viewSize, 1, 20000
+    );
+    // 아이소메트릭 각도 (30도)
+    camera.position.set(4000, 3000, 4000);
+    camera.lookAt(0, 0, 0);
 
     // Renderer
     renderer = new THREE.WebGLRenderer({ antialias: true });
-    renderer.setSize(container.clientWidth, container.clientHeight);
+    renderer.setSize(w, h);
     renderer.setPixelRatio(window.devicePixelRatio);
     renderer.shadowMap.enabled = true;
-    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     container.appendChild(renderer.domElement);
 
-    // OrbitControls
-    controls = new THREE.OrbitControls(camera, renderer.domElement);
-    controls.enableDamping = true;
-    controls.dampingFactor = 0.05;
-    controls.minDistance = 500;
-    controls.maxDistance = 20000;
-    controls.target.set(0, RAIL_HEIGHT / 2, 0);
-
-    // 조명 설정
-    setupLights();
-
-    // 바닥 생성
-    createFloor();
-
-    // 레일 및 기둥 생성
-    createRails3D();
-
-    // 애니메이션 루프
-    animate3D();
-
-    console.log('3D 모드 초기화 완료 - 실제 OHT 시스템');
-}
-
-// 조명 설정
-function setupLights() {
-    // 환경광
-    const ambientLight = new THREE.AmbientLight(0x404060, 0.5);
-    scene.add(ambientLight);
-
-    // 천장 조명 (여러 개)
-    const positions = [
-        [2000, 1500, 2000],
-        [-2000, 1500, 2000],
-        [2000, 1500, -2000],
-        [-2000, 1500, -2000],
-        [0, 1500, 0]
-    ];
-
-    positions.forEach(pos => {
-        const light = new THREE.PointLight(0xffffff, 0.3, 5000);
-        light.position.set(pos[0], pos[1], pos[2]);
-        scene.add(light);
-    });
-
-    // 메인 방향광 (그림자용)
-    const dirLight = new THREE.DirectionalLight(0xffffff, 0.6);
-    dirLight.position.set(3000, 2000, 3000);
+    // 조명
+    const ambient = new THREE.AmbientLight(0x6688aa, 0.7);
+    scene.add(ambient);
+    const dirLight = new THREE.DirectionalLight(0xffffff, 0.8);
+    dirLight.position.set(3000, 4000, 2000);
     dirLight.castShadow = true;
     dirLight.shadow.mapSize.width = 2048;
     dirLight.shadow.mapSize.height = 2048;
-    dirLight.shadow.camera.near = 100;
-    dirLight.shadow.camera.far = 10000;
-    dirLight.shadow.camera.left = -5000;
-    dirLight.shadow.camera.right = 5000;
-    dirLight.shadow.camera.top = 5000;
-    dirLight.shadow.camera.bottom = -5000;
     scene.add(dirLight);
+
+    // 바닥
+    const floorGeom = new THREE.PlaneGeometry(10000, 10000);
+    const floorMat = new THREE.MeshStandardMaterial({ color: 0x0a0a1a });
+    const floor = new THREE.Mesh(floorGeom, floorMat);
+    floor.rotation.x = -Math.PI / 2;
+    floor.receiveShadow = true;
+    scene.add(floor);
+
+    // 그리드
+    const grid = new THREE.GridHelper(10000, 50, 0x2a2a4a, 0x1a1a3a);
+    grid.position.y = 1;
+    scene.add(grid);
+
+    // 레일 생성
+    createRailsIso();
+
+    // 마우스 이벤트
+    setupMouseIso(container);
+
+    animate3D();
+    console.log('아이소메트릭 2.5D 초기화 완료');
 }
 
-// 바닥 생성
-function createFloor() {
-    // 공장 바닥 (콘크리트 느낌)
-    const floorGeom = new THREE.PlaneGeometry(15000, 15000);
-    const floorMat = new THREE.MeshStandardMaterial({
-        color: 0x2a2a3a,
-        roughness: 0.8,
-        metalness: 0.2
-    });
-    floorMesh = new THREE.Mesh(floorGeom, floorMat);
-    floorMesh.rotation.x = -Math.PI / 2;
-    floorMesh.position.y = 0;
-    floorMesh.receiveShadow = true;
-    scene.add(floorMesh);
-
-    // 바닥 그리드 라인
-    const gridHelper = new THREE.GridHelper(15000, 50, 0x444466, 0x333344);
-    gridHelper.position.y = 1;
-    scene.add(gridHelper);
-}
-
-// 레일 3D 생성 (천장 파이프 형태)
-function createRails3D() {
+// 레일 생성 (발광 박스)
+function createRailsIso() {
     if (!layout || !layout.edges) return;
-
-    // 기존 레일/기둥 제거
     railMeshes.forEach(m => scene.remove(m));
-    pillarMeshes.forEach(m => scene.remove(m));
     railMeshes = [];
-    pillarMeshes = [];
 
-    // 레일 재질 (금속 파이프)
-    const railMaterial = new THREE.MeshStandardMaterial({
-        color: 0x4488aa,
-        roughness: 0.3,
-        metalness: 0.8
+    const railMat = new THREE.MeshStandardMaterial({
+        color: 0x00d4ff,
+        emissive: 0x003355,
+        emissiveIntensity: 0.5,
+        metalness: 0.7,
+        roughness: 0.3
     });
 
-    // 기둥 재질
-    const pillarMaterial = new THREE.MeshStandardMaterial({
-        color: 0x666688,
-        roughness: 0.5,
-        metalness: 0.6
-    });
-
-    // 노드 위치에 기둥 생성할 노드 집합
-    const pillarNodes = new Set();
-
-    layout.edges.forEach((edge, index) => {
+    layout.edges.forEach(edge => {
         const fromNode = nodeMap[edge.from];
         const toNode = nodeMap[edge.to];
+        if (!fromNode || !toNode) return;
 
-        if (fromNode && toNode) {
-            // 3D 좌표 변환
-            const x1 = (fromNode.x - CENTER_X) * SCALE_FACTOR;
-            const z1 = (fromNode.y - CENTER_Y) * SCALE_FACTOR;
-            const x2 = (toNode.x - CENTER_X) * SCALE_FACTOR;
-            const z2 = (toNode.y - CENTER_Y) * SCALE_FACTOR;
+        const x1 = (fromNode.x - CENTER_X) * SCALE_FACTOR;
+        const z1 = (fromNode.y - CENTER_Y) * SCALE_FACTOR;
+        const x2 = (toNode.x - CENTER_X) * SCALE_FACTOR;
+        const z2 = (toNode.y - CENTER_Y) * SCALE_FACTOR;
 
-            // 레일 길이 계산
-            const dx = x2 - x1;
-            const dz = z2 - z1;
-            const length = Math.sqrt(dx * dx + dz * dz);
+        const dx = x2 - x1, dz = z2 - z1;
+        const len = Math.sqrt(dx*dx + dz*dz);
+        if (len < 3) return;
 
-            if (length > 5) {
-                // 레일 파이프 생성
-                const railGeom = new THREE.CylinderGeometry(RAIL_RADIUS, RAIL_RADIUS, length, 8);
-                const rail = new THREE.Mesh(railGeom, railMaterial);
-
-                // 위치 및 회전 설정
-                rail.position.set((x1 + x2) / 2, RAIL_HEIGHT, (z1 + z2) / 2);
-                rail.rotation.z = Math.PI / 2;
-                rail.rotation.x = Math.atan2(dz, dx);
-                rail.castShadow = true;
-
-                scene.add(rail);
-                railMeshes.push(rail);
-
-                // 일정 간격으로 기둥 노드 추가
-                if (index % 20 === 0) {
-                    pillarNodes.add(edge.from);
-                }
-            }
-        }
+        const railGeom = new THREE.BoxGeometry(len, 6, 10);
+        const rail = new THREE.Mesh(railGeom, railMat);
+        rail.position.set((x1+x2)/2, RAIL_HEIGHT, (z1+z2)/2);
+        rail.rotation.y = -Math.atan2(dz, dx);
+        rail.castShadow = true;
+        scene.add(rail);
+        railMeshes.push(rail);
     });
-
-    // 기둥 생성
-    pillarNodes.forEach(nodeNo => {
-        const node = nodeMap[nodeNo];
-        if (node) {
-            const x = (node.x - CENTER_X) * SCALE_FACTOR;
-            const z = (node.y - CENTER_Y) * SCALE_FACTOR;
-
-            // 기둥 (바닥에서 레일까지)
-            const pillarGeom = new THREE.CylinderGeometry(20, 25, RAIL_HEIGHT, 6);
-            const pillar = new THREE.Mesh(pillarGeom, pillarMaterial);
-            pillar.position.set(x, RAIL_HEIGHT / 2, z);
-            pillar.castShadow = true;
-            scene.add(pillar);
-            pillarMeshes.push(pillar);
-
-            // 기둥 상단 브라켓
-            const bracketGeom = new THREE.BoxGeometry(60, 20, 60);
-            const bracket = new THREE.Mesh(bracketGeom, pillarMaterial);
-            bracket.position.set(x, RAIL_HEIGHT, z);
-            scene.add(bracket);
-            pillarMeshes.push(bracket);
-        }
-    });
-
-    console.log('3D 레일 생성:', railMeshes.length, '기둥:', pillarMeshes.length);
 }
 
-// OHT 3D 생성 (레일 아래 매달린 형태)
-function createOHTMesh() {
-    const group = new THREE.Group();
+// OHT 생성
+function createOHTIso(color) {
+    const g = new THREE.Group();
 
-    // 행거 (레일에 연결되는 부분)
-    const hangerMat = new THREE.MeshStandardMaterial({ color: 0x888899, metalness: 0.7, roughness: 0.3 });
-    const hangerGeom = new THREE.BoxGeometry(30, 30, 50);
-    const hanger = new THREE.Mesh(hangerGeom, hangerMat);
-    hanger.position.y = -15;
-    group.add(hanger);
-
-    // 연결봉
-    const rodGeom = new THREE.CylinderGeometry(5, 5, OHT_HANG_LENGTH - 30, 8);
-    const rod = new THREE.Mesh(rodGeom, hangerMat);
-    rod.position.y = -30 - (OHT_HANG_LENGTH - 30) / 2;
-    group.add(rod);
-
-    // OHT 본체 (박스형)
+    // 본체
     const bodyMat = new THREE.MeshStandardMaterial({
-        color: 0x00ff88,
-        metalness: 0.4,
-        roughness: 0.6,
-        emissive: 0x002211,
-        emissiveIntensity: 0.3
+        color: color, emissive: color, emissiveIntensity: 0.4, metalness: 0.5
     });
-    const bodyGeom = new THREE.BoxGeometry(80, 50, 120);
-    const body = new THREE.Mesh(bodyGeom, bodyMat);
-    body.position.y = -OHT_HANG_LENGTH - 25;
+    const body = new THREE.Mesh(new THREE.BoxGeometry(40, 30, 60), bodyMat);
+    body.position.y = -20;
     body.castShadow = true;
     body.name = 'body';
-    group.add(body);
+    g.add(body);
 
-    // 화물칸 (적재 시 표시)
-    const cargoMat = new THREE.MeshStandardMaterial({ color: 0xff9900, metalness: 0.3, roughness: 0.7 });
-    const cargoGeom = new THREE.BoxGeometry(60, 30, 80);
-    const cargo = new THREE.Mesh(cargoGeom, cargoMat);
-    cargo.position.y = -OHT_HANG_LENGTH - 65;
-    cargo.visible = false;
-    cargo.name = 'cargo';
-    group.add(cargo);
+    // 연결봉
+    const rod = new THREE.Mesh(
+        new THREE.CylinderGeometry(4, 4, 25, 8),
+        new THREE.MeshStandardMaterial({ color: 0x666688 })
+    );
+    rod.position.y = 0;
+    g.add(rod);
 
-    // 상태 표시등 (위에)
-    const lightGeom = new THREE.SphereGeometry(8, 8, 8);
-    const lightMat = new THREE.MeshBasicMaterial({ color: 0x00ff00 });
-    const statusLight = new THREE.Mesh(lightGeom, lightMat);
-    statusLight.position.y = -OHT_HANG_LENGTH + 5;
-    statusLight.name = 'statusLight';
-    group.add(statusLight);
+    // 그림자 (바닥)
+    const shadowMat = new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.3 });
+    const shadow = new THREE.Mesh(new THREE.CircleGeometry(30, 16), shadowMat);
+    shadow.rotation.x = -Math.PI / 2;
+    shadow.position.y = -RAIL_HEIGHT + 2;
+    g.add(shadow);
 
-    return group;
+    return g;
 }
 
 // OHT 업데이트
-function updateOHTs3D() {
+function updateOHTsIso() {
     if (!vehicles) return;
 
     Object.entries(vehicles).forEach(([id, v]) => {
-        let oht = ohtMeshes[id];
+        let color = 0x00ff88;
+        if (v.state === 'JAM') color = 0xff0000;
+        else if (v.state === 'STOP') color = 0xff3366;
+        else if (v.loaded) color = 0xff9900;
 
+        let oht = ohtMeshes[id];
         if (!oht) {
-            // 새 OHT 생성
-            oht = createOHTMesh();
+            oht = createOHTIso(color);
             scene.add(oht);
             ohtMeshes[id] = oht;
         }
 
-        // 위치 업데이트
         const x = (v.x - CENTER_X) * SCALE_FACTOR;
         const z = (v.y - CENTER_Y) * SCALE_FACTOR;
         oht.position.set(x, RAIL_HEIGHT, z);
 
-        // 상태별 색상
         const body = oht.getObjectByName('body');
-        const cargo = oht.getObjectByName('cargo');
-        const statusLight = oht.getObjectByName('statusLight');
-
-        let bodyColor = 0x00ff88;  // 기본: 녹색 (운행중)
-        let lightColor = 0x00ff00;
-        let emissive = 0x002211;
-
-        if (v.state === 'JAM') {
-            bodyColor = 0xff0000;
-            lightColor = 0xff0000;
-            emissive = 0x220000;
-        } else if (v.state === 'STOP') {
-            bodyColor = 0xff3366;
-            lightColor = 0xff3366;
-            emissive = 0x220011;
-        } else if (v.loaded) {
-            bodyColor = 0x00aaff;
-            lightColor = 0xff9900;
-            emissive = 0x001122;
-        }
-
         if (body) {
-            body.material.color.setHex(bodyColor);
-            body.material.emissive.setHex(emissive);
-        }
-        if (statusLight) {
-            statusLight.material.color.setHex(lightColor);
-        }
-        if (cargo) {
-            cargo.visible = v.loaded;
+            body.material.color.setHex(color);
+            body.material.emissive.setHex(color);
         }
     });
 
-    // 삭제된 OHT 제거
     Object.keys(ohtMeshes).forEach(id => {
         if (!vehicles[id]) {
             scene.remove(ohtMeshes[id]);
@@ -3132,21 +2988,42 @@ function updateOHTs3D() {
     });
 }
 
-// 3D 애니메이션 루프
+// 마우스 컨트롤 (팬/줌)
+function setupMouseIso(container) {
+    container.addEventListener('mousedown', e => {
+        isDragging3D = true;
+        lastMouse3D = { x: e.clientX, y: e.clientY };
+    });
+    container.addEventListener('mousemove', e => {
+        if (!isDragging3D) return;
+        const dx = e.clientX - lastMouse3D.x;
+        const dy = e.clientY - lastMouse3D.y;
+        camera.position.x -= (dx + dy) * 1.5;
+        camera.position.z -= (-dx + dy) * 1.5;
+        lastMouse3D = { x: e.clientX, y: e.clientY };
+    });
+    container.addEventListener('mouseup', () => isDragging3D = false);
+    container.addEventListener('mouseleave', () => isDragging3D = false);
+    container.addEventListener('wheel', e => {
+        e.preventDefault();
+        zoomLevel *= e.deltaY > 0 ? 1.1 : 0.9;
+        zoomLevel = Math.max(0.3, Math.min(3, zoomLevel));
+        camera.zoom = 1 / zoomLevel;
+        camera.updateProjectionMatrix();
+    });
+}
+
+// 애니메이션
 function animate3D() {
     if (!is3DMode) return;
-
     requestAnimationFrame(animate3D);
-
-    controls.update();
-    updateOHTs3D();
+    updateOHTsIso();
     renderer.render(scene, camera);
 }
 
-// 2D/3D 모드 전환
+// 2D/3D 전환
 function toggle3DMode() {
     is3DMode = !is3DMode;
-
     const canvas2D = document.getElementById('canvas');
     const container3D = document.getElementById('three-container');
     const btn = document.getElementById('btnToggle3D');
@@ -3156,13 +3033,8 @@ function toggle3DMode() {
         container3D.style.display = 'block';
         btn.textContent = '2D 모드';
         btn.style.background = '#00d4ff';
-
-        if (!scene) {
-            init3D();
-        } else {
-            createRails3D();
-            animate3D();
-        }
+        if (!scene) init3D();
+        else { createRailsIso(); animate3D(); }
     } else {
         canvas2D.style.display = 'block';
         container3D.style.display = 'none';
@@ -3172,24 +3044,22 @@ function toggle3DMode() {
     }
 }
 
-// 3D 리사이즈
+// 리사이즈
 function resize3D() {
     if (!renderer || !camera) return;
-
     const container = document.getElementById('three-container');
-    camera.aspect = container.clientWidth / container.clientHeight;
+    const w = container.clientWidth, h = container.clientHeight;
+    const viewSize = 2500, aspect = w / h;
+    camera.left = -viewSize * aspect;
+    camera.right = viewSize * aspect;
+    camera.top = viewSize;
+    camera.bottom = -viewSize;
     camera.updateProjectionMatrix();
-    renderer.setSize(container.clientWidth, container.clientHeight);
+    renderer.setSize(w, h);
 }
 
-// 이벤트 리스너
 document.getElementById('btnToggle3D').addEventListener('click', toggle3DMode);
-
-window.addEventListener('resize', () => {
-    if (is3DMode) {
-        resize3D();
-    }
-});
+window.addEventListener('resize', () => { if (is3DMode) resize3D(); });
 </script>
 </body>
 </html>
