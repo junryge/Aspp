@@ -2192,7 +2192,14 @@ function getOhtStateText(v) {
 // OHT 목록 업데이트
 function updateOhtList() {
     const listEl = document.getElementById('ohtList');
-    if (!listEl || !vehicles) return;
+    if (!listEl) {
+        console.log('OHT 목록 요소를 찾을 수 없음');
+        return;
+    }
+    if (!vehicles || Object.keys(vehicles).length === 0) {
+        listEl.innerHTML = '<div style="text-align:center;color:#888;padding:20px;">OHT 데이터 로딩 중...</div>';
+        return;
+    }
 
     const vehArray = Object.values(vehicles);
 
@@ -2282,20 +2289,28 @@ function updateOhtList() {
     });
 }
 
-// 필터 버튼 이벤트
-document.querySelectorAll('.oht-filter button').forEach(btn => {
-    btn.addEventListener('click', () => {
-        document.querySelectorAll('.oht-filter button').forEach(b => b.classList.remove('active'));
-        btn.classList.add('active');
-        ohtFilter = btn.dataset.filter;
-        updateOhtList();
+// 필터 버튼 및 검색 이벤트 (DOM 로드 후)
+document.addEventListener('DOMContentLoaded', () => {
+    // 필터 버튼 이벤트
+    document.querySelectorAll('.oht-filter button').forEach(btn => {
+        btn.addEventListener('click', () => {
+            document.querySelectorAll('.oht-filter button').forEach(b => b.classList.remove('active'));
+            btn.classList.add('active');
+            ohtFilter = btn.dataset.filter;
+            updateOhtList();
+        });
     });
-});
 
-// 검색 이벤트
-document.getElementById('ohtSearch')?.addEventListener('input', (e) => {
-    ohtSearchText = e.target.value;
-    updateOhtList();
+    // 검색 이벤트
+    const searchEl = document.getElementById('ohtSearch');
+    if (searchEl) {
+        searchEl.addEventListener('input', (e) => {
+            ohtSearchText = e.target.value;
+            updateOhtList();
+        });
+    }
+
+    console.log('OHT 목록 이벤트 리스너 등록 완료');
 });
 
 const canvas = document.getElementById('canvas');
