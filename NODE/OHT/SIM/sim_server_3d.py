@@ -6,7 +6,7 @@ OHT 실시간 시뮬레이터 - FastAPI 웹서버
 - 속도 계산 5가지 조건 적용
 - WebSocket으로 프론트엔드에 전송
 - CSV 자동 저장 (ATLAS 테이블 형식)
-- HID Zone 기반 차량 관리 (HID_구역.CSV 연동)
+- HID Zone 기반 차량 관리 (HID_Zone_Master.csv 연동)
 """
 
 import os
@@ -37,7 +37,7 @@ _SCRIPT_DIR = pathlib.Path(__file__).parent.resolve()
 
 LAYOUT_PATH = str(_SCRIPT_DIR / "layout" / "layout" / "layout.html")
 OUTPUT_DIR = str(_SCRIPT_DIR / "output")
-HID_ZONE_CSV_PATH = str(_SCRIPT_DIR / "HID_구역.CSV")  # HID Zone 구성 파일
+HID_ZONE_CSV_PATH = str(_SCRIPT_DIR / "HID_Zone_Master.csv")  # HID Zone 마스터 파일
 CSV_SAVE_INTERVAL = 10  # 10초마다 CSV 저장
 VEHICLE_COUNT = 50  # OHT 대수
 SIMULATION_INTERVAL = 0.5  # 0.5초마다 업데이트
@@ -355,7 +355,7 @@ class RailEdge:
 
 
 # ============================================================
-# HID Zone 클래스 - HID_구역.CSV 기반
+# HID Zone 클래스 - HID_Zone_Master.csv 기반
 # ============================================================
 @dataclass
 class LanePair:
@@ -374,10 +374,14 @@ class LanePair:
 @dataclass
 class HIDZone:
     """
-    HID Zone 데이터 - HID_구역.CSV 기반
+    HID Zone 데이터 - HID_Zone_Master.csv 기반
 
     컬럼:
     - Zone_ID: Zone 고유 식별 번호
+    - HID_No: HID 장비 번호 (HID-OHT-001)
+    - Bay_Zone: Bay/구역 코드 (B01, M02, OS1 등)
+    - Sub_Region: 하위 구역 번호 (1, 2, 3...)
+    - Full_Name: 전체 명칭 (HID-B01-1(001))
     - Territory: 소속 영역 번호 (전체 1)
     - Type: Zone 유형 (HID = Hoist ID 구간)
     - IN_Count: 진입 Lane 개수
@@ -386,6 +390,9 @@ class HIDZone:
     - OUT_Lanes: 진출 Lane 노드 쌍 리스트
     - Vehicle_Max: Zone 내 최대 허용 OHT 대수
     - Vehicle_Precaution: 주의 알람 발생 기준 OHT 대수
+    - Project: 프로젝트명
+    - ZCU: ZCU 코드
+    - HID_Type: HID 타입 (HID4, MiniHID)
     """
     zoneId: int
     territory: int
@@ -396,6 +403,15 @@ class HIDZone:
     outLanes: List[LanePair] = field(default_factory=list)
     vehicleMax: int = 37
     vehiclePrecaution: int = 35
+
+    # 새로운 필드 (HID_Zone_Master.csv)
+    hidNo: str = ""           # HID-OHT-001
+    bayZone: str = ""         # B01, M02, OS1
+    subRegion: int = 0        # 하위 구역 번호
+    fullName: str = ""        # HID-B01-1(001)
+    project: str = ""         # M14 Project Ph-1
+    zcu: str = ""             # ZC504A
+    hidType: str = ""         # HID4, MiniHID
 
     # 실시간 상태
     currentVehicles: Set[str] = field(default_factory=set)
@@ -480,10 +496,11 @@ class HIDZone:
 
 def parse_hid_zones(filepath: str) -> Dict[int, HIDZone]:
     """
-    HID_구역.CSV 파일 파싱
+    HID_Zone_Master.csv 파일 파싱
 
     CSV 컬럼:
-    Zone_ID,Territory,Type,IN_Count,OUT_Count,IN_Lanes,OUT_Lanes,Vehicle_Max,Vehicle_Precaution
+    Zone_ID,HID_No,Bay_Zone,Sub_Region,Full_Name,Territory,Type,IN_Count,OUT_Count,
+    IN_Lanes,OUT_Lanes,Vehicle_Max,Vehicle_Precaution,Project,ZCU,HID_Type
     """
     zones: Dict[int, HIDZone] = {}
 
@@ -533,6 +550,10 @@ def parse_hid_zones(filepath: str) -> Dict[int, HIDZone]:
                     sim_max = max(10, csv_max // 3)  # 최소 10대
                     sim_precaution = max(7, csv_precaution // 3)  # 최소 7대
 
+                    # Sub_Region 파싱 (빈 값이면 0)
+                    sub_region_str = row.get('Sub_Region', '')
+                    sub_region = int(sub_region_str) if sub_region_str else 0
+
                     zone = HIDZone(
                         zoneId=zone_id,
                         territory=int(row.get('Territory', 1)),
@@ -542,7 +563,15 @@ def parse_hid_zones(filepath: str) -> Dict[int, HIDZone]:
                         inLanes=in_lanes,
                         outLanes=out_lanes,
                         vehicleMax=sim_max,
-                        vehiclePrecaution=sim_precaution
+                        vehiclePrecaution=sim_precaution,
+                        # 새로운 필드 (HID_Zone_Master.csv)
+                        hidNo=row.get('HID_No', ''),
+                        bayZone=row.get('Bay_Zone', ''),
+                        subRegion=sub_region,
+                        fullName=row.get('Full_Name', ''),
+                        project=row.get('Project', ''),
+                        zcu=row.get('ZCU', ''),
+                        hidType=row.get('HID_Type', '')
                     )
                     zones[zone_id] = zone
 
@@ -649,7 +678,7 @@ class SimulationEngine:
             )
 
         # ============================================================
-        # HID Zone 관리 - HID_구역.CSV 기반
+        # HID Zone 관리 - HID_Zone_Master.csv 기반
         # ============================================================
         self.hid_zones: Dict[int, HIDZone] = parse_hid_zones(HID_ZONE_CSV_PATH)
         self.in_lane_to_zone, self.out_lane_to_zone = build_lane_to_zone_map(self.hid_zones)
@@ -1486,10 +1515,15 @@ async def startup():
     layout_data = {
         'nodes': [{'no': n.no, 'x': n.x, 'y': n.y} for n in nodes.values()],
         'edges': [{'from': e[0], 'to': e[1]} for e in edges],
-        # HID Zone Lane 정보
+        # HID Zone Lane 정보 (HID_Zone_Master.csv 기반)
         'hidZones': [
             {
                 'zoneId': z.zoneId,
+                'hidNo': z.hidNo,
+                'bayZone': z.bayZone,
+                'subRegion': z.subRegion,
+                'fullName': z.fullName,
+                'hidType': z.hidType,
                 'inLanes': [{'from': lane.fromNode, 'to': lane.toNode} for lane in z.inLanes],
                 'outLanes': [{'from': lane.fromNode, 'to': lane.toNode} for lane in z.outLanes],
                 'vehicleMax': z.vehicleMax,
@@ -2462,7 +2496,10 @@ function render() {
 
                 // 배경 박스
                 const fontSize = Math.max(10, 14 / scale);
-                const label = 'HID ' + zone.zoneId;
+                // Bay_Zone + Sub_Region 형식 (예: B01-1) 또는 HID No
+                let label = zone.bayZone && zone.subRegion ?
+                    zone.bayZone + '-' + zone.subRegion :
+                    (zone.bayZone || 'HID ' + zone.zoneId);
                 ctx.font = 'bold ' + fontSize + 'px sans-serif';
                 const textWidth = ctx.measureText(label).width;
                 const padding = 3 / scale;
