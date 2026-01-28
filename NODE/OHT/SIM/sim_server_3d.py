@@ -1895,9 +1895,65 @@ body { font-family: 'Segoe UI', sans-serif; background: #0a0a1a; color: #eee; ov
 .legend-item { display: flex; align-items: center; gap: 8px; padding: 4px 0; font-size: 11px; }
 .legend-dot { width: 14px; height: 14px; border-radius: 50%; border: 2px solid #fff; }
 
-#canvas-container { position: fixed; top: 50px; left: 240px; right: 0; bottom: 0; transition: left 0.3s ease; }
+#canvas-container { position: fixed; top: 50px; left: 240px; right: 280px; bottom: 0; transition: left 0.3s ease, right 0.3s ease; }
 #canvas-container.expanded { left: 0; }
+#canvas-container.right-expanded { right: 0; }
 canvas { display: block; }
+
+/* 오른쪽 사이드바 - OHT 상태 */
+#right-sidebar {
+    position: fixed; top: 50px; right: 0; bottom: 0; width: 280px;
+    background: rgba(20, 20, 40, 0.95); padding: 10px;
+    border-left: 1px solid #333; z-index: 900;
+    overflow-y: auto;
+    scrollbar-width: thin;
+    scrollbar-color: #444 #1a1a2e;
+    transition: transform 0.3s ease;
+}
+#right-sidebar.collapsed { transform: translateX(280px); }
+#right-sidebar-toggle {
+    position: fixed; top: 55px; right: 280px; z-index: 950;
+    width: 24px; height: 50px; background: rgba(20, 20, 40, 0.95);
+    border: 1px solid #333; border-right: none;
+    border-radius: 8px 0 0 8px; cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+    color: #00d4ff; font-size: 14px; transition: right 0.3s ease;
+}
+#right-sidebar-toggle:hover { background: rgba(0, 212, 255, 0.2); }
+#right-sidebar-toggle.collapsed { right: 0; }
+#right-sidebar h3 { color: #00d4ff; font-size: 13px; margin: 10px 0 8px; }
+#right-sidebar::-webkit-scrollbar { width: 6px; }
+#right-sidebar::-webkit-scrollbar-track { background: #1a1a2e; }
+#right-sidebar::-webkit-scrollbar-thumb { background: #444; border-radius: 3px; }
+
+/* OHT 리스트 스타일 */
+.oht-list { max-height: calc(100vh - 200px); overflow-y: auto; }
+.oht-item {
+    background: #1a1a2e; padding: 8px 10px; border-radius: 6px;
+    margin-bottom: 6px; cursor: pointer; transition: all 0.2s ease;
+    border-left: 3px solid #444;
+}
+.oht-item:hover { background: #252550; }
+.oht-item.selected { background: #1a3a5e; border-left-color: #00d4ff; }
+.oht-item.running { border-left-color: #00ff88; }
+.oht-item.loaded { border-left-color: #ff9900; }
+.oht-item.stopped { border-left-color: #ff3366; }
+.oht-item.jam { border-left-color: #ff0000; animation: blink 0.5s infinite; }
+.oht-item .oht-header { display: flex; justify-content: space-between; align-items: center; }
+.oht-item .oht-id { font-weight: bold; color: #00d4ff; font-size: 12px; }
+.oht-item .oht-state { font-size: 10px; padding: 2px 6px; border-radius: 3px; background: #333; }
+.oht-item .oht-detail { display: none; margin-top: 8px; padding-top: 8px; border-top: 1px solid #333; font-size: 11px; }
+.oht-item.expanded .oht-detail { display: block; }
+.oht-item .detail-row { display: flex; justify-content: space-between; padding: 2px 0; }
+.oht-item .detail-row .label { color: #888; }
+.oht-item .detail-row .value { color: #fff; }
+
+/* OHT 필터 */
+.oht-filter { display: flex; gap: 4px; flex-wrap: wrap; margin-bottom: 10px; }
+.oht-filter button { padding: 4px 8px; font-size: 10px; background: #333; color: #fff; border: none; border-radius: 3px; cursor: pointer; }
+.oht-filter button.active { background: #00d4ff; color: #000; }
+.oht-filter button:hover { background: #444; }
+.oht-filter button.active:hover { background: #00b8e6; }
 
 #tooltip {
     position: fixed; background: rgba(0,20,40,0.95); border: 2px solid #00d4ff;
@@ -2038,9 +2094,34 @@ canvas { display: block; }
     </div>
 </div>
 
-<div id="canvas-container" class="expanded">
+<div id="canvas-container" class="expanded right-expanded">
     <canvas id="canvas"></canvas>
     <div id="three-container" style="display:none;width:100%;height:100%;"></div>
+</div>
+
+<!-- 오른쪽 사이드바: OHT 상태 -->
+<div id="right-sidebar-toggle" class="collapsed" onclick="toggleRightSidebar()" title="OHT 목록 접기/펼치기">◀</div>
+<div id="right-sidebar" class="collapsed">
+    <h3>OHT 상태 목록</h3>
+    <div class="oht-filter">
+        <button class="active" data-filter="all">전체</button>
+        <button data-filter="running">운행</button>
+        <button data-filter="loaded">적재</button>
+        <button data-filter="stopped">정지</button>
+        <button data-filter="jam">JAM</button>
+    </div>
+    <div style="margin-bottom:8px;">
+        <input type="text" id="ohtSearch" placeholder="OHT ID 검색..."
+               style="width:100%;padding:6px 8px;background:#1a1a3e;color:#fff;border:1px solid #444;border-radius:4px;font-size:11px;">
+    </div>
+    <div class="oht-list" id="ohtList">
+        <!-- OHT 목록이 여기에 동적으로 추가됨 -->
+    </div>
+    <div style="margin-top:10px;padding:8px;background:#1a1a2e;border-radius:6px;font-size:10px;color:#888;">
+        <div>클릭: 선택/해제</div>
+        <div>더블클릭: 상세정보 보기</div>
+        <div>선택 시 캔버스에서 경로 표시</div>
+    </div>
 </div>
 
 <div id="tooltip"></div>
@@ -2055,7 +2136,7 @@ canvas { display: block; }
 <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
 
 <script>
-// 사이드바 토글 함수
+// 왼쪽 사이드바 토글 함수
 function toggleSidebar() {
     const sidebar = document.getElementById('sidebar');
     const toggle = document.getElementById('sidebar-toggle');
@@ -2071,6 +2152,151 @@ function toggleSidebar() {
     // 캔버스 리사이즈
     setTimeout(resize, 350);
 }
+
+// 오른쪽 사이드바 토글 함수
+function toggleRightSidebar() {
+    const sidebar = document.getElementById('right-sidebar');
+    const toggle = document.getElementById('right-sidebar-toggle');
+    const container = document.getElementById('canvas-container');
+
+    sidebar.classList.toggle('collapsed');
+    toggle.classList.toggle('collapsed');
+    container.classList.toggle('right-expanded');
+
+    // 아이콘 변경
+    toggle.textContent = sidebar.classList.contains('collapsed') ? '◀' : '▶';
+
+    // 캔버스 리사이즈
+    setTimeout(resize, 350);
+}
+
+// OHT 목록 관련 변수
+let ohtFilter = 'all';
+let ohtSearchText = '';
+let expandedOhtId = null;
+
+// OHT 상태에 따른 클래스 반환
+function getOhtStateClass(v) {
+    if (v.state === 5) return 'jam';  // JAM
+    if (v.state === 4 || v.state === 3) return 'stopped';  // STOP, PAUSE
+    if (v.loaded) return 'loaded';
+    return 'running';
+}
+
+// OHT 상태 텍스트
+function getOhtStateText(v) {
+    const states = {0: 'IDLE', 1: 'ASSIGNED', 2: 'RUN', 3: 'PAUSE', 4: 'STOP', 5: 'JAM'};
+    return states[v.state] || 'UNKNOWN';
+}
+
+// OHT 목록 업데이트
+function updateOhtList() {
+    const listEl = document.getElementById('ohtList');
+    if (!listEl || !vehicles) return;
+
+    const vehArray = Object.values(vehicles);
+
+    // 필터링
+    let filtered = vehArray.filter(v => {
+        // 상태 필터
+        if (ohtFilter !== 'all') {
+            const stateClass = getOhtStateClass(v);
+            if (ohtFilter === 'running' && stateClass !== 'running') return false;
+            if (ohtFilter === 'loaded' && stateClass !== 'loaded') return false;
+            if (ohtFilter === 'stopped' && stateClass !== 'stopped') return false;
+            if (ohtFilter === 'jam' && stateClass !== 'jam') return false;
+        }
+        // 검색 필터
+        if (ohtSearchText && !v.vehicleId.toLowerCase().includes(ohtSearchText.toLowerCase())) {
+            return false;
+        }
+        return true;
+    });
+
+    // 정렬 (JAM 우선, 그 다음 ID 순)
+    filtered.sort((a, b) => {
+        const aJam = a.state === 5 ? 0 : 1;
+        const bJam = b.state === 5 ? 0 : 1;
+        if (aJam !== bJam) return aJam - bJam;
+        return a.vehicleId.localeCompare(b.vehicleId);
+    });
+
+    // HTML 생성
+    let html = '';
+    filtered.forEach(v => {
+        const stateClass = getOhtStateClass(v);
+        const isSelected = selectedVehicles.has(v.vehicleId);
+        const isExpanded = expandedOhtId === v.vehicleId;
+
+        html += '<div class="oht-item ' + stateClass + (isSelected ? ' selected' : '') + (isExpanded ? ' expanded' : '') + '" data-id="' + v.vehicleId + '">';
+        html += '  <div class="oht-header">';
+        html += '    <span class="oht-id">' + v.vehicleId + '</span>';
+        html += '    <span class="oht-state" style="background:' + (stateClass === 'jam' ? '#ff0000' : stateClass === 'stopped' ? '#ff3366' : stateClass === 'loaded' ? '#ff9900' : '#00ff88') + ';color:#000;">' + getOhtStateText(v) + '</span>';
+        html += '  </div>';
+        html += '  <div class="oht-detail">';
+        html += '    <div class="detail-row"><span class="label">속도</span><span class="value">' + (v.velocity || 0).toFixed(1) + ' m/min</span></div>';
+        html += '    <div class="detail-row"><span class="label">적재</span><span class="value">' + (v.loaded ? 'YES' : 'NO') + '</span></div>';
+        html += '    <div class="detail-row"><span class="label">현재 노드</span><span class="value">' + (v.currentNode || '-') + '</span></div>';
+        html += '    <div class="detail-row"><span class="label">목적지</span><span class="value">' + (v.destNode || '-') + '</span></div>';
+        html += '    <div class="detail-row"><span class="label">HID Zone</span><span class="value">' + (v.hidZoneId >= 0 ? 'Zone ' + v.hidZoneId : '-') + '</span></div>';
+        html += '    <div class="detail-row"><span class="label">RUN CYCLE</span><span class="value">' + (v.runCycle || '-') + '</span></div>';
+        html += '  </div>';
+        html += '</div>';
+    });
+
+    if (filtered.length === 0) {
+        html = '<div style="text-align:center;color:#888;padding:20px;">표시할 OHT가 없습니다</div>';
+    }
+
+    listEl.innerHTML = html;
+
+    // 클릭 이벤트 바인딩
+    listEl.querySelectorAll('.oht-item').forEach(item => {
+        const id = item.dataset.id;
+
+        // 클릭: 선택/해제
+        item.addEventListener('click', () => {
+            if (selectedVehicles.has(id)) {
+                selectedVehicles.delete(id);
+                item.classList.remove('selected');
+            } else {
+                selectedVehicles.add(id);
+                item.classList.add('selected');
+            }
+            draw();
+        });
+
+        // 더블클릭: 상세정보 토글
+        item.addEventListener('dblclick', (e) => {
+            e.stopPropagation();
+            if (expandedOhtId === id) {
+                expandedOhtId = null;
+                item.classList.remove('expanded');
+            } else {
+                // 이전 확장된 항목 닫기
+                listEl.querySelectorAll('.oht-item.expanded').forEach(el => el.classList.remove('expanded'));
+                expandedOhtId = id;
+                item.classList.add('expanded');
+            }
+        });
+    });
+}
+
+// 필터 버튼 이벤트
+document.querySelectorAll('.oht-filter button').forEach(btn => {
+    btn.addEventListener('click', () => {
+        document.querySelectorAll('.oht-filter button').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        ohtFilter = btn.dataset.filter;
+        updateOhtList();
+    });
+});
+
+// 검색 이벤트
+document.getElementById('ohtSearch')?.addEventListener('input', (e) => {
+    ohtSearchText = e.target.value;
+    updateOhtList();
+});
 
 const canvas = document.getElementById('canvas');
 const ctx = canvas.getContext('2d');
@@ -2353,6 +2579,9 @@ ws.onmessage = (e) => {
 
         // Zone 상태 맵 저장 (렌더링용)
         window.zoneStatusMap = msg.data.zoneStatusMap || {};
+
+        // OHT 목록 업데이트 (오른쪽 사이드바)
+        updateOhtList();
     }
 };
 
