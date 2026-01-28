@@ -779,9 +779,9 @@ class SimulationEngine:
             return self.hid_zones.get(zone_id)
         return None
 
-    def _get_blocking_vehicle_ahead(self, v: Vehicle) -> Optional[Vehicle]:
+    def _get_blocking_vehicle_ahead(self, v: Vehicle) -> Tuple[Optional[Vehicle], float]:
         """같은 엣지에서 앞에 정지/정체 중인 차량 확인 (체인 효과 포함)
-        Returns: 앞에 있는 정지 차량, 없으면 None
+        Returns: (앞에 있는 정지 차량, 거리) 또는 (None, 0)
         """
         closest_blocking = None
         min_distance = float('inf')
@@ -797,35 +797,36 @@ class SimulationEngine:
                 if other_v.positionRatio > v.positionRatio:
                     distance = other_v.positionRatio - v.positionRatio
 
-                    # 정지 조건: JAM 상태이거나 속도가 매우 낮은 경우 (체인 효과)
+                    # 정지 조건: JAM, STOP 상태이거나 속도가 매우 낮은 경우
                     is_blocked = (
                         other_v.udpState.state == VHL_STATE.JAM or
-                        (other_v.velocity < 5.0 and other_v.udpState.state == VHL_STATE.RUN)
+                        other_v.udpState.state == VHL_STATE.STOP or
+                        other_v.velocity < 3.0  # 속도 3 미만이면 정지로 간주
                     )
 
-                    # 감지 범위 내에 있고, 정지 상태면 blocking
-                    if is_blocked and distance < 0.3:  # 범위 확대 (0.1 -> 0.3)
-                        if distance < min_distance:
-                            min_distance = distance
-                            closest_blocking = other_v
+                    # 앞에 정지 차량이 있으면 무조건 blocking (거리 무관)
+                    if is_blocked and distance < min_distance:
+                        min_distance = distance
+                        closest_blocking = other_v
 
             # 다음 엣지에 정지 차량이 있는지 확인 (내가 곧 그 엣지에 진입할 때)
-            if v.positionRatio > 0.8:  # 현재 엣지 80% 이상 진행
+            if v.positionRatio > 0.7:  # 현재 엣지 70% 이상 진행
                 if other_v.currentNode == v.nextNode:
-                    # 다음 엣지의 시작 부분 (20% 이내)에 정지 차량
-                    if other_v.positionRatio < 0.2:
+                    # 다음 엣지의 시작 부분 (30% 이내)에 정지 차량
+                    if other_v.positionRatio < 0.3:
                         is_blocked = (
                             other_v.udpState.state == VHL_STATE.JAM or
-                            other_v.velocity < 5.0
+                            other_v.udpState.state == VHL_STATE.STOP or
+                            other_v.velocity < 3.0
                         )
                         if is_blocked:
-                            # 가상 거리 계산 (현재 엣지 남은 거리 + 다음 엣지 거리)
+                            # 가상 거리 계산
                             virtual_distance = (1.0 - v.positionRatio) + other_v.positionRatio
                             if virtual_distance < min_distance:
                                 min_distance = virtual_distance
                                 closest_blocking = other_v
 
-        return closest_blocking
+        return closest_blocking, min_distance if closest_blocking else 0
 
     def _find_path(self, start: int, end: int) -> List[int]:
         if start == end or start not in self.nodes or end not in self.nodes:
@@ -1029,27 +1030,23 @@ class SimulationEngine:
         # ============================================================
         # 앞 차량 정지 시 뒤 차량도 정지 (충돌 방지 - 체인 효과)
         # ============================================================
-        blocking_vehicle = self._get_blocking_vehicle_ahead(v)
+        blocking_vehicle, distance_ratio = self._get_blocking_vehicle_ahead(v)
         if blocking_vehicle:
-            # 거리 계산
-            if blocking_vehicle.currentNode == v.currentNode:
-                # 같은 엣지
-                distance_ratio = blocking_vehicle.positionRatio - v.positionRatio
-            else:
-                # 다음 엣지 (가상 거리)
-                distance_ratio = (1.0 - v.positionRatio) + blocking_vehicle.positionRatio
-
             # 거리에 따른 속도 조절 (체인 효과로 뒤 차량도 정지)
-            if distance_ratio < 0.08:  # 매우 가까우면 완전 정지
+            # 앞 차량이 정지/JAM이면 뒤 차량도 반드시 멈춰야 함
+            if distance_ratio < 0.1:  # 매우 가까우면 완전 정지
                 v.velocity = 0.0
-                return  # 이동 중단
-            elif distance_ratio < 0.15:  # 가까우면 거의 정지
+                return  # 이동 완전 중단
+            elif distance_ratio < 0.2:  # 가까우면 정지 (체인 효과 핵심)
                 v.velocity = 0.0
-                return  # 정지 (체인 효과)
-            elif distance_ratio < 0.2:  # 근접하면 서행
-                v.velocity = min(v.velocity, 5.0)
-            elif distance_ratio < 0.3:
-                v.velocity = min(v.velocity, 15.0)  # 속도 제한
+                return  # 정지 - 앞 차가 움직일 때까지 대기
+            elif distance_ratio < 0.3:  # 근접하면 거의 정지
+                v.velocity = 1.0  # 아주 천천히
+                return
+            elif distance_ratio < 0.5:  # 어느 정도 거리면 서행
+                v.velocity = min(v.velocity, 10.0)
+            elif distance_ratio < 0.7:
+                v.velocity = min(v.velocity, 30.0)  # 속도 제한
 
         # 이전 엣지 (상태 복사 전에 먼저 계산해야 함!)
         last_edge_id = f"{FAB_ID}:RE:{MCP_NAME}:{v.lastUdpState.currentAddress}-{v.lastUdpState.nextAddress}"
