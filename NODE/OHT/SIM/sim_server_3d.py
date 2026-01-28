@@ -455,29 +455,40 @@ class HIDZone:
             return "PRECAUTION"
         return "NORMAL"
 
-    def addVehicle(self, vehicleId: str) -> bool:
-        """차량 추가 (성공 여부 반환)"""
+    def addVehicle(self, vehicleId: str, viaInLane: bool = True) -> bool:
+        """차량 추가 (성공 여부 반환)
+
+        Args:
+            vehicleId: 차량 ID
+            viaInLane: True면 IN Lane으로 진입, False면 OUT Lane으로 진입
+        """
         if self.isFull:
             return False
         self.currentVehicles.add(vehicleId)
-        self.totalInCount += 1
+        if viaInLane:
+            self.totalInCount += 1  # IN Lane 통한 진입
+        else:
+            self.totalOutCount += 1  # OUT Lane 통한 진입
         return True
 
     def removeVehicle(self, vehicleId: str):
-        """차량 제거"""
+        """차량 제거 (다른 Zone으로 이동 시)"""
         if vehicleId in self.currentVehicles:
             self.currentVehicles.discard(vehicleId)
-            self.totalOutCount += 1
 
     def hasVehicle(self, vehicleId: str) -> bool:
         """차량 존재 여부"""
         return vehicleId in self.currentVehicles
 
     def getInOutRatio(self) -> float:
-        """In/Out 비율"""
+        """IN Lane 진입 / OUT Lane 진입 비율"""
         if self.totalOutCount == 0:
             return float(self.totalInCount) if self.totalInCount > 0 else 1.0
         return self.totalInCount / self.totalOutCount
+
+    def getTotalEntries(self) -> int:
+        """총 진입 횟수 (IN + OUT)"""
+        return self.totalInCount + self.totalOutCount
 
     def resetStats(self):
         """통계 초기화"""
@@ -598,10 +609,13 @@ def build_lane_to_zone_map(zones: Dict[int, HIDZone]) -> Tuple[Dict[Tuple[int,in
     """
     Lane -> Zone 매핑 테이블 생성
 
+    IN Lane과 OUT Lane 모두 해당 Zone으로의 진입 Lane임
+    (OUT은 퇴출이 아니라 다른 방향에서의 진입)
+
     Returns:
         (in_lane_map, out_lane_map):
-        - in_lane_map: {(fromNode, toNode): zoneId} - IN Lane이 속한 Zone
-        - out_lane_map: {(fromNode, toNode): zoneId} - OUT Lane이 속한 Zone
+        - in_lane_map: {(fromNode, toNode): zoneId} - IN 방향 진입 Lane
+        - out_lane_map: {(fromNode, toNode): zoneId} - OUT 방향 진입 Lane
     """
     in_lane_map = {}
     out_lane_map = {}
@@ -763,39 +777,37 @@ class SimulationEngine:
 
     def _update_vehicle_zone(self, v: Vehicle, old_lane: Tuple[int, int], new_lane: Tuple[int, int]):
         """차량이 이동할 때 Zone 업데이트
-        - IN Lane 진입 시: Zone에 추가 (카운터 증가)
-        - OUT Lane 이탈 시: Zone에서 제거 (카운터 감소)
+
+        IN Lane과 OUT Lane 모두 해당 Zone으로의 진입 Lane임
+        - IN Lane 진입 시: Zone에 추가 (IN 카운터 증가)
+        - OUT Lane 진입 시: Zone에 추가 (OUT 카운터 증가)
+        - 다른 Zone 진입 시: 기존 Zone에서 제거
         """
         current_zone_id = self.vehicle_zone_map.get(v.vehicleId)
 
-        # 1. old_lane이 OUT Lane인 경우 -> Zone에서 나감 (카운터 감소)
-        out_zone_id = self.out_lane_to_zone.get(old_lane)
-        if out_zone_id is not None and out_zone_id == current_zone_id:
-            # OUT Lane을 통과해서 나가는 중 - Zone에서 제거
-            if current_zone_id in self.hid_zones:
-                self.hid_zones[current_zone_id].removeVehicle(v.vehicleId)
-            if v.vehicleId in self.vehicle_zone_map:
-                del self.vehicle_zone_map[v.vehicleId]
-            v.udpState.hidId = -1
-            current_zone_id = None  # 업데이트된 상태 반영
-
-        # 2. new_lane이 IN Lane인 경우 -> Zone에 들어감 (카운터 증가)
+        # new_lane이 IN 또는 OUT Lane인지 확인 -> 해당 Zone에 진입
         in_zone_id = self.in_lane_to_zone.get(new_lane)
-        if in_zone_id is not None:
+        out_zone_id = self.out_lane_to_zone.get(new_lane)
+
+        # IN 또는 OUT Lane을 통해 진입하는 Zone ID
+        new_zone_id = in_zone_id if in_zone_id is not None else out_zone_id
+        via_in_lane = in_zone_id is not None  # IN Lane 통한 진입 여부
+
+        if new_zone_id is not None:
             # 이미 같은 Zone에 있으면 무시
-            if in_zone_id == current_zone_id:
+            if new_zone_id == current_zone_id:
                 return
 
             # 다른 Zone에 있었으면 먼저 제거
             if current_zone_id is not None and current_zone_id in self.hid_zones:
                 self.hid_zones[current_zone_id].removeVehicle(v.vehicleId)
 
-            # 새 Zone에 추가
-            if in_zone_id in self.hid_zones:
-                new_zone = self.hid_zones[in_zone_id]
-                if new_zone.addVehicle(v.vehicleId):
-                    self.vehicle_zone_map[v.vehicleId] = in_zone_id
-                    v.udpState.hidId = in_zone_id
+            # 새 Zone에 추가 (IN/OUT 구분)
+            if new_zone_id in self.hid_zones:
+                new_zone = self.hid_zones[new_zone_id]
+                if new_zone.addVehicle(v.vehicleId, viaInLane=via_in_lane):
+                    self.vehicle_zone_map[v.vehicleId] = new_zone_id
+                    v.udpState.hidId = new_zone_id
                 else:
                     # Zone이 꽉 찬 경우 - 정체 발생
                     v.udpState.state = VHL_STATE.JAM
