@@ -1051,7 +1051,11 @@ class SimulationEngine:
             elif distance_ratio < 0.3:
                 v.velocity = min(v.velocity, 15.0)  # 속도 제한
 
-        # 이전 상태 저장
+        # 이전 엣지 (상태 복사 전에 먼저 계산해야 함!)
+        last_edge_id = f"{FAB_ID}:RE:{MCP_NAME}:{v.lastUdpState.currentAddress}-{v.lastUdpState.nextAddress}"
+        last_rail_edge = self.rail_edge_map.get(last_edge_id)
+
+        # 이전 상태 저장 (last_edge_id 계산 후에 복사)
         v.copyCurrentVhlUdpStateToLast()
 
         # 현재 시간 기록
@@ -1071,10 +1075,6 @@ class SimulationEngine:
         edge_id = f"{FAB_ID}:RE:{MCP_NAME}:{v.currentNode}-{v.nextNode}"
         rail_edge = self.rail_edge_map.get(edge_id)
 
-        # 이전 엣지
-        last_edge_id = f"{FAB_ID}:RE:{MCP_NAME}:{v.lastUdpState.currentAddress}-{v.lastUdpState.nextAddress}"
-        last_rail_edge = self.rail_edge_map.get(last_edge_id)
-
         # 이동 (m/min -> mm/update)
         # v.velocity (m/min) * dt (sec) / 60 (sec/min) * 1000 (mm/m) = mm 이동
         move_mm = v.velocity * (dt / 60.0) * 1000
@@ -1093,9 +1093,13 @@ class SimulationEngine:
 
             # 이전 엣지에서 제거 + In/Out 기록
             if last_rail_edge and last_rail_edge.edgeId != rail_edge.edgeId:
+                # 엣지가 변경됨 - Out/In 기록
                 last_rail_edge.removeVhlId(v.vehicleId)
                 last_rail_edge.recordOut()  # 이전 엣지에서 진출
                 rail_edge.recordIn()        # 현재 엣지로 진입
+            elif last_rail_edge is None:
+                # 첫 이동 또는 이전 엣지 정보 없음 - In만 기록
+                rail_edge.recordIn()
 
         # Rail traffic 기록
         key = (v.currentNode, v.nextNode)
