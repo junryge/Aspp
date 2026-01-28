@@ -19,7 +19,7 @@
             min-height: 100vh;
         }
         .container {
-            max-width: 1000px;
+            max-width: 1100px;
             margin: 0 auto;
         }
         h1 {
@@ -64,6 +64,13 @@
             justify-content: center;
             font-size: 0.9rem;
             font-weight: bold;
+        }
+        .section h3 {
+            color: #ffa657;
+            font-size: 1.1rem;
+            margin: 25px 0 15px 0;
+            padding-left: 10px;
+            border-left: 3px solid #ffa657;
         }
         table {
             width: 100%;
@@ -153,6 +160,19 @@
             background: rgba(0, 212, 255, 0.2);
             color: #00d4ff;
         }
+        .badge-new {
+            background: rgba(255, 51, 102, 0.3);
+            color: #ff3366;
+            animation: pulse 2s infinite;
+        }
+        .badge-existing {
+            background: rgba(168, 85, 247, 0.2);
+            color: #a855f7;
+        }
+        @keyframes pulse {
+            0%, 100% { transform: scale(1); }
+            50% { transform: scale(1.05); }
+        }
         .query-block {
             background: #0d1117;
             border-radius: 8px;
@@ -191,6 +211,25 @@
             font-size: 0.9rem;
             color: #7ee787;
         }
+        .comparison-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+            margin-top: 20px;
+        }
+        .comparison-box {
+            background: rgba(0, 0, 0, 0.2);
+            border-radius: 10px;
+            padding: 20px;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+        .comparison-box h4 {
+            color: #00d4ff;
+            margin-bottom: 15px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
         .footer {
             text-align: center;
             color: #666;
@@ -198,8 +237,12 @@
             padding-top: 20px;
             border-top: 1px solid rgba(255, 255, 255, 0.1);
         }
+        .table-orange th {
+            background: rgba(255, 166, 87, 0.15);
+            color: #ffa657;
+        }
         @media (max-width: 768px) {
-            .info-grid {
+            .info-grid, .comparison-grid {
                 grid-template-columns: 1fr;
             }
             th, td {
@@ -211,51 +254,207 @@
 </head>
 <body>
     <div class="container">
-        <h1>📊 ATLAS_HID_INOUT</h1>
-        <p class="subtitle">OHT HID 구역 진입/이탈 이벤트 테이블 명세서</p>
+        <h1>📊 ATLAS HID 테이블 명세서</h1>
+        <p class="subtitle">OHT HID 구역 관련 Logpresso 테이블 정의서</p>
 
         <!-- 1. 테이블 개요 -->
         <div class="section">
             <h2><span class="num">1</span> 테이블 개요</h2>
-            <div class="info-grid">
-                <div class="info-item">
-                    <div class="label">테이블명</div>
-                    <div class="value"><span class="badge badge-table">ATLAS_HID_INOUT</span></div>
+            <div class="comparison-grid">
+                <div class="comparison-box">
+                    <h4><span class="badge badge-existing">기존</span> ATLAS_RAIL_TRAFFIC</h4>
+                    <div class="info-item">
+                        <div class="label">목적</div>
+                        <div class="value">RailEdge별 트래픽 정보 (1분 배치)</div>
+                    </div>
+                    <div class="info-item" style="margin-top: 10px;">
+                        <div class="label">저장소스</div>
+                        <div class="value">TrafficBatch.java</div>
+                    </div>
+                    <div class="info-item" style="margin-top: 10px;">
+                        <div class="label">주기</div>
+                        <div class="value">1분 배치</div>
+                    </div>
                 </div>
-                <div class="info-item">
-                    <div class="label">저장위치</div>
-                    <div class="value">Logpresso</div>
-                </div>
-                <div class="info-item">
-                    <div class="label">목적</div>
-                    <div class="value">OHT 차량의 HID 구역 진입/이탈 이벤트 기록</div>
-                </div>
-                <div class="info-item">
-                    <div class="label">생성주기</div>
-                    <div class="value">실시간 (HID 구역 경계 통과 시)</div>
-                </div>
-                <div class="info-item">
-                    <div class="label">관련소스</div>
-                    <div class="value">OhtMsgWorkerRunnable.java</div>
-                </div>
-                <div class="info-item">
-                    <div class="label">관련메서드</div>
-                    <div class="value">_setRailEdgeVelocity()</div>
+                <div class="comparison-box">
+                    <h4><span class="badge badge-new">NEW</span> ATLAS_HID_INOUT</h4>
+                    <div class="info-item">
+                        <div class="label">목적</div>
+                        <div class="value">HID 구역 IN/OUT 이벤트 기록</div>
+                    </div>
+                    <div class="info-item" style="margin-top: 10px;">
+                        <div class="label">저장소스</div>
+                        <div class="value">OhtMsgWorkerRunnable.java</div>
+                    </div>
+                    <div class="info-item" style="margin-top: 10px;">
+                        <div class="label">주기</div>
+                        <div class="value">실시간 (이벤트 발생 시)</div>
+                    </div>
                 </div>
             </div>
         </div>
 
-        <!-- API 저장 방식 -->
+        <!-- 2. ATLAS_RAIL_TRAFFIC (기존) -->
         <div class="section">
-            <h2><span class="num">2</span> Logpresso 저장 API</h2>
+            <h2><span class="num">2</span> ATLAS_RAIL_TRAFFIC <span class="badge badge-existing">기존 테이블</span></h2>
+            
+            <div class="api-box">
+                <code>Util.insertInLogpressoDatabase(logpressoData, "ATLAS_RAIL_TRAFFIC", this.getClass().getSimpleName());</code>
+            </div>
+
+            <h3>컬럼 정의</h3>
+            <table class="table-orange">
+                <thead>
+                    <tr>
+                        <th>No</th>
+                        <th>컬럼명</th>
+                        <th>타입</th>
+                        <th>샘플값</th>
+                        <th>설명</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td>1</td>
+                        <td><strong>createTime</strong></td>
+                        <td>long</td>
+                        <td>1706512800000</td>
+                        <td>배치 실행 시간 (ms)</td>
+                    </tr>
+                    <tr>
+                        <td>2</td>
+                        <td><strong>railEdgeId</strong></td>
+                        <td>String</td>
+                        <td>M14A:RE:A:00001:00002</td>
+                        <td>레일 구간 ID</td>
+                    </tr>
+                    <tr>
+                        <td>3</td>
+                        <td><strong>fabId</strong></td>
+                        <td>String</td>
+                        <td>M14A</td>
+                        <td>FAB ID</td>
+                    </tr>
+                    <tr>
+                        <td>4</td>
+                        <td><strong>mcpName</strong></td>
+                        <td>String</td>
+                        <td>A</td>
+                        <td>MCP 이름</td>
+                    </tr>
+                    <tr>
+                        <td>5</td>
+                        <td><strong>HID_ID</strong></td>
+                        <td>int</td>
+                        <td>5</td>
+                        <td>HID 구역 ID</td>
+                    </tr>
+                    <tr>
+                        <td>6</td>
+                        <td><strong>velocity</strong></td>
+                        <td>double</td>
+                        <td>45.3</td>
+                        <td>현재 속도 (m/min)</td>
+                    </tr>
+                    <tr>
+                        <td>7</td>
+                        <td><strong>maxVelocity</strong></td>
+                        <td>double</td>
+                        <td>60.0</td>
+                        <td>최대 속도 (m/min)</td>
+                    </tr>
+                    <tr>
+                        <td>8</td>
+                        <td><strong>absoluteVelocity</strong></td>
+                        <td>double</td>
+                        <td>0.755</td>
+                        <td>상대 속도 (velocity/maxVelocity)</td>
+                    </tr>
+                    <tr>
+                        <td>9</td>
+                        <td><strong>vhlCnt</strong></td>
+                        <td>int</td>
+                        <td>3</td>
+                        <td>현재 OHT 수</td>
+                    </tr>
+                    <tr>
+                        <td>10</td>
+                        <td><strong>passCnt</strong></td>
+                        <td>long</td>
+                        <td>12</td>
+                        <td>1분간 통과 OHT 수</td>
+                    </tr>
+                    <tr>
+                        <td>11</td>
+                        <td><strong>vhlStageWaitCnt</strong></td>
+                        <td>int</td>
+                        <td>0</td>
+                        <td>대기 OHT 수</td>
+                    </tr>
+                    <tr>
+                        <td>12</td>
+                        <td><strong>is_initialized</strong></td>
+                        <td>boolean</td>
+                        <td>true</td>
+                        <td>속도 변화 여부</td>
+                    </tr>
+                </tbody>
+            </table>
+
+            <h3>샘플 데이터</h3>
+            <table class="table-orange">
+                <thead>
+                    <tr>
+                        <th>createTime</th>
+                        <th>railEdgeId</th>
+                        <th>fabId</th>
+                        <th>HID_ID</th>
+                        <th>velocity</th>
+                        <th>vhlCnt</th>
+                        <th>passCnt</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td>1706512800000</td>
+                        <td>M14A:RE:A:00001:00002</td>
+                        <td>M14A</td>
+                        <td>5</td>
+                        <td>45.3</td>
+                        <td>3</td>
+                        <td>12</td>
+                    </tr>
+                    <tr>
+                        <td>1706512800000</td>
+                        <td>M14A:RE:A:00003:00004</td>
+                        <td>M14A</td>
+                        <td>5</td>
+                        <td>52.1</td>
+                        <td>2</td>
+                        <td>8</td>
+                    </tr>
+                    <tr>
+                        <td>1706512800000</td>
+                        <td>M16A:RE:A:00010:00011</td>
+                        <td>M16A</td>
+                        <td>7</td>
+                        <td>38.7</td>
+                        <td>5</td>
+                        <td>15</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+
+        <!-- 3. ATLAS_HID_INOUT (신규) -->
+        <div class="section">
+            <h2><span class="num">3</span> ATLAS_HID_INOUT <span class="badge badge-new">NEW</span></h2>
+            
             <div class="api-box">
                 <code>LogpressoAPI.setInsertTuples("ATLAS_HID_INOUT", List.of(tuple), 20);</code>
             </div>
-        </div>
 
-        <!-- 3. 컬럼 정의 -->
-        <div class="section">
-            <h2><span class="num">3</span> 컬럼 정의</h2>
+            <h3>컬럼 정의</h3>
             <table>
                 <thead>
                     <tr>
@@ -325,11 +524,8 @@
                     </tr>
                 </tbody>
             </table>
-        </div>
 
-        <!-- 4. 이벤트 유형 정의 -->
-        <div class="section">
-            <h2><span class="num">4</span> 이벤트 유형 정의</h2>
+            <h3>이벤트 유형 정의</h3>
             <table>
                 <thead>
                     <tr>
@@ -354,11 +550,8 @@
                     </tr>
                 </tbody>
             </table>
-        </div>
 
-        <!-- 5. 예시 데이터 -->
-        <div class="section">
-            <h2><span class="num">5</span> 예시 데이터</h2>
+            <h3>샘플 데이터</h3>
             <table>
                 <thead>
                     <tr>
@@ -403,9 +596,9 @@
             </table>
         </div>
 
-        <!-- 6. JAVA 수정 코드 -->
+        <!-- 4. JAVA 수정 코드 -->
         <div class="section">
-            <h2><span class="num">6</span> JAVA 수정 코드</h2>
+            <h2><span class="num">4</span> JAVA 수정 코드</h2>
             <p style="margin-bottom: 15px; color: #888;">
                 📁 파일: <strong style="color: #fff;">OhtMsgWorkerRunnable.java</strong><br>
                 📍 위치: <strong style="color: #fff;">_setRailEdgeVelocity()</strong> 메서드 초반에 추가
@@ -437,10 +630,28 @@
             </div>
         </div>
 
-        <!-- 7. Logpresso 조회 쿼리 -->
+        <!-- 5. Logpresso 조회 쿼리 -->
         <div class="section">
-            <h2><span class="num">7</span> Logpresso 조회 쿼리 예시</h2>
+            <h2><span class="num">5</span> Logpresso 조회 쿼리 예시</h2>
             
+            <h3>ATLAS_RAIL_TRAFFIC 조회</h3>
+            <div class="query-block">
+                <div class="query-title">📌 HID 구역별 OHT 현황 (1분 단위)</div>
+                <code>table ATLAS_RAIL_TRAFFIC duration=1h
+| where HID_ID > 0
+| stats sum(vhlCnt) as total_vhl, sum(passCnt) as total_pass by HID_ID, fabId
+| sort HID_ID</code>
+            </div>
+
+            <div class="query-block">
+                <div class="query-title">📌 RailEdge별 속도 현황</div>
+                <code>table ATLAS_RAIL_TRAFFIC duration=1h
+| where fabId == "M14A"
+| stats avg(velocity) as avg_velocity by railEdgeId
+| sort avg_velocity</code>
+            </div>
+
+            <h3>ATLAS_HID_INOUT 조회</h3>
             <div class="query-block">
                 <div class="query-title">📌 최근 1시간 HID IN/OUT 이벤트 조회</div>
                 <code>table ATLAS_HID_INOUT duration=1h
@@ -460,13 +671,6 @@
                 <code>table ATLAS_HID_INOUT duration=1d
 | where vhlName == "OHT001"
 | sort createTime</code>
-            </div>
-
-            <div class="query-block">
-                <div class="query-title">📌 HID 구역별 IN/OUT 카운트 집계</div>
-                <code>table ATLAS_HID_INOUT duration=1d
-| stats count as total by toHidId, eventType
-| pivot eventType in (IN, OUT)</code>
             </div>
         </div>
 
