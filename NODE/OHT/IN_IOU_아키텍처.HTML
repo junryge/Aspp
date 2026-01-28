@@ -1,0 +1,488 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ATLAS_HID_INOUT 아키텍처</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        body {
+            font-family: 'Malgun Gothic', sans-serif;
+            background: linear-gradient(135deg, #0f0f1a 0%, #1a1a2e 50%, #16213e 100%);
+            min-height: 100vh;
+            padding: 30px;
+            color: #fff;
+        }
+        h1 {
+            text-align: center;
+            color: #00d4ff;
+            margin-bottom: 10px;
+            font-size: 1.8rem;
+        }
+        .subtitle {
+            text-align: center;
+            color: #666;
+            margin-bottom: 40px;
+        }
+        .architecture {
+            max-width: 1200px;
+            margin: 0 auto;
+            position: relative;
+        }
+        
+        /* 레이어 구분 */
+        .layer {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            gap: 30px;
+            margin-bottom: 20px;
+            position: relative;
+        }
+        .layer-label {
+            position: absolute;
+            left: -120px;
+            background: rgba(0, 212, 255, 0.1);
+            border: 1px solid rgba(0, 212, 255, 0.3);
+            padding: 8px 15px;
+            border-radius: 20px;
+            font-size: 0.75rem;
+            color: #00d4ff;
+            white-space: nowrap;
+        }
+        
+        /* 박스 스타일 */
+        .box {
+            padding: 20px 30px;
+            border-radius: 12px;
+            text-align: center;
+            position: relative;
+            transition: all 0.3s ease;
+            min-width: 150px;
+        }
+        .box:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.3);
+        }
+        .box .icon {
+            font-size: 2rem;
+            margin-bottom: 10px;
+        }
+        .box .title {
+            font-weight: bold;
+            font-size: 0.95rem;
+            margin-bottom: 5px;
+        }
+        .box .desc {
+            font-size: 0.75rem;
+            opacity: 0.7;
+        }
+        
+        /* OHT */
+        .oht {
+            background: linear-gradient(135deg, #ff6b6b, #ee5a5a);
+            border: 2px solid #ff8787;
+            box-shadow: 0 5px 30px rgba(255, 107, 107, 0.3);
+        }
+        
+        /* UDP */
+        .udp {
+            background: linear-gradient(135deg, #ffd93d, #f9c74f);
+            border: 2px solid #ffe066;
+            color: #333;
+            box-shadow: 0 5px 30px rgba(255, 217, 61, 0.3);
+        }
+        
+        /* Java 클래스 */
+        .java {
+            background: linear-gradient(135deg, #6bcb77, #4ade80);
+            border: 2px solid #86efac;
+            color: #1a1a2e;
+            box-shadow: 0 5px 30px rgba(107, 203, 119, 0.3);
+        }
+        
+        /* 데이터 */
+        .data {
+            background: linear-gradient(135deg, #4d96ff, #3b82f6);
+            border: 2px solid #60a5fa;
+            box-shadow: 0 5px 30px rgba(77, 150, 255, 0.3);
+        }
+        
+        /* Logpresso */
+        .logpresso {
+            background: linear-gradient(135deg, #a855f7, #9333ea);
+            border: 2px solid #c084fc;
+            box-shadow: 0 5px 30px rgba(168, 85, 247, 0.3);
+        }
+        
+        /* NEW 태그 */
+        .new-tag {
+            position: absolute;
+            top: -10px;
+            right: -10px;
+            background: #ff3366;
+            color: white;
+            padding: 3px 8px;
+            border-radius: 10px;
+            font-size: 0.65rem;
+            font-weight: bold;
+            animation: pulse 2s infinite;
+        }
+        @keyframes pulse {
+            0%, 100% { transform: scale(1); }
+            50% { transform: scale(1.1); }
+        }
+        
+        /* 화살표 */
+        .arrow-container {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 50px;
+            position: relative;
+        }
+        .arrow {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            color: #00d4ff;
+        }
+        .arrow-line {
+            width: 3px;
+            height: 25px;
+            background: linear-gradient(180deg, #00d4ff, #00ff88);
+            border-radius: 2px;
+        }
+        .arrow-head {
+            width: 0;
+            height: 0;
+            border-left: 8px solid transparent;
+            border-right: 8px solid transparent;
+            border-top: 12px solid #00ff88;
+        }
+        .arrow-label {
+            position: absolute;
+            left: 50%;
+            transform: translateX(30px);
+            font-size: 0.7rem;
+            color: #888;
+            white-space: nowrap;
+        }
+        
+        /* 분기 화살표 */
+        .branch-arrows {
+            display: flex;
+            justify-content: center;
+            gap: 200px;
+            height: 60px;
+            position: relative;
+        }
+        .branch-arrows::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 250px;
+            height: 3px;
+            background: linear-gradient(90deg, #00d4ff, #00ff88, #00d4ff);
+            border-radius: 2px;
+        }
+        .branch-arrow {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            margin-top: 3px;
+        }
+        
+        /* 조건 박스 */
+        .condition {
+            background: linear-gradient(135deg, #1e1e2e, #2d2d44);
+            border: 2px dashed #00d4ff;
+            padding: 15px 25px;
+            border-radius: 10px;
+            margin: 10px 0;
+        }
+        .condition code {
+            color: #00ff88;
+            font-family: 'Consolas', monospace;
+            font-size: 0.85rem;
+        }
+        
+        /* 하단 테이블 */
+        .tables-row {
+            display: flex;
+            justify-content: center;
+            gap: 40px;
+            flex-wrap: wrap;
+        }
+        
+        /* 범례 */
+        .legend {
+            margin-top: 50px;
+            display: flex;
+            justify-content: center;
+            gap: 30px;
+            flex-wrap: wrap;
+        }
+        .legend-item {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            font-size: 0.8rem;
+            color: #888;
+        }
+        .legend-color {
+            width: 20px;
+            height: 20px;
+            border-radius: 5px;
+        }
+        
+        /* 플로우 설명 */
+        .flow-desc {
+            max-width: 900px;
+            margin: 40px auto 0;
+            background: rgba(255, 255, 255, 0.03);
+            border-radius: 12px;
+            padding: 25px;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+        .flow-desc h3 {
+            color: #00d4ff;
+            margin-bottom: 15px;
+            font-size: 1rem;
+        }
+        .flow-step {
+            display: flex;
+            align-items: flex-start;
+            gap: 15px;
+            margin-bottom: 12px;
+        }
+        .step-num {
+            background: #00d4ff;
+            color: #1a1a2e;
+            width: 24px;
+            height: 24px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 0.75rem;
+            font-weight: bold;
+            flex-shrink: 0;
+        }
+        .step-text {
+            font-size: 0.85rem;
+            color: #ccc;
+            line-height: 1.5;
+        }
+        .step-text strong {
+            color: #fff;
+        }
+    </style>
+</head>
+<body>
+    <h1>🏗️ ATLAS_HID_INOUT 아키텍처</h1>
+    <p class="subtitle">OHT HID 구역 IN/OUT 이벤트 데이터 흐름</p>
+
+    <div class="architecture">
+        
+        <!-- Layer 1: OHT -->
+        <div class="layer">
+            <div class="layer-label">Physical Layer</div>
+            <div class="box oht">
+                <div class="icon">🚃</div>
+                <div class="title">OHT 차량</div>
+                <div class="desc">Overhead Hoist Transport</div>
+            </div>
+            <div class="box oht">
+                <div class="icon">🚃</div>
+                <div class="title">OHT 차량</div>
+                <div class="desc">M14A, M16A ...</div>
+            </div>
+            <div class="box oht">
+                <div class="icon">🚃</div>
+                <div class="title">OHT 차량</div>
+                <div class="desc">수백대 운행</div>
+            </div>
+        </div>
+
+        <!-- Arrow -->
+        <div class="arrow-container">
+            <div class="arrow">
+                <div class="arrow-line"></div>
+                <div class="arrow-head"></div>
+            </div>
+            <span class="arrow-label">UDP Message (위치, 상태)</span>
+        </div>
+
+        <!-- Layer 2: UDP Listener -->
+        <div class="layer">
+            <div class="layer-label">Network Layer</div>
+            <div class="box udp">
+                <div class="icon">📡</div>
+                <div class="title">OhtUdpListener</div>
+                <div class="desc">UDP 메시지 수신</div>
+            </div>
+        </div>
+
+        <!-- Arrow -->
+        <div class="arrow-container">
+            <div class="arrow">
+                <div class="arrow-line"></div>
+                <div class="arrow-head"></div>
+            </div>
+            <span class="arrow-label">Message Queue</span>
+        </div>
+
+        <!-- Layer 3: Worker -->
+        <div class="layer">
+            <div class="layer-label">Processing Layer</div>
+            <div class="box java">
+                <div class="icon">⚙️</div>
+                <div class="title">OhtMsgWorkerRunnable</div>
+                <div class="desc">메시지 처리 워커</div>
+            </div>
+        </div>
+
+        <!-- Arrow -->
+        <div class="arrow-container">
+            <div class="arrow">
+                <div class="arrow-line"></div>
+                <div class="arrow-head"></div>
+            </div>
+            <span class="arrow-label">_updateVehicle()</span>
+        </div>
+
+        <!-- Layer 4: Method -->
+        <div class="layer">
+            <div class="box java" style="min-width: 250px;">
+                <div class="icon">🔄</div>
+                <div class="title">_setRailEdgeVelocity()</div>
+                <div class="desc">RailEdge 변경 감지</div>
+            </div>
+        </div>
+
+        <!-- Condition -->
+        <div class="layer">
+            <div class="condition">
+                <code>if (lastRailEdge.getHIDId() != railEdge.getHIDId())</code>
+            </div>
+        </div>
+
+        <!-- Branch Arrows -->
+        <div class="branch-arrows">
+            <div class="branch-arrow">
+                <div class="arrow-line"></div>
+                <div class="arrow-head"></div>
+            </div>
+            <div class="branch-arrow">
+                <div class="arrow-line"></div>
+                <div class="arrow-head"></div>
+            </div>
+        </div>
+
+        <!-- Layer 5: Data -->
+        <div class="layer">
+            <div class="layer-label">Data Layer</div>
+            <div class="box data">
+                <div class="icon">📊</div>
+                <div class="title">RailEdge</div>
+                <div class="desc">hidId, velocity, vhlIdMap</div>
+            </div>
+            <div class="box data">
+                <div class="icon">🚗</div>
+                <div class="title">Vhl (Vehicle)</div>
+                <div class="desc">id, name, state</div>
+            </div>
+        </div>
+
+        <!-- Arrow -->
+        <div class="arrow-container">
+            <div class="arrow">
+                <div class="arrow-line"></div>
+                <div class="arrow-head"></div>
+            </div>
+            <span class="arrow-label">LogpressoAPI.setInsertTuples()</span>
+        </div>
+
+        <!-- Layer 6: Logpresso Tables -->
+        <div class="layer">
+            <div class="layer-label">Storage Layer</div>
+            <div class="tables-row">
+                <div class="box logpresso">
+                    <span class="new-tag">NEW</span>
+                    <div class="icon">💾</div>
+                    <div class="title">ATLAS_HID_INOUT</div>
+                    <div class="desc">HID IN/OUT 이벤트</div>
+                </div>
+                <div class="box logpresso" style="opacity: 0.6;">
+                    <div class="icon">📈</div>
+                    <div class="title">ATLAS_RAIL_TRAFFIC</div>
+                    <div class="desc">레일 트래픽 (기존)</div>
+                </div>
+                <div class="box logpresso" style="opacity: 0.6;">
+                    <div class="icon">ℹ️</div>
+                    <div class="title">ATLAS_HID_INFO</div>
+                    <div class="desc">HID 기본정보 (기존)</div>
+                </div>
+            </div>
+        </div>
+
+    </div>
+
+    <!-- 범례 -->
+    <div class="legend">
+        <div class="legend-item">
+            <div class="legend-color" style="background: linear-gradient(135deg, #ff6b6b, #ee5a5a);"></div>
+            <span>OHT 차량</span>
+        </div>
+        <div class="legend-item">
+            <div class="legend-color" style="background: linear-gradient(135deg, #ffd93d, #f9c74f);"></div>
+            <span>네트워크</span>
+        </div>
+        <div class="legend-item">
+            <div class="legend-color" style="background: linear-gradient(135deg, #6bcb77, #4ade80);"></div>
+            <span>Java 처리</span>
+        </div>
+        <div class="legend-item">
+            <div class="legend-color" style="background: linear-gradient(135deg, #4d96ff, #3b82f6);"></div>
+            <span>데이터 객체</span>
+        </div>
+        <div class="legend-item">
+            <div class="legend-color" style="background: linear-gradient(135deg, #a855f7, #9333ea);"></div>
+            <span>Logpresso DB</span>
+        </div>
+    </div>
+
+    <!-- 플로우 설명 -->
+    <div class="flow-desc">
+        <h3>📋 데이터 흐름 설명</h3>
+        <div class="flow-step">
+            <span class="step-num">1</span>
+            <span class="step-text"><strong>OHT 차량</strong>이 FAB 내에서 이동하며 위치/상태 정보를 UDP로 전송</span>
+        </div>
+        <div class="flow-step">
+            <span class="step-num">2</span>
+            <span class="step-text"><strong>OhtUdpListener</strong>가 UDP 메시지를 수신하여 큐에 적재</span>
+        </div>
+        <div class="flow-step">
+            <span class="step-num">3</span>
+            <span class="step-text"><strong>OhtMsgWorkerRunnable</strong> 워커가 큐에서 메시지를 꺼내 처리</span>
+        </div>
+        <div class="flow-step">
+            <span class="step-num">4</span>
+            <span class="step-text"><strong>_setRailEdgeVelocity()</strong>에서 이전 RailEdge와 현재 RailEdge의 HID_ID 비교</span>
+        </div>
+        <div class="flow-step">
+            <span class="step-num">5</span>
+            <span class="step-text">HID_ID가 다르면 → <strong>ATLAS_HID_INOUT</strong> 테이블에 IN/OUT 이벤트 저장</span>
+        </div>
+    </div>
+
+</body>
+</html>
