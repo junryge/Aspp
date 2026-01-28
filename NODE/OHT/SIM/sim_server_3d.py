@@ -2434,10 +2434,11 @@ function render() {
     });
 
     // ============================================================
-    // HID Zone Lane 표시
+    // HID Zone Lane 표시 (pseudo-3D 변환 적용)
     // ============================================================
     if (window.hidZones && window.showZones !== false) {
         const zoneStatusMap = window.zoneStatusMap || {};
+        const zoneZ = RAIL_HEIGHT / scale + 2;  // Zone 표시 높이
 
         window.hidZones.forEach(zone => {
             const status = zoneStatusMap[zone.zoneId];
@@ -2467,29 +2468,28 @@ function render() {
                 const from = nodeMap[lane.from];
                 const to = nodeMap[lane.to];
                 if (from && to) {
+                    const fromIso = toIso(from.x, from.y, zoneZ);
+                    const toIso_ = toIso(to.x, to.y, zoneZ);
                     ctx.beginPath();
-                    ctx.moveTo(from.x, from.y);
-                    ctx.lineTo(to.x, to.y);
+                    ctx.moveTo(fromIso.x, fromIso.y);
+                    ctx.lineTo(toIso_.x, toIso_.y);
                     ctx.stroke();
 
                     // 첫 번째 Lane의 중간점 저장 (Zone ID 표시용)
                     if (idx === 0) {
-                        firstLaneMid = {
-                            x: (from.x + to.x) / 2,
-                            y: (from.y + to.y) / 2
-                        };
+                        const midIso = toIso((from.x + to.x) / 2, (from.y + to.y) / 2, zoneZ);
+                        firstLaneMid = { x: midIso.x, y: midIso.y };
                     }
 
                     // 화살표 (진입 방향)
-                    const angle = Math.atan2(to.y - from.y, to.x - from.x);
+                    const angle = Math.atan2(toIso_.y - fromIso.y, toIso_.x - fromIso.x);
                     const arrowLen = 15 / scale;
-                    const midX = (from.x + to.x) / 2;
-                    const midY = (from.y + to.y) / 2;
+                    const midIso = toIso((from.x + to.x) / 2, (from.y + to.y) / 2, zoneZ);
                     ctx.beginPath();
-                    ctx.moveTo(midX, midY);
-                    ctx.lineTo(midX - arrowLen * Math.cos(angle - 0.4), midY - arrowLen * Math.sin(angle - 0.4));
-                    ctx.moveTo(midX, midY);
-                    ctx.lineTo(midX - arrowLen * Math.cos(angle + 0.4), midY - arrowLen * Math.sin(angle + 0.4));
+                    ctx.moveTo(midIso.x, midIso.y);
+                    ctx.lineTo(midIso.x - arrowLen * Math.cos(angle - 0.4), midIso.y - arrowLen * Math.sin(angle - 0.4));
+                    ctx.moveTo(midIso.x, midIso.y);
+                    ctx.lineTo(midIso.x - arrowLen * Math.cos(angle + 0.4), midIso.y - arrowLen * Math.sin(angle + 0.4));
                     ctx.stroke();
                 }
             });
@@ -2500,9 +2500,11 @@ function render() {
                 const from = nodeMap[lane.from];
                 const to = nodeMap[lane.to];
                 if (from && to) {
+                    const fromIso = toIso(from.x, from.y, zoneZ);
+                    const toIso_ = toIso(to.x, to.y, zoneZ);
                     ctx.beginPath();
-                    ctx.moveTo(from.x, from.y);
-                    ctx.lineTo(to.x, to.y);
+                    ctx.moveTo(fromIso.x, fromIso.y);
+                    ctx.lineTo(toIso_.x, toIso_.y);
                     ctx.stroke();
                 }
             });
@@ -2562,7 +2564,7 @@ function render() {
     // OHT 크기
     const vehSize = Math.max(4, 7 / scale);
 
-    // 선택된 OHT들 경로 표시 (여러개)
+    // 선택된 OHT들 경로 표시 (여러개) - pseudo-3D 변환 적용
     const colors = ['#00ffff', '#ff00ff', '#ffff00', '#00ff00', '#ff8800', '#8800ff'];
     let colorIdx = 0;
     selectedVehicles.forEach(vid => {
@@ -2572,6 +2574,7 @@ function render() {
         const path = sv.path || [];
         const color = colors[colorIdx % colors.length];
         colorIdx++;
+        const pathZ = RAIL_HEIGHT / scale + 5;  // 경로 표시 높이
 
         if (path.length > 0) {
             // 현재 위치에서 시작하는 경로선
@@ -2579,13 +2582,15 @@ function render() {
             ctx.lineWidth = 4 / scale;
             ctx.setLineDash([8/scale, 4/scale]);
             ctx.beginPath();
-            ctx.moveTo(sv.dispX, sv.dispY);
+            const startIso = toIso(sv.dispX, sv.dispY, pathZ);
+            ctx.moveTo(startIso.x, startIso.y);
 
             // 경로의 각 노드를 따라 선 그리기
             path.forEach(nodeNo => {
                 const node = nodeMap[nodeNo];
                 if (node) {
-                    ctx.lineTo(node.x, node.y);
+                    const nodeIso = toIso(node.x, node.y, pathZ);
+                    ctx.lineTo(nodeIso.x, nodeIso.y);
                 }
             });
             ctx.stroke();
@@ -2596,8 +2601,9 @@ function render() {
             path.forEach((nodeNo, idx) => {
                 const node = nodeMap[nodeNo];
                 if (node) {
+                    const nodeIso = toIso(node.x, node.y, pathZ);
                     ctx.beginPath();
-                    ctx.arc(node.x, node.y, 4 / scale, 0, Math.PI * 2);
+                    ctx.arc(nodeIso.x, nodeIso.y, 4 / scale, 0, Math.PI * 2);
                     ctx.fill();
                 }
             });
@@ -2605,9 +2611,10 @@ function render() {
             // 목적지 마커 (마지막 노드)
             const destNode = nodeMap[sv.destination];
             if (destNode) {
+                const destIso = toIso(destNode.x, destNode.y, pathZ);
                 ctx.fillStyle = '#ff0066';
                 ctx.beginPath();
-                ctx.arc(destNode.x, destNode.y, 12 / scale, 0, Math.PI * 2);
+                ctx.arc(destIso.x, destIso.y, 12 / scale, 0, Math.PI * 2);
                 ctx.fill();
                 ctx.strokeStyle = '#fff';
                 ctx.lineWidth = 2 / scale;
@@ -2617,15 +2624,21 @@ function render() {
                 ctx.fillStyle = '#fff';
                 ctx.font = `bold ${14/scale}px sans-serif`;
                 ctx.textAlign = 'center';
-                ctx.fillText(vid, destNode.x, destNode.y - 18/scale);
+                ctx.fillText(vid, destIso.x, destIso.y - 18/scale);
             }
         }
 
         // 선택된 OHT 강조 테두리
+        const ohtZ = RAIL_HEIGHT / scale + OHT_HEIGHT / scale;
+        const svIso = toIso(sv.dispX, sv.dispY, ohtZ);
         ctx.strokeStyle = color;
         ctx.lineWidth = 3 / scale;
         ctx.beginPath();
-        ctx.arc(sv.dispX, sv.dispY, vehSize + 5/scale, 0, Math.PI * 2);
+        if (isPseudo3D) {
+            ctx.ellipse(svIso.x, svIso.y, vehSize + 8/scale, (vehSize + 8/scale) * 0.6, 0, 0, Math.PI * 2);
+        } else {
+            ctx.arc(sv.dispX, sv.dispY, vehSize + 5/scale, 0, Math.PI * 2);
+        }
         ctx.stroke();
     });
 
