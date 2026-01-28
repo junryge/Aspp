@@ -1973,8 +1973,8 @@ canvas { display: block; }
     </div>
 </div>
 
-<div id="sidebar-toggle" onclick="toggleSidebar()" title="사이드바 접기/펼치기">◀</div>
-<div id="sidebar">
+<div id="sidebar-toggle" class="collapsed" onclick="toggleSidebar()" title="사이드바 접기/펼치기">▶</div>
+<div id="sidebar" class="collapsed">
     <div class="section">
         <h3>OHT 대수 설정</h3>
         <div style="display:flex;gap:5px;align-items:center;">
@@ -2077,7 +2077,7 @@ canvas { display: block; }
     </div>
 </div>
 
-<div id="canvas-container">
+<div id="canvas-container" class="expanded">
     <canvas id="canvas"></canvas>
     <div id="three-container" style="display:none;width:100%;height:100%;"></div>
 </div>
