@@ -1950,7 +1950,7 @@ canvas { display: block; }
     <h1>SK Hynix M14 OHT Simulator <span style="font-size:14px;color:#00d4ff;">(Pseudo-3D)</span></h1>
     <div class="status">
         <div style="display:flex;align-items:center;gap:8px;">
-            <button id="btnToggle3D" style="padding:6px 14px;background:#00d4ff;color:#000;border:none;border-radius:4px;cursor:pointer;font-size:12px;font-weight:bold;">3D 효과 ON</button>
+            <button id="btnToggle3D" style="padding:6px 14px;background:#ff9900;color:#000;border:none;border-radius:4px;cursor:pointer;font-size:12px;font-weight:bold;">3D 효과 OFF</button>
         </div>
         <div style="display:flex;align-items:center;gap:8px;"><div class="live-dot"></div> LIVE</div>
         <div>노드: <span id="nodeCount">-</span></div>
@@ -2095,7 +2095,7 @@ let selectedVehicles = new Set();  // 더블클릭으로 선택된 OHT들 (여�
 // ============================================================
 // Pseudo-3D 효과 설정
 // ============================================================
-let isPseudo3D = true;  // 기본값: pseudo-3D 효과 켜짐
+let isPseudo3D = false;  // 기본값: 3D 효과 꺼짐 (버튼 누르면 활성화)
 const ISO_ANGLE = Math.PI / 6;  // 30도 (isometric 각도)
 const ISO_SCALE_Y = 0.6;  // Y축 압축 비율
 const RAIL_HEIGHT = 8;  // 레일 높이 (3D 효과용)
