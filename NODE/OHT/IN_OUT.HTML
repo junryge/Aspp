@@ -1,0 +1,479 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ATLAS_HID_INOUT 테이블 명세서</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        body {
+            font-family: 'Malgun Gothic', 'Apple SD Gothic Neo', sans-serif;
+            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+            color: #e4e4e4;
+            line-height: 1.6;
+            padding: 40px 20px;
+            min-height: 100vh;
+        }
+        .container {
+            max-width: 1000px;
+            margin: 0 auto;
+        }
+        h1 {
+            text-align: center;
+            color: #00d4ff;
+            font-size: 2.2rem;
+            margin-bottom: 10px;
+            text-shadow: 0 0 20px rgba(0, 212, 255, 0.3);
+        }
+        .subtitle {
+            text-align: center;
+            color: #888;
+            margin-bottom: 40px;
+            font-size: 0.95rem;
+        }
+        .section {
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 12px;
+            padding: 25px;
+            margin-bottom: 25px;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            backdrop-filter: blur(10px);
+        }
+        .section h2 {
+            color: #00d4ff;
+            font-size: 1.3rem;
+            margin-bottom: 20px;
+            padding-bottom: 10px;
+            border-bottom: 2px solid rgba(0, 212, 255, 0.3);
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        .section h2 .num {
+            background: #00d4ff;
+            color: #1a1a2e;
+            width: 28px;
+            height: 28px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 0.9rem;
+            font-weight: bold;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 15px;
+        }
+        th, td {
+            padding: 12px 15px;
+            text-align: left;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+        }
+        th {
+            background: rgba(0, 212, 255, 0.15);
+            color: #00d4ff;
+            font-weight: 600;
+            font-size: 0.9rem;
+        }
+        td {
+            font-size: 0.9rem;
+        }
+        tr:hover {
+            background: rgba(255, 255, 255, 0.03);
+        }
+        .info-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 15px;
+        }
+        .info-item {
+            background: rgba(0, 0, 0, 0.2);
+            padding: 15px;
+            border-radius: 8px;
+        }
+        .info-item .label {
+            color: #888;
+            font-size: 0.85rem;
+            margin-bottom: 5px;
+        }
+        .info-item .value {
+            color: #fff;
+            font-weight: 500;
+        }
+        .code-block {
+            background: #0d1117;
+            border-radius: 8px;
+            padding: 20px;
+            overflow-x: auto;
+            border: 1px solid #30363d;
+        }
+        .code-block pre {
+            margin: 0;
+            font-family: 'Consolas', 'Monaco', monospace;
+            font-size: 0.85rem;
+            line-height: 1.5;
+        }
+        .code-block .comment {
+            color: #8b949e;
+        }
+        .code-block .keyword {
+            color: #ff7b72;
+        }
+        .code-block .string {
+            color: #a5d6ff;
+        }
+        .code-block .method {
+            color: #d2a8ff;
+        }
+        .code-block .class {
+            color: #7ee787;
+        }
+        .badge {
+            display: inline-block;
+            padding: 4px 10px;
+            border-radius: 4px;
+            font-size: 0.8rem;
+            font-weight: 600;
+        }
+        .badge-in {
+            background: rgba(0, 255, 136, 0.2);
+            color: #00ff88;
+        }
+        .badge-out {
+            background: rgba(255, 107, 107, 0.2);
+            color: #ff6b6b;
+        }
+        .badge-table {
+            background: rgba(0, 212, 255, 0.2);
+            color: #00d4ff;
+        }
+        .query-block {
+            background: #0d1117;
+            border-radius: 8px;
+            padding: 15px 20px;
+            margin-top: 15px;
+            border-left: 3px solid #00d4ff;
+        }
+        .query-block .query-title {
+            color: #00d4ff;
+            font-size: 0.85rem;
+            margin-bottom: 10px;
+        }
+        .query-block code {
+            font-family: 'Consolas', 'Monaco', monospace;
+            font-size: 0.85rem;
+            color: #c9d1d9;
+            display: block;
+            white-space: pre-wrap;
+        }
+        .highlight {
+            color: #ffa657;
+        }
+        .api-box {
+            background: linear-gradient(135deg, rgba(0, 212, 255, 0.1), rgba(0, 255, 136, 0.1));
+            border: 1px solid rgba(0, 212, 255, 0.3);
+            border-radius: 8px;
+            padding: 20px;
+            margin-bottom: 20px;
+        }
+        .api-box code {
+            background: rgba(0, 0, 0, 0.3);
+            padding: 10px 15px;
+            border-radius: 6px;
+            display: block;
+            font-family: 'Consolas', 'Monaco', monospace;
+            font-size: 0.9rem;
+            color: #7ee787;
+        }
+        .footer {
+            text-align: center;
+            color: #666;
+            margin-top: 40px;
+            padding-top: 20px;
+            border-top: 1px solid rgba(255, 255, 255, 0.1);
+        }
+        @media (max-width: 768px) {
+            .info-grid {
+                grid-template-columns: 1fr;
+            }
+            th, td {
+                padding: 10px;
+                font-size: 0.8rem;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>📊 ATLAS_HID_INOUT</h1>
+        <p class="subtitle">OHT HID 구역 진입/이탈 이벤트 테이블 명세서</p>
+
+        <!-- 1. 테이블 개요 -->
+        <div class="section">
+            <h2><span class="num">1</span> 테이블 개요</h2>
+            <div class="info-grid">
+                <div class="info-item">
+                    <div class="label">테이블명</div>
+                    <div class="value"><span class="badge badge-table">ATLAS_HID_INOUT</span></div>
+                </div>
+                <div class="info-item">
+                    <div class="label">저장위치</div>
+                    <div class="value">Logpresso</div>
+                </div>
+                <div class="info-item">
+                    <div class="label">목적</div>
+                    <div class="value">OHT 차량의 HID 구역 진입/이탈 이벤트 기록</div>
+                </div>
+                <div class="info-item">
+                    <div class="label">생성주기</div>
+                    <div class="value">실시간 (HID 구역 경계 통과 시)</div>
+                </div>
+                <div class="info-item">
+                    <div class="label">관련소스</div>
+                    <div class="value">OhtMsgWorkerRunnable.java</div>
+                </div>
+                <div class="info-item">
+                    <div class="label">관련메서드</div>
+                    <div class="value">_setRailEdgeVelocity()</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- API 저장 방식 -->
+        <div class="section">
+            <h2><span class="num">2</span> Logpresso 저장 API</h2>
+            <div class="api-box">
+                <code>LogpressoAPI.setInsertTuples("ATLAS_HID_INOUT", List.of(tuple), 20);</code>
+            </div>
+        </div>
+
+        <!-- 3. 컬럼 정의 -->
+        <div class="section">
+            <h2><span class="num">3</span> 컬럼 정의</h2>
+            <table>
+                <thead>
+                    <tr>
+                        <th>No</th>
+                        <th>컬럼명</th>
+                        <th>타입</th>
+                        <th>NULL</th>
+                        <th>설명</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td>1</td>
+                        <td><strong>createTime</strong></td>
+                        <td>long</td>
+                        <td>N</td>
+                        <td>이벤트 발생 시간 (milliseconds)</td>
+                    </tr>
+                    <tr>
+                        <td>2</td>
+                        <td><strong>fabId</strong></td>
+                        <td>String(10)</td>
+                        <td>N</td>
+                        <td>FAB ID (M14A, M14B, M16A, M16B 등)</td>
+                    </tr>
+                    <tr>
+                        <td>3</td>
+                        <td><strong>mcpName</strong></td>
+                        <td>String(10)</td>
+                        <td>N</td>
+                        <td>MCP 이름</td>
+                    </tr>
+                    <tr>
+                        <td>4</td>
+                        <td><strong>vhlId</strong></td>
+                        <td>String(50)</td>
+                        <td>N</td>
+                        <td>OHT 차량 ID (전체 키)</td>
+                    </tr>
+                    <tr>
+                        <td>5</td>
+                        <td><strong>vhlName</strong></td>
+                        <td>String(20)</td>
+                        <td>N</td>
+                        <td>OHT 차량 이름</td>
+                    </tr>
+                    <tr>
+                        <td>6</td>
+                        <td><strong>eventType</strong></td>
+                        <td>String(3)</td>
+                        <td>N</td>
+                        <td>이벤트 유형 (<span class="badge badge-in">IN</span> / <span class="badge badge-out">OUT</span>)</td>
+                    </tr>
+                    <tr>
+                        <td>7</td>
+                        <td><strong>fromHidId</strong></td>
+                        <td>int</td>
+                        <td>N</td>
+                        <td>출발 HID 구역 ID (-1: 구역 외부)</td>
+                    </tr>
+                    <tr>
+                        <td>8</td>
+                        <td><strong>toHidId</strong></td>
+                        <td>int</td>
+                        <td>N</td>
+                        <td>도착 HID 구역 ID (-1: 구역 외부)</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+
+        <!-- 4. 이벤트 유형 정의 -->
+        <div class="section">
+            <h2><span class="num">4</span> 이벤트 유형 정의</h2>
+            <table>
+                <thead>
+                    <tr>
+                        <th>eventType</th>
+                        <th>fromHidId</th>
+                        <th>toHidId</th>
+                        <th>설명</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td><span class="badge badge-in">IN</span></td>
+                        <td>-1 또는 다른값</td>
+                        <td>> 0</td>
+                        <td>HID 구역 진입</td>
+                    </tr>
+                    <tr>
+                        <td><span class="badge badge-out">OUT</span></td>
+                        <td>> 0</td>
+                        <td>-1 또는 다른값</td>
+                        <td>HID 구역 이탈</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+
+        <!-- 5. 예시 데이터 -->
+        <div class="section">
+            <h2><span class="num">5</span> 예시 데이터</h2>
+            <table>
+                <thead>
+                    <tr>
+                        <th>createTime</th>
+                        <th>fabId</th>
+                        <th>mcpName</th>
+                        <th>vhlName</th>
+                        <th>eventType</th>
+                        <th>fromHidId</th>
+                        <th>toHidId</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td>1706512345678</td>
+                        <td>M14A</td>
+                        <td>A</td>
+                        <td>OHT001</td>
+                        <td><span class="badge badge-in">IN</span></td>
+                        <td>-1</td>
+                        <td>5</td>
+                    </tr>
+                    <tr>
+                        <td>1706512350123</td>
+                        <td>M14A</td>
+                        <td>A</td>
+                        <td>OHT001</td>
+                        <td><span class="badge badge-out">OUT</span></td>
+                        <td>5</td>
+                        <td>7</td>
+                    </tr>
+                    <tr>
+                        <td>1706512355456</td>
+                        <td>M16A</td>
+                        <td>A</td>
+                        <td>OHT025</td>
+                        <td><span class="badge badge-in">IN</span></td>
+                        <td>3</td>
+                        <td>4</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+
+        <!-- 6. JAVA 수정 코드 -->
+        <div class="section">
+            <h2><span class="num">6</span> JAVA 수정 코드</h2>
+            <p style="margin-bottom: 15px; color: #888;">
+                📁 파일: <strong style="color: #fff;">OhtMsgWorkerRunnable.java</strong><br>
+                📍 위치: <strong style="color: #fff;">_setRailEdgeVelocity()</strong> 메서드 초반에 추가
+            </p>
+            <div class="code-block">
+<pre><span class="comment">// _setRailEdgeVelocity() 메서드 초반에 추가</span>
+<span class="keyword">if</span> (lastRailEdge != <span class="keyword">null</span> && railEdge != <span class="keyword">null</span>) {
+    <span class="keyword">int</span> lastHid = lastRailEdge.<span class="method">getHIDId</span>();
+    <span class="keyword">int</span> currHid = railEdge.<span class="method">getHIDId</span>();
+    
+    <span class="keyword">if</span> (lastHid != currHid) {
+        <span class="class">Tuple</span> tuple = <span class="keyword">new</span> <span class="class">Tuple</span>();
+        tuple.<span class="method">put</span>(<span class="string">"createTime"</span>, <span class="class">System</span>.<span class="method">currentTimeMillis</span>());
+        tuple.<span class="method">put</span>(<span class="string">"fabId"</span>, <span class="keyword">this</span>.fabId);
+        tuple.<span class="method">put</span>(<span class="string">"mcpName"</span>, <span class="keyword">this</span>.mcpName);
+        tuple.<span class="method">put</span>(<span class="string">"vhlId"</span>, vehicle.<span class="method">getId</span>());
+        tuple.<span class="method">put</span>(<span class="string">"vhlName"</span>, vehicle.<span class="method">getName</span>());
+        tuple.<span class="method">put</span>(<span class="string">"eventType"</span>, currHid > <span class="highlight">0</span> ? <span class="string">"IN"</span> : <span class="string">"OUT"</span>);
+        tuple.<span class="method">put</span>(<span class="string">"fromHidId"</span>, lastHid);
+        tuple.<span class="method">put</span>(<span class="string">"toHidId"</span>, currHid);
+        
+        <span class="class">LogpressoAPI</span>.<span class="method">setInsertTuples</span>(
+            <span class="string">"ATLAS_HID_INOUT"</span>, 
+            <span class="class">List</span>.<span class="method">of</span>(tuple), 
+            <span class="highlight">20</span>
+        );
+    }
+}</pre>
+            </div>
+        </div>
+
+        <!-- 7. Logpresso 조회 쿼리 -->
+        <div class="section">
+            <h2><span class="num">7</span> Logpresso 조회 쿼리 예시</h2>
+            
+            <div class="query-block">
+                <div class="query-title">📌 최근 1시간 HID IN/OUT 이벤트 조회</div>
+                <code>table ATLAS_HID_INOUT duration=1h
+| sort createTime desc</code>
+            </div>
+
+            <div class="query-block">
+                <div class="query-title">📌 HID 구역별 진입 횟수 집계</div>
+                <code>table ATLAS_HID_INOUT duration=1d
+| where eventType == "IN"
+| stats count as in_count by toHidId, fabId
+| sort in_count desc</code>
+            </div>
+
+            <div class="query-block">
+                <div class="query-title">📌 특정 OHT 이동 경로 추적</div>
+                <code>table ATLAS_HID_INOUT duration=1d
+| where vhlName == "OHT001"
+| sort createTime</code>
+            </div>
+
+            <div class="query-block">
+                <div class="query-title">📌 HID 구역별 IN/OUT 카운트 집계</div>
+                <code>table ATLAS_HID_INOUT duration=1d
+| stats count as total by toHidId, eventType
+| pivot eventType in (IN, OUT)</code>
+            </div>
+        </div>
+
+        <div class="footer">
+            <p>📅 문서 작성일: 2026-01-28</p>
+            <p style="margin-top: 5px;">SK Hynix AMHS Team</p>
+        </div>
+    </div>
+</body>
+</html>
