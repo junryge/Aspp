@@ -1782,119 +1782,6 @@ async def get_path_info(start: int, end: int):
         "alternatives": alt_infos
     }
 
-@app.get("/api/jam-history")
-async def get_jam_history(
-    limit: int = 100,
-    search_date: str = None,  # YYYY-MM-DD 형식
-    start_time: str = None,   # HH:MM 형식
-    end_time: str = None,     # HH:MM 형식
-    risk_level: str = None    # HIGH, MEDIUM, ALL
-):
-    """JAM(정체) 이력 데이터 조회 - CSV에서 날짜/시간으로 검색"""
-    global engine
-
-    jam_records = []
-    searched_files = 0
-    total_records = 0
-
-    # OUTPUT 디렉토리에서 RAIL_TRAFFIC CSV 파일들 검색
-    if os.path.exists(OUTPUT_DIR):
-        csv_files = sorted(
-            [f for f in os.listdir(OUTPUT_DIR) if f.startswith('ATLAS_RAIL_TRAFFIC')],
-            reverse=True  # 최신순
-        )
-
-        # 날짜 필터링: 파일명에서 날짜 추출 (ATLAS_RAIL_TRAFFIC_20260128_153000.csv)
-        if search_date:
-            search_date_str = search_date.replace('-', '')
-            csv_files = [f for f in csv_files if search_date_str in f]
-
-        for csv_file in csv_files[:50]:  # 최대 50개 파일 검색
-            filepath = os.path.join(OUTPUT_DIR, csv_file)
-            searched_files += 1
-            try:
-                with open(filepath, 'r', encoding='utf-8') as f:
-                    reader = csv.DictReader(f)
-                    for row in reader:
-                        total_records += 1
-                        risk = row.get('deadlockRisk', '')
-
-                        # 위험도 필터
-                        if risk_level and risk_level != 'ALL':
-                            if risk != risk_level:
-                                continue
-                        elif not risk_level:
-                            if risk not in ('HIGH', 'MEDIUM'):
-                                continue
-
-                        # 시간 필터링
-                        create_time = row.get('createTime', '')
-                        if create_time and (start_time or end_time):
-                            try:
-                                time_part = create_time.split(' ')[1] if ' ' in create_time else create_time
-                                record_time = time_part[:5]  # HH:MM
-
-                                if start_time and record_time < start_time:
-                                    continue
-                                if end_time and record_time > end_time:
-                                    continue
-                            except:
-                                pass
-
-                        jam_records.append({
-                            'time': create_time,
-                            'edgeId': row.get('railEdgeId', ''),
-                            'fromNode': row.get('fromNode', ''),
-                            'toNode': row.get('toNode', ''),
-                            'density': float(row.get('density', 0) or 0),
-                            'inCount': int(row.get('inCount', 0) or 0),
-                            'outCount': int(row.get('outCount', 0) or 0),
-                            'inOutRatio': float(row.get('inOutRatio', 0) or 0),
-                            'risk': risk,
-                            'vhlCount': int(row.get('vhlCount', 0) or 0),
-                            'avgVelocity': float(row.get('avgVelocity', 0) or 0)
-                        })
-
-                        if len(jam_records) >= limit:
-                            break
-
-            except Exception as e:
-                print(f"CSV 읽기 오류: {csv_file} - {e}")
-
-            if len(jam_records) >= limit:
-                break
-
-    # 현재 실시간 JAM 상태도 추가
-    current_jams = []
-    for edge_id, rail_edge in engine.rail_edge_map.items():
-        density = rail_edge.getDensity()
-        in_out_ratio = rail_edge.getInOutRatio()
-
-        if rail_edge.inCount > rail_edge.outCount * 1.5 and density > 50:
-            current_jams.append({
-                'time': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
-                'edgeId': edge_id,
-                'fromNode': rail_edge.fromNodeId,
-                'toNode': rail_edge.toNodeId,
-                'density': round(density, 2),
-                'inCount': rail_edge.inCount,
-                'outCount': rail_edge.outCount,
-                'inOutRatio': round(in_out_ratio, 2),
-                'risk': 'HIGH',
-                'vhlCount': len(rail_edge.vhlIdMap),
-                'avgVelocity': round(rail_edge.getAvgVelocity(), 2),
-                'current': True
-            })
-
-    return {
-        "status": "ok",
-        "currentJams": current_jams,
-        "historyJams": jam_records[:limit],
-        "searchedFiles": searched_files,
-        "totalRecords": total_records,
-        "totalFiles": len(csv_files) if os.path.exists(OUTPUT_DIR) else 0
-    }
-
 @app.get("/api/jam-stats")
 async def get_jam_stats():
     """JAM 통계 데이터"""
@@ -2137,51 +2024,10 @@ canvas { display: block; }
     </div>
 
     <div class="section">
-        <h3>정체(JAM) 데이터 검색</h3>
+        <h3>정체(JAM) 현황</h3>
         <div class="stat-row"><span>현재 JAM 차량</span><span class="val" id="jamStatVehicles" style="color:#ff0000">0</span></div>
         <div class="stat-row"><span>HIGH 위험</span><span class="val" id="jamStatHigh" style="color:#ff3366">0</span></div>
         <div class="stat-row"><span>MEDIUM 위험</span><span class="val" id="jamStatMedium" style="color:#ffaa00">0</span></div>
-
-        <div style="margin-top:12px;padding:8px;background:#1a1a2e;border-radius:6px;">
-            <div style="font-size:11px;color:#00d4ff;margin-bottom:8px;font-weight:bold;">CSV 이력 검색</div>
-
-            <div style="margin-bottom:6px;">
-                <label style="font-size:10px;color:#888;">날짜 (YYYY-MM-DD)</label>
-                <input type="date" id="jamSearchDate" style="width:100%;padding:4px;border:1px solid #444;background:#222;color:#fff;border-radius:4px;font-size:11px;">
-            </div>
-
-            <div style="display:flex;gap:6px;margin-bottom:6px;">
-                <div style="flex:1;">
-                    <label style="font-size:10px;color:#888;">시작시간</label>
-                    <input type="time" id="jamStartTime" style="width:100%;padding:4px;border:1px solid #444;background:#222;color:#fff;border-radius:4px;font-size:11px;">
-                </div>
-                <div style="flex:1;">
-                    <label style="font-size:10px;color:#888;">종료시간</label>
-                    <input type="time" id="jamEndTime" style="width:100%;padding:4px;border:1px solid #444;background:#222;color:#fff;border-radius:4px;font-size:11px;">
-                </div>
-            </div>
-
-            <div style="display:flex;gap:6px;margin-bottom:8px;">
-                <div style="flex:1;">
-                    <label style="font-size:10px;color:#888;">위험도</label>
-                    <select id="jamRiskLevel" style="width:100%;padding:4px;border:1px solid #444;background:#222;color:#fff;border-radius:4px;font-size:11px;">
-                        <option value="">HIGH/MEDIUM</option>
-                        <option value="HIGH">HIGH만</option>
-                        <option value="MEDIUM">MEDIUM만</option>
-                        <option value="ALL">전체</option>
-                    </select>
-                </div>
-                <div style="flex:1;">
-                    <label style="font-size:10px;color:#888;">최대건수</label>
-                    <input type="number" id="jamSearchLimit" value="100" min="10" max="500" style="width:100%;padding:4px;border:1px solid #444;background:#222;color:#fff;border-radius:4px;font-size:11px;">
-                </div>
-            </div>
-
-            <button id="btnSearchJam" style="width:100%;padding:8px;background:#ff3366;color:#fff;border:none;border-radius:4px;cursor:pointer;font-size:12px;font-weight:bold;">JAM 이력 검색</button>
-            <div id="jamSearchStatus" style="margin-top:6px;font-size:10px;color:#888;text-align:center;"></div>
-        </div>
-
-        <div id="jamHistoryList" style="margin-top:8px;font-size:10px;max-height:200px;overflow-y:auto;background:#111;padding:6px;border-radius:4px;"></div>
     </div>
 
     <div class="section">
@@ -2934,7 +2780,7 @@ document.getElementById('inputVehicleCount').addEventListener('keypress', (e) =>
     }
 });
 
-// JAM 데이터 검색 기능
+// JAM 통계 로드
 async function loadJamStats() {
     try {
         const res = await fetch('/api/jam-stats');
@@ -2947,91 +2793,9 @@ async function loadJamStats() {
     }
 }
 
-async function searchJamHistory() {
-    const limit = parseInt(document.getElementById('jamSearchLimit').value) || 100;
-    const searchDate = document.getElementById('jamSearchDate').value || '';
-    const startTime = document.getElementById('jamStartTime').value || '';
-    const endTime = document.getElementById('jamEndTime').value || '';
-    const riskLevel = document.getElementById('jamRiskLevel').value || '';
-
-    const listEl = document.getElementById('jamHistoryList');
-    const statusEl = document.getElementById('jamSearchStatus');
-    const btn = document.getElementById('btnSearchJam');
-
-    btn.disabled = true;
-    btn.textContent = '검색중...';
-    listEl.innerHTML = '<span style="color:#888;">CSV 파일 검색 중...</span>';
-    statusEl.textContent = '';
-
-    try {
-        // URL 파라미터 구성
-        let url = '/api/jam-history?limit=' + limit;
-        if (searchDate) url += '&search_date=' + searchDate;
-        if (startTime) url += '&start_time=' + startTime;
-        if (endTime) url += '&end_time=' + endTime;
-        if (riskLevel) url += '&risk_level=' + riskLevel;
-
-        const res = await fetch(url);
-        const data = await res.json();
-
-        // 검색 상태 표시
-        statusEl.textContent = '검색: ' + data.searchedFiles + '개 파일, ' + data.totalRecords + '개 레코드';
-
-        let html = '';
-
-        // 현재 실시간 JAM 상태
-        if (data.currentJams && data.currentJams.length > 0) {
-            html += '<div style="color:#ff3366;margin-bottom:8px;font-weight:bold;border-bottom:1px solid #ff3366;padding-bottom:4px;">🔴 실시간 JAM (' + data.currentJams.length + '건)</div>';
-            data.currentJams.forEach(jam => {
-                html += '<div style="padding:4px 0;border-bottom:1px solid #333;margin-bottom:2px;">';
-                html += '<div><span style="color:#ff0000;font-weight:bold;">[' + jam.risk + ']</span> ' + jam.time + '</div>';
-                html += '<div style="color:#aaa;font-size:9px;">Edge: ' + jam.edgeId.split(':').pop() + '</div>';
-                html += '<div style="color:#888;font-size:9px;">밀도:' + jam.density + '% | In:' + jam.inCount + ' Out:' + jam.outCount + ' | 속도:' + jam.avgVelocity + '</div>';
-                html += '</div>';
-            });
-        }
-
-        // CSV 히스토리
-        if (data.historyJams && data.historyJams.length > 0) {
-            html += '<div style="color:#ffaa00;margin:10px 0 8px 0;font-weight:bold;border-bottom:1px solid #ffaa00;padding-bottom:4px;">📁 CSV 이력 (' + data.historyJams.length + '건)</div>';
-            data.historyJams.forEach(record => {
-                const riskColor = record.risk === 'HIGH' ? '#ff3366' : (record.risk === 'MEDIUM' ? '#ffaa00' : '#888');
-                html += '<div style="padding:4px 0;border-bottom:1px solid #222;margin-bottom:2px;">';
-                html += '<div><span style="color:' + riskColor + ';font-weight:bold;">[' + record.risk + ']</span> ' + record.time + '</div>';
-                html += '<div style="color:#aaa;font-size:9px;">Edge: ' + record.edgeId.split(':').pop() + ' (' + record.fromNode + '→' + record.toNode + ')</div>';
-                html += '<div style="color:#888;font-size:9px;">밀도:' + record.density.toFixed(1) + '% | In:' + record.inCount + ' Out:' + record.outCount + ' | 비율:' + record.inOutRatio.toFixed(2) + ' | OHT:' + record.vhlCount + '대</div>';
-                html += '</div>';
-            });
-        }
-
-        if (!html) {
-            html = '<div style="text-align:center;padding:20px;color:#888;">';
-            html += '<div style="font-size:24px;margin-bottom:8px;">📭</div>';
-            html += '<div>검색 조건에 맞는 JAM 데이터가 없습니다.</div>';
-            if (data.totalFiles === 0) {
-                html += '<div style="font-size:10px;margin-top:4px;">OUTPUT 폴더에 CSV 파일이 없습니다.</div>';
-            }
-            html += '</div>';
-        }
-
-        listEl.innerHTML = html;
-    } catch (e) {
-        listEl.innerHTML = '<span style="color:#ff3366;">검색 실패: ' + e.message + '</span>';
-        statusEl.textContent = '오류 발생';
-    }
-
-    btn.disabled = false;
-    btn.textContent = 'JAM 이력 검색';
-}
-
-document.getElementById('btnSearchJam').addEventListener('click', searchJamHistory);
-
-// 오늘 날짜 기본값 설정
-document.getElementById('jamSearchDate').value = new Date().toISOString().split('T')[0];
-
-// 초기 JAM 통계 로드
+// 초기 JAM 통계 로드 및 5초마다 갱신
 loadJamStats();
-setInterval(loadJamStats, 5000);  // 5초마다 통계 갱신
+setInterval(loadJamStats, 5000);
 </script>
 </body>
 </html>
