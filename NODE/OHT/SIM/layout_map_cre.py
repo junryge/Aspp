@@ -139,43 +139,59 @@ const C={connections_json};
     print(f"  완료: {os.path.getsize(output_path):,} bytes")
 
 
-def ensure_layout_html(html_path: str, zip_path: str) -> None:
+def ensure_layout_html(html_path: str, xml_path: str, zip_path: str = None) -> None:
     """
-    layout.html이 없거나 layout.zip보다 오래된 경우 자동 생성
+    layout.html이 없거나 layout.xml보다 오래된 경우 자동 생성
 
     Args:
         html_path: 생성할 layout.html 경로
-        zip_path: layout.xml이 들어있는 layout.zip 경로
+        xml_path: layout.xml 파일 경로 (우선)
+        zip_path: layout.xml이 들어있는 layout.zip 경로 (xml 없을 때 사용)
     """
     need_generate = False
+    source_path = None
+    source_mtime = 0
+
+    # layout.xml 또는 layout.zip 중 존재하는 것 찾기
+    if os.path.exists(xml_path):
+        source_path = xml_path
+        source_mtime = os.path.getmtime(xml_path)
+        print(f"layout.xml 발견: {xml_path}")
+    elif zip_path and os.path.exists(zip_path):
+        source_path = zip_path
+        source_mtime = os.path.getmtime(zip_path)
+        print(f"layout.zip 발견: {zip_path}")
+    else:
+        raise FileNotFoundError(f"layout.xml 또는 layout.zip을 찾을 수 없습니다")
 
     # layout.html 존재 확인
     if not os.path.exists(html_path):
         print(f"layout.html이 없습니다. 자동 생성합니다...")
         need_generate = True
-    elif os.path.exists(zip_path):
-        # layout.zip이 더 최신인지 확인
+    else:
+        # 소스 파일이 더 최신인지 확인
         html_mtime = os.path.getmtime(html_path)
-        zip_mtime = os.path.getmtime(zip_path)
-        if zip_mtime > html_mtime:
-            print(f"layout.zip이 더 최신입니다. layout.html을 재생성합니다...")
+        if source_mtime > html_mtime:
+            print(f"소스 파일이 더 최신입니다. layout.html을 재생성합니다...")
             need_generate = True
 
     if not need_generate:
         return
 
-    if not os.path.exists(zip_path):
-        raise FileNotFoundError(f"layout.zip을 찾을 수 없습니다: {zip_path}")
-
     print("=" * 60)
     print("layout.xml에서 layout.html 자동 생성")
     print("=" * 60)
 
-    # ZIP에서 layout.xml 추출
-    print("layout.xml 추출 중...")
-    with zipfile.ZipFile(zip_path, 'r') as zf:
-        with zf.open('layout.xml') as f:
-            xml_content = f.read().decode('utf-8')
+    # XML 내용 읽기 (xml 파일 우선, 없으면 zip에서 추출)
+    if os.path.exists(xml_path):
+        print(f"layout.xml 읽는 중: {xml_path}")
+        with open(xml_path, 'r', encoding='utf-8') as f:
+            xml_content = f.read()
+    else:
+        print("layout.zip에서 layout.xml 추출 중...")
+        with zipfile.ZipFile(zip_path, 'r') as zf:
+            with zf.open('layout.xml') as f:
+                xml_content = f.read().decode('utf-8')
 
     print(f"  XML 크기: {len(xml_content):,} bytes")
 
