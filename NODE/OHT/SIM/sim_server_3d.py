@@ -3777,7 +3777,6 @@ function updateTooltip(e) {
             <div class="row"><span class="label">거리</span><span class="value">${distanceDisplay}</span></div>
             <div class="row"><span class="label">목적지</span><span class="value">${closest.destination || '-'}</span></div>
             <div class="row"><span class="label">HID Zone</span><span class="value" style="color:#00d4ff;">${closest.hidZoneId >= 0 ? 'HID ' + closest.hidZoneId : '-'}</span></div>
-            <div class="row"><span class="label">Station</span><span class="value" style="color:#ff9800;">${closest.currentStations && closest.currentStations.length > 0 ? closest.currentStations.map(s => s.stationName).join(', ') : '-'}</span></div>
             <hr style="border:none;border-top:1px solid #444;margin:6px 0;">
             <div class="row"><span class="label">RunCycle</span><span class="value">${closest.runCycleName || closest.runCycle}</span></div>
             <div class="row"><span class="label">VhlCycle</span><span class="value">${closest.vhlCycleName || closest.vhlCycle}</span></div>
