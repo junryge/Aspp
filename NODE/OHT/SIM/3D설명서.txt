@@ -1,0 +1,18 @@
+simulator_server_3D.py 실행에 필요한 로컬 .py 파일들:
+
+파일	용도
+layout_map_cre.py	layout.xml → layout.html 자동 생성
+hid_zone_csv_cre.py	HID_Zone_Master.csv 자동 생성
+필요한 외부 패키지 (pip 설치):
+
+fastapi
+uvicorn
+필요한 데이터 파일:
+
+layout/layout.xml - 레이아웃 XML
+station.dat - Station 데이터
+HID_Zone_Master.csv - (없으면 자동 생성됨)
+layout_HID_Zone_MCP_Mapping.csv - HID 맵핑용 (없어도 동작, 4개 컬럼 비움)
+설치 명령:
+
+pip install fastapi uvicorn
