@@ -1,0 +1,954 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>HID IN/OUT 카운트 및 FABID 분리 저장 수정 안내서</title>
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Noto+Sans+KR:wght@400;500;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg-primary: #0d1117;
+            --bg-secondary: #161b22;
+            --bg-tertiary: #21262d;
+            --accent-blue: #58a6ff;
+            --accent-green: #3fb950;
+            --accent-orange: #d29922;
+            --accent-purple: #a371f7;
+            --accent-red: #f85149;
+            --accent-cyan: #39c5cf;
+            --text-primary: #e6edf3;
+            --text-secondary: #8b949e;
+            --border-color: #30363d;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Noto Sans KR', sans-serif;
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            line-height: 1.7;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 3rem 2rem;
+        }
+
+        header {
+            text-align: center;
+            margin-bottom: 4rem;
+            padding: 3rem;
+            background: linear-gradient(135deg, var(--bg-secondary) 0%, var(--bg-tertiary) 100%);
+            border-radius: 16px;
+            border: 1px solid var(--border-color);
+            position: relative;
+            overflow: hidden;
+        }
+
+        header::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 4px;
+            background: linear-gradient(90deg, var(--accent-blue), var(--accent-purple), var(--accent-cyan));
+        }
+
+        header h1 {
+            font-size: 2.2rem;
+            font-weight: 700;
+            margin-bottom: 0.5rem;
+            background: linear-gradient(135deg, var(--accent-blue), var(--accent-cyan));
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        header p {
+            color: var(--text-secondary);
+            font-size: 1rem;
+        }
+
+        .badge {
+            display: inline-block;
+            padding: 0.25rem 0.75rem;
+            border-radius: 20px;
+            font-size: 0.75rem;
+            font-weight: 500;
+            margin: 0.25rem;
+        }
+
+        .badge-blue { background: rgba(88, 166, 255, 0.15); color: var(--accent-blue); }
+        .badge-green { background: rgba(63, 185, 80, 0.15); color: var(--accent-green); }
+        .badge-orange { background: rgba(210, 153, 34, 0.15); color: var(--accent-orange); }
+
+        section {
+            margin-bottom: 3rem;
+        }
+
+        h2 {
+            font-size: 1.5rem;
+            font-weight: 700;
+            margin-bottom: 1.5rem;
+            padding-bottom: 0.75rem;
+            border-bottom: 2px solid var(--border-color);
+            color: var(--accent-blue);
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+        }
+
+        h2::before {
+            content: '';
+            width: 4px;
+            height: 24px;
+            background: var(--accent-blue);
+            border-radius: 2px;
+        }
+
+        h3 {
+            font-size: 1.15rem;
+            font-weight: 600;
+            margin: 1.5rem 0 1rem;
+            color: var(--accent-cyan);
+        }
+
+        /* 아키텍처 다이어그램 1 */
+        .arch-diagram {
+            background: var(--bg-secondary);
+            border-radius: 16px;
+            padding: 2rem;
+            border: 1px solid var(--border-color);
+            margin: 2rem 0;
+        }
+
+        .arch-title {
+            text-align: center;
+            font-size: 1.1rem;
+            font-weight: 600;
+            margin-bottom: 2rem;
+            color: var(--text-primary);
+        }
+
+        .table-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 1.5rem;
+        }
+
+        .table-box {
+            background: var(--bg-tertiary);
+            border-radius: 12px;
+            padding: 1.5rem;
+            border: 1px solid var(--border-color);
+            transition: all 0.3s ease;
+        }
+
+        .table-box:hover {
+            border-color: var(--accent-blue);
+            transform: translateY(-2px);
+            box-shadow: 0 8px 24px rgba(88, 166, 255, 0.1);
+        }
+
+        .table-box.master {
+            border-left: 4px solid var(--accent-green);
+        }
+
+        .table-box.realtime {
+            border-left: 4px solid var(--accent-orange);
+        }
+
+        .table-name {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.95rem;
+            font-weight: 600;
+            color: var(--accent-blue);
+            margin-bottom: 0.75rem;
+        }
+
+        .table-desc {
+            font-size: 0.85rem;
+            color: var(--text-secondary);
+            margin-bottom: 0.5rem;
+        }
+
+        .table-tag {
+            display: inline-block;
+            font-size: 0.7rem;
+            padding: 0.2rem 0.5rem;
+            background: rgba(88, 166, 255, 0.1);
+            color: var(--accent-cyan);
+            border-radius: 4px;
+            margin-top: 0.5rem;
+        }
+
+        /* 아키텍처 다이어그램 2 - 데이터 흐름 */
+        .flow-diagram {
+            background: var(--bg-secondary);
+            border-radius: 16px;
+            padding: 2rem;
+            border: 1px solid var(--border-color);
+            margin: 2rem 0;
+        }
+
+        .flow-section {
+            display: flex;
+            flex-direction: column;
+            gap: 1rem;
+        }
+
+        .flow-row {
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+            flex-wrap: wrap;
+        }
+
+        .flow-box {
+            background: var(--bg-tertiary);
+            border-radius: 8px;
+            padding: 0.75rem 1.25rem;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.85rem;
+            border: 1px solid var(--border-color);
+            white-space: nowrap;
+        }
+
+        .flow-box.source { border-color: var(--accent-green); color: var(--accent-green); }
+        .flow-box.process { border-color: var(--accent-blue); color: var(--accent-blue); }
+        .flow-box.buffer { border-color: var(--accent-orange); color: var(--accent-orange); }
+        .flow-box.target { border-color: var(--accent-purple); color: var(--accent-purple); }
+
+        .flow-arrow {
+            color: var(--text-secondary);
+            font-size: 1.5rem;
+        }
+
+        .flow-label {
+            font-size: 0.75rem;
+            color: var(--text-secondary);
+            background: var(--bg-primary);
+            padding: 0.2rem 0.5rem;
+            border-radius: 4px;
+        }
+
+        .flow-group {
+            background: var(--bg-primary);
+            border-radius: 12px;
+            padding: 1rem;
+            margin: 1rem 0;
+            border: 1px dashed var(--border-color);
+        }
+
+        .flow-group-title {
+            font-size: 0.8rem;
+            color: var(--text-secondary);
+            margin-bottom: 0.75rem;
+        }
+
+        .target-tables {
+            display: flex;
+            gap: 0.75rem;
+            flex-wrap: wrap;
+        }
+
+        .target-table {
+            background: var(--bg-tertiary);
+            border-radius: 8px;
+            padding: 0.5rem 1rem;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.8rem;
+            border: 1px solid var(--accent-purple);
+            color: var(--accent-purple);
+        }
+
+        /* 테이블 스타일 */
+        .schema-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 1rem 0;
+            font-size: 0.9rem;
+        }
+
+        .schema-table th {
+            background: var(--bg-tertiary);
+            padding: 0.75rem 1rem;
+            text-align: left;
+            font-weight: 600;
+            color: var(--accent-blue);
+            border-bottom: 2px solid var(--border-color);
+        }
+
+        .schema-table td {
+            padding: 0.75rem 1rem;
+            border-bottom: 1px solid var(--border-color);
+        }
+
+        .schema-table tr:hover td {
+            background: var(--bg-secondary);
+        }
+
+        .schema-table code {
+            font-family: 'JetBrains Mono', monospace;
+            background: var(--bg-tertiary);
+            padding: 0.15rem 0.4rem;
+            border-radius: 4px;
+            font-size: 0.85rem;
+            color: var(--accent-cyan);
+        }
+
+        /* 코드 블록 */
+        pre {
+            background: var(--bg-secondary);
+            border-radius: 12px;
+            padding: 1.5rem;
+            overflow-x: auto;
+            border: 1px solid var(--border-color);
+            margin: 1rem 0;
+        }
+
+        pre code {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.85rem;
+            line-height: 1.6;
+            color: var(--text-primary);
+        }
+
+        .code-header {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            margin-bottom: 0.5rem;
+            font-size: 0.8rem;
+            color: var(--text-secondary);
+        }
+
+        .code-lang {
+            background: var(--bg-tertiary);
+            padding: 0.2rem 0.6rem;
+            border-radius: 4px;
+            font-family: 'JetBrains Mono', monospace;
+        }
+
+        /* 요약 카드 */
+        .summary-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 1rem;
+            margin: 2rem 0;
+        }
+
+        .summary-card {
+            background: var(--bg-secondary);
+            border-radius: 12px;
+            padding: 1.25rem;
+            border: 1px solid var(--border-color);
+        }
+
+        .summary-card h4 {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.9rem;
+            color: var(--accent-blue);
+            margin-bottom: 0.75rem;
+        }
+
+        .summary-item {
+            display: flex;
+            justify-content: space-between;
+            font-size: 0.85rem;
+            padding: 0.35rem 0;
+            border-bottom: 1px solid var(--border-color);
+        }
+
+        .summary-item:last-child {
+            border-bottom: none;
+        }
+
+        .summary-label {
+            color: var(--text-secondary);
+        }
+
+        .summary-value {
+            color: var(--text-primary);
+            font-weight: 500;
+        }
+
+        /* 수정 사항 하이라이트 */
+        .highlight-box {
+            background: linear-gradient(135deg, rgba(88, 166, 255, 0.1) 0%, rgba(163, 113, 247, 0.1) 100%);
+            border-radius: 12px;
+            padding: 1.5rem;
+            border-left: 4px solid var(--accent-blue);
+            margin: 1.5rem 0;
+        }
+
+        .highlight-box h4 {
+            color: var(--accent-blue);
+            margin-bottom: 0.75rem;
+        }
+
+        .highlight-list {
+            list-style: none;
+        }
+
+        .highlight-list li {
+            padding: 0.35rem 0;
+            padding-left: 1.5rem;
+            position: relative;
+            font-size: 0.9rem;
+        }
+
+        .highlight-list li::before {
+            content: '→';
+            position: absolute;
+            left: 0;
+            color: var(--accent-cyan);
+        }
+
+        /* Syntax Highlighting */
+        .keyword { color: #ff7b72; }
+        .string { color: #a5d6ff; }
+        .comment { color: #8b949e; }
+        .function { color: #d2a8ff; }
+        .type { color: #79c0ff; }
+        .number { color: #ffa657; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>HID IN/OUT 카운트 및 FABID 분리 저장</h1>
+            <p>OhtMsgWorkerRunnable 수정 안내서</p>
+            <div style="margin-top: 1rem;">
+                <span class="badge badge-blue">Logpresso</span>
+                <span class="badge badge-green">ATLAS AMHS</span>
+                <span class="badge badge-orange">1분 배치</span>
+            </div>
+        </header>
+
+        <!-- 아키텍처 다이어그램 1: 테이블 구조 -->
+        <section id="architecture">
+            <h2>테이블 아키텍처</h2>
+            
+            <div class="arch-diagram">
+                <div class="arch-title">Logpresso 테이블 구조</div>
+                <div class="table-grid">
+                    <div class="table-box master">
+                        <div class="table-name">ATLAS_INFO_HID_INOUT</div>
+                        <div class="table-desc">• HID Zone 마스터 정보</div>
+                        <div class="table-desc">• LAYOUT.XML 기반</div>
+                        <div class="table-desc">• 하루 1회 업데이트</div>
+                        <div class="table-tag">기초정보 / 마스터</div>
+                    </div>
+                    <div class="table-box realtime">
+                        <div class="table-name">ATLAS_M14_HID_INOUT</div>
+                        <div class="table-desc">• HID IN/OUT 이벤트 로그</div>
+                        <div class="table-desc">• 1분 단위 배치 저장</div>
+                        <div class="table-desc">• 날짜별 데이터 누적</div>
+                        <div class="table-tag">M14 실시간 데이터</div>
+                    </div>
+                    <div class="table-box realtime">
+                        <div class="table-name">ATLAS_M16_HID_INOUT</div>
+                        <div class="table-desc">• HID IN/OUT 이벤트 로그</div>
+                        <div class="table-desc">• 1분 단위 배치 저장</div>
+                        <div class="table-desc">• 날짜별 데이터 누적</div>
+                        <div class="table-tag">M16 실시간 데이터</div>
+                    </div>
+                    <div class="table-box realtime">
+                        <div class="table-name">ATLAS_M17_HID_INOUT</div>
+                        <div class="table-desc">• HID IN/OUT 이벤트 로그</div>
+                        <div class="table-desc">• 1분 단위 배치 저장</div>
+                        <div class="table-desc">• 날짜별 데이터 누적</div>
+                        <div class="table-tag">M17 실시간 데이터</div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- 아키텍처 다이어그램 2: 데이터 흐름 -->
+        <section id="dataflow">
+            <h2>데이터 흐름도</h2>
+            
+            <div class="flow-diagram">
+                <div class="arch-title">실시간 데이터 처리 파이프라인</div>
+                
+                <div class="flow-section">
+                    <!-- 마스터 데이터 흐름 -->
+                    <div class="flow-group">
+                        <div class="flow-group-title">📁 마스터 데이터 (하루 1회)</div>
+                        <div class="flow-row">
+                            <div class="flow-box source">LAYOUT.XML</div>
+                            <span class="flow-arrow">→</span>
+                            <span class="flow-label">하루 1회</span>
+                            <span class="flow-arrow">→</span>
+                            <div class="flow-box target">ATLAS_INFO_HID_INOUT</div>
+                        </div>
+                    </div>
+
+                    <!-- 실시간 데이터 흐름 -->
+                    <div class="flow-group">
+                        <div class="flow-group-title">⚡ 실시간 데이터 (1분 집계)</div>
+                        <div class="flow-row">
+                            <div class="flow-box source">OHT 차량 이동</div>
+                            <span class="flow-arrow">→</span>
+                            <div class="flow-box process">_calculatedVhlCnt()</div>
+                        </div>
+                        <div class="flow-row" style="margin-left: 2rem; margin-top: 0.5rem;">
+                            <span class="flow-arrow">↓</span>
+                        </div>
+                        <div class="flow-row" style="margin-left: 2rem;">
+                            <div class="flow-box buffer">IN 감지 → hidCountBuffer[hidId][0]++</div>
+                        </div>
+                        <div class="flow-row" style="margin-left: 2rem;">
+                            <div class="flow-box buffer">OUT 감지 → hidCountBuffer[hidId][1]++</div>
+                        </div>
+                        <div class="flow-row" style="margin-left: 2rem; margin-top: 0.5rem;">
+                            <span class="flow-arrow">↓</span>
+                            <span class="flow-label">1분 경과 시</span>
+                        </div>
+                        <div class="flow-row" style="margin-left: 2rem;">
+                            <div class="flow-box process">flushHidCountBuffer()</div>
+                        </div>
+                        <div class="flow-row" style="margin-left: 2rem; margin-top: 0.5rem;">
+                            <span class="flow-arrow">↓</span>
+                            <span class="flow-label">HID별 IN_CNT, OUT_CNT, VHL_CNT 저장</span>
+                        </div>
+                        <div class="target-tables" style="margin-left: 2rem;">
+                            <div class="target-table">ATLAS_M14_HID_INOUT<br><small style="color: var(--text-secondary);">1분 집계</small></div>
+                            <div class="target-table">ATLAS_M16_HID_INOUT<br><small style="color: var(--text-secondary);">1분 집계</small></div>
+                            <div class="target-table">ATLAS_M17_HID_INOUT<br><small style="color: var(--text-secondary);">1분 집계</small></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- 테이블 1: 기초정보 -->
+        <section id="master-table">
+            <h2>테이블 1: ATLAS_INFO_HID_INOUT</h2>
+            
+            <h3>용도</h3>
+            <p>HID Zone 마스터 데이터 (기준 정보) — <code>LAYOUT.XML</code> 기반, 하루 1회 업데이트 (새벽 배치)</p>
+
+            <h3>테이블 스키마</h3>
+            <table class="schema-table">
+                <thead>
+                    <tr>
+                        <th>컬럼명</th>
+                        <th>타입</th>
+                        <th>설명</th>
+                        <th>예시</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr><td><code>HID_ID</code></td><td>INT</td><td>HID Zone ID</td><td>99, 100, 187</td></tr>
+                    <tr><td><code>HID_NM</code></td><td>STRING</td><td>HID Zone 이름</td><td>HID_099, HID_100</td></tr>
+                    <tr><td><code>MCP_ID</code></td><td>STRING</td><td>MCP ID</td><td>MCP01, MCP02</td></tr>
+                    <tr><td><code>ZONE_ID</code></td><td>STRING</td><td>Zone ID</td><td>ZONE_A, ZONE_B</td></tr>
+                    <tr><td><code>IN_CNT</code></td><td>INT</td><td>IN Lane 개수</td><td>2, 3</td></tr>
+                    <tr><td><code>OUT_CNT</code></td><td>INT</td><td>OUT Lane 개수</td><td>2, 3</td></tr>
+                    <tr><td><code>VHL_MAX</code></td><td>INT</td><td>최대 허용 차량 수</td><td>10, 15</td></tr>
+                    <tr><td><code>ZCU_ID</code></td><td>STRING</td><td>ZCU ID</td><td>ZCU01</td></tr>
+                    <tr><td><code>UPDATE_DT</code></td><td>STRING</td><td>마지막 업데이트 일시</td><td>2026-01-29 00:00:00</td></tr>
+                </tbody>
+            </table>
+
+            <h3>샘플 데이터</h3>
+            <table class="schema-table">
+                <thead>
+                    <tr>
+                        <th>HID_ID</th>
+                        <th>HID_NM</th>
+                        <th>MCP_ID</th>
+                        <th>ZONE_ID</th>
+                        <th>IN_CNT</th>
+                        <th>OUT_CNT</th>
+                        <th>VHL_MAX</th>
+                        <th>ZCU_ID</th>
+                        <th>UPDATE_DT</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr><td>99</td><td>HID_099</td><td>MCP01</td><td>ZONE_A</td><td>2</td><td>2</td><td>10</td><td>ZCU01</td><td>2026-01-30 00:00:00</td></tr>
+                    <tr><td>100</td><td>HID_100</td><td>MCP01</td><td>ZONE_A</td><td>3</td><td>3</td><td>15</td><td>ZCU01</td><td>2026-01-30 00:00:00</td></tr>
+                    <tr><td>187</td><td>HID_187</td><td>MCP02</td><td>ZONE_B</td><td>2</td><td>2</td><td>12</td><td>ZCU02</td><td>2026-01-30 00:00:00</td></tr>
+                    <tr><td>188</td><td>HID_188</td><td>MCP02</td><td>ZONE_B</td><td>4</td><td>4</td><td>20</td><td>ZCU02</td><td>2026-01-30 00:00:00</td></tr>
+                </tbody>
+            </table>
+
+            <h3>배치 저장 로직 (Java)</h3>
+            <div class="code-header">
+                <span class="code-lang">Java</span>
+                <span>HidMasterBatchJob.java</span>
+            </div>
+            <pre><code><span class="comment">// 스케줄: 매일 00:00 (cron: 0 0 0 * * ?)</span>
+<span class="keyword">@Scheduled</span>(cron = <span class="string">"0 0 0 * * ?"</span>)
+<span class="keyword">public void</span> <span class="function">updateHidMasterInfo</span>() {
+    String xmlPath = <span class="string">"/path/to/LAYOUT.XML"</span>;
+    List&lt;Tuple&gt; tuples = <span class="keyword">new</span> ArrayList&lt;&gt;();
+    SimpleDateFormat dateFormat = <span class="keyword">new</span> SimpleDateFormat(<span class="string">"yyyy-MM-dd HH:mm:ss"</span>);
+    String updateDt = dateFormat.format(<span class="keyword">new</span> Date());
+    
+    <span class="keyword">try</span> {
+        DocumentBuilderFactory factory = DocumentBuilderFactory.newInstance();
+        DocumentBuilder builder = factory.newDocumentBuilder();
+        Document doc = builder.parse(<span class="keyword">new</span> File(xmlPath));
+        doc.getDocumentElement().normalize();
+        
+        <span class="comment">// HID 노드 파싱</span>
+        NodeList hidList = doc.getElementsByTagName(<span class="string">"HID"</span>);
+        
+        <span class="keyword">for</span> (<span class="keyword">int</span> i = <span class="number">0</span>; i &lt; hidList.getLength(); i++) {
+            Element hid = (Element) hidList.item(i);
+            Tuple tuple = <span class="keyword">new</span> Tuple();
+            
+            tuple.put(<span class="string">"HID_ID"</span>, Integer.parseInt(hid.getAttribute(<span class="string">"id"</span>)));
+            tuple.put(<span class="string">"HID_NM"</span>, hid.getAttribute(<span class="string">"name"</span>));
+            tuple.put(<span class="string">"MCP_ID"</span>, hid.getAttribute(<span class="string">"mcpId"</span>));
+            tuple.put(<span class="string">"ZONE_ID"</span>, hid.getAttribute(<span class="string">"zoneId"</span>));
+            tuple.put(<span class="string">"IN_CNT"</span>, Integer.parseInt(hid.getAttribute(<span class="string">"inCnt"</span>)));
+            tuple.put(<span class="string">"OUT_CNT"</span>, Integer.parseInt(hid.getAttribute(<span class="string">"outCnt"</span>)));
+            tuple.put(<span class="string">"VHL_MAX"</span>, Integer.parseInt(hid.getAttribute(<span class="string">"vhlMax"</span>)));
+            tuple.put(<span class="string">"ZCU_ID"</span>, hid.getAttribute(<span class="string">"zcuId"</span>));
+            tuple.put(<span class="string">"UPDATE_DT"</span>, updateDt);
+            
+            tuples.add(tuple);
+        }
+    } <span class="keyword">catch</span> (Exception e) {
+        logger.error(<span class="string">"Failed to parse LAYOUT.XML"</span>, e);
+        <span class="keyword">return</span>;
+    }
+    
+    <span class="comment">// Full Refresh</span>
+    LogpressoAPI.truncateTable(<span class="string">"ATLAS_INFO_HID_INOUT"</span>);
+    LogpressoAPI.setInsertTuples(<span class="string">"ATLAS_INFO_HID_INOUT"</span>, tuples, <span class="number">100</span>);
+    
+    logger.info(<span class="string">"HID Master Info updated from LAYOUT.XML: {} records"</span>, tuples.size());
+}</code></pre>
+        </section>
+
+        <!-- 테이블 2: 실시간 데이터 -->
+        <section id="realtime-table">
+            <h2>테이블 2: ATLAS_{FABID}_HID_INOUT</h2>
+            
+            <h3>용도</h3>
+            <p>HID IN/OUT 1분 집계 데이터 — FABID별 테이블 분리 (M14, M16, M17...), 1분 단위 배치 저장, 날짜별 데이터 누적</p>
+
+            <h3>테이블 스키마</h3>
+            <table class="schema-table">
+                <thead>
+                    <tr>
+                        <th>컬럼명</th>
+                        <th>타입</th>
+                        <th>설명</th>
+                        <th>예시</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr><td><code>EVENT_DATE</code></td><td>STRING</td><td>이벤트 날짜 (파티션 키)</td><td>2026-01-30</td></tr>
+                    <tr><td><code>EVENT_DT</code></td><td>STRING</td><td>집계 시간 (1분 단위)</td><td>2026-01-30 15:30:00</td></tr>
+                    <tr><td><code>HID_ID</code></td><td>INT</td><td>HID Zone ID</td><td>99</td></tr>
+                    <tr><td><code>IN_CNT</code></td><td>INT</td><td>1분간 IN 횟수</td><td>12</td></tr>
+                    <tr><td><code>OUT_CNT</code></td><td>INT</td><td>1분간 OUT 횟수</td><td>10</td></tr>
+                    <tr><td><code>VHL_CNT</code></td><td>INT</td><td>현재 HID 구간 내 차량 수</td><td>2</td></tr>
+                    <tr><td><code>MCP_NM</code></td><td>STRING</td><td>MCP 이름</td><td>MCP01</td></tr>
+                    <tr><td><code>ENV</code></td><td>STRING</td><td>환경 구분</td><td>PROD</td></tr>
+                </tbody>
+            </table>
+
+            <h3>샘플 데이터 (ATLAS_M14_HID_INOUT)</h3>
+            <table class="schema-table">
+                <thead>
+                    <tr>
+                        <th>EVENT_DATE</th>
+                        <th>EVENT_DT</th>
+                        <th>HID_ID</th>
+                        <th>IN_CNT</th>
+                        <th>OUT_CNT</th>
+                        <th>VHL_CNT</th>
+                        <th>MCP_NM</th>
+                        <th>ENV</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr><td>2026-01-30</td><td>2026-01-30 14:30:00</td><td>99</td><td>12</td><td>10</td><td>2</td><td>MCP01</td><td>PROD</td></tr>
+                    <tr><td>2026-01-30</td><td>2026-01-30 14:30:00</td><td>100</td><td>8</td><td>7</td><td>1</td><td>MCP01</td><td>PROD</td></tr>
+                    <tr><td>2026-01-30</td><td>2026-01-30 14:31:00</td><td>99</td><td>15</td><td>13</td><td>4</td><td>MCP01</td><td>PROD</td></tr>
+                    <tr><td>2026-01-30</td><td>2026-01-30 14:31:00</td><td>187</td><td>5</td><td>6</td><td>0</td><td>MCP02</td><td>PROD</td></tr>
+                </tbody>
+            </table>
+        </section>
+
+        <!-- 수정 방안 -->
+        <section id="modification">
+            <h2>수정 방안: 1분 배치 저장</h2>
+
+            <h3>Step 1: 집계 버퍼 추가 (클래스 필드)</h3>
+            <div class="code-header">
+                <span class="code-lang">Java</span>
+                <span>클래스 상단에 추가</span>
+            </div>
+            <pre><code><span class="comment">// HID별 IN/OUT 카운트 집계 (1분간 모아서 배치 저장)</span>
+<span class="comment">// Key: HID_ID, Value: [IN_CNT, OUT_CNT]</span>
+<span class="keyword">private static</span> ConcurrentMap&lt;Integer, <span class="keyword">int</span>[]&gt; hidCountBuffer = 
+    <span class="keyword">new</span> ConcurrentHashMap&lt;&gt;();
+<span class="keyword">private static long</span> lastFlushTime = System.currentTimeMillis();
+<span class="keyword">private static final long</span> FLUSH_INTERVAL = <span class="number">60000</span>; <span class="comment">// 1분</span>
+<span class="keyword">private static final</span> Object flushLock = <span class="keyword">new</span> Object();</code></pre>
+
+            <h3>Step 2: _calculatedVhlCnt() 수정</h3>
+            <div class="code-header">
+                <span class="code-lang">Java</span>
+                <span>수정 후 코드</span>
+            </div>
+            <pre><code><span class="keyword">private void</span> <span class="function">_calculatedVhlCnt</span>(<span class="keyword">int</span> currentHidId, String key, Vhl vehicle) {
+    <span class="keyword">long</span> timer = System.currentTimeMillis();
+    <span class="keyword">int</span> previousHidId = vehicle.getHidId();
+
+    <span class="keyword">if</span> (previousHidId != currentHidId) {
+        <span class="comment">// HID 구간 IN (새로운 HID 구간 진입)</span>
+        <span class="keyword">if</span> (currentHidId > <span class="number">0</span>) {
+            String v = String.format(<span class="string">"%03d"</span>, currentHidId);
+            DataService.getDataSet().increaseHidVehicleCnt(key + <span class="string">":"</span> + v);
+
+            <span class="comment">// ===== 추가: IN 카운트 증가 =====</span>
+            hidCountBuffer.computeIfAbsent(currentHidId, k -> <span class="keyword">new int</span>[<span class="number">2</span>]);
+            <span class="keyword">synchronized</span> (hidCountBuffer.get(currentHidId)) {
+                hidCountBuffer.get(currentHidId)[<span class="number">0</span>]++; <span class="comment">// IN_CNT 증가</span>
+            }
+        }
+
+        <span class="comment">// HID 구간 OUT (이전 HID 구간 이탈)</span>
+        <span class="keyword">if</span> (previousHidId > <span class="number">0</span>) {
+            String v = String.format(<span class="string">"%03d"</span>, previousHidId);
+            DataService.getDataSet().decreaseHidVehicleCnt(key + <span class="string">":"</span> + v);
+
+            <span class="comment">// ===== 추가: OUT 카운트 증가 =====</span>
+            hidCountBuffer.computeIfAbsent(previousHidId, k -> <span class="keyword">new int</span>[<span class="number">2</span>]);
+            <span class="keyword">synchronized</span> (hidCountBuffer.get(previousHidId)) {
+                hidCountBuffer.get(previousHidId)[<span class="number">1</span>]++; <span class="comment">// OUT_CNT 증가</span>
+            }
+        }
+
+        vehicle.setHidId(currentHidId);
+    }
+
+    <span class="comment">// ===== 추가: 1분마다 버퍼 플러시 =====</span>
+    <span class="keyword">if</span> (timer - lastFlushTime >= FLUSH_INTERVAL) {
+        <span class="keyword">synchronized</span> (flushLock) {
+            <span class="keyword">if</span> (timer - lastFlushTime >= FLUSH_INTERVAL) {
+                flushHidCountBuffer();
+                lastFlushTime = timer;
+            }
+        }
+    }
+}</code></pre>
+
+            <h3>Step 3: 집계 저장 메소드 추가</h3>
+            <div class="code-header">
+                <span class="code-lang">Java</span>
+                <span>flushHidCountBuffer()</span>
+            </div>
+            <pre><code><span class="comment">/**
+ * HID IN/OUT 집계 데이터를 Logpresso에 1분 배치 저장
+ * 테이블: ATLAS_{FABID}_HID_INOUT
+ */</span>
+<span class="keyword">private void</span> <span class="function">flushHidCountBuffer</span>() {
+    <span class="keyword">if</span> (hidCountBuffer.isEmpty()) {
+        <span class="keyword">return</span>;
+    }
+
+    <span class="comment">// 버퍼 스냅샷 생성 및 초기화</span>
+    Map&lt;Integer, <span class="keyword">int</span>[]&gt; snapshot = <span class="keyword">new</span> HashMap&lt;&gt;();
+    <span class="keyword">for</span> (Map.Entry&lt;Integer, <span class="keyword">int</span>[]&gt; entry : hidCountBuffer.entrySet()) {
+        <span class="keyword">synchronized</span> (entry.getValue()) {
+            snapshot.put(entry.getKey(), 
+                <span class="keyword">new int</span>[]{entry.getValue()[<span class="number">0</span>], entry.getValue()[<span class="number">1</span>]});
+            entry.getValue()[<span class="number">0</span>] = <span class="number">0</span>; <span class="comment">// IN_CNT 리셋</span>
+            entry.getValue()[<span class="number">1</span>] = <span class="number">0</span>; <span class="comment">// OUT_CNT 리셋</span>
+        }
+    }
+
+    <span class="comment">// 현재 시간 (1분 단위로 정렬)</span>
+    SimpleDateFormat dateFormat = <span class="keyword">new</span> SimpleDateFormat(<span class="string">"yyyy-MM-dd HH:mm:00"</span>);
+    SimpleDateFormat dateOnlyFormat = <span class="keyword">new</span> SimpleDateFormat(<span class="string">"yyyy-MM-dd"</span>);
+    Date now = <span class="keyword">new</span> Date();
+    String eventDt = dateFormat.format(now);
+    String eventDate = dateOnlyFormat.format(now);
+
+    List&lt;Tuple&gt; tuples = <span class="keyword">new</span> ArrayList&lt;&gt;();
+
+    <span class="keyword">for</span> (Map.Entry&lt;Integer, <span class="keyword">int</span>[]&gt; entry : snapshot.entrySet()) {
+        <span class="keyword">int</span> hidId = entry.getKey();
+        <span class="keyword">int</span> inCnt = entry.getValue()[<span class="number">0</span>];
+        <span class="keyword">int</span> outCnt = entry.getValue()[<span class="number">1</span>];
+
+        <span class="comment">// IN/OUT 둘 다 0이면 스킵</span>
+        <span class="keyword">if</span> (inCnt == <span class="number">0</span> && outCnt == <span class="number">0</span>) {
+            <span class="keyword">continue</span>;
+        }
+
+        <span class="comment">// 현재 HID 구간 내 차량 수 조회</span>
+        String hidKey = <span class="keyword">this</span>.fabId + <span class="string">":"</span> + <span class="keyword">this</span>.mcpName 
+                      + <span class="string">":"</span> + String.format(<span class="string">"%03d"</span>, hidId);
+        <span class="keyword">int</span> vhlCnt = DataService.getDataSet().getHidVehicleCnt(hidKey);
+
+        Tuple tuple = <span class="keyword">new</span> Tuple();
+        tuple.put(<span class="string">"EVENT_DATE"</span>, eventDate);
+        tuple.put(<span class="string">"EVENT_DT"</span>, eventDt);
+        tuple.put(<span class="string">"HID_ID"</span>, hidId);
+        tuple.put(<span class="string">"IN_CNT"</span>, inCnt);
+        tuple.put(<span class="string">"OUT_CNT"</span>, outCnt);
+        tuple.put(<span class="string">"VHL_CNT"</span>, vhlCnt);
+        tuple.put(<span class="string">"MCP_NM"</span>, <span class="keyword">this</span>.mcpName);
+        tuple.put(<span class="string">"ENV"</span>, Env.getEnv());
+
+        tuples.add(tuple);
+    }
+
+    <span class="keyword">if</span> (tuples.isEmpty()) {
+        <span class="keyword">return</span>;
+    }
+
+    <span class="comment">// FABID별 테이블에 저장</span>
+    String tableName = <span class="string">"ATLAS_"</span> + <span class="keyword">this</span>.fabId + <span class="string">"_HID_INOUT"</span>;
+
+    <span class="keyword">boolean</span> success = LogpressoAPI.setInsertTuples(tableName, tuples, <span class="number">100</span>);
+
+    <span class="keyword">if</span> (success) {
+        logger.info(<span class="string">"HID IN/OUT aggregated: {} - {} records"</span>, 
+                    tableName, tuples.size());
+    }
+}</code></pre>
+        </section>
+
+        <!-- Logpresso 쿼리 -->
+        <section id="queries">
+            <h2>Logpresso 쿼리 예시</h2>
+
+            <h3>기초정보 조회</h3>
+            <pre><code><span class="comment">// HID Zone 마스터 정보 전체 조회</span>
+table ATLAS_INFO_HID_INOUT
+| sort HID_ID</code></pre>
+
+            <h3>M14 일별 IN/OUT 통계</h3>
+            <pre><code><span class="comment">// M14 특정 날짜 HID별 IN/OUT 합계</span>
+table ATLAS_M14_HID_INOUT duration=1d
+| search EVENT_DATE == <span class="string">"2026-01-30"</span>
+| stats sum(IN_CNT) as TOTAL_IN, sum(OUT_CNT) as TOTAL_OUT by HID_ID
+| sort HID_ID</code></pre>
+
+            <h3>특정 HID 구간 시간대별 추이</h3>
+            <pre><code><span class="comment">// M14 HID_ID=99 구간 1분 단위 추이</span>
+table ATLAS_M14_HID_INOUT duration=1d
+| search HID_ID == <span class="number">99</span> and EVENT_DATE == <span class="string">"2026-01-30"</span>
+| fields EVENT_DT, IN_CNT, OUT_CNT, VHL_CNT
+| sort -EVENT_DT
+| limit <span class="number">100</span></code></pre>
+
+            <h3>마스터 정보와 실시간 데이터 조인</h3>
+            <pre><code><span class="comment">// IN/OUT 집계 vs 최대 허용 차량 비교</span>
+table ATLAS_M14_HID_INOUT duration=1d
+| search EVENT_DATE == <span class="string">"2026-01-30"</span>
+| stats sum(IN_CNT) as TOTAL_IN, sum(OUT_CNT) as TOTAL_OUT, 
+        max(VHL_CNT) as MAX_VHL by HID_ID
+| join HID_ID [ table ATLAS_INFO_HID_INOUT | fields HID_ID, HID_NM, MCP_ID, ZONE_ID, VHL_MAX ]
+| fields HID_ID, HID_NM, MCP_ID, ZONE_ID, VHL_MAX, TOTAL_IN, TOTAL_OUT, MAX_VHL
+| sort HID_ID</code></pre>
+
+            <h3>VHL_MAX 초과 알람 감지</h3>
+            <pre><code><span class="comment">// 최대 허용 차량 수 초과 케이스 조회</span>
+table ATLAS_M14_HID_INOUT duration=1d
+| search EVENT_DATE == <span class="string">"2026-01-30"</span>
+| join HID_ID [ table ATLAS_INFO_HID_INOUT | fields HID_ID, VHL_MAX ]
+| search VHL_CNT > VHL_MAX
+| fields EVENT_DT, HID_ID, VHL_CNT, VHL_MAX, MCP_NM
+| sort -EVENT_DT</code></pre>
+        </section>
+
+        <!-- 요약 -->
+        <section id="summary">
+            <h2>요약</h2>
+            
+            <div class="summary-grid">
+                <div class="summary-card">
+                    <h4>ATLAS_INFO_HID_INOUT</h4>
+                    <div class="summary-item">
+                        <span class="summary-label">용도</span>
+                        <span class="summary-value">기초정보 (마스터)</span>
+                    </div>
+                    <div class="summary-item">
+                        <span class="summary-label">업데이트</span>
+                        <span class="summary-value">하루 1회</span>
+                    </div>
+                    <div class="summary-item">
+                        <span class="summary-label">소스</span>
+                        <span class="summary-value">LAYOUT.XML</span>
+                    </div>
+                </div>
+                <div class="summary-card">
+                    <h4>ATLAS_M14_HID_INOUT</h4>
+                    <div class="summary-item">
+                        <span class="summary-label">용도</span>
+                        <span class="summary-value">M14 IN/OUT 집계</span>
+                    </div>
+                    <div class="summary-item">
+                        <span class="summary-label">업데이트</span>
+                        <span class="summary-value">1분 집계</span>
+                    </div>
+                    <div class="summary-item">
+                        <span class="summary-label">소스</span>
+                        <span class="summary-value">실시간 OHT 이동</span>
+                    </div>
+                </div>
+                <div class="summary-card">
+                    <h4>ATLAS_M16_HID_INOUT</h4>
+                    <div class="summary-item">
+                        <span class="summary-label">용도</span>
+                        <span class="summary-value">M16 IN/OUT 집계</span>
+                    </div>
+                    <div class="summary-item">
+                        <span class="summary-label">업데이트</span>
+                        <span class="summary-value">1분 집계</span>
+                    </div>
+                    <div class="summary-item">
+                        <span class="summary-label">소스</span>
+                        <span class="summary-value">실시간 OHT 이동</span>
+                    </div>
+                </div>
+                <div class="summary-card">
+                    <h4>ATLAS_M17_HID_INOUT</h4>
+                    <div class="summary-item">
+                        <span class="summary-label">용도</span>
+                        <span class="summary-value">M17 IN/OUT 집계</span>
+                    </div>
+                    <div class="summary-item">
+                        <span class="summary-label">업데이트</span>
+                        <span class="summary-value">1분 집계</span>
+                    </div>
+                    <div class="summary-item">
+                        <span class="summary-label">소스</span>
+                        <span class="summary-value">실시간 OHT 이동</span>
+                    </div>
+                </div>
+            </div>
+
+            <div class="highlight-box">
+                <h4>📝 수정 파일: OhtMsgWorkerRunnable.java</h4>
+                <ul class="highlight-list">
+                    <li><strong>추가</strong>: <code>hidCountBuffer</code> 필드 (HID별 IN/OUT 카운트 집계)</li>
+                    <li><strong>추가</strong>: <code>flushLock</code> 필드 (동기화용)</li>
+                    <li><strong>추가</strong>: <code>flushHidCountBuffer()</code> 메소드 (1분 집계 저장)</li>
+                    <li><strong>수정</strong>: <code>_calculatedVhlCnt()</code> 메소드 (IN/OUT 카운트 집계 추가)</li>
+                </ul>
+            </div>
+        </section>
+    </div>
+</body>
+</html>
