@@ -29,7 +29,7 @@ def safe_int(value, default=0):
 
 def parse_mcp_zones_from_xml(xml_content: str) -> List[Dict]:
     """
-    layout.xml에서 McpZone 정보 추출 (라인 단위 파싱)
+    layout.xml에서 McpZone 정보 추출 (라인 단위 파싱, 그룹 깊이 추적)
 
     Returns:
         zones: [{
@@ -54,6 +54,7 @@ def parse_mcp_zones_from_xml(xml_content: str) -> List[Dict]:
     entry_params = {}
     exit_params = {}
     cut_lane_params = {}
+    zone_depth = 0  # McpZone 내부 그룹 깊이 추적
 
     lines = xml_content.split('\n')
     total_lines = len(lines)
@@ -67,13 +68,14 @@ def parse_mcp_zones_from_xml(xml_content: str) -> List[Dict]:
 
         # McpZone 그룹 시작
         if '<group name="McpZone' in line and 'mcpzone.McpZone"' in line:
-            # 이전 zone 저장
+            # 이전 zone 저장 (있다면)
             if current_zone is not None:
                 zone_no = safe_int(current_zone_params.get('no', 0))
-                if zone_no > 0:
-                    zones[zone_no] = {
+                zone_id = safe_int(current_zone_params.get('id', zone_no), zone_no)
+                if zone_id > 0:
+                    zones[zone_id] = {
                         'no': zone_no,
-                        'id': safe_int(current_zone_params.get('id', zone_no), zone_no),
+                        'id': zone_id,
                         'vehicle_max': safe_int(current_zone_params.get('vehicle-max', 0)),
                         'vehicle_precaution': safe_int(current_zone_params.get('vehicle-precaution', 0)),
                         'type': safe_int(current_zone_params.get('type', 0)),
@@ -84,31 +86,45 @@ def parse_mcp_zones_from_xml(xml_content: str) -> List[Dict]:
 
             current_zone_params = {'entries': [], 'exits': [], 'cut_lanes': []}
             current_zone = line
+            zone_depth = 1  # McpZone 그룹 시작
             current_entry = None
             current_exit = None
             current_cut_lane = None
             continue
 
+        # current_zone이 없으면 스킵
+        if current_zone is None:
+            continue
+
         # Entry 그룹 시작
-        if current_zone and '<group name="Entry' in line and 'mcpzone.Entry"' in line:
+        if '<group name="Entry' in line and 'mcpzone.Entry"' in line:
             current_entry = line
             entry_params = {}
+            zone_depth += 1
             continue
 
         # Exit 그룹 시작
-        if current_zone and '<group name="Exit' in line and 'mcpzone.Exit"' in line:
+        if '<group name="Exit' in line and 'mcpzone.Exit"' in line:
             current_exit = line
             exit_params = {}
+            zone_depth += 1
             continue
 
         # CutLane 그룹 시작
-        if current_zone and '<group name="CutLane' in line and 'mcpzone.CutLane"' in line:
+        if '<group name="CutLane' in line and 'mcpzone.CutLane"' in line:
             current_cut_lane = line
             cut_lane_params = {}
+            zone_depth += 1
+            continue
+
+        # 다른 그룹 시작 (Entry/Exit/CutLane 외)
+        if '<group ' in line and '>' in line and '/>' not in line:
+            zone_depth += 1
             continue
 
         # 그룹 종료
         if '</group>' in line:
+            # Entry/Exit/CutLane 그룹 종료 (depth 감소 전에 처리)
             if current_entry:
                 if 'start' in entry_params and 'end' in entry_params:
                     current_zone_params['entries'].append({
@@ -117,6 +133,8 @@ def parse_mcp_zones_from_xml(xml_content: str) -> List[Dict]:
                         'zcu': entry_params.get('stop-zcu', '')
                     })
                 current_entry = None
+                zone_depth -= 1
+                continue
             elif current_exit:
                 if 'start' in exit_params and 'end' in exit_params:
                     current_zone_params['exits'].append({
@@ -124,16 +142,36 @@ def parse_mcp_zones_from_xml(xml_content: str) -> List[Dict]:
                         'end': int(exit_params.get('end', 0))
                     })
                 current_exit = None
+                zone_depth -= 1
+                continue
             elif current_cut_lane:
-                if 'start' in cut_lane_params and 'end' in cut_lane_params:
-                    current_zone_params['cut_lanes'].append({
-                        'start': int(cut_lane_params.get('start', 0)),
-                        'end': int(cut_lane_params.get('end', 0))
-                    })
                 current_cut_lane = None
+                zone_depth -= 1
+                continue
+
+            zone_depth -= 1
+
+            # McpZone 그룹 종료
+            if zone_depth == 0:
+                zone_no = safe_int(current_zone_params.get('no', 0))
+                zone_id = safe_int(current_zone_params.get('id', zone_no), zone_no)
+                if zone_id > 0:
+                    zones[zone_id] = {
+                        'no': zone_no,
+                        'id': zone_id,
+                        'vehicle_max': safe_int(current_zone_params.get('vehicle-max', 0)),
+                        'vehicle_precaution': safe_int(current_zone_params.get('vehicle-precaution', 0)),
+                        'type': safe_int(current_zone_params.get('type', 0)),
+                        'entries': current_zone_params.get('entries', []),
+                        'exits': current_zone_params.get('exits', []),
+                        'cut_lanes': current_zone_params.get('cut_lanes', [])
+                    }
+                current_zone = None
+                current_zone_params = {}
+
             continue
 
-        # 파라미터 파싱
+        # 파라미터 파싱 (McpZone 내부에서만)
         if '<param ' in line and 'key="' in line and 'value="' in line:
             key_match = re.search(r'key="([^"]+)"', line)
             value_match = re.search(r'value="([^"]*)"', line)
@@ -148,23 +186,8 @@ def parse_mcp_zones_from_xml(xml_content: str) -> List[Dict]:
                     exit_params[key] = value
                 elif current_cut_lane:
                     cut_lane_params[key] = value
-                elif current_zone:
+                elif zone_depth == 1:  # McpZone 직속 파라미터만
                     current_zone_params[key] = value
-
-    # 마지막 zone 저장
-    if current_zone is not None:
-        zone_no = safe_int(current_zone_params.get('no', 0))
-        if zone_no > 0:
-            zones[zone_no] = {
-                'no': zone_no,
-                'id': safe_int(current_zone_params.get('id', zone_no), zone_no),
-                'vehicle_max': safe_int(current_zone_params.get('vehicle-max', 0)),
-                'vehicle_precaution': safe_int(current_zone_params.get('vehicle-precaution', 0)),
-                'type': safe_int(current_zone_params.get('type', 0)),
-                'entries': current_zone_params.get('entries', []),
-                'exits': current_zone_params.get('exits', []),
-                'cut_lanes': current_zone_params.get('cut_lanes', [])
-            }
 
     print(f"  총 McpZone: {len(zones)}개")
 
@@ -195,8 +218,44 @@ def derive_bay_zone(zone_no: int) -> str:
     return f'B{bay_num:02d}'
 
 
+def load_hid_mapping(script_dir: str) -> Dict[int, List[Dict]]:
+    """
+    layout_HID_Zone_MCP_Mapping.csv에서 Zone_ID별 HID 맵핑 로드
+
+    Returns:
+        {zone_id: [{'HID_ID': str, 'Addr_No': str, 'Station_No': str}, ...]}
+    """
+    from collections import defaultdict
+
+    mapping_path = os.path.join(script_dir, 'layout_HID_Zone_MCP_Mapping.csv')
+    if not os.path.exists(mapping_path):
+        print(f"  경고: {mapping_path} 파일 없음, HID 맵핑 스킵")
+        return {}
+
+    zone_hid_map = defaultdict(list)
+
+    with open(mapping_path, 'r', encoding='utf-8-sig') as f:
+        reader = csv.DictReader(f)
+        for row in reader:
+            zone_id_str = row.get('Zone_ID', '').strip()
+            if zone_id_str:
+                try:
+                    zone_id = int(zone_id_str)
+                    zone_hid_map[zone_id].append({
+                        'HID_ID': row.get('HID_ID', ''),
+                        'Addr_No': row.get('Addr_No', ''),
+                        'Station_No': row.get('Station_No', '')
+                    })
+                except ValueError:
+                    pass
+
+    print(f"  HID 맵핑 로드: {len(zone_hid_map)}개 Zone")
+    return dict(zone_hid_map)
+
+
 def generate_hid_zone_csv(zones: List[Dict], output_path: str,
-                          project_name: str = "M14 Project Ph-1") -> None:
+                          project_name: str = "M14 Project Ph-1",
+                          hid_mapping: Dict[int, List[Dict]] = None) -> None:
     """
     HID_ZONE_Master.csv 파일 생성
 
@@ -204,26 +263,30 @@ def generate_hid_zone_csv(zones: List[Dict], output_path: str,
         zones: parse_mcp_zones_from_xml()에서 반환된 zone 목록
         output_path: 출력 CSV 파일 경로
         project_name: 프로젝트 이름 (기본값: M14 Project Ph-1)
+        hid_mapping: Zone_ID별 HID 맵핑 (선택)
     """
     print(f"HID_ZONE_Master.csv 생성: {output_path}")
 
-    # CSV 헤더
+    # CSV 헤더 (기존 + 추가 4개 컬럼)
     headers = [
         'Zone_ID', 'HID_No', 'Bay_Zone', 'Sub_Region', 'Full_Name',
         'Territory', 'Type', 'IN_Count', 'OUT_Count', 'IN_Lanes', 'OUT_Lanes',
-        'Vehicle_Max', 'Vehicle_Precaution', 'Project', 'ZCU', 'HID_Type'
+        'Vehicle_Max', 'Vehicle_Precaution', 'Project', 'ZCU', 'HID_Type',
+        'HID_ID', 'Zone_ID2', 'Addr_No', 'Station_No'
     ]
 
     rows = []
 
-    # zone을 no 기준으로 정렬
-    sorted_zones = sorted(zones, key=lambda z: z['no'])
+    # zone을 id 기준으로 정렬 (Zone_ID 순서대로)
+    sorted_zones = sorted(zones, key=lambda z: z['id'])
 
     for zone in sorted_zones:
         zone_no = zone['no']
         zone_id = zone['id']
 
-        # IN/OUT Lanes 포맷
+        # IN/OUT Lanes 포맷 (mcp75.cfg 기준)
+        # Entry (LOOP_ENTRY) = Zone으로 들어오는 경로 = IN_Lanes
+        # Exit = Zone에서 나가는 경로 = OUT_Lanes
         in_lanes = '; '.join([f"{e['start']}→{e['end']}" for e in zone['entries']])
         out_lanes = '; '.join([f"{e['start']}→{e['end']}" for e in zone['exits']])
 
@@ -242,25 +305,60 @@ def generate_hid_zone_csv(zones: List[Dict], output_path: str,
         hid_type_map = {1: 'HID4', 2: 'HID3', 3: 'HID2'}
         hid_type = hid_type_map.get(zone['type'], 'HID4')
 
-        row = {
-            'Zone_ID': zone_id,
-            'HID_No': f'HID-OHT-{zone_id:03d}',
-            'Bay_Zone': bay_zone,
-            'Sub_Region': sub_region,
-            'Full_Name': f'HID-{bay_zone}-{sub_region}({zone_id:03d})',
-            'Territory': 1,  # 기본값
-            'Type': 'HID',
-            'IN_Count': len(zone['entries']),
-            'OUT_Count': len(zone['exits']),
-            'IN_Lanes': in_lanes,
-            'OUT_Lanes': out_lanes,
-            'Vehicle_Max': zone['vehicle_max'],
-            'Vehicle_Precaution': zone['vehicle_precaution'],
-            'Project': project_name,
-            'ZCU': zcu,
-            'HID_Type': hid_type
-        }
-        rows.append(row)
+        # HID 맵핑 정보 가져오기
+        hid_list = hid_mapping.get(zone_id, []) if hid_mapping else []
+
+        if hid_list:
+            # 맵핑된 HID가 있으면 각 HID별로 행 생성
+            for hid_info in hid_list:
+                row = {
+                    'Zone_ID': zone_id,
+                    'HID_No': f'HID-OHT-{zone_id:03d}',
+                    'Bay_Zone': bay_zone,
+                    'Sub_Region': sub_region,
+                    'Full_Name': f'HID-{bay_zone}-{sub_region}({zone_id:03d})',
+                    'Territory': 1,
+                    'Type': 'HID',
+                    'IN_Count': len(zone['entries']),
+                    'OUT_Count': len(zone['exits']),
+                    'IN_Lanes': in_lanes,
+                    'OUT_Lanes': out_lanes,
+                    'Vehicle_Max': zone['vehicle_max'],
+                    'Vehicle_Precaution': zone['vehicle_precaution'],
+                    'Project': project_name,
+                    'ZCU': zcu,
+                    'HID_Type': hid_type,
+                    'HID_ID': hid_info['HID_ID'],
+                    'Zone_ID2': zone_id,
+                    'Addr_No': hid_info['Addr_No'],
+                    'Station_No': hid_info['Station_No']
+                }
+                rows.append(row)
+        else:
+            # 맵핑된 HID가 없으면 빈 값으로 1행만 생성
+            row = {
+                'Zone_ID': zone_id,
+                'HID_No': f'HID-OHT-{zone_id:03d}',
+                'Bay_Zone': bay_zone,
+                'Sub_Region': sub_region,
+                'Full_Name': f'HID-{bay_zone}-{sub_region}({zone_id:03d})',
+                'Territory': 1,
+                'Type': 'HID',
+                'IN_Count': len(zone['entries']),
+                'OUT_Count': len(zone['exits']),
+                'IN_Lanes': in_lanes,
+                'OUT_Lanes': out_lanes,
+                'Vehicle_Max': zone['vehicle_max'],
+                'Vehicle_Precaution': zone['vehicle_precaution'],
+                'Project': project_name,
+                'ZCU': zcu,
+                'HID_Type': hid_type,
+                'HID_ID': '',
+                'Zone_ID2': '',
+                'Addr_No': '',
+                'Station_No': ''
+            }
+            rows.append(row)
 
     # CSV 파일 작성 (UTF-8 BOM)
     with open(output_path, 'w', encoding='utf-8-sig', newline='') as f:
@@ -268,7 +366,7 @@ def generate_hid_zone_csv(zones: List[Dict], output_path: str,
         writer.writeheader()
         writer.writerows(rows)
 
-    print(f"  완료: {len(rows)}개 Zone, {os.path.getsize(output_path):,} bytes")
+    print(f"  완료: {len(rows)}개 행, {os.path.getsize(output_path):,} bytes")
 
 
 def load_xml_content(source_path: str) -> str:
@@ -303,6 +401,14 @@ def create_hid_zone_csv(xml_or_zip_path: str, output_csv_path: str,
     print(f"출력: {output_csv_path}")
     print()
 
+    # 스크립트 디렉토리 (HID 맵핑 파일 위치)
+    script_dir = os.path.dirname(os.path.abspath(xml_or_zip_path))
+    if 'layout' in script_dir:
+        script_dir = os.path.dirname(script_dir)
+
+    # HID 맵핑 로드
+    hid_mapping = load_hid_mapping(script_dir)
+
     # XML 내용 로드
     xml_content = load_xml_content(xml_or_zip_path)
     print(f"  XML 크기: {len(xml_content):,} bytes")
@@ -310,8 +416,8 @@ def create_hid_zone_csv(xml_or_zip_path: str, output_csv_path: str,
     # McpZone 파싱
     zones = parse_mcp_zones_from_xml(xml_content)
 
-    # CSV 생성
-    generate_hid_zone_csv(zones, output_csv_path, project_name)
+    # CSV 생성 (HID 맵핑 포함)
+    generate_hid_zone_csv(zones, output_csv_path, project_name, hid_mapping)
 
     print()
     print("완료!")
