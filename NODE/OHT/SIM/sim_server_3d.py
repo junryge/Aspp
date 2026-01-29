@@ -28,6 +28,9 @@ from fastapi.responses import HTMLResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
 import uvicorn
 
+# layout.xml -> layout.html 자동 생성 모듈
+from layout_map_cre import ensure_layout_html
+
 # ============================================================
 # 설정
 # ============================================================
@@ -36,6 +39,7 @@ import pathlib
 _SCRIPT_DIR = pathlib.Path(__file__).parent.resolve()
 
 LAYOUT_PATH = str(_SCRIPT_DIR / "layout" / "layout" / "layout.html")
+LAYOUT_ZIP_PATH = str(_SCRIPT_DIR / "layout" / "layout" / "layout.zip")  # layout.xml이 들어있는 ZIP
 OUTPUT_DIR = str(_SCRIPT_DIR / "output")
 HID_ZONE_CSV_PATH = str(_SCRIPT_DIR / "HID_Zone_Master.csv")  # HID Zone 마스터 파일
 STATION_DAT_PATH = str(_SCRIPT_DIR / "station.dat")  # Station 데이터 파일
@@ -1653,6 +1657,9 @@ is_running = False
 @app.on_event("startup")
 async def startup():
     global engine, layout_data, is_running
+
+    # layout.html 자동 생성 (없거나 오래된 경우)
+    ensure_layout_html(LAYOUT_PATH, LAYOUT_ZIP_PATH)
 
     # 레이아웃 로드
     nodes, edges = parse_layout(LAYOUT_PATH)
