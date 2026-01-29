@@ -1,417 +1,222 @@
-<!DOCTYPE html>
-<html lang="ko">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>OHT Layout Viewer</title>
-    <style>
-        * { margin: 0; padding: 0; box-sizing: border-box; }
-        body { font-family: 'Segoe UI', sans-serif; background: #0a0e14; color: #e6edf3; overflow: hidden; }
-        
-        #dropzone {
-            position: fixed; top: 0; left: 0; right: 0; bottom: 0;
-            display: flex; flex-direction: column; align-items: center; justify-content: center;
-            background: #0a0e14; z-index: 2000;
-        }
-        #dropzone.hidden { display: none; }
-        #dropzone.dragover { background: #111820; }
-        
-        .drop-area {
-            border: 2px dashed #00d4ff; border-radius: 16px; padding: 60px 80px;
-            text-align: center; cursor: pointer; transition: all 0.3s;
-        }
-        .drop-area:hover, #dropzone.dragover .drop-area { background: rgba(0,212,255,0.1); border-color: #39ff14; }
-        .drop-area h2 { color: #00d4ff; font-size: 24px; margin-bottom: 15px; }
-        .drop-area p { color: #8b949e; font-size: 14px; margin-bottom: 20px; }
-        .drop-area input { display: none; }
-        .drop-area button {
-            background: #00d4ff; color: #0a0e14; border: none; padding: 12px 30px;
-            border-radius: 6px; font-size: 14px; font-weight: 600; cursor: pointer;
-        }
-        .drop-area button:hover { background: #39ff14; }
-        
-        #header {
-            position: fixed; top: 0; left: 0; right: 0; height: 45px;
-            background: #111820; border-bottom: 1px solid #21262d;
-            display: flex; align-items: center; justify-content: space-between;
-            padding: 0 15px; z-index: 1000;
-        }
-        #header h1 { font-size: 15px; color: #00d4ff; font-weight: 500; }
-        #header .stats { font-size: 12px; color: #8b949e; }
-        
-        #toolbar {
-            position: fixed; top: 55px; left: 10px;
-            background: rgba(17,24,32,0.95); border: 1px solid #21262d;
-            border-radius: 8px; padding: 12px; z-index: 1000; font-size: 12px;
-        }
-        #toolbar label { display: flex; align-items: center; gap: 6px; margin: 6px 0; color: #8b949e; cursor: pointer; }
-        #toolbar input[type="checkbox"] { accent-color: #00d4ff; }
-        #toolbar .btn-group { display: flex; gap: 5px; margin-top: 10px; }
-        #toolbar button {
-            flex: 1; padding: 6px 10px; background: #21262d; border: none;
-            color: #e6edf3; border-radius: 4px; cursor: pointer; font-size: 11px;
-        }
-        #toolbar button:hover { background: #00d4ff; color: #0a0e14; }
-        
-        #search-box {
-            margin-top: 10px; padding-top: 10px; border-top: 1px solid #21262d;
-        }
-        #search-box input {
-            width: 100%; padding: 6px 8px; background: #0a0e14; border: 1px solid #21262d;
-            color: #e6edf3; border-radius: 4px; font-size: 12px;
-        }
-        #search-box input:focus { outline: none; border-color: #00d4ff; }
-        
-        #info {
-            position: fixed; bottom: 10px; left: 10px;
-            background: rgba(17,24,32,0.95); border: 1px solid #21262d;
-            border-radius: 8px; padding: 10px; z-index: 1000;
-            font-size: 11px; min-width: 150px;
-        }
-        #info .title { color: #00d4ff; font-weight: 600; margin-bottom: 5px; }
-        #info .content { color: #8b949e; line-height: 1.6; }
-        
-        #loading {
-            position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%);
-            background: rgba(17,24,32,0.95); border: 1px solid #21262d;
-            border-radius: 8px; padding: 20px 40px; z-index: 3000; display: none;
-        }
-        #loading.show { display: block; }
-        
-        canvas { display: block; cursor: grab; }
-        canvas:active { cursor: grabbing; }
-    </style>
-</head>
-<body>
-    <div id="dropzone">
-        <div class="drop-area" onclick="document.getElementById('fileInput').click()">
-            <h2>📂 OHT Layout XML 파일 선택</h2>
-            <p>클릭하거나 파일을 드래그하세요</p>
-            <input type="file" id="fileInput" accept=".xml">
-            <button type="button">파일 선택</button>
-        </div>
-    </div>
-    
-    <div id="loading"><span>⏳ 파싱 중...</span></div>
-    
-    <div id="header">
-        <h1>OHT Layout Viewer</h1>
-        <span class="stats" id="stats">-</span>
-    </div>
-    
-    <div id="toolbar">
-        <label><input type="checkbox" id="showRails" checked> Rails</label>
-        <label><input type="checkbox" id="showStations" checked> Stations</label>
-        <div class="btn-group">
-            <button onclick="fitView()">Fit</button>
-            <button onclick="resetView()">Reset</button>
-            <button onclick="loadNew()">New</button>
-        </div>
-        <div id="search-box">
-            <input type="text" id="searchInput" placeholder="Station 검색 (예: ST-10001)">
-        </div>
-    </div>
-    
-    <div id="info">
-        <div class="title">Info</div>
-        <div class="content" id="infoContent">드래그: 이동 | 휠: 줌</div>
-    </div>
-    
-    <canvas id="canvas"></canvas>
+#!/usr/bin/env python3
+"""
+OHT Layout XML → HTML 변환기
+파일 선택 → HTML 저장
+"""
 
-    <script>
-        // Data
-        let addresses = new Map();
-        let stations = new Map();
-        let connections = [];
-        let bounds = { minX: 0, maxX: 0, minY: 0, maxY: 0 };
-        
-        // Canvas
-        const canvas = document.getElementById('canvas');
-        const ctx = canvas.getContext('2d');
-        let width, height;
-        let scale = 0.5, offsetX = 0, offsetY = 0;
-        let isDragging = false, lastX, lastY;
-        
-        // Elements
-        const dropzone = document.getElementById('dropzone');
-        const loading = document.getElementById('loading');
-        const fileInput = document.getElementById('fileInput');
-        
-        // File handling
-        fileInput.addEventListener('change', e => {
-            if (e.target.files[0]) loadFile(e.target.files[0]);
-        });
-        
-        dropzone.addEventListener('dragover', e => {
-            e.preventDefault();
-            dropzone.classList.add('dragover');
-        });
-        
-        dropzone.addEventListener('dragleave', () => {
-            dropzone.classList.remove('dragover');
-        });
-        
-        dropzone.addEventListener('drop', e => {
-            e.preventDefault();
-            dropzone.classList.remove('dragover');
-            if (e.dataTransfer.files[0]) loadFile(e.dataTransfer.files[0]);
-        });
-        
-        function loadFile(file) {
-            if (!file.name.endsWith('.xml')) {
-                alert('XML 파일만 지원합니다.');
-                return;
-            }
-            
-            loading.classList.add('show');
-            const reader = new FileReader();
-            reader.onload = e => {
-                parseXML(e.target.result);
-                dropzone.classList.add('hidden');
-                loading.classList.remove('show');
-                resizeCanvas();
-                fitView();
-            };
-            reader.onerror = () => {
-                alert('파일 읽기 실패');
-                loading.classList.remove('show');
-            };
-            reader.readAsText(file);
-        }
-        
-        function parseXML(xmlText) {
-            addresses.clear();
-            stations.clear();
-            connections = [];
-            
-            const parser = new DOMParser();
-            const xml = parser.parseFromString(xmlText, 'text/xml');
-            
-            // Find all address groups
-            const groups = xml.querySelectorAll('group');
-            
-            groups.forEach(group => {
-                const name = group.getAttribute('name') || '';
-                const cls = group.getAttribute('class') || '';
-                
-                // Address parsing
-                if (name.includes('Addr') && cls.includes('address.Addr') && !name.includes('NextAddr')) {
-                    const match = name.match(/Addr(\d+)/);
-                    if (match) {
-                        const addrNo = parseInt(match[1]);
-                        const addr = { x: 0, y: 0, stations: [], nextAddrs: [] };
-                        
-                        // Get params
-                        group.querySelectorAll(':scope > param').forEach(p => {
-                            const key = p.getAttribute('key');
-                            const val = p.getAttribute('value');
-                            if (key === 'draw-x') addr.x = parseFloat(val) || 0;
-                            if (key === 'draw-y') addr.y = parseFloat(val) || 0;
-                        });
-                        
-                        // Get stations
-                        group.querySelectorAll('group[class*="Station"]').forEach(sg => {
-                            const sMatch = sg.getAttribute('name')?.match(/Station(\d+)/);
-                            if (sMatch) {
-                                const stNo = parseInt(sMatch[1]);
-                                const st = { portId: '', type: 0, addrNo: addrNo };
-                                sg.querySelectorAll('param').forEach(p => {
-                                    const key = p.getAttribute('key');
-                                    const val = p.getAttribute('value');
-                                    if (key === 'port-id') st.portId = val;
-                                    if (key === 'type') st.type = parseInt(val) || 0;
-                                });
-                                stations.set(stNo, st);
-                                addr.stations.push(stNo);
-                            }
-                        });
-                        
-                        // Get next addresses
-                        group.querySelectorAll('group[class*="NextAddr"]').forEach(ng => {
-                            ng.querySelectorAll('param').forEach(p => {
-                                if (p.getAttribute('key') === 'next-address') {
-                                    const next = parseInt(p.getAttribute('value'));
-                                    if (!isNaN(next)) {
-                                        addr.nextAddrs.push(next);
-                                        connections.push([addrNo, next]);
-                                    }
-                                }
-                            });
-                        });
-                        
-                        addresses.set(addrNo, addr);
-                    }
-                }
-            });
-            
-            // Calculate bounds
-            let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
-            addresses.forEach(a => {
-                if (a.x !== 0) { minX = Math.min(minX, a.x); maxX = Math.max(maxX, a.x); }
-                if (a.y !== 0) { minY = Math.min(minY, a.y); maxY = Math.max(maxY, a.y); }
-            });
-            bounds = { minX, maxX, minY, maxY };
-            
-            document.getElementById('stats').textContent = 
-                `Addr: ${addresses.size.toLocaleString()} | Stn: ${stations.size.toLocaleString()} | Conn: ${connections.length.toLocaleString()}`;
-        }
-        
-        function worldToScreen(wx, wy) {
-            return {
-                x: (wx - bounds.minX) * scale + offsetX,
-                y: height - ((wy - bounds.minY) * scale + offsetY)
-            };
-        }
-        
-        function screenToWorld(sx, sy) {
-            return {
-                x: (sx - offsetX) / scale + bounds.minX,
-                y: (height - sy - offsetY) / scale + bounds.minY
-            };
-        }
-        
-        function render() {
-            ctx.fillStyle = '#0a0e14';
-            ctx.fillRect(0, 0, width, height);
-            
-            if (addresses.size === 0) return;
-            
-            // Draw rails
-            if (document.getElementById('showRails').checked) {
-                ctx.strokeStyle = 'rgba(0, 255, 136, 0.4)';
-                ctx.lineWidth = Math.max(1, scale * 0.5);
-                ctx.beginPath();
-                connections.forEach(([from, to]) => {
-                    const a = addresses.get(from);
-                    const b = addresses.get(to);
-                    if (a && b) {
-                        const p1 = worldToScreen(a.x, a.y);
-                        const p2 = worldToScreen(b.x, b.y);
-                        ctx.moveTo(p1.x, p1.y);
-                        ctx.lineTo(p2.x, p2.y);
-                    }
-                });
-                ctx.stroke();
-            }
-            
-            // Draw stations
-            if (document.getElementById('showStations').checked) {
-                const r = Math.max(2, scale * 0.8);
-                addresses.forEach(addr => {
-                    if (addr.stations.length > 0) {
-                        const p = worldToScreen(addr.x, addr.y);
-                        if (p.x > -20 && p.x < width + 20 && p.y > -20 && p.y < height + 20) {
-                            addr.stations.forEach(sNo => {
-                                const st = stations.get(sNo);
-                                if (st) {
-                                    ctx.fillStyle = (st.type >= 5 && st.type <= 9) ? '#ff6b6b' : '#ffd93d';
-                                    ctx.beginPath();
-                                    ctx.arc(p.x, p.y, r, 0, Math.PI * 2);
-                                    ctx.fill();
-                                }
-                            });
-                        }
-                    }
-                });
-            }
-        }
-        
-        function fitView() {
-            if (addresses.size === 0) return;
-            const lw = bounds.maxX - bounds.minX;
-            const lh = bounds.maxY - bounds.minY;
-            scale = Math.min((width - 100) / lw, (height - 100) / lh);
-            offsetX = (width - lw * scale) / 2;
-            offsetY = (height - lh * scale) / 2;
-            render();
-        }
-        
-        function resetView() {
-            scale = 0.5;
-            offsetX = 0;
-            offsetY = 0;
-            render();
-        }
-        
-        function loadNew() {
-            dropzone.classList.remove('hidden');
-            fileInput.value = '';
-        }
-        
-        function search() {
-            const q = document.getElementById('searchInput').value.trim().toUpperCase();
-            if (!q) return;
-            
-            for (const [sNo, st] of stations) {
-                if (st.portId && st.portId.toUpperCase().includes(q)) {
-                    for (const [aNo, addr] of addresses) {
-                        if (addr.stations.includes(sNo)) {
-                            const p = worldToScreen(addr.x, addr.y);
-                            offsetX += width / 2 - p.x;
-                            offsetY += height / 2 - (height - p.y);
-                            document.getElementById('infoContent').innerHTML = 
-                                `<b>${st.portId}</b><br>No: ${sNo}<br>Type: ${st.type}`;
-                            render();
-                            return;
-                        }
-                    }
-                }
-            }
-            document.getElementById('infoContent').textContent = '검색 결과 없음';
-        }
-        
-        function resizeCanvas() {
-            width = window.innerWidth;
-            height = window.innerHeight - 45;
-            canvas.width = width;
-            canvas.height = height;
-            render();
-        }
-        
-        // Events
-        canvas.addEventListener('mousedown', e => {
-            isDragging = true;
-            lastX = e.clientX;
-            lastY = e.clientY;
-        });
-        
-        canvas.addEventListener('mousemove', e => {
-            if (isDragging) {
-                offsetX += e.clientX - lastX;
-                offsetY -= e.clientY - lastY;
-                lastX = e.clientX;
-                lastY = e.clientY;
-                render();
-            }
-        });
-        
-        canvas.addEventListener('mouseup', () => isDragging = false);
-        canvas.addEventListener('mouseleave', () => isDragging = false);
-        
-        canvas.addEventListener('wheel', e => {
-            e.preventDefault();
-            const zoom = e.deltaY > 0 ? 0.9 : 1.1;
-            const mx = e.clientX;
-            const my = e.clientY - 45;
-            
-            const wb = screenToWorld(mx, my);
-            scale *= zoom;
-            scale = Math.max(0.05, Math.min(10, scale));
-            const sa = worldToScreen(wb.x, wb.y);
-            offsetX += mx - sa.x;
-            offsetY -= my - (height - sa.y);
-            render();
-        });
-        
-        document.getElementById('showRails').addEventListener('change', render);
-        document.getElementById('showStations').addEventListener('change', render);
-        document.getElementById('searchInput').addEventListener('keypress', e => {
-            if (e.key === 'Enter') search();
-        });
-        
-        window.addEventListener('resize', resizeCanvas);
-        resizeCanvas();
-    </script>
-</body>
-</html>
+import xml.etree.ElementTree as ET
+import json
+import re
+import os
+from tkinter import Tk, filedialog, messagebox
+
+def select_file():
+    root = Tk()
+    root.withdraw()
+    root.attributes('-topmost', True)
+    file_path = filedialog.askopenfilename(
+        title="OHT Layout XML 파일 선택",
+        filetypes=[("XML files", "*.xml"), ("All files", "*.*")]
+    )
+    root.destroy()
+    return file_path
+
+def parse_xml(xml_file):
+    print("XML 파싱 중...")
+    addresses = {}
+    stations = {}
+    connections = []
+    
+    context = ET.iterparse(xml_file, events=('start', 'end'))
+    current_addr = None
+    current_addr_no = None
+    current_station = None
+    current_station_no = None
+    current_next_addr = None
+    addr_data = {}
+    station_data = {}
+    next_addr_data = {}
+    count = 0
+
+    for event, elem in context:
+        if event == 'start':
+            if elem.tag == 'group':
+                name = elem.get('name', '')
+                cls = elem.get('class', '')
+                if 'Addr' in name and 'address.Addr' in cls and 'NextAddr' not in name:
+                    match = re.search(r'Addr(\d+)', name)
+                    if match:
+                        current_addr_no = int(match.group(1))
+                        addr_data = {'x': 0, 'y': 0, 'stations': [], 'next_addrs': []}
+                        current_addr = True
+                elif 'Station' in name and 'Station' in cls:
+                    match = re.search(r'Station(\d+)', name)
+                    if match:
+                        current_station_no = int(match.group(1))
+                        station_data = {'port_id': '', 'type': 0}
+                        current_station = True
+                elif 'NextAddr' in name and 'NextAddr' in cls:
+                    current_next_addr = True
+                    next_addr_data = {'next_address': None}
+        elif event == 'end':
+            if elem.tag == 'param':
+                key = elem.get('key', '')
+                value = elem.get('value', '')
+                if current_addr and not current_station and not current_next_addr:
+                    if key == 'draw-x':
+                        try: addr_data['x'] = float(value)
+                        except: pass
+                    elif key == 'draw-y':
+                        try: addr_data['y'] = float(value)
+                        except: pass
+                elif current_station:
+                    if key == 'port-id': station_data['port_id'] = value
+                    elif key == 'type':
+                        try: station_data['type'] = int(value)
+                        except: pass
+                elif current_next_addr:
+                    if key == 'next-address':
+                        try: next_addr_data['next_address'] = int(value)
+                        except: pass
+            elif elem.tag == 'group':
+                name = elem.get('name', '')
+                if current_next_addr and 'NextAddr' in name:
+                    if next_addr_data.get('next_address') is not None:
+                        addr_data['next_addrs'].append(next_addr_data['next_address'])
+                    current_next_addr = False
+                elif current_station and 'Station' in name:
+                    if current_station_no:
+                        stations[current_station_no] = station_data.copy()
+                        if current_addr_no: addr_data['stations'].append(current_station_no)
+                    current_station = False
+                    current_station_no = None
+                elif current_addr and 'Addr' in name and 'NextAddr' not in name:
+                    if current_addr_no is not None:
+                        addresses[current_addr_no] = addr_data.copy()
+                        for next_addr in addr_data['next_addrs']:
+                            connections.append((current_addr_no, next_addr))
+                        count += 1
+                        if count % 1000 == 0: print(f"  {count} addresses...")
+                    current_addr = False
+                    current_addr_no = None
+            elem.clear()
+    
+    print(f"완료: {len(addresses):,} addr, {len(stations):,} stn, {len(connections):,} conn")
+    return addresses, stations, connections
+
+def generate_html(addresses, stations, connections, output_file):
+    min_x = min((a['x'] for a in addresses.values() if a['x'] != 0), default=0)
+    max_x = max((a['x'] for a in addresses.values()), default=1000)
+    min_y = min((a['y'] for a in addresses.values() if a['y'] != 0), default=0)
+    max_y = max((a['y'] for a in addresses.values()), default=1000)
+
+    addr_list = [{'no': no, 'x': d['x'], 'y': d['y'], 'stations': d['stations']} for no, d in addresses.items()]
+    station_list = [{'no': no, 'port_id': d.get('port_id',''), 'type': d.get('type',0)} for no, d in stations.items()]
+    valid_connections = [(f, t) for f, t in connections if f in addresses and t in addresses]
+
+    html = f'''<!DOCTYPE html>
+<html><head><meta charset="UTF-8"><title>OHT Layout</title>
+<style>
+*{{margin:0;padding:0;box-sizing:border-box}}
+body{{font-family:system-ui;background:#0d1117;color:#c9d1d9;overflow:hidden}}
+#ui{{position:fixed;top:10px;left:10px;z-index:100;display:flex;gap:8px;align-items:center}}
+#ui button{{padding:6px 12px;background:#21262d;border:1px solid #30363d;color:#c9d1d9;border-radius:6px;cursor:pointer;font-size:12px}}
+#ui button:hover{{background:#30363d}}
+#ui input[type=text]{{padding:6px 10px;background:#0d1117;border:1px solid #30363d;color:#c9d1d9;border-radius:6px;width:120px;font-size:12px}}
+#ui label{{font-size:12px;display:flex;align-items:center;gap:4px;color:#8b949e}}
+#stat{{position:fixed;top:10px;right:10px;font-size:11px;color:#8b949e}}
+canvas{{display:block}}
+</style></head><body>
+<div id="ui">
+<button onclick="fit()">Fit</button>
+<button onclick="reset()">Reset</button>
+<label><input type="checkbox" id="sr" checked>Rail</label>
+<label><input type="checkbox" id="ss" checked>Station</label>
+<input type="text" id="q" placeholder="Search ST-...">
+<button onclick="search()">Find</button>
+<span id="msg"></span>
+</div>
+<div id="stat">Addr:{len(addresses):,} | Stn:{len(stations):,}</div>
+<canvas id="c"></canvas>
+<script>
+const A={json.dumps(addr_list)};
+const S={json.dumps(station_list)};
+const C={json.dumps(valid_connections)};
+const AM=new Map();A.forEach(a=>AM.set(a.no,a));
+const SM=new Map();S.forEach(s=>SM.set(s.no,s));
+const B={{minX:{min_x},maxX:{max_x},minY:{min_y},maxY:{max_y}}};
+const c=document.getElementById('c'),x=c.getContext('2d');
+let w,h,sc=0.5,ox=0,oy=0,dr=false,lx,ly;
+function rs(){{w=innerWidth;h=innerHeight;c.width=w;c.height=h;rn()}}
+function w2s(px,py){{return{{x:(px-B.minX)*sc+ox,y:h-((py-B.minY)*sc+oy)}}}}
+function s2w(sx,sy){{return{{x:(sx-ox)/sc+B.minX,y:(h-sy-oy)/sc+B.minY}}}}
+function rn(){{
+x.fillStyle='#0d1117';x.fillRect(0,0,w,h);
+if(document.getElementById('sr').checked){{
+x.strokeStyle='#238636';x.lineWidth=Math.max(1,sc*0.4);x.beginPath();
+for(const[f,t]of C){{const a=AM.get(f),b=AM.get(t);if(a&&b){{const p1=w2s(a.x,a.y),p2=w2s(b.x,b.y);x.moveTo(p1.x,p1.y);x.lineTo(p2.x,p2.y)}}}}
+x.stroke()}}
+if(document.getElementById('ss').checked){{
+for(const a of A){{if(a.stations&&a.stations.length){{const p=w2s(a.x,a.y);
+if(p.x>-10&&p.x<w+10&&p.y>-10&&p.y<h+10){{
+for(const sn of a.stations){{const st=SM.get(sn);if(st){{
+x.fillStyle=(st.type>=5&&st.type<=9)?'#f85149':'#d29922';
+x.beginPath();x.arc(p.x,p.y,Math.max(2,sc*0.6),0,Math.PI*2);x.fill()}}}}}}}}}}}}}}
+function fit(){{const lw=B.maxX-B.minX,lh=B.maxY-B.minY;sc=Math.min((w-50)/lw,(h-50)/lh);ox=(w-lw*sc)/2;oy=(h-lh*sc)/2;rn()}}
+function reset(){{sc=0.5;ox=0;oy=0;rn()}}
+function search(){{const q=document.getElementById('q').value.trim().toUpperCase();if(!q)return;
+for(const s of S){{if(s.port_id&&s.port_id.toUpperCase().includes(q)){{
+for(const a of A){{if(a.stations&&a.stations.includes(s.no)){{
+const p=w2s(a.x,a.y);ox+=w/2-p.x;oy+=h/2-(h-p.y);
+document.getElementById('msg').textContent=s.port_id+' ('+s.no+')';rn();return}}}}}}}}
+document.getElementById('msg').textContent='Not found'}}
+c.onmousedown=e=>{{dr=true;lx=e.clientX;ly=e.clientY}};
+c.onmousemove=e=>{{if(dr){{ox+=e.clientX-lx;oy-=e.clientY-ly;lx=e.clientX;ly=e.clientY;rn()}}}};
+c.onmouseup=()=>{{dr=false}};c.onmouseleave=()=>{{dr=false}};
+c.onwheel=e=>{{e.preventDefault();const z=e.deltaY>0?0.9:1.1,mx=e.clientX,my=e.clientY;
+const wb=s2w(mx,my);sc*=z;sc=Math.max(0.01,Math.min(20,sc));const sa=w2s(wb.x,wb.y);
+ox+=mx-sa.x;oy-=my-(h-sa.y);rn()}};
+document.getElementById('sr').onchange=rn;document.getElementById('ss').onchange=rn;
+document.getElementById('q').onkeypress=e=>{{if(e.key==='Enter')search()}};
+onresize=rs;rs();fit();
+</script></body></html>'''
+
+    with open(output_file, 'w', encoding='utf-8') as f:
+        f.write(html)
+    print(f"HTML 저장: {output_file}")
+
+def main():
+    print("=" * 40)
+    print("OHT Layout XML → HTML 변환기")
+    print("=" * 40)
+    
+    xml_file = select_file()
+    if not xml_file:
+        print("취소됨")
+        return
+    
+    print(f"파일: {xml_file}")
+    
+    # 출력 파일명
+    base = os.path.splitext(xml_file)[0]
+    output_file = f"{base}_viewer.html"
+    
+    addresses, stations, connections = parse_xml(xml_file)
+    if not addresses:
+        print("데이터 없음")
+        return
+    
+    generate_html(addresses, stations, connections, output_file)
+    
+    # 완료 메시지
+    root = Tk()
+    root.withdraw()
+    messagebox.showinfo("완료", f"HTML 저장 완료!\n{output_file}")
+    root.destroy()
+    
+    # 브라우저 열기
+    import webbrowser
+    webbrowser.open(output_file)
+
+if __name__ == '__main__':
+    main()
