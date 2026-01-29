@@ -3143,9 +3143,17 @@ function render() {
     if (window.hidZones && window.showZones !== false) {
         const zoneStatusMap = window.zoneStatusMap || {};
         const zoneZ = RAIL_HEIGHT / scale + 2;  // Zone 표시 높이
+        const zoomPercent = scale * 100;
 
         window.hidZones.forEach(zone => {
             const status = zoneStatusMap[zone.zoneId];
+            const isSelected = selectedZoneId === zone.zoneId;
+
+            // 줌 55% 미만이고 선택되지 않은 Zone은 건너뛰기
+            if (zoomPercent < 55 && !isSelected) {
+                return;
+            }
+
             let zoneColor, zoneAlpha;
 
             // 상태별 색상
@@ -3213,10 +3221,8 @@ function render() {
                 }
             });
 
-            // Zone ID 텍스트 표시 (줌 55% 이상 또는 선택된 Zone)
-            const zoomPercent = scale * 100;
-            const isSelected = selectedZoneId === zone.zoneId;
-            if (firstLaneMid && (zoomPercent >= 55 || isSelected)) {
+            // Zone ID 텍스트 표시
+            if (firstLaneMid) {
                 ctx.globalAlpha = 1.0;
                 ctx.setLineDash([]);
 
@@ -3268,7 +3274,7 @@ function render() {
             }
 
             // 선택된 Zone 노란색 하이라이트 표시
-            if (selectedZoneId === zone.zoneId) {
+            if (isSelected) {
                 // Zone의 모든 노드 좌표 수집
                 let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
                 const allLanes = [...zone.inLanes, ...zone.outLanes];
