@@ -1,0 +1,29 @@
+@echo off
+echo ========================================
+echo OHT Layout Viewer EXE Builder
+echo ========================================
+echo.
+
+:: Check Python
+python --version >nul 2>&1
+if errorlevel 1 (
+    echo [ERROR] Python이 설치되어 있지 않습니다.
+    pause
+    exit /b 1
+)
+
+:: Install PyInstaller
+echo [1/3] PyInstaller 설치 중...
+pip install pyinstaller -q
+
+:: Build EXE
+echo [2/3] EXE 빌드 중... (1-2분 소요)
+pyinstaller --onefile --windowed --name "OHT_Layout_Viewer" --icon=NONE oht_viewer_exe.py
+
+:: Done
+echo.
+echo [3/3] 완료!
+echo.
+echo EXE 파일 위치: dist\OHT_Layout_Viewer.exe
+echo.
+pause
