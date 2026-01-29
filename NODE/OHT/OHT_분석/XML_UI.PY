@@ -2,7 +2,7 @@
 """
 OHT Layout XML → HTML 변환기
 파일 선택 → HTML 저장
-+ 화면 회전 + HID 번호 표시
++ 화면 회전 + Zone ID 표시
 """
 
 import xml.etree.ElementTree as ET
@@ -54,7 +54,7 @@ def parse_xml(xml_file):
                     match = re.search(r'Station(\d+)', name)
                     if match:
                         current_station_no = int(match.group(1))
-                        station_data = {'port_id': '', 'type': 0}
+                        station_data = {'port_id': '', 'type': 0, 'zone_id': ''}
                         current_station = True
                 elif 'NextAddr' in name and 'NextAddr' in cls:
                     current_next_addr = True
@@ -75,6 +75,8 @@ def parse_xml(xml_file):
                     elif key == 'type':
                         try: station_data['type'] = int(value)
                         except: pass
+                    elif key in ('zone-id', 'zone_id', 'zoneid', 'zone'):
+                        station_data['zone_id'] = value
                 elif current_next_addr:
                     if key == 'next-address':
                         try: next_addr_data['next_address'] = int(value)
@@ -112,7 +114,7 @@ def generate_html(addresses, stations, connections, output_file):
     max_y = max((a['y'] for a in addresses.values()), default=1000)
 
     addr_list = [{'no': no, 'x': d['x'], 'y': d['y'], 'stations': d['stations']} for no, d in addresses.items()]
-    station_list = [{'no': no, 'port_id': d.get('port_id',''), 'type': d.get('type',0)} for no, d in stations.items()]
+    station_list = [{'no': no, 'port_id': d.get('port_id',''), 'type': d.get('type',0), 'zone_id': d.get('zone_id','')} for no, d in stations.items()]
     valid_connections = [(f, t) for f, t in connections if f in addresses and t in addresses]
 
     html = f'''<!DOCTYPE html>
@@ -123,7 +125,6 @@ body{{font-family:system-ui;background:#0d1117;color:#c9d1d9;overflow:hidden}}
 #ui{{position:fixed;top:10px;left:10px;z-index:100;display:flex;gap:8px;align-items:center;flex-wrap:wrap;max-width:90%}}
 #ui button{{padding:6px 12px;background:#21262d;border:1px solid #30363d;color:#c9d1d9;border-radius:6px;cursor:pointer;font-size:12px}}
 #ui button:hover{{background:#30363d}}
-#ui button.active{{background:#238636;border-color:#238636}}
 #ui input[type=text]{{padding:6px 10px;background:#0d1117;border:1px solid #30363d;color:#c9d1d9;border-radius:6px;width:120px;font-size:12px}}
 #ui label{{font-size:12px;display:flex;align-items:center;gap:4px;color:#8b949e}}
 #stat{{position:fixed;top:10px;right:10px;font-size:11px;color:#8b949e}}
@@ -137,8 +138,8 @@ canvas{{display:block}}
 <button onclick="rotate(90)">↻ 90°</button>
 <label><input type="checkbox" id="sr" checked>Rail</label>
 <label><input type="checkbox" id="ss" checked>Station</label>
-<label><input type="checkbox" id="sn">HID No</label>
-<input type="text" id="q" placeholder="Search ST-...">
+<label><input type="checkbox" id="sz">Zone ID</label>
+<input type="text" id="q" placeholder="Search Zone/Port">
 <button onclick="search()">Find</button>
 <span id="msg"></span>
 </div>
@@ -182,7 +183,7 @@ function rn(){{
   x.fillStyle='#0d1117';x.fillRect(0,0,w,h);
   const showRail=document.getElementById('sr').checked;
   const showStn=document.getElementById('ss').checked;
-  const showNo=document.getElementById('sn').checked;
+  const showZone=document.getElementById('sz').checked;
   
   if(showRail){{
     x.strokeStyle='#238636';x.lineWidth=Math.max(1,sc*0.4);x.beginPath();
@@ -196,9 +197,9 @@ function rn(){{
     x.stroke();
   }}
   
-  if(showStn||showNo){{
+  if(showStn||showZone){{
     const r=Math.max(2,sc*0.6);
-    x.font=Math.max(8,sc*1.5)+'px system-ui';
+    x.font=Math.max(8,sc*1.2)+'px system-ui';
     for(const a of A){{
       if(a.stations&&a.stations.length){{
         const p=w2s(a.x,a.y);
@@ -210,9 +211,10 @@ function rn(){{
                 x.fillStyle=(st.type>=5&&st.type<=9)?'#f85149':'#d29922';
                 x.beginPath();x.arc(p.x,p.y,r,0,Math.PI*2);x.fill();
               }}
-              if(showNo&&sc>0.3){{
+              if(showZone&&sc>0.2){{
+                const label=st.zone_id||st.port_id||sn;
                 x.fillStyle='#58a6ff';
-                x.fillText(st.port_id||sn,p.x+r+2,p.y+3);
+                x.fillText(label,p.x+r+2,p.y+3);
               }}
             }}
           }}
@@ -230,12 +232,14 @@ function search(){{
   const q=document.getElementById('q').value.trim().toUpperCase();
   if(!q)return;
   for(const s of S){{
-    if(s.port_id&&s.port_id.toUpperCase().includes(q)){{
+    const zid=(s.zone_id||'').toUpperCase();
+    const pid=(s.port_id||'').toUpperCase();
+    if(zid.includes(q)||pid.includes(q)){{
       for(const a of A){{
         if(a.stations&&a.stations.includes(s.no)){{
           const p=w2s(a.x,a.y);
           ox+=w/2-p.x;oy+=h/2-(h-p.y);
-          document.getElementById('msg').textContent=s.port_id+' ('+s.no+')';
+          document.getElementById('msg').textContent=(s.zone_id||s.port_id)+' ('+s.no+')';
           rn();return;
         }}
       }}
@@ -260,7 +264,7 @@ c.onwheel=e=>{{
 
 document.getElementById('sr').onchange=rn;
 document.getElementById('ss').onchange=rn;
-document.getElementById('sn').onchange=rn;
+document.getElementById('sz').onchange=rn;
 document.getElementById('q').onkeypress=e=>{{if(e.key==='Enter')search()}};
 onresize=rs;rs();fit();
 </script></body></html>'''
