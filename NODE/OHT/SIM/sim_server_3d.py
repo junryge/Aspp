@@ -2223,11 +2223,16 @@ canvas { display: block; }
         <div style="margin-top:10px;">
             <button id="btnToggleZones" style="width:100%;padding:6px 8px;background:#00d4ff;color:#000;border:none;border-radius:4px;cursor:pointer;font-size:11px;font-weight:bold;">Zone 표시 ON</button>
         </div>
+        <div style="margin-top:6px;display:flex;gap:4px;">
+            <button id="btnToggleStations" style="flex:1;padding:6px 4px;background:#555;color:#fff;border:none;border-radius:4px;cursor:pointer;font-size:10px;">Station OFF</button>
+            <button id="btnToggleStationLabels" style="flex:1;padding:6px 4px;background:#555;color:#fff;border:none;border-radius:4px;cursor:pointer;font-size:10px;">라벨 OFF</button>
+        </div>
         <div class="legend" style="margin-top:8px;">
             <div class="legend-item"><div style="width:20px;height:3px;background:#00ff88;margin-right:8px;"></div>정상 Zone</div>
             <div class="legend-item"><div style="width:20px;height:3px;background:#ffaa00;margin-right:8px;"></div>주의 Zone</div>
             <div class="legend-item"><div style="width:20px;height:3px;background:#ff3366;margin-right:8px;"></div>포화 Zone</div>
             <div style="font-size:10px;color:#888;margin-top:4px;">실선: IN Lane, 점선: OUT Lane</div>
+            <div class="legend-item" style="margin-top:4px;"><div style="width:8px;height:8px;background:#00aaff;margin-right:8px;border-radius:50%;"></div>Station</div>
         </div>
         <div id="zoneAlertList" style="margin-top:8px;font-size:10px;max-height:60px;overflow-y:auto;"></div>
     </div>
@@ -3222,7 +3227,7 @@ function render() {
     // ============================================================
     // Station 표시 (pseudo-3D 변환 적용)
     // ============================================================
-    if (window.stations && window.showStations !== false) {
+    if (window.stations && window.showStations) {
         const stationZ = RAIL_HEIGHT / scale + 1;  // Station 높이
 
         window.stations.forEach(station => {
@@ -3262,6 +3267,31 @@ function render() {
                 ctx.lineTo(pos.x - size/2, pos.y);
                 ctx.closePath();
                 ctx.fill();
+            }
+
+            // 라벨 표시
+            if (window.showStationLabels) {
+                ctx.globalAlpha = 1.0;
+                const fontSize = Math.max(8, 10 / scale);
+                ctx.font = fontSize + 'px sans-serif';
+                const label = station.stationName;
+                const textWidth = ctx.measureText(label).width;
+                const padding = 2 / scale;
+
+                // 배경
+                ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
+                ctx.fillRect(
+                    pos.x - textWidth/2 - padding,
+                    pos.y + size/2 + 2/scale,
+                    textWidth + padding * 2,
+                    fontSize + padding * 2
+                );
+
+                // 텍스트
+                ctx.fillStyle = stationColor;
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'top';
+                ctx.fillText(label, pos.x, pos.y + size/2 + 2/scale + padding);
             }
         });
 
@@ -3725,6 +3755,40 @@ document.getElementById('btnToggleZones').addEventListener('click', () => {
         btn.style.color = '#000';
     } else {
         btn.textContent = 'Zone 표시 OFF';
+        btn.style.background = '#555';
+        btn.style.color = '#fff';
+    }
+});
+
+// Station 표시 토글 버튼
+window.showStations = false;  // 기본값: 숨김
+document.getElementById('btnToggleStations').addEventListener('click', () => {
+    const btn = document.getElementById('btnToggleStations');
+    window.showStations = !window.showStations;
+
+    if (window.showStations) {
+        btn.textContent = 'Station ON';
+        btn.style.background = '#00aaff';
+        btn.style.color = '#000';
+    } else {
+        btn.textContent = 'Station OFF';
+        btn.style.background = '#555';
+        btn.style.color = '#fff';
+    }
+});
+
+// Station 라벨 표시 토글 버튼
+window.showStationLabels = false;  // 기본값: 숨김
+document.getElementById('btnToggleStationLabels').addEventListener('click', () => {
+    const btn = document.getElementById('btnToggleStationLabels');
+    window.showStationLabels = !window.showStationLabels;
+
+    if (window.showStationLabels) {
+        btn.textContent = '라벨 ON';
+        btn.style.background = '#00aaff';
+        btn.style.color = '#000';
+    } else {
+        btn.textContent = '라벨 OFF';
         btn.style.background = '#555';
         btn.style.color = '#fff';
     }
