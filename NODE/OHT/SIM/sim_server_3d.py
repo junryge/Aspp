@@ -2232,7 +2232,19 @@ canvas { display: block; }
             <div class="legend-item"><div style="width:20px;height:3px;background:#ffaa00;margin-right:8px;"></div>주의 Zone</div>
             <div class="legend-item"><div style="width:20px;height:3px;background:#ff3366;margin-right:8px;"></div>포화 Zone</div>
             <div style="font-size:10px;color:#888;margin-top:4px;">실선: IN Lane, 점선: OUT Lane</div>
-            <div class="legend-item" style="margin-top:4px;"><div style="width:8px;height:8px;background:#00aaff;margin-right:8px;border-radius:50%;"></div>Station</div>
+        </div>
+        <!-- Station 범례 -->
+        <div class="legend" style="margin-top:8px;border-top:1px solid #333;padding-top:8px;">
+            <div style="font-size:10px;color:#00aaff;font-weight:bold;margin-bottom:4px;">Station 타입 (색상)</div>
+            <div class="legend-item"><div style="width:8px;height:8px;background:#00aaff;margin-right:6px;border-radius:50%;"></div>DUAL_ACCESS</div>
+            <div class="legend-item"><div style="width:8px;height:8px;background:#ff6600;margin-right:6px;border-radius:50%;"></div>MAINTENANCE</div>
+            <div class="legend-item"><div style="width:8px;height:8px;background:#00ff00;margin-right:6px;border-radius:50%;"></div>ACQUIRE</div>
+            <div class="legend-item"><div style="width:8px;height:8px;background:#ff00ff;margin-right:6px;border-radius:50%;"></div>DEPOSIT</div>
+            <div class="legend-item"><div style="width:8px;height:8px;background:#666666;margin-right:6px;border-radius:50%;"></div>DUMMY</div>
+            <div style="font-size:10px;color:#00aaff;font-weight:bold;margin-top:6px;margin-bottom:4px;">장비 타입 (모양)</div>
+            <div class="legend-item"><div style="width:8px;height:8px;background:#00aaff;margin-right:6px;"></div>ZFS (■)</div>
+            <div class="legend-item"><div style="width:8px;height:8px;background:#00aaff;margin-right:6px;border-radius:50%;"></div>UNIVERSAL (●)</div>
+            <div class="legend-item"><div style="width:8px;height:8px;background:#00aaff;margin-right:6px;transform:rotate(45deg);"></div>기타 (◆)</div>
         </div>
         <div id="zoneAlertList" style="margin-top:8px;font-size:10px;max-height:60px;overflow-y:auto;"></div>
     </div>
@@ -3274,7 +3286,7 @@ function render() {
                 ctx.globalAlpha = 1.0;
                 const fontSize = Math.max(8, 10 / scale);
                 ctx.font = fontSize + 'px sans-serif';
-                const label = station.stationName;
+                const label = String(station.stationId);
                 const textWidth = ctx.measureText(label).width;
                 const padding = 2 / scale;
 
