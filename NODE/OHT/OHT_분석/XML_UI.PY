@@ -4,7 +4,7 @@ OHT Layout XML → HTML 변환기
 - 파일 선택 → HTML 저장
 - 화면 회전 기능
 - ZONE ID 표시
-- HID 번호 표시
+- HID ID 표시 (메인 식별자)
 """
 
 import xml.etree.ElementTree as ET
@@ -163,7 +163,7 @@ def generate_html(addresses, stations, zones, connections, output_file):
     valid_connections = [(f, t) for f, t in connections if f in addresses and t in addresses]
 
     html = f'''<!DOCTYPE html>
-<html><head><meta charset="UTF-8"><title>OHT Layout</title>
+<html><head><meta charset="UTF-8"><title>OHT Layout - HID View</title>
 <style>
 *{{margin:0;padding:0;box-sizing:border-box}}
 body{{font-family:system-ui;background:#0d1117;color:#c9d1d9;overflow:hidden}}
@@ -171,11 +171,11 @@ body{{font-family:system-ui;background:#0d1117;color:#c9d1d9;overflow:hidden}}
 #ui button{{padding:6px 12px;background:#21262d;border:1px solid #30363d;color:#c9d1d9;border-radius:6px;cursor:pointer;font-size:12px}}
 #ui button:hover{{background:#30363d}}
 #ui button.active{{background:#238636;border-color:#238636}}
-#ui input[type=text]{{padding:6px 10px;background:#0d1117;border:1px solid #30363d;color:#c9d1d9;border-radius:6px;width:120px;font-size:12px}}
+#ui input[type=text]{{padding:6px 10px;background:#0d1117;border:1px solid #30363d;color:#c9d1d9;border-radius:6px;width:140px;font-size:12px}}
 #ui label{{font-size:12px;display:flex;align-items:center;gap:4px;color:#8b949e}}
 #stat{{position:fixed;top:10px;right:10px;font-size:11px;color:#8b949e}}
 #rot{{position:fixed;bottom:10px;right:10px;font-size:11px;color:#8b949e;background:#21262d;padding:5px 10px;border-radius:6px}}
-#info{{position:fixed;bottom:10px;left:10px;font-size:11px;color:#58a6ff;background:#21262d;padding:8px 12px;border-radius:6px;max-width:300px}}
+#info{{position:fixed;bottom:10px;left:10px;font-size:12px;color:#58a6ff;background:#21262d;padding:10px 14px;border-radius:6px;max-width:400px;font-weight:500}}
 canvas{{display:block}}
 </style></head><body>
 <div id="ui">
@@ -186,14 +186,14 @@ canvas{{display:block}}
 <label><input type="checkbox" id="sr" checked>Rail</label>
 <label><input type="checkbox" id="ss" checked>Station</label>
 <label><input type="checkbox" id="sz" checked>Zone ID</label>
-<label><input type="checkbox" id="sn">HID No</label>
-<input type="text" id="q" placeholder="Search ST-...">
+<label><input type="checkbox" id="sn">HID ID</label>
+<input type="text" id="q" placeholder="HID ID / Zone 검색">
 <button onclick="search()">Find</button>
 <span id="msg"></span>
 </div>
-<div id="stat">Addr:{len(addresses):,} | Stn:{len(stations):,} | Zone:{len(zones):,}</div>
+<div id="stat">HID:{len(stations):,} | Addr:{len(addresses):,} | Zone:{len(zones):,}</div>
 <div id="rot">회전: 0°</div>
-<div id="info">마우스 오버: 정보 표시</div>
+<div id="info">마우스 오버: HID 정보 표시</div>
 <canvas id="c"></canvas>
 <script>
 const A={json.dumps(addr_list)};
@@ -203,6 +203,16 @@ const C={json.dumps(valid_connections)};
 const AM=new Map();A.forEach(a=>AM.set(a.no,a));
 const SM=new Map();S.forEach(s=>SM.set(s.no,s));
 const ZM=new Map();Z.forEach(z=>ZM.set(z.id,z));
+
+// HID port_id → Addr 역매핑
+const HID2Addr=new Map();
+A.forEach(a=>{{
+  if(a.stations)a.stations.forEach(sn=>{{
+    const st=SM.get(sn);
+    if(st&&st.port_id)HID2Addr.set(st.port_id.toUpperCase(),a);
+  }});
+}});
+
 const B={{minX:{min_x},maxX:{max_x},minY:{min_y},maxY:{max_y}}};
 const c=document.getElementById('c'),x=c.getContext('2d');
 let w,h,sc=0.5,ox=0,oy=0,dr=false,lx,ly,rot=0;
@@ -241,7 +251,7 @@ function rn(){{
   const showRail=document.getElementById('sr').checked;
   const showStn=document.getElementById('ss').checked;
   const showZone=document.getElementById('sz').checked;
-  const showNo=document.getElementById('sn').checked;
+  const showHID=document.getElementById('sn').checked;
   
   // Rail 그리기
   if(showRail){{
@@ -284,8 +294,8 @@ function rn(){{
     x.textAlign='left';
   }}
   
-  // Station 및 HID No 그리기
-  if(showStn||showNo){{
+  // Station 및 HID ID 그리기
+  if(showStn||showHID){{
     const r=Math.max(2,sc*0.6);
     x.font=Math.max(8,sc*1.5)+'px system-ui';
     for(const a of A){{
@@ -301,9 +311,10 @@ function rn(){{
                 x.fillStyle=zColor;
                 x.beginPath();x.arc(p.x,p.y,r,0,Math.PI*2);x.fill();
               }}
-              if(showNo&&sc>0.3){{
+              if(showHID&&sc>0.3){{
                 x.fillStyle='#c9d1d9';
-                x.fillText(st.port_id||sn,p.x+r+2,p.y+3);
+                // HID ID (port_id) 표시
+                x.fillText(st.port_id||'HID-'+sn,p.x+r+2,p.y+3);
               }}
             }}
           }}
@@ -320,31 +331,56 @@ function reset(){{sc=0.5;ox=0;oy=0;rot=0;document.getElementById('rot').textCont
 function search(){{
   const q=document.getElementById('q').value.trim().toUpperCase();
   if(!q)return;
+  
+  // 1. HID ID (port_id)로 직접 검색
+  const addrByHID=HID2Addr.get(q);
+  if(addrByHID){{
+    const p=w2s(addrByHID.x,addrByHID.y);
+    ox+=w/2-p.x;oy+=h/2-(h-p.y);
+    const stNames=addrByHID.stations.map(sn=>{{const st=SM.get(sn);return st?st.port_id||sn:sn}}).join(', ');
+    document.getElementById('msg').textContent='Found: '+stNames+' (Zone:'+addrByHID.zone+')';
+    rn();return;
+  }}
+  
+  // 2. HID ID 부분 매칭
   for(const s of S){{
     if(s.port_id&&s.port_id.toUpperCase().includes(q)){{
       for(const a of A){{
         if(a.stations&&a.stations.includes(s.no)){{
           const p=w2s(a.x,a.y);
           ox+=w/2-p.x;oy+=h/2-(h-p.y);
-          document.getElementById('msg').textContent=s.port_id+' (Zone:'+a.zone+')';
+          document.getElementById('msg').textContent='Found: '+s.port_id+' (Zone:'+a.zone+')';
           rn();return;
         }}
       }}
     }}
   }}
-  // Zone ID로 검색
+  
+  // 3. Zone ID로 검색
   for(const a of A){{
-    if(a.zone&&a.zone.includes(q)){{
+    if(a.zone&&a.zone.toUpperCase().includes(q)){{
       const p=w2s(a.x,a.y);
       ox+=w/2-p.x;oy+=h/2-(h-p.y);
       document.getElementById('msg').textContent='Zone: '+a.zone;
       rn();return;
     }}
   }}
-  document.getElementById('msg').textContent='Not found';
+  
+  // 4. Addr 번호로 검색 (숫자만 입력시)
+  const addrNo=parseInt(q);
+  if(!isNaN(addrNo)&&AM.has(addrNo)){{
+    const a=AM.get(addrNo);
+    const p=w2s(a.x,a.y);
+    ox+=w/2-p.x;oy+=h/2-(h-p.y);
+    const stNames=a.stations.map(sn=>{{const st=SM.get(sn);return st?st.port_id||sn:sn}}).join(', ');
+    document.getElementById('msg').textContent='Addr:'+addrNo+(stNames?' → HID:'+stNames:'');
+    rn();return;
+  }}
+  
+  document.getElementById('msg').textContent='Not found: '+q;
 }}
 
-// 마우스 오버 정보
+// 마우스 오버 정보 - HID ID 우선 표시
 c.onmousemove=e=>{{
   if(dr){{
     ox+=e.clientX-lx;oy-=e.clientY-ly;lx=e.clientX;ly=e.clientY;rn();
@@ -359,14 +395,19 @@ c.onmousemove=e=>{{
       }}
     }}
     if(found){{
-      let info='Addr: '+found.no+' | Zone: '+(found.zone||'N/A');
+      let info='';
+      // HID ID를 먼저 표시
       if(found.stations&&found.stations.length){{
-        const stNames=found.stations.map(sn=>{{const st=SM.get(sn);return st?st.port_id||sn:sn}}).join(', ');
-        info+=' | HID: '+stNames;
+        const stInfo=found.stations.map(sn=>{{
+          const st=SM.get(sn);
+          return st?(st.port_id||'HID-'+sn)+' (type:'+st.type+')':'HID-'+sn;
+        }}).join(', ');
+        info='HID: '+stInfo+' | ';
       }}
+      info+='Addr: '+found.no+' | Zone: '+(found.zone||'N/A');
       document.getElementById('info').textContent=info;
     }}else{{
-      document.getElementById('info').textContent='마우스 오버: 정보 표시';
+      document.getElementById('info').textContent='마우스 오버: HID 정보 표시';
     }}
   }}
 }};
@@ -398,7 +439,7 @@ onresize=rs;rs();fit();
 
 def main():
     print("=" * 40)
-    print("OHT Layout XML → HTML 변환기")
+    print("OHT Layout XML → HTML 변환기 (HID View)")
     print("=" * 40)
     
     xml_file = select_file()
@@ -409,7 +450,7 @@ def main():
     print(f"파일: {xml_file}")
     
     base = os.path.splitext(xml_file)[0]
-    output_file = f"{base}_viewer.html"
+    output_file = f"{base}_hid_viewer.html"
     
     addresses, stations, zones, connections = parse_xml(xml_file)
     if not addresses:
