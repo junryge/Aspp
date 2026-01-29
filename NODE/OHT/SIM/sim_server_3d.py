@@ -38,6 +38,7 @@ _SCRIPT_DIR = pathlib.Path(__file__).parent.resolve()
 LAYOUT_PATH = str(_SCRIPT_DIR / "layout" / "layout" / "layout.html")
 OUTPUT_DIR = str(_SCRIPT_DIR / "output")
 HID_ZONE_CSV_PATH = str(_SCRIPT_DIR / "HID_Zone_Master.csv")  # HID Zone 마스터 파일
+STATION_DAT_PATH = str(_SCRIPT_DIR / "station.dat")  # Station 데이터 파일
 CSV_SAVE_INTERVAL = 10  # 10초마다 CSV 저장
 VEHICLE_COUNT = 450  # OHT 대수
 SIMULATION_INTERVAL = 0.5  # 0.5초마다 업데이트
@@ -505,6 +506,106 @@ class HIDZone:
         return (isIn, isOut)
 
 
+@dataclass
+class Station:
+    """
+    Station 데이터 - station.dat 파일 기반
+
+    포맷: STATION = ID, "Type", ?, "Name", HexFlags, ?, NodeAddress, 0,0,0,0, ?, "EquipType", ...
+
+    타입:
+    - MAINTENANCE: 유지보수 스테이션
+    - DUAL_ACCESS: 양방향 접근 스테이션 (대부분)
+    - ACQUIRE: 캐리어 획득 스테이션
+    - DEPOSIT: 캐리어 적재 스테이션
+    - DUMMY: 더미 스테이션
+
+    장비타입:
+    - ZFS_RIGHT/ZFS_LEFT: ZFS 장비
+    - UNIVERSAL: 범용 장비
+    - MANUAL_ONLY: 수동 전용
+    - MTL_SWITCHBACK/MTL_ELEVATOR: MTL 관련
+    """
+    stationId: int
+    stationType: str          # MAINTENANCE, DUAL_ACCESS, etc.
+    stationName: str          # 4EBE0102_2, ST-00001, etc.
+    nodeAddress: int          # 노드 주소 (좌표 매핑용)
+    equipType: str            # UNIVERSAL, ZFS_RIGHT, etc.
+    hexFlags: int = 0
+    distance1: int = 0
+    distance2: int = 0
+
+    # 좌표 (노드에서 가져옴)
+    x: float = 0.0
+    y: float = 0.0
+    hasCoords: bool = False
+
+
+def parse_stations(filepath: str) -> Dict[int, Station]:
+    """
+    station.dat 파일 파싱
+
+    포맷: STATION = ID, "Type", ?, "Name", HexFlags, ?, NodeAddress, 0,0,0,0, ?, "EquipType", 0,0,0, Dist1, Dist2, ...
+    """
+    stations: Dict[int, Station] = {}
+
+    if not os.path.exists(filepath):
+        print(f"[경고] Station 파일 없음: {filepath}")
+        return stations
+
+    print(f"Station 파싱: {filepath}")
+
+    import re
+    pattern = re.compile(
+        r'STATION\s*=\s*(\d+)\s*,\s*"([^"]+)"\s*,\s*\d+\s*,\s*"([^"]+)"\s*,\s*(0x[0-9A-Fa-f]+|\d+)\s*,\s*\d+\s*,\s*(\d+)\s*,\s*\d+\s*,\s*\d+\s*,\s*\d+\s*,\s*\d+\s*,\s*\d+\s*,\s*"([^"]+)"'
+    )
+
+    try:
+        with open(filepath, 'r', encoding='utf-8', errors='ignore') as f:
+            for line in f:
+                line = line.strip()
+                if not line or line.startswith(';'):
+                    continue
+
+                match = pattern.search(line)
+                if match:
+                    station_id = int(match.group(1))
+                    station_type = match.group(2)
+                    station_name = match.group(3)
+                    hex_flags_str = match.group(4)
+                    node_address = int(match.group(5))
+                    equip_type = match.group(6)
+
+                    # hex 플래그 파싱
+                    if hex_flags_str.startswith('0x'):
+                        hex_flags = int(hex_flags_str, 16)
+                    else:
+                        hex_flags = int(hex_flags_str)
+
+                    stations[station_id] = Station(
+                        stationId=station_id,
+                        stationType=station_type,
+                        stationName=station_name,
+                        nodeAddress=node_address,
+                        equipType=equip_type,
+                        hexFlags=hex_flags
+                    )
+
+        print(f"  -> {len(stations)}개 Station 로드됨")
+
+        # 타입별 통계
+        type_counts = {}
+        for s in stations.values():
+            type_counts[s.stationType] = type_counts.get(s.stationType, 0) + 1
+        for t, c in sorted(type_counts.items(), key=lambda x: -x[1]):
+            print(f"     - {t}: {c}개")
+
+    except Exception as e:
+        print(f"[오류] Station 파싱 실패: {e}")
+
+    return stations
+
+
 def parse_hid_zones(filepath: str) -> Dict[int, HIDZone]:
     """
     HID_Zone_Master.csv 파일 파싱
@@ -700,6 +801,10 @@ class SimulationEngine:
         # 차량 -> Zone 매핑 (현재 어느 Zone에 있는지)
         self.vehicle_zone_map: Dict[str, int] = {}
 
+        # Station 로드 및 좌표 매핑
+        self.stations: Dict[int, Station] = parse_stations(STATION_DAT_PATH)
+        self._map_station_coordinates()
+
         # 속도 설정 - MCP 속도 테이블 기반
         self.base_velocity = 180.0  # m/min 기본 속도
         self.alpha = 0.3  # EMA 평활화 계수
@@ -774,6 +879,18 @@ class SimulationEngine:
                 zone.addVehicle(v.vehicleId)
                 self.vehicle_zone_map[v.vehicleId] = zone.zoneId
                 v.udpState.hidId = zone.zoneId
+
+    def _map_station_coordinates(self):
+        """Station의 nodeAddress를 기반으로 좌표 매핑"""
+        mapped_count = 0
+        for station in self.stations.values():
+            node = self.nodes.get(station.nodeAddress)
+            if node:
+                station.x = node.x
+                station.y = node.y
+                station.hasCoords = True
+                mapped_count += 1
+        print(f"Station 좌표 매핑: {mapped_count}/{len(self.stations)}개 성공")
 
     def _update_vehicle_zone(self, v: Vehicle, old_lane: Tuple[int, int], new_lane: Tuple[int, int]):
         """차량이 이동할 때 Zone 업데이트
@@ -1542,6 +1659,19 @@ async def startup():
                 'vehiclePrecaution': z.vehiclePrecaution
             }
             for z in engine.hid_zones.values()
+        ],
+        'stations': [
+            {
+                'stationId': s.stationId,
+                'stationType': s.stationType,
+                'stationName': s.stationName,
+                'nodeAddress': s.nodeAddress,
+                'equipType': s.equipType,
+                'x': s.x,
+                'y': s.y,
+                'hasCoords': s.hasCoords
+            }
+            for s in engine.stations.values() if s.hasCoords
         ]
     }
 
@@ -1554,7 +1684,8 @@ async def startup():
 
     print(f"\n서버 시작: http://localhost:8000")
     print(f"OHT {VEHICLE_COUNT}대 시뮬레이션 시작")
-    print(f"HID Zone {len(engine.hid_zones)}개 로드됨\n")
+    print(f"HID Zone {len(engine.hid_zones)}개 로드됨")
+    print(f"Station {len([s for s in engine.stations.values() if s.hasCoords])}개 로드됨 (좌표 있음)\n")
 
 async def simulation_loop():
     """시뮬레이션 메인 루프"""
@@ -2741,6 +2872,10 @@ ws.onmessage = (e) => {
         window.hidZones = layout.hidZones || [];
         console.log('HID Zones 로드:', window.hidZones.length + '개');
 
+        // Station 정보 저장
+        window.stations = layout.stations || [];
+        console.log('Stations 로드:', window.stations.length + '개');
+
         // 디버깅: Zone Lane 노드 존재 여부 확인
         if (window.hidZones.length > 0) {
             let foundCount = 0, notFoundCount = 0;
@@ -3082,6 +3217,55 @@ function render() {
 
         ctx.globalAlpha = 1.0;
         ctx.setLineDash([]);
+    }
+
+    // ============================================================
+    // Station 표시 (pseudo-3D 변환 적용)
+    // ============================================================
+    if (window.stations && window.showStations !== false) {
+        const stationZ = RAIL_HEIGHT / scale + 1;  // Station 높이
+
+        window.stations.forEach(station => {
+            if (!station.hasCoords) return;
+
+            const pos = toIso(station.x, station.y, stationZ);
+            const size = Math.max(3, 5 / scale);
+
+            // 타입별 색상
+            let stationColor;
+            switch (station.stationType) {
+                case 'MAINTENANCE': stationColor = '#ff6600'; break;
+                case 'ACQUIRE': stationColor = '#00ff00'; break;
+                case 'DEPOSIT': stationColor = '#ff00ff'; break;
+                case 'DUMMY': stationColor = '#666666'; break;
+                default: stationColor = '#00aaff';  // DUAL_ACCESS 등
+            }
+
+            // 장비 타입에 따른 마커 모양
+            ctx.globalAlpha = 0.8;
+            ctx.fillStyle = stationColor;
+
+            if (station.equipType === 'ZFS_RIGHT' || station.equipType === 'ZFS_LEFT') {
+                // ZFS: 작은 사각형
+                ctx.fillRect(pos.x - size/2, pos.y - size/2, size, size);
+            } else if (station.equipType === 'UNIVERSAL') {
+                // UNIVERSAL: 작은 원
+                ctx.beginPath();
+                ctx.arc(pos.x, pos.y, size/2, 0, Math.PI * 2);
+                ctx.fill();
+            } else {
+                // 기타: 다이아몬드
+                ctx.beginPath();
+                ctx.moveTo(pos.x, pos.y - size/2);
+                ctx.lineTo(pos.x + size/2, pos.y);
+                ctx.lineTo(pos.x, pos.y + size/2);
+                ctx.lineTo(pos.x - size/2, pos.y);
+                ctx.closePath();
+                ctx.fill();
+            }
+        });
+
+        ctx.globalAlpha = 1.0;
     }
 
     // OHT 크기
