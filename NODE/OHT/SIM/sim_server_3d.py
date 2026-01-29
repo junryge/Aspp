@@ -3770,11 +3770,13 @@ canvas.addEventListener('wheel', e => {
 });
 
 // Station ID 자동 토글 함수 (확대 50% 기준)
+// 사용자가 수동으로 OFF하면 자동 ON 안함
 function updateStationIdAutoToggle() {
     const zoomPercent = scale * 100;
     const btn = document.getElementById('btnToggleStationIds');
 
-    if (zoomPercent >= 50 && !window.showStationIds) {
+    // 수동 OFF 상태면 자동 ON 하지 않음
+    if (zoomPercent >= 50 && !window.showStationIds && !window.stationIdManualOff) {
         window.showStationIds = true;
         if (btn) {
             btn.textContent = 'ID ON';
@@ -3783,6 +3785,7 @@ function updateStationIdAutoToggle() {
         }
     } else if (zoomPercent < 50 && window.showStationIds) {
         window.showStationIds = false;
+        window.stationIdManualOff = false;  // 줌 아웃 시 수동 OFF 리셋
         if (btn) {
             btn.textContent = 'ID OFF';
             btn.style.background = '#555';
@@ -3974,6 +3977,7 @@ document.getElementById('btnToggleStations').addEventListener('click', () => {
 });
 
 // Station ID 표시 토글 버튼
+window.stationIdManualOff = false;  // 수동 OFF 플래그
 document.getElementById('btnToggleStationIds').addEventListener('click', () => {
     const btn = document.getElementById('btnToggleStationIds');
     window.showStationIds = !window.showStationIds;
@@ -3982,10 +3986,12 @@ document.getElementById('btnToggleStationIds').addEventListener('click', () => {
         btn.textContent = 'ID ON';
         btn.style.background = '#ffff00';
         btn.style.color = '#000';
+        window.stationIdManualOff = false;  // ON하면 수동 OFF 해제
     } else {
         btn.textContent = 'ID OFF';
         btn.style.background = '#555';
         btn.style.color = '#fff';
+        window.stationIdManualOff = true;  // 수동으로 OFF함
     }
 });
 
