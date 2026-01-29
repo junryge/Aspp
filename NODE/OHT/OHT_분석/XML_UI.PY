@@ -2,6 +2,7 @@
 """
 OHT Layout XML → HTML 변환기
 파일 선택 → HTML 저장
++ 화면 회전 + HID 번호 표시
 """
 
 import xml.etree.ElementTree as ET
@@ -119,24 +120,30 @@ def generate_html(addresses, stations, connections, output_file):
 <style>
 *{{margin:0;padding:0;box-sizing:border-box}}
 body{{font-family:system-ui;background:#0d1117;color:#c9d1d9;overflow:hidden}}
-#ui{{position:fixed;top:10px;left:10px;z-index:100;display:flex;gap:8px;align-items:center}}
+#ui{{position:fixed;top:10px;left:10px;z-index:100;display:flex;gap:8px;align-items:center;flex-wrap:wrap;max-width:90%}}
 #ui button{{padding:6px 12px;background:#21262d;border:1px solid #30363d;color:#c9d1d9;border-radius:6px;cursor:pointer;font-size:12px}}
 #ui button:hover{{background:#30363d}}
+#ui button.active{{background:#238636;border-color:#238636}}
 #ui input[type=text]{{padding:6px 10px;background:#0d1117;border:1px solid #30363d;color:#c9d1d9;border-radius:6px;width:120px;font-size:12px}}
 #ui label{{font-size:12px;display:flex;align-items:center;gap:4px;color:#8b949e}}
 #stat{{position:fixed;top:10px;right:10px;font-size:11px;color:#8b949e}}
+#rot{{position:fixed;bottom:10px;right:10px;font-size:11px;color:#8b949e;background:#21262d;padding:5px 10px;border-radius:6px}}
 canvas{{display:block}}
 </style></head><body>
 <div id="ui">
 <button onclick="fit()">Fit</button>
 <button onclick="reset()">Reset</button>
+<button onclick="rotate(-90)">↺ 90°</button>
+<button onclick="rotate(90)">↻ 90°</button>
 <label><input type="checkbox" id="sr" checked>Rail</label>
 <label><input type="checkbox" id="ss" checked>Station</label>
+<label><input type="checkbox" id="sn">HID No</label>
 <input type="text" id="q" placeholder="Search ST-...">
 <button onclick="search()">Find</button>
 <span id="msg"></span>
 </div>
 <div id="stat">Addr:{len(addresses):,} | Stn:{len(stations):,}</div>
+<div id="rot">회전: 0°</div>
 <canvas id="c"></canvas>
 <script>
 const A={json.dumps(addr_list)};
@@ -146,37 +153,114 @@ const AM=new Map();A.forEach(a=>AM.set(a.no,a));
 const SM=new Map();S.forEach(s=>SM.set(s.no,s));
 const B={{minX:{min_x},maxX:{max_x},minY:{min_y},maxY:{max_y}}};
 const c=document.getElementById('c'),x=c.getContext('2d');
-let w,h,sc=0.5,ox=0,oy=0,dr=false,lx,ly;
+let w,h,sc=0.5,ox=0,oy=0,dr=false,lx,ly,rot=0;
+
 function rs(){{w=innerWidth;h=innerHeight;c.width=w;c.height=h;rn()}}
-function w2s(px,py){{return{{x:(px-B.minX)*sc+ox,y:h-((py-B.minY)*sc+oy)}}}}
-function s2w(sx,sy){{return{{x:(sx-ox)/sc+B.minX,y:(h-sy-oy)/sc+B.minY}}}}
+
+function rotatePoint(px,py,cx,cy,angle){{
+  const rad=angle*Math.PI/180;
+  const cos=Math.cos(rad),sin=Math.sin(rad);
+  const nx=(px-cx)*cos-(py-cy)*sin+cx;
+  const ny=(px-cx)*sin+(py-cy)*cos+cy;
+  return{{x:nx,y:ny}};
+}}
+
+function w2s(px,py){{
+  const cx=(B.minX+B.maxX)/2,cy=(B.minY+B.maxY)/2;
+  const rp=rotatePoint(px,py,cx,cy,rot);
+  return{{x:(rp.x-B.minX)*sc+ox,y:h-((rp.y-B.minY)*sc+oy)}};
+}}
+
+function s2w(sx,sy){{
+  const wx=(sx-ox)/sc+B.minX;
+  const wy=(h-sy-oy)/sc+B.minY;
+  const cx=(B.minX+B.maxX)/2,cy=(B.minY+B.maxY)/2;
+  return rotatePoint(wx,wy,cx,cy,-rot);
+}}
+
 function rn(){{
-x.fillStyle='#0d1117';x.fillRect(0,0,w,h);
-if(document.getElementById('sr').checked){{
-x.strokeStyle='#238636';x.lineWidth=Math.max(1,sc*0.4);x.beginPath();
-for(const[f,t]of C){{const a=AM.get(f),b=AM.get(t);if(a&&b){{const p1=w2s(a.x,a.y),p2=w2s(b.x,b.y);x.moveTo(p1.x,p1.y);x.lineTo(p2.x,p2.y)}}}}
-x.stroke()}}
-if(document.getElementById('ss').checked){{
-for(const a of A){{if(a.stations&&a.stations.length){{const p=w2s(a.x,a.y);
-if(p.x>-10&&p.x<w+10&&p.y>-10&&p.y<h+10){{
-for(const sn of a.stations){{const st=SM.get(sn);if(st){{
-x.fillStyle=(st.type>=5&&st.type<=9)?'#f85149':'#d29922';
-x.beginPath();x.arc(p.x,p.y,Math.max(2,sc*0.6),0,Math.PI*2);x.fill()}}}}}}}}}}}}}}
+  x.fillStyle='#0d1117';x.fillRect(0,0,w,h);
+  const showRail=document.getElementById('sr').checked;
+  const showStn=document.getElementById('ss').checked;
+  const showNo=document.getElementById('sn').checked;
+  
+  if(showRail){{
+    x.strokeStyle='#238636';x.lineWidth=Math.max(1,sc*0.4);x.beginPath();
+    for(const[f,t]of C){{
+      const a=AM.get(f),b=AM.get(t);
+      if(a&&b){{
+        const p1=w2s(a.x,a.y),p2=w2s(b.x,b.y);
+        x.moveTo(p1.x,p1.y);x.lineTo(p2.x,p2.y);
+      }}
+    }}
+    x.stroke();
+  }}
+  
+  if(showStn||showNo){{
+    const r=Math.max(2,sc*0.6);
+    x.font=Math.max(8,sc*1.5)+'px system-ui';
+    for(const a of A){{
+      if(a.stations&&a.stations.length){{
+        const p=w2s(a.x,a.y);
+        if(p.x>-50&&p.x<w+50&&p.y>-50&&p.y<h+50){{
+          for(const sn of a.stations){{
+            const st=SM.get(sn);
+            if(st){{
+              if(showStn){{
+                x.fillStyle=(st.type>=5&&st.type<=9)?'#f85149':'#d29922';
+                x.beginPath();x.arc(p.x,p.y,r,0,Math.PI*2);x.fill();
+              }}
+              if(showNo&&sc>0.3){{
+                x.fillStyle='#58a6ff';
+                x.fillText(st.port_id||sn,p.x+r+2,p.y+3);
+              }}
+            }}
+          }}
+        }}
+      }}
+    }}
+  }}
+}}
+
+function rotate(deg){{rot=(rot+deg)%360;document.getElementById('rot').textContent='회전: '+rot+'°';rn()}}
 function fit(){{const lw=B.maxX-B.minX,lh=B.maxY-B.minY;sc=Math.min((w-50)/lw,(h-50)/lh);ox=(w-lw*sc)/2;oy=(h-lh*sc)/2;rn()}}
-function reset(){{sc=0.5;ox=0;oy=0;rn()}}
-function search(){{const q=document.getElementById('q').value.trim().toUpperCase();if(!q)return;
-for(const s of S){{if(s.port_id&&s.port_id.toUpperCase().includes(q)){{
-for(const a of A){{if(a.stations&&a.stations.includes(s.no)){{
-const p=w2s(a.x,a.y);ox+=w/2-p.x;oy+=h/2-(h-p.y);
-document.getElementById('msg').textContent=s.port_id+' ('+s.no+')';rn();return}}}}}}}}
-document.getElementById('msg').textContent='Not found'}}
+function reset(){{sc=0.5;ox=0;oy=0;rot=0;document.getElementById('rot').textContent='회전: 0°';rn()}}
+
+function search(){{
+  const q=document.getElementById('q').value.trim().toUpperCase();
+  if(!q)return;
+  for(const s of S){{
+    if(s.port_id&&s.port_id.toUpperCase().includes(q)){{
+      for(const a of A){{
+        if(a.stations&&a.stations.includes(s.no)){{
+          const p=w2s(a.x,a.y);
+          ox+=w/2-p.x;oy+=h/2-(h-p.y);
+          document.getElementById('msg').textContent=s.port_id+' ('+s.no+')';
+          rn();return;
+        }}
+      }}
+    }}
+  }}
+  document.getElementById('msg').textContent='Not found';
+}}
+
 c.onmousedown=e=>{{dr=true;lx=e.clientX;ly=e.clientY}};
 c.onmousemove=e=>{{if(dr){{ox+=e.clientX-lx;oy-=e.clientY-ly;lx=e.clientX;ly=e.clientY;rn()}}}};
-c.onmouseup=()=>{{dr=false}};c.onmouseleave=()=>{{dr=false}};
-c.onwheel=e=>{{e.preventDefault();const z=e.deltaY>0?0.9:1.1,mx=e.clientX,my=e.clientY;
-const wb=s2w(mx,my);sc*=z;sc=Math.max(0.01,Math.min(20,sc));const sa=w2s(wb.x,wb.y);
-ox+=mx-sa.x;oy-=my-(h-sa.y);rn()}};
-document.getElementById('sr').onchange=rn;document.getElementById('ss').onchange=rn;
+c.onmouseup=()=>{{dr=false}};
+c.onmouseleave=()=>{{dr=false}};
+c.onwheel=e=>{{
+  e.preventDefault();
+  const z=e.deltaY>0?0.9:1.1,mx=e.clientX,my=e.clientY;
+  const wb=s2w(mx,my);
+  sc*=z;sc=Math.max(0.01,Math.min(20,sc));
+  const sa=w2s(wb.x,wb.y);
+  ox+=mx-sa.x;oy-=my-(h-sa.y);
+  rn();
+}};
+
+document.getElementById('sr').onchange=rn;
+document.getElementById('ss').onchange=rn;
+document.getElementById('sn').onchange=rn;
 document.getElementById('q').onkeypress=e=>{{if(e.key==='Enter')search()}};
 onresize=rs;rs();fit();
 </script></body></html>'''
@@ -197,7 +281,6 @@ def main():
     
     print(f"파일: {xml_file}")
     
-    # 출력 파일명
     base = os.path.splitext(xml_file)[0]
     output_file = f"{base}_viewer.html"
     
@@ -208,13 +291,11 @@ def main():
     
     generate_html(addresses, stations, connections, output_file)
     
-    # 완료 메시지
     root = Tk()
     root.withdraw()
     messagebox.showinfo("완료", f"HTML 저장 완료!\n{output_file}")
     root.destroy()
     
-    # 브라우저 열기
     import webbrowser
     webbrowser.open(output_file)
 
