@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-hid_zone_csv_cre.py - layout.xml에서 HID_Zone_Master.csv 생성
+hid_zone_csv_cre.py - layout.xml에서 HID_ZONE_Master.csv 생성
 
 사용법:
     1. 모듈로 import:
@@ -175,7 +175,7 @@ def derive_bay_zone(zone_no: int) -> str:
     """
     Zone 번호로부터 Bay_Zone 추정 (기존 CSV 패턴 기반)
     """
-    # 기존 HID_Zone_Master.csv 패턴 분석:
+    # 기존 HID_ZONE_Master.csv 패턴 분석:
     # Zone 1-2: B01, Zone 3: B02, Zone 4: B03, ...
     # 대략적인 매핑 (정확한 매핑은 외부 데이터 필요)
     bay_mapping = {
@@ -198,14 +198,14 @@ def derive_bay_zone(zone_no: int) -> str:
 def generate_hid_zone_csv(zones: List[Dict], output_path: str,
                           project_name: str = "M14 Project Ph-1") -> None:
     """
-    HID_Zone_Master.csv 파일 생성
+    HID_ZONE_Master.csv 파일 생성
 
     Args:
         zones: parse_mcp_zones_from_xml()에서 반환된 zone 목록
         output_path: 출력 CSV 파일 경로
         project_name: 프로젝트 이름 (기본값: M14 Project Ph-1)
     """
-    print(f"HID_Zone_Master.csv 생성: {output_path}")
+    print(f"HID_ZONE_Master.csv 생성: {output_path}")
 
     # CSV 헤더
     headers = [
@@ -289,7 +289,7 @@ def load_xml_content(source_path: str) -> str:
 def create_hid_zone_csv(xml_or_zip_path: str, output_csv_path: str,
                         project_name: str = "M14 Project Ph-1") -> None:
     """
-    layout.xml 또는 layout.zip에서 HID_Zone_Master.csv 생성
+    layout.xml 또는 layout.zip에서 HID_ZONE_Master.csv 생성
 
     Args:
         xml_or_zip_path: layout.xml 또는 layout.zip 파일 경로
@@ -297,7 +297,7 @@ def create_hid_zone_csv(xml_or_zip_path: str, output_csv_path: str,
         project_name: 프로젝트 이름
     """
     print("=" * 60)
-    print("HID_Zone_Master.csv 생성")
+    print("HID_ZONE_Master.csv 생성")
     print("=" * 60)
     print(f"입력: {xml_or_zip_path}")
     print(f"출력: {output_csv_path}")
@@ -339,7 +339,7 @@ def main():
     else:
         default_input = str(zip_path)
 
-    default_output = str(script_dir / 'HID_Zone_Master_Generated.csv')
+    default_output = str(script_dir / 'HID_ZONE_Master.csv')
 
     # 명령행 인자 처리
     input_path = sys.argv[1] if len(sys.argv) > 1 else default_input
