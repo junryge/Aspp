@@ -2224,8 +2224,9 @@ canvas { display: block; }
             <button id="btnToggleZones" style="width:100%;padding:6px 8px;background:#00d4ff;color:#000;border:none;border-radius:4px;cursor:pointer;font-size:11px;font-weight:bold;">Zone 표시 ON</button>
         </div>
         <div style="margin-top:6px;display:flex;gap:4px;">
-            <button id="btnToggleStations" style="flex:1;padding:6px 4px;background:#555;color:#fff;border:none;border-radius:4px;cursor:pointer;font-size:10px;">Station OFF</button>
-            <button id="btnToggleStationLabels" style="flex:1;padding:6px 4px;background:#555;color:#fff;border:none;border-radius:4px;cursor:pointer;font-size:10px;">라벨 OFF</button>
+            <button id="btnToggleStations" style="flex:1;padding:5px 2px;background:#555;color:#fff;border:none;border-radius:4px;cursor:pointer;font-size:9px;">Station OFF</button>
+            <button id="btnToggleStationIds" style="flex:1;padding:5px 2px;background:#555;color:#fff;border:none;border-radius:4px;cursor:pointer;font-size:9px;">ID OFF</button>
+            <button id="btnToggleStationNames" style="flex:1;padding:5px 2px;background:#555;color:#fff;border:none;border-radius:4px;cursor:pointer;font-size:9px;">이름 OFF</button>
         </div>
         <div class="legend" style="margin-top:8px;">
             <div class="legend-item"><div style="width:20px;height:3px;background:#00ff88;margin-right:8px;"></div>정상 Zone</div>
@@ -3281,29 +3282,53 @@ function render() {
                 ctx.fill();
             }
 
-            // 라벨 표시
-            if (window.showStationLabels) {
+            // ID 또는 이름 라벨 표시
+            if (window.showStationIds || window.showStationNames) {
                 ctx.globalAlpha = 1.0;
                 const fontSize = Math.max(8, 10 / scale);
                 ctx.font = fontSize + 'px sans-serif';
-                const label = String(station.stationId);
-                const textWidth = ctx.measureText(label).width;
                 const padding = 2 / scale;
+                let offsetY = size/2 + 2/scale;
 
-                // 배경
-                ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
-                ctx.fillRect(
-                    pos.x - textWidth/2 - padding,
-                    pos.y + size/2 + 2/scale,
-                    textWidth + padding * 2,
-                    fontSize + padding * 2
-                );
+                // ID 표시
+                if (window.showStationIds) {
+                    const idLabel = String(station.stationId);
+                    const idWidth = ctx.measureText(idLabel).width;
 
-                // 텍스트
-                ctx.fillStyle = stationColor;
-                ctx.textAlign = 'center';
-                ctx.textBaseline = 'top';
-                ctx.fillText(label, pos.x, pos.y + size/2 + 2/scale + padding);
+                    ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
+                    ctx.fillRect(
+                        pos.x - idWidth/2 - padding,
+                        pos.y + offsetY,
+                        idWidth + padding * 2,
+                        fontSize + padding * 2
+                    );
+
+                    ctx.fillStyle = '#ffff00';  // ID는 노란색
+                    ctx.textAlign = 'center';
+                    ctx.textBaseline = 'top';
+                    ctx.fillText(idLabel, pos.x, pos.y + offsetY + padding);
+
+                    offsetY += fontSize + padding * 2 + 1/scale;
+                }
+
+                // 이름 표시
+                if (window.showStationNames) {
+                    const nameLabel = station.stationName;
+                    const nameWidth = ctx.measureText(nameLabel).width;
+
+                    ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
+                    ctx.fillRect(
+                        pos.x - nameWidth/2 - padding,
+                        pos.y + offsetY,
+                        nameWidth + padding * 2,
+                        fontSize + padding * 2
+                    );
+
+                    ctx.fillStyle = stationColor;  // 이름은 타입 색상
+                    ctx.textAlign = 'center';
+                    ctx.textBaseline = 'top';
+                    ctx.fillText(nameLabel, pos.x, pos.y + offsetY + padding);
+                }
             }
         });
 
@@ -3789,18 +3814,35 @@ document.getElementById('btnToggleStations').addEventListener('click', () => {
     }
 });
 
-// Station 라벨 표시 토글 버튼
-window.showStationLabels = false;  // 기본값: 숨김
-document.getElementById('btnToggleStationLabels').addEventListener('click', () => {
-    const btn = document.getElementById('btnToggleStationLabels');
-    window.showStationLabels = !window.showStationLabels;
+// Station ID 표시 토글 버튼
+window.showStationIds = false;  // 기본값: 숨김
+document.getElementById('btnToggleStationIds').addEventListener('click', () => {
+    const btn = document.getElementById('btnToggleStationIds');
+    window.showStationIds = !window.showStationIds;
 
-    if (window.showStationLabels) {
-        btn.textContent = '라벨 ON';
+    if (window.showStationIds) {
+        btn.textContent = 'ID ON';
         btn.style.background = '#00aaff';
         btn.style.color = '#000';
     } else {
-        btn.textContent = '라벨 OFF';
+        btn.textContent = 'ID OFF';
+        btn.style.background = '#555';
+        btn.style.color = '#fff';
+    }
+});
+
+// Station 이름 표시 토글 버튼
+window.showStationNames = false;  // 기본값: 숨김
+document.getElementById('btnToggleStationNames').addEventListener('click', () => {
+    const btn = document.getElementById('btnToggleStationNames');
+    window.showStationNames = !window.showStationNames;
+
+    if (window.showStationNames) {
+        btn.textContent = '이름 ON';
+        btn.style.background = '#00aaff';
+        btn.style.color = '#000';
+    } else {
+        btn.textContent = '이름 OFF';
         btn.style.background = '#555';
         btn.style.color = '#fff';
     }
