@@ -2250,7 +2250,7 @@ canvas { display: block; }
         <div class="stat-row"><span>포화</span><span class="val" id="statFullZones" style="color:#ff3366">-</span></div>
         <div class="stat-row"><span>전체 점유율</span><span class="val" id="statZoneOccupancy">- %</span></div>
         <div style="margin-top:10px;">
-            <button id="btnToggleZones" style="width:100%;padding:6px 8px;background:#00d4ff;color:#000;border:none;border-radius:4px;cursor:pointer;font-size:11px;font-weight:bold;">Zone 표시 ON</button>
+            <button id="btnToggleZones" style="width:100%;padding:6px 8px;background:#555;color:#fff;border:none;border-radius:4px;cursor:pointer;font-size:11px;font-weight:bold;">Zone 표시 OFF</button>
         </div>
         <div style="margin-top:6px;display:flex;gap:4px;">
             <button id="btnToggleStations" style="flex:1;padding:5px 2px;background:#555;color:#fff;border:none;border-radius:4px;cursor:pointer;font-size:9px;">Station OFF</button>
@@ -3140,7 +3140,7 @@ function render() {
     // ============================================================
     // HID Zone Lane 표시 (pseudo-3D 변환 적용)
     // ============================================================
-    if (window.hidZones && window.showZones !== false) {
+    if (window.hidZones) {
         const zoneStatusMap = window.zoneStatusMap || {};
         const zoneZ = RAIL_HEIGHT / scale + 2;  // Zone 표시 높이
         const zoomPercent = scale * 100;
@@ -3149,8 +3149,14 @@ function render() {
             const status = zoneStatusMap[zone.zoneId];
             const isSelected = selectedZoneId === zone.zoneId;
 
-            // 줌 55% 미만이고 선택되지 않은 Zone은 건너뛰기
-            if (zoomPercent < 55 && !isSelected) {
+            // 선택된 Zone은 항상 표시
+            // showZones가 OFF이고 선택되지 않은 Zone은 건너뛰기
+            if (!isSelected && !window.showZones) {
+                return;
+            }
+
+            // showZones가 ON이어도 줌 55% 미만이고 선택되지 않은 Zone은 건너뛰기
+            if (!isSelected && zoomPercent < 55) {
                 return;
             }
 
@@ -3759,6 +3765,8 @@ canvas.addEventListener('wheel', e => {
 
     // 확대 50% 이상이면 Station ID 자동 ON, 미만이면 OFF
     updateStationIdAutoToggle();
+    // 확대 55% 기준 Zone 표시 자동 토글
+    updateZoneAutoToggle();
 });
 
 // Station ID 자동 토글 함수 (확대 50% 기준)
@@ -3854,6 +3862,8 @@ function fitView() {
 
     // 확대 50% 기준 Station ID 자동 토글
     updateStationIdAutoToggle();
+    // 확대 55% 기준 Zone 표시 자동 토글
+    updateZoneAutoToggle();
 }
 
 // 데드락 상황 만들기 버튼
@@ -3903,7 +3913,7 @@ document.getElementById('btnResetInOut').addEventListener('click', async () => {
 });
 
 // Zone 표시 토글 버튼
-window.showZones = true;  // 기본값: 표시
+window.showZones = false;  // 기본값: OFF
 document.getElementById('btnToggleZones').addEventListener('click', () => {
     const btn = document.getElementById('btnToggleZones');
     window.showZones = !window.showZones;
@@ -3918,6 +3928,27 @@ document.getElementById('btnToggleZones').addEventListener('click', () => {
         btn.style.color = '#fff';
     }
 });
+
+// Zone 표시 자동 토글 함수 (확대 55% 기준)
+function updateZoneAutoToggle() {
+    const zoomPercent = scale * 100;
+    const btn = document.getElementById('btnToggleZones');
+    if (zoomPercent >= 55 && !window.showZones) {
+        window.showZones = true;
+        if (btn) {
+            btn.textContent = 'Zone 표시 ON';
+            btn.style.background = '#00d4ff';
+            btn.style.color = '#000';
+        }
+    } else if (zoomPercent < 55 && window.showZones) {
+        window.showZones = false;
+        if (btn) {
+            btn.textContent = 'Zone 표시 OFF';
+            btn.style.background = '#555';
+            btn.style.color = '#fff';
+        }
+    }
+}
 
 // Station 표시 토글 버튼 (각각 독립적으로 동작)
 // - Station: 마커만 표시
