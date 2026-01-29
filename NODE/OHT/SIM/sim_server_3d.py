@@ -805,6 +805,14 @@ class SimulationEngine:
         self.stations: Dict[int, Station] = parse_stations(STATION_DAT_PATH)
         self._map_station_coordinates()
 
+        # 노드 -> Station 매핑 (하나의 노드에 여러 Station이 있을 수 있음)
+        self.node_to_stations: Dict[int, List[Station]] = {}
+        for station in self.stations.values():
+            if station.nodeAddress not in self.node_to_stations:
+                self.node_to_stations[station.nodeAddress] = []
+            self.node_to_stations[station.nodeAddress].append(station)
+        print(f"Node-Station 매핑: {len(self.node_to_stations)}개 노드에 Station 존재")
+
         # 속도 설정 - MCP 속도 테이블 기반
         self.base_velocity = 180.0  # m/min 기본 속도
         self.alpha = 0.3  # EMA 평활화 계수
@@ -1347,6 +1355,17 @@ class SimulationEngine:
             # 차량이 속한 Zone 정보
             zone_id = self.vehicle_zone_map.get(v.vehicleId, -1)
 
+            # 현재 노드에 있는 Station 정보
+            current_stations = []
+            if v.currentNode in self.node_to_stations:
+                for station in self.node_to_stations[v.currentNode]:
+                    current_stations.append({
+                        'stationId': station.stationId,
+                        'stationName': station.stationName,
+                        'stationType': station.stationType,
+                        'equipType': station.equipType
+                    })
+
             vehicles.append({
                 'vehicleId': v.vehicleId,
                 'x': round(v.x, 2),
@@ -1368,7 +1387,9 @@ class SimulationEngine:
                 'distance': round(v.udpState.distance, 2),
                 'detailState': v.udpState.detailState.name,
                 # HID Zone 정보
-                'hidZoneId': zone_id
+                'hidZoneId': zone_id,
+                # 현재 Station 정보
+                'currentStations': current_stations
             })
 
         # RailEdge In/Out 통계 계산
@@ -2488,7 +2509,8 @@ function updateOhtList() {
         html += '    <div class="detail-row"><span class="label">적재</span><span class="value">' + (v.loaded ? 'YES' : 'NO') + '</span></div>';
         html += '    <div class="detail-row"><span class="label">현재 노드</span><span class="value">' + (v.currentNode || '-') + '</span></div>';
         html += '    <div class="detail-row"><span class="label">목적지</span><span class="value">' + (v.destNode || '-') + '</span></div>';
-        html += '    <div class="detail-row"><span class="label">HID Zone</span><span class="value">' + (v.hidZoneId >= 0 ? 'Zone ' + v.hidZoneId : '-') + '</span></div>';
+        html += '    <div class="detail-row"><span class="label">HID Zone</span><span class="value">' + (v.hidZoneId >= 0 ? 'HID ' + v.hidZoneId : '-') + '</span></div>';
+        html += '    <div class="detail-row"><span class="label">Station</span><span class="value" style="color:#ff9800;">' + (v.currentStations && v.currentStations.length > 0 ? v.currentStations.map(s => s.stationName).join(', ') : '-') + '</span></div>';
         html += '    <div class="detail-row"><span class="label">RUN CYCLE</span><span class="value">' + (v.runCycle || '-') + '</span></div>';
         html += '  </div>';
         html += '</div>';
@@ -3231,6 +3253,58 @@ function render() {
                     ctx.fillText(countLabel, firstLaneMid.x, countY);
                 }
             }
+
+            // 선택된 Zone 노란색 하이라이트 표시
+            if (selectedZoneId === zone.zoneId) {
+                // Zone의 모든 노드 좌표 수집
+                let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+                const allLanes = [...zone.inLanes, ...zone.outLanes];
+                allLanes.forEach(lane => {
+                    const from = nodeMap[lane.from];
+                    const to = nodeMap[lane.to];
+                    if (from) {
+                        minX = Math.min(minX, from.x); maxX = Math.max(maxX, from.x);
+                        minY = Math.min(minY, from.y); maxY = Math.max(maxY, from.y);
+                    }
+                    if (to) {
+                        minX = Math.min(minX, to.x); maxX = Math.max(maxX, to.x);
+                        minY = Math.min(minY, to.y); maxY = Math.max(maxY, to.y);
+                    }
+                });
+
+                if (minX !== Infinity) {
+                    // 여유 공간 추가
+                    const padding = 50;
+                    minX -= padding; maxX += padding;
+                    minY -= padding; maxY += padding;
+
+                    // 4개 코너를 isometric 변환
+                    const topLeft = toIso(minX, minY, zoneZ);
+                    const topRight = toIso(maxX, minY, zoneZ);
+                    const bottomRight = toIso(maxX, maxY, zoneZ);
+                    const bottomLeft = toIso(minX, maxY, zoneZ);
+
+                    // 노란색 사각형 그리기
+                    ctx.strokeStyle = '#ffff00';
+                    ctx.lineWidth = Math.max(3, 4 / scale);
+                    ctx.globalAlpha = 1.0;
+                    ctx.setLineDash([10/scale, 5/scale]);
+
+                    ctx.beginPath();
+                    ctx.moveTo(topLeft.x, topLeft.y);
+                    ctx.lineTo(topRight.x, topRight.y);
+                    ctx.lineTo(bottomRight.x, bottomRight.y);
+                    ctx.lineTo(bottomLeft.x, bottomLeft.y);
+                    ctx.closePath();
+                    ctx.stroke();
+
+                    // 내부 반투명 노란색 채우기
+                    ctx.fillStyle = 'rgba(255, 255, 0, 0.15)';
+                    ctx.fill();
+
+                    ctx.setLineDash([]);
+                }
+            }
         });
 
         ctx.globalAlpha = 1.0;
@@ -3702,7 +3776,8 @@ function updateTooltip(e) {
             <div class="row"><span class="label">다음번지</span><span class="value">${closest.nextNode || '-'}</span></div>
             <div class="row"><span class="label">거리</span><span class="value">${distanceDisplay}</span></div>
             <div class="row"><span class="label">목적지</span><span class="value">${closest.destination || '-'}</span></div>
-            <div class="row"><span class="label">HID Zone</span><span class="value" style="color:#00d4ff;">${closest.hidZoneId >= 0 ? 'Zone ' + closest.hidZoneId : '-'}</span></div>
+            <div class="row"><span class="label">HID Zone</span><span class="value" style="color:#00d4ff;">${closest.hidZoneId >= 0 ? 'HID ' + closest.hidZoneId : '-'}</span></div>
+            <div class="row"><span class="label">Station</span><span class="value" style="color:#ff9800;">${closest.currentStations && closest.currentStations.length > 0 ? closest.currentStations.map(s => s.stationName).join(', ') : '-'}</span></div>
             <hr style="border:none;border-top:1px solid #444;margin:6px 0;">
             <div class="row"><span class="label">RunCycle</span><span class="value">${closest.runCycleName || closest.runCycle}</span></div>
             <div class="row"><span class="label">VhlCycle</span><span class="value">${closest.vhlCycleName || closest.vhlCycle}</span></div>
