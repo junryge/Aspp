@@ -31,6 +31,9 @@ import uvicorn
 # layout.xml -> layout.html 자동 생성 모듈
 from layout_map_cre import ensure_layout_html
 
+# HID_Zone_Master.csv 자동 생성 모듈
+from hid_zone_csv_cre import create_hid_zone_csv
+
 # ============================================================
 # 설정
 # ============================================================
@@ -800,6 +803,12 @@ class SimulationEngine:
         # ============================================================
         # HID Zone 관리 - HID_Zone_Master.csv 기반
         # ============================================================
+        # HID_Zone_Master.csv 없으면 layout.xml에서 자동 생성
+        if not os.path.exists(HID_ZONE_CSV_PATH):
+            print(f"HID_Zone_Master.csv 없음 - layout.xml에서 자동 생성 중...")
+            create_hid_zone_csv(LAYOUT_XML_PATH, HID_ZONE_CSV_PATH)
+            print(f"HID_Zone_Master.csv 생성 완료: {HID_ZONE_CSV_PATH}")
+
         self.hid_zones: Dict[int, HIDZone] = parse_hid_zones(HID_ZONE_CSV_PATH)
         self.in_lane_to_zone, self.out_lane_to_zone = build_lane_to_zone_map(self.hid_zones)
 
@@ -4243,4 +4252,4 @@ document.getElementById('btnToggle3D').addEventListener('click', toggle3DMode);
 # ============================================================
 if __name__ == "__main__":
     os.makedirs(OUTPUT_DIR, exist_ok=True)
-    uvicorn.run(app, host="0.0.0.0", port=10004)  # 3D 버전: 포트 10004
+    uvicorn.run(app, host="0.0.0.0", port=10003)  # 3D 버전: 포트 10004
