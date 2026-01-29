@@ -39,7 +39,8 @@ import pathlib
 _SCRIPT_DIR = pathlib.Path(__file__).parent.resolve()
 
 LAYOUT_PATH = str(_SCRIPT_DIR / "layout" / "layout" / "layout.html")
-LAYOUT_ZIP_PATH = str(_SCRIPT_DIR / "layout" / "layout" / "layout.zip")  # layout.xml이 들어있는 ZIP
+LAYOUT_XML_PATH = str(_SCRIPT_DIR / "layout" / "layout.xml")  # 실제 환경의 layout.xml
+LAYOUT_ZIP_PATH = str(_SCRIPT_DIR / "layout" / "layout" / "layout.zip")  # 백업용 ZIP (xml 없을 때)
 OUTPUT_DIR = str(_SCRIPT_DIR / "output")
 HID_ZONE_CSV_PATH = str(_SCRIPT_DIR / "HID_Zone_Master.csv")  # HID Zone 마스터 파일
 STATION_DAT_PATH = str(_SCRIPT_DIR / "station.dat")  # Station 데이터 파일
@@ -1659,7 +1660,7 @@ async def startup():
     global engine, layout_data, is_running
 
     # layout.html 자동 생성 (없거나 오래된 경우)
-    ensure_layout_html(LAYOUT_PATH, LAYOUT_ZIP_PATH)
+    ensure_layout_html(LAYOUT_PATH, LAYOUT_XML_PATH, LAYOUT_ZIP_PATH)
 
     # 레이아웃 로드
     nodes, edges = parse_layout(LAYOUT_PATH)
