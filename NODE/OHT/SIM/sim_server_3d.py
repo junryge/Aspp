@@ -3219,9 +3219,9 @@ function render() {
                 ctx.setLineDash([]);
 
                 // 배경 박스
-                const fontSize = Math.max(10, 14 / scale);
-                // Full_Name 우선, 없으면 HID_No 표시
-                let label = zone.fullName || zone.hidNo || ('HID ' + zone.zoneId);
+                const fontSize = Math.max(8, 10 / scale);
+                // Zone_ID 표시
+                let label = 'HID ' + zone.zoneId;
                 ctx.font = 'bold ' + fontSize + 'px sans-serif';
                 const textWidth = ctx.measureText(label).width;
                 const padding = 3 / scale;
