@@ -3213,23 +3213,29 @@ function render() {
                 }
             });
 
-            // Zone ID 텍스트 표시
-            if (firstLaneMid) {
+            // Zone ID 텍스트 표시 (줌 55% 이상 또는 선택된 Zone)
+            const zoomPercent = scale * 100;
+            const isSelected = selectedZoneId === zone.zoneId;
+            if (firstLaneMid && (zoomPercent >= 55 || isSelected)) {
                 ctx.globalAlpha = 1.0;
                 ctx.setLineDash([]);
 
-                // 배경 박스
+                // 배경 박스 - Station ID와 겹치지 않게 위쪽으로 오프셋
                 const fontSize = Math.max(8, 10 / scale);
+                const labelOffsetY = -20 / scale;  // 위쪽으로 오프셋
                 // Zone_ID 표시
                 let label = 'HID ' + zone.zoneId;
                 ctx.font = 'bold ' + fontSize + 'px sans-serif';
                 const textWidth = ctx.measureText(label).width;
                 const padding = 3 / scale;
 
+                const labelX = firstLaneMid.x;
+                const labelY = firstLaneMid.y + labelOffsetY;
+
                 ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
                 ctx.fillRect(
-                    firstLaneMid.x - textWidth/2 - padding,
-                    firstLaneMid.y - fontSize/2 - padding,
+                    labelX - textWidth/2 - padding,
+                    labelY - fontSize/2 - padding,
                     textWidth + padding * 2,
                     fontSize + padding * 2
                 );
@@ -3238,26 +3244,26 @@ function render() {
                 ctx.fillStyle = zoneColor;
                 ctx.textAlign = 'center';
                 ctx.textBaseline = 'middle';
-                ctx.fillText(label, firstLaneMid.x, firstLaneMid.y);
+                ctx.fillText(label, labelX, labelY);
 
                 // 차량 수 표시 (상태가 있으면)
                 if (status) {
                     const countLabel = status.vehicleCount + '/' + zone.vehicleMax;
-                    const countY = firstLaneMid.y + fontSize + padding * 2;
+                    const countY = labelY + fontSize + padding * 2;
                     const countFontSize = Math.max(8, 11 / scale);
                     ctx.font = countFontSize + 'px sans-serif';
                     const countWidth = ctx.measureText(countLabel).width;
 
                     ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
                     ctx.fillRect(
-                        firstLaneMid.x - countWidth/2 - padding,
+                        labelX - countWidth/2 - padding,
                         countY - countFontSize/2 - padding,
                         countWidth + padding * 2,
                         countFontSize + padding * 2
                     );
 
                     ctx.fillStyle = '#ffffff';
-                    ctx.fillText(countLabel, firstLaneMid.x, countY);
+                    ctx.fillText(countLabel, labelX, countY);
                 }
             }
 
