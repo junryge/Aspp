@@ -271,11 +271,14 @@ DEFAULT_FAB_CONFIG = {
 
 def load_fab_config() -> dict:
     """FAB 설정 파일 로드 (없으면 기본값 생성)"""
+    print(f"FAB 설정 파일 경로: {FAB_CONFIG_PATH}")
     if FAB_CONFIG_PATH.exists():
         try:
             with open(FAB_CONFIG_PATH, 'r', encoding='utf-8') as f:
                 config = json.load(f)
-            print(f"FAB 설정 로드 완료: {FAB_CONFIG_PATH}")
+            print(f"FAB 설정 로드 완료!")
+            for fab, settings in config.items():
+                print(f"  - {fab}: OHT {settings.get('vehicle_count', '?')}대")
             # 새로운 FAB이 추가된 경우 기본값 적용
             for fab, default in DEFAULT_FAB_CONFIG.items():
                 if fab not in config:
@@ -283,6 +286,8 @@ def load_fab_config() -> dict:
             return config
         except Exception as e:
             print(f"FAB 설정 로드 실패: {e}, 기본값 사용")
+    else:
+        print(f"FAB 설정 파일 없음 - 기본값으로 생성")
 
     # 기본 설정 파일 생성
     save_fab_config(DEFAULT_FAB_CONFIG)
@@ -293,9 +298,11 @@ def save_fab_config(config: dict):
     try:
         with open(FAB_CONFIG_PATH, 'w', encoding='utf-8') as f:
             json.dump(config, f, indent=2, ensure_ascii=False)
-        print(f"FAB 설정 저장 완료: {FAB_CONFIG_PATH}")
+        print(f"[CONFIG 저장] {FAB_CONFIG_PATH}")
+        for fab, settings in config.items():
+            print(f"  - {fab}: OHT {settings.get('vehicle_count', '?')}대")
     except Exception as e:
-        print(f"FAB 설정 저장 실패: {e}")
+        print(f"[CONFIG 저장 실패] {e}")
 
 # 설정 로드
 FAB_CONFIG = load_fab_config()
@@ -2828,6 +2835,10 @@ canvas { display: block; }
         </div>
         <div style="display:flex;align-items:center;gap:8px;">
             <button id="btnToggle3D" style="padding:6px 14px;background:#ff9900;color:#000;border:none;border-radius:4px;cursor:pointer;font-size:12px;font-weight:bold;">3D 효과 OFF</button>
+            <button id="btnToggleCurve" style="padding:6px 14px;background:#00d4ff;color:#000;border:none;border-radius:4px;cursor:pointer;font-size:12px;font-weight:bold;">곡선 ON</button>
+            <span style="color:#888;font-size:11px;">R:</span>
+            <input type="range" id="curveRadiusSlider" min="5" max="100" value="30" style="width:60px;cursor:pointer;" title="곡률반경">
+            <span id="curveRadiusValue" style="color:#00d4ff;font-size:11px;min-width:28px;">30</span>
         </div>
         <div style="display:flex;align-items:center;gap:8px;"><div class="live-dot"></div> LIVE</div>
         <div>노드: <span id="nodeCount">-</span></div>
@@ -3550,6 +3561,79 @@ const RAIL_HEIGHT = 8;  // 레일 높이 (3D 효과용)
 const OHT_HEIGHT = 12;  // OHT 높이 (3D 효과용)
 const LIGHT_ANGLE = -Math.PI / 4;  // 조명 각도 (좌상단에서)
 
+// ============================================================
+// 레일 곡선 처리 (모따기/Fillet) 설정
+// ============================================================
+let curveRadius = 30;  // 곡률반경 (픽셀)
+let enableCurves = true;  // 곡선 처리 활성화
+let nodeConnections = {};  // 노드별 연결 정보 캐시
+
+// 노드 연결 정보 빌드 (레이아웃 로드 시 호출)
+function buildNodeConnections() {
+    nodeConnections = {};
+    if (!layout || !layout.edges) return;
+
+    layout.edges.forEach(e => {
+        // from 노드의 연결 추가
+        if (!nodeConnections[e.from]) nodeConnections[e.from] = [];
+        nodeConnections[e.from].push({ to: e.to, edge: e });
+
+        // to 노드의 연결 추가 (역방향도 저장)
+        if (!nodeConnections[e.to]) nodeConnections[e.to] = [];
+        nodeConnections[e.to].push({ to: e.from, edge: e });
+    });
+}
+
+// 두 벡터 사이의 각도 계산 (라디안)
+function angleBetween(v1, v2) {
+    const dot = v1.x * v2.x + v1.y * v2.y;
+    const cross = v1.x * v2.y - v1.y * v2.x;
+    return Math.atan2(cross, dot);
+}
+
+// 벡터 정규화
+function normalize(v) {
+    const len = Math.sqrt(v.x * v.x + v.y * v.y);
+    if (len === 0) return { x: 0, y: 0 };
+    return { x: v.x / len, y: v.y / len };
+}
+
+// 곡선 제어점 계산 (노드에서 이전/다음 엣지 기반)
+function getCurveControlPoints(nodeId, fromId, toId) {
+    const node = nodeMap[nodeId];
+    const from = nodeMap[fromId];
+    const to = nodeMap[toId];
+    if (!node || !from || !to) return null;
+
+    // 방향 벡터
+    const v1 = { x: from.x - node.x, y: from.y - node.y };  // node에서 from 방향
+    const v2 = { x: to.x - node.x, y: to.y - node.y };      // node에서 to 방향
+
+    const len1 = Math.sqrt(v1.x * v1.x + v1.y * v1.y);
+    const len2 = Math.sqrt(v2.x * v2.x + v2.y * v2.y);
+    if (len1 === 0 || len2 === 0) return null;
+
+    // 각도 계산
+    const angle = Math.abs(angleBetween(v1, v2));
+
+    // 거의 직선이면 곡선 불필요 (170도 이상)
+    if (angle > Math.PI * 0.94) return null;
+
+    // 곡률반경을 엣지 길이에 맞게 조절
+    const radius = Math.min(curveRadius, len1 * 0.4, len2 * 0.4);
+
+    // 곡선 시작/끝점 (노드에서 radius만큼 떨어진 점)
+    const n1 = normalize(v1);
+    const n2 = normalize(v2);
+
+    return {
+        start: { x: node.x + n1.x * radius, y: node.y + n1.y * radius },
+        end: { x: node.x + n2.x * radius, y: node.y + n2.y * radius },
+        control: { x: node.x, y: node.y },
+        angle: angle
+    };
+}
+
 // Isometric 변환 함수 (2D 좌표를 pseudo-3D로 변환)
 function toIso(x, y, z = 0) {
     if (!isPseudo3D) return { x: x, y: y };
@@ -3773,6 +3857,9 @@ ws.onmessage = (e) => {
             }
         }
 
+        // 노드 연결 정보 빌드 (곡선 렌더링용)
+        buildNodeConnections();
+
         fitView();
 
         // Zone 목록 초기화
@@ -3913,6 +4000,100 @@ function animate() {
 }
 animate();
 
+// 곡선 레일 그리기 (모따기 적용)
+function drawCurvedRails() {
+    if (!enableCurves || !layout || !layout.edges) {
+        // 곡선 비활성화시 기존 방식
+        layout.edges.forEach(e => {
+            const from = nodeMap[e.from], to = nodeMap[e.to];
+            if (from && to) {
+                draw3DRail(from.x, from.y, to.x, to.y, '#2a4a6a');
+            }
+        });
+        return;
+    }
+
+    const railColor = '#2a4a6a';
+    const drawnCurves = new Set();  // 중복 방지
+
+    // 각 노드에서 연결된 엣지들 처리
+    layout.nodes.forEach(node => {
+        const connections = nodeConnections[node.no];
+        if (!connections || connections.length < 2) return;
+
+        // 연결된 노드 쌍마다 곡선 처리
+        for (let i = 0; i < connections.length; i++) {
+            for (let j = i + 1; j < connections.length; j++) {
+                const fromId = connections[i].to;
+                const toId = connections[j].to;
+
+                // 중복 체크
+                const curveKey = [node.no, fromId, toId].sort().join('-');
+                if (drawnCurves.has(curveKey)) continue;
+                drawnCurves.add(curveKey);
+
+                // 곡선 제어점 계산
+                const curve = getCurveControlPoints(node.no, fromId, toId);
+                if (curve) {
+                    // 곡선 그리기 (quadratic bezier)
+                    if (isPseudo3D) {
+                        const startIso = toIso(curve.start.x, curve.start.y, RAIL_HEIGHT / scale);
+                        const endIso = toIso(curve.end.x, curve.end.y, RAIL_HEIGHT / scale);
+                        const ctrlIso = toIso(curve.control.x, curve.control.y, RAIL_HEIGHT / scale);
+
+                        ctx.strokeStyle = adjustColor(railColor, 1.2);
+                        ctx.lineWidth = 3 / scale;
+                        ctx.lineCap = 'round';
+                        ctx.beginPath();
+                        ctx.moveTo(startIso.x, startIso.y);
+                        ctx.quadraticCurveTo(ctrlIso.x, ctrlIso.y, endIso.x, endIso.y);
+                        ctx.stroke();
+                    } else {
+                        ctx.strokeStyle = railColor;
+                        ctx.lineWidth = 2 / scale;
+                        ctx.lineCap = 'round';
+                        ctx.beginPath();
+                        ctx.moveTo(curve.start.x, curve.start.y);
+                        ctx.quadraticCurveTo(curve.control.x, curve.control.y, curve.end.x, curve.end.y);
+                        ctx.stroke();
+                    }
+                }
+            }
+        }
+    });
+
+    // 엣지 (직선 부분) 그리기 - 곡선 부분은 짧게
+    layout.edges.forEach(e => {
+        const from = nodeMap[e.from], to = nodeMap[e.to];
+        if (!from || !to) return;
+
+        let startX = from.x, startY = from.y;
+        let endX = to.x, endY = to.y;
+
+        // from 노드가 다중 연결이면 곡선 시작점까지만
+        const fromConns = nodeConnections[e.from];
+        if (fromConns && fromConns.length >= 2) {
+            const dir = normalize({ x: to.x - from.x, y: to.y - from.y });
+            const len = Math.sqrt(Math.pow(to.x - from.x, 2) + Math.pow(to.y - from.y, 2));
+            const offset = Math.min(curveRadius, len * 0.4);
+            startX = from.x + dir.x * offset;
+            startY = from.y + dir.y * offset;
+        }
+
+        // to 노드가 다중 연결이면 곡선 끝점까지만
+        const toConns = nodeConnections[e.to];
+        if (toConns && toConns.length >= 2) {
+            const dir = normalize({ x: from.x - to.x, y: from.y - to.y });
+            const len = Math.sqrt(Math.pow(to.x - from.x, 2) + Math.pow(to.y - from.y, 2));
+            const offset = Math.min(curveRadius, len * 0.4);
+            endX = to.x + dir.x * offset;
+            endY = to.y + dir.y * offset;
+        }
+
+        draw3DRail(startX, startY, endX, endY, railColor);
+    });
+}
+
 // 렌더링
 function render() {
     ctx.fillStyle = '#0a0a1a';
@@ -3924,13 +4105,8 @@ function render() {
     ctx.translate(offsetX, offsetY);
     ctx.scale(scale, scale);
 
-    // 엣지 (레일) - pseudo-3D 효과 적용
-    layout.edges.forEach(e => {
-        const from = nodeMap[e.from], to = nodeMap[e.to];
-        if (from && to) {
-            draw3DRail(from.x, from.y, to.x, to.y, '#2a4a6a');
-        }
-    });
+    // 엣지 (레일) - 곡선 처리 적용
+    drawCurvedRails();
 
     // 노드 점 (pseudo-3D 모드에서는 3D 효과 적용)
     const nodeSize = Math.max(1.5, 3 / scale);
@@ -5148,6 +5324,30 @@ function toggle3DMode() {
 }
 
 document.getElementById('btnToggle3D').addEventListener('click', toggle3DMode);
+
+// 곡선 렌더링 토글
+function toggleCurveMode() {
+    enableCurves = !enableCurves;
+    const btn = document.getElementById('btnToggleCurve');
+
+    if (enableCurves) {
+        btn.textContent = '곡선 ON';
+        btn.style.background = '#00d4ff';
+    } else {
+        btn.textContent = '곡선 OFF';
+        btn.style.background = '#666';
+    }
+    render();
+}
+
+document.getElementById('btnToggleCurve').addEventListener('click', toggleCurveMode);
+
+// 곡률반경 슬라이더
+document.getElementById('curveRadiusSlider').addEventListener('input', function(e) {
+    curveRadius = parseInt(e.target.value);
+    document.getElementById('curveRadiusValue').textContent = curveRadius;
+    render();
+});
 </script>
 </body>
 </html>
