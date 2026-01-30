@@ -544,10 +544,34 @@ def load_xml_content(source_path: str) -> Tuple[str, str]:
 
             return content, temp_xml
     else:
-        print(f"layout.xml 읽는 중: {source_path}")
-        with open(source_path, 'r', encoding='utf-8') as f:
-            content = f.read()
-        return content, source_path
+        # XML 파일이 존재하는지 확인
+        if os.path.exists(source_path):
+            print(f"layout.xml 읽는 중: {source_path}")
+            with open(source_path, 'r', encoding='utf-8') as f:
+                content = f.read()
+            return content, source_path
+        else:
+            # XML이 없으면 ZIP에서 추출 시도
+            # 경로 패턴: MAP/{FAB}/{prefix}.layout/layout/layout.xml -> MAP/{FAB}/{prefix}.layout.zip
+            print(f"XML 파일 없음: {source_path}")
+
+            # ZIP 경로 추론
+            source_dir = os.path.dirname(source_path)  # .../A.layout/layout
+            parent_dir = os.path.dirname(source_dir)    # .../A.layout
+            fab_dir = os.path.dirname(parent_dir)       # .../MAP/M14A
+
+            # prefix.layout 폴더명에서 ZIP 이름 추론
+            layout_folder = os.path.basename(parent_dir)  # A.layout
+            if layout_folder.lower().endswith('.layout'):
+                zip_name = layout_folder + '.zip'  # A.layout.zip
+                zip_path = os.path.join(fab_dir, zip_name)
+
+                if os.path.exists(zip_path):
+                    print(f"ZIP에서 추출 시도: {zip_path}")
+                    return load_xml_content(zip_path)  # 재귀 호출로 ZIP 처리
+
+            # 그래도 없으면 에러
+            raise FileNotFoundError(f"XML 파일을 찾을 수 없습니다: {source_path}")
 
 
 def create_hid_zone_csv(xml_or_zip_path: str, output_csv_path: str,
