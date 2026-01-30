@@ -1181,10 +1181,12 @@ class SimulationEngine:
         # ============================================================
         # HID Zone 관리 - HID_Zone_Master.csv 기반
         # ============================================================
-        # HID_Zone_Master.csv 없으면 layout.xml에서 자동 생성
+        # HID_Zone_Master.csv 없으면 layout.xml 또는 layout.zip에서 자동 생성
         if not os.path.exists(HID_ZONE_CSV_PATH):
-            print(f"HID_Zone_Master.csv 없음 - layout.xml에서 자동 생성 중...")
-            create_hid_zone_csv(LAYOUT_XML_PATH, HID_ZONE_CSV_PATH)
+            print(f"HID_Zone_Master.csv 없음 - 자동 생성 중...")
+            # XML 있으면 XML, 없으면 ZIP 사용
+            layout_source = LAYOUT_XML_PATH if os.path.exists(LAYOUT_XML_PATH) else LAYOUT_ZIP_PATH
+            create_hid_zone_csv(layout_source, HID_ZONE_CSV_PATH)
             print(f"HID_Zone_Master.csv 생성 완료: {HID_ZONE_CSV_PATH}")
 
         self.hid_zones: Dict[int, HIDZone] = parse_hid_zones(HID_ZONE_CSV_PATH)
@@ -2240,9 +2242,10 @@ async def switch_fab_api(fab_name: str, layout_prefix: str = None):
         # HID Zone 로드
         if os.path.exists(HID_ZONE_CSV_PATH):
             engine.load_hid_zones(HID_ZONE_CSV_PATH)
-        elif os.path.exists(LAYOUT_XML_PATH):
-            print(f"HID_Zone_Master.csv 없음 - layout.xml에서 자동 생성 중...")
-            create_hid_zone_csv(LAYOUT_XML_PATH, HID_ZONE_CSV_PATH)
+        elif os.path.exists(LAYOUT_XML_PATH) or os.path.exists(LAYOUT_ZIP_PATH):
+            print(f"HID_Zone_Master.csv 없음 - 자동 생성 중...")
+            layout_source = LAYOUT_XML_PATH if os.path.exists(LAYOUT_XML_PATH) else LAYOUT_ZIP_PATH
+            create_hid_zone_csv(layout_source, HID_ZONE_CSV_PATH)
             engine.load_hid_zones(HID_ZONE_CSV_PATH)
 
         # Station 로드
