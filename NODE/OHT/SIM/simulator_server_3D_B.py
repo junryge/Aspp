@@ -2256,7 +2256,7 @@ async def switch_fab_api(fab_name: str, layout_prefix: str = None):
                 } for z in engine.hid_zones.values()
             ],
             'stations': [
-                {'stationId': s.stationId, 'x': s.x, 'y': s.y, 'name': s.name}
+                {'stationId': s.stationId, 'x': s.x, 'y': s.y, 'name': s.stationName}
                 for s in engine.stations.values()
             ]
         }
