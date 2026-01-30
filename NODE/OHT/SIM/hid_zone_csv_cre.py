@@ -503,12 +503,30 @@ def load_xml_content(source_path: str) -> Tuple[str, str]:
     Returns:
         (xml_content, xml_file_path)
     """
-    if source_path.endswith('.zip'):
-        print(f"layout.zip에서 layout.xml 추출 중: {source_path}")
+    if source_path.lower().endswith('.zip'):
+        print(f"layout.zip에서 XML 추출 중: {source_path}")
         # 임시 파일로 추출
         import tempfile
         with zipfile.ZipFile(source_path, 'r') as zf:
-            with zf.open('layout.xml') as f:
+            # ZIP 내 파일 목록 확인
+            file_list = zf.namelist()
+            print(f"  ZIP 내 파일 목록: {file_list}")
+
+            # XML 파일 찾기 (layout.xml 또는 *.xml)
+            xml_file = None
+            for name in file_list:
+                lower_name = name.lower()
+                if lower_name == 'layout.xml':
+                    xml_file = name
+                    break
+                elif lower_name.endswith('.xml'):
+                    xml_file = name  # 첫 번째 XML 파일 사용
+
+            if not xml_file:
+                raise FileNotFoundError(f"ZIP 파일 내에 XML 파일이 없습니다: {file_list}")
+
+            print(f"  사용할 XML 파일: {xml_file}")
+            with zf.open(xml_file) as f:
                 content = f.read().decode('utf-8')
 
             # iterparse용 임시 파일 생성
