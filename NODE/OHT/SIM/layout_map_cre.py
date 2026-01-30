@@ -204,15 +204,83 @@ def ensure_layout_html(html_path: str, xml_path: str, zip_path: str = None) -> N
     print("=" * 60)
 
 
+def get_fab_paths(script_dir, fab_name: str, layout_prefix: str = "A"):
+    """
+    FAB별 파일 경로를 반환
+
+    실제 폴더 구조:
+        MAP/{FAB}/{prefix}.layout.zip
+        MAP/{FAB}/{prefix}.layout.xml
+        MAP/{FAB}/{prefix}.layout.html
+
+    Args:
+        script_dir: 스크립트 디렉토리
+        fab_name: FAB 이름 (예: "M14A", "M16A", "M16B")
+        layout_prefix: 레이아웃 파일 접두사 (예: "A", "BR", "E", "B")
+
+    Returns:
+        dict: 각 파일 경로를 담은 딕셔너리
+    """
+    map_base_dir = script_dir / "MAP"
+    fab_dir = map_base_dir / fab_name
+    prefix = layout_prefix.upper()
+
+    return {
+        "layout_zip": str(fab_dir / f"{prefix}.layout.zip"),
+        "layout_xml": str(fab_dir / f"{prefix}.layout.xml"),
+        "layout_html": str(fab_dir / f"{prefix}.layout.html"),
+    }
+
+
+def ensure_layout_html_for_fab(script_dir, fab_name: str, layout_prefix: str = "A"):
+    """
+    FAB별 layout.html 생성
+
+    Args:
+        script_dir: 스크립트 디렉토리
+        fab_name: FAB 이름 (예: "M14", "M16")
+        layout_prefix: 레이아웃 파일 접두사 (예: "A", "BR", "E")
+    """
+    paths = get_fab_paths(script_dir, fab_name, layout_prefix)
+    ensure_layout_html(
+        paths["layout_html"],
+        paths["layout_xml"],
+        paths["layout_zip"]
+    )
+
+
 def main():
     """
     커맨드라인 실행용 메인 함수
+
+    사용법:
+        python layout_map_cre.py [layout.zip 경로] [출력 layout.html 경로]
+        python layout_map_cre.py --fab M14 --layout A
     """
     import sys
     import pathlib
 
     # 기본 경로
     script_dir = pathlib.Path(__file__).parent.resolve()
+
+    # FAB 모드 확인
+    if "--fab" in sys.argv:
+        fab_idx = sys.argv.index("--fab")
+        fab_name = sys.argv[fab_idx + 1] if fab_idx + 1 < len(sys.argv) else "M14"
+
+        layout_prefix = "A"
+        if "--layout" in sys.argv:
+            layout_idx = sys.argv.index("--layout")
+            layout_prefix = sys.argv[layout_idx + 1] if layout_idx + 1 < len(sys.argv) else "A"
+
+        print("=" * 60)
+        print(f"layout_map_cre.py - FAB 모드: {fab_name}, 레이아웃: {layout_prefix}")
+        print("=" * 60)
+
+        ensure_layout_html_for_fab(script_dir, fab_name, layout_prefix)
+        return
+
+    # 기존 모드 (직접 경로 지정)
     default_zip = str(script_dir / 'layout' / 'layout' / 'layout.zip')
     default_output = str(script_dir / 'layout' / 'layout' / 'layout.html')
 
