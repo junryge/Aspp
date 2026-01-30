@@ -1297,6 +1297,17 @@ class SimulationEngine:
 
     def init_vehicles(self, count: int):
         """Vehicle 초기화 - Java Vhl 기반 + HID Zone 연동"""
+        # 기존 차량 전부 제거
+        self.vehicles.clear()
+        self.vehicle_zone_map.clear()
+
+        # 모든 Zone 차량 수 초기화
+        for zone in self.hid_zones.values():
+            zone.vehicleSet.clear()
+            zone.vehicleCount = 0
+
+        print(f"OHT {count}대 초기화 중...")
+
         node_list = list(self.nodes.keys())
         for i in range(count):
             vid = f"V{i+1:05d}"  # Java 형식: V00001
@@ -1322,6 +1333,8 @@ class SimulationEngine:
             self._assign_vehicle_to_zone(v)
 
             self._assign_task(v)
+
+        print(f"OHT {count}대 초기화 완료")
 
     def _assign_vehicle_to_zone(self, v: Vehicle):
         """차량을 적절한 Zone에 할당"""
@@ -2148,6 +2161,8 @@ async def startup():
                 'hidType': z.hidType,
                 'inLanes': [{'from': lane.fromNode, 'to': lane.toNode} for lane in z.inLanes],
                 'outLanes': [{'from': lane.fromNode, 'to': lane.toNode} for lane in z.outLanes],
+                'inCount': z.inCount,
+                'outCount': z.outCount,
                 'vehicleMax': z.vehicleMax,
                 'vehiclePrecaution': z.vehiclePrecaution
             }
@@ -2332,6 +2347,8 @@ async def switch_fab_api(fab_name: str, layout_prefix: str = None):
                     'hidType': z.hidType,
                     'inLanes': [{'from': lane.fromNode, 'to': lane.toNode} for lane in z.inLanes],
                     'outLanes': [{'from': lane.fromNode, 'to': lane.toNode} for lane in z.outLanes],
+                    'inCount': z.inCount,
+                    'outCount': z.outCount,
                     'vehicleMax': z.vehicleMax,
                     'vehiclePrecaution': z.vehiclePrecaution
                 } for z in engine.hid_zones.values()
@@ -2367,23 +2384,27 @@ async def switch_fab_api(fab_name: str, layout_prefix: str = None):
 
 @app.post("/api/fab/vehicle-count")
 async def set_fab_vehicle_count(fab_name: str, count: int):
-    """FAB별 OHT 대수 설정"""
-    global engine
+    """FAB별 OHT 대수 설정 및 즉시 적용"""
+    global engine, VEHICLE_COUNT
 
     if count < 1 or count > 2000:
         return {"status": "error", "message": "OHT 대수는 1~2000 사이여야 합니다"}
 
+    # 설정 저장 (fab_config.json에 영구 저장됨)
     set_vehicle_count_for_fab(fab_name, count)
 
-    # 현재 FAB이면 엔진 재초기화
+    # 현재 FAB이면 즉시 재시작
     if fab_name == FAB_NAME and engine:
+        VEHICLE_COUNT = count
         engine.init_vehicles(count)
+        print(f"[OHT 대수 변경] {fab_name}: {count}대로 재시작됨")
 
     return {
         "status": "ok",
-        "message": f"{fab_name} OHT 대수 설정: {count}대 (저장됨)",
+        "message": f"{fab_name} OHT {count}대로 재시작됨 (설정 저장됨)",
         "fab_name": fab_name,
         "vehicle_count": count,
+        "current_vehicle_count": len(engine.vehicles) if engine else 0,
         "fab_config": FAB_CONFIG
     }
 
