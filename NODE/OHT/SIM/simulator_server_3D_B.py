@@ -68,10 +68,15 @@ def get_fab_paths(fab_name: str, layout_prefix: str = "A"):
     FAB별 파일 경로를 반환
 
     실제 구조:
-        MAP/{FAB}/{prefix}.layout.zip
+        MAP/{FAB}/{prefix}.layout.zip              <- ZIP 파일
+        MAP/{FAB}/{prefix}.layout/layout/layout.xml <- 압축 해제된 XML
         MAP/{FAB}/{prefix}.station.dat
         MAP/{FAB}/{prefix}.mcp75.cfg
-        MAP/{FAB}/{prefix}.route.dat
+
+    ZIP 내부 구조:
+        layout/layout.xml
+        layout/route.xml
+        mcp/*.cfg
 
     Args:
         fab_name: FAB 이름 (예: "M14A", "M16A", "M16B")
@@ -83,11 +88,20 @@ def get_fab_paths(fab_name: str, layout_prefix: str = "A"):
     fab_dir = MAP_BASE_DIR / fab_name
     prefix = layout_prefix.upper()
 
+    # 압축 해제된 폴더 경로
+    extracted_dir = fab_dir / f"{prefix}.layout"
+
     return {
-        # MAP/{FAB}/ 경로 - 모든 파일이 여기에 있음
+        # ZIP 파일 경로
         "layout_zip": str(fab_dir / f"{prefix}.layout.zip"),
-        "layout_xml": str(fab_dir / f"{prefix}.layout.xml"),
+
+        # 압축 해제된 XML 경로 (우선 사용)
+        "layout_xml": str(extracted_dir / "layout" / "layout.xml"),
+
+        # 생성할 HTML 파일 경로
         "layout_html": str(fab_dir / f"{prefix}.layout.html"),
+
+        # 기타 데이터 파일
         "station_dat": str(fab_dir / f"{prefix}.station.dat"),
         "mcp75_cfg": str(fab_dir / f"{prefix}.mcp75.cfg"),
         "route_dat": str(fab_dir / f"{prefix}.route.dat"),
