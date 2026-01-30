@@ -1303,8 +1303,7 @@ class SimulationEngine:
 
         # 모든 Zone 차량 수 초기화
         for zone in self.hid_zones.values():
-            zone.vehicleSet.clear()
-            zone.vehicleCount = 0
+            zone.currentVehicles.clear()
 
         print(f"OHT {count}대 초기화 중...")
 
@@ -3411,7 +3410,9 @@ function updateZoneList() {
         html += '    <div class="zone-info"><span class="label">주의 기준:</span><span class="value">' + precaution + '</span></div>';
         if (z.bayZone) html += '    <div class="zone-info"><span class="label">Bay Zone:</span><span class="value">' + z.bayZone + '</span></div>';
         if (z.subRegion) html += '    <div class="zone-info"><span class="label">Sub Region:</span><span class="value">' + z.subRegion + '</span></div>';
-        if (z.inCount || z.outCount) html += '    <div class="zone-info"><span class="label">IN/OUT:</span><span class="value">' + (z.inCount || 0) + ' / ' + (z.outCount || 0) + '</span></div>';
+        const inLaneCount = (z.inLanes && z.inLanes.length) || z.inCount || 0;
+        const outLaneCount = (z.outLanes && z.outLanes.length) || z.outCount || 0;
+        html += '    <div class="zone-info"><span class="label">IN/OUT Lane:</span><span class="value">' + inLaneCount + ' / ' + outLaneCount + '</span></div>';
         html += '  </div>';
         html += '</div>';
     });
