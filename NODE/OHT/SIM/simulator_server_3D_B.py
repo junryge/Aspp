@@ -940,9 +940,11 @@ def parse_hid_zones(filepath: str) -> Dict[int, HIDZone]:
                             if lane:
                                 out_lanes.append(lane)
 
-                    # CSV 원본 값 그대로 사용
-                    vehicle_max = int(row.get('Vehicle_Max', 37))
-                    vehicle_precaution = int(row.get('Vehicle_Precaution', 35))
+                    # CSV 원본 값 그대로 사용 (최소값 보장)
+                    vehicle_max_str = row.get('Vehicle_Max', '37')
+                    vehicle_precaution_str = row.get('Vehicle_Precaution', '35')
+                    vehicle_max = max(1, int(vehicle_max_str) if vehicle_max_str else 37)
+                    vehicle_precaution = max(1, int(vehicle_precaution_str) if vehicle_precaution_str else 35)
 
                     # Sub_Region 파싱 (빈 값이면 0)
                     sub_region_str = row.get('Sub_Region', '')
