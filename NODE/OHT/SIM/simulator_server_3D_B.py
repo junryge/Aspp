@@ -2143,9 +2143,11 @@ async def startup():
     # 레이아웃 로드
     nodes, edges = parse_layout(LAYOUT_PATH)
 
-    # 엔진 초기화
+    # 엔진 초기화 (FAB_CONFIG에서 저장된 OHT 대수 사용)
     engine = SimulationEngine(nodes, edges)
-    engine.init_vehicles(VEHICLE_COUNT)
+    saved_vehicle_count = get_vehicle_count_for_fab(FAB_NAME)
+    engine.init_vehicles(saved_vehicle_count)
+    print(f"FAB {FAB_NAME} 저장된 OHT 대수: {saved_vehicle_count}대")
 
     # 프론트엔드용 레이아웃 데이터 (Zone Lane 정보 포함)
     layout_data = {
@@ -2192,7 +2194,7 @@ async def startup():
     asyncio.create_task(output_cleanup_loop())  # 10분마다 OUTPUT 파일 삭제
 
     print(f"\n서버 시작: http://localhost:8000")
-    print(f"OHT {VEHICLE_COUNT}대 시뮬레이션 시작")
+    print(f"OHT {saved_vehicle_count}대 시뮬레이션 시작 (fab_config.json 설정값)")
     print(f"HID Zone {len(engine.hid_zones)}개 로드됨")
     print(f"Station {len([s for s in engine.stations.values() if s.hasCoords])}개 로드됨 (좌표 있음)\n")
 
