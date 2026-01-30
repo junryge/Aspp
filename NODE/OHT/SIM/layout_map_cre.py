@@ -192,20 +192,27 @@ def ensure_layout_html(html_path: str, xml_path: str, zip_path: str = None) -> N
         with zipfile.ZipFile(zip_path, 'r') as zf:
             # ZIP 내 파일 목록 확인
             file_list = zf.namelist()
-            print(f"  ZIP 내 파일 목록: {file_list}")
+            print(f"  ZIP 내 파일 수: {len(file_list)}개")
 
-            # XML 파일 찾기 (layout.xml 또는 *.xml)
+            # XML 파일 찾기 (우선순위: layout/layout.xml > layout.xml > *.xml)
             xml_file = None
             for name in file_list:
                 lower_name = name.lower()
-                if lower_name == 'layout.xml':
+                # 1순위: layout/layout.xml (실제 구조)
+                if lower_name == 'layout/layout.xml':
                     xml_file = name
                     break
-                elif lower_name.endswith('.xml'):
-                    xml_file = name  # 첫 번째 XML 파일 사용
+                # 2순위: layout.xml
+                elif lower_name == 'layout.xml' and xml_file is None:
+                    xml_file = name
+                # 3순위: 아무 .xml 파일 (layout.xml이 없을 때만)
+                elif lower_name.endswith('.xml') and 'layout' in lower_name and xml_file is None:
+                    xml_file = name
 
             if not xml_file:
-                raise FileNotFoundError(f"ZIP 파일 내에 XML 파일이 없습니다: {file_list}")
+                # XML 파일 목록 출력
+                xml_files = [f for f in file_list if f.lower().endswith('.xml')]
+                raise FileNotFoundError(f"ZIP 파일 내에 layout.xml이 없습니다. XML 파일들: {xml_files}")
 
             print(f"  사용할 XML 파일: {xml_file}")
             with zf.open(xml_file) as f:
@@ -227,9 +234,9 @@ def get_fab_paths(script_dir, fab_name: str, layout_prefix: str = "A"):
     FAB별 파일 경로를 반환
 
     실제 폴더 구조:
-        MAP/{FAB}/{prefix}.layout.zip
-        MAP/{FAB}/{prefix}.layout.xml
-        MAP/{FAB}/{prefix}.layout.html
+        MAP/{FAB}/{prefix}.layout.zip              <- ZIP 파일
+        MAP/{FAB}/{prefix}.layout/layout/layout.xml <- 압축 해제된 XML
+        MAP/{FAB}/{prefix}.layout.html             <- 생성할 HTML
 
     Args:
         script_dir: 스크립트 디렉토리
@@ -243,9 +250,12 @@ def get_fab_paths(script_dir, fab_name: str, layout_prefix: str = "A"):
     fab_dir = map_base_dir / fab_name
     prefix = layout_prefix.upper()
 
+    # 압축 해제된 폴더 경로
+    extracted_dir = fab_dir / f"{prefix}.layout"
+
     return {
         "layout_zip": str(fab_dir / f"{prefix}.layout.zip"),
-        "layout_xml": str(fab_dir / f"{prefix}.layout.xml"),
+        "layout_xml": str(extracted_dir / "layout" / "layout.xml"),
         "layout_html": str(fab_dir / f"{prefix}.layout.html"),
     }
 
