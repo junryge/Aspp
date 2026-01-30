@@ -22,6 +22,7 @@ from collections import defaultdict
 from enum import Enum
 import heapq
 import csv
+import zipfile
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.responses import HTMLResponse, FileResponse
@@ -946,22 +947,149 @@ def build_lane_to_zone_map(zones: Dict[int, HIDZone]) -> Tuple[Dict[Tuple[int,in
 # 레이아웃 파서
 # ============================================================
 def parse_layout(filepath: str) -> Tuple[Dict[int, Node], List[Tuple[int, int, float]]]:
+    """
+    레이아웃 파싱 - HTML 또는 XML 자동 처리
+
+    1. filepath가 .html이면 HTML 파싱
+    2. filepath가 .xml이면 XML 직접 파싱
+    3. .html 파싱 실패 시 .xml 또는 .zip에서 재시도
+    """
     print(f"레이아웃 파싱: {filepath}")
 
-    with open(filepath, 'r', encoding='utf-8') as f:
-        content = f.read()
-
-    # 노드 데이터
-    a_match = re.search(r'const A=(\[.*?\]);', content, re.DOTALL)
-    nodes_data = json.loads(a_match.group(1))
     nodes = {}
-    for n in nodes_data:
-        nodes[n['no']] = Node(no=n['no'], x=n['x'], y=n['y'], stations=n.get('stations', []))
+    edges = []
 
-    # 연결 데이터
-    c_match = re.search(r'const C=(\[.*?\]);', content, re.DOTALL)
-    connections = json.loads(c_match.group(1))
+    # HTML 파싱 시도
+    if filepath.lower().endswith('.html') and os.path.exists(filepath):
+        try:
+            with open(filepath, 'r', encoding='utf-8') as f:
+                content = f.read()
 
+            # 노드 데이터
+            a_match = re.search(r'const A=(\[.*?\]);', content, re.DOTALL)
+            if a_match:
+                nodes_data = json.loads(a_match.group(1))
+                for n in nodes_data:
+                    nodes[n['no']] = Node(no=n['no'], x=n['x'], y=n['y'], stations=n.get('stations', []))
+
+            # 연결 데이터
+            c_match = re.search(r'const C=(\[.*?\]);', content, re.DOTALL)
+            if c_match:
+                connections = json.loads(c_match.group(1))
+                for conn in connections:
+                    from_n, to_n = conn[0], conn[1]
+                    if from_n in nodes and to_n in nodes:
+                        n1, n2 = nodes[from_n], nodes[to_n]
+                        dist = math.sqrt((n2.x - n1.x)**2 + (n2.y - n1.y)**2)
+                        edges.append((from_n, to_n, dist))
+
+            if len(nodes) > 0:
+                print(f"  HTML 파싱 성공 - 노드: {len(nodes)}, 엣지: {len(edges)}")
+                return nodes, edges
+            else:
+                print(f"  HTML 파싱 실패 - 노드 0개, XML에서 재시도...")
+        except Exception as e:
+            print(f"  HTML 파싱 오류: {e}, XML에서 재시도...")
+
+    # XML 직접 파싱 시도
+    xml_path = LAYOUT_XML_PATH
+    zip_path = LAYOUT_ZIP_PATH
+
+    if os.path.exists(xml_path):
+        print(f"  XML 직접 파싱: {xml_path}")
+        nodes, edges = parse_layout_xml_direct(xml_path)
+    elif os.path.exists(zip_path):
+        print(f"  ZIP에서 XML 추출 후 파싱: {zip_path}")
+        nodes, edges = parse_layout_zip_direct(zip_path)
+    else:
+        print(f"  [오류] 레이아웃 파일을 찾을 수 없습니다")
+        print(f"    - HTML: {filepath}")
+        print(f"    - XML: {xml_path}")
+        print(f"    - ZIP: {zip_path}")
+
+    print(f"  노드: {len(nodes)}, 엣지: {len(edges)}")
+    return nodes, edges
+
+
+def parse_layout_xml_direct(xml_path: str) -> Tuple[Dict[int, Node], List[Tuple[int, int, float]]]:
+    """layout.xml 파일 직접 파싱 (라인 단위)"""
+    nodes = {}
+    connections = []
+
+    print(f"    XML 파싱 시작...")
+
+    current_addr = None
+    current_addr_params = {}
+    in_next_addr = False
+    next_addr_params = {}
+
+    with open(xml_path, 'r', encoding='utf-8') as f:
+        line_count = 0
+        for line in f:
+            line_count += 1
+            if line_count % 500000 == 0:
+                print(f"    처리 중: {line_count:,} 라인...")
+
+            line = line.strip()
+
+            # Addr 그룹 시작
+            if '<group name="Addr' in line and 'class=' in line and 'address.Addr"' in line:
+                if current_addr is not None and 'address' in current_addr_params:
+                    addr_no = int(current_addr_params.get('address', 0))
+                    if addr_no > 0:
+                        x = float(current_addr_params.get('draw-x', 0))
+                        y = float(current_addr_params.get('draw-y', 0))
+                        nodes[addr_no] = Node(no=addr_no, x=round(x, 2), y=round(y, 2), stations=[])
+
+                current_addr_params = {}
+                current_addr = line
+                in_next_addr = False
+                continue
+
+            # NextAddr 그룹 시작
+            if '<group name="NextAddr' in line and 'class=' in line and 'NextAddr"' in line:
+                in_next_addr = True
+                next_addr_params = {}
+                continue
+
+            # NextAddr 그룹 종료
+            if in_next_addr and '</group>' in line:
+                if 'address' in current_addr_params and 'next-address' in next_addr_params:
+                    from_addr = int(current_addr_params.get('address', 0))
+                    try:
+                        to_addr = int(next_addr_params.get('next-address', '0'))
+                        if from_addr > 0 and to_addr > 0:
+                            connections.append([from_addr, to_addr])
+                    except ValueError:
+                        pass
+                in_next_addr = False
+                continue
+
+            # 파라미터 파싱
+            if '<param ' in line and 'key="' in line and 'value="' in line:
+                key_match = re.search(r'key="([^"]+)"', line)
+                value_match = re.search(r'value="([^"]*)"', line)
+
+                if key_match and value_match:
+                    key = key_match.group(1)
+                    value = value_match.group(1)
+
+                    if in_next_addr:
+                        next_addr_params[key] = value
+                    elif current_addr is not None:
+                        current_addr_params[key] = value
+
+    # 마지막 Addr 저장
+    if current_addr is not None and 'address' in current_addr_params:
+        addr_no = int(current_addr_params.get('address', 0))
+        if addr_no > 0:
+            x = float(current_addr_params.get('draw-x', 0))
+            y = float(current_addr_params.get('draw-y', 0))
+            nodes[addr_no] = Node(no=addr_no, x=round(x, 2), y=round(y, 2), stations=[])
+
+    print(f"    XML 파싱 완료: {len(nodes)}개 노드, {len(connections)}개 연결")
+
+    # 엣지 생성
     edges = []
     for conn in connections:
         from_n, to_n = conn[0], conn[1]
@@ -970,8 +1098,54 @@ def parse_layout(filepath: str) -> Tuple[Dict[int, Node], List[Tuple[int, int, f
             dist = math.sqrt((n2.x - n1.x)**2 + (n2.y - n1.y)**2)
             edges.append((from_n, to_n, dist))
 
-    print(f"  노드: {len(nodes)}, 엣지: {len(edges)}")
     return nodes, edges
+
+
+def parse_layout_zip_direct(zip_path: str) -> Tuple[Dict[int, Node], List[Tuple[int, int, float]]]:
+    """layout.zip에서 XML 추출 후 직접 파싱"""
+    import tempfile
+
+    with zipfile.ZipFile(zip_path, 'r') as zf:
+        file_list = zf.namelist()
+        print(f"    ZIP 내 파일 수: {len(file_list)}개")
+
+        # XML 파일 찾기
+        xml_file = None
+        for name in file_list:
+            lower_name = name.lower()
+            if lower_name == 'layout/layout.xml':
+                xml_file = name
+                break
+            elif lower_name == 'layout.xml' and xml_file is None:
+                xml_file = name
+            elif lower_name.endswith('.xml') and 'layout' in lower_name and xml_file is None:
+                xml_file = name
+
+        if not xml_file:
+            print(f"    [오류] ZIP 내 layout.xml 없음")
+            return {}, []
+
+        print(f"    사용할 XML: {xml_file}")
+
+        # 임시 파일로 추출
+        temp_dir = tempfile.mkdtemp()
+        temp_xml = os.path.join(temp_dir, 'layout.xml')
+        with zf.open(xml_file) as f:
+            content = f.read().decode('utf-8')
+        with open(temp_xml, 'w', encoding='utf-8') as f:
+            f.write(content)
+
+        # XML 파싱
+        nodes, edges = parse_layout_xml_direct(temp_xml)
+
+        # 임시 파일 정리
+        try:
+            os.remove(temp_xml)
+            os.rmdir(temp_dir)
+        except:
+            pass
+
+        return nodes, edges
 
 # ============================================================
 # 시뮬레이션 엔진
