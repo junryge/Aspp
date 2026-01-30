@@ -41,16 +41,206 @@ from hid_zone_csv_cre import create_hid_zone_csv
 import pathlib
 _SCRIPT_DIR = pathlib.Path(__file__).parent.resolve()
 
-LAYOUT_PATH = str(_SCRIPT_DIR / "layout" / "layout" / "layout.html")
-LAYOUT_XML_PATH = str(_SCRIPT_DIR / "layout" / "layout.xml")  # 실제 환경의 layout.xml
-LAYOUT_ZIP_PATH = str(_SCRIPT_DIR / "layout" / "layout" / "layout.zip")  # 백업용 ZIP (xml 없을 때)
-OUTPUT_DIR = str(_SCRIPT_DIR / "output")
-HID_ZONE_CSV_PATH = str(_SCRIPT_DIR / "HID_Zone_Master.csv")  # HID Zone 마스터 파일
-STATION_DAT_PATH = str(_SCRIPT_DIR / "station.dat")  # Station 데이터 파일
+# ============================================================
+# FAB 설정 - FAB별 다른 레이아웃/스테이션 파일 사용
+# ============================================================
+# 실제 폴더 구조:
+#   MAP/M14A/A.layout.zip, A.station.dat, A.mcp75.cfg, A.route.dat
+#   MAP/M14B/A.layout.zip, A.station.dat, ...
+#   MAP/M16A/A.layout.zip, BR.layout.zip, E.layout.zip, ...
+#   MAP/M16B/B.layout.zip, B.station.dat, ...
+
+# 사용 가능한 FAB 목록
+AVAILABLE_FABS = ["M14A", "M14B", "M16A", "M16B"]
+
+# 현재 사용할 FAB (변경하여 다른 FAB 선택)
+FAB_NAME = "M14A"
+
+# 레이아웃 파일 선택 (FAB 내 여러 레이아웃 중 선택)
+# 예: "A", "BR", "E", "B" 등 (A.layout.zip, BR.layout.zip, E.layout.zip)
+LAYOUT_PREFIX = "A"
+
+# 기본 디렉토리 설정 (모든 파일이 MAP 폴더 안에 있음)
+MAP_BASE_DIR = _SCRIPT_DIR / "MAP"
+
+def get_fab_paths(fab_name: str, layout_prefix: str = "A"):
+    """
+    FAB별 파일 경로를 반환
+
+    실제 구조:
+        MAP/{FAB}/{prefix}.layout.zip
+        MAP/{FAB}/{prefix}.station.dat
+        MAP/{FAB}/{prefix}.mcp75.cfg
+        MAP/{FAB}/{prefix}.route.dat
+
+    Args:
+        fab_name: FAB 이름 (예: "M14A", "M16A", "M16B")
+        layout_prefix: 레이아웃 파일 접두사 (예: "A", "BR", "E", "B")
+
+    Returns:
+        dict: 각 파일 경로를 담은 딕셔너리
+    """
+    fab_dir = MAP_BASE_DIR / fab_name
+    prefix = layout_prefix.upper()
+
+    return {
+        # MAP/{FAB}/ 경로 - 모든 파일이 여기에 있음
+        "layout_zip": str(fab_dir / f"{prefix}.layout.zip"),
+        "layout_xml": str(fab_dir / f"{prefix}.layout.xml"),
+        "layout_html": str(fab_dir / f"{prefix}.layout.html"),
+        "station_dat": str(fab_dir / f"{prefix}.station.dat"),
+        "mcp75_cfg": str(fab_dir / f"{prefix}.mcp75.cfg"),
+        "route_dat": str(fab_dir / f"{prefix}.route.dat"),
+        "lanecut_dat": str(fab_dir / f"{prefix}.lanecut.dat"),
+
+        # HID Zone 마스터 파일 (FAB별, 자동 생성됨)
+        "hid_zone_csv": str(fab_dir / f"HID_Zone_Master_{fab_name}_{prefix}.csv"),
+
+        # 출력 디렉토리 (FAB별)
+        "output_dir": str(_SCRIPT_DIR / "output" / fab_name / prefix),
+    }
+
+def list_available_fabs():
+    """
+    MAP 폴더에서 사용 가능한 FAB 목록 자동 탐색
+
+    Returns:
+        list: 사용 가능한 FAB 이름 목록
+    """
+    fabs = []
+    if MAP_BASE_DIR.exists():
+        for d in MAP_BASE_DIR.iterdir():
+            if d.is_dir():
+                # layout.zip 파일이 있는 폴더만 FAB으로 인식
+                if any(f.suffix.lower() == '.zip' and 'layout' in f.name.lower()
+                       for f in d.iterdir() if f.is_file()):
+                    fabs.append(d.name)
+    return sorted(fabs)
+
+def list_available_layouts(fab_name: str):
+    """
+    특정 FAB의 사용 가능한 레이아웃 파일 목록 반환
+
+    Args:
+        fab_name: FAB 이름
+
+    Returns:
+        list: 사용 가능한 레이아웃 접두사 목록
+    """
+    fab_dir = MAP_BASE_DIR / fab_name
+    layouts = []
+
+    if fab_dir.exists():
+        for f in fab_dir.iterdir():
+            # A.layout.zip, BR.layout.zip, E.layout.zip 형식
+            if f.is_file() and f.suffix.lower() == ".zip" and ".layout" in f.name.lower():
+                # A.layout.zip -> "A"
+                prefix = f.name.split(".")[0].upper()
+                layouts.append(prefix)
+
+    return sorted(set(layouts))
+
+def switch_fab(fab_name: str, layout_prefix: str = None):
+    """
+    FAB 전환 (런타임에서 호출)
+
+    Args:
+        fab_name: 전환할 FAB 이름
+        layout_prefix: 레이아웃 접두사 (None이면 첫 번째 사용 가능한 것)
+    """
+    global FAB_NAME, LAYOUT_PREFIX, LAYOUT_PATH, LAYOUT_XML_PATH, LAYOUT_ZIP_PATH
+    global OUTPUT_DIR, HID_ZONE_CSV_PATH, STATION_DAT_PATH, FAB_ID
+
+    # FAB 목록 자동 업데이트
+    available_fabs = list_available_fabs()
+    if fab_name not in available_fabs:
+        print(f"경고: {fab_name}을 찾을 수 없습니다. 사용 가능: {available_fabs}")
+        if available_fabs:
+            fab_name = available_fabs[0]
+        else:
+            print("오류: 사용 가능한 FAB이 없습니다.")
+            return None
+
+    FAB_NAME = fab_name
+
+    # 레이아웃 접두사 결정
+    if layout_prefix is None:
+        available = list_available_layouts(fab_name)
+        layout_prefix = available[0] if available else "A"
+
+    LAYOUT_PREFIX = layout_prefix
+
+    # 경로 업데이트
+    paths = get_fab_paths(fab_name, layout_prefix)
+    LAYOUT_PATH = paths["layout_html"]
+    LAYOUT_XML_PATH = paths["layout_xml"]
+    LAYOUT_ZIP_PATH = paths["layout_zip"]
+    OUTPUT_DIR = paths["output_dir"]
+    HID_ZONE_CSV_PATH = paths["hid_zone_csv"]
+    STATION_DAT_PATH = paths["station_dat"]
+
+    # FAB_ID 업데이트
+    FAB_ID = f"{FAB_NAME}"
+
+    # 출력 디렉토리 생성
+    os.makedirs(OUTPUT_DIR, exist_ok=True)
+
+    print(f"FAB 전환: {fab_name} (레이아웃: {layout_prefix})")
+    print(f"  - Layout ZIP: {LAYOUT_ZIP_PATH}")
+    print(f"  - Station DAT: {STATION_DAT_PATH}")
+    print(f"  - HID Zone CSV: {HID_ZONE_CSV_PATH}")
+
+    return paths
+
+# MAP 폴더에서 FAB 목록 자동 탐색
+_detected_fabs = list_available_fabs()
+if _detected_fabs:
+    AVAILABLE_FABS = _detected_fabs
+    if FAB_NAME not in AVAILABLE_FABS:
+        FAB_NAME = AVAILABLE_FABS[0]
+    # 해당 FAB의 레이아웃 목록 확인
+    _detected_layouts = list_available_layouts(FAB_NAME)
+    if _detected_layouts and LAYOUT_PREFIX not in _detected_layouts:
+        LAYOUT_PREFIX = _detected_layouts[0]
+
+# 초기 FAB 경로 설정
+_initial_paths = get_fab_paths(FAB_NAME, LAYOUT_PREFIX)
+LAYOUT_PATH = _initial_paths["layout_html"]
+LAYOUT_XML_PATH = _initial_paths["layout_xml"]
+LAYOUT_ZIP_PATH = _initial_paths["layout_zip"]
+OUTPUT_DIR = _initial_paths["output_dir"]
+HID_ZONE_CSV_PATH = _initial_paths["hid_zone_csv"]
+STATION_DAT_PATH = _initial_paths["station_dat"]
+
+# 기존 호환용 (로컬 테스트용 - MAP 폴더가 없을 때 폴백)
+_LEGACY_LAYOUT_PATH = str(_SCRIPT_DIR / "layout" / "layout" / "layout.html")
+_LEGACY_LAYOUT_XML_PATH = str(_SCRIPT_DIR / "layout" / "layout.xml")
+_LEGACY_LAYOUT_ZIP_PATH = str(_SCRIPT_DIR / "layout" / "layout" / "layout.zip")
+_LEGACY_STATION_DAT_PATH = str(_SCRIPT_DIR / "station.dat")
+_LEGACY_HID_ZONE_CSV_PATH = str(_SCRIPT_DIR / "HID_Zone_Master.csv")
+
+def use_legacy_paths():
+    """기존 경로 사용 (MAP 폴더가 없는 환경용)"""
+    global LAYOUT_PATH, LAYOUT_XML_PATH, LAYOUT_ZIP_PATH, OUTPUT_DIR
+    global HID_ZONE_CSV_PATH, STATION_DAT_PATH
+
+    LAYOUT_PATH = _LEGACY_LAYOUT_PATH
+    LAYOUT_XML_PATH = _LEGACY_LAYOUT_XML_PATH
+    LAYOUT_ZIP_PATH = _LEGACY_LAYOUT_ZIP_PATH
+    OUTPUT_DIR = str(_SCRIPT_DIR / "output")
+    HID_ZONE_CSV_PATH = _LEGACY_HID_ZONE_CSV_PATH
+    STATION_DAT_PATH = _LEGACY_STATION_DAT_PATH
+
+    print("기존 경로 사용 (레거시 모드)")
+
+# MAP 폴더가 없거나 FAB이 없으면 레거시 모드 사용
+if not MAP_BASE_DIR.exists() or not _detected_fabs:
+    use_legacy_paths()
+
 CSV_SAVE_INTERVAL = 10  # 10초마다 CSV 저장
 VEHICLE_COUNT = 450  # OHT 대수
 SIMULATION_INTERVAL = 0.5  # 0.5초마다 업데이트
-FAB_ID = "M14Q"
+FAB_ID = FAB_NAME  # FAB_NAME 그대로 사용
 MCP_NAME = "OHT"
 
 # ============================================================
@@ -1796,6 +1986,102 @@ async def index():
 async def get_layout():
     return layout_data
 
+@app.get("/api/fab/list")
+async def get_fab_list():
+    """사용 가능한 FAB 목록 조회"""
+    fab_info = {}
+    for fab in AVAILABLE_FABS:
+        layouts = list_available_layouts(fab)
+        fab_info[fab] = {
+            "name": fab,
+            "available_layouts": layouts,
+            "is_current": fab == FAB_NAME
+        }
+    return {
+        "current_fab": FAB_NAME,
+        "current_layout": LAYOUT_PREFIX,
+        "fabs": fab_info
+    }
+
+@app.get("/api/fab/current")
+async def get_current_fab():
+    """현재 FAB 정보 조회"""
+    return {
+        "fab_name": FAB_NAME,
+        "layout_prefix": LAYOUT_PREFIX,
+        "fab_id": FAB_ID,
+        "paths": {
+            "layout_zip": LAYOUT_ZIP_PATH,
+            "layout_xml": LAYOUT_XML_PATH,
+            "layout_html": LAYOUT_PATH,
+            "station_dat": STATION_DAT_PATH,
+            "hid_zone_csv": HID_ZONE_CSV_PATH,
+            "output_dir": OUTPUT_DIR
+        }
+    }
+
+@app.post("/api/fab/switch")
+async def switch_fab_api(fab_name: str, layout_prefix: str = None):
+    """
+    FAB 전환 API
+
+    주의: 서버 재시작 없이 FAB을 전환합니다.
+    시뮬레이션 데이터가 초기화됩니다.
+    """
+    global engine, layout_data
+
+    try:
+        # FAB 전환
+        paths = switch_fab(fab_name, layout_prefix)
+
+        # 레이아웃 파일 존재 확인
+        if not os.path.exists(LAYOUT_ZIP_PATH) and not os.path.exists(LAYOUT_XML_PATH):
+            return {
+                "status": "error",
+                "message": f"FAB {fab_name}의 레이아웃 파일을 찾을 수 없습니다: {LAYOUT_ZIP_PATH}"
+            }
+
+        # 엔진 재초기화 (새 FAB 데이터로)
+        # layout.html 자동 생성 (없거나 오래된 경우)
+        ensure_layout_html(LAYOUT_PATH, LAYOUT_XML_PATH, LAYOUT_ZIP_PATH)
+
+        # 새 레이아웃 로드
+        nodes, edges = parse_layout(LAYOUT_PATH)
+        engine = OHTSimulationEngine(nodes, edges, VEHICLE_COUNT)
+
+        # HID Zone 로드
+        if os.path.exists(HID_ZONE_CSV_PATH):
+            engine.load_hid_zones(HID_ZONE_CSV_PATH)
+        elif os.path.exists(LAYOUT_XML_PATH):
+            print(f"HID_Zone_Master.csv 없음 - layout.xml에서 자동 생성 중...")
+            create_hid_zone_csv(LAYOUT_XML_PATH, HID_ZONE_CSV_PATH)
+            engine.load_hid_zones(HID_ZONE_CSV_PATH)
+
+        # Station 로드
+        if os.path.exists(STATION_DAT_PATH):
+            engine.load_stations(STATION_DAT_PATH)
+
+        # 레이아웃 데이터 갱신
+        layout_data = {
+            'nodes': [{'no': n.no, 'x': n.x, 'y': n.y, 'stations': n.stations} for n in nodes.values()],
+            'edges': [[f, t, d] for f, t, d in edges],
+            'hidZones': engine.hid_zones,
+            'stations': engine.stations
+        }
+
+        return {
+            "status": "ok",
+            "message": f"FAB 전환 완료: {fab_name} (레이아웃: {LAYOUT_PREFIX})",
+            "fab_name": FAB_NAME,
+            "layout_prefix": LAYOUT_PREFIX,
+            "paths": paths
+        }
+    except Exception as e:
+        return {
+            "status": "error",
+            "message": str(e)
+        }
+
 @app.get("/api/state")
 async def get_state():
     return engine.get_state()
@@ -2190,8 +2476,17 @@ canvas { display: block; }
 <body>
 
 <div id="header">
-    <h1>SK Hynix M14 OHT Simulator <span style="font-size:14px;color:#00d4ff;">(Pseudo-3D)</span></h1>
+    <h1>SK Hynix OHT Simulator <span id="currentFabDisplay" style="font-size:14px;color:#00ff88;"></span> <span style="font-size:14px;color:#00d4ff;">(Pseudo-3D)</span></h1>
     <div class="status">
+        <div style="display:flex;align-items:center;gap:8px;">
+            <select id="fabSelect" style="padding:6px 10px;background:#1a1a3e;color:#00d4ff;border:1px solid #00d4ff;border-radius:4px;cursor:pointer;font-size:12px;font-weight:bold;">
+                <option value="">FAB 선택...</option>
+            </select>
+            <select id="layoutSelect" style="padding:6px 10px;background:#1a1a3e;color:#ff9900;border:1px solid #ff9900;border-radius:4px;cursor:pointer;font-size:12px;font-weight:bold;">
+                <option value="">레이아웃...</option>
+            </select>
+            <button id="btnSwitchFab" style="padding:6px 14px;background:#00ff88;color:#000;border:none;border-radius:4px;cursor:pointer;font-size:12px;font-weight:bold;">적용</button>
+        </div>
         <div style="display:flex;align-items:center;gap:8px;">
             <button id="btnToggle3D" style="padding:6px 14px;background:#ff9900;color:#000;border:none;border-radius:4px;cursor:pointer;font-size:12px;font-weight:bold;">3D 효과 OFF</button>
         </div>
@@ -2392,6 +2687,131 @@ canvas { display: block; }
 <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
 
 <script>
+// ============================================================
+// FAB 선택 관련 함수
+// ============================================================
+let currentFabInfo = null;
+
+async function loadFabList() {
+    try {
+        const response = await fetch('/api/fab/list');
+        const data = await response.json();
+        console.log('FAB 목록:', data);
+
+        currentFabInfo = data;
+
+        // FAB 드롭다운 업데이트
+        const fabSelect = document.getElementById('fabSelect');
+        fabSelect.innerHTML = '<option value="">FAB 선택...</option>';
+
+        Object.keys(data.fabs).sort().forEach(fabName => {
+            const fab = data.fabs[fabName];
+            const option = document.createElement('option');
+            option.value = fabName;
+            option.textContent = fabName;
+            if (fab.is_current) {
+                option.selected = true;
+            }
+            fabSelect.appendChild(option);
+        });
+
+        // 현재 FAB 표시
+        document.getElementById('currentFabDisplay').textContent = `[${data.current_fab}/${data.current_layout}]`;
+
+        // 현재 FAB의 레이아웃 목록 로드
+        if (data.current_fab) {
+            updateLayoutSelect(data.current_fab, data.current_layout);
+        }
+    } catch (error) {
+        console.error('FAB 목록 로드 실패:', error);
+    }
+}
+
+function updateLayoutSelect(fabName, currentLayout = null) {
+    const layoutSelect = document.getElementById('layoutSelect');
+
+    if (!currentFabInfo || !currentFabInfo.fabs[fabName]) {
+        layoutSelect.innerHTML = '<option value="">레이아웃...</option>';
+        return;
+    }
+
+    const layouts = currentFabInfo.fabs[fabName].available_layouts || [];
+    layoutSelect.innerHTML = '<option value="">레이아웃...</option>';
+
+    layouts.forEach(layout => {
+        const option = document.createElement('option');
+        option.value = layout;
+        option.textContent = layout;
+        if (layout === currentLayout || (layouts.length === 1)) {
+            option.selected = true;
+        }
+        layoutSelect.appendChild(option);
+    });
+
+    // 레이아웃이 1개면 자동 선택
+    if (layouts.length === 1) {
+        layoutSelect.value = layouts[0];
+    }
+}
+
+async function switchFab() {
+    const fabSelect = document.getElementById('fabSelect');
+    const layoutSelect = document.getElementById('layoutSelect');
+    const btnSwitch = document.getElementById('btnSwitchFab');
+
+    const fabName = fabSelect.value;
+    const layoutPrefix = layoutSelect.value;
+
+    if (!fabName) {
+        alert('FAB을 선택하세요.');
+        return;
+    }
+
+    if (!layoutPrefix) {
+        alert('레이아웃을 선택하세요.');
+        return;
+    }
+
+    btnSwitch.textContent = '전환중...';
+    btnSwitch.disabled = true;
+
+    try {
+        const response = await fetch(`/api/fab/switch?fab_name=${fabName}&layout_prefix=${layoutPrefix}`, {
+            method: 'POST'
+        });
+        const result = await response.json();
+
+        if (result.status === 'ok') {
+            alert(`FAB 전환 완료: ${fabName} (${layoutPrefix})`);
+            // 페이지 새로고침으로 새 데이터 로드
+            window.location.reload();
+        } else {
+            alert(`전환 실패: ${result.message}`);
+        }
+    } catch (error) {
+        console.error('FAB 전환 실패:', error);
+        alert(`전환 오류: ${error.message}`);
+    } finally {
+        btnSwitch.textContent = '적용';
+        btnSwitch.disabled = false;
+    }
+}
+
+// FAB 선택 이벤트 리스너
+document.addEventListener('DOMContentLoaded', function() {
+    // FAB 목록 로드
+    loadFabList();
+
+    // FAB 선택 변경 시 레이아웃 목록 업데이트
+    document.getElementById('fabSelect').addEventListener('change', function() {
+        updateLayoutSelect(this.value);
+    });
+
+    // 적용 버튼 클릭
+    document.getElementById('btnSwitchFab').addEventListener('click', switchFab);
+});
+
+// ============================================================
 // 왼쪽 사이드바 토글 함수
 function toggleSidebar() {
     const sidebar = document.getElementById('sidebar');
