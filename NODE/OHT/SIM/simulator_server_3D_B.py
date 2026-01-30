@@ -4000,97 +4000,101 @@ function animate() {
 }
 animate();
 
-// 곡선 레일 그리기 (모따기 적용)
+// 곡선 레일 그리기 (코너에만 모따기 적용)
 function drawCurvedRails() {
+    const railColor = '#2a4a6a';
+
     if (!enableCurves || !layout || !layout.edges) {
         // 곡선 비활성화시 기존 방식
         layout.edges.forEach(e => {
             const from = nodeMap[e.from], to = nodeMap[e.to];
             if (from && to) {
-                draw3DRail(from.x, from.y, to.x, to.y, '#2a4a6a');
+                draw3DRail(from.x, from.y, to.x, to.y, railColor);
             }
         });
         return;
     }
 
-    const railColor = '#2a4a6a';
-    const drawnCurves = new Set();  // 중복 방지
+    // 코너 노드 찾기 (정확히 2개 연결 + 각도가 꺾인 곳만)
+    const cornerNodes = new Set();
+    const cornerCurves = {};  // nodeId -> curve info
 
-    // 각 노드에서 연결된 엣지들 처리
     layout.nodes.forEach(node => {
         const connections = nodeConnections[node.no];
-        if (!connections || connections.length < 2) return;
+        // 정확히 2개 연결된 노드만 코너 후보
+        if (!connections || connections.length !== 2) return;
 
-        // 연결된 노드 쌍마다 곡선 처리
-        for (let i = 0; i < connections.length; i++) {
-            for (let j = i + 1; j < connections.length; j++) {
-                const fromId = connections[i].to;
-                const toId = connections[j].to;
+        const fromId = connections[0].to;
+        const toId = connections[1].to;
+        const curve = getCurveControlPoints(node.no, fromId, toId);
 
-                // 중복 체크
-                const curveKey = [node.no, fromId, toId].sort().join('-');
-                if (drawnCurves.has(curveKey)) continue;
-                drawnCurves.add(curveKey);
-
-                // 곡선 제어점 계산
-                const curve = getCurveControlPoints(node.no, fromId, toId);
-                if (curve) {
-                    // 곡선 그리기 (quadratic bezier)
-                    if (isPseudo3D) {
-                        const startIso = toIso(curve.start.x, curve.start.y, RAIL_HEIGHT / scale);
-                        const endIso = toIso(curve.end.x, curve.end.y, RAIL_HEIGHT / scale);
-                        const ctrlIso = toIso(curve.control.x, curve.control.y, RAIL_HEIGHT / scale);
-
-                        ctx.strokeStyle = adjustColor(railColor, 1.2);
-                        ctx.lineWidth = 3 / scale;
-                        ctx.lineCap = 'round';
-                        ctx.beginPath();
-                        ctx.moveTo(startIso.x, startIso.y);
-                        ctx.quadraticCurveTo(ctrlIso.x, ctrlIso.y, endIso.x, endIso.y);
-                        ctx.stroke();
-                    } else {
-                        ctx.strokeStyle = railColor;
-                        ctx.lineWidth = 2 / scale;
-                        ctx.lineCap = 'round';
-                        ctx.beginPath();
-                        ctx.moveTo(curve.start.x, curve.start.y);
-                        ctx.quadraticCurveTo(curve.control.x, curve.control.y, curve.end.x, curve.end.y);
-                        ctx.stroke();
-                    }
-                }
-            }
+        // 각도가 충분히 꺾인 경우만 (150도 미만)
+        if (curve && curve.angle < Math.PI * 0.83) {
+            cornerNodes.add(node.no);
+            cornerCurves[node.no] = {
+                curve: curve,
+                fromId: fromId,
+                toId: toId
+            };
         }
     });
 
-    // 엣지 (직선 부분) 그리기 - 곡선 부분은 짧게
+    // 1. 먼저 모든 직선 레일 그리기 (코너 부분은 짧게)
     layout.edges.forEach(e => {
         const from = nodeMap[e.from], to = nodeMap[e.to];
         if (!from || !to) return;
 
         let startX = from.x, startY = from.y;
         let endX = to.x, endY = to.y;
+        const len = Math.sqrt(Math.pow(to.x - from.x, 2) + Math.pow(to.y - from.y, 2));
 
-        // from 노드가 다중 연결이면 곡선 시작점까지만
-        const fromConns = nodeConnections[e.from];
-        if (fromConns && fromConns.length >= 2) {
+        // from 노드가 코너면 곡선 시작점까지만
+        if (cornerNodes.has(e.from)) {
             const dir = normalize({ x: to.x - from.x, y: to.y - from.y });
-            const len = Math.sqrt(Math.pow(to.x - from.x, 2) + Math.pow(to.y - from.y, 2));
             const offset = Math.min(curveRadius, len * 0.4);
             startX = from.x + dir.x * offset;
             startY = from.y + dir.y * offset;
         }
 
-        // to 노드가 다중 연결이면 곡선 끝점까지만
-        const toConns = nodeConnections[e.to];
-        if (toConns && toConns.length >= 2) {
+        // to 노드가 코너면 곡선 끝점까지만
+        if (cornerNodes.has(e.to)) {
             const dir = normalize({ x: from.x - to.x, y: from.y - to.y });
-            const len = Math.sqrt(Math.pow(to.x - from.x, 2) + Math.pow(to.y - from.y, 2));
             const offset = Math.min(curveRadius, len * 0.4);
             endX = to.x + dir.x * offset;
             endY = to.y + dir.y * offset;
         }
 
         draw3DRail(startX, startY, endX, endY, railColor);
+    });
+
+    // 2. 코너에만 곡선 그리기
+    cornerNodes.forEach(nodeId => {
+        const info = cornerCurves[nodeId];
+        if (!info) return;
+
+        const curve = info.curve;
+
+        if (isPseudo3D) {
+            const startIso = toIso(curve.start.x, curve.start.y, RAIL_HEIGHT / scale);
+            const endIso = toIso(curve.end.x, curve.end.y, RAIL_HEIGHT / scale);
+            const ctrlIso = toIso(curve.control.x, curve.control.y, RAIL_HEIGHT / scale);
+
+            ctx.strokeStyle = adjustColor(railColor, 1.2);
+            ctx.lineWidth = 3 / scale;
+            ctx.lineCap = 'round';
+            ctx.beginPath();
+            ctx.moveTo(startIso.x, startIso.y);
+            ctx.quadraticCurveTo(ctrlIso.x, ctrlIso.y, endIso.x, endIso.y);
+            ctx.stroke();
+        } else {
+            ctx.strokeStyle = railColor;
+            ctx.lineWidth = 2 / scale;
+            ctx.lineCap = 'round';
+            ctx.beginPath();
+            ctx.moveTo(curve.start.x, curve.start.y);
+            ctx.quadraticCurveTo(curve.control.x, curve.control.y, curve.end.x, curve.end.y);
+            ctx.stroke();
+        }
     });
 }
 
