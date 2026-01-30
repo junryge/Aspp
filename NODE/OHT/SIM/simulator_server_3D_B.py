@@ -253,8 +253,81 @@ if not MAP_BASE_DIR.exists() or not _detected_fabs:
     use_legacy_paths()
 
 CSV_SAVE_INTERVAL = 10  # 10초마다 CSV 저장
-VEHICLE_COUNT = 450  # OHT 대수
+VEHICLE_COUNT = 450  # 기본 OHT 대수
 SIMULATION_INTERVAL = 0.5  # 0.5초마다 업데이트
+
+# ============================================================
+# FAB 설정 파일 (fab_config.json) - 서버 재시작해도 유지
+# ============================================================
+FAB_CONFIG_PATH = _SCRIPT_DIR / "fab_config.json"
+
+# 기본 FAB 설정
+DEFAULT_FAB_CONFIG = {
+    "M14A": {"vehicle_count": 450, "layout_prefix": "A"},
+    "M14B": {"vehicle_count": 450, "layout_prefix": "A"},
+    "M16A": {"vehicle_count": 300, "layout_prefix": "A"},
+    "M16B": {"vehicle_count": 300, "layout_prefix": "A"},
+}
+
+def load_fab_config() -> dict:
+    """FAB 설정 파일 로드 (없으면 기본값 생성)"""
+    if FAB_CONFIG_PATH.exists():
+        try:
+            with open(FAB_CONFIG_PATH, 'r', encoding='utf-8') as f:
+                config = json.load(f)
+            print(f"FAB 설정 로드 완료: {FAB_CONFIG_PATH}")
+            # 새로운 FAB이 추가된 경우 기본값 적용
+            for fab, default in DEFAULT_FAB_CONFIG.items():
+                if fab not in config:
+                    config[fab] = default
+            return config
+        except Exception as e:
+            print(f"FAB 설정 로드 실패: {e}, 기본값 사용")
+
+    # 기본 설정 파일 생성
+    save_fab_config(DEFAULT_FAB_CONFIG)
+    return DEFAULT_FAB_CONFIG.copy()
+
+def save_fab_config(config: dict):
+    """FAB 설정 파일 저장"""
+    try:
+        with open(FAB_CONFIG_PATH, 'w', encoding='utf-8') as f:
+            json.dump(config, f, indent=2, ensure_ascii=False)
+        print(f"FAB 설정 저장 완료: {FAB_CONFIG_PATH}")
+    except Exception as e:
+        print(f"FAB 설정 저장 실패: {e}")
+
+# 설정 로드
+FAB_CONFIG = load_fab_config()
+
+def get_fab_config(fab_name: str) -> dict:
+    """FAB 설정 반환"""
+    return FAB_CONFIG.get(fab_name, DEFAULT_FAB_CONFIG.get(fab_name, {"vehicle_count": 450, "layout_prefix": "A"}))
+
+def get_vehicle_count_for_fab(fab_name: str) -> int:
+    """FAB별 OHT 대수 반환"""
+    return get_fab_config(fab_name).get("vehicle_count", VEHICLE_COUNT)
+
+def set_vehicle_count_for_fab(fab_name: str, count: int):
+    """FAB별 OHT 대수 설정 및 저장"""
+    global VEHICLE_COUNT
+    if fab_name not in FAB_CONFIG:
+        FAB_CONFIG[fab_name] = {"vehicle_count": count, "layout_prefix": "A"}
+    else:
+        FAB_CONFIG[fab_name]["vehicle_count"] = count
+
+    if fab_name == FAB_NAME:
+        VEHICLE_COUNT = count
+
+    save_fab_config(FAB_CONFIG)
+
+def set_fab_config(fab_name: str, key: str, value):
+    """FAB 설정 항목 설정 및 저장"""
+    if fab_name not in FAB_CONFIG:
+        FAB_CONFIG[fab_name] = DEFAULT_FAB_CONFIG.get(fab_name, {"vehicle_count": 450, "layout_prefix": "A"}).copy()
+    FAB_CONFIG[fab_name][key] = value
+    save_fab_config(FAB_CONFIG)
+
 FAB_ID = FAB_NAME  # FAB_NAME 그대로 사용
 MCP_NAME = "OHT"
 
@@ -2240,7 +2313,8 @@ async def switch_fab_api(fab_name: str, layout_prefix: str = None):
 
         # 엔진 생성 (HID Zone, Station 자동 로드됨)
         engine = SimulationEngine(nodes, edges)
-        engine.init_vehicles(VEHICLE_COUNT)
+        fab_vehicle_count = get_vehicle_count_for_fab(fab_name)
+        engine.init_vehicles(fab_vehicle_count)
 
         # 레이아웃 데이터 갱신
         layout_data = {
@@ -2263,9 +2337,10 @@ async def switch_fab_api(fab_name: str, layout_prefix: str = None):
 
         return {
             "status": "ok",
-            "message": f"FAB 전환 완료: {fab_name} (레이아웃: {LAYOUT_PREFIX})",
+            "message": f"FAB 전환 완료: {fab_name} (레이아웃: {LAYOUT_PREFIX}, OHT: {fab_vehicle_count}대)",
             "fab_name": FAB_NAME,
             "layout_prefix": LAYOUT_PREFIX,
+            "vehicle_count": fab_vehicle_count,
             "paths": paths
         }
     except Exception as e:
@@ -2273,6 +2348,38 @@ async def switch_fab_api(fab_name: str, layout_prefix: str = None):
             "status": "error",
             "message": str(e)
         }
+
+@app.post("/api/fab/vehicle-count")
+async def set_fab_vehicle_count(fab_name: str, count: int):
+    """FAB별 OHT 대수 설정"""
+    global engine
+
+    if count < 1 or count > 2000:
+        return {"status": "error", "message": "OHT 대수는 1~2000 사이여야 합니다"}
+
+    set_vehicle_count_for_fab(fab_name, count)
+
+    # 현재 FAB이면 엔진 재초기화
+    if fab_name == FAB_NAME and engine:
+        engine.init_vehicles(count)
+
+    return {
+        "status": "ok",
+        "message": f"{fab_name} OHT 대수 설정: {count}대 (저장됨)",
+        "fab_name": fab_name,
+        "vehicle_count": count,
+        "fab_config": FAB_CONFIG
+    }
+
+@app.get("/api/fab/vehicle-count")
+async def get_fab_vehicle_counts():
+    """모든 FAB 설정 조회"""
+    return {
+        "current_fab": FAB_NAME,
+        "current_count": get_vehicle_count_for_fab(FAB_NAME),
+        "fab_config": FAB_CONFIG,
+        "config_path": str(FAB_CONFIG_PATH)
+    }
 
 @app.get("/api/state")
 async def get_state():
