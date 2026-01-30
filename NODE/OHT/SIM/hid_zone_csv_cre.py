@@ -571,14 +571,111 @@ def create_hid_zone_csv(xml_or_zip_path: str, output_csv_path: str,
     print("=" * 60)
 
 
+def get_fab_paths(script_dir, fab_name: str, layout_prefix: str = "A"):
+    """
+    FAB별 파일 경로를 반환
+
+    실제 폴더 구조:
+        MAP/{FAB}/{prefix}.layout.zip
+        MAP/{FAB}/{prefix}.layout.xml
+        MAP/{FAB}/{prefix}.station.dat
+        MAP/{FAB}/HID_Zone_Master_{FAB}_{prefix}.csv
+
+    Args:
+        script_dir: 스크립트 디렉토리
+        fab_name: FAB 이름 (예: "M14A", "M16A", "M16B")
+        layout_prefix: 레이아웃 파일 접두사 (예: "A", "BR", "E", "B")
+
+    Returns:
+        dict: 각 파일 경로를 담은 딕셔너리
+    """
+    map_base_dir = script_dir / "MAP"
+    fab_dir = map_base_dir / fab_name
+    prefix = layout_prefix.upper()
+
+    return {
+        # MAP/{FAB}/ 경로 - 모든 파일이 여기에 있음
+        "layout_zip": str(fab_dir / f"{prefix}.layout.zip"),
+        "layout_xml": str(fab_dir / f"{prefix}.layout.xml"),
+        "station_dat": str(fab_dir / f"{prefix}.station.dat"),
+        # HID Zone 마스터 파일 (FAB별, 같은 폴더에 생성)
+        "hid_zone_csv": str(fab_dir / f"HID_Zone_Master_{fab_name}_{prefix}.csv"),
+    }
+
+
+def create_hid_zone_csv_for_fab(script_dir, fab_name: str, layout_prefix: str = "A",
+                                 project_name: str = None):
+    """
+    FAB별 HID_Zone_Master.csv 생성
+
+    Args:
+        script_dir: 스크립트 디렉토리
+        fab_name: FAB 이름 (예: "M14", "M16")
+        layout_prefix: 레이아웃 파일 접두사 (예: "A", "BR", "E")
+        project_name: 프로젝트 이름 (None이면 FAB 기반 자동 생성)
+    """
+    paths = get_fab_paths(script_dir, fab_name, layout_prefix)
+
+    # 프로젝트 이름 자동 생성
+    if project_name is None:
+        project_name = f"{fab_name} Project"
+
+    # layout.xml 또는 layout.zip 찾기
+    if os.path.exists(paths["layout_xml"]):
+        input_path = paths["layout_xml"]
+    elif os.path.exists(paths["layout_zip"]):
+        input_path = paths["layout_zip"]
+    else:
+        raise FileNotFoundError(
+            f"FAB {fab_name}의 레이아웃 파일을 찾을 수 없습니다: "
+            f"{paths['layout_xml']} 또는 {paths['layout_zip']}"
+        )
+
+    # 출력 디렉토리 생성
+    output_dir = os.path.dirname(paths["hid_zone_csv"])
+    if output_dir:
+        os.makedirs(output_dir, exist_ok=True)
+
+    create_hid_zone_csv(input_path, paths["hid_zone_csv"], project_name)
+
+
 def main():
-    """커맨드라인 실행용 메인 함수"""
+    """
+    커맨드라인 실행용 메인 함수
+
+    사용법:
+        python hid_zone_csv_cre.py [layout.xml 또는 layout.zip 경로] [출력 CSV 경로]
+        python hid_zone_csv_cre.py --fab M14 --layout A
+    """
     import sys
     import pathlib
 
     # 기본 경로
     script_dir = pathlib.Path(__file__).parent.resolve()
 
+    # FAB 모드 확인
+    if "--fab" in sys.argv:
+        fab_idx = sys.argv.index("--fab")
+        fab_name = sys.argv[fab_idx + 1] if fab_idx + 1 < len(sys.argv) else "M14"
+
+        layout_prefix = "A"
+        if "--layout" in sys.argv:
+            layout_idx = sys.argv.index("--layout")
+            layout_prefix = sys.argv[layout_idx + 1] if layout_idx + 1 < len(sys.argv) else "A"
+
+        project_name = None
+        if "--project" in sys.argv:
+            project_idx = sys.argv.index("--project")
+            project_name = sys.argv[project_idx + 1] if project_idx + 1 < len(sys.argv) else None
+
+        print("=" * 60)
+        print(f"hid_zone_csv_cre.py - FAB 모드: {fab_name}, 레이아웃: {layout_prefix}")
+        print("=" * 60)
+
+        create_hid_zone_csv_for_fab(script_dir, fab_name, layout_prefix, project_name)
+        return
+
+    # 기존 모드 (직접 경로 지정)
     # layout.xml 또는 layout.zip 찾기
     xml_path = script_dir / 'layout' / 'layout.xml'
     zip_path = script_dir / 'layout' / 'layout' / 'layout.zip'
