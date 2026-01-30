@@ -919,6 +919,8 @@ def parse_hid_zones(filepath: str) -> Dict[int, HIDZone]:
             for row in reader:
                 try:
                     zone_id = int(row['Zone_ID'])
+                    if zone_id <= 0:
+                        continue  # Zone ID 0 이하 무시
 
                     # IN Lanes 파싱 (세미콜론으로 구분)
                     in_lanes = []
@@ -2325,13 +2327,27 @@ async def switch_fab_api(fab_name: str, layout_prefix: str = None):
                     'zoneId': z.zoneId,
                     'hidNo': z.hidNo,
                     'bayZone': z.bayZone,
+                    'subRegion': z.subRegion,
+                    'fullName': z.fullName,
+                    'hidType': z.hidType,
                     'inLanes': [{'from': lane.fromNode, 'to': lane.toNode} for lane in z.inLanes],
-                    'outLanes': [{'from': lane.fromNode, 'to': lane.toNode} for lane in z.outLanes]
+                    'outLanes': [{'from': lane.fromNode, 'to': lane.toNode} for lane in z.outLanes],
+                    'vehicleMax': z.vehicleMax,
+                    'vehiclePrecaution': z.vehiclePrecaution
                 } for z in engine.hid_zones.values()
             ],
             'stations': [
-                {'stationId': s.stationId, 'x': s.x, 'y': s.y, 'name': s.stationName}
-                for s in engine.stations.values()
+                {
+                    'stationId': s.stationId,
+                    'stationType': s.stationType,
+                    'stationName': s.stationName,
+                    'nodeAddress': s.nodeAddress,
+                    'equipType': s.equipType,
+                    'x': s.x,
+                    'y': s.y,
+                    'hasCoords': s.hasCoords
+                }
+                for s in engine.stations.values() if s.hasCoords
             ]
         }
 
@@ -3320,7 +3336,8 @@ function updateZoneList() {
         return;
     }
 
-    let filtered = window.hidZones.slice();
+    // Zone ID 0 이하 또는 유효하지 않은 Zone 필터링
+    let filtered = window.hidZones.filter(z => z && z.zoneId > 0);
 
     // 필터링
     if (zoneFilter !== 'all') {
@@ -3356,7 +3373,7 @@ function updateZoneList() {
         const stateClass = getZoneStateClass(z);
         const isSelected = selectedZoneId === z.zoneId;
         const isExpanded = expandedZoneId === z.zoneId;
-        const displayName = z.fullName || z.label || 'Zone ' + z.zoneId;
+        const displayName = z.fullName || z.hidNo || z.bayZone || ('HID ' + z.zoneId);
         const count = z.vehicleCount || 0;
         const max = z.vehicleMax || 1;
         const percent = Math.min(100, Math.round((count / max) * 100));
