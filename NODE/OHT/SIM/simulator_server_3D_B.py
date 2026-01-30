@@ -940,15 +940,9 @@ def parse_hid_zones(filepath: str) -> Dict[int, HIDZone]:
                             if lane:
                                 out_lanes.append(lane)
 
-                    # 시뮬레이션용 임계값 조정
-                    # OHT 대수에 따라 적절한 Zone 용량 설정
-                    # 원본: 37/35, 시뮬레이션: 더 여유있게 설정
-                    csv_max = int(row.get('Vehicle_Max', 37))
-                    csv_precaution = int(row.get('Vehicle_Precaution', 35))
-
-                    # 시뮬레이션용: 원본 값의 약 1/3로 조정 (OHT 500대 기준)
-                    sim_max = max(10, csv_max // 3)  # 최소 10대
-                    sim_precaution = max(7, csv_precaution // 3)  # 최소 7대
+                    # CSV 원본 값 그대로 사용
+                    vehicle_max = int(row.get('Vehicle_Max', 37))
+                    vehicle_precaution = int(row.get('Vehicle_Precaution', 35))
 
                     # Sub_Region 파싱 (빈 값이면 0)
                     sub_region_str = row.get('Sub_Region', '')
@@ -962,8 +956,8 @@ def parse_hid_zones(filepath: str) -> Dict[int, HIDZone]:
                         outCount=int(row.get('OUT_Count', 0)),
                         inLanes=in_lanes,
                         outLanes=out_lanes,
-                        vehicleMax=sim_max,
-                        vehiclePrecaution=sim_precaution,
+                        vehicleMax=vehicle_max,
+                        vehiclePrecaution=vehicle_precaution,
                         # 새로운 필드 (HID_Zone_Master.csv)
                         hidNo=row.get('HID_No', ''),
                         bayZone=row.get('Bay_Zone', ''),
