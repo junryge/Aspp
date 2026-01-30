@@ -510,20 +510,27 @@ def load_xml_content(source_path: str) -> Tuple[str, str]:
         with zipfile.ZipFile(source_path, 'r') as zf:
             # ZIP 내 파일 목록 확인
             file_list = zf.namelist()
-            print(f"  ZIP 내 파일 목록: {file_list}")
+            print(f"  ZIP 내 파일 수: {len(file_list)}개")
 
-            # XML 파일 찾기 (layout.xml 또는 *.xml)
+            # XML 파일 찾기 (우선순위: layout/layout.xml > layout.xml > *.xml)
             xml_file = None
             for name in file_list:
                 lower_name = name.lower()
-                if lower_name == 'layout.xml':
+                # 1순위: layout/layout.xml (실제 구조)
+                if lower_name == 'layout/layout.xml':
                     xml_file = name
                     break
-                elif lower_name.endswith('.xml'):
-                    xml_file = name  # 첫 번째 XML 파일 사용
+                # 2순위: layout.xml
+                elif lower_name == 'layout.xml' and xml_file is None:
+                    xml_file = name
+                # 3순위: 아무 .xml 파일 (layout.xml이 없을 때만)
+                elif lower_name.endswith('.xml') and 'layout' in lower_name and xml_file is None:
+                    xml_file = name
 
             if not xml_file:
-                raise FileNotFoundError(f"ZIP 파일 내에 XML 파일이 없습니다: {file_list}")
+                # XML 파일 목록 출력
+                xml_files = [f for f in file_list if f.lower().endswith('.xml')]
+                raise FileNotFoundError(f"ZIP 파일 내에 layout.xml이 없습니다. XML 파일들: {xml_files}")
 
             print(f"  사용할 XML 파일: {xml_file}")
             with zf.open(xml_file) as f:
@@ -594,8 +601,8 @@ def get_fab_paths(script_dir, fab_name: str, layout_prefix: str = "A"):
     FAB별 파일 경로를 반환
 
     실제 폴더 구조:
-        MAP/{FAB}/{prefix}.layout.zip
-        MAP/{FAB}/{prefix}.layout.xml
+        MAP/{FAB}/{prefix}.layout.zip              <- ZIP 파일
+        MAP/{FAB}/{prefix}.layout/layout/layout.xml <- 압축 해제된 XML
         MAP/{FAB}/{prefix}.station.dat
         MAP/{FAB}/HID_Zone_Master_{FAB}_{prefix}.csv
 
@@ -611,10 +618,14 @@ def get_fab_paths(script_dir, fab_name: str, layout_prefix: str = "A"):
     fab_dir = map_base_dir / fab_name
     prefix = layout_prefix.upper()
 
+    # 압축 해제된 폴더 경로
+    extracted_dir = fab_dir / f"{prefix}.layout"
+
     return {
-        # MAP/{FAB}/ 경로 - 모든 파일이 여기에 있음
+        # ZIP 파일 경로
         "layout_zip": str(fab_dir / f"{prefix}.layout.zip"),
-        "layout_xml": str(fab_dir / f"{prefix}.layout.xml"),
+        # 압축 해제된 XML 경로 (우선 사용)
+        "layout_xml": str(extracted_dir / "layout" / "layout.xml"),
         "station_dat": str(fab_dir / f"{prefix}.station.dat"),
         # HID Zone 마스터 파일 (FAB별, 같은 폴더에 생성)
         "hid_zone_csv": str(fab_dir / f"HID_Zone_Master_{fab_name}_{prefix}.csv"),
