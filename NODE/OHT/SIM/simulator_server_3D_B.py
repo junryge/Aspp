@@ -2237,27 +2237,28 @@ async def switch_fab_api(fab_name: str, layout_prefix: str = None):
 
         # 새 레이아웃 로드
         nodes, edges = parse_layout(LAYOUT_PATH)
-        engine = OHTSimulationEngine(nodes, edges, VEHICLE_COUNT)
 
-        # HID Zone 로드
-        if os.path.exists(HID_ZONE_CSV_PATH):
-            engine.load_hid_zones(HID_ZONE_CSV_PATH)
-        elif os.path.exists(LAYOUT_XML_PATH) or os.path.exists(LAYOUT_ZIP_PATH):
-            print(f"HID_Zone_Master.csv 없음 - 자동 생성 중...")
-            layout_source = LAYOUT_XML_PATH if os.path.exists(LAYOUT_XML_PATH) else LAYOUT_ZIP_PATH
-            create_hid_zone_csv(layout_source, HID_ZONE_CSV_PATH)
-            engine.load_hid_zones(HID_ZONE_CSV_PATH)
-
-        # Station 로드
-        if os.path.exists(STATION_DAT_PATH):
-            engine.load_stations(STATION_DAT_PATH)
+        # 엔진 생성 (HID Zone, Station 자동 로드됨)
+        engine = SimulationEngine(nodes, edges)
+        engine.init_vehicles(VEHICLE_COUNT)
 
         # 레이아웃 데이터 갱신
         layout_data = {
-            'nodes': [{'no': n.no, 'x': n.x, 'y': n.y, 'stations': n.stations} for n in nodes.values()],
-            'edges': [[f, t, d] for f, t, d in edges],
-            'hidZones': engine.hid_zones,
-            'stations': engine.stations
+            'nodes': [{'no': n.no, 'x': n.x, 'y': n.y} for n in nodes.values()],
+            'edges': [{'from': e[0], 'to': e[1]} for e in edges],
+            'hidZones': [
+                {
+                    'zoneId': z.zoneId,
+                    'hidNo': z.hidNo,
+                    'bayZone': z.bayZone,
+                    'inLanes': [{'from': lane.fromNode, 'to': lane.toNode} for lane in z.inLanes],
+                    'outLanes': [{'from': lane.fromNode, 'to': lane.toNode} for lane in z.outLanes]
+                } for z in engine.hid_zones.values()
+            ],
+            'stations': [
+                {'stationId': s.stationId, 'x': s.x, 'y': s.y, 'name': s.name}
+                for s in engine.stations.values()
+            ]
         }
 
         return {
