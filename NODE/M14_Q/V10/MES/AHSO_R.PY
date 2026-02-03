@@ -1,29 +1,34 @@
 import pandas as pd
 import re
 
-# CSV 로드 (실제 파일 경로로 변경)
+# CSV 로드
 df = pd.read_csv('ahso_alarm.csv', encoding='utf-8-sig')
 
-# 원본 컬럼 구조: 분류, AHTO+AHSO, REWORK, AHSO(알람ID)
-# AHSO 컬럼에서 날짜 추출해서 DATETIME 컬럼만 추가
+# AHSO 컬럼 문자열 변환 (오류 해결)
+ahso_col = [col for col in df.columns if 'AHSO' in col][0]
+df[ahso_col] = df[ahso_col].astype(str)
 
-# AHSO 컬럼명 찾기 (AHSO로 시작하는 컬럼 또는 알람ID 컬럼)
-ahso_col = [col for col in df.columns if 'AHSO' in col or '알람' in col.lower()][0]
-
-# 날짜 추출 (AHSO202511010006 → 2025-11-01 00:06)
+# 날짜 추출
 df['DATETIME'] = pd.to_datetime(
     df[ahso_col].str.extract(r'(\d{12})')[0],
     format='%Y%m%d%H%M',
     errors='coerce'
 )
 
-# 컬럼 순서: 분류, AHTO+AHSO, REWORK, AHSO, DATETIME (맨 뒤에 추가)
-# 기존 컬럼 유지 + DATETIME만 추가
+# 빈 데이터(결측치) 채우기
+# 숫자 컬럼 0으로 채우기
+numeric_cols = ['AHTO+AHSO', 'REWORK']  # 실제 컬럼명에 맞게 수정
+for col in numeric_cols:
+    if col in df.columns:
+        df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0).astype(int)
 
-# 결측치 확인
+# 문자 컬럼 빈 문자열로 채우기
+df['분류'] = df['분류'].fillna('')
+
+# 날짜 결측치 확인
 print("=== 결측치 현황 ===")
 print(df.isnull().sum())
 
 # 저장
 df.to_csv('ahso_alarm_with_datetime.csv', index=False, encoding='utf-8-sig')
-print(df.head())
+print(df.head(10))
