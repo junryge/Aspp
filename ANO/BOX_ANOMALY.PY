@@ -373,6 +373,13 @@ def interactive_viewer(image_dir="./DOWN/", position_threshold=30, angle_thresho
             idx = (idx + 1) % len(all_images)
             continue
         
+        # 화면 크기 조절 (최대 600px)
+        max_size = 600
+        h, w = img.shape[:2]
+        if max(h, w) > max_size:
+            scale = max_size / max(h, w)
+            img = cv2.resize(img, (int(w * scale), int(h * scale)))
+        
         # 결과에 따라 색상 결정
         if result['is_anomaly']:
             color = (0, 0, 255)  # 빨강 (BGR)
@@ -399,16 +406,18 @@ def interactive_viewer(image_dir="./DOWN/", position_threshold=30, angle_thresho
         cv2.putText(img, f"Shift: {result['position_shift']:.1f}px  Angle: {result['angle_shift']:.1f}deg", 
                     (10, 115), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 1)
         
-        # 중심점 표시
+        # 중심점 표시 (스케일 적용)
         if result['test_center']:
             cx, cy = result['test_center']
-            cv2.circle(img, (cx, cy), 10, color, -1)
-            cv2.circle(img, (cx, cy), 15, color, 2)
+            cx, cy = int(cx * scale), int(cy * scale) if 'scale' in dir() else (cx, cy)
+            cv2.circle(img, (int(cx * scale) if max(h,w) > max_size else cx, 
+                            int(cy * scale) if max(h,w) > max_size else cy), 8, color, -1)
         
         # 기준점 표시 (파란색)
         if result['ref_center']:
             rx, ry = result['ref_center']
-            cv2.circle(img, (rx, ry), 8, (255, 0, 0), 2)
+            cv2.circle(img, (int(rx * scale) if max(h,w) > max_size else rx,
+                            int(ry * scale) if max(h,w) > max_size else ry), 6, (255, 0, 0), 2)
         
         # 창 표시
         cv2.imshow("Box Anomaly Detection - Press Q to quit", img)
