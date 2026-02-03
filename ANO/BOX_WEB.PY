@@ -141,33 +141,35 @@ HTML = '''
         .stat .l{font-size:10px;color:#888}
         
         /* 메인 - 상단 2열 + 하단 히스토리 */
-        .wrapper{height:calc(100vh - 60px);display:flex;flex-direction:column;padding:10px;gap:10px}
-        .top{display:grid;grid-template-columns:280px 1fr;gap:10px;flex:1;min-height:0}
-        .bottom{height:120px;flex-shrink:0}
+        .wrapper{height:calc(100vh - 60px);display:flex;flex-direction:column;padding:8px;gap:8px}
+        .top{display:grid;grid-template-columns:240px 1fr;gap:8px;flex:1;min-height:0}
+        .bottom{height:100px;flex-shrink:0}
         
         /* 카드 */
         .card{background:rgba(255,255,255,.03);border-radius:10px;padding:15px;border:1px solid rgba(255,255,255,.1);overflow:hidden}
-        .card h3{color:#00d4ff;font-size:14px;margin-bottom:10px;display:flex;align-items:center;gap:8px}
-        .card h3 .badge{font-size:10px;padding:2px 8px;border-radius:10px;background:#f44;color:#fff}
+        .card h3{color:#00d4ff;font-size:13px;margin-bottom:8px;display:flex;align-items:center;gap:6px}
+        .card h3 .badge{font-size:9px;padding:2px 6px;border-radius:8px;background:#f44;color:#fff}
         .card h3 .badge.ok{background:#0f8}
         
         /* 왼쪽 - 설정 */
-        .left{display:flex;flex-direction:column;gap:10px}
-        .upload{border:2px dashed #444;border-radius:8px;padding:15px;text-align:center;cursor:pointer;transition:all .2s}
+        .left{display:flex;flex-direction:column;gap:10px;overflow-y:auto}
+        .left::-webkit-scrollbar{width:4px}
+        .left::-webkit-scrollbar-thumb{background:#444;border-radius:2px}
+        .upload{border:2px dashed #444;border-radius:8px;padding:10px;text-align:center;cursor:pointer;transition:all .2s}
         .upload:hover{border-color:#00d4ff;background:rgba(0,212,255,.05)}
-        .upload .ico{font-size:30px}
-        .upload p{font-size:11px;color:#666;margin-top:5px}
+        .upload .ico{font-size:24px}
+        .upload p{font-size:10px;color:#666;margin-top:3px}
         .upload input{display:none}
-        .preview{width:100%;max-height:80px;object-fit:contain;border-radius:5px;margin-top:8px;display:none}
-        .btn{width:100%;padding:10px;border:none;border-radius:20px;cursor:pointer;font-size:13px;font-weight:bold;color:#fff;transition:all .2s}
+        .preview{width:100%;max-height:60px;object-fit:contain;border-radius:5px;margin-top:5px;display:none}
+        .btn{width:100%;padding:8px;border:none;border-radius:15px;cursor:pointer;font-size:12px;font-weight:bold;color:#fff;transition:all .2s}
         .btn:hover{transform:translateY(-2px);filter:brightness(1.1)}
         .btn:disabled{background:#333!important;cursor:not-allowed;transform:none;filter:none}
         .btn-p{background:linear-gradient(135deg,#00d4ff,#0099cc)}
         .btn-g{background:linear-gradient(135deg,#0f8,#0c6)}
         .btn-v{background:linear-gradient(135deg,#9b59b6,#8e44ad)}
-        .sets{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:5px}
-        .sets label{font-size:10px;color:#888}
-        .sets input{width:100%;padding:8px;border:1px solid #444;border-radius:5px;background:rgba(0,0,0,.3);color:#fff;font-size:12px;margin-top:3px}
+        .sets{display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-top:5px}
+        .sets label{font-size:9px;color:#888}
+        .sets input{width:100%;padding:6px;border:1px solid #444;border-radius:4px;background:rgba(0,0,0,.3);color:#fff;font-size:11px;margin-top:2px}
         
         /* 오른쪽 - 결과 (2열) */
         .right{display:grid;grid-template-columns:1fr 1fr;gap:15px}
