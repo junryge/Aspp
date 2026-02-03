@@ -3,8 +3,8 @@ Box Position Anomaly Detection - Web Version
 깔끔한 디자인
 """
 
-import os, cv2, numpy as np, requests, re, base64
-from flask import Flask, render_template_string, request, jsonify
+import os, cv2, numpy as np, requests, re, base64, zipfile, io
+from flask import Flask, render_template_string, request, jsonify, send_file
 
 app = Flask(__name__)
 reference_data = {'center': None, 'angle': None}
@@ -225,7 +225,10 @@ main { display:flex; height:calc(100vh - 56px); }
 <body>
 
 <header>
-    <h1>📦 박스 위치 이상 탐지 <span>BATA_VER_V0.1</span></h1>
+    <div>
+        <button onclick="downloadSample()" style="background:#10b981;border:none;color:#fff;padding:6px 12px;border-radius:6px;font-size:11px;cursor:pointer;margin-bottom:6px;">📦 샘플 데이터 다운로드</button>
+        <h1>📦 박스 위치 이상 탐지 <span>BATA_VER_V0.1</span></h1>
+    </div>
     <div class="stats">
         <div><div class="num blue" id="sT">0</div><div class="label">총 검사</div></div>
         <div><div class="num green" id="sN">0</div><div class="label">정상</div></div>
@@ -487,6 +490,32 @@ function saveP(){
     alert('저장!');
     closeModal();
 }
+
+async function downloadSample(){
+    const btn = event.target;
+    btn.textContent = '⏳ 압축 중...';
+    btn.disabled = true;
+    try {
+        const response = await fetch('/download_sample');
+        if(response.ok){
+            const blob = await response.blob();
+            const url = window.URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = 'sample_images.zip';
+            document.body.appendChild(a);
+            a.click();
+            a.remove();
+            window.URL.revokeObjectURL(url);
+        } else {
+            alert('다운로드 실패: ' + await response.text());
+        }
+    } catch(e) {
+        alert('다운로드 오류: ' + e.message);
+    }
+    btn.textContent = '📦 샘플 데이터 다운로드';
+    btn.disabled = false;
+}
 </script>
 </body>
 </html>
@@ -522,6 +551,36 @@ def llm():
     d = request.json
     r = call_llm(d['usr'], d['sys'])
     return jsonify({'ok': r['success'], 'content': r.get('content',''), 'error': r.get('error','')})
+
+@app.route('/download_sample')
+def download_sample():
+    try:
+        # DOWN 폴더 경로
+        down_folder = './DOWN'
+        if not os.path.exists(down_folder):
+            down_folder = '../DOWN'
+        if not os.path.exists(down_folder):
+            return 'DOWN 폴더를 찾을 수 없습니다', 404
+        
+        # 메모리에 ZIP 파일 생성
+        memory_file = io.BytesIO()
+        with zipfile.ZipFile(memory_file, 'w', zipfile.ZIP_DEFLATED) as zf:
+            for root, dirs, files in os.walk(down_folder):
+                for file in files:
+                    if file.lower().endswith(('.png', '.jpg', '.jpeg', '.bmp', '.gif')):
+                        file_path = os.path.join(root, file)
+                        arcname = os.path.relpath(file_path, down_folder)
+                        zf.write(file_path, arcname)
+        
+        memory_file.seek(0)
+        return send_file(
+            memory_file,
+            mimetype='application/zip',
+            as_attachment=True,
+            download_name='sample_images.zip'
+        )
+    except Exception as e:
+        return f'오류: {str(e)}', 500
 
 if __name__ == '__main__':
     print("="*40)
