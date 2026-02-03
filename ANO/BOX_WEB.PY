@@ -159,7 +159,7 @@ main { display:flex; height:calc(100vh - 56px); }
 .result-item .value { font-size:14px; font-weight:bold; }
 
 .result-img { flex:1; min-height:0; display:flex; align-items:center; justify-content:center; }
-.result-img img { max-width:100%; max-height:200px; object-fit:contain; border-radius:6px; }
+.result-img img { max-width:100%; max-height:280px; object-fit:contain; border-radius:6px; }
 
 .empty-state { flex:1; display:flex; flex-direction:column; align-items:center; justify-content:center; color:#4b5563; }
 .empty-state .icon { font-size:36px; margin-bottom:8px; }
