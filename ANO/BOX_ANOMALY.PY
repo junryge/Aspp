@@ -335,8 +335,8 @@ def interactive_viewer(image_dir="./DOWN/", position_threshold=30, angle_thresho
     print(f"총 {len(all_images)}개 이미지 발견")
     print("="*50)
     print("조작법:")
-    print("  SPACE/ENTER/→ : 다음")
-    print("  ←/BACKSPACE   : 이전")
+    print("  SPACE/ENTER/→ : 다음 사진")
+    print("  ←/BACKSPACE   : 이전 사진")
     print("  Q/ESC         : 종료")
     print("="*50)
     
@@ -396,14 +396,29 @@ def interactive_viewer(image_dir="./DOWN/", position_threshold=30, angle_thresho
         cv2.rectangle(overlay, (0, 0), (img.shape[1], 120), (0, 0, 0), -1)
         img = cv2.addWeighted(overlay, 0.7, img, 0.3, 0)
         
-        # 텍스트 표시
+        # 텍스트 표시 (한글은 OpenCV에서 안되니까 영어+숫자로 간결하게)
         cv2.putText(img, f"[{idx+1}/{len(all_images)}] {filename}", (10, 30), 
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
-        cv2.putText(img, f"Status: {status_text}", (10, 60), 
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
+        
+        # 상태 표시
+        if result['is_anomaly']:
+            status_text = ">> ANOMALY <<"
+        else:
+            status_text = ">> NORMAL <<"
+        cv2.putText(img, status_text, (10, 60), 
                     cv2.FONT_HERSHEY_SIMPLEX, 0.8, color, 2)
-        cv2.putText(img, f"Type: {result['anomaly_type']}", (10, 90), 
+        
+        # 유형 표시
+        type_kr = {
+            'NORMAL': 'OK',
+            'SHIFTED': 'SHIFT',
+            'ROTATED': 'ROTATE', 
+            'SHIFTED_AND_ROTATED': 'SHIFT+ROTATE',
+            'BOX_NOT_FOUND': 'NO BOX'
+        }
+        cv2.putText(img, f"Type: {type_kr.get(result['anomaly_type'], result['anomaly_type'])}", (10, 90), 
                     cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 1)
-        cv2.putText(img, f"Shift: {result['position_shift']:.1f}px  Angle: {result['angle_shift']:.1f}deg", 
+        cv2.putText(img, f"Pos: {result['position_shift']:.1f}px / Angle: {result['angle_shift']:.1f}", 
                     (10, 115), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 1)
         
         # 중심점 표시 (스케일 적용)
@@ -420,7 +435,7 @@ def interactive_viewer(image_dir="./DOWN/", position_threshold=30, angle_thresho
                             int(ry * scale) if max(h,w) > max_size else ry), 6, (255, 0, 0), 2)
         
         # 창 표시
-        cv2.imshow("Box Anomaly Detection - Press Q to quit", img)
+        cv2.imshow("Box Anomaly - Q:exit / Space:next", img)
         
         # 키 입력 대기
         key = cv2.waitKey(0) & 0xFF
