@@ -323,6 +323,31 @@ def interactive_viewer(image_dir="./DOWN/", position_threshold=30, angle_thresho
         Q, ESC         : 종료
     """
     import glob
+    from PIL import Image, ImageDraw, ImageFont
+    
+    # 한글 폰트 찾기
+    font_paths = [
+        "C:/Windows/Fonts/malgun.ttf",      # 맑은 고딕
+        "C:/Windows/Fonts/gulim.ttc",       # 굴림
+        "C:/Windows/Fonts/batang.ttc",      # 바탕
+        "/usr/share/fonts/truetype/nanum/NanumGothic.ttf",  # 리눅스
+    ]
+    font_path = None
+    for fp in font_paths:
+        if os.path.exists(fp):
+            font_path = fp
+            break
+    
+    def put_korean_text(img, text, pos, font_size=20, color=(255,255,255)):
+        """OpenCV 이미지에 한글 텍스트 추가"""
+        img_pil = Image.fromarray(cv2.cvtColor(img, cv2.COLOR_BGR2RGB))
+        draw = ImageDraw.Draw(img_pil)
+        try:
+            font = ImageFont.truetype(font_path, font_size) if font_path else ImageFont.load_default()
+        except:
+            font = ImageFont.load_default()
+        draw.text(pos, text, font=font, fill=color)
+        return cv2.cvtColor(np.array(img_pil), cv2.COLOR_RGB2BGR)
     
     # 이미지 검색
     all_images = glob.glob(f"{image_dir}*.png") + glob.glob(f"{image_dir}*.jpg") + glob.glob(f"{image_dir}*.jpeg")
@@ -393,33 +418,31 @@ def interactive_viewer(image_dir="./DOWN/", position_threshold=30, angle_thresho
         
         # 정보 표시 배경
         overlay = img.copy()
-        cv2.rectangle(overlay, (0, 0), (img.shape[1], 120), (0, 0, 0), -1)
+        cv2.rectangle(overlay, (0, 0), (img.shape[1], 130), (0, 0, 0), -1)
         img = cv2.addWeighted(overlay, 0.7, img, 0.3, 0)
         
-        # 텍스트 표시 (한글은 OpenCV에서 안되니까 영어+숫자로 간결하게)
-        cv2.putText(img, f"[{idx+1}/{len(all_images)}] {filename}", (10, 30), 
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
+        # 한글 텍스트 표시
+        img = put_korean_text(img, f"[{idx+1}/{len(all_images)}] {filename}", (10, 5), 18, (255,255,255))
         
         # 상태 표시
         if result['is_anomaly']:
-            status_text = ">> ANOMALY <<"
+            status_text = "◆ 이상 감지 ◆"
+            status_color = (255, 100, 100)  # 빨강
         else:
-            status_text = ">> NORMAL <<"
-        cv2.putText(img, status_text, (10, 60), 
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.8, color, 2)
+            status_text = "◆ 정상 ◆"
+            status_color = (100, 255, 100)  # 초록
+        img = put_korean_text(img, status_text, (10, 35), 24, status_color)
         
         # 유형 표시
         type_kr = {
-            'NORMAL': 'OK',
-            'SHIFTED': 'SHIFT',
-            'ROTATED': 'ROTATE', 
-            'SHIFTED_AND_ROTATED': 'SHIFT+ROTATE',
-            'BOX_NOT_FOUND': 'NO BOX'
+            'NORMAL': '정상',
+            'SHIFTED': '위치 이탈',
+            'ROTATED': '회전됨', 
+            'SHIFTED_AND_ROTATED': '위치+회전',
+            'BOX_NOT_FOUND': '박스 없음'
         }
-        cv2.putText(img, f"Type: {type_kr.get(result['anomaly_type'], result['anomaly_type'])}", (10, 90), 
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 1)
-        cv2.putText(img, f"Pos: {result['position_shift']:.1f}px / Angle: {result['angle_shift']:.1f}", 
-                    (10, 115), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 1)
+        img = put_korean_text(img, f"유형: {type_kr.get(result['anomaly_type'], result['anomaly_type'])}", (10, 70), 18, (255,255,255))
+        img = put_korean_text(img, f"이탈거리: {result['position_shift']:.1f}px / 회전각도: {result['angle_shift']:.1f}°", (10, 95), 16, (200,200,200))
         
         # 중심점 표시 (스케일 적용)
         if result['test_center']:
@@ -435,7 +458,7 @@ def interactive_viewer(image_dir="./DOWN/", position_threshold=30, angle_thresho
                             int(ry * scale) if max(h,w) > max_size else ry), 6, (255, 0, 0), 2)
         
         # 창 표시
-        cv2.imshow("Box Anomaly - Q:exit / Space:next", img)
+        cv2.imshow("Box Anomaly (Q:종료, Space:다음, Backspace:이전)", img)
         
         # 키 입력 대기
         key = cv2.waitKey(0) & 0xFF
