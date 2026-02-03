@@ -1,14 +1,16 @@
 """
 Box Position Anomaly Detection - Web Version
-Flask 기반 웹 서비스
+Flask 기반 웹 서비스 + LLM 분석
 
 실행: python box_anomaly_web.py
-접속: http://localhost:5000
+접속: http://localhost:10005
 """
 
 import os
 import cv2
 import numpy as np
+import requests
+import re
 from flask import Flask, render_template_string, request, jsonify, send_from_directory
 from werkzeug.utils import secure_filename
 import base64
@@ -28,6 +30,91 @@ reference_data = {
     'angle': None,
     'image': None
 }
+
+# ========================================
+# LLM API 설정
+# ========================================
+LLM_CONFIG = {
+    "url": "http://common.llm.skhynix.com/v1/chat/completions",
+    "model": "gpt-oss-20b",
+    "name": "COMMON(20B)"
+}
+
+API_TOKEN = None
+
+def load_api_token():
+    """API 토큰 로드"""
+    global API_TOKEN
+    
+    token_paths = [
+        "token.txt",
+        "../token.txt",
+        os.path.expanduser("~/token.txt")
+    ]
+    
+    for token_path in token_paths:
+        if os.path.exists(token_path):
+            try:
+                with open(token_path, "r", encoding='utf-8') as f:
+                    API_TOKEN = f.read().strip()
+                if API_TOKEN and "REPLACE" not in API_TOKEN:
+                    print(f"✅ API 토큰 로드 완료: {token_path}")
+                    return True
+            except Exception as e:
+                print(f"❌ 토큰 로드 실패: {e}")
+    
+    print("⚠️ 토큰 파일을 찾을 수 없습니다")
+    return False
+
+
+def call_llm_api(prompt: str, system_prompt: str = "") -> dict:
+    """LLM API 호출"""
+    global API_TOKEN
+    
+    if not API_TOKEN:
+        return {"success": False, "error": "API 토큰이 설정되지 않았습니다."}
+    
+    headers = {
+        "Authorization": f"Bearer {API_TOKEN}",
+        "Content-Type": "application/json"
+    }
+    
+    messages = []
+    if system_prompt:
+        messages.append({"role": "system", "content": system_prompt})
+    messages.append({"role": "user", "content": prompt})
+    
+    data = {
+        "model": LLM_CONFIG["model"],
+        "messages": messages,
+        "max_tokens": 2000,
+        "temperature": 0.3
+    }
+    
+    try:
+        print("🚀 LLM API 호출 중...")
+        response = requests.post(LLM_CONFIG["url"], headers=headers, json=data, timeout=120)
+        
+        if response.status_code == 200:
+            result = response.json()
+            content = result["choices"][0]["message"]["content"]
+            
+            # <think> 태그 제거
+            content = re.sub(r'<think>.*?</think>', '', content, flags=re.DOTALL)
+            content = content.strip()
+            
+            return {"success": True, "content": content}
+        else:
+            return {"success": False, "error": f"API 오류: {response.status_code}"}
+            
+    except requests.exceptions.Timeout:
+        return {"success": False, "error": "API 요청 시간 초과"}
+    except Exception as e:
+        return {"success": False, "error": f"API 호출 실패: {str(e)}"}
+
+
+# 토큰 로드
+load_api_token()
 
 
 def find_box_center(gray_img):
@@ -382,7 +469,7 @@ HTML_TEMPLATE = '''
 <body>
     <div class="header">
         <h1>📦 박스 위치 이상 탐지 시스템</h1>
-        <p>Box Position Anomaly Detection System - SK Hynix FAB</p>
+        <p>Box Position Anomaly Detection System - BATA_VER_V0.1</p>
     </div>
     
     <div class="container">
@@ -450,6 +537,15 @@ HTML_TEMPLATE = '''
                     </div>
                 </div>
                 <img id="resultImage" class="result-image">
+                
+                <!-- LLM 분석 버튼 -->
+                <button class="btn" id="llmBtn" onclick="llmAnalyze()" style="margin-top: 15px; background: linear-gradient(135deg, #9b59b6, #8e44ad);">
+                    🤖 AI 원인 분석 (LLM)
+                </button>
+                <div id="llmResult" style="display: none; margin-top: 15px; padding: 15px; background: rgba(155,89,182,0.1); border: 1px solid #9b59b6; border-radius: 10px;">
+                    <h4 style="color: #9b59b6; margin-bottom: 10px;">🤖 AI 분석 결과</h4>
+                    <div id="llmContent" style="white-space: pre-wrap; line-height: 1.6; font-size: 14px;"></div>
+                </div>
             </div>
         </div>
         
@@ -606,6 +702,104 @@ HTML_TEMPLATE = '''
             addHistory(result);
         }
         
+        let lastResult = null;  // 마지막 분석 결과 저장
+        
+        // analyzeImage 함수 수정 - 결과 저장
+        const originalAnalyze = analyzeImage;
+        analyzeImage = async function() {
+            const posThreshold = document.getElementById('posThreshold').value;
+            const angleThreshold = document.getElementById('angleThreshold').value;
+            
+            const response = await fetch('/analyze', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ 
+                    image: testImageData,
+                    position_threshold: parseFloat(posThreshold),
+                    angle_threshold: parseFloat(angleThreshold)
+                })
+            });
+            const result = await response.json();
+            
+            if (result.error) {
+                alert('오류: ' + result.error);
+                return;
+            }
+            
+            lastResult = result;  // 결과 저장
+            
+            // 결과 표시
+            const resultBox = document.getElementById('resultBox');
+            resultBox.style.display = 'block';
+            
+            if (result.is_anomaly) {
+                resultBox.className = 'result-box anomaly';
+                document.getElementById('resultTitle').textContent = '⚠️ 이상 감지!';
+                document.getElementById('resultJudge').textContent = 'FAIL';
+                document.getElementById('resultJudge').style.color = '#ff4444';
+                stats.anomaly++;
+            } else {
+                resultBox.className = 'result-box normal';
+                document.getElementById('resultTitle').textContent = '✅ 정상';
+                document.getElementById('resultJudge').textContent = 'PASS';
+                document.getElementById('resultJudge').style.color = '#00ff88';
+                stats.normal++;
+            }
+            stats.total++;
+            
+            document.getElementById('resultType').textContent = result.anomaly_type;
+            document.getElementById('resultShift').textContent = result.position_shift + ' px';
+            document.getElementById('resultAngle').textContent = result.angle_shift + '°';
+            document.getElementById('resultImage').src = 'data:image/png;base64,' + result.result_image;
+            
+            // LLM 결과 초기화
+            document.getElementById('llmResult').style.display = 'none';
+            
+            // 통계 업데이트
+            document.getElementById('statTotal').textContent = stats.total;
+            document.getElementById('statNormal').textContent = stats.normal;
+            document.getElementById('statAnomaly').textContent = stats.anomaly;
+            
+            // 히스토리 추가
+            addHistory(result);
+        }
+        
+        async function llmAnalyze() {
+            if (!lastResult) {
+                alert('먼저 이미지를 분석해주세요!');
+                return;
+            }
+            
+            const btn = document.getElementById('llmBtn');
+            const resultDiv = document.getElementById('llmResult');
+            const contentDiv = document.getElementById('llmContent');
+            
+            btn.disabled = true;
+            btn.textContent = '🤖 AI 분석 중...';
+            contentDiv.textContent = '분석 중입니다. 잠시만 기다려주세요...';
+            resultDiv.style.display = 'block';
+            
+            try {
+                const response = await fetch('/llm_analyze', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ result: lastResult })
+                });
+                const data = await response.json();
+                
+                if (data.success) {
+                    contentDiv.textContent = data.analysis;
+                } else {
+                    contentDiv.textContent = '❌ 분석 실패: ' + data.error;
+                }
+            } catch (e) {
+                contentDiv.textContent = '❌ 오류: ' + e.message;
+            }
+            
+            btn.disabled = false;
+            btn.textContent = '🤖 AI 원인 분석 (LLM)';
+        }
+        
         function addHistory(result) {
             const history = document.getElementById('history');
             if (stats.total === 1) history.innerHTML = '';
@@ -698,6 +892,50 @@ def analyze():
         return jsonify(result)
     except Exception as e:
         return jsonify({'error': str(e)})
+
+
+@app.route('/llm_analyze', methods=['POST'])
+def llm_analyze():
+    """LLM으로 이상 탐지 결과 분석"""
+    try:
+        data = request.json
+        result = data.get('result', {})
+        
+        system_prompt = """당신은 반도체 FAB 공정의 품질 관리 전문가입니다.
+박스 위치 이상 탐지 결과를 분석하고, 원인과 조치 방안을 제시합니다.
+한국어로 간결하고 명확하게 답변하세요."""
+        
+        prompt = f"""박스 위치 이상 탐지 결과를 분석해주세요:
+
+- 판정: {'이상' if result.get('is_anomaly') else '정상'}
+- 유형: {result.get('anomaly_type', '알 수 없음')}
+- 위치 이탈: {result.get('position_shift', 0)}px
+- 회전 각도: {result.get('angle_shift', 0)}°
+
+다음 항목을 분석해주세요:
+1. 이상 원인 추정
+2. 공정에 미치는 영향
+3. 권장 조치 사항
+4. 예방 대책"""
+        
+        llm_result = call_llm_api(prompt, system_prompt)
+        
+        if llm_result["success"]:
+            return jsonify({"success": True, "analysis": llm_result["content"]})
+        else:
+            return jsonify({"success": False, "error": llm_result["error"]})
+            
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)})
+
+
+@app.route('/api/llm_status')
+def llm_status():
+    """LLM 상태 확인"""
+    return jsonify({
+        "available": API_TOKEN is not None,
+        "model": LLM_CONFIG["name"]
+    })
 
 
 if __name__ == '__main__':
