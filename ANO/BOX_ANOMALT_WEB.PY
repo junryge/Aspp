@@ -464,7 +464,27 @@ HTML_TEMPLATE = '''
         @media (max-width: 900px) {
             .container { grid-template-columns: 1fr; }
         }
+        
+        /* 마크다운 스타일 */
+        .markdown-body { color: #e0e0e0; }
+        .markdown-body h1, .markdown-body h2, .markdown-body h3, .markdown-body h4 { 
+            color: #00d4ff; margin-top: 20px; margin-bottom: 10px; border-bottom: 1px solid #333; padding-bottom: 5px;
+        }
+        .markdown-body h3 { color: #9b59b6; }
+        .markdown-body table { width: 100%; border-collapse: collapse; margin: 15px 0; }
+        .markdown-body th, .markdown-body td { 
+            border: 1px solid #444; padding: 8px 12px; text-align: left; 
+        }
+        .markdown-body th { background: rgba(0,212,255,0.1); color: #00d4ff; }
+        .markdown-body tr:nth-child(even) { background: rgba(255,255,255,0.03); }
+        .markdown-body ul, .markdown-body ol { padding-left: 25px; margin: 10px 0; }
+        .markdown-body li { margin: 5px 0; }
+        .markdown-body strong { color: #00ff88; }
+        .markdown-body code { background: rgba(0,0,0,0.3); padding: 2px 6px; border-radius: 4px; color: #f39c12; }
+        .markdown-body hr { border: none; border-top: 1px solid #444; margin: 15px 0; }
+        .markdown-body blockquote { border-left: 3px solid #9b59b6; padding-left: 15px; color: #888; margin: 10px 0; }
     </style>
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
 </head>
 <body>
     <div class="header">
@@ -542,9 +562,44 @@ HTML_TEMPLATE = '''
                 <button class="btn" id="llmBtn" onclick="llmAnalyze()" style="margin-top: 15px; background: linear-gradient(135deg, #9b59b6, #8e44ad);">
                     🤖 AI 원인 분석 (LLM)
                 </button>
+                <button class="btn" onclick="openPromptModal()" style="margin-top: 10px; background: linear-gradient(135deg, #3498db, #2980b9);">
+                    ⚙️ 프롬프트 설정
+                </button>
                 <div id="llmResult" style="display: none; margin-top: 15px; padding: 15px; background: rgba(155,89,182,0.1); border: 1px solid #9b59b6; border-radius: 10px;">
                     <h4 style="color: #9b59b6; margin-bottom: 10px;">🤖 AI 분석 결과</h4>
-                    <div id="llmContent" style="white-space: pre-wrap; line-height: 1.6; font-size: 14px;"></div>
+                    <div id="llmContent" class="markdown-body" style="line-height: 1.6; font-size: 14px;"></div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- 프롬프트 설정 모달 -->
+        <div id="promptModal" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.8); z-index: 1000; justify-content: center; align-items: center;">
+            <div style="background: #1a1a2e; border-radius: 15px; padding: 25px; width: 90%; max-width: 700px; max-height: 80vh; overflow-y: auto; border: 1px solid #9b59b6;">
+                <h2 style="color: #9b59b6; margin-bottom: 20px;">⚙️ LLM 프롬프트 설정</h2>
+                
+                <label style="color: #888; font-size: 12px;">시스템 프롬프트</label>
+                <textarea id="systemPrompt" style="width: 100%; height: 100px; background: rgba(0,0,0,0.3); border: 1px solid #444; border-radius: 8px; color: #fff; padding: 10px; margin-bottom: 15px; resize: vertical;">당신은 반도체 FAB 공정의 품질 관리 전문가입니다.
+박스 위치 이상 탐지 결과를 분석하고, 원인과 조치 방안을 제시합니다.
+한국어로 간결하고 명확하게 답변하세요.</textarea>
+                
+                <label style="color: #888; font-size: 12px;">사용자 프롬프트 (변수: {is_anomaly}, {anomaly_type}, {position_shift}, {angle_shift})</label>
+                <textarea id="userPrompt" style="width: 100%; height: 200px; background: rgba(0,0,0,0.3); border: 1px solid #444; border-radius: 8px; color: #fff; padding: 10px; margin-bottom: 15px; resize: vertical;">박스 위치 이상 탐지 결과를 분석해주세요:
+
+- 판정: {is_anomaly}
+- 유형: {anomaly_type}
+- 위치 이탈: {position_shift}px
+- 회전 각도: {angle_shift}°
+
+다음 항목을 분석해주세요:
+1. 이상 원인 추정
+2. 공정에 미치는 영향
+3. 권장 조치 사항
+4. 예방 대책</textarea>
+                
+                <div style="display: flex; gap: 10px;">
+                    <button class="btn btn-success" onclick="savePrompt()">💾 저장</button>
+                    <button class="btn" onclick="resetPrompt()" style="background: #666;">🔄 기본값</button>
+                    <button class="btn" onclick="closePromptModal()" style="background: #444;">❌ 닫기</button>
                 </div>
             </div>
         </div>
@@ -776,28 +831,90 @@ HTML_TEMPLATE = '''
             
             btn.disabled = true;
             btn.textContent = '🤖 AI 분석 중...';
-            contentDiv.textContent = '분석 중입니다. 잠시만 기다려주세요...';
+            contentDiv.innerHTML = '<p style="color: #888;">분석 중입니다. 잠시만 기다려주세요...</p>';
             resultDiv.style.display = 'block';
+            
+            // 저장된 프롬프트 가져오기
+            const systemPrompt = localStorage.getItem('llm_system_prompt') || document.getElementById('systemPrompt').value;
+            let userPrompt = localStorage.getItem('llm_user_prompt') || document.getElementById('userPrompt').value;
+            
+            // 변수 치환
+            userPrompt = userPrompt
+                .replace('{is_anomaly}', lastResult.is_anomaly ? '이상' : '정상')
+                .replace('{anomaly_type}', lastResult.anomaly_type)
+                .replace('{position_shift}', lastResult.position_shift)
+                .replace('{angle_shift}', lastResult.angle_shift);
             
             try {
                 const response = await fetch('/llm_analyze', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ result: lastResult })
+                    body: JSON.stringify({ 
+                        result: lastResult,
+                        system_prompt: systemPrompt,
+                        user_prompt: userPrompt
+                    })
                 });
                 const data = await response.json();
                 
                 if (data.success) {
-                    contentDiv.textContent = data.analysis;
+                    // 마크다운 렌더링
+                    contentDiv.innerHTML = marked.parse(data.analysis);
                 } else {
-                    contentDiv.textContent = '❌ 분석 실패: ' + data.error;
+                    contentDiv.innerHTML = '<p style="color: #ff4444;">❌ 분석 실패: ' + data.error + '</p>';
                 }
             } catch (e) {
-                contentDiv.textContent = '❌ 오류: ' + e.message;
+                contentDiv.innerHTML = '<p style="color: #ff4444;">❌ 오류: ' + e.message + '</p>';
             }
             
             btn.disabled = false;
             btn.textContent = '🤖 AI 원인 분석 (LLM)';
+        }
+        
+        // 프롬프트 모달 함수들
+        function openPromptModal() {
+            document.getElementById('promptModal').style.display = 'flex';
+            // 저장된 값 불러오기
+            const savedSystem = localStorage.getItem('llm_system_prompt');
+            const savedUser = localStorage.getItem('llm_user_prompt');
+            if (savedSystem) document.getElementById('systemPrompt').value = savedSystem;
+            if (savedUser) document.getElementById('userPrompt').value = savedUser;
+        }
+        
+        function closePromptModal() {
+            document.getElementById('promptModal').style.display = 'none';
+        }
+        
+        function savePrompt() {
+            localStorage.setItem('llm_system_prompt', document.getElementById('systemPrompt').value);
+            localStorage.setItem('llm_user_prompt', document.getElementById('userPrompt').value);
+            alert('프롬프트가 저장되었습니다!');
+            closePromptModal();
+        }
+        
+        function resetPrompt() {
+            const defaultSystem = `당신은 반도체 FAB 공정의 품질 관리 전문가입니다.
+박스 위치 이상 탐지 결과를 분석하고, 원인과 조치 방안을 제시합니다.
+한국어로 간결하고 명확하게 답변하세요.`;
+            
+            const defaultUser = `박스 위치 이상 탐지 결과를 분석해주세요:
+
+- 판정: {is_anomaly}
+- 유형: {anomaly_type}
+- 위치 이탈: {position_shift}px
+- 회전 각도: {angle_shift}°
+
+다음 항목을 분석해주세요:
+1. 이상 원인 추정
+2. 공정에 미치는 영향
+3. 권장 조치 사항
+4. 예방 대책`;
+            
+            document.getElementById('systemPrompt').value = defaultSystem;
+            document.getElementById('userPrompt').value = defaultUser;
+            localStorage.removeItem('llm_system_prompt');
+            localStorage.removeItem('llm_user_prompt');
+            alert('기본값으로 초기화되었습니다!');
         }
         
         function addHistory(result) {
@@ -901,11 +1018,16 @@ def llm_analyze():
         data = request.json
         result = data.get('result', {})
         
-        system_prompt = """당신은 반도체 FAB 공정의 품질 관리 전문가입니다.
+        # 커스텀 프롬프트 (프론트에서 받음)
+        system_prompt = data.get('system_prompt', """당신은 반도체 FAB 공정의 품질 관리 전문가입니다.
 박스 위치 이상 탐지 결과를 분석하고, 원인과 조치 방안을 제시합니다.
-한국어로 간결하고 명확하게 답변하세요."""
+한국어로 간결하고 명확하게 답변하세요.""")
         
-        prompt = f"""박스 위치 이상 탐지 결과를 분석해주세요:
+        user_prompt = data.get('user_prompt', None)
+        
+        # 기본 프롬프트
+        if not user_prompt:
+            user_prompt = f"""박스 위치 이상 탐지 결과를 분석해주세요:
 
 - 판정: {'이상' if result.get('is_anomaly') else '정상'}
 - 유형: {result.get('anomaly_type', '알 수 없음')}
@@ -918,7 +1040,7 @@ def llm_analyze():
 3. 권장 조치 사항
 4. 예방 대책"""
         
-        llm_result = call_llm_api(prompt, system_prompt)
+        llm_result = call_llm_api(user_prompt, system_prompt)
         
         if llm_result["success"]:
             return jsonify({"success": True, "analysis": llm_result["content"]})
