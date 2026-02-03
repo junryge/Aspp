@@ -183,10 +183,11 @@ main { display:flex; height:calc(100vh - 56px); }
 .md hr { border:none; border-top:1px solid #4b5563; margin:8px 0; }
 
 /* 히스토리 */
-.history { height:90px; background:#1f2937; border-top:1px solid #374151; padding:10px 14px; }
+.history { height:110px; background:#1f2937; border-top:1px solid #374151; padding:12px 16px; margin-bottom:10px; }
 .history h3 { font-size:12px; color:#9ca3af; margin-bottom:8px; }
 .history-list { display:flex; gap:10px; overflow-x:auto; }
-.history-item { flex-shrink:0; display:flex; align-items:center; gap:8px; background:#374151; padding:8px 12px; border-radius:6px; }
+.history-item { flex-shrink:0; display:flex; align-items:center; gap:8px; background:#374151; padding:8px 12px; border-radius:6px; cursor:pointer; transition:0.2s; }
+.history-item:hover { background:#4b5563; transform:translateY(-2px); }
 .history-item.green { border-left:3px solid #34d399; }
 .history-item.red { border-left:3px solid #f87171; }
 .history-item img { width:45px; height:45px; object-fit:cover; border-radius:4px; }
@@ -194,6 +195,22 @@ main { display:flex; height:calc(100vh - 56px); }
 .history-item .info strong { display:block; }
 .history-item .info span { color:#6b7280; }
 .history-empty { color:#4b5563; font-size:11px; padding:12px; }
+
+/* 히스토리 상세 모달 */
+.hist-modal { display:none; position:fixed; inset:0; background:rgba(0,0,0,0.85); z-index:200; align-items:center; justify-content:center; }
+.hist-modal-box { background:#1f2937; border-radius:12px; padding:20px; width:90%; max-width:700px; max-height:85vh; overflow-y:auto; }
+.hist-modal-box h2 { font-size:18px; margin-bottom:16px; display:flex; align-items:center; gap:10px; }
+.hist-modal-box h2.green { color:#34d399; }
+.hist-modal-box h2.red { color:#f87171; }
+.hist-modal-content { display:grid; grid-template-columns:1fr 1fr; gap:16px; }
+.hist-modal-img { text-align:center; }
+.hist-modal-img img { max-width:100%; max-height:300px; border-radius:8px; }
+.hist-modal-info { }
+.hist-modal-grid { display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-bottom:16px; }
+.hist-modal-item { background:#374151; padding:12px; border-radius:8px; text-align:center; }
+.hist-modal-item .label { font-size:11px; color:#6b7280; margin-bottom:4px; }
+.hist-modal-item .value { font-size:18px; font-weight:bold; }
+.hist-close { width:100%; margin-top:16px; }
 
 /* 모달 */
 .modal { display:none; position:fixed; inset:0; background:rgba(0,0,0,0.8); z-index:100; align-items:center; justify-content:center; }
@@ -300,10 +317,33 @@ main { display:flex; height:calc(100vh - 56px); }
     </div>
 </div>
 
+<!-- 히스토리 상세보기 모달 -->
+<div class="hist-modal" id="histModal">
+    <div class="hist-modal-box">
+        <h2 id="histModalTitle">📊 검사 상세</h2>
+        <div class="hist-modal-content">
+            <div class="hist-modal-img">
+                <img id="histModalImg">
+            </div>
+            <div class="hist-modal-info">
+                <div class="hist-modal-grid">
+                    <div class="hist-modal-item"><div class="label">유형</div><div class="value" id="histType">-</div></div>
+                    <div class="hist-modal-item"><div class="label">이탈거리</div><div class="value" id="histShift">-</div></div>
+                    <div class="hist-modal-item"><div class="label">회전각도</div><div class="value" id="histAngle">-</div></div>
+                    <div class="hist-modal-item"><div class="label">판정</div><div class="value" id="histJudge">-</div></div>
+                </div>
+                <p style="color:#6b7280;font-size:11px;" id="histTime"></p>
+            </div>
+        </div>
+        <button class="btn hist-close" style="background:#4b5563" onclick="closeHistModal()">닫기</button>
+    </div>
+</div>
+
 <script>
 const $=s=>document.querySelector(s);
 const $$=s=>document.querySelectorAll(s);
 let refD,testD,lastR,st={t:0,n:0,a:0};
+let historyData = []; // 히스토리 데이터 저장
 
 $('#refIn').onchange=e=>{if(e.target.files[0])loadImg(e.target.files[0],'ref')};
 $('#testIn').onchange=e=>{if(e.target.files[0])loadImg(e.target.files[0],'test')};
@@ -405,12 +445,38 @@ async function aiAnalyze(){
 }
 
 function addHist(d){
+    // 히스토리 데이터 저장
+    const histItem = {
+        ...d,
+        time: new Date().toLocaleString('ko-KR'),
+        id: historyData.length
+    };
+    historyData.unshift(histItem);
+    
     const h=$('#hist');
     if(st.t===1)h.innerHTML='';
     const item=document.createElement('div');
     item.className='history-item '+(d.is_anomaly?'red':'green');
     item.innerHTML=`<img src="data:image/png;base64,${d.img}"><div class="info"><strong>${d.is_anomaly?'⚠️ 이상':'✅ 정상'}</strong><span>${d.type} | ${d.shift}px</span></div>`;
+    item.onclick = () => showHistDetail(histItem);
     h.insertBefore(item,h.firstChild);
+}
+
+function showHistDetail(data){
+    $('#histModalTitle').textContent = data.is_anomaly ? '⚠️ 이상 감지 상세' : '✅ 정상 상세';
+    $('#histModalTitle').className = data.is_anomaly ? 'red' : 'green';
+    $('#histModalImg').src = 'data:image/png;base64,' + data.img;
+    $('#histType').textContent = data.type;
+    $('#histShift').textContent = data.shift + 'px';
+    $('#histAngle').textContent = data.angle + '°';
+    $('#histJudge').textContent = data.is_anomaly ? 'FAIL' : 'PASS';
+    $('#histJudge').style.color = data.is_anomaly ? '#f87171' : '#34d399';
+    $('#histTime').textContent = '검사 시간: ' + data.time;
+    $('#histModal').style.display = 'flex';
+}
+
+function closeHistModal(){
+    $('#histModal').style.display = 'none';
 }
 
 function openModal(){$('#modal').style.display='flex'}
