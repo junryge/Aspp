@@ -13,17 +13,17 @@ HID IN/OUT 엣지 기반 집계 기능을 **기존 코드에 추가**합니다.
 
 **용도**: HID Zone 진입/진출 엣지 마스터 데이터 (기준 정보) — 하루 1회 업데이트
 
-| 컬럼명 | 타입 | 설명 | 활용 |
-|--------|------|------|------|
-| `FROM_HIDID` | INT | 출발 HID Zone ID | OHT가 떠나는 HID |
-| `TO_HIDID` | INT | 도착 HID Zone ID | OHT가 진입하는 HID |
-| `EDGE_ID` | STRING | 엣지 고유 ID (FROM:TO) | 엣지 식별 키 |
-| `FROM_HID_NM` | STRING | 출발 HID Zone 이름 | 화면 표시용 |
-| `TO_HID_NM` | STRING | 도착 HID Zone 이름 | 화면 표시용 |
-| `MCP_ID` | STRING | MCP ID | MCP별 그룹핑 |
-| `ZONE_ID` | STRING | Zone ID | Zone별 그룹핑 |
-| `EDGE_TYPE` | STRING | 엣지 유형 | IN(진입)/OUT(진출)/INTERNAL(내부이동) |
-| `UPDATE_DT` | STRING | 마지막 업데이트 일시 | 데이터 신선도 확인 |
+| 컬럼명 | 타입 | 설명 | 데이터 소스 |
+|--------|------|------|-------------|
+| `FROM_HIDID` | INT | 출발 HID Zone ID | `HID_Zone_Master.csv` → `IN_Lanes` 파싱 (예: "3048→3023") |
+| `TO_HIDID` | INT | 도착 HID Zone ID | `HID_Zone_Master.csv` → `OUT_Lanes` 파싱 |
+| `EDGE_ID` | STRING | 엣지 고유 ID (FROM:TO) | `String.format("%03d:%03d", fromHidId, toHidId)` |
+| `FROM_HID_NM` | STRING | 출발 HID Zone 이름 | `HID_Zone_Master.csv` → `Full_Name` |
+| `TO_HID_NM` | STRING | 도착 HID Zone 이름 | `HID_Zone_Master.csv` → `Full_Name` |
+| `MCP_ID` | STRING | MCP ID | `mcp75ConfigMap.keySet()` 순회 |
+| `ZONE_ID` | STRING | Zone ID | `HID_Zone_Master.csv` → `Bay_Zone` |
+| `EDGE_TYPE` | STRING | 엣지 유형 | `fromHidId==0 ? "IN" : toHidId==0 ? "OUT" : "INTERNAL"` |
+| `UPDATE_DT` | STRING | 마지막 업데이트 일시 | `SimpleDateFormat("yyyy-MM-dd HH:mm:ss")` |
 
 ---
 
@@ -31,20 +31,20 @@ HID IN/OUT 엣지 기반 집계 기능을 **기존 코드에 추가**합니다.
 
 **용도**: HID 상세 정보 마스터 데이터 — 레일 길이, FREE FLOW 속도, 포트 개수 등
 
-| 컬럼명 | 타입 | 설명 | 활용 |
-|--------|------|------|------|
-| `HID_ID` | INT | HID Zone ID (PK) | 조인 키, HID 식별 |
-| `HID_NM` | STRING | HID Zone 이름 | 화면 표시용 |
-| `MCP_ID` | STRING | MCP ID | MCP별 그룹핑 |
-| `ZONE_ID` | STRING | Zone ID | Zone별 그룹핑 |
-| `RAIL_LEN_TOTAL` | DOUBLE | 레일 길이 총합 (mm) | 통과 시간 = RAIL_LEN / 속도, 혼잡도 분석 |
-| `FREE_FLOW_SPEED` | DOUBLE | FREE FLOW 속도 (mm/s) | 이론적 최소 통과 시간 산출, 지연 감지 |
-| `PORT_CNT_TOTAL` | INT | 포트 개수 총합 | 작업 부하 = 포트수 × 작업빈도, 병목 구간 식별 |
-| `IN_CNT` | INT | IN Lane 개수 | 진입 용량 판단 |
-| `OUT_CNT` | INT | OUT Lane 개수 | 진출 용량 판단 |
-| `VHL_MAX` | INT | 최대 허용 차량 수 | 과밀 알람 기준, 진입 제어 판단 |
-| `ZCU_ID` | STRING | ZCU ID | ZCU별 그룹핑 |
-| `UPDATE_DT` | STRING | 마지막 업데이트 일시 | 데이터 신선도 확인 |
+| 컬럼명 | 타입 | 설명 | 데이터 소스 |
+|--------|------|------|-------------|
+| `HID_ID` | INT | HID Zone ID (PK) | `HID_Zone_Master.csv` → `Zone_ID` |
+| `HID_NM` | STRING | HID Zone 이름 | `HID_Zone_Master.csv` → `Full_Name` |
+| `MCP_ID` | STRING | MCP ID | `mcp75ConfigMap.keySet()` 순회 |
+| `ZONE_ID` | STRING | Zone ID | `HID_Zone_Master.csv` → `Bay_Zone` |
+| `RAIL_LEN_TOTAL` | DOUBLE | 레일 길이 총합 (mm) | `RailEdge.getLength()` HID별 합계 (DataService.java:691) |
+| `FREE_FLOW_SPEED` | DOUBLE | FREE FLOW 속도 (mm/s) | `RailEdge.getMaxVelocity()` HID별 평균 (RaileEdge.java:270) |
+| `PORT_CNT_TOTAL` | INT | 포트 개수 총합 | `RailEdge.getPortIdList().size()` HID별 합계 |
+| `IN_CNT` | INT | IN Lane 개수 | `HID_Zone_Master.csv` → `IN_Count` |
+| `OUT_CNT` | INT | OUT Lane 개수 | `HID_Zone_Master.csv` → `OUT_Count` |
+| `VHL_MAX` | INT | 최대 허용 차량 수 | `HID_Zone_Master.csv` → `Vehicle_Max` |
+| `ZCU_ID` | STRING | ZCU ID | `HID_Zone_Master.csv` → `ZCU` |
+| `UPDATE_DT` | STRING | 마지막 업데이트 일시 | `SimpleDateFormat("yyyy-MM-dd HH:mm:ss")` |
 
 ---
 
@@ -52,15 +52,15 @@ HID IN/OUT 엣지 기반 집계 기능을 **기존 코드에 추가**합니다.
 
 **용도**: HID IN/OUT 1분 집계 데이터 — FABID별 테이블 분리 (M14, M16, M17...)
 
-| 컬럼명 | 타입 | 설명 | 활용 |
-|--------|------|------|------|
-| `EVENT_DATE` | STRING | 이벤트 날짜 | 파티션 키, 일별 조회 |
-| `EVENT_DT` | STRING | 집계 시간 (1분 단위) | 시간대별 분석 |
-| `FROM_HIDID` | INT | 출발 HID Zone ID | OHT가 떠나는 HID |
-| `TO_HIDID` | INT | 도착 HID Zone ID | OHT가 진입하는 HID |
-| `TRANS_CNT` | INT | 1분간 전환 횟수 | 트래픽 볼륨 분석 |
-| `MCP_NM` | STRING | MCP 이름 | MCP별 그룹핑 |
-| `ENV` | STRING | 환경 구분 | PROD/DEV 구분 |
+| 컬럼명 | 타입 | 설명 | 데이터 소스 |
+|--------|------|------|-------------|
+| `EVENT_DATE` | STRING | 이벤트 날짜 | `SimpleDateFormat("yyyy-MM-dd")` |
+| `EVENT_DT` | STRING | 집계 시간 (1분 단위) | `SimpleDateFormat("yyyy-MM-dd HH:mm:00")` |
+| `FROM_HIDID` | INT | 출발 HID Zone ID | `vehicle.getHidId()` (previousHidId) - Vhl.java:517 |
+| `TO_HIDID` | INT | 도착 HID Zone ID | `currentHidId` 파라미터 - OhtMsgWorkerRunnable.java:357 |
+| `TRANS_CNT` | INT | 1분간 전환 횟수 | `hidEdgeBuffer.get(edgeKey)` 집계값 |
+| `MCP_NM` | STRING | MCP 이름 | `this.mcpName` - OhtMsgWorkerRunnable.java:9 |
+| `ENV` | STRING | 환경 구분 | `Env.getEnv()` - OhtMsgWorkerRunnable.java:505 |
 
 ---
 
