@@ -1,0 +1,441 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AHTO/AHSO 반도체 알람 개념 정리</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+            min-height: 100vh;
+            padding: 40px 20px;
+            color: #e0e0e0;
+        }
+        .container {
+            max-width: 900px;
+            margin: 0 auto;
+        }
+        h1 {
+            text-align: center;
+            color: #00d4ff;
+            font-size: 2.2rem;
+            margin-bottom: 10px;
+            text-shadow: 0 0 20px rgba(0, 212, 255, 0.3);
+        }
+        .subtitle {
+            text-align: center;
+            color: #888;
+            margin-bottom: 40px;
+            font-size: 0.95rem;
+        }
+        .card {
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 16px;
+            padding: 30px;
+            margin-bottom: 25px;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            backdrop-filter: blur(10px);
+        }
+        .card-header {
+            display: flex;
+            align-items: center;
+            gap: 15px;
+            margin-bottom: 20px;
+        }
+        .card-icon {
+            width: 50px;
+            height: 50px;
+            border-radius: 12px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.5rem;
+            font-weight: bold;
+        }
+        .ahto-icon {
+            background: linear-gradient(135deg, #ff6b6b, #ee5a5a);
+            color: white;
+        }
+        .ahso-icon {
+            background: linear-gradient(135deg, #ffa94d, #ff922b);
+            color: white;
+        }
+        .card-title {
+            font-size: 1.4rem;
+            color: #fff;
+        }
+        .card-meaning {
+            color: #aaa;
+            font-size: 0.9rem;
+        }
+        .definition {
+            background: rgba(0, 0, 0, 0.3);
+            border-radius: 10px;
+            padding: 20px;
+            margin-bottom: 20px;
+        }
+        .definition p {
+            font-size: 1.1rem;
+            line-height: 1.6;
+        }
+        .highlight {
+            color: #00d4ff;
+            font-weight: 600;
+        }
+        .highlight-red {
+            color: #ff6b6b;
+            font-weight: 600;
+        }
+        .highlight-orange {
+            color: #ffa94d;
+            font-weight: 600;
+        }
+        .example-box {
+            background: rgba(0, 212, 255, 0.1);
+            border-left: 4px solid #00d4ff;
+            padding: 15px 20px;
+            border-radius: 0 10px 10px 0;
+        }
+        .example-box strong {
+            color: #00d4ff;
+        }
+        
+        /* 비교 테이블 */
+        .comparison-section {
+            margin-top: 40px;
+        }
+        .comparison-section h2 {
+            color: #00d4ff;
+            margin-bottom: 20px;
+            font-size: 1.3rem;
+        }
+        .comparison-table {
+            width: 100%;
+            border-collapse: collapse;
+            background: rgba(255, 255, 255, 0.03);
+            border-radius: 12px;
+            overflow: hidden;
+        }
+        .comparison-table th,
+        .comparison-table td {
+            padding: 16px 20px;
+            text-align: left;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+        }
+        .comparison-table th {
+            background: rgba(0, 212, 255, 0.15);
+            color: #00d4ff;
+            font-weight: 600;
+            font-size: 0.95rem;
+        }
+        .comparison-table tr:last-child td {
+            border-bottom: none;
+        }
+        .comparison-table tr:hover {
+            background: rgba(255, 255, 255, 0.03);
+        }
+        .badge {
+            display: inline-block;
+            padding: 4px 12px;
+            border-radius: 20px;
+            font-size: 0.85rem;
+            font-weight: 600;
+        }
+        .badge-red {
+            background: rgba(255, 107, 107, 0.2);
+            color: #ff6b6b;
+        }
+        .badge-orange {
+            background: rgba(255, 169, 77, 0.2);
+            color: #ffa94d;
+        }
+
+        /* 데이터 구조 섹션 */
+        .data-section {
+            margin-top: 40px;
+        }
+        .data-section h2 {
+            color: #00d4ff;
+            margin-bottom: 20px;
+            font-size: 1.3rem;
+        }
+        .data-example {
+            background: #0d1117;
+            border-radius: 10px;
+            padding: 20px;
+            font-family: 'Consolas', 'Monaco', monospace;
+            font-size: 0.9rem;
+            overflow-x: auto;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+        .data-example .comment {
+            color: #6a9955;
+        }
+        .data-example .key {
+            color: #9cdcfe;
+        }
+        .data-example .value {
+            color: #ce9178;
+        }
+
+        /* 중요 포인트 */
+        .important-section {
+            margin-top: 40px;
+        }
+        .important-section h2 {
+            color: #00d4ff;
+            margin-bottom: 20px;
+            font-size: 1.3rem;
+        }
+        .important-box {
+            background: linear-gradient(135deg, rgba(0, 212, 255, 0.1), rgba(0, 212, 255, 0.05));
+            border: 1px solid rgba(0, 212, 255, 0.3);
+            border-radius: 12px;
+            padding: 25px;
+        }
+        .important-item {
+            display: flex;
+            align-items: flex-start;
+            gap: 15px;
+            margin-bottom: 15px;
+        }
+        .important-item:last-child {
+            margin-bottom: 0;
+        }
+        .important-icon {
+            width: 30px;
+            height: 30px;
+            background: #00d4ff;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: #1a1a2e;
+            font-weight: bold;
+            flex-shrink: 0;
+        }
+        .important-text {
+            line-height: 1.6;
+        }
+
+        /* 요약 */
+        .summary-box {
+            margin-top: 40px;
+            background: linear-gradient(135deg, rgba(255, 255, 255, 0.08), rgba(255, 255, 255, 0.03));
+            border-radius: 16px;
+            padding: 30px;
+            text-align: center;
+            border: 1px solid rgba(255, 255, 255, 0.15);
+        }
+        .summary-box h3 {
+            color: #fff;
+            font-size: 1.2rem;
+            margin-bottom: 20px;
+        }
+        .summary-items {
+            display: flex;
+            justify-content: center;
+            gap: 40px;
+            flex-wrap: wrap;
+        }
+        .summary-item {
+            text-align: center;
+        }
+        .summary-label {
+            font-size: 1.1rem;
+            font-weight: 600;
+            margin-bottom: 5px;
+        }
+        .summary-desc {
+            color: #aaa;
+            font-size: 0.95rem;
+        }
+        .arrow {
+            font-size: 2rem;
+            color: #00d4ff;
+            display: flex;
+            align-items: center;
+        }
+
+        @media (max-width: 600px) {
+            .summary-items {
+                flex-direction: column;
+                gap: 20px;
+            }
+            .arrow {
+                transform: rotate(90deg);
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>AHTO / AHSO</h1>
+        <p class="subtitle">반도체 FAB Q-Time Interlock 알람 시스템</p>
+
+        <!-- AHTO 카드 -->
+        <div class="card">
+            <div class="card-header">
+                <div class="card-icon ahto-icon">⏰</div>
+                <div>
+                    <div class="card-title">AHTO</div>
+                    <div class="card-meaning">Alarm Hold Time Over</div>
+                </div>
+            </div>
+            <div class="definition">
+                <p>Q-Time(대기 시간) <span class="highlight-red">상한 초과</span> 알람<br>
+                공정 간 이동/대기 시간이 <span class="highlight-red">너무 오래 걸렸을 때</span> 발생</p>
+            </div>
+            <div class="example-box">
+                <strong>예시:</strong> 식각(Etch) 후 세정(Clean)까지 최대 4시간 규정인데, 5시간이 지나면 AHTO 알람 발생 → Lot 자동 Hold
+            </div>
+        </div>
+
+        <!-- AHSO 카드 -->
+        <div class="card">
+            <div class="card-header">
+                <div class="card-icon ahso-icon">⚡</div>
+                <div>
+                    <div class="card-title">AHSO</div>
+                    <div class="card-meaning">Alarm Hold Short Over (또는 Spec Over)</div>
+                </div>
+            </div>
+            <div class="definition">
+                <p>Q-Time <span class="highlight-orange">하한 미달</span> 또는 <span class="highlight-orange">스펙 위반</span> 알람<br>
+                공정 간 이동이 <span class="highlight-orange">너무 빠르거나</span> 규정된 조건을 충족하지 못했을 때 발생</p>
+            </div>
+            <div class="example-box">
+                <strong>예시:</strong> 열처리 후 최소 30분 안정화 필요한데, 10분만에 다음 공정으로 이동하면 AHSO 알람 발생 → Lot 자동 Hold
+            </div>
+        </div>
+
+        <!-- 비교 테이블 -->
+        <div class="comparison-section">
+            <h2>📊 AHTO vs AHSO 비교</h2>
+            <table class="comparison-table">
+                <thead>
+                    <tr>
+                        <th>구분</th>
+                        <th>AHTO</th>
+                        <th>AHSO</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td>의미</td>
+                        <td><span class="badge badge-red">Time Over</span></td>
+                        <td><span class="badge badge-orange">Short Over</span></td>
+                    </tr>
+                    <tr>
+                        <td>발생 조건</td>
+                        <td>Q-Time 상한 초과 (늦음)</td>
+                        <td>Q-Time 하한 미달 (빠름)</td>
+                    </tr>
+                    <tr>
+                        <td>위험 요인</td>
+                        <td>웨이퍼 산화, 오염, 변질</td>
+                        <td>불충분한 안정화, 반응 미완료</td>
+                    </tr>
+                    <tr>
+                        <td>조치</td>
+                        <td>Rework 또는 폐기 검토</td>
+                        <td>재대기 또는 Rework 검토</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+
+        <!-- REWORK 섹션 -->
+        <div class="card" style="margin-top: 40px;">
+            <div class="card-header">
+                <div class="card-icon" style="background: linear-gradient(135deg, #845ef7, #7048e8);">🔄</div>
+                <div>
+                    <div class="card-title">REWORK</div>
+                    <div class="card-meaning">Q-Time 위반 후 재작업 처분</div>
+                </div>
+            </div>
+            <div class="definition">
+                <p>Q-Time Interlock 위반(AHTO/AHSO) 발생 후<br>
+                <span class="highlight">Disposition(처분) 결과가 Rework로 결정된 Lot</span></p>
+            </div>
+            <div class="example-box" style="background: rgba(132, 94, 247, 0.1); border-left-color: #845ef7;">
+                <strong>MES Disposition Flow:</strong>
+                <div style="margin-top: 15px; font-family: 'Consolas', monospace; line-height: 1.8;">
+                    Q-Time 위반 발생 → Lot Hold → 엔지니어 검토 → Disposition 결정<br>
+                    <span style="margin-left: 280px;">├─ <span style="color: #845ef7; font-weight: bold;">REWORK</span> (재작업)</span><br>
+                    <span style="margin-left: 280px;">├─ <span style="color: #ff6b6b; font-weight: bold;">SCRAP</span> (폐기)</span><br>
+                    <span style="margin-left: 280px;">└─ <span style="color: #51cf66; font-weight: bold;">RELEASE</span> (정상 진행)</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- 데이터 구조 -->
+        <div class="data-section">
+            <h2>📋 알람 데이터 구조 예시</h2>
+            <div class="data-example">
+                <span class="comment">// 알람 메시지 원본</span><br><br>
+                <span class="key">Timestamp:</span> <span class="value">20251103214706300000</span><br>
+                <span class="key">Lot ID:</span> <span class="value">TE2WT77</span><br>
+                <span class="key">Alarm Type:</span> <span class="value">AHTO</span><br>
+                <span class="key">Status:</span> <span class="value">RetryHold-Occured</span><br>
+                <span class="key">Interlock:</span> <span class="value">R5010200C → R7001000F</span><br>
+                <span class="key">RunTime:</span> <span class="value">46,826분 (≈32일) - Interlock 규칙 총 가동 시간</span><br>
+                <span class="key">Lot State:</span> <span class="value">WAIT</span><br><br>
+                <span class="comment">// MES 집계 테이블 (REWORK 처분 건)</span><br>
+                <span class="comment">// 구조: AHTO+AHSO | REWORK | 알람ID | 발생 | 처리 | 미처리</span><br><br>
+                <span class="key">AHSO202511010006:</span> <span class="value">1건 발생, 1건 처리, 0건 미처리</span><br>
+                <span class="key">AHSO202511010022:</span> <span class="value">2건 발생, 2건 처리, 0건 미처리</span><br><br>
+                <span class="comment">// → AHTO+AHSO 알람 중 REWORK 처분된 Lot들의 시간대별 현황</span>
+            </div>
+        </div>
+
+        <!-- 중요 포인트 -->
+        <div class="important-section">
+            <h2>💡 왜 중요한가?</h2>
+            <div class="important-box">
+                <div class="important-item">
+                    <div class="important-icon">1</div>
+                    <div class="important-text">
+                        <strong>품질 관리:</strong> 웨이퍼가 공정 간 적정 시간 내에 이동해야 품질 유지 가능
+                    </div>
+                </div>
+                <div class="important-item">
+                    <div class="important-icon">2</div>
+                    <div class="important-text">
+                        <strong>자동 Interlock:</strong> MES에서 Q-Time 위반 시 Lot을 자동 Hold하여 불량 방지
+                    </div>
+                </div>
+                <div class="important-item">
+                    <div class="important-icon">3</div>
+                    <div class="important-text">
+                        <strong>Rework 판단:</strong> 알람 발생 Lot은 엔지니어 검토 후 Rework 또는 폐기 결정
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 요약 -->
+        <div class="summary-box">
+            <h3>📌 한줄 요약</h3>
+            <div class="summary-items">
+                <div class="summary-item">
+                    <div class="summary-label" style="color: #ff6b6b;">AHTO</div>
+                    <div class="summary-desc">"늦음" 알람</div>
+                </div>
+                <div class="arrow">↔</div>
+                <div class="summary-item">
+                    <div class="summary-label" style="color: #ffa94d;">AHSO</div>
+                    <div class="summary-desc">"빠름" 알람</div>
+                </div>
+            </div>
+        </div>
+
+    </div>
+</body>
+</html>
