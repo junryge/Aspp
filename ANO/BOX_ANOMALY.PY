@@ -111,7 +111,9 @@ class BoxPositionDetector:
                 'is_anomaly': True,
                 'anomaly_type': 'BOX_NOT_FOUND',
                 'position_shift': -1,
-                'angle_shift': -1
+                'angle_shift': -1,
+                'test_center': None,
+                'ref_center': self.ref_center
             }
         
         # 위치 차이 계산
@@ -144,7 +146,9 @@ class BoxPositionDetector:
             'position_shift': round(position_shift, 2),
             'angle_shift': round(angle_shift, 2),
             'center': test_center,
-            'angle': round(test_angle, 2)
+            'angle': round(test_angle, 2),
+            'test_center': test_center,
+            'ref_center': self.ref_center
         }
     
     def visualize(self, test_image_path, output_path=None):
