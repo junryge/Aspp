@@ -6,9 +6,9 @@ df = pd.read_csv('ahso_alarm.csv', encoding='utf-8-sig')
 # 분류 컬럼 문자열 변환
 df['분류'] = df['분류'].astype(str).str.strip()
 
-# 기존 시간 추출
+# 기존 시간 추출 (중복 포함 그대로)
 existing_times = set(df['분류'].tolist())
-print(f"기존 데이터: {len(existing_times)}개")
+print(f"기존 데이터: {len(df)}행")
 
 # ========== 기간 설정 ==========
 START_DATE = '202601010007'
@@ -21,7 +21,7 @@ end_dt = pd.to_datetime(END_DATE, format='%Y%m%d%H%M')
 full_range = pd.date_range(start=start_dt, end=end_dt, freq='1min')
 all_times = [t.strftime('%Y%m%d%H%M') for t in full_range]
 
-# 빠진 시간만 찾기 (기존에 없는 것만!)
+# 빠진 시간만 찾기 (기존에 없는 것만)
 missing_times = [t for t in all_times if t not in existing_times]
 print(f"빠진 시간: {len(missing_times)}개")
 
@@ -34,17 +34,14 @@ for t in missing_times:
             row[col] = 0
     new_rows.append(row)
 
-# 기존 데이터 + 새 행 합치기
+# 기존 데이터 + 빠진 시간만 추가
 new_df = pd.DataFrame(new_rows)
 df = pd.concat([df, new_df], ignore_index=True)
-
-# 혹시 모를 중복 제거 (분류 기준)
-df = df.drop_duplicates(subset=['분류'], keep='first')
 
 # 정렬
 df = df.sort_values('분류').reset_index(drop=True)
 
-print(f"\n총 {len(df)}행 (중복 제거 완료)")
+print(f"\n총 {len(df)}행")
 print(df.head(30))
 
 # 저장
