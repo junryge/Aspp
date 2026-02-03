@@ -1,8 +1,11 @@
 import pandas as pd
-import re
 
 # CSV 로드
 df = pd.read_csv('ahso_alarm.csv', encoding='utf-8-sig')
+
+# 기존 컬럼 확인
+print("=== 기존 컬럼 ===")
+print(df.columns.tolist())
 
 # AHSO 컬럼 문자열 변환
 ahso_col = [col for col in df.columns if 'AHSO' in col][0]
@@ -26,34 +29,36 @@ end_dt = pd.to_datetime(END_DATE, format='%Y%m%d%H%M')
 full_range = pd.date_range(start=start_dt, end=end_dt, freq='1min')
 full_df = pd.DataFrame({'DATETIME': full_range})
 
-# 원본 데이터와 병합 (없는 시간대는 NaN)
+# 원본 데이터와 병합
 df = full_df.merge(df, on='DATETIME', how='left')
 
-# 빈 데이터 채우기
-# 분류 컬럼
-if '분류' in df.columns:
-    df['분류'] = df['분류'].fillna('')
-
-# AHTO+AHSO, REWORK 숫자 컬럼 0으로
-numeric_cols = ['AHTO+AHSO', 'REWORK']
-for col in numeric_cols:
-    if col in df.columns:
+# ========== 기존 컬럼 유지하면서 결측치만 채우기 ==========
+for col in df.columns:
+    if col == 'DATETIME':
+        continue
+    elif col == ahso_col:
+        # AHSO 컬럼: 빈 값은 AHSO + 날짜로 채우기
+        mask = df[col].isna() | (df[col] == 'nan')
+        df.loc[mask, col] = 'AHSO' + df.loc[mask, 'DATETIME'].dt.strftime('%Y%m%d%H%M')
+    elif df[col].dtype in ['float64', 'int64'] or col in ['AHTO+AHSO', 'REWORK']:
+        # 숫자 컬럼: 0으로
         df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0).astype(int)
-
-# AHSO 컬럼 - 날짜 기반으로 재생성
-df[ahso_col] = 'AHSO' + df['DATETIME'].dt.strftime('%Y%m%d%H%M')
+    else:
+        # 문자 컬럼: 빈 문자열
+        df[col] = df[col].fillna('')
 
 # 정렬
 df = df.sort_values('DATETIME').reset_index(drop=True)
 
+# DATETIME 컬럼 위치 맨 뒤로 (기존 컬럼 순서 유지)
+cols = [c for c in df.columns if c != 'DATETIME'] + ['DATETIME']
+df = df[cols]
+
 # 결과 확인
-print(f"=== 기간: {start_dt} ~ {end_dt} ===")
-print(f"총 {len(df)}건 (1분 단위)")
-print(f"\n=== 결측치 현황 ===")
-print(df.isnull().sum())
-print(f"\n=== 샘플 데이터 ===")
+print(f"\n=== 최종 컬럼 ===")
+print(df.columns.tolist())
+print(f"\n총 {len(df)}건")
 print(df.head(20))
 
 # 저장
 df.to_csv('ahso_alarm_full_range.csv', index=False, encoding='utf-8-sig')
-print("\n저장 완료: ahso_alarm_full_range.csv")
