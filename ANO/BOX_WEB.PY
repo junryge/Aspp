@@ -1,466 +1,407 @@
 """
-Box Position Anomaly Detection - Web Version V3
-화면 꽉 참 + 스크롤 숨김 + 히스토리 하단
+Box Position Anomaly Detection - Web Version
+깔끔한 디자인
 """
 
-import os
-import cv2
-import numpy as np
-import requests
-import re
+import os, cv2, numpy as np, requests, re, base64
 from flask import Flask, render_template_string, request, jsonify
-import base64
 
 app = Flask(__name__)
+reference_data = {'center': None, 'angle': None}
 
-reference_data = {'center': None, 'angle': None, 'image': None}
-
-LLM_CONFIG = {
-    "url": "http://common.llm.skhynix.com/v1/chat/completions",
-    "model": "gpt-oss-20b"
-}
+# LLM 설정
+LLM_URL = "http://common.llm.skhynix.com/v1/chat/completions"
+LLM_MODEL = "gpt-oss-20b"
 API_TOKEN = None
 
-def load_api_token():
-    global API_TOKEN
-    for path in ["token.txt", "../token.txt", os.path.expanduser("~/token.txt")]:
-        if os.path.exists(path):
-            with open(path, "r", encoding='utf-8') as f:
-                API_TOKEN = f.read().strip()
-                if API_TOKEN and "REPLACE" not in API_TOKEN:
-                    print(f"✅ 토큰 로드: {path}")
-                    return True
-    print("⚠️ 토큰 없음")
-    return False
+for p in ["token.txt", "../token.txt"]:
+    if os.path.exists(p):
+        API_TOKEN = open(p).read().strip()
+        if API_TOKEN: print(f"✅ 토큰 로드: {p}"); break
 
-def call_llm_api(prompt, system_prompt=""):
-    if not API_TOKEN:
-        return {"success": False, "error": "토큰 없음"}
+def call_llm(prompt, sys=""):
+    if not API_TOKEN: return {"success": False, "error": "토큰없음"}
     try:
-        response = requests.post(
-            LLM_CONFIG["url"],
-            headers={"Authorization": f"Bearer {API_TOKEN}", "Content-Type": "application/json"},
-            json={
-                "model": LLM_CONFIG["model"],
-                "messages": [{"role": "system", "content": system_prompt}, {"role": "user", "content": prompt}] if system_prompt else [{"role": "user", "content": prompt}],
-                "max_tokens": 2000,
-                "temperature": 0.3
-            },
-            timeout=120
-        )
-        if response.status_code == 200:
-            content = response.json()["choices"][0]["message"]["content"]
-            content = re.sub(r'<think>.*?</think>', '', content, flags=re.DOTALL).strip()
-            return {"success": True, "content": content}
-        return {"success": False, "error": f"API 오류: {response.status_code}"}
-    except Exception as e:
-        return {"success": False, "error": str(e)}
+        r = requests.post(LLM_URL, headers={"Authorization": f"Bearer {API_TOKEN}", "Content-Type": "application/json"},
+            json={"model": LLM_MODEL, "messages": [{"role":"system","content":sys},{"role":"user","content":prompt}], "max_tokens": 2000}, timeout=120)
+        if r.status_code == 200:
+            c = r.json()["choices"][0]["message"]["content"]
+            return {"success": True, "content": re.sub(r'<think>.*?</think>', '', c, flags=re.DOTALL).strip()}
+        return {"success": False, "error": f"API오류:{r.status_code}"}
+    except Exception as e: return {"success": False, "error": str(e)}
 
-load_api_token()
+def find_center(g):
+    _, t = cv2.threshold(g, 80, 255, cv2.THRESH_BINARY)
+    c, _ = cv2.findContours(t, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    if not c: return None
+    M = cv2.moments(max(c, key=cv2.contourArea))
+    return (int(M["m10"]/M["m00"]), int(M["m01"]/M["m00"])) if M["m00"] else None
 
-def find_box_center(gray):
-    _, thresh = cv2.threshold(gray, 80, 255, cv2.THRESH_BINARY)
-    contours, _ = cv2.findContours(thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-    if not contours: return None
-    largest = max(contours, key=cv2.contourArea)
-    M = cv2.moments(largest)
-    if M["m00"] == 0: return None
-    return (int(M["m10"]/M["m00"]), int(M["m01"]/M["m00"]))
+def find_angle(g):
+    _, t = cv2.threshold(g, 80, 255, cv2.THRESH_BINARY)
+    c, _ = cv2.findContours(t, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    if not c: return 0
+    a = cv2.minAreaRect(max(c, key=cv2.contourArea))[2]
+    return a + 90 if a < -45 else a
 
-def find_box_angle(gray):
-    _, thresh = cv2.threshold(gray, 80, 255, cv2.THRESH_BINARY)
-    contours, _ = cv2.findContours(thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-    if not contours: return 0
-    rect = cv2.minAreaRect(max(contours, key=cv2.contourArea))
-    angle = rect[2]
-    return angle + 90 if angle < -45 else angle
+def detect(img, pt=30, at=10):
+    if not reference_data['center']: return {'error': '기준 미설정'}
+    g = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+    c, a = find_center(g), find_angle(g)
+    if not c: return {'is_anomaly': True, 'type': '박스없음', 'shift': -1, 'angle': -1}
+    ps = np.sqrt((c[0]-reference_data['center'][0])**2 + (c[1]-reference_data['center'][1])**2)
+    aa = abs(a - reference_data['angle'])
+    ip, ia = ps > pt, aa > at
+    return {'is_anomaly': bool(ip or ia), 'type': '위치+회전' if ip and ia else '위치이탈' if ip else '회전' if ia else '정상',
+            'shift': round(ps,1), 'angle': round(aa,1), 'center': c, 'ref': reference_data['center']}
 
-def detect_anomaly(img, pos_th=30, ang_th=10):
-    if reference_data['center'] is None:
-        return {'error': '기준 미설정'}
-    gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-    center = find_box_center(gray)
-    angle = find_box_angle(gray)
-    if center is None:
-        return {'is_anomaly': True, 'anomaly_type': '박스 없음', 'position_shift': -1, 'angle_shift': -1}
-    pos_shift = np.sqrt((center[0]-reference_data['center'][0])**2 + (center[1]-reference_data['center'][1])**2)
-    ang_shift = abs(angle - reference_data['angle'])
-    is_pos = pos_shift > pos_th
-    is_ang = ang_shift > ang_th
-    if is_pos and is_ang: atype = '위치+회전'
-    elif is_pos: atype = '위치 이탈'
-    elif is_ang: atype = '회전됨'
-    else: atype = '정상'
-    return {
-        'is_anomaly': bool(is_pos or is_ang),
-        'anomaly_type': atype,
-        'position_shift': float(round(pos_shift, 1)),
-        'angle_shift': float(round(ang_shift, 1)),
-        'test_center': center,
-        'ref_center': reference_data['center']
-    }
-
-def draw_result(img, result):
+def draw(img, r):
     img = img.copy()
-    color = (0,0,255) if result.get('is_anomaly') else (0,255,0)
-    cv2.rectangle(img, (5,5), (img.shape[1]-5, img.shape[0]-5), color, 4)
-    if result.get('test_center'): cv2.circle(img, result['test_center'], 10, color, -1)
-    if result.get('ref_center'): cv2.circle(img, result['ref_center'], 8, (255,0,0), 2)
+    col = (0,0,255) if r.get('is_anomaly') else (0,255,0)
+    cv2.rectangle(img, (3,3), (img.shape[1]-3, img.shape[0]-3), col, 3)
+    if r.get('center'): cv2.circle(img, r['center'], 8, col, -1)
+    if r.get('ref'): cv2.circle(img, r['ref'], 6, (255,0,0), 2)
     return img
 
-def img_to_base64(img):
-    _, buf = cv2.imencode('.png', img)
-    return base64.b64encode(buf).decode('utf-8')
+def to_b64(img):
+    _, b = cv2.imencode('.png', img)
+    return base64.b64encode(b).decode()
 
 HTML = '''
 <!DOCTYPE html>
-<html lang="ko">
+<html>
 <head>
-    <meta charset="UTF-8">
-    <title>박스 위치 이상 탐지</title>
-    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
-    <style>
-        *{margin:0;padding:0;box-sizing:border-box}
-        html,body{height:100%;overflow:hidden}
-        body{font-family:'Malgun Gothic',sans-serif;background:#1a1a2e;color:#fff}
-        
-        /* 헤더 - 고정 50px */
-        .header{height:50px;background:rgba(0,0,0,.5);padding:0 20px;display:flex;justify-content:space-between;align-items:center;border-bottom:2px solid #00d4ff}
-        .header h1{font-size:18px;color:#00d4ff}
-        .header span{color:#666;font-size:10px;margin-left:8px}
-        .stats{display:flex;gap:20px}
-        .stat{text-align:center}
-        .stat .n{font-size:22px;font-weight:bold}
-        .stat.t .n{color:#00d4ff}
-        .stat.g .n{color:#0f8}
-        .stat.r .n{color:#f44}
-        .stat .l{font-size:9px;color:#888}
-        
-        /* 메인 영역 */
-        .main{position:absolute;top:50px;left:0;right:0;bottom:90px;display:grid;grid-template-columns:220px 1fr 1fr;gap:8px;padding:8px}
-        
-        /* 히스토리 - 하단 고정 90px */
-        .bottom{position:absolute;left:0;right:0;bottom:0;height:90px;padding:8px;background:#1a1a2e}
-        
-        /* 카드 */
-        .card{background:rgba(255,255,255,.03);border-radius:8px;padding:10px;border:1px solid rgba(255,255,255,.1);overflow-y:auto;overflow-x:hidden}
-        .card::-webkit-scrollbar{width:3px}
-        .card::-webkit-scrollbar-thumb{background:#444;border-radius:2px}
-        .card h3{color:#00d4ff;font-size:12px;margin-bottom:6px;display:flex;align-items:center;gap:5px}
-        .badge{font-size:9px;padding:2px 6px;border-radius:6px;background:#f44;color:#fff}
-        .badge.ok{background:#0f8}
-        
-        /* 업로드 */
-        .upload{border:2px dashed #444;border-radius:6px;padding:8px;text-align:center;cursor:pointer}
-        .upload:hover{border-color:#00d4ff;background:rgba(0,212,255,.05)}
-        .upload .ico{font-size:20px}
-        .upload p{font-size:9px;color:#666;margin-top:2px}
-        .upload input{display:none}
-        .preview{width:100%;max-height:50px;object-fit:contain;border-radius:4px;margin-top:5px;display:none}
-        
-        /* 버튼 */
-        .btn{width:100%;padding:7px;border:none;border-radius:12px;cursor:pointer;font-size:11px;font-weight:bold;color:#fff;margin-top:5px}
-        .btn:disabled{background:#333!important;cursor:not-allowed}
-        .btn-p{background:linear-gradient(135deg,#00d4ff,#0099cc)}
-        .btn-g{background:linear-gradient(135deg,#0f8,#0c6)}
-        .btn-v{background:linear-gradient(135deg,#9b59b6,#8e44ad)}
-        
-        /* 설정 */
-        .sets{display:grid;grid-template-columns:1fr 1fr;gap:5px;margin:8px 0}
-        .sets label{font-size:9px;color:#888}
-        .sets input{width:100%;padding:5px;border:1px solid #444;border-radius:4px;background:rgba(0,0,0,.3);color:#fff;font-size:10px}
-        
-        /* 결과 박스 */
-        .rbox{height:100%;padding:10px;border-radius:8px;display:flex;flex-direction:column}
-        .rbox.g{background:rgba(0,255,136,.08);border:2px solid #0f8}
-        .rbox.r{background:rgba(255,68,68,.08);border:2px solid #f44}
-        .rbox.empty{background:rgba(255,255,255,.02);border:2px dashed #333;justify-content:center;align-items:center}
-        .rbox.empty p{color:#555;font-size:12px;text-align:center}
-        .rtitle{font-size:18px;font-weight:bold;margin-bottom:10px}
-        .rbox.g .rtitle{color:#0f8}
-        .rbox.r .rtitle{color:#f44}
-        .rgrid{display:grid;grid-template-columns:repeat(2,1fr);gap:6px;margin-bottom:8px}
-        .ritem{background:rgba(0,0,0,.2);padding:8px;border-radius:6px;text-align:center}
-        .ritem .lb{font-size:9px;color:#888}
-        .ritem .vl{font-size:14px;font-weight:bold}
-        .rimg{flex:1;min-height:0;object-fit:contain;border-radius:6px}
-        
-        /* LLM */
-        .llm-box{height:100%;padding:10px;border-radius:8px;background:rgba(155,89,182,.08);border:1px solid #9b59b6;display:flex;flex-direction:column}
-        .llm-box.empty{background:rgba(255,255,255,.02);border:2px dashed #333;justify-content:center;align-items:center}
-        .llm-box.empty p{color:#555;font-size:12px;text-align:center}
-        .llm-box h4{color:#9b59b6;font-size:12px;margin-bottom:8px;flex-shrink:0}
-        .llm-content{flex:1;overflow-y:auto;font-size:11px;line-height:1.5}
-        .llm-content::-webkit-scrollbar{width:3px}
-        .llm-content::-webkit-scrollbar-thumb{background:#9b59b6;border-radius:2px}
-        .llm-btns{display:flex;gap:5px;margin-top:8px;flex-shrink:0}
-        .llm-btns .btn{flex:1;padding:6px;font-size:10px}
-        
-        /* 마크다운 */
-        .md h1,.md h2,.md h3,.md h4{color:#00d4ff;margin:10px 0 5px;font-size:12px}
-        .md h3{color:#9b59b6}
-        .md table{width:100%;border-collapse:collapse;margin:8px 0;font-size:10px}
-        .md th,.md td{border:1px solid #444;padding:5px}
-        .md th{background:rgba(0,212,255,.1);color:#00d4ff}
-        .md ul,.md ol{padding-left:15px;margin:5px 0}
-        .md li{margin:2px 0}
-        .md strong{color:#0f8}
-        .md hr{border:none;border-top:1px solid #444;margin:8px 0}
-        
-        /* 히스토리 */
-        .hist-card{height:100%;background:rgba(255,255,255,.03);border-radius:8px;padding:8px 10px;border:1px solid rgba(255,255,255,.1)}
-        .hist-card h3{color:#00d4ff;font-size:11px;margin-bottom:5px}
-        .hist{display:flex;gap:8px;overflow-x:auto;padding-bottom:5px}
-        .hist::-webkit-scrollbar{height:3px}
-        .hist::-webkit-scrollbar-thumb{background:#444;border-radius:2px}
-        .hitem{flex-shrink:0;display:flex;align-items:center;gap:6px;padding:6px 10px;background:rgba(0,0,0,.2);border-radius:6px;font-size:10px}
-        .hitem.g{border-left:3px solid #0f8}
-        .hitem.r{border-left:3px solid #f44}
-        .hitem img{width:40px;height:40px;object-fit:cover;border-radius:4px}
-        .hempty{color:#555;width:100%;text-align:center;font-size:11px;padding:10px}
-        
-        /* 모달 */
-        .modal{display:none;position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,.9);z-index:1000;justify-content:center;align-items:center}
-        .mcontent{background:#1a1a2e;border-radius:10px;padding:20px;width:90%;max-width:500px;border:2px solid #9b59b6}
-        .mcontent h2{color:#9b59b6;font-size:16px;margin-bottom:15px}
-        .mcontent label{font-size:11px;color:#888;display:block;margin:10px 0 5px}
-        .mcontent textarea{width:100%;background:rgba(0,0,0,.3);border:1px solid #444;border-radius:6px;color:#fff;padding:10px;font-size:11px;resize:none}
-        .mbtns{display:flex;gap:8px;margin-top:15px}
-        .mbtns .btn{flex:1}
-    </style>
+<meta charset="UTF-8">
+<title>박스 위치 이상 탐지</title>
+<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+<style>
+* { margin:0; padding:0; box-sizing:border-box; }
+body { font-family:'Malgun Gothic',sans-serif; background:#111827; color:#fff; }
+
+/* 헤더 */
+header { background:#1f2937; padding:12px 24px; display:flex; justify-content:space-between; align-items:center; }
+header h1 { font-size:18px; color:#60a5fa; }
+header h1 span { color:#6b7280; font-size:12px; margin-left:8px; }
+.stats { display:flex; gap:24px; }
+.stats > div { text-align:center; }
+.stats .num { font-size:24px; font-weight:bold; }
+.stats .num.blue { color:#60a5fa; }
+.stats .num.green { color:#34d399; }
+.stats .num.red { color:#f87171; }
+.stats .label { font-size:10px; color:#9ca3af; }
+
+/* 메인 */
+main { display:flex; height:calc(100vh - 56px); }
+
+/* 사이드바 */
+.sidebar { width:260px; background:#1f2937; padding:16px; border-right:1px solid #374151; overflow-y:auto; }
+.sidebar h2 { font-size:13px; color:#9ca3af; margin-bottom:12px; display:flex; align-items:center; gap:6px; }
+.sidebar h2 .dot { width:8px; height:8px; border-radius:50%; }
+.sidebar h2 .dot.red { background:#f87171; }
+.sidebar h2 .dot.green { background:#34d399; }
+
+.upload-box { border:2px dashed #374151; border-radius:8px; padding:20px; text-align:center; cursor:pointer; margin-bottom:12px; transition:0.2s; }
+.upload-box:hover { border-color:#60a5fa; background:rgba(96,165,250,0.1); }
+.upload-box .icon { font-size:32px; margin-bottom:4px; }
+.upload-box p { font-size:11px; color:#6b7280; }
+.upload-box input { display:none; }
+
+.preview { width:100%; max-height:100px; object-fit:contain; border-radius:6px; margin-bottom:8px; display:none; }
+
+.btn { width:100%; padding:10px; border:none; border-radius:8px; font-size:12px; font-weight:600; cursor:pointer; margin-bottom:8px; transition:0.2s; }
+.btn:disabled { opacity:0.4; cursor:not-allowed; }
+.btn-blue { background:#3b82f6; color:#fff; }
+.btn-blue:hover:not(:disabled) { background:#2563eb; }
+.btn-green { background:#10b981; color:#fff; }
+.btn-green:hover:not(:disabled) { background:#059669; }
+.btn-purple { background:#8b5cf6; color:#fff; }
+.btn-purple:hover:not(:disabled) { background:#7c3aed; }
+
+.input-row { display:flex; gap:8px; margin-bottom:12px; }
+.input-row > div { flex:1; }
+.input-row label { display:block; font-size:10px; color:#6b7280; margin-bottom:4px; }
+.input-row input { width:100%; padding:8px; background:#374151; border:1px solid #4b5563; border-radius:6px; color:#fff; font-size:12px; }
+
+/* 컨텐츠 */
+.content { flex:1; display:flex; flex-direction:column; }
+
+/* 결과 영역 */
+.result-area { flex:1; display:flex; gap:16px; padding:16px; overflow:hidden; }
+
+.result-card { flex:1; background:#1f2937; border-radius:12px; padding:16px; display:flex; flex-direction:column; }
+.result-card h3 { font-size:14px; color:#9ca3af; margin-bottom:12px; }
+.result-card.success { border:2px solid #34d399; }
+.result-card.fail { border:2px solid #f87171; }
+
+.result-status { font-size:24px; font-weight:bold; margin-bottom:16px; }
+.result-status.green { color:#34d399; }
+.result-status.red { color:#f87171; }
+
+.result-grid { display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-bottom:16px; }
+.result-item { background:#374151; padding:12px; border-radius:8px; text-align:center; }
+.result-item .label { font-size:10px; color:#6b7280; margin-bottom:4px; }
+.result-item .value { font-size:16px; font-weight:bold; }
+
+.result-img { flex:1; min-height:0; display:flex; align-items:center; justify-content:center; }
+.result-img img { max-width:100%; max-height:100%; object-fit:contain; border-radius:8px; }
+
+.empty-state { flex:1; display:flex; flex-direction:column; align-items:center; justify-content:center; color:#4b5563; }
+.empty-state .icon { font-size:48px; margin-bottom:12px; }
+.empty-state p { font-size:13px; }
+
+/* AI 분석 */
+.ai-card { flex:1; background:#1f2937; border-radius:12px; padding:16px; display:flex; flex-direction:column; border:1px solid #4b5563; }
+.ai-card h3 { font-size:14px; color:#a78bfa; margin-bottom:12px; }
+.ai-content { flex:1; overflow-y:auto; font-size:12px; line-height:1.6; }
+.ai-content::-webkit-scrollbar { width:4px; }
+.ai-content::-webkit-scrollbar-thumb { background:#4b5563; border-radius:2px; }
+.ai-btns { display:flex; gap:8px; margin-top:12px; }
+.ai-btns .btn { flex:1; }
+
+/* 마크다운 */
+.md h1,.md h2,.md h3,.md h4 { color:#60a5fa; font-size:13px; margin:12px 0 6px; }
+.md h3 { color:#a78bfa; }
+.md table { width:100%; border-collapse:collapse; margin:8px 0; font-size:11px; }
+.md th,.md td { border:1px solid #4b5563; padding:6px 8px; text-align:left; }
+.md th { background:#374151; color:#60a5fa; }
+.md ul,.md ol { padding-left:18px; margin:6px 0; }
+.md strong { color:#34d399; }
+.md hr { border:none; border-top:1px solid #4b5563; margin:12px 0; }
+
+/* 히스토리 */
+.history { height:100px; background:#1f2937; border-top:1px solid #374151; padding:12px 16px; }
+.history h3 { font-size:12px; color:#9ca3af; margin-bottom:8px; }
+.history-list { display:flex; gap:8px; overflow-x:auto; padding-bottom:4px; }
+.history-list::-webkit-scrollbar { height:4px; }
+.history-list::-webkit-scrollbar-thumb { background:#4b5563; border-radius:2px; }
+.history-item { flex-shrink:0; display:flex; align-items:center; gap:8px; background:#374151; padding:8px 12px; border-radius:8px; }
+.history-item.green { border-left:3px solid #34d399; }
+.history-item.red { border-left:3px solid #f87171; }
+.history-item img { width:40px; height:40px; object-fit:cover; border-radius:4px; }
+.history-item .info { font-size:11px; }
+.history-item .info strong { display:block; margin-bottom:2px; }
+.history-item .info span { color:#6b7280; }
+.history-empty { color:#4b5563; font-size:12px; padding:16px; text-align:center; }
+
+/* 모달 */
+.modal { display:none; position:fixed; inset:0; background:rgba(0,0,0,0.8); z-index:100; align-items:center; justify-content:center; }
+.modal-box { background:#1f2937; border-radius:12px; padding:24px; width:90%; max-width:500px; }
+.modal-box h2 { color:#a78bfa; font-size:16px; margin-bottom:16px; }
+.modal-box label { display:block; font-size:11px; color:#6b7280; margin-bottom:4px; }
+.modal-box textarea { width:100%; background:#374151; border:1px solid #4b5563; border-radius:6px; color:#fff; padding:10px; font-size:11px; resize:none; margin-bottom:12px; }
+.modal-btns { display:flex; gap:8px; }
+.modal-btns .btn { flex:1; }
+</style>
 </head>
 <body>
-    <div class="header">
-        <div>
-            <h1>📦 박스 위치 이상 탐지 시스템 <span>BATA_VER_V0.1</span></h1>
-        </div>
-        <div class="stats">
-            <div class="stat t"><div class="n" id="sT">0</div><div class="l">총 검사</div></div>
-            <div class="stat g"><div class="n" id="sN">0</div><div class="l">정상</div></div>
-            <div class="stat r"><div class="n" id="sA">0</div><div class="l">이상</div></div>
-        </div>
-    </div>
-    
-    <!-- 메인 영역 (3열) -->
-    <div class="main">
-        <!-- 왼쪽: 설정 -->
-        <div class="card">
-            <h3>📷 기준 이미지 <span class="badge" id="refBadge">미설정</span></h3>
-            <div class="upload" onclick="document.getElementById('refIn').click()">
-                <input type="file" id="refIn" accept="image/*">
-                <div class="ico">📷</div>
-                <p>정상 박스 이미지</p>
-            </div>
-            <img id="refPv" class="preview">
-            <button class="btn btn-g" id="refBtn" disabled onclick="setRef()">✓ 기준 설정</button>
-            
-            <div class="sets">
-                <div><label>위치 오차(px)</label><input type="number" id="posT" value="30"></div>
-                <div><label>각도 오차(°)</label><input type="number" id="angT" value="10"></div>
-            </div>
-            
-            <h3 style="margin-top:10px">🔍 테스트 이미지</h3>
-            <div class="upload" onclick="document.getElementById('testIn').click()">
-                <input type="file" id="testIn" accept="image/*">
-                <div class="ico">🔍</div>
-                <p>분석할 이미지</p>
-            </div>
-            <img id="testPv" class="preview">
-            <button class="btn btn-p" id="anaBtn" disabled onclick="analyze()">🔎 이상 탐지</button>
-        </div>
-        
-        <!-- 가운데: 분석 결과 -->
-        <div class="rbox empty" id="rBox">
-            <p>📊 분석 결과<br><br>이미지 업로드 후<br>분석 버튼 클릭</p>
-        </div>
-        
-        <!-- 오른쪽: AI 분석 -->
-        <div class="llm-box empty" id="llmBox">
-            <p>🤖 AI 원인 분석<br><br>분석 완료 후<br>AI 분석 버튼 클릭</p>
-        </div>
-    </div>
-    
-    <!-- 하단 히스토리 -->
-    <div class="bottom">
-        <div class="hist-card">
-            <h3>📜 검사 히스토리</h3>
-            <div class="hist" id="hist">
-                <div class="hempty">아직 검사 기록이 없습니다</div>
-            </div>
-        </div>
-    </div>
-    
-    <!-- 프롬프트 모달 -->
-    <div class="modal" id="modal">
-        <div class="mcontent">
-            <h2>⚙️ LLM 프롬프트 설정</h2>
-            <label>시스템 프롬프트</label>
-            <textarea id="sysP" rows="3">당신은 반도체 FAB 공정의 품질 관리 전문가입니다. 박스 위치 이상 탐지 결과를 분석하고, 원인과 조치 방안을 제시합니다. 한국어로 간결하게 답변하세요.</textarea>
-            <label>사용자 프롬프트</label>
-            <textarea id="usrP" rows="5">박스 위치 이상 탐지 결과:
-- 판정: {is_anomaly}, 유형: {anomaly_type}
-- 위치 이탈: {position_shift}px, 회전: {angle_shift}°
 
-분석: 1.원인 2.영향 3.조치 4.예방</textarea>
-            <div class="mbtns">
-                <button class="btn btn-g" onclick="saveP()">💾 저장</button>
-                <button class="btn" style="background:#555" onclick="resetP()">🔄 초기화</button>
-                <button class="btn" style="background:#333" onclick="closeModal()">✕ 닫기</button>
+<header>
+    <h1>📦 박스 위치 이상 탐지 <span>BATA_VER_V0.1</span></h1>
+    <div class="stats">
+        <div><div class="num blue" id="sT">0</div><div class="label">총 검사</div></div>
+        <div><div class="num green" id="sN">0</div><div class="label">정상</div></div>
+        <div><div class="num red" id="sA">0</div><div class="label">이상</div></div>
+    </div>
+</header>
+
+<main>
+    <div class="sidebar">
+        <h2><span class="dot" id="refDot"></span> 기준 이미지</h2>
+        <div class="upload-box" onclick="$('#refIn').click()">
+            <input type="file" id="refIn" accept="image/*">
+            <div class="icon">📷</div>
+            <p>정상 박스 이미지 업로드</p>
+        </div>
+        <img id="refPv" class="preview">
+        <button class="btn btn-green" id="refBtn" disabled onclick="setRef()">기준으로 설정</button>
+        
+        <div class="input-row">
+            <div><label>위치 오차 (px)</label><input type="number" id="posT" value="30"></div>
+            <div><label>각도 오차 (°)</label><input type="number" id="angT" value="10"></div>
+        </div>
+        
+        <h2 style="margin-top:16px"><span class="dot red" id="testDot"></span> 테스트 이미지</h2>
+        <div class="upload-box" onclick="$('#testIn').click()">
+            <input type="file" id="testIn" accept="image/*">
+            <div class="icon">🔍</div>
+            <p>분석할 이미지 업로드</p>
+        </div>
+        <img id="testPv" class="preview">
+        <button class="btn btn-blue" id="anaBtn" disabled onclick="analyze()">이상 탐지 분석</button>
+    </div>
+    
+    <div class="content">
+        <div class="result-area">
+            <div class="result-card" id="resultCard">
+                <h3>📊 분석 결과</h3>
+                <div class="empty-state" id="emptyResult">
+                    <div class="icon">📋</div>
+                    <p>이미지를 분석하면 결과가 표시됩니다</p>
+                </div>
+                <div id="resultContent" style="display:none;flex:1;display:none;flex-direction:column;">
+                    <div class="result-status" id="resultStatus"></div>
+                    <div class="result-grid">
+                        <div class="result-item"><div class="label">유형</div><div class="value" id="rType">-</div></div>
+                        <div class="result-item"><div class="label">이탈거리</div><div class="value" id="rShift">-</div></div>
+                        <div class="result-item"><div class="label">회전각도</div><div class="value" id="rAngle">-</div></div>
+                        <div class="result-item"><div class="label">판정</div><div class="value" id="rJudge">-</div></div>
+                    </div>
+                    <div class="result-img"><img id="rImg"></div>
+                </div>
+            </div>
+            
+            <div class="ai-card" id="aiCard">
+                <h3>🤖 AI 원인 분석</h3>
+                <div class="empty-state" id="emptyAI">
+                    <div class="icon">🤖</div>
+                    <p>분석 완료 후 AI 분석을 실행하세요</p>
+                </div>
+                <div class="ai-content md" id="aiContent" style="display:none;"></div>
+                <div class="ai-btns" id="aiBtns" style="display:none;">
+                    <button class="btn btn-purple" id="aiBtn" onclick="aiAnalyze()">🤖 AI 분석</button>
+                    <button class="btn" style="background:#4b5563" onclick="openModal()">⚙️</button>
+                </div>
+            </div>
+        </div>
+        
+        <div class="history">
+            <h3>📜 검사 히스토리</h3>
+            <div class="history-list" id="hist">
+                <div class="history-empty">아직 검사 기록이 없습니다</div>
             </div>
         </div>
     </div>
+</main>
+
+<div class="modal" id="modal">
+    <div class="modal-box">
+        <h2>⚙️ 프롬프트 설정</h2>
+        <label>시스템 프롬프트</label>
+        <textarea id="sysP" rows="3">당신은 FAB 공정 품질관리 전문가입니다. 박스 위치 이상 탐지 결과를 분석하세요.</textarea>
+        <label>사용자 프롬프트</label>
+        <textarea id="usrP" rows="4">결과: {is_anomaly}, {type}, 이탈:{shift}px, 회전:{angle}°
+분석: 원인, 영향, 조치, 예방</textarea>
+        <div class="modal-btns">
+            <button class="btn btn-green" onclick="saveP()">저장</button>
+            <button class="btn" style="background:#4b5563" onclick="closeModal()">닫기</button>
+        </div>
+    </div>
+</div>
 
 <script>
-let refD=null,testD=null,lastR=null,st={t:0,n:0,a:0};
+const $=s=>document.querySelector(s);
+const $$=s=>document.querySelectorAll(s);
+let refD,testD,lastR,st={t:0,n:0,a:0};
 
-document.getElementById('refIn').onchange=e=>{if(e.target.files[0])loadImg(e.target.files[0],'ref')};
-document.getElementById('testIn').onchange=e=>{if(e.target.files[0])loadImg(e.target.files[0],'test')};
+$('#refIn').onchange=e=>{if(e.target.files[0])loadImg(e.target.files[0],'ref')};
+$('#testIn').onchange=e=>{if(e.target.files[0])loadImg(e.target.files[0],'test')};
 
 function loadImg(f,t){
     const r=new FileReader();
     r.onload=e=>{
         if(t==='ref'){
             refD=e.target.result;
-            document.getElementById('refPv').src=refD;
-            document.getElementById('refPv').style.display='block';
-            document.getElementById('refBtn').disabled=false;
+            $('#refPv').src=refD;
+            $('#refPv').style.display='block';
+            $('#refBtn').disabled=false;
         }else{
             testD=e.target.result;
-            document.getElementById('testPv').src=testD;
-            document.getElementById('testPv').style.display='block';
-            document.getElementById('anaBtn').disabled=false;
+            $('#testPv').src=testD;
+            $('#testPv').style.display='block';
+            $('#anaBtn').disabled=false;
         }
     };
     r.readAsDataURL(f);
 }
 
 async function setRef(){
-    const r=await fetch('/set_reference',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({image:refD})});
+    const r=await fetch('/set_ref',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({img:refD})});
     const d=await r.json();
-    if(d.success){
-        document.getElementById('refBadge').textContent='설정완료';
-        document.getElementById('refBadge').className='badge ok';
-    }else{
-        alert('오류: '+d.error);
-    }
+    if(d.ok){
+        $('#refDot').className='dot green';
+        $('#refBtn').textContent='✓ 설정완료';
+        $('#refBtn').disabled=true;
+    }else alert('오류: '+d.error);
 }
 
 async function analyze(){
     const r=await fetch('/analyze',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({
-        image:testD,
-        position_threshold:+document.getElementById('posT').value,
-        angle_threshold:+document.getElementById('angT').value
+        img:testD, pt:+$('#posT').value, at:+$('#angT').value
     })});
     const d=await r.json();
-    if(d.error){alert('오류: '+d.error);return}
+    if(d.error){alert('오류: '+d.error);return;}
     
     lastR=d;
     
-    // 결과 박스 업데이트
-    const box=document.getElementById('rBox');
-    box.className='rbox '+(d.is_anomaly?'r':'g');
-    box.innerHTML=`
-        <div class="rtitle">${d.is_anomaly?'⚠️ 이상 감지!':'✅ 정상'}</div>
-        <div class="rgrid">
-            <div class="ritem"><div class="lb">유형</div><div class="vl">${d.anomaly_type}</div></div>
-            <div class="ritem"><div class="lb">이탈거리</div><div class="vl">${d.position_shift}px</div></div>
-            <div class="ritem"><div class="lb">회전각도</div><div class="vl">${d.angle_shift}°</div></div>
-            <div class="ritem"><div class="lb">판정</div><div class="vl" style="color:${d.is_anomaly?'#f44':'#0f8'}">${d.is_anomaly?'FAIL':'PASS'}</div></div>
-        </div>
-        <img class="rimg" src="data:image/png;base64,${d.result_image}">
-    `;
+    // 결과 표시
+    $('#emptyResult').style.display='none';
+    $('#resultContent').style.display='flex';
+    $('#resultCard').className='result-card '+(d.is_anomaly?'fail':'success');
+    $('#resultStatus').textContent=d.is_anomaly?'⚠️ 이상 감지':'✅ 정상';
+    $('#resultStatus').className='result-status '+(d.is_anomaly?'red':'green');
+    $('#rType').textContent=d.type;
+    $('#rShift').textContent=d.shift+'px';
+    $('#rAngle').textContent=d.angle+'°';
+    $('#rJudge').textContent=d.is_anomaly?'FAIL':'PASS';
+    $('#rJudge').style.color=d.is_anomaly?'#f87171':'#34d399';
+    $('#rImg').src='data:image/png;base64,'+d.img;
     
-    // LLM 박스 초기화 + 버튼 추가
-    const llmBox=document.getElementById('llmBox');
-    llmBox.className='llm-box';
-    llmBox.innerHTML=`
-        <h4>🤖 AI 원인 분석</h4>
-        <div class="llm-content md" id="llmC">분석 버튼을 클릭하세요</div>
-        <div class="llm-btns">
-            <button class="btn btn-v" id="llmBtn" onclick="llmAna()">🤖 AI 분석 시작</button>
-            <button class="btn" style="background:#555" onclick="openModal()">⚙️ 설정</button>
-        </div>
-    `;
+    // AI 버튼 표시
+    $('#emptyAI').style.display='none';
+    $('#aiContent').style.display='block';
+    $('#aiContent').innerHTML='<p style="color:#6b7280">AI 분석 버튼을 클릭하세요</p>';
+    $('#aiBtns').style.display='flex';
     
     // 통계
-    if(d.is_anomaly)st.a++;else st.n++;
+    d.is_anomaly?st.a++:st.n++;
     st.t++;
-    document.getElementById('sT').textContent=st.t;
-    document.getElementById('sN').textContent=st.n;
-    document.getElementById('sA').textContent=st.a;
+    $('#sT').textContent=st.t;
+    $('#sN').textContent=st.n;
+    $('#sA').textContent=st.a;
     
     addHist(d);
 }
 
-async function llmAna(){
-    if(!lastR){alert('먼저 분석하세요');return}
+async function aiAnalyze(){
+    if(!lastR)return;
+    $('#aiBtn').disabled=true;
+    $('#aiBtn').textContent='분석중...';
+    $('#aiContent').innerHTML='<p style="color:#6b7280">AI가 분석 중입니다...</p>';
     
-    const btn=document.getElementById('llmBtn');
-    const c=document.getElementById('llmC');
-    
-    btn.disabled=true;
-    btn.textContent='🔄 분석 중...';
-    c.innerHTML='<p style="color:#888">AI가 분석 중입니다...</p>';
-    
-    let sP=localStorage.getItem('sysP')||document.getElementById('sysP').value;
-    let uP=(localStorage.getItem('usrP')||document.getElementById('usrP').value)
+    let sys=localStorage.getItem('sysP')||$('#sysP').value;
+    let usr=(localStorage.getItem('usrP')||$('#usrP').value)
         .replace('{is_anomaly}',lastR.is_anomaly?'이상':'정상')
-        .replace('{anomaly_type}',lastR.anomaly_type)
-        .replace('{position_shift}',lastR.position_shift)
-        .replace('{angle_shift}',lastR.angle_shift);
+        .replace('{type}',lastR.type)
+        .replace('{shift}',lastR.shift)
+        .replace('{angle}',lastR.angle);
     
     try{
-        const r=await fetch('/llm_analyze',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({result:lastR,system_prompt:sP,user_prompt:uP})});
+        const r=await fetch('/llm',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({sys,usr})});
         const d=await r.json();
-        c.innerHTML=d.success?marked.parse(d.analysis):'<p style="color:#f44">❌ '+d.error+'</p>';
+        $('#aiContent').innerHTML=d.ok?marked.parse(d.content):'<p style="color:#f87171">오류: '+d.error+'</p>';
     }catch(e){
-        c.innerHTML='<p style="color:#f44">❌ '+e.message+'</p>';
+        $('#aiContent').innerHTML='<p style="color:#f87171">오류: '+e.message+'</p>';
     }
-    
-    btn.disabled=false;
-    btn.textContent='🤖 다시 분석';
+    $('#aiBtn').disabled=false;
+    $('#aiBtn').textContent='🤖 AI 분석';
 }
 
 function addHist(d){
-    const h=document.getElementById('hist');
+    const h=$('#hist');
     if(st.t===1)h.innerHTML='';
-    
     const item=document.createElement('div');
-    item.className='hitem '+(d.is_anomaly?'r':'g');
-    item.innerHTML=`
-        <img src="data:image/png;base64,${d.result_image}">
-        <div>
-            <strong>${d.is_anomaly?'⚠️ 이상':'✅ 정상'}</strong><br>
-            <span style="color:#888">${d.anomaly_type} | ${d.position_shift}px | ${d.angle_shift}°</span>
-        </div>
-    `;
+    item.className='history-item '+(d.is_anomaly?'red':'green');
+    item.innerHTML=`<img src="data:image/png;base64,${d.img}"><div class="info"><strong>${d.is_anomaly?'⚠️ 이상':'✅ 정상'}</strong><span>${d.type} | ${d.shift}px</span></div>`;
     h.insertBefore(item,h.firstChild);
 }
 
-function openModal(){document.getElementById('modal').style.display='flex'}
-function closeModal(){document.getElementById('modal').style.display='none'}
+function openModal(){$('#modal').style.display='flex'}
+function closeModal(){$('#modal').style.display='none'}
 function saveP(){
-    localStorage.setItem('sysP',document.getElementById('sysP').value);
-    localStorage.setItem('usrP',document.getElementById('usrP').value);
-    alert('저장됨!');
+    localStorage.setItem('sysP',$('#sysP').value);
+    localStorage.setItem('usrP',$('#usrP').value);
+    alert('저장!');
     closeModal();
-}
-function resetP(){
-    document.getElementById('sysP').value='당신은 반도체 FAB 공정의 품질 관리 전문가입니다. 박스 위치 이상 탐지 결과를 분석하고, 원인과 조치 방안을 제시합니다. 한국어로 간결하게 답변하세요.';
-    document.getElementById('usrP').value=`박스 위치 이상 탐지 결과:
-- 판정: {is_anomaly}
-- 유형: {anomaly_type}
-- 위치 이탈: {position_shift}px
-- 회전 각도: {angle_shift}°
-
-분석해주세요:
-1. 이상 원인 추정
-2. 공정에 미치는 영향
-3. 권장 조치 사항
-4. 예방 대책`;
-    localStorage.removeItem('sysP');
-    localStorage.removeItem('usrP');
-    alert('초기화됨!');
 }
 </script>
 </body>
@@ -468,54 +409,39 @@ function resetP(){
 '''
 
 @app.route('/')
-def index():
-    return render_template_string(HTML)
+def index(): return render_template_string(HTML)
 
-@app.route('/set_reference', methods=['POST'])
-def set_reference():
+@app.route('/set_ref', methods=['POST'])
+def set_ref():
     try:
-        data = request.json
-        img_data = data['image'].split(',')[1]
-        nparr = np.frombuffer(base64.b64decode(img_data), np.uint8)
-        img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
-        if img is None: return jsonify({'success': False, 'error': '이미지 로드 실패'})
-        gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-        reference_data['center'] = find_box_center(gray)
-        reference_data['angle'] = find_box_angle(gray)
-        reference_data['image'] = img
-        if reference_data['center'] is None: return jsonify({'success': False, 'error': '박스 없음'})
-        return jsonify({'success': True})
-    except Exception as e:
-        return jsonify({'success': False, 'error': str(e)})
+        d = request.json['img'].split(',')[1]
+        img = cv2.imdecode(np.frombuffer(base64.b64decode(d), np.uint8), cv2.IMREAD_COLOR)
+        g = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+        reference_data['center'] = find_center(g)
+        reference_data['angle'] = find_angle(g)
+        return jsonify({'ok': reference_data['center'] is not None, 'error': '박스없음' if not reference_data['center'] else ''})
+    except Exception as e: return jsonify({'ok': False, 'error': str(e)})
 
 @app.route('/analyze', methods=['POST'])
 def analyze():
     try:
-        data = request.json
-        img_data = data['image'].split(',')[1]
-        nparr = np.frombuffer(base64.b64decode(img_data), np.uint8)
-        img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
-        if img is None: return jsonify({'error': '이미지 로드 실패'})
-        result = detect_anomaly(img, data.get('position_threshold', 30), data.get('angle_threshold', 10))
-        if 'error' in result: return jsonify(result)
-        result['result_image'] = img_to_base64(draw_result(img, result))
-        return jsonify(result)
-    except Exception as e:
-        return jsonify({'error': str(e)})
+        d = request.json
+        img = cv2.imdecode(np.frombuffer(base64.b64decode(d['img'].split(',')[1]), np.uint8), cv2.IMREAD_COLOR)
+        r = detect(img, d.get('pt',30), d.get('at',10))
+        if 'error' in r: return jsonify(r)
+        r['img'] = to_b64(draw(img, r))
+        return jsonify(r)
+    except Exception as e: return jsonify({'error': str(e)})
 
-@app.route('/llm_analyze', methods=['POST'])
-def llm_analyze():
-    try:
-        data = request.json
-        result = call_llm_api(data.get('user_prompt', ''), data.get('system_prompt', ''))
-        return jsonify({"success": result["success"], "analysis": result.get("content", ""), "error": result.get("error", "")})
-    except Exception as e:
-        return jsonify({"success": False, "error": str(e)})
+@app.route('/llm', methods=['POST'])
+def llm():
+    d = request.json
+    r = call_llm(d['usr'], d['sys'])
+    return jsonify({'ok': r['success'], 'content': r.get('content',''), 'error': r.get('error','')})
 
 if __name__ == '__main__':
-    print("="*50)
-    print("📦 박스 위치 이상 탐지 시스템 V3")
-    print("="*50)
+    print("="*40)
+    print("📦 박스 위치 이상 탐지")
     print("🌐 http://localhost:10005")
-    print("="*50)
+    print("="*40)
     app.run(host='0.0.0.0', port=10005, debug=True)
