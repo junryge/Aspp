@@ -99,21 +99,21 @@ header h1 span { color:#6b7280; font-size:12px; margin-left:8px; }
 main { display:flex; height:calc(100vh - 56px); }
 
 /* 사이드바 */
-.sidebar { width:240px; background:#1f2937; padding:12px; border-right:1px solid #374151; overflow-y:auto; }
-.sidebar h2 { font-size:12px; color:#9ca3af; margin-bottom:8px; display:flex; align-items:center; gap:6px; }
+.sidebar { width:260px; background:#1f2937; padding:14px; border-right:1px solid #374151; overflow-y:auto; }
+.sidebar h2 { font-size:13px; color:#9ca3af; margin-bottom:10px; display:flex; align-items:center; gap:6px; }
 .sidebar h2 .dot { width:8px; height:8px; border-radius:50%; }
 .sidebar h2 .dot.red { background:#f87171; }
 .sidebar h2 .dot.green { background:#34d399; }
 
-.upload-box { border:2px dashed #374151; border-radius:8px; padding:12px; text-align:center; cursor:pointer; margin-bottom:8px; transition:0.2s; }
+.upload-box { border:2px dashed #374151; border-radius:8px; padding:16px; text-align:center; cursor:pointer; margin-bottom:10px; transition:0.2s; }
 .upload-box:hover { border-color:#60a5fa; background:rgba(96,165,250,0.1); }
-.upload-box .icon { font-size:24px; }
-.upload-box p { font-size:10px; color:#6b7280; }
+.upload-box .icon { font-size:28px; }
+.upload-box p { font-size:11px; color:#6b7280; }
 .upload-box input { display:none; }
 
-.preview { width:100%; max-height:60px; object-fit:contain; border-radius:6px; margin-bottom:6px; display:none; }
+.preview { width:100%; max-height:80px; object-fit:contain; border-radius:6px; margin-bottom:8px; display:none; }
 
-.btn { width:100%; padding:8px; border:none; border-radius:6px; font-size:11px; font-weight:600; cursor:pointer; margin-bottom:6px; transition:0.2s; }
+.btn { width:100%; padding:10px; border:none; border-radius:6px; font-size:12px; font-weight:600; cursor:pointer; margin-bottom:8px; transition:0.2s; }
 .btn:disabled { opacity:0.4; cursor:not-allowed; }
 .btn-blue { background:#3b82f6; color:#fff; }
 .btn-green { background:#10b981; color:#fff; }
@@ -145,7 +145,7 @@ main { display:flex; height:calc(100vh - 56px); }
 .result-item .value { font-size:14px; font-weight:bold; }
 
 .result-img { flex:1; min-height:0; display:flex; align-items:center; justify-content:center; }
-.result-img img { max-width:100%; max-height:150px; object-fit:contain; border-radius:6px; }
+.result-img img { max-width:100%; max-height:200px; object-fit:contain; border-radius:6px; }
 
 .empty-state { flex:1; display:flex; flex-direction:column; align-items:center; justify-content:center; color:#4b5563; }
 .empty-state .icon { font-size:36px; margin-bottom:8px; }
@@ -169,17 +169,17 @@ main { display:flex; height:calc(100vh - 56px); }
 .md hr { border:none; border-top:1px solid #4b5563; margin:8px 0; }
 
 /* 히스토리 */
-.history { height:80px; background:#1f2937; border-top:1px solid #374151; padding:8px 12px; }
-.history h3 { font-size:11px; color:#9ca3af; margin-bottom:6px; }
-.history-list { display:flex; gap:8px; overflow-x:auto; }
-.history-item { flex-shrink:0; display:flex; align-items:center; gap:6px; background:#374151; padding:6px 10px; border-radius:6px; }
+.history { height:90px; background:#1f2937; border-top:1px solid #374151; padding:10px 14px; }
+.history h3 { font-size:12px; color:#9ca3af; margin-bottom:8px; }
+.history-list { display:flex; gap:10px; overflow-x:auto; }
+.history-item { flex-shrink:0; display:flex; align-items:center; gap:8px; background:#374151; padding:8px 12px; border-radius:6px; }
 .history-item.green { border-left:3px solid #34d399; }
 .history-item.red { border-left:3px solid #f87171; }
-.history-item img { width:35px; height:35px; object-fit:cover; border-radius:4px; }
-.history-item .info { font-size:10px; }
+.history-item img { width:45px; height:45px; object-fit:cover; border-radius:4px; }
+.history-item .info { font-size:11px; }
 .history-item .info strong { display:block; }
 .history-item .info span { color:#6b7280; }
-.history-empty { color:#4b5563; font-size:11px; padding:10px; }
+.history-empty { color:#4b5563; font-size:11px; padding:12px; }
 
 /* 모달 */
 .modal { display:none; position:fixed; inset:0; background:rgba(0,0,0,0.8); z-index:100; align-items:center; justify-content:center; }
