@@ -311,52 +311,68 @@ def simple_diff_detection(reference_path, test_path, threshold=30):
 
 if __name__ == "__main__":
     import sys
+    import glob
     
     print("="*60)
     print("Box Position Anomaly Detection")
     print("="*60)
     
-    # 테스트용 이미지 경로
+    # 이미지 폴더
     IMAGE_DIR = "./DOWN/"
-    REFERENCE_IMAGE = f"{IMAGE_DIR}box_01_normal.png"  # 정상 이미지
-    TEST_IMAGES = [
-        f"{IMAGE_DIR}box_01_normal.png",      # 정상
-        f"{IMAGE_DIR}box_02_right.png",       # 오른쪽 이탈
-        f"{IMAGE_DIR}box_03_left.png",        # 왼쪽 이탈
-        f"{IMAGE_DIR}box_04_up.png",          # 위쪽 이탈
-        f"{IMAGE_DIR}box_10_rotate_10.png",   # 10도 회전
-        f"{IMAGE_DIR}box_12_rotate_45.png",   # 45도 회전
-    ]
     
-    # 파일 존재 확인
-    if not os.path.exists(REFERENCE_IMAGE):
-        print(f"\n[!] Reference image not found: {REFERENCE_IMAGE}")
-        print("    먼저 box_all_cases.py를 실행해서 이미지를 생성하세요!")
+    # DOWN 폴더의 모든 이미지 자동 검색
+    all_images = glob.glob(f"{IMAGE_DIR}*.png") + glob.glob(f"{IMAGE_DIR}*.jpg") + glob.glob(f"{IMAGE_DIR}*.jpeg")
+    all_images = sorted(all_images)
+    
+    if not all_images:
+        print(f"\n[!] {IMAGE_DIR} 폴더에 이미지가 없습니다!")
         sys.exit(1)
     
-    print("\n[방법 1] OpenCV 기반 탐지")
+    print(f"\n총 {len(all_images)}개 이미지 발견")
     print("-"*40)
     
-    detector = BoxPositionDetector(REFERENCE_IMAGE)
+    # 첫 번째 이미지를 정상(기준)으로 사용
+    # 또는 'normal' 이 포함된 이미지를 찾음
+    reference_image = None
+    for img in all_images:
+        if 'normal' in img.lower() or '01' in img:
+            reference_image = img
+            break
     
-    for test_img in TEST_IMAGES:
-        if os.path.exists(test_img):
-            result = detector.detect(test_img)
-            status = "❌ ANOMALY" if result['is_anomaly'] else "✅ NORMAL"
-            print(f"{test_img:30s} -> {status:12s} | {result['anomaly_type']:20s} | "
-                  f"shift={result['position_shift']:6.1f}px, angle={result['angle_shift']:5.1f}°")
+    if reference_image is None:
+        reference_image = all_images[0]  # 없으면 첫번째 이미지
     
-    print("\n[방법 2] 간단한 Frame Diff 탐지")
-    print("-"*40)
+    print(f"기준 이미지 (정상): {reference_image}")
+    print("="*60)
     
-    for test_img in TEST_IMAGES:
-        if os.path.exists(test_img):
-            result = simple_diff_detection(REFERENCE_IMAGE, test_img)
-            status = "❌ ANOMALY" if result['is_anomaly'] else "✅ NORMAL"
-            print(f"{test_img:30s} -> {status:12s} | score={result['anomaly_score']:5.2f}%")
+    # 탐지기 초기화
+    detector = BoxPositionDetector(reference_image)
     
-    print("\n" + "="*60)
-    print("Anomalib PatchCore 사용하려면:")
-    print("  pip install anomalib")
-    print("  train_patchcore_anomalib('your_data_dir')")
+    print("\n[결과]")
+    print("-"*60)
+    print(f"{'파일명':<35} {'상태':<12} {'유형':<20} {'이탈(px)':<10} {'각도':<8}")
+    print("-"*60)
+    
+    normal_count = 0
+    anomaly_count = 0
+    
+    for img_path in all_images:
+        result = detector.detect(img_path)
+        
+        if result['is_anomaly']:
+            status = "❌ ANOMALY"
+            anomaly_count += 1
+        else:
+            status = "✅ NORMAL"
+            normal_count += 1
+        
+        filename = os.path.basename(img_path)
+        print(f"{filename:<35} {status:<12} {result['anomaly_type']:<20} "
+              f"{result['position_shift']:<10.1f} {result['angle_shift']:<8.1f}")
+    
+    print("-"*60)
+    print(f"\n[요약]")
+    print(f"  정상: {normal_count}개")
+    print(f"  이상: {anomaly_count}개")
+    print(f"  총계: {len(all_images)}개")
     print("="*60)
