@@ -124,108 +124,108 @@ HTML = '''
         html,body{height:100%;overflow:hidden}
         body{font-family:'Malgun Gothic',sans-serif;background:#1a1a2e;color:#fff}
         
-        /* 스크롤바 숨김 */
-        ::-webkit-scrollbar{display:none}
-        *{-ms-overflow-style:none;scrollbar-width:none}
-        
-        /* 헤더 */
-        .header{background:rgba(0,0,0,.5);padding:10px 20px;display:flex;justify-content:space-between;align-items:center;border-bottom:2px solid #00d4ff}
-        .header h1{font-size:20px;color:#00d4ff}
-        .header span{color:#666;font-size:11px;margin-left:10px}
-        .stats{display:flex;gap:25px}
+        /* 헤더 - 고정 50px */
+        .header{height:50px;background:rgba(0,0,0,.5);padding:0 20px;display:flex;justify-content:space-between;align-items:center;border-bottom:2px solid #00d4ff}
+        .header h1{font-size:18px;color:#00d4ff}
+        .header span{color:#666;font-size:10px;margin-left:8px}
+        .stats{display:flex;gap:20px}
         .stat{text-align:center}
-        .stat .n{font-size:28px;font-weight:bold}
+        .stat .n{font-size:22px;font-weight:bold}
         .stat.t .n{color:#00d4ff}
         .stat.g .n{color:#0f8}
         .stat.r .n{color:#f44}
-        .stat .l{font-size:10px;color:#888}
+        .stat .l{font-size:9px;color:#888}
         
-        /* 메인 - 상단 2열 + 하단 히스토리 */
-        .wrapper{height:calc(100vh - 60px);display:flex;flex-direction:column;padding:8px;gap:8px}
-        .top{display:grid;grid-template-columns:240px 1fr;gap:8px;flex:1;min-height:0}
-        .bottom{height:100px;flex-shrink:0}
+        /* 메인 영역 */
+        .main{position:absolute;top:50px;left:0;right:0;bottom:90px;display:grid;grid-template-columns:220px 1fr 1fr;gap:8px;padding:8px}
+        
+        /* 히스토리 - 하단 고정 90px */
+        .bottom{position:absolute;left:0;right:0;bottom:0;height:90px;padding:8px;background:#1a1a2e}
         
         /* 카드 */
-        .card{background:rgba(255,255,255,.03);border-radius:10px;padding:15px;border:1px solid rgba(255,255,255,.1);overflow:hidden}
-        .card h3{color:#00d4ff;font-size:13px;margin-bottom:8px;display:flex;align-items:center;gap:6px}
-        .card h3 .badge{font-size:9px;padding:2px 6px;border-radius:8px;background:#f44;color:#fff}
-        .card h3 .badge.ok{background:#0f8}
+        .card{background:rgba(255,255,255,.03);border-radius:8px;padding:10px;border:1px solid rgba(255,255,255,.1);overflow-y:auto;overflow-x:hidden}
+        .card::-webkit-scrollbar{width:3px}
+        .card::-webkit-scrollbar-thumb{background:#444;border-radius:2px}
+        .card h3{color:#00d4ff;font-size:12px;margin-bottom:6px;display:flex;align-items:center;gap:5px}
+        .badge{font-size:9px;padding:2px 6px;border-radius:6px;background:#f44;color:#fff}
+        .badge.ok{background:#0f8}
         
-        /* 왼쪽 - 설정 */
-        .left{display:flex;flex-direction:column;gap:10px;overflow-y:auto}
-        .left::-webkit-scrollbar{width:4px}
-        .left::-webkit-scrollbar-thumb{background:#444;border-radius:2px}
-        .upload{border:2px dashed #444;border-radius:8px;padding:10px;text-align:center;cursor:pointer;transition:all .2s}
+        /* 업로드 */
+        .upload{border:2px dashed #444;border-radius:6px;padding:8px;text-align:center;cursor:pointer}
         .upload:hover{border-color:#00d4ff;background:rgba(0,212,255,.05)}
-        .upload .ico{font-size:24px}
-        .upload p{font-size:10px;color:#666;margin-top:3px}
+        .upload .ico{font-size:20px}
+        .upload p{font-size:9px;color:#666;margin-top:2px}
         .upload input{display:none}
-        .preview{width:100%;max-height:60px;object-fit:contain;border-radius:5px;margin-top:5px;display:none}
-        .btn{width:100%;padding:8px;border:none;border-radius:15px;cursor:pointer;font-size:12px;font-weight:bold;color:#fff;transition:all .2s}
-        .btn:hover{transform:translateY(-2px);filter:brightness(1.1)}
-        .btn:disabled{background:#333!important;cursor:not-allowed;transform:none;filter:none}
+        .preview{width:100%;max-height:50px;object-fit:contain;border-radius:4px;margin-top:5px;display:none}
+        
+        /* 버튼 */
+        .btn{width:100%;padding:7px;border:none;border-radius:12px;cursor:pointer;font-size:11px;font-weight:bold;color:#fff;margin-top:5px}
+        .btn:disabled{background:#333!important;cursor:not-allowed}
         .btn-p{background:linear-gradient(135deg,#00d4ff,#0099cc)}
         .btn-g{background:linear-gradient(135deg,#0f8,#0c6)}
         .btn-v{background:linear-gradient(135deg,#9b59b6,#8e44ad)}
-        .sets{display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-top:5px}
-        .sets label{font-size:9px;color:#888}
-        .sets input{width:100%;padding:6px;border:1px solid #444;border-radius:4px;background:rgba(0,0,0,.3);color:#fff;font-size:11px;margin-top:2px}
         
-        /* 오른쪽 - 결과 (2열) */
-        .right{display:grid;grid-template-columns:1fr 1fr;gap:15px}
-        .result-section,.llm-section{display:flex;flex-direction:column}
+        /* 설정 */
+        .sets{display:grid;grid-template-columns:1fr 1fr;gap:5px;margin:8px 0}
+        .sets label{font-size:9px;color:#888}
+        .sets input{width:100%;padding:5px;border:1px solid #444;border-radius:4px;background:rgba(0,0,0,.3);color:#fff;font-size:10px}
         
         /* 결과 박스 */
-        .rbox{flex:1;padding:15px;border-radius:10px;display:flex;flex-direction:column}
+        .rbox{height:100%;padding:10px;border-radius:8px;display:flex;flex-direction:column}
         .rbox.g{background:rgba(0,255,136,.08);border:2px solid #0f8}
         .rbox.r{background:rgba(255,68,68,.08);border:2px solid #f44}
         .rbox.empty{background:rgba(255,255,255,.02);border:2px dashed #333;justify-content:center;align-items:center}
-        .rbox.empty p{color:#555;font-size:13px}
-        .rtitle{font-size:22px;font-weight:bold;margin-bottom:15px}
+        .rbox.empty p{color:#555;font-size:12px;text-align:center}
+        .rtitle{font-size:18px;font-weight:bold;margin-bottom:10px}
         .rbox.g .rtitle{color:#0f8}
         .rbox.r .rtitle{color:#f44}
-        .rgrid{display:grid;grid-template-columns:repeat(2,1fr);gap:10px;margin-bottom:15px}
-        .ritem{background:rgba(0,0,0,.2);padding:12px;border-radius:8px;text-align:center}
-        .ritem .lb{font-size:11px;color:#888;margin-bottom:5px}
-        .ritem .vl{font-size:18px;font-weight:bold}
-        .rimg{max-height:200px;object-fit:contain;border-radius:8px;margin-top:auto}
+        .rgrid{display:grid;grid-template-columns:repeat(2,1fr);gap:6px;margin-bottom:8px}
+        .ritem{background:rgba(0,0,0,.2);padding:8px;border-radius:6px;text-align:center}
+        .ritem .lb{font-size:9px;color:#888}
+        .ritem .vl{font-size:14px;font-weight:bold}
+        .rimg{flex:1;min-height:0;object-fit:contain;border-radius:6px}
         
-        /* LLM 결과 */
-        .llm-box{flex:1;padding:15px;border-radius:10px;background:rgba(155,89,182,.08);border:1px solid #9b59b6;display:flex;flex-direction:column}
+        /* LLM */
+        .llm-box{height:100%;padding:10px;border-radius:8px;background:rgba(155,89,182,.08);border:1px solid #9b59b6;display:flex;flex-direction:column}
         .llm-box.empty{background:rgba(255,255,255,.02);border:2px dashed #333;justify-content:center;align-items:center}
-        .llm-box h4{color:#9b59b6;font-size:14px;margin-bottom:10px}
-        .llm-content{flex:1;overflow-y:auto;font-size:12px;line-height:1.6}
-        .llm-btns{display:flex;gap:8px;margin-top:10px}
-        .llm-btns .btn{flex:1}
+        .llm-box.empty p{color:#555;font-size:12px;text-align:center}
+        .llm-box h4{color:#9b59b6;font-size:12px;margin-bottom:8px;flex-shrink:0}
+        .llm-content{flex:1;overflow-y:auto;font-size:11px;line-height:1.5}
+        .llm-content::-webkit-scrollbar{width:3px}
+        .llm-content::-webkit-scrollbar-thumb{background:#9b59b6;border-radius:2px}
+        .llm-btns{display:flex;gap:5px;margin-top:8px;flex-shrink:0}
+        .llm-btns .btn{flex:1;padding:6px;font-size:10px}
         
         /* 마크다운 */
-        .md h1,.md h2,.md h3,.md h4{color:#00d4ff;margin:15px 0 8px;font-size:14px;border-bottom:1px solid #333;padding-bottom:5px}
-        .md h3{color:#9b59b6;border:none}
-        .md table{width:100%;border-collapse:collapse;margin:10px 0;font-size:11px}
-        .md th,.md td{border:1px solid #444;padding:8px}
+        .md h1,.md h2,.md h3,.md h4{color:#00d4ff;margin:10px 0 5px;font-size:12px}
+        .md h3{color:#9b59b6}
+        .md table{width:100%;border-collapse:collapse;margin:8px 0;font-size:10px}
+        .md th,.md td{border:1px solid #444;padding:5px}
         .md th{background:rgba(0,212,255,.1);color:#00d4ff}
-        .md ul,.md ol{padding-left:20px;margin:8px 0}
-        .md li{margin:4px 0}
+        .md ul,.md ol{padding-left:15px;margin:5px 0}
+        .md li{margin:2px 0}
         .md strong{color:#0f8}
-        .md hr{border:none;border-top:1px solid #444;margin:15px 0}
+        .md hr{border:none;border-top:1px solid #444;margin:8px 0}
         
-        /* 하단 히스토리 */
-        .bottom .card{height:100%;display:flex;flex-direction:column}
-        .bottom h3{margin-bottom:8px;flex-shrink:0}
-        .hist{display:flex;gap:10px;overflow-x:auto;flex:1;align-items:center;padding:5px 0}
-        .hitem{flex-shrink:0;display:flex;align-items:center;gap:8px;padding:8px 12px;background:rgba(0,0,0,.2);border-radius:8px;font-size:11px}
+        /* 히스토리 */
+        .hist-card{height:100%;background:rgba(255,255,255,.03);border-radius:8px;padding:8px 10px;border:1px solid rgba(255,255,255,.1)}
+        .hist-card h3{color:#00d4ff;font-size:11px;margin-bottom:5px}
+        .hist{display:flex;gap:8px;overflow-x:auto;padding-bottom:5px}
+        .hist::-webkit-scrollbar{height:3px}
+        .hist::-webkit-scrollbar-thumb{background:#444;border-radius:2px}
+        .hitem{flex-shrink:0;display:flex;align-items:center;gap:6px;padding:6px 10px;background:rgba(0,0,0,.2);border-radius:6px;font-size:10px}
         .hitem.g{border-left:3px solid #0f8}
         .hitem.r{border-left:3px solid #f44}
-        .hitem img{width:50px;height:50px;object-fit:cover;border-radius:5px}
-        .hempty{color:#555;width:100%;text-align:center;font-size:12px}
+        .hitem img{width:40px;height:40px;object-fit:cover;border-radius:4px}
+        .hempty{color:#555;width:100%;text-align:center;font-size:11px;padding:10px}
         
         /* 모달 */
         .modal{display:none;position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,.9);z-index:1000;justify-content:center;align-items:center}
-        .mcontent{background:#1a1a2e;border-radius:12px;padding:25px;width:90%;max-width:600px;border:2px solid #9b59b6}
-        .mcontent h2{color:#9b59b6;font-size:18px;margin-bottom:20px}
-        .mcontent label{font-size:12px;color:#888;display:block;margin:15px 0 5px}
-        .mcontent textarea{width:100%;background:rgba(0,0,0,.3);border:1px solid #444;border-radius:8px;color:#fff;padding:12px;font-size:12px;resize:none}
-        .mbtns{display:flex;gap:10px;margin-top:20px}
+        .mcontent{background:#1a1a2e;border-radius:10px;padding:20px;width:90%;max-width:500px;border:2px solid #9b59b6}
+        .mcontent h2{color:#9b59b6;font-size:16px;margin-bottom:15px}
+        .mcontent label{font-size:11px;color:#888;display:block;margin:10px 0 5px}
+        .mcontent textarea{width:100%;background:rgba(0,0,0,.3);border:1px solid #444;border-radius:6px;color:#fff;padding:10px;font-size:11px;resize:none}
+        .mbtns{display:flex;gap:8px;margin-top:15px}
         .mbtns .btn{flex:1}
     </style>
 </head>
@@ -241,71 +241,51 @@ HTML = '''
         </div>
     </div>
     
-    <div class="wrapper">
-        <div class="top">
-            <!-- 왼쪽: 설정 -->
-            <div class="card left">
-                <div>
-                    <h3>📷 기준 이미지 <span class="badge" id="refBadge">미설정</span></h3>
-                    <div class="upload" onclick="document.getElementById('refIn').click()">
-                        <input type="file" id="refIn" accept="image/*">
-                        <div class="ico">📷</div>
-                        <p>정상 박스 이미지 업로드</p>
-                    </div>
-                    <img id="refPv" class="preview">
-                    <button class="btn btn-g" id="refBtn" disabled onclick="setRef()">✓ 기준으로 설정</button>
-                </div>
-                
-                <div class="sets">
-                    <div>
-                        <label>위치 오차 (px)</label>
-                        <input type="number" id="posT" value="30">
-                    </div>
-                    <div>
-                        <label>각도 오차 (°)</label>
-                        <input type="number" id="angT" value="10">
-                    </div>
-                </div>
-                
-                <div style="margin-top:15px">
-                    <h3>🔍 테스트 이미지</h3>
-                    <div class="upload" onclick="document.getElementById('testIn').click()">
-                        <input type="file" id="testIn" accept="image/*">
-                        <div class="ico">🔍</div>
-                        <p>분석할 이미지 업로드</p>
-                    </div>
-                    <img id="testPv" class="preview">
-                    <button class="btn btn-p" id="anaBtn" disabled onclick="analyze()">🔎 이상 탐지 분석</button>
-                </div>
+    <!-- 메인 영역 (3열) -->
+    <div class="main">
+        <!-- 왼쪽: 설정 -->
+        <div class="card">
+            <h3>📷 기준 이미지 <span class="badge" id="refBadge">미설정</span></h3>
+            <div class="upload" onclick="document.getElementById('refIn').click()">
+                <input type="file" id="refIn" accept="image/*">
+                <div class="ico">📷</div>
+                <p>정상 박스 이미지</p>
+            </div>
+            <img id="refPv" class="preview">
+            <button class="btn btn-g" id="refBtn" disabled onclick="setRef()">✓ 기준 설정</button>
+            
+            <div class="sets">
+                <div><label>위치 오차(px)</label><input type="number" id="posT" value="30"></div>
+                <div><label>각도 오차(°)</label><input type="number" id="angT" value="10"></div>
             </div>
             
-            <!-- 오른쪽: 결과 -->
-            <div class="right">
-                <!-- 분석 결과 -->
-                <div class="result-section">
-                    <h3 style="color:#00d4ff;font-size:14px;margin-bottom:10px">📊 분석 결과</h3>
-                    <div class="rbox empty" id="rBox">
-                        <p>이미지를 업로드하고<br>분석 버튼을 클릭하세요</p>
-                    </div>
-                </div>
-                
-                <!-- AI 분석 -->
-                <div class="llm-section">
-                    <h3 style="color:#9b59b6;font-size:14px;margin-bottom:10px">🤖 AI 원인 분석</h3>
-                    <div class="llm-box empty" id="llmBox">
-                        <p>분석 결과 확인 후<br>AI 분석 버튼을 클릭하세요</p>
-                    </div>
-                </div>
+            <h3 style="margin-top:10px">🔍 테스트 이미지</h3>
+            <div class="upload" onclick="document.getElementById('testIn').click()">
+                <input type="file" id="testIn" accept="image/*">
+                <div class="ico">🔍</div>
+                <p>분석할 이미지</p>
             </div>
+            <img id="testPv" class="preview">
+            <button class="btn btn-p" id="anaBtn" disabled onclick="analyze()">🔎 이상 탐지</button>
         </div>
         
-        <!-- 하단: 히스토리 -->
-        <div class="bottom">
-            <div class="card">
-                <h3>📜 검사 히스토리</h3>
-                <div class="hist" id="hist">
-                    <div class="hempty">아직 검사 기록이 없습니다</div>
-                </div>
+        <!-- 가운데: 분석 결과 -->
+        <div class="rbox empty" id="rBox">
+            <p>📊 분석 결과<br><br>이미지 업로드 후<br>분석 버튼 클릭</p>
+        </div>
+        
+        <!-- 오른쪽: AI 분석 -->
+        <div class="llm-box empty" id="llmBox">
+            <p>🤖 AI 원인 분석<br><br>분석 완료 후<br>AI 분석 버튼 클릭</p>
+        </div>
+    </div>
+    
+    <!-- 하단 히스토리 -->
+    <div class="bottom">
+        <div class="hist-card">
+            <h3>📜 검사 히스토리</h3>
+            <div class="hist" id="hist">
+                <div class="hempty">아직 검사 기록이 없습니다</div>
             </div>
         </div>
     </div>
@@ -316,18 +296,12 @@ HTML = '''
             <h2>⚙️ LLM 프롬프트 설정</h2>
             <label>시스템 프롬프트</label>
             <textarea id="sysP" rows="3">당신은 반도체 FAB 공정의 품질 관리 전문가입니다. 박스 위치 이상 탐지 결과를 분석하고, 원인과 조치 방안을 제시합니다. 한국어로 간결하게 답변하세요.</textarea>
-            <label>사용자 프롬프트 (변수: {is_anomaly}, {anomaly_type}, {position_shift}, {angle_shift})</label>
-            <textarea id="usrP" rows="6">박스 위치 이상 탐지 결과:
-- 판정: {is_anomaly}
-- 유형: {anomaly_type}
-- 위치 이탈: {position_shift}px
-- 회전 각도: {angle_shift}°
+            <label>사용자 프롬프트</label>
+            <textarea id="usrP" rows="5">박스 위치 이상 탐지 결과:
+- 판정: {is_anomaly}, 유형: {anomaly_type}
+- 위치 이탈: {position_shift}px, 회전: {angle_shift}°
 
-분석해주세요:
-1. 이상 원인 추정
-2. 공정에 미치는 영향
-3. 권장 조치 사항
-4. 예방 대책</textarea>
+분석: 1.원인 2.영향 3.조치 4.예방</textarea>
             <div class="mbtns">
                 <button class="btn btn-g" onclick="saveP()">💾 저장</button>
                 <button class="btn" style="background:#555" onclick="resetP()">🔄 초기화</button>
