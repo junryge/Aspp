@@ -105,10 +105,10 @@ def detect_anomaly(test_img, position_threshold=30, angle_threshold=10):
         anomaly_type = '정상'
     
     return {
-        'is_anomaly': is_anomaly,
+        'is_anomaly': bool(is_anomaly),
         'anomaly_type': anomaly_type,
-        'position_shift': round(position_shift, 1),
-        'angle_shift': round(angle_shift, 1),
+        'position_shift': float(round(position_shift, 1)),
+        'angle_shift': float(round(angle_shift, 1)),
         'test_center': test_center,
         'ref_center': reference_data['center']
     }
