@@ -1,0 +1,549 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>V10_4 Q-Time 알람 변수 분석 보고서</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { 
+    font-family: 'Segoe UI', 'Malgun Gothic', sans-serif; 
+    background: linear-gradient(135deg, #0a0a1a 0%, #1a1a3e 50%, #0f2840 100%); 
+    min-height: 100vh; 
+    padding: 40px 20px; 
+    color: #e0e0e0; 
+}
+.container { max-width: 1200px; margin: 0 auto; }
+
+/* 헤더 */
+.header { 
+    text-align: center; 
+    margin-bottom: 40px; 
+    padding: 40px; 
+    background: rgba(255,255,255,0.03); 
+    border-radius: 20px; 
+    border: 1px solid rgba(0,212,255,0.2); 
+}
+.header h1 { 
+    font-size: 2.2rem; 
+    background: linear-gradient(90deg, #00d4ff, #00ff88); 
+    -webkit-background-clip: text; 
+    -webkit-text-fill-color: transparent; 
+    margin-bottom: 15px; 
+}
+.header .subtitle { color: #888; font-size: 1rem; margin-bottom: 20px; }
+.header .date { 
+    display: inline-block;
+    padding: 8px 20px; 
+    background: rgba(0,212,255,0.1); 
+    border-radius: 20px; 
+    font-size: 0.9rem; 
+    color: #00d4ff; 
+    border: 1px solid rgba(0,212,255,0.3);
+}
+
+/* 섹션 */
+.section { 
+    background: rgba(255,255,255,0.03); 
+    border-radius: 16px; 
+    padding: 30px; 
+    margin-bottom: 25px; 
+    border: 1px solid rgba(255,255,255,0.1); 
+}
+.section h2 { 
+    color: #00d4ff; 
+    font-size: 1.4rem; 
+    margin-bottom: 25px; 
+    padding-bottom: 15px;
+    border-bottom: 1px solid rgba(0,212,255,0.2);
+}
+.section h3 {
+    color: #fff;
+    font-size: 1.1rem;
+    margin: 20px 0 15px 0;
+}
+
+/* 요약 박스 */
+.summary-grid { 
+    display: grid; 
+    grid-template-columns: repeat(4, 1fr); 
+    gap: 20px; 
+    margin-bottom: 30px; 
+}
+.summary-card { 
+    background: rgba(255,255,255,0.05); 
+    border-radius: 12px; 
+    padding: 25px; 
+    text-align: center; 
+    border: 1px solid rgba(255,255,255,0.1); 
+}
+.summary-card.highlight { 
+    background: linear-gradient(135deg, rgba(0,212,255,0.15), rgba(0,212,255,0.05)); 
+    border-color: rgba(0,212,255,0.3); 
+}
+.summary-value { 
+    font-size: 2rem; 
+    font-weight: 700; 
+    margin-bottom: 8px; 
+}
+.summary-value.cyan { color: #00d4ff; }
+.summary-value.green { color: #00ff88; }
+.summary-value.red { color: #ff4466; }
+.summary-value.yellow { color: #ffcc00; }
+.summary-label { color: #888; font-size: 0.9rem; }
+
+/* 테이블 */
+table { 
+    width: 100%; 
+    border-collapse: collapse; 
+    margin: 20px 0; 
+}
+th, td { 
+    padding: 15px; 
+    text-align: left; 
+    border-bottom: 1px solid rgba(255,255,255,0.1); 
+}
+th { 
+    background: rgba(0,212,255,0.1); 
+    color: #00d4ff; 
+    font-weight: 600; 
+}
+tr:hover { background: rgba(255,255,255,0.02); }
+
+/* 결론 박스 */
+.conclusion-box { 
+    background: linear-gradient(135deg, rgba(255,107,107,0.1), rgba(255,107,107,0.05)); 
+    border: 2px solid rgba(255,107,107,0.3); 
+    border-radius: 16px; 
+    padding: 30px; 
+    margin: 30px 0; 
+}
+.conclusion-box.positive { 
+    background: linear-gradient(135deg, rgba(0,255,136,0.1), rgba(0,255,136,0.05)); 
+    border-color: rgba(0,255,136,0.3); 
+}
+.conclusion-box h3 { 
+    color: #ff6b6b; 
+    margin-bottom: 15px; 
+    font-size: 1.2rem; 
+}
+.conclusion-box.positive h3 { color: #00ff88; }
+.conclusion-box p { 
+    line-height: 1.8; 
+    color: #ccc; 
+}
+
+/* 권장사항 */
+.recommendation { 
+    display: flex; 
+    align-items: flex-start; 
+    gap: 15px; 
+    padding: 20px; 
+    margin: 15px 0; 
+    border-radius: 12px; 
+    background: rgba(255,255,255,0.03); 
+}
+.recommendation.primary { 
+    background: rgba(0,212,255,0.1); 
+    border-left: 4px solid #00d4ff; 
+}
+.recommendation.secondary { 
+    background: rgba(255,204,0,0.1); 
+    border-left: 4px solid #ffcc00; 
+}
+.recommendation.reject { 
+    background: rgba(136,136,136,0.1); 
+    border-left: 4px solid #888; 
+}
+.rec-icon { 
+    width: 40px; 
+    height: 40px; 
+    border-radius: 50%; 
+    display: flex; 
+    align-items: center; 
+    justify-content: center; 
+    font-size: 1.2rem; 
+    flex-shrink: 0;
+}
+.rec-icon.primary { background: rgba(0,212,255,0.2); }
+.rec-icon.secondary { background: rgba(255,204,0,0.2); }
+.rec-icon.reject { background: rgba(136,136,136,0.2); }
+.rec-content h4 { color: #fff; margin-bottom: 8px; }
+.rec-content p { color: #aaa; font-size: 0.9rem; line-height: 1.6; }
+
+/* 비교 차트 영역 */
+.comparison-visual {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 40px;
+    padding: 30px;
+    margin: 20px 0;
+}
+.compare-item {
+    text-align: center;
+}
+.compare-bar {
+    width: 120px;
+    background: rgba(255,255,255,0.1);
+    border-radius: 8px;
+    margin: 10px auto;
+    position: relative;
+    overflow: hidden;
+}
+.compare-fill {
+    height: 100%;
+    border-radius: 8px;
+    transition: width 0.5s ease;
+}
+.compare-fill.low { background: linear-gradient(90deg, #ff4466, #ff6b6b); }
+.compare-fill.high { background: linear-gradient(90deg, #00d4ff, #00ff88); }
+.compare-label { color: #888; font-size: 0.85rem; margin-top: 8px; }
+.compare-value { font-size: 1.5rem; font-weight: bold; }
+.vs-text { font-size: 1.5rem; color: #666; }
+
+/* 핵심 메시지 */
+.key-message {
+    background: linear-gradient(135deg, rgba(0,212,255,0.1), rgba(0,212,255,0.05));
+    border: 1px solid rgba(0,212,255,0.3);
+    border-radius: 12px;
+    padding: 25px;
+    text-align: center;
+    margin: 30px 0;
+}
+.key-message .icon { font-size: 3rem; margin-bottom: 15px; }
+.key-message h3 { color: #00d4ff; margin-bottom: 10px; }
+.key-message p { color: #aaa; }
+
+/* 푸터 */
+.footer {
+    text-align: center;
+    padding: 30px;
+    color: #666;
+    font-size: 0.85rem;
+    margin-top: 40px;
+    border-top: 1px solid rgba(255,255,255,0.1);
+}
+
+/* 뱃지 */
+.badge {
+    display: inline-block;
+    padding: 4px 12px;
+    border-radius: 20px;
+    font-size: 0.8rem;
+    font-weight: 600;
+}
+.badge-red { background: rgba(255,68,102,0.2); color: #ff4466; }
+.badge-yellow { background: rgba(255,204,0,0.2); color: #ffcc00; }
+.badge-green { background: rgba(0,255,136,0.2); color: #00ff88; }
+.badge-gray { background: rgba(136,136,136,0.2); color: #888; }
+
+/* 인용 박스 */
+.quote-box {
+    background: rgba(0,0,0,0.3);
+    border-left: 4px solid #00d4ff;
+    padding: 20px 25px;
+    margin: 20px 0;
+    font-style: italic;
+    color: #aaa;
+}
+
+@media (max-width: 768px) {
+    .summary-grid { grid-template-columns: repeat(2, 1fr); }
+    .comparison-visual { flex-direction: column; gap: 20px; }
+}
+</style>
+</head>
+<body>
+<div class="container">
+    <!-- 헤더 -->
+    <div class="header">
+        <h1>📊 Q-Time 알람 변수 분석 보고서</h1>
+        <p class="subtitle">V10_4 TOTALCNT 예측 모델 통합 검토</p>
+        <span class="date">📅 분석일: 2025년 11월 30일 | 데이터: 43,200건 (1개월)</span>
+    </div>
+
+    <!-- 1. 분석 개요 -->
+    <div class="section">
+        <h2>1️⃣ 분석 개요</h2>
+        
+        <h3>분석 대상 변수</h3>
+        <table>
+            <tr>
+                <th>변수명</th>
+                <th>설명</th>
+                <th>의미</th>
+            </tr>
+            <tr>
+                <td><strong>AHTO+AHSO</strong></td>
+                <td>Q-Time 위반 알람 합계</td>
+                <td>대기시간 초과(늦음) + 미달(빠름) 알람 건수</td>
+            </tr>
+            <tr>
+                <td><strong>REWORK</strong></td>
+                <td>재작업 처분 Lot</td>
+                <td>Q-Time 위반 후 재작업으로 처분된 Lot 수</td>
+            </tr>
+            <tr>
+                <td><strong>AHSO</strong></td>
+                <td>대기시간 미달 알람</td>
+                <td>공정 간 이동이 너무 빨랐을 때 발생</td>
+            </tr>
+        </table>
+
+        <div class="summary-grid">
+            <div class="summary-card highlight">
+                <div class="summary-value cyan">43,200</div>
+                <div class="summary-label">총 데이터 (행)</div>
+            </div>
+            <div class="summary-card">
+                <div class="summary-value red">1,604</div>
+                <div class="summary-label">위험구간 (1700+)</div>
+            </div>
+            <div class="summary-card">
+                <div class="summary-value green">41,596</div>
+                <div class="summary-label">안전구간</div>
+            </div>
+            <div class="summary-card">
+                <div class="summary-value yellow">3.71%</div>
+                <div class="summary-label">위험 비율</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 2. 분석 결과 -->
+    <div class="section">
+        <h2>2️⃣ 분석 결과</h2>
+        
+        <h3>📈 기본 통계</h3>
+        <table>
+            <tr>
+                <th>변수</th>
+                <th>평균</th>
+                <th>범위</th>
+                <th>0값 비율</th>
+                <th>양수일때 평균</th>
+            </tr>
+            <tr>
+                <td><strong>AHTO+AHSO</strong></td>
+                <td>0.148</td>
+                <td>0 ~ 7</td>
+                <td><span class="badge badge-red">86.6%</span></td>
+                <td>1.11</td>
+            </tr>
+            <tr>
+                <td><strong>REWORK</strong></td>
+                <td>0.133</td>
+                <td>0 ~ 7</td>
+                <td><span class="badge badge-red">87.9%</span></td>
+                <td>1.10</td>
+            </tr>
+            <tr>
+                <td><strong>AHSO</strong></td>
+                <td>0.007</td>
+                <td>0 ~ 4</td>
+                <td><span class="badge badge-red">99.3%</span></td>
+                <td>1.02</td>
+            </tr>
+        </table>
+
+        <h3>🔗 TOTALCNT와의 상관관계</h3>
+        <table>
+            <tr>
+                <th>변수</th>
+                <th>상관계수</th>
+                <th>강도</th>
+                <th>비교 (queue_gap)</th>
+            </tr>
+            <tr>
+                <td><strong>AHTO+AHSO</strong></td>
+                <td style="color: #ff4466;">0.0397</td>
+                <td><span class="badge badge-red">💤 매우 약함</span></td>
+                <td rowspan="3" style="color: #00ff88; font-weight: bold;">
+                    queue_gap: 0.4+<br>
+                    <small style="color: #888;">(10배 이상 차이)</small>
+                </td>
+            </tr>
+            <tr>
+                <td><strong>REWORK</strong></td>
+                <td style="color: #ff4466;">0.0372</td>
+                <td><span class="badge badge-red">💤 매우 약함</span></td>
+            </tr>
+            <tr>
+                <td><strong>AHSO</strong></td>
+                <td style="color: #888;">-0.0028</td>
+                <td><span class="badge badge-gray">❌ 무관계</span></td>
+            </tr>
+        </table>
+
+        <!-- 상관관계 시각 비교 -->
+        <div class="comparison-visual">
+            <div class="compare-item">
+                <div class="compare-value" style="color: #ff4466;">0.04</div>
+                <div class="compare-bar" style="height: 20px;">
+                    <div class="compare-fill low" style="width: 10%;"></div>
+                </div>
+                <div class="compare-label">AHTO+AHSO 상관</div>
+            </div>
+            <div class="vs-text">vs</div>
+            <div class="compare-item">
+                <div class="compare-value" style="color: #00ff88;">0.40+</div>
+                <div class="compare-bar" style="height: 20px;">
+                    <div class="compare-fill high" style="width: 100%;"></div>
+                </div>
+                <div class="compare-label">queue_gap 상관</div>
+            </div>
+        </div>
+
+        <h3>⚠️ 위험구간 vs 안전구간 비교</h3>
+        <table>
+            <tr>
+                <th>변수</th>
+                <th>안전구간 평균</th>
+                <th>위험구간 평균</th>
+                <th>차이</th>
+                <th>판정</th>
+            </tr>
+            <tr>
+                <td><strong>AHTO+AHSO</strong></td>
+                <td>0.15</td>
+                <td>0.19</td>
+                <td style="color: #00ff88;">+30.1%</td>
+                <td><span class="badge badge-yellow">⚡ 수치상 차이 있음</span></td>
+            </tr>
+            <tr>
+                <td><strong>REWORK</strong></td>
+                <td>0.13</td>
+                <td>0.17</td>
+                <td style="color: #00ff88;">+27.3%</td>
+                <td><span class="badge badge-yellow">⚡ 수치상 차이 있음</span></td>
+            </tr>
+            <tr>
+                <td><strong>AHSO</strong></td>
+                <td>0.01</td>
+                <td>0.01</td>
+                <td style="color: #888;">-10.9%</td>
+                <td><span class="badge badge-gray">💤 차이 없음</span></td>
+            </tr>
+        </table>
+
+        <div class="quote-box">
+            <strong>💡 해석 주의:</strong> 위험구간에서 30% 높다고 하지만, 실제 절대값은 0.15 → 0.19로 
+            <strong>0.04 차이</strong>에 불과합니다. 전체 데이터의 86%가 0값이므로 실질적인 예측 기여도는 제한적입니다.
+        </div>
+    </div>
+
+    <!-- 3. 핵심 문제점 -->
+    <div class="section">
+        <h2>3️⃣ 핵심 문제점</h2>
+        
+        <div class="conclusion-box">
+            <h3>❌ V10_4 예측 모델 통합에 적합하지 않은 이유</h3>
+            <p>
+                <strong>1. 상관관계 부족:</strong> TOTALCNT와의 상관계수가 0.04 수준으로, 
+                기존 핵심 변수(queue_gap: 0.4+)의 <strong>1/10 수준</strong>에 불과합니다.<br><br>
+                
+                <strong>2. 데이터 희소성:</strong> 전체 데이터의 <strong>86~99%가 0값</strong>으로, 
+                대부분의 시간에 예측에 활용할 정보가 없습니다.<br><br>
+                
+                <strong>3. 인과관계 부재:</strong> Q-Time 알람은 <strong>개별 Lot의 품질 문제</strong>이고, 
+                TOTALCNT는 <strong>전체 물류량</strong>입니다. 이 둘 사이에 직접적인 인과관계가 없습니다.<br><br>
+                
+                <strong>4. 예측력 미미:</strong> 상위 10% 임계값(알람 1건 이상)에서도 
+                위험 확률이 3.71% → 4.40%로 <strong>0.7%p 상승</strong>에 그칩니다.
+            </p>
+        </div>
+    </div>
+
+    <!-- 4. 결론 및 권장사항 -->
+    <div class="section">
+        <h2>4️⃣ 결론 및 권장사항</h2>
+        
+        <div class="key-message">
+            <div class="icon">🎯</div>
+            <h3>V10_4 TOTALCNT 예측 모델에는 추가하지 않는 것을 권장합니다</h3>
+            <p>모델 복잡도 증가 대비 성능 향상 효과가 미미할 것으로 판단됩니다.</p>
+        </div>
+
+        <h3>권장 활용 방안</h3>
+        
+        <div class="recommendation reject">
+            <div class="rec-icon reject">❌</div>
+            <div class="rec-content">
+                <h4>V10_4 예측 Feature로 추가</h4>
+                <p><strong>권장하지 않음</strong> - 상관관계 0.04는 노이즈 수준이며, 
+                86%가 0값인 희소 데이터는 모델 성능에 기여하기 어렵습니다.</p>
+            </div>
+        </div>
+
+        <div class="recommendation secondary">
+            <div class="rec-icon secondary">⚡</div>
+            <div class="rec-content">
+                <h4>보조 판정 규칙으로 활용 (선택적)</h4>
+                <p><strong>테스트 가능</strong> - 이미 위험 근접 상황(TOTALCNT ≥ 1650)에서 
+                Q-Time 알람이 동시 발생할 경우 추가 경고 조건으로 활용할 수 있습니다.<br>
+                <code style="background: #1a1a2e; padding: 2px 8px; border-radius: 4px;">
+                rule_new = (current_total >= 1650) and (ahto_ahso >= 2) and (vote_sum >= 2)
+                </code></p>
+            </div>
+        </div>
+
+        <div class="recommendation primary">
+            <div class="rec-icon primary">✅</div>
+            <div class="rec-content">
+                <h4>별도 모니터링 시스템으로 활용 (권장)</h4>
+                <p><strong>적합한 활용처</strong> - Q-Time 알람 데이터는 아래 용도로 활용을 권장합니다:
+                <ul style="margin-top: 10px; margin-left: 20px; color: #ccc;">
+                    <li>품질 관리 대시보드 (Q-Time 위반 추이 모니터링)</li>
+                    <li>Lot 추적 시스템 (재작업 Lot 관리)</li>
+                    <li>시간대별 알람 패턴 분석 (09~13시 집중 발생)</li>
+                </ul></p>
+            </div>
+        </div>
+    </div>
+
+    <!-- 5. 요약 -->
+    <div class="section">
+        <h2>5️⃣ 최종 요약</h2>
+        
+        <table>
+            <tr>
+                <th style="width: 25%;">항목</th>
+                <th>내용</th>
+            </tr>
+            <tr>
+                <td><strong>분석 목적</strong></td>
+                <td>신규 Q-Time 알람 변수(AHTO+AHSO, REWORK, AHSO)의 V10_4 예측 모델 통합 검토</td>
+            </tr>
+            <tr>
+                <td><strong>핵심 발견</strong></td>
+                <td>TOTALCNT와의 상관관계 매우 약함 (0.04), 데이터 86% 이상이 0값</td>
+            </tr>
+            <tr>
+                <td><strong>결론</strong></td>
+                <td><span class="badge badge-red">V10_4 모델 통합 비권장</span></td>
+            </tr>
+            <tr>
+                <td><strong>대안</strong></td>
+                <td>별도 품질 관리 대시보드 또는 보조 판정 규칙으로 활용</td>
+            </tr>
+        </table>
+
+        <div class="conclusion-box positive" style="margin-top: 30px;">
+            <h3>✅ 향후 제안</h3>
+            <p>
+                Q-Time 알람 데이터는 <strong>물류량 예측</strong>보다는 <strong>품질 관리</strong> 영역에서 
+                가치가 있습니다. 별도의 Q-Time 모니터링 대시보드를 구축하여 시간대별 알람 패턴 분석, 
+                재작업 Lot 추적 등에 활용하는 것을 권장합니다.
+            </p>
+        </div>
+    </div>
+
+    <!-- 푸터 -->
+    <div class="footer">
+        <p>V10_4 ML 예측 시스템 | Q-Time 알람 변수 분석 보고서</p>
+        <p>분석 데이터: 2025년 11월 학습 데이터 (43,200건) | 생성일: 2025-11-30</p>
+    </div>
+</div>
+</body>
+</html>
