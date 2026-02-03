@@ -70,7 +70,11 @@ def create_topdown_box(filename, box_x, box_y, angle=0):
 
 
 def main():
-    out = '/home/claude/'
+    out = './DOWN/'
+    
+    # 폴더 없으면 생성
+    import os
+    os.makedirs(out, exist_ok=True)
     
     # 정상 위치 (중앙)
     center_x = 0.36
