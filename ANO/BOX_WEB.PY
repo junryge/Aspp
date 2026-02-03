@@ -22,13 +22,27 @@ for p in ["token.txt", "../token.txt"]:
 def call_llm(prompt, sys=""):
     if not API_TOKEN: return {"success": False, "error": "토큰없음"}
     try:
+        msgs = []
+        if sys: msgs.append({"role":"system","content":sys})
+        msgs.append({"role":"user","content":prompt})
+        
+        print(f"🚀 LLM 호출: {prompt[:50]}...")
         r = requests.post(LLM_URL, headers={"Authorization": f"Bearer {API_TOKEN}", "Content-Type": "application/json"},
-            json={"model": LLM_MODEL, "messages": [{"role":"system","content":sys},{"role":"user","content":prompt}], "max_tokens": 2000}, timeout=120)
+            json={"model": LLM_MODEL, "messages": msgs, "max_tokens": 2000, "temperature": 0.3}, timeout=120)
+        
+        print(f"📡 응답 코드: {r.status_code}")
         if r.status_code == 200:
-            c = r.json()["choices"][0]["message"]["content"]
-            return {"success": True, "content": re.sub(r'<think>.*?</think>', '', c, flags=re.DOTALL).strip()}
-        return {"success": False, "error": f"API오류:{r.status_code}"}
-    except Exception as e: return {"success": False, "error": str(e)}
+            data = r.json()
+            c = data["choices"][0]["message"]["content"]
+            c = re.sub(r'<think>.*?</think>', '', c, flags=re.DOTALL).strip()
+            print(f"✅ LLM 응답: {c[:100]}...")
+            return {"success": True, "content": c}
+        else:
+            print(f"❌ API 오류: {r.text}")
+            return {"success": False, "error": f"API오류:{r.status_code} - {r.text[:100]}"}
+    except Exception as e:
+        print(f"❌ 예외: {e}")
+        return {"success": False, "error": str(e)}
 
 def find_center(g):
     _, t = cv2.threshold(g, 80, 255, cv2.THRESH_BINARY)
@@ -376,8 +390,14 @@ async function aiAnalyze(){
     try{
         const r=await fetch('/llm',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({sys,usr})});
         const d=await r.json();
-        $('#aiContent').innerHTML=d.ok?marked.parse(d.content):'<p style="color:#f87171">오류: '+d.error+'</p>';
+        console.log('LLM 응답:', d);
+        if(d.ok && d.content){
+            $('#aiContent').innerHTML=marked.parse(d.content);
+        }else{
+            $('#aiContent').innerHTML='<p style="color:#f87171">오류: '+(d.error||'응답 없음')+'</p>';
+        }
     }catch(e){
+        console.error('LLM 오류:', e);
         $('#aiContent').innerHTML='<p style="color:#f87171">오류: '+e.message+'</p>';
     }
     $('#aiBtn').disabled=false;
