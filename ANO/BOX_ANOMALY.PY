@@ -309,70 +309,146 @@ def simple_diff_detection(reference_path, test_path, threshold=30):
 # 메인 실행 예제
 # ============================================================
 
-if __name__ == "__main__":
-    import sys
+def interactive_viewer(image_dir="./DOWN/", position_threshold=30, angle_threshold=10):
+    """
+    이미지 한 장씩 보여주면서 분석 결과 표시
+    
+    키 조작:
+        SPACE, ENTER, → : 다음 이미지
+        ←, BACKSPACE   : 이전 이미지
+        Q, ESC         : 종료
+    """
     import glob
     
-    print("="*60)
-    print("Box Position Anomaly Detection")
-    print("="*60)
-    
-    # 이미지 폴더
-    IMAGE_DIR = "./DOWN/"
-    
-    # DOWN 폴더의 모든 이미지 자동 검색
-    all_images = glob.glob(f"{IMAGE_DIR}*.png") + glob.glob(f"{IMAGE_DIR}*.jpg") + glob.glob(f"{IMAGE_DIR}*.jpeg")
+    # 이미지 검색
+    all_images = glob.glob(f"{image_dir}*.png") + glob.glob(f"{image_dir}*.jpg") + glob.glob(f"{image_dir}*.jpeg")
     all_images = sorted(all_images)
     
     if not all_images:
-        print(f"\n[!] {IMAGE_DIR} 폴더에 이미지가 없습니다!")
-        sys.exit(1)
+        print(f"[!] {image_dir} 폴더에 이미지가 없습니다!")
+        return
     
-    print(f"\n총 {len(all_images)}개 이미지 발견")
-    print("-"*40)
+    print(f"총 {len(all_images)}개 이미지 발견")
+    print("="*50)
+    print("조작법:")
+    print("  SPACE/ENTER/→ : 다음")
+    print("  ←/BACKSPACE   : 이전")
+    print("  Q/ESC         : 종료")
+    print("="*50)
     
-    # 첫 번째 이미지를 정상(기준)으로 사용
-    # 또는 'normal' 이 포함된 이미지를 찾음
+    # 기준 이미지 찾기
     reference_image = None
     for img in all_images:
         if 'normal' in img.lower() or '01' in img:
             reference_image = img
             break
-    
     if reference_image is None:
-        reference_image = all_images[0]  # 없으면 첫번째 이미지
+        reference_image = all_images[0]
     
-    print(f"기준 이미지 (정상): {reference_image}")
-    print("="*60)
+    print(f"기준 이미지: {os.path.basename(reference_image)}")
     
     # 탐지기 초기화
     detector = BoxPositionDetector(reference_image)
     
-    print("\n[결과]")
-    print("-"*60)
-    print(f"{'파일명':<35} {'상태':<12} {'유형':<20} {'이탈(px)':<10} {'각도':<8}")
-    print("-"*60)
-    
+    # 결과 저장
+    results = []
     normal_count = 0
     anomaly_count = 0
     
-    for img_path in all_images:
-        result = detector.detect(img_path)
-        
-        if result['is_anomaly']:
-            status = "❌ ANOMALY"
-            anomaly_count += 1
-        else:
-            status = "✅ NORMAL"
-            normal_count += 1
-        
+    idx = 0
+    while True:
+        img_path = all_images[idx]
         filename = os.path.basename(img_path)
-        print(f"{filename:<35} {status:<12} {result['anomaly_type']:<20} "
-              f"{result['position_shift']:<10.1f} {result['angle_shift']:<8.1f}")
+        
+        # 분석
+        result = detector.detect(img_path, position_threshold, angle_threshold)
+        
+        # 이미지 로드
+        img = cv2.imread(img_path)
+        if img is None:
+            idx = (idx + 1) % len(all_images)
+            continue
+        
+        # 결과에 따라 색상 결정
+        if result['is_anomaly']:
+            color = (0, 0, 255)  # 빨강 (BGR)
+            status_text = "ANOMALY"
+        else:
+            color = (0, 255, 0)  # 초록
+            status_text = "NORMAL"
+        
+        # 테두리 그리기
+        cv2.rectangle(img, (5, 5), (img.shape[1]-5, img.shape[0]-5), color, 8)
+        
+        # 정보 표시 배경
+        overlay = img.copy()
+        cv2.rectangle(overlay, (0, 0), (img.shape[1], 120), (0, 0, 0), -1)
+        img = cv2.addWeighted(overlay, 0.7, img, 0.3, 0)
+        
+        # 텍스트 표시
+        cv2.putText(img, f"[{idx+1}/{len(all_images)}] {filename}", (10, 30), 
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
+        cv2.putText(img, f"Status: {status_text}", (10, 60), 
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.8, color, 2)
+        cv2.putText(img, f"Type: {result['anomaly_type']}", (10, 90), 
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 1)
+        cv2.putText(img, f"Shift: {result['position_shift']:.1f}px  Angle: {result['angle_shift']:.1f}deg", 
+                    (10, 115), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 1)
+        
+        # 중심점 표시
+        if result['test_center']:
+            cx, cy = result['test_center']
+            cv2.circle(img, (cx, cy), 10, color, -1)
+            cv2.circle(img, (cx, cy), 15, color, 2)
+        
+        # 기준점 표시 (파란색)
+        if result['ref_center']:
+            rx, ry = result['ref_center']
+            cv2.circle(img, (rx, ry), 8, (255, 0, 0), 2)
+        
+        # 창 표시
+        cv2.imshow("Box Anomaly Detection - Press Q to quit", img)
+        
+        # 키 입력 대기
+        key = cv2.waitKey(0) & 0xFF
+        
+        if key == ord('q') or key == 27:  # Q 또는 ESC
+            break
+        elif key == ord(' ') or key == 13 or key == 83 or key == ord('d'):  # SPACE, ENTER, →, D
+            idx = (idx + 1) % len(all_images)
+        elif key == 8 or key == 81 or key == ord('a'):  # BACKSPACE, ←, A
+            idx = (idx - 1) % len(all_images)
     
-    print("-"*60)
-    print(f"\n[요약]")
-    print(f"  정상: {normal_count}개")
-    print(f"  이상: {anomaly_count}개")
-    print(f"  총계: {len(all_images)}개")
+    cv2.destroyAllWindows()
+    
+    # 최종 요약
+    print("\n" + "="*50)
+    print("[최종 요약]")
+    for img_path in all_images:
+        result = detector.detect(img_path, position_threshold, angle_threshold)
+        if result['is_anomaly']:
+            anomaly_count += 1
+            status = "❌"
+        else:
+            normal_count += 1
+            status = "✅"
+        print(f"  {status} {os.path.basename(img_path)}: {result['anomaly_type']}")
+    
+    print("-"*50)
+    print(f"  정상: {normal_count}개 / 이상: {anomaly_count}개 / 총계: {len(all_images)}개")
+    print("="*50)
+
+
+if __name__ == "__main__":
+    import sys
+    
     print("="*60)
+    print("Box Position Anomaly Detection - Interactive Viewer")
+    print("="*60)
+    
+    # 실행
+    interactive_viewer(
+        image_dir="./DOWN/",
+        position_threshold=30,   # 위치 허용 오차 (픽셀)
+        angle_threshold=10       # 각도 허용 오차 (도)
+    )
