@@ -608,19 +608,19 @@
                         <th>컬럼명</th>
                         <th>타입</th>
                         <th>설명</th>
-                        <th>예시</th>
+                        <th>데이터 소스</th>
                     </tr>
                 </thead>
                 <tbody>
-                    <tr class="new-col"><td><code>FROM_HIDID</code></td><td>INT</td><td>출발 HID Zone ID (엣지 시작점)</td><td>99, 0</td></tr>
-                    <tr class="new-col"><td><code>TO_HIDID</code></td><td>INT</td><td>도착 HID Zone ID (엣지 종점)</td><td>100, 99</td></tr>
-                    <tr><td><code>EDGE_ID</code></td><td>STRING</td><td>엣지 고유 ID (FROM:TO)</td><td>099:100, 000:099</td></tr>
-                    <tr><td><code>FROM_HID_NM</code></td><td>STRING</td><td>출발 HID Zone 이름</td><td>HID_099, OUTSIDE</td></tr>
-                    <tr><td><code>TO_HID_NM</code></td><td>STRING</td><td>도착 HID Zone 이름</td><td>HID_100, HID_099</td></tr>
-                    <tr><td><code>MCP_ID</code></td><td>STRING</td><td>MCP ID</td><td>MCP01, MCP02</td></tr>
-                    <tr><td><code>ZONE_ID</code></td><td>STRING</td><td>Zone ID</td><td>ZONE_A, ZONE_B</td></tr>
-                    <tr><td><code>EDGE_TYPE</code></td><td>STRING</td><td>엣지 유형 (IN/OUT/INTERNAL)</td><td>IN, OUT, INTERNAL</td></tr>
-                    <tr><td><code>UPDATE_DT</code></td><td>STRING</td><td>마지막 업데이트 일시</td><td>2026-01-29 00:00:00</td></tr>
+                    <tr class="new-col"><td><code>FROM_HIDID</code></td><td>INT</td><td>출발 HID Zone ID</td><td><code>HID_Zone_Master.csv</code> → IN_Lanes 파싱</td></tr>
+                    <tr class="new-col"><td><code>TO_HIDID</code></td><td>INT</td><td>도착 HID Zone ID</td><td><code>HID_Zone_Master.csv</code> → OUT_Lanes 파싱</td></tr>
+                    <tr><td><code>EDGE_ID</code></td><td>STRING</td><td>엣지 고유 ID (FROM:TO)</td><td><code>String.format("%03d:%03d")</code></td></tr>
+                    <tr><td><code>FROM_HID_NM</code></td><td>STRING</td><td>출발 HID Zone 이름</td><td><code>HID_Zone_Master.csv</code> → Full_Name</td></tr>
+                    <tr><td><code>TO_HID_NM</code></td><td>STRING</td><td>도착 HID Zone 이름</td><td><code>HID_Zone_Master.csv</code> → Full_Name</td></tr>
+                    <tr><td><code>MCP_ID</code></td><td>STRING</td><td>MCP ID</td><td><code>mcp75ConfigMap.keySet()</code></td></tr>
+                    <tr><td><code>ZONE_ID</code></td><td>STRING</td><td>Zone ID</td><td><code>HID_Zone_Master.csv</code> → Bay_Zone</td></tr>
+                    <tr><td><code>EDGE_TYPE</code></td><td>STRING</td><td>엣지 유형</td><td><code>fromHid==0?"IN":toHid==0?"OUT":"INTERNAL"</code></td></tr>
+                    <tr><td><code>UPDATE_DT</code></td><td>STRING</td><td>업데이트 일시</td><td><code>SimpleDateFormat</code></td></tr>
                 </tbody>
             </table>
 
@@ -669,23 +669,22 @@
                         <th>컬럼명</th>
                         <th>타입</th>
                         <th>설명</th>
-                        <th>활용</th>
-                        <th>예시</th>
+                        <th>데이터 소스</th>
                     </tr>
                 </thead>
                 <tbody>
-                    <tr><td><code>HID_ID</code></td><td>INT</td><td>HID Zone ID (PK)</td><td>조인 키, HID 식별</td><td>99, 100</td></tr>
-                    <tr><td><code>HID_NM</code></td><td>STRING</td><td>HID Zone 이름</td><td>화면 표시용</td><td>HID_099</td></tr>
-                    <tr><td><code>MCP_ID</code></td><td>STRING</td><td>MCP ID</td><td>MCP별 그룹핑</td><td>MCP01</td></tr>
-                    <tr><td><code>ZONE_ID</code></td><td>STRING</td><td>Zone ID</td><td>Zone별 그룹핑</td><td>ZONE_A</td></tr>
-                    <tr class="new-col"><td><code>RAIL_LEN_TOTAL</code></td><td>DOUBLE</td><td>레일 길이 총합 (mm)</td><td>통과 시간 = RAIL_LEN / 속도</td><td>125000.5</td></tr>
-                    <tr class="new-col"><td><code>FREE_FLOW_SPEED</code></td><td>DOUBLE</td><td>FREE FLOW 속도 (mm/s)</td><td>이론 통과 시간 산출</td><td>2000.0</td></tr>
-                    <tr class="new-col"><td><code>PORT_CNT_TOTAL</code></td><td>INT</td><td>포트 개수 총합</td><td>작업 부하 = 포트수 × 작업빈도</td><td>24</td></tr>
-                    <tr><td><code>IN_CNT</code></td><td>INT</td><td>IN Lane 개수</td><td>진입 용량 판단</td><td>3</td></tr>
-                    <tr><td><code>OUT_CNT</code></td><td>INT</td><td>OUT Lane 개수</td><td>진출 용량 판단</td><td>3</td></tr>
-                    <tr><td><code>VHL_MAX</code></td><td>INT</td><td>최대 허용 차량 수</td><td>과밀 알람 기준</td><td>37</td></tr>
-                    <tr><td><code>ZCU_ID</code></td><td>STRING</td><td>ZCU ID</td><td>ZCU별 그룹핑</td><td>ZC508A</td></tr>
-                    <tr><td><code>UPDATE_DT</code></td><td>STRING</td><td>마지막 업데이트 일시</td><td>데이터 신선도 확인</td><td>2026-01-29 00:00:00</td></tr>
+                    <tr><td><code>HID_ID</code></td><td>INT</td><td>HID Zone ID (PK)</td><td><code>HID_Zone_Master.csv</code> → Zone_ID</td></tr>
+                    <tr><td><code>HID_NM</code></td><td>STRING</td><td>HID Zone 이름</td><td><code>HID_Zone_Master.csv</code> → Full_Name</td></tr>
+                    <tr><td><code>MCP_ID</code></td><td>STRING</td><td>MCP ID</td><td><code>mcp75ConfigMap.keySet()</code></td></tr>
+                    <tr><td><code>ZONE_ID</code></td><td>STRING</td><td>Zone ID</td><td><code>HID_Zone_Master.csv</code> → Bay_Zone</td></tr>
+                    <tr class="new-col"><td><code>RAIL_LEN_TOTAL</code></td><td>DOUBLE</td><td>레일 길이 총합 (mm)</td><td><code>RailEdge.getLength()</code> HID별 합계</td></tr>
+                    <tr class="new-col"><td><code>FREE_FLOW_SPEED</code></td><td>DOUBLE</td><td>FREE FLOW 속도 (mm/s)</td><td><code>RailEdge.getMaxVelocity()</code> HID별 평균</td></tr>
+                    <tr class="new-col"><td><code>PORT_CNT_TOTAL</code></td><td>INT</td><td>포트 개수 총합</td><td><code>RailEdge.getPortIdList().size()</code> 합계</td></tr>
+                    <tr><td><code>IN_CNT</code></td><td>INT</td><td>IN Lane 개수</td><td><code>HID_Zone_Master.csv</code> → IN_Count</td></tr>
+                    <tr><td><code>OUT_CNT</code></td><td>INT</td><td>OUT Lane 개수</td><td><code>HID_Zone_Master.csv</code> → OUT_Count</td></tr>
+                    <tr><td><code>VHL_MAX</code></td><td>INT</td><td>최대 허용 차량 수</td><td><code>HID_Zone_Master.csv</code> → Vehicle_Max</td></tr>
+                    <tr><td><code>ZCU_ID</code></td><td>STRING</td><td>ZCU ID</td><td><code>HID_Zone_Master.csv</code> → ZCU</td></tr>
+                    <tr><td><code>UPDATE_DT</code></td><td>STRING</td><td>업데이트 일시</td><td><code>SimpleDateFormat</code></td></tr>
                 </tbody>
             </table>
 
@@ -724,17 +723,17 @@
                         <th>컬럼명</th>
                         <th>타입</th>
                         <th>설명</th>
-                        <th>예시</th>
+                        <th>데이터 소스</th>
                     </tr>
                 </thead>
                 <tbody>
-                    <tr><td><code>EVENT_DATE</code></td><td>STRING</td><td>이벤트 날짜 (파티션 키)</td><td>2026-01-30</td></tr>
-                    <tr><td><code>EVENT_DT</code></td><td>STRING</td><td>집계 시간 (1분 단위)</td><td>2026-01-30 15:30:00</td></tr>
-                    <tr class="new-col"><td><code>FROM_HIDID</code></td><td>INT</td><td>출발 HID Zone ID</td><td>99, 0</td></tr>
-                    <tr class="new-col"><td><code>TO_HIDID</code></td><td>INT</td><td>도착 HID Zone ID</td><td>100, 99</td></tr>
-                    <tr><td><code>TRANS_CNT</code></td><td>INT</td><td>1분간 전환 횟수</td><td>12, 8</td></tr>
-                    <tr><td><code>MCP_NM</code></td><td>STRING</td><td>MCP 이름</td><td>MCP01</td></tr>
-                    <tr><td><code>ENV</code></td><td>STRING</td><td>환경 구분</td><td>PROD</td></tr>
+                    <tr><td><code>EVENT_DATE</code></td><td>STRING</td><td>이벤트 날짜</td><td><code>SimpleDateFormat("yyyy-MM-dd")</code></td></tr>
+                    <tr><td><code>EVENT_DT</code></td><td>STRING</td><td>집계 시간 (1분 단위)</td><td><code>SimpleDateFormat("yyyy-MM-dd HH:mm:00")</code></td></tr>
+                    <tr class="new-col"><td><code>FROM_HIDID</code></td><td>INT</td><td>출발 HID Zone ID</td><td><code>vehicle.getHidId()</code> (Vhl.java:517)</td></tr>
+                    <tr class="new-col"><td><code>TO_HIDID</code></td><td>INT</td><td>도착 HID Zone ID</td><td><code>currentHidId</code> 파라미터</td></tr>
+                    <tr><td><code>TRANS_CNT</code></td><td>INT</td><td>1분간 전환 횟수</td><td><code>hidEdgeBuffer.get(edgeKey)</code> 집계</td></tr>
+                    <tr><td><code>MCP_NM</code></td><td>STRING</td><td>MCP 이름</td><td><code>this.mcpName</code> (Line 9)</td></tr>
+                    <tr><td><code>ENV</code></td><td>STRING</td><td>환경 구분</td><td><code>Env.getEnv()</code> (Line 505)</td></tr>
                 </tbody>
             </table>
 
