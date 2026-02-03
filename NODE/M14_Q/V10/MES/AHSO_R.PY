@@ -46,4 +46,4 @@ print(f"\n총 {len(df)}행")
 print(df.head(30))
 
 # 저장
-df.to_csv('ahso_alarm_full_range.csv', ind
+df.to_csv('ahso_alarm_full_range.csv', index=False, encoding='utf-8-sig')
