@@ -5453,12 +5453,18 @@ async def simulate_transport(request_id: str, vehicle_id: str, from_station: int
         # 1. 픽업 위치로 이동 중 (3초)
         await asyncio.sleep(3)
         print(f"[SIM] {vehicle_id}: 픽업 위치 도착 (Station {from_station})")
-        await update_mcs_status(request_id, "PICKING", vehicle_id)
+        try:
+            await update_mcs_status(request_id, "PICKING", vehicle_id)
+        except:
+            pass
 
         # 2. 픽업 중 (SECS/GEM Load 발생) (2초)
         await asyncio.sleep(2)
         print(f"[SIM] {vehicle_id}: 픽업 완료, 운반 시작")
-        await update_mcs_status(request_id, "CARRYING", vehicle_id)
+        try:
+            await update_mcs_status(request_id, "CARRYING", vehicle_id)
+        except:
+            pass
 
         # 3. 목적지로 이동 중 (4초)
         await asyncio.sleep(4)
@@ -5467,12 +5473,23 @@ async def simulate_transport(request_id: str, vehicle_id: str, from_station: int
         # 4. 언로드 완료
         await asyncio.sleep(1)
         print(f"[SIM] {vehicle_id}: 언로드 완료")
-        await update_mcs_status(request_id, "COMPLETE", vehicle_id)
+        try:
+            await update_mcs_status(request_id, "COMPLETE", vehicle_id)
+        except:
+            pass
+
+        # Transport 정리
+        if request_id in active_transports:
+            del active_transports[request_id]
 
         print(f"[SIM] Transport 완료: {request_id}")
 
+    except asyncio.CancelledError:
+        print(f"[SIM] Transport 취소됨: {request_id}")
     except Exception as e:
+        import traceback
         print(f"[SIM] Transport 오류: {e}")
+        traceback.print_exc()
 
 # MCS 배차 카운터
 mcs_vehicle_counter = 0
