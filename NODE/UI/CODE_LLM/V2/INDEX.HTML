@@ -772,6 +772,79 @@
             transform: translateY(-1px);
         }
 
+        /* ★ 업데이트 모달 스타일 */
+        .update-item {
+            padding: 15px;
+            margin-bottom: 15px;
+            background: var(--surface);
+            border-radius: 10px;
+            border-left: 4px solid var(--primary);
+        }
+
+        .update-item.upcoming {
+            border-left-color: var(--muted);
+            opacity: 0.8;
+        }
+
+        .update-version {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-bottom: 8px;
+        }
+
+        .version-badge {
+            padding: 4px 10px;
+            border-radius: 12px;
+            font-size: 12px;
+            font-weight: 700;
+            background: var(--primary);
+            color: white;
+        }
+
+        .version-badge.current {
+            background: linear-gradient(135deg, var(--success), #059669);
+            animation: pulse 2s infinite;
+        }
+
+        .version-badge.upcoming {
+            background: var(--muted);
+        }
+
+        .version-date {
+            font-size: 12px;
+            color: var(--muted);
+        }
+
+        .update-title {
+            font-size: 15px;
+            font-weight: 600;
+            color: var(--light);
+            margin-bottom: 10px;
+        }
+
+        .update-list {
+            list-style: none;
+            padding: 0;
+            margin: 0;
+        }
+
+        .update-list li {
+            font-size: 13px;
+            color: var(--light);
+            padding: 5px 0;
+            padding-left: 5px;
+            border-bottom: 1px solid var(--overlay);
+        }
+
+        .update-list li:last-child {
+            border-bottom: none;
+        }
+
+        .update-list li strong {
+            color: var(--warning);
+        }
+
         /* 스크롤바 스타일 */
         ::-webkit-scrollbar {
             width: 8px;
@@ -880,6 +953,7 @@
                         <div class="env-option active" id="env-common" onclick="setEnv('common')">COMMON</div>
                     </div>
                     <button class="reload-btn" onclick="reloadToken()">🔄 토큰</button>
+                    <button class="reload-btn" onclick="openUpdateModal()" style="background: var(--success);">📋 업데이트</button>
                 </div>
             </div>
 
@@ -1001,6 +1075,87 @@
             <div class="modal-footer">
                 <button class="modal-btn secondary" onclick="closeConvertModal()">취소</button>
                 <button class="modal-btn primary" onclick="convertCode()">변환하기</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ★ 업데이트 내역 모달 -->
+    <div class="modal-overlay" id="updateModal" style="display: none;">
+        <div class="modal-content" style="max-width: 600px; max-height: 80vh;">
+            <div class="modal-header" style="background: linear-gradient(135deg, var(--success), #059669);">
+                <span class="modal-title" style="color: white;">📋 업데이트 내역</span>
+                <button class="modal-close" onclick="closeUpdateModal()" style="color: white;">×</button>
+            </div>
+            <div class="modal-body" style="max-height: 60vh; overflow-y: auto;">
+                <!-- v2.1 -->
+                <div class="update-item">
+                    <div class="update-version">
+                        <span class="version-badge current">v2.1</span>
+                        <span class="version-date">2025.02.04</span>
+                    </div>
+                    <div class="update-title">🔥 Self-Correction 전체 모드 적용</div>
+                    <ul class="update-list">
+                        <li>✅ <strong>모든 모드에 SC 토글 추가</strong> - 코드 생성, 리뷰, 디버그, 설명, 리팩토링, 테스트, 일반 질문 전부 적용</li>
+                        <li>✅ <strong>상단 토글 스위치</strong> - ON/OFF로 간편하게 SC 모드 전환</li>
+                        <li>✅ <strong>빠른 작업에도 SC 적용</strong> - 주석 추가, 변수명 개선, 최적화, 타입힌트</li>
+                        <li>✅ <strong>언어 변환에 SC 옵션</strong> - 변환 모달에서 SC 적용 선택 가능</li>
+                        <li>✅ <strong>결과 메타 정보 표시</strong> - 시도 횟수, PASS/FAIL 상태 표시</li>
+                    </ul>
+                </div>
+
+                <!-- v2.0 -->
+                <div class="update-item">
+                    <div class="update-version">
+                        <span class="version-badge">v2.0</span>
+                        <span class="version-date">2025.02.04</span>
+                    </div>
+                    <div class="update-title">🔄 Self-Correction 기능 추가</div>
+                    <ul class="update-list">
+                        <li>✅ <strong>LangGraph Self-Correction 루프</strong> - 답변 생성 → 검토 → 재생성 (최대 3회)</li>
+                        <li>✅ <strong>20B API 활용</strong> - SK Hynix 내부 gpt-oss-20b 모델 사용</li>
+                        <li>✅ <strong>자동 품질 검토</strong> - PASS/FAIL 자동 판정</li>
+                        <li>✅ <strong>피드백 기반 재생성</strong> - FAIL 시 검토 피드백 반영하여 개선</li>
+                    </ul>
+                </div>
+
+                <!-- v1.0 -->
+                <div class="update-item">
+                    <div class="update-version">
+                        <span class="version-badge">v1.0</span>
+                        <span class="version-date">2025.01</span>
+                    </div>
+                    <div class="update-title">🛠️ Coding LLM Tool 출시</div>
+                    <ul class="update-list">
+                        <li>✅ <strong>코드 생성</strong> - 요구사항 기반 코드 자동 생성</li>
+                        <li>✅ <strong>코드 리뷰</strong> - 품질, 버그, 보안 검토</li>
+                        <li>✅ <strong>버그 수정</strong> - 에러 분석 및 수정 코드 제공</li>
+                        <li>✅ <strong>코드 설명</strong> - 초보자도 이해할 수 있는 설명</li>
+                        <li>✅ <strong>리팩토링</strong> - 코드 품질 개선</li>
+                        <li>✅ <strong>테스트 작성</strong> - 단위 테스트 자동 생성</li>
+                        <li>✅ <strong>언어 변환</strong> - Python ↔ JavaScript 등 언어 간 변환</li>
+                        <li>✅ <strong>DEV/PROD/COMMON 환경 전환</strong></li>
+                        <li>✅ <strong>빠른 작업</strong> - 주석, 변수명, 최적화, 타입힌트</li>
+                    </ul>
+                </div>
+
+                <!-- 예정 -->
+                <div class="update-item upcoming">
+                    <div class="update-version">
+                        <span class="version-badge upcoming">예정</span>
+                        <span class="version-date">Coming Soon</span>
+                    </div>
+                    <div class="update-title">🚀 향후 업데이트 예정</div>
+                    <ul class="update-list">
+                        <li>⏳ 엑셀 데이터 분석 + SC 통합</li>
+                        <li>⏳ MCP (Model Context Protocol) 도구 연동</li>
+                        <li>⏳ 멀티 에이전트 협업 (Plan-and-Execute)</li>
+                        <li>⏳ 코드 실행 및 결과 확인</li>
+                        <li>⏳ Git 연동 (diff, commit 메시지 생성)</li>
+                    </ul>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="modal-btn primary" onclick="closeUpdateModal()">확인</button>
             </div>
         </div>
     </div>
@@ -1332,6 +1487,15 @@
 
         function closeConvertModal() {
             document.getElementById('convertModal').style.display = 'none';
+        }
+
+        // ★ 업데이트 모달
+        function openUpdateModal() {
+            document.getElementById('updateModal').style.display = 'flex';
+        }
+
+        function closeUpdateModal() {
+            document.getElementById('updateModal').style.display = 'none';
         }
 
         async function convertCode() {
