@@ -289,31 +289,40 @@ async def broadcast(message: dict):
 # MES에서 Transport 요청 수신
 @app.post("/api/transport")
 async def receive_transport(request: dict):
-    """MES에서 Transport 요청 수신"""
+    """MES에서 Transport 요청 수신 - 즉시 응답, 배차는 비동기"""
     await log(f"MES로부터 Transport 수신: {request['requestId']} ({request['carrierId']})", "info")
 
     request["status"] = "QUEUED"
+    request["vehicleId"] = None
     request["receivedAt"] = datetime.now().strftime("%H:%M:%S")
 
-    # 바로 OHT에 배차 시도
-    vehicle_id = await dispatch_to_oht(request)
+    # 큐에 추가
+    active_transports[request["requestId"]] = request
 
-    if vehicle_id:
-        request["status"] = "DISPATCHED"
-        request["vehicleId"] = vehicle_id
-        active_transports[request["requestId"]] = request
-        await log(f"OHT {vehicle_id} 배차 완료: {request['fromStation']} → {request['toStation']}", "success")
-    else:
-        # 배차 실패시 큐에 추가
-        transport_queue.append(request)
-        await log(f"배차 실패, 큐에 추가: {request['requestId']}", "warn")
+    # 비동기로 OHT 배차 (MES 응답 안 기다림)
+    asyncio.create_task(async_dispatch_to_oht(request))
 
-    await broadcast_status()
+    # MES에 즉시 응답
+    return {"success": True, "vehicleId": None, "status": "QUEUED"}
 
-    # MES에 상태 업데이트
-    await update_mes_status(request)
+async def async_dispatch_to_oht(transport: dict):
+    """비동기 OHT 배차 - 백그라운드에서 실행"""
+    try:
+        vehicle_id = await dispatch_to_oht(transport)
 
-    return {"success": True, "vehicleId": vehicle_id, "status": request["status"]}
+        if vehicle_id:
+            transport["status"] = "DISPATCHED"
+            transport["vehicleId"] = vehicle_id
+            await log(f"OHT {vehicle_id} 배차 완료: {transport['fromStation']} → {transport['toStation']}", "success")
+        else:
+            transport_queue.append(transport)
+            await log(f"배차 실패, 큐에 추가: {transport['requestId']}", "warn")
+
+        await broadcast_status()
+        await update_mes_status(transport)
+
+    except Exception as e:
+        await log(f"배차 오류: {e}", "error")
 
 async def dispatch_to_oht(transport: dict) -> Optional[str]:
     """OHT에 배차 명령 전달"""
