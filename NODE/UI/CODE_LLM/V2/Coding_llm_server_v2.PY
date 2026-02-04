@@ -1,10 +1,9 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-코딩 LLM + Self-Correction 통합 서버 (v2.0)
-- 기존 코드 생성/리뷰/디버그 기능
-- LangGraph Self-Correction 루프 추가
-- 엑셀 데이터 처리 도구 포함
+코딩 LLM + Self-Correction 통합 서버 (v2.1)
+- 모든 모드에서 Self-Correction 옵션 지원
+- 코드 생성/리뷰/디버그/설명/리팩토링/테스트/일반 + SC
 """
 
 import os
@@ -16,36 +15,23 @@ import threading
 from typing import TypedDict, Literal, Optional
 from fastapi import FastAPI, UploadFile, File, Form
 from fastapi.responses import FileResponse, JSONResponse
-from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 import logging
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# LangGraph 임포트
-try:
-    from langgraph.graph import StateGraph, END
-    LANGGRAPH_AVAILABLE = True
-except ImportError:
-    LANGGRAPH_AVAILABLE = False
-    logger.warning("⚠️ langgraph 미설치. Self-Correction 비활성화")
-
-app = FastAPI(title="Coding LLM + Self-Correction")
+app = FastAPI(title="Coding LLM + Self-Correction v2.1")
 
 # ========================================
 # Global Variables
 # ========================================
 API_TOKEN = None
-llm = None
-
 LLM_MODE = "api"
 ENV_MODE = "common"
 
 active_requests = {}
 request_lock = threading.Lock()
-
-LOCAL_MODEL_PATH = "Qwen3-14B-Q4_K_M.gguf"
 
 ENV_CONFIG = {
     "dev": {
@@ -103,25 +89,20 @@ SYSTEM_PROMPTS = {
 
     "general": """당신은 친절한 프로그래밍 도우미입니다.
 정확하고 실용적인 정보, 예제 코드 포함. 한국어로 친절하게.""",
-    
-    # Self-Correction용 프롬프트
-    "sc_generate": """당신은 데이터 분석 전문가입니다.
-사용자의 질문에 정확하고 구체적으로 답변하세요.
-규칙:
-1. 데이터가 제공되면 반드시 참조하여 답변
-2. 숫자나 통계는 정확하게 인용
-3. 불확실한 내용은 명시
-4. 간결하고 명확하게 답변""",
-
-    "sc_review": """당신은 엄격한 품질 검토자입니다.
-생성된 답변을 검토하고 문제점을 찾아주세요.
-검토 기준:
-1. 질문에 정확히 답변했는가?
-2. 제공된 데이터를 올바르게 사용했는가?
-3. 논리적 오류나 모순이 있는가?
-4. 숫자/통계가 정확한가?
-출력 형식: 첫 줄에 PASS 또는 FAIL, 이후 상세 피드백"""
 }
+
+# Self-Correction 검토용 프롬프트
+SC_REVIEW_PROMPT = """당신은 엄격한 품질 검토자입니다.
+생성된 답변을 검토하고 문제점을 찾아주세요.
+
+검토 기준:
+1. 질문/요청에 정확히 답변했는가?
+2. 코드가 있다면 문법 오류나 버그가 없는가?
+3. 논리적 오류나 모순이 있는가?
+4. 설명이 명확하고 이해하기 쉬운가?
+5. 누락된 중요 정보가 있는가?
+
+출력 형식: 첫 줄에 PASS 또는 FAIL, 이후 상세 피드백"""
 
 
 # ========================================
@@ -146,7 +127,7 @@ def load_api_token():
 # ========================================
 # LLM API 호출
 # ========================================
-def call_llm_api(prompt: str, system_prompt: str = "", max_tokens: int = 4000, request_id: str = None) -> dict:
+def call_llm_api(prompt: str, system_prompt: str = "", max_tokens: int = 4000) -> dict:
     global API_TOKEN
     
     if not API_TOKEN:
@@ -169,16 +150,7 @@ def call_llm_api(prompt: str, system_prompt: str = "", max_tokens: int = 4000, r
         "temperature": 0.3
     }
     
-    cancel_event = None
-    if request_id:
-        cancel_event = threading.Event()
-        with request_lock:
-            active_requests[request_id] = cancel_event
-    
     try:
-        if cancel_event and cancel_event.is_set():
-            return {"success": False, "error": "요청 취소됨", "cancelled": True}
-        
         response = requests.post(API_URL, headers=headers, json=data, timeout=300)
         
         if response.status_code == 200:
@@ -190,103 +162,92 @@ def call_llm_api(prompt: str, system_prompt: str = "", max_tokens: int = 4000, r
             return {"success": False, "error": f"API 오류: {response.status_code}"}
     except Exception as e:
         return {"success": False, "error": str(e)}
-    finally:
-        if request_id:
-            with request_lock:
-                active_requests.pop(request_id, None)
-
-
-def call_llm(prompt: str, system_prompt: str = "", max_tokens: int = 4000, request_id: str = None) -> dict:
-    return call_llm_api(prompt, system_prompt, max_tokens, request_id)
 
 
 # ========================================
-# Self-Correction 상태 및 그래프
+# Self-Correction 로직
 # ========================================
-if LANGGRAPH_AVAILABLE:
-    class AgentState(TypedDict):
-        question: str
-        context: str
-        answer: str
-        review: str
-        is_valid: bool
-        retry_count: int
-        final_answer: str
-
-    def sc_generate_answer(state: AgentState) -> AgentState:
-        """답변 생성"""
-        logger.info(f"🔄 [생성] 시도 {state['retry_count'] + 1}")
+def run_self_correction(prompt: str, system_prompt: str, max_retries: int = 3) -> dict:
+    """Self-Correction 루프 실행"""
+    
+    answer = ""
+    review = ""
+    is_valid = False
+    attempt = 0
+    
+    for attempt in range(1, max_retries + 1):
+        logger.info(f"🔄 [SC] 시도 {attempt}/{max_retries}")
         
-        prompt = f"질문: {state['question']}"
-        if state.get('context'):
-            prompt = f"[데이터]\n{state['context']}\n\n{prompt}"
-        if state['retry_count'] > 0 and state.get('review'):
-            prompt += f"\n\n[이전 피드백]\n{state['review']}\n\n위 피드백을 반영하여 다시 답변해주세요."
+        # 1. 답변 생성
+        if attempt == 1:
+            gen_prompt = prompt
+        else:
+            # 재시도: 이전 피드백 반영
+            gen_prompt = f"{prompt}\n\n[이전 검토 피드백]\n{review}\n\n위 피드백을 반영하여 다시 답변해주세요."
         
-        result = call_llm(prompt, SYSTEM_PROMPTS["sc_generate"], 2000)
-        answer = result.get("content", result.get("error", "오류"))
+        result = call_llm_api(gen_prompt, system_prompt)
+        if not result["success"]:
+            return {"success": False, "error": result["error"], "retry_count": attempt}
         
-        return {**state, "answer": answer, "retry_count": state['retry_count'] + 1}
-
-    def sc_review_answer(state: AgentState) -> AgentState:
-        """답변 검토"""
-        logger.info("🔍 [검토]")
+        answer = result["content"]
         
-        prompt = f"[원본 질문]\n{state['question']}\n\n[생성된 답변]\n{state['answer']}"
-        if state.get('context'):
-            prompt = f"[참조 데이터]\n{state['context']}\n\n{prompt}"
+        # 2. 답변 검토
+        review_prompt = f"[원본 요청]\n{prompt}\n\n[생성된 답변]\n{answer}"
+        review_result = call_llm_api(review_prompt, SC_REVIEW_PROMPT, max_tokens=500)
         
-        result = call_llm(prompt, SYSTEM_PROMPTS["sc_review"], 500)
-        review = result.get("content", "검토 실패")
+        if not review_result["success"]:
+            # 검토 실패해도 답변은 반환
+            return {
+                "success": True,
+                "answer": answer,
+                "retry_count": attempt,
+                "is_valid": False,
+                "review": "검토 실패"
+            }
+        
+        review = review_result["content"]
         is_valid = review.strip().upper().startswith("PASS")
         
         logger.info(f"   결과: {'✅ PASS' if is_valid else '❌ FAIL'}")
-        return {**state, "review": review, "is_valid": is_valid}
-
-    def sc_finalize(state: AgentState) -> AgentState:
-        """최종 확정"""
-        logger.info("✅ [완료]")
-        return {**state, "final_answer": state['answer']}
-
-    def sc_should_retry(state: AgentState) -> Literal["retry", "finalize"]:
-        if state['retry_count'] >= 3:
-            return "finalize"
-        return "finalize" if state['is_valid'] else "retry"
-
-    def build_sc_graph():
-        graph = StateGraph(AgentState)
-        graph.add_node("generate", sc_generate_answer)
-        graph.add_node("review", sc_review_answer)
-        graph.add_node("finalize", sc_finalize)
-        graph.set_entry_point("generate")
-        graph.add_edge("generate", "review")
-        graph.add_conditional_edges("review", sc_should_retry, {"retry": "generate", "finalize": "finalize"})
-        graph.add_edge("finalize", END)
-        return graph.compile()
-
-    SC_GRAPH = build_sc_graph()
-else:
-    SC_GRAPH = None
+        
+        if is_valid:
+            break
+    
+    return {
+        "success": True,
+        "answer": answer,
+        "retry_count": attempt,
+        "is_valid": is_valid,
+        "review": review
+    }
 
 
 # ========================================
-# 엑셀 도구
+# 프롬프트 빌더
 # ========================================
-def read_excel_data(file_path: str) -> dict:
-    try:
-        import pandas as pd
-        if not os.path.exists(file_path):
-            return {"success": False, "error": f"파일 없음: {file_path}"}
-        df = pd.read_excel(file_path)
-        return {
-            "success": True,
-            "columns": df.columns.tolist(),
-            "rows": len(df),
-            "preview": df.head(10).to_dict('records'),
-            "summary": df.describe().to_dict() if df.select_dtypes(include='number').columns.any() else {}
-        }
-    except Exception as e:
-        return {"success": False, "error": str(e)}
+def build_prompt(mode: str, question: str, code: str, language: str) -> str:
+    """모드에 따른 프롬프트 생성"""
+    
+    if mode == "generate":
+        return f"다음 요구사항에 맞는 {language} 코드를 생성해주세요:\n\n{question}"
+    
+    elif mode in ["review", "debug", "explain", "refactor"]:
+        prompt = f"다음 {language} 코드를 분석해주세요:\n\n```{language}\n{code}\n```"
+        if question:
+            prompt += f"\n\n{question}"
+        return prompt
+    
+    elif mode == "test":
+        prompt = f"다음 {language} 코드에 대한 테스트 코드를 작성해주세요:\n\n```{language}\n{code}\n```"
+        if question:
+            prompt += f"\n\n{question}"
+        return prompt
+    
+    else:  # general
+        prompt = question
+        if code:
+            prompt += f"\n\n```{language}\n{code}\n```"
+        return prompt
 
 
 # ========================================
@@ -297,11 +258,22 @@ class CodingQuery(BaseModel):
     mode: str = "general"
     language: str = "python"
     code: Optional[str] = ""
+    use_sc: bool = False  # ★ Self-Correction 사용 여부
     request_id: Optional[str] = None
 
-class SCQuery(BaseModel):
-    question: str
-    context: Optional[str] = ""
+
+class ConvertRequest(BaseModel):
+    code: str
+    from_lang: str
+    to_lang: str
+    use_sc: bool = False
+
+
+class QuickRequest(BaseModel):
+    action: str
+    code: str
+    language: str = "python"
+    use_sc: bool = False
 
 
 # ========================================
@@ -316,7 +288,7 @@ async def startup():
     else:
         logger.warning("⚠️ 토큰 없음")
     
-    logger.info(f"🚀 서버 시작: {ENV_MODE}, SC={'✅' if LANGGRAPH_AVAILABLE else '❌'}")
+    logger.info(f"🚀 서버 시작: {ENV_MODE}")
 
 
 # ========================================
@@ -324,7 +296,7 @@ async def startup():
 # ========================================
 @app.get("/")
 async def home():
-    return FileResponse("index_coding.html")
+    return FileResponse("index_coding_v2.html")
 
 
 @app.get("/api/status")
@@ -335,7 +307,7 @@ async def api_status():
         "env": ENV_MODE,
         "model": API_MODEL,
         "env_name": ENV_CONFIG[ENV_MODE]["name"],
-        "self_correction": LANGGRAPH_AVAILABLE
+        "self_correction": True
     }
 
 
@@ -351,131 +323,129 @@ async def set_env(data: dict):
     return {"success": True, "env": ENV_MODE, "model": API_MODEL, "name": ENV_CONFIG[new_env]["name"]}
 
 
+@app.post("/api/reload_token")
+async def reload_token():
+    success = load_api_token()
+    return {"success": success, "message": "토큰 리로드 완료" if success else "토큰 리로드 실패"}
+
+
 @app.post("/api/ask")
 async def ask(query: CodingQuery):
-    """기존 코딩 질문 처리"""
+    """메인 질문 처리 - Self-Correction 옵션 포함"""
     mode = query.mode
     question = query.question.strip()
     code = query.code.strip() if query.code else ""
     language = query.language
-    request_id = query.request_id
+    use_sc = query.use_sc
     
+    # 코드 필요한 모드 체크
+    if mode in ["review", "debug", "explain", "refactor", "test"] and not code:
+        return {"success": False, "answer": "❌ 코드를 입력해주세요!"}
+    
+    if mode == "generate" and not question:
+        return {"success": False, "answer": "❌ 요청사항을 입력해주세요!"}
+    
+    # 프롬프트 생성
+    prompt = build_prompt(mode, question, code, language)
     system_prompt = SYSTEM_PROMPTS.get(mode, SYSTEM_PROMPTS["general"])
     
-    if mode == "generate":
-        prompt = f"다음 요구사항에 맞는 {language} 코드를 생성해주세요:\n\n{question}"
-    elif mode in ["review", "debug", "explain", "refactor"]:
-        if not code:
-            return {"success": False, "answer": "❌ 코드를 입력해주세요!"}
-        prompt = f"다음 {language} 코드를 분석해주세요:\n\n```{language}\n{code}\n```\n\n{question if question else ''}"
-    elif mode == "test":
-        if not code:
-            return {"success": False, "answer": "❌ 테스트할 코드를 입력해주세요!"}
-        prompt = f"다음 {language} 코드에 대한 테스트 코드를 작성해주세요:\n\n```{language}\n{code}\n```"
+    # ★ Self-Correction 사용 여부에 따라 분기
+    if use_sc:
+        logger.info(f"🔄 Self-Correction 모드: {mode}")
+        result = run_self_correction(prompt, system_prompt)
+        
+        if result["success"]:
+            return {
+                "success": True,
+                "answer": result["answer"],
+                "use_sc": True,
+                "retry_count": result["retry_count"],
+                "is_valid": result["is_valid"],
+                "review": result.get("review", "")
+            }
+        else:
+            return {"success": False, "answer": f"❌ {result['error']}"}
     else:
-        prompt = question
-        if code:
-            prompt += f"\n\n```{language}\n{code}\n```"
-    
-    result = call_llm(prompt, system_prompt, request_id=request_id)
-    
-    if result["success"]:
-        return {"success": True, "answer": result["content"]}
-    return {"success": False, "answer": f"❌ {result['error']}"}
+        # 일반 모드 (1회 호출)
+        result = call_llm_api(prompt, system_prompt)
+        
+        if result["success"]:
+            return {"success": True, "answer": result["content"], "use_sc": False}
+        return {"success": False, "answer": f"❌ {result['error']}"}
 
 
-# ========================================
-# Self-Correction Endpoints
-# ========================================
-@app.post("/api/sc/ask")
-async def sc_ask(query: SCQuery):
-    """Self-Correction 루프로 질문 처리"""
-    if not LANGGRAPH_AVAILABLE:
-        return {"success": False, "error": "langgraph 미설치. pip install langgraph"}
+@app.post("/api/convert")
+async def convert_code(request: ConvertRequest):
+    """코드 언어 변환"""
+    system_prompt = SYSTEM_PROMPTS["convert"]
+    prompt = f"""다음 {request.from_lang} 코드를 {request.to_lang}로 변환해주세요:
+
+```{request.from_lang}
+{request.code}
+```
+
+변환 시 {request.to_lang}의 관용적인 표현과 베스트 프랙티스를 따라주세요."""
     
-    initial_state = {
-        "question": query.question,
-        "context": query.context or "",
-        "answer": "",
-        "review": "",
-        "is_valid": False,
-        "retry_count": 0,
-        "final_answer": ""
+    if request.use_sc:
+        result = run_self_correction(prompt, system_prompt)
+        if result["success"]:
+            return {
+                "success": True,
+                "answer": result["answer"],
+                "use_sc": True,
+                "retry_count": result["retry_count"],
+                "is_valid": result["is_valid"]
+            }
+        return {"success": False, "answer": f"❌ {result['error']}"}
+    else:
+        result = call_llm_api(prompt, system_prompt)
+        if result["success"]:
+            return {"success": True, "answer": result["content"], "use_sc": False}
+        return {"success": False, "answer": f"❌ {result['error']}"}
+
+
+@app.post("/api/quick")
+async def quick_action(request: QuickRequest):
+    """빠른 작업"""
+    action = request.action
+    code = request.code
+    language = request.language
+    use_sc = request.use_sc
+    
+    if not code:
+        return {"success": False, "answer": "❌ 코드를 입력해주세요!"}
+    
+    action_prompts = {
+        "add_comments": "이 코드에 한국어 주석을 추가해주세요. 각 함수와 중요한 로직에 설명을 달아주세요.",
+        "improve_names": "이 코드의 변수명과 함수명을 더 명확하고 의미있게 개선해주세요.",
+        "optimize": "이 코드의 성능을 최적화해주세요. 불필요한 연산을 줄이고 효율적인 알고리즘을 사용해주세요.",
+        "simplify": "이 코드를 더 간결하고 읽기 쉽게 단순화해주세요.",
+        "type_hints": "이 Python 코드에 타입 힌트를 추가해주세요.",
+        "docstring": "이 코드의 모든 함수와 클래스에 docstring을 추가해주세요."
     }
     
-    result = SC_GRAPH.invoke(initial_state)
+    if action not in action_prompts:
+        return {"success": False, "answer": "❌ 알 수 없는 작업입니다."}
     
-    return {
-        "success": True,
-        "answer": result['final_answer'],
-        "retry_count": result['retry_count'],
-        "is_valid": result['is_valid'],
-        "review": result['review']
-    }
-
-
-@app.post("/api/sc/ask_excel")
-async def sc_ask_excel(
-    file: UploadFile = File(...),
-    question: str = Form(...)
-):
-    """엑셀 + Self-Correction"""
-    if not LANGGRAPH_AVAILABLE:
-        return {"success": False, "error": "langgraph 미설치"}
+    prompt = f"{action_prompts[action]}\n\n```{language}\n{code}\n```"
+    system_prompt = SYSTEM_PROMPTS["refactor"]
     
-    suffix = os.path.splitext(file.filename)[1]
-    with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
-        content = await file.read()
-        tmp.write(content)
-        tmp_path = tmp.name
-    
-    try:
-        excel_data = read_excel_data(tmp_path)
-        if not excel_data['success']:
-            return {"success": False, "error": excel_data['error']}
-        
-        context = f"엑셀 컬럼: {excel_data['columns']}\n"
-        context += f"행 수: {excel_data['rows']}\n"
-        context += f"데이터:\n{json.dumps(excel_data['preview'], ensure_ascii=False, indent=2)}"
-        
-        initial_state = {
-            "question": question,
-            "context": context,
-            "answer": "",
-            "review": "",
-            "is_valid": False,
-            "retry_count": 0,
-            "final_answer": ""
-        }
-        
-        result = SC_GRAPH.invoke(initial_state)
-        
-        return {
-            "success": True,
-            "answer": result['final_answer'],
-            "retry_count": result['retry_count'],
-            "is_valid": result['is_valid'],
-            "excel_info": {"columns": excel_data['columns'], "rows": excel_data['rows']}
-        }
-    finally:
-        if os.path.exists(tmp_path):
-            os.unlink(tmp_path)
-
-
-@app.post("/api/sc/excel_read")
-async def sc_excel_read(file: UploadFile = File(...)):
-    """엑셀 미리보기"""
-    suffix = os.path.splitext(file.filename)[1]
-    with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
-        content = await file.read()
-        tmp.write(content)
-        tmp_path = tmp.name
-    
-    try:
-        return read_excel_data(tmp_path)
-    finally:
-        if os.path.exists(tmp_path):
-            os.unlink(tmp_path)
+    if use_sc:
+        result = run_self_correction(prompt, system_prompt)
+        if result["success"]:
+            return {
+                "success": True,
+                "answer": result["answer"],
+                "use_sc": True,
+                "retry_count": result["retry_count"],
+                "is_valid": result["is_valid"]
+            }
+        return {"success": False, "answer": f"❌ {result['error']}"}
+    else:
+        result = call_llm_api(prompt, system_prompt)
+        if result["success"]:
+            return {"success": True, "answer": result["content"], "use_sc": False}
+        return {"success": False, "answer": f"❌ {result['error']}"}
 
 
 if __name__ == "__main__":
