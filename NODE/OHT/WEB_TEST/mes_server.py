@@ -17,8 +17,10 @@ import uvicorn
 
 app = FastAPI(title="MES Simulator")
 
-# MCS 서버 주소
+# 서버 주소
 MCS_URL = "http://localhost:10011"
+OHT_URL = "http://localhost:10003"
+SECS_URL = "http://localhost:10012"
 
 # Transport 요청 목록
 transport_requests = []
@@ -26,6 +28,9 @@ request_counter = 0
 
 # WebSocket 클라이언트
 ws_clients = set()
+
+# 연결 상태
+connection_status = {"mcs": False, "oht": False, "secs": False}
 
 HTML_PAGE = """
 <!DOCTYPE html>
@@ -153,7 +158,11 @@ HTML_PAGE = """
     </style>
 </head>
 <body>
-    <div class="connection-status disconnected" id="connStatus">MCS 연결 안됨</div>
+    <div style="position:fixed;top:10px;right:20px;display:flex;gap:10px;font-size:12px;">
+        <div class="connection-status disconnected" id="mcsStatus">MCS: 연결안됨</div>
+        <div class="connection-status disconnected" id="ohtStatus">OHT: 연결안됨</div>
+        <div class="connection-status disconnected" id="secsStatus">SECS: 연결안됨</div>
+    </div>
 
     <div class="container">
         <h1>MES Simulator</h1>
@@ -219,17 +228,23 @@ HTML_PAGE = """
         let ws;
         let requestCount = 0;
 
+        function updateConnStatus(name, connected) {
+            const el = document.getElementById(name + 'Status');
+            if (el) {
+                el.textContent = name.toUpperCase() + ': ' + (connected ? '연결됨' : '연결안됨');
+                el.className = 'connection-status ' + (connected ? 'connected' : 'disconnected');
+            }
+        }
+
         function connect() {
             ws = new WebSocket(`ws://${location.host}/ws`);
 
-            ws.onopen = () => {
-                document.getElementById('connStatus').textContent = 'MCS 연결됨';
-                document.getElementById('connStatus').className = 'connection-status connected';
-            };
+            ws.onopen = () => {};
 
             ws.onclose = () => {
-                document.getElementById('connStatus').textContent = 'MCS 연결 안됨';
-                document.getElementById('connStatus').className = 'connection-status disconnected';
+                updateConnStatus('mcs', false);
+                updateConnStatus('oht', false);
+                updateConnStatus('secs', false);
                 setTimeout(connect, 3000);
             };
 
@@ -239,6 +254,10 @@ HTML_PAGE = """
                     updateTransportList(msg.data);
                 } else if (msg.type === 'transport_update') {
                     updateTransportItem(msg.data);
+                } else if (msg.type === 'connections') {
+                    updateConnStatus('mcs', msg.data.mcs);
+                    updateConnStatus('oht', msg.data.oht);
+                    updateConnStatus('secs', msg.data.secs);
                 }
             };
         }
@@ -409,6 +428,25 @@ async def update_transport_status(request_id: str, update: dict):
             await broadcast({"type": "transport_update", "data": t})
             return {"success": True}
     return {"success": False, "error": "Not found"}
+
+# 연결 상태 체크 (주기적)
+async def check_connections():
+    global connection_status
+    while True:
+        async with httpx.AsyncClient() as client:
+            for name, url in [("mcs", MCS_URL), ("oht", OHT_URL), ("secs", SECS_URL)]:
+                try:
+                    r = await client.get(f"{url}/health", timeout=3.0)
+                    connection_status[name] = r.status_code == 200
+                except:
+                    connection_status[name] = False
+
+        await broadcast({"type": "connections", "data": connection_status})
+        await asyncio.sleep(3)
+
+@app.on_event("startup")
+async def startup():
+    asyncio.create_task(check_connections())
 
 if __name__ == "__main__":
     print("=" * 50)
