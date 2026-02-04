@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>🤖 짝퉁 몰트봇 감마버전 VER 0.1</title>
+    <title>🤖 짝퉁 몰트봇 감마버전 VER 0.2</title>
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
     <style>
         * {
@@ -64,7 +64,7 @@
         }
 
         .logo h1 {
-            font-size: 1.5rem;
+            font-size: 1.4rem;
             background: linear-gradient(135deg, var(--primary), #8b5cf6);
             -webkit-background-clip: text;
             -webkit-text-fill-color: transparent;
@@ -75,7 +75,6 @@
             color: var(--text-muted);
         }
 
-        /* 시스템 정보 */
         .system-info {
             padding: 15px;
             border-bottom: 1px solid var(--border);
@@ -109,7 +108,6 @@
             font-weight: 500;
         }
 
-        /* 빠른 명령어 */
         .quick-commands {
             padding: 15px;
             flex: 1;
@@ -153,6 +151,20 @@
             color: white;
         }
 
+        /* 스크린샷 갤러리 버튼 */
+        .cmd-btn.gallery {
+            background: linear-gradient(135deg, #8b5cf6, #6366f1);
+            border-color: #8b5cf6;
+        }
+
+        .cmd-btn.gallery i {
+            color: white;
+        }
+
+        .cmd-btn.gallery:hover {
+            background: linear-gradient(135deg, #7c3aed, #4f46e5);
+        }
+
         /* 메인 영역 */
         .main {
             flex: 1;
@@ -161,7 +173,6 @@
             height: 100vh;
         }
 
-        /* 헤더 */
         .header {
             padding: 15px 25px;
             border-bottom: 1px solid var(--border);
@@ -246,7 +257,7 @@
             max-width: 70%;
             padding: 12px 16px;
             border-radius: 16px;
-            line-height: 1.5;
+            line-height: 1.6;
         }
 
         .message.assistant .message-content {
@@ -287,14 +298,74 @@
             margin: 4px 0;
         }
 
-        .message-content h3, .message-content h4 {
+        .message-content h2, .message-content h3, .message-content h4 {
             font-weight: 600;
+            margin: 10px 0 5px;
         }
 
-        .message-time {
-            font-size: 0.7rem;
-            color: var(--text-muted);
-            margin-top: 5px;
+        .message-content h2 {
+            color: #8b5cf6;
+            font-size: 1.1rem;
+        }
+
+        .message-content h3 {
+            color: #6366f1;
+            font-size: 1rem;
+        }
+
+        .message-content hr {
+            border: none;
+            border-top: 1px solid var(--border);
+            margin: 12px 0;
+        }
+
+        /* ★ 인라인 스크린샷 이미지 */
+        .message-content img {
+            max-width: 100%;
+            border-radius: 10px;
+            margin: 10px 0;
+            border: 2px solid var(--border);
+            cursor: pointer;
+            transition: transform 0.2s;
+        }
+
+        .message-content img:hover {
+            transform: scale(1.02);
+            border-color: var(--primary);
+        }
+
+        /* 이미지 확대 모달 */
+        .img-modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0,0,0,0.9);
+            z-index: 2000;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+        }
+
+        .img-modal.active {
+            display: flex;
+        }
+
+        .img-modal img {
+            max-width: 95%;
+            max-height: 95%;
+            border-radius: 8px;
+        }
+
+        .img-modal .close-hint {
+            position: absolute;
+            top: 20px;
+            right: 30px;
+            color: white;
+            font-size: 1.2rem;
+            opacity: 0.7;
         }
 
         /* 입력 영역 */
@@ -362,7 +433,7 @@
             cursor: not-allowed;
         }
 
-        /* 파일 탐색기 모달 */
+        /* 스크린샷 갤러리 모달 */
         .modal {
             display: none;
             position: fixed;
@@ -406,39 +477,53 @@
             cursor: pointer;
         }
 
+        .modal-close:hover {
+            color: var(--text);
+        }
+
         .modal-body {
             padding: 20px;
             max-height: 60vh;
             overflow-y: auto;
         }
 
-        .file-list {
+        .screenshot-grid {
             display: grid;
-            gap: 8px;
+            grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+            gap: 15px;
         }
 
-        .file-item {
-            display: flex;
-            align-items: center;
-            gap: 12px;
-            padding: 10px 15px;
+        .screenshot-card {
             background: var(--bg-input);
-            border-radius: 8px;
+            border-radius: 10px;
+            overflow: hidden;
+            border: 1px solid var(--border);
             cursor: pointer;
-            transition: background 0.2s;
+            transition: all 0.2s;
         }
 
-        .file-item:hover {
-            background: var(--primary);
+        .screenshot-card:hover {
+            border-color: var(--primary);
+            transform: translateY(-3px);
+            box-shadow: 0 5px 15px rgba(99, 102, 241, 0.2);
         }
 
-        .file-item i {
-            font-size: 1.2rem;
-            color: var(--warning);
+        .screenshot-card img {
+            width: 100%;
+            height: 140px;
+            object-fit: cover;
         }
 
-        .file-item.folder i {
-            color: var(--primary);
+        .screenshot-card .info {
+            padding: 8px 10px;
+            font-size: 0.75rem;
+            color: var(--text-muted);
+        }
+
+        .empty-gallery {
+            text-align: center;
+            padding: 40px;
+            color: var(--text-muted);
         }
 
         /* 로딩 */
@@ -465,22 +550,10 @@
         }
 
         /* 스크롤바 */
-        ::-webkit-scrollbar {
-            width: 6px;
-        }
-
-        ::-webkit-scrollbar-track {
-            background: var(--bg-dark);
-        }
-
-        ::-webkit-scrollbar-thumb {
-            background: var(--border);
-            border-radius: 3px;
-        }
-
-        ::-webkit-scrollbar-thumb:hover {
-            background: var(--primary);
-        }
+        ::-webkit-scrollbar { width: 6px; }
+        ::-webkit-scrollbar-track { background: var(--bg-dark); }
+        ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+        ::-webkit-scrollbar-thumb:hover { background: var(--primary); }
     </style>
 </head>
 <body>
@@ -490,7 +563,7 @@
             <div class="logo-icon">🤖</div>
             <div>
                 <h1>짝퉁몰트봇</h1>
-                <p>감마버전 VER 0.1</p>
+                <p>감마버전 VER 0.2</p>
             </div>
         </div>
 
@@ -521,20 +594,20 @@
             <button class="cmd-btn" onclick="sendQuick('실행 중인 프로그램 목록 보여줘')">
                 <i class="fas fa-tasks"></i> 프로세스 목록
             </button>
-            <button class="cmd-btn" onclick="openFileExplorer()">
-                <i class="fas fa-folder-open"></i> 파일 탐색기
-            </button>
             <button class="cmd-btn" onclick="sendQuick('스크린샷 찍어줘')">
                 <i class="fas fa-camera"></i> 스크린샷
             </button>
-            <button class="cmd-btn" onclick="sendQuick('메모장 실행해줘')">
-                <i class="fas fa-play"></i> 메모장 실행
+            <button class="cmd-btn" onclick="sendQuick('오늘 날씨 알려줘')">
+                <i class="fas fa-cloud-sun"></i> 날씨 확인
             </button>
-            <button class="cmd-btn" onclick="sendQuick('구글에서 날씨 검색해줘')">
+            <button class="cmd-btn" onclick="sendQuick('구글에서 최신 뉴스 검색해줘')">
                 <i class="fas fa-search"></i> 웹 검색
             </button>
-            <button class="cmd-btn" onclick="clearChat()">
-                <i class="fas fa-trash"></i> 대화 초기화
+            <button class="cmd-btn gallery" onclick="openScreenshotGallery()">
+                <i class="fas fa-images"></i> 스크린샷 갤러리
+            </button>
+            <button class="cmd-btn" onclick="clearChat()" style="margin-top: 15px; border-color: var(--danger);">
+                <i class="fas fa-trash" style="color: var(--danger);"></i> 대화 초기화
             </button>
         </div>
     </aside>
@@ -559,14 +632,15 @@
             <div class="message assistant">
                 <div class="avatar">🤖</div>
                 <div class="message-content">
-                    안녕하세요! 저는 <strong>짝퉁 몰트봇 감마버전 VER 0.1</strong>입니다. 🎉<br><br>
+                    안녕하세요! 저는 <strong>짝퉁 몰트봇 감마버전 VER 0.2</strong>입니다. 🎉<br><br>
                     다음과 같은 일들을 도와드릴 수 있어요:
                     <ul style="margin: 10px 0 10px 20px;">
                         <li>📁 파일 검색, 읽기, 쓰기</li>
                         <li>💻 시스템 정보 확인</li>
                         <li>🚀 프로그램 실행/종료</li>
                         <li>🌐 웹 검색</li>
-                        <li>📸 스크린샷</li>
+                        <li>📸 스크린샷 (웹에서 바로 보기!)</li>
+                        <li>🌤️ 날씨 확인 (채팅에서 바로!)</li>
                     </ul>
                     무엇을 도와드릴까요?
                 </div>
@@ -576,7 +650,7 @@
         <div class="input-container">
             <div class="input-wrapper">
                 <div class="input-box">
-                    <textarea id="messageInput" placeholder="메시지를 입력하세요... (예: 'C드라이브에서 txt 파일 찾아줘')" rows="1"></textarea>
+                    <textarea id="messageInput" placeholder="메시지를 입력하세요... (예: '날씨 알려줘', '스크린샷 찍어줘')" rows="1"></textarea>
                     <button class="send-btn" id="sendBtn" onclick="sendMessage()">
                         <i class="fas fa-paper-plane"></i>
                     </button>
@@ -585,20 +659,25 @@
         </div>
     </main>
 
-    <!-- 파일 탐색기 모달 -->
-    <div class="modal" id="fileModal">
+    <!-- ★ 스크린샷 갤러리 모달 -->
+    <div class="modal" id="galleryModal">
         <div class="modal-content">
             <div class="modal-header">
-                <h3><i class="fas fa-folder-open"></i> 파일 탐색기</h3>
-                <button class="modal-close" onclick="closeModal()">&times;</button>
-            </div>
-            <div style="padding: 10px 20px; border-bottom: 1px solid var(--border);">
-                <input type="text" id="pathInput" value="C:/" style="width: 100%; padding: 10px; background: var(--bg-input); border: 1px solid var(--border); border-radius: 8px; color: var(--text);">
+                <h3>📸 스크린샷 갤러리</h3>
+                <button class="modal-close" onclick="closeGalleryModal()">&times;</button>
             </div>
             <div class="modal-body">
-                <div class="file-list" id="fileList"></div>
+                <div class="screenshot-grid" id="screenshotGrid">
+                    <div class="empty-gallery">로딩 중...</div>
+                </div>
             </div>
         </div>
+    </div>
+
+    <!-- ★ 이미지 확대 모달 -->
+    <div class="img-modal" id="imgModal" onclick="closeImgModal()">
+        <span class="close-hint">클릭하면 닫힙니다</span>
+        <img id="imgModalSrc" src="" alt="확대 이미지">
     </div>
 
     <script>
@@ -631,7 +710,7 @@
                 if (data.system) {
                     document.getElementById('cpuUsage').textContent = data.system.cpu.split(',')[1] || '-';
                     document.getElementById('memUsage').textContent = data.system.memory.split(',')[1] || '-';
-                    document.getElementById('diskUsage').textContent = data.system.disk_c.split(',')[1] || '-';
+                    document.getElementById('diskUsage').textContent = data.system.disk_c || '-';
                 }
             } catch (e) {
                 document.getElementById('modelStatus').textContent = '연결 실패';
@@ -646,9 +725,7 @@
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ env: env })
                 });
-
                 const data = await res.json();
-
                 if (data.success) {
                     currentEnv = env;
                     updateEnvUI();
@@ -662,14 +739,11 @@
             }
         }
 
-        // 환경 UI 업데이트
         function updateEnvUI() {
             const localBtn = document.getElementById('env-local');
             const apiBtn = document.getElementById('env-common');
-
             localBtn.style.background = currentEnv === 'local' ? '#f59e0b' : 'transparent';
             localBtn.style.color = currentEnv === 'local' ? 'white' : 'var(--text-muted)';
-
             apiBtn.style.background = currentEnv !== 'local' ? 'var(--primary)' : 'transparent';
             apiBtn.style.color = currentEnv !== 'local' ? 'white' : 'var(--text-muted)';
         }
@@ -684,7 +758,6 @@
             messageInput.style.height = 'auto';
             sendBtn.disabled = true;
 
-            // 로딩 표시
             const loadingId = addLoading();
 
             try {
@@ -693,7 +766,6 @@
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ message })
                 });
-
                 const data = await res.json();
                 removeLoading(loadingId);
 
@@ -725,35 +797,40 @@
 
             chatContainer.appendChild(div);
             chatContainer.scrollTop = chatContainer.scrollHeight;
+
+            // ★ 이미지 클릭 이벤트 바인딩
+            div.querySelectorAll('img').forEach(img => {
+                img.addEventListener('click', () => openImgModal(img.src));
+            });
         }
 
-        // 메시지 포맷팅 (마크다운 -> HTML)
+        // ★ 메시지 포맷팅 (마크다운 → HTML, 이미지 포함)
         function formatMessage(text) {
             // 코드 블록
             text = text.replace(/```(\w*)\n?([\s\S]*?)```/g, '<pre><code>$2</code></pre>');
             // 인라인 코드
             text = text.replace(/`([^`]+)`/g, '<code>$1</code>');
-            // 볼드 **text**
+            // ★ 마크다운 이미지 ![alt](url)
+            text = text.replace(/!\[([^\]]*)\]\(([^)]+)\)/g, '<img src="$2" alt="$1" loading="lazy">');
+            // 볼드
             text = text.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
-            // 이탈릭 *text*
+            // 이탈릭
             text = text.replace(/\*([^*]+)\*/g, '<em>$1</em>');
-            // 헤더 ### -> h4, ## -> h3
+            // 헤더
             text = text.replace(/^### (.+)$/gm, '<h4 style="margin:10px 0 5px;color:#8b5cf6;">$1</h4>');
             text = text.replace(/^## (.+)$/gm, '<h3 style="margin:12px 0 6px;color:#6366f1;">$1</h3>');
-            // 리스트 - item
+            // 구분선
+            text = text.replace(/^---$/gm, '<hr>');
+            // 리스트
             text = text.replace(/^- (.+)$/gm, '<li style="margin-left:20px;">$1</li>');
-            // 숫자 리스트
             text = text.replace(/^\d+\. (.+)$/gm, '<li style="margin-left:20px;">$1</li>');
-            // 구분선 ---
-            text = text.replace(/^---$/gm, '<hr style="border:none;border-top:1px solid #2d2d4a;margin:15px 0;">');
             // 줄바꿈
             text = text.replace(/\n/g, '<br>');
-            // 연속 br 정리
             text = text.replace(/(<br>){3,}/g, '<br><br>');
             return text;
         }
 
-        // 로딩 표시
+        // 로딩
         function addLoading() {
             const id = 'loading-' + Date.now();
             const div = document.createElement('div');
@@ -761,9 +838,7 @@
             div.className = 'message assistant';
             div.innerHTML = `
                 <div class="avatar">🤖</div>
-                <div class="loading">
-                    <span></span><span></span><span></span>
-                </div>
+                <div class="loading"><span></span><span></span><span></span></div>
             `;
             chatContainer.appendChild(div);
             chatContainer.scrollTop = chatContainer.scrollHeight;
@@ -802,60 +877,54 @@
             } catch (e) {}
         }
 
-        // 파일 탐색기
-        async function openFileExplorer() {
-            document.getElementById('fileModal').classList.add('active');
-            loadFiles('C:/');
-        }
-
-        function closeModal() {
-            document.getElementById('fileModal').classList.remove('active');
-        }
-
-        async function loadFiles(path) {
-            document.getElementById('pathInput').value = path;
+        // ★ 스크린샷 갤러리
+        async function openScreenshotGallery() {
+            document.getElementById('galleryModal').classList.add('active');
             try {
-                const res = await fetch(`/api/files?path=${encodeURIComponent(path)}`);
+                const res = await fetch('/assistant/api/screenshots');
                 const data = await res.json();
+                const grid = document.getElementById('screenshotGrid');
 
-                const list = document.getElementById('fileList');
-                list.innerHTML = '';
-
-                // 상위 폴더
-                if (path !== 'C:/') {
-                    const parent = path.split('/').slice(0, -1).join('/') || 'C:/';
-                    list.innerHTML += `
-                        <div class="file-item folder" onclick="loadFiles('${parent}')">
-                            <i class="fas fa-level-up-alt"></i>
-                            <span>..</span>
-                        </div>
-                    `;
+                if (!data.screenshots || data.screenshots.length === 0) {
+                    grid.innerHTML = '<div class="empty-gallery">📸 아직 스크린샷이 없습니다.<br>「스크린샷 찍어줘」라고 말해보세요!</div>';
+                    return;
                 }
 
-                data.files.forEach(f => {
-                    if (f.error) return;
-                    const isFolder = f.type === '폴더';
-                    const icon = isFolder ? 'fa-folder' : 'fa-file';
-                    const newPath = path.endsWith('/') ? path + f.name : path + '/' + f.name;
-
-                    list.innerHTML += `
-                        <div class="file-item ${isFolder ? 'folder' : ''}" onclick="${isFolder ? `loadFiles('${newPath}')` : `selectFile('${newPath}')`}">
-                            <i class="fas ${icon}"></i>
-                            <span>${f.name}</span>
-                            <span style="margin-left: auto; color: var(--text-muted); font-size: 0.8rem;">${f.size}</span>
+                grid.innerHTML = data.screenshots.map(sc => `
+                    <div class="screenshot-card" onclick="openImgModal('${sc.url}')">
+                        <img src="${sc.url}" alt="스크린샷" loading="lazy">
+                        <div class="info">
+                            📅 ${sc.time}<br>
+                            💾 ${sc.size}
                         </div>
-                    `;
-                });
+                    </div>
+                `).join('');
             } catch (e) {
-                document.getElementById('fileList').innerHTML = '<p>로드 실패</p>';
+                document.getElementById('screenshotGrid').innerHTML = '<div class="empty-gallery">❌ 로딩 실패</div>';
             }
         }
 
-        function selectFile(path) {
-            closeModal();
-            messageInput.value = `${path} 파일 내용 보여줘`;
-            sendMessage();
+        function closeGalleryModal() {
+            document.getElementById('galleryModal').classList.remove('active');
         }
+
+        // ★ 이미지 확대 모달
+        function openImgModal(src) {
+            document.getElementById('imgModalSrc').src = src;
+            document.getElementById('imgModal').classList.add('active');
+        }
+
+        function closeImgModal() {
+            document.getElementById('imgModal').classList.remove('active');
+        }
+
+        // ESC로 모달 닫기
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape') {
+                closeGalleryModal();
+                closeImgModal();
+            }
+        });
 
         // 엔터키
         messageInput.addEventListener('keydown', (e) => {
