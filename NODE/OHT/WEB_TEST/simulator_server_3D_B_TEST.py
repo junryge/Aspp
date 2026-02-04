@@ -1,15 +1,24 @@
 #!/usr/bin/env python3
 """
-OHT 실시간 시뮬레이터 - FastAPI 웹서버
+OHT 실시간 시뮬레이터 - FastAPI 웹서버 [MCS 테스트 버전]
 - Java OHT 시스템 기반 정확한 UDP 메시지 시뮬레이션
 - VHL_STATE, RUN_CYCLE, VHL_CYCLE 정확히 구현
 - 속도 계산 5가지 조건 적용
 - WebSocket으로 프론트엔드에 전송
 - CSV 자동 저장 (ATLAS 테이블 형식)
 - HID Zone 기반 차량 관리 (HID_Zone_Master.csv 연동)
+- MCS 연동: 배차 명령 수신 및 Transport 시뮬레이션
 """
 
 import os
+import sys
+
+# 상위 폴더 모듈 import를 위한 경로 추가
+_SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+_PARENT_DIR = os.path.dirname(_SCRIPT_DIR)
+if _PARENT_DIR not in sys.path:
+    sys.path.insert(0, _PARENT_DIR)
+
 import re
 import json
 import random
@@ -227,12 +236,13 @@ OUTPUT_DIR = _initial_paths["output_dir"]
 HID_ZONE_CSV_PATH = _initial_paths["hid_zone_csv"]
 STATION_DAT_PATH = _initial_paths["station_dat"]
 
-# 기존 호환용 (로컬 테스트용 - MAP 폴더가 없을 때 폴백)
-_LEGACY_LAYOUT_PATH = str(_SCRIPT_DIR / "layout" / "layout" / "layout.html")
-_LEGACY_LAYOUT_XML_PATH = str(_SCRIPT_DIR / "layout" / "layout.xml")
-_LEGACY_LAYOUT_ZIP_PATH = str(_SCRIPT_DIR / "layout" / "layout" / "layout.zip")
-_LEGACY_STATION_DAT_PATH = str(_SCRIPT_DIR / "station.dat")
-_LEGACY_HID_ZONE_CSV_PATH = str(_SCRIPT_DIR / "HID_Zone_Master.csv")
+# 기존 호환용 (로컬 테스트용 - MAP 폴더가 없을 때 상위 OHT2 폴더 사용)
+_OHT2_DIR = _PARENT_DIR
+_LEGACY_LAYOUT_PATH = os.path.join(_OHT2_DIR, "layout", "layout", "layout.html")
+_LEGACY_LAYOUT_XML_PATH = os.path.join(_OHT2_DIR, "layout", "layout.xml")
+_LEGACY_LAYOUT_ZIP_PATH = os.path.join(_OHT2_DIR, "layout", "layout", "layout.zip")
+_LEGACY_STATION_DAT_PATH = os.path.join(_OHT2_DIR, "station.dat")
+_LEGACY_HID_ZONE_CSV_PATH = os.path.join(_OHT2_DIR, "HID_Zone_Master.csv")
 
 def use_legacy_paths():
     """기존 경로 사용 (MAP 폴더가 없는 환경용)"""
@@ -242,7 +252,7 @@ def use_legacy_paths():
     LAYOUT_PATH = _LEGACY_LAYOUT_PATH
     LAYOUT_XML_PATH = _LEGACY_LAYOUT_XML_PATH
     LAYOUT_ZIP_PATH = _LEGACY_LAYOUT_ZIP_PATH
-    OUTPUT_DIR = str(_SCRIPT_DIR / "output")
+    OUTPUT_DIR = os.path.join(_OHT2_DIR, "output")
     HID_ZONE_CSV_PATH = _LEGACY_HID_ZONE_CSV_PATH
     STATION_DAT_PATH = _LEGACY_STATION_DAT_PATH
 
@@ -2200,7 +2210,7 @@ async def startup():
     asyncio.create_task(output_cleanup_loop())  # 10분마다 OUTPUT 파일 삭제
 
     print(f"\n서버 시작: http://localhost:8000")
-    print(f"OHT {saved_vehicle_count}대 시뮬레이션 시작 (fab_config.json 설정값)")
+    print(f"[MCS 모드] OHT {len(engine.vehicles)}대 (MCS 배차 대기)")
     print(f"HID Zone {len(engine.hid_zones)}개 로드됨")
     print(f"Station {len([s for s in engine.stations.values() if s.hasCoords])}개 로드됨 (좌표 있음)\n")
 
