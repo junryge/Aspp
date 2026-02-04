@@ -379,8 +379,19 @@ async def create_transport(request: dict):
                 result = response.json()
                 transport["status"] = "DISPATCHED"
                 transport["vehicleId"] = result.get("vehicleId")
+            else:
+                print(f"MCS 응답 오류: {response.status_code}")
+                transport["status"] = "MCS_ERROR"
+    except httpx.ConnectError:
+        print(f"MCS 연결 실패: {MCS_URL} 에 연결할 수 없음")
+        transport["status"] = "MCS_ERROR"
+    except httpx.TimeoutException:
+        print(f"MCS 타임아웃: 5초 초과")
+        transport["status"] = "MCS_ERROR"
     except Exception as e:
-        print(f"MCS 전송 실패: {e}")
+        import traceback
+        print(f"MCS 전송 실패: {type(e).__name__}: {e}")
+        traceback.print_exc()
         transport["status"] = "MCS_ERROR"
 
     # WebSocket으로 브로드캐스트
