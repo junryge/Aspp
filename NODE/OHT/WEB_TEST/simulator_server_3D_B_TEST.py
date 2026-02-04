@@ -5372,7 +5372,7 @@ active_transports: dict = {}
 @app.get("/health")
 async def health_check():
     """Health check endpoint for MCS"""
-    return {"status": "ok", "service": "OHT_Simulator"}
+    return {"status": "ok", "service": "OHT_Simulator", "vehicles": len(engine.vehicles) if engine else 0}
 
 @app.post("/api/dispatch")
 async def dispatch_vehicle(request: dict):
