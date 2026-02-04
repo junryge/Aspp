@@ -2150,11 +2150,10 @@ async def startup():
     # 레이아웃 로드
     nodes, edges = parse_layout(LAYOUT_PATH)
 
-    # 엔진 초기화 (FAB_CONFIG에서 저장된 OHT 대수 사용)
+    # 엔진 초기화 (MCS 모드: OHT 0대로 시작, MCS 배차 시 생성)
     engine = SimulationEngine(nodes, edges)
-    saved_vehicle_count = get_vehicle_count_for_fab(FAB_NAME)
-    engine.init_vehicles(saved_vehicle_count)
-    print(f"FAB {FAB_NAME} 저장된 OHT 대수: {saved_vehicle_count}대")
+    engine.init_vehicles(0)  # MCS 모드: 차량 없이 시작
+    print(f"[MCS 모드] OHT 0대로 시작 - MCS 배차 시 차량 생성됨")
 
     # 프론트엔드용 레이아웃 데이터 (Zone Lane 정보 포함)
     layout_data = {
@@ -2644,7 +2643,7 @@ HTML_CONTENT = """
 <html lang="ko">
 <head>
 <meta charset="UTF-8">
-<title>OHT 실시간 시뮬레이터</title>
+<title>OHT 시뮬레이터 [MCS 모드]</title>
 <style>
 * { margin: 0; padding: 0; box-sizing: border-box; }
 body { font-family: 'Segoe UI', sans-serif; background: #0a0a1a; color: #eee; overflow: hidden; }
@@ -2822,29 +2821,22 @@ canvas { display: block; }
 <body>
 
 <div id="header">
-    <h1>SK Hynix OHT Simulator <span id="currentFabDisplay" style="font-size:14px;color:#00ff88;"></span> <span style="font-size:14px;color:#00d4ff;">(Pseudo-3D)</span></h1>
+    <h1>OHT Simulator <span style="font-size:14px;padding:4px 10px;background:#ff6600;color:#fff;border-radius:4px;margin-left:10px;">MCS 모드</span></h1>
     <div class="status">
-        <div style="display:flex;align-items:center;gap:8px;">
-            <select id="fabSelect" style="padding:6px 10px;background:#1a1a3e;color:#00d4ff;border:1px solid #00d4ff;border-radius:4px;cursor:pointer;font-size:12px;font-weight:bold;">
-                <option value="">FAB 선택...</option>
-            </select>
-            <select id="layoutSelect" style="padding:6px 10px;background:#1a1a3e;color:#ff9900;border:1px solid #ff9900;border-radius:4px;cursor:pointer;font-size:12px;font-weight:bold;">
-                <option value="">레이아웃...</option>
-            </select>
-            <button id="btnSwitchFab" style="padding:6px 14px;background:#00ff88;color:#000;border:none;border-radius:4px;cursor:pointer;font-size:12px;font-weight:bold;">적용</button>
+        <div style="display:flex;align-items:center;gap:8px;padding:6px 12px;background:rgba(0,255,136,0.1);border:1px solid #00ff88;border-radius:4px;">
+            <div id="mcsStatusDot" style="width:10px;height:10px;background:#00ff88;border-radius:50%;"></div>
+            <span style="color:#00ff88;font-weight:bold;">MCS 연결</span>
+            <span id="mcsDispatchCount" style="color:#fff;">배차: 0건</span>
         </div>
         <div style="display:flex;align-items:center;gap:8px;">
             <button id="btnToggle3D" style="padding:6px 14px;background:#ff9900;color:#000;border:none;border-radius:4px;cursor:pointer;font-size:12px;font-weight:bold;">3D 효과 OFF</button>
             <button id="btnToggleCurve" style="padding:6px 14px;background:#00d4ff;color:#000;border:none;border-radius:4px;cursor:pointer;font-size:12px;font-weight:bold;">곡선 ON</button>
-            <span style="color:#888;font-size:11px;">R:</span>
-            <input type="range" id="curveRadiusSlider" min="5" max="100" value="30" style="width:60px;cursor:pointer;" title="곡률반경">
-            <span id="curveRadiusValue" style="color:#00d4ff;font-size:11px;min-width:28px;">30</span>
         </div>
         <div style="display:flex;align-items:center;gap:8px;"><div class="live-dot"></div> LIVE</div>
         <div>노드: <span id="nodeCount">-</span></div>
-        <div>OHT: <span id="vehCount">-</span></div>
-        <div>운행: <span id="runCount">-</span></div>
-        <div>적재: <span id="loadCount">-</span></div>
+        <div>OHT: <span id="vehCount">0</span></div>
+        <div>배차: <span id="runCount">0</span></div>
+        <div>운반: <span id="loadCount">0</span></div>
     </div>
 </div>
 
@@ -5397,12 +5389,15 @@ async def dispatch_vehicle(request: dict):
 
     print(f"[MCS] 배차 요청: {request_id} | {carrier_id} | {from_station} → {to_station}")
 
-    # 가장 가까운 Idle 차량 찾기
+    # 가장 가까운 Idle 차량 찾기, 없으면 새로 생성
     vehicle = find_nearest_idle_vehicle(from_station)
 
     if not vehicle:
-        print(f"[MCS] 배차 실패: 가용 차량 없음")
-        return {"success": False, "error": "No available vehicle"}
+        # MCS 모드: 차량이 없으면 새로 생성
+        vehicle = create_vehicle_for_mcs(from_station, request_id)
+        if not vehicle:
+            print(f"[MCS] 배차 실패: 차량 생성 불가")
+            return {"success": False, "error": "Cannot create vehicle"}
 
     # Transport 정보 저장
     transport = {
@@ -5428,11 +5423,102 @@ async def dispatch_vehicle(request: dict):
     # 비동기로 MCS에 상태 업데이트
     asyncio.create_task(update_mcs_status(request_id, "DISPATCHED", vehicle.vehicleId))
 
+    # Transport 시뮬레이션 시작 (상태 변경 → MCS → SECS/GEM)
+    asyncio.create_task(simulate_transport(request_id, vehicle.vehicleId, from_station, to_station))
+
     return {
         "success": True,
         "vehicleId": vehicle.vehicleId,
         "status": "DISPATCHED"
     }
+
+async def simulate_transport(request_id: str, vehicle_id: str, from_station: int, to_station: int):
+    """
+    Transport 시뮬레이션 (배차 → 픽업 → 운반 → 완료)
+    각 단계에서 MCS에 상태 업데이트 전송 → MCS가 SECS/GEM 호출
+    """
+    try:
+        print(f"[SIM] Transport 시작: {request_id} | {vehicle_id}")
+
+        # 1. 픽업 위치로 이동 중 (3초)
+        await asyncio.sleep(3)
+        print(f"[SIM] {vehicle_id}: 픽업 위치 도착 (Station {from_station})")
+        await update_mcs_status(request_id, "PICKING", vehicle_id)
+
+        # 2. 픽업 중 (SECS/GEM Load 발생) (2초)
+        await asyncio.sleep(2)
+        print(f"[SIM] {vehicle_id}: 픽업 완료, 운반 시작")
+        await update_mcs_status(request_id, "CARRYING", vehicle_id)
+
+        # 3. 목적지로 이동 중 (4초)
+        await asyncio.sleep(4)
+        print(f"[SIM] {vehicle_id}: 목적지 도착 (Station {to_station})")
+
+        # 4. 언로드 완료
+        await asyncio.sleep(1)
+        print(f"[SIM] {vehicle_id}: 언로드 완료")
+        await update_mcs_status(request_id, "COMPLETE", vehicle_id)
+
+        print(f"[SIM] Transport 완료: {request_id}")
+
+    except Exception as e:
+        print(f"[SIM] Transport 오류: {e}")
+
+# MCS 배차 카운터
+mcs_vehicle_counter = 0
+
+def create_vehicle_for_mcs(station_id: int, request_id: str):
+    """MCS 배차용 새 차량 생성"""
+    global engine, mcs_vehicle_counter
+
+    if not engine:
+        return None
+
+    # Station 좌표 찾기
+    target_node = None
+    for station in engine.stations.values():
+        if station.stationId == station_id:
+            target_node = station.nodeAddress
+            break
+
+    if not target_node:
+        # Station을 찾지 못하면 임의의 노드 사용
+        target_node = station_id
+        if target_node not in engine.nodes:
+            # 노드도 없으면 첫 번째 노드 사용
+            target_node = list(engine.nodes.keys())[0] if engine.nodes else None
+
+    if not target_node:
+        return None
+
+    node = engine.nodes.get(target_node)
+    if not node:
+        return None
+
+    # 새 차량 ID 생성
+    mcs_vehicle_counter += 1
+    vid = f"MCS{mcs_vehicle_counter:04d}"
+
+    # Vehicle 객체 생성
+    v = Vehicle(
+        vehicleId=vid,
+        currentNode=target_node,
+        x=node.x,
+        y=node.y
+    )
+
+    # UDP 상태 초기화
+    v.udpState.state = VHL_STATE.RUN
+    v.udpState.currentAddress = target_node
+    v.udpState.isOnline = True
+    v.udpState.receivedTime = int(datetime.now().timestamp() * 1000)
+
+    # 엔진에 차량 추가
+    engine.vehicles[vid] = v
+
+    print(f"[MCS] 새 차량 생성: {vid} @ Station {station_id} (Node {target_node})")
+
+    return v
 
 def find_nearest_idle_vehicle(target_station: int):
     """가장 가까운 Idle 차량 찾기"""
