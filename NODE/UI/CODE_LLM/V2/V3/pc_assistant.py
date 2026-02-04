@@ -86,8 +86,9 @@ SYSTEM_PROMPT = """당신은 '짝퉁 몰트봇 감마버전 VER 0.1'이라는 PC
 
 [중요 규칙]
 1. PC 작업(파일검색, 시스템정보 등)이 필요하면 반드시 아래 JSON 형식으로 도구를 호출하세요.
-2. JSON만 출력하고, 다른 설명은 절대 붙이지 마세요.
+2. 도구를 호출할 때는 JSON만 출력하세요. 다른 텍스트를 JSON 앞뒤에 붙이지 마세요.
 3. keyword에는 확장자(.gguf)나 와일드카드(*) 없이 순수 키워드만 넣으세요. 예: "gguf", "txt", "python"
+4. 반드시 순수 JSON 객체만 출력하세요. ```json 코드블록으로 감싸지 마세요.
 
 [도구 목록]
 - 파일검색: {"tool": "search_files", "keyword": "gguf", "path": "F:/"}
@@ -103,7 +104,7 @@ SYSTEM_PROMPT = """당신은 '짝퉁 몰트봇 감마버전 VER 0.1'이라는 PC
 - 스크린샷: {"tool": "screenshot"}
 - 데이터분석: {"tool": "analyze_data", "path": "C:/data.csv"}
 
-일반 대화는 한국어로 자연스럽게 답변하세요."""
+일반 대화(인사, 잡담, 코딩 질문 등)는 도구를 호출하지 말고 한국어로 자연스럽게 답변하세요."""
 
 
 # ========================================
@@ -134,16 +135,28 @@ def load_local_model():
         return None
 
 
+# ★ 수정 1: 토큰 로드 경로 통일 (token.txt 포함)
 def load_api_token():
-    """API 토큰 로드"""
+    """API 토큰 로드 - 메인 서버와 동일한 경로 검색"""
     global API_TOKEN
-    token_file = os.path.join(BASE_DIR, "api_token.txt")
-    if os.path.exists(token_file):
-        with open(token_file, 'r') as f:
-            API_TOKEN = f.read().strip()
-            logger.info("API 토큰 로드됨")
-            return True
-    logger.warning("API 토큰 파일 없음")
+    paths = [
+        os.path.join(BASE_DIR, "token.txt"),       # ★ 메인 서버와 동일
+        os.path.join(BASE_DIR, "api_token.txt"),    # 기존 호환
+        "token.txt",
+        "../token.txt",
+        os.path.expanduser("~/token.txt")
+    ]
+    for p in paths:
+        if os.path.exists(p):
+            try:
+                with open(p, 'r', encoding='utf-8') as f:
+                    API_TOKEN = f.read().strip()
+                if API_TOKEN and "REPLACE" not in API_TOKEN:
+                    logger.info(f"✅ API 토큰 로드: {p}")
+                    return True
+            except Exception as e:
+                logger.error(f"❌ 토큰 로드 실패: {e}")
+    logger.warning("⚠️ API 토큰 파일 없음")
     return False
 
 
@@ -209,7 +222,7 @@ def call_api_llm(prompt: str, system_prompt: str = "") -> dict:
             content = re.sub(r'<think>.*?</think>', '', content, flags=re.DOTALL).strip()
             return {"success": True, "content": content}
         else:
-            return {"success": False, "error": f"API 오류: {response.status_code}"}
+            return {"success": False, "error": f"API 오류: {response.status_code} - {response.text[:200]}"}
     except Exception as e:
         return {"success": False, "error": str(e)}
 
@@ -482,7 +495,64 @@ def execute_tool(tool_data: dict) -> str:
 
 
 # ========================================
-# Chat Processing
+# ★ 수정 2: JSON 감지 강화
+# ========================================
+def extract_tool_json(text: str) -> Optional[dict]:
+    """LLM 응답에서 도구 호출 JSON 추출 - 다양한 형식 대응"""
+    
+    # 패턴 1: ```json 코드블록
+    match = re.search(r'```(?:json)?\s*(\{.*?\})\s*```', text, re.DOTALL)
+    if match:
+        try:
+            data = json.loads(match.group(1))
+            if "tool" in data:
+                logger.info(f"✅ JSON 감지 (코드블록): {data.get('tool')}")
+                return data
+        except json.JSONDecodeError:
+            pass
+    
+    # 패턴 2: "tool" 키가 포함된 JSON 객체 (중첩 없는 단순 객체)
+    match = re.search(r'(\{[^{}]*"tool"\s*:\s*"[^"]+?"[^{}]*\})', text, re.DOTALL)
+    if match:
+        try:
+            data = json.loads(match.group(1))
+            if "tool" in data:
+                logger.info(f"✅ JSON 감지 (인라인): {data.get('tool')}")
+                return data
+        except json.JSONDecodeError:
+            pass
+    
+    # 패턴 3: 텍스트 전체가 JSON인 경우 (앞뒤 공백/줄바꿈만 있는 경우)
+    stripped = text.strip()
+    if stripped.startswith('{') and stripped.endswith('}'):
+        try:
+            data = json.loads(stripped)
+            if "tool" in data:
+                logger.info(f"✅ JSON 감지 (전체): {data.get('tool')}")
+                return data
+        except json.JSONDecodeError:
+            pass
+    
+    # 패턴 4: 텍스트 안에 줄바꿈이 포함된 JSON (멀티라인)
+    match = re.search(r'\{\s*"tool"\s*:.*?\}', text, re.DOTALL)
+    if match:
+        try:
+            # 줄바꿈, 탭 정리
+            json_str = match.group(0)
+            json_str = re.sub(r'[\n\r\t]', ' ', json_str)
+            json_str = re.sub(r'\s+', ' ', json_str)
+            data = json.loads(json_str)
+            if "tool" in data:
+                logger.info(f"✅ JSON 감지 (멀티라인): {data.get('tool')}")
+                return data
+        except json.JSONDecodeError:
+            pass
+    
+    return None
+
+
+# ========================================
+# Chat Processing (★ 수정된 버전)
 # ========================================
 def process_chat(user_message: str) -> str:
     """채팅 처리 (Tool Calling 방식)"""
@@ -490,62 +560,136 @@ def process_chat(user_message: str) -> str:
 
     # 모델 체크
     if LLM_MODE == "local" and LOCAL_LLM is None:
-        return "로컬 모델이 로드되지 않았습니다."
+        return "❌ 로컬 모델이 로드되지 않았습니다. API 모드로 전환해주세요."
     if LLM_MODE != "local" and not API_TOKEN:
-        return "API 토큰이 없습니다."
+        return "❌ API 토큰이 없습니다. token.txt 파일을 확인해주세요."
 
     # 1차: LLM 호출 (도구 호출 여부 판단)
     try:
         result = call_llm(user_message, SYSTEM_PROMPT)
         if not result["success"]:
-            return f"LLM 오류: {result.get('error', '알 수 없는 오류')}"
+            return f"❌ LLM 오류: {result.get('error', '알 수 없는 오류')}"
 
         text = result["content"]
+        logger.info(f"📝 LLM 응답 (첫 200자): {text[:200]}")
 
-        # JSON 도구 호출 감지
-        tool_match = re.search(r'```json\s*(\{.*?\})\s*```', text, re.DOTALL)
-        if not tool_match:
-            tool_match = re.search(r'(\{[^{}]*"tool"\s*:\s*"[^"]+?"[^{}]*\})', text, re.DOTALL)
+        # ★ 강화된 JSON 도구 호출 감지
+        tool_data = extract_tool_json(text)
 
-        if tool_match:
+        if tool_data:
             try:
-                raw_json = tool_match.group(1)
-                logger.info(f"도구 호출 감지: {raw_json}")
-                tool_data = json.loads(raw_json)
-
-                # keyword에서 와일드카드 제거
+                # keyword에서 와일드카드/확장자 제거
                 if "keyword" in tool_data:
-                    tool_data["keyword"] = tool_data["keyword"].replace("*", "").replace(".", "").strip()
+                    kw = tool_data["keyword"]
+                    kw = kw.replace("*", "").replace(".", "").strip()
+                    # 빈 키워드 방지
+                    if not kw:
+                        return "❌ 검색 키워드가 비어있습니다. 다시 입력해주세요."
+                    tool_data["keyword"] = kw
 
-                logger.info(f"도구 실행: {tool_data}")
+                logger.info(f"🔧 도구 실행: {tool_data}")
                 tool_result = execute_tool(tool_data)
-                logger.info(f"도구 결과: {tool_result[:200]}...")
+                logger.info(f"📊 도구 결과 (첫 300자): {tool_result[:300]}")
 
-                # 2차: 결과 해석
-                follow_up_system = f"""{SYSTEM_PROMPT}
+                # 2차: 결과 해석 - 자연어로 변환
+                follow_up_prompt = f"""사용자 질문: {user_message}
 
-[도구 실행 결과]
+도구 실행 결과:
 {tool_result}
 
-위 결과를 사용자가 이해하기 쉽게 한국어로 자연스럽게 설명하세요.
-JSON이나 원본 데이터를 그대로 보여주지 말고, 핵심 내용만 정리해서 답변하세요."""
+위 결과를 사용자가 이해하기 쉽게 한국어로 자연스럽게 정리해서 답변하세요.
+- JSON이나 원본 데이터를 그대로 보여주지 말고 핵심만 정리
+- 도구를 다시 호출하지 마세요 (JSON 출력 금지)
+- 마크다운 형식으로 보기 좋게 정리"""
 
-                result2 = call_llm(user_message, follow_up_system)
+                follow_up_system = """당신은 PC 개인비서입니다. 
+도구 실행 결과를 받아서 사용자에게 친절하게 한국어로 설명합니다.
+절대 JSON을 출력하지 마세요. 도구를 호출하지 마세요.
+자연어로만 답변하세요."""
+
+                result2 = call_llm(follow_up_prompt, follow_up_system)
                 if result2["success"]:
-                    return result2["content"]
+                    response = result2["content"]
+                    # 2차 응답에서도 혹시 JSON이 나오면 필터링
+                    if extract_tool_json(response):
+                        logger.warning("⚠️ 2차 응답에서도 JSON 감지 - 도구 결과 직접 포맷팅")
+                        return format_tool_result_fallback(tool_data, tool_result)
+                    return response
                 else:
-                    return f"결과 해석 오류: {result2.get('error', '')}"
+                    # 2차 호출 실패 시 직접 포맷팅
+                    logger.warning(f"⚠️ 2차 LLM 실패: {result2.get('error')}")
+                    return format_tool_result_fallback(tool_data, tool_result)
 
             except json.JSONDecodeError as e:
-                logger.error(f"JSON 파싱 오류: {e}")
-                return "명령 처리 중 오류가 발생했습니다."
+                logger.error(f"❌ JSON 파싱 오류: {e}")
+                return "❌ 명령 처리 중 오류가 발생했습니다. 다시 시도해주세요."
 
-        # 도구 호출 없으면 그냥 응답
+        # 도구 호출 없으면 그냥 응답 (일반 대화)
         return text
 
     except Exception as e:
-        logger.error(f"처리 오류: {e}")
-        return f"오류: {e}"
+        logger.error(f"❌ 처리 오류: {e}")
+        return f"❌ 오류: {e}"
+
+
+def format_tool_result_fallback(tool_data: dict, tool_result: str) -> str:
+    """2차 LLM 실패 시 도구 결과를 직접 포맷팅"""
+    tool_name = tool_data.get("tool", "")
+    
+    try:
+        if tool_name == "get_system_info":
+            info = json.loads(tool_result)
+            lines = [
+                "## 💻 시스템 정보",
+                f"- **OS**: {info.get('os', '?')}",
+                f"- **CPU**: {info.get('cpu', '?')}",
+                f"- **메모리**: {info.get('memory', '?')}",
+            ]
+            for d in info.get('drives', []):
+                lines.append(f"- **{d['drive']}**: {d['total']} (사용률 {d['used']})")
+            return "\n".join(lines)
+        
+        elif tool_name == "get_time":
+            return f"🕐 현재 시간: {tool_result}"
+        
+        elif tool_name in ["search_files", "search_content"]:
+            results = json.loads(tool_result)
+            if not results:
+                return f"🔍 '{tool_data.get('keyword', '')}' 검색 결과가 없습니다."
+            lines = [f"🔍 검색 결과: **{len(results)}개** 발견\n"]
+            for r in results[:10]:
+                if "snippet" in r:
+                    lines.append(f"- 📄 `{r['name']}` → {r['snippet']}")
+                else:
+                    lines.append(f"- {'📁' if r.get('type') == '폴더' else '📄'} `{r['name']}` ({r.get('size', '?')}) → `{r['path']}`")
+            if len(results) > 10:
+                lines.append(f"\n... 외 {len(results) - 10}개 더 있음")
+            return "\n".join(lines)
+        
+        elif tool_name == "list_directory":
+            items = json.loads(tool_result)
+            if not items or (len(items) == 1 and "error" in items[0]):
+                return f"❌ 폴더를 열 수 없습니다: {items[0].get('error', '?') if items else '?'}"
+            lines = [f"📂 `{tool_data.get('path', '')}` 내용: **{len(items)}개**\n"]
+            for item in items[:20]:
+                icon = "📁" if item.get("type") == "폴더" else "📄"
+                lines.append(f"- {icon} `{item['name']}` ({item.get('size', '-')}) - {item.get('modified', '?')}")
+            return "\n".join(lines)
+        
+        elif tool_name == "read_file":
+            return f"📄 **파일 내용:**\n```\n{tool_result}\n```"
+        
+        elif tool_name in ["run_program", "kill_program", "open_web", "google_search", "screenshot"]:
+            return f"✅ {tool_result}"
+        
+        elif tool_name == "analyze_data":
+            return f"📊 **데이터 분석 결과:**\n```\n{tool_result}\n```"
+        
+    except Exception as e:
+        logger.error(f"포맷팅 오류: {e}")
+    
+    # 최후의 수단: 결과를 코드블록으로 감싸서 반환
+    return f"📋 **결과:**\n```\n{tool_result}\n```"
 
 
 # ========================================
@@ -590,14 +734,17 @@ class EnvRequest(BaseModel):
 def init_assistant():
     global LOCAL_LLM, LLM_MODE
     load_history()
+    # ★ 토큰 먼저 시도 → API 모드 우선
     if load_api_token():
         LLM_MODE = "api"
-        logger.info("비서: API 모드")
+        logger.info("✅ 비서: API 모드로 시작")
     else:
         LOCAL_LLM = load_local_model()
         if LOCAL_LLM:
             LLM_MODE = "local"
-            logger.info("비서: LOCAL 모드")
+            logger.info("✅ 비서: LOCAL 모드로 시작")
+        else:
+            logger.warning("⚠️ 비서: 모델 없음 (API 토큰도 없고 로컬 모델도 없음)")
 
 # Router 엔드포인트들 (메인 서버에 통합됨)
 @router.get("/")
@@ -635,7 +782,7 @@ async def assistant_set_env(request: EnvRequest):
         # API 모드로 전환
         if not API_TOKEN:
             if not load_api_token():
-                return {"success": False, "error": "API 토큰 없음"}
+                return {"success": False, "error": "API 토큰 없음. token.txt를 확인하세요."}
 
         LLM_MODE = "api"
         CURRENT_ENV = env
