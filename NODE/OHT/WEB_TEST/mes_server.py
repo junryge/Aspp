@@ -318,6 +318,11 @@ HTML_PAGE = """
 </html>
 """
 
+@app.get("/health")
+async def health_check():
+    """Health check endpoint"""
+    return {"status": "ok", "service": "MES_Simulator"}
+
 @app.get("/", response_class=HTMLResponse)
 async def index():
     return HTML_PAGE
