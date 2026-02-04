@@ -2218,8 +2218,13 @@ async def simulation_loop():
     """시뮬레이션 메인 루프"""
     global engine, is_running
     while is_running:
-        engine.update(SIMULATION_INTERVAL)
-        engine.record_to_buffer()
+        try:
+            engine.update(SIMULATION_INTERVAL)
+            engine.record_to_buffer()
+        except Exception as e:
+            import traceback
+            print(f"[ERROR] simulation_loop 오류: {e}")
+            traceback.print_exc()
         await asyncio.sleep(SIMULATION_INTERVAL)
 
 async def csv_save_loop():
@@ -2227,7 +2232,12 @@ async def csv_save_loop():
     global engine, is_running
     while is_running:
         await asyncio.sleep(CSV_SAVE_INTERVAL)
-        engine.save_csv()
+        try:
+            engine.save_csv()
+        except Exception as e:
+            import traceback
+            print(f"[ERROR] csv_save_loop 오류: {e}")
+            traceback.print_exc()
 
 async def output_cleanup_loop():
     """OUTPUT 디렉토리 정리 루프 - 10분마다 파일 완전 삭제"""
