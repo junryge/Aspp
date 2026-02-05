@@ -663,6 +663,9 @@
             <button class="cmd-btn gallery" onclick="openScreenshotGallery()">
                 <i class="fas fa-images"></i> 스크린샷 갤러리
             </button>
+            <button class="cmd-btn" onclick="openKnowledgeModal()" style="background: linear-gradient(135deg, #10b981, #059669); border-color: #10b981;">
+                <i class="fas fa-book" style="color: white;"></i> 지식베이스
+            </button>
             <button class="cmd-btn" onclick="clearChat()" style="margin-top: 15px; border-color: var(--danger);">
                 <i class="fas fa-trash" style="color: var(--danger);"></i> 대화 초기화
             </button>
@@ -742,6 +745,28 @@
     <div class="img-modal" id="imgModal" onclick="closeImgModal()">
         <span class="close-hint">클릭하면 닫힙니다</span>
         <img id="imgModalSrc" src="" alt="확대 이미지">
+    </div>
+
+    <!-- ★ 지식베이스 모달 -->
+    <div class="modal" id="knowledgeModal">
+        <div class="modal-content" style="max-width: 600px;">
+            <div class="modal-header" style="background: linear-gradient(135deg, #10b981, #059669);">
+                <h3 style="color: white;">📚 지식베이스</h3>
+                <button class="modal-close" onclick="closeKnowledgeModal()" style="color: white;">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div style="margin-bottom: 15px; display: flex; gap: 10px; align-items: center;">
+                    <input type="file" id="knowledgeFile" accept=".md,.txt" style="display:none;" onchange="uploadKnowledge()">
+                    <button onclick="document.getElementById('knowledgeFile').click()" style="padding: 8px 16px; background: #10b981; color: white; border: none; border-radius: 8px; cursor: pointer; font-size: 14px;">
+                        <i class="fas fa-upload"></i> MD/TXT 업로드
+                    </button>
+                    <span style="font-size: 12px; color: var(--text-muted);">MD, TXT 파일을 올리면 비서가 내용을 기억합니다</span>
+                </div>
+                <div id="knowledgeList" style="min-height: 100px;">
+                    <div style="text-align: center; color: var(--text-muted); padding: 30px;">로딩 중...</div>
+                </div>
+            </div>
+        </div>
     </div>
 
     <script>
@@ -987,6 +1012,7 @@
             if (e.key === 'Escape') {
                 closeGalleryModal();
                 closeImgModal();
+                closeKnowledgeModal();
             }
         });
 
@@ -1014,6 +1040,71 @@
             } else {
                 icon.className = 'fas fa-bars';
             }
+        }
+
+        // ★ 지식베이스 모달
+        async function openKnowledgeModal() {
+            document.getElementById('knowledgeModal').classList.add('active');
+            await loadKnowledgeList();
+        }
+
+        function closeKnowledgeModal() {
+            document.getElementById('knowledgeModal').classList.remove('active');
+        }
+
+        async function loadKnowledgeList() {
+            const container = document.getElementById('knowledgeList');
+            try {
+                const res = await fetch('/assistant/api/knowledge');
+                const data = await res.json();
+                if (!data.files || data.files.length === 0) {
+                    container.innerHTML = '<div style="text-align:center; color:var(--text-muted); padding:30px;">📭 등록된 문서가 없습니다.<br>MD 또는 TXT 파일을 업로드해보세요!</div>';
+                    return;
+                }
+                container.innerHTML = data.files.map(f => `
+                    <div style="display:flex; justify-content:space-between; align-items:center; padding:10px; margin-bottom:8px; background:var(--bg-input); border-radius:8px; border:1px solid var(--border);">
+                        <div>
+                            <div style="font-weight:600;">📄 ${f.filename}</div>
+                            <div style="font-size:0.75rem; color:var(--text-muted);">${f.size} · ${f.modified}</div>
+                        </div>
+                        <button onclick="deleteKnowledge('${f.filename}')" style="padding:5px 10px; background:var(--danger); color:white; border:none; border-radius:6px; cursor:pointer; font-size:12px;">삭제</button>
+                    </div>
+                `).join('');
+            } catch (e) {
+                container.innerHTML = '<div style="text-align:center; color:var(--danger);">❌ 로딩 실패</div>';
+            }
+        }
+
+        async function uploadKnowledge() {
+            const fileInput = document.getElementById('knowledgeFile');
+            if (!fileInput.files[0]) return;
+            const formData = new FormData();
+            formData.append('file', fileInput.files[0]);
+            try {
+                const res = await fetch('/assistant/api/knowledge/upload', { method: 'POST', body: formData });
+                const data = await res.json();
+                if (data.success) {
+                    addMessage(`📚 지식베이스에 **${data.filename}** 등록 완료! 이제 관련 질문에 답변할 수 있습니다.`, 'assistant');
+                    await loadKnowledgeList();
+                } else {
+                    addMessage(`❌ 업로드 실패: ${data.error}`, 'assistant');
+                }
+            } catch (e) {
+                addMessage('❌ 업로드 실패: 서버 연결 오류', 'assistant');
+            }
+            fileInput.value = '';
+        }
+
+        async function deleteKnowledge(filename) {
+            if (!confirm(`'${filename}' 문서를 삭제할까요?`)) return;
+            try {
+                const res = await fetch(`/assistant/api/knowledge/${filename}`, { method: 'DELETE' });
+                const data = await res.json();
+                if (data.success) {
+                    addMessage(`🗑️ **${filename}** 삭제됨`, 'assistant');
+                    await loadKnowledgeList();
+                }
+            } catch (e) {}
         }
 
         init();
