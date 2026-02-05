@@ -108,6 +108,10 @@ os.makedirs(KNOWLEDGE_DIR, exist_ok=True)
 KNOWLEDGE_ARCHIVE_DIR = os.path.join(BASE_DIR, "knowledge_archive")
 os.makedirs(KNOWLEDGE_ARCHIVE_DIR, exist_ok=True)
 
+# ★ 시스템 프롬프트 / 도메인 지식 TXT 파일
+SYSTEM_PROMPT_FILE = os.path.join(BASE_DIR, "system_prompt.txt")
+DOMAIN_KNOWLEDGE_FILE = os.path.join(BASE_DIR, "domain_knowledge.txt")
+
 # ★ LLM 생성 파라미터 (UI에서 조절 가능)
 LLM_PARAMS = {
     "temperature": 0.7,
@@ -140,9 +144,9 @@ API_URL = ENV_CONFIG["common"]["url"]
 API_MODEL = ENV_CONFIG["common"]["model"]
 
 # ========================================
-# System Prompt
+# System Prompt (파일 기반)
 # ========================================
-SYSTEM_PROMPT = """당신은 '짝퉁 몰트봇 감마버전 VER 0.2'이라는 PC 개인비서 AI입니다.
+DEFAULT_SYSTEM_PROMPT = """당신은 '짝퉁 몰트봇 감마버전 VER 0.2'이라는 PC 개인비서 AI입니다.
 
 ★★★ 질문 유형 구분 (중요!) ★★★
 
@@ -187,6 +191,80 @@ JSON만 출력하세요. 다른 텍스트 붙이지 마세요.
 - 지식읽기: {"tool": "read_knowledge", "filename": "파일명.md"}
 
 일반 대화는 한국어로 자연스럽게 답변하세요."""
+
+DEFAULT_DOMAIN_KNOWLEDGE = """# 도메인 지식
+# 이 파일에 AI가 참고할 도메인 지식을 작성하세요.
+# 저장하면 즉시 시스템 프롬프트에 반영됩니다.
+#
+# 예시:
+# [프로젝트 정보]
+# - 프로젝트명: OOO
+# - 사용 기술: FastAPI, Python, React
+# - 아키텍처: 마이크로서비스
+#
+# [코딩 규칙]
+# - Python 3.10+ 사용
+# - 타입 힌트 필수
+# - docstring 필수
+#
+# [내부 API]
+# - 엔드포인트: http://xxx.xxx.com/v1/
+# - 인증: Bearer Token
+"""
+
+# ★ 시스템 프롬프트 & 도메인 지식 로드/저장
+def load_prompt_file(filepath: str, default_content: str) -> str:
+    """TXT 파일에서 내용 로드. 파일 없으면 기본값으로 생성"""
+    if os.path.exists(filepath):
+        try:
+            with open(filepath, 'r', encoding='utf-8') as f:
+                content = f.read()
+            if content.strip():
+                return content
+        except Exception as e:
+            logger.error(f"❌ 파일 로드 실패 ({filepath}): {e}")
+    # 파일 없거나 비어있으면 기본값으로 생성
+    save_prompt_file(filepath, default_content)
+    return default_content
+
+
+def save_prompt_file(filepath: str, content: str) -> bool:
+    """TXT 파일에 내용 저장"""
+    try:
+        with open(filepath, 'w', encoding='utf-8') as f:
+            f.write(content)
+        logger.info(f"✅ 파일 저장: {filepath}")
+        return True
+    except Exception as e:
+        logger.error(f"❌ 파일 저장 실패 ({filepath}): {e}")
+        return False
+
+
+def get_effective_system_prompt() -> str:
+    """시스템 프롬프트 + 도메인 지식을 합쳐서 반환"""
+    system_prompt = load_prompt_file(SYSTEM_PROMPT_FILE, DEFAULT_SYSTEM_PROMPT)
+    domain_knowledge = load_prompt_file(DOMAIN_KNOWLEDGE_FILE, DEFAULT_DOMAIN_KNOWLEDGE)
+
+    # 도메인 지식에서 주석(#으로 시작하는 줄) 제거한 실제 내용 확인
+    dk_lines = [line for line in domain_knowledge.strip().split('\n')
+                if line.strip() and not line.strip().startswith('#')]
+    has_domain_knowledge = len(dk_lines) > 0
+
+    if has_domain_knowledge:
+        effective = f"""{system_prompt}
+
+★★★ 도메인 지식 (반드시 참고!) ★★★
+{domain_knowledge}
+
+위 도메인 지식을 항상 참고하여 답변하세요."""
+        logger.info(f"📚 도메인 지식 적용됨 ({len(dk_lines)}줄)")
+        return effective
+    else:
+        return system_prompt
+
+
+# 전역 변수 (호환성 유지)
+SYSTEM_PROMPT = get_effective_system_prompt()
 
 
 # ========================================
@@ -1010,7 +1088,7 @@ def process_chat(user_message: str) -> str:
         else:
             context_prompt = user_message
 
-        result = call_llm(context_prompt, SYSTEM_PROMPT)
+        result = call_llm(context_prompt, get_effective_system_prompt())
         if not result["success"]:
             return f"❌ LLM 오류: {result.get('error', '알 수 없는 오류')}"
 
@@ -1674,6 +1752,94 @@ async def api_delete_archive(filename: str):
     return {"success": False, "error": "파일 없음"}
 
 
+# ========================================
+# ★ 시스템 프롬프트 & 도메인 지식 편집 API
+# ========================================
+@router.get("/api/prompt/system")
+async def api_get_system_prompt():
+    """시스템 프롬프트 조회"""
+    content = load_prompt_file(SYSTEM_PROMPT_FILE, DEFAULT_SYSTEM_PROMPT)
+    return {
+        "success": True,
+        "content": content,
+        "filepath": SYSTEM_PROMPT_FILE,
+        "char_count": len(content)
+    }
+
+
+@router.post("/api/prompt/system")
+async def api_save_system_prompt(request: dict):
+    """시스템 프롬프트 저장"""
+    content = request.get("content", "")
+    if not content.strip():
+        return {"success": False, "error": "내용이 비어있습니다"}
+    success = save_prompt_file(SYSTEM_PROMPT_FILE, content)
+    if success:
+        return {"success": True, "message": "시스템 프롬프트 저장 완료", "char_count": len(content)}
+    return {"success": False, "error": "저장 실패"}
+
+
+@router.post("/api/prompt/system/reset")
+async def api_reset_system_prompt():
+    """시스템 프롬프트 기본값 복원"""
+    success = save_prompt_file(SYSTEM_PROMPT_FILE, DEFAULT_SYSTEM_PROMPT)
+    if success:
+        return {"success": True, "message": "기본값으로 복원됨", "content": DEFAULT_SYSTEM_PROMPT}
+    return {"success": False, "error": "복원 실패"}
+
+
+@router.get("/api/prompt/domain")
+async def api_get_domain_knowledge():
+    """도메인 지식 조회"""
+    content = load_prompt_file(DOMAIN_KNOWLEDGE_FILE, DEFAULT_DOMAIN_KNOWLEDGE)
+    active_lines = [l for l in content.strip().split('\n')
+                    if l.strip() and not l.strip().startswith('#')]
+    return {
+        "success": True,
+        "content": content,
+        "filepath": DOMAIN_KNOWLEDGE_FILE,
+        "char_count": len(content),
+        "active_lines": len(active_lines)
+    }
+
+
+@router.post("/api/prompt/domain")
+async def api_save_domain_knowledge(request: dict):
+    """도메인 지식 저장"""
+    content = request.get("content", "")
+    success = save_prompt_file(DOMAIN_KNOWLEDGE_FILE, content)
+    if success:
+        active_lines = [l for l in content.strip().split('\n')
+                        if l.strip() and not l.strip().startswith('#')]
+        return {
+            "success": True,
+            "message": "도메인 지식 저장 완료",
+            "char_count": len(content),
+            "active_lines": len(active_lines)
+        }
+    return {"success": False, "error": "저장 실패"}
+
+
+@router.post("/api/prompt/domain/reset")
+async def api_reset_domain_knowledge():
+    """도메인 지식 기본 템플릿 복원"""
+    success = save_prompt_file(DOMAIN_KNOWLEDGE_FILE, DEFAULT_DOMAIN_KNOWLEDGE)
+    if success:
+        return {"success": True, "message": "기본 템플릿으로 복원됨", "content": DEFAULT_DOMAIN_KNOWLEDGE}
+    return {"success": False, "error": "복원 실패"}
+
+
+@router.get("/api/prompt/preview")
+async def api_preview_effective_prompt():
+    """현재 합성된 최종 시스템 프롬프트 미리보기"""
+    effective = get_effective_system_prompt()
+    return {
+        "success": True,
+        "effective_prompt": effective,
+        "total_chars": len(effective)
+    }
+
+
 if __name__ == "__main__":
     import uvicorn
     app.include_router(router)
@@ -1682,4 +1848,4 @@ if __name__ == "__main__":
     async def standalone_startup():
         init_assistant()
 
-    uvicorn.run(app, host="0.0.0.0", port=10003)
+    uvicorn.run(app, host="0.0.0.0", port=10002)
