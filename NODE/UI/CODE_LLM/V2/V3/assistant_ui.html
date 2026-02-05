@@ -551,19 +551,26 @@
 
         /* ★ 사이드바 접기/펼치기 */
         .sidebar {
-            transition: width 0.3s ease, padding 0.3s ease;
+            transition: width 0.3s ease, padding 0.3s ease, opacity 0.3s ease;
             overflow: hidden;
+            flex-shrink: 0;
         }
 
         .sidebar.collapsed {
             width: 0;
             padding: 0;
             border-right: none;
+            min-width: 0;
         }
 
         .sidebar.collapsed > * {
             opacity: 0;
             pointer-events: none;
+            white-space: nowrap;
+        }
+        
+        .sidebar:not(.collapsed) {
+            overflow-y: auto;
         }
 
         .sidebar-toggle {
@@ -658,7 +665,7 @@
 </head>
 <body>
     <!-- 사이드바 -->
-    <aside class="sidebar collapsed">
+    <aside class="sidebar">
         <div class="logo">
             <div class="logo-icon">🤖</div>
             <div>
@@ -720,7 +727,7 @@
         <header class="header">
             <div style="display: flex; align-items: center; gap: 10px;">
                 <button class="sidebar-toggle" onclick="toggleSidebar()" title="사이드바 접기/펼치기">
-                    <i class="fas fa-angles-right" id="sidebarIcon"></i>
+                    <i class="fas fa-bars" id="sidebarIcon"></i>
                 </button>
                 <button class="back-btn" onclick="history.back()" title="이전 페이지로">
                     <i class="fas fa-arrow-left"></i>
@@ -1125,9 +1132,9 @@
             const icon = document.getElementById('sidebarIcon');
             sidebar.classList.toggle('collapsed');
             if (sidebar.classList.contains('collapsed')) {
-                icon.className = 'fas fa-angles-right';
+                icon.className = 'fas fa-angles-right';  // 접힘 → » 아이콘 (펼치기 의미)
             } else {
-                icon.className = 'fas fa-bars';
+                icon.className = 'fas fa-bars';  // 펼침 → ≡ 아이콘 (접기 의미)
             }
         }
 
