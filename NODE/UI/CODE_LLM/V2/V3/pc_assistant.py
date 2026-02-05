@@ -418,14 +418,37 @@ def take_screenshot() -> dict:
         return {"success": False, "error": str(e)}
 
 
-# ★ 최신뉴스: 구글뉴스 열기 → 스크린샷 → 닫기
+# ★ 최신뉴스: 전용 브라우저 창 열기 → 스크린샷 → 그 창만 닫기
 def latest_news() -> dict:
-    """구글뉴스 페이지 열고 스크린샷 찍고 브라우저 닫기"""
+    """구글뉴스를 새 브라우저 창으로 열고, 스크린샷 찍고, 그 창만 닫기"""
     import time
     try:
-        # 1. 구글뉴스 열기
-        webbrowser.open("https://news.google.com/home?hl=ko&gl=KR&ceid=KR:ko")
-        logger.info("📰 구글뉴스 열기")
+        news_url = "https://news.google.com/home?hl=ko&gl=KR&ceid=KR:ko"
+        news_proc = None
+        
+        # 1. 새 브라우저 창(프로세스)으로 열기
+        chrome_paths = [
+            r"C:\Program Files\Google\Chrome\Application\chrome.exe",
+            r"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe",
+            os.path.expanduser(r"~\AppData\Local\Google\Chrome\Application\chrome.exe"),
+        ]
+        
+        for chrome_path in chrome_paths:
+            if os.path.exists(chrome_path):
+                news_proc = subprocess.Popen([chrome_path, "--new-window", news_url])
+                logger.info(f"📰 구글뉴스 새 창 열기 (PID: {news_proc.pid})")
+                break
+        
+        if news_proc is None:
+            # Chrome 못 찾으면 Edge 시도
+            edge_path = r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe"
+            if os.path.exists(edge_path):
+                news_proc = subprocess.Popen([edge_path, "--new-window", news_url])
+                logger.info(f"📰 구글뉴스 새 창 열기 (Edge, PID: {news_proc.pid})")
+            else:
+                # 최후 수단: webbrowser
+                webbrowser.open(news_url)
+                logger.info("📰 구글뉴스 열기 (기본 브라우저)")
         
         # 2. 페이지 로딩 대기
         time.sleep(4)
@@ -438,15 +461,11 @@ def latest_news() -> dict:
         img.save(filepath)
         logger.info(f"📸 뉴스 스크린샷: {filepath}")
         
-        # 4. 브라우저 탭 닫기 (키보드 Ctrl+W)
+        # 4. 그 창만 닫기
         time.sleep(0.5)
-        try:
-            import pyautogui
-            pyautogui.hotkey('ctrl', 'w')
-            logger.info("🔒 브라우저 탭 닫기")
-        except ImportError:
-            # pyautogui 없으면 스킵
-            logger.warning("⚠️ pyautogui 미설치 - 브라우저 수동으로 닫아주세요")
+        if news_proc:
+            news_proc.terminate()
+            logger.info(f"🔒 뉴스 창 닫기 (PID: {news_proc.pid})")
         
         return {
             "success": True,
