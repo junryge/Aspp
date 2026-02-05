@@ -995,12 +995,13 @@
             const avatar = role === 'assistant' ? '🤖' : '👤';
             let formattedContent = formatMessage(content);
             
-            // ★ 긴 답변 접기: "## 📝 상세 내용" 이후를 접기
-            if (role === 'assistant' && content.includes('## 📝 상세')) {
-                const parts = formattedContent.split(/<h3[^>]*>.*📝 상세/);
-                if (parts.length >= 2) {
+            // ★ 긴 답변 접기: "📝 상세 내용" 이후를 접기 (볼드 또는 헤더 모두 지원)
+            if (role === 'assistant' && content.includes('📝 상세')) {
+                // <strong>📝 상세 또는 <h3>📝 상세 둘 다 매칭
+                const parts = formattedContent.split(/(<strong>📝 상세|<h[23][^>]*>.*?📝 상세)/);
+                if (parts.length >= 3) {
                     const summary = parts[0];
-                    const detail = '<h3 style="margin:12px 0 6px;color:#6366f1;">📝 상세' + parts[1];
+                    const detail = parts[1] + parts.slice(2).join('');
                     const detailId = 'detail-' + Date.now();
                     
                     // ★ 미리보기: 상세 내용에서 텍스트만 뽑아 80자 미리보기
