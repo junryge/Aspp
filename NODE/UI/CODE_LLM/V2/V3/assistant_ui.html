@@ -914,6 +914,12 @@
             <button class="cmd-btn" onclick="openArchiveModal()" style="background: linear-gradient(135deg, #6b7280, #4b5563); border-color: #6b7280;">
                 <i class="fas fa-box-archive" style="color: white;"></i> 과거지식
             </button>
+            <button class="cmd-btn" onclick="openSystemPromptModal()" style="background: linear-gradient(135deg, #ec4899, #be185d); border-color: #ec4899;">
+                <i class="fas fa-cog" style="color: white;"></i> 시스템 프롬프트
+            </button>
+            <button class="cmd-btn" onclick="openDomainKnowledgeModal()" style="background: linear-gradient(135deg, #3b82f6, #1d4ed8); border-color: #3b82f6;">
+                <i class="fas fa-brain" style="color: white;"></i> 도메인 지식
+            </button>
             <button class="cmd-btn" onclick="clearChat()" style="margin-top: 15px; border-color: var(--danger);">
                 <i class="fas fa-trash" style="color: var(--danger);"></i> 대화 초기화
             </button>
@@ -1110,6 +1116,101 @@
                 <div id="archiveList" style="min-height: 100px;">
                     <div style="text-align: center; color: var(--text-muted); padding: 30px;">로딩 중...</div>
                 </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ★ 시스템 프롬프트 편집 모달 -->
+    <div class="modal" id="systemPromptModal">
+        <div class="modal-content" style="max-width: 750px; max-height: 85vh;">
+            <div class="modal-header" style="background: linear-gradient(135deg, #ec4899, #be185d);">
+                <h3 style="color: white;">⚙️ 시스템 프롬프트 편집</h3>
+                <button class="modal-close" onclick="closeSystemPromptModal()" style="color: white;">&times;</button>
+            </div>
+            <div class="modal-body" style="padding: 15px;">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+                    <span style="font-size: 12px; color: var(--text-muted);">AI의 기본 행동 규칙을 정의합니다. 저장 즉시 반영됩니다.</span>
+                    <span id="spCharCount" style="font-size: 11px; color: var(--text-muted);">0자</span>
+                </div>
+                <textarea id="systemPromptEditor" style="
+                    width: 100%; min-height: 400px; padding: 15px;
+                    background: var(--bg-dark); color: var(--text);
+                    border: 1px solid var(--border); border-radius: 8px;
+                    font-family: 'Consolas', 'Monaco', monospace; font-size: 13px;
+                    line-height: 1.6; resize: vertical;
+                " oninput="document.getElementById('spCharCount').textContent = this.value.length + '자'"
+                placeholder="시스템 프롬프트를 입력하세요..."></textarea>
+                <div style="display: flex; gap: 8px; margin-top: 12px;">
+                    <button onclick="saveSystemPrompt()" style="flex:1; padding: 10px; background: #ec4899; color: white; border: none; border-radius: 8px; cursor: pointer; font-weight: 600;">💾 저장</button>
+                    <button onclick="resetSystemPrompt()" style="padding: 10px 16px; background: var(--bg-input); color: var(--text); border: 1px solid var(--border); border-radius: 8px; cursor: pointer;">🔄 기본값 복원</button>
+                    <button onclick="previewEffectivePrompt()" style="padding: 10px 16px; background: var(--bg-input); color: var(--text); border: 1px solid var(--border); border-radius: 8px; cursor: pointer;">👁️ 최종 미리보기</button>
+                </div>
+                <div id="spSaveStatus" style="margin-top: 8px; padding: 8px; border-radius: 6px; font-size: 12px; display: none; text-align: center;"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ★ 도메인 지식 편집 모달 -->
+    <div class="modal" id="domainKnowledgeModal">
+        <div class="modal-content" style="max-width: 750px; max-height: 85vh;">
+            <div class="modal-header" style="background: linear-gradient(135deg, #3b82f6, #1d4ed8);">
+                <h3 style="color: white;">🧠 도메인 지식 편집</h3>
+                <button class="modal-close" onclick="closeDomainKnowledgeModal()" style="color: white;">&times;</button>
+            </div>
+            <div class="modal-body" style="padding: 15px;">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+                    <span style="font-size: 12px; color: var(--text-muted);">AI가 참고할 도메인 지식을 작성하세요. #으로 시작하는 줄은 주석입니다.</span>
+                    <div style="display: flex; gap: 10px; align-items: center;">
+                        <span id="dkActiveLines" style="font-size: 11px; color: var(--success); font-weight: 600;">활성 0줄</span>
+                        <span id="dkCharCount" style="font-size: 11px; color: var(--text-muted);">0자</span>
+                    </div>
+                </div>
+                <textarea id="domainKnowledgeEditor" style="
+                    width: 100%; min-height: 400px; padding: 15px;
+                    background: var(--bg-dark); color: var(--text);
+                    border: 1px solid var(--border); border-radius: 8px;
+                    font-family: 'Consolas', 'Monaco', monospace; font-size: 13px;
+                    line-height: 1.6; resize: vertical;
+                " oninput="updateDkStats()"
+                placeholder="도메인 지식을 입력하세요...
+
+예시:
+[프로젝트 정보]
+- 프로젝트명: 코딩 에이전트
+- 기술스택: FastAPI, Python 3.10
+
+[코딩 규칙]
+- 함수명은 snake_case
+- 타입 힌트 필수"></textarea>
+                <div style="display: flex; gap: 8px; margin-top: 12px;">
+                    <button onclick="saveDomainKnowledge()" style="flex:1; padding: 10px; background: #3b82f6; color: white; border: none; border-radius: 8px; cursor: pointer; font-weight: 600;">💾 저장</button>
+                    <button onclick="resetDomainKnowledge()" style="padding: 10px 16px; background: var(--bg-input); color: var(--text); border: 1px solid var(--border); border-radius: 8px; cursor: pointer;">🔄 초기화</button>
+                    <button onclick="previewEffectivePrompt()" style="padding: 10px 16px; background: var(--bg-input); color: var(--text); border: 1px solid var(--border); border-radius: 8px; cursor: pointer;">👁️ 최종 미리보기</button>
+                </div>
+                <div id="dkSaveStatus" style="margin-top: 8px; padding: 8px; border-radius: 6px; font-size: 12px; display: none; text-align: center;"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ★ 최종 프롬프트 미리보기 모달 -->
+    <div class="modal" id="previewPromptModal">
+        <div class="modal-content" style="max-width: 750px; max-height: 85vh;">
+            <div class="modal-header" style="background: linear-gradient(135deg, #8b5cf6, #6d28d9);">
+                <h3 style="color: white;">👁️ 최종 시스템 프롬프트 미리보기</h3>
+                <button class="modal-close" onclick="document.getElementById('previewPromptModal').classList.remove('active')" style="color: white;">&times;</button>
+            </div>
+            <div class="modal-body" style="padding: 15px;">
+                <div style="display: flex; justify-content: space-between; margin-bottom: 10px;">
+                    <span style="font-size: 12px; color: var(--text-muted);">시스템 프롬프트 + 도메인 지식이 합쳐진 최종 프롬프트</span>
+                    <span id="previewCharCount" style="font-size: 11px; color: var(--warning);">0자</span>
+                </div>
+                <pre id="previewContent" style="
+                    width: 100%; min-height: 350px; max-height: 55vh; padding: 15px;
+                    background: var(--bg-dark); color: var(--text);
+                    border: 1px solid var(--border); border-radius: 8px;
+                    font-family: 'Consolas', 'Monaco', monospace; font-size: 12px;
+                    line-height: 1.5; overflow: auto; white-space: pre-wrap; word-wrap: break-word;
+                "></pre>
             </div>
         </div>
     </div>
@@ -1874,6 +1975,171 @@
                 }
             } catch (e) {}
         }
+
+        // ========================================
+        // ★ 시스템 프롬프트 편집
+        // ========================================
+        async function openSystemPromptModal() {
+            document.getElementById('systemPromptModal').classList.add('active');
+            try {
+                const res = await fetch('/assistant/api/prompt/system');
+                const data = await res.json();
+                if (data.success) {
+                    document.getElementById('systemPromptEditor').value = data.content;
+                    document.getElementById('spCharCount').textContent = data.char_count + '자';
+                }
+            } catch (e) {
+                document.getElementById('systemPromptEditor').value = '❌ 로드 실패';
+            }
+        }
+
+        function closeSystemPromptModal() {
+            document.getElementById('systemPromptModal').classList.remove('active');
+        }
+
+        async function saveSystemPrompt() {
+            const content = document.getElementById('systemPromptEditor').value;
+            const statusEl = document.getElementById('spSaveStatus');
+            try {
+                const res = await fetch('/assistant/api/prompt/system', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ content })
+                });
+                const data = await res.json();
+                if (data.success) {
+                    statusEl.style.display = 'block';
+                    statusEl.style.background = 'rgba(16,185,129,0.15)';
+                    statusEl.style.color = 'var(--success)';
+                    statusEl.textContent = `✅ 저장 완료! (${data.char_count}자) - 즉시 반영됨`;
+                    addMessage('⚙️ 시스템 프롬프트가 업데이트되었습니다.', 'assistant');
+                } else {
+                    statusEl.style.display = 'block';
+                    statusEl.style.background = 'rgba(239,68,68,0.15)';
+                    statusEl.style.color = 'var(--danger)';
+                    statusEl.textContent = `❌ ${data.error}`;
+                }
+                setTimeout(() => statusEl.style.display = 'none', 3000);
+            } catch (e) {
+                statusEl.style.display = 'block';
+                statusEl.style.color = 'var(--danger)';
+                statusEl.textContent = '❌ 서버 연결 실패';
+            }
+        }
+
+        async function resetSystemPrompt() {
+            if (!confirm('시스템 프롬프트를 기본값으로 복원할까요?')) return;
+            try {
+                const res = await fetch('/assistant/api/prompt/system/reset', { method: 'POST' });
+                const data = await res.json();
+                if (data.success) {
+                    document.getElementById('systemPromptEditor').value = data.content;
+                    document.getElementById('spCharCount').textContent = data.content.length + '자';
+                    addMessage('🔄 시스템 프롬프트가 기본값으로 복원되었습니다.', 'assistant');
+                }
+            } catch (e) {}
+        }
+
+        // ========================================
+        // ★ 도메인 지식 편집
+        // ========================================
+        async function openDomainKnowledgeModal() {
+            document.getElementById('domainKnowledgeModal').classList.add('active');
+            try {
+                const res = await fetch('/assistant/api/prompt/domain');
+                const data = await res.json();
+                if (data.success) {
+                    document.getElementById('domainKnowledgeEditor').value = data.content;
+                    document.getElementById('dkCharCount').textContent = data.char_count + '자';
+                    document.getElementById('dkActiveLines').textContent = `활성 ${data.active_lines}줄`;
+                }
+            } catch (e) {
+                document.getElementById('domainKnowledgeEditor').value = '❌ 로드 실패';
+            }
+        }
+
+        function closeDomainKnowledgeModal() {
+            document.getElementById('domainKnowledgeModal').classList.remove('active');
+        }
+
+        function updateDkStats() {
+            const content = document.getElementById('domainKnowledgeEditor').value;
+            const lines = content.split('\n').filter(l => l.trim() && !l.trim().startsWith('#'));
+            document.getElementById('dkCharCount').textContent = content.length + '자';
+            document.getElementById('dkActiveLines').textContent = `활성 ${lines.length}줄`;
+        }
+
+        async function saveDomainKnowledge() {
+            const content = document.getElementById('domainKnowledgeEditor').value;
+            const statusEl = document.getElementById('dkSaveStatus');
+            try {
+                const res = await fetch('/assistant/api/prompt/domain', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ content })
+                });
+                const data = await res.json();
+                if (data.success) {
+                    statusEl.style.display = 'block';
+                    statusEl.style.background = 'rgba(16,185,129,0.15)';
+                    statusEl.style.color = 'var(--success)';
+                    statusEl.textContent = `✅ 저장 완료! (활성 ${data.active_lines}줄) - 즉시 반영됨`;
+                    const msg = data.active_lines > 0
+                        ? `🧠 도메인 지식이 업데이트되었습니다. (활성 ${data.active_lines}줄)`
+                        : '🧠 도메인 지식이 비활성화되었습니다. (모두 주석 또는 빈 내용)';
+                    addMessage(msg, 'assistant');
+                } else {
+                    statusEl.style.display = 'block';
+                    statusEl.style.background = 'rgba(239,68,68,0.15)';
+                    statusEl.style.color = 'var(--danger)';
+                    statusEl.textContent = `❌ ${data.error}`;
+                }
+                setTimeout(() => statusEl.style.display = 'none', 3000);
+            } catch (e) {
+                statusEl.style.display = 'block';
+                statusEl.style.color = 'var(--danger)';
+                statusEl.textContent = '❌ 서버 연결 실패';
+            }
+        }
+
+        async function resetDomainKnowledge() {
+            if (!confirm('도메인 지식을 초기 템플릿으로 복원할까요?')) return;
+            try {
+                const res = await fetch('/assistant/api/prompt/domain/reset', { method: 'POST' });
+                const data = await res.json();
+                if (data.success) {
+                    document.getElementById('domainKnowledgeEditor').value = data.content;
+                    updateDkStats();
+                    addMessage('🔄 도메인 지식이 초기 템플릿으로 복원되었습니다.', 'assistant');
+                }
+            } catch (e) {}
+        }
+
+        // ========================================
+        // ★ 최종 프롬프트 미리보기
+        // ========================================
+        async function previewEffectivePrompt() {
+            document.getElementById('previewPromptModal').classList.add('active');
+            try {
+                const res = await fetch('/assistant/api/prompt/preview');
+                const data = await res.json();
+                if (data.success) {
+                    document.getElementById('previewContent').textContent = data.effective_prompt;
+                    document.getElementById('previewCharCount').textContent = data.total_chars + '자';
+                }
+            } catch (e) {
+                document.getElementById('previewContent').textContent = '❌ 로드 실패';
+            }
+        }
+
+        // ESC로 새 모달도 닫기
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape') {
+                closeSystemPromptModal();
+                closeDomainKnowledgeModal();
+                document.getElementById('previewPromptModal').classList.remove('active');
+            }
+        });
 
         init();
     </script>
