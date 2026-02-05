@@ -686,6 +686,88 @@ def process_chat(user_message: str) -> str:
                     except:
                         return f"❌ 스크린샷 처리 오류"
 
+                # ★ 지식베이스: 문서 내용 기반으로 질문에 답변
+                if tool_name == "read_knowledge":
+                    follow_up_prompt = f"""사용자 질문: {user_message}
+
+아래는 참고 문서 내용입니다. 이 내용을 바탕으로 사용자의 질문에 정확하게 답변하세요.
+
+---
+{tool_result}
+---
+
+규칙:
+- 문서 내용을 기반으로 질문에 맞는 부분을 찾아 상세하게 설명하세요
+- 테이블 스키마, 코드 변경사항, 메소드 설명 등을 정확히 전달하세요
+- 코드가 있으면 코드 블록으로 보여주세요
+- 도구를 다시 호출하지 마세요 (JSON 출력 금지)
+- 한국어로 마크다운 형식으로 답변하세요"""
+
+                    follow_up_system = """당신은 기술 문서 전문가입니다.
+제공된 참고 문서를 정확히 이해하고, 사용자의 질문에 문서 내용을 기반으로 상세히 답변합니다.
+절대 JSON을 출력하지 마세요. 자연어와 코드 블록으로만 답변하세요."""
+
+                    result2 = call_llm(follow_up_prompt, follow_up_system)
+                    if result2["success"]:
+                        response = result2["content"]
+                        if extract_tool_json(response):
+                            return f"📄 **문서 내용:**\n\n{tool_result[:3000]}"
+                        return response
+                    else:
+                        return f"📄 **문서 내용:**\n\n{tool_result[:3000]}"
+
+                # ★ 지식검색: 검색 결과 보고 자동으로 read_knowledge 이어서 호출
+                if tool_name == "search_knowledge":
+                    try:
+                        search_results = json.loads(tool_result)
+                        if search_results and len(search_results) > 0:
+                            # 첫 번째 검색 결과 파일을 바로 읽기
+                            first_file = search_results[0]["filename"]
+                            knowledge_content = read_knowledge(first_file)
+
+                            follow_up_prompt = f"""사용자 질문: {user_message}
+
+아래는 참고 문서 '{first_file}'의 내용입니다. 이 내용을 바탕으로 사용자의 질문에 정확하게 답변하세요.
+
+---
+{knowledge_content}
+---
+
+규칙:
+- 문서 내용을 기반으로 질문에 맞는 부분을 찾아 상세하게 설명하세요
+- 테이블 스키마, 코드 변경사항, 메소드 설명 등을 정확히 전달하세요
+- 코드가 있으면 코드 블록으로 보여주세요
+- 도구를 다시 호출하지 마세요 (JSON 출력 금지)
+- 한국어로 마크다운 형식으로 답변하세요"""
+
+                            follow_up_system = """당신은 기술 문서 전문가입니다.
+제공된 참고 문서를 정확히 이해하고, 사용자의 질문에 문서 내용을 기반으로 상세히 답변합니다.
+절대 JSON을 출력하지 마세요. 자연어와 코드 블록으로만 답변하세요."""
+
+                            result2 = call_llm(follow_up_prompt, follow_up_system)
+                            if result2["success"]:
+                                response = result2["content"]
+                                if not extract_tool_json(response):
+                                    return response
+                            return f"📄 **{first_file}** 내용:\n\n{knowledge_content[:3000]}"
+                        else:
+                            return f"🔍 관련 문서를 찾지 못했습니다. 지식베이스에 문서를 먼저 등록해주세요."
+                    except:
+                        pass
+
+                # ★ 지식목록: 직접 포맷팅
+                if tool_name == "list_knowledge":
+                    try:
+                        files = json.loads(tool_result)
+                        if not files:
+                            return "📭 지식베이스에 등록된 문서가 없습니다."
+                        lines = ["## 📚 지식베이스 문서 목록\n"]
+                        for f in files:
+                            lines.append(f"- 📄 **{f['filename']}** ({f['size']}, {f['modified']})")
+                        return "\n".join(lines)
+                    except:
+                        pass
+
                 # 기타 도구: 2차 LLM으로 해석
                 follow_up_prompt = f"""사용자 질문: {user_message}
 
@@ -952,7 +1034,7 @@ async def api_list_knowledge():
 @router.post("/api/knowledge/upload")
 async def api_upload_knowledge(file: UploadFile = File(...)):
     """MD/TXT 파일 업로드"""
-    if not file.filename.endswith(('.md', '.txt')):
+    if not file.filename.lower().endswith(('.md', '.txt')):
         return {"success": False, "error": "md 또는 txt 파일만 업로드 가능합니다."}
     try:
         filepath = os.path.join(KNOWLEDGE_DIR, file.filename)
