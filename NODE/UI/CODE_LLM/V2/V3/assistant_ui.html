@@ -657,6 +657,17 @@
             margin-top: 8px;
         }
 
+        .detail-preview {
+            margin-top: 6px;
+            padding: 8px 12px;
+            background: rgba(99, 102, 241, 0.08);
+            border-radius: 8px;
+            font-size: 0.82rem;
+            color: var(--text-muted);
+            line-height: 1.5;
+            border-left: 3px solid var(--border);
+        }
+
         @keyframes slideDown {
             from { opacity: 0; max-height: 0; }
             to { opacity: 1; max-height: 5000px; }
@@ -991,8 +1002,16 @@
                     const summary = parts[0];
                     const detail = '<h3 style="margin:12px 0 6px;color:#6366f1;">📝 상세' + parts[1];
                     const detailId = 'detail-' + Date.now();
+                    
+                    // ★ 미리보기: 상세 내용에서 텍스트만 뽑아 80자 미리보기
+                    const tempDiv = document.createElement('div');
+                    tempDiv.innerHTML = detail;
+                    const previewText = tempDiv.textContent.replace(/📝 상세 내용/g, '').trim().substring(0, 80);
+                    const preview = previewText ? previewText + '...' : '';
+                    
                     formattedContent = summary + 
                         `<button class="toggle-detail-btn" onclick="toggleDetail('${detailId}', this)">📝 상세 내용 보기 ▼</button>` +
+                        `<div class="detail-preview">${preview}</div>` +
                         `<div id="${detailId}" class="collapsible-detail" style="display:none;">${detail}</div>`;
                 }
             }
@@ -1014,12 +1033,15 @@
         // ★ 상세 내용 접기/펼치기
         function toggleDetail(id, btn) {
             const el = document.getElementById(id);
+            const preview = btn.nextElementSibling;  // .detail-preview
             if (el.style.display === 'none') {
                 el.style.display = 'block';
+                if (preview && preview.classList.contains('detail-preview')) preview.style.display = 'none';
                 btn.textContent = '📝 상세 내용 접기 ▲';
                 btn.classList.add('expanded');
             } else {
                 el.style.display = 'none';
+                if (preview && preview.classList.contains('detail-preview')) preview.style.display = 'block';
                 btn.textContent = '📝 상세 내용 보기 ▼';
                 btn.classList.remove('expanded');
             }
@@ -1201,6 +1223,7 @@
                             <div style="font-size:0.75rem; color:var(--text-muted);">${f.size} · ${f.modified}</div>
                         </div>
                         <div style="display:flex; gap:6px;">
+                            <button onclick="downloadKnowledge('${f.filename}')" style="padding:5px 10px; background:var(--primary); color:white; border:none; border-radius:6px; cursor:pointer; font-size:12px;" title="다운로드">⬇️ 다운</button>
                             <button onclick="archiveKnowledge('${f.filename}')" style="padding:5px 10px; background:#6b7280; color:white; border:none; border-radius:6px; cursor:pointer; font-size:12px;" title="과거지식으로 이동">📦 보관</button>
                             <button onclick="deleteKnowledge('${f.filename}')" style="padding:5px 10px; background:var(--danger); color:white; border:none; border-radius:6px; cursor:pointer; font-size:12px;">🗑️ 삭제</button>
                         </div>
@@ -1241,6 +1264,15 @@
                     await loadKnowledgeList();
                 }
             } catch (e) {}
+        }
+
+        function downloadKnowledge(filename) {
+            const a = document.createElement('a');
+            a.href = `/assistant/api/knowledge/download/${encodeURIComponent(filename)}`;
+            a.download = filename;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
         }
 
         // ★ 지식베이스 → 과거지식 이동
