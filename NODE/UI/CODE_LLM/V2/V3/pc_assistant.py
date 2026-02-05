@@ -4,7 +4,6 @@
 pc_assistant.py
 PC 개인비서 AI (Moltbot 스타일 Tool Calling) v0.2
 - 스크린샷: 전용 폴더 저장 + 웹 인라인 표시
-- 날씨: 웹에서 바로 표시 (브라우저 안 열림)
 - 파일 탐색기/메모장 실행 제거
 """
 
@@ -100,14 +99,8 @@ SYSTEM_PROMPT = """당신은 '짝퉁 몰트봇 감마버전 VER 0.2'이라는 PC
 - 구글검색: {"tool": "google_search", "query": "검색어"}
 - 현재시간: {"tool": "get_time"}
 - 스크린샷: {"tool": "screenshot"}
-- 날씨확인: {"tool": "get_weather", "city": "Seoul"}
 - 데이터분석: {"tool": "analyze_data", "path": "C:/data.csv"}
 - 프로세스목록: {"tool": "list_processes", "sort_by": "memory"}
-
-[날씨 관련]
-- 날씨를 물어보면 반드시 get_weather 도구를 사용하세요.
-- 도시명은 영어로: 서울→Seoul, 부산→Busan, 대전→Daejeon, 이천→Icheon 등
-- 구글검색으로 날씨를 검색하지 마세요.
 
 일반 대화는 한국어로 자연스럽게 답변하세요."""
 
@@ -386,79 +379,6 @@ def take_screenshot() -> dict:
         return {"success": False, "error": str(e)}
 
 
-# ★ 날씨 확인: 구글 검색 결과 스크래핑
-def get_weather(city: str = "Seoul") -> dict:
-    """구글에서 날씨 검색 후 결과를 파싱해서 반환"""
-    try:
-        from bs4 import BeautifulSoup
-    except ImportError:
-        # bs4 없으면 설치 시도
-        import subprocess
-        subprocess.run(["pip", "install", "beautifulsoup4"], capture_output=True)
-        from bs4 import BeautifulSoup
-
-    try:
-        url = f"https://www.google.com/search?q={city}+날씨&hl=ko"
-        headers = {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-            "Accept-Language": "ko-KR,ko;q=0.9"
-        }
-        response = requests.get(url, headers=headers, timeout=10)
-
-        if response.status_code != 200:
-            return {"city": city, "error": f"구글 응답 오류: {response.status_code}"}
-
-        soup = BeautifulSoup(response.text, "html.parser")
-
-        result = {"city": city}
-
-        # 현재 온도
-        temp_el = soup.find("span", id="wob_tm")
-        if temp_el:
-            result["temp"] = temp_el.text + "°C"
-
-        # 날씨 설명
-        desc_el = soup.find("span", id="wob_dc")
-        if desc_el:
-            result["description"] = desc_el.text
-
-        # 체감 온도 / 습도 / 바람
-        humidity_el = soup.find("span", id="wob_hm")
-        if humidity_el:
-            result["humidity"] = humidity_el.text
-
-        wind_el = soup.find("span", id="wob_ws")
-        if wind_el:
-            result["wind"] = wind_el.text
-
-        # 위치명
-        loc_el = soup.find("div", id="wob_loc")
-        if loc_el:
-            result["location"] = loc_el.text
-
-        # 시간
-        time_el = soup.find("div", id="wob_dts")
-        if time_el:
-            result["time"] = time_el.text
-
-        # 온도 못 찾으면 텍스트에서 추출 시도
-        if "temp" not in result:
-            text = soup.get_text()
-            import re as _re
-            temp_match = _re.search(r'(\d+)\s*°', text)
-            if temp_match:
-                result["temp"] = temp_match.group(0)
-            else:
-                result["error"] = "날씨 정보를 파싱할 수 없습니다"
-
-        return result
-
-    except requests.Timeout:
-        return {"city": city, "error": "구글 응답 시간 초과"}
-    except Exception as e:
-        return {"city": city, "error": str(e)}
-
-
 # ★ 프로세스 목록 조회
 def list_processes(sort_by: str = "memory", limit: int = 30) -> List[dict]:
     """실행 중인 프로세스 목록 반환"""
@@ -557,11 +477,6 @@ def execute_tool(tool_data: dict) -> str:
     elif tool_name == "screenshot":
         result = take_screenshot()
         return json.dumps(result, ensure_ascii=False)
-
-    # ★ 날씨 - JSON 반환
-    elif tool_name == "get_weather":
-        result = get_weather(tool_data.get("city", "Seoul"))
-        return json.dumps(result, ensure_ascii=False, indent=2)
 
     elif tool_name == "analyze_data":
         return analyze_data(tool_data.get("path", ""))
@@ -669,10 +584,6 @@ def process_chat(user_message: str) -> str:
                     except:
                         return f"❌ 스크린샷 처리 오류"
 
-                # ★ 날씨: 직접 포맷팅 (정확한 데이터 표시)
-                if tool_name == "get_weather":
-                    return format_weather(tool_result)
-
                 # 기타 도구: 2차 LLM으로 해석
                 follow_up_prompt = f"""사용자 질문: {user_message}
 
@@ -706,38 +617,6 @@ def process_chat(user_message: str) -> str:
     except Exception as e:
         logger.error(f"❌ 처리 오류: {e}")
         return f"❌ 오류: {e}"
-
-
-# ★ 날씨 포맷팅
-def format_weather(tool_result: str) -> str:
-    try:
-        data = json.loads(tool_result)
-
-        if "error" in data:
-            return f"❌ 날씨 조회 실패: {data['error']}"
-
-        lines = []
-        loc = data.get("location", data.get("city", "?"))
-        lines.append(f"## 🌤️ {loc} 날씨\n")
-
-        if data.get("time"):
-            lines.append(f"🕐 {data['time']}")
-
-        if data.get("temp"):
-            lines.append(f"🌡️ **기온**: {data['temp']}")
-
-        if data.get("description"):
-            lines.append(f"☁️ **날씨**: {data['description']}")
-
-        if data.get("humidity"):
-            lines.append(f"💧 **습도**: {data['humidity']}")
-
-        if data.get("wind"):
-            lines.append(f"💨 **바람**: {data['wind']}")
-
-        return "\n".join(lines)
-    except Exception as e:
-        return f"❌ 날씨 처리 오류: {e}"
 
 
 # Fallback 포맷터
