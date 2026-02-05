@@ -706,18 +706,23 @@
 
         <div class="quick-commands">
             <h3><i class="fas fa-bolt"></i> 빠른 명령</h3>
-            <button class="cmd-btn" onclick="sendQuick('시스템 정보 알려줘')">
-                <i class="fas fa-desktop"></i> 시스템 정보
+            <button class="cmd-btn" onclick="toggleQuickGroup()" id="quickGroupToggle" style="border: 1px dashed var(--primary); color: var(--primary);">
+                <i class="fas fa-chevron-down" id="quickGroupIcon"></i> 시스템 명령 (4개)
             </button>
-            <button class="cmd-btn" onclick="sendQuick('현재 시간 알려줘')">
-                <i class="fas fa-clock"></i> 현재 시간
-            </button>
-            <button class="cmd-btn" onclick="sendQuick('실행 중인 프로그램 목록 보여줘')">
-                <i class="fas fa-tasks"></i> 프로세스 목록
-            </button>
-            <button class="cmd-btn" onclick="sendQuick('스크린샷 찍어줘')">
-                <i class="fas fa-camera"></i> 스크린샷
-            </button>
+            <div id="quickGroup" style="display: none;">
+                <button class="cmd-btn" onclick="sendQuick('시스템 정보 알려줘')">
+                    <i class="fas fa-desktop"></i> 시스템 정보
+                </button>
+                <button class="cmd-btn" onclick="sendQuick('현재 시간 알려줘')">
+                    <i class="fas fa-clock"></i> 현재 시간
+                </button>
+                <button class="cmd-btn" onclick="sendQuick('실행 중인 프로그램 목록 보여줘')">
+                    <i class="fas fa-tasks"></i> 프로세스 목록
+                </button>
+                <button class="cmd-btn" onclick="sendQuick('스크린샷 찍어줘')">
+                    <i class="fas fa-camera"></i> 스크린샷
+                </button>
+            </div>
             <button class="cmd-btn" onclick="sendQuick('최신뉴스 보여줘')">
                 <i class="fas fa-newspaper"></i> 최신뉴스
             </button>
@@ -1185,6 +1190,24 @@
             messageInput.style.height = 'auto';
             messageInput.style.height = Math.min(messageInput.scrollHeight, 150) + 'px';
         });
+
+        // ★ 빠른명령 시스템 그룹 접기/펼치기
+        function toggleQuickGroup() {
+            const group = document.getElementById('quickGroup');
+            const icon = document.getElementById('quickGroupIcon');
+            const btn = document.getElementById('quickGroupToggle');
+            if (group.style.display === 'none') {
+                group.style.display = 'block';
+                icon.className = 'fas fa-chevron-up';
+                btn.style.background = 'rgba(99, 102, 241, 0.15)';
+                btn.style.borderStyle = 'solid';
+            } else {
+                group.style.display = 'none';
+                icon.className = 'fas fa-chevron-down';
+                btn.style.background = 'transparent';
+                btn.style.borderStyle = 'dashed';
+            }
+        }
 
         // ★ 사이드바 접기/펼치기
         function toggleSidebar() {
