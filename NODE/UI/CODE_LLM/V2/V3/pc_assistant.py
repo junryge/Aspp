@@ -115,6 +115,7 @@ SYSTEM_PROMPT = """당신은 '짝퉁 몰트봇 감마버전 VER 0.2'이라는 PC
 - 구글검색: {"tool": "google_search", "query": "검색어"}
 - 현재시간: {"tool": "get_time"}
 - 스크린샷: {"tool": "screenshot"}
+- 최신뉴스: {"tool": "latest_news"}
 - 데이터분석: {"tool": "analyze_data", "path": "C:/data.csv"}
 - 프로세스목록: {"tool": "list_processes", "sort_by": "memory"}
 - 지식검색: {"tool": "search_knowledge", "keyword": "HID_INOUT"}
@@ -125,6 +126,10 @@ SYSTEM_PROMPT = """당신은 '짝퉁 몰트봇 감마버전 VER 0.2'이라는 PC
 - 사용자가 프로젝트, 코드 변경사항, 기술 문서에 대해 물어보면 먼저 search_knowledge로 관련 문서를 검색하세요.
 - HID, INOUT, 엣지, 테이블, OhtMsgWorker 등 기술 키워드가 나오면 지식베이스를 검색하세요.
 - 문서를 찾으면 read_knowledge로 내용을 읽고 그 내용을 기반으로 답변하세요.
+
+[최신뉴스 관련]
+- 뉴스, 최신뉴스, 뉴스 보여줘 등의 요청에는 반드시 latest_news 도구를 사용하세요.
+- 구글검색으로 뉴스를 검색하지 마세요.
 
 일반 대화는 한국어로 자연스럽게 답변하세요."""
 
@@ -413,6 +418,46 @@ def take_screenshot() -> dict:
         return {"success": False, "error": str(e)}
 
 
+# ★ 최신뉴스: 구글뉴스 열기 → 스크린샷 → 닫기
+def latest_news() -> dict:
+    """구글뉴스 페이지 열고 스크린샷 찍고 브라우저 닫기"""
+    import time
+    try:
+        # 1. 구글뉴스 열기
+        webbrowser.open("https://news.google.com/home?hl=ko&gl=KR&ceid=KR:ko")
+        logger.info("📰 구글뉴스 열기")
+        
+        # 2. 페이지 로딩 대기
+        time.sleep(4)
+        
+        # 3. 스크린샷 찍기
+        from PIL import ImageGrab
+        filename = f"news_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.png"
+        filepath = os.path.join(SCREENSHOT_DIR, filename)
+        img = ImageGrab.grab()
+        img.save(filepath)
+        logger.info(f"📸 뉴스 스크린샷: {filepath}")
+        
+        # 4. 브라우저 탭 닫기 (키보드 Ctrl+W)
+        time.sleep(0.5)
+        try:
+            import pyautogui
+            pyautogui.hotkey('ctrl', 'w')
+            logger.info("🔒 브라우저 탭 닫기")
+        except ImportError:
+            # pyautogui 없으면 스킵
+            logger.warning("⚠️ pyautogui 미설치 - 브라우저 수동으로 닫아주세요")
+        
+        return {
+            "success": True,
+            "filename": filename,
+            "path": filepath,
+            "url": f"/assistant/screenshots/{filename}"
+        }
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+
 # ★ 프로세스 목록 조회
 def list_processes(sort_by: str = "memory", limit: int = 30) -> List[dict]:
     """실행 중인 프로세스 목록 반환"""
@@ -589,6 +634,11 @@ def execute_tool(tool_data: dict) -> str:
         result = take_screenshot()
         return json.dumps(result, ensure_ascii=False)
 
+    # ★ 최신뉴스 - 구글뉴스 열고 스크린샷 찍고 닫기
+    elif tool_name == "latest_news":
+        result = latest_news()
+        return json.dumps(result, ensure_ascii=False)
+
     elif tool_name == "analyze_data":
         return analyze_data(tool_data.get("path", ""))
 
@@ -707,6 +757,17 @@ def process_chat(user_message: str) -> str:
                             return f"❌ 스크린샷 실패: {sc_data.get('error', '?')}"
                     except:
                         return f"❌ 스크린샷 처리 오류"
+
+                # ★ 최신뉴스: 직접 포맷팅
+                if tool_name == "latest_news":
+                    try:
+                        news_data = json.loads(tool_result)
+                        if news_data.get("success"):
+                            return f"📰 **최신 뉴스** (구글뉴스)\n\n![뉴스]({news_data['url']})\n\n브라우저를 닫았습니다."
+                        else:
+                            return f"❌ 뉴스 확인 실패: {news_data.get('error', '?')}"
+                    except:
+                        return f"❌ 뉴스 처리 오류"
 
                 # ========================================
                 # ★ 지식베이스 핸들러 (3가지 구조)
