@@ -20,7 +20,7 @@ import requests
 import pandas as pd
 from typing import Optional, List
 from fastapi import FastAPI, APIRouter, UploadFile, File
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import logging
@@ -1125,6 +1125,15 @@ async def api_delete_knowledge(filename: str):
         os.remove(filepath)
         return {"success": True, "message": f"'{filename}' 삭제됨"}
     return {"success": False, "error": "파일 없음"}
+
+
+@router.get("/api/knowledge/download/{filename}")
+async def api_download_knowledge(filename: str):
+    """지식베이스 문서 다운로드"""
+    filepath = os.path.join(KNOWLEDGE_DIR, filename)
+    if os.path.exists(filepath):
+        return FileResponse(filepath, filename=filename, media_type="application/octet-stream")
+    return JSONResponse(status_code=404, content={"error": "파일 없음"})
 
 
 # ========================================
