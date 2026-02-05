@@ -42,7 +42,7 @@ active_requests = {}
 request_lock = threading.Lock()
 
 # GGUF 로컬 모델 설정
-GGUF_MODEL_PATH = r"F:\M14_Q\LLM_CODING\Qwen3-14B-Q4_K_M.gguf"
+GGUF_MODEL_PATH = "Qwen3-14B-Q4_K_M.gguf"
 LOCAL_LLM = None  # llama-cpp 모델 인스턴스
 
 ENV_CONFIG = {
@@ -579,4 +579,4 @@ async def quick_action(request: QuickRequest):
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8001)
+    uvicorn.run(app, host="0.0.0.0", port=10003)

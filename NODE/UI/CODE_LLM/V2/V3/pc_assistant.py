@@ -44,7 +44,46 @@ app.add_middleware(
 # Global Configuration
 # ========================================
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-GGUF_MODEL_PATH = os.path.join(BASE_DIR, "Qwen3-14B-Q4_K_M.gguf")
+
+# ★ 로컬 GGUF 모델 설정 (생성 파라미터 포함)
+AVAILABLE_MODELS = {
+    "qwen3-14b": {
+        "path": os.path.join(BASE_DIR, "Qwen3-14B-Q4_K_M.gguf"),
+        "name": "Qwen3-14B (Q4_K_M)",
+        "desc": "한글 최적화 ⭐추천",
+        "ctx": 8192,
+        "gpu_layers": 50,
+        "chat_format": "chatml",
+        "repeat_penalty": 1.1,
+        "temperature": 0.7,
+        "korean_support": True
+    },
+    "mistral-nemo": {
+        "path": os.path.join(BASE_DIR, "Mistral-Nemo-12B.Q6_K.gguf"),
+        "name": "Mistral-Nemo-12B (Q6_K)",
+        "desc": "한글 보통, 코딩 강점",
+        "ctx": 8192,
+        "gpu_layers": 50,
+        "chat_format": "llama2",
+        "repeat_penalty": 1.2,
+        "temperature": 0.6,
+        "korean_support": True
+    },
+    "phi3-mini": {
+        "path": os.path.join(BASE_DIR, "Phi-3-mini-4k-instruct-Q5_K_M.gguf"),
+        "name": "Phi-3-Mini (Q5_K_M)",
+        "desc": "⚠️한글 불안정, 영어 전용",
+        "ctx": 4096,
+        "gpu_layers": 35,
+        "chat_format": "phi3",
+        "repeat_penalty": 1.15,
+        "temperature": 0.7,
+        "korean_support": False
+    }
+}
+CURRENT_LOCAL_MODEL = "qwen3-14b"
+GGUF_MODEL_PATH = AVAILABLE_MODELS[CURRENT_LOCAL_MODEL]["path"]
+
 LOCAL_LLM = None
 CHAT_HISTORY = []
 HISTORY_FILE = os.path.join(BASE_DIR, "chat_history.json")
@@ -68,6 +107,13 @@ os.makedirs(KNOWLEDGE_DIR, exist_ok=True)
 # ★ 과거지식 보관 폴더
 KNOWLEDGE_ARCHIVE_DIR = os.path.join(BASE_DIR, "knowledge_archive")
 os.makedirs(KNOWLEDGE_ARCHIVE_DIR, exist_ok=True)
+
+# ★ LLM 생성 파라미터 (UI에서 조절 가능)
+LLM_PARAMS = {
+    "temperature": 0.7,
+    "repeat_penalty": 1.1,
+    "max_tokens": 4096
+}
 
 LLM_MODE = "local"
 API_TOKEN = None
@@ -98,39 +144,44 @@ API_MODEL = ENV_CONFIG["common"]["model"]
 # ========================================
 SYSTEM_PROMPT = """당신은 '짝퉁 몰트봇 감마버전 VER 0.2'이라는 PC 개인비서 AI입니다.
 
-[중요 규칙]
-1. PC 작업이 필요하면 반드시 아래 JSON 형식으로 도구를 호출하세요.
-2. 도구를 호출할 때는 JSON만 출력하세요. 다른 텍스트를 JSON 앞뒤에 붙이지 마세요.
-3. keyword에는 확장자나 와일드카드 없이 순수 키워드만 넣으세요.
-4. ```json 코드블록으로 감싸지 마세요. 순수 JSON만 출력하세요.
+★★★ 최우선 규칙: 지식베이스 우선 검색 ★★★
+모든 질문에 대해 반드시 이 순서를 따르세요:
 
-[도구 목록]
-- 파일검색: {"tool": "search_files", "keyword": "문서", "path": "C:/"}
-- 내용검색: {"tool": "search_content", "keyword": "hello", "path": "C:/"}
-- 시스템정보: {"tool": "get_system_info"}
-- 폴더보기: {"tool": "list_directory", "path": "C:/Users"}
-- 파일읽기: {"tool": "read_file", "path": "C:/test.txt"}
-- 프로그램실행: {"tool": "run_program", "program": "notepad"}
-- 프로그램종료: {"tool": "kill_program", "name": "notepad"}
-- 웹열기: {"tool": "open_web", "url": "https://google.com"}
-- 구글검색: {"tool": "google_search", "query": "검색어"}
-- 현재시간: {"tool": "get_time"}
-- 스크린샷: {"tool": "screenshot"}
-- 최신뉴스: {"tool": "latest_news"}
-- 데이터분석: {"tool": "analyze_data", "path": "C:/data.csv"}
-- 프로세스목록: {"tool": "list_processes", "sort_by": "memory"}
-- 지식검색: {"tool": "search_knowledge", "keyword": "HID_INOUT"}
+1단계: 지식베이스 검색 (필수)
+- 사용자 질문에서 핵심 키워드를 추출하세요
+- 반드시 search_knowledge로 먼저 검색하세요
+- 예: {"tool": "search_knowledge", "keyword": "추출한키워드"}
+
+2단계: 검색 결과 확인
+- 관련 문서가 있으면 → 그 내용을 기반으로 답변
+- 관련 문서가 없으면 → 3단계로
+
+3단계: 일반 대화로 답변
+- 지식베이스에 없는 내용은 "지식베이스에 관련 문서가 없습니다"라고 먼저 말하고
+- 일반적인 지식으로 답변하거나, 모르면 "잘 모르겠습니다"라고 솔직히 답변
+
+★ 절대 하지 말 것:
+- 웹검색(google_search) 임의로 사용 금지 (사용자가 "검색해줘"라고 할 때만)
+- 파일검색(search_files) 임의로 사용 금지 (사용자가 "파일 찾아줘"라고 할 때만)
+- 시스템정보(get_system_info) 임의로 사용 금지 (사용자가 "시스템 정보"라고 할 때만)
+- 지식베이스 검색 없이 바로 다른 도구 사용 금지
+
+[도구 호출 형식]
+JSON만 출력하세요. 다른 텍스트 붙이지 마세요.
+
+[지식베이스 도구] - 항상 먼저 사용
+- 지식검색: {"tool": "search_knowledge", "keyword": "키워드"}
 - 지식목록: {"tool": "list_knowledge"}
-- 지식읽기: {"tool": "read_knowledge", "filename": "HID_INOUT_Java_변경사항.md"}
+- 지식읽기: {"tool": "read_knowledge", "filename": "파일명.md"}
 
-[지식베이스 관련]
-- 사용자가 프로젝트, 코드 변경사항, 기술 문서에 대해 물어보면 먼저 search_knowledge로 관련 문서를 검색하세요.
-- HID, INOUT, 엣지, 테이블, OhtMsgWorker 등 기술 키워드가 나오면 지식베이스를 검색하세요.
-- 문서를 찾으면 read_knowledge로 내용을 읽고 그 내용을 기반으로 답변하세요.
-
-[최신뉴스 관련]
-- 뉴스, 최신뉴스, 뉴스 보여줘 등의 요청에는 반드시 latest_news 도구를 사용하세요.
-- 구글검색으로 뉴스를 검색하지 마세요.
+[PC 도구] - 사용자가 명시적으로 요청할 때만
+- 시스템정보: {"tool": "get_system_info"} ← "시스템 정보 알려줘"
+- 스크린샷: {"tool": "screenshot"} ← "스크린샷 찍어줘"
+- 현재시간: {"tool": "get_time"} ← "지금 몇시야"
+- 프로그램실행: {"tool": "run_program", "program": "notepad"} ← "메모장 실행해줘"
+- 파일검색: {"tool": "search_files", "keyword": "문서", "path": "C:/"} ← "파일 찾아줘"
+- 웹열기/검색: {"tool": "google_search", "query": "검색어"} ← "검색해줘"
+- 최신뉴스: {"tool": "latest_news"} ← "뉴스 보여줘"
 
 일반 대화는 한국어로 자연스럽게 답변하세요."""
 
@@ -138,27 +189,58 @@ SYSTEM_PROMPT = """당신은 '짝퉁 몰트봇 감마버전 VER 0.2'이라는 PC
 # ========================================
 # LLM Functions
 # ========================================
-def load_local_model():
-    global LOCAL_LLM
+def load_local_model(model_key: str = None):
+    """로컬 GGUF 모델 로드 (model_key로 모델 선택)"""
+    global LOCAL_LLM, CURRENT_LOCAL_MODEL, GGUF_MODEL_PATH
+
+    if model_key is None:
+        model_key = CURRENT_LOCAL_MODEL
+
+    if model_key not in AVAILABLE_MODELS:
+        logger.error(f"알 수 없는 모델: {model_key}")
+        return None
+
+    model_config = AVAILABLE_MODELS[model_key]
+    model_path = model_config["path"]
+
+    if not os.path.exists(model_path):
+        logger.error(f"GGUF 파일 없음: {model_path}")
+        return None
+
     try:
         from llama_cpp import Llama
-        if not os.path.exists(GGUF_MODEL_PATH):
-            logger.error(f"GGUF 파일 없음: {GGUF_MODEL_PATH}")
-            return None
-        logger.info("GGUF 모델 로딩 중...")
+        logger.info(f"🔄 모델 로딩 중: {model_config['name']}...")
         llm = Llama(
-            model_path=GGUF_MODEL_PATH,
-            n_ctx=8192,
+            model_path=model_path,
+            n_ctx=model_config.get("ctx", 8192),
             n_threads=8,
-            n_gpu_layers=50,
+            n_gpu_layers=model_config.get("gpu_layers", 50),
             n_batch=512,
             verbose=False
         )
-        logger.info("GGUF 모델 로드 완료!")
+        CURRENT_LOCAL_MODEL = model_key
+        GGUF_MODEL_PATH = model_path
+        logger.info(f"✅ 모델 로드 완료: {model_config['name']}")
         return llm
     except Exception as e:
         logger.error(f"모델 로드 실패: {e}")
         return None
+
+
+def get_available_local_models() -> List[dict]:
+    """사용 가능한 로컬 모델 목록 반환"""
+    models = []
+    for key, config in AVAILABLE_MODELS.items():
+        exists = os.path.exists(config["path"])
+        models.append({
+            "key": key,
+            "name": config["name"],
+            "desc": config.get("desc", ""),
+            "available": exists,
+            "current": key == CURRENT_LOCAL_MODEL,
+            "korean_support": config.get("korean_support", True)
+        })
+    return models
 
 
 def load_api_token():
@@ -185,22 +267,51 @@ def load_api_token():
 
 
 def call_local_llm(prompt: str, system_prompt: str = "", max_tokens: int = 4096) -> dict:
-    global LOCAL_LLM
+    global LOCAL_LLM, CURRENT_LOCAL_MODEL, LLM_PARAMS
     if LOCAL_LLM is None:
         return {"success": False, "error": "로컬 모델이 로드되지 않았습니다"}
 
-    full_prompt = f"""<|im_start|>system
+    # ★ UI에서 설정한 파라미터 사용 (LLM_PARAMS 우선)
+    temperature = LLM_PARAMS.get("temperature", 0.7)
+    repeat_penalty = LLM_PARAMS.get("repeat_penalty", 1.1)
+    actual_max_tokens = LLM_PARAMS.get("max_tokens", max_tokens)
+
+    # ★ 모델별 프롬프트 형식
+    if CURRENT_LOCAL_MODEL == "mistral-nemo":
+        # Mistral-Nemo: ChatML 형식 사용 (공식 권장)
+        full_prompt = f"""<s>[INST] <<SYS>>
+{system_prompt}
+<</SYS>>
+
+{prompt} [/INST]"""
+        stop_tokens = ["</s>", "[INST]"]
+    elif CURRENT_LOCAL_MODEL == "phi3-mini":
+        # Phi-3: 영어 위주 모델 (한글 출력 불안정)
+        # 시스템 프롬프트 영어로 변환하여 안정성 확보
+        full_prompt = f"""<|system|>
+You are a helpful PC assistant. Respond in Korean. Follow JSON tool format strictly.
+{system_prompt}<|end|>
+<|user|>
+{prompt}<|end|>
+<|assistant|>"""
+        stop_tokens = ["<|end|>", "<|user|>", "<|system|>"]
+    else:
+        # Qwen3 (기본): ChatML 형식 - 한글 최적화
+        full_prompt = f"""<|im_start|>system
 {system_prompt}<|im_end|>
 <|im_start|>user
 {prompt}<|im_end|>
 <|im_start|>assistant
 """
+        stop_tokens = ["<|im_end|>", "<|im_start|>"]
+
     try:
         output = LOCAL_LLM(
             full_prompt,
-            max_tokens=max_tokens,
-            temperature=0.3,
-            stop=["<|im_end|>", "<|im_start|>"],
+            max_tokens=actual_max_tokens,
+            temperature=temperature,
+            repeat_penalty=repeat_penalty,  # ★ 반복 억제
+            stop=stop_tokens,
             echo=False
         )
         content = output["choices"][0]["text"].strip()
@@ -579,32 +690,105 @@ def list_knowledge() -> List[dict]:
     return files
 
 
+def normalize_keyword(keyword: str) -> List[str]:
+    """키워드를 여러 변형으로 확장 (언더스코어, 공백, 하이픈 등)"""
+    keyword = keyword.strip().lower()
+    variants = [keyword]
+
+    # 언더스코어 <-> 공백 <-> 하이픈 변환
+    if '_' in keyword:
+        variants.append(keyword.replace('_', ' '))
+        variants.append(keyword.replace('_', '-'))
+        variants.append(keyword.replace('_', ''))
+    if ' ' in keyword:
+        variants.append(keyword.replace(' ', '_'))
+        variants.append(keyword.replace(' ', '-'))
+        variants.append(keyword.replace(' ', ''))
+    if '-' in keyword:
+        variants.append(keyword.replace('-', '_'))
+        variants.append(keyword.replace('-', ' '))
+        variants.append(keyword.replace('-', ''))
+
+    # 대소문자 변형 추가
+    variants.append(keyword.upper())
+    variants.append(keyword.title())
+
+    return list(set(variants))
+
+
+def calculate_relevance_score(filename: str, content: str, keyword: str, variants: List[str]) -> int:
+    """문서의 관련성 점수 계산 (높을수록 관련성 높음)"""
+    score = 0
+    filename_lower = filename.lower()
+    content_lower = content.lower()
+
+    for variant in variants:
+        v_lower = variant.lower()
+
+        # 파일명에 키워드 포함 (+50점)
+        if v_lower in filename_lower:
+            score += 50
+            # 파일명이 키워드로 시작하면 추가 점수
+            if filename_lower.startswith(v_lower):
+                score += 30
+
+        # 내용에서 키워드 등장 횟수 (최대 100점)
+        count = content_lower.count(v_lower)
+        score += min(count * 5, 100)
+
+        # 제목/헤더에 키워드 있으면 추가 점수
+        lines = content.split('\n')[:20]  # 상위 20줄만 확인
+        for line in lines:
+            if line.startswith('#') and v_lower in line.lower():
+                score += 40
+                break
+
+    return score
+
+
 def search_knowledge(keyword: str) -> List[dict]:
-    """지식베이스에서 키워드로 파일 검색"""
+    """지식베이스에서 키워드로 파일 검색 (관련성 점수 기반 정렬)"""
     results = []
+    variants = normalize_keyword(keyword)
+    logger.info(f"🔍 지식검색: '{keyword}' → 변형: {variants[:5]}")
+
     try:
         for f in os.listdir(KNOWLEDGE_DIR):
             if not f.endswith(('.md', '.txt')):
                 continue
             filepath = os.path.join(KNOWLEDGE_DIR, f)
-            matched = False
-            snippet = ""
-
-            if keyword.lower() in f.lower():
-                matched = True
 
             try:
                 with open(filepath, 'r', encoding='utf-8', errors='ignore') as fh:
                     content = fh.read()
-                    if keyword.lower() in content.lower():
-                        matched = True
-                        idx = content.lower().find(keyword.lower())
-                        snippet = content[max(0, idx-50):min(len(content), idx+100)].replace('\n', ' ').strip()
             except:
-                pass
+                continue
+
+            # 매칭 여부 확인 (모든 변형에 대해)
+            matched = False
+            snippet = ""
+            for variant in variants:
+                v_lower = variant.lower()
+                if v_lower in f.lower() or v_lower in content.lower():
+                    matched = True
+                    # 스니펫 추출
+                    idx = content.lower().find(v_lower)
+                    if idx >= 0:
+                        snippet = content[max(0, idx-50):min(len(content), idx+100)].replace('\n', ' ').strip()
+                    break
 
             if matched:
-                results.append({"filename": f, "snippet": f"...{snippet}..." if snippet else "(파일명 매칭)"})
+                score = calculate_relevance_score(f, content, keyword, variants)
+                results.append({
+                    "filename": f,
+                    "snippet": f"...{snippet}..." if snippet else "(파일명 매칭)",
+                    "score": score
+                })
+
+        # 관련성 점수로 정렬 (높은 순)
+        results.sort(key=lambda x: x.get("score", 0), reverse=True)
+        logger.info(f"📊 검색 결과: {len(results)}개 (상위: {[r['filename'] for r in results[:3]]})")
+
     except Exception as e:
         logger.error(f"지식 검색 오류: {e}")
     return results
@@ -788,6 +972,21 @@ def extract_tool_json(text: str) -> Optional[dict]:
 # ========================================
 # Chat Processing
 # ========================================
+def get_recent_context(max_turns: int = 4) -> str:
+    """최근 대화 기록을 문자열로 반환 (맥락 유지용)"""
+    if not CHAT_HISTORY:
+        return ""
+
+    recent = CHAT_HISTORY[-(max_turns * 2):]  # user + assistant 쌍
+    context_lines = []
+    for msg in recent:
+        role = "사용자" if msg["role"] == "user" else "비서"
+        content = msg["content"][:500]  # 너무 길면 자르기
+        context_lines.append(f"[{role}]: {content}")
+
+    return "\n".join(context_lines)
+
+
 def process_chat(user_message: str) -> str:
     global LOCAL_LLM, LLM_MODE
 
@@ -797,7 +996,18 @@ def process_chat(user_message: str) -> str:
         return "❌ API 토큰이 없습니다."
 
     try:
-        result = call_llm(user_message, SYSTEM_PROMPT)
+        # ★ 대화 맥락 추가
+        recent_context = get_recent_context(max_turns=3)
+        if recent_context:
+            context_prompt = f"""[이전 대화]
+{recent_context}
+
+[현재 질문]
+{user_message}"""
+        else:
+            context_prompt = user_message
+
+        result = call_llm(context_prompt, SYSTEM_PROMPT)
         if not result["success"]:
             return f"❌ LLM 오류: {result.get('error', '알 수 없는 오류')}"
 
@@ -867,74 +1077,127 @@ def process_chat(user_message: str) -> str:
 
 [답변 형식]
 **📋 핵심 요약**
-질문에 대한 답을 3줄 이내로 요약
+질문에 대한 핵심 답변을 2~3줄로 요약
 
 **📝 상세 내용**
-구체적인 내용 정리
+문서에서 중요한 내용을 충분히 자세하게 정리:
+- 주요 기능/목적
+- 구성 요소 및 관계
+- 동작 방식/흐름
+- 중요한 설정이나 파라미터
+- 주의사항이나 특이사항
 
 [답변 규칙]
-1. 문서 내용을 근거로 정확하게 답변하세요.
-2. 소스코드 원본은 절대 보여주지 마세요. 코드가 있으면 기능/역할/동작을 설명하세요.
-3. 마크다운 표(| --- |)는 절대 사용 금지! 테이블 대신 "- 항목: 값" 형태로 나열하세요.
-4. ## ### 같은 마크다운 대제목 헤더 사용 금지. **볼드**와 이모지 정도만 쓰세요.
-5. 짧고 읽기 쉽게 쓰세요. 한 항목당 1~2줄이면 충분합니다.
+1. 문서 내용을 근거로 정확하고 **충분히 상세하게** 답변하세요.
+2. 상세 내용은 최소 10줄 이상 작성하세요. 문서에 있는 중요 정보는 빠뜨리지 마세요.
+3. 소스코드 원본은 보여주지 말고, 코드의 기능/역할/동작을 설명하세요.
+4. 마크다운 표(| --- |) 사용 금지. "- 항목: 값" 형태로 나열하세요.
+5. ## ### 대제목 헤더 대신 **볼드**와 이모지를 사용하세요.
 6. 한국어로 답변하세요.
 7. 절대 JSON을 출력하거나 도구를 호출하지 마세요."""
 
                     result2 = call_llm(follow_up_prompt, follow_up_system, max_tokens=6000)
-                    if result2["success"] and not extract_tool_json(result2["content"]):
-                        return result2["content"]
+                    if result2["success"]:
+                        content = result2["content"].strip()
+                        logger.info(f"📝 지식읽기 2차 응답: {content[:200] if content else '(빈 응답)'}")
+                        if content and not extract_tool_json(content):
+                            return content
+                    # fallback: 문서 내용 직접 반환
+                    logger.info("⚠️ 2차 LLM 응답 없음 → 문서 직접 반환")
                     return f"📄 **문서 내용:**\n\n{doc_content[:5000]}"
 
-                # 2) search_knowledge → 첫 번째 파일 자동으로 읽어서 바로 답변 (2단계→1단계)
+                # 2) search_knowledge → 관련성 높은 문서만 사용
                 if tool_name == "search_knowledge":
                     try:
                         search_results = json.loads(tool_result)
                         if not search_results:
                             return "🔍 관련 문서를 찾지 못했습니다. 지식베이스에 문서를 먼저 등록해주세요."
-                        
-                        # 첫 번째 파일을 바로 읽기
-                        best_file = search_results[0]["filename"]
-                        doc_content = read_knowledge(best_file)
-                        
-                        if doc_content.startswith("❌"):
-                            return doc_content
-                        
-                        # 문서가 너무 길면 자르기
-                        if len(doc_content) > 12000:
-                            doc_content = doc_content[:12000] + "\n\n... (이하 생략)"
-                        
+
+                        # ★ 관련성 점수 기반으로 문서 선택
+                        # 1위 문서와 점수 차이가 50% 이상이면 1위만 사용
+                        MAX_TOTAL_LENGTH = 15000
+                        merged_docs = []
+                        total_length = 0
+                        doc_names = []
+
+                        top_score = search_results[0].get("score", 100)
+
+                        for i, result in enumerate(search_results):
+                            filename = result["filename"]
+                            score = result.get("score", 0)
+
+                            # 1위 문서와 점수 차이가 50% 이상이면 제외
+                            if i > 0 and score < top_score * 0.5:
+                                logger.info(f"⏭️ 점수 낮아 제외: {filename} (점수: {score}, 1위: {top_score})")
+                                break
+
+                            doc_content = read_knowledge(filename)
+
+                            if doc_content.startswith("❌"):
+                                continue
+
+                            # 남은 공간에 맞게 자르기
+                            remaining = MAX_TOTAL_LENGTH - total_length
+                            if remaining <= 1000:
+                                break
+
+                            if len(doc_content) > remaining:
+                                doc_content = doc_content[:remaining] + "\n\n... (문서 일부 생략)"
+
+                            merged_docs.append(f"📄 **[{filename}]**\n{doc_content}")
+                            doc_names.append(filename)
+                            total_length += len(doc_content)
+
+                        if not merged_docs:
+                            return "🔍 문서를 읽을 수 없습니다."
+
+                        combined_content = "\n\n---\n\n".join(merged_docs)
+                        doc_list = ", ".join(doc_names)
+                        logger.info(f"📚 참조 문서: {doc_list} (총 {total_length}자)")
+
                         follow_up_prompt = f"""[사용자 질문]
 {user_message}
 
-[참고 문서: {best_file}]
-{doc_content}
+[참고 문서 {len(doc_names)}개: {doc_list}]
+{combined_content}
 
-위 문서를 참고해서 사용자의 질문에 정확히 답변하세요.
-문서에 있는 내용만 근거로 답변하고, 문서에 없는 내용은 추측하지 마세요."""
+위 문서들을 참고해서 사용자의 질문에 정확히 답변하세요.
+여러 문서의 내용을 종합해서 답변하고, 문서에 없는 내용은 추측하지 마세요."""
 
                         follow_up_system = """당신은 시니어 소프트웨어 엔지니어이자 기술 문서 전문가입니다.
 
 [답변 형식]
 **📋 핵심 요약**
-질문에 대한 답을 3줄 이내로 요약
+질문에 대한 핵심 답변을 2~3줄로 요약
 
 **📝 상세 내용**
-구체적인 내용 정리
+문서에서 중요한 내용을 충분히 자세하게 정리:
+- 주요 기능/목적
+- 구성 요소 및 관계
+- 동작 방식/흐름
+- 중요한 설정이나 파라미터
+- 주의사항이나 특이사항
 
 [답변 규칙]
-1. 문서 내용을 근거로 정확하게 답변하세요.
-2. 소스코드 원본은 절대 보여주지 마세요. 코드가 있으면 기능/역할/동작을 설명하세요.
-3. 마크다운 표(| --- |)는 절대 사용 금지! 테이블 대신 "- 항목: 값" 형태로 나열하세요.
-4. ## ### 같은 마크다운 대제목 헤더 사용 금지. **볼드**와 이모지 정도만 쓰세요.
-5. 짧고 읽기 쉽게 쓰세요. 한 항목당 1~2줄이면 충분합니다.
+1. 문서 내용을 근거로 정확하고 **충분히 상세하게** 답변하세요.
+2. 상세 내용은 최소 10줄 이상 작성하세요. 문서에 있는 중요 정보는 빠뜨리지 마세요.
+3. 소스코드 원본은 보여주지 말고, 코드의 기능/역할/동작을 설명하세요.
+4. 마크다운 표(| --- |) 사용 금지. "- 항목: 값" 형태로 나열하세요.
+5. ## ### 대제목 헤더 대신 **볼드**와 이모지를 사용하세요.
 6. 한국어로 답변하세요.
 7. 절대 JSON을 출력하거나 도구를 호출하지 마세요."""
 
                         result2 = call_llm(follow_up_prompt, follow_up_system, max_tokens=6000)
-                        if result2["success"] and not extract_tool_json(result2["content"]):
-                            return result2["content"]
-                        return f"📄 **{best_file}:**\n\n{doc_content[:5000]}"
+                        if result2["success"]:
+                            content = result2["content"].strip()
+                            logger.info(f"📝 지식검색 2차 응답: {content[:200] if content else '(빈 응답)'}")
+                            if content and not extract_tool_json(content):
+                                # 참조 문서 목록 추가
+                                source_info = f"\n\n---\n📚 **참조 문서**: {doc_list}"
+                                return content + source_info
+                        # fallback: 문서 내용 직접 반환
+                        logger.info("⚠️ 2차 LLM 응답 없음 → 문서 직접 반환")
+                        return f"📄 **참조 문서:**\n\n{combined_content[:5000]}"
                     except Exception as e:
                         logger.error(f"지식검색 처리 오류: {e}")
                         pass
@@ -1082,6 +1345,9 @@ class SearchRequest(BaseModel):
 class EnvRequest(BaseModel):
     env: str
 
+class ModelRequest(BaseModel):
+    model_key: str
+
 
 # ========================================
 # Endpoints
@@ -1133,15 +1399,68 @@ async def list_screenshots():
 
 @router.get("/api/status")
 async def assistant_status():
+    # 현재 로컬 모델 정보
+    current_model_name = "LOCAL"
+    if LLM_MODE == "local" and CURRENT_LOCAL_MODEL in AVAILABLE_MODELS:
+        current_model_name = AVAILABLE_MODELS[CURRENT_LOCAL_MODEL]["name"]
+    elif LLM_MODE != "local":
+        current_model_name = ENV_CONFIG.get(CURRENT_ENV, {}).get("name", "API")
+
     return {
         "mode": LLM_MODE,
         "env": CURRENT_ENV if LLM_MODE != "local" else "local",
         "model_loaded": LOCAL_LLM is not None if LLM_MODE == "local" else API_TOKEN is not None,
-        "model_name": ENV_CONFIG.get(CURRENT_ENV, {}).get("name", "LOCAL") if LLM_MODE != "local" else "Qwen3-14B-GGUF",
+        "model_name": current_model_name,
+        "current_local_model": CURRENT_LOCAL_MODEL,
         "system": get_system_info(),
         "history_count": len(CHAT_HISTORY),
         "token_usage": TOKEN_USAGE
     }
+
+
+# ★ 로컬 모델 목록 API
+@router.get("/api/models")
+async def list_local_models():
+    """사용 가능한 로컬 GGUF 모델 목록"""
+    return {
+        "success": True,
+        "models": get_available_local_models(),
+        "current": CURRENT_LOCAL_MODEL
+    }
+
+
+# ★ 로컬 모델 변경 API
+@router.post("/api/models/switch")
+async def switch_local_model(request: ModelRequest):
+    """로컬 GGUF 모델 변경"""
+    global LOCAL_LLM, LLM_MODE
+
+    model_key = request.model_key
+
+    if model_key not in AVAILABLE_MODELS:
+        return {"success": False, "error": f"알 수 없는 모델: {model_key}"}
+
+    if not os.path.exists(AVAILABLE_MODELS[model_key]["path"]):
+        return {"success": False, "error": f"모델 파일 없음: {AVAILABLE_MODELS[model_key]['name']}"}
+
+    # 기존 모델 해제
+    if LOCAL_LLM is not None:
+        del LOCAL_LLM
+        LOCAL_LLM = None
+        import gc
+        gc.collect()
+
+    # 새 모델 로드
+    LOCAL_LLM = load_local_model(model_key)
+    if LOCAL_LLM:
+        LLM_MODE = "local"
+        return {
+            "success": True,
+            "model_key": model_key,
+            "model_name": AVAILABLE_MODELS[model_key]["name"]
+        }
+    else:
+        return {"success": False, "error": "모델 로드 실패"}
 
 
 # ★ 토큰 사용량 API
@@ -1163,6 +1482,26 @@ async def assistant_reset_tokens():
     TOKEN_USAGE["total_tokens"] = 0
     TOKEN_USAGE["call_count"] = 0
     return {"success": True, "message": "토큰 카운터 초기화됨"}
+
+
+# ★ 파라미터 조회 API
+@router.get("/api/params")
+async def get_params():
+    return {"success": True, "params": LLM_PARAMS}
+
+
+# ★ 파라미터 변경 API
+@router.post("/api/params")
+async def set_params(request: dict):
+    global LLM_PARAMS
+    if "temperature" in request:
+        LLM_PARAMS["temperature"] = float(request["temperature"])
+    if "repeat_penalty" in request:
+        LLM_PARAMS["repeat_penalty"] = float(request["repeat_penalty"])
+    if "max_tokens" in request:
+        LLM_PARAMS["max_tokens"] = int(request["max_tokens"])
+    logger.info(f"⚙️ 파라미터 변경: {LLM_PARAMS}")
+    return {"success": True, "params": LLM_PARAMS}
 
 
 @router.post("/api/set_env")
@@ -1340,4 +1679,4 @@ if __name__ == "__main__":
     async def standalone_startup():
         init_assistant()
 
-    uvicorn.run(app, host="0.0.0.0", port=10002)
+    uvicorn.run(app, host="0.0.0.0", port=10003)
