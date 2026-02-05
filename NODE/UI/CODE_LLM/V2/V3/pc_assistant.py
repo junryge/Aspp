@@ -429,7 +429,7 @@ def list_processes(sort_by: str = "memory", limit: int = 30) -> List[dict]:
 
 # ★ 지식베이스 함수들
 def list_knowledge() -> List[dict]:
-    """지식베이스 폴더의 MD 파일 목록 반환"""
+    """지식베이스 파일 목록"""
     files = []
     try:
         for f in sorted(os.listdir(KNOWLEDGE_DIR)):
@@ -437,18 +437,14 @@ def list_knowledge() -> List[dict]:
                 filepath = os.path.join(KNOWLEDGE_DIR, f)
                 size = os.path.getsize(filepath)
                 modified = datetime.datetime.fromtimestamp(os.path.getmtime(filepath)).strftime("%Y-%m-%d %H:%M")
-                files.append({
-                    "filename": f,
-                    "size": f"{size:,}B",
-                    "modified": modified
-                })
+                files.append({"filename": f, "size": f"{size:,}B", "modified": modified})
     except Exception as e:
         logger.error(f"지식 목록 오류: {e}")
     return files
 
 
 def search_knowledge(keyword: str) -> List[dict]:
-    """지식베이스에서 키워드로 파일 검색 (파일명 + 내용)"""
+    """지식베이스에서 키워드로 파일 검색"""
     results = []
     try:
         for f in os.listdir(KNOWLEDGE_DIR):
@@ -458,11 +454,9 @@ def search_knowledge(keyword: str) -> List[dict]:
             matched = False
             snippet = ""
 
-            # 파일명 매칭
             if keyword.lower() in f.lower():
                 matched = True
 
-            # 내용 매칭
             try:
                 with open(filepath, 'r', encoding='utf-8', errors='ignore') as fh:
                     content = fh.read()
@@ -474,10 +468,7 @@ def search_knowledge(keyword: str) -> List[dict]:
                 pass
 
             if matched:
-                results.append({
-                    "filename": f,
-                    "snippet": f"...{snippet}..." if snippet else "(파일명 매칭)"
-                })
+                results.append({"filename": f, "snippet": f"...{snippet}..." if snippet else "(파일명 매칭)"})
     except Exception as e:
         logger.error(f"지식 검색 오류: {e}")
     return results
@@ -487,17 +478,25 @@ def read_knowledge(filename: str) -> str:
     """지식베이스 MD 파일 읽기"""
     filepath = os.path.join(KNOWLEDGE_DIR, filename)
     if not os.path.exists(filepath):
-        # 파일명 부분 매칭 시도
         for f in os.listdir(KNOWLEDGE_DIR):
             if filename.lower() in f.lower():
                 filepath = os.path.join(KNOWLEDGE_DIR, f)
                 break
         else:
-            return f"❌ '{filename}' 파일을 찾을 수 없습니다. list_knowledge로 목록을 확인하세요."
+            return f"❌ '{filename}' 파일을 찾을 수 없습니다."
 
     try:
         with open(filepath, 'r', encoding='utf-8', errors='ignore') as f:
-            content = f.read(30000)  # 최대 30KB
+            content = f.read(30000)
+            if len(content) == 30000:
+                content += "\n\n... (문서가 길어서 일부만 표시)"
+            return content
+    except Exception as e:
+        return f"파일 읽기 오류: {e}"
+
+    try:
+        with open(filepath, 'r', encoding='utf-8', errors='ignore') as f:
+            content = f.read(30000)
             if len(content) == 30000:
                 content += "\n\n... (문서가 길어서 일부만 표시)"
             return content
@@ -645,104 +644,6 @@ def extract_tool_json(text: str) -> Optional[dict]:
 
 
 # ========================================
-# 문서 스마트 추출 (질문 관련 섹션만 뽑기)
-# ========================================
-def truncate_doc(content: str, max_chars: int = 12000) -> str:
-    """문서가 max_chars 초과하면 위에서부터 잘라서 아래(최신) 내용 보존"""
-    if len(content) <= max_chars:
-        return content
-    
-    trimmed = content[len(content) - max_chars:]
-    first_newline = trimmed.find('\n')
-    if first_newline > 0:
-        trimmed = trimmed[first_newline + 1:]
-    
-    cut_size = len(content) - len(trimmed)
-    return f"[⚠️ 문서가 길어 상위 약 {cut_size}자 생략됨]\n\n{trimmed}"
-
-
-def extract_relevant_sections(content: str, keywords: List[str], context_lines: int = 15, max_chars: int = 10000) -> str:
-    """문서에서 키워드 관련 섹션만 추출 (## 헤더 기반 + 키워드 주변)"""
-    
-    # 문서가 짧으면 그냥 전체 반환
-    if len(content) <= max_chars:
-        return content
-    
-    lines = content.split('\n')
-    relevant_indices = set()
-    
-    # 1단계: 키워드가 포함된 줄 찾기
-    keyword_lines = []
-    for i, line in enumerate(lines):
-        line_lower = line.lower()
-        for kw in keywords:
-            if kw.lower() in line_lower:
-                keyword_lines.append(i)
-                break
-    
-    # 2단계: 키워드 줄 주변 context_lines 줄 포함
-    for idx in keyword_lines:
-        start = max(0, idx - context_lines)
-        end = min(len(lines), idx + context_lines + 1)
-        for i in range(start, end):
-            relevant_indices.add(i)
-    
-    # 3단계: ## 헤더 섹션 단위로 포함 (키워드가 속한 섹션 전체)
-    for idx in keyword_lines:
-        # 위로 올라가며 가장 가까운 헤더 찾기
-        header_idx = idx
-        for i in range(idx, -1, -1):
-            if lines[i].startswith('#'):
-                header_idx = i
-                break
-        # 다음 헤더까지 포함
-        for i in range(header_idx, len(lines)):
-            if i > header_idx and lines[i].startswith('#'):
-                break
-            relevant_indices.add(i)
-    
-    # 4단계: 문서 제목 (처음 5줄) 항상 포함
-    for i in range(min(5, len(lines))):
-        relevant_indices.add(i)
-    
-    if not relevant_indices:
-        return truncate_doc(content, max_chars)
-    
-    # 정렬하고 텍스트 조합
-    sorted_indices = sorted(relevant_indices)
-    result_lines = []
-    prev_idx = -1
-    
-    for idx in sorted_indices:
-        if prev_idx >= 0 and idx - prev_idx > 1:
-            result_lines.append("\n... (중략) ...\n")
-        result_lines.append(lines[idx])
-        prev_idx = idx
-    
-    result = '\n'.join(result_lines)
-    
-    # 그래도 길면 자르기
-    if len(result) > max_chars:
-        result = truncate_doc(result, max_chars)
-    
-    total_sections = len(keyword_lines)
-    return f"[📌 문서에서 관련 섹션 {total_sections}개 추출 (원본 {len(lines)}줄 중)]\n\n{result}"
-
-
-def get_keywords_from_question(question: str) -> List[str]:
-    """질문에서 검색용 키워드 추출 (조사/일반어 제거)"""
-    # 한국어 조사/일반어 제거
-    stopwords = {'알려줘', '뭐야', '설명', '어떻게', '해줘', '보여줘', '대해', '관련', 
-                 '변경', '사항', '내용', '정보', '무엇', '어떤', '있는', '하는', '된',
-                 '이', '가', '을', '를', '의', '에', '도', '는', '은', '로', '으로', '와', '과',
-                 '좀', '것', '그', '이거', '저거', '뭐', '어디', '언제', '왜'}
-    
-    words = re.split(r'[\s,./\\()\[\]{}]+', question)
-    keywords = [w for w in words if len(w) >= 2 and w.lower() not in stopwords]
-    
-    return keywords if keywords else [question.strip()]
-
-
 # ========================================
 # Chat Processing
 # ========================================
@@ -789,125 +690,97 @@ def process_chat(user_message: str) -> str:
                     except:
                         return f"❌ 스크린샷 처리 오류"
 
-                # ★ 지식베이스: 문서 내용 기반으로 질문에 답변
+                # ========================================
+                # ★ 지식베이스 핸들러 (3가지 구조)
+                # ========================================
+
+                # 1) read_knowledge → "이 문서를 참고해서 질문에 정확히 답변해라" + 기술 문서 전문가
                 if tool_name == "read_knowledge":
-                    keywords = get_keywords_from_question(user_message)
-                    doc_content = extract_relevant_sections(tool_result, keywords, max_chars=10000)
+                    if tool_result.startswith("❌"):
+                        return tool_result
                     
-                    follow_up_prompt = f"""사용자 질문: {user_message}
+                    # 문서가 너무 길면 앞부분 자르기
+                    doc_content = tool_result if len(tool_result) <= 12000 else tool_result[:12000] + "\n\n... (이하 생략)"
+                    
+                    follow_up_prompt = f"""[사용자 질문]
+{user_message}
 
-아래는 참고 문서에서 관련 내용을 추출한 것입니다.
-
-===== 문서 =====
+[참고 문서]
 {doc_content}
-===== 끝 =====
 
-[답변 형식 - 반드시 이 구조로]
-## 📋 핵심 요약
-- 질문에 대한 답을 3줄 이내로 요약
+위 문서를 참고해서 사용자의 질문에 정확히 답변하세요.
+문서에 있는 내용만 근거로 답변하고, 문서에 없는 내용은 추측하지 마세요."""
 
-## 📝 상세 내용
-- 테이블 스키마 → 마크다운 표
-- 코드 변경 → ```java 코드 블록 (기존 vs 변경)
-- 메소드 → 파라미터, 반환값, 동작 설명
-- 변경사항 → 기존/신규 비교
+                    follow_up_system = """당신은 시니어 소프트웨어 엔지니어이자 기술 문서 전문가입니다.
 
-[규칙]
-- 핵심 요약을 반드시 먼저 쓰세요
-- 도구를 다시 호출하지 마세요 (JSON 출력 금지)
-- 한국어로 마크다운 형식"""
-
-                    follow_up_system = """당신은 시니어 소프트웨어 엔지니어입니다.
-반드시 '핵심 요약'을 먼저 3줄 이내로 쓰고, 그 아래에 '상세 내용'을 정리하세요.
-코드는 코드 블록, 테이블은 마크다운 표로 보여주세요.
-절대 JSON을 출력하지 마세요."""
+[답변 규칙]
+1. 문서 내용을 근거로 정확하게 답변하세요.
+2. 테이블/스키마가 있으면 마크다운 표로 보여주세요.
+3. 코드가 있으면 ```언어 코드 블록으로 보여주세요.
+4. 핵심을 먼저 말하고 상세 내용을 이어서 쓰세요.
+5. 한국어로 답변하세요.
+6. 절대 JSON을 출력하거나 도구를 호출하지 마세요."""
 
                     result2 = call_llm(follow_up_prompt, follow_up_system, max_tokens=6000)
-                    if result2["success"]:
-                        response = result2["content"]
-                        if extract_tool_json(response):
-                            return f"📄 **문서 내용:**\n\n{doc_content[:5000]}"
-                        return response
-                    else:
-                        return f"📄 **문서 내용:**\n\n{doc_content[:5000]}"
+                    if result2["success"] and not extract_tool_json(result2["content"]):
+                        return result2["content"]
+                    return f"📄 **문서 내용:**\n\n{doc_content[:5000]}"
 
-                # ★ 지식검색: 여러 파일에서 관련 내용 합쳐서 답변
+                # 2) search_knowledge → 첫 번째 파일 자동으로 읽어서 바로 답변 (2단계→1단계)
                 if tool_name == "search_knowledge":
                     try:
                         search_results = json.loads(tool_result)
-                        if search_results and len(search_results) > 0:
-                            keywords = get_keywords_from_question(user_message)
-                            
-                            # 최대 3개 파일에서 관련 섹션 추출
-                            combined_content = ""
-                            files_used = []
-                            for sr in search_results[:3]:
-                                fname = sr["filename"]
-                                raw_content = read_knowledge(fname)
-                                if raw_content.startswith("❌"):
-                                    continue
-                                sections = extract_relevant_sections(raw_content, keywords, max_chars=5000)
-                                combined_content += f"\n\n### 📄 {fname}\n{sections}"
-                                files_used.append(fname)
-                            
-                            if not combined_content:
-                                return f"🔍 문서를 찾았지만 관련 내용을 추출하지 못했습니다."
-                            
-                            # 합친 내용이 너무 길면 자르기
-                            if len(combined_content) > 12000:
-                                combined_content = truncate_doc(combined_content, 12000)
+                        if not search_results:
+                            return "🔍 관련 문서를 찾지 못했습니다. 지식베이스에 문서를 먼저 등록해주세요."
+                        
+                        # 첫 번째 파일을 바로 읽기
+                        best_file = search_results[0]["filename"]
+                        doc_content = read_knowledge(best_file)
+                        
+                        if doc_content.startswith("❌"):
+                            return doc_content
+                        
+                        # 문서가 너무 길면 자르기
+                        if len(doc_content) > 12000:
+                            doc_content = doc_content[:12000] + "\n\n... (이하 생략)"
+                        
+                        follow_up_prompt = f"""[사용자 질문]
+{user_message}
 
-                            files_str = ", ".join(files_used)
-                            follow_up_prompt = f"""사용자 질문: {user_message}
+[참고 문서: {best_file}]
+{doc_content}
 
-아래는 지식베이스 문서({files_str})에서 관련 내용을 추출한 것입니다.
+위 문서를 참고해서 사용자의 질문에 정확히 답변하세요.
+문서에 있는 내용만 근거로 답변하고, 문서에 없는 내용은 추측하지 마세요."""
 
-===== 문서 =====
-{combined_content}
-===== 끝 =====
+                        follow_up_system = """당신은 시니어 소프트웨어 엔지니어이자 기술 문서 전문가입니다.
 
-[답변 형식 - 반드시 이 구조로]
-## 📋 핵심 요약
-- 질문에 대한 답을 3줄 이내로 요약
+[답변 규칙]
+1. 문서 내용을 근거로 정확하게 답변하세요.
+2. 테이블/스키마가 있으면 마크다운 표로 보여주세요.
+3. 코드가 있으면 ```언어 코드 블록으로 보여주세요.
+4. 핵심을 먼저 말하고 상세 내용을 이어서 쓰세요.
+5. 한국어로 답변하세요.
+6. 절대 JSON을 출력하거나 도구를 호출하지 마세요."""
 
-## 📝 상세 내용
-- 테이블 스키마 → 마크다운 표
-- 코드 변경 → ```java 코드 블록 (기존 vs 변경)
-- 메소드 → 파라미터, 반환값, 동작 설명
-- 변경사항 → 기존/신규 비교
-
-[규칙]
-- 핵심 요약을 반드시 먼저 쓰세요
-- 여러 문서 내용이면 출처 파일명도 표시하세요
-- 도구를 다시 호출하지 마세요 (JSON 출력 금지)
-- 한국어로 마크다운 형식"""
-
-                            follow_up_system = """당신은 시니어 소프트웨어 엔지니어입니다.
-반드시 '핵심 요약'을 먼저 3줄 이내로 쓰고, 그 아래에 '상세 내용'을 정리하세요.
-코드는 코드 블록, 테이블은 마크다운 표로 보여주세요.
-절대 JSON을 출력하지 마세요."""
-
-                            result2 = call_llm(follow_up_prompt, follow_up_system, max_tokens=6000)
-                            if result2["success"]:
-                                response = result2["content"]
-                                if not extract_tool_json(response):
-                                    return response
-                            return f"📄 **관련 문서:** {files_str}\n\n{combined_content[:5000]}"
-                        else:
-                            return f"🔍 관련 문서를 찾지 못했습니다. 지식베이스에 문서를 먼저 등록해주세요."
+                        result2 = call_llm(follow_up_prompt, follow_up_system, max_tokens=6000)
+                        if result2["success"] and not extract_tool_json(result2["content"]):
+                            return result2["content"]
+                        return f"📄 **{best_file}:**\n\n{doc_content[:5000]}"
                     except Exception as e:
                         logger.error(f"지식검색 처리 오류: {e}")
                         pass
 
-                # ★ 지식목록: 직접 포맷팅
+                # 3) list_knowledge → LLM 호출 없이 직접 포맷팅 (API 낭비 방지)
                 if tool_name == "list_knowledge":
                     try:
                         files = json.loads(tool_result)
                         if not files:
-                            return "📭 지식베이스에 등록된 문서가 없습니다."
-                        lines = ["## 📚 지식베이스 문서 목록\n"]
+                            return "📭 지식베이스에 등록된 문서가 없습니다.\n\n📚 지식베이스 버튼으로 MD/TXT 파일을 업로드하세요."
+                        lines = [f"## 📚 지식베이스 문서 ({len(files)}개)\n"]
                         for f in files:
                             lines.append(f"- 📄 **{f['filename']}** ({f['size']}, {f['modified']})")
+                        lines.append(f"\n💡 문서 내용이 궁금하면 파일명으로 질문하세요. (예: \"HID_INOUT 알려줘\")")
                         return "\n".join(lines)
                     except:
                         pass
