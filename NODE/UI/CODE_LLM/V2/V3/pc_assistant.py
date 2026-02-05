@@ -48,6 +48,14 @@ LOCAL_LLM = None
 CHAT_HISTORY = []
 HISTORY_FILE = os.path.join(BASE_DIR, "chat_history.json")
 
+# ★ 토큰 사용량 추적
+TOKEN_USAGE = {
+    "prompt_tokens": 0,
+    "completion_tokens": 0,
+    "total_tokens": 0,
+    "call_count": 0
+}
+
 # ★ 스크린샷 전용 폴더
 SCREENSHOT_DIR = os.path.join(BASE_DIR, "screenshots")
 os.makedirs(SCREENSHOT_DIR, exist_ok=True)
@@ -222,6 +230,16 @@ def call_api_llm(prompt: str, system_prompt: str = "", max_tokens: int = 4096) -
             result = response.json()
             content = result["choices"][0]["message"]["content"]
             content = re.sub(r'<think>.*?</think>', '', content, flags=re.DOTALL).strip()
+            
+            # ★ 토큰 사용량 누적
+            usage = result.get("usage", {})
+            if usage:
+                TOKEN_USAGE["prompt_tokens"] += usage.get("prompt_tokens", 0)
+                TOKEN_USAGE["completion_tokens"] += usage.get("completion_tokens", 0)
+                TOKEN_USAGE["total_tokens"] += usage.get("total_tokens", 0)
+                TOKEN_USAGE["call_count"] += 1
+                logger.info(f"📊 토큰: +{usage.get('total_tokens', 0)} (누적: {TOKEN_USAGE['total_tokens']})")
+            
             return {"success": True, "content": content}
         else:
             return {"success": False, "error": f"API 오류: {response.status_code}"}
@@ -713,11 +731,18 @@ def process_chat(user_message: str) -> str:
 
                     follow_up_system = """당신은 시니어 소프트웨어 엔지니어이자 기술 문서 전문가입니다.
 
+[답변 형식 - 반드시 이 구조로]
+## 📋 핵심 요약
+- 질문에 대한 답을 3줄 이내로 요약
+
+## 📝 상세 내용
+- 구체적인 내용 정리
+
 [답변 규칙]
 1. 문서 내용을 근거로 정확하게 답변하세요.
-2. 테이블/스키마가 있으면 마크다운 표로 보여주세요.
-3. 코드가 있으면 ```언어 코드 블록으로 보여주세요.
-4. 핵심을 먼저 말하고 상세 내용을 이어서 쓰세요.
+2. 소스코드 원본은 절대 보여주지 마세요. 코드가 있으면 기능/역할/동작을 설명하세요.
+3. 테이블/스키마가 있으면 마크다운 표로 보여주세요.
+4. 핵심 요약을 반드시 먼저 쓰세요.
 5. 한국어로 답변하세요.
 6. 절대 JSON을 출력하거나 도구를 호출하지 마세요."""
 
@@ -755,11 +780,18 @@ def process_chat(user_message: str) -> str:
 
                         follow_up_system = """당신은 시니어 소프트웨어 엔지니어이자 기술 문서 전문가입니다.
 
+[답변 형식 - 반드시 이 구조로]
+## 📋 핵심 요약
+- 질문에 대한 답을 3줄 이내로 요약
+
+## 📝 상세 내용
+- 구체적인 내용 정리
+
 [답변 규칙]
 1. 문서 내용을 근거로 정확하게 답변하세요.
-2. 테이블/스키마가 있으면 마크다운 표로 보여주세요.
-3. 코드가 있으면 ```언어 코드 블록으로 보여주세요.
-4. 핵심을 먼저 말하고 상세 내용을 이어서 쓰세요.
+2. 소스코드 원본은 절대 보여주지 마세요. 코드가 있으면 기능/역할/동작을 설명하세요.
+3. 테이블/스키마가 있으면 마크다운 표로 보여주세요.
+4. 핵심 요약을 반드시 먼저 쓰세요.
 5. 한국어로 답변하세요.
 6. 절대 JSON을 출력하거나 도구를 호출하지 마세요."""
 
@@ -971,8 +1003,30 @@ async def assistant_status():
         "model_loaded": LOCAL_LLM is not None if LLM_MODE == "local" else API_TOKEN is not None,
         "model_name": ENV_CONFIG.get(CURRENT_ENV, {}).get("name", "LOCAL") if LLM_MODE != "local" else "Qwen3-14B-GGUF",
         "system": get_system_info(),
-        "history_count": len(CHAT_HISTORY)
+        "history_count": len(CHAT_HISTORY),
+        "token_usage": TOKEN_USAGE
     }
+
+
+# ★ 토큰 사용량 API
+@router.get("/api/tokens")
+async def assistant_tokens():
+    return {
+        "success": True,
+        "prompt_tokens": TOKEN_USAGE["prompt_tokens"],
+        "completion_tokens": TOKEN_USAGE["completion_tokens"],
+        "total_tokens": TOKEN_USAGE["total_tokens"],
+        "call_count": TOKEN_USAGE["call_count"]
+    }
+
+
+@router.post("/api/tokens/reset")
+async def assistant_reset_tokens():
+    TOKEN_USAGE["prompt_tokens"] = 0
+    TOKEN_USAGE["completion_tokens"] = 0
+    TOKEN_USAGE["total_tokens"] = 0
+    TOKEN_USAGE["call_count"] = 0
+    return {"success": True, "message": "토큰 카운터 초기화됨"}
 
 
 @router.post("/api/set_env")
