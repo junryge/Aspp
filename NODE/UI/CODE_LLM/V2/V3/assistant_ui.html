@@ -614,6 +614,46 @@
         ::-webkit-scrollbar-track { background: var(--bg-dark); }
         ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
         ::-webkit-scrollbar-thumb:hover { background: var(--primary); }
+
+        /* ★ 접기/펼치기 버튼 */
+        .toggle-detail-btn {
+            display: block;
+            width: 100%;
+            padding: 10px 15px;
+            margin: 12px 0;
+            background: linear-gradient(135deg, var(--bg-input), #2d2d4a);
+            border: 1px dashed var(--primary);
+            border-radius: 8px;
+            color: var(--primary);
+            font-size: 0.9rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s;
+            text-align: center;
+        }
+
+        .toggle-detail-btn:hover {
+            background: var(--primary);
+            color: white;
+            border-style: solid;
+        }
+
+        .toggle-detail-btn.expanded {
+            background: rgba(99, 102, 241, 0.15);
+            border-color: var(--primary);
+        }
+
+        .collapsible-detail {
+            animation: slideDown 0.3s ease;
+            border-left: 3px solid var(--primary);
+            padding-left: 12px;
+            margin-top: 8px;
+        }
+
+        @keyframes slideDown {
+            from { opacity: 0; max-height: 0; }
+            to { opacity: 1; max-height: 5000px; }
+        }
     </style>
 </head>
 <body>
@@ -665,6 +705,9 @@
             </button>
             <button class="cmd-btn" onclick="openKnowledgeModal()" style="background: linear-gradient(135deg, #10b981, #059669); border-color: #10b981;">
                 <i class="fas fa-book" style="color: white;"></i> 지식베이스
+            </button>
+            <button class="cmd-btn" onclick="openArchiveModal()" style="background: linear-gradient(135deg, #6b7280, #4b5563); border-color: #6b7280;">
+                <i class="fas fa-box-archive" style="color: white;"></i> 과거지식
             </button>
             <button class="cmd-btn" onclick="clearChat()" style="margin-top: 15px; border-color: var(--danger);">
                 <i class="fas fa-trash" style="color: var(--danger);"></i> 대화 초기화
@@ -763,6 +806,24 @@
                     <span style="font-size: 12px; color: var(--text-muted);">MD, TXT 파일을 올리면 비서가 내용을 기억합니다</span>
                 </div>
                 <div id="knowledgeList" style="min-height: 100px;">
+                    <div style="text-align: center; color: var(--text-muted); padding: 30px;">로딩 중...</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ★ 과거지식 모달 -->
+    <div class="modal" id="archiveModal">
+        <div class="modal-content" style="max-width: 600px;">
+            <div class="modal-header" style="background: linear-gradient(135deg, #6b7280, #4b5563);">
+                <h3 style="color: white;">📦 과거지식 보관소</h3>
+                <button class="modal-close" onclick="closeArchiveModal()" style="color: white;">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div style="margin-bottom: 15px; font-size: 12px; color: var(--text-muted);">
+                    사용하지 않는 문서를 보관합니다. 필요 시 지식베이스로 복원할 수 있습니다.
+                </div>
+                <div id="archiveList" style="min-height: 100px;">
                     <div style="text-align: center; color: var(--text-muted); padding: 30px;">로딩 중...</div>
                 </div>
             </div>
@@ -877,7 +938,20 @@
             div.className = `message ${role}`;
 
             const avatar = role === 'assistant' ? '🤖' : '👤';
-            const formattedContent = formatMessage(content);
+            let formattedContent = formatMessage(content);
+            
+            // ★ 긴 답변 접기: "## 📝 상세 내용" 이후를 접기
+            if (role === 'assistant' && content.includes('## 📝 상세')) {
+                const parts = formattedContent.split(/<h3[^>]*>.*📝 상세/);
+                if (parts.length >= 2) {
+                    const summary = parts[0];
+                    const detail = '<h3 style="margin:12px 0 6px;color:#6366f1;">📝 상세' + parts[1];
+                    const detailId = 'detail-' + Date.now();
+                    formattedContent = summary + 
+                        `<button class="toggle-detail-btn" onclick="toggleDetail('${detailId}', this)">📝 상세 내용 보기 ▼</button>` +
+                        `<div id="${detailId}" class="collapsible-detail" style="display:none;">${detail}</div>`;
+                }
+            }
 
             div.innerHTML = `
                 <div class="avatar">${avatar}</div>
@@ -891,6 +965,20 @@
             div.querySelectorAll('img').forEach(img => {
                 img.addEventListener('click', () => openImgModal(img.src));
             });
+        }
+        
+        // ★ 상세 내용 접기/펼치기
+        function toggleDetail(id, btn) {
+            const el = document.getElementById(id);
+            if (el.style.display === 'none') {
+                el.style.display = 'block';
+                btn.textContent = '📝 상세 내용 접기 ▲';
+                btn.classList.add('expanded');
+            } else {
+                el.style.display = 'none';
+                btn.textContent = '📝 상세 내용 보기 ▼';
+                btn.classList.remove('expanded');
+            }
         }
 
         // ★ 메시지 포맷팅 (마크다운 → HTML, 이미지 포함)
@@ -1013,6 +1101,7 @@
                 closeGalleryModal();
                 closeImgModal();
                 closeKnowledgeModal();
+                closeArchiveModal();
             }
         });
 
@@ -1067,7 +1156,10 @@
                             <div style="font-weight:600;">📄 ${f.filename}</div>
                             <div style="font-size:0.75rem; color:var(--text-muted);">${f.size} · ${f.modified}</div>
                         </div>
-                        <button onclick="deleteKnowledge('${f.filename}')" style="padding:5px 10px; background:var(--danger); color:white; border:none; border-radius:6px; cursor:pointer; font-size:12px;">삭제</button>
+                        <div style="display:flex; gap:6px;">
+                            <button onclick="archiveKnowledge('${f.filename}')" style="padding:5px 10px; background:#6b7280; color:white; border:none; border-radius:6px; cursor:pointer; font-size:12px;" title="과거지식으로 이동">📦 보관</button>
+                            <button onclick="deleteKnowledge('${f.filename}')" style="padding:5px 10px; background:var(--danger); color:white; border:none; border-radius:6px; cursor:pointer; font-size:12px;">🗑️ 삭제</button>
+                        </div>
                     </div>
                 `).join('');
             } catch (e) {
@@ -1103,6 +1195,89 @@
                 if (data.success) {
                     addMessage(`🗑️ **${filename}** 삭제됨`, 'assistant');
                     await loadKnowledgeList();
+                }
+            } catch (e) {}
+        }
+
+        // ★ 지식베이스 → 과거지식 이동
+        async function archiveKnowledge(filename) {
+            if (!confirm(`'${filename}'을 과거지식으로 이동할까요?`)) return;
+            try {
+                const res = await fetch(`/assistant/api/knowledge/archive/${filename}`, { method: 'POST' });
+                const data = await res.json();
+                if (data.success) {
+                    addMessage(`📦 **${filename}** → 과거지식으로 이동됨`, 'assistant');
+                    await loadKnowledgeList();
+                } else {
+                    addMessage(`❌ 이동 실패: ${data.error}`, 'assistant');
+                }
+            } catch (e) {
+                addMessage('❌ 이동 실패: 서버 연결 오류', 'assistant');
+            }
+        }
+
+        // ★ 과거지식 모달
+        async function openArchiveModal() {
+            document.getElementById('archiveModal').classList.add('active');
+            await loadArchiveList();
+        }
+
+        function closeArchiveModal() {
+            document.getElementById('archiveModal').classList.remove('active');
+        }
+
+        async function loadArchiveList() {
+            const container = document.getElementById('archiveList');
+            try {
+                const res = await fetch('/assistant/api/knowledge/archive');
+                const data = await res.json();
+                if (!data.files || data.files.length === 0) {
+                    container.innerHTML = '<div style="text-align:center; color:var(--text-muted); padding:30px;">📭 보관된 문서가 없습니다.</div>';
+                    return;
+                }
+                container.innerHTML = data.files.map(f => `
+                    <div style="display:flex; justify-content:space-between; align-items:center; padding:10px; margin-bottom:8px; background:var(--bg-input); border-radius:8px; border:1px solid var(--border);">
+                        <div>
+                            <div style="font-weight:600;">📄 ${f.filename}</div>
+                            <div style="font-size:0.75rem; color:var(--text-muted);">${f.size} · ${f.modified}</div>
+                        </div>
+                        <div style="display:flex; gap:6px;">
+                            <button onclick="restoreKnowledge('${f.filename}')" style="padding:5px 10px; background:#10b981; color:white; border:none; border-radius:6px; cursor:pointer; font-size:12px;" title="지식베이스로 복원">📚 복원</button>
+                            <button onclick="deleteArchive('${f.filename}')" style="padding:5px 10px; background:var(--danger); color:white; border:none; border-radius:6px; cursor:pointer; font-size:12px;">🗑️ 삭제</button>
+                        </div>
+                    </div>
+                `).join('');
+            } catch (e) {
+                container.innerHTML = '<div style="text-align:center; color:var(--danger);">❌ 로딩 실패</div>';
+            }
+        }
+
+        // ★ 과거지식 → 지식베이스 복원
+        async function restoreKnowledge(filename) {
+            if (!confirm(`'${filename}'을 지식베이스로 복원할까요?`)) return;
+            try {
+                const res = await fetch(`/assistant/api/knowledge/restore/${filename}`, { method: 'POST' });
+                const data = await res.json();
+                if (data.success) {
+                    addMessage(`📚 **${filename}** → 지식베이스로 복원됨!`, 'assistant');
+                    await loadArchiveList();
+                } else {
+                    addMessage(`❌ 복원 실패: ${data.error}`, 'assistant');
+                }
+            } catch (e) {
+                addMessage('❌ 복원 실패: 서버 연결 오류', 'assistant');
+            }
+        }
+
+        // ★ 과거지식 완전 삭제
+        async function deleteArchive(filename) {
+            if (!confirm(`'${filename}'을 완전히 삭제할까요? 복구할 수 없습니다!`)) return;
+            try {
+                const res = await fetch(`/assistant/api/knowledge/archive/${filename}`, { method: 'DELETE' });
+                const data = await res.json();
+                if (data.success) {
+                    addMessage(`🗑️ **${filename}** 완전 삭제됨`, 'assistant');
+                    await loadArchiveList();
                 }
             } catch (e) {}
         }
