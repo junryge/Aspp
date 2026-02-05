@@ -56,6 +56,10 @@ os.makedirs(SCREENSHOT_DIR, exist_ok=True)
 KNOWLEDGE_DIR = os.path.join(BASE_DIR, "knowledge")
 os.makedirs(KNOWLEDGE_DIR, exist_ok=True)
 
+# ★ 과거지식 보관 폴더
+KNOWLEDGE_ARCHIVE_DIR = os.path.join(BASE_DIR, "knowledge_archive")
+os.makedirs(KNOWLEDGE_ARCHIVE_DIR, exist_ok=True)
+
 LLM_MODE = "local"
 API_TOKEN = None
 
@@ -641,22 +645,102 @@ def extract_tool_json(text: str) -> Optional[dict]:
 
 
 # ========================================
-# 문서 트리밍 (위에서부터 삭제, 아래 보존)
+# 문서 스마트 추출 (질문 관련 섹션만 뽑기)
 # ========================================
 def truncate_doc(content: str, max_chars: int = 12000) -> str:
     """문서가 max_chars 초과하면 위에서부터 잘라서 아래(최신) 내용 보존"""
     if len(content) <= max_chars:
         return content
     
-    # 위에서 자르되, 줄 단위로 잘라서 깨지지 않게
     trimmed = content[len(content) - max_chars:]
-    # 첫 번째 줄바꿈 이후부터 (잘린 줄 제거)
     first_newline = trimmed.find('\n')
     if first_newline > 0:
         trimmed = trimmed[first_newline + 1:]
     
     cut_size = len(content) - len(trimmed)
     return f"[⚠️ 문서가 길어 상위 약 {cut_size}자 생략됨]\n\n{trimmed}"
+
+
+def extract_relevant_sections(content: str, keywords: List[str], context_lines: int = 15, max_chars: int = 10000) -> str:
+    """문서에서 키워드 관련 섹션만 추출 (## 헤더 기반 + 키워드 주변)"""
+    
+    # 문서가 짧으면 그냥 전체 반환
+    if len(content) <= max_chars:
+        return content
+    
+    lines = content.split('\n')
+    relevant_indices = set()
+    
+    # 1단계: 키워드가 포함된 줄 찾기
+    keyword_lines = []
+    for i, line in enumerate(lines):
+        line_lower = line.lower()
+        for kw in keywords:
+            if kw.lower() in line_lower:
+                keyword_lines.append(i)
+                break
+    
+    # 2단계: 키워드 줄 주변 context_lines 줄 포함
+    for idx in keyword_lines:
+        start = max(0, idx - context_lines)
+        end = min(len(lines), idx + context_lines + 1)
+        for i in range(start, end):
+            relevant_indices.add(i)
+    
+    # 3단계: ## 헤더 섹션 단위로 포함 (키워드가 속한 섹션 전체)
+    for idx in keyword_lines:
+        # 위로 올라가며 가장 가까운 헤더 찾기
+        header_idx = idx
+        for i in range(idx, -1, -1):
+            if lines[i].startswith('#'):
+                header_idx = i
+                break
+        # 다음 헤더까지 포함
+        for i in range(header_idx, len(lines)):
+            if i > header_idx and lines[i].startswith('#'):
+                break
+            relevant_indices.add(i)
+    
+    # 4단계: 문서 제목 (처음 5줄) 항상 포함
+    for i in range(min(5, len(lines))):
+        relevant_indices.add(i)
+    
+    if not relevant_indices:
+        return truncate_doc(content, max_chars)
+    
+    # 정렬하고 텍스트 조합
+    sorted_indices = sorted(relevant_indices)
+    result_lines = []
+    prev_idx = -1
+    
+    for idx in sorted_indices:
+        if prev_idx >= 0 and idx - prev_idx > 1:
+            result_lines.append("\n... (중략) ...\n")
+        result_lines.append(lines[idx])
+        prev_idx = idx
+    
+    result = '\n'.join(result_lines)
+    
+    # 그래도 길면 자르기
+    if len(result) > max_chars:
+        result = truncate_doc(result, max_chars)
+    
+    total_sections = len(keyword_lines)
+    return f"[📌 문서에서 관련 섹션 {total_sections}개 추출 (원본 {len(lines)}줄 중)]\n\n{result}"
+
+
+def get_keywords_from_question(question: str) -> List[str]:
+    """질문에서 검색용 키워드 추출 (조사/일반어 제거)"""
+    # 한국어 조사/일반어 제거
+    stopwords = {'알려줘', '뭐야', '설명', '어떻게', '해줘', '보여줘', '대해', '관련', 
+                 '변경', '사항', '내용', '정보', '무엇', '어떤', '있는', '하는', '된',
+                 '이', '가', '을', '를', '의', '에', '도', '는', '은', '로', '으로', '와', '과',
+                 '좀', '것', '그', '이거', '저거', '뭐', '어디', '언제', '왜'}
+    
+    words = re.split(r'[\s,./\\()\[\]{}]+', question)
+    keywords = [w for w in words if len(w) >= 2 and w.lower() not in stopwords]
+    
+    return keywords if keywords else [question.strip()]
 
 
 # ========================================
@@ -707,83 +791,112 @@ def process_chat(user_message: str) -> str:
 
                 # ★ 지식베이스: 문서 내용 기반으로 질문에 답변
                 if tool_name == "read_knowledge":
-                    doc_content = truncate_doc(tool_result, max_chars=12000)
+                    keywords = get_keywords_from_question(user_message)
+                    doc_content = extract_relevant_sections(tool_result, keywords, max_chars=10000)
+                    
                     follow_up_prompt = f"""사용자 질문: {user_message}
 
-아래는 참고 문서 내용입니다. 이 문서를 꼼꼼히 읽고 사용자의 질문에 **최대한 상세하게** 답변하세요.
+아래는 참고 문서에서 관련 내용을 추출한 것입니다.
 
-===== 문서 시작 =====
+===== 문서 =====
 {doc_content}
-===== 문서 끝 =====
+===== 끝 =====
 
-[답변 규칙]
-1. 문서에 있는 모든 관련 내용을 빠짐없이 포함하세요
-2. 테이블 스키마가 있으면 컬럼명, 타입, 설명을 **표(table) 형식**으로 보여주세요
-3. 코드 변경사항이 있으면 **기존 코드와 변경 코드를 모두** 코드 블록으로 보여주세요
-4. 메소드/클래스 설명이 있으면 파라미터, 반환값, 동작 원리를 상세히 설명하세요
-5. 변경 요약이 있으면 기존/신규 구분해서 정리하세요
-6. 절대 내용을 축약하지 말고 문서에 있는 정보를 최대한 활용하세요
-7. 도구를 다시 호출하지 마세요 (JSON 출력 금지)
-8. 한국어로 마크다운 형식으로 보기 좋게 정리하세요"""
+[답변 형식 - 반드시 이 구조로]
+## 📋 핵심 요약
+- 질문에 대한 답을 3줄 이내로 요약
 
-                    follow_up_system = """당신은 시니어 소프트웨어 엔지니어이자 기술 문서 전문가입니다.
-제공된 참고 문서의 내용을 빠짐없이 정확하게 전달하는 것이 최우선입니다.
-코드는 반드시 코드 블록으로, 테이블은 마크다운 표로 보여주세요.
-요약하지 말고 상세하게 설명하세요.
-절대 JSON을 출력하지 마세요. 자연어와 코드 블록으로만 답변하세요."""
+## 📝 상세 내용
+- 테이블 스키마 → 마크다운 표
+- 코드 변경 → ```java 코드 블록 (기존 vs 변경)
+- 메소드 → 파라미터, 반환값, 동작 설명
+- 변경사항 → 기존/신규 비교
 
-                    result2 = call_llm(follow_up_prompt, follow_up_system, max_tokens=8000)
+[규칙]
+- 핵심 요약을 반드시 먼저 쓰세요
+- 도구를 다시 호출하지 마세요 (JSON 출력 금지)
+- 한국어로 마크다운 형식"""
+
+                    follow_up_system = """당신은 시니어 소프트웨어 엔지니어입니다.
+반드시 '핵심 요약'을 먼저 3줄 이내로 쓰고, 그 아래에 '상세 내용'을 정리하세요.
+코드는 코드 블록, 테이블은 마크다운 표로 보여주세요.
+절대 JSON을 출력하지 마세요."""
+
+                    result2 = call_llm(follow_up_prompt, follow_up_system, max_tokens=6000)
                     if result2["success"]:
                         response = result2["content"]
                         if extract_tool_json(response):
-                            return f"📄 **문서 내용:**\n\n{tool_result[:5000]}"
+                            return f"📄 **문서 내용:**\n\n{doc_content[:5000]}"
                         return response
                     else:
-                        return f"📄 **문서 내용:**\n\n{tool_result[:5000]}"
+                        return f"📄 **문서 내용:**\n\n{doc_content[:5000]}"
 
-                # ★ 지식검색: 검색 결과 보고 자동으로 read_knowledge 이어서 호출
+                # ★ 지식검색: 여러 파일에서 관련 내용 합쳐서 답변
                 if tool_name == "search_knowledge":
                     try:
                         search_results = json.loads(tool_result)
                         if search_results and len(search_results) > 0:
-                            # 첫 번째 검색 결과 파일을 바로 읽기
-                            first_file = search_results[0]["filename"]
-                            knowledge_content = read_knowledge(first_file)
-                            doc_content = truncate_doc(knowledge_content, max_chars=12000)
+                            keywords = get_keywords_from_question(user_message)
+                            
+                            # 최대 3개 파일에서 관련 섹션 추출
+                            combined_content = ""
+                            files_used = []
+                            for sr in search_results[:3]:
+                                fname = sr["filename"]
+                                raw_content = read_knowledge(fname)
+                                if raw_content.startswith("❌"):
+                                    continue
+                                sections = extract_relevant_sections(raw_content, keywords, max_chars=5000)
+                                combined_content += f"\n\n### 📄 {fname}\n{sections}"
+                                files_used.append(fname)
+                            
+                            if not combined_content:
+                                return f"🔍 문서를 찾았지만 관련 내용을 추출하지 못했습니다."
+                            
+                            # 합친 내용이 너무 길면 자르기
+                            if len(combined_content) > 12000:
+                                combined_content = truncate_doc(combined_content, 12000)
 
+                            files_str = ", ".join(files_used)
                             follow_up_prompt = f"""사용자 질문: {user_message}
 
-아래는 참고 문서 '{first_file}'의 내용입니다. 이 문서를 꼼꼼히 읽고 사용자의 질문에 **최대한 상세하게** 답변하세요.
+아래는 지식베이스 문서({files_str})에서 관련 내용을 추출한 것입니다.
 
-===== 문서 시작 =====
-{doc_content}
-===== 문서 끝 =====
+===== 문서 =====
+{combined_content}
+===== 끝 =====
 
-[답변 규칙]
-1. 문서에 있는 모든 관련 내용을 빠짐없이 포함하세요
-2. 테이블 스키마가 있으면 컬럼명, 타입, 설명을 **표(table) 형식**으로 보여주세요
-3. 코드 변경사항이 있으면 **기존 코드와 변경 코드를 모두** 코드 블록으로 보여주세요
-4. 메소드/클래스 설명이 있으면 파라미터, 반환값, 동작 원리를 상세히 설명하세요
-5. 변경 요약이 있으면 기존/신규 구분해서 정리하세요
-6. 절대 내용을 축약하지 말고 문서에 있는 정보를 최대한 활용하세요
-7. 도구를 다시 호출하지 마세요 (JSON 출력 금지)
-8. 한국어로 마크다운 형식으로 보기 좋게 정리하세요"""
+[답변 형식 - 반드시 이 구조로]
+## 📋 핵심 요약
+- 질문에 대한 답을 3줄 이내로 요약
 
-                            follow_up_system = """당신은 시니어 소프트웨어 엔지니어이자 기술 문서 전문가입니다.
-제공된 참고 문서의 내용을 빠짐없이 정확하게 전달하는 것이 최우선입니다.
-코드는 반드시 코드 블록으로, 테이블은 마크다운 표로 보여주세요.
-요약하지 말고 상세하게 설명하세요.
-절대 JSON을 출력하지 마세요. 자연어와 코드 블록으로만 답변하세요."""
+## 📝 상세 내용
+- 테이블 스키마 → 마크다운 표
+- 코드 변경 → ```java 코드 블록 (기존 vs 변경)
+- 메소드 → 파라미터, 반환값, 동작 설명
+- 변경사항 → 기존/신규 비교
 
-                            result2 = call_llm(follow_up_prompt, follow_up_system, max_tokens=8000)
+[규칙]
+- 핵심 요약을 반드시 먼저 쓰세요
+- 여러 문서 내용이면 출처 파일명도 표시하세요
+- 도구를 다시 호출하지 마세요 (JSON 출력 금지)
+- 한국어로 마크다운 형식"""
+
+                            follow_up_system = """당신은 시니어 소프트웨어 엔지니어입니다.
+반드시 '핵심 요약'을 먼저 3줄 이내로 쓰고, 그 아래에 '상세 내용'을 정리하세요.
+코드는 코드 블록, 테이블은 마크다운 표로 보여주세요.
+절대 JSON을 출력하지 마세요."""
+
+                            result2 = call_llm(follow_up_prompt, follow_up_system, max_tokens=6000)
                             if result2["success"]:
                                 response = result2["content"]
                                 if not extract_tool_json(response):
                                     return response
-                            return f"📄 **{first_file}** 내용:\n\n{knowledge_content[:5000]}"
+                            return f"📄 **관련 문서:** {files_str}\n\n{combined_content[:5000]}"
                         else:
                             return f"🔍 관련 문서를 찾지 못했습니다. 지식베이스에 문서를 먼저 등록해주세요."
-                    except:
+                    except Exception as e:
+                        logger.error(f"지식검색 처리 오류: {e}")
                         pass
 
                 # ★ 지식목록: 직접 포맷팅
@@ -1084,6 +1197,66 @@ async def api_delete_knowledge(filename: str):
     if os.path.exists(filepath):
         os.remove(filepath)
         return {"success": True, "message": f"'{filename}' 삭제됨"}
+    return {"success": False, "error": "파일 없음"}
+
+
+# ========================================
+# 과거지식 보관소 API
+# ========================================
+@router.get("/api/knowledge/archive")
+async def api_list_archive():
+    """과거지식 문서 목록"""
+    files = []
+    try:
+        for f in sorted(os.listdir(KNOWLEDGE_ARCHIVE_DIR)):
+            if f.lower().endswith(('.md', '.txt')):
+                filepath = os.path.join(KNOWLEDGE_ARCHIVE_DIR, f)
+                size = os.path.getsize(filepath)
+                modified = datetime.datetime.fromtimestamp(os.path.getmtime(filepath)).strftime("%Y-%m-%d %H:%M")
+                size_str = f"{size / 1024:.1f}KB" if size > 1024 else f"{size}B"
+                files.append({"filename": f, "size": size_str, "modified": modified})
+    except Exception as e:
+        logger.error(f"과거지식 목록 오류: {e}")
+    return {"success": True, "files": files, "count": len(files)}
+
+
+@router.post("/api/knowledge/archive/{filename}")
+async def api_archive_knowledge(filename: str):
+    """지식베이스 → 과거지식으로 이동"""
+    import shutil
+    src = os.path.join(KNOWLEDGE_DIR, filename)
+    dst = os.path.join(KNOWLEDGE_ARCHIVE_DIR, filename)
+    if not os.path.exists(src):
+        return {"success": False, "error": f"'{filename}' 파일 없음"}
+    try:
+        shutil.move(src, dst)
+        return {"success": True, "message": f"'{filename}' → 과거지식으로 이동됨"}
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+
+@router.post("/api/knowledge/restore/{filename}")
+async def api_restore_knowledge(filename: str):
+    """과거지식 → 지식베이스로 복원"""
+    import shutil
+    src = os.path.join(KNOWLEDGE_ARCHIVE_DIR, filename)
+    dst = os.path.join(KNOWLEDGE_DIR, filename)
+    if not os.path.exists(src):
+        return {"success": False, "error": f"'{filename}' 파일 없음"}
+    try:
+        shutil.move(src, dst)
+        return {"success": True, "message": f"'{filename}' → 지식베이스로 복원됨"}
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+
+@router.delete("/api/knowledge/archive/{filename}")
+async def api_delete_archive(filename: str):
+    """과거지식 문서 완전 삭제"""
+    filepath = os.path.join(KNOWLEDGE_ARCHIVE_DIR, filename)
+    if os.path.exists(filepath):
+        os.remove(filepath)
+        return {"success": True, "message": f"'{filename}' 완전 삭제됨"}
     return {"success": False, "error": "파일 없음"}
 
 
