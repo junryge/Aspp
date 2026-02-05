@@ -166,7 +166,7 @@ def load_api_token():
     return False
 
 
-def call_local_llm(prompt: str, system_prompt: str = "") -> dict:
+def call_local_llm(prompt: str, system_prompt: str = "", max_tokens: int = 4096) -> dict:
     global LOCAL_LLM
     if LOCAL_LLM is None:
         return {"success": False, "error": "로컬 모델이 로드되지 않았습니다"}
@@ -180,7 +180,7 @@ def call_local_llm(prompt: str, system_prompt: str = "") -> dict:
     try:
         output = LOCAL_LLM(
             full_prompt,
-            max_tokens=4096,
+            max_tokens=max_tokens,
             temperature=0.3,
             stop=["<|im_end|>", "<|im_start|>"],
             echo=False
@@ -192,7 +192,7 @@ def call_local_llm(prompt: str, system_prompt: str = "") -> dict:
         return {"success": False, "error": str(e)}
 
 
-def call_api_llm(prompt: str, system_prompt: str = "") -> dict:
+def call_api_llm(prompt: str, system_prompt: str = "", max_tokens: int = 4096) -> dict:
     global API_TOKEN
     if not API_TOKEN:
         return {"success": False, "error": "API 토큰 없음"}
@@ -209,7 +209,7 @@ def call_api_llm(prompt: str, system_prompt: str = "") -> dict:
     data = {
         "model": API_MODEL,
         "messages": messages,
-        "max_tokens": 4096,
+        "max_tokens": max_tokens,
         "temperature": 0.3
     }
     try:
@@ -225,11 +225,11 @@ def call_api_llm(prompt: str, system_prompt: str = "") -> dict:
         return {"success": False, "error": str(e)}
 
 
-def call_llm(prompt: str, system_prompt: str = "") -> dict:
+def call_llm(prompt: str, system_prompt: str = "", max_tokens: int = 4096) -> dict:
     if LLM_MODE == "local":
-        return call_local_llm(prompt, system_prompt)
+        return call_local_llm(prompt, system_prompt, max_tokens)
     else:
-        return call_api_llm(prompt, system_prompt)
+        return call_api_llm(prompt, system_prompt, max_tokens)
 
 
 # ========================================
@@ -493,8 +493,8 @@ def read_knowledge(filename: str) -> str:
 
     try:
         with open(filepath, 'r', encoding='utf-8', errors='ignore') as f:
-            content = f.read(15000)  # 최대 15KB
-            if len(content) == 15000:
+            content = f.read(30000)  # 최대 30KB
+            if len(content) == 30000:
                 content += "\n\n... (문서가 길어서 일부만 표시)"
             return content
     except Exception as e:
@@ -641,6 +641,25 @@ def extract_tool_json(text: str) -> Optional[dict]:
 
 
 # ========================================
+# 문서 트리밍 (위에서부터 삭제, 아래 보존)
+# ========================================
+def truncate_doc(content: str, max_chars: int = 12000) -> str:
+    """문서가 max_chars 초과하면 위에서부터 잘라서 아래(최신) 내용 보존"""
+    if len(content) <= max_chars:
+        return content
+    
+    # 위에서 자르되, 줄 단위로 잘라서 깨지지 않게
+    trimmed = content[len(content) - max_chars:]
+    # 첫 번째 줄바꿈 이후부터 (잘린 줄 제거)
+    first_newline = trimmed.find('\n')
+    if first_newline > 0:
+        trimmed = trimmed[first_newline + 1:]
+    
+    cut_size = len(content) - len(trimmed)
+    return f"[⚠️ 문서가 길어 상위 약 {cut_size}자 생략됨]\n\n{trimmed}"
+
+
+# ========================================
 # Chat Processing
 # ========================================
 def process_chat(user_message: str) -> str:
@@ -688,33 +707,39 @@ def process_chat(user_message: str) -> str:
 
                 # ★ 지식베이스: 문서 내용 기반으로 질문에 답변
                 if tool_name == "read_knowledge":
+                    doc_content = truncate_doc(tool_result, max_chars=12000)
                     follow_up_prompt = f"""사용자 질문: {user_message}
 
-아래는 참고 문서 내용입니다. 이 내용을 바탕으로 사용자의 질문에 정확하게 답변하세요.
+아래는 참고 문서 내용입니다. 이 문서를 꼼꼼히 읽고 사용자의 질문에 **최대한 상세하게** 답변하세요.
 
----
-{tool_result}
----
+===== 문서 시작 =====
+{doc_content}
+===== 문서 끝 =====
 
-규칙:
-- 문서 내용을 기반으로 질문에 맞는 부분을 찾아 상세하게 설명하세요
-- 테이블 스키마, 코드 변경사항, 메소드 설명 등을 정확히 전달하세요
-- 코드가 있으면 코드 블록으로 보여주세요
-- 도구를 다시 호출하지 마세요 (JSON 출력 금지)
-- 한국어로 마크다운 형식으로 답변하세요"""
+[답변 규칙]
+1. 문서에 있는 모든 관련 내용을 빠짐없이 포함하세요
+2. 테이블 스키마가 있으면 컬럼명, 타입, 설명을 **표(table) 형식**으로 보여주세요
+3. 코드 변경사항이 있으면 **기존 코드와 변경 코드를 모두** 코드 블록으로 보여주세요
+4. 메소드/클래스 설명이 있으면 파라미터, 반환값, 동작 원리를 상세히 설명하세요
+5. 변경 요약이 있으면 기존/신규 구분해서 정리하세요
+6. 절대 내용을 축약하지 말고 문서에 있는 정보를 최대한 활용하세요
+7. 도구를 다시 호출하지 마세요 (JSON 출력 금지)
+8. 한국어로 마크다운 형식으로 보기 좋게 정리하세요"""
 
-                    follow_up_system = """당신은 기술 문서 전문가입니다.
-제공된 참고 문서를 정확히 이해하고, 사용자의 질문에 문서 내용을 기반으로 상세히 답변합니다.
+                    follow_up_system = """당신은 시니어 소프트웨어 엔지니어이자 기술 문서 전문가입니다.
+제공된 참고 문서의 내용을 빠짐없이 정확하게 전달하는 것이 최우선입니다.
+코드는 반드시 코드 블록으로, 테이블은 마크다운 표로 보여주세요.
+요약하지 말고 상세하게 설명하세요.
 절대 JSON을 출력하지 마세요. 자연어와 코드 블록으로만 답변하세요."""
 
-                    result2 = call_llm(follow_up_prompt, follow_up_system)
+                    result2 = call_llm(follow_up_prompt, follow_up_system, max_tokens=8000)
                     if result2["success"]:
                         response = result2["content"]
                         if extract_tool_json(response):
-                            return f"📄 **문서 내용:**\n\n{tool_result[:3000]}"
+                            return f"📄 **문서 내용:**\n\n{tool_result[:5000]}"
                         return response
                     else:
-                        return f"📄 **문서 내용:**\n\n{tool_result[:3000]}"
+                        return f"📄 **문서 내용:**\n\n{tool_result[:5000]}"
 
                 # ★ 지식검색: 검색 결과 보고 자동으로 read_knowledge 이어서 호출
                 if tool_name == "search_knowledge":
@@ -724,32 +749,38 @@ def process_chat(user_message: str) -> str:
                             # 첫 번째 검색 결과 파일을 바로 읽기
                             first_file = search_results[0]["filename"]
                             knowledge_content = read_knowledge(first_file)
+                            doc_content = truncate_doc(knowledge_content, max_chars=12000)
 
                             follow_up_prompt = f"""사용자 질문: {user_message}
 
-아래는 참고 문서 '{first_file}'의 내용입니다. 이 내용을 바탕으로 사용자의 질문에 정확하게 답변하세요.
+아래는 참고 문서 '{first_file}'의 내용입니다. 이 문서를 꼼꼼히 읽고 사용자의 질문에 **최대한 상세하게** 답변하세요.
 
----
-{knowledge_content}
----
+===== 문서 시작 =====
+{doc_content}
+===== 문서 끝 =====
 
-규칙:
-- 문서 내용을 기반으로 질문에 맞는 부분을 찾아 상세하게 설명하세요
-- 테이블 스키마, 코드 변경사항, 메소드 설명 등을 정확히 전달하세요
-- 코드가 있으면 코드 블록으로 보여주세요
-- 도구를 다시 호출하지 마세요 (JSON 출력 금지)
-- 한국어로 마크다운 형식으로 답변하세요"""
+[답변 규칙]
+1. 문서에 있는 모든 관련 내용을 빠짐없이 포함하세요
+2. 테이블 스키마가 있으면 컬럼명, 타입, 설명을 **표(table) 형식**으로 보여주세요
+3. 코드 변경사항이 있으면 **기존 코드와 변경 코드를 모두** 코드 블록으로 보여주세요
+4. 메소드/클래스 설명이 있으면 파라미터, 반환값, 동작 원리를 상세히 설명하세요
+5. 변경 요약이 있으면 기존/신규 구분해서 정리하세요
+6. 절대 내용을 축약하지 말고 문서에 있는 정보를 최대한 활용하세요
+7. 도구를 다시 호출하지 마세요 (JSON 출력 금지)
+8. 한국어로 마크다운 형식으로 보기 좋게 정리하세요"""
 
-                            follow_up_system = """당신은 기술 문서 전문가입니다.
-제공된 참고 문서를 정확히 이해하고, 사용자의 질문에 문서 내용을 기반으로 상세히 답변합니다.
+                            follow_up_system = """당신은 시니어 소프트웨어 엔지니어이자 기술 문서 전문가입니다.
+제공된 참고 문서의 내용을 빠짐없이 정확하게 전달하는 것이 최우선입니다.
+코드는 반드시 코드 블록으로, 테이블은 마크다운 표로 보여주세요.
+요약하지 말고 상세하게 설명하세요.
 절대 JSON을 출력하지 마세요. 자연어와 코드 블록으로만 답변하세요."""
 
-                            result2 = call_llm(follow_up_prompt, follow_up_system)
+                            result2 = call_llm(follow_up_prompt, follow_up_system, max_tokens=8000)
                             if result2["success"]:
                                 response = result2["content"]
                                 if not extract_tool_json(response):
                                     return response
-                            return f"📄 **{first_file}** 내용:\n\n{knowledge_content[:3000]}"
+                            return f"📄 **{first_file}** 내용:\n\n{knowledge_content[:5000]}"
                         else:
                             return f"🔍 관련 문서를 찾지 못했습니다. 지식베이스에 문서를 먼저 등록해주세요."
                     except:
