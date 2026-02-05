@@ -675,18 +675,21 @@
         </div>
 
         <div class="system-info">
-            <h3><i class="fas fa-microchip"></i> 시스템 정보</h3>
+            <h3><i class="fas fa-coins"></i> 토큰 사용량</h3>
             <div class="stat-item">
-                <span class="stat-label">CPU</span>
-                <span class="stat-value" id="cpuUsage">-</span>
+                <span class="stat-label">사용 토큰</span>
+                <span class="stat-value" id="totalTokens">0</span>
             </div>
             <div class="stat-item">
-                <span class="stat-label">메모리</span>
-                <span class="stat-value" id="memUsage">-</span>
+                <span class="stat-label">입력 / 출력</span>
+                <span class="stat-value" id="tokenDetail">0 / 0</span>
             </div>
             <div class="stat-item">
-                <span class="stat-label">디스크 C:</span>
-                <span class="stat-value" id="diskUsage">-</span>
+                <span class="stat-label">호출 횟수</span>
+                <span class="stat-value" id="callCount">0회</span>
+            </div>
+            <div class="stat-item" style="border-bottom: none; padding-top: 5px;">
+                <button onclick="resetTokens()" style="width: 100%; padding: 5px 10px; font-size: 0.75rem; background: var(--bg-input); border: 1px solid var(--border); border-radius: 6px; color: var(--text-muted); cursor: pointer;">🔄 카운터 초기화</button>
             </div>
         </div>
 
@@ -864,14 +867,45 @@
 
                 updateEnvUI();
 
-                if (data.system) {
-                    document.getElementById('cpuUsage').textContent = data.system.cpu.split(',')[1] || '-';
-                    document.getElementById('memUsage').textContent = data.system.memory.split(',')[1] || '-';
-                    document.getElementById('diskUsage').textContent = data.system.disk_c || '-';
+                // ★ 토큰 사용량 업데이트
+                if (data.token_usage) {
+                    updateTokenDisplay(data.token_usage);
                 }
             } catch (e) {
                 document.getElementById('modelStatus').textContent = '연결 실패';
             }
+        }
+        
+        // ★ 토큰 표시 업데이트
+        function updateTokenDisplay(usage) {
+            const total = usage.total_tokens || 0;
+            const prompt = usage.prompt_tokens || 0;
+            const completion = usage.completion_tokens || 0;
+            const calls = usage.call_count || 0;
+            
+            // 숫자 포맷 (1,234)
+            document.getElementById('totalTokens').textContent = total.toLocaleString();
+            document.getElementById('tokenDetail').textContent = `${prompt.toLocaleString()} / ${completion.toLocaleString()}`;
+            document.getElementById('callCount').textContent = `${calls}회`;
+            
+            // 색상 변화 (많이 쓸수록)
+            const tokenEl = document.getElementById('totalTokens');
+            if (total > 100000) {
+                tokenEl.style.color = 'var(--danger)';
+            } else if (total > 50000) {
+                tokenEl.style.color = 'var(--warning)';
+            } else {
+                tokenEl.style.color = 'var(--success)';
+            }
+        }
+        
+        // ★ 토큰 카운터 초기화
+        async function resetTokens() {
+            if (!confirm('토큰 카운터를 초기화할까요?')) return;
+            try {
+                await fetch('/assistant/api/tokens/reset', { method: 'POST' });
+                updateTokenDisplay({ total_tokens: 0, prompt_tokens: 0, completion_tokens: 0, call_count: 0 });
+            } catch(e) {}
         }
 
         // 환경 전환
@@ -937,6 +971,9 @@
             }
 
             sendBtn.disabled = false;
+            
+            // ★ 메시지 후 토큰 갱신
+            updateStatus();
         }
 
         // 메시지 추가
