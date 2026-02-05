@@ -707,7 +707,7 @@
         <div class="quick-commands">
             <h3><i class="fas fa-bolt"></i> 빠른 명령</h3>
             <button class="cmd-btn" onclick="toggleQuickGroup()" id="quickGroupToggle" style="border: 1px dashed var(--primary); color: var(--primary);">
-                <i class="fas fa-chevron-down" id="quickGroupIcon"></i> 시스템 명령 (4개)
+                <i class="fas fa-chevron-down" id="quickGroupIcon"></i> 시스템 명령 (5개)
             </button>
             <div id="quickGroup" style="display: none;">
                 <button class="cmd-btn" onclick="sendQuick('시스템 정보 알려줘')">
@@ -722,10 +722,10 @@
                 <button class="cmd-btn" onclick="sendQuick('스크린샷 찍어줘')">
                     <i class="fas fa-camera"></i> 스크린샷
                 </button>
+                <button class="cmd-btn" onclick="sendQuick('최신뉴스 보여줘')">
+                    <i class="fas fa-newspaper"></i> 최신뉴스
+                </button>
             </div>
-            <button class="cmd-btn" onclick="sendQuick('최신뉴스 보여줘')">
-                <i class="fas fa-newspaper"></i> 최신뉴스
-            </button>
             <button class="cmd-btn gallery" onclick="openScreenshotGallery()">
                 <i class="fas fa-images"></i> 스크린샷 갤러리
             </button>
