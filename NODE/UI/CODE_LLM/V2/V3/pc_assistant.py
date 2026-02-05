@@ -13,6 +13,7 @@ import json
 import subprocess
 import platform
 import psutil
+import tempfile
 import datetime
 import webbrowser
 import fnmatch
@@ -418,40 +419,68 @@ def take_screenshot() -> dict:
         return {"success": False, "error": str(e)}
 
 
-# ★ 최신뉴스: 전용 브라우저 창 열기 → 스크린샷 → 그 창만 닫기
+# ★ 최신뉴스: 독립 브라우저 창 열기 → 스크린샷 → 그 창만 닫기
 def latest_news() -> dict:
-    """구글뉴스를 새 브라우저 창으로 열고, 스크린샷 찍고, 그 창만 닫기"""
+    """구글뉴스를 독립 브라우저로 열고, 스크린샷 찍고, 그 창만 닫기"""
     import time
+    import shutil
+    
+    news_proc = None
+    temp_profile = None
+    
     try:
         news_url = "https://news.google.com/home?hl=ko&gl=KR&ceid=KR:ko"
-        news_proc = None
         
-        # 1. 새 브라우저 창(프로세스)으로 열기
+        # 임시 프로필 폴더 (독립 Chrome 인스턴스용)
+        temp_profile = os.path.join(tempfile.gettempdir(), "chrome_news_temp")
+        
+        # 1. Chrome 찾기
         chrome_paths = [
             r"C:\Program Files\Google\Chrome\Application\chrome.exe",
             r"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe",
             os.path.expanduser(r"~\AppData\Local\Google\Chrome\Application\chrome.exe"),
         ]
         
-        for chrome_path in chrome_paths:
-            if os.path.exists(chrome_path):
-                news_proc = subprocess.Popen([chrome_path, "--new-window", news_url])
-                logger.info(f"📰 구글뉴스 새 창 열기 (PID: {news_proc.pid})")
+        chrome_exe = None
+        for p in chrome_paths:
+            if os.path.exists(p):
+                chrome_exe = p
                 break
         
-        if news_proc is None:
-            # Chrome 못 찾으면 Edge 시도
-            edge_path = r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe"
-            if os.path.exists(edge_path):
-                news_proc = subprocess.Popen([edge_path, "--new-window", news_url])
-                logger.info(f"📰 구글뉴스 새 창 열기 (Edge, PID: {news_proc.pid})")
-            else:
-                # 최후 수단: webbrowser
-                webbrowser.open(news_url)
-                logger.info("📰 구글뉴스 열기 (기본 브라우저)")
+        if chrome_exe:
+            # 독립 Chrome 인스턴스 (기존 Chrome과 별개, 전체화면)
+            news_proc = subprocess.Popen([
+                chrome_exe,
+                f"--user-data-dir={temp_profile}",
+                "--no-first-run",
+                "--no-default-browser-check",
+                "--start-maximized",
+                news_url
+            ])
+            logger.info(f"📰 구글뉴스 독립 창 열기 (PID: {news_proc.pid})")
+        else:
+            webbrowser.open(news_url)
+            logger.info("📰 구글뉴스 열기 (기본 브라우저)")
         
         # 2. 페이지 로딩 대기
-        time.sleep(4)
+        time.sleep(2)
+        
+        # 2.5. 강제 전체화면 (임시 프로필은 최대화 무시할 수 있음)
+        try:
+            import ctypes
+            import ctypes.wintypes
+            
+            # 가장 앞에 있는 Chrome 창 찾아서 최대화
+            user32 = ctypes.windll.user32
+            hwnd = user32.GetForegroundWindow()
+            if hwnd:
+                SW_MAXIMIZE = 3
+                user32.ShowWindow(hwnd, SW_MAXIMIZE)
+                logger.info(f"🔲 뉴스 창 최대화 완료 (hwnd: {hwnd})")
+        except Exception as e:
+            logger.warning(f"⚠️ 최대화 실패 (무시): {e}")
+        
+        time.sleep(3)
         
         # 3. 스크린샷 찍기
         from PIL import ImageGrab
@@ -461,11 +490,25 @@ def latest_news() -> dict:
         img.save(filepath)
         logger.info(f"📸 뉴스 스크린샷: {filepath}")
         
-        # 4. 그 창만 닫기
+        # 4. 독립 Chrome만 종료
         time.sleep(0.5)
-        if news_proc:
-            news_proc.terminate()
-            logger.info(f"🔒 뉴스 창 닫기 (PID: {news_proc.pid})")
+        if news_proc and news_proc.poll() is None:
+            # 자식 프로세스 포함 전체 종료
+            try:
+                parent = psutil.Process(news_proc.pid)
+                for child in parent.children(recursive=True):
+                    child.terminate()
+                parent.terminate()
+                logger.info(f"🔒 뉴스 창 닫기 완료 (PID: {news_proc.pid})")
+            except psutil.NoSuchProcess:
+                pass
+        
+        # 5. 임시 프로필 정리 (백그라운드)
+        try:
+            if temp_profile and os.path.exists(temp_profile):
+                shutil.rmtree(temp_profile, ignore_errors=True)
+        except:
+            pass
         
         return {
             "success": True,
@@ -474,6 +517,12 @@ def latest_news() -> dict:
             "url": f"/assistant/screenshots/{filename}"
         }
     except Exception as e:
+        # 에러 시에도 프로세스 정리
+        if news_proc and news_proc.poll() is None:
+            try:
+                news_proc.terminate()
+            except:
+                pass
         return {"success": False, "error": str(e)}
 
 
