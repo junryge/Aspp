@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>🤖 짝퉁 몰트봇 감마버전 VER 0.1</title>
+    <title>🤖 짝퉁 몰트봇 감마버전 VER 0.2</title>
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
     <style>
         * {
@@ -24,8 +24,6 @@
             --success: #10b981;
             --warning: #f59e0b;
             --danger: #ef4444;
-            --sidebar-width: 280px;
-            --sidebar-collapsed: 0px;
         }
 
         body {
@@ -36,81 +34,16 @@
             display: flex;
         }
 
-        /* ========== 사이드바 ========== */
+        /* 사이드바 */
         .sidebar {
-            width: var(--sidebar-width);
+            width: 280px;
             background: var(--bg-card);
             border-right: 1px solid var(--border);
             display: flex;
             flex-direction: column;
             height: 100vh;
-            transition: width 0.3s cubic-bezier(0.4, 0, 0.2, 1),
-                        transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-            overflow: hidden;
-            flex-shrink: 0;
-            position: relative;
-            z-index: 10;
         }
 
-        .sidebar.collapsed {
-            width: var(--sidebar-collapsed);
-            border-right: none;
-        }
-
-        .sidebar.collapsed .sidebar-content {
-            opacity: 0;
-            pointer-events: none;
-        }
-
-        .sidebar-content {
-            display: flex;
-            flex-direction: column;
-            height: 100%;
-            min-width: var(--sidebar-width);
-            transition: opacity 0.2s ease;
-        }
-
-        /* 사이드바 토글 버튼 */
-        .sidebar-toggle {
-            position: fixed;
-            top: 12px;
-            left: var(--sidebar-width);
-            z-index: 100;
-            width: 32px;
-            height: 32px;
-            background: var(--bg-card);
-            border: 1px solid var(--border);
-            border-radius: 0 8px 8px 0;
-            color: var(--text-muted);
-            cursor: pointer;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-size: 14px;
-            transition: left 0.3s cubic-bezier(0.4, 0, 0.2, 1),
-                        background 0.2s,
-                        color 0.2s;
-        }
-
-        .sidebar-toggle:hover {
-            background: var(--primary);
-            color: white;
-        }
-
-        .sidebar-toggle.collapsed {
-            left: 0;
-            border-radius: 0 8px 8px 0;
-        }
-
-        .sidebar-toggle i {
-            transition: transform 0.3s ease;
-        }
-
-        .sidebar-toggle.collapsed i {
-            transform: rotate(180deg);
-        }
-
-        /* 로고 */
         .logo {
             padding: 20px;
             border-bottom: 1px solid var(--border);
@@ -128,51 +61,20 @@
             align-items: center;
             justify-content: center;
             font-size: 24px;
-            flex-shrink: 0;
         }
 
         .logo h1 {
-            font-size: 1.5rem;
+            font-size: 1.4rem;
             background: linear-gradient(135deg, var(--primary), #8b5cf6);
             -webkit-background-clip: text;
             -webkit-text-fill-color: transparent;
-            white-space: nowrap;
         }
 
         .logo p {
             font-size: 0.75rem;
             color: var(--text-muted);
-            white-space: nowrap;
         }
 
-        /* ★ 뒤로가기 버튼 */
-        .back-btn {
-            display: flex;
-            align-items: center;
-            gap: 10px;
-            margin: 12px 15px;
-            padding: 10px 14px;
-            background: linear-gradient(135deg, var(--primary), #8b5cf6);
-            border: none;
-            border-radius: 10px;
-            color: white;
-            font-size: 0.9rem;
-            font-weight: 600;
-            cursor: pointer;
-            transition: all 0.2s;
-            white-space: nowrap;
-        }
-
-        .back-btn:hover {
-            transform: translateY(-1px);
-            box-shadow: 0 4px 15px rgba(99, 102, 241, 0.4);
-        }
-
-        .back-btn i {
-            font-size: 1rem;
-        }
-
-        /* 시스템 정보 */
         .system-info {
             padding: 15px;
             border-bottom: 1px solid var(--border);
@@ -183,7 +85,6 @@
             color: var(--text-muted);
             margin-bottom: 10px;
             text-transform: uppercase;
-            white-space: nowrap;
         }
 
         .stat-item {
@@ -207,7 +108,6 @@
             font-weight: 500;
         }
 
-        /* 빠른 명령어 */
         .quick-commands {
             padding: 15px;
             flex: 1;
@@ -219,7 +119,6 @@
             color: var(--text-muted);
             margin-bottom: 10px;
             text-transform: uppercase;
-            white-space: nowrap;
         }
 
         .cmd-btn {
@@ -236,7 +135,6 @@
             display: flex;
             align-items: center;
             gap: 10px;
-            white-space: nowrap;
         }
 
         .cmd-btn:hover {
@@ -253,29 +151,35 @@
             color: white;
         }
 
-        /* ========== 메인 영역 ========== */
+        /* 스크린샷 갤러리 버튼 */
+        .cmd-btn.gallery {
+            background: linear-gradient(135deg, #8b5cf6, #6366f1);
+            border-color: #8b5cf6;
+        }
+
+        .cmd-btn.gallery i {
+            color: white;
+        }
+
+        .cmd-btn.gallery:hover {
+            background: linear-gradient(135deg, #7c3aed, #4f46e5);
+        }
+
+        /* 메인 영역 */
         .main {
             flex: 1;
             display: flex;
             flex-direction: column;
             height: 100vh;
-            min-width: 0;
         }
 
-        /* 헤더 */
         .header {
             padding: 15px 25px;
-            padding-left: 55px; /* 토글 버튼 여유 */
             border-bottom: 1px solid var(--border);
             display: flex;
             justify-content: space-between;
             align-items: center;
             background: var(--bg-card);
-            transition: padding-left 0.3s ease;
-        }
-
-        .header.sidebar-hidden {
-            padding-left: 55px;
         }
 
         .header h2 {
@@ -353,7 +257,7 @@
             max-width: 70%;
             padding: 12px 16px;
             border-radius: 16px;
-            line-height: 1.5;
+            line-height: 1.6;
         }
 
         .message.assistant .message-content {
@@ -394,8 +298,74 @@
             margin: 4px 0;
         }
 
-        .message-content h3, .message-content h4 {
+        .message-content h2, .message-content h3, .message-content h4 {
             font-weight: 600;
+            margin: 10px 0 5px;
+        }
+
+        .message-content h2 {
+            color: #8b5cf6;
+            font-size: 1.1rem;
+        }
+
+        .message-content h3 {
+            color: #6366f1;
+            font-size: 1rem;
+        }
+
+        .message-content hr {
+            border: none;
+            border-top: 1px solid var(--border);
+            margin: 12px 0;
+        }
+
+        /* ★ 인라인 스크린샷 이미지 */
+        .message-content img {
+            max-width: 100%;
+            border-radius: 10px;
+            margin: 10px 0;
+            border: 2px solid var(--border);
+            cursor: pointer;
+            transition: transform 0.2s;
+        }
+
+        .message-content img:hover {
+            transform: scale(1.02);
+            border-color: var(--primary);
+        }
+
+        /* 이미지 확대 모달 */
+        .img-modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0,0,0,0.9);
+            z-index: 2000;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+        }
+
+        .img-modal.active {
+            display: flex;
+        }
+
+        .img-modal img {
+            max-width: 95%;
+            max-height: 95%;
+            border-radius: 8px;
+        }
+
+        .img-modal .close-hint {
+            position: absolute;
+            top: 20px;
+            right: 30px;
+            color: white;
+            font-size: 1.2rem;
+            opacity: 0.7;
         }
 
         /* 입력 영역 */
@@ -463,7 +433,7 @@
             cursor: not-allowed;
         }
 
-        /* 파일 탐색기 모달 */
+        /* 스크린샷 갤러리 모달 */
         .modal {
             display: none;
             position: fixed;
@@ -507,39 +477,53 @@
             cursor: pointer;
         }
 
+        .modal-close:hover {
+            color: var(--text);
+        }
+
         .modal-body {
             padding: 20px;
             max-height: 60vh;
             overflow-y: auto;
         }
 
-        .file-list {
+        .screenshot-grid {
             display: grid;
-            gap: 8px;
+            grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+            gap: 15px;
         }
 
-        .file-item {
-            display: flex;
-            align-items: center;
-            gap: 12px;
-            padding: 10px 15px;
+        .screenshot-card {
             background: var(--bg-input);
-            border-radius: 8px;
+            border-radius: 10px;
+            overflow: hidden;
+            border: 1px solid var(--border);
             cursor: pointer;
-            transition: background 0.2s;
+            transition: all 0.2s;
         }
 
-        .file-item:hover {
-            background: var(--primary);
+        .screenshot-card:hover {
+            border-color: var(--primary);
+            transform: translateY(-3px);
+            box-shadow: 0 5px 15px rgba(99, 102, 241, 0.2);
         }
 
-        .file-item i {
-            font-size: 1.2rem;
-            color: var(--warning);
+        .screenshot-card img {
+            width: 100%;
+            height: 140px;
+            object-fit: cover;
         }
 
-        .file-item.folder i {
-            color: var(--primary);
+        .screenshot-card .info {
+            padding: 8px 10px;
+            font-size: 0.75rem;
+            color: var(--text-muted);
+        }
+
+        .empty-gallery {
+            text-align: center;
+            padding: 40px;
+            color: var(--text-muted);
         }
 
         /* 로딩 */
@@ -565,124 +549,145 @@
             40% { transform: scale(1); }
         }
 
-        /* 스크롤바 */
-        ::-webkit-scrollbar {
-            width: 6px;
+        /* ★ 사이드바 접기/펼치기 */
+        .sidebar {
+            transition: width 0.3s ease, padding 0.3s ease;
+            overflow: hidden;
         }
 
-        ::-webkit-scrollbar-track {
-            background: var(--bg-dark);
+        .sidebar.collapsed {
+            width: 0;
+            padding: 0;
+            border-right: none;
         }
 
-        ::-webkit-scrollbar-thumb {
-            background: var(--border);
-            border-radius: 3px;
+        .sidebar.collapsed > * {
+            opacity: 0;
+            pointer-events: none;
         }
 
-        ::-webkit-scrollbar-thumb:hover {
-            background: var(--primary);
-        }
-
-        /* 환경 토글 */
-        .env-toggle {
-            display: flex;
+        .sidebar-toggle {
+            width: 36px;
+            height: 36px;
             background: var(--bg-input);
-            border-radius: 20px;
-            padding: 3px;
-        }
-
-        .env-btn {
-            padding: 6px 12px;
-            border-radius: 17px;
-            font-size: 12px;
-            cursor: pointer;
-            transition: all 0.2s;
-            color: var(--text-muted);
-            user-select: none;
-        }
-
-        .env-btn:hover {
+            border: 1px solid var(--border);
+            border-radius: 10px;
             color: var(--text);
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 16px;
+            transition: all 0.2s;
+            flex-shrink: 0;
         }
+
+        .sidebar-toggle:hover {
+            background: var(--primary);
+            border-color: var(--primary);
+        }
+
+        .back-btn {
+            width: 36px;
+            height: 36px;
+            background: var(--bg-input);
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            color: var(--text);
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 16px;
+            transition: all 0.2s;
+            flex-shrink: 0;
+            text-decoration: none;
+        }
+
+        .back-btn:hover {
+            background: var(--warning);
+            border-color: var(--warning);
+        }
+
+        /* 스크롤바 */
+        ::-webkit-scrollbar { width: 6px; }
+        ::-webkit-scrollbar-track { background: var(--bg-dark); }
+        ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+        ::-webkit-scrollbar-thumb:hover { background: var(--primary); }
     </style>
 </head>
 <body>
-    <!-- 사이드바 토글 버튼 -->
-    <button class="sidebar-toggle" id="sidebarToggle" onclick="toggleSidebar()" title="사이드바 펼치기/숨기기">
-        <i class="fas fa-chevron-left"></i>
-    </button>
-
     <!-- 사이드바 -->
-    <aside class="sidebar" id="sidebar">
-        <div class="sidebar-content">
-            <div class="logo">
-                <div class="logo-icon">🤖</div>
-                <div>
-                    <h1>짝퉁몰트봇</h1>
-                    <p>감마버전 VER 0.1</p>
-                </div>
+    <aside class="sidebar">
+        <div class="logo">
+            <div class="logo-icon">🤖</div>
+            <div>
+                <h1>짝퉁몰트봇</h1>
+                <p>감마버전 VER 0.2</p>
             </div>
+        </div>
 
-            <!-- ★ 뒤로가기 (Coding LLM 메인으로) -->
-            <button class="back-btn" onclick="goBack()">
-                <i class="fas fa-arrow-left"></i>
-                Coding LLM으로 돌아가기
+        <div class="system-info">
+            <h3><i class="fas fa-microchip"></i> 시스템 정보</h3>
+            <div class="stat-item">
+                <span class="stat-label">CPU</span>
+                <span class="stat-value" id="cpuUsage">-</span>
+            </div>
+            <div class="stat-item">
+                <span class="stat-label">메모리</span>
+                <span class="stat-value" id="memUsage">-</span>
+            </div>
+            <div class="stat-item">
+                <span class="stat-label">디스크 C:</span>
+                <span class="stat-value" id="diskUsage">-</span>
+            </div>
+        </div>
+
+        <div class="quick-commands">
+            <h3><i class="fas fa-bolt"></i> 빠른 명령</h3>
+            <button class="cmd-btn" onclick="sendQuick('시스템 정보 알려줘')">
+                <i class="fas fa-desktop"></i> 시스템 정보
             </button>
-
-            <div class="system-info">
-                <h3><i class="fas fa-microchip"></i> 시스템 정보</h3>
-                <div class="stat-item">
-                    <span class="stat-label">CPU</span>
-                    <span class="stat-value" id="cpuUsage">-</span>
-                </div>
-                <div class="stat-item">
-                    <span class="stat-label">메모리</span>
-                    <span class="stat-value" id="memUsage">-</span>
-                </div>
-                <div class="stat-item">
-                    <span class="stat-label">디스크 C:</span>
-                    <span class="stat-value" id="diskUsage">-</span>
-                </div>
-            </div>
-
-            <div class="quick-commands">
-                <h3><i class="fas fa-bolt"></i> 빠른 명령</h3>
-                <button class="cmd-btn" onclick="sendQuick('시스템 정보 알려줘')">
-                    <i class="fas fa-desktop"></i> 시스템 정보
-                </button>
-                <button class="cmd-btn" onclick="sendQuick('현재 시간 알려줘')">
-                    <i class="fas fa-clock"></i> 현재 시간
-                </button>
-                <button class="cmd-btn" onclick="sendQuick('실행 중인 프로그램 목록 보여줘')">
-                    <i class="fas fa-tasks"></i> 프로세스 목록
-                </button>
-                <button class="cmd-btn" onclick="openFileExplorer()">
-                    <i class="fas fa-folder-open"></i> 파일 탐색기
-                </button>
-                <button class="cmd-btn" onclick="sendQuick('스크린샷 찍어줘')">
-                    <i class="fas fa-camera"></i> 스크린샷
-                </button>
-                <button class="cmd-btn" onclick="sendQuick('메모장 실행해줘')">
-                    <i class="fas fa-play"></i> 메모장 실행
-                </button>
-                <button class="cmd-btn" onclick="sendQuick('구글에서 날씨 검색해줘')">
-                    <i class="fas fa-search"></i> 웹 검색
-                </button>
-                <button class="cmd-btn" onclick="clearChat()">
-                    <i class="fas fa-trash"></i> 대화 초기화
-                </button>
-            </div>
+            <button class="cmd-btn" onclick="sendQuick('현재 시간 알려줘')">
+                <i class="fas fa-clock"></i> 현재 시간
+            </button>
+            <button class="cmd-btn" onclick="sendQuick('실행 중인 프로그램 목록 보여줘')">
+                <i class="fas fa-tasks"></i> 프로세스 목록
+            </button>
+            <button class="cmd-btn" onclick="sendQuick('스크린샷 찍어줘')">
+                <i class="fas fa-camera"></i> 스크린샷
+            </button>
+            <button class="cmd-btn" onclick="sendQuick('오늘 날씨 알려줘')">
+                <i class="fas fa-cloud-sun"></i> 날씨 확인
+            </button>
+            <button class="cmd-btn" onclick="sendQuick('구글에서 최신 뉴스 검색해줘')">
+                <i class="fas fa-search"></i> 웹 검색
+            </button>
+            <button class="cmd-btn gallery" onclick="openScreenshotGallery()">
+                <i class="fas fa-images"></i> 스크린샷 갤러리
+            </button>
+            <button class="cmd-btn" onclick="clearChat()" style="margin-top: 15px; border-color: var(--danger);">
+                <i class="fas fa-trash" style="color: var(--danger);"></i> 대화 초기화
+            </button>
         </div>
     </aside>
 
     <!-- 메인 영역 -->
     <main class="main">
-        <header class="header" id="mainHeader">
-            <h2>💬 대화</h2>
+        <header class="header">
+            <div style="display: flex; align-items: center; gap: 10px;">
+                <button class="sidebar-toggle" onclick="toggleSidebar()" title="사이드바 접기/펼치기">
+                    <i class="fas fa-bars" id="sidebarIcon"></i>
+                </button>
+                <button class="back-btn" onclick="history.back()" title="이전 페이지로">
+                    <i class="fas fa-arrow-left"></i>
+                </button>
+                <h2>💬 대화</h2>
+            </div>
             <div style="display: flex; align-items: center; gap: 15px;">
-                <div class="env-toggle">
-                    <div class="env-btn" id="env-local" onclick="setEnv('local')">LOCAL</div>
-                    <div class="env-btn" id="env-common" onclick="setEnv('common')">API</div>
+                <div class="env-toggle" style="display: flex; background: var(--bg-input); border-radius: 20px; padding: 3px;">
+                    <div class="env-btn" id="env-local" onclick="setEnv('local')" style="padding: 6px 12px; border-radius: 17px; font-size: 12px; cursor: pointer; transition: all 0.2s;">LOCAL</div>
+                    <div class="env-btn" id="env-common" onclick="setEnv('common')" style="padding: 6px 12px; border-radius: 17px; font-size: 12px; cursor: pointer; transition: all 0.2s;">API</div>
                 </div>
                 <div class="status-badge">
                     <span class="status-dot"></span>
@@ -695,14 +700,15 @@
             <div class="message assistant">
                 <div class="avatar">🤖</div>
                 <div class="message-content">
-                    안녕하세요! 저는 <strong>짝퉁 몰트봇 감마버전 VER 0.1</strong>입니다. 🎉<br><br>
+                    안녕하세요! 저는 <strong>짝퉁 몰트봇 감마버전 VER 0.2</strong>입니다. 🎉<br><br>
                     다음과 같은 일들을 도와드릴 수 있어요:
                     <ul style="margin: 10px 0 10px 20px;">
                         <li>📁 파일 검색, 읽기, 쓰기</li>
                         <li>💻 시스템 정보 확인</li>
                         <li>🚀 프로그램 실행/종료</li>
                         <li>🌐 웹 검색</li>
-                        <li>📸 스크린샷</li>
+                        <li>📸 스크린샷 (웹에서 바로 보기!)</li>
+                        <li>🌤️ 날씨 확인 (채팅에서 바로!)</li>
                     </ul>
                     무엇을 도와드릴까요?
                 </div>
@@ -712,7 +718,7 @@
         <div class="input-container">
             <div class="input-wrapper">
                 <div class="input-box">
-                    <textarea id="messageInput" placeholder="메시지를 입력하세요... (예: 'C드라이브에서 txt 파일 찾아줘')" rows="1"></textarea>
+                    <textarea id="messageInput" placeholder="메시지를 입력하세요... (예: '날씨 알려줘', '스크린샷 찍어줘')" rows="1"></textarea>
                     <button class="send-btn" id="sendBtn" onclick="sendMessage()">
                         <i class="fas fa-paper-plane"></i>
                     </button>
@@ -721,38 +727,25 @@
         </div>
     </main>
 
-    <!-- 파일 탐색기 모달 -->
-    <div class="modal" id="fileModal">
+    <!-- ★ 스크린샷 갤러리 모달 -->
+    <div class="modal" id="galleryModal">
         <div class="modal-content">
             <div class="modal-header">
-                <h3><i class="fas fa-folder-open"></i> 파일 탐색기</h3>
-                <button class="modal-close" onclick="closeModal()">&times;</button>
-            </div>
-            <div style="padding: 10px 20px; border-bottom: 1px solid var(--border);">
-                <input type="text" id="pathInput" value="C:/" style="width: 100%; padding: 10px; background: var(--bg-input); border: 1px solid var(--border); border-radius: 8px; color: var(--text);">
+                <h3>📸 스크린샷 갤러리</h3>
+                <button class="modal-close" onclick="closeGalleryModal()">&times;</button>
             </div>
             <div class="modal-body">
-                <div class="file-list" id="fileList"></div>
+                <div class="screenshot-grid" id="screenshotGrid">
+                    <div class="empty-gallery">로딩 중...</div>
+                </div>
             </div>
         </div>
     </div>
 
-    <!-- ★ 이미지 뷰어 모달 -->
-    <div class="modal" id="imageViewerModal" onclick="closeImageViewer(event)">
-        <div style="position:relative; max-width:95vw; max-height:95vh;">
-            <button onclick="closeImageViewer()"
-                    style="position:absolute; top:-15px; right:-15px; z-index:10;
-                           width:36px; height:36px; border-radius:50%;
-                           background:var(--danger); color:white; border:none;
-                           font-size:1.2rem; cursor:pointer; display:flex;
-                           align-items:center; justify-content:center;">
-                &times;
-            </button>
-            <img id="viewerImage" src=""
-                 style="max-width:95vw; max-height:90vh; border-radius:12px;
-                        box-shadow: 0 20px 60px rgba(0,0,0,0.5);"
-                 alt="스크린샷">
-        </div>
+    <!-- ★ 이미지 확대 모달 -->
+    <div class="img-modal" id="imgModal" onclick="closeImgModal()">
+        <span class="close-hint">클릭하면 닫힙니다</span>
+        <img id="imgModalSrc" src="" alt="확대 이미지">
     </div>
 
     <script>
@@ -760,45 +753,9 @@
         const messageInput = document.getElementById('messageInput');
         const sendBtn = document.getElementById('sendBtn');
         let currentEnv = 'local';
-        let sidebarOpen = true;
-
-        // ★ 사이드바 토글
-        function toggleSidebar() {
-            const sidebar = document.getElementById('sidebar');
-            const toggle = document.getElementById('sidebarToggle');
-
-            sidebarOpen = !sidebarOpen;
-
-            if (sidebarOpen) {
-                sidebar.classList.remove('collapsed');
-                toggle.classList.remove('collapsed');
-            } else {
-                sidebar.classList.add('collapsed');
-                toggle.classList.add('collapsed');
-            }
-
-            // 상태 저장
-            localStorage.setItem('assistant_sidebar', sidebarOpen ? 'open' : 'closed');
-        }
-
-        // ★ 뒤로가기
-        function goBack() {
-            window.location.href = '/';
-        }
-
-        // 사이드바 상태 복원
-        function restoreSidebar() {
-            const saved = localStorage.getItem('assistant_sidebar');
-            if (saved === 'closed') {
-                sidebarOpen = false;
-                document.getElementById('sidebar').classList.add('collapsed');
-                document.getElementById('sidebarToggle').classList.add('collapsed');
-            }
-        }
 
         // 초기화
         async function init() {
-            restoreSidebar();
             await updateStatus();
             setInterval(updateStatus, 10000);
             loadHistory();
@@ -821,7 +778,7 @@
                 if (data.system) {
                     document.getElementById('cpuUsage').textContent = data.system.cpu.split(',')[1] || '-';
                     document.getElementById('memUsage').textContent = data.system.memory.split(',')[1] || '-';
-                    document.getElementById('diskUsage').textContent = data.system.disk_c.split(',')[1] || '-';
+                    document.getElementById('diskUsage').textContent = data.system.disk_c || '-';
                 }
             } catch (e) {
                 document.getElementById('modelStatus').textContent = '연결 실패';
@@ -836,9 +793,7 @@
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ env: env })
                 });
-
                 const data = await res.json();
-
                 if (data.success) {
                     currentEnv = env;
                     updateEnvUI();
@@ -852,14 +807,11 @@
             }
         }
 
-        // 환경 UI 업데이트
         function updateEnvUI() {
             const localBtn = document.getElementById('env-local');
             const apiBtn = document.getElementById('env-common');
-
             localBtn.style.background = currentEnv === 'local' ? '#f59e0b' : 'transparent';
             localBtn.style.color = currentEnv === 'local' ? 'white' : 'var(--text-muted)';
-
             apiBtn.style.background = currentEnv !== 'local' ? 'var(--primary)' : 'transparent';
             apiBtn.style.color = currentEnv !== 'local' ? 'white' : 'var(--text-muted)';
         }
@@ -882,12 +834,11 @@
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ message })
                 });
-
                 const data = await res.json();
                 removeLoading(loadingId);
 
                 if (data.success) {
-                    addMessage(data.response, 'assistant', data.image);
+                    addMessage(data.response, 'assistant');
                 } else {
                     addMessage('❌ 오류가 발생했습니다.', 'assistant');
                 }
@@ -899,64 +850,49 @@
             sendBtn.disabled = false;
         }
 
-        // 메시지 추가 (★ 이미지 지원)
-        function addMessage(content, role, imageUrl = null) {
+        // 메시지 추가
+        function addMessage(content, role) {
             const div = document.createElement('div');
             div.className = `message ${role}`;
 
             const avatar = role === 'assistant' ? '🤖' : '👤';
             const formattedContent = formatMessage(content);
 
-            // ★ 이미지가 있으면 이미지도 표시
-            let imageHtml = '';
-            if (imageUrl) {
-                imageHtml = `
-                    <div class="screenshot-container" style="margin-top: 12px;">
-                        <img src="${imageUrl}" alt="스크린샷"
-                             class="screenshot-img"
-                             onclick="openImageViewer('${imageUrl}')"
-                             style="max-width: 100%; border-radius: 10px; cursor: pointer;
-                                    border: 1px solid var(--border); transition: transform 0.2s;"
-                             onmouseover="this.style.transform='scale(1.02)'"
-                             onmouseout="this.style.transform='scale(1)'"
-                             onerror="this.parentElement.innerHTML='❌ 이미지 로드 실패'">
-                        <div style="display:flex; gap:8px; margin-top:8px;">
-                            <a href="${imageUrl}" download style="padding:5px 12px; background:var(--primary);
-                               color:white; border-radius:6px; font-size:0.8rem; text-decoration:none;
-                               transition:background 0.2s;">
-                               <i class="fas fa-download"></i> 다운로드
-                            </a>
-                            <button onclick="openImageViewer('${imageUrl}')"
-                                    style="padding:5px 12px; background:var(--bg-input); color:var(--text);
-                                    border:1px solid var(--border); border-radius:6px; font-size:0.8rem;
-                                    cursor:pointer; transition:background 0.2s;">
-                                <i class="fas fa-expand"></i> 크게 보기
-                            </button>
-                        </div>
-                    </div>
-                `;
-            }
-
             div.innerHTML = `
                 <div class="avatar">${avatar}</div>
-                <div class="message-content">${formattedContent}${imageHtml}</div>
+                <div class="message-content">${formattedContent}</div>
             `;
 
             chatContainer.appendChild(div);
             chatContainer.scrollTop = chatContainer.scrollHeight;
+
+            // ★ 이미지 클릭 이벤트 바인딩
+            div.querySelectorAll('img').forEach(img => {
+                img.addEventListener('click', () => openImgModal(img.src));
+            });
         }
 
-        // 메시지 포맷팅
+        // ★ 메시지 포맷팅 (마크다운 → HTML, 이미지 포함)
         function formatMessage(text) {
+            // 코드 블록
             text = text.replace(/```(\w*)\n?([\s\S]*?)```/g, '<pre><code>$2</code></pre>');
+            // 인라인 코드
             text = text.replace(/`([^`]+)`/g, '<code>$1</code>');
+            // ★ 마크다운 이미지 ![alt](url)
+            text = text.replace(/!\[([^\]]*)\]\(([^)]+)\)/g, '<img src="$2" alt="$1" loading="lazy">');
+            // 볼드
             text = text.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+            // 이탈릭
             text = text.replace(/\*([^*]+)\*/g, '<em>$1</em>');
+            // 헤더
             text = text.replace(/^### (.+)$/gm, '<h4 style="margin:10px 0 5px;color:#8b5cf6;">$1</h4>');
             text = text.replace(/^## (.+)$/gm, '<h3 style="margin:12px 0 6px;color:#6366f1;">$1</h3>');
+            // 구분선
+            text = text.replace(/^---$/gm, '<hr>');
+            // 리스트
             text = text.replace(/^- (.+)$/gm, '<li style="margin-left:20px;">$1</li>');
             text = text.replace(/^\d+\. (.+)$/gm, '<li style="margin-left:20px;">$1</li>');
-            text = text.replace(/^---$/gm, '<hr style="border:none;border-top:1px solid #2d2d4a;margin:15px 0;">');
+            // 줄바꿈
             text = text.replace(/\n/g, '<br>');
             text = text.replace(/(<br>){3,}/g, '<br><br>');
             return text;
@@ -970,9 +906,7 @@
             div.className = 'message assistant';
             div.innerHTML = `
                 <div class="avatar">🤖</div>
-                <div class="loading">
-                    <span></span><span></span><span></span>
-                </div>
+                <div class="loading"><span></span><span></span><span></span></div>
             `;
             chatContainer.appendChild(div);
             chatContainer.scrollTop = chatContainer.scrollHeight;
@@ -998,92 +932,67 @@
             addMessage('대화 기록이 초기화되었습니다. 무엇을 도와드릴까요?', 'assistant');
         }
 
-        // ★ 이미지 뷰어 열기/닫기
-        function openImageViewer(imageUrl) {
-            document.getElementById('viewerImage').src = imageUrl;
-            document.getElementById('imageViewerModal').classList.add('active');
-        }
-
-        function closeImageViewer(event) {
-            if (!event || event.target === document.getElementById('imageViewerModal')) {
-                document.getElementById('imageViewerModal').classList.remove('active');
-            }
-        }
-
-        // ESC 키로 이미지 뷰어 닫기
-        document.addEventListener('keydown', (e) => {
-            if (e.key === 'Escape') {
-                closeImageViewer();
-                closeModal();
-            }
-        });
-
-        // 대화 기록 로드 (★ 이미지 포함)
+        // 대화 기록 로드
         async function loadHistory() {
             try {
                 const res = await fetch('/assistant/api/history');
                 const data = await res.json();
                 if (data.history && data.history.length > 0) {
                     data.history.forEach(msg => {
-                        addMessage(msg.content, msg.role, msg.image || null);
+                        addMessage(msg.content, msg.role);
                     });
                 }
             } catch (e) {}
         }
 
-        // 파일 탐색기
-        async function openFileExplorer() {
-            document.getElementById('fileModal').classList.add('active');
-            loadFiles('C:/');
-        }
-
-        function closeModal() {
-            document.getElementById('fileModal').classList.remove('active');
-        }
-
-        async function loadFiles(path) {
-            document.getElementById('pathInput').value = path;
+        // ★ 스크린샷 갤러리
+        async function openScreenshotGallery() {
+            document.getElementById('galleryModal').classList.add('active');
             try {
-                const res = await fetch(`/api/files?path=${encodeURIComponent(path)}`);
+                const res = await fetch('/assistant/api/screenshots');
                 const data = await res.json();
+                const grid = document.getElementById('screenshotGrid');
 
-                const list = document.getElementById('fileList');
-                list.innerHTML = '';
-
-                if (path !== 'C:/') {
-                    const parent = path.split('/').slice(0, -1).join('/') || 'C:/';
-                    list.innerHTML += `
-                        <div class="file-item folder" onclick="loadFiles('${parent}')">
-                            <i class="fas fa-level-up-alt"></i>
-                            <span>..</span>
-                        </div>
-                    `;
+                if (!data.screenshots || data.screenshots.length === 0) {
+                    grid.innerHTML = '<div class="empty-gallery">📸 아직 스크린샷이 없습니다.<br>「스크린샷 찍어줘」라고 말해보세요!</div>';
+                    return;
                 }
 
-                data.files.forEach(f => {
-                    if (f.error) return;
-                    const isFolder = f.type === '폴더';
-                    const icon = isFolder ? 'fa-folder' : 'fa-file';
-                    const newPath = path.endsWith('/') ? path + f.name : path + '/' + f.name;
-
-                    list.innerHTML += `
-                        <div class="file-item ${isFolder ? 'folder' : ''}" onclick="${isFolder ? `loadFiles('${newPath}')` : `selectFile('${newPath}')`}">
-                            <i class="fas ${icon}"></i>
-                            <span>${f.name}</span>
-                            <span style="margin-left: auto; color: var(--text-muted); font-size: 0.8rem;">${f.size}</span>
+                grid.innerHTML = data.screenshots.map(sc => `
+                    <div class="screenshot-card" onclick="openImgModal('${sc.url}')">
+                        <img src="${sc.url}" alt="스크린샷" loading="lazy">
+                        <div class="info">
+                            📅 ${sc.time}<br>
+                            💾 ${sc.size}
                         </div>
-                    `;
-                });
+                    </div>
+                `).join('');
             } catch (e) {
-                document.getElementById('fileList').innerHTML = '<p>로드 실패</p>';
+                document.getElementById('screenshotGrid').innerHTML = '<div class="empty-gallery">❌ 로딩 실패</div>';
             }
         }
 
-        function selectFile(path) {
-            closeModal();
-            messageInput.value = `${path} 파일 내용 보여줘`;
-            sendMessage();
+        function closeGalleryModal() {
+            document.getElementById('galleryModal').classList.remove('active');
         }
+
+        // ★ 이미지 확대 모달
+        function openImgModal(src) {
+            document.getElementById('imgModalSrc').src = src;
+            document.getElementById('imgModal').classList.add('active');
+        }
+
+        function closeImgModal() {
+            document.getElementById('imgModal').classList.remove('active');
+        }
+
+        // ESC로 모달 닫기
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape') {
+                closeGalleryModal();
+                closeImgModal();
+            }
+        });
 
         // 엔터키
         messageInput.addEventListener('keydown', (e) => {
@@ -1098,6 +1007,18 @@
             messageInput.style.height = 'auto';
             messageInput.style.height = Math.min(messageInput.scrollHeight, 150) + 'px';
         });
+
+        // ★ 사이드바 접기/펼치기
+        function toggleSidebar() {
+            const sidebar = document.querySelector('.sidebar');
+            const icon = document.getElementById('sidebarIcon');
+            sidebar.classList.toggle('collapsed');
+            if (sidebar.classList.contains('collapsed')) {
+                icon.className = 'fas fa-angles-right';
+            } else {
+                icon.className = 'fas fa-bars';
+            }
+        }
 
         init();
     </script>
