@@ -455,6 +455,9 @@ def latest_news() -> dict:
                 "--no-first-run",
                 "--no-default-browser-check",
                 "--start-maximized",
+                "--disable-extensions",
+                "--disable-sync",
+                "--disable-translate",
                 news_url
             ])
             logger.info(f"📰 구글뉴스 독립 창 열기 (PID: {news_proc.pid})")
@@ -462,8 +465,8 @@ def latest_news() -> dict:
             webbrowser.open(news_url)
             logger.info("📰 구글뉴스 열기 (기본 브라우저)")
         
-        # 2. 페이지 로딩 대기
-        time.sleep(2)
+        # 2. 초기 로딩 대기 (임시 프로필 첫 실행은 느림)
+        time.sleep(3)
         
         # 2.5. 강제 전체화면 (임시 프로필은 최대화 무시할 수 있음)
         try:
@@ -480,7 +483,9 @@ def latest_news() -> dict:
         except Exception as e:
             logger.warning(f"⚠️ 최대화 실패 (무시): {e}")
         
-        time.sleep(3)
+        # 3. 뉴스 페이지 완전히 로딩될 때까지 충분히 대기
+        logger.info("⏳ 뉴스 페이지 로딩 대기 중... (8초)")
+        time.sleep(8)
         
         # 3. 스크린샷 찍기
         from PIL import ImageGrab
