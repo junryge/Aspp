@@ -386,58 +386,75 @@ def take_screenshot() -> dict:
         return {"success": False, "error": str(e)}
 
 
-# ★ 날씨 확인: wttr.in API 사용 (브라우저 안 열림)
+# ★ 날씨 확인: 구글 검색 결과 스크래핑
 def get_weather(city: str = "Seoul") -> dict:
-    """wttr.in API로 날씨 정보 가져오기"""
+    """구글에서 날씨 검색 후 결과를 파싱해서 반환"""
     try:
-        # 방법 1: JSON API
-        url = f"https://wttr.in/{city}?format=j1"
-        headers = {"Accept-Language": "ko"}
+        from bs4 import BeautifulSoup
+    except ImportError:
+        # bs4 없으면 설치 시도
+        import subprocess
+        subprocess.run(["pip", "install", "beautifulsoup4"], capture_output=True)
+        from bs4 import BeautifulSoup
+
+    try:
+        url = f"https://www.google.com/search?q={city}+날씨&hl=ko"
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+            "Accept-Language": "ko-KR,ko;q=0.9"
+        }
         response = requests.get(url, headers=headers, timeout=10)
 
-        if response.status_code == 200:
-            data = response.json()
-            current = data.get("current_condition", [{}])[0]
-            weather_desc = current.get("lang_ko", [{}])
-            if weather_desc:
-                desc = weather_desc[0].get("value", current.get("weatherDesc", [{}])[0].get("value", ""))
+        if response.status_code != 200:
+            return {"city": city, "error": f"구글 응답 오류: {response.status_code}"}
+
+        soup = BeautifulSoup(response.text, "html.parser")
+
+        result = {"city": city}
+
+        # 현재 온도
+        temp_el = soup.find("span", id="wob_tm")
+        if temp_el:
+            result["temp"] = temp_el.text + "°C"
+
+        # 날씨 설명
+        desc_el = soup.find("span", id="wob_dc")
+        if desc_el:
+            result["description"] = desc_el.text
+
+        # 체감 온도 / 습도 / 바람
+        humidity_el = soup.find("span", id="wob_hm")
+        if humidity_el:
+            result["humidity"] = humidity_el.text
+
+        wind_el = soup.find("span", id="wob_ws")
+        if wind_el:
+            result["wind"] = wind_el.text
+
+        # 위치명
+        loc_el = soup.find("div", id="wob_loc")
+        if loc_el:
+            result["location"] = loc_el.text
+
+        # 시간
+        time_el = soup.find("div", id="wob_dts")
+        if time_el:
+            result["time"] = time_el.text
+
+        # 온도 못 찾으면 텍스트에서 추출 시도
+        if "temp" not in result:
+            text = soup.get_text()
+            import re as _re
+            temp_match = _re.search(r'(\d+)\s*°', text)
+            if temp_match:
+                result["temp"] = temp_match.group(0)
             else:
-                desc = current.get("weatherDesc", [{}])[0].get("value", "")
+                result["error"] = "날씨 정보를 파싱할 수 없습니다"
 
-            result = {
-                "city": city,
-                "temp": current.get("temp_C", "?"),
-                "feels_like": current.get("FeelsLikeC", "?"),
-                "humidity": current.get("humidity", "?"),
-                "wind_speed": current.get("windspeedKmph", "?"),
-                "wind_dir": current.get("winddir16Point", "?"),
-                "description": desc,
-                "visibility": current.get("visibility", "?"),
-                "uv_index": current.get("uvIndex", "?"),
-            }
-
-            # 내일/모레 예보
-            forecasts = []
-            for day in data.get("weather", [])[:3]:
-                forecasts.append({
-                    "date": day.get("date", "?"),
-                    "max_temp": day.get("maxtempC", "?"),
-                    "min_temp": day.get("mintempC", "?"),
-                    "desc": day.get("hourly", [{}])[4].get("lang_ko", [{}])[0].get("value", "") if day.get("hourly") else ""
-                })
-            result["forecast"] = forecasts
-
-            return result
-        else:
-            # 방법 2: 텍스트 폴백
-            url2 = f"https://wttr.in/{city}?format=%C+%t+%h+%w&lang=ko"
-            resp2 = requests.get(url2, timeout=10)
-            if resp2.status_code == 200:
-                return {"city": city, "summary": resp2.text.strip()}
-            return {"city": city, "error": f"날씨 API 오류: {response.status_code}"}
+        return result
 
     except requests.Timeout:
-        return {"city": city, "error": "날씨 서버 응답 시간 초과"}
+        return {"city": city, "error": "구글 응답 시간 초과"}
     except Exception as e:
         return {"city": city, "error": str(e)}
 
@@ -699,28 +716,28 @@ def format_weather(tool_result: str) -> str:
         if "error" in data:
             return f"❌ 날씨 조회 실패: {data['error']}"
 
-        if "summary" in data:
-            return f"🌤️ **{data['city']}** 날씨: {data['summary']}"
+        lines = []
+        loc = data.get("location", data.get("city", "?"))
+        lines.append(f"## 🌤️ {loc} 날씨\n")
 
-        lines = [
-            f"## 🌤️ {data.get('city', '?')} 현재 날씨\n",
-            f"🌡️ **기온**: {data.get('temp', '?')}°C (체감 {data.get('feels_like', '?')}°C)",
-            f"☁️ **날씨**: {data.get('description', '?')}",
-            f"💧 **습도**: {data.get('humidity', '?')}%",
-            f"💨 **바람**: {data.get('wind_speed', '?')}km/h ({data.get('wind_dir', '')})",
-            f"👁️ **가시거리**: {data.get('visibility', '?')}km",
-            f"☀️ **자외선**: {data.get('uv_index', '?')}",
-        ]
+        if data.get("time"):
+            lines.append(f"🕐 {data['time']}")
 
-        forecasts = data.get("forecast", [])
-        if forecasts:
-            lines.append("\n---\n### 📅 향후 예보\n")
-            for fc in forecasts:
-                lines.append(f"- **{fc.get('date', '?')}**: {fc.get('desc', '?')} | 🌡️ {fc.get('min_temp', '?')}~{fc.get('max_temp', '?')}°C")
+        if data.get("temp"):
+            lines.append(f"🌡️ **기온**: {data['temp']}")
+
+        if data.get("description"):
+            lines.append(f"☁️ **날씨**: {data['description']}")
+
+        if data.get("humidity"):
+            lines.append(f"💧 **습도**: {data['humidity']}")
+
+        if data.get("wind"):
+            lines.append(f"💨 **바람**: {data['wind']}")
 
         return "\n".join(lines)
     except Exception as e:
-        return f"❌ 날씨 데이터 처리 오류: {e}"
+        return f"❌ 날씨 처리 오류: {e}"
 
 
 # Fallback 포맷터
