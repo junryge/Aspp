@@ -19,7 +19,7 @@ import fnmatch
 import requests
 import pandas as pd
 from typing import Optional, List
-from fastapi import FastAPI, APIRouter
+from fastapi import FastAPI, APIRouter, UploadFile, File
 from fastapi.responses import FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
@@ -51,6 +51,10 @@ HISTORY_FILE = os.path.join(BASE_DIR, "chat_history.json")
 # ★ 스크린샷 전용 폴더
 SCREENSHOT_DIR = os.path.join(BASE_DIR, "screenshots")
 os.makedirs(SCREENSHOT_DIR, exist_ok=True)
+
+# ★ 지식베이스(MD 문서) 폴더
+KNOWLEDGE_DIR = os.path.join(BASE_DIR, "knowledge")
+os.makedirs(KNOWLEDGE_DIR, exist_ok=True)
 
 LLM_MODE = "local"
 API_TOKEN = None
@@ -101,6 +105,14 @@ SYSTEM_PROMPT = """당신은 '짝퉁 몰트봇 감마버전 VER 0.2'이라는 PC
 - 스크린샷: {"tool": "screenshot"}
 - 데이터분석: {"tool": "analyze_data", "path": "C:/data.csv"}
 - 프로세스목록: {"tool": "list_processes", "sort_by": "memory"}
+- 지식검색: {"tool": "search_knowledge", "keyword": "HID_INOUT"}
+- 지식목록: {"tool": "list_knowledge"}
+- 지식읽기: {"tool": "read_knowledge", "filename": "HID_INOUT_Java_변경사항.md"}
+
+[지식베이스 관련]
+- 사용자가 프로젝트, 코드 변경사항, 기술 문서에 대해 물어보면 먼저 search_knowledge로 관련 문서를 검색하세요.
+- HID, INOUT, 엣지, 테이블, OhtMsgWorker 등 기술 키워드가 나오면 지식베이스를 검색하세요.
+- 문서를 찾으면 read_knowledge로 내용을 읽고 그 내용을 기반으로 답변하세요.
 
 일반 대화는 한국어로 자연스럽게 답변하세요."""
 
@@ -411,6 +423,84 @@ def list_processes(sort_by: str = "memory", limit: int = 30) -> List[dict]:
         return [{"error": str(e)}]
 
 
+# ★ 지식베이스 함수들
+def list_knowledge() -> List[dict]:
+    """지식베이스 폴더의 MD 파일 목록 반환"""
+    files = []
+    try:
+        for f in sorted(os.listdir(KNOWLEDGE_DIR)):
+            if f.endswith(('.md', '.txt')):
+                filepath = os.path.join(KNOWLEDGE_DIR, f)
+                size = os.path.getsize(filepath)
+                modified = datetime.datetime.fromtimestamp(os.path.getmtime(filepath)).strftime("%Y-%m-%d %H:%M")
+                files.append({
+                    "filename": f,
+                    "size": f"{size:,}B",
+                    "modified": modified
+                })
+    except Exception as e:
+        logger.error(f"지식 목록 오류: {e}")
+    return files
+
+
+def search_knowledge(keyword: str) -> List[dict]:
+    """지식베이스에서 키워드로 파일 검색 (파일명 + 내용)"""
+    results = []
+    try:
+        for f in os.listdir(KNOWLEDGE_DIR):
+            if not f.endswith(('.md', '.txt')):
+                continue
+            filepath = os.path.join(KNOWLEDGE_DIR, f)
+            matched = False
+            snippet = ""
+
+            # 파일명 매칭
+            if keyword.lower() in f.lower():
+                matched = True
+
+            # 내용 매칭
+            try:
+                with open(filepath, 'r', encoding='utf-8', errors='ignore') as fh:
+                    content = fh.read()
+                    if keyword.lower() in content.lower():
+                        matched = True
+                        idx = content.lower().find(keyword.lower())
+                        snippet = content[max(0, idx-50):min(len(content), idx+100)].replace('\n', ' ').strip()
+            except:
+                pass
+
+            if matched:
+                results.append({
+                    "filename": f,
+                    "snippet": f"...{snippet}..." if snippet else "(파일명 매칭)"
+                })
+    except Exception as e:
+        logger.error(f"지식 검색 오류: {e}")
+    return results
+
+
+def read_knowledge(filename: str) -> str:
+    """지식베이스 MD 파일 읽기"""
+    filepath = os.path.join(KNOWLEDGE_DIR, filename)
+    if not os.path.exists(filepath):
+        # 파일명 부분 매칭 시도
+        for f in os.listdir(KNOWLEDGE_DIR):
+            if filename.lower() in f.lower():
+                filepath = os.path.join(KNOWLEDGE_DIR, f)
+                break
+        else:
+            return f"❌ '{filename}' 파일을 찾을 수 없습니다. list_knowledge로 목록을 확인하세요."
+
+    try:
+        with open(filepath, 'r', encoding='utf-8', errors='ignore') as f:
+            content = f.read(15000)  # 최대 15KB
+            if len(content) == 15000:
+                content += "\n\n... (문서가 길어서 일부만 표시)"
+            return content
+    except Exception as e:
+        return f"파일 읽기 오류: {e}"
+
+
 def analyze_data(path: str) -> str:
     try:
         ext = os.path.splitext(path)[1].lower()
@@ -480,6 +570,18 @@ def execute_tool(tool_data: dict) -> str:
 
     elif tool_name == "analyze_data":
         return analyze_data(tool_data.get("path", ""))
+
+    # ★ 지식베이스 도구들
+    elif tool_name == "list_knowledge":
+        results = list_knowledge()
+        return json.dumps(results, ensure_ascii=False, indent=2)
+
+    elif tool_name == "search_knowledge":
+        results = search_knowledge(tool_data.get("keyword", ""))
+        return json.dumps(results, ensure_ascii=False, indent=2)
+
+    elif tool_name == "read_knowledge":
+        return read_knowledge(tool_data.get("filename", ""))
 
     # ★ 프로세스 목록
     elif tool_name == "list_processes":
@@ -837,6 +939,39 @@ async def assistant_clear_history():
     CHAT_HISTORY = []
     save_history()
     return {"success": True}
+
+
+# ★ 지식베이스 API
+@router.get("/api/knowledge")
+async def api_list_knowledge():
+    """지식베이스 문서 목록"""
+    files = list_knowledge()
+    return {"success": True, "files": files, "count": len(files)}
+
+
+@router.post("/api/knowledge/upload")
+async def api_upload_knowledge(file: UploadFile = File(...)):
+    """MD/TXT 파일 업로드"""
+    if not file.filename.endswith(('.md', '.txt')):
+        return {"success": False, "error": "md 또는 txt 파일만 업로드 가능합니다."}
+    try:
+        filepath = os.path.join(KNOWLEDGE_DIR, file.filename)
+        content = await file.read()
+        with open(filepath, 'wb') as f:
+            f.write(content)
+        return {"success": True, "filename": file.filename, "size": len(content)}
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+
+@router.delete("/api/knowledge/{filename}")
+async def api_delete_knowledge(filename: str):
+    """지식베이스 문서 삭제"""
+    filepath = os.path.join(KNOWLEDGE_DIR, filename)
+    if os.path.exists(filepath):
+        os.remove(filepath)
+        return {"success": True, "message": f"'{filename}' 삭제됨"}
+    return {"success": False, "error": "파일 없음"}
 
 
 if __name__ == "__main__":
