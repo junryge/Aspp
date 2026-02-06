@@ -26,11 +26,15 @@
             --danger: #ef4444;
         }
 
+        html, body {
+            height: 100vh;
+            overflow: hidden;
+        }
+
         body {
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
             background: var(--bg-dark);
             color: var(--text);
-            min-height: 100vh;
             display: flex;
         }
 
@@ -783,6 +787,7 @@
         /* ★ 파라미터 설정 패널 */
         .param-panel {
             width: 0;
+            height: 100vh;
             background: var(--bg-card);
             border-left: 1px solid var(--border);
             overflow: hidden;
