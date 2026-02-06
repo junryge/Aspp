@@ -2213,19 +2213,20 @@ async def api_preview_effective_prompt():
     }
 
 
+# ★ 감마봇 코딩 에이전트 라우터 연결 (모듈 로드 시점에 등록)
+try:
+    from coding_agent import agent_router
+    app.include_router(agent_router)
+    print("⚡ 감마봇 코딩 에이전트 라우터 연결 완료")
+except ImportError as e:
+    print(f"⚠️ coding_agent.py 없음 → 감마봇 모드 비활성: {e}")
+except Exception as e:
+    print(f"⚠️ 감마봇 로드 오류: {e}")
+
+
 if __name__ == "__main__":
     import uvicorn
     app.include_router(router)
-
-    # ★ 나나봇 코딩 에이전트 라우터 연결
-    try:
-        from coding_agent import agent_router
-        app.include_router(agent_router)
-        print("🐈 나나봇 코딩 에이전트 라우터 연결 완료")
-    except ImportError as e:
-        print(f"⚠️ coding_agent.py 없음 → 나나봇 모드 비활성: {e}")
-    except Exception as e:
-        print(f"⚠️ 나나봇 로드 오류: {e}")
 
     @app.on_event("startup")
     async def standalone_startup():
