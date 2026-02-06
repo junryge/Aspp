@@ -27,8 +27,11 @@
         }
 
         html, body {
-            height: 100vh;
+            height: 100%;
+            max-height: 100%;
             overflow: hidden;
+            margin: 0;
+            padding: 0;
         }
 
         body {
@@ -36,6 +39,9 @@
             background: var(--bg-dark);
             color: var(--text);
             display: flex;
+            height: 100%;
+            max-height: 100%;
+            overflow: hidden;
         }
 
         /* 사이드바 - fixed로 고정 */
@@ -48,8 +54,10 @@
             border-right: 1px solid var(--border);
             display: flex;
             flex-direction: column;
-            height: 100vh;
+            height: 100%;
+            max-height: 100vh;
             z-index: 100;
+            overflow-y: auto;
         }
 
         .logo {
@@ -178,11 +186,12 @@
             flex: 1;
             display: flex;
             flex-direction: column;
-            height: 100vh;  /* 전체 화면 높이 */
-            min-height: 0;  /* flex 자식 요소 스크롤 허용 */
-            margin-left: 280px;  /* 사이드바 너비만큼 */
+            height: 100%;
+            max-height: 100vh;
+            min-height: 0;
+            margin-left: 280px;
             transition: margin-left 0.3s ease;
-            overflow: hidden;  /* 내부 스크롤만 허용 */
+            overflow: hidden;
         }
 
         .main.sidebar-collapsed {
@@ -196,6 +205,7 @@
             justify-content: space-between;
             align-items: center;
             background: var(--bg-card);
+            flex-shrink: 0;
         }
 
         .header h2 {
@@ -388,8 +398,6 @@
 
         /* 입력 영역 - 하단 고정 */
         .input-container {
-            position: sticky;
-            bottom: 0;
             padding: 20px;
             background: var(--bg-card);
             border-top: 1px solid var(--border);
@@ -787,7 +795,8 @@
         /* ★ 파라미터 설정 패널 */
         .param-panel {
             width: 0;
-            height: 100vh;
+            height: 100%;
+            max-height: 100vh;
             background: var(--bg-card);
             border-left: 1px solid var(--border);
             overflow: hidden;
