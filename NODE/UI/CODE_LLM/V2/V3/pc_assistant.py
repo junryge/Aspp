@@ -100,6 +100,10 @@ TOKEN_USAGE = {
 SCREENSHOT_DIR = os.path.join(BASE_DIR, "screenshots")
 os.makedirs(SCREENSHOT_DIR, exist_ok=True)
 
+# ★ 스크린샷 비밀번호 인증
+SCREENSHOT_PASSWORD = "1234"
+screenshot_authenticated = False  # 인증 상태 (1회용)
+
 # ★ 리소스 폴더 (HTML 구성도 등 정적 파일)
 RESOURCES_DIR = os.path.join(BASE_DIR, "resources")
 os.makedirs(RESOURCES_DIR, exist_ok=True)
@@ -595,6 +599,15 @@ def get_time() -> str:
 # ★ 스크린샷: 전용 폴더 저장 + URL 반환
 def take_screenshot() -> dict:
     """스크린샷 찍고 전용 폴더에 저장, 웹 표시용 URL 반환"""
+    global screenshot_authenticated
+    
+    # ★ 비밀번호 인증 체크
+    if not screenshot_authenticated:
+        return {"success": False, "auth_required": True, "error": "🔒 스크린샷은 비밀번호 인증이 필요합니다."}
+    
+    # 인증 후 1회 사용 → 자동 잠금
+    screenshot_authenticated = False
+    
     try:
         from PIL import ImageGrab
         filename = f"screenshot_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.png"
@@ -602,7 +615,6 @@ def take_screenshot() -> dict:
         img = ImageGrab.grab()
         img.save(filepath)
         logger.info(f"📸 스크린샷 저장: {filepath}")
-        # 웹에서 접근 가능한 URL 반환
         return {
             "success": True,
             "filename": filename,
@@ -618,6 +630,14 @@ def take_screenshot() -> dict:
 # ★ 최신뉴스: 독립 브라우저 창 열기 → 스크린샷 → 그 창만 닫기
 def latest_news() -> dict:
     """구글뉴스를 독립 브라우저로 열고, 스크린샷 찍고, 그 창만 닫기"""
+    global screenshot_authenticated
+    
+    # ★ 비밀번호 인증 체크
+    if not screenshot_authenticated:
+        return {"success": False, "auth_required": True, "error": "🔒 뉴스 스크린샷은 비밀번호 인증이 필요합니다."}
+    
+    screenshot_authenticated = False  # 1회 사용 후 잠금
+    
     import time
     import shutil
     
@@ -1160,6 +1180,8 @@ def process_chat(user_message: str) -> str:
                 if tool_name == "screenshot":
                     try:
                         sc_data = json.loads(tool_result)
+                        if sc_data.get("auth_required"):
+                            return "🔒 **스크린샷 인증 필요**\n\n비밀번호를 입력해야 스크린샷을 찍을 수 있습니다.\n\n<!--AUTH_REQUIRED:screenshot-->"
                         if sc_data.get("success"):
                             return f"📸 스크린샷을 찍었습니다!\n\n![스크린샷]({sc_data['url']})\n\n저장 위치: `{sc_data['path']}`"
                         else:
@@ -1171,6 +1193,8 @@ def process_chat(user_message: str) -> str:
                 if tool_name == "latest_news":
                     try:
                         news_data = json.loads(tool_result)
+                        if news_data.get("auth_required"):
+                            return "🔒 **뉴스 스크린샷 인증 필요**\n\n비밀번호를 입력해야 뉴스를 확인할 수 있습니다.\n\n<!--AUTH_REQUIRED:news-->"
                         if news_data.get("success"):
                             return f"📰 **최신 뉴스** (구글뉴스)\n\n![뉴스]({news_data['url']})\n\n브라우저를 닫았습니다."
                         else:
@@ -1523,6 +1547,20 @@ async def serve_resource(filename: str):
         media_type = mime_types.get(ext, "application/octet-stream")
         return FileResponse(filepath, media_type=media_type)
     return JSONResponse(status_code=404, content={"error": "파일 없음"})
+
+
+# ★ 스크린샷 비밀번호 인증 API
+@router.post("/api/screenshot/auth")
+async def screenshot_auth(data: dict):
+    global screenshot_authenticated
+    password = data.get("password", "")
+    if password == SCREENSHOT_PASSWORD:
+        screenshot_authenticated = True
+        logger.info("🔓 스크린샷 인증 성공")
+        return {"success": True, "message": "인증 성공"}
+    else:
+        logger.warning("🔒 스크린샷 인증 실패")
+        return {"success": False, "message": "비밀번호가 틀렸습니다."}
 
 
 # ★ 스크린샷 목록
@@ -1915,4 +1953,4 @@ if __name__ == "__main__":
     async def standalone_startup():
         init_assistant()
 
-    uvicorn.run(app, host="0.0.0.0", port=10003)
+    uvicorn.run(app, host="0.0.0.0", port=10002)
