@@ -336,7 +336,7 @@ async def agent_mem():
     m = nanobot_manager.memory
     return {"long_term":m.read_long_term(),"today":m.read_today(),
             "files":[f.name for f in m.list_memory_files()[:10]]}
-
+#ㅁ
 def _ver():
     try:
         import importlib.metadata; return importlib.metadata.version("nanobot-ai")
