@@ -1544,6 +1544,113 @@ def process_chat(user_message: str) -> str:
                 logger.error(f"❌ JSON 파싱 오류: {e}")
                 return "❌ 명령 처리 중 오류가 발생했습니다."
 
+        # ★★★ LLM이 도구를 호출하지 않은 경우 → 자동 지식베이스 탐색 ★★★
+        # PC 명령어/인사가 아닌데 도구를 안 불렀으면 = 지식베이스를 놓친 것
+        skip_keywords = ["프로그램", "실행", "종료", "프로세스", "스크린샷", "캡처",
+                         "시스템", "cpu", "메모리", "디스크", "몇시", "시간", "날짜",
+                         "파일 찾", "파일 검색", "검색해", "구글", "뉴스", "폴더", "디렉토리"]
+        greeting_patterns = ["안녕", "하이", "헬로", "hi", "hello", "ㅎㅇ", "반가",
+                             "고마워", "감사", "ㄱㅅ", "ㅋㅋ", "ㅎㅎ", "네", "응", "ㅇㅇ",
+                             "아니", "뭐해", "심심", "잘자", "바이"]
+
+        msg_lower = user_message.lower().strip()
+        is_pc_cmd = any(kw in msg_lower for kw in skip_keywords)
+        is_greeting = any(msg_lower.startswith(g) or msg_lower == g for g in greeting_patterns)
+        is_short = len(msg_lower) <= 4
+
+        # 지식베이스 파일이 있고, PC명령/인사/짧은말이 아닌 경우 → 자동 검색
+        kb_has_files = False
+        try:
+            kb_has_files = any(f.endswith(('.md', '.txt')) for f in os.listdir(KNOWLEDGE_DIR))
+        except:
+            pass
+
+        if kb_has_files and not is_pc_cmd and not is_greeting and not is_short:
+            logger.info(f"🔄 자동 지식베이스 탐색: '{user_message}'")
+
+            # 키워드 추출 (조사/어미 제거)
+            clean_msg = re.sub(r'(알려줘|설명해줘|뭐야|뭐에요|해줘|할래|에 대해|에대해|좀|줘|요|는|은|이|가|을|를|의|로|으로|에서|부터|까지|이랑|랑|하고|그리고|또는|이나|나|이든)', '', msg_lower).strip()
+            if not clean_msg:
+                clean_msg = msg_lower
+
+            auto_results = search_knowledge(clean_msg)
+
+            if auto_results:
+                # 검색 성공 → 문서 기반 답변 생성 (기존 search_knowledge 핸들러 동일 로직)
+                logger.info(f"✅ 자동 검색 성공: {[r['filename'] for r in auto_results[:3]]}")
+                MAX_TOTAL_LENGTH = 15000
+                merged_docs = []
+                total_length = 0
+                doc_names = []
+                top_score = auto_results[0].get("score", 100)
+
+                for i, res_item in enumerate(auto_results):
+                    filename = res_item["filename"]
+                    score = res_item.get("score", 0)
+                    if i > 0 and score < top_score * 0.5:
+                        break
+                    doc_content = read_knowledge(filename)
+                    if doc_content.startswith("❌"):
+                        continue
+                    remaining = MAX_TOTAL_LENGTH - total_length
+                    if remaining <= 1000:
+                        break
+                    if len(doc_content) > remaining:
+                        doc_content = doc_content[:remaining] + "\n\n... (문서 일부 생략)"
+                    merged_docs.append(f"📄 **[{filename}]**\n{doc_content}")
+                    doc_names.append(filename)
+                    total_length += len(doc_content)
+
+                if merged_docs:
+                    combined_content = "\n\n---\n\n".join(merged_docs)
+                    doc_list = ", ".join(doc_names)
+
+                    follow_up_prompt = f"""[사용자 질문]
+{user_message}
+
+[참고 문서 {len(doc_names)}개: {doc_list}]
+{combined_content}
+
+위 문서들을 참고해서 사용자의 질문에 정확히 답변하세요.
+여러 문서의 내용을 종합해서 답변하고, 문서에 없는 내용은 추측하지 마세요."""
+
+                    follow_up_system = """당신은 시니어 소프트웨어 엔지니어이자 기술 문서 전문가입니다.
+
+[답변 형식]
+**📋 핵심 요약**
+질문에 대한 핵심 답변을 2~3줄로 요약
+
+**📝 상세 내용**
+문서에서 중요한 내용을 충분히 자세하게 정리
+
+[답변 규칙]
+1. 문서 내용을 근거로 정확하고 충분히 상세하게 답변하세요.
+2. 소스코드 원본은 보여주지 말고, 코드의 기능/역할/동작을 설명하세요.
+3. 마크다운 표(| --- |) 사용 금지. "- 항목: 값" 형태로 나열하세요.
+4. ## ### 대제목 헤더 대신 **볼드**와 이모지를 사용하세요.
+5. 한국어로 답변하세요.
+6. 절대 JSON을 출력하거나 도구를 호출하지 마세요."""
+
+                    result2 = call_llm(follow_up_prompt, follow_up_system, max_tokens=6000)
+                    if result2["success"]:
+                        content2 = result2["content"].strip()
+                        if content2 and not extract_tool_json(content2):
+                            source_info = f"\n\n---\n📚 **참조 문서**: {doc_list}"
+                            return content2 + source_info
+            else:
+                # ★ 검색 실패 → 역질문 유도
+                logger.info(f"🔄 자동 검색 실패 → 역질문 유도")
+                guide = generate_guided_questions(user_message)
+                if guide["success"] and guide["suggestions"]:
+                    lines = [f"🔍 **{guide['message']}**\n"]
+                    for suggestion in guide["suggestions"]:
+                        lines.append(f"<!--SUGGEST:{suggestion}-->")
+                    lines.append(f"\n\n💡 위 추천 질문을 클릭하거나, 더 구체적인 키워드로 다시 질문해보세요.")
+                    if guide.get("kb_files"):
+                        lines.append(f"\n📚 현재 등록된 문서: {', '.join(guide['kb_files'][:5])}")
+                    return "\n".join(lines)
+
+        # 위 모든 경우에 해당하지 않으면 LLM 원래 응답 반환
         return text
 
     except Exception as e:
