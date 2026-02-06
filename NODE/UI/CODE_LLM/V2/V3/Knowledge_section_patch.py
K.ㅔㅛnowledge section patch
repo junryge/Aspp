@@ -1,0 +1,505 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+knowledge_section_patch.py
+pc_assistant.py에 섹션 단위 지식베이스 검색을 추가하는 패치
+
+=== 현재 문제 ===
+"앙상블 5개 규칙 알려줘" → search_knowledge() → 파일명 매칭 → read_knowledge() → MD 파일 전체(30000자)를 LLM에 넘김
+→ 토큰 낭비 + 엉뚱한 내용 포함 + LLM이 핵심을 놓칠 수 있음
+
+=== 해결 ===
+search_knowledge_section() → ## 헤더 기준 섹션 파싱 → 관련 섹션만 반환 (2000~5000자)
+→ 정확한 답변 + 토큰 절약 + 빠른 응답
+
+=== 적용 방법 ===
+1. 이 파일의 함수들을 pc_assistant.py에 복사
+2. process_chat()의 자동 지식검색 부분에서 search_knowledge() 대신 search_knowledge_section() 호출
+3. read_knowledge() 대신 섹션의 content를 직접 사용
+
+상세한 적용 위치는 아래 주석 참고
+"""
+
+import os
+import re
+import logging
+from typing import List, Dict, Optional
+
+logger = logging.getLogger("KBSection")
+
+
+# ============================================================
+# [1] MD 섹션 파싱 함수 - pc_assistant.py 782번줄 근처에 추가
+# ============================================================
+
+def parse_md_sections(filepath: str) -> List[dict]:
+    """
+    MD 파일을 ## (H2) 헤더 기준으로 섹션 분리
+    H2 섹션은 하위 H3~H6까지 모두 포함!
+    
+    "## 11. 모델 성능 지표 산출 로직" 검색하면
+    → 11-1, 11-2, 11-3 서브섹션 내용까지 전부 포함
+    
+    Returns:
+        [{"header": "7. 앙상블 모델 5개 규칙 (상세)", 
+          "level": 2, 
+          "content": "섹션 전체 내용 (하위 포함)...",
+          "sub_headers": ["7-1. 투표 구성", "7-2. 최종 판정 5개 규칙"],
+          "keywords": ["앙상블", "규칙", "투표", ...]}, ...]
+    """
+    try:
+        with open(filepath, 'r', encoding='utf-8', errors='ignore') as f:
+            lines = f.readlines()
+    except:
+        return []
+    
+    # === 1단계: H2 기준으로 큰 블록 분리 ===
+    h2_sections = []
+    current_lines = []
+    current_header = ""
+    current_sub_headers = []
+    
+    for line in lines:
+        header_match = re.match(r'^(#{1,6})\s+(.+)', line.strip())
+        
+        if header_match:
+            level = len(header_match.group(1))
+            header_text = header_match.group(2).strip()
+            
+            if level <= 2:  # H1 또는 H2 → 새 블록 시작
+                # 이전 블록 저장
+                if current_lines:
+                    content = ''.join(current_lines).strip()
+                    if len(content) > 20:
+                        h2_sections.append({
+                            "header": current_header,
+                            "level": 2,
+                            "content": content,
+                            "sub_headers": current_sub_headers[:],
+                            "keywords": _extract_section_keywords(content, current_header),
+                        })
+                
+                current_header = header_text
+                current_lines = [line]
+                current_sub_headers = []
+            else:
+                # H3~H6 → 현재 H2 블록에 포함
+                current_lines.append(line)
+                current_sub_headers.append(header_text)
+        else:
+            current_lines.append(line)
+    
+    # 마지막 블록
+    if current_lines:
+        content = ''.join(current_lines).strip()
+        if len(content) > 20:
+            h2_sections.append({
+                "header": current_header,
+                "level": 2,
+                "content": content,
+                "sub_headers": current_sub_headers[:],
+                "keywords": _extract_section_keywords(content, current_header),
+            })
+    
+    # === 2단계: H3 서브섹션도 독립 항목으로 추가 (세밀 검색용) ===
+    all_sections = list(h2_sections)  # H2 블록 복사
+    
+    for line_text in ''.join(lines).split('\n'):
+        pass  # H3는 이미 H2에 포함되어 있으므로 별도 추가 안 함
+    
+    # H3 서브섹션도 독립적으로 검색 가능하게 추가
+    current_h3_lines = []
+    current_h3_header = ""
+    parent_h2 = ""
+    
+    for line in lines:
+        header_match = re.match(r'^(#{1,6})\s+(.+)', line.strip())
+        if header_match:
+            level = len(header_match.group(1))
+            header_text = header_match.group(2).strip()
+            
+            if level == 2:
+                # H3 블록 저장
+                if current_h3_lines and current_h3_header:
+                    content = ''.join(current_h3_lines).strip()
+                    if len(content) > 30:
+                        all_sections.append({
+                            "header": current_h3_header,
+                            "level": 3,
+                            "content": content,
+                            "sub_headers": [],
+                            "keywords": _extract_section_keywords(content, current_h3_header),
+                            "parent": parent_h2,
+                        })
+                parent_h2 = header_text
+                current_h3_lines = []
+                current_h3_header = ""
+            elif level == 3:
+                # 이전 H3 저장
+                if current_h3_lines and current_h3_header:
+                    content = ''.join(current_h3_lines).strip()
+                    if len(content) > 30:
+                        all_sections.append({
+                            "header": current_h3_header,
+                            "level": 3,
+                            "content": content,
+                            "sub_headers": [],
+                            "keywords": _extract_section_keywords(content, current_h3_header),
+                            "parent": parent_h2,
+                        })
+                current_h3_header = header_text
+                current_h3_lines = [line]
+            else:
+                current_h3_lines.append(line)
+        else:
+            current_h3_lines.append(line)
+    
+    # 마지막 H3
+    if current_h3_lines and current_h3_header:
+        content = ''.join(current_h3_lines).strip()
+        if len(content) > 30:
+            all_sections.append({
+                "header": current_h3_header,
+                "level": 3,
+                "content": content,
+                "sub_headers": [],
+                "keywords": _extract_section_keywords(content, current_h3_header),
+                "parent": parent_h2,
+            })
+    
+    return all_sections
+
+
+def _extract_section_keywords(content: str, header: str) -> List[str]:
+    """섹션에서 검색용 키워드 추출"""
+    keywords = set()
+    
+    # 헤더에서 (번호 제거 후)
+    clean_header = re.sub(r'^\d+[-.]?\d*\.?\s*', '', header)
+    keywords.add(clean_header.lower())
+    for word in re.split(r'[\s/()（）\[\]]+', clean_header):
+        if len(word) >= 2:
+            keywords.add(word.lower())
+    
+    # 볼드 텍스트 (**text**)
+    for m in re.finditer(r'\*\*([^*]+)\*\*', content):
+        keywords.add(m.group(1).lower().strip())
+    
+    # 인라인 코드 (`code`)
+    for m in re.finditer(r'`([^`]{2,40})`', content):
+        keywords.add(m.group(1).lower())
+    
+    # 한국어 명사 (2~8글자)
+    stop_words = {'있으면', '없으면', '아니면', '입니다', '합니다', '됩니다', '에서는', '으로의', '이므로', '때문에'}
+    for m in re.finditer(r'[가-힣]{2,8}', content):
+        word = m.group()
+        if word not in stop_words:
+            keywords.add(word)
+    
+    return list(keywords)[:80]
+
+
+# ============================================================
+# [2] 섹션 단위 검색 함수 - search_knowledge() 바로 아래에 추가
+# ============================================================
+
+def search_knowledge_section(keyword: str, knowledge_dir: str, top_k: int = 3) -> List[dict]:
+    """
+    지식베이스에서 키워드로 **섹션 단위** 검색
+    
+    기존 search_knowledge()는 파일 단위 → 이 함수는 섹션 단위
+    
+    Args:
+        keyword: "앙상블 모델 5개 규칙" 또는 "모델 성능 지표 산출 로직"
+        knowledge_dir: KNOWLEDGE_DIR 경로
+        top_k: 상위 N개 섹션 반환
+    
+    Returns:
+        [{"filename": "V10_4.md", 
+          "header": "7. 앙상블 모델 5개 규칙 (상세)",
+          "content": "해당 섹션 전체 텍스트",
+          "score": 350,
+          "matched": ["앙상블", "규칙", "투표"]}, ...]
+    """
+    # 쿼리 토큰화 (조사 제거)
+    cleaned = re.sub(
+        r'(을|를|이|가|은|는|의|에|에서|로|으로|부터|까지|도|만|에대해|좀|줘|해줘|알려줘|설명해|뭐야|어떻게|에 대해)',
+        ' ', keyword
+    )
+    
+    tokens = []
+    # 한국어 토큰
+    for m in re.finditer(r'[가-힣]{2,}', cleaned):
+        tokens.append(m.group().lower())
+    # 영어/숫자 토큰
+    for m in re.finditer(r'[a-zA-Z0-9_]{2,}', cleaned):
+        tokens.append(m.group().lower())
+    
+    if not tokens:
+        tokens = [keyword.strip().lower()]
+    
+    logger.info(f"🔍 섹션검색: '{keyword}' → 토큰: {tokens}")
+    
+    results = []
+    
+    try:
+        for f in os.listdir(knowledge_dir):
+            if not f.endswith(('.md', '.txt')):
+                continue
+            
+            filepath = os.path.join(knowledge_dir, f)
+            sections = parse_md_sections(filepath)
+            
+            for section in sections:
+                score, matched = _score_section(section, tokens, keyword)
+                if score >= 30:  # 최소 점수
+                    results.append({
+                        "filename": f,
+                        "header": section["header"],
+                        "level": section["level"],
+                        "content": section["content"],
+                        "score": score,
+                        "matched": matched,
+                    })
+    except Exception as e:
+        logger.error(f"섹션검색 오류: {e}")
+    
+    # 점수 내림차순
+    results.sort(key=lambda x: x["score"], reverse=True)
+    
+    if results:
+        logger.info(f"✅ 섹션검색 결과 {len(results)}개 (상위: {results[0]['header'][:30]}... 점수:{results[0]['score']})")
+    
+    return results[:top_k]
+
+
+def _score_section(section: dict, tokens: List[str], original_query: str) -> tuple:
+    """섹션 관련성 점수 계산"""
+    score = 0
+    matched = []
+    
+    header_lower = section["header"].lower()
+    content_lower = section["content"].lower()
+    keywords_set = set(k.lower() for k in section.get("keywords", []))
+    
+    for token in tokens:
+        t = token.lower()
+        
+        # 헤더 매칭 (+100) - 가장 중요!
+        if t in header_lower:
+            score += 100
+            matched.append(token)
+        
+        # 키워드 인덱스 매칭 (+40)
+        if t in keywords_set:
+            score += 40
+            if token not in matched:
+                matched.append(token)
+        
+        # 본문 빈도 (+15 * count, max 60)
+        count = content_lower.count(t)
+        if count > 0:
+            score += min(count * 15, 60)
+            if token not in matched:
+                matched.append(token)
+    
+    # 원본 쿼리 구절 매칭 보너스 (+80)
+    q = original_query.lower()
+    if len(q) >= 4 and q in content_lower:
+        score += 80
+    
+    # H2 섹션 우대 (상위 섹션일수록 중요)
+    if section.get("level") == 2:
+        score = int(score * 1.3)
+    elif section.get("level", 0) >= 4:
+        score = int(score * 0.7)
+    
+    return score, matched
+
+
+# ============================================================
+# [3] process_chat() 자동 지식검색 부분 교체 코드
+# ============================================================
+"""
+★★★ pc_assistant.py 수정 포인트 ★★★
+
+현재 코드 (1547~1640번줄 근처):
+
+    # ★★★ LLM이 도구를 호출하지 않은 경우 → 자동 지식베이스 탐색 ★★★
+    ...
+    auto_results = search_knowledge(clean_msg)    # ← 파일 단위 검색
+    ...
+    doc_content = read_knowledge(filename)         # ← 파일 전체 읽기
+    ...
+
+이것을 아래로 교체:
+"""
+
+def auto_knowledge_search_section(user_message: str, knowledge_dir: str) -> Optional[str]:
+    """
+    process_chat() 내부에서 호출할 자동 지식베이스 섹션 검색
+    
+    기존 auto_results = search_knowledge(clean_msg) 블록을 이 함수로 교체
+    
+    Returns:
+        None: 검색 결과 없음 → 기존 로직으로 fallback
+        str: LLM에 전달할 컨텍스트 문자열 (섹션 내용만)
+    """
+    # 조사/어미 제거
+    clean_msg = re.sub(
+        r'(알려줘|설명해줘|뭐야|뭐에요|해줘|할래|에 대해|에대해|좀|줘|요|는|은|이|가|을|를|의|로|으로|에서|부터|까지|이랑|랑|하고|그리고|또는|이나|나|이든)',
+        '', user_message.lower()
+    ).strip()
+    
+    if not clean_msg:
+        clean_msg = user_message.lower()
+    
+    # 섹션 단위 검색
+    section_results = search_knowledge_section(clean_msg, knowledge_dir, top_k=3)
+    
+    if not section_results:
+        return None
+    
+    # 상위 섹션들을 합쳐서 컨텍스트 생성
+    MAX_CONTEXT = 12000
+    context_parts = []
+    total_len = 0
+    doc_names = []
+    
+    top_score = section_results[0]["score"]
+    
+    for r in section_results:
+        # 1위와 점수 차이 50% 이상이면 제외
+        if r["score"] < top_score * 0.4:
+            break
+        
+        remaining = MAX_CONTEXT - total_len
+        if remaining < 500:
+            break
+        
+        content = r["content"]
+        if len(content) > remaining:
+            content = content[:remaining] + "\n... (섹션 일부 생략)"
+        
+        header_info = f"📄 [{r['filename']}] {r['header']}"
+        context_parts.append(f"{header_info}\n{content}")
+        doc_names.append(f"{r['filename']}#{r['header']}")
+        total_len += len(content)
+    
+    if not context_parts:
+        return None
+    
+    combined = "\n\n---\n\n".join(context_parts)
+    logger.info(f"📚 섹션 컨텍스트: {len(doc_names)}개 섹션, {total_len}자")
+    
+    return combined
+
+
+# ============================================================
+# [4] 실제 적용 예시 (process_chat 내부)
+# ============================================================
+"""
+★★★ pc_assistant.py의 process_chat() 함수 내에서 교체할 부분 ★★★
+
+=== 기존 코드 (1570~1640번줄 근처) ===
+
+    if kb_has_files and not is_pc_cmd and not is_greeting and not is_short:
+        logger.info(f"🔄 자동 지식베이스 탐색: '{user_message}'")
+        clean_msg = re.sub(r'(알려줘|설명해줘|...)', '', msg_lower).strip()
+        if not clean_msg:
+            clean_msg = msg_lower
+        auto_results = search_knowledge(clean_msg)       # ← 여기를 변경
+        if auto_results:
+            ...
+            for i, res_item in enumerate(auto_results):
+                filename = res_item["filename"]
+                doc_content = read_knowledge(filename)    # ← 파일 전체 읽기
+                ...
+
+=== 새 코드 ===
+
+    if kb_has_files and not is_pc_cmd and not is_greeting and not is_short:
+        logger.info(f"🔄 자동 지식베이스 탐색(섹션): '{user_message}'")
+        
+        # ★ 섹션 단위 검색으로 교체
+        section_context = auto_knowledge_search_section(user_message, KNOWLEDGE_DIR)
+        
+        if section_context:
+            follow_up_prompt = f\"\"\"[사용자 질문]
+{user_message}
+
+[참고 문서 섹션]
+{section_context}
+
+위 섹션을 참고해서 사용자의 질문에 정확히 답변하세요.
+문서에 있는 내용만 근거로 답변하고, 문서에 없는 내용은 추측하지 마세요.\"\"\"
+
+            follow_up_system = \"\"\"당신은 시니어 소프트웨어 엔지니어이자 기술 문서 전문가입니다.
+
+[답변 형식]
+**📋 핵심 요약**
+질문에 대한 핵심 답변을 2~3줄로 요약
+
+**📝 상세 내용**
+문서에서 중요한 내용을 충분히 자세하게 정리
+
+[답변 규칙]
+1. 문서 내용을 근거로 정확하고 충분히 상세하게 답변하세요.
+2. 마크다운 표(| --- |) 사용 금지. "- 항목: 값" 형태로 나열하세요.
+3. 한국어로 답변하세요.
+4. 절대 JSON을 출력하지 마세요.\"\"\"
+
+            result2 = call_llm(follow_up_prompt, follow_up_system, max_tokens=6000)
+            if result2["success"]:
+                content = result2["content"].strip()
+                if content and not extract_tool_json(content):
+                    return content
+        
+        # 섹션 검색 실패 시 기존 파일 단위로 fallback
+        # (기존 search_knowledge 코드 그대로 유지)
+
+
+★★★ 또한 tool_name == "search_knowledge" 처리 부분 (1398번줄)도 동일하게 교체 가능 ★★★
+
+search_results가 돌아왔을 때, read_knowledge(filename)으로 파일 전체를 읽는 대신:
+section_results = search_knowledge_section(user_message, KNOWLEDGE_DIR)
+로 교체하면 섹션만 가져옵니다.
+"""
+
+
+# ============================================================
+# [5] 테스트: 이 파일 단독 실행으로 검증
+# ============================================================
+if __name__ == "__main__":
+    # V10_4 지침서 MD가 있는 경로로 변경
+    TEST_DIR = "./knowledge"
+    
+    test_queries = [
+        "모델 성능 지표 산출 로직",
+        "예측값 활용 황금 패턴", 
+        "앙상블 모델 5개 규칙",
+        "Feature 엔지니어링",
+        "예측상태 6분류",
+    ]
+    
+    print("=" * 70)
+    print("📚 섹션 단위 지식베이스 검색 테스트")
+    print("=" * 70)
+    
+    for q in test_queries:
+        print(f"\n{'─' * 50}")
+        print(f"🔍 질문: {q}")
+        print(f"{'─' * 50}")
+        
+        results = search_knowledge_section(q, TEST_DIR, top_k=2)
+        
+        if not results:
+            print("  ❌ 결과 없음")
+            continue
+        
+        for i, r in enumerate(results, 1):
+            print(f"\n  [{i}] 점수: {r['score']} | 매칭: {r['matched']}")
+            print(f"      파일: {r['filename']}")
+            print(f"      섹션: {r['header']}")
+            print(f"      내용: {r['content'][:200]}...")
+            print(f"      길이: {len(r['content'])}자")
