@@ -852,10 +852,15 @@ def calculate_relevance_score(filename: str, content: str, keyword: str, variant
 
 
 def search_knowledge(keyword: str) -> List[dict]:
-    """지식베이스에서 키워드로 파일 검색 (관련성 점수 기반 정렬)"""
+    """지식베이스에서 키워드로 파일 검색 (관련성 점수 기반 정렬 + 퍼지 매칭)"""
     results = []
     variants = normalize_keyword(keyword)
-    logger.info(f"🔍 지식검색: '{keyword}' → 변형: {variants[:5]}")
+    
+    # ★ 키워드를 토큰으로 분리 (공백, 언더스코어 등으로)
+    keyword_tokens = re.split(r'[\s_\-\.]+', keyword.strip().lower())
+    keyword_tokens = [t for t in keyword_tokens if len(t) > 1]
+    
+    logger.info(f"🔍 지식검색: '{keyword}' → 변형: {variants[:5]}, 토큰: {keyword_tokens}")
 
     try:
         for f in os.listdir(KNOWLEDGE_DIR):
@@ -882,8 +887,41 @@ def search_knowledge(keyword: str) -> List[dict]:
                         snippet = content[max(0, idx-50):min(len(content), idx+100)].replace('\n', ' ').strip()
                     break
 
+            # ★ 토큰 기반 퍼지 매칭 (개별 토큰이 파일명이나 내용에 있는지)
+            if not matched and keyword_tokens:
+                f_lower = f.lower()
+                content_lower = content.lower()
+                token_matches = 0
+                for token in keyword_tokens:
+                    if token in f_lower or token in content_lower:
+                        token_matches += 1
+                # 토큰의 50% 이상이 매칭되면 관련 문서로 판단
+                if token_matches >= max(1, len(keyword_tokens) * 0.5):
+                    matched = True
+                    # 첫 매칭 토큰 기준 스니펫
+                    for token in keyword_tokens:
+                        idx = content_lower.find(token)
+                        if idx >= 0:
+                            snippet = content[max(0, idx-50):min(len(content), idx+100)].replace('\n', ' ').strip()
+                            break
+
+            # ★ 부분 문자열 매칭 (3글자 이상 공통 부분 문자열)
+            if not matched and len(keyword) >= 3:
+                f_lower = f.lower()
+                for i in range(len(keyword) - 2):
+                    substr = keyword[i:i+3].lower()
+                    if substr in f_lower:
+                        matched = True
+                        snippet = "(파일명 부분 매칭)"
+                        break
+
             if matched:
                 score = calculate_relevance_score(f, content, keyword, variants)
+                # ★ 토큰 매칭 보너스
+                if keyword_tokens:
+                    for token in keyword_tokens:
+                        if token in f.lower():
+                            score += 30  # 파일명에 토큰 매칭 보너스
                 results.append({
                     "filename": f,
                     "snippet": f"...{snippet}..." if snippet else "(파일명 매칭)",
@@ -897,6 +935,106 @@ def search_knowledge(keyword: str) -> List[dict]:
     except Exception as e:
         logger.error(f"지식 검색 오류: {e}")
     return results
+
+
+def generate_guided_questions(user_query: str) -> dict:
+    """지식베이스 검색 실패 시 LLM이 파일 목록을 보고 역질문을 생성"""
+    try:
+        # 1. 현재 지식베이스 파일 목록 가져오기
+        kb_files = []
+        for f in os.listdir(KNOWLEDGE_DIR):
+            if f.endswith(('.md', '.txt')):
+                filepath = os.path.join(KNOWLEDGE_DIR, f)
+                try:
+                    with open(filepath, 'r', encoding='utf-8', errors='ignore') as fh:
+                        # 첫 500자만 읽어서 힌트 추출
+                        preview = fh.read(500)
+                        # 헤더/제목 추출
+                        headers = [line.strip('# ').strip() for line in preview.split('\n')[:10] 
+                                   if line.startswith('#')]
+                    kb_files.append({
+                        "filename": f,
+                        "headers": headers[:3]
+                    })
+                except:
+                    kb_files.append({"filename": f, "headers": []})
+
+        if not kb_files:
+            return {
+                "success": False,
+                "message": "지식베이스에 등록된 문서가 없습니다.",
+                "suggestions": []
+            }
+
+        # 2. 파일 목록 문자열 생성
+        file_list_str = "\n".join([
+            f"- {f['filename']}" + (f" (주요 내용: {', '.join(f['headers'])})" if f['headers'] else "")
+            for f in kb_files
+        ])
+
+        # 3. LLM에게 역질문 생성 요청
+        guide_prompt = f"""사용자가 "{user_query}"라고 질문했지만, 지식베이스에서 정확히 매칭되는 문서를 찾지 못했습니다.
+
+현재 지식베이스에 등록된 파일 목록:
+{file_list_str}
+
+위 파일 목록을 분석해서, 사용자의 의도에 맞는 **구체적인 추천 질문 3~5개**를 생성해주세요.
+
+[규칙]
+1. 파일명에서 프로젝트명, 버전, 키워드를 추출해서 구체적인 질문으로 만드세요.
+2. 사용자의 원래 질문과 관련성 높은 파일을 우선 추천하세요.
+3. 관련 파일이 없으면, 가장 유사한 파일 기반으로 질문을 만드세요.
+4. 각 질문은 지식베이스에서 검색 가능한 키워드를 포함해야 합니다.
+
+[출력 형식 - 반드시 이 JSON 형식으로만 출력]
+{{"guide_message": "관련 문서를 찾지 못했습니다. 혹시 이런 내용을 찾으시나요?", "suggestions": ["질문1", "질문2", "질문3"]}}"""
+
+        guide_system = """당신은 질문 유도 전문가입니다.
+사용자의 모호한 질문을 분석하고, 지식베이스 파일 목록을 참고하여 더 구체적인 질문을 추천합니다.
+반드시 JSON 형식으로만 응답하세요. 다른 텍스트는 출력하지 마세요."""
+
+        result = call_llm(guide_prompt, guide_system, max_tokens=1000)
+
+        if result["success"]:
+            content = result["content"].strip()
+            # JSON 추출 시도
+            try:
+                # ```json ``` 블록 제거
+                content = re.sub(r'```(?:json)?\s*', '', content)
+                content = content.strip('`').strip()
+                # JSON 파싱
+                guide_data = json.loads(content)
+                return {
+                    "success": True,
+                    "message": guide_data.get("guide_message", "관련 문서를 찾지 못했습니다."),
+                    "suggestions": guide_data.get("suggestions", []),
+                    "kb_files": [f["filename"] for f in kb_files]
+                }
+            except json.JSONDecodeError:
+                logger.warning(f"⚠️ 역질문 JSON 파싱 실패: {content[:200]}")
+                # JSON 파싱 실패 시 파일 목록 기반 기본 추천
+                pass
+
+        # 4. LLM 실패 시 파일명 기반 기본 추천 생성
+        suggestions = []
+        for f in kb_files[:5]:
+            fname = f["filename"].replace('.md', '').replace('.txt', '')
+            # 파일명에서 의미있는 키워드 추출
+            parts = re.split(r'[_\-\.]', fname)
+            clean_name = ' '.join([p for p in parts if len(p) > 1])
+            if clean_name:
+                suggestions.append(f"{clean_name} 알려줘")
+
+        return {
+            "success": True,
+            "message": f"'{user_query}'에 대한 정확한 문서를 찾지 못했습니다. 다음 중 찾으시는 내용이 있나요?",
+            "suggestions": suggestions,
+            "kb_files": [f["filename"] for f in kb_files]
+        }
+
+    except Exception as e:
+        logger.error(f"역질문 생성 오류: {e}")
+        return {"success": False, "message": "역질문 생성 실패", "suggestions": []}
 
 
 def read_knowledge(filename: str) -> str:
@@ -1261,7 +1399,19 @@ def process_chat(user_message: str) -> str:
                     try:
                         search_results = json.loads(tool_result)
                         if not search_results:
-                            return "🔍 관련 문서를 찾지 못했습니다. 지식베이스에 문서를 먼저 등록해주세요."
+                            # ★ 역질문 유도: LLM이 파일 목록 보고 추천 질문 생성
+                            guide = generate_guided_questions(user_message)
+                            if guide["success"] and guide["suggestions"]:
+                                lines = [f"🔍 **{guide['message']}**\n"]
+                                for i, suggestion in enumerate(guide["suggestions"], 1):
+                                    # <!--SUGGEST:질문--> 마커로 프론트엔드에서 클릭 버튼 생성
+                                    lines.append(f"<!--SUGGEST:{suggestion}-->")
+                                lines.append(f"\n\n💡 위 추천 질문을 클릭하거나, 더 구체적인 키워드로 다시 질문해보세요.")
+                                if guide.get("kb_files"):
+                                    lines.append(f"\n📚 현재 등록된 문서: {', '.join(guide['kb_files'][:5])}")
+                                return "\n".join(lines)
+                            else:
+                                return "🔍 관련 문서를 찾지 못했습니다. 지식베이스에 문서를 먼저 등록해주세요."
 
                         # ★ 관련성 점수 기반으로 문서 선택
                         # 1위 문서와 점수 차이가 50% 이상이면 1위만 사용
@@ -1753,6 +1903,17 @@ async def assistant_clear_history():
     CHAT_HISTORY = []
     save_history()
     return {"success": True}
+
+
+# ★ 지식베이스 역질문 추천 API
+@router.post("/api/knowledge/suggest")
+async def api_suggest_questions(request: dict):
+    """지식베이스 검색 실패 시 역질문 추천"""
+    query = request.get("query", "")
+    if not query:
+        return {"success": False, "error": "검색어가 비어있습니다."}
+    guide = generate_guided_questions(query)
+    return guide
 
 
 # ★ 지식베이스 API
