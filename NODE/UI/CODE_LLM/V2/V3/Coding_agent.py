@@ -1,5 +1,5 @@
 """
-🐈 나나봇 코딩 에이전트 - nanobot-ai 직접 import 통합
+⚡ 감마봇 코딩 에이전트 - nanobot-ai 직접 import 통합
 pip install nanobot-ai 후 사용
 """
 import asyncio, json, os, re, time, traceback
@@ -176,7 +176,7 @@ class NanobotManager:
 
     def initialize(self):
         if self._init: return
-        logger.info("🐈 나나봇 초기화...")
+        logger.info("⚡ 감마봇 초기화...")
         self.provider = SKHynixProvider()
         self.sessions = SessionManager(WORKSPACE)
         self.memory = MemoryStore(WORKSPACE)
@@ -187,13 +187,13 @@ class NanobotManager:
         self.tools.register(ValidateCodeTool())
         self.tools.register(SaveCodeTool())
         self._init = True
-        logger.info(f"🐈 나나봇 준비 - 도구 {len(self.tools)}개")
+        logger.info(f"⚡ 감마봇 준비 - 도구 {len(self.tools)}개")
 
     def _sys_prompt(self):
         now = datetime.now().strftime("%Y-%m-%d %H:%M (%A)")
         ws = str(WORKSPACE.resolve())
-        p = f"""# 🐈 나나봇 코딩 에이전트
-당신은 '나나봇' 코딩 전문 AI 에이전트입니다.
+        p = f"""# ⚡ 감마봇 코딩 에이전트
+당신은 '감마봇' 코딩 전문 AI 에이전트입니다.
 ## 현재: {now}  |  워크스페이스: {ws}
 ## 규칙
 1. 코드 생성 → validate_code 검증 → save_code 저장
@@ -322,4 +322,4 @@ def _ver():
 
 def get_agent_router(): return agent_router
 
-logger.info("🐈 coding_agent.py 로드 (nanobot-ai 직접 import)")
+logger.info("⚡ coding_agent.py 로드 (nanobot-ai 직접 import)")
