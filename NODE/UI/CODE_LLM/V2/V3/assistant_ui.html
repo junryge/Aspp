@@ -1626,6 +1626,8 @@
             text = text.replace(/`([^`]+)`/g, '<code>$1</code>');
             // ★ 마크다운 이미지 ![alt](url)
             text = text.replace(/!\[([^\]]*)\]\(([^)]+)\)/g, '<img src="$2" alt="$1" loading="lazy">');
+            // ★ 마크다운 링크 [text](url) → 새 탭에서 열림
+            text = text.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" style="color:#6366f1;text-decoration:underline;font-weight:600;">$1</a>');
             // 볼드
             text = text.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
             // 이탈릭
