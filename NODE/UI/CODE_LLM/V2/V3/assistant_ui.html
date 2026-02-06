@@ -392,6 +392,7 @@
             box-shadow: none;
         }
 
+
         /* 이미지 확대 모달 */
         .img-modal {
             display: none;
@@ -1692,10 +1693,10 @@
 
         // ★ 메시지 포맷팅 (마크다운 → HTML, 이미지 포함)
         function formatMessage(text) {
-            // ★ 추천 질문 버튼 변환 (<!--SUGGEST:질문--> → 클릭 가능한 버튼)
+            // ★ 추천 질문 버튼 변환
             text = text.replace(/<!--SUGGEST:(.*?)-->/g, function(match, suggestion) {
-                const escaped = suggestion.replace(/'/g, "\\'").replace(/"/g, '&quot;');
-                return `<button class="suggest-btn" onclick="sendSuggestion('${escaped}')" title="클릭하면 이 질문을 전송합니다">💡 ${suggestion}</button>`;
+                var escaped = suggestion.replace(/'/g, "\\'").replace(/"/g, '&quot;');
+                return '<button class="suggest-btn" onclick="sendSuggestion(\'' + escaped + '\')" title="클릭하면 이 질문을 전송합니다">💡 ' + suggestion + '</button>';
             });
             // 코드 블록
             text = text.replace(/```(\w*)\n?([\s\S]*?)```/g, '<pre><code>$2</code></pre>');
