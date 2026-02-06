@@ -362,6 +362,36 @@
             border-color: var(--primary);
         }
 
+        /* ★ 추천 질문 버튼 스타일 */
+        .suggest-btn {
+            display: inline-block;
+            margin: 6px 6px 6px 0;
+            padding: 10px 18px;
+            background: linear-gradient(135deg, rgba(99, 102, 241, 0.15), rgba(139, 92, 246, 0.15));
+            border: 1px solid rgba(99, 102, 241, 0.4);
+            border-radius: 20px;
+            color: #a5b4fc;
+            font-size: 0.88rem;
+            cursor: pointer;
+            transition: all 0.25s ease;
+            font-family: inherit;
+            line-height: 1.4;
+            text-align: left;
+        }
+
+        .suggest-btn:hover {
+            background: linear-gradient(135deg, rgba(99, 102, 241, 0.35), rgba(139, 92, 246, 0.35));
+            border-color: rgba(99, 102, 241, 0.7);
+            color: #c7d2fe;
+            transform: translateY(-2px);
+            box-shadow: 0 4px 15px rgba(99, 102, 241, 0.25);
+        }
+
+        .suggest-btn:active {
+            transform: translateY(0);
+            box-shadow: none;
+        }
+
         /* 이미지 확대 모달 */
         .img-modal {
             display: none;
@@ -1662,6 +1692,11 @@
 
         // ★ 메시지 포맷팅 (마크다운 → HTML, 이미지 포함)
         function formatMessage(text) {
+            // ★ 추천 질문 버튼 변환 (<!--SUGGEST:질문--> → 클릭 가능한 버튼)
+            text = text.replace(/<!--SUGGEST:(.*?)-->/g, function(match, suggestion) {
+                const escaped = suggestion.replace(/'/g, "\\'").replace(/"/g, '&quot;');
+                return `<button class="suggest-btn" onclick="sendSuggestion('${escaped}')" title="클릭하면 이 질문을 전송합니다">💡 ${suggestion}</button>`;
+            });
             // 코드 블록
             text = text.replace(/```(\w*)\n?([\s\S]*?)```/g, '<pre><code>$2</code></pre>');
             // 인라인 코드
@@ -1686,6 +1721,12 @@
             text = text.replace(/\n/g, '<br>');
             text = text.replace(/(<br>){3,}/g, '<br><br>');
             return text;
+        }
+
+        // ★ 추천 질문 클릭 시 전송
+        function sendSuggestion(question) {
+            messageInput.value = question;
+            sendMessage();
         }
 
         // 로딩
