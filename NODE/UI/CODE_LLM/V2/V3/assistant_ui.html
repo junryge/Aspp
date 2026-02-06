@@ -1134,6 +1134,27 @@
         </div>
     </div>
 
+    <!-- ★ 스크린샷 비밀번호 인증 모달 -->
+    <div class="modal" id="screenshotAuthModal">
+        <div class="modal-content" style="max-width: 380px;">
+            <div class="modal-header" style="background: linear-gradient(135deg, #ef4444, #dc2626);">
+                <h3 style="color: white;">🔒 스크린샷 인증</h3>
+                <button class="modal-close" onclick="closeAuthModal()" style="color: white;">&times;</button>
+            </div>
+            <div class="modal-body" style="text-align: center; padding: 25px;">
+                <div style="font-size: 40px; margin-bottom: 15px;">📸🔐</div>
+                <p style="color: var(--text-muted); margin-bottom: 20px; font-size: 14px;">스크린샷 기능은 비밀번호 인증이 필요합니다.</p>
+                <input type="password" id="screenshotPassword" placeholder="비밀번호 입력" maxlength="10"
+                    style="width: 100%; padding: 12px 16px; background: var(--bg-input); border: 2px solid var(--border); border-radius: 10px; color: var(--text); font-size: 16px; text-align: center; letter-spacing: 8px;"
+                    onkeydown="if(event.key==='Enter') verifyScreenshotPassword()">
+                <div id="authError" style="color: var(--danger); font-size: 13px; margin-top: 10px; display: none;">❌ 비밀번호가 틀렸습니다.</div>
+                <button onclick="verifyScreenshotPassword()" style="width: 100%; margin-top: 15px; padding: 12px; background: linear-gradient(135deg, #10b981, #059669); color: white; border: none; border-radius: 10px; font-size: 15px; font-weight: 600; cursor: pointer;">
+                    🔓 인증하기
+                </button>
+            </div>
+        </div>
+    </div>
+
     <!-- ★ 시스템 프롬프트 편집 모달 -->
     <div class="modal" id="systemPromptModal">
         <div class="modal-content" style="max-width: 750px; max-height: 85vh;">
@@ -1236,6 +1257,7 @@
         const stopBtn = document.getElementById('stopBtn');
         let currentEnv = 'local';
         let currentAbortController = null;  // ★ 응답 중지용
+        let pendingScreenshotMessage = null; // ★ 인증 대기 중인 스크린샷 메시지
 
         // ★ 파라미터 설정
         let aiParams = {
@@ -1542,7 +1564,13 @@
                 stopBtn.style.display = 'none';  // ★ 중지 버튼 숨기기
 
                 if (data.success) {
-                    addMessage(data.response, 'assistant');
+                    // ★ 스크린샷 인증 필요 감지
+                    if (data.response && data.response.includes('AUTH_REQUIRED')) {
+                        pendingScreenshotMessage = message;
+                        openAuthModal();
+                    } else {
+                        addMessage(data.response, 'assistant');
+                    }
                 } else {
                     addMessage('❌ 오류가 발생했습니다: ' + (data.error || '알 수 없는 오류'), 'assistant');
                 }
@@ -1782,6 +1810,7 @@
                 closeImgModal();
                 closeKnowledgeModal();
                 closeArchiveModal();
+                closeAuthModal();
             }
         });
 
@@ -1934,6 +1963,76 @@
 
         function closeArchiveModal() {
             document.getElementById('archiveModal').classList.remove('active');
+        }
+
+        // ★ 스크린샷 비밀번호 인증
+        function openAuthModal() {
+            document.getElementById('screenshotAuthModal').classList.add('active');
+            document.getElementById('screenshotPassword').value = '';
+            document.getElementById('authError').style.display = 'none';
+            setTimeout(() => document.getElementById('screenshotPassword').focus(), 200);
+        }
+
+        function closeAuthModal() {
+            document.getElementById('screenshotAuthModal').classList.remove('active');
+            pendingScreenshotMessage = null;
+        }
+
+        async function verifyScreenshotPassword() {
+            const password = document.getElementById('screenshotPassword').value;
+            if (!password) return;
+
+            try {
+                const res = await fetch('/assistant/api/screenshot/auth', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ password })
+                });
+                const data = await res.json();
+
+                if (data.success) {
+                    closeAuthModal();
+                    // 인증 성공 → 원래 메시지 재전송
+                    if (pendingScreenshotMessage) {
+                        addMessage('🔓 인증 성공! 스크린샷을 실행합니다...', 'assistant');
+                        const msg = pendingScreenshotMessage;
+                        pendingScreenshotMessage = null;
+
+                        sendBtn.disabled = true;
+                        stopBtn.style.display = 'block';
+                        const loadingId = addLoading();
+
+                        try {
+                            currentAbortController = new AbortController();
+                            const r = await fetch('/assistant/api/chat', {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({ message: msg }),
+                                signal: currentAbortController.signal
+                            });
+                            const d = await r.json();
+                            removeLoading(loadingId);
+                            stopBtn.style.display = 'none';
+                            if (d.success) addMessage(d.response, 'assistant');
+                            else addMessage('❌ ' + (d.error || '오류'), 'assistant');
+                        } catch (e) {
+                            removeLoading(loadingId);
+                            stopBtn.style.display = 'none';
+                            addMessage('❌ ' + e.message, 'assistant');
+                        }
+                        sendBtn.disabled = false;
+                        currentAbortController = null;
+                        updateStatus();
+                    }
+                } else {
+                    document.getElementById('authError').style.display = 'block';
+                    document.getElementById('screenshotPassword').value = '';
+                    document.getElementById('screenshotPassword').focus();
+                }
+            } catch (e) {
+                document.getElementById('authError').textContent = '❌ 서버 연결 실패';
+                document.getElementById('authError').style.display = 'block';
+            }
         }
 
         async function loadArchiveList() {
