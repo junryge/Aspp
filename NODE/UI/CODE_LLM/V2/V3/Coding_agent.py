@@ -273,10 +273,32 @@ async def agent_chat(req: ChatReq):
 
 @agent_router.get("/api/agent/status")
 async def agent_status():
-    m = nanobot_manager
-    return {"initialized":m._init, "tools":m.tools.tool_names if m.tools else [],
-            "provider":m.provider.get_default_model() if m.provider else None,
-            "max_iterations":MAX_ITERATIONS, "nanobot_version":_ver()}
+    try:
+        m = nanobot_manager
+        if not m._init:
+            m.initialize()
+        # provider 이름 가져오기
+        provider_name = "?"
+        try:
+            import pc_assistant as pa
+            env = getattr(pa, 'CURRENT_ENV', '?')
+            provider_name = getattr(pa, 'ENV_CONFIG', {}).get(env, {}).get("name", env)
+        except: pass
+        return {
+            "success": True,
+            "initialized": m._init,
+            "tools": m.tools.tool_names if m.tools else [],
+            "model": m.provider.get_default_model() if m.provider else None,
+            "provider": provider_name,
+            "max_iterations": MAX_ITERATIONS,
+            "nanobot_version": _ver(),
+        }
+    except Exception as e:
+        return {
+            "success": False,
+            "error": str(e),
+            "initialized": False,
+        }
 
 @agent_router.get("/api/agent/files")
 async def agent_files():
