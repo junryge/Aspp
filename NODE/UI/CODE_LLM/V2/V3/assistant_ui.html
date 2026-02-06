@@ -24,7 +24,100 @@
             --success: #10b981;
             --warning: #f59e0b;
             --danger: #ef4444;
+            --nanobot: #f59e0b;
+            --nanobot-dark: #d97706;
         }
+
+        /* ★ 나나봇 모드 토글 */
+        .nanobot-toggle {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 4px 12px;
+            border-radius: 20px;
+            cursor: pointer;
+            user-select: none;
+            font-size: 12px;
+            font-weight: 600;
+            transition: all 0.3s;
+            background: var(--bg-input);
+            border: 1px solid var(--border);
+            color: var(--text-muted);
+        }
+        .nanobot-toggle.active {
+            background: linear-gradient(135deg, #f59e0b22, #d9770622);
+            border-color: var(--nanobot);
+            color: var(--nanobot);
+            box-shadow: 0 0 12px rgba(245,158,11,0.15);
+        }
+        .nanobot-toggle .toggle-track {
+            width: 32px;
+            height: 18px;
+            background: var(--bg-dark);
+            border-radius: 9px;
+            position: relative;
+            transition: all 0.3s;
+        }
+        .nanobot-toggle.active .toggle-track {
+            background: var(--nanobot);
+        }
+        .nanobot-toggle .toggle-thumb {
+            width: 14px;
+            height: 14px;
+            background: var(--text-muted);
+            border-radius: 50%;
+            position: absolute;
+            top: 2px;
+            left: 2px;
+            transition: all 0.3s;
+        }
+        .nanobot-toggle.active .toggle-thumb {
+            left: 16px;
+            background: white;
+        }
+
+        /* ★ 나나봇 에이전트 스텝 표시 */
+        .agent-steps {
+            margin-top: 8px;
+            padding: 8px 12px;
+            background: rgba(245,158,11,0.06);
+            border-left: 3px solid var(--nanobot);
+            border-radius: 0 8px 8px 0;
+            font-size: 11px;
+            color: var(--text-muted);
+        }
+        .agent-steps summary {
+            cursor: pointer;
+            font-weight: 600;
+            color: var(--nanobot);
+            margin-bottom: 4px;
+        }
+        .agent-step {
+            padding: 2px 0;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+        .agent-step .step-icon {
+            width: 16px;
+            text-align: center;
+        }
+
+        /* ★ 나나봇 모드 인디케이터 (입력창) */
+        .input-box.nanobot-active {
+            border-color: var(--nanobot) !important;
+            box-shadow: 0 0 0 1px rgba(245,158,11,0.3);
+        }
+        .nanobot-indicator {
+            display: none;
+            align-items: center;
+            gap: 4px;
+            font-size: 10px;
+            color: var(--nanobot);
+            padding: 2px 8px;
+            font-weight: 600;
+        }
+        .nanobot-indicator.show { display: flex; }
 
         html, body {
             height: 100%;
@@ -1040,7 +1133,12 @@
 
         <div class="input-container">
             <div class="input-wrapper">
-                <div class="input-box">
+                <div class="nanobot-indicator" id="nanobotIndicator">🐈 나나봇 모드</div>
+                <div class="input-box" id="inputBox">
+                    <div class="nanobot-toggle" id="nanobotToggle" onclick="toggleNanobot()" title="나나봇 코딩 에이전트 ON/OFF">
+                        <span>🐈</span>
+                        <div class="toggle-track"><div class="toggle-thumb"></div></div>
+                    </div>
                     <textarea id="messageInput" placeholder="메시지를 입력하세요... (예: '스크린샷 찍어줘', '파일 검색해줘')" rows="1"></textarea>
                     <button class="send-btn" id="sendBtn" onclick="sendMessage()">
                         <i class="fas fa-paper-plane"></i>
@@ -1289,6 +1387,7 @@
         let currentEnv = 'local';
         let currentAbortController = null;  // ★ 응답 중지용
         let pendingScreenshotMessage = null; // ★ 인증 대기 중인 스크린샷 메시지
+        let nanobotMode = false;  // ★ 나나봇 모드 상태
 
         // ★ 파라미터 설정
         let aiParams = {
@@ -1582,10 +1681,18 @@
                 currentAbortController = new AbortController();
                 const timeoutId = setTimeout(() => currentAbortController.abort(), 300000); // 5분
 
-                const res = await fetch('/assistant/api/chat', {
+                // ★ 나나봇 모드에 따라 다른 엔드포인트 호출
+                const endpoint = nanobotMode
+                    ? '/assistant/api/agent/chat'
+                    : '/assistant/api/chat';
+                const body = nanobotMode
+                    ? JSON.stringify({ message, session_id: 'web_' + Date.now() })
+                    : JSON.stringify({ message });
+
+                const res = await fetch(endpoint, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ message }),
+                    body: body,
                     signal: currentAbortController.signal
                 });
 
@@ -1600,7 +1707,12 @@
                         pendingScreenshotMessage = message;
                         openAuthModal();
                     } else {
-                        addMessage(data.response, 'assistant');
+                        // ★ 나나봇 모드: 에이전트 스텝 표시 추가
+                        let response = data.response;
+                        if (nanobotMode && data.steps && data.steps.length > 0) {
+                            response += renderAgentSteps(data.steps);
+                        }
+                        addMessage(response, 'assistant');
                     }
                 } else {
                     addMessage('❌ 오류가 발생했습니다: ' + (data.error || '알 수 없는 오류'), 'assistant');
@@ -1630,12 +1742,71 @@
             }
         }
 
+        // ★ 나나봇 모드 토글
+        function toggleNanobot() {
+            nanobotMode = !nanobotMode;
+            const toggle = document.getElementById('nanobotToggle');
+            const inputBox = document.getElementById('inputBox');
+            const indicator = document.getElementById('nanobotIndicator');
+
+            if (nanobotMode) {
+                toggle.classList.add('active');
+                inputBox.classList.add('nanobot-active');
+                indicator.classList.add('show');
+                messageInput.placeholder = '🐈 나나봇에게 코딩 요청... (예: "Python으로 정렬 알고리즘 만들어줘")';
+                addMessage('🐈 **나나봇 모드 ON!**\n\n코딩 에이전트가 활성화되었습니다.\n- 코드 생성 + 자동 문법 검증 (Ralph Loop)\n- 워크스페이스 파일 관리\n- 지원 언어: Python, JS, TS, Java, C#, HTML, CSS, SQL, Bash\n\n무엇을 만들어볼까요?', 'assistant');
+            } else {
+                toggle.classList.remove('active');
+                inputBox.classList.remove('nanobot-active');
+                indicator.classList.remove('show');
+                messageInput.placeholder = "메시지를 입력하세요... (예: '스크린샷 찍어줘', '파일 검색해줘')";
+                addMessage('🐈 나나봇 모드 OFF. 일반 비서 모드로 돌아갑니다.', 'assistant');
+            }
+        }
+
+        // ★ 에이전트 스텝 HTML 렌더링
+        function renderAgentSteps(steps) {
+            if (!steps || steps.length === 0) return '';
+
+            const icons = {
+                'llm_call': '🧠',
+                'validate': '🔍',
+                'save_file': '💾',
+                'ralph_1': '🔄',
+                'ralph_2': '🔄',
+                'ralph_3': '🔄',
+            };
+
+            let html = '\n\n<details class="agent-steps"><summary>🐈 에이전트 작업 로그 (' + steps.length + '단계)</summary>';
+            for (const s of steps) {
+                const icon = icons[s.type] || '⚡';
+                const stepLabel = s.step || '?';
+                const status = s.status || '';
+                let detail = '';
+
+                if (s.type === 'validate') {
+                    detail = s.valid ? ' 문법 OK' : ` 오류 ${(s.errors||[]).length}개`;
+                    if (s.attempt) detail = ` [시도 ${s.attempt}/${3}]` + detail;
+                }
+                if (s.type === 'save_file' && s.filename) {
+                    detail = ` → ${s.filename}`;
+                }
+                if (s.action) {
+                    detail = ` (${s.action})` + detail;
+                }
+
+                html += `<div class="agent-step"><span class="step-icon">${icon}</span><span>Step ${stepLabel}${detail} — ${status}</span></div>`;
+            }
+            html += '</details>';
+            return html;
+        }
+
         // 메시지 추가
         function addMessage(content, role) {
             const div = document.createElement('div');
             div.className = `message ${role}`;
 
-            const avatar = role === 'assistant' ? '🤖' : '👤';
+            const avatar = role === 'assistant' ? (nanobotMode ? '🐈' : '🤖') : '👤';
             let formattedContent = formatMessage(content);
             
             // ★ 긴 답변 접기: "📝 상세 내용" 이후를 접기 (볼드 또는 헤더 모두 지원)
