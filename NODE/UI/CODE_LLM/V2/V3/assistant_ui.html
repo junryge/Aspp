@@ -523,7 +523,7 @@
             50% { box-shadow: 0 0 0 8px rgba(239, 68, 68, 0); }
         }
 
-        /* ★ 나나봇 토글 */
+        /* ★ 감마봇 토글 */
         .nanobot-toggle {
             display: flex;
             align-items: center;
@@ -561,7 +561,7 @@
         }
         .nanobot-toggle.active .toggle-thumb { transform: translateX(14px); }
 
-        /* 나나봇 모드 인디케이터 */
+        /* 감마봇 모드 인디케이터 */
         .nanobot-indicator {
             display: none;
             text-align: center;
@@ -576,7 +576,7 @@
             50% { opacity: 1; }
         }
 
-        /* 나나봇 활성 시 입력 테두리 */
+        /* 감마봇 활성 시 입력 테두리 */
         .input-box.nanobot-active #messageInput {
             border-color: var(--nanobot);
         }
@@ -627,7 +627,7 @@
         .agent-step.llm { border-left-color: var(--primary); }
         .agent-step.complete { border-left-color: var(--success); }
 
-        /* 나나봇 입력영역 레이아웃 */
+        /* 감마봇 입력영역 레이아웃 */
         .input-controls {
             display: flex;
             align-items: center;
@@ -1154,12 +1154,12 @@
         </div>
 
         <div class="input-container">
-            <div class="nanobot-indicator" id="nanobotIndicator">🐈 나나봇 코딩 에이전트 모드</div>
+            <div class="nanobot-indicator" id="nanobotIndicator">⚡ 감마봇 코딩 에이전트 모드</div>
             <div class="input-controls">
                 <div class="nanobot-toggle" id="nanobotToggle" onclick="toggleNanobot()">
-                    <span>🐈</span>
+                    <span>⚡</span>
                     <div class="toggle-track"><div class="toggle-thumb"></div></div>
-                    <span class="toggle-label">나나봇</span>
+                    <span class="toggle-label">감마봇</span>
                 </div>
             </div>
             <div class="input-wrapper">
@@ -1692,14 +1692,14 @@
         }
 
         // 메시지 전송
-        // ★ 나나봇 모드 토글 (서버 상태 확인 후 ON/OFF)
+        // ★ 감마봇 모드 토글 (서버 상태 확인 후 ON/OFF)
         let nanobotSessionId = 'web_' + Date.now().toString(36);  // 세션 유지용
 
         async function toggleNanobot() {
             const wanting = !nanobotMode;  // 원하는 상태
 
             if (wanting) {
-                // ★ ON 하려면 → 서버에 나나봇 사용 가능한지 먼저 확인
+                // ★ ON 하려면 → 서버에 감마봇 사용 가능한지 먼저 확인
                 try {
                     nanobotToggle.style.opacity = '0.5';
                     nanobotToggle.style.pointerEvents = 'none';
@@ -1707,7 +1707,7 @@
                     const data = await res.json();
 
                     if (!data.success) {
-                        addMessage('❌ 나나봇을 사용할 수 없습니다: ' + (data.error || 'nanobot-ai 미설치'), 'assistant');
+                        addMessage('❌ 감마봇을 사용할 수 없습니다: ' + (data.error || 'nanobot-ai 미설치'), 'assistant');
                         nanobotToggle.style.opacity = '1';
                         nanobotToggle.style.pointerEvents = 'auto';
                         return;  // ON 실패 → 상태 변경 안 함
@@ -1719,19 +1719,19 @@
                     nanobotToggle.classList.add('active');
                     nanobotIndicator.classList.add('show');
                     inputBox.classList.add('nanobot-active');
-                    messageInput.placeholder = '🐈 코딩 요청을 입력하세요... (예: "Python 정렬 알고리즘 만들어줘")';
+                    messageInput.placeholder = '⚡ 코딩 요청을 입력하세요... (예: "Python 정렬 알고리즘 만들어줘")';
 
                     const toolList = (data.tools || []).join(', ');
                     addMessage(
-                        `🐈 **나나봇 코딩 에이전트 ON**\n\n` +
+                        `⚡ **감마봇 코딩 에이전트 ON**\n\n` +
                         `모델: **${data.model || '?'}** (${data.provider || '?'})\n` +
                         `도구: ${toolList}\n\n` +
                         `코드 생성·파일 관리·셸 실행을 자동으로 처리합니다.\n` +
-                        `OFF 하려면 🐈 버튼을 다시 누르세요.`,
+                        `OFF 하려면 ⚡ 버튼을 다시 누르세요.`,
                         'assistant'
                     );
                 } catch (e) {
-                    addMessage('❌ 나나봇 서버 연결 실패: ' + e.message, 'assistant');
+                    addMessage('❌ 감마봇 서버 연결 실패: ' + e.message, 'assistant');
                 } finally {
                     nanobotToggle.style.opacity = '1';
                     nanobotToggle.style.pointerEvents = 'auto';
@@ -1785,7 +1785,7 @@
                 const timeoutId = setTimeout(() => currentAbortController.abort(), 300000);
 
                 if (nanobotMode) {
-                    // ★ 나나봇 모드: /api/agent/chat 호출
+                    // ★ 감마봇 모드: /api/agent/chat 호출
                     const res = await fetch('/assistant/api/agent/chat', {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
@@ -1805,7 +1805,7 @@
                             : '';
                         addNanobotMessage(data.response + usageInfo + stepsHtml);
                     } else {
-                        addMessage('🐈❌ 나나봇 오류: ' + (data.error || data.response || '알 수 없는 오류') + '\n\n🐈 버튼을 눌러 OFF 후 다시 시도해보세요.', 'assistant');
+                        addMessage('⚡❌ 감마봇 오류: ' + (data.error || data.response || '알 수 없는 오류') + '\n\n⚡ 버튼을 눌러 OFF 후 다시 시도해보세요.', 'assistant');
                     }
                 } else {
                     // 일반 모드
@@ -1846,12 +1846,12 @@
             updateStatus();
         }
 
-        // ★ 나나봇 전용 메시지 추가 (🐈 아바타 + HTML 직접 삽입)
+        // ★ 감마봇 전용 메시지 추가 (⚡ 아바타 + HTML 직접 삽입)
         function addNanobotMessage(htmlContent) {
             const div = document.createElement('div');
             div.className = 'message assistant';
             div.innerHTML = `
-                <div class="avatar">🐈</div>
+                <div class="avatar">⚡</div>
                 <div class="message-content">${formatMessage(htmlContent)}</div>
             `;
             chatContainer.appendChild(div);
