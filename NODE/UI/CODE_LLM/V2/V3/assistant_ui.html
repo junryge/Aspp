@@ -1692,18 +1692,57 @@
         }
 
         // 메시지 전송
-        // ★ 나나봇 모드 토글
-        function toggleNanobot() {
-            nanobotMode = !nanobotMode;
-            nanobotToggle.classList.toggle('active', nanobotMode);
-            nanobotIndicator.classList.toggle('show', nanobotMode);
-            inputBox.classList.toggle('nanobot-active', nanobotMode);
-            
-            if (nanobotMode) {
-                messageInput.placeholder = '🐈 코딩 요청을 입력하세요... (예: "Python 정렬 알고리즘 만들어줘")';
-                addMessage('🐈 나나봇 코딩 에이전트 활성화! nanobot-ai 엔진으로 코드 생성, 검증, 저장을 자동으로 처리합니다.', 'assistant');
+        // ★ 나나봇 모드 토글 (서버 상태 확인 후 ON/OFF)
+        let nanobotSessionId = 'web_' + Date.now().toString(36);  // 세션 유지용
+
+        async function toggleNanobot() {
+            const wanting = !nanobotMode;  // 원하는 상태
+
+            if (wanting) {
+                // ★ ON 하려면 → 서버에 나나봇 사용 가능한지 먼저 확인
+                try {
+                    nanobotToggle.style.opacity = '0.5';
+                    nanobotToggle.style.pointerEvents = 'none';
+                    const res = await fetch('/assistant/api/agent/status');
+                    const data = await res.json();
+
+                    if (!data.success) {
+                        addMessage('❌ 나나봇을 사용할 수 없습니다: ' + (data.error || 'nanobot-ai 미설치'), 'assistant');
+                        nanobotToggle.style.opacity = '1';
+                        nanobotToggle.style.pointerEvents = 'auto';
+                        return;  // ON 실패 → 상태 변경 안 함
+                    }
+
+                    // ★ 새 세션 시작
+                    nanobotSessionId = 'web_' + Date.now().toString(36);
+                    nanobotMode = true;
+                    nanobotToggle.classList.add('active');
+                    nanobotIndicator.classList.add('show');
+                    inputBox.classList.add('nanobot-active');
+                    messageInput.placeholder = '🐈 코딩 요청을 입력하세요... (예: "Python 정렬 알고리즘 만들어줘")';
+
+                    const toolList = (data.tools || []).join(', ');
+                    addMessage(
+                        `🐈 **나나봇 코딩 에이전트 ON**\n\n` +
+                        `모델: **${data.model || '?'}** (${data.provider || '?'})\n` +
+                        `도구: ${toolList}\n\n` +
+                        `코드 생성·파일 관리·셸 실행을 자동으로 처리합니다.\n` +
+                        `OFF 하려면 🐈 버튼을 다시 누르세요.`,
+                        'assistant'
+                    );
+                } catch (e) {
+                    addMessage('❌ 나나봇 서버 연결 실패: ' + e.message, 'assistant');
+                } finally {
+                    nanobotToggle.style.opacity = '1';
+                    nanobotToggle.style.pointerEvents = 'auto';
+                }
             } else {
-                messageInput.placeholder = '메시지를 입력하세요... (예: \'스크린샷 찍어줘\', \'파일 검색해줘\')';
+                // ★ OFF → 바로 전환
+                nanobotMode = false;
+                nanobotToggle.classList.remove('active');
+                nanobotIndicator.classList.remove('show');
+                inputBox.classList.remove('nanobot-active');
+                messageInput.placeholder = "메시지를 입력하세요... (예: '스크린샷 찍어줘', '파일 검색해줘')";
                 addMessage('🤖 일반 어시스턴트 모드로 전환되었습니다.', 'assistant');
             }
         }
@@ -1750,7 +1789,7 @@
                     const res = await fetch('/assistant/api/agent/chat', {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ message, session_id: 'web:default' }),
+                        body: JSON.stringify({ message, session_id: nanobotSessionId }),
                         signal: currentAbortController.signal
                     });
                     clearTimeout(timeoutId);
@@ -1758,12 +1797,16 @@
                     removeLoading(loadingId);
                     stopBtn.style.display = 'none';
 
-                    // 에이전트 응답 + 스텝 표시
-                    const stepsHtml = renderAgentSteps(data.steps);
-                    const usageInfo = data.usage && data.usage.total_tokens > 0
-                        ? `<div style="font-size:0.75rem;color:var(--text-muted);margin-top:6px;">📊 ${data.iterations}회 반복 | ${data.usage.total_tokens} 토큰 | ${data.total_time}초</div>`
-                        : '';
-                    addNanobotMessage(data.response + usageInfo + stepsHtml);
+                    if (data.success) {
+                        // 에이전트 응답 + 스텝 표시
+                        const stepsHtml = renderAgentSteps(data.steps);
+                        const usageInfo = data.usage && (data.usage.prompt_tokens || data.usage.completion_tokens)
+                            ? `<div style="font-size:0.75rem;color:var(--text-muted);margin-top:6px;">📊 ${data.iterations || 0}회 반복 | ${(data.usage.prompt_tokens||0) + (data.usage.completion_tokens||0)} 토큰</div>`
+                            : '';
+                        addNanobotMessage(data.response + usageInfo + stepsHtml);
+                    } else {
+                        addMessage('🐈❌ 나나봇 오류: ' + (data.error || data.response || '알 수 없는 오류') + '\n\n🐈 버튼을 눌러 OFF 후 다시 시도해보세요.', 'assistant');
+                    }
                 } else {
                     // 일반 모드
                     const res = await fetch('/assistant/api/chat', {
