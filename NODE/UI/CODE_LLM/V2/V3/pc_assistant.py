@@ -100,6 +100,10 @@ TOKEN_USAGE = {
 SCREENSHOT_DIR = os.path.join(BASE_DIR, "screenshots")
 os.makedirs(SCREENSHOT_DIR, exist_ok=True)
 
+# ★ 리소스 폴더 (HTML 구성도 등 정적 파일)
+RESOURCES_DIR = os.path.join(BASE_DIR, "resources")
+os.makedirs(RESOURCES_DIR, exist_ok=True)
+
 # ★ 지식베이스(MD 문서) 폴더
 KNOWLEDGE_DIR = os.path.join(BASE_DIR, "knowledge")
 os.makedirs(KNOWLEDGE_DIR, exist_ok=True)
@@ -929,6 +933,47 @@ def analyze_data(path: str) -> str:
 
 
 # ========================================
+# ★ 자동 리소스 첨부 (키워드 매칭 시 관련 파일 링크 자동 추가)
+# ========================================
+AUTO_RESOURCES = [
+    {
+        "keywords": ["amhs", "amos", "oht", "mcs", "stk", "cnv", "lft", "inv",
+                     "foup", "pdt", "rtc", "fio", "반송", "스토커", "컨베이어",
+                     "리프트", "인버터", "물류", "반송차량", "구성도", "시스템 구성"],
+        "filename": "AMHS_시스템구성도.html",
+        "label": "📊 AMHS 시스템 구성도",
+        "desc": "인터랙티브 구성도 (클릭하면 새 탭에서 열림)"
+    }
+]
+
+
+def auto_attach_resources(user_message: str, response: str) -> str:
+    """사용자 질문에 관련 리소스가 있으면 응답 끝에 링크 자동 추가"""
+    msg_lower = user_message.lower()
+    attached = []
+
+    for res in AUTO_RESOURCES:
+        # 키워드 매칭 (2개 이상 매칭되거나, 핵심 키워드 1개 매칭)
+        matched = [kw for kw in res["keywords"] if kw in msg_lower]
+        core_keywords = ["amhs", "amos", "구성도", "시스템 구성"]
+        core_match = any(kw in msg_lower for kw in core_keywords)
+
+        if len(matched) >= 1 or core_match:
+            filepath = os.path.join(RESOURCES_DIR, res["filename"])
+            if os.path.exists(filepath):
+                attached.append(res)
+
+    if attached:
+        links = []
+        for res in attached:
+            url = f"/assistant/resources/{res['filename']}"
+            links.append(f"\n\n---\n🔗 **[{res['label']}]({url})** - {res['desc']}")
+        response += "".join(links)
+
+    return response
+
+
+# ========================================
 # Tool 실행기
 # ========================================
 def execute_tool(tool_data: dict) -> str:
@@ -1460,6 +1505,26 @@ async def serve_screenshot(filename: str):
     return {"error": "파일 없음"}
 
 
+# ★ 리소스 파일 서빙 (HTML 구성도 등)
+@router.get("/resources/{filename}")
+async def serve_resource(filename: str):
+    filepath = os.path.join(RESOURCES_DIR, filename)
+    if os.path.exists(filepath):
+        # 확장자별 MIME 타입
+        ext = os.path.splitext(filename)[1].lower()
+        mime_types = {
+            ".html": "text/html",
+            ".htm": "text/html",
+            ".png": "image/png",
+            ".jpg": "image/jpeg",
+            ".svg": "image/svg+xml",
+            ".pdf": "application/pdf",
+        }
+        media_type = mime_types.get(ext, "application/octet-stream")
+        return FileResponse(filepath, media_type=media_type)
+    return JSONResponse(status_code=404, content={"error": "파일 없음"})
+
+
 # ★ 스크린샷 목록
 @router.get("/api/screenshots")
 async def list_screenshots():
@@ -1615,6 +1680,8 @@ async def assistant_chat(request: ChatRequest):
     user_msg = request.message.strip()
     CHAT_HISTORY.append({"role": "user", "content": user_msg, "time": datetime.datetime.now().isoformat()})
     response = process_chat(user_msg)
+    # ★ 자동 리소스 첨부 (AMHS 관련 질문 시 구성도 링크 등)
+    response = auto_attach_resources(user_msg, response)
     CHAT_HISTORY.append({"role": "assistant", "content": response, "time": datetime.datetime.now().isoformat()})
     save_history()
     return {"success": True, "response": response}
@@ -1848,4 +1915,4 @@ if __name__ == "__main__":
     async def standalone_startup():
         init_assistant()
 
-    uvicorn.run(app, host="0.0.0.0", port=10002)
+    uvicorn.run(app, host="0.0.0.0", port=10003)
