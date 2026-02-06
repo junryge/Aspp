@@ -532,34 +532,46 @@
             padding: 4px 10px;
             border-radius: 20px;
             background: var(--bg-input);
-            border: 1px solid var(--border);
+            border: 2px solid #555;
             transition: all 0.3s;
             user-select: none;
             font-size: 0.85rem;
+            color: #888;
         }
         .nanobot-toggle:hover { border-color: var(--nanobot); }
         .nanobot-toggle.active {
             background: var(--nanobot);
             border-color: var(--nanobot);
             color: white;
+            box-shadow: 0 0 12px rgba(249,115,22,0.5);
         }
         .toggle-track {
-            width: 32px; height: 18px;
-            background: var(--border);
-            border-radius: 9px;
+            width: 36px; height: 20px;
+            background: #555;
+            border-radius: 10px;
             position: relative;
             transition: background 0.3s;
         }
-        .nanobot-toggle.active .toggle-track { background: rgba(255,255,255,0.3); }
+        .nanobot-toggle.active .toggle-track { background: rgba(255,255,255,0.35); }
         .toggle-thumb {
-            width: 14px; height: 14px;
-            background: white;
+            width: 16px; height: 16px;
+            background: #999;
             border-radius: 50%;
             position: absolute;
             top: 2px; left: 2px;
-            transition: transform 0.3s;
+            transition: all 0.3s;
         }
-        .nanobot-toggle.active .toggle-thumb { transform: translateX(14px); }
+        .nanobot-toggle.active .toggle-thumb {
+            transform: translateX(16px);
+            background: white;
+        }
+        .toggle-state {
+            font-size: 0.7rem;
+            font-weight: 700;
+            min-width: 24px;
+        }
+        .nanobot-toggle .toggle-state { color: #888; }
+        .nanobot-toggle.active .toggle-state { color: white; }
 
         /* 감마봇 모드 인디케이터 */
         .nanobot-indicator {
@@ -1159,7 +1171,7 @@
                 <div class="nanobot-toggle" id="nanobotToggle" onclick="toggleNanobot()">
                     <span>⚡</span>
                     <div class="toggle-track"><div class="toggle-thumb"></div></div>
-                    <span class="toggle-label">감마봇</span>
+                    <span class="toggle-state" id="toggleState">OFF</span>
                 </div>
             </div>
             <div class="input-wrapper">
@@ -1723,6 +1735,7 @@
                     nanobotSessionId = 'web_' + Date.now().toString(36);
                     nanobotMode = true;
                     nanobotToggle.classList.add('active');
+                    document.getElementById('toggleState').textContent = 'ON';
                     nanobotIndicator.classList.add('show');
                     inputBox.classList.add('nanobot-active');
                     messageInput.placeholder = '⚡ 코딩 요청을 입력하세요... (예: "Python 정렬 알고리즘 만들어줘")';
@@ -1746,6 +1759,7 @@
                 // ★ OFF → 바로 전환
                 nanobotMode = false;
                 nanobotToggle.classList.remove('active');
+                document.getElementById('toggleState').textContent = 'OFF';
                 nanobotIndicator.classList.remove('show');
                 inputBox.classList.remove('nanobot-active');
                 messageInput.placeholder = "메시지를 입력하세요... (예: '스크린샷 찍어줘', '파일 검색해줘')";
