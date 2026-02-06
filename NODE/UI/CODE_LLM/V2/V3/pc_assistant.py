@@ -937,6 +937,194 @@ def search_knowledge(keyword: str) -> List[dict]:
     return results
 
 
+# ★★★ 섹션 단위 지식베이스 검색 (NEW) ★★★
+def parse_md_sections(filepath: str) -> list:
+    """
+    MD 파일을 ## (H2) 기준으로 섹션 분리
+    H2 섹션은 하위 H3~H6 내용까지 모두 포함!
+    """
+    try:
+        with open(filepath, 'r', encoding='utf-8', errors='ignore') as f:
+            lines = f.readlines()
+    except:
+        return []
+
+    # H2 기준 큰 블록 분리
+    h2_sections = []
+    current_lines = []
+    current_header = ""
+    current_sub_headers = []
+
+    for line in lines:
+        header_match = re.match(r'^(#{1,6})\s+(.+)', line.strip())
+        if header_match:
+            level = len(header_match.group(1))
+            header_text = header_match.group(2).strip()
+            if level <= 2:  # H1 또는 H2 → 새 블록
+                if current_lines:
+                    content = ''.join(current_lines).strip()
+                    if len(content) > 20:
+                        h2_sections.append({
+                            "header": current_header, "level": 2,
+                            "content": content, "sub_headers": current_sub_headers[:],
+                            "keywords": _extract_section_keywords(content, current_header),
+                        })
+                current_header = header_text
+                current_lines = [line]
+                current_sub_headers = []
+            else:
+                current_lines.append(line)
+                current_sub_headers.append(header_text)
+        else:
+            current_lines.append(line)
+
+    if current_lines:
+        content = ''.join(current_lines).strip()
+        if len(content) > 20:
+            h2_sections.append({
+                "header": current_header, "level": 2,
+                "content": content, "sub_headers": current_sub_headers[:],
+                "keywords": _extract_section_keywords(content, current_header),
+            })
+
+    # H3 서브섹션도 독립 검색용으로 추가
+    all_sections = list(h2_sections)
+    current_h3_lines = []
+    current_h3_header = ""
+    parent_h2 = ""
+
+    for line in lines:
+        header_match = re.match(r'^(#{1,6})\s+(.+)', line.strip())
+        if header_match:
+            level = len(header_match.group(1))
+            header_text = header_match.group(2).strip()
+            if level == 2:
+                if current_h3_lines and current_h3_header:
+                    content = ''.join(current_h3_lines).strip()
+                    if len(content) > 30:
+                        all_sections.append({
+                            "header": current_h3_header, "level": 3,
+                            "content": content, "sub_headers": [],
+                            "keywords": _extract_section_keywords(content, current_h3_header),
+                        })
+                parent_h2 = header_text
+                current_h3_lines = []
+                current_h3_header = ""
+            elif level == 3:
+                if current_h3_lines and current_h3_header:
+                    content = ''.join(current_h3_lines).strip()
+                    if len(content) > 30:
+                        all_sections.append({
+                            "header": current_h3_header, "level": 3,
+                            "content": content, "sub_headers": [],
+                            "keywords": _extract_section_keywords(content, current_h3_header),
+                        })
+                current_h3_header = header_text
+                current_h3_lines = [line]
+            else:
+                current_h3_lines.append(line)
+        else:
+            current_h3_lines.append(line)
+
+    if current_h3_lines and current_h3_header:
+        content = ''.join(current_h3_lines).strip()
+        if len(content) > 30:
+            all_sections.append({
+                "header": current_h3_header, "level": 3,
+                "content": content, "sub_headers": [],
+                "keywords": _extract_section_keywords(content, current_h3_header),
+            })
+
+    return all_sections
+
+
+def _extract_section_keywords(content: str, header: str) -> list:
+    """섹션에서 검색용 키워드 추출"""
+    keywords = set()
+    clean_header = re.sub(r'^\d+[-.]?\d*\.?\s*', '', header)
+    keywords.add(clean_header.lower())
+    for word in re.split(r'[\s/()（）\[\]]+', clean_header):
+        if len(word) >= 2:
+            keywords.add(word.lower())
+    for m in re.finditer(r'\*\*([^*]+)\*\*', content):
+        keywords.add(m.group(1).lower().strip())
+    for m in re.finditer(r'`([^`]{2,40})`', content):
+        keywords.add(m.group(1).lower())
+    stop_words = {'있으면', '없으면', '아니면', '입니다', '합니다', '됩니다', '에서는', '으로의', '이므로', '때문에'}
+    for m in re.finditer(r'[가-힣]{2,8}', content):
+        word = m.group()
+        if word not in stop_words:
+            keywords.add(word)
+    return list(keywords)[:80]
+
+
+def search_knowledge_section(keyword: str, top_k: int = 3) -> list:
+    """지식베이스에서 섹션 단위 검색 (파일 전체가 아닌 해당 섹션만 반환)"""
+    cleaned = re.sub(
+        r'(을|를|이|가|은|는|의|에|에서|로|으로|부터|까지|도|만|에대해|좀|줘|해줘|알려줘|설명해|뭐야|어떻게|에 대해)',
+        ' ', keyword)
+    tokens = []
+    for m in re.finditer(r'[가-힣]{2,}', cleaned):
+        tokens.append(m.group().lower())
+    for m in re.finditer(r'[a-zA-Z0-9_]{2,}', cleaned):
+        tokens.append(m.group().lower())
+    if not tokens:
+        tokens = [keyword.strip().lower()]
+    logger.info(f"🔍 섹션검색: '{keyword}' → 토큰: {tokens}")
+    results = []
+    try:
+        for f in os.listdir(KNOWLEDGE_DIR):
+            if not f.endswith(('.md', '.txt')):
+                continue
+            filepath = os.path.join(KNOWLEDGE_DIR, f)
+            sections = parse_md_sections(filepath)
+            for section in sections:
+                score, matched = _score_section(section, tokens, keyword)
+                if score >= 30:
+                    results.append({
+                        "filename": f, "header": section["header"],
+                        "level": section.get("level", 2), "content": section["content"],
+                        "score": score, "matched": matched,
+                    })
+    except Exception as e:
+        logger.error(f"섹션검색 오류: {e}")
+    results.sort(key=lambda x: x["score"], reverse=True)
+    if results:
+        logger.info(f"✅ 섹션검색 {len(results)}개 (1위: {results[0]['header'][:30]}... 점수:{results[0]['score']})")
+    return results[:top_k]
+
+
+def _score_section(section: dict, tokens: list, original_query: str) -> tuple:
+    """섹션 관련성 점수 계산"""
+    score = 0
+    matched = []
+    header_lower = section["header"].lower()
+    content_lower = section["content"].lower()
+    keywords_set = set(k.lower() for k in section.get("keywords", []))
+    for token in tokens:
+        t = token.lower()
+        if t in header_lower:
+            score += 100
+            matched.append(token)
+        if t in keywords_set:
+            score += 40
+            if token not in matched:
+                matched.append(token)
+        count = content_lower.count(t)
+        if count > 0:
+            score += min(count * 15, 60)
+            if token not in matched:
+                matched.append(token)
+    q = original_query.lower()
+    if len(q) >= 4 and q in content_lower:
+        score += 80
+    if section.get("level") == 2:
+        score = int(score * 1.3)
+    elif section.get("level", 0) >= 4:
+        score = int(score * 0.7)
+    return score, matched
+
+
 def generate_guided_questions(user_query: str) -> dict:
     """지식베이스 검색 실패 시 LLM이 파일 목록을 보고 역질문을 생성"""
     try:
@@ -1394,17 +1582,15 @@ def process_chat(user_message: str) -> str:
                     logger.info("⚠️ 2차 LLM 응답 없음 → 문서 직접 반환")
                     return f"📄 **문서 내용:**\n\n{doc_content[:5000]}"
 
-                # 2) search_knowledge → 관련성 높은 문서만 사용
+                # 2) search_knowledge → ★ 섹션 단위 검색으로 교체
                 if tool_name == "search_knowledge":
                     try:
                         search_results = json.loads(tool_result)
                         if not search_results:
-                            # ★ 역질문 유도: LLM이 파일 목록 보고 추천 질문 생성
                             guide = generate_guided_questions(user_message)
                             if guide["success"] and guide["suggestions"]:
                                 lines = [f"🔍 **{guide['message']}**\n"]
                                 for i, suggestion in enumerate(guide["suggestions"], 1):
-                                    # <!--SUGGEST:질문--> 마커로 프론트엔드에서 클릭 버튼 생성
                                     lines.append(f"<!--SUGGEST:{suggestion}-->")
                                 lines.append(f"\n\n💡 위 추천 질문을 클릭하거나, 더 구체적인 키워드로 다시 질문해보세요.")
                                 if guide.get("kb_files"):
@@ -1413,58 +1599,44 @@ def process_chat(user_message: str) -> str:
                             else:
                                 return "🔍 관련 문서를 찾지 못했습니다. 지식베이스에 문서를 먼저 등록해주세요."
 
-                        # ★ 관련성 점수 기반으로 문서 선택
-                        # 1위 문서와 점수 차이가 50% 이상이면 1위만 사용
-                        MAX_TOTAL_LENGTH = 15000
-                        merged_docs = []
-                        total_length = 0
-                        doc_names = []
+                        # ★★★ 섹션 단위 검색 먼저 시도 ★★★
+                        section_results = search_knowledge_section(user_message, top_k=3)
+                        
+                        if section_results:
+                            MAX_CONTEXT = 12000
+                            context_parts = []
+                            total_len = 0
+                            doc_names = []
+                            top_score = section_results[0]["score"]
 
-                        top_score = search_results[0].get("score", 100)
+                            for sr in section_results:
+                                if sr["score"] < top_score * 0.4:
+                                    break
+                                remaining = MAX_CONTEXT - total_len
+                                if remaining < 500:
+                                    break
+                                s_content = sr["content"]
+                                if len(s_content) > remaining:
+                                    s_content = s_content[:remaining] + "\n... (섹션 일부 생략)"
+                                context_parts.append(f"📄 [{sr['filename']}] {sr['header']}\n{s_content}")
+                                doc_names.append(f"{sr['filename']}#{sr['header']}")
+                                total_len += len(s_content)
 
-                        for i, result in enumerate(search_results):
-                            filename = result["filename"]
-                            score = result.get("score", 0)
+                            if context_parts:
+                                combined_content = "\n\n---\n\n".join(context_parts)
+                                doc_list = ", ".join(doc_names)
+                                logger.info(f"📚 섹션 참조: {doc_list} ({total_len}자)")
 
-                            # 1위 문서와 점수 차이가 50% 이상이면 제외
-                            if i > 0 and score < top_score * 0.5:
-                                logger.info(f"⏭️ 점수 낮아 제외: {filename} (점수: {score}, 1위: {top_score})")
-                                break
-
-                            doc_content = read_knowledge(filename)
-
-                            if doc_content.startswith("❌"):
-                                continue
-
-                            # 남은 공간에 맞게 자르기
-                            remaining = MAX_TOTAL_LENGTH - total_length
-                            if remaining <= 1000:
-                                break
-
-                            if len(doc_content) > remaining:
-                                doc_content = doc_content[:remaining] + "\n\n... (문서 일부 생략)"
-
-                            merged_docs.append(f"📄 **[{filename}]**\n{doc_content}")
-                            doc_names.append(filename)
-                            total_length += len(doc_content)
-
-                        if not merged_docs:
-                            return "🔍 문서를 읽을 수 없습니다."
-
-                        combined_content = "\n\n---\n\n".join(merged_docs)
-                        doc_list = ", ".join(doc_names)
-                        logger.info(f"📚 참조 문서: {doc_list} (총 {total_length}자)")
-
-                        follow_up_prompt = f"""[사용자 질문]
+                                follow_up_prompt = f"""[사용자 질문]
 {user_message}
 
-[참고 문서 {len(doc_names)}개: {doc_list}]
+[참고 문서 섹션 {len(doc_names)}개]
 {combined_content}
 
-위 문서들을 참고해서 사용자의 질문에 정확히 답변하세요.
-여러 문서의 내용을 종합해서 답변하고, 문서에 없는 내용은 추측하지 마세요."""
+위 섹션을 참고해서 사용자의 질문에 정확히 답변하세요.
+문서에 있는 내용만 근거로 답변하고, 문서에 없는 내용은 추측하지 마세요."""
 
-                        follow_up_system = """당신은 시니어 소프트웨어 엔지니어이자 기술 문서 전문가입니다.
+                                follow_up_system = """당신은 시니어 소프트웨어 엔지니어이자 기술 문서 전문가입니다.
 
 [답변 형식]
 **📋 핵심 요약**
@@ -1480,23 +1652,68 @@ def process_chat(user_message: str) -> str:
 
 [답변 규칙]
 1. 문서 내용을 근거로 정확하고 **충분히 상세하게** 답변하세요.
-2. 상세 내용은 최소 10줄 이상 작성하세요. 문서에 있는 중요 정보는 빠뜨리지 마세요.
+2. 상세 내용은 최소 10줄 이상 작성하세요.
 3. 소스코드 원본은 보여주지 말고, 코드의 기능/역할/동작을 설명하세요.
 4. 마크다운 표(| --- |) 사용 금지. "- 항목: 값" 형태로 나열하세요.
 5. ## ### 대제목 헤더 대신 **볼드**와 이모지를 사용하세요.
 6. 한국어로 답변하세요.
 7. 절대 JSON을 출력하거나 도구를 호출하지 마세요."""
 
+                                result2 = call_llm(follow_up_prompt, follow_up_system, max_tokens=6000)
+                                if result2["success"]:
+                                    content = result2["content"].strip()
+                                    logger.info(f"📝 섹션검색 2차 응답: {content[:200] if content else '(빈 응답)'}")
+                                    if content and not extract_tool_json(content):
+                                        source_info = f"\n\n---\n📚 **참조 섹션**: {doc_list}"
+                                        return content + source_info
+                                return f"📄 **참조 섹션:**\n\n{combined_content[:5000]}"
+
+                        # ★ 섹션 검색 실패 → 기존 파일 단위 fallback
+                        MAX_TOTAL_LENGTH = 15000
+                        merged_docs = []
+                        total_length = 0
+                        doc_names = []
+                        top_score = search_results[0].get("score", 100)
+
+                        for i, result in enumerate(search_results):
+                            filename = result["filename"]
+                            score = result.get("score", 0)
+                            if i > 0 and score < top_score * 0.5:
+                                break
+                            doc_content = read_knowledge(filename)
+                            if doc_content.startswith("❌"):
+                                continue
+                            remaining = MAX_TOTAL_LENGTH - total_length
+                            if remaining <= 1000:
+                                break
+                            if len(doc_content) > remaining:
+                                doc_content = doc_content[:remaining] + "\n\n... (문서 일부 생략)"
+                            merged_docs.append(f"📄 **[{filename}]**\n{doc_content}")
+                            doc_names.append(filename)
+                            total_length += len(doc_content)
+
+                        if not merged_docs:
+                            return "🔍 문서를 읽을 수 없습니다."
+
+                        combined_content = "\n\n---\n\n".join(merged_docs)
+                        doc_list = ", ".join(doc_names)
+
+                        follow_up_prompt = f"""[사용자 질문]
+{user_message}
+
+[참고 문서 {len(doc_names)}개: {doc_list}]
+{combined_content}
+
+위 문서들을 참고해서 사용자의 질문에 정확히 답변하세요."""
+
+                        follow_up_system = """당신은 기술 문서 전문가입니다. 한국어로 상세 답변. JSON 출력 금지."""
+
                         result2 = call_llm(follow_up_prompt, follow_up_system, max_tokens=6000)
                         if result2["success"]:
                             content = result2["content"].strip()
-                            logger.info(f"📝 지식검색 2차 응답: {content[:200] if content else '(빈 응답)'}")
                             if content and not extract_tool_json(content):
-                                # 참조 문서 목록 추가
                                 source_info = f"\n\n---\n📚 **참조 문서**: {doc_list}"
                                 return content + source_info
-                        # fallback: 문서 내용 직접 반환
-                        logger.info("⚠️ 2차 LLM 응답 없음 → 문서 직접 반환")
                         return f"📄 **참조 문서:**\n\n{combined_content[:5000]}"
                     except Exception as e:
                         logger.error(f"지식검색 처리 오류: {e}")
@@ -1566,18 +1783,79 @@ def process_chat(user_message: str) -> str:
             pass
 
         if kb_has_files and not is_pc_cmd and not is_greeting and not is_short:
-            logger.info(f"🔄 자동 지식베이스 탐색: '{user_message}'")
+            logger.info(f"🔄 자동 지식베이스 탐색(섹션): '{user_message}'")
 
             # 키워드 추출 (조사/어미 제거)
             clean_msg = re.sub(r'(알려줘|설명해줘|뭐야|뭐에요|해줘|할래|에 대해|에대해|좀|줘|요|는|은|이|가|을|를|의|로|으로|에서|부터|까지|이랑|랑|하고|그리고|또는|이나|나|이든)', '', msg_lower).strip()
             if not clean_msg:
                 clean_msg = msg_lower
 
+            # ★★★ 섹션 단위 검색 먼저 시도 ★★★
+            section_results = search_knowledge_section(clean_msg, top_k=3)
+
+            if section_results:
+                logger.info(f"✅ 섹션검색 성공: {[r['header'][:20] for r in section_results[:3]]}")
+                MAX_CONTEXT = 12000
+                context_parts = []
+                total_len = 0
+                doc_names = []
+                top_score = section_results[0]["score"]
+
+                for sr in section_results:
+                    if sr["score"] < top_score * 0.4:
+                        break
+                    remaining = MAX_CONTEXT - total_len
+                    if remaining < 500:
+                        break
+                    s_content = sr["content"]
+                    if len(s_content) > remaining:
+                        s_content = s_content[:remaining] + "\n... (섹션 일부 생략)"
+                    context_parts.append(f"📄 [{sr['filename']}] {sr['header']}\n{s_content}")
+                    doc_names.append(f"{sr['filename']}#{sr['header']}")
+                    total_len += len(s_content)
+
+                if context_parts:
+                    combined_content = "\n\n---\n\n".join(context_parts)
+                    doc_list = ", ".join(doc_names)
+
+                    follow_up_prompt = f"""[사용자 질문]
+{user_message}
+
+[참고 문서 섹션 {len(doc_names)}개]
+{combined_content}
+
+위 섹션을 참고해서 사용자의 질문에 정확히 답변하세요.
+여러 섹션의 내용을 종합해서 답변하고, 문서에 없는 내용은 추측하지 마세요."""
+
+                    follow_up_system = """당신은 시니어 소프트웨어 엔지니어이자 기술 문서 전문가입니다.
+
+[답변 형식]
+**📋 핵심 요약**
+질문에 대한 핵심 답변을 2~3줄로 요약
+
+**📝 상세 내용**
+문서에서 중요한 내용을 충분히 자세하게 정리
+
+[답변 규칙]
+1. 문서 내용을 근거로 정확하고 충분히 상세하게 답변하세요.
+2. 소스코드 원본은 보여주지 말고, 코드의 기능/역할/동작을 설명하세요.
+3. 마크다운 표(| --- |) 사용 금지. "- 항목: 값" 형태로 나열하세요.
+4. ## ### 대제목 헤더 대신 **볼드**와 이모지를 사용하세요.
+5. 한국어로 답변하세요.
+6. 절대 JSON을 출력하거나 도구를 호출하지 마세요."""
+
+                    result2 = call_llm(follow_up_prompt, follow_up_system, max_tokens=6000)
+                    if result2["success"]:
+                        content2 = result2["content"].strip()
+                        if content2 and not extract_tool_json(content2):
+                            source_info = f"\n\n---\n📚 **참조 섹션**: {doc_list}"
+                            return content2 + source_info
+
+            # ★ 섹션 검색 실패 → 기존 파일 단위 fallback
             auto_results = search_knowledge(clean_msg)
 
             if auto_results:
-                # 검색 성공 → 문서 기반 답변 생성 (기존 search_knowledge 핸들러 동일 로직)
-                logger.info(f"✅ 자동 검색 성공: {[r['filename'] for r in auto_results[:3]]}")
+                logger.info(f"✅ 파일검색 fallback: {[r['filename'] for r in auto_results[:3]]}")
                 MAX_TOTAL_LENGTH = 15000
                 merged_docs = []
                 total_length = 0
@@ -1611,25 +1889,9 @@ def process_chat(user_message: str) -> str:
 [참고 문서 {len(doc_names)}개: {doc_list}]
 {combined_content}
 
-위 문서들을 참고해서 사용자의 질문에 정확히 답변하세요.
-여러 문서의 내용을 종합해서 답변하고, 문서에 없는 내용은 추측하지 마세요."""
+위 문서들을 참고해서 사용자의 질문에 정확히 답변하세요."""
 
-                    follow_up_system = """당신은 시니어 소프트웨어 엔지니어이자 기술 문서 전문가입니다.
-
-[답변 형식]
-**📋 핵심 요약**
-질문에 대한 핵심 답변을 2~3줄로 요약
-
-**📝 상세 내용**
-문서에서 중요한 내용을 충분히 자세하게 정리
-
-[답변 규칙]
-1. 문서 내용을 근거로 정확하고 충분히 상세하게 답변하세요.
-2. 소스코드 원본은 보여주지 말고, 코드의 기능/역할/동작을 설명하세요.
-3. 마크다운 표(| --- |) 사용 금지. "- 항목: 값" 형태로 나열하세요.
-4. ## ### 대제목 헤더 대신 **볼드**와 이모지를 사용하세요.
-5. 한국어로 답변하세요.
-6. 절대 JSON을 출력하거나 도구를 호출하지 마세요."""
+                    follow_up_system = """당신은 기술 문서 전문가입니다. 한국어로 상세 답변. JSON 출력 금지."""
 
                     result2 = call_llm(follow_up_prompt, follow_up_system, max_tokens=6000)
                     if result2["success"]:
