@@ -1,0 +1,26 @@
+{
+  "projects": [
+    {
+      "id": "proj_360b38de",
+      "name": "UIS",
+      "customer_type": "code_editing",
+      "description": "UIS",
+      "path": "F:\\M14_Q\\UI",
+      "created": "2026-02-07T17:11:31.171050",
+      "last_active": "2026-02-07T17:11:31.171050",
+      "file_count": 327,
+      "is_existing_folder": true
+    },
+    {
+      "id": "proj_7f2db901",
+      "name": "파일 읽기쓰기 샘플",
+      "customer_type": "code_editing",
+      "description": "Python 파일 IO 기본 예제",
+      "path": "F:\\M14_Q\\LLM_CODING\\sample_projects\\file_io_sample",
+      "created": "2026-02-07T17:39:10.974135",
+      "last_active": "2026-02-07T21:41:57.570481",
+      "file_count": 6,
+      "is_existing_folder": true
+    }
+  ]
+}
