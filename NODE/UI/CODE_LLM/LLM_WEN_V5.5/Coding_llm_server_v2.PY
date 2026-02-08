@@ -537,6 +537,15 @@ async def magi_f_icon():
     return FileResponse(os.path.join(os.path.dirname(os.path.abspath(__file__)), "magi_f.png"), media_type="image/png")
 
 
+@app.get("/api/download/NomosLLM")
+async def download_nomos_llm():
+    """NomosLLM.ZIP 로컬 모드 다운로드"""
+    zip_path = os.path.join(BASE_DIR, "NomosLLM.ZIP")
+    if not os.path.exists(zip_path):
+        return JSONResponse({"error": "파일이 아직 준비되지 않았습니다. NomosLLM.ZIP을 서버에 배치해주세요."}, status_code=404)
+    return FileResponse(zip_path, media_type="application/zip", filename="NomosLLM.ZIP")
+
+
 @app.get("/health")
 async def health_check():
     """헬스체크 엔드포인트 - 서버 상태 빠르게 확인"""
