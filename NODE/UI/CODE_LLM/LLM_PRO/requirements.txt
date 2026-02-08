@@ -1,0 +1,29 @@
+# Nomos LLM Desktop App - 의존성
+# pip install -r requirements.txt
+
+# === GUI ===
+PySide6>=6.6.0
+
+# === 코드 에디터 (선택) ===
+# QScintilla>=2.14.0       # 구문 강조 에디터 (없으면 기본 에디터 사용)
+
+# === 마크다운 렌더링 ===
+markdown>=3.5
+Pygments>=2.17
+
+# === LLM ===
+llama-cpp-python>=0.2.0    # GGUF 로컬 모델 추론
+requests>=2.31              # API HTTP 호출
+httpx>=0.25                 # 비동기 HTTP (에이전트용)
+
+# === 코드 수정 엔진 ===
+aider-chat>=0.40.0          # Aider 코드 수정
+
+# === 에이전트 (선택) ===
+# nanobot-ai                # 마기 에이전트 (없으면 기본 모드만)
+
+# === 로깅 ===
+loguru>=0.7
+
+# === 패키징 (개발 전용) ===
+# pyinstaller>=6.0
