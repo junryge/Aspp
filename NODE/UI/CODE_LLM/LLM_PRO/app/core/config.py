@@ -5,13 +5,19 @@
 """
 
 import os
+import sys
 import logging
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
-# 앱 기본 경로
-BASE_DIR = Path(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+# 앱 기본 경로 (PyInstaller EXE 환경 지원)
+if getattr(sys, 'frozen', False):
+    # EXE로 빌드된 경우: EXE 파일이 있는 디렉토리
+    BASE_DIR = Path(os.path.dirname(sys.executable))
+else:
+    # 개발 환경: 소스 코드 기준
+    BASE_DIR = Path(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
 
 class AppConfig:
@@ -40,23 +46,31 @@ class AppConfig:
         }
     }
 
+    @staticmethod
+    def _find_gguf(filename):
+        """GGUF 파일 탐색: 현재폴더 → models/ 폴더"""
+        for loc in [BASE_DIR / filename, BASE_DIR / "models" / filename]:
+            if loc.exists():
+                return str(loc)
+        return str(BASE_DIR / filename)  # 기본값 (없어도 경로 반환)
+
     AVAILABLE_GGUF_MODELS = {
         "qwen3-14b": {
-            "path": str(BASE_DIR / "Qwen3-14B-Q4_K_M.gguf"),
+            "path": _find_gguf.__func__("Qwen3-14B-Q4_K_M.gguf"),
             "name": "Qwen3-14B",
             "desc": "14B Q4_K_M - 균형 잡힌 성능",
             "gpu_layers": 35,
             "ctx": 8192
         },
         "qwen3-8b": {
-            "path": str(BASE_DIR / "Qwen3-8B-Q6_K.gguf"),
+            "path": _find_gguf.__func__("Qwen3-8B-Q6_K.gguf"),
             "name": "Qwen3-8B",
             "desc": "8B Q6_K - 빠른 추론",
             "gpu_layers": 35,
             "ctx": 8192
         },
         "qwen3-1.7b": {
-            "path": str(BASE_DIR / "qwen3-1.7b-q8_0.gguf"),
+            "path": _find_gguf.__func__("qwen3-1.7b-q8_0.gguf"),
             "name": "Qwen3-1.7B",
             "desc": "1.7B Q8_0 - 경량 모델",
             "gpu_layers": 35,

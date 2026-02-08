@@ -194,3 +194,79 @@ aider는 OpenAI API 형식만 지원하므로, 로컬 GGUF 모델 사용 시
 - `GET /v1/models` - 모델 목록
 
 데몬 스레드로 자동 시작/종료.
+
+---
+
+## EXE 빌드
+
+### 빌드 방법
+
+```bash
+# 방법 1: 배치 파일 (더블클릭)
+build_exe.bat
+
+# 방법 2: 직접 명령어
+pyinstaller nomos.spec --noconfirm
+```
+
+### 빌드 설정 (`nomos.spec`)
+
+| 항목 | 설정 |
+|------|------|
+| 진입점 | `app/main.py` |
+| 빌드 모드 | onedir (폴더 형태) |
+| 콘솔 | 숨김 (`console=False`) |
+| UPX 압축 | 비활성 |
+
+**Hidden imports:** PySide6, markdown, pygments, llama_cpp, aider, 앱 전체 모듈
+
+**제외 목록 (용량 최적화):**
+- PyQt5/PyQt6 (PySide6과 충돌 방지)
+- torch, tensorflow, keras (대형 ML 프레임워크)
+- numpy, pandas, scipy, sklearn (데이터/과학)
+- polars, pyarrow, duckdb, matplotlib, plotly
+- spacy, nltk, transformers, huggingface_hub
+- PIL, cv2, lxml, faiss
+- uvicorn, fastapi (웹 서버)
+- tkinter, jupyter, pytest, sphinx
+
+### 빌드 결과 크기
+
+| 구성 | 크기 |
+|------|------|
+| EXE + _internal (기본) | ~172 MB |
+| + Qwen3-1.7B 모델 | ~2.2 GB |
+| + Qwen3-8B 모델 | ~8.5 GB |
+| + Qwen3-14B 모델 | ~10.6 GB |
+| + 전체 모델 3개 | ~16.9 GB |
+
+---
+
+## 배포 구조
+
+```
+dist\NomosLLM\
+├── NomosLLM.exe          # 25.5 MB  실행 파일
+├── _internal/             # ~147 MB  런타임 (PySide6, llama_cpp 등)
+├── models/                # ← GGUF 모델 여기에 복사
+│   ├── Qwen3-14B-Q4_K_M.gguf    # (선택) 8.4 GB
+│   ├── Qwen3-8B-Q6_K.gguf       # (선택) 6.3 GB
+│   └── qwen3-1.7b-q8_0.gguf     # (선택) 2.0 GB
+├── aider_projects/        # 프로젝트 저장소 (자동 생성)
+└── token.txt              # API 토큰 (선택, 회사에서 배치)
+```
+
+### 배포 시나리오
+
+| 시나리오 | 필요 파일 | 용량 |
+|----------|-----------|------|
+| API 전용 (폐쇄망) | EXE + token.txt | ~172 MB |
+| 로컬 경량 | EXE + 1.7B 모델 | ~2.2 GB |
+| 로컬 풀셋 | EXE + 전체 모델 | ~16.9 GB |
+
+### 배포 필수 조건
+
+- `_internal/` 폴더는 **필수** (삭제 금지) — PyInstaller 런타임 전체 포함
+- GGUF 모델: `dist\NomosLLM\models\` 또는 `dist\NomosLLM\` 에 배치
+- token.txt: `dist\NomosLLM\` 에 배치 (API 사용 시)
+- **Git 설치 필요** (Aider 코드 수정 기능 사용 시)

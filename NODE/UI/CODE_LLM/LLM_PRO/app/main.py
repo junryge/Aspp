@@ -18,7 +18,10 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # 앱 경로를 PYTHONPATH에 추가
-APP_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if getattr(sys, 'frozen', False):
+    APP_DIR = os.path.dirname(sys.executable)
+else:
+    APP_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if APP_DIR not in sys.path:
     sys.path.insert(0, APP_DIR)
 
