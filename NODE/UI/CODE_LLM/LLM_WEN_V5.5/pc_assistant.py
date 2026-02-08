@@ -1749,8 +1749,10 @@ def process_chat(user_message: str) -> str:
             if search_result and not search_result.startswith("❌"):
                 try:
                     sr_data = json.loads(search_result)
-                    if sr_data.get("results"):
-                        best_file = sr_data["results"][0]["filename"]
+                    # search_knowledge returns List[dict], not {"results": [...]}
+                    sr_list = sr_data if isinstance(sr_data, list) else sr_data.get("results", []) if isinstance(sr_data, dict) else []
+                    if sr_list and isinstance(sr_list[0], dict):
+                        best_file = sr_list[0]["filename"]
                         doc_content = execute_tool({"tool": "read_knowledge", "filename": best_file})
                         if doc_content and not doc_content.startswith("❌"):
                             doc_limit = 12000 if LLM_MODE == "api" else 3000
@@ -1759,7 +1761,7 @@ def process_chat(user_message: str) -> str:
                             result2 = call_llm(follow_up, "당신은 AMHS(자동물류시스템) 전문가입니다. 문서 내용을 기반으로 상세하게 답변하세요. JSON이나 도구 호출은 절대 하지 마세요.", max_tokens=4096 if LLM_MODE == "api" else 1024, task_type="knowledge_qa")
                             if result2["success"]:
                                 return result2["content"].strip()
-                except (json.JSONDecodeError, KeyError, IndexError):
+                except (json.JSONDecodeError, KeyError, IndexError, AttributeError):
                     pass
             # 검색 실패 시 일반 LLM 흐름으로 fallback
 
@@ -1896,9 +1898,16 @@ def process_chat(user_message: str) -> str:
                         total_length = 0
                         doc_names = []
 
-                        top_score = search_results[0].get("score", 100)
+                        # search_results items이 dict인지 방어 체크
+                        first_item = search_results[0]
+                        if not isinstance(first_item, dict):
+                            logger.warning(f"⚠️ search_results[0] is {type(first_item).__name__}, not dict")
+                            return "🔍 검색 결과 형식 오류입니다. 다시 시도해주세요."
+                        top_score = first_item.get("score", 100)
 
                         for i, result in enumerate(search_results[:MAX_DOCS]):
+                            if not isinstance(result, dict):
+                                continue
                             filename = result["filename"]
                             score = result.get("score", 0)
 
@@ -2029,6 +2038,10 @@ def process_chat(user_message: str) -> str:
                 clean_msg = msg_lower
 
             auto_results = search_knowledge(clean_msg)
+
+            # dict 항목만 필터링 (비정상 데이터 방어)
+            if auto_results:
+                auto_results = [r for r in auto_results if isinstance(r, dict)]
 
             if auto_results:
                 # 검색 성공 → 문서 기반 답변 생성 (기존 search_knowledge 핸들러 동일 로직)
