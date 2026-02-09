@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """
 Layout XML → JSON 변환기
+
+parse_layout_xml.py
 OHT 레이아웃 XML 파일을 파싱하여 3D 시각화용 JSON 생성
 """
 
