@@ -1,0 +1,2492 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AMOS MAP System PRO - OHT 3D Rail Layout</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { overflow: hidden; background: #0a0a1a; font-family: 'Malgun Gothic', '맑은 고딕', 'Segoe UI', Arial, sans-serif; color: #fff; }
+canvas#threeCanvas { display: block; }
+
+/* === 로딩 === */
+#loading {
+    position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+    background: #0a0a1a; display: flex; flex-direction: column;
+    align-items: center; justify-content: center; z-index: 1000;
+}
+#loading h1 { font-size: 36px; margin-bottom: 6px; color: #00d4ff; letter-spacing: 3px; }
+#loading .subtitle { font-size: 14px; color: #7b2fff; margin-bottom: 6px; letter-spacing: 5px; }
+#loading .author { font-size: 12px; color: #556; margin-bottom: 24px; }
+#loading .bar-bg { width: 400px; height: 6px; background: #1a1a3a; border-radius: 3px; overflow: hidden; }
+#loading .bar-fill { height: 100%; width: 0%; background: linear-gradient(90deg, #00d4ff, #7b2fff); transition: width 0.3s; }
+#loading .status { margin-top: 12px; color: #888; font-size: 14px; }
+
+/* === 헤더 === */
+#header {
+    background: linear-gradient(180deg, #1a1a2e 0%, #0f0f1a 100%);
+    padding: 0 20px;
+    display: flex; justify-content: space-between; align-items: center;
+    border-bottom: 2px solid rgba(0,212,255,0.25);
+    height: 48px; flex-shrink: 0;
+}
+#header h1 { font-size: 18px; color: #00d4ff; display: flex; align-items: center; gap: 12px; }
+#header .badge { background: linear-gradient(135deg, #ff6600, #cc5200); padding: 3px 10px; border-radius: 4px; font-size: 11px; color: #fff; }
+#header .fab-name { background: rgba(0,212,255,0.1); padding: 3px 10px; border-radius: 4px; font-size: 12px; border: 1px solid rgba(0,212,255,0.3); }
+#header .brand { font-size: 10px; color: #556; }
+.header-right { display: flex; align-items: center; gap: 16px; font-size: 12px; color: #888; }
+.status-dot { width: 8px; height: 8px; border-radius: 50%; background: #00ff88; box-shadow: 0 0 8px #00ff88; display: inline-block; margin-right: 4px; }
+
+/* === 메인 레이아웃: 헤더 + (좌패널 | 3D뷰 | 우패널) === */
+#app { display: flex; flex-direction: column; height: 100vh; }
+#main-container { display: flex; flex: 1; overflow: hidden; }
+
+/* === 사이드바 접기/펴기 공통 === */
+.sidebar-toggle {
+    width: 28px; background: linear-gradient(180deg, #1a1a2e, #12121f);
+    border: none; cursor: pointer; display: flex; align-items: center; justify-content: center;
+    color: #00d4ff; font-size: 14px; transition: all 0.3s; flex-shrink: 0; writing-mode: vertical-rl;
+    padding: 8px 0;
+}
+.sidebar-toggle:hover { background: #252540; }
+.sidebar-toggle .label { font-size: 10px; color: #888; letter-spacing: 2px; margin-top: 8px; }
+#left-toggle { border-right: 1px solid #1a1a2e; }
+#right-toggle { border-left: 1px solid #1a1a2e; }
+
+/* === 좌측 패널 === */
+#left-panel {
+    width: 240px; min-width: 0;
+    background: linear-gradient(180deg, #0f0f1a 0%, #0a0a12 100%);
+    border-right: 1px solid #1a1a2e;
+    display: flex; flex-direction: column;
+    overflow-y: auto; overflow-x: hidden;
+    transition: width 0.3s, min-width 0.3s, padding 0.3s;
+}
+#left-panel.collapsed { width: 0; min-width: 0; padding: 0; overflow: hidden; border-right: none; }
+#left-panel::-webkit-scrollbar { width: 4px; }
+#left-panel::-webkit-scrollbar-thumb { background: #333; border-radius: 2px; }
+
+.panel-section { padding: 12px 14px; border-bottom: 1px solid #1a1a2e; }
+.panel-title { font-size: 12px; color: #00d4ff; font-weight: 700; margin-bottom: 10px; display: flex; align-items: center; gap: 6px; }
+.panel-title svg { flex-shrink: 0; }
+
+/* 통계 카드 */
+.stat-card {
+    background: linear-gradient(135deg, #1a1a2e 0%, #12121f 100%);
+    border: 1px solid #252540; border-radius: 8px;
+    padding: 10px 12px; margin-bottom: 8px;
+}
+.stat-card .label { font-size: 10px; color: #666; margin-bottom: 2px; }
+.stat-card .value { font-size: 20px; font-weight: 700; color: #00d4ff; }
+.stat-card .value.warn { color: #ffaa00; }
+.stat-card .value.danger { color: #ff4455; }
+.stat-card .value.success { color: #00ff88; }
+
+.stat-row { display: flex; justify-content: space-between; font-size: 11px; padding: 4px 0; }
+.stat-row .label { color: #888; }
+.stat-row .val { color: #00d4ff; font-weight: 700; }
+.stat-row .val.warn { color: #ffaa00; }
+.stat-row .val.danger { color: #ff4455; }
+.stat-divider { border-top: 1px solid #252540; margin: 6px 0; }
+
+/* 정보 그리드 */
+.info-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+
+/* OHT 대수 설정 */
+.oht-count-row { display: flex; gap: 4px; align-items: center; margin-bottom: 6px; }
+.oht-count-row input[type=number] {
+    width: 55px; padding: 4px 6px; background: #1a1a3a; border: 1px solid #333;
+    color: #fff; border-radius: 4px; font-size: 12px; text-align: center;
+}
+.oht-count-row .unit { font-size: 10px; color: #666; }
+
+/* 버튼 */
+.btn {
+    padding: 5px 10px; border: 1px solid rgba(0,212,255,0.4); background: rgba(0,212,255,0.1);
+    color: #00d4ff; border-radius: 5px; cursor: pointer; font-size: 10px; transition: all 0.2s;
+}
+.btn:hover { background: rgba(0,212,255,0.25); }
+.btn.active { background: rgba(0,212,255,0.35); border-color: #00d4ff; }
+.btn-sm { padding: 3px 7px; font-size: 10px; }
+.btn-green { background: rgba(0,255,100,0.1); border-color: rgba(0,255,100,0.4); color: #00ff66; }
+.btn-green:hover { background: rgba(0,255,100,0.2); }
+.btn-red { background: rgba(255,100,0,0.1); border-color: rgba(255,100,0,0.4); color: #ff6644; }
+.btn-red:hover { background: rgba(255,100,0,0.2); }
+.btn-row { display: flex; gap: 4px; flex-wrap: wrap; }
+.btn-full { width: 100%; text-align: center; padding: 8px; font-size: 11px; }
+
+/* === 3D 뷰 컨테이너 === */
+#view-container { flex: 1; position: relative; overflow: hidden; }
+
+/* === 우측 패널 === */
+#right-panel {
+    width: 280px; min-width: 0;
+    background: linear-gradient(180deg, #0f0f1a 0%, #0a0a12 100%);
+    border-left: 1px solid #1a1a2e;
+    display: flex; flex-direction: column;
+    transition: width 0.3s, min-width 0.3s;
+}
+#right-panel.collapsed { width: 0; min-width: 0; overflow: hidden; border-left: none; }
+
+/* 우측 패널 탭 (OHT / HID Zone) */
+.right-tabs { display: flex; border-bottom: 1px solid #1a1a2e; }
+.right-tab {
+    flex: 1; padding: 10px 8px; text-align: center; font-size: 11px; font-weight: 700;
+    color: #888; cursor: pointer; background: #0d0d1a; border-bottom: 2px solid transparent;
+    transition: all 0.2s;
+}
+.right-tab:hover { color: #bbb; }
+.right-tab.active { color: #00d4ff; border-bottom-color: #00d4ff; background: #12121f; }
+.right-content { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
+.right-content > .tab-pane { display: none; flex: 1; flex-direction: column; overflow: hidden; }
+.right-content > .tab-pane.active { display: flex; }
+
+/* HID Zone 리스트 */
+.hid-zone-list { flex: 1; overflow-y: auto; padding: 6px 10px; }
+.hid-zone-list::-webkit-scrollbar { width: 4px; }
+.hid-zone-list::-webkit-scrollbar-thumb { background: #333; border-radius: 2px; }
+.hid-zone-item {
+    padding: 8px 10px; margin-bottom: 4px;
+    background: linear-gradient(135deg, #1a1a2e 0%, #15151f 100%);
+    border: 1px solid #252540; border-radius: 6px; border-left: 3px solid #7b2fff;
+    font-size: 10px; cursor: pointer; transition: all 0.2s;
+}
+.hid-zone-item:hover { background: #252540; border-color: rgba(123,47,255,0.4); }
+.hid-zone-item .zone-name { color: #ddd; font-weight: 600; font-size: 11px; }
+.hid-zone-item .zone-info { color: #666; margin-top: 2px; }
+.hid-zone-item .zone-cap { color: #ffaa00; font-weight: 600; }
+#hidSearchInput {
+    width: calc(100% - 28px); margin: 6px 14px; padding: 6px 10px;
+    background: #1a1a3a; border: 1px solid #333; color: #fff; border-radius: 5px; font-size: 11px;
+}
+#right-panel .panel-header {
+    padding: 10px 14px;
+    background: linear-gradient(180deg, #1a1a2e 0%, #15151f 100%);
+    border-bottom: 1px solid #252540;
+    display: flex; justify-content: space-between; align-items: center;
+}
+#right-panel .panel-header h3 { font-size: 13px; color: #00d4ff; font-weight: 700; }
+#right-panel .panel-header .count {
+    background: rgba(0,212,255,0.1); padding: 2px 10px; border-radius: 10px; font-size: 11px; color: #00d4ff;
+}
+
+/* OHT 탭 */
+.oht-tabs { display: flex; gap: 2px; padding: 8px 14px 6px; background: #0d0d1a; }
+.oht-tab {
+    padding: 4px 10px; font-size: 10px; border: 1px solid #333;
+    background: #1a1a2a; color: #888; border-radius: 4px; cursor: pointer; transition: all 0.2s;
+}
+.oht-tab:hover { border-color: #555; color: #bbb; }
+.oht-tab.active { background: rgba(0,212,255,0.2); color: #00d4ff; border-color: #00d4ff; }
+
+/* OHT 검색 */
+#ohtSearchInput {
+    width: calc(100% - 28px); margin: 6px 14px; padding: 6px 10px;
+    background: #1a1a3a; border: 1px solid #333; color: #fff; border-radius: 5px; font-size: 11px;
+}
+
+/* OHT 리스트 */
+.oht-list { flex: 1; overflow-y: auto; padding: 6px 10px; }
+.oht-list::-webkit-scrollbar { width: 4px; }
+.oht-list::-webkit-scrollbar-thumb { background: #333; border-radius: 2px; }
+.oht-item {
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 8px 12px; margin-bottom: 4px; background: linear-gradient(135deg, #1a1a2e 0%, #15151f 100%);
+    border: 1px solid #252540; border-radius: 8px; border-left: 3px solid #333;
+    font-size: 11px; cursor: pointer; transition: all 0.2s;
+}
+.oht-item:hover { background: #252540; border-color: rgba(0,212,255,0.3); transform: translateX(2px); }
+.oht-item .vid { color: #ddd; font-weight: 600; }
+.oht-item .loc { color: #666; font-size: 9px; }
+.oht-badge { padding: 2px 8px; border-radius: 3px; font-size: 9px; font-weight: 700; }
+.oht-badge.run { background: #00cc55; color: #000; }
+.oht-badge.loaded { background: #ffaa00; color: #000; }
+.oht-badge.stop { background: #555; color: #fff; }
+.oht-badge.jam { background: #ff2255; color: #fff; }
+
+/* === 플로팅 컨트롤 패널 (3D 뷰 위에 떠 있음) === */
+#controls-float {
+    position: absolute; top: 12px; right: 12px; z-index: 50;
+    background: rgba(10, 10, 30, 0.92); border: 1px solid rgba(123, 47, 255, 0.3);
+    border-radius: 12px; backdrop-filter: blur(10px);
+    min-width: 200px; max-width: 240px;
+    transition: all 0.3s ease;
+}
+#controls-float .ctrl-header {
+    padding: 10px 14px; cursor: pointer; display: flex;
+    justify-content: space-between; align-items: center;
+    border-radius: 12px;
+}
+#controls-float .ctrl-header h3 { font-size: 13px; color: #7b2fff; }
+#controls-float .ctrl-toggle {
+    width: 22px; height: 22px; background: rgba(123,47,255,0.15);
+    border: 1px solid rgba(123,47,255,0.3); border-radius: 4px;
+    color: #7b2fff; font-size: 13px; cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+}
+#controls-float .ctrl-toggle:hover { background: rgba(123,47,255,0.3); }
+#controls-float .ctrl-body {
+    padding: 0 14px 14px; max-height: 60vh; overflow-y: auto;
+}
+#controls-float .ctrl-body::-webkit-scrollbar { width: 3px; }
+#controls-float .ctrl-body::-webkit-scrollbar-thumb { background: #444; border-radius: 2px; }
+#controls-float .ctrl-body.collapsed { display: none; }
+#controls-float.collapsed { min-width: auto; }
+#controls-float.collapsed .ctrl-header { border-radius: 12px; }
+
+.ctrl-group { margin-bottom: 10px; }
+.ctrl-group label { font-size: 10px; color: #888; display: block; margin-bottom: 3px; }
+.ctrl-group input[type=range] {
+    width: 100%; -webkit-appearance: none; height: 3px;
+    background: #1a1a3a; border-radius: 2px; outline: none;
+}
+.ctrl-group input[type=range]::-webkit-slider-thumb {
+    -webkit-appearance: none; width: 12px; height: 12px;
+    background: #7b2fff; border-radius: 50%; cursor: pointer;
+}
+
+/* === 미니맵 (3D 뷰 위 좌측 하단) === */
+#minimap {
+    position: absolute; bottom: 12px; left: 12px; z-index: 50;
+    width: 220px; height: 90px;
+    background: rgba(10, 10, 30, 0.9); border: 1px solid rgba(0,212,255,0.3);
+    border-radius: 8px; overflow: hidden;
+}
+
+/* (범례 삭제됨) */
+
+/* === 정보 오버레이 (좌측 상단, FPS 등) === */
+#info-overlay {
+    position: absolute; top: 12px; left: 12px; z-index: 50;
+    background: rgba(10,10,30,0.85); border: 1px solid rgba(0,212,255,0.2);
+    border-radius: 8px; padding: 8px 12px; font-size: 11px; color: #888;
+    backdrop-filter: blur(8px);
+}
+#info-overlay span { color: #00d4ff; font-weight: 600; }
+
+/* === 툴팁 === */
+#tooltip {
+    position: fixed; z-index: 200; display: none; pointer-events: none;
+    background: rgba(10, 10, 30, 0.95); border: 1px solid #00d4ff;
+    border-radius: 8px; padding: 10px 14px; font-size: 12px;
+    max-width: 300px; backdrop-filter: blur(8px);
+}
+#tooltip .tt-title { color: #00d4ff; font-weight: 700; font-size: 14px; margin-bottom: 4px; }
+#tooltip .tt-row { color: #bbb; line-height: 1.6; }
+#tooltip .tt-row b { color: #fff; }
+
+/* === 마스터 데이터 모달 === */
+#master-modal {
+    position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+    background: rgba(0,0,0,0.8); z-index: 500; display: none;
+    align-items: center; justify-content: center;
+}
+#master-modal.show { display: flex; }
+#master-modal .modal-box {
+    background: #1a1a2e; border: 2px solid #00d4ff; border-radius: 16px;
+    padding: 30px; min-width: 420px; text-align: center;
+}
+#master-modal h3 { color: #00d4ff; margin-bottom: 16px; }
+#master-modal .file-drop {
+    border: 2px dashed #333; border-radius: 12px; padding: 40px 20px;
+    color: #666; font-size: 14px; margin-bottom: 16px; cursor: pointer;
+}
+#master-modal .file-drop:hover { border-color: #00d4ff; color: #aaa; }
+.modal-btn {
+    padding: 8px 20px; border-radius: 8px; font-size: 12px; cursor: pointer; border: none;
+}
+.modal-btn.primary { background: #00d4ff; color: #000; font-weight: 700; }
+.modal-btn.secondary { background: #333; color: #aaa; }
+</style>
+</head>
+<body>
+
+<div id="loading">
+    <h1>AMOS MAP SYSTEM PRO</h1>
+    <div class="subtitle">OHT RAIL SYSTEM</div>
+    <div class="author">Created by John Prestige</div>
+    <div class="bar-bg"><div class="bar-fill" id="loadBar"></div></div>
+    <div class="status" id="loadStatus">초기화 중...</div>
+</div>
+
+<div id="app">
+<!-- 헤더 -->
+<div id="header">
+    <h1>
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#00d4ff" stroke-width="2">
+            <path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/>
+        </svg>
+        AMOS MAP SYSTEM PRO
+        <span class="badge">LIVE</span>
+        <span class="fab-name" id="fabName"></span>
+    </h1>
+    <div class="header-right">
+        <span class="brand">Creator: John Prestige</span>
+        <span><span class="status-dot"></span>시스템 정상</span>
+        <span>FPS: <span id="fpsCounter" style="color:#00d4ff;font-weight:700">-</span></span>
+    </div>
+</div>
+
+<!-- 메인 컨테이너 -->
+<div id="main-container">
+
+<!-- 좌측 사이드바 토글 -->
+<button class="sidebar-toggle" id="left-toggle" onclick="toggleSidebar('left')">
+    ◀ <span class="label">통계</span>
+</button>
+
+<!-- ========= 좌측 패널 ========= -->
+<div id="left-panel" class="collapsed">
+    <!-- 레이아웃 정보 -->
+    <div class="panel-section">
+        <div class="panel-title">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#00d4ff" stroke-width="2"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg>
+            레이아웃 정보
+        </div>
+        <div class="info-grid">
+            <div class="stat-card"><div class="label">노드</div><div class="value" id="nodeCount" style="font-size:16px">-</div></div>
+            <div class="stat-card"><div class="label">레일</div><div class="value" id="edgeCount" style="font-size:16px">-</div></div>
+            <div class="stat-card"><div class="label">스테이션</div><div class="value success" id="stationCount" style="font-size:16px">-</div></div>
+            <div class="stat-card"><div class="label">MCP Zone</div><div class="value warn" id="zoneCount" style="font-size:16px">-</div></div>
+        </div>
+        <div style="font-size:10px;color:#555;margin-top:4px">면적: <span id="areaSize" style="color:#888">-</span></div>
+    </div>
+
+    <!-- OHT 대수 설정 -->
+    <div class="panel-section">
+        <div class="panel-title">🚗 OHT 대수 설정</div>
+        <div class="oht-count-row">
+            <input type="number" id="ohtCountInput" value="35" min="0" max="2000">
+            <span class="unit">대</span>
+            <button class="btn btn-sm" onclick="applyOhtCount()">적용</button>
+        </div>
+        <div class="btn-row">
+            <button class="btn btn-sm" onclick="setOhtQuick(50)">50</button>
+            <button class="btn btn-sm" onclick="setOhtQuick(100)">100</button>
+            <button class="btn btn-sm" onclick="setOhtQuick(200)">200</button>
+            <button class="btn btn-sm" onclick="setOhtQuick(500)">500</button>
+        </div>
+        <input type="range" id="ohtCount" min="0" max="2000" value="35" style="margin-top:6px">
+    </div>
+
+    <!-- 실시간 통계 -->
+    <div class="panel-section">
+        <div class="panel-title">📊 실시간 통계</div>
+        <div class="info-grid">
+            <div class="stat-card"><div class="label">총 OHT</div><div class="value" id="statTotal" style="font-size:18px">0</div></div>
+            <div class="stat-card"><div class="label">운행중</div><div class="value success" id="statRunning" style="font-size:18px">0</div></div>
+            <div class="stat-card"><div class="label">적재중</div><div class="value warn" id="statLoaded" style="font-size:18px">0</div></div>
+            <div class="stat-card"><div class="label">정체(JAM)</div><div class="value danger" id="statJam" style="font-size:18px">0</div></div>
+        </div>
+        <div style="margin-top:6px">
+            <div class="stat-row"><span class="label">정지</span><span class="val" id="statStopped">0</span></div>
+        </div>
+    </div>
+
+    <!-- 속도 정보 -->
+    <div class="panel-section">
+        <div class="panel-title">⚡ 속도 정보</div>
+        <div class="stat-row"><span class="label">평균 속도</span><span class="val" id="statAvgSpeed">0 m/min</span></div>
+        <div class="stat-row"><span class="label">최대 속도</span><span class="val" id="statMaxSpeed">0 m/min</span></div>
+        <div class="stat-row"><span class="label">절대속도</span><span class="val" id="statAbsSpeed">0 %</span></div>
+    </div>
+
+    <!-- In/Out 데드락 -->
+    <div class="panel-section">
+        <div class="panel-title">🔄 In/Out (데드락)</div>
+        <div class="stat-row"><span class="label">Total In</span><span class="val" id="statTotalIn">0</span></div>
+        <div class="stat-row"><span class="label">Total Out</span><span class="val" id="statTotalOut">0</span></div>
+        <div class="stat-row"><span class="label">In/Out 비율</span><span class="val" id="statIORate">0</span></div>
+        <div class="stat-row"><span class="label">위험 구간</span><span class="val danger" id="statDanger">0</span></div>
+    </div>
+
+    <!-- HID Zone 현황 -->
+    <div class="panel-section">
+        <div class="panel-title">🔲 HID Zone 현황</div>
+        <div class="info-grid">
+            <div class="stat-card"><div class="label">총 Zone</div><div class="value" id="statTotalZones" style="font-size:16px">0</div></div>
+            <div class="stat-card"><div class="label">정상</div><div class="value success" id="statNormalZones" style="font-size:16px">0</div></div>
+            <div class="stat-card"><div class="label">주의</div><div class="value warn" id="statPrecautionZones" style="font-size:16px">0</div></div>
+            <div class="stat-card"><div class="label">포화</div><div class="value danger" id="statFullZones" style="font-size:16px">0</div></div>
+        </div>
+        <div class="stat-row" style="margin-top:4px"><span class="label">전체 점유율</span><span class="val" id="statZoneOccupancy">- %</span></div>
+        <div style="margin-top:8px">
+            <button class="btn btn-full" id="btnToggleZoneLanes" style="background:#555;color:#fff">Zone Lane 표시 OFF</button>
+        </div>
+        <div class="btn-row" style="margin-top:6px">
+            <button class="btn btn-sm" id="btnToggleStationMarkers" style="background:#555;color:#fff;flex:1">Station OFF</button>
+            <button class="btn btn-sm" id="btnToggleStationIds" style="background:#555;color:#fff;flex:1">ID OFF</button>
+            <button class="btn btn-sm" id="btnToggleStationNames" style="background:#555;color:#fff;flex:1">이름 OFF</button>
+        </div>
+        <div style="margin-top:8px;font-size:9px;color:#555">
+            <div style="display:flex;gap:10px;align-items:center">
+                <span><span style="color:#00ff88">━━</span> IN Lane(실선)</span>
+                <span><span style="color:#00ff88">╌╌</span> OUT Lane(점선)</span>
+            </div>
+            <div style="margin-top:3px;color:#666">줌인 시 자동 표시 / 수동 토글 가능</div>
+        </div>
+    </div>
+
+    <!-- 시뮬레이션 -->
+    <div class="panel-section">
+        <div class="panel-title">🎬 시뮬레이션</div>
+        <div class="btn-row">
+            <button class="btn btn-green" onclick="createScenario()" style="flex:1;text-align:center">▶ 상황만들기</button>
+            <button class="btn btn-red" onclick="resetScenario()" style="flex:1;text-align:center">↺ 초기화</button>
+        </div>
+    </div>
+
+    <!-- 마스터 데이터 -->
+    <div class="panel-section">
+        <button class="btn btn-full" onclick="openMasterModal()">📂 마스터 데이터 로드</button>
+    </div>
+</div>
+
+<!-- ========= 3D 뷰 영역 ========= -->
+<div id="view-container">
+    <!-- FPS/좌표 오버레이 -->
+    <div id="info-overlay">
+        <span id="hoverInfo"></span>
+    </div>
+
+    <!-- 플로팅 컨트롤 패널 -->
+    <div id="controls-float">
+        <div class="ctrl-header" onclick="toggleControls()">
+            <h3>⚙ 컨트롤</h3>
+            <div class="ctrl-toggle" id="ctrlToggleBtn">−</div>
+        </div>
+        <div class="ctrl-body" id="ctrlBody">
+            <div class="ctrl-group">
+                <label>레일 높이: <span id="heightVal">300</span></label>
+                <input type="range" id="railHeight" min="0" max="300" value="300">
+            </div>
+            <div class="ctrl-group">
+                <label>레일 두께: <span id="thickVal">2.0</span></label>
+                <input type="range" id="railThick" min="5" max="40" value="20" step="1">
+            </div>
+            <div class="ctrl-group">
+                <label>노드 크기: <span id="nodeSizeVal">1.5</span></label>
+                <input type="range" id="nodeSize" min="5" max="30" value="15">
+            </div>
+            <div class="ctrl-group">
+                <label>시점</label>
+                <div class="btn-row" id="viewBtns">
+                    <button class="btn active" onclick="setView('perspective')">3D</button>
+                    <button class="btn" onclick="setView('top')">위</button>
+                    <button class="btn" onclick="setView('front')">앞</button>
+                    <button class="btn" onclick="setView('side')">옆</button>
+                </div>
+            </div>
+            <div class="ctrl-group">
+                <label>레이어</label>
+                <div class="btn-row" id="layerBtns">
+                    <button class="btn active" onclick="toggleLayer(this,'rails')">레일</button>
+                    <button class="btn active" onclick="toggleLayer(this,'nodes')">노드</button>
+                    <button class="btn active" onclick="toggleLayer(this,'stations')">스테이션</button>
+                    <button class="btn" onclick="toggleLayer(this,'labels')">라벨</button>
+                    <button class="btn active" onclick="toggleLayer(this,'supports')">지지대</button>
+                    <button class="btn active" onclick="toggleLayer(this,'vehicles')">OHT</button>
+                </div>
+            </div>
+            <div class="ctrl-group">
+                <label>스테이션 검색</label>
+                <input type="text" id="searchInput" placeholder="예: ST-00001 또는 4AIO"
+                    style="width:100%;padding:5px 8px;background:#1a1a3a;border:1px solid #333;color:#fff;border-radius:4px;font-size:11px;">
+            </div>
+            <div class="ctrl-group">
+                <label>레일 색상</label>
+                <div class="btn-row" style="flex-wrap:wrap;gap:3px">
+                    <button class="btn btn-sm" onclick="setRailColor(0x00d4ff)">시안</button>
+                    <button class="btn btn-sm" onclick="setRailColor(0xdddddd)">흰색</button>
+                    <button class="btn btn-sm" onclick="setRailColor(0x66aaff)">파랑</button>
+                    <button class="btn btn-sm" onclick="setRailColor(0x88ddaa)">초록</button>
+                    <button class="btn btn-sm" onclick="setRailColor(0xcc88ff)">보라</button>
+                    <button class="btn btn-sm" onclick="setRailColor(0xff9966)">주황</button>
+                </div>
+            </div>
+            <div class="ctrl-group">
+                <label>바닥 색상</label>
+                <div class="btn-row" style="flex-wrap:wrap;gap:3px">
+                    <button class="btn btn-sm" onclick="setFloorColor('none')">없음</button>
+                    <button class="btn btn-sm" onclick="setFloorColor('#0d0d1a')">기본</button>
+                    <button class="btn btn-sm" onclick="setFloorColor('#1a1e2e')">슬레이트</button>
+                    <button class="btn btn-sm" onclick="setFloorColor('#1c2626')">다크틸</button>
+                    <button class="btn btn-sm" onclick="setFloorColor('#1e1a2a')">다크퍼플</button>
+                    <button class="btn btn-sm" onclick="setFloorColor('#e8e8e8')">흰색</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 미니맵 -->
+    <canvas id="minimap" width="480" height="200"></canvas>
+
+    <!-- 클릭 위치 표시 -->
+    <div id="click-info" style="position:absolute;bottom:12px;right:12px;z-index:50;
+        background:rgba(10,10,30,0.9);border:1px solid rgba(0,212,255,0.3);border-radius:8px;
+        padding:8px 14px;font-size:11px;color:#888;display:none;backdrop-filter:blur(8px)">
+        <span id="clickInfoText"></span>
+    </div>
+</div>
+
+<!-- ========= 우측 패널 (OHT + HID Zone) ========= -->
+<div id="right-panel" class="collapsed">
+    <!-- 상단 탭: OHT / HID Zone -->
+    <div class="right-tabs">
+        <div class="right-tab active" onclick="switchRightTab(this,'oht')">🚗 OHT 차량 <span id="ohtCountBadge" style="font-size:10px;color:#00d4ff">0</span></div>
+        <div class="right-tab" onclick="switchRightTab(this,'hid')">🔲 HID Zone</div>
+    </div>
+    <div class="right-content">
+        <!-- OHT 탭 -->
+        <div class="tab-pane active" id="ohtPane">
+            <div class="oht-tabs">
+                <div class="oht-tab active" onclick="filterOht(this,'all')">전체</div>
+                <div class="oht-tab" onclick="filterOht(this,'run')">운행</div>
+                <div class="oht-tab" onclick="filterOht(this,'loaded')">적재</div>
+                <div class="oht-tab" onclick="filterOht(this,'stop')">정지</div>
+                <div class="oht-tab" onclick="filterOht(this,'jam')">JAM</div>
+            </div>
+            <input type="text" id="ohtSearchInput" placeholder="OHT ID 검색...">
+            <div class="oht-list" id="ohtList"></div>
+        </div>
+        <!-- HID Zone 탭 -->
+        <div class="tab-pane" id="hidPane">
+            <div class="oht-tabs" id="hidFilterTabs">
+                <div class="oht-tab active" onclick="filterHidZone(this,'all')">전체</div>
+                <div class="oht-tab" onclick="filterHidZone(this,'saturated')">포화</div>
+                <div class="oht-tab" onclick="filterHidZone(this,'warning')">주의</div>
+                <div class="oht-tab" onclick="filterHidZone(this,'normal')">정상</div>
+            </div>
+            <input type="text" id="hidSearchInput" placeholder="Zone ID 검색..." oninput="updateHidZoneList()">
+            <div class="hid-zone-list" id="hidZoneList"></div>
+        </div>
+    </div>
+</div>
+
+<!-- 우측 사이드바 토글 -->
+<button class="sidebar-toggle" id="right-toggle" onclick="toggleSidebar('right')">
+    ▶ <span class="label">OHT</span>
+</button>
+
+</div><!-- /main-container -->
+</div><!-- /app -->
+
+<!-- 툴팁 -->
+<div id="tooltip">
+    <div class="tt-title" id="ttTitle"></div>
+    <div class="tt-row" id="ttBody"></div>
+</div>
+
+<!-- 마스터 데이터 모달 -->
+<div id="master-modal">
+    <div class="modal-box">
+        <h3>📂 마스터 데이터 로드</h3>
+        <p style="color:#888;font-size:12px;margin-bottom:14px">layout_data.json 파일을 선택하세요<br>(parse_layout.py로 생성된 파일)</p>
+        <div class="file-drop" onclick="document.getElementById('masterFileInput').click()">
+            클릭하여 JSON 파일 선택<br><span style="font-size:11px">(또는 파일을 여기에 드래그)</span>
+        </div>
+        <input type="file" id="masterFileInput" accept=".json" style="display:none" onchange="loadMasterFile(event)">
+        <div id="masterStatus" style="color:#888;font-size:11px;margin-bottom:10px"></div>
+        <div style="display:flex;gap:10px;justify-content:center">
+            <button class="modal-btn secondary" onclick="closeMasterModal()">닫기</button>
+        </div>
+    </div>
+</div>
+
+<script type="importmap">
+{
+    "imports": {
+        "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+        "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+    }
+}
+</script>
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+// ===== GLOBALS =====
+let scene, camera, renderer, controls;
+let railGroup, nodeGroup, stationGroup, labelGroup, supportGroup, floorGroup, vehicleGroup;
+let layoutData = null, nodeMap = {};
+let raycaster, mouse;
+let ohtVehicles = [];
+let paths = [];
+let clock = new THREE.Clock();
+let frameCount = 0, lastFpsTime = 0;
+const layers = { rails: true, nodes: true, stations: true, labels: false, supports: true, vehicles: true };
+let simStats = { totalIn: 0, totalOut: 0, jamCount: 0 };
+let scenarioActive = false;
+let currentFloorColor = '#1a1e2e';
+let floorCenter = { x: 0, z: 0 };
+
+// ===== SIDEBAR TOGGLE =====
+window.toggleSidebar = function(side) {
+    if (side === 'left') {
+        const panel = document.getElementById('left-panel');
+        const btn = document.getElementById('left-toggle');
+        panel.classList.toggle('collapsed');
+        const isOpen = !panel.classList.contains('collapsed');
+        btn.innerHTML = isOpen ? '◀ <span class="label">통계</span>' : '▶ <span class="label">통계</span>';
+    } else {
+        const panel = document.getElementById('right-panel');
+        const btn = document.getElementById('right-toggle');
+        panel.classList.toggle('collapsed');
+        const isOpen = !panel.classList.contains('collapsed');
+        btn.innerHTML = isOpen ? '▶ <span class="label">OHT</span>' : '◀ <span class="label">OHT</span>';
+    }
+    // Resize 3D view after sidebar toggle
+    setTimeout(() => { if (typeof resizeRenderer === 'function') resizeRenderer(); }, 350);
+};
+
+// ===== RIGHT PANEL TABS (OHT / HID Zone) =====
+window.switchRightTab = function(btn, tab) {
+    btn.parentElement.querySelectorAll('.right-tab').forEach(t => t.classList.remove('active'));
+    btn.classList.add('active');
+    document.querySelectorAll('#right-panel .tab-pane').forEach(p => p.classList.remove('active'));
+    document.getElementById(tab === 'oht' ? 'ohtPane' : 'hidPane').classList.add('active');
+    if (tab === 'hid') updateHidZoneList();
+};
+
+// ===== CONTROLS FLOAT TOGGLE =====
+window.toggleControls = function() {
+    const body = document.getElementById('ctrlBody');
+    const btn = document.getElementById('ctrlToggleBtn');
+    const panel = document.getElementById('controls-float');
+    const isCollapsed = body.classList.contains('collapsed');
+    body.classList.toggle('collapsed', !isCollapsed);
+    panel.classList.toggle('collapsed', !isCollapsed);
+    btn.textContent = isCollapsed ? '−' : '+';
+};
+
+// ===== DRAGGABLE CONTROLS PANEL =====
+(function() {
+    let isDragging = false, dragOffX = 0, dragOffY = 0;
+    document.addEventListener('mousedown', function(e) {
+        const header = e.target.closest('#controls-float .ctrl-header');
+        if (!header) return;
+        const panel = document.getElementById('controls-float');
+        const rect = panel.getBoundingClientRect();
+        isDragging = true;
+        dragOffX = e.clientX - rect.left;
+        dragOffY = e.clientY - rect.top;
+        panel.style.transition = 'none';
+        e.preventDefault();
+    });
+    document.addEventListener('mousemove', function(e) {
+        if (!isDragging) return;
+        const panel = document.getElementById('controls-float');
+        const container = document.getElementById('view-container');
+        const cr = container.getBoundingClientRect();
+        let x = e.clientX - dragOffX - cr.left;
+        let y = e.clientY - dragOffY - cr.top;
+        x = Math.max(0, Math.min(cr.width - panel.offsetWidth, x));
+        y = Math.max(0, Math.min(cr.height - panel.offsetHeight, y));
+        panel.style.left = x + 'px';
+        panel.style.top = y + 'px';
+        panel.style.right = 'auto';
+    });
+    document.addEventListener('mouseup', function() {
+        if (isDragging) {
+            isDragging = false;
+            document.getElementById('controls-float').style.transition = '';
+        }
+    });
+})();
+
+// ===== OHT QUICK SET =====
+window.applyOhtCount = function() {
+    const val = parseInt(document.getElementById('ohtCountInput').value) || 35;
+    document.getElementById('ohtCount').value = val;
+    document.getElementById('ohtCount').dispatchEvent(new Event('input'));
+};
+window.setOhtQuick = function(n) {
+    document.getElementById('ohtCountInput').value = n;
+    document.getElementById('ohtCount').value = n;
+    document.getElementById('ohtCount').dispatchEvent(new Event('input'));
+};
+
+// ===== MASTER DATA MODAL =====
+window.openMasterModal = function() { document.getElementById('master-modal').classList.add('show'); };
+window.closeMasterModal = function() { document.getElementById('master-modal').classList.remove('show'); };
+window.loadMasterFile = function(event) {
+    const file = event.target.files[0];
+    if (!file) return;
+    document.getElementById('masterStatus').textContent = '로딩 중: ' + file.name;
+    const reader = new FileReader();
+    reader.onload = function(e) {
+        try {
+            const data = JSON.parse(e.target.result);
+            if (!data.nodes || !data.edges) throw new Error('노드/엣지 데이터 없음');
+            layoutData = data;
+            nodeMap = {};
+            data.nodes.forEach(n => { nodeMap[n.id] = n; });
+            fullRebuild();
+            document.getElementById('masterStatus').textContent = '✅ 로드 완료! 노드:' + data.total_nodes + ' 레일:' + data.total_edges;
+            setTimeout(closeMasterModal, 1500);
+        } catch(err) {
+            document.getElementById('masterStatus').textContent = '❌ 오류: ' + err.message;
+        }
+    };
+    reader.readAsText(file);
+};
+
+// ===== SCENARIO =====
+window.createScenario = function() {
+    scenarioActive = true;
+    simStats = { totalIn: 0, totalOut: 0, jamCount: 0 };
+    ohtVehicles.forEach((v, i) => {
+        if (Math.random() < 0.02) { v.simState = 'jam'; }
+        else if (Math.random() < 0.05) { v.simState = 'stop'; }
+        else if (v.hasFoup || v.state === 'lowering' || v.state === 'waiting' || v.state === 'raising') { v.simState = 'loaded'; }
+        else { v.simState = 'run'; }
+    });
+    updateOhtList();
+};
+window.resetScenario = function() {
+    scenarioActive = false;
+    simStats = { totalIn: 0, totalOut: 0, jamCount: 0 };
+    ohtVehicles.forEach(v => { v.simState = 'run'; });
+    updateOhtList();
+};
+
+// ===== OHT LIST FILTER =====
+let ohtFilter = 'all';
+window.filterOht = function(btn, filter) {
+    ohtFilter = filter;
+    btn.parentElement.querySelectorAll('.oht-tab').forEach(t => t.classList.remove('active'));
+    btn.classList.add('active');
+    updateOhtList();
+};
+
+function updateOhtList() {
+    const list = document.getElementById('ohtList');
+    if (!list) return;
+    const search = (document.getElementById('ohtSearchInput')?.value || '').toUpperCase();
+
+    let html = '';
+    let running = 0, loaded = 0, stopped = 0, jammed = 0;
+
+    ohtVehicles.forEach((v, i) => {
+        const vid = 'V' + String(i + 1).padStart(5, '0');
+        const st = v.simState || (v.state === 'moving' ? 'run' : (v.hasFoup ? 'loaded' : 'run'));
+
+        if (st === 'run') running++;
+        else if (st === 'loaded') loaded++;
+        else if (st === 'stop') stopped++;
+        else if (st === 'jam') jammed++;
+
+        if (ohtFilter !== 'all' && st !== ohtFilter) return;
+        if (search && !vid.includes(search)) return;
+
+        const badgeClass = st === 'run' ? 'run' : st === 'loaded' ? 'loaded' : st === 'stop' ? 'stop' : 'jam';
+        const badgeText = st === 'run' ? 'RUN' : st === 'loaded' ? 'LOAD' : st === 'stop' ? 'STOP' : 'JAM';
+        const borderColor = st === 'jam' ? '#ff2255' : st === 'loaded' ? '#ffaa00' : st === 'stop' ? '#555' : '#00cc55';
+
+        // 현재 위치: zone 캐시에서 가져옴 (findNearestNode 호출 제거)
+        let locText = '';
+        if (_vehicleZoneCache[i] && _vehicleZoneCache[i].nodeId) {
+            locText = `N:${_vehicleZoneCache[i].nodeId}`;
+        }
+        html += `<div class="oht-item" style="border-left-color:${borderColor}" data-vidx="${i}">
+            <div><span class="vid">${vid}</span> <span class="loc">${locText}</span></div>
+            <span class="oht-badge ${badgeClass}">${badgeText}</span>
+        </div>`;
+    });
+
+    // 배지(badge)만 업데이트하고 리스트는 변경이 있을 때만 교체 (클릭 이벤트 손실 방지)
+    const newHtml = html || '<div style="padding:20px;text-align:center;color:#555">OHT 없음</div>';
+    if (list._lastHtml !== newHtml) {
+        list.innerHTML = newHtml;
+        list._lastHtml = newHtml;
+    }
+
+    // Count badge
+    const filteredCount = ohtFilter === 'all' ? ohtVehicles.length :
+        (ohtFilter === 'run' ? running : ohtFilter === 'loaded' ? loaded :
+         ohtFilter === 'stop' ? stopped : jammed);
+    document.getElementById('ohtCountBadge').textContent = filteredCount;
+
+    // Update stats
+    document.getElementById('statTotal').textContent = ohtVehicles.length;
+    document.getElementById('statRunning').textContent = running;
+    document.getElementById('statLoaded').textContent = loaded;
+    document.getElementById('statStopped').textContent = stopped;
+    document.getElementById('statJam').textContent = jammed;
+
+    // Speed stats
+    if (ohtVehicles.length > 0) {
+        const speeds = ohtVehicles.map(v => v.speed * 60 * 1000);
+        const avg = speeds.reduce((a,b) => a+b, 0) / speeds.length;
+        const max = Math.max(...speeds);
+        document.getElementById('statAvgSpeed').textContent = (avg * 10).toFixed(1) + ' m/min';
+        document.getElementById('statMaxSpeed').textContent = (max * 10).toFixed(1) + ' m/min';
+        document.getElementById('statAbsSpeed').textContent = ((running / Math.max(1, ohtVehicles.length)) * 100).toFixed(1) + ' %';
+    }
+
+    // In/Out stats
+    if (scenarioActive) {
+        simStats.totalIn += Math.floor(Math.random() * 3);
+        simStats.totalOut += Math.floor(Math.random() * 3);
+    }
+    document.getElementById('statTotalIn').textContent = simStats.totalIn;
+    document.getElementById('statTotalOut').textContent = simStats.totalOut;
+    const ioRate = simStats.totalOut > 0 ? (simStats.totalIn / simStats.totalOut).toFixed(2) : '0';
+    document.getElementById('statIORate').textContent = ioRate;
+    document.getElementById('statDanger').textContent = jammed > 0 ? Math.ceil(jammed * 1.5) : 0;
+}
+
+// 위치로부터 가장 가까운 노드 찾기
+// 노드 그리드 인덱스 (빠른 근접 노드 탐색)
+let _nodeGrid = null;
+const _gridCellSize = 200;
+
+function buildNodeGrid() {
+    if (!layoutData || !layoutData.nodes) return;
+    _nodeGrid = {};
+    for (const n of layoutData.nodes) {
+        const gx = Math.floor(n.x / _gridCellSize);
+        const gz = Math.floor(n.y / _gridCellSize);
+        const key = gx + ',' + gz;
+        if (!_nodeGrid[key]) _nodeGrid[key] = [];
+        _nodeGrid[key].push(n);
+    }
+}
+
+function findNearestNode(wx, wz) {
+    if (!layoutData) return null;
+    if (!_nodeGrid) buildNodeGrid();
+    const gx = Math.floor(wx / _gridCellSize);
+    const gz = Math.floor(wz / _gridCellSize);
+    let best = null, bestDist = Infinity;
+    // 3x3 인접 셀 탐색
+    for (let dx = -1; dx <= 1; dx++) {
+        for (let dz = -1; dz <= 1; dz++) {
+            const key = (gx + dx) + ',' + (gz + dz);
+            const cell = _nodeGrid ? _nodeGrid[key] : null;
+            if (!cell) continue;
+            for (const n of cell) {
+                const ddx = n.x - wx, ddz = n.y - wz;
+                const d = ddx * ddx + ddz * ddz;
+                if (d < bestDist) { bestDist = d; best = n; }
+            }
+        }
+    }
+    // 그리드에서 못 찾으면 전체 탐색 (fallback)
+    if (!best) {
+        for (const n of layoutData.nodes) {
+            const ddx = n.x - wx, ddz = n.y - wz;
+            const d = ddx * ddx + ddz * ddz;
+            if (d < bestDist) { bestDist = d; best = n; }
+        }
+    }
+    return best;
+}
+
+// 노드 ID로 HID Zone 찾기
+function findHidZoneByNode(nodeId) {
+    if (!layoutData) return null;
+    const zoneMap = layoutData.zone_addr_map || {};
+    for (const [zoneId, addrs] of Object.entries(zoneMap)) {
+        if (addrs.includes(nodeId) || addrs.includes(String(nodeId))) {
+            const hm = (layoutData.hid_master || []).find(h => String(h.zone_id) === String(zoneId));
+            return hm || { zone_id: zoneId };
+        }
+    }
+    return null;
+}
+
+// 포커스 마커 (OHT 위치 표시용)
+let focusMarker = null;
+let focusedVehicleIdx = -1;
+
+function createFocusMarker() {
+    const group = new THREE.Group();
+    // 바닥 링
+    const ringGeo = new THREE.RingGeometry(25, 30, 32);
+    const ringMat = new THREE.MeshBasicMaterial({ color: 0x00ffaa, side: THREE.DoubleSide, transparent: true, opacity: 0.8 });
+    const ring = new THREE.Mesh(ringGeo, ringMat);
+    ring.rotation.x = -Math.PI / 2;
+    ring.name = 'ring';
+    group.add(ring);
+    // 외곽 링
+    const outerGeo = new THREE.RingGeometry(35, 38, 32);
+    const outerMat = new THREE.MeshBasicMaterial({ color: 0x00ffaa, side: THREE.DoubleSide, transparent: true, opacity: 0.3 });
+    const outer = new THREE.Mesh(outerGeo, outerMat);
+    outer.rotation.x = -Math.PI / 2;
+    outer.name = 'outerRing';
+    group.add(outer);
+    // 수직 빔
+    const beamGeo = new THREE.CylinderGeometry(1.5, 1.5, 300, 8);
+    const beamMat = new THREE.MeshBasicMaterial({ color: 0x00ffaa, transparent: true, opacity: 0.25 });
+    const beam = new THREE.Mesh(beamGeo, beamMat);
+    beam.position.y = 150;
+    beam.name = 'beam';
+    group.add(beam);
+    group.visible = false;
+    scene.add(group);
+    return group;
+}
+
+function showFocusMarker(x, y, z) {
+    if (!focusMarker) focusMarker = createFocusMarker();
+    focusMarker.position.set(x, y, z);
+    focusMarker.visible = true;
+}
+
+// OHT 경로 표시 라인
+let focusPathLine = null;
+
+function showVehiclePath(v) {
+    // 기존 경로선 제거
+    if (focusPathLine) { scene.remove(focusPathLine); focusPathLine.geometry.dispose(); focusPathLine.material.dispose(); focusPathLine = null; }
+    // curve에서 포인트 샘플링
+    const pts = [];
+    const railH = getVal('railHeight');
+    const segments = 200;
+    for (let i = 0; i <= segments; i++) {
+        const p = v.curve.getPointAt(i / segments);
+        pts.push(new THREE.Vector3(p.x, railH + 2, p.z));
+    }
+    const geo = new THREE.BufferGeometry().setFromPoints(pts);
+    const mat = new THREE.LineDashedMaterial({ color: 0x00ffaa, transparent: true, opacity: 0.8, dashSize: 10, gapSize: 5 });
+    focusPathLine = new THREE.Line(geo, mat);
+    focusPathLine.computeLineDistances();
+    scene.add(focusPathLine);
+}
+
+window.focusVehicle = function(idx) {
+    if (idx >= ohtVehicles.length) return;
+    // 토글: 이미 선택된 OHT 클릭 시 선택 해제
+    if (focusedVehicleIdx === idx) {
+        focusedVehicleIdx = -1;
+        if (focusMarker) focusMarker.visible = false;
+        if (focusPathLine) { scene.remove(focusPathLine); focusPathLine.geometry.dispose(); focusPathLine.material.dispose(); focusPathLine = null; }
+        showClickInfo('');
+        return;
+    }
+    const v = ohtVehicles[idx];
+    const pos = v.curve.getPointAt(v.t);
+    // 줌 없이 마커 + 경로선만 표시
+    showFocusMarker(pos.x, -4, pos.z);
+    showVehiclePath(v);
+    focusedVehicleIdx = idx;
+    // 가까운 노드 & HID Zone 정보
+    const nearNode = findNearestNode(pos.x, pos.z);
+    let info = `OHT V${String(idx+1).padStart(5,'0')} 위치: (${pos.x.toFixed(0)}, ${pos.z.toFixed(0)})`;
+    if (nearNode) {
+        info += ` | Node: ${nearNode.id}`;
+        const hzone = findHidZoneByNode(nearNode.id);
+        if (hzone) info += ` | Zone: ${hzone.full_name || hzone.zone_id}`;
+    }
+    showClickInfo(info);
+};
+
+// ===== HID ZONE LIST =====
+let hidZoneFilter = 'all';
+
+window.filterHidZone = function(el, filter) {
+    hidZoneFilter = filter;
+    document.querySelectorAll('#hidFilterTabs .oht-tab').forEach(t => t.classList.remove('active'));
+    el.classList.add('active');
+    updateHidZoneList();
+};
+
+function updateHidZoneList() {
+    const list = document.getElementById('hidZoneList');
+    if (!list || !layoutData) return;
+    const search = (document.getElementById('hidSearchInput')?.value || '').toUpperCase();
+
+    const hidMaster = layoutData.hid_master || [];
+    const zoneCounts = _cachedZoneCounts;
+    let html = '';
+    hidMaster.forEach((h) => {
+        const fullName = h.full_name || `HID-${h.hid_id}`;
+        if (search && !fullName.toUpperCase().includes(search) && !String(h.zone_id).includes(search)) return;
+
+        // 상태 판단: CSV vehicle_max / vehicle_precaution 기준
+        const ohtCnt = zoneCounts[h.zone_id] || zoneCounts[String(h.zone_id)] || 0;
+        const vMax = h.vehicle_max || 37;
+        const status = getZoneStatus(ohtCnt, h);
+        const statusLabel = status === 'saturated' ? '포화' : status === 'warning' ? '주의' : '정상';
+        const statusColor = status === 'saturated' ? '#ff4444' : status === 'warning' ? '#ffaa00' : '#00e5a0';
+
+        if (hidZoneFilter !== 'all' && hidZoneFilter !== status) return;
+
+        html += `<div class="hid-zone-item" data-zoneid="${h.zone_id}" style="border-left:3px solid ${statusColor}">
+            <div style="display:flex;justify-content:space-between;align-items:center">
+                <div class="zone-name">${fullName}</div>
+                <div style="display:flex;align-items:center;gap:4px">
+                    <span style="color:#888;font-size:9px">${ohtCnt}/${vMax}</span>
+                    <span style="color:${statusColor};font-size:10px;font-weight:700;padding:1px 6px;border:1px solid ${statusColor};border-radius:3px">${statusLabel}</span>
+                </div>
+            </div>
+        </div>`;
+    });
+    list.innerHTML = html || '<div style="padding:20px;text-align:center;color:#555">Zone 없음</div>';
+}
+
+window.focusZone = function(zoneId) {
+    if (!layoutData) return;
+    const zoneMap = layoutData.zone_addr_map || {};
+    const addrs = zoneMap[zoneId] || zoneMap[String(zoneId)] || [];
+    if (addrs.length === 0) return;
+
+    // Find center of zone addresses
+    let sumX = 0, sumY = 0, cnt = 0;
+    addrs.forEach(addr => {
+        const n = nodeMap[addr];
+        if (n) { sumX += n.x; sumY += n.y; cnt++; }
+    });
+    if (cnt === 0) return;
+
+    const cx = sumX / cnt, cz = sumY / cnt;
+    const railH = getVal('railHeight');
+    camera.position.set(cx + 200, railH + 300, cz + 200);
+    controls.target.set(cx, railH, cz);
+    controls.update();
+    showClickInfo(`Zone ${zoneId} 위치: (${cx.toFixed(0)}, ${cz.toFixed(0)})`);
+};
+
+// ===== CLICK INFO DISPLAY =====
+function showClickInfo(text) {
+    const el = document.getElementById('click-info');
+    const txt = document.getElementById('clickInfoText');
+    if (!el || !txt) return;
+    txt.textContent = text;
+    el.style.display = 'block';
+    clearTimeout(el._timer);
+    el._timer = setTimeout(() => { el.style.display = 'none'; }, 4000);
+}
+
+function setLoadProgress(pct, msg) {
+    document.getElementById('loadBar').style.width = pct + '%';
+    document.getElementById('loadStatus').textContent = msg;
+}
+function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+
+// ===== INIT =====
+async function init() {
+    setLoadProgress(5, '레이아웃 데이터 로딩 중...');
+    try {
+        const resp = await fetch('layout_data.json');
+        layoutData = await resp.json();
+    } catch(e) {
+        setLoadProgress(0, 'layout_data.json 로딩 오류: ' + e.message);
+        return;
+    }
+    setLoadProgress(20, `${layoutData.total_nodes}개 노드, ${layoutData.total_edges}개 연결 로딩 완료`);
+    // FAB 이름 표시
+    const fabEl = document.getElementById('fabName');
+    if (fabEl && layoutData.fab_name) fabEl.textContent = layoutData.fab_name;
+    layoutData.nodes.forEach(n => { nodeMap[n.id] = n; });
+
+    const b = layoutData.bounds;
+    const cx = (b.min_x + b.max_x) / 2;
+    const cz = (b.min_y + b.max_y) / 2;
+
+    // Scene
+    scene = new THREE.Scene();
+    scene.background = new THREE.Color(0x0a0a1a);
+    scene.fog = new THREE.FogExp2(0x0a0a1a, 0.00006);
+
+    // Camera
+    camera = new THREE.PerspectiveCamera(50, 1, 1, 100000);
+    camera.position.set(cx, 4000, cz + 4000);
+
+    // Renderer - attach to view-container
+    const container = document.getElementById('view-container');
+    renderer = new THREE.WebGLRenderer({ antialias: true });
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    renderer.domElement.id = 'threeCanvas';
+    container.appendChild(renderer.domElement);
+
+    // Initial sizing
+    resizeRenderer();
+
+    // Controls
+    controls = new OrbitControls(camera, renderer.domElement);
+    controls.enableDamping = true;
+    controls.dampingFactor = 0.08;
+    controls.target.set(cx, 0, cz);
+    controls.minDistance = 30;
+    controls.maxDistance = 25000;
+    controls.maxPolarAngle = Math.PI * 0.85;
+
+    // Lights
+    scene.add(new THREE.AmbientLight(0x445577, 0.7));
+    const dl1 = new THREE.DirectionalLight(0xffffff, 0.9);
+    dl1.position.set(5000, 8000, 5000);
+    scene.add(dl1);
+    const dl2 = new THREE.DirectionalLight(0x4488ff, 0.3);
+    dl2.position.set(-3000, 4000, -3000);
+    scene.add(dl2);
+    const pl = new THREE.PointLight(0x00d4ff, 0.3, 10000);
+    pl.position.set(cx, 500, cz);
+    scene.add(pl);
+
+    // Raycaster
+    raycaster = new THREE.Raycaster();
+    raycaster.params.Points = { threshold: 8 };
+    mouse = new THREE.Vector2(-999, -999);
+
+    // Build scene
+    setLoadProgress(30, '바닥 생성 중...'); await sleep(10);
+    buildFloor(cx, cz);
+
+    setLoadProgress(40, '지지대 생성 중...'); await sleep(10);
+    buildSupports();
+
+    setLoadProgress(55, '레일 트랙 생성 중...'); await sleep(10);
+    buildRails();
+
+    setLoadProgress(70, '노드 생성 중...'); await sleep(10);
+    buildNodes();
+
+    setLoadProgress(80, '스테이션 마커 생성 중...'); await sleep(10);
+    buildStationMarkers();
+
+    buildZoneLanes();
+    buildStationIdLabels();
+    buildStationNameLabels();
+    updateZoneStats();
+
+    setLoadProgress(90, 'OHT 차량 배치 중...'); await sleep(10);
+    buildPaths();
+    spawnVehicles(parseInt(document.getElementById('ohtCount').value));
+
+    setLoadProgress(95, '마무리 중...');
+
+    // UI
+    const stationNodes = layoutData.nodes.filter(n => n.stations.length > 0);
+    document.getElementById('nodeCount').textContent = layoutData.total_nodes.toLocaleString();
+    document.getElementById('edgeCount').textContent = layoutData.total_edges.toLocaleString();
+    document.getElementById('stationCount').textContent = (layoutData.total_stations || stationNodes.length).toLocaleString();
+    document.getElementById('zoneCount').textContent = (layoutData.total_mcp_zones || 0).toLocaleString();
+    document.getElementById('areaSize').textContent =
+        `${(b.max_x - b.min_x).toFixed(0)} x ${(b.max_y - b.min_y).toFixed(0)}`;
+
+    // Events
+    window.addEventListener('resize', onResize);
+    renderer.domElement.addEventListener('mousemove', onMouseMove);
+    renderer.domElement.addEventListener('click', onMouseClick);
+    document.getElementById('railHeight').addEventListener('input', e => {
+        document.getElementById('heightVal').textContent = e.target.value;
+        debounceRebuild();
+    });
+    document.getElementById('railThick').addEventListener('input', e => {
+        document.getElementById('thickVal').textContent = (e.target.value / 10).toFixed(1);
+        debounceRebuild();
+    });
+    document.getElementById('nodeSize').addEventListener('input', e => {
+        document.getElementById('nodeSizeVal').textContent = (e.target.value / 10).toFixed(1);
+        debounceRebuild();
+    });
+    document.getElementById('ohtCount').addEventListener('input', e => {
+        document.getElementById('ohtCountInput').value = e.target.value;
+        respawnVehicles(parseInt(e.target.value));
+        setTimeout(updateOhtList, 100);
+    });
+    document.getElementById('searchInput').addEventListener('keydown', onSearch);
+    document.getElementById('ohtSearchInput').addEventListener('input', () => updateOhtList());
+    document.getElementById('hidSearchInput').addEventListener('input', () => updateHidZoneList());
+
+    setLoadProgress(100, '로딩 완료!');
+    await sleep(400);
+    document.getElementById('loading').style.display = 'none';
+
+    drawMinimap();
+    initMinimapNavigation();
+    updateOhtList();
+
+    // 이벤트 위임: OHT 리스트 클릭 (innerHTML 교체로 인한 클릭 이벤트 손실 방지)
+    document.getElementById('ohtList').addEventListener('click', function(e) {
+        const item = e.target.closest('.oht-item[data-vidx]');
+        if (!item) return;
+        const idx = parseInt(item.dataset.vidx);
+        if (!isNaN(idx)) focusVehicle(idx);
+    });
+    // 이벤트 위임: HID Zone 리스트 클릭
+    document.getElementById('hidZoneList').addEventListener('click', function(e) {
+        const item = e.target.closest('.hid-zone-item[data-zoneid]');
+        if (!item) return;
+        const zoneId = parseInt(item.dataset.zoneid);
+        if (!isNaN(zoneId)) focusZone(zoneId);
+    });
+
+    // Zone Lane 토글 버튼
+    document.getElementById('btnToggleZoneLanes').addEventListener('click', function() {
+        showZoneLanes = !showZoneLanes;
+        if (zoneLaneGroup) zoneLaneGroup.visible = showZoneLanes;
+        this.textContent = showZoneLanes ? 'Zone Lane 표시 ON' : 'Zone Lane 표시 OFF';
+        this.style.background = showZoneLanes ? '#00d4ff' : '#555';
+        this.style.color = showZoneLanes ? '#000' : '#fff';
+        if (showZoneLanes) zoneManualOff = false; else zoneManualOff = true;
+    });
+
+    // Station 마커 토글
+    document.getElementById('btnToggleStationMarkers').addEventListener('click', function() {
+        showStationMarkers = !showStationMarkers;
+        if (stationGroup) stationGroup.visible = showStationMarkers;
+        this.textContent = showStationMarkers ? 'Station ON' : 'Station OFF';
+        this.style.background = showStationMarkers ? '#00aaff' : '#555';
+        this.style.color = showStationMarkers ? '#000' : '#fff';
+    });
+
+    // Station ID 토글
+    document.getElementById('btnToggleStationIds').addEventListener('click', function() {
+        showStationIds = !showStationIds;
+        if (stationIdGroup) stationIdGroup.visible = showStationIds;
+        this.textContent = showStationIds ? 'ID ON' : 'ID OFF';
+        this.style.background = showStationIds ? '#ffff00' : '#555';
+        this.style.color = showStationIds ? '#000' : '#fff';
+    });
+
+    // Station 이름 토글
+    document.getElementById('btnToggleStationNames').addEventListener('click', function() {
+        showStationNames = !showStationNames;
+        if (stationNameGroup) stationNameGroup.visible = showStationNames;
+        this.textContent = showStationNames ? '이름 ON' : '이름 OFF';
+        this.style.background = showStationNames ? '#00aaff' : '#555';
+        this.style.color = showStationNames ? '#000' : '#fff';
+    });
+
+    animate();
+}
+
+function resizeRenderer() {
+    const container = document.getElementById('view-container');
+    const w = container.clientWidth;
+    const h = container.clientHeight;
+    if (renderer) {
+        renderer.setSize(w, h);
+    }
+    if (camera) {
+        camera.aspect = w / h;
+        camera.updateProjectionMatrix();
+    }
+}
+
+let rebuildTimer;
+function debounceRebuild() { clearTimeout(rebuildTimer); rebuildTimer = setTimeout(onRebuild, 400); }
+
+// ===== FLOOR =====
+function buildFloor(cx, cz, floorColor) {
+    floorCenter = { x: cx, z: cz };
+    if (floorColor !== undefined) currentFloorColor = floorColor;
+    floorGroup = new THREE.Group();
+    scene.add(floorGroup);
+
+    if (currentFloorColor === 'none') return;
+
+    const isLight = currentFloorColor === '#e8e8e8';
+    const tileSize = 512;
+    const canvas = document.createElement('canvas');
+    canvas.width = tileSize; canvas.height = tileSize;
+    const ctx = canvas.getContext('2d');
+    ctx.fillStyle = currentFloorColor;
+    ctx.fillRect(0, 0, tileSize, tileSize);
+    // 타일 줄눈
+    const r = parseInt(currentFloorColor.slice(1,3),16);
+    const g = parseInt(currentFloorColor.slice(3,5),16);
+    const b = parseInt(currentFloorColor.slice(5,7),16);
+    const lineR = isLight ? Math.max(0,r-20) : Math.min(255,r+12);
+    const lineG = isLight ? Math.max(0,g-20) : Math.min(255,g+12);
+    const lineB = isLight ? Math.max(0,b-20) : Math.min(255,b+12);
+    ctx.strokeStyle = `rgb(${lineR},${lineG},${lineB})`;
+    ctx.lineWidth = 1;
+    const tileDiv = 4;
+    const step = tileSize / tileDiv;
+    for (let i = 0; i <= tileDiv; i++) {
+        ctx.beginPath(); ctx.moveTo(i * step, 0); ctx.lineTo(i * step, tileSize); ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(0, i * step); ctx.lineTo(tileSize, i * step); ctx.stroke();
+    }
+    // 미세한 노이즈
+    ctx.fillStyle = isLight ? 'rgba(0,0,0,0.03)' : 'rgba(100,120,160,0.08)';
+    for (let i = 0; i < 200; i++) {
+        const px = Math.random() * tileSize, py = Math.random() * tileSize;
+        ctx.fillRect(px, py, 1, 1);
+    }
+
+    const floorTex = new THREE.CanvasTexture(canvas);
+    floorTex.wrapS = THREE.RepeatWrapping;
+    floorTex.wrapT = THREE.RepeatWrapping;
+    floorTex.repeat.set(40, 20);
+
+    const groundGeo = new THREE.PlaneGeometry(16000, 8000);
+    const groundMat = new THREE.MeshPhongMaterial({ map: floorTex, color: 0xffffff, shininess: isLight ? 30 : 15 });
+    const ground = new THREE.Mesh(groundGeo, groundMat);
+    ground.rotation.x = -Math.PI / 2;
+    ground.position.set(cx, -5, cz);
+    floorGroup.add(ground);
+}
+
+// ===== SUPPORTS =====
+function buildSupports() {
+    supportGroup = new THREE.Group();
+    scene.add(supportGroup);
+
+    const railH = getVal('railHeight');
+    if (railH < 5) return;
+
+    const supportMat = new THREE.MeshPhongMaterial({
+        color: 0x4a3a7a, transparent: true, opacity: 0.35
+    });
+
+    const step = Math.max(1, Math.floor(layoutData.nodes.length / 150));
+    const pillarGeo = new THREE.CylinderGeometry(1.2, 1.8, railH, 4);
+
+    for (let i = 0; i < layoutData.nodes.length; i += step) {
+        const n = layoutData.nodes[i];
+        const mesh = new THREE.Mesh(pillarGeo, supportMat);
+        mesh.position.set(n.x, railH / 2 - 5, n.y);
+        supportGroup.add(mesh);
+    }
+
+    const beamMat = new THREE.MeshPhongMaterial({ color: 0x3a2a5a, transparent: true, opacity: 0.2 });
+    for (let i = 0; i < layoutData.nodes.length - step; i += step) {
+        const n1 = layoutData.nodes[i];
+        const n2 = layoutData.nodes[Math.min(i + step, layoutData.nodes.length - 1)];
+        const dx = n2.x - n1.x, dz = n2.y - n1.y;
+        const len = Math.sqrt(dx*dx + dz*dz);
+        if (len < 1 || len > 500) continue;
+
+        const geo = new THREE.BoxGeometry(len, 1.5, 3);
+        const beam = new THREE.Mesh(geo, beamMat);
+        beam.position.set((n1.x + n2.x) / 2, railH - 2, (n1.y + n2.y) / 2);
+        beam.rotation.y = -Math.atan2(dz, dx);
+        supportGroup.add(beam);
+    }
+}
+
+// ===== RAILS =====
+function buildRails() {
+    railGroup = new THREE.Group();
+    scene.add(railGroup);
+
+    const railH = getVal('railHeight');
+    const thick = getVal('railThick') / 10;
+    const gauge = 12;
+    const railWidth = 2.5;
+    const railHt = 3;
+    const tieW = gauge * 1.6;
+    const tieH = 1.5;
+    const tieD = 4;
+
+    const edgeInfos = [];
+    layoutData.edges.forEach(edge => {
+        const fn = nodeMap[edge.from], tn = nodeMap[edge.to];
+        if (!fn || !tn) return;
+        const dx = tn.x - fn.x;
+        const dz = tn.y - fn.y;
+        const len = Math.sqrt(dx * dx + dz * dz);
+        if (len < 0.5) return;
+        const color = 0xdddddd;
+        edgeInfos.push({ fn, tn, dx, dz, len, color });
+    });
+
+    const byColor = {};
+    edgeInfos.forEach((ei, idx) => {
+        if (!byColor[ei.color]) byColor[ei.color] = [];
+        byColor[ei.color].push(idx);
+    });
+
+    const unitBox = new THREE.BoxGeometry(1, 1, 1);
+    const dummy = new THREE.Object3D();
+
+    Object.entries(byColor).forEach(([color, indices]) => {
+        const count = indices.length * 2;
+        const mat = new THREE.MeshPhongMaterial({
+            color: parseInt(color), emissive: parseInt(color) & 0x334455,
+            shininess: 60
+        });
+        const im = new THREE.InstancedMesh(unitBox, mat, count);
+
+        indices.forEach((idx, i) => {
+            const ei = edgeInfos[idx];
+            const angle = -Math.atan2(ei.dz, ei.dx);
+            const px = (-ei.dz / ei.len) * gauge * 0.5;
+            const pz = (ei.dx / ei.len) * gauge * 0.5;
+            const cx = (ei.fn.x + ei.tn.x) / 2;
+            const cz = (ei.fn.y + ei.tn.y) / 2;
+
+            dummy.position.set(cx + px, railH + railHt / 2, cz + pz);
+            dummy.rotation.set(0, angle, 0);
+            dummy.scale.set(ei.len, railHt, railWidth);
+            dummy.updateMatrix();
+            im.setMatrixAt(i * 2, dummy.matrix);
+
+            dummy.position.set(cx - px, railH + railHt / 2, cz - pz);
+            dummy.rotation.set(0, angle, 0);
+            dummy.scale.set(ei.len, railHt, railWidth);
+            dummy.updateMatrix();
+            im.setMatrixAt(i * 2 + 1, dummy.matrix);
+        });
+        im.instanceMatrix.needsUpdate = true;
+        railGroup.add(im);
+    });
+
+    // Cross ties
+    let totalTies = 0;
+    const tieSpacing = 30;
+    edgeInfos.forEach(ei => { totalTies += Math.max(1, Math.floor(ei.len / tieSpacing) + 1); });
+
+    const maxTies = 25000;
+    const tieSkip = totalTies > maxTies ? Math.ceil(totalTies / maxTies) : 1;
+    let actualTies = Math.ceil(totalTies / tieSkip);
+    const tieMat = new THREE.MeshPhongMaterial({ color: 0x556677, emissive: 0x112233, transparent: true, opacity: 0.6 });
+    const tieIM = new THREE.InstancedMesh(unitBox, tieMat, actualTies);
+    let tieIdx = 0, tieCounter = 0;
+
+    edgeInfos.forEach(ei => {
+        const numTies = Math.max(1, Math.floor(ei.len / tieSpacing) + 1);
+        const angle = -Math.atan2(ei.dz, ei.dx);
+        for (let t = 0; t < numTies; t++) {
+            tieCounter++;
+            if (tieCounter % tieSkip !== 0) continue;
+            if (tieIdx >= actualTies) return;
+            const frac = numTies > 1 ? t / (numTies - 1) : 0.5;
+            const mx = ei.fn.x + ei.dx * frac;
+            const mz = ei.fn.y + ei.dz * frac;
+            dummy.position.set(mx, railH - tieH / 2, mz);
+            dummy.rotation.set(0, angle, 0);
+            dummy.scale.set(tieD, tieH, tieW);
+            dummy.updateMatrix();
+            tieIM.setMatrixAt(tieIdx, dummy.matrix);
+            tieIdx++;
+        }
+    });
+    tieIM.count = tieIdx;
+    tieIM.instanceMatrix.needsUpdate = true;
+    railGroup.add(tieIM);
+
+    // Base plate
+    const baseMat = new THREE.MeshPhongMaterial({ color: 0x667788, emissive: 0x111822, transparent: true, opacity: 0.4 });
+    const baseIM = new THREE.InstancedMesh(unitBox, baseMat, edgeInfos.length);
+    edgeInfos.forEach((ei, i) => {
+        const angle = -Math.atan2(ei.dz, ei.dx);
+        const cx = (ei.fn.x + ei.tn.x) / 2;
+        const cz = (ei.fn.y + ei.tn.y) / 2;
+        dummy.position.set(cx, railH - tieH, cz);
+        dummy.rotation.set(0, angle, 0);
+        dummy.scale.set(ei.len, 1, gauge * 1.4);
+        dummy.updateMatrix();
+        baseIM.setMatrixAt(i, dummy.matrix);
+    });
+    baseIM.instanceMatrix.needsUpdate = true;
+    railGroup.add(baseIM);
+}
+
+// ===== NODES =====
+function buildNodes() {
+    nodeGroup = new THREE.Group();
+    scene.add(nodeGroup);
+
+    const railH = getVal('railHeight');
+    const sz = getVal('nodeSize') / 10;
+
+    const geo = new THREE.SphereGeometry(sz, 8, 6);
+    const regularNodes = layoutData.nodes.filter(n => n.stations.length === 0);
+    const stationNodes = layoutData.nodes.filter(n => n.stations.length > 0);
+
+    if (regularNodes.length > 0) {
+        const mat = new THREE.MeshPhongMaterial({ color: 0xff6688, emissive: 0x331122 });
+        const im = new THREE.InstancedMesh(geo, mat, regularNodes.length);
+        const d = new THREE.Object3D();
+        regularNodes.forEach((n, i) => {
+            d.position.set(n.x, railH + sz, n.y);
+            d.scale.setScalar(0.6);
+            d.updateMatrix();
+            im.setMatrixAt(i, d.matrix);
+        });
+        im.userData = { type: 'nodes', nodes: regularNodes };
+        nodeGroup.add(im);
+    }
+
+    if (stationNodes.length > 0) {
+        const mat = new THREE.MeshPhongMaterial({ color: 0x00ff88, emissive: 0x004422 });
+        const im = new THREE.InstancedMesh(geo, mat, stationNodes.length);
+        const d = new THREE.Object3D();
+        stationNodes.forEach((n, i) => {
+            d.position.set(n.x, railH + sz, n.y);
+            d.scale.setScalar(1.0);
+            d.updateMatrix();
+            im.setMatrixAt(i, d.matrix);
+        });
+        im.userData = { type: 'stations', nodes: stationNodes };
+        nodeGroup.add(im);
+    }
+}
+
+// ===== STATION MARKERS =====
+function buildStationMarkers() {
+    stationGroup = new THREE.Group();
+    scene.add(stationGroup);
+
+    const railH = getVal('railHeight');
+    const stNodes = layoutData.nodes.filter(n => n.stations.length > 0);
+
+    const pos = [];
+    stNodes.forEach(n => {
+        pos.push(n.x, railH + 2, n.y, n.x, railH + 18, n.y);
+    });
+    if (pos.length > 0) {
+        const geo = new THREE.BufferGeometry();
+        geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+        const mat = new THREE.LineBasicMaterial({ color: 0x00ff88, transparent: true, opacity: 0.35 });
+        stationGroup.add(new THREE.LineSegments(geo, mat));
+    }
+
+    const diamGeo = new THREE.OctahedronGeometry(1.8, 0);
+    const diamMat = new THREE.MeshPhongMaterial({ color: 0x00ffaa, emissive: 0x003322, transparent: true, opacity: 0.7 });
+    if (stNodes.length > 0) {
+        const im = new THREE.InstancedMesh(diamGeo, diamMat, stNodes.length);
+        const d = new THREE.Object3D();
+        stNodes.forEach((n, i) => {
+            d.position.set(n.x, railH + 18, n.y);
+            d.updateMatrix();
+            im.setMatrixAt(i, d.matrix);
+        });
+        stationGroup.add(im);
+    }
+
+    // Labels
+    labelGroup = new THREE.Group();
+    labelGroup.visible = layers.labels;
+    scene.add(labelGroup);
+
+    const labelStep = Math.max(1, Math.floor(stNodes.length / 400));
+    for (let i = 0; i < stNodes.length; i += labelStep) {
+        const n = stNodes[i];
+        const label = n.stations[0]?.port_id || `Addr${n.id}`;
+        const sprite = makeTextSprite(label);
+        sprite.position.set(n.x, railH + 25, n.y);
+        labelGroup.add(sprite);
+    }
+}
+
+function makeTextSprite(text) {
+    const c = document.createElement('canvas');
+    const ctx = c.getContext('2d');
+    c.width = 256; c.height = 64;
+    ctx.font = 'bold 22px Segoe UI, Arial';
+    ctx.fillStyle = '#00ffaa';
+    ctx.shadowColor = '#000'; ctx.shadowBlur = 4;
+    ctx.textAlign = 'center';
+    ctx.fillText(text, 128, 38);
+    const tex = new THREE.CanvasTexture(c);
+    tex.minFilter = THREE.LinearFilter;
+    const mat = new THREE.SpriteMaterial({ map: tex, transparent: true, opacity: 0.85 });
+    const sprite = new THREE.Sprite(mat);
+    sprite.scale.set(50, 12.5, 1);
+    return sprite;
+}
+
+// ===== OHT VEHICLES =====
+function buildPaths() {
+    const adj = {};
+    layoutData.edges.forEach(e => {
+        if (!adj[e.from]) adj[e.from] = [];
+        adj[e.from].push(e.to);
+    });
+
+    const visited = new Set();
+    paths = [];
+    layoutData.nodes.forEach(node => {
+        if (visited.has(node.id) || !adj[node.id]) return;
+        let current = node.id;
+        const path = [current];
+        visited.add(current);
+        while (adj[current]) {
+            const next = adj[current].find(n => !visited.has(n) && nodeMap[n]);
+            if (!next) break;
+            visited.add(next);
+            path.push(next);
+            current = next;
+        }
+        if (path.length >= 8) paths.push(path);
+    });
+    paths.sort((a, b) => b.length - a.length);
+}
+
+function spawnVehicles(count) {
+    vehicleGroup = new THREE.Group();
+    scene.add(vehicleGroup);
+    ohtVehicles = [];
+    if (paths.length === 0 || count === 0) return;
+
+    const railH = getVal('railHeight');
+
+    // OHT Vehicle Geometry (Material 공유로 draw call 최적화)
+    const carriageGeo = new THREE.BoxGeometry(56, 12, 28);
+    const wheelGeo = new THREE.CylinderGeometry(6, 6, 32, 8);
+    const motorGeo = new THREE.BoxGeometry(20, 10, 20);
+    const gripperGeo = new THREE.BoxGeometry(30, 8, 30);
+    const foupBodyGeo = new THREE.BoxGeometry(34, 24, 34);
+    const foupLidGeo = new THREE.BoxGeometry(36, 3, 36);
+    const cableGeo = new THREE.CylinderGeometry(0.8, 0.8, 1, 4);
+    const lightGeo = new THREE.SphereGeometry(5, 6, 4);
+    const beaconGeo = new THREE.CylinderGeometry(3, 3, 60, 6);
+    const ringGeo = new THREE.TorusGeometry(40, 3, 6, 16);
+
+    // Materials (공유 - clone 하지 않음, FPS 핵심 최적화)
+    const carriageMat = new THREE.MeshPhongMaterial({ color: 0xffaa00, emissive: 0x664400, shininess: 80 });
+    const wheelMat = new THREE.MeshPhongMaterial({ color: 0x777777, emissive: 0x222222 });
+    const motorMat = new THREE.MeshPhongMaterial({ color: 0xcc8800, emissive: 0x553300 });
+    const gripperMat = new THREE.MeshPhongMaterial({ color: 0xbbbbbb, emissive: 0x444444, shininess: 60 });
+    const foupMat = new THREE.MeshPhongMaterial({ color: 0xf0f0f0, emissive: 0x555555, shininess: 120 });
+    const foupLidMat = new THREE.MeshPhongMaterial({ color: 0xddddff, emissive: 0x444466, shininess: 100 });
+    const cableMat = new THREE.MeshPhongMaterial({ color: 0x888888, emissive: 0x222222 });
+    const lightMat = new THREE.MeshPhongMaterial({ color: 0xffdd00, emissive: 0xffaa00 });
+    const beaconMat = new THREE.MeshPhongMaterial({ color: 0xffaa00, emissive: 0xff8800, transparent: true, opacity: 0.6 });
+    const ringMat = new THREE.MeshPhongMaterial({ color: 0xffdd00, emissive: 0xffaa00, transparent: true, opacity: 0.7 });
+    const rlMat = new THREE.MeshPhongMaterial({ color: 0xff4444, emissive: 0xff2222 });
+
+    const defaultCableLen = 15;
+
+    for (let i = 0; i < count; i++) {
+        const pathIdx = i % paths.length;
+        const path = paths[pathIdx];
+
+        const sampleStep = Math.max(1, Math.floor(path.length / 80));
+        const points = [];
+        for (let j = 0; j < path.length; j += sampleStep) {
+            const n = nodeMap[path[j]];
+            if (n) points.push(new THREE.Vector3(n.x, railH + 10, n.y));
+        }
+        if (points.length < 2) continue;
+
+        const curve = new THREE.CatmullRomCurve3(points, false, 'catmullrom', 0.15);
+        const vGroup = new THREE.Group();
+
+        // Carriage
+        const carriage = new THREE.Mesh(carriageGeo, carriageMat);
+        vGroup.add(carriage);
+
+        // Wheels
+        const w1 = new THREE.Mesh(wheelGeo, wheelMat);
+        w1.rotation.z = Math.PI / 2;
+        w1.position.set(-16, 8, 0);
+        vGroup.add(w1);
+        const w2 = new THREE.Mesh(wheelGeo, wheelMat);
+        w2.rotation.z = Math.PI / 2;
+        w2.position.set(16, 8, 0);
+        vGroup.add(w2);
+
+        // Motor
+        const motor = new THREE.Mesh(motorGeo, motorMat);
+        motor.position.set(0, -11, 0);
+        vGroup.add(motor);
+
+        // Cables
+        const cable1 = new THREE.Mesh(cableGeo, cableMat);
+        cable1.name = 'cable1';
+        cable1.position.set(-6, -16 - defaultCableLen / 2, 0);
+        cable1.scale.set(1, defaultCableLen, 1);
+        vGroup.add(cable1);
+        const cable2 = new THREE.Mesh(cableGeo, cableMat);
+        cable2.name = 'cable2';
+        cable2.position.set(6, -16 - defaultCableLen / 2, 0);
+        cable2.scale.set(1, defaultCableLen, 1);
+        vGroup.add(cable2);
+
+        // Gripper
+        const gripper = new THREE.Mesh(gripperGeo, gripperMat);
+        gripper.name = 'gripper';
+        gripper.position.set(0, -16 - defaultCableLen - 4, 0);
+        vGroup.add(gripper);
+
+        // FOUP
+        const foupGroup = new THREE.Group();
+        foupGroup.name = 'foup';
+        const fBody = new THREE.Mesh(foupBodyGeo, foupMat);
+        foupGroup.add(fBody);
+        const fLid = new THREE.Mesh(foupLidGeo, foupLidMat);
+        fLid.position.y = 13.5;
+        foupGroup.add(fLid);
+        foupGroup.position.set(0, gripper.position.y - 16, 0);
+        vGroup.add(foupGroup);
+
+        // Lights
+        const hl = new THREE.Mesh(lightGeo, lightMat);
+        hl.position.set(0, 4, 17);
+        vGroup.add(hl);
+        const rl = new THREE.Mesh(lightGeo, rlMat);
+        rl.position.set(0, 4, -17);
+        rl.scale.setScalar(0.6);
+        vGroup.add(rl);
+
+        // Beacon + ring
+        const beacon = new THREE.Mesh(beaconGeo, beaconMat);
+        beacon.position.y = 42;
+        vGroup.add(beacon);
+        const ring = new THREE.Mesh(ringGeo, ringMat);
+        ring.rotation.x = Math.PI / 2;
+        ring.position.y = 0;
+        vGroup.add(ring);
+
+        // Position
+        const t = Math.random();
+        const pos = curve.getPointAt(t);
+        vGroup.position.copy(pos);
+        vehicleGroup.add(vGroup);
+
+        const hasFoup = Math.random() > 0.3;
+        ohtVehicles.push({
+            group: vGroup, curve, t,
+            speed: 0.0002 + Math.random() * 0.0003,
+            direction: Math.random() > 0.5 ? 1 : -1,
+            state: 'moving', stateTimer: 0,
+            cableLen: defaultCableLen,
+            nextStopT: 0.2 + Math.random() * 0.6,
+            hasFoup: hasFoup,
+            pathNodeIds: path
+        });
+
+        foupGroup.visible = hasFoup;
+    }
+}
+
+function respawnVehicles(count) {
+    if (vehicleGroup) {
+        vehicleGroup.traverse(c => {
+            if (c.geometry) c.geometry.dispose();
+            if (c.material) c.material.dispose();
+        });
+        scene.remove(vehicleGroup);
+    }
+    spawnVehicles(count);
+    vehicleGroup.visible = layers.vehicles;
+}
+
+// Zone 상태 캐시 (1초마다 업데이트)
+let _cachedZoneCounts = {};
+let _cachedNodeToZone = {};
+let _cachedZoneInfoMap = {};
+let _zoneCheckTime = 0;
+let _vehicleZoneCache = []; // 각 OHT의 현재 zone + speedFactor
+
+function buildNodeToZoneMap() {
+    const zoneMap = layoutData ? (layoutData.zone_addr_map || {}) : {};
+    const n2z = {};
+    for (const [zoneId, addrs] of Object.entries(zoneMap)) {
+        for (const a of addrs) { n2z[a] = zoneId; n2z[String(a)] = zoneId; }
+    }
+    _cachedNodeToZone = n2z;
+    const hidMaster = layoutData ? (layoutData.hid_master || []) : [];
+    const zim = {};
+    hidMaster.forEach(h => { zim[h.zone_id] = h; zim[String(h.zone_id)] = h; });
+    _cachedZoneInfoMap = zim;
+}
+
+function updateZoneCheck(time) {
+    if (time - _zoneCheckTime < 1.0) return; // 1초마다만 계산
+    _zoneCheckTime = time;
+    if (!Object.keys(_cachedNodeToZone).length) buildNodeToZoneMap();
+
+    // 통합: computeZoneOhtCounts + 차량별 zone/speedFactor 한번에 계산
+    const counts = {};
+    const zoneMap = layoutData ? (layoutData.zone_addr_map || {}) : {};
+    for (const zoneId of Object.keys(zoneMap)) counts[zoneId] = 0;
+
+    // 1회 순회로 모든 것 처리 (findNearestNode 1500회 → 1500회로 통합, 기존 3000회에서 절반)
+    ohtVehicles.forEach((v, i) => {
+        const pos = v.curve.getPointAt(v.t);
+        const nearN = findNearestNode(pos.x, pos.z);
+        let sf = 1.0;
+        let nodeId = 0;
+        if (nearN) {
+            nodeId = nearN.id;
+            const zid = _cachedNodeToZone[nearN.id] || _cachedNodeToZone[String(nearN.id)];
+            if (zid) {
+                counts[zid] = (counts[zid] || 0) + 1;
+                if (v.state === 'moving' || v.state === 'jam') {
+                    const zi = _cachedZoneInfoMap[zid];
+                    const cnt = counts[zid]; // 실시간 누적 (근사값)
+                    const vMax = (zi && zi.vehicle_max) || 37;
+                    const vPre = (zi && zi.vehicle_precaution) || 35;
+                    if (cnt >= vMax && v.state === 'moving' && Math.random() < 0.05) {
+                        v.state = 'jam'; v.simState = 'jam'; v.stateTimer = 0;
+                    }
+                    if (cnt >= vPre) sf = getZoneSpeedFactor(cnt, zi);
+                }
+            }
+        }
+        _vehicleZoneCache[i] = { speedFactor: sf, nodeId: nodeId };
+    });
+    _cachedZoneCounts = counts;
+}
+
+function updateVehicles(dt) {
+    const time = clock.elapsedTime;
+    const defaultCableLen = 15;
+    const maxCableLen = 130;
+    const cableSpeed = 60;
+    const waitTime = 2.5;
+
+    // Zone 체크: 1초마다만 수행
+    updateZoneCheck(time);
+
+    ohtVehicles.forEach((v, vi) => {
+        // 자식 참조 캐싱
+        if (!v._cached) {
+            v._gripper = v.group.getObjectByName('gripper');
+            v._foup = v.group.getObjectByName('foup');
+            v._cable1 = v.group.getObjectByName('cable1');
+            v._cable2 = v.group.getObjectByName('cable2');
+            v._cached = true;
+        }
+        const gripper = v._gripper;
+        const foup = v._foup;
+        const cable1 = v._cable1;
+        const cable2 = v._cable2;
+
+        const speedFactor = (_vehicleZoneCache[vi] && _vehicleZoneCache[vi].speedFactor) || 1.0;
+
+        switch (v.state) {
+            case 'jam':
+                v.simState = 'jam';
+                v.stateTimer += dt;
+                // JAM 복구: 15% 확률, 3초 이상 경과시 (1초 체크 주기이므로 dt 기반)
+                if (v.stateTimer >= 3 && Math.random() < 0.003) {
+                    v.state = 'moving';
+                    v.simState = 'run';
+                    v.stateTimer = 0;
+                }
+                break;
+            case 'moving':
+                v.simState = 'run';
+                v.t += v.speed * v.direction * dt * 60 * speedFactor;
+                if (v.t >= 1) { v.t = 1; v.direction = -1; }
+                if (v.t <= 0) { v.t = 0; v.direction = 1; }
+                if (Math.abs(v.t - v.nextStopT) < 0.003) {
+                    v.state = 'lowering';
+                    v.simState = 'stop';
+                    v.stateTimer = 0;
+                }
+                break;
+            case 'lowering':
+                v.stateTimer += dt;
+                v.cableLen = Math.min(defaultCableLen + v.stateTimer * cableSpeed, maxCableLen);
+                if (v.cableLen >= maxCableLen) {
+                    v.cableLen = maxCableLen;
+                    v.state = 'waiting';
+                    v.stateTimer = 0;
+                }
+                break;
+            case 'waiting':
+                v.stateTimer += dt;
+                if (v.stateTimer >= waitTime) {
+                    v.state = 'raising';
+                    v.stateTimer = 0;
+                    v.hasFoup = !v.hasFoup;
+                    if (foup) foup.visible = v.hasFoup;
+                }
+                break;
+            case 'raising':
+                v.stateTimer += dt;
+                v.cableLen = Math.max(maxCableLen - v.stateTimer * cableSpeed, defaultCableLen);
+                if (v.cableLen <= defaultCableLen) {
+                    v.cableLen = defaultCableLen;
+                    v.state = 'moving';
+                    v.stateTimer = 0;
+                    v.nextStopT = Math.random() * 0.8 + 0.1;
+                }
+                break;
+        }
+
+        // Update positions
+        const motorBottom = -16;
+        const cl = v.cableLen;
+        if (cable1) { cable1.position.y = motorBottom - cl / 2; cable1.scale.y = cl; }
+        const gripperY = motorBottom - cl - 4;
+        if (gripper) gripper.position.y = gripperY;
+        if (foup) foup.position.y = gripperY - 16;
+
+        const pos = v.curve.getPointAt(v.t);
+        v.group.position.copy(pos);
+        const lookT = Math.min(1, Math.max(0, v.t + 0.005 * v.direction));
+        const lookPos = v.curve.getPointAt(lookT);
+        v.group.lookAt(lookPos);
+
+        // Pulse 제거: 1500대에서 매 프레임 material.opacity 변경은 FPS 킬러
+    });
+}
+
+// ===== RAIL COLOR =====
+window.setRailColor = function(color) {
+    railGroup.traverse(function(child) {
+        if (child.isInstancedMesh || child.isMesh) {
+            if (child.material) {
+                child.material.color.setHex(color);
+                child.material.emissive.setHex(color & 0x334455);
+            }
+        }
+    });
+};
+
+// ===== FLOOR COLOR =====
+window.setFloorColor = function(color) {
+    currentFloorColor = color;
+    disposeGroup(floorGroup);
+    buildFloor(floorCenter.x, floorCenter.z);
+};
+
+// ===== HELPERS =====
+function getVal(id) { return parseFloat(document.getElementById(id).value); }
+
+function disposeGroup(group) {
+    if (!group) return;
+    group.traverse(c => {
+        if (c.geometry) c.geometry.dispose();
+        if (c.material) {
+            if (Array.isArray(c.material)) c.material.forEach(m => m.dispose());
+            else c.material.dispose();
+        }
+    });
+    scene.remove(group);
+}
+
+function onRebuild() {
+    disposeGroup(railGroup);
+    disposeGroup(nodeGroup);
+    disposeGroup(stationGroup);
+    disposeGroup(labelGroup);
+    disposeGroup(supportGroup);
+    disposeGroup(vehicleGroup);
+
+    buildSupports();
+    buildRails();
+    buildNodes();
+    buildStationMarkers();
+    spawnVehicles(parseInt(document.getElementById('ohtCount').value));
+
+    Object.entries(layers).forEach(([k]) => {
+        const g = { rails: railGroup, nodes: nodeGroup, stations: stationGroup,
+                     labels: labelGroup, supports: supportGroup, vehicles: vehicleGroup };
+        if (g[k]) g[k].visible = layers[k];
+    });
+}
+
+function fullRebuild() {
+    disposeGroup(railGroup);
+    disposeGroup(nodeGroup);
+    disposeGroup(stationGroup);
+    disposeGroup(labelGroup);
+    disposeGroup(supportGroup);
+    disposeGroup(vehicleGroup);
+    disposeGroup(floorGroup);
+
+    const b = layoutData.bounds;
+    const cx = (b.min_x + b.max_x) / 2;
+    const cz = (b.min_y + b.max_y) / 2;
+
+    buildFloor(cx, cz);
+    buildSupports();
+    buildRails();
+    buildNodes();
+    buildStationMarkers();
+    buildPaths();
+    spawnVehicles(parseInt(document.getElementById('ohtCount').value));
+
+    Object.entries(layers).forEach(([k]) => {
+        const g = { rails: railGroup, nodes: nodeGroup, stations: stationGroup,
+                     labels: labelGroup, supports: supportGroup, vehicles: vehicleGroup };
+        if (g[k]) g[k].visible = layers[k];
+    });
+
+    const stationNodes = layoutData.nodes.filter(n => n.stations.length > 0);
+    document.getElementById('nodeCount').textContent = layoutData.total_nodes.toLocaleString();
+    document.getElementById('edgeCount').textContent = layoutData.total_edges.toLocaleString();
+    document.getElementById('stationCount').textContent = (layoutData.total_stations || stationNodes.length).toLocaleString();
+    document.getElementById('zoneCount').textContent = (layoutData.total_mcp_zones || 0).toLocaleString();
+    document.getElementById('areaSize').textContent =
+        `${(b.max_x - b.min_x).toFixed(0)} x ${(b.max_y - b.min_y).toFixed(0)}`;
+
+    drawMinimap();
+    updateOhtList();
+
+    controls.target.set(cx, getVal('railHeight'), cz);
+    camera.position.set(cx - (b.max_x-b.min_x)*0.3, (b.max_x-b.min_x)*0.5, cz + (b.max_y-b.min_y)*0.5);
+    controls.update();
+}
+
+// ===== EVENTS =====
+function onResize() {
+    resizeRenderer();
+}
+
+function onMouseMove(event) {
+    const container = document.getElementById('view-container');
+    const rect = container.getBoundingClientRect();
+    mouse.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+    mouse.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+
+    raycaster.setFromCamera(mouse, camera);
+    const hits = raycaster.intersectObjects(nodeGroup.children, true);
+    const tt = document.getElementById('tooltip');
+
+    if (hits.length > 0 && hits[0].instanceId !== undefined) {
+        const ud = hits[0].object.userData;
+        const node = ud?.nodes?.[hits[0].instanceId];
+        if (node) {
+            tt.style.display = 'block';
+            tt.style.left = (event.clientX + 15) + 'px';
+            tt.style.top = (event.clientY + 15) + 'px';
+            document.getElementById('ttTitle').textContent =
+                node.stations.length > 0 ? node.stations[0].port_id : `주소 ${node.id}`;
+            let body = `<b>ID:</b> ${node.id}<br>`;
+            body += `<b>좌표:</b> (${node.x.toFixed(1)}, ${node.y.toFixed(1)})<br>`;
+            body += `<b>CAD:</b> (${node.cad_x.toFixed(1)}, ${node.cad_y.toFixed(1)})<br>`;
+            if (node.stations.length > 0) {
+                body += '<b>스테이션:</b><br>';
+                node.stations.forEach(s => {
+                    body += `&nbsp;&nbsp;${s.port_id} (분류:${s.category} 유형:${s.type})<br>`;
+                });
+            }
+            document.getElementById('ttBody').innerHTML = body;
+            document.getElementById('hoverInfo').textContent =
+                node.stations.length > 0 ? node.stations[0].port_id : '주소 ' + node.id;
+            return;
+        }
+    }
+    tt.style.display = 'none';
+    document.getElementById('hoverInfo').textContent = '';
+}
+
+function onMouseClick() {
+    raycaster.setFromCamera(mouse, camera);
+    const hits = raycaster.intersectObjects(nodeGroup.children, true);
+    if (hits.length > 0 && hits[0].instanceId !== undefined) {
+        const node = hits[0].object.userData?.nodes?.[hits[0].instanceId];
+        if (node) {
+            const railH = getVal('railHeight');
+            camera.position.set(node.x + 150, railH + 250, node.y + 150);
+            controls.target.set(node.x, railH, node.y);
+            controls.update();
+            // Show location info
+            const label = node.stations?.length > 0 ? node.stations[0].port_id : `주소 ${node.id}`;
+            showClickInfo(`${label} → 위치: (${node.x.toFixed(0)}, ${node.y.toFixed(0)}) | HID: ${node.hid_included >= 0 ? node.hid_included : 'N/A'}`);
+        }
+    }
+}
+
+function onSearch(e) {
+    if (e.key !== 'Enter') return;
+    const q = e.target.value.trim().toUpperCase();
+    if (!q) return;
+    const found = layoutData.nodes.find(n =>
+        n.stations.some(s => s.port_id.toUpperCase().includes(q)) || n.id.toString() === q
+    );
+    if (found) {
+        const railH = getVal('railHeight');
+        camera.position.set(found.x + 150, railH + 250, found.y + 150);
+        controls.target.set(found.x, railH, found.y);
+        controls.update();
+        document.getElementById('hoverInfo').textContent =
+            `발견: ${found.stations.length > 0 ? found.stations[0].port_id : '주소 ' + found.id}`;
+    } else {
+        document.getElementById('hoverInfo').textContent = '찾을 수 없음: ' + q;
+    }
+}
+
+// ===== VIEW PRESETS =====
+window.setView = function(type) {
+    const btns = document.querySelectorAll('#viewBtns .btn');
+    btns.forEach(b => b.classList.remove('active'));
+    btns[{ perspective: 0, top: 1, front: 2, side: 3 }[type]].classList.add('active');
+
+    const b = layoutData.bounds;
+    const cx = (b.min_x + b.max_x) / 2, cz = (b.min_y + b.max_y) / 2;
+    const railH = getVal('railHeight');
+    const span = Math.max(b.max_x - b.min_x, b.max_y - b.min_y);
+
+    const positions = {
+        perspective: [cx - span * 0.3, span * 0.5, cz + span * 0.5],
+        top:         [cx, span * 0.8, cz + 1],
+        front:       [cx, railH + 200, cz + span * 0.6],
+        side:        [cx - span * 0.6, railH + 200, cz]
+    };
+    camera.position.set(...positions[type]);
+    controls.target.set(cx, railH, cz);
+    controls.update();
+};
+
+// ===== LAYER TOGGLE =====
+window.toggleLayer = function(btn, name) {
+    layers[name] = !layers[name];
+    btn.classList.toggle('active');
+    const g = { rails: railGroup, nodes: nodeGroup, stations: stationGroup,
+                labels: labelGroup, supports: supportGroup, vehicles: vehicleGroup };
+    if (g[name]) g[name].visible = layers[name];
+};
+
+// ===== MINIMAP =====
+function drawMinimap() {
+    const canvas = document.getElementById('minimap');
+    const ctx = canvas.getContext('2d');
+    const b = layoutData.bounds;
+    const sx = 460 / (b.max_x - b.min_x);
+    const sy = 180 / (b.max_y - b.min_y);
+    const scale = Math.min(sx, sy);
+
+    ctx.fillStyle = '#0a0a1a';
+    ctx.fillRect(0, 0, 480, 200);
+
+    ctx.strokeStyle = 'rgba(220, 220, 220, 0.4)';
+    ctx.lineWidth = 0.5;
+    ctx.beginPath();
+    layoutData.edges.forEach(e => {
+        const fn = nodeMap[e.from], tn = nodeMap[e.to];
+        if (!fn || !tn) return;
+        ctx.moveTo(10 + (fn.x - b.min_x) * scale, 10 + (fn.y - b.min_y) * scale);
+        ctx.lineTo(10 + (tn.x - b.min_x) * scale, 10 + (tn.y - b.min_y) * scale);
+    });
+    ctx.stroke();
+
+    ctx.fillStyle = 'rgba(0, 255, 136, 0.6)';
+    layoutData.nodes.forEach(n => {
+        if (!n.stations.length) return;
+        ctx.fillRect(10 + (n.x - b.min_x) * scale - 0.5, 10 + (n.y - b.min_y) * scale - 0.5, 1, 1);
+    });
+}
+
+function initMinimapNavigation() {
+    const canvas = document.getElementById('minimap');
+    const b = layoutData.bounds;
+    const sx = 460 / (b.max_x - b.min_x);
+    const sy = 180 / (b.max_y - b.min_y);
+    const scale = Math.min(sx, sy);
+    const offsetX = 10, offsetY = 10;
+
+    let isDragging = false;
+
+    function navigateToMinimapPos(e) {
+        const rect = canvas.getBoundingClientRect();
+        const scaleX = canvas.width / rect.width;
+        const scaleY = canvas.height / rect.height;
+        const mx = (e.clientX - rect.left) * scaleX;
+        const my = (e.clientY - rect.top) * scaleY;
+
+        const worldX = b.min_x + (mx - offsetX) / scale;
+        const worldZ = b.min_y + (my - offsetY) / scale;
+
+        const clampX = Math.max(b.min_x, Math.min(b.max_x, worldX));
+        const clampZ = Math.max(b.min_y, Math.min(b.max_y, worldZ));
+
+        const railH = getVal('railHeight');
+        const dx = camera.position.x - controls.target.x;
+        const dy = camera.position.y - controls.target.y;
+        const dz = camera.position.z - controls.target.z;
+
+        controls.target.set(clampX, railH, clampZ);
+        camera.position.set(clampX + dx, railH + dy, clampZ + dz);
+        controls.update();
+
+        drawMinimapWithIndicator(clampX, clampZ);
+    }
+
+    canvas.addEventListener('mousedown', (e) => { isDragging = true; navigateToMinimapPos(e); });
+    canvas.addEventListener('mousemove', (e) => { if (isDragging) navigateToMinimapPos(e); canvas.style.cursor = 'crosshair'; });
+    canvas.addEventListener('mouseup', () => { isDragging = false; });
+    canvas.addEventListener('mouseleave', () => { isDragging = false; });
+}
+
+let _minimapBgCache = null; // 미니맵 배경 캐시 (edge/station은 변하지 않음)
+
+function drawMinimapWithIndicator(camX, camZ) {
+    const canvas = document.getElementById('minimap');
+    const ctx = canvas.getContext('2d');
+    const b = layoutData.bounds;
+    const sx = 460 / (b.max_x - b.min_x);
+    const sy = 180 / (b.max_y - b.min_y);
+    const scale = Math.min(sx, sy);
+
+    // 배경 캐시: 첫 호출시만 edge/station 그려서 ImageData 저장
+    if (!_minimapBgCache) {
+        ctx.fillStyle = '#0a0a1a';
+        ctx.fillRect(0, 0, 480, 200);
+        ctx.strokeStyle = 'rgba(220, 220, 220, 0.4)';
+        ctx.lineWidth = 0.5;
+        ctx.beginPath();
+        layoutData.edges.forEach(e => {
+            const fn = nodeMap[e.from], tn = nodeMap[e.to];
+            if (!fn || !tn) return;
+            ctx.moveTo(10 + (fn.x - b.min_x) * scale, 10 + (fn.y - b.min_y) * scale);
+            ctx.lineTo(10 + (tn.x - b.min_x) * scale, 10 + (tn.y - b.min_y) * scale);
+        });
+        ctx.stroke();
+        ctx.fillStyle = 'rgba(0, 255, 136, 0.6)';
+        layoutData.nodes.forEach(n => {
+            if (!n.stations.length) return;
+            ctx.fillRect(10 + (n.x - b.min_x) * scale - 0.5, 10 + (n.y - b.min_y) * scale - 0.5, 1, 1);
+        });
+        _minimapBgCache = ctx.getImageData(0, 0, 480, 200);
+    } else {
+        ctx.putImageData(_minimapBgCache, 0, 0);
+    }
+
+    if (camX !== undefined) {
+        const ix = 10 + (camX - b.min_x) * scale;
+        const iy = 10 + (camZ - b.min_y) * scale;
+
+        ctx.beginPath();
+        ctx.arc(ix, iy, 8, 0, Math.PI * 2);
+        ctx.fillStyle = 'rgba(255, 170, 0, 0.3)';
+        ctx.fill();
+
+        ctx.beginPath();
+        ctx.arc(ix, iy, 4, 0, Math.PI * 2);
+        ctx.fillStyle = '#ffaa00';
+        ctx.fill();
+
+        ctx.strokeStyle = 'rgba(255, 170, 0, 0.6)';
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(ix - 12, iy); ctx.lineTo(ix + 12, iy);
+        ctx.moveTo(ix, iy - 12); ctx.lineTo(ix, iy + 12);
+        ctx.stroke();
+    }
+}
+
+// ===== ZONE LANE & STATION DISPLAY =====
+let zoneLaneGroup = null;
+let stationIdGroup = null;
+let stationNameGroup = null;
+let showZoneLanes = false;
+let showStationMarkers = true; // stationGroup 기본 visible
+let showStationIds = false;
+let showStationNames = false;
+let zoneManualOff = false;
+
+function buildZoneLanes() {
+    if (zoneLaneGroup) { scene.remove(zoneLaneGroup); disposeGroup(zoneLaneGroup); }
+    zoneLaneGroup = new THREE.Group();
+    zoneLaneGroup.visible = showZoneLanes;
+    scene.add(zoneLaneGroup);
+
+    const hidMaster = layoutData.hid_master || [];
+    const railH = getVal('railHeight');
+    const zoneH = railH + 5;
+
+    hidMaster.forEach(h => {
+        const inColor = 0x00ff88;
+        const outColor = 0x00ff88;
+
+        // IN Lanes (실선)
+        if (h.in_lanes) {
+            const lanes = h.in_lanes.split('; ').filter(l => l);
+            const positions = [];
+            lanes.forEach(lane => {
+                const parts = lane.split('→');
+                if (parts.length === 2) {
+                    const from = nodeMap[parseInt(parts[0])];
+                    const to = nodeMap[parseInt(parts[1])];
+                    if (from && to) {
+                        positions.push(from.x, zoneH, from.y, to.x, zoneH, to.y);
+                    }
+                }
+            });
+            if (positions.length > 0) {
+                const geo = new THREE.BufferGeometry();
+                geo.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+                const mat = new THREE.LineBasicMaterial({ color: inColor, transparent: true, opacity: 0.6 });
+                zoneLaneGroup.add(new THREE.LineSegments(geo, mat));
+            }
+        }
+
+        // OUT Lanes (점선 - dashed line)
+        if (h.out_lanes) {
+            const lanes = h.out_lanes.split('; ').filter(l => l);
+            const positions = [];
+            lanes.forEach(lane => {
+                const parts = lane.split('→');
+                if (parts.length === 2) {
+                    const from = nodeMap[parseInt(parts[0])];
+                    const to = nodeMap[parseInt(parts[1])];
+                    if (from && to) {
+                        positions.push(from.x, zoneH + 1, from.y, to.x, zoneH + 1, to.y);
+                    }
+                }
+            });
+            if (positions.length > 0) {
+                const geo = new THREE.BufferGeometry();
+                geo.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+                const mat = new THREE.LineDashedMaterial({ color: outColor, transparent: true, opacity: 0.4, dashSize: 8, gapSize: 4 });
+                const lines = new THREE.LineSegments(geo, mat);
+                lines.computeLineDistances();
+                zoneLaneGroup.add(lines);
+            }
+        }
+
+        // Zone ID 라벨 (IN Lane 첫 번째 중간점)
+        if (h.in_lanes) {
+            const firstLane = h.in_lanes.split('; ')[0];
+            const parts = firstLane?.split('→');
+            if (parts && parts.length === 2) {
+                const from = nodeMap[parseInt(parts[0])];
+                const to = nodeMap[parseInt(parts[1])];
+                if (from && to) {
+                    const mx = (from.x + to.x) / 2, mz = (from.y + to.y) / 2;
+                    const sprite = makeTextSprite(h.full_name || `HID-${h.hid_id}`);
+                    sprite.position.set(mx, zoneH + 15, mz);
+                    sprite.scale.set(60, 15, 1);
+                    zoneLaneGroup.add(sprite);
+                }
+            }
+        }
+    });
+}
+
+function buildStationIdLabels() {
+    if (stationIdGroup) { scene.remove(stationIdGroup); disposeGroup(stationIdGroup); }
+    stationIdGroup = new THREE.Group();
+    stationIdGroup.visible = showStationIds;
+    scene.add(stationIdGroup);
+
+    const railH = getVal('railHeight');
+    const stNodes = layoutData.nodes.filter(n => n.stations.length > 0);
+    stNodes.forEach(n => {
+        const label = n.stations[0]?.port_id || `Addr${n.id}`;
+        const sprite = makeTextSprite(label);
+        sprite.position.set(n.x, railH + 28, n.y);
+        sprite.scale.set(40, 10, 1);
+        stationIdGroup.add(sprite);
+    });
+}
+
+function buildStationNameLabels() {
+    if (stationNameGroup) { scene.remove(stationNameGroup); disposeGroup(stationNameGroup); }
+    stationNameGroup = new THREE.Group();
+    stationNameGroup.visible = showStationNames;
+    scene.add(stationNameGroup);
+
+    const railH = getVal('railHeight');
+    const stNodes = layoutData.nodes.filter(n => n.stations.length > 0);
+    stNodes.forEach(n => {
+        const name = n.symbol || `Node${n.id}`;
+        const c = document.createElement('canvas');
+        const ctx = c.getContext('2d');
+        c.width = 256; c.height = 64;
+        ctx.font = 'bold 20px Segoe UI, Arial';
+        ctx.fillStyle = '#ffaa00';
+        ctx.shadowColor = '#000'; ctx.shadowBlur = 4;
+        ctx.textAlign = 'center';
+        ctx.fillText(name, 128, 38);
+        const tex = new THREE.CanvasTexture(c);
+        tex.minFilter = THREE.LinearFilter;
+        const mat = new THREE.SpriteMaterial({ map: tex, transparent: true, opacity: 0.8 });
+        const sprite = new THREE.Sprite(mat);
+        sprite.scale.set(45, 11, 1);
+        sprite.position.set(n.x, railH + 38, n.y);
+        stationNameGroup.add(sprite);
+    });
+}
+
+// 각 Zone별 OHT 수 계산
+function computeZoneOhtCounts() {
+    if (!Object.keys(_cachedNodeToZone).length) buildNodeToZoneMap();
+    const counts = {};
+    // zone 초기화
+    const zoneMap = layoutData ? (layoutData.zone_addr_map || {}) : {};
+    for (const zoneId of Object.keys(zoneMap)) counts[zoneId] = 0;
+    // 각 OHT의 가장 가까운 노드 → zone
+    ohtVehicles.forEach(v => {
+        const pos = v.curve.getPointAt(v.t);
+        const n = findNearestNode(pos.x, pos.z);
+        if (n) {
+            const zid = _cachedNodeToZone[n.id] || _cachedNodeToZone[String(n.id)];
+            if (zid) counts[zid] = (counts[zid] || 0) + 1;
+        }
+    });
+    return counts;
+}
+
+// Zone 상태 결정: CSV의 vehicle_max / vehicle_precaution 기준
+function getZoneStatus(ohtCount, zoneInfo) {
+    const vMax = (zoneInfo && zoneInfo.vehicle_max) || 37;
+    const vPre = (zoneInfo && zoneInfo.vehicle_precaution) || 35;
+    if (ohtCount >= vMax) return 'saturated';       // 포화 (FULL)
+    if (ohtCount >= vPre) return 'warning';         // 주의 (PRECAUTION)
+    return 'normal';                                 // 정상 (NORMAL)
+}
+
+// Zone 점유율 계산
+function getZoneOccupancy(ohtCount, zoneInfo) {
+    const vMax = (zoneInfo && zoneInfo.vehicle_max) || 37;
+    if (vMax <= 0) return 0;
+    return (ohtCount / vMax) * 100;
+}
+
+// Zone 포화시 OHT 속도 팩터 계산 (OLD_CODE 기준)
+function getZoneSpeedFactor(ohtCount, zoneInfo) {
+    const vPre = (zoneInfo && zoneInfo.vehicle_precaution) || 35;
+    const vMax = (zoneInfo && zoneInfo.vehicle_max) || 37;
+    if (ohtCount < vPre) return 1.0;
+    const occupancy = (ohtCount / vMax) * 100;
+    return Math.max(0.3, 1.0 - (occupancy - 70) / 100.0);
+}
+
+// Zone 통계 업데이트
+function updateZoneStats() {
+    const hidMaster = layoutData.hid_master || [];
+    const counts = _cachedZoneCounts;
+    let normal = 0, warn = 0, full = 0, totalOht = 0, totalCapacity = 0;
+    hidMaster.forEach(h => {
+        const c = counts[h.zone_id] || counts[String(h.zone_id)] || 0;
+        totalOht += c;
+        totalCapacity += (h.vehicle_max || 37);
+        const st = getZoneStatus(c, h);
+        if (st === 'saturated') full++;
+        else if (st === 'warning') warn++;
+        else normal++;
+    });
+    document.getElementById('statTotalZones').textContent = hidMaster.length;
+    document.getElementById('statNormalZones').textContent = normal;
+    document.getElementById('statPrecautionZones').textContent = warn;
+    document.getElementById('statFullZones').textContent = full;
+    const occ = totalCapacity > 0 ? ((totalOht / totalCapacity) * 100).toFixed(1) : '0';
+    document.getElementById('statZoneOccupancy').textContent = occ + ' %';
+}
+
+// ===== ANIMATE =====
+function animate() {
+    requestAnimationFrame(animate);
+    const dt = clock.getDelta();
+    controls.update();
+
+    updateVehicles(dt);
+
+    // 포커스 마커 업데이트: OHT 따라다니기 + 회전 애니메이션
+    if (focusMarker && focusMarker.visible && focusedVehicleIdx >= 0 && focusedVehicleIdx < ohtVehicles.length) {
+        const fv = ohtVehicles[focusedVehicleIdx];
+        const fpos = fv.curve.getPointAt(fv.t);
+        focusMarker.position.set(fpos.x, -4, fpos.z);
+        if (!focusMarker._ring) focusMarker._ring = focusMarker.getObjectByName('ring');
+        if (!focusMarker._outerRing) focusMarker._outerRing = focusMarker.getObjectByName('outerRing');
+        if (focusMarker._ring) focusMarker._ring.rotation.z += dt * 2;
+        if (focusMarker._outerRing) {
+            focusMarker._outerRing.rotation.z -= dt * 1.5;
+            focusMarker._outerRing.material.opacity = 0.15 + 0.15 * Math.sin(clock.elapsedTime * 3);
+        }
+    }
+
+    frameCount++;
+    const now = performance.now();
+    if (now - lastFpsTime >= 1000) {
+        document.getElementById('fpsCounter').textContent = frameCount;
+        frameCount = 0;
+        lastFpsTime = now;
+        drawMinimapWithIndicator(controls.target.x, controls.target.z);
+        updateOhtList();
+        updateHidZoneList();
+        updateZoneStats();
+    }
+
+    renderer.render(scene, camera);
+}
+
+init();
+</script>
+</body>
+</html>
