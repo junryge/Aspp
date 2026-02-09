@@ -128,6 +128,7 @@ def generate_html(nodes, edges, output_path):
         <h1>OHT Rail System</h1>
         <p>Nodes: <span class="val">{len(nodes):,}</span></p>
         <p>Rails: <span class="val">{len(edges):,}</span></p>
+        <p>GPU: <span id="gpu" class="val">-</span></p>
     </div>
     <div id="controls">
         드래그: 회전 | 우클릭: 이동 | 스크롤: 줌 | R: 리셋
@@ -160,12 +161,26 @@ def generate_html(nodes, edges, output_path):
             camera = new THREE.PerspectiveCamera(45, innerWidth/innerHeight, 1, size*10);
             camera.position.set(center.x + size*0.6, RAIL_H + size*0.4, center.z + size*0.6);
 
-            // Renderer
-            renderer = new THREE.WebGLRenderer({{ antialias: true }});
+            // Renderer (GPU 고성능 모드)
+            renderer = new THREE.WebGLRenderer({{
+                antialias: true,
+                powerPreference: 'high-performance',  // GPU 최대 성능
+                precision: 'highp'
+            }});
             renderer.setSize(innerWidth, innerHeight);
+            renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
             renderer.shadowMap.enabled = true;
             renderer.shadowMap.type = THREE.PCFSoftShadowMap;
             document.getElementById('container').appendChild(renderer.domElement);
+
+            // GPU 정보 출력
+            const gl = renderer.getContext();
+            const debugInfo = gl.getExtension('WEBGL_debug_renderer_info');
+            if (debugInfo) {{
+                const gpu = gl.getParameter(debugInfo.UNMASKED_RENDERER_WEBGL);
+                console.log('GPU:', gpu);
+                document.getElementById('gpu').textContent = gpu;
+            }}
 
             // Controls
             controls = new THREE.OrbitControls(camera, renderer.domElement);
