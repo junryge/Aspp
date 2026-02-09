@@ -306,7 +306,6 @@ def generate_html(nodes, edges, output_path):
 
             // === 분기점 (Junction) ===
             data.nodes.forEach(node => {{
-                // 분기점 박스
                 const junction = new THREE.Mesh(
                     new THREE.BoxGeometry(14, 10, 14),
                     junctionMat
@@ -314,18 +313,11 @@ def generate_html(nodes, edges, output_path):
                 junction.position.set(node.x, RAIL_H, node.y);
                 junction.castShadow = true;
                 scene.add(junction);
-
-                // 분기점 지지대
-                const jPillar = new THREE.Mesh(
-                    new THREE.CylinderGeometry(2, 2.5, RAIL_H - 6, 8),
-                    supportMat
-                );
-                jPillar.position.set(node.x, (RAIL_H - 6) / 2, node.y);
-                jPillar.castShadow = true;
-                scene.add(jPillar);
             }});
 
-            // 이벤트
+            // === OHT 차량 생성 ===
+            createOHTVehicles();
+
             window.addEventListener('resize', () => {{
                 camera.aspect = innerWidth / innerHeight;
                 camera.updateProjectionMatrix();
@@ -342,8 +334,131 @@ def generate_html(nodes, edges, output_path):
             animate();
         }}
 
+        // OHT 차량들
+        const ohtVehicles = [];
+
+        function createOHTVehicles() {{
+            const nodeMap = {{}};
+            data.nodes.forEach(n => nodeMap[n.id] = n);
+
+            // 유효한 경로 수집
+            const paths = [];
+            data.edges.forEach(edge => {{
+                const from = nodeMap[edge.from];
+                const to = nodeMap[edge.to];
+                if (from && to) {{
+                    paths.push({{ from, to }});
+                }}
+            }});
+
+            if (paths.length === 0) return;
+
+            // OHT 차량 수 (레일 수에 비례)
+            const numOHT = Math.min(Math.max(5, Math.floor(paths.length / 10)), 30);
+
+            const ohtBodyMat = new THREE.MeshStandardMaterial({{
+                color: 0x2196F3,
+                metalness: 0.7,
+                roughness: 0.3
+            }});
+
+            const ohtTopMat = new THREE.MeshStandardMaterial({{
+                color: 0x1565C0,
+                metalness: 0.6,
+                roughness: 0.4
+            }});
+
+            const foupMat = new THREE.MeshStandardMaterial({{
+                color: 0xeeeeee,
+                metalness: 0.3,
+                roughness: 0.5
+            }});
+
+            for (let i = 0; i < numOHT; i++) {{
+                const oht = new THREE.Group();
+
+                // 상부 (레일에 연결되는 부분)
+                const top = new THREE.Mesh(
+                    new THREE.BoxGeometry(8, 6, 6),
+                    ohtTopMat
+                );
+                top.position.y = 0;
+                oht.add(top);
+
+                // 본체
+                const body = new THREE.Mesh(
+                    new THREE.BoxGeometry(12, 10, 10),
+                    ohtBodyMat
+                );
+                body.position.y = -10;
+                oht.add(body);
+
+                // FOUP (웨이퍼 캐리어) - 50% 확률
+                if (Math.random() > 0.5) {{
+                    const foup = new THREE.Mesh(
+                        new THREE.BoxGeometry(8, 12, 8),
+                        foupMat
+                    );
+                    foup.position.y = -25;
+                    oht.add(foup);
+                }}
+
+                // 랜덤 경로 선택
+                const pathIdx = Math.floor(Math.random() * paths.length);
+                const path = paths[pathIdx];
+
+                oht.position.set(path.from.x, RAIL_H - 8, path.from.y);
+                oht.castShadow = true;
+                scene.add(oht);
+
+                ohtVehicles.push({{
+                    mesh: oht,
+                    path: path,
+                    progress: Math.random(),
+                    speed: 0.002 + Math.random() * 0.003
+                }});
+            }}
+        }}
+
+        function updateOHT() {{
+            const nodeMap = {{}};
+            data.nodes.forEach(n => nodeMap[n.id] = n);
+
+            const paths = [];
+            data.edges.forEach(edge => {{
+                const from = nodeMap[edge.from];
+                const to = nodeMap[edge.to];
+                if (from && to) paths.push({{ from, to }});
+            }});
+
+            ohtVehicles.forEach(oht => {{
+                oht.progress += oht.speed;
+
+                if (oht.progress >= 1) {{
+                    oht.progress = 0;
+                    // 새 경로 선택
+                    const newPath = paths[Math.floor(Math.random() * paths.length)];
+                    oht.path = newPath;
+                }}
+
+                // 위치 보간
+                const from = oht.path.from;
+                const to = oht.path.to;
+                const x = from.x + (to.x - from.x) * oht.progress;
+                const z = from.y + (to.y - from.y) * oht.progress;
+
+                oht.mesh.position.x = x;
+                oht.mesh.position.z = z;
+
+                // 진행 방향으로 회전
+                const angle = Math.atan2(to.x - from.x, to.y - from.y);
+                oht.mesh.rotation.y = angle;
+            }});
+        }}
+
         function animate() {{
             requestAnimationFrame(animate);
+            updateOHT();
             controls.update();
             renderer.render(scene, camera);
         }}
