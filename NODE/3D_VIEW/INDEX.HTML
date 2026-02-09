@@ -1,0 +1,246 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <title>OHT Layout 3D Viewer</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            background: #1a1a2e;
+            overflow: hidden;
+            font-family: 'Segoe UI', sans-serif;
+        }
+        #container { width: 100vw; height: 100vh; }
+
+        #info {
+            position: fixed;
+            top: 20px;
+            left: 20px;
+            color: #fff;
+            background: rgba(0,0,0,0.7);
+            padding: 20px;
+            border-radius: 10px;
+            font-size: 14px;
+            z-index: 100;
+            min-width: 200px;
+        }
+        #info h1 {
+            font-size: 18px;
+            margin-bottom: 15px;
+            color: #00d4ff;
+        }
+        #info p { margin: 5px 0; }
+        #info .stat { color: #00ff88; }
+
+        #controls {
+            position: fixed;
+            bottom: 20px;
+            left: 20px;
+            color: #fff;
+            background: rgba(0,0,0,0.7);
+            padding: 15px;
+            border-radius: 10px;
+            font-size: 12px;
+        }
+        #controls p { margin: 3px 0; }
+
+        #loading {
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            color: #00d4ff;
+            font-size: 24px;
+            z-index: 1000;
+        }
+
+        .hidden { display: none; }
+    </style>
+</head>
+<body>
+    <div id="loading">데이터 로딩 중...</div>
+
+    <div id="info" class="hidden">
+        <h1>OHT Layout 3D</h1>
+        <p>노드: <span id="nodeCount" class="stat">0</span>개</p>
+        <p>엣지: <span id="edgeCount" class="stat">0</span>개</p>
+        <p>FPS: <span id="fps" class="stat">0</span></p>
+    </div>
+
+    <div id="controls" class="hidden">
+        <p>🖱️ 드래그: 회전</p>
+        <p>🖱️ 우클릭 드래그: 이동</p>
+        <p>🖱️ 스크롤: 줌</p>
+        <p>⌨️ R: 리셋</p>
+    </div>
+
+    <div id="container"></div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+
+    <script>
+        let scene, camera, renderer, controls;
+        let layoutData = null;
+        let frameCount = 0;
+        let lastTime = performance.now();
+
+        async function init() {
+            // 데이터 로드
+            try {
+                const response = await fetch('layout_data.json');
+                layoutData = await response.json();
+                document.getElementById('loading').classList.add('hidden');
+                document.getElementById('info').classList.remove('hidden');
+                document.getElementById('controls').classList.remove('hidden');
+            } catch (e) {
+                document.getElementById('loading').textContent =
+                    '❌ layout_data.json을 찾을 수 없습니다.\n먼저 python parse_layout_xml.py 실행하세요.';
+                return;
+            }
+
+            // 통계 표시
+            document.getElementById('nodeCount').textContent = layoutData.stats.nodeCount.toLocaleString();
+            document.getElementById('edgeCount').textContent = layoutData.stats.edgeCount.toLocaleString();
+
+            // Three.js 초기화
+            const container = document.getElementById('container');
+
+            // 씬
+            scene = new THREE.Scene();
+            scene.background = new THREE.Color(0x1a1a2e);
+            scene.fog = new THREE.Fog(0x1a1a2e, 500, 2000);
+
+            // 카메라
+            camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 1, 5000);
+            camera.position.set(500, 800, 500);
+            camera.lookAt(500, 0, 500);
+
+            // 렌더러
+            renderer = new THREE.WebGLRenderer({ antialias: true });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.setPixelRatio(window.devicePixelRatio);
+            container.appendChild(renderer.domElement);
+
+            // 컨트롤
+            controls = new THREE.OrbitControls(camera, renderer.domElement);
+            controls.enableDamping = true;
+            controls.dampingFactor = 0.05;
+            controls.target.set(500, 0, 500);
+
+            // 조명
+            const ambientLight = new THREE.AmbientLight(0x404040, 2);
+            scene.add(ambientLight);
+
+            const directionalLight = new THREE.DirectionalLight(0xffffff, 1);
+            directionalLight.position.set(500, 1000, 500);
+            scene.add(directionalLight);
+
+            // 그리드
+            const gridHelper = new THREE.GridHelper(1000, 50, 0x444444, 0x222222);
+            scene.add(gridHelper);
+
+            // 레이아웃 렌더링
+            renderLayout();
+
+            // 리사이즈 핸들러
+            window.addEventListener('resize', onWindowResize);
+
+            // 키보드 이벤트
+            window.addEventListener('keydown', (e) => {
+                if (e.key === 'r' || e.key === 'R') {
+                    camera.position.set(500, 800, 500);
+                    controls.target.set(500, 0, 500);
+                }
+            });
+
+            // 애니메이션 시작
+            animate();
+        }
+
+        function renderLayout() {
+            // 노드 맵 생성
+            const nodeMap = {};
+            layoutData.nodes.forEach(node => {
+                nodeMap[node.id] = node;
+            });
+
+            // 엣지 (레일) 렌더링 - LineSegments 사용 (효율적)
+            const edgePositions = [];
+            const edgeColors = [];
+
+            layoutData.edges.forEach(edge => {
+                const fromNode = nodeMap[edge.from];
+                const toNode = nodeMap[edge.to];
+
+                if (fromNode && toNode) {
+                    // 시작점
+                    edgePositions.push(fromNode.x, 0, fromNode.y);
+                    edgeColors.push(0, 0.8, 1); // cyan
+
+                    // 끝점
+                    edgePositions.push(toNode.x, 0, toNode.y);
+                    edgeColors.push(0, 0.8, 1);
+                }
+            });
+
+            const edgeGeometry = new THREE.BufferGeometry();
+            edgeGeometry.setAttribute('position', new THREE.Float32BufferAttribute(edgePositions, 3));
+            edgeGeometry.setAttribute('color', new THREE.Float32BufferAttribute(edgeColors, 3));
+
+            const edgeMaterial = new THREE.LineBasicMaterial({
+                vertexColors: true,
+                linewidth: 2
+            });
+
+            const edges = new THREE.LineSegments(edgeGeometry, edgeMaterial);
+            scene.add(edges);
+
+            // 노드 렌더링 - InstancedMesh 사용 (효율적)
+            const nodeGeometry = new THREE.SphereGeometry(2, 8, 8);
+            const nodeMaterial = new THREE.MeshPhongMaterial({
+                color: 0x00ff88,
+                emissive: 0x00ff88,
+                emissiveIntensity: 0.3
+            });
+
+            const nodeCount = layoutData.nodes.length;
+            const instancedNodes = new THREE.InstancedMesh(nodeGeometry, nodeMaterial, nodeCount);
+
+            const matrix = new THREE.Matrix4();
+            layoutData.nodes.forEach((node, i) => {
+                matrix.setPosition(node.x, 0, node.y);
+                instancedNodes.setMatrixAt(i, matrix);
+            });
+
+            scene.add(instancedNodes);
+
+            console.log(`렌더링 완료: ${nodeCount} 노드, ${layoutData.edges.length} 엣지`);
+        }
+
+        function onWindowResize() {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        }
+
+        function animate() {
+            requestAnimationFrame(animate);
+
+            controls.update();
+            renderer.render(scene, camera);
+
+            // FPS 계산
+            frameCount++;
+            const now = performance.now();
+            if (now - lastTime >= 1000) {
+                document.getElementById('fps').textContent = frameCount;
+                frameCount = 0;
+                lastTime = now;
+            }
+        }
+
+        init();
+    </script>
+</body>
+</html>
