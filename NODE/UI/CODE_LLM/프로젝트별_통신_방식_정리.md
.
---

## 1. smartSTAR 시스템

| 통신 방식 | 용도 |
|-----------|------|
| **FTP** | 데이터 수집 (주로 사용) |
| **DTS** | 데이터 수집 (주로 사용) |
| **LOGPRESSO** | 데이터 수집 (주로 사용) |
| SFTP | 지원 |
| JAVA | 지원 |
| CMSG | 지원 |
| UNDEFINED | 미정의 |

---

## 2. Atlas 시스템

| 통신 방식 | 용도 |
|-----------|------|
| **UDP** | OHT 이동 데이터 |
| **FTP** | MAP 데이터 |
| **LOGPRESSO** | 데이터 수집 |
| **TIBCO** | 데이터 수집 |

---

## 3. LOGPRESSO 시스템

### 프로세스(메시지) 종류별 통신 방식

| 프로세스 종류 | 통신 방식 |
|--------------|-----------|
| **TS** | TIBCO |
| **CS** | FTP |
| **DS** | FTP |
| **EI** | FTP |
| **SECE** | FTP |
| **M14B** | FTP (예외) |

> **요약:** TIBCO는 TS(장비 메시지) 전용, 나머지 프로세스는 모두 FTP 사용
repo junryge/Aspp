@@ -2,6 +2,35 @@
 
 ---
 
+## 참조 (약어 풀네임)
+
+### 통신 방식
+| 약어 | 풀네임 |
+|------|--------|
+| FTP | File Transfer Protocol |
+| SFTP | Secure File Transfer Protocol |
+| DTS | Data Transfer Service |
+| UDP | User Datagram Protocol |
+| TIBCO | TIBCO Enterprise Message Service |
+| LOGPRESSO | Logpresso (로그 분석 플랫폼) |
+| CMSG | Common Message |
+
+### 프로세스 종류
+| 약어 | 풀네임 |
+|------|--------|
+| TS | Transport Server (장비 메시지) |
+| CS | Control Server |
+| DS | Data Server |
+| EI | Equipment Interface |
+| SECE | SECS/GEM (SEMI Equipment Communications Standard / Generic Equipment Model) |
+
+### 기타
+| 약어 | 풀네임 |
+|------|--------|
+| OHT | Overhead Hoist Transport |
+
+---
+
 ## 1. smartSTAR 시스템
 
 | 통신 방식 | 용도 |
