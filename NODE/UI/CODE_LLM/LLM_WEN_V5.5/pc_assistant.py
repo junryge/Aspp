@@ -473,10 +473,15 @@ JSON 앞뒤에 설명 텍스트를 절대 붙이지 마세요.
 # ★ 지식베이스 답변용 공통 시스템 프롬프트 (CoT + 정확도 강화)
 KNOWLEDGE_QA_SYSTEM_PROMPT = """당신은 시니어 소프트웨어 엔지니어이자 기술 문서 전문가입니다.
 
+[최우선 규칙 - 반드시 지키세요]
+★ 제공된 문서에 있는 내용만 답변하세요. 문서에 없는 내용을 지어내면 안 됩니다.
+★ 문서에 언급되지 않은 시스템명, 프로토콜, 기술명, 도구명을 임의로 추가하지 마세요.
+★ 문서에 해당 내용이 없으면 "문서에 해당 내용이 없습니다"라고 정직하게 답하세요.
+
 [사고 과정 - 반드시 따르세요]
 1) 먼저 사용자의 질문에서 핵심 키워드와 의도를 파악하세요.
 2) 제공된 문서에서 관련 내용을 찾으세요.
-3) 문서에 있는 내용만 근거로 답변하세요. 문서에 없는 내용은 "문서에 해당 내용이 없습니다"라고 명시하세요.
+3) 문서에 있는 내용만 근거로 답변하세요.
 
 [답변 형식]
 **📋 핵심 요약**
@@ -1745,7 +1750,8 @@ def process_chat(user_message: str) -> str:
         amhs_matched = [kw for kw in amhs_keywords if kw in msg_lower]
         if amhs_matched:
             logger.info(f"🔀 AMHS 키워드 감지 ({amhs_matched}) → 지식베이스 강제 검색")
-            search_result = execute_tool({"tool": "search_knowledge", "keyword": amhs_matched[0]})
+            # ★ 전체 사용자 메시지로 검색 (첫 키워드만 쓰면 엉뚱한 문서 반환됨)
+            search_result = execute_tool({"tool": "search_knowledge", "keyword": user_message})
             if search_result and not search_result.startswith("❌"):
                 try:
                     sr_data = json.loads(search_result)
@@ -1757,10 +1763,21 @@ def process_chat(user_message: str) -> str:
                         if doc_content and not doc_content.startswith("❌"):
                             doc_limit = 12000 if LLM_MODE == "api" else 3000
                             doc_content = doc_content if len(doc_content) <= doc_limit else doc_content[:doc_limit] + "\n\n... (이하 생략)"
-                            follow_up = f"[사용자 질문]\n{user_message}\n\n[참고 문서]\n{doc_content}\n\n위 문서를 참고해서 사용자의 질문에 정확히 답변하세요."
-                            result2 = call_llm(follow_up, "당신은 AMHS(자동물류시스템) 전문가입니다. 문서 내용을 기반으로 상세하게 답변하세요. JSON이나 도구 호출은 절대 하지 마세요.", max_tokens=4096 if LLM_MODE == "api" else 1024, task_type="knowledge_qa")
+                            follow_up = f"""[사용자 질문]
+{user_message}
+
+[참고 문서: {best_file}]
+{doc_content}
+
+[중요 규칙]
+- 반드시 위 참고 문서의 내용만 사용해서 답변하세요.
+- 문서에 없는 내용은 절대 지어내지 마세요. 없으면 "문서에 해당 내용이 없습니다"라고 답하세요.
+- 문서에 언급되지 않은 시스템명, 프로토콜, 기술명을 임의로 추가하지 마세요."""
+                            result2 = call_llm(follow_up, KNOWLEDGE_QA_SYSTEM_PROMPT, max_tokens=4096 if LLM_MODE == "api" else 1024, task_type="knowledge_qa")
                             if result2["success"]:
-                                return result2["content"].strip()
+                                content2 = result2["content"].strip()
+                                source_info = f"\n\n---\n📚 **참조 문서**: {best_file}"
+                                return content2 + source_info
                 except (json.JSONDecodeError, KeyError, IndexError, AttributeError):
                     pass
             # 검색 실패 시 일반 LLM 흐름으로 fallback
@@ -1858,8 +1875,10 @@ def process_chat(user_message: str) -> str:
 [참고 문서]
 {doc_content}
 
-위 문서를 참고해서 사용자의 질문에 정확히 답변하세요.
-문서에 있는 내용만 근거로 답변하고, 문서에 없는 내용은 추측하지 마세요."""
+[중요 규칙]
+- 반드시 위 참고 문서의 내용만 사용해서 답변하세요.
+- 문서에 없는 내용은 절대 지어내지 마세요. 없으면 "문서에 해당 내용이 없습니다"라고 답하세요.
+- 문서에 언급되지 않은 시스템명, 프로토콜, 기술명을 임의로 추가하지 마세요."""
 
                     result2_tokens = 4096 if LLM_MODE == "api" else 1024
                     result2 = call_llm(follow_up_prompt, KNOWLEDGE_QA_SYSTEM_PROMPT, max_tokens=result2_tokens, task_type="knowledge_qa")
@@ -1946,8 +1965,10 @@ def process_chat(user_message: str) -> str:
 [참고 문서 {len(doc_names)}개: {doc_list}]
 {combined_content}
 
-위 문서들을 참고해서 사용자의 질문에 정확히 답변하세요.
-여러 문서의 내용을 종합해서 답변하고, 문서에 없는 내용은 추측하지 마세요."""
+[중요 규칙]
+- 반드시 위 참고 문서의 내용만 사용해서 답변하세요.
+- 문서에 없는 내용은 절대 지어내지 마세요. 없으면 "문서에 해당 내용이 없습니다"라고 답하세요.
+- 문서에 언급되지 않은 시스템명, 프로토콜, 기술명을 임의로 추가하지 마세요."""
 
                         result2_tokens = 4096 if LLM_MODE == "api" else 1024
                         result2 = call_llm(follow_up_prompt, KNOWLEDGE_QA_SYSTEM_PROMPT, max_tokens=result2_tokens, task_type="knowledge_qa")
@@ -2080,8 +2101,10 @@ def process_chat(user_message: str) -> str:
 [참고 문서 {len(doc_names)}개: {doc_list}]
 {combined_content}
 
-위 문서들을 참고해서 사용자의 질문에 정확히 답변하세요.
-여러 문서의 내용을 종합해서 답변하고, 문서에 없는 내용은 추측하지 마세요."""
+[중요 규칙]
+- 반드시 위 참고 문서의 내용만 사용해서 답변하세요.
+- 문서에 없는 내용은 절대 지어내지 마세요. 없으면 "문서에 해당 내용이 없습니다"라고 답하세요.
+- 문서에 언급되지 않은 시스템명, 프로토콜, 기술명을 임의로 추가하지 마세요."""
 
                     result2_tokens = 4096 if LLM_MODE == "api" else 1024
                     result2 = call_llm(follow_up_prompt, KNOWLEDGE_QA_SYSTEM_PROMPT, max_tokens=result2_tokens, task_type="knowledge_qa")
