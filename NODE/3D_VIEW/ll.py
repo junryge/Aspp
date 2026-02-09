@@ -91,7 +91,7 @@ def normalize_coords(nodes):
         node['y'] = (node['y'] - min_y) * scale
 
 def generate_html(nodes, edges, output_path):
-    """OHT 3D HTML 생성"""
+    """OHT 3D HTML 생성 - 2D 평면도 + 3D 뷰 전환"""
 
     data = {
         'nodes': list(nodes.values()),
@@ -103,51 +103,53 @@ def generate_html(nodes, edges, output_path):
 <html lang="ko">
 <head>
     <meta charset="UTF-8">
-    <title>OHT Layout 3D Viewer</title>
+    <title>OHT Layout Viewer</title>
     <style>
         * {{ margin: 0; padding: 0; box-sizing: border-box; }}
-        body {{ background: #0a0a1a; overflow: hidden; font-family: 'Segoe UI', sans-serif; }}
+        body {{ background: #1a1a2e; overflow: hidden; font-family: 'Segoe UI', sans-serif; }}
         #container {{ width: 100vw; height: 100vh; }}
         #info {{
             position: fixed; top: 20px; left: 20px; color: #fff;
-            background: rgba(0,0,0,0.8); padding: 20px; border-radius: 12px;
-            font-size: 14px; z-index: 100; border: 1px solid #333;
+            background: rgba(0,0,0,0.85); padding: 20px; border-radius: 12px;
+            font-size: 14px; z-index: 100; border: 1px solid #444;
         }}
-        #info h1 {{ font-size: 20px; margin-bottom: 15px; color: #00d4ff; }}
+        #info h1 {{ font-size: 22px; margin-bottom: 15px; color: #00d4ff; }}
         #info p {{ margin: 8px 0; }}
         .stat {{ color: #00ff88; font-weight: bold; }}
         #controls {{
-            position: fixed; bottom: 20px; left: 20px; color: #aaa;
-            background: rgba(0,0,0,0.8); padding: 15px; border-radius: 12px;
-            font-size: 12px; border: 1px solid #333;
+            position: fixed; bottom: 20px; left: 20px; color: #ccc;
+            background: rgba(0,0,0,0.85); padding: 15px; border-radius: 12px;
+            font-size: 13px; border: 1px solid #444;
         }}
-        #legend {{
-            position: fixed; top: 20px; right: 20px; color: #fff;
-            background: rgba(0,0,0,0.8); padding: 15px; border-radius: 12px;
-            font-size: 13px; border: 1px solid #333;
+        #controls p {{ margin: 4px 0; }}
+        #viewMode {{
+            position: fixed; top: 20px; right: 20px;
+            background: rgba(0,0,0,0.85); padding: 15px; border-radius: 12px;
+            border: 1px solid #444; z-index: 100;
         }}
-        .legend-item {{ display: flex; align-items: center; margin: 5px 0; }}
-        .legend-color {{ width: 20px; height: 10px; margin-right: 10px; border-radius: 3px; }}
+        #viewMode button {{
+            background: #00d4ff; color: #000; border: none;
+            padding: 10px 20px; margin: 5px; border-radius: 8px;
+            cursor: pointer; font-size: 14px; font-weight: bold;
+        }}
+        #viewMode button:hover {{ background: #00a8cc; }}
+        #viewMode button.active {{ background: #00ff88; }}
     </style>
 </head>
 <body>
     <div id="info">
-        <h1>🏭 OHT Rail Layout</h1>
-        <p>노드: <span class="stat">{len(nodes):,}</span>개</p>
-        <p>레일: <span class="stat">{len(edges):,}</span>개</p>
-        <p>FPS: <span id="fps" class="stat">0</span></p>
+        <h1>OHT Rail Layout</h1>
+        <p>노드 (교차점): <span class="stat">{len(nodes):,}</span>개</p>
+        <p>레일 (연결선): <span class="stat">{len(edges):,}</span>개</p>
     </div>
-    <div id="legend">
-        <div class="legend-item"><div class="legend-color" style="background:#00d4ff;"></div>OHT 레일</div>
-        <div class="legend-item"><div class="legend-color" style="background:#00ff88;"></div>노드 (분기점)</div>
-        <div class="legend-item"><div class="legend-color" style="background:#ff6b6b;"></div>스테이션</div>
+    <div id="viewMode">
+        <button id="btn2D" class="active" onclick="setView2D()">2D 평면도</button>
+        <button id="btn3D" onclick="setView3D()">3D 입체</button>
     </div>
     <div id="controls">
-        <p>🖱️ 좌클릭 드래그: 회전</p>
-        <p>🖱️ 우클릭 드래그: 이동</p>
-        <p>🖱️ 스크롤: 줌</p>
-        <p>⌨️ R: 뷰 리셋</p>
-        <p>⌨️ T: 위에서 보기</p>
+        <p>마우스 드래그: 회전/이동</p>
+        <p>스크롤: 줌</p>
+        <p>R키: 뷰 리셋</p>
     </div>
     <div id="container"></div>
 
@@ -157,164 +159,144 @@ def generate_html(nodes, edges, output_path):
         const layoutData = {json_data};
 
         let scene, camera, renderer, controls;
-        let frameCount = 0, lastTime = performance.now();
-
-        const RAIL_HEIGHT = 50;  // 레일 높이 (천장)
-        const RAIL_RADIUS = 1.5; // 레일 파이프 두께
+        let centerX = 400, centerZ = 400;
 
         function init() {{
             const container = document.getElementById('container');
 
-            // Scene
             scene = new THREE.Scene();
-            scene.background = new THREE.Color(0x0a0a1a);
+            scene.background = new THREE.Color(0x1a1a2e);
 
-            // Camera
-            camera = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 1, 5000);
-            camera.position.set(600, 400, 600);
+            camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 1, 10000);
 
-            // Renderer
             renderer = new THREE.WebGLRenderer({{ antialias: true }});
             renderer.setSize(window.innerWidth, window.innerHeight);
             renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-            renderer.shadowMap.enabled = true;
             container.appendChild(renderer.domElement);
 
-            // Controls
             controls = new THREE.OrbitControls(camera, renderer.domElement);
             controls.enableDamping = true;
-            controls.dampingFactor = 0.05;
-            controls.target.set(400, RAIL_HEIGHT/2, 400);
-            controls.maxPolarAngle = Math.PI * 0.9;
+            controls.dampingFactor = 0.1;
 
-            // Lights
-            scene.add(new THREE.AmbientLight(0x404060, 1));
-
-            const dirLight = new THREE.DirectionalLight(0xffffff, 1);
+            // 조명
+            scene.add(new THREE.AmbientLight(0xffffff, 0.8));
+            const dirLight = new THREE.DirectionalLight(0xffffff, 0.5);
             dirLight.position.set(500, 500, 500);
-            dirLight.castShadow = true;
             scene.add(dirLight);
 
-            const dirLight2 = new THREE.DirectionalLight(0x4488ff, 0.5);
-            dirLight2.position.set(-500, 300, -500);
-            scene.add(dirLight2);
+            renderLayout();
+            setView2D(); // 기본 2D 뷰
 
-            // Floor (공장 바닥)
-            const floorGeo = new THREE.PlaneGeometry(1000, 1000);
-            const floorMat = new THREE.MeshStandardMaterial({{
-                color: 0x1a1a2e,
-                roughness: 0.8,
-                metalness: 0.2
-            }});
-            const floor = new THREE.Mesh(floorGeo, floorMat);
-            floor.rotation.x = -Math.PI / 2;
-            floor.position.set(400, 0, 400);
-            floor.receiveShadow = true;
-            scene.add(floor);
-
-            // Grid
-            const grid = new THREE.GridHelper(1000, 40, 0x333355, 0x222244);
-            grid.position.set(400, 0.1, 400);
-            scene.add(grid);
-
-            // Render OHT Layout
-            renderOHTLayout();
-
-            // Events
             window.addEventListener('resize', onWindowResize);
-            window.addEventListener('keydown', onKeyDown);
+            window.addEventListener('keydown', (e) => {{
+                if (e.key === 'r' || e.key === 'R') setView2D();
+            }});
 
             animate();
         }}
 
-        function renderOHTLayout() {{
+        function renderLayout() {{
             const nodeMap = {{}};
+            let minX = Infinity, maxX = -Infinity;
+            let minZ = Infinity, maxZ = -Infinity;
+
             layoutData.nodes.forEach(node => {{
                 nodeMap[node.id] = node;
+                if (node.x < minX) minX = node.x;
+                if (node.x > maxX) maxX = node.x;
+                if (node.y < minZ) minZ = node.y;
+                if (node.y > maxZ) maxZ = node.y;
             }});
 
-            // === 레일 (3D 파이프) ===
-            const railMaterial = new THREE.MeshStandardMaterial({{
-                color: 0x00d4ff,
-                metalness: 0.8,
-                roughness: 0.3,
-                emissive: 0x004466,
-                emissiveIntensity: 0.3
-            }});
+            centerX = (minX + maxX) / 2;
+            centerZ = (minZ + maxZ) / 2;
 
+            // === 바닥 그리드 ===
+            const gridSize = Math.max(maxX - minX, maxZ - minZ) + 200;
+            const grid = new THREE.GridHelper(gridSize, 50, 0x333366, 0x222244);
+            grid.position.set(centerX, -1, centerZ);
+            scene.add(grid);
+
+            // === 레일 (두꺼운 파란 선) ===
             layoutData.edges.forEach(edge => {{
                 const fromNode = nodeMap[edge.from];
                 const toNode = nodeMap[edge.to];
 
                 if (fromNode && toNode) {{
-                    const start = new THREE.Vector3(fromNode.x, RAIL_HEIGHT, fromNode.y);
-                    const end = new THREE.Vector3(toNode.x, RAIL_HEIGHT, toNode.y);
+                    // 메인 레일 - 두꺼운 박스 형태
+                    const start = new THREE.Vector3(fromNode.x, 0, fromNode.y);
+                    const end = new THREE.Vector3(toNode.x, 0, toNode.y);
+                    const dir = new THREE.Vector3().subVectors(end, start);
+                    const len = dir.length();
 
-                    const direction = new THREE.Vector3().subVectors(end, start);
-                    const length = direction.length();
+                    if (len > 0.5) {{
+                        // 레일 박스 (넓고 납작하게)
+                        const railGeo = new THREE.BoxGeometry(len, 3, 8);
+                        const railMat = new THREE.MeshStandardMaterial({{
+                            color: 0x00aaff,
+                            emissive: 0x003366,
+                            emissiveIntensity: 0.5
+                        }});
+                        const rail = new THREE.Mesh(railGeo, railMat);
 
-                    if (length > 0.1) {{
-                        // 파이프 형태 레일
-                        const railGeo = new THREE.CylinderGeometry(RAIL_RADIUS, RAIL_RADIUS, length, 8);
-                        const rail = new THREE.Mesh(railGeo, railMaterial);
-
-                        // 위치 및 회전
-                        const midpoint = new THREE.Vector3().addVectors(start, end).multiplyScalar(0.5);
-                        rail.position.copy(midpoint);
-                        rail.quaternion.setFromUnitVectors(
-                            new THREE.Vector3(0, 1, 0),
-                            direction.normalize()
-                        );
-                        rail.castShadow = true;
+                        const mid = new THREE.Vector3().addVectors(start, end).multiplyScalar(0.5);
+                        rail.position.copy(mid);
+                        rail.rotation.y = Math.atan2(dir.x, dir.z);
                         scene.add(rail);
 
-                        // 지지대 (일정 간격마다)
-                        if (length > 50) {{
-                            const supportCount = Math.floor(length / 80);
-                            for (let i = 1; i <= supportCount; i++) {{
-                                const t = i / (supportCount + 1);
-                                const pos = new THREE.Vector3().lerpVectors(start, end, t);
-                                addSupport(pos);
-                            }}
-                        }}
+                        // 방향 화살표 (진행 방향 표시)
+                        const arrowLen = Math.min(len * 0.3, 20);
+                        const arrowGeo = new THREE.ConeGeometry(4, arrowLen, 4);
+                        const arrowMat = new THREE.MeshStandardMaterial({{
+                            color: 0xffff00,
+                            emissive: 0x666600,
+                            emissiveIntensity: 0.5
+                        }});
+                        const arrow = new THREE.Mesh(arrowGeo, arrowMat);
+                        const arrowPos = new THREE.Vector3().lerpVectors(start, end, 0.7);
+                        arrow.position.copy(arrowPos);
+                        arrow.position.y = 5;
+                        arrow.rotation.x = Math.PI / 2;
+                        arrow.rotation.z = -Math.atan2(dir.x, dir.z);
+                        scene.add(arrow);
                     }}
                 }}
             }});
 
-            // === 노드 (분기점/교차점) ===
-            const nodeMaterial = new THREE.MeshStandardMaterial({{
+            // === 노드 (교차점 - 초록 박스) ===
+            const nodeGeo = new THREE.BoxGeometry(12, 6, 12);
+            const nodeMat = new THREE.MeshStandardMaterial({{
                 color: 0x00ff88,
-                metalness: 0.6,
-                roughness: 0.4,
-                emissive: 0x00ff88,
-                emissiveIntensity: 0.2
+                emissive: 0x006633,
+                emissiveIntensity: 0.5
             }});
-
-            const nodeGeo = new THREE.SphereGeometry(3, 16, 16);
 
             layoutData.nodes.forEach(node => {{
-                const sphere = new THREE.Mesh(nodeGeo, nodeMaterial);
-                sphere.position.set(node.x, RAIL_HEIGHT, node.y);
-                sphere.castShadow = true;
-                scene.add(sphere);
+                const box = new THREE.Mesh(nodeGeo, nodeMat);
+                box.position.set(node.x, 3, node.y);
+                scene.add(box);
             }});
 
-            console.log('OHT 레이아웃 렌더링 완료');
+            console.log('레이아웃 렌더링 완료: ' + layoutData.nodes.length + ' 노드');
         }}
 
-        function addSupport(pos) {{
-            // 수직 지지대
-            const supportMat = new THREE.MeshStandardMaterial({{
-                color: 0x666688,
-                metalness: 0.7,
-                roughness: 0.5
-            }});
+        function setView2D() {{
+            // 위에서 내려다보는 2D 뷰
+            const dist = 1200;
+            camera.position.set(centerX, dist, centerZ);
+            controls.target.set(centerX, 0, centerZ);
+            controls.update();
+            document.getElementById('btn2D').classList.add('active');
+            document.getElementById('btn3D').classList.remove('active');
+        }}
 
-            const supportGeo = new THREE.CylinderGeometry(0.8, 0.8, RAIL_HEIGHT, 6);
-            const support = new THREE.Mesh(supportGeo, supportMat);
-            support.position.set(pos.x, RAIL_HEIGHT / 2, pos.z);
-            support.castShadow = true;
-            scene.add(support);
+        function setView3D() {{
+            // 비스듬히 보는 3D 뷰
+            camera.position.set(centerX + 500, 400, centerZ + 500);
+            controls.target.set(centerX, 0, centerZ);
+            controls.update();
+            document.getElementById('btn3D').classList.add('active');
+            document.getElementById('btn2D').classList.remove('active');
         }}
 
         function onWindowResize() {{
@@ -323,29 +305,10 @@ def generate_html(nodes, edges, output_path):
             renderer.setSize(window.innerWidth, window.innerHeight);
         }}
 
-        function onKeyDown(e) {{
-            if (e.key === 'r' || e.key === 'R') {{
-                camera.position.set(600, 400, 600);
-                controls.target.set(400, RAIL_HEIGHT/2, 400);
-            }}
-            if (e.key === 't' || e.key === 'T') {{
-                camera.position.set(400, 800, 400);
-                controls.target.set(400, 0, 400);
-            }}
-        }}
-
         function animate() {{
             requestAnimationFrame(animate);
             controls.update();
             renderer.render(scene, camera);
-
-            frameCount++;
-            const now = performance.now();
-            if (now - lastTime >= 1000) {{
-                document.getElementById('fps').textContent = frameCount;
-                frameCount = 0;
-                lastTime = now;
-            }}
         }}
 
         init();
