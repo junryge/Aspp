@@ -15,7 +15,7 @@
 | LOGPRESSO | Logpresso (로그 분석 플랫폼) |
 | CMSG | Common Message |
 
-### 프로세스 종류
+### 프로세스 종류 (장비 메시지)
 | 약어 | 풀네임 |
 |------|--------|
 | TS | Transport Server (장비 메시지) |
@@ -41,7 +41,6 @@
 | SFTP | 지원 |
 | JAVA | 지원 |
 | CMSG | 지원 |
-| UNDEFINED | 미정의 |
 
 ---
 
