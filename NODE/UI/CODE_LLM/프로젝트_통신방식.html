@@ -1,0 +1,358 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>프로젝트별 통신 방식 정리</title>
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@300;400;500;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg: #f7f8fa;
+      --card: #ffffff;
+      --border: #e2e5ea;
+      --text: #1a1d23;
+      --text-sub: #5f6777;
+      --accent: #2563eb;
+      --accent-light: #eff4ff;
+      --highlight: #f0fdf4;
+      --highlight-border: #22c55e;
+      --tag-bg: #f1f5f9;
+      --tag-text: #334155;
+      --section1: #2563eb;
+      --section2: #7c3aed;
+      --section3: #059669;
+    }
+
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      font-family: 'Noto Sans KR', sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.7;
+      padding: 40px 20px;
+    }
+
+    .container {
+      max-width: 860px;
+      margin: 0 auto;
+    }
+
+    .header {
+      text-align: center;
+      margin-bottom: 48px;
+    }
+
+    .header h1 {
+      font-size: 28px;
+      font-weight: 700;
+      letter-spacing: -0.5px;
+      margin-bottom: 8px;
+    }
+
+    .header p {
+      color: var(--text-sub);
+      font-size: 14px;
+    }
+
+    /* 참조 섹션 */
+    .ref-section {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 28px 32px;
+      margin-bottom: 40px;
+    }
+
+    .ref-section h2 {
+      font-size: 18px;
+      font-weight: 700;
+      margin-bottom: 20px;
+      color: var(--text);
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .ref-section h2::before {
+      content: '📖';
+      font-size: 20px;
+    }
+
+    .ref-group {
+      margin-bottom: 20px;
+    }
+
+    .ref-group:last-child {
+      margin-bottom: 0;
+    }
+
+    .ref-group h3 {
+      font-size: 13px;
+      font-weight: 500;
+      color: var(--text-sub);
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      margin-bottom: 10px;
+      padding-bottom: 6px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .ref-items {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+
+    .ref-item {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      background: var(--tag-bg);
+      border-radius: 6px;
+      padding: 5px 12px;
+      font-size: 13px;
+    }
+
+    .ref-item .abbr {
+      font-family: 'JetBrains Mono', monospace;
+      font-weight: 600;
+      color: var(--accent);
+      font-size: 12px;
+    }
+
+    .ref-item .full {
+      color: var(--tag-text);
+    }
+
+    /* 시스템 카드 */
+    .system-card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      margin-bottom: 24px;
+      overflow: hidden;
+    }
+
+    .system-header {
+      padding: 20px 28px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .system-num {
+      width: 36px;
+      height: 36px;
+      border-radius: 10px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-family: 'JetBrains Mono', monospace;
+      font-weight: 600;
+      font-size: 15px;
+      color: #fff;
+    }
+
+    .system-card:nth-child(1) .system-num { background: var(--section1); }
+    .system-card:nth-child(2) .system-num { background: var(--section2); }
+    .system-card:nth-child(3) .system-num { background: var(--section3); }
+
+    .system-header h2 {
+      font-size: 18px;
+      font-weight: 700;
+    }
+
+    .system-body {
+      padding: 0;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+    }
+
+    thead th {
+      background: var(--bg);
+      padding: 12px 28px;
+      text-align: left;
+      font-size: 12px;
+      font-weight: 500;
+      color: var(--text-sub);
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+
+    tbody td {
+      padding: 12px 28px;
+      font-size: 14px;
+      border-top: 1px solid var(--border);
+    }
+
+    tbody tr:hover {
+      background: #fafbfc;
+    }
+
+    .proto {
+      font-family: 'JetBrains Mono', monospace;
+      font-weight: 600;
+      font-size: 13px;
+    }
+
+    .primary .proto {
+      color: var(--accent);
+    }
+
+    .primary td:last-child::after {
+      content: '⭐';
+      margin-left: 6px;
+      font-size: 11px;
+    }
+
+    /* 요약 박스 */
+    .summary {
+      margin: 0 28px 20px;
+      padding: 14px 18px;
+      background: var(--highlight);
+      border-left: 3px solid var(--highlight-border);
+      border-radius: 0 8px 8px 0;
+      font-size: 13px;
+      color: #166534;
+    }
+
+    .summary strong {
+      font-weight: 600;
+    }
+
+    .sub-title {
+      padding: 16px 28px 0;
+      font-size: 13px;
+      font-weight: 500;
+      color: var(--text-sub);
+    }
+
+    @media print {
+      body { background: #fff; padding: 20px; }
+      .system-card, .ref-section { box-shadow: none; border: 1px solid #ddd; }
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+
+    <div class="header">
+      <h1>프로젝트별 통신 방식 정리</h1>
+      <p>smartSTAR · Atlas · LOGPRESSO 시스템</p>
+    </div>
+
+    <!-- 참조 섹션 -->
+    <div class="ref-section">
+      <h2>참조 (약어 풀네임)</h2>
+
+      <div class="ref-group">
+        <h3>통신 방식</h3>
+        <div class="ref-items">
+          <span class="ref-item"><span class="abbr">FTP</span><span class="full">File Transfer Protocol</span></span>
+          <span class="ref-item"><span class="abbr">SFTP</span><span class="full">Secure File Transfer Protocol</span></span>
+          <span class="ref-item"><span class="abbr">DTS</span><span class="full">Data Transfer Service</span></span>
+          <span class="ref-item"><span class="abbr">UDP</span><span class="full">User Datagram Protocol</span></span>
+          <span class="ref-item"><span class="abbr">TIBCO</span><span class="full">TIBCO Enterprise Message Service</span></span>
+          <span class="ref-item"><span class="abbr">LOGPRESSO</span><span class="full">Logpresso (로그 분석 플랫폼)</span></span>
+          <span class="ref-item"><span class="abbr">CMSG</span><span class="full">Common Message</span></span>
+        </div>
+      </div>
+
+      <div class="ref-group">
+        <h3>프로세스 종류 (장비 메시지)</h3>
+        <div class="ref-items">
+          <span class="ref-item"><span class="abbr">TS</span><span class="full">Transport Server</span></span>
+          <span class="ref-item"><span class="abbr">CS</span><span class="full">Control Server</span></span>
+          <span class="ref-item"><span class="abbr">DS</span><span class="full">Data Server</span></span>
+          <span class="ref-item"><span class="abbr">EI</span><span class="full">Equipment Interface</span></span>
+          <span class="ref-item"><span class="abbr">SECE</span><span class="full">SECS/GEM (SEMI Equipment Communications Standard / Generic Equipment Model)</span></span>
+        </div>
+      </div>
+
+      <div class="ref-group">
+        <h3>기타</h3>
+        <div class="ref-items">
+          <span class="ref-item"><span class="abbr">OHT</span><span class="full">Overhead Hoist Transport</span></span>
+        </div>
+      </div>
+    </div>
+
+    <!-- 1. smartSTAR -->
+    <div class="system-card">
+      <div class="system-header">
+        <div class="system-num">01</div>
+        <h2>smartSTAR 시스템</h2>
+      </div>
+      <div class="system-body">
+        <table>
+          <thead>
+            <tr><th>통신 방식</th><th>용도</th></tr>
+          </thead>
+          <tbody>
+            <tr class="primary"><td><span class="proto">FTP</span></td><td>데이터 수집 (주로 사용)</td></tr>
+            <tr class="primary"><td><span class="proto">DTS</span></td><td>데이터 수집 (주로 사용)</td></tr>
+            <tr class="primary"><td><span class="proto">LOGPRESSO</span></td><td>데이터 수집 (주로 사용)</td></tr>
+            <tr><td><span class="proto">SFTP</span></td><td>지원</td></tr>
+            <tr><td><span class="proto">JAVA</span></td><td>지원</td></tr>
+            <tr><td><span class="proto">CMSG</span></td><td>지원</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- 2. Atlas -->
+    <div class="system-card">
+      <div class="system-header">
+        <div class="system-num">02</div>
+        <h2>Atlas 시스템</h2>
+      </div>
+      <div class="system-body">
+        <table>
+          <thead>
+            <tr><th>통신 방식</th><th>용도</th></tr>
+          </thead>
+          <tbody>
+            <tr><td><span class="proto">UDP</span></td><td>OHT 이동 데이터</td></tr>
+            <tr><td><span class="proto">FTP</span></td><td>MAP 데이터</td></tr>
+            <tr><td><span class="proto">LOGPRESSO</span></td><td>데이터 수집</td></tr>
+            <tr><td><span class="proto">TIBCO</span></td><td>데이터 수집</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- 3. LOGPRESSO -->
+    <div class="system-card">
+      <div class="system-header">
+        <div class="system-num">03</div>
+        <h2>LOGPRESSO 시스템</h2>
+      </div>
+      <div class="system-body">
+        <p class="sub-title">프로세스(메시지) 종류별 통신 방식</p>
+        <table>
+          <thead>
+            <tr><th>프로세스 종류</th><th>통신 방식</th></tr>
+          </thead>
+          <tbody>
+            <tr><td><span class="proto">TS</span></td><td>TIBCO</td></tr>
+            <tr><td><span class="proto">CS</span></td><td>FTP</td></tr>
+            <tr><td><span class="proto">DS</span></td><td>FTP</td></tr>
+            <tr><td><span class="proto">EI</span></td><td>FTP</td></tr>
+            <tr><td><span class="proto">SECE</span></td><td>FTP</td></tr>
+            <tr><td><span class="proto">M14B</span></td><td>FTP (예외)</td></tr>
+          </tbody>
+        </table>
+        <div class="summary">
+          <strong>요약:</strong> TIBCO는 TS(장비 메시지) 전용, 나머지 프로세스는 모두 FTP 사용
+        </div>
+      </div>
+    </div>
+
+  </div>
+</body>
+</html>
