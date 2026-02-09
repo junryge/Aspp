@@ -1,8 +1,7 @@
 #!/usr/bin/env python3
 """
-Layout XML → 3D HTML 변환기
-OHT 레이아웃 XML 파일을 파싱하여 3D 시각화 HTML 생성
-그냥 클릭해서 열 수 있음!
+Layout XML → OHT 3D HTML 변환기
+실제 OHT 레일처럼 3D 파이프 형태로 시각화
 """
 
 import xml.etree.ElementTree as ET
@@ -16,7 +15,6 @@ def parse_layout_xml(xml_path_or_zip):
 
     print(f"파싱 시작: {xml_path_or_zip}")
 
-    # ZIP 파일이면 압축 해제
     if xml_path_or_zip.endswith('.zip'):
         with zipfile.ZipFile(xml_path_or_zip, 'r') as zf:
             xml_content = zf.read('layout.xml')
@@ -28,7 +26,6 @@ def parse_layout_xml(xml_path_or_zip):
     nodes = {}
     edges = []
 
-    # AddrControl 내의 모든 Addr 그룹 찾기
     addr_control = root.find(".//group[@name='AddrControl']")
     if addr_control is None:
         print("AddrControl을 찾을 수 없습니다.")
@@ -38,10 +35,10 @@ def parse_layout_xml(xml_path_or_zip):
         if not addr_group.get('name', '').startswith('Addr'):
             continue
 
-        # 노드 정보 추출
         address = None
         draw_x = None
         draw_y = None
+        floor = 1  # 기본 층
 
         for param in addr_group.findall("param"):
             key = param.get('key')
@@ -53,11 +50,15 @@ def parse_layout_xml(xml_path_or_zip):
                 draw_x = float(value)
             elif key == 'draw-y':
                 draw_y = float(value)
+            elif key == 'floor' or key == 'level':
+                try:
+                    floor = int(value)
+                except:
+                    pass
 
         if address is not None and draw_x is not None and draw_y is not None:
-            nodes[address] = {'id': address, 'x': draw_x, 'y': draw_y}
+            nodes[address] = {'id': address, 'x': draw_x, 'y': draw_y, 'floor': floor}
 
-        # 엣지 정보 추출
         for next_addr_group in addr_group.findall("group"):
             if not next_addr_group.get('name', '').startswith('NextAddr'):
                 continue
@@ -72,7 +73,7 @@ def parse_layout_xml(xml_path_or_zip):
     return nodes, edges
 
 def normalize_coords(nodes):
-    """좌표 정규화 (0-1000 범위)"""
+    """좌표 정규화"""
     if not nodes:
         return
 
@@ -81,23 +82,21 @@ def normalize_coords(nodes):
     min_y = min(n['y'] for n in nodes.values())
     max_y = max(n['y'] for n in nodes.values())
 
-    scale_x = 1000 / (max_x - min_x) if max_x != min_x else 1
-    scale_y = 1000 / (max_y - min_y) if max_y != min_y else 1
-    scale = min(scale_x, scale_y)
+    range_x = max_x - min_x if max_x != min_x else 1
+    range_y = max_y - min_y if max_y != min_y else 1
+    scale = 800 / max(range_x, range_y)
 
     for node in nodes.values():
         node['x'] = (node['x'] - min_x) * scale
         node['y'] = (node['y'] - min_y) * scale
 
 def generate_html(nodes, edges, output_path):
-    """데이터가 내장된 HTML 파일 생성"""
+    """OHT 3D HTML 생성"""
 
     data = {
         'nodes': list(nodes.values()),
-        'edges': edges,
-        'stats': {'nodeCount': len(nodes), 'edgeCount': len(edges)}
+        'edges': edges
     }
-
     json_data = json.dumps(data)
 
     html = f'''<!DOCTYPE html>
@@ -107,35 +106,48 @@ def generate_html(nodes, edges, output_path):
     <title>OHT Layout 3D Viewer</title>
     <style>
         * {{ margin: 0; padding: 0; box-sizing: border-box; }}
-        body {{ background: #1a1a2e; overflow: hidden; font-family: 'Segoe UI', sans-serif; }}
+        body {{ background: #0a0a1a; overflow: hidden; font-family: 'Segoe UI', sans-serif; }}
         #container {{ width: 100vw; height: 100vh; }}
         #info {{
             position: fixed; top: 20px; left: 20px; color: #fff;
-            background: rgba(0,0,0,0.7); padding: 20px; border-radius: 10px;
-            font-size: 14px; z-index: 100; min-width: 200px;
+            background: rgba(0,0,0,0.8); padding: 20px; border-radius: 12px;
+            font-size: 14px; z-index: 100; border: 1px solid #333;
         }}
-        #info h1 {{ font-size: 18px; margin-bottom: 15px; color: #00d4ff; }}
-        #info p {{ margin: 5px 0; }}
-        #info .stat {{ color: #00ff88; }}
+        #info h1 {{ font-size: 20px; margin-bottom: 15px; color: #00d4ff; }}
+        #info p {{ margin: 8px 0; }}
+        .stat {{ color: #00ff88; font-weight: bold; }}
         #controls {{
-            position: fixed; bottom: 20px; left: 20px; color: #fff;
-            background: rgba(0,0,0,0.7); padding: 15px; border-radius: 10px; font-size: 12px;
+            position: fixed; bottom: 20px; left: 20px; color: #aaa;
+            background: rgba(0,0,0,0.8); padding: 15px; border-radius: 12px;
+            font-size: 12px; border: 1px solid #333;
         }}
-        #controls p {{ margin: 3px 0; }}
+        #legend {{
+            position: fixed; top: 20px; right: 20px; color: #fff;
+            background: rgba(0,0,0,0.8); padding: 15px; border-radius: 12px;
+            font-size: 13px; border: 1px solid #333;
+        }}
+        .legend-item {{ display: flex; align-items: center; margin: 5px 0; }}
+        .legend-color {{ width: 20px; height: 10px; margin-right: 10px; border-radius: 3px; }}
     </style>
 </head>
 <body>
     <div id="info">
-        <h1>OHT Layout 3D</h1>
-        <p>노드: <span id="nodeCount" class="stat">{len(nodes):,}</span>개</p>
-        <p>엣지: <span id="edgeCount" class="stat">{len(edges):,}</span>개</p>
+        <h1>🏭 OHT Rail Layout</h1>
+        <p>노드: <span class="stat">{len(nodes):,}</span>개</p>
+        <p>레일: <span class="stat">{len(edges):,}</span>개</p>
         <p>FPS: <span id="fps" class="stat">0</span></p>
     </div>
+    <div id="legend">
+        <div class="legend-item"><div class="legend-color" style="background:#00d4ff;"></div>OHT 레일</div>
+        <div class="legend-item"><div class="legend-color" style="background:#00ff88;"></div>노드 (분기점)</div>
+        <div class="legend-item"><div class="legend-color" style="background:#ff6b6b;"></div>스테이션</div>
+    </div>
     <div id="controls">
-        <p>🖱️ 드래그: 회전</p>
+        <p>🖱️ 좌클릭 드래그: 회전</p>
         <p>🖱️ 우클릭 드래그: 이동</p>
         <p>🖱️ 스크롤: 줌</p>
-        <p>⌨️ R: 리셋</p>
+        <p>⌨️ R: 뷰 리셋</p>
+        <p>⌨️ T: 위에서 보기</p>
     </div>
     <div id="container"></div>
 
@@ -147,75 +159,162 @@ def generate_html(nodes, edges, output_path):
         let scene, camera, renderer, controls;
         let frameCount = 0, lastTime = performance.now();
 
+        const RAIL_HEIGHT = 50;  // 레일 높이 (천장)
+        const RAIL_RADIUS = 1.5; // 레일 파이프 두께
+
         function init() {{
             const container = document.getElementById('container');
 
+            // Scene
             scene = new THREE.Scene();
-            scene.background = new THREE.Color(0x1a1a2e);
-            scene.fog = new THREE.Fog(0x1a1a2e, 500, 2000);
+            scene.background = new THREE.Color(0x0a0a1a);
 
-            camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 1, 5000);
-            camera.position.set(500, 800, 500);
-            camera.lookAt(500, 0, 500);
+            // Camera
+            camera = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 1, 5000);
+            camera.position.set(600, 400, 600);
 
+            // Renderer
             renderer = new THREE.WebGLRenderer({{ antialias: true }});
             renderer.setSize(window.innerWidth, window.innerHeight);
-            renderer.setPixelRatio(window.devicePixelRatio);
+            renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+            renderer.shadowMap.enabled = true;
             container.appendChild(renderer.domElement);
 
+            // Controls
             controls = new THREE.OrbitControls(camera, renderer.domElement);
             controls.enableDamping = true;
             controls.dampingFactor = 0.05;
-            controls.target.set(500, 0, 500);
+            controls.target.set(400, RAIL_HEIGHT/2, 400);
+            controls.maxPolarAngle = Math.PI * 0.9;
 
-            const ambientLight = new THREE.AmbientLight(0x404040, 2);
-            scene.add(ambientLight);
-            const directionalLight = new THREE.DirectionalLight(0xffffff, 1);
-            directionalLight.position.set(500, 1000, 500);
-            scene.add(directionalLight);
+            // Lights
+            scene.add(new THREE.AmbientLight(0x404060, 1));
 
-            const gridHelper = new THREE.GridHelper(1000, 50, 0x444444, 0x222222);
-            scene.add(gridHelper);
+            const dirLight = new THREE.DirectionalLight(0xffffff, 1);
+            dirLight.position.set(500, 500, 500);
+            dirLight.castShadow = true;
+            scene.add(dirLight);
 
-            renderLayout();
-            window.addEventListener('resize', onWindowResize);
-            window.addEventListener('keydown', (e) => {{
-                if (e.key === 'r' || e.key === 'R') {{
-                    camera.position.set(500, 800, 500);
-                    controls.target.set(500, 0, 500);
-                }}
+            const dirLight2 = new THREE.DirectionalLight(0x4488ff, 0.5);
+            dirLight2.position.set(-500, 300, -500);
+            scene.add(dirLight2);
+
+            // Floor (공장 바닥)
+            const floorGeo = new THREE.PlaneGeometry(1000, 1000);
+            const floorMat = new THREE.MeshStandardMaterial({{
+                color: 0x1a1a2e,
+                roughness: 0.8,
+                metalness: 0.2
             }});
+            const floor = new THREE.Mesh(floorGeo, floorMat);
+            floor.rotation.x = -Math.PI / 2;
+            floor.position.set(400, 0, 400);
+            floor.receiveShadow = true;
+            scene.add(floor);
+
+            // Grid
+            const grid = new THREE.GridHelper(1000, 40, 0x333355, 0x222244);
+            grid.position.set(400, 0.1, 400);
+            scene.add(grid);
+
+            // Render OHT Layout
+            renderOHTLayout();
+
+            // Events
+            window.addEventListener('resize', onWindowResize);
+            window.addEventListener('keydown', onKeyDown);
+
             animate();
         }}
 
-        function renderLayout() {{
+        function renderOHTLayout() {{
             const nodeMap = {{}};
-            layoutData.nodes.forEach(node => {{ nodeMap[node.id] = node; }});
+            layoutData.nodes.forEach(node => {{
+                nodeMap[node.id] = node;
+            }});
 
-            const edgePositions = [];
+            // === 레일 (3D 파이프) ===
+            const railMaterial = new THREE.MeshStandardMaterial({{
+                color: 0x00d4ff,
+                metalness: 0.8,
+                roughness: 0.3,
+                emissive: 0x004466,
+                emissiveIntensity: 0.3
+            }});
+
             layoutData.edges.forEach(edge => {{
                 const fromNode = nodeMap[edge.from];
                 const toNode = nodeMap[edge.to];
+
                 if (fromNode && toNode) {{
-                    edgePositions.push(fromNode.x, 0, fromNode.y);
-                    edgePositions.push(toNode.x, 0, toNode.y);
+                    const start = new THREE.Vector3(fromNode.x, RAIL_HEIGHT, fromNode.y);
+                    const end = new THREE.Vector3(toNode.x, RAIL_HEIGHT, toNode.y);
+
+                    const direction = new THREE.Vector3().subVectors(end, start);
+                    const length = direction.length();
+
+                    if (length > 0.1) {{
+                        // 파이프 형태 레일
+                        const railGeo = new THREE.CylinderGeometry(RAIL_RADIUS, RAIL_RADIUS, length, 8);
+                        const rail = new THREE.Mesh(railGeo, railMaterial);
+
+                        // 위치 및 회전
+                        const midpoint = new THREE.Vector3().addVectors(start, end).multiplyScalar(0.5);
+                        rail.position.copy(midpoint);
+                        rail.quaternion.setFromUnitVectors(
+                            new THREE.Vector3(0, 1, 0),
+                            direction.normalize()
+                        );
+                        rail.castShadow = true;
+                        scene.add(rail);
+
+                        // 지지대 (일정 간격마다)
+                        if (length > 50) {{
+                            const supportCount = Math.floor(length / 80);
+                            for (let i = 1; i <= supportCount; i++) {{
+                                const t = i / (supportCount + 1);
+                                const pos = new THREE.Vector3().lerpVectors(start, end, t);
+                                addSupport(pos);
+                            }}
+                        }}
+                    }}
                 }}
             }});
 
-            const edgeGeometry = new THREE.BufferGeometry();
-            edgeGeometry.setAttribute('position', new THREE.Float32BufferAttribute(edgePositions, 3));
-            const edgeMaterial = new THREE.LineBasicMaterial({{ color: 0x00d4ff }});
-            scene.add(new THREE.LineSegments(edgeGeometry, edgeMaterial));
-
-            const nodeGeometry = new THREE.SphereGeometry(2, 8, 8);
-            const nodeMaterial = new THREE.MeshPhongMaterial({{ color: 0x00ff88, emissive: 0x00ff88, emissiveIntensity: 0.3 }});
-            const instancedNodes = new THREE.InstancedMesh(nodeGeometry, nodeMaterial, layoutData.nodes.length);
-            const matrix = new THREE.Matrix4();
-            layoutData.nodes.forEach((node, i) => {{
-                matrix.setPosition(node.x, 0, node.y);
-                instancedNodes.setMatrixAt(i, matrix);
+            // === 노드 (분기점/교차점) ===
+            const nodeMaterial = new THREE.MeshStandardMaterial({{
+                color: 0x00ff88,
+                metalness: 0.6,
+                roughness: 0.4,
+                emissive: 0x00ff88,
+                emissiveIntensity: 0.2
             }});
-            scene.add(instancedNodes);
+
+            const nodeGeo = new THREE.SphereGeometry(3, 16, 16);
+
+            layoutData.nodes.forEach(node => {{
+                const sphere = new THREE.Mesh(nodeGeo, nodeMaterial);
+                sphere.position.set(node.x, RAIL_HEIGHT, node.y);
+                sphere.castShadow = true;
+                scene.add(sphere);
+            }});
+
+            console.log('OHT 레이아웃 렌더링 완료');
+        }}
+
+        function addSupport(pos) {{
+            // 수직 지지대
+            const supportMat = new THREE.MeshStandardMaterial({{
+                color: 0x666688,
+                metalness: 0.7,
+                roughness: 0.5
+            }});
+
+            const supportGeo = new THREE.CylinderGeometry(0.8, 0.8, RAIL_HEIGHT, 6);
+            const support = new THREE.Mesh(supportGeo, supportMat);
+            support.position.set(pos.x, RAIL_HEIGHT / 2, pos.z);
+            support.castShadow = true;
+            scene.add(support);
         }}
 
         function onWindowResize() {{
@@ -224,10 +323,22 @@ def generate_html(nodes, edges, output_path):
             renderer.setSize(window.innerWidth, window.innerHeight);
         }}
 
+        function onKeyDown(e) {{
+            if (e.key === 'r' || e.key === 'R') {{
+                camera.position.set(600, 400, 600);
+                controls.target.set(400, RAIL_HEIGHT/2, 400);
+            }}
+            if (e.key === 't' || e.key === 'T') {{
+                camera.position.set(400, 800, 400);
+                controls.target.set(400, 0, 400);
+            }}
+        }}
+
         function animate() {{
             requestAnimationFrame(animate);
             controls.update();
             renderer.render(scene, camera);
+
             frameCount++;
             const now = performance.now();
             if (now - lastTime >= 1000) {{
@@ -260,7 +371,6 @@ def main():
     if not os.path.exists(xml_path):
         print(f"파일을 찾을 수 없습니다: {xml_path}")
         print("사용법: python parse_layout_xml.py [layout.xml 또는 layout.zip]")
-        print("또는 같은 폴더에 layout.xml 파일을 넣으세요.")
         sys.exit(1)
 
     nodes, edges = parse_layout_xml(xml_path)
@@ -269,7 +379,7 @@ def main():
     output_path = os.path.join(script_dir, 'layout_3d.html')
     generate_html(nodes, edges, output_path)
 
-    print(f"\n완료! layout_3d.html 파일을 더블클릭해서 열어!")
+    print(f"\n완료! layout_3d.html 더블클릭해서 열어!")
 
 if __name__ == '__main__':
     main()
