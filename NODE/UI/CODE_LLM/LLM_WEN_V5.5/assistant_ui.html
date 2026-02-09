@@ -2651,10 +2651,16 @@
             sendMessage();
         }
 
-        // 대화 초기화
+        // 대화 초기화 (마기봇 세션도 함께 초기화)
         async function clearChat() {
             if (!confirm('대화 기록을 모두 삭제할까요?')) return;
             await fetch('/assistant/api/history', { method: 'DELETE' });
+            // ★ 마기봇 세션도 초기화
+            try {
+                await fetch(`/assistant/api/agent/sessions/${encodeURIComponent(nanobotSessionId)}`, { method: 'DELETE' });
+                nanobotSessionId = 'web_' + Date.now().toString(36);
+                localStorage.setItem('nanobotSessionId', nanobotSessionId);
+            } catch (e) { console.warn('마기봇 세션 초기화 실패:', e); }
             chatContainer.innerHTML = '';
             addMessage('대화 기록이 초기화되었습니다. 무엇을 도와드릴까요?', 'assistant');
         }
