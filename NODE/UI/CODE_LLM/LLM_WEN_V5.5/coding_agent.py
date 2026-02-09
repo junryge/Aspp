@@ -298,13 +298,14 @@ class NanobotManager:
 ## 지식베이스: {kb}
 {f'사용 가능한 문서:{chr(10)}{kb_files}' if kb_files else '문서 없음'}
 - 도메인 지식 파일: {DOMAIN_KNOWLEDGE_FILE.resolve()}
-{f'## 도메인 지식{chr(10)}{domain_knowledge}' if domain_knowledge else ''}
+{f'## 도메인 지식 (약어/용어 참고용){chr(10)}{domain_knowledge}' if domain_knowledge else ''}
 ## 규칙
 1. 코드 생성 → validate_code 검증 → save_code 저장
 2. 검증 실패 → 수정 후 재검증 (최대 {RALPH_MAX_RETRY}회)
 3. 파일 작업은 도구 사용 (read_file, write_file, list_dir, exec)
-4. 지식/도메인 질문 → 먼저 지식베이스 문서를 read_file로 읽어서 답변
+4. 지식/도메인 질문 → **반드시** 먼저 지식베이스 문서를 read_file로 읽고, 문서 내용만으로 답변. 도메인 지식만으로 상세 답변 금지.
 5. 한국어 응답
+6. 문서에 없는 내용을 지어내지 마세요. 없으면 "문서에 해당 내용이 없습니다"라고 답하세요.
 ## Ralph Loop: validate_code → (실패시 수정) → save_code"""
         mem = self.memory.get_memory_context() if self.memory else ""
         if mem: p += f"\n## 메모리\n{mem}"
