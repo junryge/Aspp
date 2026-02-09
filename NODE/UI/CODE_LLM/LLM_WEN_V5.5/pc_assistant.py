@@ -1743,9 +1743,11 @@ def process_chat(user_message: str) -> str:
         task_type = classify_task_type(user_message)
         logger.info(f"📊 태스크 유형: {task_type} | 메시지: {user_message[:50]}")
 
-        # ★ AMHS 관련 키워드 → LLM 우회, 직접 지식베이스 검색
+        # ★ 도메인 키워드 → LLM 우회, 직접 지식베이스 검색
         amhs_keywords = ["amhs", "amos", "구성도", "시스템 구성", "oht", "mcs", "stk", "cnv", "lft", "inv",
-                         "foup", "pdt", "rtc", "fio", "반송", "스토커", "컨베이어", "리프트", "인버터"]
+                         "foup", "pdt", "rtc", "fio", "반송", "스토커", "컨베이어", "리프트", "인버터",
+                         "통신", "프로토콜", "atlas", "smartstar", "logpresso", "tibco",
+                         "아키텍처", "컬럼사전", "예측모델", "hubroom", "hid"]
         msg_lower = user_message.lower()
         amhs_matched = [kw for kw in amhs_keywords if kw in msg_lower]
         if amhs_matched:
