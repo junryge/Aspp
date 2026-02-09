@@ -2759,9 +2759,11 @@ async def assistant_get_history(limit: int = 50):
 
 @router.delete("/api/history")
 async def assistant_clear_history():
-    global CHAT_HISTORY, CURRENT_SESSION_ID
+    global CHAT_HISTORY, CURRENT_SESSION_ID, _conversation_summary_cache
     CHAT_HISTORY = []
     CURRENT_SESSION_ID = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+    # ★ 대화 요약 캐시도 초기화 (할루시네이션 전파 방지)
+    _conversation_summary_cache = {"summary": "", "summarized_up_to": 0}
     save_history()
     return {"success": True}
 
