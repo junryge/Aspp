@@ -1,8 +1,6 @@
 #!/usr/bin/env python3
 """
 Layout XML → JSON 변환기
-
-parse_layout_xml.py
 OHT 레이아웃 XML 파일을 파싱하여 3D 시각화용 JSON 생성
 """
 
@@ -128,22 +126,24 @@ def save_json(nodes, edges, output_path):
 def main():
     # 기본 경로 설정
     script_dir = os.path.dirname(os.path.abspath(__file__))
-    parent_dir = os.path.dirname(script_dir)
 
-    # layout.zip 경로
-    zip_path = os.path.join(parent_dir, 'layout', 'layout', 'layout.zip')
+    # 명령행 인자가 있으면 사용
+    if len(sys.argv) > 1:
+        xml_path = sys.argv[1]
+    else:
+        # 같은 폴더에서 layout.xml 또는 layout.zip 찾기
+        xml_path = os.path.join(script_dir, 'layout.xml')
+        if not os.path.exists(xml_path):
+            xml_path = os.path.join(script_dir, 'layout.zip')
 
-    if not os.path.exists(zip_path):
-        print(f"파일을 찾을 수 없습니다: {zip_path}")
-        print("사용법: python parse_layout_xml.py [layout.zip 경로]")
+    if not os.path.exists(xml_path):
+        print(f"파일을 찾을 수 없습니다: {xml_path}")
+        print("사용법: python parse_layout_xml.py [layout.xml 또는 layout.zip]")
+        print("또는 같은 폴더에 layout.xml 파일을 넣으세요.")
         sys.exit(1)
 
-    # 명령행 인자로 경로 지정 가능
-    if len(sys.argv) > 1:
-        zip_path = sys.argv[1]
-
     # 파싱
-    nodes, edges = parse_layout_xml(zip_path)
+    nodes, edges = parse_layout_xml(xml_path)
 
     # JSON 저장
     output_path = os.path.join(script_dir, 'layout_data.json')
