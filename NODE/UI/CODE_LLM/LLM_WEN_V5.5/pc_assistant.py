@@ -1755,7 +1755,6 @@ def process_chat(user_message: str) -> str:
             if search_result and not search_result.startswith("❌"):
                 try:
                     sr_data = json.loads(search_result)
-                    # search_knowledge returns List[dict], not {"results": [...]}
                     sr_list = sr_data if isinstance(sr_data, list) else sr_data.get("results", []) if isinstance(sr_data, dict) else []
                     if sr_list and isinstance(sr_list[0], dict):
                         best_file = sr_list[0]["filename"]
@@ -1763,16 +1762,26 @@ def process_chat(user_message: str) -> str:
                         if doc_content and not doc_content.startswith("❌"):
                             doc_limit = 12000 if LLM_MODE == "api" else 3000
                             doc_content = doc_content if len(doc_content) <= doc_limit else doc_content[:doc_limit] + "\n\n... (이하 생략)"
+                            # ★ 최근 대화 맥락 (후속 질문 지원, 짧게)
+                            brief_context = ""
+                            if CHAT_HISTORY:
+                                last_turns = CHAT_HISTORY[-4:]  # 최근 2턴만
+                                ctx_lines = []
+                                for m in last_turns:
+                                    role = "사용자" if m["role"] == "user" else "비서"
+                                    ctx_lines.append(f"{role}: {m['content'][:200]}")
+                                brief_context = f"[이전 대화 (참고만)]\n" + "\n".join(ctx_lines) + "\n\n"
                             follow_up = f"""아래 문서 내용을 읽고, 이 문서 내용만으로 질문에 답하세요.
 
 === 문서 시작 ({best_file}) ===
 {doc_content}
 === 문서 끝 ===
 
-[질문] {user_message}
+{brief_context}[질문] {user_message}
 
 [규칙]
 - 위 문서에 적힌 내용만 답하세요. 문서에 없는 내용은 절대 추가하지 마세요.
+- 이전 대화에서 나온 내용이라도 문서에 없으면 사용하지 마세요.
 - 문서에 없으면 "문서에 해당 내용이 없습니다"라고만 답하세요."""
                             result2 = call_llm(follow_up, KNOWLEDGE_QA_SYSTEM_PROMPT, max_tokens=4096 if LLM_MODE == "api" else 1024, task_type="knowledge_qa")
                             if result2["success"]:
@@ -1880,6 +1889,7 @@ def process_chat(user_message: str) -> str:
 
 [규칙]
 - 위 문서에 적힌 내용만 답하세요. 문서에 없는 내용은 절대 추가하지 마세요.
+- 이전 대화에서 나온 내용이라도 문서에 없으면 사용하지 마세요.
 - 문서에 없으면 "문서에 해당 내용이 없습니다"라고만 답하세요."""
 
                     result2_tokens = 4096 if LLM_MODE == "api" else 1024
@@ -1971,6 +1981,7 @@ def process_chat(user_message: str) -> str:
 
 [규칙]
 - 위 문서에 적힌 내용만 답하세요. 문서에 없는 내용은 절대 추가하지 마세요.
+- 이전 대화에서 나온 내용이라도 문서에 없으면 사용하지 마세요.
 - 문서에 없으면 "문서에 해당 내용이 없습니다"라고만 답하세요."""
 
                         result2_tokens = 4096 if LLM_MODE == "api" else 1024
@@ -2108,6 +2119,7 @@ def process_chat(user_message: str) -> str:
 
 [규칙]
 - 위 문서에 적힌 내용만 답하세요. 문서에 없는 내용은 절대 추가하지 마세요.
+- 이전 대화에서 나온 내용이라도 문서에 없으면 사용하지 마세요.
 - 문서에 없으면 "문서에 해당 내용이 없습니다"라고만 답하세요."""
 
                     result2_tokens = 4096 if LLM_MODE == "api" else 1024
