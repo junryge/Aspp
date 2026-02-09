@@ -334,7 +334,7 @@ LLM_PARAMS = {
 
 # ★ 태스크별 파라미터 프로필 (답변 품질 최적화)
 TASK_PARAM_PROFILES = {
-    "knowledge_qa": {"temperature": 0.2, "top_p": 0.8, "max_tokens": 2048},
+    "knowledge_qa": {"temperature": 0.15, "top_p": 0.8, "max_tokens": 2048, "repeat_penalty": 1.0},
     "general_chat": {"temperature": 0.5, "top_p": 0.9, "max_tokens": 2048},
     "tool_call":    {"temperature": 0.1, "top_p": 0.7, "max_tokens": 1024},
 }
@@ -374,7 +374,7 @@ def get_task_params(task_type: str) -> dict:
             "temperature": profile["temperature"],
             "top_p": profile["top_p"],
             "max_tokens": profile["max_tokens"],
-            "repeat_penalty": LLM_PARAMS.get("repeat_penalty", 1.1),
+            "repeat_penalty": profile.get("repeat_penalty", LLM_PARAMS.get("repeat_penalty", 1.1)),
         }
     else:
         # 자동 분류 OFF → UI 수동 설정 사용
@@ -1452,6 +1452,61 @@ def read_knowledge(filename: str) -> str:
         return f"파일 읽기 오류: {e}"
 
 
+def extract_relevant_sections(doc_content: str, query: str, max_chars: int = 3000) -> str:
+    """문서에서 질문과 관련된 섹션만 추출 (작은 LLM용 핵심 컨텍스트 축소)"""
+    query_lower = query.lower()
+    query_tokens = re.split(r'[\s_\-\.]+', query_lower)
+    query_tokens = [t for t in query_tokens if len(t) > 1]
+
+    # 마크다운 섹션 분리 (## 기준)
+    sections = re.split(r'\n(?=#{1,3}\s)', doc_content)
+    if len(sections) <= 1:
+        # 섹션 구분 없는 문서 → 원본 그대로
+        return doc_content[:max_chars]
+
+    scored_sections = []
+    for section in sections:
+        section_lower = section.lower()
+        score = 0
+        for token in query_tokens:
+            count = section_lower.count(token)
+            if count > 0:
+                score += count * 10
+            # 섹션 제목(첫줄)에 있으면 가중치
+            first_line = section_lower.split('\n')[0]
+            if token in first_line:
+                score += 50
+        scored_sections.append((score, section))
+
+    # 점수순 정렬, 상위 섹션 선택
+    scored_sections.sort(key=lambda x: x[0], reverse=True)
+    result_parts = []
+    total = 0
+    # 항상 첫 섹션(참조/약어 등 문서 헤더) 포함
+    header = sections[0]
+    if len(header) < 500:
+        result_parts.append(header)
+        total += len(header)
+
+    for score, section in scored_sections:
+        if score == 0:
+            continue
+        if section in result_parts:
+            continue
+        if total + len(section) > max_chars:
+            remaining = max_chars - total
+            if remaining > 200:
+                result_parts.append(section[:remaining] + "\n... (생략)")
+            break
+        result_parts.append(section)
+        total += len(section)
+
+    if not result_parts:
+        return doc_content[:max_chars]
+
+    return "\n\n".join(result_parts)
+
+
 def analyze_data(path: str) -> str:
     try:
         ext = os.path.splitext(path)[1].lower()
@@ -1763,7 +1818,11 @@ def process_chat(user_message: str) -> str:
                         doc_content = execute_tool({"tool": "read_knowledge", "filename": best_file})
                         if doc_content and not doc_content.startswith("❌"):
                             doc_limit = 12000 if LLM_MODE == "api" else 3000
-                            doc_content = doc_content if len(doc_content) <= doc_limit else doc_content[:doc_limit] + "\n\n... (이하 생략)"
+                            # ★ 관련 섹션만 추출 (작은 LLM이 긴 문서 못 읽는 문제 해결)
+                            if LLM_MODE != "api" and len(doc_content) > 1500:
+                                doc_content = extract_relevant_sections(doc_content, user_message, max_chars=doc_limit)
+                            elif len(doc_content) > doc_limit:
+                                doc_content = doc_content[:doc_limit] + "\n\n... (이하 생략)"
                             # ★ 최근 대화 맥락 (후속 질문 지원, 짧게)
                             brief_context = ""
                             if CHAT_HISTORY:
@@ -1877,9 +1936,14 @@ def process_chat(user_message: str) -> str:
                     if tool_result.startswith("❌"):
                         return tool_result
                     
-                    # 문서 길이 제한 (API vs GGUF)
+                    # 문서 길이 제한 (API vs GGUF) + 관련 섹션 추출
                     doc_limit = 12000 if LLM_MODE == "api" else 3000
-                    doc_content = tool_result if len(tool_result) <= doc_limit else tool_result[:doc_limit] + "\n\n... (이하 생략)"
+                    if LLM_MODE != "api" and len(tool_result) > 1500:
+                        doc_content = extract_relevant_sections(tool_result, user_message, max_chars=doc_limit)
+                    elif len(tool_result) > doc_limit:
+                        doc_content = tool_result[:doc_limit] + "\n\n... (이하 생략)"
+                    else:
+                        doc_content = tool_result
                     
                     follow_up_prompt = f"""아래 문서 내용을 읽고, 이 문서 내용만으로 질문에 답하세요.
 
