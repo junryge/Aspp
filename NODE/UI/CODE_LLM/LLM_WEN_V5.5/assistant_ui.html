@@ -354,21 +354,25 @@
         }
 
         .message-content {
-            max-width: 70%;
+            max-width: 85%;
             padding: 12px 16px;
             border-radius: 16px;
             line-height: 1.6;
+            word-break: break-word;
+            overflow-wrap: break-word;
         }
 
         .message.assistant .message-content {
             background: var(--bg-card);
             border: 1px solid var(--border);
             border-top-left-radius: 4px;
+            max-width: 90%;
         }
 
         .message.user .message-content {
             background: var(--primary);
             border-top-right-radius: 4px;
+            max-width: 75%;
         }
 
         .message-content pre {
@@ -1264,6 +1268,7 @@
             .message-content {
                 font-size: 0.88rem;
                 padding: 10px 12px;
+                max-width: 95% !important;
             }
 
             .input-container {
@@ -1853,6 +1858,22 @@
         // 초기 테마 적용
         applyTheme(currentTheme);
 
+        // ★ AI 설정 비밀번호 보호
+        const AI_SETTINGS_PASSWORD = '1234';
+        let aiSettingsUnlocked = false;
+
+        function checkAiSettingsPassword() {
+            if (aiSettingsUnlocked) return true;
+            const pw = prompt('AI 설정 비밀번호를 입력하세요:');
+            if (pw === null) return false;
+            if (pw === AI_SETTINGS_PASSWORD) {
+                aiSettingsUnlocked = true;
+                return true;
+            }
+            alert('비밀번호가 틀렸습니다.');
+            return false;
+        }
+
         // ★ 파라미터 설정
         let aiParams = {
             temperature: 0.7,
@@ -1862,6 +1883,7 @@
 
         // ★ 파라미터 패널 토글
         function toggleParamPanel() {
+            if (!checkAiSettingsPassword()) return;
             document.getElementById('paramPanel').classList.toggle('open');
         }
 
@@ -3102,6 +3124,7 @@
         // ★ 시스템 프롬프트 편집
         // ========================================
         async function openSystemPromptModal() {
+            if (!checkAiSettingsPassword()) return;
             document.getElementById('systemPromptModal').classList.add('active');
             try {
                 const res = await fetch('/assistant/api/prompt/system');
@@ -3166,6 +3189,7 @@
         // ★ 도메인 지식 편집
         // ========================================
         async function openDomainKnowledgeModal() {
+            if (!checkAiSettingsPassword()) return;
             document.getElementById('domainKnowledgeModal').classList.add('active');
             try {
                 const res = await fetch('/assistant/api/prompt/domain');
