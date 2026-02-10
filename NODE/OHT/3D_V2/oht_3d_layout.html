@@ -298,29 +298,6 @@ canvas#threeCanvas { display: block; }
 .modal-btn.primary { background: #00d4ff; color: #000; font-weight: 700; }
 .modal-btn.secondary { background: #333; color: #aaa; }
 
-/* === FAB 선택 오버레이 === */
-#fab-selector-overlay {
-    position: fixed; top: 0; left: 0; width: 100%; height: 100%;
-    background: rgba(10,10,26,0.95); display: none; flex-direction: column;
-    align-items: center; justify-content: center; z-index: 2000;
-}
-#fab-selector-overlay h1 { font-size: 28px; color: #00d4ff; margin-bottom: 6px; letter-spacing: 2px; }
-#fab-selector-overlay .subtitle { font-size: 13px; color: #7b2fff; margin-bottom: 30px; letter-spacing: 3px; }
-#fab-selector-grid {
-    display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-    gap: 16px; max-width: 900px; width: 90%; padding: 0 20px;
-}
-.fab-card {
-    background: linear-gradient(135deg, #1a1a2e 0%, #12121f 100%);
-    border: 2px solid #252540; border-radius: 12px;
-    padding: 24px 20px; cursor: pointer; transition: all 0.3s;
-    text-align: center;
-}
-.fab-card:hover { border-color: #00d4ff; transform: translateY(-4px); box-shadow: 0 8px 30px rgba(0,212,255,0.15); }
-.fab-card-name { font-size: 22px; font-weight: 700; color: #00d4ff; margin-bottom: 8px; }
-.fab-card-info { font-size: 11px; color: #888; line-height: 1.6; }
-.fab-card-info span { color: #aaa; }
-
 /* 헤더 FAB 드롭다운 */
 #fabSelect {
     background: rgba(0,212,255,0.1); border: 1px solid rgba(0,212,255,0.3);
@@ -338,13 +315,6 @@ canvas#threeCanvas { display: block; }
     <div class="author">Created by John Prestige</div>
     <div class="bar-bg"><div class="bar-fill" id="loadBar"></div></div>
     <div class="status" id="loadStatus">초기화 중...</div>
-</div>
-
-<!-- FAB 선택 오버레이 (다중 FAB 시 표시) -->
-<div id="fab-selector-overlay">
-    <h1>AMOS MAP SYSTEM PRO</h1>
-    <div class="subtitle">FAB 선택</div>
-    <div id="fab-selector-grid"></div>
 </div>
 
 <div id="app">
@@ -2555,34 +2525,14 @@ async function boot() {
         window._fabList = data.fabs || [];
         window._currentFab = data.current_fab;
 
-        // 헤더 FAB 드롭다운 세팅
+        // 헤더 FAB 드롭다운 (다중 FAB)
         if (data.fabs && data.fabs.length > 1) {
             populateFabSelector(data.fabs, data.current_fab);
         }
+    } catch(e) {}
 
-        if (data.fabs && data.fabs.length === 0) {
-            // FAB 데이터 없음
-            setLoadProgress(0, 'FAB 데이터 없음. parse_layout.py --scan 으로 먼저 파싱하세요.');
-            return;
-        }
-
-        if (data.fabs.length > 1) {
-            // FAB 여러개 -> 선택 화면 표시
-            document.getElementById('loading').style.display = 'none';
-            showFabSelector(data.fabs, data.current_fab);
-        } else if (data.fabs.length === 1) {
-            // FAB 1개만 있음 -> 자동 선택 후 로딩
-            if (!data.current_fab) {
-                await switchFab(data.fabs[0].fab_name);
-            }
-            init();
-        } else if (data.current_fab) {
-            init();
-        }
-    } catch(e) {
-        // /api/fabs 없음 (레거시 서버) -> 기존 방식으로 init
-        init();
-    }
+    // 기본 FAB 바로 로딩
+    init();
 }
 
 async function switchFab(fabName) {
@@ -2591,50 +2541,7 @@ async function switchFab(fabName) {
         headers: {'Content-Type': 'application/json'},
         body: JSON.stringify({fab_name: fabName})
     });
-    if (!resp.ok) {
-        const err = await resp.json().catch(() => ({detail: 'FAB 전환 실패'}));
-        throw new Error(err.detail || 'FAB 전환 실패');
-    }
     return await resp.json();
-}
-
-function showFabSelector(fabs, currentFab) {
-    const overlay = document.getElementById('fab-selector-overlay');
-    overlay.style.display = 'flex';
-    const grid = document.getElementById('fab-selector-grid');
-    grid.innerHTML = '';
-    fabs.forEach(f => {
-        const card = document.createElement('div');
-        card.className = 'fab-card';
-        if (f.fab_name === currentFab) card.style.borderColor = '#00d4ff';
-        const nodes = f.total_nodes ? f.total_nodes.toLocaleString() : '?';
-        const edges = f.total_edges ? f.total_edges.toLocaleString() : '?';
-        const stations = f.total_stations ? f.total_stations.toLocaleString() : '?';
-        const zones = f.total_mcp_zones ? f.total_mcp_zones.toLocaleString() : '0';
-        const size = f.json_size_mb ? f.json_size_mb + ' MB' : '';
-        const csv = f.csv_count ? f.csv_count + ' CSV' : '';
-        card.innerHTML = `
-            <div class="fab-card-name">${f.fab_name}</div>
-            <div class="fab-card-info">
-                노드: <span>${nodes}</span> | 레일: <span>${edges}</span><br>
-                스테이션: <span>${stations}</span> | Zone: <span>${zones}</span><br>
-                ${size ? size : ''} ${csv ? '| ' + csv : ''}
-            </div>
-        `;
-        card.onclick = async () => {
-            overlay.style.display = 'none';
-            document.getElementById('loading').style.display = 'flex';
-            setLoadProgress(5, f.fab_name + ' 로딩 중...');
-            try {
-                await switchFab(f.fab_name);
-                window._currentFab = f.fab_name;
-                window.location.reload();
-            } catch(e) {
-                setLoadProgress(0, 'FAB 전환 오류: ' + e.message);
-            }
-        };
-        grid.appendChild(card);
-    });
 }
 
 function populateFabSelector(fabs, currentFab) {
@@ -2652,13 +2559,8 @@ function populateFabSelector(fabs, currentFab) {
 
 function onFabSelectChange(fabName) {
     if (fabName === window._currentFab) return;
-    // FAB 전환 -> 페이지 리로드
     switchFab(fabName).then(() => {
         window.location.reload();
-    }).catch(e => {
-        alert('FAB 전환 실패: ' + e.message);
-        // 드롭다운 원래 값으로 복원
-        document.getElementById('fabSelect').value = window._currentFab;
     });
 }
 
