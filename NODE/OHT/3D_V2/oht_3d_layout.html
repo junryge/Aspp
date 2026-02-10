@@ -734,15 +734,24 @@ window.toggleControls = function() {
 })();
 
 // ===== OHT QUICK SET =====
+function saveOhtSettings(count) {
+    fetch('/api/fab/settings', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({oht_count: count})
+    }).catch(() => {});
+}
 window.applyOhtCount = function() {
     const val = parseInt(document.getElementById('ohtCountInput').value) || 35;
     document.getElementById('ohtCount').value = val;
     document.getElementById('ohtCount').dispatchEvent(new Event('input'));
+    saveOhtSettings(val);
 };
 window.setOhtQuick = function(n) {
     document.getElementById('ohtCountInput').value = n;
     document.getElementById('ohtCount').value = n;
     document.getElementById('ohtCount').dispatchEvent(new Event('input'));
+    saveOhtSettings(n);
 };
 
 // ===== MASTER DATA MODAL =====
@@ -1192,6 +1201,16 @@ async function init() {
 
     setLoadProgress(90, 'OHT 차량 배치 중...'); await sleep(10);
     buildPaths();
+    // FAB별 저장된 OHT 대수 로드
+    try {
+        const settingsResp = await fetch('/api/fab/settings');
+        const settingsData = await settingsResp.json();
+        if (settingsData.settings && settingsData.settings.oht_count != null) {
+            const savedCount = settingsData.settings.oht_count;
+            document.getElementById('ohtCountInput').value = savedCount;
+            document.getElementById('ohtCount').value = savedCount;
+        }
+    } catch(e) {}
     spawnVehicles(parseInt(document.getElementById('ohtCount').value));
 
     setLoadProgress(95, '마무리 중...');
@@ -1225,6 +1244,9 @@ async function init() {
         document.getElementById('ohtCountInput').value = e.target.value;
         respawnVehicles(parseInt(e.target.value));
         setTimeout(updateOhtList, 100);
+        // Debounced save
+        clearTimeout(window._ohtSaveTimer);
+        window._ohtSaveTimer = setTimeout(() => saveOhtSettings(parseInt(e.target.value)), 500);
     });
     document.getElementById('searchInput').addEventListener('keydown', onSearch);
     document.getElementById('ohtSearchInput').addEventListener('input', () => updateOhtList());
