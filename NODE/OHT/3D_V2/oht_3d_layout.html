@@ -2566,17 +2566,18 @@ async function boot() {
             return;
         }
 
-        if (data.current_fab) {
-            // 이미 FAB 선택됨 -> 바로 3D 로딩
-            init();
-        } else if (data.fabs.length === 1) {
-            // FAB 1개만 있음 -> 자동 선택
-            await switchFab(data.fabs[0].fab_name);
-            init();
-        } else if (data.fabs.length > 1) {
+        if (data.fabs.length > 1) {
             // FAB 여러개 -> 선택 화면 표시
             document.getElementById('loading').style.display = 'none';
-            showFabSelector(data.fabs);
+            showFabSelector(data.fabs, data.current_fab);
+        } else if (data.fabs.length === 1) {
+            // FAB 1개만 있음 -> 자동 선택 후 로딩
+            if (!data.current_fab) {
+                await switchFab(data.fabs[0].fab_name);
+            }
+            init();
+        } else if (data.current_fab) {
+            init();
         }
     } catch(e) {
         // /api/fabs 없음 (레거시 서버) -> 기존 방식으로 init
@@ -2590,10 +2591,14 @@ async function switchFab(fabName) {
         headers: {'Content-Type': 'application/json'},
         body: JSON.stringify({fab_name: fabName})
     });
+    if (!resp.ok) {
+        const err = await resp.json().catch(() => ({detail: 'FAB 전환 실패'}));
+        throw new Error(err.detail || 'FAB 전환 실패');
+    }
     return await resp.json();
 }
 
-function showFabSelector(fabs) {
+function showFabSelector(fabs, currentFab) {
     const overlay = document.getElementById('fab-selector-overlay');
     overlay.style.display = 'flex';
     const grid = document.getElementById('fab-selector-grid');
@@ -2601,6 +2606,7 @@ function showFabSelector(fabs) {
     fabs.forEach(f => {
         const card = document.createElement('div');
         card.className = 'fab-card';
+        if (f.fab_name === currentFab) card.style.borderColor = '#00d4ff';
         const nodes = f.total_nodes ? f.total_nodes.toLocaleString() : '?';
         const edges = f.total_edges ? f.total_edges.toLocaleString() : '?';
         const stations = f.total_stations ? f.total_stations.toLocaleString() : '?';
@@ -2619,9 +2625,13 @@ function showFabSelector(fabs) {
             overlay.style.display = 'none';
             document.getElementById('loading').style.display = 'flex';
             setLoadProgress(5, f.fab_name + ' 로딩 중...');
-            await switchFab(f.fab_name);
-            window._currentFab = f.fab_name;
-            init();
+            try {
+                await switchFab(f.fab_name);
+                window._currentFab = f.fab_name;
+                window.location.reload();
+            } catch(e) {
+                setLoadProgress(0, 'FAB 전환 오류: ' + e.message);
+            }
         };
         grid.appendChild(card);
     });
@@ -2645,6 +2655,10 @@ function onFabSelectChange(fabName) {
     // FAB 전환 -> 페이지 리로드
     switchFab(fabName).then(() => {
         window.location.reload();
+    }).catch(e => {
+        alert('FAB 전환 실패: ' + e.message);
+        // 드롭다운 원래 값으로 복원
+        document.getElementById('fabSelect').value = window._currentFab;
     });
 }
 
