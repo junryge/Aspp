@@ -1,0 +1,706 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SK hynix 이천캠퍼스 3D</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@300;400;600;700;900&display=swap');
+  
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  
+  body {
+    background: #0a0a0f;
+    color: #e0e0e0;
+    font-family: 'Noto Sans KR', sans-serif;
+    overflow: hidden;
+    width: 100vw;
+    height: 100vh;
+  }
+
+  #canvas-container {
+    width: 100%;
+    height: 100%;
+    position: relative;
+  }
+
+  canvas { display: block; }
+
+  /* Title overlay */
+  .title-overlay {
+    position: fixed;
+    top: 24px;
+    left: 50%;
+    transform: translateX(-50%);
+    text-align: center;
+    z-index: 100;
+    pointer-events: none;
+  }
+  .title-overlay h1 {
+    font-size: 22px;
+    font-weight: 900;
+    letter-spacing: 2px;
+    color: #fff;
+    text-shadow: 0 2px 20px rgba(0,0,0,0.8);
+    margin-bottom: 4px;
+  }
+  .title-overlay p {
+    font-size: 11px;
+    color: #888;
+    letter-spacing: 4px;
+    text-transform: uppercase;
+  }
+
+  /* Info panel */
+  .info-panel {
+    position: fixed;
+    bottom: 24px;
+    left: 24px;
+    background: rgba(10,10,20,0.85);
+    backdrop-filter: blur(20px);
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 12px;
+    padding: 16px 20px;
+    z-index: 100;
+    min-width: 220px;
+    transition: all 0.3s ease;
+  }
+  .info-panel .building-name {
+    font-size: 18px;
+    font-weight: 700;
+    color: #fff;
+    margin-bottom: 4px;
+  }
+  .info-panel .building-type {
+    font-size: 11px;
+    color: #888;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    margin-bottom: 8px;
+  }
+  .info-panel .building-detail {
+    font-size: 12px;
+    color: #aaa;
+    line-height: 1.6;
+  }
+  .info-panel .color-dot {
+    display: inline-block;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    margin-right: 6px;
+    vertical-align: middle;
+  }
+
+  /* Legend */
+  .legend {
+    position: fixed;
+    top: 24px;
+    right: 24px;
+    background: rgba(10,10,20,0.85);
+    backdrop-filter: blur(20px);
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 12px;
+    padding: 14px 18px;
+    z-index: 100;
+    font-size: 11px;
+  }
+  .legend-title {
+    font-size: 10px;
+    color: #666;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    margin-bottom: 10px;
+  }
+  .legend-item {
+    display: flex;
+    align-items: center;
+    margin-bottom: 6px;
+    color: #aaa;
+  }
+  .legend-item .swatch {
+    width: 14px;
+    height: 14px;
+    border-radius: 3px;
+    margin-right: 8px;
+    flex-shrink: 0;
+  }
+
+  /* Controls hint */
+  .controls-hint {
+    position: fixed;
+    bottom: 24px;
+    right: 24px;
+    background: rgba(10,10,20,0.7);
+    backdrop-filter: blur(12px);
+    border: 1px solid rgba(255,255,255,0.06);
+    border-radius: 10px;
+    padding: 10px 14px;
+    z-index: 100;
+    font-size: 10px;
+    color: #666;
+    line-height: 1.8;
+  }
+  .controls-hint kbd {
+    background: rgba(255,255,255,0.08);
+    border: 1px solid rgba(255,255,255,0.12);
+    border-radius: 3px;
+    padding: 1px 5px;
+    font-family: inherit;
+    color: #999;
+  }
+
+  /* Loading */
+  .loading {
+    position: fixed;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: #0a0a0f;
+    z-index: 999;
+    transition: opacity 0.8s ease;
+  }
+  .loading.hidden { opacity: 0; pointer-events: none; }
+  .loading-text {
+    font-size: 14px;
+    color: #555;
+    letter-spacing: 6px;
+    text-transform: uppercase;
+    animation: pulse 1.5s ease-in-out infinite;
+  }
+  @keyframes pulse { 0%,100%{opacity:0.3} 50%{opacity:1} }
+
+  /* Tooltip */
+  #tooltip {
+    position: fixed;
+    pointer-events: none;
+    background: rgba(0,0,0,0.85);
+    backdrop-filter: blur(8px);
+    border: 1px solid rgba(255,255,255,0.15);
+    border-radius: 6px;
+    padding: 6px 10px;
+    font-size: 12px;
+    color: #fff;
+    font-weight: 600;
+    z-index: 200;
+    display: none;
+    white-space: nowrap;
+    transform: translate(-50%, -120%);
+  }
+</style>
+</head>
+<body>
+
+<div class="loading" id="loading">
+  <div class="loading-text">Building Campus...</div>
+</div>
+
+<div class="title-overlay">
+  <h1>SK hynix 이천캠퍼스</h1>
+  <p>3D Campus Visualization</p>
+</div>
+
+<div class="legend">
+  <div class="legend-title">범례</div>
+  <div class="legend-item"><div class="swatch" style="background:#ecc94b"></div>M14 FAB</div>
+  <div class="legend-item"><div class="swatch" style="background:#48bb78"></div>M16 FAB</div>
+  <div class="legend-item"><div class="swatch" style="background:#63b3ed"></div>M10 FAB</div>
+  <div class="legend-item"><div class="swatch" style="background:#e07098"></div>DRAM WT</div>
+  <div class="legend-item"><div class="swatch" style="background:#c4956a"></div>P&T</div>
+  <div class="legend-item"><div class="swatch" style="background:#718096"></div>지원시설</div>
+</div>
+
+<div class="info-panel" id="infoPanel">
+  <div class="building-name" id="bName">SK hynix 이천</div>
+  <div class="building-type" id="bType">캠퍼스 전경</div>
+  <div class="building-detail" id="bDetail">건물을 클릭하면 상세정보를 볼 수 있습니다</div>
+</div>
+
+<div class="controls-hint">
+  <kbd>드래그</kbd> 회전 &nbsp; <kbd>스크롤</kbd> 줌 &nbsp; <kbd>우클릭</kbd> 이동
+</div>
+
+<div id="tooltip"></div>
+<div id="canvas-container"></div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+// ============================================================
+// SK hynix Icheon Campus 3D Visualization
+// ============================================================
+
+const SCALE = 0.5; // scale factor for coordinates
+
+// Building data: [name, x, y, w, h, height, color, type, detail]
+const buildings = [
+  // Main FABs
+  { name: 'M14A/B', x: 270, z: 340, w: 210, d: 180, h: 85, color: 0xecc94b, type: 'DRAM FAB', detail: 'M14A/B FAB동\n1a/1b nm DRAM 생산\n최신 공정 라인' },
+  { name: 'M16A/B', x: 600, z: 550, w: 250, d: 130, h: 75, color: 0x48bb78, type: 'DRAM FAB', detail: 'M16A/B FAB동\nDRAM 생산동\nAMHS 물류 시스템 운영' },
+  { name: 'M10A', x: 300, z: 550, w: 220, d: 130, h: 65, color: 0x63b3ed, type: 'FAB', detail: 'M10A FAB동\nDRAM 생산' },
+  { name: 'M10B/R3', x: 530, z: 380, w: 150, d: 110, h: 60, color: 0x63b3ed, type: 'FAB', detail: 'M10B/R3 FAB동\nDRAM 생산' },
+  { name: 'M10C', x: 650, z: 240, w: 170, d: 110, h: 60, color: 0x63b3ed, type: 'FAB', detail: 'M10C FAB동\nDRAM 생산' },
+  { name: 'DRAM_WT', x: 500, z: 720, w: 160, d: 80, h: 45, color: 0xe07098, type: 'DRAM Wafer Test', detail: 'DRAM 웨이퍼 테스트동\n웨이퍼 검사 및 테스트' },
+
+  // P&T
+  { name: 'P&T5', x: 700, z: 680, w: 100, d: 70, h: 40, color: 0xc4956a, type: 'P&T', detail: 'P&T5\n패키지 & 테스트 동' },
+  { name: 'P&T4', x: 710, z: 380, w: 110, d: 110, h: 45, color: 0xc4956a, type: 'P&T', detail: 'P&T4\n패키지 & 테스트 동' },
+  { name: 'P&T1', x: 560, z: 250, w: 70, d: 50, h: 35, color: 0xc4956a, type: 'P&T', detail: 'P&T1\n패키지 & 테스트 동' },
+
+  // Support
+  { name: 'TSV', x: 720, z: 760, w: 60, d: 40, h: 30, color: 0x718096, type: '지원시설', detail: 'TSV\nThrough-Silicon Via 공정동' },
+  { name: 'SCM', x: 870, z: 600, w: 60, d: 60, h: 25, color: 0x718096, type: '지원시설', detail: 'SCM\n공급망 관리동' },
+  { name: 'SEC', x: 100, z: 650, w: 100, d: 70, h: 30, color: 0x718096, type: '지원시설', detail: 'SEC 동' },
+  { name: 'HU', x: 840, z: 410, w: 50, d: 50, h: 20, color: 0x718096, type: '지원시설', detail: 'HU (인계철탑)' },
+  { name: 'M16(CUB)', x: 540, z: 560, w: 50, d: 40, h: 20, color: 0x718096, type: '유틸리티', detail: 'M16 CUB동\n유틸리티 건물' },
+  { name: 'M14(CUB)', x: 260, z: 528, w: 50, d: 30, h: 20, color: 0x718096, type: '유틸리티', detail: 'M14 CUB동\n유틸리티 건물' },
+  { name: 'M10C CUB', x: 840, z: 260, w: 60, d: 50, h: 18, color: 0x718096, type: '유틸리티', detail: 'M10C CUB동' },
+
+  // W buildings
+  { name: 'W11', x: 270, z: 700, w: 50, d: 40, h: 22, color: 0x718096, type: '지원시설', detail: 'W11 동' },
+  { name: 'W12A', x: 160, z: 730, w: 60, d: 40, h: 22, color: 0x718096, type: '지원시설', detail: 'W12A 동' },
+  { name: 'W12B', x: 330, z: 640, w: 50, d: 30, h: 18, color: 0x718096, type: '지원시설', detail: 'W12B 동' },
+  { name: 'WWT', x: 280, z: 630, w: 40, d: 30, h: 15, color: 0x718096, type: '지원시설', detail: 'WWT\n폐수처리동' },
+  { name: 'W01', x: 70, z: 490, w: 50, d: 40, h: 20, color: 0x718096, type: '지원시설', detail: 'W01 동' },
+  { name: 'W02', x: 130, z: 470, w: 50, d: 40, h: 20, color: 0x718096, type: '지원시설', detail: 'W02 동' },
+  { name: 'FGS', x: 150, z: 510, w: 60, d: 30, h: 15, color: 0x718096, type: '지원시설', detail: '(신) FGS' },
+  { name: 'R&D Center', x: 350, z: 230, w: 80, d: 40, h: 28, color: 0x718096, type: '연구소', detail: 'R&D Center\n연구개발동' },
+  { name: 'UPEX', x: 490, z: 410, w: 40, d: 30, h: 15, color: 0x718096, type: '지원시설', detail: 'UPEX Center' },
+
+  // 기술지원
+  { name: '자원순환센터', x: 200, z: 750, w: 80, d: 25, h: 12, color: 0x555a63, type: '지원시설', detail: '자원순환센터' },
+  { name: '분석정보센터', x: 220, z: 680, w: 60, d: 22, h: 12, color: 0x555a63, type: '지원시설', detail: '분석정보센터' },
+  { name: '기술지원센터', x: 400, z: 660, w: 80, d: 22, h: 14, color: 0x555a63, type: '지원시설', detail: '기술지원센터' },
+  { name: '변전소', x: 530, z: 740, w: 50, d: 25, h: 10, color: 0x555a63, type: '전력', detail: '변전소\n전력 공급 시설' },
+];
+
+// ============================================================
+// Three.js Setup
+// ============================================================
+const container = document.getElementById('canvas-container');
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x0a0a12);
+scene.fog = new THREE.FogExp2(0x0a0a12, 0.0012);
+
+const camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 1, 5000);
+camera.position.set(-200, 300, 450);
+camera.lookAt(250, 0, 250);
+
+const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+renderer.setSize(window.innerWidth, window.innerHeight);
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.1;
+container.appendChild(renderer.domElement);
+
+// ============================================================
+// Lighting
+// ============================================================
+const ambientLight = new THREE.AmbientLight(0x334466, 0.6);
+scene.add(ambientLight);
+
+const dirLight = new THREE.DirectionalLight(0xffeedd, 0.9);
+dirLight.position.set(300, 400, 200);
+dirLight.castShadow = true;
+dirLight.shadow.mapSize.width = 2048;
+dirLight.shadow.mapSize.height = 2048;
+dirLight.shadow.camera.left = -500;
+dirLight.shadow.camera.right = 500;
+dirLight.shadow.camera.top = 500;
+dirLight.shadow.camera.bottom = -500;
+scene.add(dirLight);
+
+const hemiLight = new THREE.HemisphereLight(0x88aacc, 0x222233, 0.4);
+scene.add(hemiLight);
+
+// Accent light
+const pointLight = new THREE.PointLight(0x4488ff, 0.3, 600);
+pointLight.position.set(200, 150, 300);
+scene.add(pointLight);
+
+// ============================================================
+// Ground
+// ============================================================
+const groundGeo = new THREE.PlaneGeometry(1200, 1000);
+const groundMat = new THREE.MeshStandardMaterial({
+  color: 0x141820,
+  roughness: 0.95,
+  metalness: 0.05,
+});
+const ground = new THREE.Mesh(groundGeo, groundMat);
+ground.rotation.x = -Math.PI / 2;
+ground.position.set(250, -0.5, 280);
+ground.receiveShadow = true;
+scene.add(ground);
+
+// Grid overlay
+const gridHelper = new THREE.GridHelper(1000, 50, 0x1a1f2e, 0x12151e);
+gridHelper.position.set(250, 0.1, 280);
+scene.add(gridHelper);
+
+// ============================================================
+// Campus Boundary
+// ============================================================
+const boundaryPts2D = [
+  [30, 180], [30, 500], [50, 520], [50, 620], [70, 650],
+  [60, 700], [50, 780], [100, 810], [200, 820], [400, 810],
+  [550, 800], [650, 810], [750, 800], [880, 790],
+  [930, 780], [940, 700], [940, 500], [940, 350],
+  [930, 200], [900, 180], [750, 170], [550, 180],
+  [350, 180], [200, 180], [100, 180], [30, 180]
+];
+const boundaryPoints = boundaryPts2D.map(p => new THREE.Vector3(
+  (p[0] - 480) * SCALE, 0.5, (820 - p[1]) * SCALE
+));
+const boundaryGeo = new THREE.BufferGeometry().setFromPoints(boundaryPoints);
+const boundaryMat = new THREE.LineBasicMaterial({ color: 0x2a3040, linewidth: 2 });
+const boundaryLine = new THREE.Line(boundaryGeo, boundaryMat);
+scene.add(boundaryLine);
+
+// Fill boundary with slightly brighter ground
+const boundaryShape = new THREE.Shape();
+boundaryPts2D.forEach((p, i) => {
+  const x = (p[0] - 480) * SCALE;
+  const z = (820 - p[1]) * SCALE;
+  if (i === 0) boundaryShape.moveTo(x, z);
+  else boundaryShape.lineTo(x, z);
+});
+const campusGeo = new THREE.ShapeGeometry(boundaryShape);
+const campusMat = new THREE.MeshStandardMaterial({ color: 0x181e28, roughness: 0.9 });
+const campusMesh = new THREE.Mesh(campusGeo, campusMat);
+campusMesh.rotation.x = -Math.PI / 2;
+campusMesh.position.y = 0.3;
+campusMesh.receiveShadow = true;
+scene.add(campusMesh);
+
+// ============================================================
+// Roads
+// ============================================================
+function addRoad(x1, z1, x2, z2, width) {
+  const dx = x2 - x1, dz = z2 - z1;
+  const len = Math.sqrt(dx*dx + dz*dz);
+  const geo = new THREE.PlaneGeometry(len, width);
+  const mat = new THREE.MeshStandardMaterial({ color: 0x1e2430, roughness: 0.8 });
+  const mesh = new THREE.Mesh(geo, mat);
+  mesh.rotation.x = -Math.PI / 2;
+  mesh.position.set((x1+x2)/2, 0.4, (z1+z2)/2);
+  mesh.rotation.z = -Math.atan2(dz, dx);
+  mesh.receiveShadow = true;
+  scene.add(mesh);
+}
+// Horizontal road
+addRoad((50-480)*SCALE, (820-530)*SCALE, (900-480)*SCALE, (820-530)*SCALE, 5);
+// Vertical road
+addRoad((250-480)*SCALE, (820-200)*SCALE, (250-480)*SCALE, (820-780)*SCALE, 4);
+
+// ============================================================
+// Buildings
+// ============================================================
+const buildingMeshes = [];
+const raycaster = new THREE.Raycaster();
+const mouse = new THREE.Vector2();
+
+function createBuilding(b) {
+  const cx = (b.x + b.w/2 - 480) * SCALE;
+  const cz = (820 - (b.z + b.d/2)) * SCALE;
+  const w = b.w * SCALE;
+  const d = b.d * SCALE;
+  const h = b.h * SCALE;
+
+  const group = new THREE.Group();
+  group.userData = { ...b };
+
+  // Main body
+  const color = new THREE.Color(b.color);
+  const bodyGeo = new THREE.BoxGeometry(w, h, d);
+  const bodyMat = new THREE.MeshStandardMaterial({
+    color: color.clone().multiplyScalar(0.7),
+    roughness: 0.4,
+    metalness: 0.15,
+  });
+  const body = new THREE.Mesh(bodyGeo, bodyMat);
+  body.position.set(0, h/2, 0);
+  body.castShadow = true;
+  body.receiveShadow = true;
+  group.add(body);
+
+  // Roof (slightly lighter)
+  const roofGeo = new THREE.BoxGeometry(w + 1, 1, d + 1);
+  const roofMat = new THREE.MeshStandardMaterial({
+    color: color.clone().multiplyScalar(0.9),
+    roughness: 0.3,
+    metalness: 0.2,
+  });
+  const roof = new THREE.Mesh(roofGeo, roofMat);
+  roof.position.set(0, h + 0.5, 0);
+  roof.castShadow = true;
+  group.add(roof);
+
+  // Glowing top edge
+  const edgeGeo = new THREE.BoxGeometry(w + 1.5, 0.3, d + 1.5);
+  const edgeMat = new THREE.MeshStandardMaterial({
+    color: color,
+    emissive: color,
+    emissiveIntensity: 0.4,
+    roughness: 0.2,
+  });
+  const edge = new THREE.Mesh(edgeGeo, edgeMat);
+  edge.position.set(0, h + 1.2, 0);
+  group.add(edge);
+
+  // Window rows (for larger buildings)
+  if (h > 15) {
+    const windowRows = Math.floor(h / 8);
+    const windowCols = Math.floor(w / 8);
+    for (let row = 0; row < windowRows; row++) {
+      for (let col = 0; col < windowCols; col++) {
+        const wGeo = new THREE.PlaneGeometry(3, 2.5);
+        const wMat = new THREE.MeshStandardMaterial({
+          color: 0x88ccff,
+          emissive: 0x334466,
+          emissiveIntensity: 0.3 + Math.random() * 0.5,
+          transparent: true,
+          opacity: 0.6 + Math.random() * 0.3,
+        });
+        // Front
+        const win = new THREE.Mesh(wGeo, wMat);
+        win.position.set(-w/2 + 5 + col * 8, 6 + row * 8, d/2 + 0.1);
+        group.add(win);
+        // Back
+        const winB = win.clone();
+        winB.position.z = -d/2 - 0.1;
+        winB.rotation.y = Math.PI;
+        group.add(winB);
+      }
+    }
+  }
+
+  // Base glow
+  const baseGeo = new THREE.PlaneGeometry(w + 4, d + 4);
+  const baseMat = new THREE.MeshStandardMaterial({
+    color: color,
+    emissive: color,
+    emissiveIntensity: 0.15,
+    transparent: true,
+    opacity: 0.3,
+  });
+  const basePlane = new THREE.Mesh(baseGeo, baseMat);
+  basePlane.rotation.x = -Math.PI / 2;
+  basePlane.position.y = 0.2;
+  group.add(basePlane);
+
+  group.position.set(cx, 0, cz);
+  scene.add(group);
+  buildingMeshes.push(group);
+  return group;
+}
+
+// Create all buildings with staggered animation
+buildings.forEach((b, i) => {
+  const group = createBuilding(b);
+  // Start below ground for animation
+  group.userData.targetY = 0;
+  group.position.y = -50;
+  group.userData.animDelay = i * 60;
+  group.userData.animStarted = false;
+});
+
+// ============================================================
+// Orbit Controls (manual implementation since OrbitControls isn't in r128 core)
+// ============================================================
+let isDragging = false;
+let isRightDrag = false;
+let prevMouse = { x: 0, y: 0 };
+let spherical = { theta: -0.6, phi: 0.8, radius: 500 };
+let target = new THREE.Vector3(30, 0, 30);
+
+function updateCamera() {
+  const x = target.x + spherical.radius * Math.sin(spherical.phi) * Math.cos(spherical.theta);
+  const y = target.y + spherical.radius * Math.cos(spherical.phi);
+  const z = target.z + spherical.radius * Math.sin(spherical.phi) * Math.sin(spherical.theta);
+  camera.position.set(x, y, z);
+  camera.lookAt(target);
+}
+
+renderer.domElement.addEventListener('mousedown', e => {
+  if (e.button === 2) isRightDrag = true;
+  else isDragging = true;
+  prevMouse = { x: e.clientX, y: e.clientY };
+});
+
+renderer.domElement.addEventListener('mousemove', e => {
+  const dx = e.clientX - prevMouse.x;
+  const dy = e.clientY - prevMouse.y;
+
+  if (isDragging) {
+    spherical.theta -= dx * 0.005;
+    spherical.phi = Math.max(0.2, Math.min(1.5, spherical.phi - dy * 0.005));
+    updateCamera();
+  }
+  if (isRightDrag) {
+    const right = new THREE.Vector3();
+    camera.getWorldDirection(right);
+    right.cross(camera.up).normalize();
+    const up = new THREE.Vector3(0, 1, 0);
+    target.add(right.multiplyScalar(-dx * 0.5));
+    target.add(up.multiplyScalar(dy * 0.3));
+    updateCamera();
+  }
+
+  // Tooltip on hover
+  mouse.x = (e.clientX / window.innerWidth) * 2 - 1;
+  mouse.y = -(e.clientY / window.innerHeight) * 2 + 1;
+  raycaster.setFromCamera(mouse, camera);
+  const tooltip = document.getElementById('tooltip');
+
+  let hit = false;
+  for (const group of buildingMeshes) {
+    const intersects = raycaster.intersectObjects(group.children, true);
+    if (intersects.length > 0) {
+      tooltip.style.display = 'block';
+      tooltip.style.left = e.clientX + 'px';
+      tooltip.style.top = e.clientY + 'px';
+      tooltip.textContent = group.userData.name;
+      document.body.style.cursor = 'pointer';
+      hit = true;
+      break;
+    }
+  }
+  if (!hit) {
+    tooltip.style.display = 'none';
+    document.body.style.cursor = 'default';
+  }
+
+  prevMouse = { x: e.clientX, y: e.clientY };
+});
+
+window.addEventListener('mouseup', () => {
+  isDragging = false;
+  isRightDrag = false;
+});
+
+renderer.domElement.addEventListener('contextmenu', e => e.preventDefault());
+
+renderer.domElement.addEventListener('wheel', e => {
+  spherical.radius = Math.max(100, Math.min(900, spherical.radius + e.deltaY * 0.5));
+  updateCamera();
+});
+
+// Click to select
+renderer.domElement.addEventListener('click', e => {
+  mouse.x = (e.clientX / window.innerWidth) * 2 - 1;
+  mouse.y = -(e.clientY / window.innerHeight) * 2 + 1;
+  raycaster.setFromCamera(mouse, camera);
+
+  for (const group of buildingMeshes) {
+    const intersects = raycaster.intersectObjects(group.children, true);
+    if (intersects.length > 0) {
+      const d = group.userData;
+      document.getElementById('bName').textContent = d.name;
+      document.getElementById('bType').textContent = d.type;
+      document.getElementById('bDetail').innerHTML = d.detail.replace(/\n/g, '<br>');
+
+      // Highlight animation
+      group.children.forEach(child => {
+        if (child.material && child.material.emissive) {
+          const origIntensity = child.material.emissiveIntensity;
+          child.material.emissiveIntensity = 1.5;
+          setTimeout(() => { child.material.emissiveIntensity = origIntensity; }, 400);
+        }
+      });
+      break;
+    }
+  }
+});
+
+// Touch support
+let touchStart = null;
+let touchDist = 0;
+renderer.domElement.addEventListener('touchstart', e => {
+  if (e.touches.length === 1) {
+    touchStart = { x: e.touches[0].clientX, y: e.touches[0].clientY };
+  } else if (e.touches.length === 2) {
+    const dx = e.touches[0].clientX - e.touches[1].clientX;
+    const dy = e.touches[0].clientY - e.touches[1].clientY;
+    touchDist = Math.sqrt(dx*dx + dy*dy);
+  }
+});
+renderer.domElement.addEventListener('touchmove', e => {
+  e.preventDefault();
+  if (e.touches.length === 1 && touchStart) {
+    const dx = e.touches[0].clientX - touchStart.x;
+    const dy = e.touches[0].clientY - touchStart.y;
+    spherical.theta -= dx * 0.005;
+    spherical.phi = Math.max(0.2, Math.min(1.5, spherical.phi - dy * 0.005));
+    updateCamera();
+    touchStart = { x: e.touches[0].clientX, y: e.touches[0].clientY };
+  } else if (e.touches.length === 2) {
+    const dx = e.touches[0].clientX - e.touches[1].clientX;
+    const dy = e.touches[0].clientY - e.touches[1].clientY;
+    const dist = Math.sqrt(dx*dx + dy*dy);
+    spherical.radius = Math.max(100, Math.min(900, spherical.radius - (dist - touchDist) * 1.5));
+    touchDist = dist;
+    updateCamera();
+  }
+}, { passive: false });
+
+// ============================================================
+// Animation Loop
+// ============================================================
+updateCamera();
+const clock = new THREE.Clock();
+let startTime = Date.now();
+
+function animate() {
+  requestAnimationFrame(animate);
+  const elapsed = Date.now() - startTime;
+
+  // Building rise animation
+  buildingMeshes.forEach(group => {
+    if (elapsed > group.userData.animDelay) {
+      if (!group.userData.animStarted) {
+        group.userData.animStarted = true;
+        group.userData.animTime = 0;
+      }
+      group.userData.animTime += 0.03;
+      const t = Math.min(1, group.userData.animTime);
+      // Ease out cubic
+      const ease = 1 - Math.pow(1 - t, 3);
+      group.position.y = -50 + 50 * ease;
+    }
+  });
+
+  // Subtle camera auto-rotate when idle
+  // (disabled to keep user control)
+
+  // Window flicker
+  if (Math.random() < 0.02) {
+    const randomBuilding = buildingMeshes[Math.floor(Math.random() * buildingMeshes.length)];
+    randomBuilding.children.forEach(child => {
+      if (child.material && child.material.emissiveIntensity > 0.2 && child.material.emissiveIntensity < 0.9) {
+        child.material.emissiveIntensity = 0.2 + Math.random() * 0.6;
+      }
+    });
+  }
+
+  renderer.render(scene, camera);
+}
+
+// Hide loading
+setTimeout(() => {
+  document.getElementById('loading').classList.add('hidden');
+  startTime = Date.now();
+  animate();
+}, 500);
+
+// Resize
+window.addEventListener('resize', () => {
+  camera.aspect = window.innerWidth / window.innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(window.innerWidth, window.innerHeight);
+});
+</script>
+</body>
+</html>
