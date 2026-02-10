@@ -327,7 +327,8 @@ canvas#threeCanvas { display: block; }
         AMOS MAP SYSTEM PRO
         <span class="badge">LIVE</span>
         <span class="fab-name" id="fabName"></span>
-        <select id="fabSelect" style="display:none" onchange="onFabSelectChange(this.value)"></select>
+        <select id="fabSelect" style="display:none"></select>
+        <button id="fabGoBtn" style="display:none;background:#00d4ff;color:#000;border:none;padding:3px 10px;border-radius:4px;font-size:12px;font-weight:700;cursor:pointer;margin-left:4px;" onclick="onFabGo()">이동</button>
     </h1>
     <div class="header-right">
         <span class="brand">Creator: John Prestige</span>
@@ -2555,10 +2556,13 @@ function populateFabSelector(fabs, currentFab) {
         sel.appendChild(opt);
     });
     sel.style.display = 'inline-block';
+    document.getElementById('fabGoBtn').style.display = 'inline-block';
 }
 
-function onFabSelectChange(fabName) {
-    if (fabName === window._currentFab) return;
+function onFabGo() {
+    const sel = document.getElementById('fabSelect');
+    const fabName = sel.value;
+    if (!fabName || fabName === window._currentFab) return;
     switchFab(fabName).then(() => {
         window.location.reload();
     });
