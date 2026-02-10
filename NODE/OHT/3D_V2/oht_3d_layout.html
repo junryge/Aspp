@@ -2562,7 +2562,9 @@ function populateFabSelector(fabs, currentFab) {
 window.onFabGo = function() {
     const sel = document.getElementById('fabSelect');
     const fabName = sel.value;
-    if (!fabName || fabName === window._currentFab) return;
+    if (!fabName) return;
+    document.getElementById('fabGoBtn').textContent = '전환중...';
+    document.getElementById('fabGoBtn').disabled = true;
     switchFab(fabName).then(() => {
         window.location.reload();
     });
