@@ -1088,7 +1088,7 @@ function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 async function init() {
     setLoadProgress(5, '레이아웃 데이터 로딩 중...');
     try {
-        const resp = await fetch('layout_data.json');
+        const resp = await fetch('layout_data.json?t=' + Date.now());
         layoutData = await resp.json();
     } catch(e) {
         setLoadProgress(0, 'layout_data.json 로딩 오류: ' + e.message);
