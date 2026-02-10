@@ -35,6 +35,7 @@ import uvicorn
 BASE_DIR = Path(__file__).parent
 LAYOUT_JSON = BASE_DIR / "layout_data.json"
 FAB_DATA_DIR = BASE_DIR / "fab_data"
+FAB_SETTINGS_FILE = FAB_DATA_DIR / "_fab_settings.json"
 MASTER_CSV_DIR = BASE_DIR / "master_csv"
 HTML_FILE = BASE_DIR / "oht_3d_layout.html"
 DEFAULT_FAB = "M14-Pro"
@@ -98,6 +99,31 @@ class FabSwitchRequest(BaseModel):
 class MapScanRequest(BaseModel):
     map_dir: str
     output_dir: str = ""
+
+class FabSettingsUpdate(BaseModel):
+    oht_count: Optional[int] = None
+
+
+# ===== Helper: FAB Settings (per-FAB OHT count persistence) =====
+def load_fab_settings() -> dict:
+    """Load per-FAB settings from _fab_settings.json"""
+    if FAB_SETTINGS_FILE.exists():
+        try:
+            with open(FAB_SETTINGS_FILE, 'r', encoding='utf-8') as f:
+                return json.load(f)
+        except Exception as e:
+            print(f"[Warning] Failed to load fab settings: {e}")
+    return {}
+
+
+def save_fab_settings(settings: dict):
+    """Save per-FAB settings to _fab_settings.json"""
+    FAB_DATA_DIR.mkdir(parents=True, exist_ok=True)
+    try:
+        with open(FAB_SETTINGS_FILE, 'w', encoding='utf-8') as f:
+            json.dump(settings, f, ensure_ascii=False, indent=2)
+    except Exception as e:
+        print(f"[Warning] Failed to save fab settings: {e}")
 
 
 # ===== Helper: Load Layout Data =====
@@ -524,6 +550,32 @@ async def api_switch_fab(req: FabSwitchRequest):
         "total_nodes": layout_data.get("total_nodes", 0),
         "total_edges": layout_data.get("total_edges", 0),
     }
+
+
+@app.get("/api/fab/settings")
+async def get_fab_settings():
+    """현재 FAB의 설정 반환 (OHT 대수 등)"""
+    fab_name = current_fab_name
+    if not fab_name:
+        return {"fab_name": None, "settings": {}}
+    settings = load_fab_settings()
+    fab_settings = settings.get(fab_name, {})
+    return {"fab_name": fab_name, "settings": fab_settings}
+
+
+@app.post("/api/fab/settings")
+async def update_fab_settings(req: FabSettingsUpdate):
+    """현재 FAB의 설정 저장 (OHT 대수 등)"""
+    fab_name = current_fab_name
+    if not fab_name:
+        raise HTTPException(status_code=400, detail="No FAB selected")
+    settings = load_fab_settings()
+    if fab_name not in settings:
+        settings[fab_name] = {}
+    if req.oht_count is not None:
+        settings[fab_name]["oht_count"] = req.oht_count
+    save_fab_settings(settings)
+    return {"status": "saved", "fab_name": fab_name, "settings": settings[fab_name]}
 
 
 @app.post("/api/parse/scan")
