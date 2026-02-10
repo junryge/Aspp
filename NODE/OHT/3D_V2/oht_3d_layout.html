@@ -2559,7 +2559,7 @@ function populateFabSelector(fabs, currentFab) {
     document.getElementById('fabGoBtn').style.display = 'inline-block';
 }
 
-function onFabGo() {
+window.onFabGo = function() {
     const sel = document.getElementById('fabSelect');
     const fabName = sel.value;
     if (!fabName || fabName === window._currentFab) return;
