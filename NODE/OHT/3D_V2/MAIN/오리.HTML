@@ -1,0 +1,2960 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SK hynix 이천캠퍼스 3D</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@300;400;600;700;900&display=swap');
+  
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  
+  body {
+    background: #0a0a0f;
+    color: #e0e0e0;
+    font-family: 'Noto Sans KR', sans-serif;
+    overflow: hidden;
+    width: 100vw;
+    height: 100vh;
+  }
+
+  #canvas-container {
+    width: 100%;
+    height: 100%;
+    position: relative;
+  }
+
+  canvas { display: block; }
+
+  /* Title overlay */
+  .title-overlay {
+    position: fixed;
+    top: 20px;
+    left: 24px;
+    text-align: left;
+    z-index: 100;
+    pointer-events: none;
+  }
+  .title-overlay h1 {
+    font-size: 22px;
+    font-weight: 900;
+    letter-spacing: 2px;
+    color: #fff;
+    text-shadow: 0 2px 20px rgba(0,0,0,0.8);
+    margin-bottom: 4px;
+  }
+  .title-overlay p {
+    font-size: 11px;
+    color: #888;
+    letter-spacing: 4px;
+    text-transform: uppercase;
+  }
+
+  /* Info panel */
+  .info-panel {
+    position: fixed;
+    bottom: 24px;
+    left: 24px;
+    background: rgba(10,10,20,0.92);
+    backdrop-filter: blur(20px);
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 14px;
+    padding: 0;
+    z-index: 100;
+    min-width: 280px;
+    max-width: 340px;
+    max-height: 70vh;
+    overflow-y: auto;
+    transition: all 0.3s ease;
+  }
+  .info-panel::-webkit-scrollbar { width: 4px; }
+  .info-panel::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 2px; }
+  .info-panel .panel-header {
+    padding: 14px 18px 10px;
+    border-bottom: 1px solid rgba(255,255,255,0.06);
+    position: sticky; top: 0;
+    background: rgba(10,10,20,0.95);
+    border-radius: 14px 14px 0 0;
+    z-index: 2;
+  }
+  .info-panel .building-name {
+    font-size: 17px;
+    font-weight: 800;
+    color: #fff;
+    margin-bottom: 3px;
+    display: flex; align-items: center; gap: 8px;
+  }
+  .info-panel .building-name .color-badge {
+    display: inline-block; width: 10px; height: 10px; border-radius: 3px; flex-shrink: 0;
+  }
+  .info-panel .building-type {
+    font-size: 10px;
+    color: #888;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    margin-bottom: 0;
+  }
+  .info-panel .panel-body { padding: 12px 18px 16px; }
+  .info-panel .building-detail {
+    font-size: 12px;
+    color: #aaa;
+    line-height: 1.6;
+    margin-bottom: 10px;
+  }
+  /* 스펙 그리드 */
+  .info-panel .spec-grid {
+    display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-bottom: 12px;
+  }
+  .info-panel .spec-item {
+    background: rgba(255,255,255,0.03); border-radius: 6px; padding: 7px 10px;
+  }
+  .info-panel .spec-label { font-size: 9px; color: #555; letter-spacing: 1px; }
+  .info-panel .spec-value { font-size: 13px; font-weight: 700; color: #ddd; margin-top: 1px; }
+  /* 공정 플로우 */
+  .info-panel .section-label {
+    font-size: 9px; color: #556; letter-spacing: 2px; margin-bottom: 6px;
+    padding-bottom: 4px; border-bottom: 1px solid rgba(255,255,255,0.04);
+  }
+  .info-panel .process-flow {
+    display: flex; flex-wrap: wrap; align-items: center; gap: 0; margin-bottom: 10px;
+  }
+  .info-panel .pf-step {
+    font-size: 10px; color: #bbb; background: rgba(255,255,255,0.04);
+    padding: 3px 8px; border-radius: 4px; white-space: nowrap;
+  }
+  .info-panel .pf-arrow {
+    font-size: 10px; color: #4af; margin: 0 3px;
+    animation: arrowPulse 1.5s ease-in-out infinite;
+  }
+  @keyframes arrowPulse { 0%,100%{opacity:0.4} 50%{opacity:1} }
+  /* 이동 경로 */
+  .info-panel .route-info {
+    background: rgba(68,170,255,0.06); border: 1px solid rgba(68,170,255,0.12);
+    border-radius: 8px; padding: 8px 10px; margin-bottom: 8px;
+  }
+  .info-panel .route-title {
+    font-size: 10px; font-weight: 700; color: #4af; margin-bottom: 4px;
+    display: flex; align-items: center; gap: 5px;
+  }
+  .info-panel .route-title .dot { width: 6px; height: 6px; background: #4af; border-radius: 50%; animation: dotBlink 1s ease infinite; }
+  @keyframes dotBlink { 0%,100%{opacity:0.3} 50%{opacity:1} }
+  .info-panel .route-desc { font-size: 10px; color: #8ab; line-height: 1.5; }
+  .info-panel .color-dot {
+    display: inline-block;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    margin-right: 6px;
+    vertical-align: middle;
+  }
+  /* 전체 흐름 버튼 */
+  .info-panel .flow-btn {
+    width: 100%; padding: 7px; margin-top: 8px; border: 1px solid rgba(68,170,255,0.2);
+    background: rgba(68,170,255,0.08); color: #4af; font-size: 10px; font-weight: 600;
+    border-radius: 6px; cursor: pointer; letter-spacing: 1px; transition: all 0.3s;
+  }
+  .info-panel .flow-btn:hover { background: rgba(68,170,255,0.15); }
+
+  /* Legend */
+  .legend {
+    position: fixed;
+    top: 24px;
+    right: 24px;
+    background: rgba(10,10,20,0.85);
+    backdrop-filter: blur(20px);
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 12px;
+    padding: 14px 18px;
+    z-index: 100;
+    font-size: 11px;
+  }
+  .legend-title {
+    font-size: 10px;
+    color: #666;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    margin-bottom: 10px;
+  }
+  .legend-item {
+    display: flex;
+    align-items: center;
+    margin-bottom: 6px;
+    color: #aaa;
+  }
+  .legend-item .swatch {
+    width: 14px;
+    height: 14px;
+    border-radius: 3px;
+    margin-right: 8px;
+    flex-shrink: 0;
+  }
+
+  /* Controls hint */
+  .controls-hint {
+    position: fixed;
+    bottom: 24px;
+    right: 24px;
+    background: rgba(10,10,20,0.7);
+    backdrop-filter: blur(12px);
+    border: 1px solid rgba(255,255,255,0.06);
+    border-radius: 10px;
+    padding: 10px 14px;
+    z-index: 100;
+    font-size: 10px;
+    color: #666;
+    line-height: 1.8;
+  }
+  .controls-hint kbd {
+    background: rgba(255,255,255,0.08);
+    border: 1px solid rgba(255,255,255,0.12);
+    border-radius: 3px;
+    padding: 1px 5px;
+    font-family: inherit;
+    color: #999;
+  }
+
+  /* Loading */
+  .loading {
+    position: fixed; inset: 0;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    background: #060810; z-index: 999; transition: opacity 1.2s ease;
+  }
+  .loading.hidden { opacity: 0; pointer-events: none; }
+  .load-logo {
+    font-size: 42px; font-weight: 900; color: #fff; letter-spacing: 4px; margin-bottom: 2px;
+    text-shadow: 0 0 30px rgba(231,76,60,0.3), 0 4px 20px rgba(0,0,0,0.6);
+    animation: ldIn 1.2s ease both;
+  }
+  .load-logo span { color: #e74c3c; }
+  .load-campus {
+    font-size: 13px; color: #556; letter-spacing: 6px; text-transform: uppercase; margin-bottom: 6px;
+    text-shadow: 0 2px 10px rgba(0,0,0,0.5);
+    animation: ldIn 1s ease 0.4s both;
+  }
+  .load-amhs {
+    font-size: 10px; color: #3a7; letter-spacing: 4px; text-transform: uppercase; margin-bottom: 34px;
+    text-shadow: 0 0 12px rgba(50,170,120,0.3);
+    animation: ldIn 1s ease 0.7s both;
+  }
+  .load-bar-bg { width: 240px; height: 2px; background: rgba(255,255,255,0.06); border-radius: 2px; overflow: hidden; margin-bottom: 16px; animation: ldIn 0.8s ease 0.9s both; }
+  .load-bar { height: 100%; width: 0%; background: linear-gradient(90deg, #e74c3c, #4af, #3a7); border-radius: 2px; animation: barGo 4s ease-in-out 1s forwards; }
+  .load-msg { font-size: 10px; color: #334; letter-spacing: 4px; text-transform: uppercase; animation: ldPulse 1.5s ease-in-out 1s infinite; }
+  .load-bottom {
+    position: absolute; bottom: 36px; text-align: center;
+    text-shadow: 0 2px 8px rgba(0,0,0,0.4);
+    animation: ldIn 1s ease 1.2s both;
+  }
+  .load-bottom div { font-size: 9px; color: #2a2e38; letter-spacing: 3px; line-height: 2.2; }
+  @keyframes ldIn { from{opacity:0;transform:translateY(16px)} to{opacity:1;transform:translateY(0)} }
+  @keyframes ldPulse { 0%,100%{opacity:0.2} 50%{opacity:0.6} }
+  @keyframes barGo { 0%{width:0%} 20%{width:22%} 45%{width:50%} 70%{width:75%} 90%{width:92%} 100%{width:100%} }
+
+  /* Minimap */
+  #minimap {
+    position: fixed;
+    bottom: 24px;
+    right: 24px;
+    width: 160px;
+    height: 140px;
+    background: rgba(8,10,18,0.92);
+    backdrop-filter: blur(16px);
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 10px;
+    z-index: 150;
+    overflow: hidden;
+    cursor: pointer;
+    box-shadow: 0 4px 20px rgba(0,0,0,0.4);
+  }
+  #minimap canvas {
+    display: block;
+    width: 100%;
+    height: 100%;
+  }
+  .minimap-label {
+    position: absolute;
+    top: 5px;
+    left: 8px;
+    font-size: 7px;
+    color: #445;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    pointer-events: none;
+    font-weight: 600;
+  }
+  .minimap-compass {
+    position: absolute;
+    top: 5px;
+    right: 8px;
+    font-size: 8px;
+    color: #e74c3c;
+    pointer-events: none;
+    font-weight: 700;
+  }
+
+  /* Tooltip */
+  #tooltip {
+    position: fixed;
+    pointer-events: none;
+    background: rgba(0,0,0,0.85);
+    backdrop-filter: blur(8px);
+    border: 1px solid rgba(255,255,255,0.15);
+    border-radius: 6px;
+    padding: 6px 10px;
+    font-size: 12px;
+    color: #fff;
+    font-weight: 600;
+    z-index: 200;
+    display: none;
+    white-space: nowrap;
+    transform: translate(-50%, -120%);
+  }
+
+  /* 말풍선 */
+  #speechBubble {
+    position: fixed;
+    pointer-events: none;
+    z-index: 300;
+    display: none;
+    transform: translate(-50%, -130%);
+    animation: bubblePop 0.3s ease-out;
+  }
+  #speechBubble .bubble-inner {
+    background: rgba(255,255,255,0.95);
+    color: #222;
+    font-size: 14px;
+    font-weight: 600;
+    padding: 10px 16px;
+    border-radius: 14px;
+    box-shadow: 0 4px 20px rgba(0,0,0,0.3);
+    white-space: nowrap;
+    position: relative;
+  }
+  #speechBubble .bubble-inner::after {
+    content: '';
+    position: absolute;
+    bottom: -8px;
+    left: 50%;
+    transform: translateX(-50%);
+    border-left: 8px solid transparent;
+    border-right: 8px solid transparent;
+    border-top: 8px solid rgba(255,255,255,0.95);
+  }
+  @keyframes bubblePop {
+    0% { transform: translate(-50%, -130%) scale(0.3); opacity: 0; }
+    60% { transform: translate(-50%, -130%) scale(1.1); opacity: 1; }
+    100% { transform: translate(-50%, -130%) scale(1); opacity: 1; }
+  }
+</style>
+</head>
+<body>
+
+<div class="loading" id="loading">
+  <div class="load-logo"><span>SK</span> hynix</div>
+  <div class="load-campus">Icheon Campus 3D</div>
+  <div class="load-amhs">AMOS Monitoring System</div>
+  <div class="load-bar-bg"><div class="load-bar"></div></div>
+  <div class="load-msg">Initializing 3D Environment...</div>
+  <div class="load-bottom">
+    <div>DRAM PRODUCTION FACILITY</div>
+    <div>ICHEON, GYEONGGI-DO, KOREA</div>
+  </div>
+</div>
+
+<div class="title-overlay">
+  <h1>SK hynix 이천캠퍼스</h1>
+  <p>3D Campus Visualization</p>
+</div>
+
+<div class="legend">
+  <div class="legend-title">범례</div>
+  <div class="legend-item"><div class="swatch" style="background:#ecc94b"></div>M14 DRAM FAB</div>
+  <div class="legend-item"><div class="swatch" style="background:#48bb78"></div>M16 DRAM FAB</div>
+  <div class="legend-item"><div class="swatch" style="background:#63b3ed"></div>M10 FAB</div>
+  <div class="legend-item"><div class="swatch" style="background:#e07098"></div>DRAM WT (검사동)</div>
+  <div class="legend-item"><div class="swatch" style="background:#c4956a"></div>P&T (패키지·테스트)</div>
+  <div class="legend-item"><div class="swatch" style="background:#44aaee"></div>OHT 연결통로</div>
+</div>
+
+<div id="timeToggle" style="position:fixed;top:75px;left:24px;z-index:200;background:rgba(10,10,20,0.85);border-radius:10px;border:1px solid rgba(255,255,255,0.1);backdrop-filter:blur(8px);user-select:none;">
+  <div id="timeToggleHeader" style="display:flex;align-items:center;justify-content:space-between;padding:6px 12px;cursor:move;">
+    <span style="font-size:11px;color:#666;letter-spacing:1px;">⏰ 시간 설정</span>
+    <button id="btnCollapse" onclick="toggleTimePanel()" style="background:none;border:none;color:#888;cursor:pointer;font-size:14px;padding:0 4px;">▼</button>
+  </div>
+  <div id="timeToggleBody" style="display:none;gap:6px;padding:4px 12px 8px 12px;">
+    <button id="btnMorning" onclick="setTimeMode('morning')" style="padding:6px 14px;border:none;border-radius:6px;cursor:pointer;font-size:13px;font-weight:600;background:rgba(255,180,50,0.2);color:#ffcc66;transition:all 0.3s;">🌅 아침</button>
+    <button id="btnAuto" onclick="setTimeMode('auto')" style="padding:6px 14px;border:none;border-radius:6px;cursor:pointer;font-size:13px;font-weight:600;background:rgba(100,200,255,0.3);color:#88ddff;transition:all 0.3s;box-shadow:0 0 8px rgba(100,200,255,0.3);">🕐 실시간</button>
+    <button id="btnNight" onclick="setTimeMode('night')" style="padding:6px 14px;border:none;border-radius:6px;cursor:pointer;font-size:13px;font-weight:600;background:rgba(100,100,200,0.2);color:#aabbdd;transition:all 0.3s;">🌙 밤</button>
+  </div>
+</div>
+<script>
+// 접기/펼치기
+function toggleTimePanel() {
+  const body = document.getElementById('timeToggleBody');
+  const btn = document.getElementById('btnCollapse');
+  if (body.style.display === 'none') {
+    body.style.display = 'flex';
+    btn.textContent = '▲';
+  } else {
+    body.style.display = 'none';
+    btn.textContent = '▼';
+  }
+}
+// 드래그 이동
+(function() {
+  const panel = document.getElementById('timeToggle');
+  const header = document.getElementById('timeToggleHeader');
+  let dragging = false, offX = 0, offY = 0;
+  header.addEventListener('mousedown', function(e) {
+    if (e.target.id === 'btnCollapse') return;
+    dragging = true;
+    const rect = panel.getBoundingClientRect();
+    offX = e.clientX - rect.left;
+    offY = e.clientY - rect.top;
+    e.preventDefault();
+  });
+  document.addEventListener('mousemove', function(e) {
+    if (!dragging) return;
+    panel.style.left = (e.clientX - offX) + 'px';
+    panel.style.top = (e.clientY - offY) + 'px';
+    panel.style.right = 'auto';
+  });
+  document.addEventListener('mouseup', function() { dragging = false; });
+  // 터치 지원
+  header.addEventListener('touchstart', function(e) {
+    if (e.target.id === 'btnCollapse') return;
+    dragging = true;
+    const rect = panel.getBoundingClientRect();
+    offX = e.touches[0].clientX - rect.left;
+    offY = e.touches[0].clientY - rect.top;
+  }, {passive: true});
+  document.addEventListener('touchmove', function(e) {
+    if (!dragging) return;
+    panel.style.left = (e.touches[0].clientX - offX) + 'px';
+    panel.style.top = (e.touches[0].clientY - offY) + 'px';
+    panel.style.right = 'auto';
+  });
+  document.addEventListener('touchend', function() { dragging = false; });
+})();
+</script>
+
+<div class="info-panel" id="infoPanel">
+  <div class="panel-header">
+    <div class="building-name" id="bName"><span class="color-badge" id="bBadge" style="background:#4af;"></span>SK hynix 이천</div>
+    <div class="building-type" id="bType">캠퍼스 전경</div>
+  </div>
+  <div class="panel-body" id="panelBody">
+    <div class="building-detail" id="bDetail">건물을 클릭하면<br>생산 공정 & 이동 정보를 볼 수 있습니다</div>
+  </div>
+</div>
+
+
+<div id="minimap">
+  <canvas id="minimapCanvas"></canvas>
+  <div class="minimap-label">MINIMAP</div>
+  <div class="minimap-compass">N</div>
+</div>
+
+<div id="tooltip"></div>
+<div id="speechBubble"><div class="bubble-inner" id="speechText"></div></div>
+<div id="canvas-container"></div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+// ============================================================
+// SK hynix Icheon Campus 3D Visualization
+// ============================================================
+
+const SCALE = 0.5; // scale factor for coordinates
+
+// Building data: [name, x, y, w, h, height, color, type, detail]
+const buildings = [
+  // Main FABs (간격 확보)
+  { name: 'M14A/B', x: 150, z: 280, w: 210, d: 160, h: 96, color: 0xecc94b, type: 'DRAM 생산동', detail: 'M14A/B FAB동\n1a/1b nm DRAM 생산\n최신 공정 라인\n8층(옥상)',
+    specs: { floors: '8F (옥상)', process: '1a/1b nm', size: '210m × 160m', height: '48m' },
+    processFlow: ['포토리소그래피', '식각(Etching)', '증착(Deposition)', 'CMP 연마', '이온주입'],
+    routes: [{ to: 'M16A/B', method: 'OHT 컨베이어 → 레일 → 리프터', desc: 'M10B 왼쪽 우회, 공중 23m 높이 연결' }],
+    flowRole: 'STEP 1 -웨이퍼 FAB (회로 형성)',
+    chimneys: { count: 3, height: 18, radius: 2.5 }
+  },
+  { name: 'M10A', x: 160, z: 520, w: 200, d: 120, h: 65, color: 0x63b3ed, type: '생산동', detail: 'M10A FAB동\nDRAM 생산',
+    specs: { floors: '5F', process: 'DRAM', size: '200m × 120m', height: '32.5m' },
+    processFlow: ['웨이퍼 투입', 'DRAM 생산 공정', '웨이퍼 검사', '다음 공정 이송'],
+    routes: [],
+    flowRole: 'STEP 2 -FAB 생산 (멀티 FAB 운영)'
+  },
+  { name: 'M10B/R3', x: 500, z: 300, w: 140, d: 100, h: 60, color: 0x63b3ed, type: '생산동', detail: 'M10B/R3 FAB동\nDRAM 생산',
+    specs: { floors: '5F', process: 'DRAM', size: '140m × 100m', height: '30m' },
+    processFlow: ['웨이퍼 투입', 'DRAM 생산 공정', '품질 검사'],
+    routes: [],
+    flowRole: 'STEP 2 -FAB 생산 (멀티 FAB 운영)'
+  },
+  { name: 'M10C', x: 700, z: 200, w: 160, d: 100, h: 60, color: 0x63b3ed, type: '생산동', detail: 'M10C FAB동\nDRAM 생산',
+    specs: { floors: '5F', process: 'DRAM', size: '160m × 100m', height: '30m' },
+    processFlow: ['웨이퍼 투입', 'DRAM 생산 공정', '품질 검사'],
+    routes: [],
+    flowRole: 'STEP 2 -FAB 생산 (멀티 FAB 운영)'
+  },
+  { name: 'M16A/B', x: 530, z: 520, w: 230, d: 120, h: 132, color: 0x48bb78, type: 'DRAM 생산동', detail: 'M16A/B FAB동\nDRAM 생산동\nAMHS 물류 시스템 운영\n11층(옥상)',
+    specs: { floors: '11F (옥상)', logistics: 'AMHS', size: '230m × 120m', height: '66m' },
+    processFlow: ['최신 DRAM 양산', 'AMHS 자동물류', '클린룸 Class 1', '품질 검증'],
+    routes: [
+      { to: 'M14A/B', method: 'OHT 컨베이어 · 레일', desc: '3층 출발, M10B 왼쪽 우회 경로' },
+      { to: 'P&T4', method: 'OHT 컨베이어(3층→5층)', desc: 'M16 우측→수평→리프터→P&T4' },
+      { to: 'P&T5', method: 'OHT 컨베이어(2층→3층)', desc: 'M16 우측→P&T4 바깥 우회→P&T5' }
+    ],
+    flowRole: 'STEP 3 -최신 FAB (대형 생산동)',
+    chimneys: { count: 4, height: 22, radius: 2.8 }
+  },
+  { name: 'DRAM_WT', x: 420, z: 730, w: 150, d: 70, h: 45, color: 0xe07098, type: '웨이퍼 테스트', detail: 'DRAM 웨이퍼 테스트동\n웨이퍼 검사 및 테스트',
+    specs: { floors: '4F', role: '웨이퍼 검사', size: '150m × 70m', height: '22.5m' },
+    processFlow: ['프로브 테스트', '전기적 특성 측정', '수율(Yield) 판정', '불량 다이 마킹'],
+    routes: [{ to: 'P&T1/4/5', method: '컨베이어 이동', desc: '검사 완료 웨이퍼 → 패키지 공정' }],
+    flowRole: 'STEP 4 -웨이퍼 테스트 (검사/판정)'
+  },
+
+  // P&T
+  { name: 'P&T1', x: 420, z: 140, w: 110, d: 80, h: 35, color: 0xc4956a, type: '패키지 및 테스트', detail: 'P&T1 패키지 및 테스트동',
+    specs: { floors: '3F', role: '패키지·테스트', size: '110m × 80m', height: '17.5m' },
+    processFlow: ['다이싱(Sawing)', '다이 어태치', '와이어 본딩', '몰딩', '최종 테스트'],
+    routes: [{ to: '출하(정문)', method: '차량 운송', desc: '완제품 → 정문 → 중부고속도로' }],
+    flowRole: 'STEP 5 -패키지 & 테스트'
+  },
+  { name: 'P&T4', x: 830, z: 320, w: 140, d: 120, h: 96, color: 0xc4956a, type: '패키지 및 테스트', detail: 'P&T4 패키지 및 테스트동\n8층(옥상)\n패키지 및 테스트 공정',
+    specs: { floors: '8F (옥상)', link: 'M16 OHT', size: '140m × 120m', height: '48m' },
+    processFlow: ['웨이퍼 다이싱', '다이 어태치', '와이어 본딩', '몰딩(Molding)', '최종 테스트 & 마킹'],
+    routes: [{ to: 'M16A/B', method: 'OHT(5층→3층)', desc: 'P&T4 5층 ↔ M16 3층 리프터 연결' }],
+    flowRole: 'STEP 5 -패키지 & 테스트 (대형)'
+  },
+  { name: 'P&T5', x: 780, z: 660, w: 130, d: 90, h: 48, color: 0xc4956a, type: '패키지 및 테스트', detail: 'P&T5 패키지 및 테스트동\n4층(옥상)',
+    specs: { floors: '4F (옥상)', link: 'M16 OHT', size: '130m × 90m', height: '24m' },
+    processFlow: ['웨이퍼 다이싱', '패키지 조립', '최종 품질 검증', '출하 대기'],
+    routes: [{ to: 'M16A/B', method: 'OHT(3층→2층)', desc: 'P&T5 3층 ↔ M16 2층, P&T4 바깥 우회' }],
+    flowRole: 'STEP 5 -패키지 & 테스트'
+  },
+];
+
+// ============================================================
+// Three.js Setup
+// ============================================================
+const container = document.getElementById('canvas-container');
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x0a0a12);
+scene.fog = new THREE.FogExp2(0x0a0a12, 0.0006);
+
+const camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 1, 5000);
+camera.position.set(-200, 300, 450);
+camera.lookAt(250, 0, 250);
+
+const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+renderer.setSize(window.innerWidth, window.innerHeight);
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.4;
+container.appendChild(renderer.domElement);
+
+// ============================================================
+// Lighting
+// ============================================================
+const ambientLight = new THREE.AmbientLight(0x667799, 0.9);
+scene.add(ambientLight);
+
+const dirLight = new THREE.DirectionalLight(0xffeedd, 1.2);
+dirLight.position.set(300, 400, 200);
+dirLight.castShadow = true;
+dirLight.shadow.mapSize.width = 2048;
+dirLight.shadow.mapSize.height = 2048;
+dirLight.shadow.camera.left = -500;
+dirLight.shadow.camera.right = 500;
+dirLight.shadow.camera.top = 500;
+dirLight.shadow.camera.bottom = -500;
+scene.add(dirLight);
+
+const hemiLight = new THREE.HemisphereLight(0x99bbdd, 0x445566, 0.8);
+scene.add(hemiLight);
+
+// Accent light
+const pointLight = new THREE.PointLight(0x4488ff, 0.3, 600);
+pointLight.position.set(200, 150, 300);
+scene.add(pointLight);
+
+// ============================================================
+// 천체 시스템 (해/달 - 실시간)
+// ============================================================
+// 해
+const sunGeo = new THREE.SphereGeometry(18, 32, 32);
+const sunMat = new THREE.MeshBasicMaterial({ color: 0xffdd44 });
+const sunMesh = new THREE.Mesh(sunGeo, sunMat);
+scene.add(sunMesh);
+// 해 글로우
+const sunGlowGeo = new THREE.SphereGeometry(25, 32, 32);
+const sunGlowMat = new THREE.MeshBasicMaterial({ color: 0xffaa22, transparent: true, opacity: 0.2 });
+const sunGlow = new THREE.Mesh(sunGlowGeo, sunGlowMat);
+sunMesh.add(sunGlow);
+
+// 달 (크고 밝게)
+const moonGeo = new THREE.SphereGeometry(20, 32, 32);
+const moonMat = new THREE.MeshBasicMaterial({ color: 0xfffff0 });
+const moonMesh = new THREE.Mesh(moonGeo, moonMat);
+scene.add(moonMesh);
+// 달 글로우 1 (내부)
+const moonGlowGeo = new THREE.SphereGeometry(30, 32, 32);
+const moonGlowMat = new THREE.MeshBasicMaterial({ color: 0xcceeff, transparent: true, opacity: 0.25 });
+const moonGlow = new THREE.Mesh(moonGlowGeo, moonGlowMat);
+moonMesh.add(moonGlow);
+// 달 글로우 2 (외부 - 더 큰 후광)
+const moonGlow2Geo = new THREE.SphereGeometry(50, 32, 32);
+const moonGlow2Mat = new THREE.MeshBasicMaterial({ color: 0x99bbdd, transparent: true, opacity: 0.1 });
+const moonGlow2 = new THREE.Mesh(moonGlow2Geo, moonGlow2Mat);
+moonMesh.add(moonGlow2);
+// 달 포인트라이트 (달빛 효과)
+const moonLight = new THREE.PointLight(0x8899cc, 0, 800);
+moonMesh.add(moonLight);
+
+// 천체 궤도 중심 & 반지름 (가까이)
+const skyCenter = new THREE.Vector3(35, 0, 170);
+const skyRadius = 350;
+
+// 아침/밤 전환 모드
+let timeMode = 'auto'; // 'auto', 'morning', 'night'
+function setTimeMode(mode) {
+  timeMode = mode;
+  // 버튼 스타일 업데이트
+  const btnM = document.getElementById('btnMorning');
+  const btnA = document.getElementById('btnAuto');
+  const btnN = document.getElementById('btnNight');
+  btnM.style.background = mode === 'morning' ? 'rgba(255,180,50,0.5)' : 'rgba(255,180,50,0.2)';
+  btnM.style.boxShadow = mode === 'morning' ? '0 0 8px rgba(255,180,50,0.4)' : 'none';
+  btnA.style.background = mode === 'auto' ? 'rgba(100,200,255,0.3)' : 'rgba(100,200,255,0.1)';
+  btnA.style.boxShadow = mode === 'auto' ? '0 0 8px rgba(100,200,255,0.3)' : 'none';
+  btnN.style.background = mode === 'night' ? 'rgba(100,100,200,0.5)' : 'rgba(100,100,200,0.2)';
+  btnN.style.boxShadow = mode === 'night' ? '0 0 8px rgba(100,100,200,0.4)' : 'none';
+}
+
+function updateSky() {
+  let hours;
+  if (timeMode === 'morning') {
+    hours = 10; // 오전 10시 (밝은 낮)
+  } else if (timeMode === 'night') {
+    hours = 0;  // 자정 (한밤중)
+  } else {
+    const now = new Date();
+    hours = now.getHours() + now.getMinutes() / 60;
+  }
+
+  // 해 각도: 6시=동쪽(0도), 12시=남쪽 최고점(90도), 18시=서쪽(180도)
+  // 일출 6시, 일몰 18시 기준
+  const sunAngle = ((hours - 6) / 12) * Math.PI; // 0~π (6시~18시)
+  const sunUp = (hours >= 5.5 && hours <= 18.5);
+
+  if (sunUp) {
+    const sx = skyCenter.x + skyRadius * Math.cos(sunAngle);
+    const sy = skyRadius * Math.sin(sunAngle) * 0.7; // 최고 높이 조절
+    const sz = skyCenter.z - 200;
+    sunMesh.position.set(sx, Math.max(sy, -20), sz);
+    sunMesh.visible = true;
+    sunGlowMat.opacity = 0.2 + 0.15 * Math.sin(sunAngle);
+  } else {
+    sunMesh.visible = false;
+  }
+
+  // 달 각도: 18시=동쪽, 0시=최고점, 6시=서쪽
+  const moonAngle = ((hours - 18 + 24) % 24 / 12) * Math.PI;
+  const moonUp = (hours >= 17.5 || hours <= 6.5);
+
+  if (moonUp) {
+    const mx = skyCenter.x - skyRadius * Math.cos(moonAngle);
+    const my = skyRadius * Math.sin(moonAngle) * 0.6;
+    const mz = skyCenter.z + 150;
+    moonMesh.position.set(mx, Math.max(my, -20), mz);
+    moonMesh.visible = true;
+    // 달 높이에 따라 밝기 조절
+    const moonAlt = Math.max(0, my) / (skyRadius * 0.6);
+    moonLight.intensity = 2.5 * moonAlt;
+    moonGlowMat.opacity = 0.2 + 0.2 * moonAlt;
+    moonGlow2Mat.opacity = 0.08 + 0.12 * moonAlt;
+  } else {
+    moonMesh.visible = false;
+    moonLight.intensity = 0;
+  }
+
+  // 하늘색 & 조명 조절
+  let skyProgress; // 0=밤, 1=낮
+  if (hours >= 6 && hours <= 18) {
+    // 낮: 6~12 점점 밝아짐, 12~18 점점 어두워짐
+    skyProgress = 1 - Math.abs(hours - 12) / 6;
+  } else {
+    skyProgress = 0;
+  }
+  // 새벽/석양 전환
+  if (hours >= 5 && hours < 6) skyProgress = (hours - 5) * 0.3;
+  if (hours > 18 && hours <= 19) skyProgress = (19 - hours) * 0.3;
+
+  // 배경색: 밤(0x0a0a12) ↔ 낮(0x4488cc)
+  const nightR = 0x10/255, nightG = 0x12/255, nightB = 0x22/255;
+  const dayR = 0x55/255, dayG = 0x99/255, dayB = 0xdd/255;
+  const dawnR = 0x88/255, dawnG = 0x44/255, dawnB = 0x33/255;
+
+  let r, g, b;
+  if (skyProgress > 0.3) {
+    // 낮
+    const t = (skyProgress - 0.3) / 0.7;
+    r = dayR * t + nightR * (1-t);
+    g = dayG * t + nightG * (1-t);
+    b = dayB * t + nightB * (1-t);
+  } else if (skyProgress > 0) {
+    // 새벽/석양
+    const t = skyProgress / 0.3;
+    r = dawnR * t + nightR * (1-t);
+    g = dawnG * t + nightG * (1-t);
+    b = dawnB * t + nightB * (1-t);
+  } else {
+    r = nightR; g = nightG; b = nightB;
+  }
+  scene.background.setRGB(r, g, b);
+  scene.fog.color.setRGB(r, g, b);
+
+  // 조명 강도
+  const dayAmbient = 1.5, nightAmbient = 0.8;
+  const dayDir = 1.8, nightDir = 0.5;
+  ambientLight.intensity = nightAmbient + (dayAmbient - nightAmbient) * skyProgress;
+  dirLight.intensity = nightDir + (dayDir - nightDir) * skyProgress;
+
+  // 해 위치에 맞춰 directional light 이동
+  if (sunUp) {
+    dirLight.position.copy(sunMesh.position);
+    dirLight.color.setHex(skyProgress > 0.3 ? 0xffeedd : 0xff8844);
+  } else {
+    dirLight.position.set(100, 300, 100);
+    dirLight.color.setHex(0x334466);
+  }
+
+  // 톤매핑 밝기
+  renderer.toneMappingExposure = 1.2 + skyProgress * 0.6;
+
+  // 낮/밤 창문 전기 전환
+  const isNight = skyProgress < 0.15;
+  buildingMeshes.forEach(group => {
+    group.children.forEach(child => {
+      if (child.userData && child.userData.isWindow) {
+        if (isNight) {
+          // 밤: 노란 불빛 켜짐 (야경)
+          child.material.color.setHex(0xffdd88);
+          child.material.emissive.setHex(0xddaa33);
+          child.material.emissiveIntensity = 0.6 + Math.random() * 0.35;
+          child.material.opacity = 0.8 + Math.random() * 0.2;
+        } else {
+          // 낮: 전기 꺼짐 - 유리 반사만
+          child.material.color.setHex(0x8ac4ed);
+          child.material.emissive.setHex(0x3388bb);
+          child.material.emissiveIntensity = 0.03;
+          child.material.opacity = 0.3;
+        }
+      }
+    });
+  });
+}
+
+// ============================================================
+// Ground
+// ============================================================
+const groundGeo = new THREE.PlaneGeometry(850, 800);
+const groundMat = new THREE.MeshStandardMaterial({
+  color: 0x141820,
+  roughness: 0.95,
+  metalness: 0.05,
+});
+const ground = new THREE.Mesh(groundGeo, groundMat);
+ground.rotation.x = -Math.PI / 2;
+ground.position.set(35, -0.5, 170);
+ground.receiveShadow = true;
+scene.add(ground);
+
+// Grid overlay
+const gridHelper = new THREE.GridHelper(850, 42, 0x14171e, 0x10121a);
+gridHelper.position.set(35, 0.05, 170);
+gridHelper.material.transparent = true;
+gridHelper.material.opacity = 0.07;
+scene.add(gridHelper);
+
+// ============================================================
+// 캠퍼스 외곽 환경 (나무, 주변건물, 부속건물, 정문)
+// ============================================================
+
+// ── 나무 (개선된 원뿔형 침엽수 + 활엽수 혼합) ──
+const _trunkMat = new THREE.MeshStandardMaterial({ color: 0x5a4030, roughness: 0.9 });
+const _trunkGeo = new THREE.CylinderGeometry(0.12, 0.22, 1, 5);
+const _coneGeo = new THREE.ConeGeometry(1, 1, 6);
+const _sphereGeo = new THREE.SphereGeometry(1, 6, 5);
+
+function addTree(x, z) {
+  const s = 2.0 + Math.random() * 2.5;
+  const g = new THREE.Group();
+  const isCone = Math.random() > 0.4; // 60% 침엽수, 40% 활엽수
+  const lc = [0x1e5a18, 0x2d6a22, 0x1a5010, 0x2a6830, 0x1d4a12][Math.floor(Math.random()*5)];
+  const lm = new THREE.MeshStandardMaterial({ color: lc, roughness: 0.8, flatShading: true });
+
+  // 줄기
+  const trunk = new THREE.Mesh(_trunkGeo, _trunkMat);
+  trunk.scale.set(s*0.5, s*2.5, s*0.5);
+  trunk.position.y = s*1.2;
+  g.add(trunk);
+
+  if (isCone) {
+    // 침엽수: 겹친 원뿔 2~3개
+    for (let i = 0; i < 2 + (Math.random()>0.5?1:0); i++) {
+      const cone = new THREE.Mesh(_coneGeo, lm);
+      const cs = s * (1.4 - i*0.3);
+      cone.scale.set(cs, cs*1.2, cs);
+      cone.position.y = s*2.2 + i*s*0.9;
+      g.add(cone);
+    }
+  } else {
+    // 활엽수: 둥근 수관
+    const crown = new THREE.Mesh(_sphereGeo, lm);
+    crown.scale.set(s*1.3, s*1.1, s*1.3);
+    crown.position.y = s*3.2;
+    g.add(crown);
+  }
+  g.position.set(x, 0, z);
+  scene.add(g);
+}
+
+// 캠퍼스 둘레 나무 (자연스러운 숲 느낌, 건물 사이사이)
+const treePosArr = [];
+// 왼쪽 (sparse)
+for (let i = 0; i < 18; i++) { treePosArr.push([-230 + Math.random()*20, 340 - i*35 + Math.random()*12]); }
+// 오른쪽 (sparse)
+for (let i = 0; i < 18; i++) { treePosArr.push([275 + Math.random()*20, 340 - i*35 + Math.random()*12]); }
+// 위쪽 (정문 주변은 빈 공간)
+for (let i = 0; i < 8; i++) { treePosArr.push([-200 + i*20 + Math.random()*8, 380 + Math.random()*15]); }
+for (let i = 0; i < 8; i++) { treePosArr.push([100 + i*20 + Math.random()*8, 380 + Math.random()*15]); }
+// 아래쪽
+for (let i = 0; i < 14; i++) { treePosArr.push([-180 + i*32 + Math.random()*10, -45 - Math.random()*20]); }
+treePosArr.forEach(([x, z]) => addTree(x, z));
+
+// ── 외곽 주변 건물 (일반 시가지 느낌) ──
+function addOuterBuilding(x, z, w, d, h, color) {
+  const geo = new THREE.BoxGeometry(w, h, d);
+  const mat = new THREE.MeshStandardMaterial({
+    color: color, roughness: 0.85, metalness: 0.05
+  });
+  const mesh = new THREE.Mesh(geo, mat);
+  mesh.position.set(x, h/2, z);
+  mesh.castShadow = true;
+  mesh.receiveShadow = true;
+  scene.add(mesh);
+
+  // 옥상 (어두운 색)
+  const roofGeo = new THREE.BoxGeometry(w+0.5, 0.4, d+0.5);
+  const roofMat = new THREE.MeshStandardMaterial({ color: 0x333840, roughness: 0.7 });
+  const roof = new THREE.Mesh(roofGeo, roofMat);
+  roof.position.set(x, h+0.2, z);
+  scene.add(roof);
+
+  // 간단한 창문 (정면만)
+  const winRows = Math.max(1, Math.floor(h/5));
+  const winCols = Math.max(1, Math.floor(w/5));
+  for (let r = 0; r < winRows; r++) {
+    for (let c = 0; c < winCols; c++) {
+      const wg = new THREE.PlaneGeometry(2.2, 1.8);
+      const wm = new THREE.MeshStandardMaterial({
+        color: 0x88bbdd, emissive: 0x224466, emissiveIntensity: 0.05,
+        transparent: true, opacity: 0.35, side: THREE.DoubleSide
+      });
+      const win = new THREE.Mesh(wg, wm);
+      win.userData.isWindow = true;
+      win.position.set(x - w/2 + 3 + c*4.5, 3 + r*5, z + d/2 + 0.1);
+      scene.add(win);
+    }
+  }
+}
+
+// 외곽 건물 배치 (캠퍼스 바깥 사방 - 크직하게)
+const outerColors = [0x667788, 0x778899, 0x606872, 0x7a8090, 0x8b8f98, 0x6e7580];
+
+// 왼쪽 외곽 건물군 (대형)
+addOuterBuilding(-290, 300, 55, 40, 60, 0x778899);
+addOuterBuilding(-300, 220, 48, 38, 50, 0x6e7580);
+addOuterBuilding(-285, 140, 60, 45, 75, 0x8b8f98);
+addOuterBuilding(-295, 55, 50, 40, 45, 0x667788);
+addOuterBuilding(-288, -20, 55, 42, 58, 0x7a8090);
+addOuterBuilding(-300, -85, 45, 35, 40, 0x606872);
+
+// 오른쪽 외곽 건물군 (대형)
+addOuterBuilding(340, 300, 50, 40, 55, 0x7a8090);
+addOuterBuilding(350, 215, 55, 42, 70, 0x778899);
+addOuterBuilding(335, 130, 48, 40, 52, 0x606872);
+addOuterBuilding(348, 45, 45, 38, 42, 0x8b8f98);
+addOuterBuilding(340, -30, 52, 40, 65, 0x6e7580);
+addOuterBuilding(345, -95, 48, 36, 48, 0x667788);
+
+// 위쪽 외곽 건물군 - 정문 시야 확보를 위해 제거
+
+// 아래쪽 외곽 건물군 (대형)
+addOuterBuilding(-155, -100, 52, 40, 50, 0x778899);
+addOuterBuilding(-65, -108, 48, 36, 58, 0x667788);
+addOuterBuilding(35, -98, 45, 40, 44, 0x7a8090);
+addOuterBuilding(120, -105, 55, 38, 52, 0x8b8f98);
+addOuterBuilding(210, -100, 48, 36, 40, 0x606872);
+
+// ── 부속건물 (이름 라벨 포함) ──
+function addAuxBuilding(x, z, w, d, h, color, name) {
+  const geo = new THREE.BoxGeometry(w, h, d);
+  const mat = new THREE.MeshStandardMaterial({
+    color: color, roughness: 0.7, metalness: 0.1
+  });
+  const mesh = new THREE.Mesh(geo, mat);
+  mesh.position.set(x, h/2, z);
+  mesh.castShadow = true;
+  scene.add(mesh);
+
+  // 옥상
+  const rGeo = new THREE.BoxGeometry(w+0.5, 0.5, d+0.5);
+  const rMat = new THREE.MeshStandardMaterial({ color: 0x444c55, roughness: 0.6 });
+  const roof = new THREE.Mesh(rGeo, rMat);
+  roof.position.set(x, h+0.25, z);
+  scene.add(roof);
+
+  // 간단한 창문
+  const winR = Math.max(1, Math.floor(h/5));
+  const winC = Math.max(1, Math.floor(w/5));
+  for (let r2 = 0; r2 < winR; r2++) {
+    for (let c2 = 0; c2 < winC; c2++) {
+      const wg2 = new THREE.PlaneGeometry(2, 1.6);
+      const wm2 = new THREE.MeshStandardMaterial({
+        color: 0x99ccee, emissive: 0x335577, emissiveIntensity: 0.05,
+        transparent: true, opacity: 0.35, side: THREE.DoubleSide
+      });
+      const w2 = new THREE.Mesh(wg2, wm2);
+      w2.userData.isWindow = true;
+      w2.position.set(x - w/2 + 3 + c2*4.5, 3 + r2*5, z + d/2 + 0.1);
+      scene.add(w2);
+    }
+  }
+
+  // 이름 라벨
+  if (name) {
+    const lc2 = document.createElement('canvas');
+    const ctx2 = lc2.getContext('2d');
+    const fs2 = 22;
+    ctx2.font = '600 '+fs2+'px Noto Sans KR, sans-serif';
+    const tw2 = ctx2.measureText(name).width;
+    lc2.width = tw2+24; lc2.height = fs2+12;
+    ctx2.fillStyle = 'rgba(10,10,20,0.7)';
+    ctx2.fillRect(0,0,lc2.width,lc2.height);
+    ctx2.font = '600 '+fs2+'px Noto Sans KR, sans-serif';
+    ctx2.fillStyle = '#ccddee';
+    ctx2.textAlign = 'center'; ctx2.textBaseline = 'middle';
+    ctx2.fillText(name, lc2.width/2, lc2.height/2);
+    const tex2 = new THREE.CanvasTexture(lc2); tex2.minFilter = THREE.LinearFilter;
+    const sm2 = new THREE.SpriteMaterial({ map: tex2, transparent: true, depthTest: false });
+    const sp2 = new THREE.Sprite(sm2);
+    sp2.scale.set(14, 14*(lc2.height/lc2.width), 1);
+    sp2.position.set(x, h+8, z);
+    scene.add(sp2);
+  }
+}
+
+// 부속건물 배치 (대형)
+addAuxBuilding(-350, 340, 50, 38, 38, 0x889988, '에너지센터');
+addAuxBuilding(-355, -110, 55, 42, 52, 0x8899aa, '청운기숙사');
+addAuxBuilding(400, 360, 45, 35, 32, 0x998877, '하나은행');
+addAuxBuilding(395, -30, 48, 40, 45, 0x887799, '사원아파트');
+addAuxBuilding(-230, 465, 42, 32, 30, 0x889988, '안내센터');
+addAuxBuilding(290, 465, 45, 34, 35, 0x998888, '복지관');
+addAuxBuilding(-348, 170, 45, 35, 32, 0x889988, '물류센터');
+addAuxBuilding(-345, 50, 48, 38, 40, 0x99887a, '연구동');
+addAuxBuilding(405, 155, 42, 34, 30, 0x888899, '품질관리동');
+addAuxBuilding(398, 60, 50, 40, 42, 0x8a9988, '행복2마을');
+addAuxBuilding(-240, -120, 45, 35, 38, 0x887788, '체육관');
+addAuxBuilding(155, -120, 42, 34, 30, 0x888877, '환경안전동');
+
+// ── 아파트 동 (사원아파트 클러스터, 오른쪽 아래 외곽) ──
+function addApartment(x, z, floors, name) {
+  const w = 12, d = 28, floorH = 3.2;
+  const h = floors * floorH;
+  const color = 0x8899aa;
+  const geo = new THREE.BoxGeometry(w, h, d);
+  const mat = new THREE.MeshStandardMaterial({ color: color, roughness: 0.75, metalness: 0.05 });
+  const mesh = new THREE.Mesh(geo, mat);
+  mesh.position.set(x, h/2, z);
+  mesh.castShadow = true; mesh.receiveShadow = true;
+  scene.add(mesh);
+  // 옥상
+  const rg = new THREE.BoxGeometry(w+0.5, 0.5, d+0.5);
+  const rm = new THREE.MeshStandardMaterial({ color: 0x556070, roughness: 0.6 });
+  const rf = new THREE.Mesh(rg, rm);
+  rf.position.set(x, h+0.25, z);
+  scene.add(rf);
+  // 창문 (양면)
+  for (let f = 0; f < floors; f++) {
+    for (let c = 0; c < 5; c++) {
+      const wg = new THREE.PlaneGeometry(2.2, 2);
+      const wm = new THREE.MeshStandardMaterial({
+        color: 0x99bbdd, emissive: 0x335566, emissiveIntensity: 0.04,
+        transparent: true, opacity: 0.35, side: THREE.DoubleSide
+      });
+      const win = new THREE.Mesh(wg, wm);
+      win.userData.isWindow = true;
+      win.position.set(x - d/2 + 3 + c*5.5, 2 + f*floorH, z + w/2 + 0.1);
+      scene.add(win);
+      const win2 = new THREE.Mesh(wg, wm.clone());
+      win2.userData.isWindow = true;
+      win2.position.set(x - d/2 + 3 + c*5.5, 2 + f*floorH, z - w/2 - 0.1);
+      scene.add(win2);
+    }
+  }
+  // 라벨
+  if (name) {
+    const lc3 = document.createElement('canvas');
+    const cx3 = lc3.getContext('2d');
+    cx3.font = '600 20px Noto Sans KR';
+    const tw3 = cx3.measureText(name).width;
+    lc3.width = tw3+20; lc3.height = 30;
+    cx3.fillStyle = 'rgba(10,10,20,0.65)';
+    cx3.fillRect(0,0,lc3.width,lc3.height);
+    cx3.font = '600 20px Noto Sans KR';
+    cx3.fillStyle = '#bbccdd'; cx3.textAlign = 'center'; cx3.textBaseline = 'middle';
+    cx3.fillText(name, lc3.width/2, lc3.height/2);
+    const t3 = new THREE.CanvasTexture(lc3); t3.minFilter = THREE.LinearFilter;
+    const sm3 = new THREE.SpriteMaterial({ map: t3, transparent: true, depthTest: false });
+    const sp3 = new THREE.Sprite(sm3);
+    sp3.scale.set(12, 12*(lc3.height/lc3.width), 1);
+    sp3.position.set(x, h+6, z);
+    scene.add(sp3);
+  }
+}
+
+addApartment(400, -50, 22, '사원아파트 101동');
+addApartment(425, -50, 25, '사원아파트 102동');
+addApartment(400, -100, 18, '사원아파트 103동');
+addApartment(425, -100, 22, '행복마을 201동');
+addApartment(450, -50, 20, '행복마을 202동');
+addApartment(450, -100, 24, '행복마을 203동');
+
+// ── LPG/가스 탱크 (캠퍼스 외곽, 실린더형) ──
+function addTank(x, z, radius, height, name) {
+  const g = new THREE.Group();
+  // 본체 (실린더)
+  const bodyGeo = new THREE.CylinderGeometry(radius, radius, height, 16);
+  const bodyMat = new THREE.MeshStandardMaterial({ color: 0xcccccc, roughness: 0.3, metalness: 0.6 });
+  const body = new THREE.Mesh(bodyGeo, bodyMat);
+  body.position.y = height/2;
+  body.castShadow = true;
+  g.add(body);
+  // 상단 반구
+  const topGeo = new THREE.SphereGeometry(radius, 16, 8, 0, Math.PI*2, 0, Math.PI/2);
+  const topMat = new THREE.MeshStandardMaterial({ color: 0xdddddd, roughness: 0.3, metalness: 0.5 });
+  const top = new THREE.Mesh(topGeo, topMat);
+  top.position.y = height;
+  g.add(top);
+  // 지지대 다리 4개
+  for (let i = 0; i < 4; i++) {
+    const ang = (i/4) * Math.PI * 2;
+    const legGeo = new THREE.CylinderGeometry(0.3, 0.4, height * 0.3, 4);
+    const legMat = new THREE.MeshStandardMaterial({ color: 0x667777, roughness: 0.6 });
+    const leg = new THREE.Mesh(legGeo, legMat);
+    leg.position.set(Math.cos(ang)*radius*0.7, height*0.15, Math.sin(ang)*radius*0.7);
+    g.add(leg);
+  }
+  // 배관
+  const pipeGeo = new THREE.CylinderGeometry(0.25, 0.25, radius*3, 6);
+  const pipeMat = new THREE.MeshStandardMaterial({ color: 0x999999, roughness: 0.4, metalness: 0.4 });
+  const pipe = new THREE.Mesh(pipeGeo, pipeMat);
+  pipe.rotation.z = Math.PI / 2;
+  pipe.position.set(radius + 2, height * 0.7, 0);
+  g.add(pipe);
+  g.position.set(x, 0, z);
+  scene.add(g);
+  // 라벨
+  if (name) {
+    const lc4 = document.createElement('canvas');
+    const cx4 = lc4.getContext('2d');
+    cx4.font = '600 18px Noto Sans KR';
+    const tw4 = cx4.measureText(name).width;
+    lc4.width = tw4+18; lc4.height = 26;
+    cx4.fillStyle = 'rgba(10,10,20,0.6)';
+    cx4.fillRect(0,0,lc4.width,lc4.height);
+    cx4.font = '600 18px Noto Sans KR';
+    cx4.fillStyle = '#bbccdd'; cx4.textAlign = 'center'; cx4.textBaseline = 'middle';
+    cx4.fillText(name, lc4.width/2, lc4.height/2);
+    const t4 = new THREE.CanvasTexture(lc4); t4.minFilter = THREE.LinearFilter;
+    const sm4 = new THREE.SpriteMaterial({ map: t4, transparent: true, depthTest: false });
+    const sp4 = new THREE.Sprite(sm4);
+    sp4.scale.set(10, 10*(lc4.height/lc4.width), 1);
+    sp4.position.set(x, height+radius+5, z);
+    scene.add(sp4);
+  }
+}
+
+// LPG/가스 탱크 배치 (캠퍼스 회사 근처, 생산동 옆)
+addTank(-330, 250, 10, 22, 'LPG 탱크 1');
+addTank(-330, 200, 8, 18, 'LPG 탱크 2');
+addTank(-330, 110, 12, 26, '질소 탱크');
+addTank(-330, 40, 10, 22, '가스 탱크');
+addTank(-295, -20, 8, 18, '약품 탱크');
+addTank(-295, 40, 9, 20, '산소 탱크');
+
+// ── 정문 게이트 ──
+(function() {
+  const gateX = 20, gateZ = 375;
+  const gateW = 30, gateH = 14, pillarW = 3, pillarD = 3;
+
+  // 왼쪽 기둥
+  const pGeo = new THREE.BoxGeometry(pillarW, gateH, pillarD);
+  const pMat = new THREE.MeshStandardMaterial({ color: 0x556677, roughness: 0.4, metalness: 0.4 });
+  const pL = new THREE.Mesh(pGeo, pMat);
+  pL.position.set(gateX - gateW/2, gateH/2, gateZ);
+  pL.castShadow = true;
+  scene.add(pL);
+  // 오른쪽 기둥
+  const pR = new THREE.Mesh(pGeo, pMat);
+  pR.position.set(gateX + gateW/2, gateH/2, gateZ);
+  pR.castShadow = true;
+  scene.add(pR);
+
+  // 상단 바 (가로 빔)
+  const barGeo = new THREE.BoxGeometry(gateW + pillarW, 2.5, pillarD + 1);
+  const barMat = new THREE.MeshStandardMaterial({ color: 0x667788, roughness: 0.35, metalness: 0.5 });
+  const bar = new THREE.Mesh(barGeo, barMat);
+  bar.position.set(gateX, gateH + 1.2, gateZ);
+  bar.castShadow = true;
+  scene.add(bar);
+
+  // SK hynix 로고 패널 (상단 바 정면)
+  const logoCanvas = document.createElement('canvas');
+  const lctx = logoCanvas.getContext('2d');
+  logoCanvas.width = 512; logoCanvas.height = 96;
+  lctx.fillStyle = 'rgba(40,50,65,0.9)';
+  lctx.fillRect(0,0,512,96);
+  // SK hynix 글씨
+  lctx.font = 'bold 48px Noto Sans KR, sans-serif';
+  lctx.fillStyle = '#ee3333';
+  lctx.textAlign = 'center'; lctx.textBaseline = 'middle';
+  lctx.fillText('SK hynix', 256, 40);
+  // 이천캠퍼스
+  lctx.font = '24px Noto Sans KR, sans-serif';
+  lctx.fillStyle = '#ccddee';
+  lctx.fillText('이천캠퍼스', 256, 76);
+
+  const logoTex = new THREE.CanvasTexture(logoCanvas);
+  logoTex.minFilter = THREE.LinearFilter;
+  const logoGeo = new THREE.PlaneGeometry(gateW * 0.8, 5);
+  const logoMat = new THREE.MeshStandardMaterial({
+    map: logoTex, transparent: true, emissive: 0xffffff, emissiveIntensity: 0.15
+  });
+  const logoMesh = new THREE.Mesh(logoGeo, logoMat);
+  logoMesh.position.set(gateX, gateH + 1.2, gateZ + pillarD/2 + 0.6);
+  scene.add(logoMesh);
+
+  // 정문 차단기 바 (가는 봉)
+  const boomGeo = new THREE.CylinderGeometry(0.15, 0.15, gateW * 0.85, 6);
+  const boomMat = new THREE.MeshStandardMaterial({ color: 0xee4444, emissive: 0xcc2222, emissiveIntensity: 0.3, roughness: 0.4 });
+  const boom = new THREE.Mesh(boomGeo, boomMat);
+  boom.rotation.z = Math.PI / 2;
+  boom.position.set(gateX, 4, gateZ + pillarD/2 + 2);
+  scene.add(boom);
+
+  // 정문 진입로 (게이트 앞 도로)
+  const entryGeo = new THREE.PlaneGeometry(20, 30);
+  const entryMat = new THREE.MeshStandardMaterial({ color: 0x2a2e38, roughness: 0.75 });
+  const entry = new THREE.Mesh(entryGeo, entryMat);
+  entry.rotation.x = -Math.PI / 2;
+  entry.position.set(gateX, 0.3, gateZ + 18);
+  entry.receiveShadow = true;
+  scene.add(entry);
+
+  // 정문 안내소 (작은 박스)
+  const guardGeo = new THREE.BoxGeometry(5, 4, 4);
+  const guardMat = new THREE.MeshStandardMaterial({ color: 0x556677, roughness: 0.5, metalness: 0.3 });
+  const guard = new THREE.Mesh(guardGeo, guardMat);
+  guard.position.set(gateX + gateW/2 + 5, 2, gateZ);
+  guard.castShadow = true;
+  scene.add(guard);
+})();
+
+// ── 사람들 (~300명, 캠퍼스 곳곳에 랜덤 배치) ──
+(function() {
+  const bodyColors = [
+    0x2244aa, 0x3366cc, 0x225588, 0x1155aa, // 파란 작업복
+    0x224488, 0x335599, 0x1a3d7a, 0x2a5090,
+    0xeeeeee, 0xdddddd, 0xcccccc,           // 흰 가운(연구원)
+    0x333333, 0x444444, 0x555555,           // 검정/회색 (사무직)
+    0xcc4444, 0xdd6633, 0x44aa44,           // 안전조끼 느낌
+  ];
+  const skinColors = [0xffccaa, 0xf5c09a, 0xeebb88, 0xdda878, 0xf0c8a0];
+  const hairColors = [0x222222, 0x333333, 0x1a1a1a, 0x443322, 0x2a2a2a];
+
+  // 공유 지오메트리 (성능)
+  const headGeo = new THREE.SphereGeometry(1, 5, 4);
+  const bodyGeo = new THREE.BoxGeometry(1, 1, 1);
+  const legGeo = new THREE.BoxGeometry(1, 1, 1);
+  const hairGeo = new THREE.SphereGeometry(1, 4, 3);
+
+  // 배치 영역 (캠퍼스 내부 도로/건물 사이 + 외곽)
+  const zones = [
+    // 캠퍼스 내부 (메인 영역) - 많이
+    { xMin: -190, xMax: 240, zMin: -30, zMax: 350, count: 180 },
+    // 정문 근처
+    { xMin: -30, xMax: 60, zMin: 350, zMax: 400, count: 25 },
+    // 외곽 왼쪽
+    { xMin: -300, xMax: -220, zMin: -60, zMax: 330, count: 25 },
+    // 외곽 오른쪽
+    { xMin: 280, xMax: 380, zMin: -60, zMax: 330, count: 25 },
+    // 외곽 아래
+    { xMin: -180, xMax: 220, zMin: -120, zMax: -40, count: 20 },
+    // 고속도로 주변 인도
+    { xMin: 460, xMax: 490, zMin: -100, zMax: 400, count: 15 },
+    // 아파트 동 근처
+    { xMin: 380, xMax: 460, zMin: -120, zMax: -20, count: 15 },
+  ];
+
+  zones.forEach(zone => {
+    for (let i = 0; i < zone.count; i++) {
+      const px = zone.xMin + Math.random() * (zone.xMax - zone.xMin);
+      const pz = zone.zMin + Math.random() * (zone.zMax - zone.zMin);
+      const scale = 0.7 + Math.random() * 0.3; // 키 변화 (크게)
+      const g = new THREE.Group();
+
+      const skinC = skinColors[Math.floor(Math.random() * skinColors.length)];
+      const bodyC = bodyColors[Math.floor(Math.random() * bodyColors.length)];
+      const hairC = hairColors[Math.floor(Math.random() * hairColors.length)];
+
+      // 머리
+      const skinMat = new THREE.MeshStandardMaterial({ color: skinC, roughness: 0.8 });
+      const head = new THREE.Mesh(headGeo, skinMat);
+      head.scale.set(scale*0.8, scale*0.9, scale*0.8);
+      head.position.y = scale * 5.2;
+      g.add(head);
+
+      // 머리카락
+      const hMat = new THREE.MeshStandardMaterial({ color: hairC, roughness: 0.9 });
+      const hair = new THREE.Mesh(hairGeo, hMat);
+      hair.scale.set(scale*0.85, scale*0.5, scale*0.85);
+      hair.position.y = scale * 5.6;
+      g.add(hair);
+
+      // 몸통
+      const bMat = new THREE.MeshStandardMaterial({ color: bodyC, roughness: 0.75 });
+      const body = new THREE.Mesh(bodyGeo, bMat);
+      body.scale.set(scale*1.6, scale*2.8, scale*1.0);
+      body.position.y = scale * 3.2;
+      g.add(body);
+
+      // 다리 2개
+      const legMat = new THREE.MeshStandardMaterial({ color: 0x333344, roughness: 0.8 });
+      const legL = new THREE.Mesh(legGeo, legMat);
+      legL.scale.set(scale*0.55, scale*2.2, scale*0.55);
+      legL.position.set(-scale*0.35, scale*0.9, 0);
+      g.add(legL);
+      const legR = new THREE.Mesh(legGeo, legMat.clone());
+      legR.scale.set(scale*0.55, scale*2.2, scale*0.55);
+      legR.position.set(scale*0.35, scale*0.9, 0);
+      g.add(legR);
+
+      // 랜덤 회전 (걷는 방향)
+      g.rotation.y = Math.random() * Math.PI * 2;
+      g.position.set(px, 0, pz);
+      scene.add(g);
+
+      // 걷는 애니메이션용 데이터
+      g.userData.isPerson = true;
+      g.userData.walkSpeed = 0.02 + Math.random() * 0.04;
+      g.userData.walkDir = Math.random() * Math.PI * 2;
+      g.userData.walkTimer = Math.random() * 100;
+      g.userData.zone = zone;
+    }
+  });
+})();
+
+// ── 안내센터 앞 줄 서있는 사람 20명 ──
+(function() {
+  const queueX = -230, queueZ = 483; // 안내센터 앞
+  const skinColors = [0xffccaa, 0xf5c09a, 0xeebb88, 0xdda878, 0xf0c8a0];
+  const hairColors = [0x222222, 0x333333, 0x1a1a1a, 0x443322];
+  const bodyColors = [0x2244aa, 0x3366cc, 0xeeeeee, 0x333333, 0xcc4444, 0x225588];
+  const headGeo = new THREE.SphereGeometry(1, 5, 4);
+  const bodyGeo = new THREE.BoxGeometry(1, 1, 1);
+  const legGeo = new THREE.BoxGeometry(1, 1, 1);
+  const hairGeo = new THREE.SphereGeometry(1, 4, 3);
+
+  for (let i = 0; i < 20; i++) {
+    const scale = 0.7 + Math.random() * 0.3;
+    const g = new THREE.Group();
+    const skinC = skinColors[Math.floor(Math.random() * skinColors.length)];
+    const bodyC = bodyColors[Math.floor(Math.random() * bodyColors.length)];
+    const hairC = hairColors[Math.floor(Math.random() * hairColors.length)];
+
+    const skinMat = new THREE.MeshStandardMaterial({ color: skinC, roughness: 0.8 });
+    const head = new THREE.Mesh(headGeo, skinMat);
+    head.scale.set(scale*0.8, scale*0.9, scale*0.8);
+    head.position.y = scale * 5.2;
+    g.add(head);
+    const hMat = new THREE.MeshStandardMaterial({ color: hairC, roughness: 0.9 });
+    const hair = new THREE.Mesh(hairGeo, hMat);
+    hair.scale.set(scale*0.85, scale*0.5, scale*0.85);
+    hair.position.y = scale * 5.6;
+    g.add(hair);
+    const bMat = new THREE.MeshStandardMaterial({ color: bodyC, roughness: 0.75 });
+    const body = new THREE.Mesh(bodyGeo, bMat);
+    body.scale.set(scale*1.6, scale*2.8, scale*1.0);
+    body.position.y = scale * 3.2;
+    g.add(body);
+    const legMat = new THREE.MeshStandardMaterial({ color: 0x333344, roughness: 0.8 });
+    const legL = new THREE.Mesh(legGeo, legMat);
+    legL.scale.set(scale*0.55, scale*2.2, scale*0.55);
+    legL.position.set(-scale*0.35, scale*0.9, 0);
+    g.add(legL);
+    const legR = new THREE.Mesh(legGeo, legMat.clone());
+    legR.scale.set(scale*0.55, scale*2.2, scale*0.55);
+    legR.position.set(scale*0.35, scale*0.9, 0);
+    g.add(legR);
+
+    // 줄 배치: 한 줄로 z방향 간격 2.5씩
+    const row = Math.floor(i / 10);
+    const col = i % 10;
+    g.position.set(queueX - 4 + row * 3, 0, queueZ + col * 2.5);
+    g.rotation.y = Math.PI; // 안내센터 쪽 바라보기
+    scene.add(g);
+  }
+})();
+
+// ── 셔틀버스 2대 (캠퍼스 도로 위 주행) ──
+const busGroup = [];
+(function() {
+  function createBus(color, labelText) {
+    const g = new THREE.Group();
+    // 차체
+    const bodyGeo = new THREE.BoxGeometry(5, 4.5, 14);
+    const bodyMat = new THREE.MeshStandardMaterial({ color: color, roughness: 0.4, metalness: 0.2 });
+    const body = new THREE.Mesh(bodyGeo, bodyMat);
+    body.position.y = 3.5;
+    body.castShadow = true;
+    g.add(body);
+    // 지붕
+    const roofGeo = new THREE.BoxGeometry(5.2, 0.5, 14.2);
+    const roofMat = new THREE.MeshStandardMaterial({ color: 0xeeeeee, roughness: 0.5 });
+    const roof = new THREE.Mesh(roofGeo, roofMat);
+    roof.position.y = 5.8;
+    g.add(roof);
+    // 유리창 (양쪽)
+    for (let side = -1; side <= 1; side += 2) {
+      for (let i = 0; i < 5; i++) {
+        const winGeo = new THREE.PlaneGeometry(1.8, 2.2);
+        const winMat = new THREE.MeshStandardMaterial({
+          color: 0x88ccee, emissive: 0x224466, emissiveIntensity: 0.1,
+          transparent: true, opacity: 0.5, side: THREE.DoubleSide
+        });
+        const win = new THREE.Mesh(winGeo, winMat);
+        win.position.set(side * 2.55, 4.2, -5 + i * 2.5);
+        win.rotation.y = Math.PI / 2;
+        g.add(win);
+      }
+    }
+    // 앞유리
+    const frontGeo = new THREE.PlaneGeometry(4.2, 2.8);
+    const frontMat = new THREE.MeshStandardMaterial({
+      color: 0x99ddff, emissive: 0x336688, emissiveIntensity: 0.1,
+      transparent: true, opacity: 0.45, side: THREE.DoubleSide
+    });
+    const front = new THREE.Mesh(frontGeo, frontMat);
+    front.position.set(0, 4.2, 7.05);
+    g.add(front);
+    // 바퀴 4개
+    const wheelGeo = new THREE.CylinderGeometry(1, 1, 0.8, 8);
+    const wheelMat = new THREE.MeshStandardMaterial({ color: 0x222222, roughness: 0.9 });
+    const positions = [[-2, 1, 4.5], [2, 1, 4.5], [-2, 1, -4.5], [2, 1, -4.5]];
+    positions.forEach(([wx, wy, wz]) => {
+      const wheel = new THREE.Mesh(wheelGeo, wheelMat);
+      wheel.rotation.z = Math.PI / 2;
+      wheel.position.set(wx, wy, wz);
+      g.add(wheel);
+    });
+    // 라벨 (측면)
+    if (labelText) {
+      const lc = document.createElement('canvas');
+      const cx = lc.getContext('2d');
+      cx.font = 'bold 24px Noto Sans KR';
+      const tw = cx.measureText(labelText).width;
+      lc.width = tw + 20; lc.height = 34;
+      cx.fillStyle = 'rgba(255,255,255,0.85)';
+      cx.fillRect(0, 0, lc.width, lc.height);
+      cx.font = 'bold 24px Noto Sans KR';
+      cx.fillStyle = '#cc0000';
+      cx.textAlign = 'center'; cx.textBaseline = 'middle';
+      cx.fillText(labelText, lc.width / 2, lc.height / 2);
+      const tex = new THREE.CanvasTexture(lc); tex.minFilter = THREE.LinearFilter;
+      const spMat = new THREE.SpriteMaterial({ map: tex, transparent: true, depthTest: false });
+      const sp = new THREE.Sprite(spMat);
+      sp.scale.set(8, 8 * (lc.height / lc.width), 1);
+      sp.position.set(0, 7.5, 0);
+      g.add(sp);
+    }
+    scene.add(g);
+    return g;
+  }
+
+  // 버스 1: 캠퍼스 내부 가로도로 (동서 방향)
+  const bus1 = createBus(0x2266aa, 'SK hynix 셔틀');
+  bus1.userData.isBus = true;
+  bus1.userData.route = [
+    { x: -190, z: RZ(470) }, // 왼쪽 출발
+    { x: 240, z: RZ(470) },  // 오른쪽 끝
+  ];
+  bus1.userData.routeIdx = 0;
+  bus1.userData.progress = 0;
+  bus1.userData.speed = 0.4;
+  bus1.userData.forward = 1;
+  bus1.position.set(-190, 0, RZ(470));
+  bus1.rotation.y = -Math.PI / 2;
+  busGroup.push(bus1);
+
+  // 버스 2: 캠퍼스 세로도로 (남북 방향)
+  const bus2 = createBus(0x44aa44, 'SK hynix 통근버스');
+  bus2.userData.isBus = true;
+  bus2.userData.route = [
+    { x: R(400), z: 340 }, // 위쪽
+    { x: R(400), z: -30 }, // 아래쪽
+  ];
+  bus2.userData.routeIdx = 0;
+  bus2.userData.progress = Math.random();
+  bus2.userData.speed = 0.35;
+  bus2.userData.forward = 1;
+  bus2.position.set(R(400), 0, 200);
+  bus2.rotation.y = 0;
+  busGroup.push(bus2);
+})();
+
+// ── 외곽 도로 (캠퍼스 바깥 일반도로, 넓게) ──
+// 위쪽 외곽도로
+addRoad(-380, 480, 470, 480, 14);
+// 왼쪽 외곽도로
+addRoad(-380, 480, -380, -150, 12);
+// 오른쪽 외곽도로
+addRoad(470, 480, 470, -150, 12);
+// 아래쪽 외곽도로
+addRoad(-380, -150, 470, -150, 14);
+
+// ── 고속도로 (오른쪽 라인 끝, 남북 방향) ──
+(function() {
+  const hwX = 520; // 고속도로 중심 x
+  const hwZ1 = 520, hwZ2 = -180; // 위~아래
+  const hwLen = hwZ1 - hwZ2;
+  const laneW = 9; // 편도 폭
+  const medianW = 2.5; // 중앙분리대
+
+  // 상행 도로 (왼쪽 차선)
+  const roadGeo1 = new THREE.PlaneGeometry(laneW, hwLen);
+  const roadMat1 = new THREE.MeshStandardMaterial({ color: 0x2c3040, roughness: 0.7 });
+  const road1 = new THREE.Mesh(roadGeo1, roadMat1);
+  road1.rotation.x = -Math.PI / 2;
+  road1.position.set(hwX - laneW/2 - medianW/2, 0.4, (hwZ1+hwZ2)/2);
+  road1.receiveShadow = true;
+  scene.add(road1);
+
+  // 하행 도로 (오른쪽 차선)
+  const road2 = new THREE.Mesh(roadGeo1.clone(), roadMat1.clone());
+  road2.rotation.x = -Math.PI / 2;
+  road2.position.set(hwX + laneW/2 + medianW/2, 0.4, (hwZ1+hwZ2)/2);
+  road2.receiveShadow = true;
+  scene.add(road2);
+
+  // 중앙분리대 (콘크리트)
+  const medGeo = new THREE.BoxGeometry(medianW, 1.8, hwLen);
+  const medMat = new THREE.MeshStandardMaterial({ color: 0x555d68, roughness: 0.8 });
+  const median = new THREE.Mesh(medGeo, medMat);
+  median.position.set(hwX, 0.9, (hwZ1+hwZ2)/2);
+  median.castShadow = true;
+  scene.add(median);
+
+  // 차선 (흰색 점선 - 각 방향 2차선)
+  for (let side = -1; side <= 1; side += 2) {
+    const cx = hwX + side * (laneW/2 + medianW/2);
+    // 중앙 차선
+    for (let i = 0; i < Math.floor(hwLen / 10); i++) {
+      const dashGeo = new THREE.PlaneGeometry(0.3, 4);
+      const dashMat = new THREE.MeshStandardMaterial({ color: 0xcccccc, emissive: 0x888888, emissiveIntensity: 0.15 });
+      const dash = new THREE.Mesh(dashGeo, dashMat);
+      dash.rotation.x = -Math.PI / 2;
+      dash.position.set(cx, 0.42, hwZ1 - 5 - i*10);
+      scene.add(dash);
+    }
+  }
+
+  // 갓길 (양쪽 바깥)
+  const shoulderW = 3;
+  for (let side = -1; side <= 1; side += 2) {
+    const sx = hwX + side * (laneW + medianW/2 + shoulderW/2);
+    const sGeo = new THREE.PlaneGeometry(shoulderW, hwLen);
+    const sMat = new THREE.MeshStandardMaterial({ color: 0x3a3f4a, roughness: 0.75 });
+    const shoulder = new THREE.Mesh(sGeo, sMat);
+    shoulder.rotation.x = -Math.PI / 2;
+    shoulder.position.set(sx, 0.38, (hwZ1+hwZ2)/2);
+    scene.add(shoulder);
+  }
+
+  // 가드레일 (양쪽)
+  const railColor = 0x999999;
+  for (let side = -1; side <= 1; side += 2) {
+    const rx = hwX + side * (laneW + medianW/2 + shoulderW + 0.5);
+    for (let i = 0; i < Math.floor(hwLen / 8); i++) {
+      // 기둥
+      const postGeo = new THREE.BoxGeometry(0.2, 1.5, 0.2);
+      const postMat = new THREE.MeshStandardMaterial({ color: railColor, roughness: 0.4, metalness: 0.5 });
+      const post = new THREE.Mesh(postGeo, postMat);
+      post.position.set(rx, 0.75, hwZ1 - 4 - i*8);
+      scene.add(post);
+    }
+    // 가드레일 바 (연속)
+    const barGeo = new THREE.BoxGeometry(0.15, 0.4, hwLen - 4);
+    const barMat = new THREE.MeshStandardMaterial({ color: railColor, roughness: 0.35, metalness: 0.6 });
+    const bar = new THREE.Mesh(barGeo, barMat);
+    bar.position.set(rx, 1.0, (hwZ1+hwZ2)/2);
+    scene.add(bar);
+  }
+
+  // 방음벽 (캠퍼스쪽, 왼쪽에만)
+  const wallX = hwX - laneW - medianW/2 - shoulderW - 2;
+  const wallGeo = new THREE.BoxGeometry(1.2, 8, hwLen);
+  const wallMat = new THREE.MeshStandardMaterial({ color: 0x667766, roughness: 0.7, metalness: 0.1 });
+  const wall = new THREE.Mesh(wallGeo, wallMat);
+  wall.position.set(wallX, 4, (hwZ1+hwZ2)/2);
+  wall.castShadow = true;
+  scene.add(wall);
+  // 방음벽 상단 장식
+  const wallTopGeo = new THREE.BoxGeometry(1.8, 0.5, hwLen);
+  const wallTopMat = new THREE.MeshStandardMaterial({ color: 0x778877, roughness: 0.5 });
+  const wallTop = new THREE.Mesh(wallTopGeo, wallTopMat);
+  wallTop.position.set(wallX, 8.2, (hwZ1+hwZ2)/2);
+  scene.add(wallTop);
+
+  // 고속도로 라벨
+  const hwLabel = document.createElement('canvas');
+  const hwCtx = hwLabel.getContext('2d');
+  hwCtx.font = 'bold 28px Noto Sans KR';
+  const hwTw = hwCtx.measureText('중부고속도로').width;
+  hwLabel.width = hwTw + 30; hwLabel.height = 42;
+  hwCtx.fillStyle = 'rgba(0,60,20,0.8)';
+  hwCtx.fillRect(0,0,hwLabel.width,hwLabel.height);
+  hwCtx.font = 'bold 28px Noto Sans KR';
+  hwCtx.fillStyle = '#ffffff';
+  hwCtx.textAlign = 'center'; hwCtx.textBaseline = 'middle';
+  hwCtx.fillText('중부고속도로', hwLabel.width/2, hwLabel.height/2);
+  const hwTex = new THREE.CanvasTexture(hwLabel); hwTex.minFilter = THREE.LinearFilter;
+  const hwSpMat = new THREE.SpriteMaterial({ map: hwTex, transparent: true, depthTest: false });
+  const hwSp = new THREE.Sprite(hwSpMat);
+  hwSp.scale.set(22, 22*(hwLabel.height/hwLabel.width), 1);
+  hwSp.position.set(hwX, 18, 170);
+  scene.add(hwSp);
+
+  // 고속도로 표지판 (녹색 사각 안내판)
+  const signGeo = new THREE.BoxGeometry(16, 8, 0.5);
+  const signMat = new THREE.MeshStandardMaterial({ color: 0x006633, emissive: 0x003311, emissiveIntensity: 0.2, roughness: 0.5 });
+  const sign = new THREE.Mesh(signGeo, signMat);
+  sign.position.set(hwX, 14, 250);
+  scene.add(sign);
+  // 표지판 기둥
+  const sPoleGeo = new THREE.CylinderGeometry(0.4, 0.4, 14, 6);
+  const sPoleMat = new THREE.MeshStandardMaterial({ color: 0x888888, roughness: 0.4, metalness: 0.5 });
+  const sPole = new THREE.Mesh(sPoleGeo, sPoleMat);
+  sPole.position.set(hwX, 7, 250);
+  scene.add(sPole);
+
+  // 표지판 텍스트
+  const signCanvas = document.createElement('canvas');
+  const sCtx = signCanvas.getContext('2d');
+  signCanvas.width = 256; signCanvas.height = 128;
+  sCtx.fillStyle = '#006633';
+  sCtx.fillRect(0,0,256,128);
+  sCtx.strokeStyle = '#ffffff'; sCtx.lineWidth = 3;
+  sCtx.strokeRect(8,8,240,112);
+  sCtx.font = 'bold 32px Noto Sans KR';
+  sCtx.fillStyle = '#ffffff';
+  sCtx.textAlign = 'center'; sCtx.textBaseline = 'middle';
+  sCtx.fillText('이천 IC 2km', 128, 45);
+  sCtx.font = '24px Noto Sans KR';
+  sCtx.fillText('여주 ↑  광주 ↓', 128, 90);
+  const signTex = new THREE.CanvasTexture(signCanvas); signTex.minFilter = THREE.LinearFilter;
+  const signPanelGeo = new THREE.PlaneGeometry(15.5, 7.5);
+  const signPanelMat = new THREE.MeshStandardMaterial({ map: signTex, emissive: 0xffffff, emissiveIntensity: 0.08 });
+  const signPanel = new THREE.Mesh(signPanelGeo, signPanelMat);
+  signPanel.position.set(hwX, 14, 250.3);
+  scene.add(signPanel);
+})();
+
+// ── 고속도로 차량 10대 (남북 주행) ──
+const hwCars = [];
+(function() {
+  const hwX = 520;
+  const laneW = 9, medianW = 2.5;
+  const carColors = [0xcc2222, 0x2244cc, 0xeeeeee, 0x333333, 0x44aa44,
+                     0xddaa22, 0x8844aa, 0x22aacc, 0xaa4422, 0x666666];
+
+  for (let i = 0; i < 10; i++) {
+    const g = new THREE.Group();
+    const isUp = i < 5; // 상행 5대, 하행 5대
+    const laneOffset = isUp ? -(laneW/2 + medianW/2) : (laneW/2 + medianW/2);
+    const laneShift = (Math.random() - 0.5) * 3; // 차선 내 약간 랜덤
+
+    const cc = carColors[i];
+    // 차체
+    const bGeo = new THREE.BoxGeometry(3, 2.2, 6);
+    const bMat = new THREE.MeshStandardMaterial({ color: cc, roughness: 0.35, metalness: 0.3 });
+    const bdy = new THREE.Mesh(bGeo, bMat);
+    bdy.position.y = 1.8;
+    bdy.castShadow = true;
+    g.add(bdy);
+    // 상단 (캐빈)
+    const tGeo = new THREE.BoxGeometry(2.6, 1.5, 3.2);
+    const tMat = new THREE.MeshStandardMaterial({ color: cc, roughness: 0.4, metalness: 0.2 });
+    const top = new THREE.Mesh(tGeo, tMat);
+    top.position.y = 3.5;
+    top.position.z = -0.3;
+    g.add(top);
+    // 유리
+    const fGeo = new THREE.PlaneGeometry(2.2, 1.3);
+    const fMat = new THREE.MeshStandardMaterial({
+      color: 0x88ccee, transparent: true, opacity: 0.5, side: THREE.DoubleSide
+    });
+    const fw = new THREE.Mesh(fGeo, fMat);
+    fw.position.set(0, 3.5, 1.35);
+    g.add(fw);
+    const bw = new THREE.Mesh(fGeo, fMat.clone());
+    bw.position.set(0, 3.5, -1.95);
+    g.add(bw);
+    // 바퀴
+    const wGeo = new THREE.CylinderGeometry(0.55, 0.55, 0.5, 6);
+    const wMat = new THREE.MeshStandardMaterial({ color: 0x111111, roughness: 0.9 });
+    [[-1.3, 0.55, 2], [1.3, 0.55, 2], [-1.3, 0.55, -2], [1.3, 0.55, -2]].forEach(([wx,wy,wz]) => {
+      const wh = new THREE.Mesh(wGeo, wMat);
+      wh.rotation.z = Math.PI/2;
+      wh.position.set(wx, wy, wz);
+      g.add(wh);
+    });
+    // 헤드라이트 (앞)
+    const hlGeo = new THREE.SphereGeometry(0.25, 4, 4);
+    const hlMat = new THREE.MeshStandardMaterial({ color: 0xffffcc, emissive: 0xffff88, emissiveIntensity: 0.5 });
+    const hlL = new THREE.Mesh(hlGeo, hlMat);
+    hlL.position.set(-1, 1.5, 3.05);
+    g.add(hlL);
+    const hlR = new THREE.Mesh(hlGeo, hlMat);
+    hlR.position.set(1, 1.5, 3.05);
+    g.add(hlR);
+
+    const startZ = -180 + Math.random() * 700;
+    g.position.set(hwX + laneOffset + laneShift, 0, startZ);
+    g.rotation.y = isUp ? 0 : Math.PI;
+    g.userData.speed = 0.6 + Math.random() * 0.5;
+    g.userData.dir = isUp ? 1 : -1;
+    scene.add(g);
+    hwCars.push(g);
+  }
+})();
+
+// ============================================================
+// Campus Boundary
+// ============================================================
+const boundaryPts2D = [
+  [80, 140], [80, 450], [90, 500], [90, 620], [100, 660],
+  [90, 720], [80, 800], [140, 840], [280, 850], [450, 840],
+  [600, 830], [700, 840], [800, 830], [900, 820],
+  [950, 800], [960, 720], [960, 500], [960, 350],
+  [950, 180], [920, 140], [780, 130], [600, 140],
+  [400, 140], [250, 140], [150, 140], [80, 140]
+];
+const boundaryPoints = boundaryPts2D.map(p => new THREE.Vector3(
+  (p[0] - 480) * SCALE, 0.5, (820 - p[1]) * SCALE
+));
+const boundaryGeo = new THREE.BufferGeometry().setFromPoints(boundaryPoints);
+const boundaryMat = new THREE.LineBasicMaterial({ color: 0x2a3040, linewidth: 2 });
+const boundaryLine = new THREE.Line(boundaryGeo, boundaryMat);
+scene.add(boundaryLine);
+
+// 캠퍼스 바닥 제거 (경계선만 유지)
+
+// ============================================================
+// Roads (건물 사이 도로망)
+// ============================================================
+function addRoad(x1, z1, x2, z2, width) {
+  const dx = x2 - x1, dz = z2 - z1;
+  const len = Math.sqrt(dx*dx + dz*dz);
+  const geo = new THREE.PlaneGeometry(len, width);
+  const mat = new THREE.MeshStandardMaterial({ color: 0x252a35, roughness: 0.75 });
+  const mesh = new THREE.Mesh(geo, mat);
+  mesh.rotation.x = -Math.PI / 2;
+  mesh.position.set((x1+x2)/2, 0.35, (z1+z2)/2);
+  mesh.rotation.z = -Math.atan2(dz, dx);
+  mesh.receiveShadow = true;
+  scene.add(mesh);
+
+  // 도로 중앙선 (점선 느낌)
+  const cGeo = new THREE.PlaneGeometry(len, 0.3);
+  const cMat = new THREE.MeshStandardMaterial({
+    color: 0x556677, emissive: 0x334455, emissiveIntensity: 0.2,
+    roughness: 0.5
+  });
+  const cLine = new THREE.Mesh(cGeo, cMat);
+  cLine.rotation.x = -Math.PI / 2;
+  cLine.position.set((x1+x2)/2, 0.38, (z1+z2)/2);
+  cLine.rotation.z = -Math.atan2(dz, dx);
+  scene.add(cLine);
+}
+
+// 데이터 좌표 → 월드 좌표 변환 헬퍼
+function R(dataX) { return (dataX - 480) * SCALE; }
+function RZ(dataZ) { return (820 - dataZ) * SCALE; }
+
+// ── 메인 동서 도로 (가로) ──
+addRoad(R(60), RZ(270), R(1000), RZ(270), 14);
+addRoad(R(60), RZ(470), R(1000), RZ(470), 14);
+addRoad(R(60), RZ(680), R(1000), RZ(680), 14);
+
+// ── 메인 남북 도로 (세로) ──
+addRoad(R(130), RZ(100), R(130), RZ(880), 12);
+addRoad(R(400), RZ(100), R(400), RZ(880), 12);
+addRoad(R(680), RZ(100), R(680), RZ(880), 12);
+addRoad(R(980), RZ(100), R(980), RZ(880), 12);
+
+// ── 외곽 순환도로 ──
+addRoad(R(60), RZ(100), R(1000), RZ(100), 10);
+addRoad(R(60), RZ(880), R(1000), RZ(880), 10);
+addRoad(R(60), RZ(100), R(60), RZ(880), 10);
+addRoad(R(1000), RZ(100), R(1000), RZ(880), 10);
+
+// ============================================================
+// Buildings
+// ============================================================
+const buildingMeshes = [];
+const raycaster = new THREE.Raycaster();
+const mouse = new THREE.Vector2();
+
+function createBuilding(b) {
+  const cx = (b.x + b.w/2 - 480) * SCALE;
+  const cz = (820 - (b.z + b.d/2)) * SCALE;
+  const w = b.w * SCALE;
+  const d = b.d * SCALE;
+  const h = b.h * SCALE;
+
+  const group = new THREE.Group();
+  group.userData = { ...b };
+  const color = new THREE.Color(b.color);
+
+  // ── 1층 기단부 (어두운 콘크리트) ──
+  const baseH = Math.min(h * 0.15, 5);
+  const baseGeo = new THREE.BoxGeometry(w + 2, baseH, d + 2);
+  const baseMat = new THREE.MeshStandardMaterial({ color: 0x2a2d35, roughness: 0.9, metalness: 0.05 });
+  const base = new THREE.Mesh(baseGeo, baseMat);
+  base.position.set(0, baseH/2, 0);
+  base.castShadow = true; base.receiveShadow = true;
+  group.add(base);
+
+  // ── 메인 건물 본체 ──
+  const mainH = h - baseH;
+  const bodyGeo = new THREE.BoxGeometry(w, mainH, d);
+  const bodyMat = new THREE.MeshStandardMaterial({
+    color: color.clone().multiplyScalar(0.55),
+    roughness: 0.5, metalness: 0.2
+  });
+  const body = new THREE.Mesh(bodyGeo, bodyMat);
+  body.position.set(0, baseH + mainH/2, 0);
+  body.castShadow = true; body.receiveShadow = true;
+  group.add(body);
+
+  // ── 외벽 패널 라인 (수평 줄) ──
+  const panelCount = Math.floor(mainH / 4);
+  for (let i = 0; i < panelCount; i++) {
+    const py = baseH + 2 + i * 4;
+    // 앞면
+    const lineGeo = new THREE.BoxGeometry(w + 0.2, 0.15, 0.15);
+    const lineMat = new THREE.MeshStandardMaterial({
+      color: color.clone().multiplyScalar(0.35), roughness: 0.7
+    });
+    const lineF = new THREE.Mesh(lineGeo, lineMat);
+    lineF.position.set(0, py, d/2 + 0.1);
+    group.add(lineF);
+    const lineB = lineF.clone();
+    lineB.position.z = -d/2 - 0.1;
+    group.add(lineB);
+    // 옆면
+    const sLineGeo = new THREE.BoxGeometry(0.15, 0.15, d + 0.2);
+    const sLineF = new THREE.Mesh(sLineGeo, lineMat.clone());
+    sLineF.position.set(w/2 + 0.1, py, 0);
+    group.add(sLineF);
+    const sLineB = sLineF.clone();
+    sLineB.position.x = -w/2 - 0.1;
+    group.add(sLineB);
+  }
+
+  // ── 수직 패널 라인 ──
+  const vCount = Math.floor(w / 12);
+  for (let i = 1; i < vCount; i++) {
+    const vx = -w/2 + i * (w / vCount);
+    const vGeo = new THREE.BoxGeometry(0.15, mainH, 0.15);
+    const vMat = new THREE.MeshStandardMaterial({
+      color: color.clone().multiplyScalar(0.35), roughness: 0.7
+    });
+    const vF = new THREE.Mesh(vGeo, vMat);
+    vF.position.set(vx, baseH + mainH/2, d/2 + 0.1);
+    group.add(vF);
+    const vB = vF.clone();
+    vB.position.z = -d/2 - 0.1;
+    group.add(vB);
+  }
+
+  // ── 창문 (4면 전체, 층별 유리 패널) ──
+  const winSpacingX = 6;
+  const winSpacingY = 6;
+  const winW = 3.5;
+  const winH = 2.8;
+  const winColsF = Math.max(1, Math.floor((w - 4) / winSpacingX));
+  const winColsS = Math.max(1, Math.floor((d - 4) / winSpacingY));
+  const winRows = Math.max(1, Math.floor((mainH - 3) / winSpacingY));
+
+  for (let row = 0; row < winRows; row++) {
+    const wy = baseH + 3 + row * winSpacingY;
+    const flicker = () => 0.15 + Math.random() * 0.6;
+    const bright = () => 0.5 + Math.random() * 0.4;
+
+    // 앞·뒷면
+    for (let col = 0; col < winColsF; col++) {
+      const wx = -w/2 + 3 + col * winSpacingX;
+      const wGeo = new THREE.PlaneGeometry(winW, winH);
+      const wMat = new THREE.MeshStandardMaterial({
+        color: 0x8ac4ed, emissive: 0x3388bb,
+        emissiveIntensity: flicker(),
+        transparent: true, opacity: bright(),
+        side: THREE.DoubleSide
+      });
+      // 앞면
+      const winF = new THREE.Mesh(wGeo, wMat);
+      winF.userData.isWindow = true;
+      winF.position.set(wx, wy, d/2 + 0.15);
+      group.add(winF);
+      // 뒷면
+      const winB = new THREE.Mesh(wGeo, wMat.clone());
+      winB.userData.isWindow = true;
+      winB.material.emissiveIntensity = flicker();
+      winB.material.opacity = bright();
+      winB.position.set(wx, wy, -d/2 - 0.15);
+      group.add(winB);
+    }
+
+    // 좌·우 옆면
+    for (let col = 0; col < winColsS; col++) {
+      const wz = -d/2 + 3 + col * winSpacingX;
+      const wGeo = new THREE.PlaneGeometry(winW, winH);
+      const wMat = new THREE.MeshStandardMaterial({
+        color: 0x8ac4ed, emissive: 0x3388bb,
+        emissiveIntensity: flicker(),
+        transparent: true, opacity: bright(),
+        side: THREE.DoubleSide
+      });
+      // 오른쪽
+      const winR = new THREE.Mesh(wGeo, wMat);
+      winR.userData.isWindow = true;
+      winR.rotation.y = Math.PI / 2;
+      winR.position.set(w/2 + 0.15, wy, wz);
+      group.add(winR);
+      // 왼쪽
+      const winL = new THREE.Mesh(wGeo, wMat.clone());
+      winL.userData.isWindow = true;
+      winL.material.emissiveIntensity = flicker();
+      winL.material.opacity = bright();
+      winL.rotation.y = Math.PI / 2;
+      winL.position.set(-w/2 - 0.15, wy, wz);
+      group.add(winL);
+    }
+  }
+
+  // ── 옥상 ──
+  const roofGeo = new THREE.BoxGeometry(w + 1.5, 0.8, d + 1.5);
+  const roofMat = new THREE.MeshStandardMaterial({
+    color: color.clone().multiplyScalar(0.4), roughness: 0.6, metalness: 0.3
+  });
+  const roof = new THREE.Mesh(roofGeo, roofMat);
+  roof.position.set(0, h + 0.4, 0);
+  roof.castShadow = true;
+  group.add(roof);
+
+  // ── 옥상 색상 띠 (건물 구분) ──
+  const stripGeo = new THREE.BoxGeometry(w + 2, 1.2, d + 2);
+  const stripMat = new THREE.MeshStandardMaterial({
+    color: color, emissive: color, emissiveIntensity: 0.5,
+    roughness: 0.3, metalness: 0.1
+  });
+  const strip = new THREE.Mesh(stripGeo, stripMat);
+  strip.position.set(0, h - 0.5, 0);
+  group.add(strip);
+
+  // ── 옥상 장비 (FAB 특유의 공조/배기 장치) ──
+  const equipCount = Math.floor(w / 18);
+  for (let i = 0; i < equipCount; i++) {
+    // 공조기 박스
+    const eqW = 3 + Math.random() * 3;
+    const eqH = 2 + Math.random() * 3;
+    const eqD = 3 + Math.random() * 2;
+    const eqGeo = new THREE.BoxGeometry(eqW, eqH, eqD);
+    const eqMat = new THREE.MeshStandardMaterial({ color: 0x556677, roughness: 0.6, metalness: 0.4 });
+    const eq = new THREE.Mesh(eqGeo, eqMat);
+    eq.position.set(-w/2 + 8 + i * 18, h + 0.8 + eqH/2, -d/4 + Math.random() * d/2);
+    eq.castShadow = true;
+    group.add(eq);
+
+    // 배기 파이프
+    const pipeGeo = new THREE.CylinderGeometry(0.4, 0.4, eqH + 2, 6);
+    const pipeMat = new THREE.MeshStandardMaterial({ color: 0x888888, roughness: 0.3, metalness: 0.6 });
+    const pipe = new THREE.Mesh(pipeGeo, pipeMat);
+    pipe.position.set(eq.position.x + eqW/2 + 1, h + 0.8 + (eqH+2)/2, eq.position.z);
+    group.add(pipe);
+  }
+
+  // ── 옥상 배관 (수평 파이프) ──
+  if (d > 30) {
+    for (let p = 0; p < 2; p++) {
+      const pipeHGeo = new THREE.CylinderGeometry(0.3, 0.3, d * 0.8, 6);
+      const pipeHMat = new THREE.MeshStandardMaterial({ color: 0x999999, roughness: 0.3, metalness: 0.5 });
+      const pipeH = new THREE.Mesh(pipeHGeo, pipeHMat);
+      pipeH.rotation.x = Math.PI / 2;
+      pipeH.position.set(-w/4 + p * w/2, h + 1.5, 0);
+      group.add(pipeH);
+    }
+  }
+
+  // ── 굴뚝기둥 (Chimney Pillars) - M14A, M16A 전용 ──
+  if (b.chimneys) {
+    const chim = b.chimneys;
+    const chimCount = chim.count || 3;
+    const chimHeight = chim.height || 18;
+    const chimRadius = (chim.radius || 2.5) * SCALE;
+    const chimTopRadius = chimRadius * 0.7;
+    const chimH = chimHeight * SCALE;
+
+    for (let ci = 0; ci < chimCount; ci++) {
+      const offsetX = (ci - (chimCount - 1) / 2) * (w / (chimCount + 1));
+      const offsetZ = -d / 2 - 6;  // 건물 후면 배치
+
+      // 굴뚝 기초 (콘크리트 받침대)
+      const chimBaseGeo = new THREE.BoxGeometry(chimRadius * 3.5, 3, chimRadius * 3.5);
+      const chimBaseMat = new THREE.MeshStandardMaterial({ color: 0x3a3a44, roughness: 0.9, metalness: 0.1 });
+      const chimBase = new THREE.Mesh(chimBaseGeo, chimBaseMat);
+      chimBase.position.set(offsetX, h + 1.5, offsetZ);
+      chimBase.castShadow = true;
+      group.add(chimBase);
+
+      // 메인 굴뚝기둥 (원통형)
+      const shaftGeo = new THREE.CylinderGeometry(chimTopRadius, chimRadius, chimH, 16);
+      const shaftMat = new THREE.MeshStandardMaterial({ color: 0x888899, roughness: 0.45, metalness: 0.35 });
+      const shaft = new THREE.Mesh(shaftGeo, shaftMat);
+      shaft.position.set(offsetX, h + 3 + chimH / 2, offsetZ);
+      shaft.castShadow = true;
+      group.add(shaft);
+
+      // 빨간 경고 줄무늬 (항공 안전)
+      const stripePositions = [0.3, 0.6, 0.9];
+      stripePositions.forEach(ratio => {
+        const sy = h + 3 + chimH * ratio;
+        const sr = chimTopRadius + (chimRadius - chimTopRadius) * (1 - ratio);
+        const sGeo = new THREE.CylinderGeometry(sr + 0.15, sr + 0.15, 1.5, 16);
+        const sMat = new THREE.MeshStandardMaterial({
+          color: 0xff2200, emissive: 0x440000, emissiveIntensity: 0.25
+        });
+        const stripeMesh = new THREE.Mesh(sGeo, sMat);
+        stripeMesh.position.set(offsetX, sy, offsetZ);
+        group.add(stripeMesh);
+      });
+
+      // 굴뚝 상단 링
+      const topRingGeo = new THREE.TorusGeometry(chimTopRadius + 0.3, 0.5, 8, 16);
+      const topRingMat = new THREE.MeshStandardMaterial({ color: 0xaaaaaa, roughness: 0.3, metalness: 0.6 });
+      const topRing = new THREE.Mesh(topRingGeo, topRingMat);
+      topRing.rotation.x = Math.PI / 2;
+      topRing.position.set(offsetX, h + 3 + chimH, offsetZ);
+      group.add(topRing);
+
+      // 항공 경고등 (빨간 점멸)
+      const warningGeo = new THREE.SphereGeometry(0.6, 8, 8);
+      const warningMat = new THREE.MeshStandardMaterial({
+        color: 0xff0000, emissive: 0xff0000, emissiveIntensity: 1.0,
+        transparent: true, opacity: 0.9
+      });
+      const warningLight = new THREE.Mesh(warningGeo, warningMat);
+      warningLight.position.set(offsetX, h + 4 + chimH, offsetZ);
+      warningLight.userData.isChimneyWarning = true;
+      group.add(warningLight);
+
+      // 경고등 포인트라이트
+      const wPL = new THREE.PointLight(0xff2200, 0.4, 30);
+      wPL.position.set(offsetX, h + 4 + chimH, offsetZ);
+      wPL.userData.isChimneyWarning = true;
+      group.add(wPL);
+
+      // 점검 플랫폼 (중간 높이)
+      const platY = h + 3 + chimH * 0.55;
+      const platGeo = new THREE.BoxGeometry(chimRadius * 4, 0.4, chimRadius * 4);
+      const platMat = new THREE.MeshStandardMaterial({ color: 0x556666, roughness: 0.7, metalness: 0.3 });
+      const plat = new THREE.Mesh(platGeo, platMat);
+      plat.position.set(offsetX, platY, offsetZ);
+      group.add(plat);
+
+      // 플랫폼 난간
+      const railH = 2.5;
+      const railGeo = new THREE.CylinderGeometry(0.12, 0.12, railH, 4);
+      const railMat = new THREE.MeshStandardMaterial({ color: 0x999999, metalness: 0.5, roughness: 0.3 });
+      for (let ri = 0; ri < 4; ri++) {
+        const rAngle = (ri / 4) * Math.PI * 2 + Math.PI / 4;
+        const rr = chimRadius * 1.8;
+        const railPost = new THREE.Mesh(railGeo, railMat);
+        railPost.position.set(
+          offsetX + Math.cos(rAngle) * rr,
+          platY + railH / 2 + 0.2,
+          offsetZ + Math.sin(rAngle) * rr
+        );
+        group.add(railPost);
+      }
+
+      // 연기 파티클 (스모크 이펙트)
+      const smokeParticleCount = 20;
+      const smokePositions = new Float32Array(smokeParticleCount * 3);
+      const smokeTopY = h + 4 + chimH;
+      for (let si = 0; si < smokeParticleCount; si++) {
+        smokePositions[si * 3] = offsetX + (Math.random() - 0.5) * 2;
+        smokePositions[si * 3 + 1] = smokeTopY + Math.random() * 15;
+        smokePositions[si * 3 + 2] = offsetZ + (Math.random() - 0.5) * 2;
+      }
+      const smokeGeometry = new THREE.BufferGeometry();
+      smokeGeometry.setAttribute('position', new THREE.BufferAttribute(smokePositions, 3));
+      const smokeMaterial = new THREE.PointsMaterial({
+        color: 0xcccccc, size: 2.5, transparent: true, opacity: 0.2,
+        blending: THREE.AdditiveBlending, depthWrite: false
+      });
+      const smokePoints = new THREE.Points(smokeGeometry, smokeMaterial);
+      smokePoints.userData.smokeData = {
+        baseX: offsetX, baseY: smokeTopY, baseZ: offsetZ,
+        count: smokeParticleCount, worldX: cx, worldZ: cz
+      };
+      group.add(smokePoints);
+      if (!window._chimneySmokes) window._chimneySmokes = [];
+      window._chimneySmokes.push(smokePoints);
+    }
+  }
+
+  // ── 건물 입구 (1층 정면) ──
+  const doorGeo = new THREE.BoxGeometry(Math.min(w * 0.12, 6), baseH * 0.85, 0.5);
+  const doorMat = new THREE.MeshStandardMaterial({
+    color: 0x3a5577, emissive: 0x223344, emissiveIntensity: 0.3,
+    roughness: 0.2, metalness: 0.3
+  });
+  const door = new THREE.Mesh(doorGeo, doorMat);
+  door.position.set(0, baseH * 0.43, d/2 + 0.3);
+  group.add(door);
+  // 입구 캐노피
+  const canopyGeo = new THREE.BoxGeometry(Math.min(w * 0.18, 10), 0.3, 3);
+  const canopyMat = new THREE.MeshStandardMaterial({ color: 0x444d5a, roughness: 0.5, metalness: 0.3 });
+  const canopy = new THREE.Mesh(canopyGeo, canopyMat);
+  canopy.position.set(0, baseH * 0.9, d/2 + 1.8);
+  canopy.castShadow = true;
+  group.add(canopy);
+
+  // ── 바닥 발광 ──
+  const glowGeo = new THREE.PlaneGeometry(w + 6, d + 6);
+  const glowMat = new THREE.MeshStandardMaterial({
+    color: color, emissive: color, emissiveIntensity: 0.12,
+    transparent: true, opacity: 0.25,
+  });
+  const glowPlane = new THREE.Mesh(glowGeo, glowMat);
+  glowPlane.rotation.x = -Math.PI / 2;
+  glowPlane.position.y = 0.2;
+  group.add(glowPlane);
+
+  // ── 건물 이름 라벨 (공중) ──
+  const labelCanvas = document.createElement('canvas');
+  const labelCtx = labelCanvas.getContext('2d');
+  const labelText = b.name;
+  const fontSize = 32;
+  labelCtx.font = 'bold ' + fontSize + 'px Noto Sans KR, sans-serif';
+  const tw = labelCtx.measureText(labelText).width;
+  const typeFontSize = 16;
+  labelCtx.font = typeFontSize + 'px Noto Sans KR, sans-serif';
+  const tw2 = labelCtx.measureText(b.type).width;
+  const canvasW = Math.max(tw, tw2) + 40;
+  const canvasH = fontSize + typeFontSize + 28;
+  labelCanvas.width = canvasW;
+  labelCanvas.height = canvasH;
+  // 배경
+  labelCtx.fillStyle = 'rgba(8,8,16,0.75)';
+  const rr = 8;
+  labelCtx.beginPath();
+  labelCtx.moveTo(rr, 0);
+  labelCtx.lineTo(canvasW-rr, 0); labelCtx.quadraticCurveTo(canvasW, 0, canvasW, rr);
+  labelCtx.lineTo(canvasW, canvasH-rr); labelCtx.quadraticCurveTo(canvasW, canvasH, canvasW-rr, canvasH);
+  labelCtx.lineTo(rr, canvasH); labelCtx.quadraticCurveTo(0, canvasH, 0, canvasH-rr);
+  labelCtx.lineTo(0, rr); labelCtx.quadraticCurveTo(0, 0, rr, 0);
+  labelCtx.closePath();
+  labelCtx.fill();
+  // 하단 색상 바
+  const hexColor = '#' + b.color.toString(16).padStart(6, '0');
+  labelCtx.fillStyle = hexColor;
+  labelCtx.fillRect(10, canvasH - 5, canvasW - 20, 3);
+  // 건물 이름
+  labelCtx.font = 'bold ' + fontSize + 'px Noto Sans KR, sans-serif';
+  labelCtx.fillStyle = '#ffffff';
+  labelCtx.textAlign = 'center';
+  labelCtx.textBaseline = 'top';
+  labelCtx.fillText(labelText, canvasW/2, 8);
+  // 건물 타입
+  labelCtx.font = typeFontSize + 'px Noto Sans KR, sans-serif';
+  labelCtx.fillStyle = hexColor;
+  labelCtx.fillText(b.type, canvasW/2, fontSize + 12);
+
+  const labelTexture = new THREE.CanvasTexture(labelCanvas);
+  labelTexture.minFilter = THREE.LinearFilter;
+  const labelSpriteMat = new THREE.SpriteMaterial({
+    map: labelTexture, transparent: true, depthTest: false
+  });
+  const labelSprite = new THREE.Sprite(labelSpriteMat);
+  const spriteScale = Math.max(w * 0.55, 22);
+  labelSprite.scale.set(spriteScale, spriteScale * (canvasH/canvasW), 1);
+  labelSprite.position.set(0, h + 14, 0);
+  group.add(labelSprite);
+
+  // ── 라벨 연결선 (건물 → 라벨) ──
+  const lineGeo2 = new THREE.BufferGeometry().setFromPoints([
+    new THREE.Vector3(0, h + 1.5, 0),
+    new THREE.Vector3(0, h + 10, 0)
+  ]);
+  const lineMat2 = new THREE.LineBasicMaterial({ color: b.color, transparent: true, opacity: 0.4 });
+  const labelLine = new THREE.Line(lineGeo2, lineMat2);
+  group.add(labelLine);
+
+  group.position.set(cx, 0, cz);
+  scene.add(group);
+  buildingMeshes.push(group);
+  return group;
+}
+
+// Create all buildings with staggered animation
+buildings.forEach((b, i) => {
+  const group = createBuilding(b);
+  // Start below ground for animation
+  group.userData.targetY = 0;
+  group.position.y = -50;
+  group.userData.animDelay = i * 60;
+  group.userData.animStarted = false;
+});
+
+// ============================================================
+// OHT 공중 연결 통로
+// ============================================================
+function createOHTBridge(startX, startZ, endX, endZ, bridgeHeight, bridgeLabel) {
+  const bridgeGroup = new THREE.Group();
+  const dx = endX - startX, dz = endZ - startZ;
+  const length = Math.sqrt(dx*dx + dz*dz);
+  const angle = Math.atan2(dz, dx);
+  const bW = 2.8, bH = 2.5;
+
+  // 바닥판
+  const floorGeo = new THREE.BoxGeometry(length, 0.3, bW);
+  const floorMat = new THREE.MeshStandardMaterial({ color: 0x556677, roughness: 0.6, metalness: 0.3 });
+  const floor = new THREE.Mesh(floorGeo, floorMat);
+  floor.position.y = -bH/2;
+  bridgeGroup.add(floor);
+  // 천장판
+  const ceilGeo = new THREE.BoxGeometry(length, 0.25, bW+0.4);
+  const ceil = new THREE.Mesh(ceilGeo, floorMat.clone());
+  ceil.position.y = bH/2;
+  bridgeGroup.add(ceil);
+
+  // 프레임 기둥 + 유리
+  const segments = Math.max(1, Math.floor(length / 6));
+  for (let i = 0; i <= segments; i++) {
+    const sx = -length/2 + i*(length/segments);
+    const fGeo = new THREE.BoxGeometry(0.25, bH, 0.25);
+    const fMat = new THREE.MeshStandardMaterial({ color: 0x88999a, roughness: 0.4, metalness: 0.5 });
+    const fL = new THREE.Mesh(fGeo, fMat);
+    fL.position.set(sx, 0, bW/2);
+    bridgeGroup.add(fL);
+    const fR = fL.clone(); fR.position.z = -bW/2;
+    bridgeGroup.add(fR);
+  }
+  for (let i = 0; i < segments; i++) {
+    const sx = -length/2 + (i+0.5)*(length/segments);
+    const pw = (length/segments) - 0.5;
+    const gGeo = new THREE.PlaneGeometry(pw, bH-0.6);
+    const gMat = new THREE.MeshStandardMaterial({ color: 0x99ccee, emissive: 0x224466, emissiveIntensity: 0.15, transparent: true, opacity: 0.25, side: THREE.DoubleSide });
+    const gL = new THREE.Mesh(gGeo, gMat);
+    gL.position.set(sx, 0, bW/2+0.05);
+    bridgeGroup.add(gL);
+    const gR = new THREE.Mesh(gGeo, gMat.clone());
+    gR.position.set(sx, 0, -bW/2-0.05);
+    bridgeGroup.add(gR);
+  }
+
+  // OHT 레일
+  const rGeo = new THREE.BoxGeometry(length-1, 0.2, 0.3);
+  const rMat = new THREE.MeshStandardMaterial({ color: 0xccaa22, emissive: 0xaa8800, emissiveIntensity: 0.3, roughness: 0.3, metalness: 0.5 });
+  const r1 = new THREE.Mesh(rGeo, rMat); r1.position.set(0, bH/2-0.3, -0.5); bridgeGroup.add(r1);
+  const r2 = new THREE.Mesh(rGeo, rMat.clone()); r2.position.set(0, bH/2-0.3, 0.5); bridgeGroup.add(r2);
+
+  // 지지 기둥
+  const pCnt = Math.max(1, Math.floor(length/35));
+  for (let i = 0; i <= pCnt; i++) {
+    const px = -length/2+5 + i*((length-10)/Math.max(1,pCnt));
+    const pGeo = new THREE.BoxGeometry(1.2, bridgeHeight, 1.2);
+    const pMat = new THREE.MeshStandardMaterial({ color: 0x667788, roughness: 0.6, metalness: 0.3 });
+    const p = new THREE.Mesh(pGeo, pMat); p.castShadow = true;
+    p.position.set(px, -bH/2-bridgeHeight/2, 0);
+    bridgeGroup.add(p);
+  }
+
+  // 하부 발광
+  const glGeo = new THREE.BoxGeometry(length, 0.15, 0.6);
+  const glMat = new THREE.MeshStandardMaterial({ color: 0x44aaee, emissive: 0x2288cc, emissiveIntensity: 0.5, transparent: true, opacity: 0.5 });
+  const gl = new THREE.Mesh(glGeo, glMat); gl.position.y = -bH/2-0.2; bridgeGroup.add(gl);
+
+  // 라벨
+  if (bridgeLabel) {
+    const lc = document.createElement('canvas');
+    const lx2 = lc.getContext('2d');
+    const fs = 20;
+    lx2.font = 'bold '+fs+'px Noto Sans KR, sans-serif';
+    const tw = lx2.measureText(bridgeLabel).width;
+    lc.width = tw+20; lc.height = fs+10;
+    lx2.fillStyle = 'rgba(0,30,60,0.75)';
+    lx2.fillRect(0,0,lc.width,lc.height);
+    lx2.fillStyle = 'rgba(0,150,220,0.8)';
+    lx2.fillRect(0,lc.height-2,lc.width,2);
+    lx2.font = 'bold '+fs+'px Noto Sans KR, sans-serif';
+    lx2.fillStyle = '#ddeeff';
+    lx2.textAlign = 'center'; lx2.textBaseline = 'middle';
+    lx2.fillText(bridgeLabel, lc.width/2, lc.height/2);
+    const tex = new THREE.CanvasTexture(lc); tex.minFilter = THREE.LinearFilter;
+    const sm = new THREE.SpriteMaterial({ map: tex, transparent: true, depthTest: false });
+    const sp = new THREE.Sprite(sm);
+    sp.scale.set(12, 12*(lc.height/lc.width), 1);
+    sp.position.set(0, bH/2+4, 0);
+    bridgeGroup.add(sp);
+  }
+
+  bridgeGroup.position.set((startX+endX)/2, bridgeHeight, (startZ+endZ)/2);
+  bridgeGroup.rotation.y = -angle;
+  scene.add(bridgeGroup);
+  return bridgeGroup;
+}
+
+// 건물 월드 좌표 계산
+function getBuildingWorldCenter(b) {
+  return {
+    x: (b.x + b.w / 2 - 480) * SCALE,
+    z: (820 - (b.z + b.d / 2)) * SCALE,
+    h: b.h * SCALE
+  };
+}
+
+const m14 = getBuildingWorldCenter(buildings[0]);   // M14A/B
+const m16 = getBuildingWorldCenter(buildings[4]);    // M16A/B
+
+// OHT 브릿지 높이 (건물 중간 높이 ~ 상단)
+const ohtH1 = Math.min(m14.h, m16.h) * 0.7;
+
+// ── M14A/B ↔ M16A/B (OHT 연결, M10B 왼쪽 우회, M16 왼쪽면 진입) ──
+// M14(x≈-112, z≈230) → M16 왼쪽면(x≈25, z≈120)
+// M10B 월드범위: x=10~80, z=210~260
+// 경로: M14→짧게 오른쪽(M10B 왼쪽 바깥 x=-5)→위로(M16 z)→오른쪽(M16 왼쪽면)
+const safeX = -15;             // M14 오른쪽 끝(-7.5) 안쪽, 도로 안 침범, M10B(x=10) 왼쪽 바깥
+const m16LeftX = 25;           // M16 왼쪽 끝 (데이터x=530, 월드=(530-480)*0.5=25)
+
+// 1) M14 오른쪽 끝에서 짧게 나감 (컨베이어)
+createOHTBridge(m14.x + 55, m14.z, safeX, m14.z, ohtH1, '컨베이어');
+// 2) M10B 왼쪽 바깥에서 위로 (M16 높이까지, OHT 레일) - M10B 안 지나감!
+createOHTBridge(safeX, m14.z, safeX, m16.z + 10, ohtH1, 'OHT 레일');
+// 3) M16 왼쪽면으로 짧게 연결 (리프터)
+createOHTBridge(safeX, m16.z + 10, m16LeftX, m16.z + 10, ohtH1, '리프터');
+
+// ── M16A/B 3층 ↔ P&T4 5층 (컨베이어 연결, 리프트 포함) ──
+const pt4 = getBuildingWorldCenter(buildings[7]);  // P&T4
+// M16 3층 높이: 11층 중 3층 = h * 3/11
+const m16_3F = m16.h * (3 / 11);
+// P&T4 5층 높이: 8층 중 5층 = h * 5/8
+const pt4_5F = pt4.h * (5 / 8);
+const ohtH2 = (m16_3F + pt4_5F) / 2;  // 중간 높이
+
+// M16 오른쪽 → 수평으로 → 꺾어서 아래로 P&T4 (ㄱ자)
+const m16RightX = m16.x + 55;   // M16 오른쪽 끝 근처
+const cornerX2 = pt4.x - 30;    // P&T4 왼쪽 근처 (꺾임점 x)
+
+// 1) M16 오른쪽에서 수평으로 (컨베이어)
+createOHTBridge(m16RightX, m16.z, cornerX2, m16.z, ohtH2, '컨베이어(3층)');
+// 2) 꺾어서 아래로 P&T4까지 (리프터/5층)
+createOHTBridge(cornerX2, m16.z, cornerX2, pt4.z + 10, ohtH2, '리프터(5층)');
+
+// ── M16A/B 2층 ↔ P&T5 3층 (컨베이어 연결, ㄷ반대 형태) ──
+const pt5 = getBuildingWorldCenter(buildings[8]);  // P&T5
+// M16 2층: 11층 중 2층
+const m16_2F = m16.h * (2 / 11);
+// P&T5 3층: 약5층 중 3층
+const pt5_3F = pt5.h * (3 / 5);
+const ohtH3 = (m16_2F + pt5_3F) / 2;
+
+// ㄷ(반대): M16 오른쪽 → 오른쪽으로 → 아래로 → 왼쪽으로 P&T5
+const m16Right2 = m16.x + 55;       // M16 오른쪽 끝
+const farRightX = pt4.x + 10;       // P&T4 오른쪽 바깥 (충돌 회피)
+const pt5TopZ = pt5.z - 10;         // P&T5 위쪽 근처
+
+// 1) M16 오른쪽에서 수평으로 오른쪽 (컨베이어 2층)
+createOHTBridge(m16Right2, m16.z - 15, farRightX, m16.z - 15, ohtH3, '컨베이어(2층)');
+// 2) 오른쪽에서 아래로 (리프터)
+createOHTBridge(farRightX, m16.z - 15, farRightX, pt5TopZ, ohtH3, '리프터');
+// 3) 왼쪽으로 P&T5까지 (컨베이어 3층)
+createOHTBridge(farRightX, pt5TopZ, pt5.x + 30, pt5TopZ, ohtH3, '컨베이어(3층)');
+
+// ============================================================
+// Orbit Controls (manual implementation since OrbitControls isn't in r128 core)
+// ============================================================
+let isDragging = false;
+let isRightDrag = false;
+let prevMouse = { x: 0, y: 0 };
+let spherical = { theta: 1.57, phi: 0.85, radius: 420 };
+let target = new THREE.Vector3(35, 0, 170);
+
+function updateCamera() {
+  const x = target.x + spherical.radius * Math.sin(spherical.phi) * Math.cos(spherical.theta);
+  const y = target.y + spherical.radius * Math.cos(spherical.phi);
+  const z = target.z + spherical.radius * Math.sin(spherical.phi) * Math.sin(spherical.theta);
+  camera.position.set(x, y, z);
+  camera.lookAt(target);
+}
+
+renderer.domElement.addEventListener('mousedown', e => {
+  if (e.button === 2) isRightDrag = true;
+  else isDragging = true;
+  prevMouse = { x: e.clientX, y: e.clientY };
+});
+
+renderer.domElement.addEventListener('mousemove', e => {
+  const dx = e.clientX - prevMouse.x;
+  const dy = e.clientY - prevMouse.y;
+
+  if (isDragging) {
+    spherical.theta -= dx * 0.005;
+    spherical.phi = Math.max(0.2, Math.min(1.5, spherical.phi - dy * 0.005));
+    updateCamera();
+  }
+  if (isRightDrag) {
+    const right = new THREE.Vector3();
+    camera.getWorldDirection(right);
+    right.cross(camera.up).normalize();
+    const up = new THREE.Vector3(0, 1, 0);
+    target.add(right.multiplyScalar(-dx * 0.5));
+    target.add(up.multiplyScalar(dy * 0.3));
+    updateCamera();
+  }
+
+  // Tooltip on hover
+  mouse.x = (e.clientX / window.innerWidth) * 2 - 1;
+  mouse.y = -(e.clientY / window.innerHeight) * 2 + 1;
+  raycaster.setFromCamera(mouse, camera);
+  const tooltip = document.getElementById('tooltip');
+
+  let hit = false;
+  for (const group of buildingMeshes) {
+    const intersects = raycaster.intersectObjects(group.children, true);
+    if (intersects.length > 0) {
+      tooltip.style.display = 'block';
+      tooltip.style.left = e.clientX + 'px';
+      tooltip.style.top = e.clientY + 'px';
+      tooltip.textContent = group.userData.name;
+      document.body.style.cursor = 'pointer';
+      hit = true;
+      break;
+    }
+  }
+  if (!hit) {
+    tooltip.style.display = 'none';
+    document.body.style.cursor = 'default';
+  }
+
+  prevMouse = { x: e.clientX, y: e.clientY };
+});
+
+window.addEventListener('mouseup', () => {
+  isDragging = false;
+  isRightDrag = false;
+});
+
+renderer.domElement.addEventListener('contextmenu', e => e.preventDefault());
+
+renderer.domElement.addEventListener('wheel', e => {
+  spherical.radius = Math.max(100, Math.min(900, spherical.radius + e.deltaY * 0.5));
+  updateCamera();
+});
+
+// 사람 대사 목록
+const personDialogs = [
+  '여기가 SK하이닉스 이천캠퍼스야~',
+  '오늘도 야근이다.. 힘내자!',
+  '회사 어때? 나쁘지 않아 ㅎㅎ',
+  '밥 먹으러 가자~',
+  'M16동 진짜 크다..',
+  '여기 어디야? 처음 왔는데..',
+  '클린룸 들어가기 전에 커피 한잔!',
+  '웨이퍼 수율 올려야 하는데..',
+  'OHT 물류 시스템 대단하지 않냐?',
+  '이번 주 금요일이 제일 기다려진다',
+  '반도체가 미래다!',
+  '점심 뭐 먹을까? 된장찌개?',
+  '오늘 날씨 좋다~',
+  '저기 정문 쪽에 카페 새로 생겼대',
+  '내일 교대근무라 일찍 자야해',
+  '공정 교육 듣고 왔는데 어렵다..',
+  '이천에서 서울까지 버스 1시간이면 가',
+  '기숙사 밥 맛있어졌더라',
+  '연봉 협상 잘 됐으면 좋겠다 ㅎ',
+  'DRAM 가격 올라가면 좋겠다~',
+  '여기 야경 진짜 이쁘다!',
+  '주말에 뭐 하지? 이천 온천 갈까?',
+  '선배님 저 질문 있는데요..',
+  '신입사원인데 길을 잃었어요..',
+  '에너지센터에서 커피 마시고 왔어',
+  '택배 왔다! 안내센터 가야지',
+  '운동하러 체육관 가자~',
+  '오늘 공정 점검이래 바쁘겠다',
+  'M14동에서 M16동까지 OHT로 5분!',
+  '이천캠퍼스 최고 아니냐?!',
+  '아 졸려.. 야근 끝나면 치킨 먹자',
+  '복지관에서 동호회 모임 있대',
+  '하이닉스 들어오길 잘했다 진짜',
+  '여기 P&T4동이 8층이래 대박',
+  '안전모 쓰고 다녀야 해~',
+  '주차장 어디야? 맨날 헷갈려',
+  '오늘 회의 몇 시지?',
+  '퇴근하고 치맥하자!',
+  '이 건물 뭐하는 데야?',
+  '고속도로 막히려나.. 일찍 가자',
+];
+let speechTimer = null;
+
+// Click to select
+renderer.domElement.addEventListener('click', e => {
+  mouse.x = (e.clientX / window.innerWidth) * 2 - 1;
+  mouse.y = -(e.clientY / window.innerHeight) * 2 + 1;
+  raycaster.setFromCamera(mouse, camera);
+
+  // 사람 클릭 체크
+  let personHit = false;
+  const allPersons = scene.children.filter(c => c.userData && c.userData.isPerson);
+  for (const person of allPersons) {
+    const intersects = raycaster.intersectObjects(person.children, true);
+    if (intersects.length > 0) {
+      personHit = true;
+      // 랜덤 대사
+      const msg = personDialogs[Math.floor(Math.random() * personDialogs.length)];
+      const bubble = document.getElementById('speechBubble');
+      const text = document.getElementById('speechText');
+      text.textContent = msg;
+      // 3D→2D 화면좌표 변환
+      const pos = new THREE.Vector3();
+      person.getWorldPosition(pos);
+      pos.y += 6;
+      pos.project(camera);
+      const sx = (pos.x * 0.5 + 0.5) * window.innerWidth;
+      const sy = (-pos.y * 0.5 + 0.5) * window.innerHeight;
+      bubble.style.left = sx + 'px';
+      bubble.style.top = sy + 'px';
+      bubble.style.display = 'block';
+      bubble.style.animation = 'none';
+      bubble.offsetHeight; // reflow
+      bubble.style.animation = 'bubblePop 0.3s ease-out';
+      // 3초 후 사라짐
+      if (speechTimer) clearTimeout(speechTimer);
+      speechTimer = setTimeout(() => { bubble.style.display = 'none'; }, 3000);
+      break;
+    }
+  }
+
+  // 줄 서있는 사람도 체크 (isPerson 없는 일반 그룹)
+  if (!personHit) {
+    const allGroups = scene.children.filter(c => c.isGroup && c.children.length === 5 && !c.userData.isPerson && !c.userData.isBus);
+    for (const grp of allGroups) {
+      const intersects = raycaster.intersectObjects(grp.children, true);
+      if (intersects.length > 0) {
+        personHit = true;
+        const msg = personDialogs[Math.floor(Math.random() * personDialogs.length)];
+        const bubble = document.getElementById('speechBubble');
+        const text = document.getElementById('speechText');
+        text.textContent = msg;
+        const pos = new THREE.Vector3();
+        grp.getWorldPosition(pos);
+        pos.y += 6;
+        pos.project(camera);
+        const sx = (pos.x * 0.5 + 0.5) * window.innerWidth;
+        const sy = (-pos.y * 0.5 + 0.5) * window.innerHeight;
+        bubble.style.left = sx + 'px';
+        bubble.style.top = sy + 'px';
+        bubble.style.display = 'block';
+        bubble.style.animation = 'none';
+        bubble.offsetHeight;
+        bubble.style.animation = 'bubblePop 0.3s ease-out';
+        if (speechTimer) clearTimeout(speechTimer);
+        speechTimer = setTimeout(() => { bubble.style.display = 'none'; }, 3000);
+        break;
+      }
+    }
+  }
+
+  if (personHit) return; // 사람 클릭이면 건물 선택 안 함
+
+  for (const group of buildingMeshes) {
+    const intersects = raycaster.intersectObjects(group.children, true);
+    if (intersects.length > 0) {
+      const d = group.userData;
+      const colorHex = '#' + (typeof d.color === 'number' ? d.color.toString(16).padStart(6, '0') : '4488ff');
+      document.getElementById('bName').innerHTML = '<span class="color-badge" style="background:'+colorHex+'"></span>' + d.name;
+      document.getElementById('bType').textContent = d.type;
+
+      // 상세 패널 내용 생성
+      let html = '';
+      // 흐름 역할
+      if (d.flowRole) {
+        html += '<div style="font-size:10px;color:'+colorHex+';font-weight:700;margin-bottom:8px;padding:4px 8px;background:rgba(255,255,255,0.03);border-radius:4px;border-left:3px solid '+colorHex+';">'+d.flowRole+'</div>';
+      }
+      // 기본 설명
+      html += '<div class="building-detail">'+d.detail.replace(/\n/g, '<br>')+'</div>';
+      // 스펙 그리드
+      if (d.specs) {
+        html += '<div class="spec-grid">';
+        Object.entries(d.specs).forEach(([k,v]) => {
+          const labels = {floors:'층수',process:'공정',size:'크기',height:'높이',logistics:'물류',role:'역할',link:'연결'};
+          html += '<div class="spec-item"><div class="spec-label">'+(labels[k]||k)+'</div><div class="spec-value">'+v+'</div></div>';
+        });
+        html += '</div>';
+      }
+      // 공정 플로우
+      if (d.processFlow && d.processFlow.length) {
+        html += '<div class="section-label">주요 공정</div>';
+        html += '<div class="process-flow">';
+        d.processFlow.forEach((step, i) => {
+          html += '<span class="pf-step">'+step+'</span>';
+          if (i < d.processFlow.length - 1) html += '<span class="pf-arrow">→</span>';
+        });
+        html += '</div>';
+      }
+      // 이동 경로
+      if (d.routes && d.routes.length) {
+        html += '<div class="section-label">제품 이동 경로</div>';
+        d.routes.forEach(r => {
+          html += '<div class="route-info">';
+          html += '<div class="route-title"><span class="dot"></span>→ '+r.to+' ('+r.method+')</div>';
+          html += '<div class="route-desc">'+r.desc+'</div>';
+          html += '</div>';
+        });
+      }
+      // 굴뚝기둥 정보
+      if (d.chimneys) {
+        html += '<div class="section-label">굴뚝기둥 (Chimney Pillars)</div>';
+        html += '<div class="route-info">';
+        html += '<div class="route-title"><span class="dot"></span>굴뚝 '+d.chimneys.count+'기 설치</div>';
+        html += '<div class="route-desc">높이 '+(d.chimneys.height * SCALE).toFixed(1)+'m | 반경 '+(d.chimneys.radius * SCALE).toFixed(1)+'m<br>항공 경고등 + 빨간 줄무늬 + 점검 플랫폼</div>';
+        html += '</div>';
+      }
+      // 전체 흐름 보기 버튼
+      html += '<button class="flow-btn" onclick="showFullFlow()">전체 생산 흐름 보기</button>';
+
+      document.getElementById('panelBody').innerHTML = html;
+
+      // Highlight animation
+      group.children.forEach(child => {
+        if (child.material && child.material.emissive) {
+          const origIntensity = child.material.emissiveIntensity;
+          child.material.emissiveIntensity = 1.5;
+          setTimeout(() => { child.material.emissiveIntensity = origIntensity; }, 400);
+        }
+      });
+      break;
+    }
+  }
+});
+
+// ESC로 info 패널 초기화
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape') {
+    // 전체 흐름 오버레이 닫기
+    const overlay = document.getElementById('fullFlowOverlay');
+    if (overlay) { overlay.remove(); return; }
+    // info 패널 초기화
+    document.getElementById('bName').innerHTML = '<span class="color-badge" id="bBadge" style="background:#4af;"></span>SK hynix 이천';
+    document.getElementById('bType').textContent = '캠퍼스 전경';
+    document.getElementById('panelBody').innerHTML = '<div class="building-detail">건물을 클릭하면<br>생산 공정 & 이동 정보를 볼 수 있습니다</div>';
+  }
+});
+
+// Touch support
+let touchStart = null;
+let touchDist = 0;
+renderer.domElement.addEventListener('touchstart', e => {
+  if (e.touches.length === 1) {
+    touchStart = { x: e.touches[0].clientX, y: e.touches[0].clientY };
+  } else if (e.touches.length === 2) {
+    const dx = e.touches[0].clientX - e.touches[1].clientX;
+    const dy = e.touches[0].clientY - e.touches[1].clientY;
+    touchDist = Math.sqrt(dx*dx + dy*dy);
+  }
+});
+renderer.domElement.addEventListener('touchmove', e => {
+  e.preventDefault();
+  if (e.touches.length === 1 && touchStart) {
+    const dx = e.touches[0].clientX - touchStart.x;
+    const dy = e.touches[0].clientY - touchStart.y;
+    spherical.theta -= dx * 0.005;
+    spherical.phi = Math.max(0.2, Math.min(1.5, spherical.phi - dy * 0.005));
+    updateCamera();
+    touchStart = { x: e.touches[0].clientX, y: e.touches[0].clientY };
+  } else if (e.touches.length === 2) {
+    const dx = e.touches[0].clientX - e.touches[1].clientX;
+    const dy = e.touches[0].clientY - e.touches[1].clientY;
+    const dist = Math.sqrt(dx*dx + dy*dy);
+    spherical.radius = Math.max(100, Math.min(900, spherical.radius - (dist - touchDist) * 1.5));
+    touchDist = dist;
+    updateCamera();
+  }
+}, { passive: false });
+
+// ============================================================
+// Minimap
+// ============================================================
+const minimapCanvas = document.getElementById('minimapCanvas');
+const mCtx = minimapCanvas.getContext('2d');
+
+function setupMinimap() {
+  const rect = document.getElementById('minimap').getBoundingClientRect();
+  const dpr = window.devicePixelRatio || 1;
+  minimapCanvas.width = rect.width * dpr;
+  minimapCanvas.height = rect.height * dpr;
+  mCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
+}
+setupMinimap();
+
+// 미니맵 공통 좌표계
+const MM = { minX: 50, maxX: 1000, minZ: 100, maxZ: 870, padX: 10, padY: 14 };
+
+function drawMinimap() {
+  const el = document.getElementById('minimap');
+  const cw = el.clientWidth;
+  const ch = el.clientHeight;
+  mCtx.clearRect(0, 0, cw, ch);
+
+  mCtx.fillStyle = '#0a0c14';
+  mCtx.fillRect(0, 0, cw, ch);
+
+  const dw = cw - MM.padX*2;
+  const dh = ch - MM.padY*2;
+
+  function M(bx, bz) {
+    return [MM.padX + ((bx-MM.minX)/(MM.maxX-MM.minX))*dw,
+            MM.padY + ((bz-MM.minZ)/(MM.maxZ-MM.minZ))*dh];
+  }
+
+  // 경계
+  mCtx.beginPath();
+  boundaryPts2D.forEach((p,i) => { const [x,y]=M(p[0],p[1]); i===0?mCtx.moveTo(x,y):mCtx.lineTo(x,y); });
+  mCtx.closePath();
+  mCtx.fillStyle = 'rgba(18,22,32,0.6)';
+  mCtx.fill();
+  mCtx.strokeStyle = 'rgba(40,50,70,0.4)';
+  mCtx.lineWidth = 0.5;
+  mCtx.stroke();
+
+  // 건물
+  buildings.forEach(b => {
+    const [mx,my] = M(b.x, b.z);
+    const bw = Math.max((b.w/(MM.maxX-MM.minX))*dw, 3);
+    const bh = Math.max((b.d/(MM.maxZ-MM.minZ))*dh, 2);
+    const c = '#'+b.color.toString(16).padStart(6,'0');
+    mCtx.fillStyle = c;
+    mCtx.globalAlpha = 0.7;
+    mCtx.fillRect(mx, my, bw, bh);
+    mCtx.globalAlpha = 1;
+    if (b.h > 40) {
+      mCtx.fillStyle = '#ccc';
+      mCtx.font = '500 4.5px sans-serif';
+      mCtx.textAlign = 'center';
+      mCtx.fillText(b.name, mx+bw/2, my+bh/2+1.5);
+    }
+  });
+
+  // OHT
+  function oht(pts) {
+    mCtx.strokeStyle = 'rgba(68,170,238,0.45)';
+    mCtx.lineWidth = 0.7;
+    mCtx.setLineDash([2,2]);
+    for (let i=0;i<pts.length-1;i++) { mCtx.beginPath(); mCtx.moveTo(pts[i][0],pts[i][1]); mCtx.lineTo(pts[i+1][0],pts[i+1][1]); mCtx.stroke(); }
+    mCtx.setLineDash([]);
+    for (let i=1;i<pts.length-1;i++) { mCtx.fillStyle='rgba(68,170,238,0.6)'; mCtx.beginPath(); mCtx.arc(pts[i][0],pts[i][1],1,0,Math.PI*2); mCtx.fill(); }
+  }
+  const sd=(m14.x+55)/0.5+480, sz2=820-m14.z/0.5, sfx=(-15)/0.5+480, mzz=820-(m16.z+10)/0.5, mlx=25/0.5+480;
+  oht([M(sd,sz2),M(sfx,sz2),M(sfx,mzz),M(mlx,mzz)]);
+  const mr=(m16.x+55)/0.5+480, mrz=820-m16.z/0.5, c2x=(pt4.x-30)/0.5+480, p4z=820-(pt4.z+10)/0.5;
+  oht([M(mr,mrz),M(c2x,mrz),M(c2x,p4z)]);
+  const mrz2=820-(m16.z-15)/0.5, frx=(pt4.x+10)/0.5+480, p5z=820-(pt5.z-10)/0.5, p5x=(pt5.x+30)/0.5+480;
+  oht([M(mr,mrz2),M(frx,mrz2),M(frx,p5z),M(p5x,p5z)]);
+
+  // 카메라
+  const [cx,cy] = M(camera.position.x/SCALE+480, 820-camera.position.z/SCALE);
+  const [tx,ty] = M(target.x/SCALE+480, 820-target.z/SCALE);
+  const a = Math.atan2(ty-cy,tx-cx);
+  mCtx.beginPath(); mCtx.moveTo(cx,cy);
+  mCtx.lineTo(cx+Math.cos(a-0.35)*12, cy+Math.sin(a-0.35)*12);
+  mCtx.lineTo(cx+Math.cos(a+0.35)*12, cy+Math.sin(a+0.35)*12);
+  mCtx.closePath();
+  mCtx.fillStyle = 'rgba(68,170,255,0.08)';
+  mCtx.fill();
+  mCtx.beginPath(); mCtx.moveTo(cx,cy); mCtx.lineTo(tx,ty);
+  mCtx.strokeStyle='rgba(68,170,255,0.25)'; mCtx.lineWidth=0.5; mCtx.stroke();
+  mCtx.beginPath(); mCtx.arc(cx,cy,2,0,Math.PI*2);
+  mCtx.fillStyle='#4af'; mCtx.fill();
+  mCtx.beginPath(); mCtx.arc(tx,ty,1.2,0,Math.PI*2);
+  mCtx.fillStyle='rgba(255,80,80,0.5)'; mCtx.fill();
+}
+
+// 미니맵 클릭
+document.getElementById('minimap').addEventListener('click', function(e) {
+  const rect = this.getBoundingClientRect();
+  const cx = e.clientX - rect.left;
+  const cy = e.clientY - rect.top;
+  const dw = rect.width - MM.padX*2;
+  const dh = rect.height - MM.padY*2;
+  const dataX = MM.minX + ((cx-MM.padX)/dw)*(MM.maxX-MM.minX);
+  const dataZ = MM.minZ + ((cy-MM.padY)/dh)*(MM.maxZ-MM.minZ);
+  target.set((dataX-480)*SCALE, 0, (820-dataZ)*SCALE);
+  updateCamera();
+});
+
+// ============================================================
+// 전체 생산 흐름 오버레이
+// ============================================================
+function showFullFlow() {
+  // 이미 열려있으면 닫기
+  if (document.getElementById('fullFlowOverlay')) {
+    document.getElementById('fullFlowOverlay').remove();
+    return;
+  }
+  const overlay = document.createElement('div');
+  overlay.id = 'fullFlowOverlay';
+  overlay.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(5,5,15,0.92);backdrop-filter:blur(12px);z-index:500;display:flex;flex-direction:column;align-items:center;justify-content:center;animation:fadeInFlow 0.3s ease;';
+  const style = document.createElement('style');
+  style.textContent = '@keyframes fadeInFlow{from{opacity:0}to{opacity:1}} @keyframes flowNodeIn{from{transform:translateY(20px);opacity:0}to{transform:translateY(0);opacity:1}} @keyframes flowDot{0%{left:0;opacity:1}90%{left:calc(100% - 8px);opacity:1}100%{left:100%;opacity:0}}';
+  overlay.appendChild(style);
+
+  let h = '<div style="text-align:center;margin-bottom:24px;">';
+  h += '<div style="font-size:18px;font-weight:900;color:#fff;letter-spacing:2px;">DRAM 전체 생산 흐름</div>';
+  h += '<div style="font-size:10px;color:#666;letter-spacing:3px;margin-top:4px;">SK hynix 이천캠퍼스 PRODUCTION FLOW</div>';
+  h += '</div>';
+
+  const steps = [
+    { step:'STEP 1', name:'웨이퍼 FAB', building:'M14A/B', color:'#ecc94b', desc:'1a/1b nm 공정\n회로 형성' },
+    { step:'STEP 2', name:'FAB 생산', building:'M10A/B/C', color:'#63b3ed', desc:'DRAM 생산\n멀티 FAB' },
+    { step:'STEP 3', name:'최신 FAB', building:'M16A/B', color:'#48bb78', desc:'AMHS 물류\n11층 대형' },
+    { step:'STEP 4', name:'웨이퍼 테스트', building:'DRAM_WT', color:'#e07098', desc:'프로브 테스트\n수율 판정' },
+    { step:'STEP 5', name:'패키지&테스트', building:'P&T1/4/5', color:'#c4956a', desc:'다이싱·본딩\n최종 테스트' },
+    { step:'STEP 6', name:'출하', building:'정문→고속도로', color:'#4af', desc:'완제품 납품\n중부고속도로' },
+  ];
+
+  h += '<div style="display:flex;align-items:stretch;gap:0;overflow-x:auto;padding:10px 20px;max-width:95vw;">';
+  steps.forEach((s, i) => {
+    h += '<div style="min-width:130px;padding:16px 14px;background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.06);border-radius:10px;text-align:center;animation:flowNodeIn 0.4s ease '+(i*0.1)+'s both;">';
+    h += '<div style="font-size:8px;color:#777;letter-spacing:2px;">'+s.step+'</div>';
+    h += '<div style="font-size:14px;font-weight:800;color:'+s.color+';margin:6px 0 2px;">'+s.name+'</div>';
+    h += '<div style="font-size:10px;color:#999;margin-bottom:6px;">'+s.building+'</div>';
+    h += '<div style="font-size:9px;color:#666;line-height:1.5;">'+s.desc.replace(/\n/g,'<br>')+'</div>';
+    h += '</div>';
+    if (i < steps.length - 1) {
+      h += '<div style="display:flex;align-items:center;justify-content:center;min-width:40px;position:relative;">';
+      h += '<div style="width:28px;height:2px;background:linear-gradient(90deg,'+s.color+','+steps[i+1].color+');position:relative;overflow:hidden;">';
+      h += '<div style="position:absolute;width:6px;height:6px;border-radius:50%;background:#fff;top:-2px;animation:flowDot 1.5s linear infinite '+(i*0.3)+'s;box-shadow:0 0 6px #4af;"></div>';
+      h += '</div>';
+      h += '</div>';
+    }
+  });
+  h += '</div>';
+
+  // OHT 경로 요약
+  h += '<div style="margin-top:20px;display:flex;gap:12px;flex-wrap:wrap;justify-content:center;max-width:90vw;">';
+  const ohtRoutes = [
+    { from:'M14A/B', to:'M16A/B', method:'OHT 컨베이어·레일·리프터', detail:'M10B 왼쪽 우회, 23m 공중' },
+    { from:'M16A/B', to:'P&T4', method:'OHT 컨베이어(3층→5층)', detail:'M16 우측→수평→리프터' },
+    { from:'M16A/B', to:'P&T5', method:'OHT 컨베이어(2층→3층)', detail:'P&T4 바깥 우회 경로' },
+  ];
+  ohtRoutes.forEach(r => {
+    h += '<div style="background:rgba(68,170,255,0.06);border:1px solid rgba(68,170,255,0.12);border-radius:8px;padding:10px 14px;min-width:200px;">';
+    h += '<div style="font-size:10px;font-weight:700;color:#4af;">'+r.from+' → '+r.to+'</div>';
+    h += '<div style="font-size:9px;color:#8ab;margin-top:3px;">'+r.method+'</div>';
+    h += '<div style="font-size:8px;color:#667;margin-top:2px;">'+r.detail+'</div>';
+    h += '</div>';
+  });
+  h += '</div>';
+
+  h += '<button onclick="document.getElementById(\'fullFlowOverlay\').remove()" style="margin-top:20px;padding:8px 28px;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.12);color:#aaa;border-radius:8px;cursor:pointer;font-size:12px;font-family:inherit;transition:all 0.3s;" onmouseover="this.style.background=\'rgba(255,255,255,0.12)\'" onmouseout="this.style.background=\'rgba(255,255,255,0.06)\'">닫기 (ESC)</button>';
+
+  overlay.innerHTML += h;
+  document.body.appendChild(overlay);
+
+  // ESC로 닫기
+  function escClose(e) { if(e.key==='Escape'){overlay.remove();document.removeEventListener('keydown',escClose);} }
+  document.addEventListener('keydown', escClose);
+}
+
+// ============================================================
+// Animation Loop
+// ============================================================
+updateCamera();
+const clock = new THREE.Clock();
+let startTime = Date.now();
+
+function animate() {
+  requestAnimationFrame(animate);
+  const elapsed = Date.now() - startTime;
+
+  // Building rise animation
+  buildingMeshes.forEach(group => {
+    if (elapsed > group.userData.animDelay) {
+      if (!group.userData.animStarted) {
+        group.userData.animStarted = true;
+        group.userData.animTime = 0;
+      }
+      group.userData.animTime += 0.03;
+      const t = Math.min(1, group.userData.animTime);
+      // Ease out cubic
+      const ease = 1 - Math.pow(1 - t, 3);
+      group.position.y = -50 + 50 * ease;
+    }
+  });
+
+  // Subtle camera auto-rotate when idle
+  // (disabled to keep user control)
+
+  // 천체 업데이트 (해/달 위치, 하늘색, 조명)
+  updateSky();
+
+  // Window flicker (항상 - 밤에도 깜빡임)
+  if (Math.random() < 0.02) {
+    const randomBuilding = buildingMeshes[Math.floor(Math.random() * buildingMeshes.length)];
+    randomBuilding.children.forEach(child => {
+      if (child.userData && child.userData.isWindow) {
+        child.material.emissiveIntensity = 0.3 + Math.random() * 0.6;
+      }
+    });
+  }
+
+  // 사람 걷기 애니메이션
+  scene.children.forEach(obj => {
+    if (obj.userData && obj.userData.isPerson) {
+      obj.userData.walkTimer += 1;
+      // 일정 간격으로 방향 전환
+      if (obj.userData.walkTimer % 200 < 1) {
+        obj.userData.walkDir += (Math.random() - 0.5) * 1.5;
+      }
+      const spd = obj.userData.walkSpeed;
+      const dir = obj.userData.walkDir;
+      obj.position.x += Math.cos(dir) * spd;
+      obj.position.z += Math.sin(dir) * spd;
+      obj.rotation.y = -dir + Math.PI/2;
+      // 영역 밖이면 되돌리기
+      const z = obj.userData.zone;
+      if (obj.position.x < z.xMin) { obj.position.x = z.xMin; obj.userData.walkDir = Math.random()*Math.PI; }
+      if (obj.position.x > z.xMax) { obj.position.x = z.xMax; obj.userData.walkDir = Math.PI+Math.random()*Math.PI; }
+      if (obj.position.z < z.zMin) { obj.position.z = z.zMin; obj.userData.walkDir = Math.PI*0.5*Math.random(); }
+      if (obj.position.z > z.zMax) { obj.position.z = z.zMax; obj.userData.walkDir = -Math.PI*0.5+Math.random()*Math.PI; }
+      // 걷는 모션 (다리 흔들기)
+      const swing = Math.sin(obj.userData.walkTimer * 0.15) * 0.15;
+      if (obj.children[3]) obj.children[3].rotation.x = swing;  // 왼다리
+      if (obj.children[4]) obj.children[4].rotation.x = -swing; // 오른다리
+    }
+  });
+
+  // 버스 주행 애니메이션
+  busGroup.forEach(bus => {
+    const r = bus.userData.route;
+    const p0 = r[0], p1 = r[1];
+    bus.userData.progress += bus.userData.speed * 0.002 * bus.userData.forward;
+    if (bus.userData.progress >= 1) { bus.userData.progress = 1; bus.userData.forward = -1; }
+    if (bus.userData.progress <= 0) { bus.userData.progress = 0; bus.userData.forward = 1; }
+    const t = bus.userData.progress;
+    bus.position.x = p0.x + (p1.x - p0.x) * t;
+    bus.position.z = p0.z + (p1.z - p0.z) * t;
+    // 방향 맞추기
+    const dx = (p1.x - p0.x) * bus.userData.forward;
+    const dz = (p1.z - p0.z) * bus.userData.forward;
+    bus.rotation.y = -Math.atan2(dz, dx) + Math.PI/2;
+  });
+
+  // 고속도로 차량 주행
+  hwCars.forEach(car => {
+    car.position.z += car.userData.speed * car.userData.dir;
+    // 범위 밖이면 반대쪽에서 다시 출발
+    if (car.position.z > 530) { car.position.z = -190; }
+    if (car.position.z < -190) { car.position.z = 530; }
+  });
+
+  // ── 굴뚝 연기 파티클 애니메이션 ──
+  if (window._chimneySmokes) {
+    const dt = 0.016;
+    window._chimneySmokes.forEach(smoke => {
+      const pos = smoke.geometry.attributes.position.array;
+      const sd = smoke.userData.smokeData;
+      for (let si = 0; si < sd.count; si++) {
+        // 상승 + 바람 드리프트
+        pos[si * 3] += (Math.random() - 0.5) * 0.08 + Math.sin(elapsed * 0.0008 + si) * 0.03;
+        pos[si * 3 + 1] += 0.08 + Math.random() * 0.05;
+        pos[si * 3 + 2] += (Math.random() - 0.5) * 0.06;
+
+        // 일정 높이 넘으면 리셋
+        if (pos[si * 3 + 1] > sd.baseY + 20) {
+          pos[si * 3] = sd.baseX + (Math.random() - 0.5) * 2;
+          pos[si * 3 + 1] = sd.baseY;
+          pos[si * 3 + 2] = sd.baseZ + (Math.random() - 0.5) * 2;
+        }
+      }
+      smoke.geometry.attributes.position.needsUpdate = true;
+      smoke.material.opacity = 0.12 + Math.sin(elapsed * 0.003) * 0.04;
+    });
+  }
+
+  // ── 굴뚝 경고등 점멸 ──
+  buildingMeshes.forEach(group => {
+    group.traverse(child => {
+      if (child.userData && child.userData.isChimneyWarning) {
+        const blink = Math.sin(elapsed * 0.006) > 0 ? 1.0 : 0.1;
+        if (child.isMesh) {
+          child.material.emissiveIntensity = blink;
+          child.material.opacity = 0.3 + blink * 0.7;
+        } else if (child.isLight) {
+          child.intensity = blink * 0.4;
+        }
+      }
+    });
+  });
+
+  renderer.render(scene, camera);
+
+  // Update minimap
+  drawMinimap();
+}
+
+// Hide loading
+setTimeout(() => {
+  document.getElementById('loading').classList.add('hidden');
+  startTime = Date.now();
+  animate();
+}, 5000);
+
+// Resize
+window.addEventListener('resize', () => {
+  camera.aspect = window.innerWidth / window.innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(window.innerWidth, window.innerHeight);
+  setupMinimap();
+});
+</script>
+</body>
+</html>
