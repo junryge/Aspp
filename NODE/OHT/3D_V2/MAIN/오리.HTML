@@ -474,7 +474,7 @@ const buildings = [
     processFlow: ['포토리소그래피', '식각(Etching)', '증착(Deposition)', 'CMP 연마', '이온주입'],
     routes: [{ to: 'M16A/B', method: 'OHT 컨베이어 → 레일 → 리프터', desc: 'M10B 왼쪽 우회, 공중 23m 높이 연결' }],
     flowRole: 'STEP 1 -웨이퍼 FAB (회로 형성)',
-    chimneys: { count: 3, height: 18, radius: 2.5 }
+    chimneys: { count: 1, height: 50, radius: 8 }
   },
   { name: 'M10A', x: 160, z: 520, w: 200, d: 120, h: 65, color: 0x63b3ed, type: '생산동', detail: 'M10A FAB동\nDRAM 생산',
     specs: { floors: '5F', process: 'DRAM', size: '200m × 120m', height: '32.5m' },
@@ -503,7 +503,7 @@ const buildings = [
       { to: 'P&T5', method: 'OHT 컨베이어(2층→3층)', desc: 'M16 우측→P&T4 바깥 우회→P&T5' }
     ],
     flowRole: 'STEP 3 -최신 FAB (대형 생산동)',
-    chimneys: { count: 4, height: 22, radius: 2.8 }
+    chimneys: { count: 1, height: 60, radius: 9 }
   },
   { name: 'DRAM_WT', x: 420, z: 730, w: 150, d: 70, h: 45, color: 0xe07098, type: '웨이퍼 테스트', detail: 'DRAM 웨이퍼 테스트동\n웨이퍼 검사 및 테스트',
     specs: { floors: '4F', role: '웨이퍼 검사', size: '150m × 70m', height: '22.5m' },
@@ -1922,122 +1922,115 @@ function createBuilding(b) {
     }
   }
 
-  // ── 굴뚝기둥 (Chimney Pillars) - M14A, M16A 전용 ──
+  // ── 굴뚝기둥 (Chimney Pillar) - M14A, M16A 옥상 오른쪽 ──
   if (b.chimneys) {
     const chim = b.chimneys;
-    const chimCount = chim.count || 3;
-    const chimHeight = chim.height || 18;
-    const chimRadius = (chim.radius || 2.5) * SCALE;
-    const chimTopRadius = chimRadius * 0.7;
-    const chimH = chimHeight * SCALE;
+    const chimRadius = (chim.radius || 8) * SCALE;
+    const chimTopRadius = chimRadius * 0.6;
+    const chimH = (chim.height || 50) * SCALE;
+    const roofY = h + 1.5;  // 옥상 위 (지붕 높이)
+    const chimX = w / 2 - chimRadius - 3;  // 옥상 오른쪽 영역
+    const chimZ = 0;
 
-    for (let ci = 0; ci < chimCount; ci++) {
-      const offsetX = (ci - (chimCount - 1) / 2) * (w / (chimCount + 1));
-      const offsetZ = -d / 2 - 6;  // 건물 후면 배치
+    // 옥상 위 굴뚝 받침대
+    const padH = 3;
+    const padGeo = new THREE.BoxGeometry(chimRadius * 4, padH, chimRadius * 4);
+    const padMat = new THREE.MeshStandardMaterial({ color: 0x3a3a44, roughness: 0.9, metalness: 0.1 });
+    const pad = new THREE.Mesh(padGeo, padMat);
+    pad.position.set(chimX, roofY + padH / 2, chimZ);
+    pad.castShadow = true;
+    group.add(pad);
 
-      // 굴뚝 기초 (콘크리트 받침대)
-      const chimBaseGeo = new THREE.BoxGeometry(chimRadius * 3.5, 3, chimRadius * 3.5);
-      const chimBaseMat = new THREE.MeshStandardMaterial({ color: 0x3a3a44, roughness: 0.9, metalness: 0.1 });
-      const chimBase = new THREE.Mesh(chimBaseGeo, chimBaseMat);
-      chimBase.position.set(offsetX, h + 1.5, offsetZ);
-      chimBase.castShadow = true;
-      group.add(chimBase);
+    // 메인 굴뚝 원통 (옥상 받침대 위에서 올라감)
+    const shaftBottom = roofY + padH;
+    const shaftGeo = new THREE.CylinderGeometry(chimTopRadius, chimRadius, chimH, 24);
+    const shaftMat = new THREE.MeshStandardMaterial({ color: 0x888899, roughness: 0.4, metalness: 0.35 });
+    const shaft = new THREE.Mesh(shaftGeo, shaftMat);
+    shaft.position.set(chimX, shaftBottom + chimH / 2, chimZ);
+    shaft.castShadow = true;
+    group.add(shaft);
 
-      // 메인 굴뚝기둥 (원통형)
-      const shaftGeo = new THREE.CylinderGeometry(chimTopRadius, chimRadius, chimH, 16);
-      const shaftMat = new THREE.MeshStandardMaterial({ color: 0x888899, roughness: 0.45, metalness: 0.35 });
-      const shaft = new THREE.Mesh(shaftGeo, shaftMat);
-      shaft.position.set(offsetX, h + 3 + chimH / 2, offsetZ);
-      shaft.castShadow = true;
-      group.add(shaft);
-
-      // 빨간 경고 줄무늬 (항공 안전)
-      const stripePositions = [0.3, 0.6, 0.9];
-      stripePositions.forEach(ratio => {
-        const sy = h + 3 + chimH * ratio;
-        const sr = chimTopRadius + (chimRadius - chimTopRadius) * (1 - ratio);
-        const sGeo = new THREE.CylinderGeometry(sr + 0.15, sr + 0.15, 1.5, 16);
-        const sMat = new THREE.MeshStandardMaterial({
-          color: 0xff2200, emissive: 0x440000, emissiveIntensity: 0.25
-        });
-        const stripeMesh = new THREE.Mesh(sGeo, sMat);
-        stripeMesh.position.set(offsetX, sy, offsetZ);
-        group.add(stripeMesh);
+    // 빨간/흰 경고 줄무늬 4단
+    [0.2, 0.45, 0.7, 0.92].forEach((ratio, idx) => {
+      const sy = shaftBottom + chimH * ratio;
+      const sr = chimTopRadius + (chimRadius - chimTopRadius) * (1 - ratio);
+      const sGeo = new THREE.CylinderGeometry(sr + 0.3, sr + 0.3, 2.5, 24);
+      const sMat = new THREE.MeshStandardMaterial({
+        color: idx % 2 === 0 ? 0xff2200 : 0xffffff,
+        emissive: idx % 2 === 0 ? 0x550000 : 0x111111,
+        emissiveIntensity: 0.35
       });
+      const stripe = new THREE.Mesh(sGeo, sMat);
+      stripe.position.set(chimX, sy, chimZ);
+      group.add(stripe);
+    });
 
-      // 굴뚝 상단 링
-      const topRingGeo = new THREE.TorusGeometry(chimTopRadius + 0.3, 0.5, 8, 16);
-      const topRingMat = new THREE.MeshStandardMaterial({ color: 0xaaaaaa, roughness: 0.3, metalness: 0.6 });
-      const topRing = new THREE.Mesh(topRingGeo, topRingMat);
-      topRing.rotation.x = Math.PI / 2;
-      topRing.position.set(offsetX, h + 3 + chimH, offsetZ);
-      group.add(topRing);
+    // 상단 테두리 링
+    const topY = shaftBottom + chimH;
+    const ringGeo = new THREE.TorusGeometry(chimTopRadius + 0.6, 1.0, 10, 24);
+    const ringMat = new THREE.MeshStandardMaterial({ color: 0xaaaaaa, roughness: 0.3, metalness: 0.6 });
+    const ring = new THREE.Mesh(ringGeo, ringMat);
+    ring.rotation.x = Math.PI / 2;
+    ring.position.set(chimX, topY, chimZ);
+    group.add(ring);
 
-      // 항공 경고등 (빨간 점멸)
-      const warningGeo = new THREE.SphereGeometry(0.6, 8, 8);
-      const warningMat = new THREE.MeshStandardMaterial({
-        color: 0xff0000, emissive: 0xff0000, emissiveIntensity: 1.0,
-        transparent: true, opacity: 0.9
-      });
-      const warningLight = new THREE.Mesh(warningGeo, warningMat);
-      warningLight.position.set(offsetX, h + 4 + chimH, offsetZ);
-      warningLight.userData.isChimneyWarning = true;
-      group.add(warningLight);
+    // 항공 경고등
+    const warnGeo = new THREE.SphereGeometry(1.2, 10, 10);
+    const warnMat = new THREE.MeshStandardMaterial({
+      color: 0xff0000, emissive: 0xff0000, emissiveIntensity: 1.0,
+      transparent: true, opacity: 0.9
+    });
+    const warn = new THREE.Mesh(warnGeo, warnMat);
+    warn.position.set(chimX, topY + 2.5, chimZ);
+    warn.userData.isChimneyWarning = true;
+    group.add(warn);
+    const wPL = new THREE.PointLight(0xff2200, 0.7, 60);
+    wPL.position.set(chimX, topY + 2.5, chimZ);
+    wPL.userData.isChimneyWarning = true;
+    group.add(wPL);
 
-      // 경고등 포인트라이트
-      const wPL = new THREE.PointLight(0xff2200, 0.4, 30);
-      wPL.position.set(offsetX, h + 4 + chimH, offsetZ);
-      wPL.userData.isChimneyWarning = true;
-      group.add(wPL);
-
-      // 점검 플랫폼 (중간 높이)
-      const platY = h + 3 + chimH * 0.55;
-      const platGeo = new THREE.BoxGeometry(chimRadius * 4, 0.4, chimRadius * 4);
-      const platMat = new THREE.MeshStandardMaterial({ color: 0x556666, roughness: 0.7, metalness: 0.3 });
-      const plat = new THREE.Mesh(platGeo, platMat);
-      plat.position.set(offsetX, platY, offsetZ);
-      group.add(plat);
-
-      // 플랫폼 난간
-      const railH = 2.5;
-      const railGeo = new THREE.CylinderGeometry(0.12, 0.12, railH, 4);
-      const railMat = new THREE.MeshStandardMaterial({ color: 0x999999, metalness: 0.5, roughness: 0.3 });
-      for (let ri = 0; ri < 4; ri++) {
-        const rAngle = (ri / 4) * Math.PI * 2 + Math.PI / 4;
-        const rr = chimRadius * 1.8;
-        const railPost = new THREE.Mesh(railGeo, railMat);
-        railPost.position.set(
-          offsetX + Math.cos(rAngle) * rr,
-          platY + railH / 2 + 0.2,
-          offsetZ + Math.sin(rAngle) * rr
-        );
-        group.add(railPost);
-      }
-
-      // 연기 파티클 (스모크 이펙트)
-      const smokeParticleCount = 20;
-      const smokePositions = new Float32Array(smokeParticleCount * 3);
-      const smokeTopY = h + 4 + chimH;
-      for (let si = 0; si < smokeParticleCount; si++) {
-        smokePositions[si * 3] = offsetX + (Math.random() - 0.5) * 2;
-        smokePositions[si * 3 + 1] = smokeTopY + Math.random() * 15;
-        smokePositions[si * 3 + 2] = offsetZ + (Math.random() - 0.5) * 2;
-      }
-      const smokeGeometry = new THREE.BufferGeometry();
-      smokeGeometry.setAttribute('position', new THREE.BufferAttribute(smokePositions, 3));
-      const smokeMaterial = new THREE.PointsMaterial({
-        color: 0xcccccc, size: 2.5, transparent: true, opacity: 0.2,
-        blending: THREE.AdditiveBlending, depthWrite: false
-      });
-      const smokePoints = new THREE.Points(smokeGeometry, smokeMaterial);
-      smokePoints.userData.smokeData = {
-        baseX: offsetX, baseY: smokeTopY, baseZ: offsetZ,
-        count: smokeParticleCount, worldX: cx, worldZ: cz
-      };
-      group.add(smokePoints);
-      if (!window._chimneySmokes) window._chimneySmokes = [];
-      window._chimneySmokes.push(smokePoints);
+    // 점검 플랫폼 (굴뚝 중간)
+    const platY = shaftBottom + chimH * 0.45;
+    const platSize = chimRadius * 5;
+    const platGeo2 = new THREE.BoxGeometry(platSize, 0.6, platSize);
+    const platMat2 = new THREE.MeshStandardMaterial({ color: 0x556666, roughness: 0.7, metalness: 0.3 });
+    const plat2 = new THREE.Mesh(platGeo2, platMat2);
+    plat2.position.set(chimX, platY, chimZ);
+    group.add(plat2);
+    // 난간
+    const rlGeo = new THREE.CylinderGeometry(0.18, 0.18, 3.5, 4);
+    const rlMat = new THREE.MeshStandardMaterial({ color: 0x999999, metalness: 0.5 });
+    for (let ri = 0; ri < 4; ri++) {
+      const ang = (ri / 4) * Math.PI * 2 + Math.PI / 4;
+      const rr = platSize / 2 - 0.5;
+      const rp = new THREE.Mesh(rlGeo, rlMat);
+      rp.position.set(chimX + Math.cos(ang) * rr, platY + 2, chimZ + Math.sin(ang) * rr);
+      group.add(rp);
     }
+
+    // 연기 파티클
+    const smokeN = 30;
+    const smokePos = new Float32Array(smokeN * 3);
+    const smokeY0 = topY + 1;
+    for (let si = 0; si < smokeN; si++) {
+      smokePos[si * 3] = chimX + (Math.random() - 0.5) * chimTopRadius * 2;
+      smokePos[si * 3 + 1] = smokeY0 + Math.random() * 25;
+      smokePos[si * 3 + 2] = chimZ + (Math.random() - 0.5) * chimTopRadius * 2;
+    }
+    const smokeGeo = new THREE.BufferGeometry();
+    smokeGeo.setAttribute('position', new THREE.BufferAttribute(smokePos, 3));
+    const smokeMat = new THREE.PointsMaterial({
+      color: 0xcccccc, size: 4, transparent: true, opacity: 0.2,
+      blending: THREE.AdditiveBlending, depthWrite: false
+    });
+    const smokePts = new THREE.Points(smokeGeo, smokeMat);
+    smokePts.userData.smokeData = {
+      baseX: chimX, baseY: smokeY0, baseZ: chimZ,
+      count: smokeN, topRadius: chimTopRadius
+    };
+    group.add(smokePts);
+    if (!window._chimneySmokes) window._chimneySmokes = [];
+    window._chimneySmokes.push(smokePts);
   }
 
   // ── 건물 입구 (1층 정면) ──
@@ -2898,25 +2891,25 @@ function animate() {
 
   // ── 굴뚝 연기 파티클 애니메이션 ──
   if (window._chimneySmokes) {
-    const dt = 0.016;
     window._chimneySmokes.forEach(smoke => {
       const pos = smoke.geometry.attributes.position.array;
       const sd = smoke.userData.smokeData;
+      const tr = sd.topRadius || 2;
       for (let si = 0; si < sd.count; si++) {
         // 상승 + 바람 드리프트
-        pos[si * 3] += (Math.random() - 0.5) * 0.08 + Math.sin(elapsed * 0.0008 + si) * 0.03;
-        pos[si * 3 + 1] += 0.08 + Math.random() * 0.05;
-        pos[si * 3 + 2] += (Math.random() - 0.5) * 0.06;
+        pos[si * 3] += (Math.random() - 0.5) * 0.1 + Math.sin(elapsed * 0.0008 + si) * 0.04;
+        pos[si * 3 + 1] += 0.1 + Math.random() * 0.06;
+        pos[si * 3 + 2] += (Math.random() - 0.5) * 0.08;
 
         // 일정 높이 넘으면 리셋
-        if (pos[si * 3 + 1] > sd.baseY + 20) {
-          pos[si * 3] = sd.baseX + (Math.random() - 0.5) * 2;
+        if (pos[si * 3 + 1] > sd.baseY + 25) {
+          pos[si * 3] = sd.baseX + (Math.random() - 0.5) * tr * 2;
           pos[si * 3 + 1] = sd.baseY;
-          pos[si * 3 + 2] = sd.baseZ + (Math.random() - 0.5) * 2;
+          pos[si * 3 + 2] = sd.baseZ + (Math.random() - 0.5) * tr * 2;
         }
       }
       smoke.geometry.attributes.position.needsUpdate = true;
-      smoke.material.opacity = 0.12 + Math.sin(elapsed * 0.003) * 0.04;
+      smoke.material.opacity = 0.15 + Math.sin(elapsed * 0.003) * 0.05;
     });
   }
 
