@@ -422,12 +422,13 @@ async def layout_page():
 @app.get("/layout_data.json")
 async def get_layout_json():
     """레이아웃 JSON 데이터 (현재 선택된 FAB)"""
+    headers = {"Cache-Control": "no-cache, no-store, must-revalidate"}
     # Multi-FAB: serve current FAB's JSON
     if current_fab_json and Path(current_fab_json).exists():
-        return FileResponse(current_fab_json, media_type="application/json")
+        return FileResponse(current_fab_json, media_type="application/json", headers=headers)
     # Fallback: legacy layout_data.json
     if LAYOUT_JSON.exists():
-        return FileResponse(LAYOUT_JSON, media_type="application/json")
+        return FileResponse(LAYOUT_JSON, media_type="application/json", headers=headers)
     raise HTTPException(status_code=404, detail="No layout data. Parse XML first or check /api/fabs")
 
 
