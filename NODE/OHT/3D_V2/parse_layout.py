@@ -533,20 +533,23 @@ def parse_from_zip(zip_path, output_dir, fab_name=None):
     Extract layout.xml from a zip file and parse it.
 
     Args:
-        zip_path: Path to *.layout.zip file
+        zip_path: Path to *.layout.zip or *.zip file
         output_dir: Directory to save output files
         fab_name: FAB name (auto-detected from filename if None)
     """
     if fab_name is None:
-        fab_name = os.path.splitext(os.path.basename(zip_path))[0]
+        # Remove all extensions: A.layout.zip -> A, layout.zip -> layout
+        base = os.path.basename(zip_path)
+        fab_name = base.split('.')[0]
 
     print(f"\n  ZIP: {zip_path}")
 
     with zipfile.ZipFile(zip_path, 'r') as z:
+        # layout.xml 또는 LAYOUT.XML 등 찾기 (하위 폴더 포함)
         xml_files = [f for f in z.namelist() if f.lower().endswith('layout.xml')]
         if not xml_files:
             print(f"  [ERROR] No layout.xml found in {zip_path}")
-            print(f"  Files in zip: {z.namelist()[:10]}")
+            print(f"  Files in zip: {z.namelist()[:20]}")
             return None
 
         xml_name = xml_files[0]
@@ -561,16 +564,50 @@ def parse_from_zip(zip_path, output_dir, fab_name=None):
             )
 
 
+def _find_layout_zips(dir_path):
+    """
+    디렉토리에서 layout.xml을 포함한 ZIP 파일 찾기.
+    1순위: *.layout.zip
+    2순위: 모든 *.zip 중 layout.xml 포함된 것
+    """
+    # 1) *.layout.zip 패턴
+    layout_zips = sorted([
+        f for f in os.listdir(dir_path)
+        if f.lower().endswith('.layout.zip')
+    ])
+    if layout_zips:
+        return layout_zips
+
+    # 2) 일반 *.zip 중 layout.xml 포함된 것
+    found = []
+    for f in sorted(os.listdir(dir_path)):
+        if not f.lower().endswith('.zip'):
+            continue
+        zip_path = os.path.join(dir_path, f)
+        try:
+            with zipfile.ZipFile(zip_path, 'r') as z:
+                xml_files = [n for n in z.namelist() if n.lower().endswith('layout.xml')]
+                if xml_files:
+                    found.append(f)
+        except (zipfile.BadZipFile, Exception):
+            continue
+    return found
+
+
 def scan_and_parse_map(map_dir, output_base_dir):
     """
     Scan MAP directory structure and parse all FABs.
 
     Expected structure:
         MAP/
-            M14A/  ->  A.layout.zip (layout.xml inside)
-            M14B/  ->  A.layout.zip
+            M14A/  ->  *.layout.zip or *.zip (with layout.xml inside)
+            M14B/  ->  *.zip
             M16A/  ->  A.layout.zip, BR.layout.zip, E.layout.zip
             M16B/  ->  B.layout.zip
+
+    ZIP 안의 구조:
+        *.zip
+            └── LAYOUT/LAYOUT.XML  (또는 layout.xml)
 
     Args:
         map_dir: Path to MAP directory
@@ -592,17 +629,17 @@ def scan_and_parse_map(map_dir, output_base_dir):
         if not os.path.isdir(fab_path):
             continue
 
-        zip_files = sorted([
-            f for f in os.listdir(fab_path)
-            if f.lower().endswith('.layout.zip')
-        ])
+        zip_files = _find_layout_zips(fab_path)
 
         if not zip_files:
-            print(f"\n  [SKIP] {entry}: no *.layout.zip found")
+            # 디렉토리 내용물 보여주기 (디버그용)
+            contents = os.listdir(fab_path)
+            print(f"\n  [SKIP] {entry}: layout.xml 포함 ZIP 없음")
+            print(f"         폴더 내용: {contents[:10]}")
             continue
 
         for zf in zip_files:
-            prefix = zf.split('.')[0]  # A.layout.zip -> A
+            prefix = zf.split('.')[0]  # A.layout.zip -> A, layout.zip -> layout
             # If multiple zip files in same dir, use prefix as subsystem
             if len(zip_files) > 1:
                 fab_name = f"{entry}-{prefix}"
@@ -655,10 +692,10 @@ def auto_detect_and_parse(base_dir=None):
     자동 감지 모드 - 그냥 실행하면 알아서 찾아서 파싱.
 
     탐색 순서:
-      1) 현재 폴더에 *.layout.zip 있으면 → 각각 파싱
-      2) 하위 폴더에 *.layout.zip 있으면 → MAP 구조로 스캔
+      1) 하위 폴더에 layout.xml 포함 ZIP 있으면 → MAP 구조로 스캔
+      2) 현재 폴더에 layout.xml 포함 ZIP 있으면 → 각각 파싱
       3) 현재 폴더에 layout.xml 있으면 → 직접 파싱
-      4) *.zip 안에 layout.xml 있으면 → 추출 후 파싱
+      4) 형제 폴더(상위 폴더의 하위들)에서 MAP 구조 탐색
     """
     if base_dir is None:
         base_dir = os.path.dirname(os.path.abspath(__file__))
@@ -671,13 +708,13 @@ def auto_detect_and_parse(base_dir=None):
     print(f"  탐색 경로: {base_dir}")
     print(f"{'='*60}")
 
-    # 1) 하위 폴더에 *.layout.zip 있는지 확인 (MAP 구조)
+    # 1) 하위 폴더에 layout.xml 포함 ZIP 있는지 확인 (MAP 구조)
     sub_dirs_with_zip = []
     for entry in sorted(os.listdir(base_dir)):
         sub_path = os.path.join(base_dir, entry)
-        if not os.path.isdir(sub_path):
+        if not os.path.isdir(sub_path) or entry.startswith('_') or entry.startswith('.'):
             continue
-        zips = [f for f in os.listdir(sub_path) if f.lower().endswith('.layout.zip')]
+        zips = _find_layout_zips(sub_path)
         if zips:
             sub_dirs_with_zip.append(entry)
 
@@ -686,9 +723,9 @@ def auto_detect_and_parse(base_dir=None):
         scan_and_parse_map(base_dir, base_dir)
         found = True
 
-    # 2) 현재 폴더에 *.layout.zip 있으면
+    # 2) 현재 폴더에 layout.xml 포함 ZIP 있으면
     if not found:
-        cur_zips = sorted([f for f in os.listdir(base_dir) if f.lower().endswith('.layout.zip')])
+        cur_zips = _find_layout_zips(base_dir)
         if cur_zips:
             os.makedirs(fab_data_dir, exist_ok=True)
             results = []
@@ -727,30 +764,53 @@ def auto_detect_and_parse(base_dir=None):
             parse_layout_xml(xml_path, base_dir, folder_name)
             found = True
 
-    # 4) 현재 폴더에 아무 *.zip 안에 layout.xml 있으면
+    # 4) 형제 폴더에서 MAP 구조 탐색 (상위 폴더의 하위 디렉토리)
     if not found:
-        any_zips = sorted([f for f in os.listdir(base_dir) if f.lower().endswith('.zip')])
-        for zf in any_zips:
-            zip_path = os.path.join(base_dir, zf)
-            try:
-                with zipfile.ZipFile(zip_path, 'r') as z:
-                    xml_files = [fn for fn in z.namelist() if fn.lower().endswith('layout.xml')]
-                    if xml_files:
-                        print(f"\n  [감지] {zf} 안에 layout.xml 발견")
-                        fab_name = zf.split('.')[0]
-                        fab_output_dir = os.path.join(fab_data_dir, fab_name)
-                        os.makedirs(fab_output_dir, exist_ok=True)
-                        parse_from_zip(zip_path, fab_output_dir, fab_name)
-                        found = True
-            except zipfile.BadZipFile:
+        parent_dir = os.path.dirname(base_dir)
+        print(f"\n  [탐색] 형제 폴더 탐색 중: {parent_dir}")
+        for entry in sorted(os.listdir(parent_dir)):
+            sibling_path = os.path.join(parent_dir, entry)
+            if sibling_path == base_dir or not os.path.isdir(sibling_path):
                 continue
+            if entry.startswith('.') or entry.startswith('_'):
+                continue
+            # 형제 폴더 안에 MAP 구조 있는지 확인
+            sibling_sub_dirs = []
+            for sub in sorted(os.listdir(sibling_path)):
+                sub_path = os.path.join(sibling_path, sub)
+                if os.path.isdir(sub_path):
+                    zips = _find_layout_zips(sub_path)
+                    if zips:
+                        sibling_sub_dirs.append(sub)
+            if sibling_sub_dirs:
+                print(f"\n  [감지] 형제 폴더 '{entry}' 에서 MAP 구조 발견: {sibling_sub_dirs}")
+                scan_and_parse_map(sibling_path, base_dir)
+                found = True
+                break
+            # 형제 폴더에 직접 ZIP 있는지
+            zips = _find_layout_zips(sibling_path)
+            if zips:
+                print(f"\n  [감지] 형제 폴더 '{entry}' 에서 layout ZIP 발견: {zips}")
+                os.makedirs(fab_data_dir, exist_ok=True)
+                for zf in zips:
+                    zip_path = os.path.join(sibling_path, zf)
+                    fab_name = entry
+                    fab_output_dir = os.path.join(fab_data_dir, fab_name)
+                    os.makedirs(fab_output_dir, exist_ok=True)
+                    parse_from_zip(zip_path, fab_output_dir, fab_name)
+                found = True
 
     if not found:
         print(f"\n  [오류] 파싱할 파일을 찾지 못했습니다.")
-        print(f"         현재 폴더 또는 하위 폴더에 다음 중 하나가 필요합니다:")
-        print(f"           - *.layout.zip 파일 (ZIP 안에 layout.xml)")
+        print(f"         현재 폴더 또는 하위/형제 폴더에 다음 중 하나가 필요합니다:")
+        print(f"           - *.zip 파일 (ZIP 안에 layout.xml 또는 LAYOUT/LAYOUT.XML)")
+        print(f"           - *.layout.zip 파일")
         print(f"           - layout.xml 파일")
-        print(f"           - MAP 디렉토리 구조 (M14A/, M14B/ 등)")
+        print(f"           - MAP 디렉토리 구조 (M14A/, M14B/ 등에 ZIP 포함)")
+        print(f"\n  사용법:")
+        print(f"    python parse_layout.py                        # 자동 감지")
+        print(f"    python parse_layout.py --scan /path/to/MAP    # MAP 폴더 지정")
+        print(f"    python parse_layout.py file.zip               # 단일 ZIP")
     else:
         print(f"\n{'='*60}")
         print(f"  파싱 완료! python server.py 로 서버를 실행하세요.")
