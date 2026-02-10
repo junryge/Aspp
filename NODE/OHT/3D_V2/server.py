@@ -34,6 +34,7 @@ import uvicorn
 # ===== Configuration =====
 BASE_DIR = Path(__file__).parent
 LAYOUT_JSON = BASE_DIR / "layout_data.json"
+FAB_DATA_DIR = BASE_DIR / "fab_data"
 MASTER_CSV_DIR = BASE_DIR / "master_csv"
 HTML_FILE = BASE_DIR / "oht_3d_layout.html"
 DEFAULT_FAB = "M14-Pro"
@@ -58,6 +59,9 @@ app.add_middleware(
 
 # ===== Global State =====
 layout_data: Optional[Dict] = None
+current_fab_name: Optional[str] = None      # 현재 선택된 FAB
+current_fab_json: Optional[str] = None      # 현재 FAB JSON 파일 경로
+fab_data_registry: Dict[str, dict] = {}     # fab_name -> { json_path, total_nodes, ... }
 simulation_state = {
     "running": False,
     "vehicles": [],
@@ -88,6 +92,13 @@ class ScenarioConfig(BaseModel):
     stop_rate: float = 0.05
     loaded_rate: float = 0.3
 
+class FabSwitchRequest(BaseModel):
+    fab_name: str
+
+class MapScanRequest(BaseModel):
+    map_dir: str
+    output_dir: str = ""
+
 
 # ===== Helper: Load Layout Data =====
 def load_layout_data():
@@ -109,6 +120,137 @@ def load_layout_data():
         }
     else:
         print(f"[Server] Warning: {LAYOUT_JSON} not found")
+
+
+# ===== Load FAB Data Registry (multi-FAB support) =====
+def load_fab_registry():
+    """
+    Scan fab_data/ directory for available FAB data.
+
+    Expected structure (FAB별 독립 디렉토리):
+        fab_data/
+            _fab_registry.json
+            M14A/
+                M14A.json
+                master_csv/M14A_HID_Zone_Master.csv
+            M14B/
+                M14B.json
+                master_csv/M14B_HID_Zone_Master.csv
+            ...
+    Also supports legacy flat structure (fab_data/*.json).
+    """
+    global fab_data_registry
+    if not FAB_DATA_DIR.exists():
+        return
+
+    # 1) FAB별 하위 디렉토리 탐색: fab_data/{fab_name}/{fab_name}.json
+    for d in sorted(FAB_DATA_DIR.iterdir()):
+        if not d.is_dir() or d.name.startswith('_'):
+            continue
+        fab_name = d.name
+        json_file = d / f'{fab_name}.json'
+        if not json_file.exists():
+            # 디렉토리 안에 아무 .json이라도 있으면
+            json_files = list(d.glob('*.json'))
+            if json_files:
+                json_file = json_files[0]
+            else:
+                continue
+        csv_dir = d / 'master_csv'
+        fab_data_registry[fab_name] = {
+            'json_path': str(json_file),
+            'csv_dir': str(csv_dir) if csv_dir.exists() else '',
+            'json_size': json_file.stat().st_size,
+            'total_nodes': 0,
+            'total_edges': 0,
+            'total_stations': 0,
+            'total_mcp_zones': 0,
+        }
+
+    # 2) 레거시: fab_data/*.json (flat 구조)
+    if not fab_data_registry:
+        for f in sorted(FAB_DATA_DIR.glob('*.json')):
+            if f.name.startswith('_'):
+                continue
+            fab_name = f.stem
+            fab_data_registry[fab_name] = {
+                'json_path': str(f),
+                'csv_dir': str(FAB_DATA_DIR / 'master_csv'),
+                'json_size': f.stat().st_size,
+                'total_nodes': 0,
+                'total_edges': 0,
+                'total_stations': 0,
+                'total_mcp_zones': 0,
+            }
+
+    # 3) _fab_registry.json 에서 메타데이터 보강
+    registry_file = FAB_DATA_DIR / '_fab_registry.json'
+    if registry_file.exists():
+        try:
+            with open(registry_file, 'r', encoding='utf-8') as f:
+                reg = json.load(f)
+            for entry in reg.get('fabs', []):
+                name = entry.get('fab_name', '')
+                if name in fab_data_registry:
+                    fab_data_registry[name].update({
+                        'total_nodes': entry.get('nodes', 0),
+                        'total_edges': entry.get('edges', 0),
+                        'total_stations': entry.get('stations', 0),
+                        'total_mcp_zones': entry.get('mcp_zones', 0),
+                    })
+                    if entry.get('csv_dir'):
+                        fab_data_registry[name]['csv_dir'] = entry['csv_dir']
+        except Exception as e:
+            print(f"[Warning] Failed to read fab registry: {e}")
+
+    if fab_data_registry:
+        print(f"[Server] Found {len(fab_data_registry)} FABs in fab_data/: {list(fab_data_registry.keys())}")
+
+
+def switch_fab_internal(fab_name):
+    """Switch to a different FAB (load its JSON data)"""
+    global layout_data, current_fab_json, current_fab_name
+
+    if fab_name in fab_data_registry:
+        json_path = fab_data_registry[fab_name]['json_path']
+    elif (FAB_DATA_DIR / f'{fab_name}.json').exists():
+        json_path = str(FAB_DATA_DIR / f'{fab_name}.json')
+    else:
+        return False
+
+    print(f"[Server] Switching to FAB: {fab_name} ({json_path})")
+    with open(json_path, 'r', encoding='utf-8') as f:
+        layout_data = json.load(f)
+
+    current_fab_json = json_path
+    current_fab_name = fab_name
+
+    # Update registry metadata
+    if fab_name in fab_data_registry:
+        fab_data_registry[fab_name].update({
+            'total_nodes': layout_data.get('total_nodes', 0),
+            'total_edges': layout_data.get('total_edges', 0),
+            'total_stations': layout_data.get('total_stations', 0),
+            'total_mcp_zones': layout_data.get('total_mcp_zones', 0),
+        })
+
+    # Also register in fab_registry (legacy)
+    # CSV 경로: FAB별 디렉토리 또는 기본 master_csv
+    fab_csv_dir = fab_data_registry.get(fab_name, {}).get('csv_dir', '')
+    if not fab_csv_dir:
+        fab_csv_dir = str(Path(json_path).parent / 'master_csv')
+    fab_registry[fab_name] = {
+        'json_path': json_path,
+        'csv_dir': fab_csv_dir,
+        'loaded_at': datetime.now().isoformat(),
+        'total_nodes': layout_data.get('total_nodes', 0),
+        'total_edges': layout_data.get('total_edges', 0),
+        'total_stations': layout_data.get('total_stations', 0),
+        'total_mcp_zones': layout_data.get('total_mcp_zones', 0),
+    }
+
+    print(f"[Server] FAB {fab_name}: {layout_data.get('total_nodes', 0):,} nodes, {layout_data.get('total_edges', 0):,} edges")
+    return True
 
 
 # ===== Scan for existing CSV master data =====
@@ -203,17 +345,31 @@ async def output_cleanup_loop():
 # ===== Startup =====
 @app.on_event("startup")
 async def startup():
-    load_layout_data()
+    # 1. Load multi-FAB registry from fab_data/
+    load_fab_registry()
+
+    # 2. Auto-select first FAB if available
+    if fab_data_registry:
+        first_fab = next(iter(fab_data_registry))
+        switch_fab_internal(first_fab)
+    else:
+        # Fallback to legacy single layout_data.json
+        load_layout_data()
+
     scan_master_data()
     # 백그라운드 태스크 시작
     asyncio.create_task(csv_save_loop())
     asyncio.create_task(output_cleanup_loop())
     OUTPUT_DIR.mkdir(exist_ok=True)
+
+    all_fabs = list(fab_data_registry.keys()) or list(fab_registry.keys())
     print(f"\n{'='*60}")
     print(f"  AMOS MAP System PRO - OHT FAB Simulator")
     print(f"  Port: {PORT}")
     print(f"  URL: http://localhost:{PORT}")
-    print(f"  FABs: {list(fab_registry.keys())}")
+    print(f"  FABs: {all_fabs}")
+    if current_fab_name:
+        print(f"  Current FAB: {current_fab_name}")
     print(f"  OUTPUT: {OUTPUT_DIR}")
     print(f"  CSV 저장 간격: {CSV_SAVE_INTERVAL}초 / 정리 간격: {OUTPUT_CLEANUP_INTERVAL}초")
     print(f"{'='*60}\n")
@@ -239,10 +395,14 @@ async def layout_page():
 # ===== Routes: Layout Data =====
 @app.get("/layout_data.json")
 async def get_layout_json():
-    """레이아웃 JSON 데이터"""
+    """레이아웃 JSON 데이터 (현재 선택된 FAB)"""
+    # Multi-FAB: serve current FAB's JSON
+    if current_fab_json and Path(current_fab_json).exists():
+        return FileResponse(current_fab_json, media_type="application/json")
+    # Fallback: legacy layout_data.json
     if LAYOUT_JSON.exists():
         return FileResponse(LAYOUT_JSON, media_type="application/json")
-    raise HTTPException(status_code=404, detail="layout_data.json not found")
+    raise HTTPException(status_code=404, detail="No layout data. Parse XML first or check /api/fabs")
 
 
 @app.get("/api/layout")
@@ -315,6 +475,82 @@ async def search_layout(q: str = Query(..., min_length=1)):
     return {"query": q, "count": len(results), "results": results[:50]}
 
 
+# ===== Routes: Multi-FAB (FAB 목록 / 전환 / 스캔) =====
+@app.get("/api/fabs")
+async def list_fabs():
+    """등록된 FAB 목록 + 현재 선택된 FAB"""
+    fabs = []
+    for name, info in fab_data_registry.items():
+        # CSV 파일 수 확인
+        csv_dir = Path(info.get('csv_dir', ''))
+        csv_count = len(list(csv_dir.glob('*.csv'))) if csv_dir.exists() else 0
+        fabs.append({
+            'fab_name': name,
+            'total_nodes': info.get('total_nodes', 0),
+            'total_edges': info.get('total_edges', 0),
+            'total_stations': info.get('total_stations', 0),
+            'total_mcp_zones': info.get('total_mcp_zones', 0),
+            'json_size_mb': round(info.get('json_size', 0) / (1024 * 1024), 1),
+            'csv_count': csv_count,
+        })
+    # Legacy single layout_data.json (no fab_data)
+    if not fabs and layout_data:
+        fabs.append({
+            'fab_name': layout_data.get('fab_name', DEFAULT_FAB),
+            'total_nodes': layout_data.get('total_nodes', 0),
+            'total_edges': layout_data.get('total_edges', 0),
+            'total_stations': layout_data.get('total_stations', 0),
+            'total_mcp_zones': layout_data.get('total_mcp_zones', 0),
+        })
+    return {
+        'fabs': fabs,
+        'current_fab': current_fab_name or (layout_data.get('fab_name') if layout_data else None),
+        'total': len(fabs),
+    }
+
+
+@app.post("/api/fab/switch")
+async def api_switch_fab(req: FabSwitchRequest):
+    """FAB 전환 - 다른 FAB 데이터로 변경"""
+    fab_name = req.fab_name
+    if fab_name not in fab_data_registry:
+        raise HTTPException(status_code=404, detail=f"FAB '{fab_name}' 없음. /api/fabs에서 목록 확인")
+    ok = switch_fab_internal(fab_name)
+    if not ok:
+        raise HTTPException(status_code=500, detail=f"FAB '{fab_name}' 로딩 실패")
+    return {
+        "status": "switched",
+        "fab_name": fab_name,
+        "total_nodes": layout_data.get("total_nodes", 0),
+        "total_edges": layout_data.get("total_edges", 0),
+    }
+
+
+@app.post("/api/parse/scan")
+async def api_scan_map(req: MapScanRequest):
+    """MAP 디렉토리 스캔 → 모든 FAB zip 파싱"""
+    map_dir = req.map_dir
+    if not os.path.isdir(map_dir):
+        raise HTTPException(status_code=400, detail=f"디렉토리 없음: {map_dir}")
+
+    output_dir = req.output_dir or str(BASE_DIR)
+    try:
+        from parse_layout import scan_and_parse_map
+        results = scan_and_parse_map(map_dir, output_dir)
+        # Reload registry
+        load_fab_registry()
+        if fab_data_registry:
+            first = next(iter(fab_data_registry))
+            switch_fab_internal(first)
+        return {
+            "status": "success",
+            "parsed_count": len(results),
+            "fabs": [r['fab_name'] for r in results],
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 # ===== Routes: Master Data CSV =====
 @app.get("/api/master")
 async def list_master_data():
@@ -336,11 +572,16 @@ async def list_master_data():
 
 @app.get("/api/master/{fab_name}/csv/{filename}")
 async def download_csv(fab_name: str, filename: str):
-    """CSV 파일 다운로드"""
+    """CSV 파일 다운로드 (FAB별 디렉토리에서 탐색)"""
+    # 1) FAB별 디렉토리: fab_data/{fab_name}/master_csv/
+    fab_csv_dir = FAB_DATA_DIR / fab_name / "master_csv"
+    csv_path = fab_csv_dir / filename
+    if csv_path.exists():
+        return FileResponse(csv_path, media_type="text/csv", filename=filename)
+    # 2) 레거시: master_csv/
     csv_path = MASTER_CSV_DIR / filename
     if csv_path.exists():
-        return FileResponse(csv_path, media_type="text/csv",
-                            filename=filename)
+        return FileResponse(csv_path, media_type="text/csv", filename=filename)
     raise HTTPException(status_code=404, detail=f"CSV file not found: {filename}")
 
 
@@ -348,11 +589,19 @@ async def download_csv(fab_name: str, filename: str):
 async def download_all_csv(fab_name: str):
     """FAB의 모든 CSV 파일 목록 (개별 다운로드 링크)"""
     csv_files = []
-    if MASTER_CSV_DIR.exists():
+    # 1) FAB별 디렉토리
+    fab_csv_dir = FAB_DATA_DIR / fab_name / "master_csv"
+    if fab_csv_dir.exists():
+        for f in fab_csv_dir.glob('*.csv'):
+            csv_files.append({
+                "name": f.name, "size": f.stat().st_size,
+                "url": f"/api/master/{fab_name}/csv/{f.name}"
+            })
+    # 2) 레거시 폴더
+    if not csv_files and MASTER_CSV_DIR.exists():
         for f in MASTER_CSV_DIR.glob(f'{fab_name}_*.csv'):
             csv_files.append({
-                "name": f.name,
-                "size": f.stat().st_size,
+                "name": f.name, "size": f.stat().st_size,
                 "url": f"/api/master/{fab_name}/csv/{f.name}"
             })
     return {"fab_name": fab_name, "files": csv_files}
