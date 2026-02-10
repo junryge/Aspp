@@ -1,5 +1,7 @@
 """
 OHT Layout XML Parser (Enhanced)
+
+python parse_layout.py --scan /path/to/MAP
 Extracts address coordinates, connections, stations, HID info, and MCP Zone data
 from layout.xml and generates:
   1) JSON data for 3D visualization
