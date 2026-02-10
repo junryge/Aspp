@@ -11,8 +11,11 @@ import json
 import csv
 import sys
 import os
+import zipfile
+import tempfile
+from datetime import datetime
 
-def parse_layout_xml(xml_path, output_dir, fab_name='M14-Pro'):
+def parse_layout_xml(xml_path, output_dir, fab_name='M14-Pro', json_filename=None):
     """
     Parse layout XML and generate JSON + CSV master data files.
 
@@ -483,7 +486,7 @@ def parse_layout_xml(xml_path, output_dir, fab_name='M14-Pro'):
         'zone_addr_map': zone_addr_map
     }
 
-    json_path = os.path.join(output_dir, 'layout_data.json')
+    json_path = os.path.join(output_dir, json_filename or 'layout_data.json')
     print(f"\nWriting JSON to {json_path}...")
     with open(json_path, 'w', encoding='utf-8') as f:
         json.dump(result, f)
@@ -525,17 +528,266 @@ def parse_layout_xml(xml_path, output_dir, fab_name='M14-Pro'):
     return result
 
 
+def parse_from_zip(zip_path, output_dir, fab_name=None):
+    """
+    Extract layout.xml from a zip file and parse it.
+
+    Args:
+        zip_path: Path to *.layout.zip file
+        output_dir: Directory to save output files
+        fab_name: FAB name (auto-detected from filename if None)
+    """
+    if fab_name is None:
+        fab_name = os.path.splitext(os.path.basename(zip_path))[0]
+
+    print(f"\n  ZIP: {zip_path}")
+
+    with zipfile.ZipFile(zip_path, 'r') as z:
+        xml_files = [f for f in z.namelist() if f.lower().endswith('layout.xml')]
+        if not xml_files:
+            print(f"  [ERROR] No layout.xml found in {zip_path}")
+            print(f"  Files in zip: {z.namelist()[:10]}")
+            return None
+
+        xml_name = xml_files[0]
+        print(f"  Found: {xml_name}")
+
+        with tempfile.TemporaryDirectory() as tmp:
+            z.extract(xml_name, tmp)
+            xml_full_path = os.path.join(tmp, xml_name)
+            return parse_layout_xml(
+                xml_full_path, output_dir, fab_name,
+                json_filename=f'{fab_name}.json'
+            )
+
+
+def scan_and_parse_map(map_dir, output_base_dir):
+    """
+    Scan MAP directory structure and parse all FABs.
+
+    Expected structure:
+        MAP/
+            M14A/  ->  A.layout.zip (layout.xml inside)
+            M14B/  ->  A.layout.zip
+            M16A/  ->  A.layout.zip, BR.layout.zip, E.layout.zip
+            M16B/  ->  B.layout.zip
+
+    Args:
+        map_dir: Path to MAP directory
+        output_base_dir: Base output directory (fab_data/ will be created inside)
+    """
+    fab_data_dir = os.path.join(output_base_dir, 'fab_data')
+    os.makedirs(fab_data_dir, exist_ok=True)
+
+    print(f"\n{'='*60}")
+    print(f"  MAP Directory Scanner")
+    print(f"  Scanning: {map_dir}")
+    print(f"  Output:   {fab_data_dir}")
+    print(f"{'='*60}")
+
+    results = []
+
+    for entry in sorted(os.listdir(map_dir)):
+        fab_path = os.path.join(map_dir, entry)
+        if not os.path.isdir(fab_path):
+            continue
+
+        zip_files = sorted([
+            f for f in os.listdir(fab_path)
+            if f.lower().endswith('.layout.zip')
+        ])
+
+        if not zip_files:
+            print(f"\n  [SKIP] {entry}: no *.layout.zip found")
+            continue
+
+        for zf in zip_files:
+            prefix = zf.split('.')[0]  # A.layout.zip -> A
+            # If multiple zip files in same dir, use prefix as subsystem
+            if len(zip_files) > 1:
+                fab_name = f"{entry}-{prefix}"
+            else:
+                fab_name = entry
+
+            zip_path = os.path.join(fab_path, zf)
+            print(f"\n{'='*60}")
+            print(f"  Parsing FAB: {fab_name}")
+            print(f"{'='*60}")
+
+            # FAB별 독립 디렉토리: fab_data/{fab_name}/
+            fab_output_dir = os.path.join(fab_data_dir, fab_name)
+            os.makedirs(fab_output_dir, exist_ok=True)
+
+            result = parse_from_zip(zip_path, fab_output_dir, fab_name)
+            if result:
+                results.append({
+                    'fab_name': fab_name,
+                    'json_path': os.path.join(fab_output_dir, f'{fab_name}.json'),
+                    'csv_dir': os.path.join(fab_output_dir, 'master_csv'),
+                    'nodes': result.get('total_nodes', 0),
+                    'edges': result.get('total_edges', 0),
+                    'stations': result.get('total_stations', 0),
+                    'mcp_zones': result.get('total_mcp_zones', 0),
+                })
+
+    # Save FAB registry
+    registry_path = os.path.join(fab_data_dir, '_fab_registry.json')
+    registry = {
+        'fabs': results,
+        'parsed_at': datetime.now().isoformat(),
+        'map_dir': map_dir,
+    }
+    with open(registry_path, 'w', encoding='utf-8') as f:
+        json.dump(registry, f, indent=2, ensure_ascii=False)
+
+    print(f"\n{'='*60}")
+    print(f"  Scan Complete: {len(results)} FABs parsed")
+    for r in results:
+        print(f"    {r['fab_name']}: {r['nodes']:,} nodes, {r['edges']:,} edges")
+    print(f"  Registry: {registry_path}")
+    print(f"{'='*60}\n")
+
+    return results
+
+
+def auto_detect_and_parse(base_dir=None):
+    """
+    자동 감지 모드 - 그냥 실행하면 알아서 찾아서 파싱.
+
+    탐색 순서:
+      1) 현재 폴더에 *.layout.zip 있으면 → 각각 파싱
+      2) 하위 폴더에 *.layout.zip 있으면 → MAP 구조로 스캔
+      3) 현재 폴더에 layout.xml 있으면 → 직접 파싱
+      4) *.zip 안에 layout.xml 있으면 → 추출 후 파싱
+    """
+    if base_dir is None:
+        base_dir = os.path.dirname(os.path.abspath(__file__))
+
+    fab_data_dir = os.path.join(base_dir, 'fab_data')
+    found = False
+
+    print(f"\n{'='*60}")
+    print(f"  OHT Layout Auto Parser")
+    print(f"  탐색 경로: {base_dir}")
+    print(f"{'='*60}")
+
+    # 1) 하위 폴더에 *.layout.zip 있는지 확인 (MAP 구조)
+    sub_dirs_with_zip = []
+    for entry in sorted(os.listdir(base_dir)):
+        sub_path = os.path.join(base_dir, entry)
+        if not os.path.isdir(sub_path):
+            continue
+        zips = [f for f in os.listdir(sub_path) if f.lower().endswith('.layout.zip')]
+        if zips:
+            sub_dirs_with_zip.append(entry)
+
+    if sub_dirs_with_zip:
+        print(f"\n  [감지] MAP 구조 발견: {sub_dirs_with_zip}")
+        scan_and_parse_map(base_dir, base_dir)
+        found = True
+
+    # 2) 현재 폴더에 *.layout.zip 있으면
+    if not found:
+        cur_zips = sorted([f for f in os.listdir(base_dir) if f.lower().endswith('.layout.zip')])
+        if cur_zips:
+            os.makedirs(fab_data_dir, exist_ok=True)
+            results = []
+            for zf in cur_zips:
+                zip_path = os.path.join(base_dir, zf)
+                prefix = zf.split('.')[0]
+                fab_name = prefix
+                # FAB별 독립 디렉토리
+                fab_output_dir = os.path.join(fab_data_dir, fab_name)
+                os.makedirs(fab_output_dir, exist_ok=True)
+                print(f"\n  [감지] ZIP 파일: {zf} → FAB: {fab_name}")
+                result = parse_from_zip(zip_path, fab_output_dir, fab_name)
+                if result:
+                    results.append({
+                        'fab_name': fab_name,
+                        'json_path': os.path.join(fab_output_dir, f'{fab_name}.json'),
+                        'csv_dir': os.path.join(fab_output_dir, 'master_csv'),
+                        'nodes': result.get('total_nodes', 0),
+                        'edges': result.get('total_edges', 0),
+                        'stations': result.get('total_stations', 0),
+                        'mcp_zones': result.get('total_mcp_zones', 0),
+                    })
+            # Save registry
+            if results:
+                reg_path = os.path.join(fab_data_dir, '_fab_registry.json')
+                with open(reg_path, 'w', encoding='utf-8') as f:
+                    json.dump({'fabs': results, 'parsed_at': datetime.now().isoformat()}, f, indent=2, ensure_ascii=False)
+                found = True
+
+    # 3) 현재 폴더에 layout.xml 있으면
+    if not found:
+        xml_path = os.path.join(base_dir, 'layout.xml')
+        if os.path.exists(xml_path):
+            print(f"\n  [감지] layout.xml 발견")
+            folder_name = os.path.basename(base_dir)
+            parse_layout_xml(xml_path, base_dir, folder_name)
+            found = True
+
+    # 4) 현재 폴더에 아무 *.zip 안에 layout.xml 있으면
+    if not found:
+        any_zips = sorted([f for f in os.listdir(base_dir) if f.lower().endswith('.zip')])
+        for zf in any_zips:
+            zip_path = os.path.join(base_dir, zf)
+            try:
+                with zipfile.ZipFile(zip_path, 'r') as z:
+                    xml_files = [fn for fn in z.namelist() if fn.lower().endswith('layout.xml')]
+                    if xml_files:
+                        print(f"\n  [감지] {zf} 안에 layout.xml 발견")
+                        fab_name = zf.split('.')[0]
+                        fab_output_dir = os.path.join(fab_data_dir, fab_name)
+                        os.makedirs(fab_output_dir, exist_ok=True)
+                        parse_from_zip(zip_path, fab_output_dir, fab_name)
+                        found = True
+            except zipfile.BadZipFile:
+                continue
+
+    if not found:
+        print(f"\n  [오류] 파싱할 파일을 찾지 못했습니다.")
+        print(f"         현재 폴더 또는 하위 폴더에 다음 중 하나가 필요합니다:")
+        print(f"           - *.layout.zip 파일 (ZIP 안에 layout.xml)")
+        print(f"           - layout.xml 파일")
+        print(f"           - MAP 디렉토리 구조 (M14A/, M14B/ 등)")
+    else:
+        print(f"\n{'='*60}")
+        print(f"  파싱 완료! python server.py 로 서버를 실행하세요.")
+        print(f"{'='*60}\n")
+
+
 if __name__ == '__main__':
-    xml_path = r'F:\M14_Q\oht_xml\oht_layout\layout\layout\layout.xml'
-    output_dir = r'F:\M14_Q\oht_xml\oht_layout'
-    fab_name = 'M14-Pro'
+    if len(sys.argv) == 1:
+        # 인자 없이 실행 → 자동 감지 모드
+        auto_detect_and_parse()
 
-    # Command line args: python parse_layout.py [xml_path] [output_dir] [fab_name]
-    if len(sys.argv) > 1:
+    elif sys.argv[1] == '--scan':
+        # MAP 디렉토리 스캔 모드
+        # Usage: python parse_layout.py --scan [MAP_DIR] [OUTPUT_DIR]
+        map_dir = sys.argv[2] if len(sys.argv) > 2 else '.'
+        output_dir = sys.argv[3] if len(sys.argv) > 3 else '.'
+        scan_and_parse_map(map_dir, output_dir)
+
+    elif sys.argv[1].lower().endswith('.zip'):
+        # 단일 ZIP 파일 모드
+        # Usage: python parse_layout.py file.layout.zip [OUTPUT_DIR] [FAB_NAME]
+        zip_path = sys.argv[1]
+        output_dir = sys.argv[2] if len(sys.argv) > 2 else '.'
+        fab_name = sys.argv[3] if len(sys.argv) > 3 else None
+        parse_from_zip(zip_path, output_dir, fab_name)
+
+    elif sys.argv[1].lower().endswith('.xml'):
+        # 단일 XML 파일 모드
+        # Usage: python parse_layout.py layout.xml [OUTPUT_DIR] [FAB_NAME]
         xml_path = sys.argv[1]
-    if len(sys.argv) > 2:
-        output_dir = sys.argv[2]
-    if len(sys.argv) > 3:
-        fab_name = sys.argv[3]
+        output_dir = sys.argv[2] if len(sys.argv) > 2 else '.'
+        fab_name = sys.argv[3] if len(sys.argv) > 3 else os.path.basename(os.path.dirname(os.path.abspath(xml_path)))
+        parse_layout_xml(xml_path, output_dir, fab_name)
 
-    parse_layout_xml(xml_path, output_dir, fab_name)
+    else:
+        # 기존 호환: python parse_layout.py [xml_path] [output_dir] [fab_name]
+        xml_path = sys.argv[1]
+        output_dir = sys.argv[2] if len(sys.argv) > 2 else '.'
+        fab_name = sys.argv[3] if len(sys.argv) > 3 else 'M14-Pro'
+        parse_layout_xml(xml_path, output_dir, fab_name)
