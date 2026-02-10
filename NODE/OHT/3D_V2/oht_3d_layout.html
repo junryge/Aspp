@@ -312,6 +312,7 @@ canvas#threeCanvas { display: block; }
 <div id="loading">
     <h1>AMOS MAP SYSTEM PRO</h1>
     <div class="subtitle">OHT RAIL SYSTEM</div>
+    <div id="loadFabName" style="font-size:20px;color:#00d4ff;font-weight:700;margin:8px 0;letter-spacing:2px;"></div>
     <div class="author">Created by John Prestige</div>
     <div class="bar-bg"><div class="bar-fill" id="loadBar"></div></div>
     <div class="status" id="loadStatus">초기화 중...</div>
@@ -2525,6 +2526,11 @@ async function boot() {
         const data = await resp.json();
         window._fabList = data.fabs || [];
         window._currentFab = data.current_fab;
+
+        // 로딩 화면에 현재 FAB 표시
+        if (data.current_fab) {
+            document.getElementById('loadFabName').textContent = '[ ' + data.current_fab + ' ]';
+        }
 
         // 헤더 FAB 드롭다운 (다중 FAB)
         if (data.fabs && data.fabs.length > 1) {
