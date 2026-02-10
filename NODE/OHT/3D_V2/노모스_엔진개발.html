@@ -1,0 +1,1241 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AMOS MAP SYSTEM PRO - OHT FAB Simulator | 개발 문서</title>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;600;700&family=Noto+Sans+KR:wght@300;400;500;700;900&family=Orbitron:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
+<style>
+*,*::before,*::after{margin:0;padding:0;box-sizing:border-box}
+:root{
+  --bg:#0a0c10;--bg2:#0f1218;--bg3:#151a24;--bg4:#1a2030;
+  --surface:#1c2333;--surface2:#222b3d;
+  --border:#2a3550;--border2:#354060;
+  --text:#c8d0e0;--text2:#8892a8;--text3:#5c6578;
+  --accent:#00d4ff;--accent2:#0098cc;--accent3:#006b99;
+  --orange:#ff6b2b;--orange2:#cc5020;
+  --green:#00e676;--green2:#00b35f;
+  --yellow:#ffd740;--red:#ff5252;--purple:#bb86fc;
+  --code-bg:#0d1117;
+  --glow:0 0 20px rgba(0,212,255,0.15);
+}
+html{scroll-behavior:smooth;font-size:15px}
+body{
+  background:var(--bg);color:var(--text);
+  font-family:'Noto Sans KR','JetBrains Mono',sans-serif;
+  line-height:1.75;overflow-x:hidden;
+}
+body::before{
+  content:'';position:fixed;inset:0;z-index:-1;
+  background:
+    radial-gradient(ellipse 80% 50% at 20% 0%,rgba(0,212,255,0.04),transparent),
+    radial-gradient(ellipse 60% 40% at 80% 100%,rgba(255,107,43,0.03),transparent),
+    var(--bg);
+}
+::selection{background:var(--accent3);color:#fff}
+::-webkit-scrollbar{width:6px}
+::-webkit-scrollbar-track{background:var(--bg2)}
+::-webkit-scrollbar-thumb{background:var(--border2);border-radius:3px}
+::-webkit-scrollbar-thumb:hover{background:var(--accent2)}
+
+/* HERO */
+.hero{
+  position:relative;padding:100px 0 80px;text-align:center;
+  background:linear-gradient(180deg,var(--bg) 0%,var(--bg2) 100%);
+  border-bottom:1px solid var(--border);overflow:hidden;
+}
+.hero::before{
+  content:'';position:absolute;top:-50%;left:-25%;width:150%;height:200%;
+  background:repeating-linear-gradient(
+    90deg,transparent,transparent 99px,rgba(0,212,255,0.03) 99px,rgba(0,212,255,0.03) 100px
+  ),repeating-linear-gradient(
+    0deg,transparent,transparent 99px,rgba(0,212,255,0.03) 99px,rgba(0,212,255,0.03) 100px
+  );
+  transform:perspective(500px) rotateX(60deg);transform-origin:center top;
+}
+.hero-badge{
+  display:inline-block;padding:6px 18px;border:1px solid var(--accent3);border-radius:20px;
+  font-family:'JetBrains Mono';font-size:.7rem;color:var(--accent);letter-spacing:2px;
+  text-transform:uppercase;margin-bottom:24px;position:relative;
+  background:rgba(0,212,255,0.05);
+}
+.hero h1{
+  font-family:'Orbitron','JetBrains Mono',monospace;font-size:clamp(2rem,5vw,3.4rem);
+  font-weight:800;letter-spacing:-1px;position:relative;
+  background:linear-gradient(135deg,#fff 0%,var(--accent) 50%,var(--orange) 100%);
+  -webkit-background-clip:text;-webkit-text-fill-color:transparent;
+  background-clip:text;margin-bottom:16px;
+}
+.hero .subtitle{
+  font-size:1.1rem;color:var(--text2);font-weight:300;max-width:600px;margin:0 auto 32px;
+}
+.hero-meta{
+  display:flex;justify-content:center;gap:32px;flex-wrap:wrap;
+  font-family:'JetBrains Mono';font-size:.78rem;color:var(--text3);
+}
+.hero-meta span{display:flex;align-items:center;gap:6px}
+.hero-meta .dot{width:6px;height:6px;border-radius:50%;display:inline-block}
+.dot-cyan{background:var(--accent)}
+.dot-orange{background:var(--orange)}
+.dot-green{background:var(--green)}
+
+/* NAV */
+.toc-bar{
+  position:sticky;top:0;z-index:100;
+  background:rgba(10,12,16,0.92);backdrop-filter:blur(16px);
+  border-bottom:1px solid var(--border);padding:0 24px;
+}
+.toc-inner{
+  max-width:1200px;margin:0 auto;display:flex;align-items:center;
+  gap:4px;overflow-x:auto;padding:10px 0;
+  scrollbar-width:none;-ms-overflow-style:none;
+}
+.toc-inner::-webkit-scrollbar{display:none}
+.toc-link{
+  white-space:nowrap;padding:6px 14px;border-radius:6px;
+  font-family:'JetBrains Mono';font-size:.72rem;
+  color:var(--text2);text-decoration:none;transition:all .2s;
+  border:1px solid transparent;letter-spacing:.5px;
+}
+.toc-link:hover{color:var(--accent);background:rgba(0,212,255,0.06);border-color:var(--border)}
+
+/* LAYOUT */
+.container{max-width:1100px;margin:0 auto;padding:0 32px}
+
+/* SECTIONS */
+section{padding:72px 0 48px;border-bottom:1px solid var(--border)}
+section:last-child{border-bottom:none}
+
+h2{
+  font-family:'Orbitron',monospace;font-size:1.6rem;font-weight:700;
+  color:#fff;margin-bottom:12px;letter-spacing:-.5px;
+  display:flex;align-items:center;gap:12px;
+}
+h2 .num{
+  font-size:.75rem;color:var(--accent);background:rgba(0,212,255,0.1);
+  border:1px solid var(--accent3);border-radius:4px;
+  padding:3px 10px;font-family:'JetBrains Mono';letter-spacing:1px;
+}
+h2::after{
+  content:'';flex:1;height:1px;
+  background:linear-gradient(90deg,var(--border2),transparent);
+}
+h3{
+  font-size:1.15rem;font-weight:700;color:var(--accent);
+  margin:36px 0 16px;padding-left:14px;
+  border-left:3px solid var(--accent3);
+}
+h4{font-size:1rem;font-weight:600;color:var(--yellow);margin:28px 0 12px}
+p{margin-bottom:16px;color:var(--text)}
+.lead{font-size:1.05rem;color:var(--text2);margin-bottom:24px}
+
+/* INFO TABLE */
+.info-grid{
+  display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));
+  gap:12px;margin:24px 0;
+}
+.info-card{
+  background:var(--surface);border:1px solid var(--border);border-radius:8px;
+  padding:16px 20px;
+}
+.info-card .label{
+  font-family:'JetBrains Mono';font-size:.68rem;color:var(--text3);
+  text-transform:uppercase;letter-spacing:1.5px;margin-bottom:6px;
+}
+.info-card .value{font-size:1rem;font-weight:700;color:#fff}
+.info-card .value.cyan{color:var(--accent)}
+.info-card .value.orange{color:var(--orange)}
+
+/* TABLES */
+.table-wrap{overflow-x:auto;margin:20px 0;border-radius:8px;border:1px solid var(--border)}
+table{width:100%;border-collapse:collapse;font-size:.85rem}
+thead{background:var(--bg3)}
+th{
+  padding:12px 16px;text-align:left;font-family:'JetBrains Mono';
+  font-size:.72rem;color:var(--accent);letter-spacing:1px;
+  text-transform:uppercase;border-bottom:2px solid var(--border2);
+  white-space:nowrap;
+}
+td{
+  padding:10px 16px;border-bottom:1px solid var(--border);
+  color:var(--text);vertical-align:top;
+}
+tr:hover td{background:rgba(0,212,255,0.02)}
+td strong{color:#fff;font-weight:600}
+td code{
+  background:var(--code-bg);padding:2px 6px;border-radius:3px;
+  font-family:'JetBrains Mono';font-size:.78rem;color:var(--green);
+}
+
+/* CODE BLOCKS */
+pre{
+  background:var(--code-bg);border:1px solid var(--border);
+  border-radius:8px;padding:20px 24px;margin:20px 0;
+  overflow-x:auto;font-family:'JetBrains Mono';
+  font-size:.8rem;line-height:1.7;color:var(--text);
+  position:relative;
+}
+pre::before{
+  content:attr(data-label);position:absolute;top:8px;right:12px;
+  font-size:.6rem;color:var(--text3);letter-spacing:1px;text-transform:uppercase;
+}
+.code-inline{
+  background:var(--code-bg);padding:2px 7px;border-radius:3px;
+  font-family:'JetBrains Mono';font-size:.82rem;color:var(--green);
+  border:1px solid var(--border);
+}
+
+/* DIAGRAM BOXES */
+.diagram{
+  background:var(--bg2);border:1px solid var(--border);border-radius:10px;
+  padding:28px 32px;margin:24px 0;overflow-x:auto;
+  font-family:'JetBrains Mono';font-size:.78rem;line-height:1.65;
+  color:var(--text2);white-space:pre;
+}
+.diagram .hl{color:var(--accent)}
+.diagram .hl-o{color:var(--orange)}
+.diagram .hl-g{color:var(--green)}
+.diagram .hl-y{color:var(--yellow)}
+.diagram .hl-w{color:#fff;font-weight:600}
+
+/* FEATURE CARDS */
+.feature-grid{
+  display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));
+  gap:16px;margin:24px 0;
+}
+.feature-card{
+  background:var(--surface);border:1px solid var(--border);
+  border-radius:10px;padding:24px;transition:all .3s;
+}
+.feature-card:hover{border-color:var(--accent3);box-shadow:var(--glow)}
+.feature-card .tag{
+  display:inline-block;font-family:'JetBrains Mono';font-size:.65rem;
+  padding:3px 10px;border-radius:3px;margin-bottom:12px;
+  letter-spacing:1px;text-transform:uppercase;
+}
+.tag-3dlm{background:rgba(0,212,255,0.12);color:var(--accent);border:1px solid var(--accent3)}
+.tag-ll3m{background:rgba(255,107,43,0.12);color:var(--orange);border:1px solid var(--orange2)}
+.feature-card h5{font-size:.95rem;color:#fff;margin-bottom:8px}
+.feature-card p{font-size:.84rem;color:var(--text2);margin:0}
+
+/* COMPARISON */
+.compare-row{
+  display:grid;grid-template-columns:1fr 1fr;gap:16px;margin:20px 0;
+}
+.compare-col{
+  background:var(--surface);border-radius:10px;padding:24px;
+  border:1px solid var(--border);
+}
+.compare-col.old{border-top:3px solid var(--text3)}
+.compare-col.new{border-top:3px solid var(--accent)}
+.compare-col .tag-top{
+  font-family:'JetBrains Mono';font-size:.68rem;
+  letter-spacing:1px;margin-bottom:12px;display:block;
+}
+
+/* BLOCKQUOTE */
+blockquote{
+  border-left:3px solid var(--orange2);background:rgba(255,107,43,0.04);
+  padding:16px 24px;border-radius:0 8px 8px 0;margin:20px 0;
+  font-size:.9rem;color:var(--text2);
+}
+blockquote strong{color:var(--orange)}
+
+/* FILE TREE */
+.file-tree{
+  background:var(--code-bg);border:1px solid var(--border);border-radius:8px;
+  padding:20px 24px;margin:20px 0;font-family:'JetBrains Mono';font-size:.8rem;
+  line-height:1.8;color:var(--text2);white-space:pre;
+}
+.file-tree .dir{color:var(--accent);font-weight:500}
+.file-tree .file{color:var(--text)}
+.file-tree .comment{color:var(--text3)}
+
+/* STEP LIST */
+.steps{margin:24px 0}
+.step{
+  display:flex;gap:20px;margin-bottom:20px;padding:20px;
+  background:var(--surface);border:1px solid var(--border);border-radius:10px;
+}
+.step-num{
+  flex-shrink:0;width:36px;height:36px;border-radius:8px;
+  background:rgba(0,212,255,0.1);border:1px solid var(--accent3);
+  display:flex;align-items:center;justify-content:center;
+  font-family:'Orbitron';font-size:.85rem;color:var(--accent);font-weight:700;
+}
+.step-body h5{font-size:.95rem;color:#fff;margin-bottom:6px}
+.step-body p{font-size:.84rem;color:var(--text2);margin:0}
+
+/* STATE MACHINE */
+.state-diagram{
+  text-align:center;margin:24px 0;
+}
+.state-flow{
+  display:inline-flex;flex-direction:column;gap:8px;align-items:center;
+}
+.state-box{
+  display:inline-block;padding:10px 24px;border-radius:8px;
+  font-family:'JetBrains Mono';font-size:.82rem;font-weight:500;
+  border:1px solid var(--border2);
+}
+.state-moving{background:rgba(0,212,255,0.1);color:var(--accent);border-color:var(--accent3)}
+.state-lowering{background:rgba(255,215,64,0.08);color:var(--yellow);border-color:rgba(255,215,64,0.3)}
+.state-waiting{background:rgba(0,230,118,0.08);color:var(--green);border-color:rgba(0,230,118,0.3)}
+.state-raising{background:rgba(187,134,252,0.08);color:var(--purple);border-color:rgba(187,134,252,0.3)}
+.state-jam{background:rgba(255,82,82,0.1);color:var(--red);border-color:rgba(255,82,82,0.3)}
+.arrow-down{color:var(--text3);font-size:1.2rem}
+
+/* COMMIT LOG */
+.commit-log{margin:20px 0}
+.commit{
+  display:flex;align-items:flex-start;gap:16px;padding:12px 0;
+  border-bottom:1px solid var(--border);
+}
+.commit:last-child{border-bottom:none}
+.commit-hash{
+  flex-shrink:0;font-family:'JetBrains Mono';font-size:.75rem;
+  color:var(--accent);background:rgba(0,212,255,0.08);
+  padding:3px 10px;border-radius:4px;border:1px solid var(--accent3);
+}
+.commit-msg{font-size:.88rem;color:var(--text)}
+
+/* FOOTER */
+footer{
+  padding:48px 0;text-align:center;border-top:1px solid var(--border);
+  background:var(--bg2);
+}
+footer p{font-size:.8rem;color:var(--text3);font-family:'JetBrains Mono'}
+
+/* RESPONSIVE */
+@media(max-width:768px){
+  .container{padding:0 16px}
+  section{padding:48px 0 32px}
+  .compare-row{grid-template-columns:1fr}
+  .info-grid{grid-template-columns:1fr 1fr}
+  .feature-grid{grid-template-columns:1fr}
+  pre,.diagram,.file-tree{font-size:.72rem;padding:14px 16px}
+}
+
+/* ANIMATIONS */
+@keyframes fadeUp{from{opacity:0;transform:translateY(20px)}to{opacity:1;transform:translateY(0)}}
+section{animation:fadeUp .6s ease-out both}
+</style>
+</head>
+<body>
+
+<!-- HERO -->
+<header class="hero">
+  <div class="container">
+    <div class="hero-badge">DEV DOCUMENT v2.0.0</div>
+    <h1>AMOS MAP SYSTEM PRO</h1>
+    <p class="subtitle">OHT FAB Simulator — 반도체 FAB OHT 레일 시스템 3D 시각화</p>
+    <div class="hero-meta">
+      <span><span class="dot dot-cyan"></span>3D LLM + LL3M</span>
+      <span><span class="dot dot-orange"></span>Port 10003</span>
+      <span><span class="dot dot-green"></span>John Prestige</span>
+    </div>
+  </div>
+</header>
+
+<!-- NAV -->
+<nav class="toc-bar">
+  <div class="toc-inner">
+    <a class="toc-link" href="#overview">개요</a>
+    <a class="toc-link" href="#3d-llm">3D LLM + LL3M</a>
+    <a class="toc-link" href="#architecture">아키텍처</a>
+    <a class="toc-link" href="#files">파일 구성</a>
+    <a class="toc-link" href="#parser">XML 파서</a>
+    <a class="toc-link" href="#server">FastAPI 서버</a>
+    <a class="toc-link" href="#3d-ui">3D 시각화</a>
+    <a class="toc-link" href="#map-dir">MAP 구조</a>
+    <a class="toc-link" href="#run">실행 가이드</a>
+    <a class="toc-link" href="#tech">기술 스택</a>
+    <a class="toc-link" href="#design">설계 결정</a>
+    <a class="toc-link" href="#commits">커밋 히스토리</a>
+  </div>
+</nav>
+
+<main>
+
+<!-- SECTION: OVERVIEW -->
+<section id="overview">
+<div class="container">
+  <h2><span class="num">00</span> 프로젝트 개요</h2>
+  <div class="info-grid">
+    <div class="info-card">
+      <div class="label">프로젝트명</div>
+      <div class="value cyan">AMOS MAP SYSTEM PRO</div>
+    </div>
+    <div class="info-card">
+      <div class="label">목적</div>
+      <div class="value">반도체 FAB OHT 레일 3D 시각화</div>
+    </div>
+    <div class="info-card">
+      <div class="label">개발 방식</div>
+      <div class="value orange">3D LLM + LL3M</div>
+    </div>
+    <div class="info-card">
+      <div class="label">버전</div>
+      <div class="value">2.0.0</div>
+    </div>
+    <div class="info-card">
+      <div class="label">포트</div>
+      <div class="value">10003</div>
+    </div>
+    <div class="info-card">
+      <div class="label">개발자</div>
+      <div class="value">John Prestige</div>
+    </div>
+  </div>
+</div>
+</section>
+
+<!-- SECTION: 3D LLM + LL3M -->
+<section id="3d-llm">
+<div class="container">
+  <h2><span class="num">01</span> 3D LLM + LL3M 개발 기법</h2>
+
+  <h3>핵심 개념</h3>
+  <p>본 프로젝트는 두 가지 LLM 기반 3D 기술을 결합하여 개발되었습니다.</p>
+
+  <div class="feature-grid">
+    <div class="feature-card">
+      <span class="tag tag-3dlm">3D LLM</span>
+      <h5>3D Large Language Model</h5>
+      <p>LLM이 3D 엔진 역할 수행 — 씬 구성, 렌더링, 애니메이션, 최적화, UI 전체 설계</p>
+    </div>
+    <div class="feature-card">
+      <span class="tag tag-ll3m">LL3M</span>
+      <h5>Large Language 3D Modelers</h5>
+      <p>LLM이 3D 모델러 역할 수행 — 프로시저럴 지오메트리로 3D 오브젝트 직접 모델링, 외부 모델 파일 없이 코드만으로 형상 생성</p>
+    </div>
+  </div>
+
+  <div class="diagram">◆ 기존 3D 개발:
+  사람 → 3D 엔진 (Unity) + 3D 모델러 (Blender) → 결과물
+
+◆ <span class="hl">3D LLM + LL3M</span> 개발:
+  사람 → <span class="hl-w">LLM</span> (= 3D 엔진 + 3D 모델러) → 결과물
+
+  LLM 하나가 엔진 + 모델러를 모두 겸하는
+  <span class="hl-y">"지능형 3D 풀스택 개발 시스템"</span></div>
+
+  <h3>기존 개발 vs 3D LLM + LL3M</h3>
+  <div class="table-wrap">
+  <table>
+    <thead>
+      <tr><th>구분</th><th>기존 방식</th><th>3D LLM + LL3M (본 프로젝트)</th></tr>
+    </thead>
+    <tbody>
+      <tr><td><strong>3D 엔진</strong></td><td>Unity, Unreal, Godot</td><td><strong>3D LLM</strong> — LLM 자체가 엔진</td></tr>
+      <tr><td><strong>3D 모델러</strong></td><td>Maya, Blender, 3ds Max</td><td><strong>LL3M</strong> — LLM이 코드로 모델링</td></tr>
+      <tr><td><strong>입력</strong></td><td>C#/C++ 코드, 에디터 GUI</td><td><strong>자연어 프롬프트</strong></td></tr>
+      <tr><td><strong>모델 포맷</strong></td><td>FBX, OBJ, glTF 파일</td><td><strong>프로시저럴 코드</strong> (파일 없음)</td></tr>
+      <tr><td><strong>애니메이션</strong></td><td>키프레임, 본 리깅</td><td><strong>LLM이 상태 머신 + 물리 생성</strong></td></tr>
+      <tr><td><strong>최적화</strong></td><td>개발자가 수동 프로파일링</td><td><strong>LLM이 InstancedMesh 등 자동 적용</strong></td></tr>
+      <tr><td><strong>렌더링</strong></td><td>엔진 내장 렌더러</td><td><strong>Three.js WebGL (LLM이 구성)</strong></td></tr>
+      <tr><td><strong>배포</strong></td><td>빌드 → 설치 파일</td><td><strong>HTML 1개 (브라우저)</strong></td></tr>
+      <tr><td><strong>수정</strong></td><td>소스 분석 → 수정 → 빌드</td><td><strong>"이거 바꿔줘" → 즉시 반영</strong></td></tr>
+      <tr><td><strong>개발 기간</strong></td><td>수주 ~ 수개월</td><td><strong>수시간 ~ 수일</strong></td></tr>
+      <tr><td><strong>필요 인력</strong></td><td>3D 프로그래머 + 3D 아티스트</td><td><strong>도메인 전문가 1명</strong></td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <h3>역할 분담</h3>
+  <div class="diagram"><span class="hl-w">◆ 3D LLM 영역 (3D 엔진 역할)</span>
+┌─────────────┐  ┌─────────────┐  ┌─────────────┐
+│ <span class="hl">씬 설계</span>     │  │ <span class="hl">렌더링 구성</span>  │  │ <span class="hl">성능 최적화</span>  │
+│ Scene       │  │ WebGL       │  │ InstancedMesh│
+│ Camera      │  │ Shader      │  │ Spatial Index│
+│ Lighting    │  │ Post-FX     │  │ LOD/Culling  │
+│ Fog         │  │ Anti-alias  │  │ Draw Call    │
+└─────────────┘  └─────────────┘  └─────────────┘
+┌─────────────┐  ┌─────────────┐  ┌─────────────┐
+│ <span class="hl">애니메이션</span>   │  │ <span class="hl">물리/시뮬</span>   │  │ <span class="hl">UI 생성</span>     │
+│ State Machine│  │ Path Follow │  │ CSS Layout  │
+│ Curve Interp│  │ Zone Logic  │  │ DOM Control │
+│ Tween       │  │ Collision   │  │ Event Mgmt  │
+└─────────────┘  └─────────────┘  └─────────────┘
+
+<span class="hl-o">◆ LL3M 영역 (3D 모델러 역할)</span>
+┌─────────────┐  ┌─────────────┐  ┌─────────────┐
+│ <span class="hl-o">OHT 차량</span>    │  │ <span class="hl-o">레일 트랙</span>   │  │ <span class="hl-o">스테이션</span>     │
+│ BoxGeometry │  │ InstancedMesh│ │ Octahedron  │
+│ Cylinder    │  │ 좌/우 레일   │  │ Marker      │
+│ Torus       │  │ 크로스 타이  │  │ Sprite Label│
+│ Sphere      │  │ 베이스 플레이│  │ Vertical Bar│
+└─────────────┘  └─────────────┘  └─────────────┘
+┌─────────────┐  ┌─────────────┐  ┌─────────────┐
+│ <span class="hl-o">지지 구조물</span>  │  │ <span class="hl-o">바닥면</span>      │  │ <span class="hl-o">Zone 레인</span>   │
+│ 기둥 Pillar │  │ PlaneGeo    │  │ Line        │
+│ 빔 Beam    │  │ Grid 텍스처  │  │ IN/OUT 경로  │
+│ InstancedMesh│ │ 그라데이션   │  │ 색상 구분    │
+└─────────────┘  └─────────────┘  └─────────────┘</div>
+
+  <h3>개발 워크플로우</h3>
+  <div class="steps">
+    <div class="step">
+      <div class="step-num">1</div>
+      <div class="step-body">
+        <h5>도메인 전문가가 자연어로 요구사항 전달</h5>
+        <p>"반도체 FAB의 OHT 레일 시스템이야. layout.xml에 노드 4만개, 레일 5만개야. 이걸 3D로 볼 수 있게 해줘. 차량도 레일 위에 달리게 하고."</p>
+      </div>
+    </div>
+    <div class="step">
+      <div class="step-num">2</div>
+      <div class="step-body">
+        <h5>3D LLM이 전체 3D 시스템 생성</h5>
+        <p>① 3D 씬 아키텍처 설계 → ② Three.js 코드 생성 → ③ InstancedMesh 적용 → ④ 차량 프로시저럴 모델링 → ⑤ 경로 추적 애니메이션 → ⑥ UI 패널 + 인터랙션</p>
+      </div>
+    </div>
+    <div class="step">
+      <div class="step-num">3</div>
+      <div class="step-body">
+        <h5>반복 프롬프트로 기능 확장/수정</h5>
+        <p>"Zone 혼잡도 보여줘" → Zone 시스템 / "미니맵 넣어줘" → Canvas 미니맵 / "FAB 여러개 전환해줘" → Multi-FAB API</p>
+      </div>
+    </div>
+    <div class="step">
+      <div class="step-num">4</div>
+      <div class="step-body">
+        <h5>완성 → 브라우저에서 바로 실행</h5>
+        <p>HTML 1개 파일 = 완전한 3D 애플리케이션 ✅ 빌드/컴파일 없음 ✅ 45,000 노드 + 1,500 차량 @ 60 FPS</p>
+      </div>
+    </div>
+  </div>
+
+  <h3>LL3M: 프로시저럴 3D 모델링</h3>
+  <p><strong>LL3M (Large Language 3D Modelers)</strong>은 외부 3D 모델 파일(FBX, OBJ, glTF) 없이 자연어 → 코드로 모든 3D 형상을 직접 모델링합니다.</p>
+
+  <div class="diagram"><span class="hl-w">OHT 차량 = LL3M이 자연어에서 생성한 프로시저럴 모델</span>
+
+  프롬프트: "OHT 차량 만들어줘. 주황색 캐리지, 바퀴 2개,
+           케이블로 FOUP 내리는 구조, 비콘등 포함"
+
+  LL3M 출력:
+        <span class="hl-o">◆</span> Beacon (CylinderGeometry)          ← LL3M 모델링
+        │
+    ════╧════  Carriage (BoxGeometry 24×6×10)  ← LL3M 모델링
+    <span class="hl">●</span>       <span class="hl">●</span>  Wheels (CylinderGeometry) × 2   ← LL3M 모델링
+    ┃ Motor ┃  Motor (BoxGeometry 12×3×8)      ← LL3M 모델링
+    ┃       ┃  Cables (CylinderGeometry) × 2   ← LL3M + 3D LLM 동적 스케일
+    ┗━━━━━━━┛  Gripper (BoxGeometry)           ← LL3M 모델링
+    ┌───────┐
+    │ <span class="hl-w">FOUP</span>  │  FOUP Body + Lid                 ← LL3M + 3D LLM 상태 토글
+    └───────┘
+    <span class="hl-y">○</span> Ring (TorusGeometry)                     ← LL3M + 3D LLM 회전 애니메이션
+    <span class="hl-g">◉</span> Lights × 2                               ← LL3M (전방 노랑/후방 빨강)</div>
+
+  <h4>LL3M이 모델링한 전체 오브젝트 목록</h4>
+  <div class="table-wrap">
+  <table>
+    <thead><tr><th>오브젝트</th><th>LL3M 지오메트리</th><th>개수</th></tr></thead>
+    <tbody>
+      <tr><td>OHT 차량 (캐리지+바퀴+모터+케이블+그리퍼+FOUP+비콘+링+라이트)</td><td>Box/Cylinder/Torus/Sphere 조합</td><td><strong>1,500+</strong></td></tr>
+      <tr><td>레일 트랙 (좌레일+우레일+크로스타이+베이스)</td><td>InstancedMesh</td><td><strong>52,000+</strong></td></tr>
+      <tr><td>주소 노드</td><td>SphereGeometry InstancedMesh</td><td><strong>45,000+</strong></td></tr>
+      <tr><td>스테이션 마커</td><td>OctahedronGeometry InstancedMesh</td><td><strong>3,200+</strong></td></tr>
+      <tr><td>지지 기둥 + 빔</td><td>CylinderGeometry InstancedMesh</td><td>수천</td></tr>
+      <tr><td>바닥면</td><td>PlaneGeometry + 그리드 텍스처</td><td>1</td></tr>
+      <tr><td>Zone IN/OUT 레인</td><td>LineGeometry</td><td>수백</td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <blockquote>
+    <strong>기존:</strong> 3D 아티스트가 Maya/Blender에서 수작업 모델링 → FBX 내보내기 → 로더 코드 → 임포트<br>
+    <strong>LL3M:</strong> "OHT 차량 만들어줘" → LLM이 지오메트리 조합으로 즉시 모델링 + 코드 생성
+  </blockquote>
+
+  <h3>3D LLM: 대규모 렌더링 최적화</h3>
+  <p>3D LLM이 데이터 규모를 인지하고 자동으로 최적화 패턴을 적용합니다.</p>
+
+  <pre data-label="javascript">// 3D LLM이 45,000개 노드를 인지하고 자동으로 InstancedMesh 적용
+// 사람이 "InstancedMesh 써줘"라고 말하지 않아도 LLM이 판단
+
+const nodeMesh = new THREE.InstancedMesh(geometry, material, 45000);
+// → 45,000개 오브젝트를 1번의 GPU 드로우 콜로 렌더링</pre>
+
+  <div class="table-wrap">
+  <table>
+    <thead><tr><th>데이터 규모</th><th>일반 Mesh</th><th>3D LLM (InstancedMesh)</th></tr></thead>
+    <tbody>
+      <tr><td>45,000 노드</td><td>45,000 드로우 콜 → <strong style="color:var(--red)">5 FPS</strong></td><td>1 드로우 콜 → <strong style="color:var(--green)">60 FPS</strong></td></tr>
+      <tr><td>52,000 엣지</td><td>메모리 초과</td><td>InstancedMesh로 처리</td></tr>
+      <tr><td>1,500 차량</td><td>프레임 드랍</td><td>Material 공유로 최적화</td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <h3>3D LLM: 실시간 시뮬레이션</h3>
+  <div class="diagram"><span class="hl-w">3D LLM이 자연어에서 생성한 시뮬레이션 로직:</span>
+
+프레임 루프 (requestAnimationFrame, <span class="hl-g">60 FPS</span>)
+    │
+    ├── <span class="hl">차량 이동:</span> CatmullRomCurve3 경로 추적
+    │     └── Zone 혼잡도에 따른 자동 속도 감소
+    │
+    ├── <span class="hl-y">케이블 물리:</span> scale.y 동적 변경
+    │     └── 스테이션 도착 → 하강 → 대기 → 상승
+    │
+    ├── <span class="hl-g">FOUP 적재:</span> visible 토글
+    │     └── 적재/비적재 상태 시각적 반영
+    │
+    ├── <span class="hl-o">JAM 시뮬:</span> 혼잡 Zone에서 정체 발생
+    │     └── 3초 후 0.3%/프레임 확률로 자동 해제
+    │
+    └── Zone 통계: 1초마다 차량 위치 집계 → UI 반영</div>
+
+  <h3>3D LLM: 반응형 UI 자동 생성</h3>
+  <div class="table-wrap">
+  <table>
+    <thead><tr><th>UI 요소</th><th>3D LLM 생성 방식</th></tr></thead>
+    <tbody>
+      <tr><td>좌측 통계 패널</td><td>CSS Grid + 실시간 DOM 업데이트</td></tr>
+      <tr><td>플로팅 컨트롤</td><td>드래그 가능 패널 (mousedown/mousemove)</td></tr>
+      <tr><td>미니맵</td><td>Canvas 2D 별도 렌더링</td></tr>
+      <tr><td>OHT 리스트</td><td>innerHTML 동적 생성 + 이벤트 위임</td></tr>
+      <tr><td>색상 피커</td><td>CSS 그라데이션 버튼 + Material 교체</td></tr>
+      <tr><td>뷰 프리셋</td><td>카메라 position/target 프리셋 전환</td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <h3>핵심 장점 6가지</h3>
+  <div class="feature-grid">
+    <div class="feature-card">
+      <span class="tag tag-3dlm">통합</span>
+      <h5>1. LLM = 3D 엔진 + 3D 모델러</h5>
+      <p>3D LLM: 엔진(Unity/Unreal) 대체, LL3M: 모델러(Maya/Blender) 대체 → 두 전문 도구를 LLM 하나로 통합</p>
+    </div>
+    <div class="feature-card">
+      <span class="tag tag-ll3m">변환</span>
+      <h5>2. 자연어 → 3D 직접 변환</h5>
+      <p>"OHT가 레일 위를 달려" → 3D 차량 모델링(LL3M) + 경로 추적(3D LLM) 동시 생성</p>
+    </div>
+    <div class="feature-card">
+      <span class="tag tag-ll3m">모델링</span>
+      <h5>3. 모델 파일 없는 3D 개발</h5>
+      <p>FBX, OBJ, glTF 파일 불필요. LL3M이 코드로 프로시저럴 모델링 → 즉시 렌더링</p>
+    </div>
+    <div class="feature-card">
+      <span class="tag tag-3dlm">반복</span>
+      <h5>4. 실시간 반복 수정</h5>
+      <p>"차량 색상 바꿔줘" → LL3M이 Material 수정. 빌드/컴파일 없이 브라우저 새로고침으로 확인</p>
+    </div>
+    <div class="feature-card">
+      <span class="tag tag-3dlm">최적화</span>
+      <h5>5. 자동 성능 최적화</h5>
+      <p>데이터 규모 인지 → InstancedMesh 자동 적용. 개발자 프로파일링 없이 60 FPS 달성</p>
+    </div>
+    <div class="feature-card">
+      <span class="tag tag-3dlm">배포</span>
+      <h5>6. 제로 빌드 배포</h5>
+      <p>HTML 1개 파일 = 완전한 3D 애플리케이션. CDN import로 의존성 자동 해결</p>
+    </div>
+  </div>
+
+  <h3>프롬프트 히스토리</h3>
+  <div class="table-wrap">
+  <table>
+    <thead><tr><th>단계</th><th>프롬프트 (자연어 입력)</th><th>담당</th><th>출력</th></tr></thead>
+    <tbody>
+      <tr><td>3D 씬 생성</td><td>"layout.xml을 파싱해서 3D로 보여줘"</td><td><strong style="color:var(--accent)">3D LLM</strong></td><td>Scene + Camera + Renderer + 로더</td></tr>
+      <tr><td>차량 모델링</td><td>"OHT 차량을 레일 위에 달리게 해줘"</td><td><strong style="color:var(--orange)">LL3M</strong> + 3D LLM</td><td>프로시저럴 차량 모델 + 경로 추적</td></tr>
+      <tr><td>레일 모델링</td><td>"레일 트랙 좌우 레일에 크로스타이"</td><td><strong style="color:var(--orange)">LL3M</strong></td><td>InstancedMesh 레일 모델</td></tr>
+      <tr><td>시뮬레이션</td><td>"JAM, 정지, 적재 상태 넣어줘"</td><td><strong style="color:var(--accent)">3D LLM</strong></td><td>상태 머신 + 시나리오 생성</td></tr>
+      <tr><td>Zone 물리</td><td>"Zone별 혼잡도 표시해줘"</td><td><strong style="color:var(--accent)">3D LLM</strong></td><td>Zone 집계 + 속도 감소 물리</td></tr>
+      <tr><td>스테이션</td><td>"스테이션 위치에 마커 표시해줘"</td><td><strong style="color:var(--orange)">LL3M</strong></td><td>Octahedron 마커 + Sprite 라벨</td></tr>
+      <tr><td>UI</td><td>"좌측에 통계, 우측에 차량 리스트"</td><td><strong style="color:var(--accent)">3D LLM</strong></td><td>CSS Grid + 탭 UI + 이벤트 위임</td></tr>
+      <tr><td>미니맵</td><td>"우하단에 미니맵 추가해줘"</td><td><strong style="color:var(--accent)">3D LLM</strong></td><td>Canvas 2D 미니맵</td></tr>
+      <tr><td>Multi-FAB</td><td>"여러 FAB 전환 가능하게 해줘"</td><td><strong style="color:var(--accent)">3D LLM</strong></td><td>FAB 드롭다운 + REST API</td></tr>
+      <tr><td>설정 저장</td><td>"OHT 대수 FAB별로 저장되게 해줘"</td><td><strong style="color:var(--accent)">3D LLM</strong></td><td>JSON 영구 저장 + 자동 복원</td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <h3>기술적 한계 및 해결</h3>
+  <div class="table-wrap">
+  <table>
+    <thead><tr><th>한계</th><th>해결 기술</th><th>담당</th></tr></thead>
+    <tbody>
+      <tr><td>3D 모델 파일 생성 불가</td><td>프로시저럴 지오메트리 조합</td><td><strong style="color:var(--orange)">LL3M</strong></td></tr>
+      <tr><td>컨텍스트 윈도우 한계</td><td>단일 HTML 파일 구조</td><td><strong style="color:var(--accent)">3D LLM</strong></td></tr>
+      <tr><td>텍스처/PBR 한계</td><td>MeshPhongMaterial + 색상 구분</td><td><strong style="color:var(--orange)">LL3M</strong></td></tr>
+      <tr><td>복잡한 물리 엔진 없음</td><td>경로 추적 + 상태 머신 근사</td><td><strong style="color:var(--accent)">3D LLM</strong></td></tr>
+      <tr><td>GPU 셰이더 한계</td><td>Three.js 내장 렌더러 + InstancedMesh</td><td><strong style="color:var(--accent)">3D LLM</strong></td></tr>
+    </tbody>
+  </table>
+  </div>
+</div>
+</section>
+
+<!-- SECTION: ARCHITECTURE -->
+<section id="architecture">
+<div class="container">
+  <h2><span class="num">02</span> 시스템 아키텍처</h2>
+
+  <div class="diagram"><span class="hl-w">시스템 전체 구조 (3-Tier)</span>
+
+  [1단계] XML 파싱         [2단계] 서버           [3단계] 3D UI
+  ┌──────────────┐    ┌──────────────┐    ┌──────────────┐
+  │<span class="hl">parse_layout.py</span>│───▶│  <span class="hl">server.py</span>   │───▶│<span class="hl">oht_3d_layout</span> │
+  │              │    │  (FastAPI)   │    │   .html      │
+  │ layout.xml   │    │  Port:10003  │    │  (Three.js)  │
+  │    ▼         │    │              │    │              │
+  │ JSON + CSV   │    │  REST API    │    │  WebGL 3D    │
+  └──────────────┘    └──────────────┘    └──────────────┘</div>
+
+  <h3>데이터 흐름</h3>
+  <div class="diagram"><span class="hl-w">MAP 디렉토리                    fab_data/                     브라우저</span>
+┌──────────┐                 ┌──────────┐                ┌──────────┐
+│ M14A/    │  <span class="hl-y">parse_layout</span>   │ M14A/    │   <span class="hl-g">FastAPI</span>      │ Three.js │
+│  *.zip   │ ──────────────▶ │  .json   │ ──────────▶    │ 3D 렌더링│
+│ M14B/    │   XML → JSON    │  .csv    │  /layout_data  │          │
+│  *.zip   │                 │ M14B/    │  .json         │ <span class="hl-g">60 FPS</span>   │
+│ M16A/    │                 │  .json   │                │ WebGL    │
+│  *.zip×3 │                 │  .csv    │                │          │
+│ M16B/    │                 │ M16B/    │                │          │
+│  *.zip   │                 │  .json   │                │          │
+└──────────┘                 └──────────┘                └──────────┘</div>
+</div>
+</section>
+
+<!-- SECTION: FILES -->
+<section id="files">
+<div class="container">
+  <h2><span class="num">03</span> 파일 구성</h2>
+  <div class="file-tree"><span class="dir">OHT_3D/</span>
+├── <span class="file">parse_layout.py</span>        <span class="comment"># XML 파서 (853줄)</span>
+├── <span class="file">server.py</span>              <span class="comment"># FastAPI 웹 서버 (892줄)</span>
+├── <span class="file">oht_3d_layout.html</span>     <span class="comment"># Three.js 3D UI (2,582줄)</span>
+├── <span class="file">AAAA.TXT</span>               <span class="comment"># 사용법 문서</span>
+├── <span class="file">LAYOUT_3D_V0.2.zip</span>     <span class="comment"># 샘플 layout.xml + 코드 원본</span>
+├── <span class="file">DEV_DOCUMENT.md</span>        <span class="comment"># 본 개발 문서</span>
+└── <span class="dir">fab_data/</span>              <span class="comment"># [자동 생성] FAB별 파싱 결과</span>
+    ├── <span class="file">_fab_settings.json</span>  <span class="comment"># FAB별 설정 (OHT 대수 등)</span>
+    ├── <span class="file">_fab_registry.json</span>  <span class="comment"># FAB 메타데이터</span>
+    ├── <span class="dir">M14A/</span>
+    │   ├── <span class="file">M14A.json</span>       <span class="comment"># 3D 시각화 데이터</span>
+    │   └── <span class="dir">master_csv/</span>
+    │       └── <span class="file">M14A_HID_Zone_Master.csv</span>
+    ├── <span class="dir">M14B/</span>
+    │   └── ...
+    └── <span class="dir">M16A-A/</span>
+        └── ...</div>
+</div>
+</section>
+
+<!-- SECTION: PARSER -->
+<section id="parser">
+<div class="container">
+  <h2><span class="num">04</span> parse_layout.py — XML 파서</h2>
+  <p class="lead">대용량 layout.xml (200MB+)을 메모리 효율적으로 파싱하여 JSON + CSV 생성</p>
+
+  <h3>함수 목록</h3>
+  <div class="table-wrap">
+  <table>
+    <thead><tr><th>함수</th><th>목적</th><th>입력</th><th>출력</th></tr></thead>
+    <tbody>
+      <tr><td><code>parse_layout_xml()</code></td><td>핵심 파서: XML → JSON + CSV</td><td>xml_path, output_dir, fab_name</td><td>{fab_name}.json, CSV</td></tr>
+      <tr><td><code>parse_from_zip()</code></td><td>ZIP에서 layout.xml 추출 후 파싱</td><td>zip_path, output_dir, fab_name</td><td>JSON + CSV</td></tr>
+      <tr><td><code>scan_and_parse_map()</code></td><td>MAP 디렉토리 전체 스캔</td><td>map_dir, output_base_dir</td><td>전체 FAB 파싱</td></tr>
+      <tr><td><code>auto_detect_and_parse()</code></td><td>자동 감지 모드 (인자 없이 실행)</td><td>base_dir (선택)</td><td>자동 탐지 후 파싱</td></tr>
+      <tr><td><code>_find_layout_zips()</code></td><td>디렉토리에서 layout ZIP 탐색</td><td>dir_path</td><td>ZIP 파일 목록</td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <h3>XML 파싱 대상 데이터</h3>
+  <div class="diagram"><span class="hl-w">layout.xml</span>
+├── <span class="hl">AddressInfo</span> (노드)
+│   ├── id, x, y 좌표
+│   ├── symbol (직진/곡선/분기/합류)
+│   ├── is_station, branch, junction 플래그
+│   └── 연결 정보 (다음 노드, 거리, 속도)
+├── <span class="hl-o">StationInfo</span> (스테이션)
+│   ├── port_id, category, type
+│   └── 연결 노드 위치
+├── <span class="hl-g">McpZoneInfo</span> (MCP Zone)
+│   ├── vehicle_max, vehicle_precaution
+│   └── IN/OUT lane 정보
+└── <span class="hl-y">HidZoneInfo</span> (HID Zone)
+    ├── HID Zone ID, 이름
+    └── 소속 MCP Zone 매핑</div>
+
+  <h3>출력 JSON 구조</h3>
+  <pre data-label="json">{
+  "fab_name": "M14A",
+  "project": "FAB Layout",
+  "total_nodes": 45000,
+  "total_edges": 52000,
+  "total_stations": 3200,
+  "total_mcp_zones": 85,
+  "bounds": { "min_x": 0, "max_x": 80000, "min_y": 0, "max_y": 40000 },
+  "nodes": [
+    { "id": 1, "x": 1234.5, "y": 5678.9, "symbol": "straight",
+      "is_station": true, "stations": [...], "connections": [...] }
+  ],
+  "edges": [
+    { "from": 1, "to": 2, "distance": 150, "speed": 2000 }
+  ],
+  "stations": [...],
+  "mcp_zones": [...],
+  "hid_zones": [...]
+}</pre>
+
+  <h3>사용법</h3>
+  <pre data-label="bash"># 자동 감지 (권장)
+python parse_layout.py
+
+# MAP 디렉토리 지정
+python parse_layout.py --scan /path/to/MAP
+
+# 단일 ZIP
+python parse_layout.py layout.zip
+
+# 단일 XML (레거시)
+python parse_layout.py layout.xml . M14A</pre>
+
+  <h3>자동 감지 탐색 순서</h3>
+  <div class="diagram">1순위: 하위 폴더에 <span class="hl">layout.xml</span> 포함 ZIP → MAP 구조로 스캔
+2순위: 현재 폴더에 layout.xml 포함 ZIP → 각각 파싱
+3순위: 현재 폴더에 layout.xml → 직접 파싱
+4순위: 형제 폴더에서 MAP 구조 탐색</div>
+
+  <h3>ZIP 파일 탐색 우선순위</h3>
+  <div class="diagram">1순위: <span class="hl-g">*.layout.zip</span> 패턴
+2순위: 모든 *.zip 열어서 layout.xml 포함 여부 확인
+       (LAYOUT/LAYOUT.XML 같은 하위 폴더 구조도 지원)</div>
+</div>
+</section>
+
+<!-- SECTION: SERVER -->
+<section id="server">
+<div class="container">
+  <h2><span class="num">05</span> server.py — FastAPI 웹 서버</h2>
+
+  <h3>서버 설정</h3>
+  <div class="info-grid">
+    <div class="info-card"><div class="label">프레임워크</div><div class="value">FastAPI + uvicorn</div></div>
+    <div class="info-card"><div class="label">포트</div><div class="value cyan">10003</div></div>
+    <div class="info-card"><div class="label">CORS</div><div class="value">전체 허용 (*)</div></div>
+    <div class="info-card"><div class="label">CSV 저장 간격</div><div class="value">10초</div></div>
+    <div class="info-card"><div class="label">OUTPUT 정리</div><div class="value">600초 (10분)</div></div>
+  </div>
+
+  <h3>API 엔드포인트</h3>
+
+  <h4>페이지 서빙</h4>
+  <div class="table-wrap">
+  <table>
+    <thead><tr><th>메서드</th><th>경로</th><th>설명</th></tr></thead>
+    <tbody>
+      <tr><td><code>GET</code></td><td><code>/</code></td><td>메인 3D 시각화 페이지</td></tr>
+      <tr><td><code>GET</code></td><td><code>/oht_3d_layout.html</code></td><td>3D 페이지 직접 접근</td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <h4>레이아웃 데이터</h4>
+  <div class="table-wrap">
+  <table>
+    <thead><tr><th>메서드</th><th>경로</th><th>설명</th></tr></thead>
+    <tbody>
+      <tr><td><code>GET</code></td><td><code>/layout_data.json</code></td><td>현재 FAB JSON 데이터 (캐시 비활성화)</td></tr>
+      <tr><td><code>GET</code></td><td><code>/api/layout</code></td><td>레이아웃 요약 정보</td></tr>
+      <tr><td><code>GET</code></td><td><code>/api/layout/nodes?limit=&amp;offset=</code></td><td>노드 목록 (페이지네이션)</td></tr>
+      <tr><td><code>GET</code></td><td><code>/api/layout/edges?limit=&amp;offset=</code></td><td>엣지 목록</td></tr>
+      <tr><td><code>GET</code></td><td><code>/api/layout/stations</code></td><td>스테이션 목록</td></tr>
+      <tr><td><code>GET</code></td><td><code>/api/layout/mcp_zones</code></td><td>MCP Zone 목록</td></tr>
+      <tr><td><code>GET</code></td><td><code>/api/layout/search?q=</code></td><td>노드/스테이션 검색</td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <h4>Multi-FAB 관리</h4>
+  <div class="table-wrap">
+  <table>
+    <thead><tr><th>메서드</th><th>경로</th><th>설명</th></tr></thead>
+    <tbody>
+      <tr><td><code>GET</code></td><td><code>/api/fabs</code></td><td>등록된 FAB 목록 + 현재 FAB</td></tr>
+      <tr><td><code>POST</code></td><td><code>/api/fab/switch</code></td><td>FAB 전환 <code>{fab_name: "M14B"}</code></td></tr>
+      <tr><td><code>GET</code></td><td><code>/api/fab/settings</code></td><td>현재 FAB 설정 조회 (OHT 대수)</td></tr>
+      <tr><td><code>POST</code></td><td><code>/api/fab/settings</code></td><td>FAB 설정 저장 <code>{oht_count: 200}</code></td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <h4>XML 파싱</h4>
+  <div class="table-wrap">
+  <table>
+    <thead><tr><th>메서드</th><th>경로</th><th>설명</th></tr></thead>
+    <tbody>
+      <tr><td><code>POST</code></td><td><code>/api/parse</code></td><td>XML 파일 경로 지정 파싱</td></tr>
+      <tr><td><code>POST</code></td><td><code>/api/parse/upload</code></td><td>XML 파일 업로드 파싱</td></tr>
+      <tr><td><code>POST</code></td><td><code>/api/parse/scan</code></td><td>MAP 디렉토리 스캔 파싱</td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <h4>CSV 마스터 데이터</h4>
+  <div class="table-wrap">
+  <table>
+    <thead><tr><th>메서드</th><th>경로</th><th>설명</th></tr></thead>
+    <tbody>
+      <tr><td><code>GET</code></td><td><code>/api/master</code></td><td>FAB 마스터 데이터 목록</td></tr>
+      <tr><td><code>GET</code></td><td><code>/api/master/{fab}/csv/{file}</code></td><td>CSV 파일 다운로드</td></tr>
+      <tr><td><code>GET</code></td><td><code>/api/master/{fab}/download_all</code></td><td>FAB 전체 CSV 목록</td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <h4>시뮬레이션</h4>
+  <div class="table-wrap">
+  <table>
+    <thead><tr><th>메서드</th><th>경로</th><th>설명</th></tr></thead>
+    <tbody>
+      <tr><td><code>GET</code></td><td><code>/api/simulation/status</code></td><td>시뮬레이션 상태</td></tr>
+      <tr><td><code>POST</code></td><td><code>/api/simulation/start</code></td><td>시뮬레이션 시작</td></tr>
+      <tr><td><code>POST</code></td><td><code>/api/simulation/scenario</code></td><td>시나리오 생성 (JAM/정지/적재)</td></tr>
+      <tr><td><code>POST</code></td><td><code>/api/simulation/reset</code></td><td>시뮬레이션 초기화</td></tr>
+      <tr><td><code>GET</code></td><td><code>/api/simulation/vehicles</code></td><td>차량 목록</td></tr>
+      <tr><td><code>GET</code></td><td><code>/api/simulation/vehicle/{id}</code></td><td>차량 상세</td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <h4>시스템</h4>
+  <div class="table-wrap">
+  <table>
+    <thead><tr><th>메서드</th><th>경로</th><th>설명</th></tr></thead>
+    <tbody>
+      <tr><td><code>GET</code></td><td><code>/api/status</code></td><td>서버 상태</td></tr>
+      <tr><td><code>GET</code></td><td><code>/api/output/status</code></td><td>OUTPUT 디렉토리 상태</td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <h3>Multi-FAB 동작 구조</h3>
+  <div class="diagram">서버 시작
+    │
+    ▼
+<span class="hl">load_fab_registry()</span>
+    │  fab_data/ 스캔
+    │  - 하위 디렉토리별 JSON 탐색
+    │  - _fab_registry.json 메타데이터 보강
+    ▼
+<span class="hl">switch_fab_internal</span>(첫 번째 FAB)
+    │  - layout_data 메모리 로드
+    │  - current_fab_name 설정
+    │  - current_fab_json 경로 설정
+    ▼
+서버 대기 (<span class="hl-g">Port 10003</span>)
+    │
+    ▼  [사용자 FAB 전환 요청]
+<span class="hl-y">POST /api/fab/switch</span> {fab_name: "M14B"}
+    │  - switch_fab_internal("M14B")
+    │  - layout_data 교체
+    ▼
+<span class="hl-y">GET /layout_data.json</span>
+    │  - current_fab_json 경로의 파일 반환
+    │  - Cache-Control: no-cache
+    ▼
+<span class="hl-g">브라우저 3D 렌더링</span></div>
+
+  <h3>FAB 설정 영구 저장</h3>
+  <pre data-label="json">// fab_data/_fab_settings.json
+{
+  "M14A": { "oht_count": 200 },
+  "M14B": { "oht_count": 500 },
+  "M16A-A": { "oht_count": 150 }
+}</pre>
+  <p>OHT 대수 변경 시 자동 저장 (<code class="code-inline">POST /api/fab/settings</code>). FAB 전환 시 저장된 값 자동 복원. 서버 재시작해도 유지.</p>
+</div>
+</section>
+
+<!-- SECTION: 3D UI -->
+<section id="3d-ui">
+<div class="container">
+  <h2><span class="num">06</span> 3D 시각화 — Three.js</h2>
+  <p class="lead">Three.js 기반 WebGL 3D 렌더링 · ES Module · 단일 HTML 파일 (2,582줄)</p>
+
+  <h3>UI 레이아웃</h3>
+  <div class="diagram"><span class="hl-w">┌──────────────────────────────────────────────────────────────┐</span>
+│ [<span class="hl">AMOS MAP SYSTEM PRO</span>] [<span class="hl-g">LIVE</span>] [M14A] [▼ FAB선택] [이동]  FPS │
+├──────┬─────────────────────────────────────┬─────────────────┤
+│      │                                     │                 │
+│ 좌측 │         <span class="hl">3D 뷰포트 (Three.js)</span>         │    우측 패널    │
+│ 패널 │                                     │                 │
+│      │  ┌─────────────┐                   │  [OHT차량|Zone] │
+│ <span class="hl-y">통계</span> │  │ <span class="hl-o">플로팅 컨트롤</span> │                   │                 │
+│ <span class="hl-y">OHT</span>  │  │ 높이/두께/뷰 │                   │  차량 리스트    │
+│ <span class="hl-y">설정</span> │  │ 레이어/색상  │    ┌────┐         │  또는           │
+│ <span class="hl-y">시뮬</span> │  └─────────────┘    │<span class="hl-g">미니맵</span>│         │  Zone 리스트    │
+│      │                     └────┘         │                 │
+├──────┴─────────────────────────────────────┴─────────────────┤
+│ (사이드바 토글 버튼)                                          │
+└──────────────────────────────────────────────────────────────┘</div>
+
+  <h3>3D 오브젝트 · Scene 구성</h3>
+  <div class="table-wrap">
+  <table>
+    <thead><tr><th>그룹</th><th>오브젝트</th><th>렌더링 방식</th></tr></thead>
+    <tbody>
+      <tr><td><code>floorGroup</code></td><td>바닥면 + 그리드</td><td>PlaneGeometry</td></tr>
+      <tr><td><code>supportGroup</code></td><td>지지 기둥 + 빔</td><td>InstancedMesh</td></tr>
+      <tr><td><code>railGroup</code></td><td>레일 트랙 (좌/우 레일 + 크로스 타이 + 베이스)</td><td>InstancedMesh</td></tr>
+      <tr><td><code>nodeGroup</code></td><td>주소 노드 (구체)</td><td>InstancedMesh</td></tr>
+      <tr><td><code>stationGroup</code></td><td>스테이션 마커 (팔면체)</td><td>InstancedMesh</td></tr>
+      <tr><td><code>labelGroup</code></td><td>스테이션 ID 라벨</td><td>Sprite</td></tr>
+      <tr><td><code>vehicleGroup</code></td><td>OHT 차량</td><td>Group (복합 지오메트리)</td></tr>
+      <tr><td><code>zoneLaneGroup</code></td><td>HID Zone IN/OUT 레인</td><td>Line</td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <h3>OHT 차량 상세 모델</h3>
+  <div class="diagram">        <span class="hl-o">◆</span> 비콘 (Beacon) — 주황색 원통
+        │
+    ════╧════  <span class="hl-o">캐리지</span> (Carriage) — 주황색 박스
+    <span class="hl">●</span>       <span class="hl">●</span>  바퀴 (Wheels) × 2 — 회색 원통
+    ┃  모터  ┃  모터 (Motor) — 진한 주황
+    ┃       ┃  케이블 (Cables) × 2 — 회색 (하강/상승 시 길이 변화)
+    ┗━━━━━━━┛  그리퍼 (Gripper) — 은색
+    ┌───────┐
+    │ <span class="hl-w">FOUP</span>  │  FOUP (반도체 웨이퍼 캐리어) — 흰색 (적재 시만 표시)
+    └───────┘
+    <span class="hl-y">○</span> 링 (Ring) — 노란색 토러스 (회전 애니메이션)
+    <span class="hl-g">◉</span> 전방등 (노란색) + 후방등 (빨간색)</div>
+
+  <h3>차량 상태 머신 (State Machine)</h3>
+  <div class="state-diagram">
+    <div class="state-flow">
+      <div class="state-box state-moving">🚗 moving — 레일 위 이동</div>
+      <div class="arrow-down">▼ 스테이션 도착</div>
+      <div class="state-box state-lowering">⬇ lowering — 케이블 하강</div>
+      <div class="arrow-down">▼</div>
+      <div class="state-box state-waiting">⏳ waiting — 2.5초 대기</div>
+      <div class="arrow-down">▼</div>
+      <div class="state-box state-raising">⬆ raising — 케이블 상승</div>
+      <div class="arrow-down">▼ 이동 재개</div>
+      <div class="state-box state-moving">🚗 moving</div>
+      <div style="margin-top:16px;color:var(--text3);font-size:.8rem">─── 별도 분기 ───</div>
+      <div class="state-box state-jam">⚠ jam — 혼잡 Zone 정체 (3초 후 0.3%/프레임 자동 해제)</div>
+    </div>
+  </div>
+
+  <h3>Zone 혼잡도 시스템</h3>
+  <div class="diagram"><span class="hl-w">OHT 수 vs Zone 임계값:</span>
+
+  <span class="hl-g">정상 (Normal)</span>     <span class="hl-y">주의 (Warning)</span>      <span class="hl-o">포화 (Saturated)</span>
+├─────────────────┼──────────────────┼──────────────────▶
+0            precaution(<span class="hl-y">35</span>)     vehicle_max(<span class="hl-o">37</span>)
+
+<span class="hl-w">속도 감소 공식:</span>
+  occupancy &lt; 70%  → speedFactor = <span class="hl-g">1.0</span> (정상 속도)
+  occupancy ≥ 70%  → speedFactor = max(<span class="hl-o">0.3</span>, 1.0 - (occupancy-70)/100)</div>
+
+  <h3>성능 최적화</h3>
+  <div class="table-wrap">
+  <table>
+    <thead><tr><th>기법</th><th>설명</th><th>효과</th></tr></thead>
+    <tbody>
+      <tr><td><strong>InstancedMesh</strong></td><td>레일/노드/기둥을 단일 드로우 콜로 렌더링</td><td>45,000+ 노드 처리</td></tr>
+      <tr><td><strong>공간 인덱싱</strong></td><td>그리드 기반 노드 탐색 (<code>_nodeGrid</code>)</td><td>O(1) 최근접 노드 검색</td></tr>
+      <tr><td><strong>Zone 캐시</strong></td><td>차량-Zone 매핑 1초/회 갱신</td><td>CPU 부하 감소</td></tr>
+      <tr><td><strong>Material 공유</strong></td><td>차량 간 재질 공유 (복제 안 함)</td><td>메모리 절약</td></tr>
+      <tr><td><strong>이벤트 위임</strong></td><td>리스트 클릭을 부모에서 처리</td><td>DOM 이벤트 최소화</td></tr>
+      <tr><td><strong>디바운싱</strong></td><td>컨트롤 변경 지연 처리</td><td>불필요한 리빌드 방지</td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <h3>주요 JS 함수</h3>
+  <div class="table-wrap">
+  <table>
+    <thead><tr><th>함수</th><th>기능</th></tr></thead>
+    <tbody>
+      <tr><td><code>boot()</code></td><td>FAB 목록 조회 → 드롭다운 세팅 → init() 호출</td></tr>
+      <tr><td><code>init()</code></td><td>Scene/Camera/Renderer 초기화, 데이터 로드, 3D 빌드</td></tr>
+      <tr><td><code>buildRails()</code></td><td>레일 트랙 InstancedMesh 생성</td></tr>
+      <tr><td><code>buildNodes()</code></td><td>노드 구체 InstancedMesh 생성</td></tr>
+      <tr><td><code>buildStationMarkers()</code></td><td>스테이션 마커 생성</td></tr>
+      <tr><td><code>buildPaths()</code></td><td>노드 그래프에서 차량 경로 추출</td></tr>
+      <tr><td><code>spawnVehicles(count)</code></td><td>OHT 차량 생성 (상세 지오메트리)</td></tr>
+      <tr><td><code>updateVehicles(dt)</code></td><td>매 프레임 차량 이동/상태 업데이트</td></tr>
+      <tr><td><code>updateZoneCheck()</code></td><td>Zone별 차량 수 집계 + 혼잡도 계산</td></tr>
+      <tr><td><code>fullRebuild()</code></td><td>전체 3D 씬 재구성</td></tr>
+      <tr><td><code>drawMinimap()</code></td><td>우하단 미니맵 렌더링</td></tr>
+      <tr><td><code>focusVehicle(idx)</code></td><td>차량 선택 + 경로 시각화 + 카메라 이동</td></tr>
+      <tr><td><code>focusZone(zoneId)</code></td><td>Zone 카메라 포커스</td></tr>
+      <tr><td><code>saveOhtSettings(count)</code></td><td>OHT 대수 서버에 저장</td></tr>
+    </tbody>
+  </table>
+  </div>
+</div>
+</section>
+
+<!-- SECTION: MAP DIR -->
+<section id="map-dir">
+<div class="container">
+  <h2><span class="num">07</span> MAP 디렉토리 구조</h2>
+
+  <h3>실제 FAB 구조</h3>
+  <div class="file-tree"><span class="dir">MAP/</span>
+├── <span class="dir">M14A/</span>           <span class="comment">← FAB M14A</span>
+│   └── <span class="file">A.layout.zip</span>
+│       └── LAYOUT/LAYOUT.XML      <span class="comment">(200MB+)</span>
+├── <span class="dir">M14B/</span>           <span class="comment">← FAB M14B</span>
+│   └── <span class="file">A.layout.zip</span>
+│       └── LAYOUT/LAYOUT.XML
+├── <span class="dir">M16A/</span>           <span class="comment">← FAB M16A (3개 서브시스템)</span>
+│   ├── <span class="file">A.layout.zip</span>    → M16A-A
+│   ├── <span class="file">BR.layout.zip</span>   → M16A-BR
+│   └── <span class="file">E.layout.zip</span>    → M16A-E
+└── <span class="dir">M16B/</span>           <span class="comment">← FAB M16B</span>
+    └── <span class="file">B.layout.zip</span>
+        └── LAYOUT/LAYOUT.XML</div>
+
+  <h3>파싱 결과 (fab_data/)</h3>
+  <div class="file-tree"><span class="dir">fab_data/</span>
+├── <span class="file">_fab_registry.json</span>      <span class="comment">← 전체 FAB 메타 정보</span>
+├── <span class="file">_fab_settings.json</span>      <span class="comment">← FAB별 설정 (OHT 대수)</span>
+├── <span class="dir">M14A/</span>
+│   ├── <span class="file">M14A.json</span>           <span class="comment">← 3D 시각화 데이터</span>
+│   └── <span class="dir">master_csv/</span>
+│       └── <span class="file">M14A_HID_Zone_Master.csv</span>
+├── <span class="dir">M14B/</span>
+│   └── ...
+├── <span class="dir">M16A-A/</span>
+│   └── ...
+├── <span class="dir">M16A-BR/</span>
+│   └── ...
+├── <span class="dir">M16A-E/</span>
+│   └── ...
+└── <span class="dir">M16B/</span>
+    └── ...</div>
+</div>
+</section>
+
+<!-- SECTION: RUN -->
+<section id="run">
+<div class="container">
+  <h2><span class="num">08</span> 실행 가이드</h2>
+
+  <div class="steps">
+    <div class="step">
+      <div class="step-num">1</div>
+      <div class="step-body">
+        <h5>XML 파싱</h5>
+        <p><code class="code-inline">cd OHT_3D</code> 후 <code class="code-inline">python parse_layout.py</code> (자동 감지) 또는 <code class="code-inline">python parse_layout.py --scan /path/to/MAP</code> (MAP 디렉토리 지정) 또는 <code class="code-inline">python parse_layout.py /path/to/A.layout.zip</code> (단일 ZIP)</p>
+      </div>
+    </div>
+    <div class="step">
+      <div class="step-num">2</div>
+      <div class="step-body">
+        <h5>서버 실행</h5>
+        <p><code class="code-inline">python server.py</code> 또는 <code class="code-inline">uvicorn server:app --host 0.0.0.0 --port 10003 --reload</code></p>
+      </div>
+    </div>
+    <div class="step">
+      <div class="step-num">3</div>
+      <div class="step-body">
+        <h5>브라우저 접속</h5>
+        <p><code class="code-inline">http://localhost:10003</code> — 헤더 드롭다운에서 FAB 선택 후 [이동] 버튼 클릭으로 FAB 전환</p>
+      </div>
+    </div>
+  </div>
+</div>
+</section>
+
+<!-- SECTION: TECH -->
+<section id="tech">
+<div class="container">
+  <h2><span class="num">09</span> 기술 스택</h2>
+  <div class="table-wrap">
+  <table>
+    <thead><tr><th>구분</th><th>기술</th><th>버전/설명</th></tr></thead>
+    <tbody>
+      <tr><td rowspan="4"><strong>백엔드</strong></td><td>Python 3</td><td></td></tr>
+      <tr><td>FastAPI</td><td>비동기 웹 프레임워크</td></tr>
+      <tr><td>uvicorn</td><td>ASGI 서버</td></tr>
+      <tr><td>Pydantic</td><td>데이터 검증</td></tr>
+      <tr><td rowspan="3"><strong>프론트엔드</strong></td><td>Three.js</td><td>r160+ (ES Module CDN)</td></tr>
+      <tr><td>OrbitControls</td><td>카메라 조작</td></tr>
+      <tr><td>HTML5 / CSS3</td><td>단일 파일 SPA</td></tr>
+      <tr><td rowspan="3"><strong>데이터</strong></td><td>XML</td><td>layout.xml (iterparse)</td></tr>
+      <tr><td>JSON</td><td>3D 시각화 데이터</td></tr>
+      <tr><td>CSV</td><td>마스터 데이터</td></tr>
+      <tr><td rowspan="2"><strong>개발 도구</strong></td><td>LLM</td><td>3D 코드 생성</td></tr>
+      <tr><td>Git</td><td>버전 관리</td></tr>
+    </tbody>
+  </table>
+  </div>
+</div>
+</section>
+
+<!-- SECTION: DESIGN -->
+<section id="design">
+<div class="container">
+  <h2><span class="num">10</span> 주요 설계 결정</h2>
+
+  <div class="feature-grid">
+    <div class="feature-card">
+      <span class="tag tag-3dlm">아키텍처</span>
+      <h5>단일 HTML 파일 구조</h5>
+      <p>배포 간소화: 서버가 HTML 1개만 서빙. 의존성 최소화: Three.js CDN import map 사용. LLM 생성에 적합: 단일 컨텍스트로 전체 UI 생성 가능.</p>
+    </div>
+    <div class="feature-card">
+      <span class="tag tag-3dlm">렌더링</span>
+      <h5>InstancedMesh 렌더링</h5>
+      <p>45,000+ 노드, 52,000+ 엣지를 개별 Mesh로 생성하면 성능 불가. InstancedMesh로 단일 드로우 콜 → 60 FPS 유지.</p>
+    </div>
+    <div class="feature-card">
+      <span class="tag tag-ll3m">데이터</span>
+      <h5>FAB별 독립 디렉토리</h5>
+      <p>JSON과 CSV를 FAB별로 분리. 서버 재시작 없이 FAB 전환. 설정(OHT 대수) FAB별 영구 저장.</p>
+    </div>
+    <div class="feature-card">
+      <span class="tag tag-3dlm">캐시</span>
+      <h5>브라우저 캐시 무효화</h5>
+      <p>layout_data.json?t=timestamp 매 요청마다 캐시 무시. Cache-Control: no-cache 서버 응답 헤더. FAB 전환 시 구 데이터 로딩 방지.</p>
+    </div>
+  </div>
+</div>
+</section>
+
+<!-- SECTION: COMMITS -->
+<section id="commits">
+<div class="container">
+  <h2><span class="num">11</span> 커밋 히스토리</h2>
+
+  <div class="commit-log">
+    <div class="commit"><span class="commit-hash">88cdcf5</span><span class="commit-msg">초기 파일 업로드</span></div>
+    <div class="commit"><span class="commit-hash">3bf4342</span><span class="commit-msg">다중 FAB 지원: ZIP 파싱, FAB 전환 API, FAB 선택 UI</span></div>
+    <div class="commit"><span class="commit-hash">718da09</span><span class="commit-msg">parse_layout.py 자동 감지 모드</span></div>
+    <div class="commit"><span class="commit-hash">acd342e</span><span class="commit-msg">FAB별 독립 디렉토리 구조 + CSV/JSON 분리</span></div>
+    <div class="commit"><span class="commit-hash">3bbd598</span><span class="commit-msg">FAB별 OHT 대수 설정 영구 저장</span></div>
+    <div class="commit"><span class="commit-hash">99eaea1</span><span class="commit-msg">ZIP 탐색 로직 강화 (일반 *.zip 지원)</span></div>
+    <div class="commit"><span class="commit-hash">b9632a7</span><span class="commit-msg">FAB 선택 오버레이 제거, 기본 FAB 바로 로딩</span></div>
+    <div class="commit"><span class="commit-hash">d831999</span><span class="commit-msg">FAB 드롭다운 [이동] 버튼 추가</span></div>
+    <div class="commit"><span class="commit-hash">e269e4b</span><span class="commit-msg">onFabGo window 바인딩 (module scope 수정)</span></div>
+    <div class="commit"><span class="commit-hash">476fac4</span><span class="commit-msg">이동 버튼 가드 제거</span></div>
+    <div class="commit"><span class="commit-hash">97414d4</span><span class="commit-msg">브라우저 캐시 문제 해결</span></div>
+    <div class="commit"><span class="commit-hash">1fc67f6</span><span class="commit-msg">로딩 화면 FAB 이름 표시</span></div>
+  </div>
+</div>
+</section>
+
+</main>
+
+<footer>
+  <div class="container">
+    <p>AMOS MAP SYSTEM PRO — OHT FAB Simulator v2.0.0</p>
+    <p style="margin-top:8px;font-size:.7rem">3D LLM + LL3M · Three.js · FastAPI · John Prestige</p>
+  </div>
+</footer>
+
+</body>
+</html>
