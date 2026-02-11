@@ -375,6 +375,13 @@
   <div class="legend-item"><div class="swatch" style="background:#44aaee"></div>OHT 연결통로</div>
 </div>
 
+<!-- 병목 테스트 버튼 -->
+<div id="bottleneckPanel" style="position:fixed;top:280px;right:24px;z-index:100;background:rgba(10,10,20,0.85);backdrop-filter:blur(20px);border:1px solid rgba(255,255,255,0.08);border-radius:12px;padding:14px 18px;">
+  <div style="font-size:10px;color:#666;letter-spacing:2px;text-transform:uppercase;margin-bottom:10px;">BOTTLENECK TEST</div>
+  <button id="btnBottleneck" onclick="toggleBottleneckTest()" style="width:100%;padding:10px 16px;background:linear-gradient(135deg,rgba(255,50,30,0.2),rgba(255,100,0,0.15));border:1px solid rgba(255,80,40,0.4);border-radius:8px;color:#ff6644;font-size:13px;font-weight:700;cursor:pointer;transition:all 0.3s;font-family:inherit;">병목 테스트</button>
+  <div id="bottleneckStatus" style="font-size:10px;color:#555;margin-top:6px;text-align:center;">M14/M16 QUE 병목 예측</div>
+</div>
+
 <div id="timeToggle" style="position:fixed;top:75px;left:24px;z-index:200;background:rgba(10,10,20,0.85);border-radius:10px;border:1px solid rgba(255,255,255,0.1);backdrop-filter:blur(8px);user-select:none;">
   <div id="timeToggleHeader" style="display:flex;align-items:center;justify-content:space-between;padding:6px 12px;cursor:move;">
     <span style="font-size:11px;color:#666;letter-spacing:1px;">⏰ 시간 설정</span>
@@ -2933,6 +2940,193 @@ function showFullFlow() {
 updateCamera();
 const clock = new THREE.Clock();
 let startTime = Date.now();
+
+// ============================================================
+// 병목 테스트 (Bottleneck Test)
+// ============================================================
+let bottleneckActive = false;
+let bottleneckWarnings = [];  // 경고 3D 오브젝트들
+let bottleneckBubbles = [];   // 수근수근 말풍선 DOM들
+let bottleneckInterval = null;
+
+function toggleBottleneckTest() {
+  if (bottleneckActive) {
+    clearBottleneck();
+  } else {
+    startBottleneck();
+  }
+}
+window.toggleBottleneckTest = toggleBottleneckTest;
+
+function startBottleneck() {
+  bottleneckActive = true;
+  document.getElementById('btnBottleneck').textContent = '병목 해제';
+  document.getElementById('btnBottleneck').style.background = 'linear-gradient(135deg,rgba(255,30,30,0.4),rgba(200,0,0,0.3))';
+  document.getElementById('btnBottleneck').style.borderColor = 'rgba(255,50,50,0.6)';
+  document.getElementById('bottleneckStatus').textContent = 'M14/M16 QUE 병목 경고 중...';
+  document.getElementById('bottleneckStatus').style.color = '#ff4444';
+
+  // M14, M16 건물 찾기
+  const targetNames = ['M14A/B', 'M16A/B'];
+  const targetBuildings = buildingMeshes.filter(g => targetNames.includes(g.userData.name));
+
+  targetBuildings.forEach(group => {
+    // 건물 전체를 붉게 (불타는 효과)
+    group.traverse(child => {
+      if (child.isMesh && child.material) {
+        child.userData._origColor = child.material.color.clone();
+        child.userData._origEmissive = child.material.emissive ? child.material.emissive.clone() : null;
+        child.userData._origEmissiveIntensity = child.material.emissiveIntensity || 0;
+        child.userData._isBottleneck = true;
+      }
+    });
+
+    // 건물 위에 경고 텍스트 스프라이트
+    const b = group.userData;
+    const h = b.h * SCALE;
+    const warnCanvas = document.createElement('canvas');
+    warnCanvas.width = 512; warnCanvas.height = 256;
+    const ctx = warnCanvas.getContext('2d');
+    // 배경
+    ctx.fillStyle = 'rgba(180,20,10,0.85)';
+    ctx.beginPath();
+    ctx.roundRect(10, 10, 492, 236, 16);
+    ctx.fill();
+    ctx.strokeStyle = '#ff3300';
+    ctx.lineWidth = 4;
+    ctx.beginPath();
+    ctx.roundRect(10, 10, 492, 236, 16);
+    ctx.stroke();
+    // 경고 아이콘
+    ctx.fillStyle = '#ffcc00';
+    ctx.font = 'bold 60px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText('⚠', 256, 80);
+    // 텍스트
+    ctx.fillStyle = '#ffffff';
+    ctx.font = 'bold 36px sans-serif';
+    ctx.fillText('QUE 병목 예측', 256, 140);
+    ctx.fillStyle = '#ff8866';
+    ctx.font = '24px sans-serif';
+    ctx.fillText(b.name + ' 대기열 과부하', 256, 185);
+    ctx.fillStyle = '#ffaa88';
+    ctx.font = '18px sans-serif';
+    ctx.fillText('처리량 초과 · 지연 발생 예상', 256, 220);
+
+    const tex = new THREE.CanvasTexture(warnCanvas);
+    const spMat = new THREE.SpriteMaterial({ map: tex, transparent: true, depthTest: false });
+    const sp = new THREE.Sprite(spMat);
+    sp.scale.set(60, 30, 1);
+    sp.position.set(0, h + 40, 0);
+    group.add(sp);
+    bottleneckWarnings.push({ sprite: sp, group: group });
+
+    // 붉은 포인트라이트 (불타는 느낌)
+    const fireLight = new THREE.PointLight(0xff2200, 2.0, 100);
+    fireLight.position.set(0, h + 5, 0);
+    group.add(fireLight);
+    bottleneckWarnings.push({ light: fireLight, group: group });
+  });
+
+  // 주변 사람 5명 수근수근 말풍선
+  const allPersons = scene.children.filter(c => c.userData && c.userData.isPerson);
+  const nearby = allPersons.slice(0, Math.min(5, allPersons.length));
+  const gossips = [
+    'M14 QUE 병목이 예측된대...',
+    'M16도 대기열 과부하래!',
+    '병목 심하면 물류 멈춘다던데...',
+    'OHT 지연되면 큰일이야;;',
+    'QUE 터지면 라인 스톱이래...'
+  ];
+
+  nearby.forEach((person, i) => {
+    const bubble = document.createElement('div');
+    bubble.className = 'bottleneck-bubble';
+    bubble.style.cssText = 'position:fixed;z-index:350;pointer-events:none;background:rgba(180,20,10,0.9);border:1px solid #ff4444;border-radius:12px;padding:8px 14px;font-size:11px;color:#ffcccc;font-weight:600;white-space:nowrap;box-shadow:0 0 15px rgba(255,50,30,0.4);display:none;font-family:inherit;';
+    bubble.textContent = gossips[i % gossips.length];
+    document.body.appendChild(bubble);
+    bottleneckBubbles.push({ el: bubble, person: person, delay: i * 800 });
+
+    // 딜레이 후 표시
+    setTimeout(() => {
+      bubble.style.display = 'block';
+    }, i * 800);
+  });
+
+  // 주기적으로 말풍선 위치 업데이트 + 건물 깜빡임
+  bottleneckInterval = setInterval(() => {
+    // 말풍선 위치
+    bottleneckBubbles.forEach(bb => {
+      if (bb.el.style.display === 'none') return;
+      const pos = new THREE.Vector3();
+      bb.person.getWorldPosition(pos);
+      pos.y += 8;
+      pos.project(camera);
+      const sx = (pos.x * 0.5 + 0.5) * window.innerWidth;
+      const sy = (-pos.y * 0.5 + 0.5) * window.innerHeight;
+      bb.el.style.left = sx + 'px';
+      bb.el.style.top = (sy - 30) + 'px';
+    });
+
+    // 건물 불타는 깜빡임
+    const t = Date.now() * 0.005;
+    buildingMeshes.forEach(group => {
+      group.traverse(child => {
+        if (child.userData && child.userData._isBottleneck && child.isMesh && child.material.emissive) {
+          const flicker = 0.3 + Math.sin(t + Math.random()) * 0.3;
+          child.material.emissive.setHex(0xff2200);
+          child.material.emissiveIntensity = flicker;
+          child.material.color.lerp(new THREE.Color(0xff3311), 0.15);
+        }
+      });
+    });
+    // 포인트라이트 깜빡임
+    bottleneckWarnings.forEach(w => {
+      if (w.light) {
+        w.light.intensity = 1.0 + Math.sin(t * 2) * 1.5;
+      }
+    });
+  }, 50);
+}
+
+function clearBottleneck() {
+  bottleneckActive = false;
+  document.getElementById('btnBottleneck').textContent = '병목 테스트';
+  document.getElementById('btnBottleneck').style.background = 'linear-gradient(135deg,rgba(255,50,30,0.2),rgba(255,100,0,0.15))';
+  document.getElementById('btnBottleneck').style.borderColor = 'rgba(255,80,40,0.4)';
+  document.getElementById('bottleneckStatus').textContent = 'M14/M16 QUE 병목 예측';
+  document.getElementById('bottleneckStatus').style.color = '#555';
+
+  if (bottleneckInterval) { clearInterval(bottleneckInterval); bottleneckInterval = null; }
+
+  // 경고 스프라이트/라이트 제거
+  bottleneckWarnings.forEach(w => {
+    if (w.sprite) w.group.remove(w.sprite);
+    if (w.light) w.group.remove(w.light);
+  });
+  bottleneckWarnings = [];
+
+  // 건물 색상 복원
+  buildingMeshes.forEach(group => {
+    group.traverse(child => {
+      if (child.userData && child.userData._isBottleneck && child.isMesh) {
+        if (child.userData._origColor) child.material.color.copy(child.userData._origColor);
+        if (child.userData._origEmissive) child.material.emissive.copy(child.userData._origEmissive);
+        child.material.emissiveIntensity = child.userData._origEmissiveIntensity || 0;
+        delete child.userData._isBottleneck;
+        delete child.userData._origColor;
+        delete child.userData._origEmissive;
+        delete child.userData._origEmissiveIntensity;
+      }
+    });
+  });
+
+  // 말풍선 제거
+  bottleneckBubbles.forEach(bb => {
+    if (bb.el && bb.el.parentNode) bb.el.parentNode.removeChild(bb.el);
+  });
+  bottleneckBubbles = [];
+}
 
 function animate() {
   requestAnimationFrame(animate);
