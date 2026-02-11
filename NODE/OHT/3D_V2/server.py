@@ -420,18 +420,20 @@ async def startup():
         print(f"  Current FAB: {current_fab_name}")
     print(f"  OUTPUT: {OUTPUT_DIR}")
     print(f"  CSV 저장 간격: {CSV_SAVE_INTERVAL}초 / 정리 간격: {OUTPUT_CLEANUP_INTERVAL}초")
+    print(f"  Campus: {CAMPUS_FILE} (exists={CAMPUS_FILE.exists() if CAMPUS_FILE else 'None'})")
     print(f"{'='*60}\n")
 
 
 # ===== Routes: HTML Page =====
 @app.get("/", response_class=HTMLResponse)
 async def index():
-    """메인 페이지 - SK Hynix 3D Campus"""
+    """메인 페이지 - SK Hynix 3D Campus (캐시 방지)"""
+    headers = {"Cache-Control": "no-cache, no-store, must-revalidate", "Pragma": "no-cache"}
     if CAMPUS_FILE and CAMPUS_FILE.exists():
-        return HTMLResponse(content=CAMPUS_FILE.read_text(encoding='utf-8'))
+        return HTMLResponse(content=CAMPUS_FILE.read_text(encoding='utf-8'), headers=headers)
     # fallback: OHT 레이아웃
     if HTML_FILE.exists():
-        return HTMLResponse(content=HTML_FILE.read_text(encoding='utf-8'))
+        return HTMLResponse(content=HTML_FILE.read_text(encoding='utf-8'), headers=headers)
     raise HTTPException(status_code=404, detail="HTML files not found")
 
 
