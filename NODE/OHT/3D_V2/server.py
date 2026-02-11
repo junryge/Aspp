@@ -406,9 +406,11 @@ async def startup():
 @app.get("/", response_class=HTMLResponse)
 async def index():
     """메인 페이지 - SK Hynix 3D Campus"""
-    if CAMPUS_FILE.exists():
-        return HTMLResponse(content=CAMPUS_FILE.read_text(encoding='utf-8'))
-    # fallback: 캠퍼스 파일 없으면 OHT 레이아웃
+    campus = Path(__file__).parent / "SK_Hynix_3D_Campus_0.4V.HTML"
+    print(f"[Route /] Campus file: {campus}, exists={campus.exists()}")
+    if campus.exists():
+        return HTMLResponse(content=campus.read_text(encoding='utf-8'))
+    # fallback
     if HTML_FILE.exists():
         return HTMLResponse(content=HTML_FILE.read_text(encoding='utf-8'))
     raise HTTPException(status_code=404, detail="HTML files not found")
