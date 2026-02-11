@@ -39,20 +39,25 @@ FAB_SETTINGS_FILE = FAB_DATA_DIR / "_fab_settings.json"
 MASTER_CSV_DIR = BASE_DIR / "master_csv"
 HTML_FILE = BASE_DIR / "oht_3d_layout.html"
 CAMPUS_FILENAME = "SK_Hynix_3D_Campus_0.4V.HTML"
-# 여러 경로에서 캠퍼스 파일 탐색
+# 여러 경로에서 캠퍼스 파일 탐색 (상위 3단계까지 재귀)
 def _find_campus():
-    search_dirs = [
-        BASE_DIR,                    # server.py와 같은 디렉토리
-        BASE_DIR / "OHT_3D",        # 하위 OHT_3D/
-        BASE_DIR.parent,             # 상위 디렉토리
-        BASE_DIR.parent / "OHT_3D", # 상위/OHT_3D/
-    ]
-    for d in search_dirs:
-        f = d / CAMPUS_FILENAME
-        if f.exists():
-            print(f"[Campus] Found: {f}")
-            return f
-    print(f"[Campus] NOT FOUND in: {[str(d) for d in search_dirs]}")
+    # 1) 직접 경로 체크
+    direct = BASE_DIR / CAMPUS_FILENAME
+    if direct.exists():
+        print(f"[Campus] Found: {direct}")
+        return direct
+    # 2) 상위 3단계까지 모든 하위 폴더 검색
+    for level in range(4):
+        search_root = BASE_DIR
+        for _ in range(level):
+            search_root = search_root.parent
+        try:
+            for f in search_root.rglob(CAMPUS_FILENAME):
+                print(f"[Campus] Found: {f}")
+                return f
+        except Exception:
+            pass
+    print(f"[Campus] NOT FOUND - {CAMPUS_FILENAME}")
     return None
 CAMPUS_FILE = _find_campus()
 DEFAULT_FAB = "M14-Pro"
