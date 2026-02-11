@@ -472,7 +472,10 @@ const buildings = [
   { name: 'M14A/B', x: 150, z: 280, w: 210, d: 160, h: 96, color: 0xecc94b, type: 'DRAM 생산동', detail: 'M14A/B FAB동\n1a/1b nm DRAM 생산\n최신 공정 라인\n8층(옥상)',
     specs: { floors: '8F (옥상)', process: '1a/1b nm', size: '210m × 160m', height: '48m' },
     processFlow: ['포토리소그래피', '식각(Etching)', '증착(Deposition)', 'CMP 연마', '이온주입'],
-    routes: [{ to: 'M16A/B', method: 'OHT 컨베이어 → 레일 → 리프터', desc: 'M10B 왼쪽 우회, 공중 23m 높이 연결' }],
+    routes: [
+      { to: 'M16A/B', method: 'OHT 컨베이어 → 레일 → 리프터', desc: 'M10B 왼쪽 우회, 공중 23m 높이 연결' },
+      { to: 'M10A', method: 'OHT 레일 · 리프터(3층→2층)', desc: 'M14 왼쪽→ㄷ자 우회→M10A 왼쪽 진입' }
+    ],
     flowRole: 'STEP 1 -웨이퍼 FAB (회로 형성)',
     chimneys: { count: 1, height: 50, radius: 8 },
     fabNames: ['M14A', 'M14B']
@@ -480,7 +483,7 @@ const buildings = [
   { name: 'M10A', x: 160, z: 520, w: 200, d: 120, h: 65, color: 0x63b3ed, type: '생산동', detail: 'M10A FAB동\nDRAM 생산',
     specs: { floors: '5F', process: 'DRAM', size: '200m × 120m', height: '32.5m' },
     processFlow: ['웨이퍼 투입', 'DRAM 생산 공정', '웨이퍼 검사', '다음 공정 이송'],
-    routes: [],
+    routes: [{ to: 'M14A/B', method: 'OHT 레일 · 리프터(2층→3층)', desc: 'M10A 왼쪽→ㄷ자 경로→M14 왼쪽 진입' }],
     flowRole: 'STEP 2 -FAB 생산 (멀티 FAB 운영)',
     fabNames: ['M10A']
   },
@@ -2251,10 +2254,33 @@ function getBuildingWorldCenter(b) {
 }
 
 const m14 = getBuildingWorldCenter(buildings[0]);   // M14A/B
+const m10a = getBuildingWorldCenter(buildings[1]);  // M10A
 const m16 = getBuildingWorldCenter(buildings[4]);    // M16A/B
 
 // OHT 브릿지 높이 (건물 중간 높이 ~ 상단)
 const ohtH1 = Math.min(m14.h, m16.h) * 0.7;
+
+// ── M14 3층 ↔ M10A 2층 (OHT 레일 + 리프터, ㄷ자 경로) ──
+// M14A/B: 8층 → 3층 높이 = h * 3/8
+// M10A: 5층 → 2층 높이 = h * 2/5
+{
+  const m14_3F = m14.h * (3 / 8);   // M14 3층 높이
+  const m10a_2F = m10a.h * (2 / 5); // M10A 2층 높이
+  const ohtH_m14_m10a = (m14_3F + m10a_2F) / 2;
+
+  // M14 왼쪽(w=210, 월드 x≈-112) → M10A 왼쪽(w=200, 월드 x≈-120)
+  // ㄷ자: M14 왼쪽 → 왼쪽으로 빠짐 → 아래로(z 이동) → 오른쪽으로 M10A
+  const m14LeftX = m14.x - 53;     // M14 왼쪽 끝
+  const outLeftX = m14LeftX - 25;  // ㄷ자 바깥쪽 (왼쪽으로 더 나감)
+  const m10aLeftX = m10a.x - 50;   // M10A 왼쪽 끝
+
+  // 1) M14 왼쪽에서 왼쪽으로 나감 (리프터 3층)
+  createOHTBridge(m14LeftX, m14.z, outLeftX, m14.z, ohtH_m14_m10a, '리프터(3층)');
+  // 2) 왼쪽 바깥에서 아래로 M10A 높이까지 (OHT 레일)
+  createOHTBridge(outLeftX, m14.z, outLeftX, m10a.z, ohtH_m14_m10a, 'OHT 레일');
+  // 3) M10A 왼쪽으로 꺾어서 진입 (리프터 2층)
+  createOHTBridge(outLeftX, m10a.z, m10aLeftX, m10a.z, ohtH_m14_m10a, '리프터(2층)');
+}
 
 // ── M14A/B ↔ M16A/B (OHT 연결, M10B 왼쪽 우회, M16 왼쪽면 진입) ──
 // M14(x≈-112, z≈230) → M16 왼쪽면(x≈25, z≈120)
@@ -2877,6 +2903,7 @@ function showFullFlow() {
   // OHT 경로 요약
   h += '<div style="margin-top:20px;display:flex;gap:12px;flex-wrap:wrap;justify-content:center;max-width:90vw;">';
   const ohtRoutes = [
+    { from:'M14A/B', to:'M10A', method:'OHT 레일·리프터(3층→2층)', detail:'M14 왼쪽→ㄷ자→M10A 왼쪽' },
     { from:'M14A/B', to:'M16A/B', method:'OHT 컨베이어·레일·리프터', detail:'M10B 왼쪽 우회, 23m 공중' },
     { from:'M16A/B', to:'P&T4', method:'OHT 컨베이어(3층→5층)', detail:'M16 우측→수평→리프터' },
     { from:'M16A/B', to:'P&T5', method:'OHT 컨베이어(2층→3층)', detail:'P&T4 바깥 우회 경로' },
