@@ -1,9 +1,0 @@
-{
-  "name": "홍길동",
-  "age": 30,
-  "skills": [
-    "Python",
-    "FastAPI",
-    "React"
-  ]
-}

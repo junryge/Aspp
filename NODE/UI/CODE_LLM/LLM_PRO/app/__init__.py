@@ -1,1 +1,0 @@
-# Nomos LLM Desktop App

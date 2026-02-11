@@ -1,1 +1,0 @@
-# Aider integration
