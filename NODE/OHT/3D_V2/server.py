@@ -38,7 +38,23 @@ FAB_DATA_DIR = BASE_DIR / "fab_data"
 FAB_SETTINGS_FILE = FAB_DATA_DIR / "_fab_settings.json"
 MASTER_CSV_DIR = BASE_DIR / "master_csv"
 HTML_FILE = BASE_DIR / "oht_3d_layout.html"
-CAMPUS_FILE = BASE_DIR / "SK_Hynix_3D_Campus_0.4V.HTML"
+CAMPUS_FILENAME = "SK_Hynix_3D_Campus_0.4V.HTML"
+# 여러 경로에서 캠퍼스 파일 탐색
+def _find_campus():
+    search_dirs = [
+        BASE_DIR,                    # server.py와 같은 디렉토리
+        BASE_DIR / "OHT_3D",        # 하위 OHT_3D/
+        BASE_DIR.parent,             # 상위 디렉토리
+        BASE_DIR.parent / "OHT_3D", # 상위/OHT_3D/
+    ]
+    for d in search_dirs:
+        f = d / CAMPUS_FILENAME
+        if f.exists():
+            print(f"[Campus] Found: {f}")
+            return f
+    print(f"[Campus] NOT FOUND in: {[str(d) for d in search_dirs]}")
+    return None
+CAMPUS_FILE = _find_campus()
 DEFAULT_FAB = "M14-Pro"
 PORT = 10003
 OUTPUT_DIR = BASE_DIR / "output"
@@ -406,11 +422,9 @@ async def startup():
 @app.get("/", response_class=HTMLResponse)
 async def index():
     """메인 페이지 - SK Hynix 3D Campus"""
-    campus = Path(__file__).parent / "SK_Hynix_3D_Campus_0.4V.HTML"
-    print(f"[Route /] Campus file: {campus}, exists={campus.exists()}")
-    if campus.exists():
-        return HTMLResponse(content=campus.read_text(encoding='utf-8'))
-    # fallback
+    if CAMPUS_FILE and CAMPUS_FILE.exists():
+        return HTMLResponse(content=CAMPUS_FILE.read_text(encoding='utf-8'))
+    # fallback: OHT 레이아웃
     if HTML_FILE.exists():
         return HTMLResponse(content=HTML_FILE.read_text(encoding='utf-8'))
     raise HTTPException(status_code=404, detail="HTML files not found")
