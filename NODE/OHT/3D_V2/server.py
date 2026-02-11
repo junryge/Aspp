@@ -47,8 +47,8 @@ OUTPUT_CLEANUP_INTERVAL = 600  # 10분(600초)마다 OUTPUT 파일 삭제
 
 # ===== App Setup =====
 app = FastAPI(
-    title="AMOS MAP System PRO - OHT FAB Simulator",
-    description="OHT 반도체 FAB 레이아웃 3D 시뮬레이션 서버",
+    title="OHT FAB Layout 3D Simulation Server_b (FastAPI)",
+    description="OHT FAB Layout 3D Simulation Server_b (FastAPI)",
     version="2.0.0"
 )
 
