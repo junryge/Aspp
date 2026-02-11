@@ -1,0 +1,23 @@
+## CONVEYOR 전문 지식
+
+### 메시지 흐름
+INTERRAIL-CARRIERIDREAD → CARRIERINSTALLED → CARRIERTRANSFER → CARRIERTRANSFERREPLY → TRANSFERINITIATED → TRANSFERRING → TRANSFERCOMPLETED → CARRIERREMOVED
+
+### 포트 유형
+- *_IN: 입구 포트
+- *_OUT: 출구 포트
+- CARRIERZONENAME: 현재 Zone 위치
+
+### 소요시간 기준
+| 구간 | 정상 | 주의 | 경고 |
+|------|------|------|------|
+| 진입 | 10초 | 30초 | 1분 |
+| 명령 응답 | 5초 | 10초 | 30초 |
+| 컨베이어 이송 | 5분 | 8분 | 15분 |
+| **전체** | **5분** | **10분** | **20분** |
+
+### 지연 원인 분석
+- 진입 지연 → 센서 문제 또는 적체
+- 명령 응답 지연 → 통신 문제
+- 이송 지연 → 컨베이어 정지 또는 적체
+- 퇴장 지연 → 출구 포트 점유

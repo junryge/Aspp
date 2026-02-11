@@ -1,0 +1,28 @@
+## LIFTER 전문 지식
+
+### 메시지 흐름
+STORAGE-CARRIERIDREAD → CARRIERWAITIN → CARRIERLOCATIONCHANGED → CARRIERTRANSFER → CARRIERTRANSFERREPLY → TRANSFERINITIATED → CRANEACTIVE → CARRIERTRANSFERRING → CRANEIDLE → CARRIERWAITOUT → TRANSFERCOMPLETED → CARRIERREMOVED
+
+### 포트/위치
+- *_AI*: 입구 (Arrival In) - 숫자 첫 자리가 층 (예: _AI323 = 3층 입구)
+- *_AO*: 출구 (Arrival Out) - 숫자 첫 자리가 층 (예: _AO621 = 6층 출구)
+- *_RM*: 내부 이동 중
+
+### 소요시간 기준
+| 구간 | 정상 | 주의 | 경고 |
+|------|------|------|------|
+| 입구 대기 | 10초 | 30초 | 1분 |
+| 크레인 동작 | 15초 | 30초 | 1분 |
+| 층간 이동 | 1분 | 2분 | 4분 |
+| 출구 대기 | 10초 | 30초 | 1분 |
+| **전체** | **2분** | **4분** | **7분** |
+
+### 방향 표시
+- ⬆️ 상승 (예: 3F → 6F)
+- ⬇️ 하강 (예: 6F → 3F)
+
+### 지연 원인 분석
+- 입구 대기 지연 → 내부 점유 (다른 캐리어 처리 중)
+- 크레인 동작 지연 → 크레인 오류 또는 인터락
+- 층간 이동 지연 → 크레인 속도 저하
+- 출구 대기 지연 → 출구 포트 점유

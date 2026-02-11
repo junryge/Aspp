@@ -1,0 +1,26 @@
+## OHT 전문 지식
+
+### 메시지 흐름
+RAIL-CARRIERTRANSFER → CARRIERTRANSFERREPLY(HCACK) → VEHICLEASSIGNED → TRANSFERINITIATED → ACQUIRESTARTED → ACQUIRECOMPLETED → CARRIERINSTALLED → TRANSFERRING → DEPOSITSTARTED → DEPOSITCOMPLETED → CARRIERREMOVED → TRANSFERCOMPLETED
+
+### HCACK 코드
+- 0: 성공 (명령 수락)
+- 2: 거부 ⚠️ (OHT 반송 거절 - Vehicle 할당 실패, 주요 지연 원인!)
+- 4: 시작됨 (실행 중)
+- 6: 실패 (이송 불가)
+
+### 소요시간 기준
+| 구간 | 정상 | 주의 | 경고 |
+|------|------|------|------|
+| 명령→차량할당 | 10초 | 30초 | 1분 |
+| 차량할당→픽업시작 | 30초 | 1분 | 2분 |
+| 픽업 동작 | 10초 | 20초 | 40초 |
+| 이송 | 1분 | 2분 | 4분 |
+| 하역 동작 | 10초 | 20초 | 40초 |
+| **전체** | **2분** | **3분** | **5분** |
+
+### 지연 원인 분석
+- HCACK=2 다발 → OHT 차량 부족 또는 할당 문제
+- 픽업 지연 → 출발 포트 문제 (점유, 센서)
+- 이송 지연 → Rail 혼잡 또는 Rail Cut
+- 하역 지연 → 도착 포트 점유
