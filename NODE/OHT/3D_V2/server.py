@@ -38,6 +38,7 @@ FAB_DATA_DIR = BASE_DIR / "fab_data"
 FAB_SETTINGS_FILE = FAB_DATA_DIR / "_fab_settings.json"
 MASTER_CSV_DIR = BASE_DIR / "master_csv"
 HTML_FILE = BASE_DIR / "oht_3d_layout.html"
+CAMPUS_FILE = BASE_DIR / "SK_Hynix_3D_Campus_0.4V.HTML"
 DEFAULT_FAB = "M14-Pro"
 PORT = 10003
 OUTPUT_DIR = BASE_DIR / "output"
@@ -404,7 +405,18 @@ async def startup():
 # ===== Routes: HTML Page =====
 @app.get("/", response_class=HTMLResponse)
 async def index():
-    """메인 3D 시각화 페이지"""
+    """메인 페이지 - SK Hynix 3D Campus"""
+    if CAMPUS_FILE.exists():
+        return HTMLResponse(content=CAMPUS_FILE.read_text(encoding='utf-8'))
+    # fallback: 캠퍼스 파일 없으면 OHT 레이아웃
+    if HTML_FILE.exists():
+        return HTMLResponse(content=HTML_FILE.read_text(encoding='utf-8'))
+    raise HTTPException(status_code=404, detail="HTML files not found")
+
+
+@app.get("/oht", response_class=HTMLResponse)
+async def oht_page():
+    """OHT 3D 레이아웃 페이지"""
     if HTML_FILE.exists():
         return HTMLResponse(content=HTML_FILE.read_text(encoding='utf-8'))
     raise HTTPException(status_code=404, detail="oht_3d_layout.html not found")
@@ -412,7 +424,7 @@ async def index():
 
 @app.get("/oht_3d_layout.html", response_class=HTMLResponse)
 async def layout_page():
-    """3D 시각화 페이지 (직접 접근)"""
+    """OHT 3D 시각화 페이지 (직접 접근)"""
     if HTML_FILE.exists():
         return HTMLResponse(content=HTML_FILE.read_text(encoding='utf-8'))
     raise HTTPException(status_code=404, detail="oht_3d_layout.html not found")
