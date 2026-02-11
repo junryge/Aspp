@@ -39,15 +39,16 @@ FAB_SETTINGS_FILE = FAB_DATA_DIR / "_fab_settings.json"
 MASTER_CSV_DIR = BASE_DIR / "master_csv"
 HTML_FILE = BASE_DIR / "oht_3d_layout.html"
 CAMPUS_FILENAME = "SK_Hynix_3D_Campus_0.4V.HTML"
-# 여러 경로에서 캠퍼스 파일 탐색 (상위 3단계까지 재귀)
-def _find_campus():
-    # 1) 직접 경로 체크
-    direct = BASE_DIR / CAMPUS_FILENAME
-    if direct.exists():
-        print(f"[Campus] Found: {direct}")
-        return direct
-    # 2) 상위 3단계까지 모든 하위 폴더 검색
-    for level in range(4):
+CAMPUS_GITHUB_URL = "https://raw.githubusercontent.com/junryge/ASAS/claude/review-oht-3d-files-6xoDs/OHT_3D/SK_Hynix_3D_Campus_0.4V.HTML"
+
+def _find_or_download_campus():
+    local = BASE_DIR / CAMPUS_FILENAME
+    # 1) 로컬에 있으면 바로 사용
+    if local.exists():
+        print(f"[Campus] Found: {local}")
+        return local
+    # 2) 상위 폴더 검색
+    for level in range(1, 4):
         search_root = BASE_DIR
         for _ in range(level):
             search_root = search_root.parent
@@ -57,9 +58,18 @@ def _find_campus():
                 return f
         except Exception:
             pass
-    print(f"[Campus] NOT FOUND - {CAMPUS_FILENAME}")
-    return None
-CAMPUS_FILE = _find_campus()
+    # 3) 없으면 GitHub에서 자동 다운로드
+    print(f"[Campus] 로컬에 없음 → GitHub에서 다운로드 중...")
+    try:
+        import urllib.request
+        urllib.request.urlretrieve(CAMPUS_GITHUB_URL, str(local))
+        print(f"[Campus] Downloaded → {local}")
+        return local
+    except Exception as e:
+        print(f"[Campus] 다운로드 실패: {e}")
+        return None
+
+CAMPUS_FILE = _find_or_download_campus()
 DEFAULT_FAB = "M14-Pro"
 PORT = 10003
 OUTPUT_DIR = BASE_DIR / "output"
