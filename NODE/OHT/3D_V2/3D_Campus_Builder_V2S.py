@@ -1,5 +1,9 @@
 #!/usr/bin/env python3
 """
+
+pip install pyinstaller
+pyinstaller build_exe.spec
+
 3D Campus Builder v1.0
 =====================
 SK Hynix 스타일 3D 캠퍼스 시각화 HTML을 생성하는 Python GUI 프로그램
