@@ -3048,6 +3048,7 @@ class CampusBuilderApp:
         self.is_box_selecting = False    # 사각형 선택 중?
         # 연결통로 도구
         self.transport_start = None      # (wx, wz) - 연결통로 시작점
+        self.show_grid = False               # 캔버스 격자 표시 여부
 
         # UI 구축 (의존성 순서: status_bar → toolbar → main_area → example_campus)
         self._build_menu()
@@ -3118,6 +3119,8 @@ class CampusBuilderApp:
         view_menu.add_command(label="캔버스 리셋  Home", command=self.reset_canvas_view)
         view_menu.add_command(label="확대  +", command=lambda: self.zoom_canvas(1.2))
         view_menu.add_command(label="축소  -", command=lambda: self.zoom_canvas(0.8))
+        view_menu.add_separator()
+        view_menu.add_command(label="격자 표시/숨김  G", command=self.toggle_grid)
         menubar.add_cascade(label="보기", menu=view_menu)
 
         # 도움말
@@ -3140,6 +3143,8 @@ class CampusBuilderApp:
         self.root.bind('<Home>', lambda e: self.reset_canvas_view())
         self.root.bind('<plus>', lambda e: self.zoom_canvas(1.2))
         self.root.bind('<minus>', lambda e: self.zoom_canvas(0.8))
+        self.root.bind('<g>', lambda e: self.toggle_grid())
+        self.root.bind('<G>', lambda e: self.toggle_grid())
 
     # ========================
     # 툴바
@@ -3398,21 +3403,22 @@ class CampusBuilderApp:
             self.canvas.create_text(cx, cy, text=f"{gb.name}\n(H:{gb.height})",
                                     fill="white", font=("Arial", 9, "bold"))
 
-        # 그리드
-        grid_spacing = 50
-        gs = grid_spacing * self.canvas_scale
-        if gs > 5:
-            ox = (cw / 2 + self.canvas_offset_x * self.canvas_scale) % gs
-            oy = (ch / 2 + self.canvas_offset_y * self.canvas_scale) % gs
-            for x in range(int(-gs), cw + int(gs), max(1, int(gs))):
-                self.canvas.create_line(x + ox, 0, x + ox, ch, fill="#354535", width=1)
-            for y in range(int(-gs), ch + int(gs), max(1, int(gs))):
-                self.canvas.create_line(0, y + oy, cw, y + oy, fill="#354535", width=1)
+        # 그리드 (토글로 표시/숨김)
+        if self.show_grid:
+            grid_spacing = 50
+            gs = grid_spacing * self.canvas_scale
+            if gs > 5:
+                ox = (cw / 2 + self.canvas_offset_x * self.canvas_scale) % gs
+                oy = (ch / 2 + self.canvas_offset_y * self.canvas_scale) % gs
+                for x in range(int(-gs), cw + int(gs), max(1, int(gs))):
+                    self.canvas.create_line(x + ox, 0, x + ox, ch, fill="#354535", width=1)
+                for y in range(int(-gs), ch + int(gs), max(1, int(gs))):
+                    self.canvas.create_line(0, y + oy, cw, y + oy, fill="#354535", width=1)
 
-        # 축선
-        origin_x, origin_y = self.world_to_canvas(0, 0)
-        self.canvas.create_line(origin_x, 0, origin_x, ch, fill="#446644", width=1)
-        self.canvas.create_line(0, origin_y, cw, origin_y, fill="#446644", width=1)
+            # 축선
+            origin_x, origin_y = self.world_to_canvas(0, 0)
+            self.canvas.create_line(origin_x, 0, origin_x, ch, fill="#446644", width=1)
+            self.canvas.create_line(0, origin_y, cw, origin_y, fill="#446644", width=1)
 
         # 지면 경계 표시 (하얀색 테두리)
         gw = self.project.ground_width
@@ -3735,11 +3741,23 @@ class CampusBuilderApp:
                 return
             if self.selected_items:
                 for item, _ in self.selected_items:
-                    item.x = round(item.x + dx, 1)
-                    item.z = round(item.z + dz, 1)
+                    if isinstance(item, TransportLine):
+                        item.x1 = round(item.x1 + dx, 1)
+                        item.z1 = round(item.z1 + dz, 1)
+                        item.x2 = round(item.x2 + dx, 1)
+                        item.z2 = round(item.z2 + dz, 1)
+                    else:
+                        item.x = round(item.x + dx, 1)
+                        item.z = round(item.z + dz, 1)
             elif self.selected_item:
-                self.selected_item.x = round(self.selected_item.x + dx, 1)
-                self.selected_item.z = round(self.selected_item.z + dz, 1)
+                if isinstance(self.selected_item, TransportLine):
+                    self.selected_item.x1 = round(self.selected_item.x1 + dx, 1)
+                    self.selected_item.z1 = round(self.selected_item.z1 + dz, 1)
+                    self.selected_item.x2 = round(self.selected_item.x2 + dx, 1)
+                    self.selected_item.z2 = round(self.selected_item.z2 + dz, 1)
+                else:
+                    self.selected_item.x = round(self.selected_item.x + dx, 1)
+                    self.selected_item.z = round(self.selected_item.z + dz, 1)
             self.move_start = (wx, wz)
             self.redraw_canvas()
 
@@ -3786,10 +3804,33 @@ class CampusBuilderApp:
                 for g in self.gates:
                     if min_wx <= g.x <= max_wx and min_wz <= g.z <= max_wz:
                         self.selected_items.append((g, "gate"))
+                for wt in self.water_tanks:
+                    if min_wx <= wt.x <= max_wx and min_wz <= wt.z <= max_wz:
+                        self.selected_items.append((wt, "water_tank"))
+                for lt in self.lpg_tanks:
+                    if min_wx <= lt.x <= max_wx and min_wz <= lt.z <= max_wz:
+                        self.selected_items.append((lt, "lpg_tank"))
+                for ch in self.chimneys:
+                    if min_wx <= ch.x <= max_wx and min_wz <= ch.z <= max_wz:
+                        self.selected_items.append((ch, "chimney"))
+                for w in self.walls:
+                    if min_wx <= w.x <= max_wx and min_wz <= w.z <= max_wz:
+                        self.selected_items.append((w, "wall"))
+                for tr in self.trucks:
+                    if min_wx <= tr.x <= max_wx and min_wz <= tr.z <= max_wz:
+                        self.selected_items.append((tr, "truck"))
+                for tl in self.transport_lines:
+                    mid_x = (tl.x1 + tl.x2) / 2
+                    mid_z = (tl.z1 + tl.z2) / 2
+                    if min_wx <= mid_x <= max_wx and min_wz <= mid_z <= max_wz:
+                        self.selected_items.append((tl, "transport"))
+                for gb in self.ground_boxes:
+                    if min_wx <= gb.x <= max_wx and min_wz <= gb.z <= max_wz:
+                        self.selected_items.append((gb, "ground_box"))
                 if self.selected_items:
                     self.selected_item = self.selected_items[0][0]
                     self.selected_type = self.selected_items[0][1]
-                    self.update_status(f"{len(self.selected_items)}개 선택됨")
+                    self.update_status(f"{len(self.selected_items)}개 선택됨 (Delete 키로 일괄 삭제)")
                 else:
                     self.deselect_all()
 
@@ -3842,6 +3883,11 @@ class CampusBuilderApp:
         self.canvas_offset_y = 0
         self.canvas_scale = 1.0
         self.redraw_canvas()
+
+    def toggle_grid(self):
+        self.show_grid = not self.show_grid
+        self.redraw_canvas()
+        self.update_status(f"격자 {'표시' if self.show_grid else '숨김'}")
 
     def _on_resize_check(self, event):
         """Check if mouse is near a resize handle of selected item"""
@@ -4546,8 +4592,10 @@ class CampusBuilderApp:
 
         # 공통
         make_entry("이름", "name")
-        make_entry("X 위치", "x", tk.DoubleVar)
-        make_entry("Z 위치", "z", tk.DoubleVar)
+        if hasattr(item, 'x'):
+            make_entry("X 위치", "x", tk.DoubleVar)
+        if hasattr(item, 'z'):
+            make_entry("Z 위치", "z", tk.DoubleVar)
         if hasattr(item, 'color'):
             make_color_btn("색상", "color")
             make_hex_color_entry("HEX 코드", "color")
@@ -4764,9 +4812,6 @@ class CampusBuilderApp:
         self.redraw_canvas()
 
     def delete_selected(self):
-        if not self.selected_item:
-            return
-        item = self.selected_item
         all_lists = [
             self.buildings, self.roads, self.trees, self.parking_lots,
             self.lakes, self.persons, self.gates,
@@ -4774,6 +4819,28 @@ class CampusBuilderApp:
             self.walls, self.trucks, self.transport_lines,
             self.ground_boxes,
         ]
+
+        # 다중 선택 삭제
+        if self.selected_items and len(self.selected_items) > 0:
+            items_to_delete = [item for item, _ in self.selected_items]
+            for item in items_to_delete:
+                for lst in all_lists:
+                    if item in lst:
+                        lst.remove(item)
+                        break
+            self.selected_items = []
+            self.selected_item = None
+            self.selected_type = None
+            self._update_object_tree()
+            self._update_counts()
+            self.redraw_canvas()
+            self._show_project_properties()
+            return
+
+        # 단일 선택 삭제
+        if not self.selected_item:
+            return
+        item = self.selected_item
         for lst in all_lists:
             if item in lst:
                 lst.remove(item)
@@ -4792,8 +4859,14 @@ class CampusBuilderApp:
         import copy
         item = copy.deepcopy(self.selected_item)
         item.id = str(uuid.uuid4())[:8]
-        item.x += 20
-        item.z += 20
+        if isinstance(item, TransportLine):
+            item.x1 += 20
+            item.z1 += 20
+            item.x2 += 20
+            item.z2 += 20
+        else:
+            item.x += 20
+            item.z += 20
         item.name = item.name + " (복사)"
 
         type_list_map = {
