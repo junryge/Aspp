@@ -1,0 +1,67 @@
+# -*- mode: python ; coding: utf-8 -*-
+# 3D Campus Builder PyInstaller Spec File
+# 사용법: cd MAINTOOL && pyinstaller build_exe.spec
+
+import os
+import glob
+
+block_cipher = None
+
+# JSON 프로젝트 파일 자동 수집
+json_datas = []
+for f in glob.glob('*.json'):
+    json_datas.append((f, '.'))
+
+a = Analysis(
+    ['3D_Campus_Builder.py'],
+    pathex=[],
+    binaries=[],
+    datas=json_datas,
+    hiddenimports=[
+        'tkinter',
+        'tkinter.ttk',
+        'tkinter.messagebox',
+        'tkinter.filedialog',
+        'tkinter.colorchooser',
+        'PIL',
+        'PIL.Image',
+        'PIL.ImageTk',
+        'PIL.ImageEnhance',
+    ],
+    hookspath=[],
+    hooksconfig={},
+    runtime_hooks=[],
+    excludes=[
+        'matplotlib', 'numpy', 'pandas', 'scipy',
+        'pytest', 'setuptools', 'pip',
+    ],
+    win_no_prefer_redirects=False,
+    win_private_assemblies=False,
+    cipher=block_cipher,
+    noarchive=False,
+)
+
+pyz = PYZ(a.pure, a.zipped_data, cipher=block_cipher)
+
+exe = EXE(
+    pyz,
+    a.scripts,
+    a.binaries,
+    a.zipfiles,
+    a.datas,
+    [],
+    name='3D_Campus_Builder',
+    debug=False,
+    bootloader_ignore_signals=False,
+    strip=False,
+    upx=True,
+    upx_exclude=[],
+    runtime_tmpdir=None,
+    console=False,
+    disable_windowed_traceback=False,
+    argv_emulation=False,
+    target_arch=None,
+    codesign_identity=None,
+    entitlements_file=None,
+    icon=None,
+)
