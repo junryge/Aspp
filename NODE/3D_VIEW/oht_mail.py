@@ -2758,33 +2758,11 @@ function updateMinimap() {{
     );
   }});
 
-  // Camera position
+  // Camera position (red dot only)
   ctx.fillStyle = '#ff4444';
   ctx.beginPath();
   ctx.arc(cx + camera.position.x * scale, cy + camera.position.z * scale, 3, 0, Math.PI * 2);
   ctx.fill();
-
-  // Camera view direction indicator
-  ctx.strokeStyle = '#ff6666';
-  ctx.lineWidth = 1.5;
-  ctx.beginPath();
-  const camDirX = cx + camera.position.x * scale;
-  const camDirZ = cy + camera.position.z * scale;
-  const lookX = cx + camTarget.x * scale;
-  const lookZ = cy + camTarget.z * scale;
-  ctx.moveTo(camDirX, camDirZ);
-  ctx.lineTo(lookX, lookZ);
-  ctx.stroke();
-
-  // Camera target crosshair
-  ctx.strokeStyle = '#ffaa00';
-  ctx.lineWidth = 1;
-  ctx.beginPath();
-  ctx.moveTo(lookX - 4, lookZ);
-  ctx.lineTo(lookX + 4, lookZ);
-  ctx.moveTo(lookX, lookZ - 4);
-  ctx.lineTo(lookX, lookZ + 4);
-  ctx.stroke();
 }}
 
 // ========== Minimap click navigation ==========
@@ -3102,6 +3080,8 @@ class CampusBuilderApp:
         self.selected_items = []        # [(item, type), ...]
         self.selection_rect_start = None # 선택 사각형 시작 화면좌표
         self.is_box_selecting = False    # 사각형 선택 중?
+        # 클립보드 (Ctrl+C/V)
+        self.clipboard_items = []       # 복사된 아이템 리스트
         # 연결통로 도구
         self.transport_start = None      # (wx, wz) - 연결통로 시작점
         self.show_grid = False               # 캔버스 격자 표시 여부
@@ -3144,8 +3124,11 @@ class CampusBuilderApp:
 
         # 편집 메뉴
         edit_menu = tk.Menu(menubar, tearoff=0)
-        edit_menu.add_command(label="선택 삭제  Delete", command=self.delete_selected)
+        edit_menu.add_command(label="복사  Ctrl+C", command=self.copy_selected)
+        edit_menu.add_command(label="붙여넣기  Ctrl+V", command=self.paste_clipboard)
         edit_menu.add_command(label="선택 복제  Ctrl+D", command=self.duplicate_selected)
+        edit_menu.add_separator()
+        edit_menu.add_command(label="선택 삭제  Delete", command=self.delete_selected)
         edit_menu.add_separator()
         edit_menu.add_command(label="전체 선택 해제  Esc", command=self.deselect_all)
         menubar.add_cascade(label="편집", menu=edit_menu)
@@ -3195,6 +3178,8 @@ class CampusBuilderApp:
         self.root.bind('<Control-e>', lambda e: self.export_html())
         self.root.bind('<Control-E>', lambda e: self.export_and_open())
         self.root.bind('<Control-d>', lambda e: self.duplicate_selected())
+        self.root.bind('<Control-c>', lambda e: self.copy_selected())
+        self.root.bind('<Control-v>', lambda e: self.paste_clipboard())
         self.root.bind('<Delete>', lambda e: self.delete_selected())
         self.root.bind('<Escape>', lambda e: self.deselect_all())
         self.root.bind('<Home>', lambda e: self.reset_canvas_view())
@@ -4910,6 +4895,69 @@ class CampusBuilderApp:
         self.redraw_canvas()
         self._show_project_properties()
 
+    def copy_selected(self):
+        """Ctrl+C: 선택된 아이템(들)을 클립보드에 복사"""
+        import copy as copy_module
+        if self.selected_items and len(self.selected_items) > 1:
+            # 다중 선택 복사
+            self.clipboard_items = [(copy_module.deepcopy(item), t) for item, t in self.selected_items]
+            self.update_status(f"📋 {len(self.clipboard_items)}개 오브젝트 복사됨 (Ctrl+V로 붙여넣기)")
+        elif self.selected_item:
+            # 단일 선택 복사
+            self.clipboard_items = [(copy_module.deepcopy(self.selected_item), self.selected_type)]
+            self.update_status(f"📋 '{self.selected_item.name}' 복사됨 (Ctrl+V로 붙여넣기)")
+        else:
+            self.update_status("⚠️ 복사할 오브젝트를 먼저 선택하세요")
+
+    def paste_clipboard(self):
+        """Ctrl+V: 클립보드의 아이템(들)을 붙여넣기"""
+        import copy as copy_module
+        if not self.clipboard_items:
+            self.update_status("⚠️ 클립보드가 비어있습니다 (먼저 Ctrl+C로 복사하세요)")
+            return
+
+        type_list_map = {
+            Building: self.buildings, Road: self.roads, Tree: self.trees,
+            ParkingLot: self.parking_lots, Lake: self.lakes, Person: self.persons,
+            Gate: self.gates, WaterTank: self.water_tanks, LPGTank: self.lpg_tanks,
+            Chimney: self.chimneys, Wall: self.walls, Truck: self.trucks,
+            TransportLine: self.transport_lines, GroundBox: self.ground_boxes,
+        }
+
+        pasted = []
+        for orig_item, item_type in self.clipboard_items:
+            item = copy_module.deepcopy(orig_item)
+            item.id = str(uuid.uuid4())[:8]
+            if isinstance(item, TransportLine):
+                item.x1 += 30
+                item.z1 += 30
+                item.x2 += 30
+                item.z2 += 30
+            else:
+                item.x += 30
+                item.z += 30
+
+            for cls, lst in type_list_map.items():
+                if isinstance(item, cls):
+                    lst.append(item)
+                    pasted.append((item, item_type))
+                    break
+
+        if len(pasted) == 1:
+            self.selected_item = pasted[0][0]
+            self.selected_type = pasted[0][1]
+            self.selected_items = [pasted[0]]
+            self._show_item_properties(pasted[0][0], pasted[0][1])
+        elif len(pasted) > 1:
+            self.selected_items = pasted
+            self.selected_item = pasted[-1][0]
+            self.selected_type = pasted[-1][1]
+
+        self._update_object_tree()
+        self._update_counts()
+        self.redraw_canvas()
+        self.update_status(f"📋 {len(pasted)}개 오브젝트 붙여넣기 완료")
+
     def duplicate_selected(self):
         if not self.selected_item:
             return
@@ -5080,13 +5128,48 @@ class CampusBuilderApp:
             with open(path, 'r', encoding='utf-8') as f:
                 html_content = f.read()
 
-            # JavaScript 변수에서 JSON 배열/값 추출 헬퍼
+            # JavaScript 변수에서 JSON 배열/값 추출 헬퍼 (bracket counting 방식)
             def extract_json_array(var_name):
-                pattern = rf'const\s+{var_name}\s*=\s*(\[.*?\]);'
-                m = re.search(pattern, html_content, re.DOTALL)
+                # 1차: bracket counting으로 정확한 배열 범위 추출
+                pattern = rf'const\s+{var_name}\s*=\s*\['
+                m = re.search(pattern, html_content)
                 if m:
+                    start = m.end() - 1  # '[' 위치
+                    depth = 0
+                    in_string = False
+                    escape = False
+                    end = start
+                    for i in range(start, min(start + 500000, len(html_content))):
+                        ch = html_content[i]
+                        if escape:
+                            escape = False
+                            continue
+                        if ch == '\\' and in_string:
+                            escape = True
+                            continue
+                        if ch == '"' and not escape:
+                            in_string = not in_string
+                            continue
+                        if in_string:
+                            continue
+                        if ch == '[':
+                            depth += 1
+                        elif ch == ']':
+                            depth -= 1
+                            if depth == 0:
+                                end = i + 1
+                                break
+                    if end > start:
+                        try:
+                            return json.loads(html_content[start:end])
+                        except json.JSONDecodeError:
+                            pass
+                # 2차: 기존 regex 방식 fallback
+                pattern2 = rf'const\s+{var_name}\s*=\s*(\[.*?\]);'
+                m2 = re.search(pattern2, html_content, re.DOTALL)
+                if m2:
                     try:
-                        return json.loads(m.group(1))
+                        return json.loads(m2.group(1))
                     except json.JSONDecodeError:
                         return []
                 return []
@@ -5146,7 +5229,24 @@ class CampusBuilderApp:
                            len(transport_lines) + len(ground_boxes))
 
             if total_objects == 0:
-                messagebox.showwarning("경고", "HTML에서 오브젝트 데이터를 찾을 수 없습니다.\n이 도구에서 내보낸 HTML 파일인지 확인해주세요.")
+                # 디버깅: 어떤 변수가 HTML에 존재하는지 확인
+                found_vars = []
+                missing_vars = []
+                for vname in ["buildingsData", "roadsData", "treesData", "parkingsData",
+                              "lakesData", "personsData", "gatesData", "waterTanksData",
+                              "lpgTanksData", "chimneysData", "wallsData", "trucksData",
+                              "transportLinesData", "groundBoxesData"]:
+                    if re.search(rf'const\s+{vname}\s*=', html_content):
+                        found_vars.append(vname)
+                    else:
+                        missing_vars.append(vname)
+                detail = ""
+                if found_vars:
+                    detail = f"\n\n발견된 변수: {', '.join(found_vars[:5])}..."
+                    detail += "\n(변수는 있지만 파싱에 실패했을 수 있습니다)"
+                else:
+                    detail = "\n\nHTML에서 데이터 변수를 전혀 찾을 수 없습니다."
+                messagebox.showwarning("경고", f"HTML에서 오브젝트 데이터를 찾을 수 없습니다.\n이 도구에서 내보낸 HTML 파일인지 확인해주세요.{detail}")
                 return
 
             # 프로젝트 데이터 구성
@@ -5726,6 +5826,12 @@ export default function {name.replace(' ', '').replace('-', '')}Scene() {{
 [속성 패널]
 • 선택된 오브젝트의 속성을 편집합니다
 • 빠른 색상 팔레트로 빠르게 색상 변경
+
+[편집]
+• Ctrl+C: 선택 복사
+• Ctrl+V: 붙여넣기
+• Ctrl+D: 선택 복제
+• Delete: 선택 삭제
 
 [파일]
 • Ctrl+S: 프로젝트 저장 (JSON)
