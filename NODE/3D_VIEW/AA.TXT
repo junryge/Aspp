@@ -1,67 +1,61 @@
-# -*- mode: python ; coding: utf-8 -*-
-# 3D Campus Builder PyInstaller Spec File
-# 사용법: cd MAINTOOL && pyinstaller build_exe.spec
+import java.net.DatagramPacket;
+import java.net.DatagramSocket;
 
-import os
-import glob
+/**
+ * UDP 수신 테스트 유틸리티 (멀티포트)
+ * 사용법: java UdpCheckUtil [포트1 포트2 ...]
+ * 기본값: 3610 3620 3700 3710 3720 3730
+ */
+public class UdpCheckUtil {
 
-block_cipher = None
+    private static final int[] DEFAULT_PORTS = {3610, 3620, 3700, 3710, 3720, 3730};
 
-# JSON 프로젝트 파일 자동 수집
-json_datas = []
-for f in glob.glob('*.json'):
-    json_datas.append((f, '.'))
+    public static void main(String[] args) {
+        int[] ports;
+        if (args.length > 0) {
+            ports = new int[args.length];
+            for (int i = 0; i < args.length; i++) {
+                ports[i] = Integer.parseInt(args[i]);
+            }
+        } else {
+            ports = DEFAULT_PORTS;
+        }
 
-a = Analysis(
-    ['3D_Campus_Builder.py'],
-    pathex=[],
-    binaries=[],
-    datas=json_datas,
-    hiddenimports=[
-        'tkinter',
-        'tkinter.ttk',
-        'tkinter.messagebox',
-        'tkinter.filedialog',
-        'tkinter.colorchooser',
-        'PIL',
-        'PIL.Image',
-        'PIL.ImageTk',
-        'PIL.ImageEnhance',
-    ],
-    hookspath=[],
-    hooksconfig={},
-    runtime_hooks=[],
-    excludes=[
-        'matplotlib', 'numpy', 'pandas', 'scipy',
-        'pytest', 'setuptools', 'pip',
-    ],
-    win_no_prefer_redirects=False,
-    win_private_assemblies=False,
-    cipher=block_cipher,
-    noarchive=False,
-)
+        for (int port : ports) {
+            new Thread(() -> listen(port), "UDP-" + port).start();
+        }
+    }
 
-pyz = PYZ(a.pure, a.zipped_data, cipher=block_cipher)
+    private static void listen(int port) {
+        System.out.println("[UDP:" + port + "] Listening ...");
 
-exe = EXE(
-    pyz,
-    a.scripts,
-    a.binaries,
-    a.zipfiles,
-    a.datas,
-    [],
-    name='3D_Campus_Builder',
-    debug=False,
-    bootloader_ignore_signals=False,
-    strip=False,
-    upx=True,
-    upx_exclude=[],
-    runtime_tmpdir=None,
-    console=False,
-    disable_windowed_traceback=False,
-    argv_emulation=False,
-    target_arch=None,
-    codesign_identity=None,
-    entitlements_file=None,
-    icon=None,
-)
+        try (DatagramSocket socket = new DatagramSocket(port)) {
+            socket.setSoTimeout(10000);
+            int count = 0;
+
+            while (true) {
+                byte[] buffer = new byte[1500];
+                DatagramPacket packet = new DatagramPacket(buffer, buffer.length);
+
+                try {
+                    socket.receive(packet);
+                    count++;
+
+                    String ip = packet.getAddress().getHostAddress();
+                    String msg = new String(packet.getData(), 0, packet.getLength()).trim();
+
+                    System.out.println("──────────────────────────────────────────────────");
+                    System.out.println("[UDP:" + port + " #" + count + "] from: " + ip + ":" + packet.getPort() + " | len: " + packet.getLength());
+                    System.out.println(msg);
+                    System.out.println("──────────────────────────────────────────────────");
+
+                } catch (java.net.SocketTimeoutException e) {
+                    System.out.println("[UDP:" + port + "] NO DATA for 10s (total: " + count + ")");
+                }
+            }
+        } catch (Exception e) {
+            System.err.println("[UDP:" + port + "] ERROR: " + e.getMessage());
+            e.printStackTrace();
+        }
+    }
+}
