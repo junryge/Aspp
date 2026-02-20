@@ -26,6 +26,7 @@ from tkinter import ttk, messagebox, filedialog, colorchooser
 import json
 import os
 import math
+import re
 import webbrowser
 import uuid
 import base64
@@ -3073,6 +3074,7 @@ class CampusBuilderApp:
         file_menu.add_command(label="새 프로젝트  Ctrl+N", command=self.new_project)
         file_menu.add_separator()
         file_menu.add_command(label="열기  Ctrl+O", command=self.open_project)
+        file_menu.add_command(label="HTML 불러오기...", command=self.import_html)
         file_menu.add_command(label="저장  Ctrl+S", command=self.save_project)
         file_menu.add_command(label="다른 이름으로 저장...", command=self.save_project_as)
         file_menu.add_separator()
@@ -5010,6 +5012,126 @@ class CampusBuilderApp:
             self.update_status(f"프로젝트 로드: {os.path.basename(path)}")
         except Exception as e:
             messagebox.showerror("오류", f"프로젝트를 열 수 없습니다:\n{e}")
+
+    def import_html(self):
+        """내보낸 HTML 파일에서 프로젝트 데이터를 역파싱하여 불러오기"""
+        path = filedialog.askopenfilename(
+            filetypes=[("HTML Files", "*.html *.htm"), ("All Files", "*.*")],
+            title="HTML 불러오기"
+        )
+        if not path:
+            return
+        try:
+            with open(path, 'r', encoding='utf-8') as f:
+                html_content = f.read()
+
+            # JavaScript 변수에서 JSON 배열/값 추출 헬퍼
+            def extract_json_array(var_name):
+                pattern = rf'const\s+{var_name}\s*=\s*(\[.*?\]);'
+                m = re.search(pattern, html_content, re.DOTALL)
+                if m:
+                    try:
+                        return json.loads(m.group(1))
+                    except json.JSONDecodeError:
+                        return []
+                return []
+
+            def extract_string(var_name):
+                pattern = rf'const\s+{var_name}\s*=\s*["\']([^"\']*)["\'];'
+                m = re.search(pattern, html_content)
+                return m.group(1) if m else ""
+
+            def extract_number(var_name):
+                pattern = rf'const\s+{var_name}\s*=\s*([\d.]+);'
+                m = re.search(pattern, html_content)
+                return float(m.group(1)) if m else 600
+
+            # 프로젝트 기본 정보
+            campus_name = extract_string("CAMPUS_NAME")
+            if not campus_name:
+                # JSON.dumps 된 문자열 형태도 시도
+                m = re.search(r'const\s+CAMPUS_NAME\s*=\s*(".*?");', html_content)
+                if m:
+                    try:
+                        campus_name = json.loads(m.group(1))
+                    except json.JSONDecodeError:
+                        campus_name = "Imported Campus"
+            ground_w = extract_number("GROUND_W")
+            ground_d = extract_number("GROUND_D")
+            sky_color = extract_string("SKY_COLOR") or "#87CEEB"
+
+            # 각 오브젝트 데이터 추출
+            buildings = extract_json_array("buildingsData")
+            roads = extract_json_array("roadsData")
+            trees = extract_json_array("treesData")
+            parkings = extract_json_array("parkingsData")
+            lakes = extract_json_array("lakesData")
+            persons = extract_json_array("personsData")
+            gates = extract_json_array("gatesData")
+            water_tanks = extract_json_array("waterTanksData")
+            lpg_tanks = extract_json_array("lpgTanksData")
+            chimneys = extract_json_array("chimneysData")
+            walls = extract_json_array("wallsData")
+            trucks = extract_json_array("trucksData")
+            transport_lines = extract_json_array("transportLinesData")
+            ground_boxes = extract_json_array("groundBoxesData")
+
+            # 배경 이미지
+            bg_image = ""
+            m = re.search(r'const\s+backgroundImageData\s*=\s*("data:image[^"]*");', html_content)
+            if m:
+                try:
+                    bg_image = json.loads(m.group(1))
+                except json.JSONDecodeError:
+                    bg_image = ""
+
+            total_objects = (len(buildings) + len(roads) + len(trees) + len(parkings) +
+                           len(lakes) + len(persons) + len(gates) + len(water_tanks) +
+                           len(lpg_tanks) + len(chimneys) + len(walls) + len(trucks) +
+                           len(transport_lines) + len(ground_boxes))
+
+            if total_objects == 0:
+                messagebox.showwarning("경고", "HTML에서 오브젝트 데이터를 찾을 수 없습니다.\n이 도구에서 내보낸 HTML 파일인지 확인해주세요.")
+                return
+
+            # 프로젝트 데이터 구성
+            project_data = {
+                "name": campus_name or "Imported Campus",
+                "ground_width": ground_w,
+                "ground_depth": ground_d,
+                "sky_color": sky_color,
+                "buildings": buildings,
+                "roads": roads,
+                "trees": trees,
+                "parking_lots": parkings,
+                "lakes": lakes,
+                "persons": persons,
+                "gates": gates,
+                "water_tanks": water_tanks,
+                "lpg_tanks": lpg_tanks,
+                "chimneys": chimneys,
+                "walls": walls,
+                "trucks": trucks,
+                "transport_lines": transport_lines,
+                "ground_boxes": ground_boxes,
+                "background_image": bg_image,
+            }
+
+            self._from_project_data(project_data)
+            self.current_file = None  # HTML이므로 저장 경로 초기화
+            self._update_object_tree()
+            self._update_counts()
+            self.redraw_canvas()
+            self._show_project_properties()
+            self.update_status(f"HTML 불러오기 완료: {os.path.basename(path)} ({total_objects}개 오브젝트)")
+            messagebox.showinfo("성공", f"HTML에서 {total_objects}개 오브젝트를 불러왔습니다.\n\n"
+                               f"건물: {len(buildings)}, 도로: {len(roads)}, 나무: {len(trees)}\n"
+                               f"주차장: {len(parkings)}, 호수: {len(lakes)}, 사람: {len(persons)}\n"
+                               f"게이트: {len(gates)}, 물탱크: {len(water_tanks)}, LPG탱크: {len(lpg_tanks)}\n"
+                               f"굴뚝: {len(chimneys)}, 벽: {len(walls)}, 트럭: {len(trucks)}\n"
+                               f"연결통로: {len(transport_lines)}, 바닥박스: {len(ground_boxes)}")
+        except Exception as e:
+            messagebox.showerror("오류", f"HTML 불러오기 실패:\n{e}")
 
     def save_project(self):
         if self.current_file:
