@@ -2763,7 +2763,62 @@ function updateMinimap() {{
   ctx.beginPath();
   ctx.arc(cx + camera.position.x * scale, cy + camera.position.z * scale, 3, 0, Math.PI * 2);
   ctx.fill();
+
+  // Camera view direction indicator
+  ctx.strokeStyle = '#ff6666';
+  ctx.lineWidth = 1.5;
+  ctx.beginPath();
+  const camDirX = cx + camera.position.x * scale;
+  const camDirZ = cy + camera.position.z * scale;
+  const lookX = cx + camTarget.x * scale;
+  const lookZ = cy + camTarget.z * scale;
+  ctx.moveTo(camDirX, camDirZ);
+  ctx.lineTo(lookX, lookZ);
+  ctx.stroke();
+
+  // Camera target crosshair
+  ctx.strokeStyle = '#ffaa00';
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(lookX - 4, lookZ);
+  ctx.lineTo(lookX + 4, lookZ);
+  ctx.moveTo(lookX, lookZ - 4);
+  ctx.lineTo(lookX, lookZ + 4);
+  ctx.stroke();
 }}
+
+// ========== Minimap click navigation ==========
+(function() {{
+  const minimapCanvas = document.getElementById('minimapCanvas');
+  if (!minimapCanvas) return;
+
+  function minimapNavigate(e) {{
+    const rect = minimapCanvas.getBoundingClientRect();
+    const mx = (e.clientX - rect.left) / rect.width * 160;
+    const my = (e.clientY - rect.top) / rect.height * 140;
+    const scale = Math.min(160 / (GROUND_W * 2), 140 / (GROUND_D * 2));
+    const worldX = (mx - 80) / scale;
+    const worldZ = (my - 70) / scale;
+    flyTo(worldX, worldZ, targetSpherical.radius);
+  }}
+
+  minimapCanvas.style.cursor = 'crosshair';
+  minimapCanvas.addEventListener('click', minimapNavigate);
+
+  // Drag navigation on minimap
+  let minimapDragging = false;
+  minimapCanvas.addEventListener('mousedown', function(e) {{
+    minimapDragging = true;
+    minimapNavigate(e);
+    e.preventDefault();
+  }});
+  window.addEventListener('mousemove', function(e) {{
+    if (minimapDragging) minimapNavigate(e);
+  }});
+  window.addEventListener('mouseup', function() {{
+    minimapDragging = false;
+  }});
+}})();
 
 // Export functions moved to Python GUI
 
