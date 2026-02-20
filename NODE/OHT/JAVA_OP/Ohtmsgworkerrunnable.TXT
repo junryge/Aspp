@@ -1279,7 +1279,7 @@ public class OhtMsgWorkerRunnable implements Runnable {
         public static final int BAY_NM_IDX = 22;            // bay 명칭
     }
 
-    // 상태값
+    // 상태값(변경)
     public static class OHT_TIB_STATE {
         public static final String NORMAL = "NORMAL";
         public static final String ABNORMAL = "ABNORMAL";
