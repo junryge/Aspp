@@ -537,7 +537,13 @@ public class OhtMsgWorkerRunnable implements Runnable {
         logger.info("Starting HID Master Tables update [fab: {}]", this.fabId);
 
         // ---- layout.zip 경로 확인 ----
+        // 데이터 소스: fabProperties.getMapDir() (DataService.java:295)
         FabProperties fabProperties = DataService.getInstance().getFabPropertiesMap().get(this.fabId);
+
+        if (fabProperties == null) {
+            logger.warn("[HID Master] FabProperties not found, SKIP [fab: {}]", this.fabId);
+            return;
+        }
         String mapDir = fabProperties.getMapDir();
         File mapDirFile = new File(mapDir);
 
@@ -593,37 +599,44 @@ public class OhtMsgWorkerRunnable implements Runnable {
         String updateDt = dateFormat.format(new Date());
 
         try {
-            // layout.zip에서 HID Edge 정보 추출
+            // DataService.getDataSet().getEdgeMap() 에서 RailEdge 순회
             ConcurrentMap<String, AbstractEdge> edgeMap = DataService.getDataSet().getEdgeMap();
             Map<Integer, String> hidNameMap = new HashMap<>();  // hidId → hidName
             Set<String> processedEdges = new HashSet<>();
 
-            // RailEdge 순회하며 HID 전환 엣지 추출
+            // 1단계: RailEdge 순회하며 FAB에 해당하는 HID 정보 수집
             for (Map.Entry<String, AbstractEdge> entry : edgeMap.entrySet()) {
                 if (!(entry.getValue() instanceof RailEdge)) continue;
 
                 RailEdge railEdge = (RailEdge) entry.getValue();
-                int hidId = railEdge.getHIDId();
+
+                // FAB 필터 — 해당 FAB 소속 RailEdge만 처리
+                if (!railEdge.getFabId().equals(this.fabId)) continue;
+
+                int hidId = railEdge.getHIDId();  // RaileEdge.java:324
 
                 if (hidId > 0) {
                     hidNameMap.putIfAbsent(hidId, "HID_" + String.format("%03d", hidId));
                 }
             }
 
-            // HID 간 전환 엣지 구성 (인접 RailEdge의 HID 전환 감지)
+            // 2단계: HID 간 전환 엣지 구성 (인접 RailEdge의 HID 전환 감지)
             for (Map.Entry<String, AbstractEdge> entry : edgeMap.entrySet()) {
                 if (!(entry.getValue() instanceof RailEdge)) continue;
 
                 RailEdge railEdge = (RailEdge) entry.getValue();
-                int fromHidId = railEdge.getHIDId();
+                if (!railEdge.getFabId().equals(this.fabId)) continue;
 
-                // 다음 RailEdge의 HID 확인
+                int fromHidId = railEdge.getHIDId();
                 String toNodeId = railEdge.getToNodeId();
+
                 // 연결된 다음 엣지들에서 HID가 바뀌는 경우 엣지 생성
                 for (Map.Entry<String, AbstractEdge> nextEntry : edgeMap.entrySet()) {
                     if (!(nextEntry.getValue() instanceof RailEdge)) continue;
 
                     RailEdge nextRailEdge = (RailEdge) nextEntry.getValue();
+                    if (!nextRailEdge.getFabId().equals(this.fabId)) continue;
+
                     if (nextRailEdge.getFromNodeId().equals(toNodeId)) {
                         int toHidId = nextRailEdge.getHIDId();
 
@@ -643,7 +656,6 @@ public class OhtMsgWorkerRunnable implements Runnable {
                             tuple.put("TO_HID_NM", toHidId == 0 ? "OUTSIDE"
                                 : hidNameMap.getOrDefault(toHidId, "HID_" + String.format("%03d", toHidId)));
 
-                            // MCP_ID, ZONE_ID
                             tuple.put("MCP_ID", this.mcpName);
                             tuple.put("ZONE_ID", "");
 
@@ -716,31 +728,34 @@ public class OhtMsgWorkerRunnable implements Runnable {
             ConcurrentMap<String, AbstractEdge> edgeMap = DataService.getDataSet().getEdgeMap();
 
             // HID별 집계 맵
-            Map<Integer, Double> railLenMap = new HashMap<>();      // HID → 레일 길이 합계
-            Map<Integer, List<Double>> maxVelMap = new HashMap<>();  // HID → maxVelocity 목록
-            Map<Integer, Integer> portCntMap = new HashMap<>();      // HID → 포트 수 합계
+            Map<Integer, Double> railLenMap = new HashMap<>();       // HID → 레일 길이 합계
+            Map<Integer, List<Double>> maxVelMap = new HashMap<>();   // HID → maxVelocity 목록
+            Map<Integer, Integer> portCntMap = new HashMap<>();       // HID → 포트 수 합계
 
-            // RailEdge 순회하며 HID별 데이터 집계
+            // RailEdge 순회하며 FAB에 해당하는 HID별 데이터 집계
             for (Map.Entry<String, AbstractEdge> entry : edgeMap.entrySet()) {
                 if (!(entry.getValue() instanceof RailEdge)) continue;
 
                 RailEdge railEdge = (RailEdge) entry.getValue();
-                int hidId = railEdge.getHIDId();
 
+                // FAB 필터
+                if (!railEdge.getFabId().equals(this.fabId)) continue;
+
+                int hidId = railEdge.getHIDId();  // RaileEdge.java:324
                 if (hidId <= 0) continue;
 
                 // 레일 길이 합계
-                double length = railEdge.getLength();
+                double length = railEdge.getLength();  // AbstractEdge.getLength()
                 railLenMap.merge(hidId, length, Double::sum);
 
                 // maxVelocity 수집 (평균 계산용)
-                double maxVelocity = railEdge.getMaxVelocity();
+                double maxVelocity = railEdge.getMaxVelocity();  // RaileEdge.java:270
                 if (maxVelocity > 0) {
                     maxVelMap.computeIfAbsent(hidId, k -> new ArrayList<>()).add(maxVelocity);
                 }
 
                 // 포트 수 합계
-                List<String> portList = railEdge.getPortIdList();
+                List<String> portList = railEdge.getPortIdList();  // RaileEdge.java:19
                 if (portList != null && !portList.isEmpty()) {
                     portCntMap.merge(hidId, portList.size(), Integer::sum);
                 }
@@ -762,10 +777,11 @@ public class OhtMsgWorkerRunnable implements Runnable {
                 List<Double> velocities = maxVelMap.get(hidId);
                 double avgSpeed = 0.0;
                 if (velocities != null && !velocities.isEmpty()) {
-                    avgSpeed = velocities.stream()
-                        .mapToDouble(Double::doubleValue)
-                        .average()
-                        .orElse(0.0);
+                    double sum = 0.0;
+                    for (Double v : velocities) {
+                        sum += v;
+                    }
+                    avgSpeed = sum / velocities.size();
                 }
                 tuple.put("FREE_FLOW_SPEED", avgSpeed);
 
@@ -773,7 +789,6 @@ public class OhtMsgWorkerRunnable implements Runnable {
                 tuple.put("PORT_CNT_TOTAL", portCntMap.getOrDefault(hidId, 0));
 
                 // IN_CNT, OUT_CNT, VHL_MAX, ZCU_ID → layout.xml McpZone 데이터
-                // 현재 RailEdge에서 직접 가져올 수 없으므로 기본값 설정
                 // 추후 Mcp75Config.getRawHidMap()에서 매핑 가능
                 tuple.put("IN_CNT", 0);
                 tuple.put("OUT_CNT", 0);
