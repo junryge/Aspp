@@ -409,19 +409,19 @@ API_TOKEN = None
 
 ENV_CONFIG = {
     "dev": {
-        "url": "http://dev.assistant.llm.skhynix.com/v1/chat/completions",
-        "model": "Qwen3-Coder-30B-A3B-Instruct",
-        "name": "DEV(30B)"
+        "url": "http://dev.hcp.llm.skhynix.com/v1/chat/completions",
+        "model": "Qwen3-Coder-480B-A35B-Instruct",
+        "name": "DEV(480B)"
     },
     "prod": {
-        "url": "http://summary.llm.skhynix.com/v1/chat/completions",
-        "model": "Qwen3-Next-80B-A3B-Instruct",
-        "name": "PROD(80B)"
+        "url": "http://dev.hcp.llm.skhynix.com/v1/chat/completions",
+        "model": "Qwen3-235B-A22B-Instruct-2507",
+        "name": "PROD(235B)"
     },
     "common": {
-        "url": "http://common.llm.skhynix.com/v1/chat/completions",
-        "model": "gpt-oss-20b",
-        "name": "COMMON(20B)"
+        "url": "http://dev.hcp.llm.skhynix.com/v1/chat/completions",
+        "model": "gpt-oss-120b",
+        "name": "COMMON(120B)"
     }
 }
 CURRENT_ENV = "common"
