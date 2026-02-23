@@ -548,7 +548,7 @@ class ChatPanel(QWidget):
   <pre style="background:{COLORS['darkest']}; margin:0; padding:14px 16px; overflow-x:auto; font-family:'Consolas','D2Coding','Cascadia Code',monospace; font-size:12px; line-height:1.6; border:none; border-radius:0;"><code style="background:transparent; padding:0; color:{COLORS['text']}; font-size:12px;">{highlighted}</code></pre>
 </div>"""
             code_blocks.append(block_html)
-            return f"__CODEBLOCK_{idx}__"
+            return f"<!--CODEBLOCK_{idx}-->"
 
         processed = re.sub(r'```(\w*)\n(.*?)```', _extract_code, text, flags=re.DOTALL)
 
@@ -571,9 +571,9 @@ class ChatPanel(QWidget):
 
         # 4단계: 코드 블록 플레이스홀더 복원
         for i, block in enumerate(code_blocks):
-            html = html.replace(f"__CODEBLOCK_{i}__", block)
-            # <p> 태그 안에 들어간 경우 제거
-            html = html.replace(f"<p>__CODEBLOCK_{i}__</p>", block)
+            # <p> 태그로 감싸진 경우 먼저 처리
+            html = html.replace(f"<p><!--CODEBLOCK_{i}--></p>", block)
+            html = html.replace(f"<!--CODEBLOCK_{i}-->", block)
 
         return html
 
