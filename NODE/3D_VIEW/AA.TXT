@@ -258,6 +258,28 @@ class ChatPanel(QWidget):
 
         btn_bar.addStretch()
 
+        # 초기화 버튼
+        self.clear_btn = QPushButton("초기화")
+        self.clear_btn.setFixedSize(70, 32)
+        self.clear_btn.setStyleSheet(f"""
+            QPushButton {{
+                background-color: {COLORS['surface']};
+                color: {COLORS['text_muted']};
+                border: 1px solid {COLORS['border']};
+                border-radius: 8px;
+                font-weight: 600;
+                font-size: 12px;
+            }}
+            QPushButton:hover {{
+                background-color: {COLORS['red_dim']};
+                color: {COLORS['red']};
+                border-color: {COLORS['red']};
+            }}
+        """)
+        self.clear_btn.setToolTip("대화 히스토리 초기화")
+        self.clear_btn.clicked.connect(self.clear_history)
+        btn_bar.addWidget(self.clear_btn)
+
         # SC 토글
         self.sc_check = QCheckBox("자기교정")
         self.sc_check.setToolTip("Self-Correction: 생성된 코드를 자동 검증")
