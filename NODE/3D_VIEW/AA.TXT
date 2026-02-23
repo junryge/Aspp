@@ -7,7 +7,7 @@
 
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QTextBrowser, QTextEdit,
-    QPushButton, QCheckBox, QLabel, QMenu, QApplication
+    QPushButton, QCheckBox, QLabel, QMenu, QApplication, QComboBox
 )
 from PySide6.QtCore import Signal, Qt, QSize
 from PySide6.QtGui import QAction, QKeyEvent, QTextOption
@@ -160,7 +160,7 @@ class KoreanTextBrowser(QTextBrowser):
 
 class ChatPanel(QWidget):
     """채팅 패널 (대화 히스토리 누적)"""
-    send_requested = Signal(str, bool)  # (메시지, SC 사용여부)
+    send_requested = Signal(str, bool, str)  # (메시지, SC 사용여부, 언어)
 
     MAX_HISTORY = 100  # 최대 보관 메시지 수
 
@@ -247,6 +247,69 @@ class ChatPanel(QWidget):
         btn_bar = QHBoxLayout()
         btn_bar.setSpacing(8)
 
+        # 언어 선택 콤보박스
+        self.lang_combo = QComboBox()
+        self.lang_combo.setFixedHeight(32)
+        self.lang_combo.setMinimumWidth(120)
+        languages = [
+            ("Python", "python"),
+            ("C#", "csharp"),
+            ("Java", "java"),
+            ("C++", "cpp"),
+            ("C", "c"),
+            ("Visual Basic", "vb"),
+            ("JavaScript", "javascript"),
+            ("TypeScript", "typescript"),
+            ("React (JSX)", "jsx"),
+            ("React (TSX)", "tsx"),
+            ("HTML/CSS", "html"),
+            ("SQL", "sql"),
+            ("Go", "go"),
+            ("Rust", "rust"),
+            ("Bash/Shell", "bash"),
+            ("기타", "other"),
+        ]
+        for display_name, lang_id in languages:
+            self.lang_combo.addItem(display_name, lang_id)
+        self.lang_combo.setCurrentIndex(0)  # 기본: Python
+        self.lang_combo.setStyleSheet(f"""
+            QComboBox {{
+                background-color: {COLORS['surface']};
+                color: {COLORS['text']};
+                border: 1px solid {COLORS['border']};
+                border-radius: 8px;
+                padding: 4px 10px;
+                font-size: 12px;
+                font-weight: 600;
+            }}
+            QComboBox:hover {{
+                border-color: {COLORS['primary']};
+            }}
+            QComboBox::drop-down {{
+                border: none;
+                width: 20px;
+            }}
+            QComboBox::down-arrow {{
+                image: none;
+                border-left: 4px solid transparent;
+                border-right: 4px solid transparent;
+                border-top: 5px solid {COLORS['text_muted']};
+                margin-right: 6px;
+            }}
+            QComboBox QAbstractItemView {{
+                background-color: {COLORS['surface']};
+                color: {COLORS['text']};
+                border: 1px solid {COLORS['border']};
+                border-radius: 6px;
+                selection-background-color: {COLORS['primary']};
+                selection-color: white;
+                padding: 4px;
+                font-size: 12px;
+            }}
+        """)
+        self.lang_combo.setToolTip("코드 생성/수정 언어 선택")
+        btn_bar.addWidget(self.lang_combo)
+
         # 힌트 텍스트
         hint_label = QLabel("Enter 전송 · Shift+Enter 줄바꿈")
         hint_label.setStyleSheet(f"""
@@ -331,13 +394,22 @@ class ChatPanel(QWidget):
         input_layout.addLayout(btn_bar)
         layout.addWidget(input_container)
 
+    def get_selected_language(self) -> str:
+        """선택된 언어 ID 반환 (예: 'python', 'csharp', 'java', ...)"""
+        return self.lang_combo.currentData() or "python"
+
+    def get_selected_language_name(self) -> str:
+        """선택된 언어 표시명 반환 (예: 'Python', 'C#', ...)"""
+        return self.lang_combo.currentText()
+
     def _on_send(self):
         text = self.input_field.text().strip()
         if text:
             use_sc = self.sc_check.isChecked()
+            lang = self.get_selected_language()
             # 사용자 메시지를 히스토리에 추가
             self._add_message("user", text)
-            self.send_requested.emit(text, use_sc)
+            self.send_requested.emit(text, use_sc, lang)
             self.input_field.clear()
 
     def _add_message(self, role: str, content: str):
