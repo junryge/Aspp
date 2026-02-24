@@ -155,8 +155,9 @@
   }
   .info-panel .flow-btn:hover { background: rgba(68,170,255,0.15); }
 
-  /* Legend */
+  /* Legend - 숨김 처리 (미니맵 가림 방지) */
   .legend {
+    display: none;
     position: fixed;
     top: 24px;
     right: 24px;
@@ -827,7 +828,7 @@
 </div>
 
 <!-- 병목 테스트 버튼 -->
-<div id="bottleneckPanel" style="position:fixed;top:280px;right:24px;z-index:100;background:rgba(10,10,20,0.85);backdrop-filter:blur(20px);border:1px solid rgba(255,255,255,0.08);border-radius:12px;padding:14px 18px;">
+<div id="bottleneckPanel" style="display:none;position:fixed;top:24px;right:24px;z-index:100;background:rgba(10,10,20,0.85);backdrop-filter:blur(20px);border:1px solid rgba(255,255,255,0.08);border-radius:12px;padding:14px 18px;">
   <div style="font-size:10px;color:#666;letter-spacing:2px;text-transform:uppercase;margin-bottom:10px;">BOTTLENECK TEST</div>
   <button id="btnBottleneck" onclick="toggleBottleneckTest()" style="width:100%;padding:10px 16px;background:linear-gradient(135deg,rgba(255,50,30,0.2),rgba(255,100,0,0.15));border:1px solid rgba(255,80,40,0.4);border-radius:8px;color:#ff6644;font-size:13px;font-weight:700;cursor:pointer;transition:all 0.3s;font-family:inherit;">병목 테스트</button>
   <div id="bottleneckStatus" style="font-size:10px;color:#555;margin-top:6px;text-align:center;">M14/M16 QUE 병목 예측</div>
@@ -3101,6 +3102,9 @@ renderer.domElement.addEventListener('click', e => {
 
       document.getElementById('panelBody').innerHTML = html;
 
+      // 건물 클릭 시 M14 QUEUE STATUS 패널 표시
+      document.getElementById('bottleneckPanel').style.display = 'block';
+
       // Highlight animation
       group.children.forEach(child => {
         if (child.material && child.material.emissive) {
@@ -3274,6 +3278,8 @@ document.addEventListener('keydown', e => {
     document.getElementById('bName').innerHTML = '<span class="color-badge" id="bBadge" style="background:#4af;"></span>SK hynix 이천';
     document.getElementById('bType').textContent = '캠퍼스 전경';
     document.getElementById('panelBody').innerHTML = '<div class="building-detail">건물을 클릭하면<br>생산 공정 & 이동 정보를 볼 수 있습니다<br><br><span style="color:#00d4ff;">더블클릭</span> → OHT 레이아웃 이동</div>';
+    // M14 QUEUE STATUS 패널 숨기기
+    document.getElementById('bottleneckPanel').style.display = 'none';
   }
 });
 
@@ -3519,6 +3525,9 @@ window.toggleBottleneckTest = toggleBottleneckTest;
 
 function startBottleneck() {
   bottleneckActive = true;
+
+  // 병목 발생 시 M14 QUEUE STATUS 패널 강제 표시
+  document.getElementById('bottleneckPanel').style.display = 'block';
 
   // CHIP JUN 강제 등장 + 병목 반응
   if (chipTourActive) {
