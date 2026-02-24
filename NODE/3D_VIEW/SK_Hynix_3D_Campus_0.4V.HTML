@@ -926,9 +926,8 @@
   </div>
   <div id="statusTime" style="font-size:9px;color:#444;text-align:center;margin-top:8px;">-</div>
   <div id="connectionStatus" style="font-size:8px;color:#333;text-align:center;margin-top:4px;">● 연결 대기</div>
-  <div style="display:flex;gap:6px;margin-top:10px;">
-    <button id="btnBottleneckTest" onclick="testBottleneckToggle()" style="flex:1;padding:6px 0;border:1px solid rgba(239,68,68,0.4);border-radius:6px;cursor:pointer;font-size:10px;font-weight:700;background:rgba(239,68,68,0.1);color:#ef4444;transition:all 0.3s;font-family:inherit;">병목 테스트</button>
-    <button id="btnBottleneckRelease" onclick="manualBottleneckRelease()" style="flex:1;padding:6px 0;border:1px solid rgba(34,197,94,0.4);border-radius:6px;cursor:pointer;font-size:10px;font-weight:700;background:rgba(34,197,94,0.1);color:#22c55e;transition:all 0.3s;font-family:inherit;display:none;">병목 해제</button>
+  <div style="margin-top:10px;">
+    <button id="btnBottleneckRelease" onclick="manualBottleneckRelease()" style="width:100%;padding:8px 0;border:1px solid rgba(34,197,94,0.4);border-radius:6px;cursor:pointer;font-size:11px;font-weight:700;background:rgba(34,197,94,0.1);color:#22c55e;transition:all 0.3s;font-family:inherit;display:none;">병목 해제</button>
   </div>
 </div>
 
@@ -2677,6 +2676,8 @@ function createBuilding(b) {
   group.add(glowPlane);
 
   // ── 건물 이름 라벨 (공중) ──
+  // M14A/B만 QUE 예측 가능 → 나머지 건물은 회색 간판
+  const hasQueuePrediction = (b.name === 'M14A/B');
   const labelCanvas = document.createElement('canvas');
   const labelCtx = labelCanvas.getContext('2d');
   const labelText = b.name;
@@ -2690,8 +2691,8 @@ function createBuilding(b) {
   const canvasH = fontSize + typeFontSize + 28;
   labelCanvas.width = canvasW;
   labelCanvas.height = canvasH;
-  // 배경
-  labelCtx.fillStyle = 'rgba(8,8,16,0.75)';
+  // 배경 (QUE 예측 없는 건물 = 어두운 회색 톤)
+  labelCtx.fillStyle = hasQueuePrediction ? 'rgba(8,8,16,0.75)' : 'rgba(20,20,24,0.7)';
   const rr = 8;
   labelCtx.beginPath();
   labelCtx.moveTo(rr, 0);
@@ -2701,19 +2702,34 @@ function createBuilding(b) {
   labelCtx.lineTo(0, rr); labelCtx.quadraticCurveTo(0, 0, rr, 0);
   labelCtx.closePath();
   labelCtx.fill();
-  // 하단 색상 바
+  // 하단 색상 바 (QUE 예측 없으면 회색)
   const hexColor = '#' + b.color.toString(16).padStart(6, '0');
-  labelCtx.fillStyle = hexColor;
+  labelCtx.fillStyle = hasQueuePrediction ? hexColor : '#555555';
   labelCtx.fillRect(10, canvasH - 5, canvasW - 20, 3);
-  // 건물 이름
+  // 건물 이름 (QUE 예측 없으면 회색 텍스트)
+  // M14A/B 특수 처리: "M14A" 흰색 + "/B" 회색 (M14A만 QUE 예측 가능)
   labelCtx.font = 'bold ' + fontSize + 'px Noto Sans KR, sans-serif';
-  labelCtx.fillStyle = '#ffffff';
   labelCtx.textAlign = 'center';
   labelCtx.textBaseline = 'top';
-  labelCtx.fillText(labelText, canvasW/2, 8);
-  // 건물 타입
+  if (b.name === 'M14A/B') {
+    const partA = 'M14A';
+    const partB = '/B';
+    const wA = labelCtx.measureText(partA).width;
+    const wB = labelCtx.measureText(partB).width;
+    const totalW = wA + wB;
+    const startX = (canvasW - totalW) / 2;
+    labelCtx.textAlign = 'left';
+    labelCtx.fillStyle = '#ffffff';
+    labelCtx.fillText(partA, startX, 8);
+    labelCtx.fillStyle = '#666666';
+    labelCtx.fillText(partB, startX + wA, 8);
+  } else {
+    labelCtx.fillStyle = hasQueuePrediction ? '#ffffff' : '#888888';
+    labelCtx.fillText(labelText, canvasW/2, 8);
+  }
+  // 건물 타입 (QUE 예측 없으면 회색)
   labelCtx.font = typeFontSize + 'px Noto Sans KR, sans-serif';
-  labelCtx.fillStyle = hexColor;
+  labelCtx.fillStyle = hasQueuePrediction ? hexColor : '#666666';
   labelCtx.fillText(b.type, canvasW/2, fontSize + 12);
 
   const labelTexture = new THREE.CanvasTexture(labelCanvas);
@@ -2732,7 +2748,7 @@ function createBuilding(b) {
     new THREE.Vector3(0, h + 1.5, 0),
     new THREE.Vector3(0, h + 10, 0)
   ]);
-  const lineMat2 = new THREE.LineBasicMaterial({ color: b.color, transparent: true, opacity: 0.4 });
+  const lineMat2 = new THREE.LineBasicMaterial({ color: hasQueuePrediction ? b.color : 0x555555, transparent: true, opacity: hasQueuePrediction ? 0.4 : 0.2 });
   const labelLine = new THREE.Line(lineGeo2, lineMat2);
   group.add(labelLine);
 
@@ -2751,6 +2767,7 @@ buildings.forEach((b, i) => {
   group.userData.animDelay = i * 60;
   group.userData.animStarted = false;
 });
+
 
 // ============================================================
 // OHT 공중 연결 통로
@@ -3977,15 +3994,6 @@ function clearBottleneck() {
     if (bb.el && bb.el.parentNode) bb.el.parentNode.removeChild(bb.el);
   });
   bottleneckBubbles = [];
-}
-
-// 병목 테스트 토글
-function testBottleneckToggle() {
-  if (bottleneckActive) {
-    clearBottleneck();
-  } else {
-    startBottleneck('병목(1700예측-10분)');
-  }
 }
 
 // 수동 병목 해제 (확인 후 쿨타임 시작)
