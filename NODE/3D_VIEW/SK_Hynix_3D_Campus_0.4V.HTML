@@ -2723,6 +2723,7 @@ function createBuilding(b) {
     labelCtx.fillText(partA, startX, 8);
     labelCtx.fillStyle = '#666666';
     labelCtx.fillText(partB, startX + wA, 8);
+    labelCtx.textAlign = 'center';  // 복원
   } else {
     labelCtx.fillStyle = hasQueuePrediction ? '#ffffff' : '#888888';
     labelCtx.fillText(labelText, canvasW/2, 8);
