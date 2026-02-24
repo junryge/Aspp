@@ -4024,6 +4024,7 @@ async function manualBottleneckRelease() {
 // /api/data 에서 실시간 데이터 가져오기 (M14A 서버: 5000 포트)
 const M14_API_URL = 'http://10.139.31.203:5000/api/data';
 let fetchRetryCount = 0;
+let latestM14Data = null;  // 최신 M14A Queue 데이터 저장
 
 async function fetchM14Data() {
   try {
@@ -4031,6 +4032,9 @@ async function fetchM14Data() {
     if (!res.ok) throw new Error('HTTP ' + res.status);
     const data = await res.json();
     fetchRetryCount = 0;
+
+    // 최신 데이터 저장 (CHIP JUN 대사용)
+    latestM14Data = data;
 
     // UI 패널 업데이트
     updateStatusPanel(data);
@@ -4345,7 +4349,25 @@ function showChipGuide(buildingName, customMsg) {
   chipSpeechEl.classList.add('show');
 
   // 인사 → 소개 → 상세 순서로 표시
-  typeChipText(dialog.greeting + '<br>' + dialog.intro + '<br><br>' + dialog.detail);
+  let fullText = dialog.greeting + '<br>' + dialog.intro + '<br><br>' + dialog.detail;
+
+  // M14A/B 클릭 시 Queue Status 데이터도 함께 표시
+  if (buildingName === 'M14A/B' && latestM14Data) {
+    const d = latestM14Data;
+    const status = d.status_prediction || '양호예상';
+    const color = getStatusColor(status);
+    const spikeNum = d.spike_columns ? d.spike_columns.length : 0;
+    fullText += '<br><br>──────────────';
+    fullText += '<br>📊 <b style="color:#4af">M14A QUEUE STATUS</b>';
+    fullText += '<br>상태: <b style="color:' + color + '">' + status + '</b>';
+    fullText += '<br>현재 QUE: <b>' + (d.current || '-') + '</b>';
+    fullText += ' │ 10분 예측: <b>' + (d.predict_10 || '-') + '</b>';
+    fullText += ' │ 30분 예측: <b>' + (d.predict_30 || '-') + '</b>';
+    if (spikeNum > 0) fullText += '<br>⚡ 급증 감지: <b style="color:#f97316">' + spikeNum + '건</b>';
+    fullText += '<br><span style="color:#666;font-size:0.85em;">' + (d.currtime || '') + ' 기준</span>';
+  }
+
+  typeChipText(fullText);
 }
 
 // 환영 메시지 표시
