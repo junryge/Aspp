@@ -3616,15 +3616,15 @@ function showFullFlow() {
 }
 
 // ============================================================
-// Animation Loop (30 FPS Frame Cap + Performance Optimization)
+// Animation Loop (50 FPS Frame Cap + Performance Optimization)
 // ============================================================
 updateCamera();
 const clock = new THREE.Clock();
 let startTime = Date.now();
 
-// ── 30 FPS 프레임 캡 ──
-const TARGET_FPS = 30;
-const FRAME_INTERVAL = 1000 / TARGET_FPS; // ~33.33ms
+// ── 50 FPS 프레임 캡 ──
+const TARGET_FPS = 50;
+const FRAME_INTERVAL = 1000 / TARGET_FPS; // ~20ms
 let lastFrameTime = 0;
 
 // ── FPS 모니터 ──
@@ -3662,7 +3662,7 @@ let buildingAnimDone = false;
 function animate(now) {
   requestAnimationFrame(animate);
 
-  // ── 30 FPS 프레임 캡: 간격 미달 시 스킵 ──
+  // ── 50 FPS 프레임 캡: 간격 미달 시 스킵 ──
   if (!now) now = performance.now();
   const delta = now - lastFrameTime;
   if (delta < FRAME_INTERVAL) return;
@@ -3709,7 +3709,7 @@ function animate(now) {
     updateSky();
   }
 
-  // ── Window flicker (30fps 보정: 확률 2배) ──
+  // ── Window flicker (50fps 보정) ──
   if (Math.random() < 0.04) {
     const randomBuilding = buildingMeshes[Math.floor(Math.random() * buildingMeshes.length)];
     const children = randomBuilding.children;
