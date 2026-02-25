@@ -1,0 +1,22 @@
+{
+    "models": {
+        "dev": {
+            "url": "http://dev.hcp.llm.skhynix.com/v1/chat/completions",
+            "model": "Qwen3-Next-80B-A3B-Instruct",
+            "name": "DEV (80B)",
+            "max_tokens": 8192
+        },
+        "prod": {
+            "url": "http://dev.hcp.llm.skhynix.com/v1/chat/completions",
+            "model": "Qwen3-235B-A22B-Instruct-2507",
+            "name": "PROD (235B)",
+            "max_tokens": 8192
+        },
+        "common": {
+            "url": "http://dev.hcp.llm.skhynix.com/v1/chat/completions",
+            "model": "gpt-oss-120b",
+            "name": "COMMON (120B)",
+            "max_tokens": 4096
+        }
+    }
+}
