@@ -1,22 +1,63 @@
-{
-    "models": {
-        "dev": {
-            "url": "http://dev.hcp.llm.skhynix.com/v1/chat/completions",
-            "model": "Qwen3-Next-80B-A3B-Instruct",
-            "name": "DEV (80B)",
-            "max_tokens": 8192
-        },
-        "prod": {
-            "url": "http://dev.hcp.llm.skhynix.com/v1/chat/completions",
-            "model": "Qwen3-235B-A22B-Instruct-2507",
-            "name": "PROD (235B)",
-            "max_tokens": 8192
-        },
-        "common": {
-            "url": "http://dev.hcp.llm.skhynix.com/v1/chat/completions",
-            "model": "gpt-oss-120b",
-            "name": "COMMON (120B)",
-            "max_tokens": 4096
-        }
-    }
-}
+"""
+반도체 AI 개인비서 — 도구 레지스트리
+LLM tool_calls → 직접 Python 함수 호출
+"""
+
+from tools.excel_tool import TOOLS as EXCEL_TOOLS, execute as excel_execute
+from tools.file_tool import TOOLS as FILE_TOOLS, execute as file_execute
+from tools.code_tool import TOOLS as CODE_TOOLS, execute as code_execute
+from tools.pptx_tool import TOOLS as PPTX_TOOLS, execute as pptx_execute
+
+# 전체 도구 목록 (OpenAI function calling 형식)
+ALL_TOOLS = []
+
+_DISPATCH = {}
+
+for tool in EXCEL_TOOLS:
+    ALL_TOOLS.append({"type": "function", "function": tool})
+    _DISPATCH[tool["name"]] = excel_execute
+
+for tool in FILE_TOOLS:
+    ALL_TOOLS.append({"type": "function", "function": tool})
+    _DISPATCH[tool["name"]] = file_execute
+
+for tool in CODE_TOOLS:
+    ALL_TOOLS.append({"type": "function", "function": tool})
+    _DISPATCH[tool["name"]] = code_execute
+
+for tool in PPTX_TOOLS:
+    ALL_TOOLS.append({"type": "function", "function": tool})
+    _DISPATCH[tool["name"]] = pptx_execute
+
+
+def call_tool(name: str, arguments: dict) -> str:
+    """도구 이름으로 직접 실행."""
+    fn = _DISPATCH.get(name)
+    if not fn:
+        return f"❌ 알 수 없는 도구: {name}"
+    try:
+        return fn(name, arguments)
+    except Exception as e:
+        return f"❌ {type(e).__name__}: {e}"
+
+
+def tool_count() -> int:
+    return len(ALL_TOOLS)
+
+
+def tool_names() -> list[str]:
+    return [t["function"]["name"] for t in ALL_TOOLS]
+
+
+def tool_summary() -> str:
+    """도구 요약 (사용자에게 보여줄 때)."""
+    lines = []
+    lines.append(f"📦 내장 도구 {len(ALL_TOOLS)}개\n")
+    cats = {"excel": EXCEL_TOOLS, "file": FILE_TOOLS, "code": CODE_TOOLS, "pptx": PPTX_TOOLS}
+    icons = {"excel": "📊", "file": "📁", "code": "🔍", "pptx": "📑"}
+    for cat, tools in cats.items():
+        lines.append(f"{icons[cat]} {cat.upper()} ({len(tools)}개)")
+        for t in tools:
+            lines.append(f"  • {t['name']}: {t['description']}")
+        lines.append("")
+    return "\n".join(lines)
