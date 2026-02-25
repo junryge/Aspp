@@ -51,7 +51,8 @@ MODELS = _load_models()
 TOOL_KW = ["엑셀","excel","xlsx","csv","시트","컬럼","통계","합계","평균","피벗","필터","정렬","데이터",
            "파일","폴더","디렉토리","경로","읽어","열어","트리","목록","리스트","검색","찾아",
            "코드","분석","함수","클래스","복잡도","import","의존성","diff","비교","패턴","TODO","FIXME","리뷰","구조",
-           ".py",".java",".js",".ts",".cpp",".c"]
+           ".py",".java",".js",".ts",".cpp",".c",
+           "ppt","pptx","슬라이드","프레젠테이션","발표자료","표"]
 
 import tkinter as tk
 import tkinter.font as tkfont
@@ -289,8 +290,8 @@ class App(ctk.CTk):
             btn.pack(fill="x", padx=10, pady=1); self.m_btns[mid] = btn
         ctk.CTkFrame(sb, height=1, fg_color=C["border"]).pack(fill="x", padx=14, pady=10)
         ctk.CTkLabel(sb, text="TOOLS", font=("JetBrains Mono",9,"bold"), text_color=C["text3"]).pack(anchor="w", padx=16)
-        ne=sum(1 for t in ALL_TOOLS if "excel" in t["function"]["name"]); nf=sum(1 for t in ALL_TOOLS if "file" in t["function"]["name"]); nc=sum(1 for t in ALL_TOOLS if "code" in t["function"]["name"])
-        ctk.CTkLabel(sb, text=f"📊 Excel {ne}  📁 File {nf}  🔍 Code {nc}", font=("JetBrains Mono",9), text_color=C["text2"]).pack(anchor="w", padx=16, pady=(2,0))
+        ne=sum(1 for t in ALL_TOOLS if "excel" in t["function"]["name"]); nf=sum(1 for t in ALL_TOOLS if "file" in t["function"]["name"]); nc=sum(1 for t in ALL_TOOLS if "code" in t["function"]["name"]); np=sum(1 for t in ALL_TOOLS if "pptx" in t["function"]["name"])
+        ctk.CTkLabel(sb, text=f"📊Excel {ne} 📁File {nf} 🔍Code {nc} 📑PPT {np}", font=("JetBrains Mono",9), text_color=C["text2"]).pack(anchor="w", padx=16, pady=(2,0))
         self.mode_lbl = ctk.CTkLabel(sb, text="⚡ 자동: 대기", font=("JetBrains Mono",9), text_color=C["text3"])
         self.mode_lbl.pack(anchor="w", padx=16, pady=(4,0))
         self.dir_btn = ctk.CTkButton(sb, text="📂 작업폴더 변경", anchor="w", height=30, font=("JetBrains Mono",10), fg_color=C["bg3"], hover_color=C["bg4"], text_color=C["text2"], border_width=1, border_color=C["border"], command=self._change_dir)
@@ -331,10 +332,12 @@ class App(ctk.CTk):
         box = ctk.CTkFrame(inp_f, fg_color=C["bg3"], corner_radius=10, border_width=1, border_color=C["border"]); box.pack(fill="x", padx=16, pady=(10,4), ipady=2)
         self.inp = ctk.CTkTextbox(box, height=38, font=("Noto Sans KR",13), fg_color="transparent", text_color=C["text"], border_width=0, wrap="word")
         self.inp.pack(side="left", fill="both", expand=True, padx=(8,0), pady=4); self.inp.bind("<Return>", self._on_enter)
+        self.attach_btn = ctk.CTkButton(box, text="📎", width=34, height=34, font=("",14), fg_color=C["bg4"], hover_color=C["bg3"], text_color=C["text2"], corner_radius=8, command=self._attach_file)
+        self.attach_btn.pack(side="right", padx=(0,2), pady=4)
         self.send_btn = ctk.CTkButton(box, text="▶", width=38, height=34, font=("",14), fg_color=C["dev"], hover_color=C["bg4"], text_color=C["bg"], corner_radius=8, command=self._send)
         self.send_btn.pack(side="right", padx=6, pady=4)
         hf = ctk.CTkFrame(inp_f, fg_color="transparent"); hf.pack(fill="x", padx=20)
-        ctk.CTkLabel(hf, text="Enter 전송 · Shift+Enter 줄바꿈 · /tools 목록", font=("JetBrains Mono",9), text_color=C["text3"]).pack(side="left")
+        ctk.CTkLabel(hf, text="Enter 전송 · Shift+Enter 줄바꿈 · 📎 파일분석 · /tools 목록", font=("JetBrains Mono",9), text_color=C["text3"]).pack(side="left")
         self.status = ctk.CTkLabel(hf, text="", font=("JetBrains Mono",9), text_color=C["text3"]); self.status.pack(side="right")
 
     def _show_welcome(self):
@@ -343,11 +346,12 @@ class App(ctk.CTk):
         ctk.CTkLabel(w, text="🤖", font=("",48)).pack()
         ctk.CTkLabel(w, text="반도체 AI 개인비서", font=("Noto Sans KR",22,"bold"), text_color=C["text"]).pack(pady=(8,4))
         ctk.CTkLabel(w, text=f"SK Hynix 내부 LLM · 내장 도구 {tool_count()}개 · 자동 모드 전환", font=("Noto Sans KR",12), text_color=C["text2"]).pack()
-        ctk.CTkLabel(w, text="일반 대화 → 💬 채팅  |  파일/엑셀/코드 → 🔧 도구 (자동)", font=("JetBrains Mono",10), text_color=C["text3"]).pack(pady=(4,0))
+        ctk.CTkLabel(w, text="일반 대화 → 💬 채팅  |  파일/엑셀/코드/PPT → 🔧 도구 (자동)  |  📎 파일 첨부", font=("JetBrains Mono",10), text_color=C["text3"]).pack(pady=(4,0))
         qf = ctk.CTkFrame(w, fg_color="transparent"); qf.pack(pady=24)
-        for i,(ico,txt) in enumerate([("📊","이 폴더 엑셀 파일 목록 보여줘"),("🔍","main.py 코드 분석해줘"),("💬","오늘 회의 내용 정리해줘"),("📁","프로젝트 폴더 구조 보여줘")]):
+        for i,(ico,txt) in enumerate([("📊","이 폴더 엑셀 파일 목록 보여줘"),("🔍","main.py 코드 분석해줘"),("📎","파일 첨부해서 분석하기"),("📁","프로젝트 폴더 구조 보여줘")]):
             r,c=divmod(i,2)
-            ctk.CTkButton(qf, text=f" {ico}  {txt}", anchor="w", width=220, height=42, font=("Noto Sans KR",11), fg_color=C["bg2"], hover_color=C["bg4"], text_color=C["text2"], border_width=1, border_color=C["border"], command=lambda t=txt: self._quick(t)).grid(row=r, column=c, padx=4, pady=3)
+            cmd = self._attach_file if "첨부" in txt else lambda t=txt: self._quick(t)
+            ctk.CTkButton(qf, text=f" {ico}  {txt}", anchor="w", width=220, height=42, font=("Noto Sans KR",11), fg_color=C["bg2"], hover_color=C["bg4"], text_color=C["text2"], border_width=1, border_color=C["border"], command=cmd).grid(row=r, column=c, padx=4, pady=3)
 
     def _sel_model(self, mid): self.cur_model=mid; self._refresh_models()
     def _refresh_models(self):
@@ -449,12 +453,63 @@ class App(ctk.CTk):
         if v: self.send_btn.configure(text="■", fg_color=C["red"]); self.status.configure(text="생성 중...")
         else: self.send_btn.configure(text="▶", fg_color=MODELS[self.cur_model]["color"]); self.status.configure(text=""); self.stream_lbl=None; self.stream_buf=""
 
+    # ─── File Attach ───
+    def _attach_file(self):
+        """파일 선택 → 자동 분석 요청."""
+        filetypes = [
+            ("데이터 파일", "*.csv *.xlsx *.xls *.pptx *.ppt"),
+            ("CSV", "*.csv"), ("Excel", "*.xlsx *.xls"),
+            ("PowerPoint", "*.pptx *.ppt"),
+            ("모든 파일", "*.*"),
+        ]
+        paths = filedialog.askopenfilenames(title="📎 분석할 파일 선택", filetypes=filetypes,
+                                            initialdir=self.settings["work_dir"])
+        if not paths:
+            return
+
+        import shutil
+        attached = []
+        for fp in paths:
+            fname = os.path.basename(fp)
+            dest = os.path.join(self.settings["work_dir"], fname)
+            # 작업폴더에 없으면 복사
+            if os.path.abspath(fp) != os.path.abspath(dest):
+                try:
+                    shutil.copy2(fp, dest)
+                except Exception:
+                    dest = fp  # 복사 실패시 원본 경로 사용
+            attached.append(fname)
+
+        # 파일별 분석 프롬프트 자동 생성
+        prompts = []
+        for fname in attached:
+            ext = os.path.splitext(fname)[1].lower()
+            if ext in (".csv", ".xlsx", ".xls"):
+                prompts.append(f"'{fname}' 파일의 정보와 통계를 분석해줘. 컬럼 구조, 행 수, 숫자 컬럼 통계를 보여줘.")
+            elif ext in (".pptx", ".ppt"):
+                prompts.append(f"'{fname}' PPT 파일의 슬라이드 구조와 주요 내용을 분석해줘.")
+            else:
+                prompts.append(f"'{fname}' 파일 내용을 읽어서 분석해줘.")
+
+        full_prompt = "\n".join(prompts)
+
+        # 상태 표시
+        names = ", ".join(attached)
+        self.status.configure(text=f"📎 {names}")
+
+        # 입력창에 넣고 전송
+        if not self.chat_id:
+            self._new_chat()
+        self.inp.delete("1.0", "end")
+        self.inp.insert("1.0", full_prompt)
+        self._send()
+
     def _change_dir(self):
         d=filedialog.askdirectory(title="작업 폴더 선택", initialdir=self.settings["work_dir"])
         if d: self.settings["work_dir"]=d; self._set_work_dir(d); self.dir_btn.configure(text=f"📂 {Path(d).name}"); self.dir_lbl.configure(text=d)
     def _set_work_dir(self, d):
-        from tools.excel_tool import set_work_dir as e; from tools.file_tool import set_work_dir as f; from tools.code_tool import set_work_dir as c
-        e(d); f(d); c(d)
+        from tools.excel_tool import set_work_dir as e; from tools.file_tool import set_work_dir as f; from tools.code_tool import set_work_dir as c; from tools.pptx_tool import set_work_dir as p
+        e(d); f(d); c(d); p(d)
     def _load_token(self):
         if TOKEN_PATH.exists(): self.api_key=TOKEN_PATH.read_text().strip()
         self.llm.api_key=self.api_key
