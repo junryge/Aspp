@@ -1,323 +1,207 @@
 """
-반도체 AI 개인비서 v1.1
-SK Hynix 내부 LLM + 내장 도구 (Excel/파일/코드)
-자동 모드 전환: 채팅 ↔ 도구 분석
+반도체 AI 개인비서 — LLM Client
+스트리밍 + 도구 자동 호출 루프 내장
 """
-import os, re, json, time, threading
-from datetime import datetime
-from pathlib import Path
-import customtkinter as ctk
-from tkinter import filedialog
-from llm_client import LLMClient
-from tools import ALL_TOOLS, call_tool, tool_count, tool_summary
 
-BASE_DIR = Path(__file__).parent
-TOKEN_PATH = BASE_DIR / "TOKEN.TXT"
-HISTORY_PATH = BASE_DIR / "chat_history.json"
-ctk.set_appearance_mode("dark")
-ctk.set_default_color_theme("blue")
+import json
+import threading
+import http.client
+from urllib.parse import urlparse
+from typing import Callable
 
-C = {"bg":"#0c0c14","bg1":"#111119","bg2":"#181824","bg3":"#1f1f30","bg4":"#282840",
-     "border":"#2a2a3e","text":"#e4e4ee","text2":"#8888a8","text3":"#555570",
-     "dev":"#00d4ff","dev_dim":"#0a2a35","dev_ab":"#1a6680",
-     "prod":"#ff6b8a","prod_dim":"#351a22","prod_ab":"#80353f",
-     "common":"#a78bfa","common_dim":"#1f1a35","common_ab":"#4a3a70",
-     "green":"#34d399","red":"#f87171","orange":"#fb923c"}
 
-MODELS = {
-    "dev":{"url":"http://dev.hcp.llm.skhynix.com/v1/chat/completions","model":"Qwen3-Next-80B-A3B-Instruct","name":"DEV (80B)","max_tokens":8192,"color":C["dev"],"dim":C["dev_dim"],"ab":C["dev_ab"]},
-    "prod":{"url":"http://dev.hcp.llm.skhynix.com/v1/chat/completions","model":"Qwen3-235B-A22B-Instruct-2507","name":"PROD (235B)","max_tokens":8192,"color":C["prod"],"dim":C["prod_dim"],"ab":C["prod_ab"]},
-    "common":{"url":"http://dev.hcp.llm.skhynix.com/v1/chat/completions","model":"gpt-oss-120b","name":"COMMON (120B)","max_tokens":4096,"color":C["common"],"dim":C["common_dim"],"ab":C["common_ab"]},
-}
+class LLMClient:
 
-TOOL_KW = ["엑셀","excel","xlsx","csv","시트","컬럼","통계","합계","평균","피벗","필터","정렬","데이터",
-           "파일","폴더","디렉토리","경로","읽어","열어","트리","목록","리스트","검색","찾아",
-           "코드","분석","함수","클래스","복잡도","import","의존성","diff","비교","패턴","TODO","FIXME","리뷰","구조",
-           ".py",".java",".js",".ts",".cpp",".c"]
-
-def needs_tools(text):
-    tl = text.lower()
-    return sum(1 for kw in TOOL_KW if kw.lower() in tl) >= 1
-
-class ChatDisplay(ctk.CTkScrollableFrame):
-    def __init__(self, master, **kw):
-        super().__init__(master, fg_color=C["bg"], corner_radius=0, **kw)
-        self.widgets = []
-    def add_msg(self, role, text, ts=""):
-        ts = ts or datetime.now().strftime("%H:%M")
-        f = ctk.CTkFrame(self, fg_color="transparent"); f.pack(fill="x", padx=16, pady=(5,1))
-        icons = {"user":("👤","You",C["text2"]),"assistant":("🤖","AI 비서",C["dev"]),"tool":("🔧","도구",C["orange"])}
-        ico,nm,clr = icons.get(role,("💬",role,C["text2"]))
-        hdr = ctk.CTkFrame(f, fg_color="transparent"); hdr.pack(fill="x")
-        ctk.CTkLabel(hdr, text=ico, font=("",14), text_color=clr).pack(side="left", padx=(0,4))
-        ctk.CTkLabel(hdr, text=nm, font=("JetBrains Mono",11,"bold"), text_color=clr).pack(side="left")
-        ctk.CTkLabel(hdr, text=ts, font=("JetBrains Mono",9), text_color=C["text3"]).pack(side="left", padx=(8,0))
-        body = ctk.CTkLabel(f, text=text, font=("Noto Sans KR",13), text_color=C["text"], wraplength=700, justify="left", anchor="w")
-        body.pack(fill="x", padx=(24,8), pady=(2,0), anchor="w")
-        self.widgets.append(f); self.after(50, self._bottom); return body
-    def add_stream(self):
-        f = ctk.CTkFrame(self, fg_color="transparent"); f.pack(fill="x", padx=16, pady=(5,1))
-        hdr = ctk.CTkFrame(f, fg_color="transparent"); hdr.pack(fill="x")
-        ctk.CTkLabel(hdr, text="🤖", font=("",14), text_color=C["dev"]).pack(side="left", padx=(0,4))
-        ctk.CTkLabel(hdr, text="AI 비서", font=("JetBrains Mono",11,"bold"), text_color=C["dev"]).pack(side="left")
-        ctk.CTkLabel(hdr, text=datetime.now().strftime("%H:%M"), font=("JetBrains Mono",9), text_color=C["text3"]).pack(side="left", padx=(8,0))
-        body = ctk.CTkLabel(f, text="⏳ 생성 중...", font=("Noto Sans KR",13), text_color=C["text2"], wraplength=700, justify="left", anchor="w")
-        body.pack(fill="x", padx=(24,8), pady=(2,0), anchor="w")
-        self.widgets.append(f); self.after(50, self._bottom); return body
-    def add_tool_log(self, name, status):
-        f = ctk.CTkFrame(self, fg_color="transparent"); f.pack(fill="x", padx=40, pady=(1,0))
-        ctk.CTkLabel(f, text=f"  🔧 {name}: {status}", font=("JetBrains Mono",10), text_color=C["orange"], wraplength=660, justify="left", anchor="w").pack(fill="x", anchor="w")
-        self.widgets.append(f); self.after(50, self._bottom)
-    def clear(self):
-        for w in self.widgets: w.destroy()
-        self.widgets.clear()
-    def _bottom(self):
-        self._parent_canvas.yview_moveto(1.0)
-
-class App(ctk.CTk):
     def __init__(self):
-        super().__init__()
-        self.title("반도체 AI 개인비서"); self.geometry("1100x720"); self.minsize(800,500); self.configure(fg_color=C["bg"])
-        self.cur_model="dev"; self.api_key=""; self.chats=[]; self.chat_id=None
-        self.generating=False; self.stream_lbl=None; self.stream_buf=""
-        self.settings={"stream":True,"sys_prompt":True,"auto_tools":True,
-            "sys_msg":"당신은 SK Hynix 반도체 전문 AI 비서입니다. 한국어로 정확하고 실용적인 답변을 제공합니다. 사용자가 파일, 엑셀, 코드 관련 요청을 하면 제공된 도구(tools)를 적극 활용하세요.",
-            "temperature":0.7,"work_dir":str(BASE_DIR)}
-        self.llm = LLMClient()
-        self._load_token(); self._load_history(); self._set_work_dir(self.settings["work_dir"])
-        self._build(); self._refresh_models(); self._refresh_history(); self._refresh_api()
-        self.after(200, lambda: self.inp.focus())
-        self.protocol("WM_DELETE_WINDOW", self._quit)
+        self.api_key: str = ""
+        self._cancel = False
 
-    def _build(self):
-        self.grid_columnconfigure(1, weight=1); self.grid_rowconfigure(0, weight=1)
-        self._build_sb(); self._build_main()
+    def cancel(self):
+        self._cancel = True
 
-    def _build_sb(self):
-        sb = ctk.CTkFrame(self, width=250, fg_color=C["bg1"], corner_radius=0, border_width=1, border_color=C["border"])
-        sb.grid(row=0, column=0, sticky="nsw"); sb.grid_propagate(False)
-        lf = ctk.CTkFrame(sb, fg_color="transparent"); lf.pack(fill="x", padx=14, pady=(14,0))
-        ctk.CTkLabel(lf, text="🤖", font=("",28)).pack(side="left", padx=(0,8))
-        tf = ctk.CTkFrame(lf, fg_color="transparent"); tf.pack(side="left")
-        ctk.CTkLabel(tf, text="반도체 AI 개인비서", font=("Noto Sans KR",15,"bold"), text_color=C["text"]).pack(anchor="w")
-        ctk.CTkLabel(tf, text=f"도구 {tool_count()}개 · 자동 모드", font=("JetBrains Mono",9), text_color=C["text3"]).pack(anchor="w")
-        ctk.CTkFrame(sb, height=1, fg_color=C["border"]).pack(fill="x", padx=14, pady=10)
-        ctk.CTkLabel(sb, text="MODEL", font=("JetBrains Mono",9,"bold"), text_color=C["text3"]).pack(anchor="w", padx=16)
-        self.m_btns = {}
-        for mid, mc in MODELS.items():
-            btn = ctk.CTkButton(sb, text=f"  ● {mc['name']}", anchor="w", height=36, font=("JetBrains Mono",11), fg_color="transparent", hover_color=C["bg4"], text_color=C["text2"], command=lambda m=mid: self._sel_model(m))
-            btn.pack(fill="x", padx=10, pady=1); self.m_btns[mid] = btn
-        ctk.CTkFrame(sb, height=1, fg_color=C["border"]).pack(fill="x", padx=14, pady=10)
-        ctk.CTkLabel(sb, text="TOOLS", font=("JetBrains Mono",9,"bold"), text_color=C["text3"]).pack(anchor="w", padx=16)
-        ne=sum(1 for t in ALL_TOOLS if "excel" in t["function"]["name"]); nf=sum(1 for t in ALL_TOOLS if "file" in t["function"]["name"]); nc=sum(1 for t in ALL_TOOLS if "code" in t["function"]["name"])
-        ctk.CTkLabel(sb, text=f"📊 Excel {ne}  📁 File {nf}  🔍 Code {nc}", font=("JetBrains Mono",9), text_color=C["text2"]).pack(anchor="w", padx=16, pady=(2,0))
-        self.mode_lbl = ctk.CTkLabel(sb, text="⚡ 자동: 대기", font=("JetBrains Mono",9), text_color=C["text3"])
-        self.mode_lbl.pack(anchor="w", padx=16, pady=(4,0))
-        self.dir_btn = ctk.CTkButton(sb, text="📂 작업폴더 변경", anchor="w", height=30, font=("JetBrains Mono",10), fg_color=C["bg3"], hover_color=C["bg4"], text_color=C["text2"], border_width=1, border_color=C["border"], command=self._change_dir)
-        self.dir_btn.pack(fill="x", padx=10, pady=(6,0))
-        self.dir_lbl = ctk.CTkLabel(sb, text=self.settings["work_dir"], font=("JetBrains Mono",8), text_color=C["text3"], wraplength=220, justify="left")
-        self.dir_lbl.pack(anchor="w", padx=16, pady=(2,0))
-        ctk.CTkFrame(sb, height=1, fg_color=C["border"]).pack(fill="x", padx=14, pady=10)
-        hf = ctk.CTkFrame(sb, fg_color="transparent"); hf.pack(fill="x", padx=14)
-        ctk.CTkLabel(hf, text="HISTORY", font=("JetBrains Mono",9,"bold"), text_color=C["text3"]).pack(side="left")
-        ctk.CTkButton(hf, text="+ New", width=56, height=24, font=("JetBrains Mono",10), fg_color=C["bg3"], hover_color=C["bg4"], text_color=C["text2"], command=self._new_chat).pack(side="right")
-        self.hist_frame = ctk.CTkScrollableFrame(sb, fg_color="transparent", corner_radius=0)
-        self.hist_frame.pack(fill="both", expand=True, padx=6, pady=(4,0))
-        bot = ctk.CTkFrame(sb, fg_color="transparent"); bot.pack(fill="x", side="bottom", padx=10, pady=10)
-        self.api_btn = ctk.CTkButton(bot, text="🔑 API Key", anchor="w", height=30, font=("JetBrains Mono",10), fg_color=C["bg3"], hover_color=C["bg4"], text_color=C["text2"], border_width=1, border_color=C["border"], command=self._api_dialog)
-        self.api_btn.pack(fill="x", pady=(0,6))
-        sf = ctk.CTkFrame(bot, fg_color="transparent"); sf.pack(fill="x")
-        self.tog = {}
-        for key, label in [("stream","Stream"),("sys_prompt","SysPrompt"),("auto_tools","Auto Tools")]:
-            r = ctk.CTkFrame(sf, fg_color="transparent"); r.pack(fill="x", pady=1)
-            ctk.CTkLabel(r, text=label, font=("JetBrains Mono",10), text_color=C["text2"]).pack(side="left")
-            v = ctk.BooleanVar(value=self.settings[key]); self.tog[key] = v
-            ctk.CTkSwitch(r, text="", variable=v, width=40, height=20, switch_width=36, switch_height=18, command=lambda k=key: self._toggle(k)).pack(side="right")
+    def chat(
+        self,
+        url: str,
+        model: str,
+        messages: list[dict],
+        max_tokens: int = 4096,
+        temperature: float = 0.7,
+        stream: bool = True,
+        tools: list[dict] | None = None,
+        tool_executor: Callable[[str, dict], str] | None = None,
+        on_chunk: Callable[[str], None] | None = None,
+        on_done: Callable[[str], None] | None = None,
+        on_error: Callable[[str], None] | None = None,
+        on_tool_log: Callable[[str, str, str], None] | None = None,
+        max_tool_rounds: int = 5,
+    ):
+        """
+        LLM 호출. 도구가 있으면 자동 루프.
+        on_tool_log(tool_name, args_str, result_str) - 도구 호출 시 UI에 알림
+        """
+        self._cancel = False
 
-    def _build_main(self):
-        main = ctk.CTkFrame(self, fg_color=C["bg"], corner_radius=0); main.grid(row=0, column=1, sticky="nsew")
-        main.grid_rowconfigure(1, weight=1); main.grid_columnconfigure(0, weight=1)
-        top = ctk.CTkFrame(main, height=44, fg_color=C["bg1"], corner_radius=0); top.grid(row=0, column=0, sticky="ew"); top.grid_propagate(False)
-        ti = ctk.CTkFrame(top, fg_color="transparent"); ti.pack(fill="both", expand=True, padx=14)
-        self.top_m = ctk.CTkLabel(ti, text="", font=("JetBrains Mono",11,"bold")); self.top_m.pack(side="left")
-        self.top_t = ctk.CTkLabel(ti, text="New Chat", font=("Noto Sans KR",12), text_color=C["text2"]); self.top_t.pack(side="left", padx=(12,0))
-        self.top_mode = ctk.CTkLabel(ti, text="", font=("JetBrains Mono",9), text_color=C["text3"]); self.top_mode.pack(side="left", padx=(10,0))
-        for txt, cmd in [("↓",self._export),("✕",self._clear_chat),("⚙",self._sys_dialog)]:
-            ctk.CTkButton(ti, text=txt, width=30, height=28, font=("",14), fg_color="transparent", hover_color=C["bg4"], text_color=C["text2"], command=cmd).pack(side="right", padx=2)
-        ctk.CTkFrame(main, height=1, fg_color=C["border"]).grid(row=0, column=0, sticky="sew")
-        self.chat = ChatDisplay(main); self.chat.grid(row=1, column=0, sticky="nsew"); self._show_welcome()
-        inp_f = ctk.CTkFrame(main, fg_color=C["bg1"], corner_radius=0, height=90); inp_f.grid(row=2, column=0, sticky="sew"); inp_f.grid_propagate(False)
-        ctk.CTkFrame(inp_f, height=1, fg_color=C["border"]).pack(fill="x")
-        box = ctk.CTkFrame(inp_f, fg_color=C["bg3"], corner_radius=10, border_width=1, border_color=C["border"]); box.pack(fill="x", padx=16, pady=(10,4), ipady=2)
-        self.inp = ctk.CTkTextbox(box, height=38, font=("Noto Sans KR",13), fg_color="transparent", text_color=C["text"], border_width=0, wrap="word")
-        self.inp.pack(side="left", fill="both", expand=True, padx=(8,0), pady=4); self.inp.bind("<Return>", self._on_enter)
-        self.send_btn = ctk.CTkButton(box, text="▶", width=38, height=34, font=("",14), fg_color=C["dev"], hover_color=C["bg4"], text_color=C["bg"], corner_radius=8, command=self._send)
-        self.send_btn.pack(side="right", padx=6, pady=4)
-        hf = ctk.CTkFrame(inp_f, fg_color="transparent"); hf.pack(fill="x", padx=20)
-        ctk.CTkLabel(hf, text="Enter 전송 · Shift+Enter 줄바꿈 · /tools 목록", font=("JetBrains Mono",9), text_color=C["text3"]).pack(side="left")
-        self.status = ctk.CTkLabel(hf, text="", font=("JetBrains Mono",9), text_color=C["text3"]); self.status.pack(side="right")
+        # 도구 있으면 스트리밍 끄기 (tool_calls 파싱 필요)
+        use_stream = stream and not tools
 
-    def _show_welcome(self):
-        self.chat.clear()
-        w = ctk.CTkFrame(self.chat, fg_color="transparent"); w.pack(expand=True, pady=60)
-        ctk.CTkLabel(w, text="🤖", font=("",48)).pack()
-        ctk.CTkLabel(w, text="반도체 AI 개인비서", font=("Noto Sans KR",22,"bold"), text_color=C["text"]).pack(pady=(8,4))
-        ctk.CTkLabel(w, text=f"SK Hynix 내부 LLM · 내장 도구 {tool_count()}개 · 자동 모드 전환", font=("Noto Sans KR",12), text_color=C["text2"]).pack()
-        ctk.CTkLabel(w, text="일반 대화 → 💬 채팅  |  파일/엑셀/코드 → 🔧 도구 (자동)", font=("JetBrains Mono",10), text_color=C["text3"]).pack(pady=(4,0))
-        qf = ctk.CTkFrame(w, fg_color="transparent"); qf.pack(pady=24)
-        for i,(ico,txt) in enumerate([("📊","이 폴더 엑셀 파일 목록 보여줘"),("🔍","main.py 코드 분석해줘"),("💬","오늘 회의 내용 정리해줘"),("📁","프로젝트 폴더 구조 보여줘")]):
-            r,c=divmod(i,2)
-            ctk.CTkButton(qf, text=f" {ico}  {txt}", anchor="w", width=220, height=42, font=("Noto Sans KR",11), fg_color=C["bg2"], hover_color=C["bg4"], text_color=C["text2"], border_width=1, border_color=C["border"], command=lambda t=txt: self._quick(t)).grid(row=r, column=c, padx=4, pady=3)
+        current_messages = list(messages)
 
-    def _sel_model(self, mid): self.cur_model=mid; self._refresh_models()
-    def _refresh_models(self):
-        for mid, btn in self.m_btns.items():
-            m = MODELS[mid]
-            if mid == self.cur_model:
-                btn.configure(fg_color=m["dim"], text_color=m["color"], border_width=1, border_color=m["ab"])
-            else:
-                btn.configure(fg_color="transparent", text_color=C["text2"], border_width=0, border_color=C["bg1"])
-        m = MODELS[self.cur_model]; self.top_m.configure(text=m["name"], text_color=m["color"]); self.send_btn.configure(fg_color=m["color"])
+        for round_num in range(max_tool_rounds + 1):
+            if self._cancel:
+                return
 
-    def _cur(self): return next((c for c in self.chats if c["id"]==self.chat_id), None)
-    def _new_chat(self):
-        ch={"id":f"{int(time.time())}_{len(self.chats)}","title":"New Chat","model":self.cur_model,"msgs":[]}
-        self.chats.insert(0,ch); self.chat_id=ch["id"]; self._show_welcome(); self._refresh_history(); self.inp.focus()
-    def _sel_chat(self, cid):
-        self.chat_id=cid; ch=self._cur()
-        if ch: self.cur_model=ch.get("model","dev"); self._refresh_models(); self._render(ch)
-        self._refresh_history()
-    def _del_chat(self, cid):
-        self.chats=[c for c in self.chats if c["id"]!=cid]
-        if self.chat_id==cid:
-            self.chat_id=self.chats[0]["id"] if self.chats else None
-            if self.chat_id: self._render(self._cur())
-            else: self._show_welcome()
-        self._refresh_history(); self._save_history()
-    def _clear_chat(self):
-        ch=self._cur()
-        if ch: ch["msgs"]=[]; ch["title"]="New Chat"; self._show_welcome(); self._refresh_history(); self._save_history()
-    def _render(self, ch):
-        self.chat.clear()
-        if not ch or not ch["msgs"]: self._show_welcome(); return
-        for m in ch["msgs"]: self.chat.add_msg(m["role"], m["content"], m.get("time",""))
-    def _refresh_history(self):
-        for w in self.hist_frame.winfo_children(): w.destroy()
-        self.top_t.configure(text=self._cur()["title"] if self._cur() else "New Chat")
-        for ch in self.chats:
-            f=ctk.CTkFrame(self.hist_frame, fg_color="transparent"); f.pack(fill="x", pady=1)
-            act=ch["id"]==self.chat_id
-            ctk.CTkButton(f, text=f"💬 {ch['title'][:28]}", anchor="w", height=28, font=("Noto Sans KR",10), fg_color=C["bg3"] if act else "transparent", hover_color=C["bg4"], text_color=C["text"] if act else C["text2"], command=lambda i=ch["id"]: self._sel_chat(i)).pack(side="left", fill="x", expand=True)
-            ctk.CTkButton(f, text="✕", width=22, height=22, font=("",10), fg_color="transparent", hover_color=C["bg4"], text_color=C["text3"], command=lambda i=ch["id"]: self._del_chat(i)).pack(side="right")
+            payload = {
+                "model": model,
+                "messages": current_messages,
+                "max_tokens": max_tokens,
+                "temperature": temperature,
+                "stream": use_stream,
+            }
+            if tools and round_num < max_tool_rounds:
+                payload["tools"] = tools
+                payload["tool_choice"] = "auto"
 
-    def _on_enter(self, e):
-        if e.state & 0x1: return
-        self._send(); return "break"
+            try:
+                resp = self._request(url, payload)
+            except Exception as e:
+                if on_error and not self._cancel:
+                    on_error(str(e))
+                return
 
-    def _send(self):
-        if self.generating: self.llm.cancel(); self._set_gen(False); return
-        text=self.inp.get("1.0","end").strip()
-        if not text: return
-        self.inp.delete("1.0","end")
-        if text=="/tools": self.chat.clear(); self.chat.add_msg("assistant", tool_summary()); return
-        if not self.api_key: self._api_dialog(); return
-        if not self.chat_id: self._new_chat()
-        ch=self._cur(); ch["model"]=self.cur_model; ts=datetime.now().strftime("%H:%M")
-        ch["msgs"].append({"role":"user","content":text,"time":ts})
-        if len(ch["msgs"])==1: ch["title"]=text[:32]+("..." if len(text)>32 else ""); self._refresh_history()
-        if len(ch["msgs"])==1: self.chat.clear()
-        self.chat.add_msg("user", text, ts)
-        use_tools = needs_tools(text) if self.settings["auto_tools"] else False
-        self._set_mode("🔧 도구 모드" if use_tools else "💬 채팅 모드")
-        self._set_gen(True); self._call_llm(ch, use_tools)
+            if use_stream and round_num == 0 and not tools:
+                # 순수 스트리밍 (도구 없음)
+                self._stream(resp, on_chunk, on_done, on_error)
+                return
 
-    def _quick(self, text):
-        if not self.chat_id: self._new_chat()
-        self.inp.delete("1.0","end"); self.inp.insert("1.0",text); self._send()
-    def _set_mode(self, t): self.mode_lbl.configure(text=f"⚡ {t}"); self.top_mode.configure(text=t)
+            # Non-streaming 응답 파싱
+            raw = resp.read().decode("utf-8", errors="replace")
+            try:
+                data = json.loads(raw)
+            except json.JSONDecodeError:
+                if on_error:
+                    on_error(f"JSON 파싱 오류: {raw[:300]}")
+                return
 
-    def _call_llm(self, ch, use_tools):
-        model=MODELS[self.cur_model]; msgs=[]
-        if self.settings["sys_prompt"] and self.settings["sys_msg"]:
-            sm=self.settings["sys_msg"]
-            if use_tools: sm+=f"\n\n[도구 모드] 제공된 도구를 적극 사용하세요. 작업 폴더: {self.settings['work_dir']}"
-            msgs.append({"role":"system","content":sm})
-        ctx=[m for m in ch["msgs"] if m["role"] in ("user","assistant")][-20:]
-        msgs.extend({"role":m["role"],"content":m["content"]} for m in ctx)
-        tools=ALL_TOOLS if use_tools else None
-        self.stream_buf=""; self.stream_lbl=self.chat.add_stream()
-        def on_chunk(d): self.stream_buf+=d; self.after(0, lambda: self._upd(self.stream_buf))
-        def on_done(full):
-            ts=datetime.now().strftime("%H:%M"); final=full or self.stream_buf
-            ch["msgs"].append({"role":"assistant","content":final,"time":ts})
-            self.after(0, lambda: (self._set_gen(False), self._render(ch), self._save_history()))
-        def on_error(err):
-            ts=datetime.now().strftime("%H:%M"); ch["msgs"].append({"role":"assistant","content":f"⚠️ 오류: {err}\n\n모델: {model['name']}","time":ts})
-            self.after(0, lambda: (self._set_gen(False), self._render(ch)))
-        def on_tool_log(name, args, result):
-            self.after(0, lambda: self.chat.add_tool_log(name, result[:150]))
-            self.after(0, lambda: self._upd(f"🔧 {name} 완료, 분석 중..."))
-        self.llm.api_key=self.api_key
-        self.llm.chat_threaded(url=model["url"],model=model["model"],messages=msgs,max_tokens=model["max_tokens"],temperature=self.settings["temperature"],stream=self.settings["stream"],tools=tools,tool_executor=call_tool if use_tools else None,on_chunk=on_chunk,on_done=on_done,on_error=on_error,on_tool_log=on_tool_log)
+            choice = data.get("choices", [{}])[0]
+            message = choice.get("message", {})
+            finish = choice.get("finish_reason", "")
+            tool_calls = message.get("tool_calls")
 
-    def _upd(self, text):
-        if self.stream_lbl and self.stream_lbl.winfo_exists():
-            d=text if len(text)<=2000 else text[-2000:]
-            self.stream_lbl.configure(text=d, text_color=C["text"]); self.chat._bottom()
-    def _set_gen(self, v):
-        self.generating=v
-        if v: self.send_btn.configure(text="■", fg_color=C["red"]); self.status.configure(text="생성 중...")
-        else: self.send_btn.configure(text="▶", fg_color=MODELS[self.cur_model]["color"]); self.status.configure(text=""); self.stream_lbl=None; self.stream_buf=""
+            # 도구 호출이 없으면 최종 응답
+            if not tool_calls or not tool_executor:
+                content = message.get("content", "") or ""
+                if on_done:
+                    on_done(content)
+                return
 
-    def _change_dir(self):
-        d=filedialog.askdirectory(title="작업 폴더 선택", initialdir=self.settings["work_dir"])
-        if d: self.settings["work_dir"]=d; self._set_work_dir(d); self.dir_btn.configure(text=f"📂 {Path(d).name}"); self.dir_lbl.configure(text=d)
-    def _set_work_dir(self, d):
-        from tools.excel_tool import set_work_dir as e; from tools.file_tool import set_work_dir as f; from tools.code_tool import set_work_dir as c
-        e(d); f(d); c(d)
-    def _load_token(self):
-        if TOKEN_PATH.exists(): self.api_key=TOKEN_PATH.read_text().strip()
-        self.llm.api_key=self.api_key
-    def _api_dialog(self):
-        d=ctk.CTkInputDialog(text="TOKEN.TXT 또는 API Key:", title="🔑 API Key"); v=d.get_input()
-        if v and v.strip(): self.api_key=v.strip(); self.llm.api_key=self.api_key; TOKEN_PATH.write_text(self.api_key); self._refresh_api()
-    def _refresh_api(self):
-        if self.api_key: self.api_btn.configure(text=f"🟢 {self.api_key[:8]}...", text_color=C["green"])
-        else: self.api_btn.configure(text="🔴 API Key 설정", text_color=C["red"])
-    def _sys_dialog(self):
-        w=ctk.CTkToplevel(self); w.title("⚙ System Prompt"); w.geometry("480x300"); w.configure(fg_color=C["bg1"]); w.transient(self)
-        ctk.CTkLabel(w, text="System Message", font=("JetBrains Mono",10), text_color=C["text2"]).pack(anchor="w", padx=16, pady=(16,4))
-        tb=ctk.CTkTextbox(w, height=120, font=("Noto Sans KR",12), fg_color=C["bg3"], text_color=C["text"]); tb.pack(fill="x", padx=16); tb.insert("1.0", self.settings["sys_msg"])
-        ctk.CTkLabel(w, text="Temperature", font=("JetBrains Mono",10), text_color=C["text2"]).pack(anchor="w", padx=16, pady=(10,4))
-        te=ctk.CTkEntry(w, font=("JetBrains Mono",12), fg_color=C["bg3"], width=80); te.pack(anchor="w", padx=16); te.insert(0, str(self.settings["temperature"]))
-        def save():
-            self.settings["sys_msg"]=tb.get("1.0","end").strip()
-            try: self.settings["temperature"]=float(te.get())
-            except: pass
-            w.destroy()
-        ctk.CTkButton(w, text="저장", width=80, fg_color=C["dev"], text_color=C["bg"], command=save).pack(pady=14)
-    def _toggle(self, k): self.settings[k]=self.tog[k].get()
-    def _export(self):
-        ch=self._cur()
-        if not ch or not ch["msgs"]: return
-        p=filedialog.asksaveasfilename(defaultextension=".md",filetypes=[("Markdown","*.md")],initialfile=f"chat_{ch['id']}.md")
-        if not p: return
-        md=f"# {ch['title']}\n> {MODELS.get(ch['model'],{}).get('name','')}\n\n"
-        for m in ch["msgs"]:
-            r="👤 You" if m["role"]=="user" else "🤖 AI 비서"
-            md+=f"### {r}\n\n{m['content']}\n\n---\n\n"
-        with open(p,"w",encoding="utf-8") as f: f.write(md)
-        self.status.configure(text="✓ 내보내기 완료")
-    def _save_history(self):
-        try:
-            with open(HISTORY_PATH,"w",encoding="utf-8") as f: json.dump(self.chats[:50],f,ensure_ascii=False)
-        except: pass
-    def _load_history(self):
-        try:
-            if HISTORY_PATH.exists(): self.chats=json.loads(HISTORY_PATH.read_text())
-            if self.chats: self.chat_id=self.chats[0]["id"]
-        except: self.chats=[]
-    def _quit(self): self._save_history(); self.destroy()
+            # 도구 호출 실행
+            current_messages.append(message)
 
-if __name__=="__main__":
-    App().mainloop()
+            for tc in tool_calls:
+                func = tc.get("function", {})
+                tool_name = func.get("name", "")
+                try:
+                    args = json.loads(func.get("arguments", "{}"))
+                except json.JSONDecodeError:
+                    args = {}
+
+                args_str = json.dumps(args, ensure_ascii=False)[:200]
+
+                try:
+                    result = tool_executor(tool_name, args)
+                except Exception as e:
+                    result = f"오류: {e}"
+
+                if on_tool_log:
+                    on_tool_log(tool_name, args_str, result[:300])
+
+                current_messages.append({
+                    "role": "tool",
+                    "tool_call_id": tc.get("id", ""),
+                    "content": result
+                })
+
+            # 마지막 라운드면 도구 없이 최종 호출
+            if round_num == max_tool_rounds - 1:
+                tools = None
+
+        # 라운드 초과
+        if on_done:
+            on_done("⚠️ 도구 호출 횟수 제한에 도달했습니다.")
+
+    def _request(self, url: str, payload: dict):
+        parsed = urlparse(url)
+        host = parsed.hostname
+        port = parsed.port or (443 if parsed.scheme == "https" else 80)
+        path = parsed.path
+
+        body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+        headers = {"Content-Type": "application/json"}
+        if payload.get("stream"):
+            headers["Accept"] = "text/event-stream"
+        if self.api_key:
+            headers["Authorization"] = f"Bearer {self.api_key}"
+
+        # 디버그 출력
+        print(f"\n{'='*50}")
+        print(f"[DEBUG] 요청 URL: {url}")
+        print(f"[DEBUG] Host: {host}:{port}  Path: {path}")
+        print(f"[DEBUG] Model: {payload.get('model')}")
+        print(f"[DEBUG] Stream: {payload.get('stream')}")
+        print(f"[DEBUG] Tools: {len(payload.get('tools', []))}개" if payload.get('tools') else "[DEBUG] Tools: 없음")
+        print(f"[DEBUG] API Key: {self.api_key[:10]}..." if self.api_key else "[DEBUG] API Key: 없음!")
+        print(f"{'='*50}")
+
+        if parsed.scheme == "https":
+            import ssl
+            conn = http.client.HTTPSConnection(host, port, timeout=120,
+                                                context=ssl.create_default_context())
+        else:
+            conn = http.client.HTTPConnection(host, port, timeout=120)
+
+        conn.request("POST", path, body=body, headers=headers)
+        resp = conn.getresponse()
+
+        if resp.status != 200:
+            err = resp.read().decode("utf-8", errors="replace")[:500]
+            print(f"[ERROR] HTTP {resp.status}")
+            print(f"[ERROR] Response: {err}")
+            raise ConnectionError(f"HTTP {resp.status}: {err}")
+
+        print(f"[DEBUG] ✅ HTTP {resp.status} OK")
+        return resp
+
+        return resp
+
+    def _stream(self, resp, on_chunk, on_done, on_error):
+        full = ""
+        buf = ""
+        while not self._cancel:
+            chunk = resp.read(4096)
+            if not chunk:
+                break
+            buf += chunk.decode("utf-8", errors="replace")
+            lines = buf.split("\n")
+            buf = lines[-1]
+            for line in lines[:-1]:
+                line = line.strip()
+                if not line or line == "data: [DONE]":
+                    continue
+                if not line.startswith("data: "):
+                    continue
+                try:
+                    data = json.loads(line[6:])
+                    delta = data.get("choices", [{}])[0].get("delta", {}).get("content", "")
+                    if delta:
+                        full += delta
+                        if on_chunk:
+                            on_chunk(delta)
+                except json.JSONDecodeError:
+                    pass
+        if on_done:
+            on_done(full)
+
+    def chat_threaded(self, **kwargs):
+        t = threading.Thread(target=self.chat, kwargs=kwargs, daemon=True)
+        t.start()
+        return t
