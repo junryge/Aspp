@@ -1,63 +1,303 @@
 """
-반도체 AI 개인비서 — 도구 레지스트리
-LLM tool_calls → 직접 Python 함수 호출
+반도체 AI 개인비서 — PPT 도구
+pptx 파일 읽기, 슬라이드 분석, 텍스트 추출
+
+필요: pip install python-pptx
 """
 
-from tools.excel_tool import TOOLS as EXCEL_TOOLS, execute as excel_execute
-from tools.file_tool import TOOLS as FILE_TOOLS, execute as file_execute
-from tools.code_tool import TOOLS as CODE_TOOLS, execute as code_execute
-from tools.pptx_tool import TOOLS as PPTX_TOOLS, execute as pptx_execute
+import os
+from pathlib import Path
 
-# 전체 도구 목록 (OpenAI function calling 형식)
-ALL_TOOLS = []
+try:
+    from pptx import Presentation
+    from pptx.util import Inches, Pt, Emu
+    HAS_PPTX = True
+except ImportError:
+    HAS_PPTX = False
 
-_DISPATCH = {}
-
-for tool in EXCEL_TOOLS:
-    ALL_TOOLS.append({"type": "function", "function": tool})
-    _DISPATCH[tool["name"]] = excel_execute
-
-for tool in FILE_TOOLS:
-    ALL_TOOLS.append({"type": "function", "function": tool})
-    _DISPATCH[tool["name"]] = file_execute
-
-for tool in CODE_TOOLS:
-    ALL_TOOLS.append({"type": "function", "function": tool})
-    _DISPATCH[tool["name"]] = code_execute
-
-for tool in PPTX_TOOLS:
-    ALL_TOOLS.append({"type": "function", "function": tool})
-    _DISPATCH[tool["name"]] = pptx_execute
+WORK_DIR = os.getcwd()
 
 
-def call_tool(name: str, arguments: dict) -> str:
-    """도구 이름으로 직접 실행."""
-    fn = _DISPATCH.get(name)
-    if not fn:
-        return f"❌ 알 수 없는 도구: {name}"
-    try:
-        return fn(name, arguments)
-    except Exception as e:
-        return f"❌ {type(e).__name__}: {e}"
+def set_work_dir(path: str):
+    global WORK_DIR
+    WORK_DIR = path
 
 
-def tool_count() -> int:
-    return len(ALL_TOOLS)
+def _resolve(filename: str) -> str:
+    p = Path(filename)
+    if not p.is_absolute():
+        p = Path(WORK_DIR) / p
+    return str(p)
 
 
-def tool_names() -> list[str]:
-    return [t["function"]["name"] for t in ALL_TOOLS]
+TOOLS = [
+    {
+        "name": "pptx_get_info",
+        "description": "PPT 파일 정보 (슬라이드 수, 제목, 레이아웃, 크기)",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "file": {"type": "string", "description": "pptx 파일명"}
+            },
+            "required": ["file"]
+        }
+    },
+    {
+        "name": "pptx_read_slides",
+        "description": "PPT 슬라이드의 텍스트 내용을 읽습니다 (전체 또는 특정 슬라이드)",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "file": {"type": "string", "description": "pptx 파일명"},
+                "slide_num": {"type": "integer", "description": "특정 슬라이드 번호 (0=전체)", "default": 0},
+                "max_slides": {"type": "integer", "description": "최대 슬라이드 수", "default": 30}
+            },
+            "required": ["file"]
+        }
+    },
+    {
+        "name": "pptx_extract_all_text",
+        "description": "PPT 전체 텍스트를 한번에 추출합니다 (요약/분석용)",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "file": {"type": "string", "description": "pptx 파일명"}
+            },
+            "required": ["file"]
+        }
+    },
+    {
+        "name": "pptx_slide_details",
+        "description": "특정 슬라이드의 상세 정보 (도형, 표, 차트, 이미지 등)",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "file": {"type": "string", "description": "pptx 파일명"},
+                "slide_num": {"type": "integer", "description": "슬라이드 번호 (1부터)"}
+            },
+            "required": ["file", "slide_num"]
+        }
+    },
+    {
+        "name": "pptx_find_text",
+        "description": "PPT에서 텍스트를 검색합니다",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "file": {"type": "string", "description": "pptx 파일명"},
+                "keyword": {"type": "string", "description": "검색어"}
+            },
+            "required": ["file", "keyword"]
+        }
+    },
+    {
+        "name": "pptx_tables",
+        "description": "PPT 안의 표(Table) 데이터를 추출합니다",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "file": {"type": "string", "description": "pptx 파일명"},
+                "slide_num": {"type": "integer", "description": "특정 슬라이드 (0=전체)", "default": 0}
+            },
+            "required": ["file"]
+        }
+    },
+]
 
 
-def tool_summary() -> str:
-    """도구 요약 (사용자에게 보여줄 때)."""
-    lines = []
-    lines.append(f"📦 내장 도구 {len(ALL_TOOLS)}개\n")
-    cats = {"excel": EXCEL_TOOLS, "file": FILE_TOOLS, "code": CODE_TOOLS, "pptx": PPTX_TOOLS}
-    icons = {"excel": "📊", "file": "📁", "code": "🔍", "pptx": "📑"}
-    for cat, tools in cats.items():
-        lines.append(f"{icons[cat]} {cat.upper()} ({len(tools)}개)")
-        for t in tools:
-            lines.append(f"  • {t['name']}: {t['description']}")
-        lines.append("")
-    return "\n".join(lines)
+def execute(name: str, a: dict) -> str:
+    if not HAS_PPTX:
+        return "❌ python-pptx 미설치. 설치: pip install python-pptx"
+
+    if name == "pptx_get_info":
+        path = _resolve(a["file"])
+        if not os.path.exists(path):
+            return f"❌ 파일 없음: {path}"
+        prs = Presentation(path)
+        w = prs.slide_width
+        h = prs.slide_height
+        w_cm = round(w / 914400 * 2.54, 1) if w else "?"
+        h_cm = round(h / 914400 * 2.54, 1) if h else "?"
+        slides = prs.slides
+        lines = [
+            f"📊 {a['file']}",
+            f"슬라이드: {len(slides)}장",
+            f"크기: {w_cm}cm × {h_cm}cm",
+            "",
+        ]
+        for i, slide in enumerate(slides, 1):
+            title = _get_title(slide) or "(제목 없음)"
+            layout = slide.slide_layout.name if slide.slide_layout else "?"
+            shapes = len(slide.shapes)
+            has_table = any(s.has_table for s in slide.shapes)
+            has_chart = any(s.has_chart for s in slide.shapes if hasattr(s, 'has_chart'))
+            tags = []
+            if has_table: tags.append("📋표")
+            if has_chart: tags.append("📈차트")
+            img_count = sum(1 for s in slide.shapes if s.shape_type == 13)
+            if img_count: tags.append(f"🖼️{img_count}")
+            tag_str = f" [{', '.join(tags)}]" if tags else ""
+            lines.append(f"  {i:>2}. {title[:50]}{tag_str}")
+        return "\n".join(lines)
+
+    elif name == "pptx_read_slides":
+        path = _resolve(a["file"])
+        if not os.path.exists(path):
+            return f"❌ 파일 없음: {path}"
+        prs = Presentation(path)
+        slide_num = a.get("slide_num", 0)
+        max_slides = a.get("max_slides", 30)
+
+        if slide_num > 0:
+            if slide_num > len(prs.slides):
+                return f"❌ 슬라이드 {slide_num} 없음 (총 {len(prs.slides)}장)"
+            slides = [(slide_num, prs.slides[slide_num - 1])]
+        else:
+            slides = list(enumerate(prs.slides, 1))[:max_slides]
+
+        lines = [f"📊 {a['file']} ({len(prs.slides)}장)\n"]
+        for num, slide in slides:
+            title = _get_title(slide) or "(제목 없음)"
+            lines.append(f"━━━ 슬라이드 {num}: {title} ━━━")
+            for shape in slide.shapes:
+                if shape.has_text_frame:
+                    for para in shape.text_frame.paragraphs:
+                        text = para.text.strip()
+                        if text:
+                            lines.append(f"  {text}")
+                if shape.has_table:
+                    lines.append(_format_table(shape.table))
+            lines.append("")
+
+        return "\n".join(lines)
+
+    elif name == "pptx_extract_all_text":
+        path = _resolve(a["file"])
+        if not os.path.exists(path):
+            return f"❌ 파일 없음: {path}"
+        prs = Presentation(path)
+        all_text = []
+        for i, slide in enumerate(prs.slides, 1):
+            title = _get_title(slide) or ""
+            texts = []
+            for shape in slide.shapes:
+                if shape.has_text_frame:
+                    for para in shape.text_frame.paragraphs:
+                        t = para.text.strip()
+                        if t:
+                            texts.append(t)
+                if shape.has_table:
+                    for row in shape.table.rows:
+                        row_text = [cell.text.strip() for cell in row.cells if cell.text.strip()]
+                        if row_text:
+                            texts.append(" | ".join(row_text))
+            if texts:
+                all_text.append(f"[슬라이드 {i}] {title}")
+                all_text.extend(texts)
+                all_text.append("")
+
+        if not all_text:
+            return f"📊 {a['file']}: 텍스트 없음"
+        return f"📊 {a['file']} 전체 텍스트 ({len(prs.slides)}장)\n\n" + "\n".join(all_text)
+
+    elif name == "pptx_slide_details":
+        path = _resolve(a["file"])
+        if not os.path.exists(path):
+            return f"❌ 파일 없음: {path}"
+        prs = Presentation(path)
+        num = a["slide_num"]
+        if num < 1 or num > len(prs.slides):
+            return f"❌ 범위 초과 (1~{len(prs.slides)})"
+        slide = prs.slides[num - 1]
+        title = _get_title(slide) or "(제목 없음)"
+
+        lines = [f"📊 슬라이드 {num}: {title}", f"도형 수: {len(slide.shapes)}", ""]
+
+        for j, shape in enumerate(slide.shapes, 1):
+            stype = str(shape.shape_type).split(".")[-1] if shape.shape_type else "?"
+            pos = f"({round(shape.left/914400,1)}cm, {round(shape.top/914400,1)}cm)" if shape.left else ""
+            lines.append(f"  [{j}] {shape.name} ({stype}) {pos}")
+
+            if shape.has_text_frame:
+                for para in shape.text_frame.paragraphs:
+                    t = para.text.strip()
+                    if t:
+                        lines.append(f"      📝 {t[:100]}")
+
+            if shape.has_table:
+                lines.append(f"      📋 표: {len(shape.table.rows)}행 × {len(shape.table.columns)}열")
+                lines.append(_format_table(shape.table, indent="      "))
+
+            if hasattr(shape, 'has_chart') and shape.has_chart:
+                lines.append(f"      📈 차트: {shape.chart.chart_type}")
+
+            if shape.shape_type == 13:  # Picture
+                lines.append(f"      🖼️ 이미지: {shape.width}x{shape.height}")
+
+        return "\n".join(lines)
+
+    elif name == "pptx_find_text":
+        path = _resolve(a["file"])
+        if not os.path.exists(path):
+            return f"❌ 파일 없음: {path}"
+        prs = Presentation(path)
+        kw = a["keyword"].lower()
+        results = []
+        for i, slide in enumerate(prs.slides, 1):
+            for shape in slide.shapes:
+                if shape.has_text_frame:
+                    for para in shape.text_frame.paragraphs:
+                        if kw in para.text.lower():
+                            results.append(f"  슬라이드 {i} [{shape.name}]: {para.text.strip()[:100]}")
+                if shape.has_table:
+                    for ri, row in enumerate(shape.table.rows):
+                        for cell in row.cells:
+                            if kw in cell.text.lower():
+                                results.append(f"  슬라이드 {i} [표 {ri+1}행]: {cell.text.strip()[:100]}")
+        if not results:
+            return f"🔍 '{a['keyword']}' 결과 없음"
+        return f"🔍 '{a['keyword']}' → {len(results)}건\n\n" + "\n".join(results[:50])
+
+    elif name == "pptx_tables":
+        path = _resolve(a["file"])
+        if not os.path.exists(path):
+            return f"❌ 파일 없음: {path}"
+        prs = Presentation(path)
+        slide_num = a.get("slide_num", 0)
+        results = []
+
+        slides = [(slide_num, prs.slides[slide_num-1])] if slide_num > 0 else list(enumerate(prs.slides, 1))
+
+        for num, slide in slides:
+            for shape in slide.shapes:
+                if shape.has_table:
+                    results.append(f"━━━ 슬라이드 {num}: {shape.name} ({len(shape.table.rows)}×{len(shape.table.columns)}) ━━━")
+                    results.append(_format_table(shape.table))
+                    results.append("")
+
+        if not results:
+            return "📋 표 데이터 없음"
+        return f"📋 {a['file']} 표 데이터\n\n" + "\n".join(results)
+
+    return f"알 수 없는 도구: {name}"
+
+
+def _get_title(slide):
+    if slide.shapes.title and slide.shapes.title.text:
+        return slide.shapes.title.text.strip()
+    for shape in slide.shapes:
+        if shape.has_text_frame:
+            t = shape.text_frame.text.strip()
+            if t and len(t) < 100:
+                return t
+    return None
+
+
+def _format_table(table, indent="  "):
+    rows = []
+    for row in table.rows:
+        cells = [cell.text.strip().replace("\n", " ")[:30] for cell in row.cells]
+        rows.append(f"{indent}| {' | '.join(cells)} |")
+    if len(rows) > 1:
+        rows.insert(1, f"{indent}|{'---|' * len(table.columns)}")
+    return "\n".join(rows)
