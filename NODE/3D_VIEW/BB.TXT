@@ -72,13 +72,88 @@ MD_COLORS = {
     "list_bullet": "#00d4ff", "list_text": "#d0d0e0",
     "link": "#00d4ff", "hr": "#333355",
     "normal": "#c8c8dd", "dim": "#8888a8",
+    "tbl_header_fg": "#00d4ff", "tbl_header_bg": "#0a1e2e",
+    "tbl_border": "#334466", "tbl_cell": "#c8c8dd", "tbl_cell_bg": "#101020",
+    "tbl_alt_bg": "#141428",
 }
+
+def _is_table_sep(line):
+    """Check if line is table separator like |---|---|"""
+    return bool(re.match(r'^\s*\|[\s\-:|]+\|\s*$', line))
+
+def _parse_table_row(line):
+    """Parse | col1 | col2 | into list of cells."""
+    line = line.strip()
+    if line.startswith("|"): line = line[1:]
+    if line.endswith("|"): line = line[:-1]
+    return [c.strip() for c in line.split("|")]
+
+def _render_table(tb, table_lines):
+    """Render markdown table with aligned columns."""
+    rows = []
+    header_idx = -1
+    for i, line in enumerate(table_lines):
+        if _is_table_sep(line):
+            header_idx = i
+            continue
+        rows.append(_parse_table_row(line))
+
+    if not rows:
+        return
+
+    # Calculate column widths
+    num_cols = max(len(r) for r in rows)
+    col_widths = [0] * num_cols
+    for row in rows:
+        for j, cell in enumerate(row):
+            if j < num_cols:
+                # Approximate: Korean chars = 2 width, ASCII = 1
+                w = sum(2 if ord(c) > 127 else 1 for c in cell)
+                col_widths[j] = max(col_widths[j], w)
+
+    # Cap column widths
+    col_widths = [min(w + 2, 30) for w in col_widths]
+
+    # Draw top border
+    border = "┌" + "┬".join("─" * w for w in col_widths) + "┐\n"
+    tb.insert("end", border, "tbl_border")
+
+    for ri, row in enumerate(rows):
+        is_header = (ri == 0 and header_idx > 0)
+
+        # Cell content
+        tb.insert("end", "│", "tbl_border")
+        for j in range(num_cols):
+            cell = row[j] if j < len(row) else ""
+            # Pad cell
+            cell_w = sum(2 if ord(c) > 127 else 1 for c in cell)
+            pad = col_widths[j] - cell_w
+            padded = " " + cell + " " * max(pad - 1, 0) + " " if pad >= 0 else " " + cell[:col_widths[j]-2] + " "
+
+            if is_header:
+                tag = "tbl_header"
+            elif ri % 2 == 0:
+                tag = "tbl_cell_alt"
+            else:
+                tag = "tbl_cell"
+            tb.insert("end", padded, tag)
+            tb.insert("end", "│", "tbl_border")
+        tb.insert("end", "\n")
+
+        # Separator after header
+        if is_header:
+            sep = "├" + "┼".join("─" * w for w in col_widths) + "┤\n"
+            tb.insert("end", sep, "tbl_border")
+
+    # Bottom border
+    bottom = "└" + "┴".join("─" * w for w in col_widths) + "┘\n"
+    tb.insert("end", bottom, "tbl_border")
+
 
 def render_md(textbox, raw_text):
     """Parse markdown and insert formatted text into a CTkTextbox."""
     tb = textbox._textbox if hasattr(textbox, '_textbox') else textbox
 
-    # Configure tags
     base_size = 11
     tb.tag_configure("normal", foreground=MD_COLORS["normal"], font=("Noto Sans KR", base_size))
     tb.tag_configure("h1", foreground=MD_COLORS["h1"], font=("Noto Sans KR", base_size+5, "bold"))
@@ -97,6 +172,15 @@ def render_md(textbox, raw_text):
     tb.tag_configure("hr", foreground=MD_COLORS["hr"])
     tb.tag_configure("blockquote", foreground=MD_COLORS["dim"], font=("Noto Sans KR", base_size, "italic"),
                      lmargin1=16, lmargin2=16)
+    # Table tags
+    tb.tag_configure("tbl_header", foreground=MD_COLORS["tbl_header_fg"], background=MD_COLORS["tbl_header_bg"],
+                     font=("JetBrains Mono", base_size-1, "bold"))
+    tb.tag_configure("tbl_cell", foreground=MD_COLORS["tbl_cell"], background=MD_COLORS["tbl_cell_bg"],
+                     font=("JetBrains Mono", base_size-1))
+    tb.tag_configure("tbl_cell_alt", foreground=MD_COLORS["tbl_cell"], background=MD_COLORS["tbl_alt_bg"],
+                     font=("JetBrains Mono", base_size-1))
+    tb.tag_configure("tbl_border", foreground=MD_COLORS["tbl_border"],
+                     font=("JetBrains Mono", base_size-1))
 
     tb.configure(state="normal")
     tb.delete("1.0", "end")
@@ -119,6 +203,20 @@ def render_md(textbox, raw_text):
             if block_lines:
                 tb.insert("end", "\n".join(block_lines) + "\n", "codeblock")
             i += 1
+            continue
+
+        # Markdown Table: collect consecutive | lines
+        if line.strip().startswith("|") and "|" in line.strip()[1:]:
+            table_lines = []
+            while i < len(lines) and lines[i].strip().startswith("|"):
+                table_lines.append(lines[i])
+                i += 1
+            if len(table_lines) >= 2:
+                _render_table(tb, table_lines)
+            else:
+                # Not really a table, just render as normal
+                for tl in table_lines:
+                    _insert_inline(tb, tl + "\n", "normal")
             continue
 
         # Horizontal rule
