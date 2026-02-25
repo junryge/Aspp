@@ -53,42 +53,204 @@ TOOL_KW = ["엑셀","excel","xlsx","csv","시트","컬럼","통계","합계","�
            "코드","분석","함수","클래스","복잡도","import","의존성","diff","비교","패턴","TODO","FIXME","리뷰","구조",
            ".py",".java",".js",".ts",".cpp",".c"]
 
+import tkinter as tk
+import tkinter.font as tkfont
+
 def needs_tools(text):
     tl = text.lower()
     return sum(1 for kw in TOOL_KW if kw.lower() in tl) >= 1
+
+# ═══════════════════════════════════════
+# Markdown Renderer
+# ═══════════════════════════════════════
+
+MD_COLORS = {
+    "h1": "#00d4ff", "h2": "#a78bfa", "h3": "#34d399",
+    "bold": "#f0f0ff", "code_fg": "#fb923c", "code_bg": "#1a1a2e",
+    "block_fg": "#ccccdd", "block_bg": "#12121e",
+    "list_bullet": "#00d4ff", "list_text": "#d0d0e0",
+    "link": "#00d4ff", "hr": "#333355",
+    "normal": "#c8c8dd", "dim": "#8888a8",
+}
+
+def render_md(textbox, raw_text):
+    """Parse markdown and insert formatted text into a CTkTextbox."""
+    tb = textbox._textbox if hasattr(textbox, '_textbox') else textbox
+
+    # Configure tags
+    base_size = 11
+    tb.tag_configure("normal", foreground=MD_COLORS["normal"], font=("Noto Sans KR", base_size))
+    tb.tag_configure("h1", foreground=MD_COLORS["h1"], font=("Noto Sans KR", base_size+5, "bold"))
+    tb.tag_configure("h2", foreground=MD_COLORS["h2"], font=("Noto Sans KR", base_size+3, "bold"))
+    tb.tag_configure("h3", foreground=MD_COLORS["h3"], font=("Noto Sans KR", base_size+1, "bold"))
+    tb.tag_configure("bold", foreground=MD_COLORS["bold"], font=("Noto Sans KR", base_size, "bold"))
+    tb.tag_configure("italic", foreground=MD_COLORS["dim"], font=("Noto Sans KR", base_size, "italic"))
+    tb.tag_configure("code", foreground=MD_COLORS["code_fg"], background=MD_COLORS["code_bg"],
+                     font=("JetBrains Mono", base_size-1))
+    tb.tag_configure("codeblock", foreground=MD_COLORS["block_fg"], background=MD_COLORS["block_bg"],
+                     font=("JetBrains Mono", base_size-1), lmargin1=20, lmargin2=20, rmargin=20)
+    tb.tag_configure("codelang", foreground=MD_COLORS["dim"], background=MD_COLORS["block_bg"],
+                     font=("JetBrains Mono", base_size-2))
+    tb.tag_configure("bullet", foreground=MD_COLORS["list_bullet"], font=("Noto Sans KR", base_size, "bold"))
+    tb.tag_configure("list_text", foreground=MD_COLORS["list_text"], font=("Noto Sans KR", base_size))
+    tb.tag_configure("hr", foreground=MD_COLORS["hr"])
+    tb.tag_configure("blockquote", foreground=MD_COLORS["dim"], font=("Noto Sans KR", base_size, "italic"),
+                     lmargin1=16, lmargin2=16)
+
+    tb.configure(state="normal")
+    tb.delete("1.0", "end")
+
+    lines = raw_text.split("\n")
+    i = 0
+    while i < len(lines):
+        line = lines[i]
+
+        # Code block ```
+        if line.strip().startswith("```"):
+            lang = line.strip()[3:].strip()
+            if lang:
+                tb.insert("end", f"  {lang}\n", "codelang")
+            block_lines = []
+            i += 1
+            while i < len(lines) and not lines[i].strip().startswith("```"):
+                block_lines.append(lines[i])
+                i += 1
+            if block_lines:
+                tb.insert("end", "\n".join(block_lines) + "\n", "codeblock")
+            i += 1
+            continue
+
+        # Horizontal rule
+        if re.match(r'^-{3,}$|^\*{3,}$|^_{3,}$', line.strip()):
+            tb.insert("end", "─" * 50 + "\n", "hr")
+            i += 1; continue
+
+        # Headers
+        m = re.match(r'^(#{1,3})\s+(.*)', line)
+        if m:
+            level = len(m.group(1))
+            tag = f"h{level}"
+            tb.insert("end", m.group(2) + "\n", tag)
+            i += 1; continue
+
+        # Blockquote
+        if line.strip().startswith(">"):
+            text = line.strip().lstrip(">").strip()
+            tb.insert("end", f"  │ {text}\n", "blockquote")
+            i += 1; continue
+
+        # List items (- or * or numbered)
+        m = re.match(r'^(\s*)([-*]|\d+\.)\s+(.*)', line)
+        if m:
+            indent = len(m.group(1))
+            prefix = "  " * (indent // 2) + "  ● " if m.group(2) in ["-", "*"] else f"  {m.group(2)} "
+            tb.insert("end", prefix, "bullet")
+            _insert_inline(tb, m.group(3) + "\n", "list_text")
+            i += 1; continue
+
+        # Normal line with inline formatting
+        if line.strip():
+            _insert_inline(tb, line + "\n", "normal")
+        else:
+            tb.insert("end", "\n")
+        i += 1
+
+    tb.configure(state="disabled")
+
+
+def _insert_inline(tb, text, default_tag):
+    """Handle inline markdown: **bold**, *italic*, `code`, [link](url)."""
+    pattern = re.compile(r'(\*\*(.+?)\*\*|`(.+?)`|\*(.+?)\*|\[(.+?)\]\((.+?)\))')
+    pos = 0
+    for m in pattern.finditer(text):
+        # Insert text before match
+        if m.start() > pos:
+            tb.insert("end", text[pos:m.start()], default_tag)
+        if m.group(2):  # **bold**
+            tb.insert("end", m.group(2), "bold")
+        elif m.group(3):  # `code`
+            tb.insert("end", m.group(3), "code")
+        elif m.group(4):  # *italic*
+            tb.insert("end", m.group(4), "italic")
+        elif m.group(5):  # [link](url)
+            tb.insert("end", m.group(5), "bold")
+        pos = m.end()
+    if pos < len(text):
+        tb.insert("end", text[pos:], default_tag)
+
+
+# ═══════════════════════════════════════
+# Chat Display
+# ═══════════════════════════════════════
 
 class ChatDisplay(ctk.CTkScrollableFrame):
     def __init__(self, master, **kw):
         super().__init__(master, fg_color=C["bg"], corner_radius=0, **kw)
         self.widgets = []
-    def add_msg(self, role, text, ts=""):
-        ts = ts or datetime.now().strftime("%H:%M")
-        f = ctk.CTkFrame(self, fg_color="transparent"); f.pack(fill="x", padx=16, pady=(5,1))
+
+    def _make_header(self, parent, role, ts):
         icons = {"user":("👤","You",C["text2"]),"assistant":("🤖","AI 비서",C["dev"]),"tool":("🔧","도구",C["orange"])}
         ico,nm,clr = icons.get(role,("💬",role,C["text2"]))
-        hdr = ctk.CTkFrame(f, fg_color="transparent"); hdr.pack(fill="x")
+        hdr = ctk.CTkFrame(parent, fg_color="transparent"); hdr.pack(fill="x")
         ctk.CTkLabel(hdr, text=ico, font=("",14), text_color=clr).pack(side="left", padx=(0,4))
         ctk.CTkLabel(hdr, text=nm, font=("JetBrains Mono",11,"bold"), text_color=clr).pack(side="left")
         ctk.CTkLabel(hdr, text=ts, font=("JetBrains Mono",9), text_color=C["text3"]).pack(side="left", padx=(8,0))
-        body = ctk.CTkLabel(f, text=text, font=("Noto Sans KR",13), text_color=C["text"], wraplength=700, justify="left", anchor="w")
-        body.pack(fill="x", padx=(24,8), pady=(2,0), anchor="w")
-        self.widgets.append(f); self.after(50, self._bottom); return body
+
+    def add_msg(self, role, text, ts=""):
+        ts = ts or datetime.now().strftime("%H:%M")
+        f = ctk.CTkFrame(self, fg_color="transparent"); f.pack(fill="x", padx=16, pady=(5,1))
+        self._make_header(f, role, ts)
+
+        if role == "assistant":
+            # Markdown rendered textbox
+            line_count = text.count("\n") + 1
+            height = min(max(line_count * 20 + 10, 40), 600)
+            body = ctk.CTkTextbox(f, height=height, font=("Noto Sans KR",11),
+                                  fg_color="transparent", text_color=C["text"],
+                                  border_width=0, wrap="word", activate_scrollbars=False)
+            body.pack(fill="x", padx=(20,8), pady=(2,0))
+            render_md(body, text)
+            # Auto-resize after render
+            self.after(50, lambda b=body: self._auto_height(b))
+        else:
+            # User messages: plain label
+            body = ctk.CTkLabel(f, text=text, font=("Noto Sans KR",12), text_color=C["text"],
+                                wraplength=700, justify="left", anchor="w")
+            body.pack(fill="x", padx=(24,8), pady=(2,0), anchor="w")
+
+        self.widgets.append(f); self.after(80, self._bottom)
+        return body
+
+    def _auto_height(self, tb):
+        """Auto-resize textbox to fit content."""
+        try:
+            inner = tb._textbox if hasattr(tb, '_textbox') else tb
+            inner.update_idletasks()
+            # Count visible lines
+            last = inner.index("end-1c")
+            row = int(last.split(".")[0])
+            new_h = min(max(row * 20, 40), 800)
+            tb.configure(height=new_h)
+        except: pass
+
     def add_stream(self):
         f = ctk.CTkFrame(self, fg_color="transparent"); f.pack(fill="x", padx=16, pady=(5,1))
-        hdr = ctk.CTkFrame(f, fg_color="transparent"); hdr.pack(fill="x")
-        ctk.CTkLabel(hdr, text="🤖", font=("",14), text_color=C["dev"]).pack(side="left", padx=(0,4))
-        ctk.CTkLabel(hdr, text="AI 비서", font=("JetBrains Mono",11,"bold"), text_color=C["dev"]).pack(side="left")
-        ctk.CTkLabel(hdr, text=datetime.now().strftime("%H:%M"), font=("JetBrains Mono",9), text_color=C["text3"]).pack(side="left", padx=(8,0))
-        body = ctk.CTkLabel(f, text="⏳ 생성 중...", font=("Noto Sans KR",13), text_color=C["text2"], wraplength=700, justify="left", anchor="w")
+        self._make_header(f, "assistant", datetime.now().strftime("%H:%M"))
+        body = ctk.CTkLabel(f, text="⏳ 생성 중...", font=("Noto Sans KR",12),
+                            text_color=C["text2"], wraplength=700, justify="left", anchor="w")
         body.pack(fill="x", padx=(24,8), pady=(2,0), anchor="w")
         self.widgets.append(f); self.after(50, self._bottom); return body
+
     def add_tool_log(self, name, status):
         f = ctk.CTkFrame(self, fg_color="transparent"); f.pack(fill="x", padx=40, pady=(1,0))
-        ctk.CTkLabel(f, text=f"  🔧 {name}: {status}", font=("JetBrains Mono",10), text_color=C["orange"], wraplength=660, justify="left", anchor="w").pack(fill="x", anchor="w")
+        ctk.CTkLabel(f, text=f"  🔧 {name}: {status}", font=("JetBrains Mono",10),
+                     text_color=C["orange"], wraplength=660, justify="left", anchor="w").pack(fill="x", anchor="w")
         self.widgets.append(f); self.after(50, self._bottom)
+
     def clear(self):
         for w in self.widgets: w.destroy()
         self.widgets.clear()
+
     def _bottom(self):
         self._parent_canvas.yview_moveto(1.0)
 
