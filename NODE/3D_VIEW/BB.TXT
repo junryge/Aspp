@@ -1,656 +1,1312 @@
-"""
-반도체 AI 개인비서 v1.1
-SK Hynix 내부 LLM + 내장 도구 (Excel/파일/코드)
-자동 모드 전환: 채팅 ↔ 도구 분석
-"""
-import os, re, json, time, threading
-from datetime import datetime
-from pathlib import Path
-import customtkinter as ctk
-from tkinter import filedialog
-from llm_client import LLMClient
-from tools import ALL_TOOLS, call_tool, tool_count, tool_summary
+public class OhtMsgWorkerRunnable implements Runnable {
+    private static final Logger logger = LoggerFactory.getLogger(OhtMsgWorkerRunnable.class);
+    private static final int MSG_ID_IDX = 0;
+    private final String message;
+    private final long receivedMilli;
+    private final long messageSequence;
+    private final String fabId;
+    private final String facId;
+    private final String mcpName;
 
-BASE_DIR = Path(__file__).parent
-TOKEN_PATH = BASE_DIR / "TOKEN.TXT"
-HISTORY_PATH = BASE_DIR / "chat_history.json"
-ctk.set_appearance_mode("dark")
-ctk.set_default_color_theme("blue")
+    // ========================================================================================
+    // [신규 필드] HID IN/OUT 엣지 기반 집계용
+    // ========================================================================================
 
-C = {"bg":"#0c0c14","bg1":"#111119","bg2":"#181824","bg3":"#1f1f30","bg4":"#282840",
-     "border":"#2a2a3e","text":"#e4e4ee","text2":"#8888a8","text3":"#555570",
-     "dev":"#00d4ff","dev_dim":"#0a2a35","dev_ab":"#1a6680",
-     "prod":"#ff6b8a","prod_dim":"#351a22","prod_ab":"#80353f",
-     "common":"#a78bfa","common_dim":"#1f1a35","common_ab":"#4a3a70",
-     "green":"#34d399","red":"#f87171","orange":"#fb923c"}
+    // --- 테이블 3: {FAB}_ATLAS_HID_INOUT 실시간 1분 집계용 ---
+    // Key: "fromHidId:toHidId:fabId:vhlId:eqpId", Value: 전환 횟수
+    private static ConcurrentMap<String, Integer> hidEdgeBuffer =
+        new ConcurrentHashMap<>();
+    private static long lastHidEdgeFlushTime = System.currentTimeMillis();
+    private static final long HID_EDGE_FLUSH_INTERVAL = 60000; // 1분
+    private static final Object hidEdgeFlushLock = new Object();
+    private static final Object hidEdgeBufferLock = new Object();
 
-_MODEL_STYLES = {
-    "dev":{"color":C["dev"],"dim":C["dev_dim"],"ab":C["dev_ab"]},
-    "prod":{"color":C["prod"],"dim":C["prod_dim"],"ab":C["prod_ab"]},
-    "common":{"color":C["common"],"dim":C["common_dim"],"ab":C["common_ab"]},
-}
-def _load_models():
-    cfg_path = BASE_DIR / "config.json"
-    if cfg_path.exists():
-        try:
-            with open(cfg_path, "r", encoding="utf-8") as f:
-                cfg = json.load(f)
-            models = cfg.get("models", {})
-            for k, v in models.items():
-                v.update(_MODEL_STYLES.get(k, _MODEL_STYLES["dev"]))
-            return models
-        except Exception as e:
-            print(f"⚠️ config.json 로드 실패: {e}")
-    return {
-        "dev":{"url":"http://dev.hcp.llm.skhynix.com/v1/chat/completions","model":"Qwen3-Next-80B-A3B-Instruct","name":"DEV (80B)","max_tokens":8192,**_MODEL_STYLES["dev"]},
-        "prod":{"url":"http://dev.hcp.llm.skhynix.com/v1/chat/completions","model":"Qwen3-235B-A22B-Instruct-2507","name":"PROD (235B)","max_tokens":8192,**_MODEL_STYLES["prod"]},
-        "common":{"url":"http://dev.hcp.llm.skhynix.com/v1/chat/completions","model":"gpt-oss-120b","name":"COMMON (120B)","max_tokens":4096,**_MODEL_STYLES["common"]},
+    // --- 테이블 1,2: 마스터 테이블 하루 1회 업데이트용 ---
+    private static volatile boolean hidMasterUpdatedToday = false;
+    private static String hidMasterLastUpdateDate = "";
+    private static final Object hidMasterUpdateLock = new Object();
+
+    public OhtMsgWorkerRunnable(
+            String fabId,
+            String message,
+            String mcpName,
+            long receivedMilli,
+            long messageSequence
+    ) {
+        FabProperties fabProperties = DataService.getInstance().getFabPropertiesMap().get(fabId);
+
+        this.fabId              = fabId;
+        this.mcpName            = mcpName;
+        this.facId              = fabProperties.getFacId();
+        this.message            = message;
+        this.receivedMilli      = receivedMilli;
+        this.messageSequence    = messageSequence;
     }
-MODELS = _load_models()
 
-TOOL_KW = ["엑셀","excel","xlsx","csv","시트","컬럼","통계","합계","평균","피벗","필터","정렬","데이터",
-           "파일","폴더","디렉토리","경로","읽어","열어","트리","목록","리스트","검색","찾아",
-           "코드","분석","함수","클래스","복잡도","import","의존성","diff","비교","패턴","TODO","FIXME","리뷰","구조",
-           ".py",".java",".js",".ts",".cpp",".c",
-           "ppt","pptx","슬라이드","프레젠테이션","발표자료","표"]
+    @Override
+    public void run() {
+        String[] tokens = StringUtils.splitPreserveAllTokens(message, ',');
 
-import tkinter as tk
-import tkinter.font as tkfont
+        if (tokens.length >= 2) {
+            String messageId = tokens[MSG_ID_IDX];
 
-def needs_tools(text):
-    tl = text.lower()
-    return sum(1 for kw in TOOL_KW if kw.lower() in tl) >= 1
+            if (messageId.equals(MSG_ID.VHL_STATE_REPORT)) {
+                this._processOhtReport(tokens);
+            }
+        }
+    }
 
-# ═══════════════════════════════════════
-# Markdown Renderer
-# ═══════════════════════════════════════
+    @Override
+    public String toString() {
+        return String.format("%s %s %s %s", getClass(), fabId, mcpName, message);
+    }
 
-MD_COLORS = {
-    "h1": "#00d4ff", "h2": "#a78bfa", "h3": "#34d399",
-    "bold": "#f0f0ff", "code_fg": "#fb923c", "code_bg": "#1a1a2e",
-    "block_fg": "#ccccdd", "block_bg": "#12121e",
-    "list_bullet": "#00d4ff", "list_text": "#d0d0e0",
-    "link": "#00d4ff", "hr": "#333355",
-    "normal": "#c8c8dd", "dim": "#8888a8",
-    "tbl_header_fg": "#00d4ff", "tbl_header_bg": "#0a1e2e",
-    "tbl_border": "#334466", "tbl_cell": "#c8c8dd", "tbl_cell_bg": "#101020",
-    "tbl_alt_bg": "#141428",
+    private void _processOhtReport(String[] tokens) {
+        Vhl vehicle;
+        ReentrantLock vhlLock;
+        String keyPrefix = this.fabId + ":" + DataSet.VHL_PREFIX + ":" + this.mcpName;
+        ConcurrentMap<String, Vhl> vehicleMap = DataService.getDataSet().getVhlMap();
+
+        if (vehicleMap == null || vehicleMap.isEmpty()) {
+            logger.error("... mapping data of vehicle is empty or null");
+
+            return;
+        }
+
+        if (tokens.length <= VHL_STATE_REPORT.VHL_ID_IDX) {
+            logger.error("... invalid token context, it's not matched index [token length: {}] [message: {}]", tokens.length, message);
+
+            return;
+        }
+
+        String vhlName      = tokens[VHL_STATE_REPORT.VHL_ID_IDX];
+        String vehicleKey   = StringUtils.isNotEmpty(vhlName) ? keyPrefix + ":" + vhlName : "";
+        vehicle             = vehicleMap.get(vehicleKey);
+
+        if (vehicle == null) {
+            logger.error("... vehicle data is null [key: {}]", vehicleKey);
+        } else {
+            synchronized (vehicle) {
+                try {
+                    long lastMessageSequence = vehicle.getLastMessageSequenceNo().longValue();
+
+                    if (lastMessageSequence > this.messageSequence) {
+                        // sequence 역전 현상 발생시 과정 생략
+                        logger.error("... this sequence of message precedes the last sequence of it [current: {} | last: {}] [fab: {} | mcp: {} | message: {}]", this.messageSequence, lastMessageSequence, this.fabId, this.mcpName, this.message);
+
+                        return;
+                    } else {
+                        vehicle.getLastMessageSequenceNo().set(messageSequence);
+                    }
+                } catch (Exception e) {
+                    logger.error("", e);
+                }
+            }
+
+            vhlLock = vehicle.getLock();
+
+            if (VHL_STATE.getValue(tokens[VHL_STATE_REPORT.STATE_IDX]) == VHL_STATE.REMOVING) {
+                // `REMOVING` 으로 받을 땐 해당 Vhl 상태 초기화
+                this._updateRemovingVehicle(tokens, vehicle);
+            } else {
+                this._updateVehicle(tokens, vehicle, System.currentTimeMillis());
+            }
+
+            if (vhlLock != null && vhlLock.isHeldByCurrentThread()) {
+                vhlLock.unlock();
+            }
+        }
+    }
+
+    /*
+    vehicle 초기화
+     */
+    private void _updateRemovingVehicle(String[] tokens, Vhl vehicle) {
+        vehicle.copyCurrentVhlUdpStateToLast();
+
+        vehicle.setRailNodeId("");
+        vehicle.setUdpCarrierId("");
+        vehicle.setDestStationId("");
+        vehicle.setDestPortId("");
+        vehicle.setDistance(0);
+        vehicle.setFull(false);
+        vehicle.setOnline(false);
+        vehicle.setNextRailNodeId("");
+        vehicle.setRunCycle(RUN_CYCLE.NONE);
+        vehicle.setVhlCycle(VHL_CYCLE.NONE);
+        vehicle.setState(VHL_STATE.REMOVING);
+        vehicle.setReceivedTime(receivedMilli);
+        vehicle.setEmStatus(Util.binaryStringToByte(tokens[VHL_STATE_REPORT.EM_STATUS_IDX]));
+        vehicle.setGroupId(tokens[VHL_STATE_REPORT.GROUP_ID_IDX]);
+        vehicle.setSourcePortId("");
+        vehicle.setDestPortId("");
+        vehicle.setPriority(0);
+        vehicle.setDetailState(VHL_DET_STATE.NONE);
+        vehicle.setRunDistance(0);
+        vehicle.setRailEdgeId("");
+        vehicle.setCommandId("");
+
+        if (StringUtils.isNotEmpty(vehicle.getLastUdpState().railEdgeId)) {
+            RailEdge lastRailEdge = DataService.getDataSet().getRailEdgeMap().get(vehicle.getLastUdpState().railEdgeId);
+            lastRailEdge.removeVhlId(vehicle.getId());
+            lastRailEdge.addHistory();
+        }
+    }
+
+    /**
+     * vehicle 정보의 업데이트 & udp 메세지 를 통해 railEdge 정보 획득
+     *
+     * @param tokens  Data obtained by udp message
+     * @param vehicle vehicle to reflect message information
+     */
+    private void _updateVehicle(String[] tokens, Vhl vehicle, long systemsDateTime) {
+        RailEdge railEdge;
+        VHL_DET_STATE detailStatus = VHL_DET_STATE.getValue(Util.getTokenSafely(tokens, VHL_STATE_REPORT.DET_STATUS_IDX, ""));
+        int address = Util.getIntOrZero(tokens[VHL_STATE_REPORT.ADDRESS_IDX]);
+        String railNodeId = address != 0
+                ? DataSet.address2RailNodeId(this.fabId, this.mcpName, address)
+                : "";
+        int nextAddress = Util.getIntOrZero(tokens[VHL_STATE_REPORT.NEXT_ADDRESS_IDX]);
+        String nextRailNodeId = nextAddress != 0
+                ? DataSet.address2RailNodeId(this.fabId, this.mcpName, nextAddress)
+                : "";
+        String destinationPortId = Util.getTokenSafely(tokens, VHL_STATE_REPORT.DEST_PORT_IDX, "");
+        String railEdgeId = DataSet.address2RailEdgeId(
+                this.fabId,
+                this.mcpName,
+                railNodeId,
+                nextRailNodeId
+        );
+//        String carrierId = StringUtils.isNotEmpty(tokens[VHL_STATE_REPORT.CARRIER_ID_IDX])
+//                ? DataSet.CARRIER_PREFIX + ":" + tokens[VHL_STATE_REPORT.CARRIER_ID_IDX]
+//                : "";
+//        String destinationStationId = StringUtils.isNotEmpty(tokens[VHL_STATE_REPORT.DESTINATION_IDX])
+//                ? this.fabId + ":" + DataSet.STATION_PREFIX + ":" + mcpName + ":" + String.format("%05d", Util.getIntOrZero(tokens[VHL_STATE_REPORT.DESTINATION_IDX]))
+//                : "";
+        double distance = Util.getDoubleOrZero(StringUtils.isNotEmpty(tokens[VHL_STATE_REPORT.DISTANCE_IDX])
+                ? tokens[VHL_STATE_REPORT.DISTANCE_IDX]
+                : ""
+        ) * 100L;
+        String errorCode = Util.getTokenSafely(tokens, VHL_STATE_REPORT.ERROR_CODE_IDX, "");
+
+//        boolean isFull = 0 < Util.getIntOrZero(tokens[VHL_STATE_REPORT.FULL_IDX]);
+//        boolean isOnline = "1".equals(tokens[VHL_STATE_REPORT.ONLINE_IDX]);
+        RUN_CYCLE runCycle = RUN_CYCLE.getValue(tokens[VHL_STATE_REPORT.RUN_CYCLE_IDX]);
+        VHL_CYCLE vhlCycle = VHL_CYCLE.getValue(tokens[VHL_STATE_REPORT.VHL_CYCLE_IDX]);
+        VHL_STATE vhlState = VHL_STATE.getValue(tokens[VHL_STATE_REPORT.STATE_IDX]);
+//        String sourcePortId = StringUtils.isNotEmpty(tokens[VHL_STATE_REPORT.SOURCE_PORT_IDX])
+//                ? DataService.getDataSet().getCarrierContainableByCarrierLoc(tokens[VHL_STATE_REPORT.SOURCE_PORT_IDX], fabId).getId()
+//                : "";
+//        String destinationPortId = StringUtils.isNotEmpty(tokens[VHL_STATE_REPORT.DEST_PORT_IDX])
+//                ? DataService.getDataSet().getCarrierContainableByCarrierLoc(tokens[VHL_STATE_REPORT.DEST_PORT_IDX], fabId).getId()
+//                : "";
+//        byte emStatus = Util.binaryStringToByte(tokens[VHL_STATE_REPORT.EM_STATUS_IDX]);
+//        String groupId = tokens[VHL_STATE_REPORT.GROUP_ID_IDX];
+//        int priority = StringUtils.isNotEmpty(tokens[VHL_STATE_REPORT.PRIORITY_IDX])
+//                ? Util.getIntOrZero(tokens[VHL_STATE_REPORT.PRIORITY_IDX])
+//                : -1;
+        long runDistance = Long.parseLong(tokens[VHL_STATE_REPORT.RUN_DISTANCE_IDX]);
+
+        // setter
+        vehicle.copyCurrentVhlUdpStateToLast();
+        vehicle.setCurrentAddress(address);
+        vehicle.setNextAddress(nextAddress);
+        vehicle.setRailNodeId(railNodeId);
+//        vehicle.setUdpCarrierId(carrierId);
+//        vehicle.setDestStationId(destinationStationId);
+        vehicle.setDistance(distance);
+        vehicle.setErrorCode(errorCode);
+//        vehicle.setFull(isFull);
+//        vehicle.setOnline(isOnline);
+        vehicle.setNextRailNodeId(nextRailNodeId);
+        vehicle.setRunCycle(runCycle);
+        vehicle.setVhlCycle(vhlCycle);
+        vehicle.setState(vhlState);
+        vehicle.setReceivedTime(receivedMilli);
+//        vehicle.setEmStatus(emStatus);
+//        vehicle.setGroupId(groupId);
+//        vehicle.setSourcePortId(sourcePortId);
+        vehicle.setDestPortId(destinationPortId);
+//        vehicle.setPriority(priority);
+        vehicle.setDetailState(detailStatus);
+        vehicle.setRunDistance(runDistance);
+        vehicle.setRailEdgeId(railEdgeId);
+        //~setter
+
+        ConcurrentMap<String, AbstractEdge> edgeMap = DataService.getDataSet().getEdgeMap();
+
+        if (edgeMap.get(railEdgeId) instanceof RailEdge) {
+            railEdge = (RailEdge) edgeMap.get(railEdgeId);
+
+            this._buildRailVelocity(vehicle, railEdge);
+        } else {
+            logger.error("... `railEdgeId` selected is not supported [rail edge id: {}]", railEdgeId);
+
+            return;
+        }
+
+        int hidId = railEdge.getHIDId();
+        String machineId = vehicle.getName();
+        String requiredKey = this.fabId + ":" + this.mcpName;
+        String hidOffKey = requiredKey + ":" + String.format("%03d", hidId);
+        String machineKey = requiredKey + ":" + machineId;
+        List<Map<String, String>> messageDataList = new ArrayList<>();
+        FunctionItem functionItem = Env.getSwitchMap().get(requiredKey);
+
+        // HID 구간 별 VHL 수 계산
+        if (functionItem.getUseFunction(FunctionType.VHL_CNT)) {
+            this._calculatedVhlCnt(
+                    hidId,
+                    requiredKey,
+                    vehicle
+            );
+        }
+        //~HID 구간 별 VHL 수 계산
+
+        // Stage Command Monitoring
+        if (functionItem.getUseFunction(FunctionType.MAP_FILE_REFRESH)) {
+            this._processStageCommandMonitoring(
+                    detailStatus,
+                    machineKey,
+                    machineId,
+                    destinationPortId,
+                    systemsDateTime
+            );
+        }
+        //~Stage Command Monitoring
+
+        // HIDOFF
+        if (functionItem.getUseFunction(FunctionType.HID_OFF)) {
+            messageDataList.add(
+                    this._processHidOff(
+                            hidId,
+                            hidOffKey,
+                            errorCode,
+                            address,
+                            nextAddress,
+                            systemsDateTime
+                    )
+            );
+        }
+        //~HIDOFF
+
+        // VHLOFF
+        if (functionItem.getUseFunction(FunctionType.VHL_OFF)) {
+            messageDataList.addAll(
+                    this._processVhlOff(
+                            machineKey,
+                            vehicle,
+                            errorCode,
+                            address,
+                            nextAddress,
+                            railEdge,
+                            systemsDateTime
+                    )
+            );
+        }
+        //~VHLOFF
+
+        if (!messageDataList.isEmpty()) {
+            for (String tibrvKey : DataService.getInstance().getTibrvSenderLikeMap(fabId + ":send:").keySet()) {
+                // 위의 과정을 통해 구성한 Map 데이터로 tib/rv 메세지를 만든 후 송신
+                for (Map<String, String> messageData : messageDataList) {
+                    if (messageData != null && !messageData.isEmpty()) {
+                        String type = messageData.get(LayoutUtil.LAYOUT_MEMBER.DEVICE_TYPE);
+
+                        if (type == null) continue;
+
+                        DataService.getInstance().addTibrvMessageQueue(tibrvKey, type, messageData);
+                    }
+                }
+            }
+        }
+
+    }
+
+    /*
+     Stage Command Monitoring
+     `작업 상태 상세` 값이 103 인 경우 적재 <-> 그외 치유 혹은 생략
+     alarm 발생 조건에 대한 논의가 필요
+    */
+    private void _processStageCommandMonitoring(
+            VHL_DET_STATE detailState,
+            String key,
+            String machineId,
+            String portId,
+            long systemsDateTime
+    ) {
+        ConcurrentMap<String, StageCommandRecordItem> recordMap = DataService.getDataSet().getStageCommandMap();
+        String deviceId = "";
+
+        if (recordMap.containsKey(key)) {
+            StageCommandRecordItem recordItem = recordMap.get(key);
+
+            if (detailState.equals(VHL_DET_STATE.STAGE_MOVING)) {
+                recordItem.setState(OHT_TIB_STATE.ABNORMAL);
+                recordItem.setEventDateTime(systemsDateTime);
+                recordItem.setDestinationPortId(portId);
+            } else {
+                recordItem.setState(OHT_TIB_STATE.NORMAL);  // 조건에서 벗어난 것을 표시하기 위함
+            }
+        } else {
+            if (detailState.equals(VHL_DET_STATE.STAGE_MOVING)) {
+                StageCommandRecordItem recordItem = new StageCommandRecordItem(
+                        key,
+                        fabId,
+                        mcpName,
+                        facId,
+                        deviceId,
+                        machineId,
+                        portId,
+                        systemsDateTime
+                );
+
+                recordMap.put(key, recordItem);
+            }
+        }
+    }
+
+    // ========================================================================================
+    // [수정] _calculatedVhlCnt() — 기존 코드 유지 + 엣지 집계 추가
+    // ========================================================================================
+
+    /**
+     * HID 구간별 VHL 재적수
+     * @param currentHidId 현재 vehicle 이 위치한 railEdge 의 hid 값
+     * @param key DataSet 에서 특정 데이터를 호출하기 위한 key 값
+     * @param vehicle vehicle 객체
+     */
+    private void _calculatedVhlCnt(int currentHidId, String key, Vhl vehicle) {
+        long timer = System.currentTimeMillis();
+        int previousHidId = vehicle.getHidId();
+
+        if (previousHidId != currentHidId) {
+            // ===== 기존 코드: HID VHL 카운트 =====
+            if (currentHidId > 0) {
+                String v = String.format("%03d", currentHidId);
+                DataService.getDataSet().increaseHidVehicleCnt(key + ":" + v);
+            }
+
+            if (previousHidId > 0) {
+                String v = String.format("%03d", previousHidId);
+                DataService.getDataSet().decreaseHidVehicleCnt(key + ":" + v);
+            }
+            // ===== 기존 코드 끝 =====
+
+            // ===== [신규 추가] 엣지 전환 카운트 집계 → 테이블 3 =====
+            // 데이터 소스: previousHidId = vehicle.getHidId() (Vhl.java:517)
+            //             currentHidId  = railEdge.getHIDId() (RaileEdge.java:324)
+            //             fabId, id, eqpId = vehicle (Vhl.java:5,6,9)
+            String edgeKey = String.format("%03d:%03d:%s:%s:%s",
+                    previousHidId, currentHidId,
+                    vehicle.getFabId(), vehicle.getId(), vehicle.getEqpId());
+            synchronized (hidEdgeBufferLock) {
+                hidEdgeBuffer.merge(edgeKey, 1, Integer::sum);
+            }
+            // ===== [신규 추가] 끝 =====
+
+            vehicle.setHidId(currentHidId);
+        }
+
+        // ===== [신규 추가] 1분마다 버퍼 플러시 → 테이블 3 저장 =====
+        if (timer - lastHidEdgeFlushTime >= HID_EDGE_FLUSH_INTERVAL) {
+            synchronized (hidEdgeFlushLock) {
+                if (timer - lastHidEdgeFlushTime >= HID_EDGE_FLUSH_INTERVAL) {
+                    flushHidEdgeBuffer();
+                    lastHidEdgeFlushTime = timer;
+                }
+            }
+        }
+        // ===== [신규 추가] 끝 =====
+
+        // ===== [신규 추가] 하루 1회 마스터 테이블 업데이트 → 테이블 1, 2 =====
+        String today = new SimpleDateFormat("yyyy-MM-dd").format(new Date(timer));
+        if (!today.equals(hidMasterLastUpdateDate)) {
+            synchronized (hidMasterUpdateLock) {
+                if (!today.equals(hidMasterLastUpdateDate)) {
+                    try {
+                        _updateHidMasterTables();
+                        hidMasterLastUpdateDate = today;
+                    } catch (Exception e) {
+                        logger.error("HID Master Tables update failed", e);
+                    }
+                }
+            }
+        }
+        // ===== [신규 추가] 끝 =====
+
+        long checkingTime = System.currentTimeMillis() - timer;
+
+        if (checkingTime >= 60000) {
+            logger.info("... `number of vehicles per hid section` process took more than 1 minute to complete [elapsed time: {}min]", checkingTime / 60000);
+        }
+    }
+    //~HID 구간별 VHL 재적수
+
+    // ========================================================================================
+    // [신규 메소드] flushHidEdgeBuffer()
+    //   → 테이블 3: {FAB}_ATLAS_HID_INOUT 에 1분 집계 데이터 저장
+    // ========================================================================================
+
+    /**
+     * HID 엣지 전환 집계 데이터를 Logpresso에 1분 배치 저장
+     *
+     * [테이블] {FAB}_ATLAS_HID_INOUT
+     * [컬럼 데이터 소스]
+     *   EVENT_DATE  → SimpleDateFormat("yyyy-MM-dd")
+     *   EVENT_DT    → SimpleDateFormat("yyyy-MM-dd HH:mm:00")
+     *   FROM_HIDID  → vehicle.getHidId() (Vhl.java:517)
+     *   TO_HIDID    → currentHidId 파라미터 (OhtMsgWorkerRunnable.java:357)
+     *   TRANS_CNT   → hidEdgeBuffer 집계값
+     *   FAB_ID      → vehicle.getFabId() (Vhl.java:5)
+     *   VHL_ID      → vehicle.getId() (Vhl.java:6)
+     *   EQP_ID      → vehicle.getEqpId() (Vhl.java:9)
+     *   MCP_NM      → this.mcpName (OhtMsgWorkerRunnable.java:9)
+     *   ENV         → Env.getEnv()
+     */
+    private void flushHidEdgeBuffer() {
+        if (hidEdgeBuffer.isEmpty()) {
+            return;
+        }
+
+        // 버퍼 스냅샷 생성 및 초기화
+        Map<String, Integer> snapshot = new HashMap<>();
+        synchronized (hidEdgeBufferLock) {
+            for (Map.Entry<String, Integer> entry : hidEdgeBuffer.entrySet()) {
+                int count = entry.getValue();
+                if (count > 0) {
+                    snapshot.put(entry.getKey(), count);
+                }
+            }
+            hidEdgeBuffer.clear();
+        }
+
+        if (snapshot.isEmpty()) {
+            return;
+        }
+
+        // 현재 시간 (1분 단위로 정렬)
+        SimpleDateFormat dateFormat = new SimpleDateFormat("yyyy-MM-dd HH:mm:00");
+        SimpleDateFormat dateOnlyFormat = new SimpleDateFormat("yyyy-MM-dd");
+        Date now = new Date();
+        String eventDt = dateFormat.format(now);
+        String eventDate = dateOnlyFormat.format(now);
+
+        List<Tuple> tuples = new ArrayList<>();
+
+        for (Map.Entry<String, Integer> entry : snapshot.entrySet()) {
+            String[] parts = entry.getKey().split(":");
+            int fromHidId = Integer.parseInt(parts[0]);
+            int toHidId = Integer.parseInt(parts[1]);
+            String fabId = parts[2];
+            String vhlId = parts[3];
+            String eqpId = parts[4];
+            int transCnt = entry.getValue();
+
+            Tuple tuple = new Tuple();
+            tuple.put("EVENT_DATE", eventDate);
+            tuple.put("EVENT_DT", eventDt);
+            tuple.put("FROM_HIDID", fromHidId);
+            tuple.put("TO_HIDID", toHidId);
+            tuple.put("TRANS_CNT", transCnt);
+            tuple.put("FAB_ID", fabId);
+            tuple.put("VHL_ID", vhlId);
+            tuple.put("EQP_ID", eqpId);
+            tuple.put("MCP_NM", this.mcpName);
+            tuple.put("ENV", Env.getEnv());
+
+            tuples.add(tuple);
+        }
+
+        // 테이블명: {FAB}_ATLAS_HID_INOUT (예: M14A_ATLAS_HID_INOUT)
+        String tableName = this.fabId + "_ATLAS_HID_INOUT";
+
+        boolean success = LogpressoAPI.setInsertTuples(tableName, tuples, 100);
+
+        if (success) {
+            logger.info("HID Edge flush: {} - {} records", tableName, tuples.size());
+        }
+    }
+
+    // ========================================================================================
+    // [신규 메소드] _updateHidMasterTables()
+    //   → 테이블 1: {FAB}_ATLAS_INFO_HID_INOUT_MAS (엣지 마스터)
+    //   → 테이블 2: {FAB}_ATLAS_HID_INFO_MAS (HID 상세 정보)
+    //   → 하루 1회 실행 (날짜 비교)
+    // ========================================================================================
+
+    /**
+     * HID 마스터 테이블 업데이트 (하루 1회)
+     *
+     * [데이터 소스] map/{FAB}/*.layout.zip 내 layout.xml
+     *   - McpZone → Entry/Exit → FROM_HIDID, TO_HIDID (엣지)
+     *   - RailEdge.getLength()       → RAIL_LEN_TOTAL
+     *   - RailEdge.getMaxVelocity()  → FREE_FLOW_SPEED
+     *   - RailEdge.getPortIdList()   → PORT_CNT_TOTAL
+     *   - HID_Zone_Master.csv 참고   → IN_CNT, OUT_CNT, VHL_MAX, ZCU_ID
+     */
+    private void _updateHidMasterTables() {
+        logger.info("Starting HID Master Tables update [fab: {}]", this.fabId);
+
+        // ---- layout.zip 경로 확인 ----
+        // 데이터 소스: fabProperties.getMapDir() (DataService.java:295)
+        FabProperties fabProperties = DataService.getInstance().getFabPropertiesMap().get(this.fabId);
+
+        if (fabProperties == null) {
+            logger.warn("[HID Master] FabProperties not found, SKIP [fab: {}]", this.fabId);
+            return;
+        }
+        String mapDir = fabProperties.getMapDir();
+        File mapDirFile = new File(mapDir);
+
+        if (!mapDirFile.exists() || !mapDirFile.isDirectory()) {
+            logger.warn("[HID Master] map directory not found, SKIP [fab: {} | path: {}]", this.fabId, mapDir);
+            return;
+        }
+
+        // ---- layout.zip 파일 찾기 ----
+        File[] layoutZipFiles = mapDirFile.listFiles((dir, name) -> name.endsWith(".layout.zip"));
+
+        if (layoutZipFiles == null || layoutZipFiles.length == 0) {
+            logger.warn("[HID Master] *.layout.zip not found, SKIP [fab: {} | path: {}]", this.fabId, mapDir);
+            return;
+        }
+
+        // 첫 번째 layout.zip 사용
+        File layoutZipFile = layoutZipFiles[0];
+        logger.info("[HID Master] layout.zip found [fab: {} | file: {}]", this.fabId, layoutZipFile.getName());
+
+        // ---- 테이블 1: 엣지 마스터 업데이트 ----
+        _updateHidEdgeMasterInfo(layoutZipFile);
+
+        // ---- 테이블 2: HID 상세 정보 업데이트 ----
+        _updateHidInfoMaster();
+
+        logger.info("HID Master Tables update completed [fab: {}]", this.fabId);
+    }
+
+    // ========================================================================================
+    // [신규 메소드] _updateHidEdgeMasterInfo()
+    //   → 테이블 1: {FAB}_ATLAS_INFO_HID_INOUT_MAS
+    // ========================================================================================
+
+    /**
+     * HID Zone 진입/진출 엣지 마스터 데이터 업데이트
+     *
+     * [테이블] {FAB}_ATLAS_INFO_HID_INOUT_MAS
+     * [컬럼 데이터 소스]
+     *   FROM_HIDID   → layout.xml McpZone Entry start/end 주소 → HID 매핑
+     *   TO_HIDID     → layout.xml McpZone Exit  start/end 주소 → HID 매핑
+     *   EDGE_ID      → String.format("%03d:%03d", fromHidId, toHidId)
+     *   FROM_HID_NM  → HID_Zone_Master.csv → Full_Name
+     *   TO_HID_NM    → HID_Zone_Master.csv → Full_Name
+     *   MCP_ID       → mcp75ConfigMap.keySet()
+     *   ZONE_ID      → HID_Zone_Master.csv → Bay_Zone
+     *   EDGE_TYPE    → fromHid==0 ? "IN" : toHid==0 ? "OUT" : "INTERNAL"
+     *   UPDATE_DT    → SimpleDateFormat("yyyy-MM-dd HH:mm:ss")
+     */
+    private void _updateHidEdgeMasterInfo(File layoutZipFile) {
+        List<Tuple> tuples = new ArrayList<>();
+        SimpleDateFormat dateFormat = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss");
+        String updateDt = dateFormat.format(new Date());
+
+        try {
+            // DataService.getDataSet().getEdgeMap() 에서 RailEdge 순회
+            ConcurrentMap<String, AbstractEdge> edgeMap = DataService.getDataSet().getEdgeMap();
+            Map<Integer, String> hidNameMap = new HashMap<>();  // hidId → hidName
+            Set<String> processedEdges = new HashSet<>();
+
+            // 1단계: RailEdge 순회하며 FAB에 해당하는 HID 정보 수집
+            for (Map.Entry<String, AbstractEdge> entry : edgeMap.entrySet()) {
+                if (!(entry.getValue() instanceof RailEdge)) continue;
+
+                RailEdge railEdge = (RailEdge) entry.getValue();
+
+                // FAB 필터 — 해당 FAB 소속 RailEdge만 처리
+                if (!railEdge.getFabId().equals(this.fabId)) continue;
+
+                int hidId = railEdge.getHIDId();  // RaileEdge.java:324
+
+                if (hidId > 0) {
+                    hidNameMap.putIfAbsent(hidId, "HID_" + String.format("%03d", hidId));
+                }
+            }
+
+            // 2단계: HID 간 전환 엣지 구성 (인접 RailEdge의 HID 전환 감지)
+            for (Map.Entry<String, AbstractEdge> entry : edgeMap.entrySet()) {
+                if (!(entry.getValue() instanceof RailEdge)) continue;
+
+                RailEdge railEdge = (RailEdge) entry.getValue();
+                if (!railEdge.getFabId().equals(this.fabId)) continue;
+
+                int fromHidId = railEdge.getHIDId();
+                String toNodeId = railEdge.getToNodeId();
+
+                // 연결된 다음 엣지들에서 HID가 바뀌는 경우 엣지 생성
+                for (Map.Entry<String, AbstractEdge> nextEntry : edgeMap.entrySet()) {
+                    if (!(nextEntry.getValue() instanceof RailEdge)) continue;
+
+                    RailEdge nextRailEdge = (RailEdge) nextEntry.getValue();
+                    if (!nextRailEdge.getFabId().equals(this.fabId)) continue;
+
+                    if (nextRailEdge.getFromNodeId().equals(toNodeId)) {
+                        int toHidId = nextRailEdge.getHIDId();
+
+                        if (fromHidId != toHidId && (fromHidId > 0 || toHidId > 0)) {
+                            String edgeKey = fromHidId + ":" + toHidId;
+                            if (processedEdges.contains(edgeKey)) continue;
+                            processedEdges.add(edgeKey);
+
+                            Tuple tuple = new Tuple();
+                            tuple.put("FROM_HIDID", fromHidId);
+                            tuple.put("TO_HIDID", toHidId);
+                            tuple.put("EDGE_ID", String.format("%03d:%03d", fromHidId, toHidId));
+
+                            // HID 이름
+                            tuple.put("FROM_HID_NM", fromHidId == 0 ? "OUTSIDE"
+                                : hidNameMap.getOrDefault(fromHidId, "HID_" + String.format("%03d", fromHidId)));
+                            tuple.put("TO_HID_NM", toHidId == 0 ? "OUTSIDE"
+                                : hidNameMap.getOrDefault(toHidId, "HID_" + String.format("%03d", toHidId)));
+
+                            tuple.put("MCP_ID", this.mcpName);
+                            tuple.put("ZONE_ID", "");
+
+                            // 엣지 유형
+                            String edgeType;
+                            if (fromHidId == 0) {
+                                edgeType = "IN";
+                            } else if (toHidId == 0) {
+                                edgeType = "OUT";
+                            } else {
+                                edgeType = "INTERNAL";
+                            }
+                            tuple.put("EDGE_TYPE", edgeType);
+                            tuple.put("UPDATE_DT", updateDt);
+
+                            tuples.add(tuple);
+                        }
+                    }
+                }
+            }
+        } catch (Exception e) {
+            logger.error("[HID Master] Failed to build edge master info [fab: {}]", this.fabId, e);
+            return;
+        }
+
+        if (tuples.isEmpty()) {
+            logger.warn("[HID Master] No edge data found [fab: {}]", this.fabId);
+            return;
+        }
+
+        // 테이블명: {FAB}_ATLAS_INFO_HID_INOUT_MAS (예: M14A_ATLAS_INFO_HID_INOUT_MAS)
+        String tableName = this.fabId + "_ATLAS_INFO_HID_INOUT_MAS";
+
+        // Full Refresh
+        LogpressoAPI.truncateTable(tableName);
+        LogpressoAPI.setInsertTuples(tableName, tuples, 100);
+
+        logger.info("[HID Master] Edge Master updated: {} - {} records", tableName, tuples.size());
+    }
+
+    // ========================================================================================
+    // [신규 메소드] _updateHidInfoMaster()
+    //   → 테이블 2: {FAB}_ATLAS_HID_INFO_MAS
+    // ========================================================================================
+
+    /**
+     * HID 상세 정보 마스터 데이터 업데이트
+     *
+     * [테이블] {FAB}_ATLAS_HID_INFO_MAS
+     * [컬럼 데이터 소스]
+     *   HID_ID          → RailEdge.getHIDId()
+     *   HID_NM          → "HID_" + String.format("%03d", hidId)
+     *   MCP_ID          → this.mcpName
+     *   ZONE_ID         → "" (추후 매핑 가능)
+     *   RAIL_LEN_TOTAL  → RailEdge.getLength() HID별 합계
+     *   FREE_FLOW_SPEED → RailEdge.getMaxVelocity() HID별 평균
+     *   PORT_CNT_TOTAL  → RailEdge.getPortIdList().size() 합계
+     *   IN_CNT          → HID Entry 개수
+     *   OUT_CNT         → HID Exit 개수
+     *   VHL_MAX         → McpZone vehicle-max
+     *   ZCU_ID          → Entry stop-zcu
+     *   UPDATE_DT       → SimpleDateFormat("yyyy-MM-dd HH:mm:ss")
+     */
+    private void _updateHidInfoMaster() {
+        List<Tuple> tuples = new ArrayList<>();
+        SimpleDateFormat dateFormat = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss");
+        String updateDt = dateFormat.format(new Date());
+
+        try {
+            ConcurrentMap<String, AbstractEdge> edgeMap = DataService.getDataSet().getEdgeMap();
+
+            // HID별 집계 맵
+            Map<Integer, Double> railLenMap = new HashMap<>();       // HID → 레일 길이 합계
+            Map<Integer, List<Double>> maxVelMap = new HashMap<>();   // HID → maxVelocity 목록
+            Map<Integer, Integer> portCntMap = new HashMap<>();       // HID → 포트 수 합계
+
+            // RailEdge 순회하며 FAB에 해당하는 HID별 데이터 집계
+            for (Map.Entry<String, AbstractEdge> entry : edgeMap.entrySet()) {
+                if (!(entry.getValue() instanceof RailEdge)) continue;
+
+                RailEdge railEdge = (RailEdge) entry.getValue();
+
+                // FAB 필터
+                if (!railEdge.getFabId().equals(this.fabId)) continue;
+
+                int hidId = railEdge.getHIDId();  // RaileEdge.java:324
+                if (hidId <= 0) continue;
+
+                // 레일 길이 합계
+                double length = railEdge.getLength();  // AbstractEdge.getLength()
+                railLenMap.merge(hidId, length, Double::sum);
+
+                // maxVelocity 수집 (평균 계산용)
+                double maxVelocity = railEdge.getMaxVelocity();  // RaileEdge.java:270
+                if (maxVelocity > 0) {
+                    maxVelMap.computeIfAbsent(hidId, k -> new ArrayList<>()).add(maxVelocity);
+                }
+
+                // 포트 수 합계
+                List<String> portList = railEdge.getPortIdList();  // RaileEdge.java:19
+                if (portList != null && !portList.isEmpty()) {
+                    portCntMap.merge(hidId, portList.size(), Integer::sum);
+                }
+            }
+
+            // HID별 Tuple 생성
+            for (Integer hidId : railLenMap.keySet()) {
+                Tuple tuple = new Tuple();
+
+                tuple.put("HID_ID", hidId);
+                tuple.put("HID_NM", "HID_" + String.format("%03d", hidId));
+                tuple.put("MCP_ID", this.mcpName);
+                tuple.put("ZONE_ID", "");
+
+                // RAIL_LEN_TOTAL
+                tuple.put("RAIL_LEN_TOTAL", railLenMap.getOrDefault(hidId, 0.0));
+
+                // FREE_FLOW_SPEED (HID별 maxVelocity 평균)
+                List<Double> velocities = maxVelMap.get(hidId);
+                double avgSpeed = 0.0;
+                if (velocities != null && !velocities.isEmpty()) {
+                    double sum = 0.0;
+                    for (Double v : velocities) {
+                        sum += v;
+                    }
+                    avgSpeed = sum / velocities.size();
+                }
+                tuple.put("FREE_FLOW_SPEED", avgSpeed);
+
+                // PORT_CNT_TOTAL
+                tuple.put("PORT_CNT_TOTAL", portCntMap.getOrDefault(hidId, 0));
+
+                // IN_CNT, OUT_CNT, VHL_MAX, ZCU_ID → layout.xml McpZone 데이터
+                // 추후 Mcp75Config.getRawHidMap()에서 매핑 가능
+                tuple.put("IN_CNT", 0);
+                tuple.put("OUT_CNT", 0);
+                tuple.put("VHL_MAX", 0);
+                tuple.put("ZCU_ID", "");
+
+                tuple.put("UPDATE_DT", updateDt);
+
+                tuples.add(tuple);
+            }
+        } catch (Exception e) {
+            logger.error("[HID Master] Failed to build HID info [fab: {}]", this.fabId, e);
+            return;
+        }
+
+        if (tuples.isEmpty()) {
+            logger.warn("[HID Master] No HID info data found [fab: {}]", this.fabId);
+            return;
+        }
+
+        // 테이블명: {FAB}_ATLAS_HID_INFO_MAS (예: M14A_ATLAS_HID_INFO_MAS)
+        String tableName = this.fabId + "_ATLAS_HID_INFO_MAS";
+
+        // Full Refresh
+        LogpressoAPI.truncateTable(tableName);
+        LogpressoAPI.setInsertTuples(tableName, tuples, 100);
+
+        logger.info("[HID Master] HID Info Master updated: {} - {} records", tableName, tuples.size());
+    }
+
+    /**
+     * HID OFF
+     * @param hidId 현재 hid 값
+     * @param hidOffKey DataSet 에서 특정 데이터를 호출하기 위한 key 값
+     * @param errorCode 오류 코드
+     * @param currentAddress 현재 주소
+     * @param nextAddress 다음 주소
+     * @return normal/abnormal 인 경우, tib/rv message 를 반환
+     */
+    private Map<String, String> _processHidOff(
+            int hidId,
+            String hidOffKey,
+            String errorCode,
+            int currentAddress,
+            int nextAddress,
+            long systemsDateTime
+    ) {
+        long timer = System.currentTimeMillis();
+
+        if (hidId < 0) return new HashMap<>();
+
+        Map<String, String> dataMap = new HashMap<>();
+        ConcurrentMap<String, HidOffRecordItem> hidOffRecordMap = DataService.getDataSet().getHidOffRecordMap(); // HID OFF 에 대한 기록 호출, 참조
+        HidOffRecordItem recordItem;
+        ConcurrentMap<String, List<String>> errorCodeList = DataService.getInstance().getOhtAlarmCodeListMap();
+
+        if (errorCodeList != null && errorCodeList.containsKey(FunctionType.HID_OFF.getKey())) {
+            if (errorCodeList.get(FunctionType.HID_OFF.getKey()).contains(errorCode)) {
+                logger.info("[HID OFF] The fault has occurred [fab: {} | mcp: {} | error code: {} | hid: {}]", this.fabId, this.mcpName, errorCode, hidId);
+
+                Set<String> addressSet = this._getAddressSet(hidOffKey);
+                ConcurrentMap<String, List<String>> hid2PortMap = DataService.getDataSet().getHid2PortMap();
+                List<String> portList = hid2PortMap.getOrDefault(hidOffKey, Collections.emptyList());
+                String deviceId = String.valueOf(hidId);
+                String alarmCode = String.format("HID%03d", hidId);
+
+                recordItem = new HidOffRecordItem(
+                        hidOffKey,
+                        this.fabId,
+                        this.facId,
+                        this.mcpName,
+                        deviceId,
+                        hidId,
+                        currentAddress,
+                        nextAddress,
+                        addressSet,
+                        portList,
+                        OHT_TIB_STATE.ABNORMAL,
+                        errorCode,
+                        alarmCode,
+                        systemsDateTime
+                );
+
+                if (!hidOffRecordMap.containsKey(hidOffKey)) {
+                    hidOffRecordMap.put(hidOffKey, recordItem);    // 해당 hid 구간의 hidOff 현상이 회복된 경우를 대응
+                    logger.info("[HID OFF] This fault was saved as a record on the server in case it was resolved [fab: {} | mcp: {} | hid: {}]", this.fabId, this.mcpName, hidId);
+                } else {
+                    logger.info("[HID OFF] This fault has occurred, but it has not been saved to the server [fab: {} | mcp: {} | hid: {}] - faults in the same hid area that occurred previously are not resolved !", this.fabId, this.mcpName, hidId);
+                }
+            } else if (hidOffRecordMap.containsKey(hidOffKey)) {
+                // hidOff 현상이 해소된 경우 (ABNORMAL -> NORMAL)
+                recordItem = hidOffRecordMap.get(hidOffKey);
+
+                recordItem.setState(OHT_TIB_STATE.NORMAL);
+            } else {
+                return new HashMap<>();
+            }
+
+            dataMap = LayoutUtil.buildLayoutMessageDataMap(recordItem);
+
+            if (_insertHidOffLogpresso(recordItem, systemsDateTime) && recordItem.getState().equals(OHT_TIB_STATE.NORMAL)) {
+                hidOffRecordMap.remove(hidOffKey);
+
+                logger.info("[HID OFF] The fault is recovered [fab: {} | mcp: {} | hid: {}]", this.fabId, this.mcpName, hidId);
+            }
+        } else {
+            logger.warn("[HID OFF] Not exist error code for hid off [fab: {} | mcp: {} | hid: {}] !", this.fabId, this.mcpName, hidId);
+        }
+
+        long checkingTime = System.currentTimeMillis() - timer;
+
+        // 소요된 시간이 1분 이상인 경우 로그 표시
+        if (checkingTime >= 60000) {
+            logger.info("... `HID OFF` process took more than 1 minute to complete [elapsed time: {}min]", checkingTime / 60000);
+        }
+
+        return dataMap;
+    }
+
+    private Set<String> _getAddressSet(String hidOffKey) {
+        ConcurrentMap<String, RailEdge> railEdgeMap = DataService.getDataSet().getRailEdgeMap();
+        ConcurrentMap<String, List<String>> railEdge4HidMap = DataService.getDataSet().getRailEdge4HidMap();
+        List<String> addressList = new ArrayList<>();
+
+        try {
+            for (String railEdgeId : railEdge4HidMap.get(hidOffKey)) {
+                if (railEdgeMap.containsKey(railEdgeId)) {
+                    RailEdge railEdge = railEdgeMap.get(railEdgeId);
+
+                    addressList.add(railEdge.getAddress());
+                }
+            }
+        } catch (Exception e) {
+            logger.error("", e);
+        }
+
+        return Set.copyOf(addressList);
+    }
+
+    private boolean _insertHidOffLogpresso(HidOffRecordItem recordItem, long currentMilli) {
+        Tuple tuple = new Tuple();
+        String state = recordItem.getState();
+
+        tuple.put("FAB_ID", recordItem.getFabId());
+        tuple.put("MCP_NM", recordItem.getMcpName());
+        tuple.put("ALARM_CD", recordItem.getErrorCode());
+        tuple.put("EVENT_DT", recordItem.getEventDateTimeString());
+        tuple.put("HID_ID", recordItem.getHidId());
+        tuple.put("ADDR_LST", recordItem.getHidAreaAddressString());
+        tuple.put("PORT_LST", recordItem.getAffectedPortString());
+        tuple.put("ENV", Env.getEnv());
+        tuple.put("STATE", state);
+
+        if (state.equals(OHT_TIB_STATE.NORMAL)) {
+            SimpleDateFormat dateFormat = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss");
+            tuple.put("RECOVERY_DT", dateFormat.format(new Date(currentMilli)));
+        }
+
+        return LogpressoAPI.setInsertTuples("ATLAS_OHT_HID_OFF", List.of(tuple), 20);
+    }
+    //~HID OFF
+
+    /**
+     * VHL OFF
+     * @param vehicle vehicle object <--- it had to set property by udp message
+     * @param errorCode error code (ef. OhtVhlOffAlarmCodeList.txt)
+     * @param currentAddress current address (=`from` rail node)
+     * @param nextAddress next address (=`to` rail node)
+     * @param railEdge railEdge object <--- it had made by udp message
+     * @return give back the tib/rv message, when message state is normal/abnormal
+     */
+    private List<Map<String, String>> _processVhlOff(
+            String vhlOffKey,
+            Vhl vehicle,
+            String errorCode,
+            int currentAddress,
+            int nextAddress,
+            RailEdge railEdge,
+            long systemsDateTime
+    ) {
+        long timer = System.currentTimeMillis();
+        List<VhlOffRecordItem> bufferList = new ArrayList<>();
+        List<Map<String, String>> dataList = new ArrayList<>();
+
+        ConcurrentMap<String, VhlOffRecordItem> vhlOffRecordMap = DataService.getDataSet().getVhlOffRecordMap();
+        ConcurrentMap<String, VhlOffRecordItem> vhlOffMonitoringMap = DataService.getDataSet().getVhlOffMonitoringMap();
+        ConcurrentMap<String, List<String>> errorCodeList = DataService.getInstance().getOhtAlarmCodeListMap();
+        String machineId = vehicle.getName();   // "V00001"
+//        VHL_STATE vehicleState = vehicle.getState();
+        String deviceId = machineId + ":" + currentAddress + ":" + errorCode;
+
+        if (errorCodeList != null && errorCodeList.containsKey(FunctionType.VHL_OFF.getKey())) {
+            VhlOffRecordItem temp = this._buildVhlOff(
+                    vhlOffKey,
+                    deviceId,
+                    machineId,
+                    currentAddress,
+                    nextAddress,
+                    errorCode,
+                    railEdge,
+                    errorCodeList,
+                    systemsDateTime
+            );
+
+            if (vhlOffRecordMap.containsKey(vhlOffKey)) {
+                /*
+                    1. 새로운 device 명칭인 경우
+                    2. 장애가 해소된 상태
+                 */
+                VhlOffRecordItem previousRecordItem = vhlOffRecordMap.get(vhlOffKey);
+
+                if (previousRecordItem != null) {
+                    if (temp == null) {
+                        // 2. 장애가 해소된 상태
+                        previousRecordItem.setState(OHT_TIB_STATE.NORMAL);
+                        previousRecordItem.setRecoveryDateTime(systemsDateTime);
+
+                        bufferList.add(previousRecordItem);
+
+                        vhlOffMonitoringMap.put(vhlOffKey, previousRecordItem); //@
+
+                        vhlOffRecordMap.remove(vhlOffKey);  //@
+                    } else {
+                        final String previousDeviceName = previousRecordItem.getDeviceId();
+
+                        if (!temp.getDeviceId().equals(previousDeviceName)) {
+                            // 1. 새로운 device 명칭인 경우
+                            // 1-1. 최근에 기록된 정보를 처리
+                            previousRecordItem.setState(OHT_TIB_STATE.NORMAL);
+                            previousRecordItem.setRecoveryDateTime(systemsDateTime);
+
+                            bufferList.add(previousRecordItem);
+                            //~1-1
+                            bufferList.add(temp);
+
+                            vhlOffMonitoringMap.put(vhlOffKey, temp);
+
+                            vhlOffRecordMap.put(vhlOffKey, temp);
+                        }
+                    }
+                }
+            } else if (temp != null) {
+                /*
+                    1. 새로운 장애 발생
+                 */
+                bufferList.add(temp);
+
+                vhlOffMonitoringMap.put(vhlOffKey, temp);
+
+                vhlOffRecordMap.put(vhlOffKey, temp);
+            }
+
+            for (VhlOffRecordItem bufferItem : bufferList) {
+                dataList.add(LayoutUtil.buildLayoutMessageDataMap(bufferItem));
+            }
+        } else {
+            logger.warn("[VHL OFF] Not exist error code for vhl off [fab: {} | mcp: {} | machine: {}] !", this.fabId, this.mcpName, machineId);
+        }
+
+        long checkingTime = System.currentTimeMillis() - timer;
+
+        if (checkingTime >= 60000) {
+            logger.info("... `VHL OFF` process took more than 1 minute to complete [elapsed time: {}min]", checkingTime / 60000);
+        }
+
+        return dataList;
+    }
+
+    /**
+     *
+     * @param vhlOffKey {fabId}:{mcpName}:{machineId}
+     * @param deviceId {machineId}:{address}:{errorCode}
+     * @param machineId ex) V00001
+     * @param currentAddress ex) 1001
+     * @param nextAddress ex) 1002
+     * @param errorCode ex) 0000
+     * @param railEdge current rail located
+     * @param alarmCodeMap list of error code with `vhl off`
+     * @param systemsDateTime occupation time
+     * @return if return to null, it was normal state
+     */
+    private VhlOffRecordItem _buildVhlOff(
+            String vhlOffKey,
+            String deviceId,
+            String machineId,
+            int currentAddress,
+            int nextAddress,
+            String errorCode,
+            RailEdge railEdge,
+            ConcurrentMap<String, List<String>> alarmCodeMap,
+            long systemsDateTime
+    ) {
+        if (alarmCodeMap.get(FunctionType.VHL_OFF.getKey()).contains(errorCode)) {
+            logger.info("*[VHL OFF] defect(VHL OFF) has occurred [fab: {} | mcp: {} | error code: {} | machine: {}]", this.fabId, this.mcpName, errorCode, machineId);
+
+            Navigator navigator     = new Navigator(railEdge);
+            Set<String> addressSet  = navigator.getAffectedRailSet();
+            List<String> portList   = navigator.getAffectedPortSortedList();
+
+            return new VhlOffRecordItem(
+                    vhlOffKey,
+                    deviceId,
+                    this.fabId,
+                    this.facId,
+                    this.mcpName,
+                    machineId,
+                    currentAddress,
+                    nextAddress,
+                    portList,
+                    addressSet,
+                    OHT_TIB_STATE.ABNORMAL,
+                    errorCode,
+                    systemsDateTime
+            );
+        }
+
+        return null;
+    }
+    //~VHL OFF
+
+    /**
+     * 속도 값(velocity) 계산 전, 현재와 이전 데이터를 산출
+     * @param vehicle updated vehicle data (reflected udp message)
+     * @param railEdge current railEdge data (reflected udp message)
+     */
+    private void _buildRailVelocity(Vhl vehicle, RailEdge railEdge){
+        RailEdge lastRailEdge = null;
+        String vehicleId = vehicle.getId();
+        String railEdgeId = railEdge.getId();
+        String lastRailEdgeId = vehicle.getLastUdpState().railEdgeId;
+
+        if (StringUtils.isNotEmpty(lastRailEdgeId)) {
+            lastRailEdge = DataService.getDataSet().getRailEdgeMap().get(lastRailEdgeId);
+            String fromNodeId = railEdge.getFromNodeId();
+            String toNodeId = railEdge.getToNodeId();
+            String lastFromNodeId = lastRailEdge.getFromNodeId();
+            String lastToNodeId = lastRailEdge.getToNodeId();
+
+            if (lastFromNodeId.equals(fromNodeId) && !lastToNodeId.equals(toNodeId)) {
+                lastRailEdge.removeVhlId(vehicleId);
+
+                vehicle.getLastUdpState().railEdgeId = railEdgeId;
+                lastRailEdge = DataService.getDataSet().getRailEdgeMap().get(railEdgeId);
+
+                if (!lastRailEdgeId.equals(vehicle.getRailEdgeId())) {
+                    lastRailEdge.removeVhlId(vehicleId);
+                }
+            }
+        }
+
+        this._setRailEdgeVelocity(vehicle, railEdge, lastRailEdge);
+    }
+
+    private void _setRailEdgeVelocity(
+            Vhl vehicle,
+            RailEdge railEdge,
+            RailEdge lastRailEdge
+    ) {
+        String vehicleId = vehicle.getId();
+
+        if (
+                lastRailEdge != null
+                        && lastRailEdge.getToNodeId().equals(railEdge.getFromNodeId())
+        ) {
+            if (this._checkVehicleMovement(vehicle)) {
+                double ran_distance = lastRailEdge.getLength() - vehicle.getLastUdpState().distance + vehicle.getDistance();
+                long elapsed = vehicle.getReceivedTime() - vehicle.getLastUdpState().receivedTime;
+                double speed = ran_distance / (double)elapsed * 60.0;
+
+                lastRailEdge.addVelocity(speed);
+            }
+
+            lastRailEdge.addHistory();
+            lastRailEdge.getVhlIdMap().remove(vehicleId);
+
+            railEdge.addVhlId(vehicleId);
+        } else if (lastRailEdge != null && !railEdge.getId().equals(lastRailEdge.getId())) {
+            lastRailEdge.addHistory();
+            lastRailEdge.getVhlIdMap().remove(vehicleId);
+
+            railEdge.addVhlId(vehicleId);
+
+            if (this._checkVehicleMovement(vehicle)) {
+                ConcurrentLinkedQueue<RailEdge> predictedEdges;
+                RailNode sourceNode = (RailNode) DataService.getDataSet().getNodeMap().get(lastRailEdge.getFromNodeId());
+                RailNode destinationNode = (RailNode) DataService.getDataSet().getNodeMap().get(railEdge.getFromNodeId());
+                predictedEdges = new DijkstraVhlRouteFind(vehicle, sourceNode, destinationNode).getRailEdgeList();
+
+                if(!predictedEdges.isEmpty()) {
+                    double currentSumSpeed = this._getCurrentSumSpeed(vehicle, predictedEdges);
+
+                    for (RailEdge predictedEdge : predictedEdges) {
+                        if(!lastRailEdge.getId().equals(predictedEdge.getId())) {
+                            predictedEdge.addHistory();
+                        }
+
+                        predictedEdge.addVelocity(currentSumSpeed);
+                    }
+                }
+            } else {
+                ConcurrentLinkedQueue<RailEdge> predictedEdges;
+                RailNode source = (RailNode)DataService.getDataSet().getNodeMap().get(lastRailEdge.getFromNodeId());
+                RailNode dest = (RailNode)DataService.getDataSet().getNodeMap().get(railEdge.getFromNodeId());
+                predictedEdges = new DijkstraVhlRouteFind(vehicle, source, dest).getRailEdgeList();
+
+                if (!predictedEdges.isEmpty()) {
+                    for(RailEdge pre : predictedEdges) {
+                        pre.addHistory();
+                    }
+                }
+            }
+
+        } else {
+            if(this._checkVehicleMovement(vehicle)) {
+                //속도 계산시 이동 하지 않은 vehicle 에 대해 추후 이동시 실제 속도를 반영 하기 위함.
+                vehicle.setReceivedTime(vehicle.getLastUdpState().receivedTime);
+                vehicle.setDistance(vehicle.getLastUdpState().distance);
+            }
+
+            railEdge.addVhlId(vehicleId);
+        }
+    }
+
+    private double _getCurrentSumSpeed(Vhl vehicle, ConcurrentLinkedQueue<RailEdge> predictedEdges) {
+        double distanceSum = 0;
+        long lastReceivedMilli = vehicle.getLastUdpState().receivedTime;
+        long totalElapsedMilli = vehicle.getReceivedTime() - lastReceivedMilli;
+
+        for(RailEdge pre : predictedEdges) {
+            distanceSum += pre.getLength();
+        }
+
+        distanceSum -= vehicle.getLastUdpState().distance;
+        distanceSum += vehicle.getDistance();
+
+        return distanceSum / (double)totalElapsedMilli * 60.0;
+    }
+
+    private boolean _checkVehicleMovement(Vhl vehicle) {
+        return (vehicle.getReceivedTime() - vehicle.getLastUdpState().receivedTime) < (60 * 1000)
+                && (
+                VHL_STATE.RUN == vehicle.getState()
+                        || VHL_STATE.OBS_BZ_STOP == vehicle.getState()
+                        || VHL_STATE.JAM == vehicle.getState()
+                        || VHL_STATE.E84_TIMEOUT == vehicle.getState()
+        ) && vehicle.getRunCycle() == vehicle.getLastUdpState().runCycle
+                && vehicle.getVhlCycle() == vehicle.getLastUdpState().vhlCycle
+                && (
+                RUN_CYCLE.ACQUIRE == vehicle.getRunCycle()
+                        || RUN_CYCLE.DEPOSIT == vehicle.getRunCycle()
+        ) && (
+                VHL_CYCLE.ACQUIRE_MOVING == vehicle.getVhlCycle()
+                        || VHL_CYCLE.DEPOSIT_MOVING == vehicle.getVhlCycle()
+        );
+    }
+
+    private static class MSG_ID {
+        public static final String MCP_ONLINE_REPORT = "1";
+        public static final String VHL_STATE_REPORT = "2";
+        public static final String STATION_STATE_REPORT = "3";
+        public static final String MACHINE_STATE_REPORT = "4";
+        public static final String MCP7_RESTART_REPORT = "5";
+        public static final String POWER_STATE_REPORT = "13";
+        public static final String POWER_STATE_HISTORY_REPORT = "14";
+        public static final String VHL_ROUTE_REPORT = "15";
+        public static final String STATE_REQUEST = "51";
+    }
+
+    public static class VHL_STATE_REPORT {
+        public static final int TXT_ID_IDX = 0;             // 텍스트 id
+        public static final int MCP_NM_IDX = 1;             // mcp 명칭
+        public static final int VHL_ID_IDX = 2;             // vehicle 명
+        public static final int STATE_IDX = 3;              // 상태
+        public static final int FULL_IDX = 4;               // 재하 정보
+        public static final int ERROR_CODE_IDX = 5;         // error code
+        public static final int ONLINE_IDX = 6;             // 통신 상태
+        public static final int ADDRESS_IDX = 7;            // 현재 번지
+        public static final int DISTANCE_IDX = 8;           // 현재 번지로부터의 거리
+        public static final int NEXT_ADDRESS_IDX = 9;       // 다음 번지
+        public static final int RUN_CYCLE_IDX = 10;         // 실행 cycle
+        public static final int VHL_CYCLE_IDX = 11;         // vehicle 실행 cycle 진척
+        public static final int CARRIER_ID_IDX = 12;        // carrier id
+        public static final int DESTINATION_IDX = 13;       // destination
+        public static final int EM_STATUS_IDX = 14;         // e/m 상태
+        public static final int GROUP_ID_IDX = 15;          // group id
+        public static final int SOURCE_PORT_IDX = 16;       // 반송원 port
+        public static final int DEST_PORT_IDX = 17;         // 반송처 port
+        public static final int PRIORITY_IDX = 18;          // 반송 우선도
+        public static final int DET_STATUS_IDX = 19;        // 작업 상태 상세
+        public static final int RUN_DISTANCE_IDX = 20;      // 대차 주행거리
+        public static final int CMD_ID_IDX = 21;            // command id
+        public static final int BAY_NM_IDX = 22;            // bay 명칭
+    }
+
+    // 상태값
+    public static class OHT_TIB_STATE {
+        public static final String NORMAL = "NORMAL";
+        public static final String ABNORMAL = "ABNORMAL";
+
+        public static List<String> getStates() {
+            List<String> states = new ArrayList<>();
+
+            states.add(NORMAL);
+            states.add(ABNORMAL);
+
+            return states;
+        }
+    }
 }
-
-def _is_table_sep(line):
-    """Check if line is table separator like |---|---|"""
-    return bool(re.match(r'^\s*\|[\s\-:|]+\|\s*$', line))
-
-def _parse_table_row(line):
-    """Parse | col1 | col2 | into list of cells."""
-    line = line.strip()
-    if line.startswith("|"): line = line[1:]
-    if line.endswith("|"): line = line[:-1]
-    return [c.strip() for c in line.split("|")]
-
-def _render_table(tb, table_lines):
-    """Render markdown table with aligned columns."""
-    rows = []
-    header_idx = -1
-    for i, line in enumerate(table_lines):
-        if _is_table_sep(line):
-            header_idx = i
-            continue
-        rows.append(_parse_table_row(line))
-
-    if not rows:
-        return
-
-    # Calculate column widths
-    num_cols = max(len(r) for r in rows)
-    col_widths = [0] * num_cols
-    for row in rows:
-        for j, cell in enumerate(row):
-            if j < num_cols:
-                # Approximate: Korean chars = 2 width, ASCII = 1
-                w = sum(2 if ord(c) > 127 else 1 for c in cell)
-                col_widths[j] = max(col_widths[j], w)
-
-    # Cap column widths
-    col_widths = [min(w + 2, 30) for w in col_widths]
-
-    # Draw top border
-    border = "┌" + "┬".join("─" * w for w in col_widths) + "┐\n"
-    tb.insert("end", border, "tbl_border")
-
-    for ri, row in enumerate(rows):
-        is_header = (ri == 0 and header_idx > 0)
-
-        # Cell content
-        tb.insert("end", "│", "tbl_border")
-        for j in range(num_cols):
-            cell = row[j] if j < len(row) else ""
-            # Pad cell
-            cell_w = sum(2 if ord(c) > 127 else 1 for c in cell)
-            pad = col_widths[j] - cell_w
-            padded = " " + cell + " " * max(pad - 1, 0) + " " if pad >= 0 else " " + cell[:col_widths[j]-2] + " "
-
-            if is_header:
-                tag = "tbl_header"
-            elif ri % 2 == 0:
-                tag = "tbl_cell_alt"
-            else:
-                tag = "tbl_cell"
-            tb.insert("end", padded, tag)
-            tb.insert("end", "│", "tbl_border")
-        tb.insert("end", "\n")
-
-        # Separator after header
-        if is_header:
-            sep = "├" + "┼".join("─" * w for w in col_widths) + "┤\n"
-            tb.insert("end", sep, "tbl_border")
-
-    # Bottom border
-    bottom = "└" + "┴".join("─" * w for w in col_widths) + "┘\n"
-    tb.insert("end", bottom, "tbl_border")
-
-
-def render_md(textbox, raw_text):
-    """Parse markdown and insert formatted text into a CTkTextbox."""
-    tb = textbox._textbox if hasattr(textbox, '_textbox') else textbox
-
-    base_size = 11
-    tb.tag_configure("normal", foreground=MD_COLORS["normal"], font=("Noto Sans KR", base_size))
-    tb.tag_configure("h1", foreground=MD_COLORS["h1"], font=("Noto Sans KR", base_size+5, "bold"))
-    tb.tag_configure("h2", foreground=MD_COLORS["h2"], font=("Noto Sans KR", base_size+3, "bold"))
-    tb.tag_configure("h3", foreground=MD_COLORS["h3"], font=("Noto Sans KR", base_size+1, "bold"))
-    tb.tag_configure("bold", foreground=MD_COLORS["bold"], font=("Noto Sans KR", base_size, "bold"))
-    tb.tag_configure("italic", foreground=MD_COLORS["dim"], font=("Noto Sans KR", base_size, "italic"))
-    tb.tag_configure("code", foreground=MD_COLORS["code_fg"], background=MD_COLORS["code_bg"],
-                     font=("JetBrains Mono", base_size-1))
-    tb.tag_configure("codeblock", foreground=MD_COLORS["block_fg"], background=MD_COLORS["block_bg"],
-                     font=("JetBrains Mono", base_size-1), lmargin1=20, lmargin2=20, rmargin=20)
-    tb.tag_configure("codelang", foreground=MD_COLORS["dim"], background=MD_COLORS["block_bg"],
-                     font=("JetBrains Mono", base_size-2))
-    tb.tag_configure("bullet", foreground=MD_COLORS["list_bullet"], font=("Noto Sans KR", base_size, "bold"))
-    tb.tag_configure("list_text", foreground=MD_COLORS["list_text"], font=("Noto Sans KR", base_size))
-    tb.tag_configure("hr", foreground=MD_COLORS["hr"])
-    tb.tag_configure("blockquote", foreground=MD_COLORS["dim"], font=("Noto Sans KR", base_size, "italic"),
-                     lmargin1=16, lmargin2=16)
-    # Table tags
-    tb.tag_configure("tbl_header", foreground=MD_COLORS["tbl_header_fg"], background=MD_COLORS["tbl_header_bg"],
-                     font=("JetBrains Mono", base_size-1, "bold"))
-    tb.tag_configure("tbl_cell", foreground=MD_COLORS["tbl_cell"], background=MD_COLORS["tbl_cell_bg"],
-                     font=("JetBrains Mono", base_size-1))
-    tb.tag_configure("tbl_cell_alt", foreground=MD_COLORS["tbl_cell"], background=MD_COLORS["tbl_alt_bg"],
-                     font=("JetBrains Mono", base_size-1))
-    tb.tag_configure("tbl_border", foreground=MD_COLORS["tbl_border"],
-                     font=("JetBrains Mono", base_size-1))
-
-    tb.configure(state="normal")
-    tb.delete("1.0", "end")
-
-    lines = raw_text.split("\n")
-    i = 0
-    while i < len(lines):
-        line = lines[i]
-
-        # Code block ```
-        if line.strip().startswith("```"):
-            lang = line.strip()[3:].strip()
-            if lang:
-                tb.insert("end", f"  {lang}\n", "codelang")
-            block_lines = []
-            i += 1
-            while i < len(lines) and not lines[i].strip().startswith("```"):
-                block_lines.append(lines[i])
-                i += 1
-            if block_lines:
-                tb.insert("end", "\n".join(block_lines) + "\n", "codeblock")
-            i += 1
-            continue
-
-        # Markdown Table: collect consecutive | lines
-        if line.strip().startswith("|") and "|" in line.strip()[1:]:
-            table_lines = []
-            while i < len(lines) and lines[i].strip().startswith("|"):
-                table_lines.append(lines[i])
-                i += 1
-            if len(table_lines) >= 2:
-                _render_table(tb, table_lines)
-            else:
-                # Not really a table, just render as normal
-                for tl in table_lines:
-                    _insert_inline(tb, tl + "\n", "normal")
-            continue
-
-        # Horizontal rule
-        if re.match(r'^-{3,}$|^\*{3,}$|^_{3,}$', line.strip()):
-            tb.insert("end", "─" * 50 + "\n", "hr")
-            i += 1; continue
-
-        # Headers
-        m = re.match(r'^(#{1,3})\s+(.*)', line)
-        if m:
-            level = len(m.group(1))
-            tag = f"h{level}"
-            tb.insert("end", m.group(2) + "\n", tag)
-            i += 1; continue
-
-        # Blockquote
-        if line.strip().startswith(">"):
-            text = line.strip().lstrip(">").strip()
-            tb.insert("end", f"  │ {text}\n", "blockquote")
-            i += 1; continue
-
-        # List items (- or * or numbered)
-        m = re.match(r'^(\s*)([-*]|\d+\.)\s+(.*)', line)
-        if m:
-            indent = len(m.group(1))
-            prefix = "  " * (indent // 2) + "  ● " if m.group(2) in ["-", "*"] else f"  {m.group(2)} "
-            tb.insert("end", prefix, "bullet")
-            _insert_inline(tb, m.group(3) + "\n", "list_text")
-            i += 1; continue
-
-        # Normal line with inline formatting
-        if line.strip():
-            _insert_inline(tb, line + "\n", "normal")
-        else:
-            tb.insert("end", "\n")
-        i += 1
-
-    tb.configure(state="disabled")
-
-
-def _insert_inline(tb, text, default_tag):
-    """Handle inline markdown: **bold**, *italic*, `code`, [link](url)."""
-    pattern = re.compile(r'(\*\*(.+?)\*\*|`(.+?)`|\*(.+?)\*|\[(.+?)\]\((.+?)\))')
-    pos = 0
-    for m in pattern.finditer(text):
-        # Insert text before match
-        if m.start() > pos:
-            tb.insert("end", text[pos:m.start()], default_tag)
-        if m.group(2):  # **bold**
-            tb.insert("end", m.group(2), "bold")
-        elif m.group(3):  # `code`
-            tb.insert("end", m.group(3), "code")
-        elif m.group(4):  # *italic*
-            tb.insert("end", m.group(4), "italic")
-        elif m.group(5):  # [link](url)
-            tb.insert("end", m.group(5), "bold")
-        pos = m.end()
-    if pos < len(text):
-        tb.insert("end", text[pos:], default_tag)
-
-
-# ═══════════════════════════════════════
-# Chat Display
-# ═══════════════════════════════════════
-
-class ChatDisplay(ctk.CTkScrollableFrame):
-    def __init__(self, master, **kw):
-        super().__init__(master, fg_color=C["bg"], corner_radius=0, **kw)
-        self.widgets = []
-
-    def _make_header(self, parent, role, ts):
-        icons = {"user":("👤","You",C["text2"]),"assistant":("🤖","AI 비서",C["dev"]),"tool":("🔧","도구",C["orange"])}
-        ico,nm,clr = icons.get(role,("💬",role,C["text2"]))
-        hdr = ctk.CTkFrame(parent, fg_color="transparent"); hdr.pack(fill="x")
-        ctk.CTkLabel(hdr, text=ico, font=("",14), text_color=clr).pack(side="left", padx=(0,4))
-        ctk.CTkLabel(hdr, text=nm, font=("JetBrains Mono",11,"bold"), text_color=clr).pack(side="left")
-        ctk.CTkLabel(hdr, text=ts, font=("JetBrains Mono",9), text_color=C["text3"]).pack(side="left", padx=(8,0))
-
-    def add_msg(self, role, text, ts=""):
-        ts = ts or datetime.now().strftime("%H:%M")
-        f = ctk.CTkFrame(self, fg_color="transparent"); f.pack(fill="x", padx=16, pady=(5,1))
-        self._make_header(f, role, ts)
-
-        if role == "assistant":
-            # Markdown rendered textbox
-            line_count = text.count("\n") + 1
-            height = min(max(line_count * 20 + 10, 40), 600)
-            body = ctk.CTkTextbox(f, height=height, font=("Noto Sans KR",11),
-                                  fg_color="transparent", text_color=C["text"],
-                                  border_width=0, wrap="word", activate_scrollbars=False)
-            body.pack(fill="x", padx=(20,8), pady=(2,0))
-            render_md(body, text)
-            # Auto-resize after render
-            self.after(50, lambda b=body: self._auto_height(b))
-        else:
-            # User messages: plain label
-            body = ctk.CTkLabel(f, text=text, font=("Noto Sans KR",12), text_color=C["text"],
-                                wraplength=700, justify="left", anchor="w")
-            body.pack(fill="x", padx=(24,8), pady=(2,0), anchor="w")
-
-        self.widgets.append(f); self.after(80, self._bottom)
-        return body
-
-    def _auto_height(self, tb):
-        """Auto-resize textbox to fit content."""
-        try:
-            inner = tb._textbox if hasattr(tb, '_textbox') else tb
-            inner.update_idletasks()
-            # Count visible lines
-            last = inner.index("end-1c")
-            row = int(last.split(".")[0])
-            new_h = min(max(row * 20, 40), 800)
-            tb.configure(height=new_h)
-        except: pass
-
-    def add_stream(self):
-        f = ctk.CTkFrame(self, fg_color="transparent"); f.pack(fill="x", padx=16, pady=(5,1))
-        self._make_header(f, "assistant", datetime.now().strftime("%H:%M"))
-        body = ctk.CTkLabel(f, text="⏳ 생성 중...", font=("Noto Sans KR",12),
-                            text_color=C["text2"], wraplength=700, justify="left", anchor="w")
-        body.pack(fill="x", padx=(24,8), pady=(2,0), anchor="w")
-        self.widgets.append(f); self.after(50, self._bottom); return body
-
-    def add_tool_log(self, name, status):
-        f = ctk.CTkFrame(self, fg_color="transparent"); f.pack(fill="x", padx=40, pady=(1,0))
-        ctk.CTkLabel(f, text=f"  🔧 {name}: {status}", font=("JetBrains Mono",10),
-                     text_color=C["orange"], wraplength=660, justify="left", anchor="w").pack(fill="x", anchor="w")
-        self.widgets.append(f); self.after(50, self._bottom)
-
-    def clear(self):
-        for w in self.widgets: w.destroy()
-        self.widgets.clear()
-
-    def _bottom(self):
-        self._parent_canvas.yview_moveto(1.0)
-
-class App(ctk.CTk):
-    def __init__(self):
-        super().__init__()
-        self.title("반도체 AI 개인비서"); self.geometry("1100x720"); self.minsize(800,500); self.configure(fg_color=C["bg"])
-        self.cur_model="dev"; self.api_key=""; self.chats=[]; self.chat_id=None
-        self.generating=False; self.stream_lbl=None; self.stream_buf=""
-        self.settings={"stream":True,"sys_prompt":True,"auto_tools":True,
-            "sys_msg":"당신은 SK Hynix 반도체 전문 AI 비서입니다. 한국어로 정확하고 실용적인 답변을 제공합니다. 사용자가 파일, 엑셀, 코드 관련 요청을 하면 제공된 도구(tools)를 적극 활용하세요.",
-            "temperature":0.7,"work_dir":str(BASE_DIR)}
-        self.llm = LLMClient()
-        self._load_token(); self._load_history(); self._set_work_dir(self.settings["work_dir"])
-        self._build(); self._refresh_models(); self._refresh_history(); self._refresh_api()
-        self.after(200, lambda: self.inp.focus())
-        self.protocol("WM_DELETE_WINDOW", self._quit)
-
-    def _build(self):
-        self.grid_columnconfigure(1, weight=1); self.grid_rowconfigure(0, weight=1)
-        self._build_sb(); self._build_main()
-
-    def _build_sb(self):
-        sb = ctk.CTkFrame(self, width=250, fg_color=C["bg1"], corner_radius=0, border_width=1, border_color=C["border"])
-        sb.grid(row=0, column=0, sticky="nsw"); sb.grid_propagate(False)
-        lf = ctk.CTkFrame(sb, fg_color="transparent"); lf.pack(fill="x", padx=14, pady=(14,0))
-        ctk.CTkLabel(lf, text="🤖", font=("",28)).pack(side="left", padx=(0,8))
-        tf = ctk.CTkFrame(lf, fg_color="transparent"); tf.pack(side="left")
-        ctk.CTkLabel(tf, text="반도체 AI 개인비서", font=("Noto Sans KR",15,"bold"), text_color=C["text"]).pack(anchor="w")
-        ctk.CTkLabel(tf, text=f"도구 {tool_count()}개 · 자동 모드", font=("JetBrains Mono",9), text_color=C["text3"]).pack(anchor="w")
-        ctk.CTkFrame(sb, height=1, fg_color=C["border"]).pack(fill="x", padx=14, pady=10)
-        ctk.CTkLabel(sb, text="MODEL", font=("JetBrains Mono",9,"bold"), text_color=C["text3"]).pack(anchor="w", padx=16)
-        self.m_btns = {}
-        for mid, mc in MODELS.items():
-            btn = ctk.CTkButton(sb, text=f"  ● {mc['name']}", anchor="w", height=36, font=("JetBrains Mono",11), fg_color="transparent", hover_color=C["bg4"], text_color=C["text2"], command=lambda m=mid: self._sel_model(m))
-            btn.pack(fill="x", padx=10, pady=1); self.m_btns[mid] = btn
-        ctk.CTkFrame(sb, height=1, fg_color=C["border"]).pack(fill="x", padx=14, pady=10)
-        ctk.CTkLabel(sb, text="TOOLS", font=("JetBrains Mono",9,"bold"), text_color=C["text3"]).pack(anchor="w", padx=16)
-        ne=sum(1 for t in ALL_TOOLS if "excel" in t["function"]["name"]); nf=sum(1 for t in ALL_TOOLS if "file" in t["function"]["name"]); nc=sum(1 for t in ALL_TOOLS if "code" in t["function"]["name"]); np=sum(1 for t in ALL_TOOLS if "pptx" in t["function"]["name"])
-        ctk.CTkLabel(sb, text=f"📊Excel {ne} 📁File {nf} 🔍Code {nc} 📑PPT {np}", font=("JetBrains Mono",9), text_color=C["text2"]).pack(anchor="w", padx=16, pady=(2,0))
-        self.mode_lbl = ctk.CTkLabel(sb, text="⚡ 자동: 대기", font=("JetBrains Mono",9), text_color=C["text3"])
-        self.mode_lbl.pack(anchor="w", padx=16, pady=(4,0))
-        self.dir_btn = ctk.CTkButton(sb, text="📂 작업폴더 변경", anchor="w", height=30, font=("JetBrains Mono",10), fg_color=C["bg3"], hover_color=C["bg4"], text_color=C["text2"], border_width=1, border_color=C["border"], command=self._change_dir)
-        self.dir_btn.pack(fill="x", padx=10, pady=(6,0))
-        self.dir_lbl = ctk.CTkLabel(sb, text=self.settings["work_dir"], font=("JetBrains Mono",8), text_color=C["text3"], wraplength=220, justify="left")
-        self.dir_lbl.pack(anchor="w", padx=16, pady=(2,0))
-        ctk.CTkFrame(sb, height=1, fg_color=C["border"]).pack(fill="x", padx=14, pady=10)
-        hf = ctk.CTkFrame(sb, fg_color="transparent"); hf.pack(fill="x", padx=14)
-        ctk.CTkLabel(hf, text="HISTORY", font=("JetBrains Mono",9,"bold"), text_color=C["text3"]).pack(side="left")
-        ctk.CTkButton(hf, text="+ New", width=56, height=24, font=("JetBrains Mono",10), fg_color=C["bg3"], hover_color=C["bg4"], text_color=C["text2"], command=self._new_chat).pack(side="right")
-        self.hist_frame = ctk.CTkScrollableFrame(sb, fg_color="transparent", corner_radius=0)
-        self.hist_frame.pack(fill="both", expand=True, padx=6, pady=(4,0))
-        bot = ctk.CTkFrame(sb, fg_color="transparent"); bot.pack(fill="x", side="bottom", padx=10, pady=10)
-        self.api_btn = ctk.CTkButton(bot, text="🔑 API Key", anchor="w", height=30, font=("JetBrains Mono",10), fg_color=C["bg3"], hover_color=C["bg4"], text_color=C["text2"], border_width=1, border_color=C["border"], command=self._api_dialog)
-        self.api_btn.pack(fill="x", pady=(0,6))
-        sf = ctk.CTkFrame(bot, fg_color="transparent"); sf.pack(fill="x")
-        self.tog = {}
-        for key, label in [("stream","Stream"),("sys_prompt","SysPrompt"),("auto_tools","Auto Tools")]:
-            r = ctk.CTkFrame(sf, fg_color="transparent"); r.pack(fill="x", pady=1)
-            ctk.CTkLabel(r, text=label, font=("JetBrains Mono",10), text_color=C["text2"]).pack(side="left")
-            v = ctk.BooleanVar(value=self.settings[key]); self.tog[key] = v
-            ctk.CTkSwitch(r, text="", variable=v, width=40, height=20, switch_width=36, switch_height=18, command=lambda k=key: self._toggle(k)).pack(side="right")
-
-    def _build_main(self):
-        main = ctk.CTkFrame(self, fg_color=C["bg"], corner_radius=0); main.grid(row=0, column=1, sticky="nsew")
-        main.grid_rowconfigure(1, weight=1); main.grid_columnconfigure(0, weight=1)
-        top = ctk.CTkFrame(main, height=44, fg_color=C["bg1"], corner_radius=0); top.grid(row=0, column=0, sticky="ew"); top.grid_propagate(False)
-        ti = ctk.CTkFrame(top, fg_color="transparent"); ti.pack(fill="both", expand=True, padx=14)
-        self.top_m = ctk.CTkLabel(ti, text="", font=("JetBrains Mono",11,"bold")); self.top_m.pack(side="left")
-        self.top_t = ctk.CTkLabel(ti, text="New Chat", font=("Noto Sans KR",12), text_color=C["text2"]); self.top_t.pack(side="left", padx=(12,0))
-        self.top_mode = ctk.CTkLabel(ti, text="", font=("JetBrains Mono",9), text_color=C["text3"]); self.top_mode.pack(side="left", padx=(10,0))
-        for txt, cmd in [("↓",self._export),("✕",self._clear_chat),("⚙",self._sys_dialog)]:
-            ctk.CTkButton(ti, text=txt, width=30, height=28, font=("",14), fg_color="transparent", hover_color=C["bg4"], text_color=C["text2"], command=cmd).pack(side="right", padx=2)
-        ctk.CTkFrame(main, height=1, fg_color=C["border"]).grid(row=0, column=0, sticky="sew")
-        self.chat = ChatDisplay(main); self.chat.grid(row=1, column=0, sticky="nsew"); self._show_welcome()
-        inp_f = ctk.CTkFrame(main, fg_color=C["bg1"], corner_radius=0, height=90); inp_f.grid(row=2, column=0, sticky="sew"); inp_f.grid_propagate(False)
-        ctk.CTkFrame(inp_f, height=1, fg_color=C["border"]).pack(fill="x")
-        box = ctk.CTkFrame(inp_f, fg_color=C["bg3"], corner_radius=10, border_width=1, border_color=C["border"]); box.pack(fill="x", padx=16, pady=(10,4), ipady=2)
-        self.inp = ctk.CTkTextbox(box, height=38, font=("Noto Sans KR",13), fg_color="transparent", text_color=C["text"], border_width=0, wrap="word")
-        self.inp.pack(side="left", fill="both", expand=True, padx=(8,0), pady=4); self.inp.bind("<Return>", self._on_enter)
-        self.attach_btn = ctk.CTkButton(box, text="📎", width=34, height=34, font=("",14), fg_color=C["bg4"], hover_color=C["bg3"], text_color=C["text2"], corner_radius=8, command=self._attach_file)
-        self.attach_btn.pack(side="right", padx=(0,2), pady=4)
-        self.send_btn = ctk.CTkButton(box, text="▶", width=38, height=34, font=("",14), fg_color=C["dev"], hover_color=C["bg4"], text_color=C["bg"], corner_radius=8, command=self._send)
-        self.send_btn.pack(side="right", padx=6, pady=4)
-        hf = ctk.CTkFrame(inp_f, fg_color="transparent"); hf.pack(fill="x", padx=20)
-        ctk.CTkLabel(hf, text="Enter 전송 · Shift+Enter 줄바꿈 · 📎 파일분석 · /tools 목록", font=("JetBrains Mono",9), text_color=C["text3"]).pack(side="left")
-        self.status = ctk.CTkLabel(hf, text="", font=("JetBrains Mono",9), text_color=C["text3"]); self.status.pack(side="right")
-
-    def _show_welcome(self):
-        self.chat.clear()
-        w = ctk.CTkFrame(self.chat, fg_color="transparent"); w.pack(expand=True, pady=60)
-        ctk.CTkLabel(w, text="🤖", font=("",48)).pack()
-        ctk.CTkLabel(w, text="반도체 AI 개인비서", font=("Noto Sans KR",22,"bold"), text_color=C["text"]).pack(pady=(8,4))
-        ctk.CTkLabel(w, text=f"SK Hynix 내부 LLM · 내장 도구 {tool_count()}개 · 자동 모드 전환", font=("Noto Sans KR",12), text_color=C["text2"]).pack()
-        ctk.CTkLabel(w, text="일반 대화 → 💬 채팅  |  파일/엑셀/코드/PPT → 🔧 도구 (자동)  |  📎 파일 첨부", font=("JetBrains Mono",10), text_color=C["text3"]).pack(pady=(4,0))
-        qf = ctk.CTkFrame(w, fg_color="transparent"); qf.pack(pady=24)
-        for i,(ico,txt) in enumerate([("📊","이 폴더 엑셀 파일 목록 보여줘"),("🔍","main.py 코드 분석해줘"),("📎","파일 첨부해서 분석하기"),("📁","프로젝트 폴더 구조 보여줘")]):
-            r,c=divmod(i,2)
-            cmd = self._attach_file if "첨부" in txt else lambda t=txt: self._quick(t)
-            ctk.CTkButton(qf, text=f" {ico}  {txt}", anchor="w", width=220, height=42, font=("Noto Sans KR",11), fg_color=C["bg2"], hover_color=C["bg4"], text_color=C["text2"], border_width=1, border_color=C["border"], command=cmd).grid(row=r, column=c, padx=4, pady=3)
-
-    def _sel_model(self, mid): self.cur_model=mid; self._refresh_models()
-    def _refresh_models(self):
-        for mid, btn in self.m_btns.items():
-            m = MODELS[mid]
-            if mid == self.cur_model:
-                btn.configure(fg_color=m["dim"], text_color=m["color"], border_width=1, border_color=m["ab"])
-            else:
-                btn.configure(fg_color="transparent", text_color=C["text2"], border_width=0, border_color=C["bg1"])
-        m = MODELS[self.cur_model]; self.top_m.configure(text=m["name"], text_color=m["color"]); self.send_btn.configure(fg_color=m["color"])
-
-    def _cur(self): return next((c for c in self.chats if c["id"]==self.chat_id), None)
-    def _new_chat(self):
-        ch={"id":f"{int(time.time())}_{len(self.chats)}","title":"New Chat","model":self.cur_model,"msgs":[]}
-        self.chats.insert(0,ch); self.chat_id=ch["id"]; self._show_welcome(); self._refresh_history(); self.inp.focus()
-    def _sel_chat(self, cid):
-        self.chat_id=cid; ch=self._cur()
-        if ch: self.cur_model=ch.get("model","dev"); self._refresh_models(); self._render(ch)
-        self._refresh_history()
-    def _del_chat(self, cid):
-        self.chats=[c for c in self.chats if c["id"]!=cid]
-        if self.chat_id==cid:
-            self.chat_id=self.chats[0]["id"] if self.chats else None
-            if self.chat_id: self._render(self._cur())
-            else: self._show_welcome()
-        self._refresh_history(); self._save_history()
-    def _clear_chat(self):
-        ch=self._cur()
-        if ch: ch["msgs"]=[]; ch["title"]="New Chat"; self._show_welcome(); self._refresh_history(); self._save_history()
-    def _render(self, ch):
-        self.chat.clear()
-        if not ch or not ch["msgs"]: self._show_welcome(); return
-        for m in ch["msgs"]: self.chat.add_msg(m["role"], m["content"], m.get("time",""))
-    def _refresh_history(self):
-        for w in self.hist_frame.winfo_children(): w.destroy()
-        self.top_t.configure(text=self._cur()["title"] if self._cur() else "New Chat")
-        for ch in self.chats:
-            f=ctk.CTkFrame(self.hist_frame, fg_color="transparent"); f.pack(fill="x", pady=1)
-            act=ch["id"]==self.chat_id
-            ctk.CTkButton(f, text=f"💬 {ch['title'][:28]}", anchor="w", height=28, font=("Noto Sans KR",10), fg_color=C["bg3"] if act else "transparent", hover_color=C["bg4"], text_color=C["text"] if act else C["text2"], command=lambda i=ch["id"]: self._sel_chat(i)).pack(side="left", fill="x", expand=True)
-            ctk.CTkButton(f, text="✕", width=22, height=22, font=("",10), fg_color="transparent", hover_color=C["bg4"], text_color=C["text3"], command=lambda i=ch["id"]: self._del_chat(i)).pack(side="right")
-
-    def _on_enter(self, e):
-        if e.state & 0x1: return
-        self._send(); return "break"
-
-    def _send(self):
-        if self.generating: self.llm.cancel(); self._set_gen(False); return
-        text=self.inp.get("1.0","end").strip()
-        if not text: return
-        self.inp.delete("1.0","end")
-        if text=="/tools": self.chat.clear(); self.chat.add_msg("assistant", tool_summary()); return
-        if not self.api_key: self._api_dialog(); return
-        if not self.chat_id: self._new_chat()
-        ch=self._cur(); ch["model"]=self.cur_model; ts=datetime.now().strftime("%H:%M")
-        ch["msgs"].append({"role":"user","content":text,"time":ts})
-        if len(ch["msgs"])==1: ch["title"]=text[:32]+("..." if len(text)>32 else ""); self._refresh_history()
-        if len(ch["msgs"])==1: self.chat.clear()
-        self.chat.add_msg("user", text, ts)
-        use_tools = needs_tools(text) if self.settings["auto_tools"] else False
-        self._set_mode("🔧 도구 모드" if use_tools else "💬 채팅 모드")
-        self._set_gen(True); self._call_llm(ch, use_tools)
-
-    def _quick(self, text):
-        if not self.chat_id: self._new_chat()
-        self.inp.delete("1.0","end"); self.inp.insert("1.0",text); self._send()
-    def _set_mode(self, t): self.mode_lbl.configure(text=f"⚡ {t}"); self.top_mode.configure(text=t)
-
-    def _call_llm(self, ch, use_tools):
-        model=MODELS[self.cur_model]; msgs=[]
-        if self.settings["sys_prompt"] and self.settings["sys_msg"]:
-            sm=self.settings["sys_msg"]
-            if use_tools: sm+=f"\n\n[도구 모드] 제공된 도구를 적극 사용하세요. 작업 폴더: {self.settings['work_dir']}"
-            msgs.append({"role":"system","content":sm})
-        ctx=[m for m in ch["msgs"] if m["role"] in ("user","assistant")][-20:]
-        msgs.extend({"role":m["role"],"content":m["content"]} for m in ctx)
-        tools=ALL_TOOLS if use_tools else None
-        self.stream_buf=""; self.stream_lbl=self.chat.add_stream()
-        def on_chunk(d): self.stream_buf+=d; self.after(0, lambda: self._upd(self.stream_buf))
-        def on_done(full):
-            ts=datetime.now().strftime("%H:%M"); final=full or self.stream_buf
-            ch["msgs"].append({"role":"assistant","content":final,"time":ts})
-            self.after(0, lambda: (self._set_gen(False), self._render(ch), self._save_history()))
-        def on_error(err):
-            ts=datetime.now().strftime("%H:%M"); ch["msgs"].append({"role":"assistant","content":f"⚠️ 오류: {err}\n\n모델: {model['name']}","time":ts})
-            self.after(0, lambda: (self._set_gen(False), self._render(ch)))
-        def on_tool_log(name, args, result):
-            self.after(0, lambda: self.chat.add_tool_log(name, result[:150]))
-            self.after(0, lambda: self._upd(f"🔧 {name} 완료, 분석 중..."))
-        self.llm.api_key=self.api_key
-        self.llm.chat_threaded(url=model["url"],model=model["model"],messages=msgs,max_tokens=model["max_tokens"],temperature=self.settings["temperature"],stream=self.settings["stream"],tools=tools,tool_executor=call_tool if use_tools else None,on_chunk=on_chunk,on_done=on_done,on_error=on_error,on_tool_log=on_tool_log)
-
-    def _upd(self, text):
-        if self.stream_lbl and self.stream_lbl.winfo_exists():
-            d=text if len(text)<=2000 else text[-2000:]
-            self.stream_lbl.configure(text=d, text_color=C["text"]); self.chat._bottom()
-    def _set_gen(self, v):
-        self.generating=v
-        if v: self.send_btn.configure(text="■", fg_color=C["red"]); self.status.configure(text="생성 중...")
-        else: self.send_btn.configure(text="▶", fg_color=MODELS[self.cur_model]["color"]); self.status.configure(text=""); self.stream_lbl=None; self.stream_buf=""
-
-    # ─── File Attach ───
-    def _attach_file(self):
-        """파일 선택 → 자동 분석 요청."""
-        filetypes = [
-            ("데이터 파일", "*.csv *.xlsx *.xls *.pptx *.ppt"),
-            ("CSV", "*.csv"), ("Excel", "*.xlsx *.xls"),
-            ("PowerPoint", "*.pptx *.ppt"),
-            ("모든 파일", "*.*"),
-        ]
-        paths = filedialog.askopenfilenames(title="📎 분석할 파일 선택", filetypes=filetypes,
-                                            initialdir=self.settings["work_dir"])
-        if not paths:
-            return
-
-        import shutil
-        attached = []
-        for fp in paths:
-            fname = os.path.basename(fp)
-            dest = os.path.join(self.settings["work_dir"], fname)
-            # 작업폴더에 없으면 복사
-            if os.path.abspath(fp) != os.path.abspath(dest):
-                try:
-                    shutil.copy2(fp, dest)
-                except Exception:
-                    dest = fp  # 복사 실패시 원본 경로 사용
-            attached.append(fname)
-
-        # 파일별 분석 프롬프트 자동 생성
-        prompts = []
-        for fname in attached:
-            ext = os.path.splitext(fname)[1].lower()
-            if ext in (".csv", ".xlsx", ".xls"):
-                prompts.append(f"'{fname}' 파일의 정보와 통계를 분석해줘. 컬럼 구조, 행 수, 숫자 컬럼 통계를 보여줘.")
-            elif ext in (".pptx", ".ppt"):
-                prompts.append(f"'{fname}' PPT 파일의 슬라이드 구조와 주요 내용을 분석해줘.")
-            else:
-                prompts.append(f"'{fname}' 파일 내용을 읽어서 분석해줘.")
-
-        full_prompt = "\n".join(prompts)
-
-        # 상태 표시
-        names = ", ".join(attached)
-        self.status.configure(text=f"📎 {names}")
-
-        # 입력창에 넣고 전송
-        if not self.chat_id:
-            self._new_chat()
-        self.inp.delete("1.0", "end")
-        self.inp.insert("1.0", full_prompt)
-        self._send()
-
-    def _change_dir(self):
-        d=filedialog.askdirectory(title="작업 폴더 선택", initialdir=self.settings["work_dir"])
-        if d: self.settings["work_dir"]=d; self._set_work_dir(d); self.dir_btn.configure(text=f"📂 {Path(d).name}"); self.dir_lbl.configure(text=d)
-    def _set_work_dir(self, d):
-        from tools.excel_tool import set_work_dir as e; from tools.file_tool import set_work_dir as f; from tools.code_tool import set_work_dir as c; from tools.pptx_tool import set_work_dir as p
-        e(d); f(d); c(d); p(d)
-    def _load_token(self):
-        if TOKEN_PATH.exists(): self.api_key=TOKEN_PATH.read_text().strip()
-        self.llm.api_key=self.api_key
-    def _api_dialog(self):
-        d=ctk.CTkInputDialog(text="TOKEN.TXT 또는 API Key:", title="🔑 API Key"); v=d.get_input()
-        if v and v.strip(): self.api_key=v.strip(); self.llm.api_key=self.api_key; TOKEN_PATH.write_text(self.api_key); self._refresh_api()
-    def _refresh_api(self):
-        if self.api_key: self.api_btn.configure(text=f"🟢 {self.api_key[:8]}...", text_color=C["green"])
-        else: self.api_btn.configure(text="🔴 API Key 설정", text_color=C["red"])
-    def _sys_dialog(self):
-        w=ctk.CTkToplevel(self); w.title("⚙ System Prompt"); w.geometry("480x300"); w.configure(fg_color=C["bg1"]); w.transient(self)
-        ctk.CTkLabel(w, text="System Message", font=("JetBrains Mono",10), text_color=C["text2"]).pack(anchor="w", padx=16, pady=(16,4))
-        tb=ctk.CTkTextbox(w, height=120, font=("Noto Sans KR",12), fg_color=C["bg3"], text_color=C["text"]); tb.pack(fill="x", padx=16); tb.insert("1.0", self.settings["sys_msg"])
-        ctk.CTkLabel(w, text="Temperature", font=("JetBrains Mono",10), text_color=C["text2"]).pack(anchor="w", padx=16, pady=(10,4))
-        te=ctk.CTkEntry(w, font=("JetBrains Mono",12), fg_color=C["bg3"], width=80); te.pack(anchor="w", padx=16); te.insert(0, str(self.settings["temperature"]))
-        def save():
-            self.settings["sys_msg"]=tb.get("1.0","end").strip()
-            try: self.settings["temperature"]=float(te.get())
-            except: pass
-            w.destroy()
-        ctk.CTkButton(w, text="저장", width=80, fg_color=C["dev"], text_color=C["bg"], command=save).pack(pady=14)
-    def _toggle(self, k): self.settings[k]=self.tog[k].get()
-    def _export(self):
-        ch=self._cur()
-        if not ch or not ch["msgs"]: return
-        p=filedialog.asksaveasfilename(defaultextension=".md",filetypes=[("Markdown","*.md")],initialfile=f"chat_{ch['id']}.md")
-        if not p: return
-        md=f"# {ch['title']}\n> {MODELS.get(ch['model'],{}).get('name','')}\n\n"
-        for m in ch["msgs"]:
-            r="👤 You" if m["role"]=="user" else "🤖 AI 비서"
-            md+=f"### {r}\n\n{m['content']}\n\n---\n\n"
-        with open(p,"w",encoding="utf-8") as f: f.write(md)
-        self.status.configure(text="✓ 내보내기 완료")
-    def _save_history(self):
-        try:
-            with open(HISTORY_PATH,"w",encoding="utf-8") as f: json.dump(self.chats[:50],f,ensure_ascii=False)
-        except: pass
-    def _load_history(self):
-        try:
-            if HISTORY_PATH.exists(): self.chats=json.loads(HISTORY_PATH.read_text())
-            if self.chats: self.chat_id=self.chats[0]["id"]
-        except: self.chats=[]
-    def _quit(self): self._save_history(); self.destroy()
-
-if __name__=="__main__":
-    App().mainloop()
