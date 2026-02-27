@@ -11,6 +11,7 @@ CMN.CMN.UDP_MESSAGE_MONITORING=TRUE
 # [M14A]
 # --- function switch ---
 M14A.A.HID_OFF=TRUE
+M14A.A.HID_INOUT=TRUE
 M14A.A.VHL_OFF=TRUE
 M14A.A.RAIL_CUT=TRUE
 M14A.A.MAP_FILE_REFRESH=TRUE
@@ -71,6 +72,7 @@ M14A.oht.A.ftp.layout=/home/mcp7/mcp7/item/HYNIX_M14/cfg_save/OHT/layout.zip
 # [M14B]
 # --- function switch ---
 M14B.A.HID_OFF=FALSE
+M14B.A.HID_INOUT=TRUE
 M14B.A.VHL_OFF=FALSE
 M14B.A.RAIL_CUT=FALSE
 M14B.A.MAP_FILE_REFRESH=FALSE
@@ -107,6 +109,7 @@ M14B.oht.A.ftp.layout=/home/mcp7/mcp7/item/HYNIX_M14B/cfg_save/OHT/layout.zip
 # [M16A]
 # --- function switch ---
 M16A.A.HID_OFF=FALSE
+M16A.A.HID_INOUT=TRUE
 M16A.A.VHL_OFF=FALSE
 M16A.A.RAIL_CUT=FALSE
 M16A.A.MAP_FILE_REFRESH=FALSE
@@ -144,6 +147,7 @@ M16A.oht.A.ftp.layout=/home/mcp7/mcp7/item/HYNIX_M16_6F/cfg_save/OHT_6F/layout.z
 # [M16A:E]
 # --- function switch ---
 M16A.E.HID_OFF=FALSE
+M16A.E.HID_INOUT=TRUE
 M16A.E.VHL_OFF=FALSE
 M16A.E.RAIL_CUT=FALSE
 M16A.E.MAP_FILE_REFRESH=FALSE
@@ -169,6 +173,7 @@ M16A.oht.E.ftp.layout=/home/mcp7/mcp7/item/HYNIX_M16_2F/cfg_save/OHT_2F/layout.z
 # [M16A:BR]
 # --- function switch ---
 M16A.BR.HID_OFF=FALSE
+M16A.BR.HID_INOUT=TRUE
 M16A.BR.VHL_OFF=FALSE
 M16A.BR.RAIL_CUT=FALSE
 M16A.BR.MAP_FILE_REFRESH=FALSE
@@ -193,6 +198,7 @@ M16A.oht.BR.ftp.layout=/home/mcp7/mcp7/item/HYNIX_M16_3F/cfg_save/OHT_3F/layout.
 # [M16B]
 # --- function switch ---
 M16B.B.HID_OFF=FALSE
+M16B.B.HID_INOUT=TRUE
 M16B.B.VHL_OFF=FALSE
 M16B.B.RAIL_CUT=FALSE
 M16B.B.MAP_FILE_REFRESH=FALSE
