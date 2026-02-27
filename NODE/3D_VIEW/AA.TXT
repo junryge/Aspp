@@ -1,849 +1,1320 @@
-#!/usr/bin/env python3
-# -*- coding: utf-8 -*-
-"""
-채팅 패널 - AI 응답 표시 + 입력 (모던 UI)
-멀티라인 입력 지원: Enter=전송, Shift+Enter=줄바꿈
-"""
-
-from PySide6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QTextBrowser, QTextEdit,
-    QPushButton, QCheckBox, QLabel, QMenu, QApplication, QComboBox
-)
-from PySide6.QtCore import Signal, Qt, QSize
-from PySide6.QtGui import QAction, QKeyEvent, QTextOption
-from .theme import COLORS
-import re
-
-
-def _make_korean_menu_style():
-    return f"""
-        QMenu {{
-            background-color: {COLORS['surface']};
-            color: {COLORS['text']};
-            border: 1px solid {COLORS['border']};
-            border-radius: 6px;
-            padding: 4px;
-            font-size: 12px;
-        }}
-        QMenu::item {{
-            padding: 6px 24px;
-            border-radius: 4px;
-        }}
-        QMenu::item:selected {{
-            background-color: {COLORS['primary']};
-            color: white;
-        }}
-        QMenu::item:disabled {{
-            color: {COLORS['text_muted']};
-        }}
-        QMenu::separator {{
-            height: 1px;
-            background: {COLORS['border']};
-            margin: 4px 8px;
-        }}
-    """
-
-
-class KoreanTextInput(QTextEdit):
-    """멀티라인 한글 입력 위젯
-    - Enter: 전송
-    - Shift+Enter: 줄바꿈
-    - 내용에 따라 높이 자동 조절 (최소 38px ~ 최대 200px)
-    """
-    enter_pressed = Signal()  # Enter 키로 전송 요청
-
-    MIN_HEIGHT = 38
-    MAX_HEIGHT = 200
-
-    def __init__(self, parent=None):
-        super().__init__(parent)
-        self.setAcceptRichText(False)  # 일반 텍스트만
-        self.setWordWrapMode(QTextOption.WrapAtWordBoundaryOrAnywhere)
-        self.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
-        self.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-        self.setFixedHeight(self.MIN_HEIGHT)
-        self.document().contentsChanged.connect(self._adjust_height)
-        self._placeholder = ""
-
-    def setPlaceholderText(self, text: str):
-        """플레이스홀더 텍스트 설정"""
-        self._placeholder = text
-        super().setPlaceholderText(text)
-
-    def text(self) -> str:
-        """QLineEdit 호환: 텍스트 반환"""
-        return self.toPlainText()
-
-    def clear(self):
-        """텍스트 초기화 및 높이 리셋"""
-        super().clear()
-        self.setFixedHeight(self.MIN_HEIGHT)
-
-    def keyPressEvent(self, event: QKeyEvent):
-        """Enter=전송, Shift+Enter=줄바꿈"""
-        if event.key() in (Qt.Key_Return, Qt.Key_Enter):
-            if event.modifiers() & Qt.ShiftModifier:
-                # Shift+Enter → 줄바꿈
-                super().keyPressEvent(event)
-            else:
-                # Enter → 전송
-                self.enter_pressed.emit()
-                return
-        else:
-            super().keyPressEvent(event)
-
-    def _adjust_height(self):
-        """내용에 따라 높이 자동 조절"""
-        doc_height = int(self.document().size().height()) + 12  # 패딩
-        new_height = max(self.MIN_HEIGHT, min(doc_height, self.MAX_HEIGHT))
-        if new_height != self.height():
-            self.setFixedHeight(new_height)
-
-    def contextMenuEvent(self, event):
-        menu = QMenu(self)
-        menu.setStyleSheet(_make_korean_menu_style())
-
-        undo_act = menu.addAction("되돌리기")
-        undo_act.setEnabled(self.document().isUndoAvailable())
-        undo_act.triggered.connect(self.undo)
-
-        redo_act = menu.addAction("다시실행")
-        redo_act.setEnabled(self.document().isRedoAvailable())
-        redo_act.triggered.connect(self.redo)
-
-        menu.addSeparator()
-
-        cut_act = menu.addAction("잘라내기")
-        cut_act.setEnabled(self.textCursor().hasSelection())
-        cut_act.triggered.connect(self.cut)
-
-        copy_act = menu.addAction("복사")
-        copy_act.setEnabled(self.textCursor().hasSelection())
-        copy_act.triggered.connect(self.copy)
-
-        paste_act = menu.addAction("붙여넣기")
-        clipboard = QApplication.clipboard()
-        paste_act.setEnabled(bool(clipboard and clipboard.text()))
-        paste_act.triggered.connect(self.paste)
-
-        delete_act = menu.addAction("삭제")
-        delete_act.setEnabled(self.textCursor().hasSelection())
-        delete_act.triggered.connect(lambda: self.textCursor().removeSelectedText())
-
-        menu.addSeparator()
-
-        select_all_act = menu.addAction("전체선택")
-        select_all_act.setEnabled(bool(self.toPlainText()))
-        select_all_act.triggered.connect(self.selectAll)
-
-        menu.exec(event.globalPos())
-
-
-class KoreanTextBrowser(QTextBrowser):
-    """한글 우클릭 메뉴 QTextBrowser"""
-
-    def contextMenuEvent(self, event):
-        menu = QMenu(self)
-        menu.setStyleSheet(_make_korean_menu_style())
-
-        copy_act = menu.addAction("복사")
-        copy_act.setEnabled(self.textCursor().hasSelection())
-        copy_act.triggered.connect(self.copy)
-
-        menu.addSeparator()
-
-        select_all_act = menu.addAction("전체선택")
-        select_all_act.triggered.connect(self.selectAll)
-
-        menu.exec(event.globalPos())
-
-
-class ChatPanel(QWidget):
-    """채팅 패널 (대화 히스토리 누적)"""
-    send_requested = Signal(str, bool, str)  # (메시지, SC 사용여부, 언어)
-
-    MAX_HISTORY = 100  # 최대 보관 메시지 수
-
-    def __init__(self, parent=None):
-        super().__init__(parent)
-        self._messages = []  # 대화 히스토리: [{"role": "user"|"assistant"|"error", "content": str}]
-        self._setup_ui()
-
-    def _setup_ui(self):
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(12, 12, 12, 12)
-        layout.setSpacing(10)
-
-        # 응답 영역
-        self.response_view = KoreanTextBrowser()
-        self.response_view.setOpenExternalLinks(True)
-        self.response_view.setStyleSheet(f"""
-            QTextBrowser {{
-                background-color: {COLORS['darker']};
-                color: {COLORS['text']};
-                border: 1px solid {COLORS['border']};
-                border-radius: 12px;
-                padding: 20px;
-                font-size: 13px;
-            }}
-        """)
-        self.response_view.setHtml(self._welcome_html())
-        layout.addWidget(self.response_view, stretch=1)
-
-        # SC 결과 뱃지 (숨김 상태로 시작)
-        self.sc_badge = QLabel()
-        self.sc_badge.setVisible(False)
-        self.sc_badge.setStyleSheet(f"""
-            background-color: {COLORS['surface']};
-            color: {COLORS['text_dim']};
-            border-radius: 6px;
-            padding: 6px 12px;
-            font-size: 11px;
-        """)
-        layout.addWidget(self.sc_badge)
-
-        # 입력 영역 컨테이너
-        input_container = QWidget()
-        input_container.setStyleSheet(f"""
-            QWidget {{
-                background-color: {COLORS['surface']};
-                border-radius: 12px;
-                border: 1px solid {COLORS['border']};
-            }}
-        """)
-        input_layout = QVBoxLayout(input_container)
-        input_layout.setContentsMargins(8, 8, 8, 8)
-        input_layout.setSpacing(6)
-
-        # 멀티라인 입력 필드
-        self.input_field = KoreanTextInput()
-        self.input_field.setPlaceholderText("질문이나 요청을 입력하세요... (Shift+Enter: 줄바꿈)")
-        self.input_field.setStyleSheet(f"""
-            QTextEdit {{
-                background-color: transparent;
-                color: {COLORS['text']};
-                border: none;
-                padding: 4px 8px;
-                font-size: 14px;
-                font-family: "Segoe UI", "맑은 고딕", sans-serif;
-            }}
-            QScrollBar:vertical {{
-                width: 6px;
-                background: transparent;
-            }}
-            QScrollBar::handle:vertical {{
-                background: {COLORS['border']};
-                border-radius: 3px;
-                min-height: 20px;
-            }}
-            QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{
-                height: 0px;
-            }}
-        """)
-        self.input_field.enter_pressed.connect(self._on_send)
-        input_layout.addWidget(self.input_field)
-
-        # 하단 버튼 바
-        btn_bar = QHBoxLayout()
-        btn_bar.setSpacing(8)
-
-        # 언어 선택 콤보박스
-        self.lang_combo = QComboBox()
-        self.lang_combo.setFixedHeight(32)
-        self.lang_combo.setMinimumWidth(120)
-        languages = [
-            ("Python", "python"),
-            ("C#", "csharp"),
-            ("Java", "java"),
-            ("C++", "cpp"),
-            ("C", "c"),
-            ("Visual Basic", "vb"),
-            ("JavaScript", "javascript"),
-            ("TypeScript", "typescript"),
-            ("React (JSX)", "jsx"),
-            ("React (TSX)", "tsx"),
-            ("HTML/CSS", "html"),
-            ("SQL", "sql"),
-            ("Go", "go"),
-            ("Rust", "rust"),
-            ("Bash/Shell", "bash"),
-            ("기타", "other"),
-        ]
-        for display_name, lang_id in languages:
-            self.lang_combo.addItem(display_name, lang_id)
-        self.lang_combo.setCurrentIndex(0)  # 기본: Python
-        self.lang_combo.setStyleSheet(f"""
-            QComboBox {{
-                background-color: {COLORS['surface']};
-                color: {COLORS['text']};
-                border: 1px solid {COLORS['border']};
-                border-radius: 8px;
-                padding: 4px 10px;
-                font-size: 12px;
-                font-weight: 600;
-            }}
-            QComboBox:hover {{
-                border-color: {COLORS['primary']};
-            }}
-            QComboBox::drop-down {{
-                border: none;
-                width: 20px;
-            }}
-            QComboBox::down-arrow {{
-                image: none;
-                border-left: 4px solid transparent;
-                border-right: 4px solid transparent;
-                border-top: 5px solid {COLORS['text_muted']};
-                margin-right: 6px;
-            }}
-            QComboBox QAbstractItemView {{
-                background-color: {COLORS['surface']};
-                color: {COLORS['text']};
-                border: 1px solid {COLORS['border']};
-                border-radius: 6px;
-                selection-background-color: {COLORS['primary']};
-                selection-color: white;
-                padding: 4px;
-                font-size: 12px;
-            }}
-        """)
-        self.lang_combo.setToolTip("코드 생성/수정 언어 선택")
-        btn_bar.addWidget(self.lang_combo)
-
-        # 힌트 텍스트
-        hint_label = QLabel("Enter 전송 · Shift+Enter 줄바꿈")
-        hint_label.setStyleSheet(f"""
-            font-size: 10px;
-            color: {COLORS['text_muted']};
-            padding-left: 4px;
-        """)
-        btn_bar.addWidget(hint_label)
-
-        btn_bar.addStretch()
-
-        # 초기화 버튼
-        self.clear_btn = QPushButton("초기화")
-        self.clear_btn.setFixedSize(70, 32)
-        self.clear_btn.setStyleSheet(f"""
-            QPushButton {{
-                background-color: {COLORS['surface']};
-                color: {COLORS['text_muted']};
-                border: 1px solid {COLORS['border']};
-                border-radius: 8px;
-                font-weight: 600;
-                font-size: 12px;
-            }}
-            QPushButton:hover {{
-                background-color: {COLORS['red_dim']};
-                color: {COLORS['red']};
-                border-color: {COLORS['red']};
-            }}
-        """)
-        self.clear_btn.setToolTip("대화 히스토리 초기화")
-        self.clear_btn.clicked.connect(self.clear_history)
-        btn_bar.addWidget(self.clear_btn)
-
-        # SC 토글
-        self.sc_check = QCheckBox("자기교정")
-        self.sc_check.setToolTip("Self-Correction: 생성된 코드를 자동 검증")
-        self.sc_check.setStyleSheet(f"""
-            QCheckBox {{
-                color: {COLORS['text_muted']};
-                font-size: 11px;
-                font-weight: 600;
-                spacing: 4px;
-            }}
-            QCheckBox::indicator {{
-                width: 14px;
-                height: 14px;
-                border: 2px solid {COLORS['border_light']};
-                border-radius: 3px;
-                background: {COLORS['darker']};
-            }}
-            QCheckBox::indicator:checked {{
-                background: {COLORS['primary']};
-                border-color: {COLORS['primary']};
-            }}
-        """)
-        btn_bar.addWidget(self.sc_check)
-
-        # 전송 버튼
-        self.send_btn = QPushButton("전송")
-        self.send_btn.setObjectName("primaryBtn")
-        self.send_btn.setFixedSize(70, 32)
-        self.send_btn.setStyleSheet(f"""
-            QPushButton {{
-                background-color: {COLORS['primary']};
-                color: white;
-                border: none;
-                border-radius: 8px;
-                font-weight: 600;
-                font-size: 13px;
-            }}
-            QPushButton:hover {{
-                background-color: {COLORS['primary_hover']};
-            }}
-            QPushButton:disabled {{
-                background-color: {COLORS['surface']};
-                color: {COLORS['text_muted']};
-            }}
-        """)
-        self.send_btn.clicked.connect(self._on_send)
-        btn_bar.addWidget(self.send_btn)
-
-        input_layout.addLayout(btn_bar)
-        layout.addWidget(input_container)
-
-    def get_selected_language(self) -> str:
-        """선택된 언어 ID 반환 (예: 'python', 'csharp', 'java', ...)"""
-        return self.lang_combo.currentData() or "python"
-
-    def get_selected_language_name(self) -> str:
-        """선택된 언어 표시명 반환 (예: 'Python', 'C#', ...)"""
-        return self.lang_combo.currentText()
-
-    def _on_send(self):
-        text = self.input_field.text().strip()
-        if text:
-            use_sc = self.sc_check.isChecked()
-            lang = self.get_selected_language()
-            # 사용자 메시지를 히스토리에 추가
-            self._add_message("user", text)
-            self.send_requested.emit(text, use_sc, lang)
-            self.input_field.clear()
-
-    def _add_message(self, role: str, content: str):
-        """히스토리에 메시지 추가 (최대 MAX_HISTORY)"""
-        self._messages.append({"role": role, "content": content})
-        if len(self._messages) > self.MAX_HISTORY:
-            self._messages = self._messages[-self.MAX_HISTORY:]
-
-    def _render_history(self):
-        """전체 대화 히스토리를 HTML로 렌더링"""
-        if not self._messages:
-            self.response_view.setHtml(self._welcome_html())
-            return
-
-        html_parts = []
-        for msg in self._messages:
-            if msg["role"] == "user":
-                html_parts.append(f"""
-                    <div style="margin:8px 0; padding:12px 16px; background:{COLORS['surface']};
-                                border-radius:10px; border:1px solid {COLORS['border']};">
-                        <span style="color:{COLORS['primary']}; font-weight:bold; font-size:12px;">You</span>
-                        <p style="margin:4px 0 0 0; color:{COLORS['text']}; font-size:13px;">{msg['content'].replace('<', '&lt;').replace('>', '&gt;').replace(chr(10), '<br>')}</p>
-                    </div>
-                """)
-            elif msg["role"] == "error":
-                html_parts.append(f"""
-                    <div style="margin:8px 0; padding:12px 16px; background:{COLORS['red_dim']};
-                                border:1px solid {COLORS['red']}; border-radius:10px;">
-                        <p style="color:{COLORS['red']}; font-weight:bold; font-size:12px;">Error</p>
-                        <p style="margin:4px 0 0 0; color:{COLORS['text']}; font-size:13px;">{msg['content']}</p>
-                    </div>
-                """)
-            else:
-                # assistant - 마크다운 변환
-                converted = self._markdown_to_html_body(msg["content"])
-                html_parts.append(f"""
-                    <div style="margin:8px 0; padding:12px 16px;">
-                        <span style="color:{COLORS['green']}; font-weight:bold; font-size:12px;">Nomos</span>
-                        <div style="margin:4px 0 0 0;">{converted}</div>
-                    </div>
-                """)
-
-        styled = self._wrap_with_style("\n".join(html_parts))
-        self.response_view.setHtml(styled)
-
-        # 스크롤을 맨 아래로 이동
-        scrollbar = self.response_view.verticalScrollBar()
-        scrollbar.setValue(scrollbar.maximum())
-
-    def show_response(self, result: dict):
-        """LLM 응답 표시 (히스토리 누적)"""
-        answer = result.get("answer", result.get("content", ""))
-
-        # SC 정보 표시
-        if result.get("use_sc"):
-            retry = result.get("retry_count", 0)
-            is_valid = result.get("is_valid", False)
-            badge_color = COLORS['green'] if is_valid else COLORS['red']
-            badge_text = "통과" if is_valid else "실패"
-            self.sc_badge.setText(f"자기교정: {badge_text} (시도 {retry}회)")
-            self.sc_badge.setStyleSheet(f"""
-                background-color: {badge_color}22;
-                color: {badge_color};
-                border: 1px solid {badge_color};
-                border-radius: 6px;
-                padding: 6px 12px;
-                font-size: 11px;
-                font-weight: bold;
-            """)
-            self.sc_badge.setVisible(True)
-        else:
-            self.sc_badge.setVisible(False)
-
-        # 응답을 히스토리에 추가하고 전체 렌더링
-        self._add_message("assistant", answer)
-        self._render_history()
-
-    def show_loading(self, text: str = "처리 중..."):
-        """로딩 표시 (히스토리 위에 로딩 인디케이터 추가)"""
-        self.send_btn.setEnabled(False)
-        self.input_field.setEnabled(False)
-
-        # 기존 히스토리 + 로딩 표시
-        self._render_history()
-        current_html = self.response_view.toHtml()
-        loading_html = f"""
-            <div style="text-align:center; padding:20px; color:{COLORS['text_muted']};">
-                <p style="font-size:16px; color:{COLORS['primary']};">...</p>
-                <p style="font-size:12px; margin-top:4px;">{text}</p>
-            </div>
-        """
-        # 간단하게 append
-        self.response_view.append(loading_html)
-        scrollbar = self.response_view.verticalScrollBar()
-        scrollbar.setValue(scrollbar.maximum())
-
-    def show_ready(self):
-        """입력 가능 상태로 복원"""
-        self.send_btn.setEnabled(True)
-        self.input_field.setEnabled(True)
-        self.input_field.setFocus()
-        # 로딩 인디케이터 제거 → 히스토리만 표시
-        self._render_history()
-
-    def show_error(self, error: str):
-        """에러 표시 (히스토리에 추가)"""
-        self._add_message("error", error)
-        self._render_history()
-
-    def get_history_for_llm(self) -> list:
-        """LLM에 전달할 대화 히스토리 반환 (error 제외, 최근 대화만)"""
-        return [
-            {"role": msg["role"], "content": msg["content"]}
-            for msg in self._messages
-            if msg["role"] in ("user", "assistant")
-        ]
-
-    def clear_history(self):
-        """대화 히스토리 초기화"""
-        self._messages.clear()
-        self.response_view.setHtml(self._welcome_html())
-
-    def _highlight_code(self, code: str, lang: str = "") -> str:
-        """코드에 기본 구문 강조 적용 (HTML span 태그)"""
-        # HTML 이스케이프
-        code = code.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
-
-        hl = {
-            'kw': '#c792ea',      # keyword - 보라
-            'str': '#c3e88d',     # string - 연두
-            'num': '#f78c6c',     # number - 주황
-            'cmt': '#6b6e8a',     # comment - 회색
-            'fn': '#82aaff',      # function - 파랑
-            'cls': '#ffcb6b',     # class/type - 노랑
-            'dec': '#ff5370',     # decorator - 빨강
-            'op': '#89ddff',      # operator - 하늘
-            'bi': '#f78c6c',      # builtin - 주황
+public class OhtMsgWorkerRunnable implements Runnable {
+    private static final Logger logger = LoggerFactory.getLogger(OhtMsgWorkerRunnable.class);
+    private static final int MSG_ID_IDX = 0;
+    private final String message;
+    private final long receivedMilli;
+    private final long messageSequence;
+    private final String fabId;
+    private final String facId;
+    private final String mcpName;
+
+    // ========================================================================================
+    // [신규 필드] HID IN/OUT 엣지 기반 집계용
+    // ========================================================================================
+
+    // --- 테이블 3: {FAB}_ATLAS_HID_INOUT 실시간 1분 집계용 ---
+    // Key: "fromHidId:toHidId:fabId:vhlId:eqpId", Value: 전환 횟수
+    private static ConcurrentMap<String, Integer> hidEdgeBuffer =
+        new ConcurrentHashMap<>();
+    private static long lastHidEdgeFlushTime = System.currentTimeMillis();
+    private static final long HID_EDGE_FLUSH_INTERVAL = 60000; // 1분
+    private static final Object hidEdgeFlushLock = new Object();
+    private static final Object hidEdgeBufferLock = new Object();
+
+    // --- 테이블 1,2: 마스터 테이블 하루 1회 업데이트용 ---
+    private static volatile boolean hidMasterUpdatedToday = false;
+    private static String hidMasterLastUpdateDate = "";
+    private static final Object hidMasterUpdateLock = new Object();
+
+    public OhtMsgWorkerRunnable(
+            String fabId,
+            String message,
+            String mcpName,
+            long receivedMilli,
+            long messageSequence
+    ) {
+        FabProperties fabProperties = DataService.getInstance().getFabPropertiesMap().get(fabId);
+
+        this.fabId              = fabId;
+        this.mcpName            = mcpName;
+        this.facId              = fabProperties.getFacId();
+        this.message            = message;
+        this.receivedMilli      = receivedMilli;
+        this.messageSequence    = messageSequence;
+    }
+
+    @Override
+    public void run() {
+        String[] tokens = StringUtils.splitPreserveAllTokens(message, ',');
+
+        if (tokens.length >= 2) {
+            String messageId = tokens[MSG_ID_IDX];
+
+            if (messageId.equals(MSG_ID.VHL_STATE_REPORT)) {
+                this._processOhtReport(tokens);
+            }
+        }
+    }
+
+    @Override
+    public String toString() {
+        return String.format("%s %s %s %s", getClass(), fabId, mcpName, message);
+    }
+
+    private void _processOhtReport(String[] tokens) {
+        Vhl vehicle;
+        ReentrantLock vhlLock;
+        String keyPrefix = this.fabId + ":" + DataSet.VHL_PREFIX + ":" + this.mcpName;
+        ConcurrentMap<String, Vhl> vehicleMap = DataService.getDataSet().getVhlMap();
+
+        if (vehicleMap == null || vehicleMap.isEmpty()) {
+            logger.error("... mapping data of vehicle is empty or null");
+
+            return;
         }
 
-        def _span(color, text):
-            return f'<span style="color:{color};">{text}</span>'
+        if (tokens.length <= VHL_STATE_REPORT.VHL_ID_IDX) {
+            logger.error("... invalid token context, it's not matched index [token length: {}] [message: {}]", tokens.length, message);
 
-        # Python/일반 키워드
-        py_keywords = (
-            r'\b(def|class|if|elif|else|for|while|return|import|from|as|try|except|'
-            r'finally|with|raise|pass|break|continue|yield|lambda|in|not|and|or|is|'
-            r'None|True|False|self|async|await|del|global|nonlocal|assert)\b'
-        )
-        # JS/TS 키워드
-        js_keywords = (
-            r'\b(function|const|let|var|if|else|for|while|return|import|export|from|'
-            r'class|extends|new|this|super|try|catch|finally|throw|async|await|'
-            r'typeof|instanceof|null|undefined|true|false|switch|case|default|break|continue)\b'
-        )
+            return;
+        }
 
-        kw_pattern = js_keywords if lang in ('js', 'javascript', 'ts', 'typescript', 'jsx', 'tsx') else py_keywords
+        String vhlName      = tokens[VHL_STATE_REPORT.VHL_ID_IDX];
+        String vehicleKey   = StringUtils.isNotEmpty(vhlName) ? keyPrefix + ":" + vhlName : "";
+        vehicle             = vehicleMap.get(vehicleKey);
 
-        # 순서가 중요: 문자열/주석을 먼저 처리해서 내부 키워드가 영향 안 받도록
-        tokens = []
-        # 1) 여러줄 문자열 (""" or ''')
-        # 2) 한줄 문자열 (" or ' or `)
-        # 3) 주석 (# or //)
-        # 4) 나머지
-        pattern = re.compile(
-            r'("""[\s\S]*?"""|\'\'\'[\s\S]*?\'\'\')'  # triple-quoted strings
-            r'|("(?:[^"\\]|\\.)*"|\'(?:[^\'\\]|\\.)*\'|`(?:[^`\\]|\\.)*`)'  # single-line strings
-            r'|(#[^\n]*|//[^\n]*|/\*[\s\S]*?\*/)'  # comments
-            r'|([^"\'`#/]+|.)',  # everything else
-            re.DOTALL
-        )
+        if (vehicle == null) {
+            logger.error("... vehicle data is null [key: {}]", vehicleKey);
+        } else {
+            synchronized (vehicle) {
+                try {
+                    long lastMessageSequence = vehicle.getLastMessageSequenceNo().longValue();
 
-        for m in pattern.finditer(code):
-            triple_str, single_str, comment, other = m.groups()
-            if triple_str:
-                tokens.append(_span(hl['str'], triple_str))
-            elif single_str:
-                tokens.append(_span(hl['str'], single_str))
-            elif comment:
-                tokens.append(_span(hl['cmt'], comment))
-            elif other:
-                # 키워드
-                chunk = re.sub(kw_pattern, lambda km: _span(hl['kw'], km.group(0)), other)
-                # 데코레이터 (@...)
-                chunk = re.sub(r'(@\w+)', lambda dm: _span(hl['dec'], dm.group(0)), chunk)
-                # 숫자
-                chunk = re.sub(r'\b(\d+\.?\d*)\b', lambda nm: _span(hl['num'], nm.group(0)), chunk)
-                # 함수 호출 (word 뒤에 괄호)
-                chunk = re.sub(r'\b(\w+)(\()', lambda fm: _span(hl['fn'], fm.group(1)) + fm.group(2), chunk)
-                tokens.append(chunk)
+                    if (lastMessageSequence > this.messageSequence) {
+                        // sequence 역전 현상 발생시 과정 생략
+                        logger.error("... this sequence of message precedes the last sequence of it [current: {} | last: {}] [fab: {} | mcp: {} | message: {}]", this.messageSequence, lastMessageSequence, this.fabId, this.mcpName, this.message);
 
-        return ''.join(tokens)
-
-    def _markdown_to_html_body(self, text: str) -> str:
-        """마크다운 텍스트를 HTML body로 변환 (코드 블록 구문 강조 포함)"""
-        # 1단계: 펜스 코드 블록을 플레이스홀더로 치환 (마크다운 처리 전)
-        code_blocks = []
-        def _extract_code(m):
-            lang = m.group(1).strip()
-            code = m.group(2)
-            idx = len(code_blocks)
-            highlighted = self._highlight_code(code, lang)
-
-            lang_display = lang.upper() if lang else "CODE"
-            lang_colors = {
-                'python': ('#c792ea', 'rgba(199,146,234,0.12)'),
-                'py': ('#c792ea', 'rgba(199,146,234,0.12)'),
-                'javascript': ('#f7df1e', 'rgba(247,223,30,0.12)'),
-                'js': ('#f7df1e', 'rgba(247,223,30,0.12)'),
-                'typescript': ('#3178c6', 'rgba(49,120,198,0.12)'),
-                'ts': ('#3178c6', 'rgba(49,120,198,0.12)'),
-                'html': ('#e34f26', 'rgba(227,79,38,0.12)'),
-                'css': ('#1572b6', 'rgba(21,114,182,0.12)'),
-                'json': ('#f78c6c', 'rgba(247,140,108,0.12)'),
-                'bash': ('#4ade80', 'rgba(74,222,128,0.12)'),
-                'sh': ('#4ade80', 'rgba(74,222,128,0.12)'),
-                'sql': ('#60a5fa', 'rgba(96,165,250,0.12)'),
-                'java': ('#f89820', 'rgba(248,152,32,0.12)'),
-                'c': ('#a8b9cc', 'rgba(168,185,204,0.12)'),
-                'cpp': ('#00599c', 'rgba(0,89,156,0.12)'),
-                'go': ('#00add8', 'rgba(0,173,216,0.12)'),
-                'rust': ('#ff5370', 'rgba(255,83,112,0.12)'),
+                        return;
+                    } else {
+                        vehicle.getLastMessageSequenceNo().set(messageSequence);
+                    }
+                } catch (Exception e) {
+                    logger.error("", e);
+                }
             }
-            lc, lbg = lang_colors.get(lang.lower(), (COLORS['text_muted'], COLORS['surface']))
 
-            block_html = f"""
-<div style="margin:14px 0; border:1px solid {COLORS['border_light']}; border-radius:10px; overflow:hidden;">
-  <div style="background:{COLORS['surface']}; padding:6px 14px; border-bottom:1px solid {COLORS['border']};">
-    <span style="color:{lc}; background:{lbg}; padding:2px 8px; border-radius:4px; font-size:11px; font-weight:700;">{lang_display}</span>
-  </div>
-  <pre style="background:{COLORS['darkest']}; margin:0; padding:14px 16px; overflow-x:auto; font-family:'Consolas','D2Coding','Cascadia Code',monospace; font-size:12px; line-height:1.6; border:none; border-radius:0;"><code style="background:transparent; padding:0; color:{COLORS['text']}; font-size:12px;">{highlighted}</code></pre>
-</div>"""
-            code_blocks.append(block_html)
-            return f"<!--CODEBLOCK_{idx}-->"
+            vhlLock = vehicle.getLock();
 
-        processed = re.sub(r'```(\w*)\n(.*?)```', _extract_code, text, flags=re.DOTALL)
+            if (VHL_STATE.getValue(tokens[VHL_STATE_REPORT.STATE_IDX]) == VHL_STATE.REMOVING) {
+                // `REMOVING` 으로 받을 땐 해당 Vhl 상태 초기화
+                this._updateRemovingVehicle(tokens, vehicle);
+            } else {
+                this._updateVehicle(tokens, vehicle, System.currentTimeMillis());
+            }
 
-        # 2단계: 인라인 코드 처리 (backtick)
-        processed = re.sub(
-            r'`([^`\n]+?)`',
-            lambda m: f'<code style="background:{COLORS["surface_hover"]}; color:{COLORS["peach"]}; '
-                      f'padding:2px 7px; border-radius:4px; font-family:Consolas,D2Coding,monospace; '
-                      f'font-size:12px; border:1px solid {COLORS["border"]};">'
-                      f'{m.group(1).replace("<", "&lt;").replace(">", "&gt;")}</code>',
-            processed
-        )
+            if (vhlLock != null && vhlLock.isHeldByCurrentThread()) {
+                vhlLock.unlock();
+            }
+        }
+    }
 
-        # 3단계: 마크다운 → HTML 변환
-        try:
-            import markdown
-            html = markdown.markdown(processed, extensions=['tables', 'nl2br'])
-        except ImportError:
-            html = self._fallback_markdown(processed)
+    /*
+    vehicle 초기화
+     */
+    private void _updateRemovingVehicle(String[] tokens, Vhl vehicle) {
+        vehicle.copyCurrentVhlUdpStateToLast();
 
-        # 4단계: 코드 블록 플레이스홀더 복원
-        for i, block in enumerate(code_blocks):
-            # <p> 태그로 감싸진 경우 먼저 처리
-            html = html.replace(f"<p><!--CODEBLOCK_{i}--></p>", block)
-            html = html.replace(f"<!--CODEBLOCK_{i}-->", block)
+        vehicle.setRailNodeId("");
+        vehicle.setUdpCarrierId("");
+        vehicle.setDestStationId("");
+        vehicle.setDestPortId("");
+        vehicle.setDistance(0);
+        vehicle.setFull(false);
+        vehicle.setOnline(false);
+        vehicle.setNextRailNodeId("");
+        vehicle.setRunCycle(RUN_CYCLE.NONE);
+        vehicle.setVhlCycle(VHL_CYCLE.NONE);
+        vehicle.setState(VHL_STATE.REMOVING);
+        vehicle.setReceivedTime(receivedMilli);
+        vehicle.setEmStatus(Util.binaryStringToByte(tokens[VHL_STATE_REPORT.EM_STATUS_IDX]));
+        vehicle.setGroupId(tokens[VHL_STATE_REPORT.GROUP_ID_IDX]);
+        vehicle.setSourcePortId("");
+        vehicle.setDestPortId("");
+        vehicle.setPriority(0);
+        vehicle.setDetailState(VHL_DET_STATE.NONE);
+        vehicle.setRunDistance(0);
+        vehicle.setRailEdgeId("");
+        vehicle.setCommandId("");
 
-        return html
+        if (StringUtils.isNotEmpty(vehicle.getLastUdpState().railEdgeId)) {
+            RailEdge lastRailEdge = DataService.getDataSet().getRailEdgeMap().get(vehicle.getLastUdpState().railEdgeId);
+            lastRailEdge.removeVhlId(vehicle.getId());
+            lastRailEdge.addHistory();
+        }
+    }
 
-    def _fallback_markdown(self, text: str) -> str:
-        """markdown 라이브러리 없을 때 기본 변환"""
-        html = text.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
+    /**
+     * vehicle 정보의 업데이트 & udp 메세지 를 통해 railEdge 정보 획득
+     *
+     * @param tokens  Data obtained by udp message
+     * @param vehicle vehicle to reflect message information
+     */
+    private void _updateVehicle(String[] tokens, Vhl vehicle, long systemsDateTime) {
+        RailEdge railEdge;
+        VHL_DET_STATE detailStatus = VHL_DET_STATE.getValue(Util.getTokenSafely(tokens, VHL_STATE_REPORT.DET_STATUS_IDX, ""));
+        int address = Util.getIntOrZero(tokens[VHL_STATE_REPORT.ADDRESS_IDX]);
+        String railNodeId = address != 0
+                ? DataSet.address2RailNodeId(this.fabId, this.mcpName, address)
+                : "";
+        int nextAddress = Util.getIntOrZero(tokens[VHL_STATE_REPORT.NEXT_ADDRESS_IDX]);
+        String nextRailNodeId = nextAddress != 0
+                ? DataSet.address2RailNodeId(this.fabId, this.mcpName, nextAddress)
+                : "";
+        String destinationPortId = Util.getTokenSafely(tokens, VHL_STATE_REPORT.DEST_PORT_IDX, "");
+        String railEdgeId = DataSet.address2RailEdgeId(
+                this.fabId,
+                this.mcpName,
+                railNodeId,
+                nextRailNodeId
+        );
+//        String carrierId = StringUtils.isNotEmpty(tokens[VHL_STATE_REPORT.CARRIER_ID_IDX])
+//                ? DataSet.CARRIER_PREFIX + ":" + tokens[VHL_STATE_REPORT.CARRIER_ID_IDX]
+//                : "";
+//        String destinationStationId = StringUtils.isNotEmpty(tokens[VHL_STATE_REPORT.DESTINATION_IDX])
+//                ? this.fabId + ":" + DataSet.STATION_PREFIX + ":" + mcpName + ":" + String.format("%05d", Util.getIntOrZero(tokens[VHL_STATE_REPORT.DESTINATION_IDX]))
+//                : "";
+        double distance = Util.getDoubleOrZero(StringUtils.isNotEmpty(tokens[VHL_STATE_REPORT.DISTANCE_IDX])
+                ? tokens[VHL_STATE_REPORT.DISTANCE_IDX]
+                : ""
+        ) * 100L;
+        String errorCode = Util.getTokenSafely(tokens, VHL_STATE_REPORT.ERROR_CODE_IDX, "");
 
-        # 헤딩
-        html = re.sub(r'^#### (.+)$', r'<h4>\1</h4>', html, flags=re.MULTILINE)
-        html = re.sub(r'^### (.+)$', r'<h3>\1</h3>', html, flags=re.MULTILINE)
-        html = re.sub(r'^## (.+)$', r'<h2>\1</h2>', html, flags=re.MULTILINE)
-        html = re.sub(r'^# (.+)$', r'<h1>\1</h1>', html, flags=re.MULTILINE)
+//        boolean isFull = 0 < Util.getIntOrZero(tokens[VHL_STATE_REPORT.FULL_IDX]);
+//        boolean isOnline = "1".equals(tokens[VHL_STATE_REPORT.ONLINE_IDX]);
+        RUN_CYCLE runCycle = RUN_CYCLE.getValue(tokens[VHL_STATE_REPORT.RUN_CYCLE_IDX]);
+        VHL_CYCLE vhlCycle = VHL_CYCLE.getValue(tokens[VHL_STATE_REPORT.VHL_CYCLE_IDX]);
+        VHL_STATE vhlState = VHL_STATE.getValue(tokens[VHL_STATE_REPORT.STATE_IDX]);
+//        String sourcePortId = StringUtils.isNotEmpty(tokens[VHL_STATE_REPORT.SOURCE_PORT_IDX])
+//                ? DataService.getDataSet().getCarrierContainableByCarrierLoc(tokens[VHL_STATE_REPORT.SOURCE_PORT_IDX], fabId).getId()
+//                : "";
+//        String destinationPortId = StringUtils.isNotEmpty(tokens[VHL_STATE_REPORT.DEST_PORT_IDX])
+//                ? DataService.getDataSet().getCarrierContainableByCarrierLoc(tokens[VHL_STATE_REPORT.DEST_PORT_IDX], fabId).getId()
+//                : "";
+//        byte emStatus = Util.binaryStringToByte(tokens[VHL_STATE_REPORT.EM_STATUS_IDX]);
+//        String groupId = tokens[VHL_STATE_REPORT.GROUP_ID_IDX];
+//        int priority = StringUtils.isNotEmpty(tokens[VHL_STATE_REPORT.PRIORITY_IDX])
+//                ? Util.getIntOrZero(tokens[VHL_STATE_REPORT.PRIORITY_IDX])
+//                : -1;
+        long runDistance = Long.parseLong(tokens[VHL_STATE_REPORT.RUN_DISTANCE_IDX]);
 
-        # 볼드, 이탤릭
-        html = re.sub(r'\*\*(.+?)\*\*', r'<b>\1</b>', html)
-        html = re.sub(r'\*(.+?)\*', r'<i>\1</i>', html)
+        // setter
+        vehicle.copyCurrentVhlUdpStateToLast();
+        vehicle.setCurrentAddress(address);
+        vehicle.setNextAddress(nextAddress);
+        vehicle.setRailNodeId(railNodeId);
+//        vehicle.setUdpCarrierId(carrierId);
+//        vehicle.setDestStationId(destinationStationId);
+        vehicle.setDistance(distance);
+        vehicle.setErrorCode(errorCode);
+//        vehicle.setFull(isFull);
+//        vehicle.setOnline(isOnline);
+        vehicle.setNextRailNodeId(nextRailNodeId);
+        vehicle.setRunCycle(runCycle);
+        vehicle.setVhlCycle(vhlCycle);
+        vehicle.setState(vhlState);
+        vehicle.setReceivedTime(receivedMilli);
+//        vehicle.setEmStatus(emStatus);
+//        vehicle.setGroupId(groupId);
+//        vehicle.setSourcePortId(sourcePortId);
+        vehicle.setDestPortId(destinationPortId);
+//        vehicle.setPriority(priority);
+        vehicle.setDetailState(detailStatus);
+        vehicle.setRunDistance(runDistance);
+        vehicle.setRailEdgeId(railEdgeId);
+        //~setter
 
-        # 리스트 (간단하게)
-        html = re.sub(r'^[-*] (.+)$', r'<li>\1</li>', html, flags=re.MULTILINE)
+        ConcurrentMap<String, AbstractEdge> edgeMap = DataService.getDataSet().getEdgeMap();
 
-        # 줄바꿈
-        html = html.replace('\n', '<br>')
-        return html
+        if (edgeMap.get(railEdgeId) instanceof RailEdge) {
+            railEdge = (RailEdge) edgeMap.get(railEdgeId);
 
-    def _wrap_with_style(self, html_body: str) -> str:
-        """HTML body에 스타일을 감싸서 반환"""
-        return f"""
-        <style>
-            body {{
-                color: {COLORS['text']};
-                font-family: "Segoe UI", "맑은 고딕", sans-serif;
-                font-size: 13px;
-                line-height: 1.7;
-                margin: 0;
-                padding: 0;
-            }}
-            pre {{
-                background: {COLORS['darkest']};
-                padding: 14px 16px;
-                border-radius: 0;
-                border: none;
-                overflow-x: auto;
-                font-family: "Consolas", "D2Coding", "Cascadia Code", monospace;
-                font-size: 12px;
-                line-height: 1.6;
-                margin: 0;
-            }}
-            code {{
-                font-family: "Consolas", "D2Coding", "Cascadia Code", monospace;
-                background: {COLORS['surface_hover']};
-                padding: 2px 7px;
-                border-radius: 4px;
-                font-size: 12px;
-                color: {COLORS['peach']};
-                border: 1px solid {COLORS['border']};
-            }}
-            pre code {{
-                background: transparent;
-                padding: 0;
-                border: none;
-                color: {COLORS['text']};
-            }}
-            table {{
-                border-collapse: collapse;
-                width: 100%;
-                margin: 14px 0;
-                border-radius: 8px;
-                overflow: hidden;
-            }}
-            th, td {{
-                border: 1px solid {COLORS['border']};
-                padding: 10px 14px;
-                text-align: left;
-                font-size: 12px;
-            }}
-            th {{
-                background: {COLORS['surface']};
-                color: {COLORS['primary_hover']};
-                font-weight: 700;
-                font-size: 11px;
-                text-transform: uppercase;
-                letter-spacing: 0.5px;
-            }}
-            tr:nth-child(even) td {{
-                background: rgba(36, 37, 56, 0.5);
-            }}
-            h1 {{
-                font-size: 20px;
-                color: {COLORS['primary_hover']};
-                margin: 20px 0 10px 0;
-                padding-bottom: 6px;
-                border-bottom: 2px solid {COLORS['border']};
-            }}
-            h2 {{
-                font-size: 17px;
-                color: {COLORS['primary_hover']};
-                margin: 18px 0 8px 0;
-                padding-bottom: 4px;
-                border-bottom: 1px solid {COLORS['border']};
-            }}
-            h3 {{
-                font-size: 15px;
-                color: {COLORS['blue']};
-                margin: 14px 0 6px 0;
-            }}
-            h4 {{
-                font-size: 13px;
-                color: {COLORS['teal']};
-                margin: 12px 0 4px 0;
-            }}
-            a {{
-                color: {COLORS['blue']};
-                text-decoration: none;
-            }}
-            a:hover {{
-                text-decoration: underline;
-            }}
-            blockquote {{
-                border-left: 3px solid {COLORS['primary']};
-                background: {COLORS['surface']};
-                padding: 10px 16px;
-                margin: 12px 0;
-                border-radius: 0 8px 8px 0;
-                color: {COLORS['text_dim']};
-            }}
-            ul, ol {{
-                padding-left: 24px;
-                margin: 8px 0;
-            }}
-            li {{
-                margin: 5px 0;
-                line-height: 1.6;
-            }}
-            p {{
-                margin: 8px 0;
-            }}
-            hr {{
-                border: none;
-                border-top: 1px solid {COLORS['border']};
-                margin: 16px 0;
-            }}
-            b, strong {{
-                color: {COLORS['text']};
-                font-weight: 700;
-            }}
-            em, i {{
-                color: {COLORS['text_dim']};
-            }}
-        </style>
-        {html_body}
-        """
+            this._buildRailVelocity(vehicle, railEdge);
+        } else {
+            logger.error("... `railEdgeId` selected is not supported [rail edge id: {}]", railEdgeId);
 
-    def _markdown_to_html(self, text: str) -> str:
-        """마크다운을 스타일 포함 HTML로 변환 (하위 호환)"""
-        return self._wrap_with_style(self._markdown_to_html_body(text))
+            return;
+        }
 
-    def _welcome_html(self) -> str:
-        return f"""
-        <div style="text-align:center; padding:80px 20px; color:{COLORS['text_muted']};">
-            <p style="font-size:36px; color:{COLORS['primary']}; font-weight:bold;
-                       letter-spacing:-1px;">Nomos LLM</p>
-            <p style="font-size:14px; margin-top:8px; color:{COLORS['text_dim']};">
-                코드 개발 / 수정 / 데이터 분석 도우미</p>
-            <br><br>
-            <div style="display:inline-block; text-align:left; background:{COLORS['surface']};
-                        padding:20px 28px; border-radius:12px; border:1px solid {COLORS['border']};">
-                <p style="font-size:12px; color:{COLORS['text_dim']}; margin:6px 0;">
-                    💬 <b style="color:{COLORS['text']};">대화</b> — 일반 질문, 코드 설명</p>
-                <p style="font-size:12px; color:{COLORS['text_dim']}; margin:6px 0;">
-                    ⚡ <b style="color:{COLORS['text']};">코드 생성</b> — 새 코드 작성</p>
-                <p style="font-size:12px; color:{COLORS['text_dim']}; margin:6px 0;">
-                    🔧 <b style="color:{COLORS['text']};">코드 수정</b> — 프로젝트 코드 수정</p>
-                <p style="font-size:12px; color:{COLORS['text_dim']}; margin:6px 0;">
-                    📊 <b style="color:{COLORS['text']};">분석</b> — 코드 분석 / 데이터 분석</p>
-            </div>
-            <p style="font-size:11px; margin-top:20px; color:{COLORS['text_muted']};">
-                왼쪽에서 모드를 선택하고 질문을 입력하세요</p>
-        </div>
-        """
+        int hidId = railEdge.getHIDId();
+        String machineId = vehicle.getName();
+        String requiredKey = this.fabId + ":" + this.mcpName;
+        String hidOffKey = requiredKey + ":" + String.format("%03d", hidId);
+        String machineKey = requiredKey + ":" + machineId;
+        List<Map<String, String>> messageDataList = new ArrayList<>();
+        FunctionItem functionItem = Env.getSwitchMap().get(requiredKey);
+
+        // HID 구간 별 VHL 수 계산
+        if (functionItem.getUseFunction(FunctionType.VHL_CNT)) {
+            this._calculatedVhlCnt(
+                    hidId,
+                    requiredKey,
+                    vehicle,
+                    functionItem
+            );
+        }
+        //~HID 구간 별 VHL 수 계산
+
+        // Stage Command Monitoring
+        if (functionItem.getUseFunction(FunctionType.MAP_FILE_REFRESH)) {
+            this._processStageCommandMonitoring(
+                    detailStatus,
+                    machineKey,
+                    machineId,
+                    destinationPortId,
+                    systemsDateTime
+            );
+        }
+        //~Stage Command Monitoring
+
+        // HIDOFF
+        if (functionItem.getUseFunction(FunctionType.HID_OFF)) {
+            messageDataList.add(
+                    this._processHidOff(
+                            hidId,
+                            hidOffKey,
+                            errorCode,
+                            address,
+                            nextAddress,
+                            systemsDateTime
+                    )
+            );
+        }
+        //~HIDOFF
+
+        // VHLOFF
+        if (functionItem.getUseFunction(FunctionType.VHL_OFF)) {
+            messageDataList.addAll(
+                    this._processVhlOff(
+                            machineKey,
+                            vehicle,
+                            errorCode,
+                            address,
+                            nextAddress,
+                            railEdge,
+                            systemsDateTime
+                    )
+            );
+        }
+        //~VHLOFF
+
+        if (!messageDataList.isEmpty()) {
+            for (String tibrvKey : DataService.getInstance().getTibrvSenderLikeMap(fabId + ":send:").keySet()) {
+                // 위의 과정을 통해 구성한 Map 데이터로 tib/rv 메세지를 만든 후 송신
+                for (Map<String, String> messageData : messageDataList) {
+                    if (messageData != null && !messageData.isEmpty()) {
+                        String type = messageData.get(LayoutUtil.LAYOUT_MEMBER.DEVICE_TYPE);
+
+                        if (type == null) continue;
+
+                        DataService.getInstance().addTibrvMessageQueue(tibrvKey, type, messageData);
+                    }
+                }
+            }
+        }
+
+    }
+
+    /*
+     Stage Command Monitoring
+     `작업 상태 상세` 값이 103 인 경우 적재 <-> 그외 치유 혹은 생략
+     alarm 발생 조건에 대한 논의가 필요
+    */
+    private void _processStageCommandMonitoring(
+            VHL_DET_STATE detailState,
+            String key,
+            String machineId,
+            String portId,
+            long systemsDateTime
+    ) {
+        ConcurrentMap<String, StageCommandRecordItem> recordMap = DataService.getDataSet().getStageCommandMap();
+        String deviceId = "";
+
+        if (recordMap.containsKey(key)) {
+            StageCommandRecordItem recordItem = recordMap.get(key);
+
+            if (detailState.equals(VHL_DET_STATE.STAGE_MOVING)) {
+                recordItem.setState(OHT_TIB_STATE.ABNORMAL);
+                recordItem.setEventDateTime(systemsDateTime);
+                recordItem.setDestinationPortId(portId);
+            } else {
+                recordItem.setState(OHT_TIB_STATE.NORMAL);  // 조건에서 벗어난 것을 표시하기 위함
+            }
+        } else {
+            if (detailState.equals(VHL_DET_STATE.STAGE_MOVING)) {
+                StageCommandRecordItem recordItem = new StageCommandRecordItem(
+                        key,
+                        fabId,
+                        mcpName,
+                        facId,
+                        deviceId,
+                        machineId,
+                        portId,
+                        systemsDateTime
+                );
+
+                recordMap.put(key, recordItem);
+            }
+        }
+    }
+
+    // ========================================================================================
+    // [수정] _calculatedVhlCnt() — 기존 코드 유지 + 엣지 집계 추가
+    // ========================================================================================
+
+    /**
+     * HID 구간별 VHL 재적수
+     * @param currentHidId 현재 vehicle 이 위치한 railEdge 의 hid 값
+     * @param key DataSet 에서 특정 데이터를 호출하기 위한 key 값
+     * @param vehicle vehicle 객체
+     */
+    private void _calculatedVhlCnt(int currentHidId, String key, Vhl vehicle, FunctionItem functionItem) {
+        long timer = System.currentTimeMillis();
+        int previousHidId = vehicle.getHidId();
+
+        if (previousHidId != currentHidId) {
+            // ===== 기존 코드: HID VHL 카운트 =====
+            if (currentHidId > 0) {
+                String v = String.format("%03d", currentHidId);
+                DataService.getDataSet().increaseHidVehicleCnt(key + ":" + v);
+            }
+
+            if (previousHidId > 0) {
+                String v = String.format("%03d", previousHidId);
+                DataService.getDataSet().decreaseHidVehicleCnt(key + ":" + v);
+            }
+            // ===== 기존 코드 끝 =====
+
+            // ===== [신규 추가] 엣지 전환 카운트 집계 → 테이블 3 =====
+            // HID_INOUT 스위치가 켜져 있을 때만 수집
+            if (functionItem.getUseFunction(FunctionType.HID_INOUT)) {
+                // 데이터 소스: previousHidId = vehicle.getHidId() (Vhl.java:517)
+                //             currentHidId  = railEdge.getHIDId() (RaileEdge.java:324)
+                //             fabId, id, eqpId = vehicle (Vhl.java:5,6,9)
+                String vhlIdFull = vehicle.getId();
+                String vhlName = vhlIdFull.substring(vhlIdFull.lastIndexOf(':') + 1);
+                String eqpIdFull = vehicle.getEqpId();
+                String eqpName = eqpIdFull.substring(eqpIdFull.lastIndexOf(':') + 1);
+                String edgeKey = String.format("%03d:%03d:%s:%s:%s",
+                        previousHidId, currentHidId,
+                        vehicle.getFabId(), vhlName, eqpName);
+                synchronized (hidEdgeBufferLock) {
+                    hidEdgeBuffer.merge(edgeKey, 1, Integer::sum);
+                }
+            }
+            // ===== [신규 추가] 끝 =====
+
+            vehicle.setHidId(currentHidId);
+        }
+
+        // ===== [신규 추가] 1분마다 버퍼 플러시 → 테이블 3 저장 =====
+        if (functionItem.getUseFunction(FunctionType.HID_INOUT)) {
+            if (timer - lastHidEdgeFlushTime >= HID_EDGE_FLUSH_INTERVAL) {
+                synchronized (hidEdgeFlushLock) {
+                    if (timer - lastHidEdgeFlushTime >= HID_EDGE_FLUSH_INTERVAL) {
+                        flushHidEdgeBuffer();
+                        lastHidEdgeFlushTime = timer;
+                    }
+                }
+            }
+        }
+        // ===== [신규 추가] 끝 =====
+
+        // ===== [신규 추가] 하루 1회 마스터 테이블 업데이트 → 테이블 1, 2 =====
+        if (functionItem.getUseFunction(FunctionType.HID_INOUT)) {
+            String today = new SimpleDateFormat("yyyy-MM-dd").format(new Date(timer));
+            if (!today.equals(hidMasterLastUpdateDate)) {
+                synchronized (hidMasterUpdateLock) {
+                    if (!today.equals(hidMasterLastUpdateDate)) {
+                        try {
+                            _updateHidMasterTables();
+                            hidMasterLastUpdateDate = today;
+                        } catch (Exception e) {
+                            logger.error("HID Master Tables update failed", e);
+                        }
+                    }
+                }
+            }
+        }
+        // ===== [신규 추가] 끝 =====
+
+        long checkingTime = System.currentTimeMillis() - timer;
+
+        if (checkingTime >= 60000) {
+            logger.info("... `number of vehicles per hid section` process took more than 1 minute to complete [elapsed time: {}min]", checkingTime / 60000);
+        }
+    }
+    //~HID 구간별 VHL 재적수
+
+    // ========================================================================================
+    // [신규 메소드] flushHidEdgeBuffer()
+    //   → 테이블 3: {FAB}_ATLAS_HID_INOUT 에 1분 집계 데이터 저장
+    // ========================================================================================
+
+    /**
+     * HID 엣지 전환 집계 데이터를 Logpresso에 1분 배치 저장
+     *
+     * [테이블] {FAB}_ATLAS_HID_INOUT
+     * [컬럼 데이터 소스]
+     *   EVENT_DATE  → SimpleDateFormat("yyyy-MM-dd")
+     *   EVENT_DT    → SimpleDateFormat("yyyy-MM-dd HH:mm:00")
+     *   FROM_HIDID  → vehicle.getHidId() (Vhl.java:517)
+     *   TO_HIDID    → currentHidId 파라미터 (OhtMsgWorkerRunnable.java:357)
+     *   TRANS_CNT   → hidEdgeBuffer 집계값
+     *   FAB_ID      → vehicle.getFabId() (Vhl.java:5)
+     *   VHL_ID      → vehicle.getId() (Vhl.java:6)
+     *   EQP_ID      → vehicle.getEqpId() (Vhl.java:9)
+     *   MCP_NM      → this.mcpName (OhtMsgWorkerRunnable.java:9)
+     *   ENV         → Env.getEnv()
+     */
+    private void flushHidEdgeBuffer() {
+        if (hidEdgeBuffer.isEmpty()) {
+            return;
+        }
+
+        // 버퍼 스냅샷 생성 및 초기화
+        Map<String, Integer> snapshot = new HashMap<>();
+        synchronized (hidEdgeBufferLock) {
+            for (Map.Entry<String, Integer> entry : hidEdgeBuffer.entrySet()) {
+                int count = entry.getValue();
+                if (count > 0) {
+                    snapshot.put(entry.getKey(), count);
+                }
+            }
+            hidEdgeBuffer.clear();
+        }
+
+        if (snapshot.isEmpty()) {
+            return;
+        }
+
+        // 현재 시간 (1분 단위로 정렬)
+        SimpleDateFormat dateFormat = new SimpleDateFormat("yyyy-MM-dd HH:mm:00");
+        SimpleDateFormat dateOnlyFormat = new SimpleDateFormat("yyyy-MM-dd");
+        Date now = new Date();
+        String eventDt = dateFormat.format(now);
+        String eventDate = dateOnlyFormat.format(now);
+
+        List<Tuple> tuples = new ArrayList<>();
+
+        for (Map.Entry<String, Integer> entry : snapshot.entrySet()) {
+            String[] parts = entry.getKey().split(":");
+            int fromHidId = Integer.parseInt(parts[0]);
+            int toHidId = Integer.parseInt(parts[1]);
+            String fabId = parts[2];
+            String vhlId = parts[3];
+            String eqpId = parts[4];
+            int transCnt = entry.getValue();
+
+            Tuple tuple = new Tuple();
+            tuple.put("EVENT_DATE", eventDate);
+            tuple.put("EVENT_DT", eventDt);
+            tuple.put("FROM_HIDID", fromHidId);
+            tuple.put("TO_HIDID", toHidId);
+            tuple.put("TRANS_CNT", transCnt);
+            tuple.put("FAB_ID", fabId);
+            tuple.put("VHL_ID", vhlId);
+            tuple.put("EQP_ID", eqpId);
+            tuple.put("MCP_NM", this.mcpName);
+            tuple.put("ENV", Env.getEnv());
+
+            tuples.add(tuple);
+        }
+
+        // 테이블명: {FAB}_ATLAS_HID_INOUT (예: M14A_ATLAS_HID_INOUT)
+        String tableName = this.fabId + "_ATLAS_HID_INOUT";
+
+        boolean success = LogpressoAPI.setInsertTuples(tableName, tuples, 100);
+
+        if (success) {
+            logger.info("HID Edge flush: {} - {} records", tableName, tuples.size());
+        }
+    }
+
+    // ========================================================================================
+    // [신규 메소드] _updateHidMasterTables()
+    //   → 테이블 1: {FAB}_ATLAS_INFO_HID_INOUT_MAS (엣지 마스터)
+    //   → 테이블 2: {FAB}_ATLAS_HID_INFO_MAS (HID 상세 정보)
+    //   → 하루 1회 실행 (날짜 비교)
+    // ========================================================================================
+
+    /**
+     * HID 마스터 테이블 업데이트 (하루 1회)
+     *
+     * [데이터 소스] map/{FAB}/*.layout.zip 내 layout.xml
+     *   - McpZone → Entry/Exit → FROM_HIDID, TO_HIDID (엣지)
+     *   - RailEdge.getLength()       → RAIL_LEN_TOTAL
+     *   - RailEdge.getMaxVelocity()  → FREE_FLOW_SPEED
+     *   - RailEdge.getPortIdList()   → PORT_CNT_TOTAL
+     *   - HID_Zone_Master.csv 참고   → IN_CNT, OUT_CNT, VHL_MAX, ZCU_ID
+     */
+    private void _updateHidMasterTables() {
+        logger.info("Starting HID Master Tables update [fab: {}]", this.fabId);
+
+        // ---- layout.zip 경로 확인 ----
+        // 데이터 소스: fabProperties.getMapDir() (DataService.java:295)
+        FabProperties fabProperties = DataService.getInstance().getFabPropertiesMap().get(this.fabId);
+
+        if (fabProperties == null) {
+            logger.warn("[HID Master] FabProperties not found, SKIP [fab: {}]", this.fabId);
+            return;
+        }
+        String mapDir = fabProperties.getMapDir();
+        File mapDirFile = new File(mapDir);
+
+        if (!mapDirFile.exists() || !mapDirFile.isDirectory()) {
+            logger.warn("[HID Master] map directory not found, SKIP [fab: {} | path: {}]", this.fabId, mapDir);
+            return;
+        }
+
+        // ---- layout.zip 파일 찾기 ----
+        File[] layoutZipFiles = mapDirFile.listFiles((dir, name) -> name.endsWith(".layout.zip"));
+
+        if (layoutZipFiles == null || layoutZipFiles.length == 0) {
+            logger.warn("[HID Master] *.layout.zip not found, SKIP [fab: {} | path: {}]", this.fabId, mapDir);
+            return;
+        }
+
+        // 첫 번째 layout.zip 사용
+        File layoutZipFile = layoutZipFiles[0];
+        logger.info("[HID Master] layout.zip found [fab: {} | file: {}]", this.fabId, layoutZipFile.getName());
+
+        // ---- 테이블 1: 엣지 마스터 업데이트 ----
+        _updateHidEdgeMasterInfo(layoutZipFile);
+
+        // ---- 테이블 2: HID 상세 정보 업데이트 ----
+        _updateHidInfoMaster();
+
+        logger.info("HID Master Tables update completed [fab: {}]", this.fabId);
+    }
+
+    // ========================================================================================
+    // [신규 메소드] _updateHidEdgeMasterInfo()
+    //   → 테이블 1: {FAB}_ATLAS_INFO_HID_INOUT_MAS
+    // ========================================================================================
+
+    /**
+     * HID Zone 진입/진출 엣지 마스터 데이터 업데이트
+     *
+     * [테이블] {FAB}_ATLAS_INFO_HID_INOUT_MAS
+     * [컬럼 데이터 소스]
+     *   FROM_HIDID   → layout.xml McpZone Entry start/end 주소 → HID 매핑
+     *   TO_HIDID     → layout.xml McpZone Exit  start/end 주소 → HID 매핑
+     *   EDGE_ID      → String.format("%03d:%03d", fromHidId, toHidId)
+     *   FROM_HID_NM  → HID_Zone_Master.csv → Full_Name
+     *   TO_HID_NM    → HID_Zone_Master.csv → Full_Name
+     *   MCP_ID       → mcp75ConfigMap.keySet()
+     *   ZONE_ID      → HID_Zone_Master.csv → Bay_Zone
+     *   EDGE_TYPE    → fromHid==0 ? "IN" : toHid==0 ? "OUT" : "INTERNAL"
+     *   UPDATE_DT    → SimpleDateFormat("yyyy-MM-dd HH:mm:ss")
+     */
+    private void _updateHidEdgeMasterInfo(File layoutZipFile) {
+        List<Tuple> tuples = new ArrayList<>();
+        SimpleDateFormat dateFormat = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss");
+        String updateDt = dateFormat.format(new Date());
+
+        try {
+            // DataService.getDataSet().getEdgeMap() 에서 RailEdge 순회
+            ConcurrentMap<String, AbstractEdge> edgeMap = DataService.getDataSet().getEdgeMap();
+            Map<Integer, String> hidNameMap = new HashMap<>();  // hidId → hidName
+            Set<String> processedEdges = new HashSet<>();
+
+            // 1단계: RailEdge 순회하며 FAB에 해당하는 HID 정보 수집
+            for (Map.Entry<String, AbstractEdge> entry : edgeMap.entrySet()) {
+                if (!(entry.getValue() instanceof RailEdge)) continue;
+
+                RailEdge railEdge = (RailEdge) entry.getValue();
+
+                // FAB 필터 — 해당 FAB 소속 RailEdge만 처리
+                if (!railEdge.getFabId().equals(this.fabId)) continue;
+
+                int hidId = railEdge.getHIDId();  // RaileEdge.java:324
+
+                if (hidId > 0) {
+                    hidNameMap.putIfAbsent(hidId, "HID_" + String.format("%03d", hidId));
+                }
+            }
+
+            // 2단계: HID 간 전환 엣지 구성 (인접 RailEdge의 HID 전환 감지)
+            for (Map.Entry<String, AbstractEdge> entry : edgeMap.entrySet()) {
+                if (!(entry.getValue() instanceof RailEdge)) continue;
+
+                RailEdge railEdge = (RailEdge) entry.getValue();
+                if (!railEdge.getFabId().equals(this.fabId)) continue;
+
+                int fromHidId = railEdge.getHIDId();
+                String toNodeId = railEdge.getToNodeId();
+
+                // 연결된 다음 엣지들에서 HID가 바뀌는 경우 엣지 생성
+                for (Map.Entry<String, AbstractEdge> nextEntry : edgeMap.entrySet()) {
+                    if (!(nextEntry.getValue() instanceof RailEdge)) continue;
+
+                    RailEdge nextRailEdge = (RailEdge) nextEntry.getValue();
+                    if (!nextRailEdge.getFabId().equals(this.fabId)) continue;
+
+                    if (nextRailEdge.getFromNodeId().equals(toNodeId)) {
+                        int toHidId = nextRailEdge.getHIDId();
+
+                        if (fromHidId != toHidId && (fromHidId > 0 || toHidId > 0)) {
+                            String edgeKey = fromHidId + ":" + toHidId;
+                            if (processedEdges.contains(edgeKey)) continue;
+                            processedEdges.add(edgeKey);
+
+                            Tuple tuple = new Tuple();
+                            tuple.put("FROM_HIDID", fromHidId);
+                            tuple.put("TO_HIDID", toHidId);
+                            tuple.put("EDGE_ID", String.format("%03d:%03d", fromHidId, toHidId));
+
+                            // HID 이름
+                            tuple.put("FROM_HID_NM", fromHidId == 0 ? "OUTSIDE"
+                                : hidNameMap.getOrDefault(fromHidId, "HID_" + String.format("%03d", fromHidId)));
+                            tuple.put("TO_HID_NM", toHidId == 0 ? "OUTSIDE"
+                                : hidNameMap.getOrDefault(toHidId, "HID_" + String.format("%03d", toHidId)));
+
+                            tuple.put("MCP_ID", this.mcpName);
+                            tuple.put("ZONE_ID", "");
+
+                            // 엣지 유형
+                            String edgeType;
+                            if (fromHidId == 0) {
+                                edgeType = "IN";
+                            } else if (toHidId == 0) {
+                                edgeType = "OUT";
+                            } else {
+                                edgeType = "INTERNAL";
+                            }
+                            tuple.put("EDGE_TYPE", edgeType);
+                            tuple.put("UPDATE_DT", updateDt);
+
+                            tuples.add(tuple);
+                        }
+                    }
+                }
+            }
+        } catch (Exception e) {
+            logger.error("[HID Master] Failed to build edge master info [fab: {}]", this.fabId, e);
+            return;
+        }
+
+        if (tuples.isEmpty()) {
+            logger.warn("[HID Master] No edge data found [fab: {}]", this.fabId);
+            return;
+        }
+
+        // 테이블명: {FAB}_ATLAS_INFO_HID_INOUT_MAS (예: M14A_ATLAS_INFO_HID_INOUT_MAS)
+        String tableName = this.fabId + "_ATLAS_INFO_HID_INOUT_MAS";
+
+        LogpressoAPI.setInsertTuples(tableName, tuples, 100);
+
+        logger.info("[HID Master] Edge Master updated: {} - {} records", tableName, tuples.size());
+    }
+
+    // ========================================================================================
+    // [신규 메소드] _updateHidInfoMaster()
+    //   → 테이블 2: {FAB}_ATLAS_HID_INFO_MAS
+    // ========================================================================================
+
+    /**
+     * HID 상세 정보 마스터 데이터 업데이트
+     *
+     * [테이블] {FAB}_ATLAS_HID_INFO_MAS
+     * [컬럼 데이터 소스]
+     *   HID_ID          → RailEdge.getHIDId()
+     *   HID_NM          → "HID_" + String.format("%03d", hidId)
+     *   MCP_ID          → this.mcpName
+     *   ZONE_ID         → "" (추후 매핑 가능)
+     *   RAIL_LEN_TOTAL  → RailEdge.getLength() HID별 합계
+     *   FREE_FLOW_SPEED → RailEdge.getMaxVelocity() HID별 평균
+     *   PORT_CNT_TOTAL  → RailEdge.getPortIdList().size() 합계
+     *   IN_CNT          → HID Entry 개수
+     *   OUT_CNT         → HID Exit 개수
+     *   VHL_MAX         → McpZone vehicle-max
+     *   ZCU_ID          → Entry stop-zcu
+     *   UPDATE_DT       → SimpleDateFormat("yyyy-MM-dd HH:mm:ss")
+     */
+    private void _updateHidInfoMaster() {
+        List<Tuple> tuples = new ArrayList<>();
+        SimpleDateFormat dateFormat = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss");
+        String updateDt = dateFormat.format(new Date());
+
+        try {
+            ConcurrentMap<String, AbstractEdge> edgeMap = DataService.getDataSet().getEdgeMap();
+
+            // HID별 집계 맵
+            Map<Integer, Double> railLenMap = new HashMap<>();       // HID → 레일 길이 합계
+            Map<Integer, List<Double>> maxVelMap = new HashMap<>();   // HID → maxVelocity 목록
+            Map<Integer, Integer> portCntMap = new HashMap<>();       // HID → 포트 수 합계
+
+            // RailEdge 순회하며 FAB에 해당하는 HID별 데이터 집계
+            for (Map.Entry<String, AbstractEdge> entry : edgeMap.entrySet()) {
+                if (!(entry.getValue() instanceof RailEdge)) continue;
+
+                RailEdge railEdge = (RailEdge) entry.getValue();
+
+                // FAB 필터
+                if (!railEdge.getFabId().equals(this.fabId)) continue;
+
+                int hidId = railEdge.getHIDId();  // RaileEdge.java:324
+                if (hidId <= 0) continue;
+
+                // 레일 길이 합계
+                double length = railEdge.getLength();  // AbstractEdge.getLength()
+                railLenMap.merge(hidId, length, Double::sum);
+
+                // maxVelocity 수집 (평균 계산용)
+                double maxVelocity = railEdge.getMaxVelocity();  // RaileEdge.java:270
+                if (maxVelocity > 0) {
+                    maxVelMap.computeIfAbsent(hidId, k -> new ArrayList<>()).add(maxVelocity);
+                }
+
+                // 포트 수 합계
+                List<String> portList = railEdge.getPortIdList();  // RaileEdge.java:19
+                if (portList != null && !portList.isEmpty()) {
+                    portCntMap.merge(hidId, portList.size(), Integer::sum);
+                }
+            }
+
+            // HID별 Tuple 생성
+            for (Integer hidId : railLenMap.keySet()) {
+                Tuple tuple = new Tuple();
+
+                tuple.put("HID_ID", hidId);
+                tuple.put("HID_NM", "HID_" + String.format("%03d", hidId));
+                tuple.put("MCP_ID", this.mcpName);
+                tuple.put("ZONE_ID", "");
+
+                // RAIL_LEN_TOTAL
+                tuple.put("RAIL_LEN_TOTAL", railLenMap.getOrDefault(hidId, 0.0));
+
+                // FREE_FLOW_SPEED (HID별 maxVelocity 평균)
+                List<Double> velocities = maxVelMap.get(hidId);
+                double avgSpeed = 0.0;
+                if (velocities != null && !velocities.isEmpty()) {
+                    double sum = 0.0;
+                    for (Double v : velocities) {
+                        sum += v;
+                    }
+                    avgSpeed = sum / velocities.size();
+                }
+                tuple.put("FREE_FLOW_SPEED", avgSpeed);
+
+                // PORT_CNT_TOTAL
+                tuple.put("PORT_CNT_TOTAL", portCntMap.getOrDefault(hidId, 0));
+
+                // IN_CNT, OUT_CNT, VHL_MAX, ZCU_ID → layout.xml McpZone 데이터
+                // 추후 Mcp75Config.getRawHidMap()에서 매핑 가능
+                tuple.put("IN_CNT", 0);
+                tuple.put("OUT_CNT", 0);
+                tuple.put("VHL_MAX", 0);
+                tuple.put("ZCU_ID", "");
+
+                tuple.put("UPDATE_DT", updateDt);
+
+                tuples.add(tuple);
+            }
+        } catch (Exception e) {
+            logger.error("[HID Master] Failed to build HID info [fab: {}]", this.fabId, e);
+            return;
+        }
+
+        if (tuples.isEmpty()) {
+            logger.warn("[HID Master] No HID info data found [fab: {}]", this.fabId);
+            return;
+        }
+
+        // 테이블명: {FAB}_ATLAS_HID_INFO_MAS (예: M14A_ATLAS_HID_INFO_MAS)
+        String tableName = this.fabId + "_ATLAS_HID_INFO_MAS";
+
+        LogpressoAPI.setInsertTuples(tableName, tuples, 100);
+
+        logger.info("[HID Master] HID Info Master updated: {} - {} records", tableName, tuples.size());
+    }
+
+    /**
+     * HID OFF
+     * @param hidId 현재 hid 값
+     * @param hidOffKey DataSet 에서 특정 데이터를 호출하기 위한 key 값
+     * @param errorCode 오류 코드
+     * @param currentAddress 현재 주소
+     * @param nextAddress 다음 주소
+     * @return normal/abnormal 인 경우, tib/rv message 를 반환
+     */
+    private Map<String, String> _processHidOff(
+            int hidId,
+            String hidOffKey,
+            String errorCode,
+            int currentAddress,
+            int nextAddress,
+            long systemsDateTime
+    ) {
+        long timer = System.currentTimeMillis();
+
+        if (hidId < 0) return new HashMap<>();
+
+        Map<String, String> dataMap = new HashMap<>();
+        ConcurrentMap<String, HidOffRecordItem> hidOffRecordMap = DataService.getDataSet().getHidOffRecordMap(); // HID OFF 에 대한 기록 호출, 참조
+        HidOffRecordItem recordItem;
+        ConcurrentMap<String, List<String>> errorCodeList = DataService.getInstance().getOhtAlarmCodeListMap();
+
+        if (errorCodeList != null && errorCodeList.containsKey(FunctionType.HID_OFF.getKey())) {
+            if (errorCodeList.get(FunctionType.HID_OFF.getKey()).contains(errorCode)) {
+                logger.info("[HID OFF] The fault has occurred [fab: {} | mcp: {} | error code: {} | hid: {}]", this.fabId, this.mcpName, errorCode, hidId);
+
+                Set<String> addressSet = this._getAddressSet(hidOffKey);
+                ConcurrentMap<String, List<String>> hid2PortMap = DataService.getDataSet().getHid2PortMap();
+                List<String> portList = hid2PortMap.getOrDefault(hidOffKey, Collections.emptyList());
+                String deviceId = String.valueOf(hidId);
+                String alarmCode = String.format("HID%03d", hidId);
+
+                recordItem = new HidOffRecordItem(
+                        hidOffKey,
+                        this.fabId,
+                        this.facId,
+                        this.mcpName,
+                        deviceId,
+                        hidId,
+                        currentAddress,
+                        nextAddress,
+                        addressSet,
+                        portList,
+                        OHT_TIB_STATE.ABNORMAL,
+                        errorCode,
+                        alarmCode,
+                        systemsDateTime
+                );
+
+                if (!hidOffRecordMap.containsKey(hidOffKey)) {
+                    hidOffRecordMap.put(hidOffKey, recordItem);    // 해당 hid 구간의 hidOff 현상이 회복된 경우를 대응
+                    logger.info("[HID OFF] This fault was saved as a record on the server in case it was resolved [fab: {} | mcp: {} | hid: {}]", this.fabId, this.mcpName, hidId);
+                } else {
+                    logger.info("[HID OFF] This fault has occurred, but it has not been saved to the server [fab: {} | mcp: {} | hid: {}] - faults in the same hid area that occurred previously are not resolved !", this.fabId, this.mcpName, hidId);
+                }
+            } else if (hidOffRecordMap.containsKey(hidOffKey)) {
+                // hidOff 현상이 해소된 경우 (ABNORMAL -> NORMAL)
+                recordItem = hidOffRecordMap.get(hidOffKey);
+
+                recordItem.setState(OHT_TIB_STATE.NORMAL);
+            } else {
+                return new HashMap<>();
+            }
+
+            dataMap = LayoutUtil.buildLayoutMessageDataMap(recordItem);
+
+            if (_insertHidOffLogpresso(recordItem, systemsDateTime) && recordItem.getState().equals(OHT_TIB_STATE.NORMAL)) {
+                hidOffRecordMap.remove(hidOffKey);
+
+                logger.info("[HID OFF] The fault is recovered [fab: {} | mcp: {} | hid: {}]", this.fabId, this.mcpName, hidId);
+            }
+        } else {
+            logger.warn("[HID OFF] Not exist error code for hid off [fab: {} | mcp: {} | hid: {}] !", this.fabId, this.mcpName, hidId);
+        }
+
+        long checkingTime = System.currentTimeMillis() - timer;
+
+        // 소요된 시간이 1분 이상인 경우 로그 표시
+        if (checkingTime >= 60000) {
+            logger.info("... `HID OFF` process took more than 1 minute to complete [elapsed time: {}min]", checkingTime / 60000);
+        }
+
+        return dataMap;
+    }
+
+    private Set<String> _getAddressSet(String hidOffKey) {
+        ConcurrentMap<String, RailEdge> railEdgeMap = DataService.getDataSet().getRailEdgeMap();
+        ConcurrentMap<String, List<String>> railEdge4HidMap = DataService.getDataSet().getRailEdge4HidMap();
+        List<String> addressList = new ArrayList<>();
+
+        try {
+            for (String railEdgeId : railEdge4HidMap.get(hidOffKey)) {
+                if (railEdgeMap.containsKey(railEdgeId)) {
+                    RailEdge railEdge = railEdgeMap.get(railEdgeId);
+
+                    addressList.add(railEdge.getAddress());
+                }
+            }
+        } catch (Exception e) {
+            logger.error("", e);
+        }
+
+        return Set.copyOf(addressList);
+    }
+
+    private boolean _insertHidOffLogpresso(HidOffRecordItem recordItem, long currentMilli) {
+        Tuple tuple = new Tuple();
+        String state = recordItem.getState();
+
+        tuple.put("FAB_ID", recordItem.getFabId());
+        tuple.put("MCP_NM", recordItem.getMcpName());
+        tuple.put("ALARM_CD", recordItem.getErrorCode());
+        tuple.put("EVENT_DT", recordItem.getEventDateTimeString());
+        tuple.put("HID_ID", recordItem.getHidId());
+        tuple.put("ADDR_LST", recordItem.getHidAreaAddressString());
+        tuple.put("PORT_LST", recordItem.getAffectedPortString());
+        tuple.put("ENV", Env.getEnv());
+        tuple.put("STATE", state);
+
+        if (state.equals(OHT_TIB_STATE.NORMAL)) {
+            SimpleDateFormat dateFormat = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss");
+            tuple.put("RECOVERY_DT", dateFormat.format(new Date(currentMilli)));
+        }
+
+        return LogpressoAPI.setInsertTuples("ATLAS_OHT_HID_OFF", List.of(tuple), 20);
+    }
+    //~HID OFF
+
+    /**
+     * VHL OFF
+     * @param vehicle vehicle object <--- it had to set property by udp message
+     * @param errorCode error code (ef. OhtVhlOffAlarmCodeList.txt)
+     * @param currentAddress current address (=`from` rail node)
+     * @param nextAddress next address (=`to` rail node)
+     * @param railEdge railEdge object <--- it had made by udp message
+     * @return give back the tib/rv message, when message state is normal/abnormal
+     */
+    private List<Map<String, String>> _processVhlOff(
+            String vhlOffKey,
+            Vhl vehicle,
+            String errorCode,
+            int currentAddress,
+            int nextAddress,
+            RailEdge railEdge,
+            long systemsDateTime
+    ) {
+        long timer = System.currentTimeMillis();
+        List<VhlOffRecordItem> bufferList = new ArrayList<>();
+        List<Map<String, String>> dataList = new ArrayList<>();
+
+        ConcurrentMap<String, VhlOffRecordItem> vhlOffRecordMap = DataService.getDataSet().getVhlOffRecordMap();
+        ConcurrentMap<String, VhlOffRecordItem> vhlOffMonitoringMap = DataService.getDataSet().getVhlOffMonitoringMap();
+        ConcurrentMap<String, List<String>> errorCodeList = DataService.getInstance().getOhtAlarmCodeListMap();
+        String machineId = vehicle.getName();   // "V00001"
+//        VHL_STATE vehicleState = vehicle.getState();
+        String deviceId = machineId + ":" + currentAddress + ":" + errorCode;
+
+        if (errorCodeList != null && errorCodeList.containsKey(FunctionType.VHL_OFF.getKey())) {
+            VhlOffRecordItem temp = this._buildVhlOff(
+                    vhlOffKey,
+                    deviceId,
+                    machineId,
+                    currentAddress,
+                    nextAddress,
+                    errorCode,
+                    railEdge,
+                    errorCodeList,
+                    systemsDateTime
+            );
+
+            if (vhlOffRecordMap.containsKey(vhlOffKey)) {
+                /*
+                    1. 새로운 device 명칭인 경우
+                    2. 장애가 해소된 상태
+                 */
+                VhlOffRecordItem previousRecordItem = vhlOffRecordMap.get(vhlOffKey);
+
+                if (previousRecordItem != null) {
+                    if (temp == null) {
+                        // 2. 장애가 해소된 상태
+                        previousRecordItem.setState(OHT_TIB_STATE.NORMAL);
+                        previousRecordItem.setRecoveryDateTime(systemsDateTime);
+
+                        bufferList.add(previousRecordItem);
+
+                        vhlOffMonitoringMap.put(vhlOffKey, previousRecordItem); //@
+
+                        vhlOffRecordMap.remove(vhlOffKey);  //@
+                    } else {
+                        final String previousDeviceName = previousRecordItem.getDeviceId();
+
+                        if (!temp.getDeviceId().equals(previousDeviceName)) {
+                            // 1. 새로운 device 명칭인 경우
+                            // 1-1. 최근에 기록된 정보를 처리
+                            previousRecordItem.setState(OHT_TIB_STATE.NORMAL);
+                            previousRecordItem.setRecoveryDateTime(systemsDateTime);
+
+                            bufferList.add(previousRecordItem);
+                            //~1-1
+                            bufferList.add(temp);
+
+                            vhlOffMonitoringMap.put(vhlOffKey, temp);
+
+                            vhlOffRecordMap.put(vhlOffKey, temp);
+                        }
+                    }
+                }
+            } else if (temp != null) {
+                /*
+                    1. 새로운 장애 발생
+                 */
+                bufferList.add(temp);
+
+                vhlOffMonitoringMap.put(vhlOffKey, temp);
+
+                vhlOffRecordMap.put(vhlOffKey, temp);
+            }
+
+            for (VhlOffRecordItem bufferItem : bufferList) {
+                dataList.add(LayoutUtil.buildLayoutMessageDataMap(bufferItem));
+            }
+        } else {
+            logger.warn("[VHL OFF] Not exist error code for vhl off [fab: {} | mcp: {} | machine: {}] !", this.fabId, this.mcpName, machineId);
+        }
+
+        long checkingTime = System.currentTimeMillis() - timer;
+
+        if (checkingTime >= 60000) {
+            logger.info("... `VHL OFF` process took more than 1 minute to complete [elapsed time: {}min]", checkingTime / 60000);
+        }
+
+        return dataList;
+    }
+
+    /**
+     *
+     * @param vhlOffKey {fabId}:{mcpName}:{machineId}
+     * @param deviceId {machineId}:{address}:{errorCode}
+     * @param machineId ex) V00001
+     * @param currentAddress ex) 1001
+     * @param nextAddress ex) 1002
+     * @param errorCode ex) 0000
+     * @param railEdge current rail located
+     * @param alarmCodeMap list of error code with `vhl off`
+     * @param systemsDateTime occupation time
+     * @return if return to null, it was normal state
+     */
+    private VhlOffRecordItem _buildVhlOff(
+            String vhlOffKey,
+            String deviceId,
+            String machineId,
+            int currentAddress,
+            int nextAddress,
+            String errorCode,
+            RailEdge railEdge,
+            ConcurrentMap<String, List<String>> alarmCodeMap,
+            long systemsDateTime
+    ) {
+        if (alarmCodeMap.get(FunctionType.VHL_OFF.getKey()).contains(errorCode)) {
+            logger.info("*[VHL OFF] defect(VHL OFF) has occurred [fab: {} | mcp: {} | error code: {} | machine: {}]", this.fabId, this.mcpName, errorCode, machineId);
+
+            Navigator navigator     = new Navigator(railEdge);
+            Set<String> addressSet  = navigator.getAffectedRailSet();
+            List<String> portList   = navigator.getAffectedPortSortedList();
+
+            return new VhlOffRecordItem(
+                    vhlOffKey,
+                    deviceId,
+                    this.fabId,
+                    this.facId,
+                    this.mcpName,
+                    machineId,
+                    currentAddress,
+                    nextAddress,
+                    portList,
+                    addressSet,
+                    OHT_TIB_STATE.ABNORMAL,
+                    errorCode,
+                    systemsDateTime
+            );
+        }
+
+        return null;
+    }
+    //~VHL OFF
+
+    /**
+     * 속도 값(velocity) 계산 전, 현재와 이전 데이터를 산출
+     * @param vehicle updated vehicle data (reflected udp message)
+     * @param railEdge current railEdge data (reflected udp message)
+     */
+    private void _buildRailVelocity(Vhl vehicle, RailEdge railEdge){
+        RailEdge lastRailEdge = null;
+        String vehicleId = vehicle.getId();
+        String railEdgeId = railEdge.getId();
+        String lastRailEdgeId = vehicle.getLastUdpState().railEdgeId;
+
+        if (StringUtils.isNotEmpty(lastRailEdgeId)) {
+            lastRailEdge = DataService.getDataSet().getRailEdgeMap().get(lastRailEdgeId);
+            String fromNodeId = railEdge.getFromNodeId();
+            String toNodeId = railEdge.getToNodeId();
+            String lastFromNodeId = lastRailEdge.getFromNodeId();
+            String lastToNodeId = lastRailEdge.getToNodeId();
+
+            if (lastFromNodeId.equals(fromNodeId) && !lastToNodeId.equals(toNodeId)) {
+                lastRailEdge.removeVhlId(vehicleId);
+
+                vehicle.getLastUdpState().railEdgeId = railEdgeId;
+                lastRailEdge = DataService.getDataSet().getRailEdgeMap().get(railEdgeId);
+
+                if (!lastRailEdgeId.equals(vehicle.getRailEdgeId())) {
+                    lastRailEdge.removeVhlId(vehicleId);
+                }
+            }
+        }
+
+        this._setRailEdgeVelocity(vehicle, railEdge, lastRailEdge);
+    }
+
+    private void _setRailEdgeVelocity(
+            Vhl vehicle,
+            RailEdge railEdge,
+            RailEdge lastRailEdge
+    ) {
+        String vehicleId = vehicle.getId();
+
+        if (
+                lastRailEdge != null
+                        && lastRailEdge.getToNodeId().equals(railEdge.getFromNodeId())
+        ) {
+            if (this._checkVehicleMovement(vehicle)) {
+                double ran_distance = lastRailEdge.getLength() - vehicle.getLastUdpState().distance + vehicle.getDistance();
+                long elapsed = vehicle.getReceivedTime() - vehicle.getLastUdpState().receivedTime;
+                double speed = ran_distance / (double)elapsed * 60.0;
+
+                lastRailEdge.addVelocity(speed);
+            }
+
+            lastRailEdge.addHistory();
+            lastRailEdge.getVhlIdMap().remove(vehicleId);
+
+            railEdge.addVhlId(vehicleId);
+        } else if (lastRailEdge != null && !railEdge.getId().equals(lastRailEdge.getId())) {
+            lastRailEdge.addHistory();
+            lastRailEdge.getVhlIdMap().remove(vehicleId);
+
+            railEdge.addVhlId(vehicleId);
+
+            if (this._checkVehicleMovement(vehicle)) {
+                ConcurrentLinkedQueue<RailEdge> predictedEdges;
+                RailNode sourceNode = (RailNode) DataService.getDataSet().getNodeMap().get(lastRailEdge.getFromNodeId());
+                RailNode destinationNode = (RailNode) DataService.getDataSet().getNodeMap().get(railEdge.getFromNodeId());
+                predictedEdges = new DijkstraVhlRouteFind(vehicle, sourceNode, destinationNode).getRailEdgeList();
+
+                if(!predictedEdges.isEmpty()) {
+                    double currentSumSpeed = this._getCurrentSumSpeed(vehicle, predictedEdges);
+
+                    for (RailEdge predictedEdge : predictedEdges) {
+                        if(!lastRailEdge.getId().equals(predictedEdge.getId())) {
+                            predictedEdge.addHistory();
+                        }
+
+                        predictedEdge.addVelocity(currentSumSpeed);
+                    }
+                }
+            } else {
+                ConcurrentLinkedQueue<RailEdge> predictedEdges;
+                RailNode source = (RailNode)DataService.getDataSet().getNodeMap().get(lastRailEdge.getFromNodeId());
+                RailNode dest = (RailNode)DataService.getDataSet().getNodeMap().get(railEdge.getFromNodeId());
+                predictedEdges = new DijkstraVhlRouteFind(vehicle, source, dest).getRailEdgeList();
+
+                if (!predictedEdges.isEmpty()) {
+                    for(RailEdge pre : predictedEdges) {
+                        pre.addHistory();
+                    }
+                }
+            }
+
+        } else {
+            if(this._checkVehicleMovement(vehicle)) {
+                //속도 계산시 이동 하지 않은 vehicle 에 대해 추후 이동시 실제 속도를 반영 하기 위함.
+                vehicle.setReceivedTime(vehicle.getLastUdpState().receivedTime);
+                vehicle.setDistance(vehicle.getLastUdpState().distance);
+            }
+
+            railEdge.addVhlId(vehicleId);
+        }
+    }
+
+    private double _getCurrentSumSpeed(Vhl vehicle, ConcurrentLinkedQueue<RailEdge> predictedEdges) {
+        double distanceSum = 0;
+        long lastReceivedMilli = vehicle.getLastUdpState().receivedTime;
+        long totalElapsedMilli = vehicle.getReceivedTime() - lastReceivedMilli;
+
+        for(RailEdge pre : predictedEdges) {
+            distanceSum += pre.getLength();
+        }
+
+        distanceSum -= vehicle.getLastUdpState().distance;
+        distanceSum += vehicle.getDistance();
+
+        return distanceSum / (double)totalElapsedMilli * 60.0;
+    }
+
+    private boolean _checkVehicleMovement(Vhl vehicle) {
+        return (vehicle.getReceivedTime() - vehicle.getLastUdpState().receivedTime) < (60 * 1000)
+                && (
+                VHL_STATE.RUN == vehicle.getState()
+                        || VHL_STATE.OBS_BZ_STOP == vehicle.getState()
+                        || VHL_STATE.JAM == vehicle.getState()
+                        || VHL_STATE.E84_TIMEOUT == vehicle.getState()
+        ) && vehicle.getRunCycle() == vehicle.getLastUdpState().runCycle
+                && vehicle.getVhlCycle() == vehicle.getLastUdpState().vhlCycle
+                && (
+                RUN_CYCLE.ACQUIRE == vehicle.getRunCycle()
+                        || RUN_CYCLE.DEPOSIT == vehicle.getRunCycle()
+        ) && (
+                VHL_CYCLE.ACQUIRE_MOVING == vehicle.getVhlCycle()
+                        || VHL_CYCLE.DEPOSIT_MOVING == vehicle.getVhlCycle()
+        );
+    }
+
+    private static class MSG_ID {
+        public static final String MCP_ONLINE_REPORT = "1";
+        public static final String VHL_STATE_REPORT = "2";
+        public static final String STATION_STATE_REPORT = "3";
+        public static final String MACHINE_STATE_REPORT = "4";
+        public static final String MCP7_RESTART_REPORT = "5";
+        public static final String POWER_STATE_REPORT = "13";
+        public static final String POWER_STATE_HISTORY_REPORT = "14";
+        public static final String VHL_ROUTE_REPORT = "15";
+        public static final String STATE_REQUEST = "51";
+    }
+
+    public static class VHL_STATE_REPORT {
+        public static final int TXT_ID_IDX = 0;             // 텍스트 id
+        public static final int MCP_NM_IDX = 1;             // mcp 명칭
+        public static final int VHL_ID_IDX = 2;             // vehicle 명
+        public static final int STATE_IDX = 3;              // 상태
+        public static final int FULL_IDX = 4;               // 재하 정보
+        public static final int ERROR_CODE_IDX = 5;         // error code
+        public static final int ONLINE_IDX = 6;             // 통신 상태
+        public static final int ADDRESS_IDX = 7;            // 현재 번지
+        public static final int DISTANCE_IDX = 8;           // 현재 번지로부터의 거리
+        public static final int NEXT_ADDRESS_IDX = 9;       // 다음 번지
+        public static final int RUN_CYCLE_IDX = 10;         // 실행 cycle
+        public static final int VHL_CYCLE_IDX = 11;         // vehicle 실행 cycle 진척
+        public static final int CARRIER_ID_IDX = 12;        // carrier id
+        public static final int DESTINATION_IDX = 13;       // destination
+        public static final int EM_STATUS_IDX = 14;         // e/m 상태
+        public static final int GROUP_ID_IDX = 15;          // group id
+        public static final int SOURCE_PORT_IDX = 16;       // 반송원 port
+        public static final int DEST_PORT_IDX = 17;         // 반송처 port
+        public static final int PRIORITY_IDX = 18;          // 반송 우선도
+        public static final int DET_STATUS_IDX = 19;        // 작업 상태 상세
+        public static final int RUN_DISTANCE_IDX = 20;      // 대차 주행거리
+        public static final int CMD_ID_IDX = 21;            // command id
+        public static final int BAY_NM_IDX = 22;            // bay 명칭
+    }
+
+    // 상태값
+    public static class OHT_TIB_STATE {
+        public static final String NORMAL = "NORMAL";
+        public static final String ABNORMAL = "ABNORMAL";
+
+        public static List<String> getStates() {
+            List<String> states = new ArrayList<>();
+
+            states.add(NORMAL);
+            states.add(ABNORMAL);
+
+            return states;
+        }
+    }
+}
