@@ -397,9 +397,13 @@ public class OhtMsgWorkerRunnable implements Runnable {
             // 데이터 소스: previousHidId = vehicle.getHidId() (Vhl.java:517)
             //             currentHidId  = railEdge.getHIDId() (RaileEdge.java:324)
             //             fabId, id, eqpId = vehicle (Vhl.java:5,6,9)
+            String vhlIdFull = vehicle.getId();
+            String vhlName = vhlIdFull.substring(vhlIdFull.lastIndexOf(':') + 1);
+            String eqpIdFull = vehicle.getEqpId();
+            String eqpName = eqpIdFull.substring(eqpIdFull.lastIndexOf(':') + 1);
             String edgeKey = String.format("%03d:%03d:%s:%s:%s",
                     previousHidId, currentHidId,
-                    vehicle.getFabId(), vehicle.getId(), vehicle.getEqpId());
+                    vehicle.getFabId(), vhlName, eqpName);
             synchronized (hidEdgeBufferLock) {
                 hidEdgeBuffer.merge(edgeKey, 1, Integer::sum);
             }
@@ -701,8 +705,6 @@ public class OhtMsgWorkerRunnable implements Runnable {
         // 테이블명: {FAB}_ATLAS_INFO_HID_INOUT_MAS (예: M14A_ATLAS_INFO_HID_INOUT_MAS)
         String tableName = this.fabId + "_ATLAS_INFO_HID_INOUT_MAS";
 
-        // Full Refresh
-        LogpressoAPI.truncateTable(tableName);
         LogpressoAPI.setInsertTuples(tableName, tuples, 100);
 
         logger.info("[HID Master] Edge Master updated: {} - {} records", tableName, tuples.size());
@@ -824,8 +826,6 @@ public class OhtMsgWorkerRunnable implements Runnable {
         // 테이블명: {FAB}_ATLAS_HID_INFO_MAS (예: M14A_ATLAS_HID_INFO_MAS)
         String tableName = this.fabId + "_ATLAS_HID_INFO_MAS";
 
-        // Full Refresh
-        LogpressoAPI.truncateTable(tableName);
         LogpressoAPI.setInsertTuples(tableName, tuples, 100);
 
         logger.info("[HID Master] HID Info Master updated: {} - {} records", tableName, tuples.size());
