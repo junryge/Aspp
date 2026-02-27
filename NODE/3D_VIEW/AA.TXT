@@ -1,15 +1,16 @@
 Env=REAL
 Site=IC
 FabIdList=M14A,M14B,M16A,M16B
+
 # ---- common switch ----
 CMN.CMN.RAIL_VIBRATION=TRUE
 CMN.CMN.UDP_MESSAGE_MONITORING=TRUE
 # -----------------------
+
 # -----------------------
 # [M14A]
 # --- function switch ---
 M14A.A.HID_OFF=TRUE
-M14A.A.HID_INOUT=TRUE
 M14A.A.VHL_OFF=TRUE
 M14A.A.RAIL_CUT=TRUE
 M14A.A.MAP_FILE_REFRESH=TRUE
@@ -39,7 +40,7 @@ M14A.send.list=star
 M14A.send.star.gid=9
 M14A.send.star.service=
 M14A.send.star.network=
-M14A.send.star.daemon=tcp:10.40.44.31:7500
+M14A.send.star.daemon=
 M14A.send.star.subject=ATLAS.STARPDT.LAYOUT
 # ---> receive (ATLAS <- RDS)
 # 1) receive list
@@ -48,16 +49,16 @@ M14A.rev.list=mhs
 M14A.rev.mhs.gid=-1
 M14A.rev.mhs.service=14141
 M14A.rev.mhs.network=;239.14.14.11
-M14A.rev.mhs.daemon=tcp:10.25.211.149:7500
+M14A.rev.mhs.daemon=
 M14A.rev.mhs.subject=M14.REAL.MES.MHS.MCS.MHSMCS_TRANSPORT_JOB_SCHEDULE_REQ
 #M14A.conveyor=[{"mapUrl":"http://10.25.152.59:8000/api/zoneinfo", "eqpId":"4AFC3301"},{"mapUrl":"http://10.25.152.57:8000/api/zoneinfo", "eqpId":"4AFC3201"}]
 M14A.mcs.processname=MCS
 M14A.McpNamePairs=4ACM4701|A
-M14A.oht.A.daemon=tcp:10.40.44.31:7500
+M14A.oht.A.daemon=
 M14A.oht.A.subject=_LOCAL.ATLAS.OHTUDP.M14A.A
 M14A.oht.A.ip=
 M14A.oht.A.port=3710
-M14A.oht.A.ftp.ip=10.25.190.21
+M14A.oht.A.ftp.ip=
 M14A.oht.A.ftp.user=mcp7
 M14A.oht.A.ftp.password=QVeoq/OaiqMrkngNDS/ELMt/ev4=
 M14A.oht.A.ftp.lanecut=/home/mcp7/mcp7/item/HYNIX_M14/cfg_save/OHT/cfg/inactive_SCH_1.dat
@@ -65,11 +66,11 @@ M14A.oht.A.ftp.mcp75=/home/mcp7/mcp7/item/HYNIX_M14/cfg_save/OHT/mcp75.cfg
 M14A.oht.A.ftp.station=/home/mcp7/mcp7/item/HYNIX_M14/cfg_save/OHT/cfg/station.dat
 #M14A.oht.A.ftp.route=/home/mcp7/mcp7/item/HYNIX_M14/cfg_save/OHT/cfg/route_SCH_1.dat
 M14A.oht.A.ftp.layout=/home/mcp7/mcp7/item/HYNIX_M14/cfg_save/OHT/layout.zip
+
 # -----------------------
 # [M14B]
 # --- function switch ---
 M14B.A.HID_OFF=FALSE
-M14B.A.HID_INOUT=FALSE
 M14B.A.VHL_OFF=FALSE
 M14B.A.RAIL_CUT=FALSE
 M14B.A.MAP_FILE_REFRESH=FALSE
@@ -89,11 +90,11 @@ M14B.MapDir=map/M14B
 M14B.daemons=tcp:10.25.202.84:7500,tcp:10.25.202.83:7500
 M14B.mcs.processname=MCS7F
 M14B.McpNamePairs=4ACMD601|A
-M14B.oht.A.daemon=tcp:10.40.44.31:7500
+M14B.oht.A.daemon=
 M14B.oht.A.subject=_LOCAL.ATLAS.OHTUDP.M14B.A
 M14B.oht.A.ip=
 M14B.oht.A.port=3720
-M14B.oht.A.ftp.ip=10.26.232.21
+M14B.oht.A.ftp.ip=
 M14B.oht.A.ftp.user=mcp7
 M14B.oht.A.ftp.password=39+thGqb7/noCN+2U457HXN7CWQ=
 M14B.oht.A.ftp.lanecut=/home/mcp7/mcp7/item/HYNIX_M14B/cfg_save/OHT/cfg/inactive_SCH_1.dat
@@ -101,11 +102,11 @@ M14B.oht.A.ftp.mcp75=/home/mcp7/mcp7/item/HYNIX_M14B/cfg_save/OHT/mcp75.cfg
 M14B.oht.A.ftp.station=/home/mcp7/mcp7/item/HYNIX_M14B/cfg_save/OHT/cfg/station.dat
 #M14B.oht.A.ftp.route=/home/mcp7/mcp7/item/HYNIX_M14B/cfg_save/OHT/cfg/route_SCH_1.dat
 M14B.oht.A.ftp.layout=/home/mcp7/mcp7/item/HYNIX_M14B/cfg_save/OHT/layout.zip
+
 # -----------------------
 # [M16A]
 # --- function switch ---
 M16A.A.HID_OFF=FALSE
-M16A.A.HID_INOUT=FALSE
 M16A.A.VHL_OFF=FALSE
 M16A.A.RAIL_CUT=FALSE
 M16A.A.MAP_FILE_REFRESH=FALSE
@@ -126,11 +127,11 @@ M16A.MapDir=map/M16A
 M16A.daemons=tcp:10.30.14.65:7500,tcp:10.30.14.64:7500
 M16A.mcs.processname=MCS
 M16A.McpNamePairs=6ECMB101|BR,6ACM3901|A,6ECML101|E,6ECMB101|BR
-M16A.oht.A.daemon=tcp:10.40.44.31:7500
+M16A.oht.A.daemon=
 M16A.oht.A.subject=_LOCAL.ATLAS.OHTUDP.M16A.A
 M16A.oht.A.ip=
 M16A.oht.A.port=3730
-M16A.oht.A.ftp.ip=10.30.207.25
+M16A.oht.A.ftp.ip=
 M16A.oht.A.ftp.user=mcp7
 M16A.oht.A.ftp.password=z55ZaEMdKreW+1cpVHREIB8RTFk=
 M16A.oht.A.ftp.lanecut=/home/mcp7/mcp7/item/HYNIX_M16_6F/cfg_save/OHT_6F/cfg/inactive_SCH_1.dat
@@ -138,24 +139,24 @@ M16A.oht.A.ftp.mcp75=/home/mcp7/mcp7/item/HYNIX_M16_6F/cfg_save/OHT_6F/mcp75.cfg
 M16A.oht.A.ftp.station=/home/mcp7/mcp7/item/HYNIX_M16_6F/cfg_save/OHT_6F/cfg/station.dat
 #M16A.oht.A.ftp.route=/home/mcp7/mcp7/item/HYNIX_M16_6F/cfg_save/OHT_6F/cfg/route_SCH_1.dat
 M16A.oht.A.ftp.layout=/home/mcp7/mcp7/item/HYNIX_M16_6F/cfg_save/OHT_6F/layout.zip
+
 # -----------------------
 # [M16A:E]
 # --- function switch ---
 M16A.E.HID_OFF=FALSE
-M16A.E.HID_INOUT=FALSE
 M16A.E.VHL_OFF=FALSE
 M16A.E.RAIL_CUT=FALSE
 M16A.E.MAP_FILE_REFRESH=FALSE
 M16A.E.VHL_CNT=FALSE
 M16A.E.STAGE_COMMAND_MONITORING=FALSE
 M16A.E.RAIL_TRAFFIC=FALSE
-M16A.E.RAIL_TRAFFIC_SUB=FALSE
+M16A.e.RAIL_TRAFFIC_SUB=FALSE
 # -----------------------
-M16A.oht.E.daemon=tcp:10.40.44.31:7500
+M16A.oht.E.daemon=
 M16A.oht.E.subject=_LOCAL.ATLAS.OHTUDP.M16A.E
 M16A.oht.E.ip=
 M16A.oht.E.port=3740
-M16A.oht.E.ftp.ip=10.30.68.25
+M16A.oht.E.ftp.ip=
 M16A.oht.E.ftp.user=mcp7
 M16A.oht.E.ftp.password=32jAHtztbkUL7lDbf3xhwZCW20w=
 M16A.oht.E.ftp.lanecut=/home/mcp7/mcp7/item/HYNIX_M16_2F/cfg_save/OHT_2F/cfg/inactive_SCH_1.dat
@@ -163,24 +164,23 @@ M16A.oht.E.ftp.mcp75=/home/mcp7/mcp7/item/HYNIX_M16_2F/cfg_save/OHT_2F/mcp75.cfg
 M16A.oht.E.ftp.station=/home/mcp7/mcp7/item/HYNIX_M16_2F/cfg_save/OHT_2F/cfg/station.dat
 #M16A.oht.E.ftp.route=/home/mcp7/mcp7/item/HYNIX_M16_2F/cfg_save/OHT_2F/cfg/route_SCH_1.dat
 M16A.oht.E.ftp.layout=/home/mcp7/mcp7/item/HYNIX_M16_2F/cfg_save/OHT_2F/layout.zip
+
 # -----------------------
 # [M16A:BR]
 # --- function switch ---
-M16A.BR.HID_OFF=TRUE
-M16A.BR.HID_INOUT=TRUE
-M16A.BR.VHL_OFF=TRUE
-M16A.BR.RAIL_CUT=TRUE
-M16A.BR.MAP_FILE_REFRESH=TRUE
-M16A.BR.VHL_CNT=TRUE
+M16A.BR.HID_OFF=FALSE
+M16A.BR.VHL_OFF=FALSE
+M16A.BR.RAIL_CUT=FALSE
+M16A.BR.MAP_FILE_REFRESH=FALSE
+M16A.BR.VHL_CNT=FALSE
 M16A.BR.STAGE_COMMAND_MONITORING=FALSE
-M16A.BR.RAIL_TRAFFIC=TRUE
-M16A.BR.RAIL_TRAFFIC_SUB=TRUE
-# -----------------------
-M16A.oht.BR.daemon=tcp:10.40.44.31:7500
+M16A.BR.RAIL_TRAFFIC=FALSE
+M16A.BR.RAIL_TRAFFIC_SUB=FALSE
+M16A.oht.BR.daemon=
 M16A.oht.BR.subject=_LOCAL.ATLAS.OHTUDP.M16A.BR
 M16A.oht.BR.ip=
 M16A.oht.BR.port=3750
-M16A.oht.BR.ftp.ip=10.30.98.43
+M16A.oht.BR.ftp.ip=
 M16A.oht.BR.ftp.user=mcp7
 M16A.oht.BR.ftp.password=tOh4kSg207jN9LErcjZNoWkdXik=
 M16A.oht.BR.ftp.lanecut=/home/mcp7/mcp7/item/HYNIX_M16_3F/cfg_save/OHT_3F/cfg/inactive_SCH_1.dat
@@ -188,11 +188,11 @@ M16A.oht.BR.ftp.mcp75=/home/mcp7/mcp7/item/HYNIX_M16_3F/cfg_save/OHT_3F/mcp75.cf
 M16A.oht.BR.ftp.station=/home/mcp7/mcp7/item/HYNIX_M16_3F/cfg_save/OHT_3F/cfg/station.dat
 #M16A.oht.BR.ftp.route=/home/mcp7/mcp7/item/HYNIX_M16_3F/cfg_save/OHT_3F/cfg/route_SCH_1.dat
 M16A.oht.BR.ftp.layout=/home/mcp7/mcp7/item/HYNIX_M16_3F/cfg_save/OHT_3F/layout.zip
+
 # -----------------------
 # [M16B]
 # --- function switch ---
 M16B.B.HID_OFF=FALSE
-M16B.B.HID_INOUT=FALSE
 M16B.B.VHL_OFF=FALSE
 M16B.B.RAIL_CUT=FALSE
 M16B.B.MAP_FILE_REFRESH=FALSE
@@ -213,11 +213,11 @@ M16B.MapDir=map/M16B
 M16B.daemons=tcp:10.30.14.93:7500,tcp:10.30.14.92:7500
 M16B.mcs.processname=MCS10F
 M16B.McpNamePairs=6ACMD701|B
-M16B.oht.B.daemon=tcp:10.40.44.31:7500
+M16B.oht.B.daemon=
 M16B.oht.B.subject=_LOCAL.ATLAS.OHTUDP.M16B.B
 M16B.oht.B.ip=
 M16B.oht.B.port=3760
-M16B.oht.B.ftp.ip=10.34.248.37
+M16B.oht.B.ftp.ip=
 M16B.oht.B.ftp.user=mcp7
 M16B.oht.B.ftp.password=0+EJVRNIntUNtGquBNRq5imowV8=
 M16B.oht.B.ftp.lanecut=/home/mcp7/mcp7/item/HYNIX_M16_10F/cfg_save/OHT_10F/cfg/inactive_SCH_1.dat
