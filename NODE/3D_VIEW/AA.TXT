@@ -1,368 +1,227 @@
-/**
- * develop history
- * ...
- * 2025-11-27 변수에 대한 스위치 추가(absoluteVelocity, maxVelocity, passCnt, vhlCnt)
- * 2026-02-27 HID_INOUT 스위치 추가
- */
-public class FunctionItem {
-
-    private final Logger logger = LoggerFactory.getLogger(getClass());
-
-    private final String fabId;
-    private final String mcpName;
-
-    private Boolean useHidOff = null;
-    private Boolean useHidInout = null;
-    private Boolean useVhlOff = null;
-    private Boolean useRailCut = null;
-    private Boolean useMapFileRefresh = null;
-    private Boolean useVhlCnt = null;
-    private Boolean useVhlCnt10 = null;
-    private Boolean useVhlCnt30 = null;
-    private Boolean useVhlCnt60 = null;
-    private Boolean useStageCommandMonitoring = null;
-    private Boolean useUdpMessageMonitoring = null;
-    private Boolean useRailVibration = null;
-    // TrafficBatch.class
-    private Boolean useRailTraffic = null;
-    private Boolean useRailTrafficSub = null;
-    private Boolean useRailTrafficAbsoluteVelocity = null;
-    private Boolean useRailTrafficMaxVelocity = null;
-    private Boolean useRailTrafficPassCnt = null;
-    private Boolean useRailTrafficVhlCnt = null;
-
-    public FunctionItem(String fabId, String mcpName) {
-        this.fabId      = fabId;
-        this.mcpName    = mcpName;
-    }
-
-    public FunctionItem(String fabId, String mcpName, Map<FunctionType, Boolean> functionTypeMapper) {
-        this.fabId      = fabId;
-        this.mcpName    = mcpName;
-
-        if (functionTypeMapper == null) {
-            logger.error("... mapping data is null value, so composing `{}` construction exit [functionTypeMapper=null]", this.getClass().getSimpleName());
-        } else {
-            for (Map.Entry<FunctionType, Boolean> entry : functionTypeMapper.entrySet()) {
-                setUseFunction(entry.getKey(), entry.getValue());
-            }
-        }
-    }
-
-    public String getFabId() {
-        return fabId;
-    }
-
-    public String getMcpName() {
-        return mcpName;
-    }
-
-    public boolean isUseHidOff() {
-        return useHidOff != null && useHidOff;
-    }
-
-    public boolean isUseHidInout() {
-        return useHidInout != null && useHidInout;
-    }
-
-    public boolean isUseVhlOff() {
-        return useVhlOff != null && useVhlOff;
-    }
-
-    public boolean isUseRailCut() {
-        return useRailCut != null && useRailCut;
-    }
-
-    public boolean isUseMapFileRefresh() {
-        return useMapFileRefresh != null && useMapFileRefresh;
-    }
-
-    public boolean isUseVhlCnt() {
-        return useVhlCnt != null && useVhlCnt;
-    }
-
-    public boolean isUseStageCommandMonitoring() {
-        return useStageCommandMonitoring != null && useStageCommandMonitoring;
-    }
-
-    public boolean isUseUdpMessageMonitoring() {
-        return useUdpMessageMonitoring != null && useUdpMessageMonitoring;
-    }
-
-    public boolean isUseRailVibration() {
-        return useRailVibration != null && useRailVibration;
-    }
-
-    public boolean isUseRailTraffic() {
-        return useRailTraffic != null && useRailTraffic;
-    }
-
-    public boolean isUseRailTrafficSub() {
-        return useRailTrafficSub != null && useRailTrafficSub;
-    }
-
-    public boolean isUseVhlCnt10() {
-        return useVhlCnt10 != null && useVhlCnt10;
-    }
-
-    public boolean isUseVhlCnt30() {
-        return useVhlCnt30 != null && useVhlCnt30;
-    }
-
-    public boolean isUseVhlCnt60() {
-        return useVhlCnt60 != null && useVhlCnt60;
-    }
-
-    public boolean isUseRailTrafficAbsoluteVelocity() {
-        return useRailTrafficAbsoluteVelocity != null && useRailTrafficAbsoluteVelocity;
-    }
-
-    public boolean isUseRailTrafficMaxVelocity() {
-        return useRailTrafficMaxVelocity != null && useRailTrafficMaxVelocity;
-    }
-
-    public boolean isUseRailTrafficPassCnt() {
-        return useRailTrafficPassCnt != null && useRailTrafficPassCnt;
-    }
-
-    public boolean isUseRailTrafficVhlCnt() {
-        return useRailTrafficVhlCnt != null && useRailTrafficVhlCnt;
-    }
-
-    public void setUseFunction(FunctionType key, Boolean isAvailable) {
-        switch (key) {
-            case HID_OFF: {
-                this.useHidOff = isAvailable;
-            } break;
-            case HID_INOUT: {
-                this.useHidInout = isAvailable;
-            } break;
-            case VHL_OFF: {
-                this.useVhlOff = isAvailable;
-            } break;
-            case RAIL_CUT: {
-                this.useRailCut = isAvailable;
-            } break;
-            case MAP_FILE_REFRESH: {
-                this.useMapFileRefresh = isAvailable;
-            } break;
-            case VHL_CNT: {
-                this.useVhlCnt = isAvailable;
-            } break;
-            case VHL_CNT_10: {
-                this.useVhlCnt10 = isAvailable;
-            } break;
-            case VHL_CNT_30: {
-                this.useVhlCnt30 = isAvailable;
-            } break;
-            case VHL_CNT_60: {
-                this.useVhlCnt60 = isAvailable;
-            } break;
-            case RAIL_VIBRATION: {
-                this.useRailVibration = isAvailable;
-            } break;
-            case UDP_MESSAGE_MONITORING: {
-                this.useUdpMessageMonitoring = isAvailable;
-            } break;
-            case STAGE_COMMAND_MONITORING: {
-                this.useStageCommandMonitoring = isAvailable;
-            } break;
-            case RAIL_TRAFFIC: {
-                this.useRailTraffic = isAvailable;
-            } break;
-            case RAIL_TRAFFIC_SUB: {
-                this.useRailTrafficSub = isAvailable;
-            } break;
-            case RAIL_TRAFFIC_ABSOLUTE_VELOCITY: {
-                this.useRailTrafficAbsoluteVelocity = isAvailable;
-            } break;
-            case RAIL_TRAFFIC_MAX_VELOCITY: {
-                this.useRailTrafficMaxVelocity = isAvailable;
-            } break;
-            case RAIL_TRAFFIC_PASS_COUNT: {
-                this.useRailTrafficPassCnt = isAvailable;
-            }
-            case RAIL_TRAFFIC_VEHICLE_COUNT: {
-                this.useRailTrafficVhlCnt = isAvailable;
-            } break;
-            default: {
-                this._notRegistered(key);
-            } break;
-        }
-    }
-
-    public boolean getUseFunction(FunctionType key) {
-        return getUseFunction(key, false);
-    }
-
-    public Boolean getUseFunction(FunctionType key, boolean nullable) {
-        switch (key) {
-            case HID_OFF: {
-                if (nullable) {
-                    return useHidOff;
-                } else {
-                    return isUseHidOff();
-                }
-            }
-            case HID_INOUT: {
-                if (nullable) {
-                    return useHidInout;
-                } else {
-                    return isUseHidInout();
-                }
-            }
-            case VHL_OFF: {
-                if (nullable) {
-                    return useVhlOff;
-                } else {
-                    return isUseVhlOff();
-                }
-            }
-            case RAIL_CUT: {
-                if (nullable) {
-                    return useRailCut;
-                } else {
-                    return isUseRailCut();
-                }
-            }
-            case MAP_FILE_REFRESH: {
-                if (nullable) {
-                    return useMapFileRefresh;
-                } else {
-                    return isUseMapFileRefresh();
-                }
-            }
-            case VHL_CNT: {
-                if (nullable) {
-                    return useVhlCnt;
-                } else {
-                    return isUseVhlCnt();
-                }
-            }
-            case VHL_CNT_10: {
-                if (nullable) {
-                    return useVhlCnt10;
-                } else {
-                    return isUseVhlCnt10();
-                }
-            }
-            case VHL_CNT_30: {
-                if (nullable) {
-                    return useVhlCnt30;
-                } else {
-                    return isUseVhlCnt30();
-                }
-            }
-            case VHL_CNT_60: {
-                if (nullable) {
-                    return useVhlCnt60;
-                } else {
-                    return isUseVhlCnt60();
-                }
-            }
-            case RAIL_VIBRATION: {
-                if (nullable) {
-                    return useRailVibration;
-                } else {
-                    return isUseRailVibration();
-                }
-            }
-            case UDP_MESSAGE_MONITORING: {
-                if (nullable) {
-                    return useUdpMessageMonitoring;
-                } else {
-                    return isUseUdpMessageMonitoring();
-                }
-            }
-            case STAGE_COMMAND_MONITORING: {
-                if (nullable) {
-                    return useStageCommandMonitoring;
-                } else {
-                    return isUseStageCommandMonitoring();
-                }
-            }
-            case RAIL_TRAFFIC: {
-                if (nullable) {
-                    return useRailTraffic;
-                } else {
-                    return isUseRailTraffic();
-                }
-            }
-            case RAIL_TRAFFIC_SUB: {
-                if (nullable) {
-                    return useRailTrafficSub;
-                } else {
-                    return isUseRailTrafficSub();
-                }
-            }
-            case RAIL_TRAFFIC_ABSOLUTE_VELOCITY: {
-                if (nullable) {
-                    return useRailTrafficAbsoluteVelocity;
-                } else {
-                    return isUseRailTrafficAbsoluteVelocity();
-                }
-            }
-            case RAIL_TRAFFIC_MAX_VELOCITY: {
-                if (nullable) {
-                    return useRailTrafficMaxVelocity;
-                } else {
-                    return isUseRailTrafficMaxVelocity();
-                }
-            }
-            case RAIL_TRAFFIC_PASS_COUNT: {
-                if (nullable) {
-                    return useRailTrafficPassCnt;
-                } else {
-                    return isUseRailTrafficPassCnt();
-                }
-            }
-            case RAIL_TRAFFIC_VEHICLE_COUNT: {
-                if (nullable) {
-                    return useRailTrafficVhlCnt;
-                } else {
-                    return isUseRailTrafficVhlCnt();
-                }
-            }
-            default: {
-                this._notRegistered(key);
-                return false;
-            }
-        }
-    }
-
-    private void _notRegistered(FunctionType functionType) {
-        logger.error("... entered function type is not registered [key: {}] [fab: {} | mcp: {}]", functionType.getKey(), fabId, mcpName);
-    }
-
-    public enum FunctionType {
-        HID_OFF("HID_OFF"),
-        HID_INOUT("HID_INOUT"),
-        VHL_OFF("VHL_OFF"),
-        RAIL_CUT("RAIL_CUT"),
-        MAP_FILE_REFRESH("MAP_FILE_REFRESH"),
-        VHL_CNT("VHL_CNT"),
-        VHL_CNT_10("VHL_CNT_10"),
-        VHL_CNT_30("VHL_CNT_30"),
-        VHL_CNT_60("VHL_CNT_60"),
-        STAGE_COMMAND_MONITORING("STAGE_COMMAND_MONITORING"),
-        UDP_MESSAGE_MONITORING("UDP_MESSAGE_MONITORING"),
-//        ITSM_SCHEDULE_MONITORING("ITSM_SCHEDULE_MONITORING"),
-        RAIL_VIBRATION("RAIL_VIBRATION"),
-        RAIL_TRAFFIC("RAIL_TRAFFIC"),
-        RAIL_TRAFFIC_SUB("RAIL_TRAFFIC_SUB"),
-        RAIL_TRAFFIC_ABSOLUTE_VELOCITY("RAIL_TRAFFIC_ABSOLUTE_VELOCITY"),
-        RAIL_TRAFFIC_MAX_VELOCITY("RAIL_TRAFFIC_MAX_VELOCITY"),
-        RAIL_TRAFFIC_PASS_COUNT("RAIL_TRAFFIC_PASS_COUNT"),
-        RAIL_TRAFFIC_VEHICLE_COUNT("RAIL_TRAFFIC_VEHICLE_COUNT");
-
-        private final String key;
-
-        FunctionType(String key) {
-            this.key = key;
-        }
-
-        public String getKey() {
-            return key;
-        }
-    }
-}
+Env=REAL
+Site=IC
+FabIdList=M14A,M14B,M16A,M16B
+# ---- common switch ----
+CMN.CMN.RAIL_VIBRATION=TRUE
+CMN.CMN.UDP_MESSAGE_MONITORING=TRUE
+# -----------------------
+# -----------------------
+# [M14A]
+# --- function switch ---
+M14A.A.HID_OFF=TRUE
+M14A.A.HID_INOUT=TRUE
+M14A.A.VHL_OFF=TRUE
+M14A.A.RAIL_CUT=TRUE
+M14A.A.MAP_FILE_REFRESH=TRUE
+M14A.A.VHL_CNT=TRUE
+M14A.A.STAGE_COMMAND_MONITORING=FALSE
+M14A.A.RAIL_TRAFFIC=TRUE
+M14A.A.RAIL_TRAFFIC_SUB=TRUE
+M14A.A.RAIL_TRAFFIC_ABSOLUTE_VELOCITY=TRUE
+M14A.A.RAIL_TRAFFIC_MAX_VELOCITY=TRUE
+M14A.A.RAIL_TRAFFIC_PASS_COUNT=TRUE
+M14A.A.RAIL_VEHICLE_PASS_COUNT=TRUE
+# -----------------------
+M14A.FacId=M14
+M14A.McpName=A
+M14A.Floor=3F
+M14A.IsZipTowerOwner=N
+# this should be generated by owner fab
+M14A.BridgeFrom=[{"fabId":"M14B","eqpIdSet":["4ALFA201","4ALFA901","4ALFB501","4ALFC101","4ALFC301","4ALFC601","4ALFD501","4ALFD601","4ALFD901","4ALFE701","4ALFF201","4ALFF501","4ALFF701","4ALFG201"]}]
+M14A.BridgeTo=[{"fabId":"M16A","eqpIdSet":["4AFC3201","4AFC3301"]}]
+M14A.InlineConnection=[{"stkId":"4AFS6201","eqpPortIdSet":["4FSR6201_3","4FSR6201_4"]},{"stkId":"4AFS6202","eqpPortIdSet":["4FSR6202_3","4FSR6202_4"]}]
+M14A.MapDir=map/M14A
+#M14A.daemons=tcp:10.25.202.82:7500,tcp:10.25.202.81:7500
+# ---> send (ATLAS -> STAR)
+# 1) send list
+M14A.send.list=star
+# 2) send items
+M14A.send.star.gid=9
+M14A.send.star.service=
+M14A.send.star.network=
+M14A.send.star.daemon=tcp:10.40.44.31:7500
+M14A.send.star.subject=ATLAS.STARPDT.LAYOUT
+# ---> receive (ATLAS <- RDS)
+# 1) receive list
+M14A.rev.list=mhs
+# 2) receive items
+M14A.rev.mhs.gid=-1
+M14A.rev.mhs.service=14141
+M14A.rev.mhs.network=;239.14.14.11
+M14A.rev.mhs.daemon=tcp:10.25.211.149:7500
+M14A.rev.mhs.subject=M14.REAL.MES.MHS.MCS.MHSMCS_TRANSPORT_JOB_SCHEDULE_REQ
+#M14A.conveyor=[{"mapUrl":"http://10.25.152.59:8000/api/zoneinfo", "eqpId":"4AFC3301"},{"mapUrl":"http://10.25.152.57:8000/api/zoneinfo", "eqpId":"4AFC3201"}]
+M14A.mcs.processname=MCS
+M14A.McpNamePairs=4ACM4701|A
+M14A.oht.A.daemon=tcp:10.40.44.31:7500
+M14A.oht.A.subject=_LOCAL.ATLAS.OHTUDP.M14A.A
+M14A.oht.A.ip=
+M14A.oht.A.port=3710
+M14A.oht.A.ftp.ip=10.25.190.21
+M14A.oht.A.ftp.user=mcp7
+M14A.oht.A.ftp.password=QVeoq/OaiqMrkngNDS/ELMt/ev4=
+M14A.oht.A.ftp.lanecut=/home/mcp7/mcp7/item/HYNIX_M14/cfg_save/OHT/cfg/inactive_SCH_1.dat
+M14A.oht.A.ftp.mcp75=/home/mcp7/mcp7/item/HYNIX_M14/cfg_save/OHT/mcp75.cfg
+M14A.oht.A.ftp.station=/home/mcp7/mcp7/item/HYNIX_M14/cfg_save/OHT/cfg/station.dat
+#M14A.oht.A.ftp.route=/home/mcp7/mcp7/item/HYNIX_M14/cfg_save/OHT/cfg/route_SCH_1.dat
+M14A.oht.A.ftp.layout=/home/mcp7/mcp7/item/HYNIX_M14/cfg_save/OHT/layout.zip
+# -----------------------
+# [M14B]
+# --- function switch ---
+M14B.A.HID_OFF=FALSE
+M14B.A.HID_INOUT=FALSE
+M14B.A.VHL_OFF=FALSE
+M14B.A.RAIL_CUT=FALSE
+M14B.A.MAP_FILE_REFRESH=FALSE
+M14B.A.VHL_CNT=FALSE
+M14B.A.STAGE_COMMAND_MONITORING=FALSE
+M14B.A.RAIL_TRAFFIC=FALSE
+M14B.A.RAIL_TRAFFIC_SUB=FALSE
+# -----------------------
+M14B.FacId=M14
+M14B.McpName=B
+M14B.Floor=7F
+M14B.IsZipTowerOwner=Y
+M14B.BridgeFrom=
+M14B.BridgeTo=[{"fabId":"M14A","eqpIdSet":["4ALFA201","4ALFA901","4ALFB501","4ALFC101","4ALFC301","4ALFC601","4ALFD501","4ALFD601","4ALFD901","4ALFE701","4ALFF201","4ALFF501","4ALFF701","4ALFG201"]},{"fabId":"M16A","eqpIdSet":["4ABLD111","4ABLD112","4ABLD121","4ABLD122","4ABLD131","4ABLD132"]}]
+M14B.InlineConnection=[{"stkId":"4AFSG201","eqpPortIdSet":["4FSRG201_3","4FSRG201_4"]},{"stkId":"4AFSG202","eqpPortIdSet":["4FSRG202_3","4FSRG202_4"]}]
+M14B.MapDir=map/M14B
+M14B.daemons=tcp:10.25.202.84:7500,tcp:10.25.202.83:7500
+M14B.mcs.processname=MCS7F
+M14B.McpNamePairs=4ACMD601|A
+M14B.oht.A.daemon=tcp:10.40.44.31:7500
+M14B.oht.A.subject=_LOCAL.ATLAS.OHTUDP.M14B.A
+M14B.oht.A.ip=
+M14B.oht.A.port=3720
+M14B.oht.A.ftp.ip=10.26.232.21
+M14B.oht.A.ftp.user=mcp7
+M14B.oht.A.ftp.password=39+thGqb7/noCN+2U457HXN7CWQ=
+M14B.oht.A.ftp.lanecut=/home/mcp7/mcp7/item/HYNIX_M14B/cfg_save/OHT/cfg/inactive_SCH_1.dat
+M14B.oht.A.ftp.mcp75=/home/mcp7/mcp7/item/HYNIX_M14B/cfg_save/OHT/mcp75.cfg
+M14B.oht.A.ftp.station=/home/mcp7/mcp7/item/HYNIX_M14B/cfg_save/OHT/cfg/station.dat
+#M14B.oht.A.ftp.route=/home/mcp7/mcp7/item/HYNIX_M14B/cfg_save/OHT/cfg/route_SCH_1.dat
+M14B.oht.A.ftp.layout=/home/mcp7/mcp7/item/HYNIX_M14B/cfg_save/OHT/layout.zip
+# -----------------------
+# [M16A]
+# --- function switch ---
+M16A.A.HID_OFF=FALSE
+M16A.A.HID_INOUT=FALSE
+M16A.A.VHL_OFF=FALSE
+M16A.A.RAIL_CUT=FALSE
+M16A.A.MAP_FILE_REFRESH=FALSE
+M16A.A.VHL_CNT=FALSE
+M16A.A.STAGE_COMMAND_MONITORING=FALSE
+M16A.A.RAIL_TRAFFIC=FALSE
+M16A.A.RAIL_TRAFFIC_SUB=FALSE
+# -----------------------
+M16A.FacId=M16
+M16A.McpName=A
+M16A.Floor=6F
+M16A.IsZipTowerOwner=Y
+# this should be generated by owner fab
+M16A.BridgeFrom=[{"fabId":"M14B","eqpIdSet":["4ABLD111","4ABLD112","4ABLD121","4ABLD122","4ABLD131","4ABLD132"]},{"fabId":"M14A","eqpIdSet":["4AFC3201","4AFC3301"]},{"fabId":"M16B","eqpIdSet":["6ALFB201","6ALFB202","6ALFC301","6ALFC302","6ALFD301","6ALFD302","6ALFE201","6ALFE202","6ALFE301","6ALFE302","6ALFF001","6ALFF002","6ALFF401","6ALFF402"]}]
+M16A.BridgeTo=
+M16A.InlineConnection=[{"stkId":"6AFS6201","eqpPortIdSet":["6FSR6201_3","6FSR6201_4"]},{"stkId":"6AFS6202","eqpPortIdSet":["6FSR6202_3","6FSR6202_4"]},{"stkId":"RAFS6201","eqpPortIdSet":["RFSR6201_3","RFSR6201_4"]}]
+M16A.MapDir=map/M16A
+M16A.daemons=tcp:10.30.14.65:7500,tcp:10.30.14.64:7500
+M16A.mcs.processname=MCS
+M16A.McpNamePairs=6ECMB101|BR,6ACM3901|A,6ECML101|E,6ECMB101|BR
+M16A.oht.A.daemon=tcp:10.40.44.31:7500
+M16A.oht.A.subject=_LOCAL.ATLAS.OHTUDP.M16A.A
+M16A.oht.A.ip=
+M16A.oht.A.port=3730
+M16A.oht.A.ftp.ip=10.30.207.25
+M16A.oht.A.ftp.user=mcp7
+M16A.oht.A.ftp.password=z55ZaEMdKreW+1cpVHREIB8RTFk=
+M16A.oht.A.ftp.lanecut=/home/mcp7/mcp7/item/HYNIX_M16_6F/cfg_save/OHT_6F/cfg/inactive_SCH_1.dat
+M16A.oht.A.ftp.mcp75=/home/mcp7/mcp7/item/HYNIX_M16_6F/cfg_save/OHT_6F/mcp75.cfg
+M16A.oht.A.ftp.station=/home/mcp7/mcp7/item/HYNIX_M16_6F/cfg_save/OHT_6F/cfg/station.dat
+#M16A.oht.A.ftp.route=/home/mcp7/mcp7/item/HYNIX_M16_6F/cfg_save/OHT_6F/cfg/route_SCH_1.dat
+M16A.oht.A.ftp.layout=/home/mcp7/mcp7/item/HYNIX_M16_6F/cfg_save/OHT_6F/layout.zip
+# -----------------------
+# [M16A:E]
+# --- function switch ---
+M16A.E.HID_OFF=FALSE
+M16A.E.HID_INOUT=FALSE
+M16A.E.VHL_OFF=FALSE
+M16A.E.RAIL_CUT=FALSE
+M16A.E.MAP_FILE_REFRESH=FALSE
+M16A.E.VHL_CNT=FALSE
+M16A.E.STAGE_COMMAND_MONITORING=FALSE
+M16A.E.RAIL_TRAFFIC=FALSE
+M16A.E.RAIL_TRAFFIC_SUB=FALSE
+# -----------------------
+M16A.oht.E.daemon=tcp:10.40.44.31:7500
+M16A.oht.E.subject=_LOCAL.ATLAS.OHTUDP.M16A.E
+M16A.oht.E.ip=
+M16A.oht.E.port=3740
+M16A.oht.E.ftp.ip=10.30.68.25
+M16A.oht.E.ftp.user=mcp7
+M16A.oht.E.ftp.password=32jAHtztbkUL7lDbf3xhwZCW20w=
+M16A.oht.E.ftp.lanecut=/home/mcp7/mcp7/item/HYNIX_M16_2F/cfg_save/OHT_2F/cfg/inactive_SCH_1.dat
+M16A.oht.E.ftp.mcp75=/home/mcp7/mcp7/item/HYNIX_M16_2F/cfg_save/OHT_2F/mcp75.cfg
+M16A.oht.E.ftp.station=/home/mcp7/mcp7/item/HYNIX_M16_2F/cfg_save/OHT_2F/cfg/station.dat
+#M16A.oht.E.ftp.route=/home/mcp7/mcp7/item/HYNIX_M16_2F/cfg_save/OHT_2F/cfg/route_SCH_1.dat
+M16A.oht.E.ftp.layout=/home/mcp7/mcp7/item/HYNIX_M16_2F/cfg_save/OHT_2F/layout.zip
+# -----------------------
+# [M16A:BR]
+# --- function switch ---
+M16A.BR.HID_OFF=TRUE
+M16A.BR.HID_INOUT=TRUE
+M16A.BR.VHL_OFF=TRUE
+M16A.BR.RAIL_CUT=TRUE
+M16A.BR.MAP_FILE_REFRESH=TRUE
+M16A.BR.VHL_CNT=TRUE
+M16A.BR.STAGE_COMMAND_MONITORING=FALSE
+M16A.BR.RAIL_TRAFFIC=TRUE
+M16A.BR.RAIL_TRAFFIC_SUB=TRUE
+# -----------------------
+M16A.oht.BR.daemon=tcp:10.40.44.31:7500
+M16A.oht.BR.subject=_LOCAL.ATLAS.OHTUDP.M16A.BR
+M16A.oht.BR.ip=
+M16A.oht.BR.port=3750
+M16A.oht.BR.ftp.ip=10.30.98.43
+M16A.oht.BR.ftp.user=mcp7
+M16A.oht.BR.ftp.password=tOh4kSg207jN9LErcjZNoWkdXik=
+M16A.oht.BR.ftp.lanecut=/home/mcp7/mcp7/item/HYNIX_M16_3F/cfg_save/OHT_3F/cfg/inactive_SCH_1.dat
+M16A.oht.BR.ftp.mcp75=/home/mcp7/mcp7/item/HYNIX_M16_3F/cfg_save/OHT_3F/mcp75.cfg
+M16A.oht.BR.ftp.station=/home/mcp7/mcp7/item/HYNIX_M16_3F/cfg_save/OHT_3F/cfg/station.dat
+#M16A.oht.BR.ftp.route=/home/mcp7/mcp7/item/HYNIX_M16_3F/cfg_save/OHT_3F/cfg/route_SCH_1.dat
+M16A.oht.BR.ftp.layout=/home/mcp7/mcp7/item/HYNIX_M16_3F/cfg_save/OHT_3F/layout.zip
+# -----------------------
+# [M16B]
+# --- function switch ---
+M16B.B.HID_OFF=FALSE
+M16B.B.HID_INOUT=FALSE
+M16B.B.VHL_OFF=FALSE
+M16B.B.RAIL_CUT=FALSE
+M16B.B.MAP_FILE_REFRESH=FALSE
+M16B.B.VHL_CNT=FALSE
+M16B.B.STAGE_COMMAND_MONITORING=FALSE
+M16B.B.RAIL_TRAFFIC=FALSE
+M16B.B.RAIL_TRAFFIC_SUB=FALSE
+# -----------------------
+M16B.FacId=M16
+M16B.McpName=B
+M16B.Floor=10F
+M16B.IsZipTowerOwner=Y
+# this should be generated by owner fab
+M16B.BridgeFrom=
+M16B.BridgeTo=[{"fabId":"M16A","eqpIdSet":["6ALFB201","6ALFB202","6ALFC301","6ALFC302","6ALFD301","6ALFD302","6ALFE201","6ALFE202","6ALFE301","6ALFE302","6ALFF001","6ALFF002","6ALFF401","6ALFF402"]}]
+M16B.InlineConnection=
+M16B.MapDir=map/M16B
+M16B.daemons=tcp:10.30.14.93:7500,tcp:10.30.14.92:7500
+M16B.mcs.processname=MCS10F
+M16B.McpNamePairs=6ACMD701|B
+M16B.oht.B.daemon=tcp:10.40.44.31:7500
+M16B.oht.B.subject=_LOCAL.ATLAS.OHTUDP.M16B.B
+M16B.oht.B.ip=
+M16B.oht.B.port=3760
+M16B.oht.B.ftp.ip=10.34.248.37
+M16B.oht.B.ftp.user=mcp7
+M16B.oht.B.ftp.password=0+EJVRNIntUNtGquBNRq5imowV8=
+M16B.oht.B.ftp.lanecut=/home/mcp7/mcp7/item/HYNIX_M16_10F/cfg_save/OHT_10F/cfg/inactive_SCH_1.dat
+M16B.oht.B.ftp.mcp75=/home/mcp7/mcp7/item/HYNIX_M16_10F/cfg_save/OHT_10F/mcp75.cfg
+M16B.oht.B.ftp.station=/home/mcp7/mcp7/item/HYNIX_M16_10F/cfg_save/OHT_10F/cfg/station.dat
+#M16B.oht.B.ftp.route=/home/mcp7/mcp7/item/HYNIX_M16_10F/cfg_save/OHT_10F/cfg/route_SCH_1.dat
+M16B.oht.B.ftp.layout=/home/mcp7/mcp7/item/HYNIX_M16_10F/cfg_save/OHT_10F/layout.zip
