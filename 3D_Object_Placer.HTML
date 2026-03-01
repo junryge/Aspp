@@ -1,0 +1,1036 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>3D Object Placer</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: 'Segoe UI', sans-serif;
+            background: #1a1a2e;
+            color: #eee;
+            overflow: hidden;
+            height: 100vh;
+        }
+
+        /* Top toolbar */
+        #toolbar {
+            position: fixed;
+            top: 0; left: 0; right: 0;
+            height: 50px;
+            background: rgba(16, 16, 40, 0.95);
+            border-bottom: 1px solid #333;
+            display: flex;
+            align-items: center;
+            padding: 0 16px;
+            gap: 10px;
+            z-index: 100;
+        }
+        #toolbar .title {
+            font-size: 16px;
+            font-weight: 600;
+            color: #7ecfff;
+            margin-right: 20px;
+        }
+        .tool-btn {
+            padding: 6px 14px;
+            background: #2a2a4a;
+            border: 1px solid #444;
+            border-radius: 6px;
+            color: #ccc;
+            cursor: pointer;
+            font-size: 13px;
+            transition: all 0.2s;
+        }
+        .tool-btn:hover { background: #3a3a6a; color: #fff; border-color: #7ecfff; }
+        .tool-btn.active { background: #1a5a8a; color: #7ecfff; border-color: #7ecfff; }
+        .tool-btn.danger { border-color: #f55; }
+        .tool-btn.danger:hover { background: #5a2a2a; color: #f88; }
+
+        /* Side panel */
+        #sidePanel {
+            position: fixed;
+            top: 50px; left: 0;
+            width: 260px;
+            bottom: 0;
+            background: rgba(16, 16, 40, 0.95);
+            border-right: 1px solid #333;
+            z-index: 90;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+        .panel-section {
+            padding: 12px;
+            border-bottom: 1px solid #333;
+        }
+        .panel-section h3 {
+            font-size: 12px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            color: #888;
+            margin-bottom: 8px;
+        }
+        #objectList {
+            flex: 1;
+            overflow-y: auto;
+            padding: 8px;
+        }
+        .obj-item {
+            padding: 8px 10px;
+            margin-bottom: 4px;
+            background: #2a2a4a;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 13px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            transition: all 0.15s;
+        }
+        .obj-item:hover { background: #3a3a6a; }
+        .obj-item.selected { background: #1a5a8a; border: 1px solid #7ecfff; }
+        .obj-item .obj-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .obj-item .obj-actions { display: flex; gap: 4px; }
+        .obj-item .obj-actions button {
+            background: none; border: none; color: #888; cursor: pointer; font-size: 14px; padding: 2px 4px;
+        }
+        .obj-item .obj-actions button:hover { color: #fff; }
+
+        /* Drop zone */
+        #dropZone {
+            position: fixed;
+            bottom: 12px; left: 270px;
+            right: 270px;
+            padding: 12px;
+            background: rgba(30, 30, 60, 0.9);
+            border: 2px dashed #555;
+            border-radius: 10px;
+            text-align: center;
+            color: #777;
+            font-size: 13px;
+            z-index: 90;
+            transition: all 0.3s;
+        }
+        #dropZone.dragover {
+            border-color: #7ecfff;
+            background: rgba(30, 60, 100, 0.9);
+            color: #7ecfff;
+        }
+
+        /* Right properties panel */
+        #propsPanel {
+            position: fixed;
+            top: 50px; right: 0;
+            width: 260px;
+            bottom: 0;
+            background: rgba(16, 16, 40, 0.95);
+            border-left: 1px solid #333;
+            z-index: 90;
+            padding: 12px;
+            overflow-y: auto;
+        }
+        #propsPanel h3 {
+            font-size: 12px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            color: #888;
+            margin-bottom: 8px;
+            margin-top: 14px;
+        }
+        #propsPanel h3:first-child { margin-top: 0; }
+        .prop-row {
+            display: flex;
+            align-items: center;
+            margin-bottom: 6px;
+            gap: 6px;
+        }
+        .prop-row label {
+            width: 20px;
+            font-size: 12px;
+            color: #aaa;
+            text-align: center;
+        }
+        .prop-row input[type="number"] {
+            flex: 1;
+            background: #2a2a4a;
+            border: 1px solid #444;
+            border-radius: 4px;
+            color: #eee;
+            padding: 4px 6px;
+            font-size: 12px;
+        }
+        .prop-row input[type="range"] {
+            flex: 1;
+        }
+        .prop-row input[type="color"] {
+            width: 30px; height: 24px;
+            border: none; background: none; cursor: pointer;
+        }
+        #noSelection {
+            color: #666;
+            font-size: 13px;
+            text-align: center;
+            margin-top: 40px;
+        }
+
+        /* Canvas area */
+        #canvasContainer {
+            position: fixed;
+            top: 50px; left: 260px;
+            right: 260px; bottom: 0;
+        }
+        #canvasContainer canvas {
+            width: 100% !important;
+            height: 100% !important;
+        }
+
+        /* Full-screen drag overlay */
+        #dragOverlay {
+            display: none;
+            position: fixed;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background: rgba(0,0,0,0.5);
+            z-index: 1000;
+            justify-content: center;
+            align-items: center;
+            font-size: 24px;
+            color: #7ecfff;
+            pointer-events: none;
+        }
+        #dragOverlay.show { display: flex; }
+
+        /* Info bar */
+        #infoBar {
+            position: fixed;
+            bottom: 60px;
+            left: 270px;
+            background: rgba(30,60,100,0.9);
+            color: #7ecfff;
+            padding: 8px 16px;
+            border-radius: 8px;
+            font-size: 13px;
+            z-index: 90;
+            display: none;
+        }
+    </style>
+</head>
+<body>
+
+<!-- Toolbar -->
+<div id="toolbar">
+    <span class="title">3D Object Placer</span>
+    <button class="tool-btn" id="btnAddFile" title="GLB/GLTF 파일 추가">+ 파일 추가</button>
+    <button class="tool-btn" id="btnAddPrimitive" title="기본 도형 추가">+ 기본 도형</button>
+    <button class="tool-btn" id="btnTranslate" title="이동 모드">이동</button>
+    <button class="tool-btn" id="btnRotate" title="회전 모드">회전</button>
+    <button class="tool-btn" id="btnScale" title="크기 모드">크기</button>
+    <button class="tool-btn" id="btnGrid" title="그리드 토글">그리드</button>
+    <button class="tool-btn" id="btnResetCam" title="카메라 초기화">카메라 리셋</button>
+    <button class="tool-btn" id="btnExportHTML" title="씬을 독립 실행 HTML로 내보내기" style="background:#1a5a3a;border-color:#5fa;">HTML 내보내기</button>
+    <button class="tool-btn" id="btnExport" title="씬 데이터 JSON 내보내기">JSON 내보내기</button>
+    <input type="file" id="fileInput" accept=".glb,.gltf" multiple style="display:none">
+</div>
+
+<!-- Side Panel: Object List -->
+<div id="sidePanel">
+    <div class="panel-section">
+        <h3>씬 오브젝트 목록</h3>
+    </div>
+    <div id="objectList">
+        <div style="color:#666;font-size:13px;text-align:center;margin-top:30px;">
+            파일을 드래그하거나<br>"+ 파일 추가" 버튼으로<br>GLB 오브젝트를 추가하세요
+        </div>
+    </div>
+</div>
+
+<!-- Properties Panel -->
+<div id="propsPanel">
+    <div id="noSelection">오브젝트를 선택하세요</div>
+    <div id="propsContent" style="display:none;">
+        <h3>위치 (Position)</h3>
+        <div class="prop-row"><label>X</label><input type="number" id="posX" step="0.1"></div>
+        <div class="prop-row"><label>Y</label><input type="number" id="posY" step="0.1"></div>
+        <div class="prop-row"><label>Z</label><input type="number" id="posZ" step="0.1"></div>
+
+        <h3>회전 (Rotation °)</h3>
+        <div class="prop-row"><label>X</label><input type="number" id="rotX" step="1"></div>
+        <div class="prop-row"><label>Y</label><input type="number" id="rotY" step="1"></div>
+        <div class="prop-row"><label>Z</label><input type="number" id="rotZ" step="1"></div>
+
+        <h3>크기 (Scale)</h3>
+        <div class="prop-row"><label>X</label><input type="number" id="scaX" step="0.1" min="0.01"></div>
+        <div class="prop-row"><label>Y</label><input type="number" id="scaY" step="0.1" min="0.01"></div>
+        <div class="prop-row"><label>Z</label><input type="number" id="scaZ" step="0.1" min="0.01"></div>
+        <div class="prop-row">
+            <label>🔗</label>
+            <input type="checkbox" id="uniformScale" checked>
+            <span style="font-size:12px;color:#aaa;">균일 크기</span>
+        </div>
+
+        <h3>가시성</h3>
+        <div class="prop-row">
+            <label>👁</label>
+            <input type="checkbox" id="objVisible" checked>
+            <span style="font-size:12px;color:#aaa;">보이기</span>
+        </div>
+
+        <h3>동작</h3>
+        <button class="tool-btn" id="btnDuplicate" style="width:100%;margin-bottom:6px;">복제</button>
+        <button class="tool-btn" id="btnFocus" style="width:100%;margin-bottom:6px;">포커스</button>
+        <button class="tool-btn danger" id="btnDeleteObj" style="width:100%;">삭제</button>
+    </div>
+</div>
+
+<!-- Canvas -->
+<div id="canvasContainer"></div>
+
+<!-- Drop zone -->
+<div id="dropZone">GLB / GLTF 파일을 여기에 드래그 앤 드롭하세요</div>
+
+<!-- Drag overlay -->
+<div id="dragOverlay">파일을 놓으세요</div>
+
+<!-- Info bar -->
+<div id="infoBar"></div>
+
+<!-- Pako (gzip compression) -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pako/2.1.0/pako.min.js"></script>
+<!-- Three.js -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/GLTFLoader.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/TransformControls.js"></script>
+
+<script>
+(function() {
+    // ========== Scene Setup ==========
+    const container = document.getElementById('canvasContainer');
+    const scene = new THREE.Scene();
+    scene.background = new THREE.Color(0x1a1a2e);
+
+    const camera = new THREE.PerspectiveCamera(60, 1, 0.1, 2000);
+    camera.position.set(10, 8, 10);
+    camera.lookAt(0, 0, 0);
+
+    const renderer = new THREE.WebGLRenderer({ antialias: true });
+    renderer.setPixelRatio(window.devicePixelRatio);
+    renderer.shadowMap.enabled = true;
+    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    renderer.outputEncoding = THREE.sRGBEncoding;
+    renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    renderer.toneMappingExposure = 1.2;
+    container.appendChild(renderer.domElement);
+
+    // Orbit controls
+    const orbitControls = new THREE.OrbitControls(camera, renderer.domElement);
+    orbitControls.enableDamping = true;
+    orbitControls.dampingFactor = 0.08;
+    orbitControls.minDistance = 1;
+    orbitControls.maxDistance = 500;
+
+    // Transform controls
+    const transformControls = new THREE.TransformControls(camera, renderer.domElement);
+    transformControls.addEventListener('dragging-changed', e => {
+        orbitControls.enabled = !e.value;
+    });
+    transformControls.addEventListener('objectChange', () => {
+        updatePropsPanel();
+    });
+    scene.add(transformControls);
+
+    // ========== Lights ==========
+    const ambientLight = new THREE.AmbientLight(0xffffff, 0.5);
+    scene.add(ambientLight);
+
+    const dirLight = new THREE.DirectionalLight(0xffffff, 0.8);
+    dirLight.position.set(15, 20, 10);
+    dirLight.castShadow = true;
+    dirLight.shadow.mapSize.set(2048, 2048);
+    dirLight.shadow.camera.near = 0.5;
+    dirLight.shadow.camera.far = 100;
+    dirLight.shadow.camera.left = -30;
+    dirLight.shadow.camera.right = 30;
+    dirLight.shadow.camera.top = 30;
+    dirLight.shadow.camera.bottom = -30;
+    scene.add(dirLight);
+
+    const hemiLight = new THREE.HemisphereLight(0x87ceeb, 0x362e2e, 0.4);
+    scene.add(hemiLight);
+
+    // ========== Grid & Ground ==========
+    const gridHelper = new THREE.GridHelper(50, 50, 0x444466, 0x333355);
+    scene.add(gridHelper);
+
+    const groundGeo = new THREE.PlaneGeometry(50, 50);
+    const groundMat = new THREE.MeshStandardMaterial({
+        color: 0x222244, roughness: 0.9, metalness: 0.0, transparent: true, opacity: 0.5
+    });
+    const ground = new THREE.Mesh(groundGeo, groundMat);
+    ground.rotation.x = -Math.PI / 2;
+    ground.receiveShadow = true;
+    ground.userData.isGround = true;
+    scene.add(ground);
+
+    // ========== State ==========
+    let sceneObjects = [];
+    let selectedObject = null;
+    let objectCounter = 0;
+    const loader = new THREE.GLTFLoader();
+    const raycaster = new THREE.Raycaster();
+    const mouse = new THREE.Vector2();
+    // Store raw GLB data for HTML export (base64 encoded)
+    const glbDataStore = {}; // id -> { base64, fileName }
+
+    // ========== Resize ==========
+    function onResize() {
+        const w = container.clientWidth;
+        const h = container.clientHeight;
+        camera.aspect = w / h;
+        camera.updateProjectionMatrix();
+        renderer.setSize(w, h);
+    }
+    window.addEventListener('resize', onResize);
+    setTimeout(onResize, 50);
+
+    // ========== GLB Loader ==========
+    // Compress ArrayBuffer → gzip → base64 string
+    function compressToBase64(buffer) {
+        const compressed = pako.deflate(new Uint8Array(buffer));
+        let binary = '';
+        for (let i = 0; i < compressed.length; i++) {
+            binary += String.fromCharCode(compressed[i]);
+        }
+        return btoa(binary);
+    }
+
+    // base64 → ungzip → ArrayBuffer
+    function decompressFromBase64(base64) {
+        const binary = atob(base64);
+        const bytes = new Uint8Array(binary.length);
+        for (let i = 0; i < binary.length; i++) {
+            bytes[i] = binary.charCodeAt(i);
+        }
+        const decompressed = pako.inflate(bytes);
+        return decompressed.buffer;
+    }
+
+    function loadGLBFromFile(file) {
+        return new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                const arrayBuffer = e.target.result;
+                // Store raw data for HTML export
+                const base64Data = compressToBase64(arrayBuffer);
+                const tempId = 'pending_' + (objectCounter + 1);
+
+                loader.parse(arrayBuffer, '', (gltf) => {
+                    const model = gltf.scene;
+                    const name = file.name.replace(/\.(glb|gltf)$/i, '');
+                    const wrapper = setupModel(model, name);
+                    // Store base64 data keyed to the wrapper's actual id
+                    glbDataStore[wrapper.userData.id] = { base64: base64Data, fileName: file.name };
+                    resolve(model);
+                }, reject);
+            };
+            reader.readAsArrayBuffer(file);
+        });
+    }
+
+    function loadGLBFromURL(url, name) {
+        return new Promise((resolve, reject) => {
+            // Fetch raw data first for HTML export
+            fetch(url).then(r => r.arrayBuffer()).then(arrayBuffer => {
+                const base64Data = compressToBase64(arrayBuffer);
+                loader.parse(arrayBuffer, '', (gltf) => {
+                    const model = gltf.scene;
+                    const wrapper = setupModel(model, name || 'Object');
+                    glbDataStore[wrapper.userData.id] = { base64: base64Data, fileName: (name || 'object') + '.glb' };
+                    resolve(model);
+                }, reject);
+            }).catch(() => {
+                // Fallback: load without storing (won't be in HTML export)
+                loader.load(url, (gltf) => {
+                    const model = gltf.scene;
+                    setupModel(model, name || 'Object');
+                    resolve(model);
+                }, undefined, reject);
+            });
+        });
+    }
+
+    function setupModel(model, name) {
+        objectCounter++;
+        const id = 'obj_' + objectCounter;
+
+        // Center & normalize
+        const box = new THREE.Box3().setFromObject(model);
+        const center = box.getCenter(new THREE.Vector3());
+        const size = box.getSize(new THREE.Vector3());
+        model.position.sub(center);
+
+        // Wrap in group for easy transform
+        const wrapper = new THREE.Group();
+        wrapper.add(model);
+        wrapper.userData = { id, name: name, type: 'glb' };
+
+        // Shadows
+        wrapper.traverse(child => {
+            if (child.isMesh) {
+                child.castShadow = true;
+                child.receiveShadow = true;
+            }
+        });
+
+        // Auto-place: spread out
+        const offset = sceneObjects.length * 3;
+        wrapper.position.set(offset % 15, 0, Math.floor(offset / 5) * 3);
+
+        scene.add(wrapper);
+        sceneObjects.push(wrapper);
+        refreshObjectList();
+        selectObject(wrapper);
+        showInfo(`"${name}" 추가됨`);
+        return wrapper;
+    }
+
+    // ========== Primitive Objects ==========
+    function addPrimitive(type) {
+        objectCounter++;
+        const id = 'obj_' + objectCounter;
+        let geo, mat, name;
+        mat = new THREE.MeshStandardMaterial({ color: Math.random() * 0xffffff, roughness: 0.5, metalness: 0.3 });
+
+        switch(type) {
+            case 'box':
+                geo = new THREE.BoxGeometry(1, 1, 1);
+                name = 'Box';
+                break;
+            case 'sphere':
+                geo = new THREE.SphereGeometry(0.5, 32, 32);
+                name = 'Sphere';
+                break;
+            case 'cylinder':
+                geo = new THREE.CylinderGeometry(0.5, 0.5, 1, 32);
+                name = 'Cylinder';
+                break;
+            case 'cone':
+                geo = new THREE.ConeGeometry(0.5, 1, 32);
+                name = 'Cone';
+                break;
+            case 'torus':
+                geo = new THREE.TorusGeometry(0.5, 0.15, 16, 48);
+                name = 'Torus';
+                break;
+            case 'plane':
+                geo = new THREE.PlaneGeometry(2, 2);
+                name = 'Plane';
+                break;
+            default:
+                geo = new THREE.BoxGeometry(1, 1, 1);
+                name = 'Box';
+        }
+
+        const mesh = new THREE.Mesh(geo, mat);
+        mesh.castShadow = true;
+        mesh.receiveShadow = true;
+
+        const wrapper = new THREE.Group();
+        wrapper.add(mesh);
+        wrapper.userData = { id, name: name + '_' + objectCounter, type: 'primitive' };
+
+        const offset = sceneObjects.length * 2;
+        wrapper.position.set(offset % 10, 0.5, Math.floor(offset / 5) * 2);
+
+        scene.add(wrapper);
+        sceneObjects.push(wrapper);
+        refreshObjectList();
+        selectObject(wrapper);
+        showInfo(`"${name}" 추가됨`);
+    }
+
+    // ========== Selection ==========
+    function selectObject(obj) {
+        selectedObject = obj;
+        if (obj) {
+            transformControls.attach(obj);
+        } else {
+            transformControls.detach();
+        }
+        refreshObjectList();
+        updatePropsPanel();
+    }
+
+    function onCanvasClick(event) {
+        const rect = container.getBoundingClientRect();
+        mouse.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+        mouse.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+
+        raycaster.setFromCamera(mouse, camera);
+        const allMeshes = [];
+        sceneObjects.forEach(obj => {
+            obj.traverse(child => {
+                if (child.isMesh && !child.userData.isGround) allMeshes.push(child);
+            });
+        });
+
+        const intersects = raycaster.intersectObjects(allMeshes, false);
+        if (intersects.length > 0) {
+            let hit = intersects[0].object;
+            // Walk up to find the wrapper group
+            while (hit.parent && !hit.userData.id) {
+                hit = hit.parent;
+            }
+            if (hit.userData.id) {
+                selectObject(hit);
+            }
+        } else {
+            selectObject(null);
+        }
+    }
+    renderer.domElement.addEventListener('click', onCanvasClick);
+
+    // ========== Object List UI ==========
+    function refreshObjectList() {
+        const listEl = document.getElementById('objectList');
+        if (sceneObjects.length === 0) {
+            listEl.innerHTML = `<div style="color:#666;font-size:13px;text-align:center;margin-top:30px;">
+                파일을 드래그하거나<br>"+ 파일 추가" 버튼으로<br>GLB 오브젝트를 추가하세요</div>`;
+            return;
+        }
+        listEl.innerHTML = '';
+        sceneObjects.forEach(obj => {
+            const item = document.createElement('div');
+            item.className = 'obj-item' + (selectedObject === obj ? ' selected' : '');
+            item.innerHTML = `
+                <span class="obj-name">${obj.userData.type === 'glb' ? '📦' : '🔷'} ${obj.userData.name}</span>
+                <span class="obj-actions">
+                    <button title="보이기 토글">${obj.visible ? '👁' : '🚫'}</button>
+                </span>
+            `;
+            item.addEventListener('click', (e) => {
+                if (e.target.tagName === 'BUTTON') {
+                    obj.visible = !obj.visible;
+                    refreshObjectList();
+                    return;
+                }
+                selectObject(obj);
+            });
+            listEl.appendChild(item);
+        });
+    }
+
+    // ========== Properties Panel ==========
+    function updatePropsPanel() {
+        const noSel = document.getElementById('noSelection');
+        const props = document.getElementById('propsContent');
+        if (!selectedObject) {
+            noSel.style.display = 'block';
+            props.style.display = 'none';
+            return;
+        }
+        noSel.style.display = 'none';
+        props.style.display = 'block';
+
+        document.getElementById('posX').value = selectedObject.position.x.toFixed(2);
+        document.getElementById('posY').value = selectedObject.position.y.toFixed(2);
+        document.getElementById('posZ').value = selectedObject.position.z.toFixed(2);
+
+        document.getElementById('rotX').value = THREE.MathUtils.radToDeg(selectedObject.rotation.x).toFixed(1);
+        document.getElementById('rotY').value = THREE.MathUtils.radToDeg(selectedObject.rotation.y).toFixed(1);
+        document.getElementById('rotZ').value = THREE.MathUtils.radToDeg(selectedObject.rotation.z).toFixed(1);
+
+        document.getElementById('scaX').value = selectedObject.scale.x.toFixed(2);
+        document.getElementById('scaY').value = selectedObject.scale.y.toFixed(2);
+        document.getElementById('scaZ').value = selectedObject.scale.z.toFixed(2);
+
+        document.getElementById('objVisible').checked = selectedObject.visible;
+    }
+
+    // Props inputs
+    ['posX','posY','posZ'].forEach(id => {
+        document.getElementById(id).addEventListener('input', function() {
+            if (!selectedObject) return;
+            const axis = id.slice(3).toLowerCase();
+            selectedObject.position[axis] = parseFloat(this.value) || 0;
+        });
+    });
+    ['rotX','rotY','rotZ'].forEach(id => {
+        document.getElementById(id).addEventListener('input', function() {
+            if (!selectedObject) return;
+            const axis = id.slice(3).toLowerCase();
+            selectedObject.rotation[axis] = THREE.MathUtils.degToRad(parseFloat(this.value) || 0);
+        });
+    });
+    ['scaX','scaY','scaZ'].forEach(id => {
+        document.getElementById(id).addEventListener('input', function() {
+            if (!selectedObject) return;
+            const val = parseFloat(this.value) || 0.01;
+            const axis = id.slice(3).toLowerCase();
+            if (document.getElementById('uniformScale').checked) {
+                selectedObject.scale.set(val, val, val);
+                document.getElementById('scaX').value = val.toFixed(2);
+                document.getElementById('scaY').value = val.toFixed(2);
+                document.getElementById('scaZ').value = val.toFixed(2);
+            } else {
+                selectedObject.scale[axis] = val;
+            }
+        });
+    });
+    document.getElementById('objVisible').addEventListener('change', function() {
+        if (selectedObject) {
+            selectedObject.visible = this.checked;
+            refreshObjectList();
+        }
+    });
+
+    // ========== Toolbar Actions ==========
+    document.getElementById('btnAddFile').addEventListener('click', () => {
+        document.getElementById('fileInput').click();
+    });
+    document.getElementById('fileInput').addEventListener('change', (e) => {
+        Array.from(e.target.files).forEach(f => loadGLBFromFile(f));
+        e.target.value = '';
+    });
+
+    // Primitive popup
+    document.getElementById('btnAddPrimitive').addEventListener('click', () => {
+        const types = ['box','sphere','cylinder','cone','torus','plane'];
+        const labels = ['박스','구','실린더','콘','토러스','평면'];
+        const choice = prompt('도형 번호를 입력하세요:\n' + labels.map((l,i) => `${i+1}. ${l}`).join('\n'), '1');
+        if (choice) {
+            const idx = parseInt(choice) - 1;
+            if (idx >= 0 && idx < types.length) addPrimitive(types[idx]);
+        }
+    });
+
+    // Transform mode buttons
+    const modeButtons = { btnTranslate: 'translate', btnRotate: 'rotate', btnScale: 'scale' };
+    Object.entries(modeButtons).forEach(([btnId, mode]) => {
+        document.getElementById(btnId).addEventListener('click', () => {
+            transformControls.setMode(mode);
+            Object.keys(modeButtons).forEach(k => document.getElementById(k).classList.remove('active'));
+            document.getElementById(btnId).classList.add('active');
+        });
+    });
+    document.getElementById('btnTranslate').classList.add('active');
+
+    document.getElementById('btnGrid').addEventListener('click', () => {
+        gridHelper.visible = !gridHelper.visible;
+        ground.visible = !ground.visible;
+    });
+
+    document.getElementById('btnResetCam').addEventListener('click', () => {
+        camera.position.set(10, 8, 10);
+        camera.lookAt(0, 0, 0);
+        orbitControls.target.set(0, 0, 0);
+        orbitControls.update();
+    });
+
+    // Delete
+    document.getElementById('btnDeleteObj').addEventListener('click', () => {
+        if (!selectedObject) return;
+        scene.remove(selectedObject);
+        transformControls.detach();
+        sceneObjects = sceneObjects.filter(o => o !== selectedObject);
+        selectedObject = null;
+        refreshObjectList();
+        updatePropsPanel();
+        showInfo('오브젝트 삭제됨');
+    });
+
+    // Duplicate
+    document.getElementById('btnDuplicate').addEventListener('click', () => {
+        if (!selectedObject) return;
+        const clone = selectedObject.clone();
+        objectCounter++;
+        clone.userData = { ...selectedObject.userData, id: 'obj_' + objectCounter, name: selectedObject.userData.name + '_copy' };
+        clone.position.x += 2;
+        scene.add(clone);
+        sceneObjects.push(clone);
+        refreshObjectList();
+        selectObject(clone);
+        showInfo('오브젝트 복제됨');
+    });
+
+    // Focus
+    document.getElementById('btnFocus').addEventListener('click', () => {
+        if (!selectedObject) return;
+        const box = new THREE.Box3().setFromObject(selectedObject);
+        const center = box.getCenter(new THREE.Vector3());
+        const size = box.getSize(new THREE.Vector3());
+        const dist = Math.max(size.x, size.y, size.z) * 2.5;
+        camera.position.copy(center).add(new THREE.Vector3(dist, dist * 0.7, dist));
+        orbitControls.target.copy(center);
+        orbitControls.update();
+    });
+
+    // Export scene
+    document.getElementById('btnExport').addEventListener('click', () => {
+        const data = sceneObjects.map(obj => ({
+            name: obj.userData.name,
+            type: obj.userData.type,
+            position: { x: obj.position.x, y: obj.position.y, z: obj.position.z },
+            rotation: { x: THREE.MathUtils.radToDeg(obj.rotation.x), y: THREE.MathUtils.radToDeg(obj.rotation.y), z: THREE.MathUtils.radToDeg(obj.rotation.z) },
+            scale: { x: obj.scale.x, y: obj.scale.y, z: obj.scale.z },
+            visible: obj.visible
+        }));
+        const json = JSON.stringify(data, null, 2);
+        const blob = new Blob([json], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = 'scene_export.json';
+        a.click();
+        URL.revokeObjectURL(url);
+        showInfo('씬 데이터 내보내기 완료');
+    });
+
+    // ========== HTML Export ==========
+    document.getElementById('btnExportHTML').addEventListener('click', () => {
+        if (sceneObjects.length === 0) {
+            showInfo('내보낼 오브젝트가 없습니다');
+            return;
+        }
+        showInfo('HTML 생성 중...');
+
+        // Collect scene object data
+        const objectsData = sceneObjects.map(obj => {
+            const d = {
+                name: obj.userData.name,
+                type: obj.userData.type,
+                id: obj.userData.id,
+                position: { x: obj.position.x, y: obj.position.y, z: obj.position.z },
+                rotation: { x: obj.rotation.x, y: obj.rotation.y, z: obj.rotation.z },
+                scale: { x: obj.scale.x, y: obj.scale.y, z: obj.scale.z },
+                visible: obj.visible
+            };
+            // For primitives, store geometry info
+            if (obj.userData.type === 'primitive') {
+                const mesh = obj.children[0];
+                const color = mesh.material.color.getHex();
+                d.primitiveColor = color;
+                // Detect geometry type from name
+                const geoType = mesh.geometry.type;
+                d.geoType = geoType;
+            }
+            // For GLB, store base64 data
+            if (obj.userData.type === 'glb' && glbDataStore[obj.userData.id]) {
+                d.glbBase64 = glbDataStore[obj.userData.id].base64;
+            }
+            return d;
+        });
+
+        // Check if any GLB objects are missing data
+        const missingGLB = objectsData.filter(o => o.type === 'glb' && !o.glbBase64);
+        if (missingGLB.length > 0) {
+            showInfo(`경고: ${missingGLB.length}개 GLB 데이터 누락 (URL 로드 실패)`);
+        }
+
+        // Camera state
+        const camData = {
+            position: { x: camera.position.x, y: camera.position.y, z: camera.position.z },
+            target: { x: orbitControls.target.x, y: orbitControls.target.y, z: orbitControls.target.z }
+        };
+
+        const bgColor = '#' + scene.background.getHexString();
+
+        // Build standalone HTML
+        const html = `<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>3D Scene Export</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:${bgColor};overflow:hidden;height:100vh}
+canvas{display:block;width:100vw;height:100vh}
+#info{position:fixed;bottom:10px;left:10px;color:#aaa;font:12px sans-serif;background:rgba(0,0,0,0.5);padding:6px 12px;border-radius:6px}
+</style>
+</head>
+<body>
+<div id="info">마우스: 회전 | 스크롤: 줌 | 우클릭: 이동</div>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pako/2.1.0/pako.min.js"><\/script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"><\/script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"><\/script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/GLTFLoader.js"><\/script>
+<script>
+(function(){
+const scene=new THREE.Scene();
+scene.background=new THREE.Color("${bgColor}");
+const camera=new THREE.PerspectiveCamera(60,window.innerWidth/window.innerHeight,0.1,2000);
+camera.position.set(${camData.position.x},${camData.position.y},${camData.position.z});
+const renderer=new THREE.WebGLRenderer({antialias:true});
+renderer.setPixelRatio(window.devicePixelRatio);
+renderer.setSize(window.innerWidth,window.innerHeight);
+renderer.shadowMap.enabled=true;
+renderer.shadowMap.type=THREE.PCFSoftShadowMap;
+renderer.outputEncoding=THREE.sRGBEncoding;
+renderer.toneMapping=THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure=1.2;
+document.body.appendChild(renderer.domElement);
+
+const controls=new THREE.OrbitControls(camera,renderer.domElement);
+controls.enableDamping=true;
+controls.dampingFactor=0.08;
+controls.target.set(${camData.target.x},${camData.target.y},${camData.target.z});
+
+// Lights
+scene.add(new THREE.AmbientLight(0xffffff,0.5));
+const dl=new THREE.DirectionalLight(0xffffff,0.8);
+dl.position.set(15,20,10);dl.castShadow=true;
+dl.shadow.mapSize.set(2048,2048);
+dl.shadow.camera.near=0.5;dl.shadow.camera.far=100;
+dl.shadow.camera.left=-30;dl.shadow.camera.right=30;
+dl.shadow.camera.top=30;dl.shadow.camera.bottom=-30;
+scene.add(dl);
+scene.add(new THREE.HemisphereLight(0x87ceeb,0x362e2e,0.4));
+
+// Grid & Ground
+scene.add(new THREE.GridHelper(50,50,0x444466,0x333355));
+const gnd=new THREE.Mesh(new THREE.PlaneGeometry(50,50),new THREE.MeshStandardMaterial({color:0x222244,roughness:0.9,transparent:true,opacity:0.5}));
+gnd.rotation.x=-Math.PI/2;gnd.receiveShadow=true;scene.add(gnd);
+
+// Decompress: base64 → ungzip → ArrayBuffer
+function decompress(b){const s=atob(b);const a=new Uint8Array(s.length);for(let i=0;i<s.length;i++)a[i]=s.charCodeAt(i);return pako.inflate(a).buffer}
+
+const loader=new THREE.GLTFLoader();
+const objectsData=${JSON.stringify(objectsData)};
+
+objectsData.forEach(function(obj){
+  if(obj.type==='glb'&&obj.glbBase64){
+    const ab=decompress(obj.glbBase64);
+    loader.parse(ab,'',function(gltf){
+      const m=gltf.scene;
+      const box=new THREE.Box3().setFromObject(m);
+      const c=box.getCenter(new THREE.Vector3());
+      m.position.sub(c);
+      const w=new THREE.Group();w.add(m);
+      w.position.set(obj.position.x,obj.position.y,obj.position.z);
+      w.rotation.set(obj.rotation.x,obj.rotation.y,obj.rotation.z);
+      w.scale.set(obj.scale.x,obj.scale.y,obj.scale.z);
+      w.visible=obj.visible;
+      w.traverse(function(ch){if(ch.isMesh){ch.castShadow=true;ch.receiveShadow=true}});
+      scene.add(w);
+    });
+  } else if(obj.type==='primitive'){
+    let geo;
+    const gt=obj.geoType||'BoxGeometry';
+    if(gt.includes('Sphere'))geo=new THREE.SphereGeometry(0.5,32,32);
+    else if(gt.includes('Cylinder'))geo=new THREE.CylinderGeometry(0.5,0.5,1,32);
+    else if(gt.includes('Cone'))geo=new THREE.ConeGeometry(0.5,1,32);
+    else if(gt.includes('Torus'))geo=new THREE.TorusGeometry(0.5,0.15,16,48);
+    else if(gt.includes('Plane'))geo=new THREE.PlaneGeometry(2,2);
+    else geo=new THREE.BoxGeometry(1,1,1);
+    const mat=new THREE.MeshStandardMaterial({color:obj.primitiveColor||0x888888,roughness:0.5,metalness:0.3});
+    const mesh=new THREE.Mesh(geo,mat);mesh.castShadow=true;mesh.receiveShadow=true;
+    const w=new THREE.Group();w.add(mesh);
+    w.position.set(obj.position.x,obj.position.y,obj.position.z);
+    w.rotation.set(obj.rotation.x,obj.rotation.y,obj.rotation.z);
+    w.scale.set(obj.scale.x,obj.scale.y,obj.scale.z);
+    w.visible=obj.visible;
+    scene.add(w);
+  }
+});
+
+window.addEventListener('resize',function(){
+  camera.aspect=window.innerWidth/window.innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(window.innerWidth,window.innerHeight);
+});
+function animate(){requestAnimationFrame(animate);controls.update();renderer.render(scene,camera)}
+animate();
+})();
+<\/script>
+</body>
+</html>`;
+
+        const blob = new Blob([html], { type: 'text/html' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        const timestamp = new Date().toISOString().slice(0,19).replace(/[:-]/g,'');
+        a.download = 'scene_export_' + timestamp + '.html';
+        a.click();
+        URL.revokeObjectURL(url);
+        showInfo('HTML 내보내기 완료! GLB 데이터가 포함된 독립 실행 파일입니다.');
+    });
+
+    // ========== Drag & Drop ==========
+    const dropZone = document.getElementById('dropZone');
+    const dragOverlay = document.getElementById('dragOverlay');
+
+    ['dragenter','dragover','dragleave','drop'].forEach(evt => {
+        document.body.addEventListener(evt, e => { e.preventDefault(); e.stopPropagation(); });
+    });
+    document.body.addEventListener('dragenter', () => { dragOverlay.classList.add('show'); dropZone.classList.add('dragover'); });
+    document.body.addEventListener('dragleave', (e) => {
+        if (!e.relatedTarget || e.relatedTarget === document.documentElement) {
+            dragOverlay.classList.remove('show');
+            dropZone.classList.remove('dragover');
+        }
+    });
+    document.body.addEventListener('drop', (e) => {
+        dragOverlay.classList.remove('show');
+        dropZone.classList.remove('dragover');
+        const files = Array.from(e.dataTransfer.files).filter(f => /\.(glb|gltf)$/i.test(f.name));
+        if (files.length === 0) {
+            showInfo('GLB 또는 GLTF 파일만 지원됩니다');
+            return;
+        }
+        files.forEach(f => loadGLBFromFile(f));
+    });
+
+    // ========== Keyboard Shortcuts ==========
+    document.addEventListener('keydown', e => {
+        if (e.target.tagName === 'INPUT') return;
+        switch(e.key.toLowerCase()) {
+            case 'g': transformControls.setMode('translate'); break;
+            case 'r': transformControls.setMode('rotate'); break;
+            case 's': transformControls.setMode('scale'); break;
+            case 'delete':
+            case 'backspace':
+                if (selectedObject) document.getElementById('btnDeleteObj').click();
+                break;
+            case 'd':
+                if (e.ctrlKey || e.metaKey) { e.preventDefault(); document.getElementById('btnDuplicate').click(); }
+                break;
+            case 'f':
+                if (selectedObject) document.getElementById('btnFocus').click();
+                break;
+            case 'escape':
+                selectObject(null);
+                break;
+        }
+    });
+
+    // ========== Info Bar ==========
+    function showInfo(msg) {
+        const bar = document.getElementById('infoBar');
+        bar.textContent = msg;
+        bar.style.display = 'block';
+        clearTimeout(bar._timeout);
+        bar._timeout = setTimeout(() => { bar.style.display = 'none'; }, 2500);
+    }
+
+    // ========== Auto-load existing GLB in folder ==========
+    // Try to load m14_1.glb from same folder
+    try {
+        loadGLBFromURL('m14_1.glb', 'm14_1').catch(() => {});
+    } catch(e) {}
+
+    // ========== Animation Loop ==========
+    function animate() {
+        requestAnimationFrame(animate);
+        orbitControls.update();
+        renderer.render(scene, camera);
+    }
+    animate();
+
+    showInfo('준비 완료 — GLB 파일을 드래그하거나 + 버튼으로 추가하세요');
+})();
+</script>
+</body>
+</html>
