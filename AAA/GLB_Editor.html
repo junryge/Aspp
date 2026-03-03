@@ -1,0 +1,1153 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GLB Editor - 부위별 삭제/편집</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: 'Segoe UI', sans-serif;
+            background: #0d0d1a;
+            color: #eee;
+            overflow: hidden;
+            height: 100vh;
+        }
+
+        #toolbar {
+            position: fixed;
+            top: 0; left: 0; right: 0;
+            height: 50px;
+            background: rgba(12, 12, 30, 0.97);
+            border-bottom: 1px solid #333;
+            display: flex;
+            align-items: center;
+            padding: 0 16px;
+            gap: 7px;
+            z-index: 100;
+            overflow-x: auto;
+        }
+        #toolbar .title { font-size: 16px; font-weight: 700; color: #ff9f43; margin-right: 12px; white-space: nowrap; }
+        .tb {
+            padding: 6px 12px; background: #1e1e3a; border: 1px solid #444;
+            border-radius: 6px; color: #ccc; cursor: pointer; font-size: 12px;
+            transition: all 0.2s; white-space: nowrap;
+        }
+        .tb:hover { background: #2e2e5a; color: #fff; border-color: #ff9f43; }
+        .tb.active { background: #5a3a1a; color: #ff9f43; border-color: #ff9f43; }
+        .tb.export { background: #1a4a2a; border-color: #5c5; }
+        .tb.export:hover { background: #2a6a3a; }
+        .tb.danger { background: #4a1a1a; border-color: #c55; color: #faa; }
+        .tb.danger:hover { background: #6a2a2a; color: #f88; }
+        .sep { width: 1px; height: 28px; background: #444; flex-shrink: 0; }
+
+        #leftPanel {
+            position: fixed; top: 50px; left: 0; width: 280px; bottom: 0;
+            background: rgba(12, 12, 30, 0.97); border-right: 1px solid #333;
+            z-index: 90; display: flex; flex-direction: column; overflow: hidden;
+        }
+        .lp-section { padding: 10px 12px; border-bottom: 1px solid #333; }
+        .lp-section h3 { font-size: 12px; color: #ff9f43; margin-bottom: 6px; }
+        .lp-section .desc { font-size: 11px; color: #888; line-height: 1.5; }
+
+        .mode-btns { display: flex; gap: 4px; flex-wrap: wrap; }
+        .mode-btn {
+            flex: 1; min-width: 70px; padding: 8px 6px; background: #1a1a30;
+            border: 1px solid #444; border-radius: 6px; color: #aaa;
+            cursor: pointer; font-size: 11px; text-align: center; transition: all 0.2s;
+        }
+        .mode-btn:hover { background: #2a2a4a; color: #fff; }
+        .mode-btn.active { background: #3a2a0a; color: #ff9f43; border-color: #ff9f43; }
+
+        .slider-row { display: flex; align-items: center; gap: 6px; margin-top: 6px; }
+        .slider-row label { font-size: 11px; color: #aaa; width: 65px; flex-shrink: 0; }
+        .slider-row input[type="range"] { flex: 1; }
+        .slider-row .val { font-size: 11px; color: #ff9f43; width: 30px; text-align: right; }
+
+        #meshList { flex: 1; overflow-y: auto; padding: 4px 8px; }
+        .mesh-item {
+            padding: 7px 10px; margin-bottom: 3px; background: #1a1a30;
+            border: 1px solid transparent; border-radius: 6px; cursor: pointer;
+            font-size: 12px; display: flex; align-items: center; gap: 6px;
+            transition: all 0.15s;
+        }
+        .mesh-item:hover { background: #2a2a4a; }
+        .mesh-item.selected { background: #3a2a10; border-color: #ff9f43; }
+        .mesh-item.hidden { opacity: 0.35; }
+        .mesh-item .mi-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .mesh-item .mi-info { font-size: 10px; color: #666; }
+        .mesh-item .mi-btns { display: flex; gap: 2px; }
+        .mesh-item .mi-btns button {
+            background: none; border: none; color: #888; cursor: pointer;
+            font-size: 12px; padding: 2px 4px; border-radius: 3px;
+        }
+        .mesh-item .mi-btns button:hover { color: #fff; background: rgba(255,255,255,0.1); }
+
+        #rightPanel {
+            position: fixed; top: 50px; right: 0; width: 260px; bottom: 0;
+            background: rgba(12, 12, 30, 0.97); border-left: 1px solid #333;
+            z-index: 90; padding: 12px; overflow-y: auto;
+        }
+        #rightPanel h3 { font-size: 11px; text-transform: uppercase; letter-spacing: 1px; color: #666; margin-bottom: 6px; margin-top: 12px; }
+        #rightPanel h3:first-child { margin-top: 0; }
+        .pr { display: flex; align-items: center; margin-bottom: 5px; gap: 6px; }
+        .pr label { width: 55px; font-size: 11px; color: #aaa; flex-shrink: 0; }
+        .pr input[type="color"] { width: 34px; height: 24px; border: 1px solid #555; border-radius: 4px; background: none; cursor: pointer; }
+        .pr span.info { font-size: 12px; color: #ff9f43; }
+
+        #canvas3d {
+            position: fixed; top: 50px; left: 280px; right: 260px; bottom: 0;
+        }
+        #canvas3d canvas { width: 100% !important; height: 100% !important; }
+
+        #dropOverlay {
+            display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+            background: rgba(0,0,0,0.7); z-index: 1000;
+            justify-content: center; align-items: center;
+        }
+        #dropOverlay.show { display: flex; }
+        #dropOverlay .inner { border: 3px dashed #ff9f43; border-radius: 20px; padding: 50px 70px; text-align: center; }
+        #dropOverlay .inner h2 { color: #ff9f43; font-size: 20px; margin-bottom: 6px; }
+        #dropOverlay .inner p { color: #888; font-size: 13px; }
+
+        #toast {
+            position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%);
+            background: rgba(30, 50, 80, 0.95); color: #ff9f43;
+            padding: 10px 24px; border-radius: 8px; font-size: 13px;
+            z-index: 500; display: none; border: 1px solid #ff9f43;
+        }
+
+        #helpBox {
+            position: fixed; bottom: 16px; right: 270px;
+            background: rgba(20,20,40,0.95); border: 1px solid #444;
+            border-radius: 8px; padding: 10px 14px; font-size: 11px;
+            color: #888; z-index: 90; line-height: 1.6; max-width: 300px;
+        }
+        #helpBox b { color: #ff9f43; }
+
+        /* Status bar */
+        #statusBar {
+            position: fixed; bottom: 0; left: 280px; right: 260px; height: 24px;
+            background: rgba(12,12,30,0.97); border-top: 1px solid #333;
+            display: flex; align-items: center; padding: 0 12px; gap: 16px;
+            font-size: 11px; color: #888; z-index: 90;
+        }
+        #statusBar .st-item { display: flex; gap: 4px; }
+        #statusBar .st-val { color: #ff9f43; }
+    </style>
+</head>
+<body>
+
+<div id="toolbar">
+    <span class="title">GLB Editor</span>
+    <button class="tb" id="btnOpen">파일 열기</button>
+    <div class="sep"></div>
+    <button class="tb" id="btnUndo">되돌리기 (Z)</button>
+    <div class="sep"></div>
+    <button class="tb danger" id="btnDeleteFaces">선택 면 삭제 (Del)</button>
+    <button class="tb danger" id="btnDeleteMesh">메쉬 전체 삭제</button>
+    <div class="sep"></div>
+    <button class="tb" id="btnSelectAllFaces">전체 선택 (A)</button>
+    <button class="tb" id="btnInvertFaces">면 반전 (I)</button>
+    <button class="tb" id="btnClearFaces">선택 해제 (Esc)</button>
+    <button class="tb" id="btnGrowSel">선택 확장</button>
+    <div class="sep"></div>
+    <button class="tb" id="btnSepSelected">선택 분리</button>
+    <div class="sep"></div>
+    <button class="tb export" id="btnExportGLB">수정 GLB 내보내기</button>
+    <input type="file" id="fileIn" accept=".glb,.gltf" style="display:none">
+</div>
+
+<div id="leftPanel">
+    <div class="lp-section">
+        <h3>선택 모드</h3>
+        <div class="mode-btns">
+            <div class="mode-btn active" data-mode="face">삼각형(Face)</div>
+            <div class="mode-btn" data-mode="region">연결영역</div>
+            <div class="mode-btn" data-mode="mesh">메쉬 전체</div>
+        </div>
+        <div class="slider-row" style="margin-top:8px;">
+            <label>브러시 크기</label>
+            <input type="range" id="brushSize" min="1" max="80" value="1">
+            <span class="val" id="brushSizeVal">1</span>
+        </div>
+        <div class="desc" style="margin-top:8px;">
+            <b style="color:#ff9f43;">왼쪽 드래그</b> = 면 선택 페인트<br>
+            <b style="color:#ff9f43;">Ctrl+드래그</b> = 면 빼기<br>
+            <b style="color:#ff9f43;">오른쪽 드래그</b> = 카메라 회전
+        </div>
+    </div>
+    <div class="lp-section">
+        <h3>메쉬 목록 <span style="color:#666;font-size:11px;" id="meshCount">(0)</span></h3>
+    </div>
+    <div id="meshList">
+        <div style="color:#555;text-align:center;margin-top:30px;font-size:13px;">
+            GLB 파일을 드래그하거나<br>파일 열기 버튼을 누르세요
+        </div>
+    </div>
+</div>
+
+<div id="rightPanel">
+    <div id="noSel" style="color:#555;text-align:center;margin-top:40px;font-size:13px;">
+        모델을 로드한 뒤<br>면을 클릭하여 선택하세요
+    </div>
+    <div id="propContent" style="display:none;">
+        <h3>선택 정보</h3>
+        <div class="pr"><label>메쉬</label><span class="info" id="selMeshName">-</span></div>
+        <div class="pr"><label>선택 면</label><span class="info" id="selFaceCount">0</span></div>
+        <div class="pr"><label>전체 면</label><span class="info" id="totalFaceCount">0</span></div>
+
+        <h3>씬 설정</h3>
+        <div class="pr"><label>배경색</label><input type="color" id="sBgColor" value="#0d0d1a"></div>
+        <div class="pr"><label>격자</label><input type="checkbox" id="sGrid" checked></div>
+    </div>
+</div>
+
+<div id="canvas3d"></div>
+
+<div id="statusBar">
+    <div class="st-item">메쉬: <span class="st-val" id="stMeshes">0</span></div>
+    <div class="st-item">전체 면: <span class="st-val" id="stFaces">0</span></div>
+    <div class="st-item">선택: <span class="st-val" id="stSelected">0</span></div>
+    <div class="st-item">모드: <span class="st-val" id="stMode">face</span></div>
+</div>
+
+<div id="dropOverlay">
+    <div class="inner">
+        <h2>GLB / GLTF 파일 드롭</h2>
+        <p>파일을 놓으면 로드됩니다</p>
+    </div>
+</div>
+<div id="toast"></div>
+
+<div id="helpBox">
+    <b>왼쪽 드래그</b>: 면 페인트 선택<br>
+    <b>오른쪽 드래그</b>: 카메라 회전<br>
+    <b>Ctrl+드래그</b>: 면 빼기 &nbsp; <b>스크롤</b>: 줌<br>
+    <b>Del</b>: 삭제 &nbsp; <b>Z</b>: 되돌리기<br>
+    <b>A</b>: 전체 &nbsp; <b>I</b>: 반전 &nbsp; <b>1/2/3</b>: 모드
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/GLTFLoader.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/DRACOLoader.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/exporters/GLTFExporter.js"></script>
+
+<script>
+(function(){
+    // ===== Scene =====
+    const container = document.getElementById('canvas3d');
+    const scene = new THREE.Scene();
+    scene.background = new THREE.Color(0x0d0d1a);
+
+    const camera = new THREE.PerspectiveCamera(60, 1, 0.01, 5000);
+    camera.position.set(5, 4, 5);
+
+    const renderer = new THREE.WebGLRenderer({ antialias: true });
+    renderer.setPixelRatio(window.devicePixelRatio);
+    renderer.shadowMap.enabled = true;
+    renderer.outputEncoding = THREE.sRGBEncoding;
+    renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    renderer.toneMappingExposure = 1.2;
+    container.appendChild(renderer.domElement);
+
+    const orbit = new THREE.OrbitControls(camera, renderer.domElement);
+    orbit.enableDamping = true;
+    orbit.dampingFactor = 0.08;
+    // Left button = face selection, so orbit uses RIGHT button for rotate
+    orbit.mouseButtons = {
+        LEFT: null,                          // free left button for face select
+        MIDDLE: THREE.MOUSE.DOLLY,
+        RIGHT: THREE.MOUSE.ROTATE
+    };
+    // Touch: one finger = select, two = rotate/zoom
+    orbit.touches = {
+        ONE: null,
+        TWO: THREE.TOUCH.DOLLY_ROTATE
+    };
+
+    scene.add(new THREE.AmbientLight(0xffffff, 0.6));
+    const dl = new THREE.DirectionalLight(0xffffff, 0.8);
+    dl.position.set(10, 15, 10); dl.castShadow = true;
+    dl.shadow.mapSize.set(2048, 2048);
+    scene.add(dl);
+    scene.add(new THREE.HemisphereLight(0x87ceeb, 0x362e2e, 0.4));
+
+    const grid = new THREE.GridHelper(100, 100, 0x333355, 0x222244);
+    scene.add(grid);
+
+    const ray = new THREE.Raycaster();
+    const mouse = new THREE.Vector2();
+
+    // Loader
+    const gltfLoader = new THREE.GLTFLoader();
+    const dracoLoader = new THREE.DRACOLoader();
+    dracoLoader.setDecoderPath('https://www.gstatic.com/draco/versioned/decoders/1.5.6/');
+    gltfLoader.setDRACOLoader(dracoLoader);
+
+    // ===== State =====
+    let currentModel = null;
+    let allMeshes = [];
+    let activeMesh = null;         // mesh currently being face-edited
+    let selectedFaces = new Set();
+    let selectMode = 'face';
+    let brushSize = 1;
+    let fileName = 'model';
+    let undoStack = [];
+
+    // Mouse tracking
+    let mouseDownX = 0, mouseDownY = 0;
+    let isPainting = false;
+
+    // Highlight overlay
+    let highlightOverlay = null;
+    const SEL_COLOR = new THREE.Color(1.0, 0.35, 0.1);
+
+    // ===== Resize =====
+    function onResize() {
+        const w = container.clientWidth, h = container.clientHeight;
+        camera.aspect = w / h;
+        camera.updateProjectionMatrix();
+        renderer.setSize(w, h);
+    }
+    window.addEventListener('resize', onResize);
+    setTimeout(onResize, 50);
+
+    // ===== Toast =====
+    function toast(msg) {
+        const t = document.getElementById('toast');
+        t.textContent = msg;
+        t.style.display = 'block';
+        clearTimeout(t._t);
+        t._t = setTimeout(() => t.style.display = 'none', 3000);
+    }
+
+    // ===== Status =====
+    function updateStatus() {
+        document.getElementById('stMeshes').textContent = allMeshes.length;
+        let totalF = 0;
+        allMeshes.forEach(m => {
+            const p = m.geometry.attributes.position;
+            if (p) totalF += Math.floor(p.count / 3);
+        });
+        document.getElementById('stFaces').textContent = totalF.toLocaleString();
+        document.getElementById('stSelected').textContent = selectedFaces.size.toLocaleString();
+        document.getElementById('stMode').textContent = selectMode;
+    }
+
+    // ===== Load =====
+    function loadFile(file) {
+        const reader = new FileReader();
+        reader.onload = (e) => {
+            fileName = file.name.replace(/\.(glb|gltf)$/i, '');
+            loadBuffer(e.target.result);
+        };
+        reader.readAsArrayBuffer(file);
+    }
+
+    function loadBuffer(buffer) {
+        if (currentModel) scene.remove(currentModel);
+        allMeshes = [];
+        activeMesh = null;
+        selectedFaces.clear();
+        undoStack = [];
+        removeHighlight();
+
+        gltfLoader.parse(buffer, '', (gltf) => {
+            currentModel = gltf.scene;
+
+            let idx = 0;
+            currentModel.traverse(child => {
+                if (child.isMesh) {
+                    // IMPORTANT: Convert indexed to non-indexed for face-level editing
+                    if (child.geometry.index !== null) {
+                        const newGeo = child.geometry.toNonIndexed();
+                        child.geometry.dispose();
+                        child.geometry = newGeo;
+                    }
+                    // CRITICAL: Recompute bounding volumes after conversion
+                    child.geometry.computeBoundingSphere();
+                    child.geometry.computeBoundingBox();
+                    // Ensure normals exist
+                    if (!child.geometry.attributes.normal) {
+                        child.geometry.computeVertexNormals();
+                    }
+
+                    child.userData._idx = idx++;
+                    child.userData._name = child.name || ('Mesh_' + child.userData._idx);
+                    child.castShadow = true;
+                    child.receiveShadow = true;
+                    if (child.material) {
+                        child.material = child.material.clone();
+                        child.material.side = THREE.DoubleSide;
+                    }
+                    allMeshes.push(child);
+                }
+            });
+
+            scene.add(currentModel);
+
+            // Auto-frame camera
+            const box = new THREE.Box3().setFromObject(currentModel);
+            const center = box.getCenter(new THREE.Vector3());
+            const size = box.getSize(new THREE.Vector3());
+            const maxDim = Math.max(size.x, size.y, size.z);
+            camera.position.copy(center).add(new THREE.Vector3(maxDim * 1.2, maxDim * 0.8, maxDim * 1.2));
+            orbit.target.copy(center);
+            orbit.update();
+
+            // Auto-select first mesh if there's only one (or the biggest)
+            if (allMeshes.length > 0) {
+                let biggest = allMeshes[0];
+                let maxVerts = 0;
+                allMeshes.forEach(m => {
+                    const c = m.geometry.attributes.position ? m.geometry.attributes.position.count : 0;
+                    if (c > maxVerts) { maxVerts = c; biggest = m; }
+                });
+                activeMesh = biggest;
+            }
+
+            refreshMeshList();
+            updateInfo();
+            updateStatus();
+            toast(`로드 완료: ${allMeshes.length}개 메쉬, ${getTotalFaces().toLocaleString()}개 면`);
+        }, (err) => toast('로드 실패: ' + err.message));
+    }
+
+    function getTotalFaces() {
+        let total = 0;
+        allMeshes.forEach(m => {
+            const pos = m.geometry.attributes.position;
+            if (pos) total += Math.floor(pos.count / 3);
+        });
+        return total;
+    }
+
+    // ===== Mesh List =====
+    function refreshMeshList() {
+        const list = document.getElementById('meshList');
+        document.getElementById('meshCount').textContent = `(${allMeshes.length})`;
+
+        if (allMeshes.length === 0) {
+            list.innerHTML = '<div style="color:#555;text-align:center;margin-top:30px;font-size:13px;">GLB 파일을 드래그하거나<br>파일 열기 버튼을 누르세요</div>';
+            return;
+        }
+
+        list.innerHTML = '';
+        allMeshes.forEach((mesh) => {
+            const faceCount = mesh.geometry.attributes.position ? Math.floor(mesh.geometry.attributes.position.count / 3) : 0;
+            const isSel = mesh === activeMesh;
+            const isHidden = !mesh.visible;
+
+            const item = document.createElement('div');
+            item.className = 'mesh-item' + (isSel ? ' selected' : '') + (isHidden ? ' hidden' : '');
+            item.innerHTML = `
+                <span class="mi-name">${mesh.userData._name}</span>
+                <span class="mi-info">${faceCount.toLocaleString()}면</span>
+                <span class="mi-btns">
+                    <button title="${isHidden ? '보이기' : '숨기기'}" data-act="vis">${isHidden ? '🚫' : '👁'}</button>
+                    <button title="삭제" data-act="del" style="color:#f66;">✕</button>
+                </span>
+            `;
+
+            item.addEventListener('click', (e) => {
+                const act = e.target.closest('[data-act]');
+                if (act) {
+                    e.stopPropagation();
+                    if (act.dataset.act === 'vis') {
+                        mesh.visible = !mesh.visible;
+                        refreshMeshList();
+                    } else if (act.dataset.act === 'del') {
+                        if (confirm(`"${mesh.userData._name}" 메쉬 전체를 삭제하시겠습니까?`)) {
+                            saveUndo();
+                            removeMesh(mesh);
+                        }
+                    }
+                    return;
+                }
+                // Click row: select this mesh for editing
+                activeMesh = mesh;
+                selectedFaces.clear();
+                removeHighlight();
+                refreshMeshList();
+                updateInfo();
+                updateStatus();
+                toast(`"${mesh.userData._name}" 선택됨 — 면을 클릭하세요`);
+            });
+            list.appendChild(item);
+        });
+    }
+
+    function removeMesh(mesh) {
+        if (mesh.parent) mesh.parent.remove(mesh);
+        mesh.geometry.dispose();
+        if (mesh.material && mesh.material.dispose) mesh.material.dispose();
+        if (mesh === activeMesh) {
+            activeMesh = null;
+            selectedFaces.clear();
+            removeHighlight();
+        }
+        allMeshes = allMeshes.filter(m => m !== mesh);
+        allMeshes.forEach((m, i) => m.userData._idx = i);
+        refreshMeshList();
+        updateInfo();
+        updateStatus();
+        toast('메쉬 삭제됨');
+    }
+
+    // ===== Highlight Overlay =====
+    function removeHighlight() {
+        if (highlightOverlay) {
+            scene.remove(highlightOverlay);
+            if (highlightOverlay.geometry) highlightOverlay.geometry.dispose();
+            if (highlightOverlay.material) highlightOverlay.material.dispose();
+            highlightOverlay = null;
+        }
+    }
+
+    function updateHighlight() {
+        removeHighlight();
+        if (!activeMesh || selectedFaces.size === 0) return;
+
+        const srcPos = activeMesh.geometry.attributes.position;
+        if (!srcPos) return;
+
+        const verts = new Float32Array(selectedFaces.size * 9);
+        let vi = 0;
+        selectedFaces.forEach(fi => {
+            const base = fi * 3;
+            if (base + 2 >= srcPos.count) return;
+            for (let v = 0; v < 3; v++) {
+                verts[vi++] = srcPos.getX(base + v);
+                verts[vi++] = srcPos.getY(base + v);
+                verts[vi++] = srcPos.getZ(base + v);
+            }
+        });
+
+        if (vi === 0) return;
+
+        const geo = new THREE.BufferGeometry();
+        geo.setAttribute('position', new THREE.Float32BufferAttribute(verts.slice(0, vi), 3));
+
+        const mat = new THREE.MeshBasicMaterial({
+            color: SEL_COLOR,
+            transparent: true,
+            opacity: 0.55,
+            side: THREE.DoubleSide,
+            depthTest: true,
+            depthWrite: false,
+            polygonOffset: true,
+            polygonOffsetFactor: -2,
+            polygonOffsetUnits: -2
+        });
+
+        highlightOverlay = new THREE.Mesh(geo, mat);
+
+        // CRITICAL: match the world transform of the source mesh
+        activeMesh.updateWorldMatrix(true, false);
+        highlightOverlay.applyMatrix4(activeMesh.matrixWorld);
+
+        scene.add(highlightOverlay);
+    }
+
+    // ===== Raycasting =====
+    function raycastFace(event) {
+        const rect = container.getBoundingClientRect();
+        mouse.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+        mouse.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+        ray.setFromCamera(mouse, camera);
+
+        // Always raycast ALL visible meshes (so clicking auto-switches mesh)
+        const targets = allMeshes.filter(m => m.visible);
+        const hits = ray.intersectObjects(targets, false);
+
+        if (hits.length > 0) {
+            const hit = hits[0];
+            const mesh = hit.object;
+
+            // Compute face index for non-indexed geometry
+            let faceIdx;
+            if (hit.faceIndex !== undefined && hit.faceIndex !== null) {
+                faceIdx = hit.faceIndex;
+            } else if (hit.face) {
+                faceIdx = Math.floor(hit.face.a / 3);
+            } else {
+                return null;
+            }
+
+            return { mesh: mesh, faceIndex: faceIdx, point: hit.point };
+        }
+        return null;
+    }
+
+    // ===== Face Selection Logic =====
+    function selectFacesAt(event, additive, subtractive) {
+        const result = raycastFace(event);
+        if (!result) return false;
+
+        const { mesh, faceIndex } = result;
+
+        // If hit a different mesh, switch to it
+        if (mesh !== activeMesh) {
+            activeMesh = mesh;
+            selectedFaces.clear();
+            removeHighlight();
+            refreshMeshList();
+        }
+
+        // Determine which faces to affect
+        let faces;
+        if (selectMode === 'face') {
+            faces = getBrushFaces(mesh, faceIndex, brushSize);
+        } else if (selectMode === 'region') {
+            faces = getConnectedRegion(mesh, faceIndex);
+        } else { // mesh mode
+            const total = Math.floor(mesh.geometry.attributes.position.count / 3);
+            faces = new Set();
+            for (let i = 0; i < total; i++) faces.add(i);
+        }
+
+        if (subtractive) {
+            faces.forEach(f => selectedFaces.delete(f));
+        } else {
+            faces.forEach(f => selectedFaces.add(f));
+        }
+
+        updateHighlight();
+        updateInfo();
+        updateStatus();
+        return true;
+    }
+
+    function getBrushFaces(mesh, centerFace, radius) {
+        if (radius <= 1) return new Set([centerFace]);
+
+        const pos = mesh.geometry.attributes.position;
+        if (!pos) return new Set([centerFace]);
+
+        const totalFaces = Math.floor(pos.count / 3);
+        const base = centerFace * 3;
+        if (base + 2 >= pos.count) return new Set([centerFace]);
+
+        // Center of clicked face
+        const cx = (pos.getX(base) + pos.getX(base+1) + pos.getX(base+2)) / 3;
+        const cy = (pos.getY(base) + pos.getY(base+1) + pos.getY(base+2)) / 3;
+        const cz = (pos.getZ(base) + pos.getZ(base+1) + pos.getZ(base+2)) / 3;
+
+        // Scale threshold based on model size
+        const box = new THREE.Box3().setFromBufferAttribute(pos);
+        const size = box.getSize(new THREE.Vector3());
+        const avgSize = (size.x + size.y + size.z) / 3;
+        const threshold = avgSize * radius * 0.015;
+        const threshSq = threshold * threshold;
+
+        const result = new Set();
+        for (let f = 0; f < totalFaces; f++) {
+            const fb = f * 3;
+            const fx = (pos.getX(fb) + pos.getX(fb+1) + pos.getX(fb+2)) / 3;
+            const fy = (pos.getY(fb) + pos.getY(fb+1) + pos.getY(fb+2)) / 3;
+            const fz = (pos.getZ(fb) + pos.getZ(fb+1) + pos.getZ(fb+2)) / 3;
+            const dSq = (fx-cx)**2 + (fy-cy)**2 + (fz-cz)**2;
+            if (dSq <= threshSq) result.add(f);
+        }
+        return result;
+    }
+
+    function getConnectedRegion(mesh, startFace) {
+        const pos = mesh.geometry.attributes.position;
+        if (!pos) return new Set([startFace]);
+
+        const totalFaces = Math.floor(pos.count / 3);
+        const eps = 0.0005;
+
+        function vkey(x, y, z) {
+            return (Math.round(x / eps)) + ',' + (Math.round(y / eps)) + ',' + (Math.round(z / eps));
+        }
+
+        // Build adjacency: vertex -> faces
+        const vtf = new Map();
+        for (let f = 0; f < totalFaces; f++) {
+            for (let v = 0; v < 3; v++) {
+                const vi = f * 3 + v;
+                const k = vkey(pos.getX(vi), pos.getY(vi), pos.getZ(vi));
+                if (!vtf.has(k)) vtf.set(k, []);
+                vtf.get(k).push(f);
+            }
+        }
+
+        // BFS flood fill
+        const visited = new Uint8Array(totalFaces);
+        visited[startFace] = 1;
+        const queue = [startFace];
+        const result = new Set();
+
+        while (queue.length > 0) {
+            const f = queue.pop(); // use as stack (DFS) for speed
+            result.add(f);
+            for (let v = 0; v < 3; v++) {
+                const vi = f * 3 + v;
+                const k = vkey(pos.getX(vi), pos.getY(vi), pos.getZ(vi));
+                const neighbors = vtf.get(k);
+                if (neighbors) {
+                    for (let i = 0; i < neighbors.length; i++) {
+                        const nf = neighbors[i];
+                        if (!visited[nf]) {
+                            visited[nf] = 1;
+                            queue.push(nf);
+                        }
+                    }
+                }
+            }
+        }
+        return result;
+    }
+
+    // ===== Delete Faces =====
+    function deleteSelectedFaces() {
+        if (!activeMesh || selectedFaces.size === 0) {
+            toast('삭제할 면이 선택되지 않았습니다');
+            return;
+        }
+
+        saveUndo();
+
+        const geo = activeMesh.geometry;
+        const pos = geo.attributes.position;
+        const totalFaces = Math.floor(pos.count / 3);
+
+        // Vertices to keep
+        const keepVerts = [];
+        for (let f = 0; f < totalFaces; f++) {
+            if (!selectedFaces.has(f)) {
+                const b = f * 3;
+                keepVerts.push(b, b + 1, b + 2);
+            }
+        }
+
+        if (keepVerts.length === 0) {
+            removeMesh(activeMesh);
+            return;
+        }
+
+        // Rebuild geometry
+        const newGeo = rebuildGeometry(geo, keepVerts);
+        const oldGeo = activeMesh.geometry;
+        activeMesh.geometry = newGeo;
+        oldGeo.dispose();
+
+        const deleted = selectedFaces.size;
+        selectedFaces.clear();
+        removeHighlight();
+        updateInfo();
+        updateStatus();
+        refreshMeshList();
+        toast(`${deleted}개 면 삭제됨`);
+    }
+
+    function rebuildGeometry(srcGeo, vertIndices) {
+        const newGeo = new THREE.BufferGeometry();
+        for (const name of Object.keys(srcGeo.attributes)) {
+            const attr = srcGeo.attributes[name];
+            const is = attr.itemSize;
+            const newArr = new Float32Array(vertIndices.length * is);
+            for (let i = 0; i < vertIndices.length; i++) {
+                const si = vertIndices[i];
+                for (let j = 0; j < is; j++) {
+                    newArr[i * is + j] = attr.array[si * is + j];
+                }
+            }
+            newGeo.setAttribute(name, new THREE.BufferAttribute(newArr, is));
+        }
+        newGeo.computeBoundingSphere();
+        newGeo.computeBoundingBox();
+        return newGeo;
+    }
+
+    // ===== Separate =====
+    function separateSelectedFaces() {
+        if (!activeMesh || selectedFaces.size === 0) {
+            toast('분리할 면이 선택되지 않았습니다');
+            return;
+        }
+        saveUndo();
+
+        const geo = activeMesh.geometry;
+        const pos = geo.attributes.position;
+        const totalFaces = Math.floor(pos.count / 3);
+
+        const selVerts = [], remainVerts = [];
+        for (let f = 0; f < totalFaces; f++) {
+            const b = f * 3;
+            (selectedFaces.has(f) ? selVerts : remainVerts).push(b, b + 1, b + 2);
+        }
+
+        if (selVerts.length > 0) {
+            const newGeo = rebuildGeometry(geo, selVerts);
+            const newMat = activeMesh.material.clone();
+            const newMesh = new THREE.Mesh(newGeo, newMat);
+            newMesh.castShadow = true;
+            newMesh.receiveShadow = true;
+            // Copy transform
+            activeMesh.updateWorldMatrix(true, false);
+            newMesh.applyMatrix4(activeMesh.matrixWorld);
+
+            newMesh.userData._idx = allMeshes.length;
+            newMesh.userData._name = activeMesh.userData._name + '_분리';
+
+            // Add to scene root (not as child of model hierarchy)
+            scene.add(newMesh);
+            allMeshes.push(newMesh);
+        }
+
+        if (remainVerts.length > 0) {
+            const rGeo = rebuildGeometry(geo, remainVerts);
+            const old = activeMesh.geometry;
+            activeMesh.geometry = rGeo;
+            old.dispose();
+        } else {
+            removeMesh(activeMesh);
+        }
+
+        selectedFaces.clear();
+        removeHighlight();
+        refreshMeshList();
+        updateInfo();
+        updateStatus();
+        toast('분리 완료');
+    }
+
+    // ===== Grow Selection =====
+    function growSelection() {
+        if (!activeMesh || selectedFaces.size === 0) return;
+
+        const pos = activeMesh.geometry.attributes.position;
+        const totalFaces = Math.floor(pos.count / 3);
+        const eps = 0.0005;
+        function vkey(x, y, z) {
+            return (Math.round(x / eps)) + ',' + (Math.round(y / eps)) + ',' + (Math.round(z / eps));
+        }
+
+        const vtf = new Map();
+        for (let f = 0; f < totalFaces; f++) {
+            for (let v = 0; v < 3; v++) {
+                const vi = f * 3 + v;
+                const k = vkey(pos.getX(vi), pos.getY(vi), pos.getZ(vi));
+                if (!vtf.has(k)) vtf.set(k, []);
+                vtf.get(k).push(f);
+            }
+        }
+
+        const newFaces = new Set(selectedFaces);
+        selectedFaces.forEach(f => {
+            for (let v = 0; v < 3; v++) {
+                const vi = f * 3 + v;
+                const k = vkey(pos.getX(vi), pos.getY(vi), pos.getZ(vi));
+                const nb = vtf.get(k);
+                if (nb) nb.forEach(nf => newFaces.add(nf));
+            }
+        });
+
+        const added = newFaces.size - selectedFaces.size;
+        newFaces.forEach(f => selectedFaces.add(f));
+        updateHighlight();
+        updateInfo();
+        updateStatus();
+        if (added > 0) toast(`+${added}면 확장`);
+    }
+
+    // ===== Undo =====
+    function saveUndo() {
+        const snap = [];
+        allMeshes.forEach(mesh => {
+            const geo = mesh.geometry;
+            const attribs = {};
+            for (const name of Object.keys(geo.attributes)) {
+                attribs[name] = {
+                    array: new Float32Array(geo.attributes[name].array),
+                    itemSize: geo.attributes[name].itemSize
+                };
+            }
+            snap.push({
+                mesh, parent: mesh.parent, attribs,
+                visible: mesh.visible, name: mesh.userData._name
+            });
+        });
+        undoStack.push({ meshSnap: snap, meshRefs: [...allMeshes] });
+        if (undoStack.length > 30) undoStack.shift();
+    }
+
+    function doUndo() {
+        if (undoStack.length === 0) { toast('되돌릴 항목 없음'); return; }
+        const state = undoStack.pop();
+
+        // Remove meshes not in snapshot
+        const snapSet = new Set(state.meshSnap.map(s => s.mesh));
+        allMeshes.forEach(m => {
+            if (!snapSet.has(m) && m.parent) {
+                m.parent.remove(m);
+                m.geometry.dispose();
+            }
+        });
+
+        // Restore
+        allMeshes = [];
+        state.meshSnap.forEach(s => {
+            const newGeo = new THREE.BufferGeometry();
+            for (const name of Object.keys(s.attribs)) {
+                const a = s.attribs[name];
+                newGeo.setAttribute(name, new THREE.BufferAttribute(a.array, a.itemSize));
+            }
+            newGeo.computeBoundingSphere();
+            newGeo.computeBoundingBox();
+
+            const old = s.mesh.geometry;
+            s.mesh.geometry = newGeo;
+            old.dispose();
+            s.mesh.visible = s.visible;
+
+            if (!s.mesh.parent) s.parent.add(s.mesh);
+            allMeshes.push(s.mesh);
+        });
+
+        allMeshes.forEach((m, i) => m.userData._idx = i);
+        selectedFaces.clear();
+        removeHighlight();
+        refreshMeshList();
+        updateInfo();
+        updateStatus();
+        toast('되돌리기 완료');
+    }
+
+    // ===== Info =====
+    function updateInfo() {
+        const noSel = document.getElementById('noSel');
+        const content = document.getElementById('propContent');
+
+        if (!activeMesh) {
+            noSel.style.display = 'block';
+            content.style.display = 'none';
+            return;
+        }
+        noSel.style.display = 'none';
+        content.style.display = 'block';
+
+        document.getElementById('selMeshName').textContent = activeMesh.userData._name;
+        document.getElementById('selFaceCount').textContent = selectedFaces.size.toLocaleString();
+        const total = activeMesh.geometry.attributes.position ?
+            Math.floor(activeMesh.geometry.attributes.position.count / 3) : 0;
+        document.getElementById('totalFaceCount').textContent = total.toLocaleString();
+    }
+
+    // ===== Mode UI =====
+    document.querySelectorAll('.mode-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+            document.querySelectorAll('.mode-btn').forEach(b => b.classList.remove('active'));
+            btn.classList.add('active');
+            selectMode = btn.dataset.mode;
+            updateStatus();
+        });
+    });
+
+    document.getElementById('brushSize').addEventListener('input', function() {
+        brushSize = parseInt(this.value);
+        document.getElementById('brushSizeVal').textContent = brushSize;
+    });
+
+    // ===== Mouse Events: Left drag = paint select faces =====
+    renderer.domElement.addEventListener('pointerdown', (e) => {
+        if (e.button !== 0) return; // only left button
+        isPainting = true;
+        mouseDownX = e.clientX;
+        mouseDownY = e.clientY;
+
+        // Immediately select face under cursor
+        const isSubtractive = e.ctrlKey || e.metaKey;
+        if (!isSubtractive && !e.shiftKey) {
+            // New stroke without Shift = clear previous selection
+            selectedFaces.clear();
+        }
+        selectFacesAt(e, true, isSubtractive);
+    });
+
+    renderer.domElement.addEventListener('pointermove', (e) => {
+        if (!isPainting) return;
+        // Continue painting faces as mouse moves
+        const isSubtractive = e.ctrlKey || e.metaKey;
+        selectFacesAt(e, true, isSubtractive);
+    });
+
+    renderer.domElement.addEventListener('pointerup', (e) => {
+        if (e.button !== 0) return;
+        isPainting = false;
+    });
+
+    // Prevent context menu on canvas (right-click is orbit)
+    renderer.domElement.addEventListener('contextmenu', (e) => e.preventDefault());
+
+    // ===== Keyboard =====
+    document.addEventListener('keydown', (e) => {
+        if (e.target.tagName === 'INPUT') return;
+
+        switch(e.key) {
+            case 'Delete':
+            case 'Backspace':
+                e.preventDefault();
+                deleteSelectedFaces();
+                break;
+            case 'z':
+            case 'Z':
+                e.preventDefault();
+                doUndo();
+                break;
+            case 'a':
+            case 'A':
+                e.preventDefault();
+                if (activeMesh) {
+                    const total = Math.floor(activeMesh.geometry.attributes.position.count / 3);
+                    if (selectedFaces.size === total) {
+                        selectedFaces.clear();
+                    } else {
+                        for (let i = 0; i < total; i++) selectedFaces.add(i);
+                    }
+                    updateHighlight(); updateInfo(); updateStatus();
+                }
+                break;
+            case 'i':
+            case 'I':
+                if (activeMesh) {
+                    const total = Math.floor(activeMesh.geometry.attributes.position.count / 3);
+                    const inv = new Set();
+                    for (let i = 0; i < total; i++) {
+                        if (!selectedFaces.has(i)) inv.add(i);
+                    }
+                    selectedFaces.clear();
+                    inv.forEach(f => selectedFaces.add(f));
+                    updateHighlight(); updateInfo(); updateStatus();
+                }
+                break;
+            case 'Escape':
+                selectedFaces.clear();
+                updateHighlight(); updateInfo(); updateStatus();
+                break;
+            case '1':
+                document.querySelectorAll('.mode-btn').forEach(b => b.classList.remove('active'));
+                document.querySelector('[data-mode="face"]').classList.add('active');
+                selectMode = 'face'; updateStatus();
+                break;
+            case '2':
+                document.querySelectorAll('.mode-btn').forEach(b => b.classList.remove('active'));
+                document.querySelector('[data-mode="region"]').classList.add('active');
+                selectMode = 'region'; updateStatus();
+                break;
+            case '3':
+                document.querySelectorAll('.mode-btn').forEach(b => b.classList.remove('active'));
+                document.querySelector('[data-mode="mesh"]').classList.add('active');
+                selectMode = 'mesh'; updateStatus();
+                break;
+        }
+    });
+
+    // ===== Toolbar =====
+    document.getElementById('btnOpen').addEventListener('click', () => document.getElementById('fileIn').click());
+    document.getElementById('fileIn').addEventListener('change', (e) => {
+        if (e.target.files[0]) loadFile(e.target.files[0]);
+        e.target.value = '';
+    });
+
+    document.getElementById('btnUndo').addEventListener('click', doUndo);
+    document.getElementById('btnDeleteFaces').addEventListener('click', deleteSelectedFaces);
+    document.getElementById('btnDeleteMesh').addEventListener('click', () => {
+        if (activeMesh && confirm(`"${activeMesh.userData._name}" 전체 삭제?`)) {
+            saveUndo(); removeMesh(activeMesh);
+        }
+    });
+    document.getElementById('btnSelectAllFaces').addEventListener('click', () => {
+        if (!activeMesh) return;
+        const total = Math.floor(activeMesh.geometry.attributes.position.count / 3);
+        for (let i = 0; i < total; i++) selectedFaces.add(i);
+        updateHighlight(); updateInfo(); updateStatus();
+    });
+    document.getElementById('btnInvertFaces').addEventListener('click', () => {
+        if (!activeMesh) return;
+        const total = Math.floor(activeMesh.geometry.attributes.position.count / 3);
+        const inv = new Set();
+        for (let i = 0; i < total; i++) { if (!selectedFaces.has(i)) inv.add(i); }
+        selectedFaces.clear(); inv.forEach(f => selectedFaces.add(f));
+        updateHighlight(); updateInfo(); updateStatus();
+    });
+    document.getElementById('btnClearFaces').addEventListener('click', () => {
+        selectedFaces.clear();
+        updateHighlight(); updateInfo(); updateStatus();
+    });
+    document.getElementById('btnGrowSel').addEventListener('click', growSelection);
+    document.getElementById('btnSepSelected').addEventListener('click', separateSelectedFaces);
+
+    // Export
+    document.getElementById('btnExportGLB').addEventListener('click', () => {
+        if (!currentModel && allMeshes.length === 0) { toast('모델 없음'); return; }
+        removeHighlight();
+        toast('내보내기 중...');
+
+        // Build a clean scene for export
+        const exportScene = new THREE.Scene();
+        allMeshes.forEach(m => {
+            if (!m.visible) return;
+            const clone = m.clone();
+            clone.material = m.material.clone();
+            m.updateWorldMatrix(true, false);
+            clone.applyMatrix4(m.matrixWorld);
+            // Reset local transform since we baked world matrix
+            exportScene.add(clone);
+        });
+
+        const exporter = new THREE.GLTFExporter();
+        exporter.parse(exportScene, (result) => {
+            const blob = new Blob([result], { type: 'application/octet-stream' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = fileName + '_edited.glb';
+            a.click();
+            URL.revokeObjectURL(url);
+            toast('GLB 내보내기 완료!');
+        }, { binary: true });
+    });
+
+    // Scene settings
+    document.getElementById('sBgColor').addEventListener('input', function() {
+        scene.background = new THREE.Color(this.value);
+    });
+    document.getElementById('sGrid').addEventListener('change', function() {
+        grid.visible = this.checked;
+    });
+
+    // ===== Drag & Drop =====
+    const overlay = document.getElementById('dropOverlay');
+    ['dragenter','dragover','dragleave','drop'].forEach(ev => {
+        document.body.addEventListener(ev, e => { e.preventDefault(); e.stopPropagation(); });
+    });
+    document.body.addEventListener('dragenter', () => overlay.classList.add('show'));
+    document.body.addEventListener('dragleave', (e) => {
+        if (!e.relatedTarget || e.relatedTarget === document.documentElement) overlay.classList.remove('show');
+    });
+    document.body.addEventListener('drop', (e) => {
+        overlay.classList.remove('show');
+        const file = Array.from(e.dataTransfer.files).find(f => /\.(glb|gltf)$/i.test(f.name));
+        if (file) loadFile(file);
+        else toast('GLB/GLTF 파일만 지원됩니다');
+    });
+
+    // ===== Animate =====
+    function animate() {
+        requestAnimationFrame(animate);
+        orbit.update();
+        renderer.render(scene, camera);
+    }
+    animate();
+
+    toast('GLB 파일을 드래그하거나 "파일 열기" 버튼을 누르세요');
+})();
+</script>
+</body>
+</html>
