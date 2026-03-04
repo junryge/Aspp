@@ -1,14 +1,3 @@
-"""
-Blender 실행
-Edit → Preferences → Add-ons
-우측 상단 Install... 클릭
-D:\하이닉스\6.연구_항목\CODE\블랜더LLM\BL.py 선택
-설치된 애드온 체크박스 활성화
-3D 뷰포트에서 N 키 누르면 사이드바 열림
-"LLM Mesh" 탭 클릭
-"""
-
-
 bl_info = {
     "name": "LLM Mesh Assistant",
     "author": "Custom",
@@ -203,7 +192,7 @@ def call_llm_api(props, messages):
 
     req = urllib_request.Request(url, data=payload, headers=headers, method="POST")
     try:
-        with urllib_request.urlopen(req, timeout=180) as resp:
+        with urllib_request.urlopen(req, timeout=300) as resp:
             data = json.loads(resp.read().decode("utf-8"))
             content = data["choices"][0]["message"]["content"]
             # <think>...</think> 블록 제거
@@ -451,8 +440,8 @@ class LLM_PT_PresetsPanel(bpy.types.Panel):
             ("삼각→사각면 변환", "MESH_GRID"),
             ("Mirror X축", "MOD_MIRROR"),
             ("Decimate (ratio 0.5)", "MOD_DECIM"),
-            ("Shade Smooth", "SMOOTH"),
-            ("모든 모디파이어 적용", "CHECKMARK"),
+            ("Shade Smooth", "MOD_SMOOTH"),
+            ("모든 모디파이어 적용", "FILE_TICK"),
         ]
         for text, icon in presets:
             op = layout.operator("llm_mesh.preset_command", text=text, icon=icon)
