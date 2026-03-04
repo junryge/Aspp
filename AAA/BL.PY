@@ -1,3 +1,14 @@
+"""
+Blender 실행
+Edit → Preferences → Add-ons
+우측 상단 Install... 클릭
+D:\하이닉스\6.연구_항목\CODE\블랜더LLM\BL.py 선택
+설치된 애드온 체크박스 활성화
+3D 뷰포트에서 N 키 누르면 사이드바 열림
+"LLM Mesh" 탭 클릭
+"""
+
+
 bl_info = {
     "name": "LLM Mesh Assistant",
     "author": "Custom",
