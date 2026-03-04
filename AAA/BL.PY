@@ -74,7 +74,7 @@ class LLMMeshProperties(bpy.types.PropertyGroup):
     )
     model_name: bpy.props.StringProperty(
         name="Model",
-        default="GPT-OSS-120B",
+        default="Qwen3-235B-A22B-Instruct-2507",
     )
     prompt: bpy.props.StringProperty(
         name="명령",
@@ -242,11 +242,24 @@ def call_llm_api(url, api_key, model, temperature, enable_thinking, messages):
         headers["Authorization"] = f"Bearer {api_key}"
 
     req = urllib_request.Request(url, data=payload, headers=headers, method="POST")
-    with urllib_request.urlopen(req, timeout=300) as resp:
-        data = json.loads(resp.read().decode("utf-8"))
-        content = data["choices"][0]["message"]["content"]
-        content = re.sub(r"<think>.*?</think>", "", content, flags=re.DOTALL).strip()
-        return content
+    try:
+        with urllib_request.urlopen(req, timeout=300) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+            content = data["choices"][0]["message"]["content"]
+            content = re.sub(r"<think>.*?</think>", "", content, flags=re.DOTALL).strip()
+            return content
+    except urllib_request.HTTPError as e:
+        error_body = ""
+        try:
+            error_body = e.read().decode("utf-8")
+        except Exception:
+            pass
+        error_msg = f"HTTP {e.code} 에러\n응답: {error_body[:500]}"
+        print(f"[LLM Mesh] {error_msg}")
+        raise RuntimeError(error_msg)
+    except Exception as e:
+        print(f"[LLM Mesh] API 오류: {e}")
+        raise RuntimeError(f"API 호출 실패: {e}")
 
 
 # ============================================================
