@@ -74,7 +74,7 @@ class LLMMeshProperties(bpy.types.PropertyGroup):
     )
     model_name: bpy.props.StringProperty(
         name="Model",
-        default="Qwen3-235B-A22B-Instruct-2507",
+        default="GPT-OSS-120B",
     )
     prompt: bpy.props.StringProperty(
         name="명령",
@@ -92,7 +92,7 @@ class LLMMeshProperties(bpy.types.PropertyGroup):
     )
     enable_thinking: bpy.props.BoolProperty(
         name="Thinking 모드",
-        description="Qwen3 thinking 활성화 (정확↑ 속도↓)",
+        description="LLM thinking/추론 모드 활성화 (Qwen3 등 지원 모델용)",
         default=False,
     )
     last_code: bpy.props.StringProperty(default="")
@@ -130,31 +130,91 @@ def get_scene_context():
 # ============================================================
 #  시스템 프롬프트
 # ============================================================
-SYSTEM_PROMPT = """당신은 Blender Python(bpy) 전문가입니다. 사용자의 자연어 명령을 실행 가능한 bpy Python 코드로 변환합니다.
+SYSTEM_PROMPT = """당신은 Blender Python(bpy) 코드 생성기입니다.
+유일한 역할: 사용자의 자연어 명령을 실행 가능한 bpy Python 코드로 변환.
 
-## 규칙
-1. ```python 코드블록 안에 실행 가능한 bpy 코드만 작성
-2. import bpy 항상 포함
-3. 메쉬 수정 시 bmesh 적극 활용
-4. 오브젝트/편집 모드 전환 정확히 처리
-5. 씬 컨텍스트의 정확한 오브젝트 이름 사용
-6. 작업 후 반드시 오브젝트 모드로 복귀
-7. 에러 시 traceback 보고 수정 코드 제공
-8. /no_think 지시 시 <think> 블록 없이 응답
+## 엄격한 규칙
+1. 반드시 ```python 코드 블록 하나만 출력하세요. 설명 금지.
+2. 항상 `import bpy`로 시작하세요.
+3. [씬 정보]를 읽고 정확한 오브젝트 이름을 사용하세요.
+4. 사용자가 특정 오브젝트를 지정하지 않으면 active_object를 대상으로 하세요.
+5. 작업 끝나면 반드시 오브젝트 모드로 복귀: `bpy.ops.object.mode_set(mode='OBJECT')`
+6. 버텍스/엣지/면 수준 작업에는 bmesh를 사용하세요.
+7. 모디파이어는 `bpy.ops.object.modifier_add(type='...')`를 사용하세요.
+8. 사용자가 요청하지 않은 오브젝트나 작업을 추가하지 마세요.
+9. 명령이 불분명하면 가장 합리적인 메쉬 작업으로 판단하세요.
 
-## 코드 패턴
+## 예시
+
+사용자: "Subdivision Surface 추가해줘"
+```python
+import bpy
+obj = bpy.context.active_object
+if obj and obj.type == 'MESH':
+    bpy.ops.object.modifier_add(type='SUBSURF')
+    obj.modifiers[-1].levels = 2
+    obj.modifiers[-1].render_levels = 2
+```
+
+사용자: "선택된 오브젝트를 스무딩해줘"
+```python
+import bpy
+obj = bpy.context.active_object
+if obj and obj.type == 'MESH':
+    bpy.ops.object.shade_smooth()
+```
+
+사용자: "버텍스를 부드럽게 해줘"
 ```python
 import bpy
 import bmesh
-
 obj = bpy.context.active_object
 if obj and obj.type == 'MESH':
     bpy.ops.object.mode_set(mode='EDIT')
-    bm = bmesh.from_edit_mesh(obj.data)
-    # ... 메쉬 편집 ...
-    bmesh.update_edit_mesh(obj.data)
+    bpy.ops.mesh.select_all(action='SELECT')
+    bpy.ops.mesh.vertices_smooth(factor=0.5, repeat=5)
     bpy.ops.object.mode_set(mode='OBJECT')
 ```
+
+사용자: "Bevel 모디파이어 추가"
+```python
+import bpy
+obj = bpy.context.active_object
+if obj and obj.type == 'MESH':
+    bpy.ops.object.modifier_add(type='BEVEL')
+    obj.modifiers[-1].width = 0.02
+    obj.modifiers[-1].segments = 3
+```
+
+사용자: "면을 돌출시켜줘"
+```python
+import bpy
+import bmesh
+obj = bpy.context.active_object
+if obj and obj.type == 'MESH':
+    bpy.ops.object.mode_set(mode='EDIT')
+    bpy.ops.mesh.select_all(action='SELECT')
+    bpy.ops.mesh.extrude_region_move(
+        TRANSFORM_OT_translate={"value": (0, 0, 1.0)}
+    )
+    bpy.ops.object.mode_set(mode='OBJECT')
+```
+
+사용자: "노멀 재계산"
+```python
+import bpy
+obj = bpy.context.active_object
+if obj and obj.type == 'MESH':
+    bpy.ops.object.mode_set(mode='EDIT')
+    bpy.ops.mesh.select_all(action='SELECT')
+    bpy.ops.mesh.normals_make_consistent(inside=False)
+    bpy.ops.object.mode_set(mode='OBJECT')
+```
+
+## 반드시 지켜야 할 것
+- ```python 블록만 출력. 그 외 텍스트 절대 금지.
+- 씬 정보에서 정확한 오브젝트 이름을 사용.
+- 사용자가 요청한 것만 정확히 수행. 그 이상도 이하도 안 됨.
 """
 
 
@@ -164,8 +224,8 @@ if obj and obj.type == 'MESH':
 def call_llm_api(url, api_key, model, temperature, enable_thinking, messages):
     """순수 HTTP 호출 - bpy 프로퍼티 직접 참조하지 않음"""
 
-    # Qwen3 thinking 비활성화
-    if not enable_thinking:
+    # Qwen 모델일 때만 /no_think 삽입
+    if not enable_thinking and "qwen" in model.lower():
         if messages and messages[0]["role"] == "system":
             if "/no_think" not in messages[0]["content"]:
                 messages[0]["content"] = "/no_think\n" + messages[0]["content"]
@@ -219,7 +279,11 @@ def _llm_worker(url, api_key, model, temperature, enable_thinking,
                 max_retries, scene_ctx, prompt):
     """백그라운드 스레드에서 실행 - bpy 접근 절대 금지"""
     try:
-        user_msg = f"[씬 정보]\n{scene_ctx}\n\n[명령]\n{prompt}"
+        user_msg = (
+            f"[씬 정보]\n{scene_ctx}\n\n"
+            f"[명령]\n{prompt}\n\n"
+            f"```python 코드 블록만 출력하세요. 설명 금지."
+        )
         messages = [
             {"role": "system", "content": SYSTEM_PROMPT},
             {"role": "user", "content": user_msg},
