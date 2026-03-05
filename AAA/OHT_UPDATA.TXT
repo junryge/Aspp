@@ -1,3 +1,44 @@
+원인
+ID_INOUT=FALSE인데 데이터가 들어온 원인
+문제의 코드 (수정 전 JAVA 원본)
+// line 257 — 진입 조건: VHL_CNT만 체크
+if (functionItem.getUseFunction(FunctionType.VHL_CNT)) {
+    this._calculatedVhlCnt(hidId, requiredKey, vehicle);  // ← functionItem 안 넘김
+}
+
+// line 379 — 메서드 안에 HID_INOUT 체크가 없음
+private void _calculatedVhlCnt(int currentHidId, String key, Vhl vehicle) {
+    ...
+    // 엣지 집계 → 무조건 실행 (스위치 체크 없음!)
+    hidEdgeBuffer.merge(edgeKey, 1, Integer::sum);
+    ...
+    // 버퍼 플러시 → 무조건 실행 (스위치 체크 없음!)
+    flushHidEdgeBuffer();
+    ...
+    // 마스터 업데이트 → 무조건 실행 (스위치 체크 없음!)
+    _updateHidMasterTables();
+}
+
+원인 요약
+진입 조건	엣지 집계	버퍼 플러시	마스터 업데이트
+수정 전	VHL_CNT만 체크	무조건 실행	무조건 실행	무조건 실행
+수정 후	VHL_CNT || HID_INOUT	if (HID_INOUT)	if (HID_INOUT)	if (HID_INOUT)
+VHL_CNT=TRUE인 fab(예: M14A)에서 _calculatedVhlCnt()에 진입하면, 메서드 안에서 HID_INOUT 스위치를 체크하지 않고 엣지 집계/플러시/마스터 업데이트를 전부 실행했습니다.
+
+즉, HID_INOUT=FALSE로 설정해도 VHL_CNT=TRUE이기만 하면 HID_INOUT 관련 데이터가 DB에 들어간 겁니다.
+
+수정 내용
+functionItem을 메서드 파라미터로 넘기도록 변경
+VHL_CNT 코드는 if (VHL_CNT) 가드
+HID_INOUT 코드 3곳 전부 if (HID_INOUT) 가드 추가
+이제 HID_INOUT=FALSE면 해당 연산이 완전히 스킵됩니다.
+
+
+
+
+
+
+해결법
 JAVA/OhtMsgWorkerRunnable.java 수정:
 
 진입 조건 (line 257): VHL_CNT → VHL_CNT || HID_INOUT
@@ -7,3 +48,7 @@ VHL 카운트 (기존 코드): if (VHL_CNT) 가드 추가
 버퍼 플러시: if (HID_INOUT) 가드 추가
 마스터 업데이트: if (HID_INOUT) 가드 추가
 이제 HID_INOUT=FALSE면 엣지 집계/플러시/마스터 업데이트 전부 실행 안 됩니다.
+
+
+
+
