@@ -1,0 +1,9 @@
+JAVA/OhtMsgWorkerRunnable.java 수정:
+
+진입 조건 (line 257): VHL_CNT → VHL_CNT || HID_INOUT
+메서드 시그니처: FunctionItem functionItem 파라미터 추가
+VHL 카운트 (기존 코드): if (VHL_CNT) 가드 추가
+엣지 집계: if (HID_INOUT) 가드 추가
+버퍼 플러시: if (HID_INOUT) 가드 추가
+마스터 업데이트: if (HID_INOUT) 가드 추가
+이제 HID_INOUT=FALSE면 엣지 집계/플러시/마스터 업데이트 전부 실행 안 됩니다.
