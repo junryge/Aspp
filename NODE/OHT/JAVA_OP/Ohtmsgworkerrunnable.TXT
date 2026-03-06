@@ -13,7 +13,7 @@ public class OhtMsgWorkerRunnable implements Runnable {
     // ========================================================================================
 
     // --- 테이블 3: {FAB}_ATLAS_HID_INOUT 실시간 1분 집계용 ---
-    // Key: "fromHidId:toHidId", Value: 전환 횟수
+    // Key: "fromHidId:toHidId:fabId:vhlId:eqpId", Value: 전환 횟수
     private static ConcurrentMap<String, Integer> hidEdgeBuffer =
         new ConcurrentHashMap<>();
     private static long lastHidEdgeFlushTime = System.currentTimeMillis();
@@ -258,10 +258,17 @@ public class OhtMsgWorkerRunnable implements Runnable {
             this._calculatedVhlCnt(
                     hidId,
                     requiredKey,
-                    vehicle
+                    vehicle,
+                    functionItem
             );
         }
         //~HID 구간 별 VHL 수 계산
+
+        // HID IN/OUT 엣지 집계
+        if (functionItem.getUseFunction(FunctionType.HID_INOUT)) {
+            this._processHidInout(hidId, vehicle, functionItem);
+        }
+        //~HID IN/OUT 엣지 집계
 
         // Stage Command Monitoring
         if (functionItem.getUseFunction(FunctionType.MAP_FILE_REFRESH)) {
@@ -376,12 +383,11 @@ public class OhtMsgWorkerRunnable implements Runnable {
      * @param key DataSet 에서 특정 데이터를 호출하기 위한 key 값
      * @param vehicle vehicle 객체
      */
-    private void _calculatedVhlCnt(int currentHidId, String key, Vhl vehicle) {
+    private void _calculatedVhlCnt(int currentHidId, String key, Vhl vehicle, FunctionItem functionItem) {
         long timer = System.currentTimeMillis();
         int previousHidId = vehicle.getHidId();
 
         if (previousHidId != currentHidId) {
-            // ===== 기존 코드: HID VHL 카운트 =====
             if (currentHidId > 0) {
                 String v = String.format("%03d", currentHidId);
                 DataService.getDataSet().increaseHidVehicleCnt(key + ":" + v);
@@ -391,21 +397,44 @@ public class OhtMsgWorkerRunnable implements Runnable {
                 String v = String.format("%03d", previousHidId);
                 DataService.getDataSet().decreaseHidVehicleCnt(key + ":" + v);
             }
-            // ===== 기존 코드 끝 =====
-
-            // ===== [신규 추가] 엣지 전환 카운트 집계 → 테이블 3 =====
-            // 데이터 소스: previousHidId = vehicle.getHidId() (Vhl.java:517)
-            //             currentHidId  = railEdge.getHIDId() (RaileEdge.java:324)
-            String edgeKey = String.format("%03d:%03d", previousHidId, currentHidId);
-            synchronized (hidEdgeBufferLock) {
-                hidEdgeBuffer.merge(edgeKey, 1, Integer::sum);
-            }
-            // ===== [신규 추가] 끝 =====
 
             vehicle.setHidId(currentHidId);
         }
 
-        // ===== [신규 추가] 1분마다 버퍼 플러시 → 테이블 3 저장 =====
+        long checkingTime = System.currentTimeMillis() - timer;
+
+        if (checkingTime >= 60000) {
+            logger.info("... `number of vehicles per hid section` process took more than 1 minute to complete [elapsed time: {}min]", checkingTime / 60000);
+        }
+    }
+    //~HID 구간별 VHL 재적수
+
+    // ========================================================================================
+    // HID IN/OUT 엣지 집계 (HID_INOUT 스위치 전용)
+    // ========================================================================================
+
+    /**
+     * HID IN/OUT 엣지 전환 카운트 집계, 1분 배치 플러시, 하루 1회 마스터 테이블 업데이트
+     */
+    private void _processHidInout(int currentHidId, Vhl vehicle, FunctionItem functionItem) {
+        long timer = System.currentTimeMillis();
+        int previousHidId = vehicle.getHidId();
+
+        // 엣지 전환 카운트 집계 → 테이블 3
+        if (previousHidId != currentHidId) {
+            String vhlIdFull = vehicle.getId();
+            String vhlName = vhlIdFull.substring(vhlIdFull.lastIndexOf(':') + 1);
+            String eqpIdFull = vehicle.getEqpId();
+            String eqpName = eqpIdFull.substring(eqpIdFull.lastIndexOf(':') + 1);
+            String edgeKey = String.format("%03d:%03d:%s:%s:%s",
+                    previousHidId, currentHidId,
+                    vehicle.getFabId(), vhlName, eqpName);
+            synchronized (hidEdgeBufferLock) {
+                hidEdgeBuffer.merge(edgeKey, 1, Integer::sum);
+            }
+        }
+
+        // 1분마다 버퍼 플러시 → 테이블 3 저장
         if (timer - lastHidEdgeFlushTime >= HID_EDGE_FLUSH_INTERVAL) {
             synchronized (hidEdgeFlushLock) {
                 if (timer - lastHidEdgeFlushTime >= HID_EDGE_FLUSH_INTERVAL) {
@@ -414,9 +443,8 @@ public class OhtMsgWorkerRunnable implements Runnable {
                 }
             }
         }
-        // ===== [신규 추가] 끝 =====
 
-        // ===== [신규 추가] 하루 1회 마스터 테이블 업데이트 → 테이블 1, 2 =====
+        // 하루 1회 마스터 테이블 업데이트 → 테이블 1, 2
         String today = new SimpleDateFormat("yyyy-MM-dd").format(new Date(timer));
         if (!today.equals(hidMasterLastUpdateDate)) {
             synchronized (hidMasterUpdateLock) {
@@ -430,15 +458,7 @@ public class OhtMsgWorkerRunnable implements Runnable {
                 }
             }
         }
-        // ===== [신규 추가] 끝 =====
-
-        long checkingTime = System.currentTimeMillis() - timer;
-
-        if (checkingTime >= 60000) {
-            logger.info("... `number of vehicles per hid section` process took more than 1 minute to complete [elapsed time: {}min]", checkingTime / 60000);
-        }
     }
-    //~HID 구간별 VHL 재적수
 
     // ========================================================================================
     // [신규 메소드] flushHidEdgeBuffer()
@@ -455,6 +475,9 @@ public class OhtMsgWorkerRunnable implements Runnable {
      *   FROM_HIDID  → vehicle.getHidId() (Vhl.java:517)
      *   TO_HIDID    → currentHidId 파라미터 (OhtMsgWorkerRunnable.java:357)
      *   TRANS_CNT   → hidEdgeBuffer 집계값
+     *   FAB_ID      → vehicle.getFabId() (Vhl.java:5)
+     *   VHL_ID      → vehicle.getId() (Vhl.java:6)
+     *   EQP_ID      → vehicle.getEqpId() (Vhl.java:9)
      *   MCP_NM      → this.mcpName (OhtMsgWorkerRunnable.java:9)
      *   ENV         → Env.getEnv()
      */
@@ -489,9 +512,12 @@ public class OhtMsgWorkerRunnable implements Runnable {
         List<Tuple> tuples = new ArrayList<>();
 
         for (Map.Entry<String, Integer> entry : snapshot.entrySet()) {
-            String[] hidIds = entry.getKey().split(":");
-            int fromHidId = Integer.parseInt(hidIds[0]);
-            int toHidId = Integer.parseInt(hidIds[1]);
+            String[] parts = entry.getKey().split(":");
+            int fromHidId = Integer.parseInt(parts[0]);
+            int toHidId = Integer.parseInt(parts[1]);
+            String fabId = parts[2];
+            String vhlId = parts[3];
+            String eqpId = parts[4];
             int transCnt = entry.getValue();
 
             Tuple tuple = new Tuple();
@@ -500,6 +526,9 @@ public class OhtMsgWorkerRunnable implements Runnable {
             tuple.put("FROM_HIDID", fromHidId);
             tuple.put("TO_HIDID", toHidId);
             tuple.put("TRANS_CNT", transCnt);
+            tuple.put("FAB_ID", fabId);
+            tuple.put("VHL_ID", vhlId);
+            tuple.put("EQP_ID", eqpId);
             tuple.put("MCP_NM", this.mcpName);
             tuple.put("ENV", Env.getEnv());
 
@@ -1279,7 +1308,7 @@ public class OhtMsgWorkerRunnable implements Runnable {
         public static final int BAY_NM_IDX = 22;            // bay 명칭
     }
 
-    // 상태값(변경)
+    // 상태값
     public static class OHT_TIB_STATE {
         public static final String NORMAL = "NORMAL";
         public static final String ABNORMAL = "ABNORMAL";
