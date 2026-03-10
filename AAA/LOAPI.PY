@@ -40,39 +40,56 @@ LEVEL_COLORS = {
 #  API
 # ─────────────────────────────────────────────
 def run_query(query: str, timeout=120):
-    encoded = urllib.parse.quote(" ".join(query.split()), safe="")
+    # 공백 정규화 (줄바꿈 등 제거)
+    clean_q = " ".join(query.split())
+    encoded  = urllib.parse.quote(clean_q, safe="")
     url = f"http://{HOST}:{PORT}/logpresso/httpexport/query.csv?_apikey={API_KEY}&_q={encoded}"
+    
+    # 디버그 출력 (콘솔 확인용)
+    print("=" * 80)
+    print("[QUERY]", clean_q)
+    print("[URL  ]", url[:300])
+    print("=" * 80)
+    
     resp = requests.get(url, verify=False, timeout=timeout)
+    print(f"[STATUS] {resp.status_code}")
+    if resp.status_code != 200:
+        print("[RESPONSE]", resp.text[:500])
+    
     if resp.status_code == 200:
         return pd.read_csv(StringIO(resp.text))
-    raise RuntimeError(f"HTTP {resp.status_code}: {resp.text[:200]}")
+    raise RuntimeError(f"HTTP {resp.status_code}: {resp.text[:300]}")
 
 
 def build_query(from_dt, to_dt, carrier, text_kw):
     from_s = from_dt.replace("-", "").replace(":", "").replace(" ", "") + "00" if len(from_dt) == 16 else from_dt
     to_s   = to_dt.replace("-", "").replace(":", "").replace(" ", "") + "59" if len(to_dt) == 16 else to_dt
 
-    conds = []
-    if carrier.strip():
-        c = carrier.strip()
-        conds.append(f'(CARRIER=="{c}") or (TEXT=="{c}")')
-    if text_kw.strip():
-        conds.append(f'TEXT contains "{text_kw.strip()}"')
-
-    if not conds:
+    if not carrier.strip() and not text_kw.strip():
         messagebox.showwarning("입력 오류", "CARRIER 또는 TEXT 검색어를 입력하세요.")
         return None
 
-    search_cond = " or ".join(conds)
+    # CARRIER 조건 (fulltext 인덱스 검색)
+    if carrier.strip():
+        c = carrier.strip()
+        ft_cond = f'(CARRIER=="{c}") or (TEXT=="{c}")'
+    else:
+        # TEXT만 있을 경우 wildcard로 전체 조회 후 pipe search로 필터
+        ft_cond = '(LEVEL=="WELL" or LEVEL=="WARN" or LEVEL=="ERROR" or LEVEL=="FATAL")'
+
     q = (
         f'fulltext from={from_s} to={to_s} '
-        f'{LEVEL_FILTER} and ({search_cond}) '
+        f'{LEVEL_FILTER} '
+        f'and ({ft_cond}) '
         f'from {TABLES} '
         f'| fields {FIELDS} '
-        f'| sort _time '
-        f'| limit 0 1000 '
-        f'| eval No = seq() + 0'
     )
+
+    # TEXT 부분검색은 파이프 이후 search 명령으로
+    if text_kw.strip():
+        q += f'| search TEXT contains "{text_kw.strip()}" '
+
+    q += '| sort _time | limit 0 1000 | eval No = seq() + 0'
     return q
 
 
