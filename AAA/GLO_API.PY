@@ -70,9 +70,9 @@ def query_carrier(from_dt: str, to_dt: str, carrier: str = "", text: str = "") -
 # ─────────────────────────────────────────────
 if __name__ == "__main__":
     df = query_carrier(
-        from_dt  = "20260308000000",
-        to_dt    = "20260308235959",
-        carrier  = "4PDK2966",
-        text     = "",           # TEXT 검색어 (선택)
+        from_dt  = "20260308000000",   # 조회 시작 시간
+        to_dt    = "20260308235959",   # 조회 종료 시간
+        carrier  = "4PDK2966",         # CARRIER 값 (없으면 "" 로)
+        text     = "4PDK2966",         # TEXT 값   (없으면 "" 로)
     )
     print(df)
