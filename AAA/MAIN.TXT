@@ -1251,6 +1251,12 @@ Promise.all([
   renderTags();
   renderSkills();
   renderSessionList();
+}).catch(err=>{
+  console.error('설정 로드 실패:', err);
+  document.getElementById('tokenStatus').className='token-status missing';
+  document.getElementById('tokenStatus').textContent='❌ 서버 연결 실패 - 새로고침 해주세요';
+  document.getElementById('tokenBadge').className='status off';
+  document.getElementById('tokenBadge').textContent='❌ 연결 실패';
 });
 
 // ===== 환경 선택 =====
