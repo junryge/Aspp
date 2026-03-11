@@ -1699,7 +1699,7 @@ async function uploadCsvFile(file){
     panel.innerHTML = `
       <div class="csv-info">
         <div class="fname">📊 ${esc(data.filename)}</div>
-        <div class="fstats">${data.rows}행 × ${data.cols}열 · 컬럼: ${data.headers.join(', ')}</div>
+        <div class="fstats">${data.rows}행 × ${data.cols}열</div>
         <button class="fremove" onclick="removeCsv()">✕ 제거</button>
         <div class="csv-preview">${tableHtml}</div>
       </div>`;
