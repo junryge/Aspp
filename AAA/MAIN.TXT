@@ -1243,14 +1243,14 @@ Promise.all([
   fetch('/api/config').then(r=>r.json()),
   fetch('/api/skills').then(r=>r.json()),
 ]).then(([cfgData, skillData])=>{
-  envs = cfgData.envs;
+  envs = cfgData.envs || {};
   hasToken = cfgData.has_token;
-  catalog = skillData;
-  renderEnvs();
-  renderTokenStatus();
-  renderTags();
-  renderSkills();
-  renderSessionList();
+  catalog = skillData || {};
+  try{ renderTokenStatus(); }catch(e){ console.error('renderTokenStatus:',e); }
+  try{ renderEnvs(); }catch(e){ console.error('renderEnvs:',e); }
+  try{ renderTags(); }catch(e){ console.error('renderTags:',e); }
+  try{ renderSkills(); }catch(e){ console.error('renderSkills:',e); }
+  try{ renderSessionList(); }catch(e){ console.error('renderSessionList:',e); }
 }).catch(err=>{
   console.error('설정 로드 실패:', err);
   document.getElementById('tokenStatus').className='token-status missing';
