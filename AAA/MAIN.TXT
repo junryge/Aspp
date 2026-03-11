@@ -74,16 +74,20 @@ ENV_CONFIG = {
 def load_token():
     """TOKEN.TXT 파일에서 API 키 읽기"""
     if os.path.isfile(TOKEN_FILE):
-        with open(TOKEN_FILE, "r", encoding="utf-8") as f:
+        with open(TOKEN_FILE, "r", encoding="utf-8-sig") as f:
             token = f.read().strip()
-            if token:
-                # ASCII만 허용 (한글 플레이스홀더 무시)
-                try:
-                    token.encode("ascii")
-                    return token
-                except UnicodeEncodeError:
-                    print(f"  ⚠️  TOKEN.TXT에 비영문 문자 포함 - 실제 API 키로 교체하세요")
-                    return ""
+            if not token:
+                print(f"  ⚠️  TOKEN.TXT 파일이 비어있습니다 - API 키를 입력하세요: {TOKEN_FILE}")
+                return ""
+            # ASCII만 허용 (한글 플레이스홀더 무시)
+            try:
+                token.encode("ascii")
+                return token
+            except UnicodeEncodeError:
+                print(f"  ⚠️  TOKEN.TXT에 비영문 문자 포함 - 실제 API 키로 교체하세요")
+                return ""
+    else:
+        print(f"  ⚠️  TOKEN.TXT 파일을 찾을 수 없습니다: {TOKEN_FILE}")
     return ""
 
 
@@ -438,6 +442,7 @@ def api_config():
         "envs": {k: {"url": v["url"], "model": v["model"], "name": v["name"]} for k, v in ENV_CONFIG.items()},
         "has_token": bool(API_TOKEN),
         "token_file": TOKEN_FILE,
+        "token_optional": True,
     })
 
 
@@ -1225,6 +1230,7 @@ if(lastSessions.length > 0){
     if(s.systemPrompt) document.getElementById('systemPromptInput').value = s.systemPrompt;
     if(s.selFormat){ selFormat=s.selFormat; document.querySelectorAll('.fmt-btn').forEach(b=>{b.classList.toggle('selected',b.dataset.f===selFormat);}); }
     if(s.effort!==undefined){ effort=s.effort; document.getElementById('effortSlider').value=effort; }
+    if(s.selEnv){ selEnv=s.selEnv; renderEnvs(); updateStatus(); }
     renderSessionList();
   }, 100);
 } else {
@@ -1269,10 +1275,10 @@ function renderTokenStatus(){
     badge.className='status on';
     badge.textContent='🔑 토큰 OK';
   } else {
-    el.className='token-status missing';
-    el.textContent='⚠️ TOKEN.TXT 파일이 없거나 비어있음 - app.py와 같은 폴더에 TOKEN.TXT를 만들어주세요';
-    badge.className='status off';
-    badge.textContent='⚠️ 토큰 없음';
+    el.className='token-status ok';
+    el.textContent='ℹ️ TOKEN.TXT 미설정 - 폐쇄망 API는 토큰 없이 사용 가능합니다';
+    badge.className='status on';
+    badge.textContent='🔗 토큰 선택';
   }
 }
 function updateStatus(){
