@@ -1389,8 +1389,11 @@ async function send(){
 function renderMd(text){
   // 1) escape HTML
   let s=text.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
-  // 2) code blocks
-  s=s.replace(/```(\w*)\n([\s\S]*?)```/g,(_,lang,code)=>`<pre><code>${code.trim()}</code></pre>`);
+  // 2) code blocks (```lang\n...``` 또는 ```lang코드...``` 모두 지원)
+  s=s.replace(/```(\w*)\s*([\s\S]*?)```/g,(_,lang,code)=>{
+    const cls=lang?` class="language-${lang}"`:'';
+    return `<pre><code${cls}>${code.trim()}</code></pre>`;
+  });
   // 3) tables
   s=s.replace(/((?:^\|.+\|[ ]*\n){2,})/gm, function(tbl){
     const rows=tbl.trim().split('\n').filter(r=>r.trim());
