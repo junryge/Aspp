@@ -1,0 +1,233 @@
+import { useEffect, useRef } from "react";
+import * as THREE from "three";
+import { loadCompressedGLB } from "../../lib/loaders";
+import { BLD_NAME_MAP, BUILDING_DATA } from "./buildingData";
+
+/* ============================================================================
+ * useGLTFModel — GLTF 모델 로드 훅
+ *
+ * campus.gltf를 비동기로 로드한 후
+ *   - 건물 그룹(buildingGroupsRef) 파싱
+ *   - 버스 오브젝트(busesRef) 분류
+ *   - 창문/경고등 메시 분류
+ *   - 경고등 위치에 연기 파티클 생성
+ *   - 건물별 라벨 스프라이트 + 수직선 생성
+ * 을 처리한다.
+ *
+ * [최적화]
+ *   - traverse 2회 → 1회로 통합 (조명 제거 + 분류 동시 처리)
+ *   - updateMatrixWorld 2회 → 1회로 통합
+ *   - Box3.setFromObject 호출 시 불필요한 matrixWorld 재계산 제거
+ * ============================================================================ */
+export function useGLTFModel(
+	sceneRef: React.RefObject<THREE.Scene | null>,
+	setLoading: (v: boolean) => void,
+	setLoadProgress: (v: number) => void,
+) {
+	const buildingGroupsRef = useRef<Record<string, THREE.Object3D>>({});
+	const busesRef = useRef<THREE.Object3D[]>([]);
+	const warningsRef = useRef<THREE.Mesh[]>([]);
+	const windowsRef = useRef<THREE.Mesh[]>([]);
+	const smokesRef = useRef<THREE.Points[]>([]);
+
+	// sceneRef는 stable ref — 첫 마운트 시 useScene 이펙트가 먼저 실행되어 이미 설정됨
+	// biome-ignore lint/correctness/useExhaustiveDependencies: sceneRef is a stable ref populated before this effect runs
+	useEffect(() => {
+		const scene = sceneRef.current;
+		if (!scene) return;
+
+		loadCompressedGLB("/main5.glb", (progress) => {
+			if (progress.total > 0)
+				setLoadProgress(Math.round((progress.loaded / progress.total) * 100));
+		})
+			.then((gltf) => {
+				const model = gltf.scene;
+				model.scale.set(0.9, 0.9, 0.9);
+
+				const buildingGroups: Record<string, THREE.Object3D> = {};
+				const buses: THREE.Object3D[] = [];
+				const warnings: THREE.Mesh[] = [];
+				const windows: THREE.Mesh[] = [];
+				const lightsToRemove: THREE.Object3D[] = [];
+
+				// ── traverse 1회로 통합: 조명 제거 + 건물/버스/창문/경고등 분류 동시 처리 ──
+				model.traverse((child) => {
+					// 조명 수집 (나중에 일괄 제거)
+					if ((child as THREE.Light).isLight) {
+						lightsToRemove.push(child);
+						return;
+					}
+
+					// userData.bld_name 이 있는 노드를 건물 그룹으로 등록
+					if (child.userData?.bld_name) {
+						const bldKey = child.userData.bld_name as string;
+						// GLTF 내부 키를 표시용 이름(슬래시 포함)으로 변환
+						const displayName = BLD_NAME_MAP[bldKey] ?? bldKey;
+						buildingGroups[displayName] = child;
+					}
+
+					// 이름이 "Bus_"로 시작하는 오브젝트를 버스로 분류
+					if (child.name?.startsWith("Bus_")) buses.push(child);
+
+					if ((child as THREE.Mesh).isMesh) {
+						const mesh = child as THREE.Mesh;
+						mesh.castShadow = true;
+						mesh.receiveShadow = true;
+						if (mesh.material) {
+							const mat = mesh.material as THREE.Material & { name?: string };
+							const mname = (mat.name ?? "").toLowerCase();
+							// 재질명이 "wm"으로 시작하면 창문 메시로 분류 (야간 발광 대상)
+							if (mname.startsWith("wm")) windows.push(mesh);
+							// 재질명이 "wrn"으로 시작하면 경고등 메시로 분류 (점멸 대상)
+							if (mname.startsWith("wrn")) warnings.push(mesh);
+						}
+					}
+				});
+
+				// 수집한 조명 일괄 제거
+				lightsToRemove.forEach((light) => light.parent?.remove(light));
+
+				// scene에 추가 후 matrixWorld 1회만 갱신
+				scene.add(model);
+				model.updateMatrixWorld(true);
+
+				// ── 경고등 위치마다 연기 파티클 시스템 생성 ──
+				const smokeParticles: THREE.Points[] = [];
+				warnings.forEach((warnMesh) => {
+					const worldPos = new THREE.Vector3();
+					warnMesh.getWorldPosition(worldPos); // 경고등의 월드 좌표 획득
+					const smokeCount = 40;
+					const positions = new Float32Array(smokeCount * 3);
+					for (let i = 0; i < smokeCount; i++) {
+						// 경고등 주변 ±1.5 범위에 파티클을 무작위 배치, 높이는 1~26 사이
+						positions[i * 3] = worldPos.x + (Math.random() - 0.5) * 3;
+						positions[i * 3 + 1] = worldPos.y + 1 + Math.random() * 25;
+						positions[i * 3 + 2] = worldPos.z + (Math.random() - 0.5) * 3;
+					}
+					const geo = new THREE.BufferGeometry();
+					geo.setAttribute("position", new THREE.BufferAttribute(positions, 3));
+					const mat = new THREE.PointsMaterial({
+						color: 0xcccccc,
+						size: 4,
+						transparent: true,
+						opacity: 0.2,
+						blending: THREE.AdditiveBlending, // 가산 혼합으로 연기 빛 표현
+						depthWrite: false, // 뎁스 버퍼 쓰기 비활성화로 겹침 아티팩트 방지
+					});
+					const points = new THREE.Points(geo, mat);
+					// 애니메이션 루프에서 참조할 연기 메타데이터 저장
+					points.userData.smokeData = {
+						baseX: worldPos.x,
+						baseY: worldPos.y + 1,
+						baseZ: worldPos.z,
+						count: smokeCount,
+						topRadius: 2.5, // 파티클이 리셋될 때 퍼지는 반경
+					};
+					scene.add(points);
+					smokeParticles.push(points);
+				});
+				smokesRef.current = smokeParticles;
+
+				// ── 건물별 라벨 스프라이트 생성 ──
+				// matrixWorld는 위에서 이미 갱신됨 — 재계산 불필요
+				for (const [displayName, group] of Object.entries(buildingGroups)) {
+					const data = BUILDING_DATA[displayName];
+					if (!data) continue;
+
+					// false: matrixWorld 재계산 스킵 (이미 updateMatrixWorld 완료)
+					const box = new THREE.Box3().setFromObject(group, false);
+					const center = new THREE.Vector3();
+					box.getCenter(center);
+					const topY = box.max.y; // 건물 최상단 Y좌표 (스프라이트 기준점)
+					const hexColor = `#${data.color.toString(16).padStart(6, "0")}`;
+
+					// 캔버스에 건물명(굵게)과 유형(작게)을 그려 텍스처로 사용
+					const canvas = document.createElement("canvas");
+					const ctx = canvas.getContext("2d");
+					if (!ctx) continue;
+					const fontSize = 32;
+					const typeFontSize = 16;
+					ctx.font = `bold ${fontSize}px 'Noto Sans KR', sans-serif`;
+					const nameWidth = ctx.measureText(displayName).width;
+					ctx.font = `${typeFontSize}px 'Noto Sans KR', sans-serif`;
+					const typeWidth = ctx.measureText(data.type).width;
+					// 캔버스 크기를 텍스트 너비에 맞게 동적으로 결정
+					const cW = Math.max(nameWidth, typeWidth) + 40;
+					const cH = fontSize + typeFontSize + 28;
+					canvas.width = cW;
+					canvas.height = cH;
+
+					// 둥근 모서리(rr=10) 배경 사각형 그리기
+					const rr = 10;
+					ctx.fillStyle = "rgba(8,8,16,0.8)";
+					ctx.beginPath();
+					ctx.moveTo(rr, 0);
+					ctx.lineTo(cW - rr, 0);
+					ctx.quadraticCurveTo(cW, 0, cW, rr);
+					ctx.lineTo(cW, cH - rr);
+					ctx.quadraticCurveTo(cW, cH, cW - rr, cH);
+					ctx.lineTo(rr, cH);
+					ctx.quadraticCurveTo(0, cH, 0, cH - rr);
+					ctx.lineTo(0, rr);
+					ctx.quadraticCurveTo(0, 0, rr, 0);
+					ctx.closePath();
+					ctx.fill();
+
+					// 건물 색상으로 하단 강조 바 그리기
+					ctx.fillStyle = hexColor;
+					ctx.fillRect(10, cH - 5, cW - 20, 3);
+
+					ctx.font = `bold ${fontSize}px 'Noto Sans KR', sans-serif`;
+					ctx.fillStyle = "#ffffff";
+					ctx.textAlign = "center";
+					ctx.textBaseline = "top";
+					ctx.fillText(displayName, cW / 2, 8);
+
+					ctx.font = `${typeFontSize}px 'Noto Sans KR', sans-serif`;
+					ctx.fillStyle = hexColor;
+					ctx.textAlign = "center";
+					ctx.fillText(data.type, cW / 2, fontSize + 12);
+
+					// 캔버스를 텍스처로 변환해 스프라이트 재질에 적용
+					const tex = new THREE.CanvasTexture(canvas);
+					tex.minFilter = THREE.LinearFilter; // 축소 시 선형 필터로 블러링 최소화
+					const spriteMat = new THREE.SpriteMaterial({
+						map: tex,
+						transparent: true,
+						depthTest: false, // 항상 최상위에 렌더링 (건물에 가려지지 않음)
+					});
+					const sprite = new THREE.Sprite(spriteMat);
+					const spriteScale = 32;
+					sprite.scale.set(spriteScale, spriteScale * (cH / cW), 1); // 캔버스 비율 유지
+					sprite.position.set(center.x, topY + 3, center.z);
+					sprite.renderOrder = 999; // 다른 오브젝트보다 나중에 렌더링해 앞에 표시
+					scene.add(sprite);
+
+					// 건물 꼭대기에서 스프라이트 하단까지 연결하는 짧은 수직 선
+					const lineGeo = new THREE.BufferGeometry().setFromPoints([
+						new THREE.Vector3(center.x, topY + 1, center.z),
+						new THREE.Vector3(center.x, topY + 5, center.z),
+					]);
+					const lineMat = new THREE.LineBasicMaterial({
+						color: data.color,
+						transparent: true,
+						opacity: 0.4,
+					});
+					const line = new THREE.Line(lineGeo, lineMat);
+					scene.add(line);
+				}
+
+				buildingGroupsRef.current = buildingGroups;
+				busesRef.current = buses;
+				warningsRef.current = warnings;
+				windowsRef.current = windows;
+				setLoading(false);
+			})
+			.catch((error: unknown) => {
+				console.error("GLTF Load Error:", error);
+				setLoading(false);
+			});
+	}, [setLoading, setLoadProgress]);
+
+	return { buildingGroupsRef, busesRef, warningsRef, windowsRef, smokesRef };
+}
