@@ -893,6 +893,13 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
 .sidebar-logo{font-size:22px;font-weight:700;margin-bottom:24px}.sidebar-logo span{color:#6366f1}
 .sidebar-btn{width:100%;padding:10px 14px;border-radius:8px;border:none;cursor:pointer;font-size:14px;text-align:left;margin-bottom:4px;background:transparent;color:#555;transition:all .15s}
 .sidebar-btn:hover{background:#f3f2ef}.sidebar-btn.active{background:#6366f1;color:#fff}
+.session-item{display:flex;align-items:center;padding:6px 10px;border-radius:6px;cursor:pointer;font-size:12px;color:#555;transition:all .12s;gap:6px;margin:2px 4px}
+.session-item:hover{background:#f3f2ef}
+.session-item.current{background:#eef2ff;color:#6366f1;font-weight:600}
+.session-item .session-name{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.session-item .session-del{opacity:0;border:none;background:none;cursor:pointer;font-size:11px;color:#999;padding:0 2px}
+.session-item:hover .session-del{opacity:1}
+.session-item .session-del:hover{color:#ef4444}
 .sidebar-section{font-size:11px;font-weight:600;color:#999;text-transform:uppercase;letter-spacing:.5px;margin:20px 0 8px 8px}
 .skill-count{font-size:11px;color:#6366f1;background:#eef2ff;padding:2px 8px;border-radius:10px;margin-left:6px}
 .sidebar-footer{margin-top:auto;padding-top:16px;border-top:1px solid #e5e3de}
@@ -946,26 +953,26 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
 .quick-btn:hover{border-color:#6366f1;background:#eef2ff}
 /* Messages */
 .messages{margin-top:8px}
-.msg{margin-bottom:16px;padding:14px 18px;border-radius:14px;line-height:1.6;font-size:14px;word-wrap:break-word}
-.msg.user{background:#6366f1;color:#fff;margin-left:60px;border-bottom-right-radius:4px;white-space:pre-wrap}
-.msg.assistant{background:#fff;border:1px solid #e5e3de;margin-right:60px;border-bottom-left-radius:4px}
-.msg pre{background:#f5f5f0;padding:12px;border-radius:8px;overflow-x:auto;margin:8px 0;font-size:13px;white-space:pre-wrap}
-.msg code{font-family:'SF Mono','Fira Code',monospace;font-size:13px}
-.msg p{margin:0 0 8px 0}.msg p:last-child{margin-bottom:0}
-.msg h1,.msg h2,.msg h3,.msg h4{margin:16px 0 8px 0;font-weight:700}
-.msg h1{font-size:1.4em;border-bottom:1px solid #e5e3de;padding-bottom:4px}
-.msg h2{font-size:1.2em;border-bottom:1px solid #eee;padding-bottom:3px}
-.msg h3{font-size:1.05em}.msg h4{font-size:1em}
-.msg ul,.msg ol{margin:6px 0 6px 20px;padding:0}.msg li{margin:2px 0}
-.msg table{border-collapse:collapse;margin:8px 0;width:100%;font-size:13px}
-.msg th,.msg td{border:1px solid #ddd;padding:6px 10px;text-align:left}
+.msg{margin-bottom:8px;padding:8px 12px;border-radius:10px;line-height:1.5;font-size:13px;word-wrap:break-word}
+.msg.user{background:#6366f1;color:#fff;margin-left:120px;border-bottom-right-radius:4px;white-space:pre-wrap}
+.msg.assistant{background:#fff;border:1px solid #e5e3de;margin-right:120px;border-bottom-left-radius:4px}
+.msg pre{background:#f5f5f0;padding:8px;border-radius:6px;overflow-x:auto;margin:4px 0;font-size:12px;white-space:pre-wrap}
+.msg code{font-family:'SF Mono','Fira Code',monospace;font-size:12px}
+.msg p{margin:0 0 4px 0}.msg p:last-child{margin-bottom:0}
+.msg h1,.msg h2,.msg h3,.msg h4{margin:8px 0 4px 0;font-weight:700}
+.msg h1{font-size:1.2em;border-bottom:1px solid #e5e3de;padding-bottom:2px}
+.msg h2{font-size:1.1em;border-bottom:1px solid #eee;padding-bottom:2px}
+.msg h3{font-size:1em}.msg h4{font-size:.95em}
+.msg ul,.msg ol{margin:4px 0 4px 16px;padding:0}.msg li{margin:1px 0}
+.msg table{border-collapse:collapse;margin:4px 0;width:100%;font-size:12px}
+.msg th,.msg td{border:1px solid #ddd;padding:4px 8px;text-align:left}
 .msg th{background:#f5f5f0;font-weight:600}
 .msg tr:nth-child(even){background:#fafaf8}
-.msg hr{border:none;border-top:1px solid #e5e3de;margin:12px 0}
-.msg blockquote{border-left:3px solid #6366f1;margin:8px 0;padding:4px 12px;color:#666;background:#fafaf8;border-radius:0 6px 6px 0}
-.msg-label{font-size:11px;font-weight:600;color:#999;margin-bottom:6px;text-transform:uppercase;letter-spacing:.5px}
+.msg hr{border:none;border-top:1px solid #e5e3de;margin:6px 0}
+.msg blockquote{border-left:3px solid #6366f1;margin:4px 0;padding:2px 8px;color:#666;background:#fafaf8;border-radius:0 6px 6px 0}
+.msg-label{font-size:10px;font-weight:600;color:#999;margin-bottom:3px;text-transform:uppercase;letter-spacing:.5px}
 .msg.user .msg-label{color:rgba(255,255,255,.7)}
-.msg .skill-info{font-size:11px;color:#6366f1;margin-top:6px}
+.msg .skill-info{font-size:10px;color:#6366f1;margin-top:4px}
 .typing{display:inline-flex;gap:4px;padding:8px 14px}
 .typing span{width:8px;height:8px;border-radius:50%;background:#ccc;animation:blink 1.4s infinite both}
 .typing span:nth-child(2){animation-delay:.2s}.typing span:nth-child(3){animation-delay:.4s}
@@ -1055,13 +1062,15 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
 .copy-btn{position:absolute;top:4px;right:4px;background:#e5e3de;border:none;border-radius:4px;padding:2px 8px;font-size:11px;cursor:pointer;opacity:.7}
 .copy-btn:hover{opacity:1}
 pre{position:relative}
-@media(max-width:768px){.sidebar{display:none}.chat-box-fixed{left:0}.style-row{flex-direction:column}.msg.user{margin-left:16px}.msg.assistant{margin-right:16px}}
+@media(max-width:768px){.sidebar{display:none}.chat-box-fixed{left:0}.style-row{flex-direction:column}.msg.user{margin-left:16px}.msg.assistant{margin-right:16px}.msg{font-size:12px}}
 </style>
 </head>
 <body>
 <div class="sidebar">
   <div class="sidebar-logo"><span>D</span>emos <span style="font-size:12px;color:#999">베타 V0.2</span></div>
-  <button class="sidebar-btn active" onclick="newSession()">✨ 새 세션</button>
+  <button class="sidebar-btn active" onclick="createNewSession()">✨ 새 세션</button>
+  <div class="sidebar-section">세션 목록</div>
+  <div id="sessionList" style="max-height:200px;overflow-y:auto;margin-bottom:8px;"></div>
   <div class="sidebar-section">불러온 스킬 <span class="skill-count" id="loadedCount">0</span></div>
   <div id="loadedSkillsList" style="font-size:12px;color:#666;padding:0 8px;"></div>
   <div class="sidebar-section" style="margin-top:16px;">안내</div>
@@ -1203,6 +1212,27 @@ let history = [];
 let maxTokens = 4096;
 
 // ===== Init =====
+loadSessions();
+// Restore last session or create new
+const lastSessions = Object.values(sessions).sort((a,b)=>(b.updatedAt||0)-(a.updatedAt||0));
+if(lastSessions.length > 0){
+  currentSessionId = lastSessions[0].id;
+  const s = lastSessions[0];
+  history = s.history || [];
+  setTimeout(()=>{
+    document.getElementById('msgs').innerHTML = s.msgsHtml || '';
+    if(s.writingStyle) document.getElementById('writingStyle').value = s.writingStyle;
+    if(s.systemPrompt) document.getElementById('systemPromptInput').value = s.systemPrompt;
+    if(s.selFormat){ selFormat=s.selFormat; document.querySelectorAll('.fmt-btn').forEach(b=>{b.classList.toggle('selected',b.dataset.f===selFormat);}); }
+    if(s.effort!==undefined){ effort=s.effort; document.getElementById('effortSlider').value=effort; }
+    renderSessionList();
+  }, 100);
+} else {
+  currentSessionId = 'sess_'+Date.now();
+  sessions[currentSessionId] = { id:currentSessionId, name:'새 세션', history:[], msgsHtml:'', updatedAt:Date.now() };
+  saveSessions();
+}
+
 Promise.all([
   fetch('/api/config').then(r=>r.json()),
   fetch('/api/skills').then(r=>r.json()),
@@ -1214,6 +1244,7 @@ Promise.all([
   renderTokenStatus();
   renderTags();
   renderSkills();
+  renderSessionList();
 });
 
 // ===== 환경 선택 =====
@@ -1389,6 +1420,7 @@ async function send(){
   const inp=document.getElementById('input');
   inp.focus();
   inp.style.height='auto';
+  saveCurrentSession();
 }
 
 function renderMd(text){
@@ -1472,7 +1504,82 @@ function addTyping(){
   c.scrollIntoView({behavior:'smooth',block:'end'});
   return d;
 }
-function newSession(){ history=[];document.getElementById('msgs').innerHTML=''; }
+// ===== Session Management =====
+let currentSessionId = null;
+let sessions = {};
+
+function loadSessions(){
+  try{ sessions = JSON.parse(localStorage.getItem('domos_sessions') || '{}'); }catch(e){ sessions={}; }
+}
+function saveSessions(){
+  localStorage.setItem('domos_sessions', JSON.stringify(sessions));
+}
+function saveCurrentSession(){
+  if(!currentSessionId) return;
+  sessions[currentSessionId] = {
+    id: currentSessionId,
+    name: sessions[currentSessionId]?.name || '새 세션',
+    history: history,
+    selEnv: selEnv,
+    selDomains: selDomains,
+    selSkills: selSkills,
+    selFormat: selFormat,
+    effort: effort,
+    writingStyle: document.getElementById('writingStyle')?.value || '',
+    systemPrompt: document.getElementById('systemPromptInput')?.value || '',
+    msgsHtml: document.getElementById('msgs').innerHTML,
+    updatedAt: Date.now()
+  };
+  // Auto-name from first user message
+  if(sessions[currentSessionId].name === '새 세션' && history.length > 0){
+    const first = history.find(m=>m.role==='user');
+    if(first) sessions[currentSessionId].name = first.content.slice(0,30) + (first.content.length>30?'...':'');
+  }
+  saveSessions();
+  renderSessionList();
+}
+function renderSessionList(){
+  const el=document.getElementById('sessionList');
+  if(!el) return;
+  const sorted = Object.values(sessions).sort((a,b)=>(b.updatedAt||0)-(a.updatedAt||0));
+  if(sorted.length===0){ el.innerHTML='<div style="font-size:11px;color:#bbb;padding:4px 8px;">저장된 세션 없음</div>'; return; }
+  el.innerHTML = sorted.map(s=>`<div class="session-item${s.id===currentSessionId?' current':''}" onclick="loadSession('${s.id}')">
+    <span class="session-name">${s.name||'새 세션'}</span>
+    <button class="session-del" onclick="event.stopPropagation();deleteSession('${s.id}')" title="삭제">✕</button>
+  </div>`).join('');
+}
+function createNewSession(){
+  // Save current before switching
+  saveCurrentSession();
+  currentSessionId = 'sess_'+Date.now();
+  history=[];
+  document.getElementById('msgs').innerHTML='';
+  sessions[currentSessionId] = { id:currentSessionId, name:'새 세션', history:[], msgsHtml:'', updatedAt:Date.now() };
+  saveSessions();
+  renderSessionList();
+}
+function loadSession(id){
+  if(id===currentSessionId) return;
+  saveCurrentSession();
+  const s=sessions[id];
+  if(!s) return;
+  currentSessionId=id;
+  history=s.history||[];
+  document.getElementById('msgs').innerHTML=s.msgsHtml||'';
+  if(s.writingStyle) document.getElementById('writingStyle').value=s.writingStyle;
+  if(s.systemPrompt) document.getElementById('systemPromptInput').value=s.systemPrompt;
+  if(s.selFormat){ selFormat=s.selFormat; document.querySelectorAll('.fmt-btn').forEach(b=>{b.classList.toggle('selected',b.dataset.f===selFormat);}); }
+  if(s.effort!==undefined){ effort=s.effort; document.getElementById('effortSlider').value=effort; updateEffort(); }
+  renderSessionList();
+}
+function deleteSession(id){
+  if(!confirm('이 세션을 삭제할까요?')) return;
+  delete sessions[id];
+  saveSessions();
+  if(id===currentSessionId) createNewSession();
+  else renderSessionList();
+}
+function newSession(){ createNewSession(); }
 
 // ===== System Prompt =====
 function toggleSysPrompt(){
