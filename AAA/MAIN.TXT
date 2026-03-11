@@ -1215,6 +1215,8 @@ let selFormat = 'code';
 let effort = 2;
 let history = [];
 let maxTokens = 4096;
+let currentSessionId = null;
+let sessions = {};
 
 // ===== Init =====
 loadSessions();
@@ -1517,9 +1519,6 @@ function addTyping(){
   return d;
 }
 // ===== Session Management =====
-let currentSessionId = null;
-let sessions = {};
-
 function loadSessions(){
   try{ sessions = JSON.parse(localStorage.getItem('domos_sessions') || '{}'); }catch(e){ sessions={}; }
 }
