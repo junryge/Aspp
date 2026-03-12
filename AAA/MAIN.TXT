@@ -27,7 +27,7 @@ import csv
 import json
 import glob
 import requests as req
-from flask import Flask, request, jsonify, render_template_string
+from flask import Flask, request, jsonify, render_template_string, send_file
 
 app = Flask(__name__)
 app.config['MAX_CONTENT_LENGTH'] = 50 * 1024 * 1024  # 50MB 제한
@@ -169,6 +169,7 @@ SKILL_DESC_KO = {
     "consciousness-council":"다관점 숙의","what-if-oracle":"What-If 시나리오",
     "hypogenic":"자동 가설 생성","dhdna-profiler":"텍스트 저자 분석",
     "offer-k-dense-web":"K-Dense Web 안내","denario":"AI 연구 자동화",
+    "drawio-diagram":"Draw.io 다이어그램 생성/저장",
     "zarr-python":"청크 N-D 배열 저장",
     "pyopenms":"질량분석 데이터 처리",
     "scikit-survival":"생존 분석 ML",
@@ -399,7 +400,7 @@ DOMAIN_SKILLS = {
         "icon": "🔧",
         "color": "#6b7280",
         "skills": [
-            "docx","xlsx","pdf","pptx","markitdown","matlab",
+            "drawio-diagram","docx","xlsx","pdf","pptx","markitdown","matlab",
             "modal","generate-image","get-available-resources",
             "bgpt-paper-search","research-lookup","perplexity-search",
             "parallel-web","open-notebook","consciousness-council",
@@ -998,6 +999,7 @@ SKILL_KEYWORDS = {
     "latchbio-integration": ['LatchBio', '서버리스', '워크플로우', 'bioinformatics pipeline'],
     "latex-posters": ['LaTeX포스터', '학회포스터', 'poster', '연구포스터'],
     "lead-research-assistant": ['리드리서치', '연구보조', 'research assistant'],
+    "drawio-diagram": ['drawio', 'draw.io', '다이어그램', '플로우차트', '아키텍처', '구조도', 'UML', '클래스다이어그램', '시퀀스다이어그램', 'ERD', '흐름도'],
     "markdown-mermaid-writing": ['마크다운', 'Mermaid', '다이어그램', 'flowchart', '시퀀스'],
     "market-research-reports": ['시장조사', 'market research', '산업분석', '보고서'],
     "markitdown": ['마크다운변환', '파일변환', '문서변환', 'markdown conversion'],
@@ -2056,6 +2058,22 @@ def api_clear_files():
     return jsonify({"success": True})
 
 
+# ===================== Draw.io 다운로드 =====================
+@app.route("/api/download_drawio", methods=["POST"])
+def api_download_drawio():
+    """Draw.io XML을 .drawio 파일로 다운로드"""
+    data = request.json
+    xml_content = data.get("xml", "")
+    filename = data.get("filename", "diagram.drawio")
+    if not filename.endswith(".drawio"):
+        filename += ".drawio"
+
+    from io import BytesIO
+    buf = BytesIO(xml_content.encode("utf-8"))
+    buf.seek(0)
+    return send_file(buf, as_attachment=True, download_name=filename, mimetype="application/xml")
+
+
 # ===================== 응답 중지 =====================
 chat_stop_flag = {"stop": False}
 
@@ -2530,6 +2548,14 @@ body.sb-collapsed .chat-box-fixed{left:48px}
 /* Copy button */
 .copy-btn{position:absolute;top:4px;right:4px;background:#e5e3de;border:none;border-radius:4px;padding:2px 8px;font-size:11px;cursor:pointer;opacity:.7}
 .copy-btn:hover{opacity:1}
+.drawio-block{border:2px solid #6366f1;border-radius:10px;overflow:hidden;margin:10px 0;background:#fafaff}
+.drawio-header{display:flex;justify-content:space-between;align-items:center;padding:8px 12px;background:#eef2ff;border-bottom:1px solid #d4d8f0;flex-wrap:wrap;gap:6px}
+.drawio-header span{font-weight:600;font-size:13px;color:#4338ca}
+.drawio-actions{display:flex;gap:6px;flex-wrap:wrap}
+.drawio-btn{background:#6366f1;color:#fff;border:none;border-radius:6px;padding:4px 10px;font-size:11px;cursor:pointer;transition:background .2s}
+.drawio-btn:hover{background:#4f46e5}
+.drawio-preview{max-height:200px;overflow:auto;margin:0;border-radius:0;border:none;font-size:11px}
+.drawio-preview code{font-size:11px}
 .send-btn.stop-mode{background:#e74c3c;animation:pulse-stop 1.2s infinite}
 @keyframes pulse-stop{0%,100%{opacity:1}50%{opacity:.7}}
 .uploaded-files-header{font-size:12px;font-weight:600;color:#555;padding:6px 0;border-bottom:1px solid #eee;margin-bottom:4px}
@@ -3068,6 +3094,25 @@ function renderMd(text){
   text=text.replace(/<details class="think-box">[\s\S]*?<\/details>/g, m=>{thinkBlocks.push(m);return `__THINK_${thinkBlocks.length-1}__`;});
   let s=text.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
   // 2) code blocks (```lang\n...``` 또는 ```lang코드...``` 모두 지원)
+  // 2a) drawio 코드블록은 특별 처리
+  s=s.replace(/```drawio\s*([\s\S]*?)```/g,(_,code)=>{
+    const escapedXml = code.trim();
+    // HTML escape된 상태를 원본 XML로 복원 (btoa용)
+    const realXml = escapedXml.replace(/&amp;/g,'&').replace(/&lt;/g,'<').replace(/&gt;/g,'>').replace(/&quot;/g,'"');
+    const xmlB64 = btoa(unescape(encodeURIComponent(realXml)));
+    return `<div class="drawio-block">
+      <div class="drawio-header">
+        <span>📐 Draw.io 다이어그램</span>
+        <div class="drawio-actions">
+          <button class="drawio-btn" onclick="copyDrawioXml(this)" data-xml="${xmlB64}">📋 XML 복사</button>
+          <button class="drawio-btn" onclick="downloadDrawio(this)" data-xml="${xmlB64}">💾 .drawio 저장</button>
+          <button class="drawio-btn" onclick="openInDrawio(this)" data-xml="${xmlB64}">🔗 Draw.io에서 열기</button>
+        </div>
+      </div>
+      <pre class="drawio-preview"><code class="language-xml">${escapedXml}</code></pre>
+    </div>`;
+  });
+  // 2b) 일반 코드블록
   s=s.replace(/```(\w*)\s*([\s\S]*?)```/g,(_,lang,code)=>{
     const cls=lang?` class="language-${lang}"`:'';
     return `<pre><code${cls}>${code.trim()}</code></pre>`;
@@ -3763,6 +3808,36 @@ async function uploadCsvFile(file){
   }
 }
 function esc(s){ return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+// ===== Draw.io 기능 =====
+function decodeDrawioXml(btn){
+  return decodeURIComponent(escape(atob(btn.dataset.xml)));
+}
+function copyDrawioXml(btn){
+  const xml = decodeDrawioXml(btn);
+  navigator.clipboard.writeText(xml).then(()=>{
+    const orig = btn.textContent;
+    btn.textContent = '✓ 복사됨';
+    setTimeout(()=> btn.textContent = orig, 1500);
+  });
+}
+function downloadDrawio(btn){
+  const xml = decodeDrawioXml(btn);
+  const blob = new Blob([xml], {type:'application/xml'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = 'diagram.drawio';
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+function openInDrawio(btn){
+  const xml = decodeDrawioXml(btn);
+  const encoded = encodeURIComponent(xml);
+  window.open('https://app.diagrams.net/#R' + encoded, '_blank');
+}
 
 async function removeCsv(){
   await fetch('/api/clear_csv', {method:'POST'});
