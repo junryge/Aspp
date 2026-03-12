@@ -1,0 +1,87 @@
+import re
+import csv
+
+input_file = "IO/GGGG.TXT"
+output_file = "IO/GGGG_parsed.csv"
+
+entries = []
+
+with open(input_file, "r", encoding="utf-8") as f:
+    lines = f.readlines()
+
+i = 0
+while i < len(lines):
+    line = lines[i].strip()
+    # Match header line: 이름,부서,YYYY-MM-DD HH:MM:SS
+    header_match = re.match(r'^.+?,.*?,(\d{4}-\d{2}-\d{2})\s+(\d{2}):(\d{2}):(\d{2})$', line)
+    if header_match:
+        date_str = header_match.group(1)
+        hour = header_match.group(2)
+        minute = header_match.group(3)
+        datetime_str = f"{date_str}-{hour}-{minute}"
+
+        # Collect message lines until blank line
+        i += 1
+        msg_lines = []
+        while i < len(lines) and lines[i].strip():
+            msg_lines.append(lines[i].strip())
+            i += 1
+        message = " ".join(msg_lines)
+
+        if not message:
+            i += 1
+            continue
+
+        # Classify event type
+        msg_upper = message.upper()
+        event_type = None
+        error_detail = ""
+
+        # Check for ERROR
+        if re.search(r'[Ee]rror|에러|ERROR', message):
+            event_type = "ERROR"
+            # Try to extract equipment info
+            equip_match = re.search(r'(\d+[A-Za-z]+\d+)', message)
+            if equip_match:
+                error_detail = equip_match.group(1)
+            # Check if it also has CLOSE/OPEN
+            if re.search(r'[Cc]lose|CLOSE|클로즈', message):
+                error_detail += " -> CLOSE"
+            elif re.search(r'[Oo]pen|OPEN|오픈', message):
+                error_detail += " -> OPEN"
+            # Extract more detail from message
+            detail_match = re.search(r'(Error\s*발생[^\s]*)', message)
+            if detail_match:
+                error_detail = (equip_match.group(1) if equip_match else "") + " " + detail_match.group(1)
+                if re.search(r'[Cc]lose|CLOSE', message):
+                    error_detail += " -> CLOSE"
+
+        elif re.search(r'[Oo]pen|OPEN|오픈', message):
+            event_type = "OPEN"
+            equip_match = re.search(r'(\d+[A-Za-z]+\d+)', message)
+            if equip_match:
+                error_detail = equip_match.group(1)
+
+        elif re.search(r'[Cc]lose|CLOSE|클로즈', message):
+            event_type = "CLOSE"
+            equip_match = re.search(r'(\d+[A-Za-z]+\d+)', message)
+            if equip_match:
+                error_detail = equip_match.group(1)
+
+        if event_type:
+            entries.append({
+                "datetime": datetime_str,
+                "event_type": event_type,
+                "detail": error_detail.strip(),
+                "message": message
+            })
+    i += 1
+
+# Write CSV
+with open(output_file, "w", encoding="utf-8-sig", newline="") as f:
+    writer = csv.writer(f)
+    writer.writerow(["날짜-시간", "이벤트유형", "장비/상세", "원본메시지"])
+    for e in entries:
+        writer.writerow([e["datetime"], e["event_type"], e["detail"], e["message"]])
+
+print(f"총 {len(entries)}건 추출 완료 -> {output_file}")
