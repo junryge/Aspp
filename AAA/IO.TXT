@@ -1,87 +1,152 @@
-import re
-import csv
+"""
 
-input_file = "IO/GGGG.TXT"
-output_file = "IO/GGGG_parsed.csv"
+# Embed 방식 (빠름, base64 래핑)
+python img_to_svg.py photo.jpg
 
-entries = []
+# Trace 방식 (진짜 벡터 패스)
+python img_to_svg.py photo.png -m trace
 
-with open(input_file, "r", encoding="utf-8") as f:
-    lines = f.readlines()
+# 둘 다
+python img_to_svg.py photo.jpg -m both
 
-i = 0
-while i < len(lines):
-    line = lines[i].strip()
-    # Match header line: 이름,부서,YYYY-MM-DD HH:MM:SS
-    header_match = re.match(r'^.+?,.*?,(\d{4}-\d{2}-\d{2})\s+(\d{2}):(\d{2}):(\d{2})$', line)
-    if header_match:
-        date_str = header_match.group(1)
-        hour = header_match.group(2)
-        minute = header_match.group(3)
-        datetime_str = f"{date_str}-{hour}-{minute}"
+# 임계값 조정 (어두운 이미지면 0.3 정도)
+python img_to_svg.py photo.png -m trace -t 0.3 --invert
 
-        # Collect message lines until blank line
-        i += 1
-        msg_lines = []
-        while i < len(lines) and lines[i].strip():
-            msg_lines.append(lines[i].strip())
-            i += 1
-        message = " ".join(msg_lines)
 
-        if not message:
-            i += 1
-            continue
+JPG / PNG → SVG 변환기
+방식 1) Embed  : 이미지를 base64로 SVG에 삽입 (벡터 아님, 빠름)
+방식 2) Trace  : potrace 기반 실제 벡터 패스 변환 (requires: potrace, Pillow)
+        pip install Pillow --break-system-packages
+        apt install potrace  (or brew install potrace)
+"""
 
-        # Classify event type
-        msg_upper = message.upper()
-        event_type = None
-        error_detail = ""
+import base64
+import subprocess
+import tempfile
+import sys
+from pathlib import Path
+from PIL import Image
 
-        # Check for ERROR
-        if re.search(r'[Ee]rror|에러|ERROR', message):
-            event_type = "ERROR"
-            # Try to extract equipment info
-            equip_match = re.search(r'(\d+[A-Za-z]+\d+)', message)
-            if equip_match:
-                error_detail = equip_match.group(1)
-            # Check if it also has CLOSE/OPEN
-            if re.search(r'[Cc]lose|CLOSE|클로즈', message):
-                error_detail += " -> CLOSE"
-            elif re.search(r'[Oo]pen|OPEN|오픈', message):
-                error_detail += " -> OPEN"
-            # Extract more detail from message
-            detail_match = re.search(r'(Error\s*발생[^\s]*)', message)
-            if detail_match:
-                error_detail = (equip_match.group(1) if equip_match else "") + " " + detail_match.group(1)
-                if re.search(r'[Cc]lose|CLOSE', message):
-                    error_detail += " -> CLOSE"
 
-        elif re.search(r'[Oo]pen|OPEN|오픈', message):
-            event_type = "OPEN"
-            equip_match = re.search(r'(\d+[A-Za-z]+\d+)', message)
-            if equip_match:
-                error_detail = equip_match.group(1)
+# ─────────────────────────────────────────────
+# 방식 1: Embed (base64)
+# ─────────────────────────────────────────────
+def img_to_svg_embed(input_path: str, output_path: str = None) -> str:
+    """
+    이미지를 base64로 인코딩해 SVG <image> 태그에 삽입.
+    벡터화는 아니지만 SVG 컨테이너 안에 원본을 보존.
+    """
+    src = Path(input_path)
+    dst = Path(output_path) if output_path else src.with_suffix(".embed.svg")
 
-        elif re.search(r'[Cc]lose|CLOSE|클로즈', message):
-            event_type = "CLOSE"
-            equip_match = re.search(r'(\d+[A-Za-z]+\d+)', message)
-            if equip_match:
-                error_detail = equip_match.group(1)
+    img = Image.open(src)
+    w, h = img.size
 
-        if event_type:
-            entries.append({
-                "datetime": datetime_str,
-                "event_type": event_type,
-                "detail": error_detail.strip(),
-                "message": message
-            })
-    i += 1
+    # MIME 결정
+    fmt = img.format or "PNG"
+    mime = "image/jpeg" if fmt.upper() in ("JPEG", "JPG") else "image/png"
 
-# Write CSV
-with open(output_file, "w", encoding="utf-8-sig", newline="") as f:
-    writer = csv.writer(f)
-    writer.writerow(["날짜-시간", "이벤트유형", "장비/상세", "원본메시지"])
-    for e in entries:
-        writer.writerow([e["datetime"], e["event_type"], e["detail"], e["message"]])
+    # 원본 바이트 → base64
+    with open(src, "rb") as f:
+        b64 = base64.b64encode(f.read()).decode()
 
-print(f"총 {len(entries)}건 추출 완료 -> {output_file}")
+    svg = f"""<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg"
+     xmlns:xlink="http://www.w3.org/1999/xlink"
+     width="{w}" height="{h}"
+     viewBox="0 0 {w} {h}">
+  <image width="{w}" height="{h}"
+         xlink:href="data:{mime};base64,{b64}"/>
+</svg>"""
+
+    dst.write_text(svg, encoding="utf-8")
+    print(f"[Embed] 저장 완료: {dst}")
+    return str(dst)
+
+
+# ─────────────────────────────────────────────
+# 방식 2: Trace (potrace → 진짜 벡터)
+# ─────────────────────────────────────────────
+def img_to_svg_trace(input_path: str, output_path: str = None,
+                     threshold: float = 0.5, invert: bool = False) -> str:
+    """
+    Pillow로 그레이스케일 → BMP 변환 후 potrace 실행.
+    결과: 진짜 벡터 패스 SVG.
+
+    Args:
+        threshold : 0.0~1.0  밝기 임계값 (낮을수록 더 많은 픽셀 → 검정)
+        invert    : True면 색상 반전
+    """
+    src = Path(input_path)
+    dst = Path(output_path) if output_path else src.with_suffix(".trace.svg")
+
+    # potrace 설치 확인
+    try:
+        subprocess.run(["potrace", "--version"], capture_output=True, check=True)
+    except (FileNotFoundError, subprocess.CalledProcessError):
+        raise RuntimeError(
+            "potrace 가 설치되어 있지 않습니다.\n"
+            "  Linux : sudo apt install potrace\n"
+            "  Mac   : brew install potrace"
+        )
+
+    img = Image.open(src).convert("L")  # 그레이스케일
+    if invert:
+        img = img.point(lambda p: 255 - p)
+
+    # 임계값 이진화
+    t = int(threshold * 255)
+    img = img.point(lambda p: 0 if p < t else 255, "1")
+
+    with tempfile.NamedTemporaryFile(suffix=".bmp", delete=False) as tmp:
+        tmp_path = tmp.name
+        img.save(tmp_path)
+
+    try:
+        subprocess.run(
+            ["potrace", tmp_path, "-s", "-o", str(dst)],
+            check=True
+        )
+    finally:
+        Path(tmp_path).unlink(missing_ok=True)
+
+    print(f"[Trace] 저장 완료: {dst}")
+    return str(dst)
+
+
+# ─────────────────────────────────────────────
+# CLI
+# ─────────────────────────────────────────────
+def main():
+    import argparse
+
+    parser = argparse.ArgumentParser(description="JPG/PNG → SVG 변환기")
+    parser.add_argument("input", help="입력 이미지 경로 (JPG 또는 PNG)")
+    parser.add_argument("-o", "--output", help="출력 SVG 경로 (생략 시 자동)")
+    parser.add_argument(
+        "-m", "--mode",
+        choices=["embed", "trace", "both"],
+        default="embed",
+        help="변환 방식: embed(기본) / trace(벡터화) / both(둘 다)"
+    )
+    parser.add_argument(
+        "-t", "--threshold",
+        type=float, default=0.5,
+        help="trace 모드 임계값 0.0~1.0 (기본 0.5)"
+    )
+    parser.add_argument("--invert", action="store_true", help="색상 반전 (trace 모드)")
+
+    args = parser.parse_args()
+
+    if args.mode in ("embed", "both"):
+        img_to_svg_embed(args.input, args.output)
+
+    if args.mode in ("trace", "both"):
+        out = args.output
+        if out and args.mode == "both":
+            out = str(Path(out).with_suffix("")) + ".trace.svg"
+        img_to_svg_trace(args.input, out, args.threshold, args.invert)
+
+
+if __name__ == "__main__":
+    main()
