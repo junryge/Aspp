@@ -1,0 +1,427 @@
+# Draw.io 다이어그램 생성 스킬
+
+## 개요
+코드, 아키텍처, 데이터 흐름, 시스템 구조, 설비 배치 등을 분석하여 Draw.io (diagrams.net) 호환 XML을 생성합니다.
+생성된 다이어그램은 `.drawio` 파일로 저장하거나 Draw.io에서 직접 열 수 있습니다.
+
+## 핵심 규칙
+
+### 1. 출력 형식
+- 반드시 ```drawio 코드블록 안에 XML을 출력하세요
+- 프론트엔드가 자동으로 미리보기 + 복사 + 다운로드 버튼을 렌더링합니다
+
+### 2. Draw.io XML 기본 구조
+```drawio
+<mxfile host="app.diagrams.net" modified="2024-01-01T00:00:00.000Z" agent="skill" version="21.0.0" type="device">
+  <diagram id="diagram1" name="Page-1">
+    <mxGraphModel dx="1422" dy="762" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1169" pageHeight="827" math="0" shadow="0">
+      <root>
+        <mxCell id="0"/>
+        <mxCell id="1" parent="0"/>
+        <!-- 여기에 도형과 연결선 추가 -->
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>
+```
+
+### 3. 주요 도형 패턴
+
+#### 사각형 (프로세스/모듈)
+```xml
+<mxCell id="2" value="모듈명" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="1">
+  <mxGeometry x="100" y="100" width="160" height="60" as="geometry"/>
+</mxCell>
+```
+
+#### 다이아몬드 (조건/분기)
+```xml
+<mxCell id="3" value="조건?" style="rhombus;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;" vertex="1" parent="1">
+  <mxGeometry x="110" y="200" width="140" height="80" as="geometry"/>
+</mxCell>
+```
+
+#### 원통형 (데이터베이스)
+```xml
+<mxCell id="4" value="DB" style="shape=cylinder3;whiteSpace=wrap;html=1;boundedLbl=1;backgroundOutline=1;size=15;fillColor=#d5e8d4;strokeColor=#82b366;" vertex="1" parent="1">
+  <mxGeometry x="100" y="300" width="80" height="80" as="geometry"/>
+</mxCell>
+```
+
+#### 화살표 (연결선)
+```xml
+<mxCell id="5" value="데이터 흐름" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jetSize=auto;html=1;" edge="1" parent="1" source="2" target="3">
+  <mxGeometry relative="1" as="geometry"/>
+</mxCell>
+```
+
+#### 그룹/컨테이너 (패키지/서비스)
+```xml
+<mxCell id="6" value="서비스 그룹" style="swimlane;startSize=25;fillColor=#f5f5f5;strokeColor=#666666;fontColor=#333333;" vertex="1" parent="1">
+  <mxGeometry x="50" y="50" width="300" height="200" as="geometry"/>
+</mxCell>
+```
+
+#### 문서 (파일/문서)
+```xml
+<mxCell id="7" value="설정 파일" style="shape=document;whiteSpace=wrap;html=1;boundedLbl=1;backgroundOutline=1;size=0.27;fillColor=#e1d5e7;strokeColor=#9673a6;" vertex="1" parent="1">
+  <mxGeometry x="100" y="400" width="120" height="80" as="geometry"/>
+</mxCell>
+```
+
+### 4. 색상 팔레트 (Draw.io 기본)
+| 용도 | fillColor | strokeColor |
+|------|-----------|-------------|
+| 파란색 (프로세스) | #dae8fc | #6c8ebf |
+| 초록색 (성공/DB) | #d5e8d4 | #82b366 |
+| 노란색 (조건/경고) | #fff2cc | #d6b656 |
+| 주황색 (중요) | #ffe6cc | #d79b00 |
+| 빨간색 (에러) | #f8cecc | #b85450 |
+| 보라색 (외부) | #e1d5e7 | #9673a6 |
+| 회색 (컨테이너) | #f5f5f5 | #666666 |
+
+### 5. 코드 분석 → 다이어그램 변환 가이드
+
+#### Python/Flask 앱 분석 시:
+1. **라우트/엔드포인트** → 사각형 노드로 표현
+2. **함수 호출 관계** → 화살표로 연결
+3. **데이터베이스 접근** → 원통형 노드
+4. **조건 분기** → 다이아몬드
+5. **외부 API 호출** → 구름(cloud) 도형
+6. **파일 I/O** → 문서 도형
+
+#### 클래스 다이어그램:
+1. **클래스** → 상단에 클래스명, 속성, 메소드 구분
+2. **상속** → 실선 + 삼각형 화살표
+3. **구성** → 실선 + 채워진 다이아몬드
+4. **의존** → 점선 화살표
+
+#### 시퀀스 다이어그램:
+1. **액터/시스템** → 상단 사각형 + 생명선
+2. **메시지** → 실선 화살표 (동기) / 점선 (비동기)
+3. **반환** → 점선 화살표
+
+### 6. 레이아웃 규칙 (강화)
+- **캔버스 범위**: 모든 노드는 x: 0~800px, y: 0~600px 범위 내에 배치
+- **수평 간격**: 최소 40px (겹침 절대 금지)
+- **수직 간격**: 최소 40px
+- **노드 크기**: 최소 width=120, height=60
+- **폰트 크기**: 기본 12px, 제목 14px
+- **정렬**: 가능한 한 그리드에 맞춤 (10px 단위)
+- **흐름 방향**: 위→아래 또는 왼쪽→오른쪽 (사용자가 지정하지 않으면 위→아래)
+- **엣지 라우팅**: orthogonalEdgeStyle 사용, 노드를 통과하는 엣지 금지
+- **텍스트 가독성**: 긴 텍스트는 `<br>` 태그로 줄바꿈, 노드 크기에 맞춰 조절
+
+### 7. 복잡한 다이어그램 팁
+- 노드가 10개 이상이면 그룹/swimlane 사용
+- 교차하는 연결선은 waypoint 조정
+- 범례(legend) 추가 권장
+- 각 노드에 의미 있는 ID 부여 (순차 번호)
+
+## 사용 예시
+
+사용자가 "이 Flask 앱의 구조를 Draw.io로 그려줘"라고 요청하면:
+
+1. 코드의 라우트, 함수, 데이터 흐름을 분석
+2. 적절한 도형과 색상으로 Draw.io XML 생성
+3. ```drawio 코드블록으로 출력
+4. 다이어그램 설명도 함께 제공
+
+### 8. UserObject 패턴 (메타데이터 포함 노드)
+복잡한 다이어그램에서는 `UserObject`로 타입/속성 메타데이터를 포함할 수 있습니다.
+
+#### 외부 엔티티 (DFD용)
+```xml
+<UserObject label="사용자" type="externalEntity" placeholders="1" id="e1">
+  <mxCell style="shape=rectangle;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#000000;" parent="1" vertex="1">
+    <mxGeometry x="100" y="10" width="120" height="40" as="geometry"/>
+  </mxCell>
+</UserObject>
+```
+
+#### 프로세스 (DFD용 타원형)
+```xml
+<UserObject label="데이터 처리" type="process" flow="데이터 흐름" placeholders="1" id="p1">
+  <mxCell style="shape=ellipse;perimeter=ellipsePerimeter;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#000000;" parent="1" vertex="1">
+    <mxGeometry x="100" y="120" width="140" height="50" as="geometry"/>
+  </mxCell>
+</UserObject>
+```
+
+#### 데이터 저장소 (DFD용)
+```xml
+<UserObject label="데이터베이스" type="dataStore" placeholders="1" id="d1">
+  <mxCell style="html=1;dashed=0;whiteSpace=wrap;shape=partialRectangle;right=0;left=0;" parent="1" vertex="1">
+    <mxGeometry x="100" y="240" width="140" height="40" as="geometry"/>
+  </mxCell>
+</UserObject>
+```
+
+#### 데이터 흐름 화살표
+```xml
+<mxCell id="f1" value="요청 데이터" style="endArrow=blockThin;endFill=1;fontSize=11;orthogonal=1;" parent="1" source="e1" target="p1" edge="1">
+  <mxGeometry relative="1" as="geometry"/>
+</mxCell>
+```
+
+### 9. 다이어그램 유형별 가이드
+
+#### DFD (데이터 흐름 다이어그램)
+- 외부 엔티티: 사각형 (사용자/외부 시스템)
+- 프로세스: 타원 (데이터 변환/처리)
+- 데이터 저장소: 열린 사각형 (DB/파일)
+- 데이터 흐름: 레이블된 화살표
+
+#### 구름(Cloud) 도형 (외부 서비스)
+```xml
+<mxCell id="c1" value="외부 API" style="ellipse;shape=cloud;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;" vertex="1" parent="1">
+  <mxGeometry x="100" y="100" width="160" height="100" as="geometry"/>
+</mxCell>
+```
+
+#### 액터 (사용자/역할)
+```xml
+<mxCell id="a1" value="관리자" style="shape=umlActor;verticalLabelPosition=bottom;verticalAlign=top;html=1;" vertex="1" parent="1">
+  <mxGeometry x="100" y="100" width="30" height="55" as="geometry"/>
+</mxCell>
+```
+
+---
+
+## 고급 기능 (next-ai-draw-io 참고)
+
+### 10. 부분 편집 (Edit Operations)
+
+전체 다이어그램을 재생성하지 않고, ID 기반으로 개별 요소를 추가/수정/삭제할 수 있습니다.
+
+#### 추가 (add)
+기존 다이어그램에 새 노드/엣지를 추가:
+```xml
+<!-- 기존 다이어그램에 추가할 mxCell만 출력 -->
+<mxCell id="new1" value="새 모듈" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="1">
+  <mxGeometry x="400" y="100" width="160" height="60" as="geometry"/>
+</mxCell>
+<mxCell id="new2" value="" style="edgeStyle=orthogonalEdgeStyle;" edge="1" parent="1" source="2" target="new1">
+  <mxGeometry relative="1" as="geometry"/>
+</mxCell>
+```
+
+#### 수정 (update)
+기존 노드의 속성(위치, 크기, 스타일, 텍스트) 변경 시 해당 id의 mxCell을 새로운 값으로 출력.
+
+#### 삭제 (delete)
+노드를 삭제하면 해당 노드를 source/target으로 참조하는 엣지도 함께 삭제해야 합니다 (캐스케이드 삭제).
+그룹/컨테이너를 삭제하면 자식 노드도 함께 삭제됩니다.
+
+### 11. 대형 다이어그램 출력 잘림 처리
+
+LLM 출력 길이 제한으로 XML이 잘릴 수 있습니다. 이 경우:
+1. 완성된 mxCell 요소만 추출하여 먼저 렌더링
+2. 나머지 부분은 이어서 출력
+3. 불완전한 mxCell 태그는 무시
+
+**잘림 감지**: mxCell 태그가 `/>` 또는 `</mxCell>`로 닫히지 않으면 잘린 것입니다.
+
+### 12. XML 자동 수정 규칙
+
+LLM이 생성한 XML에서 흔히 발생하는 오류와 수정 방법:
+
+| 오류 유형 | 예시 | 수정 |
+|-----------|------|------|
+| 중복 속성 | `style="..." style="..."` | 첫 번째만 유지 |
+| 이스케이프 안 된 & | `A & B` | `A &amp; B` |
+| 중첩된 mxCell | `<mxCell><mxCell>` | 평탄화 |
+| CDATA 블록 | `<![CDATA[...]]>` | 내용 추출 |
+| 닫히지 않은 태그 | `<mxCell ...>` | `/>` 추가 |
+| id="0" 또는 id="1" 사용 | 루트 셀 덮어쓰기 | id를 다른 값으로 변경 |
+
+### 13. 클라우드 아키텍처 아이콘
+
+AWS, Azure, GCP, Kubernetes 등의 공식 아이콘을 사용할 수 있습니다.
+
+#### AWS 아이콘
+```xml
+<mxCell id="aws1" value="EC2" style="sketch=0;points=[[0,0,0],[0.25,0,0],[0.5,0,0],[0.75,0,0],[1,0,0],[0,1,0],[0.25,1,0],[0.5,1,0],[0.75,1,0],[1,1,0],[0,0.25,0],[0,0.5,0],[0,0.75,0],[1,0.25,0],[1,0.5,0],[1,0.75,0]];outlineConnect=0;fontColor=#232F3E;fillColor=#ED7100;strokeColor=#ffffff;dashed=0;verticalLabelPosition=bottom;verticalAlign=top;align=center;html=1;fontSize=12;fontStyle=0;aspect=fixed;shape=mxgraph.aws4.resourceIcon;resIcon=mxgraph.aws4.ec2;" vertex="1" parent="1">
+  <mxGeometry x="100" y="100" width="60" height="60" as="geometry"/>
+</mxCell>
+```
+
+#### AWS 주요 서비스 shape 매핑
+| 서비스 | resIcon |
+|--------|---------|
+| EC2 | `mxgraph.aws4.ec2` |
+| S3 | `mxgraph.aws4.s3` |
+| Lambda | `mxgraph.aws4.lambda` |
+| RDS | `mxgraph.aws4.rds` |
+| DynamoDB | `mxgraph.aws4.dynamodb` |
+| API Gateway | `mxgraph.aws4.api_gateway` |
+| CloudFront | `mxgraph.aws4.cloudfront` |
+| ECS | `mxgraph.aws4.ecs` |
+| EKS | `mxgraph.aws4.eks` |
+| SQS | `mxgraph.aws4.sqs` |
+| SNS | `mxgraph.aws4.sns` |
+| VPC | `mxgraph.aws4.vpc` |
+| Route 53 | `mxgraph.aws4.route_53` |
+| CloudWatch | `mxgraph.aws4.cloudwatch` |
+| IAM | `mxgraph.aws4.iam` |
+| ElastiCache | `mxgraph.aws4.elasticache` |
+
+#### AWS 그룹 (VPC, Subnet, AZ 등)
+```xml
+<!-- VPC 그룹 -->
+<mxCell id="vpc1" value="VPC" style="points=[[0,0],[0.25,0],[0.5,0],[0.75,0],[1,0],[1,0.25],[1,0.5],[1,0.75],[1,1],[0.75,1],[0.5,1],[0.25,1],[0,1],[0,0.75],[0,0.5],[0,0.25]];outlineConnect=0;gradientColor=none;html=1;whiteSpace=wrap;fontSize=12;fontStyle=1;shape=mxgraph.aws4.group;grIcon=mxgraph.aws4.group_vpc2;strokeColor=#8C4FFF;fillColor=none;verticalAlign=top;align=left;spacingLeft=30;fontColor=#AAB7B8;dashed=0;" vertex="1" parent="1">
+  <mxGeometry x="40" y="40" width="700" height="500" as="geometry"/>
+</mxCell>
+<!-- Public Subnet -->
+<mxCell id="pub1" value="Public Subnet" style="points=[[0,0],[0.25,0],[0.5,0],[0.75,0],[1,0],[1,0.25],[1,0.5],[1,0.75],[1,1],[0.75,1],[0.5,1],[0.25,1],[0,1],[0,0.75],[0,0.5],[0,0.25]];outlineConnect=0;gradientColor=none;html=1;whiteSpace=wrap;fontSize=12;fontStyle=1;shape=mxgraph.aws4.group;grIcon=mxgraph.aws4.group_security_group;strokeColor=#7AA116;fillColor=none;verticalAlign=top;align=left;spacingLeft=30;fontColor=#AAB7B8;dashed=0;" vertex="1" parent="vpc1">
+  <mxGeometry x="20" y="40" width="300" height="200" as="geometry"/>
+</mxCell>
+```
+
+#### Azure 아이콘
+```xml
+<mxCell id="az1" value="VM" style="aspect=fixed;html=1;points=[];align=center;image;fontSize=12;image=img/lib/azure2/compute/Virtual_Machine.svg;" vertex="1" parent="1">
+  <mxGeometry x="100" y="100" width="50" height="46" as="geometry"/>
+</mxCell>
+```
+
+#### GCP 아이콘
+```xml
+<mxCell id="gcp1" value="Compute Engine" style="aspect=fixed;html=1;points=[];align=center;image;fontSize=12;image=img/lib/google/compute/Compute_Engine.svg;" vertex="1" parent="1">
+  <mxGeometry x="100" y="100" width="50" height="50" as="geometry"/>
+</mxCell>
+```
+
+#### Kubernetes 아이콘
+```xml
+<mxCell id="k8s1" value="Pod" style="aspect=fixed;html=1;points=[];align=center;image;fontSize=12;image=img/lib/mscae/Kubernetes_Pod.svg;" vertex="1" parent="1">
+  <mxGeometry x="100" y="100" width="50" height="48" as="geometry"/>
+</mxCell>
+```
+
+### 14. 애니메이션 연결선
+
+데이터 흐름에 애니메이션 효과를 추가할 수 있습니다:
+```xml
+<mxCell id="anim1" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jetSize=auto;html=1;flowAnimation=1;strokeColor=#6c8ebf;strokeWidth=2;" edge="1" parent="1" source="2" target="3">
+  <mxGeometry relative="1" as="geometry"/>
+</mxCell>
+```
+- `flowAnimation=1`: 점선이 흐르는 애니메이션 활성화
+- 데이터 파이프라인, 네트워크 흐름 시각화에 효과적
+
+### 15. 고급 엣지 스타일
+
+#### 곡선 엣지
+```xml
+<mxCell style="curved=1;endArrow=blockThin;endFill=1;" edge="1" parent="1" source="2" target="3">
+  <mxGeometry relative="1" as="geometry"/>
+</mxCell>
+```
+
+#### 양방향 화살표
+```xml
+<mxCell style="edgeStyle=orthogonalEdgeStyle;startArrow=blockThin;startFill=1;endArrow=blockThin;endFill=1;" edge="1" parent="1" source="2" target="3">
+  <mxGeometry relative="1" as="geometry"/>
+</mxCell>
+```
+
+#### 점선 (비동기/옵셔널)
+```xml
+<mxCell style="edgeStyle=orthogonalEdgeStyle;dashed=1;dashPattern=8 8;endArrow=blockThin;endFill=1;" edge="1" parent="1" source="2" target="3">
+  <mxGeometry relative="1" as="geometry"/>
+</mxCell>
+```
+
+#### 웨이포인트가 있는 엣지 (경로 지정)
+```xml
+<mxCell style="edgeStyle=orthogonalEdgeStyle;rounded=1;" edge="1" parent="1" source="2" target="3">
+  <mxGeometry relative="1" as="geometry">
+    <Array as="points">
+      <mxPoint x="300" y="150"/>
+      <mxPoint x="300" y="250"/>
+    </Array>
+  </mxGeometry>
+</mxCell>
+```
+
+### 16. 설비/장비 다이어그램 (과학/엔지니어링)
+
+#### 실험 장비 배치도
+```xml
+<!-- 실험실 영역 -->
+<mxCell id="lab1" value="실험실 A동" style="swimlane;startSize=30;fillColor=#f5f5f5;strokeColor=#666666;fontStyle=1;fontSize=14;" vertex="1" parent="1">
+  <mxGeometry x="20" y="20" width="760" height="560" as="geometry"/>
+</mxCell>
+<!-- 장비: 원심분리기 -->
+<mxCell id="eq1" value="원심분리기&lt;br&gt;&lt;font style=&quot;font-size:10px&quot;&gt;Model: CF-500&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=12;fontStyle=1;" vertex="1" parent="lab1">
+  <mxGeometry x="40" y="60" width="140" height="70" as="geometry"/>
+</mxCell>
+<!-- 장비: 분석기 -->
+<mxCell id="eq2" value="질량분석기&lt;br&gt;&lt;font style=&quot;font-size:10px&quot;&gt;LC-MS/MS&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=12;fontStyle=1;" vertex="1" parent="lab1">
+  <mxGeometry x="280" y="60" width="140" height="70" as="geometry"/>
+</mxCell>
+<!-- 연결: 시료 이동 경로 -->
+<mxCell id="pipe1" value="시료 이동" style="edgeStyle=orthogonalEdgeStyle;rounded=1;flowAnimation=1;strokeWidth=2;strokeColor=#6c8ebf;" edge="1" parent="lab1" source="eq1" target="eq2">
+  <mxGeometry relative="1" as="geometry"/>
+</mxCell>
+```
+
+#### P&ID (배관 및 계장 다이어그램) 기본 패턴
+```xml
+<!-- 탱크/용기 -->
+<mxCell id="tank1" value="원료 탱크&lt;br&gt;T-101" style="shape=cylinder3;whiteSpace=wrap;html=1;boundedLbl=1;backgroundOutline=1;size=15;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=12;" vertex="1" parent="1">
+  <mxGeometry x="100" y="100" width="100" height="120" as="geometry"/>
+</mxCell>
+<!-- 펌프 -->
+<mxCell id="pump1" value="P-101" style="shape=triangle;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;direction=east;" vertex="1" parent="1">
+  <mxGeometry x="280" y="130" width="60" height="60" as="geometry"/>
+</mxCell>
+<!-- 밸브 -->
+<mxCell id="valve1" value="V-101" style="shape=rhombus;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;size=15;" vertex="1" parent="1">
+  <mxGeometry x="220" y="135" width="40" height="50" as="geometry"/>
+</mxCell>
+<!-- 배관 연결 -->
+<mxCell id="line1" style="edgeStyle=orthogonalEdgeStyle;strokeWidth=3;strokeColor=#333333;endArrow=blockThin;endFill=1;" edge="1" parent="1" source="tank1" target="valve1">
+  <mxGeometry relative="1" as="geometry"/>
+</mxCell>
+<mxCell id="line2" style="edgeStyle=orthogonalEdgeStyle;strokeWidth=3;strokeColor=#333333;endArrow=blockThin;endFill=1;" edge="1" parent="1" source="valve1" target="pump1">
+  <mxGeometry relative="1" as="geometry"/>
+</mxCell>
+<!-- 센서/계기 -->
+<mxCell id="sensor1" value="TI-101&lt;br&gt;온도" style="ellipse;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=10;" vertex="1" parent="1">
+  <mxGeometry x="120" y="60" width="60" height="40" as="geometry"/>
+</mxCell>
+```
+
+### 17. 이미지/PDF 기반 다이어그램 재현
+
+사용자가 이미지나 PDF를 업로드한 경우:
+1. 이미지/PDF의 시각적 구조를 분석
+2. 요소들의 상대적 위치와 크기 파악
+3. 적절한 Draw.io 도형으로 매핑
+4. 텍스트와 레이블 최대한 보존
+5. 색상과 스타일도 유사하게 재현
+
+### 18. 다이어그램 품질 검증 체크리스트
+
+생성 후 다음 항목을 자체 점검:
+- [ ] **겹침 없음**: 노드와 노드가 겹치지 않는가?
+- [ ] **엣지 라우팅**: 화살표가 노드를 통과하지 않는가?
+- [ ] **텍스트 가독성**: 모든 텍스트가 노드 안에 잘 들어가는가?
+- [ ] **레이아웃 균형**: 한쪽에 치우치지 않고 균형잡힌 배치인가?
+- [ ] **연결 완전성**: 모든 관계가 엣지로 연결되어 있는가?
+- [ ] **ID 고유성**: 모든 mxCell의 id가 고유한가?
+- [ ] **XML 유효성**: 모든 태그가 올바르게 닫혀 있는가?
+- [ ] **범위 내 배치**: 모든 노드가 캔버스 범위(800x600) 안에 있는가?
+
+## 주의사항
+- mxCell의 id는 반드시 고유해야 합니다 (0과 1은 root용 예약)
+- parent="1"은 기본 레이어입니다
+- vertex="1"은 노드, edge="1"은 연결선입니다
+- source와 target은 연결할 노드의 id입니다
+- XML은 반드시 유효한 형태여야 합니다 (태그 닫기 등)
+- UserObject 사용 시 type 속성으로 노드 유형을 명시하면 Draw.io에서 편집할 때 유용합니다
+- `&` 문자는 반드시 `&amp;`로 이스케이프
+- 속성값 안의 `"` 는 `&quot;`로, `<`는 `&lt;`로, `>`는 `&gt;`로 이스케이프
+- 그룹/컨테이너의 자식 노드는 `parent="그룹id"`로 설정
