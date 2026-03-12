@@ -1,425 +1,556 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>GLB 3D Viewer</title>
-    <style>
-        * { margin: 0; padding: 0; box-sizing: border-box; }
-        body { overflow: hidden; background: #1a1a2e; font-family: 'Segoe UI', sans-serif; }
-        #canvas-container { width: 100vw; height: 100vh; }
-        canvas { display: block; }
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>SVG → 3D 회전 뷰어</title>
+  <style>
+    * { box-sizing: border-box; }
+    html, body {
+      margin: 0;
+      width: 100%;
+      height: 100%;
+      font-family: Arial, sans-serif;
+      background: linear-gradient(180deg, #eef5ff 0%, #dbe8fb 100%);
+      color: #183153;
+      overflow: hidden;
+    }
 
-        /* 로딩 */
-        #loading {
-            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
-            background: #1a1a2e; display: none; flex-direction: column;
-            justify-content: center; align-items: center; z-index: 100;
-            transition: opacity 0.5s;
-        }
-        #loading.hidden { opacity: 0; pointer-events: none; }
-        .spinner {
-            width: 50px; height: 50px; border: 4px solid #333;
-            border-top: 4px solid #00d2ff; border-radius: 50%;
-            animation: spin 1s linear infinite;
-        }
-        @keyframes spin { to { transform: rotate(360deg); } }
-        #loading p { color: #ccc; margin-top: 16px; font-size: 14px; }
-        #progress { color: #00d2ff; font-size: 18px; margin-top: 8px; }
+    .app {
+      display: grid;
+      grid-template-columns: 320px 1fr;
+      width: 100%;
+      height: 100%;
+    }
 
-        /* 컨트롤 패널 */
-        #controls {
-            position: fixed; top: 16px; left: 16px; background: rgba(0,0,0,0.7);
-            padding: 16px; border-radius: 10px; color: #fff; font-size: 13px;
-            backdrop-filter: blur(10px); min-width: 220px; max-height: calc(100vh - 32px);
-            overflow-y: auto;
-        }
-        #controls h3 { margin-bottom: 10px; color: #00d2ff; font-size: 15px; }
-        .ctrl-row { margin: 8px 0; display: flex; justify-content: space-between; align-items: center; }
-        .ctrl-row label { color: #aaa; }
-        .ctrl-row input[type="range"] { width: 100px; }
-        .btn {
-            background: #00d2ff22; border: 1px solid #00d2ff; color: #00d2ff;
-            padding: 6px 12px; border-radius: 6px; cursor: pointer; font-size: 12px;
-            margin: 2px;
-        }
-        .btn:hover { background: #00d2ff44; }
-        .btn.primary { background: #00d2ff33; font-size: 13px; padding: 8px 14px; }
-        #btn-row { margin-top: 10px; display: flex; flex-wrap: wrap; gap: 4px; }
+    .panel {
+      padding: 18px;
+      background: rgba(255,255,255,0.75);
+      backdrop-filter: blur(8px);
+      border-right: 1px solid rgba(24,49,83,0.12);
+      overflow: auto;
+    }
 
-        /* 파일 목록 */
-        #file-list {
-            margin-top: 10px; max-height: 250px; overflow-y: auto;
-            border: 1px solid #333; border-radius: 6px; display: none;
-        }
-        .file-item {
-            padding: 6px 10px; cursor: pointer; font-size: 12px;
-            color: #aaa; border-bottom: 1px solid #222;
-            transition: all 0.15s;
-        }
-        .file-item:hover { background: #00d2ff22; color: #fff; }
-        .file-item.active { background: #00d2ff33; color: #00d2ff; }
-        .file-item:last-child { border-bottom: none; }
-        #file-count { color: #666; font-size: 11px; margin-top: 4px; }
+    .panel h1 {
+      margin: 0 0 8px;
+      font-size: 22px;
+    }
 
-        /* 파일 드롭 */
-        #drop-zone {
-            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
-            background: rgba(0,210,255,0.1); border: 3px dashed #00d2ff;
-            display: none; justify-content: center; align-items: center;
-            z-index: 200; font-size: 24px; color: #00d2ff;
-        }
+    .panel p {
+      margin: 0 0 14px;
+      line-height: 1.45;
+      font-size: 14px;
+      color: #3a5477;
+    }
 
-        /* 시작 화면 */
-        #welcome {
-            position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%);
-            text-align: center; color: #555; z-index: 50;
-        }
-        #welcome .icon { font-size: 60px; margin-bottom: 16px; }
-        #welcome p { font-size: 16px; margin-bottom: 8px; }
-        #welcome .sub { font-size: 13px; color: #444; }
+    .section {
+      margin-top: 18px;
+      padding: 14px;
+      border-radius: 16px;
+      background: rgba(255,255,255,0.78);
+      box-shadow: 0 10px 30px rgba(26, 53, 92, 0.08);
+    }
 
-        /* 정보 */
-        #info {
-            position: fixed; bottom: 16px; left: 16px; color: #666;
-            font-size: 11px;
-        }
-    </style>
+    .section h2 {
+      margin: 0 0 10px;
+      font-size: 15px;
+    }
+
+    .btn, .file-label {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 100%;
+      min-height: 42px;
+      border: 0;
+      border-radius: 12px;
+      background: linear-gradient(135deg, #4b95ff, #256fe8);
+      color: white;
+      font-size: 14px;
+      cursor: pointer;
+      text-decoration: none;
+      padding: 10px 12px;
+    }
+
+    .btn.secondary {
+      background: linear-gradient(135deg, #89b8ff, #5d93f3);
+      margin-top: 8px;
+    }
+
+    .btn:active, .file-label:active {
+      transform: translateY(1px);
+    }
+
+    input[type="file"] {
+      display: none;
+    }
+
+    textarea {
+      width: 100%;
+      min-height: 230px;
+      resize: vertical;
+      border: 1px solid rgba(24,49,83,0.16);
+      border-radius: 12px;
+      padding: 12px;
+      font-size: 13px;
+      line-height: 1.5;
+      color: #183153;
+      background: rgba(248, 251, 255, 0.95);
+      outline: none;
+    }
+
+    .control {
+      margin-top: 12px;
+    }
+
+    .control label {
+      display: flex;
+      justify-content: space-between;
+      margin-bottom: 6px;
+      font-size: 13px;
+      color: #2d4668;
+    }
+
+    .control input[type="range"] {
+      width: 100%;
+    }
+
+    .viewer {
+      position: relative;
+      overflow: hidden;
+    }
+
+    #stage {
+      width: 100%;
+      height: 100%;
+      display: block;
+      touch-action: none;
+      cursor: grab;
+    }
+
+    #stage.dragging {
+      cursor: grabbing;
+    }
+
+    .hint {
+      position: absolute;
+      left: 50%;
+      bottom: 16px;
+      transform: translateX(-50%);
+      background: rgba(255,255,255,0.78);
+      padding: 10px 14px;
+      border-radius: 999px;
+      font-size: 13px;
+      color: #2e4e76;
+      box-shadow: 0 10px 30px rgba(26, 53, 92, 0.10);
+      pointer-events: none;
+      backdrop-filter: blur(8px);
+    }
+
+    .status {
+      margin-top: 10px;
+      font-size: 12px;
+      color: #47617f;
+      word-break: break-word;
+    }
+
+    @media (max-width: 900px) {
+      .app {
+        grid-template-columns: 1fr;
+        grid-template-rows: auto 1fr;
+      }
+      .panel {
+        max-height: 48vh;
+        border-right: 0;
+        border-bottom: 1px solid rgba(24,49,83,0.12);
+      }
+    }
+  </style>
 </head>
 <body>
-    <div id="loading">
-        <div class="spinner"></div>
-        <p>모델 로딩 중...</p>
-        <div id="progress">0%</div>
-    </div>
+  <div class="app">
+    <aside class="panel">
+      <h1>SVG → 3D 회전 뷰어</h1>
+      <p>SVG를 붙여넣거나 파일로 불러오면, 앞면 텍스처처럼 입혀서 마우스로 3D 회전할 수 있게 보여줘.</p>
 
-    <div id="welcome">
-        <div class="icon">📦</div>
-        <p>GLB 파일을 선택하거나 드래그하세요</p>
-        <div class="sub">좌측 "📂 폴더 선택" 또는 "📄 파일 열기"로 시작</div>
-    </div>
+      <div class="section">
+        <h2>SVG 넣기</h2>
+        <label class="file-label" for="svgFile">SVG 파일 불러오기</label>
+        <input id="svgFile" type="file" accept=".svg,image/svg+xml" />
+        <button class="btn secondary" id="loadSampleBtn">샘플 SVG 넣기</button>
+        <div class="status" id="fileStatus">파일 없음</div>
+      </div>
 
-    <div id="drop-zone">📦 GLB 파일을 여기에 드롭하세요</div>
+      <div class="section">
+        <h2>직접 붙여넣기</h2>
+        <textarea id="svgInput"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 300 300">
+  <defs>
+    <linearGradient id="g1" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#dff0ff"/>
+      <stop offset="100%" stop-color="#6fb1ff"/>
+    </linearGradient>
+  </defs>
+  <rect x="20" y="20" width="260" height="260" rx="28" fill="url(#g1)" stroke="#2b5fb8" stroke-width="8"/>
+  <circle cx="150" cy="110" r="46" fill="#ffffff" fill-opacity="0.9"/>
+  <path d="M75 210 L150 145 L225 210" fill="none" stroke="#ffffff" stroke-width="18" stroke-linecap="round" stroke-linejoin="round"/>
+</svg></textarea>
+        <button class="btn" id="applyBtn">뷰어에 적용</button>
+      </div>
 
-    <div id="controls">
-        <h3>🎮 3D Viewer</h3>
-
-        <!-- 파일 열기 -->
-        <button class="btn primary" onclick="document.getElementById('file-input').click()" style="width:100%;margin-bottom:4px;">📄 파일 열기</button>
-        <button class="btn primary" onclick="document.getElementById('folder-input').click()" style="width:100%;margin-bottom:4px;">📂 폴더 선택</button>
-        <input type="file" id="file-input" accept=".glb,.gltf" style="display:none">
-        <input type="file" id="folder-input" webkitdirectory multiple style="display:none">
-
-        <div id="file-count"></div>
-        <div id="file-list"></div>
-
-        <hr style="border-color:#333; margin:10px 0;">
-
-        <div class="ctrl-row">
-            <label>배경</label>
-            <input type="color" id="bg-color" value="#1a1a2e">
+      <div class="section">
+        <h2>두께 / 확대</h2>
+        <div class="control">
+          <label><span>두께</span><span id="depthValue">70</span></label>
+          <input id="depthRange" type="range" min="10" max="180" value="70" />
         </div>
-        <div class="ctrl-row">
-            <label>밝기</label>
-            <input type="range" id="light-intensity" min="0" max="5" step="0.1" value="1.5">
+        <div class="control">
+          <label><span>확대</span><span id="scaleValue">1.00</span></label>
+          <input id="scaleRange" type="range" min="60" max="180" value="100" />
         </div>
-        <div class="ctrl-row">
-            <label>와이어프레임</label>
-            <input type="checkbox" id="wireframe">
-        </div>
-        <div id="btn-row">
-            <button class="btn" onclick="resetCamera()">리셋</button>
-            <button class="btn" onclick="toggleAutoRotate()">자동회전</button>
-            <button class="btn" onclick="fitToScreen()">화면맞춤</button>
-        </div>
-        <div id="model-info" style="margin-top:10px; color:#888; font-size:11px;"></div>
-    </div>
+      </div>
 
-    <div id="info">마우스: 회전 | 스크롤: 줌 | 우클릭: 이동 | ↑↓: 파일 전환 | 드래그앤드롭 가능</div>
+      <div class="section">
+        <h2>설명</h2>
+        <p>이건 SVG를 진짜 메쉬로 변환하는 건 아니고, SVG를 앞면/뒷면 질감처럼 사용해서 3D 박스에 입혀 보여주는 방식이야.</p>
+      </div>
+    </aside>
 
-    <div id="canvas-container"></div>
+    <main class="viewer">
+      <canvas id="stage"></canvas>
+      <div class="hint">드래그 회전 · 휠 확대</div>
+    </main>
+  </div>
 
-    <!-- Three.js -->
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/GLTFLoader.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/DRACOLoader.js"></script>
+  <script>
+    const canvas = document.getElementById("stage");
+    const ctx = canvas.getContext("2d");
 
-    <script>
-        // === 기본 설정 ===
-        const container = document.getElementById('canvas-container');
-        const scene = new THREE.Scene();
-        scene.background = new THREE.Color(0x1a1a2e);
+    const svgInput = document.getElementById("svgInput");
+    const applyBtn = document.getElementById("applyBtn");
+    const svgFile = document.getElementById("svgFile");
+    const fileStatus = document.getElementById("fileStatus");
+    const loadSampleBtn = document.getElementById("loadSampleBtn");
+    const depthRange = document.getElementById("depthRange");
+    const depthValue = document.getElementById("depthValue");
+    const scaleRange = document.getElementById("scaleRange");
+    const scaleValue = document.getElementById("scaleValue");
 
-        const camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 10000);
-        camera.position.set(5, 3, 5);
+    let w = 0;
+    let h = 0;
+    let dpr = Math.max(1, window.devicePixelRatio || 1);
 
-        const renderer = new THREE.WebGLRenderer({ antialias: true });
-        renderer.setSize(window.innerWidth, window.innerHeight);
-        renderer.setPixelRatio(window.devicePixelRatio);
-        renderer.outputEncoding = THREE.sRGBEncoding;
-        renderer.toneMapping = THREE.ACESFilmicToneMapping;
-        renderer.toneMappingExposure = 1.0;
-        renderer.shadowMap.enabled = true;
-        container.appendChild(renderer.domElement);
+    let rotationX = -0.45;
+    let rotationY = 0.65;
+    let zoom = 1.0;
+    let drag = false;
+    let lastX = 0;
+    let lastY = 0;
+    let velocityX = 0;
+    let velocityY = 0;
+    let raf = null;
 
-        // === 조명 ===
-        const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
-        scene.add(ambientLight);
+    let depth = Number(depthRange.value);
+    let scale = Number(scaleRange.value) / 100;
 
-        const dirLight1 = new THREE.DirectionalLight(0xffffff, 1.5);
-        dirLight1.position.set(5, 10, 5);
-        dirLight1.castShadow = true;
-        scene.add(dirLight1);
+    let texture = null;
+    let textureReady = false;
 
-        const dirLight2 = new THREE.DirectionalLight(0xffffff, 0.5);
-        dirLight2.position.set(-5, 5, -5);
-        scene.add(dirLight2);
+    function resize() {
+      const rect = canvas.getBoundingClientRect();
+      w = rect.width;
+      h = rect.height;
+      dpr = Math.max(1, window.devicePixelRatio || 1);
+      canvas.width = Math.round(w * dpr);
+      canvas.height = Math.round(h * dpr);
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      draw();
+    }
 
-        const hemiLight = new THREE.HemisphereLight(0xddeeff, 0x0f0e0d, 0.5);
-        scene.add(hemiLight);
+    function project(point) {
+      const fov = 700;
+      const z = point.z + 700;
+      const s = fov / z;
+      return {
+        x: point.x * s + w / 2,
+        y: point.y * s + h / 2,
+        scale: s
+      };
+    }
 
-        // === 컨트롤 ===
-        const controls = new THREE.OrbitControls(camera, renderer.domElement);
-        controls.enableDamping = true;
-        controls.dampingFactor = 0.05;
-        controls.autoRotate = false;
-        controls.autoRotateSpeed = 2.0;
+    function rotate(point, ax, ay) {
+      let {x, y, z} = point;
 
-        // === GLB 로더 (Draco 지원) ===
-        const loader = new THREE.GLTFLoader();
-        const dracoLoader = new THREE.DRACOLoader();
-        dracoLoader.setDecoderPath('https://www.gstatic.com/draco/versioned/decoders/1.5.6/');
-        loader.setDRACOLoader(dracoLoader);
+      const cosY = Math.cos(ay);
+      const sinY = Math.sin(ay);
+      let x1 = x * cosY + z * sinY;
+      let z1 = -x * sinY + z * cosY;
 
-        let currentModel = null;
-        let folderFiles = [];
+      const cosX = Math.cos(ax);
+      const sinX = Math.sin(ax);
+      let y2 = y * cosX - z1 * sinX;
+      let z2 = y * sinX + z1 * cosX;
 
-        // === 파일 로드 ===
-        function loadGLB(source, fileName) {
-            const loadingEl = document.getElementById('loading');
-            const progressEl = document.getElementById('progress');
-            loadingEl.classList.remove('hidden');
-            loadingEl.style.display = 'flex';
-            progressEl.textContent = '0%';
-            progressEl.style.color = '#00d2ff';
+      return { x: x1, y: y2, z: z2 };
+    }
 
-            document.getElementById('welcome').style.display = 'none';
+    function buildCube(size, depthValue) {
+      const s = size / 2;
+      const zf = depthValue / 2;
+      const zb = -depthValue / 2;
+      return {
+        front: [
+          {x:-s,y:-s,z:zf},{x:s,y:-s,z:zf},{x:s,y:s,z:zf},{x:-s,y:s,z:zf}
+        ],
+        back: [
+          {x:-s,y:-s,z:zb},{x:s,y:-s,z:zb},{x:s,y:s,z:zb},{x:-s,y:s,z:zb}
+        ]
+      };
+    }
 
-            // 기존 모델 정리
-            if (currentModel) {
-                scene.remove(currentModel);
-                currentModel.traverse((child) => {
-                    if (child.isMesh) {
-                        if (child.geometry) child.geometry.dispose();
-                        if (child.material) {
-                            if (Array.isArray(child.material)) child.material.forEach(m => m.dispose());
-                            else child.material.dispose();
-                        }
-                    }
-                });
-                currentModel = null;
-            }
+    function quadDepth(quad) {
+      return quad.reduce((sum, p) => sum + p.z, 0) / quad.length;
+    }
 
-            const onLoad = (gltf) => {
-                currentModel = gltf.scene;
-                scene.add(currentModel);
-                fitToScreen();
+    function drawTexturedQuad(image, quad) {
+      const p0 = project(quad[0]);
+      const p1 = project(quad[1]);
+      const p2 = project(quad[2]);
+      const p3 = project(quad[3]);
 
-                let meshCount = 0, vertexCount = 0, faceCount = 0;
-                currentModel.traverse((child) => {
-                    if (child.isMesh) {
-                        meshCount++;
-                        if (child.geometry) {
-                            const pos = child.geometry.attributes.position;
-                            if (pos) vertexCount += pos.count;
-                            if (child.geometry.index) faceCount += child.geometry.index.count / 3;
-                            else if (pos) faceCount += pos.count / 3;
-                        }
-                    }
-                });
+      const minX = Math.min(p0.x, p1.x, p2.x, p3.x);
+      const maxX = Math.max(p0.x, p1.x, p2.x, p3.x);
+      const minY = Math.min(p0.y, p1.y, p2.y, p3.y);
+      const maxY = Math.max(p0.y, p1.y, p2.y, p3.y);
 
-                let infoHTML = '';
-                if (fileName) infoHTML += `📄 ${fileName}<br>`;
-                infoHTML += `메쉬: ${meshCount}개<br>`;
-                infoHTML += `정점: ${(vertexCount/1000).toFixed(1)}K<br>`;
-                infoHTML += `면: ${(faceCount/1000).toFixed(1)}K`;
-                document.getElementById('model-info').innerHTML = infoHTML;
+      ctx.save();
+      ctx.beginPath();
+      ctx.moveTo(p0.x, p0.y);
+      ctx.lineTo(p1.x, p1.y);
+      ctx.lineTo(p2.x, p2.y);
+      ctx.lineTo(p3.x, p3.y);
+      ctx.closePath();
+      ctx.clip();
 
-                loadingEl.classList.add('hidden');
-                setTimeout(() => { loadingEl.style.display = 'none'; }, 500);
-            };
+      const width = maxX - minX;
+      const height = maxY - minY;
+      ctx.drawImage(image, minX, minY, width, height);
+      ctx.restore();
 
-            const onProgress = (xhr) => {
-                if (xhr.lengthComputable) {
-                    progressEl.textContent = (xhr.loaded / xhr.total * 100).toFixed(0) + '%';
-                } else {
-                    progressEl.textContent = (xhr.loaded / 1024 / 1024).toFixed(1) + ' MB';
-                }
-            };
+      ctx.beginPath();
+      ctx.moveTo(p0.x, p0.y);
+      ctx.lineTo(p1.x, p1.y);
+      ctx.lineTo(p2.x, p2.y);
+      ctx.lineTo(p3.x, p3.y);
+      ctx.closePath();
+      ctx.strokeStyle = "rgba(27, 74, 150, 0.45)";
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
+    }
 
-            const onError = (error) => {
-                console.error('로딩 에러:', error);
-                progressEl.textContent = '❌ 로딩 실패';
-                progressEl.style.color = '#ff4444';
-            };
+    function drawFace(quad, fill) {
+      const p = quad.map(project);
+      ctx.beginPath();
+      ctx.moveTo(p[0].x, p[0].y);
+      for (let i = 1; i < p.length; i++) ctx.lineTo(p[i].x, p[i].y);
+      ctx.closePath();
+      ctx.fillStyle = fill;
+      ctx.fill();
+      ctx.strokeStyle = "rgba(27, 74, 150, 0.35)";
+      ctx.lineWidth = 1.2;
+      ctx.stroke();
+    }
 
-            if (source instanceof ArrayBuffer) {
-                loader.parse(source, '', onLoad, onError);
-            } else if (typeof source === 'string') {
-                loader.load(source, onLoad, onProgress, onError);
-            }
+    function draw() {
+      ctx.clearRect(0, 0, w, h);
+
+      const baseSize = Math.min(w, h) * 0.34 * scale * zoom;
+      const cube = buildCube(baseSize, depth);
+
+      const faces = [
+        { name: "front", pts: cube.front },
+        { name: "back", pts: cube.back },
+        { name: "left", pts: [cube.back[0], cube.front[0], cube.front[3], cube.back[3]] },
+        { name: "right", pts: [cube.front[1], cube.back[1], cube.back[2], cube.front[2]] },
+        { name: "top", pts: [cube.back[0], cube.back[1], cube.front[1], cube.front[0]] },
+        { name: "bottom", pts: [cube.front[3], cube.front[2], cube.back[2], cube.back[3]] }
+      ].map(face => ({
+        name: face.name,
+        pts: face.pts.map(p => rotate(p, rotationX, rotationY))
+      }));
+
+      faces.sort((a, b) => quadDepth(a.pts) - quadDepth(b.pts));
+
+      const shadowCenter = project(rotate({x:0,y:baseSize * 0.65,z:-120}, rotationX, rotationY));
+      const shadowRadius = baseSize * 0.55;
+      const grad = ctx.createRadialGradient(shadowCenter.x, shadowCenter.y + 100, 10, shadowCenter.x, shadowCenter.y + 100, shadowRadius * 1.4);
+      grad.addColorStop(0, "rgba(25, 52, 92, 0.22)");
+      grad.addColorStop(1, "rgba(25, 52, 92, 0)");
+      ctx.beginPath();
+      ctx.ellipse(shadowCenter.x, shadowCenter.y + 100, shadowRadius * 1.2, shadowRadius * 0.45, 0, 0, Math.PI * 2);
+      ctx.fillStyle = grad;
+      ctx.fill();
+
+      for (const face of faces) {
+        if (face.name === "front" && textureReady) {
+          drawTexturedQuad(texture, face.pts);
+        } else if (face.name === "back" && textureReady) {
+          drawTexturedQuad(texture, [face.pts[1], face.pts[0], face.pts[3], face.pts[2]]);
+          ctx.fillStyle = "rgba(15, 40, 84, 0.18)";
+          const p = face.pts.map(project);
+          ctx.beginPath();
+          ctx.moveTo(p[0].x, p[0].y);
+          p.slice(1).forEach(pt => ctx.lineTo(pt.x, pt.y));
+          ctx.closePath();
+          ctx.fill();
+        } else {
+          const fills = {
+            left: "#5b95f1",
+            right: "#2d78ee",
+            top: "#dbeeff",
+            bottom: "#245ab4",
+            front: "#7fb7ff",
+            back: "#4878c6"
+          };
+          drawFace(face.pts, fills[face.name] || "#7fb7ff");
         }
+      }
+    }
 
-        function loadFromFile(file) {
-            const reader = new FileReader();
-            reader.onload = (e) => loadGLB(e.target.result, file.name);
-            reader.readAsArrayBuffer(file);
-        }
+    function loadSVG(svgText) {
+      textureReady = false;
 
-        // === 폴더 선택 ===
-        document.getElementById('folder-input').addEventListener('change', (e) => {
-            const allFiles = Array.from(e.target.files);
-            folderFiles = allFiles.filter(f => /\.(glb|gltf)$/i.test(f.name));
+      const blob = new Blob([svgText], { type: "image/svg+xml;charset=utf-8" });
+      const url = URL.createObjectURL(blob);
+      const img = new Image();
 
-            if (folderFiles.length === 0) {
-                alert('선택한 폴더에 GLB/GLTF 파일이 없습니다.');
-                return;
-            }
+      img.onload = () => {
+        texture = img;
+        textureReady = true;
+        URL.revokeObjectURL(url);
+        draw();
+      };
 
-            folderFiles.sort((a, b) => a.name.localeCompare(b.name));
+      img.onerror = () => {
+        fileStatus.textContent = "SVG 로드 실패";
+      };
 
-            const listEl = document.getElementById('file-list');
-            listEl.style.display = 'block';
-            listEl.innerHTML = '';
+      img.src = url;
+    }
 
-            folderFiles.forEach((file, idx) => {
-                const item = document.createElement('div');
-                item.className = 'file-item';
-                const sizeMB = (file.size / 1024 / 1024).toFixed(1);
-                item.innerHTML = `${file.name} <span style="color:#555;font-size:10px;">(${sizeMB}MB)</span>`;
-                item.onclick = () => {
-                    listEl.querySelectorAll('.file-item').forEach(el => el.classList.remove('active'));
-                    item.classList.add('active');
-                    loadFromFile(file);
-                };
-                listEl.appendChild(item);
-            });
+    function applySVG() {
+      const text = svgInput.value.trim();
+      if (!text) return;
+      loadSVG(text);
+      fileStatus.textContent = "텍스트 SVG 적용됨";
+    }
 
-            document.getElementById('file-count').textContent = `GLB 파일 ${folderFiles.length}개 발견`;
+    applyBtn.addEventListener("click", applySVG);
 
-            // 첫번째 자동 로드
-            listEl.querySelector('.file-item').classList.add('active');
-            loadFromFile(folderFiles[0]);
-        });
+    loadSampleBtn.addEventListener("click", () => {
+      svgInput.value = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 320">
+  <defs>
+    <linearGradient id="g2" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#f5fbff"/>
+      <stop offset="100%" stop-color="#69a9ff"/>
+    </linearGradient>
+  </defs>
+  <rect x="24" y="24" width="272" height="272" rx="32" fill="url(#g2)" stroke="#2b5fb8" stroke-width="10"/>
+  <rect x="74" y="74" width="172" height="64" rx="18" fill="#ffffff" fill-opacity="0.85"/>
+  <circle cx="160" cy="210" r="42" fill="#ffffff" fill-opacity="0.92"/>
+</svg>`;
+      applySVG();
+    });
 
-        // === 단일 파일 열기 ===
-        document.getElementById('file-input').addEventListener('change', (e) => {
-            const file = e.target.files[0];
-            if (file) loadFromFile(file);
-        });
+    svgFile.addEventListener("change", (e) => {
+      const file = e.target.files && e.target.files[0];
+      if (!file) return;
 
-        // === 카메라 기능 ===
-        function fitToScreen() {
-            if (!currentModel) return;
-            const box = new THREE.Box3().setFromObject(currentModel);
-            const center = box.getCenter(new THREE.Vector3());
-            const size = box.getSize(new THREE.Vector3());
-            const maxDim = Math.max(size.x, size.y, size.z);
-            const distance = maxDim * 1.5;
+      fileStatus.textContent = `불러온 파일: ${file.name}`;
+      const reader = new FileReader();
+      reader.onload = () => {
+        svgInput.value = String(reader.result || "");
+        applySVG();
+      };
+      reader.readAsText(file, "utf-8");
+    });
 
-            camera.position.set(center.x + distance, center.y + distance * 0.5, center.z + distance);
-            controls.target.copy(center);
-            controls.update();
+    depthRange.addEventListener("input", () => {
+      depth = Number(depthRange.value);
+      depthValue.textContent = String(depth);
+      draw();
+    });
 
-            camera.near = maxDim * 0.001;
-            camera.far = maxDim * 100;
-            camera.updateProjectionMatrix();
-        }
+    scaleRange.addEventListener("input", () => {
+      scale = Number(scaleRange.value) / 100;
+      scaleValue.textContent = scale.toFixed(2);
+      draw();
+    });
 
-        function resetCamera() {
-            camera.position.set(5, 3, 5);
-            controls.target.set(0, 0, 0);
-            controls.update();
-        }
+    canvas.addEventListener("pointerdown", (e) => {
+      drag = true;
+      lastX = e.clientX;
+      lastY = e.clientY;
+      canvas.classList.add("dragging");
+      velocityX = 0;
+      velocityY = 0;
+      if (canvas.setPointerCapture) canvas.setPointerCapture(e.pointerId);
+    });
 
-        function toggleAutoRotate() {
-            controls.autoRotate = !controls.autoRotate;
-        }
+    window.addEventListener("pointermove", (e) => {
+      if (!drag) return;
+      const dx = e.clientX - lastX;
+      const dy = e.clientY - lastY;
+      lastX = e.clientX;
+      lastY = e.clientY;
+      velocityX = dx * 0.005;
+      velocityY = dy * 0.005;
+      rotationY += velocityX;
+      rotationX += velocityY;
+      rotationX = Math.max(-1.35, Math.min(1.35, rotationX));
+      draw();
+    });
 
-        // === UI 컨트롤 ===
-        document.getElementById('bg-color').addEventListener('input', (e) => {
-            scene.background = new THREE.Color(e.target.value);
-        });
+    function endDrag(e) {
+      if (!drag) return;
+      drag = false;
+      canvas.classList.remove("dragging");
+      try {
+        if (canvas.releasePointerCapture) canvas.releasePointerCapture(e.pointerId);
+      } catch (_) {}
+      inertia();
+    }
 
-        document.getElementById('light-intensity').addEventListener('input', (e) => {
-            dirLight1.intensity = parseFloat(e.target.value);
-        });
+    window.addEventListener("pointerup", endDrag);
+    window.addEventListener("pointercancel", endDrag);
 
-        document.getElementById('wireframe').addEventListener('change', (e) => {
-            if (!currentModel) return;
-            currentModel.traverse((child) => {
-                if (child.isMesh && child.material) {
-                    if (Array.isArray(child.material)) {
-                        child.material.forEach(m => m.wireframe = e.target.checked);
-                    } else {
-                        child.material.wireframe = e.target.checked;
-                    }
-                }
-            });
-        });
+    function inertia() {
+      cancelAnimationFrame(raf);
+      function tick() {
+        velocityX *= 0.95;
+        velocityY *= 0.95;
 
-        // === 드래그 앤 드롭 ===
-        const dropZone = document.getElementById('drop-zone');
-        window.addEventListener('dragover', (e) => { e.preventDefault(); dropZone.style.display = 'flex'; });
-        window.addEventListener('dragleave', (e) => { if (e.relatedTarget === null) dropZone.style.display = 'none'; });
-        window.addEventListener('drop', (e) => {
-            e.preventDefault();
-            dropZone.style.display = 'none';
-            const file = e.dataTransfer.files[0];
-            if (file && /\.(glb|gltf)$/i.test(file.name)) loadFromFile(file);
-        });
+        if (Math.abs(velocityX) < 0.0005 && Math.abs(velocityY) < 0.0005) return;
 
-        // === 키보드: ↑↓ 파일 전환 ===
-        document.addEventListener('keydown', (e) => {
-            if (e.target.tagName === 'INPUT') return;
-            if (folderFiles.length === 0) return;
+        rotationY += velocityX;
+        rotationX += velocityY;
+        rotationX = Math.max(-1.35, Math.min(1.35, rotationX));
+        draw();
+        raf = requestAnimationFrame(tick);
+      }
+      raf = requestAnimationFrame(tick);
+    }
 
-            const listEl = document.getElementById('file-list');
-            const items = listEl.querySelectorAll('.file-item');
-            let currentIdx = -1;
-            items.forEach((item, idx) => { if (item.classList.contains('active')) currentIdx = idx; });
+    canvas.addEventListener("wheel", (e) => {
+      e.preventDefault();
+      const delta = e.deltaY > 0 ? -0.06 : 0.06;
+      zoom = Math.max(0.55, Math.min(2.2, zoom + delta));
+      draw();
+    }, { passive: false });
 
-            if (e.key === 'ArrowUp' && currentIdx > 0) {
-                e.preventDefault();
-                items[currentIdx].classList.remove('active');
-                items[currentIdx - 1].classList.add('active');
-                items[currentIdx - 1].scrollIntoView({ block: 'nearest' });
-                loadFromFile(folderFiles[currentIdx - 1]);
-            }
-            if (e.key === 'ArrowDown' && currentIdx < folderFiles.length - 1) {
-                e.preventDefault();
-                items[currentIdx].classList.remove('active');
-                items[currentIdx + 1].classList.add('active');
-                items[currentIdx + 1].scrollIntoView({ block: 'nearest' });
-                loadFromFile(folderFiles[currentIdx + 1]);
-            }
-        });
+    window.addEventListener("resize", resize);
 
-        // === 리사이즈 ===
-        window.addEventListener('resize', () => {
-            camera.aspect = window.innerWidth / window.innerHeight;
-            camera.updateProjectionMatrix();
-            renderer.setSize(window.innerWidth, window.innerHeight);
-        });
-
-        // === 애니메이션 루프 ===
-        function animate() {
-            requestAnimationFrame(animate);
-            controls.update();
-            renderer.render(scene, camera);
-        }
-        animate();
-    </script>
+    resize();
+    applySVG();
+  </script>
 </body>
 </html>
