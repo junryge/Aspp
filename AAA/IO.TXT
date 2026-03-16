@@ -2672,6 +2672,20 @@ body.rp-collapsed .chat-box-fixed{right:0}
 .rp-code-preview{background:#1e1e2e;color:#cdd6f4;border-radius:8px;padding:12px;font-family:'Fira Code',monospace;font-size:11px;max-height:200px;overflow:auto;margin-top:8px;white-space:pre-wrap;word-break:break-all;line-height:1.5}
 .rp-result{margin-top:12px;padding:12px;background:#f8f7f4;border-radius:8px;font-size:12px;line-height:1.6;max-height:300px;overflow-y:auto}
 .rp-skill-badge{display:inline-block;padding:2px 8px;border-radius:10px;font-size:10px;font-weight:600;background:#eef2ff;color:#6366f1;margin-left:6px}
+.rp-tree{font-size:12px;max-height:250px;overflow-y:auto;border:1px solid #e5e3de;border-radius:8px;padding:8px;background:#fafaf9;margin-bottom:8px}
+.rp-tree-node{padding:1px 0;cursor:pointer;user-select:none}
+.rp-tree-node:hover{background:#eef2ff;border-radius:4px}
+.rp-tree-folder{font-weight:600;color:#555}
+.rp-tree-file{color:#333}
+.rp-tree-file.active{background:#6366f1;color:#fff;border-radius:4px;padding:1px 4px}
+.rp-tree-children{padding-left:16px;border-left:1px solid #e5e3de;margin-left:6px}
+.rp-tree-toggle{display:inline-block;width:14px;font-size:10px;color:#999;text-align:center}
+.rp-tree-icon{margin-right:4px}
+.rp-tree-stats{font-size:11px;color:#888;padding:6px 8px;background:#f0f0ed;border-radius:6px;margin-bottom:8px;display:flex;justify-content:space-between}
+.rp-tab-row{display:flex;gap:4px;margin-bottom:8px}
+.rp-tab{padding:4px 10px;border-radius:6px;border:1px solid #e5e3de;background:#fff;cursor:pointer;font-size:11px;font-weight:600;color:#888;transition:all .15s}
+.rp-tab:hover{border-color:#6366f1;color:#6366f1}
+.rp-tab.active{background:#6366f1;color:#fff;border-color:#6366f1}
 @media(max-width:768px){.sidebar{display:none}.sidebar-toggle{display:none}.right-panel{display:none}.right-panel-toggle{display:none}.chat-box-fixed{left:0;right:0}.style-row{flex-direction:column}.msg.user{margin-left:16px}.msg.assistant{margin-right:16px}.msg{font-size:12px}}
 </style>
 </head>
@@ -2825,12 +2839,31 @@ body.rp-collapsed .chat-box-fixed{right:0}
   </div>
   <div class="rp-body">
     <div class="rp-section">
-      <div class="rp-section-title">코드 파일</div>
-      <div class="rp-file-drop" id="rpFileDrop" onclick="document.getElementById('rpFileInput').click()">
-        <div class="rp-file-drop-icon">📂</div>
-        <div class="rp-file-drop-text">클릭 또는 드래그하여 코드 파일 업로드<br><span style="font-size:10px;color:#bbb">.py .js .html .css .java .c .cpp .go .rs .sh .json .yaml .md</span></div>
+      <div class="rp-section-title">프로젝트 / 코드 파일</div>
+      <div class="rp-tab-row">
+        <button class="rp-tab active" onclick="switchUploadMode('folder',this)">📁 폴더 업로드</button>
+        <button class="rp-tab" onclick="switchUploadMode('files',this)">📄 파일 업로드</button>
       </div>
-      <input type="file" id="rpFileInput" multiple accept=".py,.js,.html,.css,.json,.xml,.yaml,.yml,.c,.cpp,.h,.java,.go,.rs,.sh,.bat,.md,.txt" style="display:none" onchange="handleRpFileSelect(this.files)">
+      <div id="rpFolderMode">
+        <div class="rp-file-drop" id="rpFolderDrop" onclick="document.getElementById('rpFolderInput').click()">
+          <div class="rp-file-drop-icon">📁</div>
+          <div class="rp-file-drop-text">클릭하여 <strong>프로젝트 폴더</strong> 통째로 업로드<br><span style="font-size:10px;color:#bbb">폴더 선택 시 하위 파일 전체가 트리로 표시됩니다</span></div>
+        </div>
+        <input type="file" id="rpFolderInput" webkitdirectory directory multiple style="display:none" onchange="handleRpFolderSelect(this.files)">
+      </div>
+      <div id="rpFileMode" style="display:none">
+        <div class="rp-file-drop" id="rpFileDrop" onclick="document.getElementById('rpFileInput').click()">
+          <div class="rp-file-drop-icon">📄</div>
+          <div class="rp-file-drop-text">클릭 또는 드래그하여 코드 파일 업로드<br><span style="font-size:10px;color:#bbb">.py .js .html .css .java .c .cpp .go .rs .sh .json .yaml .md</span></div>
+        </div>
+        <input type="file" id="rpFileInput" multiple accept=".py,.js,.html,.css,.json,.xml,.yaml,.yml,.c,.cpp,.h,.java,.go,.rs,.sh,.bat,.md,.txt" style="display:none" onchange="handleRpFileSelect(this.files)">
+      </div>
+      <div id="rpTreeStats" class="rp-tree-stats" style="display:none">
+        <span id="rpStatsInfo">0 파일 / 0 폴더</span>
+        <span id="rpStatsSize">0 KB</span>
+        <button onclick="clearRpProject()" style="background:none;border:none;color:#ef4444;cursor:pointer;font-size:11px;font-weight:600">전체 삭제</button>
+      </div>
+      <div class="rp-tree" id="rpTree" style="display:none"></div>
       <div class="rp-file-list" id="rpFileList"></div>
     </div>
 
@@ -4230,8 +4263,10 @@ async function uploadChatPendingFiles(){
 }
 
 // ===== 오른쪽 코드 어시스턴트 패널 =====
-let rpFiles = [];  // [{name, content, ext, size}]
+let rpFiles = [];  // [{name, path, content, ext, size}]
 let rpSelectedMode = null;
+let rpTreeData = null;  // 트리 구조 데이터
+let rpSelectedFile = null;  // 현재 선택된 파일 인덱스
 const rpModeLabels = {
   explain:'코드 설명', find_bugs:'버그 탐지', improve:'개선 제안',
   tests:'테스트 생성', docstring:'문서화', refactor:'리팩토링'
@@ -4281,6 +4316,149 @@ function toggleRightPanel(){
     if(e.dataTransfer.files.length > 0) handleRpFileSelect(e.dataTransfer.files);
   });
 })();
+
+function switchUploadMode(mode, btn){
+  document.querySelectorAll('.rp-tab').forEach(b=>b.classList.remove('active'));
+  btn.classList.add('active');
+  document.getElementById('rpFolderMode').style.display = mode==='folder' ? 'block' : 'none';
+  document.getElementById('rpFileMode').style.display = mode==='files' ? 'block' : 'none';
+}
+
+function handleRpFolderSelect(files){
+  const codeExts = ['py','js','html','css','json','xml','yaml','yml','c','cpp','h','java','go','rs','sh','bat','md','txt','ts','tsx','jsx','rb','php','swift','kt','toml','cfg','ini','env','gitignore','dockerfile','makefile'];
+  const skipDirs = ['node_modules','.git','__pycache__','.venv','venv','.next','dist','build','.idea','.vscode'];
+  let pending = 0;
+  let totalSize = 0;
+
+  for(const f of files){
+    const path = f.webkitRelativePath || f.name;
+    // 불필요한 디렉토리 스킵
+    const parts = path.split('/');
+    if(parts.some(p => skipDirs.includes(p))) continue;
+
+    const ext = f.name.split('.').pop().toLowerCase();
+    if(!codeExts.includes(ext) && f.name.indexOf('.') !== -1) continue;
+    if(f.size > 500000) continue; // 500KB 이상 파일 스킵
+
+    pending++;
+    totalSize += f.size;
+    const reader = new FileReader();
+    reader.onload = function(e){
+      rpFiles.push({name:f.name, path:path, content:e.target.result, ext:ext, size:f.size});
+      pending--;
+      if(pending === 0){
+        buildRpTree();
+        renderRpTree();
+        updateRpRunBtn();
+        if(!selSkills.includes('code-assistant')){
+          selSkills.push('code-assistant');
+          renderSkills();
+          updateLoaded();
+        }
+      }
+    };
+    reader.readAsText(f);
+  }
+  document.getElementById('rpFolderInput').value = '';
+}
+
+function buildRpTree(){
+  rpTreeData = {name:'root', children:{}, files:[]};
+  rpFiles.forEach((f,idx)=>{
+    const parts = (f.path || f.name).split('/');
+    let node = rpTreeData;
+    // 첫 번째 파트는 루트 폴더명
+    for(let i=0; i<parts.length-1; i++){
+      if(!node.children[parts[i]]){
+        node.children[parts[i]] = {name:parts[i], children:{}, files:[]};
+      }
+      node = node.children[parts[i]];
+    }
+    node.files.push({name:parts[parts.length-1], idx:idx, ext:f.ext, size:f.size});
+  });
+}
+
+function renderRpTree(){
+  const container = document.getElementById('rpTree');
+  const stats = document.getElementById('rpTreeStats');
+  if(rpFiles.length === 0){
+    container.style.display = 'none';
+    stats.style.display = 'none';
+    return;
+  }
+  container.style.display = 'block';
+  stats.style.display = 'flex';
+
+  // 통계
+  const folders = new Set();
+  rpFiles.forEach(f=>{
+    const parts = (f.path||f.name).split('/');
+    for(let i=1;i<parts.length;i++) folders.add(parts.slice(0,i).join('/'));
+  });
+  const totalSize = rpFiles.reduce((s,f)=>s+f.size,0);
+  const sizeStr = totalSize > 1048576 ? (totalSize/1048576).toFixed(1)+'MB' : (totalSize/1024).toFixed(1)+'KB';
+  document.getElementById('rpStatsInfo').textContent = rpFiles.length+' 파일 / '+folders.size+' 폴더';
+  document.getElementById('rpStatsSize').textContent = sizeStr;
+
+  container.innerHTML = renderTreeNode(rpTreeData, true);
+}
+
+function renderTreeNode(node, isRoot){
+  let html = '';
+  // 폴더들
+  const childKeys = Object.keys(node.children).sort();
+  childKeys.forEach(key=>{
+    const child = node.children[key];
+    const fileCount = countFiles(child);
+    html += `<div class="rp-tree-node rp-tree-folder" onclick="toggleTreeFolder(this)">
+      <span class="rp-tree-toggle">▶</span><span class="rp-tree-icon">📁</span>${esc(key)} <span style="color:#bbb;font-weight:400">(${fileCount})</span>
+    </div><div class="rp-tree-children" style="display:none">${renderTreeNode(child, false)}</div>`;
+  });
+  // 파일들
+  node.files.sort((a,b)=>a.name.localeCompare(b.name)).forEach(f=>{
+    const langIcon = {py:'🐍',js:'📜',html:'🌐',css:'🎨',java:'☕',c:'⚙️',cpp:'⚙️',go:'🐹',rs:'🦀',sh:'💻',json:'📋',yaml:'📋',yml:'📋',md:'📄',ts:'📘',tsx:'📘'}[f.ext]||'📄';
+    html += `<div class="rp-tree-node rp-tree-file" data-idx="${f.idx}" onclick="selectTreeFile(${f.idx},this)">
+      <span class="rp-tree-toggle"> </span><span class="rp-tree-icon">${langIcon}</span>${esc(f.name)}
+    </div>`;
+  });
+  return html;
+}
+
+function countFiles(node){
+  let c = node.files.length;
+  Object.values(node.children).forEach(ch=>{ c += countFiles(ch); });
+  return c;
+}
+
+function toggleTreeFolder(el){
+  const children = el.nextElementSibling;
+  const toggle = el.querySelector('.rp-tree-toggle');
+  if(children.style.display === 'none'){
+    children.style.display = 'block';
+    toggle.textContent = '▼';
+  } else {
+    children.style.display = 'none';
+    toggle.textContent = '▶';
+  }
+}
+
+function selectTreeFile(idx, el){
+  document.querySelectorAll('.rp-tree-file').forEach(e=>e.classList.remove('active'));
+  if(el) el.classList.add('active');
+  rpSelectedFile = idx;
+  previewRpFile(idx);
+}
+
+function clearRpProject(){
+  rpFiles = [];
+  rpTreeData = null;
+  rpSelectedFile = null;
+  document.getElementById('rpTree').style.display = 'none';
+  document.getElementById('rpTreeStats').style.display = 'none';
+  document.getElementById('rpFileList').innerHTML = '';
+  updateRpCodePreview();
+  updateRpRunBtn();
+}
 
 function handleRpFileSelect(files){
   const codeExts = ['py','js','html','css','json','xml','yaml','yml','c','cpp','h','java','go','rs','sh','bat','md','txt','ts','tsx','jsx','rb','php','swift','kt'];
@@ -4373,10 +4551,16 @@ async function runCodeAssistant(){
     updateLoaded();
   }
 
+  // 프로젝트 트리 구조 생성
+  let treeText = '';
+  if(rpTreeData){
+    treeText = '=== 프로젝트 구조 ===\n' + buildTreeText(rpTreeData, '') + '\n';
+  }
+
   // 파일 내용을 합쳐서 프롬프트 구성
-  let codeContent = '';
+  let codeContent = treeText;
   rpFiles.forEach(f=>{
-    codeContent += `\n--- 파일: ${f.name} (${f.ext}) ---\n${f.content}\n`;
+    codeContent += `\n--- 파일: ${f.path||f.name} (${f.ext}) ---\n${f.content}\n`;
   });
 
   const prompt = rpModePrompts[rpSelectedMode] + '\n\n' + codeContent;
@@ -4408,6 +4592,76 @@ async function runCodeAssistant(){
     }
   }, 1000);
   setTimeout(()=>clearInterval(checkResult), 120000);
+}
+
+function buildTreeText(node, prefix){
+  let text = '';
+  const childKeys = Object.keys(node.children).sort();
+  const allItems = [...childKeys.map(k=>({type:'dir',name:k,node:node.children[k]})), ...node.files.map(f=>({type:'file',name:f.name}))];
+  allItems.forEach((item,i)=>{
+    const isLast = i === allItems.length - 1;
+    const connector = isLast ? '└── ' : '├── ';
+    const nextPrefix = prefix + (isLast ? '    ' : '│   ');
+    if(item.type === 'dir'){
+      text += prefix + connector + '📁 ' + item.name + '/\n';
+      text += buildTreeText(item.node, nextPrefix);
+    } else {
+      text += prefix + connector + item.name + '\n';
+    }
+  });
+  return text;
+}
+
+// 폴더 드래그앤드롭
+(function(){
+  const drop = document.getElementById('rpFolderDrop');
+  if(!drop) return;
+  drop.addEventListener('dragover', e=>{e.preventDefault();e.stopPropagation();drop.classList.add('dragover');});
+  drop.addEventListener('dragleave', e=>{e.preventDefault();drop.classList.remove('dragover');});
+  drop.addEventListener('drop', e=>{
+    e.preventDefault();e.stopPropagation();drop.classList.remove('dragover');
+    // 폴더 드롭은 DataTransferItem으로 처리
+    if(e.dataTransfer.items){
+      const items = [...e.dataTransfer.items];
+      const entries = items.map(i=>i.webkitGetAsEntry&&i.webkitGetAsEntry()).filter(Boolean);
+      if(entries.length > 0){
+        readEntriesRecursive(entries);
+        return;
+      }
+    }
+    if(e.dataTransfer.files.length > 0) handleRpFolderSelect(e.dataTransfer.files);
+  });
+})();
+
+function readEntriesRecursive(entries){
+  const codeExts = ['py','js','html','css','json','xml','yaml','yml','c','cpp','h','java','go','rs','sh','bat','md','txt','ts','tsx','jsx','rb','php','swift','kt','toml','cfg','ini'];
+  const skipDirs = ['node_modules','.git','__pycache__','.venv','venv','.next','dist','build','.idea','.vscode'];
+  let pending = 0;
+
+  function readEntry(entry, path){
+    if(entry.isFile){
+      const ext = entry.name.split('.').pop().toLowerCase();
+      if(!codeExts.includes(ext)) return;
+      pending++;
+      entry.file(f=>{
+        if(f.size > 500000){ pending--; return; }
+        const reader = new FileReader();
+        reader.onload = function(e){
+          rpFiles.push({name:f.name, path:path+f.name, content:e.target.result, ext:ext, size:f.size});
+          pending--;
+          if(pending===0){ buildRpTree(); renderRpTree(); updateRpRunBtn(); }
+        };
+        reader.readAsText(f);
+      });
+    } else if(entry.isDirectory){
+      if(skipDirs.includes(entry.name)) return;
+      const dirReader = entry.createReader();
+      dirReader.readEntries(entries=>{
+        entries.forEach(e=>readEntry(e, path+entry.name+'/'));
+      });
+    }
+  }
+  entries.forEach(e=>readEntry(e, ''));
 }
 
 // 초기 실행 버튼 상태
