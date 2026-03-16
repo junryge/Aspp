@@ -2237,11 +2237,14 @@ def api_ca_analyze():
     # 프로젝트 컨텍스트: 다른 파일들의 요약도 포함 (전체 이해를 위해)
     other_files = [f for f in code_assistant_files if f["filename"] != filename]
     if other_files:
-        ctx = "\n\n**프로젝트 내 다른 파일:**\n"
-        ctx_limit = 2000 if is_gguf else 8000
+        ctx = "\n\n**프로젝트 내 다른 파일 (전체 코드):**\n"
+        per_file = 2000 if is_gguf else 15000
+        ctx_limit = 6000 if is_gguf else 60000
         ctx_used = 0
         for of in other_files:
-            snippet = of["content"][:500]
+            snippet = of["content"][:per_file]
+            if len(of["content"]) > per_file:
+                snippet += f"\n... (총 {len(of['content'])}자 중 {per_file}자 표시)"
             entry = f"\n`{of['filename']}` ({of['language']}, {of['size']}B):\n```{of['language']}\n{snippet}\n```\n"
             if ctx_used + len(entry) > ctx_limit:
                 ctx += f"\n... 외 {len(other_files) - other_files.index(of)}개 파일 생략\n"
@@ -2435,6 +2438,25 @@ def api_chat():
 
         system_prompt += f"=== 업로드된 CSV 데이터 ===\n{csv_info}\n\n데이터 미리보기:\n{csv_rows_text}\n\n"
         system_prompt += "사용자가 이 데이터에 대해 질문하면 위 CSV 데이터를 기반으로 분석해주세요.\n\n"
+
+    # Code Assistant 모드: 업로드된 코드 파일 전체를 컨텍스트에 포함
+    ca_mode = data.get("ca_mode", False)
+    if ca_mode and code_assistant_files:
+        system_prompt += f"\n=== 프로젝트 코드 ({len(code_assistant_files)}개 파일) ===\n"
+        system_prompt += "아래는 사용자가 업로드한 프로젝트의 전체 코드입니다. 모든 파일을 이해한 상태로 답변하세요.\n\n"
+        for cf in code_assistant_files:
+            code = cf["content"]
+            if is_gguf:
+                code = code[:3000]
+                if len(cf["content"]) > 3000:
+                    code += f"\n... (총 {len(cf['content'])}자 중 3000자 표시)"
+            else:
+                limit = 30000
+                code = code[:limit]
+                if len(cf["content"]) > limit:
+                    code += f"\n... (총 {len(cf['content'])}자 중 {limit}자 표시)"
+            system_prompt += f"### 파일: `{cf['filename']}` ({cf['language']}, {cf['size']}B)\n```{cf['language']}\n{code}\n```\n\n"
+        system_prompt += "위 모든 파일을 기반으로 사용자의 질문에 답변하세요. 파일 간 의존성, import 관계, 전체 아키텍처를 고려하세요.\n\n"
 
     # 업로드된 파일 내용 주입
     if uploaded_files:
@@ -2988,9 +3010,9 @@ body.rp-open .ca-mode-badge{display:flex!important}
     <div class="chat-box-fixed-inner">
       <div id="caModeBadge" class="ca-mode-badge" style="display:none">
         <span>🔍 Code Assistant 모드</span>
-        <span style="font-size:10px;color:#5eead4">업로드된 코드 기반으로 답변합니다</span>
+        <span id="caFileCount" style="font-size:10px;color:#5eead4">업로드된 코드 기반으로 답변합니다</span>
       </div>
-      <!-- 첨부 파일 미리보기 -->
+      <!-- 첨부 파일 미리보기 (일반 파일 + 코드 파일) -->
       <div id="attachPreview" style="display:none"></div>
       <textarea class="chat-input" id="input" placeholder="질문을 하거나 수행하려는 분석을 설명하세요... (파일을 여기에 끌어놓기 가능)" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();handleSendStop()}" oninput="this.style.height='auto';this.style.height=this.scrollHeight+'px'" ondragover="event.preventDefault();this.classList.add('dragover-input')" ondragleave="this.classList.remove('dragover-input')" ondrop="event.preventDefault();this.classList.remove('dragover-input');handleUnifiedDrop(event)"></textarea>
       <div class="chat-footer">
@@ -3397,6 +3419,7 @@ async function send(){
         writing_style:document.getElementById('writingStyle').value.trim(),
         system_prompt:document.getElementById('systemPromptInput').value.trim(),
         max_tokens:maxTokens,
+        ca_mode: isCAMode,
       })
     });
     const data=await resp.json();
@@ -4291,9 +4314,9 @@ function toggleRightPanel(){
   const isOpen = panel.classList.toggle('open');
   document.body.classList.toggle('rp-open', isOpen);
   btn.classList.toggle('active', isOpen);
-  document.getElementById('caModeBadge').style.display = isOpen?'':'none';
   localStorage.setItem('domos_rp_open', isOpen);
   if(isOpen) rpRenderSkills();
+  updateCABadge();
 }
 
 // 폴더 드롭: DataTransferItem API로 디렉토리 재귀 탐색
@@ -4446,6 +4469,22 @@ function rpRenderTree(){
   }
 
   content.innerHTML=renderNode(tree,'',0);
+
+  // 채팅 입력창에 Code Assistant 파일 상태 표시
+  updateCABadge();
+}
+
+function updateCABadge(){
+  const badge = document.getElementById('caModeBadge');
+  const countEl = document.getElementById('caFileCount');
+  const isOpen = document.body.classList.contains('rp-open');
+  if(isOpen && caFiles.length > 0){
+    badge.style.display = '';
+    const langs = [...new Set(caFiles.map(f=>f.language))].join(', ');
+    countEl.textContent = `${caFiles.length}개 파일 로드됨 (${langs}) — 모든 파일을 컨텍스트로 분석합니다`;
+  } else {
+    badge.style.display = 'none';
+  }
 }
 
 function rpToggleDir(dirPath){
@@ -4541,12 +4580,11 @@ async function rpAction(action){
 }
 
 function rpSendToChat(){
-  if(!caActiveFile){alert('먼저 코드 파일을 업로드하세요.');return}
-  const f = caFiles.find(x=>x.filename===caActiveFile);
-  if(!f) return;
-  const preview = f.content.length>3000?f.content.substring(0,3000)+'...':f.content;
+  if(caFiles.length===0){alert('먼저 코드 파일을 업로드하세요.');return}
   const input = document.getElementById('input');
-  input.value=`다음 코드를 참고해주세요:\n\n파일: ${f.filename}\n\`\`\`${f.language}\n${preview}\n\`\`\`\n\n`;
+  // Code Assistant 패널이 열려있으면 자동으로 ca_mode가 활성화됨
+  // 모든 파일이 시스템 프롬프트에 포함되므로, 간단한 안내만 추가
+  input.value=`프로젝트 코드(${caFiles.length}개 파일)를 참고하여 답변해주세요.\n\n`;
   input.focus();
   input.style.height='auto';
   input.style.height=input.scrollHeight+'px';
