@@ -2869,6 +2869,11 @@ body.rp-collapsed .chat-box-fixed{right:0}
         <span id="rpStatsSize">0 KB</span>
         <button onclick="clearRpProject()" style="background:none;border:none;color:#ef4444;cursor:pointer;font-size:11px;font-weight:600">전체 삭제</button>
       </div>
+      <div id="rpLangDetect" style="display:none;padding:6px 10px;background:#f0f0ff;border-radius:6px;margin-bottom:6px;font-size:11px;">
+        <div style="font-weight:600;color:#4f46e5;margin-bottom:3px;">🔍 감지된 언어/도구</div>
+        <div id="rpLangTags" style="display:flex;flex-wrap:wrap;gap:4px;"></div>
+        <div id="rpAutoSkills" style="margin-top:4px;color:#6b7280;font-size:10px;"></div>
+      </div>
       <div class="rp-select-bar" id="rpSelectBar" style="display:none">
         <button class="rp-select-btn" onclick="rpCheckAll(true)">전체 선택</button>
         <button class="rp-select-btn" onclick="rpCheckAll(false)">전체 해제</button>
@@ -4291,6 +4296,91 @@ const rpModePrompts = {
   refactor:'[REFACTOR] 이 코드를 리팩토링해주세요. SOLID 원칙, 디자인 패턴, 코드 구조, 중복 제거, 네이밍을 개선하고 전후 코드를 비교해주세요.'
 };
 
+// 코드 어시스턴트 전용 언어/도구 감지 매핑
+const rpExtLangMap = {
+  'py':'Python','js':'JavaScript','ts':'TypeScript','tsx':'TypeScript(React)','jsx':'JavaScript(React)',
+  'java':'Java','c':'C','cpp':'C++','h':'C/C++ Header','cs':'C#',
+  'go':'Go','rs':'Rust','rb':'Ruby','php':'PHP','swift':'Swift','kt':'Kotlin',
+  'html':'HTML','css':'CSS','json':'JSON','xml':'XML','yaml':'YAML','yml':'YAML',
+  'sh':'Shell','bat':'Batch','sql':'SQL','r':'R','scala':'Scala','dart':'Dart',
+  'md':'Markdown','dockerfile':'Docker','makefile':'Make','toml':'TOML','cfg':'Config','ini':'Config'
+};
+const rpExtSkillMap = {
+  'py':['agent-python-pro'], 'js':['agent-javascript-pro','agent-nextjs-developer'],
+  'ts':['agent-javascript-pro','agent-nextjs-developer'], 'tsx':['agent-javascript-pro','agent-nextjs-developer'],
+  'jsx':['agent-javascript-pro','agent-nextjs-developer'],
+  'java':['code-assistant'], 'c':['code-assistant'], 'cpp':['code-assistant'], 'cs':['code-assistant'],
+  'go':['code-assistant'], 'rs':['code-assistant'], 'rb':['code-assistant'], 'php':['code-assistant'],
+  'swift':['code-assistant'], 'kt':['code-assistant'], 'html':['web-artifacts-builder'],
+  'css':['web-artifacts-builder'], 'sql':['code-assistant'], 'r':['code-assistant'],
+  'dart':['code-assistant'], 'scala':['code-assistant']
+};
+const rpLangColors = {
+  'Python':'#3776ab','JavaScript':'#f7df1e','TypeScript':'#3178c6','TypeScript(React)':'#3178c6',
+  'JavaScript(React)':'#61dafb','Java':'#b07219','C':'#555555','C++':'#f34b7d','C#':'#178600',
+  'Go':'#00add8','Rust':'#dea584','Ruby':'#701516','PHP':'#4f5d95','Swift':'#f05138','Kotlin':'#a97bff',
+  'HTML':'#e34c26','CSS':'#563d7c','Shell':'#89e051','SQL':'#e38c00','R':'#198ce7','Dart':'#00b4ab'
+};
+
+function detectRpLanguages(){
+  const langCount = {};
+  const detectedSkills = new Set();
+
+  rpFiles.forEach(f=>{
+    const lang = rpExtLangMap[f.ext];
+    if(lang){
+      langCount[lang] = (langCount[lang]||0) + 1;
+    }
+    const skills = rpExtSkillMap[f.ext];
+    if(skills) skills.forEach(s=>detectedSkills.add(s));
+  });
+
+  const panel = document.getElementById('rpLangDetect');
+  const tagsEl = document.getElementById('rpLangTags');
+  const autoEl = document.getElementById('rpAutoSkills');
+
+  if(rpFiles.length === 0 || Object.keys(langCount).length === 0){
+    panel.style.display = 'none';
+    return;
+  }
+  panel.style.display = 'block';
+
+  // 감지된 언어 태그 렌더링 (파일 수 기준 내림차순)
+  const sorted = Object.entries(langCount).sort((a,b)=>b[1]-a[1]);
+  tagsEl.innerHTML = sorted.map(([lang, cnt])=>{
+    const color = rpLangColors[lang] || '#6b7280';
+    return `<span style="display:inline-flex;align-items:center;gap:3px;padding:2px 7px;border-radius:10px;background:${color}22;border:1px solid ${color}55;color:${color};font-weight:600;font-size:10px;">${lang} <span style="font-weight:400;color:#888">${cnt}</span></span>`;
+  }).join('');
+
+  // 자동 스킬 로드
+  const newSkills = [];
+  detectedSkills.forEach(skill=>{
+    if(!selSkills.includes(skill)){
+      selSkills.push(skill);
+      newSkills.push(skill);
+    }
+  });
+  // code-assistant 항상 포함
+  if(!selSkills.includes('code-assistant')){
+    selSkills.push('code-assistant');
+    newSkills.push('code-assistant');
+  }
+
+  if(newSkills.length > 0){
+    renderSkills();
+    updateLoaded();
+  }
+
+  // 주 언어 판별
+  const primaryLang = sorted[0][0];
+  const skillNames = [...detectedSkills].filter(s=>s!=='code-assistant');
+  if(skillNames.length > 0){
+    autoEl.textContent = '✅ 자동 로드: ' + skillNames.join(', ') + ' + code-assistant';
+  } else {
+    autoEl.textContent = '✅ 주 언어: ' + primaryLang + ' | code-assistant 스킬 적용';
+  }
+}
+
 function toggleRightPanel(){
   const rp = document.getElementById('rightPanel');
   const btn = document.getElementById('rightPanelToggle');
@@ -4361,11 +4451,7 @@ function handleRpFolderSelect(files){
         buildRpTree();
         renderRpTree();
         updateRpRunBtn();
-        if(!selSkills.includes('code-assistant')){
-          selSkills.push('code-assistant');
-          renderSkills();
-          updateLoaded();
-        }
+        detectRpLanguages();
       }
     };
     reader.readAsText(f);
@@ -4532,6 +4618,7 @@ function clearRpProject(){
   rpCheckedFiles.clear();
   document.getElementById('rpTree').style.display = 'none';
   document.getElementById('rpTreeStats').style.display = 'none';
+  document.getElementById('rpLangDetect').style.display = 'none';
   document.getElementById('rpSelectBar').style.display = 'none';
   document.getElementById('rpFileList').innerHTML = '';
   updateRpCodePreview();
@@ -4549,12 +4636,7 @@ function handleRpFileSelect(files){
       renderRpFiles();
       updateRpCodePreview();
       updateRpRunBtn();
-      // 자동으로 code-assistant 스킬 로드
-      if(!selSkills.includes('code-assistant')){
-        selSkills.push('code-assistant');
-        renderSkills();
-        updateLoaded();
-      }
+      detectRpLanguages();
     };
     reader.readAsText(f);
   }
@@ -4644,8 +4726,17 @@ async function runCodeAssistant(){
     treeText += `\n(전체 ${rpFiles.length}개 중 ${selectedFiles.length}개 파일 선택됨)\n`;
   }
 
+  // 감지된 언어 정보
+  const langCount = {};
+  selectedFiles.forEach(f=>{
+    const lang = rpExtLangMap[f.ext];
+    if(lang) langCount[lang] = (langCount[lang]||0) + 1;
+  });
+  const langInfo = Object.entries(langCount).sort((a,b)=>b[1]-a[1]).map(([l,c])=>`${l}(${c})`).join(', ');
+
   // 선택된 파일 내용만 합쳐서 프롬프트 구성
   let codeContent = treeText;
+  if(langInfo) codeContent += `\n=== 감지된 언어: ${langInfo} ===\n`;
   selectedFiles.forEach(f=>{
     codeContent += `\n--- 파일: ${f.path||f.name} (${f.ext}) ---\n${f.content}\n`;
   });
@@ -4736,7 +4827,7 @@ function readEntriesRecursive(entries){
         reader.onload = function(e){
           rpFiles.push({name:f.name, path:path+f.name, content:e.target.result, ext:ext, size:f.size});
           pending--;
-          if(pending===0){ buildRpTree(); renderRpTree(); updateRpRunBtn(); }
+          if(pending===0){ buildRpTree(); renderRpTree(); updateRpRunBtn(); detectRpLanguages(); }
         };
         reader.readAsText(f);
       });
