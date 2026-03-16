@@ -2441,7 +2441,7 @@ body.sb-collapsed .chat-box-fixed{left:48px}
 .content-inner{max-width:800px;margin:0 auto}
 .section-label{font-size:13px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:#555;margin-bottom:10px}
 /* Chat - Fixed Bottom */
-.chat-box-fixed{position:fixed;bottom:0;left:250px;right:0;background:#fff;border-top:2px solid #e5e3de;padding:6px 32px;z-index:100;box-shadow:0 -2px 10px rgba(0,0,0,.05);transition:left .2s ease}
+.chat-box-fixed{position:fixed;bottom:0;left:250px;right:340px;background:#fff;border-top:2px solid #e5e3de;padding:6px 32px;z-index:100;box-shadow:0 -2px 10px rgba(0,0,0,.05);transition:left .2s ease,right .2s ease}
 .chat-box-fixed:focus-within{border-top-color:#6366f1}
 .chat-box-fixed-inner{max-width:800px;margin:0 auto}
 .chat-input{width:100%;border:none;outline:none;font-size:13px;resize:none;min-height:20px;max-height:100px;font-family:inherit;line-height:1.4}
@@ -2639,7 +2639,40 @@ body.sb-collapsed .chat-box-fixed{left:48px}
 .think-box[open] summary{border-bottom:1px solid #d4c8f0}
 .think-content{padding:10px 14px;font-size:12px;color:#555;line-height:1.6;max-height:400px;overflow-y:auto}
 pre{position:relative}
-@media(max-width:768px){.sidebar{display:none}.sidebar-toggle{display:none}.chat-box-fixed{left:0}.style-row{flex-direction:column}.msg.user{margin-left:16px}.msg.assistant{margin-right:16px}.msg{font-size:12px}}
+/* ===== 오른쪽 코드 어시스턴트 패널 ===== */
+.right-panel{width:340px;background:#fff;border-left:1px solid #e5e3de;display:flex;flex-direction:column;overflow:hidden;transition:width .2s ease;flex-shrink:0}
+.right-panel.collapsed{width:0;border-left:none;overflow:hidden}
+.right-panel-toggle{position:fixed;top:12px;right:340px;width:28px;height:28px;border-radius:6px 0 0 6px;border:1px solid #e5e3de;border-right:none;background:#fff;cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:12px;color:#999;z-index:200;transition:right .2s ease}
+.right-panel-toggle:hover{background:#eef2ff;color:#6366f1}
+body.rp-collapsed .right-panel-toggle{right:0}
+body.rp-collapsed .chat-box-fixed{right:0}
+.rp-header{padding:14px 16px;border-bottom:1px solid #e5e3de;display:flex;align-items:center;justify-content:space-between}
+.rp-header h3{margin:0;font-size:15px;font-weight:700;color:#1a1a1a}
+.rp-body{flex:1;overflow-y:auto;padding:12px 14px}
+.rp-section{margin-bottom:16px}
+.rp-section-title{font-size:11px;font-weight:600;color:#999;text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px}
+.rp-file-drop{border:2px dashed #d1d5db;border-radius:10px;padding:24px 16px;text-align:center;cursor:pointer;transition:all .15s;background:#fafaf9;margin-bottom:12px}
+.rp-file-drop:hover,.rp-file-drop.dragover{border-color:#6366f1;background:#eef2ff}
+.rp-file-drop-icon{font-size:28px;margin-bottom:6px}
+.rp-file-drop-text{font-size:12px;color:#888}
+.rp-file-list{max-height:120px;overflow-y:auto;margin-bottom:8px}
+.rp-file-item{display:flex;align-items:center;gap:6px;padding:5px 8px;background:#f8f7f4;border-radius:6px;margin-bottom:4px;font-size:12px}
+.rp-file-item .fname{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#333}
+.rp-file-item .fsize{color:#aaa;font-size:11px;flex-shrink:0}
+.rp-file-item .fremove{background:none;border:none;cursor:pointer;color:#ef4444;font-size:12px;padding:0 2px}
+.rp-action-grid{display:grid;grid-template-columns:1fr 1fr;gap:6px}
+.rp-action-btn{padding:10px 8px;border-radius:8px;border:1px solid #e5e3de;background:#fff;cursor:pointer;text-align:center;transition:all .15s;font-size:12px}
+.rp-action-btn:hover{border-color:#6366f1;background:#eef2ff}
+.rp-action-btn.active{border-color:#6366f1;background:#6366f1;color:#fff}
+.rp-action-btn .rp-btn-icon{font-size:18px;display:block;margin-bottom:3px}
+.rp-action-btn .rp-btn-label{font-weight:600}
+.rp-run-btn{width:100%;padding:10px;border-radius:8px;border:none;background:#6366f1;color:#fff;font-size:14px;font-weight:700;cursor:pointer;margin-top:10px;transition:background .15s}
+.rp-run-btn:hover{background:#4f46e5}
+.rp-run-btn:disabled{background:#d1d5db;cursor:not-allowed}
+.rp-code-preview{background:#1e1e2e;color:#cdd6f4;border-radius:8px;padding:12px;font-family:'Fira Code',monospace;font-size:11px;max-height:200px;overflow:auto;margin-top:8px;white-space:pre-wrap;word-break:break-all;line-height:1.5}
+.rp-result{margin-top:12px;padding:12px;background:#f8f7f4;border-radius:8px;font-size:12px;line-height:1.6;max-height:300px;overflow-y:auto}
+.rp-skill-badge{display:inline-block;padding:2px 8px;border-radius:10px;font-size:10px;font-weight:600;background:#eef2ff;color:#6366f1;margin-left:6px}
+@media(max-width:768px){.sidebar{display:none}.sidebar-toggle{display:none}.right-panel{display:none}.right-panel-toggle{display:none}.chat-box-fixed{left:0;right:0}.style-row{flex-direction:column}.msg.user{margin-left:16px}.msg.assistant{margin-right:16px}.msg{font-size:12px}}
 </style>
 </head>
 <body>
@@ -2784,6 +2817,64 @@ pre{position:relative}
     </div>
   </div>
 </div>
+
+<!-- 오른쪽 코드 어시스턴트 패널 -->
+<div class="right-panel" id="rightPanel">
+  <div class="rp-header">
+    <h3>🖥️ Code Assistant<span class="rp-skill-badge">code-assistant</span></h3>
+  </div>
+  <div class="rp-body">
+    <div class="rp-section">
+      <div class="rp-section-title">코드 파일</div>
+      <div class="rp-file-drop" id="rpFileDrop" onclick="document.getElementById('rpFileInput').click()">
+        <div class="rp-file-drop-icon">📂</div>
+        <div class="rp-file-drop-text">클릭 또는 드래그하여 코드 파일 업로드<br><span style="font-size:10px;color:#bbb">.py .js .html .css .java .c .cpp .go .rs .sh .json .yaml .md</span></div>
+      </div>
+      <input type="file" id="rpFileInput" multiple accept=".py,.js,.html,.css,.json,.xml,.yaml,.yml,.c,.cpp,.h,.java,.go,.rs,.sh,.bat,.md,.txt" style="display:none" onchange="handleRpFileSelect(this.files)">
+      <div class="rp-file-list" id="rpFileList"></div>
+    </div>
+
+    <div class="rp-section">
+      <div class="rp-section-title">분석 모드 선택</div>
+      <div class="rp-action-grid">
+        <button class="rp-action-btn" data-mode="explain" onclick="selectRpMode(this)">
+          <span class="rp-btn-icon">📖</span>
+          <span class="rp-btn-label">코드 설명</span>
+        </button>
+        <button class="rp-action-btn" data-mode="find_bugs" onclick="selectRpMode(this)">
+          <span class="rp-btn-icon">🐛</span>
+          <span class="rp-btn-label">버그 탐지</span>
+        </button>
+        <button class="rp-action-btn" data-mode="improve" onclick="selectRpMode(this)">
+          <span class="rp-btn-icon">✨</span>
+          <span class="rp-btn-label">개선 제안</span>
+        </button>
+        <button class="rp-action-btn" data-mode="tests" onclick="selectRpMode(this)">
+          <span class="rp-btn-icon">🧪</span>
+          <span class="rp-btn-label">테스트 생성</span>
+        </button>
+        <button class="rp-action-btn" data-mode="docstring" onclick="selectRpMode(this)">
+          <span class="rp-btn-icon">📝</span>
+          <span class="rp-btn-label">문서화</span>
+        </button>
+        <button class="rp-action-btn" data-mode="refactor" onclick="selectRpMode(this)">
+          <span class="rp-btn-icon">🔧</span>
+          <span class="rp-btn-label">리팩토링</span>
+        </button>
+      </div>
+    </div>
+
+    <div class="rp-section">
+      <div class="rp-section-title">코드 미리보기</div>
+      <div class="rp-code-preview" id="rpCodePreview" style="display:none"></div>
+      <div id="rpNoFile" style="font-size:12px;color:#bbb;text-align:center;padding:16px">코드 파일을 업로드하면 미리보기가 표시됩니다</div>
+    </div>
+
+    <button class="rp-run-btn" id="rpRunBtn" onclick="runCodeAssistant()" disabled>▶ 분석 실행</button>
+    <div class="rp-result" id="rpResult" style="display:none"></div>
+  </div>
+</div>
+<button class="right-panel-toggle" id="rightPanelToggle" onclick="toggleRightPanel()">▶</button>
 
 <!-- 스킬 상세 패널 -->
 <div id="skillDetailOverlay" class="skill-detail-overlay" style="display:none" onclick="if(event.target===this)closeSkillDetail()">
@@ -4137,6 +4228,190 @@ async function uploadChatPendingFiles(){
   renderFileList();
   return results;
 }
+
+// ===== 오른쪽 코드 어시스턴트 패널 =====
+let rpFiles = [];  // [{name, content, ext, size}]
+let rpSelectedMode = null;
+const rpModeLabels = {
+  explain:'코드 설명', find_bugs:'버그 탐지', improve:'개선 제안',
+  tests:'테스트 생성', docstring:'문서화', refactor:'리팩토링'
+};
+const rpModePrompts = {
+  explain:'[EXPLAIN] 이 코드를 분석하고 상세히 설명해주세요. 전체 목적, 구조, 실행 흐름, 핵심 알고리즘, 의존성을 한국어로 설명해주세요.',
+  find_bugs:'[FIND_BUGS] 이 코드에서 버그를 찾아주세요. 정적 분석, 로직 오류, 보안 취약점, 동시성 문제, 에러 처리를 검토하고 심각도와 수정 방안을 제시해주세요.',
+  improve:'[IMPROVE] 이 코드의 개선점을 제안해주세요. 가독성, 성능, 베스트 프랙티스, 유지보수성, 테스트 용이성 관점에서 분석해주세요.',
+  tests:'[TESTS] 이 코드에 대한 테스트 코드를 생성해주세요. 정상 케이스, 엣지 케이스, 에러 케이스를 포함하고 즉시 실행 가능한 코드를 작성해주세요.',
+  docstring:'[DOCSTRING] 이 코드에 독스트링과 문서를 추가해주세요. 함수, 클래스, 모듈 단위로 Google/NumPy 스타일의 한국어 독스트링을 작성해주세요.',
+  refactor:'[REFACTOR] 이 코드를 리팩토링해주세요. SOLID 원칙, 디자인 패턴, 코드 구조, 중복 제거, 네이밍을 개선하고 전후 코드를 비교해주세요.'
+};
+
+function toggleRightPanel(){
+  const rp = document.getElementById('rightPanel');
+  const btn = document.getElementById('rightPanelToggle');
+  rp.classList.toggle('collapsed');
+  document.body.classList.toggle('rp-collapsed');
+  if(rp.classList.contains('collapsed')){
+    btn.textContent = '◀';
+    document.querySelector('.chat-box-fixed').style.right = '0';
+  } else {
+    btn.textContent = '▶';
+    document.querySelector('.chat-box-fixed').style.right = '340px';
+  }
+  localStorage.setItem('demos_rp_collapsed', rp.classList.contains('collapsed'));
+}
+
+// 초기 상태 복원
+(function(){
+  const saved = localStorage.getItem('demos_rp_collapsed');
+  if(saved === 'true'){
+    const rp = document.getElementById('rightPanel');
+    const btn = document.getElementById('rightPanelToggle');
+    if(rp){ rp.classList.add('collapsed'); document.body.classList.add('rp-collapsed'); btn.textContent='◀'; }
+  }
+})();
+
+// 드래그앤드롭
+(function(){
+  const drop = document.getElementById('rpFileDrop');
+  if(!drop) return;
+  drop.addEventListener('dragover', e=>{e.preventDefault();e.stopPropagation();drop.classList.add('dragover');});
+  drop.addEventListener('dragleave', e=>{e.preventDefault();drop.classList.remove('dragover');});
+  drop.addEventListener('drop', e=>{
+    e.preventDefault();e.stopPropagation();drop.classList.remove('dragover');
+    if(e.dataTransfer.files.length > 0) handleRpFileSelect(e.dataTransfer.files);
+  });
+})();
+
+function handleRpFileSelect(files){
+  const codeExts = ['py','js','html','css','json','xml','yaml','yml','c','cpp','h','java','go','rs','sh','bat','md','txt','ts','tsx','jsx','rb','php','swift','kt'];
+  for(const f of files){
+    const ext = f.name.split('.').pop().toLowerCase();
+    if(!codeExts.includes(ext)){ alert(f.name+': 지원하지 않는 파일 형식입니다.'); continue; }
+    const reader = new FileReader();
+    reader.onload = function(e){
+      rpFiles.push({name:f.name, content:e.target.result, ext:ext, size:f.size});
+      renderRpFiles();
+      updateRpCodePreview();
+      updateRpRunBtn();
+      // 자동으로 code-assistant 스킬 로드
+      if(!selSkills.includes('code-assistant')){
+        selSkills.push('code-assistant');
+        renderSkills();
+        updateLoaded();
+      }
+    };
+    reader.readAsText(f);
+  }
+  document.getElementById('rpFileInput').value = '';
+}
+
+function renderRpFiles(){
+  const list = document.getElementById('rpFileList');
+  if(rpFiles.length === 0){ list.innerHTML = ''; return; }
+  list.innerHTML = rpFiles.map((f,i)=>{
+    const sizeStr = f.size > 1048576 ? (f.size/1048576).toFixed(1)+'MB' : (f.size/1024).toFixed(1)+'KB';
+    const langIcon = {py:'🐍',js:'📜',html:'🌐',css:'🎨',java:'☕',c:'⚙️',cpp:'⚙️',go:'🐹',rs:'🦀',sh:'💻',json:'📋',yaml:'📋',yml:'📋',md:'📄',ts:'📘',tsx:'📘'}[f.ext] || '📄';
+    return `<div class="rp-file-item" onclick="previewRpFile(${i})" style="cursor:pointer">
+      <span>${langIcon}</span><span class="fname">${esc(f.name)}</span><span class="fsize">${sizeStr}</span>
+      <button class="fremove" onclick="event.stopPropagation();removeRpFile(${i})">✕</button>
+    </div>`;
+  }).join('');
+}
+
+function removeRpFile(idx){
+  rpFiles.splice(idx, 1);
+  renderRpFiles();
+  updateRpCodePreview();
+  updateRpRunBtn();
+}
+
+function previewRpFile(idx){
+  const f = rpFiles[idx];
+  const preview = document.getElementById('rpCodePreview');
+  const noFile = document.getElementById('rpNoFile');
+  preview.style.display = 'block';
+  noFile.style.display = 'none';
+  const lines = f.content.split('\n').slice(0, 50);
+  preview.textContent = lines.join('\n') + (f.content.split('\n').length > 50 ? '\n... (더 많은 코드)' : '');
+}
+
+function updateRpCodePreview(){
+  if(rpFiles.length === 0){
+    document.getElementById('rpCodePreview').style.display = 'none';
+    document.getElementById('rpNoFile').style.display = 'block';
+  } else {
+    previewRpFile(rpFiles.length - 1);
+  }
+}
+
+function selectRpMode(btn){
+  document.querySelectorAll('.rp-action-btn').forEach(b=>b.classList.remove('active'));
+  btn.classList.add('active');
+  rpSelectedMode = btn.dataset.mode;
+  updateRpRunBtn();
+}
+
+function updateRpRunBtn(){
+  const btn = document.getElementById('rpRunBtn');
+  if(rpFiles.length > 0 && rpSelectedMode){
+    btn.disabled = false;
+    btn.textContent = '▶ ' + rpModeLabels[rpSelectedMode] + ' 실행';
+  } else {
+    btn.disabled = true;
+    btn.textContent = rpFiles.length === 0 ? '▶ 코드 파일을 업로드하세요' : '▶ 분석 모드를 선택하세요';
+  }
+}
+
+async function runCodeAssistant(){
+  if(rpFiles.length === 0 || !rpSelectedMode) return;
+  if(!selEnv){ alert('먼저 LLM 환경을 선택해주세요.'); return; }
+
+  // code-assistant 스킬 자동 로드
+  if(!selSkills.includes('code-assistant')){
+    selSkills.push('code-assistant');
+    renderSkills();
+    updateLoaded();
+  }
+
+  // 파일 내용을 합쳐서 프롬프트 구성
+  let codeContent = '';
+  rpFiles.forEach(f=>{
+    codeContent += `\n--- 파일: ${f.name} (${f.ext}) ---\n${f.content}\n`;
+  });
+
+  const prompt = rpModePrompts[rpSelectedMode] + '\n\n' + codeContent;
+
+  // 채팅 입력창에 주입 후 전송
+  const input = document.getElementById('input');
+  input.value = prompt;
+  input.style.height = 'auto';
+  input.style.height = input.scrollHeight + 'px';
+
+  // 결과 영역 초기화
+  const result = document.getElementById('rpResult');
+  result.style.display = 'block';
+  result.innerHTML = '<span style="color:#6366f1">⏳ 분석 중...</span>';
+
+  // 전송
+  handleSendStop();
+
+  // 결과 추적 (마지막 메시지가 assistant일 때 업데이트)
+  const checkResult = setInterval(()=>{
+    const msgs = document.querySelectorAll('.msg.assistant');
+    if(msgs.length > 0){
+      const lastMsg = msgs[msgs.length - 1];
+      const txt = lastMsg.textContent.trim();
+      if(txt && txt !== '⏳' && txt.length > 20){
+        result.innerHTML = '<strong>✅ 분석 완료</strong> - 아래 채팅에서 결과를 확인하세요.';
+        clearInterval(checkResult);
+      }
+    }
+  }, 1000);
+  setTimeout(()=>clearInterval(checkResult), 120000);
+}
+
+// 초기 실행 버튼 상태
+updateRpRunBtn();
 </script>
 </body>
 </html>
