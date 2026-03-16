@@ -1,5 +1,5 @@
 """
-Demos(민중) 프로젝트 Alpha 0.8 - Flask 웹앱 (고도화 버전)
+Demos(민중) 프로젝트 Alpha 0.8 - Flask 웹앱 (고도화 버전)ㅁ
 =====================================================
 cla-main + zircote/.claude 통합: 355개 스킬 (과학 174 + 개발도구 52 + 에이전트 117 + 가이드 12)
 
@@ -76,7 +76,7 @@ ENV_CONFIG = {
         "model": "gpt-oss-120b",
         "name": "COMMON (120B)"
     },
-    # gguf-local은 앱 시작 시 자동 감지되면 추가됨
+    # gguf-N 환경은 앱 시작 시 .gguf 파일 자동 감지되면 추가됨
 }
 
 
@@ -171,7 +171,6 @@ SKILL_DESC_KO = {
     "hypogenic":"자동 가설 생성","dhdna-profiler":"텍스트 저자 분석",
     "offer-k-dense-web":"K-Dense Web 안내","denario":"AI 연구 자동화",
     "drawio-diagram":"Draw.io 다이어그램 생성/저장",
-    "code-assistant":"코드 분석 전문 어시스턴트 (설명/버그/개선/테스트/문서화/리팩토링)",
     "zarr-python":"청크 N-D 배열 저장",
     "pyopenms":"질량분석 데이터 처리",
     "scikit-survival":"생존 분석 ML",
@@ -1001,7 +1000,7 @@ SKILL_KEYWORDS = {
     "latchbio-integration": ['LatchBio', '서버리스', '워크플로우', 'bioinformatics pipeline'],
     "latex-posters": ['LaTeX포스터', '학회포스터', 'poster', '연구포스터'],
     "lead-research-assistant": ['리드리서치', '연구보조', 'research assistant'],
-    "drawio-diagram": ['drawio', 'draw.io', '다이어그램', '플로우차트', '아키텍처', '구조도', 'UML', '클래스다이어그램', '시퀀스다이어그램', 'ERD', '흐름도'],
+    "drawio-diagram": ['drawio', 'draw.io', '드로우IO', '드로우io', '드로우아이오', 'DrawIO', '다이어그램', '플로우차트', '아키텍처', '구조도', 'UML', '클래스다이어그램', '시퀀스다이어그램', 'ERD', '흐름도', '시스템구조', '데이터흐름도', 'DFD', '배치도'],
     "markdown-mermaid-writing": ['마크다운', 'Mermaid', '다이어그램', 'flowchart', '시퀀스'],
     "market-research-reports": ['시장조사', 'market research', '산업분석', '보고서'],
     "markitdown": ['마크다운변환', '파일변환', '문서변환', 'markdown conversion'],
@@ -1134,13 +1133,53 @@ def context_aware_skill_select(query, history, max_skills=7):
         for sid in ["exploratory-data-analysis", "matplotlib", "statistical-analysis"]:
             combined[sid] = combined.get(sid, 0) + 3
             boosted.add(sid)
+    # Draw.io / 다이어그램 감지 (코드 작성보다 우선)
+    if any(kw in q for kw in ["drawio", "draw.io", "드로우io", "드로우IO", "드로우아이오", "다이어그램", "구조도", "흐름도", "아키텍처도", "배치도", "dfd"]):
+        combined["drawio-diagram"] = combined.get("drawio-diagram", 0) + 15
+        boosted.add("drawio-diagram")
     # 코드 작성 감지
     if any(kw in q for kw in ["코드", "함수", "클래스", "구현", "작성", "만들어", "코딩"]):
         for sid in ["agent-python-pro", "debugging"]:
             combined[sid] = combined.get(sid, 0) + 3
             boosted.add(sid)
 
-    # 5단계: 정렬 후 반환 (현재 질문 직접 매칭 우선)
+    # 5단계: 업로드 파일 기반 부스트
+    # 파일 확장자 → 관련 스킬 매핑
+    file_ext_skill_map = {
+        "py": [("agent-python-pro", 5), ("debugging", 3)],
+        "js": [("agent-nextjs-developer", 5)],
+        "csv": [("exploratory-data-analysis", 8), ("statistical-analysis", 5), ("matplotlib", 3)],
+        "tsv": [("exploratory-data-analysis", 8), ("statistical-analysis", 5)],
+        "xlsx": [("exploratory-data-analysis", 5)],
+        "docx": [("docx", 5)],
+        "pdf": [("pdf", 5)],
+        "pptx": [("pptx", 5)],
+        "drawio": [("drawio-diagram", 15)],
+        "md": [("markdown-mermaid-writing", 3)],
+        "html": [("web-artifacts-builder", 3)],
+        "json": [("agent-python-pro", 3)],
+        "xml": [("drawio-diagram", 5)],
+    }
+    for uf in uploaded_files:
+        ext = uf.get("ext", "").lower()
+        fname = uf.get("filename", "").lower()
+        # 확장자 매칭
+        if ext in file_ext_skill_map:
+            for sid, boost in file_ext_skill_map[ext]:
+                combined[sid] = combined.get(sid, 0) + boost
+                boosted.add(sid)
+        # 파일명에 키워드가 있으면 추가 매칭
+        fname_scores = _score_query(fname)
+        for sid, sc in fname_scores.items():
+            combined[sid] = combined.get(sid, 0) + sc * 0.5
+
+    # CSV 데이터가 로드되어 있으면 데이터 분석 스킬 부스트
+    if uploaded_csv_data.get("filename"):
+        for sid in ["exploratory-data-analysis", "statistical-analysis", "matplotlib"]:
+            combined[sid] = combined.get(sid, 0) + 5
+            boosted.add(sid)
+
+    # 6단계: 정렬 후 반환 (현재 질문 직접 매칭 우선)
     sorted_skills = sorted(combined.items(), key=lambda x: -x[1])
     result = [(sid, sc) for sid, sc in sorted_skills[:max_skills] if sc > 0]
 
@@ -1998,7 +2037,7 @@ def api_upload_file():
             "ext": ext,
             "size": file_size,
             "content_preview": preview,
-            "content_full": text[:30000],  # 시스템 프롬프트용 최대 30000자
+            "content_full": text[:60000],  # 시스템 프롬프트용 최대 60000자
             "path": filepath,
         }
         uploaded_files.append(file_info)
@@ -2072,222 +2111,6 @@ def api_clear_files():
             pass
     uploaded_files = []
     return jsonify({"success": True})
-
-
-# ===================== Code Assistant (오른쪽 패널) =====================
-# 코드 파일 업로드/분석 전용 - 기존 파일 업로드와 분리
-
-code_assistant_files = []  # [{filename, content, size, language}]
-
-# 코드 파일 확장자 → 언어 매핑
-CA_EXT_LANG = {
-    ".py": "python", ".js": "javascript", ".ts": "typescript",
-    ".html": "html", ".css": "css", ".json": "json",
-    ".xml": "xml", ".yaml": "yaml", ".yml": "yaml",
-    ".c": "c", ".cpp": "cpp", ".h": "c",
-    ".java": "java", ".go": "go", ".rs": "rust",
-    ".sh": "bash", ".bat": "batch", ".sql": "sql",
-    ".md": "markdown", ".txt": "text",
-}
-CA_ALLOWED_EXTS = set(CA_EXT_LANG.keys())
-
-# 액션별 프롬프트 (SKILL.md의 태그를 트리거)
-CODE_ASSIST_ACTIONS = {
-    "explain": "[EXPLAIN] 아래 코드를 분석하여 상세히 설명해주세요.",
-    "find_bugs": "[FIND_BUGS] 아래 코드에서 버그와 잠재적 문제를 찾아주세요.",
-    "improve": "[IMPROVE] 아래 코드의 개선점을 제안해주세요.",
-    "tests": "[TESTS] 아래 코드에 대한 단위 테스트를 작성해주세요.",
-    "docstring": "[DOCSTRING] 아래 코드에 docstring/주석을 추가해주세요.",
-    "refactor": "[REFACTOR] 아래 코드를 리팩토링해주세요.",
-}
-
-
-@app.route("/api/code-assist/upload", methods=["POST"])
-def api_ca_upload():
-    """코드 어시스턴트용 파일 업로드 (단일/다중 - 폴더 포함)"""
-    global code_assistant_files
-    files = request.files.getlist("file")
-    if not files:
-        return jsonify({"error": "파일이 없습니다"}), 400
-
-    results = []
-    skipped = []
-    for f in files:
-        filename = f.filename or "unknown"
-        ext = os.path.splitext(filename)[1].lower()
-
-        if ext not in CA_ALLOWED_EXTS:
-            skipped.append(filename)
-            continue
-
-        try:
-            content = f.read().decode("utf-8", errors="replace")
-        except Exception:
-            skipped.append(filename)
-            continue
-
-        # 중복 파일명 교체 (경로 포함)
-        code_assistant_files = [x for x in code_assistant_files if x["filename"] != filename]
-
-        language = CA_EXT_LANG.get(ext, "text")
-        file_info = {
-            "filename": filename,
-            "content": content,
-            "size": len(content.encode("utf-8")),
-            "language": language,
-        }
-        code_assistant_files.append(file_info)
-        results.append({
-            "filename": filename,
-            "size": file_info["size"],
-            "language": language,
-            "content": content,
-        })
-
-    return jsonify({"files": results, "skipped": skipped})
-
-
-@app.route("/api/code-assist/remove", methods=["POST"])
-def api_ca_remove():
-    """코드 어시스턴트 파일 제거"""
-    global code_assistant_files
-    data = request.json or {}
-    fname = data.get("filename", "")
-    code_assistant_files = [x for x in code_assistant_files if x["filename"] != fname]
-    return jsonify({"success": True})
-
-
-@app.route("/api/code-assist/clear", methods=["POST"])
-def api_ca_clear():
-    """코드 어시스턴트 파일 전체 제거"""
-    global code_assistant_files
-    code_assistant_files = []
-    return jsonify({"success": True})
-
-
-@app.route("/api/code-assist/analyze", methods=["POST"])
-def api_ca_analyze():
-    """코드 어시스턴트 퀵 액션 분석"""
-    global code_assistant_files
-    data = request.json or {}
-    action = data.get("action", "explain")
-    filename = data.get("filename", "")
-    extra_skills = data.get("skills", [])
-    env_id = data.get("env", "")
-
-    # 파일 찾기
-    target = None
-    for cf in code_assistant_files:
-        if cf["filename"] == filename:
-            target = cf
-            break
-    if not target:
-        return jsonify({"error": f"파일을 찾을 수 없습니다: {filename}"}), 404
-
-    # 환경 설정
-    if not env_id or env_id not in ENV_CONFIG:
-        return jsonify({"error": "LLM 환경을 선택해주세요"}), 400
-
-    api_url = ENV_CONFIG[env_id]["url"]
-    model = ENV_CONFIG[env_id]["model"]
-    api_key = API_TOKEN
-    is_gguf = env_id.startswith("gguf-")
-
-    # 시스템 프롬프트: code-assistant 스킬 자동 로드
-    system_prompt = """당신은 Demos(민중) 코드 어시스턴트입니다.
-업로드된 코드를 분석하여 전문적인 피드백을 제공합니다.
-
-[기본 규칙]
-- 반드시 한국어(한글)로 답변하세요
-- 코드는 ```언어명 블록으로 감싸세요
-- 마크다운 형식 사용
-- 줄번호를 참조하세요
-
-"""
-
-    # code-assistant 스킬 자동 로드
-    loaded = []
-    ca_skill = load_skill_content("code-assistant")
-    if ca_skill:
-        system_prompt += f"=== SKILL: code-assistant ===\n{ca_skill}\n\n"
-        loaded.append("code-assistant")
-
-    # 추가 스킬 로드
-    for sid in extra_skills:
-        content = load_skill_content(sid)
-        if content:
-            if is_gguf:
-                content = content[:3000]
-            system_prompt += f"=== SKILL: {sid} ===\n{content}\n\n"
-            loaded.append(sid)
-
-    if loaded:
-        system_prompt += f"[로드된 스킬: {', '.join(loaded)}]\n\n"
-
-    # 사용자 메시지 구성
-    action_prompt = CODE_ASSIST_ACTIONS.get(action, CODE_ASSIST_ACTIONS["explain"])
-    code = target["content"]
-    if is_gguf:
-        code = code[:4000]
-    elif len(code) > 15000:
-        code = code[:15000] + f"\n... (총 {len(target['content'])}자 중 15000자 표시)"
-
-    user_msg = f"{action_prompt}\n\n**분석 대상 파일:** `{filename}` ({target['language']})\n\n```{target['language']}\n{code}\n```"
-
-    # 프로젝트 컨텍스트: 다른 파일들의 요약도 포함 (전체 이해를 위해)
-    other_files = [f for f in code_assistant_files if f["filename"] != filename]
-    if other_files:
-        ctx = "\n\n**프로젝트 내 다른 파일 (전체 코드):**\n"
-        per_file = 2000 if is_gguf else 15000
-        ctx_limit = 6000 if is_gguf else 60000
-        ctx_used = 0
-        for of in other_files:
-            snippet = of["content"][:per_file]
-            if len(of["content"]) > per_file:
-                snippet += f"\n... (총 {len(of['content'])}자 중 {per_file}자 표시)"
-            entry = f"\n`{of['filename']}` ({of['language']}, {of['size']}B):\n```{of['language']}\n{snippet}\n```\n"
-            if ctx_used + len(entry) > ctx_limit:
-                ctx += f"\n... 외 {len(other_files) - other_files.index(of)}개 파일 생략\n"
-                break
-            ctx += entry
-            ctx_used += len(entry)
-        user_msg += ctx
-
-    # LLM 호출 (기존 api_chat 로직 재사용)
-    messages = [{"role": "user", "content": user_msg}]
-    max_tokens = 2048 if is_gguf else 4096
-
-    try:
-        if is_gguf:
-            # GGUF 로컬 모델
-            if gguf_model is None:
-                return jsonify({"error": "GGUF 모델이 로드되지 않았습니다"}), 500
-            response = gguf_model.create_chat_completion(
-                messages=[{"role": "system", "content": system_prompt}] + messages,
-                max_tokens=max_tokens,
-                temperature=0.3,
-            )
-            answer = response["choices"][0]["message"]["content"]
-        else:
-            # 회사 API
-            headers = {"Content-Type": "application/json"}
-            if api_key:
-                headers["Authorization"] = f"Bearer {api_key}"
-            payload = {
-                "model": model,
-                "messages": [{"role": "system", "content": system_prompt}] + messages,
-                "max_tokens": max_tokens,
-                "temperature": 0.3,
-            }
-            resp = req.post(api_url, json=payload, headers=headers, timeout=120, verify=False)
-            resp.raise_for_status()
-            result = resp.json()
-            answer = result["choices"][0]["message"]["content"]
-
-        return jsonify({"content": answer, "loaded_skills": loaded})
-
-    except Exception as e:
-        return jsonify({"error": f"분석 오류: {str(e)}"}), 500
 
 
 # ===================== Draw.io 다운로드 =====================
@@ -2439,25 +2262,6 @@ def api_chat():
         system_prompt += f"=== 업로드된 CSV 데이터 ===\n{csv_info}\n\n데이터 미리보기:\n{csv_rows_text}\n\n"
         system_prompt += "사용자가 이 데이터에 대해 질문하면 위 CSV 데이터를 기반으로 분석해주세요.\n\n"
 
-    # Code Assistant 모드: 업로드된 코드 파일 전체를 컨텍스트에 포함
-    ca_mode = data.get("ca_mode", False)
-    if ca_mode and code_assistant_files:
-        system_prompt += f"\n=== 프로젝트 코드 ({len(code_assistant_files)}개 파일) ===\n"
-        system_prompt += "아래는 사용자가 업로드한 프로젝트의 전체 코드입니다. 모든 파일을 이해한 상태로 답변하세요.\n\n"
-        for cf in code_assistant_files:
-            code = cf["content"]
-            if is_gguf:
-                code = code[:3000]
-                if len(cf["content"]) > 3000:
-                    code += f"\n... (총 {len(cf['content'])}자 중 3000자 표시)"
-            else:
-                limit = 30000
-                code = code[:limit]
-                if len(cf["content"]) > limit:
-                    code += f"\n... (총 {len(cf['content'])}자 중 {limit}자 표시)"
-            system_prompt += f"### 파일: `{cf['filename']}` ({cf['language']}, {cf['size']}B)\n```{cf['language']}\n{code}\n```\n\n"
-        system_prompt += "위 모든 파일을 기반으로 사용자의 질문에 답변하세요. 파일 간 의존성, import 관계, 전체 아키텍처를 고려하세요.\n\n"
-
     # 업로드된 파일 내용 주입
     if uploaded_files:
         system_prompt += f"=== 업로드된 파일 ({len(uploaded_files)}개) ===\n"
@@ -2465,14 +2269,14 @@ def api_chat():
             system_prompt += f"\n--- 파일: {uf['filename']} ({uf['type']}, {uf['size']}바이트) ---\n"
             content = uf.get("content_full", "")
             if is_gguf:
-                # GGUF: 파일당 최대 2000자로 제한
-                content = content[:2000]
-                if len(uf.get("content_full", "")) > 2000:
-                    content += f"\n... (총 {len(uf['content_full'])}자 중 2000자 표시)"
+                # GGUF: 파일당 최대 8000자로 제한
+                content = content[:8000]
+                if len(uf.get("content_full", "")) > 8000:
+                    content += f"\n... (총 {len(uf['content_full'])}자 중 8000자 표시)"
             else:
-                content = content[:15000]  # API: 파일당 최대 15000자
-                if len(uf.get("content_full", "")) > 15000:
-                    content += f"\n... (총 {len(uf['content_full'])}자 중 15000자 표시)"
+                content = content[:50000]  # API: 파일당 최대 50000자
+                if len(uf.get("content_full", "")) > 50000:
+                    content += f"\n... (총 {len(uf['content_full'])}자 중 50000자 표시)"
             system_prompt += content + "\n"
         system_prompt += "\n사용자가 업로드된 파일에 대해 질문하면 위 내용을 기반으로 답변하세요.\n\n"
 
@@ -2643,16 +2447,17 @@ body.sb-collapsed .chat-box-fixed{left:48px}
 .chat-input{width:100%;border:none;outline:none;font-size:13px;resize:none;min-height:20px;max-height:100px;font-family:inherit;line-height:1.4}
 .chat-input::placeholder{color:#aaa;font-size:12px}
 .chat-footer{display:flex;justify-content:space-between;align-items:center;margin-top:2px}
-.chat-input.dragover-input{border:2px dashed #6366f1!important;background:#eef2ff!important;border-radius:8px}
-.attach-btn{background:none;border:1px solid #e5e3de;border-radius:6px;padding:2px 8px;font-size:16px;cursor:pointer;transition:all .15s}
-.attach-btn:hover{background:#eef2ff;border-color:#6366f1}
-#attachPreview{display:flex;flex-wrap:wrap;gap:4px;padding:4px 0}
-.attach-chip{display:inline-flex;align-items:center;gap:3px;padding:2px 8px;border-radius:12px;background:#f3f2ef;font-size:11px;color:#555;border:1px solid #e5e3de}
-.attach-chip button{background:none;border:none;color:#999;cursor:pointer;font-size:12px;padding:0 2px}
-.attach-chip button:hover{color:#e74c3c}
 .send-btn{width:32px;height:32px;border-radius:50%;border:none;background:#6366f1;color:#fff;cursor:pointer;font-size:14px;transition:background .15s}
 .send-btn:hover{background:#4f46e5}
 .send-btn:disabled{background:#ccc;cursor:not-allowed}
+/* 채팅 첨부파일 */
+.attach-btn{width:32px;height:32px;border-radius:50%;border:none;background:transparent;color:#999;cursor:pointer;font-size:18px;transition:all .15s;display:flex;align-items:center;justify-content:center}
+.attach-btn:hover{background:#f0f0f0;color:#6366f1}
+.chat-attach-preview{display:flex;flex-wrap:wrap;gap:6px;padding:4px 0}
+.chat-attach-badge{display:inline-flex;align-items:center;gap:4px;background:#eef2ff;border:1px solid #c7d2fe;border-radius:8px;padding:3px 10px;font-size:11px;color:#4f46e5;max-width:200px}
+.chat-attach-badge .fname{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.chat-attach-badge .remove-attach{cursor:pointer;font-size:14px;color:#999;margin-left:2px;line-height:1}
+.chat-attach-badge .remove-attach:hover{color:#ef4444}
 .content{padding-bottom:80px!important}
 /* Tags */
 .tag-row{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:24px}
@@ -2663,6 +2468,8 @@ body.sb-collapsed .chat-box-fixed{left:48px}
 .skill-card{padding:10px 14px;border-radius:10px;border:2px solid #e5e3de;background:#fff;cursor:pointer;transition:all .15s;font-size:13px;position:relative}
 .skill-card:hover{border-color:#6366f1;transform:translateY(-1px)}
 .skill-card.selected{border-color:#6366f1;background:#eef2ff}
+.skill-card.auto-loaded{border-color:#f59e0b;background:#fffbeb;animation:autoPulse 1.5s ease-in-out}
+@keyframes autoPulse{0%{box-shadow:0 0 0 0 rgba(245,158,11,.4)}70%{box-shadow:0 0 0 8px rgba(245,158,11,0)}100%{box-shadow:none}}
 .skill-card.unavailable{opacity:.45;cursor:default}
 .skill-card .sn{font-weight:600;margin-bottom:2px}.skill-card .sd{font-size:11px;color:#888}
 .skill-card .badge{position:absolute;top:6px;right:8px;font-size:10px;background:#10b981;color:#fff;padding:1px 6px;border-radius:8px}
@@ -2768,9 +2575,7 @@ body.sb-collapsed .chat-box-fixed{left:48px}
 .sysprompt-preview:hover{max-height:200px;overflow-y:auto}
 /* CSV Upload */
 .csv-section{margin-bottom:24px}
-.csv-upload-area{border:2px dashed #d1d5db;border-radius:12px;padding:20px;text-align:center;cursor:pointer;transition:all .2s;background:#fafaf8}
-.csv-upload-area:hover{border-color:#6366f1;background:#eef2ff}
-.csv-upload-area.dragover{border-color:#6366f1;background:#eef2ff;border-style:solid}
+/* csv-upload-area 제거됨 → 채팅 📎 첨부로 대체 */
 .csv-upload-area .icon{font-size:28px;margin-bottom:6px}
 .csv-upload-area .label{font-size:13px;color:#888}
 .csv-upload-area .sub{font-size:11px;color:#bbb;margin-top:2px}
@@ -2834,52 +2639,7 @@ body.sb-collapsed .chat-box-fixed{left:48px}
 .think-box[open] summary{border-bottom:1px solid #d4c8f0}
 .think-content{padding:10px 14px;font-size:12px;color:#555;line-height:1.6;max-height:400px;overflow-y:auto}
 pre{position:relative}
-/* === 오른쪽 코드 어시스턴트 패널 === */
-.right-panel{width:400px;background:#fff;border-left:1px solid #e5e3de;display:none;flex-direction:column;flex-shrink:0;overflow-y:auto}
-.right-panel.open{display:flex}
-.rp-header{padding:14px 16px;border-bottom:1px solid #e5e3de;display:flex;justify-content:space-between;align-items:center}
-.rp-header span{font-size:16px;font-weight:700;color:#0d9488}
-.rp-close{background:none;border:none;font-size:18px;cursor:pointer;color:#999}
-.rp-close:hover{color:#e74c3c}
-.rp-section{padding:12px 16px;border-bottom:1px solid #f0eeeb}
-.rp-section-label{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:#999;margin-bottom:8px}
-.rp-upload-area{border:2px dashed #d1d5db;border-radius:10px;padding:16px;text-align:center;cursor:pointer;transition:all .2s;background:#fafaf8}
-.rp-upload-area:hover{border-color:#0d9488;background:#f0fdfa}
-.rp-upload-area.dragover{border-color:#0d9488;background:#f0fdfa;border-style:solid}
-.rp-file-item{display:flex;align-items:center;gap:4px;padding:3px 6px;border-radius:4px;cursor:pointer;font-size:12px;transition:all .12s}
-.rp-file-item:hover{background:#f0fdfa}
-.rp-file-item.active{background:#ccfbf1;color:#0d9488;font-weight:600}
-.rp-file-name{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.rp-file-size{color:#999;font-size:10px}
-.rp-file-remove{background:none;border:none;color:#ccc;cursor:pointer;font-size:12px;padding:0 2px}
-.rp-file-remove:hover{color:#e74c3c}
-.rp-tree-section{flex:1;overflow-y:auto;border-bottom:1px solid #e5e3de;min-height:120px}
-.rp-tree-header{display:flex;justify-content:space-between;align-items:center;padding:8px 16px;background:#f8fffe;border-bottom:1px solid #e5e3de;position:sticky;top:0;z-index:1}
-.rp-tree-header span{font-size:12px;font-weight:700;color:#0d9488}
-.rp-tree-content{padding:4px 8px}
-.rp-dir{padding:2px 0;cursor:pointer;user-select:none}
-.rp-dir-label{display:flex;align-items:center;gap:4px;padding:2px 4px;border-radius:4px;font-size:12px;color:#555;font-weight:600}
-.rp-dir-label:hover{background:#f0fdfa}
-.rp-dir-label .arrow{font-size:9px;color:#999;transition:transform .15s;display:inline-block;width:10px}
-.rp-dir-label .arrow.open{transform:rotate(90deg)}
-.rp-dir-children{padding-left:12px}
-.rp-dir-children.collapsed{display:none}
-.rp-root-name{font-size:13px;font-weight:700;color:#0d9488}
-.rp-bottom{border-top:1px solid #e5e3de}
-.rp-code-viewer{background:#1e1e1e;color:#d4d4d4;padding:10px;border-radius:8px;font-family:'SF Mono','Fira Code',monospace;font-size:11px;line-height:1.4;overflow:auto;max-height:200px;white-space:pre-wrap;margin:0 12px;min-height:60px}
-.rp-skill-select{width:100%;border:1px solid #e5e3de;border-radius:8px;padding:6px 8px;font-size:12px}
-.rp-actions{display:grid;grid-template-columns:1fr 1fr;gap:6px;padding:12px 16px}
-.rp-action-btn{padding:8px 4px;border-radius:8px;border:1px solid #e5e3de;background:#fff;font-size:12px;cursor:pointer;transition:all .15s}
-.rp-action-btn:hover{border-color:#0d9488;background:#f0fdfa;color:#0d9488}
-.rp-send-btn{margin:8px 16px 16px;padding:10px;border-radius:10px;border:none;background:#0d9488;color:#fff;font-weight:700;font-size:13px;cursor:pointer}
-.rp-send-btn:hover{background:#0f766e}
-.rp-toggle{width:100%;padding:8px 14px;border-radius:8px;border:1px solid #e5e3de;background:#f0fdfa;color:#0d9488;font-size:13px;font-weight:600;cursor:pointer;text-align:left;transition:all .15s;margin-bottom:4px}
-.rp-toggle:hover{background:#ccfbf1;border-color:#0d9488}
-.rp-toggle.active{background:#0d9488;color:#fff;border-color:#0d9488}
-body.rp-open .chat-box-fixed{right:400px}
-.ca-mode-badge{background:#0d9488;color:#fff;padding:4px 12px;border-radius:6px;margin-bottom:4px;font-size:12px;font-weight:600;display:flex;justify-content:space-between;align-items:center}
-body.rp-open .ca-mode-badge{display:flex!important}
-@media(max-width:768px){.sidebar{display:none}.sidebar-toggle{display:none}.chat-box-fixed{left:0}.style-row{flex-direction:column}.msg.user{margin-left:16px}.msg.assistant{margin-right:16px}.msg{font-size:12px}.right-panel{display:none!important}}
+@media(max-width:768px){.sidebar{display:none}.sidebar-toggle{display:none}.chat-box-fixed{left:0}.style-row{flex-direction:column}.msg.user{margin-left:16px}.msg.assistant{margin-right:16px}.msg{font-size:12px}}
 </style>
 </head>
 <body>
@@ -2906,7 +2666,6 @@ body.rp-open .ca-mode-badge{display:flex!important}
     </div>
   </div>
   <div class="sidebar-footer">
-    <button class="rp-toggle" id="rpToggleBtn" onclick="toggleRightPanel()">🔍 Code Assistant</button>
     <div class="credits">🔬 Demos(민중) Alpha 0.8</div>
   </div>
   </div>
@@ -2929,6 +2688,10 @@ body.rp-open .ca-mode-badge{display:flex!important}
       <div class="env-row" id="envRow">
         <!-- JS에서 동적 생성 -->
       </div>
+
+      <!-- 업로드된 파일 목록 (채팅 입력 📎에서 추가됨) -->
+      <div id="csvInfoPanel" style="display:none"></div>
+      <div id="fileListPanel" style="display:none"></div>
 
       <div class="section-label">분야 선택</div>
       <div class="tag-row" id="tagRow"></div>
@@ -3008,84 +2771,17 @@ body.rp-open .ca-mode-badge{display:flex!important}
   <!-- 질문 입력 - 하단 고정 -->
   <div class="chat-box-fixed">
     <div class="chat-box-fixed-inner">
-      <div id="caModeBadge" class="ca-mode-badge" style="display:none">
-        <span>🔍 Code Assistant 모드</span>
-        <span id="caFileCount" style="font-size:10px;color:#5eead4">업로드된 코드 기반으로 답변합니다</span>
-      </div>
-      <!-- 첨부 파일 미리보기 (일반 파일 + 코드 파일) -->
-      <div id="attachPreview" style="display:none"></div>
-      <textarea class="chat-input" id="input" placeholder="질문을 하거나 수행하려는 분석을 설명하세요... (파일을 여기에 끌어놓기 가능)" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();handleSendStop()}" oninput="this.style.height='auto';this.style.height=this.scrollHeight+'px'" ondragover="event.preventDefault();this.classList.add('dragover-input')" ondragleave="this.classList.remove('dragover-input')" ondrop="event.preventDefault();this.classList.remove('dragover-input');handleUnifiedDrop(event)"></textarea>
+      <div class="chat-attach-preview" id="chatAttachPreview" style="display:none"></div>
+      <textarea class="chat-input" id="input" placeholder="질문을 하거나 수행하려는 분석을 설명하세요..." onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();handleSendStop()}" oninput="this.style.height='auto';this.style.height=this.scrollHeight+'px'"></textarea>
+      <input type="file" id="chatFileInput" multiple style="display:none" onchange="handleChatFileSelect(this.files)">
       <div class="chat-footer">
         <div style="display:flex;align-items:center;gap:6px">
-          <button class="attach-btn" onclick="document.getElementById('fileInput').click()" title="파일 첨부">📎</button>
-          <span id="attachCount" style="font-size:11px;color:#6366f1;display:none"></span>
+          <button class="attach-btn" onclick="document.getElementById('chatFileInput').click()" title="파일 첨부">📎</button>
           <span style="font-size:12px;color:#bbb">Enter 전송 / Shift+Enter 줄바꿈</span>
         </div>
         <button class="send-btn" onclick="handleSendStop()" id="sendBtn">▶</button>
       </div>
-      <input type="file" id="fileInput" accept=".csv,.tsv,.txt,.docx,.xlsx,.pdf,.pptx,.md,.markdown,.png,.jpg,.jpeg,.gif,.bmp,.webp,.svg,.py,.js,.html,.css,.json,.xml,.yaml,.yml,.c,.cpp,.h,.java,.go,.rs,.sh,.bat" style="display:none" onchange="handleUnifiedSelect(event)" multiple>
-      <div id="csvInfoPanel" style="display:none"></div>
-      <div id="fileListPanel" style="display:none"></div>
     </div>
-  </div>
-</div>
-
-<!-- 오른쪽 코드 어시스턴트 패널 -->
-<div class="right-panel" id="rightPanel">
-  <div class="rp-header">
-    <span>🔍 Code Assistant</span>
-    <button class="rp-close" onclick="toggleRightPanel()">✕</button>
-  </div>
-
-  <!-- 프로젝트 트리 (메인 영역) -->
-  <div class="rp-tree-section" id="rpTreeSection"
-    ondragover="event.preventDefault();this.style.background='#f0fdfa'"
-    ondragleave="this.style.background=''"
-    ondrop="event.preventDefault();this.style.background='';rpHandleDrop(event)">
-    <div class="rp-tree-header">
-      <span id="rpTreeTitle">📂 프로젝트를 업로드하세요</span>
-      <div style="display:flex;gap:4px">
-        <button onclick="document.getElementById('rpFolderInput').click()" style="padding:3px 8px;border-radius:4px;border:1px solid #0d9488;background:#f0fdfa;color:#0d9488;font-size:11px;cursor:pointer;font-weight:600">📁 폴더</button>
-        <button onclick="document.getElementById('rpFileInput').click()" style="padding:3px 8px;border-radius:4px;border:1px solid #ddd;background:#fff;color:#666;font-size:11px;cursor:pointer">📄 파일</button>
-        <button onclick="rpClearAll()" id="rpClearBtn" style="display:none;padding:3px 8px;border-radius:4px;border:1px solid #fca5a5;background:#fff;color:#e74c3c;font-size:11px;cursor:pointer">삭제</button>
-      </div>
-    </div>
-    <div class="rp-tree-content" id="rpTreeContent">
-      <div style="text-align:center;padding:40px 16px;color:#bbb;font-size:12px">
-        <div style="font-size:40px;margin-bottom:8px">📂</div>
-        폴더를 끌어놓거나 위 버튼으로 선택<br>
-        <span style="font-size:10px">.py .js .ts .java .cpp .go .rs .html .css 등</span>
-      </div>
-    </div>
-    <input type="file" id="rpFolderInput" webkitdirectory directory style="display:none" onchange="rpHandleSelect(event)">
-    <input type="file" id="rpFileInput" accept=".py,.js,.ts,.html,.css,.json,.xml,.yaml,.yml,.c,.cpp,.h,.java,.go,.rs,.sh,.bat,.sql,.md,.txt" style="display:none" onchange="rpHandleSelect(event)" multiple>
-  </div>
-
-  <!-- 하단: 코드 뷰어 + 액션 -->
-  <div class="rp-bottom">
-    <div style="padding:6px 12px 2px;font-size:11px;color:#0d9488;font-weight:600;display:flex;justify-content:space-between;align-items:center">
-      <span id="rpViewerLabel">파일을 선택하세요</span>
-      <button onclick="rpCopyCode()" style="background:none;border:1px solid #ddd;border-radius:4px;padding:2px 8px;font-size:10px;cursor:pointer;color:#666" title="코드 복사">복사</button>
-    </div>
-    <pre class="rp-code-viewer" id="rpCodeViewer"><code id="rpCode">// 파일을 선택하면 코드가 여기에 표시됩니다</code></pre>
-
-    <!-- 퀵 액션 -->
-    <div class="rp-actions">
-      <button class="rp-action-btn" onclick="rpAction('explain')">💡 설명</button>
-      <button class="rp-action-btn" onclick="rpAction('find_bugs')">🐛 버그</button>
-      <button class="rp-action-btn" onclick="rpAction('improve')">✨ 개선</button>
-      <button class="rp-action-btn" onclick="rpAction('tests')">🧪 테스트</button>
-      <button class="rp-action-btn" onclick="rpAction('docstring')">📝 문서화</button>
-      <button class="rp-action-btn" onclick="rpAction('refactor')">♻️ 리팩토링</button>
-    </div>
-
-    <!-- 스킬 + 채팅 전송 -->
-    <div style="padding:0 12px 4px">
-      <select class="rp-skill-select" id="rpSkillSelect" multiple size="2" style="font-size:11px">
-      </select>
-      <div style="font-size:9px;color:#bbb;margin-top:2px">Ctrl+클릭 추가 스킬 선택</div>
-    </div>
-    <button class="rp-send-btn" onclick="rpSendToChat()">💬 채팅에 코드 전송</button>
   </div>
 </div>
 
@@ -3224,6 +2920,8 @@ function toggleDomain(id){
 }
 
 // ===== Skills =====
+let autoLoadedSkills = [];  // 자동 로드된 스킬 목록 (시각적 표시용)
+
 function renderSkills(){
   const grid = document.getElementById('skillGrid');
   grid.innerHTML = '';
@@ -3232,7 +2930,8 @@ function renderSkills(){
     if(!d) return;
     d.skills.forEach(s=>{
       const c = document.createElement('div');
-      c.className = 'skill-card' + (selSkills.includes(s.id)?' selected':'') + (!s.available?' unavailable':'');
+      const isAutoLoaded = autoLoadedSkills.includes(s.id);
+      c.className = 'skill-card' + (selSkills.includes(s.id)?' selected':'') + (isAutoLoaded?' auto-loaded':'') + (!s.available?' unavailable':'');
       const desc = s.desc ? s.desc : '';
       const avail = s.available ? '✅' : '❌';
       // extras: 스크립트/레퍼런스 개수
@@ -3241,7 +2940,8 @@ function renderSkills(){
       if(s.references > 0) extras.push(`📄${s.references}`);
       if(s.assets > 0) extras.push(`📦${s.assets}`);
       const extrasHtml = extras.length ? `<div class="extras">${extras.join(' ')}</div>` : '';
-      c.innerHTML = `<div class="sn">${avail} ${s.name}</div><div class="sd">${desc}</div>${extrasHtml}`;
+      const autoBadge = isAutoLoaded ? '<span class="badge" style="background:#f59e0b">🧠자동</span>' : '';
+      c.innerHTML = `<div class="sn">${avail} ${s.name}</div><div class="sd">${desc}</div>${extrasHtml}${autoBadge}`;
       if(s.available){
         c.onclick = (e)=>{
           // Shift+클릭 = 상세 패널
@@ -3361,21 +3061,19 @@ function stopGeneration(){
 async function send(){
   const el=document.getElementById('input');
   const text=el.value.trim();
-  if(!text) return;
+  if(!text && chatPendingFiles.length === 0) return;
   if(!selEnv){alert('먼저 위에서 LLM 환경을 선택해주세요.');return;}
 
-  // Code Assistant 모드: 패널 열려있고 파일이 있으면 code-assistant 스킬 전용
-  const isCAMode = document.body.classList.contains('rp-open') && caFiles.length > 0;
+  // 첨부파일이 있으면 먼저 업로드
+  let attachedNames = [];
+  if(chatPendingFiles.length > 0){
+    attachedNames = await uploadChatPendingFiles();
+  }
+
+  // 자동 스킬 모드: 수동 선택이 없으면 자동 추천 스킬 사용
   let skillsToUse = [...selSkills];
   let autoLoaded = [];
-
-  if(isCAMode){
-    // Code Assistant 전용 모드
-    skillsToUse = ['code-assistant'];
-    const rpExtraSkills = [...document.getElementById('rpSkillSelect').selectedOptions].map(o=>o.value);
-    skillsToUse.push(...rpExtraSkills);
-    autoLoaded = [];
-  } else if(autoSkillMode && skillsToUse.length === 0){
+  if(autoSkillMode && skillsToUse.length === 0){
     try{
       const ar = await fetch('/api/auto-skills',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({query:text,max_skills:7,history:history})});
       const ad = await ar.json();
@@ -3386,15 +3084,22 @@ async function send(){
     }catch(e){}
   }
 
-  addMsg('user',text);
-  history.push({role:'user',content:text});
+  // 첨부파일 표시 + 메시지
+  let displayText = text || '';
+  if(attachedNames.length > 0){
+    const attachInfo = '📎 ' + attachedNames.join(', ');
+    displayText = displayText ? attachInfo + '\n' + displayText : attachInfo;
+  }
+  addMsg('user', displayText);
+  history.push({role:'user',content: displayText});
   el.value=''; el.style.height='auto';
   document.getElementById('autoSkillPreview').classList.remove('show');
 
-  // 로드 안내
-  if(isCAMode){
-    addMsg('assistant', '🔍 Code Assistant 모드: ' + skillsToUse.join(', '));
-  } else if(autoLoaded.length > 0){
+  // 자동 로드 안내 + 사이드바 스킬 카드에 표시
+  if(autoLoaded.length > 0){
+    autoLoadedSkills = autoLoaded;
+    renderSkills();
+    updateLoaded();
     addMsg('assistant', '🧠 자동 스킬 로드: ' + autoLoaded.join(', '));
   }
 
@@ -3419,7 +3124,6 @@ async function send(){
         writing_style:document.getElementById('writingStyle').value.trim(),
         system_prompt:document.getElementById('systemPromptInput').value.trim(),
         max_tokens:maxTokens,
-        ca_mode: isCAMode,
       })
     });
     const data=await resp.json();
@@ -3490,10 +3194,43 @@ function renderMd(text){
       <pre class="drawio-preview"><code class="language-xml">${escapedXml}</code></pre>
     </div>`;
   });
-  // 2b) 일반 코드블록
+  // 2b) 일반 코드블록 — xml 블록 안에 mxfile이 있으면 drawio로 자동 변환
   s=s.replace(/```(\w*)\s*([\s\S]*?)```/g,(_,lang,code)=>{
+    const trimmed=code.trim();
+    // 코드블록 안에 <mxfile 또는 <mxGraphModel 있으면 drawio UI로 변환
+    if(trimmed.includes('&lt;mxfile') || trimmed.includes('&lt;mxGraphModel')){
+      const realXml=trimmed.replace(/&amp;/g,'&').replace(/&lt;/g,'<').replace(/&gt;/g,'>').replace(/&quot;/g,'"');
+      const xmlB64=btoa(unescape(encodeURIComponent(realXml)));
+      return `<div class="drawio-block">
+        <div class="drawio-header">
+          <span>📐 Draw.io 다이어그램</span>
+          <div class="drawio-actions">
+            <button class="drawio-btn" onclick="copyDrawioXml(this)" data-xml="${xmlB64}">📋 XML 복사</button>
+            <button class="drawio-btn" onclick="downloadDrawio(this)" data-xml="${xmlB64}">💾 .drawio 저장</button>
+            <button class="drawio-btn" onclick="openInDrawio(this)" data-xml="${xmlB64}">🔗 Draw.io에서 열기</button>
+          </div>
+        </div>
+        <pre class="drawio-preview"><code class="language-xml">${trimmed}</code></pre>
+      </div>`;
+    }
     const cls=lang?` class="language-${lang}"`:'';
-    return `<pre><code${cls}>${code.trim()}</code></pre>`;
+    return `<pre><code${cls}>${trimmed}</code></pre>`;
+  });
+  // 2c) raw mxfile XML (코드블록 밖) 자동 감지 → drawio UI로 변환
+  s=s.replace(/(&lt;mxfile[\s\S]*?&lt;\/mxfile&gt;)/g,(_,xmlEsc)=>{
+    const realXml=xmlEsc.replace(/&amp;/g,'&').replace(/&lt;/g,'<').replace(/&gt;/g,'>').replace(/&quot;/g,'"');
+    const xmlB64=btoa(unescape(encodeURIComponent(realXml)));
+    return `<div class="drawio-block">
+      <div class="drawio-header">
+        <span>📐 Draw.io 다이어그램 (자동 감지)</span>
+        <div class="drawio-actions">
+          <button class="drawio-btn" onclick="copyDrawioXml(this)" data-xml="${xmlB64}">📋 XML 복사</button>
+          <button class="drawio-btn" onclick="downloadDrawio(this)" data-xml="${xmlB64}">💾 .drawio 저장</button>
+          <button class="drawio-btn" onclick="openInDrawio(this)" data-xml="${xmlB64}">🔗 Draw.io에서 열기</button>
+        </div>
+      </div>
+      <pre class="drawio-preview"><code class="language-xml">${xmlEsc}</code></pre>
+    </div>`;
   });
   // 3) tables
   s=s.replace(/((?:^\|.+\|[ ]*\n){2,})/gm, function(tbl){
@@ -3538,7 +3275,7 @@ function renderMd(text){
   s=s.split(/\n{2,}/).map(block=>{
     const t=block.trim();
     if(!t) return '';
-    if(/^<(pre|h[1-4]|ul|ol|table|hr|blockquote)/.test(t)) return t;
+    if(/^<(pre|div|h[1-4]|ul|ol|table|hr|blockquote)/.test(t)) return t;
     return '<p>'+t.replace(/\n/g,'<br>')+'</p>';
   }).join('\n');
   // single newlines inside remaining text
@@ -4120,40 +3857,15 @@ async function injectToChat(type, filePath){
 let csvLoaded = false;
 let csvFilename = '';
 
-function handleUnifiedDrop(e){
-  const files = e.dataTransfer.files;
-  for(let i=0; i<files.length; i++) uploadUnifiedFile(files[i]);
-}
-function handleUnifiedSelect(e){
-  const files = e.target.files;
-  for(let i=0; i<files.length; i++) uploadUnifiedFile(files[i]);
-  e.target.value = '';
-}
-function uploadUnifiedFile(file){
-  const ext = file.name.split('.').pop().toLowerCase();
-  if(['csv','tsv','txt'].includes(ext) && !csvLoaded){
-    uploadCsvFile(file);
-  } else {
-    uploadGenericFile(file);
-  }
-}
+// handleUnifiedDrop/Select → 채팅 입력 📎 첨부로 대체됨
 async function uploadCsvFile(file){
-  const area = document.getElementById('fileUploadArea');
-  const origAreaHtml = area.innerHTML;
-  area.innerHTML = '<div class="icon">⏳</div><div class="label">업로드 중...</div>';
-
   const formData = new FormData();
   formData.append('file', file);
 
   try{
     const resp = await fetch('/api/upload_csv', {method:'POST', body:formData});
     const data = await resp.json();
-
-    if(data.error){
-      area.innerHTML = `<div class="icon">❌</div><div class="label">${data.error}</div><div class="sub">다시 시도하세요</div>`;
-      setTimeout(()=>{ area.innerHTML = origAreaHtml; }, 3000);
-      return;
-    }
+    if(data.error) return;
 
     csvLoaded = true;
     csvFilename = data.filename;
@@ -4178,12 +3890,7 @@ async function uploadCsvFile(file){
         <div class="csv-preview">${tableHtml}</div>
       </div>`;
 
-    area.innerHTML = origAreaHtml;
-
-  }catch(e){
-    area.innerHTML = `<div class="icon">❌</div><div class="label">업로드 실패: ${e.message}</div>`;
-    setTimeout(()=>{ area.innerHTML = origAreaHtml; }, 3000);
-  }
+  }catch(e){}
 }
 function esc(s){ return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
 
@@ -4191,8 +3898,81 @@ function esc(s){ return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').rep
 function decodeDrawioXml(btn){
   return decodeURIComponent(escape(atob(btn.dataset.xml)));
 }
+
+// Draw.io XML 자동 수정 (LLM이 생성한 XML의 흔한 오류 교정)
+function sanitizeDrawioXml(xml){
+  // 허용되는 HTML 태그 목록 (Draw.io value 속성 안에서 허용)
+  const allowedHtmlTags = ['br','br/','br /','font','b','i','u','sub','sup','hr','span','div','p','strong','em'];
+  const allowedPattern = allowedHtmlTags.map(t => t.replace('/','\\/').replace(' ','')).join('|');
+
+  // value/label 속성값 안의 이스케이프 수정 함수
+  function fixAttrValue(val){
+    // Step 1: & 이스케이프 (이미 된 건 건드리지 않음)
+    let s = val.replace(/&(?!amp;|lt;|gt;|quot;|apos;|#\d+;|#x[0-9a-fA-F]+;)/g, '&amp;');
+    // Step 2: 모든 < > 를 임시 치환 후, 허용된 HTML 태그만 복원
+    s = s.replace(/</g, '\x00LT\x00').replace(/>/g, '\x00GT\x00');
+    // 허용된 여는 태그 복원: <font ...>, <br>, <br/>, <b>, etc.
+    for(const tag of allowedHtmlTags){
+      const base = tag.replace(/[\s\/]/g,'');
+      // 여는 태그 (속성 포함): <font style="...">
+      const openRe = new RegExp('\x00LT\x00(' + base + ')(\\s[^\\x00]*?)?\x00GT\x00', 'gi');
+      s = s.replace(openRe, '<$1$2>');
+      // 닫는 태그: </font>
+      const closeRe = new RegExp('\x00LT\x00/' + base + '\x00GT\x00', 'gi');
+      s = s.replace(closeRe, '</' + base + '>');
+    }
+    // self-closing: <br/>, <br />, <hr/>
+    s = s.replace(/\x00LT\x00(br|hr)\s*\/?\x00GT\x00/gi, '<$1/>');
+    // 남은 \x00LT\x00, \x00GT\x00 는 진짜 이스케이프 대상
+    s = s.replace(/\x00LT\x00/g, '&lt;').replace(/\x00GT\x00/g, '&gt;');
+    return s;
+  }
+
+  // 1) value="..." 속성 수정
+  xml = xml.replace(/(value|label)="([^"]*)"/g, (m, attr, val) => {
+    const fixed = fixAttrValue(val);
+    return fixed !== val ? `${attr}="${fixed}"` : m;
+  });
+
+  // 2) 중복 속성 제거: style="..." style="..." → 첫 번째만
+  xml = xml.replace(/(\w+="[^"]*")\s+\1/g, '$1');
+
+  // 3) 닫히지 않은 mxCell 태그 수정
+  xml = xml.replace(/<mxCell([^>]*[^\/])>(\s*<\/mxCell>)?/g, (m, attrs, close) => {
+    if (close) return m;
+    if (attrs.includes('<mxGeometry') || m.includes('</mxCell>')) return m;
+    return `<mxCell${attrs}/>`;
+  });
+
+  // 4) mxfile 래퍼가 없으면 추가
+  if (!xml.includes('<mxfile') && xml.includes('<mxGraphModel')) {
+    xml = `<mxfile host="app.diagrams.net" type="device">\n<diagram id="d1" name="Page-1">\n${xml}\n</diagram>\n</mxfile>`;
+  }
+  if (!xml.includes('<mxfile') && xml.includes('<mxCell')) {
+    xml = `<mxfile host="app.diagrams.net" type="device">\n<diagram id="d1" name="Page-1">\n<mxGraphModel dx="1422" dy="762" grid="1" pageWidth="1169" pageHeight="827">\n<root>\n<mxCell id="0"/>\n<mxCell id="1" parent="0"/>\n${xml}\n</root>\n</mxGraphModel>\n</diagram>\n</mxfile>`;
+  }
+
+  // 5) 최종 검증: DOMParser로 파싱 시도, 실패하면 브루트포스 수정
+  try {
+    const parser = new DOMParser();
+    const doc = parser.parseFromString(xml, 'application/xml');
+    if (doc.querySelector('parsererror')) {
+      // 파싱 실패 — 모든 속성값에서 < > 를 강제 이스케이프
+      xml = xml.replace(/="([^"]*)"/g, (m, val) => {
+        if (val.includes('<') && !val.match(/^[^<]*<(mxGeometry|mxPoint|Array)/)) {
+          const forced = val.replace(/</g, '&lt;').replace(/>/g, '&gt;');
+          return `="${forced}"`;
+        }
+        return m;
+      });
+    }
+  } catch(e) {}
+
+  return xml;
+}
+
 function copyDrawioXml(btn){
-  const xml = decodeDrawioXml(btn);
+  const xml = sanitizeDrawioXml(decodeDrawioXml(btn));
   navigator.clipboard.writeText(xml).then(()=>{
     const orig = btn.textContent;
     btn.textContent = '✓ 복사됨';
@@ -4200,7 +3980,7 @@ function copyDrawioXml(btn){
   });
 }
 function downloadDrawio(btn){
-  const xml = decodeDrawioXml(btn);
+  const xml = sanitizeDrawioXml(decodeDrawioXml(btn));
   const blob = new Blob([xml], {type:'application/xml'});
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
@@ -4212,7 +3992,7 @@ function downloadDrawio(btn){
   URL.revokeObjectURL(url);
 }
 function openInDrawio(btn){
-  const xml = decodeDrawioXml(btn);
+  const xml = sanitizeDrawioXml(decodeDrawioXml(btn));
   const encoded = encodeURIComponent(xml);
   window.open('https://app.diagrams.net/#R' + encoded, '_blank');
 }
@@ -4224,72 +4004,27 @@ async function removeCsv(){
   document.getElementById('csvInfoPanel').style.display = 'none';
 }
 
-// ===== 범용 파일 업로드 =====
+// ===== 파일 관리 =====
 let uploadedFilesList = [];
 
-async function uploadGenericFile(file){
-  const area = document.getElementById('fileUploadArea');
-  const origHtml = area.innerHTML;
-  area.innerHTML = `<div class="icon">⏳</div><div class="label">${esc(file.name)} 업로드 중...</div>`;
-
-  const formData = new FormData();
-  formData.append('file', file);
-
-  try{
-    const resp = await fetch('/api/upload_file', {method:'POST', body:formData});
-    const data = await resp.json();
-
-    if(data.error){
-      area.innerHTML = `<div class="icon">❌</div><div class="label">${esc(data.error)}</div>`;
-      setTimeout(()=>{ area.innerHTML = origHtml; }, 2500);
-      return;
-    }
-
-    uploadedFilesList.push({
-      filename: data.filename,
-      type: data.type,
-      ext: data.ext,
-      size: data.size,
-      icon: data.icon,
-      preview: data.preview,
-    });
-    renderFileList();
-    area.innerHTML = origHtml;
-
-  }catch(e){
-    area.innerHTML = `<div class="icon">❌</div><div class="label">업로드 실패: ${e.message}</div>`;
-    setTimeout(()=>{ area.innerHTML = origHtml; }, 2500);
-  }
-}
-
 function renderFileList(){
-  // 하단 첨부 미리보기 (채팅 입력창 위)
-  const preview = document.getElementById('attachPreview');
-  const countEl = document.getElementById('attachCount');
-  // 기존 상단 패널도 숨기기
-  const oldPanel = document.getElementById('fileListPanel');
-  if(oldPanel) oldPanel.style.display='none';
-
+  const panel = document.getElementById('fileListPanel');
   if(uploadedFilesList.length === 0){
-    preview.style.display = 'none';
-    countEl.style.display = 'none';
+    panel.style.display = 'none';
     return;
   }
-  preview.style.display = 'flex';
-  countEl.style.display = '';
-  countEl.textContent = `${uploadedFilesList.length}개 첨부`;
-
-  let html = '';
+  panel.style.display = 'block';
+  let html = '<div class="uploaded-files-header"><span>📎 업로드된 파일 ('+uploadedFilesList.length+')</span><button onclick="clearAllFiles()" class="fremove" style="float:right">전체 제거</button></div>';
   uploadedFilesList.forEach((f,i)=>{
-    html += `<span class="attach-chip">
-      ${f.icon} ${esc(f.filename)}
-      <button onclick="removeFile('${esc(f.filename)}',${i})" title="제거">✕</button>
-    </span>`;
+    const sizeStr = f.size > 1048576 ? (f.size/1048576).toFixed(1)+'MB' : (f.size/1024).toFixed(1)+'KB';
+    html += `<div class="uploaded-file-item">
+      <span class="ufi-icon">${f.icon}</span>
+      <span class="ufi-name" title="${esc(f.preview||'')}">${esc(f.filename)}</span>
+      <span class="ufi-size">${sizeStr}</span>
+      <button class="ufi-remove" onclick="removeFile('${esc(f.filename)}',${i})">✕</button>
+    </div>`;
   });
-  if(uploadedFilesList.length > 1){
-    html += `<span class="attach-chip" style="cursor:pointer;color:#e74c3c;border-color:#fca5a5" onclick="clearAllFiles()">전체 삭제</span>`;
-  }
-  preview.innerHTML = html;
+  panel.innerHTML = html;
 }
 
 async function removeFile(filename, idx){
@@ -4304,298 +4039,104 @@ async function clearAllFiles(){
   renderFileList();
 }
 
-// === Code Assistant (오른쪽 패널) ===
-let caFiles = [];
-let caActiveFile = null;
+// ===== 채팅 입력 첨부파일 =====
+let chatPendingFiles = [];  // [{file:File, name:string}]
 
-function toggleRightPanel(){
-  const panel = document.getElementById('rightPanel');
-  const btn = document.getElementById('rpToggleBtn');
-  const isOpen = panel.classList.toggle('open');
-  document.body.classList.toggle('rp-open', isOpen);
-  btn.classList.toggle('active', isOpen);
-  localStorage.setItem('domos_rp_open', isOpen);
-  if(isOpen) rpRenderSkills();
-  updateCABadge();
-}
+// 파일 확장자 → 추천 스킬 매핑 (프론트엔드용)
+const fileExtSkillHints = {
+  'py':['agent-python-pro'], 'js':['agent-nextjs-developer'],
+  'csv':['exploratory-data-analysis','statistical-analysis'],
+  'tsv':['exploratory-data-analysis'], 'xlsx':['exploratory-data-analysis'],
+  'docx':['docx'], 'pdf':['pdf'], 'pptx':['pptx'],
+  'drawio':['drawio-diagram'], 'xml':['drawio-diagram'],
+  'md':['markdown-mermaid-writing'], 'html':['web-artifacts-builder'],
+};
 
-// 폴더 드롭: DataTransferItem API로 디렉토리 재귀 탐색
-async function rpHandleDrop(e){
-  const items = [...e.dataTransfer.items];
-  const files = [];
-  for(const item of items){
-    const entry = item.webkitGetAsEntry && item.webkitGetAsEntry();
-    if(entry) await rpTraverseEntry(entry, '', files);
-    else if(item.kind==='file') files.push(item.getAsFile());
-  }
-  if(files.length>0) await rpUploadFiles(files);
-}
-async function rpTraverseEntry(entry, path, files){
-  if(entry.isFile){
-    const file = await new Promise(r=>entry.file(r));
-    Object.defineProperty(file,'webkitRelativePath',{value:path+entry.name});
-    files.push(file);
-  } else if(entry.isDirectory){
-    const reader = entry.createReader();
-    const entries = await new Promise(r=>reader.readEntries(r));
-    for(const e of entries) await rpTraverseEntry(e, path+entry.name+'/', files);
-  }
-}
-function rpHandleSelect(e){rpUploadFiles([...e.target.files]);e.target.value=''}
-
-const CA_ALLOWED = new Set(['.py','.js','.ts','.html','.css','.json','.xml','.yaml','.yml','.c','.cpp','.h','.java','.go','.rs','.sh','.bat','.sql','.md','.txt']);
-function rpGetExt(name){const i=name.lastIndexOf('.');return i>=0?name.substring(i).toLowerCase():''}
-
-async function rpUploadFiles(fileList){
-  // 코드 파일만 필터 + 숨김 파일/node_modules 등 제외
-  const filtered = fileList.filter(f=>{
-    const path = f.webkitRelativePath||f.name;
-    if(path.includes('node_modules/')||path.includes('__pycache__/')||path.includes('.git/')
-      ||path.includes('venv/')||path.includes('.env/')||path.includes('dist/')
-      ||path.includes('build/')||path.includes('.idea/')||path.includes('.vscode/')) return false;
-    const name = path.split('/').pop();
-    if(name.startsWith('.')) return false;
-    return CA_ALLOWED.has(rpGetExt(name));
-  });
-  if(filtered.length===0){alert('지원되는 코드 파일이 없습니다.');return}
-  if(filtered.length>200){alert(`파일이 너무 많습니다 (${filtered.length}개). 200개 이하의 폴더를 선택하세요.`);return}
-
-  const formData = new FormData();
-  filtered.forEach(f=>{
-    const path = f.webkitRelativePath||f.name;
-    const blob = new File([f], path, {type:f.type});
-    formData.append('file', blob, path);
-  });
-
-  try{
-    document.getElementById('rpTreeContent').innerHTML='<div style="text-align:center;padding:30px;color:#0d9488;font-weight:600">⏳ 업로드 중... ('+filtered.length+'개 파일)</div>';
-    const resp = await fetch('/api/code-assist/upload',{method:'POST',body:formData});
-    const data = await resp.json();
-    if(data.error){alert(data.error);rpRenderTree();return}
-    // 기존 리스트에 추가
-    for(const f of data.files){
-      caFiles = caFiles.filter(x=>x.filename!==f.filename);
-      caFiles.push(f);
+function handleChatFileSelect(files){
+  let hintSkills = [];
+  for(const f of files){
+    chatPendingFiles.push({file:f, name:f.name});
+    // 파일 확장자로 추천 스킬 수집
+    const ext = f.name.split('.').pop().toLowerCase();
+    if(fileExtSkillHints[ext]){
+      hintSkills.push(...fileExtSkillHints[ext]);
     }
-    rpRestoreUploadArea();
-    rpRenderTree();
-    if(data.files.length>0) rpSelectFile(data.files[0].filename);
-    if(data.skipped.length>0) console.log('건너뛴 파일:', data.skipped);
-  }catch(e){rpRestoreUploadArea();alert('업로드 실패: '+e.message)}
+  }
+  renderChatAttach();
+  document.getElementById('chatFileInput').value = '';
+
+  // 추천 스킬을 사이드바에 표시
+  if(hintSkills.length > 0){
+    autoLoadedSkills = [...new Set(hintSkills)];
+    renderSkills();
+  }
 }
 
-function rpRestoreUploadArea(){
-  // 업로드 완료 후 트리를 렌더링하므로 별도 복원 불필요
-  rpRenderTree();
+function removeChatAttach(idx){
+  chatPendingFiles.splice(idx, 1);
+  renderChatAttach();
 }
 
-let rpCollapsed = {};  // 접힌 폴더 상태 기억
+// 입력창 드래그앤드롭 파일 첨부
+(function(){
+  const box = document.querySelector('.chat-box-fixed');
+  if(!box) return;
+  box.addEventListener('dragover', e=>{e.preventDefault();e.stopPropagation();box.style.borderTopColor='#6366f1';});
+  box.addEventListener('dragleave', e=>{e.preventDefault();box.style.borderTopColor='';});
+  box.addEventListener('drop', e=>{
+    e.preventDefault();e.stopPropagation();box.style.borderTopColor='';
+    if(e.dataTransfer.files.length > 0) handleChatFileSelect(e.dataTransfer.files);
+  });
+})();
 
-function rpRenderTree(){
-  const content = document.getElementById('rpTreeContent');
-  const title = document.getElementById('rpTreeTitle');
-  const clearBtn = document.getElementById('rpClearBtn');
-  if(caFiles.length===0){
-    title.textContent='📂 프로젝트를 업로드하세요';
-    clearBtn.style.display='none';
-    content.innerHTML=`<div style="text-align:center;padding:40px 16px;color:#bbb;font-size:12px">
-      <div style="font-size:40px;margin-bottom:8px">📂</div>
-      폴더를 끌어놓거나 위 버튼으로 선택<br>
-      <span style="font-size:10px">.py .js .ts .java .cpp .go .rs .html .css 등</span>
-    </div>`;
+function renderChatAttach(){
+  const wrap = document.getElementById('chatAttachPreview');
+  if(chatPendingFiles.length === 0){
+    wrap.style.display = 'none';
+    wrap.innerHTML = '';
     return;
   }
+  wrap.style.display = 'flex';
+  wrap.innerHTML = chatPendingFiles.map((f,i)=>
+    `<span class="chat-attach-badge"><span class="fname">${esc(f.name)}</span><span class="remove-attach" onclick="removeChatAttach(${i})">✕</span></span>`
+  ).join('');
+}
 
-  // 루트 폴더명 추출
-  const firstPath = caFiles[0].filename;
-  const rootDir = firstPath.includes('/')?firstPath.split('/')[0]:'Files';
-  title.innerHTML=`📂 <span class="rp-root-name">${esc(rootDir)}</span> <span style="font-size:10px;color:#888;font-weight:400">(${caFiles.length}개 파일)</span>`;
-  clearBtn.style.display='';
+async function uploadChatPendingFiles(){
+  // 첨부된 파일들을 서버로 업로드 (CSV는 csv 엔드포인트, 나머지는 범용)
+  const results = [];
+  for(const pf of chatPendingFiles){
+    const ext = pf.name.split('.').pop().toLowerCase();
+    const formData = new FormData();
+    formData.append('file', pf.file);
 
-  // 트리 구조 빌드
-  const tree = {};
-  caFiles.forEach(f=>{
-    const parts = f.filename.split('/');
-    let node = tree;
-    for(let i=0;i<parts.length-1;i++){
-      if(!node[parts[i]]) node[parts[i]]={__dir:true};
-      node = node[parts[i]];
-    }
-    node[parts[parts.length-1]] = f;
-  });
-
-  function getIcon(lang){
-    const m={python:'🐍',javascript:'📜',typescript:'🔷',html:'🌐',css:'🎨',json:'📋',java:'☕',
-      c:'⚙️',cpp:'⚙️',go:'🔵',rust:'🦀',bash:'💲',sql:'🗄️',markdown:'📝'};
-    return m[lang]||'📄';
-  }
-
-  function renderNode(obj, path, depth){
-    let html='';
-    const dirs = Object.keys(obj).filter(k=>k!=='__dir'&&obj[k]&&obj[k].__dir).sort();
-    const files = Object.keys(obj).filter(k=>k!=='__dir'&&obj[k]&&!obj[k].__dir).sort();
-
-    for(const d of dirs){
-      const dirPath = path?path+'/'+d:d;
-      const isCollapsed = rpCollapsed[dirPath];
-      const arrowCls = isCollapsed?'arrow':'arrow open';
-      const childCls = isCollapsed?'rp-dir-children collapsed':'rp-dir-children';
-      // 하위 파일 수 세기
-      const countFiles = (o)=>{let c=0;for(const k of Object.keys(o)){if(k==='__dir')continue;if(o[k]&&o[k].__dir)c+=countFiles(o[k]);else c++}return c};
-      const cnt = countFiles(obj[d]);
-      html+=`<div class="rp-dir">
-        <div class="rp-dir-label" onclick="rpToggleDir('${esc(dirPath)}')" style="padding-left:${depth*14}px">
-          <span class="${arrowCls}">▶</span>📁 ${esc(d)} <span style="color:#bbb;font-size:10px;font-weight:400">(${cnt})</span>
-        </div>
-        <div class="${childCls}" id="rpDir_${dirPath.replace(/[^a-zA-Z0-9]/g,'_')}">
-          ${renderNode(obj[d], dirPath, depth+1)}
-        </div>
-      </div>`;
+    // CSV/TSV → CSV 전용 엔드포인트 (데이터 분석용)
+    if(['csv','tsv'].includes(ext) && !csvLoaded){
+      try{
+        await uploadCsvFile(pf.file);
+        results.push(pf.name);
+      }catch(e){}
+      continue;
     }
 
-    for(const name of files){
-      const f = obj[name];
-      const fullPath = f.filename;
-      const sizeStr = f.size>1024?(f.size/1024).toFixed(1)+'KB':f.size+'B';
-      const active = fullPath===caActiveFile?' active':'';
-      const icon = getIcon(f.language);
-      html+=`<div class="rp-file-item${active}" onclick="rpSelectFile('${esc(fullPath)}')" style="padding-left:${depth*14+16}px">
-        <span style="font-size:11px">${icon}</span>
-        <span class="rp-file-name">${esc(name)}</span>
-        <span class="rp-file-size">${sizeStr}</span>
-      </div>`;
-    }
-    return html;
-  }
-
-  content.innerHTML=renderNode(tree,'',0);
-
-  // 채팅 입력창에 Code Assistant 파일 상태 표시
-  updateCABadge();
-}
-
-function updateCABadge(){
-  const badge = document.getElementById('caModeBadge');
-  const countEl = document.getElementById('caFileCount');
-  const isOpen = document.body.classList.contains('rp-open');
-  if(isOpen && caFiles.length > 0){
-    badge.style.display = '';
-    const langs = [...new Set(caFiles.map(f=>f.language))].join(', ');
-    countEl.textContent = `${caFiles.length}개 파일 로드됨 (${langs}) — 모든 파일을 컨텍스트로 분석합니다`;
-  } else {
-    badge.style.display = 'none';
-  }
-}
-
-function rpToggleDir(dirPath){
-  rpCollapsed[dirPath]=!rpCollapsed[dirPath];
-  rpRenderTree();
-}
-
-function rpSelectFile(filename){
-  const f = caFiles.find(x=>x.filename===filename);
-  if(!f) return;
-  caActiveFile = filename;
-  const shortName = filename.includes('/')?filename.split('/').slice(-2).join('/'):filename;
-  document.getElementById('rpCode').textContent = f.content;
-  document.getElementById('rpViewerLabel').textContent = `📄 ${shortName} (${f.language})`;
-  rpRenderTree();
-}
-
-function rpCopyCode(){
-  const code = document.getElementById('rpCode').textContent;
-  navigator.clipboard.writeText(code).then(()=>{
-    const btn = event.target;btn.textContent='복사됨!';setTimeout(()=>btn.textContent='복사',1000);
-  });
-}
-
-async function rpRemoveFile(filename){
-  await fetch('/api/code-assist/remove',{method:'POST',
-    headers:{'Content-Type':'application/json'},body:JSON.stringify({filename})});
-  caFiles = caFiles.filter(f=>f.filename!==filename);
-  if(caActiveFile===filename){
-    caActiveFile = caFiles.length>0?caFiles[0].filename:null;
-    if(caActiveFile) rpSelectFile(caActiveFile);
-    else{document.getElementById('rpCode').textContent='// 파일을 선택하면 코드가 여기에 표시됩니다';
-         document.getElementById('rpViewerLabel').textContent='파일을 선택하세요'}
-  }
-  rpRenderTree();
-}
-
-async function rpClearAll(){
-  await fetch('/api/code-assist/clear',{method:'POST'});
-  caFiles=[];caActiveFile=null;rpCollapsed={};
-  document.getElementById('rpCode').textContent='// 파일을 선택하면 코드가 여기에 표시됩니다';
-  document.getElementById('rpViewerLabel').textContent='파일을 선택하세요';
-  rpRenderTree();
-}
-
-function rpRenderSkills(){
-  const sel = document.getElementById('rpSkillSelect');
-  sel.innerHTML='';
-  const codeKw=['code','review','debug','refactor','test','python','javascript',
-    'typescript','java','frontend','backend','sequential-thinking','problem-solving'];
-  for(const[did,d] of Object.entries(catalog)){
-    d.skills.forEach(s=>{
-      if(!s.available) return;
-      const isCode = codeKw.some(k=>s.id.includes(k)||s.name.toLowerCase().includes(k));
-      if(isCode){
-        const opt = document.createElement('option');
-        opt.value=s.id;opt.textContent=s.name;
-        sel.appendChild(opt);
+    // 나머지 → 범용 파일 엔드포인트
+    try{
+      const resp = await fetch('/api/upload_file', {method:'POST', body:formData});
+      const data = await resp.json();
+      if(!data.error){
+        uploadedFilesList.push({
+          filename: data.filename, type: data.type, ext: data.ext,
+          size: data.size, icon: data.icon, preview: data.preview,
+        });
+        results.push(data.filename);
       }
-    });
+    }catch(e){}
   }
+  chatPendingFiles = [];
+  renderChatAttach();
+  renderFileList();
+  return results;
 }
-
-async function rpAction(action){
-  if(!caActiveFile){alert('먼저 코드 파일을 업로드하세요.');return}
-  if(!selEnv){alert('먼저 LLM 환경을 선택해주세요.');return}
-
-  const skills=[...document.getElementById('rpSkillSelect').selectedOptions].map(o=>o.value);
-  const actionLabels={explain:'코드 설명',find_bugs:'버그 찾기',improve:'개선 제안',
-    tests:'테스트 생성',docstring:'독스트링 추가',refactor:'리팩토링'};
-
-  addMsg('user',`[Code Assistant] ${actionLabels[action]}: ${caActiveFile}`);
-  history.push({role:'user',content:`[Code Assistant] ${actionLabels[action]}: ${caActiveFile}`});
-  const typing = addTyping();
-
-  try{
-    const resp = await fetch('/api/code-assist/analyze',{
-      method:'POST',headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({action,filename:caActiveFile,skills,env:selEnv})
-    });
-    const data = await resp.json();
-    typing.remove();
-    if(data.error){addMsg('assistant','❌ '+data.error)}
-    else{
-      let info='';
-      if(data.loaded_skills&&data.loaded_skills.length>0)
-        info=`\n\n---\n*스킬: ${data.loaded_skills.join(', ')}*`;
-      addMsg('assistant',data.content+info);
-      history.push({role:'assistant',content:data.content});
-    }
-  }catch(e){typing.remove();addMsg('assistant','❌ 분석 실패: '+e.message)}
-  saveCurrentSession();
-}
-
-function rpSendToChat(){
-  if(caFiles.length===0){alert('먼저 코드 파일을 업로드하세요.');return}
-  const input = document.getElementById('input');
-  // Code Assistant 패널이 열려있으면 자동으로 ca_mode가 활성화됨
-  // 모든 파일이 시스템 프롬프트에 포함되므로, 간단한 안내만 추가
-  input.value=`프로젝트 코드(${caFiles.length}개 파일)를 참고하여 답변해주세요.\n\n`;
-  input.focus();
-  input.style.height='auto';
-  input.style.height=input.scrollHeight+'px';
-}
-
-// 패널 상태 복원
-(function(){
-  if(localStorage.getItem('domos_rp_open')==='true'){
-    setTimeout(()=>toggleRightPanel(),300);
-  }
-})();
 </script>
 </body>
 </html>
@@ -4651,6 +4192,7 @@ if __name__ == "__main__":
         # 크기 내림차순 정렬
         gguf_files.sort(key=lambda x: x["size_gb"], reverse=True)
         print(f"\n  💻 GGUF 자동 감지! ({len(gguf_files)}개 모델)")
+
         for idx, gf in enumerate(gguf_files):
             env_key = f"gguf-{idx}"
             model_name = gf["name"].replace(".gguf", "")
