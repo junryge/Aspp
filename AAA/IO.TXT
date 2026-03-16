@@ -2673,8 +2673,14 @@ body.rp-collapsed .chat-box-fixed{right:0}
 .rp-result{margin-top:12px;padding:12px;background:#f8f7f4;border-radius:8px;font-size:12px;line-height:1.6;max-height:300px;overflow-y:auto}
 .rp-skill-badge{display:inline-block;padding:2px 8px;border-radius:10px;font-size:10px;font-weight:600;background:#eef2ff;color:#6366f1;margin-left:6px}
 .rp-tree{font-size:12px;max-height:250px;overflow-y:auto;border:1px solid #e5e3de;border-radius:8px;padding:8px;background:#fafaf9;margin-bottom:8px}
-.rp-tree-node{padding:1px 0;cursor:pointer;user-select:none}
+.rp-tree-node{padding:2px 0;cursor:pointer;user-select:none;display:flex;align-items:center;gap:2px}
+.rp-tree-cb{width:14px;height:14px;cursor:pointer;accent-color:#6366f1;flex-shrink:0}
+.rp-select-bar{display:flex;gap:6px;margin-bottom:6px;align-items:center}
+.rp-select-btn{background:none;border:1px solid #d1d5db;border-radius:4px;padding:2px 8px;font-size:10px;cursor:pointer;color:#666}
+.rp-select-btn:hover{border-color:#6366f1;color:#6366f1}
+.rp-checked-count{font-size:11px;color:#6366f1;font-weight:600}
 .rp-tree-node:hover{background:#eef2ff;border-radius:4px}
+.rp-tree-node-content{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .rp-tree-folder{font-weight:600;color:#555}
 .rp-tree-file{color:#333}
 .rp-tree-file.active{background:#6366f1;color:#fff;border-radius:4px;padding:1px 4px}
@@ -2862,6 +2868,11 @@ body.rp-collapsed .chat-box-fixed{right:0}
         <span id="rpStatsInfo">0 파일 / 0 폴더</span>
         <span id="rpStatsSize">0 KB</span>
         <button onclick="clearRpProject()" style="background:none;border:none;color:#ef4444;cursor:pointer;font-size:11px;font-weight:600">전체 삭제</button>
+      </div>
+      <div class="rp-select-bar" id="rpSelectBar" style="display:none">
+        <button class="rp-select-btn" onclick="rpCheckAll(true)">전체 선택</button>
+        <button class="rp-select-btn" onclick="rpCheckAll(false)">전체 해제</button>
+        <span class="rp-checked-count" id="rpCheckedCount">0개 선택</span>
       </div>
       <div class="rp-tree" id="rpTree" style="display:none"></div>
       <div class="rp-file-list" id="rpFileList"></div>
@@ -4378,16 +4389,26 @@ function buildRpTree(){
   });
 }
 
+let rpCheckedFiles = new Set();  // 체크된 파일 인덱스
+
 function renderRpTree(){
   const container = document.getElementById('rpTree');
   const stats = document.getElementById('rpTreeStats');
+  const selectBar = document.getElementById('rpSelectBar');
   if(rpFiles.length === 0){
     container.style.display = 'none';
     stats.style.display = 'none';
+    selectBar.style.display = 'none';
     return;
   }
   container.style.display = 'block';
   stats.style.display = 'flex';
+  selectBar.style.display = 'flex';
+
+  // 기본: 전체 체크
+  if(rpCheckedFiles.size === 0){
+    rpFiles.forEach((_,i)=>rpCheckedFiles.add(i));
+  }
 
   // 통계
   const folders = new Set();
@@ -4401,6 +4422,7 @@ function renderRpTree(){
   document.getElementById('rpStatsSize').textContent = sizeStr;
 
   container.innerHTML = renderTreeNode(rpTreeData, true);
+  updateCheckedCount();
 }
 
 function renderTreeNode(node, isRoot){
@@ -4410,18 +4432,72 @@ function renderTreeNode(node, isRoot){
   childKeys.forEach(key=>{
     const child = node.children[key];
     const fileCount = countFiles(child);
-    html += `<div class="rp-tree-node rp-tree-folder" onclick="toggleTreeFolder(this)">
-      <span class="rp-tree-toggle">▶</span><span class="rp-tree-icon">📁</span>${esc(key)} <span style="color:#bbb;font-weight:400">(${fileCount})</span>
+    const folderIdxs = collectFileIdxs(child);
+    const allChecked = folderIdxs.every(i=>rpCheckedFiles.has(i));
+    const someChecked = folderIdxs.some(i=>rpCheckedFiles.has(i));
+    html += `<div class="rp-tree-node rp-tree-folder">
+      <input type="checkbox" class="rp-tree-cb" data-folder-idxs="${folderIdxs.join(',')}" ${allChecked?'checked':''} ${!allChecked&&someChecked?'indeterminate':''} onclick="event.stopPropagation();toggleFolderCheck(this)" onchange="event.stopPropagation()">
+      <span class="rp-tree-node-content" onclick="toggleTreeFolder(this.parentElement)"><span class="rp-tree-toggle">▶</span><span class="rp-tree-icon">📁</span>${esc(key)} <span style="color:#bbb;font-weight:400">(${fileCount})</span></span>
     </div><div class="rp-tree-children" style="display:none">${renderTreeNode(child, false)}</div>`;
   });
   // 파일들
   node.files.sort((a,b)=>a.name.localeCompare(b.name)).forEach(f=>{
     const langIcon = {py:'🐍',js:'📜',html:'🌐',css:'🎨',java:'☕',c:'⚙️',cpp:'⚙️',go:'🐹',rs:'🦀',sh:'💻',json:'📋',yaml:'📋',yml:'📋',md:'📄',ts:'📘',tsx:'📘'}[f.ext]||'📄';
-    html += `<div class="rp-tree-node rp-tree-file" data-idx="${f.idx}" onclick="selectTreeFile(${f.idx},this)">
-      <span class="rp-tree-toggle"> </span><span class="rp-tree-icon">${langIcon}</span>${esc(f.name)}
+    const checked = rpCheckedFiles.has(f.idx);
+    html += `<div class="rp-tree-node rp-tree-file" data-idx="${f.idx}">
+      <input type="checkbox" class="rp-tree-cb" data-idx="${f.idx}" ${checked?'checked':''} onclick="event.stopPropagation();toggleFileCheck(${f.idx},this)">
+      <span class="rp-tree-node-content" onclick="selectTreeFile(${f.idx},this.parentElement)"><span class="rp-tree-toggle"> </span><span class="rp-tree-icon">${langIcon}</span>${esc(f.name)}</span>
     </div>`;
   });
   return html;
+}
+
+function collectFileIdxs(node){
+  let idxs = node.files.map(f=>f.idx);
+  Object.values(node.children).forEach(ch=>{ idxs = idxs.concat(collectFileIdxs(ch)); });
+  return idxs;
+}
+
+function toggleFileCheck(idx, cb){
+  if(cb.checked) rpCheckedFiles.add(idx);
+  else rpCheckedFiles.delete(idx);
+  updateCheckedCount();
+  updateParentFolderChecks();
+}
+
+function toggleFolderCheck(cb){
+  const idxs = cb.dataset.folderIdxs.split(',').filter(Boolean).map(Number);
+  if(cb.checked) idxs.forEach(i=>rpCheckedFiles.add(i));
+  else idxs.forEach(i=>rpCheckedFiles.delete(i));
+  // 하위 파일 체크박스 동기화
+  const tree = document.getElementById('rpTree');
+  idxs.forEach(i=>{
+    const fileCb = tree.querySelector(`input[data-idx="${i}"]`);
+    if(fileCb) fileCb.checked = cb.checked;
+  });
+  updateCheckedCount();
+}
+
+function updateParentFolderChecks(){
+  document.querySelectorAll('.rp-tree-cb[data-folder-idxs]').forEach(cb=>{
+    const idxs = cb.dataset.folderIdxs.split(',').filter(Boolean).map(Number);
+    const checkedCount = idxs.filter(i=>rpCheckedFiles.has(i)).length;
+    cb.checked = checkedCount === idxs.length;
+    cb.indeterminate = checkedCount > 0 && checkedCount < idxs.length;
+  });
+}
+
+function rpCheckAll(checked){
+  if(checked) rpFiles.forEach((_,i)=>rpCheckedFiles.add(i));
+  else rpCheckedFiles.clear();
+  document.querySelectorAll('.rp-tree-cb').forEach(cb=>{ cb.checked=checked; cb.indeterminate=false; });
+  updateCheckedCount();
+}
+
+function updateCheckedCount(){
+  const count = rpCheckedFiles.size;
+  document.getElementById('rpCheckedCount').textContent = count+'개 선택';
+  updateRpRunBtn();
 }
 
 function countFiles(node){
@@ -4453,8 +4529,10 @@ function clearRpProject(){
   rpFiles = [];
   rpTreeData = null;
   rpSelectedFile = null;
+  rpCheckedFiles.clear();
   document.getElementById('rpTree').style.display = 'none';
   document.getElementById('rpTreeStats').style.display = 'none';
+  document.getElementById('rpSelectBar').style.display = 'none';
   document.getElementById('rpFileList').innerHTML = '';
   updateRpCodePreview();
   updateRpRunBtn();
@@ -4531,9 +4609,13 @@ function selectRpMode(btn){
 
 function updateRpRunBtn(){
   const btn = document.getElementById('rpRunBtn');
-  if(rpFiles.length > 0 && rpSelectedMode){
+  const checkedCount = rpCheckedFiles.size;
+  if(rpFiles.length > 0 && rpSelectedMode && checkedCount > 0){
     btn.disabled = false;
-    btn.textContent = '▶ ' + rpModeLabels[rpSelectedMode] + ' 실행';
+    btn.textContent = '▶ ' + rpModeLabels[rpSelectedMode] + ' (' + checkedCount + '개 파일)';
+  } else if(rpFiles.length > 0 && checkedCount === 0){
+    btn.disabled = true;
+    btn.textContent = '▶ 분석할 파일을 선택하세요 (체크박스)';
   } else {
     btn.disabled = true;
     btn.textContent = rpFiles.length === 0 ? '▶ 코드 파일을 업로드하세요' : '▶ 분석 모드를 선택하세요';
@@ -4551,15 +4633,20 @@ async function runCodeAssistant(){
     updateLoaded();
   }
 
+  // 체크된 파일만 필터링
+  const selectedFiles = rpFiles.filter((_,i)=>rpCheckedFiles.has(i));
+  if(selectedFiles.length === 0){ alert('분석할 파일을 선택해주세요 (체크박스).'); return; }
+
   // 프로젝트 트리 구조 생성
   let treeText = '';
   if(rpTreeData){
     treeText = '=== 프로젝트 구조 ===\n' + buildTreeText(rpTreeData, '') + '\n';
+    treeText += `\n(전체 ${rpFiles.length}개 중 ${selectedFiles.length}개 파일 선택됨)\n`;
   }
 
-  // 파일 내용을 합쳐서 프롬프트 구성
+  // 선택된 파일 내용만 합쳐서 프롬프트 구성
   let codeContent = treeText;
-  rpFiles.forEach(f=>{
+  selectedFiles.forEach(f=>{
     codeContent += `\n--- 파일: ${f.path||f.name} (${f.ext}) ---\n${f.content}\n`;
   });
 
