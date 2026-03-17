@@ -1,0 +1,794 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>GLB Builder - 건물 3D 모델 생성</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { background: #1a1a2e; color: #ddd; font-family: 'Segoe UI', sans-serif; }
+.header { background: #16213e; padding: 15px 30px; display: flex; align-items: center; justify-content: space-between; }
+.header h1 { font-size: 20px; color: #fff; }
+.header .btn-build { background: #0078d4; color: #fff; border: none; padding: 10px 30px; border-radius: 6px; font-size: 15px; cursor: pointer; font-weight: bold; }
+.header .btn-build:hover { background: #005fa3; }
+.header .btn-build:disabled { background: #555; cursor: not-allowed; }
+
+.main { display: flex; gap: 15px; padding: 15px; height: calc(100vh - 60px); }
+.faces-panel { flex: 1; display: flex; flex-direction: column; gap: 10px; }
+.controls-panel { width: 280px; background: #16213e; border-radius: 10px; padding: 15px; overflow-y: auto; }
+
+.face-row { display: flex; gap: 10px; flex: 1; }
+.face-row.top-row { justify-content: center; }
+
+.face-card {
+  background: #0f3460; border-radius: 10px; flex: 1; display: flex; flex-direction: column;
+  align-items: center; justify-content: center; position: relative; overflow: hidden;
+  border: 2px dashed #335; cursor: pointer; transition: border-color 0.2s; min-height: 120px;
+}
+.face-card:hover { border-color: #0078d4; }
+.face-card.has-image { border-style: solid; border-color: #0078d4; }
+.face-card .label { position: absolute; top: 8px; left: 10px; font-size: 13px; font-weight: bold; color: #fff; z-index: 2; text-shadow: 0 1px 3px rgba(0,0,0,0.8); }
+.face-card .size-info { position: absolute; top: 24px; left: 10px; font-size: 11px; color: #aaa; z-index: 2; text-shadow: 0 1px 3px rgba(0,0,0,0.8); }
+.face-card .placeholder { color: #667; font-size: 13px; text-align: center; }
+.face-card img { max-width: 100%; max-height: 100%; object-fit: contain; }
+.face-card canvas { max-width: 100%; max-height: 100%; }
+.face-card .btn-remove { position: absolute; top: 5px; right: 8px; background: rgba(255,0,0,0.7); color: #fff; border: none; border-radius: 50%; width: 22px; height: 22px; cursor: pointer; font-size: 14px; z-index: 3; display: none; }
+.face-card:hover .btn-remove { display: block; }
+.face-card .btn-bg { position: absolute; bottom: 5px; right: 8px; color: #fff; border: none; border-radius: 4px; padding: 2px 6px; cursor: pointer; font-size: 10px; z-index: 3; display: none; }
+.face-card:hover .btn-bg { display: block; }
+.face-card input[type="file"] { display: none; }
+
+.ctrl-group { margin-bottom: 15px; }
+.ctrl-group h3 { font-size: 14px; color: #0078d4; margin-bottom: 8px; border-bottom: 1px solid #335; padding-bottom: 5px; }
+.ctrl-row { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+.ctrl-row label { font-size: 12px; min-width: 60px; }
+.ctrl-row input[type="number"] { background: #0a1628; border: 1px solid #335; color: #ddd; padding: 4px 6px; border-radius: 4px; width: 70px; font-size: 12px; }
+.ctrl-row input[type="range"] { flex: 1; }
+.ctrl-row .val { font-size: 11px; color: #888; min-width: 35px; text-align: right; }
+
+.checkbox-row { display: flex; align-items: center; gap: 6px; margin-bottom: 6px; }
+.checkbox-row input { accent-color: #0078d4; }
+.checkbox-row label { font-size: 12px; }
+
+.status { padding: 8px 15px; background: #0a1628; font-size: 12px; color: #888; text-align: center; }
+.preview-area { background: #111; border-radius: 10px; min-height: 200px; display: flex; align-items: center; justify-content: center; margin-top: 10px; }
+.preview-area canvas { border-radius: 8px; }
+
+.progress-overlay {
+  position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.7);
+  display: none; align-items: center; justify-content: center; z-index: 100;
+}
+.progress-overlay.show { display: flex; }
+.progress-box { background: #16213e; padding: 30px 50px; border-radius: 12px; text-align: center; }
+.progress-box .spinner { border: 4px solid #335; border-top: 4px solid #0078d4; border-radius: 50%; width: 40px; height: 40px; animation: spin 1s linear infinite; margin: 0 auto 15px; }
+@keyframes spin { to { transform: rotate(360deg); } }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <h1>GLB Builder</h1>
+  <div style="display:flex;gap:10px;align-items:center;">
+    <button class="btn-build" id="btnBuild">GLB 생성</button>
+  </div>
+</div>
+
+<div class="main">
+  <div class="faces-panel">
+    <div class="face-row top-row">
+      <div class="face-card" id="face-top" data-face="top" style="max-width:300px;">
+        <span class="label">윗면</span>
+        <span class="size-info" id="size-top"></span>
+        <span class="placeholder">클릭하여 이미지 로드</span>
+        <button class="btn-remove" data-remove="top">x</button>
+        <button class="btn-bg" id="bgbtn-top" data-bg="top" style="background:rgba(100,100,100,0.7);" title="배경 제거 OFF">BG</button>
+        <input type="file" id="file-top" accept="image/*">
+      </div>
+    </div>
+    <div class="face-row">
+      <div class="face-card" id="face-left" data-face="left">
+        <span class="label">왼쪽</span>
+        <span class="size-info" id="size-left"></span>
+        <span class="placeholder">클릭하여 이미지 로드</span>
+        <button class="btn-remove" data-remove="left">x</button>
+        <button class="btn-bg" id="bgbtn-left" data-bg="left" style="background:rgba(0,120,212,0.8);" title="배경 제거 ON">BG</button>
+        <input type="file" id="file-left" accept="image/*">
+      </div>
+      <div class="face-card" id="face-front" data-face="front">
+        <span class="label">정면</span>
+        <span class="size-info" id="size-front"></span>
+        <span class="placeholder">클릭하여 이미지 로드</span>
+        <button class="btn-remove" data-remove="front">x</button>
+        <button class="btn-bg" id="bgbtn-front" data-bg="front" style="background:rgba(0,120,212,0.8);" title="배경 제거 ON">BG</button>
+        <input type="file" id="file-front" accept="image/*">
+      </div>
+      <div class="face-card" id="face-right" data-face="right">
+        <span class="label">오른쪽</span>
+        <span class="size-info" id="size-right"></span>
+        <span class="placeholder">클릭하여 이미지 로드</span>
+        <button class="btn-remove" data-remove="right">x</button>
+        <button class="btn-bg" id="bgbtn-right" data-bg="right" style="background:rgba(0,120,212,0.8);" title="배경 제거 ON">BG</button>
+        <input type="file" id="file-right" accept="image/*">
+      </div>
+      <div class="face-card" id="face-back" data-face="back">
+        <span class="label">후문</span>
+        <span class="size-info" id="size-back"></span>
+        <span class="placeholder">클릭하여 이미지 로드</span>
+        <button class="btn-remove" data-remove="back">x</button>
+        <button class="btn-bg" id="bgbtn-back" data-bg="back" style="background:rgba(0,120,212,0.8);" title="배경 제거 ON">BG</button>
+        <input type="file" id="file-back" accept="image/*">
+      </div>
+    </div>
+  </div>
+
+  <div class="controls-panel">
+    <div class="ctrl-group">
+      <h3>건물 크기</h3>
+      <div class="checkbox-row">
+        <input type="checkbox" id="autoSize" checked>
+        <label for="autoSize">자동 계산</label>
+      </div>
+      <div class="ctrl-row">
+        <label>너비(W):</label>
+        <input type="number" id="sizeW" value="1.0" step="0.05" min="0.1" max="10">
+      </div>
+      <div class="ctrl-row">
+        <label>높이(H):</label>
+        <input type="number" id="sizeH" value="1.0" step="0.05" min="0.1" max="10">
+      </div>
+      <div class="ctrl-row">
+        <label>깊이(D):</label>
+        <input type="number" id="sizeD" value="1.0" step="0.05" min="0.1" max="10">
+      </div>
+    </div>
+
+    <div class="ctrl-group">
+      <h3>면 인셋 (%)</h3>
+      <div class="ctrl-row">
+        <label>정면:</label>
+        <input type="range" id="insetFront" min="0" max="30" step="0.5" value="0" oninput="document.getElementById('valFront').textContent=this.value+'%'">
+        <span class="val" id="valFront">0%</span>
+      </div>
+      <div class="ctrl-row">
+        <label>후면:</label>
+        <input type="range" id="insetBack" min="0" max="30" step="0.5" value="0" oninput="document.getElementById('valBack').textContent=this.value+'%'">
+        <span class="val" id="valBack">0%</span>
+      </div>
+      <div class="ctrl-row">
+        <label>왼쪽:</label>
+        <input type="range" id="insetLeft" min="0" max="30" step="0.5" value="0" oninput="document.getElementById('valLeft').textContent=this.value+'%'">
+        <span class="val" id="valLeft">0%</span>
+      </div>
+      <div class="ctrl-row">
+        <label>오른쪽:</label>
+        <input type="range" id="insetRight" min="0" max="30" step="0.5" value="0" oninput="document.getElementById('valRight').textContent=this.value+'%'">
+        <span class="val" id="valRight">0%</span>
+      </div>
+      <div class="ctrl-row">
+        <label>윗면내림:</label>
+        <input type="range" id="topInset" min="0" max="30" step="0.5" value="8" oninput="document.getElementById('valTop').textContent=this.value+'%'">
+        <span class="val" id="valTop">8%</span>
+      </div>
+    </div>
+
+    <div class="ctrl-group">
+      <h3>텍스처</h3>
+      <div class="ctrl-row">
+        <label>해상도:</label>
+        <select id="atlasRes" style="background:#0a1628;border:1px solid #335;color:#ddd;padding:4px;border-radius:4px;">
+          <option value="256">256px</option>
+          <option value="512" selected>512px</option>
+          <option value="1024">1024px</option>
+        </select>
+      </div>
+      <div class="ctrl-row">
+        <label>알파모드:</label>
+        <select id="alphaMode" style="background:#0a1628;border:1px solid #335;color:#ddd;padding:4px;border-radius:4px;">
+          <option value="MASK" selected>MASK</option>
+          <option value="BLEND">BLEND</option>
+          <option value="OPAQUE">OPAQUE</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="ctrl-group">
+      <h3>바닥</h3>
+      <div class="ctrl-row">
+        <label>색상:</label>
+        <input type="color" id="bottomColor" value="#808080" style="width:40px;height:25px;border:none;cursor:pointer;">
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="progress-overlay" id="progressOverlay">
+  <div class="progress-box">
+    <div class="spinner"></div>
+    <div id="progressText">GLB 생성 중...</div>
+  </div>
+</div>
+
+<div class="status" id="statusBar">준비됨 | 각 면을 클릭하여 이미지를 로드하세요</div>
+
+<script>
+// Canvas 기반 흰색 배경 제거 (외부 라이브러리 불필요)
+function removeWhiteBackground(img) {
+  const canvas = document.createElement('canvas');
+  const w = img.naturalWidth || img.width;
+  const h = img.naturalHeight || img.height;
+  canvas.width = w;
+  canvas.height = h;
+  const ctx = canvas.getContext('2d');
+  ctx.drawImage(img, 0, 0);
+  const imageData = ctx.getImageData(0, 0, w, h);
+  const data = imageData.data;
+
+  // 가장자리에서 flood fill로 흰색 배경 제거
+  const visited = new Uint8Array(w * h);
+  const threshold = 240; // 흰색 판단 기준
+  const queue = [];
+
+  // 가장자리 픽셀을 시작점으로
+  for (let x = 0; x < w; x++) {
+    queue.push(x); queue.push(0);           // 상단
+    queue.push(x); queue.push(h - 1);       // 하단
+  }
+  for (let y = 1; y < h - 1; y++) {
+    queue.push(0); queue.push(y);           // 좌측
+    queue.push(w - 1); queue.push(y);       // 우측
+  }
+
+  let qi = 0;
+  while (qi < queue.length) {
+    const x = queue[qi++];
+    const y = queue[qi++];
+    if (x < 0 || x >= w || y < 0 || y >= h) continue;
+    const idx = y * w + x;
+    if (visited[idx]) continue;
+    const pi = idx * 4;
+    const r = data[pi], g = data[pi+1], b = data[pi+2];
+    if (r < threshold || g < threshold || b < threshold) continue;
+    visited[idx] = 1;
+    data[pi + 3] = 0; // 투명하게
+    queue.push(x-1, y, x+1, y, x, y-1, x, y+1);
+  }
+
+  ctx.putImageData(imageData, 0, 0);
+
+  // 내용물만 크롭
+  const cropped = cropToContent(canvas);
+  return cropped;
+}
+
+function cropToContent(canvas) {
+  const ctx = canvas.getContext('2d');
+  const w = canvas.width, h = canvas.height;
+  const imageData = ctx.getImageData(0, 0, w, h);
+  const data = imageData.data;
+
+  let top = h, bottom = 0, left = w, right = 0;
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      const a = data[(y * w + x) * 4 + 3];
+      if (a > 0) {
+        if (y < top) top = y;
+        if (y > bottom) bottom = y;
+        if (x < left) left = x;
+        if (x > right) right = x;
+      }
+    }
+  }
+
+  if (top > bottom || left > right) return canvas;
+
+  const cw = right - left + 1;
+  const ch = bottom - top + 1;
+  const cropped = document.createElement('canvas');
+  cropped.width = cw;
+  cropped.height = ch;
+  const cctx = cropped.getContext('2d');
+  cctx.drawImage(canvas, left, top, cw, ch, 0, 0, cw, ch);
+  return cropped;
+}
+
+// 윗면용: 흰색 테두리만 잘라내기 (배경 제거 없이)
+function simpleCrop(img) {
+  const canvas = document.createElement('canvas');
+  const w = img.naturalWidth || img.width;
+  const h = img.naturalHeight || img.height;
+  canvas.width = w;
+  canvas.height = h;
+  const ctx = canvas.getContext('2d');
+  ctx.drawImage(img, 0, 0);
+  const imageData = ctx.getImageData(0, 0, w, h);
+  const data = imageData.data;
+  const threshold = 245;
+
+  let top = h, bottom = 0, left = w, right = 0;
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      const pi = (y * w + x) * 4;
+      const r = data[pi], g = data[pi+1], b = data[pi+2];
+      if (r < threshold || g < threshold || b < threshold) {
+        if (y < top) top = y;
+        if (y > bottom) bottom = y;
+        if (x < left) left = x;
+        if (x > right) right = x;
+      }
+    }
+  }
+
+  if (top > bottom || left > right) return canvas;
+
+  const cw = right - left + 1;
+  const ch = bottom - top + 1;
+  const cropped = document.createElement('canvas');
+  cropped.width = cw;
+  cropped.height = ch;
+  const cctx = cropped.getContext('2d');
+  cctx.drawImage(canvas, left, top, cw, ch, 0, 0, cw, ch);
+  return cropped;
+}
+
+// 이미지 데이터 저장
+const faceImages = {};        // face -> { img, w, h }
+const faceOriginals = {};     // face -> 원본 dataURL (배경 제거 전)
+const faceBgRemoved = {};     // face -> 배경 제거된 dataURL (캐시)
+const faceRemoveBg = { front: true, back: true, left: true, right: true, top: false };
+const faceNames = ['front', 'back', 'left', 'right', 'top'];
+const faceLabels = { front: '정면', back: '후문', left: '왼쪽', right: '오른쪽', top: '윗면' };
+
+// DOM 이벤트 연결
+document.getElementById('btnBuild').addEventListener('click', () => buildGLB());
+document.querySelectorAll('.face-card[data-face]').forEach(card => {
+  card.addEventListener('click', (e) => {
+    if (e.target.closest('.btn-remove') || e.target.closest('.btn-bg')) return;
+    loadImage(card.dataset.face);
+  });
+});
+document.querySelectorAll('[data-remove]').forEach(btn => {
+  btn.addEventListener('click', (e) => { e.stopPropagation(); removeImage(btn.dataset.remove); });
+});
+document.querySelectorAll('[data-bg]').forEach(btn => {
+  btn.addEventListener('click', (e) => { e.stopPropagation(); toggleBgRemove(btn.dataset.bg); });
+});
+
+function loadImage(face) {
+  document.getElementById('file-' + face).click();
+}
+
+function onFileSelected(face, input) {
+  if (!input.files || !input.files[0]) return;
+  const file = input.files[0];
+  const reader = new FileReader();
+  reader.onload = function(e) {
+    faceOriginals[face] = e.target.result;
+    delete faceBgRemoved[face];
+    const img = new Image();
+    img.onload = function() {
+      if (faceRemoveBg[face]) {
+        processWithBgRemoval(face, img);
+      } else if (face === 'top') {
+        // 윗면: 흰색 테두리만 잘라내기
+        const cropped = simpleCrop(img);
+        const resultUrl = cropped.toDataURL('image/png');
+        const resultImg = new Image();
+        resultImg.onload = () => setFaceImage(face, resultImg);
+        resultImg.src = resultUrl;
+      } else {
+        setFaceImage(face, img);
+      }
+    };
+    img.src = e.target.result;
+  };
+  reader.readAsDataURL(file);
+}
+
+// 배경 제거 처리 (Canvas 기반 - 외부 라이브러리 불필요)
+function processWithBgRemoval(face, originalImg) {
+  // 캐시 확인
+  if (faceBgRemoved[face]) {
+    const img = new Image();
+    img.onload = () => setFaceImage(face, img);
+    img.src = faceBgRemoved[face];
+    return;
+  }
+
+  setStatus(faceLabels[face] + ' 배경 제거 중...');
+
+  // Canvas 기반 흰색 배경 제거
+  try {
+    const resultCanvas = removeWhiteBackground(originalImg);
+    const resultUrl = resultCanvas.toDataURL('image/png');
+    faceBgRemoved[face] = resultUrl;
+
+    const resultImg = new Image();
+    resultImg.onload = () => {
+      setFaceImage(face, resultImg);
+      setStatus(faceLabels[face] + ' 배경 제거 완료! (' + resultImg.width + 'x' + resultImg.height + ')');
+    };
+    resultImg.src = resultUrl;
+  } catch (err) {
+    console.error('배경 제거 실패:', err);
+    setStatus(faceLabels[face] + ' 배경 제거 실패 - 원본 사용');
+    setFaceImage(face, originalImg);
+  }
+}
+
+function setFaceImage(face, img) {
+  faceImages[face] = { img: img, w: img.naturalWidth || img.width, h: img.naturalHeight || img.height };
+  displayFace(face, img);
+  document.getElementById('size-' + face).textContent = (img.naturalWidth||img.width) + 'x' + (img.naturalHeight||img.height);
+  document.getElementById('face-' + face).classList.add('has-image');
+  if (document.getElementById('autoSize').checked) autoCalcSize();
+}
+
+// 배경 제거 토글
+async function toggleBgRemove(face) {
+  faceRemoveBg[face] = !faceRemoveBg[face];
+  const btn = document.getElementById('bgbtn-' + face);
+  if (btn) {
+    btn.style.background = faceRemoveBg[face] ? 'rgba(0,120,212,0.8)' : 'rgba(100,100,100,0.7)';
+    btn.title = faceRemoveBg[face] ? '배경 제거 ON' : '배경 제거 OFF';
+  }
+  if (!faceOriginals[face]) return;
+
+  if (faceRemoveBg[face]) {
+    const img = new Image();
+    img.onload = () => processWithBgRemoval(face, img);
+    img.src = faceOriginals[face];
+  } else {
+    delete faceBgRemoved[face];
+    const img = new Image();
+    img.onload = () => setFaceImage(face, img);
+    img.src = faceOriginals[face];
+  }
+}
+
+function displayFace(face, img) {
+  const card = document.getElementById('face-' + face);
+  const placeholder = card.querySelector('.placeholder');
+  if (placeholder) placeholder.style.display = 'none';
+  const loading = card.querySelector('.face-loading');
+  if (loading) loading.remove();
+  let existing = card.querySelector('img.preview');
+  if (existing) existing.remove();
+  const el = document.createElement('img');
+  el.className = 'preview';
+  el.src = img.src;
+  card.appendChild(el);
+}
+
+function removeImage(face) {
+  delete faceImages[face];
+  delete faceOriginals[face];
+  delete faceBgRemoved[face];
+  const card = document.getElementById('face-' + face);
+  card.classList.remove('has-image');
+  const img = card.querySelector('img.preview');
+  if (img) img.remove();
+  const loading = card.querySelector('.face-loading');
+  if (loading) loading.remove();
+  const placeholder = card.querySelector('.placeholder');
+  if (placeholder) placeholder.style.display = '';
+  document.getElementById('size-' + face).textContent = '';
+  document.getElementById('file-' + face).value = '';
+}
+
+// file input 이벤트 연결
+for (const face of faceNames) {
+  document.getElementById('file-' + face).addEventListener('change', function() { onFileSelected(face, this); });
+}
+
+function autoCalcSize() {
+  const front = faceImages['front'];
+  if (!front) return;
+  const W = front.w, H = front.h;
+  let D = H;
+  if (faceImages['left']) D = faceImages['left'].w;
+  else if (faceImages['right']) D = faceImages['right'].w;
+  const maxDim = Math.max(W, H, D);
+  document.getElementById('sizeW').value = (W / maxDim).toFixed(3);
+  document.getElementById('sizeH').value = (H / maxDim).toFixed(3);
+  document.getElementById('sizeD').value = (D / maxDim).toFixed(3);
+}
+
+function setStatus(msg) {
+  document.getElementById('statusBar').textContent = msg;
+}
+
+// ============ GLB 생성 (순수 JavaScript) ============
+
+function buildGLB() {
+  if (!faceImages['front']) {
+    alert('최소 정면 이미지가 필요합니다.');
+    return;
+  }
+
+  document.getElementById('progressOverlay').classList.add('show');
+  document.getElementById('btnBuild').disabled = true;
+
+  setTimeout(() => {
+    try {
+      if (document.getElementById('autoSize').checked) autoCalcSize();
+
+      const w = parseFloat(document.getElementById('sizeW').value);
+      const h = parseFloat(document.getElementById('sizeH').value);
+      const d = parseFloat(document.getElementById('sizeD').value);
+      const hw = w / 2, hh = h / 2, hd = d / 2;
+
+      const topInsetPct = parseFloat(document.getElementById('topInset').value) / 100;
+      const topY = hh - h * topInsetPct;
+
+      const insets = {
+        front: d * parseFloat(document.getElementById('insetFront').value) / 100,
+        back:  d * parseFloat(document.getElementById('insetBack').value) / 100,
+        left:  w * parseFloat(document.getElementById('insetLeft').value) / 100,
+        right: w * parseFloat(document.getElementById('insetRight').value) / 100,
+      };
+
+      const atlasCell = parseInt(document.getElementById('atlasRes').value);
+      const alphaMode = document.getElementById('alphaMode').value;
+      const bottomHex = document.getElementById('bottomColor').value;
+      const bottomRGB = hexToRGB(bottomHex);
+
+      // 텍스처 아틀라스 생성 (3x2)
+      const atlasW = atlasCell * 3;
+      const atlasH = atlasCell * 2;
+      const atlasCanvas = document.createElement('canvas');
+      atlasCanvas.width = atlasW;
+      atlasCanvas.height = atlasH;
+      const ctx = atlasCanvas.getContext('2d');
+
+      // 투명 배경
+      ctx.clearRect(0, 0, atlasW, atlasH);
+
+      // 면 배치: [front][back][top] / [left][right][bottom]
+      const facePositions = {
+        front: [0, 0], back: [1, 0], top: [2, 0],
+        left: [0, 1], right: [1, 1], bottom: [2, 1]
+      };
+
+      for (const [face, [col, row]] of Object.entries(facePositions)) {
+        const x = col * atlasCell, y = row * atlasCell;
+        if (face === 'bottom') {
+          ctx.fillStyle = bottomHex;
+          ctx.fillRect(x, y, atlasCell, atlasCell);
+        } else if (faceImages[face]) {
+          ctx.drawImage(faceImages[face].img, x, y, atlasCell, atlasCell);
+        } else {
+          ctx.fillStyle = '#c8c8c8';
+          ctx.fillRect(x, y, atlasCell, atlasCell);
+        }
+      }
+
+      // PNG으로 변환
+      const atlasPNG = atlasCanvas.toDataURL('image/png');
+      const atlasBytes = dataURLToBytes(atlasPNG);
+
+      // 메쉬 데이터 생성
+      const e = 0.005;
+      const fi = insets.front, bi = insets.back, li = insets.left, ri = insets.right;
+      const margin = 0.002;
+
+      const allVerts = [];
+      const allUVs = [];
+      const allFaces = [];
+      let vertOff = 0;
+
+      function addFace(verts, col, row) {
+        for (const v of verts) allVerts.push(v);
+        const u0 = col / 3 + margin, u1 = (col + 1) / 3 - margin;
+        const vTop = row / 2 + margin, vBot = (row + 1) / 2 - margin;
+        // glTF UV: (0,0)=이미지 좌상단, 벽면 하단→텍스처 하단, 상단→텍스처 상단
+        allUVs.push([u0, vBot], [u1, vBot], [u1, vTop], [u0, vTop]);
+        allFaces.push([vertOff, vertOff + 1, vertOff + 2]);
+        allFaces.push([vertOff, vertOff + 2, vertOff + 3]);
+        vertOff += 4;
+      }
+
+      // 정면 (+Z)
+      if (faceImages['front']) {
+        const z = hd - fi;
+        addFace([[-hw-e,-hh-e,z],[hw+e,-hh-e,z],[hw+e,hh+e,z],[-hw-e,hh+e,z]], 0, 0);
+      }
+      // 후면 (-Z)
+      if (faceImages['back']) {
+        const z = -hd + bi;
+        addFace([[hw+e,-hh-e,z],[-hw-e,-hh-e,z],[-hw-e,hh+e,z],[hw+e,hh+e,z]], 1, 0);
+      }
+      // 왼쪽 (-X)
+      if (faceImages['left']) {
+        const x = -hw + li;
+        addFace([[x,-hh-e,-hd-e],[x,-hh-e,hd+e],[x,hh+e,hd+e],[x,hh+e,-hd-e]], 0, 1);
+      }
+      // 오른쪽 (+X)
+      if (faceImages['right']) {
+        const x = hw - ri;
+        addFace([[x,-hh-e,hd+e],[x,-hh-e,-hd-e],[x,hh+e,-hd-e],[x,hh+e,hd+e]], 1, 1);
+      }
+      // 윗면 (+Y) - Python 버전과 동일
+      if (faceImages['top']) {
+        addFace([[-hw-e,topY,hd+e],[hw+e,topY,hd+e],[hw+e,topY,-hd-e],[-hw-e,topY,-hd-e]], 2, 0);
+      }
+      // 바닥 (-Y) - Python 버전과 동일
+      addFace([[-hw-e,-hh,-hd-e],[hw+e,-hh,-hd-e],[hw+e,-hh,hd+e],[-hw-e,-hh,hd+e]], 2, 1);
+
+      // GLB 바이너리 생성
+      const glbData = createGLB(allVerts, allFaces, allUVs, atlasBytes, alphaMode);
+
+      // 다운로드
+      const blob = new Blob([glbData], { type: 'model/gltf-binary' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'building.glb';
+      a.click();
+      URL.revokeObjectURL(url);
+
+      setStatus('GLB 생성 완료! (' + (glbData.byteLength / 1024).toFixed(1) + ' KB)');
+    } catch (err) {
+      alert('오류: ' + err.message);
+      setStatus('오류: ' + err.message);
+      console.error(err);
+    } finally {
+      document.getElementById('progressOverlay').classList.remove('show');
+      document.getElementById('btnBuild').disabled = false;
+    }
+  }, 100);
+}
+
+function hexToRGB(hex) {
+  const r = parseInt(hex.slice(1, 3), 16);
+  const g = parseInt(hex.slice(3, 5), 16);
+  const b = parseInt(hex.slice(5, 7), 16);
+  return [r, g, b];
+}
+
+function dataURLToBytes(dataURL) {
+  const b64 = dataURL.split(',')[1];
+  const binary = atob(b64);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+  return bytes;
+}
+
+function createGLB(vertices, faces, uvs, imageBytes, alphaMode) {
+  // vertices: [[x,y,z],...], faces: [[i,j,k],...], uvs: [[u,v],...]
+  const numVerts = vertices.length;
+  const numFaces = faces.length;
+
+  // 바운딩 박스
+  let minX=Infinity,minY=Infinity,minZ=Infinity,maxX=-Infinity,maxY=-Infinity,maxZ=-Infinity;
+  for (const [x,y,z] of vertices) {
+    if(x<minX)minX=x; if(y<minY)minY=y; if(z<minZ)minZ=z;
+    if(x>maxX)maxX=x; if(y>maxY)maxY=y; if(z>maxZ)maxZ=z;
+  }
+
+  // 바이너리 데이터 준비
+  const posData = new Float32Array(numVerts * 3);
+  for (let i = 0; i < numVerts; i++) {
+    posData[i*3] = vertices[i][0];
+    posData[i*3+1] = vertices[i][1];
+    posData[i*3+2] = vertices[i][2];
+  }
+
+  const uvData = new Float32Array(numVerts * 2);
+  for (let i = 0; i < numVerts; i++) {
+    uvData[i*2] = uvs[i][0];
+    uvData[i*2+1] = uvs[i][1];
+  }
+
+  const indexData = new Uint16Array(numFaces * 3);
+  for (let i = 0; i < numFaces; i++) {
+    indexData[i*3] = faces[i][0];
+    indexData[i*3+1] = faces[i][1];
+    indexData[i*3+2] = faces[i][2];
+  }
+
+  const posBytes = new Uint8Array(posData.buffer);
+  const uvBytes = new Uint8Array(uvData.buffer);
+  const idxBytes = new Uint8Array(indexData.buffer);
+
+  // 패딩 (4바이트 정렬)
+  function pad4(n) { return (4 - (n % 4)) % 4; }
+
+  const posByteLen = posBytes.length;
+  const uvByteLen = uvBytes.length;
+  const idxByteLen = idxBytes.length;
+  const imgByteLen = imageBytes.length;
+
+  const posPad = pad4(posByteLen);
+  const uvPad = pad4(posByteLen + posPad + uvByteLen);
+  const idxPad = pad4(posByteLen + posPad + uvByteLen + uvPad + idxByteLen);
+  const imgPad = pad4(posByteLen + posPad + uvByteLen + uvPad + idxByteLen + idxPad + imgByteLen);
+
+  const bufferLen = posByteLen + posPad + uvByteLen + uvPad + idxByteLen + idxPad + imgByteLen + imgPad;
+
+  // BufferViews offsets
+  const posOffset = 0;
+  const uvOffset = posByteLen + posPad;
+  const idxOffset = uvOffset + uvByteLen + uvPad;
+  const imgOffset = idxOffset + idxByteLen + idxPad;
+
+  // glTF JSON
+  const gltf = {
+    asset: { version: "2.0", generator: "GLB Builder Web" },
+    scene: 0,
+    scenes: [{ nodes: [0] }],
+    nodes: [{ mesh: 0, name: "building" }],
+    meshes: [{
+      primitives: [{
+        attributes: { POSITION: 0, TEXCOORD_0: 1 },
+        indices: 2,
+        material: 0
+      }]
+    }],
+    materials: [{
+      pbrMetallicRoughness: {
+        baseColorTexture: { index: 0 },
+        metallicFactor: 0,
+        roughnessFactor: 1
+      },
+      alphaMode: alphaMode,
+      ...(alphaMode === 'MASK' ? { alphaCutoff: 0.5 } : {}),
+      doubleSided: true,
+      name: "building"
+    }],
+    textures: [{ source: 0, sampler: 0 }],
+    samplers: [{ magFilter: 9729, minFilter: 9987, wrapS: 33071, wrapT: 33071 }],
+    images: [{ bufferView: 3, mimeType: "image/png" }],
+    accessors: [
+      { bufferView: 0, componentType: 5126, count: numVerts, type: "VEC3", max: [maxX,maxY,maxZ], min: [minX,minY,minZ] },
+      { bufferView: 1, componentType: 5126, count: numVerts, type: "VEC2" },
+      { bufferView: 2, componentType: 5123, count: numFaces * 3, type: "SCALAR" }
+    ],
+    bufferViews: [
+      { buffer: 0, byteOffset: posOffset, byteLength: posByteLen, target: 34962 },
+      { buffer: 0, byteOffset: uvOffset, byteLength: uvByteLen, target: 34962 },
+      { buffer: 0, byteOffset: idxOffset, byteLength: idxByteLen, target: 34963 },
+      { buffer: 0, byteOffset: imgOffset, byteLength: imgByteLen }
+    ],
+    buffers: [{ byteLength: bufferLen }]
+  };
+
+  const jsonStr = JSON.stringify(gltf);
+  const jsonBytes = new TextEncoder().encode(jsonStr);
+  const jsonPad = pad4(jsonBytes.length);
+  const jsonChunkLen = jsonBytes.length + jsonPad;
+
+  // GLB 구조: header(12) + JSON chunk(8+data) + BIN chunk(8+data)
+  const totalLen = 12 + 8 + jsonChunkLen + 8 + bufferLen;
+  const glb = new ArrayBuffer(totalLen);
+  const view = new DataView(glb);
+  const bytes = new Uint8Array(glb);
+
+  // GLB Header
+  view.setUint32(0, 0x46546C67, true); // magic: glTF
+  view.setUint32(4, 2, true);          // version: 2
+  view.setUint32(8, totalLen, true);    // total length
+
+  // JSON Chunk
+  let offset = 12;
+  view.setUint32(offset, jsonChunkLen, true); offset += 4;
+  view.setUint32(offset, 0x4E4F534A, true); offset += 4; // "JSON"
+  bytes.set(jsonBytes, offset); offset += jsonBytes.length;
+  for (let i = 0; i < jsonPad; i++) bytes[offset++] = 0x20; // space padding
+
+  // BIN Chunk
+  view.setUint32(offset, bufferLen, true); offset += 4;
+  view.setUint32(offset, 0x004E4942, true); offset += 4; // "BIN\0"
+  bytes.set(posBytes, offset + posOffset);
+  for (let i = 0; i < posPad; i++) bytes[offset + posByteLen + i] = 0;
+  bytes.set(uvBytes, offset + uvOffset);
+  for (let i = 0; i < uvPad; i++) bytes[offset + uvOffset + uvByteLen + i] = 0;
+  bytes.set(idxBytes, offset + idxOffset);
+  for (let i = 0; i < idxPad; i++) bytes[offset + idxOffset + idxByteLen + i] = 0;
+  bytes.set(imageBytes, offset + imgOffset);
+  for (let i = 0; i < imgPad; i++) bytes[offset + imgOffset + imgByteLen + i] = 0;
+
+  return glb;
+}
+</script>
+</body>
+</html>
