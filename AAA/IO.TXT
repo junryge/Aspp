@@ -150,7 +150,7 @@ SKILL_DESC_KO = {
     "scientific-schematics":"과학 다이어그램 AI","scientific-slides":"발표 슬라이드",
     "venue-templates":"학술지 LaTeX 템플릿","latex-posters":"LaTeX 포스터",
     "pptx-posters":"연구 포스터 HTML/PDF","infographics":"인포그래픽 AI",
-    "markdown-mermaid-writing":"마크다운/Mermaid","md-report":"MD 보고서/문서 생성","paper-2-web":"논문→웹사이트",
+    "markdown-mermaid-writing":"마크다운/Mermaid","paper-2-web":"논문→웹사이트",
     "pubmed-database":"PubMed 논문 검색","openalex-database":"2.4억 학술문헌",
     "adaptyv":"클라우드랩 단백질 검증","benchling-integration":"Benchling R&D",
     "ginkgo-cloud-lab":"Ginkgo 클라우드랩","opentrons-integration":"Opentrons 로봇",
@@ -401,7 +401,7 @@ DOMAIN_SKILLS = {
         "icon": "🔧",
         "color": "#6b7280",
         "skills": [
-            "drawio-diagram","docx","xlsx","pdf","pptx","md-report","markitdown","matlab",
+            "drawio-diagram","docx","xlsx","pdf","pptx","markitdown","matlab",
             "modal","generate-image","get-available-resources",
             "bgpt-paper-search","research-lookup","perplexity-search",
             "parallel-web","open-notebook","consciousness-council",
@@ -1001,8 +1001,7 @@ SKILL_KEYWORDS = {
     "latex-posters": ['LaTeX포스터', '학회포스터', 'poster', '연구포스터'],
     "lead-research-assistant": ['리드리서치', '연구보조', 'research assistant'],
     "drawio-diagram": ['drawio', 'draw.io', '드로우IO', '드로우io', '드로우아이오', 'DrawIO', '다이어그램', '플로우차트', '아키텍처', '구조도', 'UML', '클래스다이어그램', '시퀀스다이어그램', 'ERD', '흐름도', '시스템구조', '데이터흐름도', 'DFD', '배치도'],
-    "markdown-mermaid-writing": ['마크다운', 'Mermaid', '다이어그램', 'flowchart', '시퀀스'],
-    "md-report": ['MD파일', 'MD 파일', 'md파일', '마크다운 보고서', '마크다운 문서', 'MD로', 'md로', '문서화', '보고서 작성', '정리해줘', '회의록', '미팅노트', '기술문서', 'MD 보고서', 'report', '대화정리', '대화 정리', '요약 보고서', '결과 정리', 'markdown report', 'markdown document'],
+    "markdown-mermaid-writing": ['마크다운', 'Mermaid', '다이어그램', 'flowchart', '시퀀스', 'MD파일', 'MD 파일', 'md파일', '마크다운 보고서', '마크다운 문서', 'MD로', 'md로', '문서화', '보고서 작성', '정리해줘', '회의록', '미팅노트', '기술문서', 'MD 보고서', 'markdown report', 'markdown document', 'MD만들어', 'MD다운로드'],
     "market-research-reports": ['시장조사', 'market research', '산업분석', '보고서'],
     "markitdown": ['마크다운변환', '파일변환', '문서변환', 'markdown conversion'],
     "matlab": ['MATLAB', 'Octave', '매트랩', '행렬', '수치해석'],
@@ -2313,10 +2312,6 @@ def api_chat():
         "analysis": "데이터 개요 → 분석 코드(pandas/matplotlib) → 시각화 → 인사이트 요약 순서로 답변하세요.",
         "report": "답변을 보고서 형식으로 작성하세요. 제목, 요약, 본문, 결론 구조.",
         "step-by-step": "답변을 단계별(1,2,3...)로 작성하세요. 각 단계마다 왜 필요한지 설명.",
-        "md-report": "답변 전체를 **다운로드 가능한 마크다운 문서** 형식으로 작성하세요.\n"
-                     "반드시 ```markdown 코드블록 안에 완전한 마크다운 문서를 작성하세요.\n"
-                     "구조: # 제목, ## 섹션, 표(| |), 코드블록, 체크리스트(- [ ]) 등 활용.\n"
-                     "문서가 완성되면 사용자가 '📥 MD 다운로드' 버튼으로 바로 저장할 수 있습니다.",
     }
 
     system_prompt += effort_map[min(effort, 3)] + "\n"
@@ -2869,7 +2864,6 @@ body.rp-collapsed .chat-box-fixed{right:0}
           <div class="fmt-btn" data-f="analysis"></div>
           <div class="fmt-btn" data-f="report"></div>
           <div class="fmt-btn" data-f="step-by-step"></div>
-          <div class="fmt-btn" data-f="md-report"></div>
         </div>
       </div>
 
@@ -2922,7 +2916,6 @@ body.rp-collapsed .chat-box-fixed{right:0}
             <option value="analysis">📊 분석</option>
             <option value="report">📄 보고서</option>
             <option value="step-by-step">📝 단계별</option>
-            <option value="md-report">📋 MD문서</option>
           </select>
           <span style="font-size:11px;color:#bbb">Enter 전송</span>
         </div>
@@ -3473,8 +3466,8 @@ async function send(){
       let truncWarn = data.truncated ? '\n\n⚠️ **응답이 토큰 한도('+maxTokens+')에 도달하여 잘렸습니다.** "계속 이어서 작성해줘"라고 입력하면 이어서 받을 수 있습니다.' : '';
       addMsg('assistant', data.content + truncWarn + info);
       history.push({role:'assistant',content:data.content});
-      // md-report 형식: ```markdown 블록이 없어도 전체 응답에 MD 다운로드 버튼 추가
-      if(selFormat === 'md-report' && !data.content.includes('```markdown')){
+      // markdown-mermaid-writing 스킬: ```markdown 블록이 없어도 전체 응답에 MD 다운로드 버튼 추가
+      if(selSkills.includes('markdown-mermaid-writing') && !data.content.includes('```markdown')){
         appendMdDownloadBar(data.content);
       }
     }
@@ -4085,21 +4078,12 @@ function applyChatStyle(val){
   const match = STYLE_PRESETS.find(s => s.value === val);
   activeStyleId = match ? match.id : null;
   renderStyleChips();
-  // MD문서 출력 형식이면 md-report 스킬 자동 로드
   if(val) syncStyleDropToSidebar();
 }
 function applyChatFormat(val){
   selFormat = val;
   // 사이드바 fmt-btn도 동기화
   document.querySelectorAll('.fmt-btn').forEach(b=>{b.classList.toggle('selected',b.dataset.f===val);});
-  // MD문서 선택 시 md-report 스킬 자동 프리로드
-  if(val === 'md-report'){
-    if(!selSkills.includes('md-report') && !autoLoadedSkills.includes('md-report')){
-      autoLoadedSkills.push('md-report');
-      renderSkills();
-      updateLoaded();
-    }
-  }
 }
 function syncStyleDropToSidebar(){
   // 사이드바 변경 → 채팅창 드롭다운 동기화
@@ -4572,7 +4556,7 @@ const fileExtSkillHints = {
   'tsv':['exploratory-data-analysis'], 'xlsx':['exploratory-data-analysis'],
   'docx':['docx'], 'pdf':['pdf'], 'pptx':['pptx'],
   'drawio':['drawio-diagram'], 'xml':['drawio-diagram'],
-  'md':['markdown-mermaid-writing','md-report'], 'html':['web-artifacts-builder'],
+  'md':['markdown-mermaid-writing'], 'html':['web-artifacts-builder'],
 };
 
 function handleChatFileSelect(files){
