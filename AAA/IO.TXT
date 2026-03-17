@@ -2390,7 +2390,20 @@ def api_chat():
         code = e.response.status_code if e.response is not None else 0
         if code == 401 or code == 403:
             return jsonify({"error": f"인증 실패 ({code}): TOKEN.TXT의 API 키를 확인하세요."}), code
-        return jsonify({"error": f"API HTTP 에러 ({code}): {str(e)}"}), code or 500
+        # 서버 에러 상세 내용 추출
+        detail = ""
+        if e.response is not None:
+            try:
+                body = e.response.json()
+                detail = json.dumps(body, ensure_ascii=False, indent=2)
+            except Exception:
+                detail = e.response.text[:500] if e.response.text else ""
+        prompt_chars = len(system_prompt) + sum(len(m.get("content","")) for m in api_messages)
+        err_msg = f"API HTTP 에러 ({code}): {str(e)}"
+        if detail:
+            err_msg += f"\n서버 응답: {detail}"
+        err_msg += f"\n[요청 크기: system_prompt={len(system_prompt)}자, 전체 메시지={prompt_chars}자, model={model}]"
+        return jsonify({"error": err_msg}), code or 500
     except Exception as e:
         return jsonify({"error": f"오류 발생: {str(e)}"}), 500
 
@@ -3121,7 +3134,31 @@ function renderSkills(){
 }
 function updateLoaded(){
   document.getElementById('loadedCount').textContent = selSkills.length;
-  document.getElementById('loadedSkillsList').innerHTML = selSkills.map(s=>`<div style="padding:2px 0">✅ ${s}</div>`).join('') || '<div style="color:#bbb">선택된 스킬 없음</div>';
+  const el = document.getElementById('loadedSkillsList');
+  if(selSkills.length === 0){
+    el.innerHTML = '<div style="color:#bbb">선택된 스킬 없음</div>';
+    return;
+  }
+  let html = selSkills.map(s =>
+    `<label style="display:flex;align-items:center;gap:4px;padding:2px 0;cursor:pointer;">
+      <input type="checkbox" checked onchange="unloadSkill('${s}')" style="accent-color:#4f46e5;cursor:pointer;">
+      <span style="font-size:12px">${s}</span>
+    </label>`
+  ).join('');
+  if(selSkills.length >= 2){
+    html += `<button onclick="unloadAllSkills()" style="width:100%;margin-top:4px;padding:3px 0;font-size:11px;background:#f5f5f0;border:1px solid #e5e3de;border-radius:4px;cursor:pointer;color:#888;">전체 해제</button>`;
+  }
+  el.innerHTML = html;
+}
+function unloadSkill(id){
+  selSkills = selSkills.filter(x => x !== id);
+  renderSkills();
+  updateLoaded();
+}
+function unloadAllSkills(){
+  selSkills = [];
+  renderSkills();
+  updateLoaded();
 }
 
 // ===== Effort =====
@@ -3581,8 +3618,12 @@ function deleteSelectedSessions(){
   });
   selectedSessions.clear();
   saveSessions();
-  if(deletedCurrent) createNewSession();
-  else renderSessionList();
+  if(deletedCurrent){
+    // createNewSession() 호출 시 saveCurrentSession()이 삭제된 세션을 복원하므로
+    // currentSessionId를 먼저 초기화한 후 새 세션 생성
+    currentSessionId = null;
+    createNewSession();
+  } else renderSessionList();
 }
 
 function archiveSelectedSessions(){
@@ -3596,8 +3637,10 @@ function archiveSelectedSessions(){
   });
   selectedSessions.clear();
   saveSessions();
-  if(archivedCurrent) createNewSession();
-  else renderSessionList();
+  if(archivedCurrent){
+    currentSessionId = null;
+    createNewSession();
+  } else renderSessionList();
 }
 
 // ===== 사이드바 전체 접기/펼치기 =====
