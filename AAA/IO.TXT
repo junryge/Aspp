@@ -2669,8 +2669,21 @@ body.rp-collapsed .chat-box-fixed{right:0}
 .rp-run-btn{width:100%;padding:10px;border-radius:8px;border:none;background:#6366f1;color:#fff;font-size:14px;font-weight:700;cursor:pointer;margin-top:10px;transition:background .15s}
 .rp-run-btn:hover{background:#4f46e5}
 .rp-run-btn:disabled{background:#d1d5db;cursor:not-allowed}
-.rp-code-preview{background:#1e1e2e;color:#cdd6f4;border-radius:8px;padding:12px;font-family:'Fira Code',monospace;font-size:11px;max-height:200px;overflow:auto;margin-top:8px;white-space:pre-wrap;word-break:break-all;line-height:1.5}
-.rp-result{margin-top:12px;padding:12px;background:#f8f7f4;border-radius:8px;font-size:12px;line-height:1.6;max-height:300px;overflow-y:auto}
+.rp-result{margin-top:12px;padding:16px;background:#1e1e2e;color:#cdd6f4;border-radius:10px;font-size:13px;line-height:1.7;overflow-y:auto;display:none}
+.rp-result.expanded{max-height:none;position:fixed;top:8px;right:8px;bottom:8px;width:calc(var(--rp-width, 340px) - 16px);z-index:1100;box-shadow:0 8px 32px rgba(0,0,0,.4)}
+.rp-result h1,.rp-result h2,.rp-result h3{color:#cba6f7;margin:12px 0 6px}
+.rp-result h1{font-size:16px} .rp-result h2{font-size:14px} .rp-result h3{font-size:13px}
+.rp-result pre{background:#181825;border-radius:6px;padding:10px;overflow-x:auto;margin:8px 0}
+.rp-result code{font-family:'Fira Code',monospace;font-size:12px}
+.rp-result p{margin:6px 0}
+.rp-result ul,.rp-result ol{padding-left:20px;margin:6px 0}
+.rp-result table{border-collapse:collapse;width:100%;margin:8px 0;font-size:12px}
+.rp-result th,.rp-result td{border:1px solid #45475a;padding:6px 8px;text-align:left}
+.rp-result th{background:#313244;color:#cba6f7}
+.rp-result-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;padding-bottom:8px;border-bottom:1px solid #45475a}
+.rp-result-header .rp-result-title{font-weight:700;color:#a6e3a1;font-size:14px}
+.rp-result-header button{background:none;border:1px solid #45475a;color:#cdd6f4;border-radius:6px;padding:4px 10px;cursor:pointer;font-size:12px}
+.rp-result-header button:hover{background:#313244}
 .rp-skill-badge{display:inline-block;padding:2px 8px;border-radius:10px;font-size:10px;font-weight:600;background:#eef2ff;color:#6366f1;margin-left:6px}
 .rp-tree{font-size:12px;max-height:250px;overflow-y:auto;border:1px solid #e5e3de;border-radius:8px;padding:8px;background:#fafaf9;margin-bottom:8px}
 .rp-tree-node{padding:2px 0;cursor:pointer;user-select:none;display:flex;align-items:center;gap:2px}
@@ -2911,12 +2924,6 @@ body.rp-collapsed .chat-box-fixed{right:0}
           <span class="rp-btn-label">리팩토링</span>
         </button>
       </div>
-    </div>
-
-    <div class="rp-section">
-      <div class="rp-section-title">코드 미리보기</div>
-      <div class="rp-code-preview" id="rpCodePreview" style="display:none"></div>
-      <div id="rpNoFile" style="font-size:12px;color:#bbb;text-align:center;padding:16px">코드 파일을 업로드하면 미리보기가 표시됩니다</div>
     </div>
 
     <button class="rp-run-btn" id="rpRunBtn" onclick="runCodeAssistant()" disabled>▶ 분석 실행</button>
@@ -4288,12 +4295,12 @@ const rpModeLabels = {
   tests:'테스트 생성', docstring:'문서화', refactor:'리팩토링'
 };
 const rpModePrompts = {
-  explain:'[EXPLAIN] 이 코드를 분석하고 상세히 설명해주세요. 전체 목적, 구조, 실행 흐름, 핵심 알고리즘, 의존성을 한국어로 설명해주세요.',
-  find_bugs:'[FIND_BUGS] 이 코드에서 버그를 찾아주세요. 정적 분석, 로직 오류, 보안 취약점, 동시성 문제, 에러 처리를 검토하고 심각도와 수정 방안을 제시해주세요.',
-  improve:'[IMPROVE] 이 코드의 개선점을 제안해주세요. 가독성, 성능, 베스트 프랙티스, 유지보수성, 테스트 용이성 관점에서 분석해주세요.',
-  tests:'[TESTS] 이 코드에 대한 테스트 코드를 생성해주세요. 정상 케이스, 엣지 케이스, 에러 케이스를 포함하고 즉시 실행 가능한 코드를 작성해주세요.',
-  docstring:'[DOCSTRING] 이 코드에 독스트링과 문서를 추가해주세요. 함수, 클래스, 모듈 단위로 Google/NumPy 스타일의 한국어 독스트링을 작성해주세요.',
-  refactor:'[REFACTOR] 이 코드를 리팩토링해주세요. SOLID 원칙, 디자인 패턴, 코드 구조, 중복 제거, 네이밍을 개선하고 전후 코드를 비교해주세요.'
+  explain:'[EXPLAIN] 아래 코드를 분석해주세요.\n⚠️ 먼저 코드의 프로그래밍 언어와 프레임워크를 판별한 후, 해당 언어의 관점에서 분석하세요.\n1. 감지된 언어/프레임워크 명시\n2. 전체 목적과 아키텍처\n3. 주요 함수/클래스 구조\n4. 실행 흐름과 핵심 알고리즘\n5. 의존성 분석\n한국어로 설명해주세요.',
+  find_bugs:'[FIND_BUGS] 아래 코드에서 버그를 찾아주세요.\n⚠️ 먼저 코드의 프로그래밍 언어를 판별하고, 해당 언어 특유의 버그 패턴을 중점 검토하세요.\n1. 감지된 언어 명시\n2. 언어 특화 버그 패턴 (Python: 인덴트/타입, Java: NPE/동시성, C#: async/dispose, JS: 타입강제/this바인딩)\n3. 로직 오류, 보안 취약점\n4. 심각도 🔴🟡🟢 표시 + 수정 코드 제시\n한국어로 분석해주세요.',
+  improve:'[IMPROVE] 아래 코드의 개선점을 제안해주세요.\n⚠️ 먼저 코드의 프로그래밍 언어를 판별하고, 해당 언어의 베스트 프랙티스 기준으로 개선하세요.\n1. 감지된 언어 명시\n2. 언어별 관용적 표현 적용 (Python: PEP8/컴프리헨션, Java: Stream API, C#: LINQ, JS: ES6+)\n3. 가독성, 성능, 유지보수성 개선\n4. 개선 전/후 코드 비교\n한국어로 설명해주세요.',
+  tests:'[TESTS] 아래 코드에 대한 테스트 코드를 생성해주세요.\n⚠️ 먼저 코드의 프로그래밍 언어를 판별하고, 해당 언어의 표준 테스트 프레임워크를 사용하세요.\n(Python→pytest, Java→JUnit5, C#→xUnit, JS/TS→Jest, Go→go test, Rust→cargo test)\n1. 감지된 언어/프레임워크 명시\n2. 정상/엣지/에러 케이스\n3. 즉시 실행 가능한 코드\n한국어 주석으로 설명해주세요.',
+  docstring:'[DOCSTRING] 아래 코드에 문서화를 추가해주세요.\n⚠️ 먼저 코드의 프로그래밍 언어를 판별하고, 해당 언어의 표준 문서화 스타일을 적용하세요.\n(Python→Google/NumPy docstring, Java→Javadoc, C#→XML 주석, JS/TS→JSDoc)\n1. 감지된 언어 명시\n2. 함수/클래스별 문서화 (파라미터, 반환값, 예외, 예시)\n3. 핵심 로직 인라인 주석 (한국어)\n⚠️ 중요: 전체 파일 내용을 반복하지 말고, 문서화가 추가된 핵심 함수/클래스만 제시하세요.',
+  refactor:'[REFACTOR] 아래 코드를 리팩토링해주세요.\n⚠️ 먼저 코드의 프로그래밍 언어를 판별하고, 해당 언어의 디자인 패턴과 관례에 맞게 리팩토링하세요.\n1. 감지된 언어 명시\n2. SOLID 원칙 적용\n3. 언어별 관용 패턴 (Python: 데코레이터/컨텍스트매니저, Java: Builder/DI, C#: async패턴)\n4. 리팩토링 전/후 비교\n한국어로 설명해주세요.'
 };
 
 // 코드 어시스턴트 전용 언어/도구 감지 매핑
@@ -4322,6 +4329,72 @@ const rpLangColors = {
   'HTML':'#e34c26','CSS':'#563d7c','Shell':'#89e051','SQL':'#e38c00','R':'#198ce7','Dart':'#00b4ab'
 };
 
+// 코드 요약: 큰 파일은 시그니처+핵심부분만 추출
+function summarizeCode(content, ext, maxLines){
+  maxLines = maxLines || 150;
+  const lines = content.split('\n');
+  if(lines.length <= maxLines) return content; // 작은 파일은 전체 전달
+
+  const result = [];
+  const sigPatterns = {
+    'py': /^\s*(class |def |async def |import |from .+ import|@)/,
+    'java': /^\s*(public |private |protected |class |interface |import |@|package )/,
+    'cs': /^\s*(public |private |protected |internal |class |interface |using |namespace |\[)/,
+    'js': /^\s*(function |const |let |var |class |export |import |async |module\.)/,
+    'ts': /^\s*(function |const |let |var |class |export |import |async |interface |type |module\.)/,
+    'tsx': /^\s*(function |const |let |var |class |export |import |async |interface |type )/,
+    'jsx': /^\s*(function |const |let |var |class |export |import |async )/,
+    'go': /^\s*(func |type |package |import |var |const )/,
+    'rs': /^\s*(fn |pub |struct |enum |impl |use |mod |trait )/,
+    'rb': /^\s*(class |def |module |require |include |attr_)/,
+    'php': /^\s*(function |class |namespace |use |public |private |protected )/,
+    'swift': /^\s*(func |class |struct |enum |protocol |import |var |let )/,
+    'kt': /^\s*(fun |class |object |interface |import |val |var |data class)/,
+    'c': /^\s*(#include |#define |typedef |struct |int |void |char |float |double |static )/,
+    'cpp': /^\s*(#include |#define |typedef |struct |class |template |namespace |int |void )/,
+    'h': /^\s*(#include |#define |#ifndef |typedef |struct |class |extern )/,
+  };
+  const pat = sigPatterns[ext] || /^\s*(function |class |def |import |export |public |private )/;
+
+  // 1) 첫 30줄 (imports, 설정)
+  result.push('// === 파일 시작 (첫 30줄) ===');
+  result.push(...lines.slice(0, 30));
+
+  // 2) 시그니처 라인 추출 (함수/클래스 정의 + 전후 2줄)
+  result.push('');
+  result.push('// === 주요 시그니처 & 구조 ===');
+  const added = new Set();
+  lines.forEach((line, i)=>{
+    if(i < 30) return; // 이미 포함됨
+    if(pat.test(line)){
+      for(let j=Math.max(30,i-1); j<=Math.min(lines.length-1,i+3); j++){
+        if(!added.has(j)){
+          added.add(j);
+          result.push(`[L${j+1}] ${lines[j]}`);
+        }
+      }
+      result.push('  ...');
+    }
+  });
+
+  // 3) 마지막 10줄
+  result.push('');
+  result.push('// === 파일 끝 (마지막 10줄) ===');
+  result.push(...lines.slice(-10));
+
+  result.push(`\n// [총 ${lines.length}줄 중 시그니처 요약 - 전체 코드 필요시 요청하세요]`);
+  return result.join('\n');
+}
+
+// catalog에 실제 존재하는 스킬인지 확인
+function isSkillInCatalog(skillId){
+  for(const did of Object.keys(catalog)){
+    const d = catalog[did];
+    if(d && d.skills && d.skills.some(s=>s.id===skillId && s.available)) return true;
+  }
+  return false;
+}
+
 function detectRpLanguages(){
   const langCount = {};
   const detectedSkills = new Set();
@@ -4347,37 +4420,48 @@ function detectRpLanguages(){
 
   // 감지된 언어 태그 렌더링 (파일 수 기준 내림차순)
   const sorted = Object.entries(langCount).sort((a,b)=>b[1]-a[1]);
+  const primaryLang = sorted[0][0];
   tagsEl.innerHTML = sorted.map(([lang, cnt])=>{
     const color = rpLangColors[lang] || '#6b7280';
-    return `<span style="display:inline-flex;align-items:center;gap:3px;padding:2px 7px;border-radius:10px;background:${color}22;border:1px solid ${color}55;color:${color};font-weight:600;font-size:10px;">${lang} <span style="font-weight:400;color:#888">${cnt}</span></span>`;
+    const isPrimary = lang === primaryLang;
+    return `<span style="display:inline-flex;align-items:center;gap:3px;padding:2px 7px;border-radius:10px;background:${color}22;border:${isPrimary?'2':'1'}px solid ${color}${isPrimary?'':'55'};color:${color};font-weight:600;font-size:10px;">${isPrimary?'⭐ ':''}${lang} <span style="font-weight:400;color:#888">${cnt}</span></span>`;
   }).join('');
 
-  // 자동 스킬 로드
+  // 자동 스킬 로드 - catalog에 실제 있는 것만
   const newSkills = [];
-  detectedSkills.forEach(skill=>{
-    if(!selSkills.includes(skill)){
-      selSkills.push(skill);
-      newSkills.push(skill);
-    }
-  });
-  // code-assistant 항상 포함
-  if(!selSkills.includes('code-assistant')){
+  const loadedNames = [];
+  // code-assistant 항상 먼저
+  if(isSkillInCatalog('code-assistant') && !selSkills.includes('code-assistant')){
     selSkills.push('code-assistant');
     newSkills.push('code-assistant');
   }
+  if(selSkills.includes('code-assistant')) loadedNames.push('code-assistant');
+
+  detectedSkills.forEach(skill=>{
+    if(skill === 'code-assistant') return;
+    if(isSkillInCatalog(skill)){
+      if(!selSkills.includes(skill)){
+        selSkills.push(skill);
+        newSkills.push(skill);
+      }
+      loadedNames.push(skill);
+    }
+  });
+
+  // autoLoadedSkills 업데이트 (UI에서 🧠자동 배지 표시용)
+  autoLoadedSkills = [...new Set([...autoLoadedSkills, ...newSkills])];
 
   if(newSkills.length > 0){
     renderSkills();
     updateLoaded();
   }
 
-  // 주 언어 판별
-  const primaryLang = sorted[0][0];
-  const skillNames = [...detectedSkills].filter(s=>s!=='code-assistant');
-  if(skillNames.length > 0){
-    autoEl.textContent = '✅ 자동 로드: ' + skillNames.join(', ') + ' + code-assistant';
+  // 상태 표시
+  const availableLoaded = loadedNames.filter(s=>s!=='code-assistant');
+  if(availableLoaded.length > 0){
+    autoEl.innerHTML = '✅ <b>자동 로드:</b> ' + availableLoaded.join(', ') + ' + code-assistant';
   } else {
-    autoEl.textContent = '✅ 주 언어: ' + primaryLang + ' | code-assistant 스킬 적용';
+    autoEl.innerHTML = '✅ <b>주 언어:</b> ' + primaryLang + ' → LLM이 자동 판별하여 분석합니다';
   }
 }
 
@@ -4608,7 +4692,6 @@ function selectTreeFile(idx, el){
   document.querySelectorAll('.rp-tree-file').forEach(e=>e.classList.remove('active'));
   if(el) el.classList.add('active');
   rpSelectedFile = idx;
-  previewRpFile(idx);
 }
 
 function clearRpProject(){
@@ -4621,7 +4704,6 @@ function clearRpProject(){
   document.getElementById('rpLangDetect').style.display = 'none';
   document.getElementById('rpSelectBar').style.display = 'none';
   document.getElementById('rpFileList').innerHTML = '';
-  updateRpCodePreview();
   updateRpRunBtn();
 }
 
@@ -4634,7 +4716,6 @@ function handleRpFileSelect(files){
     reader.onload = function(e){
       rpFiles.push({name:f.name, content:e.target.result, ext:ext, size:f.size});
       renderRpFiles();
-      updateRpCodePreview();
       updateRpRunBtn();
       detectRpLanguages();
     };
@@ -4649,7 +4730,7 @@ function renderRpFiles(){
   list.innerHTML = rpFiles.map((f,i)=>{
     const sizeStr = f.size > 1048576 ? (f.size/1048576).toFixed(1)+'MB' : (f.size/1024).toFixed(1)+'KB';
     const langIcon = {py:'🐍',js:'📜',html:'🌐',css:'🎨',java:'☕',c:'⚙️',cpp:'⚙️',go:'🐹',rs:'🦀',sh:'💻',json:'📋',yaml:'📋',yml:'📋',md:'📄',ts:'📘',tsx:'📘'}[f.ext] || '📄';
-    return `<div class="rp-file-item" onclick="previewRpFile(${i})" style="cursor:pointer">
+    return `<div class="rp-file-item">
       <span>${langIcon}</span><span class="fname">${esc(f.name)}</span><span class="fsize">${sizeStr}</span>
       <button class="fremove" onclick="event.stopPropagation();removeRpFile(${i})">✕</button>
     </div>`;
@@ -4659,28 +4740,9 @@ function renderRpFiles(){
 function removeRpFile(idx){
   rpFiles.splice(idx, 1);
   renderRpFiles();
-  updateRpCodePreview();
   updateRpRunBtn();
 }
 
-function previewRpFile(idx){
-  const f = rpFiles[idx];
-  const preview = document.getElementById('rpCodePreview');
-  const noFile = document.getElementById('rpNoFile');
-  preview.style.display = 'block';
-  noFile.style.display = 'none';
-  const lines = f.content.split('\n').slice(0, 50);
-  preview.textContent = lines.join('\n') + (f.content.split('\n').length > 50 ? '\n... (더 많은 코드)' : '');
-}
-
-function updateRpCodePreview(){
-  if(rpFiles.length === 0){
-    document.getElementById('rpCodePreview').style.display = 'none';
-    document.getElementById('rpNoFile').style.display = 'block';
-  } else {
-    previewRpFile(rpFiles.length - 1);
-  }
-}
 
 function selectRpMode(btn){
   document.querySelectorAll('.rp-action-btn').forEach(b=>b.classList.remove('active'));
@@ -4726,50 +4788,77 @@ async function runCodeAssistant(){
     treeText += `\n(전체 ${rpFiles.length}개 중 ${selectedFiles.length}개 파일 선택됨)\n`;
   }
 
-  // 감지된 언어 정보
-  const langCount = {};
-  selectedFiles.forEach(f=>{
-    const lang = rpExtLangMap[f.ext];
-    if(lang) langCount[lang] = (langCount[lang]||0) + 1;
-  });
-  const langInfo = Object.entries(langCount).sort((a,b)=>b[1]-a[1]).map(([l,c])=>`${l}(${c})`).join(', ');
-
-  // 선택된 파일 내용만 합쳐서 프롬프트 구성
+  // 선택된 파일 내용을 스마트하게 추려서 구성
   let codeContent = treeText;
-  if(langInfo) codeContent += `\n=== 감지된 언어: ${langInfo} ===\n`;
+  const maxLinesPerFile = selectedFiles.length <= 3 ? 300 : selectedFiles.length <= 8 ? 150 : 80;
+
   selectedFiles.forEach(f=>{
-    codeContent += `\n--- 파일: ${f.path||f.name} (${f.ext}) ---\n${f.content}\n`;
+    const summarized = summarizeCode(f.content, f.ext, maxLinesPerFile);
+    codeContent += `\n--- 파일: ${f.path||f.name} (${f.ext}) ---\n${summarized}\n`;
   });
 
   const prompt = rpModePrompts[rpSelectedMode] + '\n\n' + codeContent;
+  const modeLabel = rpModeLabels[rpSelectedMode] || rpSelectedMode;
 
-  // 채팅 입력창에 주입 후 전송
-  const input = document.getElementById('input');
-  input.value = prompt;
-  input.style.height = 'auto';
-  input.style.height = input.scrollHeight + 'px';
-
-  // 결과 영역 초기화
+  // 결과 영역 표시 (로딩)
   const result = document.getElementById('rpResult');
   result.style.display = 'block';
-  result.innerHTML = '<span style="color:#6366f1">⏳ 분석 중...</span>';
+  result.classList.remove('expanded');
+  result.innerHTML = '<div class="rp-result-header"><span class="rp-result-title">\u{1f4ca} ' + modeLabel + ' 분석 중...</span></div><div style="text-align:center;padding:40px;color:#6366f1;font-size:14px">\u23f3 LLM 분석 중입니다...<br><span style="font-size:12px;color:#888">' + selectedFiles.length + '개 파일 \u00b7 ' + envs[selEnv].name + '</span></div>';
 
-  // 전송
-  handleSendStop();
+  // 버튼 비활성화
+  const runBtn = document.getElementById('rpRunBtn');
+  runBtn.disabled = true;
+  runBtn.textContent = '\u23f3 분석 중...';
 
-  // 결과 추적 (마지막 메시지가 assistant일 때 업데이트)
-  const checkResult = setInterval(()=>{
-    const msgs = document.querySelectorAll('.msg.assistant');
-    if(msgs.length > 0){
-      const lastMsg = msgs[msgs.length - 1];
-      const txt = lastMsg.textContent.trim();
-      if(txt && txt !== '⏳' && txt.length > 20){
-        result.innerHTML = '<strong>✅ 분석 완료</strong> - 아래 채팅에서 결과를 확인하세요.';
-        clearInterval(checkResult);
+  // 직접 API 호출 (채팅창을 거치지 않음!)
+  try{
+    const resp = await fetch('/api/chat',{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({
+        env: selEnv,
+        messages:[{role:'user', content:prompt}],
+        skills: [...selSkills],
+        effort,
+        format: selFormat,
+        writing_style: document.getElementById('writingStyle').value.trim(),
+        system_prompt: document.getElementById('systemPromptInput').value.trim(),
+        max_tokens: maxTokens,
+      })
+    });
+    const data = await resp.json();
+
+    if(data.error){
+      result.innerHTML = '<div class="rp-result-header"><span class="rp-result-title">\u274c 오류</span><button onclick="document.getElementById(\'rpResult\').style.display=\'none\'">닫기</button></div><div style="color:#f38ba8;padding:12px">' + data.error + '</div>';
+    } else {
+      // 마크다운 렌더링 (기존 renderMd 활용)
+      const rendered = renderMd(data.content);
+      let skillInfo = '';
+      if(data.loaded_skills && data.loaded_skills.length > 0){
+        skillInfo = '<div style="margin-top:10px;padding-top:8px;border-top:1px solid #45475a;font-size:11px;color:#888">\uc2a4\ud0ac: ' + data.loaded_skills.join(', ') + ' \u00b7 ' + envs[selEnv].name + ' \u00b7 ' + (data.system_prompt_length||0) + '\uc790</div>';
       }
+      result.innerHTML = '<div class="rp-result-header"><span class="rp-result-title">\u2705 ' + modeLabel + ' 완료</span><div style="display:flex;gap:6px"><button onclick="toggleRpResultExpand()">\ud655\ub300</button><button onclick="copyRpResult()">\ubcf5\uc0ac</button><button onclick="document.getElementById(\'rpResult\').style.display=\'none\'">\ub2eb\uae30</button></div></div><div class="rp-result-body">' + rendered + '</div>' + skillInfo;
+
+      // 채팅에 간결한 요약만
+      const fileNames = selectedFiles.map(f=>f.name).join(', ');
+      addMsg('assistant', '\u{1f4ca} **[' + modeLabel + ']** ' + fileNames + ' \u2014 분석 완료. 오른쪽 패널에서 결과를 확인하세요.');
+      history.push({role:'assistant', content:'[' + modeLabel + '] ' + fileNames + ' 분석 완료'});
     }
-  }, 1000);
-  setTimeout(()=>clearInterval(checkResult), 120000);
+  }catch(e){
+    result.innerHTML = '<div class="rp-result-header"><span class="rp-result-title">\u274c 오류</span><button onclick="document.getElementById(\'rpResult\').style.display=\'none\'">\ub2eb\uae30</button></div><div style="color:#f38ba8;padding:12px">서버 연결 실패: ' + e.message + '</div>';
+  }
+
+  runBtn.disabled = false;
+  updateRpRunBtn();
+}
+
+function toggleRpResultExpand(){
+  document.getElementById('rpResult').classList.toggle('expanded');
+}
+function copyRpResult(){
+  const body = document.querySelector('.rp-result-body');
+  if(body) navigator.clipboard.writeText(body.innerText).then(()=>alert('복사 완료!'));
 }
 
 function buildTreeText(node, prefix){
