@@ -2767,9 +2767,25 @@ body.rp-collapsed .chat-box-fixed{right:0}
 .rp-tab:hover{border-color:#6366f1;color:#6366f1}
 .rp-tab.active{background:#6366f1;color:#fff;border-color:#6366f1}
 @media(max-width:768px){.sidebar{display:none}.sidebar-toggle{display:none}.right-panel{display:none}.right-panel-toggle{display:none}.chat-box-fixed{left:0;right:0}.style-row{flex-direction:column}.msg.user{margin-left:16px}.msg.assistant{margin-right:16px}.msg{font-size:12px}}
+/* 인트로 비디오 오버레이 */
+#introOverlay{position:fixed;top:0;left:0;width:100%;height:100%;z-index:9999;background:#000;display:flex;align-items:center;justify-content:center;flex-direction:column;transition:opacity .6s ease}
+#introOverlay.fade-out{opacity:0;pointer-events:none}
+#introVideo{width:100%;height:100%;object-fit:cover}
+#introSkip{position:absolute;bottom:40px;right:40px;background:rgba(255,255,255,.15);backdrop-filter:blur(8px);border:1px solid rgba(255,255,255,.3);color:#fff;padding:10px 24px;border-radius:24px;font-size:14px;cursor:pointer;transition:all .2s;z-index:10000}
+#introSkip:hover{background:rgba(255,255,255,.3)}
+#introProgress{position:absolute;bottom:0;left:0;height:3px;background:linear-gradient(90deg,#6366f1,#a855f7);width:0;transition:width .1s linear}
 </style>
 </head>
 <body>
+<!-- 인트로 비디오 오버레이 -->
+<div id="introOverlay">
+  <video id="introVideo" autoplay muted playsinline>
+    <source src="/static/intro.mp4" type="video/mp4">
+  </video>
+  <div id="introProgress"></div>
+  <button id="introSkip" onclick="skipIntro()">건너뛰기 ▶</button>
+</div>
+
 <div class="sidebar" id="sidebar">
   <button class="sidebar-toggle-mini" onclick="toggleSidebar()" title="펼치기">☰</button>
   <div class="sidebar-inner">
@@ -5322,6 +5338,69 @@ function readEntriesRecursive(entries){
 
 // 초기 실행 버튼 상태
 updateRpRunBtn();
+
+// ==================== 인트로 비디오 ====================
+(function(){
+  const overlay = document.getElementById('introOverlay');
+  const video = document.getElementById('introVideo');
+  const progress = document.getElementById('introProgress');
+  const skipBtn = document.getElementById('introSkip');
+
+  if(!video || !overlay) return;
+
+  // 메인 콘텐츠 초기 숨김
+  document.querySelector('.sidebar').style.visibility = 'hidden';
+  document.querySelector('.main').style.visibility = 'hidden';
+
+  function dismissIntro(){
+    overlay.classList.add('fade-out');
+    document.querySelector('.sidebar').style.visibility = 'visible';
+    document.querySelector('.main').style.visibility = 'visible';
+    setTimeout(()=>{ overlay.remove(); }, 700);
+  }
+
+  // 영상 종료 시 자동 전환
+  video.addEventListener('ended', dismissIntro);
+
+  // 영상 로드 실패 시 바로 메인 진입
+  video.addEventListener('error', dismissIntro);
+
+  // 진행률 바 업데이트
+  video.addEventListener('timeupdate', ()=>{
+    if(video.duration){
+      progress.style.width = (video.currentTime / video.duration * 100) + '%';
+    }
+  });
+
+  // 3초 후 스킵 버튼에 카운트다운 표시
+  let countdown = 3;
+  skipBtn.disabled = true;
+  skipBtn.style.opacity = '.5';
+  skipBtn.textContent = `${countdown}초 후 건너뛰기`;
+  const timer = setInterval(()=>{
+    countdown--;
+    if(countdown <= 0){
+      clearInterval(timer);
+      skipBtn.disabled = false;
+      skipBtn.style.opacity = '1';
+      skipBtn.textContent = '건너뛰기 ▶';
+    } else {
+      skipBtn.textContent = `${countdown}초 후 건너뛰기`;
+    }
+  }, 1000);
+})();
+
+function skipIntro(){
+  const overlay = document.getElementById('introOverlay');
+  const video = document.getElementById('introVideo');
+  if(video) video.pause();
+  if(overlay){
+    overlay.classList.add('fade-out');
+    document.querySelector('.sidebar').style.visibility = 'visible';
+    document.querySelector('.main').style.visibility = 'visible';
+    setTimeout(()=>{ overlay.remove(); }, 700);
+  }
+}
 </script>
 </body>
 </html>
