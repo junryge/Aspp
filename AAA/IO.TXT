@@ -2313,6 +2313,10 @@ def api_chat():
         "analysis": "데이터 개요 → 분석 코드(pandas/matplotlib) → 시각화 → 인사이트 요약 순서로 답변하세요.",
         "report": "답변을 보고서 형식으로 작성하세요. 제목, 요약, 본문, 결론 구조.",
         "step-by-step": "답변을 단계별(1,2,3...)로 작성하세요. 각 단계마다 왜 필요한지 설명.",
+        "md-report": "답변 전체를 **다운로드 가능한 마크다운 문서** 형식으로 작성하세요.\n"
+                     "반드시 ```markdown 코드블록 안에 완전한 마크다운 문서를 작성하세요.\n"
+                     "구조: # 제목, ## 섹션, 표(| |), 코드블록, 체크리스트(- [ ]) 등 활용.\n"
+                     "문서가 완성되면 사용자가 '📥 MD 다운로드' 버튼으로 바로 저장할 수 있습니다.",
     }
 
     system_prompt += effort_map[min(effort, 3)] + "\n"
@@ -2665,6 +2669,25 @@ body.sb-collapsed .chat-box-fixed{left:48px}
 .drawio-actions{display:flex;gap:6px;flex-wrap:wrap}
 .drawio-btn{background:#6366f1;color:#fff;border:none;border-radius:6px;padding:4px 10px;font-size:11px;cursor:pointer;transition:background .2s}
 .drawio-btn:hover{background:#4f46e5}
+.md-report-block{background:#f8faf8;border:2px solid #86efac;border-radius:12px;margin:12px 0;overflow:hidden}
+.md-report-header{display:flex;justify-content:space-between;align-items:center;padding:8px 14px;background:#ecfdf5;border-bottom:1px solid #86efac}
+.md-report-header span{font-weight:600;font-size:13px;color:#166534}
+.md-report-actions{display:flex;gap:6px}
+.md-report-btn{background:#22c55e;color:#fff;border:none;border-radius:6px;padding:4px 10px;font-size:11px;cursor:pointer;transition:background .2s}
+.md-report-btn:hover{background:#16a34a}
+.md-report-btn.md-download{background:#6366f1}.md-report-btn.md-download:hover{background:#4f46e5}
+.md-report-preview{padding:14px 18px;font-size:13px;line-height:1.7;max-height:500px;overflow-y:auto}
+.md-report-preview h1{font-size:20px;margin:12px 0 8px;border-bottom:2px solid #e5e7eb;padding-bottom:4px}
+.md-report-preview h2{font-size:17px;margin:10px 0 6px;color:#374151}
+.md-report-preview h3{font-size:15px;margin:8px 0 4px;color:#4b5563}
+.md-report-preview table{border-collapse:collapse;width:100%;margin:8px 0}
+.md-report-preview th,.md-report-preview td{border:1px solid #d1d5db;padding:4px 8px;font-size:12px;text-align:left}
+.md-report-preview th{background:#f3f4f6;font-weight:600}
+.md-report-preview pre{background:#1e1e2e;color:#cdd6f4;padding:10px;border-radius:8px;overflow-x:auto;font-size:12px}
+.md-report-preview blockquote{border-left:3px solid #6366f1;padding-left:12px;color:#6b7280;margin:8px 0}
+.md-raw-toggle{margin:0;padding:4px 14px 8px}
+.md-raw-toggle summary{font-size:11px;color:#9ca3af;cursor:pointer}
+.md-raw-toggle pre{max-height:300px;overflow:auto;font-size:11px;margin-top:6px}
 .drawio-preview{max-height:200px;overflow:auto;margin:0;border-radius:0;border:none;font-size:11px}
 .drawio-preview code{font-size:11px}
 .send-btn.stop-mode{background:#e74c3c;animation:pulse-stop 1.2s infinite}
@@ -2783,7 +2806,7 @@ body.rp-collapsed .chat-box-fixed{right:0}
 
 <div class="main">
   <div class="header">
-    <div class="project-title">📁 Demos(민중) 프로젝트</div>
+    <div class="project-title">📁 Demos(민중) 프로젝트 <span style="font-size:12px;color:#6366f1;background:#eef2ff;padding:2px 10px;border-radius:10px;margin-left:8px;font-weight:500;">Opus SKILL 4.6 사용중</span></div>
     <div style="display:flex;align-items:center;gap:8px;">
       <span id="tokenBadge" class="status off">⏳ 로딩중...</span>
       <span id="status" class="status off">⚪ 환경 미선택</span>
@@ -3178,7 +3201,7 @@ function updateLoaded(){
   const totalCount = selSkills.length + autoLoadedSkills.length;
   document.getElementById('loadedCount').textContent = totalCount;
   const el = document.getElementById('loadedSkillsList');
-  if(totalCount === 0){
+  if(totalCount === 0 && dismissedAutoSkills.size === 0){
     el.innerHTML = '<div style="color:#bbb">선택된 스킬 없음</div>';
     return;
   }
@@ -3189,36 +3212,81 @@ function updateLoaded(){
       <span style="font-size:12px">✅ ${s}</span>
     </label>`
   ).join('');
-  // 자동 추천 스킬 (1회성, 클릭하면 수동 고정 가능)
+  // 자동 추천 스킬 (1회성, 📌으로 수동 고정 / ✕로 해제)
   if(autoLoadedSkills.length > 0){
     html += autoLoadedSkills.map(s =>
-      `<div style="display:flex;align-items:center;justify-content:space-between;padding:2px 0;opacity:.75;">
+      `<div style="display:flex;align-items:center;justify-content:space-between;padding:2px 0;opacity:.8;">
         <span style="font-size:12px">🧠 ${s}</span>
-        <button onclick="pinAutoSkill('${s}')" style="background:none;border:none;cursor:pointer;font-size:10px;color:#4f46e5;padding:0 2px;" title="수동 고정">📌</button>
+        <span style="display:flex;gap:2px;">
+          <button onclick="pinAutoSkill('${s}')" style="background:none;border:none;cursor:pointer;font-size:10px;color:#4f46e5;padding:0 2px;" title="수동 고정">📌</button>
+          <button onclick="dismissAutoSkill('${s}')" style="background:none;border:none;cursor:pointer;font-size:10px;color:#ef4444;padding:0 2px;" title="해제 (다시 추천 안함)">✕</button>
+        </span>
       </div>`
     ).join('');
   }
-  if(selSkills.length >= 2){
+  // 해제된 자동 스킬 (블랙리스트) 표시
+  if(dismissedAutoSkills.size > 0){
+    html += `<div style="margin-top:6px;padding-top:6px;border-top:1px dashed #e5e3de;">
+      <div style="font-size:10px;color:#9ca3af;margin-bottom:3px;">🚫 해제됨 (자동추천 제외)</div>`;
+    html += [...dismissedAutoSkills].map(s =>
+      `<div style="display:flex;align-items:center;justify-content:space-between;padding:1px 0;opacity:.5;">
+        <span style="font-size:11px;text-decoration:line-through;color:#9ca3af;">${s}</span>
+        <button onclick="restoreDismissedSkill('${s}')" style="background:none;border:none;cursor:pointer;font-size:10px;color:#22c55e;padding:0 2px;" title="복구 (자동추천 허용)">♻️</button>
+      </div>`
+    ).join('');
+    if(dismissedAutoSkills.size >= 2){
+      html += `<button onclick="clearDismissed()" style="width:100%;margin-top:3px;padding:2px 0;font-size:10px;background:#fef2f2;border:1px solid #fecaca;border-radius:4px;cursor:pointer;color:#ef4444;">전체 복구</button>`;
+    }
+    html += `</div>`;
+  }
+  if(selSkills.length + autoLoadedSkills.length >= 2){
     html += `<button onclick="unloadAllSkills()" style="width:100%;margin-top:4px;padding:3px 0;font-size:11px;background:#f5f5f0;border:1px solid #e5e3de;border-radius:4px;cursor:pointer;color:#888;">전체 해제</button>`;
   }
   el.innerHTML = html;
 }
+let dismissedAutoSkills = new Set();  // 사용자가 해제한 자동 스킬 (세션 내 재로드 방지)
+
 function unloadSkill(id){
   selSkills = selSkills.filter(x => x !== id);
+  // 자동 스킬이면 해제 블랙리스트에 추가
+  if(autoLoadedSkills.includes(id)){
+    autoLoadedSkills = autoLoadedSkills.filter(x => x !== id);
+    dismissedAutoSkills.add(id);
+  }
   renderSkills();
   updateLoaded();
 }
 function unloadAllSkills(){
+  // 자동 스킬 모두 블랙리스트에 추가
+  autoLoadedSkills.forEach(id => dismissedAutoSkills.add(id));
   selSkills = [];
   autoLoadedSkills = [];
   renderSkills();
   updateLoaded();
 }
 function pinAutoSkill(id){
-  // 자동 스킬을 수동 고정으로 전환
+  // 자동 스킬을 수동 고정으로 전환 → 블랙리스트에서 제거
   autoLoadedSkills = autoLoadedSkills.filter(x => x !== id);
+  dismissedAutoSkills.delete(id);
   if(!selSkills.includes(id)) selSkills.push(id);
   renderSkills();
+  updateLoaded();
+}
+function dismissAutoSkill(id){
+  // 자동 스킬을 블랙리스트로 이동 (다시 추천 안함)
+  autoLoadedSkills = autoLoadedSkills.filter(x => x !== id);
+  dismissedAutoSkills.add(id);
+  renderSkills();
+  updateLoaded();
+}
+function restoreDismissedSkill(id){
+  // 블랙리스트에서 복구 (다음 자동 추천 허용)
+  dismissedAutoSkills.delete(id);
+  updateLoaded();
+}
+function clearDismissed(){
+  // 블랙리스트 전체 초기화
+  dismissedAutoSkills.clear();
   updateLoaded();
 }
 
@@ -3327,9 +3395,9 @@ async function send(){
   let skillsToUse = [...selSkills];
   let autoLoaded = [...autoLoadedSkills];  // 파일 첨부/세션 로드로 프리로드된 스킬
 
-  // 프리로드 스킬 중 수동과 중복되지 않는 것만 추가
+  // 프리로드 스킬 중 수동/해제 중복 제거
   const manualSet = new Set(skillsToUse);
-  autoLoaded = autoLoaded.filter(id => !manualSet.has(id));
+  autoLoaded = autoLoaded.filter(id => !manualSet.has(id) && !dismissedAutoSkills.has(id));
   skillsToUse = [...skillsToUse, ...autoLoaded];
 
   // 자동 스킬 모드: 질문 분석으로 추가 보충
@@ -3342,7 +3410,7 @@ async function send(){
         const ad = await ar.json();
         if(ad.skills && ad.skills.length > 0){
           const usedSet = new Set(skillsToUse);
-          const newAuto = ad.skills.map(s=>s.id).filter(id=>!usedSet.has(id));
+          const newAuto = ad.skills.map(s=>s.id).filter(id=>!usedSet.has(id) && !dismissedAutoSkills.has(id));
           autoLoaded = [...autoLoaded, ...newAuto];
           skillsToUse = [...skillsToUse, ...newAuto];
         }
@@ -3409,6 +3477,10 @@ async function send(){
       let truncWarn = data.truncated ? '\n\n⚠️ **응답이 토큰 한도('+maxTokens+')에 도달하여 잘렸습니다.** "계속 이어서 작성해줘"라고 입력하면 이어서 받을 수 있습니다.' : '';
       addMsg('assistant', data.content + truncWarn + info);
       history.push({role:'assistant',content:data.content});
+      // md-report 형식: ```markdown 블록이 없어도 전체 응답에 MD 다운로드 버튼 추가
+      if(selFormat === 'md-report' && !data.content.includes('```markdown')){
+        appendMdDownloadBar(data.content);
+      }
     }
   }catch(e){
     typing.remove();
@@ -3463,7 +3535,23 @@ function renderMd(text){
       <pre class="drawio-preview"><code class="language-xml">${escapedXml}</code></pre>
     </div>`;
   });
-  // 2b) 일반 코드블록 — xml 블록 안에 mxfile이 있으면 drawio로 자동 변환
+  // 2b) markdown 코드블록 → MD 다운로드 UI
+  s=s.replace(/```markdown\s*([\s\S]*?)```/g,(_,code)=>{
+    const trimmed=code.trim();
+    const mdB64=btoa(unescape(encodeURIComponent(trimmed.replace(/&amp;/g,'&').replace(/&lt;/g,'<').replace(/&gt;/g,'>').replace(/&quot;/g,'"'))));
+    return `<div class="md-report-block">
+      <div class="md-report-header">
+        <span>📋 마크다운 문서</span>
+        <div class="md-report-actions">
+          <button class="md-report-btn" onclick="copyMdContent(this)" data-md="${mdB64}">📋 복사</button>
+          <button class="md-report-btn md-download" onclick="downloadMarkdown(this)" data-md="${mdB64}">📥 MD 다운로드</button>
+        </div>
+      </div>
+      <div class="md-report-preview">${renderMdPreview(trimmed)}</div>
+      <details class="md-raw-toggle"><summary>📝 원본 마크다운 보기</summary><pre><code class="language-markdown">${trimmed}</code></pre></details>
+    </div>`;
+  });
+  // 2c) 일반 코드블록 — xml 블록 안에 mxfile이 있으면 drawio로 자동 변환
   s=s.replace(/```(\w*)\s*([\s\S]*?)```/g,(_,lang,code)=>{
     const trimmed=code.trim();
     // 코드블록 안에 <mxfile 또는 <mxGraphModel 있으면 drawio UI로 변환
@@ -3758,6 +3846,8 @@ function createNewSession(){
   currentSessionId = 'sess_'+Date.now();
   history=[];
   selSkills=[];
+  autoLoadedSkills=[];
+  dismissedAutoSkills.clear();
   document.getElementById('msgs').innerHTML='';
   document.getElementById('writingStyle').value='';
   document.getElementById('systemPromptInput').value='';
@@ -4337,6 +4427,101 @@ function openInDrawio(btn){
   const xml = sanitizeDrawioXml(decodeDrawioXml(btn));
   const encoded = encodeURIComponent(xml);
   window.open('https://app.diagrams.net/#R' + encoded, '_blank');
+}
+
+// ===== MD 다운로드/복사/미리보기 =====
+function decodeMdB64(btn){
+  const b64 = btn.getAttribute('data-md');
+  return decodeURIComponent(escape(atob(b64)));
+}
+function downloadMarkdown(btn){
+  const md = decodeMdB64(btn);
+  // 제목에서 파일명 추출
+  const titleMatch = md.match(/^#\s+(.+)$/m);
+  let filename = 'report.md';
+  if(titleMatch){
+    filename = titleMatch[1].replace(/[^\w가-힣\s-]/g,'').trim().replace(/\s+/g,'_').substring(0,50) + '.md';
+  }
+  const blob = new Blob([md], {type:'text/markdown;charset=utf-8'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+function copyMdContent(btn){
+  const md = decodeMdB64(btn);
+  navigator.clipboard.writeText(md).then(()=>{
+    const orig = btn.textContent;
+    btn.textContent = '✅ 복사됨';
+    setTimeout(()=>btn.textContent=orig, 1500);
+  });
+}
+function renderMdPreview(escapedMd){
+  // HTML escaped 마크다운을 간단히 렌더링 (미리보기용)
+  let s = escapedMd;
+  // 헤딩
+  s = s.replace(/^######\s+(.+)$/gm, '<h6>$1</h6>');
+  s = s.replace(/^#####\s+(.+)$/gm, '<h5>$1</h5>');
+  s = s.replace(/^####\s+(.+)$/gm, '<h4>$1</h4>');
+  s = s.replace(/^###\s+(.+)$/gm, '<h3>$1</h3>');
+  s = s.replace(/^##\s+(.+)$/gm, '<h2>$1</h2>');
+  s = s.replace(/^#\s+(.+)$/gm, '<h1>$1</h1>');
+  // bold / italic
+  s = s.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+  s = s.replace(/\*(.+?)\*/g, '<em>$1</em>');
+  // 체크리스트
+  s = s.replace(/^- \[x\]\s+(.+)$/gm, '<div>☑️ $1</div>');
+  s = s.replace(/^- \[ \]\s+(.+)$/gm, '<div>⬜ $1</div>');
+  // 리스트
+  s = s.replace(/^- (.+)$/gm, '<li>$1</li>');
+  s = s.replace(/^(\d+)\.\s+(.+)$/gm, '<li>$2</li>');
+  // 수평선
+  s = s.replace(/^---+$/gm, '<hr>');
+  // 블록쿼트
+  s = s.replace(/^&gt;\s+(.+)$/gm, '<blockquote>$1</blockquote>');
+  // 인라인 코드
+  s = s.replace(/`([^`]+)`/g, '<code style="background:#f1f5f9;padding:1px 4px;border-radius:3px;font-size:12px">$1</code>');
+  // 테이블 (간단 처리)
+  s = s.replace(/((?:^\|.+\|[ ]*\n){2,})/gm, function(tbl){
+    const rows = tbl.trim().split('\n').filter(r=>r.trim());
+    if(rows.length < 2) return tbl;
+    const parseRow = r => r.replace(/^\|/,'').replace(/\|$/,'').split('|').map(c=>c.trim());
+    const hdr = parseRow(rows[0]);
+    let startIdx = 1;
+    if(rows[1] && /^[\s|:-]+$/.test(rows[1])) startIdx = 2;
+    let html = '<table><thead><tr>' + hdr.map(h=>`<th>${h}</th>`).join('') + '</tr></thead><tbody>';
+    for(let i=startIdx;i<rows.length;i++){
+      const cells = parseRow(rows[i]);
+      html += '<tr>' + cells.map(c=>`<td>${c}</td>`).join('') + '</tr>';
+    }
+    return html + '</tbody></table>';
+  });
+  // 줄바꿈
+  s = s.replace(/\n/g, '<br>');
+  return s;
+}
+
+// ===== 응답 전체를 MD 다운로드 가능하게 =====
+function appendMdDownloadBar(rawContent){
+  // 마지막 assistant 메시지에 MD 다운로드 바 추가
+  const msgs = document.querySelectorAll('.msg.assistant');
+  if(msgs.length === 0) return;
+  const lastMsg = msgs[msgs.length - 1];
+  const mdB64 = btoa(unescape(encodeURIComponent(rawContent)));
+  const bar = document.createElement('div');
+  bar.className = 'md-report-header';
+  bar.style.marginTop = '10px';
+  bar.style.borderRadius = '8px';
+  bar.innerHTML = `<span>📋 마크다운 문서로 저장</span>
+    <div class="md-report-actions">
+      <button class="md-report-btn" onclick="copyMdContent(this)" data-md="${mdB64}">📋 복사</button>
+      <button class="md-report-btn md-download" onclick="downloadMarkdown(this)" data-md="${mdB64}">📥 MD 다운로드</button>
+    </div>`;
+  lastMsg.appendChild(bar);
 }
 
 async function removeCsv(){
