@@ -2859,21 +2859,17 @@ body.rp-collapsed .chat-box-fixed{right:0}
         </div>
       </div>
 
-      <div class="style-row">
-        <div class="style-group">
-          <label>작성 스타일</label>
-          <div id="styleChips" style="display:flex;flex-wrap:wrap;gap:3px;margin-bottom:4px"></div>
-          <textarea id="writingStyle" placeholder="위 프리셋 클릭 또는 직접 입력..." style="min-height:28px;max-height:60px"></textarea>
-        </div>
-        <div class="style-group">
-          <label>출력 형식</label>
-          <div class="fmt-btns">
-            <div class="fmt-btn selected" data-f="code" onclick="selFmt(this)">💻 코드</div>
-            <div class="fmt-btn" data-f="code-fix" onclick="selFmt(this)">🔧 수정</div>
-            <div class="fmt-btn" data-f="analysis" onclick="selFmt(this)">📊 분석</div>
-            <div class="fmt-btn" data-f="report" onclick="selFmt(this)">📄 보고서</div>
-            <div class="fmt-btn" data-f="step-by-step" onclick="selFmt(this)">📝 단계별</div>
-          </div>
+      <!-- 작성스타일/출력형식: 채팅창 드롭다운으로 이동, 내부 상태 유지용 hidden -->
+      <div style="display:none">
+        <div id="styleChips"></div>
+        <textarea id="writingStyle"></textarea>
+        <div class="fmt-btns">
+          <div class="fmt-btn selected" data-f="code"></div>
+          <div class="fmt-btn" data-f="code-fix"></div>
+          <div class="fmt-btn" data-f="analysis"></div>
+          <div class="fmt-btn" data-f="report"></div>
+          <div class="fmt-btn" data-f="step-by-step"></div>
+          <div class="fmt-btn" data-f="md-report"></div>
         </div>
       </div>
 
