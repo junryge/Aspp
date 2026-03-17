@@ -2159,7 +2159,7 @@ def api_chat():
     output_format = data.get("format", "code")
     writing_style = data.get("writing_style", "")
     custom_system_prompt = data.get("system_prompt", "")
-    max_tokens = data.get("max_tokens", 4096)
+    max_tokens = data.get("max_tokens", 8192)
 
     if not api_url or not model:
         return jsonify({"error": "API URL과 모델 이름을 설정해주세요."}), 400
@@ -2362,18 +2362,25 @@ def api_chat():
         result = resp.json()
 
         # 응답 추출
+        truncated = False
         if "choices" in result and len(result["choices"]) > 0:
             answer = result["choices"][0]["message"]["content"]
+            finish_reason = result["choices"][0].get("finish_reason", "")
+            if finish_reason == "length":
+                truncated = True
         elif "error" in result:
             answer = f"API 에러: {result['error']}"
         else:
             answer = f"예상치 못한 응답: {json.dumps(result, ensure_ascii=False, indent=2)}"
 
-        return jsonify({
+        resp_data = {
             "content": answer,
             "loaded_skills": loaded,
             "system_prompt_length": len(system_prompt),
-        })
+        }
+        if truncated:
+            resp_data["truncated"] = True
+        return jsonify(resp_data)
 
     except req.exceptions.Timeout:
         return jsonify({"error": "API 응답 시간 초과 (120초). max_tokens를 줄이거나 API 서버 상태를 확인하세요."}), 504
@@ -2955,7 +2962,7 @@ let autoSkillMode = true;  // 기본 ON
 let selFormat = 'code';
 let effort = 2;
 let history = [];
-let maxTokens = 4096;
+let maxTokens = 8192;
 let currentSessionId = null;
 let sessions = {};
 
@@ -3285,7 +3292,8 @@ async function send(){
         let mode = autoLoaded.length > 0 ? '🧠자동' : '✅수동';
         info = `\n[${mode} 스킬: ${data.loaded_skills.join(', ')}] [${envs[selEnv].name}] (${data.system_prompt_length}자)${extra}`;
       }
-      addMsg('assistant', data.content + info);
+      let truncWarn = data.truncated ? '\n\n⚠️ **응답이 토큰 한도('+maxTokens+')에 도달하여 잘렸습니다.** "계속 이어서 작성해줘"라고 입력하면 이어서 받을 수 있습니다.' : '';
+      addMsg('assistant', data.content + truncWarn + info);
       history.push({role:'assistant',content:data.content});
     }
   }catch(e){
@@ -4850,7 +4858,8 @@ async function runCodeAssistant(){
           let extra = data.tokens_budget ? ' ['+data.tokens_budget+']' : '';
           info = '\n[\u2705 '+data.loaded_skills.join(', ')+'] ['+envs[selEnv].name+'] ('+data.system_prompt_length+'\uc790)'+extra;
         }
-        addMsg('assistant', data.content + info);
+        let truncWarn = data.truncated ? '\n\n⚠️ **응답이 토큰 한도('+maxTokens+')에 도달하여 잘렸습니다.** "계속 이어서 작성해줘"라고 입력하면 이어서 받을 수 있습니다.' : '';
+        addMsg('assistant', data.content + truncWarn + info);
         history.push({role:'assistant', content:data.content});
       }
     }catch(e){
