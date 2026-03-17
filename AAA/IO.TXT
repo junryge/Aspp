@@ -1413,8 +1413,12 @@ def api_auto_skills():
         results = auto_select_skills(query, max_skills=max_skills)
         boosted = []
 
+    # 실제 SKILL.md가 있는 스킬만 필터링
+    available = scan_skills()
     skills = []
     for sid, score in results:
+        if sid not in available:
+            continue  # SKILL.md 없는 스킬은 제외
         desc = SKILL_DESC_KO.get(sid, "")
         skills.append({
             "id": sid,
@@ -3261,16 +3265,20 @@ async function send(){
     attachedNames = await uploadChatPendingFiles();
   }
 
-  // 자동 스킬 모드: 수동 선택이 없으면 자동 추천 스킬 사용
+  // 자동 스킬 모드: 수동 선택 유무와 관계없이 자동 추천 스킬 보충
   let skillsToUse = [...selSkills];
   let autoLoaded = [];
-  if(autoSkillMode && skillsToUse.length === 0){
+  if(autoSkillMode){
     try{
-      const ar = await fetch('/api/auto-skills',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({query:text,max_skills:7,history:history})});
+      const maxAuto = skillsToUse.length === 0 ? 7 : 5;
+      const ar = await fetch('/api/auto-skills',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({query:text,max_skills:maxAuto,history:history})});
       const ad = await ar.json();
       if(ad.skills && ad.skills.length > 0){
-        autoLoaded = ad.skills.map(s=>s.id);
-        skillsToUse = autoLoaded;
+        // 수동 선택과 중복되지 않는 것만 추가
+        const manualSet = new Set(skillsToUse);
+        const newAuto = ad.skills.map(s=>s.id).filter(id=>!manualSet.has(id));
+        autoLoaded = newAuto;
+        skillsToUse = [...skillsToUse, ...newAuto];
       }
     }catch(e){}
   }
@@ -3286,12 +3294,15 @@ async function send(){
   el.value=''; el.style.height='auto';
   document.getElementById('autoSkillPreview').classList.remove('show');
 
-  // 자동 로드 안내 + 사이드바 스킬 카드에 표시
+  // 자동 로드 안내 + 사이드바 스킬 카드/불러온 목록에 반영
   if(autoLoaded.length > 0){
     autoLoadedSkills = autoLoaded;
+    // selSkills에도 자동 스킬 추가 (사이드바 불러온 스킬 목록에 표시)
+    autoLoaded.forEach(id=>{ if(!selSkills.includes(id)) selSkills.push(id); });
     renderSkills();
     updateLoaded();
-    addMsg('assistant', '🧠 자동 스킬 로드: ' + autoLoaded.join(', '));
+    const manualInfo = selSkills.length - autoLoaded.length > 0 ? ` (수동 ${selSkills.length - autoLoaded.length}개 + 자동 ${autoLoaded.length}개)` : '';
+    addMsg('assistant', '🧠 자동 스킬 추가: ' + autoLoaded.join(', ') + manualInfo);
   }
 
   const typing=addTyping();
