@@ -1,0 +1,208 @@
+<mxfile host="app.diagrams.net" modified="2026-03-17" version="21.0.0">
+  <diagram name="AMHS 데이터 아키텍처" id="amhs-arch-001">
+    <mxGraphModel dx="1600" dy="900" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1654" pageHeight="1169" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+
+        <!-- ===== TITLE ===== -->
+        <mxCell id="title" value="AMHS 데이터 수집 아키텍처 (OHT / AGV / CNV)" style="text;html=1;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;fontSize=20;fontStyle=1;fontColor=#1a237e;" vertex="1" parent="1">
+          <mxGeometry x="200" y="20" width="900" height="40" as="geometry" />
+        </mxCell>
+
+        <!-- ===== LAYER BACKGROUND BANDS ===== -->
+        <mxCell id="band1" value="" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#e8eaf6;strokeColor=#9fa8da;opacity=30;" vertex="1" parent="1">
+          <mxGeometry x="30" y="70" width="1250" height="170" as="geometry" />
+        </mxCell>
+        <mxCell id="band1_lbl" value="Equipment Layer" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=top;fontSize=10;fontStyle=1;fontColor=#3949ab;rotation=-90;" vertex="1" parent="1">
+          <mxGeometry x="30" y="70" width="20" height="170" as="geometry" />
+        </mxCell>
+
+        <mxCell id="band2" value="" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#fce4ec;strokeColor=#f48fb1;opacity=30;" vertex="1" parent="1">
+          <mxGeometry x="30" y="300" width="1250" height="150" as="geometry" />
+        </mxCell>
+        <mxCell id="band2_lbl" value="Atlas Server Layer" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=top;fontSize=10;fontStyle=1;fontColor=#c62828;rotation=-90;" vertex="1" parent="1">
+          <mxGeometry x="30" y="300" width="20" height="150" as="geometry" />
+        </mxCell>
+
+        <mxCell id="band3" value="" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#fff8e1;strokeColor=#ffe082;opacity=40;" vertex="1" parent="1">
+          <mxGeometry x="30" y="510" width="1250" height="100" as="geometry" />
+        </mxCell>
+        <mxCell id="band3_lbl" value="Middleware" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=top;fontSize=10;fontStyle=1;fontColor=#e65100;rotation=-90;" vertex="1" parent="1">
+          <mxGeometry x="30" y="510" width="20" height="100" as="geometry" />
+        </mxCell>
+
+        <mxCell id="band4" value="" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#e0f2f1;strokeColor=#80cbc4;opacity=40;" vertex="1" parent="1">
+          <mxGeometry x="30" y="670" width="1250" height="110" as="geometry" />
+        </mxCell>
+        <mxCell id="band4_lbl" value="Application Layer" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=top;fontSize=10;fontStyle=1;fontColor=#00695c;rotation=-90;" vertex="1" parent="1">
+          <mxGeometry x="30" y="670" width="20" height="110" as="geometry" />
+        </mxCell>
+
+        <!-- ===== EQUIPMENT LAYER ===== -->
+
+        <!-- OHT 장비 -->
+        <mxCell id="oht" value="&lt;b&gt;🚃 OHT 장비 (Rail)&lt;/b&gt;&lt;br/&gt;&lt;font color='#b71c1c'&gt;PS 시작문자: &lt;b&gt;'V'&lt;/b&gt;&lt;/font&gt;&lt;br/&gt;Vehicle명: V001 ~ V200&lt;br/&gt;예) V001, V025, V200" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e3f2fd;strokeColor=#1565c0;fontSize=11;fontColor=#0d47a1;" vertex="1" parent="1">
+          <mxGeometry x="90" y="85" width="220" height="100" as="geometry" />
+        </mxCell>
+
+        <!-- AGV 장비 -->
+        <mxCell id="agv" value="&lt;b&gt;🤖 AGV 장비&lt;/b&gt;&lt;br/&gt;&lt;font color='#1b5e20'&gt;PS 시작문자: &lt;b&gt;'A'&lt;/b&gt;&lt;/font&gt;&lt;br/&gt;Vehicle명: A001 ~ A050&lt;br/&gt;예) A001, A025, A050" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e8f5e9;strokeColor=#2e7d32;fontSize=11;fontColor=#1b5e20;" vertex="1" parent="1">
+          <mxGeometry x="490" y="85" width="220" height="100" as="geometry" />
+        </mxCell>
+
+        <!-- CNV 장비 -->
+        <mxCell id="cnv" value="&lt;b&gt;📦 CNV 장비 (Conveyor)&lt;/b&gt;&lt;br/&gt;&lt;font color='#e65100'&gt;파싱 처리 예정중&lt;/font&gt;&lt;br/&gt;Zone 기반 이동&lt;br/&gt;(데이터 구간 확인중)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff8e1;strokeColor=#f57f17;fontSize=11;fontColor=#e65100;" vertex="1" parent="1">
+          <mxGeometry x="890" y="85" width="220" height="100" as="geometry" />
+        </mxCell>
+
+        <!-- OHT 메시지 포맷 노트 -->
+        <mxCell id="oht_msg" value="&lt;b&gt;UDP 메시지 포맷 (OHT)&lt;/b&gt;&lt;br/&gt;&lt;font face=&quot;Consolas&quot;&gt;ID:1  MCP On-line 보고&lt;br/&gt;  → 1,OHT,ON-LINE,AUTO,...&lt;br/&gt;ID:2  Vehicle 상태 보고&lt;br/&gt;  → 2,OHT,&lt;b&gt;V001&lt;/b&gt;,1,0,0000,...&lt;br/&gt;ID:4  기기 상태 보고&lt;br/&gt;  → 4,OHT,10,&lt;b&gt;V001&lt;/b&gt;,1,0000&lt;br/&gt;ID:51 상태 보고 요구&lt;/font&gt;" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#dbeafe;strokeColor=#93c5fd;fontSize=9;align=left;" vertex="1" parent="1">
+          <mxGeometry x="60" y="195" width="280" height="110" as="geometry" />
+        </mxCell>
+
+        <!-- AGV 메시지 포맷 노트 -->
+        <mxCell id="agv_msg" value="&lt;b&gt;UDP 메시지 포맷 (AGV)&lt;/b&gt;&lt;br/&gt;&lt;font face=&quot;Consolas&quot;&gt;ID:1  MCP On-line 보고&lt;br/&gt;  → 1,AGV,ON-LINE,AUTO,...&lt;br/&gt;ID:2  Vehicle 상태 보고&lt;br/&gt;  → 2,AGV,&lt;b&gt;A001&lt;/b&gt;,1,0,0000,...&lt;br/&gt;ID:4  기기 상태 보고&lt;br/&gt;  → 4,AGV,10,&lt;b&gt;A001&lt;/b&gt;,1,0000&lt;br/&gt;ID:51 상태 보고 요구&lt;/font&gt;" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#dcfce7;strokeColor=#86efac;fontSize=9;align=left;" vertex="1" parent="1">
+          <mxGeometry x="460" y="195" width="280" height="110" as="geometry" />
+        </mxCell>
+
+        <!-- ===== ATLAS SERVER LAYER ===== -->
+
+        <!-- Atlas FTP Server -->
+        <mxCell id="ftp" value="&lt;b&gt;📂 Atlas FTP Server&lt;/b&gt;&lt;br/&gt;파일: LAYOUT.XML&lt;br/&gt;대상: OHT MAP 데이터 ✅&lt;br/&gt;대상: AGV MAP 데이터 🔍" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f3e5f5;strokeColor=#7b1fa2;fontSize=11;fontColor=#4a148c;" vertex="1" parent="1">
+          <mxGeometry x="80" y="320" width="230" height="110" as="geometry" />
+        </mxCell>
+
+        <!-- Atlas QA Server (UDP 수신) -->
+        <mxCell id="qa" value="&lt;b&gt;🖥 Atlas QA Server&lt;/b&gt;&lt;br/&gt;&lt;b&gt;UDP 수신&lt;/b&gt;&lt;br/&gt;OHT / AGV / CNV&lt;br/&gt;실시간 위치정보&lt;br/&gt;Stocker 위치정보 포함" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fce4ec;strokeColor=#c62828;fontSize=11;fontColor=#b71c1c;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="435" y="320" width="230" height="110" as="geometry" />
+        </mxCell>
+
+        <!-- Atlas HTTP Server -->
+        <mxCell id="http" value="&lt;b&gt;🌐 Atlas HTTP Server&lt;/b&gt;&lt;br/&gt;파일: ZONEINFO.JSON&lt;br/&gt;대상: CNV MAP 데이터 ✅&lt;br/&gt;형식: HTTP GET" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e8eaf6;strokeColor=#283593;fontSize=11;fontColor=#1a237e;" vertex="1" parent="1">
+          <mxGeometry x="790" y="320" width="230" height="110" as="geometry" />
+        </mxCell>
+
+        <!-- MAP 데이터 업로드 주기 노트 -->
+        <mxCell id="map_note" value="⏱ MAP 데이터: 하루 1회 업로드 (아무 시간대)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fffde7;strokeColor=#f9a825;fontSize=10;fontStyle=2;" vertex="1" parent="1">
+          <mxGeometry x="200" y="450" width="700" height="30" as="geometry" />
+        </mxCell>
+
+        <!-- ===== MIDDLEWARE LAYER ===== -->
+        <mxCell id="rv" value="&lt;b&gt;📡 TIBCO Rendezvous (RV)&lt;/b&gt;&lt;br/&gt;실시간 데이터 미들웨어 브로커&lt;br/&gt;OHT · AGV · CNV 통합 발행/구독" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff3e0;strokeColor=#e65100;fontSize=12;fontStyle=1;fontColor=#bf360c;" vertex="1" parent="1">
+          <mxGeometry x="330" y="525" width="440" height="70" as="geometry" />
+        </mxCell>
+
+        <!-- ===== APPLICATION LAYER ===== -->
+        <mxCell id="app" value="&lt;b&gt;🏭 AMHS 모니터링 시스템&lt;/b&gt;&lt;br/&gt;실시간 위치 추적 · MAP 시각화 · OHT / AGV / CNV 통합 뷰" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e0f2f1;strokeColor=#00695c;fontSize=13;fontStyle=1;fontColor=#004d40;" vertex="1" parent="1">
+          <mxGeometry x="255" y="690" width="590" height="70" as="geometry" />
+        </mxCell>
+
+        <!-- ===== EDGES: Real-time (실선) ===== -->
+
+        <!-- OHT → Atlas QA : UDP -->
+        <mxCell id="e_oht_qa" value="UDP" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeColor=#1565c0;strokeWidth=2;endArrow=block;endFill=1;fontColor=#1565c0;fontStyle=1;fontSize=10;" edge="1" source="oht" target="qa" parent="1">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="200" y="260" />
+              <mxPoint x="550" y="260" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+
+        <!-- AGV → Atlas QA : UDP -->
+        <mxCell id="e_agv_qa" value="UDP" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeColor=#2e7d32;strokeWidth=2;endArrow=block;endFill=1;fontColor=#2e7d32;fontStyle=1;fontSize=10;" edge="1" source="agv" target="qa" parent="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- CNV → Atlas QA : UDP (dashed, 예정) -->
+        <mxCell id="e_cnv_qa" value="UDP (파싱 예정)" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeColor=#f57f17;strokeWidth=2;endArrow=block;endFill=1;dashed=1;fontColor=#f57f17;fontStyle=1;fontSize=10;" edge="1" source="cnv" target="qa" parent="1">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="1000" y="260" />
+              <mxPoint x="550" y="260" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+
+        <!-- Atlas QA → TIBCO RV -->
+        <mxCell id="e_qa_rv" value="RV 발행" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeColor=#c62828;strokeWidth=2;endArrow=block;endFill=1;fontColor=#c62828;fontStyle=1;fontSize=10;" edge="1" source="qa" target="rv" parent="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- TIBCO RV → App -->
+        <mxCell id="e_rv_app" value="실시간 구독" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeColor=#e65100;strokeWidth=2;endArrow=block;endFill=1;fontColor=#e65100;fontStyle=1;fontSize=10;" edge="1" source="rv" target="app" parent="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- ===== EDGES: MAP 데이터 (점선) ===== -->
+
+        <!-- Atlas FTP → App : LAYOUT.XML (MAP, 1일1회) -->
+        <mxCell id="e_ftp_app" value="LAYOUT.XML&lt;br/&gt;(1일 1회)" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeColor=#7b1fa2;strokeWidth=2;endArrow=block;endFill=1;dashed=1;fontColor=#7b1fa2;fontStyle=1;fontSize=10;" edge="1" source="ftp" target="app" parent="1">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="195" y="490" />
+              <mxPoint x="195" y="640" />
+              <mxPoint x="355" y="640" />
+              <mxPoint x="355" y="690" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+
+        <!-- Atlas HTTP → App : ZONEINFO.JSON (MAP, 1일1회) -->
+        <mxCell id="e_http_app" value="ZONEINFO.JSON&lt;br/&gt;(1일 1회)" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeColor=#283593;strokeWidth=2;endArrow=block;endFill=1;dashed=1;fontColor=#283593;fontStyle=1;fontSize=10;" edge="1" source="http" target="app" parent="1">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="905" y="490" />
+              <mxPoint x="905" y="640" />
+              <mxPoint x="740" y="640" />
+              <mxPoint x="740" y="690" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+
+        <!-- OHT msg note connector -->
+        <mxCell id="e_oht_note" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeColor=#93c5fd;strokeWidth=1;endArrow=none;dashed=1;" edge="1" source="oht" target="oht_msg" parent="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- AGV msg note connector -->
+        <mxCell id="e_agv_note" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeColor=#86efac;strokeWidth=1;endArrow=none;dashed=1;" edge="1" source="agv" target="agv_msg" parent="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- ===== LEGEND ===== -->
+        <mxCell id="leg_box" value="" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#bdbdbd;fontSize=10;" vertex="1" parent="1">
+          <mxGeometry x="1000" y="320" width="260" height="200" as="geometry" />
+        </mxCell>
+        <mxCell id="leg_title" value="&lt;b&gt;범 례&lt;/b&gt;" style="text;html=1;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;fontSize=12;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="1000" y="325" width="260" height="25" as="geometry" />
+        </mxCell>
+        <mxCell id="leg1" value="━━  실시간 UDP 데이터 흐름" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;fontSize=10;fontColor=#333;" vertex="1" parent="1">
+          <mxGeometry x="1010" y="355" width="240" height="25" as="geometry" />
+        </mxCell>
+        <mxCell id="leg2" value="┅┅  MAP 데이터 (1일 1회)" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;fontSize=10;fontColor=#333;" vertex="1" parent="1">
+          <mxGeometry x="1010" y="385" width="240" height="25" as="geometry" />
+        </mxCell>
+        <mxCell id="leg3" value="✅  전달 완료 (김희택 수석)" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;fontSize=10;fontColor=#2e7d32;" vertex="1" parent="1">
+          <mxGeometry x="1010" y="415" width="240" height="25" as="geometry" />
+        </mxCell>
+        <mxCell id="leg4" value="🔍  MAP 데이터 탐색 진행중" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;fontSize=10;fontColor=#1565c0;" vertex="1" parent="1">
+          <mxGeometry x="1010" y="445" width="240" height="25" as="geometry" />
+        </mxCell>
+        <mxCell id="leg5" value="&lt;b&gt;OHT: PS 시작문자 → 'V' (V001~V200)&lt;/b&gt;" style="text;html=1;strokeColor=none;fillColor=#dbeafe;align=left;verticalAlign=middle;fontSize=10;fontColor=#1565c0;" vertex="1" parent="1">
+          <mxGeometry x="1010" y="475" width="240" height="22" as="geometry" />
+        </mxCell>
+        <mxCell id="leg6" value="&lt;b&gt;AGV: PS 시작문자 → 'A' (A001~A050)&lt;/b&gt;" style="text;html=1;strokeColor=none;fillColor=#dcfce7;align=left;verticalAlign=middle;fontSize=10;fontColor=#2e7d32;" vertex="1" parent="1">
+          <mxGeometry x="1010" y="500" width="240" height="22" as="geometry" />
+        </mxCell>
+
+        <!-- State code reference box -->
+        <mxCell id="state_box" value="&lt;b&gt;Vehicle 상태 코드 (ID:2)&lt;/b&gt;&lt;br/&gt;1: 운전  2: 정지  3: 이상&lt;br/&gt;4: 수동  5: 분리  6: OBS&lt;br/&gt;7: 삽체  8: HT    9: E84&lt;br/&gt;&lt;br/&gt;&lt;b&gt;기기 상태 코드 (ID:4)&lt;/b&gt;&lt;br/&gt;1: 정상  2: 이상  3: 유지보수&lt;br/&gt;기종: 10=VHL  100=STK" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f9fbe7;strokeColor=#afb42b;fontSize=10;align=left;" vertex="1" parent="1">
+          <mxGeometry x="1000" y="540" width="260" height="160" as="geometry" />
+        </mxCell>
+
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>
