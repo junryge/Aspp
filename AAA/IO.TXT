@@ -4639,13 +4639,17 @@ function toggleFolderCheck(cb){
   const idxs = cb.dataset.folderIdxs.split(',').filter(Boolean).map(Number);
   if(cb.checked) idxs.forEach(i=>rpCheckedFiles.add(i));
   else idxs.forEach(i=>rpCheckedFiles.delete(i));
-  // 하위 파일 체크박스 동기화
-  const tree = document.getElementById('rpTree');
-  idxs.forEach(i=>{
-    const fileCb = tree.querySelector(`input[data-idx="${i}"]`);
-    if(fileCb) fileCb.checked = cb.checked;
-  });
+  // 하위 파일 + 하위 폴더 체크박스 모두 동기화
+  const parent = cb.closest('.rp-tree-folder');
+  const childContainer = parent ? parent.nextElementSibling : null;
+  if(childContainer && childContainer.classList.contains('rp-tree-children')){
+    childContainer.querySelectorAll('input.rp-tree-cb').forEach(childCb=>{
+      childCb.checked = cb.checked;
+      childCb.indeterminate = false;
+    });
+  }
   updateCheckedCount();
+  updateParentFolderChecks();
 }
 
 function updateParentFolderChecks(){
@@ -4800,18 +4804,87 @@ async function runCodeAssistant(){
   const prompt = rpModePrompts[rpSelectedMode] + '\n\n' + codeContent;
   const modeLabel = rpModeLabels[rpSelectedMode] || rpSelectedMode;
 
-  // 결과 영역 표시 (로딩)
+  // 코드 수정이 필요한 모드 → 채팅으로 전송 (대화 이어가기 위해)
+  const chatModes = ['find_bugs','improve','tests','refactor'];
+  const useChatMode = chatModes.includes(rpSelectedMode);
+
+  if(useChatMode){
+    // 채팅으로 전송 — 코드 수정/적용 대화가 필요한 모드
+    const fileNames = selectedFiles.map(f=>f.name).join(', ');
+    const shortLabel = '\u{1f4ca} [' + modeLabel + '] ' + fileNames;
+    addMsg('user', shortLabel);
+    history.push({role:'user', content:prompt});
+
+    const typing = addTyping();
+    isSending = true;
+    const btn = document.getElementById('sendBtn');
+    btn.textContent = '\u23f9';
+    btn.classList.add('stop-mode');
+    btn.disabled = false;
+    chatAbort = new AbortController();
+
+    // 버튼 비활성화
+    const runBtn = document.getElementById('rpRunBtn');
+    runBtn.disabled = true;
+    runBtn.textContent = '\u23f3 분석 중...';
+
+    try{
+      const resp = await fetch('/api/chat',{
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        signal: chatAbort.signal,
+        body:JSON.stringify({
+          env: selEnv,
+          messages: history,
+          skills: [...selSkills],
+          effort,
+          format: selFormat,
+          writing_style: document.getElementById('writingStyle').value.trim(),
+          system_prompt: document.getElementById('systemPromptInput').value.trim(),
+          max_tokens: maxTokens,
+        })
+      });
+      const data = await resp.json();
+      typing.remove();
+      if(data.error){
+        addMsg('assistant','\u274c '+data.error);
+      } else {
+        let info = '';
+        if(data.loaded_skills && data.loaded_skills.length > 0){
+          let extra = data.tokens_budget ? ' ['+data.tokens_budget+']' : '';
+          info = '\n[\u2705 '+data.loaded_skills.join(', ')+'] ['+envs[selEnv].name+'] ('+data.system_prompt_length+'\uc790)'+extra;
+        }
+        addMsg('assistant', data.content + info);
+        history.push({role:'assistant', content:data.content});
+      }
+    }catch(e){
+      typing.remove();
+      if(e.name !== 'AbortError'){
+        addMsg('assistant','\u274c 서버 연결 실패: '+e.message);
+      }
+    }
+    isSending = false;
+    chatAbort = null;
+    btn.textContent = '\u25b6';
+    btn.classList.remove('stop-mode');
+    btn.disabled = false;
+    document.getElementById('input').focus();
+    runBtn.disabled = false;
+    updateRpRunBtn();
+    saveCurrentSession();
+    return;
+  }
+
+  // 읽기 전용 모드 (explain, docstring) → 오른쪽 패널에서 직접 표시
   const result = document.getElementById('rpResult');
   result.style.display = 'block';
   result.classList.remove('expanded');
   result.innerHTML = '<div class="rp-result-header"><span class="rp-result-title">\u{1f4ca} ' + modeLabel + ' 분석 중...</span></div><div style="text-align:center;padding:40px;color:#6366f1;font-size:14px">\u23f3 LLM 분석 중입니다...<br><span style="font-size:12px;color:#888">' + selectedFiles.length + '개 파일 \u00b7 ' + envs[selEnv].name + '</span></div>';
 
-  // 버튼 비활성화
   const runBtn = document.getElementById('rpRunBtn');
   runBtn.disabled = true;
   runBtn.textContent = '\u23f3 분석 중...';
 
-  // 직접 API 호출 (채팅창을 거치지 않음!)
   try{
     const resp = await fetch('/api/chat',{
       method:'POST',
@@ -4832,15 +4905,14 @@ async function runCodeAssistant(){
     if(data.error){
       result.innerHTML = '<div class="rp-result-header"><span class="rp-result-title">\u274c 오류</span><button onclick="document.getElementById(\'rpResult\').style.display=\'none\'">닫기</button></div><div style="color:#f38ba8;padding:12px">' + data.error + '</div>';
     } else {
-      // 마크다운 렌더링 (기존 renderMd 활용)
       const rendered = renderMd(data.content);
       let skillInfo = '';
       if(data.loaded_skills && data.loaded_skills.length > 0){
         skillInfo = '<div style="margin-top:10px;padding-top:8px;border-top:1px solid #45475a;font-size:11px;color:#888">\uc2a4\ud0ac: ' + data.loaded_skills.join(', ') + ' \u00b7 ' + envs[selEnv].name + ' \u00b7 ' + (data.system_prompt_length||0) + '\uc790</div>';
       }
-      result.innerHTML = '<div class="rp-result-header"><span class="rp-result-title">\u2705 ' + modeLabel + ' 완료</span><div style="display:flex;gap:6px"><button onclick="toggleRpResultExpand()">\ud655\ub300</button><button onclick="copyRpResult()">\ubcf5\uc0ac</button><button onclick="document.getElementById(\'rpResult\').style.display=\'none\'">\ub2eb\uae30</button></div></div><div class="rp-result-body">' + rendered + '</div>' + skillInfo;
+      result.innerHTML = '<div class="rp-result-header"><span class="rp-result-title">\u2705 ' + modeLabel + ' 완료</span><div style="display:flex;gap:6px"><button onclick="toggleRpResultExpand()">\ud655\ub300</button><button onclick="copyRpResult()">\ubcf5\uc0ac</button><button onclick="sendRpResultToChat()">\ucc44\ud305\uc73c\ub85c</button><button onclick="document.getElementById(\'rpResult\').style.display=\'none\'">\ub2eb\uae30</button></div></div><div class="rp-result-body">' + rendered + '</div>' + skillInfo;
+      rpLastAnalysisContent = data.content;
 
-      // 채팅에 간결한 요약만
       const fileNames = selectedFiles.map(f=>f.name).join(', ');
       addMsg('assistant', '\u{1f4ca} **[' + modeLabel + ']** ' + fileNames + ' \u2014 분석 완료. 오른쪽 패널에서 결과를 확인하세요.');
       history.push({role:'assistant', content:'[' + modeLabel + '] ' + fileNames + ' 분석 완료'});
@@ -4853,12 +4925,20 @@ async function runCodeAssistant(){
   updateRpRunBtn();
 }
 
+let rpLastAnalysisContent = '';
+
 function toggleRpResultExpand(){
   document.getElementById('rpResult').classList.toggle('expanded');
 }
 function copyRpResult(){
   const body = document.querySelector('.rp-result-body');
   if(body) navigator.clipboard.writeText(body.innerText).then(()=>alert('복사 완료!'));
+}
+function sendRpResultToChat(){
+  if(!rpLastAnalysisContent) return;
+  addMsg('assistant', rpLastAnalysisContent);
+  history.push({role:'assistant', content: rpLastAnalysisContent});
+  saveCurrentSession();
 }
 
 function buildTreeText(node, prefix){
