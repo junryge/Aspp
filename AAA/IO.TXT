@@ -3137,18 +3137,29 @@ function renderSkills(){
   updateLoaded();
 }
 function updateLoaded(){
-  document.getElementById('loadedCount').textContent = selSkills.length;
+  const totalCount = selSkills.length + autoLoadedSkills.length;
+  document.getElementById('loadedCount').textContent = totalCount;
   const el = document.getElementById('loadedSkillsList');
-  if(selSkills.length === 0){
+  if(totalCount === 0){
     el.innerHTML = '<div style="color:#bbb">선택된 스킬 없음</div>';
     return;
   }
+  // 수동 선택 스킬 (체크박스로 해제 가능)
   let html = selSkills.map(s =>
     `<label style="display:flex;align-items:center;gap:4px;padding:2px 0;cursor:pointer;">
       <input type="checkbox" checked onchange="unloadSkill('${s}')" style="accent-color:#4f46e5;cursor:pointer;">
-      <span style="font-size:12px">${s}</span>
+      <span style="font-size:12px">✅ ${s}</span>
     </label>`
   ).join('');
+  // 자동 추천 스킬 (1회성, 클릭하면 수동 고정 가능)
+  if(autoLoadedSkills.length > 0){
+    html += autoLoadedSkills.map(s =>
+      `<div style="display:flex;align-items:center;justify-content:space-between;padding:2px 0;opacity:.75;">
+        <span style="font-size:12px">🧠 ${s}</span>
+        <button onclick="pinAutoSkill('${s}')" style="background:none;border:none;cursor:pointer;font-size:10px;color:#4f46e5;padding:0 2px;" title="수동 고정">📌</button>
+      </div>`
+    ).join('');
+  }
   if(selSkills.length >= 2){
     html += `<button onclick="unloadAllSkills()" style="width:100%;margin-top:4px;padding:3px 0;font-size:11px;background:#f5f5f0;border:1px solid #e5e3de;border-radius:4px;cursor:pointer;color:#888;">전체 해제</button>`;
   }
@@ -3161,6 +3172,14 @@ function unloadSkill(id){
 }
 function unloadAllSkills(){
   selSkills = [];
+  autoLoadedSkills = [];
+  renderSkills();
+  updateLoaded();
+}
+function pinAutoSkill(id){
+  // 자동 스킬을 수동 고정으로 전환
+  autoLoadedSkills = autoLoadedSkills.filter(x => x !== id);
+  if(!selSkills.includes(id)) selSkills.push(id);
   renderSkills();
   updateLoaded();
 }
@@ -3265,20 +3284,29 @@ async function send(){
     attachedNames = await uploadChatPendingFiles();
   }
 
-  // 자동 스킬 모드: 수동 선택 유무와 관계없이 자동 추천 스킬 보충
+  // 스킬 구성: 수동 선택 + 파일 프리로드 + 질문 기반 자동 추천
   let skillsToUse = [...selSkills];
-  let autoLoaded = [];
+  let autoLoaded = [...autoLoadedSkills];  // 파일 첨부/세션 로드로 프리로드된 스킬
+
+  // 프리로드 스킬 중 수동과 중복되지 않는 것만 추가
+  const manualSet = new Set(skillsToUse);
+  autoLoaded = autoLoaded.filter(id => !manualSet.has(id));
+  skillsToUse = [...skillsToUse, ...autoLoaded];
+
+  // 자동 스킬 모드: 질문 분석으로 추가 보충
   if(autoSkillMode){
     try{
-      const maxAuto = skillsToUse.length === 0 ? 7 : 5;
-      const ar = await fetch('/api/auto-skills',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({query:text,max_skills:maxAuto,history:history})});
-      const ad = await ar.json();
-      if(ad.skills && ad.skills.length > 0){
-        // 수동 선택과 중복되지 않는 것만 추가
-        const manualSet = new Set(skillsToUse);
-        const newAuto = ad.skills.map(s=>s.id).filter(id=>!manualSet.has(id));
-        autoLoaded = newAuto;
-        skillsToUse = [...skillsToUse, ...newAuto];
+      const currentCount = skillsToUse.length;
+      const maxAuto = currentCount === 0 ? 7 : Math.max(0, 10 - currentCount);
+      if(maxAuto > 0){
+        const ar = await fetch('/api/auto-skills',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({query:text,max_skills:maxAuto,history:history})});
+        const ad = await ar.json();
+        if(ad.skills && ad.skills.length > 0){
+          const usedSet = new Set(skillsToUse);
+          const newAuto = ad.skills.map(s=>s.id).filter(id=>!usedSet.has(id));
+          autoLoaded = [...autoLoaded, ...newAuto];
+          skillsToUse = [...skillsToUse, ...newAuto];
+        }
       }
     }catch(e){}
   }
@@ -3294,15 +3322,14 @@ async function send(){
   el.value=''; el.style.height='auto';
   document.getElementById('autoSkillPreview').classList.remove('show');
 
-  // 자동 로드 안내 + 사이드바 스킬 카드/불러온 목록에 반영
+  // 자동 로드 안내 (selSkills에는 추가하지 않음 - 1회성 사용)
   if(autoLoaded.length > 0){
     autoLoadedSkills = autoLoaded;
-    // selSkills에도 자동 스킬 추가 (사이드바 불러온 스킬 목록에 표시)
-    autoLoaded.forEach(id=>{ if(!selSkills.includes(id)) selSkills.push(id); });
     renderSkills();
     updateLoaded();
-    const manualInfo = selSkills.length - autoLoaded.length > 0 ? ` (수동 ${selSkills.length - autoLoaded.length}개 + 자동 ${autoLoaded.length}개)` : '';
-    addMsg('assistant', '🧠 자동 스킬 추가: ' + autoLoaded.join(', ') + manualInfo);
+    const manualCount = selSkills.length;
+    const info = manualCount > 0 ? ` (수동 ${manualCount}개 + 자동 ${autoLoaded.length}개)` : '';
+    addMsg('assistant', '🧠 자동 스킬: ' + autoLoaded.join(', ') + info);
   }
 
   const typing=addTyping();
@@ -3724,6 +3751,27 @@ function loadSession(id){
   if(s.systemPrompt) document.getElementById('systemPromptInput').value=s.systemPrompt;
   if(s.selFormat){ selFormat=s.selFormat; document.querySelectorAll('.fmt-btn').forEach(b=>{b.classList.toggle('selected',b.dataset.f===selFormat);}); }
   if(s.effort!==undefined){ effort=s.effort; document.getElementById('effortSlider').value=effort; updateEffort(); }
+  // 저장된 수동 스킬 복원
+  if(s.selSkills && s.selSkills.length > 0){ selSkills = [...s.selSkills]; }
+  else { selSkills = []; }
+  // 대화 히스토리 기반 자동 스킬 프리로드
+  autoLoadedSkills = [];
+  if(autoSkillMode && history.length > 0){
+    const lastUser = [...history].reverse().find(m=>m.role==='user');
+    if(lastUser){
+      fetch('/api/auto-skills',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({query:lastUser.content,max_skills:5,history:history})})
+      .then(r=>r.json()).then(d=>{
+        if(d.skills && d.skills.length > 0){
+          const manualSet = new Set(selSkills);
+          autoLoadedSkills = d.skills.map(s=>s.id).filter(id=>!manualSet.has(id));
+          renderSkills();
+          updateLoaded();
+        }
+      }).catch(()=>{});
+    }
+  }
+  renderSkills();
+  updateLoaded();
   renderSessionList();
 }
 function deleteSession(id){
@@ -4274,10 +4322,12 @@ function handleChatFileSelect(files){
   renderChatAttach();
   document.getElementById('chatFileInput').value = '';
 
-  // 추천 스킬을 사이드바에 표시
+  // 파일 기반 추천 스킬 프리로드 (사이드바 표시 + 전송 시 자동 포함)
   if(hintSkills.length > 0){
-    autoLoadedSkills = [...new Set(hintSkills)];
+    const unique = [...new Set(hintSkills)].filter(id => !selSkills.includes(id));
+    autoLoadedSkills = [...new Set([...autoLoadedSkills, ...unique])];
     renderSkills();
+    updateLoaded();
   }
 }
 
