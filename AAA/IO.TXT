@@ -150,7 +150,7 @@ SKILL_DESC_KO = {
     "scientific-schematics":"과학 다이어그램 AI","scientific-slides":"발표 슬라이드",
     "venue-templates":"학술지 LaTeX 템플릿","latex-posters":"LaTeX 포스터",
     "pptx-posters":"연구 포스터 HTML/PDF","infographics":"인포그래픽 AI",
-    "markdown-mermaid-writing":"마크다운/Mermaid","paper-2-web":"논문→웹사이트",
+    "markdown-mermaid-writing":"마크다운/Mermaid","md-report":"MD 보고서/문서 생성","paper-2-web":"논문→웹사이트",
     "pubmed-database":"PubMed 논문 검색","openalex-database":"2.4억 학술문헌",
     "adaptyv":"클라우드랩 단백질 검증","benchling-integration":"Benchling R&D",
     "ginkgo-cloud-lab":"Ginkgo 클라우드랩","opentrons-integration":"Opentrons 로봇",
@@ -401,7 +401,7 @@ DOMAIN_SKILLS = {
         "icon": "🔧",
         "color": "#6b7280",
         "skills": [
-            "drawio-diagram","docx","xlsx","pdf","pptx","markitdown","matlab",
+            "drawio-diagram","docx","xlsx","pdf","pptx","md-report","markitdown","matlab",
             "modal","generate-image","get-available-resources",
             "bgpt-paper-search","research-lookup","perplexity-search",
             "parallel-web","open-notebook","consciousness-council",
@@ -1002,6 +1002,7 @@ SKILL_KEYWORDS = {
     "lead-research-assistant": ['리드리서치', '연구보조', 'research assistant'],
     "drawio-diagram": ['drawio', 'draw.io', '드로우IO', '드로우io', '드로우아이오', 'DrawIO', '다이어그램', '플로우차트', '아키텍처', '구조도', 'UML', '클래스다이어그램', '시퀀스다이어그램', 'ERD', '흐름도', '시스템구조', '데이터흐름도', 'DFD', '배치도'],
     "markdown-mermaid-writing": ['마크다운', 'Mermaid', '다이어그램', 'flowchart', '시퀀스'],
+    "md-report": ['MD파일', 'MD 파일', 'md파일', '마크다운 보고서', '마크다운 문서', 'MD로', 'md로', '문서화', '보고서 작성', '정리해줘', '회의록', '미팅노트', '기술문서', 'MD 보고서', 'report', '대화정리', '대화 정리', '요약 보고서', '결과 정리', 'markdown report', 'markdown document'],
     "market-research-reports": ['시장조사', 'market research', '산업분석', '보고서'],
     "markitdown": ['마크다운변환', '파일변환', '문서변환', 'markdown conversion'],
     "matlab": ['MATLAB', 'Octave', '매트랩', '행렬', '수치해석'],
@@ -2133,6 +2134,21 @@ def api_download_drawio():
     return send_file(buf, as_attachment=True, download_name=filename, mimetype="application/xml")
 
 
+@app.route("/api/save_md", methods=["POST"])
+def api_save_md():
+    """마크다운 내용을 .md 파일로 다운로드"""
+    data = request.json
+    content = data.get("content", "")
+    filename = data.get("filename", "report.md")
+    if not filename.endswith(".md"):
+        filename += ".md"
+
+    from io import BytesIO
+    buf = BytesIO(content.encode("utf-8"))
+    buf.seek(0)
+    return send_file(buf, as_attachment=True, download_name=filename, mimetype="text/markdown")
+
+
 # ===================== 응답 중지 =====================
 chat_stop_flag = {"stop": False}
 
@@ -2477,6 +2493,9 @@ body.sb-collapsed .chat-box-fixed{left:48px}
 /* 채팅 첨부파일 */
 .attach-btn{width:32px;height:32px;border-radius:50%;border:none;background:transparent;color:#999;cursor:pointer;font-size:18px;transition:all .15s;display:flex;align-items:center;justify-content:center}
 .attach-btn:hover{background:#f0f0f0;color:#6366f1}
+.chat-dropdown{padding:3px 6px;border-radius:8px;border:1.5px solid #e5e3de;font-size:11px;cursor:pointer;background:#fff;color:#555;outline:none;transition:all .15s;appearance:none;-webkit-appearance:none;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='8' height='8' viewBox='0 0 8 8'%3E%3Cpath d='M0 2l4 4 4-4z' fill='%23999'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 6px center;padding-right:18px}
+.chat-dropdown:hover{border-color:#6366f1}.chat-dropdown:focus{border-color:#6366f1;box-shadow:0 0 0 2px rgba(99,102,241,.15)}
+.chat-dropdown option{font-size:12px}
 .chat-attach-preview{display:flex;flex-wrap:wrap;gap:6px;padding:4px 0}
 .chat-attach-badge{display:inline-flex;align-items:center;gap:4px;background:#eef2ff;border:1px solid #c7d2fe;border-radius:8px;padding:3px 10px;font-size:11px;color:#4f46e5;max-width:200px}
 .chat-attach-badge .fname{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
@@ -2865,9 +2884,28 @@ body.rp-collapsed .chat-box-fixed{right:0}
       <textarea class="chat-input" id="input" placeholder="질문을 하거나 수행하려는 분석을 설명하세요..." onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();handleSendStop()}" oninput="this.style.height='auto';this.style.height=this.scrollHeight+'px'"></textarea>
       <input type="file" id="chatFileInput" multiple style="display:none" onchange="handleChatFileSelect(this.files)">
       <div class="chat-footer">
-        <div style="display:flex;align-items:center;gap:6px">
+        <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
           <button class="attach-btn" onclick="document.getElementById('chatFileInput').click()" title="파일 첨부">📎</button>
-          <span style="font-size:12px;color:#bbb">Enter 전송 / Shift+Enter 줄바꿈</span>
+          <select class="chat-dropdown" id="chatStyleDrop" onchange="applyChatStyle(this.value)" title="작성 스타일">
+            <option value="">✍️ 스타일</option>
+            <option value="간결하고 핵심만. 불필요한 설명 생략.">⚡ 간결</option>
+            <option value="상세하고 친절하게. 원리, 배경, 예시 포함.">📖 상세</option>
+            <option value="바로 복붙해서 쓸 수 있게. 실전 위주, 이론 최소화.">🔨 실용적</option>
+            <option value="학술적 톤. 정확한 용어, 인용, 근거 제시.">🎓 학술</option>
+            <option value="코드 주석을 상세한 한국어로. 변수명은 영어 유지.">💬 한글주석</option>
+            <option value="시니어 개발자 관점. 왜 이렇게 하는지, 대안은 뭔지, 주의점 포함.">👨‍💻 시니어</option>
+            <option value="에러 원인 분석 중심. traceback 해석, 재현 조건, 해결책 순서.">🐛 디버그</option>
+            <option value="데이터 스토리텔링. 숫자→의미→액션 순서로 해석.">📊 데이터</option>
+          </select>
+          <select class="chat-dropdown" id="chatFormatDrop" onchange="applyChatFormat(this.value)" title="출력 형식">
+            <option value="code">💻 코드</option>
+            <option value="code-fix">🔧 수정</option>
+            <option value="analysis">📊 분석</option>
+            <option value="report">📄 보고서</option>
+            <option value="step-by-step">📝 단계별</option>
+            <option value="md-report">📋 MD문서</option>
+          </select>
+          <span style="font-size:11px;color:#bbb">Enter 전송</span>
         </div>
         <button class="send-btn" onclick="handleSendStop()" id="sendBtn">▶</button>
       </div>
@@ -3198,6 +3236,7 @@ function selFmt(el){
   document.querySelectorAll('.fmt-btn').forEach(b=>b.classList.remove('selected'));
   el.classList.add('selected');
   selFormat = el.dataset.f;
+  syncFormatDropToChat();
 }
 
 // ===== Quick prompt =====
@@ -3953,6 +3992,52 @@ function renderStyleChips(){
   });
 }
 renderStyleChips();
+
+// ===== 채팅창 드롭다운 ↔ 사이드바 동기화 =====
+function applyChatStyle(val){
+  document.getElementById('writingStyle').value = val;
+  const match = STYLE_PRESETS.find(s => s.value === val);
+  activeStyleId = match ? match.id : null;
+  renderStyleChips();
+  // MD문서 출력 형식이면 md-report 스킬 자동 로드
+  if(val) syncStyleDropToSidebar();
+}
+function applyChatFormat(val){
+  selFormat = val;
+  // 사이드바 fmt-btn도 동기화
+  document.querySelectorAll('.fmt-btn').forEach(b=>{b.classList.toggle('selected',b.dataset.f===val);});
+  // MD문서 선택 시 md-report 스킬 자동 프리로드
+  if(val === 'md-report'){
+    if(!selSkills.includes('md-report') && !autoLoadedSkills.includes('md-report')){
+      autoLoadedSkills.push('md-report');
+      renderSkills();
+      updateLoaded();
+    }
+  }
+}
+function syncStyleDropToSidebar(){
+  // 사이드바 변경 → 채팅창 드롭다운 동기화
+  const drop = document.getElementById('chatStyleDrop');
+  if(!drop) return;
+  const val = document.getElementById('writingStyle').value.trim();
+  const opts = drop.options;
+  let found = false;
+  for(let i=0;i<opts.length;i++){
+    if(opts[i].value === val){ drop.selectedIndex = i; found = true; break; }
+  }
+  if(!found) drop.selectedIndex = 0;
+}
+function syncFormatDropToChat(){
+  const drop = document.getElementById('chatFormatDrop');
+  if(!drop) drop.value = selFormat;
+  else {
+    const opts = drop.options;
+    for(let i=0;i<opts.length;i++){
+      if(opts[i].value === selFormat){ drop.selectedIndex = i; break; }
+    }
+  }
+}
+
 document.getElementById('writingStyle').addEventListener('input', function(){
   // 수동 편집하면 active 해제
   const val = this.value.trim();
@@ -4306,7 +4391,7 @@ const fileExtSkillHints = {
   'tsv':['exploratory-data-analysis'], 'xlsx':['exploratory-data-analysis'],
   'docx':['docx'], 'pdf':['pdf'], 'pptx':['pptx'],
   'drawio':['drawio-diagram'], 'xml':['drawio-diagram'],
-  'md':['markdown-mermaid-writing'], 'html':['web-artifacts-builder'],
+  'md':['markdown-mermaid-writing','md-report'], 'html':['web-artifacts-builder'],
 };
 
 function handleChatFileSelect(files){
