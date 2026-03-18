@@ -5779,7 +5779,10 @@ updateRpRunBtn();
   document.querySelector('.sidebar').style.visibility = 'hidden';
   document.querySelector('.main').style.visibility = 'hidden';
 
+  let dismissed = false;
   function dismissIntro(){
+    if(dismissed) return;
+    dismissed = true;
     overlay.classList.add('fade-out');
     document.querySelector('.sidebar').style.visibility = 'visible';
     document.querySelector('.main').style.visibility = 'visible';
@@ -5789,8 +5792,16 @@ updateRpRunBtn();
   // 영상 종료 시 자동 전환
   video.addEventListener('ended', dismissIntro);
 
-  // 영상 로드 실패 시 바로 메인 진입
+  // 영상 로드 실패 시 바로 메인 진입 (video + source 모두 감지)
   video.addEventListener('error', dismissIntro);
+  const sourceEl = video.querySelector('source');
+  if(sourceEl) sourceEl.addEventListener('error', dismissIntro);
+
+  // 안전장치: 5초 안에 영상 재생이 시작되지 않으면 바로 메인 진입
+  const safetyTimer = setTimeout(()=>{
+    if(video.readyState < 2) dismissIntro();
+  }, 5000);
+  video.addEventListener('playing', ()=> clearTimeout(safetyTimer));
 
   // 진행률 바 업데이트
   video.addEventListener('timeupdate', ()=>{
@@ -5799,34 +5810,21 @@ updateRpRunBtn();
     }
   });
 
-  // 3초 후 스킵 버튼에 카운트다운 표시
-  let countdown = 3;
-  skipBtn.disabled = true;
-  skipBtn.style.opacity = '.5';
-  skipBtn.textContent = `${countdown}초 후 건너뛰기`;
-  const timer = setInterval(()=>{
-    countdown--;
-    if(countdown <= 0){
-      clearInterval(timer);
-      skipBtn.disabled = false;
-      skipBtn.style.opacity = '1';
-      skipBtn.textContent = '건너뛰기 ▶';
-    } else {
-      skipBtn.textContent = `${countdown}초 후 건너뛰기`;
-    }
-  }, 1000);
+  // 건너뛰기 버튼: 항상 클릭 가능하게 (카운트다운 제거)
+  skipBtn.disabled = false;
+  skipBtn.style.opacity = '1';
+  skipBtn.textContent = '건너뛰기 ▶';
 })();
 
 function skipIntro(){
   const overlay = document.getElementById('introOverlay');
+  if(!overlay) return;
   const video = document.getElementById('introVideo');
   if(video) video.pause();
-  if(overlay){
-    overlay.classList.add('fade-out');
-    document.querySelector('.sidebar').style.visibility = 'visible';
-    document.querySelector('.main').style.visibility = 'visible';
-    setTimeout(()=>{ overlay.remove(); }, 700);
-  }
+  overlay.classList.add('fade-out');
+  document.querySelector('.sidebar').style.visibility = 'visible';
+  document.querySelector('.main').style.visibility = 'visible';
+  setTimeout(()=>{ overlay.remove(); }, 700);
 }
 
 // ==================== PPT 코드 감지 & 생성 ====================
