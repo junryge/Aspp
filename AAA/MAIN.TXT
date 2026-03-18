@@ -3888,7 +3888,7 @@ function renderMd(text){
     const escapedXml = code.trim();
     // HTML escape된 상태를 원본 XML로 복원 (btoa용)
     const realXml = escapedXml.replace(/&amp;/g,'&').replace(/&lt;/g,'<').replace(/&gt;/g,'>').replace(/&quot;/g,'"');
-    const xmlB64 = btoa(unescape(encodeURIComponent(realXml)));
+    const xmlB64 = u2b(realXml);
     return `<div class="drawio-block">
       <div class="drawio-header">
         <span>📐 Draw.io 다이어그램</span>
@@ -3906,7 +3906,7 @@ function renderMd(text){
     const trimmed=code.trim();
     const raw=trimmed.replace(/&amp;/g,'&').replace(/&lt;/g,'<').replace(/&gt;/g,'>').replace(/&quot;/g,'"');
     const chartId='chart_'+Math.random().toString(36).substr(2,9);
-    const b64=btoa(unescape(encodeURIComponent(raw)));
+    const b64=u2b(raw);
     return `<div class="chart-block">
       <div class="chart-header">
         <span>📊 인터랙티브 차트</span>
@@ -3922,7 +3922,7 @@ function renderMd(text){
   // 2b) markdown 코드블록 → MD 다운로드 UI
   s=s.replace(/```markdown\s*([\s\S]*?)```/g,(_,code)=>{
     const trimmed=code.trim();
-    const mdB64=btoa(unescape(encodeURIComponent(trimmed.replace(/&amp;/g,'&').replace(/&lt;/g,'<').replace(/&gt;/g,'>').replace(/&quot;/g,'"'))));
+    const mdB64=u2b(trimmed.replace(/&amp;/g,'&').replace(/&lt;/g,'<').replace(/&gt;/g,'>').replace(/&quot;/g,'"'));
     return `<div class="md-report-block">
       <div class="md-report-header">
         <span>📋 마크다운 문서</span>
@@ -3941,7 +3941,7 @@ function renderMd(text){
     // 코드블록 안에 <mxfile 또는 <mxGraphModel 있으면 drawio UI로 변환
     if(trimmed.includes('&lt;mxfile') || trimmed.includes('&lt;mxGraphModel')){
       const realXml=trimmed.replace(/&amp;/g,'&').replace(/&lt;/g,'<').replace(/&gt;/g,'>').replace(/&quot;/g,'"');
-      const xmlB64=btoa(unescape(encodeURIComponent(realXml)));
+      const xmlB64=u2b(realXml);
       return `<div class="drawio-block">
         <div class="drawio-header">
           <span>📐 Draw.io 다이어그램</span>
@@ -3960,7 +3960,7 @@ function renderMd(text){
   // 2c) raw mxfile XML (코드블록 밖) 자동 감지 → drawio UI로 변환
   s=s.replace(/(&lt;mxfile[\s\S]*?&lt;\/mxfile&gt;)/g,(_,xmlEsc)=>{
     const realXml=xmlEsc.replace(/&amp;/g,'&').replace(/&lt;/g,'<').replace(/&gt;/g,'>').replace(/&quot;/g,'"');
-    const xmlB64=btoa(unescape(encodeURIComponent(realXml)));
+    const xmlB64=u2b(realXml);
     return `<div class="drawio-block">
       <div class="drawio-header">
         <span>📐 Draw.io 다이어그램 (자동 감지)</span>
@@ -4041,7 +4041,7 @@ function addMsg(role,text){
   if(role==='assistant') detectAndAddPptxButtons(d, text);
   // Chart.js 차트 초기화 (data-chart-json 속성이 있는 canvas 탐색)
   d.querySelectorAll('canvas[data-chart-json]').forEach(cv=>{
-    try{renderChartBlock(cv.id, atob(cv.dataset.chartJson));}
+    try{renderChartBlock(cv.id, b2u(cv.dataset.chartJson));}
     catch(e){cv.parentElement.innerHTML='<p style="color:red;padding:12px;">차트 렌더링 실패: '+e.message+'</p>';}
   });
   c.scrollIntoView({behavior:'smooth',block:'end'});
@@ -4708,9 +4708,23 @@ async function uploadCsvFile(file){
 }
 function esc(s){ return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
 
+// ===== Unicode-safe Base64 유틸 (btoa/atob는 Latin1만 지원) =====
+function u2b(str){
+  var bytes=new TextEncoder().encode(str);
+  var bin='';
+  for(var i=0;i<bytes.length;i++) bin+=String.fromCharCode(bytes[i]);
+  return btoa(bin);
+}
+function b2u(b64){
+  var bin=atob(b64);
+  var bytes=new Uint8Array(bin.length);
+  for(var i=0;i<bin.length;i++) bytes[i]=bin.charCodeAt(i);
+  return new TextDecoder().decode(bytes);
+}
+
 // ===== Draw.io 기능 =====
 function decodeDrawioXml(btn){
-  return decodeURIComponent(escape(atob(btn.dataset.xml)));
+  return b2u(btn.dataset.xml);
 }
 
 // Draw.io XML 자동 수정 (LLM이 생성한 XML의 흔한 오류 교정)
@@ -4846,8 +4860,8 @@ function openInDrawio(btn){
 const _chartInstances = {};
 
 function renderChartBlock(canvasId, jsonStr) {
-  // JSON 파싱 (주석 허용을 위해 정리)
-  let raw = decodeURIComponent(escape(jsonStr));
+  // jsonStr은 이미 b2u()로 유니코드 디코딩된 상태
+  let raw = jsonStr;
   // 한 줄 주석 제거
   raw = raw.replace(/\/\/[^\n]*/g, '');
   let config;
@@ -4894,7 +4908,7 @@ function downloadChartPng(canvasId) {
 
 function copyChartJson(btn) {
   const b64 = btn.getAttribute('data-chart');
-  const json = decodeURIComponent(escape(atob(b64)));
+  const json = b2u(b64);
   navigator.clipboard.writeText(json).then(() => {
     const orig = btn.textContent;
     btn.textContent = '✓ 복사됨';
@@ -4905,7 +4919,7 @@ function copyChartJson(btn) {
 // ===== MD 다운로드/복사/미리보기 =====
 function decodeMdB64(btn){
   const b64 = btn.getAttribute('data-md');
-  return decodeURIComponent(escape(atob(b64)));
+  return b2u(b64);
 }
 function downloadMarkdown(btn){
   const md = decodeMdB64(btn);
@@ -4984,7 +4998,7 @@ function appendMdDownloadBar(rawContent){
   const msgs = document.querySelectorAll('.msg.assistant');
   if(msgs.length === 0) return;
   const lastMsg = msgs[msgs.length - 1];
-  const mdB64 = btoa(unescape(encodeURIComponent(rawContent)));
+  const mdB64 = u2b(rawContent);
   const bar = document.createElement('div');
   bar.className = 'md-report-header';
   bar.style.marginTop = '10px';
@@ -5877,7 +5891,7 @@ function detectAndAddPptxButtons(msgEl, rawText){
             <button class="pptx-gen-btn" onclick="generatePptx(this)">📽️ PPT 생성 & 다운로드</button>
           </div>
         </div>`;
-      block.dataset.pptxCode = btoa(unescape(encodeURIComponent(code)));
+      block.dataset.pptxCode = u2b(code);
       pre.parentNode.insertBefore(block, pre.nextSibling);
     }
   });
@@ -5885,7 +5899,7 @@ function detectAndAddPptxButtons(msgEl, rawText){
 
 function copyPptxCode(btn){
   const block = btn.closest('.pptx-gen-block');
-  const code = decodeURIComponent(escape(atob(block.dataset.pptxCode)));
+  const code = b2u(block.dataset.pptxCode);
   navigator.clipboard.writeText(code);
   btn.textContent = '✓ 복사됨';
   setTimeout(()=>{ btn.textContent = '📋 코드 복사'; }, 1500);
@@ -5893,7 +5907,7 @@ function copyPptxCode(btn){
 
 async function generatePptx(btn){
   const block = btn.closest('.pptx-gen-block');
-  const code = decodeURIComponent(escape(atob(block.dataset.pptxCode)));
+  const code = b2u(block.dataset.pptxCode);
   const status = block.querySelector('.pptx-gen-status');
 
   btn.disabled = true;
