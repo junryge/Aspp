@@ -2512,38 +2512,38 @@ def api_chat():
                 "예: `## 슬라이드 1: 표지`, `## 차트 데이터 설정`. 줄마다 주석을 달지 마세요.\n"
                 "프론트엔드가 코드를 감지하여 '📽️ PPT 생성 & 다운로드' 버튼을 자동 표시합니다.\n\n"
             )
-    # === 차트/그래프 생성 가이드 (항상 포함 - 스킬 불필요) ===
-    system_prompt += (
-        "=== 차트/그래프 생성 규칙 ===\n"
-        "사용자가 그래프, 차트, 시각화를 요청하거나 데이터 분석 결과를 보여줄 때:\n"
-        "1. ```chart 코드블록 안에 Chart.js JSON config를 작성하세요.\n"
-        "2. 프론트엔드가 자동으로 인터랙티브 차트를 렌더링합니다.\n"
-        "3. 지원 차트 유형: bar, line, pie, doughnut, radar, scatter, bubble, polarArea\n"
-        "4. JSON 형식 예시:\n"
-        "```chart\n"
-        '{\n'
-        '  "type": "bar",\n'
-        '  "data": {\n'
-        '    "labels": ["1월", "2월", "3월"],\n'
-        '    "datasets": [{\n'
-        '      "label": "매출",\n'
-        '      "data": [120, 190, 300],\n'
-        '      "backgroundColor": ["#6366f1", "#8b5cf6", "#a78bfa"]\n'
-        '    }]\n'
-        '  },\n'
-        '  "options": {\n'
-        '    "plugins": {"title": {"display": true, "text": "월별 매출"}}\n'
-        '  }\n'
-        '}\n'
-        "```\n"
-        "5. 여러 데이터셋 비교: datasets 배열에 여러 객체 추가\n"
-        "6. 색상: backgroundColor, borderColor 사용. 배열로 항목별 색상 지정 가능\n"
-        "7. 추천 색상 팔레트: #6366f1(인디고), #8b5cf6(보라), #ec4899(핑크), #f59e0b(앰버), #10b981(에메랄드), #3b82f6(블루), #ef4444(레드), #84cc16(라임)\n"
-        "8. 데이터 분석/CSV 분석 결과를 보여줄 때 적극 활용하세요.\n"
-        "9. 한 응답에 여러 ```chart 블록을 사용해 다양한 관점의 차트를 보여줄 수 있습니다.\n\n"
-    )
+        # === 차트/그래프 생성 가이드 (항상 포함 - 스킬 불필요) ===
+        system_prompt += (
+            "=== 차트/그래프 생성 규칙 ===\n"
+            "사용자가 그래프, 차트, 시각화를 요청하거나 데이터 분석 결과를 보여줄 때:\n"
+            "1. ```chart 코드블록 안에 Chart.js JSON config를 작성하세요.\n"
+            "2. 프론트엔드가 자동으로 인터랙티브 차트를 렌더링합니다.\n"
+            "3. 지원 차트 유형: bar, line, pie, doughnut, radar, scatter, bubble, polarArea\n"
+            "4. JSON 형식 예시:\n"
+            "```chart\n"
+            '{\n'
+            '  "type": "bar",\n'
+            '  "data": {\n'
+            '    "labels": ["1월", "2월", "3월"],\n'
+            '    "datasets": [{\n'
+            '      "label": "매출",\n'
+            '      "data": [120, 190, 300],\n'
+            '      "backgroundColor": ["#6366f1", "#8b5cf6", "#a78bfa"]\n'
+            '    }]\n'
+            '  },\n'
+            '  "options": {\n'
+            '    "plugins": {"title": {"display": true, "text": "월별 매출"}}\n'
+            '  }\n'
+            '}\n'
+            "```\n"
+            "5. 여러 데이터셋 비교: datasets 배열에 여러 객체 추가\n"
+            "6. 색상: backgroundColor, borderColor 사용. 배열로 항목별 색상 지정 가능\n"
+            "7. 추천 색상 팔레트: #6366f1(인디고), #8b5cf6(보라), #ec4899(핑크), #f59e0b(앰버), #10b981(에메랄드), #3b82f6(블루), #ef4444(레드), #84cc16(라임)\n"
+            "8. 데이터 분석/CSV 분석 결과를 보여줄 때 적극 활용하세요.\n"
+            "9. 한 응답에 여러 ```chart 블록을 사용해 다양한 관점의 차트를 보여줄 수 있습니다.\n\n"
+        )
 
-    # 멀티에이전트 오케스트레이션 (스킬 2개 이상)
+        # 멀티에이전트 오케스트레이션 (스킬 2개 이상)
         if len(loaded) >= 2:
             loaded_set = {sid: True for sid in loaded}
             orch_prompt = build_orchestration_prompt(
