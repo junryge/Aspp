@@ -2,7 +2,7 @@
 GLB 빌더 UI - 마우스로 이미지 조정, 배경 투명, 크기 조절 가능
 """
 import tkinter as tk
-from tkinter import filedialog, messagebox, ttk
+from tkinter import filedialog, messagebox, ttk, colorchooser
 from PIL import Image, ImageTk, ImageDraw
 import os
 import threading
@@ -12,35 +12,32 @@ from build_glb import remove_and_crop, simple_crop, create_atlas_and_mesh
 import trimesh
 
 
-
 class FaceEditor(tk.Canvas):
     """각 면의 이미지를 보여주고 마우스로 위치/크기 조정하는 캔버스."""
-    def __init__(self, parent, face_name, label_kr, width=200, height=160):
+    def __init__(self, parent, face_name, label_kr, app_ref, width=200, height=160):
         super().__init__(parent, width=width, height=height, bg="#333333", highlightthickness=1, highlightbackground="#888")
         self.face_name = face_name
         self.label_kr = label_kr
         self.canvas_w = width
         self.canvas_h = height
+        self.app_ref = app_ref  # GLBBuilderApp 참조 (색상/허용오차 읽기)
 
-        self.original_img = None      # 원본 PIL Image
-        self.processed_img = None     # 처리된 PIL Image (배경 제거 등)
-        self.display_img = None       # 표시용 PhotoImage
+        self.original_img = None
+        self.processed_img = None
+        self.display_img = None
         self.img_path = None
 
-        # 이미지 위치/크기
         self.img_x = 0
         self.img_y = 0
         self.img_scale = 1.0
 
-        # 설정
-        self.remove_bg = tk.BooleanVar(value=True)
+        # 배경 제거 모드: "ai" | "color" | "none"
+        self.bg_mode = tk.StringVar(value="ai")
         self.is_processing = False
 
-        # 라벨 표시
         self.create_text(width // 2, height // 2, text=f"{label_kr}\n클릭하여 이미지 로드",
                          fill="#aaa", font=("", 10), tag="placeholder", justify="center")
 
-        # 이벤트 바인딩
         self.bind("<Button-1>", self._on_click)
         self.bind("<B1-Motion>", self._on_drag)
         self.bind("<ButtonPress-1>", self._start_drag)
@@ -85,7 +82,9 @@ class FaceEditor(tk.Canvas):
         menu.add_command(label="이미지 로드", command=self.load_image)
         menu.add_command(label="이미지 제거", command=self.clear_image)
         menu.add_separator()
-        menu.add_checkbutton(label="배경 제거", variable=self.remove_bg, command=self._reprocess)
+        menu.add_radiobutton(label="배경제거: AI (rembg)",  variable=self.bg_mode, value="ai",    command=self._reprocess)
+        menu.add_radiobutton(label="배경제거: 색상 지정",   variable=self.bg_mode, value="color",  command=self._reprocess)
+        menu.add_radiobutton(label="배경제거: 없음",        variable=self.bg_mode, value="none",   command=self._reprocess)
         menu.add_separator()
         menu.add_command(label="크기 맞추기", command=self._fit_to_canvas)
         menu.post(event.x_root, event.y_root)
@@ -102,6 +101,22 @@ class FaceEditor(tk.Canvas):
         self.original_img = Image.open(path).convert("RGBA")
         self._reprocess()
 
+    def _remove_bg_by_color(self, img):
+        """지정 색상을 투명으로 변환 (허용 오차 적용)"""
+        img = img.convert("RGBA")
+        data = np.array(img, dtype=np.int32)
+
+        r, g, b = self.app_ref.chroma_color
+        tol = self.app_ref.chroma_tolerance.get()
+
+        mask = (
+            (np.abs(data[:, :, 0] - r) <= tol) &
+            (np.abs(data[:, :, 1] - g) <= tol) &
+            (np.abs(data[:, :, 2] - b) <= tol)
+        )
+        data[mask] = [0, 0, 0, 0]
+        return Image.fromarray(data.astype(np.uint8))
+
     def _reprocess(self):
         if self.original_img is None:
             return
@@ -112,12 +127,17 @@ class FaceEditor(tk.Canvas):
 
         def worker():
             try:
-                if self.remove_bg.get() and self.face_name != "top":
-                    img = remove_and_crop(self.original_img.copy())
-                elif self.face_name == "top":
+                mode = self.bg_mode.get()
+
+                if self.face_name == "top":
                     img = simple_crop(self.original_img.copy())
+                elif mode == "ai":
+                    img = remove_and_crop(self.original_img.copy())
+                elif mode == "color":
+                    img = self._remove_bg_by_color(self.original_img.copy())
                 else:
                     img = self.original_img.copy()
+
                 self.processed_img = img
                 self.after(0, self._fit_to_canvas)
             except Exception as e:
@@ -148,8 +168,6 @@ class FaceEditor(tk.Canvas):
         if self.processed_img is None:
             return
         self.delete("all")
-
-        # 체커보드 배경 (투명 영역 표시)
         self._draw_checker()
 
         w = int(self.processed_img.width * self.img_scale)
@@ -161,13 +179,17 @@ class FaceEditor(tk.Canvas):
         self.display_img = ImageTk.PhotoImage(resized)
         self.create_image(int(self.img_x), int(self.img_y), image=self.display_img, anchor="nw")
 
-        # 라벨
         self.create_text(5, 5, text=self.label_kr, fill="#fff", font=("", 9, "bold"), anchor="nw")
         self.create_text(5, 20, text=f"{self.processed_img.width}x{self.processed_img.height}",
                          fill="#aaa", font=("", 8), anchor="nw")
 
+        # 현재 배경제거 모드 표시 (우상단)
+        mode_label = {"ai": "AI", "color": "색상", "none": "-"}
+        self.create_text(self.canvas_w - 5, 5,
+                         text=f"[{mode_label.get(self.bg_mode.get(), '')}]",
+                         fill="#0af", font=("", 8), anchor="ne")
+
     def _draw_checker(self):
-        """투명 영역을 보여주는 체커보드 패턴."""
         size = 10
         for y in range(0, self.canvas_h, size):
             for x in range(0, self.canvas_w, size):
@@ -192,7 +214,7 @@ class GLBBuilderApp:
     def __init__(self, root):
         self.root = root
         self.root.title("GLB 빌더 - 건물 3D 모델 생성")
-        self.root.geometry("1100x750")
+        self.root.geometry("1100x820")
         self.root.configure(bg="#2b2b2b")
 
         style = ttk.Style()
@@ -206,8 +228,34 @@ class GLBBuilderApp:
         style.configure("TScale", background="#2b2b2b")
         style.configure("Accent.TButton", background="#0078d4", foreground="#fff")
 
+        # ── 색상 배경 제거 공통 설정 ──
+        self.chroma_color = (255, 255, 255)      # 기본: 흰색
+        self.chroma_tolerance = tk.IntVar(value=30)
+
         self.editors = {}
         self._build_ui()
+
+    def _rgb_to_hex(self, rgb):
+        return "#{:02x}{:02x}{:02x}".format(*rgb)
+
+    def _pick_color(self):
+        result = colorchooser.askcolor(
+            color=self._rgb_to_hex(self.chroma_color),
+            title="투명으로 만들 배경 색상 선택"
+        )
+        if result[0]:
+            self.chroma_color = tuple(int(c) for c in result[0])
+            self.color_preview_btn.configure(bg=result[1])
+
+    def _set_color(self, rgb):
+        self.chroma_color = rgb
+        self.color_preview_btn.configure(bg=self._rgb_to_hex(rgb))
+
+    def _apply_color_bg_all(self):
+        """전체 면에 색상 배경제거 모드 적용 후 재처리"""
+        for editor in self.editors.values():
+            editor.bg_mode.set("color")
+            editor._reprocess()
 
     def _build_ui(self):
         # 상단 툴바
@@ -217,7 +265,7 @@ class GLBBuilderApp:
         ttk.Button(toolbar, text="폴더 열기", command=self._load_folder).pack(side="left", padx=2)
         ttk.Button(toolbar, text="전체 초기화", command=self._clear_all).pack(side="left", padx=2)
 
-        ttk.Separator(toolbar, orient="vertical").pack(side="left", fill="y", padx=10)
+        ttk.Separator(toolbar, orient="vertical").pack(side="left", fill="y", padx=8)
 
         self.btn_build = ttk.Button(toolbar, text="GLB 생성", command=self._build)
         self.btn_build.pack(side="left", padx=5)
@@ -227,13 +275,60 @@ class GLBBuilderApp:
         self.status_var = tk.StringVar(value="준비됨 | 각 면을 클릭하여 이미지를 로드하세요. 우클릭으로 옵션 메뉴.")
         ttk.Label(toolbar, textvariable=self.status_var, foreground="#999").pack(side="right")
 
-        # 메인 영역: 5면 에디터 + 조정 패널
+        # ── 색상 배경 제거 패널 ──────────────────────────────────────────
+        color_frame = ttk.LabelFrame(self.root, text="색상 지정 배경 제거")
+        color_frame.pack(fill="x", padx=10, pady=3)
+
+        crow = ttk.Frame(color_frame)
+        crow.pack(fill="x", padx=5, pady=5)
+
+        ttk.Label(crow, text="배경 색상:").pack(side="left")
+
+        # 색상 미리보기 박스 (클릭 → 색상 선택)
+        self.color_preview_btn = tk.Button(
+            crow, bg=self._rgb_to_hex(self.chroma_color),
+            width=4, height=1, relief="solid", bd=1,
+            command=self._pick_color
+        )
+        self.color_preview_btn.pack(side="left", padx=4)
+
+        ttk.Button(crow, text="색상 선택...", command=self._pick_color).pack(side="left", padx=2)
+
+        ttk.Separator(crow, orient="vertical").pack(side="left", fill="y", padx=8)
+
+        ttk.Label(crow, text="허용 오차:").pack(side="left")
+        ttk.Spinbox(crow, from_=0, to=150, increment=5,
+                    textvariable=self.chroma_tolerance,
+                    width=5).pack(side="left", padx=2)
+        ttk.Label(crow, text="(0=완전일치  /  클수록 유사색도 제거)", foreground="#888").pack(side="left", padx=4)
+
+        ttk.Separator(crow, orient="vertical").pack(side="left", fill="y", padx=8)
+
+        ttk.Button(crow, text="▶ 전체 면에 적용",
+                   command=self._apply_color_bg_all).pack(side="left", padx=4)
+
+        # 빠른 색상 프리셋
+        ttk.Label(crow, text="  빠른선택:").pack(side="left")
+        presets = [
+            ("흰색",  (255, 255, 255)),
+            ("검정",  (0,   0,   0)),
+            ("회색",  (128, 128, 128)),
+            ("하늘",  (135, 206, 235)),
+        ]
+        for name, rgb in presets:
+            fg = "black" if sum(rgb) > 380 else "white"
+            btn = tk.Button(
+                crow, text=name,
+                bg=self._rgb_to_hex(rgb), fg=fg,
+                relief="solid", bd=1, padx=5,
+                command=lambda c=rgb: self._set_color(c)
+            )
+            btn.pack(side="left", padx=1)
+
+        # ── 면 에디터 그리드 ─────────────────────────────────────────────
         main = ttk.Frame(self.root)
         main.pack(fill="both", expand=True, padx=10, pady=5)
 
-        # 레이아웃:
-        #        [  윗면  ]
-        # [왼쪽] [정면] [오른쪽] [후문]
         face_layout = {
             "top":   (0, 1),
             "left":  (1, 0),
@@ -241,15 +336,15 @@ class GLBBuilderApp:
             "right": (1, 2),
             "back":  (1, 3),
         }
-
         labels_kr = {
             "front": "정면", "back": "후문", "left": "왼쪽",
             "right": "오른쪽", "top": "윗면"
         }
 
-        for face, (row, col) in face_layout.items():
-            editor = FaceEditor(main, face, labels_kr[face], width=230, height=180)
-            editor.grid(row=row, column=col, padx=3, pady=3, sticky="nsew")
+        for face, (row_idx, col) in face_layout.items():
+            editor = FaceEditor(main, face, labels_kr[face],
+                                app_ref=self, width=230, height=180)
+            editor.grid(row=row_idx, column=col, padx=3, pady=3, sticky="nsew")
             self.editors[face] = editor
 
         for i in range(4):
@@ -261,7 +356,6 @@ class GLBBuilderApp:
         ctrl_frame = ttk.LabelFrame(self.root, text="3D 모델 크기 조정")
         ctrl_frame.pack(fill="x", padx=10, pady=3)
 
-        # 건물 크기 (너비/높이/깊이)
         size_row = ttk.Frame(ctrl_frame)
         size_row.pack(fill="x", padx=5, pady=2)
 
@@ -280,7 +374,6 @@ class GLBBuilderApp:
         self.auto_size_var = tk.BooleanVar(value=True)
         ttk.Checkbutton(size_row, text="자동", variable=self.auto_size_var).pack(side="left", padx=10)
 
-        # 면별 인셋 + 윗면 내림
         inset_row = ttk.Frame(ctrl_frame)
         inset_row.pack(fill="x", padx=5, pady=2)
 
@@ -306,10 +399,10 @@ class GLBBuilderApp:
         ttk.Label(inset_row, text="윗면내림").pack(side="left", padx=(5, 0))
         ttk.Spinbox(inset_row, from_=0, to=30, increment=0.5, textvariable=self.top_inset, width=5).pack(side="left", padx=2)
 
-        # 하단: 조작 안내
         help_frame = ttk.Frame(self.root)
         help_frame.pack(fill="x", padx=10, pady=3)
-        ttk.Label(help_frame, text="조작: 클릭=이미지 로드 | 드래그=이동 | 스크롤=확대/축소 | 우클릭=메뉴(배경제거 ON/OFF) | 자동크기=이미지 비율로 크기 계산",
+        ttk.Label(help_frame,
+                  text="조작: 클릭=이미지 로드 | 드래그=이동 | 스크롤=확대/축소 | 우클릭=메뉴(AI/색상/없음 모드 선택) | 각 면 우상단 [AI][색상][-]=현재 모드",
                   foreground="#777", font=("", 9)).pack()
 
     def _load_folder(self):
@@ -338,7 +431,6 @@ class GLBBuilderApp:
         self.status_var.set("전체 초기화됨")
 
     def _auto_size(self):
-        """이미지 비율로 W/H/D 자동 계산"""
         front = self.editors["front"].get_image()
         if front is None:
             messagebox.showwarning("알림", "정면 이미지를 먼저 로드하세요.")
@@ -377,7 +469,6 @@ class GLBBuilderApp:
                 return
             self.output_folder = output_dir
 
-        # 자동이면 먼저 크기 계산
         if self.auto_size_var.get():
             self._auto_size()
 
@@ -400,7 +491,6 @@ class GLBBuilderApp:
                 top_inset_pct = self.top_inset.get() / 100.0
                 top_y = hh - h * top_inset_pct
 
-                # 면별 인셋
                 insets = {
                     "front": d * (self.inset_front.get() / 100.0),
                     "back":  d * (self.inset_back.get() / 100.0),
