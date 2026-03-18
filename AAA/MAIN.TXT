@@ -2168,6 +2168,12 @@ def api_generate_pptx():
         return jsonify({"error": "python-pptx 패키지가 설치되어 있지 않습니다.\npip install python-pptx"}), 500
 
     import tempfile, subprocess, json as _json
+
+    # --- 특수 따옴표 → ASCII 따옴표 자동 치환 (LLM이 종종 한국어 따옴표 생성) ---
+    code = code.replace('\u201c', "'").replace('\u201d', "'")  # " " → '
+    code = code.replace('\u2018', "'").replace('\u2019', "'")  # ' ' → '
+    code = code.replace('\u300c', "'").replace('\u300d', "'")  # 「 」 → '
+
     # 임시 파일에 코드 작성 → 별도 프로세스에서 실행
     with tempfile.TemporaryDirectory() as tmpdir:
         out_path = os.path.join(tmpdir, filename)
@@ -2286,7 +2292,8 @@ def api_chat():
 - 기본적으로 자연어(글)로 설명, 분석, 보고하세요"""
     else:
         code_rules = """- 코드는 즉시 실행 가능하게 (import 포함, 필요 패키지 명시)
-- 에러 처리(try/except)를 포함하세요"""
+- 에러 처리(try/except)를 포함하세요
+- 코드 주석은 반드시 ## 형식으로 작성하세요. 단일 #이 아니라 ##을 사용하고, 구간 설명용으로만 간결하게 작성하세요. 줄마다 주석을 달지 마세요. 예: ## 데이터 전처리, ## API 호출"""
 
     default_prompt = f"""당신은 Demos(민중) Alpha 0.8 - 과학 연구와 소프트웨어 개발을 돕는 전문 AI 어시스턴트입니다.
 370개+ 전문 스킬(과학/개발/AI/인프라/비즈니스)을 활용할 수 있습니다.
@@ -2377,6 +2384,12 @@ def api_chat():
                 "8. 중요: tf.vertical_anchor에는 PP_ALIGN이 아니라 MSO_ANCHOR를 사용하세요. "
                 "예: `from pptx.enum.text import MSO_ANCHOR` 후 `tf.vertical_anchor = MSO_ANCHOR.MIDDLE`. "
                 "PP_ALIGN.CENTER를 vertical_anchor에 쓰면 에러가 납니다.\n"
+                "9. 중요: 문자열 안에 한국어 특수 따옴표(\u201c \u201d \u2018 \u2019 \u300c \u300d)를 절대 사용하지 마세요. "
+                "반드시 일반 ASCII 따옴표(\" ' )만 사용하세요. "
+                "인용문이 필요하면 작은따옴표(')로 감싸세요. 예: p.text = '기술은 훌륭하지만, 보안에 구멍이 많다.'\n"
+                "10. 코드 주석은 반드시 `## 설명내용` 형식으로 작성하세요. "
+                "단일 #이 아니라 ##을 사용하고, 구간 설명용으로만 간결하게 작성하세요. "
+                "예: `## 슬라이드 1: 표지`, `## 차트 데이터 설정`. 줄마다 주석을 달지 마세요.\n"
                 "프론트엔드가 코드를 감지하여 '📽️ PPT 생성 & 다운로드' 버튼을 자동 표시합니다.\n\n"
             )
         # 멀티에이전트 오케스트레이션 (스킬 2개 이상)
