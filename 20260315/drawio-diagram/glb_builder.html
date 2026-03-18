@@ -803,11 +803,19 @@ document.getElementById('glbFileInput').addEventListener('change',e=>{
   loader.load(url,async gltf=>{
     URL.revokeObjectURL(url);
     let found=false;
-    gltf.scene.traverse(obj=>{
-      if(found||!obj.isMesh)return;
-      const mats=Array.isArray(obj.material)?obj.material:[obj.material];
-      if(mats.length<2)return; // skip single-mat
+    // collect all meshes first, pick the one with most materials
+    const allMeshes=[];
+    gltf.scene.traverse(obj=>{if(obj.isMesh)allMeshes.push(obj);});
+    if(allMeshes.length===0){showGlbToast('⚠️ 메시를 찾을 수 없습니다',3000);return;}
+    // prefer mesh with most material slots
+    const obj=allMeshes.reduce((a,b)=>{
+      const am=Array.isArray(a.material)?a.material.length:1;
+      const bm=Array.isArray(b.material)?b.material.length:1;
+      return bm>am?b:a;
+    });
+    {
       found=true;
+      const mats=Array.isArray(obj.material)?obj.material:[obj.material];
 
       // --- dimensions from bounding box ---
       obj.geometry.computeBoundingBox();
@@ -842,7 +850,7 @@ document.getElementById('glbFileInput').addEventListener('change',e=>{
         const loaded=FACES.filter(f=>S.faces[f.key].img).length;
         showGlbToast(`✅ GLB 로드 완료 (${loaded}/6면 텍스처)`,3000);
       });
-    });
+    }
     if(!found){showGlbToast('⚠️ 메시를 찾을 수 없습니다',3000);}
   },undefined,err=>{URL.revokeObjectURL(url);showGlbToast('❌ 로드 실패: '+err.message,4000);});
 });
