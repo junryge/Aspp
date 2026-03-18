@@ -3097,59 +3097,8 @@ body.rp-collapsed .chat-box-fixed{right:0}
     <source src="/static/intro.mp4" type="video/mp4">
   </video>
   <div id="introProgress"></div>
-  <button id="introSkip">건너뛰기 ▶</button>
+  <button id="introSkip" onclick="(function(b){var o=document.getElementById('introOverlay');if(!o)return;var v=document.getElementById('introVideo');if(v)v.pause();o.classList.add('fade-out');setTimeout(function(){if(o.parentNode)o.parentNode.removeChild(o);},700);})(this)">건너뛰기 ▶</button>
 </div>
-<script>
-// 인트로 즉시 초기화 (DOM 로드 직후 실행)
-(function(){
-  var ov = document.getElementById('introOverlay');
-  var vi = document.getElementById('introVideo');
-  var sk = document.getElementById('introSkip');
-  if(!ov) return;
-
-  function dismiss(){
-    if(ov._done) return;
-    ov._done = true;
-    if(vi) vi.pause();
-    ov.classList.add('fade-out');
-    var sb = document.querySelector('.sidebar');
-    var mn = document.querySelector('.main');
-    if(sb) sb.style.visibility = 'visible';
-    if(mn) mn.style.visibility = 'visible';
-    setTimeout(function(){ if(ov.parentNode) ov.parentNode.removeChild(ov); }, 700);
-  }
-
-  // 건너뛰기 버튼 — 항상 활성
-  if(sk){
-    sk.onclick = dismiss;
-    sk.style.pointerEvents = 'auto';
-    sk.style.cursor = 'pointer';
-  }
-
-  // 오버레이 클릭으로도 건너뛰기
-  ov.addEventListener('click', function(e){
-    if(e.target === ov || e.target === sk) dismiss();
-  });
-
-  // 영상 이벤트
-  if(vi){
-    vi.addEventListener('ended', dismiss);
-    vi.addEventListener('error', dismiss);
-    var src = vi.querySelector('source');
-    if(src) src.addEventListener('error', dismiss);
-  }
-
-  // 안전장치: 4초 안에 재생 안 되면 자동 진입
-  setTimeout(function(){
-    if(vi && vi.readyState < 2) dismiss();
-  }, 4000);
-
-  // ESC 키로도 건너뛰기
-  document.addEventListener('keydown', function(e){
-    if(e.key === 'Escape') dismiss();
-  });
-})();
-</script>
 
 <div class="sidebar" id="sidebar">
   <button class="sidebar-toggle-mini" onclick="toggleSidebar()" title="펼치기">☰</button>
@@ -3908,7 +3857,6 @@ function renderMd(text){
   // 2a-2) chart 코드블록 → Chart.js 인터랙티브 그래프 렌더링
   s=s.replace(/```chart\s*([\s\S]*?)```/g,(_,code)=>{
     const trimmed=code.trim();
-    // HTML 이스케이프 복원
     const raw=trimmed.replace(/&amp;/g,'&').replace(/&lt;/g,'<').replace(/&gt;/g,'>').replace(/&quot;/g,'"');
     const chartId='chart_'+Math.random().toString(36).substr(2,9);
     const b64=btoa(unescape(encodeURIComponent(raw)));
@@ -3920,9 +3868,8 @@ function renderMd(text){
           <button class="chart-btn" onclick="copyChartJson(this)" data-chart="${b64}">📋 JSON 복사</button>
         </div>
       </div>
-      <div class="chart-canvas-wrap"><canvas id="${chartId}"></canvas></div>
+      <div class="chart-canvas-wrap"><canvas id="${chartId}" data-chart-json="${b64}"></canvas></div>
       <details class="chart-raw-toggle"><summary>📝 원본 JSON 보기</summary><pre>${trimmed}</pre></details>
-      <script>try{renderChartBlock('${chartId}',atob('${b64}'));}catch(e){document.getElementById('${chartId}').parentElement.innerHTML='<p style="color:red;padding:12px;">차트 렌더링 실패: '+e.message+'</p>';}</script>
     </div>`;
   });
   // 2b) markdown 코드블록 → MD 다운로드 UI
@@ -4045,6 +3992,11 @@ function addMsg(role,text){
   });
   // PPT 코드 블록 감지 → 생성 & 다운로드 버튼 삽입
   if(role==='assistant') detectAndAddPptxButtons(d, text);
+  // Chart.js 차트 초기화 (data-chart-json 속성이 있는 canvas 탐색)
+  d.querySelectorAll('canvas[data-chart-json]').forEach(cv=>{
+    try{renderChartBlock(cv.id, atob(cv.dataset.chartJson));}
+    catch(e){cv.parentElement.innerHTML='<p style="color:red;padding:12px;">차트 렌더링 실패: '+e.message+'</p>';}
+  });
   c.scrollIntoView({behavior:'smooth',block:'end'});
 }
 function addTyping(){
@@ -5816,6 +5768,34 @@ function readEntriesRecursive(entries){
 
 // 초기 실행 버튼 상태
 updateRpRunBtn();
+
+// ==================== 인트로 비디오 자동 종료 ====================
+(function(){
+  var ov = document.getElementById('introOverlay');
+  var vi = document.getElementById('introVideo');
+  if(!ov) return;
+  function dismiss(){
+    if(ov._gone) return; ov._gone = true;
+    if(vi) vi.pause();
+    ov.classList.add('fade-out');
+    setTimeout(function(){ if(ov.parentNode) ov.parentNode.removeChild(ov); }, 700);
+  }
+  if(vi){
+    vi.addEventListener('ended', dismiss);
+    vi.addEventListener('error', dismiss);
+    var src = vi.querySelector('source');
+    if(src) src.addEventListener('error', dismiss);
+    // 진행률 바
+    var prog = document.getElementById('introProgress');
+    if(prog) vi.addEventListener('timeupdate', function(){
+      if(vi.duration) prog.style.width = (vi.currentTime/vi.duration*100)+'%';
+    });
+  }
+  // 안전장치: 4초 안에 재생 안 되면 자동 제거
+  setTimeout(function(){ if(vi && vi.readyState < 2) dismiss(); }, 4000);
+  // ESC 키
+  document.addEventListener('keydown', function(e){ if(e.key==='Escape') dismiss(); });
+})();
 
 // ==================== PPT 코드 감지 & 생성 ====================
 function detectAndAddPptxButtons(msgEl, rawText){
