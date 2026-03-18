@@ -3459,6 +3459,15 @@ if(lastSessions.length > 0){
     if(s.selDomains && s.selDomains.length>0){ selDomains=s.selDomains; renderTags(); renderSkills(); }
     if(s.selSkills && s.selSkills.length>0){ selSkills=s.selSkills; renderSkills(); updateLoaded(); }
     renderSessionList();
+    // 페이지 로드 시 차트 재렌더링 (Chart.js 로드 대기)
+    const _initCharts=()=>{
+      document.querySelectorAll('#msgs canvas[data-chart-json]').forEach(cv=>{
+        try{renderChartBlock(cv.id, b2u(cv.dataset.chartJson));}
+        catch(e){cv.parentElement.innerHTML='<p style="color:red;padding:12px;">차트 렌더링 실패: '+e.message+'</p>';}
+      });
+    };
+    if(typeof Chart!=='undefined') _initCharts();
+    else setTimeout(_initCharts, 500);
   }, 100);
 } else {
   currentSessionId = 'sess_'+Date.now();
@@ -4323,6 +4332,11 @@ function loadSession(id){
   renderSkills();
   updateLoaded();
   renderSessionList();
+  // 세션 복원 후 차트 재렌더링
+  document.querySelectorAll('#msgs canvas[data-chart-json]').forEach(cv=>{
+    try{renderChartBlock(cv.id, b2u(cv.dataset.chartJson));}
+    catch(e){cv.parentElement.innerHTML='<p style="color:red;padding:12px;">차트 렌더링 실패: '+e.message+'</p>';}
+  });
 }
 function deleteSession(id){
   delete sessions[id];
