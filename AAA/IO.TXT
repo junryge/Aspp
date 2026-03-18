@@ -102,19 +102,53 @@ class FaceEditor(tk.Canvas):
         self._reprocess()
 
     def _remove_bg_by_color(self, img):
-        """지정 색상을 투명으로 변환 (허용 오차 적용)"""
+        """이미지 테두리에서 연결된 배경색만 투명으로 변환 (내부 동일색 보존)
+        flood fill BFS 방식 - 가장자리에서 시작해서 연결된 픽셀만 제거"""
         img = img.convert("RGBA")
         data = np.array(img, dtype=np.int32)
+        h, w = data.shape[:2]
 
         r, g, b = self.app_ref.chroma_color
         tol = self.app_ref.chroma_tolerance.get()
 
-        mask = (
-            (np.abs(data[:, :, 0] - r) <= tol) &
-            (np.abs(data[:, :, 1] - g) <= tol) &
-            (np.abs(data[:, :, 2] - b) <= tol)
-        )
-        data[mask] = [0, 0, 0, 0]
+        def is_bg(py, px):
+            return (
+                abs(int(data[py, px, 0]) - r) <= tol and
+                abs(int(data[py, px, 1]) - g) <= tol and
+                abs(int(data[py, px, 2]) - b) <= tol
+            )
+
+        visited = np.zeros((h, w), dtype=bool)
+        queue = []
+
+        # 4방향 이웃 (상하좌우)
+        DIRS = [(-1,0),(1,0),(0,-1),(0,1)]
+
+        # 테두리 픽셀 중 배경색인 것을 시작점으로 추가
+        for x in range(w):
+            for y in [0, h-1]:
+                if not visited[y, x] and is_bg(y, x):
+                    queue.append((y, x))
+                    visited[y, x] = True
+        for y in range(h):
+            for x in [0, w-1]:
+                if not visited[y, x] and is_bg(y, x):
+                    queue.append((y, x))
+                    visited[y, x] = True
+
+        # BFS로 연결된 배경 픽셀 탐색
+        idx = 0
+        while idx < len(queue):
+            cy, cx = queue[idx]
+            idx += 1
+            for dy, dx in DIRS:
+                ny, nx = cy + dy, cx + dx
+                if 0 <= ny < h and 0 <= nx < w and not visited[ny, nx] and is_bg(ny, nx):
+                    visited[ny, nx] = True
+                    queue.append((ny, nx))
+
+        # 배경으로 판정된 픽셀만 투명 처리
+        data[visited] = [0, 0, 0, 0]
         return Image.fromarray(data.astype(np.uint8))
 
     def _reprocess(self):
