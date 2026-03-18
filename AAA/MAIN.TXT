@@ -2184,6 +2184,18 @@ def api_generate_pptx():
             "        value = int(round(value))\n"
             "    return _orig_validate_int.__func__(cls, value)\n"
             "_st.BaseSimpleType.validate_int = _patched_validate_int\n"
+            "# --- monkey-patch: fix vertical_anchor using PP_ALIGN instead of MSO_ANCHOR ---\n"
+            "import pptx.text.text as _pptx_text\n"
+            "_orig_va_setter = _pptx_text.TextFrame.vertical_anchor.fset\n"
+            "def _patched_va_setter(self, value):\n"
+            "    try:\n"
+            "        _orig_va_setter(self, value)\n"
+            "    except (ValueError, TypeError):\n"
+            "        from pptx.enum.text import MSO_ANCHOR\n"
+            "        _map = {0: MSO_ANCHOR.TOP, 1: MSO_ANCHOR.MIDDLE, 2: MSO_ANCHOR.MIDDLE, 3: MSO_ANCHOR.BOTTOM}\n"
+            "        v = _map.get(int(value), MSO_ANCHOR.MIDDLE) if hasattr(value, '__int__') else MSO_ANCHOR.MIDDLE\n"
+            "        _orig_va_setter(self, v)\n"
+            "_pptx_text.TextFrame.vertical_anchor = property(_pptx_text.TextFrame.vertical_anchor.fget, _patched_va_setter)\n"
             "# --- user code ---\n"
             f"{code}\n"
         )
@@ -2354,6 +2366,9 @@ def api_chat():
                 "7. 중요: 좌표/크기 값은 반드시 정수(int)로 전달하세요. "
                 "Inches(), Cm(), Pt(), Emu() 결과를 직접 사용하면 됩니다. "
                 "나눗셈(/) 등으로 float이 생기면 반드시 int()로 감싸세요.\n"
+                "8. 중요: tf.vertical_anchor에는 PP_ALIGN이 아니라 MSO_ANCHOR를 사용하세요. "
+                "예: `from pptx.enum.text import MSO_ANCHOR` 후 `tf.vertical_anchor = MSO_ANCHOR.MIDDLE`. "
+                "PP_ALIGN.CENTER를 vertical_anchor에 쓰면 에러가 납니다.\n"
                 "프론트엔드가 코드를 감지하여 '📽️ PPT 생성 & 다운로드' 버튼을 자동 표시합니다.\n\n"
             )
         # 멀티에이전트 오케스트레이션 (스킬 2개 이상)
