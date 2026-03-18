@@ -2175,6 +2175,15 @@ def api_generate_pptx():
         wrapped_code = (
             "import sys, os\n"
             f"_OUTPUT_PATH = {repr(out_path)}\n"
+            "# --- monkey-patch: auto-convert float to int for pptx coordinates ---\n"
+            "import pptx.oxml.simpletypes as _st\n"
+            "_orig_validate_int = _st.BaseSimpleType.validate_int\n"
+            "@classmethod\n"
+            "def _patched_validate_int(cls, value):\n"
+            "    if isinstance(value, float):\n"
+            "        value = int(round(value))\n"
+            "    return _orig_validate_int.__func__(cls, value)\n"
+            "_st.BaseSimpleType.validate_int = _patched_validate_int\n"
             "# --- user code ---\n"
             f"{code}\n"
         )
@@ -2342,6 +2351,9 @@ def api_chat():
                 "4. 각 슬라이드에 제목, 내용, 표, 차트 등을 포함하세요.\n"
                 "5. 마지막에 `prs.save('presentation.pptx')` 호출을 포함하세요.\n"
                 "6. 디자인 가이드: 볼드 색상 팔레트, 다양한 레이아웃, 데이터 시각화 활용.\n"
+                "7. 중요: 좌표/크기 값은 반드시 정수(int)로 전달하세요. "
+                "Inches(), Cm(), Pt(), Emu() 결과를 직접 사용하면 됩니다. "
+                "나눗셈(/) 등으로 float이 생기면 반드시 int()로 감싸세요.\n"
                 "프론트엔드가 코드를 감지하여 '📽️ PPT 생성 & 다운로드' 버튼을 자동 표시합니다.\n\n"
             )
         # 멀티에이전트 오케스트레이션 (스킬 2개 이상)
