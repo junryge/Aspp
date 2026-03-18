@@ -309,7 +309,8 @@ function rebuild(){
     fs.mat=new THREE.MeshStandardMaterial({
       map:fs.tex, side:THREE.FrontSide,
       transparent:false, alphaTest:0.5,
-      metalness:0, roughness:1
+      metalness:0, roughness:1,
+      name:f.key   // ← face key 저장
     });
     if(!fs.img && f.key!=='bottom')fs.mat.visible=false;
     mats[f.matIdx]=fs.mat;
@@ -780,16 +781,21 @@ function showGlbToast(msg,dur){
   clearTimeout(glbToast._t);glbToast._t=setTimeout(()=>glbToast.classList.remove('show'),dur||2500);
 }
 
-function extractTexToImg(texImage){
+function extractTexToImg(texImage, flipY){
   return new Promise(resolve=>{
-    const c=document.createElement('canvas');
-    c.width=texImage.width||256;c.height=texImage.height||256;
-    c.getContext('2d').drawImage(texImage,0,0);
-    const img=new Image();
-    img.onload=()=>resolve(img);
-    img.src=c.toDataURL();
+    const w=texImage.width||texImage.naturalWidth||256;
+    const h=texImage.height||texImage.naturalHeight||256;
+    const c=document.createElement('canvas');c.width=w;c.height=h;
+    const ctx=c.getContext('2d');
+    if(flipY){ctx.translate(0,h);ctx.scale(1,-1);}
+    ctx.drawImage(texImage,0,0);
+    const img=new Image();img.onload=()=>resolve(img);img.src=c.toDataURL();
   });
 }
+
+// face key 인식: material.name → 없으면 matIdx → 없으면 group 순서
+const nameToKey={};
+FACES.forEach(f=>{nameToKey[f.key]=f.key;});
 
 document.getElementById('glbLoadBtn').addEventListener('click',()=>{
   document.getElementById('glbFileInput').click();
@@ -802,56 +808,65 @@ document.getElementById('glbFileInput').addEventListener('change',e=>{
   const loader=new GLTFLoader();
   loader.load(url,async gltf=>{
     URL.revokeObjectURL(url);
-    let found=false;
-    // collect all meshes first, pick the one with most materials
     const allMeshes=[];
     gltf.scene.traverse(obj=>{if(obj.isMesh)allMeshes.push(obj);});
     if(allMeshes.length===0){showGlbToast('⚠️ 메시를 찾을 수 없습니다',3000);return;}
-    // prefer mesh with most material slots
+
+    // 머티리얼 슬롯 가장 많은 메시 선택
     const obj=allMeshes.reduce((a,b)=>{
       const am=Array.isArray(a.material)?a.material.length:1;
       const bm=Array.isArray(b.material)?b.material.length:1;
       return bm>am?b:a;
     });
-    {
-      found=true;
-      const mats=Array.isArray(obj.material)?obj.material:[obj.material];
 
-      // --- dimensions from bounding box ---
-      obj.geometry.computeBoundingBox();
-      const bb=obj.geometry.boundingBox;
-      const nw=Math.round((bb.max.x-bb.min.x)*10)/10;
-      const nh=Math.round((bb.max.y-bb.min.y)*10)/10;
-      const nd=Math.round((bb.max.z-bb.min.z)*10)/10;
-      if(nw>0&&nh>0&&nd>0){
-        S.w=nw;S.h=nh;S.d=nd;
-        document.getElementById('dimW').value=S.w;
-        document.getElementById('dimH').value=S.h;
-        document.getElementById('dimD').value=S.d;
-      }
+    const mats=Array.isArray(obj.material)?obj.material:[obj.material];
 
-      // --- clear existing images ---
-      FACES.forEach(f=>{S.faces[f.key].img=null;S.faces[f.key].sx=1;S.faces[f.key].sy=1;S.faces[f.key].ox=0;S.faces[f.key].oy=0;});
+    // 치수
+    obj.geometry.computeBoundingBox();
+    const bb=obj.geometry.boundingBox;
+    const nw=Math.round((bb.max.x-bb.min.x)*10)/10;
+    const nh=Math.round((bb.max.y-bb.min.y)*10)/10;
+    const nd=Math.round((bb.max.z-bb.min.z)*10)/10;
+    if(nw>0&&nh>0&&nd>0){
+      S.w=nw;S.h=nh;S.d=nd;
+      document.getElementById('dimW').value=S.w;
+      document.getElementById('dimH').value=S.h;
+      document.getElementById('dimD').value=S.d;
+    }
 
-      // --- extract textures async ---
-      const promises=mats.map(async(mat,idx)=>{
-        const key=matIdxToKey[idx];
-        if(!key||!mat||!mat.map||!mat.map.image)return;
-        try{
-          const img=await extractTexToImg(mat.map.image);
-          S.faces[key].img=img;
-        }catch(err){console.warn('tex extract failed',key,err);}
-      });
-
-      Promise.all(promises).then(()=>{
-        rebuild();
-        // Fill each face after rebuild (tc exists now)
-        FACES.forEach(f=>{if(S.faces[f.key].img)fillFace(f.key);});
-        const loaded=FACES.filter(f=>S.faces[f.key].img).length;
-        showGlbToast(`✅ GLB 로드 완료 (${loaded}/6면 텍스처)`,3000);
+    // geometry groups → matIdx 매핑 (BoxGeometry 순서 기반)
+    // groups: 0=right(+X), 1=left(-X), 2=top, 3=bottom, 4=front, 5=back
+    // FACES matIdx: left=0,right=1,top=2,bottom=3,front=4,back=5
+    const groupKeyMap={0:'left',1:'right',2:'top',3:'bottom',4:'front',5:'back'};
+    // geometry group 순서로 matIndex → faceKey 매핑 재구성
+    const groupMatToKey={};
+    if(obj.geometry.groups&&obj.geometry.groups.length===6){
+      obj.geometry.groups.forEach((g,gi)=>{
+        groupMatToKey[g.materialIndex]=groupKeyMap[gi];
       });
     }
-    if(!found){showGlbToast('⚠️ 메시를 찾을 수 없습니다',3000);}
+
+    FACES.forEach(f=>{S.faces[f.key].img=null;S.faces[f.key].sx=1;S.faces[f.key].sy=1;S.faces[f.key].ox=0;S.faces[f.key].oy=0;});
+
+    const promises=mats.map(async(mat,idx)=>{
+      if(!mat||!mat.map||!mat.map.image)return;
+      // 키 결정: material.name > groupMatToKey > matIdxToKey
+      const key=nameToKey[mat.name]||groupMatToKey[idx]||matIdxToKey[idx];
+      if(!key)return;
+      try{
+        // GLTF 텍스처는 flipY=false로 저장 → 우리 canvas에 그릴 때 뒤집어줘야 정방향
+        const needFlip=mat.map.flipY===false||mat.map.flipY===undefined;
+        const img=await extractTexToImg(mat.map.image, needFlip);
+        S.faces[key].img=img;
+      }catch(err){console.warn('tex extract failed',key,err);}
+    });
+
+    Promise.all(promises).then(()=>{
+      rebuild();
+      FACES.forEach(f=>{if(S.faces[f.key].img)fillFace(f.key);});
+      const loaded=FACES.filter(f=>S.faces[f.key].img).length;
+      showGlbToast(`✅ GLB 로드 완료 (${loaded}/6면 텍스처)`,3000);
+    });
   },undefined,err=>{URL.revokeObjectURL(url);showGlbToast('❌ 로드 실패: '+err.message,4000);});
 });
 
