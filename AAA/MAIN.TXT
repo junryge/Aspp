@@ -2512,7 +2512,38 @@ def api_chat():
                 "예: `## 슬라이드 1: 표지`, `## 차트 데이터 설정`. 줄마다 주석을 달지 마세요.\n"
                 "프론트엔드가 코드를 감지하여 '📽️ PPT 생성 & 다운로드' 버튼을 자동 표시합니다.\n\n"
             )
-        # 멀티에이전트 오케스트레이션 (스킬 2개 이상)
+    # === 차트/그래프 생성 가이드 (항상 포함 - 스킬 불필요) ===
+    system_prompt += (
+        "=== 차트/그래프 생성 규칙 ===\n"
+        "사용자가 그래프, 차트, 시각화를 요청하거나 데이터 분석 결과를 보여줄 때:\n"
+        "1. ```chart 코드블록 안에 Chart.js JSON config를 작성하세요.\n"
+        "2. 프론트엔드가 자동으로 인터랙티브 차트를 렌더링합니다.\n"
+        "3. 지원 차트 유형: bar, line, pie, doughnut, radar, scatter, bubble, polarArea\n"
+        "4. JSON 형식 예시:\n"
+        "```chart\n"
+        '{\n'
+        '  "type": "bar",\n'
+        '  "data": {\n'
+        '    "labels": ["1월", "2월", "3월"],\n'
+        '    "datasets": [{\n'
+        '      "label": "매출",\n'
+        '      "data": [120, 190, 300],\n'
+        '      "backgroundColor": ["#6366f1", "#8b5cf6", "#a78bfa"]\n'
+        '    }]\n'
+        '  },\n'
+        '  "options": {\n'
+        '    "plugins": {"title": {"display": true, "text": "월별 매출"}}\n'
+        '  }\n'
+        '}\n'
+        "```\n"
+        "5. 여러 데이터셋 비교: datasets 배열에 여러 객체 추가\n"
+        "6. 색상: backgroundColor, borderColor 사용. 배열로 항목별 색상 지정 가능\n"
+        "7. 추천 색상 팔레트: #6366f1(인디고), #8b5cf6(보라), #ec4899(핑크), #f59e0b(앰버), #10b981(에메랄드), #3b82f6(블루), #ef4444(레드), #84cc16(라임)\n"
+        "8. 데이터 분석/CSV 분석 결과를 보여줄 때 적극 활용하세요.\n"
+        "9. 한 응답에 여러 ```chart 블록을 사용해 다양한 관점의 차트를 보여줄 수 있습니다.\n\n"
+    )
+
+    # 멀티에이전트 오케스트레이션 (스킬 2개 이상)
         if len(loaded) >= 2:
             loaded_set = {sid: True for sid in loaded}
             orch_prompt = build_orchestration_prompt(
@@ -2696,6 +2727,7 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Demos(민중) Alpha 0.8</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
 body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#f8f7f4;color:#1a1a1a;display:flex;height:100vh}
@@ -2935,6 +2967,17 @@ body.sb-collapsed .chat-box-fixed{left:48px}
 .drawio-actions{display:flex;gap:6px;flex-wrap:wrap}
 .drawio-btn{background:#6366f1;color:#fff;border:none;border-radius:6px;padding:4px 10px;font-size:11px;cursor:pointer;transition:background .2s}
 .drawio-btn:hover{background:#4f46e5}
+.chart-block{border:2px solid #f59e0b;border-radius:10px;overflow:hidden;margin:10px 0;background:#fffbf0}
+.chart-header{display:flex;justify-content:space-between;align-items:center;padding:8px 12px;background:#fef3c7;border-bottom:1px solid #fcd34d;flex-wrap:wrap;gap:6px}
+.chart-header span{font-weight:600;font-size:13px;color:#92400e}
+.chart-actions{display:flex;gap:6px;flex-wrap:wrap}
+.chart-btn{background:#f59e0b;color:#fff;border:none;border-radius:6px;padding:4px 10px;font-size:11px;cursor:pointer;transition:background .2s}
+.chart-btn:hover{background:#d97706}
+.chart-canvas-wrap{padding:12px;background:#fff;display:flex;justify-content:center;align-items:center;min-height:250px;max-height:450px}
+.chart-canvas-wrap canvas{max-width:100%;max-height:420px}
+.chart-raw-toggle{padding:0 12px 8px}
+.chart-raw-toggle summary{font-size:11px;color:#999;cursor:pointer}
+.chart-raw-toggle pre{font-size:10px;max-height:120px;overflow:auto;background:#f5f5f0;padding:8px;border-radius:6px;margin-top:4px}
 .md-report-block{background:#f8faf8;border:2px solid #86efac;border-radius:12px;margin:12px 0;overflow:hidden}
 .md-report-header{display:flex;justify-content:space-between;align-items:center;padding:8px 14px;background:#ecfdf5;border-bottom:1px solid #86efac}
 .md-report-header span{font-weight:600;font-size:13px;color:#166534}
@@ -3809,6 +3852,26 @@ function renderMd(text){
         </div>
       </div>
       <pre class="drawio-preview"><code class="language-xml">${escapedXml}</code></pre>
+    </div>`;
+  });
+  // 2a-2) chart 코드블록 → Chart.js 인터랙티브 그래프 렌더링
+  s=s.replace(/```chart\s*([\s\S]*?)```/g,(_,code)=>{
+    const trimmed=code.trim();
+    // HTML 이스케이프 복원
+    const raw=trimmed.replace(/&amp;/g,'&').replace(/&lt;/g,'<').replace(/&gt;/g,'>').replace(/&quot;/g,'"');
+    const chartId='chart_'+Math.random().toString(36).substr(2,9);
+    const b64=btoa(unescape(encodeURIComponent(raw)));
+    return `<div class="chart-block">
+      <div class="chart-header">
+        <span>📊 인터랙티브 차트</span>
+        <div class="chart-actions">
+          <button class="chart-btn" onclick="downloadChartPng('${chartId}')">📥 PNG 저장</button>
+          <button class="chart-btn" onclick="copyChartJson(this)" data-chart="${b64}">📋 JSON 복사</button>
+        </div>
+      </div>
+      <div class="chart-canvas-wrap"><canvas id="${chartId}"></canvas></div>
+      <details class="chart-raw-toggle"><summary>📝 원본 JSON 보기</summary><pre>${trimmed}</pre></details>
+      <script>try{renderChartBlock('${chartId}',atob('${b64}'));}catch(e){document.getElementById('${chartId}').parentElement.innerHTML='<p style="color:red;padding:12px;">차트 렌더링 실패: '+e.message+'</p>';}</script>
     </div>`;
   });
   // 2b) markdown 코드블록 → MD 다운로드 UI
@@ -4727,6 +4790,66 @@ function openInDrawio(btn){
   const xml = sanitizeDrawioXml(decodeDrawioXml(btn));
   const encoded = encodeURIComponent(xml);
   window.open('https://app.diagrams.net/#R' + encoded, '_blank');
+}
+
+// ===== Chart.js 인터랙티브 차트 =====
+const _chartInstances = {};
+
+function renderChartBlock(canvasId, jsonStr) {
+  // JSON 파싱 (주석 허용을 위해 정리)
+  let raw = decodeURIComponent(escape(jsonStr));
+  // 한 줄 주석 제거
+  raw = raw.replace(/\/\/[^\n]*/g, '');
+  let config;
+  try {
+    config = JSON.parse(raw);
+  } catch(e) {
+    // JSON5 스타일 허용: trailing comma, 작은따옴표
+    raw = raw.replace(/,\s*([\]}])/g, '$1').replace(/'/g, '"');
+    config = JSON.parse(raw);
+  }
+
+  // 기본값 보강
+  if (!config.type) config.type = 'bar';
+  if (!config.options) config.options = {};
+  if (!config.options.responsive) config.options.responsive = true;
+  if (!config.options.maintainAspectRatio) config.options.maintainAspectRatio = true;
+  if (!config.options.plugins) config.options.plugins = {};
+
+  // 한글 폰트 기본 설정
+  if (!config.options.plugins.legend) config.options.plugins.legend = {};
+
+  const canvas = document.getElementById(canvasId);
+  if (!canvas) return;
+  const ctx = canvas.getContext('2d');
+
+  // 이전 인스턴스 정리
+  if (_chartInstances[canvasId]) {
+    _chartInstances[canvasId].destroy();
+  }
+  _chartInstances[canvasId] = new Chart(ctx, config);
+}
+
+function downloadChartPng(canvasId) {
+  const canvas = document.getElementById(canvasId);
+  if (!canvas) return;
+  const url = canvas.toDataURL('image/png');
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = 'chart.png';
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+}
+
+function copyChartJson(btn) {
+  const b64 = btn.getAttribute('data-chart');
+  const json = decodeURIComponent(escape(atob(b64)));
+  navigator.clipboard.writeText(json).then(() => {
+    const orig = btn.textContent;
+    btn.textContent = '✓ 복사됨';
+    setTimeout(() => btn.textContent = orig, 1500);
+  });
 }
 
 // ===== MD 다운로드/복사/미리보기 =====
