@@ -3097,8 +3097,59 @@ body.rp-collapsed .chat-box-fixed{right:0}
     <source src="/static/intro.mp4" type="video/mp4">
   </video>
   <div id="introProgress"></div>
-  <button id="introSkip" onclick="skipIntro()">건너뛰기 ▶</button>
+  <button id="introSkip">건너뛰기 ▶</button>
 </div>
+<script>
+// 인트로 즉시 초기화 (DOM 로드 직후 실행)
+(function(){
+  var ov = document.getElementById('introOverlay');
+  var vi = document.getElementById('introVideo');
+  var sk = document.getElementById('introSkip');
+  if(!ov) return;
+
+  function dismiss(){
+    if(ov._done) return;
+    ov._done = true;
+    if(vi) vi.pause();
+    ov.classList.add('fade-out');
+    var sb = document.querySelector('.sidebar');
+    var mn = document.querySelector('.main');
+    if(sb) sb.style.visibility = 'visible';
+    if(mn) mn.style.visibility = 'visible';
+    setTimeout(function(){ if(ov.parentNode) ov.parentNode.removeChild(ov); }, 700);
+  }
+
+  // 건너뛰기 버튼 — 항상 활성
+  if(sk){
+    sk.onclick = dismiss;
+    sk.style.pointerEvents = 'auto';
+    sk.style.cursor = 'pointer';
+  }
+
+  // 오버레이 클릭으로도 건너뛰기
+  ov.addEventListener('click', function(e){
+    if(e.target === ov || e.target === sk) dismiss();
+  });
+
+  // 영상 이벤트
+  if(vi){
+    vi.addEventListener('ended', dismiss);
+    vi.addEventListener('error', dismiss);
+    var src = vi.querySelector('source');
+    if(src) src.addEventListener('error', dismiss);
+  }
+
+  // 안전장치: 4초 안에 재생 안 되면 자동 진입
+  setTimeout(function(){
+    if(vi && vi.readyState < 2) dismiss();
+  }, 4000);
+
+  // ESC 키로도 건너뛰기
+  document.addEventListener('keydown', function(e){
+    if(e.key === 'Escape') dismiss();
+  });
+})();
+</script>
 
 <div class="sidebar" id="sidebar">
   <button class="sidebar-toggle-mini" onclick="toggleSidebar()" title="펼치기">☰</button>
@@ -5765,67 +5816,6 @@ function readEntriesRecursive(entries){
 
 // 초기 실행 버튼 상태
 updateRpRunBtn();
-
-// ==================== 인트로 비디오 ====================
-(function(){
-  const overlay = document.getElementById('introOverlay');
-  const video = document.getElementById('introVideo');
-  const progress = document.getElementById('introProgress');
-  const skipBtn = document.getElementById('introSkip');
-
-  if(!video || !overlay) return;
-
-  // 메인 콘텐츠 초기 숨김
-  document.querySelector('.sidebar').style.visibility = 'hidden';
-  document.querySelector('.main').style.visibility = 'hidden';
-
-  let dismissed = false;
-  function dismissIntro(){
-    if(dismissed) return;
-    dismissed = true;
-    overlay.classList.add('fade-out');
-    document.querySelector('.sidebar').style.visibility = 'visible';
-    document.querySelector('.main').style.visibility = 'visible';
-    setTimeout(()=>{ overlay.remove(); }, 700);
-  }
-
-  // 영상 종료 시 자동 전환
-  video.addEventListener('ended', dismissIntro);
-
-  // 영상 로드 실패 시 바로 메인 진입 (video + source 모두 감지)
-  video.addEventListener('error', dismissIntro);
-  const sourceEl = video.querySelector('source');
-  if(sourceEl) sourceEl.addEventListener('error', dismissIntro);
-
-  // 안전장치: 5초 안에 영상 재생이 시작되지 않으면 바로 메인 진입
-  const safetyTimer = setTimeout(()=>{
-    if(video.readyState < 2) dismissIntro();
-  }, 5000);
-  video.addEventListener('playing', ()=> clearTimeout(safetyTimer));
-
-  // 진행률 바 업데이트
-  video.addEventListener('timeupdate', ()=>{
-    if(video.duration){
-      progress.style.width = (video.currentTime / video.duration * 100) + '%';
-    }
-  });
-
-  // 건너뛰기 버튼: 항상 클릭 가능하게 (카운트다운 제거)
-  skipBtn.disabled = false;
-  skipBtn.style.opacity = '1';
-  skipBtn.textContent = '건너뛰기 ▶';
-})();
-
-function skipIntro(){
-  const overlay = document.getElementById('introOverlay');
-  if(!overlay) return;
-  const video = document.getElementById('introVideo');
-  if(video) video.pause();
-  overlay.classList.add('fade-out');
-  document.querySelector('.sidebar').style.visibility = 'visible';
-  document.querySelector('.main').style.visibility = 'visible';
-  setTimeout(()=>{ overlay.remove(); }, 700);
-}
 
 // ==================== PPT 코드 감지 & 생성 ====================
 function detectAndAddPptxButtons(msgEl, rawText){
