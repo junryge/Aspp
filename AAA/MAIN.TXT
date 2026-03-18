@@ -2272,10 +2272,48 @@ def api_generate_pptx():
     # "text" 안에 이스케이프 안 된 "가 있는 패턴도 수정
     code = _re.sub(r'""([^"]{2,}?)""', r"'\1'", code)
 
-    # 4) 구문 검증 → 실패 시 추가 정리 시도
+    # 4) 괄호 불일치 자동 수정 (예: slide_layouts[6) → slide_layouts[6])
+    def _fix_bracket_mismatch(code_str):
+        lines = code_str.split('\n')
+        for i, line in enumerate(lines):
+            # 각 라인에서 괄호 스택 추적
+            stack = []
+            pairs = {'(': ')', '[': ']', '{': '}'}
+            reverse = {')': '(', ']': '[', '}': '{'}
+            in_str = None
+            chars = list(line)
+            fixed = False
+            for j, ch in enumerate(chars):
+                # 문자열 안에서는 괄호 무시
+                if ch in ('"', "'") and (j == 0 or chars[j-1] != '\\'):
+                    if in_str is None:
+                        in_str = ch
+                    elif in_str == ch:
+                        in_str = None
+                    continue
+                if in_str:
+                    continue
+                if ch in pairs:
+                    stack.append((ch, j))
+                elif ch in reverse:
+                    expected_open = reverse[ch]
+                    if stack and stack[-1][0] == expected_open:
+                        stack.pop()
+                    elif stack and stack[-1][0] != expected_open:
+                        # 불일치: 올바른 닫는 괄호로 교체
+                        chars[j] = pairs[stack[-1][0]]
+                        stack.pop()
+                        fixed = True
+            if fixed:
+                lines[i] = ''.join(chars)
+        return '\n'.join(lines)
+
+    # 5) 구문 검증 → 실패 시 추가 정리 시도
     try:
         compile(code, '<pptx_code>', 'exec')
     except SyntaxError as _e:
+        # 괄호 불일치 자동 수정 시도
+        code = _fix_bracket_mismatch(code)
         # 문자열 안 따옴표 충돌 최후 수단: 문제 라인의 바깥 따옴표를 삼중따옴표로 교체
         lines = code.split('\n')
         for i, line in enumerate(lines):
@@ -2293,6 +2331,11 @@ def api_generate_pptx():
                     indent = line[:len(line) - len(stripped)]
                     lines[i] = f"{indent}{prefix}{quote}{content_escaped}{quote}"
         code = '\n'.join(lines)
+        # 수정 후 재검증
+        try:
+            compile(code, '<pptx_code>', 'exec')
+        except SyntaxError:
+            pass  # 자동 수정 실패 — 원래 에러 그대로 출력될 것
 
     # 임시 파일에 코드 작성 → 별도 프로세스에서 실행
     with tempfile.TemporaryDirectory() as tmpdir:
@@ -2510,6 +2553,10 @@ def api_chat():
                 "10. 코드 주석은 반드시 `## 설명내용` 형식으로 작성하세요. "
                 "단일 #이 아니라 ##을 사용하고, 구간 설명용으로만 간결하게 작성하세요. "
                 "예: `## 슬라이드 1: 표지`, `## 차트 데이터 설정`. 줄마다 주석을 달지 마세요.\n"
+                "11. 중요: 괄호 매칭에 극도로 주의하세요! "
+                "[인덱스]는 반드시 ]로 닫고, (함수호출)은 반드시 )로 닫으세요. "
+                "예: prs.slide_layouts[6] (O) / prs.slide_layouts[6) (X — SyntaxError). "
+                "코드 작성 후 모든 괄호 쌍([]/()/{})이 올바르게 매칭되는지 반드시 검증하세요.\n"
                 "프론트엔드가 코드를 감지하여 '📽️ PPT 생성 & 다운로드' 버튼을 자동 표시합니다.\n\n"
             )
         # === 차트/그래프 생성 가이드 (항상 포함 - 스킬 불필요) ===
