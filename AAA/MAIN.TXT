@@ -2169,10 +2169,57 @@ def api_generate_pptx():
 
     import tempfile, subprocess, json as _json
 
-    # --- 특수 따옴표 → ASCII 따옴표 자동 치환 (LLM이 종종 한국어 따옴표 생성) ---
-    code = code.replace('\u201c', "'").replace('\u201d', "'")  # " " → '
-    code = code.replace('\u2018', "'").replace('\u2019', "'")  # ' ' → '
-    code = code.replace('\u300c', "'").replace('\u300d', "'")  # 「 」 → '
+    # --- LLM 생성 코드 자동 정리 (SyntaxError 방지) ---
+    import re as _re
+
+    # 1) 특수 따옴표 → ASCII 따옴표
+    _quote_map = {
+        '\u201c': '"', '\u201d': '"',   # " " (curly double)
+        '\u2018': "'", '\u2019': "'",   # ' ' (curly single)
+        '\u300c': "'", '\u300d': "'",   # 「 」
+        '\u300e': '"', '\u300f': '"',   # 『 』
+        '\uff02': '"', '\uff07': "'",   # ＂ ＇ (fullwidth)
+    }
+    for _old, _new in _quote_map.items():
+        code = code.replace(_old, _new)
+
+    # 2) 전각 문자 → 반각 (코드 안에서 자주 문제됨)
+    _fullwidth_map = {
+        '\uff08': '(', '\uff09': ')',   # （ ）
+        '\uff1a': ':', '\uff1b': ';',   # ： ；
+        '\uff0c': ',', '\uff0e': '.',   # ， ．
+        '\uff1d': '=', '\uff0b': '+',   # ＝ ＋
+    }
+    for _old, _new in _fullwidth_map.items():
+        code = code.replace(_old, _new)
+
+    # 3) 중첩 따옴표 패턴 수정: p.text = ""내용"" → p.text = "내용"
+    code = _re.sub(r'= ""([^"]*?)""', r"= '\1'", code)
+    code = _re.sub(r"= ''([^']*?)''", r"= '\1'", code)
+    # "text" 안에 이스케이프 안 된 "가 있는 패턴도 수정
+    code = _re.sub(r'""([^"]{2,}?)""', r"'\1'", code)
+
+    # 4) 구문 검증 → 실패 시 추가 정리 시도
+    try:
+        compile(code, '<pptx_code>', 'exec')
+    except SyntaxError as _e:
+        # 문자열 안 따옴표 충돌 최후 수단: 문제 라인의 바깥 따옴표를 삼중따옴표로 교체
+        lines = code.split('\n')
+        for i, line in enumerate(lines):
+            stripped = line.strip()
+            # .text = "..." 또는 .text = '...' 패턴에서 내부 따옴표 충돌 수정
+            m = _re.match(r'''(.*(?:\.text|\.value)\s*=\s*)(['"])(.*)\2\s*$''', stripped)
+            if m:
+                prefix, quote, content = m.groups()
+                alt_quote = "'" if quote == '"' else '"'
+                if quote in content and alt_quote not in content:
+                    indent = line[:len(line) - len(stripped)]
+                    lines[i] = f"{indent}{prefix}{alt_quote}{content}{alt_quote}"
+                elif quote in content:
+                    content_escaped = content.replace(quote, '\\' + quote)
+                    indent = line[:len(line) - len(stripped)]
+                    lines[i] = f"{indent}{prefix}{quote}{content_escaped}{quote}"
+        code = '\n'.join(lines)
 
     # 임시 파일에 코드 작성 → 별도 프로세스에서 실행
     with tempfile.TemporaryDirectory() as tmpdir:
