@@ -2279,14 +2279,22 @@ def api_chat():
         return jsonify({"error": "API URL과 모델 이름을 설정해주세요."}), 400
 
     # 시스템 프롬프트 구성
-    default_prompt = """당신은 Demos(민중) Alpha 0.8 - 과학 연구와 소프트웨어 개발을 돕는 전문 AI 어시스턴트입니다.
+    # 출력 형식에 따라 기본 규칙 분기
+    non_code_formats = ("report", "analysis", "step-by-step")
+    if output_format in non_code_formats:
+        code_rules = """- 사용자가 코드를 명시적으로 요청한 경우에만 코드를 포함하세요
+- 기본적으로 자연어(글)로 설명, 분석, 보고하세요"""
+    else:
+        code_rules = """- 코드는 즉시 실행 가능하게 (import 포함, 필요 패키지 명시)
+- 에러 처리(try/except)를 포함하세요"""
+
+    default_prompt = f"""당신은 Demos(민중) Alpha 0.8 - 과학 연구와 소프트웨어 개발을 돕는 전문 AI 어시스턴트입니다.
 370개+ 전문 스킬(과학/개발/AI/인프라/비즈니스)을 활용할 수 있습니다.
 
 [기본 규칙]
 - 반드시 한국어(한글)로 답변하세요. 코드 주석도 한글로 작성하세요.
 - <think> 태그를 사용하여 사고할 때도 반드시 한국어로 작성하세요. 영어로 사고하지 마세요.
-- 코드는 즉시 실행 가능하게 (import 포함, 필요 패키지 명시)
-- 에러 처리(try/except)를 포함하세요
+{code_rules}
 
 [스킬 활용]
 - 아래에 로드된 SKILL 내용은 당신의 전문 지식입니다
@@ -2423,13 +2431,18 @@ def api_chat():
     format_map = {
         "code": "답변을 Python 코드 중심으로 작성하세요. import 포함, 즉시 실행 가능하게.",
         "code-fix": "문제 진단 → 수정 전/후 비교 → 수정 이유 설명 순서로 답변하세요. 최소 변경 원칙.",
-        "analysis": "데이터 개요 → 분석 코드(pandas/matplotlib) → 시각화 → 인사이트 요약 순서로 답변하세요.",
-        "report": "답변을 보고서 형식으로 작성하세요. 제목, 요약, 본문, 결론 구조.",
-        "step-by-step": "답변을 단계별(1,2,3...)로 작성하세요. 각 단계마다 왜 필요한지 설명.",
+        "analysis": "데이터 분석 결과를 글로 설명하세요. 데이터 개요 → 핵심 인사이트 → 시각화 설명 → 결론/제안 순서. 코드가 아닌 분석 내용과 해석이 중심이어야 합니다. 코드는 꼭 필요한 경우에만 최소한으로 포함하세요.",
+        "report": "반드시 보고서 형식의 글(텍스트)로 작성하세요. 코드를 생성하지 마세요. 구조: 제목 → 요약(Executive Summary) → 배경/목적 → 본문(핵심 내용, 분석, 근거) → 결론 및 제언. 전문적이고 읽기 쉬운 문서 형태로 답변하세요.",
+        "step-by-step": "답변을 단계별(1,2,3...)로 작성하세요. 각 단계마다 무엇을 하는지, 왜 필요한지를 글로 설명하세요. 코드보다 설명과 이해를 우선하세요.",
     }
 
     system_prompt += effort_map[min(effort, 3)] + "\n"
-    system_prompt += format_map.get(output_format, "") + "\n"
+    fmt_instruction = format_map.get(output_format, "")
+    if fmt_instruction:
+        system_prompt += fmt_instruction + "\n"
+    # 코드가 아닌 출력 형식일 때는 코드 중심 답변을 억제
+    if output_format in ("report", "analysis", "step-by-step"):
+        system_prompt += "중요: 사용자가 코드를 명시적으로 요청하지 않는 한, 코드 블록 없이 자연어(글)로 답변하세요.\n"
     if writing_style:
         system_prompt += f"작성 스타일: {writing_style}\n"
 
@@ -4182,7 +4195,7 @@ loadPromptList();
 const STYLE_PRESETS = [
   {id:'concise',    icon:'⚡', name:'간결', value:'간결하고 핵심만. 불필요한 설명 생략.'},
   {id:'detailed',   icon:'📖', name:'상세', value:'상세하고 친절하게. 원리, 배경, 예시 포함.'},
-  {id:'practical',  icon:'🔨', name:'실용적', value:'바로 복붙해서 쓸 수 있게. 실전 위주, 이론 최소화.'},
+  {id:'practical',  icon:'🔨', name:'실용적', value:'실전에서 바로 활용 가능하게. 핵심 요점과 구체적 방법 위주. 선택된 출력형식에 맞춰 답변하세요.'},
   {id:'academic',   icon:'🎓', name:'학술', value:'학술적 톤. 정확한 용어, 인용, 근거 제시.'},
   {id:'comment-kr', icon:'💬', name:'한글주석', value:'코드 주석을 상세한 한국어로. 변수명은 영어 유지.'},
   {id:'senior-dev', icon:'👨‍💻', name:'시니어', value:'시니어 개발자 관점. 왜 이렇게 하는지, 대안은 뭔지, 주의점 포함.'},
