@@ -2266,13 +2266,21 @@ def api_generate_pptx():
     for _old, _new in _fullwidth_map.items():
         code = code.replace(_old, _new)
 
-    # 3) 중첩 따옴표 패턴 수정: p.text = ""내용"" → p.text = "내용"
+    # 3) placeholder.shapes → slide.shapes 자동 수정
+    # LLM이 content/body/placeholder 등에 .shapes를 호출하는 실수 수정
+    code = _re.sub(
+        r'\b(?:content|body|placeholder|text_frame|title_shape|subtitle|body_shape|content_placeholder)\s*\.\s*shapes\s*\.',
+        'slide.shapes.',
+        code
+    )
+
+    # 4) 중첩 따옴표 패턴 수정: p.text = ""내용"" → p.text = "내용"
     code = _re.sub(r'= ""([^"]*?)""', r"= '\1'", code)
     code = _re.sub(r"= ''([^']*?)''", r"= '\1'", code)
     # "text" 안에 이스케이프 안 된 "가 있는 패턴도 수정
     code = _re.sub(r'""([^"]{2,}?)""', r"'\1'", code)
 
-    # 4) 괄호 불일치 자동 수정 (예: slide_layouts[6) → slide_layouts[6])
+    # 5) 괄호 불일치 자동 수정 (예: slide_layouts[6) → slide_layouts[6])
     def _fix_bracket_mismatch(code_str):
         lines = code_str.split('\n')
         for i, line in enumerate(lines):
@@ -2308,7 +2316,7 @@ def api_generate_pptx():
                 lines[i] = ''.join(chars)
         return '\n'.join(lines)
 
-    # 5) 구문 검증 → 실패 시 추가 정리 시도
+    # 6) 구문 검증 → 실패 시 추가 정리 시도
     try:
         compile(code, '<pptx_code>', 'exec')
     except SyntaxError as _e:
@@ -2344,6 +2352,13 @@ def api_generate_pptx():
         wrapped_code = (
             "import sys, os\n"
             f"_OUTPUT_PATH = {repr(out_path)}\n"
+            "# --- monkey-patch: fix default.pptx template path resolution ---\n"
+            "import pptx.api as _pptx_api\n"
+            "def _fixed_default_pptx_path():\n"
+            "    import pptx as _pptx_pkg\n"
+            "    _pkg_dir = os.path.dirname(_pptx_pkg.__file__)\n"
+            "    return os.path.join(_pkg_dir, 'templates', 'default.pptx')\n"
+            "_pptx_api._default_pptx_path = _fixed_default_pptx_path\n"
             "# --- monkey-patch: auto-convert float to int for pptx coordinates ---\n"
             "import pptx.oxml.simpletypes as _st\n"
             "_orig_validate_int = _st.BaseSimpleType.validate_int\n"
@@ -2557,8 +2572,17 @@ def api_chat():
                 "[인덱스]는 반드시 ]로 닫고, (함수호출)은 반드시 )로 닫으세요. "
                 "예: prs.slide_layouts[6] (O) / prs.slide_layouts[6) (X — SyntaxError). "
                 "코드 작성 후 모든 괄호 쌍([]/()/{})이 올바르게 매칭되는지 반드시 검증하세요.\n"
-                "12. 중요: 대화에서 데이터/수치/통계가 있으면 반드시 python-pptx 차트로 시각화하세요! "
+                "12. 중요: 색상은 반드시 `from pptx.dml.color import RGBColor`를 사용하세요! "
+                "RgbColor(X), rgbColor(X) 등은 존재하지 않습니다. 반드시 RGBColor (대문자 RGB)만 사용하세요. "
+                "예: `from pptx.dml.color import RGBColor` → `fill.fore_color.rgb = RGBColor(0x1A, 0x73, 0xE8)` "
+                "또는 `run.font.color.rgb = RGBColor(0xFF, 0xFF, 0xFF)`. "
+                "절대 `from pptx.dml.color import RgbColor`를 쓰지 마세요 — ImportError가 발생합니다.\n"
+                "13. 중요: 대화에서 데이터/수치/통계가 있으면 반드시 python-pptx 차트로 시각화하세요! "
                 "텍스트만 나열하지 말고, 차트 슬라이드를 추가하세요.\n"
+                "14. 중요: 차트/도형/표를 추가할 때 반드시 `slide.shapes.add_chart(...)`, `slide.shapes.add_table(...)` 등 "
+                "slide 객체의 shapes를 사용하세요! placeholder나 content 변수에는 .shapes 속성이 없습니다. "
+                "예: `content = slide.placeholders[1]`한 뒤 `content.shapes.add_chart(...)` (X — AttributeError). "
+                "반드시 `slide.shapes.add_chart(...)` (O)로 작성하세요.\n"
                 "python-pptx 차트 코드 예시:\n"
                 "```python\n"
                 "from pptx.chart.data import CategoryChartData\n"
