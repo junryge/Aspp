@@ -2316,10 +2316,40 @@ def api_generate_pptx():
                 lines[i] = ''.join(chars)
         return '\n'.join(lines)
 
-    # 6) 구문 검증 → 실패 시 추가 정리 시도
+    # 6) 미종료 문자열 리터럴 자동 수정
+    def _fix_unterminated_strings(code_str):
+        lines = code_str.split('\n')
+        for i, line in enumerate(lines):
+            stripped = line.rstrip()
+            if not stripped:
+                continue
+            # 코드 라인에서 문자열이 열렸는데 닫히지 않은 경우 감지
+            in_str = None
+            escaped = False
+            for ch in stripped:
+                if escaped:
+                    escaped = False
+                    continue
+                if ch == '\\':
+                    escaped = True
+                    continue
+                if ch in ('"', "'"):
+                    if in_str is None:
+                        # 삼중 따옴표 시작 여부는 무시 (복잡)
+                        in_str = ch
+                    elif in_str == ch:
+                        in_str = None
+            # 문자열이 닫히지 않았으면 끝에 닫는 따옴표 추가
+            if in_str is not None:
+                lines[i] = stripped + in_str
+        return '\n'.join(lines)
+
+    # 7) 구문 검증 → 실패 시 추가 정리 시도
     try:
         compile(code, '<pptx_code>', 'exec')
     except SyntaxError as _e:
+        # 미종료 문자열 수정 시도
+        code = _fix_unterminated_strings(code)
         # 괄호 불일치 자동 수정 시도
         code = _fix_bracket_mismatch(code)
         # 문자열 안 따옴표 충돌 최후 수단: 문제 라인의 바깥 따옴표를 삼중따옴표로 교체
@@ -2380,6 +2410,26 @@ def api_generate_pptx():
             "        v = _map.get(int(value), MSO_ANCHOR.MIDDLE) if hasattr(value, '__int__') else MSO_ANCHOR.MIDDLE\n"
             "        _orig_va_setter(self, v)\n"
             "_pptx_text.TextFrame.vertical_anchor = property(_pptx_text.TextFrame.vertical_anchor.fget, _patched_va_setter)\n"
+            "# --- monkey-patch: safe table.cell() to prevent IndexError ---\n"
+            "import pptx.table as _pptx_table\n"
+            "_orig_table_cell = _pptx_table.Table.cell\n"
+            "def _safe_table_cell(self, row_idx, col_idx):\n"
+            "    row_count = len(self._tbl.tr_lst)\n"
+            "    col_count = len(self._tbl.tr_lst[0].tc_lst) if row_count > 0 else 0\n"
+            "    if row_idx >= row_count:\n"
+            "        for _ in range(row_idx - row_count + 1):\n"
+            "            from pptx.oxml.ns import qn as _qn\n"
+            "            from lxml import etree as _etree\n"
+            "            new_tr = _etree.SubElement(self._tbl, _qn('a:tr'))\n"
+            "            new_tr.set('h', self._tbl.tr_lst[0].get('h', '370840'))\n"
+            "            for c in range(col_count):\n"
+            "                tc = _etree.SubElement(new_tr, _qn('a:tc'))\n"
+            "                txBody = _etree.SubElement(tc, _qn('a:txBody'))\n"
+            "                _etree.SubElement(txBody, _qn('a:bodyPr'))\n"
+            "                p = _etree.SubElement(txBody, _qn('a:p'))\n"
+            "                tc_pr = _etree.SubElement(tc, _qn('a:tcPr'))\n"
+            "    return _orig_table_cell(self, row_idx, col_idx)\n"
+            "_pptx_table.Table.cell = _safe_table_cell\n"
             "# --- user code ---\n"
             f"{code}\n"
         )
@@ -2583,6 +2633,13 @@ def api_chat():
                 "slide 객체의 shapes를 사용하세요! placeholder나 content 변수에는 .shapes 속성이 없습니다. "
                 "예: `content = slide.placeholders[1]`한 뒤 `content.shapes.add_chart(...)` (X — AttributeError). "
                 "반드시 `slide.shapes.add_chart(...)` (O)로 작성하세요.\n"
+                "15. 중요: 표(table) 생성 시 add_table(rows, cols, ...)의 rows 수를 데이터 행 수 + 헤더 행에 정확히 맞추세요! "
+                "데이터가 N개이면 add_table(N+1, cols, ...)로 헤더 포함 N+1행을 만드세요. "
+                "행 수가 부족하면 table.cell(i, j)에서 IndexError가 발생합니다. "
+                "예: 데이터 5개 → add_table(6, 3, ...) (헤더 1행 + 데이터 5행 = 6행).\n"
+                "16. 중요: 문자열 리터럴은 반드시 같은 줄에서 열고 닫으세요! "
+                "줄바꿈이 필요하면 삼중따옴표(triple quotes)를 사용하세요. "
+                "예: p.text = '긴 텍스트' (O) / p.text = '긴 텍스트 (X — SyntaxError: unterminated string literal).\n"
                 "python-pptx 차트 코드 예시:\n"
                 "```python\n"
                 "from pptx.chart.data import CategoryChartData\n"
