@@ -2917,6 +2917,7 @@ def api_chat():
     writing_style = data.get("writing_style", "")
     custom_system_prompt = data.get("system_prompt", "")
     max_tokens = data.get("max_tokens", 8192)
+    think_mode = data.get("think_mode", False)
 
     # 출력형식/스타일 자동 분류 (format=auto 또는 writing_style=auto일 때)
     auto_format = False
@@ -2951,12 +2952,18 @@ def api_chat():
 - 에러 처리(try/except)를 포함하세요
 - 코드 주석은 반드시 ## 형식으로 작성하세요. 단일 #이 아니라 ##을 사용하고, 구간 설명용으로만 간결하게 작성하세요. 줄마다 주석을 달지 마세요. 예: ## 데이터 전처리, ## API 호출"""
 
+    # 사고 모드 on/off
+    if think_mode:
+        think_rule = "- 답변 전에 반드시 <think>...</think> 태그 안에서 충분히 사고한 후 답변하세요. 사고 내용도 반드시 한국어로 작성하세요."
+    else:
+        think_rule = "- <think> 태그를 사용하지 마세요. 사고 과정 없이 바로 답변하세요."
+
     default_prompt = f"""당신은 Demos(민중) Alpha 0.8 - 과학 연구와 소프트웨어 개발을 돕는 전문 AI 어시스턴트입니다.
 370개+ 전문 스킬(과학/개발/AI/인프라/비즈니스)을 활용할 수 있습니다.
 
 [기본 규칙]
 - 반드시 한국어(한글)로 답변하세요. 코드 주석도 한글로 작성하세요.
-- <think> 태그를 사용하여 사고할 때도 반드시 한국어로 작성하세요. 영어로 사고하지 마세요.
+{think_rule}
 {code_rules}
 
 [스킬 활용]
@@ -3228,6 +3235,31 @@ def api_chat():
         if err:
             return jsonify({"error": err}), 500
 
+        # GGUF: <think> 사고만 있고 본문 없이 잘린 경우 재시도
+        import re as _re
+        if answer and answer.strip():
+            stripped = answer.strip()
+            has_open = "<think>" in stripped
+            has_close = "</think>" in stripped
+            think_only_gguf = False
+            if has_open and not has_close:
+                think_only_gguf = True
+            elif has_open and has_close:
+                after = _re.sub(r'<think>[\s\S]*?</think>\s*', '', stripped).strip()
+                if len(after) < 20:
+                    think_only_gguf = True
+            if think_only_gguf:
+                retry_max = min(actual_max_tokens * 2, safe_max)
+                if retry_max > actual_max_tokens:
+                    retry_answer, retry_err = gguf_chat(
+                        api_messages,
+                        temperature=temperature_map[min(effort, 3)],
+                        max_tokens=retry_max,
+                        stop_flag=chat_stop_flag,
+                    )
+                    if not retry_err and retry_answer:
+                        answer = retry_answer
+
         return jsonify({
             "content": answer,
             "loaded_skills": loaded,
@@ -3324,6 +3356,47 @@ def api_chat():
                     if finish_reason == "length":
                         truncated = True
 
+                    # <think> 사고 과정만 있고 본문이 없이 잘린 경우 자동 재시도
+                    import re as _re
+                    think_only = False
+                    if truncated and answer.strip():
+                        # </think> 닫히지 않았거나, </think> 후 본문이 비어있는 경우
+                        stripped = answer.strip()
+                        has_open_think = "<think>" in stripped
+                        has_close_think = "</think>" in stripped
+                        if has_open_think and not has_close_think:
+                            think_only = True
+                        elif has_open_think and has_close_think:
+                            after_think = _re.sub(r'<think>[\s\S]*?</think>\s*', '', stripped).strip()
+                            if len(after_think) < 20:
+                                think_only = True
+
+                    if think_only and max_tokens < 32768:
+                        # 토큰 2배로 늘려서 재시도 (최대 32768)
+                        retry_max = min(max_tokens * 2, 32768)
+                        try:
+                            retry_resp = req.post(
+                                try_url,
+                                headers=headers,
+                                json={
+                                    "model": try_model,
+                                    "messages": try_msgs,
+                                    "temperature": temperature_map[min(effort, 3)],
+                                    "max_tokens": retry_max,
+                                    "stream": False,
+                                },
+                                timeout=180,
+                                verify=False,
+                            )
+                            retry_resp.raise_for_status()
+                            retry_result = retry_resp.json()
+                            if "choices" in retry_result and len(retry_result["choices"]) > 0:
+                                answer = retry_result["choices"][0].get("message", {}).get("content", "")
+                                finish_reason = retry_result["choices"][0].get("finish_reason", "")
+                                truncated = finish_reason == "length"
+                        except Exception:
+                            pass  # 재시도 실패 시 원래 응답 사용
+
                     if attempt > 0:
                         fallback_used = True
                         fallback_from = models_tried[0]
@@ -3408,6 +3481,46 @@ def api_chat():
                 finish_reason = result["choices"][0].get("finish_reason", "")
                 if finish_reason == "length":
                     truncated = True
+
+                # <think> 사고 과정만 있고 본문이 없이 잘린 경우 자동 재시도
+                import re as _re
+                think_only = False
+                if truncated and answer.strip():
+                    stripped = answer.strip()
+                    has_open_think = "<think>" in stripped
+                    has_close_think = "</think>" in stripped
+                    if has_open_think and not has_close_think:
+                        think_only = True
+                    elif has_open_think and has_close_think:
+                        after_think = _re.sub(r'<think>[\s\S]*?</think>\s*', '', stripped).strip()
+                        if len(after_think) < 20:
+                            think_only = True
+
+                if think_only and max_tokens < 32768:
+                    retry_max = min(max_tokens * 2, 32768)
+                    try:
+                        retry_resp = req.post(
+                            api_url,
+                            headers=headers,
+                            json={
+                                "model": model,
+                                "messages": api_messages,
+                                "temperature": temperature_map[min(effort, 3)],
+                                "max_tokens": retry_max,
+                                "stream": False,
+                            },
+                            timeout=180,
+                            verify=False,
+                        )
+                        retry_resp.raise_for_status()
+                        retry_result = retry_resp.json()
+                        if "choices" in retry_result and len(retry_result["choices"]) > 0:
+                            answer = retry_result["choices"][0].get("message", {}).get("content", "")
+                            finish_reason = retry_result["choices"][0].get("finish_reason", "")
+                            truncated = finish_reason == "length"
+                    except Exception:
+                        pass
+
             elif "error" in result:
                 answer = f"API 에러: {result['error']}"
             else:
@@ -4003,6 +4116,9 @@ body.rp-collapsed .chat-box-fixed{right:0}
             <option value="report">📄 보고서</option>
             <option value="step-by-step">📝 단계별</option>
           </select>
+          <label style="display:flex;align-items:center;gap:3px;font-size:11px;color:#888;cursor:pointer;user-select:none" title="체크하면 모델이 답변 전에 깊이 사고합니다 (응답 느림)">
+            <input type="checkbox" id="thinkToggle" style="margin:0;accent-color:#7c5cbf">💭사고
+          </label>
           <span style="font-size:11px;color:#bbb">Enter 전송</span>
         </div>
         <button class="send-btn" onclick="handleSendStop()" id="sendBtn">▶</button>
@@ -4134,6 +4250,7 @@ if(lastSessions.length > 0){
     if(s.writingStyle){ document.getElementById('writingStyle').value = s.writingStyle; syncStyleDropToSidebar(); }
     if(s.systemPrompt) document.getElementById('systemPromptInput').value = s.systemPrompt;
     if(s.systemPromptId){ currentPromptId=s.systemPromptId; renderPromptChips(); }
+    if(s.thinkMode!==undefined) document.getElementById('thinkToggle').checked=s.thinkMode;
     if(s.selFormat){ selFormat=s.selFormat; formatManualOverride=(selFormat!=='auto'); document.querySelectorAll('.fmt-btn').forEach(b=>{b.classList.toggle('selected',b.dataset.f===selFormat);}); syncFormatDropToChat(); }
     if(s.effort!==undefined){ effort=s.effort; document.getElementById('effortSlider').value=effort; }
     if(s.selEnv){ selEnv=s.selEnv; renderEnvs(); updateStatus(); }
@@ -4625,6 +4742,7 @@ async function send(){
         writing_style: styleManualOverride ? document.getElementById('writingStyle').value.trim() : 'auto',
         system_prompt:document.getElementById('systemPromptInput').value.trim(),
         max_tokens:maxTokens,
+        think_mode: document.getElementById('thinkToggle').checked,
       })
     });
     const data=await resp.json();
@@ -4904,6 +5022,7 @@ function saveCurrentSession(){
     writingStyleId: activeStyleId || '',
     systemPrompt: document.getElementById('systemPromptInput')?.value || '',
     systemPromptId: currentPromptId || '',
+    thinkMode: document.getElementById('thinkToggle')?.checked || false,
     msgsHtml: document.getElementById('msgs').innerHTML,
     updatedAt: Date.now()
   };
@@ -5110,6 +5229,7 @@ function loadSession(id){
   if(s.writingStyleId){ activeStyleId=s.writingStyleId; renderStyleChips(); }
   styleManualOverride = s.styleManualOverride !== undefined ? s.styleManualOverride : !!s.writingStyle;
   if(s.systemPrompt) document.getElementById('systemPromptInput').value=s.systemPrompt;
+  if(s.thinkMode!==undefined) document.getElementById('thinkToggle').checked=s.thinkMode;
   if(s.selFormat){ selFormat=s.selFormat; formatManualOverride=(s.formatManualOverride!==undefined ? s.formatManualOverride : selFormat!=='auto'); document.querySelectorAll('.fmt-btn').forEach(b=>{b.classList.toggle('selected',b.dataset.f===selFormat);}); syncFormatDropToChat(); }
   if(s.effort!==undefined){ effort=s.effort; document.getElementById('effortSlider').value=effort; updateEffort(); }
   // 저장된 수동 스킬 복원
@@ -6596,6 +6716,7 @@ async function runCodeAssistant(){
           writing_style: styleManualOverride ? document.getElementById('writingStyle').value.trim() : 'auto',
           system_prompt: document.getElementById('systemPromptInput').value.trim(),
           max_tokens: maxTokens,
+          think_mode: document.getElementById('thinkToggle').checked,
         })
       });
       const data = await resp.json();
