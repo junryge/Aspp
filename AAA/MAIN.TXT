@@ -3584,6 +3584,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
 .sidebar{width:250px;background:#fff;border-right:1px solid #e5e3de;padding:20px 16px;display:flex;flex-direction:column;overflow-y:auto;transition:width .2s ease,padding .2s ease;flex-shrink:0}
 .sidebar.collapsed{width:48px;padding:12px 6px;overflow:hidden}
 .sidebar.collapsed .sidebar-inner{display:none}
+.sidebar.collapsed .sidebar-file-panel{display:none!important}
 .sidebar.collapsed .sidebar-logo{display:none}
 .sidebar-toggle{position:absolute;top:12px;left:250px;width:24px;height:24px;border-radius:0 6px 6px 0;border:1px solid #e5e3de;border-left:none;background:#fff;cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:12px;color:#999;z-index:200;transition:left .2s ease}
 .sidebar-toggle:hover{background:#eef2ff;color:#6366f1}
@@ -3867,12 +3868,13 @@ body.sb-collapsed .chat-box-fixed{left:48px}
 .drawio-preview code{font-size:11px}
 .send-btn.stop-mode{background:#e74c3c;animation:pulse-stop 1.2s infinite}
 @keyframes pulse-stop{0%,100%{opacity:1}50%{opacity:.7}}
-.uploaded-files-header{font-size:12px;font-weight:600;color:#555;padding:6px 0;border-bottom:1px solid #eee;margin-bottom:4px}
-.uploaded-file-item{display:flex;align-items:center;gap:6px;padding:5px 4px;border-bottom:1px solid #f0f0f0;font-size:12px}
-.ufi-icon{font-size:16px;flex-shrink:0}
+.sidebar-file-panel{margin-top:auto;padding:8px 8px 0;border-top:1px solid #e5e3de;max-height:220px;overflow-y:auto}
+.uploaded-files-header{font-size:11px;font-weight:600;color:#555;padding:4px 0;border-bottom:1px solid #eee;margin-bottom:2px;display:flex;align-items:center;justify-content:space-between}
+.uploaded-file-item{display:flex;align-items:center;gap:4px;padding:3px 2px;border-bottom:1px solid #f0f0f0;font-size:11px}
+.ufi-icon{font-size:14px;flex-shrink:0}
 .ufi-name{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#333;cursor:help}
 .ufi-size{color:#999;font-size:10px;flex-shrink:0}
-.ufi-remove{background:none;border:none;color:#ccc;cursor:pointer;font-size:13px;padding:0 2px}
+.ufi-remove{background:none;border:none;color:#ccc;cursor:pointer;font-size:12px;padding:0 2px}
 .ufi-remove:hover{color:#e74c3c}
 .think-box{margin:8px 0 12px;border:1px solid #d4c8f0;border-radius:8px;background:#f8f5ff;overflow:hidden}
 .think-box summary{cursor:pointer;padding:8px 12px;font-size:12px;font-weight:600;color:#7c5cbf;background:#f0ebfa;user-select:none}
@@ -3988,6 +3990,7 @@ body.rp-collapsed .chat-box-fixed{right:0}
       <strong>SKILL.md</strong> 파일이 있는 스킬만 ✅ 표시됩니다.
     </div>
   </div>
+  <div id="fileListPanel" class="sidebar-file-panel" style="display:none"></div>
   <div class="sidebar-footer">
     <div class="credits">🔬 Demos(민중) Alpha 0.8</div>
   </div>
@@ -4012,9 +4015,8 @@ body.rp-collapsed .chat-box-fixed{right:0}
         <!-- JS에서 동적 생성 -->
       </div>
 
-      <!-- 업로드된 파일 목록 (채팅 입력 📎에서 추가됨) -->
+      <!-- 업로드된 파일 목록은 사이드바 하단으로 이동 -->
       <div id="csvInfoPanel" style="display:none"></div>
-      <div id="fileListPanel" style="display:none"></div>
 
       <div class="section-label">분야 선택</div>
       <div class="tag-row" id="tagRow"></div>
@@ -6008,7 +6010,7 @@ function renderFileList(){
     return;
   }
   panel.style.display = 'block';
-  let html = '<div class="uploaded-files-header"><span>📎 업로드된 파일 ('+uploadedFilesList.length+')</span><button onclick="clearAllFiles()" class="fremove" style="float:right">전체 제거</button></div>';
+  let html = '<div class="uploaded-files-header"><span>📎 첨부 파일 ('+uploadedFilesList.length+')</span><button onclick="clearAllFiles()" style="background:none;border:none;color:#e74c3c;cursor:pointer;font-size:10px;padding:0">전체 제거</button></div>';
   uploadedFilesList.forEach((f,i)=>{
     const sizeStr = f.size > 1048576 ? (f.size/1048576).toFixed(1)+'MB' : (f.size/1024).toFixed(1)+'KB';
     html += `<div class="uploaded-file-item">
