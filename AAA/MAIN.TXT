@@ -3151,6 +3151,10 @@ body.sb-collapsed .chat-box-fixed{left:48px}
 .pptx-gen-btn.secondary{background:#e0e7ff;color:#4338ca}
 .pptx-gen-btn.secondary:hover{background:#c7d2fe}
 .pptx-gen-status{font-size:11px;color:#6b7280}
+.pptx-remake-bar{display:flex;align-items:center;gap:6px;padding:8px 12px;background:#f8fafc;border-top:1px solid #e5e7eb;border-radius:0 0 10px 10px;flex-wrap:wrap}
+.pptx-remake-label{font-size:11px;color:#6b7280;font-weight:600;white-space:nowrap}
+.pptx-remake-btn{background:#fff;color:#4338ca;border:1px solid #c7d2fe;border-radius:16px;padding:4px 12px;font-size:11px;cursor:pointer;transition:all .2s;font-weight:500;white-space:nowrap}
+.pptx-remake-btn:hover{background:#eef2ff;border-color:#818cf8;transform:translateY(-1px)}
 /* CSV Upload */
 .csv-section{margin-bottom:24px}
 /* csv-upload-area 제거됨 → 채팅 📎 첨부로 대체 */
@@ -3945,19 +3949,34 @@ function stopGeneration(){
 let _pptBannerShownCount = 0;
 const _pptSuggestItems = [
   {icon:'📊', title:'차트/그래프를 포함할까요?', hint:'"매출 데이터를 막대 차트로 넣어줘"', example:'차트/그래프도 포함해서 PPT 만들어줘'},
+  {icon:'📝', title:'그래프 없이 깔끔하게?', hint:'"그래프 없이 텍스트와 표로만 PPT 만들어줘"', example:'그래프 없이 텍스트와 표 위주로 PPT 만들어줘'},
   {icon:'📋', title:'표(Table)를 넣어볼까요?', hint:'"비교 데이터를 표로 정리해서 넣어줘"', example:'데이터를 표로 정리해서 PPT에 넣어줘'},
   {icon:'🖼️', title:'이미지/다이어그램도 가능해요!', hint:'"구조도를 슬라이드에 추가해줘"', example:'다이어그램도 포함해서 PPT 만들어줘'},
   {icon:'📈', title:'데이터 시각화를 추가할까요?', hint:'"트렌드를 꺾은선 그래프로 보여줘"', example:'데이터를 시각화해서 PPT에 넣어줘'},
+  {icon:'🎨', title:'심플한 디자인으로?', hint:'"심플하게 핵심 내용만 PPT 만들어줘"', example:'디자인 심플하게 핵심만 PPT 만들어줘'},
   {icon:'🍩', title:'원형/도넛 차트는 어때요?', hint:'"비율을 도넛 차트로 만들어줘"', example:'비율 데이터를 원형 차트로 PPT에 넣어줘'},
   {icon:'📉', title:'비교 차트를 넣어볼까요?', hint:'"전년 대비 성장률을 비교 차트로"', example:'비교 차트를 포함해서 PPT 만들어줘'},
 ];
 
-function _showPptSuggestBanner(){
+const _pptNoVisualItems = [
+  {icon:'📝', title:'그래프 없이도 만들 수 있어요!', hint:'"그래프 없이 텍스트와 표로만 PPT 만들어줘"', example:'그래프 없이 텍스트와 표 위주로 PPT 다시 만들어줘'},
+  {icon:'🎨', title:'심플한 PPT는 어때요?', hint:'"심플하게 핵심 내용만 PPT로"', example:'디자인 심플하게 핵심만 PPT 만들어줘'},
+];
+const _pptVisualItems = [
+  {icon:'📊', title:'그래프를 추가해볼까요?', hint:'"차트/그래프도 포함해서 PPT 만들어줘"', example:'차트/그래프도 포함해서 PPT 다시 만들어줘'},
+  {icon:'📈', title:'데이터 시각화는 어때요?', hint:'"데이터를 시각화해서 PPT에 넣어줘"', example:'데이터를 시각화해서 PPT에 넣어줘'},
+];
+
+function _showPptSuggestBanner(mode){
   if(_pptBannerShownCount >= 3) return;
   _pptBannerShownCount++;
   const area = document.getElementById('pptSuggestArea');
   if(!area) return;
-  const item = _pptSuggestItems[Math.floor(Math.random()*_pptSuggestItems.length)];
+  let pool;
+  if(mode === 'no-visual') pool = _pptNoVisualItems;
+  else if(mode === 'visual') pool = _pptVisualItems;
+  else pool = _pptSuggestItems;
+  const item = pool[Math.floor(Math.random()*pool.length)];
   const banner = document.createElement('div');
   banner.className = 'ppt-suggest-banner';
   banner.innerHTML = `<span class="ppt-banner-icon">${item.icon}</span>`
@@ -3993,8 +4012,10 @@ async function send(){
   const text=el.value.trim();
   if(!text && chatPendingFiles.length === 0) return;
 
-  if(text && _pptKeywords.test(text) && !/차트|그래프|표|table|chart|graph|시각화|도넛|원형/i.test(text)){
-    _showPptSuggestBanner();
+  if(text && _pptKeywords.test(text)){
+    const hasVisual = /차트|그래프|표|table|chart|graph|시각화|도넛|원형/i.test(text);
+    const hasNoVisual = /그래프\s*없|차트\s*없|텍스트\s*위주|텍스트만|심플하게/i.test(text);
+    _showPptSuggestBanner(hasVisual && !hasNoVisual ? 'no-visual' : hasNoVisual ? 'visual' : null);
   }
   if(!selEnv){alert('먼저 위에서 LLM 환경을 선택해주세요.');return;}
 
@@ -6159,6 +6180,13 @@ function detectAndAddPptxButtons(msgEl, rawText){
             <button class="pptx-gen-btn secondary" onclick="copyPptxCode(this)">📋 코드 복사</button>
             <button class="pptx-gen-btn" onclick="generatePptx(this)">📽️ PPT 생성 & 다운로드</button>
           </div>
+        </div>
+        <div class="pptx-remake-bar">
+          <span class="pptx-remake-label">🔄 다시 만들기:</span>
+          <button class="pptx-remake-btn" onclick="_remakePpt('그래프/차트 없이 텍스트와 표 위주로 PPT 다시 만들어줘')">📝 그래프 없이</button>
+          <button class="pptx-remake-btn" onclick="_remakePpt('그래프와 차트를 포함해서 PPT 다시 만들어줘')">📊 그래프 포함</button>
+          <button class="pptx-remake-btn" onclick="_remakePpt('디자인을 더 심플하게 PPT 다시 만들어줘')">🎨 심플하게</button>
+          <button class="pptx-remake-btn" onclick="_remakePpt('슬라이드 수를 줄여서 핵심만 PPT 다시 만들어줘')">✂️ 핵심만</button>
         </div>`;
       block.dataset.pptxCode = u2b(code);
       pre.parentNode.insertBefore(block, pre.nextSibling);
@@ -6216,6 +6244,13 @@ async function generatePptx(btn){
     btn.textContent = '📽️ 재시도';
     btn.disabled = false;
   }
+}
+
+function _remakePpt(text){
+  const input = document.getElementById('input');
+  if(input){ input.value = text; input.focus(); input.style.height='auto'; input.style.height=input.scrollHeight+'px'; }
+  // 자동 전송
+  setTimeout(()=>send(), 100);
 }
 </script>
 </body>
