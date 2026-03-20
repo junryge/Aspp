@@ -2273,6 +2273,14 @@ def api_generate_pptx():
     for _old, _new in _fullwidth_map.items():
         code = code.replace(_old, _new)
 
+    # 2.5) LLM이 자주 틀리는 pptx 메서드명 자동 교정
+    _method_typo_map = {
+        '.add_text_box(': '.add_textbox(',
+        '.add_text_box (': '.add_textbox(',
+    }
+    for _old, _new in _method_typo_map.items():
+        code = code.replace(_old, _new)
+
     # 3) placeholder.shapes → slide.shapes 자동 수정
     # LLM이 content/body/placeholder 등에 .shapes를 호출하는 실수 수정
     code = _re.sub(
