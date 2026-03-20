@@ -59,25 +59,103 @@ TOKEN_FILE = os.path.join(BASE_DIR, "TOKEN.TXT")
 PROMPTS_DIR = os.path.join(BASE_DIR, "saved-prompts")
 os.makedirs(PROMPTS_DIR, exist_ok=True)
 
-# 회사 LLM API 환경 설정
-ENV_CONFIG = {
-    "dev": {
-        "url": "http://dev.hcp.llm.skhynix.com/v1/chat/completions",
+# 멀티에이전트 모델 레지스트리 (capability 태그 기반 자동 라우팅)
+MODEL_REGISTRY = {
+    "glm-4.7": {
+        "env_id": "dev",
         "model": "GLM-4.7",
-        "name": "4.7"
-    },
-    "prod": {
         "url": "http://dev.hcp.llm.skhynix.com/v1/chat/completions",
+        "name": "4.7",
+        "capabilities": {"text", "code", "fast"},
+        "context_window": 128000,
+        "priority": 3,
+        "cost_tier": "low",
+    },
+    "qwen3.5-397b": {
+        "env_id": "prod",
         "model": "Qwen3.5-397B-A17B",
-        "name": "PROD (397B)"
-    },
-    "common": {
         "url": "http://dev.hcp.llm.skhynix.com/v1/chat/completions",
-        "model": "gpt-oss-120b",
-        "name": "COMMON (120B)"
+        "name": "PROD (397B)",
+        "capabilities": {"text", "code", "analysis", "large"},
+        "context_window": 128000,
+        "priority": 1,
+        "cost_tier": "high",
     },
-    # gguf-N 환경은 앱 시작 시 .gguf 파일 자동 감지되면 추가됨
+    "gpt-oss-120b": {
+        "env_id": "common",
+        "model": "gpt-oss-120b",
+        "url": "http://dev.hcp.llm.skhynix.com/v1/chat/completions",
+        "name": "COMMON (120B)",
+        "capabilities": {"text", "code", "medium"},
+        "context_window": 128000,
+        "priority": 2,
+        "cost_tier": "medium",
+    },
+    "qwen3-vl-235b": {
+        "env_id": "vl-large",
+        "model": "Qwen3-VL-235B-A22B-Instruct",
+        "url": "http://dev.hcp.llm.skhynix.com/v1/chat/completions",
+        "name": "VL-235B (Vision)",
+        "capabilities": {"text", "code", "vision", "analysis", "large"},
+        "context_window": 128000,
+        "priority": 1,
+        "cost_tier": "high",
+    },
+    "qwen2.5-vl-72b": {
+        "env_id": "vl-medium",
+        "model": "Qwen2.5-VL-72B-Instruct",
+        "url": "http://dev.hcp.llm.skhynix.com/v1/chat/completions",
+        "name": "VL-72B (Vision)",
+        "capabilities": {"text", "vision", "medium"},
+        "context_window": 128000,
+        "priority": 2,
+        "cost_tier": "medium",
+    },
+    "qwen3-vl-30b": {
+        "env_id": "vl-fast",
+        "model": "Qwen3-VL-30B-A3B-Instruct",
+        "url": "http://dev.hcp.llm.skhynix.com/v1/chat/completions",
+        "name": "VL-30B (Vision/Fast)",
+        "capabilities": {"text", "vision", "fast"},
+        "context_window": 128000,
+        "priority": 3,
+        "cost_tier": "low",
+    },
+    "bge-reranker": {
+        "env_id": "reranker",
+        "model": "bge-reranker-v2-m3",
+        "url": "http://dev.hcp.llm.skhynix.com/v1/chat/completions",
+        "name": "Reranker",
+        "capabilities": {"rerank"},
+        "context_window": 8192,
+        "priority": 1,
+        "cost_tier": "low",
+    },
 }
+
+# MODEL_REGISTRY에서 ENV_CONFIG 자동 생성 (하위 호환)
+ENV_CONFIG = {
+    v["env_id"]: {"url": v["url"], "model": v["model"], "name": v["name"]}
+    for v in MODEL_REGISTRY.values()
+    if "rerank" not in v["capabilities"]
+}
+# gguf-N 환경은 앱 시작 시 .gguf 파일 자동 감지되면 추가됨
+
+# env_id → registry key 역매핑
+ENV_TO_REGISTRY = {v["env_id"]: k for k, v in MODEL_REGISTRY.items()}
+
+# 폴백 체인: 모델 실패 시 순서대로 시도
+FALLBACK_CHAINS = {
+    "qwen3-vl-235b":  ["qwen2.5-vl-72b", "qwen3.5-397b", "gpt-oss-120b"],
+    "qwen3.5-397b":   ["gpt-oss-120b", "glm-4.7"],
+    "gpt-oss-120b":   ["glm-4.7"],
+    "glm-4.7":        ["gpt-oss-120b"],
+    "qwen2.5-vl-72b": ["qwen3-vl-30b", "gpt-oss-120b"],
+    "qwen3-vl-30b":   ["qwen2.5-vl-72b", "gpt-oss-120b"],
+}
+
+# Reranker 기능 플래그 (bge-reranker 엔드포인트 안정화 후 활성화)
+RERANKER_ENABLED = False
 
 
 def load_token():
@@ -1192,9 +1270,67 @@ def context_aware_skill_select(query, history, max_skills=7):
 
     # 6단계: 정렬 후 반환 (현재 질문 직접 매칭 우선)
     sorted_skills = sorted(combined.items(), key=lambda x: -x[1])
-    result = [(sid, sc) for sid, sc in sorted_skills[:max_skills] if sc > 0]
+
+    # 6.5단계: Reranker 선택적 적용 (feature flag)
+    if RERANKER_ENABLED:
+        top_candidates = [sid for sid, _ in sorted_skills[:20]]
+        try:
+            reranked = rerank_skills(query, top_candidates, top_k=max_skills)
+            result = reranked
+        except Exception:
+            result = [(sid, sc) for sid, sc in sorted_skills[:max_skills] if sc > 0]
+    else:
+        result = [(sid, sc) for sid, sc in sorted_skills[:max_skills] if sc > 0]
 
     return result, list(boosted)
+
+
+def rerank_skills(query, candidate_skill_ids, top_k=7):
+    """bge-reranker-v2-m3로 스킬 후보를 재정렬 (RERANKER_ENABLED=True일 때만 호출)
+
+    Returns:
+        [(skill_id, score), ...] 상위 top_k개
+    """
+    if not candidate_skill_ids:
+        return []
+    reg = MODEL_REGISTRY.get("bge-reranker")
+    if not reg:
+        return [(sid, 0) for sid in candidate_skill_ids[:top_k]]
+
+    # query-document 쌍 구성
+    pairs = []
+    for sid in candidate_skill_ids:
+        desc = SKILL_DESC_KO.get(sid, sid)
+        pairs.append({"text": [query, desc]})
+
+    headers = {"Content-Type": "application/json"}
+    if API_TOKEN:
+        headers["Authorization"] = f"Bearer {API_TOKEN}"
+
+    try:
+        resp = req.post(
+            reg["url"].replace("/chat/completions", "/rerank"),  # rerank 엔드포인트 시도
+            headers=headers,
+            json={
+                "model": reg["model"],
+                "query": query,
+                "documents": [SKILL_DESC_KO.get(sid, sid) for sid in candidate_skill_ids],
+                "top_n": top_k,
+            },
+            timeout=10,
+            verify=False,
+        )
+        resp.raise_for_status()
+        result = resp.json()
+        # reranker 응답 형식: {"results": [{"index": 0, "relevance_score": 0.95}, ...]}
+        if "results" in result:
+            ranked = sorted(result["results"], key=lambda x: -x.get("relevance_score", 0))
+            return [(candidate_skill_ids[r["index"]], r.get("relevance_score", 0))
+                    for r in ranked[:top_k] if r["index"] < len(candidate_skill_ids)]
+    except Exception:
+        pass  # 실패 시 caller에서 키워드 점수로 폴백
+
+    return [(sid, 0) for sid in candidate_skill_ids[:top_k]]
 
 
 def build_orchestration_prompt(query, skill_ids, loaded_skills_content):
@@ -1221,6 +1357,95 @@ def build_orchestration_prompt(query, skill_ids, loaded_skills_content):
 4. 각 SKILL에서 가져온 핵심 기법/코드를 명시하되, 자연스럽게 녹여내기
 """
     return orchestration
+
+
+# ===================== 멀티에이전트 라우터: 작업 분류 & 모델 자동 선택 =====================
+VISION_SIGNALS = [
+    "이미지", "사진", "그림 분석", "사진 속", "보이는", "스크린샷",
+    "screenshot", "그림에서", "화면", "figure", "diagram", "차트 읽",
+    "이 그림", "이 사진", "이미지에서", "사진에서", "이미지를", "사진을",
+    "이미지 속", "보여주는", "캡처", "화면에",
+]
+COMPLEX_SIGNALS = [
+    "분석", "비교", "설계", "아키텍처", "최적화", "리팩토링", "구현해줘",
+    "전체 코드", "시스템 설계", "파이프라인", "종합", "심층", "상세히",
+    "비교 분석", "장단점", "트레이드오프", "벤치마크",
+]
+PPT_SIGNALS = [
+    "ppt", "피피티", "파워포인트", "슬라이드", "발표자료", "프레젠테이션",
+    "발표 만들", "deck", "피치덱",
+]
+DATA_SIGNALS = [
+    "데이터 분석", "csv 분석", "통계 분석", "회귀", "상관관계",
+    "데이터셋", "데이터프레임", "pandas", "히스토그램", "분포",
+]
+SIMPLE_MAX_LEN = 50  # 이 길이 이하의 짧은 질문은 간단한 Q&A로 간주
+
+
+def classify_and_route(query, history, uploaded_files_list):
+    """작업 유형을 분류하고 최적 모델(env_id)을 자동 선택하는 휴리스틱 라우터
+
+    Returns:
+        (env_id, route_reason): 선택된 환경 ID와 선택 이유
+    """
+    q = query.lower() if query else ""
+    has_images = any(f.get("type") == "image" for f in uploaded_files_list)
+    has_csv = any(f.get("ext", "").lower() in ("csv", "tsv", "xlsx") for f in uploaded_files_list)
+    has_vision_kw = any(kw in q for kw in VISION_SIGNALS)
+
+    # 1순위: 이미지 첨부 → VL 모델
+    if has_images:
+        # 복잡한 분석 요청 → 대형 VL
+        if any(kw in q for kw in COMPLEX_SIGNALS) or len(q) > 200:
+            return "vl-large", "이미지+복잡 분석 → VL-235B"
+        # 보통 요청 → 중형 VL
+        elif len(q) > SIMPLE_MAX_LEN:
+            return "vl-medium", "이미지 분석 → VL-72B"
+        # 간단한 요청 → 소형 VL
+        else:
+            return "vl-fast", "간단 이미지 → VL-30B"
+
+    # 비전 키워드는 있지만 이미지가 없는 경우 (이미지 업로드 유도)
+    if has_vision_kw and not has_images:
+        return "vl-medium", "비전 키워드 감지 → VL-72B (이미지 업로드 권장)"
+
+    # 2순위: PPT 생성 → 중형 모델
+    if any(kw in q for kw in PPT_SIGNALS):
+        return "common", "PPT 생성 → 120B"
+
+    # 3순위: 복잡한 분석/코드/데이터 → 대형 모델
+    complex_count = sum(1 for kw in COMPLEX_SIGNALS if kw in q)
+    if complex_count >= 2 or (complex_count >= 1 and len(q) > 200):
+        return "prod", "복잡한 분석 → 397B"
+
+    # 4순위: 데이터 분석 (CSV 로드 + 분석 키워드)
+    if has_csv or any(kw in q for kw in DATA_SIGNALS):
+        return "prod", "데이터 분석 → 397B"
+
+    # 5순위: 코드 작성 요청 (중간~긴 쿼리)
+    code_kw = ["코드", "함수", "클래스", "구현", "작성", "코딩", "스크립트", "프로그래밍"]
+    if any(kw in q for kw in code_kw) and len(q) > 80:
+        return "prod", "코드 작성 → 397B"
+
+    # 6순위: 간단한 Q&A → 빠른 모델
+    if len(q) <= SIMPLE_MAX_LEN:
+        return "dev", "간단 Q&A → GLM-4.7 (fast)"
+
+    # 기본값: 중형 모델
+    return "common", "일반 요청 → 120B"
+
+
+def get_registry_key_for_env(env_id):
+    """env_id → MODEL_REGISTRY 키 반환. GGUF 등 미등록 환경은 None."""
+    return ENV_TO_REGISTRY.get(env_id)
+
+
+def get_model_capabilities(env_id):
+    """env_id의 capability set 반환"""
+    reg_key = get_registry_key_for_env(env_id)
+    if reg_key and reg_key in MODEL_REGISTRY:
+        return MODEL_REGISTRY[reg_key].get("capabilities", set())
+    return set()
 
 
 def load_skill_content(skill_name):
@@ -1999,6 +2224,7 @@ def extract_file_text(filepath, filename):
                 img_data = base64.b64encode(f.read()).decode('ascii')
             text = f"[이미지 파일: {filename}, 크기: {os.path.getsize(filepath)}바이트, base64 길이: {len(img_data)}]"
             file_type = "image"
+            # img_data는 caller에서 file_info에 저장 (VL 모델용)
 
         else:
             text = f"(지원하지 않는 파일 형식: .{ext})"
@@ -2055,6 +2281,14 @@ def api_upload_file():
             "content_full": text[:60000],  # 시스템 프롬프트용 최대 60000자
             "path": filepath,
         }
+        # VL 모델용: 이미지 base64 데이터 저장 (최대 10MB)
+        if file_type == "image" and ext in ('png', 'jpg', 'jpeg', 'gif', 'bmp', 'webp', 'svg'):
+            import base64 as _b64
+            if file_size <= 10 * 1024 * 1024:  # 10MB 제한
+                with open(filepath, 'rb') as _imgf:
+                    file_info["img_base64"] = _b64.b64encode(_imgf.read()).decode('ascii')
+            else:
+                file_info["img_base64"] = None  # 너무 큰 이미지
         uploaded_files.append(file_info)
 
         # 아이콘 매핑
@@ -2556,7 +2790,24 @@ def api_chat():
     chat_stop_flag["stop"] = False  # 새 요청 시작 시 플래그 초기화
     data = request.json
     # 환경 선택 시 서버에서 URL/모델 결정, 토큰은 TOKEN.TXT에서 읽음
-    env_id = data.get("env", "")
+    user_env = data.get("env", "")
+    auto_routed = False
+    route_reason = ""
+
+    # AUTO 모드: 질문 분석 후 최적 모델 자동 선택
+    if user_env == "auto":
+        last_query = ""
+        msgs = data.get("messages", [])
+        if msgs:
+            last_msg = msgs[-1]
+            last_query = last_msg.get("content", "") if isinstance(last_msg.get("content"), str) else ""
+        env_id, route_reason = classify_and_route(last_query, msgs, uploaded_files)
+        auto_routed = True
+    elif user_env and user_env in ENV_CONFIG:
+        env_id = user_env
+    else:
+        env_id = user_env
+
     if env_id and env_id in ENV_CONFIG:
         api_url = ENV_CONFIG[env_id]["url"]
         model = ENV_CONFIG[env_id]["model"]
@@ -2572,7 +2823,7 @@ def api_chat():
     custom_system_prompt = data.get("system_prompt", "")
     max_tokens = data.get("max_tokens", 8192)
 
-    if not api_url or not model:
+    if (not api_url or not model) and not env_id.startswith("gguf-"):
         return jsonify({"error": "API URL과 모델 이름을 설정해주세요."}), 400
 
     # 시스템 프롬프트 구성
@@ -2870,73 +3121,216 @@ def api_chat():
             "tokens_budget": f"prompt~{prompt_tokens_est}, max_tokens={actual_max_tokens}, ctx={gguf_ctx}",
         })
 
-    # ===== 회사 API: HTTP 요청 =====
+    # ===== VL 모델: 이미지 첨부 시 OpenAI Vision API 포맷 변환 =====
+    has_vision = "vision" in get_model_capabilities(env_id)
+    image_files = [f for f in uploaded_files if f.get("type") == "image" and f.get("img_base64")]
+    if has_vision and image_files and api_messages:
+        # 마지막 user 메시지를 멀티모달 포맷으로 변환
+        for i in range(len(api_messages) - 1, -1, -1):
+            if api_messages[i].get("role") == "user":
+                text_content = api_messages[i].get("content", "")
+                if isinstance(text_content, str):
+                    content_parts = [{"type": "text", "text": text_content}]
+                    for img_f in image_files:
+                        ext = img_f.get("ext", "png").lower()
+                        mime = {"jpg": "jpeg", "jpeg": "jpeg", "png": "png", "gif": "gif",
+                                "bmp": "bmp", "webp": "webp", "svg": "svg+xml"}.get(ext, "png")
+                        content_parts.append({
+                            "type": "image_url",
+                            "image_url": {
+                                "url": f"data:image/{mime};base64,{img_f['img_base64']}"
+                            }
+                        })
+                    api_messages[i]["content"] = content_parts
+                break
+
+    # ===== 회사 API: HTTP 요청 (폴백 체인 지원) =====
     headers = {"Content-Type": "application/json"}
     if api_key:
         headers["Authorization"] = f"Bearer {api_key}"
 
-    try:
-        resp = req.post(
-            api_url,
-            headers=headers,
-            json={
-                "model": model,
-                "messages": api_messages,
-                "temperature": temperature_map[min(effort, 3)],
-                "max_tokens": max_tokens,
-                "stream": False,
-            },
-            timeout=120,
-            verify=False,  # 폐쇄망 인증서 문제 대응
-        )
-        resp.raise_for_status()
-        result = resp.json()
+    # 폴백 체인 구성: 현재 모델 → 대체 모델들
+    primary_reg_key = get_registry_key_for_env(env_id)
+    if primary_reg_key:
+        fallback_keys = [primary_reg_key] + FALLBACK_CHAINS.get(primary_reg_key, [])
+    else:
+        fallback_keys = []  # GGUF 등은 폴백 없음
 
-        # 응답 추출
-        truncated = False
-        if "choices" in result and len(result["choices"]) > 0:
-            answer = result["choices"][0].get("message", {}).get("content", "")
-            finish_reason = result["choices"][0].get("finish_reason", "")
-            if finish_reason == "length":
-                truncated = True
-        elif "error" in result:
-            answer = f"API 에러: {result['error']}"
-        else:
-            answer = f"예상치 못한 응답: {json.dumps(result, ensure_ascii=False, indent=2)}"
+    # 이미지가 있으면 non-vision 폴백에서 이미지 제거 (텍스트만 전송)
+    def _prepare_messages_for_model(reg_key, msgs):
+        """VL 모델이 아닌 경우 멀티모달 content를 텍스트로 되돌리기"""
+        cap = MODEL_REGISTRY.get(reg_key, {}).get("capabilities", set())
+        if "vision" not in cap:
+            clean = []
+            for m in msgs:
+                if isinstance(m.get("content"), list):
+                    text_parts = [p["text"] for p in m["content"] if p.get("type") == "text"]
+                    clean.append({**m, "content": "\n".join(text_parts)})
+                else:
+                    clean.append(m)
+            return clean
+        return msgs
 
-        resp_data = {
-            "content": answer,
-            "loaded_skills": loaded,
-            "system_prompt_length": len(system_prompt),
-        }
-        if truncated:
-            resp_data["truncated"] = True
-        return jsonify(resp_data)
+    fallback_used = False
+    fallback_from = ""
+    actual_model_used = model
+    last_error = None
 
-    except req.exceptions.Timeout:
-        return jsonify({"error": "API 응답 시간 초과 (120초). max_tokens를 줄이거나 API 서버 상태를 확인하세요."}), 504
-    except req.exceptions.ConnectionError as e:
-        return jsonify({"error": f"API 연결 실패: {str(e)}. URL을 확인하세요."}), 502
-    except req.exceptions.HTTPError as e:
-        code = e.response.status_code if e.response is not None else 0
-        if code == 401 or code == 403:
-            return jsonify({"error": f"인증 실패 ({code}): TOKEN.TXT의 API 키를 확인하세요."}), code
-        # 서버 에러 상세 내용 추출
-        detail = ""
-        if e.response is not None:
+    models_tried = []
+    if fallback_keys:
+        for attempt, reg_key in enumerate(fallback_keys[:3]):  # 최대 3회
+            reg = MODEL_REGISTRY[reg_key]
+            try_url = reg["url"]
+            try_model = reg["model"]
+            try_msgs = _prepare_messages_for_model(reg_key, api_messages)
+            models_tried.append(try_model)
+
             try:
-                body = e.response.json()
-                detail = json.dumps(body, ensure_ascii=False, indent=2)
-            except Exception:
-                detail = e.response.text[:500] if e.response.text else ""
-        prompt_chars = len(system_prompt) + sum(len(m.get("content","")) for m in api_messages)
-        err_msg = f"API HTTP 에러 ({code}): {str(e)}"
-        if detail:
-            err_msg += f"\n서버 응답: {detail}"
-        err_msg += f"\n[요청 크기: system_prompt={len(system_prompt)}자, 전체 메시지={prompt_chars}자, model={model}]"
-        return jsonify({"error": err_msg}), code or 500
-    except Exception as e:
-        return jsonify({"error": f"오류 발생: {str(e)}"}), 500
+                resp = req.post(
+                    try_url,
+                    headers=headers,
+                    json={
+                        "model": try_model,
+                        "messages": try_msgs,
+                        "temperature": temperature_map[min(effort, 3)],
+                        "max_tokens": max_tokens,
+                        "stream": False,
+                    },
+                    timeout=120,
+                    verify=False,
+                )
+                resp.raise_for_status()
+                result = resp.json()
+
+                # 응답 추출
+                truncated = False
+                if "choices" in result and len(result["choices"]) > 0:
+                    answer = result["choices"][0].get("message", {}).get("content", "")
+                    finish_reason = result["choices"][0].get("finish_reason", "")
+                    if finish_reason == "length":
+                        truncated = True
+
+                    if attempt > 0:
+                        fallback_used = True
+                        fallback_from = models_tried[0]
+                        actual_model_used = try_model
+
+                    resp_data = {
+                        "content": answer,
+                        "loaded_skills": loaded,
+                        "system_prompt_length": len(system_prompt),
+                        "model_used": try_model,
+                    }
+                    if auto_routed:
+                        resp_data["auto_routed"] = True
+                        resp_data["route_reason"] = route_reason
+                    if fallback_used:
+                        resp_data["fallback_used"] = True
+                        resp_data["fallback_from"] = fallback_from
+                    if truncated:
+                        resp_data["truncated"] = True
+                    return jsonify(resp_data)
+
+                elif "error" in result:
+                    last_error = f"API 에러: {result['error']}"
+                    continue  # 다음 폴백 시도
+                else:
+                    last_error = f"예상치 못한 응답: {json.dumps(result, ensure_ascii=False, indent=2)}"
+                    continue
+
+            except req.exceptions.Timeout:
+                last_error = "API 응답 시간 초과 (120초)"
+                continue
+            except req.exceptions.ConnectionError as e:
+                last_error = f"API 연결 실패: {str(e)}"
+                continue
+            except req.exceptions.HTTPError as e:
+                code = e.response.status_code if e.response is not None else 0
+                if code == 401 or code == 403:
+                    return jsonify({"error": f"인증 실패 ({code}): TOKEN.TXT의 API 키를 확인하세요."}), code
+                last_error = f"HTTP {code}: {str(e)}"
+                if e.response is not None:
+                    try:
+                        detail = json.dumps(e.response.json(), ensure_ascii=False)
+                        last_error += f" - {detail[:300]}"
+                    except Exception:
+                        pass
+                continue
+            except Exception as e:
+                last_error = f"오류: {str(e)}"
+                continue
+
+        # 모든 폴백 실패
+        return jsonify({
+            "error": f"모든 모델 시도 실패 ({', '.join(models_tried)}): {last_error}"
+        }), 500
+
+    else:
+        # 폴백 체인 없는 경우 (GGUF 등) → 기존 단일 요청
+        try:
+            resp = req.post(
+                api_url,
+                headers=headers,
+                json={
+                    "model": model,
+                    "messages": api_messages,
+                    "temperature": temperature_map[min(effort, 3)],
+                    "max_tokens": max_tokens,
+                    "stream": False,
+                },
+                timeout=120,
+                verify=False,
+            )
+            resp.raise_for_status()
+            result = resp.json()
+
+            truncated = False
+            if "choices" in result and len(result["choices"]) > 0:
+                answer = result["choices"][0].get("message", {}).get("content", "")
+                finish_reason = result["choices"][0].get("finish_reason", "")
+                if finish_reason == "length":
+                    truncated = True
+            elif "error" in result:
+                answer = f"API 에러: {result['error']}"
+            else:
+                answer = f"예상치 못한 응답: {json.dumps(result, ensure_ascii=False, indent=2)}"
+
+            resp_data = {
+                "content": answer,
+                "loaded_skills": loaded,
+                "system_prompt_length": len(system_prompt),
+                "model_used": model,
+            }
+            if auto_routed:
+                resp_data["auto_routed"] = True
+                resp_data["route_reason"] = route_reason
+            if truncated:
+                resp_data["truncated"] = True
+            return jsonify(resp_data)
+
+        except req.exceptions.Timeout:
+            return jsonify({"error": "API 응답 시간 초과 (120초). max_tokens를 줄이거나 API 서버 상태를 확인하세요."}), 504
+        except req.exceptions.ConnectionError as e:
+            return jsonify({"error": f"API 연결 실패: {str(e)}. URL을 확인하세요."}), 502
+        except req.exceptions.HTTPError as e:
+            code = e.response.status_code if e.response is not None else 0
+            if code == 401 or code == 403:
+                return jsonify({"error": f"인증 실패 ({code}): TOKEN.TXT의 API 키를 확인하세요."}), code
+            detail = ""
+            if e.response is not None:
+                try:
+                    body = e.response.json()
+                    detail = json.dumps(body, ensure_ascii=False, indent=2)
+                except Exception:
+                    detail = e.response.text[:500] if e.response.text else ""
+            prompt_chars = len(system_prompt) + sum(len(m.get("content","")) for m in api_messages)
+            err_msg = f"API HTTP 에러 ({code}): {str(e)}"
+            if detail:
+                err_msg += f"\n서버 응답: {detail}"
+            err_msg += f"\n[요청 크기: system_prompt={len(system_prompt)}자, 전체 메시지={prompt_chars}자, model={model}]"
+            return jsonify({"error": err_msg}), code or 500
+        except Exception as e:
+            return jsonify({"error": f"오류 발생: {str(e)}"}), 500
 
 
 # ============================================
@@ -3660,9 +4054,16 @@ Promise.all([
 function renderEnvs(){
   const row = document.getElementById('envRow');
   row.innerHTML = '';
-  const icons = {'dev':'🧪','prod':'🚀','common':'🌐'};
+  const icons = {'dev':'🧪','prod':'🚀','common':'🌐','vl-large':'👁️','vl-medium':'👁️','vl-fast':'👁️'};
   // GGUF 로컬 모델은 동적으로 아이콘 매핑
   for(const id of Object.keys(envs)){ if(id.startsWith('gguf-')) icons[id]='💻'; }
+  // AUTO 버튼 (맨 앞에 추가)
+  const autoBtn = document.createElement('div');
+  autoBtn.className = 'env-btn' + (selEnv==='auto'?' selected':'');
+  autoBtn.innerHTML = '<div class="env-name">🤖 AUTO</div><div class="env-model">자동 모델 선택</div>';
+  autoBtn.onclick = ()=>{ selEnv='auto'; renderEnvs(); updateStatus(); };
+  autoBtn.style.borderColor = selEnv==='auto' ? '#6366f1' : '';
+  row.appendChild(autoBtn);
   for(const [id, env] of Object.entries(envs)){
     const btn = document.createElement('div');
     btn.className = 'env-btn' + (selEnv===id?' selected':'');
@@ -3688,7 +4089,10 @@ function renderTokenStatus(){
 }
 function updateStatus(){
   const st = document.getElementById('status');
-  if(selEnv && envs[selEnv]){
+  if(selEnv === 'auto'){
+    st.className='status on';
+    st.textContent='🤖 AUTO (자동 선택)';
+  } else if(selEnv && envs[selEnv]){
     st.className='status on';
     st.textContent='🟢 ' + envs[selEnv].name;
   } else {
@@ -4103,10 +4507,20 @@ async function send(){
       addMsg('assistant','❌ '+data.error);
     } else {
       let info = '';
+      // 모델 이름 표시 (auto/수동)
+      let modelName = data.model_used || (envs[selEnv] ? envs[selEnv].name : selEnv);
       if(data.loaded_skills && data.loaded_skills.length > 0){
         let extra = data.tokens_budget ? ` [${data.tokens_budget}]` : '';
         let mode = autoLoaded.length > 0 ? '🧠자동' : '✅수동';
-        info = `\n[${mode} 스킬: ${data.loaded_skills.join(', ')}] [${envs[selEnv].name}] (${data.system_prompt_length}자)${extra}`;
+        info = `\n[${mode} 스킬: ${data.loaded_skills.join(', ')}] [${modelName}] (${data.system_prompt_length}자)${extra}`;
+      }
+      // 자동 라우팅 표시
+      if(data.auto_routed){
+        info += ` [🤖 자동: ${data.model_used} (${data.route_reason})]`;
+      }
+      // 폴백 표시
+      if(data.fallback_used){
+        info += ` [⚠️ 대체: ${data.fallback_from} → ${data.model_used}]`;
       }
       let truncWarn = data.truncated ? '\n\n⚠️ **응답이 토큰 한도('+maxTokens+')에 도달하여 잘렸습니다.** "계속 이어서 작성해줘"라고 입력하면 이어서 받을 수 있습니다.' : '';
       addMsg('assistant', data.content + truncWarn + info);
@@ -6007,8 +6421,11 @@ async function runCodeAssistant(){
         let info = '';
         if(data.loaded_skills && data.loaded_skills.length > 0){
           let extra = data.tokens_budget ? ' ['+data.tokens_budget+']' : '';
-          info = '\n[\u2705 '+data.loaded_skills.join(', ')+'] ['+envs[selEnv].name+'] ('+data.system_prompt_length+'\uc790)'+extra;
+          let mName = data.model_used || (envs[selEnv] ? envs[selEnv].name : selEnv);
+          info = '\n[\u2705 '+data.loaded_skills.join(', ')+'] ['+mName+'] ('+data.system_prompt_length+'\uc790)'+extra;
         }
+        if(data.auto_routed){ info += ' [\uD83E\uDD16 자동: '+data.model_used+' ('+data.route_reason+')]'; }
+        if(data.fallback_used){ info += ' [\u26A0\uFE0F 대체: '+data.fallback_from+' \u2192 '+data.model_used+']'; }
         let truncWarn = data.truncated ? '\n\n⚠️ **응답이 토큰 한도('+maxTokens+')에 도달하여 잘렸습니다.** "계속 이어서 작성해줘"라고 입력하면 이어서 받을 수 있습니다.' : '';
         addMsg('assistant', data.content + truncWarn + info);
         history.push({role:'assistant', content:data.content});
