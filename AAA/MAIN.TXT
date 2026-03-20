@@ -1435,6 +1435,101 @@ def classify_and_route(query, history, uploaded_files_list):
     return "common", "일반 요청 → 120B"
 
 
+def classify_format_and_style(query, history, uploaded_files_list, skill_ids):
+    """채팅 내용을 분석하여 최적의 출력형식과 작성 스타일을 자동 선택
+
+    Returns:
+        (format_id, style_value, reason): 출력형식, 스타일 텍스트, 선택 이유
+    """
+    q = query.lower() if query else ""
+    has_csv = any(f.get("ext", "").lower() in ("csv", "tsv", "xlsx") for f in uploaded_files_list)
+    has_code_file = any(f.get("ext", "").lower() in ("py", "js", "java", "c", "cpp", "go", "rs", "html", "css") for f in uploaded_files_list)
+    has_image = any(f.get("type") == "image" for f in uploaded_files_list)
+
+    # 비전/이미지 키워드
+    vision_kw = ["이미지", "사진", "그림", "스크린샷", "screenshot", "화면", "figure",
+                 "diagram", "차트 읽", "캡처", "보이는", "보여주는"]
+    has_vision_kw = any(kw in q for kw in vision_kw)
+
+    # 스킬 기반 힌트
+    data_skills = {"exploratory-data-analysis", "statistical-analysis", "matplotlib",
+                   "seaborn", "plotly", "polars", "statsmodels", "scikit-learn"}
+    debug_skills = {"debugging", "agent-debugger", "agent-error-detective"}
+    writing_skills = {"scientific-writing", "literature-review", "peer-review",
+                      "research-grants", "clinical-reports"}
+    has_data_skill = bool(set(skill_ids) & data_skills)
+    has_debug_skill = bool(set(skill_ids) & debug_skills)
+    has_writing_skill = bool(set(skill_ids) & writing_skills)
+
+    # === 출력형식 분류 ===
+    fmt = "code"  # 기본값
+
+    # 이미지 분석 요청 → 코드 아닌 분석/설명으로 (최우선)
+    if has_image or has_vision_kw:
+        # 이미지 + 코드 요청이 명시적이면 코드
+        code_explicit = any(kw in q for kw in ["코드", "코딩", "구현", "스크립트", "import", "def "])
+        if code_explicit:
+            fmt = "code"
+        else:
+            fmt = "analysis"
+
+    # 보고서/리포트 요청
+    elif any(kw in q for kw in ["보고서", "리포트", "report", "요약해줘", "요약 작성", "정리해줘",
+                 "문서 작성", "문서화", "보고", "브리핑", "개요"]) or has_writing_skill:
+        fmt = "report"
+
+    # 데이터 분석 요청
+    elif has_csv or has_data_skill or any(kw in q for kw in ["분석해줘", "분석해 줘", "데이터 분석", "인사이트", "통계 분석", "상관관계", "추세"]):
+        fmt = "analysis"
+
+    # 단계별 설명 요청
+    elif any(kw in q for kw in ["방법", "어떻게", "절차", "과정", "단계별", "step by step",
+                                 "가르쳐", "알려줘", "설명해", "튜토리얼", "가이드"]):
+        fmt = "step-by-step"
+
+    # 디버깅/코드 수정
+    elif has_debug_skill or has_code_file or any(kw in q for kw in ["에러", "error", "버그", "bug", "수정", "고쳐", "안돼", "안되", "traceback", "exception", "오류"]):
+        fmt = "code-fix"
+
+    # 코드 작성 요청
+    elif any(kw in q for kw in ["코드", "함수", "클래스", "구현", "작성", "코딩", "스크립트",
+                                 "만들어", "프로그래밍", "import", "def ", "class "]):
+        fmt = "code"
+
+    # 일반 질문/대화 → 단계별 (코드보다 설명 우선)
+    elif not any(kw in q for kw in ["코드", "코딩", "구현", "함수", "클래스"]):
+        fmt = "step-by-step"
+
+    # === 스타일 분류 ===
+    style = ""  # 기본값: 없음 (시스템 기본)
+
+    # 이미지 분석 모드
+    if (has_image or has_vision_kw) and fmt == "analysis":
+        style = "이미지 내용을 자연어로 설명하세요. 코드 없이 분석 결과만 제시. 핵심 내용→세부 관찰→해석 순서."
+
+    # 디버깅 모드
+    elif fmt == "code-fix" or has_debug_skill:
+        style = "에러 원인 분석 중심. traceback 해석, 재현 조건, 해결책 순서."
+
+    # 데이터 분석 모드
+    elif fmt == "analysis" or has_data_skill:
+        style = "데이터 스토리텔링. 숫자→의미→액션 순서로 해석."
+
+    # 학술/논문 모드
+    elif has_writing_skill or any(kw in q for kw in ["논문", "학술", "연구", "인용", "레퍼런스", "paper"]):
+        style = "학술적 톤. 정확한 용어, 인용, 근거 제시."
+
+    # 실용적 모드 (기본 코드 작성)
+    elif fmt in ("code", "code-fix"):
+        style = "실전에서 바로 활용 가능하게. 핵심 요점과 구체적 방법 위주. 선택된 출력형식에 맞춰 답변하세요."
+
+    reason = f"형식:{fmt}"
+    if style:
+        reason += " / 스타일 자동"
+
+    return fmt, style, reason
+
+
 def get_registry_key_for_env(env_id):
     """env_id → MODEL_REGISTRY 키 반환. GGUF 등 미등록 환경은 None."""
     return ENV_TO_REGISTRY.get(env_id)
@@ -2823,6 +2918,25 @@ def api_chat():
     custom_system_prompt = data.get("system_prompt", "")
     max_tokens = data.get("max_tokens", 8192)
 
+    # 출력형식/스타일 자동 분류 (format=auto 또는 writing_style=auto일 때)
+    auto_format = False
+    auto_style = False
+    auto_fmt_reason = ""
+    if output_format == "auto" or writing_style == "auto":
+        last_q = ""
+        if messages:
+            last_m = messages[-1]
+            last_q = last_m.get("content", "") if isinstance(last_m.get("content"), str) else ""
+        auto_fmt, auto_sty, auto_fmt_reason = classify_format_and_style(
+            last_q, messages, uploaded_files, skill_ids
+        )
+        if output_format == "auto":
+            output_format = auto_fmt
+            auto_format = True
+        if writing_style == "auto":
+            writing_style = auto_sty
+            auto_style = True
+
     if (not api_url or not model) and not env_id.startswith("gguf-"):
         return jsonify({"error": "API URL과 모델 이름을 설정해주세요."}), 400
 
@@ -3224,6 +3338,10 @@ def api_chat():
                     if auto_routed:
                         resp_data["auto_routed"] = True
                         resp_data["route_reason"] = route_reason
+                    if auto_format or auto_style:
+                        resp_data["auto_format"] = output_format if auto_format else None
+                        resp_data["auto_style"] = writing_style if auto_style else None
+                        resp_data["auto_fmt_reason"] = auto_fmt_reason
                     if fallback_used:
                         resp_data["fallback_used"] = True
                         resp_data["fallback_from"] = fallback_from
@@ -3304,6 +3422,10 @@ def api_chat():
             if auto_routed:
                 resp_data["auto_routed"] = True
                 resp_data["route_reason"] = route_reason
+            if auto_format or auto_style:
+                resp_data["auto_format"] = output_format if auto_format else None
+                resp_data["auto_style"] = writing_style if auto_style else None
+                resp_data["auto_fmt_reason"] = auto_fmt_reason
             if truncated:
                 resp_data["truncated"] = True
             return jsonify(resp_data)
@@ -3820,11 +3942,12 @@ body.rp-collapsed .chat-box-fixed{right:0}
         <div id="styleChips"></div>
         <textarea id="writingStyle"></textarea>
         <div class="fmt-btns">
-          <div class="fmt-btn selected" data-f="code"></div>
-          <div class="fmt-btn" data-f="code-fix"></div>
-          <div class="fmt-btn" data-f="analysis"></div>
-          <div class="fmt-btn" data-f="report"></div>
-          <div class="fmt-btn" data-f="step-by-step"></div>
+          <div class="fmt-btn selected" data-f="auto" onclick="selFmt(this)">🤖 자동</div>
+          <div class="fmt-btn" data-f="code" onclick="selFmt(this)">코드</div>
+          <div class="fmt-btn" data-f="code-fix" onclick="selFmt(this)">코드수정</div>
+          <div class="fmt-btn" data-f="analysis" onclick="selFmt(this)">분석</div>
+          <div class="fmt-btn" data-f="report" onclick="selFmt(this)">보고서</div>
+          <div class="fmt-btn" data-f="step-by-step" onclick="selFmt(this)">단계별</div>
         </div>
       </div>
 
@@ -3862,7 +3985,7 @@ body.rp-collapsed .chat-box-fixed{right:0}
         <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
           <button class="attach-btn" onclick="document.getElementById('chatFileInput').click()" title="파일 첨부">📎</button>
           <select class="chat-dropdown" id="chatStyleDrop" onchange="applyChatStyle(this.value)" title="작성 스타일">
-            <option value="">✍️ 스타일</option>
+            <option value="">🤖 자동</option>
             <option value="간결하고 핵심만. 불필요한 설명 생략.">⚡ 간결</option>
             <option value="상세하고 친절하게. 원리, 배경, 예시 포함.">📖 상세</option>
             <option value="바로 복붙해서 쓸 수 있게. 실전 위주, 이론 최소화.">🔨 실용적</option>
@@ -3873,6 +3996,7 @@ body.rp-collapsed .chat-box-fixed{right:0}
             <option value="데이터 스토리텔링. 숫자→의미→액션 순서로 해석.">📊 데이터</option>
           </select>
           <select class="chat-dropdown" id="chatFormatDrop" onchange="applyChatFormat(this.value)" title="출력 형식">
+            <option value="auto">🤖 자동</option>
             <option value="code">💻 코드</option>
             <option value="code-fix">🔧 수정</option>
             <option value="analysis">📊 분석</option>
@@ -3983,12 +4107,14 @@ body.rp-collapsed .chat-box-fixed{right:0}
 <script>
 let envs = {};
 let hasToken = false;
-let selEnv = '';
+let selEnv = 'auto';
 let catalog = {};
 let selDomains = ['bioinformatics','dev-tools','agent-data-ai'];
 let selSkills = [];
 let autoSkillMode = true;  // 기본 ON
-let selFormat = 'code';
+let selFormat = 'auto';
+let formatManualOverride = false;  // 사용자가 수동으로 출력형식을 변경했는지
+let styleManualOverride = false;   // 사용자가 수동으로 스타일을 변경했는지
 let effort = 2;
 let history = [];
 let maxTokens = 8192;
@@ -4008,7 +4134,7 @@ if(lastSessions.length > 0){
     if(s.writingStyle){ document.getElementById('writingStyle').value = s.writingStyle; syncStyleDropToSidebar(); }
     if(s.systemPrompt) document.getElementById('systemPromptInput').value = s.systemPrompt;
     if(s.systemPromptId){ currentPromptId=s.systemPromptId; renderPromptChips(); }
-    if(s.selFormat){ selFormat=s.selFormat; document.querySelectorAll('.fmt-btn').forEach(b=>{b.classList.toggle('selected',b.dataset.f===selFormat);}); syncFormatDropToChat(); }
+    if(s.selFormat){ selFormat=s.selFormat; formatManualOverride=(selFormat!=='auto'); document.querySelectorAll('.fmt-btn').forEach(b=>{b.classList.toggle('selected',b.dataset.f===selFormat);}); syncFormatDropToChat(); }
     if(s.effort!==undefined){ effort=s.effort; document.getElementById('effortSlider').value=effort; }
     if(s.selEnv){ selEnv=s.selEnv; renderEnvs(); updateStatus(); }
     if(s.selDomains && s.selDomains.length>0){ selDomains=s.selDomains; renderTags(); renderSkills(); }
@@ -4274,6 +4400,7 @@ function selFmt(el){
   document.querySelectorAll('.fmt-btn').forEach(b=>b.classList.remove('selected'));
   el.classList.add('selected');
   selFormat = el.dataset.f;
+  formatManualOverride = (selFormat !== 'auto');  // auto 선택 시 자동 모드로 복귀
   syncFormatDropToChat();
 }
 
@@ -4494,8 +4621,8 @@ async function send(){
       body:JSON.stringify({
         env: selEnv,
         messages:history, skills:skillsToUse, effort,
-        format:selFormat,
-        writing_style:document.getElementById('writingStyle').value.trim(),
+        format: formatManualOverride ? selFormat : 'auto',
+        writing_style: styleManualOverride ? document.getElementById('writingStyle').value.trim() : 'auto',
         system_prompt:document.getElementById('systemPromptInput').value.trim(),
         max_tokens:maxTokens,
       })
@@ -4521,6 +4648,14 @@ async function send(){
       // 폴백 표시
       if(data.fallback_used){
         info += ` [⚠️ 대체: ${data.fallback_from} → ${data.model_used}]`;
+      }
+      // 자동 형식/스타일 표시
+      if(data.auto_format || data.auto_style){
+        let fmtNames = {'code':'코드','code-fix':'코드수정','analysis':'분석','report':'보고서','step-by-step':'단계별'};
+        let parts = [];
+        if(data.auto_format) parts.push('형식:' + (fmtNames[data.auto_format]||data.auto_format));
+        if(data.auto_style) parts.push('스타일:자동');
+        info += ` [📝 ${parts.join(' / ')}]`;
       }
       let truncWarn = data.truncated ? '\n\n⚠️ **응답이 토큰 한도('+maxTokens+')에 도달하여 잘렸습니다.** "계속 이어서 작성해줘"라고 입력하면 이어서 받을 수 있습니다.' : '';
       addMsg('assistant', data.content + truncWarn + info);
@@ -4762,6 +4897,8 @@ function saveCurrentSession(){
     selDomains: selDomains,
     selSkills: selSkills,
     selFormat: selFormat,
+    formatManualOverride: formatManualOverride,
+    styleManualOverride: styleManualOverride,
     effort: effort,
     writingStyle: document.getElementById('writingStyle')?.value || '',
     writingStyleId: activeStyleId || '',
@@ -4934,10 +5071,12 @@ function createNewSession(){
   document.getElementById('systemPromptInput').value='';
   activeStyleId=null;
   currentPromptId=null;
-  selFormat='code';
+  selFormat='auto';
+  formatManualOverride=false;
+  styleManualOverride=false;
   effort=2;
   document.getElementById('effortSlider').value=2;
-  document.querySelectorAll('.fmt-btn').forEach(b=>{b.classList.toggle('selected',b.dataset.f==='code');});
+  document.querySelectorAll('.fmt-btn').forEach(b=>{b.classList.toggle('selected',b.dataset.f==='auto');});
   // 업로드된 파일/CSV 초기화 (이전 세션 데이터 잔류 방지)
   fetch('/api/clear_files', {method:'POST'});
   fetch('/api/clear_csv', {method:'POST'});
@@ -4969,8 +5108,9 @@ function loadSession(id){
   document.getElementById('msgs').innerHTML=s.msgsHtml||'';
   if(s.writingStyle){ document.getElementById('writingStyle').value=s.writingStyle; syncStyleDropToSidebar(); }
   if(s.writingStyleId){ activeStyleId=s.writingStyleId; renderStyleChips(); }
+  styleManualOverride = s.styleManualOverride !== undefined ? s.styleManualOverride : !!s.writingStyle;
   if(s.systemPrompt) document.getElementById('systemPromptInput').value=s.systemPrompt;
-  if(s.selFormat){ selFormat=s.selFormat; document.querySelectorAll('.fmt-btn').forEach(b=>{b.classList.toggle('selected',b.dataset.f===selFormat);}); syncFormatDropToChat(); }
+  if(s.selFormat){ selFormat=s.selFormat; formatManualOverride=(s.formatManualOverride!==undefined ? s.formatManualOverride : selFormat!=='auto'); document.querySelectorAll('.fmt-btn').forEach(b=>{b.classList.toggle('selected',b.dataset.f===selFormat);}); syncFormatDropToChat(); }
   if(s.effort!==undefined){ effort=s.effort; document.getElementById('effortSlider').value=effort; updateEffort(); }
   // 저장된 수동 스킬 복원
   if(s.selSkills && s.selSkills.length > 0){ selSkills = [...s.selSkills]; }
@@ -5160,6 +5300,18 @@ function renderStyleChips(){
   const container = document.getElementById('styleChips');
   if(!container) return;
   container.innerHTML = '';
+  // 🤖 자동 칩 (맨 앞)
+  const autoChip = document.createElement('span');
+  autoChip.className = 'prompt-chip' + (!styleManualOverride ? ' active' : '');
+  autoChip.innerHTML = '🤖 자동';
+  autoChip.title = '채팅 내용에 따라 자동 선택';
+  autoChip.onclick = () => {
+    activeStyleId = null;
+    styleManualOverride = false;
+    document.getElementById('writingStyle').value = '';
+    renderStyleChips();
+  };
+  container.appendChild(autoChip);
   STYLE_PRESETS.forEach(s => {
     const chip = document.createElement('span');
     chip.className = 'prompt-chip' + (activeStyleId===s.id ? ' active' : '');
@@ -5168,9 +5320,11 @@ function renderStyleChips(){
     chip.onclick = () => {
       if(activeStyleId === s.id){
         activeStyleId = null;
+        styleManualOverride = false;
         document.getElementById('writingStyle').value = '';
       } else {
         activeStyleId = s.id;
+        styleManualOverride = true;
         document.getElementById('writingStyle').value = s.value;
       }
       renderStyleChips();
@@ -5185,11 +5339,13 @@ function applyChatStyle(val){
   document.getElementById('writingStyle').value = val;
   const match = STYLE_PRESETS.find(s => s.value === val);
   activeStyleId = match ? match.id : null;
+  styleManualOverride = !!val;
   renderStyleChips();
   if(val) syncStyleDropToSidebar();
 }
 function applyChatFormat(val){
   selFormat = val;
+  formatManualOverride = (val !== 'auto');
   // 사이드바 fmt-btn도 동기화
   document.querySelectorAll('.fmt-btn').forEach(b=>{b.classList.toggle('selected',b.dataset.f===val);});
 }
@@ -5809,6 +5965,35 @@ function removeChatAttach(idx){
   });
 })();
 
+// Ctrl+V / Cmd+V 이미지 붙여넣기 (스크린샷, 클립보드 이미지)
+(function(){
+  const input = document.getElementById('input');
+  if(!input) return;
+  input.addEventListener('paste', function(e){
+    const items = e.clipboardData && e.clipboardData.items;
+    if(!items) return;
+    const imageFiles = [];
+    for(let i=0; i<items.length; i++){
+      if(items[i].type.startsWith('image/')){
+        const blob = items[i].getAsFile();
+        if(blob){
+          // 파일명 생성: paste_날짜시간.확장자
+          const ext = items[i].type.split('/')[1] || 'png';
+          const now = new Date();
+          const ts = now.getFullYear()+''+(now.getMonth()+1+'').padStart(2,'0')+(now.getDate()+'').padStart(2,'0')+'_'+(now.getHours()+'').padStart(2,'0')+(now.getMinutes()+'').padStart(2,'0')+(now.getSeconds()+'').padStart(2,'0');
+          const fname = 'paste_'+ts+'.'+ext.replace('jpeg','jpg');
+          const file = new File([blob], fname, {type: items[i].type});
+          imageFiles.push(file);
+        }
+      }
+    }
+    if(imageFiles.length > 0){
+      e.preventDefault();  // 텍스트로 붙여넣기 방지
+      handleChatFileSelect(imageFiles);
+    }
+  });
+})();
+
 function renderChatAttach(){
   const wrap = document.getElementById('chatAttachPreview');
   if(chatPendingFiles.length === 0){
@@ -6407,8 +6592,8 @@ async function runCodeAssistant(){
           messages: history,
           skills: [...selSkills],
           effort,
-          format: selFormat,
-          writing_style: document.getElementById('writingStyle').value.trim(),
+          format: formatManualOverride ? selFormat : 'auto',
+          writing_style: styleManualOverride ? document.getElementById('writingStyle').value.trim() : 'auto',
           system_prompt: document.getElementById('systemPromptInput').value.trim(),
           max_tokens: maxTokens,
         })
