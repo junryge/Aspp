@@ -9,7 +9,7 @@ import re
 
 
 def strip_java_headers(source: str) -> str:
-    lines = source.splitlines(keepalinenums=False) if hasattr(source, 'splitlines') else source.split('\n')
+    lines = source.splitlines()
     result = []
     header_done = False
 
