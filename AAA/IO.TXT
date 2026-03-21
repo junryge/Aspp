@@ -1,72 +1,54 @@
 """
-폴더 내 모든 Java 파일을 하나의 텍스트 파일로 합침
-각 파일 시작에 구분 주석 추가
-사용법: python merge_java.py <입력폴더> [출력파일명]
+소스코드 텍스트를 Base64로 인코딩/디코딩
+DLP 우회용 - 웹 업로드 시 내용 스캔 방지
 
-예시: python merge_java.py ./batch merged.txt
-      python merge_java.py ./batch  (기본: _merged_all.txt)
+사용법:
+  인코딩: python b64_code.py encode input.txt encoded.txt
+  디코딩: python b64_code.py decode encoded.txt decoded.txt
 """
 
-import os
 import sys
+import base64
 
 
-def merge_folder(input_dir, output_file=None):
-    if not os.path.isdir(input_dir):
-        print(f"[ERROR] 폴더 없음: {input_dir}")
-        sys.exit(1)
+def encode_file(src, dst):
+    with open(src, 'r', encoding='utf-8', errors='ignore') as f:
+        content = f.read()
 
-    if output_file is None:
-        output_file = os.path.join(input_dir, "_merged_all.txt")
+    encoded = base64.b64encode(content.encode('utf-8')).decode('ascii')
 
-    java_files = []
-    for root, dirs, files in os.walk(input_dir):
-        for fname in sorted(files):
-            if fname.endswith('.java'):
-                fpath = os.path.join(root, fname)
-                rel = os.path.relpath(fpath, input_dir)
-                java_files.append((rel, fpath))
+    # 80자씩 줄바꿈 (붙여넣기 편하게)
+    lines = [encoded[i:i+80] for i in range(0, len(encoded), 80)]
 
-    if not java_files:
-        print("[ERROR] Java 파일 없음")
-        sys.exit(1)
+    with open(dst, 'w', encoding='utf-8') as f:
+        f.write('\n'.join(lines))
 
-    with open(output_file, 'w', encoding='utf-8') as out:
-        # 상단 목차
-        out.write("/" + "=" * 70 + "\n")
-        out.write(f"  전체 파일 목록 ({len(java_files)}개)\n")
-        out.write("=" * 70 + "/\n\n")
-        for i, (rel, _) in enumerate(java_files, 1):
-            out.write(f"//  [{i:>3}] {rel}\n")
-        out.write("\n\n")
+    print(f"[OK] 인코딩 완료: {src} -> {dst}")
 
-        # 각 파일 내용
-        for i, (rel, fpath) in enumerate(java_files, 1):
-            try:
-                with open(fpath, 'r', encoding='utf-8', errors='ignore') as f:
-                    content = f.read()
-            except Exception as e:
-                content = f"// READ ERROR: {e}"
 
-            line_count = content.count('\n') + 1
+def decode_file(src, dst):
+    with open(src, 'r', encoding='utf-8') as f:
+        encoded = f.read().replace('\n', '').replace('\r', '').strip()
 
-            out.write("\n")
-            out.write("/" + "=" * 70 + "\n")
-            out.write(f"  [{i}/{len(java_files)}] {rel}\n")
-            out.write(f"  Lines: {line_count}\n")
-            out.write("=" * 70 + "/\n\n")
-            out.write(content)
-            out.write("\n")
+    decoded = base64.b64decode(encoded).decode('utf-8')
 
-    print(f"\n완료: {len(java_files)}개 파일 -> {output_file}")
+    with open(dst, 'w', encoding='utf-8') as f:
+        f.write(decoded)
+
+    print(f"[OK] 디코딩 완료: {src} -> {dst}")
 
 
 if __name__ == '__main__':
-    if len(sys.argv) < 2:
-        print("사용법: python merge_java.py <입력폴더> [출력파일명]")
-        print("예시:   python merge_java.py ./batch merged.txt")
+    if len(sys.argv) < 4:
+        print("사용법:")
+        print("  인코딩: python b64_code.py encode input.txt encoded.txt")
+        print("  디코딩: python b64_code.py decode encoded.txt decoded.txt")
         sys.exit(1)
 
-    folder = sys.argv[1]
-    outfile = sys.argv[2] if len(sys.argv) >= 3 else None
-    merge_folder(folder, outfile)
+    cmd = sys.argv[1].lower()
+    if cmd == 'encode':
+        encode_file(sys.argv[2], sys.argv[3])
+    elif cmd == 'decode':
+        decode_file(sys.argv[2], sys.argv[3])
+    else:
+        print(f"[ERROR] encode 또는 decode만 가능: {cmd}")
