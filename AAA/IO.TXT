@@ -17,20 +17,39 @@ import re
 # 1) SK하이닉스 관련 패턴 (삭제 또는 치환)
 # ============================================================
 COMPANY_PATTERNS = [
-    # 대소문자 무시 - 회사명/도메인/패키지
+    # === 회사명 ===
     (r'(?i)sk[\s_-]?hynix', 'COMPANY'),
     (r'(?i)skhynix', 'COMPANY'),
     (r'(?i)sk\s?하이닉스', 'COMPANY'),
+    (r'(?i)하이닉스', 'COMPANY'),
+    (r'(?i)에스케이하이닉스', 'COMPANY'),
     (r'(?i)hynix', 'COMPANY'),
-    # 이메일 도메인
+    # === 도메인/이메일 ===
     (r'@skhynix\.com', '@company.com'),
-    # 패키지 경로 com.skhynix -> com.company
+    (r'@hynix\.com', '@company.com'),
+    (r'(?i)\.skhynix\.com', '.company.com'),
+    (r'(?i)\.skhynix\.', '.company.'),
+    (r'(?i)\.hynix\.com', '.company.com'),
+    # === 패키지 경로 ===
     (r'com\.skhynix', 'com.company'),
-    # URL
+    (r'com/skhynix', 'com/company'),
+    # === URL ===
     (r'(?i)https?://[^\s"\']*skhynix[^\s"\']*', 'https://internal.company.com'),
-    # smartatlas 등 내부 시스템명
+    (r'(?i)https?://[^\s"\']*hynix[^\s"\']*', 'https://internal.company.com'),
+    # === 내부 시스템명 ===
     (r'(?i)smartatlas', 'internal_system'),
     (r'(?i)smart[\s_-]?atlas', 'internal_system'),
+    (r'(?i)atlas[\s_-]?mcs', 'internal_mcs'),
+    (r'(?i)atlasmcs', 'internal_mcs'),
+    # === 내부 서버/호스트 ===
+    (r'(?i)dev\.hcp\.[^\s"\']+', 'internal.server.com'),
+    (r'(?i)\.hcp\.llm\.[^\s"\']+', '.internal.server.com'),
+    # === 사업장/FAB ===
+    (r'(?i)icheon[\s_-]?fab', 'SITE_A'),
+    (r'(?i)cheongju[\s_-]?fab', 'SITE_B'),
+    (r'(?i)wuxi[\s_-]?fab', 'SITE_C'),
+    (r'(?i)이천', 'SITE_A'),
+    (r'(?i)청주', 'SITE_B'),
 ]
 
 # ============================================================
@@ -39,6 +58,10 @@ COMPANY_PATTERNS = [
 SENSITIVE_PATTERNS = [
     # IP 주소 (0.0.0.0, 127.0.0.1 등 일반적인건 유지)
     ("IP", r'\b(?!0\.0\.0\.0|127\.0\.0\.1|255\.255\.255\.\d+|localhost)(?:25[0-5]|2[0-4]\d|[01]?\d\d?)\.(?:25[0-5]|2[0-4]\d|[01]?\d\d?)\.(?:25[0-5]|2[0-4]\d|[01]?\d\d?)\.(?:25[0-5]|2[0-4]\d|[01]?\d\d?)\b', '"xxx.xxx.xxx.xxx"'),
+    # 사설 IP 대역 (10.x, 172.16-31.x, 192.168.x)
+    ("PRIVATE_IP", r'\b10\.\d{1,3}\.\d{1,3}\.\d{1,3}\b', '"xxx.xxx.xxx.xxx"'),
+    ("PRIVATE_IP", r'\b172\.(?:1[6-9]|2\d|3[01])\.\d{1,3}\.\d{1,3}\b', '"xxx.xxx.xxx.xxx"'),
+    ("PRIVATE_IP", r'\b192\.168\.\d{1,3}\.\d{1,3}\b', '"xxx.xxx.xxx.xxx"'),
     # JDBC
     ("JDBC", r'jdbc:[a-zA-Z0-9]+://[^\s"\']+', 'jdbc:driver://HOST:PORT/DB'),
     # 비밀번호 값
@@ -71,7 +94,11 @@ COMMENT_KILL_KEYWORDS = [
     r'(?i)연락처\s*:', r'(?i)phone\s*:', r'(?i)email\s*:',
     r'(?i)copyright.*skhynix', r'(?i)copyright.*하이닉스',
     r'(?i)copyright.*hynix',
-    r'(?i)\* @author',
+    r'(?i)\*\s*@author',
+    r'(?i)created\s+by\s*:', r'(?i)modified\s+by\s*:',
+    r'(?i)담당\s*:', r'(?i)개발자\s*:',
+    r'(?i)since\s*:\s*\d{4}',
+    r'(?i)version\s*:\s*\d',
 ]
 
 
