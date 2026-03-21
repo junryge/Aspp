@@ -54,7 +54,7 @@ SENSITIVE_PATTERNS = [
     # 전화번호(한국)
     ("PHONE", r'\b0\d{1,2}[-.\s]?\d{3,4}[-.\s]?\d{4}\b', '000-0000-0000'),
     # Windows 절대경로
-    ("WIN_PATH", r'[A-Z]:\\(?:[^\s"\'\\]+\\)+[^\s"\'\\]*', 'X:\\masked\\path'),
+    ("WIN_PATH", r'[A-Z]:\\(?:[^\s"\'\\]+\\)+[^\s"\'\\]*', 'X__masked__path'),
     # Linux 절대경로 (일반적인 것)
     ("LINUX_PATH", r'(?<!=)/(?:home|opt|data|app)/[^\s"\']+', '/masked/path'),
     # Base64 긴 문자열
