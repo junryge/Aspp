@@ -1,6 +1,11 @@
 """
-Java 소스파일에서 package/import 문을 제거하고 코드 본문만 추출하여 새 폴더에 저장
-사용법: python strip_java_headers.py <입력폴더> <출력폴더>
+Java 소스파일에서 SK하이닉스 관련 문구 + 민감정보를 탐지하고 삭제/마스킹 처리
+사용법: python clean_sensitive.py <입력폴더> <출력폴더>
+
+- package/import 제거
+- SK Hynix / skhynix 등 회사명 제거
+- IP, 비밀번호, JDBC, API키, 이메일, 전화번호, 절대경로 등 마스킹
+- 결과 리포트 자동 생성
 """
 
 import os
@@ -8,66 +13,194 @@ import sys
 import re
 
 
-def strip_java_headers(source: str) -> str:
-    lines = source.splitlines()
+# ============================================================
+# 1) SK하이닉스 관련 패턴 (삭제 또는 치환)
+# ============================================================
+COMPANY_PATTERNS = [
+    # 대소문자 무시 - 회사명/도메인/패키지
+    (r'(?i)sk[\s_-]?hynix', 'COMPANY'),
+    (r'(?i)skhynix', 'COMPANY'),
+    (r'(?i)sk\s?하이닉스', 'COMPANY'),
+    (r'(?i)hynix', 'COMPANY'),
+    # 이메일 도메인
+    (r'@skhynix\.com', '@company.com'),
+    # 패키지 경로 com.skhynix -> com.company
+    (r'com\.skhynix', 'com.company'),
+    # URL
+    (r'(?i)https?://[^\s"\']*skhynix[^\s"\']*', 'https://internal.company.com'),
+    # smartatlas 등 내부 시스템명
+    (r'(?i)smartatlas', 'internal_system'),
+    (r'(?i)smart[\s_-]?atlas', 'internal_system'),
+]
+
+# ============================================================
+# 2) 민감정보 패턴 (마스킹)
+# ============================================================
+SENSITIVE_PATTERNS = [
+    # IP 주소 (0.0.0.0, 127.0.0.1 등 일반적인건 유지)
+    ("IP", r'\b(?!0\.0\.0\.0|127\.0\.0\.1|255\.255\.255\.\d+|localhost)(?:25[0-5]|2[0-4]\d|[01]?\d\d?)\.(?:25[0-5]|2[0-4]\d|[01]?\d\d?)\.(?:25[0-5]|2[0-4]\d|[01]?\d\d?)\.(?:25[0-5]|2[0-4]\d|[01]?\d\d?)\b', '"xxx.xxx.xxx.xxx"'),
+    # JDBC
+    ("JDBC", r'jdbc:[a-zA-Z0-9]+://[^\s"\']+', 'jdbc:driver://HOST:PORT/DB'),
+    # 비밀번호 값
+    ("PW", r'(?i)((?:password|passwd|pwd|pass)\s*[=:]\s*["\'])[^"\']+(["\'])', r'\1****\2'),
+    # API키/토큰 값
+    ("KEY", r'(?i)((?:api[_-]?key|token|secret|access[_-]?key)\s*[=:]\s*["\'])[^"\']+(["\'])', r'\1****\2'),
+    # DB 사용자
+    ("DB_USER", r'(?i)((?:db[_-]?user|username|user[_-]?id)\s*[=:]\s*["\'])[^"\']+(["\'])', r'\1****\2'),
+    # DB 호스트
+    ("DB_HOST", r'(?i)((?:db[_-]?host|db[_-]?server|db[_-]?url)\s*[=:]\s*["\'])[^"\']+(["\'])', r'\1****\2'),
+    # 이메일 (회사 외 일반 이메일도)
+    ("EMAIL", r'[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}', 'user@masked.com'),
+    # 전화번호(한국)
+    ("PHONE", r'\b0\d{1,2}[-.\s]?\d{3,4}[-.\s]?\d{4}\b', '000-0000-0000'),
+    # Windows 절대경로
+    ("WIN_PATH", r'[A-Z]:\\(?:[^\s"\'\\]+\\)+[^\s"\'\\]*', 'X:\\masked\\path'),
+    # Linux 절대경로 (일반적인 것)
+    ("LINUX_PATH", r'(?<!=)/(?:home|opt|data|app)/[^\s"\']+', '/masked/path'),
+    # Base64 긴 문자열
+    ("BASE64", r'(["\'])[A-Za-z0-9+/]{40,}={0,2}\1', '"****"'),
+    # 포트번호 하드코딩
+    ("PORT", r'(?i)((?:port)\s*[=:]\s*["\']?)\d{4,5}(["\']?)', r'\1XXXX\2'),
+]
+
+# ============================================================
+# 3) 주석 내 민감 키워드 (해당 라인 통째로 삭제)
+# ============================================================
+COMMENT_KILL_KEYWORDS = [
+    r'(?i)작성자\s*:', r'(?i)author\s*:', r'(?i)담당자\s*:',
+    r'(?i)연락처\s*:', r'(?i)phone\s*:', r'(?i)email\s*:',
+    r'(?i)copyright.*skhynix', r'(?i)copyright.*하이닉스',
+    r'(?i)copyright.*hynix',
+    r'(?i)\* @author',
+]
+
+
+def clean_line(line):
+    """한 줄에 대해 회사명 치환 + 민감정보 마스킹"""
+    changed = False
+    original = line
+
+    # 주석 내 민감 키워드 -> 라인 삭제
+    stripped = line.strip()
+    if stripped.startswith('//') or stripped.startswith('*') or stripped.startswith('/*'):
+        for kw in COMMENT_KILL_KEYWORDS:
+            if re.search(kw, line):
+                return '', True  # 라인 삭제
+
+    # 회사명 치환
+    for pattern, replacement in COMPANY_PATTERNS:
+        line, cnt = re.subn(pattern, replacement, line)
+        if cnt > 0:
+            changed = True
+
+    # 민감정보 마스킹
+    for label, pattern, replacement in SENSITIVE_PATTERNS:
+        line, cnt = re.subn(pattern, replacement, line)
+        if cnt > 0:
+            changed = True
+
+    return line, changed
+
+
+def process_file(content):
+    """파일 전체 처리: package/import 제거 + 민감정보 클린"""
+    lines = content.split('\n')
     result = []
     header_done = False
+    changes = []
 
-    for line in lines:
+    for i, line in enumerate(lines, 1):
         stripped = line.strip()
 
+        # package / import 제거
         if not header_done:
-            # package / import 라인 스킵
             if stripped.startswith('package ') or stripped.startswith('import '):
+                changes.append((i, "REMOVED", stripped[:80]))
                 continue
-            # 헤더 영역의 빈 줄도 스킵
             if stripped == '':
                 continue
-            # 그 외 실제 코드 시작
             header_done = True
 
-        result.append(line)
+        # 민감정보 클린
+        cleaned, changed = clean_line(line)
+        if changed:
+            if cleaned == '':
+                changes.append((i, "LINE_DEL", stripped[:80]))
+                continue
+            else:
+                changes.append((i, "MASKED", stripped[:80]))
+        result.append(cleaned)
 
-    return '\n'.join(result)
+    return '\n'.join(result), changes
 
 
-def process_folder(input_dir: str, output_dir: str):
+def process_folder(input_dir, output_dir):
     if not os.path.isdir(input_dir):
         print(f"[ERROR] 입력 폴더가 없음: {input_dir}")
         sys.exit(1)
 
     os.makedirs(output_dir, exist_ok=True)
 
-    count = 0
+    total_files = 0
+    total_changes = 0
+    report = []
+
     for root, dirs, files in os.walk(input_dir):
         for fname in files:
             if not fname.endswith('.java'):
                 continue
 
             src_path = os.path.join(root, fname)
-            # 하위 폴더 구조 유지
             rel = os.path.relpath(src_path, input_dir)
             dst_path = os.path.join(output_dir, rel)
             os.makedirs(os.path.dirname(dst_path), exist_ok=True)
 
-            with open(src_path, 'r', encoding='utf-8') as f:
+            with open(src_path, 'r', encoding='utf-8', errors='ignore') as f:
                 content = f.read()
 
-            cleaned = strip_java_headers(content)
+            cleaned, changes = process_file(content)
 
             with open(dst_path, 'w', encoding='utf-8') as f:
                 f.write(cleaned)
 
-            count += 1
-            print(f"  [OK] {rel}")
+            total_files += 1
+            if changes:
+                total_changes += len(changes)
+                report.append(f"\n{'='*60}")
+                report.append(f"  {rel} ({len(changes)}건)")
+                report.append(f"{'='*60}")
+                for line_no, action, preview in changes:
+                    report.append(f"  L{line_no:>5} [{action:>8}] {preview}")
 
-    print(f"\n완료: {count}개 파일 처리 → {output_dir}")
+            status = f"  ({len(changes)}건 수정)" if changes else ""
+            print(f"  [OK] {rel}{status}")
+
+    # 요약
+    print(f"\n{'='*60}")
+    print(f"  처리 완료")
+    print(f"{'='*60}")
+    print(f"  파일 수: {total_files}개")
+    print(f"  변경 수: {total_changes}건")
+    print(f"  출력:    {output_dir}")
+    print(f"{'='*60}")
+
+    # 리포트 저장
+    report_path = os.path.join(output_dir, "_클린_리포트.txt")
+    with open(report_path, 'w', encoding='utf-8') as f:
+        f.write(f"민감정보 클린 리포트\n")
+        f.write(f"입력: {input_dir}\n")
+        f.write(f"출력: {output_dir}\n")
+        f.write(f"파일: {total_files}개 / 변경: {total_changes}건\n")
+        for line in report:
+            f.write(line + '\n')
+
+    print(f"  리포트:  {report_path}")
 
 
 if __name__ == '__main__':
     if len(sys.argv) < 3:
-        print("사용법: python strip_java_headers.py <입력폴더> <출력폴더>")
-        print("예시:   python strip_java_headers.py ./src ./src_clean")
+        print("사용법: python clean_sensitive.py <입력폴더> <출력폴더>")
+        print("예시:   python clean_sensitive.py ./batch ./batch_clean")
         sys.exit(1)
 
     process_folder(sys.argv[1], sys.argv[2])
