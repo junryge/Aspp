@@ -3,26 +3,24 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>OHT HID INOUT 분석</title>
+<title>OHT HID IN/OUT 분석</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
 <style>
 @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Noto+Sans+KR:wght@300;400;500;700&display=swap');
 :root{
   --bg:#0f1118;--bg2:#161923;--bg3:#1d2130;--bg4:#272b3e;--bg5:#303550;
   --tx:#e6e6ec;--tx2:#a0a2b6;--tx3:#6a6c84;
-  --blue:#4a90ff;--amber:#eda535;--red:#ef4456;--green:#3cc68a;--cyan:#22c5d6;--purple:#a06cf0;
+  --blue:#4a90ff;--amber:#eda535;--red:#ef4456;--green:#3cc68a;--cyan:#22c5d6;--purple:#a06cf0;--pink:#e868a4;
   --bd:rgba(255,255,255,.06);
   --mono:'JetBrains Mono',monospace;--sans:'Noto Sans KR',sans-serif;
 }
 *{margin:0;padding:0;box-sizing:border-box;}
 body{background:var(--bg);color:var(--tx);font-family:var(--sans);line-height:1.7;}
-
 .hdr{padding:16px 28px;background:var(--bg2);border-bottom:1px solid var(--bd);display:flex;align-items:center;justify-content:space-between;}
 .hdr h1{font-size:17px;font-weight:700;}.hdr .ck{font-size:11px;color:var(--tx3);font-family:var(--mono);}
 
-/* Upload */
 .uw{display:flex;align-items:center;justify-content:center;min-height:calc(100vh - 56px);padding:40px;}
-.ub{width:100%;max-width:500px;border:2px dashed rgba(74,144,255,.25);border-radius:16px;padding:48px 32px;text-align:center;cursor:pointer;background:var(--bg2);transition:all .25s;}
+.ub{width:100%;max-width:520px;border:2px dashed rgba(74,144,255,.25);border-radius:16px;padding:48px 32px;text-align:center;cursor:pointer;background:var(--bg2);transition:all .25s;}
 .ub:hover,.ub.ov{border-color:var(--blue);background:rgba(74,144,255,.06);transform:translateY(-2px);}
 .ub h2{font-size:16px;font-weight:600;margin:10px 0 6px;}.ub p{font-size:12px;color:var(--tx2);line-height:1.7;}
 .ub .ft{margin-top:14px;display:flex;gap:6px;justify-content:center;}
@@ -35,38 +33,31 @@ input[type=file]{display:none;}
 .fb button{margin-left:auto;padding:6px 14px;font-size:11px;background:var(--bg4);border:1px solid var(--bd);color:var(--tx2);border-radius:6px;cursor:pointer;font-family:var(--sans);}
 .fb button:hover{background:rgba(239,68,86,.12);color:var(--red);border-color:var(--red);}
 
-.rpt{max-width:860px;margin:0 auto;padding:24px 28px 0;}
+.rpt{max-width:880px;margin:0 auto;padding:24px 28px 0;}
 
-/* KPI */
 .kpi-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:10px;margin-bottom:28px;}
 .kpi{background:var(--bg2);border:1px solid var(--bd);border-radius:10px;padding:14px 16px;}
-.kpi .lb{font-size:10px;color:var(--tx3);margin-bottom:2px;}
-.kpi .vl{font-size:22px;font-weight:700;letter-spacing:-1px;}
+.kpi .lb{font-size:10px;color:var(--tx3);margin-bottom:2px;}.kpi .vl{font-size:22px;font-weight:700;letter-spacing:-1px;}
 
-/* Section */
 .sec{margin-bottom:36px;}
 .sec .sh{display:flex;align-items:center;gap:8px;margin-bottom:14px;padding-bottom:8px;border-bottom:2px solid var(--bg4);}
 .sec .sh .nm{width:26px;height:26px;border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;font-family:var(--mono);color:#fff;flex-shrink:0;}
 .sec .sh .st{font-size:15px;font-weight:700;}
 
-/* Chart card */
 .cc{background:var(--bg2);border:1px solid var(--bd);border-radius:12px;padding:16px 18px;margin-bottom:12px;}
 .cc .ct{font-size:12px;font-weight:600;color:var(--tx2);margin-bottom:8px;}
 .cc .cb{position:relative;width:100%;}
 .cc .lgd{display:flex;flex-wrap:wrap;gap:12px;margin-top:8px;font-size:10px;color:var(--tx3);}
-.cc .lgd span{display:flex;align-items:center;gap:3px;}
-.cc .lgd .sq{width:9px;height:9px;border-radius:2px;flex-shrink:0;}
+.cc .lgd span{display:flex;align-items:center;gap:3px;}.cc .lgd .sq{width:9px;height:9px;border-radius:2px;flex-shrink:0;}
 
-/* Explanation card */
 .ex{background:var(--bg3);border:1px solid var(--bd);border-radius:10px;padding:14px 18px;margin-bottom:12px;font-size:13px;line-height:1.85;}
 .ex .el{font-size:10px;font-weight:600;font-family:var(--mono);letter-spacing:.5px;margin-bottom:4px;}
-.ex .el.b{color:var(--blue);}.ex .el.a{color:var(--amber);}.ex .el.r{color:var(--red);}.ex .el.g{color:var(--green);}.ex .el.c{color:var(--cyan);}.ex .el.p{color:var(--purple);}
+.ex .el.b{color:var(--blue);}.ex .el.a{color:var(--amber);}.ex .el.r{color:var(--red);}.ex .el.g{color:var(--green);}.ex .el.c{color:var(--cyan);}.ex .el.p{color:var(--purple);}.ex .el.pk{color:var(--pink);}
 .ex p{margin:0 0 6px;}.ex p:last-child{margin:0;}
 .hl{font-weight:700;}
 .cd{font-family:var(--mono);font-size:12px;color:var(--cyan);background:var(--bg5);padding:1px 6px;border-radius:4px;}
 .yes{color:var(--green);}.no{color:var(--red);}
 
-/* Table */
 .tw{overflow-x:auto;margin-bottom:12px;}
 .tb{width:100%;border-collapse:collapse;font-size:11px;background:var(--bg2);border-radius:10px;overflow:hidden;}
 .tb thead td{padding:9px 14px;font-weight:600;color:var(--tx3);font-size:10px;border-bottom:1px solid var(--bd);text-transform:uppercase;letter-spacing:.5px;background:var(--bg3);}
@@ -74,12 +65,10 @@ input[type=file]{display:none;}
 .tb tbody td{padding:8px 14px;}
 .mn{font-family:var(--mono);font-size:10px;}
 
-/* warn box */
 .wb{background:rgba(239,68,86,.06);border:1px solid rgba(239,68,86,.15);border-radius:10px;padding:14px 18px;font-size:13px;line-height:1.85;margin-bottom:12px;}
 .wb .el{font-size:10px;font-weight:600;font-family:var(--mono);color:var(--red);letter-spacing:.5px;margin-bottom:4px;}
 .wb p{color:var(--tx2);margin:0 0 4px;}.wb p:last-child{margin:0;}
 
-/* summary */
 .sum{background:var(--bg3);border:1px solid rgba(74,144,255,.2);border-radius:12px;padding:20px 22px;margin-top:24px;}
 .sum h3{font-size:14px;font-weight:700;margin-bottom:10px;}
 .sum p{font-size:13px;line-height:1.85;margin:0 0 8px;}.sum p:last-child{margin:0;}
@@ -89,13 +78,13 @@ input[type=file]{display:none;}
 </head>
 <body>
 
-<div class="hdr"><h1>OHT HID INOUT 분석</h1><div class="ck" id="ck"></div></div>
+<div class="hdr"><h1>OHT HID IN/OUT 분석</h1><div class="ck" id="ck"></div></div>
 
 <div class="uw" id="uw">
   <div class="ub" id="ub">
     <div style="font-size:28px">📂</div>
-    <h2>HID INOUT 데이터 업로드</h2>
-    <p>파일을 넣으면 <b>그래프 + 한국어 설명</b>으로 분석합니다.<br>확인 가능한 사실만 보여주고, 추측은 하지 않습니다.</p>
+    <h2>HID IN/OUT 데이터 업로드</h2>
+    <p>ATLAS HID_INOUT 로그를 넣으면<br><b>HID 점유 밀도 · IN-OUT 불균형 · 동시 점유</b>를 분석합니다.</p>
     <div class="ft"><span>.csv</span><span>.txt</span><span>.tsv</span></div>
   </div>
   <input type="file" id="fI" accept=".csv,.txt,.tsv">
@@ -144,7 +133,6 @@ function A(txt,fname,fsize){
   document.getElementById('uw').style.display='none';
   document.getElementById('rs').classList.add('on');
 
-  // === 분석 ===
   const vhls=[...new Set(rows.map(r=>r.V))];
   const allH=[...new Set([...rows.map(r=>r.F),...rows.map(r=>r.T)])];
   const fabs=[...new Set(rows.map(r=>r.FAB).filter(Boolean))];
@@ -152,213 +140,227 @@ function A(txt,fname,fsize){
   const single=dts.length<=1;
   const vpx={};vhls.forEach(v=>{const p=v.replace(/[0-9]/g,'');vpx[p]=(vpx[p]||0)+1;});
 
-  // HID traffic
-  const ht={};rows.forEach(r=>{ht[r.F]=(ht[r.F]||0)+1;ht[r.T]=(ht[r.T]||0)+1;});
-  const sH=Object.entries(ht).sort((a,b)=>b[1]-a[1]);
-  const avg=(Object.values(ht).reduce((a,b)=>a+b,0)/allH.length);
+  // IN counts (TO_HIDID = 진입)
+  const inCnt={};rows.forEach(r=>{inCnt[r.T]=(inCnt[r.T]||0)+1;});
+  const sIn=Object.entries(inCnt).sort((a,b)=>b[1]-a[1]);
+  const avgIn=Object.values(inCnt).reduce((a,b)=>a+b,0)/allH.length;
 
-  // Pairs
-  const pc={};rows.forEach(r=>{const k=r.F+'→'+r.T;pc[k]=(pc[k]||0)+1;});
-  const tP=Object.entries(pc).sort((a,b)=>b[1]-a[1]);
+  // OUT counts (FROM_HIDID = 퇴장)
+  const outCnt={};rows.forEach(r=>{outCnt[r.F]=(outCnt[r.F]||0)+1;});
+  const sOut=Object.entries(outCnt).sort((a,b)=>b[1]-a[1]);
 
-  // Bidi
-  const bidi=[];const bS=new Set();
-  for(const[k,c]of Object.entries(pc)){const[a,b]=k.split('→');const rv=b+'→'+a;
-    if(pc[rv]&&!bS.has(b+'↔'+a)){bidi.push({a,b,ab:c,ba:pc[rv],tot:c+pc[rv]});bS.add(a+'↔'+b);}}
-  bidi.sort((a,b)=>b.tot-a.tot);
+  // IN-OUT imbalance
+  const imb={};
+  allH.forEach(h=>{
+    const i=inCnt[h]||0,o=outCnt[h]||0;
+    imb[h]={i,o,d:i-o};
+  });
+  const piling=Object.entries(imb).filter(([,v])=>v.d>0).sort((a,b)=>b[1].d-a[1].d);
+  const draining=Object.entries(imb).filter(([,v])=>v.d<0).sort((a,b)=>a[1].d-b[1].d);
+  const balanced=Object.entries(imb).filter(([,v])=>v.d===0);
 
-  // VHL moves
+  // Concurrent IN per HID (who is in the same HID)
+  const hidVhls={};rows.forEach(r=>{if(!hidVhls[r.T])hidVhls[r.T]=[];hidVhls[r.T].push(r.V);});
+
+  // VHL that appeared in multiple HID IN records
   const vg={};rows.forEach(r=>{if(!vg[r.V])vg[r.V]=[];vg[r.V].push(r);});
-  const md={};Object.values(vg).forEach(rs=>{const n=rs.length;md[n]=(md[n]||0)+1;});
-  const multi=Object.entries(vg).filter(([,rs])=>rs.length>=3).sort((a,b)=>b[1].length-a[1].length);
-
-  // Circular
-  const circ=[];
-  for(const[v,rs]of Object.entries(vg)){if(rs.length<2)continue;
-    const fc={};rs.forEach(r=>{fc[r.F]=(fc[r.F]||0)+1;});
-    const rp=Object.entries(fc).filter(([,c])=>c>1);if(rp.length)circ.push({v,rp,n:rs.length});}
-  circ.sort((a,b)=>b.n-a.n);
+  const multiV=Object.entries(vg).filter(([,rs])=>rs.length>=2).sort((a,b)=>b[1].length-a[1].length);
 
   // Retries
   const ret=rows.filter(r=>r.TC>=2);
 
-  // Groups
-  const cTh=Math.max(3,Math.floor(rows.length/250));
-  const adj={};for(const[k,c]of Object.entries(pc)){if(c<cTh)continue;const[a,b]=k.split('→');if(!adj[a])adj[a]=new Set();if(!adj[b])adj[b]=new Set();adj[a].add(b);adj[b].add(a);}
-  const vis=new Set();const grps=[];
-  for(const nd of Object.keys(adj)){if(vis.has(nd))continue;const cl=new Set();const stk=[nd];
-    while(stk.length){const n=stk.pop();if(vis.has(n))continue;vis.add(n);cl.add(n);if(adj[n])for(const nb of adj[n])if(!vis.has(nb))stk.push(nb);}
-    if(cl.size>=3)grps.push([...cl].sort((a,b)=>parseInt(a)-parseInt(b)));}
-  grps.sort((a,b)=>{const ta=a.reduce((s,h)=>s+(ht[h]||0),0);const tb=b.reduce((s,h)=>s+(ht[h]||0),0);return tb-ta;});
+  // Same FROM and TO pairs in both directions
+  const pc={};rows.forEach(r=>{const k=r.F+'→'+r.T;pc[k]=(pc[k]||0)+1;});
+  const bidi=[];const bS=new Set();
+  for(const[k,c]of Object.entries(pc)){const[a,b]=k.split('→');const rv=b+'→'+a;
+    if(pc[rv]&&!bS.has(b+'↔'+a)){bidi.push({a,b,ab:c,ba:pc[rv],tot:c+pc[rv]});bS.add(a+'↔'+b);}}
+  bidi.sort((a,b)=>b.tot-a.tot);
 
   // ========== RENDER ==========
   const rpt=document.getElementById('rpt');
   let h='';
 
   // KPI
+  const in10=Object.values(inCnt).filter(v=>v>=10).length;
   h+=`<div class="kpi-grid">
     <div class="kpi"><div class="lb">총 레코드</div><div class="vl">${rows.length.toLocaleString()}</div></div>
     <div class="kpi"><div class="lb">OHT 대수</div><div class="vl">${vhls.length}</div></div>
     <div class="kpi"><div class="lb">HID 존 수</div><div class="vl">${allH.length}</div></div>
-    <div class="kpi"><div class="lb">이동 구간 종류</div><div class="vl">${Object.keys(pc).length}</div></div>
-    <div class="kpi"><div class="lb">양방향 쌍</div><div class="vl" style="color:var(--amber)">${bidi.length}</div></div>
-    <div class="kpi"><div class="lb">TRANS_CNT≥2</div><div class="vl" style="color:var(--red)">${ret.length}</div></div>
+    <div class="kpi"><div class="lb">10대+ 진입 HID</div><div class="vl" style="color:var(--amber)">${in10}</div></div>
+    <div class="kpi"><div class="lb">IN>OUT 불균형</div><div class="vl" style="color:var(--red)">${piling.length}</div></div>
+    <div class="kpi"><div class="lb">TRANS_CNT≥2</div><div class="vl" style="color:var(--purple)">${ret.length}</div></div>
   </div>`;
 
-  // 0. 데이터 개요
+  // 0. Overview
   h+=`<div class="sec"><div class="sh"><div class="nm" style="background:var(--blue)">0</div><div class="st">이 데이터는 뭔가?</div></div>
     <div class="ex"><div class="el b">데이터 정체</div>
-      <p><span class="hl">${fabs.join(', ')||'(FAB 미상)'}</span> FAB의 OHT HID INOUT 로그. OHT가 HID A → HID B로 <span class="hl">이동 완료</span>했을 때 찍히는 기록.</p>
-      <p>시간: <span class="hl">${dts.length===0?'시간 정보 없음':dts.length===1?dts[0]+' (단일 시점 스냅샷)':dts[0]+' ~ '+dts[dts.length-1]+' ('+dts.length+'개 시점)'}</span></p>
-      ${single?'<p>⚠️ 모든 레코드가 같은 시각 → 시간 변화 분석 불가, "이 시점의 현황"만 확인 가능.</p>':''}
+      <p><span class="hl">${fabs.join(', ')||'(FAB 미상)'}</span>의 <span class="hl">HID IN/OUT</span> 로그.</p>
+      <p><span class="cd">FROM_HIDID</span> = OHT가 <span class="hl">빠져나온</span> HID (OUT)</p>
+      <p><span class="cd">TO_HIDID</span> = OHT가 <span class="hl">진입한</span> HID (IN)</p>
+      <p>즉, 각 레코드는 "이 OHT가 이 HID에서 나와서 저 HID에 들어갔다"는 기록.</p>
+    </div>
+    <div class="ex"><div class="el b">시간·규모</div>
+      <p>시간: <span class="hl">${dts.length===0?'정보 없음':dts.length===1?dts[0]+' (단일 시점 스냅샷)':dts[0]+' ~ '+dts[dts.length-1]}</span></p>
+      ${single?'<p>⚠️ 모든 레코드가 같은 시각 → "이 시점에 어떤 OHT가 어떤 HID에 진입했는지" 스냅샷.</p>':''}
       <p>OHT: <span class="hl">${vhls.length}대</span> (${Object.entries(vpx).map(([k,v])=>`${k}: ${v}대`).join(', ')})</p>
+      <p>HID 존: <span class="hl">${allH.length}개</span></p>
     </div></div>`;
 
-  // 1. HID Traffic
-  const t25=sH.slice(0,25);
-  h+=`<div class="sec"><div class="sh"><div class="nm" style="background:var(--cyan)">1</div><div class="st">어떤 HID에 이동이 몰리는가?</div></div>
-    <div class="cc"><div class="ct">HID별 트래픽 (FROM+TO 합산, 상위 25)</div>
+  // 1. HID 진입(IN) 밀도
+  const inTop=sIn.slice(0,25);
+  h+=`<div class="sec"><div class="sh"><div class="nm" style="background:var(--cyan)">1</div><div class="st">어떤 HID에 OHT가 많이 진입했는가?</div></div>
+    <div class="cc"><div class="ct">HID별 진입(IN) 건수 — TO_HIDID 기준, 상위 25</div>
       <div class="cb" style="height:280px;"><canvas id="c1"></canvas></div>
-      <div class="lgd"><span><span class="sq" style="background:var(--red)"></span>상위 5</span><span><span class="sq" style="background:var(--amber)"></span>상위 10</span><span><span class="sq" style="background:var(--blue)"></span>기타</span></div>
+      <div class="lgd"><span><span class="sq" style="background:var(--red)"></span>10대 이상</span><span><span class="sq" style="background:var(--amber)"></span>7~9대</span><span><span class="sq" style="background:var(--cyan)"></span>6대 이하</span></div>
     </div>
     <div class="ex"><div class="el c">이 그래프는 뭘 보여주나?</div>
-      <p>각 HID를 출발지(FROM) 또는 도착지(TO)로 사용한 <span class="hl">총 건수</span>. 막대가 높을수록 해당 HID를 많은 OHT가 오가고 있다는 뜻.</p>
-      <p>1위: HID <span class="cd">${sH[0][0]}</span> = <span class="hl">${sH[0][1]}건</span> (평균 ${avg.toFixed(1)}건의 <span class="hl">${(sH[0][1]/avg).toFixed(1)}배</span>)</p>
+      <p>각 HID에 <span class="hl">진입(IN)한 OHT 수</span>. 막대가 높을수록 그 HID에 많은 OHT가 들어갔다는 뜻.</p>
+      <p>1위: HID <span class="cd">${sIn[0][0]}</span> = <span class="hl">${sIn[0][1]}대 진입</span> (평균 ${avgIn.toFixed(1)}대의 ${(sIn[0][1]/avgIn).toFixed(1)}배)</p>
+      <p>10대 이상 진입한 HID: <span class="hl">${in10}개</span></p>
     </div>
-    <div class="ex"><div class="el c">이 그래프로 알 수 있는 것 / 없는 것</div>
-      <p class="yes">✅ 알 수 있는 것: 어떤 HID에 OHT 이동이 집중되는지</p>
-      <p class="no">❌ 알 수 없는 것: 그게 병목인지, 정상적인 것인지 (이 데이터에 상태 정보 없음)</p>
-    </div></div>`;
+    <div class="ex"><div class="el c">알 수 있는 것 / 없는 것</div>
+      <p class="yes">✅ 어떤 HID에 OHT 진입이 집중되는지 (점유 밀도)</p>
+      <p class="no">❌ 그 HID가 실제로 정체/포화 상태인지 (HID의 수용 용량 정보 없음)</p>
+    </div>
+    <div class="tw"><table class="tb"><thead><tr><td>HID</td><td>진입(IN) 대수</td><td>진입한 OHT (최대 8대 표시)</td></tr></thead><tbody>`;
+  sIn.slice(0,10).forEach(([hid,cnt])=>{
+    const vs=(hidVhls[hid]||[]).slice(0,8).join(', ')+(hidVhls[hid]&&hidVhls[hid].length>8?'…':'');
+    h+=`<tr><td class="mn" style="font-weight:600">${hid}</td><td style="font-weight:600;color:${cnt>=10?'var(--red)':cnt>=7?'var(--amber)':'var(--tx)'}">${cnt}</td><td class="mn" style="color:var(--tx2);max-width:400px;word-break:break-all">${vs}</td></tr>`;
+  });
+  h+=`</tbody></table></div></div>`;
 
-  // 2. Pair frequency
-  const tp15=tP.slice(0,15);
-  h+=`<div class="sec"><div class="sh"><div class="nm" style="background:var(--green)">2</div><div class="st">어떤 이동 구간이 자주 쓰이는가?</div></div>
-    <div class="cc"><div class="ct">FROM→TO 구간 빈도 (상위 15)</div>
-      <div class="cb" style="height:260px;"><canvas id="c2"></canvas></div>
-    </div>
-    <div class="ex"><div class="el g">이 그래프는 뭘 보여주나?</div>
-      <p>FROM→TO 조합별 몇 건 발생했는지. 1위: <span class="cd">${tP[0][0]}</span> = <span class="hl">${tP[0][1]}건</span></p>
-      <p>전체 ${Object.keys(pc).length}가지 구간 중, 1회만 나타난 구간이 ${Object.values(pc).filter(v=>v===1).length}개 (${(Object.values(pc).filter(v=>v===1).length/Object.keys(pc).length*100).toFixed(0)}%), 3회 이상은 ${Object.values(pc).filter(v=>v>=3).length}개.</p>
-    </div>
-    <div class="ex"><div class="el g">알 수 있는 것 / 없는 것</div>
-      <p class="yes">✅ 어떤 경로를 여러 OHT가 공유하는지</p>
-      <p class="no">❌ 그 경로가 왜 자주 쓰이는지 (정상 루트? 우회?)</p>
-    </div></div>`;
-
-  // 3. Bidirectional
-  const b12=bidi.slice(0,12);
-  h+=`<div class="sec"><div class="sh"><div class="nm" style="background:var(--amber)">3</div><div class="st">같은 구간 양방향 이동</div></div>`;
-  if(bidi.length===0){
-    h+=`<div class="ex"><div class="el a">결과</div><p>양방향 이동 구간 없음.</p></div>`;
-  } else {
-    h+=`<div class="cc"><div class="ct">양방향 이동 쌍 (A→B vs B→A)</div>
-      <div class="cb" style="height:260px;"><canvas id="c3"></canvas></div>
-      <div class="lgd"><span><span class="sq" style="background:var(--blue)"></span>A→B</span><span><span class="sq" style="background:var(--amber)"></span>B→A</span></div>
+  // 2. IN-OUT imbalance
+  const imbTop=[...piling.slice(0,12),...draining.slice(0,12)].sort((a,b)=>Math.abs(b[1].d)-Math.abs(a[1].d)).slice(0,20);
+  h+=`<div class="sec"><div class="sh"><div class="nm" style="background:var(--amber)">2</div><div class="st">HID별 IN-OUT 불균형</div></div>
+    <div class="cc"><div class="ct">IN(진입) - OUT(퇴장) 차이 — 양수=쌓이는 방향, 음수=빠지는 방향</div>
+      <div class="cb" style="height:300px;"><canvas id="c2"></canvas></div>
+      <div class="lgd"><span><span class="sq" style="background:var(--red)"></span>IN > OUT (쌓이는 방향)</span><span><span class="sq" style="background:var(--blue)"></span>OUT > IN (빠지는 방향)</span></div>
     </div>
     <div class="ex"><div class="el a">이 그래프는 뭘 보여주나?</div>
-      <p>A→B 이동과 B→A 이동이 <span class="hl">둘 다 기록된</span> HID 쌍 <span class="hl">${bidi.length}개</span>.</p>
-      <p>1위: HID <span class="cd">${bidi[0].a}</span> ↔ <span class="cd">${bidi[0].b}</span> — ${bidi[0].a}→${bidi[0].b}: ${bidi[0].ab}건, ${bidi[0].b}→${bidi[0].a}: ${bidi[0].ba}건.</p>
-    </div>
-    <div class="ex"><div class="el a">알 수 있는 것 / 없는 것</div>
-      <p class="yes">✅ 이 구간에서 양쪽 방향으로 OHT가 이동한 사실</p>
-      <p class="no">❌ 서로 마주쳤는지, 충돌했는지, 데드락이 생겼는지 (상태/시각 정보 없음)</p>
+      <p>각 HID에서 <span class="hl">들어온 OHT 수(IN) - 나간 OHT 수(OUT)</span>의 차이.</p>
+      <p><span class="hl" style="color:var(--red)">양수(빨간색)</span> = 나간 것보다 들어온 게 더 많음 → 이 시점에서 OHT가 쌓이는 방향.</p>
+      <p><span class="hl" style="color:var(--blue)">음수(파란색)</span> = 들어온 것보다 나간 게 더 많음 → 이 시점에서 OHT가 빠지는 방향.</p>
     </div>`;
-    // table
-    h+=`<div class="tw"><table class="tb"><thead><tr><td>HID A</td><td>HID B</td><td>A→B</td><td>B→A</td><td>합계</td></tr></thead><tbody>`;
+  if(piling.length>0){
+    h+=`<div class="ex"><div class="el r">IN > OUT 상위 (OHT가 쌓이는 방향)</div>`;
+    piling.slice(0,5).forEach(([hid,v])=>{h+=`<p>HID <span class="cd">${hid}</span>: IN=${v.i}대, OUT=${v.o}대 → <span class="hl" style="color:var(--red)">+${v.d}대 초과 진입</span></p>`;});
+    h+=`</div>`;
+  }
+  if(draining.length>0){
+    h+=`<div class="ex"><div class="el b">OUT > IN 상위 (OHT가 빠지는 방향)</div>`;
+    draining.slice(0,5).forEach(([hid,v])=>{h+=`<p>HID <span class="cd">${hid}</span>: IN=${v.i}대, OUT=${v.o}대 → <span class="hl" style="color:var(--blue)">${v.d}대 초과 퇴장</span></p>`;});
+    h+=`</div>`;
+  }
+  h+=`<div class="ex"><div class="el a">알 수 있는 것 / 없는 것</div>
+      <p class="yes">✅ 이 시점에서 어떤 HID에 OHT가 쌓이는 방향인지, 빠지는 방향인지</p>
+      <p class="no">❌ 실제로 쌓여서 막혔는지 (연속 시간 데이터 없이 한 시점만으로는 추세 확인 불가)</p>
+    </div>
+    <div class="ex"><div class="el g">균형 현황</div>
+      <p>IN=OUT 균형: <span class="hl">${balanced.length}개</span> HID / IN>OUT: <span class="hl">${piling.length}개</span> / OUT>IN: <span class="hl">${draining.length}개</span></p>
+    </div></div>`;
+
+  // 3. HID OUT(퇴장) 밀도
+  const outTop=sOut.slice(0,25);
+  h+=`<div class="sec"><div class="sh"><div class="nm" style="background:var(--green)">3</div><div class="st">어떤 HID에서 OHT가 많이 빠져나갔는가?</div></div>
+    <div class="cc"><div class="ct">HID별 퇴장(OUT) 건수 — FROM_HIDID 기준, 상위 25</div>
+      <div class="cb" style="height:260px;"><canvas id="c3"></canvas></div>
+    </div>
+    <div class="ex"><div class="el g">이 그래프는 뭘 보여주나?</div>
+      <p>각 HID에서 <span class="hl">빠져나간(OUT) OHT 수</span>. 1위: HID <span class="cd">${sOut[0][0]}</span> = ${sOut[0][1]}대 퇴장.</p>
+      <p>진입(IN) 차트와 비교하면 어떤 HID가 "통과 지점"이고 어떤 HID가 "종착 지점"인지 감을 잡을 수 있음.</p>
+    </div></div>`;
+
+  // 4. Bidirectional IN/OUT
+  const b12=bidi.slice(0,12);
+  h+=`<div class="sec"><div class="sh"><div class="nm" style="background:var(--purple)">4</div><div class="st">양방향 IN/OUT 쌍</div></div>`;
+  if(bidi.length===0){
+    h+=`<div class="ex"><div class="el p">결과</div><p>양방향 IN/OUT 쌍 없음.</p></div>`;
+  } else {
+    h+=`<div class="cc"><div class="ct">A→B(A에서 OUT, B에 IN) 와 B→A(B에서 OUT, A에 IN) 가 모두 기록된 HID 쌍</div>
+      <div class="cb" style="height:260px;"><canvas id="c4"></canvas></div>
+      <div class="lgd"><span><span class="sq" style="background:var(--purple)"></span>A OUT → B IN</span><span><span class="sq" style="background:var(--pink)"></span>B OUT → A IN</span></div>
+    </div>
+    <div class="ex"><div class="el p">이 그래프는 뭘 보여주나?</div>
+      <p>HID A에서 나와서 B에 들어간 OHT도 있고, B에서 나와서 A에 들어간 OHT도 있는 쌍 <span class="hl">${bidi.length}개</span>.</p>
+    </div>
+    <div class="ex"><div class="el p">알 수 있는 것 / 없는 것</div>
+      <p class="yes">✅ 이 두 HID 사이에서 양방향으로 OHT가 오간 사실</p>
+      <p class="no">❌ 동시에 오간 건지, 순차적인 건지 (같은 시각 스냅샷이라 구분 불가)</p>
+    </div>`;
+    h+=`<div class="tw"><table class="tb"><thead><tr><td>HID A</td><td>HID B</td><td>A OUT→B IN</td><td>B OUT→A IN</td><td>합계</td></tr></thead><tbody>`;
     b12.forEach(p=>{h+=`<tr><td class="mn">${p.a}</td><td class="mn">${p.b}</td><td>${p.ab}</td><td>${p.ba}</td><td style="font-weight:600">${p.tot}</td></tr>`;});
     h+=`</tbody></table></div>`;
   }
   h+=`</div>`;
 
-  // 4. VHL 이동 분포
-  const mdSorted=Object.entries(md).sort((a,b)=>parseInt(a[0])-parseInt(b[0]));
-  h+=`<div class="sec"><div class="sh"><div class="nm" style="background:var(--purple)">4</div><div class="st">OHT별 이동 횟수 분포</div></div>
-    <div class="cc"><div class="ct">이동 횟수별 OHT 대수</div>
-      <div class="cb" style="height:220px;"><canvas id="c4"></canvas></div>
-    </div>
-    <div class="ex"><div class="el p">이 그래프는 뭘 보여주나?</div>
-      <p>${mdSorted.map(([k,v])=>`<span class="hl">${k}회</span> 이동: ${v}대`).join(' / ')}</p>
-      <p>대부분(${md[1]||0}대)이 1회 이동이고, 3회 이상은 <span class="hl">${multi.length}대</span>.</p>
-    </div>
-    <div class="ex"><div class="el p">알 수 있는 것 / 없는 것</div>
-      <p class="yes">✅ 이 데이터 범위에서 각 OHT가 몇 번 이동 기록을 남겼는지</p>
-      <p class="no">❌ 1회만 찍힌 OHT가 한 번만 움직인 건지, 나머지가 다른 시간대에 찍힌 건지</p>
-    </div></div>`;
-
-  // 5. 다회 이동 VHL 경로
-  if(multi.length>0){
-    h+=`<div class="sec"><div class="sh"><div class="nm" style="background:var(--purple)">5</div><div class="st">다회 이동 OHT 경로 상세 (3회+)</div></div>
-      <div class="tw"><table class="tb"><thead><tr><td>VHL ID</td><td>이동 수</td><td>경로</td><td>반복 방문 HID</td></tr></thead><tbody>`;
-    multi.slice(0,15).forEach(([vid,rs])=>{
-      const route=rs.map(r=>r.F+'→'+r.T).join(' , ');
-      const fc={};rs.forEach(r=>{fc[r.F]=(fc[r.F]||0)+1;});
-      const rp=Object.entries(fc).filter(([,c])=>c>1);
-      const rpStr=rp.length?rp.map(([h,c])=>`HID ${h} (${c}회)`).join(', '):'—';
-      h+=`<tr><td class="mn" style="font-weight:600">${vid}</td><td>${rs.length}</td><td style="font-family:var(--mono);font-size:10px;color:var(--tx2);max-width:380px;word-break:break-all">${route}</td><td class="mn">${rpStr}</td></tr>`;
+  // 5. Multi-record VHL
+  h+=`<div class="sec"><div class="sh"><div class="nm" style="background:var(--pink)">5</div><div class="st">여러 HID를 거친 OHT</div></div>
+    <div class="cc"><div class="ct">OHT별 기록 수 분포</div>
+      <div class="cb" style="height:200px;"><canvas id="c5"></canvas></div>
+    </div>`;
+  const md={};Object.values(vg).forEach(rs=>{const n=rs.length;md[n]=(md[n]||0)+1;});
+  const mdS=Object.entries(md).sort((a,b)=>parseInt(a[0])-parseInt(b[0]));
+  h+=`<div class="ex"><div class="el pk">분포</div>
+    <p>${mdS.map(([k,v])=>`<span class="hl">${k}건</span>: ${v}대`).join(' / ')}</p>
+    <p>대부분 1건이고 2건 이상은 <span class="hl">${multiV.length}대</span>.</p>
+  </div>`;
+  if(multiV.length>0){
+    h+=`<div class="ex"><div class="el pk">2건 이상 기록 OHT — 실제 HID 전환 경로</div>
+      <p>이 OHT들은 이 시점에 여러 HID를 거친 기록이 있음:</p></div>
+    <div class="tw"><table class="tb"><thead><tr><td>VHL</td><td>건수</td><td>OUT HID → IN HID (순서대로)</td></tr></thead><tbody>`;
+    multiV.slice(0,15).forEach(([vid,rs])=>{
+      const route=rs.map(r=>`${r.F}→${r.T}`).join(' , ');
+      h+=`<tr><td class="mn" style="font-weight:600">${vid}</td><td>${rs.length}</td><td class="mn" style="color:var(--tx2);max-width:400px;word-break:break-all">${route}</td></tr>`;
     });
-    h+=`</tbody></table></div>
-      <div class="ex"><div class="el p">알 수 있는 것 / 없는 것</div>
-        <p class="yes">✅ 이 OHT들이 실제로 어떤 경로를 이동했는지, 같은 HID를 다시 방문했는지</p>
-        <p class="no">❌ 반복 방문이 정상 운영인지, 문제 상황인지 (원인 정보 없음)</p>
-      </div></div>`;
-  }
-
-  // 6. TRANS_CNT
-  h+=`<div class="sec"><div class="sh"><div class="nm" style="background:var(--red)">6</div><div class="st">TRANS_CNT ≥ 2 기록</div></div>`;
-  if(ret.length===0){
-    h+=`<div class="ex"><div class="el g">결과</div><p>모든 레코드의 TRANS_CNT가 1. 2 이상인 기록 없음.</p></div>`;
-  } else {
-    h+=`<div class="tw"><table class="tb"><thead><tr><td>VHL ID</td><td>FROM HID</td><td>TO HID</td><td>TRANS_CNT</td></tr></thead><tbody>`;
-    ret.forEach(r=>{h+=`<tr><td class="mn">${r.V}</td><td class="mn">${r.F}</td><td class="mn">${r.T}</td><td style="color:var(--amber);font-weight:600">${r.TC}</td></tr>`;});
-    h+=`</tbody></table></div>
-      <div class="ex"><div class="el r">알 수 있는 것 / 없는 것</div>
-        <p class="yes">✅ 이 VHL들의 이 구간에서 TRANS_CNT가 2로 기록됨</p>
-        <p class="no">❌ 이게 재시도인지, 왕복인지, 시스템 중복 기록인지 (ATLAS 정의에 따라 다름)</p>
-      </div>`;
+    h+=`</tbody></table></div>`;
   }
   h+=`</div>`;
 
-  // 7. Groups
-  if(grps.length>0){
-    h+=`<div class="sec"><div class="sh"><div class="nm" style="background:var(--cyan)">7</div><div class="st">자주 함께 쓰이는 HID 그룹</div></div>
-      <div class="ex"><div class="el c">연결 기준</div><p>이동 빈도 <span class="hl">${cTh}건 이상</span>인 구간끼리 연결했을 때 묶이는 HID 그룹.</p></div>`;
-    grps.slice(0,5).forEach((g,i)=>{
-      const tr=g.reduce((s,h)=>s+(ht[h]||0),0);
-      h+=`<div class="ex"><div class="el c">그룹 ${i+1} — ${g.length}개 HID, 합산 트래픽 ${tr}건</div>
-        <p style="font-family:var(--mono);font-size:11px;color:var(--tx2);word-break:break-all">${g.join(', ')}</p></div>`;
-    });
-    h+=`<div class="ex"><div class="el c">알 수 있는 것 / 없는 것</div>
-      <p class="yes">✅ 이 HID들 사이에서 OHT 이동이 빈번하다</p>
-      <p class="no">❌ 이 영역이 병목인지, 핵심 운영 구간인지 (이 데이터로 구분 불가)</p>
-    </div></div>`;
+  // 6. TRANS_CNT
+  h+=`<div class="sec"><div class="sh"><div class="nm" style="background:var(--red)">6</div><div class="st">TRANS_CNT ≥ 2</div></div>`;
+  if(ret.length===0){
+    h+=`<div class="ex"><div class="el g">결과</div><p>TRANS_CNT가 2 이상인 기록 없음.</p></div>`;
+  } else {
+    h+=`<div class="tw"><table class="tb"><thead><tr><td>VHL</td><td>OUT HID</td><td>IN HID</td><td>TRANS_CNT</td></tr></thead><tbody>`;
+    ret.forEach(r=>{h+=`<tr><td class="mn">${r.V}</td><td class="mn">${r.F}</td><td class="mn">${r.T}</td><td style="color:var(--amber);font-weight:600">${r.TC}</td></tr>`;});
+    h+=`</tbody></table></div>
+    <div class="ex"><div class="el r">알 수 있는 것 / 없는 것</div>
+      <p class="yes">✅ 이 VHL의 이 HID 전환에서 TRANS_CNT가 2로 기록됨</p>
+      <p class="no">❌ 이게 뭘 의미하는지는 ATLAS 시스템의 TRANS_CNT 정의에 따라 다름</p>
+    </div>`;
   }
+  h+=`</div>`;
 
   // 알 수 없는 것
   h+=`<div class="sec"><div class="sh"><div class="nm" style="background:var(--red)">⚠</div><div class="st">이 데이터로 알 수 없는 것</div></div>
-    <div class="wb"><div class="el">확인 불가 항목</div>
-      <p>• <b>데드락 발생 여부</b> — 대기/차단 상태 정보 없음</p>
-      <p>• <b>OHT 상태 (RUN/WAIT/BLOCKED/DOWN)</b> — 상태 필드 없음</p>
-      <p>• <b>이동 소요 시간</b> — 출발 시각 없이 완료 시각만 있음</p>
-      <p>• <b>멈춰있는 OHT</b> — 이동 완료 기록이라 안 움직인 OHT는 안 찍힘</p>
-      <p>• <b>이동 원인</b> — 정상 명령 / 회피 / 재시도 구분 불가</p>
-      ${single?'<p>• <b>시간 추세</b> — 전부 같은 시각이라 변화 분석 불가</p>':''}
+    <div class="wb"><div class="el">확인 불가</div>
+      <p>• <b>데드락 여부</b> — OHT가 실제로 막혀있는지, 대기 중인지 상태 정보 없음</p>
+      <p>• <b>HID 체류 시간</b> — 언제 진입해서 얼마나 머물렀는지 (OUT 시각 없음)</p>
+      <p>• <b>HID 수용 용량</b> — 몇 대가 들어갈 수 있는 HID인지 모르면 "꽉 찼는지" 판단 불가</p>
+      <p>• <b>아직 안 나온 OHT</b> — IN만 있고 OUT이 없는 OHT (이 스냅샷만으로는 판단 불가)</p>
+      ${single?'<p>• <b>시간 추세</b> — 전부 같은 시각이라 "점점 쌓이는 중인지" 확인 불가</p>':''}
     </div></div>`;
 
   // Summary
   h+=`<div class="sum"><h3>📋 종합 요약</h3>
-    <p><b>${fabs.join(', ')||'(FAB 미상)'}</b>의 <b>${dts.length<=1?(dts[0]||'시간 미상')+' 시점':dts[0]+' ~ '+dts[dts.length-1]}</b>, <b>${vhls.length}대</b> OHT가 <b>${allH.length}개</b> HID 존에서 <b>${rows.length.toLocaleString()}건</b> 이동한 기록.</p>
-    <p>트래픽 1위: HID <b>${sH[0][0]}</b> (${sH[0][1]}건, 평균의 ${(sH[0][1]/avg).toFixed(1)}배) / 가장 많이 쓰인 구간: <b>${tP[0][0]}</b> (${tP[0][1]}건)</p>
-    <p>양방향 이동 쌍: <b>${bidi.length}개</b> / TRANS_CNT≥2: <b>${ret.length}건</b> / 3회+ 이동 OHT: <b>${multi.length}대</b></p>
-    <p>데드락 판정·OHT 상태 분류·가동률 계산은 이 데이터에 해당 정보가 없어서 <b>할 수 없습니다.</b></p>
+    <p><b>${fabs.join(', ')||'(FAB 미상)'}</b>의 <b>${dts.length<=1?(dts[0]||'시간 미상'):dts[0]+' ~ '+dts[dts.length-1]}</b> 시점, <b>${vhls.length}대</b> OHT의 HID IN/OUT 기록 <b>${rows.length.toLocaleString()}건</b>.</p>
+    <p>가장 많은 OHT가 진입한 HID: <b>${sIn[0][0]}</b> (${sIn[0][1]}대) / 가장 많이 빠져나간 HID: <b>${sOut[0][0]}</b> (${sOut[0][1]}대)</p>
+    <p>IN>OUT 불균형 HID: <b>${piling.length}개</b> (최대 +${piling.length?piling[0][1].d:0}대) / OUT>IN: <b>${draining.length}개</b></p>
+    <p>양방향 쌍: <b>${bidi.length}개</b> / TRANS_CNT≥2: <b>${ret.length}건</b></p>
   </div>`;
 
   rpt.innerHTML=h;
 
   // === Charts ===
-  MC('c1',{type:'bar',data:{labels:t25.map(([h])=>h),datasets:[{data:t25.map(([,v])=>v),backgroundColor:t25.map(([,v],i)=>i<5?'#ef4456':i<10?'#eda535':'#4a90ff'),borderRadius:3,barPercentage:.75}]},options:{...CO}});
-  MC('c2',{type:'bar',data:{labels:tp15.map(([k])=>k),datasets:[{data:tp15.map(([,v])=>v),backgroundColor:'#3cc68a',borderRadius:3,barPercentage:.7}]},options:{...CO}});
-  if(bidi.length>0)MC('c3',{type:'bar',data:{labels:b12.map(p=>p.a+'↔'+p.b),datasets:[{label:'A→B',data:b12.map(p=>p.ab),backgroundColor:'#4a90ff',borderRadius:3,barPercentage:.75},{label:'B→A',data:b12.map(p=>p.ba),backgroundColor:'#eda535',borderRadius:3,barPercentage:.75}]},options:{...CO,plugins:{legend:{display:false}}}});
-  MC('c4',{type:'bar',data:{labels:mdSorted.map(([k])=>k+'회'),datasets:[{data:mdSorted.map(([,v])=>v),backgroundColor:'#a06cf0',borderRadius:3,barPercentage:.6}]},options:{...CO}});
+  MC('c1',{type:'bar',data:{labels:inTop.map(([h])=>h),datasets:[{data:inTop.map(([,v])=>v),backgroundColor:inTop.map(([,v])=>v>=10?'#ef4456':v>=7?'#eda535':'#22c5d6'),borderRadius:3,barPercentage:.75}]},options:{...CO}});
+
+  MC('c2',{type:'bar',data:{labels:imbTop.map(([h])=>'HID '+h),datasets:[{data:imbTop.map(([,v])=>v.d),backgroundColor:imbTop.map(([,v])=>v.d>0?'#ef4456':'#4a90ff'),borderRadius:3,barPercentage:.7}]},options:{...CO,scales:{...CO.scales,y:{...CO.scales.y,beginAtZero:false}}}});
+
+  MC('c3',{type:'bar',data:{labels:outTop.map(([h])=>h),datasets:[{data:outTop.map(([,v])=>v),backgroundColor:'#3cc68a',borderRadius:3,barPercentage:.75}]},options:{...CO}});
+
+  if(bidi.length>0)MC('c4',{type:'bar',data:{labels:b12.map(p=>p.a+'↔'+p.b),datasets:[{label:'A→B',data:b12.map(p=>p.ab),backgroundColor:'#a06cf0',borderRadius:3,barPercentage:.75},{label:'B→A',data:b12.map(p=>p.ba),backgroundColor:'#e868a4',borderRadius:3,barPercentage:.75}]},options:{...CO}});
+
+  MC('c5',{type:'bar',data:{labels:mdS.map(([k])=>k+'건'),datasets:[{data:mdS.map(([,v])=>v),backgroundColor:'#e868a4',borderRadius:3,barPercentage:.6}]},options:{...CO}});
 
   window.scrollTo({top:0,behavior:'smooth'});
 }
