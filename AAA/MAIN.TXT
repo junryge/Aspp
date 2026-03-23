@@ -3,664 +3,442 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>OHT Deadlock Monitoring</title>
+<title>OHT HID INOUT 분석</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
 <style>
 @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Noto+Sans+KR:wght@300;400;500;700;900&display=swap');
-:root {
-  --bg: #1a1e2e;
-  --bg2: #222738;
-  --bg3: #2a2f42;
-  --bg4: #323750;
-  --text: #e8e8ec;
-  --text2: #9a9bb0;
-  --text3: #6b6c82;
-  --green: #4caf50;
-  --green2: #66bb6a;
-  --yellow: #ffc107;
-  --orange: #ff9800;
-  --red: #f44336;
-  --red2: #e53935;
-  --purple: #9c27b0;
-  --purple2: #7b1fa2;
-  --blue: #2196f3;
-  --pink: #e91e63;
-  --cyan: #00bcd4;
-  --gray: #78909c;
-  --mono: 'JetBrains Mono', monospace;
-  --sans: 'Noto Sans KR', sans-serif;
+:root{
+  --bg:#141720;--bg2:#1b1f2e;--bg3:#232839;--bg4:#2c3148;
+  --text:#eaeaf0;--text2:#9a9cb2;--text3:#636580;
+  --blue:#4a8eff;--blue-d:rgba(74,142,255,.12);
+  --amber:#f0a030;--amber-d:rgba(240,160,48,.12);
+  --red:#ef4456;--red-d:rgba(239,68,86,.12);
+  --green:#3cc68a;--green-d:rgba(60,198,138,.12);
+  --cyan:#22c5d6;--cyan-d:rgba(34,197,214,.12);
+  --purple:#a064f0;--purple-d:rgba(160,100,240,.12);
+  --border:rgba(255,255,255,.06);
+  --mono:'JetBrains Mono',monospace;
+  --sans:'Noto Sans KR',sans-serif;
 }
 *{margin:0;padding:0;box-sizing:border-box;}
-body{background:var(--bg);color:var(--text);font-family:var(--sans);overflow-x:hidden;}
+body{background:var(--bg);color:var(--text);font-family:var(--sans);min-height:100vh;}
 
-.header{
-  display:flex;align-items:center;justify-content:space-between;
-  padding:14px 24px;background:var(--bg2);border-bottom:1px solid rgba(255,255,255,0.06);
-}
-.header h1{font-size:17px;font-weight:700;letter-spacing:-0.3px;}
-.header h1 span{color:var(--text2);font-weight:400;font-size:13px;margin-left:8px;}
-.header .zone-tag{
-  font-size:11px;font-family:var(--mono);background:var(--bg4);
-  padding:4px 12px;border-radius:6px;color:var(--cyan);
-}
-.header .status-dot{width:8px;height:8px;border-radius:50%;background:var(--green);display:inline-block;margin-right:6px;}
-
-/* KPI strip */
-.kpi-strip{
-  display:flex;gap:0;border-bottom:1px solid rgba(255,255,255,0.06);
-  background:var(--bg2);
-}
-.kpi-item{
-  flex:1;padding:12px 20px;border-right:1px solid rgba(255,255,255,0.06);
-  display:flex;align-items:center;gap:10px;
-}
-.kpi-item:last-child{border-right:none;}
-.kpi-icon{
-  width:36px;height:36px;border-radius:10px;display:flex;align-items:center;justify-content:center;
-  font-size:16px;flex-shrink:0;
-}
-.kpi-val{font-size:22px;font-weight:700;letter-spacing:-1px;line-height:1.1;}
-.kpi-label{font-size:10px;color:var(--text3);margin-top:1px;}
+/* Header */
+.hdr{display:flex;align-items:center;justify-content:space-between;padding:16px 28px;background:var(--bg2);border-bottom:1px solid var(--border);}
+.hdr h1{font-size:17px;font-weight:700;letter-spacing:-.3px;}
+.hdr h1 em{font-style:normal;color:var(--text3);font-weight:400;font-size:12px;margin-left:8px;}
+.hdr .rt{display:flex;align-items:center;gap:12px;}
+.fab-tag{font-size:10px;font-family:var(--mono);background:var(--bg4);padding:4px 12px;border-radius:6px;color:var(--cyan);}
+.clock{font-size:11px;color:var(--text3);font-family:var(--mono);}
 
 /* Upload */
-.upload-wrap{
-  display:flex;align-items:center;justify-content:center;
-  min-height:calc(100vh - 110px);padding:40px;
-}
-.upload-box{
-  width:100%;max-width:520px;border:2px dashed rgba(33,150,243,0.3);
-  border-radius:16px;padding:50px 36px;text-align:center;
-  cursor:pointer;transition:all .25s;background:var(--bg2);
-}
-.upload-box:hover,.upload-box.dragover{border-color:var(--blue);background:rgba(33,150,243,0.06);transform:translateY(-2px);}
-.upload-box h2{font-size:17px;font-weight:600;margin-bottom:8px;}
-.upload-box p{font-size:12px;color:var(--text2);line-height:1.7;}
-.upload-box .fmt{margin-top:14px;display:flex;gap:6px;justify-content:center;}
-.upload-box .fmt span{font-size:10px;font-family:var(--mono);padding:3px 10px;background:var(--bg4);border-radius:5px;color:var(--text2);}
-input[type="file"]{display:none;}
+.up-wrap{display:flex;align-items:center;justify-content:center;min-height:calc(100vh - 56px);padding:40px;}
+.up-box{width:100%;max-width:500px;border:2px dashed rgba(74,142,255,.25);border-radius:16px;padding:48px 32px;text-align:center;cursor:pointer;transition:all .25s;background:var(--bg2);}
+.up-box:hover,.up-box.over{border-color:var(--blue);background:var(--blue-d);transform:translateY(-2px);}
+.up-box h2{font-size:16px;font-weight:600;margin:12px 0 6px;}
+.up-box p{font-size:12px;color:var(--text2);line-height:1.7;}
+.up-box .ft{margin-top:14px;display:flex;gap:6px;justify-content:center;}
+.up-box .ft span{font-size:10px;font-family:var(--mono);padding:3px 10px;background:var(--bg4);border-radius:5px;color:var(--text2);}
+input[type=file]{display:none;}
 
 /* Dashboard */
-.dash{display:none;padding:0;}
-.dash.active{display:block;}
-.file-bar{
-  display:flex;align-items:center;gap:10px;padding:8px 24px;
-  background:var(--bg3);font-size:12px;
-}
-.file-bar .fn{font-family:var(--mono);color:var(--cyan);}
-.file-bar .fm{color:var(--text3);}
-.file-bar .btn-re{
-  margin-left:auto;padding:5px 12px;font-size:11px;background:var(--bg4);
-  border:1px solid rgba(255,255,255,0.08);color:var(--text2);border-radius:6px;
-  cursor:pointer;font-family:var(--sans);transition:all .15s;
-}
-.file-bar .btn-re:hover{background:rgba(244,67,54,0.15);color:var(--red);border-color:var(--red);}
+.dash{display:none;}.dash.on{display:block;}
+.fbar{display:flex;align-items:center;gap:10px;padding:8px 28px;background:var(--bg3);font-size:12px;}
+.fbar .fn{font-family:var(--mono);color:var(--cyan);}
+.fbar .fm{color:var(--text3);}
+.fbar .brn{margin-left:auto;padding:5px 12px;font-size:11px;background:var(--bg4);border:1px solid var(--border);color:var(--text2);border-radius:6px;cursor:pointer;font-family:var(--sans);}
+.fbar .brn:hover{background:var(--red-d);color:var(--red);border-color:var(--red);}
 
-/* Legend bar */
-.legend-bar{
-  display:flex;flex-wrap:wrap;gap:12px;padding:10px 24px;
-  background:var(--bg2);border-bottom:1px solid rgba(255,255,255,0.06);
-  font-size:11px;color:var(--text2);
-}
-.legend-bar span{display:flex;align-items:center;gap:4px;}
-.legend-bar .sq{width:14px;height:10px;border-radius:2px;flex-shrink:0;}
+/* KPI */
+.kpi-row{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:0;border-bottom:1px solid var(--border);background:var(--bg2);}
+.kpi{padding:14px 20px;border-right:1px solid var(--border);}
+.kpi:last-child{border-right:none;}
+.kpi .lb{font-size:10px;color:var(--text3);margin-bottom:2px;}
+.kpi .vl{font-size:24px;font-weight:700;letter-spacing:-1px;}
+.kpi .sub{font-size:10px;color:var(--text3);font-family:var(--mono);margin-top:1px;}
 
-/* Timeline */
-.timeline-section{padding:16px 24px;}
-.timeline-section h3{font-size:13px;font-weight:600;margin-bottom:10px;color:var(--text2);}
-.timeline-scroll{overflow-x:auto;overflow-y:auto;max-height:420px;}
-.tl-table{width:100%;border-collapse:collapse;min-width:800px;}
-.tl-table td{padding:0;vertical-align:middle;}
-.tl-row{display:flex;align-items:center;border-bottom:1px solid rgba(255,255,255,0.03);}
-.tl-label{
-  width:80px;min-width:80px;padding:4px 8px;font-size:11px;
-  font-family:var(--mono);color:var(--text2);text-align:right;flex-shrink:0;
-}
-.tl-bar-area{flex:1;padding:3px 0;display:flex;height:22px;position:relative;}
-.tl-seg{height:100%;min-width:2px;transition:opacity .15s;}
-.tl-seg:hover{opacity:0.75;cursor:pointer;}
+/* Sections */
+.sec{padding:20px 28px;}
+.sec-t{font-size:14px;font-weight:600;margin-bottom:12px;display:flex;align-items:center;gap:8px;}
+.sec-t .dot{width:7px;height:7px;border-radius:50%;flex-shrink:0;}
+.sec-sub{font-size:11px;color:var(--text3);margin-bottom:10px;line-height:1.6;}
+.divider{height:1px;background:var(--border);margin:0 28px;}
 
-/* Bottom panels */
-.bottom-row{
-  display:grid;grid-template-columns:1fr 1fr;gap:0;
-  border-top:1px solid rgba(255,255,255,0.06);
-}
-.panel{
-  padding:16px 24px;border-right:1px solid rgba(255,255,255,0.06);
-}
-.panel:last-child{border-right:none;}
-.panel h3{
-  font-size:13px;font-weight:600;margin-bottom:4px;
-  display:flex;align-items:center;justify-content:space-between;
-}
-.panel h3 .avg{font-size:11px;font-weight:400;color:var(--text3);}
-.chart-box{position:relative;width:100%;}
+/* Chart */
+.ch-wrap{background:var(--bg2);border:1px solid var(--border);border-radius:12px;padding:16px;}
+.ch-box{position:relative;width:100%;}
+.lgd{display:flex;flex-wrap:wrap;gap:14px;margin-bottom:10px;font-size:10px;color:var(--text2);}
+.lgd span{display:flex;align-items:center;gap:4px;}
+.lgd .sq{width:10px;height:10px;border-radius:2px;flex-shrink:0;}
 
-/* Cluster / Detail sections */
-.detail-sections{padding:16px 24px;}
-.detail-sections h3{font-size:13px;font-weight:600;margin-bottom:10px;color:var(--text2);}
-.cluster-cards{display:flex;flex-direction:column;gap:8px;margin-bottom:24px;}
-.cl-card{
-  background:var(--bg3);border:1px solid rgba(255,255,255,0.06);
-  border-radius:10px;padding:12px 16px;
-}
-.cl-card .cl-head{display:flex;align-items:center;gap:8px;margin-bottom:6px;}
-.cl-badge{
-  font-size:9px;font-weight:600;padding:2px 8px;border-radius:4px;
-  font-family:var(--mono);text-transform:uppercase;letter-spacing:.5px;
-}
-.cl-badge.crit{background:rgba(244,67,54,0.15);color:var(--red);}
-.cl-badge.high{background:rgba(255,152,0,0.15);color:var(--orange);}
-.cl-badge.med{background:rgba(33,150,243,0.15);color:var(--blue);}
-.cl-title{font-size:12px;font-weight:600;}
-.cl-body{font-size:11px;color:var(--text3);line-height:1.6;}
-.cl-hids{font-family:var(--mono);font-size:10px;color:var(--text2);margin-top:3px;}
+/* Tables */
+.tw{overflow-x:auto;}
+.tb{width:100%;border-collapse:collapse;font-size:11px;}
+.tb thead td{padding:9px 14px;font-weight:600;color:var(--text3);font-size:10px;border-bottom:1px solid var(--border);text-transform:uppercase;letter-spacing:.5px;}
+.tb tbody tr{border-bottom:1px solid rgba(255,255,255,.03);transition:background .1s;}
+.tb tbody tr:hover{background:var(--bg3);}
+.tb tbody td{padding:8px 14px;}
+.mn{font-family:var(--mono);font-size:10px;}
+.rt-cell{font-family:var(--mono);font-size:10px;color:var(--text2);max-width:420px;word-break:break-all;}
 
-.dt-table{width:100%;border-collapse:collapse;font-size:11px;margin-bottom:20px;}
-.dt-table thead td{
-  padding:8px 12px;font-weight:600;color:var(--text3);font-size:10px;
-  border-bottom:1px solid rgba(255,255,255,0.08);text-transform:uppercase;letter-spacing:.5px;
-}
-.dt-table tbody tr{border-bottom:1px solid rgba(255,255,255,0.04);}
-.dt-table tbody tr:hover{background:var(--bg3);}
-.dt-table tbody td{padding:7px 12px;}
-.dt-table .mono{font-family:var(--mono);font-size:10px;}
-.dt-table .route{font-family:var(--mono);font-size:10px;color:var(--text2);max-width:380px;word-break:break-all;}
-.tag{
-  display:inline-block;font-size:9px;font-weight:500;padding:2px 7px;
-  border-radius:4px;font-family:var(--mono);
-}
-.tag.r{background:rgba(244,67,54,0.15);color:var(--red);}
-.tag.w{background:rgba(255,152,0,0.15);color:var(--orange);}
-.tag.b{background:rgba(33,150,243,0.15);color:var(--blue);}
+/* Cards */
+.cards{display:flex;flex-direction:column;gap:8px;}
+.cd{background:var(--bg3);border:1px solid var(--border);border-radius:10px;padding:12px 16px;}
+.cd-h{display:flex;align-items:center;gap:8px;margin-bottom:4px;}
+.cd-t{font-size:12px;font-weight:600;}
+.cd-b{font-size:11px;color:var(--text3);line-height:1.6;}
+.cd-hids{font-family:var(--mono);font-size:10px;color:var(--text2);margin-top:3px;}
+.badge{font-size:9px;font-weight:600;padding:2px 8px;border-radius:4px;font-family:var(--mono);letter-spacing:.5px;}
 
-.tooltip-box{
-  position:fixed;background:var(--bg4);border:1px solid rgba(255,255,255,0.12);
-  border-radius:8px;padding:8px 12px;font-size:11px;color:var(--text);
-  pointer-events:none;z-index:999;display:none;max-width:260px;
-  box-shadow:0 4px 16px rgba(0,0,0,0.4);
-}
+/* Two col */
+.two-col{display:grid;grid-template-columns:1fr 1fr;gap:0;border-top:1px solid var(--border);}
+.two-col>.pnl{padding:20px 28px;border-right:1px solid var(--border);}
+.two-col>.pnl:last-child{border-right:none;}
+.pnl h3{font-size:13px;font-weight:600;margin-bottom:10px;display:flex;align-items:center;justify-content:space-between;}
+.pnl h3 .sm{font-size:10px;font-weight:400;color:var(--text3);}
 
-@media(max-width:900px){
-  .bottom-row{grid-template-columns:1fr;}
-  .kpi-strip{flex-wrap:wrap;}
-  .kpi-item{min-width:140px;}
-}
+/* VHL Timeline */
+.tl-scroll{overflow-x:auto;overflow-y:auto;max-height:380px;}
+.tl-r{display:flex;align-items:center;border-bottom:1px solid rgba(255,255,255,.03);}
+.tl-lb{width:72px;min-width:72px;padding:3px 8px;font-size:10px;font-family:var(--mono);color:var(--text3);text-align:right;flex-shrink:0;}
+.tl-bars{flex:1;display:flex;height:18px;padding:2px 0;}
+.tl-s{height:100%;min-width:2px;border-radius:1px;}
+.tl-s:hover{opacity:.7;cursor:crosshair;}
+
+.tip{position:fixed;background:var(--bg4);border:1px solid rgba(255,255,255,.12);border-radius:7px;padding:7px 11px;font-size:11px;color:var(--text);pointer-events:none;z-index:999;display:none;max-width:280px;box-shadow:0 4px 16px rgba(0,0,0,.5);}
+
+@media(max-width:900px){.two-col{grid-template-columns:1fr;}.kpi-row{grid-template-columns:repeat(2,1fr);}}
 </style>
 </head>
 <body>
 
-<div class="header">
-  <h1>
-    <span class="status-dot"></span>OHT Deadlock Monitoring
-    <span>CURRENT ZONE</span>
-  </h1>
-  <div style="display:flex;align-items:center;gap:12px;">
-    <div class="zone-tag" id="fabTag">M14A</div>
-    <div style="font-size:11px;color:var(--text3);font-family:var(--mono);" id="clockEl"></div>
-  </div>
+<div class="hdr">
+  <h1>OHT HID INOUT 분석<em>팩트 기반</em></h1>
+  <div class="rt"><div class="fab-tag" id="fabTag">-</div><div class="clock" id="clk"></div></div>
 </div>
 
-<div class="kpi-strip" id="kpiStrip" style="display:none;"></div>
-
-<!-- Upload -->
-<div class="upload-wrap" id="uploadWrap">
-  <div class="upload-box" id="uploadBox">
-    <div style="font-size:32px;margin-bottom:12px;">📊</div>
+<div class="up-wrap" id="upW">
+  <div class="up-box" id="upB">
+    <div style="font-size:28px;margin-bottom:4px;">📂</div>
     <h2>HID INOUT 데이터 업로드</h2>
-    <p>ATLAS HID_INOUT 로그 데이터를 드래그 또는 클릭해서 업로드하세요.<br>
-    OHT별 타임라인 · 가동률 · Loss 원인을 자동 분석합니다.</p>
-    <div class="fmt"><span>.csv</span><span>.txt</span><span>.tsv</span></div>
+    <p>ATLAS HID_INOUT 로그 CSV/TXT를 드래그 또는 클릭<br>HID 트래픽·양방향 이동·재시도·VHL 경로를 분석합니다.</p>
+    <div class="ft"><span>.csv</span><span>.txt</span><span>.tsv</span></div>
   </div>
-  <input type="file" id="fileInput" accept=".csv,.txt,.tsv">
+  <input type="file" id="fIn" accept=".csv,.txt,.tsv">
 </div>
 
-<!-- Dashboard -->
 <div class="dash" id="dash">
-  <div class="file-bar">
-    <span class="fn" id="fnEl"></span>
-    <span class="fm" id="fmEl"></span>
-    <button class="btn-re" onclick="resetAll()">다른 파일 분석</button>
-  </div>
+  <div class="fbar"><span class="fn" id="fnE"></span><span class="fm" id="fmE"></span><button class="brn" onclick="reset()">다른 파일</button></div>
+  <div class="kpi-row" id="kpiR"></div>
 
-  <div class="legend-bar" id="legendBar">
-    <span><span class="sq" style="background:var(--green)"></span>RUN</span>
-    <span><span class="sq" style="background:var(--green2)"></span>IDLE</span>
-    <span><span class="sq" style="background:var(--yellow)"></span>WAIT</span>
-    <span><span class="sq" style="background:var(--orange)"></span>PLANNED STOP</span>
-    <span><span class="sq" style="background:var(--red)"></span>BLOCKED</span>
-    <span><span class="sq" style="background:var(--purple)"></span>DEADLOCK RISK</span>
-    <span><span class="sq" style="background:var(--purple2)"></span>DEADLOCK RISK+</span>
-    <span><span class="sq" style="background:var(--gray)"></span>DOWN</span>
-    <span><span class="sq" style="background:var(--pink)"></span>MANUAL RECOVERY</span>
-  </div>
-
-  <div class="timeline-section">
-    <h3>OHT Operation Timeline</h3>
-    <div class="timeline-scroll" id="tlScroll"></div>
-  </div>
-
-  <div class="bottom-row">
-    <div class="panel">
-      <h3>Effic by OHT <span class="avg" id="avgLabel"></span></h3>
-      <div class="chart-box" style="height:260px;"><canvas id="effChart"></canvas></div>
+  <!-- 1. HID Traffic -->
+  <div class="sec">
+    <div class="sec-t"><div class="dot" style="background:var(--blue)"></div>HID 존별 트래픽 (FROM + TO 합산, 상위 25)</div>
+    <div class="sec-sub">각 HID를 출발지(FROM) 또는 도착지(TO)로 사용한 전체 건수. 숫자가 높을수록 해당 구간에 OHT 이동이 집중됨.</div>
+    <div class="lgd">
+      <span><span class="sq" style="background:var(--red)"></span>상위 5</span>
+      <span><span class="sq" style="background:var(--amber)"></span>상위 10</span>
+      <span><span class="sq" style="background:var(--blue)"></span>기타</span>
     </div>
-    <div class="panel">
-      <h3>Effi Loss</h3>
-      <div class="chart-box" style="height:260px;"><canvas id="lossChart"></canvas></div>
-      <div class="legend-bar" style="padding:8px 0 0 0;border:none;background:none;font-size:10px;">
-        <span><span class="sq" style="background:var(--gray)"></span>Planned Stop</span>
-        <span><span class="sq" style="background:var(--red)"></span>Unplanned Stop</span>
-        <span><span class="sq" style="background:var(--yellow)"></span>Wait for Route</span>
-        <span><span class="sq" style="background:var(--orange)"></span>Blocked</span>
-        <span><span class="sq" style="background:var(--purple)"></span>Deadlock Risk</span>
-        <span><span class="sq" style="background:var(--purple2)"></span>Deadlock Risk+</span>
-        <span><span class="sq" style="background:var(--pink)"></span>Manual Recovery</span>
+    <div class="ch-wrap"><div class="ch-box" style="height:300px;"><canvas id="trafC"></canvas></div></div>
+  </div>
+
+  <div class="divider"></div>
+
+  <!-- 2. Top Transition Pairs -->
+  <div class="sec">
+    <div class="sec-t"><div class="dot" style="background:var(--cyan)"></div>이동 구간 빈도 (상위 20)</div>
+    <div class="sec-sub">FROM → TO 조합별 발생 건수. 같은 구간을 많은 OHT가 반복 통과했다는 의미.</div>
+    <div class="ch-wrap"><div class="ch-box" style="height:300px;"><canvas id="pairC"></canvas></div></div>
+  </div>
+
+  <div class="divider"></div>
+
+  <!-- 3. Bidirectional -->
+  <div class="sec">
+    <div class="sec-t"><div class="dot" style="background:var(--amber)"></div>양방향 이동 구간</div>
+    <div class="sec-sub">A→B와 B→A 이동이 모두 기록된 HID 쌍. 같은 구간에서 서로 반대 방향으로 이동한 사실만 표시. (원인은 데이터로 알 수 없음)</div>
+    <div class="ch-wrap"><div class="ch-box" style="height:280px;"><canvas id="bidiC"></canvas></div></div>
+    <div class="tw" style="margin-top:12px;">
+      <table class="tb" id="bidiT"><thead><tr><td>HID A</td><td>HID B</td><td>A→B 건수</td><td>B→A 건수</td><td>합계</td></tr></thead><tbody></tbody></table>
+    </div>
+  </div>
+
+  <div class="divider"></div>
+
+  <!-- 4. VHL Movement -->
+  <div class="sec">
+    <div class="sec-t"><div class="dot" style="background:var(--green)"></div>VHL 이동 현황</div>
+    <div class="sec-sub">데이터 내 각 VHL의 이동 기록 수 분포.</div>
+    <div class="two-col" style="border:1px solid var(--border);border-radius:12px;overflow:hidden;">
+      <div class="pnl">
+        <h3>이동 횟수 분포</h3>
+        <div class="ch-box" style="height:220px;"><canvas id="vhlDistC"></canvas></div>
+      </div>
+      <div class="pnl">
+        <h3>다회 이동 VHL (3회+) <span class="sm" id="cplxCnt"></span></h3>
+        <div class="tl-scroll" id="cplxScroll" style="max-height:220px;"></div>
       </div>
     </div>
   </div>
 
-  <div class="detail-sections">
-    <h3 style="margin-top:8px;">🔍 Deadlock 의심 상세 분석</h3>
+  <div class="divider"></div>
 
-    <h3 style="margin:16px 0 8px;font-size:12px;color:var(--text3);">고밀도 트래픽 클러스터</h3>
-    <div class="cluster-cards" id="clCards"></div>
-
-    <h3 style="margin:16px 0 8px;font-size:12px;color:var(--text3);">복합 이동 OHT (3회 이상)</h3>
-    <div style="overflow-x:auto;margin-bottom:16px;">
-      <table class="dt-table" id="cplxTbl"><thead><tr>
-        <td>VHL ID</td><td>이동</td><td>경로</td><td>비고</td>
-      </tr></thead><tbody></tbody></table>
-    </div>
-
-    <h3 style="margin:16px 0 8px;font-size:12px;color:var(--text3);">양방향 충돌 구간 (Top 15)</h3>
-    <div style="overflow-x:auto;margin-bottom:16px;">
-      <table class="dt-table" id="bidiTbl"><thead><tr>
-        <td>HID A</td><td>HID B</td><td>A→B</td><td>B→A</td><td>합계</td>
-      </tr></thead><tbody></tbody></table>
-    </div>
-
-    <h3 style="margin:16px 0 8px;font-size:12px;color:var(--text3);">TRANS_CNT 재시도 (≥2)</h3>
-    <div style="overflow-x:auto;">
-      <table class="dt-table" id="retryTbl"><thead><tr>
-        <td>VHL ID</td><td>FROM HID</td><td>TO HID</td><td>TRANS_CNT</td>
-      </tr></thead><tbody></tbody></table>
+  <!-- 5. VHL Route Table -->
+  <div class="sec">
+    <div class="sec-t"><div class="dot" style="background:var(--purple)"></div>다회 이동 VHL 경로 상세</div>
+    <div class="sec-sub">3회 이상 이동 기록이 있는 VHL의 전체 경로. 같은 HID를 2번 이상 방문한 경우 표시.</div>
+    <div class="tw">
+      <table class="tb" id="routeT"><thead><tr><td>VHL ID</td><td>이동 수</td><td>경로 (FROM→TO)</td><td>반복 방문 HID</td></tr></thead><tbody></tbody></table>
     </div>
   </div>
+
+  <div class="divider"></div>
+
+  <!-- 6. TRANS_CNT -->
+  <div class="sec">
+    <div class="sec-t"><div class="dot" style="background:var(--red)"></div>TRANS_CNT ≥ 2 기록</div>
+    <div class="sec-sub">TRANS_CNT가 2 이상인 레코드. 동일 이동이 2회 이상 기록되었다는 사실.</div>
+    <div class="tw">
+      <table class="tb" id="retryT"><thead><tr><td>VHL ID</td><td>FROM HID</td><td>TO HID</td><td>TRANS_CNT</td></tr></thead><tbody></tbody></table>
+    </div>
+  </div>
+
+  <div class="divider"></div>
+
+  <!-- 7. Connected HID Groups -->
+  <div class="sec">
+    <div class="sec-t"><div class="dot" style="background:var(--cyan)"></div>고빈도 연결 HID 그룹</div>
+    <div class="sec-sub">이동 빈도가 높은 HID들을 연결하면 어떤 그룹으로 묶이는지. (자주 함께 사용되는 HID 존 클러스터)</div>
+    <div class="cards" id="grpCards"></div>
+  </div>
+
+  <!-- 8. VHL Timeline visualization -->
+  <div class="divider"></div>
+  <div class="sec">
+    <div class="sec-t"><div class="dot" style="background:var(--green)"></div>VHL 이동 타임라인 (다회 이동 상위 30)</div>
+    <div class="sec-sub">각 칸은 1회 이동(FROM→TO). 색상은 도착 HID 번호 기준 (같은 HID = 같은 색). 마우스를 올리면 상세 확인.</div>
+    <div class="ch-wrap">
+      <div class="tl-scroll" id="tlArea"></div>
+    </div>
+  </div>
+
 </div>
 
-<div class="tooltip-box" id="tooltip"></div>
+<div class="tip" id="tip"></div>
 
 <script>
-// Clock
-function updateClock(){document.getElementById('clockEl').textContent=new Date().toLocaleString('ko-KR');}
-updateClock();setInterval(updateClock,1000);
+function ck(){document.getElementById('clk').textContent=new Date().toLocaleString('ko-KR');}ck();setInterval(ck,1000);
 
-// Upload
-const uploadBox=document.getElementById('uploadBox'),fileInput=document.getElementById('fileInput');
-uploadBox.onclick=()=>fileInput.click();
-uploadBox.ondragover=e=>{e.preventDefault();uploadBox.classList.add('dragover');};
-uploadBox.ondragleave=()=>uploadBox.classList.remove('dragover');
-uploadBox.ondrop=e=>{e.preventDefault();uploadBox.classList.remove('dragover');if(e.dataTransfer.files.length)handleFile(e.dataTransfer.files[0]);};
-fileInput.onchange=e=>{if(e.target.files.length)handleFile(e.target.files[0]);};
+const upB=document.getElementById('upB'),fIn=document.getElementById('fIn');
+upB.onclick=()=>fIn.click();
+upB.ondragover=e=>{e.preventDefault();upB.classList.add('over');};
+upB.ondragleave=()=>upB.classList.remove('over');
+upB.ondrop=e=>{e.preventDefault();upB.classList.remove('over');if(e.dataTransfer.files.length)go(e.dataTransfer.files[0]);};
+fIn.onchange=e=>{if(e.target.files.length)go(e.target.files[0]);};
 
-let effChartInst=null,lossChartInst=null;
-function resetAll(){
-  document.getElementById('uploadWrap').style.display='flex';
-  document.getElementById('dash').classList.remove('active');
-  document.getElementById('kpiStrip').style.display='none';
-  fileInput.value='';
-  if(effChartInst){effChartInst.destroy();effChartInst=null;}
-  if(lossChartInst){lossChartInst.destroy();lossChartInst=null;}
+let charts=[];
+function reset(){
+  document.getElementById('upW').style.display='flex';
+  document.getElementById('dash').classList.remove('on');
+  fIn.value='';charts.forEach(c=>c.destroy());charts=[];
 }
 
-function handleFile(file){
+function go(file){
   const r=new FileReader();
-  r.onload=e=>{try{analyze(e.target.result,file.name,file.size);}catch(err){alert('파싱 오류: '+err.message);}};
+  r.onload=e=>{try{run(e.target.result,file.name,file.size);}catch(err){alert('오류: '+err.message);}};
   r.readAsText(file,'UTF-8');
 }
 
-function parseCSV(text){
-  const lines=text.trim().split('\n');
-  if(lines.length<2)throw new Error('최소 2행 필요');
-  let sep=',';
-  if(lines[0].split('\t').length>lines[0].split(',').length)sep='\t';
-  const hdr=lines[0].split(sep).map(h=>h.replace(/^"|"$/g,'').trim());
-  const alias={
-    VHL_ID:['VHL_ID','VHLID','VHL','VEHICLE_ID'],
-    FROM_HIDID:['FROM_HIDID','FROM_HID','FROMHID'],
-    TO_HIDID:['TO_HIDID','TO_HID','TOHID'],
-    TRANS_CNT:['TRANS_CNT','TRANSCNT','CNT'],
-    EVENT_DT:['EVENT_DT','EVENT_DATE','_time','TIME','TIMESTAMP'],
-    FAB_ID:['FAB_ID','FABID','FAB']
-  };
+function parseCSV(txt){
+  const ls=txt.trim().split('\n');
+  if(ls.length<2)throw new Error('최소 2행 필요');
+  let sp=',';if(ls[0].split('\t').length>ls[0].split(',').length)sp='\t';
+  const hd=ls[0].split(sp).map(h=>h.replace(/^"|"$/g,'').trim());
+  const al={VHL_ID:['VHL_ID','VHLID','VHL','VEHICLE_ID'],FROM_HIDID:['FROM_HIDID','FROM_HID','FROMHID'],TO_HIDID:['TO_HIDID','TO_HID','TOHID'],TRANS_CNT:['TRANS_CNT','TRANSCNT','CNT'],EVENT_DT:['EVENT_DT','EVENT_DATE','_time','TIME'],FAB_ID:['FAB_ID','FABID','FAB']};
   const cm={};
-  for(const[k,ns]of Object.entries(alias)){
-    for(const n of ns){const i=hdr.findIndex(h=>h.toUpperCase()===n.toUpperCase());if(i>=0){cm[k]=i;break;}}
-  }
-  if(!('VHL_ID'in cm)||!('FROM_HIDID'in cm)||!('TO_HIDID'in cm))
-    throw new Error('필수 컬럼 누락: VHL_ID, FROM_HIDID, TO_HIDID\n헤더: '+hdr.join(', '));
+  for(const[k,ns]of Object.entries(al)){for(const n of ns){const i=hd.findIndex(h=>h.toUpperCase()===n.toUpperCase());if(i>=0){cm[k]=i;break;}}}
+  if(!('VHL_ID'in cm)||!('FROM_HIDID'in cm)||!('TO_HIDID'in cm))throw new Error('필수 컬럼 누락: VHL_ID, FROM_HIDID, TO_HIDID\n헤더: '+hd.join(', '));
   const rows=[];
-  for(let i=1;i<lines.length;i++){
-    const c=lines[i].split(sep).map(x=>x.replace(/^"|"$/g,'').trim());
+  for(let i=1;i<ls.length;i++){
+    const c=ls[i].split(sp).map(x=>x.replace(/^"|"$/g,'').trim());
     if(c.length<3)continue;
-    rows.push({
-      VHL_ID:c[cm.VHL_ID]||'',
-      FROM:c[cm.FROM_HIDID]||'',
-      TO:c[cm.TO_HIDID]||'',
-      TCNT:cm.TRANS_CNT!==undefined?parseInt(c[cm.TRANS_CNT])||1:1,
-      DT:cm.EVENT_DT!==undefined?c[cm.EVENT_DT]:'',
-      FAB:cm.FAB_ID!==undefined?c[cm.FAB_ID]:''
-    });
+    rows.push({V:c[cm.VHL_ID]||'',F:c[cm.FROM_HIDID]||'',T:c[cm.TO_HIDID]||'',TC:cm.TRANS_CNT!==undefined?parseInt(c[cm.TRANS_CNT])||1:1,DT:cm.EVENT_DT!==undefined?c[cm.EVENT_DT]:'',FAB:cm.FAB_ID!==undefined?c[cm.FAB_ID]:''});
   }
   return rows;
 }
 
-// State classification based on HID transitions
-const STATE_COLORS={
-  RUN:'#4caf50', IDLE:'#66bb6a', WAIT:'#ffc107', PLANNED_STOP:'#ff9800',
-  BLOCKED:'#f44336', DEADLOCK_RISK:'#9c27b0', DEADLOCK_RISK2:'#7b1fa2',
-  DOWN:'#78909c', MANUAL_RECOVERY:'#e91e63'
-};
+const CH_OPT={responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},scales:{x:{ticks:{color:'#636580',font:{size:9,family:'JetBrains Mono'},maxRotation:50},grid:{display:false}},y:{ticks:{color:'#636580'},grid:{color:'rgba(255,255,255,.04)'},beginAtZero:true}}};
 
-function classifyState(from,to,tcnt,bidiSet,hotHids,clusterHids){
-  const pair=from+'↔'+to;
-  const rpair=to+'↔'+from;
-  // Deadlock risk: bidirectional pair + high traffic zone
-  if(bidiSet.has(pair)||bidiSet.has(rpair)){
-    if(clusterHids.has(from)||clusterHids.has(to))return 'DEADLOCK_RISK2';
-    return 'DEADLOCK_RISK';
-  }
-  // Blocked: retry
-  if(tcnt>=2)return 'BLOCKED';
-  // Hot zone wait
-  if(hotHids.has(from)&&hotHids.has(to))return 'WAIT';
-  if(hotHids.has(from)||hotHids.has(to))return 'PLANNED_STOP';
-  // Normal movement
-  const dist=Math.abs(parseInt(from)-parseInt(to));
-  if(dist<=2)return 'RUN';
-  if(dist<=5)return 'IDLE';
-  return 'RUN';
+// Stable color from HID number
+function hidColor(hid){
+  const n=parseInt(hid)||0;
+  const hue=(n*137.508)%360;
+  return `hsl(${hue},55%,55%)`;
 }
 
-function analyze(text,fname,fsize){
-  const rows=parseCSV(text);
-  
-  // Detect FAB
+function run(txt,fname,fsize){
+  const rows=parseCSV(txt);
   const fabs=new Set(rows.map(r=>r.FAB).filter(Boolean));
   if(fabs.size)document.getElementById('fabTag').textContent=[...fabs].join(', ');
 
-  document.getElementById('fnEl').textContent=fname;
-  document.getElementById('fmEl').textContent=rows.length.toLocaleString()+' rows · '+(fsize/1024).toFixed(1)+' KB';
-  document.getElementById('uploadWrap').style.display='none';
-  document.getElementById('dash').classList.add('active');
-  document.getElementById('kpiStrip').style.display='flex';
+  document.getElementById('fnE').textContent=fname;
+  document.getElementById('fmE').textContent=rows.length.toLocaleString()+' rows · '+(fsize/1024).toFixed(1)+' KB';
+  document.getElementById('upW').style.display='none';
+  document.getElementById('dash').classList.add('on');
 
-  // ============ CORE ANALYSIS ============
-  const vhlSet=new Set(rows.map(r=>r.VHL_ID));
-  const allHids=new Set([...rows.map(r=>r.FROM),...rows.map(r=>r.TO)]);
+  const vhlSet=new Set(rows.map(r=>r.V));
+  const allH=new Set([...rows.map(r=>r.F),...rows.map(r=>r.T)]);
 
   // HID traffic
-  const hidTraffic={};
-  rows.forEach(r=>{hidTraffic[r.FROM]=(hidTraffic[r.FROM]||0)+1;hidTraffic[r.TO]=(hidTraffic[r.TO]||0)+1;});
-  const sortedHids=Object.entries(hidTraffic).sort((a,b)=>b[1]-a[1]);
-  const hotThreshold=sortedHids.length>10?sortedHids[9][1]:0;
-  const hotHids=new Set(sortedHids.filter(([,v])=>v>=hotThreshold).map(([k])=>k));
+  const ht={};
+  rows.forEach(r=>{ht[r.F]=(ht[r.F]||0)+1;ht[r.T]=(ht[r.T]||0)+1;});
+  const sH=Object.entries(ht).sort((a,b)=>b[1]-a[1]);
+
+  // Pair counts
+  const pc={};
+  rows.forEach(r=>{const k=r.F+'→'+r.T;pc[k]=(pc[k]||0)+1;});
+  const topPairs=Object.entries(pc).sort((a,b)=>b[1]-a[1]).slice(0,20);
 
   // Bidirectional
-  const pairCnt={};
-  rows.forEach(r=>{const k=r.FROM+'→'+r.TO;pairCnt[k]=(pairCnt[k]||0)+1;});
-  const bidiSet=new Set();
-  const bidiPairs=[];
-  const bidiSeen=new Set();
-  for(const[k,c]of Object.entries(pairCnt)){
-    const[a,b]=k.split('→');
-    const rv=b+'→'+a;
-    if(pairCnt[rv]&&!bidiSeen.has(b+'↔'+a)){
-      bidiPairs.push({a,b,ab:c,ba:pairCnt[rv],total:c+pairCnt[rv]});
-      bidiSeen.add(a+'↔'+b);
-      bidiSet.add(a+'↔'+b);
-    }
+  const bidi=[];const bSeen=new Set();
+  for(const[k,c]of Object.entries(pc)){
+    const[a,b]=k.split('→');const rv=b+'→'+a;
+    if(pc[rv]&&!bSeen.has(b+'↔'+a)){bidi.push({a,b,ab:c,ba:pc[rv],tot:c+pc[rv]});bSeen.add(a+'↔'+b);}
   }
-  bidiPairs.sort((a,b)=>b.total-a.total);
+  bidi.sort((a,b)=>b.tot-a.tot);
 
-  // Clusters
-  const cThresh=Math.max(3,Math.floor(rows.length/250));
+  // VHL grouped
+  const vg={};rows.forEach(r=>{if(!vg[r.V])vg[r.V]=[];vg[r.V].push(r);});
+
+  // Retries
+  const retries=rows.filter(r=>r.TC>=2);
+
+  // Connected groups
+  const cTh=Math.max(3,Math.floor(rows.length/250));
   const adj={};
-  for(const[k,c]of Object.entries(pairCnt)){
-    if(c<cThresh)continue;
+  for(const[k,c]of Object.entries(pc)){
+    if(c<cTh)continue;
     const[a,b]=k.split('→');
     if(!adj[a])adj[a]=new Set();if(!adj[b])adj[b]=new Set();
     adj[a].add(b);adj[b].add(a);
   }
-  const visited=new Set();const clusters=[];
-  for(const node of Object.keys(adj)){
-    if(visited.has(node))continue;
-    const cl=new Set();const stk=[node];
-    while(stk.length){const n=stk.pop();if(visited.has(n))continue;visited.add(n);cl.add(n);if(adj[n])for(const nb of adj[n])if(!visited.has(nb))stk.push(nb);}
-    if(cl.size>=3)clusters.push([...cl].sort((a,b)=>parseInt(a)-parseInt(b)));
+  const vis=new Set();const grps=[];
+  for(const nd of Object.keys(adj)){
+    if(vis.has(nd))continue;
+    const cl=new Set();const stk=[nd];
+    while(stk.length){const n=stk.pop();if(vis.has(n))continue;vis.add(n);cl.add(n);if(adj[n])for(const nb of adj[n])if(!vis.has(nb))stk.push(nb);}
+    if(cl.size>=3)grps.push([...cl].sort((a,b)=>parseInt(a)-parseInt(b)));
   }
-  clusters.sort((a,b)=>{
-    const ta=a.reduce((s,h)=>s+(hidTraffic[h]||0),0);
-    const tb=b.reduce((s,h)=>s+(hidTraffic[h]||0),0);
-    return tb-ta;
-  });
-  const clusterHids=new Set(clusters.length?clusters[0]:[]);
+  grps.sort((a,b)=>{const ta=a.reduce((s,h)=>s+(ht[h]||0),0);const tb=b.reduce((s,h)=>s+(ht[h]||0),0);return tb-ta;});
 
-  // VHL grouped
-  const vhlRows={};
-  rows.forEach(r=>{if(!vhlRows[r.VHL_ID])vhlRows[r.VHL_ID]=[];vhlRows[r.VHL_ID].push(r);});
-
-  // Classify each row's state
-  rows.forEach(r=>{
-    r.STATE=classifyState(r.FROM,r.TO,r.TCNT,bidiSet,hotHids,clusterHids);
-  });
-
-  // Per-VHL state summary
-  const vhlStates={};
-  for(const[vid,rs]of Object.entries(vhlRows)){
-    const counts={RUN:0,IDLE:0,WAIT:0,PLANNED_STOP:0,BLOCKED:0,DEADLOCK_RISK:0,DEADLOCK_RISK2:0,DOWN:0,MANUAL_RECOVERY:0};
-    rs.forEach(r=>counts[r.STATE]=(counts[r.STATE]||0)+1);
-    const total=rs.length;
-    const runRate=((counts.RUN+counts.IDLE)/total*100);
-    vhlStates[vid]={counts,total,runRate,rows:rs};
-  }
-
-  // Stats
-  const totalVhl=vhlSet.size;
-  const dlSuspect=rows.filter(r=>r.STATE==='DEADLOCK_RISK'||r.STATE==='DEADLOCK_RISK2').length;
-  const avgEff=Object.values(vhlStates).reduce((s,v)=>s+v.runRate,0)/totalVhl;
-  const waitTimes=rows.filter(r=>r.STATE==='WAIT'||r.STATE==='PLANNED_STOP');
-  const blockTimes=rows.filter(r=>r.STATE==='BLOCKED'||r.STATE==='DEADLOCK_RISK'||r.STATE==='DEADLOCK_RISK2');
-  const retries=rows.filter(r=>r.TCNT>=2);
-
-  // KPI
-  const kpiStrip=document.getElementById('kpiStrip');
-  kpiStrip.innerHTML=`
-    <div class="kpi-item">
-      <div class="kpi-icon" style="background:rgba(76,175,80,0.15);">📊</div>
-      <div><div class="kpi-val">${Math.round(avgEff)}%</div><div class="kpi-label">Average OHT Efficiency</div></div>
-    </div>
-    <div class="kpi-item">
-      <div class="kpi-icon" style="background:rgba(156,39,176,0.15);">🔒</div>
-      <div><div class="kpi-val" style="color:var(--purple)">${dlSuspect}</div><div class="kpi-label">Deadlock Suspected</div></div>
-    </div>
-    <div class="kpi-item">
-      <div class="kpi-icon" style="background:rgba(255,193,7,0.15);">⏱</div>
-      <div><div class="kpi-val">${waitTimes.length}</div><div class="kpi-label">Wait Events</div></div>
-    </div>
-    <div class="kpi-item">
-      <div class="kpi-icon" style="background:rgba(244,67,54,0.15);">🚫</div>
-      <div><div class="kpi-val" style="color:var(--red)">${blockTimes.length}</div><div class="kpi-label">Blocked Events</div></div>
-    </div>
-    <div class="kpi-item">
-      <div class="kpi-icon" style="background:rgba(0,188,212,0.15);">🏭</div>
-      <div><div class="kpi-val">${totalVhl}</div><div class="kpi-label">Active OHTs</div></div>
-    </div>
+  // === KPI ===
+  document.getElementById('kpiR').innerHTML=`
+    <div class="kpi"><div class="lb">총 레코드</div><div class="vl">${rows.length.toLocaleString()}</div></div>
+    <div class="kpi"><div class="lb">OHT 대수 (VHL)</div><div class="vl">${vhlSet.size}</div></div>
+    <div class="kpi"><div class="lb">HID 존 수</div><div class="vl">${allH.size}</div></div>
+    <div class="kpi"><div class="lb">이동 구간 종류</div><div class="vl">${Object.keys(pc).length}</div></div>
+    <div class="kpi"><div class="lb">양방향 이동 쌍</div><div class="vl" style="color:var(--amber)">${bidi.length}</div></div>
+    <div class="kpi"><div class="lb">TRANS_CNT ≥ 2</div><div class="vl" style="color:var(--red)">${retries.length}</div></div>
   `;
 
-  // ============ TIMELINE ============
-  const tlScroll=document.getElementById('tlScroll');
-  // Sort VHLs by most interesting (low efficiency first)
-  const sortedVhls=Object.entries(vhlStates)
-    .sort((a,b)=>a[1].runRate-b[1].runRate)
-    .slice(0,30); // Show top 30
+  // === 1. Traffic Chart ===
+  const t25=sH.slice(0,25);
+  charts.push(new Chart(document.getElementById('trafC'),{type:'bar',data:{
+    labels:t25.map(([h])=>h),
+    datasets:[{data:t25.map(([,v])=>v),backgroundColor:t25.map(([,v],i)=>i<5?'#ef4456':i<10?'#f0a030':'#4a8eff'),borderRadius:3,barPercentage:.75}]
+  },options:{...CH_OPT}}));
 
-  let tlHTML='';
-  sortedVhls.forEach(([vid,st])=>{
+  // === 2. Pair Chart ===
+  charts.push(new Chart(document.getElementById('pairC'),{type:'bar',data:{
+    labels:topPairs.map(([k])=>k),
+    datasets:[{data:topPairs.map(([,v])=>v),backgroundColor:'#22c5d6',borderRadius:3,barPercentage:.7}]
+  },options:{...CH_OPT}}));
+
+  // === 3. Bidirectional Chart + Table ===
+  const b15=bidi.slice(0,15);
+  charts.push(new Chart(document.getElementById('bidiC'),{type:'bar',data:{
+    labels:b15.map(p=>p.a+'↔'+p.b),
+    datasets:[
+      {label:'A→B',data:b15.map(p=>p.ab),backgroundColor:'#4a8eff',borderRadius:3,barPercentage:.75},
+      {label:'B→A',data:b15.map(p=>p.ba),backgroundColor:'#f0a030',borderRadius:3,barPercentage:.75}
+    ]
+  },options:{...CH_OPT,plugins:{legend:{display:true,labels:{color:'#9a9cb2',font:{size:10,family:'JetBrains Mono'},boxWidth:10,boxHeight:10,borderRadius:2}}}}}));
+
+  const bBody=document.querySelector('#bidiT tbody');bBody.innerHTML='';
+  b15.forEach(p=>{bBody.innerHTML+=`<tr><td class="mn">${p.a}</td><td class="mn">${p.b}</td><td>${p.ab}</td><td>${p.ba}</td><td style="font-weight:600">${p.tot}</td></tr>`;});
+  if(!b15.length)bBody.innerHTML='<tr><td colspan=5 style="text-align:center;color:var(--text3);padding:20px">양방향 이동 없음</td></tr>';
+
+  // === 4. VHL Distribution ===
+  const moveCounts={};
+  for(const[,rs]of Object.entries(vg)){const n=rs.length;moveCounts[n]=(moveCounts[n]||0)+1;}
+  const mcSorted=Object.entries(moveCounts).sort((a,b)=>parseInt(a[0])-parseInt(b[0]));
+  charts.push(new Chart(document.getElementById('vhlDistC'),{type:'bar',data:{
+    labels:mcSorted.map(([k])=>k+'회'),
+    datasets:[{data:mcSorted.map(([,v])=>v),backgroundColor:'#3cc68a',borderRadius:3,barPercentage:.7}]
+  },options:{...CH_OPT,scales:{...CH_OPT.scales,y:{...CH_OPT.scales.y,title:{display:true,text:'VHL 수',color:'#636580',font:{size:10}}}}}}));
+
+  // Complex VHL mini list
+  const cplx=Object.entries(vg).filter(([,rs])=>rs.length>=3).sort((a,b)=>b[1].length-a[1].length);
+  document.getElementById('cplxCnt').textContent=cplx.length+'건';
+  const cplxS=document.getElementById('cplxScroll');
+  cplxS.innerHTML='';
+  cplx.slice(0,30).forEach(([vid,rs])=>{
     let segs='';
-    st.rows.forEach(r=>{
-      const w=Math.max(100/st.total,2);
-      segs+=`<div class="tl-seg" style="width:${w}%;background:${STATE_COLORS[r.STATE]}" title="${vid}: ${r.FROM}→${r.TO} (${r.STATE})"></div>`;
+    rs.forEach(r=>{
+      const w=Math.max(100/rs.length,4);
+      segs+=`<div class="tl-s" style="width:${w}%;background:${hidColor(r.T)}" data-tip="${vid}: ${r.F}→${r.T}"></div>`;
     });
-    tlHTML+=`<div class="tl-row"><div class="tl-label">${vid}</div><div class="tl-bar-area">${segs}</div></div>`;
-  });
-  tlScroll.innerHTML=tlHTML;
-
-  // ============ EFFICIENCY CHART ============
-  const effVhls=sortedVhls.slice(0,20);
-  const effLabels=effVhls.map(([v])=>v);
-  const effData=effVhls.map(([,s])=>Math.round(s.runRate));
-
-  if(effChartInst)effChartInst.destroy();
-  document.getElementById('avgLabel').textContent='Average '+Math.round(avgEff)+'%';
-  effChartInst=new Chart(document.getElementById('effChart'),{
-    type:'bar',
-    data:{
-      labels:effLabels,
-      datasets:[{
-        data:effData,
-        backgroundColor:effData.map(v=>v>=70?'#4caf50':v>=50?'#ffc107':v>=30?'#ff9800':'#f44336'),
-        borderRadius:3,barPercentage:0.7
-      }]
-    },
-    options:{
-      responsive:true,maintainAspectRatio:false,
-      plugins:{
-        legend:{display:false},
-        tooltip:{callbacks:{label:c=>c.raw+'%'}}
-      },
-      scales:{
-        x:{ticks:{color:'#6b6c82',font:{size:9,family:'JetBrains Mono'},maxRotation:45},grid:{display:false}},
-        y:{min:0,max:100,ticks:{color:'#6b6c82',callback:v=>v+'%'},grid:{color:'rgba(255,255,255,0.04)'}}
-      }
-    }
+    cplxS.innerHTML+=`<div class="tl-r"><div class="tl-lb">${vid}</div><div class="tl-bars">${segs}</div></div>`;
   });
 
-  // ============ LOSS CHART ============
-  const lossVhls=sortedVhls.slice(0,15);
-  const lossLabels=lossVhls.map(([v])=>v);
-  const stateKeys=['PLANNED_STOP','BLOCKED','WAIT','DEADLOCK_RISK','DEADLOCK_RISK2','MANUAL_RECOVERY','DOWN'];
-  const stateLabels=['Planned Stop','Blocked','Wait for Route','Deadlock Risk','Deadlock Risk+','Manual Recovery','Down'];
-  const stateClrs=['#78909c','#f44336','#ffc107','#9c27b0','#7b1fa2','#e91e63','#546e7a'];
-  
-  const datasets=stateKeys.map((sk,i)=>({
-    label:stateLabels[i],
-    data:lossVhls.map(([,s])=>s.counts[sk]||0),
-    backgroundColor:stateClrs[i],
-    borderRadius:2
-  }));
-
-  if(lossChartInst)lossChartInst.destroy();
-  lossChartInst=new Chart(document.getElementById('lossChart'),{
-    type:'bar',
-    data:{labels:lossLabels,datasets},
-    options:{
-      responsive:true,maintainAspectRatio:false,
-      plugins:{legend:{display:false}},
-      scales:{
-        x:{stacked:true,ticks:{color:'#6b6c82',font:{size:9,family:'JetBrains Mono'},maxRotation:45},grid:{display:false}},
-        y:{stacked:true,ticks:{color:'#6b6c82'},grid:{color:'rgba(255,255,255,0.04)'}}
-      }
-    }
-  });
-
-  // ============ CLUSTERS ============
-  const clCards=document.getElementById('clCards');
-  clCards.innerHTML='';
-  clusters.slice(0,5).forEach((cl,i)=>{
-    const traffic=cl.reduce((s,h)=>s+(hidTraffic[h]||0),0);
-    const level=i===0?'crit':i===1?'high':'med';
-    const levelTxt=i===0?'CRITICAL':i===1?'HIGH':'MEDIUM';
-    clCards.innerHTML+=`
-      <div class="cl-card">
-        <div class="cl-head">
-          <span class="cl-badge ${level}">${levelTxt}</span>
-          <span class="cl-title">클러스터 ${i+1} — ${cl.length}개 존, 트래픽 ${traffic}건</span>
-        </div>
-        <div class="cl-hids">HID: ${cl.join(', ')}</div>
-      </div>`;
-  });
-
-  // ============ COMPLEX VHL TABLE ============
-  const cplxBody=document.querySelector('#cplxTbl tbody');
-  cplxBody.innerHTML='';
-  const complexVhls=Object.entries(vhlRows)
-    .filter(([,rs])=>rs.length>=3)
-    .sort((a,b)=>b[1].length-a[1].length)
-    .slice(0,15);
-  complexVhls.forEach(([vid,rs])=>{
-    const route=rs.map(r=>r.FROM+'→'+r.TO).join(' → ');
-    // Detect patterns
-    const fromList=rs.map(r=>r.FROM);
+  // === 5. Route Table ===
+  const rBody=document.querySelector('#routeT tbody');rBody.innerHTML='';
+  cplx.slice(0,20).forEach(([vid,rs])=>{
+    const route=rs.map(r=>r.F+'→'+r.T).join(' , ');
+    const fromList=rs.map(r=>r.F);
     const cnt={};fromList.forEach(h=>{cnt[h]=(cnt[h]||0)+1;});
-    const repeats=Object.entries(cnt).filter(([,c])=>c>1);
-    let tag='<span class="tag b">복합이동</span>';
-    if(repeats.length)tag=`<span class="tag r">HID ${repeats[0][0]} 순환</span>`;
-    // Check bidirectional
-    for(let i=0;i<rs.length-1;i++){
-      if(rs[i].FROM===rs[i+1].TO&&rs[i].TO===rs[i+1].FROM){
-        tag=`<span class="tag w">${rs[i].FROM}↔${rs[i].TO} 왕복</span>`;break;
-      }
-    }
-    cplxBody.innerHTML+=`<tr>
-      <td class="mono" style="font-weight:600">${vid}</td>
-      <td>${rs.length}</td>
-      <td class="route">${route}</td>
-      <td>${tag}</td>
-    </tr>`;
+    const reps=Object.entries(cnt).filter(([,c])=>c>1);
+    const repStr=reps.length?reps.map(([h,c])=>`HID ${h} (${c}회)`).join(', '):'—';
+    rBody.innerHTML+=`<tr><td class="mn" style="font-weight:600">${vid}</td><td>${rs.length}</td><td class="rt-cell">${route}</td><td class="mn">${repStr}</td></tr>`;
+  });
+  if(!cplx.length)rBody.innerHTML='<tr><td colspan=4 style="text-align:center;color:var(--text3);padding:20px">3회 이상 이동 VHL 없음</td></tr>';
+
+  // === 6. Retry Table ===
+  const rtBody=document.querySelector('#retryT tbody');rtBody.innerHTML='';
+  retries.forEach(r=>{rtBody.innerHTML+=`<tr><td class="mn">${r.V}</td><td class="mn">${r.F}</td><td class="mn">${r.T}</td><td style="color:var(--amber);font-weight:600">${r.TC}</td></tr>`;});
+  if(!retries.length)rtBody.innerHTML='<tr><td colspan=4 style="text-align:center;color:var(--text3);padding:20px">TRANS_CNT ≥ 2 기록 없음</td></tr>';
+
+  // === 7. Connected Groups ===
+  const gc=document.getElementById('grpCards');gc.innerHTML='';
+  if(!grps.length)gc.innerHTML='<div class="cd"><div class="cd-b">고빈도(≥'+cTh+'건) 연결 그룹 없음</div></div>';
+  grps.slice(0,6).forEach((g,i)=>{
+    const traffic=g.reduce((s,h)=>s+(ht[h]||0),0);
+    gc.innerHTML+=`<div class="cd">
+      <div class="cd-h"><span class="badge" style="background:${i===0?'var(--red-d)':i===1?'var(--amber-d)':'var(--blue-d)'};color:${i===0?'var(--red)':i===1?'var(--amber)':'var(--blue)'}">그룹 ${i+1}</span>
+      <span class="cd-t">${g.length}개 HID · 트래픽 합산 ${traffic}건 · 연결 기준 ≥${cTh}건</span></div>
+      <div class="cd-hids">${g.join(', ')}</div>
+    </div>`;
   });
 
-  // ============ BIDI TABLE ============
-  const bidiBody=document.querySelector('#bidiTbl tbody');
-  bidiBody.innerHTML='';
-  bidiPairs.slice(0,15).forEach(p=>{
-    bidiBody.innerHTML+=`<tr>
-      <td class="mono">${p.a}</td><td class="mono">${p.b}</td>
-      <td>${p.ab}</td><td>${p.ba}</td>
-      <td style="font-weight:600;color:${p.total>=10?'var(--red)':p.total>=7?'var(--orange)':'var(--text)'}">${p.total}</td>
-    </tr>`;
+  // === 8. Timeline ===
+  const tlA=document.getElementById('tlArea');tlA.innerHTML='';
+  const tlVhls=Object.entries(vg).filter(([,rs])=>rs.length>=2).sort((a,b)=>b[1].length-a[1].length).slice(0,30);
+  tlVhls.forEach(([vid,rs])=>{
+    let segs='';
+    rs.forEach(r=>{
+      const w=Math.max(100/rs.length,3);
+      segs+=`<div class="tl-s" style="width:${w}%;background:${hidColor(r.T)}" data-tip="${vid}: ${r.F}→${r.T} (TRANS_CNT=${r.TC})"></div>`;
+    });
+    tlA.innerHTML+=`<div class="tl-r"><div class="tl-lb">${vid}</div><div class="tl-bars">${segs}</div></div>`;
   });
-
-  // ============ RETRY TABLE ============
-  const retryBody=document.querySelector('#retryTbl tbody');
-  retryBody.innerHTML='';
-  retries.forEach(r=>{
-    retryBody.innerHTML+=`<tr>
-      <td class="mono">${r.VHL_ID}</td><td class="mono">${r.FROM}</td>
-      <td class="mono">${r.TO}</td>
-      <td style="color:var(--orange);font-weight:600">${r.TCNT}</td>
-    </tr>`;
-  });
-  if(!retries.length)retryBody.innerHTML='<tr><td colspan="4" style="text-align:center;color:var(--text3);padding:20px">재시도 없음</td></tr>';
 }
 
-// Tooltip on timeline segments
-document.addEventListener('mouseover',e=>{
-  if(e.target.classList.contains('tl-seg')){
-    const tip=document.getElementById('tooltip');
-    tip.textContent=e.target.title;
-    tip.style.display='block';
-    tip.style.left=e.pageX+12+'px';
-    tip.style.top=e.pageY-30+'px';
-  }
-});
-document.addEventListener('mouseout',e=>{
-  if(e.target.classList.contains('tl-seg'))document.getElementById('tooltip').style.display='none';
-});
-document.addEventListener('mousemove',e=>{
-  const tip=document.getElementById('tooltip');
-  if(tip.style.display==='block'){tip.style.left=e.pageX+12+'px';tip.style.top=e.pageY-30+'px';}
-});
+// Tooltip
+const tip=document.getElementById('tip');
+document.addEventListener('mouseover',e=>{if(e.target.dataset.tip){tip.textContent=e.target.dataset.tip;tip.style.display='block';}});
+document.addEventListener('mouseout',e=>{if(e.target.dataset.tip)tip.style.display='none';});
+document.addEventListener('mousemove',e=>{if(tip.style.display==='block'){tip.style.left=Math.min(e.pageX+12,window.innerWidth-300)+'px';tip.style.top=e.pageY-32+'px';}});
 </script>
 </body>
 </html>
