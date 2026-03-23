@@ -1,0 +1,608 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<title>ZONEINFO MAP/DATA 영역 분리 뷰어</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { font-family: 'Segoe UI', 'Malgun Gothic', sans-serif; background: #1a1a2e; color: #e0e0e0; }
+
+/* Header */
+.header { background: #16213e; padding: 12px 24px; display: flex; align-items: center; justify-content: space-between; border-bottom: 2px solid #0f3460; }
+.header h1 { font-size: 18px; color: #e94560; }
+.header .stats { font-size: 13px; color: #888; }
+
+/* Layout */
+.container { display: flex; height: calc(100vh - 50px); }
+
+/* Left: Mini Map */
+.map-panel { width: 400px; min-width: 300px; background: #0f0f23; border-right: 1px solid #333; display: flex; flex-direction: column; }
+.map-header { padding: 10px 14px; background: #16213e; border-bottom: 1px solid #333; display: flex; align-items: center; gap: 10px; }
+.map-header h2 { font-size: 14px; color: #0fbcf9; }
+.map-canvas-wrap { flex: 1; position: relative; overflow: hidden; cursor: grab; }
+.map-canvas-wrap:active { cursor: grabbing; }
+canvas { display: block; }
+.map-legend { padding: 8px 12px; background: #111; border-top: 1px solid #333; display: flex; flex-wrap: wrap; gap: 8px; font-size: 11px; }
+.legend-item { display: flex; align-items: center; gap: 4px; }
+.legend-dot { width: 10px; height: 10px; border-radius: 2px; }
+
+/* Level toggle */
+.level-btns { display: flex; gap: 4px; }
+.level-btns button { padding: 3px 10px; font-size: 12px; border: 1px solid #444; background: #222; color: #aaa; cursor: pointer; border-radius: 3px; }
+.level-btns button.active { background: #0f3460; color: #0fbcf9; border-color: #0fbcf9; }
+
+/* Right: Data Panel */
+.data-panel { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
+
+/* Search & Filter bar */
+.toolbar { padding: 10px 16px; background: #16213e; border-bottom: 1px solid #333; display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+.toolbar input, .toolbar select { padding: 6px 10px; background: #0f0f23; border: 1px solid #444; color: #e0e0e0; border-radius: 4px; font-size: 13px; }
+.toolbar input { width: 200px; }
+.toolbar select { width: 150px; }
+.toolbar label { font-size: 12px; color: #888; }
+
+/* Zone list */
+.zone-list { flex: 1; overflow-y: auto; }
+.zone-list::-webkit-scrollbar { width: 8px; }
+.zone-list::-webkit-scrollbar-thumb { background: #444; border-radius: 4px; }
+
+/* Zone row */
+.zone-row { display: flex; border-bottom: 1px solid #1a1a2e; cursor: pointer; transition: background 0.15s; }
+.zone-row:hover { background: #1a2744; }
+.zone-row.selected { background: #0f3460; }
+.zone-row .zone-id-col { width: 90px; padding: 8px 12px; font-weight: 600; font-size: 13px; color: #e94560; border-right: 1px solid #222; display: flex; align-items: center; }
+.zone-row .zone-name-col { width: 160px; padding: 8px 10px; font-size: 12px; color: #aaa; border-right: 1px solid #222; display: flex; align-items: center; }
+.zone-row .zone-type-col { width: 100px; padding: 8px 10px; font-size: 12px; border-right: 1px solid #222; display: flex; align-items: center; }
+
+/* MAP / DATA split */
+.zone-row .map-col, .zone-row .data-col { flex: 1; padding: 6px 10px; font-size: 12px; font-family: 'Consolas', 'Courier New', monospace; position: relative; min-width: 0; }
+.zone-row .map-col { border-right: 2px solid #0f3460; background: rgba(15, 188, 249, 0.03); }
+.zone-row .data-col { background: rgba(233, 69, 96, 0.03); }
+
+/* Column headers */
+.col-header { display: flex; background: #111; border-bottom: 2px solid #444; font-size: 12px; font-weight: 700; position: sticky; top: 0; z-index: 10; }
+.col-header > div { padding: 8px 10px; }
+.col-header .zone-id-col { width: 90px; color: #e94560; border-right: 1px solid #333; }
+.col-header .zone-name-col { width: 160px; color: #aaa; border-right: 1px solid #333; }
+.col-header .zone-type-col { width: 100px; color: #aaa; border-right: 1px solid #333; }
+.col-header .map-col { flex: 1; color: #0fbcf9; border-right: 2px solid #0f3460; text-align: center; }
+.col-header .data-col { flex: 1; color: #e94560; text-align: center; }
+
+/* Detail panel (bottom) */
+.detail-panel { height: 0; background: #0f0f23; border-top: 2px solid #0f3460; transition: height 0.3s; overflow: hidden; }
+.detail-panel.open { height: 380px; }
+.detail-inner { display: flex; height: 100%; }
+.detail-section { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
+.detail-section:first-child { border-right: 2px solid #0f3460; }
+.detail-section-header { padding: 10px 16px; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #333; }
+.detail-section-header h3 { font-size: 14px; }
+.detail-section-header .copy-btn { padding: 4px 14px; font-size: 12px; background: #222; border: 1px solid #555; color: #ccc; cursor: pointer; border-radius: 4px; transition: all 0.2s; }
+.detail-section-header .copy-btn:hover { background: #0f3460; border-color: #0fbcf9; color: #fff; }
+.detail-section-header .copy-btn.copied { background: #1a7a3a; border-color: #2ecc71; color: #fff; }
+.detail-section pre { flex: 1; padding: 10px 16px; overflow: auto; font-size: 12px; line-height: 1.6; white-space: pre-wrap; word-break: break-all; }
+.detail-section pre::-webkit-scrollbar { width: 6px; }
+.detail-section pre::-webkit-scrollbar-thumb { background: #444; border-radius: 3px; }
+
+/* MAP section color */
+.detail-section.map-section .detail-section-header h3 { color: #0fbcf9; }
+.detail-section.map-section pre { color: #7ec8e3; }
+
+/* DATA section color */
+.detail-section.data-section .detail-section-header h3 { color: #e94560; }
+.detail-section.data-section pre { color: #e8a0ab; }
+
+/* Bulk copy bar */
+.bulk-bar { padding: 8px 16px; background: #111; border-top: 1px solid #333; display: flex; gap: 10px; align-items: center; }
+.bulk-bar button { padding: 6px 16px; font-size: 12px; border: 1px solid #555; background: #222; color: #ccc; cursor: pointer; border-radius: 4px; transition: all 0.2s; }
+.bulk-bar button:hover { background: #0f3460; border-color: #0fbcf9; color: #fff; }
+.bulk-bar button.copied { background: #1a7a3a; border-color: #2ecc71; color: #fff; }
+.bulk-bar .info { font-size: 12px; color: #666; margin-left: auto; }
+
+/* Type badges */
+.type-badge { display: inline-block; padding: 2px 8px; border-radius: 3px; font-size: 11px; font-weight: 600; }
+.type-0 { background: #333; color: #999; }
+.type-1 { background: #3d3500; color: #ffd700; }
+.type-2 { background: #003d00; color: #00cc00; }
+.type-3 { background: #3d0000; color: #ff4444; }
+.type-4 { background: #002244; color: #4488ff; }
+.type-5 { background: #220044; color: #aa44ff; }
+.type-11 { background: #3d2200; color: #ff8800; }
+
+/* Toast */
+.toast { position: fixed; bottom: 20px; right: 20px; padding: 10px 20px; background: #1a7a3a; color: #fff; border-radius: 6px; font-size: 13px; opacity: 0; transition: opacity 0.3s; z-index: 1000; pointer-events: none; }
+.toast.show { opacity: 1; }
+
+/* File load */
+.file-load { display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; gap: 20px; }
+.file-load h2 { color: #e94560; }
+.file-load p { color: #888; font-size: 14px; }
+.file-load label { padding: 12px 32px; background: #0f3460; border: 2px dashed #0fbcf9; border-radius: 8px; color: #0fbcf9; font-size: 16px; cursor: pointer; transition: all 0.2s; }
+.file-load label:hover { background: #1a4a7a; }
+.file-load input { display: none; }
+
+/* Highlighted zone on map */
+.map-tooltip { position: absolute; padding: 4px 8px; background: rgba(0,0,0,0.85); color: #fff; font-size: 11px; border-radius: 3px; pointer-events: none; white-space: nowrap; display: none; z-index: 20; }
+</style>
+</head>
+<body>
+
+<!-- File Load Screen -->
+<div class="file-load" id="fileLoadScreen">
+  <h2>ZONEINFO MAP / DATA 영역 분리 뷰어</h2>
+  <p>ZONEINFO.JSON 파일을 선택하거나 드래그하세요</p>
+  <label for="fileInput">파일 선택 (ZONEINFO.JSON)</label>
+  <input type="file" id="fileInput" accept=".json,.JSON">
+  <p style="color:#555; font-size:12px; margin-top:10px;">또는 이 페이지에 파일을 드래그 & 드롭</p>
+</div>
+
+<!-- Main UI (hidden until file loaded) -->
+<div id="mainUI" style="display:none;">
+  <div class="header">
+    <h1>ZONEINFO MAP / DATA 분리 뷰어</h1>
+    <div class="stats" id="statsText"></div>
+  </div>
+  <div class="container">
+    <!-- Left: Mini Map -->
+    <div class="map-panel">
+      <div class="map-header">
+        <h2>Zone Map</h2>
+        <div class="level-btns">
+          <button class="active" data-level="all">전체</button>
+          <button data-level="0">Level 0</button>
+          <button data-level="1">Level 1</button>
+        </div>
+      </div>
+      <div class="map-canvas-wrap" id="mapWrap">
+        <canvas id="mapCanvas"></canvas>
+        <div class="map-tooltip" id="mapTooltip"></div>
+      </div>
+      <div class="map-legend">
+        <div class="legend-item"><div class="legend-dot" style="background:#999"></div>일반(0)</div>
+        <div class="legend-item"><div class="legend-dot" style="background:#ffd700"></div>분기(1)</div>
+        <div class="legend-item"><div class="legend-dot" style="background:#00cc00"></div>IN(2)</div>
+        <div class="legend-item"><div class="legend-dot" style="background:#ff4444"></div>OUT(3)</div>
+        <div class="legend-item"><div class="legend-dot" style="background:#4488ff"></div>리프터(4)</div>
+        <div class="legend-item"><div class="legend-dot" style="background:#aa44ff"></div>CVLH(5)</div>
+        <div class="legend-item"><div class="legend-dot" style="background:#ff8800"></div>특수(11)</div>
+      </div>
+    </div>
+
+    <!-- Right: Data Panel -->
+    <div class="data-panel">
+      <div class="toolbar">
+        <input type="text" id="searchInput" placeholder="ZoneID 또는 DisplayName 검색...">
+        <label>PhysicalType:</label>
+        <select id="typeFilter">
+          <option value="all">전체</option>
+          <option value="0">0 - 일반 롤러</option>
+          <option value="1">1 - 분기/합류</option>
+          <option value="2">2 - 입고(IN)</option>
+          <option value="3">3 - 출고(OUT)</option>
+          <option value="4">4 - 리프터</option>
+          <option value="5">5 - 수평리프터</option>
+          <option value="11">11 - 특수</option>
+        </select>
+        <label>Level:</label>
+        <select id="levelFilter">
+          <option value="all">전체</option>
+          <option value="0">Level 0</option>
+          <option value="1">Level 1</option>
+        </select>
+      </div>
+
+      <!-- Column Header -->
+      <div class="col-header">
+        <div class="zone-id-col">ZoneID</div>
+        <div class="zone-name-col">DisplayName</div>
+        <div class="zone-type-col">Type</div>
+        <div class="map-col">MAP 영역 (위치)</div>
+        <div class="data-col">DATA 영역 (제어/통신)</div>
+      </div>
+
+      <!-- Zone List -->
+      <div class="zone-list" id="zoneList"></div>
+
+      <!-- Bulk Copy Bar -->
+      <div class="bulk-bar">
+        <button id="copyAllMap">전체 MAP 복사 (JSON)</button>
+        <button id="copyAllData">전체 DATA 복사 (JSON)</button>
+        <button id="copyFilteredMap">필터된 MAP 복사</button>
+        <button id="copyFilteredData">필터된 DATA 복사</button>
+        <div class="info" id="filteredCount"></div>
+      </div>
+
+      <!-- Detail Panel -->
+      <div class="detail-panel" id="detailPanel">
+        <div class="detail-inner">
+          <div class="detail-section map-section">
+            <div class="detail-section-header">
+              <h3>MAP 영역</h3>
+              <button class="copy-btn" id="copyMapBtn">복사</button>
+            </div>
+            <pre id="mapDetail"></pre>
+          </div>
+          <div class="detail-section data-section">
+            <div class="detail-section-header">
+              <h3>DATA 영역</h3>
+              <button class="copy-btn" id="copyDataBtn">복사</button>
+            </div>
+            <pre id="dataDetail"></pre>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+const MAP_KEYS = ['ZoneID', 'Level', 'posX', 'posY', 'ZoneDrawCount'];
+const TYPE_NAMES = { 0:'일반롤러', 1:'분기/합류', 2:'입고(IN)', 3:'출고(OUT)', 4:'리프터', 5:'수평리프터', 11:'특수' };
+const TYPE_COLORS = { 0:'#999', 1:'#ffd700', 2:'#00cc00', 3:'#ff4444', 4:'#4488ff', 5:'#aa44ff', 11:'#ff8800' };
+
+let allZones = [];
+let filteredZones = [];
+let selectedZone = null;
+let mapLevel = 'all';
+
+// --- File Loading ---
+const fileInput = document.getElementById('fileInput');
+const fileLoadScreen = document.getElementById('fileLoadScreen');
+const mainUI = document.getElementById('mainUI');
+
+fileInput.addEventListener('change', e => { if (e.target.files[0]) loadFile(e.target.files[0]); });
+
+document.body.addEventListener('dragover', e => { e.preventDefault(); e.stopPropagation(); });
+document.body.addEventListener('drop', e => {
+  e.preventDefault(); e.stopPropagation();
+  if (e.dataTransfer.files[0]) loadFile(e.dataTransfer.files[0]);
+});
+
+function loadFile(file) {
+  const reader = new FileReader();
+  reader.onload = e => {
+    try {
+      allZones = JSON.parse(e.target.result);
+      fileLoadScreen.style.display = 'none';
+      mainUI.style.display = 'block';
+      document.getElementById('statsText').textContent = `총 ${allZones.length}개 Zone | Level 0: ${allZones.filter(z=>z.Level===0).length} | Level 1: ${allZones.filter(z=>z.Level===1).length}`;
+      applyFilter();
+      initMap();
+    } catch(err) { alert('JSON 파싱 오류: ' + err.message); }
+  };
+  reader.readAsText(file);
+}
+
+// --- Splitting ---
+function getMapData(zone) {
+  const m = {};
+  MAP_KEYS.forEach(k => { if (zone[k] !== undefined) m[k] = zone[k]; });
+  return m;
+}
+
+function getCtrlData(zone) {
+  const d = {};
+  Object.keys(zone).forEach(k => { if (!MAP_KEYS.includes(k) || k === 'ZoneID') d[k] = zone[k]; });
+  return d;
+}
+
+function shortMap(zone) {
+  return `L${zone.Level} (${zone.posX}, ${zone.posY}) draw:${zone.ZoneDrawCount}`;
+}
+
+function shortData(zone) {
+  const parts = [`PT:${zone.PhysicalType}`, `Dir:${zone.RefDirection}`, `Next:${zone.NextZone}`, `Prev:${zone.PrevZone}`];
+  if (zone.AttributeLD) parts.push('LD');
+  if (zone.AttributeQS) parts.push('QS');
+  if (zone.AttributeLifter) parts.push('Lifter');
+  if (zone.LogicalType !== undefined) parts.push(`Log:${zone.LogicalType}`);
+  return parts.join(' | ');
+}
+
+// --- Filtering ---
+const searchInput = document.getElementById('searchInput');
+const typeFilter = document.getElementById('typeFilter');
+const levelFilter = document.getElementById('levelFilter');
+
+searchInput.addEventListener('input', applyFilter);
+typeFilter.addEventListener('change', applyFilter);
+levelFilter.addEventListener('change', applyFilter);
+
+function applyFilter() {
+  const q = searchInput.value.trim().toLowerCase();
+  const t = typeFilter.value;
+  const l = levelFilter.value;
+
+  filteredZones = allZones.filter(z => {
+    if (t !== 'all' && z.PhysicalType !== parseInt(t)) return false;
+    if (l !== 'all' && z.Level !== parseInt(l)) return false;
+    if (q) {
+      const sid = String(z.ZoneID);
+      const name = (z.DisplayName || '').toLowerCase();
+      if (!sid.includes(q) && !name.includes(q)) return false;
+    }
+    return true;
+  });
+
+  document.getElementById('filteredCount').textContent = `${filteredZones.length} / ${allZones.length} Zone 표시중`;
+  renderList();
+}
+
+// --- Virtual scroll for performance ---
+const zoneListEl = document.getElementById('zoneList');
+const ROW_HEIGHT = 38;
+let visibleStart = 0;
+let visibleEnd = 0;
+
+function renderList() {
+  zoneListEl.innerHTML = '';
+
+  // For 2084 zones, direct rendering is fine
+  const frag = document.createDocumentFragment();
+  filteredZones.forEach((zone, i) => {
+    const row = document.createElement('div');
+    row.className = 'zone-row' + (selectedZone && selectedZone.ZoneID === zone.ZoneID ? ' selected' : '');
+    row.dataset.idx = i;
+    row.innerHTML = `
+      <div class="zone-id-col">${zone.ZoneID}</div>
+      <div class="zone-name-col">${zone.DisplayName || '-'}</div>
+      <div class="zone-type-col"><span class="type-badge type-${zone.PhysicalType}">${TYPE_NAMES[zone.PhysicalType] || zone.PhysicalType}</span></div>
+      <div class="map-col">${shortMap(zone)}</div>
+      <div class="data-col">${shortData(zone)}</div>
+    `;
+    row.addEventListener('click', () => selectZone(zone));
+    frag.appendChild(row);
+  });
+  zoneListEl.appendChild(frag);
+}
+
+function selectZone(zone) {
+  selectedZone = zone;
+  // Update selection highlight
+  zoneListEl.querySelectorAll('.zone-row').forEach(r => {
+    const idx = parseInt(r.dataset.idx);
+    r.classList.toggle('selected', filteredZones[idx] && filteredZones[idx].ZoneID === zone.ZoneID);
+  });
+
+  // Show detail
+  const panel = document.getElementById('detailPanel');
+  panel.classList.add('open');
+
+  const mapObj = getMapData(zone);
+  const dataObj = getCtrlData(zone);
+
+  document.getElementById('mapDetail').textContent = JSON.stringify(mapObj, null, 2);
+  document.getElementById('dataDetail').textContent = JSON.stringify(dataObj, null, 2);
+
+  // Highlight on map
+  drawMap();
+}
+
+// --- Copy ---
+function copyToClipboard(text, btn) {
+  navigator.clipboard.writeText(text).then(() => {
+    if (btn) {
+      btn.classList.add('copied');
+      btn.textContent = '복사됨!';
+      setTimeout(() => { btn.classList.remove('copied'); btn.textContent = '복사'; }, 1500);
+    }
+    showToast('클립보드에 복사되었습니다');
+  });
+}
+
+document.getElementById('copyMapBtn').addEventListener('click', function() {
+  if (!selectedZone) return;
+  copyToClipboard(JSON.stringify(getMapData(selectedZone), null, 2), this);
+});
+
+document.getElementById('copyDataBtn').addEventListener('click', function() {
+  if (!selectedZone) return;
+  copyToClipboard(JSON.stringify(getCtrlData(selectedZone), null, 2), this);
+});
+
+document.getElementById('copyAllMap').addEventListener('click', function() {
+  const data = allZones.map(getMapData);
+  copyToClipboard(JSON.stringify(data, null, 2), this);
+});
+
+document.getElementById('copyAllData').addEventListener('click', function() {
+  const data = allZones.map(getCtrlData);
+  copyToClipboard(JSON.stringify(data, null, 2), this);
+});
+
+document.getElementById('copyFilteredMap').addEventListener('click', function() {
+  const data = filteredZones.map(getMapData);
+  copyToClipboard(JSON.stringify(data, null, 2), this);
+});
+
+document.getElementById('copyFilteredData').addEventListener('click', function() {
+  const data = filteredZones.map(getCtrlData);
+  copyToClipboard(JSON.stringify(data, null, 2), this);
+});
+
+function showToast(msg) {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  setTimeout(() => t.classList.remove('show'), 2000);
+}
+
+// --- Mini Map ---
+const canvas = document.getElementById('mapCanvas');
+const ctx = canvas.getContext('2d');
+const mapWrap = document.getElementById('mapWrap');
+const tooltip = document.getElementById('mapTooltip');
+
+let mapTransform = { scale: 1, offsetX: 0, offsetY: 0 };
+let isDragging = false, dragStart = { x: 0, y: 0 };
+let mapBounds = { minX: 0, maxX: 0, minY: 0, maxY: 0 };
+
+// Level buttons
+document.querySelectorAll('.level-btns button').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.level-btns button').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    mapLevel = btn.dataset.level;
+    fitMap();
+    drawMap();
+  });
+});
+
+function initMap() {
+  resizeCanvas();
+  fitMap();
+  drawMap();
+  window.addEventListener('resize', () => { resizeCanvas(); fitMap(); drawMap(); });
+}
+
+function resizeCanvas() {
+  canvas.width = mapWrap.clientWidth;
+  canvas.height = mapWrap.clientHeight;
+}
+
+function getVisibleZones() {
+  if (mapLevel === 'all') return allZones;
+  return allZones.filter(z => z.Level === parseInt(mapLevel));
+}
+
+function fitMap() {
+  const zones = getVisibleZones();
+  if (!zones.length) return;
+  mapBounds.minX = Math.min(...zones.map(z => z.posX));
+  mapBounds.maxX = Math.max(...zones.map(z => z.posX));
+  mapBounds.minY = Math.min(...zones.map(z => z.posY));
+  mapBounds.maxY = Math.max(...zones.map(z => z.posY));
+
+  const w = mapBounds.maxX - mapBounds.minX || 1;
+  const h = mapBounds.maxY - mapBounds.minY || 1;
+  const pad = 30;
+  const sx = (canvas.width - pad * 2) / w;
+  const sy = (canvas.height - pad * 2) / h;
+  mapTransform.scale = Math.min(sx, sy);
+  mapTransform.offsetX = pad - mapBounds.minX * mapTransform.scale + (canvas.width - pad * 2 - w * mapTransform.scale) / 2;
+  mapTransform.offsetY = pad - mapBounds.minY * mapTransform.scale + (canvas.height - pad * 2 - h * mapTransform.scale) / 2;
+}
+
+function worldToScreen(px, py) {
+  return {
+    x: px * mapTransform.scale + mapTransform.offsetX,
+    y: py * mapTransform.scale + mapTransform.offsetY
+  };
+}
+
+function screenToWorld(sx, sy) {
+  return {
+    x: (sx - mapTransform.offsetX) / mapTransform.scale,
+    y: (sy - mapTransform.offsetY) / mapTransform.scale
+  };
+}
+
+function drawMap() {
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  const zones = getVisibleZones();
+  const dotSize = Math.max(1.5, Math.min(4, mapTransform.scale * 40));
+
+  // Draw connections first (dim)
+  ctx.strokeStyle = 'rgba(255,255,255,0.06)';
+  ctx.lineWidth = 0.5;
+  const zoneMap = {};
+  allZones.forEach(z => zoneMap[z.ZoneID] = z);
+
+  zones.forEach(z => {
+    if (z.NextZone > 0 && zoneMap[z.NextZone]) {
+      const from = worldToScreen(z.posX, z.posY);
+      const to = worldToScreen(zoneMap[z.NextZone].posX, zoneMap[z.NextZone].posY);
+      ctx.beginPath();
+      ctx.moveTo(from.x, from.y);
+      ctx.lineTo(to.x, to.y);
+      ctx.stroke();
+    }
+  });
+
+  // Draw zones
+  zones.forEach(z => {
+    const p = worldToScreen(z.posX, z.posY);
+    const isSelected = selectedZone && selectedZone.ZoneID === z.ZoneID;
+    ctx.beginPath();
+    if (isSelected) {
+      ctx.arc(p.x, p.y, dotSize * 2.5, 0, Math.PI * 2);
+      ctx.fillStyle = '#fff';
+      ctx.fill();
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, dotSize * 2, 0, Math.PI * 2);
+    } else {
+      ctx.arc(p.x, p.y, dotSize, 0, Math.PI * 2);
+    }
+    ctx.fillStyle = TYPE_COLORS[z.PhysicalType] || '#666';
+    ctx.fill();
+  });
+}
+
+// Map pan & zoom
+mapWrap.addEventListener('mousedown', e => { isDragging = true; dragStart = { x: e.clientX, y: e.clientY }; });
+mapWrap.addEventListener('mousemove', e => {
+  if (isDragging) {
+    mapTransform.offsetX += e.clientX - dragStart.x;
+    mapTransform.offsetY += e.clientY - dragStart.y;
+    dragStart = { x: e.clientX, y: e.clientY };
+    drawMap();
+  }
+  // Tooltip
+  const rect = canvas.getBoundingClientRect();
+  const mx = e.clientX - rect.left;
+  const my = e.clientY - rect.top;
+  const w = screenToWorld(mx, my);
+  const dotR = Math.max(3, 6 / mapTransform.scale);
+  let found = null;
+  const zones = getVisibleZones();
+  for (let i = zones.length - 1; i >= 0; i--) {
+    const z = zones[i];
+    if (Math.abs(z.posX - w.x) < dotR * 8 && Math.abs(z.posY - w.y) < dotR * 8) {
+      found = z; break;
+    }
+  }
+  if (found) {
+    tooltip.style.display = 'block';
+    tooltip.style.left = (mx + 12) + 'px';
+    tooltip.style.top = (my - 8) + 'px';
+    tooltip.textContent = `${found.ZoneID} | ${found.DisplayName || '-'} | ${TYPE_NAMES[found.PhysicalType]}`;
+  } else {
+    tooltip.style.display = 'none';
+  }
+});
+mapWrap.addEventListener('mouseup', () => isDragging = false);
+mapWrap.addEventListener('mouseleave', () => { isDragging = false; tooltip.style.display = 'none'; });
+
+mapWrap.addEventListener('wheel', e => {
+  e.preventDefault();
+  const rect = canvas.getBoundingClientRect();
+  const mx = e.clientX - rect.left;
+  const my = e.clientY - rect.top;
+  const factor = e.deltaY < 0 ? 1.15 : 0.87;
+  mapTransform.offsetX = mx - (mx - mapTransform.offsetX) * factor;
+  mapTransform.offsetY = my - (my - mapTransform.offsetY) * factor;
+  mapTransform.scale *= factor;
+  drawMap();
+});
+
+// Click on map to select zone
+canvas.addEventListener('click', e => {
+  const rect = canvas.getBoundingClientRect();
+  const mx = e.clientX - rect.left;
+  const my = e.clientY - rect.top;
+  const w = screenToWorld(mx, my);
+  const dotR = Math.max(3, 6 / mapTransform.scale);
+  const zones = getVisibleZones();
+  let found = null;
+  for (let i = zones.length - 1; i >= 0; i--) {
+    const z = zones[i];
+    if (Math.abs(z.posX - w.x) < dotR * 8 && Math.abs(z.posY - w.y) < dotR * 8) {
+      found = z; break;
+    }
+  }
+  if (found) selectZone(found);
+});
+</script>
+</body>
+</html>
