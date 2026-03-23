@@ -7441,12 +7441,12 @@ function dismissIntroAndShowMode(){
 
 function showModeSelector(){
   var ms = document.getElementById('modeSelector');
-  if(ms){ ms.style.display='flex'; setTimeout(function(){ ms.classList.add('visible'); }, 30); }
+  if(ms){ ms.style.display='flex'; ms.style.opacity=''; ms.classList.remove('visible'); setTimeout(function(){ ms.classList.add('visible'); }, 30); }
 }
 
 function selectMode(mode){
   var ms = document.getElementById('modeSelector');
-  if(ms){ ms.style.opacity='0'; setTimeout(function(){ ms.style.display='none'; }, 500); }
+  if(ms){ ms.classList.remove('visible'); setTimeout(function(){ ms.style.display='none'; ms.style.opacity=''; }, 500); }
   if(mode === 'uio'){
     document.getElementById('uioContainer').style.display='block';
     document.getElementById('uioFrame').src='/uio/';
