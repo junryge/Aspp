@@ -3,436 +3,363 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>OHT HID INOUT 데이터 분석</title>
+<title>OHT HID INOUT 분석</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
 <style>
 @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Noto+Sans+KR:wght@300;400;500;700&display=swap');
 :root{
-  --bg:#0f1117;--bg2:#171a25;--bg3:#1e2231;--bg4:#262b3d;
-  --text:#e4e4ea;--text2:#a0a1b4;--text3:#6c6d82;
-  --blue:#4a90ff;--amber:#eda535;--red:#ef4456;--green:#3cc68a;--cyan:#20c5d4;--purple:#a06cf0;
+  --bg:#0f1118;--bg2:#161923;--bg3:#1d2130;--bg4:#272b3e;--bg5:#303550;
+  --tx:#e6e6ec;--tx2:#a0a2b6;--tx3:#6a6c84;
+  --blue:#4a90ff;--amber:#eda535;--red:#ef4456;--green:#3cc68a;--cyan:#22c5d6;--purple:#a06cf0;
+  --bd:rgba(255,255,255,.06);
   --mono:'JetBrains Mono',monospace;--sans:'Noto Sans KR',sans-serif;
-  --border:rgba(255,255,255,.06);
 }
 *{margin:0;padding:0;box-sizing:border-box;}
-body{background:var(--bg);color:var(--text);font-family:var(--sans);line-height:1.75;min-height:100vh;}
+body{background:var(--bg);color:var(--tx);font-family:var(--sans);line-height:1.7;}
 
-.hdr{padding:18px 28px;background:var(--bg2);border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;}
-.hdr h1{font-size:17px;font-weight:700;}
-.hdr .sub{font-size:11px;color:var(--text3);font-family:var(--mono);}
+.hdr{padding:16px 28px;background:var(--bg2);border-bottom:1px solid var(--bd);display:flex;align-items:center;justify-content:space-between;}
+.hdr h1{font-size:17px;font-weight:700;}.hdr .ck{font-size:11px;color:var(--tx3);font-family:var(--mono);}
 
-.up-wrap{display:flex;align-items:center;justify-content:center;min-height:calc(100vh - 60px);padding:40px;}
-.up-box{width:100%;max-width:500px;border:2px dashed rgba(74,144,255,.25);border-radius:16px;padding:48px 32px;text-align:center;cursor:pointer;background:var(--bg2);transition:all .25s;}
-.up-box:hover,.up-box.ov{border-color:var(--blue);background:rgba(74,144,255,.06);transform:translateY(-2px);}
-.up-box h2{font-size:16px;font-weight:600;margin:10px 0 6px;}
-.up-box p{font-size:12px;color:var(--text2);line-height:1.7;}
-.up-box .ft{margin-top:14px;display:flex;gap:6px;justify-content:center;}
-.up-box .ft span{font-size:10px;font-family:var(--mono);padding:3px 10px;background:var(--bg4);border-radius:5px;color:var(--text2);}
+/* Upload */
+.uw{display:flex;align-items:center;justify-content:center;min-height:calc(100vh - 56px);padding:40px;}
+.ub{width:100%;max-width:500px;border:2px dashed rgba(74,144,255,.25);border-radius:16px;padding:48px 32px;text-align:center;cursor:pointer;background:var(--bg2);transition:all .25s;}
+.ub:hover,.ub.ov{border-color:var(--blue);background:rgba(74,144,255,.06);transform:translateY(-2px);}
+.ub h2{font-size:16px;font-weight:600;margin:10px 0 6px;}.ub p{font-size:12px;color:var(--tx2);line-height:1.7;}
+.ub .ft{margin-top:14px;display:flex;gap:6px;justify-content:center;}
+.ub .ft span{font-size:10px;font-family:var(--mono);padding:3px 10px;background:var(--bg4);border-radius:5px;color:var(--tx2);}
 input[type=file]{display:none;}
 
-.result{display:none;padding:0 0 40px;}
-.result.on{display:block;}
+.rs{display:none;padding:0 0 60px;}.rs.on{display:block;}
+.fb{display:flex;align-items:center;gap:10px;padding:10px 28px;background:var(--bg3);font-size:12px;border-bottom:1px solid var(--bd);}
+.fb .fn{font-family:var(--mono);color:var(--cyan);font-weight:500;}.fb .fm{color:var(--tx3);}
+.fb button{margin-left:auto;padding:6px 14px;font-size:11px;background:var(--bg4);border:1px solid var(--bd);color:var(--tx2);border-radius:6px;cursor:pointer;font-family:var(--sans);}
+.fb button:hover{background:rgba(239,68,86,.12);color:var(--red);border-color:var(--red);}
 
-.fbar{display:flex;align-items:center;gap:10px;padding:10px 28px;background:var(--bg3);font-size:12px;border-bottom:1px solid var(--border);}
-.fbar .fn{font-family:var(--mono);color:var(--cyan);font-weight:500;}
-.fbar .fm{color:var(--text3);}
-.fbar button{margin-left:auto;padding:6px 14px;font-size:11px;background:var(--bg4);border:1px solid var(--border);color:var(--text2);border-radius:6px;cursor:pointer;font-family:var(--sans);}
-.fbar button:hover{background:rgba(239,68,86,.12);color:var(--red);border-color:var(--red);}
+.rpt{max-width:860px;margin:0 auto;padding:24px 28px 0;}
 
-/* Report sections */
-.report{max-width:820px;margin:0 auto;padding:28px 28px 0;}
+/* KPI */
+.kpi-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:10px;margin-bottom:28px;}
+.kpi{background:var(--bg2);border:1px solid var(--bd);border-radius:10px;padding:14px 16px;}
+.kpi .lb{font-size:10px;color:var(--tx3);margin-bottom:2px;}
+.kpi .vl{font-size:22px;font-weight:700;letter-spacing:-1px;}
 
-.section{margin-bottom:32px;}
-.section .stitle{
-  font-size:15px;font-weight:700;margin-bottom:14px;padding-bottom:8px;
-  border-bottom:2px solid var(--bg4);display:flex;align-items:center;gap:8px;
-}
-.section .stitle .num{
-  width:24px;height:24px;border-radius:7px;display:flex;align-items:center;justify-content:center;
-  font-size:11px;font-weight:700;font-family:var(--mono);flex-shrink:0;color:#fff;
-}
+/* Section */
+.sec{margin-bottom:36px;}
+.sec .sh{display:flex;align-items:center;gap:8px;margin-bottom:14px;padding-bottom:8px;border-bottom:2px solid var(--bg4);}
+.sec .sh .nm{width:26px;height:26px;border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;font-family:var(--mono);color:#fff;flex-shrink:0;}
+.sec .sh .st{font-size:15px;font-weight:700;}
 
-.fact{
-  background:var(--bg2);border:1px solid var(--border);border-radius:10px;
-  padding:14px 18px;margin-bottom:10px;font-size:13px;line-height:1.8;
-}
-.fact .label{
-  font-size:10px;font-weight:600;font-family:var(--mono);letter-spacing:.5px;
-  margin-bottom:4px;
-}
-.fact .label.blue{color:var(--blue);}
-.fact .label.amber{color:var(--amber);}
-.fact .label.red{color:var(--red);}
-.fact .label.green{color:var(--green);}
-.fact .label.purple{color:var(--purple);}
-.fact .label.cyan{color:var(--cyan);}
+/* Chart card */
+.cc{background:var(--bg2);border:1px solid var(--bd);border-radius:12px;padding:16px 18px;margin-bottom:12px;}
+.cc .ct{font-size:12px;font-weight:600;color:var(--tx2);margin-bottom:8px;}
+.cc .cb{position:relative;width:100%;}
+.cc .lgd{display:flex;flex-wrap:wrap;gap:12px;margin-top:8px;font-size:10px;color:var(--tx3);}
+.cc .lgd span{display:flex;align-items:center;gap:3px;}
+.cc .lgd .sq{width:9px;height:9px;border-radius:2px;flex-shrink:0;}
 
-.fact p{margin:0 0 6px;color:var(--text);}
-.fact p:last-child{margin-bottom:0;}
-.fact .hl{font-weight:700;}
-.fact .code{font-family:var(--mono);font-size:12px;color:var(--cyan);background:var(--bg4);padding:1px 6px;border-radius:4px;}
+/* Explanation card */
+.ex{background:var(--bg3);border:1px solid var(--bd);border-radius:10px;padding:14px 18px;margin-bottom:12px;font-size:13px;line-height:1.85;}
+.ex .el{font-size:10px;font-weight:600;font-family:var(--mono);letter-spacing:.5px;margin-bottom:4px;}
+.ex .el.b{color:var(--blue);}.ex .el.a{color:var(--amber);}.ex .el.r{color:var(--red);}.ex .el.g{color:var(--green);}.ex .el.c{color:var(--cyan);}.ex .el.p{color:var(--purple);}
+.ex p{margin:0 0 6px;}.ex p:last-child{margin:0;}
+.hl{font-weight:700;}
+.cd{font-family:var(--mono);font-size:12px;color:var(--cyan);background:var(--bg5);padding:1px 6px;border-radius:4px;}
+.yes{color:var(--green);}.no{color:var(--red);}
 
-.fact-list{margin:6px 0 0 0;padding:0;}
-.fact-list li{
-  list-style:none;padding:4px 0;font-size:12px;color:var(--text2);
-  border-bottom:1px solid rgba(255,255,255,.03);display:flex;align-items:baseline;gap:6px;
-}
-.fact-list li:last-child{border-bottom:none;}
-.fact-list .rank{font-family:var(--mono);font-size:10px;color:var(--text3);min-width:20px;}
-.fact-list .val{font-family:var(--mono);font-weight:600;color:var(--text);min-width:32px;text-align:right;}
+/* Table */
+.tw{overflow-x:auto;margin-bottom:12px;}
+.tb{width:100%;border-collapse:collapse;font-size:11px;background:var(--bg2);border-radius:10px;overflow:hidden;}
+.tb thead td{padding:9px 14px;font-weight:600;color:var(--tx3);font-size:10px;border-bottom:1px solid var(--bd);text-transform:uppercase;letter-spacing:.5px;background:var(--bg3);}
+.tb tbody tr{border-bottom:1px solid rgba(255,255,255,.03);}.tb tbody tr:hover{background:var(--bg3);}
+.tb tbody td{padding:8px 14px;}
+.mn{font-family:var(--mono);font-size:10px;}
 
-.cannot{
-  background:rgba(239,68,86,.06);border:1px solid rgba(239,68,86,.15);
-  border-radius:10px;padding:14px 18px;margin-bottom:10px;font-size:13px;line-height:1.8;
-}
-.cannot .label{font-size:10px;font-weight:600;font-family:var(--mono);color:var(--red);letter-spacing:.5px;margin-bottom:4px;}
-.cannot p{color:var(--text2);}
+/* warn box */
+.wb{background:rgba(239,68,86,.06);border:1px solid rgba(239,68,86,.15);border-radius:10px;padding:14px 18px;font-size:13px;line-height:1.85;margin-bottom:12px;}
+.wb .el{font-size:10px;font-weight:600;font-family:var(--mono);color:var(--red);letter-spacing:.5px;margin-bottom:4px;}
+.wb p{color:var(--tx2);margin:0 0 4px;}.wb p:last-child{margin:0;}
 
-.summary-box{
-  background:var(--bg3);border:1px solid rgba(74,144,255,.2);border-radius:12px;
-  padding:18px 22px;margin-top:20px;
-}
-.summary-box .stitle{font-size:14px;border:none;padding:0;margin-bottom:10px;}
-.summary-box p{font-size:13px;line-height:1.8;margin-bottom:8px;}
-.summary-box p:last-child{margin-bottom:0;}
+/* summary */
+.sum{background:var(--bg3);border:1px solid rgba(74,144,255,.2);border-radius:12px;padding:20px 22px;margin-top:24px;}
+.sum h3{font-size:14px;font-weight:700;margin-bottom:10px;}
+.sum p{font-size:13px;line-height:1.85;margin:0 0 8px;}.sum p:last-child{margin:0;}
+
+@media(max-width:700px){.kpi-grid{grid-template-columns:repeat(2,1fr);}}
 </style>
 </head>
 <body>
 
-<div class="hdr">
-  <h1>OHT HID INOUT 데이터 분석</h1>
-  <div class="sub" id="clk"></div>
-</div>
+<div class="hdr"><h1>OHT HID INOUT 분석</h1><div class="ck" id="ck"></div></div>
 
-<div class="up-wrap" id="upW">
-  <div class="up-box" id="upB">
+<div class="uw" id="uw">
+  <div class="ub" id="ub">
     <div style="font-size:28px">📂</div>
-    <h2>데이터 파일 업로드</h2>
-    <p>HID INOUT 로그 파일을 넣으면<br><b>한국어 문장으로</b> 분석 결과를 알려드립니다.</p>
+    <h2>HID INOUT 데이터 업로드</h2>
+    <p>파일을 넣으면 <b>그래프 + 한국어 설명</b>으로 분석합니다.<br>확인 가능한 사실만 보여주고, 추측은 하지 않습니다.</p>
     <div class="ft"><span>.csv</span><span>.txt</span><span>.tsv</span></div>
   </div>
-  <input type="file" id="fIn" accept=".csv,.txt,.tsv">
+  <input type="file" id="fI" accept=".csv,.txt,.tsv">
 </div>
 
-<div class="result" id="res">
-  <div class="fbar">
-    <span class="fn" id="fnE"></span>
-    <span class="fm" id="fmE"></span>
-    <button onclick="reset()">다른 파일</button>
-  </div>
-  <div class="report" id="report"></div>
+<div class="rs" id="rs">
+  <div class="fb"><span class="fn" id="fn"></span><span class="fm" id="fm"></span><button onclick="R()">다른 파일</button></div>
+  <div class="rpt" id="rpt"></div>
 </div>
 
 <script>
-function ck(){document.getElementById('clk').textContent=new Date().toLocaleString('ko-KR');}ck();setInterval(ck,1000);
-const upB=document.getElementById('upB'),fIn=document.getElementById('fIn');
-upB.onclick=()=>fIn.click();
-upB.ondragover=e=>{e.preventDefault();upB.classList.add('ov');};
-upB.ondragleave=()=>upB.classList.remove('ov');
-upB.ondrop=e=>{e.preventDefault();upB.classList.remove('ov');if(e.dataTransfer.files.length)go(e.dataTransfer.files[0]);};
-fIn.onchange=e=>{if(e.target.files.length)go(e.target.files[0]);};
-function reset(){document.getElementById('upW').style.display='flex';document.getElementById('res').classList.remove('on');fIn.value='';}
+function T(){document.getElementById('ck').textContent=new Date().toLocaleString('ko-KR');}T();setInterval(T,1000);
+const ub=document.getElementById('ub'),fI=document.getElementById('fI');
+ub.onclick=()=>fI.click();
+ub.ondragover=e=>{e.preventDefault();ub.classList.add('ov');};
+ub.ondragleave=()=>ub.classList.remove('ov');
+ub.ondrop=e=>{e.preventDefault();ub.classList.remove('ov');if(e.dataTransfer.files.length)G(e.dataTransfer.files[0]);};
+fI.onchange=e=>{if(e.target.files.length)G(e.target.files[0]);};
+let CHS=[];
+function R(){document.getElementById('uw').style.display='flex';document.getElementById('rs').classList.remove('on');fI.value='';CHS.forEach(c=>c.destroy());CHS=[];}
+function G(f){const r=new FileReader();r.onload=e=>{try{A(e.target.result,f.name,f.size);}catch(err){alert('오류: '+err.message);}};r.readAsText(f,'UTF-8');}
 
-function go(file){
-  const r=new FileReader();
-  r.onload=e=>{try{run(e.target.result,file.name,file.size);}catch(err){alert('오류: '+err.message);}};
-  r.readAsText(file,'UTF-8');
-}
-
-function parseCSV(txt){
-  const ls=txt.trim().split('\n');
-  if(ls.length<2)throw new Error('최소 2행 필요');
+function P(txt){
+  const ls=txt.trim().split('\n');if(ls.length<2)throw new Error('최소 2행 필요');
   let sp=',';if(ls[0].split('\t').length>ls[0].split(',').length)sp='\t';
   const hd=ls[0].split(sp).map(h=>h.replace(/^"|"$/g,'').trim());
-  const al={VHL_ID:['VHL_ID','VHLID','VHL','VEHICLE_ID'],FROM_HIDID:['FROM_HIDID','FROM_HID','FROMHID'],TO_HIDID:['TO_HIDID','TO_HID','TOHID'],TRANS_CNT:['TRANS_CNT','TRANSCNT','CNT'],EVENT_DT:['EVENT_DT','EVENT_DATE','_time','TIME','TIMESTAMP'],FAB_ID:['FAB_ID','FABID','FAB'],EQP_ID:['EQP_ID','EQPID'],MCP_NM:['MCP_NM','MCP']};
-  const cm={};
-  for(const[k,ns]of Object.entries(al)){for(const n of ns){const i=hd.findIndex(h=>h.toUpperCase()===n.toUpperCase());if(i>=0){cm[k]=i;break;}}}
-  if(!('VHL_ID'in cm)||!('FROM_HIDID'in cm)||!('TO_HIDID'in cm))throw new Error('필수 컬럼 누락: VHL_ID, FROM_HIDID, TO_HIDID\n헤더: '+hd.join(', '));
+  const al={V:['VHL_ID','VHLID','VHL','VEHICLE_ID'],F:['FROM_HIDID','FROM_HID','FROMHID'],T:['TO_HIDID','TO_HID','TOHID'],TC:['TRANS_CNT','TRANSCNT','CNT'],DT:['EVENT_DT','EVENT_DATE','_time','TIME','TIMESTAMP'],FAB:['FAB_ID','FABID','FAB']};
+  const cm={};for(const[k,ns]of Object.entries(al)){for(const n of ns){const i=hd.findIndex(h=>h.toUpperCase()===n.toUpperCase());if(i>=0){cm[k]=i;break;}}}
+  if(!('V'in cm)||!('F'in cm)||!('T'in cm))throw new Error('필수 컬럼 누락: VHL_ID, FROM_HIDID, TO_HIDID\n헤더: '+hd.join(', '));
   const rows=[];
-  for(let i=1;i<ls.length;i++){
-    const c=ls[i].split(sp).map(x=>x.replace(/^"|"$/g,'').trim());
-    if(c.length<3)continue;
-    rows.push({V:c[cm.VHL_ID]||'',F:c[cm.FROM_HIDID]||'',T:c[cm.TO_HIDID]||'',TC:cm.TRANS_CNT!==undefined?parseInt(c[cm.TRANS_CNT])||1:1,DT:cm.EVENT_DT!==undefined?c[cm.EVENT_DT]:'',FAB:cm.FAB_ID!==undefined?c[cm.FAB_ID]:'',EQP:cm.EQP_ID!==undefined?c[cm.EQP_ID]:'',MCP:cm.MCP_NM!==undefined?c[cm.MCP_NM]:''});
-  }
+  for(let i=1;i<ls.length;i++){const c=ls[i].split(sp).map(x=>x.replace(/^"|"$/g,'').trim());if(c.length<3)continue;
+    rows.push({V:c[cm.V]||'',F:c[cm.F]||'',T:c[cm.T]||'',TC:cm.TC!==undefined?parseInt(c[cm.TC])||1:1,DT:cm.DT!==undefined?c[cm.DT]:'',FAB:cm.FAB!==undefined?c[cm.FAB]:''});}
   return rows;
 }
 
-function run(txt,fname,fsize){
-  const rows=parseCSV(txt);
+const CO={responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},
+  scales:{x:{ticks:{color:'#6a6c84',font:{size:9,family:'JetBrains Mono'},maxRotation:50},grid:{display:false}},
+          y:{ticks:{color:'#6a6c84'},grid:{color:'rgba(255,255,255,.04)'},beginAtZero:true}}};
 
-  document.getElementById('fnE').textContent=fname;
-  document.getElementById('fmE').textContent=rows.length.toLocaleString()+' rows · '+(fsize/1024).toFixed(1)+' KB';
-  document.getElementById('upW').style.display='none';
-  document.getElementById('res').classList.add('on');
+function MC(id,cfg){const c=new Chart(document.getElementById(id),cfg);CHS.push(c);return c;}
 
-  // ===== 분석 시작 =====
+function A(txt,fname,fsize){
+  const rows=P(txt);
+  document.getElementById('fn').textContent=fname;
+  document.getElementById('fm').textContent=rows.length.toLocaleString()+' rows · '+(fsize/1024).toFixed(1)+' KB';
+  document.getElementById('uw').style.display='none';
+  document.getElementById('rs').classList.add('on');
 
-  // 기본 집계
+  // === 분석 ===
   const vhls=[...new Set(rows.map(r=>r.V))];
-  const froms=new Set(rows.map(r=>r.F));
-  const tos=new Set(rows.map(r=>r.T));
-  const allHids=[...new Set([...froms,...tos])];
+  const allH=[...new Set([...rows.map(r=>r.F),...rows.map(r=>r.T)])];
   const fabs=[...new Set(rows.map(r=>r.FAB).filter(Boolean))];
-  const eqps=[...new Set(rows.map(r=>r.EQP).filter(Boolean))];
   const dts=[...new Set(rows.map(r=>r.DT).filter(Boolean))].sort();
+  const single=dts.length<=1;
+  const vpx={};vhls.forEach(v=>{const p=v.replace(/[0-9]/g,'');vpx[p]=(vpx[p]||0)+1;});
 
-  // VHL 접두어
-  const vPrefix={};
-  vhls.forEach(v=>{const p=v.replace(/[0-9]/g,'');vPrefix[p]=(vPrefix[p]||0)+1;});
-
-  // 시간 범위
-  const isSingleTime=dts.length<=1;
-  let timeDesc='';
-  if(dts.length===0) timeDesc='시간 정보 없음';
-  else if(dts.length===1) timeDesc=dts[0]+' (단일 시점 스냅샷)';
-  else timeDesc=dts[0]+' ~ '+dts[dts.length-1]+' ('+dts.length+'개 시점)';
-
-  // HID 트래픽
-  const ht={};
-  rows.forEach(r=>{ht[r.F]=(ht[r.F]||0)+1;ht[r.T]=(ht[r.T]||0)+1;});
+  // HID traffic
+  const ht={};rows.forEach(r=>{ht[r.F]=(ht[r.F]||0)+1;ht[r.T]=(ht[r.T]||0)+1;});
   const sH=Object.entries(ht).sort((a,b)=>b[1]-a[1]);
-  const topHid=sH[0];
-  const top5=sH.slice(0,5);
-  const avgTraffic=(Object.values(ht).reduce((a,b)=>a+b,0)/allHids.length);
+  const avg=(Object.values(ht).reduce((a,b)=>a+b,0)/allH.length);
 
-  // 이동 구간
-  const pc={};
-  rows.forEach(r=>{const k=r.F+'→'+r.T;pc[k]=(pc[k]||0)+1;});
-  const topPairs=Object.entries(pc).sort((a,b)=>b[1]-a[1]);
+  // Pairs
+  const pc={};rows.forEach(r=>{const k=r.F+'→'+r.T;pc[k]=(pc[k]||0)+1;});
+  const tP=Object.entries(pc).sort((a,b)=>b[1]-a[1]);
 
-  // 양방향
-  const bidi=[];const bSeen=new Set();
-  for(const[k,c]of Object.entries(pc)){
-    const[a,b]=k.split('→');const rv=b+'→'+a;
-    if(pc[rv]&&!bSeen.has(b+'↔'+a)){bidi.push({a,b,ab:c,ba:pc[rv],tot:c+pc[rv]});bSeen.add(a+'↔'+b);}
-  }
+  // Bidi
+  const bidi=[];const bS=new Set();
+  for(const[k,c]of Object.entries(pc)){const[a,b]=k.split('→');const rv=b+'→'+a;
+    if(pc[rv]&&!bS.has(b+'↔'+a)){bidi.push({a,b,ab:c,ba:pc[rv],tot:c+pc[rv]});bS.add(a+'↔'+b);}}
   bidi.sort((a,b)=>b.tot-a.tot);
 
-  // VHL별 이동 수
+  // VHL moves
   const vg={};rows.forEach(r=>{if(!vg[r.V])vg[r.V]=[];vg[r.V].push(r);});
-  const moveDist={};
-  Object.values(vg).forEach(rs=>{const n=rs.length;moveDist[n]=(moveDist[n]||0)+1;});
+  const md={};Object.values(vg).forEach(rs=>{const n=rs.length;md[n]=(md[n]||0)+1;});
+  const multi=Object.entries(vg).filter(([,rs])=>rs.length>=3).sort((a,b)=>b[1].length-a[1].length);
 
-  const multiVhls=Object.entries(vg).filter(([,rs])=>rs.length>=3).sort((a,b)=>b[1].length-a[1].length);
+  // Circular
+  const circ=[];
+  for(const[v,rs]of Object.entries(vg)){if(rs.length<2)continue;
+    const fc={};rs.forEach(r=>{fc[r.F]=(fc[r.F]||0)+1;});
+    const rp=Object.entries(fc).filter(([,c])=>c>1);if(rp.length)circ.push({v,rp,n:rs.length});}
+  circ.sort((a,b)=>b.n-a.n);
 
-  // 반복 방문
-  const circularVhls=[];
-  for(const[vid,rs]of Object.entries(vg)){
-    if(rs.length<2)continue;
-    const fromCnt={};rs.forEach(r=>{fromCnt[r.F]=(fromCnt[r.F]||0)+1;});
-    const reps=Object.entries(fromCnt).filter(([,c])=>c>1);
-    if(reps.length)circularVhls.push({vid,reps,moves:rs.length});
-  }
-  circularVhls.sort((a,b)=>b.moves-a.moves);
+  // Retries
+  const ret=rows.filter(r=>r.TC>=2);
 
-  // 재시도
-  const retries=rows.filter(r=>r.TC>=2);
-
-  // 고빈도 연결 그룹
+  // Groups
   const cTh=Math.max(3,Math.floor(rows.length/250));
-  const adj={};
-  for(const[k,c]of Object.entries(pc)){
-    if(c<cTh)continue;
-    const[a,b]=k.split('→');
-    if(!adj[a])adj[a]=new Set();if(!adj[b])adj[b]=new Set();
-    adj[a].add(b);adj[b].add(a);
-  }
+  const adj={};for(const[k,c]of Object.entries(pc)){if(c<cTh)continue;const[a,b]=k.split('→');if(!adj[a])adj[a]=new Set();if(!adj[b])adj[b]=new Set();adj[a].add(b);adj[b].add(a);}
   const vis=new Set();const grps=[];
-  for(const nd of Object.keys(adj)){
-    if(vis.has(nd))continue;
-    const cl=new Set();const stk=[nd];
+  for(const nd of Object.keys(adj)){if(vis.has(nd))continue;const cl=new Set();const stk=[nd];
     while(stk.length){const n=stk.pop();if(vis.has(n))continue;vis.add(n);cl.add(n);if(adj[n])for(const nb of adj[n])if(!vis.has(nb))stk.push(nb);}
-    if(cl.size>=3)grps.push([...cl].sort((a,b)=>parseInt(a)-parseInt(b)));
-  }
+    if(cl.size>=3)grps.push([...cl].sort((a,b)=>parseInt(a)-parseInt(b)));}
   grps.sort((a,b)=>{const ta=a.reduce((s,h)=>s+(ht[h]||0),0);const tb=b.reduce((s,h)=>s+(ht[h]||0),0);return tb-ta;});
 
-  // ===== 리포트 생성 =====
-  let html='';
+  // ========== RENDER ==========
+  const rpt=document.getElementById('rpt');
+  let h='';
 
-  // 1. 데이터 개요
-  html+=`<div class="section">
-    <div class="stitle"><div class="num" style="background:var(--blue)">1</div>이 데이터는 뭔가?</div>
-    <div class="fact">
-      <div class="label blue">데이터 정체</div>
-      <p>이 파일은 <span class="hl">${fabs.join(', ')||'(FAB 미상)'}</span> FAB의 <span class="hl">OHT HID INOUT</span> 로그입니다.</p>
-      <p>OHT가 HID 존 A에서 HID 존 B로 <span class="hl">이동을 완료했을 때</span> 찍히는 기록입니다.</p>
-      <p>총 <span class="hl">${rows.length.toLocaleString()}건</span>의 이동 완료 기록이 들어있습니다.</p>
-    </div>
-    <div class="fact">
-      <div class="label blue">시간 범위</div>
-      <p>${timeDesc}</p>
-      ${isSingleTime?'<p>⚠️ <span class="hl">모든 레코드가 같은 시각</span>입니다. 시간 흐름에 따른 변화를 볼 수 없고, "이 시점의 이동 현황"만 확인 가능합니다.</p>':'<p>여러 시점의 데이터가 있어 시간에 따른 변화를 볼 수 있습니다.</p>'}
-    </div>
-    <div class="fact">
-      <div class="label blue">등장하는 OHT</div>
-      <p>총 <span class="hl">${vhls.length}대</span>의 OHT가 기록에 등장합니다.</p>
-      <p>접두어별: ${Object.entries(vPrefix).map(([k,v])=>`<span class="code">${k}</span> ${v}대`).join(', ')}</p>
-    </div>
-    <div class="fact">
-      <div class="label blue">사용된 HID 존</div>
-      <p>총 <span class="hl">${allHids.length}개</span> HID 존이 사용되었습니다. (번호 범위: ${Math.min(...allHids.map(Number).filter(n=>!isNaN(n)))} ~ ${Math.max(...allHids.map(Number).filter(n=>!isNaN(n)))})</p>
-    </div>
+  // KPI
+  h+=`<div class="kpi-grid">
+    <div class="kpi"><div class="lb">총 레코드</div><div class="vl">${rows.length.toLocaleString()}</div></div>
+    <div class="kpi"><div class="lb">OHT 대수</div><div class="vl">${vhls.length}</div></div>
+    <div class="kpi"><div class="lb">HID 존 수</div><div class="vl">${allH.length}</div></div>
+    <div class="kpi"><div class="lb">이동 구간 종류</div><div class="vl">${Object.keys(pc).length}</div></div>
+    <div class="kpi"><div class="lb">양방향 쌍</div><div class="vl" style="color:var(--amber)">${bidi.length}</div></div>
+    <div class="kpi"><div class="lb">TRANS_CNT≥2</div><div class="vl" style="color:var(--red)">${ret.length}</div></div>
   </div>`;
 
-  // 2. 트래픽 집중
-  html+=`<div class="section">
-    <div class="stitle"><div class="num" style="background:var(--cyan)">2</div>어떤 HID 존에 이동이 몰리는가?</div>
-    <div class="fact">
-      <div class="label cyan">트래픽 집중도</div>
-      <p>HID 존별로 출발지(FROM) + 도착지(TO)로 사용된 총 건수를 합산했습니다.</p>
-      <p>평균은 존당 <span class="hl">${avgTraffic.toFixed(1)}건</span>인데, 상위 존은 이보다 훨씬 높습니다:</p>
-      <ul class="fact-list">
-        ${top5.map(([h,v],i)=>`<li><span class="rank">${i+1}.</span> HID <span class="code">${h}</span> <span class="val">${v}건</span> — 평균의 ${(v/avgTraffic).toFixed(1)}배</li>`).join('')}
-      </ul>
-    </div>
-    <div class="fact">
-      <div class="label cyan">해석</div>
-      <p>HID <span class="code">${topHid[0]}</span>이 <span class="hl">${topHid[1]}건</span>으로 가장 많습니다. 이 존을 출발하거나 도착하는 OHT가 다른 존보다 ${(topHid[1]/avgTraffic).toFixed(1)}배 많다는 뜻입니다.</p>
-      <p>트래픽이 높다는 것은 그 존이 <span class="hl">많이 사용되는 구간</span>이라는 사실만 말해줍니다. 병목인지 정상인지는 이 데이터만으로 판단할 수 없습니다.</p>
-    </div>
-  </div>`;
+  // 0. 데이터 개요
+  h+=`<div class="sec"><div class="sh"><div class="nm" style="background:var(--blue)">0</div><div class="st">이 데이터는 뭔가?</div></div>
+    <div class="ex"><div class="el b">데이터 정체</div>
+      <p><span class="hl">${fabs.join(', ')||'(FAB 미상)'}</span> FAB의 OHT HID INOUT 로그. OHT가 HID A → HID B로 <span class="hl">이동 완료</span>했을 때 찍히는 기록.</p>
+      <p>시간: <span class="hl">${dts.length===0?'시간 정보 없음':dts.length===1?dts[0]+' (단일 시점 스냅샷)':dts[0]+' ~ '+dts[dts.length-1]+' ('+dts.length+'개 시점)'}</span></p>
+      ${single?'<p>⚠️ 모든 레코드가 같은 시각 → 시간 변화 분석 불가, "이 시점의 현황"만 확인 가능.</p>':''}
+      <p>OHT: <span class="hl">${vhls.length}대</span> (${Object.entries(vpx).map(([k,v])=>`${k}: ${v}대`).join(', ')})</p>
+    </div></div>`;
 
-  // 3. 자주 쓰이는 구간
-  html+=`<div class="section">
-    <div class="stitle"><div class="num" style="background:var(--green)">3</div>어떤 이동 구간이 자주 쓰이는가?</div>
-    <div class="fact">
-      <div class="label green">상위 이동 구간</div>
-      <p>FROM → TO 조합별 건수입니다. 같은 경로를 여러 OHT가 이동했다는 뜻입니다.</p>
-      <ul class="fact-list">
-        ${topPairs.slice(0,10).map(([k,v],i)=>`<li><span class="rank">${i+1}.</span> <span class="code">${k}</span> <span class="val">${v}건</span></li>`).join('')}
-      </ul>
+  // 1. HID Traffic
+  const t25=sH.slice(0,25);
+  h+=`<div class="sec"><div class="sh"><div class="nm" style="background:var(--cyan)">1</div><div class="st">어떤 HID에 이동이 몰리는가?</div></div>
+    <div class="cc"><div class="ct">HID별 트래픽 (FROM+TO 합산, 상위 25)</div>
+      <div class="cb" style="height:280px;"><canvas id="c1"></canvas></div>
+      <div class="lgd"><span><span class="sq" style="background:var(--red)"></span>상위 5</span><span><span class="sq" style="background:var(--amber)"></span>상위 10</span><span><span class="sq" style="background:var(--blue)"></span>기타</span></div>
     </div>
-    <div class="fact">
-      <div class="label green">이동 구간 다양성</div>
-      <p>총 <span class="hl">${Object.keys(pc).length}가지</span> 서로 다른 이동 구간이 존재합니다.</p>
-      <p>1회만 나타난 구간: <span class="hl">${Object.values(pc).filter(v=>v===1).length}개</span> (${(Object.values(pc).filter(v=>v===1).length/Object.keys(pc).length*100).toFixed(0)}%)</p>
-      <p>3회 이상 나타난 구간: <span class="hl">${Object.values(pc).filter(v=>v>=3).length}개</span></p>
+    <div class="ex"><div class="el c">이 그래프는 뭘 보여주나?</div>
+      <p>각 HID를 출발지(FROM) 또는 도착지(TO)로 사용한 <span class="hl">총 건수</span>. 막대가 높을수록 해당 HID를 많은 OHT가 오가고 있다는 뜻.</p>
+      <p>1위: HID <span class="cd">${sH[0][0]}</span> = <span class="hl">${sH[0][1]}건</span> (평균 ${avg.toFixed(1)}건의 <span class="hl">${(sH[0][1]/avg).toFixed(1)}배</span>)</p>
     </div>
-  </div>`;
+    <div class="ex"><div class="el c">이 그래프로 알 수 있는 것 / 없는 것</div>
+      <p class="yes">✅ 알 수 있는 것: 어떤 HID에 OHT 이동이 집중되는지</p>
+      <p class="no">❌ 알 수 없는 것: 그게 병목인지, 정상적인 것인지 (이 데이터에 상태 정보 없음)</p>
+    </div></div>`;
 
-  // 4. 양방향
-  html+=`<div class="section">
-    <div class="stitle"><div class="num" style="background:var(--amber)">4</div>같은 구간에서 양방향 이동이 있는가?</div>`;
+  // 2. Pair frequency
+  const tp15=tP.slice(0,15);
+  h+=`<div class="sec"><div class="sh"><div class="nm" style="background:var(--green)">2</div><div class="st">어떤 이동 구간이 자주 쓰이는가?</div></div>
+    <div class="cc"><div class="ct">FROM→TO 구간 빈도 (상위 15)</div>
+      <div class="cb" style="height:260px;"><canvas id="c2"></canvas></div>
+    </div>
+    <div class="ex"><div class="el g">이 그래프는 뭘 보여주나?</div>
+      <p>FROM→TO 조합별 몇 건 발생했는지. 1위: <span class="cd">${tP[0][0]}</span> = <span class="hl">${tP[0][1]}건</span></p>
+      <p>전체 ${Object.keys(pc).length}가지 구간 중, 1회만 나타난 구간이 ${Object.values(pc).filter(v=>v===1).length}개 (${(Object.values(pc).filter(v=>v===1).length/Object.keys(pc).length*100).toFixed(0)}%), 3회 이상은 ${Object.values(pc).filter(v=>v>=3).length}개.</p>
+    </div>
+    <div class="ex"><div class="el g">알 수 있는 것 / 없는 것</div>
+      <p class="yes">✅ 어떤 경로를 여러 OHT가 공유하는지</p>
+      <p class="no">❌ 그 경로가 왜 자주 쓰이는지 (정상 루트? 우회?)</p>
+    </div></div>`;
+
+  // 3. Bidirectional
+  const b12=bidi.slice(0,12);
+  h+=`<div class="sec"><div class="sh"><div class="nm" style="background:var(--amber)">3</div><div class="st">같은 구간 양방향 이동</div></div>`;
   if(bidi.length===0){
-    html+=`<div class="fact"><div class="label amber">결과</div><p>양방향 이동 구간이 없습니다.</p></div>`;
+    h+=`<div class="ex"><div class="el a">결과</div><p>양방향 이동 구간 없음.</p></div>`;
   } else {
-    html+=`<div class="fact">
-      <div class="label amber">양방향 이동 쌍: ${bidi.length}개</div>
-      <p>A→B 이동과 B→A 이동이 <span class="hl">모두 기록된</span> HID 쌍입니다.</p>
-      <p>같은 구간에서 서로 반대 방향으로 OHT가 이동한 <span class="hl">사실</span>만 보여줍니다.</p>
-      <ul class="fact-list">
-        ${bidi.slice(0,10).map((p,i)=>`<li><span class="rank">${i+1}.</span> HID <span class="code">${p.a}</span> ↔ <span class="code">${p.b}</span> — ${p.a}→${p.b}: ${p.ab}건, ${p.b}→${p.a}: ${p.ba}건 (합계 <span class="val">${p.tot}건</span>)</li>`).join('')}
-      </ul>
+    h+=`<div class="cc"><div class="ct">양방향 이동 쌍 (A→B vs B→A)</div>
+      <div class="cb" style="height:260px;"><canvas id="c3"></canvas></div>
+      <div class="lgd"><span><span class="sq" style="background:var(--blue)"></span>A→B</span><span><span class="sq" style="background:var(--amber)"></span>B→A</span></div>
     </div>
-    <div class="fact">
-      <div class="label amber">이것이 의미하는 것과 아닌 것</div>
-      <p>✅ 의미하는 것: 이 구간에서 양쪽 방향으로 OHT가 이동했다.</p>
-      <p>❌ 의미하지 <b>않는</b> 것: 이 구간에서 충돌이나 데드락이 발생했다. (이 데이터로는 알 수 없음)</p>
+    <div class="ex"><div class="el a">이 그래프는 뭘 보여주나?</div>
+      <p>A→B 이동과 B→A 이동이 <span class="hl">둘 다 기록된</span> HID 쌍 <span class="hl">${bidi.length}개</span>.</p>
+      <p>1위: HID <span class="cd">${bidi[0].a}</span> ↔ <span class="cd">${bidi[0].b}</span> — ${bidi[0].a}→${bidi[0].b}: ${bidi[0].ab}건, ${bidi[0].b}→${bidi[0].a}: ${bidi[0].ba}건.</p>
+    </div>
+    <div class="ex"><div class="el a">알 수 있는 것 / 없는 것</div>
+      <p class="yes">✅ 이 구간에서 양쪽 방향으로 OHT가 이동한 사실</p>
+      <p class="no">❌ 서로 마주쳤는지, 충돌했는지, 데드락이 생겼는지 (상태/시각 정보 없음)</p>
     </div>`;
+    // table
+    h+=`<div class="tw"><table class="tb"><thead><tr><td>HID A</td><td>HID B</td><td>A→B</td><td>B→A</td><td>합계</td></tr></thead><tbody>`;
+    b12.forEach(p=>{h+=`<tr><td class="mn">${p.a}</td><td class="mn">${p.b}</td><td>${p.ab}</td><td>${p.ba}</td><td style="font-weight:600">${p.tot}</td></tr>`;});
+    h+=`</tbody></table></div>`;
   }
-  html+=`</div>`;
+  h+=`</div>`;
 
-  // 5. VHL 이동 패턴
-  html+=`<div class="section">
-    <div class="stitle"><div class="num" style="background:var(--purple)">5</div>개별 OHT는 몇 번 이동했는가?</div>
-    <div class="fact">
-      <div class="label purple">이동 횟수 분포</div>
-      <p>각 OHT가 이 데이터에서 몇 건의 이동 기록을 남겼는지:</p>
-      <ul class="fact-list">
-        ${Object.entries(moveDist).sort((a,b)=>parseInt(a[0])-parseInt(b[0])).map(([k,v])=>`<li><span class="code">${k}회</span> 이동한 OHT: <span class="val">${v}대</span></li>`).join('')}
-      </ul>
-    </div>`;
-  if(multiVhls.length>0){
-    html+=`<div class="fact">
-      <div class="label purple">3회 이상 이동한 OHT: ${multiVhls.length}대</div>
-      <p>같은 시간대에 여러 번 이동 기록을 남긴 OHT들의 실제 경로입니다:</p>
-      <ul class="fact-list">
-        ${multiVhls.slice(0,10).map(([vid,rs])=>{
-          const route=rs.map(r=>r.F+'→'+r.T).join(' , ');
-          return `<li><span class="code">${vid}</span> (${rs.length}회): <span style="color:var(--text2);font-size:11px">${route}</span></li>`;
-        }).join('')}
-      </ul>
-    </div>`;
-  }
-  html+=`</div>`;
+  // 4. VHL 이동 분포
+  const mdSorted=Object.entries(md).sort((a,b)=>parseInt(a[0])-parseInt(b[0]));
+  h+=`<div class="sec"><div class="sh"><div class="nm" style="background:var(--purple)">4</div><div class="st">OHT별 이동 횟수 분포</div></div>
+    <div class="cc"><div class="ct">이동 횟수별 OHT 대수</div>
+      <div class="cb" style="height:220px;"><canvas id="c4"></canvas></div>
+    </div>
+    <div class="ex"><div class="el p">이 그래프는 뭘 보여주나?</div>
+      <p>${mdSorted.map(([k,v])=>`<span class="hl">${k}회</span> 이동: ${v}대`).join(' / ')}</p>
+      <p>대부분(${md[1]||0}대)이 1회 이동이고, 3회 이상은 <span class="hl">${multi.length}대</span>.</p>
+    </div>
+    <div class="ex"><div class="el p">알 수 있는 것 / 없는 것</div>
+      <p class="yes">✅ 이 데이터 범위에서 각 OHT가 몇 번 이동 기록을 남겼는지</p>
+      <p class="no">❌ 1회만 찍힌 OHT가 한 번만 움직인 건지, 나머지가 다른 시간대에 찍힌 건지</p>
+    </div></div>`;
 
-  // 6. 반복 방문
-  if(circularVhls.length>0){
-    html+=`<div class="section">
-      <div class="stitle"><div class="num" style="background:var(--red)">6</div>같은 HID를 반복 방문한 OHT가 있는가?</div>
-      <div class="fact">
-        <div class="label red">반복 방문 OHT: ${circularVhls.length}대</div>
-        <p>출발지(FROM)로 같은 HID를 2번 이상 사용한 OHT입니다.</p>
-        <ul class="fact-list">
-          ${circularVhls.slice(0,10).map(cv=>`<li><span class="code">${cv.vid}</span> — ${cv.reps.map(([h,c])=>`HID ${h}에서 ${c}회 출발`).join(', ')}</li>`).join('')}
-        </ul>
-      </div>
-      <div class="fact">
-        <div class="label red">이것이 의미하는 것과 아닌 것</div>
-        <p>✅ 의미하는 것: 이 OHT가 같은 HID를 여러 번 출발지로 사용했다.</p>
-        <p>❌ 의미하지 <b>않는</b> 것: 이 OHT가 제자리를 맴돌거나 문제가 있었다. (이유는 알 수 없음)</p>
-      </div>
-    </div>`;
+  // 5. 다회 이동 VHL 경로
+  if(multi.length>0){
+    h+=`<div class="sec"><div class="sh"><div class="nm" style="background:var(--purple)">5</div><div class="st">다회 이동 OHT 경로 상세 (3회+)</div></div>
+      <div class="tw"><table class="tb"><thead><tr><td>VHL ID</td><td>이동 수</td><td>경로</td><td>반복 방문 HID</td></tr></thead><tbody>`;
+    multi.slice(0,15).forEach(([vid,rs])=>{
+      const route=rs.map(r=>r.F+'→'+r.T).join(' , ');
+      const fc={};rs.forEach(r=>{fc[r.F]=(fc[r.F]||0)+1;});
+      const rp=Object.entries(fc).filter(([,c])=>c>1);
+      const rpStr=rp.length?rp.map(([h,c])=>`HID ${h} (${c}회)`).join(', '):'—';
+      h+=`<tr><td class="mn" style="font-weight:600">${vid}</td><td>${rs.length}</td><td style="font-family:var(--mono);font-size:10px;color:var(--tx2);max-width:380px;word-break:break-all">${route}</td><td class="mn">${rpStr}</td></tr>`;
+    });
+    h+=`</tbody></table></div>
+      <div class="ex"><div class="el p">알 수 있는 것 / 없는 것</div>
+        <p class="yes">✅ 이 OHT들이 실제로 어떤 경로를 이동했는지, 같은 HID를 다시 방문했는지</p>
+        <p class="no">❌ 반복 방문이 정상 운영인지, 문제 상황인지 (원인 정보 없음)</p>
+      </div></div>`;
   }
 
-  // 7. TRANS_CNT
-  html+=`<div class="section">
-    <div class="stitle"><div class="num" style="background:var(--red)">7</div>TRANS_CNT가 2 이상인 기록이 있는가?</div>`;
-  if(retries.length===0){
-    html+=`<div class="fact"><div class="label green">결과</div><p>모든 레코드의 TRANS_CNT가 1입니다. 2 이상인 기록이 없습니다.</p></div>`;
+  // 6. TRANS_CNT
+  h+=`<div class="sec"><div class="sh"><div class="nm" style="background:var(--red)">6</div><div class="st">TRANS_CNT ≥ 2 기록</div></div>`;
+  if(ret.length===0){
+    h+=`<div class="ex"><div class="el g">결과</div><p>모든 레코드의 TRANS_CNT가 1. 2 이상인 기록 없음.</p></div>`;
   } else {
-    html+=`<div class="fact">
-      <div class="label red">TRANS_CNT ≥ 2: ${retries.length}건</div>
-      <p>TRANS_CNT가 1이 아닌 기록입니다. 이 필드가 정확히 무엇을 의미하는지는 ATLAS 시스템 정의에 따릅니다.</p>
-      <ul class="fact-list">
-        ${retries.map(r=>`<li><span class="code">${r.V}</span> — HID ${r.F} → ${r.T}, TRANS_CNT=<span class="val">${r.TC}</span></li>`).join('')}
-      </ul>
-    </div>`;
+    h+=`<div class="tw"><table class="tb"><thead><tr><td>VHL ID</td><td>FROM HID</td><td>TO HID</td><td>TRANS_CNT</td></tr></thead><tbody>`;
+    ret.forEach(r=>{h+=`<tr><td class="mn">${r.V}</td><td class="mn">${r.F}</td><td class="mn">${r.T}</td><td style="color:var(--amber);font-weight:600">${r.TC}</td></tr>`;});
+    h+=`</tbody></table></div>
+      <div class="ex"><div class="el r">알 수 있는 것 / 없는 것</div>
+        <p class="yes">✅ 이 VHL들의 이 구간에서 TRANS_CNT가 2로 기록됨</p>
+        <p class="no">❌ 이게 재시도인지, 왕복인지, 시스템 중복 기록인지 (ATLAS 정의에 따라 다름)</p>
+      </div>`;
   }
-  html+=`</div>`;
+  h+=`</div>`;
 
-  // 8. 연결 그룹
+  // 7. Groups
   if(grps.length>0){
-    html+=`<div class="section">
-      <div class="stitle"><div class="num" style="background:var(--cyan)">8</div>자주 함께 쓰이는 HID 그룹</div>
-      <div class="fact">
-        <div class="label cyan">고빈도 연결 그룹 (기준: 구간별 ${cTh}건 이상)</div>
-        <p>이동 빈도가 ${cTh}건 이상인 구간끼리 연결하면 아래 HID 그룹이 만들어집니다. 같은 그룹 내 HID들은 서로 OHT가 자주 오가는 영역입니다.</p>
-      </div>
-      ${grps.slice(0,5).map((g,i)=>{
-        const traffic=g.reduce((s,h)=>s+(ht[h]||0),0);
-        return `<div class="fact">
-          <div class="label cyan">그룹 ${i+1} — ${g.length}개 HID, 합산 트래픽 ${traffic}건</div>
-          <p style="font-family:var(--mono);font-size:11px;color:var(--text2);word-break:break-all;">${g.join(', ')}</p>
-        </div>`;
-      }).join('')}
-    </div>`;
+    h+=`<div class="sec"><div class="sh"><div class="nm" style="background:var(--cyan)">7</div><div class="st">자주 함께 쓰이는 HID 그룹</div></div>
+      <div class="ex"><div class="el c">연결 기준</div><p>이동 빈도 <span class="hl">${cTh}건 이상</span>인 구간끼리 연결했을 때 묶이는 HID 그룹.</p></div>`;
+    grps.slice(0,5).forEach((g,i)=>{
+      const tr=g.reduce((s,h)=>s+(ht[h]||0),0);
+      h+=`<div class="ex"><div class="el c">그룹 ${i+1} — ${g.length}개 HID, 합산 트래픽 ${tr}건</div>
+        <p style="font-family:var(--mono);font-size:11px;color:var(--tx2);word-break:break-all">${g.join(', ')}</p></div>`;
+    });
+    h+=`<div class="ex"><div class="el c">알 수 있는 것 / 없는 것</div>
+      <p class="yes">✅ 이 HID들 사이에서 OHT 이동이 빈번하다</p>
+      <p class="no">❌ 이 영역이 병목인지, 핵심 운영 구간인지 (이 데이터로 구분 불가)</p>
+    </div></div>`;
   }
 
   // 알 수 없는 것
-  html+=`<div class="section">
-    <div class="stitle"><div class="num" style="background:var(--red)">⚠</div>이 데이터로 알 수 없는 것</div>
-    <div class="cannot">
-      <div class="label">확인 불가 항목</div>
-      <p>아래 항목들은 이 HID INOUT 데이터에 해당 정보가 없어서 판단할 수 없습니다:</p>
-      <p>• <b>데드락 발생 여부</b> — OHT 대기/차단 상태 정보가 없음</p>
-      <p>• <b>OHT 상태</b> (RUN/WAIT/BLOCKED/DOWN) — 상태 필드가 없음</p>
-      <p>• <b>이동 소요 시간</b> — 이동 시작 시각이 없고 완료 시각만 있음</p>
-      <p>• <b>멈춰있는 OHT</b> — 이동 완료 기록이라 안 움직인 OHT는 기록에 안 남음</p>
-      <p>• <b>이동 원인</b> — 정상 명령인지, 회피인지, 재시도인지 구분 불가</p>
-      ${isSingleTime?'<p>• <b>시간에 따른 변화</b> — 모든 기록이 같은 시각이라 추세 분석 불가</p>':''}
-    </div>
+  h+=`<div class="sec"><div class="sh"><div class="nm" style="background:var(--red)">⚠</div><div class="st">이 데이터로 알 수 없는 것</div></div>
+    <div class="wb"><div class="el">확인 불가 항목</div>
+      <p>• <b>데드락 발생 여부</b> — 대기/차단 상태 정보 없음</p>
+      <p>• <b>OHT 상태 (RUN/WAIT/BLOCKED/DOWN)</b> — 상태 필드 없음</p>
+      <p>• <b>이동 소요 시간</b> — 출발 시각 없이 완료 시각만 있음</p>
+      <p>• <b>멈춰있는 OHT</b> — 이동 완료 기록이라 안 움직인 OHT는 안 찍힘</p>
+      <p>• <b>이동 원인</b> — 정상 명령 / 회피 / 재시도 구분 불가</p>
+      ${single?'<p>• <b>시간 추세</b> — 전부 같은 시각이라 변화 분석 불가</p>':''}
+    </div></div>`;
+
+  // Summary
+  h+=`<div class="sum"><h3>📋 종합 요약</h3>
+    <p><b>${fabs.join(', ')||'(FAB 미상)'}</b>의 <b>${dts.length<=1?(dts[0]||'시간 미상')+' 시점':dts[0]+' ~ '+dts[dts.length-1]}</b>, <b>${vhls.length}대</b> OHT가 <b>${allH.length}개</b> HID 존에서 <b>${rows.length.toLocaleString()}건</b> 이동한 기록.</p>
+    <p>트래픽 1위: HID <b>${sH[0][0]}</b> (${sH[0][1]}건, 평균의 ${(sH[0][1]/avg).toFixed(1)}배) / 가장 많이 쓰인 구간: <b>${tP[0][0]}</b> (${tP[0][1]}건)</p>
+    <p>양방향 이동 쌍: <b>${bidi.length}개</b> / TRANS_CNT≥2: <b>${ret.length}건</b> / 3회+ 이동 OHT: <b>${multi.length}대</b></p>
+    <p>데드락 판정·OHT 상태 분류·가동률 계산은 이 데이터에 해당 정보가 없어서 <b>할 수 없습니다.</b></p>
   </div>`;
 
-  // 종합
-  html+=`<div class="summary-box">
-    <div class="stitle">📋 종합 요약</div>
-    <p>이 파일은 <b>${fabs.join(', ')||'(FAB 미상)'}</b>의 <b>${timeDesc}</b> 기준, <b>${vhls.length}대</b> OHT가 <b>${allHids.length}개</b> HID 존 사이에서 <b>${rows.length.toLocaleString()}건</b> 이동한 기록입니다.</p>
-    <p>트래픽이 가장 집중된 HID는 <b>${topHid[0]}</b> (${topHid[1]}건)이고, 양방향 이동이 확인된 구간은 <b>${bidi.length}쌍</b>, TRANS_CNT≥2인 기록은 <b>${retries.length}건</b>입니다.</p>
-    ${multiVhls.length>0?`<p>3회 이상 이동한 OHT는 <b>${multiVhls.length}대</b>이고, 같은 HID를 반복 방문한 OHT는 <b>${circularVhls.length}대</b>입니다.</p>`:''}
-    <p>데드락 판정, OHT 상태 분류, 가동률 계산은 이 데이터에 해당 정보가 없어서 할 수 없습니다.</p>
-  </div>`;
+  rpt.innerHTML=h;
 
-  document.getElementById('report').innerHTML=html;
+  // === Charts ===
+  MC('c1',{type:'bar',data:{labels:t25.map(([h])=>h),datasets:[{data:t25.map(([,v])=>v),backgroundColor:t25.map(([,v],i)=>i<5?'#ef4456':i<10?'#eda535':'#4a90ff'),borderRadius:3,barPercentage:.75}]},options:{...CO}});
+  MC('c2',{type:'bar',data:{labels:tp15.map(([k])=>k),datasets:[{data:tp15.map(([,v])=>v),backgroundColor:'#3cc68a',borderRadius:3,barPercentage:.7}]},options:{...CO}});
+  if(bidi.length>0)MC('c3',{type:'bar',data:{labels:b12.map(p=>p.a+'↔'+p.b),datasets:[{label:'A→B',data:b12.map(p=>p.ab),backgroundColor:'#4a90ff',borderRadius:3,barPercentage:.75},{label:'B→A',data:b12.map(p=>p.ba),backgroundColor:'#eda535',borderRadius:3,barPercentage:.75}]},options:{...CO,plugins:{legend:{display:false}}}});
+  MC('c4',{type:'bar',data:{labels:mdSorted.map(([k])=>k+'회'),datasets:[{data:mdSorted.map(([,v])=>v),backgroundColor:'#a06cf0',borderRadius:3,barPercentage:.6}]},options:{...CO}});
+
   window.scrollTo({top:0,behavior:'smooth'});
 }
 </script>
