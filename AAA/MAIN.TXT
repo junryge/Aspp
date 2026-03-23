@@ -1658,12 +1658,16 @@ def index():
 
 
 @app.route("/uio")
+@app.route("/uio/")
 def uio_page():
-    """UIO 2D Pixel Office 페이지 서빙"""
+    """UIO 2D Pixel Office 페이지 서빙 (base href 주입으로 상대경로 해결)"""
     uio_path = os.path.join(BASE_DIR, "UIO", "index.html")
     if os.path.exists(uio_path):
         with open(uio_path, "r", encoding="utf-8") as f:
-            return f.read()
+            html = f.read()
+        # <head> 바로 뒤에 <base href="/uio/"> 삽입 → 상대경로(img/, sound/)가 /uio/img/ 등으로 해석됨
+        html = html.replace("<head>", '<head>\n<base href="/uio/">', 1)
+        return html
     return "UIO index.html not found", 404
 
 
@@ -7445,7 +7449,7 @@ function selectMode(mode){
   if(ms){ ms.style.opacity='0'; setTimeout(function(){ ms.style.display='none'; }, 500); }
   if(mode === 'uio'){
     document.getElementById('uioContainer').style.display='block';
-    document.getElementById('uioFrame').src='/uio';
+    document.getElementById('uioFrame').src='/uio/';
     // 기본 UI 숨김
     document.getElementById('sidebar').style.display='none';
     var mainEl = document.querySelector('.main');
