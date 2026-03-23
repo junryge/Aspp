@@ -1,147 +1,666 @@
-"""
-클린 처리 후 아직 남아있는 민감 키워드를 전수 검색
-사용법: python check_remain.py <대상폴더>
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>OHT Deadlock Monitoring</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Noto+Sans+KR:wght@300;400;500;700;900&display=swap');
+:root {
+  --bg: #1a1e2e;
+  --bg2: #222738;
+  --bg3: #2a2f42;
+  --bg4: #323750;
+  --text: #e8e8ec;
+  --text2: #9a9bb0;
+  --text3: #6b6c82;
+  --green: #4caf50;
+  --green2: #66bb6a;
+  --yellow: #ffc107;
+  --orange: #ff9800;
+  --red: #f44336;
+  --red2: #e53935;
+  --purple: #9c27b0;
+  --purple2: #7b1fa2;
+  --blue: #2196f3;
+  --pink: #e91e63;
+  --cyan: #00bcd4;
+  --gray: #78909c;
+  --mono: 'JetBrains Mono', monospace;
+  --sans: 'Noto Sans KR', sans-serif;
+}
+*{margin:0;padding:0;box-sizing:border-box;}
+body{background:var(--bg);color:var(--text);font-family:var(--sans);overflow-x:hidden;}
 
-DRM/ENDPOINT에서 걸릴 수 있는 키워드를 전부 찾아줌
-"""
+.header{
+  display:flex;align-items:center;justify-content:space-between;
+  padding:14px 24px;background:var(--bg2);border-bottom:1px solid rgba(255,255,255,0.06);
+}
+.header h1{font-size:17px;font-weight:700;letter-spacing:-0.3px;}
+.header h1 span{color:var(--text2);font-weight:400;font-size:13px;margin-left:8px;}
+.header .zone-tag{
+  font-size:11px;font-family:var(--mono);background:var(--bg4);
+  padding:4px 12px;border-radius:6px;color:var(--cyan);
+}
+.header .status-dot{width:8px;height:8px;border-radius:50%;background:var(--green);display:inline-block;margin-right:6px;}
 
-import os
-import sys
-import re
+/* KPI strip */
+.kpi-strip{
+  display:flex;gap:0;border-bottom:1px solid rgba(255,255,255,0.06);
+  background:var(--bg2);
+}
+.kpi-item{
+  flex:1;padding:12px 20px;border-right:1px solid rgba(255,255,255,0.06);
+  display:flex;align-items:center;gap:10px;
+}
+.kpi-item:last-child{border-right:none;}
+.kpi-icon{
+  width:36px;height:36px;border-radius:10px;display:flex;align-items:center;justify-content:center;
+  font-size:16px;flex-shrink:0;
+}
+.kpi-val{font-size:22px;font-weight:700;letter-spacing:-1px;line-height:1.1;}
+.kpi-label{font-size:10px;color:var(--text3);margin-top:1px;}
 
+/* Upload */
+.upload-wrap{
+  display:flex;align-items:center;justify-content:center;
+  min-height:calc(100vh - 110px);padding:40px;
+}
+.upload-box{
+  width:100%;max-width:520px;border:2px dashed rgba(33,150,243,0.3);
+  border-radius:16px;padding:50px 36px;text-align:center;
+  cursor:pointer;transition:all .25s;background:var(--bg2);
+}
+.upload-box:hover,.upload-box.dragover{border-color:var(--blue);background:rgba(33,150,243,0.06);transform:translateY(-2px);}
+.upload-box h2{font-size:17px;font-weight:600;margin-bottom:8px;}
+.upload-box p{font-size:12px;color:var(--text2);line-height:1.7;}
+.upload-box .fmt{margin-top:14px;display:flex;gap:6px;justify-content:center;}
+.upload-box .fmt span{font-size:10px;font-family:var(--mono);padding:3px 10px;background:var(--bg4);border-radius:5px;color:var(--text2);}
+input[type="file"]{display:none;}
 
-# DRM에서 잡을 수 있는 키워드 전부
-KEYWORDS = [
-    # 회사명
-    r'(?i)skhynix',
-    r'(?i)sk[\s_-]?hynix',
-    r'(?i)hynix',
-    r'(?i)하이닉스',
-    r'(?i)에스케이',
-    # 내부 시스템/제품명
-    r'(?i)smartatlas',
-    r'(?i)smart[\s_-]?atlas',
-    r'(?i)atlas[\s_-]?mcs',
-    r'(?i)atlasmcs',
-    # 내부 도메인/URL
-    r'(?i)skhynix\.com',
-    r'(?i)hynix\.com',
-    r'(?i)\.skhynix\.',
-    # 패키지 경로
-    r'com\.skhynix',
-    r'com/skhynix',
-    # FAB/사업장 고유명
-    r'(?i)icheon\s*fab',
-    r'(?i)cheongju\s*fab',
-    r'(?i)wuxi\s*fab',
-    # 내부 서버/호스트명 패턴 (필요시 추가)
-    r'(?i)dev\.hcp\.',
-    r'(?i)\.hcp\.llm\.',
-    # IP (사설 대역 포함)
-    r'\b10\.\d{1,3}\.\d{1,3}\.\d{1,3}\b',
-    r'\b172\.(?:1[6-9]|2\d|3[01])\.\d{1,3}\.\d{1,3}\b',
-    r'\b192\.168\.\d{1,3}\.\d{1,3}\b',
-    # JDBC / DB접속
-    r'jdbc:[a-zA-Z]+://[^\s"\']+',
-    # 비밀번호 하드코딩
-    r'(?i)(?:password|passwd|pwd)\s*[=:]\s*["\'][^"\']+["\']',
-    # API키/토큰
-    r'(?i)(?:api[_-]?key|secret[_-]?key|access[_-]?key|token)\s*[=:]\s*["\'][^"\']+["\']',
-    # 이메일
-    r'[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}',
-    # 한국 전화번호
-    r'\b0\d{1,2}[-.\s]?\d{3,4}[-.\s]?\d{4}\b',
-    # 사번 패턴 (숫자 6~8자리 등)
-    r'(?i)(?:emp[_-]?(?:no|id|num)|사번)\s*[=:]\s*["\']?\w+',
-    # 저작권
-    r'(?i)copyright.*(?:hynix|skhynix|하이닉스)',
-    # @author 태그
-    r'(?i)@author\s+\S+',
-]
+/* Dashboard */
+.dash{display:none;padding:0;}
+.dash.active{display:block;}
+.file-bar{
+  display:flex;align-items:center;gap:10px;padding:8px 24px;
+  background:var(--bg3);font-size:12px;
+}
+.file-bar .fn{font-family:var(--mono);color:var(--cyan);}
+.file-bar .fm{color:var(--text3);}
+.file-bar .btn-re{
+  margin-left:auto;padding:5px 12px;font-size:11px;background:var(--bg4);
+  border:1px solid rgba(255,255,255,0.08);color:var(--text2);border-radius:6px;
+  cursor:pointer;font-family:var(--sans);transition:all .15s;
+}
+.file-bar .btn-re:hover{background:rgba(244,67,54,0.15);color:var(--red);border-color:var(--red);}
 
+/* Legend bar */
+.legend-bar{
+  display:flex;flex-wrap:wrap;gap:12px;padding:10px 24px;
+  background:var(--bg2);border-bottom:1px solid rgba(255,255,255,0.06);
+  font-size:11px;color:var(--text2);
+}
+.legend-bar span{display:flex;align-items:center;gap:4px;}
+.legend-bar .sq{width:14px;height:10px;border-radius:2px;flex-shrink:0;}
 
-def check_file(filepath):
-    findings = []
-    try:
-        with open(filepath, 'r', encoding='utf-8', errors='ignore') as f:
-            lines = f.readlines()
-    except Exception as e:
-        return [(-1, "READ_ERROR", str(e))]
+/* Timeline */
+.timeline-section{padding:16px 24px;}
+.timeline-section h3{font-size:13px;font-weight:600;margin-bottom:10px;color:var(--text2);}
+.timeline-scroll{overflow-x:auto;overflow-y:auto;max-height:420px;}
+.tl-table{width:100%;border-collapse:collapse;min-width:800px;}
+.tl-table td{padding:0;vertical-align:middle;}
+.tl-row{display:flex;align-items:center;border-bottom:1px solid rgba(255,255,255,0.03);}
+.tl-label{
+  width:80px;min-width:80px;padding:4px 8px;font-size:11px;
+  font-family:var(--mono);color:var(--text2);text-align:right;flex-shrink:0;
+}
+.tl-bar-area{flex:1;padding:3px 0;display:flex;height:22px;position:relative;}
+.tl-seg{height:100%;min-width:2px;transition:opacity .15s;}
+.tl-seg:hover{opacity:0.75;cursor:pointer;}
 
-    for i, line in enumerate(lines, 1):
-        for pattern in KEYWORDS:
-            matches = re.findall(pattern, line)
-            for m in matches:
-                # 오탐 필터
-                if '@' in m and ('example.com' in m or '@param' in m or '@Override' in m):
-                    continue
-                preview = line.strip()[:100]
-                findings.append((i, m if len(m) < 60 else m[:60], preview))
+/* Bottom panels */
+.bottom-row{
+  display:grid;grid-template-columns:1fr 1fr;gap:0;
+  border-top:1px solid rgba(255,255,255,0.06);
+}
+.panel{
+  padding:16px 24px;border-right:1px solid rgba(255,255,255,0.06);
+}
+.panel:last-child{border-right:none;}
+.panel h3{
+  font-size:13px;font-weight:600;margin-bottom:4px;
+  display:flex;align-items:center;justify-content:space-between;
+}
+.panel h3 .avg{font-size:11px;font-weight:400;color:var(--text3);}
+.chart-box{position:relative;width:100%;}
 
-    return findings
+/* Cluster / Detail sections */
+.detail-sections{padding:16px 24px;}
+.detail-sections h3{font-size:13px;font-weight:600;margin-bottom:10px;color:var(--text2);}
+.cluster-cards{display:flex;flex-direction:column;gap:8px;margin-bottom:24px;}
+.cl-card{
+  background:var(--bg3);border:1px solid rgba(255,255,255,0.06);
+  border-radius:10px;padding:12px 16px;
+}
+.cl-card .cl-head{display:flex;align-items:center;gap:8px;margin-bottom:6px;}
+.cl-badge{
+  font-size:9px;font-weight:600;padding:2px 8px;border-radius:4px;
+  font-family:var(--mono);text-transform:uppercase;letter-spacing:.5px;
+}
+.cl-badge.crit{background:rgba(244,67,54,0.15);color:var(--red);}
+.cl-badge.high{background:rgba(255,152,0,0.15);color:var(--orange);}
+.cl-badge.med{background:rgba(33,150,243,0.15);color:var(--blue);}
+.cl-title{font-size:12px;font-weight:600;}
+.cl-body{font-size:11px;color:var(--text3);line-height:1.6;}
+.cl-hids{font-family:var(--mono);font-size:10px;color:var(--text2);margin-top:3px;}
 
+.dt-table{width:100%;border-collapse:collapse;font-size:11px;margin-bottom:20px;}
+.dt-table thead td{
+  padding:8px 12px;font-weight:600;color:var(--text3);font-size:10px;
+  border-bottom:1px solid rgba(255,255,255,0.08);text-transform:uppercase;letter-spacing:.5px;
+}
+.dt-table tbody tr{border-bottom:1px solid rgba(255,255,255,0.04);}
+.dt-table tbody tr:hover{background:var(--bg3);}
+.dt-table tbody td{padding:7px 12px;}
+.dt-table .mono{font-family:var(--mono);font-size:10px;}
+.dt-table .route{font-family:var(--mono);font-size:10px;color:var(--text2);max-width:380px;word-break:break-all;}
+.tag{
+  display:inline-block;font-size:9px;font-weight:500;padding:2px 7px;
+  border-radius:4px;font-family:var(--mono);
+}
+.tag.r{background:rgba(244,67,54,0.15);color:var(--red);}
+.tag.w{background:rgba(255,152,0,0.15);color:var(--orange);}
+.tag.b{background:rgba(33,150,243,0.15);color:var(--blue);}
 
-def check_folder(target_dir):
-    if not os.path.isdir(target_dir):
-        print(f"[ERROR] 폴더 없음: {target_dir}")
-        sys.exit(1)
+.tooltip-box{
+  position:fixed;background:var(--bg4);border:1px solid rgba(255,255,255,0.12);
+  border-radius:8px;padding:8px 12px;font-size:11px;color:var(--text);
+  pointer-events:none;z-index:999;display:none;max-width:260px;
+  box-shadow:0 4px 16px rgba(0,0,0,0.4);
+}
 
-    total = 0
-    problem_files = 0
-    report = []
+@media(max-width:900px){
+  .bottom-row{grid-template-columns:1fr;}
+  .kpi-strip{flex-wrap:wrap;}
+  .kpi-item{min-width:140px;}
+}
+</style>
+</head>
+<body>
 
-    for root, dirs, files in os.walk(target_dir):
-        for fname in files:
-            if not fname.endswith('.java'):
-                continue
-            fpath = os.path.join(root, fname)
-            rel = os.path.relpath(fpath, target_dir)
-            findings = check_file(fpath)
+<div class="header">
+  <h1>
+    <span class="status-dot"></span>OHT Deadlock Monitoring
+    <span>CURRENT ZONE</span>
+  </h1>
+  <div style="display:flex;align-items:center;gap:12px;">
+    <div class="zone-tag" id="fabTag">M14A</div>
+    <div style="font-size:11px;color:var(--text3);font-family:var(--mono);" id="clockEl"></div>
+  </div>
+</div>
 
-            if findings:
-                problem_files += 1
-                total += len(findings)
-                report.append(f"\n{'='*60}")
-                report.append(f"  [WARN] {rel} ({len(findings)}건)")
-                report.append(f"{'='*60}")
-                for line_no, matched, preview in findings:
-                    report.append(f"  L{line_no:>5} | {matched}")
-                    report.append(f"         -> {preview}")
+<div class="kpi-strip" id="kpiStrip" style="display:none;"></div>
 
-    # 결과
-    print(f"\n{'='*60}")
-    print(f"  잔여 민감정보 검색 결과")
-    print(f"{'='*60}")
-    print(f"  대상: {target_dir}")
-    print(f"  문제 파일: {problem_files}개")
-    print(f"  발견 항목: {total}건")
+<!-- Upload -->
+<div class="upload-wrap" id="uploadWrap">
+  <div class="upload-box" id="uploadBox">
+    <div style="font-size:32px;margin-bottom:12px;">📊</div>
+    <h2>HID INOUT 데이터 업로드</h2>
+    <p>ATLAS HID_INOUT 로그 데이터를 드래그 또는 클릭해서 업로드하세요.<br>
+    OHT별 타임라인 · 가동률 · Loss 원인을 자동 분석합니다.</p>
+    <div class="fmt"><span>.csv</span><span>.txt</span><span>.tsv</span></div>
+  </div>
+  <input type="file" id="fileInput" accept=".csv,.txt,.tsv">
+</div>
 
-    if total == 0:
-        print(f"\n  [PASS] 민감 키워드 없음. DRM 통과 가능성 높음.")
-    else:
-        print(f"\n  [FAIL] 아래 항목 확인 필요!")
-        for line in report:
-            print(line)
+<!-- Dashboard -->
+<div class="dash" id="dash">
+  <div class="file-bar">
+    <span class="fn" id="fnEl"></span>
+    <span class="fm" id="fmEl"></span>
+    <button class="btn-re" onclick="resetAll()">다른 파일 분석</button>
+  </div>
 
-    # 리포트 저장
-    report_path = os.path.join(target_dir, "_잔여검사_결과.txt")
-    with open(report_path, 'w', encoding='utf-8') as f:
-        f.write(f"잔여 민감정보 검색 결과\n")
-        f.write(f"대상: {target_dir}\n")
-        f.write(f"문제 파일: {problem_files}개 / 발견: {total}건\n")
-        if total == 0:
-            f.write("\n[PASS] 민감 키워드 없음.\n")
-        else:
-            for line in report:
-                f.write(line + '\n')
+  <div class="legend-bar" id="legendBar">
+    <span><span class="sq" style="background:var(--green)"></span>RUN</span>
+    <span><span class="sq" style="background:var(--green2)"></span>IDLE</span>
+    <span><span class="sq" style="background:var(--yellow)"></span>WAIT</span>
+    <span><span class="sq" style="background:var(--orange)"></span>PLANNED STOP</span>
+    <span><span class="sq" style="background:var(--red)"></span>BLOCKED</span>
+    <span><span class="sq" style="background:var(--purple)"></span>DEADLOCK RISK</span>
+    <span><span class="sq" style="background:var(--purple2)"></span>DEADLOCK RISK+</span>
+    <span><span class="sq" style="background:var(--gray)"></span>DOWN</span>
+    <span><span class="sq" style="background:var(--pink)"></span>MANUAL RECOVERY</span>
+  </div>
 
-    print(f"\n  리포트: {report_path}")
+  <div class="timeline-section">
+    <h3>OHT Operation Timeline</h3>
+    <div class="timeline-scroll" id="tlScroll"></div>
+  </div>
 
+  <div class="bottom-row">
+    <div class="panel">
+      <h3>Effic by OHT <span class="avg" id="avgLabel"></span></h3>
+      <div class="chart-box" style="height:260px;"><canvas id="effChart"></canvas></div>
+    </div>
+    <div class="panel">
+      <h3>Effi Loss</h3>
+      <div class="chart-box" style="height:260px;"><canvas id="lossChart"></canvas></div>
+      <div class="legend-bar" style="padding:8px 0 0 0;border:none;background:none;font-size:10px;">
+        <span><span class="sq" style="background:var(--gray)"></span>Planned Stop</span>
+        <span><span class="sq" style="background:var(--red)"></span>Unplanned Stop</span>
+        <span><span class="sq" style="background:var(--yellow)"></span>Wait for Route</span>
+        <span><span class="sq" style="background:var(--orange)"></span>Blocked</span>
+        <span><span class="sq" style="background:var(--purple)"></span>Deadlock Risk</span>
+        <span><span class="sq" style="background:var(--purple2)"></span>Deadlock Risk+</span>
+        <span><span class="sq" style="background:var(--pink)"></span>Manual Recovery</span>
+      </div>
+    </div>
+  </div>
 
-if __name__ == '__main__':
-    if len(sys.argv) < 2:
-        print("사용법: python check_remain.py <대상폴더>")
-        print("예시:   python check_remain.py ./batch_clean")
-        sys.exit(1)
+  <div class="detail-sections">
+    <h3 style="margin-top:8px;">🔍 Deadlock 의심 상세 분석</h3>
 
-    check_folder(sys.argv[1])
+    <h3 style="margin:16px 0 8px;font-size:12px;color:var(--text3);">고밀도 트래픽 클러스터</h3>
+    <div class="cluster-cards" id="clCards"></div>
+
+    <h3 style="margin:16px 0 8px;font-size:12px;color:var(--text3);">복합 이동 OHT (3회 이상)</h3>
+    <div style="overflow-x:auto;margin-bottom:16px;">
+      <table class="dt-table" id="cplxTbl"><thead><tr>
+        <td>VHL ID</td><td>이동</td><td>경로</td><td>비고</td>
+      </tr></thead><tbody></tbody></table>
+    </div>
+
+    <h3 style="margin:16px 0 8px;font-size:12px;color:var(--text3);">양방향 충돌 구간 (Top 15)</h3>
+    <div style="overflow-x:auto;margin-bottom:16px;">
+      <table class="dt-table" id="bidiTbl"><thead><tr>
+        <td>HID A</td><td>HID B</td><td>A→B</td><td>B→A</td><td>합계</td>
+      </tr></thead><tbody></tbody></table>
+    </div>
+
+    <h3 style="margin:16px 0 8px;font-size:12px;color:var(--text3);">TRANS_CNT 재시도 (≥2)</h3>
+    <div style="overflow-x:auto;">
+      <table class="dt-table" id="retryTbl"><thead><tr>
+        <td>VHL ID</td><td>FROM HID</td><td>TO HID</td><td>TRANS_CNT</td>
+      </tr></thead><tbody></tbody></table>
+    </div>
+  </div>
+</div>
+
+<div class="tooltip-box" id="tooltip"></div>
+
+<script>
+// Clock
+function updateClock(){document.getElementById('clockEl').textContent=new Date().toLocaleString('ko-KR');}
+updateClock();setInterval(updateClock,1000);
+
+// Upload
+const uploadBox=document.getElementById('uploadBox'),fileInput=document.getElementById('fileInput');
+uploadBox.onclick=()=>fileInput.click();
+uploadBox.ondragover=e=>{e.preventDefault();uploadBox.classList.add('dragover');};
+uploadBox.ondragleave=()=>uploadBox.classList.remove('dragover');
+uploadBox.ondrop=e=>{e.preventDefault();uploadBox.classList.remove('dragover');if(e.dataTransfer.files.length)handleFile(e.dataTransfer.files[0]);};
+fileInput.onchange=e=>{if(e.target.files.length)handleFile(e.target.files[0]);};
+
+let effChartInst=null,lossChartInst=null;
+function resetAll(){
+  document.getElementById('uploadWrap').style.display='flex';
+  document.getElementById('dash').classList.remove('active');
+  document.getElementById('kpiStrip').style.display='none';
+  fileInput.value='';
+  if(effChartInst){effChartInst.destroy();effChartInst=null;}
+  if(lossChartInst){lossChartInst.destroy();lossChartInst=null;}
+}
+
+function handleFile(file){
+  const r=new FileReader();
+  r.onload=e=>{try{analyze(e.target.result,file.name,file.size);}catch(err){alert('파싱 오류: '+err.message);}};
+  r.readAsText(file,'UTF-8');
+}
+
+function parseCSV(text){
+  const lines=text.trim().split('\n');
+  if(lines.length<2)throw new Error('최소 2행 필요');
+  let sep=',';
+  if(lines[0].split('\t').length>lines[0].split(',').length)sep='\t';
+  const hdr=lines[0].split(sep).map(h=>h.replace(/^"|"$/g,'').trim());
+  const alias={
+    VHL_ID:['VHL_ID','VHLID','VHL','VEHICLE_ID'],
+    FROM_HIDID:['FROM_HIDID','FROM_HID','FROMHID'],
+    TO_HIDID:['TO_HIDID','TO_HID','TOHID'],
+    TRANS_CNT:['TRANS_CNT','TRANSCNT','CNT'],
+    EVENT_DT:['EVENT_DT','EVENT_DATE','_time','TIME','TIMESTAMP'],
+    FAB_ID:['FAB_ID','FABID','FAB']
+  };
+  const cm={};
+  for(const[k,ns]of Object.entries(alias)){
+    for(const n of ns){const i=hdr.findIndex(h=>h.toUpperCase()===n.toUpperCase());if(i>=0){cm[k]=i;break;}}
+  }
+  if(!('VHL_ID'in cm)||!('FROM_HIDID'in cm)||!('TO_HIDID'in cm))
+    throw new Error('필수 컬럼 누락: VHL_ID, FROM_HIDID, TO_HIDID\n헤더: '+hdr.join(', '));
+  const rows=[];
+  for(let i=1;i<lines.length;i++){
+    const c=lines[i].split(sep).map(x=>x.replace(/^"|"$/g,'').trim());
+    if(c.length<3)continue;
+    rows.push({
+      VHL_ID:c[cm.VHL_ID]||'',
+      FROM:c[cm.FROM_HIDID]||'',
+      TO:c[cm.TO_HIDID]||'',
+      TCNT:cm.TRANS_CNT!==undefined?parseInt(c[cm.TRANS_CNT])||1:1,
+      DT:cm.EVENT_DT!==undefined?c[cm.EVENT_DT]:'',
+      FAB:cm.FAB_ID!==undefined?c[cm.FAB_ID]:''
+    });
+  }
+  return rows;
+}
+
+// State classification based on HID transitions
+const STATE_COLORS={
+  RUN:'#4caf50', IDLE:'#66bb6a', WAIT:'#ffc107', PLANNED_STOP:'#ff9800',
+  BLOCKED:'#f44336', DEADLOCK_RISK:'#9c27b0', DEADLOCK_RISK2:'#7b1fa2',
+  DOWN:'#78909c', MANUAL_RECOVERY:'#e91e63'
+};
+
+function classifyState(from,to,tcnt,bidiSet,hotHids,clusterHids){
+  const pair=from+'↔'+to;
+  const rpair=to+'↔'+from;
+  // Deadlock risk: bidirectional pair + high traffic zone
+  if(bidiSet.has(pair)||bidiSet.has(rpair)){
+    if(clusterHids.has(from)||clusterHids.has(to))return 'DEADLOCK_RISK2';
+    return 'DEADLOCK_RISK';
+  }
+  // Blocked: retry
+  if(tcnt>=2)return 'BLOCKED';
+  // Hot zone wait
+  if(hotHids.has(from)&&hotHids.has(to))return 'WAIT';
+  if(hotHids.has(from)||hotHids.has(to))return 'PLANNED_STOP';
+  // Normal movement
+  const dist=Math.abs(parseInt(from)-parseInt(to));
+  if(dist<=2)return 'RUN';
+  if(dist<=5)return 'IDLE';
+  return 'RUN';
+}
+
+function analyze(text,fname,fsize){
+  const rows=parseCSV(text);
+  
+  // Detect FAB
+  const fabs=new Set(rows.map(r=>r.FAB).filter(Boolean));
+  if(fabs.size)document.getElementById('fabTag').textContent=[...fabs].join(', ');
+
+  document.getElementById('fnEl').textContent=fname;
+  document.getElementById('fmEl').textContent=rows.length.toLocaleString()+' rows · '+(fsize/1024).toFixed(1)+' KB';
+  document.getElementById('uploadWrap').style.display='none';
+  document.getElementById('dash').classList.add('active');
+  document.getElementById('kpiStrip').style.display='flex';
+
+  // ============ CORE ANALYSIS ============
+  const vhlSet=new Set(rows.map(r=>r.VHL_ID));
+  const allHids=new Set([...rows.map(r=>r.FROM),...rows.map(r=>r.TO)]);
+
+  // HID traffic
+  const hidTraffic={};
+  rows.forEach(r=>{hidTraffic[r.FROM]=(hidTraffic[r.FROM]||0)+1;hidTraffic[r.TO]=(hidTraffic[r.TO]||0)+1;});
+  const sortedHids=Object.entries(hidTraffic).sort((a,b)=>b[1]-a[1]);
+  const hotThreshold=sortedHids.length>10?sortedHids[9][1]:0;
+  const hotHids=new Set(sortedHids.filter(([,v])=>v>=hotThreshold).map(([k])=>k));
+
+  // Bidirectional
+  const pairCnt={};
+  rows.forEach(r=>{const k=r.FROM+'→'+r.TO;pairCnt[k]=(pairCnt[k]||0)+1;});
+  const bidiSet=new Set();
+  const bidiPairs=[];
+  const bidiSeen=new Set();
+  for(const[k,c]of Object.entries(pairCnt)){
+    const[a,b]=k.split('→');
+    const rv=b+'→'+a;
+    if(pairCnt[rv]&&!bidiSeen.has(b+'↔'+a)){
+      bidiPairs.push({a,b,ab:c,ba:pairCnt[rv],total:c+pairCnt[rv]});
+      bidiSeen.add(a+'↔'+b);
+      bidiSet.add(a+'↔'+b);
+    }
+  }
+  bidiPairs.sort((a,b)=>b.total-a.total);
+
+  // Clusters
+  const cThresh=Math.max(3,Math.floor(rows.length/250));
+  const adj={};
+  for(const[k,c]of Object.entries(pairCnt)){
+    if(c<cThresh)continue;
+    const[a,b]=k.split('→');
+    if(!adj[a])adj[a]=new Set();if(!adj[b])adj[b]=new Set();
+    adj[a].add(b);adj[b].add(a);
+  }
+  const visited=new Set();const clusters=[];
+  for(const node of Object.keys(adj)){
+    if(visited.has(node))continue;
+    const cl=new Set();const stk=[node];
+    while(stk.length){const n=stk.pop();if(visited.has(n))continue;visited.add(n);cl.add(n);if(adj[n])for(const nb of adj[n])if(!visited.has(nb))stk.push(nb);}
+    if(cl.size>=3)clusters.push([...cl].sort((a,b)=>parseInt(a)-parseInt(b)));
+  }
+  clusters.sort((a,b)=>{
+    const ta=a.reduce((s,h)=>s+(hidTraffic[h]||0),0);
+    const tb=b.reduce((s,h)=>s+(hidTraffic[h]||0),0);
+    return tb-ta;
+  });
+  const clusterHids=new Set(clusters.length?clusters[0]:[]);
+
+  // VHL grouped
+  const vhlRows={};
+  rows.forEach(r=>{if(!vhlRows[r.VHL_ID])vhlRows[r.VHL_ID]=[];vhlRows[r.VHL_ID].push(r);});
+
+  // Classify each row's state
+  rows.forEach(r=>{
+    r.STATE=classifyState(r.FROM,r.TO,r.TCNT,bidiSet,hotHids,clusterHids);
+  });
+
+  // Per-VHL state summary
+  const vhlStates={};
+  for(const[vid,rs]of Object.entries(vhlRows)){
+    const counts={RUN:0,IDLE:0,WAIT:0,PLANNED_STOP:0,BLOCKED:0,DEADLOCK_RISK:0,DEADLOCK_RISK2:0,DOWN:0,MANUAL_RECOVERY:0};
+    rs.forEach(r=>counts[r.STATE]=(counts[r.STATE]||0)+1);
+    const total=rs.length;
+    const runRate=((counts.RUN+counts.IDLE)/total*100);
+    vhlStates[vid]={counts,total,runRate,rows:rs};
+  }
+
+  // Stats
+  const totalVhl=vhlSet.size;
+  const dlSuspect=rows.filter(r=>r.STATE==='DEADLOCK_RISK'||r.STATE==='DEADLOCK_RISK2').length;
+  const avgEff=Object.values(vhlStates).reduce((s,v)=>s+v.runRate,0)/totalVhl;
+  const waitTimes=rows.filter(r=>r.STATE==='WAIT'||r.STATE==='PLANNED_STOP');
+  const blockTimes=rows.filter(r=>r.STATE==='BLOCKED'||r.STATE==='DEADLOCK_RISK'||r.STATE==='DEADLOCK_RISK2');
+  const retries=rows.filter(r=>r.TCNT>=2);
+
+  // KPI
+  const kpiStrip=document.getElementById('kpiStrip');
+  kpiStrip.innerHTML=`
+    <div class="kpi-item">
+      <div class="kpi-icon" style="background:rgba(76,175,80,0.15);">📊</div>
+      <div><div class="kpi-val">${Math.round(avgEff)}%</div><div class="kpi-label">Average OHT Efficiency</div></div>
+    </div>
+    <div class="kpi-item">
+      <div class="kpi-icon" style="background:rgba(156,39,176,0.15);">🔒</div>
+      <div><div class="kpi-val" style="color:var(--purple)">${dlSuspect}</div><div class="kpi-label">Deadlock Suspected</div></div>
+    </div>
+    <div class="kpi-item">
+      <div class="kpi-icon" style="background:rgba(255,193,7,0.15);">⏱</div>
+      <div><div class="kpi-val">${waitTimes.length}</div><div class="kpi-label">Wait Events</div></div>
+    </div>
+    <div class="kpi-item">
+      <div class="kpi-icon" style="background:rgba(244,67,54,0.15);">🚫</div>
+      <div><div class="kpi-val" style="color:var(--red)">${blockTimes.length}</div><div class="kpi-label">Blocked Events</div></div>
+    </div>
+    <div class="kpi-item">
+      <div class="kpi-icon" style="background:rgba(0,188,212,0.15);">🏭</div>
+      <div><div class="kpi-val">${totalVhl}</div><div class="kpi-label">Active OHTs</div></div>
+    </div>
+  `;
+
+  // ============ TIMELINE ============
+  const tlScroll=document.getElementById('tlScroll');
+  // Sort VHLs by most interesting (low efficiency first)
+  const sortedVhls=Object.entries(vhlStates)
+    .sort((a,b)=>a[1].runRate-b[1].runRate)
+    .slice(0,30); // Show top 30
+
+  let tlHTML='';
+  sortedVhls.forEach(([vid,st])=>{
+    let segs='';
+    st.rows.forEach(r=>{
+      const w=Math.max(100/st.total,2);
+      segs+=`<div class="tl-seg" style="width:${w}%;background:${STATE_COLORS[r.STATE]}" title="${vid}: ${r.FROM}→${r.TO} (${r.STATE})"></div>`;
+    });
+    tlHTML+=`<div class="tl-row"><div class="tl-label">${vid}</div><div class="tl-bar-area">${segs}</div></div>`;
+  });
+  tlScroll.innerHTML=tlHTML;
+
+  // ============ EFFICIENCY CHART ============
+  const effVhls=sortedVhls.slice(0,20);
+  const effLabels=effVhls.map(([v])=>v);
+  const effData=effVhls.map(([,s])=>Math.round(s.runRate));
+
+  if(effChartInst)effChartInst.destroy();
+  document.getElementById('avgLabel').textContent='Average '+Math.round(avgEff)+'%';
+  effChartInst=new Chart(document.getElementById('effChart'),{
+    type:'bar',
+    data:{
+      labels:effLabels,
+      datasets:[{
+        data:effData,
+        backgroundColor:effData.map(v=>v>=70?'#4caf50':v>=50?'#ffc107':v>=30?'#ff9800':'#f44336'),
+        borderRadius:3,barPercentage:0.7
+      }]
+    },
+    options:{
+      responsive:true,maintainAspectRatio:false,
+      plugins:{
+        legend:{display:false},
+        tooltip:{callbacks:{label:c=>c.raw+'%'}}
+      },
+      scales:{
+        x:{ticks:{color:'#6b6c82',font:{size:9,family:'JetBrains Mono'},maxRotation:45},grid:{display:false}},
+        y:{min:0,max:100,ticks:{color:'#6b6c82',callback:v=>v+'%'},grid:{color:'rgba(255,255,255,0.04)'}}
+      }
+    }
+  });
+
+  // ============ LOSS CHART ============
+  const lossVhls=sortedVhls.slice(0,15);
+  const lossLabels=lossVhls.map(([v])=>v);
+  const stateKeys=['PLANNED_STOP','BLOCKED','WAIT','DEADLOCK_RISK','DEADLOCK_RISK2','MANUAL_RECOVERY','DOWN'];
+  const stateLabels=['Planned Stop','Blocked','Wait for Route','Deadlock Risk','Deadlock Risk+','Manual Recovery','Down'];
+  const stateClrs=['#78909c','#f44336','#ffc107','#9c27b0','#7b1fa2','#e91e63','#546e7a'];
+  
+  const datasets=stateKeys.map((sk,i)=>({
+    label:stateLabels[i],
+    data:lossVhls.map(([,s])=>s.counts[sk]||0),
+    backgroundColor:stateClrs[i],
+    borderRadius:2
+  }));
+
+  if(lossChartInst)lossChartInst.destroy();
+  lossChartInst=new Chart(document.getElementById('lossChart'),{
+    type:'bar',
+    data:{labels:lossLabels,datasets},
+    options:{
+      responsive:true,maintainAspectRatio:false,
+      plugins:{legend:{display:false}},
+      scales:{
+        x:{stacked:true,ticks:{color:'#6b6c82',font:{size:9,family:'JetBrains Mono'},maxRotation:45},grid:{display:false}},
+        y:{stacked:true,ticks:{color:'#6b6c82'},grid:{color:'rgba(255,255,255,0.04)'}}
+      }
+    }
+  });
+
+  // ============ CLUSTERS ============
+  const clCards=document.getElementById('clCards');
+  clCards.innerHTML='';
+  clusters.slice(0,5).forEach((cl,i)=>{
+    const traffic=cl.reduce((s,h)=>s+(hidTraffic[h]||0),0);
+    const level=i===0?'crit':i===1?'high':'med';
+    const levelTxt=i===0?'CRITICAL':i===1?'HIGH':'MEDIUM';
+    clCards.innerHTML+=`
+      <div class="cl-card">
+        <div class="cl-head">
+          <span class="cl-badge ${level}">${levelTxt}</span>
+          <span class="cl-title">클러스터 ${i+1} — ${cl.length}개 존, 트래픽 ${traffic}건</span>
+        </div>
+        <div class="cl-hids">HID: ${cl.join(', ')}</div>
+      </div>`;
+  });
+
+  // ============ COMPLEX VHL TABLE ============
+  const cplxBody=document.querySelector('#cplxTbl tbody');
+  cplxBody.innerHTML='';
+  const complexVhls=Object.entries(vhlRows)
+    .filter(([,rs])=>rs.length>=3)
+    .sort((a,b)=>b[1].length-a[1].length)
+    .slice(0,15);
+  complexVhls.forEach(([vid,rs])=>{
+    const route=rs.map(r=>r.FROM+'→'+r.TO).join(' → ');
+    // Detect patterns
+    const fromList=rs.map(r=>r.FROM);
+    const cnt={};fromList.forEach(h=>{cnt[h]=(cnt[h]||0)+1;});
+    const repeats=Object.entries(cnt).filter(([,c])=>c>1);
+    let tag='<span class="tag b">복합이동</span>';
+    if(repeats.length)tag=`<span class="tag r">HID ${repeats[0][0]} 순환</span>`;
+    // Check bidirectional
+    for(let i=0;i<rs.length-1;i++){
+      if(rs[i].FROM===rs[i+1].TO&&rs[i].TO===rs[i+1].FROM){
+        tag=`<span class="tag w">${rs[i].FROM}↔${rs[i].TO} 왕복</span>`;break;
+      }
+    }
+    cplxBody.innerHTML+=`<tr>
+      <td class="mono" style="font-weight:600">${vid}</td>
+      <td>${rs.length}</td>
+      <td class="route">${route}</td>
+      <td>${tag}</td>
+    </tr>`;
+  });
+
+  // ============ BIDI TABLE ============
+  const bidiBody=document.querySelector('#bidiTbl tbody');
+  bidiBody.innerHTML='';
+  bidiPairs.slice(0,15).forEach(p=>{
+    bidiBody.innerHTML+=`<tr>
+      <td class="mono">${p.a}</td><td class="mono">${p.b}</td>
+      <td>${p.ab}</td><td>${p.ba}</td>
+      <td style="font-weight:600;color:${p.total>=10?'var(--red)':p.total>=7?'var(--orange)':'var(--text)'}">${p.total}</td>
+    </tr>`;
+  });
+
+  // ============ RETRY TABLE ============
+  const retryBody=document.querySelector('#retryTbl tbody');
+  retryBody.innerHTML='';
+  retries.forEach(r=>{
+    retryBody.innerHTML+=`<tr>
+      <td class="mono">${r.VHL_ID}</td><td class="mono">${r.FROM}</td>
+      <td class="mono">${r.TO}</td>
+      <td style="color:var(--orange);font-weight:600">${r.TCNT}</td>
+    </tr>`;
+  });
+  if(!retries.length)retryBody.innerHTML='<tr><td colspan="4" style="text-align:center;color:var(--text3);padding:20px">재시도 없음</td></tr>';
+}
+
+// Tooltip on timeline segments
+document.addEventListener('mouseover',e=>{
+  if(e.target.classList.contains('tl-seg')){
+    const tip=document.getElementById('tooltip');
+    tip.textContent=e.target.title;
+    tip.style.display='block';
+    tip.style.left=e.pageX+12+'px';
+    tip.style.top=e.pageY-30+'px';
+  }
+});
+document.addEventListener('mouseout',e=>{
+  if(e.target.classList.contains('tl-seg'))document.getElementById('tooltip').style.display='none';
+});
+document.addEventListener('mousemove',e=>{
+  const tip=document.getElementById('tooltip');
+  if(tip.style.display==='block'){tip.style.left=e.pageX+12+'px';tip.style.top=e.pageY-30+'px';}
+});
+</script>
+</body>
+</html>
