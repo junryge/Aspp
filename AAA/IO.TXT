@@ -1,360 +1,1060 @@
-"""
-OHT Error 분류기
-================
-입력: 엑셀에서 추출한 OHT 에러 raw CSV (Excel 시리얼 날짜/시간 포함)
-출력: OHT_Error_최종분류.csv, 분류체계_최종요약.csv
-
-사용법:
-    python oht_error_classifier.py <입력파일.csv>
-    python oht_error_classifier.py <입력파일.csv> <출력폴더>
-
-※ pandas가 셀 내부 개행(\r\n)을 제대로 치환 못하는 문제 때문에
-   csv 모듈로 직접 읽어서 개행을 제거한 뒤 pandas DataFrame으로 변환함.
-"""
-
-import pandas as pd
-import csv
-import re
-import sys
-import os
-from datetime import datetime, timedelta
-
-
-# ============================================================
-# 1. 파일 읽기 + 개행 제거 + 엑셀 시리얼 변환
-# ============================================================
-
-def load_and_convert(filepath):
-    """
-    CSV 읽기 → 셀 내부 개행 제거 → 엑셀 시리얼 날짜/시간 변환
-    핵심: pandas.read_csv 대신 csv.reader로 먼저 개행 제거
-    """
-    # 인코딩 자동감지
-    raw_rows = None
-    for enc in ['utf-8', 'cp949', 'euc-kr']:
-        try:
-            with open(filepath, 'r', encoding=enc) as f:
-                reader = csv.reader(f)
-                raw_rows = list(reader)
-            break
-        except (UnicodeDecodeError, Exception):
-            continue
-
-    if raw_rows is None:
-        raise ValueError(f"인코딩 감지 실패: {filepath}")
-
-    # 헤더 개행 제거
-    header = [
-        h.replace('\r\n', ' ').replace('\r', ' ').replace('\n', ' ').strip()
-        for h in raw_rows[0]
-    ]
-
-    # 모든 셀에서 개행 → ' | ' 로 치환 (한 줄로 합침)
-    clean_rows = []
-    for row in raw_rows[1:]:
-        clean_row = [re.sub(r'[\r\n]+', ' | ', cell.strip()) for cell in row]
-        clean_rows.append(clean_row)
-
-    df = pd.DataFrame(clean_rows, columns=header)
-
-    # 엑셀 시리얼 → 날짜 (1899-12-30 기준)
-    if '날짜' in df.columns:
-        df['날짜'] = df['날짜'].apply(_serial_to_date)
-
-    # 엑셀 소수 → HH:MM
-    for col in ['발생 시간', '복구 시간']:
-        if col in df.columns:
-            df[col] = df[col].apply(_serial_to_hhmm)
-
-    # 조치 시간 → 분 단위
-    if '조치 시간' in df.columns:
-        df['조치 시간(분)'] = df['조치 시간'].apply(_serial_to_minutes)
-        df.drop(columns=['조치 시간'], inplace=True)
-
-    return df
-
-
-def _serial_to_date(x):
-    try:
-        return (datetime(1899, 12, 30) + timedelta(days=float(x))).strftime('%Y-%m-%d')
-    except:
-        return str(x)
-
-
-def _serial_to_hhmm(x):
-    try:
-        total_min = round(float(x) * 24 * 60)
-        return f'{total_min // 60:02d}:{total_min % 60:02d}'
-    except:
-        return str(x)
-
-
-def _serial_to_minutes(x):
-    try:
-        return round(float(x) * 24 * 60, 1)
-    except:
-        return str(x)
-
-
-# ============================================================
-# 2. 텍스트에서 원인 추출 + 정규화
-# ============================================================
-
-def extract_cause_from_text(text):
-    """'현상 및 조치 내용'에서 '원인:' 뒤의 텍스트 추출"""
-    if pd.isna(text):
-        return None
-    # 개행이 ' | '로 바뀌었으므로 패턴 수정
-    m = re.search(r'원인[:：]\s*(.+?)(?:\s*\||\s{2,}|조치[:：]|$)', str(text))
-    return m.group(1).strip() if m else None
-
-
-def normalize_cause(raw):
-    """유사 표현 통합 (오타, 동의어 등)"""
-    if pd.isna(raw):
-        return '미확인'
-    s = raw.strip()
-
-    # L/C 계열 통합
-    if any(k in s for k in ['L/C 검출', 'Vendor L/C', 'Vender L/C', "Eng'r L/C"]):
-        return 'L/C(Light Curtain) 검출'
-
-    # EQ Alarm 계열 통합
-    if s in ['EQ Alarm', '장비 Alarm', '장비 Alarm 발생', 'EQ Alarm 발생',
-             '장비Alarm', '장비 alarm', '장비 Alarm(E_STOP)']:
-        return 'EQ Alarm'
-
-    # Presence Sensor 계열
-    if 'Presence Sensor' in s or 'ES Off Delay' in s:
-        return 'Presence Sensor Off Delay'
-
-    # 장비 PIO 계열
-    if 'L_REQ' in s or 'PIO' in s.upper():
-        return '장비 PIO 신호이상'
-
-    return s
-
-
-# ============================================================
-# 3. 2단계 분류 (Lv1 대분류 / Lv2 중분류)
-# ============================================================
-
-def assign_category(cause, sub_cause):
-    """
-    정규화된 원인(cause)으로 1차 분류,
-    실패 시 원인 소분류(sub_cause)로 fallback
-    """
-    for src in [str(cause), str(sub_cause)]:
-        result = _match_category(src)
-        if result:
-            return result
-    return 'Z_기타', 'Z9_미분류'
-
-
-def _match_category(s):
-    """키워드 매칭으로 카테고리 결정"""
-    if pd.isna(s) or s in ['미확인', 'nan', '']:
-        return None
-
-    # A. 센서/검출
-    if any(k in s for k in ['Light Curtain', 'L/C']):
-        return 'A_센서검출', 'A1_L/C(Light Curtain)'
-    if 'Safety Bar' in s:
-        return 'A_센서검출', 'A2_Safety_Bar'
-    if '안전펜스' in s:
-        return 'A_센서검출', 'A3_안전펜스'
-    if '중심이탈' in s:
-        return 'A_센서검출', 'A4_중심이탈'
-    if '낙하' in s and 'Arm' not in s and 'Driver' not in s:
-        return 'A_센서검출', 'A5_낙하검출'
-    if '재하' in s and 'Slider' not in s:
-        return 'A_센서검출', 'A6_재하센서'
-    if any(k in s for k in ['OBS', 'PBS']):
-        return 'A_센서검출', 'A7_OBS/PBS'
-    if 'ABS' in s:
-        return 'A_센서검출', 'A8_ABS'
-    if 'UI Monitor' in s:
-        return 'A_센서검출', 'A9_UI_Monitor'
-
-    # B. 장비(EQ)
-    if s == 'EQ Alarm' or (s.startswith('EQ Alarm') and len(s) < 20):
-        return 'B_장비(EQ)', 'B1_EQ_Alarm'
-    if 'Presence Sensor' in s:
-        return 'B_장비(EQ)', 'B2_EQ_Sensor_Delay'
-    if 'EQ Sensor' in s:
-        return 'B_장비(EQ)', 'B3_EQ_Sensor_불량'
-    if 'PIO' in s or '장비 PIO' in s:
-        return 'B_장비(EQ)', 'B4_PIO_신호이상'
-    if any(k in s for k in ['Port 동작', 'Port 불량', 'CLAMP', 'Clamp']):
-        return 'B_장비(EQ)', 'B5_EQ_Port/Clamp'
-    if '장비' in s or 'EQ' in s:
-        return 'B_장비(EQ)', 'B6_EQ_기타'
-
-    # C. BCR/정위치
-    if any(k in s for k in ['BCR', 'BCL']):
-        return 'C_BCR/정위치', 'C1_BCR_불량'
-    if 'QR' in s:
-        return 'C_BCR/정위치', 'C2_QR_불량'
-    if any(k in s for k in ['정위치', 'Particle']):
-        return 'C_BCR/정위치', 'C3_정위치/Particle'
-
-    # D. 보정/Teaching
-    if any(k in s for k in ['Teaching', '보정']):
-        return 'D_보정', 'D1_Teaching'
-    if any(k in s for k in ['Level', '0점']):
-        return 'D_보정', 'D2_Level/0점'
-    if any(k in s for k in ['Shim', 'Spec Out', 'UBG']):
-        return 'D_보정', 'D3_Spec_Out'
-
-    # E. 구동부
-    if 'Chuck' in s:
-        return 'E_구동부', 'E1_Chuck'
-    if any(k in s for k in ['Motor', 'Driver', 'Coupling']):
-        return 'E_구동부', 'E2_Motor/Driver'
-    if 'Outrigger' in s:
-        return 'E_구동부', 'E3_Outrigger'
-    if '승강' in s:
-        return 'E_구동부', 'E4_승강부'
-
-    # F. 기구부
-    if any(k in s for k in ['Arm', 'Slide', 'LM', 'Guide', 'Wheel', 'Coupling',
-                             'Bolt', 'Cover', 'Spring', 'Link', 'Nut', 'Bracket',
-                             'Pad', 'Lock', 'Corn']):
-        return 'F_기구부', 'F1_기계부품'
-    if any(k in s for k in ['분기', 'Switch']):
-        return 'F_기구부', 'F2_분기장치'
-
-    # G. FOUP/Door
-    if any(k in s for k in ['Foup', 'FOUP', 'FOSB', 'Door', 'Sticker']):
-        return 'G_FOUP', 'G1_FOUP/Door'
-
-    # H. 전장/통신
-    if any(k in s for k in ['Cable', 'Connector', 'infopad', 'Infopad',
-                             'Board', '통신', 'Communication', '무선']):
-        return 'H_전장통신', 'H1_Cable/통신'
-
-    # I. 환경
-    if any(k in s for k in ['이물', '배관', '누수', 'FFU', 'Duct', '명판', '간섭']):
-        return 'I_환경', 'I1_이물/간섭'
-
-    # J. 휴먼에러
-    if any(k in s for k in ['MISS', '작업자', '조작', '전산', '담당자']):
-        return 'J_휴먼에러', 'J1_작업자/담당자'
-
-    # Z. 기타
-    if any(k in s for k in ['단발성', '원인 불명', '자동 Recovery', '정체']):
-        return 'Z_기타', 'Z1_단발성/자동복구'
-
-    return None
-
-
-# ============================================================
-# 4. 조치 난이도 분류
-# ============================================================
-
-def classify_action_level(text):
-    """조치 내용 텍스트 → 난이도 4단계"""
-    if pd.isna(text):
-        return '미확인'
-    s = str(text)
-
-    if '단순조치' in s:
-        return '단순(Reset/자동복구)'
-    if any(k in s for k in ['Power Off', 'Reconnecting', 'Cable', 'Driver',
-                             '교체', '수리', '분해']):
-        return '중수리(부품교체/재연결)'
-    if any(k in s for k in ['Teaching', 'Spec', '조정', '재부착', 'Cleaning',
-                             '보정', 'Level']):
-        return '보정(Teaching/조정)'
-    if any(k in s for k in ['Take Out', 'MTL', 'Take In']):
-        return '정밀(Take Out 점검)'
-    return '기타조치'
-
-
-# ============================================================
-# 5. 메인 파이프라인
-# ============================================================
-
-def run(input_path, output_dir=None):
-    """전체 파이프라인 실행"""
-
-    if output_dir is None:
-        output_dir = os.path.dirname(input_path) or '.'
-    os.makedirs(output_dir, exist_ok=True)
-
-    print(f"[1/5] 파일 읽기 + 개행 제거 + 날짜/시간 변환: {input_path}")
-    df = load_and_convert(input_path)
-    print(f"      → {len(df)}건 로드됨")
-
-    print(f"[2/5] 텍스트에서 원인 추출 + 정규화")
-    df['텍스트_원인'] = df['현상 및 조치 내용'].apply(extract_cause_from_text)
-    df['정규화_원인'] = df['텍스트_원인'].apply(normalize_cause)
-    extracted = df['텍스트_원인'].notna().sum()
-    print(f"      → 원인 추출: {extracted}/{len(df)}건 ({extracted/len(df)*100:.1f}%)")
-
-    print(f"[3/5] 2단계 분류 (Lv1 대분류 / Lv2 중분류)")
-    categories = df.apply(
-        lambda row: assign_category(
-            row['정규화_원인'],
-            row.get('Error 원인 소분류', '')
-        ),
-        axis=1, result_type='expand'
-    )
-    df['Lv1_대분류'] = categories[0]
-    df['Lv2_중분류'] = categories[1]
-    classified = (df['Lv2_중분류'] != 'Z9_미분류').sum()
-    print(f"      → 분류 완료: {classified}/{len(df)}건 ({classified/len(df)*100:.1f}%)")
-
-    print(f"[4/5] 조치 난이도 분류")
-    df['조치난이도'] = df['현상 및 조치 내용'].apply(classify_action_level)
-
-    print(f"[5/5] CSV 저장")
-
-    # 출력 컬럼 (존재하는 것만)
-    cols_out = [
-        '날짜', '발생 시간', '복구 시간', '조치 시간(분)', 'Error 구분', '호기명',
-        'FOUP ID', 'Error', 'Error Text', '발생 Station', '발생PORT',
-        'Error 원인 소분류', '정규화_원인', 'Lv1_대분류', 'Lv2_중분류', '조치난이도',
-        '현상 및 조치 내용'
-    ]
-    cols_out = [c for c in cols_out if c in df.columns]
-
-    path1 = os.path.join(output_dir, 'OHT_Error_최종분류.csv')
-    df[cols_out].to_csv(path1, encoding='utf-8-sig', index=False)
-    print(f"      → {path1}")
-
-    # 분류 체계 요약
-    summary = df.groupby(['Lv1_대분류', 'Lv2_중분류']).agg(
-        건수=('Lv1_대분류', 'size')
-    ).reset_index()
-    summary['비율(%)'] = (summary['건수'] / summary['건수'].sum() * 100).round(1)
-
-    path2 = os.path.join(output_dir, '분류체계_최종요약.csv')
-    summary.to_csv(path2, encoding='utf-8-sig', index=False)
-    print(f"      → {path2}")
-
-    # 결과 출력
-    print(f"\n{'='*50}")
-    print(f"완료! 총 {len(df)}건, 분류율 {classified/len(df)*100:.1f}%")
-    print(f"{'='*50}")
-    print(f"\nLv1 대분류:")
-    for cat, cnt in df['Lv1_대분류'].value_counts().items():
-        print(f"  {cat:20s} {cnt:5d}건 ({cnt/len(df)*100:5.1f}%)")
-
-    return df
-
-
-# ============================================================
-# CLI
-# ============================================================
-
-if __name__ == '__main__':
-    if len(sys.argv) < 2:
-        print("사용법: python oht_error_classifier.py <입력파일.csv> [출력폴더]")
-        print("예시:   python oht_error_classifier.py Untitled__4_.txt")
-        print("        python oht_error_classifier.py data.csv ./output")
-        sys.exit(1)
-
-    input_file = sys.argv[1]
-    output_folder = sys.argv[2] if len(sys.argv) > 2 else None
-    run(input_file, output_folder)
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>CEO Multi-Agent Office</title>
+  <style>
+    :root {
+      --bg-1: #1d2633;
+      --bg-2: #0f151e;
+      --panel: #1a2535;
+      --card: #223344;
+      --text: #eaf1ff;
+      --muted: #7a8fa6;
+      --accent: #ff4d4d;
+      --accent-blue: #00b4d8;
+      --border: #2a4a5a;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      min-height: 100vh;
+      display: grid;
+      grid-template-columns: 1fr 300px;
+      font-family: "Segoe UI", "Malgun Gothic", sans-serif;
+      color: var(--text);
+      background: var(--bg-2);
+    }
+
+    /* ── Sidebar ── */
+    .sidebar {
+      background: var(--panel);
+      border-left: 2px solid var(--border);
+      padding: 0;
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .ceo-profile {
+      padding: 20px;
+      text-align: center;
+      background: linear-gradient(180deg, #1e3a5f 0%, var(--panel) 100%);
+      border-bottom: 1px solid var(--border);
+    }
+    .ceo-avatar {
+      width: 72px; height: 72px;
+      border-radius: 50%;
+      background: linear-gradient(135deg, #ff4d4d, #ff8c00);
+      margin: 0 auto 12px;
+      display: grid; place-items: center;
+      font-size: 32px;
+      box-shadow: 0 4px 16px rgba(255,77,77,0.3);
+    }
+    .ceo-profile h2 { font-size: 18px; font-weight: 700; }
+    .ceo-profile .role {
+      font-size: 12px;
+      color: var(--accent-blue);
+      margin-top: 4px;
+      letter-spacing: 1px;
+      text-transform: uppercase;
+    }
+    .ceo-profile .desc {
+      font-size: 13px;
+      color: var(--muted);
+      margin-top: 8px;
+      line-height: 1.5;
+    }
+
+    .agent-section {
+      padding: 16px;
+      flex: 1;
+    }
+    .agent-section h3 {
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 1.5px;
+      color: var(--muted);
+      margin-bottom: 12px;
+      padding-left: 4px;
+    }
+
+    .agent-card {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 12px;
+      border-radius: 10px;
+      margin-bottom: 8px;
+      cursor: pointer;
+      transition: all 0.2s;
+      border: 1px solid transparent;
+      text-decoration: none;
+      color: var(--text);
+    }
+    .agent-card:hover {
+      background: var(--card);
+      border-color: var(--border);
+      transform: translateX(-4px);
+    }
+    .agent-card .avatar {
+      width: 40px; height: 40px;
+      border-radius: 10px;
+      display: grid; place-items: center;
+      font-size: 18px; font-weight: 700;
+      flex-shrink: 0;
+    }
+    .agent-card .info { flex: 1; min-width: 0; }
+    .agent-card .name { font-size: 14px; font-weight: 600; }
+    .agent-card .task { font-size: 11px; color: var(--muted); margin-top: 2px; }
+    .agent-card .status {
+      width: 8px; height: 8px;
+      border-radius: 50%;
+      background: #2ecc71;
+      flex-shrink: 0;
+      animation: pulse 2s infinite;
+    }
+    @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.3} }
+
+    /* Agent color themes */
+    .agent-card.seo .avatar  { background: linear-gradient(135deg, #00b4d8, #0077b6); }
+    .agent-card.yoon .avatar { background: linear-gradient(135deg, #c084fc, #9333ea); }
+    .agent-card.lee .avatar  { background: linear-gradient(135deg, #4ade80, #16a34a); }
+    .agent-card.park .avatar { background: linear-gradient(135deg, #e2b714, #c9960c); }
+    .agent-card.kim .avatar  { background: linear-gradient(135deg, #ff6b6b, #ee5a24); }
+    .agent-card.choi .avatar { background: linear-gradient(135deg, #00e5ff, #0097a7); }
+
+    .sidebar-footer {
+      padding: 16px;
+      border-top: 1px solid var(--border);
+      text-align: center;
+      font-size: 11px;
+      color: var(--muted);
+    }
+
+    /* ── Main Area ── */
+    .main-area {
+      position: relative;
+      display: grid;
+      place-items: center;
+      padding: 12px;
+      background: radial-gradient(circle at 30% 30%, var(--bg-1), var(--bg-2) 65%);
+      overflow: hidden;
+    }
+
+    .agent-card.active {
+      background: var(--card);
+      border-color: var(--accent-blue);
+      box-shadow: 0 0 12px rgba(0, 180, 216, 0.2);
+    }
+
+    /* ── Chat Panel ── */
+    .chat-panel {
+      position: absolute;
+      top: 0; left: 0; right: 0; bottom: 0;
+      display: flex;
+      flex-direction: column;
+      background: var(--bg-2);
+      z-index: 20;
+      animation: chatFadeIn 0.25s ease;
+    }
+    @keyframes chatFadeIn { from { opacity: 0; transform: translateY(16px); } to { opacity: 1; transform: translateY(0); } }
+
+    .chat-header {
+      padding: 16px 24px;
+      background: var(--panel);
+      border-bottom: 2px solid var(--border);
+      display: flex;
+      align-items: center;
+      gap: 16px;
+    }
+    .chat-header .ch-avatar {
+      width: 48px; height: 48px;
+      border-radius: 50%;
+      display: grid; place-items: center;
+      font-size: 22px; font-weight: 700;
+    }
+    .chat-header .ch-info h2 { font-size: 20px; font-weight: 700; }
+    .chat-header .ch-info p { font-size: 13px; color: var(--muted); }
+    .chat-header .back-btn {
+      margin-left: auto;
+      padding: 8px 16px;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+      background: var(--card);
+      color: var(--text);
+      font-size: 13px;
+      cursor: pointer;
+      font-family: inherit;
+      transition: all 0.2s;
+    }
+    .chat-header .back-btn:hover { border-color: var(--accent-blue); }
+
+    .chat-panel .chat-area {
+      flex: 1;
+      overflow-y: auto;
+      padding: 24px;
+    }
+    .chat-panel .welcome-msg {
+      text-align: center;
+      padding: 60px 20px;
+    }
+    .chat-panel .welcome-msg .big-icon { font-size: 64px; margin-bottom: 16px; }
+    .chat-panel .welcome-msg h2 { font-size: 24px; margin-bottom: 8px; }
+    .chat-panel .welcome-msg p { color: var(--muted); font-size: 15px; max-width: 500px; margin: 0 auto 24px; line-height: 1.6; }
+
+    .quick-actions { display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; }
+    .quick-btn {
+      padding: 10px 18px;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+      background: var(--card);
+      color: var(--text);
+      font-size: 13px;
+      cursor: pointer;
+      font-family: inherit;
+      transition: all 0.2s;
+    }
+    .quick-btn:hover { border-color: var(--accent-blue); background: rgba(0,180,216,0.1); }
+
+    .message { margin-bottom: 16px; display: flex; gap: 12px; }
+    .message .msg-avatar {
+      width: 36px; height: 36px; border-radius: 50%;
+      background: var(--card); display: grid; place-items: center;
+      font-size: 16px; flex-shrink: 0;
+    }
+    .message .msg-body {
+      background: var(--card); border-radius: 12px;
+      padding: 12px 16px; max-width: 70%;
+      font-size: 14px; line-height: 1.6;
+    }
+    .message.user { flex-direction: row-reverse; }
+    .message.user .msg-body { background: #0077b6; }
+
+    .chat-panel .input-bar {
+      padding: 16px 24px;
+      background: var(--panel);
+      border-top: 1px solid var(--border);
+      display: flex; gap: 12px; align-items: center;
+    }
+    .chat-panel .input-bar input {
+      flex: 1; padding: 12px 16px;
+      border-radius: 10px; border: 1px solid var(--border);
+      background: var(--card); color: var(--text);
+      font-size: 14px; font-family: inherit; outline: none;
+      transition: border-color 0.2s;
+    }
+    .chat-panel .input-bar input:focus { border-color: var(--accent-blue); }
+    .chat-panel .input-bar input::placeholder { color: var(--muted); }
+    .chat-panel .input-bar button {
+      padding: 12px 20px; border-radius: 10px; border: none;
+      color: #fff; font-size: 14px; font-weight: 600;
+      cursor: pointer; font-family: inherit; transition: background 0.2s;
+    }
+
+    .stage {
+      width: 100%;
+      max-width: 1100px;
+      aspect-ratio: 1536 / 1024;
+      border: 2px solid #48638a;
+      border-radius: 14px;
+      overflow: hidden;
+      box-shadow: 0 14px 40px rgba(0, 0, 0, 0.45);
+      background: #111;
+      position: relative;
+    }
+
+    canvas {
+      width: 100%;
+      height: 100%;
+      display: block;
+      image-rendering: pixelated;
+    }
+
+    .label {
+      position: absolute;
+      left: 15px;
+      top: 15px;
+      padding: 8px 14px;
+      border-radius: 8px;
+      background: rgba(18, 27, 40, 0.85);
+      backdrop-filter: blur(4px);
+      border: 1px solid rgba(255, 255, 255, 0.2);
+      font-size: 14px;
+      font-weight: 600;
+      pointer-events: none;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+    }
+
+    .strike-btn {
+      position: absolute;
+      right: 15px;
+      top: 15px;
+      padding: 10px 18px;
+      border-radius: 8px;
+      border: 2px solid #ff4d4d;
+      background: rgba(180, 30, 30, 0.85);
+      backdrop-filter: blur(4px);
+      color: #fff;
+      font-size: 14px;
+      font-weight: 700;
+      font-family: "Segoe UI", "Malgun Gothic", sans-serif;
+      cursor: pointer;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+      transition: all 0.2s;
+      z-index: 10;
+    }
+    .strike-btn:hover {
+      background: rgba(220, 40, 40, 0.95);
+      transform: scale(1.05);
+    }
+    .strike-btn.active {
+      background: rgba(30, 120, 60, 0.85);
+      border-color: #4dc46d;
+    }
+    .strike-btn.active:hover {
+      background: rgba(40, 150, 70, 0.95);
+    }
+  </style>
+</head>
+<body>
+
+  <!-- ── Main Area (Left) ── -->
+  <div class="main-area">
+    <div class="stage" id="stageEl">
+      <canvas id="game" width="1536" height="1024" aria-label="moving pixel map"></canvas>
+      <div class="label">CEO Multi-Agent Office</div>
+      <button class="strike-btn" id="strikeBtn" onclick="toggleStrike()">파업</button>
+    </div>
+
+    <!-- Chat Panel (hidden by default, overlays canvas) -->
+    <div id="chatPanel" class="chat-panel" style="display:none;">
+      <div class="chat-header" id="chatHeader"></div>
+      <div class="chat-area" id="chatArea"></div>
+      <div class="input-bar">
+        <input type="text" id="userInput" placeholder="질문을 입력하세요..." onkeydown="if(event.key==='Enter') sendMsg()" />
+        <button onclick="sendMsg()" id="sendBtn" style="background:var(--accent-blue);">전송</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Sidebar (Right) ── -->
+  <div class="sidebar">
+    <div class="ceo-profile" onclick="closeAgent()" style="cursor:pointer;">
+      <div class="ceo-avatar">J</div>
+      <h2>CEO Jiwon</h2>
+      <div class="role">Multi-Agent Orchestrator</div>
+      <div class="desc">6개 전문 에이전트를 총괄 관리하는<br>멀티에이전트 CEO</div>
+    </div>
+
+    <div class="agent-section">
+      <h3>Agent Team</h3>
+
+      <a class="agent-card seo" href="javascript:void(0)" onclick="openAgent('seo')">
+        <div class="avatar">S</div>
+        <div class="info">
+          <div class="name">SEO</div>
+          <div class="task">데이터 분석 에이전트</div>
+        </div>
+        <div class="status"></div>
+      </a>
+
+      <a class="agent-card yoon" href="javascript:void(0)" onclick="openAgent('yoon')">
+        <div class="avatar">Y</div>
+        <div class="info">
+          <div class="name">YOON</div>
+          <div class="task">PPT 전용 담당</div>
+        </div>
+        <div class="status"></div>
+      </a>
+
+      <a class="agent-card lee" href="javascript:void(0)" onclick="openAgent('lee')">
+        <div class="avatar">L</div>
+        <div class="info">
+          <div class="name">LEE</div>
+          <div class="task">Draw.io 다이어그램 담당</div>
+        </div>
+        <div class="status"></div>
+      </a>
+
+      <a class="agent-card park" href="javascript:void(0)" onclick="openAgent('park')">
+        <div class="avatar">P</div>
+        <div class="info">
+          <div class="name">PARK</div>
+          <div class="task">MD 파일 문서 담당</div>
+        </div>
+        <div class="status"></div>
+      </a>
+
+      <a class="agent-card kim" href="javascript:void(0)" onclick="openAgent('kim')">
+        <div class="avatar">K</div>
+        <div class="info">
+          <div class="name">KIM</div>
+          <div class="task">그래프/차트 생성 담당</div>
+        </div>
+        <div class="status"></div>
+      </a>
+
+      <a class="agent-card choi" href="javascript:void(0)" onclick="openAgent('choi')">
+        <div class="avatar">C</div>
+        <div class="info">
+          <div class="name">CHOI</div>
+          <div class="task">로그프레소 쿼리 담당</div>
+        </div>
+        <div class="status"></div>
+      </a>
+    </div>
+
+    <div class="sidebar-footer">
+      ASAS Multi-Agent System v1.0
+    </div>
+  </div>
+
+  <script>
+    const canvas = document.getElementById("game");
+    const ctx = canvas.getContext("2d");
+
+    const world = { width: 1536, height: 1024 };
+    const map = new Image();
+    map.src = "img/office_background_final.png";
+
+    // Load sprite frames
+    function loadFrames(dir, count) {
+      const frames = [];
+      for(let i = 1; i <= count; i++) {
+        const img = new Image();
+        img.src = `img/${dir}/frame_0${i}_transparent.png`;
+        frames.push(img);
+      }
+      return frames;
+    }
+
+    const spriteGroups = [
+      loadFrames("man_fr", 6),
+      loadFrames("man_fr2", 6),
+      loadFrames("man_ft3", 6),
+      loadFrames("wow_fr", 6)
+    ];
+
+    const ceoImg = new Image();
+    ceoImg.src = "img/CEO_PO_transparent.png";
+
+    class Character {
+      constructor(frames, x, y, speed, scale, isStatic = false, bounds = null, pauseBehavior = 'normal', name = '') {
+        this.frames = frames;
+        this.x = x;
+        this.y = y;
+        this.speed = speed;
+        this.scale = scale;
+        this.frameIndex = 0;
+        this.frameTimer = 0;
+        this.frameDuration = 100 + Math.random() * 50;
+        this.isStatic = isStatic;
+        this.bounds = bounds || {minX: 150, maxX: world.width - 150, minY: 150, maxY: world.height - 150};
+        this.direction = Math.random() < 0.5 ? 1 : -1;
+        this.pauseBehavior = pauseBehavior;
+        this.name = name;
+
+        // Roaming state
+        this.isMoving = false;
+        this.targetX = this.x;
+        this.targetY = this.y;
+        this.idleTimer = Math.random() * 1000; 
+      }
+
+      setNewTarget() {
+        this.targetX = this.bounds.minX + Math.random() * (this.bounds.maxX - this.bounds.minX);
+        this.targetY = this.bounds.minY + Math.random() * (this.bounds.maxY - this.bounds.minY);
+        this.isMoving = true;
+        this.direction = this.targetX > this.x ? 1 : -1;
+      }
+
+      update(dt) {
+        if(this.isStatic) return;
+
+        if (!this.isMoving) {
+          this.idleTimer -= dt * 1000;
+          if (this.idleTimer <= 0) {
+            this.setNewTarget();
+          }
+          this.frameIndex = 0; // Stand still pose
+          return;
+        }
+
+        // Move towards target in 2D space
+        const dx = this.targetX - this.x;
+        const dy = this.targetY - this.y;
+        const dist = Math.sqrt(dx*dx + dy*dy);
+        
+        if (dist < 5) { // Reached destination
+          this.isMoving = false;
+          
+          if (this.pauseBehavior === 'strike') {
+             this.idleTimer = 300 + Math.random() * 600; // jitter in place
+          } else if (this.pauseBehavior === 'alwaysMove') {
+             this.idleTimer = Math.random() * 500;
+          } else if (this.pauseBehavior === 'oftenPause') {
+             this.idleTimer = 2000 + Math.random() * 4000; // 2~6 sec pause
+          } else {
+             this.idleTimer = 500 + Math.random() * 2000; // normal
+          }
+        } else {
+          // Adjust distance by standard 60fps movement delta
+          const moveDist = this.speed * (dt * 1000) / 16;
+          this.x += (dx / dist) * moveDist;
+          this.y += (dy / dist) * moveDist;
+
+          // Animate walking
+          this.frameTimer += dt * 1000;
+          if(this.frameTimer >= this.frameDuration) {
+            this.frameTimer = 0;
+            this.frameIndex = (this.frameIndex + 1) % this.frames.length;
+          }
+        }
+      }
+
+      draw(ctx) {
+        const img = this.isStatic ? this.frames : this.frames[this.frameIndex];
+        if(!img || !img.complete || img.naturalWidth === 0) return; // Safely return if image is not loaded
+        
+        ctx.save();
+        ctx.translate(this.x, this.y);
+        if(this.direction === -1 && !this.isStatic) {
+          ctx.scale(-1, 1); // Flip horizontally if walking left
+        }
+        
+        const w = img.width * this.scale;
+        const h = img.height * this.scale;
+        
+        ctx.drawImage(img, -w/2, -h, w, h);
+        ctx.restore();
+
+        // Name label
+        if (this.name) {
+          ctx.save();
+          ctx.font = 'bold 18px "Segoe UI", "Malgun Gothic", sans-serif';
+          ctx.textAlign = 'center';
+          const tw = ctx.measureText(this.name).width + 14;
+          const lx = this.x, ly = this.y + 10;
+          ctx.fillStyle = 'rgba(0,0,0,0.72)';
+          ctx.beginPath();
+          ctx.roundRect(lx - tw/2, ly - 14, tw, 22, 5);
+          ctx.fill();
+          ctx.fillStyle = '#fff';
+          ctx.fillText(this.name, lx, ly + 3);
+          ctx.restore();
+        }
+      }
+    }
+
+    // Initialize characters with specific zones to avoid crossing desks
+    const characters = [];
+    
+    // CEO sitting behind top-left desk (Fixed permanently in the middle of the blue carpet)
+    characters.push(new Character(ceoImg, 400, 310, 0, 1.0, true, null, 'normal', 'CEO Jiwon'));
+
+    characters.push(new Character(spriteGroups[0], 300, 950, 3.0, 1.0, false, {minX: 100, maxX: 500, minY: 850, maxY: 1000}, 'normal', 'Kim'));
+
+    characters.push(new Character(spriteGroups[3], 250, 450, 0.8, 1.0, false, {minX: 150, maxX: 450, minY: 400, maxY: 500}, 'oftenPause', 'Han'));
+
+    characters.push(new Character(spriteGroups[3], 300, 650, 1.8, 1.0, false, {minX: 50, maxX: 650, minY: 610, maxY: 720}, 'alwaysMove', 'Lee'));
+
+    characters.push(new Character(spriteGroups[1], 1100, 650, 1.4, 1.0, false, {minX: 750, maxX: 1350, minY: 610, maxY: 720}, 'normal', 'Park'));
+
+    characters.push(new Character(spriteGroups[2], 1250, 950, 2.5, 1.0, false, {minX: 1000, maxX: 1400, minY: 850, maxY: 1000}, 'alwaysMove', 'Choi'));
+
+    characters.push(new Character(spriteGroups[0], 1000, 350, 1.0, 1.0, false, {minX: 850, maxX: 1400, minY: 320, maxY: 480}, 'oftenPause', 'Yoon'));
+
+    characters.push(new Character(spriteGroups[3], 200, 350, 1.5, 1.0, false, {minX: 50, maxX: 250, minY: 280, maxY: 400}, 'normal', 'Seo'));
+
+    // ═══ Strike / Protest System ═══
+    let isOnStrike = false;
+    let strikeChantInterval = null;
+    const strikeSlogans = [
+      "힘들어!", "야근반대!", "워라밸!",
+      "우리도 쉬자!", "복지개선!", "재택근무!",
+      "주4일제!", "성과급!", "점심시간 연장!",
+      "공정한 평가!", "휴가 보장!", "쉬고싶다!",
+    ];
+
+    // ── Sound Effects ──
+    const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+
+    // Strike BGM (MP3)
+    const strikeBGM = new Audio('sound/The_Unyielding_March.mp3');
+    strikeBGM.loop = true;
+    strikeBGM.volume = 0.15;
+
+    function playStrikeHorn() {
+      // Protest horn / alarm sound
+      const now = audioCtx.currentTime;
+
+      // Horn 1
+      const osc1 = audioCtx.createOscillator();
+      const gain1 = audioCtx.createGain();
+      osc1.type = 'sawtooth';
+      osc1.frequency.setValueAtTime(220, now);
+      osc1.frequency.linearRampToValueAtTime(330, now + 0.3);
+      osc1.frequency.linearRampToValueAtTime(220, now + 0.6);
+      gain1.gain.setValueAtTime(0.3, now);
+      gain1.gain.linearRampToValueAtTime(0, now + 0.8);
+      osc1.connect(gain1).connect(audioCtx.destination);
+      osc1.start(now); osc1.stop(now + 0.8);
+
+      // Horn 2 (delayed)
+      const osc2 = audioCtx.createOscillator();
+      const gain2 = audioCtx.createGain();
+      osc2.type = 'sawtooth';
+      osc2.frequency.setValueAtTime(280, now + 0.9);
+      osc2.frequency.linearRampToValueAtTime(400, now + 1.2);
+      osc2.frequency.linearRampToValueAtTime(280, now + 1.5);
+      gain2.gain.setValueAtTime(0, now);
+      gain2.gain.setValueAtTime(0.35, now + 0.9);
+      gain2.gain.linearRampToValueAtTime(0, now + 1.7);
+      osc2.connect(gain2).connect(audioCtx.destination);
+      osc2.start(now + 0.9); osc2.stop(now + 1.7);
+
+      // Big horn 3
+      const osc3 = audioCtx.createOscillator();
+      const gain3 = audioCtx.createGain();
+      osc3.type = 'sawtooth';
+      osc3.frequency.setValueAtTime(180, now + 1.8);
+      osc3.frequency.linearRampToValueAtTime(440, now + 2.5);
+      gain3.gain.setValueAtTime(0, now);
+      gain3.gain.setValueAtTime(0.4, now + 1.8);
+      gain3.gain.linearRampToValueAtTime(0, now + 3.0);
+      osc3.connect(gain3).connect(audioCtx.destination);
+      osc3.start(now + 1.8); osc3.stop(now + 3.0);
+    }
+
+    function speakSlogan(text) {
+      if (!window.speechSynthesis) return;
+      const utter = new SpeechSynthesisUtterance(text);
+      utter.lang = 'ko-KR';
+      utter.rate = 1.1;
+      utter.pitch = 1.2;
+      utter.volume = 1.0;
+      // Try to find Korean voice
+      const voices = speechSynthesis.getVoices();
+      const koVoice = voices.find(v => v.lang.startsWith('ko'));
+      if (koVoice) utter.voice = koVoice;
+      speechSynthesis.speak(utter);
+    }
+
+    function startStrikeChant() {
+      // Chant a slogan every 4 seconds
+      strikeChantInterval = setInterval(() => {
+        if (!isOnStrike) return;
+        const slogan = strikeSlogans[Math.floor(Math.random() * strikeSlogans.length)];
+        speakSlogan(slogan);
+        // Also update random character's sign
+        const movingChars = characters.filter(c => !c.isStatic && c._slogan);
+        if (movingChars.length > 0) {
+          const rc = movingChars[Math.floor(Math.random() * movingChars.length)];
+          rc._slogan = slogan;
+        }
+      }, 4000);
+    }
+
+    function stopStrikeChant() {
+      clearInterval(strikeChantInterval);
+      strikeChantInterval = null;
+      if (window.speechSynthesis) speechSynthesis.cancel();
+    }
+
+    // Strike line-up positions (below chalkboard, evenly spaced)
+    function getStrikePositions() {
+      const startX = 500, endX = 1350;
+      const y = 420;
+      const movingChars = characters.filter(c => !c.isStatic);
+      const gap = (endX - startX) / (movingChars.length - 1 || 1);
+      return movingChars.map((c, i) => ({
+        x: startX + gap * i,
+        y: y + (i % 2 === 0 ? 0 : 15) // slight zigzag
+      }));
+    }
+
+    function toggleStrike() {
+      isOnStrike = !isOnStrike;
+      const btn = document.getElementById('strikeBtn');
+      const movingChars = characters.filter(c => !c.isStatic);
+
+      if (isOnStrike) {
+        btn.textContent = '✅ 복귀';
+        btn.classList.add('active');
+        audioCtx.resume(); // unlock audio
+        playStrikeHorn();
+        strikeBGM.currentTime = 0;
+        strikeBGM.play().catch(() => {});
+        setTimeout(() => speakSlogan('파업! 힘들어! 야근 반대!'), 2500);
+        setTimeout(() => startStrikeChant(), 5000);
+
+        // Move all characters to strike line
+        const positions = getStrikePositions();
+        movingChars.forEach((c, i) => {
+          c._savedBounds = { ...c.bounds };
+          c._savedPause = c.pauseBehavior;
+          c.targetX = positions[i].x;
+          c.targetY = positions[i].y;
+          c.isMoving = true;
+          c.direction = c.targetX > c.x ? 1 : -1;
+          c.pauseBehavior = 'strike';
+          // Lock bounds to strike area
+          c.bounds = { minX: positions[i].x - 30, maxX: positions[i].x + 30, minY: positions[i].y - 15, maxY: positions[i].y + 15 };
+          // Assign slogan
+          c._slogan = strikeSlogans[Math.floor(Math.random() * strikeSlogans.length)];
+        });
+      } else {
+        btn.textContent = '🪧 파업';
+        btn.classList.remove('active');
+        stopStrikeChant();
+        strikeBGM.pause();
+        strikeBGM.currentTime = 0;
+
+        // Return to normal
+        movingChars.forEach(c => {
+          if (c._savedBounds) c.bounds = c._savedBounds;
+          if (c._savedPause) c.pauseBehavior = c._savedPause;
+          c._slogan = null;
+          c.isMoving = false;
+          c.idleTimer = 200 + Math.random() * 500;
+        });
+      }
+    }
+
+    // Draw protest sign above character
+    function drawProtestSign(ctx, char) {
+      if (!char._slogan) return;
+      const sx = char.x, sy = char.y - 145;
+
+      // Stick
+      ctx.save();
+      ctx.strokeStyle = '#8B6914';
+      ctx.lineWidth = 4;
+      ctx.beginPath();
+      ctx.moveTo(sx, sy + 30);
+      ctx.lineTo(sx, sy - 10);
+      ctx.stroke();
+
+      // Sign board
+      ctx.font = 'bold 20px "Segoe UI", "Malgun Gothic", sans-serif';
+      const tw = ctx.measureText(char._slogan).width + 24;
+      const bh = 34;
+      ctx.fillStyle = '#fff';
+      ctx.strokeStyle = '#cc2222';
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.roundRect(sx - tw/2, sy - 40, tw, bh, 4);
+      ctx.fill();
+      ctx.stroke();
+
+      // Text
+      ctx.fillStyle = '#cc2222';
+      ctx.textAlign = 'center';
+      ctx.fillText(char._slogan, sx, sy - 17);
+      ctx.restore();
+    }
+
+    // ═══ Speech Bubble System ═══
+    const speeches = [
+      "모델 학습 진행률 87%입니다.",
+      "데이터셋 전처리 완료했습니다.",
+      "API 응답 속도가 개선됐어요.",
+      "새로운 파라미터 테스트 중...",
+      "배포 파이프라인 점검 완료.",
+      "오늘 스탠드업 10시입니다.",
+      "벤치마크 결과 정리 중이에요.",
+      "GPU 사용률 확인해볼게요.",
+      "커피 한잔 하고 올게요 ☕",
+      "코드 리뷰 부탁드립니다.",
+      "로그 분석 결과 이상 없습니다.",
+      "다음 스프린트 계획 잡았어요.",
+      "토크나이저 성능 올렸습니다.",
+      "테스트 케이스 추가했어요.",
+      "서버 모니터링 정상입니다.",
+      "회의실 예약 완료했습니다.",
+      "문서 업데이트 해야 해요.",
+      "이번 주 목표 달성률 92%!",
+      "새 데이터 수집 시작합니다.",
+      "RLHF 피드백 반영 중...",
+    ];
+
+    let activeBubble = null; // { char, text, timer }
+
+    function triggerRandomSpeech() {
+      // Pick a random non-CEO character
+      const movingChars = characters.filter(c => !c.isStatic);
+      if (movingChars.length === 0) return;
+      const char = movingChars[Math.floor(Math.random() * movingChars.length)];
+      const text = speeches[Math.floor(Math.random() * speeches.length)];
+      activeBubble = { char, text, timer: 3500 }; // show for 3.5 seconds
+    }
+
+    // Start speech every 5 seconds
+    setInterval(triggerRandomSpeech, 5000);
+    setTimeout(triggerRandomSpeech, 1500); // first one after 1.5s
+
+    function drawSpeechBubble(ctx, char, text) {
+      const bx = char.x;
+      const by = char.y - (char.isStatic ? 180 : 130);
+      const maxW = 280;
+      const pad = 12;
+      const lineH = 22;
+
+      ctx.save();
+      ctx.font = 'bold 16px "Segoe UI", "Malgun Gothic", sans-serif';
+
+      // Word wrap
+      const words = text.split('');
+      const lines = [];
+      let line = '';
+      for (const ch of words) {
+        const test = line + ch;
+        if (ctx.measureText(test).width > maxW - pad * 2) {
+          lines.push(line);
+          line = ch;
+        } else {
+          line = test;
+        }
+      }
+      if (line) lines.push(line);
+
+      const boxW = Math.min(maxW, Math.max(...lines.map(l => ctx.measureText(l).width)) + pad * 2 + 10);
+      const boxH = lines.length * lineH + pad * 2;
+      const boxX = bx - boxW / 2;
+      const boxY = by - boxH;
+
+      // Bubble background
+      ctx.fillStyle = '#fff';
+      ctx.strokeStyle = '#2f3440';
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.roundRect(boxX, boxY, boxW, boxH, 8);
+      ctx.fill();
+      ctx.stroke();
+
+      // Tail triangle
+      ctx.fillStyle = '#fff';
+      ctx.strokeStyle = '#2f3440';
+      ctx.beginPath();
+      ctx.moveTo(bx - 10, boxY + boxH);
+      ctx.lineTo(bx, boxY + boxH + 14);
+      ctx.lineTo(bx + 10, boxY + boxH);
+      ctx.closePath();
+      ctx.fill();
+      ctx.stroke();
+      // Cover the tail top border
+      ctx.fillStyle = '#fff';
+      ctx.fillRect(bx - 9, boxY + boxH - 2, 18, 4);
+
+      // Text
+      ctx.fillStyle = '#2e3440';
+      ctx.textAlign = 'left';
+      lines.forEach((l, i) => {
+        ctx.fillText(l, boxX + pad, boxY + pad + lineH * (i + 0.75));
+      });
+
+      ctx.restore();
+    }
+
+    // Sort by Y
+    function zSort() {
+      characters.sort((a,b) => a.y - b.y);
+    }
+
+    let lastTime = performance.now();
+    function loop(now) {
+      const dt = Math.min((now - lastTime) / 1000, 0.033);
+      lastTime = now;
+
+      // Draw office background
+      if (map.complete && map.naturalWidth > 0) {
+        ctx.drawImage(map, 0, 0, world.width, world.height);
+      } else {
+        ctx.fillStyle = "#101725";
+        ctx.fillRect(0, 0, world.width, world.height);
+      }
+
+      // Update & Draw chars
+      characters.forEach(c => c.update(dt));
+      zSort();
+      characters.forEach(c => c.draw(ctx));
+
+      // Strike protest signs + CEO cry
+      if (isOnStrike) {
+        characters.filter(c => !c.isStatic && c._slogan).forEach(c => drawProtestSign(ctx, c));
+
+        // CEO "살려줘" bubble
+        const ceoChar = characters.find(c => c.isStatic);
+        if (ceoChar) {
+          const cx = ceoChar.x, cy = ceoChar.y - 200;
+          const ceoMsgs = ['살려줘...', '제발...', '다 줄게...', '야근 없앨게!!', '월급 올려줄게ㅠ'];
+          const msg = ceoMsgs[Math.floor((Date.now() / 2000) % ceoMsgs.length)];
+          ctx.save();
+          ctx.font = 'bold 22px "Segoe UI", "Malgun Gothic", sans-serif';
+          const tw = ctx.measureText(msg).width + 24;
+          // Shaking effect
+          const shake = Math.sin(Date.now() / 80) * 3;
+          const bx = cx + shake, by = cy;
+          // Bubble
+          ctx.fillStyle = '#fff4f4';
+          ctx.strokeStyle = '#ff3333';
+          ctx.lineWidth = 3;
+          ctx.beginPath();
+          ctx.roundRect(bx - tw/2, by - 32, tw, 40, 8);
+          ctx.fill();
+          ctx.stroke();
+          // Tail
+          ctx.fillStyle = '#fff4f4';
+          ctx.beginPath();
+          ctx.moveTo(bx - 8, by + 8);
+          ctx.lineTo(bx, by + 22);
+          ctx.lineTo(bx + 8, by + 8);
+          ctx.closePath();
+          ctx.fill();
+          ctx.strokeStyle = '#ff3333';
+          ctx.stroke();
+          ctx.fillStyle = '#fff4f4';
+          ctx.fillRect(bx - 7, by + 6, 14, 4);
+          // Text
+          ctx.fillStyle = '#ff2222';
+          ctx.textAlign = 'center';
+          ctx.fillText(msg, bx, by);
+          ctx.restore();
+        }
+      }
+
+      // Speech bubble (not during strike)
+      if (activeBubble && !isOnStrike) {
+        activeBubble.timer -= dt * 1000;
+        if (activeBubble.timer > 0) {
+          drawSpeechBubble(ctx, activeBubble.char, activeBubble.text);
+        } else {
+          activeBubble = null;
+        }
+      }
+
+      requestAnimationFrame(loop);
+    }
+
+    // Start loop when background map is loaded
+    map.onload = () => requestAnimationFrame(loop);
+    map.onerror = () => requestAnimationFrame(loop);
+
+    // ═══ Agent Chat System ═══
+    const agentData = {
+      seo:  { name: 'SEO',  letter: 'S', title: '데이터 분석 에이전트',  desc: '데이터 분석 / 통계 처리 / CSV·Excel 분석 / 인사이트 도출', icon: '📊', color1: '#00b4d8', color2: '#0077b6',
+        quickActions: ['📋 데이터 요약 분석', '📈 트렌드 분석', '🔍 이상치 탐지', '📊 상관관계 분석'] },
+      yoon: { name: 'YOON', letter: 'Y', title: 'PPT 전용 담당',         desc: 'PowerPoint 프레젠테이션 자동 생성 / 슬라이드 디자인', icon: '📑', color1: '#c084fc', color2: '#9333ea',
+        quickActions: ['📑 주간 보고서 PPT', '📊 데이터 분석 PPT', '🎯 프로젝트 발표 PPT'] },
+      lee:  { name: 'LEE',  letter: 'L', title: 'Draw.io 다이어그램 담당', desc: 'Draw.io 기반 다이어그램 / 플로우차트 / 아키텍처 설계', icon: '🔀', color1: '#4ade80', color2: '#16a34a',
+        quickActions: ['🔀 플로우차트 생성', '🏗️ 아키텍처 다이어그램', '📐 ER 다이어그램'] },
+      park: { name: 'PARK', letter: 'P', title: 'MD 파일 문서 담당',      desc: 'Markdown 문서 작성 / 기술 문서화 / README 생성', icon: '📝', color1: '#e2b714', color2: '#c9960c',
+        quickActions: ['📝 README 작성', '📋 기술 문서 작성', '📄 API 문서 작성'] },
+      kim:  { name: 'KIM',  letter: 'K', title: '그래프/차트 생성 담당',   desc: '데이터 시각화 / 그래프·차트 생성 / 인포그래픽', icon: '📈', color1: '#ff6b6b', color2: '#ee5a24',
+        quickActions: ['📊 막대 차트', '📈 라인 차트', '🥧 파이 차트', '📉 산점도'] },
+      choi: { name: 'CHOI', letter: 'C', title: '로그프레소 쿼리 담당',   desc: 'Logpresso SPL 쿼리 생성 / 로그 분석 / 보안 이벤트 탐색', icon: '🔍', color1: '#00e5ff', color2: '#0097a7',
+        quickActions: ['🔍 에러 로그 검색', '📊 CPU 사용률 쿼리', '🛡️ 보안 이벤트 탐지'] },
+    };
+
+    let currentAgent = null;
+
+    function openAgent(key) {
+      const agent = agentData[key];
+      if (!agent) return;
+      currentAgent = key;
+
+      // Highlight sidebar card
+      document.querySelectorAll('.agent-card').forEach(c => c.classList.remove('active'));
+      const card = document.querySelector(`.agent-card.${key}`);
+      if (card) card.classList.add('active');
+
+      // Header
+      document.getElementById('chatHeader').innerHTML = `
+        <div class="ch-avatar" style="background:linear-gradient(135deg,${agent.color1},${agent.color2})">${agent.letter}</div>
+        <div class="ch-info">
+          <h2>${agent.name}</h2>
+          <p>${agent.title}</p>
+        </div>
+        <button class="back-btn" onclick="closeAgent()">← 돌아가기</button>
+      `;
+
+      // Chat area with welcome
+      const qbtns = agent.quickActions.map(q =>
+        `<button class="quick-btn" onclick="sendQuick('${q.replace(/'/g,"\\\'")}')">${q}</button>`
+      ).join('');
+      document.getElementById('chatArea').innerHTML = `
+        <div class="welcome-msg">
+          <div class="big-icon">${agent.icon}</div>
+          <h2>${agent.name} 에이전트</h2>
+          <p>${agent.desc}</p>
+          <div class="quick-actions">${qbtns}</div>
+        </div>
+      `;
+
+      // Send button color
+      document.getElementById('sendBtn').style.background = agent.color1;
+      document.getElementById('userInput').placeholder = `${agent.name}에게 질문하세요...`;
+
+      // Show chat, hide canvas
+      document.getElementById('stageEl').style.display = 'none';
+      document.getElementById('chatPanel').style.display = 'flex';
+      document.getElementById('userInput').focus();
+    }
+
+    function closeAgent() {
+      currentAgent = null;
+      document.querySelectorAll('.agent-card').forEach(c => c.classList.remove('active'));
+      document.getElementById('chatPanel').style.display = 'none';
+      document.getElementById('stageEl').style.display = '';
+    }
+
+    function sendMsg() {
+      const input = document.getElementById('userInput');
+      const text = input.value.trim();
+      if (!text || !currentAgent) return;
+
+      const chatArea = document.getElementById('chatArea');
+      // Remove welcome message if present
+      const welcome = chatArea.querySelector('.welcome-msg');
+      if (welcome) welcome.remove();
+
+      // User message
+      chatArea.innerHTML += `
+        <div class="message user">
+          <div class="msg-avatar">👤</div>
+          <div class="msg-body">${escapeHtml(text)}</div>
+        </div>
+      `;
+      input.value = '';
+
+      // Agent response (placeholder)
+      const agent = agentData[currentAgent];
+      setTimeout(() => {
+        chatArea.innerHTML += `
+          <div class="message">
+            <div class="msg-avatar" style="background:linear-gradient(135deg,${agent.color1},${agent.color2});color:#fff;">${agent.letter}</div>
+            <div class="msg-body">요청을 접수했습니다: "${escapeHtml(text)}"<br><br>⏳ 백엔드 연결 후 실제 응답이 표시됩니다.</div>
+          </div>
+        `;
+        chatArea.scrollTop = chatArea.scrollHeight;
+      }, 500);
+
+      chatArea.scrollTop = chatArea.scrollHeight;
+    }
+
+    function sendQuick(text) {
+      document.getElementById('userInput').value = text;
+      sendMsg();
+    }
+
+    function escapeHtml(t) {
+      const d = document.createElement('div');
+      d.textContent = t;
+      return d.innerHTML;
+    }
+  </script>
+</body>
+</html>
