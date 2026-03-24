@@ -188,6 +188,7 @@
     .main-area.split .stage {
       max-width: 100%;
       width: 100%;
+      height: calc(100vh - 24px);
       align-self: start;
       margin-top: 0;
     }
@@ -315,6 +316,13 @@
       box-shadow: 0 14px 40px rgba(0, 0, 0, 0.45);
       background: #111;
       position: relative;
+    }
+    /* 펼치기(split) 시 캔버스 꽉 채우기 */
+    .main-area:not(.split) .stage {
+      max-width: 100%;
+      max-height: calc(100vh - 24px);
+      width: auto;
+      height: calc(100vh - 24px);
     }
 
     canvas {
@@ -990,41 +998,50 @@
       char.direction = char.targetX > char.x ? 1 : -1;
 
       char._onArrive = () => {
-        // Phase 2: Face CEO and show report bubble
+        // Phase 2: Arrive at CEO → "보고합니다!"
         char._reportPhase = 'reporting';
         char.direction = -1; // face left toward CEO
         char.isMoving = false;
         char.idleTimer = 99999;
 
-        // Show report bubble on character
-        const shortText = text.length > 30 ? text.substring(0, 30) + '...' : text;
-        activeBubble = { char, text: `📋 보고: ${shortText}`, timer: 4000 };
+        // "보고합니다!" first
+        activeBubble = { char, text: '보고합니다!', timer: 2000 };
 
-        // CEO acknowledges
+        // After 2s → show actual report content for 3s (total ~5s in front of CEO)
+        setTimeout(() => {
+          const shortText = text.length > 25 ? text.substring(0, 25) + '...' : text;
+          activeBubble = { char, text: `📋 ${shortText}`, timer: 3000 };
+        }, 2000);
+
+        // CEO acknowledges at ~3.5s
         setTimeout(() => {
           const ceoResponses = ['좋아, 수고했어!', '확인했다!', '잘했어!', '오, 그래?', '알겠어, 고생!', '굿! 계속 해!'];
           const resp = ceoResponses[Math.floor(Math.random() * ceoResponses.length)];
-          activeBubble = { char: ceoChar, text: resp, timer: 2500 };
-        }, 2500);
+          activeBubble = { char: ceoChar, text: resp, timer: 2000 };
+        }, 3500);
 
-        // Phase 3: Return to position
+        // Phase 3: After 5s → return to EXACT original saved position
         setTimeout(() => {
           char._reportPhase = null;
           char.speed = origSpeed;
           char.bounds = origBounds;
           char.pauseBehavior = origPause;
-          // Walk back to center of original bounds
-          char.targetX = (origBounds.minX + origBounds.maxX) / 2;
-          char.targetY = (origBounds.minY + origBounds.maxY) / 2;
+          // Return to saved original position (before strike/report moved them)
+          const returnX = (origBounds.minX + origBounds.maxX) / 2;
+          const returnY = (origBounds.minY + origBounds.maxY) / 2;
+          char.targetX = returnX;
+          char.targetY = returnY;
           char.isMoving = true;
           char.direction = char.targetX > char.x ? 1 : -1;
 
           char._onArrive = () => {
-            char.idleTimer = 500 + Math.random() * 1500;
+            // Stop exactly at home position, don't roam
+            char.isMoving = false;
+            char.idleTimer = 1000 + Math.random() * 2000;
             reportInProgress = false;
             processReportQueue();
           };
-        }, 5000);
+        }, 5500);
       };
     }
 
