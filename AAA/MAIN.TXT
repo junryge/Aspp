@@ -979,33 +979,22 @@
       pendingReports[agentKey] = reportText;
     }
 
-    // ── 복도 웨이포인트 (책상 안 넘도록) ──
-    // 가로 복도: y=560, 세로 복도: x=720
-    const CORRIDOR_Y = 560;  // 상하 책상 사이 가로 통로
-    const CORRIDOR_X = 720;  // 좌우 책상 사이 세로 통로
+    // ── 복도 시스템 (책상 절대 안 넘음) ──
+    // 안전 복도 중심점 (모든 이동은 여기를 경유)
+    const HUB = { x: 710, y: 550 };
 
-    // ㄱ자 줄서기 위치 (복도를 따라)
+    // 줄서기 위치: 복도 위에 한 줄로 (책상 사이 안전 통로)
     function getLineUpPositions(count) {
       const positions = [];
-      // CEO 오른쪽 세로줄: x=550, y=350 → y=530 (최대 3명)
-      // 그 다음 가로 복도: y=560, x=550 → x=오른쪽 (나머지)
-      const vertX = 560;
-      const vertStartY = 360;
-      const gap = 75;
-
+      const gap = 70;
+      // 세로 복도(x=710) 위에 한 줄로 CEO 방향(위쪽)부터
       for (let i = 0; i < count; i++) {
-        if (i < 3) {
-          // 세로줄 (CEO 오른쪽 아래로)
-          positions.push({ x: vertX, y: vertStartY + i * gap });
-        } else {
-          // 가로 복도 (ㄱ자 꺾어서 오른쪽으로)
-          positions.push({ x: vertX + (i - 2) * gap, y: CORRIDOR_Y });
-        }
+        positions.push({ x: HUB.x, y: HUB.y + i * gap });
       }
       return positions;
     }
 
-    // 웨이포인트 경유 이동 (책상 안 넘음)
+    // 웨이포인트 순서대로 이동
     function moveViaWaypoints(char, waypoints, finalCallback) {
       if (waypoints.length === 0) {
         if (finalCallback) finalCallback();
@@ -1021,29 +1010,28 @@
       };
     }
 
-    // 캐릭터 현재 위치 → 목표 위치까지 복도 경유 경로 생성
+    // 경로 생성: 무조건 HUB(복도 교차점) 경유 → 직각 이동만
     function buildCorridorPath(fromX, fromY, toX, toY) {
       const path = [];
-      // 현재 위치에서 먼저 가장 가까운 복도로 이동
-      // 전략: 먼저 세로 복도(x=720)로, 그 다음 가로 복도(y=560)로, 그 다음 목적지로
-      const needHorizontalCross = (fromX < CORRIDOR_X && toX > CORRIDOR_X) || (fromX > CORRIDOR_X && toX < CORRIDOR_X);
-      const needVerticalCross = (fromY < CORRIDOR_Y && toY > CORRIDOR_Y) || (fromY > CORRIDOR_Y && toY < CORRIDOR_Y);
 
-      if (needHorizontalCross && needVerticalCross) {
-        // 대각선 이동 필요 → 복도 교차점 경유
-        path.push({ x: CORRIDOR_X, y: fromY });
-        path.push({ x: CORRIDOR_X, y: CORRIDOR_Y });
-        path.push({ x: toX, y: CORRIDOR_Y });
-      } else if (needHorizontalCross) {
-        // 좌우만 넘어야 함 → 가로복도 경유
-        path.push({ x: fromX, y: CORRIDOR_Y });
-        path.push({ x: toX, y: CORRIDOR_Y });
-      } else if (needVerticalCross) {
-        // 상하만 넘어야 함 → 세로복도 경유
-        path.push({ x: CORRIDOR_X, y: fromY });
-        path.push({ x: CORRIDOR_X, y: toY });
+      // Step 1: 현재 위치에서 수직으로 복도 y까지 (같은 x에서 아래/위로)
+      if (Math.abs(fromY - HUB.y) > 20) {
+        path.push({ x: fromX, y: HUB.y });
       }
+
+      // Step 2: 복도 y에서 수평으로 HUB x까지
+      if (Math.abs(fromX - HUB.x) > 20) {
+        path.push({ x: HUB.x, y: HUB.y });
+      }
+
+      // Step 3: HUB에서 목적지 x까지 수평 이동 (복도 y 유지)
+      if (Math.abs(toX - HUB.x) > 20) {
+        path.push({ x: toX, y: HUB.y });
+      }
+
+      // Step 4: 목적지 x에서 수직으로 목적지 y까지
       path.push({ x: toX, y: toY });
+
       return path;
     }
 
@@ -1091,17 +1079,21 @@
     }
 
     function sendCharHome(char, origState) {
-      char._reportPhase = 'goingHome'; // 이동 허용, 도착 후 정지
-      char.speed = origState.speed + 1.5; // 약간 빠르게 복귀
+      char._reportPhase = 'goingHome';
+      char.speed = 3.5;
       char.bounds = { minX: -100, maxX: world.width + 100, minY: -100, maxY: world.height + 100 };
-      char.pauseBehavior = origState.pause;
 
       const homeX = (origState.bounds.minX + origState.bounds.maxX) / 2;
       const homeY = (origState.bounds.minY + origState.bounds.maxY) / 2;
 
-      // 복도 경유해서 집으로
-      const waypoints = buildCorridorPath(char.x, char.y, homeX, homeY);
-      moveViaWaypoints(char, waypoints, () => {
+      // CEO 앞 → 복도로 → 복도 따라 → 집 (직각 이동만)
+      const homePath = [
+        { x: HUB.x, y: char.y },  // 수평으로 복도 x까지
+        { x: HUB.x, y: HUB.y },   // 복도 중심으로
+        { x: HUB.x, y: homeY },   // 복도에서 집 y까지 수직
+        { x: homeX, y: homeY },    // 집으로 수평
+      ];
+      moveViaWaypoints(char, homePath, () => {
         char._reportPhase = null;
         char.speed = origState.speed;
         char.bounds = origState.bounds;
@@ -1129,18 +1121,18 @@
 
       const char = lineup[idx];
       const orig = origStates[idx];
-      const ceeFrontX = ceoChar.x + 80;
+      const ceeFrontX = ceoChar.x + 120;
       const ceeFrontY = ceoChar.y + 60;
 
-      // Step forward to CEO (짧은 거리라 직선 이동)
+      // 줄에서 CEO 앞으로 (복도→CEO)
       char._reportPhase = 'running';
       char.speed = 3.5;
-      char.targetX = ceeFrontX;
-      char.targetY = ceeFrontY;
-      char.isMoving = true;
-      char.direction = char.targetX > char.x ? 1 : -1;
-
-      char._onArrive = () => {
+      const toCeoPath = [
+        { x: HUB.x, y: HUB.y },    // 복도 중심
+        { x: HUB.x, y: ceeFrontY }, // 복도에서 수직으로 CEO 높이까지
+        { x: ceeFrontX, y: ceeFrontY } // CEO 앞으로 수평 이동
+      ];
+      moveViaWaypoints(char, toCeoPath, () => {
         char._reportPhase = 'reporting';
         char.direction = -1; // face CEO
         char.isMoving = false;
@@ -1181,7 +1173,7 @@
             processLineUp(lineup, ceoChar, origStates, idx + 1);
           }, 2500);
         }
-      };
+      });
     }
 
     let activeBubble = null; // { char, text, timer }
