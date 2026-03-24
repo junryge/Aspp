@@ -964,8 +964,8 @@
     let lineUpActive = false;
 
     function triggerReport(agentKey, reportText) {
+      // Store pending report (delivered when CEO calls "보고")
       pendingReports[agentKey] = reportText;
-      if (!lineUpActive) startLineUpReport();
     }
 
     function startLineUpReport() {
@@ -1391,7 +1391,7 @@
     // ═══ Agent Chat System ═══
     const agentBaseData = {
       ceo:  { name: 'CEO',  letter: 'J', title: '멀티에이전트 총괄 CEO',  desc: '6개 전문 에이전트를 총괄 관리 / 업무 배분 / 종합 질의응답', icon: '👑', color1: '#f59e0b', color2: '#d97706',
-        quickActions: ['📋 업무 현황 종합', '🤝 에이전트 간 협업 요청', '💡 종합 분석 의뢰', '📊 전체 보고서'] },
+        quickActions: ['📢 전체 보고', '📋 업무 현황 종합', '🤝 에이전트 간 협업 요청', '💡 종합 분석 의뢰'] },
       seo:  { name: 'SEO',  letter: 'S', color1: '#00b4d8', color2: '#0077b6' },
       yoon: { name: 'YOON', letter: 'Y', color1: '#c084fc', color2: '#9333ea' },
       lee:  { name: 'LEE',  letter: 'L', color1: '#4ade80', color2: '#16a34a' },
@@ -1498,25 +1498,42 @@
       `;
       input.value = '';
 
-      // Agent response (placeholder)
-      const agent = (currentAgent === 'ceo') ? agentBaseData[currentAgent] : getAgentData(currentAgent);
-      const reportAgent = currentAgent; // capture for closure
-      const reportText = text; // capture for closure
-      setTimeout(() => {
-        const responseText = `요청을 접수했습니다: "${escapeHtml(reportText)}"`;
-        chatArea.innerHTML += `
-          <div class="message">
-            <div class="msg-avatar" style="background:linear-gradient(135deg,${agent.color1},${agent.color2});color:#fff;">${agent.letter}</div>
-            <div class="msg-body">${responseText}<br><br>⏳ 백엔드 연결 후 실제 응답이 표시됩니다.</div>
-          </div>
-        `;
-        chatArea.scrollTop = chatArea.scrollHeight;
+      // Check if CEO chat + "보고" command
+      const isCeoReport = (currentAgent === 'ceo') && /보고/.test(text);
 
-        // Trigger 2D character to run to CEO and report
-        if (reportAgent !== 'ceo') {
-          triggerReport(reportAgent, reportText);
-        }
-      }, 500);
+      if (isCeoReport) {
+        // CEO "보고" command → line up all employees
+        const agent = agentBaseData['ceo'];
+        setTimeout(() => {
+          chatArea.innerHTML += `
+            <div class="message">
+              <div class="msg-avatar" style="background:linear-gradient(135deg,${agent.color1},${agent.color2});color:#fff;">${agent.letter}</div>
+              <div class="msg-body">📢 전 직원 보고 소집! 줄 서!</div>
+            </div>
+          `;
+          chatArea.scrollTop = chatArea.scrollHeight;
+          startLineUpReport();
+        }, 300);
+      } else {
+        // Normal agent response
+        const agent = (currentAgent === 'ceo') ? agentBaseData[currentAgent] : getAgentData(currentAgent);
+        const capturedAgent = currentAgent;
+        const capturedText = text;
+        setTimeout(() => {
+          const responseText = `요청을 접수했습니다: "${escapeHtml(capturedText)}"`;
+          chatArea.innerHTML += `
+            <div class="message">
+              <div class="msg-avatar" style="background:linear-gradient(135deg,${agent.color1},${agent.color2});color:#fff;">${agent.letter}</div>
+              <div class="msg-body">${responseText}<br><br>⏳ 백엔드 연결 후 실제 응답이 표시됩니다.</div>
+            </div>
+          `;
+          chatArea.scrollTop = chatArea.scrollHeight;
+          // Store report for next CEO "보고" call
+          if (capturedAgent !== 'ceo') {
+            triggerReport(capturedAgent, capturedText);
+          }
+        }, 500);
+      }
 
       chatArea.scrollTop = chatArea.scrollHeight;
     }
