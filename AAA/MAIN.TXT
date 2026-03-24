@@ -533,7 +533,18 @@
       update(dt) {
         if(this.isStatic) return;
 
+        // Lineup freeze: 줄서기/보고 중이면 완전 정지 (이동만 허용)
+        if (this._reportPhase === 'lineUp' || this._reportPhase === 'reporting') {
+          this.frameIndex = 0;
+          return;
+        }
+
         if (!this.isMoving) {
+          // 집으로 돌아간 직후 lineUpActive 중이면 돌아다니지 않음
+          if (lineUpActive && !this._reportPhase) {
+            this.frameIndex = 0;
+            return;
+          }
           this.idleTimer -= dt * 1000;
           if (this.idleTimer <= 0) {
             this.setNewTarget();
@@ -1016,7 +1027,7 @@
     }
 
     function sendCharHome(char, origState) {
-      char._reportPhase = null;
+      char._reportPhase = 'goingHome'; // 이동 허용, 도착 후 정지
       char.speed = origState.speed;
       char.bounds = origState.bounds;
       char.pauseBehavior = origState.pause;
@@ -1025,8 +1036,9 @@
       char.isMoving = true;
       char.direction = char.targetX > char.x ? 1 : -1;
       char._onArrive = () => {
+        char._reportPhase = null; // 도착 → 정지 (lineUpActive 끝날때까지 안 움직임)
         char.isMoving = false;
-        char.idleTimer = 1000 + Math.random() * 2000;
+        char.idleTimer = 99999;
       };
     }
 
@@ -1038,6 +1050,11 @@
         setTimeout(() => {
           pendingReports = {};
           lineUpActive = false;
+          // 모든 캐릭터 정상 복귀
+          origStates.forEach(os => {
+            os.char._reportPhase = null;
+            os.char.idleTimer = 500 + Math.random() * 1500;
+          });
         }, 2500);
         return;
       }
