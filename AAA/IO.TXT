@@ -149,10 +149,24 @@
     .main-area {
       position: relative;
       display: grid;
+      grid-template-columns: 1fr;
       place-items: center;
       padding: 12px;
       background: radial-gradient(circle at 30% 30%, var(--bg-1), var(--bg-2) 65%);
       overflow: hidden;
+      transition: grid-template-columns 0.3s ease;
+    }
+    .main-area.split {
+      grid-template-columns: 1fr 1fr;
+      gap: 12px;
+      place-items: stretch;
+      align-items: center;
+    }
+    .main-area.split .stage {
+      max-width: 100%;
+      width: 100%;
+      align-self: start;
+      margin-top: 0;
     }
 
     .agent-card.active {
@@ -163,13 +177,15 @@
 
     /* ── Chat Panel ── */
     .chat-panel {
-      position: absolute;
-      top: 0; left: 0; right: 0; bottom: 0;
       display: flex;
       flex-direction: column;
-      background: var(--bg-2);
-      z-index: 20;
+      background: var(--bg-1);
+      border-radius: 12px;
+      border: 1px solid var(--border);
+      overflow: hidden;
       animation: chatFadeIn 0.25s ease;
+      min-height: 0;
+      height: 100%;
     }
     @keyframes chatFadeIn { from { opacity: 0; transform: translateY(16px); } to { opacity: 1; transform: translateY(0); } }
 
@@ -584,6 +600,9 @@
     // ═══ Strike / Protest System ═══
     let isOnStrike = false;
     let strikeChantInterval = null;
+    let fireInterval = null;
+    let firedCharacters = []; // stores { char, originalIndex }
+    let fireFlashText = null; // { text, x, y, startTime }
     const strikeSlogans = [
       "힘들어!", "야근반대!", "워라밸!",
       "우리도 쉬자!", "복지개선!", "재택근무!",
@@ -703,8 +722,21 @@
         playStrikeHorn();
         strikeBGM.currentTime = 0;
         strikeBGM.play().catch(() => {});
-        setTimeout(() => speakSlogan('파업! 힘들어! 야근 반대!'), 2500);
+        setTimeout(() => speakSlogan('왜 이러는겨! 일해라! 파업은 없다!'), 2500);
         setTimeout(() => startStrikeChant(), 5000);
+
+        // Start firing employees every 5 seconds
+        fireInterval = setInterval(() => {
+          if (!isOnStrike) return;
+          const movingAlive = characters.filter(c => !c.isStatic && !c._fired);
+          if (movingAlive.length === 0) {
+            clearInterval(fireInterval);
+            fireInterval = null;
+            return;
+          }
+          const victim = movingAlive[Math.floor(Math.random() * movingAlive.length)];
+          fireEmployee(victim);
+        }, 5000);
 
         // Move all characters to strike line
         const positions = getStrikePositions();
@@ -730,8 +762,26 @@
         strikeBGM.pause();
         strikeBGM.currentTime = 0;
 
-        // Return to normal
-        movingChars.forEach(c => {
+        // Stop firing timer
+        if (fireInterval) { clearInterval(fireInterval); fireInterval = null; }
+
+        // Restore fired employees
+        firedCharacters.forEach(fc => {
+          fc.char._fired = false;
+          fc.char._fireWalkOut = false;
+          fc.char.x = fc.origX;
+          fc.char.y = fc.origY;
+          if (fc.char._savedBounds) fc.char.bounds = fc.char._savedBounds;
+          if (fc.char._savedPause) fc.char.pauseBehavior = fc.char._savedPause;
+          fc.char._slogan = null;
+          fc.char.isMoving = false;
+          fc.char.idleTimer = 200 + Math.random() * 500;
+        });
+        firedCharacters = [];
+        fireFlashText = null;
+
+        // Return to normal (remaining chars)
+        characters.filter(c => !c.isStatic).forEach(c => {
           if (c._savedBounds) c.bounds = c._savedBounds;
           if (c._savedPause) c.pauseBehavior = c._savedPause;
           c._slogan = null;
@@ -739,6 +789,69 @@
           c.idleTimer = 200 + Math.random() * 500;
         });
       }
+    }
+
+    function fireEmployee(char) {
+      char._fired = true;
+      char._fireWalkOut = true;
+      char._slogan = null;
+      // Save original position for restore
+      firedCharacters.push({ char, origX: char._savedBounds ? (char._savedBounds.minX + char._savedBounds.maxX) / 2 : char.x, origY: char._savedBounds ? (char._savedBounds.minY + char._savedBounds.maxY) / 2 : char.y });
+
+      // Show big "해고!!" flash
+      fireFlashText = { text: '해고!!', name: char.name, x: char.x, y: char.y - 100, startTime: Date.now() };
+
+      // CEO shouts
+      speakSlogan(char.name + ' 해고! 너는 잘렸어!');
+
+      // Walk character off screen (to the right edge)
+      char.targetX = world.width + 200;
+      char.targetY = char.y;
+      char.isMoving = true;
+      char.direction = 1;
+      char.pauseBehavior = 'alwaysMove';
+      char.bounds = { minX: -200, maxX: world.width + 400, minY: 0, maxY: world.height };
+    }
+
+    function drawFireFlash(ctx) {
+      if (!fireFlashText) return;
+      const elapsed = Date.now() - fireFlashText.startTime;
+      if (elapsed > 3000) { fireFlashText = null; return; }
+
+      const progress = elapsed / 3000;
+      const alpha = progress < 0.1 ? progress / 0.1 : (1 - progress);
+      const scale = 1 + progress * 0.5;
+
+      ctx.save();
+      ctx.globalAlpha = Math.max(0, alpha);
+      ctx.translate(fireFlashText.x, fireFlashText.y - progress * 80);
+
+      // Big red "해고!!" text
+      ctx.font = `bold ${Math.round(72 * scale)}px "Segoe UI", "Malgun Gothic", sans-serif`;
+      ctx.textAlign = 'center';
+
+      // Red glow shadow
+      ctx.shadowColor = '#ff0000';
+      ctx.shadowBlur = 30;
+
+      // Outline
+      ctx.strokeStyle = '#8b0000';
+      ctx.lineWidth = 6;
+      ctx.strokeText('해 고 !!', 0, 0);
+
+      // Fill
+      ctx.fillStyle = '#ff1111';
+      ctx.fillText('해 고 !!', 0, 0);
+
+      // Name below
+      ctx.font = `bold ${Math.round(32 * scale)}px "Segoe UI", "Malgun Gothic", sans-serif`;
+      ctx.fillStyle = '#ffffff';
+      ctx.strokeStyle = '#333';
+      ctx.lineWidth = 4;
+      ctx.strokeText(fireFlashText.name, 0, 50);
+      ctx.fillText(fireFlashText.name, 0, 50);
+
+      ctx.restore();
     }
 
     // Draw protest sign above character
@@ -895,19 +1008,29 @@
       }
 
       // Update & Draw chars
-      characters.forEach(c => c.update(dt));
+      characters.forEach(c => {
+        // Skip drawing fired chars that walked off screen
+        if (c._fired && c.x > world.width + 100) { c._fireWalkOut = false; return; }
+        c.update(dt);
+      });
       zSort();
-      characters.forEach(c => c.draw(ctx));
+      characters.forEach(c => {
+        if (c._fired && c.x > world.width + 100) return;
+        c.draw(ctx);
+      });
+
+      // Draw fire flash text
+      drawFireFlash(ctx);
 
       // Strike protest signs + CEO cry
       if (isOnStrike) {
-        characters.filter(c => !c.isStatic && c._slogan).forEach(c => drawProtestSign(ctx, c));
+        characters.filter(c => !c.isStatic && c._slogan && !c._fired).forEach(c => drawProtestSign(ctx, c));
 
         // CEO "살려줘" bubble
         const ceoChar = characters.find(c => c.isStatic);
         if (ceoChar) {
           const cx = ceoChar.x, cy = ceoChar.y - 200;
-          const ceoMsgs = ['살려줘...', '제발...', '다 줄게...', '야근 없앨게!!', '월급 올려줄게ㅠ'];
+          const ceoMsgs = ['왜 이러는겨!!', '사장이 다 해줬잖아!', '일해라!!', '파업은 없다!', '머니가 권리다!!', '다시 일하라고!!', '내가 밥을 굶겼나!', '복귀 안 하면 각오해!'];
           const msg = ceoMsgs[Math.floor((Date.now() / 2000) % ceoMsgs.length)];
           ctx.save();
           ctx.font = 'bold 22px "Segoe UI", "Malgun Gothic", sans-serif';
@@ -916,27 +1039,27 @@
           const shake = Math.sin(Date.now() / 80) * 3;
           const bx = cx + shake, by = cy;
           // Bubble
-          ctx.fillStyle = '#fff4f4';
-          ctx.strokeStyle = '#ff3333';
+          ctx.fillStyle = '#e8f0fe';
+          ctx.strokeStyle = '#1a56db';
           ctx.lineWidth = 3;
           ctx.beginPath();
           ctx.roundRect(bx - tw/2, by - 32, tw, 40, 8);
           ctx.fill();
           ctx.stroke();
           // Tail
-          ctx.fillStyle = '#fff4f4';
+          ctx.fillStyle = '#e8f0fe';
           ctx.beginPath();
           ctx.moveTo(bx - 8, by + 8);
           ctx.lineTo(bx, by + 22);
           ctx.lineTo(bx + 8, by + 8);
           ctx.closePath();
           ctx.fill();
-          ctx.strokeStyle = '#ff3333';
+          ctx.strokeStyle = '#1a56db';
           ctx.stroke();
-          ctx.fillStyle = '#fff4f4';
+          ctx.fillStyle = '#e8f0fe';
           ctx.fillRect(bx - 7, by + 6, 14, 4);
           // Text
-          ctx.fillStyle = '#ff2222';
+          ctx.fillStyle = '#1a3a8a';
           ctx.textAlign = 'center';
           ctx.fillText(msg, bx, by);
           ctx.restore();
@@ -1024,8 +1147,9 @@
       document.getElementById('sendBtn').style.background = agent.color1;
       document.getElementById('userInput').placeholder = `${agent.name}에게 질문하세요...`;
 
-      // Show chat, hide canvas
-      document.getElementById('stageEl').style.display = 'none';
+      // Show chat alongside canvas (split view)
+      document.querySelector('.main-area').classList.add('split');
+      document.getElementById('stageEl').style.display = '';
       document.getElementById('chatPanel').style.display = 'flex';
       document.getElementById('userInput').focus();
     }
@@ -1036,13 +1160,13 @@
       if (!currentAgent) return;
       chatCollapsed = !chatCollapsed;
       if (chatCollapsed) {
-        // 접기: 채팅 숨기고 캔버스 보이기 (에이전트 선택 유지)
+        // 접기: 채팅 숨기고 캔버스 전체로 복원
         document.getElementById('chatPanel').style.display = 'none';
-        document.getElementById('stageEl').style.display = '';
+        document.querySelector('.main-area').classList.remove('split');
       } else {
-        // 펼치기: 채팅 다시 보이기
+        // 펼치기: 채팅 다시 보이기 (캔버스와 나란히)
         document.getElementById('chatPanel').style.display = 'flex';
-        document.getElementById('stageEl').style.display = 'none';
+        document.querySelector('.main-area').classList.add('split');
         const backBtn = document.querySelector('.back-btn');
         if (backBtn) backBtn.textContent = '← 접기';
       }
@@ -1053,7 +1177,7 @@
       chatCollapsed = false;
       document.querySelectorAll('.agent-card').forEach(c => c.classList.remove('active'));
       document.getElementById('chatPanel').style.display = 'none';
-      document.getElementById('stageEl').style.display = '';
+      document.querySelector('.main-area').classList.remove('split');
     }
 
     function sendMsg() {
