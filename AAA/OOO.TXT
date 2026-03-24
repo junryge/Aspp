@@ -172,7 +172,7 @@ const S={
   _multiDrag:null,
   hist:[],hi:-1,
   _mx:0,_my:0,
-  bgColor:'#0c1017',floorColor:'#1a2540',
+  bgColor:'#0c1017',floorColor:'#1a2540',gridColor:'#2a3a5a',
 };
 function isSel(id){return S.sel===id||S.sels.includes(id);}
 function allSel(){
@@ -653,7 +653,7 @@ function setTool(t){
   else hint.classList.add('hid');
   stat('도구: '+({select:'선택',pan:'이동',connect:'연결'}[t]||t));
 }
-function tglGrid(){S.grid=!S.grid;document.getElementById('bGrd').classList.toggle('on',S.grid);}
+function tglGrid(){S.grid=!S.grid;document.getElementById('bGrd').classList.toggle('on',S.grid);update3DPositions();}
 function tglSnap(){S.snap=!S.snap;document.getElementById('bSnp').classList.toggle('on',S.snap);}
 function tglAnim(){S.anim=!S.anim;document.getElementById('bAnm').classList.toggle('on',S.anim);}
 
@@ -674,6 +674,8 @@ document.getElementById('bBg').oninput=e=>{S.bgColor=e.target.value;ca.style.bac
 document.getElementById('bBg').onchange=e=>{S.bgColor=e.target.value;ca.style.background=e.target.value;_bgUpd();};
 document.getElementById('bFloor').oninput=e=>{S.floorColor=e.target.value;update3DPositions();};
 document.getElementById('bFloor').onchange=e=>{S.floorColor=e.target.value;update3DPositions();};
+document.getElementById('bGrid').oninput=e=>{S.gridColor=e.target.value;update3DPositions();};
+document.getElementById('bGrid').onchange=e=>{S.gridColor=e.target.value;update3DPositions();};
 
 // ══════════════════════════════════════════════
 // 히스토리
@@ -831,9 +833,10 @@ function build3D(){
   t3Ren.setClearColor(hexToInt(S.bgColor||'#0c1017'));
   t3Scene.fog.color.set(hexToInt(S.bgColor||'#0c1017'));
   var _fc=hexToInt(S.floorColor||'#1a2540');
+  var _gc=hexToInt(S.gridColor||'#2a3a5a');
   var gpGeo=new THREE.PlaneGeometry(1200,1200);var gpMat=new THREE.MeshBasicMaterial({color:_fc});
   var gp=new THREE.Mesh(gpGeo,gpMat);gp.rotation.x=-Math.PI/2;gp.position.y=-1;gp.receiveShadow=true;t3Scene.add(gp);t3Objs.push(gp);
-  var grid=new THREE.GridHelper(1200,60,_fc,_fc);grid.position.y=-.5;t3Scene.add(grid);t3Objs.push(grid);
+  var grid=new THREE.GridHelper(1200,60,_gc,_gc);grid.position.y=-.5;grid.visible=S.grid;t3Scene.add(grid);t3Objs.push(grid);
 
   S.nodes.forEach(function(n){
     var g=new THREE.Group();g.userData={node:n,type:n.type};
