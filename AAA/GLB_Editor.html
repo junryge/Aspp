@@ -771,6 +771,10 @@ function makeExportTC(fw,fh){
   const etx=getExportTX();
   const ar=fw/fh;let w,h;
   if(ar>=1){w=etx;h=Math.max(1,Math.round(etx/ar));}else{h=etx;w=Math.max(1,Math.round(etx*ar));}
+  // 브라우저 canvas 최대 크기 안전장치 (대부분 16384px 제한)
+  const MAX=16384;
+  if(w>MAX){const r=MAX/w;w=MAX;h=Math.max(1,Math.round(h*r));}
+  if(h>MAX){const r=MAX/h;h=MAX;w=Math.max(1,Math.round(w*r));}
   const c=document.createElement('canvas');c.width=w;c.height=h;return c;
 }
 
@@ -789,21 +793,31 @@ document.getElementById('exportBtn').addEventListener('click',()=>{
 
   FACES.forEach(f=>{
     const fs=S.faces[f.key],fw=S[f.wDim],fh=S[f.hDim];
-    // Export용 4K 텍스처 캔버스 생성
-    const tc=makeExportTC(fw,fh);
-    drawCover(tc.getContext('2d'),tc.width,tc.height,fs.img,fs.sx,fs.sy,fs.ox,fs.oy,false,f.key);
-    const tex=new THREE.CanvasTexture(tc);
-    tex.colorSpace=THREE.SRGBColorSpace;
-    tex.flipY=true;
-    const mat=new THREE.MeshStandardMaterial({
-      map:tex, side:THREE.FrontSide,
-      transparent:false, alphaTest:0.5,
-      metalness:0, roughness:1,
-      opacity:1, visible:true
-    });
-    if(!fs.img && f.key!=='bottom')mat.visible=false;
-    mats[f.matIdx]=mat;
-    disposables.push(tex,mat);
+    if(!fs.img && f.key!=='bottom'){
+      // 이미지 없는 면: 텍스처 없이 완전 투명 → GLB에서 안 보임
+      const mat=new THREE.MeshStandardMaterial({
+        color:0x000000, side:THREE.FrontSide,
+        transparent:true, opacity:0,
+        metalness:0, roughness:1, visible:true
+      });
+      mats[f.matIdx]=mat;
+      disposables.push(mat);
+    } else {
+      // Export용 고해상도 텍스처 캔버스 생성
+      const tc=makeExportTC(fw,fh);
+      drawCover(tc.getContext('2d'),tc.width,tc.height,fs.img,fs.sx,fs.sy,fs.ox,fs.oy,false,f.key);
+      const tex=new THREE.CanvasTexture(tc);
+      tex.colorSpace=THREE.SRGBColorSpace;
+      tex.flipY=true;
+      const mat=new THREE.MeshStandardMaterial({
+        map:tex, side:THREE.FrontSide,
+        transparent:false, alphaTest:0.5,
+        metalness:0, roughness:1,
+        opacity:1, visible:true
+      });
+      mats[f.matIdx]=mat;
+      disposables.push(tex,mat);
+    }
   });
 
   const exportMesh=new THREE.Mesh(geo,mats);
@@ -812,13 +826,15 @@ document.getElementById('exportBtn').addEventListener('click',()=>{
   const exporter=new GLTFExporter();
   exporter.parse(exportMesh,glb=>{
     const blob=new Blob([glb],{type:'application/octet-stream'});
+    const sizeMB=(blob.size/1024/1024).toFixed(1);
     const a=document.createElement('a');a.href=URL.createObjectURL(blob);
     a.download=`building_${etx}px.glb`;
     document.body.appendChild(a);a.click();document.body.removeChild(a);URL.revokeObjectURL(a.href);
     // Cleanup
     disposables.forEach(d=>d.dispose());
     geo.dispose();
-    btn.textContent='GLB 내보내기';btn.disabled=false;
+    btn.textContent=`GLB 내보내기 (${sizeMB}MB)`;btn.disabled=false;
+    setTimeout(()=>{btn.textContent='GLB 내보내기';},5000);
   },err=>{
     alert('Export failed: '+err.message);
     disposables.forEach(d=>d.dispose());
