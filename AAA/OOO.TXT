@@ -1,399 +1,1639 @@
-# ASAS ALT/src 알람 시스템 전수 분석 보고서
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8"/>
+<title>3D FAB 레이아웃 에디터</title>
+<style>
+:root{--bg:#0c1017;--p1:#151b28;--p2:#1c2436;--bd:#2a3450;--ac:#3b82f6;--ac2:#60a5fa;--tx:#e2e8f0;--tx2:#8494b0;--grn:#22c55e;--yel:#eab308;--red:#ef4444;--ora:#f97316;}
+*{margin:0;padding:0;box-sizing:border-box;}
+body{font-family:'Segoe UI','Malgun Gothic',system-ui,sans-serif;background:var(--bg);color:var(--tx);overflow:hidden;height:100vh;}
+.app{display:grid;grid-template-columns:200px 1fr 260px;grid-template-rows:44px 1fr 32px;height:100vh;}
 
-> 분석 대상: `/ALT/src` 폴더 전체 (39개+ 파일)
-> 분석 일자: 2026-03-23
+.topbar{grid-column:1/4;background:var(--p1);border-bottom:1px solid var(--bd);display:flex;align-items:center;padding:0 12px;gap:6px;z-index:10;}
+.logo{font-weight:800;font-size:14px;color:var(--ac2);letter-spacing:-.5px;white-space:nowrap;}
+.sep{width:1px;height:22px;background:var(--bd);margin:0 6px;}
+.tb{background:var(--p2);border:1px solid var(--bd);color:var(--tx2);padding:4px 10px;border-radius:5px;cursor:pointer;font-size:11px;transition:.12s;display:flex;align-items:center;gap:4px;white-space:nowrap;}
+.tb:hover,.tb.on{background:var(--ac);color:#fff;border-color:var(--ac);}
+.spacer{flex:1;}
+.zinfo{font-size:10px;color:var(--tx2);background:var(--p2);padding:2px 8px;border-radius:3px;}
 
----
+.left{background:var(--p1);border-right:1px solid var(--bd);overflow-y:auto;padding:10px;font-size:12px;}
+.stitle{font-size:10px;font-weight:700;color:var(--tx2);text-transform:uppercase;letter-spacing:.7px;margin:0 0 6px 2px;}
+.tbox{display:grid;grid-template-columns:1fr 1fr;gap:3px;}
+.ti{display:flex;flex-direction:column;align-items:center;gap:2px;padding:8px 4px;background:var(--p2);border:1px solid var(--bd);border-radius:7px;cursor:grab;font-size:9px;color:var(--tx2);transition:.12s;user-select:none;}
+.ti:hover{border-color:var(--ac);color:var(--tx);}
+.ti:active{cursor:grabbing;}
+.usage{margin-top:12px;padding:8px;background:var(--p2);border-radius:7px;font-size:10px;color:var(--tx2);line-height:1.7;}
 
-## 목차
+.cvs{position:relative;overflow:hidden;cursor:default;background:var(--bg);min-width:0;min-height:0;}
+.hint{position:absolute;top:8px;left:50%;transform:translateX(-50%);background:rgba(59,130,246,.88);border-radius:7px;padding:5px 14px;font-size:11px;color:#fff;font-weight:600;pointer-events:none;z-index:5;}
 
-1. [알람 타입 및 카테고리](#1-알람-타입-및-카테고리)
-2. [알람 데이터 구조](#2-알람-데이터-구조)
-3. [알람 발생 로직 및 트리거 조건](#3-알람-발생-로직-및-트리거-조건)
-4. [알람 알림 메커니즘](#4-알람-알림-메커니즘)
-5. [알람 심각도 레벨](#5-알람-심각도-레벨)
-6. [배치 프로세스별 알람 생성](#6-배치-프로세스별-알람-생성)
-7. [알람 시스템 흐름도](#7-알람-시스템-흐름도)
-8. [설정 파일 및 유틸리티 클래스](#8-설정-파일-및-유틸리티-클래스)
-9. [알람 해제 메커니즘](#9-알람-해제-메커니즘)
+.right{background:var(--p1);border-left:1px solid var(--bd);overflow-y:auto;padding:10px;font-size:12px;}
+.nosel{text-align:center;padding:30px 16px;color:var(--tx2);font-size:12px;line-height:1.7;}
+.pg{margin-bottom:10px;}
+.pl{font-size:10px;color:var(--tx2);margin-bottom:3px;}
+.pi{width:100%;background:var(--p2);border:1px solid var(--bd);border-radius:5px;padding:5px 8px;color:var(--tx);font-size:12px;outline:0;}
+.pi:focus{border-color:var(--ac);}
+.pr{display:flex;gap:5px;}.pr .pg{flex:1;}
+.ci{width:100%;height:28px;border:1px solid var(--bd);border-radius:5px;cursor:pointer;background:var(--p2);padding:1px;}
+.pact{display:flex;gap:5px;margin-top:10px;}
+.pact button{flex:1;padding:6px;border-radius:5px;border:1px solid var(--bd);cursor:pointer;font-size:11px;font-weight:600;}
+.bdel{background:rgba(239,68,68,.12);color:var(--red);border-color:rgba(239,68,68,.25);}
+.bdel:hover{background:rgba(239,68,68,.25);}
+.bdup{background:rgba(59,130,246,.12);color:var(--ac2);border-color:rgba(59,130,246,.25);}
+.bdup:hover{background:rgba(59,130,246,.25);}
 
----
+.bot{grid-column:1/4;background:var(--p1);border-top:1px solid var(--bd);display:flex;align-items:center;padding:0 12px;font-size:10px;color:var(--tx2);gap:14px;}
 
-## 1. 알람 타입 및 카테고리
+.ctx{position:fixed;background:var(--p1);border:1px solid var(--bd);border-radius:7px;padding:3px;min-width:150px;box-shadow:0 6px 20px rgba(0,0,0,.5);z-index:100;}
+.cti{padding:6px 10px;border-radius:4px;cursor:pointer;font-size:11px;display:flex;align-items:center;gap:6px;}
+.cti:hover{background:var(--p2);}
+.cti.dng{color:var(--red);}
+.cts{height:1px;background:var(--bd);margin:3px 6px;}
+.hid{display:none!important;}
 
-시스템은 `SEND_SUB_SUBJECT` (TibrvService) 기준 **6가지 주요 알람 타입**을 정의합니다.
+/* 인라인 편집 */
+.inline-edit{position:absolute;z-index:50;background:var(--p1);border:2px solid var(--ac);border-radius:7px;padding:10px;display:flex;flex-direction:column;gap:6px;min-width:220px;box-shadow:0 6px 20px rgba(0,0,0,.5);}
+.inline-edit label{font-size:10px;color:var(--tx2);}
+.inline-edit input{background:var(--p2);border:1px solid var(--bd);border-radius:4px;padding:5px 8px;color:var(--tx);font-size:12px;outline:0;width:100%;}
+.inline-edit input:focus{border-color:var(--ac);}
+.inline-edit .ie-btns{display:flex;gap:4px;justify-content:flex-end;margin-top:2px;}
+.inline-edit .ie-btns button{padding:4px 12px;border-radius:4px;border:1px solid var(--bd);cursor:pointer;font-size:11px;font-weight:600;}
+.inline-edit .ie-ok{background:var(--ac);color:#fff;border-color:var(--ac);}
+.inline-edit .ie-cancel{background:var(--p2);color:var(--tx2);}
 
-### 1.1 HID_OFF (Hidden Instruction Device 다운) - 심각도 Level 1 (CRITICAL)
-- **파일**: `data/HidOffRecordItem.java`
-- **트리거**: HID(Hidden Instruction Device)가 오프라인 전환 시
-- **핵심 필드**: `hidId`, `alarmCode` (형식: "HID###"), `state`, `errorCode`
+.mbg{position:fixed;inset:0;background:rgba(0,0,0,.55);display:flex;align-items:center;justify-content:center;z-index:200;}
+.mdl{background:var(--p1);border:1px solid var(--bd);border-radius:14px;padding:20px;min-width:380px;max-width:90vw;}
+.mdl h3{font-size:15px;margin-bottom:12px;}
+.mdl textarea{width:100%;height:260px;background:var(--p2);border:1px solid var(--bd);border-radius:7px;padding:8px;color:var(--tx);font-family:monospace;font-size:11px;resize:vertical;}
+.mbtn{display:flex;gap:6px;margin-top:10px;justify-content:flex-end;}
+.mbtn button{padding:7px 18px;border-radius:7px;border:1px solid var(--bd);cursor:pointer;font-size:12px;font-weight:600;}
+.mbtn .bp{background:var(--ac);color:#fff;border-color:var(--ac);}
+.mbtn .bc{background:var(--p2);color:var(--tx2);}
+</style>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+// OrbitControls inline for r128 compatibility
+THREE.OrbitControls=function(o,d){this.object=o;this.domElement=d||document;this.enabled=true;this.target=new THREE.Vector3;this.minDistance=0;this.maxDistance=Infinity;this.enableDamping=false;this.dampingFactor=.05;this.enableZoom=true;this.zoomSpeed=1;this.enableRotate=true;this.rotateSpeed=1;this.enablePan=true;this.panSpeed=1;this.autoRotate=false;this.autoRotateSpeed=2;var s=this,STATE={NONE:-1,ROTATE:0,DOLLY:1,PAN:2},state=STATE.NONE,spherical=new THREE.Spherical,sphericalDelta=new THREE.Spherical,scale=1,panOffset=new THREE.Vector3,rotStart=new THREE.Vector2,rotEnd=new THREE.Vector2,panStart=new THREE.Vector2,panEnd=new THREE.Vector2,dollyStart=new THREE.Vector2,dollyEnd=new THREE.Vector2;function getZoomScale(){return Math.pow(.95,s.zoomSpeed)}function rotateLeft(a){sphericalDelta.theta-=a}function rotateUp(a){sphericalDelta.phi-=a}function panLeft(d,m){var v=new THREE.Vector3;v.setFromMatrixColumn(m,0);v.multiplyScalar(-d);panOffset.add(v)}function panUp(d,m){var v=new THREE.Vector3;v.setFromMatrixColumn(m,1);v.multiplyScalar(d);panOffset.add(v)}function pan(dx,dy){var el=s.domElement===document?s.domElement.body:s.domElement;var o=s.object;if(o.isPerspectiveCamera){var p=o.position,of=new THREE.Vector3().copy(p).sub(s.target),tDist=of.length();tDist*=Math.tan(o.fov/2*Math.PI/180);panLeft(2*dx*tDist/el.clientHeight,o.matrix);panUp(2*dy*tDist/el.clientHeight,o.matrix)}}function dollyIn(sc){scale/=sc}function dollyOut(sc){scale*=sc}function onMouseDown(e){if(!s.enabled)return;e.preventDefault();if(e.button===0){state=STATE.ROTATE;rotStart.set(e.clientX,e.clientY)}else if(e.button===1){state=STATE.DOLLY;dollyStart.set(e.clientX,e.clientY)}else if(e.button===2){state=STATE.PAN;panStart.set(e.clientX,e.clientY)}if(state!==STATE.NONE){document.addEventListener('mousemove',onMouseMove,false);document.addEventListener('mouseup',onMouseUp,false)}}function onMouseMove(e){if(!s.enabled)return;e.preventDefault();if(state===STATE.ROTATE){rotEnd.set(e.clientX,e.clientY);var rd=new THREE.Vector2().subVectors(rotEnd,rotStart);var el=s.domElement===document?s.domElement.body:s.domElement;rotateLeft(2*Math.PI*rd.x/el.clientHeight*s.rotateSpeed);rotateUp(2*Math.PI*rd.y/el.clientHeight*s.rotateSpeed);rotStart.copy(rotEnd)}else if(state===STATE.DOLLY){dollyEnd.set(e.clientX,e.clientY);var dd=new THREE.Vector2().subVectors(dollyEnd,dollyStart);if(dd.y>0)dollyIn(getZoomScale());else if(dd.y<0)dollyOut(getZoomScale());dollyStart.copy(dollyEnd)}else if(state===STATE.PAN){panEnd.set(e.clientX,e.clientY);var pd=new THREE.Vector2().subVectors(panEnd,panStart);pan(pd.x,pd.y);panStart.copy(panEnd)}s.update()}function onMouseUp(){document.removeEventListener('mousemove',onMouseMove,false);document.removeEventListener('mouseup',onMouseUp,false);state=STATE.NONE}function onWheel(e){if(!s.enabled||!s.enableZoom)return;e.preventDefault();e.stopPropagation();if(e.deltaY<0)dollyOut(getZoomScale());else if(e.deltaY>0)dollyIn(getZoomScale());s.update()}function onContextMenu(e){if(s.enabled)e.preventDefault()}this.update=function(){var offset=new THREE.Vector3,quat=new THREE.Quaternion().setFromUnitVectors(o.up,new THREE.Vector3(0,1,0)),quatInverse=quat.clone().invert(),lastPosition=new THREE.Vector3,lastQuaternion=new THREE.Quaternion;return function(){var p=s.object.position;offset.copy(p).sub(s.target);offset.applyQuaternion(quat);spherical.setFromVector3(offset);if(s.enableDamping){spherical.theta+=sphericalDelta.theta*s.dampingFactor;spherical.phi+=sphericalDelta.phi*s.dampingFactor}else{spherical.theta+=sphericalDelta.theta;spherical.phi+=sphericalDelta.phi}spherical.phi=Math.max(.01,Math.min(Math.PI-.01,spherical.phi));spherical.radius*=scale;spherical.radius=Math.max(s.minDistance,Math.min(s.maxDistance,spherical.radius));s.target.add(panOffset);offset.setFromSpherical(spherical);offset.applyQuaternion(quatInverse);p.copy(s.target).add(offset);s.object.lookAt(s.target);if(s.enableDamping){sphericalDelta.theta*=(1-s.dampingFactor);sphericalDelta.phi*=(1-s.dampingFactor)}else{sphericalDelta.set(0,0,0)}scale=1;panOffset.set(0,0,0)}}();this.dispose=function(){var el=s.domElement===document?s.domElement.body:s.domElement;el.removeEventListener('contextmenu',onContextMenu,false);el.removeEventListener('mousedown',onMouseDown,false);el.removeEventListener('wheel',onWheel,false)};var el2=this.domElement===document?this.domElement.body:this.domElement;el2.addEventListener('contextmenu',onContextMenu,false);el2.addEventListener('mousedown',onMouseDown,false);el2.addEventListener('wheel',onWheel,{passive:false});this.update()};
+</script>
+</head>
+<body>
+<div class="app">
+<div class="topbar">
+  <span class="logo">3D FAB 레이아웃</span><div class="sep"></div>
+  <button class="tb on" id="bSel">▸ 선택</button>
+  <button class="tb" id="bPan">✥ 이동</button>
+  <button class="tb" id="bCon">⟶ 연결</button>
+  <div class="sep"></div>
+  <button class="tb on" id="bGrd">격자</button>
+  <button class="tb on" id="bSnp">스냅</button>
+  <button class="tb on" id="bAnm">애니</button>
+  <div class="sep"></div>
+  <button class="tb" id="bFit">⊞ 맞춤</button>
+  <div class="spacer"></div>
+  <button class="tb" id="bUnd">실행취소</button>
+  <button class="tb" id="bRed">다시실행</button>
+  <div class="sep"></div>
+  <button class="tb" id="bSav">💾 저장</button>
+  <button class="tb" id="bLod">📂 불러오기</button>
+  <button class="tb" id="bExp">🖼 PNG</button>
+  <div class="sep"></div>
+  <button class="tb" id="bGLB3D" title="3D GLB 내보내기">🧊 3D GLB</button>
+  <button class="tb" id="bScr" title="3D 스크린샷">📸 스크린샷</button>
+  <div class="sep"></div>
+  <span class="zinfo hid" id="zInf">100%</span>
+  <label class="tb" style="padding:2px 6px;gap:3px" title="화면 배경">🎨 <input type="color" id="bBg" value="#0c1017" style="width:22px;height:18px;border:none;cursor:pointer;background:none;padding:0"/></label>
+  <label class="tb" style="padding:2px 6px;gap:3px" title="바닥 배경">🏁 <input type="color" id="bFloor" value="#1a2540" style="width:22px;height:18px;border:none;cursor:pointer;background:none;padding:0"/></label>
+  <label class="tb" style="padding:2px 6px;gap:3px" title="격자 색상">▦ <input type="color" id="bGrid" value="#2a3a5a" style="width:22px;height:18px;border:none;cursor:pointer;background:none;padding:0"/></label>
+</div>
 
-### 1.2 VHL_OFF (Vehicle 다운) - 심각도 Level 2 (HIGH)
-- **파일**: `data/VhlOffRecordItem.java`
-- **트리거**: 차량(VHL)이 정지하거나 오프라인 전환 시
-- **핵심 필드**: `machineId`, `errorCode`, `stoppedFromAddress`, `stoppedToAddress`, `velocity`
+<div class="left">
+  <div class="stitle">컴포넌트</div>
+  <div class="tbox" id="tbox"></div>
+  <div class="usage">
+    <b>3D 마우스 조작</b><br/>
+    좌클릭+드래그: 회전<br/>
+    우클릭+드래그: 팬 이동<br/>
+    스크롤: 줌<br/>
+    클릭: 노드 선택<br/>
+    드래그: XY 이동<br/>
+    <b>Shift+드래그: 높이(Z) 이동</b><br/>
+    <br/><b>키보드 (노드 선택 후)</b><br/>
+    <b>←→↑↓: XY 이동</b><br/>
+    <b>Shift+↑↓: 높이(Z) 이동</b><br/>
+    Ctrl+방향키: 1px 미세이동<br/>
+    Del: 삭제 / R: 회전<br/>
+    Ctrl+D: 복제<br/>
+    Ctrl+C/V/X: 복사/붙여넣기<br/>
+    Ctrl+Z/Y: 실행취소/다시실행<br/>
+    F: 전체 맞춤
+  </div>
+</div>
 
-### 1.3 RAIL_CUT (레일 단절) - 심각도 Level 2 (HIGH)
-- **파일**: `data/RailCutRecordItem.java`
-- **트리거**: 레일 연결이 끊기거나 절단될 때
-- **핵심 필드**: `railCutFromAddress`, `railCutToAddress`, `railEdgeId`
+<div class="cvs" id="cvsArea">
+  <div class="hint hid" id="hint"></div>
+  <div id="tc3d" style="width:100%;height:100%;position:absolute;top:0;left:0;"></div>
+</div>
 
-### 1.4 RAIL_VIBRATION (레일 진동 이상) - 심각도 Level 3 (MEDIUM)
-- **파일**: `data/RailVibrationRecordItem.java`
-- **트리거**: 레일에서 비정상 진동 감지 시 (X, Y, Z 방향)
-- **핵심 필드**: `address`, `term1`, `term2`, `avgX`, `avgY`, `avgZ`, `directory` (진동 방향)
+<div class="right" id="rp">
+  <div class="nosel" id="noSel">
+    <div style="font-size:22px;margin-bottom:6px;">📐</div>
+    노드를 선택하거나<br/>왼쪽에서 드래그하세요<br/><br/>
+    <b>더블클릭</b>으로 직접 편집
+  </div>
+  <div id="pe" class="hid"></div>
+</div>
 
-### 1.5 ALARM (일반 시스템 알람)
-- 배치 프로세스에서 생성 (APM, OHT Performance 등)
-- 리소스 알림, 메시지 큐 알림 용도
+<div class="bot">
+  <span id="stat">준비</span><span class="spacer"></span>
+  <span id="mpos">0, 0</span><span>│</span><span id="nc">N:0</span><span>│</span><span id="cc">C:0</span>
+</div>
+</div>
 
-### 1.6 VHL_AVG_SPEED (차량 평균 속도)
-- 메시지 타입, 비임계 알람
+<div class="ctx hid" id="ctx"></div>
+<div class="mbg hid" id="mbg"><div class="mdl" id="mdl"></div></div>
 
----
-
-## 2. 알람 데이터 구조
-
-### 2.1 Record Item 공통 구조 (모든 알람 타입)
-```
-- id              : 고유 식별자 (타입별 키 형식 상이)
-- fabId           : 공장 ID (M14A, M16A, M16E 등)
-- facId           : 설비 ID (M14, M16, M15 등)
-- mcpName         : MCP 이름 (A, B, E 등)
-- state           : OHT_TIB_STATE.ABNORMAL 또는 OHT_TIB_STATE.NORMAL
-- eventDateTime   : 알람 발생 시각 (long ms)
-- recoveryDateTime: 알람 해제 시각 (VHL/HID OFF 전용)
-- isChanged       : 상태 변경 플래그
-- isModified      : 수정 플래그
-```
-
-### 2.2 핵심 알람 상태 Enum
-```java
-// OhtMsgWorkerRunnable.java
-public static class OHT_TIB_STATE {
-    public static final String NORMAL = "NORMAL";
-    public static final String ABNORMAL = "ABNORMAL";
+<script>
+// ══════════════════════════════════════════════
+// STATE — 단일 캔버스, 층 없음
+// ══════════════════════════════════════════════
+let uid=1;const gid=()=>'n'+(uid++);
+const S={
+  nodes:[],conns:[],
+  sel:null,sels:[],selC:null,
+  tool:'select',cFrom:null,
+  cam:{x:0,y:0,z:1},
+  grid:true,snap:true,anim:true,
+  _dn:null,_do:{x:0,y:0},_drag:false,_pan:false,_ps:{x:0,y:0},
+  _resizing:null,
+  _rotating:null,
+  _tunDrag:null, _tunPtIdx:-1,
+  _selBox:null,
+  _multiDrag:null,
+  hist:[],hi:-1,
+  _mx:0,_my:0,
+  bgColor:'#0c1017',floorColor:'#1a2540',
+};
+function isSel(id){return S.sel===id||S.sels.includes(id);}
+function allSel(){
+  const s=new Set(S.sels);
+  if(S.sel)s.add(S.sel);
+  return[...s];
 }
-```
+function clearSel(){S.sel=null;S.sels=[];S.selC=null;if(typeof updateSelHighlight==='function')updateSelHighlight();}
 
-### 2.3 알람 심각도 레벨 (LayoutUtil.java)
-```
-- Level 1: HID_OFF    (CRITICAL - 인프라 다운)
-- Level 2: VHL_OFF    (HIGH - 차량/경로 차단)
-- Level 2: RAIL_CUT   (HIGH - 차량/경로 차단)
-- Level 3: RAIL_VIBRATION (MEDIUM - 이상 감지)
-```
+// ══════════════════════════════════════════════
+// CANVAS
+// ══════════════════════════════════════════════
+const ca=document.getElementById('cvsArea');
+let W,H;
+function rsz(){
+  const r=ca.getBoundingClientRect();W=r.width;H=r.height;
+}
+rsz();addEventListener('resize',rsz);
 
----
+function getPos(e){
+  const r=ca.getBoundingClientRect();
+  return{x:e.clientX-r.left, y:e.clientY-r.top};
+}
 
-## 3. 알람 발생 로직 및 트리거 조건
+function scrToWorld3D(sx, sy){
+  if(!t3Ren||!t3Cam) return {x:sx-W/2, y:sy-H/2};
+  var rect=t3Ren.domElement.getBoundingClientRect();
+  var mx=((sx)/rect.width)*2-1;
+  var my=-((sy)/rect.height)*2+1;
+  var ray=new THREE.Raycaster();
+  ray.setFromCamera(new THREE.Vector2(mx,my), t3Cam);
+  var plane=new THREE.Plane(new THREE.Vector3(0,1,0),0);
+  var target=new THREE.Vector3();
+  ray.ray.intersectPlane(plane, target);
+  if(target) return {x:target.x, y:target.z};
+  return {x:0, y:0};
+}
 
-### 3.1 VHL OFF 감지 (`process/OhtMsgWorkerRunnable.java`)
-- UDP 상태 메시지에서 비정상 상태 감지
-- **3가지 케이스**:
-  - Case A: 새로운 VHL OFF 이벤트 발생
-  - Case B: VHL OFF 해제 (ABNORMAL → NORMAL 상태 전이)
-  - Case C: 동일 위치의 다른 장치
+// ══════════════════════════════════════════════
+// 인라인 편집 (더블클릭)
+// ══════════════════════════════════════════════
+let inlineEl=null;
+function showInlineEdit(n, sx, sy){
+  hideInlineEdit();
+  const div=document.createElement('div');
+  div.className='inline-edit';
+  div.style.left=(sx-110)+'px';
+  div.style.top=(sy-10)+'px';
+  div.innerHTML=`
+    <label>이름</label>
+    <div style="display:flex;gap:4px;">
+      <input id="ie-label" value="${(n.label||'').replace(/"/g,'&quot;')}" placeholder="이름 입력..." style="flex:1"/>
+      <input id="ie-ls" type="number" value="${n.labelSize||10}" min="5" max="40" step="0.5" style="width:50px" title="이름 크기"/>
+    </div>
+    <label>설명</label>
+    <div style="display:flex;gap:4px;">
+      <input id="ie-desc" value="${(n.desc||'').replace(/"/g,'&quot;')}" placeholder="설명 입력..." style="flex:1"/>
+      <input id="ie-ds" type="number" value="${n.descSize||8.5}" min="4" max="30" step="0.5" style="width:50px" title="설명 크기"/>
+    </div>
+    <div class="ie-btns">
+      <button class="ie-cancel" id="ie-c">취소</button>
+      <button class="ie-ok" id="ie-o">확인</button>
+    </div>`;
+  ca.appendChild(div);
+  inlineEl=div;
+  const labelInput=div.querySelector('#ie-label');
+  labelInput.focus();
+  labelInput.select();
 
-### 3.2 HID OFF 감지 (`process/OhtMsgWorkerRunnable.java`)
-- 모든 Hidden Instruction Device 모니터링
-- 영향 받는 레일 주소 및 포트 기록
-- ABNORMAL → NORMAL 전이 시 복구 기록
+  const apply=()=>{
+    push();
+    n.label=div.querySelector('#ie-label').value;
+    n.desc=div.querySelector('#ie-desc').value;
+    n.labelSize=parseFloat(div.querySelector('#ie-ls').value)||10;
+    n.descSize=parseFloat(div.querySelector('#ie-ds').value)||8.5;
+    hideInlineEdit();
+    updProp();
+  };
+  div.querySelector('#ie-o').onclick=apply;
+  div.querySelector('#ie-c').onclick=()=>hideInlineEdit();
+  div.querySelectorAll('input').forEach(inp=>{
+    inp.addEventListener('keydown',e=>{
+      e.stopPropagation();
+      if(e.key==='Enter')apply();
+      if(e.key==='Escape')hideInlineEdit();
+    });
+  });
+}
+function hideInlineEdit(){
+  if(inlineEl){inlineEl.remove();inlineEl=null;}
+}
 
-### 3.3 Rail Cut 감지 (`batch/RailCutRefreshBatch.java`)
-- `inactive_SCH_1.dat` 파일을 주기적으로 다운로드
-- 이전 vs 현재 railcut 세트 비교:
-  - **Case A**: 복구된 RAIL CUT (α-β)
-  - **Case B**: 새로운 RAIL CUT (β-α)
-  - **Case C**: 유지 중인 RAIL CUT (α∩β)
-- Navigator를 사용하여 영향 받는 주소/포트 계산
 
-### 3.4 Rail Vibration 감지 (`batch/RailVibrationBatch.java`)
-- IOT_M16A 데이터베이스에서 진동 데이터 쿼리
-- X, Y, Z 축 진동 측정값 기록
-- term1(기준) vs term2(현재) 비교
-- 변화율(%) 계산
+// ══════════════════════════════════════════════
+// 드래그 앤 드롭 (도구상자)
+// ══════════════════════════════════════════════
+const TOOLS=[
+  {type:'floor',name:'바닥판',icon:'⬛'},
+  {type:'eq_grid',name:'장비 그룹',icon:'⊞'},
+  {type:'conveyor',name:'컨베이어',icon:'⟿'},
+  {type:'lift',name:'리프트',icon:'⇕'},
+  {type:'bridge',name:'브릿지',icon:'⥯'},
+  {type:'hub',name:'허브',icon:'◉'},
+  {type:'stocker',name:'스토커',icon:'▣'},
+  {type:'tunnel',name:'터널',icon:'⊟'},
+  {type:'zone',name:'구역',icon:'▢'},
+  {type:'label',name:'라벨',icon:'𝐀'},
+  {type:'custom',name:'커스텀',icon:'◇'},
+  {type:'port',name:'PORT',icon:'⊙'},
+];
+let _dropType=null;
+const tbox=document.getElementById('tbox');
+TOOLS.forEach(t=>{
+  const el=document.createElement('div');el.className='ti';el.draggable=true;
+  el.dataset.type=t.type;
+  el.innerHTML=`<div style="font-size:22px;line-height:1">${t.icon}</div>${t.name}`;
+  el.addEventListener('dragstart',e=>{_dropType=t.type;e.dataTransfer.effectAllowed='copy';});
+  tbox.appendChild(el);
+});
 
-### 3.5 서버 리소스 알람 (`batch/ServerResourceApmBatch.java`)
-- **임계값** (XmlUtil 환경변수):
+function handleDragOver(e){e.preventDefault();e.dataTransfer.dropEffect='copy';}
+function handleDrop(e){
+  e.preventDefault();if(!_dropType)return;
+  const p=getPos(e);const sx=p.x,sy=p.y;
+  const ww=scrToWorld3D(sx,sy);
+  push();
+  const n=mkNode(_dropType,ww.x,ww.y);
+  S.nodes.push(n);S.sel=n.id;updProp();cnts();
+  update3DPositions();
+  stat(`${_dropType} 추가됨`);
+  _dropType=null;
+}
+ca.addEventListener('dragover',handleDragOver);
+ca.addEventListener('drop',handleDrop);
+const tc3dEl=document.getElementById('tc3d');
+tc3dEl.addEventListener('dragover',handleDragOver);
+tc3dEl.addEventListener('drop',handleDrop);
 
-| 항목 | 임계값 | 설명 |
-|------|--------|------|
-| CPU_OS_LIMIT | 30% | OS CPU 사용률 |
-| CPU_USER_LIMIT | 10% | User CPU 사용률 |
-| JVM_CPU_LIMIT | 1% | JVM CPU 사용률 |
-| JVM_HEAP_LIMIT | 400MB | JVM 힙 메모리 |
-| JVM_HEAP_LIMIT2 | 800MB | TS 프로세스 JVM 힙 |
-| JVM_THREAD_LIMIT | 1000 | JVM 스레드 수 |
-| TXN_TIME_LIMIT | 1분 | 트랜잭션 시간 |
+function mkNode(type,x,y){
+  const D={
+    floor:{w:200,h:80,color:'#c8dca8',border:'#90b060',label:'바닥판'},
+    eq_grid:{w:80,h:50,rows:3,cols:4,color:'#a8d4e8',border:'#5090a8',label:'장비그룹'},
+    conveyor:{w:120,h:10,color:'#3b82f6',border:'#2563eb',label:'컨베이어'},
+    lift:{w:28,h:70,color:'#818cf8',border:'#6366f1',label:'리프트'},
+    bridge:{w:20,h:120,color:'#818cf8',border:'#6366f1',label:'브릿지'},
+    hub:{w:65,h:48,color:'#eab308',border:'#ca8a04',label:'허브'},
+    stocker:{w:38,h:48,color:'#88d4a8',border:'#50a078',label:'스토커'},
+    label:{w:50,h:18,color:'#ffffff',border:'#94a3b8',label:'라벨'},
+    tunnel:{w:120,h:60,color:'#4a90d0',border:'#2a6ab0',label:'터널',pipeW:8,points:[{x:0,y:0},{x:60,y:0},{x:60,y:-60},{x:120,y:-60}]},
+    zone:{w:130,h:90,color:'#f97316',border:'#ea580c',label:'구역'},
+    custom:{w:35,h:35,color:'#a78bfa',border:'#7c3aed',label:'커스텀'},
+    port:{w:16,h:16,color:'#22c55e',border:'#16a34a',label:'PORT',visible:true},
+  };
+  const d=D[type]||D.custom;
+  return{id:gid(),type,x,y,z:0,...d,desc:''};
+}
 
-### 3.6 메시지 큐 성능 알람 (`batch/OhtPerformanceTimeMinBatch.java`)
-- REP (Reply) 커맨드 알람
-- ASSIGN 시간 알람 (ASSIGN_LIMIT: 100%)
-- TRANSFERRING 시간 알람 (TRANSFERRING_LIMIT: 100%)
-- VHL 가동률 알람 (VHL_RATE_LIMIT: 95%)
+// ══════════════════════════════════════════════
+// 속성 패널 (우측)
+// ══════════════════════════════════════════════
+function updProp(){
+  const pe=document.getElementById('pe'),ns=document.getElementById('noSel');
+  if(S.selC){
+    const cn=S.selC;ns.classList.add('hid');pe.classList.remove('hid');
+    const cpts=cn.points||[];
+    let cpRows='';
+    cpts.forEach((p,i)=>{
+      cpRows+=`<div class="pr" style="margin-bottom:2px"><div class="pg"><div class="pl">P${i} X</div><input type="number" class="pi cpx" data-i="${i}" value="${Math.round(p.x)}" step="5"/></div><div class="pg"><div class="pl">Y</div><input type="number" class="pi cpy" data-i="${i}" value="${Math.round(p.y)}" step="5"/></div><div class="pg"><div class="pl">Z</div><input type="number" class="pi cpz" data-i="${i}" value="${Math.round(p.z||0)}" step="5"/></div><div class="pg" style="flex:0 0 24px"><button class="pi cpdel" data-i="${i}" style="cursor:pointer;color:var(--red);padding:0;text-align:center;font-size:14px" title="삭제">×</button></div></div>`;
+    });
+    pe.innerHTML=`
+      <div class="stitle">연결선</div>
+      <div class="pg"><div class="pl">라벨</div><input class="pi" id="cl" value="${cn.label||''}"/></div>
+      <div class="pg"><div class="pl">색상</div><input type="color" class="ci" id="cc2" value="${cn.color||'#3b82f6'}"/></div>
+      <div class="pr"><div class="pg"><div class="pl">두께</div><input type="number" class="pi" id="cw" value="${cn.width||3}" min="1" max="20"/></div>
+      <div class="pg"><div class="pl">스타일</div><select class="pi" id="cd"><option value="0" ${!cn.dashed?'selected':''}>실선</option><option value="1" ${cn.dashed?'selected':''}>점선</option></select></div></div>
+      <div class="stitle" style="margin-top:8px">꼭짓점 (${cpts.length}개) <button id="cpadd" style="float:right;background:var(--ac);color:#fff;border:none;border-radius:3px;padding:1px 8px;cursor:pointer;font-size:9px">+ 추가</button></div>
+      ${cpRows}
+      <div class="pact"><button class="bdel" id="cdl">삭제</button></div>`;
+    let _cTimer=null;const _cUpd=()=>{clearTimeout(_cTimer);_cTimer=setTimeout(()=>{update3DPositions();},50);};
+    const _cBind=(id,fn)=>{const el=pe.querySelector('#'+id);if(el){el.oninput=fn;el.onchange=fn;}};
+    _cBind('cl',e=>{cn.label=e.target.value;_cUpd();});
+    _cBind('cc2',e=>{cn.color=e.target.value;_cUpd();});
+    _cBind('cw',e=>{cn.width=+e.target.value||3;_cUpd();});
+    _cBind('cd',e=>{cn.dashed=e.target.value==='1';_cUpd();});
+    pe.querySelector('#cdl').onclick=()=>{push();S.conns=S.conns.filter(x=>x!==cn);S.selC=null;updProp();cnts();update3DPositions();};
+    pe.querySelector('#cpadd').onclick=()=>{
+      push();if(!cn.points)cn.points=[];
+      const nF=S.nodes.find(x=>x.id===cn.from),nT=S.nodes.find(x=>x.id===cn.to);
+      if(nF&&nT){
+        const mx=(nF.x+nT.x)/2,my=(nF.y+nT.y)/2,mz=((nF.z||0)+(nT.z||0))/2;
+        if(cn.points.length===0){cn.points.push({x:mx,y:my,z:mz});}
+        else{const lp=cn.points[cn.points.length-1];cn.points.push({x:(lp.x+nT.x)/2,y:(lp.y+nT.y)/2,z:(lp.z||0)});}
+      }else{cn.points.push({x:0,y:0,z:0});}
+      updProp();_cUpd();
+    };
+    pe.querySelectorAll('.cpx').forEach(el=>{el.oninput=e2=>{const i=parseInt(el.dataset.i);if(cn.points&&cn.points[i])cn.points[i].x=parseFloat(e2.target.value)||0;_cUpd();};el.addEventListener('keydown',e2=>e2.stopPropagation());});
+    pe.querySelectorAll('.cpy').forEach(el=>{el.oninput=e2=>{const i=parseInt(el.dataset.i);if(cn.points&&cn.points[i])cn.points[i].y=parseFloat(e2.target.value)||0;_cUpd();};el.addEventListener('keydown',e2=>e2.stopPropagation());});
+    pe.querySelectorAll('.cpz').forEach(el=>{el.oninput=e2=>{const i=parseInt(el.dataset.i);if(cn.points&&cn.points[i])cn.points[i].z=parseFloat(e2.target.value)||0;_cUpd();};el.addEventListener('keydown',e2=>e2.stopPropagation());});
+    pe.querySelectorAll('.cpdel').forEach(el=>{el.onclick=()=>{const i=parseInt(el.dataset.i);if(cn.points){push();cn.points.splice(i,1);if(cn.points.length===0)delete cn.points;updProp();_cUpd();}};});
+    return;
+  }
+  if(!S.sel&&!S.sels.length){ns.classList.remove('hid');pe.classList.add('hid');return;}
+  const n=S.nodes.find(x=>x.id===S.sel);
+  if(!n){ns.classList.remove('hid');pe.classList.add('hid');return;}
+  ns.classList.add('hid');pe.classList.remove('hid');
 
-### 3.7 시스템 알림 상태 (`batch/AlertingSystemStatus.java`)
-- 메모리 사용률 임계값
-- CPU 사용률 임계값
-- 디스크 사용률 임계값
-- **경고 연속 횟수**: 10회 연속 초과 시 SMS 알림 발송
+  if(S.sels.length>1){
+    pe.innerHTML=`<div class="stitle">${S.sels.length}개 선택됨</div>
+      <div style="padding:8px;color:var(--tx2);font-size:11px;line-height:1.8;">
+        드래그: 전체 이동<br/>
+        Delete: 전체 삭제<br/>
+        R: 전체 회전<br/>
+        Ctrl+C/X/D: 전체 복사/잘라내기/복제
+      </div>
+      <div class="pact"><button class="bdup" id="ndu">전체 복제</button><button class="bdel" id="ndl">전체 삭제</button></div>`;
+    pe.querySelector('#ndl').onclick=()=>{push();const idSet=new Set(S.sels);S.nodes=S.nodes.filter(x=>!idSet.has(x.id));S.conns=S.conns.filter(x=>!idSet.has(x.from)&&!idSet.has(x.to));clearSel();updProp();cnts();stat('전체 삭제됨');};
+    pe.querySelector('#ndu').onclick=()=>{push();const newIds=[];S.sels.forEach(id=>{const src=S.nodes.find(x=>x.id===id);if(!src)return;const d=JSON.parse(JSON.stringify(src));d.id=gid();d.x+=30;d.y+=30;S.nodes.push(d);newIds.push(d.id);});S.sels=newIds;S.sel=newIds[0];updProp();cnts();stat(`${newIds.length}개 복제됨`);};
+    return;
+  }
 
-### 3.8 Bridge Layout 이상 감지 (`batch/BridgeLayoutBatch.java`, `batch/BridgeJudgeRangeBatch.java`)
-- **시그마 기반 이상 감지** (기본: 3 시그마)
-- 히스토리 데이터 통계 분석
-- 현재 값 vs 예상 범위 비교
-- Trim 값: 15% (상/하위 15% 데이터 제외)
+  const typeNames={floor:'바닥판',eq_grid:'장비 그룹',conveyor:'컨베이어',lift:'리프트',bridge:'브릿지',hub:'허브',stocker:'스토커',tunnel:'터널',zone:'구역',label:'라벨',custom:'커스텀',port:'PORT'};
+  let ex='';
+  if(n.type==='eq_grid')ex=`<div class="pr"><div class="pg"><div class="pl">행</div><input type="number" class="pi" id="nr" value="${n.rows||3}" min="1" max="20"/></div><div class="pg"><div class="pl">열</div><input type="number" class="pi" id="nc2" value="${n.cols||4}" min="1" max="20"/></div></div>`;
+  if(n.type==='port')ex='<div class="pg"><div class="pl">상태</div><div style="display:flex;align-items:center;gap:8px;"><label style="display:flex;align-items:center;gap:4px;cursor:pointer;"><input type="checkbox" id="nvis" '+(n.visible!==false?'checked':'')+' style="accent-color:#22c55e;width:16px;height:16px;"/> <span style="font-size:12px;color:var(--tx)">'+(n.visible!==false?'보임 (ON)':'숨김 (OFF)')+'</span></label></div></div>';
+  if(n.type==='tunnel'){
+    const tpts=n.points||[];
+    let ptRows='';
+    tpts.forEach((p,i)=>{
+      ptRows+=`<div class="pr" style="margin-bottom:2px"><div class="pg"><div class="pl">P${i} X</div><input type="number" class="pi tpx" data-i="${i}" value="${Math.round(p.x)}" step="5"/></div><div class="pg"><div class="pl">Y</div><input type="number" class="pi tpy" data-i="${i}" value="${Math.round(p.y)}" step="5"/></div><div class="pg" style="flex:0 0 28px"><button class="pi tpdel" data-i="${i}" style="cursor:pointer;color:var(--red);padding:0;text-align:center;font-size:14px" title="삭제">×</button></div></div>`;
+    });
+    ex=`<div class="pr"><div class="pg"><div class="pl">파이프 두께</div><input type="number" class="pi" id="tpw" value="${n.pipeW||8}" min="2" max="30" step="1"/></div><div class="pg"><div class="pl">전체</div><div style="display:flex;gap:2px"><button class="pi" id="tsc5" style="cursor:pointer;text-align:center;color:var(--ac2);padding:4px">50%</button><button class="pi" id="tsc2" style="cursor:pointer;text-align:center;color:var(--ac2);padding:4px">200%</button></div></div></div><div class="stitle" style="margin-top:8px">꼭짓점 (${tpts.length}개) <button id="tpadd" style="float:right;background:var(--ac);color:#fff;border:none;border-radius:3px;padding:1px 8px;cursor:pointer;font-size:9px">+ 추가</button></div>${ptRows}`;
+  }
 
-### 3.9 Stage Command 모니터링 (`batch/MonitoringControlBatch.java`)
-- Stage Command의 ABNORMAL 상태 모니터링
-- 특정 목적 포트의 머신 추적
-- fab/목적 포트별 그룹핑
+  pe.innerHTML=`
+    <div class="stitle">${typeNames[n.type]||n.type}</div>
+    <div class="pg"><div class="pl">이름</div><input class="pi" id="nl" value="${n.label||''}"/></div>
+    <div class="pr"><div class="pg" style="flex:3"><div class="pl">설명</div><input class="pi" id="nd" value="${n.desc||''}"/></div></div>
+    <div class="pr"><div class="pg"><div class="pl">이름 크기</div><input type="number" class="pi" id="nls" value="${n.labelSize||10}" min="5" max="40" step="0.5"/></div>
+    <div class="pg"><div class="pl">설명 크기</div><input type="number" class="pi" id="nds" value="${n.descSize||8.5}" min="4" max="30" step="0.5"/></div></div>
+    <div class="pr"><div class="pg"><div class="pl">X</div><input type="number" class="pi" id="nx" value="${Math.round(n.x)}"/></div>
+    <div class="pg"><div class="pl">Y</div><input type="number" class="pi" id="ny" value="${Math.round(n.y)}"/></div></div>
+    <div class="pr"><div class="pg"><div class="pl">가로(W)</div><input type="number" class="pi" id="nw" value="${n.w||40}"/></div>
+    <div class="pg"><div class="pl">세로(D)</div><input type="number" class="pi" id="nh" value="${n.h||30}"/></div></div>
+    <div class="pr"><div class="pg"><div class="pl">높이(Z)</div><input type="number" class="pi" id="nz" value="${n.z||0}" step="5"/></div>
+    <div class="pg"><div class="pl">&nbsp;</div><span style="color:var(--tx2);font-size:9px">위/아래 위치</span></div></div>
+    <div class="pr"><div class="pg"><div class="pl">회전 (°)</div><input type="number" class="pi" id="nrt" value="${n.rot||0}" min="0" max="359" step="15"/></div>
+    <div class="pg"><div class="pl">&nbsp;</div><button class="pi" id="nrt0" style="cursor:pointer;text-align:center;color:var(--ac2)">초기화</button></div></div>
+    ${ex}
+    <div class="pr"><div class="pg"><div class="pl">색상</div><input type="color" class="ci" id="nco" value="${n.color||'#a8d4e8'}"/></div>
+    <div class="pg"><div class="pl">테두리</div><input type="color" class="ci" id="nbo" value="${n.border||'#5090a8'}"/></div></div>
+    <div class="pr"><div class="pg"><div class="pl">투명도</div><input type="range" class="pi" id="nop" value="${n.opacity!=null?n.opacity:1}" min="0" max="1" step="0.05" style="flex:1"/></div>
+    <div class="pg" style="flex:0 0 36px"><span id="nopV" style="font-size:10px;color:var(--tx2)">${Math.round((n.opacity!=null?n.opacity:1)*100)}%</span></div></div>
+    <div class="pr"><div class="pg"><div class="pl">테두리선</div><select class="pi" id="nbs"><option value="solid" ${(n.borderStyle||'solid')==='solid'?'selected':''}>실선</option><option value="dashed" ${n.borderStyle==='dashed'?'selected':''}>점선</option><option value="none" ${n.borderStyle==='none'?'selected':''}>없음</option></select></div>
+    <div class="pg"><div class="pl">선 두께</div><input type="number" class="pi" id="nbw" value="${n.borderWidth||1}" min="0.5" max="5" step="0.5"/></div></div>
+    <div class="pr"><div class="pg"><div class="pl">라벨 배경</div><input type="color" class="ci" id="nlbg" value="${n.labelBg||'#ffffff'}"/></div>
+    <div class="pg"><div class="pl">라벨 글자</div><input type="color" class="ci" id="nlfc" value="${n.labelFc||'#2a4050'}"/></div></div>
+    <div class="pact"><button class="bdup" id="ndu">복제</button><button class="bdel" id="ndl">삭제</button></div>`;
 
----
+  let _bdTimer=null;
+  const _bdApply=(e2,k,num)=>{n[k]=num?parseFloat(e2.target.value)||0:e2.target.value;clearTimeout(_bdTimer);_bdTimer=setTimeout(()=>{update3DPositions();},50);};
+  const bd=(id,k,num)=>{const el2=pe.querySelector('#'+id);if(el2){el2.oninput=e2=>_bdApply(e2,k,num);el2.onchange=e2=>_bdApply(e2,k,num);}};
+  bd('nl','label');bd('nd','desc');
+  bd('nls','labelSize',1);bd('nds','descSize',1);
+  bd('nx','x',1);bd('ny','y',1);bd('nw','w',1);bd('nh','h',1);bd('nz','z',1);
+  bd('nrt','rot',1);
+  pe.querySelector('#nrt0').onclick=()=>{n.rot=0;updProp();};
+  bd('nco','color');bd('nbo','border');bd('nlbg','labelBg');bd('nlfc','labelFc');
+  bd('nbw','borderWidth',1);
+  var opEl=pe.querySelector('#nop');if(opEl)opEl.oninput=function(ev){n.opacity=parseFloat(ev.target.value);pe.querySelector('#nopV').textContent=Math.round(n.opacity*100)+'%';clearTimeout(_bdTimer);_bdTimer=setTimeout(function(){update3DPositions();},80);};
+  var bsEl=pe.querySelector('#nbs');if(bsEl)bsEl.onchange=function(ev){n.borderStyle=ev.target.value;clearTimeout(_bdTimer);_bdTimer=setTimeout(function(){update3DPositions();},80);};
+  if(n.type==='eq_grid'){bd('nr','rows',1);bd('nc2','cols',1);}
+  if(n.type==='port'){var vis=pe.querySelector('#nvis');if(vis)vis.onchange=function(ev){n.visible=ev.target.checked;updProp();update3DPositions();};}
+  if(n.type==='tunnel'){
+    bd('tpw','pipeW',1);
+    const sc=f=>{push();if(n.points)n.points.forEach(p=>{p.x=Math.round(p.x*f);p.y=Math.round(p.y*f);});updProp();};
+    const b5=pe.querySelector('#tsc5');if(b5)b5.onclick=()=>sc(0.5);
+    const b2=pe.querySelector('#tsc2');if(b2)b2.onclick=()=>sc(2);
+    pe.querySelectorAll('.tpx').forEach(el=>{el.oninput=e=>{const i=parseInt(el.dataset.i);if(n.points&&n.points[i]!=null)n.points[i].x=parseFloat(e.target.value)||0;clearTimeout(_bdTimer);_bdTimer=setTimeout(()=>{update3DPositions();},80);};el.addEventListener('keydown',e=>e.stopPropagation());});
+    pe.querySelectorAll('.tpy').forEach(el=>{el.oninput=e=>{const i=parseInt(el.dataset.i);if(n.points&&n.points[i]!=null)n.points[i].y=parseFloat(e.target.value)||0;clearTimeout(_bdTimer);_bdTimer=setTimeout(()=>{update3DPositions();},80);};el.addEventListener('keydown',e=>e.stopPropagation());});
+    pe.querySelectorAll('.tpdel').forEach(el=>{el.onclick=()=>{const i=parseInt(el.dataset.i);if(n.points&&n.points.length>2){push();n.points.splice(i,1);updProp();}};});
+    const addBtn=pe.querySelector('#tpadd');if(addBtn)addBtn.onclick=()=>{push();if(!n.points)n.points=[];const lp=n.points.length?n.points[n.points.length-1]:{x:0,y:0};n.points.push({x:lp.x+30,y:lp.y});updProp();};
+  }
+  pe.querySelector('#ndl').onclick=()=>{push();const ids=allSel();const idSet=new Set(ids.length?ids:[n.id]);S.nodes=S.nodes.filter(x=>!idSet.has(x.id));S.conns=S.conns.filter(x=>!idSet.has(x.from)&&!idSet.has(x.to));clearSel();updProp();cnts();update3DPositions();stat(`${idSet.size}개 삭제됨`);};
+  pe.querySelector('#ndu').onclick=()=>{push();const ids=allSel();const newIds=[];(ids.length?ids:[n.id]).forEach(id=>{const src=S.nodes.find(x=>x.id===id);if(!src)return;const d=JSON.parse(JSON.stringify(src));d.id=gid();d.x+=30;d.y+=30;S.nodes.push(d);newIds.push(d.id);});S.sels=newIds;S.sel=newIds[0];updProp();cnts();update3DPositions();stat(`${newIds.length}개 복제됨`);};
+}
 
-## 4. 알람 알림 메커니즘
+// ══════════════════════════════════════════════
+// 우클릭 메뉴
+// ══════════════════════════════════════════════
+function showCtx(cx,cy,node,conn,sx,sy){
+  const m=document.getElementById('ctx');m.classList.remove('hid');m.style.left=cx+'px';m.style.top=cy+'px';
+  let h='';
+  if(node){
+    h+=`<div class="cti" data-a="edit">✏️ 편집</div>`;
+    if(node.type==='tunnel'&&node.points){
+      h+=`<div class="cts"></div>`;
+      h+=`<div class="cti" data-a="tunAdd">＋ 꼭짓점 추가 (끝)</div>`;
+      h+=`<div class="cts"></div>`;
+    }
+    h+=`<div class="cti" data-a="rot90">↻ 90° 회전</div>`;
+    h+=`<div class="cti" data-a="rot-90">↺ -90° 회전</div>`;
+    h+=`<div class="cti" data-a="rot0">⊙ 회전 초기화</div>`;
+    h+=`<div class="cti" data-a="dup">📋 복제</div><div class="cts"></div><div class="cti dng" data-a="del">🗑 삭제</div>`;
+  }else if(conn){
+    h+=`<div class="cti dng" data-a="delc">🗑 연결 삭제</div>`;
+  }else{
+    TOOLS.forEach(t=>{
+      h+=`<div class="cti" data-a="add" data-t="${t.type}">➕ ${t.name} 추가</div>`;
+    });
+    h+=`<div class="cts"></div><div class="cti" data-a="selall">☑ 전체 선택</div>`;
+    h+=`<div class="cti" data-a="fit">⊞ 화면 맞춤</div>`;
+  }
+  m.innerHTML=h;
+  m.querySelectorAll('.cti').forEach(el=>{
+    el.onclick=()=>{
+      const a=el.dataset.a;
+      if(a==='edit'&&node){showInlineEdit(node,sx,sy);}
+      if(a==='rot90'&&node){push();node.rot=((node.rot||0)+90)%360;updProp();update3DPositions();}
+      if(a==='rot-90'&&node){push();node.rot=((node.rot||0)-90+360)%360;updProp();update3DPositions();}
+      if(a==='rot0'&&node){push();node.rot=0;updProp();update3DPositions();}
+      if(a==='tunAdd'&&node&&node.points){push();const lp=node.points[node.points.length-1];node.points.push({x:lp.x+30,y:lp.y});updProp();update3DPositions();stat('꼭짓점 추가됨');}
+      if(a==='tunDel'&&node&&node.points){push();const ti=parseInt(el.dataset.ti);node.points.splice(ti,1);updProp();update3DPositions();stat('꼭짓점 삭제됨');}
+      if(a==='del'&&node){push();const ids=allSel();const idSet=new Set(ids.length?ids:[node.id]);S.nodes=S.nodes.filter(x=>!idSet.has(x.id));S.conns=S.conns.filter(x=>!idSet.has(x.from)&&!idSet.has(x.to));clearSel();updProp();cnts();update3DPositions();}
+      if(a==='dup'&&node){push();const ids=allSel();const newIds=[];(ids.length?ids:[node.id]).forEach(id=>{const src=S.nodes.find(x=>x.id===id);if(!src)return;const d=JSON.parse(JSON.stringify(src));d.id=gid();d.x+=30;d.y+=30;S.nodes.push(d);newIds.push(d.id);});S.sels=newIds;S.sel=newIds[0];updProp();cnts();update3DPositions();}
+      if(a==='delc'&&conn){push();S.conns=S.conns.filter(x=>x!==conn);S.selC=null;updProp();cnts();update3DPositions();}
+      if(a==='add'){const ww=scrToWorld3D(sx,sy);push();const n2=mkNode(el.dataset.t,ww.x,ww.y);S.nodes.push(n2);S.sel=n2.id;updProp();cnts();update3DPositions();}
+      if(a==='selall'){S.sels=S.nodes.map(n2=>n2.id);S.sel=S.sels[0]||null;updProp();stat(`전체 선택: ${S.sels.length}개`);}
+      if(a==='fit')fitView();
+      m.classList.add('hid');
+    };
+  });
+}
+document.addEventListener('click',e=>{if(!e.target.closest('.ctx'))document.getElementById('ctx').classList.add('hid');});
 
-### 4.1 TIBRV 메시지 브로드캐스팅 (`service/TibrvService.java`)
-- **서비스**: 멀티캐스트 메시징 시스템
-- **Subject 형식**: `{facId}.{environment}.{alarmType}`
-- **메시지 포맷** (TibrvMsg XML):
+// ══════════════════════════════════════════════
+// 키보드
+// ══════════════════════════════════════════════
+let _clipboard=null;
 
-| 필드 | 설명 |
-|------|------|
-| DEVICE_TYP | 알람 타입 (HIDOFF, VHLOFF, RAILCUT, VIBRATION) |
-| FAB_ID | 공장 식별자 |
-| FAC_ID | 설비 식별자 |
-| EVENT_DT | 이벤트 타임스탬프 |
-| DEVICE_NM | 장치 식별자 |
-| FALR_STAT_TYP | NORMAL 또는 ABNORMAL |
-| FALR_RAISE_ADDR_LVAL | 영향 받는 주소 (콤마 구분) |
-| FALR_AFFECT_PORT_LVAL | 영향 받는 포트 (콤마 구분) |
-| ALARM_CD | 알람 코드 (HID###, error code 등) |
-| ALARM_DESC | 알람 설명 |
-| ALARM_CMT | 알람 코멘트 |
-| ALARM_MSG_CTN | 알람 메시지 내용 |
-| ALARM_LEVEL_VAL | 심각도 레벨 (1-3) |
-| ALARM_YN | Y/N 알람 발생 여부 |
+document.addEventListener('keydown',e=>{
+  if(['INPUT','TEXTAREA','SELECT'].includes(e.target.tagName))return;
+  if(e.ctrlKey&&e.key==='c'){
+    e.preventDefault();
+    const ids=allSel();
+    if(ids.length>0){
+      _clipboard=ids.map(id=>JSON.parse(JSON.stringify(S.nodes.find(x=>x.id===id)))).filter(Boolean);
+      stat(`${_clipboard.length}개 복사됨`);
+    }else if(S.selC){
+      _clipboard=[JSON.parse(JSON.stringify(S.selC))];_clipboard[0]._isConn=true;
+      stat('연결선 복사됨');
+    }
+    return;
+  }
+  if(e.ctrlKey&&e.key==='v'){
+    e.preventDefault();
+    if(!_clipboard||!_clipboard.length){stat('클립보드가 비어있습니다');return;}
+    push();
+    if(_clipboard[0]._isConn){
+      const nc=JSON.parse(JSON.stringify(_clipboard[0]));nc.id=gid();delete nc._isConn;
+      S.conns.push(nc);S.selC=nc;clearSel();updProp();cnts();update3DPositions();stat('연결선 붙여넣기 완료');
+    }else{
+      const newIds=[];
+      _clipboard.forEach(src=>{
+        const nn=JSON.parse(JSON.stringify(src));nn.id=gid();nn.x+=30;nn.y+=30;src.x=nn.x;src.y=nn.y;
+        S.nodes.push(nn);newIds.push(nn.id);
+      });
+      S.sels=newIds;S.sel=newIds[0];S.selC=null;updProp();cnts();
+      update3DPositions();
+      stat(`${newIds.length}개 붙여넣기 완료`);
+    }
+    return;
+  }
+  if(e.ctrlKey&&e.key==='x'){
+    e.preventDefault();
+    const ids=allSel();
+    if(ids.length>0){
+      _clipboard=ids.map(id=>JSON.parse(JSON.stringify(S.nodes.find(x=>x.id===id)))).filter(Boolean);
+      push();const idSet=new Set(ids);
+      S.nodes=S.nodes.filter(x=>!idSet.has(x.id));
+      S.conns=S.conns.filter(x=>!idSet.has(x.from)&&!idSet.has(x.to));
+      clearSel();updProp();cnts();update3DPositions();stat(`${_clipboard.length}개 잘라내기`);
+    }
+    return;
+  }
+  if(e.ctrlKey&&e.key==='d'){
+    e.preventDefault();
+    const ids=allSel();
+    if(ids.length>0){
+      push();const newIds=[];
+      ids.forEach(id=>{
+        const n=S.nodes.find(x=>x.id===id);if(!n)return;
+        const d=JSON.parse(JSON.stringify(n));d.id=gid();d.x+=30;d.y+=30;
+        S.nodes.push(d);newIds.push(d.id);
+      });
+      S.sels=newIds;S.sel=newIds[0];updProp();cnts();update3DPositions();stat(`${newIds.length}개 복제됨`);
+    }
+    return;
+  }
+  if(e.ctrlKey&&e.key==='a'){
+    e.preventDefault();
+    S.sels=S.nodes.map(n=>n.id);
+    S.sel=S.sels[0]||null;S.selC=null;
+    updProp();stat(`전체 선택: ${S.sels.length}개`);
+    return;
+  }
 
-### 4.2 SMS 알림 (`batch/AlertingSystemStatus.java`)
-- 임계 시스템 리소스 이슈에만 사용
-- 수신자: `Settings.properties` → `Sms.Receivers`
-- **메시지 형식**: `[hostname] Exceed Resources ▶ Memory: X% CPU: X% Disk: X%`
-- 10회 연속 초과 후에만 발송 (streak count)
+  if(e.key==='r'||e.key==='R'){
+    const ids=allSel();
+    if(ids.length>0){
+      push();ids.forEach(id=>{
+        const n=S.nodes.find(x=>x.id===id);
+        if(n)n.rot=((n.rot||0)+(e.shiftKey?-15:15)+360)%360;
+      });
+      updProp();stat(`${ids.length}개 회전`);
+    }
+    return;
+  }
 
-### 4.3 Logpresso 데이터베이스 저장
+  if(['ArrowUp','ArrowDown','ArrowLeft','ArrowRight'].includes(e.key)){
+    const ids=allSel();
+    if(ids.length>0){
+      e.preventDefault();
+      const step=e.ctrlKey?1:S.snap?15:5;
+      if(!e.shiftKey){
+        push();
+        ids.forEach(id=>{
+          const n=S.nodes.find(x=>x.id===id);if(!n)return;
+          if(e.key==='ArrowLeft')  n.x-=step;
+          if(e.key==='ArrowRight') n.x+=step;
+          if(e.key==='ArrowUp')    n.y-=step;
+          if(e.key==='ArrowDown')  n.y+=step;
+        });
+      }else{
+        push();
+        ids.forEach(id=>{
+          const n=S.nodes.find(x=>x.id===id);if(!n)return;
+          if(e.key==='ArrowUp')   n.z=(n.z||0)+step;
+          if(e.key==='ArrowDown') n.z=(n.z||0)-step;
+        });
+      }
+      updProp();update3DPositions();
+      stat(`이동: ${ids.length}개 (${e.shiftKey?'Z축':'XY'})`);
+    }
+    return;
+  }
 
-| 테이블명 | 저장 데이터 |
-|----------|------------|
-| ATLAS_OHT_HID_OFF | HID OFF 이벤트 |
-| ATLAS_OHT_VHL_OFF | VHL OFF 이벤트 |
-| ATLAS_OHT_VHL_OFF_ONLY | VHL OFF 모니터링 전용 |
-| ATLAS_OHT_STG_CMD_MNT | Stage Command 모니터링 |
-| ATLAS_OHT_RAIL_CUT | Rail Cut 이벤트 |
-| ATLAS_OHT_RAIL_VIBRATION | Rail Vibration 데이터 |
-| bridge_judge_range | Bridge 레이아웃 통계 범위 |
-| bridge_layout_test | Bridge 레이아웃 이상 감지 |
-| server_resource_apm | 서버 리소스 측정값 |
-| server_resource_predict | 서버 리소스 예측값 |
-| ATLAS_TIB_SEND_MSG_LOG | TIBRV 메시지 송신 로그 |
-| oht_cmd_count | OHT 명령 카운트 |
-| oht_time_avg | OHT 메시지 타이밍 평균 |
+  if(e.key==='v'&&!e.ctrlKey)setTool('select');
+  if(e.key==='h')setTool('pan');
+  if(e.key==='c'&&!e.ctrlKey)setTool('connect');
+  if(e.key==='g')tglGrid();
+  if(e.key==='s'&&!e.ctrlKey)tglSnap();
+  if(e.key==='f')fitView();
+  if(e.key==='Delete'||e.key==='Backspace'){
+    const ids=allSel();
+    if(ids.length>0){
+      push();const idSet=new Set(ids);
+      S.nodes=S.nodes.filter(x=>!idSet.has(x.id));
+      S.conns=S.conns.filter(x=>!idSet.has(x.from)&&!idSet.has(x.to));
+      clearSel();updProp();cnts();update3DPositions();stat(`${ids.length}개 삭제됨`);
+    }else if(S.selC){push();S.conns=S.conns.filter(x=>x!==S.selC);S.selC=null;updProp();cnts();update3DPositions();}
+  }
+  if(e.key==='Escape'){S.cFrom=null;clearSel();hideInlineEdit();document.getElementById('hint').classList.add('hid');updProp();}
+  if(e.ctrlKey&&e.key==='z'){e.preventDefault();undo();}
+  if(e.ctrlKey&&(e.key==='y'||e.key==='Z')){e.preventDefault();redo();}
+  if(e.ctrlKey&&e.key==='s'){e.preventDefault();saveJ();}
+});
 
----
+// ══════════════════════════════════════════════
+// 도구
+// ══════════════════════════════════════════════
+function setTool(t){
+  S.tool=t;S.cFrom=null;
+  ['bSel','bPan','bCon'].forEach(id=>document.getElementById(id).classList.remove('on'));
+  ({select:'bSel',pan:'bPan',connect:'bCon'})[t]&&document.getElementById({select:'bSel',pan:'bPan',connect:'bCon'}[t]).classList.add('on');
+  ca.classList.toggle('conn',t==='connect');
+  const hint=document.getElementById('hint');
+  if(t==='connect'){hint.textContent='출발 노드 → 도착 노드를 클릭하세요. ESC로 취소.';hint.classList.remove('hid');}
+  else hint.classList.add('hid');
+  stat('도구: '+({select:'선택',pan:'이동',connect:'연결'}[t]||t));
+}
+function tglGrid(){S.grid=!S.grid;document.getElementById('bGrd').classList.toggle('on',S.grid);}
+function tglSnap(){S.snap=!S.snap;document.getElementById('bSnp').classList.toggle('on',S.snap);}
+function tglAnim(){S.anim=!S.anim;document.getElementById('bAnm').classList.toggle('on',S.anim);}
 
-## 5. 알람 심각도 레벨
+document.getElementById('bSel').onclick=()=>setTool('select');
+document.getElementById('bPan').onclick=()=>setTool('pan');
+document.getElementById('bCon').onclick=()=>setTool('connect');
+document.getElementById('bGrd').onclick=tglGrid;
+document.getElementById('bSnp').onclick=tglSnap;
+document.getElementById('bAnm').onclick=tglAnim;
+document.getElementById('bUnd').onclick=undo;
+document.getElementById('bRed').onclick=redo;
+document.getElementById('bSav').onclick=saveJ;
+document.getElementById('bLod').onclick=loadJ;
+document.getElementById('bExp').onclick=expPNG;
+document.getElementById('bFit').onclick=fitView;
+var _bgUpd=function(){if(t3Ren&&t3Scene){t3Ren.setClearColor(hexToInt(S.bgColor||'#0c1017'));if(t3Scene.fog)t3Scene.fog.color.set(hexToInt(S.bgColor||'#0c1017'));}};
+document.getElementById('bBg').oninput=e=>{S.bgColor=e.target.value;ca.style.background=e.target.value;_bgUpd();};
+document.getElementById('bBg').onchange=e=>{S.bgColor=e.target.value;ca.style.background=e.target.value;_bgUpd();};
+document.getElementById('bFloor').oninput=e=>{S.floorColor=e.target.value;update3DPositions();};
+document.getElementById('bFloor').onchange=e=>{S.floorColor=e.target.value;update3DPositions();};
 
-| 심각도 | 알람 타입 | Level | 임계값 | 조치 |
-|--------|----------|-------|--------|------|
-| CRITICAL | HID_OFF | 1 | 즉시 | TIBRV + DB + UI |
-| HIGH | VHL_OFF | 2 | 즉시 | TIBRV + DB + UI |
-| HIGH | RAIL_CUT | 2 | 즉시 | TIBRV + DB + UI |
-| MEDIUM | RAIL_VIBRATION | 3 | Term2-Term1 비교 | TIBRV + DB |
-| MEDIUM | Resource APM | N/A | 다중 임계값 | DB + Prediction |
-| LOW | System Status | N/A | 10회 연속 | SMS 전용 |
+// ══════════════════════════════════════════════
+// 히스토리
+// ══════════════════════════════════════════════
+function push(){
+  const snap=JSON.stringify({nodes:S.nodes,conns:S.conns});
+  S.hist=S.hist.slice(0,S.hi+1);S.hist.push(snap);S.hi=S.hist.length-1;
+  if(S.hist.length>60){S.hist.shift();S.hi--;}
+}
+function undo(){if(S.hi<=0)return;S.hi--;const d=JSON.parse(S.hist[S.hi]);S.nodes=d.nodes;S.conns=d.conns;S.sel=null;S.selC=null;updProp();cnts();update3DPositions();stat('실행취소');}
+function redo(){if(S.hi>=S.hist.length-1)return;S.hi++;const d=JSON.parse(S.hist[S.hi]);S.nodes=d.nodes;S.conns=d.conns;S.sel=null;updProp();cnts();update3DPositions();stat('다시실행');}
 
----
+// ══════════════════════════════════════════════
+// 저장 / 불러오기 / 내보내기
+// ══════════════════════════════════════════════
+function saveJ(){
+  const data=JSON.stringify({nodes:S.nodes,conns:S.conns},null,2);
+  showModal('레이아웃 저장 (JSON)',`<textarea id="ja">${data}</textarea><div class="mbtn"><button class="bc" id="mc2">닫기</button><button class="bp" id="md">다운로드</button></div>`,()=>{
+    document.getElementById('mc2').onclick=hideModal;
+    document.getElementById('md').onclick=()=>{const b=new Blob([data],{type:'application/json'});const a=document.createElement('a');a.href=URL.createObjectURL(b);a.download='fab_layout.json';a.click();hideModal();};
+  });
+}
+function loadJ(){
+  var inp=document.createElement('input');
+  inp.type='file';inp.accept='.json';
+  inp.onchange=function(ev){
+    var file=ev.target.files[0];
+    if(!file)return;
+    var reader=new FileReader();
+    reader.onload=function(re){
+      try{
+        var d=JSON.parse(re.target.result);
+        push();
+        if(d.nodes)S.nodes=d.nodes;if(d.conns)S.conns=d.conns;
+        window._3dCamSet=false;
+        updProp();cnts();update3DPositions();
+        stat('불러오기 완료: '+file.name);
+      }catch(e2){alert('잘못된 JSON: '+e2.message);}
+    };
+    reader.readAsText(file);
+  };
+  inp.click();
+}
+function expPNG(){
+  if(t3Ren){
+    t3Ren.render(t3Scene,t3Cam);
+    t3Ren.domElement.toBlob(function(b){var a=document.createElement('a');a.href=URL.createObjectURL(b);a.download='fab_layout_3d.png';a.click();});
+    stat('3D PNG 내보내기 완료');
+  }
+}
 
-## 6. 배치 프로세스별 알람 생성
+function showModal(title,content,cb){document.getElementById('mbg').classList.remove('hid');document.getElementById('mdl').innerHTML=`<h3>${title}</h3>${content}`;if(cb)setTimeout(cb,0);}
+function hideModal(){document.getElementById('mbg').classList.add('hid');}
+document.getElementById('mbg').addEventListener('click',e=>{if(e.target===document.getElementById('mbg'))hideModal();});
 
-| 배치 작업 | 주기 | 알람 타입 | DB 테이블 |
-|-----------|------|----------|-----------|
-| AlertingSystemStatus | 1분 | System Resource | SMS 전용 |
-| MonitoringControlBatch | 1분 | VHL_OFF, Stage Command | ATLAS_OHT_* |
-| RailCutRefreshBatch | 가변 | RAIL_CUT | ATLAS_OHT_RAIL_CUT |
-| RailVibrationBatch | 가변 | RAIL_VIBRATION | ATLAS_OHT_RAIL_VIBRATION |
-| ServerResourceApmBatch | 일별 + 7일 | APM Alarm, Prediction | server_resource_* |
-| OhtPerformanceTimeMinBatch | 1분 | Message Queue Alarm | oht_cmd_count, oht_time_avg |
-| OhtPerformanceTimeHourBatch | 시간별 | Message Counts | oht_cmd_count, oht_time_avg |
-| BridgeLayoutBatch | 1분 | Bridge Anomaly | bridge_layout_test |
-| BridgeJudgeRangeBatch | 일별 | Bridge Judge Range | bridge_judge_range |
-| AbnormalDetectBatch | 가변 | TS Log Pattern | ts_log_pattern |
-| SystemMessageDetectBatch | 가변 | System Message Pattern | System messages |
-| SwitchSystemBatch | 파일 변경 | Configuration | N/A (config only) |
-| DataSetRefreshBatch | 가변 | Dataset Reload | Memory refresh |
-| TrafficBatch | 가변 | Traffic Alarm | Traffic stats |
-| ItsmChangeRequestBatch | 가변 | ITSM Change Request | ITSM 연동 |
-| QTransferPredictBatch | 가변 | Q Transfer Prediction | Q transfer stats |
+function fitView(){
+  if(!t3Ctrl||!t3Cam||!S.nodes.length)return;
+  var bx1=Infinity,bx2=-Infinity,bz1=Infinity,bz2=-Infinity;
+  S.nodes.forEach(function(n){
+    var hw=(n.w||40)/2+20, hh=(n.h||40)/2+20;
+    if(n.x-hw<bx1)bx1=n.x-hw; if(n.x+hw>bx2)bx2=n.x+hw;
+    if(n.y-hh<bz1)bz1=n.y-hh; if(n.y+hh>bz2)bz2=n.y+hh;
+  });
+  var cx=(bx1+bx2)/2, cz=(bz1+bz2)/2;
+  var rng=Math.max(bx2-bx1, bz2-bz1, 100);
+  t3Ctrl.target.set(cx,0,cz);
+  t3Cam.position.set(cx+rng*.6, rng*.5, cz+rng*.6);
+  t3Ctrl.update();
+}
 
----
+function stat(t){document.getElementById('stat').textContent=t;}
+function cnts(){document.getElementById('nc').textContent='N:'+S.nodes.length;document.getElementById('cc').textContent='C:'+S.conns.length;}
 
-## 7. 알람 시스템 흐름도
+// ══════════════════════════════════════════════
+// 데모 데이터
+// ══════════════════════════════════════════════
+function initDemo(){
+  S.nodes=[
+    {id:gid(),type:'floor',x:-80,y:-50,z:80,w:200,h:80,color:'#c8dca8',border:'#90b060',label:'M14B 영역',desc:''},
+    {id:gid(),type:'floor',x:120,y:-30,z:80,w:180,h:70,color:'#b8d8c4',border:'#70a888',label:'M16 영역',desc:''},
+    {id:gid(),type:'floor',x:-100,y:80,z:0,w:170,h:65,color:'#d8d4c0',border:'#a89870',label:'M14A 영역',desc:''},
+    {id:gid(),type:'eq_grid',x:-120,y:-80,z:80,w:80,h:50,rows:3,cols:5,color:'#a8d4e8',border:'#5090a8',label:'M14B',desc:'M14B 장비'},
+    {id:gid(),type:'eq_grid',x:-40,y:-40,z:80,w:80,h:50,rows:3,cols:5,color:'#a8d4e8',border:'#5090a8',label:'M14B',desc:'M14B 장비'},
+    {id:gid(),type:'eq_grid',x:160,y:-60,z:80,w:70,h:45,rows:3,cols:4,color:'#a8d4e8',border:'#5090a8',label:'M16 6F',desc:'M16 장비'},
+    {id:gid(),type:'eq_grid',x:230,y:-20,z:80,w:60,h:40,rows:2,cols:3,color:'#a8d4e8',border:'#5090a8',label:'M16 6F',desc:'M16 장비'},
+    {id:gid(),type:'label',x:-140,y:50,w:55,h:18,color:'#fff',border:'#94a3b8',label:'M14A',desc:'M14A 생산'},
+    {id:gid(),type:'label',x:-50,y:60,w:55,h:18,color:'#fff',border:'#94a3b8',label:'M14A CNV',desc:'컨베이어 연결'},
+    {id:gid(),type:'conveyor',x:-90,y:100,w:140,h:10,color:'#3b82f6',border:'#2563eb',label:'',desc:''},
+    {id:gid(),type:'conveyor',x:-90,y:115,w:140,h:10,color:'#3b82f6',border:'#2563eb',label:'',desc:''},
+    {id:gid(),type:'hub',x:60,y:30,w:65,h:48,color:'#eab308',border:'#ca8a04',label:'M16 HUB',desc:'M16 허브 ▸ 2F/6F'},
+    {id:gid(),type:'lift',x:120,y:80,w:28,h:70,color:'#818cf8',border:'#6366f1',label:'M16 LFT',desc:''},
+    {id:gid(),type:'lift',x:0,y:0,w:28,h:70,color:'#818cf8',border:'#6366f1',label:'M14B LFT',desc:''},
+    {id:gid(),type:'stocker',x:200,y:50,w:38,h:48,color:'#88d4a8',border:'#50a078',label:'스토커',desc:'M16 스토커'},
+    {id:gid(),type:'label',x:170,y:100,w:55,h:18,color:'#fff',border:'#94a3b8',label:'M16 EUV',desc:'M16 EUV 장비'},
+  ];
 
-### 7.1 실시간 알람 흐름 (UDP 기반)
-```
-UDP 메시지 수신 (OhtUdpListener)
-    ↓
-OhtMsgWorkerRunnable.process()
-    ↓
-상태 분석:
-    ├→ VHL 상태 체크 → VhlOffRecordItem
-    ├→ HID 상태 체크 → HidOffRecordItem
-    └→ Stage Command 체크 → StageCommandRecordItem
-    ↓
-LayoutUtil.buildLayoutMessageDataMap()
-    ↓
-병렬 처리:
-    ├→ TibrvService.sendMessage()
-    │   ├→ TibrvRvdTransport.send() → TIBRV 브로드캐스트
-    │   └→ LogpressoAPI.setInsertTuple() → 송신 로그 저장
-    ├→ MonitoringControlBatch → DB 저장:
-    │   ├→ ATLAS_OHT_VHL_OFF_ONLY (모니터링)
-    │   ├→ ATLAS_OHT_HID_OFF (영구 저장)
-    │   └→ ATLAS_OHT_STG_CMD_MNT
-    └→ UI 업데이트 (WebSocket/Socket.IO)
-```
+  const ids=S.nodes.map(n=>n.id);
 
-### 7.2 배치 기반 알람 흐름
-```
-스케줄러 트리거 (주기별)
-    ↓
-배치 작업 실행:
-    ├→ RailCutRefreshBatch → 파일 다운로드 → 비교 분석
-    ├→ RailVibrationBatch → IOT DB 쿼리 → 진동 분석
-    ├→ ServerResourceApmBatch → APM 데이터 수집 → 임계값 비교
-    ├→ BridgeLayoutBatch → 통계 분석 → 시그마 이상 감지
-    └→ AlertingSystemStatus → 리소스 체크 → SMS 발송
-    ↓
-Record Item 생성 → 상태 관리
-    ↓
-상태 검증 (ABNORMAL/NORMAL 체크)
-    ↓
-데이터 저장/알림:
-    ├→ Logpresso DB 저장
-    ├→ TIBRV 브로드캐스트 (해당 시)
-    └→ SMS 알림 (임계 상황만)
-```
+  S.conns=[
+    {id:gid(),from:ids[7],to:ids[8],color:'#3b82f6',width:3,dashed:false,label:'CNV'},
+    {id:gid(),from:ids[8],to:ids[11],color:'#3b82f6',width:4,dashed:false,label:'이송'},
+    {id:gid(),from:ids[11],to:ids[12],color:'#3b82f6',width:3,dashed:false,label:'LFT'},
+    {id:gid(),from:ids[11],to:ids[5],color:'#818cf8',width:3,dashed:true,label:'▲ 6F'},
+    {id:gid(),from:ids[11],to:ids[15],color:'#f97316',width:3,dashed:true,label:'▼ EUV'},
+    {id:gid(),from:ids[5],to:ids[6],color:'#3b82f6',width:2,dashed:false,label:''},
+    {id:gid(),from:ids[12],to:ids[14],color:'#22c55e',width:2,dashed:false,label:''},
+  ];
 
----
+  push();
+  cnts();
+  setTimeout(fitView,100);
+}
 
-## 8. 설정 파일 및 유틸리티 클래스
+// ══════════════════════════════════════════════
+// 시작
+// ══════════════════════════════════════════════
+setTool('select');
+initDemo();
 
-### 8.1 설정 파일
-| 파일명 | 용도 |
-|--------|------|
-| Settings.properties | SMS 수신자, 리소스 임계값 |
-| FabSet.properties | 공장/MCP 설정 |
-| Reset.properties | 리셋 기능 트리거 |
-| variable.xml | 환경 변수 임계값 |
-| alarm_message.xml | 일반 알람 메시지 템플릿 |
-| oht_alarm_message.xml | OHT 전용 알람 메시지 |
-| customQuery.xml | Logpresso 쿼리 템플릿 |
-| customQuery2.xml | 추가 쿼리 템플릿 |
+// ══════════════════════════════════════════════
+// 3D 뷰 모드 (Three.js)
+// ══════════════════════════════════════════════
+var is3D=true, t3Scene, t3Cam, t3Ren, t3Ctrl, t3RAF=null, t3Objs=[];
+function dk3(hex,f){if(!hex||hex[0]!=='#')return 0x888888;const v=parseInt(hex.slice(1),16);const r=(v>>16&255)*f|0,g=(v>>8&255)*f|0,b=(v&255)*f|0;return(r<<16)|(g<<8)|b;}
+function hexToInt(h){return h&&h[0]==='#'?parseInt(h.slice(1),16):0x888888;}
 
-### 8.2 유틸리티 클래스
-| 클래스 | 역할 |
-|--------|------|
-| XmlUtil | 메시지/변수 로딩, Logpresso 쿼리 |
-| LayoutUtil | 메시지 구성, 알람 데이터 매핑 |
-| TibrvService | TIBRV 메시징 |
-| LogpressoAPI | 데이터베이스 쓰기 작업 |
-| SmsUtil (implied) | SMS 전송 |
-| DataService | 중앙 데이터 저장소 |
-| FilePathUtil | 설정 파일 경로 |
-| Env | 환경 관리 |
+function init3D(){
+  var cont=document.getElementById('tc3d');
+  var W=cont.clientWidth,H=cont.clientHeight;
+  t3Ren=new THREE.WebGLRenderer({antialias:true,alpha:false});
+  t3Ren.setSize(W,H);t3Ren.setPixelRatio(devicePixelRatio);
+  t3Ren.shadowMap.enabled=true;t3Ren.shadowMap.type=THREE.PCFSoftShadowMap;
+  t3Ren.setClearColor(hexToInt(S.bgColor||'#0c1017'));
+  cont.appendChild(t3Ren.domElement);
+  t3Cam=new THREE.PerspectiveCamera(50,W/H,1,8000);
+  t3Cam.position.set(200,250,350);
+  t3Scene=new THREE.Scene();
+  t3Scene.fog=new THREE.FogExp2(hexToInt(S.bgColor||'#0c1017'),.0004);
+  var amb=new THREE.AmbientLight(0x6080a0,.6);t3Scene.add(amb);
+  var dir=new THREE.DirectionalLight(0xffffff,.85);dir.position.set(150,300,200);dir.castShadow=true;
+  dir.shadow.mapSize.set(2048,2048);dir.shadow.camera.left=-500;dir.shadow.camera.right=500;dir.shadow.camera.top=500;dir.shadow.camera.bottom=-500;
+  t3Scene.add(dir);
+  var hemi=new THREE.HemisphereLight(0x8090c0,0x203040,.4);t3Scene.add(hemi);
+  t3Ctrl=new THREE.OrbitControls(t3Cam,t3Ren.domElement);
+  t3Ctrl.enableDamping=true;t3Ctrl.dampingFactor=.08;t3Ctrl.minDistance=50;t3Ctrl.maxDistance=3000;
+}
 
----
+function dispose3D(){
+  t3Objs.forEach(function(o){t3Scene.remove(o);o.traverse(function(c){if(c.geometry)c.geometry.dispose();if(c.material){if(c.material.map)c.material.map.dispose();c.material.dispose();}});});
+  t3Objs=[];
+}
 
-## 9. 알람 해제 메커니즘
+function build3D(){
+  dispose3D();
+  t3Ren.setClearColor(hexToInt(S.bgColor||'#0c1017'));
+  t3Scene.fog.color.set(hexToInt(S.bgColor||'#0c1017'));
+  var _fc=hexToInt(S.floorColor||'#1a2540');
+  var gpGeo=new THREE.PlaneGeometry(1200,1200);var gpMat=new THREE.MeshBasicMaterial({color:_fc});
+  var gp=new THREE.Mesh(gpGeo,gpMat);gp.rotation.x=-Math.PI/2;gp.position.y=-1;gp.receiveShadow=true;t3Scene.add(gp);t3Objs.push(gp);
+  var grid=new THREE.GridHelper(1200,60,_fc,_fc);grid.position.y=-.5;t3Scene.add(grid);t3Objs.push(grid);
 
-1. **자동 복구**: 조건 정상화 시 (state → NORMAL)
-2. **리셋 기능**: Reset.properties를 통한 수동 복구 트리거
-3. **시간 기반**: 복구 시각 타임스탬프 기록 (recoveryDateTime)
-4. **연쇄 해제**: 한 알람 복구가 종속 알람 해제 가능 (예: RAIL_CUT → 레일 가용성 영향)
+  S.nodes.forEach(function(n){
+    var g=new THREE.Group();g.userData={node:n,type:n.type};
+    var px=n.x,pz=n.y;
+    switch(n.type){
+      case'floor':{
+        var w=n.w||200,h=n.h||80,tk=3;
+        var geo=new THREE.BoxGeometry(w,tk,h);
+        var mat=new THREE.MeshStandardMaterial({color:hexToInt(n.color||'#c8dca8'),transparent:true,opacity:.7,roughness:.6});
+        var m=new THREE.Mesh(geo,mat);m.position.set(0,tk/2,0);m.receiveShadow=true;m.castShadow=false;
+        g.add(m);
+        var edge=new THREE.LineSegments(new THREE.EdgesGeometry(geo),new THREE.LineBasicMaterial({color:hexToInt(n.border||'#90b060'),transparent:true,opacity:.6}));
+        edge.position.copy(m.position);g.add(edge);
+        break;}
+      case'eq_grid':{
+        var rows=n.rows||3,cols=n.cols||4,gap=18,sz=7;
+        for(var r=0;r<rows;r++)for(var cc=0;cc<cols;cc++){
+          var bx=new THREE.Mesh(new THREE.BoxGeometry(sz,sz,sz),new THREE.MeshStandardMaterial({color:hexToInt(n.color||'#a8d4e8'),roughness:.4,metalness:.2}));
+          bx.position.set((cc-cols/2+.5)*gap,sz/2+1,(r-rows/2+.5)*gap);bx.castShadow=true;bx.receiveShadow=true;
+          g.add(bx);
+        }break;}
+      case'conveyor':{
+        var len=n.w||120;
+        var geo2=new THREE.BoxGeometry(len,2,8);
+        var mat2=new THREE.MeshStandardMaterial({color:hexToInt(n.color||'#3b82f6'),roughness:.3,metalness:.4});
+        var m2=new THREE.Mesh(geo2,mat2);m2.position.y=2;m2.castShadow=true;g.add(m2);
+        var rg=new THREE.BoxGeometry(len,4,1);
+        var rm=new THREE.MeshStandardMaterial({color:dk3(n.color||'#3b82f6',.6),roughness:.5});
+        var r1=new THREE.Mesh(rg,rm);r1.position.set(0,2,4.5);g.add(r1);
+        var r2=new THREE.Mesh(rg.clone(),rm);r2.position.set(0,2,-4.5);g.add(r2);
+        for(var i=0;i<5;i++){var dot=new THREE.Mesh(new THREE.SphereGeometry(1.5,8,8),new THREE.MeshStandardMaterial({color:0xffffff,emissive:0x3b82f6,emissiveIntensity:.5}));dot.position.set(-len/2+len*i/5,4,0);dot.userData.flow={len:len,idx:i,total:5};g.add(dot);}
+        break;}
+      case'lift':{
+        var lw=n.w||28,lh=n.h||70;
+        var shGeo=new THREE.BoxGeometry(lw,lh,lw);
+        var shMat=new THREE.MeshStandardMaterial({color:hexToInt(n.color||'#818cf8'),transparent:true,opacity:.1,roughness:.5});
+        var sh=new THREE.Mesh(shGeo,shMat);sh.position.y=lh/2;g.add(sh);
+        var shEdge=new THREE.LineSegments(new THREE.EdgesGeometry(shGeo),new THREE.LineBasicMaterial({color:hexToInt(n.border||'#6366f1'),transparent:true,opacity:.5}));
+        shEdge.position.copy(sh.position);g.add(shEdge);
+        var plat=new THREE.Mesh(new THREE.BoxGeometry(lw-4,3,lw-4),new THREE.MeshStandardMaterial({color:hexToInt(n.color||'#818cf8'),emissive:hexToInt(n.color||'#818cf8'),emissiveIntensity:.2,roughness:.3}));
+        plat.position.y=5;plat.castShadow=true;plat.userData.lift={h:lh};g.add(plat);
+        break;}
+      case'hub':{
+        var hw=n.w||60,hh=n.h||45,hw2=Math.max(hw,hh)/2;
+        var hubGeo=new THREE.CylinderGeometry(hw2,hw2*.95,8,8);
+        var hcol=hexToInt(n.color||'#eab308');
+        var hubMat=new THREE.MeshStandardMaterial({color:hcol,roughness:.25,metalness:.6});
+        var hub=new THREE.Mesh(hubGeo,hubMat);hub.position.y=4;hub.castShadow=true;g.add(hub);
+        var hubEdge=new THREE.LineSegments(new THREE.EdgesGeometry(hubGeo),new THREE.LineBasicMaterial({color:dk3(n.color||'#eab308',.5),transparent:true,opacity:.4}));
+        hubEdge.position.copy(hub.position);g.add(hubEdge);
+        var coreGeo=new THREE.CylinderGeometry(hw2*.3,hw2*.3,12,16);
+        var coreMat=new THREE.MeshStandardMaterial({color:dk3(n.color||'#eab308',.7),roughness:.2,metalness:.8,emissive:hcol,emissiveIntensity:.15});
+        var core=new THREE.Mesh(coreGeo,coreMat);core.position.y=6;core.castShadow=true;g.add(core);
+        var baseGeo=new THREE.CylinderGeometry(hw2+2,hw2+4,2,8);
+        var baseMat=new THREE.MeshStandardMaterial({color:dk3(n.color||'#eab308',.5),roughness:.4,metalness:.5});
+        var base=new THREE.Mesh(baseGeo,baseMat);base.position.y=1;g.add(base);
+        break;}
+      case'stocker':{
+        var sw=n.w||35,sh2=n.h||45,sd=Math.min(sw,sh2);
+        var stGeo=new THREE.BoxGeometry(sw,sh2,sd);
+        var stMat=new THREE.MeshStandardMaterial({color:hexToInt(n.color||'#88d4a8'),roughness:.5,metalness:.15});
+        var st=new THREE.Mesh(stGeo,stMat);st.position.y=sh2/2;st.castShadow=true;g.add(st);
+        break;}
+      case'tunnel':{
+        var pts=n.points||[{x:0,y:0},{x:60,y:0}];
+        var pw2=(n.pipeW||8)/2;
+        if(pts.length>=2){
+          var curve=new THREE.CatmullRomCurve3(pts.map(function(p){return new THREE.Vector3(p.x,pw2+2,p.y);}),false,'catmullrom',.3);
+          var tubeGeo=new THREE.TubeGeometry(curve,pts.length*8,pw2,8,false);
+          var tubeMat=new THREE.MeshStandardMaterial({color:hexToInt(n.color||'#4a90d0'),roughness:.3,metalness:.4});
+          var tube=new THREE.Mesh(tubeGeo,tubeMat);tube.castShadow=true;g.add(tube);
+          pts.forEach(function(p){var jt=new THREE.Mesh(new THREE.SphereGeometry(pw2*1.2,10,10),new THREE.MeshStandardMaterial({color:dk3(n.color||'#4a90d0',.7),roughness:.3,metalness:.5}));jt.position.set(p.x,pw2+2,p.y);jt.castShadow=true;g.add(jt);});
+          for(var di=0;di<6;di++){var fd=new THREE.Mesh(new THREE.SphereGeometry(1.5,6,6),new THREE.MeshStandardMaterial({color:0xffffff,emissive:0xffffff,emissiveIntensity:.6}));fd.userData.tunFlow={curve:curve,idx:di,total:6};g.add(fd);}
+        }break;}
+      case'zone':{
+        var zw=n.w||130,zh=n.h||90;
+        var zGeo=new THREE.BoxGeometry(zw,20,zh);
+        var zEdge=new THREE.LineSegments(new THREE.EdgesGeometry(zGeo),new THREE.LineDashedMaterial({color:hexToInt(n.color||'#f97316'),dashSize:5,gapSize:4,transparent:true,opacity:.6}));
+        zEdge.computeLineDistances();zEdge.position.y=10;g.add(zEdge);
+        var zFill=new THREE.Mesh(zGeo,new THREE.MeshStandardMaterial({color:hexToInt(n.color||'#f97316'),transparent:true,opacity:.04}));
+        zFill.position.y=10;g.add(zFill);
+        break;}
+      case'bridge':{
+        var bh=n.h||120;
+        var bGeo=new THREE.CylinderGeometry(3,3,bh,8);
+        var bMat=new THREE.MeshStandardMaterial({color:hexToInt(n.color||'#818cf8'),roughness:.4,metalness:.3,transparent:true,opacity:.6});
+        var bMesh=new THREE.Mesh(bGeo,bMat);bMesh.position.y=bh/2;bMesh.castShadow=true;g.add(bMesh);
+        var bc=new THREE.Mesh(new THREE.BoxGeometry(6,6,6),new THREE.MeshStandardMaterial({color:0xc8b8f8,emissive:0x8878d8,emissiveIntensity:.3}));
+        bc.position.y=10;bc.castShadow=true;bc.userData.bridgeCube={h:bh};g.add(bc);
+        break;}
+      case'port':{
+        var pw=n.w||16,ph=n.h||16,pHt=6;
+        if(n.visible!==false){
+          var pGeo=new THREE.BoxGeometry(pw,pHt,ph);
+          var pMat=new THREE.MeshStandardMaterial({color:hexToInt(n.color||'#22c55e'),emissive:hexToInt(n.color||'#22c55e'),emissiveIntensity:.3,roughness:.3,metalness:.4});
+          var pBox=new THREE.Mesh(pGeo,pMat);pBox.position.y=pHt/2;pBox.castShadow=true;g.add(pBox);
+          var pEdge=new THREE.LineSegments(new THREE.EdgesGeometry(pGeo),new THREE.LineBasicMaterial({color:hexToInt(n.border||'#16a34a'),transparent:true,opacity:.7}));
+          pEdge.position.copy(pBox.position);g.add(pEdge);
+          var pLed=new THREE.Mesh(new THREE.SphereGeometry(2,8,8),new THREE.MeshStandardMaterial({color:0xffffff,emissive:hexToInt(n.color||'#22c55e'),emissiveIntensity:.8}));
+          pLed.position.y=pHt+1;g.add(pLed);pLed.userData.hubRing=true;
+        }else{
+          var pWGeo=new THREE.BoxGeometry(pw,pHt,ph);
+          var pWire=new THREE.Mesh(pWGeo,new THREE.MeshStandardMaterial({color:hexToInt(n.color||'#22c55e'),wireframe:true,transparent:true,opacity:.2}));
+          pWire.position.y=pHt/2;g.add(pWire);
+        }
+        break;}
+      case'label':{
+        var cvl=document.createElement('canvas');cvl.width=256;cvl.height=64;
+        var cxl=cvl.getContext('2d');
+        cxl.fillStyle='rgba(255,255,255,.9)';cxl.beginPath();cxl.roundRect(2,2,252,60,8);cxl.fill();
+        cxl.strokeStyle='#b8c4d0';cxl.lineWidth=2;cxl.stroke();
+        cxl.fillStyle='#7aaccc';cxl.fillRect(8,6,240,3);
+        cxl.fillStyle='#2a4050';cxl.font='bold 22px Malgun Gothic,Segoe UI,sans-serif';cxl.textAlign='center';cxl.textBaseline='middle';
+        cxl.fillText(n.label||'',128,n.desc?26:32);
+        if(n.desc){cxl.fillStyle='#708050';cxl.font='16px Malgun Gothic,Segoe UI,sans-serif';cxl.fillText(n.desc,128,48);}
+        var tex=new THREE.CanvasTexture(cvl);
+        var spMat=new THREE.SpriteMaterial({map:tex,transparent:true});
+        var sp=new THREE.Sprite(spMat);sp.scale.set(60,15,1);sp.position.y=15;g.add(sp);
+        break;}
+      default:{
+        var dSz=Math.max(n.w||30,n.h||30)*.5;
+        var dGeo=new THREE.BoxGeometry(dSz,dSz,dSz);
+        var dMat=new THREE.MeshStandardMaterial({color:hexToInt(n.color||'#a78bfa'),roughness:.5});
+        var dM=new THREE.Mesh(dGeo,dMat);dM.position.y=dSz/2;dM.castShadow=true;g.add(dM);
+      }
+    }
+    if(n.label&&n.type!=='label'){
+      var _lbg=n.labelBg||'#ffffff',_lfc=n.labelFc||'#2a4050';
+      var lc=document.createElement('canvas');lc.width=256;lc.height=64;
+      var lx=lc.getContext('2d');
+      lx.save();lx.globalAlpha=0.95;lx.fillStyle=_lbg;lx.beginPath();lx.roundRect(2,2,252,60,8);lx.fill();lx.restore();
+      lx.save();lx.strokeStyle=_lfc;lx.globalAlpha=0.3;lx.lineWidth=2;lx.beginPath();lx.roundRect(2,2,252,60,8);lx.stroke();lx.restore();
+      lx.save();lx.fillStyle=_lfc;lx.globalAlpha=0.3;lx.fillRect(8,6,240,3);lx.restore();
+      lx.fillStyle=_lfc;lx.font='bold 20px Malgun Gothic,Segoe UI,sans-serif';lx.textAlign='center';lx.textBaseline='middle';
+      lx.fillText(n.label||'',128,n.desc?26:32);
+      if(n.desc){lx.save();lx.fillStyle=_lfc;lx.globalAlpha=0.7;lx.font='14px Malgun Gothic,Segoe UI,sans-serif';lx.textAlign='center';lx.textBaseline='middle';lx.fillText(n.desc,128,48);lx.restore();}
+      var ltx=new THREE.CanvasTexture(lc);
+      var lsp=new THREE.Sprite(new THREE.SpriteMaterial({map:ltx,transparent:true}));
+      var lh2=n.type==='eq_grid'?(n.rows||3)*12:n.type==='stocker'?(n.h||45)+10:n.type==='port'?10:(n.h||30)*.6+15;
+      var lox=n.labelOX||0,loz=n.labelOZ||0,loy=n.labelOY!=null?n.labelOY:lh2;
+      lsp.scale.set(55,14,1);lsp.position.set(lox,loy,loz);
+      lsp.userData={isLabel:true,node:n};
+      g.add(lsp);
+    }
+    var _nOp=n.opacity!=null?n.opacity:1;
+    var _nBs=n.borderStyle||'solid';
+    var _nBw=n.borderWidth||1;
+    g.traverse(function(child){
+      if(child.isMesh&&child.material&&!child.userData.isLabel){
+        if(_nOp<1){child.material.transparent=true;child.material.opacity=Math.min(child.material.opacity||1,_nOp);}
+      }
+      if(child.isLineSegments&&child.material){
+        if(_nBs==='none'){child.visible=false;}
+        else if(_nBs==='dashed'){
+          var oldColor=child.material.color?child.material.color.getHex():hexToInt(n.border||'#5090a8');
+          child.material=new THREE.LineDashedMaterial({color:oldColor,dashSize:3*_nBw,gapSize:2*_nBw,transparent:true,opacity:child.material.opacity||.6,linewidth:_nBw});
+          child.computeLineDistances();
+        }
+      }
+    });
+    g.position.set(px,n.z||0,pz);
+    t3Scene.add(g);t3Objs.push(g);
+  });
 
----
+  // connections
+  S.conns.forEach(function(cn){
+    var nF=S.nodes.find(function(x){return x.id===cn.from;}),nT=S.nodes.find(function(x){return x.id===cn.to;});
+    if(!nF||!nT)return;
+    var cg=new THREE.Group();cg.userData={conn:cn};
+    var ccol=hexToInt(cn.color||'#3b82f6');
+    var cw=cn.width||3;
+    var s=new THREE.Vector3(nF.x,(nF.z||0)+5,nF.y),e2=new THREE.Vector3(nT.x,(nT.z||0)+5,nT.y);
+    var pathPts=[s];
+    if(cn.points&&cn.points.length>0){
+      cn.points.forEach(function(p){pathPts.push(new THREE.Vector3(p.x,(p.z||0)+5,p.y));});
+    }
+    pathPts.push(e2);
+    var curve;
+    if(pathPts.length===2){
+      var mid=new THREE.Vector3().addVectors(s,e2).multiplyScalar(.5);
+      mid.y+=Math.max(8,s.distanceTo(e2)*.06);
+      curve=new THREE.QuadraticBezierCurve3(s,mid,e2);
+    }else{
+      curve=new THREE.CatmullRomCurve3(pathPts,false,'catmullrom',.3);
+    }
+    var tubeR=Math.max(0.5,cw*0.3);
+    var tubeSegs=Math.max(24,pathPts.length*12);
+    var tubeGeo=new THREE.TubeGeometry(curve,tubeSegs,tubeR,8,false);
+    var tubeMat=new THREE.MeshStandardMaterial({color:ccol,roughness:.3,metalness:.5,transparent:true,opacity:.85});
+    if(cn.dashed){tubeMat.wireframe=true;tubeMat.opacity=.6;}
+    var tube=new THREE.Mesh(tubeGeo,tubeMat);tube.castShadow=true;cg.add(tube);
+    var dotGeo=new THREE.SphereGeometry(tubeR*2,10,10);
+    var dotMat=new THREE.MeshStandardMaterial({color:ccol,roughness:.2,metalness:.6});
+    var dotS=new THREE.Mesh(dotGeo,dotMat);dotS.position.copy(s);cg.add(dotS);
+    var dotE=new THREE.Mesh(dotGeo.clone(),dotMat);dotE.position.copy(e2);cg.add(dotE);
+    if(cn.points&&cn.points.length>0){
+      cn.points.forEach(function(p){
+        var wpGeo=new THREE.SphereGeometry(tubeR*1.8,8,8);
+        var wpMat=new THREE.MeshStandardMaterial({color:0xffffff,emissive:ccol,emissiveIntensity:.3,roughness:.2,metalness:.5});
+        var wp=new THREE.Mesh(wpGeo,wpMat);wp.position.set(p.x,(p.z||0)+5,p.y);cg.add(wp);
+      });
+    }
+    var arTangent=curve.getTangentAt(1);
+    var dir3=arTangent.normalize();
+    var arGeo=new THREE.ConeGeometry(tubeR*2.5,tubeR*8,6);
+    var arMat=new THREE.MeshStandardMaterial({color:ccol,roughness:.2,metalness:.5});
+    var arrow=new THREE.Mesh(arGeo,arMat);
+    arrow.position.copy(e2);arrow.quaternion.setFromUnitVectors(new THREE.Vector3(0,1,0),dir3);
+    cg.add(arrow);
+    for(var fi=0;fi<3;fi++){
+      var fd=new THREE.Mesh(new THREE.SphereGeometry(tubeR*1.2,6,6),new THREE.MeshStandardMaterial({color:0xffffff,emissive:ccol,emissiveIntensity:.7}));
+      fd.userData.connFlow={curve:curve,idx:fi,total:3};cg.add(fd);
+    }
+    if(cn.label){
+      var clc=document.createElement('canvas');clc.width=128;clc.height=32;
+      var clx=clc.getContext('2d');
+      clx.fillStyle='#ffffff';clx.globalAlpha=.85;clx.beginPath();clx.roundRect(2,2,124,28,6);clx.fill();clx.globalAlpha=1;
+      clx.fillStyle='#2a4050';clx.font='bold 14px Malgun Gothic,sans-serif';clx.textAlign='center';clx.textBaseline='middle';
+      clx.fillText(cn.label,64,16);
+      var cltx=new THREE.CanvasTexture(clc);
+      var clsp=new THREE.Sprite(new THREE.SpriteMaterial({map:cltx,transparent:true}));
+      var labelPos=curve.getPointAt(0.5);
+      clsp.scale.set(25,6,1);clsp.position.copy(labelPos);clsp.position.y+=5;cg.add(clsp);
+    }
+    t3Scene.add(cg);t3Objs.push(cg);
+  });
 
-## 10. 파일별 알람 관련 코드 매핑
+  if(S.nodes.length&&!window._3dCamSet){
+    var bx1=Infinity,bx2=-Infinity,bz1=Infinity,bz2=-Infinity;
+    S.nodes.forEach(function(n){bx1=Math.min(bx1,n.x-80);bx2=Math.max(bx2,n.x+80);bz1=Math.min(bz1,n.y-80);bz2=Math.max(bz2,n.y+80);});
+    var cx=(bx1+bx2)/2,cz=(bz1+bz2)/2,rng=Math.max(bx2-bx1,bz2-bz1);
+    t3Ctrl.target.set(cx,0,cz);
+    t3Cam.position.set(cx+rng*.6,rng*.5,cz+rng*.6);
+    t3Ctrl.update();
+    window._3dCamSet=true;
+  }
+}
 
-### 데이터 모델 (data/)
-| 파일 | 알람 관련 내용 |
-|------|---------------|
-| `data/HidOffRecordItem.java` | HID OFF 알람 레코드 구조 |
-| `data/VhlOffRecordItem.java` | VHL OFF 알람 레코드 구조 |
-| `data/RailCutRecordItem.java` | Rail Cut 알람 레코드 구조 |
-| `data/RailVibrationRecordItem.java` | Rail Vibration 알람 레코드 구조 |
-| `data/StageCommandRecordItem.java` | Stage Command 모니터링 레코드 |
-| `data/OhtStats.java` | OHT 통계 (알람 카운트 포함) |
-| `data/eq/Oht.java` | OHT 장비 상태 (알람 상태 포함) |
-| `data/eq/Conveyor.java` | 컨베이어 장비 알람 상태 |
+function update3DPositions(){
+  t3Objs.forEach(function(o){
+    if(o.userData&&o.userData.node){
+      var n=o.userData.node;
+      o.position.set(n.x, n.z||0, n.y);
+    }
+  });
+  var savedPos=t3Cam.position.clone();
+  var savedTarget=t3Ctrl.target.clone();
+  build3D();
+  t3Cam.position.copy(savedPos);
+  t3Ctrl.target.copy(savedTarget);
+  t3Ctrl.update();
+  updateSelHighlight();
+}
 
-### 배치 처리 (batch/)
-| 파일 | 알람 관련 내용 |
-|------|---------------|
-| `batch/AlertingSystemStatus.java` | 시스템 리소스 SMS 알람 |
-| `batch/AbnormalDetectBatch.java` | TS 로그 이상 패턴 감지 |
-| `batch/MonitoringControlBatch.java` | VHL/HID/Stage 모니터링 |
-| `batch/RailCutRefreshBatch.java` | Rail Cut 감지/복구 |
-| `batch/RailVibrationBatch.java` | Rail Vibration 감지 |
-| `batch/ServerResourceApmBatch.java` | 서버 리소스 APM 알람 |
-| `batch/OhtPerformanceTimeMinBatch.java` | 1분 단위 OHT 성능 알람 |
-| `batch/OhtPerformanceTimeHourBatch.java` | 시간 단위 OHT 성능 알람 |
-| `batch/BridgeLayoutBatch.java` | Bridge 이상 감지 (1분 주기) |
-| `batch/BridgeJudgeRangeBatch.java` | Bridge 통계 범위 계산 |
-| `batch/BridgeLayoutDetailBatch.java` | Bridge 상세 레이아웃 |
-| `batch/SystemMessageDetectBatch.java` | 시스템 메시지 패턴 감지 |
-| `batch/SwitchSystemBatch.java` | 설정 변경 알람 |
-| `batch/TrafficBatch.java` | 트래픽 알람 |
-| `batch/DataSetRefreshBatch.java` | 데이터셋 리프레시 알람 |
-| `batch/ItsmChangeRequestBatch.java` | ITSM 변경 요청 알람 |
-| `batch/QTransferPredictBatch.java` | Q Transfer 예측 알람 |
+var _selPrevMats=[];
+function updateSelHighlight(){
+  _selPrevMats.forEach(function(s){
+    if(s.mesh.material){
+      s.mesh.material.emissive.copy(s.origEmissive);
+      s.mesh.material.emissiveIntensity=s.origIntensity;
+    }
+  });
+  _selPrevMats=[];
+  var ids=S.sels&&S.sels.length>0?S.sels:(S.sel?[S.sel]:[]);
+  if(ids.length===0)return;
+  var idSet=new Set(ids);
+  t3Objs.forEach(function(grp){
+    if(!grp.userData||!grp.userData.node||!idSet.has(grp.userData.node.id))return;
+    grp.traverse(function(child){
+      if(child.isMesh&&child.material&&child.material.emissive){
+        _selPrevMats.push({
+          mesh:child,
+          origEmissive:child.material.emissive.clone(),
+          origIntensity:child.material.emissiveIntensity||0
+        });
+      }
+    });
+  });
+}
 
-### 처리/서비스 (process/, service/)
-| 파일 | 알람 관련 내용 |
-|------|---------------|
-| `process/OhtMsgWorkerRunnable.java` | 실시간 알람 상태 처리 핵심 |
-| `service/TibrvService.java` | TIBRV 알람 브로드캐스팅 |
-| `service/UiLogpresso.java` | UI용 Logpresso 알람 조회 |
+function anim3D(ts){
+  t3RAF=requestAnimationFrame(anim3D);
+  t3Ctrl.update();
+  var glowI=Math.sin(ts/300)*.25+.55;
+  _selPrevMats.forEach(function(s){
+    if(s.mesh.material){
+      s.mesh.material.emissive.set(0xff2020);
+      s.mesh.material.emissiveIntensity=glowI;
+    }
+  });
+  t3Scene.traverse(function(obj){
+    var u=obj.userData;
+    if(u.flow){var f=u.flow;var t=((ts%3000)/3000+f.idx/f.total)%1;obj.position.x=-f.len/2+f.len*t;}
+    if(u.lift){var lt2=u.lift;obj.position.y=5+Math.abs(Math.sin(ts/2500))*lt2.h*.8;}
+    if(u.bridgeCube){var bc2=u.bridgeCube;obj.position.y=5+Math.abs(Math.sin(ts/2000))*bc2.h*.85;}
+    if(u.connFlow){var cf=u.connFlow;var t2=((ts%3500)/3500+cf.idx/cf.total)%1;var pt2=cf.curve.getPointAt(t2);obj.position.copy(pt2);obj.material.emissiveIntensity=Math.sin(t2*Math.PI)*.5+.3;}
+    if(u.tunFlow){var tf=u.tunFlow;var t3=((ts%3000)/3000+tf.idx/tf.total)%1;var pt=tf.curve.getPointAt(t3);obj.position.copy(pt);obj.material.opacity=Math.sin(t3*Math.PI)*.7+.3;}
+  });
+  t3Ren.render(t3Scene,t3Cam);
+}
 
-### 유틸리티/환경 (util/, environment/)
-| 파일 | 알람 관련 내용 |
-|------|---------------|
-| `util/XmlUtil.java` | 알람 메시지 템플릿, 임계값 |
-| `util/LayoutUtil.java` | 알람 메시지 구성, 레벨 매핑 |
-| `util/DataService.java` | 알람 데이터 중앙 저장소 |
-| `util/Util.java` | 알람 관련 유틸 함수 |
-| `util/FilePathUtil.java` | 알람 설정 파일 경로 |
-| `environment/Env.java` | 알람 환경 설정 |
+// ══════════════════════════════════════════════
+// GLB EXPORT — 3D (Three.js Scene → glTF Binary)
+// ══════════════════════════════════════════════
+function export3DGLB(){
+  if(!S.nodes.length){alert('노드가 없습니다.');return;}
+  if(!t3Scene){init3D();build3D();}else{build3D();}
+  stat('GLB 내보내기 준비중...');
 
-### 쿼리/맵 (queryformat/, map/)
-| 파일 | 알람 관련 내용 |
-|------|---------------|
-| `queryformat/MongodbCommonFilterQuery.java` | MongoDB 알람 필터 쿼리 |
-| `queryformat/LogpressoMcslogQuery.java` | MCS 로그 알람 쿼리 |
-| `queryformat/LogpressoCommonFilterQuery.java` | Logpresso 알람 필터 쿼리 |
-| `queryformat/type/ENUM_FABLIST_GROUP.java` | 공장 그룹 enum (알람 분류) |
-| `map/Vhl.java` | 차량 알람 상태 매핑 |
+  var meshes=[];
+  t3Scene.traverse(function(obj){
+    if(!obj.isMesh||!obj.geometry||obj.isSprite)return;
+    obj.updateWorldMatrix(true,false);
+    meshes.push(obj);
+  });
+  if(!meshes.length){alert('내보낼 메시가 없습니다.');return;}
 
----
+  var accessors=[],bufferViews=[];
+  var meshPrimitives=[];
+  var byteOffset=0;
+  var matMap={},matList=[];
+  var bufParts=[];
 
-## 요약
+  function getMatIdx(mat){
+    var r=0.5,g=0.5,b=0.5,a=1;
+    if(mat&&mat.color){r=mat.color.r;g=mat.color.g;b=mat.color.b;}
+    if(mat&&mat.opacity!==undefined)a=mat.opacity;
+    var key=r.toFixed(3)+'_'+g.toFixed(3)+'_'+b.toFixed(3)+'_'+a.toFixed(3);
+    if(matMap[key]!==undefined)return matMap[key];
+    var idx=matList.length;
+    matMap[key]=idx;
+    var m={pbrMetallicRoughness:{baseColorFactor:[r,g,b,a],metallicFactor:0.1,roughnessFactor:0.6}};
+    if(a<1)m.alphaMode='BLEND';
+    matList.push(m);
+    return idx;
+  }
 
-ASAS ALT 시스템의 알람 아키텍처는 **실시간 UDP 기반 감지**와 **배치 스케줄 기반 감지** 두 축으로 구성됩니다.
+  meshes.forEach(function(obj,mi){
+    var geo=obj.geometry;
+    var pos=geo.getAttribute('position');
+    if(!pos)return;
+    var norm=geo.getAttribute('normal');
+    var wm=obj.matrixWorld;
+    var nm3=new THREE.Matrix3().getNormalMatrix(wm);
+    var vCount=pos.count;
+    var posArr=new Float32Array(vCount*3);
+    var normArr=norm?new Float32Array(vCount*3):null;
+    var v=new THREE.Vector3(),n=new THREE.Vector3();
+    var pMin=[Infinity,Infinity,Infinity],pMax=[-Infinity,-Infinity,-Infinity];
 
-- **6가지 주요 알람 타입**: HID_OFF, VHL_OFF, RAIL_CUT, RAIL_VIBRATION, ALARM, VHL_AVG_SPEED
-- **3단계 심각도**: Level 1 (CRITICAL) → Level 2 (HIGH) → Level 3 (MEDIUM)
-- **3가지 알림 채널**: TIBRV 브로드캐스트, Logpresso DB 저장, SMS 알림
-- **16개+ 배치 프로세스**가 주기적으로 알람 조건 검사
-- **13개+ DB 테이블**에 알람 데이터 저장
-- **8개+ 설정 파일**로 임계값 및 알람 동작 제어
+    for(var i=0;i<vCount;i++){
+      v.set(pos.getX(i),pos.getY(i),pos.getZ(i)).applyMatrix4(wm);
+      posArr[i*3]=v.x;posArr[i*3+1]=v.y;posArr[i*3+2]=v.z;
+      if(v.x<pMin[0])pMin[0]=v.x;if(v.y<pMin[1])pMin[1]=v.y;if(v.z<pMin[2])pMin[2]=v.z;
+      if(v.x>pMax[0])pMax[0]=v.x;if(v.y>pMax[1])pMax[1]=v.y;if(v.z>pMax[2])pMax[2]=v.z;
+      if(norm){
+        n.set(norm.getX(i),norm.getY(i),norm.getZ(i)).applyMatrix3(nm3).normalize();
+        normArr[i*3]=n.x;normArr[i*3+1]=n.y;normArr[i*3+2]=n.z;
+      }
+    }
+
+    var idxSrc=geo.getIndex();
+    var idxCount=idxSrc?idxSrc.count:vCount;
+    var use32=vCount>65535;
+    var idxArr;
+    if(idxSrc){
+      idxArr=use32?new Uint32Array(idxCount):new Uint16Array(idxCount);
+      for(var i=0;i<idxCount;i++)idxArr[i]=idxSrc.getX(i);
+    }else{
+      idxArr=use32?new Uint32Array(idxCount):new Uint16Array(idxCount);
+      for(var i=0;i<idxCount;i++)idxArr[i]=i;
+    }
+
+    var posBytes=posArr.buffer.byteLength;
+    var posBVIdx=bufferViews.length;
+    bufferViews.push({buffer:0,byteOffset:byteOffset,byteLength:posBytes,target:34962});
+    var posAccIdx=accessors.length;
+    accessors.push({bufferView:posBVIdx,componentType:5126,count:vCount,type:'VEC3',max:pMax,min:pMin});
+    bufParts.push(new Uint8Array(posArr.buffer));
+    byteOffset+=posBytes;
+
+    var normAccIdx=-1;
+    if(normArr){
+      var normBytes=normArr.buffer.byteLength;
+      var normBVIdx=bufferViews.length;
+      bufferViews.push({buffer:0,byteOffset:byteOffset,byteLength:normBytes,target:34962});
+      normAccIdx=accessors.length;
+      accessors.push({bufferView:normBVIdx,componentType:5126,count:vCount,type:'VEC3'});
+      bufParts.push(new Uint8Array(normArr.buffer));
+      byteOffset+=normBytes;
+    }
+
+    var pad1=byteOffset%4;
+    if(pad1>0){var p1=4-pad1;bufParts.push(new Uint8Array(p1));byteOffset+=p1;}
+
+    var idxBytes=idxArr.buffer.byteLength;
+    var idxBVIdx=bufferViews.length;
+    bufferViews.push({buffer:0,byteOffset:byteOffset,byteLength:idxBytes,target:34963});
+    var idxAccIdx=accessors.length;
+    accessors.push({bufferView:idxBVIdx,componentType:use32?5125:5123,count:idxCount,type:'SCALAR'});
+    bufParts.push(new Uint8Array(idxArr.buffer));
+    byteOffset+=idxBytes;
+
+    var pad2=byteOffset%4;
+    if(pad2>0){var p2=4-pad2;bufParts.push(new Uint8Array(p2));byteOffset+=p2;}
+
+    var primitive={attributes:{POSITION:posAccIdx},indices:idxAccIdx,material:getMatIdx(obj.material)};
+    if(normAccIdx>=0)primitive.attributes.NORMAL=normAccIdx;
+    meshPrimitives.push(primitive);
+  });
+
+  var gltfMeshes=meshPrimitives.map(function(p,i){return{primitives:[p],name:'mesh_'+i};});
+  var gltfNodes=gltfMeshes.map(function(m,i){return{mesh:i,name:'node_'+i};});
+  var gltf={
+    asset:{version:'2.0',generator:'FAB Layout Editor GLB Export'},
+    scene:0,
+    scenes:[{nodes:gltfNodes.map(function(_,i){return i;})}],
+    nodes:gltfNodes,
+    meshes:gltfMeshes,
+    accessors:accessors,
+    bufferViews:bufferViews,
+    buffers:[{byteLength:byteOffset}],
+    materials:matList
+  };
+
+  var jsonStr=JSON.stringify(gltf);
+  while(jsonStr.length%4!==0)jsonStr+=' ';
+  var jsonBytes=new TextEncoder().encode(jsonStr);
+
+  var binBytes=new Uint8Array(byteOffset);
+  var off=0;
+  bufParts.forEach(function(part){binBytes.set(part,off);off+=part.length;});
+
+  var totalLen=12+8+jsonBytes.length+8+binBytes.length;
+  var glb=new ArrayBuffer(totalLen);
+  var dv=new DataView(glb);
+  var u8=new Uint8Array(glb);
+
+  dv.setUint32(0,0x46546C67,true);  // glTF magic
+  dv.setUint32(4,2,true);           // version 2
+  dv.setUint32(8,totalLen,true);
+
+  dv.setUint32(12,jsonBytes.length,true);
+  dv.setUint32(16,0x4E4F534A,true); // JSON
+  u8.set(jsonBytes,20);
+
+  var binOff=20+jsonBytes.length;
+  dv.setUint32(binOff,binBytes.length,true);
+  dv.setUint32(binOff+4,0x004E4942,true); // BIN\0
+  u8.set(binBytes,binOff+8);
+
+  var blob=new Blob([glb],{type:'model/gltf-binary'});
+  var a=document.createElement('a');
+  a.href=URL.createObjectURL(blob);a.download='fab_layout_3d.glb';a.click();
+  stat('3D GLB 내보내기 완료 (.glb)');
+}
+document.getElementById('bGLB3D').onclick=export3DGLB;
+
+// 3D 스크린샷
+document.getElementById('bScr').onclick=function(){
+  if(t3Ren){
+    t3Ren.render(t3Scene,t3Cam);
+    t3Ren.domElement.toBlob(function(blob){
+      var url=URL.createObjectURL(blob);
+      var a=document.createElement('a');a.href=url;a.download='layout_3d_'+Date.now()+'.png';a.click();
+      stat('스크린샷 저장됨');
+    });
+  }
+};
+
+// ══════════════════════════════════════════════
+// 3D 노드 선택 + 마우스 이동
+// ══════════════════════════════════════════════
+var _ray=new THREE.Raycaster();
+var _m2=new THREE.Vector2();
+var _gPlane=new THREE.Plane(new THREE.Vector3(0,1,0),0);
+var _3dDrag=false,_3dDragNode=null,_3dMouseDown=null,_3dDragZ=false,_3dDragOffset={x:0,z:0};
+var _3dLabelDrag=false,_3dLabelNode=null,_3dLabelSprite=null,_3dLabelOffset={x:0,z:0},_3dLabelPlane=null,_3dLabelOrigY=0,_3dLabelStartY=0;
+var _3dMultiStart=null,_3dMultiAnchor=null;
+var _3dBoxSel=null;
+
+document.getElementById('tc3d').addEventListener('mousedown',function(e){
+  if(e.button!==0)return;
+  _3dMouseDown={x:e.clientX,y:e.clientY};
+  var isCtrl=e.ctrlKey||e.metaKey;
+  var rect=t3Ren.domElement.getBoundingClientRect();
+  _m2.x=((e.clientX-rect.left)/rect.width)*2-1;
+  _m2.y=-((e.clientY-rect.top)/rect.height)*2+1;
+  _ray.setFromCamera(_m2,t3Cam);
+
+  if(isCtrl){
+    var labelSprites=[];
+    t3Objs.forEach(function(o){o.traverse(function(c){if(c.isSprite&&c.userData&&c.userData.isLabel)labelSprites.push(c);});});
+    var lInts=_ray.intersectObjects(labelSprites,false);
+    if(lInts.length>0){
+      var sp=lInts[0].object;
+      _3dLabelNode=sp.userData.node;
+      _3dLabelSprite=sp;
+      var spWorld=new THREE.Vector3();
+      sp.getWorldPosition(spWorld);
+      _3dLabelPlane=new THREE.Plane(new THREE.Vector3(0,1,0),-spWorld.y);
+      var hitPt=new THREE.Vector3();
+      _ray.ray.intersectPlane(_3dLabelPlane,hitPt);
+      if(hitPt){
+        _3dLabelOffset={x:spWorld.x-hitPt.x, z:spWorld.z-hitPt.z};
+      }else{_3dLabelOffset={x:0,z:0};}
+      _3dLabelOrigY=sp.position.y;
+      _3dLabelStartY=e.clientY;
+      S.sel=_3dLabelNode.id;S.sels=[_3dLabelNode.id];S.selC=null;
+      updProp();updateSelHighlight();
+      stat('라벨 이동: '+(_3dLabelNode.label||'')+' (Shift: 위/아래)');
+      return;
+    }
+    return;
+  }
+
+  var hitMeshes=[],connMeshes=[];
+  t3Objs.forEach(function(o){
+    if(o.userData&&o.userData.node)hitMeshes.push(o);
+    if(o.userData&&o.userData.conn)connMeshes.push(o);
+  });
+  var intersects=_ray.intersectObjects(hitMeshes,true);
+  var hitNode=null;
+  if(intersects.length>0){
+    var hit=intersects[0].object;
+    while(hit&&!(hit.userData&&hit.userData.node)&&hit.parent)hit=hit.parent;
+    if(hit&&hit.userData&&hit.userData.node) hitNode=hit.userData.node;
+  }
+  var hitConn=null;
+  if(!hitNode){
+    var cInts=_ray.intersectObjects(connMeshes,true);
+    if(cInts.length>0){
+      var cHit=cInts[0].object;
+      while(cHit&&!(cHit.userData&&cHit.userData.conn)&&cHit.parent)cHit=cHit.parent;
+      if(cHit&&cHit.userData&&cHit.userData.conn) hitConn=cHit.userData.conn;
+    }
+  }
+
+  if(S.tool==='connect'){
+    if(hitNode){
+      if(!S.cFrom){
+        S.cFrom=hitNode.id;
+        S.sel=hitNode.id;S.sels=[hitNode.id];S.selC=null;
+        updProp();updateSelHighlight();
+        stat('연결 출발: '+(hitNode.label||hitNode.id)+' → 도착 노드를 클릭하세요');
+      }else if(S.cFrom!==hitNode.id){
+        push();
+        var newConn={id:gid(),from:S.cFrom,to:hitNode.id,label:'',color:'#3b82f6',width:3,dashed:false};
+        S.conns.push(newConn);
+        S.selC=newConn;S.sel=null;S.sels=[];
+        S.cFrom=null;
+        updProp();cnts();update3DPositions();
+        stat('연결 완료');
+      }else{
+        S.cFrom=null;
+        stat('연결 취소 (같은 노드)');
+      }
+    }else{
+      S.cFrom=null;
+      stat('연결 취소');
+    }
+    _3dMouseDown=null;
+    return;
+  }
+
+  if(hitNode){
+    var isShift=e.shiftKey;
+    if(isShift){
+      var idx=S.sels.indexOf(hitNode.id);
+      if(idx>=0){S.sels.splice(idx,1);}else{S.sels.push(hitNode.id);}
+      S.sel=S.sels.length>0?S.sels[S.sels.length-1]:null;
+      S.selC=null;
+    }else{
+      if(S.sels.length>1&&S.sels.indexOf(hitNode.id)>=0){
+      }else{
+        S.sel=hitNode.id;S.sels=[hitNode.id];S.selC=null;
+      }
+    }
+    _3dDragNode=hitNode;hitNode._origZ=hitNode.z||0;
+    var hitPt2=new THREE.Vector3();
+    _ray.ray.intersectPlane(_gPlane,hitPt2);
+    if(hitPt2){_3dDragOffset={x:hitNode.x-hitPt2.x,z:hitNode.y-hitPt2.z};}
+    else{_3dDragOffset={x:0,z:0};}
+    if(S.sels.length>1){
+      _3dMultiStart={};
+      S.sels.forEach(function(id){
+        var nn=S.nodes.find(function(x){return x.id===id;});
+        if(nn) _3dMultiStart[id]={x:nn.x,y:nn.y};
+      });
+      _3dMultiAnchor={x:hitNode.x,y:hitNode.y};
+    }else{
+      _3dMultiStart=null;_3dMultiAnchor=null;
+    }
+    updProp();cnts();updateSelHighlight();
+    stat(S.sels.length>1?S.sels.length+'개 선택됨':'선택: '+(hitNode.label||hitNode.id));
+  }else if(hitConn){
+    S.sel=null;S.sels=[];S.selC=hitConn;_3dDragNode=null;
+    updProp();cnts();updateSelHighlight();
+    stat('연결선 선택: '+(hitConn.label||hitConn.id));
+  }else{
+    if(e.altKey){
+      clearSel();_3dDragNode=null;
+      _3dBoxSel={sx:e.clientX,sy:e.clientY,active:false};
+      updProp();updateSelHighlight();
+    }else{
+      clearSel();_3dDragNode=null;updProp();updateSelHighlight();
+    }
+  }
+});
+
+var _tc3dEl=document.getElementById('tc3d');
+document.addEventListener('mousemove',function(e){
+  if(!_3dDrag&&!_3dLabelDrag&&t3Ren&&t3Cam){
+    var isCtrl=e.ctrlKey||e.metaKey;
+    if(isCtrl){
+      var rect2=t3Ren.domElement.getBoundingClientRect();
+      if(e.clientX>=rect2.left&&e.clientX<=rect2.right&&e.clientY>=rect2.top&&e.clientY<=rect2.bottom){
+        _m2.x=((e.clientX-rect2.left)/rect2.width)*2-1;
+        _m2.y=-((e.clientY-rect2.top)/rect2.height)*2+1;
+        _ray.setFromCamera(_m2,t3Cam);
+        var labelSprites=[];
+        t3Objs.forEach(function(o){o.traverse(function(c){if(c.isSprite&&c.userData&&c.userData.isLabel)labelSprites.push(c);});});
+        var lInts=_ray.intersectObjects(labelSprites,false);
+        _tc3dEl.style.cursor=lInts.length>0?'grab':'';
+      }
+    }else{
+      if(_tc3dEl.style.cursor==='grab')_tc3dEl.style.cursor='';
+    }
+  }
+
+  if(_3dMouseDown&&_3dLabelNode&&e.buttons===1){
+    var dx2=e.clientX-_3dMouseDown.x,dy2=e.clientY-_3dMouseDown.y;
+    if(!_3dLabelDrag&&Math.abs(dx2)+Math.abs(dy2)>3){
+      _3dLabelDrag=true;
+      t3Ctrl.enabled=false;
+      _tc3dEl.style.cursor='grabbing';
+      push();
+    }
+    if(_3dLabelDrag&&_3dLabelSprite){
+      if(e.shiftKey){
+        var deltaY=_3dLabelStartY-e.clientY;
+        _3dLabelSprite.position.y=_3dLabelOrigY+deltaY*0.5;
+        _3dLabelNode.labelOY=_3dLabelSprite.position.y;
+      }else if(_3dLabelPlane){
+        var rect3=t3Ren.domElement.getBoundingClientRect();
+        _m2.x=((e.clientX-rect3.left)/rect3.width)*2-1;
+        _m2.y=-((e.clientY-rect3.top)/rect3.height)*2+1;
+        _ray.setFromCamera(_m2,t3Cam);
+        var tgt=new THREE.Vector3();
+        _ray.ray.intersectPlane(_3dLabelPlane,tgt);
+        if(tgt){
+          var parentPos=_3dLabelSprite.parent.position;
+          _3dLabelSprite.position.x=tgt.x+_3dLabelOffset.x-parentPos.x;
+          _3dLabelSprite.position.z=tgt.z+_3dLabelOffset.z-parentPos.z;
+          _3dLabelNode.labelOX=_3dLabelSprite.position.x;
+          _3dLabelNode.labelOZ=_3dLabelSprite.position.z;
+        }
+      }
+    }
+    return;
+  }
+
+  if(_3dMouseDown&&_3dBoxSel&&!_3dDragNode&&e.buttons===1){
+    var bdx=e.clientX-_3dBoxSel.sx,bdy=e.clientY-_3dBoxSel.sy;
+    if(!_3dBoxSel.active&&Math.abs(bdx)+Math.abs(bdy)>5){
+      _3dBoxSel.active=true;
+      t3Ctrl.enabled=false;
+      if(!document.getElementById('selBox3d')){
+        var sb=document.createElement('div');sb.id='selBox3d';
+        sb.style.cssText='position:fixed;border:1px solid #3b82f6;background:rgba(59,130,246,0.1);pointer-events:none;z-index:999;';
+        document.body.appendChild(sb);
+      }
+    }
+    if(_3dBoxSel.active){
+      _3dBoxSel._ex=e.clientX;_3dBoxSel._ey=e.clientY;
+      var sb2=document.getElementById('selBox3d');
+      if(sb2){
+        var bx1=Math.min(_3dBoxSel.sx,e.clientX),by1=Math.min(_3dBoxSel.sy,e.clientY);
+        var bx2=Math.max(_3dBoxSel.sx,e.clientX),by2=Math.max(_3dBoxSel.sy,e.clientY);
+        sb2.style.left=bx1+'px';sb2.style.top=by1+'px';sb2.style.width=(bx2-bx1)+'px';sb2.style.height=(by2-by1)+'px';sb2.style.display='block';
+      }
+    }
+    return;
+  }
+
+  if(!_3dMouseDown||!_3dDragNode||e.buttons!==1)return;
+  var dx=e.clientX-_3dMouseDown.x,dy=e.clientY-_3dMouseDown.y;
+  if(!_3dDrag&&Math.abs(dx)+Math.abs(dy)>5){
+    _3dDrag=true;
+    _3dDragZ=e.shiftKey;
+    t3Ctrl.enabled=false;
+    _tc3dEl.style.cursor='grabbing';
+    push();
+  }
+  if(_3dDrag) _3dDragZ=e.shiftKey;
+  if(_3dDrag&&!_3dDragZ){
+    var rect=t3Ren.domElement.getBoundingClientRect();
+    _m2.x=((e.clientX-rect.left)/rect.width)*2-1;
+    _m2.y=-((e.clientY-rect.top)/rect.height)*2+1;
+    _ray.setFromCamera(_m2,t3Cam);
+    var target=new THREE.Vector3();
+    _ray.ray.intersectPlane(_gPlane,target);
+    if(target){
+      var newX=target.x+_3dDragOffset.x;
+      var newY=target.z+_3dDragOffset.z;
+      if(_3dMultiStart&&_3dMultiAnchor&&S.sels.length>1){
+        var mdx=newX-_3dMultiAnchor.x,mdy=newY-_3dMultiAnchor.y;
+        S.sels.forEach(function(id){
+          var nn=S.nodes.find(function(x){return x.id===id;});
+          var st=_3dMultiStart[id];
+          if(nn&&st){
+            nn.x=st.x+mdx;nn.y=st.y+mdy;
+            var grp=t3Objs.find(function(o){return o.userData&&o.userData.node&&o.userData.node.id===id;});
+            if(grp)grp.position.set(nn.x,nn.z||0,nn.y);
+          }
+        });
+      }else{
+        _3dDragNode.x=newX;_3dDragNode.y=newY;
+        var grp=t3Objs.find(function(o){return o.userData&&o.userData.node===_3dDragNode;});
+        if(grp)grp.position.set(_3dDragNode.x,_3dDragNode.z||0,_3dDragNode.y);
+      }
+      updProp();
+    }
+  }else if(_3dDrag&&_3dDragZ){
+    var deltaY=e.clientY-_3dMouseDown.y;
+    _3dDragNode.z=(_3dDragNode._origZ||0)-deltaY;
+    var grp=t3Objs.find(function(o){return o.userData&&o.userData.node===_3dDragNode;});
+    if(grp)grp.position.y=_3dDragNode.z||0;
+    updProp();
+  }
+});
+
+document.addEventListener('mouseup',function(){
+  _tc3dEl.style.cursor='';
+  if(_3dLabelDrag){
+    t3Ctrl.enabled=true;
+    var savedPos=t3Cam.position.clone();
+    var savedTarget=t3Ctrl.target.clone();
+    build3D();
+    t3Cam.position.copy(savedPos);
+    t3Ctrl.target.copy(savedTarget);
+    t3Ctrl.update();
+    updateSelHighlight();
+    stat('라벨 이동 완료');
+  }
+  _3dLabelDrag=false;_3dLabelNode=null;_3dLabelSprite=null;_3dLabelPlane=null;
+  if(_3dDrag){
+    t3Ctrl.enabled=true;
+    var savedPos2=t3Cam.position.clone();
+    var savedTarget2=t3Ctrl.target.clone();
+    build3D();
+    t3Cam.position.copy(savedPos2);
+    t3Ctrl.target.copy(savedTarget2);
+    t3Ctrl.update();
+    stat('이동 완료');
+  }
+  if(_3dBoxSel&&_3dBoxSel.active){
+    var sb3=document.getElementById('selBox3d');
+    if(sb3)sb3.style.display='none';
+    var bx1=Math.min(_3dBoxSel.sx,_3dBoxSel._ex||_3dBoxSel.sx);
+    var by1=Math.min(_3dBoxSel.sy,_3dBoxSel._ey||_3dBoxSel.sy);
+    var bx2=Math.max(_3dBoxSel.sx,_3dBoxSel._ex||_3dBoxSel.sx);
+    var by2=Math.max(_3dBoxSel.sy,_3dBoxSel._ey||_3dBoxSel.sy);
+    var selected=[];
+    t3Objs.forEach(function(o){
+      if(!o.userData||!o.userData.node)return;
+      var pos=new THREE.Vector3();o.getWorldPosition(pos);
+      pos.project(t3Cam);
+      var rect=t3Ren.domElement.getBoundingClientRect();
+      var sx2=(pos.x*.5+.5)*rect.width+rect.left;
+      var sy2=(-.5*pos.y+.5)*rect.height+rect.top;
+      if(sx2>=bx1&&sx2<=bx2&&sy2>=by1&&sy2<=by2) selected.push(o.userData.node.id);
+    });
+    if(selected.length>0){
+      S.sels=selected;S.sel=selected[0];S.selC=null;
+      updProp();updateSelHighlight();
+      stat(selected.length+'개 선택됨');
+    }
+    t3Ctrl.enabled=true;
+  }
+  _3dBoxSel=null;_3dMultiStart=null;_3dMultiAnchor=null;
+  if(_3dMouseDown){
+    _3dDrag=false;_3dDragNode=null;_3dMouseDown=null;_3dDragZ=false;
+    t3Ctrl.enabled=true;
+  }
+});
+
+// 바로 3D 시작
+is3D=true;
+init3D();
+var cont3=document.getElementById('tc3d');
+t3Ren.setSize(cont3.clientWidth,cont3.clientHeight);
+t3Cam.aspect=cont3.clientWidth/cont3.clientHeight;
+t3Cam.updateProjectionMatrix();
+build3D();
+anim3D(0);
+window.addEventListener('resize',function(){
+  if(t3Ren){var c3=document.getElementById('tc3d');var w=c3.clientWidth,h=c3.clientHeight;t3Ren.setSize(w,h);t3Cam.aspect=w/h;t3Cam.updateProjectionMatrix();}
+});
+
+</script>
+</body>
+</html>
