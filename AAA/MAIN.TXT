@@ -1015,29 +1015,27 @@
       });
     }
 
+    function sendCharHome(char, origState) {
+      char._reportPhase = null;
+      char.speed = origState.speed;
+      char.bounds = origState.bounds;
+      char.pauseBehavior = origState.pause;
+      char.targetX = (origState.bounds.minX + origState.bounds.maxX) / 2;
+      char.targetY = (origState.bounds.minY + origState.bounds.maxY) / 2;
+      char.isMoving = true;
+      char.direction = char.targetX > char.x ? 1 : -1;
+      char._onArrive = () => {
+        char.isMoving = false;
+        char.idleTimer = 1000 + Math.random() * 2000;
+      };
+    }
+
     function processLineUp(lineup, ceoChar, origStates, idx) {
       if (idx >= lineup.length) {
-        // All done → CEO final comment, then everyone goes home
+        // All done → CEO final comment
         const finalMsgs = ['수고했다! 해산!', '좋아, 다들 열심히!', '오늘도 파이팅!'];
         activeBubble = { char: ceoChar, text: finalMsgs[Math.floor(Math.random() * finalMsgs.length)], timer: 2500 };
-
         setTimeout(() => {
-          // Send everyone back
-          origStates.forEach(os => {
-            const c = os.char;
-            c._reportPhase = null;
-            c.speed = os.speed;
-            c.bounds = os.bounds;
-            c.pauseBehavior = os.pause;
-            c.targetX = (os.bounds.minX + os.bounds.maxX) / 2;
-            c.targetY = (os.bounds.minY + os.bounds.maxY) / 2;
-            c.isMoving = true;
-            c.direction = c.targetX > c.x ? 1 : -1;
-            c._onArrive = () => {
-              c.isMoving = false;
-              c.idleTimer = 1000 + Math.random() * 2000;
-            };
-          });
           pendingReports = {};
           lineUpActive = false;
         }, 2500);
@@ -1045,26 +1043,26 @@
       }
 
       const char = lineup[idx];
+      const orig = origStates[idx];
+
       // Step forward to CEO
       char._reportPhase = 'running';
       char.speed = 3.5;
       char.targetX = ceoChar.x + 80;
       char.targetY = ceoChar.y + 60;
       char.isMoving = true;
-      char.direction = -1;
+      char.direction = char.targetX > char.x ? 1 : -1;
 
       char._onArrive = () => {
         char._reportPhase = 'reporting';
-        char.direction = -1;
+        char.direction = -1; // face CEO
         char.isMoving = false;
         char.idleTimer = 99999;
 
-        // Find agent key for this character
         const agentKey = Object.entries(agentCharMap).find(([k, v]) => v === char.name)?.[0];
         const hasReport = agentKey && pendingReports[agentKey];
 
         if (hasReport) {
-          // Has something to report
           const reportText = pendingReports[agentKey];
           activeBubble = { char, text: '보고합니다!', timer: 1800 };
 
@@ -1078,45 +1076,24 @@
             activeBubble = { char: ceoChar, text: ceoResponses[Math.floor(Math.random() * ceoResponses.length)], timer: 1500 };
           }, 3500);
 
-          // After 5s → step back to line, next person
+          // 5초 후 → 이 사람만 제자리로, 다음 사람 호출
           setTimeout(() => {
-            stepBackToLine(char, lineup, ceoChar, origStates, idx);
+            sendCharHome(char, orig);
+            processLineUp(lineup, ceoChar, origStates, idx + 1);
           }, 5000);
         } else {
-          // Nothing to report
           activeBubble = { char, text: '보고할 내용 없습니다!', timer: 2000 };
 
           setTimeout(() => {
             activeBubble = { char: ceoChar, text: '알겠어, 수고!', timer: 1200 };
           }, 1500);
 
-          // After 2.5s → step back, next
+          // 2.5초 후 → 이 사람만 제자리로, 다음 사람 호출
           setTimeout(() => {
-            stepBackToLine(char, lineup, ceoChar, origStates, idx);
+            sendCharHome(char, orig);
+            processLineUp(lineup, ceoChar, origStates, idx + 1);
           }, 2500);
         }
-      };
-    }
-
-    function stepBackToLine(char, lineup, ceoChar, origStates, idx) {
-      // Step back to line position
-      const lineX = ceoChar.x + 120;
-      const lineStartY = ceoChar.y + 30;
-      const lineGap = 80;
-
-      char._reportPhase = 'lineUp';
-      char.speed = 3.0;
-      char.targetX = lineX;
-      char.targetY = lineStartY + idx * lineGap;
-      char.isMoving = true;
-      char.direction = 1;
-
-      char._onArrive = () => {
-        char.direction = -1;
-        char.isMoving = false;
-        char.idleTimer = 99999;
-        // Next person
-        processLineUp(lineup, ceoChar, origStates, idx + 1);
       };
     }
 
