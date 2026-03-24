@@ -116,58 +116,28 @@
       flex-shrink: 0;
       animation: pulse 2s infinite;
     }
-    .agent-card .skill-change-btn {
-      background: none;
-      border: 1px solid var(--border);
-      border-radius: 6px;
+    .skill-select {
+      background: transparent;
+      border: none;
       color: var(--muted);
       font-size: 11px;
-      padding: 2px 6px;
       cursor: pointer;
-      flex-shrink: 0;
+      outline: none;
+      padding: 2px 4px;
+      max-width: 150px;
+      appearance: none;
+      -webkit-appearance: none;
+      border-bottom: 1px dashed var(--border);
       transition: all 0.2s;
     }
-    .agent-card .skill-change-btn:hover {
-      background: var(--card);
-      border-color: var(--accent-blue);
+    .skill-select:hover, .skill-select:focus {
       color: var(--accent-blue);
+      border-bottom-color: var(--accent-blue);
     }
-    .skill-dropdown {
-      position: absolute;
-      right: 8px;
-      top: 50px;
-      background: var(--bg);
-      border: 1px solid var(--border);
-      border-radius: 10px;
-      padding: 6px 0;
-      min-width: 200px;
-      box-shadow: 0 8px 24px rgba(0,0,0,0.35);
-      z-index: 1000;
-      display: none;
-    }
-    .skill-dropdown.show { display: block; }
-    .skill-dropdown .skill-option {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      padding: 8px 14px;
-      cursor: pointer;
-      font-size: 13px;
-      color: var(--text);
-      transition: background 0.15s;
-    }
-    .skill-dropdown .skill-option:hover {
-      background: var(--card);
-    }
-    .skill-dropdown .skill-option.active {
-      background: rgba(59,130,246,0.15);
-      color: var(--accent-blue);
-      font-weight: 600;
-    }
-    .skill-dropdown .skill-option .sk-icon {
-      font-size: 16px;
-      width: 24px;
-      text-align: center;
+    .skill-select option {
+      background: #1e1e2e;
+      color: #e0e0e0;
+      padding: 4px 8px;
     }
     @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.3} }
 
@@ -433,63 +403,57 @@
     <div class="agent-section">
       <h3>Agent Team</h3>
 
-      <div class="agent-card seo" onclick="openAgent('seo')" style="position:relative;">
+      <div class="agent-card seo" onclick="openAgent('seo')">
         <div class="avatar">S</div>
         <div class="info">
           <div class="name">SEO</div>
-          <div class="task" data-agent="seo">데이터 분석 에이전트</div>
+          <select class="skill-select" data-agent="seo" onclick="event.stopPropagation()" onchange="changeAgentSkill('seo', this.value)"></select>
         </div>
-        <button class="skill-change-btn" onclick="event.stopPropagation(); toggleSkillDropdown('seo', this)">⚙</button>
         <div class="status"></div>
       </div>
 
-      <div class="agent-card yoon" onclick="openAgent('yoon')" style="position:relative;">
+      <div class="agent-card yoon" onclick="openAgent('yoon')">
         <div class="avatar">Y</div>
         <div class="info">
           <div class="name">YOON</div>
-          <div class="task" data-agent="yoon">PPT 전용 담당</div>
+          <select class="skill-select" data-agent="yoon" onclick="event.stopPropagation()" onchange="changeAgentSkill('yoon', this.value)"></select>
         </div>
-        <button class="skill-change-btn" onclick="event.stopPropagation(); toggleSkillDropdown('yoon', this)">⚙</button>
         <div class="status"></div>
       </div>
 
-      <div class="agent-card lee" onclick="openAgent('lee')" style="position:relative;">
+      <div class="agent-card lee" onclick="openAgent('lee')">
         <div class="avatar">L</div>
         <div class="info">
           <div class="name">LEE</div>
-          <div class="task" data-agent="lee">Draw.io 다이어그램 담당</div>
+          <select class="skill-select" data-agent="lee" onclick="event.stopPropagation()" onchange="changeAgentSkill('lee', this.value)"></select>
         </div>
-        <button class="skill-change-btn" onclick="event.stopPropagation(); toggleSkillDropdown('lee', this)">⚙</button>
         <div class="status"></div>
       </div>
 
-      <div class="agent-card park" onclick="openAgent('park')" style="position:relative;">
+      <div class="agent-card park" onclick="openAgent('park')">
         <div class="avatar">P</div>
         <div class="info">
           <div class="name">PARK</div>
-          <div class="task" data-agent="park">MD 파일 문서 담당</div>
+          <select class="skill-select" data-agent="park" onclick="event.stopPropagation()" onchange="changeAgentSkill('park', this.value)"></select>
         </div>
-        <button class="skill-change-btn" onclick="event.stopPropagation(); toggleSkillDropdown('park', this)">⚙</button>
         <div class="status"></div>
       </div>
 
-      <div class="agent-card kim" onclick="openAgent('kim')" style="position:relative;">
+      <div class="agent-card kim" onclick="openAgent('kim')">
         <div class="avatar">K</div>
         <div class="info">
           <div class="name">KIM</div>
-          <div class="task" data-agent="kim">그래프/차트 생성 담당</div>
+          <select class="skill-select" data-agent="kim" onclick="event.stopPropagation()" onchange="changeAgentSkill('kim', this.value)"></select>
         </div>
-        <button class="skill-change-btn" onclick="event.stopPropagation(); toggleSkillDropdown('kim', this)">⚙</button>
         <div class="status"></div>
       </div>
 
-      <div class="agent-card choi" onclick="openAgent('choi')" style="position:relative;">
+      <div class="agent-card choi" onclick="openAgent('choi')">
         <div class="avatar">C</div>
         <div class="info">
           <div class="name">CHOI</div>
-          <div class="task" data-agent="choi">로그프레소 쿼리 담당</div>
+          <select class="skill-select" data-agent="choi" onclick="event.stopPropagation()" onchange="changeAgentSkill('choi', this.value)"></select>
         </div>
-        <button class="skill-change-btn" onclick="event.stopPropagation(); toggleSkillDropdown('choi', this)">⚙</button>
         <div class="status"></div>
       </div>
     </div>
@@ -1189,47 +1153,27 @@
 
     function changeAgentSkill(agentKey, skillKey) {
       agentSkillMap[agentKey] = skillKey;
-      const skill = skillDefs[skillKey];
-      // Update sidebar card task label
-      const taskEl = document.querySelector(`.agent-card.${agentKey} .task[data-agent="${agentKey}"]`);
-      if (taskEl) taskEl.textContent = skill.title;
       // If this agent's chat is currently open, refresh it
       if (currentAgent === agentKey) {
         openAgent(agentKey);
       }
-      closeAllDropdowns();
     }
 
-    let openDropdownEl = null;
-    function toggleSkillDropdown(agentKey, btnEl) {
-      closeAllDropdowns();
-      const card = btnEl.closest('.agent-card');
-      let dd = card.querySelector('.skill-dropdown');
-      if (dd) { dd.remove(); return; }
-
-      dd = document.createElement('div');
-      dd.className = 'skill-dropdown show';
-      const currentSkill = agentSkillMap[agentKey];
-      for (const [sk, sv] of Object.entries(skillDefs)) {
-        const opt = document.createElement('div');
-        opt.className = 'skill-option' + (sk === currentSkill ? ' active' : '');
-        opt.innerHTML = `<span class="sk-icon">${sv.icon}</span><span>${sv.title}</span>`;
-        opt.onclick = (e) => { e.stopPropagation(); changeAgentSkill(agentKey, sk); };
-        dd.appendChild(opt);
-      }
-      card.appendChild(dd);
-      openDropdownEl = dd;
+    // Populate all <select> dropdowns with skill options
+    function initSkillSelects() {
+      document.querySelectorAll('.skill-select').forEach(sel => {
+        const agentKey = sel.dataset.agent;
+        sel.innerHTML = '';
+        for (const [sk, sv] of Object.entries(skillDefs)) {
+          const opt = document.createElement('option');
+          opt.value = sk;
+          opt.textContent = `${sv.icon} ${sv.title}`;
+          if (agentSkillMap[agentKey] === sk) opt.selected = true;
+          sel.appendChild(opt);
+        }
+      });
     }
-
-    function closeAllDropdowns() {
-      document.querySelectorAll('.skill-dropdown').forEach(d => d.remove());
-      openDropdownEl = null;
-    }
-    document.addEventListener('click', (e) => {
-      if (!e.target.closest('.skill-dropdown') && !e.target.closest('.skill-change-btn')) {
-        closeAllDropdowns();
-      }
-    });
+    initSkillSelects();
 
     // ═══ Agent Chat System ═══
     const agentBaseData = {
