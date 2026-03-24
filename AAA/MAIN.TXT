@@ -979,6 +979,74 @@
       pendingReports[agentKey] = reportText;
     }
 
+    // ── 복도 웨이포인트 (책상 안 넘도록) ──
+    // 가로 복도: y=560, 세로 복도: x=720
+    const CORRIDOR_Y = 560;  // 상하 책상 사이 가로 통로
+    const CORRIDOR_X = 720;  // 좌우 책상 사이 세로 통로
+
+    // ㄱ자 줄서기 위치 (복도를 따라)
+    function getLineUpPositions(count) {
+      const positions = [];
+      // CEO 오른쪽 세로줄: x=550, y=350 → y=530 (최대 3명)
+      // 그 다음 가로 복도: y=560, x=550 → x=오른쪽 (나머지)
+      const vertX = 560;
+      const vertStartY = 360;
+      const gap = 75;
+
+      for (let i = 0; i < count; i++) {
+        if (i < 3) {
+          // 세로줄 (CEO 오른쪽 아래로)
+          positions.push({ x: vertX, y: vertStartY + i * gap });
+        } else {
+          // 가로 복도 (ㄱ자 꺾어서 오른쪽으로)
+          positions.push({ x: vertX + (i - 2) * gap, y: CORRIDOR_Y });
+        }
+      }
+      return positions;
+    }
+
+    // 웨이포인트 경유 이동 (책상 안 넘음)
+    function moveViaWaypoints(char, waypoints, finalCallback) {
+      if (waypoints.length === 0) {
+        if (finalCallback) finalCallback();
+        return;
+      }
+      const wp = waypoints.shift();
+      char.targetX = wp.x;
+      char.targetY = wp.y;
+      char.isMoving = true;
+      char.direction = char.targetX > char.x ? 1 : -1;
+      char._onArrive = () => {
+        moveViaWaypoints(char, waypoints, finalCallback);
+      };
+    }
+
+    // 캐릭터 현재 위치 → 목표 위치까지 복도 경유 경로 생성
+    function buildCorridorPath(fromX, fromY, toX, toY) {
+      const path = [];
+      // 현재 위치에서 먼저 가장 가까운 복도로 이동
+      // 전략: 먼저 세로 복도(x=720)로, 그 다음 가로 복도(y=560)로, 그 다음 목적지로
+      const needHorizontalCross = (fromX < CORRIDOR_X && toX > CORRIDOR_X) || (fromX > CORRIDOR_X && toX < CORRIDOR_X);
+      const needVerticalCross = (fromY < CORRIDOR_Y && toY > CORRIDOR_Y) || (fromY > CORRIDOR_Y && toY < CORRIDOR_Y);
+
+      if (needHorizontalCross && needVerticalCross) {
+        // 대각선 이동 필요 → 복도 교차점 경유
+        path.push({ x: CORRIDOR_X, y: fromY });
+        path.push({ x: CORRIDOR_X, y: CORRIDOR_Y });
+        path.push({ x: toX, y: CORRIDOR_Y });
+      } else if (needHorizontalCross) {
+        // 좌우만 넘어야 함 → 가로복도 경유
+        path.push({ x: fromX, y: CORRIDOR_Y });
+        path.push({ x: toX, y: CORRIDOR_Y });
+      } else if (needVerticalCross) {
+        // 상하만 넘어야 함 → 세로복도 경유
+        path.push({ x: CORRIDOR_X, y: fromY });
+        path.push({ x: CORRIDOR_X, y: toY });
+      }
+      path.push({ x: toX, y: toY });
+      return path;
+    }
+
     function startLineUpReport() {
       if (lineUpActive || isOnStrike) return;
       lineUpActive = true;
@@ -995,51 +1063,51 @@
         pause: c.pauseBehavior,
       }));
 
-      // Line-up positions: queue in front of CEO, going down
-      const lineX = ceoChar.x + 120;
-      const lineStartY = ceoChar.y + 30;
-      const lineGap = 80;
+      // ㄱ자 줄서기 위치
+      const positions = getLineUpPositions(movingChars.length);
 
-      // Phase 1: All employees run to line-up positions
+      // Phase 1: All employees run to line-up via corridor waypoints
       let arrivedCount = 0;
       movingChars.forEach((c, i) => {
         c._reportPhase = 'running';
         c.speed = 4.5;
         c.bounds = { minX: -100, maxX: world.width + 100, minY: -100, maxY: world.height + 100 };
         c.pauseBehavior = 'alwaysMove';
-        c.targetX = lineX;
-        c.targetY = lineStartY + i * lineGap;
-        c.isMoving = true;
-        c.direction = c.targetX > c.x ? 1 : -1;
 
-        c._onArrive = () => {
+        const dest = positions[i];
+        const waypoints = buildCorridorPath(c.x, c.y, dest.x, dest.y);
+
+        moveViaWaypoints(c, waypoints, () => {
           c._reportPhase = 'lineUp';
           c.direction = -1; // face CEO
           c.isMoving = false;
           c.idleTimer = 99999;
           arrivedCount++;
           if (arrivedCount === movingChars.length) {
-            // Everyone lined up → start individual reports
             processLineUp(movingChars, ceoChar, origStates, 0);
           }
-        };
+        });
       });
     }
 
     function sendCharHome(char, origState) {
       char._reportPhase = 'goingHome'; // 이동 허용, 도착 후 정지
-      char.speed = origState.speed;
-      char.bounds = origState.bounds;
+      char.speed = origState.speed + 1.5; // 약간 빠르게 복귀
+      char.bounds = { minX: -100, maxX: world.width + 100, minY: -100, maxY: world.height + 100 };
       char.pauseBehavior = origState.pause;
-      char.targetX = (origState.bounds.minX + origState.bounds.maxX) / 2;
-      char.targetY = (origState.bounds.minY + origState.bounds.maxY) / 2;
-      char.isMoving = true;
-      char.direction = char.targetX > char.x ? 1 : -1;
-      char._onArrive = () => {
-        char._reportPhase = null; // 도착 → 정지 (lineUpActive 끝날때까지 안 움직임)
+
+      const homeX = (origState.bounds.minX + origState.bounds.maxX) / 2;
+      const homeY = (origState.bounds.minY + origState.bounds.maxY) / 2;
+
+      // 복도 경유해서 집으로
+      const waypoints = buildCorridorPath(char.x, char.y, homeX, homeY);
+      moveViaWaypoints(char, waypoints, () => {
+        char._reportPhase = null;
+        char.speed = origState.speed;
+        char.bounds = origState.bounds;
         char.isMoving = false;
         char.idleTimer = 99999;
-      };
+      });
     }
 
     function processLineUp(lineup, ceoChar, origStates, idx) {
@@ -1061,12 +1129,14 @@
 
       const char = lineup[idx];
       const orig = origStates[idx];
+      const ceeFrontX = ceoChar.x + 80;
+      const ceeFrontY = ceoChar.y + 60;
 
-      // Step forward to CEO
+      // Step forward to CEO (짧은 거리라 직선 이동)
       char._reportPhase = 'running';
       char.speed = 3.5;
-      char.targetX = ceoChar.x + 80;
-      char.targetY = ceoChar.y + 60;
+      char.targetX = ceeFrontX;
+      char.targetY = ceeFrontY;
       char.isMoving = true;
       char.direction = char.targetX > char.x ? 1 : -1;
 
