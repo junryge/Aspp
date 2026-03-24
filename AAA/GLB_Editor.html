@@ -69,12 +69,12 @@ body{font-family:'Segoe UI',sans-serif;background:#1a1a2e;color:#eee;height:100v
       <button class="btn btn-sm btn-outline" id="btmUp" style="padding:3px 8px" title="▲ 올리기 (Shift:크게)">▲</button>
       <button class="btn btn-sm btn-outline" id="btmDown" style="padding:3px 8px" title="▼ 내리기 (Shift:크게)">▼</button>
     </div>
-    <div class="sec">텍스처 해상도</div>
+    <div class="sec">미리보기 텍스처</div>
     <div style="display:flex;gap:4px;align-items:center">
       <button class="btn btn-sm btn-outline tx-sel" data-tx="1024">1K</button>
       <button class="btn btn-sm tx-sel" data-tx="2048" style="border:2px solid #e94560">2K</button>
       <button class="btn btn-sm btn-outline tx-sel" data-tx="4096">4K</button>
-      <span style="font-size:9px;color:#666;margin-left:4px" id="txInfo">2048px (기본)</span>
+      <span style="font-size:9px;color:#666;margin-left:4px" id="txInfo">미리보기 2048px</span>
     </div>
     <div class="sec">배경색</div>
     <div style="display:flex;gap:4px;align-items:center;flex-wrap:wrap">
@@ -101,6 +101,11 @@ body{font-family:'Segoe UI',sans-serif;background:#1a1a2e;color:#eee;height:100v
     <div id="mode-info"></div>
     <div id="help-text">면 클릭: 이미지 조절 (드래그:이동 / 휠:크기) | Esc: 해제<br>핸들 드래그: 크기조절 (빨강:W / 초록:H / 파랑:D)<br>Shift+면 드래그: 건물 이동 | 빈곳 드래그: 회전</div>
     <div id="export-bar">
+      <select id="exportRes" style="background:#0f3460;color:#fff;border:1px solid #444;border-radius:3px;padding:4px 6px;font-size:11px;cursor:pointer">
+        <option value="2048">2K Export</option>
+        <option value="4096" selected>4K Export</option>
+        <option value="8192">8K Export</option>
+      </select>
       <button class="btn btn-green" id="exportBtn">GLB 내보내기</button>
     </div>
   </div>
@@ -138,9 +143,9 @@ const renderer=new THREE.WebGLRenderer({canvas:cvs3,antialias:true,alpha:true});
 renderer.setPixelRatio(Math.min(window.devicePixelRatio,2));
 renderer.setClearColor(0x000000,0);
 renderer.outputColorSpace=THREE.SRGBColorSpace;
-renderer.toneMapping=THREE.ACESFilmicToneMapping;
-scene.add(new THREE.AmbientLight(0xffffff,0.8));
-const dl=new THREE.DirectionalLight(0xffffff,1);dl.position.set(10,20,10);scene.add(dl);
+renderer.toneMapping=THREE.NoToneMapping;
+scene.add(new THREE.AmbientLight(0xffffff,1.0));
+const dl=new THREE.DirectionalLight(0xffffff,0.6);dl.position.set(10,20,10);scene.add(dl);
 scene.add(new THREE.GridHelper(50,50,0x333344,0x222233));
 
 const ctrl=new OrbitControls(camera,cvs3);
@@ -175,6 +180,8 @@ function posHandles(){
 
 // ===== DRAW =====
 function drawCover(ctx,cw,ch,img,sx,sy,ox,oy,prev,faceKey){
+  ctx.imageSmoothingEnabled=true;
+  ctx.imageSmoothingQuality='high';
   ctx.clearRect(0,0,cw,ch);
   // Texture canvas (prev=false): NO white fill → transparent background
   // This ensures alphaMode:MASK works correctly in GLB export
@@ -752,43 +759,72 @@ document.querySelectorAll('.tx-sel').forEach(b=>{
     });
     b.classList.remove('btn-outline');b.classList.add('btn');
     b.style.border='2px solid #e94560';
-    const labels={1024:'1024px (가벼움)',2048:'2048px (기본)',4096:'4096px (고화질)'};
+    const labels={1024:'미리보기 1024px',2048:'미리보기 2048px',4096:'미리보기 4096px'};
     document.getElementById('txInfo').textContent=labels[newTx]||newTx+'px';
     rebuild();
   });
 });
 
 // ===== EXPORT =====
+function getExportTX(){ return parseInt(document.getElementById('exportRes').value)||4096; }
+function makeExportTC(fw,fh){
+  const etx=getExportTX();
+  const ar=fw/fh;let w,h;
+  if(ar>=1){w=etx;h=Math.max(1,Math.round(etx/ar));}else{h=etx;w=Math.max(1,Math.round(etx*ar));}
+  const c=document.createElement('canvas');c.width=w;c.height=h;return c;
+}
+
 document.getElementById('exportBtn').addEventListener('click',()=>{
   if(!boxMesh)return;
-  // Export mesh with world position
-  const clone=boxMesh.clone();
-  clone.position.set(S.px,S.h/2,S.pz);
-  // Deep clone materials — alphaTest:0.5 → GLB alphaMode:MASK
-  // Faces with images: image area opaque, rest transparent (invisible)
-  // Faces without images: fully transparent (invisible)
-  if(Array.isArray(clone.material)){
-    clone.material=clone.material.map(m=>{
-      if(!m)return m;
-      const cm=m.clone();
-      cm.transparent=false;
-      cm.alphaTest=0.5;   // → GLTFExporter outputs alphaMode:"MASK", alphaCutoff:0.5
-      cm.opacity=1;
-      cm.visible=true;
-      cm.metalness=0;
-      cm.roughness=1;
-      return cm;
+  const etx=getExportTX();
+  const btn=document.getElementById('exportBtn');
+  btn.textContent='내보내는 중...';btn.disabled=true;
+
+  // Export용 고해상도 geometry + material 세트 생성
+  const geo=new THREE.BoxGeometry(S.w,S.h,S.d);
+  applyTopDepth(geo);
+  applyBottomHeight(geo);
+  const mats=[];
+  const disposables=[];
+
+  FACES.forEach(f=>{
+    const fs=S.faces[f.key],fw=S[f.wDim],fh=S[f.hDim];
+    // Export용 4K 텍스처 캔버스 생성
+    const tc=makeExportTC(fw,fh);
+    drawCover(tc.getContext('2d'),tc.width,tc.height,fs.img,fs.sx,fs.sy,fs.ox,fs.oy,false,f.key);
+    const tex=new THREE.CanvasTexture(tc);
+    tex.colorSpace=THREE.SRGBColorSpace;
+    tex.flipY=true;
+    const mat=new THREE.MeshStandardMaterial({
+      map:tex, side:THREE.FrontSide,
+      transparent:false, alphaTest:0.5,
+      metalness:0, roughness:1,
+      opacity:1, visible:true
     });
-  }
+    if(!fs.img && f.key!=='bottom')mat.visible=false;
+    mats[f.matIdx]=mat;
+    disposables.push(tex,mat);
+  });
+
+  const exportMesh=new THREE.Mesh(geo,mats);
+  exportMesh.position.set(S.px,S.h/2,S.pz);
+
   const exporter=new GLTFExporter();
-  exporter.parse(clone,glb=>{
+  exporter.parse(exportMesh,glb=>{
     const blob=new Blob([glb],{type:'application/octet-stream'});
-    const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=`building_${TX}px.glb`;
+    const a=document.createElement('a');a.href=URL.createObjectURL(blob);
+    a.download=`building_${etx}px.glb`;
     document.body.appendChild(a);a.click();document.body.removeChild(a);URL.revokeObjectURL(a.href);
     // Cleanup
-    if(Array.isArray(clone.material))clone.material.forEach(m=>m.dispose());
-    clone.geometry.dispose();
-  },err=>{alert('Export failed: '+err.message);},{binary:true});
+    disposables.forEach(d=>d.dispose());
+    geo.dispose();
+    btn.textContent='GLB 내보내기';btn.disabled=false;
+  },err=>{
+    alert('Export failed: '+err.message);
+    disposables.forEach(d=>d.dispose());
+    geo.dispose();
+    btn.textContent='GLB 내보내기';btn.disabled=false;
+  },{binary:true});
 });
 
 // ===== LABELS =====
