@@ -1153,6 +1153,7 @@ function anim3D(ts){
 
 // ══════════════════════════════════════════════
 // GLB EXPORT — 3D (Three.js Scene → glTF Binary + Animations)
+// Blender 호환: geometry는 로컬 좌표, 노드에 월드 위치, 애니메이션은 절대 위치 키프레임
 // ══════════════════════════════════════════════
 function export3DGLB(){
   if(!S.nodes.length){alert('노드가 없습니다.');return;}
@@ -1165,23 +1166,22 @@ function export3DGLB(){
   var matMap={},matList=[];
   var bufParts=[];
   var sceneNodeIndices=[];
+  var animTracks=[];
 
-  // ── helpers ──
   function pad4(){var p=byteOffset%4;if(p>0){var n=4-p;bufParts.push(new Uint8Array(n));byteOffset+=n;}}
   function addBufView(data,target){
-    var bytes=data.buffer.byteLength;
     var bvIdx=bufferViews.length;
-    bufferViews.push({buffer:0,byteOffset:byteOffset,byteLength:bytes,target:target||undefined});
-    bufParts.push(new Uint8Array(data.buffer));
-    byteOffset+=bytes;
+    var raw=new Uint8Array(data.buffer,data.byteOffset,data.byteLength);
+    bufferViews.push({buffer:0,byteOffset:byteOffset,byteLength:raw.byteLength,target:target||undefined});
+    bufParts.push(raw);
+    byteOffset+=raw.byteLength;
     return bvIdx;
   }
   function addAccessor(bvIdx,compType,count,type,min,max){
     var idx=accessors.length;
     var a={bufferView:bvIdx,componentType:compType,count:count,type:type};
     if(min)a.min=min;if(max)a.max=max;
-    accessors.push(a);
-    return idx;
+    accessors.push(a);return idx;
   }
   function getMatIdx(mat){
     var r=0.5,g=0.5,b=0.5,a=1;
@@ -1190,29 +1190,31 @@ function export3DGLB(){
     var key=r.toFixed(3)+'_'+g.toFixed(3)+'_'+b.toFixed(3)+'_'+a.toFixed(3);
     if(matMap[key]!==undefined)return matMap[key];
     var idx=matList.length;matMap[key]=idx;
-    var m={pbrMetallicRoughness:{baseColorFactor:[r,g,b,a],metallicFactor:0.1,roughnessFactor:0.6}};
+    var m={pbrMetallicRoughness:{baseColorFactor:[r,g,b,a],metallicFactor:0.1,roughnessFactor:0.6},name:'mat_'+idx};
     if(a<1)m.alphaMode='BLEND';
     matList.push(m);return idx;
   }
 
-  // ── Collect animated objects and all meshes per-group ──
-  var animTracks=[]; // {nodeIdx, path:'translation', times:Float32Array, values:Float32Array}
-
-  function processMesh(obj){
+  // geometry를 로컬 좌표(부모 그룹 기준)로 변환
+  function processLocalMesh(obj, parentWorldMatrix){
     var geo=obj.geometry;
     var pos=geo.getAttribute('position');
     if(!pos)return -1;
     var norm=geo.getAttribute('normal');
     obj.updateWorldMatrix(true,false);
-    var wm=obj.matrixWorld;
-    var nm3=new THREE.Matrix3().getNormalMatrix(wm);
+
+    // 로컬 변환 = parentInverse * world
+    var parentInv=parentWorldMatrix.clone().invert();
+    var localMat=parentInv.clone().multiply(obj.matrixWorld);
+    var nm3=new THREE.Matrix3().getNormalMatrix(localMat);
+
     var vCount=pos.count;
     var posArr=new Float32Array(vCount*3);
     var normArr=norm?new Float32Array(vCount*3):null;
     var v=new THREE.Vector3(),n=new THREE.Vector3();
     var pMin=[Infinity,Infinity,Infinity],pMax=[-Infinity,-Infinity,-Infinity];
     for(var i=0;i<vCount;i++){
-      v.set(pos.getX(i),pos.getY(i),pos.getZ(i)).applyMatrix4(wm);
+      v.set(pos.getX(i),pos.getY(i),pos.getZ(i)).applyMatrix4(localMat);
       posArr[i*3]=v.x;posArr[i*3+1]=v.y;posArr[i*3+2]=v.z;
       if(v.x<pMin[0])pMin[0]=v.x;if(v.y<pMin[1])pMin[1]=v.y;if(v.z<pMin[2])pMin[2]=v.z;
       if(v.x>pMax[0])pMax[0]=v.x;if(v.y>pMax[1])pMax[1]=v.y;if(v.z>pMax[2])pMax[2]=v.z;
@@ -1224,11 +1226,10 @@ function export3DGLB(){
     var idxSrc=geo.getIndex();
     var idxCount=idxSrc?idxSrc.count:vCount;
     var use32=vCount>65535;
-    var idxArr;
-    if(idxSrc){idxArr=use32?new Uint32Array(idxCount):new Uint16Array(idxCount);for(var i=0;i<idxCount;i++)idxArr[i]=idxSrc.getX(i);}
-    else{idxArr=use32?new Uint32Array(idxCount):new Uint16Array(idxCount);for(var i=0;i<idxCount;i++)idxArr[i]=i;}
+    var idxArr=use32?new Uint32Array(idxCount):new Uint16Array(idxCount);
+    if(idxSrc){for(var i=0;i<idxCount;i++)idxArr[i]=idxSrc.getX(i);}
+    else{for(var i=0;i<idxCount;i++)idxArr[i]=i;}
 
-    // bufferViews + accessors
     var posBV=addBufView(posArr,34962);
     var posAcc=addAccessor(posBV,5126,vCount,'VEC3',pMin,pMax);
     var normAcc=-1;
@@ -1245,13 +1246,11 @@ function export3DGLB(){
     return meshIdx;
   }
 
-  // ── Bake animation keyframes ──
-  // duration and sample count
-  var ANIM_DUR=5.0; // 5초 루프
-  var ANIM_SAMPLES=60; // 60 키프레임
+  // ── 애니메이션 키프레임 (절대 위치로 bake) ──
+  var ANIM_DUR=5.0;
+  var ANIM_SAMPLES=60;
 
   function bakeTranslationAnim(nodeIdx, posFunc){
-    // posFunc(t) returns [x,y,z] for t in [0,1]
     var times=new Float32Array(ANIM_SAMPLES);
     var values=new Float32Array(ANIM_SAMPLES*3);
     for(var i=0;i<ANIM_SAMPLES;i++){
@@ -1263,99 +1262,117 @@ function export3DGLB(){
     animTracks.push({nodeIdx:nodeIdx,path:'translation',times:times,values:values});
   }
 
-  // ── Process scene objects ──
-  t3Scene.traverse(function(obj){
-    if(!obj.isMesh||!obj.geometry||obj.isSprite)return;
-    var u=obj.userData;
-    var meshIdx=processMesh(obj);
-    if(meshIdx<0)return;
+  // ── 씬 순회: 그룹 단위로 처리 ──
+  // t3Objs에는 각 노드의 Group 또는 ground plane이 들어있음
+  t3Objs.forEach(function(grp){
+    if(!grp)return;
 
-    // 월드 위치를 노드 translation으로 분리 (정적 위치)
-    obj.updateWorldMatrix(true,false);
-    var wp=new THREE.Vector3();obj.getWorldPosition(wp);
-
-    var nodeIdx=gltfNodes.length;
-    // 정적 노드는 translation 없음 (이미 geometry에 bake됨)
-    var node={mesh:meshIdx,name:(obj.name||'obj_'+nodeIdx)};
-
-    // ── 애니메이션 감지 및 키프레임 생성 ──
-    // 리프트 플랫폼
-    if(u.lift){
-      var lh=u.lift.h||70;
-      var baseY=wp.y;
-      // geometry가 이미 world bake되어 있으므로,
-      // 애니메이션은 노드의 translation offset으로 적용
-      // baseY에서 시작, +lh*0.8까지 올라갔다 내려옴
-      node.translation=[0,0,0];
-      bakeTranslationAnim(nodeIdx, function(t){
-        var dy=Math.abs(Math.sin(t*Math.PI*2))*lh*0.8;
-        return [0, dy, 0];
-      });
-    }
-    // 브릿지 큐브
-    else if(u.bridgeCube){
-      var bh=u.bridgeCube.h||120;
-      node.translation=[0,0,0];
-      bakeTranslationAnim(nodeIdx, function(t){
-        var dy=Math.abs(Math.sin(t*Math.PI*2))*bh*0.85;
-        return [0, dy, 0];
-      });
-    }
-    // 컨베이어 플로우 도트
-    else if(u.flow){
-      var fl=u.flow;
-      node.translation=[0,0,0];
-      bakeTranslationAnim(nodeIdx, function(t){
-        var phase=((t+fl.idx/fl.total)%1);
-        var dx=-fl.len/2+fl.len*phase - wp.x;
-        // 실제로 geometry에 bake된 위치에서의 offset
-        return [fl.len*(phase - fl.idx/fl.total), 0, 0];
-      });
-    }
-    // 연결선 플로우 도트
-    else if(u.connFlow){
-      var cf=u.connFlow;
-      node.translation=[0,0,0];
-      bakeTranslationAnim(nodeIdx, function(t){
-        var phase=((t+cf.idx/cf.total)%1);
-        var pt=cf.curve.getPointAt(phase);
-        // offset from baked position (at t=0 state)
-        var initPhase=(cf.idx/cf.total)%1;
-        var initPt=cf.curve.getPointAt(initPhase);
-        return [pt.x-initPt.x, pt.y-initPt.y, pt.z-initPt.z];
-      });
-    }
-    // 터널 플로우 도트
-    else if(u.tunFlow){
-      var tf=u.tunFlow;
-      node.translation=[0,0,0];
-      bakeTranslationAnim(nodeIdx, function(t){
-        var phase=((t+tf.idx/tf.total)%1);
-        var pt=tf.curve.getPointAt(phase);
-        var initPhase=(tf.idx/tf.total)%1;
-        var initPt=tf.curve.getPointAt(initPhase);
-        return [pt.x-initPt.x, pt.y-initPt.y, pt.z-initPt.z];
-      });
+    // 단일 메시 (ground plane 등) — 그룹이 아닌 경우
+    if(grp.isMesh&&grp.geometry&&!grp.isSprite){
+      grp.updateWorldMatrix(true,false);
+      var wp=new THREE.Vector3();grp.getWorldPosition(wp);
+      // identity parent → geometry를 로컬 좌표(원점 기준)로
+      var identityParent=new THREE.Matrix4().makeTranslation(wp.x,wp.y,wp.z);
+      var meshIdx=processLocalMesh(grp, identityParent);
+      if(meshIdx>=0){
+        var nodeIdx=gltfNodes.length;
+        gltfNodes.push({mesh:meshIdx,name:grp.name||'ground_'+nodeIdx,translation:[wp.x,wp.y,wp.z]});
+        sceneNodeIndices.push(nodeIdx);
+      }
+      return;
     }
 
-    gltfNodes.push(node);
-    sceneNodeIndices.push(nodeIdx);
+    // GridHelper 등 LineSegments는 스킵
+    if(!grp.isGroup&&!grp.isMesh)return;
+
+    // 그룹 안의 메시들을 자식 노드로 처리
+    grp.updateWorldMatrix(true,false);
+    var grpWorld=new THREE.Vector3();grp.getWorldPosition(grpWorld);
+    var parentNode={name:grp.name||(grp.userData&&grp.userData.node?(grp.userData.node.label||grp.userData.node.type):'group'),translation:[grpWorld.x,grpWorld.y,grpWorld.z],children:[]};
+    var parentNodeIdx=gltfNodes.length;
+    gltfNodes.push(parentNode);
+    sceneNodeIndices.push(parentNodeIdx);
+
+    // 부모 월드 매트릭스 (그룹의 위치)
+    var parentWM=new THREE.Matrix4().makeTranslation(grpWorld.x,grpWorld.y,grpWorld.z);
+
+    grp.traverse(function(child){
+      if(child===grp)return;
+      if(!child.isMesh||!child.geometry||child.isSprite)return;
+
+      var u=child.userData;
+      child.updateWorldMatrix(true,false);
+      var cw=new THREE.Vector3();child.getWorldPosition(cw);
+      // 부모 기준 로컬 위치
+      var localX=cw.x-grpWorld.x, localY=cw.y-grpWorld.y, localZ=cw.z-grpWorld.z;
+
+      // geometry를 해당 메시의 자체 로컬 좌표로 변환
+      // 메시의 부모 = 이 child의 월드 위치를 기준으로 identity
+      var childWM=new THREE.Matrix4().makeTranslation(cw.x,cw.y,cw.z);
+      var meshIdx=processLocalMesh(child, childWM);
+      if(meshIdx<0)return;
+
+      var childNodeIdx=gltfNodes.length;
+      var childNode={mesh:meshIdx,name:child.name||('child_'+childNodeIdx),translation:[localX,localY,localZ]};
+      gltfNodes.push(childNode);
+      parentNode.children.push(childNodeIdx);
+
+      // ── 애니메이션: 절대 위치(부모 기준 로컬)로 키프레임 bake ──
+      if(u.lift){
+        var lh=u.lift.h||70;
+        var baseLocalY=localY;
+        bakeTranslationAnim(childNodeIdx, function(t){
+          var dy=Math.abs(Math.sin(t*Math.PI*2))*lh*0.8;
+          return [localX, baseLocalY+dy, localZ];
+        });
+      }
+      else if(u.bridgeCube){
+        var bh=u.bridgeCube.h||120;
+        var baseLocalY2=localY;
+        bakeTranslationAnim(childNodeIdx, function(t){
+          var dy=Math.abs(Math.sin(t*Math.PI*2))*bh*0.85;
+          return [localX, baseLocalY2+dy, localZ];
+        });
+      }
+      else if(u.flow){
+        var fl=u.flow;
+        bakeTranslationAnim(childNodeIdx, function(t){
+          var phase=((t+fl.idx/fl.total)%1);
+          var dx=-fl.len/2+fl.len*phase;
+          return [dx, localY, localZ];
+        });
+      }
+      else if(u.connFlow){
+        var cf=u.connFlow;
+        bakeTranslationAnim(childNodeIdx, function(t){
+          var phase=((t+cf.idx/cf.total)%1);
+          var pt=cf.curve.getPointAt(phase);
+          // 커브 좌표는 월드 좌표 → 부모 기준 로컬로 변환
+          return [pt.x-grpWorld.x, pt.y-grpWorld.y, pt.z-grpWorld.z];
+        });
+      }
+      else if(u.tunFlow){
+        var tf=u.tunFlow;
+        bakeTranslationAnim(childNodeIdx, function(t){
+          var phase=((t+tf.idx/tf.total)%1);
+          var pt=tf.curve.getPointAt(phase);
+          return [pt.x-grpWorld.x, pt.y-grpWorld.y, pt.z-grpWorld.z];
+        });
+      }
+    });
   });
 
   // ── Build animation data into buffer ──
   if(animTracks.length>0){
     var channels=[],samplers=[];
     animTracks.forEach(function(track){
-      // time accessor
       var tMin=track.times[0],tMax=track.times[track.times.length-1];
       pad4();
       var timeBV=addBufView(track.times);
       var timeAcc=addAccessor(timeBV,5126,track.times.length,'SCALAR',[tMin],[tMax]);
-      // value accessor
       pad4();
       var valBV=addBufView(track.values);
       var valAcc=addAccessor(valBV,5126,track.values.length/3,'VEC3');
-
       var samplerIdx=samplers.length;
       samplers.push({input:timeAcc,output:valAcc,interpolation:'LINEAR'});
       channels.push({sampler:samplerIdx,target:{node:track.nodeIdx,path:track.path}});
@@ -1404,7 +1421,7 @@ function export3DGLB(){
   var blob=new Blob([glb],{type:'model/gltf-binary'});
   var a=document.createElement('a');
   a.href=URL.createObjectURL(blob);a.download='fab_layout_3d.glb';a.click();
-  stat('GLB 내보내기 완료 (애니 '+animTracks.length+'트랙, 메시 '+gltfMeshes.length+'개)');
+  stat('GLB 내보내기 완료 (애니 '+animTracks.length+'트랙, 메시 '+gltfMeshes.length+'개, 노드 '+gltfNodes.length+'개)');
 }
 document.getElementById('bGLB3D').onclick=export3DGLB;
 
