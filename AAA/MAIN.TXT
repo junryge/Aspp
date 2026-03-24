@@ -959,89 +959,164 @@
       return characters.find(c => c.name === name);
     }
 
-    // ═══ Report to CEO system ═══
-    let reportQueue = []; // { agentKey, text }
-    let reportInProgress = false;
+    // ═══ Report to CEO system (전체 줄서기) ═══
+    let pendingReports = {}; // agentKey → reportText (대기 중인 보고)
+    let lineUpActive = false;
 
     function triggerReport(agentKey, reportText) {
-      reportQueue.push({ agentKey, text: reportText });
-      processReportQueue();
+      pendingReports[agentKey] = reportText;
+      if (!lineUpActive) startLineUpReport();
     }
 
-    function processReportQueue() {
-      if (reportInProgress || reportQueue.length === 0) return;
-      reportInProgress = true;
-      const { agentKey, text } = reportQueue.shift();
+    function startLineUpReport() {
+      if (lineUpActive || isOnStrike) return;
+      lineUpActive = true;
 
-      const charName = agentCharMap[agentKey];
-      const char = charName ? findCharByName(charName) : null;
       const ceoChar = characters.find(c => c.isStatic);
-      if (!char || !ceoChar || char._fired || isOnStrike) {
-        reportInProgress = false;
-        processReportQueue();
+      const movingChars = characters.filter(c => !c.isStatic && !c._fired);
+      if (movingChars.length === 0 || !ceoChar) { lineUpActive = false; return; }
+
+      // Save original states
+      const origStates = movingChars.map(c => ({
+        char: c,
+        bounds: { ...c.bounds },
+        speed: c.speed,
+        pause: c.pauseBehavior,
+      }));
+
+      // Line-up positions: queue in front of CEO, going down
+      const lineX = ceoChar.x + 120;
+      const lineStartY = ceoChar.y + 30;
+      const lineGap = 80;
+
+      // Phase 1: All employees run to line-up positions
+      let arrivedCount = 0;
+      movingChars.forEach((c, i) => {
+        c._reportPhase = 'running';
+        c.speed = 4.5;
+        c.bounds = { minX: -100, maxX: world.width + 100, minY: -100, maxY: world.height + 100 };
+        c.pauseBehavior = 'alwaysMove';
+        c.targetX = lineX;
+        c.targetY = lineStartY + i * lineGap;
+        c.isMoving = true;
+        c.direction = c.targetX > c.x ? 1 : -1;
+
+        c._onArrive = () => {
+          c._reportPhase = 'lineUp';
+          c.direction = -1; // face CEO
+          c.isMoving = false;
+          c.idleTimer = 99999;
+          arrivedCount++;
+          if (arrivedCount === movingChars.length) {
+            // Everyone lined up → start individual reports
+            processLineUp(movingChars, ceoChar, origStates, 0);
+          }
+        };
+      });
+    }
+
+    function processLineUp(lineup, ceoChar, origStates, idx) {
+      if (idx >= lineup.length) {
+        // All done → CEO final comment, then everyone goes home
+        const finalMsgs = ['수고했다! 해산!', '좋아, 다들 열심히!', '오늘도 파이팅!'];
+        activeBubble = { char: ceoChar, text: finalMsgs[Math.floor(Math.random() * finalMsgs.length)], timer: 2500 };
+
+        setTimeout(() => {
+          // Send everyone back
+          origStates.forEach(os => {
+            const c = os.char;
+            c._reportPhase = null;
+            c.speed = os.speed;
+            c.bounds = os.bounds;
+            c.pauseBehavior = os.pause;
+            c.targetX = (os.bounds.minX + os.bounds.maxX) / 2;
+            c.targetY = (os.bounds.minY + os.bounds.maxY) / 2;
+            c.isMoving = true;
+            c.direction = c.targetX > c.x ? 1 : -1;
+            c._onArrive = () => {
+              c.isMoving = false;
+              c.idleTimer = 1000 + Math.random() * 2000;
+            };
+          });
+          pendingReports = {};
+          lineUpActive = false;
+        }, 2500);
         return;
       }
 
-      // Save original state
-      const origBounds = { ...char.bounds };
-      const origSpeed = char.speed;
-      const origPause = char.pauseBehavior;
-
-      // Phase 1: Run to CEO (fast!)
+      const char = lineup[idx];
+      // Step forward to CEO
       char._reportPhase = 'running';
-      char.speed = 5.0; // fast run
-      char.bounds = { minX: -100, maxX: world.width + 100, minY: -100, maxY: world.height + 100 };
-      char.pauseBehavior = 'alwaysMove';
+      char.speed = 3.5;
       char.targetX = ceoChar.x + 80;
       char.targetY = ceoChar.y + 60;
       char.isMoving = true;
-      char.direction = char.targetX > char.x ? 1 : -1;
+      char.direction = -1;
 
       char._onArrive = () => {
-        // Phase 2: Arrive at CEO → "보고합니다!"
         char._reportPhase = 'reporting';
-        char.direction = -1; // face left toward CEO
+        char.direction = -1;
         char.isMoving = false;
         char.idleTimer = 99999;
 
-        // "보고합니다!" first
-        activeBubble = { char, text: '보고합니다!', timer: 2000 };
+        // Find agent key for this character
+        const agentKey = Object.entries(agentCharMap).find(([k, v]) => v === char.name)?.[0];
+        const hasReport = agentKey && pendingReports[agentKey];
 
-        // After 2s → show actual report content for 3s (total ~5s in front of CEO)
-        setTimeout(() => {
-          const shortText = text.length > 25 ? text.substring(0, 25) + '...' : text;
-          activeBubble = { char, text: `📋 ${shortText}`, timer: 3000 };
-        }, 2000);
+        if (hasReport) {
+          // Has something to report
+          const reportText = pendingReports[agentKey];
+          activeBubble = { char, text: '보고합니다!', timer: 1800 };
 
-        // CEO acknowledges at ~3.5s
-        setTimeout(() => {
-          const ceoResponses = ['좋아, 수고했어!', '확인했다!', '잘했어!', '오, 그래?', '알겠어, 고생!', '굿! 계속 해!'];
-          const resp = ceoResponses[Math.floor(Math.random() * ceoResponses.length)];
-          activeBubble = { char: ceoChar, text: resp, timer: 2000 };
-        }, 3500);
+          setTimeout(() => {
+            const shortText = reportText.length > 25 ? reportText.substring(0, 25) + '...' : reportText;
+            activeBubble = { char, text: `📋 ${shortText}`, timer: 2500 };
+          }, 1800);
 
-        // Phase 3: After 5s → return to EXACT original saved position
-        setTimeout(() => {
-          char._reportPhase = null;
-          char.speed = origSpeed;
-          char.bounds = origBounds;
-          char.pauseBehavior = origPause;
-          // Return to saved original position (before strike/report moved them)
-          const returnX = (origBounds.minX + origBounds.maxX) / 2;
-          const returnY = (origBounds.minY + origBounds.maxY) / 2;
-          char.targetX = returnX;
-          char.targetY = returnY;
-          char.isMoving = true;
-          char.direction = char.targetX > char.x ? 1 : -1;
+          setTimeout(() => {
+            const ceoResponses = ['좋아, 수고했어!', '확인했다!', '잘했어!', '알겠어, 고생!'];
+            activeBubble = { char: ceoChar, text: ceoResponses[Math.floor(Math.random() * ceoResponses.length)], timer: 1500 };
+          }, 3500);
 
-          char._onArrive = () => {
-            // Stop exactly at home position, don't roam
-            char.isMoving = false;
-            char.idleTimer = 1000 + Math.random() * 2000;
-            reportInProgress = false;
-            processReportQueue();
-          };
-        }, 5500);
+          // After 5s → step back to line, next person
+          setTimeout(() => {
+            stepBackToLine(char, lineup, ceoChar, origStates, idx);
+          }, 5000);
+        } else {
+          // Nothing to report
+          activeBubble = { char, text: '보고할 내용 없습니다!', timer: 2000 };
+
+          setTimeout(() => {
+            activeBubble = { char: ceoChar, text: '알겠어, 수고!', timer: 1200 };
+          }, 1500);
+
+          // After 2.5s → step back, next
+          setTimeout(() => {
+            stepBackToLine(char, lineup, ceoChar, origStates, idx);
+          }, 2500);
+        }
+      };
+    }
+
+    function stepBackToLine(char, lineup, ceoChar, origStates, idx) {
+      // Step back to line position
+      const lineX = ceoChar.x + 120;
+      const lineStartY = ceoChar.y + 30;
+      const lineGap = 80;
+
+      char._reportPhase = 'lineUp';
+      char.speed = 3.0;
+      char.targetX = lineX;
+      char.targetY = lineStartY + idx * lineGap;
+      char.isMoving = true;
+      char.direction = 1;
+
+      char._onArrive = () => {
+        char.direction = -1;
+        char.isMoving = false;
+        char.idleTimer = 99999;
+        // Next person
+        processLineUp(lineup, ceoChar, origStates, idx + 1);
       };
     }
 
