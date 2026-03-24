@@ -98,7 +98,8 @@ THREE.OrbitControls=function(o,d){this.object=o;this.domElement=d||document;this
   <button class="tb" id="bLod">📂 불러오기</button>
   <button class="tb" id="bExp">🖼 PNG</button>
   <div class="sep"></div>
-  <button class="tb" id="bGLB3D" title="3D GLB 내보내기">🧊 3D GLB</button>
+  <button class="tb" id="bGLB3D" title="3D GLB 내보내기">🧊 GLB 저장</button>
+  <button class="tb" id="bGLBLoad" title="3D GLB 불러오기">📦 GLB 로드</button>
   <button class="tb" id="bScr" title="3D 스크린샷">📸 스크린샷</button>
   <div class="sep"></div>
   <span class="zinfo hid" id="zInf">100%</span>
@@ -1294,6 +1295,213 @@ function export3DGLB(){
   stat('3D GLB 내보내기 완료 (.glb)');
 }
 document.getElementById('bGLB3D').onclick=export3DGLB;
+
+// ══════════════════════════════════════════════
+// GLB LOAD — glTF Binary → Three.js Scene
+// ══════════════════════════════════════════════
+function loadGLB(){
+  var inp=document.createElement('input');
+  inp.type='file';inp.accept='.glb,.gltf';
+  inp.onchange=function(ev){
+    var file=ev.target.files[0];
+    if(!file)return;
+    stat('GLB 로딩중: '+file.name+'...');
+    var reader=new FileReader();
+    reader.onload=function(re){
+      try{
+        var buf=re.target.result;
+        var parsed=parseGLB(buf);
+        if(!parsed){stat('GLB 파싱 실패');return;}
+        addGLBToScene(parsed, file.name);
+      }catch(err){
+        alert('GLB 로드 실패: '+err.message);
+        stat('GLB 로드 실패');
+        console.error(err);
+      }
+    };
+    reader.readAsArrayBuffer(file);
+  };
+  inp.click();
+}
+
+function parseGLB(buffer){
+  var dv=new DataView(buffer);
+  // Header
+  var magic=dv.getUint32(0,true);
+  if(magic!==0x46546C67){alert('올바른 GLB 파일이 아닙니다.');return null;}
+  var version=dv.getUint32(4,true);
+  var totalLen=dv.getUint32(8,true);
+
+  // Chunks
+  var offset=12;
+  var jsonData=null, binData=null;
+  while(offset<totalLen){
+    var chunkLen=dv.getUint32(offset,true);
+    var chunkType=dv.getUint32(offset+4,true);
+    var chunkData=buffer.slice(offset+8, offset+8+chunkLen);
+    if(chunkType===0x4E4F534A){ // JSON
+      jsonData=JSON.parse(new TextDecoder().decode(chunkData));
+    }else if(chunkType===0x004E4942){ // BIN
+      binData=chunkData;
+    }
+    offset+=8+chunkLen;
+  }
+  if(!jsonData){alert('GLB에 JSON 데이터가 없습니다.');return null;}
+  return {json:jsonData, bin:binData};
+}
+
+function addGLBToScene(parsed, filename){
+  var json=parsed.json;
+  var bin=parsed.bin;
+
+  // Parse accessors helper
+  function getAccessorData(accIdx){
+    var acc=json.accessors[accIdx];
+    var bv=json.bufferViews[acc.bufferView];
+    var byteOff=(bv.byteOffset||0)+(acc.byteOffset||0);
+    var compType=acc.componentType;
+    var count=acc.count;
+    var typeSize={'SCALAR':1,'VEC2':2,'VEC3':3,'VEC4':4,'MAT4':16}[acc.type]||1;
+    var totalElements=count*typeSize;
+
+    if(compType===5126){ // FLOAT
+      return new Float32Array(bin, byteOff, totalElements);
+    }else if(compType===5123){ // UNSIGNED_SHORT
+      return new Uint16Array(bin, byteOff, totalElements);
+    }else if(compType===5125){ // UNSIGNED_INT
+      return new Uint32Array(bin, byteOff, totalElements);
+    }else if(compType===5121){ // UNSIGNED_BYTE
+      return new Uint8Array(bin, byteOff, totalElements);
+    }
+    return new Float32Array(bin, byteOff, totalElements);
+  }
+
+  // Parse materials
+  function getMaterial(matIdx){
+    if(matIdx==null||!json.materials||!json.materials[matIdx]){
+      return new THREE.MeshStandardMaterial({color:0xaaaaaa,roughness:0.6});
+    }
+    var m=json.materials[matIdx];
+    var pbr=m.pbrMetallicRoughness||{};
+    var bc=pbr.baseColorFactor||[0.8,0.8,0.8,1];
+    var mat=new THREE.MeshStandardMaterial({
+      color:new THREE.Color(bc[0],bc[1],bc[2]),
+      roughness:pbr.roughnessFactor!=null?pbr.roughnessFactor:0.6,
+      metalness:pbr.metallicFactor!=null?pbr.metallicFactor:0.1,
+    });
+    if(bc[3]<1||m.alphaMode==='BLEND'){
+      mat.transparent=true;
+      mat.opacity=bc[3];
+    }
+    if(m.doubleSided)mat.side=THREE.DoubleSide;
+    return mat;
+  }
+
+  // Build meshes
+  var glbGroup=new THREE.Group();
+  glbGroup.userData={glbImport:true, filename:filename};
+
+  var meshDefs=json.meshes||[];
+  var nodeDefs=json.nodes||[];
+  var sceneDef=(json.scenes&&json.scenes[json.scene||0])||{nodes:[]};
+
+  // Build node hierarchy
+  function buildNode(nodeIdx){
+    var nd=nodeDefs[nodeIdx];
+    if(!nd)return null;
+    var obj;
+    if(nd.mesh!=null&&meshDefs[nd.mesh]){
+      var mDef=meshDefs[nd.mesh];
+      obj=new THREE.Group();
+      (mDef.primitives||[]).forEach(function(prim){
+        var geo=new THREE.BufferGeometry();
+        // Position
+        if(prim.attributes&&prim.attributes.POSITION!=null){
+          var posData=getAccessorData(prim.attributes.POSITION);
+          geo.setAttribute('position',new THREE.BufferAttribute(new Float32Array(posData),3));
+        }
+        // Normal
+        if(prim.attributes&&prim.attributes.NORMAL!=null){
+          var normData=getAccessorData(prim.attributes.NORMAL);
+          geo.setAttribute('normal',new THREE.BufferAttribute(new Float32Array(normData),3));
+        }else{
+          geo.computeVertexNormals();
+        }
+        // UV
+        if(prim.attributes&&prim.attributes.TEXCOORD_0!=null){
+          var uvData=getAccessorData(prim.attributes.TEXCOORD_0);
+          geo.setAttribute('uv',new THREE.BufferAttribute(new Float32Array(uvData),2));
+        }
+        // Indices
+        if(prim.indices!=null){
+          var idxData=getAccessorData(prim.indices);
+          geo.setIndex(new THREE.BufferAttribute(
+            idxData instanceof Uint32Array?new Uint32Array(idxData):new Uint16Array(idxData),1));
+        }
+        var mat=getMaterial(prim.material);
+        var mesh=new THREE.Mesh(geo,mat);
+        mesh.castShadow=true;mesh.receiveShadow=true;
+        obj.add(mesh);
+      });
+    }else{
+      obj=new THREE.Group();
+    }
+    obj.name=nd.name||('node_'+nodeIdx);
+
+    // Transform
+    if(nd.matrix){
+      var m4=new THREE.Matrix4();m4.fromArray(nd.matrix);
+      obj.applyMatrix4(m4);
+    }else{
+      if(nd.translation)obj.position.fromArray(nd.translation);
+      if(nd.rotation){var q=new THREE.Quaternion().fromArray(nd.rotation);obj.quaternion.copy(q);}
+      if(nd.scale)obj.scale.fromArray(nd.scale);
+    }
+
+    // Children
+    if(nd.children){
+      nd.children.forEach(function(ci){
+        var child=buildNode(ci);
+        if(child)obj.add(child);
+      });
+    }
+    return obj;
+  }
+
+  // Build scene
+  var sceneNodes=sceneDef.nodes||[];
+  if(sceneNodes.length===0){
+    // No scene defined, try all nodes
+    for(var i=0;i<nodeDefs.length;i++) sceneNodes.push(i);
+  }
+  sceneNodes.forEach(function(ni){
+    var n=buildNode(ni);
+    if(n)glbGroup.add(n);
+  });
+
+  // Calculate bounding box and center/fit
+  var bbox=new THREE.Box3().setFromObject(glbGroup);
+  var center=new THREE.Vector3();bbox.getCenter(center);
+  var size=new THREE.Vector3();bbox.getSize(size);
+  var maxDim=Math.max(size.x,size.y,size.z);
+
+  // Position GLB group at scene origin if it's off-center
+  // (optional: keep original position or center it)
+
+  t3Scene.add(glbGroup);
+  t3Objs.push(glbGroup);
+
+  // Fit camera to loaded model
+  var rng=maxDim||200;
+  t3Ctrl.target.copy(center);
+  t3Cam.position.set(center.x+rng*.7, center.y+rng*.5, center.z+rng*.7);
+  t3Ctrl.update();
+
+  var meshCount=0;
+  glbGroup.traverse(function(c){if(c.isMesh)meshCount++;});
+  stat('GLB 로드 완료: '+filename+' (메시 '+meshCount+'개, 크기 '+maxDim.toFixed(0)+')');
+}
+document.getElementById('bGLBLoad').onclick=loadGLB;
 
 // 3D 스크린샷
 document.getElementById('bScr').onclick=function(){
