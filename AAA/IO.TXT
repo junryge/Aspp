@@ -22,7 +22,7 @@
     body {
       min-height: 100vh;
       display: grid;
-      grid-template-columns: 1fr auto;
+      grid-template-columns: 1fr 300px;
       font-family: "Segoe UI", "Malgun Gothic", sans-serif;
       color: var(--text);
       background: var(--bg-2);
@@ -34,15 +34,8 @@
       border-left: 2px solid var(--border);
       padding: 0;
       overflow-y: auto;
-      overflow-x: hidden;
       display: flex;
       flex-direction: column;
-      width: 300px;
-      transition: width 0.3s ease, border-width 0.3s ease;
-    }
-    .sidebar.collapsed {
-      width: 0;
-      border-left-width: 0;
     }
 
     .ceo-profile {
@@ -272,23 +265,6 @@
       cursor: pointer; font-family: inherit; transition: background 0.2s;
     }
 
-    /* Sidebar toggle button */
-    .sidebar-toggle {
-      position: absolute;
-      top: 15px; right: 15px;
-      z-index: 30;
-      width: 40px; height: 40px;
-      border-radius: 8px;
-      border: 1px solid var(--border);
-      background: rgba(26, 37, 53, 0.85);
-      backdrop-filter: blur(4px);
-      color: var(--text);
-      font-size: 20px;
-      cursor: pointer;
-      display: grid; place-items: center;
-      transition: all 0.2s;
-    }
-    .sidebar-toggle:hover { background: var(--card); border-color: var(--accent-blue); }
 
     .stage {
       width: 100%;
@@ -359,7 +335,6 @@
 
   <!-- ── Main Area (Left) ── -->
   <div class="main-area">
-    <button class="sidebar-toggle" id="sidebarToggle" onclick="toggleSidebar()">☰</button>
     <div class="stage" id="stageEl">
       <canvas id="game" width="1536" height="1024" aria-label="moving pixel map"></canvas>
       <div class="label">CEO Multi-Agent Office</div>
@@ -1005,9 +980,15 @@
 
     function openAgent(key) {
       if (isOnStrike) return;
+      // 같은 에이전트 클릭 시 접힌 상태면 펼치기
+      if (currentAgent === key && chatCollapsed) {
+        toggleChat();
+        return;
+      }
       const agent = agentData[key];
       if (!agent) return;
       currentAgent = key;
+      chatCollapsed = false;
 
       // Highlight sidebar card
       document.querySelectorAll('.agent-card').forEach(c => c.classList.remove('active'));
@@ -1021,7 +1002,7 @@
           <h2>${agent.name}</h2>
           <p>${agent.title}</p>
         </div>
-        <button class="back-btn" onclick="closeAgent()">← 돌아가기</button>
+        <button class="back-btn" onclick="toggleChat()">← 접기</button>
       `;
 
       // Chat area with welcome
@@ -1047,8 +1028,27 @@
       document.getElementById('userInput').focus();
     }
 
+    let chatCollapsed = false;
+
+    function toggleChat() {
+      if (!currentAgent) return;
+      chatCollapsed = !chatCollapsed;
+      if (chatCollapsed) {
+        // 접기: 채팅 숨기고 캔버스 보이기 (에이전트 선택 유지)
+        document.getElementById('chatPanel').style.display = 'none';
+        document.getElementById('stageEl').style.display = '';
+      } else {
+        // 펼치기: 채팅 다시 보이기
+        document.getElementById('chatPanel').style.display = 'flex';
+        document.getElementById('stageEl').style.display = 'none';
+        const backBtn = document.querySelector('.back-btn');
+        if (backBtn) backBtn.textContent = '← 접기';
+      }
+    }
+
     function closeAgent() {
       currentAgent = null;
+      chatCollapsed = false;
       document.querySelectorAll('.agent-card').forEach(c => c.classList.remove('active'));
       document.getElementById('chatPanel').style.display = 'none';
       document.getElementById('stageEl').style.display = '';
@@ -1099,11 +1099,6 @@
       return d.innerHTML;
     }
 
-    function toggleSidebar() {
-      const sb = document.querySelector('.sidebar');
-      sb.classList.toggle('collapsed');
-      document.getElementById('sidebarToggle').textContent = sb.classList.contains('collapsed') ? '☰' : '☰';
-    }
   </script>
 </body>
 </html>
