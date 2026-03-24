@@ -541,7 +541,14 @@
         
         if (dist < 5) { // Reached destination
           this.isMoving = false;
-          
+
+          // Fire onArrive callback if set
+          if (this._onArrive) {
+            const cb = this._onArrive;
+            this._onArrive = null;
+            cb(this);
+          }
+
           if (this.pauseBehavior === 'strike') {
              this.idleTimer = 300 + Math.random() * 600; // jitter in place
           } else if (this.pauseBehavior === 'alwaysMove') {
@@ -934,6 +941,93 @@
       "RLHF 피드백 반영 중...",
     ];
 
+    // ═══ Agent → Character mapping ═══
+    const agentCharMap = {
+      seo: 'Seo', yoon: 'Yoon', lee: 'Lee',
+      park: 'Park', kim: 'Kim', choi: 'Choi', han: 'Han'
+    };
+
+    function findCharByName(name) {
+      return characters.find(c => c.name === name);
+    }
+
+    // ═══ Report to CEO system ═══
+    let reportQueue = []; // { agentKey, text }
+    let reportInProgress = false;
+
+    function triggerReport(agentKey, reportText) {
+      reportQueue.push({ agentKey, text: reportText });
+      processReportQueue();
+    }
+
+    function processReportQueue() {
+      if (reportInProgress || reportQueue.length === 0) return;
+      reportInProgress = true;
+      const { agentKey, text } = reportQueue.shift();
+
+      const charName = agentCharMap[agentKey];
+      const char = charName ? findCharByName(charName) : null;
+      const ceoChar = characters.find(c => c.isStatic);
+      if (!char || !ceoChar || char._fired || isOnStrike) {
+        reportInProgress = false;
+        processReportQueue();
+        return;
+      }
+
+      // Save original state
+      const origBounds = { ...char.bounds };
+      const origSpeed = char.speed;
+      const origPause = char.pauseBehavior;
+
+      // Phase 1: Run to CEO (fast!)
+      char._reportPhase = 'running';
+      char.speed = 5.0; // fast run
+      char.bounds = { minX: -100, maxX: world.width + 100, minY: -100, maxY: world.height + 100 };
+      char.pauseBehavior = 'alwaysMove';
+      char.targetX = ceoChar.x + 80;
+      char.targetY = ceoChar.y + 60;
+      char.isMoving = true;
+      char.direction = char.targetX > char.x ? 1 : -1;
+
+      char._onArrive = () => {
+        // Phase 2: Face CEO and show report bubble
+        char._reportPhase = 'reporting';
+        char.direction = -1; // face left toward CEO
+        char.isMoving = false;
+        char.idleTimer = 99999;
+
+        // Show report bubble on character
+        const shortText = text.length > 30 ? text.substring(0, 30) + '...' : text;
+        activeBubble = { char, text: `📋 보고: ${shortText}`, timer: 4000 };
+
+        // CEO acknowledges
+        setTimeout(() => {
+          const ceoResponses = ['좋아, 수고했어!', '확인했다!', '잘했어!', '오, 그래?', '알겠어, 고생!', '굿! 계속 해!'];
+          const resp = ceoResponses[Math.floor(Math.random() * ceoResponses.length)];
+          activeBubble = { char: ceoChar, text: resp, timer: 2500 };
+        }, 2500);
+
+        // Phase 3: Return to position
+        setTimeout(() => {
+          char._reportPhase = null;
+          char.speed = origSpeed;
+          char.bounds = origBounds;
+          char.pauseBehavior = origPause;
+          // Walk back to center of original bounds
+          char.targetX = (origBounds.minX + origBounds.maxX) / 2;
+          char.targetY = (origBounds.minY + origBounds.maxY) / 2;
+          char.isMoving = true;
+          char.direction = char.targetX > char.x ? 1 : -1;
+
+          char._onArrive = () => {
+            char.idleTimer = 500 + Math.random() * 1500;
+            reportInProgress = false;
+            processReportQueue();
+          };
+        }, 5000);
+      };
+    }
+
     let activeBubble = null; // { char, text, timer }
 
     function triggerRandomSpeech() {
@@ -1044,6 +1138,33 @@
 
       // Draw fire flash text
       drawFireFlash(ctx);
+
+      // Draw report running indicator (❗ above running character)
+      characters.forEach(c => {
+        if (c._reportPhase === 'running') {
+          ctx.save();
+          const bounce = Math.sin(Date.now() / 100) * 4;
+          ctx.font = 'bold 28px sans-serif';
+          ctx.textAlign = 'center';
+          ctx.fillStyle = '#ff4444';
+          ctx.shadowColor = '#ff0000';
+          ctx.shadowBlur = 8;
+          ctx.fillText('❗', c.x, c.y - 100 + bounce);
+          // Speed lines behind character
+          ctx.globalAlpha = 0.4;
+          ctx.strokeStyle = '#aaa';
+          ctx.lineWidth = 2;
+          for (let i = 0; i < 3; i++) {
+            const lx = c.x - c.direction * (30 + i * 15);
+            const ly = c.y - 50 + (i - 1) * 20;
+            ctx.beginPath();
+            ctx.moveTo(lx, ly);
+            ctx.lineTo(lx - c.direction * 20, ly);
+            ctx.stroke();
+          }
+          ctx.restore();
+        }
+      });
 
       // Strike protest signs + CEO cry
       if (isOnStrike) {
@@ -1287,14 +1408,22 @@
 
       // Agent response (placeholder)
       const agent = (currentAgent === 'ceo') ? agentBaseData[currentAgent] : getAgentData(currentAgent);
+      const reportAgent = currentAgent; // capture for closure
+      const reportText = text; // capture for closure
       setTimeout(() => {
+        const responseText = `요청을 접수했습니다: "${escapeHtml(reportText)}"`;
         chatArea.innerHTML += `
           <div class="message">
             <div class="msg-avatar" style="background:linear-gradient(135deg,${agent.color1},${agent.color2});color:#fff;">${agent.letter}</div>
-            <div class="msg-body">요청을 접수했습니다: "${escapeHtml(text)}"<br><br>⏳ 백엔드 연결 후 실제 응답이 표시됩니다.</div>
+            <div class="msg-body">${responseText}<br><br>⏳ 백엔드 연결 후 실제 응답이 표시됩니다.</div>
           </div>
         `;
         chatArea.scrollTop = chatArea.scrollHeight;
+
+        // Trigger 2D character to run to CEO and report
+        if (reportAgent !== 'ceo') {
+          triggerReport(reportAgent, reportText);
+        }
       }, 500);
 
       chatArea.scrollTop = chatArea.scrollHeight;
