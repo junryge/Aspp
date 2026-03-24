@@ -180,7 +180,7 @@
       transition: grid-template-columns 0.3s ease;
     }
     .main-area.split {
-      grid-template-columns: 1fr 1fr;
+      grid-template-columns: 3fr 2fr;
       gap: 12px;
       place-items: stretch;
       align-items: center;
