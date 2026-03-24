@@ -2730,6 +2730,37 @@ def api_save_md():
     return send_file(buf, as_attachment=True, download_name=filename, mimetype="text/markdown")
 
 
+@app.route("/api/feedback", methods=["POST"])
+def api_feedback():
+    """사용자 피드백 저장 (좋아요/싫어요 + 코멘트)"""
+    import json as _json
+    data = request.json
+    rating = data.get("rating", "")       # "good" or "bad"
+    comment = data.get("comment", "")
+    message = data.get("message", "")[:500]  # 해당 응답 내용 (앞 500자)
+    user_query = data.get("user_query", "")[:300]
+
+    if rating not in ("good", "bad"):
+        return jsonify({"error": "invalid rating"}), 400
+
+    feedback_dir = os.path.join(BASE_DIR, "feedback")
+    os.makedirs(feedback_dir, exist_ok=True)
+
+    from datetime import datetime
+    entry = {
+        "timestamp": datetime.now().isoformat(),
+        "rating": rating,
+        "comment": comment.strip(),
+        "user_query": user_query,
+        "message_preview": message,
+    }
+
+    feedback_file = os.path.join(feedback_dir, "feedback.jsonl")
+    with open(feedback_file, "a", encoding="utf-8") as f:
+        f.write(_json.dumps(entry, ensure_ascii=False) + "\n")
+
+    return jsonify({"ok": True})
+
 
 
 def _prepare_pptx_code_for_copy(code):
@@ -4195,6 +4226,26 @@ body.sb-collapsed .chat-box-fixed{left:48px}
 .msg hr{border:none;border-top:1px solid #e5e3de;margin:6px 0}
 .msg blockquote{border-left:3px solid #6366f1;margin:4px 0;padding:2px 8px;color:#666;background:#fafaf8;border-radius:0 6px 6px 0}
 .msg-label{font-size:10px;font-weight:600;color:#999;margin-bottom:3px;text-transform:uppercase;letter-spacing:.5px}
+/* 피드백 버튼 */
+.msg-feedback{display:flex;gap:4px;margin-top:6px;justify-content:flex-end}
+.msg-feedback button{background:none;border:1px solid #e0e0e0;border-radius:6px;padding:3px 10px;font-size:14px;cursor:pointer;color:#999;transition:all .2s;line-height:1}
+.msg-feedback button:hover{background:#f5f5f0;color:#333;border-color:#ccc}
+.msg-feedback button.fb-selected-good{background:#e8f5e9;color:#2e7d32;border-color:#81c784}
+.msg-feedback button.fb-selected-bad{background:#fce4ec;color:#c62828;border-color:#ef9a9a}
+/* 피드백 모달 */
+#feedbackModal{display:none;position:fixed;top:0;left:0;width:100%;height:100%;z-index:10000;background:rgba(0,0,0,.5);align-items:center;justify-content:center}
+#feedbackModal.show{display:flex}
+.fb-modal{background:#fff;border-radius:14px;padding:28px;width:420px;max-width:90vw;box-shadow:0 20px 60px rgba(0,0,0,.3);animation:fbSlideIn .25s ease}
+@keyframes fbSlideIn{from{opacity:0;transform:translateY(20px)}to{opacity:1;transform:translateY(0)}}
+.fb-modal h3{margin:0 0 6px;font-size:18px;color:#333}
+.fb-modal .fb-rating-display{font-size:24px;margin-bottom:12px}
+.fb-modal textarea{width:100%;height:100px;border:1.5px solid #ddd;border-radius:10px;padding:10px 12px;font-size:13px;resize:vertical;font-family:inherit;transition:border-color .2s}
+.fb-modal textarea:focus{outline:none;border-color:#6366f1}
+.fb-modal .fb-hint{font-size:11px;color:#999;margin-top:4px}
+.fb-modal .fb-actions{display:flex;gap:8px;margin-top:16px;justify-content:flex-end}
+.fb-modal .fb-btn{padding:8px 20px;border-radius:8px;border:none;font-size:13px;font-weight:600;cursor:pointer;transition:all .2s}
+.fb-modal .fb-btn-cancel{background:#f0f0f0;color:#666}.fb-modal .fb-btn-cancel:hover{background:#e0e0e0}
+.fb-modal .fb-btn-submit{background:#6366f1;color:#fff}.fb-modal .fb-btn-submit:hover{background:#4f46e5}
 .msg.user .msg-label{color:rgba(255,255,255,.7)}
 .msg .skill-info{font-size:10px;color:#6366f1;margin-top:4px}
 .typing{display:inline-flex;gap:4px;padding:8px 14px}
@@ -4445,6 +4496,20 @@ body.rp-collapsed .chat-box-fixed{right:0}
 </style>
 </head>
 <body>
+<!-- 피드백 모달 -->
+<div id="feedbackModal">
+  <div class="fb-modal">
+    <h3 id="fbModalTitle">피드백</h3>
+    <div class="fb-rating-display" id="fbRatingDisplay"></div>
+    <textarea id="fbComment" placeholder="어떤 점이 좋았나요? 또는 어떤 점을 개선하면 좋을까요? (선택사항)"></textarea>
+    <div class="fb-hint">피드백은 서비스 개선에 활용됩니다</div>
+    <div class="fb-actions">
+      <button class="fb-btn fb-btn-cancel" onclick="closeFeedbackModal()">취소</button>
+      <button class="fb-btn fb-btn-submit" onclick="submitFeedback()">보내기</button>
+    </div>
+  </div>
+</div>
+
 <!-- 인트로 비디오 오버레이 -->
 <div id="introOverlay">
   <video id="introVideo" autoplay muted playsinline>
@@ -5478,6 +5543,13 @@ function addMsg(role,text,rawForDetect){
     try{renderChartBlock(cv.id, b2u(cv.dataset.chartJson));}
     catch(e){cv.parentElement.innerHTML='<p style="color:red;padding:12px;">차트 렌더링 실패: '+e.message+'</p>';}
   });
+  // 피드백 버튼 (assistant 응답에만)
+  if(role==='assistant'){
+    const fbDiv=document.createElement('div');
+    fbDiv.className='msg-feedback';
+    fbDiv.innerHTML='<button onclick="openFeedback(this,\'good\')" title="좋아요">👍</button><button onclick="openFeedback(this,\'bad\')" title="별로예요">👎</button>';
+    d.appendChild(fbDiv);
+  }
   c.scrollIntoView({behavior:'smooth',block:'end'});
 }
 function addTyping(){
@@ -6470,6 +6542,73 @@ function renderMdPreview(escapedMd){
   s = s.replace(/\n/g, '<br>');
   return s;
 }
+
+// ===== 피드백 시스템 =====
+var _fbCurrentRating = '';
+var _fbCurrentBtn = null;
+
+function openFeedback(btn, rating){
+  _fbCurrentRating = rating;
+  _fbCurrentBtn = btn;
+  var modal = document.getElementById('feedbackModal');
+  var title = document.getElementById('fbModalTitle');
+  var display = document.getElementById('fbRatingDisplay');
+  var ta = document.getElementById('fbComment');
+  if(rating === 'good'){
+    title.textContent = '어떤 점이 좋았나요?';
+    display.textContent = '👍 좋아요';
+    ta.placeholder = '좋았던 점을 알려주세요 (선택사항)';
+  } else {
+    title.textContent = '어떤 점이 아쉬웠나요?';
+    display.textContent = '👎 별로예요';
+    ta.placeholder = '개선할 점을 알려주세요 (선택사항)';
+  }
+  ta.value = '';
+  modal.classList.add('show');
+  setTimeout(function(){ ta.focus(); }, 100);
+}
+
+function closeFeedbackModal(){
+  document.getElementById('feedbackModal').classList.remove('show');
+  _fbCurrentRating = '';
+  _fbCurrentBtn = null;
+}
+
+async function submitFeedback(){
+  var comment = document.getElementById('fbComment').value;
+  // 해당 메시지 내용 가져오기
+  var msgEl = _fbCurrentBtn ? _fbCurrentBtn.closest('.msg') : null;
+  var msgText = msgEl ? (msgEl.textContent || '').slice(0, 500) : '';
+  // 직전 유저 메시지
+  var userQuery = '';
+  if(msgEl){
+    var prev = msgEl.previousElementSibling;
+    while(prev){
+      if(prev.classList.contains('user')){ userQuery = (prev.textContent || '').slice(0, 300); break; }
+      prev = prev.previousElementSibling;
+    }
+  }
+  try{
+    await fetch('/api/feedback', {
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ rating: _fbCurrentRating, comment: comment, message: msgText, user_query: userQuery })
+    });
+  }catch(e){}
+  // 버튼 시각 피드백
+  if(_fbCurrentBtn){
+    var fbDiv = _fbCurrentBtn.parentElement;
+    fbDiv.querySelectorAll('button').forEach(function(b){ b.classList.remove('fb-selected-good','fb-selected-bad'); });
+    _fbCurrentBtn.classList.add(_fbCurrentRating === 'good' ? 'fb-selected-good' : 'fb-selected-bad');
+  }
+  closeFeedbackModal();
+}
+
+// 모달 바깥 클릭으로 닫기
+document.addEventListener('click', function(e){
+  var modal = document.getElementById('feedbackModal');
+  if(e.target === modal) closeFeedbackModal();
+});
 
 // ===== 응답 전체를 MD 다운로드 가능하게 =====
 function appendMdDownloadBar(rawContent){
