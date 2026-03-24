@@ -3167,22 +3167,19 @@ def api_generate_pptx():
                 return jsonify({"error": "PPT 파일이 생성되지 않았습니다."}), 500
 
         import shutil, datetime
-        
+
         timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
         final_filename = f"presentation_{timestamp}.pptx"
-        
-        # 사용자의 로컬 Downloads 폴더로 직접 복사 (로컬 앱 전용 특권)
-        downloads_dir = os.path.join(os.path.expanduser('~'), 'Downloads')
-        if not os.path.exists(downloads_dir):
-            downloads_dir = os.path.join(BASE_DIR, 'uploads')
-            
-        os.makedirs(downloads_dir, exist_ok=True)
-        local_dl_path = os.path.join(downloads_dir, final_filename)
-        
-        shutil.copy2(out_path, local_dl_path)
-        
+
+        # uploads 폴더에 저장 후 브라우저 다운로드 URL 반환
+        uploads_dir = os.path.join(BASE_DIR, 'uploads')
+        os.makedirs(uploads_dir, exist_ok=True)
+        save_path = os.path.join(uploads_dir, final_filename)
+        shutil.copy2(out_path, save_path)
+
         return jsonify({
-            "message": f"'{final_filename}' 파일이 로컬 다운로드 폴더에 안전하게 바로 저장되었습니다!"
+            "download_url": f"/api/download_static/presentation.pptx?id={timestamp}",
+            "message": f"'{final_filename}' PPT 생성 완료!"
         })
 
 @app.route("/api/download_static/presentation.pptx", methods=["GET"])
