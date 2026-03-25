@@ -3732,6 +3732,87 @@ def api_chat():
     if (not api_url or not model) and not env_id.startswith("gguf-"):
         return jsonify({"error": "API URL과 모델 이름을 설정해주세요."}), 400
 
+    # ── Logpresso 자동 실행: logpresso-query 스킬 + 실행 의도이면 직접 조회 ──
+    if "logpresso-query" in skill_ids and last_user_query.strip():
+        _lpq_intent = classify_logpresso_intent(last_user_query)
+        if _lpq_intent in ("execute", "table_list", "table_schema"):
+            try:
+                import pandas as pd
+                _lpq_content = None
+                _lpq_user_q = last_user_query.strip()
+                _lpq_history = [{"role": m.get("role","user"), "content": m.get("content","")} for m in messages[-6:] if isinstance(m.get("content"), str)]
+
+                if _lpq_intent == "table_list":
+                    tables = []
+                    for name, info in LOGPRESSO_TABLES.items():
+                        tables.append(f"| `{name}` | {info['desc']} | {len(info['columns'])} |")
+                    _lpq_content = f"📋 **등록된 Logpresso 테이블 ({len(LOGPRESSO_TABLES)}개)**\n\n| 테이블명 | 설명 | 컬럼 수 |\n|---|---|---|\n" + "\n".join(tables)
+                elif _lpq_intent == "table_schema":
+                    matched_table = None
+                    for tname in LOGPRESSO_TABLES:
+                        if tname.lower() in _lpq_user_q.lower():
+                            matched_table = tname
+                            break
+                    if matched_table:
+                        info = LOGPRESSO_TABLES[matched_table]
+                        _lpq_content = f"🔍 **{matched_table}** — {info['desc']}\n\n**컬럼 ({len(info['columns'])}개):** " + ", ".join(f"`{c}`" for c in info["columns"])
+                        sample_lpql = f"table duration=5m {matched_table} | limit 5"
+                        df = query_logpresso(sample_lpql, timeout=30)
+                        if df is not None and len(df) > 0:
+                            cols = list(df.columns)
+                            _lpq_content += f"\n\n**샘플 데이터:**\n\n| " + " | ".join(cols) + " |\n|" + "|".join(["---"]*len(cols)) + "|\n"
+                            for _, row in df.head(5).iterrows():
+                                _lpq_content += "| " + " | ".join(str(row.get(c, "")) for c in cols) + " |\n"
+                    else:
+                        _lpq_content = "❌ 테이블명을 인식할 수 없습니다. 사용 가능: " + ", ".join(f"`{t}`" for t in LOGPRESSO_TABLES.keys())
+                else:  # execute
+                    llm_response = _llm_generate_lpql(_lpq_user_q, _lpq_history)
+                    lpql = extract_lpql_from_response(llm_response) if llm_response else None
+                    if not lpql:
+                        _lpq_content = None  # LLM에서 LPQL 추출 실패 → 일반 chat 폴백
+                    else:
+                        sec_error = validate_lpql_readonly(lpql)
+                        if sec_error:
+                            _lpq_content = f"❌ 보안 검증 실패: {sec_error}\n\n생성된 LPQL: `{lpql}`"
+                        else:
+                            df = query_logpresso(lpql, timeout=180)
+                            if df is None:
+                                _lpq_content = f"❌ Logpresso 서버 응답 없음 또는 쿼리 오류\n\n생성된 LPQL: `{lpql}`"
+                            elif len(df) == 0:
+                                _lpq_content = f"✅ **Logpresso 조회 완료** (결과 0건)\n\n```\nLPQL: {lpql}\n```\n\n_(해당 기간에 데이터가 없습니다. duration을 늘려보세요.)_"
+                            else:
+                                total = len(df)
+                                cols = list(df.columns)
+                                page_df = df.head(LOGPRESSO_PAGE_SIZE)
+                                _lpq_content = f"✅ **Logpresso 조회 결과**\n\n```\nLPQL: {lpql}\n```\n\n📊 총 **{total}**건 조회\n\n"
+                                _lpq_content += "| " + " | ".join(cols) + " |\n|" + "|".join(["---"]*len(cols)) + "|\n"
+                                for _, row in page_df.iterrows():
+                                    vals = []
+                                    for c in cols:
+                                        v = str(row.get(c, "")) if row.get(c) is not None else ""
+                                        vals.append(v[:50] + "..." if len(v) > 50 else v)
+                                    _lpq_content += "| " + " | ".join(vals) + " |\n"
+                                if total > LOGPRESSO_PAGE_SIZE:
+                                    _lpq_content += f"\n_(상위 {LOGPRESSO_PAGE_SIZE}건만 표시. 전체 {total}건)_"
+                                if llm_response:
+                                    _lpq_content += f"\n\n---\n📝 {llm_response}"
+
+                if _lpq_content is not None:
+                    return jsonify({
+                        "content": _lpq_content,
+                        "model_used": "Logpresso Direct",
+                        "loaded_skills": ["logpresso-query"],
+                        "system_prompt_length": 0,
+                        "auto_routed": auto_routed,
+                        "route_reason": "logpresso-execute",
+                        "auto_format": "analysis",
+                        "auto_style": True,
+                    })
+            except Exception as e:
+                # Logpresso 직접 조회 실패 → 일반 LLM chat으로 폴백
+                import traceback
+                traceback.print_exc()
+
     # 시스템 프롬프트 구성
     # 출력 형식에 따라 기본 규칙 분기
     non_code_formats = ("report", "analysis", "step-by-step")
@@ -5721,12 +5802,13 @@ async function send(){
           addMsg('assistant','❌ Logpresso 조회 실패: ' + JSON.stringify(_ld));
         }
       }catch(e){
-        if(e.name !== 'AbortError'){
-          // Logpresso 호출 실패 → 일반 chat으로 폴백
-          _lpqHandled = false;
-        } else {
+        if(e.name === 'AbortError'){
           typing.remove();
           _lpqHandled = true;
+        } else {
+          // Logpresso 호출 실패 → 에러 표시 후 일반 chat으로 폴백
+          console.warn('Logpresso direct query failed, falling back to chat:', e);
+          _lpqHandled = false;
         }
       }
     }
