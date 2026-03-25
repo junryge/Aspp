@@ -73,18 +73,39 @@ table from=20240301000000 to=20240331235959 firewall_log
 table sys_*
 ```
 
-### fulltext — 풀텍스트 검색
+### fulltext — 풀텍스트 검색 (고속 조회 핵심)
 ```
-fulltext [duration=기간] [from=시작] [to=끝] "검색어"
+fulltext [duration=기간] [from=시작] [to=끝] [조건식] from 테이블1[, 테이블2, ...]
 ```
-대소문자를 구분하지 않으며, 큰따옴표로 감싼다.
+- 인덱스 기반으로 **table보다 빠르게** 대량 데이터를 검색할 수 있다
+- 필드 조건(`==`, `!=`, `and`, `or`)을 fulltext 안에 직접 사용 가능
+- `from 테이블명`으로 검색 대상 테이블을 명시적으로 지정 (여러 테이블 쉼표 구분)
+- 특정 키워드를 **TEXT 필드나 전체 텍스트에서 검색**하려면 큰따옴표로 감싸기
 
 ```
-# 최근 24시간 내 "login failed" 포함 로그
+# 기본 풀텍스트 검색
 fulltext duration=24h "login failed"
 
 # 여러 조건 조합
 fulltext duration=1d src_ip == "10.0.0.1" and "denied"
+
+# 특정 테이블(들)에서 필드 조건 + 텍스트 검색 (★ 핵심 패턴)
+fulltext from=20260308000000 to=20260308235959 (LEVEL=="WARN" or LEVEL=="ERROR" or LEVEL=="FATAL") and ((CARRIER=="4PDK2966") or (TEXT=="4PDK2966")) from ts_data_view_m14a, ts_data_view_m14b, ts_data_view_m16, ts_data_view_m16b
+
+# 여러 테이블 동시 검색 (duration 사용)
+fulltext duration=1h (LEVEL=="ERROR") from ts_data_view_m14a, ts_data_view_m14b
+
+# 특정 장비의 SECS 로그 검색 (CARRIER 또는 TEXT에서)
+fulltext duration=30m ((CARRIER=="캐리어ID") or (TEXT=="캐리어ID")) from secs_data_m14b
+```
+
+#### fulltext 뒤 파이프라인 조합 (실전 패턴)
+```
+fulltext from=20260308000000 to=20260308235959 (LEVEL=="ERROR") and (CARRIER=="4PDK2966") from ts_data_view_m14a, ts_data_view_m14b
+| fields _time, TIME_EX, MACHINENAME, MACHINETYPE, UNITNAME, CARRIER, COMMANDID, COMMAND, OPERATION_NAME, MESSAGENAME, PROCESS, TRANSACTIONID, TEXT, THREAD, LEVEL, XML, SECSII, RESULTCODE
+| sort _time
+| limit 0 1000
+| eval No = seq() + 0
 ```
 
 ### stream — 실시간 스트림
@@ -282,7 +303,15 @@ table web_log | stats count as cnt by client_ip | sort limit=10 -cnt
 
 ### limit — 결과 수 제한
 ```
+limit [오프셋] 개수
+```
+- `limit 100` — 상위 100건
+- `limit 0 1000` — 0번째부터 1000건 (오프셋 + 개수)
+- `limit 500 100` — 500번째부터 100건
+
+```
 table web_log | limit 100
+table web_log | limit 0 1000
 ```
 
 ### head / tail
@@ -411,6 +440,13 @@ table raw_web_log | parse apache_log | eval _time = date | import web_log
 | `matchnet(ip, cidr)` | CIDR 대역 매칭 |
 | `matchport(port, range)` | 포트 범위 매칭 |
 
+### 순번/유틸리티 함수
+| 함수 | 설명 | 예시 |
+|------|------|------|
+| `seq()` | 행 순번 (0부터 시작) | `eval No = seq() + 0` |
+| `seq() + 1` | 행 순번 (1부터 시작) | `eval No = seq() + 1` |
+| `rownum()` | 행 번호 | `eval rn = rownum()` |
+
 ### 타입 확인 함수
 | 함수 | 설명 |
 |------|------|
@@ -461,6 +497,32 @@ proc ip_check("10.0.0.100")
 ---
 
 ## 실전 쿼리 패턴
+
+### 패턴 0: 반도체 팹 — 캐리어/장비 추적 (★ 핵심 실전 패턴)
+```
+# 특정 캐리어의 전체 이력 추적 (여러 테이블 동시, fulltext 사용 = 빠름)
+fulltext from=20260308000000 to=20260308235959 (LEVEL=="WELL" or LEVEL=="WARN" or LEVEL=="ERROR" or LEVEL=="FATAL") and ((CARRIER=="4PDK2966") or (TEXT=="4PDK2966")) from ts_data_view_m14a, ts_data_view_m14b, ts_data_view_m16, ts_data_view_m16b
+| fields _time, TIME_EX, MACHINENAME, MACHINETYPE, UNITNAME, CARRIER, COMMANDID, COMMAND, OPERATION_NAME, MESSAGENAME, PROCESS, TRANSACTIONID, TEXT, THREAD, LEVEL, XML, SECSII, RESULTCODE
+| sort _time
+| limit 0 1000
+| eval No = seq() + 0
+
+# SECS 데이터에서 특정 장비 에러 추적
+fulltext duration=1h (LEVEL=="ERROR") and (NAME=="4ACMD601") from secs_data_m14b
+| fields _time, CEID_TYPE, DATA, HOST, LEVEL, NAME, S_F, BSE, CSIISKEY, TEXT, TIME_EX
+| sort _time
+
+# 특정 기간 ERROR/FATAL만 조회 (table 사용)
+table from=20260308000000 to=20260308235959 ts_data_view_m14a
+| search LEVEL == "ERROR" or LEVEL == "FATAL"
+| search CARRIER == "4PDK2966"
+| fields _time, MACHINENAME, CARRIER, TEXT, LEVEL
+| sort _time
+| limit 500
+```
+
+> **tip**: 캐리어/장비 추적 시 `fulltext`를 쓰면 인덱스 기반이라 `table` + `search`보다 빠르다.
+> 여러 테이블을 `from 테이블1, 테이블2`로 한번에 검색할 수 있다.
 
 ### 패턴 1: 보안 — 브루트포스 탐지
 ```
