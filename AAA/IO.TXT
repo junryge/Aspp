@@ -3285,38 +3285,8 @@ def api_generate_pptx():
     if 'XL_LEGEND_POSITION' in code and 'from pptx.enum.chart import XL_LEGEND_POSITION' not in code:
         code = "from pptx.enum.chart import XL_LEGEND_POSITION\n" + code
 
-    # 2.7) chart.title → chart.chart_title 자동 교정 + has_title 삽입
-    # python-pptx: chart.title 속성 없음, chart.chart_title이 올바른 API
-    # ① chart/xxx_chart 등 chart 포함 변수 뒤의 .title → .chart_title 교체
-    code = _re.sub(r'(\b\w*chart\w*\b)\.title\b(?!_)', r'\1.chart_title', code)
-    # ② .chart_title 접근 줄 앞에 has_title = True 삽입 (없을 때만, 변수당 1회)
-    if 'has_title' not in code and '.chart_title' in code:
-        lines = code.split('\n')
-        new_lines = []
-        _ht_seen = set()
-        for line in lines:
-            if '.chart_title' in line and 'has_title' not in line:
-                indent = line[:len(line) - len(line.lstrip())]
-                m = _re.search(r'(\b\w+)\.chart_title', line)
-                if m and m.group(1) not in _ht_seen:
-                    new_lines.append(f"{indent}{m.group(1)}.has_title = True")
-                    _ht_seen.add(m.group(1))
-            new_lines.append(line)
-        code = '\n'.join(new_lines)
-
-    # 2.8) slide.shapes.title → _safe_title(slide) 자동 교체
-    # slide.shapes.title이 None일 때 AttributeError 방지
-    code = _re.sub(
-        r'(\w+)\.shapes\.title\b',
-        r'_safe_title(\1)',
-        code
-    )
-    # 직접 slide.shapes.title.text = "..." 패턴도 처리
-    code = _re.sub(
-        r'_safe_title\((\w+)\)\.text\s*=\s*(.+)',
-        r'_safe_title(\1).text_frame.text = \2',
-        code
-    )
+    # 2.7~2.8) chart.title / slide.shapes.title 오류는 런타임 monkey-patch로 처리
+    # (wrapped_code 내 Chart.__getattr__ + SlideShapes.title property 패치)
 
     # 3) placeholder.shapes → slide.shapes 자동 수정
     # LLM이 content/body/placeholder 등에 .shapes를 호출하는 실수 수정
@@ -3537,15 +3507,32 @@ def api_generate_pptx():
             "    _gf.GraphicFrame.rows = property(lambda self: self.table.rows if self.has_table else None)\n"
             "    _gf.GraphicFrame.columns = property(lambda self: self.table.columns if self.has_table else None)\n"
             "    _gf.GraphicFrame.cell = lambda self, r, c: self.table.cell(r, c) if self.has_table else None\n"
-            "# --- helper: safe slide title access (returns textbox if no title placeholder) ---\n"
+            "# --- monkey-patch: Chart.__getattr__ — chart.title → chart.chart_title 자동 변환 ---\n"
+            "from pptx.chart.chart import Chart as _Chart\n"
+            "_orig_chart_getattr = getattr(_Chart, '__getattr__', None)\n"
+            "def _chart_getattr(self, name):\n"
+            "    if name == 'title':\n"
+            "        self.has_title = True\n"
+            "        return self.chart_title\n"
+            "    if _orig_chart_getattr:\n"
+            "        return _orig_chart_getattr(self, name)\n"
+            "    raise AttributeError(f\"'Chart' object has no attribute '{name}'\")\n"
+            "_Chart.__getattr__ = _chart_getattr\n"
+            "# --- monkey-patch: slide.shapes.title이 None일 때 textbox로 대체 ---\n"
             "from pptx.util import Inches as _Inches, Pt as _Pt\n"
-            "def _safe_title(slide):\n"
-            "    t = slide.shapes.title\n"
+            "import pptx.shapes.shapetree as _st_mod\n"
+            "_orig_title_prop = _st_mod.SlideShapes.title.fget\n"
+            "def _safe_shapes_title(self):\n"
+            "    t = _orig_title_prop(self)\n"
             "    if t is not None:\n"
             "        return t\n"
-            "    txBox = slide.shapes.add_textbox(_Inches(0.5), _Inches(0.2), _Inches(9), _Inches(0.8))\n"
+            "    txBox = self.add_textbox(_Inches(0.5), _Inches(0.2), _Inches(9), _Inches(0.8))\n"
             "    txBox.text_frame.word_wrap = True\n"
             "    return txBox\n"
+            "_st_mod.SlideShapes.title = property(_safe_shapes_title)\n"
+            "# --- helper: _safe_title (backward compat) ---\n"
+            "def _safe_title(slide):\n"
+            "    return slide.shapes.title\n"
             "# --- user code ---\n"
             f"{code}\n"
         )
