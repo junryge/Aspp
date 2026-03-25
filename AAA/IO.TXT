@@ -3287,8 +3287,8 @@ def api_generate_pptx():
 
     # 2.7) chart.title → chart.chart_title 자동 교정 + has_title 삽입
     # python-pptx: chart.title 속성 없음, chart.chart_title이 올바른 API
-    # ① "chart" 변수 뒤의 .title → .chart_title 교체 (chart_title은 건드리지 않음)
-    code = _re.sub(r'(\bchart\b)\.title\b', r'\1.chart_title', code)
+    # ① chart/xxx_chart 등 chart 포함 변수 뒤의 .title → .chart_title 교체
+    code = _re.sub(r'(\b\w*chart\w*\b)\.title\b(?!_)', r'\1.chart_title', code)
     # ② .chart_title 접근 줄 앞에 has_title = True 삽입 (없을 때만, 변수당 1회)
     if 'has_title' not in code and '.chart_title' in code:
         lines = code.split('\n')
