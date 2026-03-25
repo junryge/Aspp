@@ -3278,12 +3278,22 @@ def api_generate_pptx():
         'XL_CHART_TYPE.XL_LEGEND_POSITION': 'XL_LEGEND_POSITION',
         'chart.plot_area.shapes': '[]',
         'chart.plot_area.data_labels': 'chart.plots[0].data_labels',
+        '.chart_title.': '.title.',
     }
     for _old, _new in _method_typo_map.items():
         code = code.replace(_old, _new)
         
     if 'XL_LEGEND_POSITION' in code and 'from pptx.enum.chart import XL_LEGEND_POSITION' not in code:
         code = "from pptx.enum.chart import XL_LEGEND_POSITION\n" + code
+
+    # 2.7) chart.title 접근 전 chart.has_title = True 자동 삽입
+    # LLM이 chart.has_title = True 없이 chart.title을 바로 사용하는 실수 수정
+    code = _re.sub(
+        r'^([ \t]*)((?:\w+\.)*chart)\.title\b',
+        r'\1\2.has_title = True\n\1\2.title',
+        code,
+        flags=_re.MULTILINE
+    )
 
     # 3) placeholder.shapes → slide.shapes 자동 수정
     # LLM이 content/body/placeholder 등에 .shapes를 호출하는 실수 수정
@@ -3504,6 +3514,14 @@ def api_generate_pptx():
             "    _gf.GraphicFrame.rows = property(lambda self: self.table.rows if self.has_table else None)\n"
             "    _gf.GraphicFrame.columns = property(lambda self: self.table.columns if self.has_table else None)\n"
             "    _gf.GraphicFrame.cell = lambda self, r, c: self.table.cell(r, c) if self.has_table else None\n"
+            "# --- monkey-patch: auto-enable chart.has_title before accessing chart.title ---\n"
+            "import pptx.chart.chart as _chart_mod\n"
+            "_orig_chart_title = _chart_mod.Chart.title.fget\n"
+            "def _safe_chart_title(self):\n"
+            "    if not self.has_title:\n"
+            "        self.has_title = True\n"
+            "    return _orig_chart_title(self)\n"
+            "_chart_mod.Chart.title = property(_safe_chart_title, _chart_mod.Chart.title.fset)\n"
             "# --- user code ---\n"
             f"{code}\n"
         )
