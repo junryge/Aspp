@@ -3278,7 +3278,6 @@ def api_generate_pptx():
         'XL_CHART_TYPE.XL_LEGEND_POSITION': 'XL_LEGEND_POSITION',
         'chart.plot_area.shapes': '[]',
         'chart.plot_area.data_labels': 'chart.plots[0].data_labels',
-        '.chart_title.': '.title.',
     }
     for _old, _new in _method_typo_map.items():
         code = code.replace(_old, _new)
@@ -3286,21 +3285,24 @@ def api_generate_pptx():
     if 'XL_LEGEND_POSITION' in code and 'from pptx.enum.chart import XL_LEGEND_POSITION' not in code:
         code = "from pptx.enum.chart import XL_LEGEND_POSITION\n" + code
 
-    # 2.7) chart.title 접근 전 chart.has_title = True 자동 삽입
-    # LLM이 chart.has_title = True 없이 chart.title을 바로 사용하는 실수 수정
-    if 'has_title' not in code:
-        # chart.title 을 사용하지만 has_title 설정이 없는 경우에만 삽입
-        def _insert_has_title(m):
-            indent = m.group(1)
-            obj = m.group(2)
-            rest = m.group(3)
-            return f"{indent}{obj}.has_title = True\n{indent}{obj}.title{rest}"
-        code = _re.sub(
-            r'^([ \t]*)((?:\w+\.)*chart)\.title(\b(?!.*has_title).*)',
-            _insert_has_title,
-            code,
-            flags=_re.MULTILINE
-        )
+    # 2.7) chart.title → chart.chart_title 자동 교정 + has_title 삽입
+    # python-pptx: chart.title 속성 없음, chart.chart_title이 올바른 API
+    # ① "chart" 변수 뒤의 .title → .chart_title 교체 (chart_title은 건드리지 않음)
+    code = _re.sub(r'(\bchart\b)\.title\b', r'\1.chart_title', code)
+    # ② .chart_title 접근 줄 앞에 has_title = True 삽입 (없을 때만, 변수당 1회)
+    if 'has_title' not in code and '.chart_title' in code:
+        lines = code.split('\n')
+        new_lines = []
+        _ht_seen = set()
+        for line in lines:
+            if '.chart_title' in line and 'has_title' not in line:
+                indent = line[:len(line) - len(line.lstrip())]
+                m = _re.search(r'(\b\w+)\.chart_title', line)
+                if m and m.group(1) not in _ht_seen:
+                    new_lines.append(f"{indent}{m.group(1)}.has_title = True")
+                    _ht_seen.add(m.group(1))
+            new_lines.append(line)
+        code = '\n'.join(new_lines)
 
     # 3) placeholder.shapes → slide.shapes 자동 수정
     # LLM이 content/body/placeholder 등에 .shapes를 호출하는 실수 수정
