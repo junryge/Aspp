@@ -147,7 +147,7 @@ def classify_logpresso_intent(query):
 
 
 def query_logpresso(query, timeout=180):
-    """로그프레소 LPQL 쿼리 실행 → pandas DataFrame 반환"""
+    """로그프레소 LPQL 쿼리 실행 → (DataFrame, None) 또는 (None, 에러상세)"""
     import pandas as pd
     from io import StringIO
 
@@ -160,12 +160,38 @@ def query_logpresso(query, timeout=180):
         resp = req.get(url, verify=False, timeout=timeout)
         if resp.status_code == 200 and resp.text.strip() and not resp.text.startswith("<!"):
             df = pd.read_csv(StringIO(resp.text))
-            return df
+            return df, None
         else:
-            return None
+            # 상세 에러 정보 수집
+            detail = f"HTTP {resp.status_code}"
+            body_preview = resp.text[:500].strip() if resp.text else "(빈 응답)"
+            if resp.text.startswith("<!"):
+                detail += " (HTML 에러 페이지 반환)"
+            elif not resp.text.strip():
+                detail += " (빈 응답)"
+            error_info = {
+                "reason": detail,
+                "response_preview": body_preview,
+                "query_sent": query_clean,
+            }
+            print(f"[Logpresso] 쿼리 실패: {detail} | 쿼리: {query_clean[:200]}")
+            return None, error_info
+    except req.exceptions.ConnectTimeout:
+        error_info = {"reason": "연결 타임아웃 (서버 응답 없음)", "query_sent": query_clean}
+        print(f"[Logpresso] 연결 타임아웃: {query_clean[:200]}")
+        return None, error_info
+    except req.exceptions.ReadTimeout:
+        error_info = {"reason": f"읽기 타임아웃 ({timeout}초 초과 — 쿼리가 너무 무거울 수 있음)", "query_sent": query_clean}
+        print(f"[Logpresso] 읽기 타임아웃: {query_clean[:200]}")
+        return None, error_info
+    except req.exceptions.ConnectionError as e:
+        error_info = {"reason": f"서버 연결 실패 ({e})", "query_sent": query_clean}
+        print(f"[Logpresso] 연결 실패: {e}")
+        return None, error_info
     except Exception as e:
+        error_info = {"reason": f"예외 발생: {type(e).__name__}: {e}", "query_sent": query_clean}
         print(f"[Logpresso] 쿼리 예외: {e}")
-        return None
+        return None, error_info
 
 
 # 보안: 읽기 전용 명령만 허용
@@ -2308,7 +2334,7 @@ def _llm_generate_lpql(user_query, history=None):
 2. 쿼리 앞뒤로 간단한 설명을 추가하세요.
 3. 오늘 날짜: {today} (시간 형식: yyyyMMddHHmmss)
 4. 어제 = {today} 기준 하루 전, 이번 주 = 최근 7일
-5. 결과가 너무 많을 수 있으니 적절히 limit을 걸어주세요 (기본 limit 500).
+5. **반드시 limit 5를 걸어주세요.** 사용자가 명시적으로 더 많은 건수를 요청하지 않는 한, 항상 `limit 5`를 사용하세요. 대량 조회는 시스템에 부하를 줍니다.
 6. 읽기 전용 쿼리만 생성하세요 (INSERT/DELETE/DROP/CREATE 금지).
 7. **캐리어/장비 추적, 특정 키워드 검색, 여러 테이블 동시 조회 시 `fulltext`를 우선 사용하세요** (인덱스 기반 = 빠름).
 8. fulltext에서 여러 테이블 지정: `fulltext ... from 테이블1, 테이블2`
@@ -2446,7 +2472,7 @@ def api_logpresso_query():
         # 샘플 데이터 조회 시도
         sample_data = []
         sample_lpql = f"table duration=5m {matched_table} | limit 5"
-        df = query_logpresso(sample_lpql, timeout=30)
+        df, _err = query_logpresso(sample_lpql, timeout=30)
         if df is not None and len(df) > 0:
             sample_data = df.head(5).to_dict("records")
 
@@ -2516,13 +2542,17 @@ def api_logpresso_query():
         return jsonify({"mode": "execute", "error": sec_error, "lpql": lpql}), 403
 
     # 쿼리 실행
-    df = query_logpresso(lpql, timeout=180)
+    df, err_detail = query_logpresso(lpql, timeout=180)
     if df is None:
+        error_msg = "Logpresso 조회 실패"
+        if err_detail:
+            error_msg += f": {err_detail.get('reason', '알 수 없는 오류')}"
         return jsonify({
             "mode": "execute",
-            "error": "Logpresso 서버 응답 없음 또는 쿼리 오류",
+            "error": error_msg,
             "lpql": lpql,
             "explanation": llm_explanation,
+            "error_detail": err_detail,
         }), 502
 
     total_rows = len(df)
@@ -3770,7 +3800,7 @@ def api_chat():
                         info = LOGPRESSO_TABLES[matched_table]
                         _lpq_content = f"🔍 **{matched_table}** — {info['desc']}\n\n**컬럼 ({len(info['columns'])}개):** " + ", ".join(f"`{c}`" for c in info["columns"])
                         sample_lpql = f"table duration=5m {matched_table} | limit 5"
-                        df = query_logpresso(sample_lpql, timeout=30)
+                        df, _err = query_logpresso(sample_lpql, timeout=30)
                         if df is not None and len(df) > 0:
                             cols = list(df.columns)
                             _lpq_content += f"\n\n**샘플 데이터:**\n\n| " + " | ".join(cols) + " |\n|" + "|".join(["---"]*len(cols)) + "|\n"
@@ -3798,9 +3828,13 @@ def api_chat():
                         if sec_error:
                             _lpq_content = f"❌ 보안 검증 실패: {sec_error}\n\n생성된 LPQL: `{lpql}`"
                         else:
-                            df = query_logpresso(lpql, timeout=180)
+                            df, err_detail = query_logpresso(lpql, timeout=180)
                             if df is None:
-                                _lpq_content = f"❌ 조회 실패\n\n`{lpql}`"
+                                err_reason = err_detail.get("reason", "알 수 없는 오류") if err_detail else "알 수 없는 오류"
+                                resp_preview = err_detail.get("response_preview", "") if err_detail else ""
+                                _lpq_content = f"❌ Logpresso 조회 실패: **{err_reason}**\n\n**생성된 쿼리:**\n```lpql\n{lpql}\n```"
+                                if resp_preview:
+                                    _lpq_content += f"\n\n**서버 응답:**\n```\n{resp_preview[:300]}\n```"
                             elif len(df) == 0:
                                 _lpq_content = f"✅ 결과 0건\n\n`{lpql}`\n\n_(데이터가 없습니다. duration을 늘려보세요.)_"
                             else:
