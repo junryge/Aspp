@@ -3304,6 +3304,20 @@ def api_generate_pptx():
             new_lines.append(line)
         code = '\n'.join(new_lines)
 
+    # 2.8) slide.shapes.title → _safe_title(slide) 자동 교체
+    # slide.shapes.title이 None일 때 AttributeError 방지
+    code = _re.sub(
+        r'(\w+)\.shapes\.title\b',
+        r'_safe_title(\1)',
+        code
+    )
+    # 직접 slide.shapes.title.text = "..." 패턴도 처리
+    code = _re.sub(
+        r'_safe_title\((\w+)\)\.text\s*=\s*(.+)',
+        r'_safe_title(\1).text_frame.text = \2',
+        code
+    )
+
     # 3) placeholder.shapes → slide.shapes 자동 수정
     # LLM이 content/body/placeholder 등에 .shapes를 호출하는 실수 수정
     code = _re.sub(
@@ -3523,6 +3537,15 @@ def api_generate_pptx():
             "    _gf.GraphicFrame.rows = property(lambda self: self.table.rows if self.has_table else None)\n"
             "    _gf.GraphicFrame.columns = property(lambda self: self.table.columns if self.has_table else None)\n"
             "    _gf.GraphicFrame.cell = lambda self, r, c: self.table.cell(r, c) if self.has_table else None\n"
+            "# --- helper: safe slide title access (returns textbox if no title placeholder) ---\n"
+            "from pptx.util import Inches as _Inches, Pt as _Pt\n"
+            "def _safe_title(slide):\n"
+            "    t = slide.shapes.title\n"
+            "    if t is not None:\n"
+            "        return t\n"
+            "    txBox = slide.shapes.add_textbox(_Inches(0.5), _Inches(0.2), _Inches(9), _Inches(0.8))\n"
+            "    txBox.text_frame.word_wrap = True\n"
+            "    return txBox\n"
             "# --- user code ---\n"
             f"{code}\n"
         )
