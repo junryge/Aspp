@@ -3777,14 +3777,15 @@ def api_chat():
                         else:
                             df = query_logpresso(lpql, timeout=180)
                             if df is None:
-                                _lpq_content = f"❌ Logpresso 서버 응답 없음 또는 쿼리 오류\n\n생성된 LPQL: `{lpql}`"
+                                _lpq_content = f"❌ 조회 실패\n\n`{lpql}`"
                             elif len(df) == 0:
-                                _lpq_content = f"✅ **Logpresso 조회 완료** (결과 0건)\n\n```\nLPQL: {lpql}\n```\n\n_(해당 기간에 데이터가 없습니다. duration을 늘려보세요.)_"
+                                _lpq_content = f"✅ 결과 0건\n\n`{lpql}`\n\n_(데이터가 없습니다. duration을 늘려보세요.)_"
                             else:
+                                _DISPLAY_LIMIT = 5
                                 total = len(df)
                                 cols = list(df.columns)
-                                page_df = df.head(LOGPRESSO_PAGE_SIZE)
-                                _lpq_content = f"✅ **Logpresso 조회 결과**\n\n```\nLPQL: {lpql}\n```\n\n📊 총 **{total}**건 조회\n\n"
+                                page_df = df.head(_DISPLAY_LIMIT)
+                                _lpq_content = f"✅ **Logpresso 조회 결과** (총 {total}건)\n\n```\n{lpql}\n```\n\n"
                                 _lpq_content += "| " + " | ".join(cols) + " |\n|" + "|".join(["---"]*len(cols)) + "|\n"
                                 for _, row in page_df.iterrows():
                                     vals = []
@@ -3792,8 +3793,8 @@ def api_chat():
                                         v = str(row.get(c, "")) if row.get(c) is not None else ""
                                         vals.append(v[:50] + "..." if len(v) > 50 else v)
                                     _lpq_content += "| " + " | ".join(vals) + " |\n"
-                                if total > LOGPRESSO_PAGE_SIZE:
-                                    _lpq_content += f"\n_(상위 {LOGPRESSO_PAGE_SIZE}건만 표시. 전체 {total}건)_"
+                                if total > _DISPLAY_LIMIT:
+                                    _lpq_content += f"\n_(상위 {_DISPLAY_LIMIT}건만 표시)_"
                                 if llm_response:
                                     _lpq_content += f"\n\n---\n📝 {llm_response}"
 
