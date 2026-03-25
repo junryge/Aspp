@@ -5657,6 +5657,82 @@ async function send(){
 
   chatAbort = new AbortController();
 
+  // ── Logpresso 자동 실행: logpresso-query 스킬이 활성화되면 직접 조회 시도 ──
+  const _lpqActive = skillsToUse.includes('logpresso-query');
+  let _lpqHandled = false;
+  if(_lpqActive){
+    const _q = text.trim();
+    // 의도 분류 (백엔드 classify_logpresso_intent와 동일 로직)
+    const _tlKw = ['테이블 목록','어떤 테이블','테이블 뭐','테이블 리스트','테이블 종류','테이블 있','테이블 알려','테이블 보여'];
+    const _schKw = ['구조','컬럼','필드','스키마','뭐가 있','어떤 데이터','어떤 컬럼'];
+    const _exKw = ['보여줘','조회해','찾아줘','검색해','확인해줘','가져와','뽑아','조회 해','몇건','몇개','몇 건','몇 개','데이터 줘','로그 줘','결과 줘','실행해','돌려','조회해줘'];
+    let _lpqMode = 'explain';
+    if(_tlKw.some(k=>_q.includes(k))) _lpqMode='table_list';
+    else if(_schKw.some(k=>_q.includes(k))) _lpqMode='table_schema';
+    else if(_exKw.some(k=>_q.includes(k))) _lpqMode='execute';
+
+    if(_lpqMode !== 'explain'){
+      try{
+        const _lr = await fetch('/api/logpresso/query',{
+          method:'POST', headers:{'Content-Type':'application/json'},
+          signal: chatAbort.signal,
+          body:JSON.stringify({query:_q, mode:_lpqMode, history:history.slice(-6)})
+        });
+        const _ld = await _lr.json();
+        typing.remove();
+        _lpqHandled = true;
+
+        if(_ld.error){
+          addMsg('assistant','❌ Logpresso 조회 실패: ' + _ld.error + (_ld.hint ? '\n💡 ' + _ld.hint : ''));
+        } else if(_ld.mode === 'table_list'){
+          let msg = '📋 **등록된 Logpresso 테이블 (' + _ld.total + '개)**\n\n';
+          msg += '| 테이블명 | 설명 | 컬럼 수 |\n|---|---|---|\n';
+          (_ld.tables||[]).forEach(t=>{ msg += '| `' + t.table + '` | ' + t.desc + ' | ' + t.column_count + ' |\n'; });
+          addMsg('assistant', msg);
+          history.push({role:'assistant',content:msg});
+        } else if(_ld.mode === 'table_schema'){
+          let msg = '🔍 **' + _ld.table + '** — ' + _ld.desc + '\n\n';
+          msg += '**컬럼 (' + _ld.column_count + '개):** ' + _ld.columns.map(c=>'`'+c+'`').join(', ') + '\n';
+          if(_ld.sample_data && _ld.sample_data.length > 0){
+            const cols = Object.keys(_ld.sample_data[0]);
+            msg += '\n**샘플 데이터 (최근 5분, ' + _ld.sample_data.length + '건):**\n\n';
+            msg += '| ' + cols.join(' | ') + ' |\n|' + cols.map(()=>'---').join('|') + '|\n';
+            _ld.sample_data.forEach(row=>{ msg += '| ' + cols.map(c=>String(row[c]||'')).join(' | ') + ' |\n'; });
+          }
+          addMsg('assistant', msg);
+          history.push({role:'assistant',content:msg});
+        } else if(_ld.mode === 'execute' && _ld.success){
+          let msg = '✅ **Logpresso 조회 결과**\n\n';
+          msg += '```\nLPQL: ' + _ld.lpql + '\n```\n\n';
+          msg += '📊 총 **' + _ld.total_rows + '**건 조회 (페이지 ' + _ld.page + '/' + _ld.total_pages + ')\n\n';
+          if(_ld.data && _ld.data.length > 0){
+            const cols = _ld.columns || Object.keys(_ld.data[0]);
+            msg += '| ' + cols.join(' | ') + ' |\n|' + cols.map(()=>'---').join('|') + '|\n';
+            _ld.data.forEach(row=>{ msg += '| ' + cols.map(c=>{ let v=String(row[c]!=null?row[c]:''); return v.length>50?v.slice(0,47)+'...':v; }).join(' | ') + ' |\n'; });
+            if(_ld.total_pages > 1) msg += '\n💡 다음 페이지: query_id=`' + _ld.query_id + '`';
+          } else {
+            msg += '_(데이터가 없습니다. duration을 늘려보세요.)_';
+          }
+          if(_ld.explanation) msg += '\n\n---\n📝 ' + _ld.explanation;
+          addMsg('assistant', msg);
+          history.push({role:'assistant',content:msg});
+        } else {
+          // execute 모드지만 success 아닌 경우
+          addMsg('assistant','❌ Logpresso 조회 실패: ' + JSON.stringify(_ld));
+        }
+      }catch(e){
+        if(e.name !== 'AbortError'){
+          // Logpresso 호출 실패 → 일반 chat으로 폴백
+          _lpqHandled = false;
+        } else {
+          typing.remove();
+          _lpqHandled = true;
+        }
+      }
+    }
+  }
+
+  if(!_lpqHandled){
   try{
     const resp=await fetch('/api/chat',{
       method:'POST',
@@ -5720,6 +5796,7 @@ async function send(){
       addMsg('assistant','❌ 서버 연결 실패: '+e.message);
     }
   }
+  } // end if(!_lpqHandled)
   isSending = false;
   chatAbort = null;
   btn.textContent = '▶';
