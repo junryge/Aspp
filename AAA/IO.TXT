@@ -228,30 +228,13 @@ def query_logpresso(query, timeout=180):
     from io import StringIO
 
     query_clean = " ".join(query.split())
-
-    # from=/to= 날짜를 LPQL에서 추출하여 별도 URL 파라미터로 전달
-    # httpexport API는 from/to를 _q 안이 아닌 별도 파라미터(_from, _to)로 받음
-    import re as _qre
-    base_url = f"http://{LOGPRESSO_HOST}:{LOGPRESSO_PORT}/logpresso/httpexport/query.csv"
-    params = {"_apikey": LOGPRESSO_API_KEY}
-
-    from_match = _qre.search(r'\bfrom\s*=\s*(\d{14})', query_clean)
-    to_match = _qre.search(r'\bto\s*=\s*(\d{14})', query_clean)
-    if from_match and to_match:
-        params["_from"] = from_match.group(1)
-        params["_to"] = to_match.group(1)
-        # LPQL에서 from=.../to=... 제거
-        lpql_cleaned = _qre.sub(r'\bfrom\s*=\s*\d{14}\s*', '', query_clean)
-        lpql_cleaned = _qre.sub(r'\bto\s*=\s*\d{14}\s*', '', lpql_cleaned)
-        params["_q"] = " ".join(lpql_cleaned.split())
-    else:
-        params["_q"] = query_clean
-
-    print(f"[Logpresso] 쿼리 전송: _q={params['_q'][:150]} | params={({k:v for k,v in params.items() if k != '_apikey'})}")
+    encoded = urllib.parse.quote(query_clean, safe="")
+    url = f"http://{LOGPRESSO_HOST}:{LOGPRESSO_PORT}/logpresso/httpexport/query.csv?_apikey={LOGPRESSO_API_KEY}&_q={encoded}"
+    print(f"[Logpresso] 쿼리 전송: {query_clean[:200]}")
 
     warnings.filterwarnings("ignore")
     try:
-        resp = req.get(base_url, params=params, verify=False, timeout=timeout)
+        resp = req.get(url, verify=False, timeout=timeout)
         # 인코딩 보정 (ISO-8859-1 기본값 → utf-8)
         if not resp.encoding or resp.encoding.lower() == 'iso-8859-1':
             resp.encoding = 'utf-8'
