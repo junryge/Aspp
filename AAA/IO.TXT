@@ -2372,8 +2372,9 @@ def _llm_generate_lpql(user_query, history=None):
 9. fulltext 안에서 필드 조건 직접 사용 가능: `(LEVEL=="ERROR" or LEVEL=="WARN") and (CARRIER=="xxx")`
 10. limit에 오프셋 지정 가능: `limit 0 1000` (0번째부터 1000건)
 11. 행 순번: `eval No = seq() + 0`
+12. **사용자가 테이블명을 직접 지정하면 그 이름을 그대로 사용하세요.** 아래 목록에 없는 테이블이라도 사용자가 명시한 테이블명은 변경하지 마세요.
 
-## 사용 가능한 테이블
+## 참고 테이블 (이 외에도 사용자가 지정한 테이블명을 그대로 사용 가능)
 {table_info}
 
 ## LPQL 문법 참고
