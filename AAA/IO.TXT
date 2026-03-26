@@ -228,8 +228,10 @@ def query_logpresso(query, timeout=180):
     from io import StringIO
 
     query_clean = " ".join(query.split())
-    encoded = urllib.parse.quote(query_clean, safe="")
+    # safe에 = | 포함: LPQL 문법의 from=, to=, duration= 등이 깨지지 않도록
+    encoded = urllib.parse.quote(query_clean, safe="=|")
     url = f"http://{LOGPRESSO_HOST}:{LOGPRESSO_PORT}/logpresso/httpexport/query.csv?_apikey={LOGPRESSO_API_KEY}&_q={encoded}"
+    print(f"[Logpresso] URL: {url[:300]}")
 
     warnings.filterwarnings("ignore")
     try:
