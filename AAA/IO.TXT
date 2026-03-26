@@ -66,7 +66,7 @@ LOGPRESSO_PAGE_SIZE = 50
 LOGPRESSO_CACHE_TTL = 600  # 10분
 LOGPRESSO_CACHE_MAX = 20
 
-# 알려진 테이블 메타데이터
+# 알려진 테이블 메타데이터 (컬럼 정보가 있는 테이블)
 LOGPRESSO_TABLES = {
     "ATLAS_OHT_HID_OFF": {
         "desc": "HID Off 기록",
@@ -101,6 +101,82 @@ LOGPRESSO_TABLES = {
         "columns": ["_time", "TIME_EX", "MACHINENAME", "LEVEL", "CARRIER", "TEXT"],
     },
 }
+
+# 로그프레소 서버에 등록된 전체 테이블 목록 (중복 제거)
+LOGPRESSO_ALL_TABLES = sorted(set([
+    "abnormal_detect_data", "ALERT_ABNORMAL_HIS", "AMOS_ALARM_PARAMETER",
+    "araqne_log", "araqne_query_logs", "araqne_query_logs_bak",
+    "ATLAS_AREA_TRAFFIC", "ATLAS_BRANCH_TRAFFIC", "ATLAS_COMMAND",
+    "ATLAS_HID_INFO", "ATLAS_HIS_BRG_CNV_DIR", "ATLAS_HIS_BRG_CNV_OUT",
+    "ATLAS_HIS_BRG_COST_PRED", "ATLAS_HIS_BRG_STK_DIR", "ATLAS_HIS_BRG_STK_IN",
+    "ATLAS_HIS_BRG_STK_OUT", "ATLAS_HIS_BRG_STK_RM", "ATLAS_HIS_CNV_LE_STATE",
+    "ATLAS_HIS_CNV_TASK", "ATLAS_HIS_EQP_STATUS", "ATLAS_HIS_PORT_STATUS",
+    "ATLAS_HIS_STB_GRP_STATUS", "ATLAS_HIS_STK_STATUS", "ATLAS_ITSM_SCHD_MNT",
+    "ATLAS_JOB", "ATLAS_JOB_AREA", "ATLAS_M14_LFT_RECOMMAND", "ATLAS_M15_LFT_RECOMMAND",
+    "ATLAS_MAP", "ATLAS_MAS_AREA", "ATLAS_MAS_BAY", "ATLAS_MAS_BRANCHJOINEDGE",
+    "ATLAS_MAS_EDGE", "ATLAS_MAS_EQP", "ATLAS_MAS_LONGEDGE", "ATLAS_MAS_NODE",
+    "ATLAS_MAS_STATION", "ATLAS_MAS_VHL", "ATLAS_MCP75CFG", "ATLAS_NEWPREDICT_LIST",
+    "ATLAS_OHT_HID_OFF", "ATLAS_OHT_PARA_REG_BJ_DATA", "ATLAS_OHT_PARA_REG_DATA",
+    "ATLAS_OHT_RAIL_CUT", "ATLAS_OHT_RAIL_VIBRATION", "ATLAS_OHT_STATS_HIS",
+    "ATLAS_OHT_STG_CMD_MNT", "ATLAS_OHT_VHL_CNT", "ATLAS_OHT_VHL_OFF",
+    "ATLAS_OHT_VHL_OFF_ONLY", "ATLAS_RAIL_TRAFFIC", "ATLAS_RAW_DATA",
+    "ATLAS_RAW_DATA_ACTIONTYPE", "ATLAS_ROUTE", "ATLAS_STA_TRANS_HIS",
+    "ATLAS_STA_TRANS_HIS_RAW", "ATLAS_STATISTICS", "ATLAS_STB_OCCUPY",
+    "ATLAS_STBGROUP", "ATLAS_STOCKER", "ATLAS_TIB_SEND_MSG_LOG",
+    "ATLAS_TS_PREDICT", "ATLAS_UDP", "ATLAS_UPDATE_EQP", "ATLAS_VEHICLE",
+    "ATLAS_VHL_COUNT", "ATLAS_VIB_PARA_DATA", "ATLAS_VIB_PARA_REG_DATA",
+    "bridge_judge_range", "bridge_layout_detail", "bridge_layout_test", "bridge_layout_tmp",
+    "cs_data", "cs_data_m14b", "cs_data_m15", "cs_data_m15b", "cs_data_m16", "cs_data_m16b",
+    "cs_raw", "cs_raw_m14b", "cs_raw_m15b", "cs_raw_m16", "cs_raw_m16b",
+    "ds_data", "ds_data_m14b", "ds_data_m15", "ds_data_m15b", "ds_data_m16", "ds_data_m16b",
+    "ds_raw", "ds_raw_m14b", "ds_raw_m15b", "ds_raw_m16", "ds_raw_m16b",
+    "ei_data", "ei_data_m14b", "ei_data_m15", "ei_data_m15b", "ei_data_m16", "ei_data_m16b",
+    "ei_raw", "ei_raw_m14b", "ei_raw_m15b", "ei_raw_m16", "ei_raw_m16b",
+    "empty", "fabscope_m14a", "fabscope_m14b",
+    "ICPKT_ATLAS_HID_INFO_MAS", "ICPKT_ATLAS_HID_INOUT",
+    "M14A_ATLAS_HID_INFO_MAS", "M14A_ATLAS_HID_INOUT", "M14A_ATLAS_INFO_HID_INOUT_MAS",
+    "M14B_ATLAS_HID_INFO_MAS", "M14B_ATLAS_HID_INOUT", "M14B_ATLAS_INFO_HID_INOUT_MAS",
+    "M16A_ATLAS_HID_INFO_MAS", "M16A_ATLAS_HID_INOUT",
+    "M16B_ATLAS_HID_INFO_MAS", "M16B_ATLAS_HID_INOUT",
+    "memory_monitor", "MYACCESS_AUTH_TABLE", "MYACCESS_USER_AUTH_TABLE", "MYACCESS_USER_TABLE",
+    "OHT_ALID_DEF", "oht_cmd_count",
+    "oht_data_m14a", "oht_data_m14b", "oht_data_m16a", "oht_data_m16e",
+    "oht_raw_m14a", "oht_raw_m14b", "oht_raw_m16a", "oht_raw_m16e",
+    "OHT_SECS_SIM_HISTORY", "oht_time_avg",
+    "qtransfer_dashboard", "realtime_chk_tibrv_result", "sbnon",
+    "secs_data", "secs_data_backup", "secs_data_m14b", "secs_data_m15", "secs_data_m15b",
+    "secs_data_m16", "secs_data_m16b", "secs_raw", "secs_raw_m14b", "secs_raw_m15b",
+    "secs_raw_m16", "secs_raw_m16b",
+    "server_resource_apm", "server_resource_predict", "SIM_OHT_PARA_REG_DATA",
+    "star_transport_view",
+    "table_msglog", "table_msglog_exception", "table_msglog_final",
+    "table_msglog_fromto", "table_msglog_prediction", "table_msglog_ui", "table_msglog_userInterface",
+    "test_currentjob_predict", "test_bridge_layout", "test_dup",
+    "test_hubroom_predict", "test_table", "test_tibrv", "test_transport_q", "test_transport_job",
+    "test_ts_raw", "TEST___ATLAS_OHT_PARA_REG_BJ_DATA", "TEST___ATLAS_OHT_PARA_REG_DATA",
+    "TEST_ATLAS_OHT_PERFORMANCE_TIME", "TEST_ATLAS_ROUTE", "test_sample_tbl", "test_tmp",
+    "tibrv_raw_m14a", "tibrv_raw_m15", "tibrv_raw_m15b", "tibrv_raw_m16", "tibrv_raw_m16b",
+    "ts_alarm_m14a", "ts_alarm_m15", "ts_alarm_m15b", "ts_alarm_m16", "ts_alarm_m16b",
+    "ts_current_job",
+    "ts_data_m14a", "ts_data_m14b", "ts_data_m15", "ts_data_m15b", "ts_data_m16", "ts_data_m16b",
+    "ts_data_view_m14a", "ts_data_view_m14b", "ts_data_view_m15", "ts_data_view_m15b",
+    "ts_data_view_m16", "ts_data_view_m16b",
+    "ts_elapsed_summary",
+    "ts_end_data_m14a", "ts_end_data_m14b", "ts_end_data_m15", "ts_end_data_m15b",
+    "ts_end_data_m16", "ts_end_data_m16b",
+    "ts_job_completed_m14a", "ts_job_completed_m15", "ts_job_completed_m15b",
+    "ts_job_completed_m16", "ts_job_completed_m16b",
+    "ts_log_pattern", "ts_machine_vw",
+    "ts_material_m14a", "ts_material_m15", "ts_material_m15b", "ts_material_m16", "ts_material_m16b",
+    "ts_raw_m14a", "ts_raw_m14b", "ts_raw_m15", "ts_raw_m15b",
+    "ts_raw_m16", "ts_raw_m16b",
+    "ts_resource_m14a", "ts_resource_m14b", "ts_resource_m15", "ts_resource_m15b",
+    "ts_resource_m16", "ts_resource_m16b",
+    "ts_tmp_recovery_p", "ts_tmp_recovery_s",
+    "ts_transport_m14a", "ts_transport_m14b", "ts_transport_m15", "ts_transport_m15b",
+    "ts_transport_m16", "ts_transport_m16b",
+    "ts_transportjob_summary", "user_count", "users",
+]))
 
 # 쿼리 결과 캐시 {query_id: {"df": DataFrame, "ts": timestamp, "lpql": str}}
 _logpresso_cache = {}
@@ -158,17 +234,25 @@ def query_logpresso(query, timeout=180):
     warnings.filterwarnings("ignore")
     try:
         resp = req.get(url, verify=False, timeout=timeout)
-        if resp.status_code == 200 and resp.text.strip() and not resp.text.startswith("<!"):
-            df = pd.read_csv(StringIO(resp.text))
+        # 인코딩 보정 (ISO-8859-1 기본값 → utf-8)
+        if not resp.encoding or resp.encoding.lower() == 'iso-8859-1':
+            resp.encoding = 'utf-8'
+        body = resp.text
+        # content가 있는데 text가 비어있으면 바이너리 디코딩 시도
+        if not body.strip() and resp.content and len(resp.content) > 0:
+            body = resp.content.decode('utf-8', errors='replace')
+        print(f"[Logpresso] 응답: status={resp.status_code} len={len(body)} encoding={resp.encoding} content_len={len(resp.content)} | 쿼리: {query_clean[:100]}")
+        if resp.status_code == 200 and body.strip() and not body.startswith("<!"):
+            df = pd.read_csv(StringIO(body))
             return df, None
         else:
             # 상세 에러 정보 수집
             detail = f"HTTP {resp.status_code}"
-            body_preview = resp.text[:500].strip() if resp.text else "(빈 응답)"
-            if resp.text.startswith("<!"):
+            body_preview = body[:500].strip() if body else "(빈 응답)"
+            if body.startswith("<!"):
                 detail += " (HTML 에러 페이지 반환)"
-            elif not resp.text.strip():
-                detail += " (빈 응답)"
+            elif not body.strip():
+                detail += f" (빈 응답, content_length={len(resp.content)})"
             error_info = {
                 "reason": detail,
                 "response_preview": body_preview,
@@ -2367,16 +2451,18 @@ def _llm_generate_lpql(user_query, history=None):
 4. 어제 = {today} 기준 하루 전, 이번 주 = 최근 7일
 5. **반드시 limit 5를 걸어주세요.** 사용자가 명시적으로 더 많은 건수를 요청하지 않는 한, 항상 `limit 5`를 사용하세요. 대량 조회는 시스템에 부하를 줍니다.
 6. 읽기 전용 쿼리만 생성하세요 (INSERT/DELETE/DROP/CREATE 금지).
-7. **캐리어/장비 추적, 특정 키워드 검색, 여러 테이블 동시 조회 시 `fulltext`를 우선 사용하세요** (인덱스 기반 = 빠름).
-8. fulltext에서 여러 테이블 지정: `fulltext ... from 테이블1, 테이블2`
-9. fulltext 안에서 필드 조건 직접 사용 가능: `(LEVEL=="ERROR" or LEVEL=="WARN") and (CARRIER=="xxx")`
-10. limit에 오프셋 지정 가능: `limit 0 1000` (0번째부터 1000건)
-11. 행 순번: `eval No = seq() + 0`
-12. **사용자가 테이블명을 직접 지정하면 그 이름을 그대로 사용하세요.** 아래 목록에 없는 테이블이라도 사용자가 명시한 테이블명은 변경하지 마세요.
-13. **`| fields`는 사용자가 특정 필드를 요청한 경우에만 사용하세요.** 컬럼 정보를 모르는 테이블에 필드를 임의로 추가하지 마세요. 필드 지정 없이 `table ... TABLE_NAME | limit 5`로 전체 컬럼을 조회하면 됩니다.
+7. **기본 조회는 반드시 `table` 명령을 사용하세요.** `fulltext`는 사용자가 키워드 검색을 명시적으로 요청하거나, fulltext 인덱스가 있는 테이블에서 텍스트 검색할 때만 사용하세요. 단순 데이터 조회에 `fulltext`를 사용하지 마세요.
+8. limit에 오프셋 지정 가능: `limit 0 1000` (0번째부터 1000건)
+9. 행 순번: `eval No = seq() + 0`
+10. **사용자가 테이블명을 직접 지정하면 그 이름을 그대로 사용하세요.** 목록에 없는 테이블이라도 사용자가 명시한 테이블명은 변경하지 마세요.
+11. **`| fields`는 사용자가 특정 필드를 요청한 경우에만 사용하세요.** 컬럼 정보를 모르는 테이블에 필드를 임의로 추가하지 마세요. 필드 지정 없이 `table ... TABLE_NAME | limit 5`로 전체 컬럼을 조회하면 됩니다.
+12. **`| sort`도 사용자가 정렬을 요청한 경우에만 사용하세요.** 컬럼명을 모르면서 임의로 sort를 추가하지 마세요.
 
-## 참고 테이블 (이 외에도 사용자가 지정한 테이블명을 그대로 사용 가능)
+## 컬럼 정보가 있는 테이블
 {table_info}
+
+## 서버에 등록된 전체 테이블 목록
+{', '.join(LOGPRESSO_ALL_TABLES)}
 
 ## LPQL 문법 참고
 {skill_content[:6000]}
