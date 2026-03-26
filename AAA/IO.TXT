@@ -228,9 +228,9 @@ def query_logpresso(query, timeout=180):
     from io import StringIO
 
     query_clean = " ".join(query.split())
-    # safe에 = 포함: LPQL 문법의 from=, to=, duration= 등이 깨지지 않도록
-    # |는 URL 비허용 문자이므로 %7C로 인코딩 유지
-    encoded = urllib.parse.quote(query_clean, safe="=")
+    # 모든 특수문자를 URL 인코딩 (= → %3D, | → %7C 등)
+    # Logpresso httpexport API가 서버에서 자동 디코딩함
+    encoded = urllib.parse.quote(query_clean, safe="")
     url = f"http://{LOGPRESSO_HOST}:{LOGPRESSO_PORT}/logpresso/httpexport/query.csv?_apikey={LOGPRESSO_API_KEY}&_q={encoded}"
     print(f"[Logpresso] URL: {url[:300]}")
 
