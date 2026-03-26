@@ -308,15 +308,21 @@ def extract_lpql_from_response(text):
     # ```lpql 블록 우선
     m = re.search(r"```(?:lpql|LPQL)\s*\n(.*?)```", text, re.DOTALL)
     if m:
-        return m.group(1).strip()
+        return _clean_lpql(m.group(1).strip())
     # 일반 ``` 블록 (LPQL 키워드가 내용에 있으면)
     m = re.search(r"```\s*\n(.*?)```", text, re.DOTALL)
     if m:
         candidate = m.group(1).strip()
         lpql_indicators = ["table ", "fulltext ", "stream ", "| fields", "| search", "| sort", "| limit", "| eval", "| stats"]
         if any(ind in candidate.lower() for ind in lpql_indicators):
-            return candidate
+            return _clean_lpql(candidate)
     return None
+
+
+def _clean_lpql(lpql):
+    """LPQL에서 주석(#)과 빈 줄 제거"""
+    lines = [line for line in lpql.split('\n') if line.strip() and not line.strip().startswith('#')]
+    return ' '.join(lines).strip() if lines else lpql
 
 
 # ============================================
@@ -2447,8 +2453,8 @@ def _llm_generate_lpql(user_query, history=None):
 사용자의 자연어 요청을 실행 가능한 LPQL 쿼리로 변환하세요.
 
 ## 규칙
-1. 반드시 ```lpql 코드블록 안에 쿼리만 출력하세요.
-2. 쿼리 앞뒤로 간단한 설명을 추가하세요.
+1. 반드시 ```lpql 코드블록 안에 **순수 LPQL 쿼리만** 출력하세요. 코드블록 안에 주석(#)이나 설명을 절대 넣지 마세요.
+2. 설명은 코드블록 **바깥에** 작성하세요.
 3. 오늘 날짜: {today} (시간 형식: yyyyMMddHHmmss)
 4. 어제 = {today} 기준 하루 전, 이번 주 = 최근 7일
 5. **반드시 limit 5를 걸어주세요.** 사용자가 명시적으로 더 많은 건수를 요청하지 않는 한, 항상 `limit 5`를 사용하세요. 대량 조회는 시스템에 부하를 줍니다.
