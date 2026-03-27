@@ -1,152 +1,94 @@
-"""
-로그프레소 조회 클라이언트
-logpresso_client.py
-- app.py의 query_logpresso 대체
-- 검증된 직접 HTTP 방식 사용
-"""
-import requests
-import urllib.parse
-import pandas as pd
-from io import StringIO
-import urllib3
+---
+name: knowledge-search
+description: >
+  도메인 지식 검색 스킬. knowledge/ 폴더의 FAB 컬럼 정보, 아키텍처 문서,
+  도메인 지식을 검색하여 정확한 답변을 생성한다.
+  수동 전용 스킬 — 사용자가 직접 선택해야 활성화된다.
+metadata:
+  author: Demos
+  version: "2.0.0"
+  tags:
+    - knowledge
+    - domain
+    - fab
+    - column
+    - architecture
+---
 
-urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+# 도메인 지식 검색 스킬
 
-HOST    = "10.40.42.27"
-PORT    = 8888
-API_KEY = "db1d2335-49cf-e859-3519-1ca132922e38"
+이 스킬은 `knowledge/` 폴더에 저장된 도메인 지식 문서를 검색하여 답변한다.
+**수동 전용**: 자동 추천되지 않으며, 사용자가 직접 선택해야 활성화된다.
 
+---
 
-def query_logpresso(query: str, timeout: int = 180):
-    """
-    LPQL 쿼리 실행 → (DataFrame, None) 또는 (None, error_info)
+## 검색 대상 문서
 
-    app.py에서 호출:
-        from logpresso_client import query_logpresso
-        df, err = query_logpresso("table xxx | limit 5")
-    """
-    clean_q = " ".join(query.split())
-    encoded = urllib.parse.quote(clean_q, safe="")
-    url = f"http://{HOST}:{PORT}/logpresso/httpexport/query.csv?_apikey={API_KEY}&_q={encoded}"
+### FAB 컬럼 사전 (30개)
+각 FAB별 QUWA 컬럼 정보. 구조: `{FAB}.{Category}.{SubCategory}.{Metric}`
 
-    print(f"[Logpresso] ▶ 쿼리: {clean_q[:300]}")
+| FAB 그룹 | 파일 |
+|----------|------|
+| M10 계열 | FAB_M10_컬럼, FAB_M10A_컬럼, FAB_M10B_컬럼, FAB_M10C_컬럼, FAB_M10F_컬럼 |
+| M11 계열 | FAB_M11_컬럼, FAB_M11A_컬럼, FAB_M11B_컬럼 |
+| M14 계열 | FAB_M14_컬럼, FAB_M14B_컬럼 |
+| M15 계열 | FAB_M15_컬럼, FAB_M15A_컬럼, FAB_M15B_컬럼, FAB_M15B_WLP3_컬럼, FAB_M15C_컬럼 |
+| M16 계열 | FAB_M16_컬럼, FAB_M16A_컬럼, FAB_M16B_컬럼, FAB_M16E_컬럼, FAB_M16HUB_컬럼, FAB_M16_PKT_컬럼, FAB_M16_WT_컬럼 |
+| C2/CJ/IC | FAB_C2_컬럼, FAB_C2F_컬럼, FAB_CJPKG_FRONT_컬럼, FAB_CJPKG_MBS_컬럼, FAB_CJPRB_컬럼, FAB_CJPRB_WLP3_컬럼, FAB_ICPKG_PNT4_1F_컬럼, FAB_ICPKG_PNT4_5F_컬럼, FAB_ICPRB_컬럼 |
+| 기타 | FAB_R3_컬럼, FAB_TSV_컬럼 |
 
-    max_retries = 3
-    last_error = None
+### 아키텍처/시스템 문서 (11개)
+| 파일 | 내용 |
+|------|------|
+| SK_Hynix_Domain_Knowledge.md | FAB 구조, AMHS, 급증, 운영지표 종합 |
+| M14_v10.4_프로젝트_아키텍처.md | M14 프로젝트 아키텍처 |
+| Hubroom_v8.3_아키텍처.md | 허브룸 시스템 아키텍처 |
+| HID_INOUT_JAVA_변경상황.md | HID 변경 이력 |
+| 내부시스템_접속정보.md | 내부 시스템 접속 정보 |
+| 예측모델_개발히스토리.md | 예측 모델 개발 이력 |
+| 프로젝트별_통신_방식.md | 프로젝트 통신 방식 |
 
-    for attempt in range(max_retries):
-        try:
-            resp = requests.get(url, verify=False, timeout=timeout)
+---
 
-            if resp.status_code == 200 and resp.text.strip():
-                # HTML 에러 페이지 체크
-                if resp.text.strip().startswith("<!"):
-                    return None, {
-                        "reason": "HTTP 200 (HTML 에러 페이지 반환)",
-                        "response_preview": resp.text[:500],
-                        "query_sent": clean_q,
-                    }
-                df = pd.read_csv(StringIO(resp.text))
-                print(f"[Logpresso] ✅ {len(df)}건 조회됨" + (f" (재시도 {attempt}회)" if attempt > 0 else ""))
-                return df, None
+## 검색 동작 방식
 
-            # 500/502/503 → 서버 불안정, 재시도
-            if resp.status_code >= 500 and attempt < max_retries - 1:
-                import time
-                wait = 2 * (attempt + 1)
-                print(f"[Logpresso] ⚠️ HTTP {resp.status_code} → {wait}초 후 재시도 ({attempt+1}/{max_retries})...")
-                time.sleep(wait)
-                last_error = f"HTTP {resp.status_code}"
-                continue
+### 1단계: 키워드 추출
+- 사용자 질문에서 불용어(은/는/이/가 등)를 제거하고 키워드 추출
+- 1자 이상 키워드 허용 (FAB 코드, 층수 등 짧은 키워드 지원)
 
-            # 빈 응답 또는 비정상 상태코드
-            reason = f"HTTP {resp.status_code}"
-            if not resp.text.strip():
-                reason += " (빈 응답)"
-            if resp.text.strip().startswith("<!"):
-                reason += " (HTML 에러 페이지 반환)"
-            return None, {
-                "reason": reason,
-                "response_preview": resp.text[:500] if resp.text else "(빈 응답)",
-                "query_sent": clean_q,
-            }
+### 2단계: 매칭 및 점수 산정
+| 매칭 유형 | 점수 | 설명 |
+|-----------|------|------|
+| 파일명 매칭 | **10점**/키워드 | "M14" → FAB_M14_컬럼.md |
+| 내용 빈도 | **1~10점**/키워드 | 키워드 출현 횟수 반영 (최대 10회) |
+| 구문 매칭 | **+15점** | 연속 키워드 조합이 같이 나올 때 |
+| 전체 구문 | **+20점** | 질문 전체가 문서에 포함될 때 |
+| 유사 한글 | **+3점** | 률↔율, 렬↔열 자동 변환 매칭 |
+| 공백 무시 | **1~5점** | "디스크사용율" ↔ "디스크 사용률" |
 
-        except (requests.exceptions.ConnectTimeout, requests.exceptions.ConnectionError) as e:
-            if attempt < max_retries - 1:
-                import time
-                wait = 2 * (attempt + 1)
-                print(f"[Logpresso] ⚠️ 연결 실패 → {wait}초 후 재시도 ({attempt+1}/{max_retries})...")
-                time.sleep(wait)
-                last_error = str(e)
-                continue
-            print(f"[Logpresso] ❌ 연결 실패 (재시도 소진): {e}")
-            return None, {"reason": f"서버 연결 실패 ({e})", "query_sent": clean_q}
-        except requests.exceptions.ReadTimeout:
-            print(f"[Logpresso] ❌ 읽기 타임아웃 ({timeout}초)")
-            return None, {"reason": f"읽기 타임아웃 ({timeout}초 초과)", "query_sent": clean_q}
-        except Exception as e:
-            print(f"[Logpresso] ❌ 예외: {e}")
-            return None, {"reason": f"예외 발생: {type(e).__name__}: {e}", "query_sent": clean_q}
+### 3단계: 결과 전달
+- 상위 3개 문서의 내용을 LLM 시스템 프롬프트에 주입
+- LLM이 문서 기반으로 답변 생성
 
-    # 모든 재시도 실패
-    return None, {"reason": f"재시도 {max_retries}회 실패 ({last_error})", "query_sent": clean_q}
+---
 
+## 응답 규칙 (반드시 지켜라)
 
-def query_carrier(from_dt: str, to_dt: str, carrier: str = "", text: str = "") -> pd.DataFrame:
-    """
-    캐리어/TEXT 조회 전용 함수
+1. **문서에 있는 내용만 답변하라.** 없는 내용을 지어내지 마라.
+2. **출처를 명시하라.** 어떤 파일에서 찾았는지 파일명을 표기하라.
+3. **컬럼 질문 시 테이블 형태로 답변하라.** 컬럼명, 한글 설명을 포함.
+4. **여러 FAB에 같은 컬럼이 있으면 비교 표로 정리하라.**
+5. **문서에서 찾지 못한 경우 솔직하게 "해당 정보를 찾지 못했습니다"라고 답하라.**
 
-    Parameters
-    ----------
-    from_dt : str  ex) "20260308000000"
-    to_dt   : str  ex) "20260308235959"
-    carrier : str  ex) "4PDK2966"
-    text    : str  ex) "4PDK2966"
-    """
-    c = carrier.strip()
-    t = text.strip()
+---
 
-    if not c and not t:
-        raise ValueError("carrier 또는 text 중 하나는 반드시 입력해야 합니다.")
+## 검색 팁 (사용자 안내용)
 
-    if c and t:
-        cond = f'((CARRIER=="{c}") or (TEXT=="{t}"))'
-    elif c:
-        cond = f'((CARRIER=="{c}") or (TEXT=="{c}"))'
-    else:
-        cond = f'((TEXT=="{t}"))'
-
-    q = (
-        f'fulltext from={from_dt} to={to_dt} '
-        f'(LEVEL=="WELL" or LEVEL=="WARN" or LEVEL=="ERROR" or LEVEL=="FATAL") '
-        f'and {cond} '
-        f'from ts_data_view_m14a, ts_data_view_m14b, ts_data_view_m16, ts_data_view_m16b '
-        f'| fields _time, TIME_EX, MACHINENAME, MACHINETYPE, UNITNAME, CARRIER, COMMANDID, COMMAND, OPERATION_NAME, MESSAGENAME, PROCESS, TRANSACTIONID, TEXT, THREAD, LEVEL, XML, SECSII, RESULTCODE '
-        f'| sort _time '
-        f'| limit 0 1000 '
-        f'| eval No = seq() + 0'
-    )
-
-    df, err = query_logpresso(q)
-    if err:
-        raise RuntimeError(f"조회 실패: {err['reason']}")
-    return df
-
-
-if __name__ == "__main__":
-    # 테스트 실행
-    import sys
-    if len(sys.argv) > 1:
-        lpql = " ".join(sys.argv[1:])
-    else:
-        from datetime import datetime
-        today = datetime.now().strftime("%Y%m%d")
-        lpql = f"table from={today}000000 to={today}235959 ts_data_view_m14a | limit 5"
-
-    print(f"\n테스트 쿼리: {lpql}\n")
-    df, err = query_logpresso(lpql)
-    if err:
-        print(f"❌ 실패: {err}")
-    else:
-        print(f"✅ 성공: {len(df)}건")
-        print(df.head())
+| 검색 의도 | 추천 질문 예시 |
+|-----------|---------------|
+| 특정 FAB 컬럼 조회 | "M14 컬럼 정보", "M16A CPU 관련 컬럼" |
+| 컬럼 의미 확인 | "DISK_APP1이 뭐야", "MEM_USED 설명" |
+| 도메인 개념 | "급증이 뭐야", "AMHS 설명", "OHT란" |
+| 아키텍처 | "M14 아키텍처", "허브룸 구조" |
+| 시스템 정보 | "접속정보", "통신 방식" |
+| FAB 간 비교 | "M14와 M16 스토리지 컬럼 비교" |
