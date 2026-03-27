@@ -2410,18 +2410,22 @@ def _llm_generate_lpql(user_query, history=None):
 10. limit에 오프셋 지정 가능: `limit 0 1000`
 11. 행 순번: `eval No = seq() + 0`
 
+## 중요: 사용자가 요청한 것만 쿼리에 포함하세요
+- 사용자가 특정 컬럼을 요청하지 않았으면 `| fields`를 넣지 마세요 (전체 컬럼 반환).
+- 사용자가 필터 조건을 요청하지 않았으면 `| search`를 넣지 마세요.
+- 사용자가 정렬을 요청하지 않았으면 `| sort`를 넣지 마세요.
+- 최소한의 쿼리만 생성하세요. 불필요한 파이프 명령을 추가하지 마세요.
+
 ## 출력 형식 예시
 아래처럼 쿼리와 설명을 분리하세요:
 
 ```lpql
-table from=20260327000000 to=20260327235959 ts_data_view_m14a | fields _time, MACHINENAME, LEVEL, CARRIER, TEXT | search LEVEL=="ERROR" | limit 10
+table from=20260327000000 to=20260327235959 ts_data_view_m14a | limit 5
 ```
 
 - `table from=... to=...`: 오늘 하루 기간 지정
 - `ts_data_view_m14a`: M14A 설비 로그 테이블
-- `| fields ...`: 필요한 컬럼만 선택
-- `| search LEVEL=="ERROR"`: ERROR 레벨만 필터
-- `| limit 10`: 최대 10건 조회
+- `| limit 5`: 최대 5건 조회
 
 ## 사용 가능한 테이블
 {table_info}
