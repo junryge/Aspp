@@ -4483,6 +4483,27 @@ def api_chat():
         except Exception as e:
             print(f"[Knowledge Search] 검색 오류: {e}")
 
+    # ── logpresso-search 스킬: 테이블 목록 요청 감지 ──
+    _lpq_table_list_kw = ["테이블 목록", "어떤 테이블", "테이블 뭐", "테이블 리스트", "테이블 종류",
+                          "테이블 있", "테이블 알려", "테이블 보여", "테이블 전부", "테이블 전체"]
+    if "logpresso-search" in skill_ids and any(kw in last_user_query for kw in _lpq_table_list_kw):
+        _content = "**로그프레소 사용 가능한 테이블 목록**\n\n"
+        _content += f"총 **{len(LOGPRESSO_TABLES)}개** 테이블\n\n"
+        _content += "| # | 테이블명 | 설명 | 주요 컬럼 |\n"
+        _content += "|---|----------|------|----------|\n"
+        for idx, (tname, tinfo) in enumerate(sorted(LOGPRESSO_TABLES.items()), 1):
+            cols = ", ".join(tinfo["columns"][:6]) if tinfo["columns"] else "(조회 필요)"
+            if len(tinfo["columns"]) > 6:
+                cols += f" 외 {len(tinfo['columns'])-6}개"
+            _content += f"| {idx} | `{tname}` | {tinfo['desc']} | {cols} |\n"
+        _content += f"\n> 서버 시작 시 자동 업데이트됨. 특정 테이블 조회: `테이블명 조회해줘`"
+        return jsonify({
+            "content": _content,
+            "model_used": "Logpresso Tables",
+            "loaded_skills": ["logpresso-search"],
+            "system_prompt_length": 0,
+        })
+
     # ── logpresso-search 스킬: 실제 서버 조회 실행 ──
     # "쿼리 만들어줘" 등 쿼리 생성 요청이면 서버 실행 안 하고 LLM에게 넘김
     _lpq_query_gen_kw = ["쿼리 만들", "쿼리 짜", "쿼리 작성", "쿼리 생성", "LPQL 만들", "LPQL 짜", "LPQL 작성"]
