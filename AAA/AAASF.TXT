@@ -1,5 +1,6 @@
 """
 로그프레소 조회 클라이언트
+logpresso_client.py
 - app.py의 query_logpresso 대체
 - 검증된 직접 HTTP 방식 사용
 """
