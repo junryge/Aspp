@@ -1,1 +1,151 @@
-ADAD
+"""
+로그프레소 조회 클라이언트
+- app.py의 query_logpresso 대체
+- 검증된 직접 HTTP 방식 사용
+"""
+import requests
+import urllib.parse
+import pandas as pd
+from io import StringIO
+import urllib3
+
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+
+HOST    = "10.40.42.27"
+PORT    = 8888
+API_KEY = "db1d2335-49cf-e859-3519-1ca132922e38"
+
+
+def query_logpresso(query: str, timeout: int = 180):
+    """
+    LPQL 쿼리 실행 → (DataFrame, None) 또는 (None, error_info)
+
+    app.py에서 호출:
+        from logpresso_client import query_logpresso
+        df, err = query_logpresso("table xxx | limit 5")
+    """
+    clean_q = " ".join(query.split())
+    encoded = urllib.parse.quote(clean_q, safe="")
+    url = f"http://{HOST}:{PORT}/logpresso/httpexport/query.csv?_apikey={API_KEY}&_q={encoded}"
+
+    print(f"[Logpresso] ▶ 쿼리: {clean_q[:300]}")
+
+    max_retries = 3
+    last_error = None
+
+    for attempt in range(max_retries):
+        try:
+            resp = requests.get(url, verify=False, timeout=timeout)
+
+            if resp.status_code == 200 and resp.text.strip():
+                # HTML 에러 페이지 체크
+                if resp.text.strip().startswith("<!"):
+                    return None, {
+                        "reason": "HTTP 200 (HTML 에러 페이지 반환)",
+                        "response_preview": resp.text[:500],
+                        "query_sent": clean_q,
+                    }
+                df = pd.read_csv(StringIO(resp.text))
+                print(f"[Logpresso] ✅ {len(df)}건 조회됨" + (f" (재시도 {attempt}회)" if attempt > 0 else ""))
+                return df, None
+
+            # 500/502/503 → 서버 불안정, 재시도
+            if resp.status_code >= 500 and attempt < max_retries - 1:
+                import time
+                wait = 2 * (attempt + 1)
+                print(f"[Logpresso] ⚠️ HTTP {resp.status_code} → {wait}초 후 재시도 ({attempt+1}/{max_retries})...")
+                time.sleep(wait)
+                last_error = f"HTTP {resp.status_code}"
+                continue
+
+            # 빈 응답 또는 비정상 상태코드
+            reason = f"HTTP {resp.status_code}"
+            if not resp.text.strip():
+                reason += " (빈 응답)"
+            if resp.text.strip().startswith("<!"):
+                reason += " (HTML 에러 페이지 반환)"
+            return None, {
+                "reason": reason,
+                "response_preview": resp.text[:500] if resp.text else "(빈 응답)",
+                "query_sent": clean_q,
+            }
+
+        except (requests.exceptions.ConnectTimeout, requests.exceptions.ConnectionError) as e:
+            if attempt < max_retries - 1:
+                import time
+                wait = 2 * (attempt + 1)
+                print(f"[Logpresso] ⚠️ 연결 실패 → {wait}초 후 재시도 ({attempt+1}/{max_retries})...")
+                time.sleep(wait)
+                last_error = str(e)
+                continue
+            print(f"[Logpresso] ❌ 연결 실패 (재시도 소진): {e}")
+            return None, {"reason": f"서버 연결 실패 ({e})", "query_sent": clean_q}
+        except requests.exceptions.ReadTimeout:
+            print(f"[Logpresso] ❌ 읽기 타임아웃 ({timeout}초)")
+            return None, {"reason": f"읽기 타임아웃 ({timeout}초 초과)", "query_sent": clean_q}
+        except Exception as e:
+            print(f"[Logpresso] ❌ 예외: {e}")
+            return None, {"reason": f"예외 발생: {type(e).__name__}: {e}", "query_sent": clean_q}
+
+    # 모든 재시도 실패
+    return None, {"reason": f"재시도 {max_retries}회 실패 ({last_error})", "query_sent": clean_q}
+
+
+def query_carrier(from_dt: str, to_dt: str, carrier: str = "", text: str = "") -> pd.DataFrame:
+    """
+    캐리어/TEXT 조회 전용 함수
+
+    Parameters
+    ----------
+    from_dt : str  ex) "20260308000000"
+    to_dt   : str  ex) "20260308235959"
+    carrier : str  ex) "4PDK2966"
+    text    : str  ex) "4PDK2966"
+    """
+    c = carrier.strip()
+    t = text.strip()
+
+    if not c and not t:
+        raise ValueError("carrier 또는 text 중 하나는 반드시 입력해야 합니다.")
+
+    if c and t:
+        cond = f'((CARRIER=="{c}") or (TEXT=="{t}"))'
+    elif c:
+        cond = f'((CARRIER=="{c}") or (TEXT=="{c}"))'
+    else:
+        cond = f'((TEXT=="{t}"))'
+
+    q = (
+        f'fulltext from={from_dt} to={to_dt} '
+        f'(LEVEL=="WELL" or LEVEL=="WARN" or LEVEL=="ERROR" or LEVEL=="FATAL") '
+        f'and {cond} '
+        f'from ts_data_view_m14a, ts_data_view_m14b, ts_data_view_m16, ts_data_view_m16b '
+        f'| fields _time, TIME_EX, MACHINENAME, MACHINETYPE, UNITNAME, CARRIER, COMMANDID, COMMAND, OPERATION_NAME, MESSAGENAME, PROCESS, TRANSACTIONID, TEXT, THREAD, LEVEL, XML, SECSII, RESULTCODE '
+        f'| sort _time '
+        f'| limit 0 1000 '
+        f'| eval No = seq() + 0'
+    )
+
+    df, err = query_logpresso(q)
+    if err:
+        raise RuntimeError(f"조회 실패: {err['reason']}")
+    return df
+
+
+if __name__ == "__main__":
+    # 테스트 실행
+    import sys
+    if len(sys.argv) > 1:
+        lpql = " ".join(sys.argv[1:])
+    else:
+        from datetime import datetime
+        today = datetime.now().strftime("%Y%m%d")
+        lpql = f"table from={today}000000 to={today}235959 ts_data_view_m14a | limit 5"
+
+    print(f"\n테스트 쿼리: {lpql}\n")
+    df, err = query_logpresso(lpql)
+    if err:
+        print(f"❌ 실패: {err}")
+    else:
+        print(f"✅ 성공: {len(df)}건")
+        print(df.head())
