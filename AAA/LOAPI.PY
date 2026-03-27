@@ -34,6 +34,7 @@ import urllib.parse
 import warnings
 import requests as req
 from flask import Flask, request, jsonify, render_template_string, send_file
+from logpresso_client import query_logpresso  # 로그프레소 조회 (별도 모듈)
 
 app = Flask(__name__)
 app.config['MAX_CONTENT_LENGTH'] = 50 * 1024 * 1024  # 50MB 제한
@@ -141,63 +142,7 @@ def classify_logpresso_intent(query):
     return "explain"
 
 
-def query_logpresso(query, timeout=180):
-    """로그프레소 LPQL 쿼리 실행 -> (DataFrame, None) 또는 (None, 에러상세)"""
-    import pandas as pd
-    from io import StringIO
-
-    query_clean = " ".join(query.split())
-    encoded = urllib.parse.quote(query_clean, safe="")
-    url = f"http://{LOGPRESSO_HOST}:{LOGPRESSO_PORT}/logpresso/httpexport/query.csv?_apikey={LOGPRESSO_API_KEY}&_q={encoded}"
-
-    print(f"[Logpresso] ▶ 쿼리 실행: {query_clean[:300]}")
-    print(f"[Logpresso] ▶ URL: {url[:400]}")
-
-    warnings.filterwarnings("ignore")
-    try:
-        resp = req.get(url, verify=False, timeout=timeout)
-        resp_len = len(resp.text) if resp.text else 0
-        resp_content_len = len(resp.content) if resp.content else 0
-        print(f"[Logpresso] ◀ HTTP {resp.status_code} | text={resp_len}자 | content={resp_content_len}bytes | encoding={resp.encoding}")
-        if resp_len < 500:
-            print(f"[Logpresso] ◀ 전체 응답: {repr(resp.text)}")
-        else:
-            print(f"[Logpresso] ◀ 응답 앞부분: {repr(resp.text[:300])}")
-
-        if resp.status_code == 200 and resp.text.strip() and not resp.text.startswith("<!"):
-            df = pd.read_csv(StringIO(resp.text))
-            print(f"[Logpresso] ✅ 성공: {len(df)}건, 컬럼={list(df.columns)[:5]}")
-            return df, None
-        else:
-            detail = f"HTTP {resp.status_code}"
-            body_preview = resp.text[:500].strip() if resp.text else "(빈 응답)"
-            if resp.text.startswith("<!"):
-                detail += " (HTML 에러 페이지 반환)"
-            elif not resp.text.strip():
-                detail += " (빈 응답)"
-            error_info = {
-                "reason": detail,
-                "response_preview": body_preview,
-                "query_sent": query_clean,
-            }
-            print(f"[Logpresso] ❌ 쿼리 실패: {detail} | 쿼리: {query_clean[:200]}")
-            return None, error_info
-    except req.exceptions.ConnectTimeout:
-        error_info = {"reason": "연결 타임아웃 (서버 응답 없음)", "query_sent": query_clean}
-        print(f"[Logpresso] 연결 타임아웃: {query_clean[:200]}")
-        return None, error_info
-    except req.exceptions.ReadTimeout:
-        error_info = {"reason": f"읽기 타임아웃 ({timeout}초 초과)", "query_sent": query_clean}
-        print(f"[Logpresso] 읽기 타임아웃: {query_clean[:200]}")
-        return None, error_info
-    except req.exceptions.ConnectionError as e:
-        error_info = {"reason": f"서버 연결 실패 ({e})", "query_sent": query_clean}
-        print(f"[Logpresso] 연결 실패: {e}")
-        return None, error_info
-    except Exception as e:
-        error_info = {"reason": f"예외 발생: {type(e).__name__}: {e}", "query_sent": query_clean}
-        print(f"[Logpresso] 쿼리 예외: {e}")
-        return None, error_info
+## query_logpresso → logpresso_client.py로 이동 (import 참조)
 
 
 _LPQL_BLOCKED_COMMANDS = {"drop", "delete", "insert", "import", "create", "grant", "revoke", "update", "set "}
@@ -216,14 +161,29 @@ def extract_lpql_from_response(text):
     """LLM 응답에서 ```lpql ... ``` 또는 ``` ... ``` 코드블록 추출"""
     m = re.search(r"```(?:lpql|LPQL)\s*\n(.*?)```", text, re.DOTALL)
     if m:
-        return m.group(1).strip()
+        return _clean_lpql(m.group(1).strip())
     m = re.search(r"```\s*\n(.*?)```", text, re.DOTALL)
     if m:
         candidate = m.group(1).strip()
         lpql_indicators = ["table ", "fulltext ", "stream ", "| fields", "| search", "| sort", "| limit", "| eval", "| stats"]
         if any(ind in candidate.lower() for ind in lpql_indicators):
-            return candidate
+            return _clean_lpql(candidate)
     return None
+
+
+def _clean_lpql(lpql):
+    """LPQL에서 주석(-- 또는 #) 제거 → 로그프레소 서버 500 에러 방지"""
+    lines = lpql.split("\n")
+    cleaned = []
+    for line in lines:
+        # -- 주석 제거
+        line = re.sub(r'\s*--.*$', '', line)
+        # # 주석 제거 (단, 문자열 안의 # 은 보존)
+        line = re.sub(r'\s*#(?!["\']).*$', '', line)
+        line = line.strip()
+        if line:
+            cleaned.append(line)
+    return " ".join(cleaned)
 
 
 # ============================================
@@ -1100,7 +1060,7 @@ SKILL_KEYWORDS = {
     "agent-ml-engineer": ["MLOps","모델배포","학습파이프라인"],
     "agent-fullstack-developer": ["풀스택","fullstack","웹앱","web app"],
     "logpresso-query": ["로그프레소 쿼리","로그프레소쿼리","LPQL 쿼리","LPQL 만들","로그프레소 쿼리 만들","logpresso query","로그프레소"],
-    "logpresso-search": ["로그프레소 조회","로그프레소조회","로그프레소 검색","logpresso search","로그프레소"],
+    "logpresso-search": ["로그프레소 조회","로그프레소조회","로그프레소 검색","logpresso search","로그프레소","테이블 조회","테이블 검색","테이블 데이터","로그 조회","로그 검색","설비 로그","ts_data_view","fulltext","LPQL","lpql"],
     # knowledge-search: MANUAL_ONLY_SKILLS로 이동 (자동 추천 제외, 수동 선택 전용)
     "agent-sql-pro": ["SQL","테이블조회"],
     "agent-code-reviewer": ["코드검토","리팩토링","코드품질"],
@@ -2438,8 +2398,8 @@ def _llm_generate_lpql(user_query, history=None):
 사용자의 자연어 요청을 실행 가능한 LPQL 쿼리로 변환하세요.
 
 ## 규칙
-1. 반드시 ```lpql 코드블록 안에 쿼리만 출력하세요.
-2. 쿼리 앞뒤로 간단한 설명을 추가하세요.
+1. 반드시 ```lpql 코드블록 안에 **순수 쿼리만** 출력하세요. **코드블록 안에 주석(--, #, //)을 절대 넣지 마세요.** 로그프레소 서버가 주석을 파싱하지 못해 오류가 발생합니다.
+2. 쿼리의 각 부분(테이블, 조건, 파이프 명령)에 대한 설명은 **코드블록 바깥에** 줄별로 적어주세요.
 3. 오늘 날짜: {today} (시간 형식: yyyyMMddHHmmss)
 4. 어제 = {today} 기준 하루 전, 이번 주 = 최근 7일
 5. **기간은 from/to 형식을 기본으로 사용하세요.** 사용자가 기간을 지정하지 않으면 오늘 하루(from={today}000000 to={today}235959)를 기본값으로 사용하세요. 사용자가 "최근 1시간" 같이 말하면 duration=1h도 가능합니다.
@@ -2449,6 +2409,19 @@ def _llm_generate_lpql(user_query, history=None):
 9. fulltext 안에서 필드 조건 직접 사용 가능: `(LEVEL=="ERROR") and (CARRIER=="xxx")`
 10. limit에 오프셋 지정 가능: `limit 0 1000`
 11. 행 순번: `eval No = seq() + 0`
+
+## 출력 형식 예시
+아래처럼 쿼리와 설명을 분리하세요:
+
+```lpql
+table from=20260327000000 to=20260327235959 ts_data_view_m14a | fields _time, MACHINENAME, LEVEL, CARRIER, TEXT | search LEVEL=="ERROR" | limit 10
+```
+
+- `table from=... to=...`: 오늘 하루 기간 지정
+- `ts_data_view_m14a`: M14A 설비 로그 테이블
+- `| fields ...`: 필요한 컬럼만 선택
+- `| search LEVEL=="ERROR"`: ERROR 레벨만 필터
+- `| limit 10`: 최대 10건 조회
 
 ## 사용 가능한 테이블
 {table_info}
