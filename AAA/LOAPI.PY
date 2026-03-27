@@ -150,11 +150,23 @@ def query_logpresso(query, timeout=180):
     encoded = urllib.parse.quote(query_clean, safe="")
     url = f"http://{LOGPRESSO_HOST}:{LOGPRESSO_PORT}/logpresso/httpexport/query.csv?_apikey={LOGPRESSO_API_KEY}&_q={encoded}"
 
+    print(f"[Logpresso] ▶ 쿼리 실행: {query_clean[:300]}")
+    print(f"[Logpresso] ▶ URL: {url[:400]}")
+
     warnings.filterwarnings("ignore")
     try:
         resp = req.get(url, verify=False, timeout=timeout)
+        resp_len = len(resp.text) if resp.text else 0
+        resp_content_len = len(resp.content) if resp.content else 0
+        print(f"[Logpresso] ◀ HTTP {resp.status_code} | text={resp_len}자 | content={resp_content_len}bytes | encoding={resp.encoding}")
+        if resp_len < 500:
+            print(f"[Logpresso] ◀ 전체 응답: {repr(resp.text)}")
+        else:
+            print(f"[Logpresso] ◀ 응답 앞부분: {repr(resp.text[:300])}")
+
         if resp.status_code == 200 and resp.text.strip() and not resp.text.startswith("<!"):
             df = pd.read_csv(StringIO(resp.text))
+            print(f"[Logpresso] ✅ 성공: {len(df)}건, 컬럼={list(df.columns)[:5]}")
             return df, None
         else:
             detail = f"HTTP {resp.status_code}"
@@ -168,7 +180,7 @@ def query_logpresso(query, timeout=180):
                 "response_preview": body_preview,
                 "query_sent": query_clean,
             }
-            print(f"[Logpresso] 쿼리 실패: {detail} | 쿼리: {query_clean[:200]}")
+            print(f"[Logpresso] ❌ 쿼리 실패: {detail} | 쿼리: {query_clean[:200]}")
             return None, error_info
     except req.exceptions.ConnectTimeout:
         error_info = {"reason": "연결 타임아웃 (서버 응답 없음)", "query_sent": query_clean}
@@ -4468,6 +4480,7 @@ def api_chat():
                 })
 
             # 실제 로그프레소 서버에 쿼리 실행
+            print(f"[Logpresso Search] 최종 실행 쿼리: {lpql}")
             df, err_detail = query_logpresso(lpql, timeout=180)
 
             if df is None:
