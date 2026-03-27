@@ -103,6 +103,30 @@ LOGPRESSO_TABLES = {
     },
 }
 
+
+def _refresh_logpresso_tables():
+    """서버 시작 시 system tables 조회하여 LOGPRESSO_TABLES 자동 업데이트"""
+    try:
+        df, err = query_logpresso("system tables", timeout=15)
+        if df is None or len(df) == 0:
+            print(f"[Logpresso] ⚠️ 테이블 목록 조회 실패 → 하드코딩 {len(LOGPRESSO_TABLES)}개 사용")
+            return
+
+        added = 0
+        for _, row in df.iterrows():
+            tname = str(row.get("table", row.get("name", ""))).strip()
+            if not tname or tname in LOGPRESSO_TABLES:
+                continue
+            LOGPRESSO_TABLES[tname] = {
+                "desc": str(row.get("description", row.get("desc", tname))).strip(),
+                "columns": [],  # 컬럼은 실제 조회 시 확인
+            }
+            added += 1
+
+        print(f"[Logpresso] ✅ 테이블 목록 업데이트: 기존 8개 + 서버 {added}개 추가 → 총 {len(LOGPRESSO_TABLES)}개")
+    except Exception as e:
+        print(f"[Logpresso] ⚠️ 테이블 자동 업데이트 실패: {e} → 하드코딩 {len(LOGPRESSO_TABLES)}개 사용")
+
 # 쿼리 결과 캐시 {query_id: {"df": DataFrame, "ts": timestamp, "lpql": str}}
 _logpresso_cache = {}
 
@@ -198,13 +222,13 @@ os.makedirs(PROMPTS_DIR, exist_ok=True)
 # 멀티에이전트 모델 레지스트리 (capability 태그 기반 자동 라우팅)
 MODEL_REGISTRY = {
     "glm-4.7": {
-        "env_id": "dev",
+        "env_id": "dev-legacy",
         "model": "GLM-4.7",
         "url": "http://dev.hcp.llm.skhynix.com/v1/chat/completions",
-        "name": "4.7",
+        "name": "GLM-4.7",
         "capabilities": {"text", "code", "fast"},
         "context_window": 128000,
-        "priority": 3,
+        "priority": 4,
         "cost_tier": "low",
     },
     "qwen3.5-397b": {
@@ -297,6 +321,16 @@ MODEL_REGISTRY = {
         "priority": 1,
         "cost_tier": "medium",
     },
+    "glm-5": {
+        "env_id": "dev",
+        "model": "GLM-5",
+        "url": "http://dev.hcp.llm.skhynix.com/v1/chat/completions",
+        "name": "GLM-5",
+        "capabilities": {"text", "code", "analysis", "fast"},
+        "context_window": 128000,
+        "priority": 1,
+        "cost_tier": "medium",
+    },
     "glm-4.7-fp8": {
         "env_id": "dev-fp8",
         "model": "GLM-4.7-FP8",
@@ -343,19 +377,20 @@ ENV_TO_REGISTRY = {v["env_id"]: k for k, v in MODEL_REGISTRY.items()}
 # 폴백 체인: 모델 실패 시 순서대로 시도 (좋은 모델 우선)
 FALLBACK_CHAINS = {
     # ── 텍스트/코드 모델 ──
-    "qwen3.5-397b":      ["qwen3-coder-480b", "qwen3-235b-2507", "qwen3-coder-next", "gpt-oss-120b", "glm-4.7", "glm-4.7-fp8", "qwen3.5-397b-fp8", "qwen3.5-35b"],
-    "qwen3-coder-480b":  ["qwen3.5-397b", "qwen3-235b-2507", "qwen3-coder-next", "gpt-oss-120b", "glm-4.7", "qwen3.5-35b"],
-    "qwen3-235b-2507":   ["qwen3.5-397b", "qwen3-coder-480b", "qwen3-coder-next", "gpt-oss-120b", "glm-4.7", "qwen3.5-35b"],
-    "qwen3-coder-next":  ["qwen3.5-397b", "qwen3-coder-480b", "qwen3-235b-2507", "gpt-oss-120b", "glm-4.7", "qwen3.5-35b"],
-    "gpt-oss-120b":      ["qwen3.5-397b", "qwen3-coder-480b", "qwen3-235b-2507", "glm-4.7", "glm-4.7-fp8", "qwen3.5-35b"],
-    "glm-4.7":           ["gpt-oss-120b", "qwen3.5-397b", "qwen3-coder-480b", "qwen3-235b-2507", "glm-4.7-fp8", "qwen3.5-35b"],
-    "glm-4.7-fp8":       ["glm-4.7", "gpt-oss-120b", "qwen3.5-397b", "qwen3-coder-480b", "qwen3-235b-2507", "qwen3.5-35b"],
-    "qwen3.5-397b-fp8":  ["qwen3.5-397b", "qwen3-coder-480b", "qwen3-235b-2507", "gpt-oss-120b", "glm-4.7", "qwen3.5-35b"],
-    "qwen3.5-35b":       ["gpt-oss-120b", "glm-4.7", "qwen3.5-397b", "qwen3-coder-480b", "qwen3-235b-2507"],
+    "glm-5":             ["glm-4.7", "gpt-oss-120b", "qwen3.5-397b", "qwen3-coder-480b", "qwen3-235b-2507", "qwen3.5-35b"],
+    "qwen3.5-397b":      ["qwen3-coder-480b", "qwen3-235b-2507", "qwen3-coder-next", "gpt-oss-120b", "glm-5", "glm-4.7", "glm-4.7-fp8", "qwen3.5-397b-fp8", "qwen3.5-35b"],
+    "qwen3-coder-480b":  ["qwen3.5-397b", "qwen3-235b-2507", "qwen3-coder-next", "gpt-oss-120b", "glm-5", "glm-4.7", "qwen3.5-35b"],
+    "qwen3-235b-2507":   ["qwen3.5-397b", "qwen3-coder-480b", "qwen3-coder-next", "gpt-oss-120b", "glm-5", "glm-4.7", "qwen3.5-35b"],
+    "qwen3-coder-next":  ["qwen3.5-397b", "qwen3-coder-480b", "qwen3-235b-2507", "gpt-oss-120b", "glm-5", "glm-4.7", "qwen3.5-35b"],
+    "gpt-oss-120b":      ["qwen3.5-397b", "qwen3-coder-480b", "qwen3-235b-2507", "glm-5", "glm-4.7", "glm-4.7-fp8", "qwen3.5-35b"],
+    "glm-4.7":           ["glm-5", "gpt-oss-120b", "qwen3.5-397b", "qwen3-coder-480b", "qwen3-235b-2507", "glm-4.7-fp8", "qwen3.5-35b"],
+    "glm-4.7-fp8":       ["glm-5", "glm-4.7", "gpt-oss-120b", "qwen3.5-397b", "qwen3-coder-480b", "qwen3-235b-2507", "qwen3.5-35b"],
+    "qwen3.5-397b-fp8":  ["qwen3.5-397b", "qwen3-coder-480b", "qwen3-235b-2507", "gpt-oss-120b", "glm-5", "glm-4.7", "qwen3.5-35b"],
+    "qwen3.5-35b":       ["gpt-oss-120b", "glm-5", "glm-4.7", "qwen3.5-397b", "qwen3-coder-480b", "qwen3-235b-2507"],
     # ── Vision 모델 (Vision → Vision → 텍스트) ──
     "qwen3-vl-235b":     ["qwen2.5-vl-72b", "qwen3-vl-30b", "qwen3.5-397b", "qwen3-coder-480b", "gpt-oss-120b"],
-    "qwen2.5-vl-72b":    ["qwen3-vl-235b", "qwen3-vl-30b", "qwen3.5-397b", "gpt-oss-120b", "glm-4.7"],
-    "qwen3-vl-30b":      ["qwen2.5-vl-72b", "qwen3-vl-235b", "gpt-oss-120b", "glm-4.7", "qwen3.5-35b"],
+    "qwen2.5-vl-72b":    ["qwen3-vl-235b", "qwen3-vl-30b", "qwen3.5-397b", "gpt-oss-120b", "glm-5"],
+    "qwen3-vl-30b":      ["qwen2.5-vl-72b", "qwen3-vl-235b", "gpt-oss-120b", "glm-5", "qwen3.5-35b"],
 }
 
 # Reranker 기능 플래그 (bge-reranker 엔드포인트 안정화 후 활성화)
@@ -2443,8 +2478,8 @@ table from=20260327000000 to=20260327235959 ts_data_view_m14a | limit 5
     if API_TOKEN:
         headers["Authorization"] = f"Bearer {API_TOKEN}"
 
-    # 기존 FALLBACK_CHAINS 활용: glm-4.7 → 체인 순서대로 폴백
-    primary_key = "glm-4.7"
+    # 기존 FALLBACK_CHAINS 활용: glm-5 → 체인 순서대로 폴백
+    primary_key = "glm-5"
     chain_keys = [primary_key] + FALLBACK_CHAINS.get(primary_key, [])
     # vision/reranker 모델 제외 (텍스트 전용만)
     chain_keys = [k for k in chain_keys if k in MODEL_REGISTRY
@@ -2719,13 +2754,41 @@ KNOWLEDGE_DIR = os.path.join(BASE_DIR, "knowledge")
 
 
 def search_knowledge(query, max_results=5, max_content_chars=8000):
-    """knowledge 폴더에서 키워드 검색 → 매칭된 파일 목록 + 내용 반환"""
+    """knowledge 폴더에서 키워드 검색 → 매칭된 파일 목록 + 내용 반환
+
+    개선된 검색:
+    - 키워드 빈도수 기반 점수 (TF)
+    - 한글 공백 무시 매칭 (디스크 사용률 → 디스크사용율)
+    - 파일명 매칭 가중치 높임
+    - 원본 쿼리 구문 일치 보너스
+    - 한글 유사 문자 정규화 (률/율, 렬/열 등)
+    """
     if not os.path.isdir(KNOWLEDGE_DIR):
         return []
 
     q_lower = query.lower()
-    # 검색 키워드 분리 (공백/쉼표 기준)
-    keywords = [w.strip() for w in re.split(r'[\s,]+', q_lower) if len(w.strip()) >= 2]
+
+    # 한글 유사 문자 정규화
+    def normalize_kr(text):
+        pairs = [("률", "율"), ("렬", "열"), ("례", "예"), ("려", "여"),
+                 ("량", "양"), ("론", "논"), ("뇨", "요"), ("니", "이")]
+        for a, b in pairs:
+            text = text.replace(a, b).replace(b, a)  # 양방향은 아래서 별도 처리
+        return text
+
+    # 키워드 추출 (1자 이상, 불용어 제외)
+    stopwords = {"은", "는", "이", "가", "을", "를", "의", "에", "와", "과", "도", "로", "으로",
+                 "에서", "부터", "까지", "한", "할", "하는", "된", "되는", "있는", "없는",
+                 "the", "a", "an", "is", "are", "in", "on", "at", "to", "for", "of", "and", "or",
+                 "것", "수", "등", "및", "중", "뭐", "좀", "해", "줘", "알려", "보여", "찾아"}
+    raw_keywords = [w.strip() for w in re.split(r'[\s,?!.·]+', q_lower) if w.strip()]
+    keywords = [w for w in raw_keywords if w not in stopwords and len(w) >= 1]
+
+    # 원본 쿼리에서 공백 제거 버전 (구문 매칭용)
+    query_nospace = re.sub(r'\s+', '', q_lower)
+
+    if not keywords:
+        return []
 
     results = []
     for fname in os.listdir(KNOWLEDGE_DIR):
@@ -2733,11 +2796,8 @@ def search_knowledge(query, max_results=5, max_content_chars=8000):
             continue
         fpath = os.path.join(KNOWLEDGE_DIR, fname)
         fname_lower = fname.lower()
+        fname_nospace = re.sub(r'[_\-\s.]', '', fname_lower)
 
-        # 파일명 매칭 점수
-        name_score = sum(2 for kw in keywords if kw in fname_lower)
-
-        # 내용 매칭 점수
         try:
             with open(fpath, 'r', encoding='utf-8') as f:
                 content = f.read()
@@ -2745,18 +2805,60 @@ def search_knowledge(query, max_results=5, max_content_chars=8000):
             continue
 
         content_lower = content.lower()
-        content_score = sum(1 for kw in keywords if kw in content_lower)
+        content_nospace = re.sub(r'\s+', '', content_lower)
 
-        total_score = name_score + content_score
+        total_score = 0
+
+        # 1. 파일명 매칭 (가중치 높음)
+        for kw in keywords:
+            if kw in fname_lower or kw in fname_nospace:
+                total_score += 10  # 파일명 일치 = 높은 점수
+
+        # 2. 내용 빈도수 기반 점수 (TF)
+        for kw in keywords:
+            # 일반 매칭
+            count = content_lower.count(kw)
+            if count > 0:
+                total_score += min(count, 10)  # 최대 10회까지 점수 반영
+            else:
+                # 공백 무시 매칭 (한글 복합어 대응)
+                count_nospace = content_nospace.count(kw)
+                if count_nospace > 0:
+                    total_score += min(count_nospace, 5)
+
+        # 3. 원본 쿼리 구문 일치 보너스 (연속된 단어가 같이 나오면 높은 점수)
+        if len(keywords) >= 2:
+            # 2-gram 구문 매칭
+            for i in range(len(keywords) - 1):
+                bigram = keywords[i] + keywords[i + 1]
+                if bigram in content_nospace or bigram in fname_nospace:
+                    total_score += 15  # 구문 일치 보너스
+            # 전체 쿼리 구문 매칭
+            if query_nospace in content_nospace or query_nospace in fname_nospace:
+                total_score += 20
+
+        # 4. 한글 유사 문자 매칭 (률↔율 등)
+        for kw in keywords:
+            for a, b in [("률", "율"), ("렬", "열"), ("례", "예")]:
+                alt_kw = kw.replace(a, b) if a in kw else kw.replace(b, a) if b in kw else None
+                if alt_kw and alt_kw != kw and alt_kw in content_lower:
+                    total_score += 3
+
         if total_score > 0:
-            # 매칭된 키워드 주변 미리보기
+            # 매칭된 키워드 주변 미리보기 (최고 점수 부분 우선)
             preview_parts = []
             for kw in keywords:
                 pos = content_lower.find(kw)
+                if pos == -1:
+                    # 공백 무시 매칭 시도
+                    pos_ns = content_nospace.find(kw)
+                    if pos_ns != -1:
+                        # 대략적 원본 위치 추정
+                        pos = min(pos_ns, len(content) - 1)
                 if pos != -1:
-                    start = max(0, pos - 50)
-                    end = min(len(content), pos + len(kw) + 50)
-                    snippet = content[start:end].replace('\n', ' ')
+                    start = max(0, pos - 80)
+                    end = min(len(content), pos + len(kw) + 80)
+                    snippet = content[start:end].replace('\n', ' ').strip()
                     if start > 0:
                         snippet = '...' + snippet
                     if end < len(content):
@@ -9618,6 +9720,9 @@ if __name__ == "__main__":
     else:
         print(f"  ⚠️  TOKEN.TXT: 없음 또는 비어있음")
         print(f"     → {TOKEN_FILE} 에 API 키를 넣어주세요")
+
+    # 로그프레소 테이블 목록 자동 업데이트
+    _refresh_logpresso_tables()
 
     # ============================================
     # GGUF 자동 감지 & Python으로 직접 로드 (다중 모델 지원)
