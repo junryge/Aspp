@@ -1951,17 +1951,57 @@
       if (mini) mini.classList.add('active');
 
       // Header
+      const tokenSettingsBtn = key === 'ceo' ? `
+        <button onclick="toggleTokenSettings()" style="background:none;border:1px solid var(--border);color:var(--muted);cursor:pointer;padding:4px 8px;border-radius:6px;font-size:12px;" title="토큰/컨텍스트 설정">⚙️</button>
+      ` : '';
       document.getElementById('chatHeader').innerHTML = `
         <div class="ch-avatar" style="background:linear-gradient(135deg,${agent.color1},${agent.color2})">${agent.letter}</div>
         <div class="ch-info">
           <h2>${agent.name}</h2>
           <p>${agent.title}</p>
         </div>
+        ${tokenSettingsBtn}
         <select class="env-select" id="envSelect" onchange="selectedEnv=this.value" title="모델 선택">
           <option value="auto">🤖 자동</option>
         </select>
         <button class="back-btn" onclick="toggleChat()">← 접기</button>
       `;
+      // CEO 토큰 설정 드롭다운 (chatHeader 아래 고정)
+      let tokenPanel = document.getElementById('tokenSettingsPanel');
+      if(key === 'ceo'){
+        if(!tokenPanel){
+          tokenPanel = document.createElement('div');
+          tokenPanel.id = 'tokenSettingsPanel';
+          tokenPanel.style.cssText = 'display:none;padding:10px;background:var(--card);border:1px solid var(--border);border-radius:0 0 8px 8px;border-top:none;';
+          tokenPanel.innerHTML = `
+            <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:end;">
+              <div style="flex:1;min-width:120px;">
+                <label style="font-size:10px;color:var(--muted);display:block;margin-bottom:2px;">에이전트 max_tokens</label>
+                <select onchange="userMaxTokens=parseInt(this.value)" style="width:100%;padding:4px;border-radius:4px;border:1px solid var(--border);background:var(--bg-1);color:var(--text);font-size:11px;">
+                  <option value="2048">2048</option><option value="4096">4096</option><option value="8192" selected>8192</option><option value="16384">16384</option>
+                </select>
+              </div>
+              <div style="flex:1;min-width:120px;">
+                <label style="font-size:10px;color:var(--muted);display:block;margin-bottom:2px;">CEO 합성 max_tokens</label>
+                <select onchange="userSynthMaxTokens=parseInt(this.value)" style="width:100%;padding:4px;border-radius:4px;border:1px solid var(--border);background:var(--bg-1);color:var(--text);font-size:11px;">
+                  <option value="4096">4096</option><option value="8192">8192</option><option value="16384" selected>16384</option><option value="32768">32768</option>
+                </select>
+              </div>
+              <div style="flex:1;min-width:120px;">
+                <label style="font-size:10px;color:var(--muted);display:block;margin-bottom:2px;">n_ctx (GGUF)</label>
+                <select onchange="userNCtx=parseInt(this.value)" style="width:100%;padding:4px;border-radius:4px;border:1px solid var(--border);background:var(--bg-1);color:var(--text);font-size:11px;">
+                  <option value="16384">16384</option><option value="32768" selected>32768</option><option value="65536">65536</option><option value="131072">131072</option>
+                </select>
+              </div>
+            </div>
+            <div style="font-size:9px;color:var(--muted);margin-top:4px;">* n_ctx↑ = 긴 보고서 가능, VRAM↑</div>
+          `;
+          const chatHeader = document.getElementById('chatHeader');
+          chatHeader.parentElement.insertBefore(tokenPanel, chatHeader.nextSibling);
+        }
+      } else if(tokenPanel) {
+        tokenPanel.style.display = 'none';
+      }
 
       // Chat area: restore history or show welcome
       const history = agentHistory[key];
@@ -2011,39 +2051,6 @@
                   <select id="ceoEnvSelect" onchange="selectedEnv=this.value" style="width:100%;padding:8px;border-radius:8px;border:1px solid var(--border);background:var(--card);color:var(--text);font-size:12px;">
                     <option value="auto">🤖 AUTO (자동 선택)</option>
                   </select>
-                </div>
-                <div style="margin-bottom:8px;">
-                  <button onclick="toggleTokenSettings()" style="font-size:11px;color:var(--muted);background:none;border:none;cursor:pointer;padding:2px 0;">⚙️ 토큰 설정 ▾</button>
-                  <div id="tokenSettingsPanel" style="display:none;margin-top:6px;padding:10px;background:var(--card);border:1px solid var(--border);border-radius:8px;">
-                    <div style="margin-bottom:8px;">
-                      <label style="font-size:11px;color:var(--muted);display:block;margin-bottom:3px;">에이전트 max_tokens (응답 길이)</label>
-                      <select id="agentMaxTokens" onchange="userMaxTokens=parseInt(this.value)" style="width:100%;padding:6px;border-radius:6px;border:1px solid var(--border);background:var(--bg-1);color:var(--text);font-size:12px;">
-                        <option value="2048">2048 (짧게)</option>
-                        <option value="4096">4096 (보통)</option>
-                        <option value="8192" selected>8192 (길게)</option>
-                        <option value="16384">16384 (매우 길게)</option>
-                      </select>
-                    </div>
-                    <div style="margin-bottom:8px;">
-                      <label style="font-size:11px;color:var(--muted);display:block;margin-bottom:3px;">CEO 합성 max_tokens (보고서 길이)</label>
-                      <select id="synthMaxTokens" onchange="userSynthMaxTokens=parseInt(this.value)" style="width:100%;padding:6px;border-radius:6px;border:1px solid var(--border);background:var(--bg-1);color:var(--text);font-size:12px;">
-                        <option value="4096">4096 (짧게)</option>
-                        <option value="8192">8192 (보통)</option>
-                        <option value="16384" selected>16384 (길게)</option>
-                        <option value="32768">32768 (매우 길게)</option>
-                      </select>
-                    </div>
-                    <div>
-                      <label style="font-size:11px;color:var(--muted);display:block;margin-bottom:3px;">n_ctx 컨텍스트 윈도우 (GGUF)</label>
-                      <select id="nCtxSelect" onchange="userNCtx=parseInt(this.value)" style="width:100%;padding:6px;border-radius:6px;border:1px solid var(--border);background:var(--bg-1);color:var(--text);font-size:12px;">
-                        <option value="16384">16384 (기본)</option>
-                        <option value="32768" selected>32768 (권장)</option>
-                        <option value="65536">65536 (대용량)</option>
-                        <option value="131072">131072 (최대)</option>
-                      </select>
-                    </div>
-                    <div style="margin-top:6px;font-size:10px;color:var(--muted);">* n_ctx가 클수록 긴 보고서 가능하나 VRAM 사용 증가</div>
-                  </div>
                 </div>
               </div>
               <div style="display:flex;flex-direction:column;gap:8px;max-width:300px;">
@@ -2993,7 +3000,7 @@
       };
       const mc = modeColors[mode] || modeColors['research'];
       const fileRequired = mode === 'data-analysis';
-      const execFn = mode === 'data-analysis' ? 'executeDataAnalysis' : `executeResearchWithFiles('${mode}')`;
+      const execFn = mode === 'data-analysis' ? 'executeDataAnalysis()' : `executeResearchWithFiles('${mode}')`;
 
       chatArea.innerHTML = `
         <div class="welcome-msg">
