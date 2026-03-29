@@ -5878,7 +5878,7 @@ def api_chat():
                                     skill_contents=_group_skill_contents[pg["group"]],
                                     query=_last_query,
                                     history=messages[-6:],
-                                    n_ctx=16384,
+                                    n_ctx=user_n_ctx if user_n_ctx > 0 else 16384,
                                     temperature=temperature_map[min(effort, 3)],
                                     max_tokens=4096,
                                     csv_data=uploaded_csv_data if uploaded_csv_data.get("filename") else None,
@@ -5946,8 +5946,9 @@ def api_chat():
         # ── 기존 단일모델 경로 (폴백 포함) ──
         # 선택된 환경의 모델 경로로 동적 로드/스왑
         gguf_path = ENV_CONFIG.get(env_id, {}).get("_gguf_path")
+        _load_n_ctx = user_n_ctx if user_n_ctx > 0 else 32768
         if gguf_path:
-            if not load_gguf_model(gguf_path):
+            if not load_gguf_model(gguf_path, n_ctx=_load_n_ctx):
                 return jsonify({"error": f"GGUF 모델 로드 실패: {os.path.basename(gguf_path)}"}), 500
         if gguf_model is None:
             return jsonify({"error": "GGUF 모델이 로드되지 않았습니다. .gguf 파일과 llama-cpp-python이 필요합니다."}), 400
