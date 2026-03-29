@@ -2599,7 +2599,8 @@
     setInterval(updateKpi, 3000);
 
     /* ── Attachment handling (frontend only) ── */
-    let pendingFiles = [];
+    let pendingFiles = [];        // 채팅 전용 첨부파일
+    let modePendingFiles = [];    // 리서치 모드 전용 첨부파일 (채팅과 분리)
 
     function handleFileSelect(input) {
       for (const f of input.files) {
@@ -2748,8 +2749,8 @@
 
     function handleModeFileSelect(input){
       for(const f of input.files){
-        if(pendingFiles.length >= 5) break;
-        pendingFiles.push(f);
+        if(modePendingFiles.length >= 5) break;
+        modePendingFiles.push(f);
       }
       input.value = '';
       renderModeFileChips();
@@ -2758,8 +2759,8 @@
     function handleModeFileDrop(event){
       const files = event.dataTransfer.files;
       for(const f of files){
-        if(pendingFiles.length >= 5) break;
-        pendingFiles.push(f);
+        if(modePendingFiles.length >= 5) break;
+        modePendingFiles.push(f);
       }
       renderModeFileChips();
     }
@@ -2767,7 +2768,7 @@
     function renderModeFileChips(){
       const list = document.getElementById('modeFileList');
       if(!list) return;
-      list.innerHTML = pendingFiles.map((f,i) => `
+      list.innerHTML = modePendingFiles.map((f,i) => `
         <div class="file-chip">
           <span class="fc-icon">${getFileIcon(f.name)}</span>
           <span class="fc-name" title="${escapeHtml(f.name)}">${escapeHtml(f.name)}</span>
@@ -2776,19 +2777,18 @@
         </div>`).join('');
       const icon = document.getElementById('modeDropIcon');
       const hint = document.getElementById('modeDropHint');
-      if(icon && hint && pendingFiles.length > 0){
+      if(icon && hint && modePendingFiles.length > 0){
         icon.textContent = '✅';
-        hint.textContent = `${pendingFiles.length}개 파일 첨부됨 (클릭하여 추가)`;
+        hint.textContent = `${modePendingFiles.length}개 파일 첨부됨 (클릭하여 추가)`;
       }
-      renderFileChips();
     }
 
     function removeModeFile(idx){
-      pendingFiles.splice(idx, 1);
+      modePendingFiles.splice(idx, 1);
       renderModeFileChips();
       const icon = document.getElementById('modeDropIcon');
       const hint = document.getElementById('modeDropHint');
-      if(icon && hint && pendingFiles.length === 0){
+      if(icon && hint && modePendingFiles.length === 0){
         icon.textContent = '📁';
         hint.textContent = '파일을 드래그하거나 클릭하여 첨부';
       }
@@ -2977,13 +2977,12 @@
         if(!confirm('GGUF 모델은 1개로 순차 실행됩니다.\n품질이 낮을 수 있습니다. 계속하시겠습니까?')) return;
       }
 
-      // 소스코드 모드: 파일이 있으면 파일 선택 UI, 없으면 파일 첨부 UI
+      // 모드 진입 시 모드 전용 파일 초기화
+      modePendingFiles = [];
+
+      // 소스코드 모드: 파일 첨부 UI부터 시작
       if(mode === 'code-analysis'){
-        if(pendingFiles && pendingFiles.length > 0){
-          showCodeFileSelector();
-        } else {
-          showCodeFileAttachment();
-        }
+        showCodeFileAttachment();
         return;
       }
 
@@ -3023,7 +3022,7 @@
           </div>
         </div>
       `;
-      if(pendingFiles.length > 0) renderModeFileChips();
+      if(modePendingFiles.length > 0) renderModeFileChips();
       document.getElementById('researchTaskInput').focus();
     }
 
@@ -3032,21 +3031,21 @@
       const taskInput = document.getElementById('researchTaskInput');
       const task = taskInput ? taskInput.value.trim() : '';
       if(!task){ alert('연구 과제를 입력해주세요.'); return; }
-      if(pendingFiles && pendingFiles.length > 0){
-        try { await uploadFiles(pendingFiles); } catch(e){ alert('파일 업로드 실패: '+e.message); return; }
+      if(modePendingFiles && modePendingFiles.length > 0){
+        try { await uploadFiles(modePendingFiles); } catch(e){ alert('파일 업로드 실패: '+e.message); return; }
       }
       executeResearch(mode);
     }
 
     async function executeDataAnalysis(){
-      if(!pendingFiles || pendingFiles.length === 0){
+      if(!modePendingFiles || modePendingFiles.length === 0){
         alert('데이터 파일을 첨부해주세요.\n드롭존에 CSV, Excel 등 데이터 파일을 첨부하세요.');
         return;
       }
       const taskInput = document.getElementById('researchTaskInput');
       const task = taskInput ? taskInput.value.trim() : '';
       if(!task){ alert('연구 과제를 입력해주세요.'); return; }
-      try { await uploadFiles(pendingFiles); } catch(e){ alert('파일 업로드 실패: '+e.message); return; }
+      try { await uploadFiles(modePendingFiles); } catch(e){ alert('파일 업로드 실패: '+e.message); return; }
       executeResearch('data-analysis');
     }
 
@@ -3073,11 +3072,11 @@
           </div>
         </div>
       `;
-      if(pendingFiles.length > 0) renderModeFileChips();
+      if(modePendingFiles.length > 0) renderModeFileChips();
     }
 
     function proceedToCodeFileSelector(){
-      if(!pendingFiles || pendingFiles.length === 0){
+      if(!modePendingFiles || modePendingFiles.length === 0){
         alert('소스 파일을 먼저 첨부해주세요.');
         return;
       }
@@ -3723,7 +3722,7 @@
     let selectedCodeFiles = new Set();
     function showCodeFileSelector(){
       const chatArea = document.getElementById('chatArea');
-      const files = pendingFiles || [];
+      const files = modePendingFiles || [];
       // 파일 트리 구성 (폴더별 그룹핑)
       const tree = {};
       files.forEach((f,i) => {
@@ -3811,8 +3810,8 @@
 
     function handleCodeAddFiles(input){
       for(const f of input.files){
-        if(pendingFiles.length >= 5) break;
-        pendingFiles.push(f);
+        if(modePendingFiles.length >= 5) break;
+        modePendingFiles.push(f);
       }
       input.value = '';
       showCodeFileSelector(); // 파일 트리 다시 그리기
@@ -3825,10 +3824,10 @@
       if(!task){ alert('분석/추가 요청을 입력해주세요.'); return; }
 
       // 파일 업로드
-      try { await uploadFiles(pendingFiles); } catch(e){ alert('파일 업로드 실패: '+e.message); return; }
+      try { await uploadFiles(modePendingFiles); } catch(e){ alert('파일 업로드 실패: '+e.message); return; }
 
       // 선택된 파일 내용 수집
-      const files = pendingFiles || [];
+      const files = modePendingFiles || [];
       let fileContext = '';
       selectedCodeFiles.forEach(idx => {
         const f = files[idx];
