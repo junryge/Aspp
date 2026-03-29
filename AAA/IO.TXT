@@ -32,6 +32,8 @@ import time
 import uuid
 import urllib.parse
 import warnings
+import threading
+from concurrent.futures import ThreadPoolExecutor, as_completed
 import requests as req
 from flask import Flask, request, jsonify, render_template_string, send_file
 from logpresso_client import query_logpresso  # 로그프레소 조회 (별도 모듈)
@@ -40,8 +42,14 @@ app = Flask(__name__)
 app.config['MAX_CONTENT_LENGTH'] = 50 * 1024 * 1024  # 50MB 제한
 
 # GGUF 모델 (llama-cpp-python)
-gguf_model = None  # Llama 인스턴스
+gguf_model = None  # Llama 인스턴스 (하위호환: 단일스킬 경로)
 gguf_loaded_path = None  # 현재 로드된 모델 파일 경로
+
+# GGUF 멀티모델 풀 (병렬 에이전트용)
+MAX_POOL_SIZE = int(os.getenv("GGUF_MAX_POOL_SIZE", "4"))
+VRAM_BUDGET_GB = float(os.getenv("GGUF_VRAM_BUDGET_GB", "14"))
+_gguf_pool_lock = threading.Lock()
+_gguf_pool = []  # [{"model": Llama, "path": str, "size_gb": float, "n_ctx": int, "in_use": bool, "last_used": float}]
 
 # 업로드된 CSV 데이터 (세션별 - 단순 메모리 저장)
 uploaded_csv_data = {
@@ -105,11 +113,14 @@ LOGPRESSO_TABLES = {
 
 
 def _refresh_logpresso_tables():
-    """서버 시작 시 system tables 조회하여 LOGPRESSO_TABLES 자동 업데이트"""
+    """서버 시작 시 system tables 조회하여 LOGPRESSO_TABLES 자동 업데이트.
+    로그프레소 서버 접속 불가 시 조용히 스킵 (집에서 테스트 등).
+    """
     try:
-        df, err = query_logpresso("system tables", timeout=15)
+        df, err = query_logpresso("system tables", timeout=5)
         if df is None or len(df) == 0:
-            print(f"[Logpresso] ⚠️ 테이블 목록 조회 실패 → 하드코딩 {len(LOGPRESSO_TABLES)}개 사용")
+            # 서버 연결 안 되면 조용히 넘어감
+            print(f"[Logpresso] ℹ️ 서버 미접속 → 하드코딩 {len(LOGPRESSO_TABLES)}개 사용 (정상)")
             return
 
         added = 0
@@ -124,8 +135,8 @@ def _refresh_logpresso_tables():
             added += 1
 
         print(f"[Logpresso] ✅ 테이블 목록 업데이트: 기존 8개 + 서버 {added}개 추가 → 총 {len(LOGPRESSO_TABLES)}개")
-    except Exception as e:
-        print(f"[Logpresso] ⚠️ 테이블 자동 업데이트 실패: {e} → 하드코딩 {len(LOGPRESSO_TABLES)}개 사용")
+    except Exception:
+        print(f"[Logpresso] ℹ️ 서버 미접속 → 하드코딩 {len(LOGPRESSO_TABLES)}개 사용 (정상)")
 
 # 쿼리 결과 캐시 {query_id: {"df": DataFrame, "ts": timestamp, "lpql": str}}
 _logpresso_cache = {}
@@ -918,6 +929,215 @@ DOMAIN_SKILLS = {
 
 
 # ============================================
+# 병렬 에이전트용 스킬 그룹 (실행 단위)
+# DOMAIN_SKILLS(UI 표시용 24개) → SKILL_GROUPS(병렬 실행용 7개 그룹)
+# 같은 그룹 내 스킬은 1 에이전트가 처리, 다른 그룹은 별도 에이전트
+# ============================================
+SKILL_GROUPS = {
+    "scientific": {
+        "skills": {
+            # bioinformatics
+            "biopython","scanpy","pydeseq2","bioservices","anndata",
+            "arboreto","cellxgene-census","deeptools","gget","geniml",
+            "gtars","pysam","scikit-bio","scvelo","scvi-tools",
+            "tiledbvcf","flowio","phylogenetics","etetoolkit","cobrapy",
+            "glycoengineering","esm",
+            # bio-databases
+            "gene-database","ensembl-database","uniprot-database",
+            "geo-database","clinvar-database","gnomad-database",
+            "gtex-database","gwas-database","ena-database",
+            "biorxiv-database","string-database","reactome-database",
+            "kegg-database","interpro-database","jaspar-database",
+            "monarch-database","alphafold-database","pdb-database",
+            "cosmic-database","cbioportal-database","depmap","opentargets-database",
+            # cheminformatics
+            "rdkit","datamol","deepchem","molfeat","matchms",
+            "medchem","diffdock","molecular-dynamics","torchdrug",
+            "chembl-database","drugbank-database","pubchem-database",
+            "bindingdb-database","zinc-database","hmdb-database",
+            "clinpgx-database","brenda-database",
+            "metabolomics-workbench-database","primekg","pytdc","rowan","pyopenms",
+            # materials-physics
+            "pymatgen","astropy","fluidsim","sympy","qiskit","cirq","pennylane","qutip",
+            # clinical
+            "clinical-decision-support","clinical-reports",
+            "clinicaltrials-database","fda-database","treatment-plans",
+            "pydicom","pyhealth","pathml","histolab",
+            "imaging-data-commons","iso-13485-certification","neurokit2","neuropixels-analysis",
+            # lab-automation
+            "adaptyv","benchling-integration","ginkgo-cloud-lab",
+            "opentrons-integration","pylabrobot","labarchive-integration",
+            "lamindb","latchbio-integration","dnanexus-integration",
+            "omero-integration","protocolsio-integration","pyzotero",
+        },
+        "preferred_model_size": "large",
+    },
+    "data-analysis": {
+        "skills": {
+            "matplotlib","seaborn","plotly","scikit-learn",
+            "pytorch-lightning","polars","dask","vaex","networkx",
+            "shap","umap-learn","statsmodels","statistical-analysis",
+            "exploratory-data-analysis","torch-geometric",
+            "stable-baselines3","pufferlib","transformers","simpy",
+            "pymoo","pymc","aeon","timesfm-forecasting",
+            "geopandas","geomaster","scikit-survival",
+            "scientific-visualization","scientific-schematics",
+            # finance
+            "alpha-vantage","edgartools","hedgefundmonitor",
+            "fred-economic-data","usfiscaldata","datacommons-client",
+            "market-research-reports","uspto-database",
+        },
+        "preferred_model_size": "medium",
+    },
+    "code": {
+        "skills": {
+            # agent-core-dev
+            "agent-api-designer","agent-backend-developer","agent-electron-pro",
+            "agent-frontend-developer","agent-fullstack-developer","agent-graphql-architect",
+            "agent-microservices-architect","agent-mobile-developer","agent-ui-designer",
+            "agent-websocket-engineer","agent-wordpress-master",
+            # agent-lang-spec
+            "agent-angular-architect","agent-cpp-pro","agent-csharp-developer",
+            "agent-django-developer","agent-dotnet-core-expert","agent-dotnet-framework-4.8-expert",
+            "agent-flutter-expert","agent-golang-pro","agent-java-architect",
+            "agent-javascript-pro","agent-kotlin-specialist","agent-laravel-specialist",
+            "agent-nextjs-developer","agent-php-pro","agent-python-pro",
+            "agent-rails-expert","agent-react-specialist","agent-rust-engineer",
+            "agent-spring-boot-engineer","agent-sql-pro","agent-swift-expert",
+            "agent-typescript-pro","agent-vue-expert",
+            # agent-quality
+            "agent-accessibility-tester","agent-architect-reviewer","agent-chaos-engineer",
+            "agent-code-reviewer","agent-compliance-auditor","agent-debugger",
+            "agent-error-detective","agent-penetration-tester","agent-performance-engineer",
+            "agent-qa-expert","agent-security-auditor","agent-test-automator",
+            # agent-dx
+            "agent-build-engineer","agent-cli-developer","agent-dependency-manager",
+            "agent-documentation-engineer","agent-dx-optimizer","agent-git-workflow-manager",
+            "agent-legacy-modernizer","agent-mcp-developer","agent-refactoring-specialist",
+            "agent-tooling-engineer",
+            # dev-tools (code-related subset)
+            "debugging","problem-solving","code-review","databases","devops",
+            "backend-development","frontend-development","frontend-design",
+            "web-frameworks","webapp-testing","github-ecosystem",
+            "python-deprecation-fixer","python-project-skel","repomix",
+            "common","claude-code","sequential-thinking",
+        },
+        "preferred_model_size": "medium",
+    },
+    "infrastructure": {
+        "skills": {
+            "agent-cloud-architect","agent-database-administrator","agent-deployment-engineer",
+            "agent-devops-engineer","agent-devops-incident-responder","agent-incident-responder",
+            "agent-kubernetes-specialist","agent-network-engineer","agent-platform-engineer",
+            "agent-security-engineer","agent-sre-engineer","agent-terraform-engineer",
+        },
+        "preferred_model_size": "small",
+    },
+    "writing-docs": {
+        "skills": {
+            "scientific-writing","literature-review","citation-management",
+            "peer-review","research-grants","scientific-brainstorming",
+            "scientific-critical-thinking","hypothesis-generation",
+            "scholar-evaluation","scientific-slides",
+            "venue-templates","latex-posters","pptx-posters",
+            "infographics","markdown-mermaid-writing","paper-2-web",
+            "pubmed-database","openalex-database",
+            "drawio-diagram","docx","xlsx","pdf","pptx","markitdown",
+            "agent-technical-writer","agent-documentation-engineer",
+            "agent-content-marketer",
+        },
+        "preferred_model_size": "medium",
+    },
+    "ai-business": {
+        "skills": {
+            # ai/prompt
+            "anthropic-architect","anthropic-prompt-engineer","openai-prompt-engineer",
+            "notebooklm-skill","ai-multimodal","content-research-writer",
+            "lead-research-assistant","agent-llm-architect","agent-prompt-engineer",
+            "agent-ai-engineer","agent-data-analyst","agent-data-engineer",
+            "agent-data-scientist","agent-database-optimizer",
+            "agent-machine-learning-engineer","agent-ml-engineer","agent-mlops-engineer",
+            "agent-nlp-engineer","agent-postgres-pro",
+            # agent-meta (orchestration)
+            "agent-agent-organizer","agent-context-manager","agent-error-coordinator",
+            "agent-knowledge-synthesizer","agent-multi-agent-coordinator",
+            "agent-performance-monitor","agent-task-distributor","agent-workflow-orchestrator",
+            # agent-business + domain + research
+            "agent-business-analyst","agent-customer-success-manager",
+            "agent-legal-advisor","agent-product-manager","agent-project-manager",
+            "agent-sales-engineer","agent-scrum-master","agent-ux-researcher",
+            "agent-competitive-analyst","agent-data-researcher","agent-market-researcher",
+            "agent-research-analyst","agent-search-specialist","agent-trend-analyst",
+            "agent-datadog-api-expert","agent-datadog-pro",
+            "agent-blockchain-developer","agent-embedded-systems",
+            "agent-fintech-engineer","agent-game-developer","agent-iot-engineer",
+            "agent-mobile-app-developer","agent-payment-integration","agent-quant-analyst",
+            "agent-risk-manager","agent-seo-specialist","agent-api-documenter",
+        },
+        "preferred_model_size": "small",
+    },
+    "search": {
+        "skills": {
+            "logpresso-search","knowledge-search","logpresso-query",
+            "perplexity-search","parallel-web","bgpt-paper-search","research-lookup",
+        },
+        "pre_process": True,
+        "preferred_model_size": "small",
+    },
+}
+
+# 역인덱스: skill_id → group_name
+_SKILL_TO_GROUP = {}
+for _gname, _ginfo in SKILL_GROUPS.items():
+    for _sid in _ginfo["skills"]:
+        _SKILL_TO_GROUP[_sid] = _gname
+
+
+def group_skills_for_parallel(skill_ids):
+    """스킬 ID 목록을 병렬 실행 그룹으로 분류.
+
+    Returns:
+        pre_process_skills: list[str] - 병렬 전에 선처리할 스킬 (search 그룹)
+        parallel_groups: list[dict] - [{"group": name, "skills": [ids], "preferred_model_size": str}]
+        use_parallel: bool - 2개+ 그룹이면 True
+    """
+    pre_process = []
+    group_map = {}  # group_name -> [skill_ids]
+
+    for sid in skill_ids:
+        gname = _SKILL_TO_GROUP.get(sid, "general")
+        ginfo = SKILL_GROUPS.get(gname, {})
+
+        if ginfo.get("pre_process"):
+            pre_process.append(sid)
+            continue
+
+        if gname not in group_map:
+            group_map[gname] = []
+        group_map[gname].append(sid)
+
+    parallel_groups = []
+    for gname, sids in group_map.items():
+        pref = SKILL_GROUPS.get(gname, {}).get("preferred_model_size", "medium")
+        parallel_groups.append({
+            "group": gname,
+            "skills": sids,
+            "preferred_model_size": pref,
+        })
+
+    # MAX_POOL_SIZE 초과 시 작은 그룹을 큰 그룹에 병합
+    if len(parallel_groups) > MAX_POOL_SIZE:
+        parallel_groups.sort(key=lambda g: len(g["skills"]), reverse=True)
+        overflow = parallel_groups[MAX_POOL_SIZE:]
+        for og in overflow:
+            parallel_groups[0]["skills"].extend(og["skills"])
+        parallel_groups = parallel_groups[:MAX_POOL_SIZE]
+
+    use_parallel = len(parallel_groups) >= 2
+    return pre_process, parallel_groups, use_parallel
+
+
+# ============================================
 # 스킬 파일 읽기
 # ============================================
 def scan_skills():
@@ -1092,7 +1312,7 @@ SKILL_KEYWORDS = {
     "ai-multimodal": ["멀티모달","이미지분석","vision","Gemini"],
     # === 에이전트 (자주 쓰이는 것만) ===
     "agent-python-pro": ["Python","파이썬","python코드","스크립트","py"],
-    "agent-data-scientist": ["데이터분석","data science","분석가","EDA","탐색적분석","데이터","탐색","탐색하"],
+    "agent-data-scientist": ["데이터분석","data science","분석가","EDA","탐색적분석","데이터사이언스","데이터과학"],
     "agent-ml-engineer": ["MLOps","모델배포","학습파이프라인"],
     "agent-fullstack-developer": ["풀스택","fullstack","웹앱","web app"],
     "logpresso-query": ["로그프레소 쿼리","로그프레소쿼리","LPQL 쿼리","LPQL 만들","로그프레소 쿼리 만들","logpresso query","로그프레소"],
@@ -1269,19 +1489,19 @@ SKILL_KEYWORDS = {
     "cmd-cr-fx": ['코드수정', '자동수정', 'fix', '패치'],
     "cmd-deep-research": ['딥리서치', '심층조사', '종합분석', 'deep research'],
     "cmd-dr": ['디렉토리분석', '폴더구조', '프로젝트분석'],
-    "cmd-explore": ['탐색', 'explore', '코드베이스', '디렉토리탐색'],
+    "cmd-explore": ['코드탐색', 'explore codebase', '코드베이스', '디렉토리탐색'],
     "cmd-gen-mcp": ['MCP생성', 'MCP서버', '프로토콜'],
     "cmd-git-cm": ['커밋', 'commit', 'git commit', '커밋메시지'],
     "cmd-git-cp": ['체리픽', 'cherry-pick', '커밋선택', 'git cp'],
     "cmd-git-ff": ['패스트포워드', 'fast-forward', 'git merge ff'],
     "cmd-git-fr": ['프레시브랜치', 'fresh branch', '새브랜치'],
     "cmd-git-pr": ['PR생성', '풀리퀘스트', 'git PR', '코드제출'],
-    "cmd-git-prune": ['정리', 'prune', 'git clean', '불필요제거'],
+    "cmd-git-prune": ['git정리', 'git prune', 'git clean', '브랜치정리'],
     "cmd-git-sync": ['동기화', 'sync', 'git pull', 'git fetch', '원격동기화'],
-    "cmd-implement": ['구현', 'implement', '기능개발', '코딩'],
+    "cmd-implement": ['기능구현', 'implement feature', '기능개발', '코드구현'],
     "cmd-init": ['초기화', 'init', '프로젝트생성', 'setup'],
     "cmd-memory": ['메모리', '기억', '컨텍스트', 'context'],
-    "cmd-think": ['사고', 'think', '분석', '추론', 'reasoning'],
+    "cmd-think": ['사고모드', 'think mode', '심층추론', 'deep reasoning'],
     "cmd-user-prompt": ['사용자프롬프트', '커스텀', 'user prompt'],
     "common": ['공통', '유틸리티', '설정', 'configuration', '환경변수'],
     "competitive-ads-extractor": ['경쟁사', '광고분석', 'competitive', 'ads'],
@@ -1346,7 +1566,7 @@ SKILL_KEYWORDS = {
     "lead-research-assistant": ['리드리서치', '연구보조', 'research assistant'],
     "drawio-diagram": ['drawio', 'draw.io', '드로우IO', '드로우io', '드로우아이오', 'DrawIO', '다이어그램', '플로우차트', '아키텍처', '구조도', 'UML', '클래스다이어그램', '시퀀스다이어그램', 'ERD', '흐름도', '시스템구조', '데이터흐름도', 'DFD', '배치도'],
     "markdown-mermaid-writing": ['마크다운', 'Mermaid', '다이어그램', 'flowchart', '시퀀스', 'MD파일', 'MD 파일', 'md파일', '마크다운 보고서', '마크다운 문서', 'MD로', 'md로', '문서화', '보고서 작성', '정리해줘', '회의록', '미팅노트', '기술문서', 'MD 보고서', 'markdown report', 'markdown document', 'MD만들어', 'MD다운로드'],
-    "market-research-reports": ['시장조사', 'market research', '산업분석', '보고서'],
+    "market-research-reports": ['시장조사', 'market research', '산업분석', '시장보고서', '시장리포트'],
     "markitdown": ['마크다운변환', '파일변환', '문서변환', 'markdown conversion'],
     "matlab": ['MATLAB', 'Octave', '매트랩', '행렬', '수치해석'],
     "media-processing": ['미디어', '동영상', '오디오', '변환', 'ffmpeg'],
@@ -1435,14 +1655,14 @@ def _score_query(query_lower):
     return scores
 
 
-def auto_select_skills(query, max_skills=5):
+def auto_select_skills(query, max_skills=3):
     """사용자 질문을 분석하여 관련 스킬을 자동 선택"""
     scores = _score_query(query.lower())
     sorted_skills = sorted(scores.items(), key=lambda x: -x[1])
     return [(sid, sc) for sid, sc in sorted_skills[:max_skills] if sid not in MANUAL_ONLY_SKILLS]
 
 
-def context_aware_skill_select(query, history, max_skills=7):
+def context_aware_skill_select(query, history, max_skills=3):
     """대화 컨텍스트 + 현재 질문 기반 스킬 자동 선택 (멀티에이전트 Router)
 
     [Router 역할]
@@ -1548,7 +1768,13 @@ def context_aware_skill_select(query, history, max_skills=7):
         except Exception:
             result = [(sid, sc) for sid, sc in sorted_skills[:max_skills] if sc > 0 and sid not in MANUAL_ONLY_SKILLS]
     else:
-        result = [(sid, sc) for sid, sc in sorted_skills[:max_skills] if sc > 0 and sid not in MANUAL_ONLY_SKILLS]
+        # 최소 점수 임계값: 1위 점수의 30% 미만은 제외 (엉뚱한 스킬 방지)
+        min_threshold = 0
+        if sorted_skills:
+            top_score = sorted_skills[0][1]
+            min_threshold = max(3, top_score * 0.3)  # 최소 3점 이상 & 1위의 30% 이상
+        result = [(sid, sc) for sid, sc in sorted_skills[:max_skills]
+                  if sc >= min_threshold and sid not in MANUAL_ONLY_SKILLS]
 
     return result, list(boosted)
 
@@ -2056,6 +2282,486 @@ def gguf_chat(messages, temperature=0.5, max_tokens=4096, stop_flag=None):
         return None, f"GGUF 추론 오류: {str(e)}"
 
 
+# ============================================
+# GGUF 멀티모델 풀 (병렬 에이전트용)
+# ============================================
+def _pool_get_or_load(model_path, n_ctx=16384):
+    """풀에서 GGUF 모델 인스턴스를 가져오거나 새로 로드.
+    Thread-safe: 각 스레드가 독립 Llama 인스턴스를 받음.
+    """
+    from llama_cpp import Llama
+
+    size_gb = round(os.path.getsize(model_path) / 1e9, 1) if os.path.exists(model_path) else 0
+
+    def _safe_print(msg):
+        """Windows cp949 환경에서도 안전하게 출력 (이모지 등 유니코드 대응)."""
+        try:
+            print(msg)
+        except (UnicodeEncodeError, OSError):
+            try:
+                print(msg.encode("utf-8", errors="replace").decode("ascii", errors="replace"))
+            except Exception:
+                pass
+
+    with _gguf_pool_lock:
+        # 1) 이미 풀에 같은 path가 있으면 재사용 (n_ctx 다르더라도)
+        for entry in _gguf_pool:
+            if entry["path"] == model_path and entry["model"] is not None:
+                if not entry["in_use"]:
+                    entry["in_use"] = True
+                    entry["last_used"] = time.time()
+                    _safe_print(f"     [POOL] reuse: {os.path.basename(model_path)} (ctx={entry['n_ctx']})")
+                    return entry["model"]
+                else:
+                    # 같은 모델이 사용 중 → 대기 후 재시도 (합성 단계 등)
+                    _safe_print(f"     [POOL] waiting for: {os.path.basename(model_path)}...")
+                    # 락 해제하고 대기
+                    break
+
+        # 사용 중인 같은 모델이 있으면 락 밖에서 대기
+        _wait_entry = None
+        for entry in _gguf_pool:
+            if entry["path"] == model_path and entry["in_use"] and entry["model"] is not None:
+                _wait_entry = entry
+                break
+
+    # 락 밖에서 대기 (최대 120초)
+    if _wait_entry is not None:
+        for _ in range(240):
+            time.sleep(0.5)
+            with _gguf_pool_lock:
+                if not _wait_entry["in_use"]:
+                    _wait_entry["in_use"] = True
+                    _wait_entry["last_used"] = time.time()
+                    _safe_print(f"     [POOL] reuse after wait: {os.path.basename(model_path)}")
+                    return _wait_entry["model"]
+        # 타임아웃 → 그냥 사용 (위험하지만 데드락 방지)
+        with _gguf_pool_lock:
+            _wait_entry["in_use"] = True
+            _wait_entry["last_used"] = time.time()
+            _safe_print(f"     [POOL] timeout, force reuse: {os.path.basename(model_path)}")
+            return _wait_entry["model"]
+
+    with _gguf_pool_lock:
+
+        # 2) VRAM 예산 확인 → 초과 시 LRU 제거
+        current_vram = sum(e["size_gb"] for e in _gguf_pool)
+        while (current_vram + size_gb > VRAM_BUDGET_GB or len(_gguf_pool) >= MAX_POOL_SIZE):
+            # 사용 중 아닌 것 중 가장 오래된 것 제거
+            idle = [e for e in _gguf_pool if not e["in_use"]]
+            if not idle:
+                break  # 모두 사용 중이면 어쩔 수 없음
+            lru = min(idle, key=lambda e: e["last_used"])
+            _safe_print(f"     [POOL] evict LRU: {os.path.basename(lru['path'])} ({lru['size_gb']}GB)")
+            _gguf_pool.remove(lru)
+            try:
+                del lru["model"]
+            except Exception:
+                pass
+            current_vram = sum(e["size_gb"] for e in _gguf_pool)
+
+        # 자리 확보 완료, 풀에 placeholder 등록 (로딩 중 표시)
+        placeholder = {
+            "model": None, "path": model_path, "size_gb": size_gb,
+            "n_ctx": n_ctx, "in_use": True, "last_used": time.time(),
+        }
+        _gguf_pool.append(placeholder)
+
+    # 3) 락 밖에서 모델 로드 (느리지만 다른 스레드 블록 안 함)
+    _safe_print(f"     [POOL] loading: {os.path.basename(model_path)} (ctx={n_ctx})...")
+    saved_stdout, saved_stderr = sys.stdout, sys.stderr
+    try:
+        try:
+            llama = Llama(
+                model_path=model_path, n_ctx=n_ctx,
+                n_gpu_layers=99, n_batch=128, verbose=False,
+            )
+        except TypeError:
+            llama = Llama(
+                model_path=model_path, n_ctx=n_ctx,
+                n_gpu_layers=99, verbose=False,
+            )
+    except Exception as _load_err:
+        sys.stdout, sys.stderr = saved_stdout, saved_stderr
+        # 로드 실패 → placeholder 제거 (풀 오염 방지)
+        with _gguf_pool_lock:
+            if placeholder in _gguf_pool:
+                _gguf_pool.remove(placeholder)
+        _safe_print(f"     [POOL] load FAILED: {os.path.basename(model_path)} -> {_load_err}")
+        raise
+    finally:
+        sys.stdout, sys.stderr = saved_stdout, saved_stderr
+
+    with _gguf_pool_lock:
+        placeholder["model"] = llama
+    _safe_print(f"     [POOL] loaded: {os.path.basename(model_path)} ({size_gb}GB, ctx={n_ctx})")
+    return llama
+
+
+def _pool_release(model_path):
+    """모델 사용 완료 표시."""
+    with _gguf_pool_lock:
+        for entry in _gguf_pool:
+            if entry["path"] == model_path and entry["in_use"]:
+                entry["in_use"] = False
+                entry["last_used"] = time.time()
+                return
+
+
+def _pool_status():
+    """현재 풀 상태 반환 (디버그용)."""
+    with _gguf_pool_lock:
+        return [{
+            "model": os.path.basename(e["path"]),
+            "size_gb": e["size_gb"],
+            "n_ctx": e["n_ctx"],
+            "in_use": e["in_use"],
+        } for e in _gguf_pool]
+
+
+def _assign_models_to_groups(parallel_groups, gguf_paths_by_size):
+    """그룹별 선호 크기에 따라 GGUF 모델 할당.
+
+    Args:
+        parallel_groups: [{"group": name, "preferred_model_size": "large"|"medium"|"small"}]
+        gguf_paths_by_size: [(path, size_gb)] 크기 내림차순
+
+    Returns:
+        dict: {group_name: model_path}
+    """
+    if not gguf_paths_by_size:
+        return {}
+
+    n = len(gguf_paths_by_size)
+    assignments = {}
+
+    for pg in parallel_groups:
+        pref = pg["preferred_model_size"]
+        if pref == "large":
+            idx = 0  # 가장 큰 모델
+        elif pref == "small":
+            idx = n - 1  # 가장 작은 모델
+        else:  # medium
+            idx = n // 2  # 중간
+
+        # 이미 할당된 모델과 겹치면 다른 모델 시도
+        assigned_paths = set(assignments.values())
+        best_idx = idx
+        for offset in range(n):
+            candidate = (idx + offset) % n
+            if gguf_paths_by_size[candidate][0] not in assigned_paths:
+                best_idx = candidate
+                break
+
+        assignments[pg["group"]] = gguf_paths_by_size[best_idx][0]
+
+    return assignments
+
+
+def _build_agent_system_prompt(skill_ids, skill_contents, n_ctx=16384, csv_data=None, uploaded_files_data=None):
+    """병렬 에이전트용 컴팩트 시스템 프롬프트 생성."""
+    max_skill_chars = int(n_ctx * 0.3 / max(1, len(skill_ids)))  # 컨텍스트의 30%를 스킬에 할당
+
+    parts = [
+        "당신은 전문 AI 어시스턴트입니다. 아래 전문 지식을 활용하여 질문에 답하세요.",
+        "반드시 한국어로 답변하세요.",
+        "",
+        "[필수 규칙]",
+        "1. 반드시 한국어로만 답변하세요. 영어로 답변하지 마세요. 코드 주석도 한국어로.",
+        "2. <think> 태그를 절대 사용하지 마세요. 바로 답변만 출력하세요.",
+        "3. 가짜 데이터를 만들지 마세요! 업로드된 CSV/파일의 실제 컬럼명과 값만 사용하세요.",
+        "4. 존재하지 않는 컬럼명(Score1, Score2 등)을 지어내지 마세요.",
+        "5. 차트 데이터는 실제 데이터 기반으로 24개 이하로 요약하세요.",
+        "6. 응답이 길어질 것 같으면 핵심만 먼저 보여주고 '추가 분석이 필요하면 말씀해주세요'로 마무리하세요.",
+        "",
+    ]
+
+    for sid in skill_ids:
+        content = skill_contents.get(sid, "")
+        if content:
+            skill_name = SKILL_DESC_KO.get(sid, sid)
+            truncated = content[:max_skill_chars]
+            if len(content) > max_skill_chars:
+                truncated += "\n... (truncated)"
+            parts.append(f"=== [{skill_name}] 전문 지식 ===")
+            parts.append(truncated)
+            parts.append("")
+
+    # CSV 데이터 포함
+    if csv_data and csv_data.get("filename"):
+        csv_budget = int(n_ctx * 0.15)  # 컨텍스트의 15%
+        csv_info = csv_data.get("summary", "")
+        csv_rows = csv_data.get("headers", [])
+        csv_preview = ",".join(csv_rows) + "\n"
+        for row in csv_data.get("rows", [])[:30]:
+            csv_preview += ",".join(str(c) for c in row) + "\n"
+        csv_text = f"=== 업로드된 CSV: {csv_data['filename']} ===\n{csv_info}\n\n데이터:\n{csv_preview}"
+        parts.append(csv_text[:csv_budget])
+        parts.append("\n이 CSV 데이터를 기반으로 실제 컬럼명과 값을 사용해 분석하세요.\n")
+
+    # 업로드 파일 포함
+    if uploaded_files_data:
+        file_budget = int(n_ctx * 0.1)  # 컨텍스트의 10%
+        file_text = ""
+        for uf in uploaded_files_data:
+            content = uf.get("content_full", uf.get("content_preview", ""))
+            file_text += f"\n--- 파일: {uf['filename']} ---\n{content[:3000]}\n"
+        if file_text:
+            parts.append(f"=== 업로드된 파일 ===\n{file_text[:file_budget]}")
+
+    return "\n".join(parts)
+
+
+def _trim_history_for_context(history, n_ctx, system_len):
+    """히스토리를 컨텍스트에 맞게 자름. 최근 3턴만 유지."""
+    budget_chars = int((n_ctx - system_len * 0.7) / 0.7 * 0.3)  # 컨텍스트의 30%
+    trimmed = []
+    total = 0
+    for msg in reversed(history[-6:]):  # 최근 6개 메시지 (3턴)
+        content = msg.get("content", "")
+        if isinstance(content, list):
+            content = " ".join(p.get("text", "") for p in content if isinstance(p, dict) and p.get("type") == "text")
+        msg_len = len(str(content))
+        if total + msg_len > budget_chars:
+            break
+        trimmed.insert(0, msg)
+        total += msg_len
+    return trimmed
+
+
+def _detect_repetition(text, min_chunk=20, max_repeats=3):
+    """소형 GGUF 모델의 반복 루프 감지 및 절단.
+
+    3단계 감지:
+    1) 구조적 반복: </think>, 코드블록 등 같은 마커가 여러 번 등장
+    2) 줄 단위 반복: 같은 줄이 N번 이상 반복
+    3) 청크 반복: 같은 문자열이 N번 이상 연속
+    """
+    if not text or len(text) < 200:
+        return text, False
+
+    # 1) 구조적 반복: 특정 마커가 과도하게 등장
+    structural_markers = ["</think>", "```python", "데이터 분석", "import pandas",
+                          ".pivot(", ".compute()", ".rename(columns"]
+    for marker in structural_markers:
+        count = text.count(marker)
+        if count >= 3:
+            # 두 번째 등장까지만 유지
+            first = text.find(marker)
+            second = text.find(marker, first + len(marker))
+            if second > 0:
+                # 두 번째 마커 포함한 적당한 끝점 찾기
+                end = text.find("\n", second + len(marker))
+                if end < 0:
+                    end = second + len(marker)
+                clean = text[:end].rstrip()
+                clean += f"\n\n⚠️ (반복 패턴 감지: '{marker}' {count}회 → 출력 절단)"
+                return clean, True
+
+    # 2) 줄 단위 반복: 같은 줄이 5번 이상
+    lines = text.split("\n")
+    if len(lines) > 10:
+        line_counts = {}
+        for line in lines:
+            stripped = line.strip()
+            if len(stripped) > 15:  # 짧은 줄은 무시
+                line_counts[stripped] = line_counts.get(stripped, 0) + 1
+        for line_text, cnt in line_counts.items():
+            if cnt >= 5:
+                # 첫 번째 등장 + 약간까지만 유지
+                try:
+                    first_idx = next(i for i, l in enumerate(lines) if l.strip() == line_text)
+                except StopIteration:
+                    continue
+                keep_to = min(first_idx + 10, len(lines))
+                clean = "\n".join(lines[:keep_to]).rstrip()
+                clean += f"\n\n⚠️ (줄 반복 감지: {cnt}회 → 출력 절단)"
+                return clean, True
+
+    # 3) 청크 반복: 연속된 동일 문자열
+    for chunk_size in range(min_chunk, min(200, len(text) // max(max_repeats, 1)), 5):
+        for start in range(0, min(len(text) - chunk_size * max_repeats, 2000)):
+            chunk = text[start:start + chunk_size]
+            if not chunk.strip():
+                continue
+            count = 1
+            pos = start + chunk_size
+            while pos + chunk_size <= len(text) and text[pos:pos + chunk_size] == chunk:
+                count += 1
+                pos += chunk_size
+            if count >= max_repeats:
+                clean = text[:start + chunk_size].rstrip()
+                clean += "\n\n⚠️ (반복 패턴 감지 → 출력 절단)"
+                return clean, True
+
+    return text, False
+
+
+def _agent_call_gguf(model_path, skill_ids, skill_contents, query, history,
+                     n_ctx=16384, temperature=0.5, max_tokens=2048,
+                     csv_data=None, uploaded_files_data=None):
+    """단일 GGUF 에이전트: 풀에서 모델 acquire → 추론 → release.
+    Thread-safe: 각 스레드가 독립 Llama 인스턴스 사용.
+    """
+    group_name = _SKILL_TO_GROUP.get(skill_ids[0], "general") if skill_ids else "general"
+
+    try:
+        llama_instance = _pool_get_or_load(model_path, n_ctx=n_ctx)
+    except Exception as e:
+        return {
+            "group": group_name, "skills": skill_ids, "response": "",
+            "error": f"모델 로드 실패: {e}", "model": os.path.basename(model_path),
+        }
+
+    try:
+        system_prompt = _build_agent_system_prompt(skill_ids, skill_contents, n_ctx,
+                                                    csv_data=csv_data, uploaded_files_data=uploaded_files_data)
+        trimmed_history = _trim_history_for_context(history, n_ctx, len(system_prompt))
+
+        messages = [{"role": "system", "content": system_prompt}]
+        messages.extend(trimmed_history)
+        messages.append({"role": "user", "content": query})
+
+        # 논스트리밍 추론 (병렬 에이전트)
+        resp = llama_instance.create_chat_completion(
+            messages=messages,
+            temperature=temperature,
+            max_tokens=max_tokens,
+        )
+
+        if resp and "choices" in resp and len(resp["choices"]) > 0:
+            answer = resp["choices"][0].get("message", {}).get("content", "")
+            # <think> 태그 제거 (완전 쌍 + 불완전 태그 모두)
+            answer = re.sub(r'<think>[\s\S]*?</think>\s*', '', answer)
+            answer = re.sub(r'</?think>', '', answer).strip()
+            # 반복 루프 감지 및 절단
+            answer, was_repetitive = _detect_repetition(answer)
+            if was_repetitive:
+                try:
+                    print(f"     [WARN] [{group_name}] repetition detected, truncated")
+                except Exception:
+                    pass
+            return {
+                "group": group_name, "skills": skill_ids, "response": answer,
+                "error": None, "model": os.path.basename(model_path),
+            }
+
+        return {
+            "group": group_name, "skills": skill_ids, "response": "",
+            "error": "빈 응답", "model": os.path.basename(model_path),
+        }
+    except Exception as e:
+        return {
+            "group": group_name, "skills": skill_ids, "response": "",
+            "error": str(e), "model": os.path.basename(model_path),
+        }
+    finally:
+        _pool_release(model_path)
+
+
+def _synthesize_responses_gguf(agent_results, query, synthesis_model_path, temperature=0.3, n_ctx=32768, synth_max_tokens=8192):
+    """여러 에이전트 응답을 가장 큰 모델로 합성.
+
+    Returns:
+        (answer: str|None, error: str|None, meta: dict)
+    """
+    successes = [r for r in agent_results if r.get("response") and not r.get("error")]
+    failures = [r for r in agent_results if r.get("error")]
+
+    if not successes:
+        error_summary = "; ".join(f"[{r['group']}] {r['error']}" for r in failures)
+        return None, f"모든 에이전트 실패: {error_summary}", {}
+
+    if len(successes) == 1:
+        r = successes[0]
+        return r["response"], None, {
+            "agents": 1, "failed": len(failures),
+            "groups": [r["group"]], "models": [r["model"]],
+        }
+
+    # 합성 프롬프트 구성
+    expert_sections = []
+    for r in successes:
+        skill_names = ", ".join(SKILL_DESC_KO.get(s, s) for s in r["skills"])
+        expert_sections.append(
+            f"=== [{r['group']}] 전문가 ({skill_names}) ===\n{r['response']}"
+        )
+
+    synthesis_system = (
+        f"당신은 여러 전문가의 분석을 통합하는 수석 연구원입니다.\n"
+        f"중요: 반드시 모든 내용을 한국어로만 작성하세요. 영어를 사용하지 마세요.\n"
+        f"<think> 태그를 사용하지 마세요.\n\n"
+        f"아래 {len(successes)}명의 전문가가 각자의 전문 영역에서 답변했습니다.\n\n"
+        + "\n\n".join(expert_sections) +
+        "\n\n[통합 원칙]\n"
+        "1. 반드시 한국어로만 답변하세요 (코드 주석도 한국어)\n"
+        "2. 각 전문가의 핵심 내용을 빠짐없이 포함\n"
+        "3. 중복 내용은 한 번만 언급\n"
+        "4. 하나의 자연스러운 답변으로 통합 (전문가별로 분리하지 말 것)\n"
+        "5. 영어로 된 분석 과정이나 전략 설명을 하지 마세요\n"
+        "6. 코드가 있으면 통합된 하나의 코드로 합쳐서 제공\n"
+        "7. 가짜 데이터를 만들지 마세요. 실제 데이터만 사용하세요"
+    )
+
+    try:
+        llama_synth = _pool_get_or_load(synthesis_model_path, n_ctx=n_ctx)
+        messages = [
+            {"role": "system", "content": synthesis_system},
+            {"role": "user", "content": query},
+        ]
+
+        resp = llama_synth.create_chat_completion(
+            messages=messages,
+            temperature=temperature,
+            max_tokens=synth_max_tokens,
+        )
+        _pool_release(synthesis_model_path)
+
+        if resp and "choices" in resp and len(resp["choices"]) > 0:
+            answer = resp["choices"][0].get("message", {}).get("content", "")
+            answer = re.sub(r'<think>[\s\S]*?</think>\s*', '', answer)
+            answer = re.sub(r'</?think>', '', answer).strip()
+            meta = {
+                "agents": len(successes),
+                "failed": len(failures),
+                "groups": [r["group"] for r in successes],
+                "models": list(set(r["model"] for r in successes)),
+                "synthesis": "model",
+            }
+            return answer, None, meta
+
+        # 합성 모델이 빈 응답 → 폴백
+        raise ValueError("합성 모델 빈 응답")
+
+    except Exception as e:
+        try:
+            _pool_release(synthesis_model_path)
+        except Exception:
+            pass
+        # 폴백: 응답 단순 연결
+        try:
+            print(f"     [SYNTH] fallback concat: {e}")
+        except Exception:
+            pass
+        fallback_parts = []
+        for r in successes:
+            skill_names = ", ".join(SKILL_DESC_KO.get(s, s) for s in r["skills"])
+            fallback_parts.append(f"### {skill_names}\n{r['response']}")
+        fallback = "\n\n---\n\n".join(fallback_parts)
+        return fallback, None, {
+            "agents": len(successes), "failed": len(failures),
+            "groups": [r["group"] for r in successes],
+            "models": list(set(r["model"] for r in successes)),
+            "synthesis": "fallback_concat",
+        }
+
+
+@app.route("/api/gguf-pool-status")
+def api_gguf_pool_status():
+    """GGUF 모델 풀 상태 확인 (디버그용)."""
+    return jsonify({"pool": _pool_status(), "max_pool_size": MAX_POOL_SIZE, "vram_budget_gb": VRAM_BUDGET_GB})
+
+
 @app.route("/api/auto-skills", methods=["POST"])
 def api_auto_skills():
     """사용자 질문에 맞는 스킬을 자동 추천 (컨텍스트 인식)"""
@@ -2555,7 +3261,7 @@ def api_logpresso_query():
     # ── 모드 1: 테이블 목록 (서버에서 동적 조회, 실패 시 하드코딩 폴백) ──
     if mode == "table_list":
         # 서버에서 직접 테이블 목록 조회 시도
-        df, err = query_logpresso("system tables", timeout=30)
+        df, err = query_logpresso("system tables", timeout=5)
         if df is not None and len(df) > 0:
             server_tables = df.to_dict("records")
             return jsonify({
@@ -4418,13 +5124,30 @@ def api_chat():
     """LLM API 프록시 - 스킬을 시스템 프롬프트에 넣어서 회사 API로 전달"""
     chat_stop_flag["stop"] = False  # 새 요청 시작 시 플래그 초기화
     data = request.json
-    # 환경 선택 시 서버에서 URL/모델 결정, 토큰은 TOKEN.TXT에서 읽음
-    user_env = data.get("env", "")
+    # 환경 선택: 배열 또는 문자열 → 배열로 통일
+    raw_env = data.get("env", "auto")
+    if isinstance(raw_env, list):
+        user_envs = [e for e in raw_env if e]
+    elif isinstance(raw_env, str):
+        user_envs = [raw_env] if raw_env else ["auto"]
+    else:
+        user_envs = ["auto"]
+    if not user_envs:
+        user_envs = ["auto"]
+
     auto_routed = False
     route_reason = ""
+    multi_model_parallel = False  # 사용자가 모델 2개+ 선택한 수동 병렬
+    selected_model_paths = []     # 수동 병렬 시 선택된 모델 경로들
 
-    # AUTO 모드: 질문 분석 후 최적 모델 자동 선택
-    if user_env == "auto":
+    # 혼용 금지 체크: GGUF + API 동시 선택
+    has_gguf = any(e.startswith("gguf-") for e in user_envs if e != "auto")
+    has_api = any(not e.startswith("gguf-") for e in user_envs if e != "auto")
+    if has_gguf and has_api:
+        return jsonify({"error": "GGUF와 API를 동시에 선택할 수 없습니다. 같은 타입만 선택해주세요."}), 400
+
+    # AUTO 모드
+    if user_envs == ["auto"]:
         last_query = ""
         msgs = data.get("messages", [])
         if msgs:
@@ -4432,10 +5155,21 @@ def api_chat():
             last_query = last_msg.get("content", "") if isinstance(last_msg.get("content"), str) else ""
         env_id, route_reason = classify_and_route(last_query, msgs, uploaded_files)
         auto_routed = True
-    elif user_env and user_env in ENV_CONFIG:
-        env_id = user_env
+    elif len(user_envs) >= 2:
+        # 수동 다중 선택 → 첫 번째를 기본 env로, 병렬은 스킬이 결정
+        env_id = user_envs[0]
+        multi_model_parallel = True
+        # GGUF 다중: 모델 경로 수집
+        if has_gguf:
+            for ue in user_envs:
+                p = ENV_CONFIG.get(ue, {}).get("_gguf_path")
+                if p:
+                    selected_model_paths.append((p, ENV_CONFIG[ue].get("_size_gb", 0)))
+        # API 다중: env_id 목록 유지 (user_envs 그대로 사용)
+    elif user_envs[0] in ENV_CONFIG:
+        env_id = user_envs[0]
     else:
-        env_id = user_env
+        env_id = user_envs[0]
 
     if env_id and env_id in ENV_CONFIG:
         api_url = ENV_CONFIG[env_id]["url"]
@@ -4451,6 +5185,7 @@ def api_chat():
     writing_style = data.get("writing_style", "")
     custom_system_prompt = data.get("system_prompt", "")
     max_tokens = data.get("max_tokens", 8192)
+    user_n_ctx = data.get("n_ctx", 0)  # 프론트엔드에서 요청한 n_ctx (0이면 기본값 사용)
     think_mode = data.get("think_mode", False)
     requested_output_format = output_format
     is_gguf = env_id.startswith("gguf-") if env_id else False
@@ -4964,6 +5699,16 @@ def api_chat():
             system_prompt += content + "\n"
         system_prompt += "\n사용자가 업로드된 파일에 대해 질문하면 위 내용을 기반으로 답변하세요.\n\n"
 
+    # 가짜 데이터 생성 금지 + 요청 내용만 응답 규칙 (GGUF + API 공통)
+    system_prompt += (
+        "\n[필수 규칙]\n"
+        "- 가짜 데이터를 절대 만들지 마세요! 업로드된 CSV/파일의 실제 컬럼명과 값만 사용하세요.\n"
+        "- 존재하지 않는 컬럼명(Score1, Score2 등)을 지어내지 마세요.\n"
+        "- 사용자가 요청한 내용에만 답변하세요. 요청하지 않은 추가 분석이나 설명을 하지 마세요.\n"
+        "- 차트 데이터는 실제 데이터 기반으로 24개 이하로 요약하세요.\n"
+        "- 응답이 길어질 것 같으면 핵심만 먼저 보여주고 '추가 분석이 필요하면 말씀해주세요'로 마무리하세요.\n\n"
+    )
+
     # 응답 수준
     effort_map = [
         "매우 간결하게 핵심만 답변하세요.",
@@ -5061,6 +5806,144 @@ def api_chat():
 
     # ===== GGUF 로컬 모델: Python에서 직접 추론 =====
     if env_id.startswith("gguf-"):
+
+        # ── 병렬 멀티에이전트 판단 ──
+        # 스킬 2개+ & 다른 그룹이면 병렬 (AUTO든 수동 선택이든)
+        if len(loaded) >= 2:
+            _pre_skills, _par_groups, _use_parallel = group_skills_for_parallel(loaded)
+
+            if _use_parallel:
+                try:
+                    # 수동 다중 선택 시 → 선택한 모델 사용, 아니면 풀에서 자동
+                    if multi_model_parallel and selected_model_paths:
+                        _gguf_paths_by_size = sorted(selected_model_paths, key=lambda x: x[1], reverse=True)
+                    else:
+                        _PARALLEL_MIN_SIZE_GB = float(os.getenv("GGUF_PARALLEL_MIN_GB", "0.5"))
+                        _gguf_envs = {k: v for k, v in ENV_CONFIG.items()
+                                      if k.startswith("gguf-") and "_gguf_path" in v}
+                        _gguf_paths_by_size = sorted(
+                            [(v["_gguf_path"], v.get("_size_gb", 0)) for v in _gguf_envs.values()
+                             if "vl" not in os.path.basename(v["_gguf_path"]).lower()
+                             and v.get("_size_gb", 0) >= _PARALLEL_MIN_SIZE_GB],
+                            key=lambda x: x[1], reverse=True,
+                        )
+
+                    if len(_gguf_paths_by_size) >= 2:
+                        # 그룹별 모델 할당
+                        _assignments = _assign_models_to_groups(_par_groups, _gguf_paths_by_size)
+
+                        # 그룹별 스킬 콘텐츠 준비
+                        _group_skill_contents = {}
+                        for pg in _par_groups:
+                            contents = {}
+                            for sid in pg["skills"]:
+                                c = load_skill_content(sid)
+                                if c:
+                                    contents[sid] = c
+                            _group_skill_contents[pg["group"]] = contents
+
+                        # 마지막 사용자 메시지 추출
+                        _last_query = ""
+                        for m in reversed(messages):
+                            if m.get("role") == "user":
+                                _last_query = m.get("content", "")
+                                if isinstance(_last_query, list):
+                                    _last_query = " ".join(
+                                        p.get("text", "") for p in _last_query
+                                        if isinstance(p, dict) and p.get("type") == "text"
+                                    )
+                                break
+
+                        try:
+                            print(f"\n  [PARALLEL] {len(_par_groups)} groups")
+                        except Exception:
+                            pass
+                        for pg in _par_groups:
+                            m_path = _assignments.get(pg["group"], "")
+                            try:
+                                print(f"     [{pg['group']}] skills={pg['skills']} -> {os.path.basename(m_path)}")
+                            except Exception:
+                                pass
+
+                        # ThreadPoolExecutor로 병렬 실행
+                        _agent_results = []
+                        with ThreadPoolExecutor(max_workers=min(len(_par_groups), MAX_POOL_SIZE)) as executor:
+                            futures = {}
+                            for pg in _par_groups:
+                                model_path = _assignments[pg["group"]]
+                                future = executor.submit(
+                                    _agent_call_gguf,
+                                    model_path=model_path,
+                                    skill_ids=pg["skills"],
+                                    skill_contents=_group_skill_contents[pg["group"]],
+                                    query=_last_query,
+                                    history=messages[-6:],
+                                    n_ctx=16384,
+                                    temperature=temperature_map[min(effort, 3)],
+                                    max_tokens=4096,
+                                    csv_data=uploaded_csv_data if uploaded_csv_data.get("filename") else None,
+                                    uploaded_files_data=uploaded_files if uploaded_files else None,
+                                )
+                                futures[future] = pg["group"]
+
+                            for future in as_completed(futures, timeout=180):
+                                try:
+                                    result = future.result(timeout=120)
+                                    _agent_results.append(result)
+                                except Exception as e:
+                                    _agent_results.append({
+                                        "group": futures[future], "skills": [],
+                                        "response": "", "error": str(e), "model": "",
+                                    })
+
+                        # 에이전트 결과 로그
+                        for _ar in _agent_results:
+                            _status = "OK" if _ar.get("response") and not _ar.get("error") else "FAIL"
+                            _err_msg = f" -> {_ar['error']}" if _ar.get("error") else ""
+                            try:
+                                print(f"     [{_status}] [{_ar.get('group','?')}] {_ar.get('model','?')}{_err_msg}")
+                            except Exception:
+                                pass
+
+                        # 합성 (가장 큰 모델 사용)
+                        _synth_path = _gguf_paths_by_size[0][0]
+                        _answer, _synth_err, _meta = _synthesize_responses_gguf(
+                            _agent_results, _last_query, _synth_path,
+                            temperature=temperature_map[min(effort, 3)],
+                            n_ctx=user_n_ctx if user_n_ctx > 0 else 32768,
+                            synth_max_tokens=max_tokens if max_tokens > 8192 else 8192,
+                        )
+
+                        if _answer and not _synth_err:
+                            _answer = _normalize_gguf_artifact_answer(_answer, gguf_artifact_request)
+                            try:
+                                print(f"  [PARALLEL] done: {_meta.get('agents', 0)} agents, synthesis={_meta.get('synthesis', 'N/A')}")
+                            except Exception:
+                                pass
+                            return jsonify({
+                                "content": _answer,
+                                "loaded_skills": loaded,
+                                "system_prompt_length": len(system_prompt),
+                                "parallel_agents": _meta.get("agents", 0),
+                                "parallel_groups": _meta.get("groups", []),
+                                "parallel_models": _meta.get("models", []),
+                                "parallel_failed": _meta.get("failed", 0),
+                                "parallel_synthesis": _meta.get("synthesis", ""),
+                                "tokens_budget": f"parallel {_meta.get('agents', 0)} agents",
+                            })
+                        else:
+                            try:
+                                print(f"  [PARALLEL] synthesis failed, fallback: {_synth_err}")
+                            except Exception:
+                                pass
+
+                except Exception as _par_ex:
+                    try:
+                        print(f"  [PARALLEL] error, fallback: {_par_ex}")
+                    except Exception:
+                        pass
+
+        # ── 기존 단일모델 경로 (폴백 포함) ──
         # 선택된 환경의 모델 경로로 동적 로드/스왑
         gguf_path = ENV_CONFIG.get(env_id, {}).get("_gguf_path")
         if gguf_path:
@@ -5072,7 +5955,7 @@ def api_chat():
         # GGUF 컨텍스트 한도 내에서 max_tokens 자동 조정 (보수적 계산)
         gguf_ctx_attr = getattr(gguf_model, 'n_ctx', None)
         gguf_ctx = gguf_ctx_attr() if callable(gguf_ctx_attr) else (gguf_ctx_attr if gguf_ctx_attr is not None else 32768)
-        gguf_reply_cap = max(256, int(os.getenv("GGUF_MAX_TOKENS_CAP", "8192")))
+        gguf_reply_cap = max(256, int(os.getenv("GGUF_MAX_TOKENS_CAP", "16384")))
         gguf_ctx_reserve = max(512, int(os.getenv("GGUF_CONTEXT_RESERVE", "1536")))
 
         def _estimate_gguf_prompt_tokens(msgs):
@@ -5172,6 +6055,9 @@ def api_chat():
                     if not retry_err and retry_answer:
                         answer = retry_answer
 
+        # 반복 루프 감지 및 절단 (소형 GGUF 모델 보호)
+        answer, _was_rep = _detect_repetition(answer)
+
         answer = _normalize_gguf_artifact_answer(answer, gguf_artifact_request)
 
         return jsonify({
@@ -5183,6 +6069,180 @@ def api_chat():
 
 
     # ===== 회사 API: HTTP 요청 (폴백 체인 지원) =====
+
+    # ── API 다중 선택 병렬 ──
+    if multi_model_parallel and has_api and len(user_envs) >= 2 and len(loaded) >= 2:
+        _pre_skills, _par_groups, _use_parallel = group_skills_for_parallel(loaded)
+        if _use_parallel:
+            try:
+                # API 모델 목록 (선택한 순서대로)
+                _api_models = []
+                for ue in user_envs:
+                    if ue in ENV_CONFIG:
+                        _api_models.append({"env_id": ue, **ENV_CONFIG[ue]})
+                if len(_api_models) >= 2:
+                    # 그룹 → API 모델 배정 (라운드로빈)
+                    _api_assignments = {}
+                    for i, pg in enumerate(_par_groups):
+                        _api_assignments[pg["group"]] = _api_models[i % len(_api_models)]
+
+                    # 그룹별 스킬 콘텐츠
+                    _api_group_contents = {}
+                    for pg in _par_groups:
+                        contents = {}
+                        for sid in pg["skills"]:
+                            c = load_skill_content(sid)
+                            if c:
+                                contents[sid] = c
+                        _api_group_contents[pg["group"]] = contents
+
+                    _last_query = ""
+                    for m in reversed(messages):
+                        if m.get("role") == "user":
+                            _last_query = m.get("content", "")
+                            if isinstance(_last_query, list):
+                                _last_query = " ".join(
+                                    p.get("text", "") for p in _last_query
+                                    if isinstance(p, dict) and p.get("type") == "text"
+                                )
+                            break
+
+                    def _api_agent_call(api_info, skill_ids, skill_contents, query, hist,
+                                        csv_data=None, uploaded_files_data=None):
+                        """단일 API 에이전트 호출."""
+                        group_name = _SKILL_TO_GROUP.get(skill_ids[0], "general") if skill_ids else "general"
+                        try:
+                            agent_system = _build_agent_system_prompt(skill_ids, skill_contents, 32768,
+                                                                      csv_data=csv_data, uploaded_files_data=uploaded_files_data)
+                            agent_msgs = [{"role": "system", "content": agent_system}]
+                            agent_msgs.extend(hist[-6:])
+                            agent_msgs.append({"role": "user", "content": query})
+                            h = {"Content-Type": "application/json"}
+                            if api_key:
+                                h["Authorization"] = f"Bearer {api_key}"
+                            _temp = temperature_map[min(effort, 3)] if 'temperature_map' in dir() else 0.5
+                            resp = req.post(
+                                api_info["url"],
+                                headers=h,
+                                json={
+                                    "model": api_info["model"],
+                                    "messages": agent_msgs,
+                                    "temperature": _temp,
+                                    "max_tokens": 4096,
+                                    "stream": False,
+                                },
+                                timeout=120,
+                                verify=False,
+                            )
+                            resp.raise_for_status()
+                            result = resp.json()
+                            if "choices" in result and len(result["choices"]) > 0:
+                                answer = result["choices"][0].get("message", {}).get("content", "")
+                                return {"group": group_name, "skills": skill_ids, "response": answer,
+                                        "error": None, "model": api_info["model"]}
+                            return {"group": group_name, "skills": skill_ids, "response": "",
+                                    "error": "empty", "model": api_info["model"]}
+                        except Exception as e:
+                            return {"group": group_name, "skills": skill_ids, "response": "",
+                                    "error": str(e), "model": api_info.get("model", "?")}
+
+                    # ThreadPoolExecutor로 API 병렬
+                    _api_results = []
+                    with ThreadPoolExecutor(max_workers=min(len(_par_groups), 4)) as executor:
+                        futures = {}
+                        for pg in _par_groups:
+                            api_info = _api_assignments[pg["group"]]
+                            future = executor.submit(
+                                _api_agent_call,
+                                api_info=api_info,
+                                skill_ids=pg["skills"],
+                                skill_contents=_api_group_contents[pg["group"]],
+                                query=_last_query,
+                                hist=messages,
+                                csv_data=uploaded_csv_data if uploaded_csv_data.get("filename") else None,
+                                uploaded_files_data=uploaded_files if uploaded_files else None,
+                            )
+                            futures[future] = pg["group"]
+                        for future in as_completed(futures, timeout=180):
+                            try:
+                                _api_results.append(future.result(timeout=120))
+                            except Exception as e:
+                                _api_results.append({"group": futures[future], "skills": [],
+                                                     "response": "", "error": str(e), "model": ""})
+
+                    # 합성 (첫 번째 API로)
+                    successes = [r for r in _api_results if r.get("response") and not r.get("error")]
+                    failures = [r for r in _api_results if r.get("error")]
+
+                    if len(successes) == 0:
+                        pass  # 전부 실패 → 폴백
+                    elif len(successes) == 1:
+                        return jsonify({
+                            "content": successes[0]["response"],
+                            "loaded_skills": loaded,
+                            "system_prompt_length": len(system_prompt),
+                            "parallel_agents": 1, "parallel_failed": len(failures),
+                            "parallel_groups": [successes[0]["group"]],
+                            "parallel_models": [successes[0]["model"]],
+                            "parallel_synthesis": "",
+                        })
+                    else:
+                        # 합성 프롬프트
+                        expert_sections = []
+                        for r in successes:
+                            snames = ", ".join(SKILL_DESC_KO.get(s, s) for s in r["skills"])
+                            expert_sections.append(f"=== [{r['group']}] ({snames}) ===\n{r['response']}")
+                        synth_system = (
+                            f"여러 전문가의 분석을 통합하세요.\n\n"
+                            + "\n\n".join(expert_sections) +
+                            "\n\n[통합 원칙] 핵심 포함, 중복 제거, 한국어, 코드 통합"
+                        )
+                        synth_api = _api_models[0]
+                        try:
+                            h = {"Content-Type": "application/json"}
+                            if api_key:
+                                h["Authorization"] = f"Bearer {api_key}"
+                            sr = req.post(synth_api["url"], headers=h, json={
+                                "model": synth_api["model"],
+                                "messages": [{"role": "system", "content": synth_system},
+                                             {"role": "user", "content": _last_query}],
+                                "temperature": 0.3, "max_tokens": 8192, "stream": False,
+                            }, timeout=120, verify=False)
+                            sr.raise_for_status()
+                            sr_data = sr.json()
+                            if "choices" in sr_data and len(sr_data["choices"]) > 0:
+                                synth_answer = sr_data["choices"][0].get("message", {}).get("content", "")
+                                return jsonify({
+                                    "content": synth_answer,
+                                    "loaded_skills": loaded,
+                                    "system_prompt_length": len(system_prompt),
+                                    "parallel_agents": len(successes), "parallel_failed": len(failures),
+                                    "parallel_groups": [r["group"] for r in successes],
+                                    "parallel_models": list(set(r["model"] for r in successes)),
+                                    "parallel_synthesis": "model",
+                                })
+                        except Exception:
+                            pass
+                        # 합성 실패 → 단순 연결
+                        fallback = "\n\n---\n\n".join(
+                            f"### {', '.join(SKILL_DESC_KO.get(s,s) for s in r['skills'])}\n{r['response']}"
+                            for r in successes
+                        )
+                        return jsonify({
+                            "content": fallback,
+                            "loaded_skills": loaded,
+                            "system_prompt_length": len(system_prompt),
+                            "parallel_agents": len(successes), "parallel_failed": len(failures),
+                            "parallel_groups": [r["group"] for r in successes],
+                            "parallel_models": list(set(r["model"] for r in successes)),
+                            "parallel_synthesis": "fallback_concat",
+                        })
+            except Exception as e:
+                try:
+                    print(f"  [API PARALLEL] error, fallback: {e}")
+                except Exception:
+                    pass
+
     headers = {"Content-Type": "application/json"}
     if api_key:
         headers["Authorization"] = f"Bearer {api_key}"
@@ -5581,7 +6641,7 @@ body.sb-collapsed .chat-box-fixed{left:48px}
 .auto-skill-toggle .toggle-dot::after{content:'';position:absolute;top:2px;left:2px;width:16px;height:16px;border-radius:50%;background:#fff;transition:all .2s}
 .auto-skill-toggle.on .toggle-dot::after{left:18px}
 .auto-skill-badge{display:inline-block;padding:2px 8px;border-radius:10px;font-size:11px;background:#eef2ff;color:#6366f1;border:1px solid #c7d2fe;margin:2px}
-.auto-skill-preview{margin-top:6px;padding:8px 12px;background:#f0fdf4;border:1px solid #a7f3d0;border-radius:8px;font-size:12px;display:none}
+.auto-skill-preview{padding:6px 10px;background:#f0fdf4;border-bottom:1px solid #a7f3d0;font-size:11px;display:none}
 .auto-skill-preview.show{display:block}
 /* PPT Suggest Banner */
 .ppt-suggest-banner{position:relative;margin:0 auto 8px;max-width:760px;padding:14px 18px 14px 50px;background:linear-gradient(135deg,#eef2ff 0%,#f5f3ff 50%,#fdf2f8 100%);border:1px solid #c7d2fe;border-radius:14px;box-shadow:0 2px 12px rgba(99,102,241,.12);overflow:hidden;animation:pptBannerSlide .5s cubic-bezier(.16,1,.3,1);cursor:default;transition:opacity .4s,transform .4s}
@@ -5661,12 +6721,17 @@ body.sb-collapsed .chat-box-fixed{left:48px}
 .status{font-size:12px}
 .status.on{color:#10b981}.status.off{color:#999}
 /* Env selector */
-.env-row{display:flex;gap:8px;margin-bottom:24px}
-.env-btn{flex:1;padding:12px 10px;border-radius:12px;border:2px solid #e5e3de;background:#fff;cursor:pointer;text-align:center;transition:all .15s;font-size:13px}
+.env-section{margin-bottom:6px}
+.env-section-label{font-size:11px;font-weight:700;color:#6b7280;margin-bottom:3px;padding-left:4px}
+.env-toggle{cursor:pointer;user-select:none;padding:6px 8px;border-radius:8px;transition:background .15s}
+.env-toggle:hover{background:#f3f4f6}
+.env-subsection-label{font-size:10px;color:#9ca3af;margin:3px 0 2px 4px}
+.env-row{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:6px}
+.env-btn{flex:1 1 90px;max-width:130px;padding:8px 6px;border-radius:10px;border:2px solid #e5e3de;background:#fff;cursor:pointer;text-align:center;transition:all .15s;font-size:11px}
 .env-btn:hover{border-color:#6366f1;transform:translateY(-1px)}
 .env-btn.selected{border-color:#6366f1;background:#eef2ff}
-.env-btn .env-name{font-weight:700;font-size:14px;margin-bottom:2px}
-.env-btn .env-model{font-size:11px;color:#888}
+.env-btn .env-name{font-weight:700;font-size:12px;margin-bottom:1px}
+.env-btn .env-model{font-size:10px;color:#888}
 .env-btn.selected .env-model{color:#6366f1}
 .uio-enter-btn{display:inline-flex;align-items:center;gap:4px;padding:4px 12px;border-radius:8px;font-size:12px;font-weight:600;color:#fff;background:linear-gradient(135deg,#6366f1,#8b5cf6);text-decoration:none;cursor:pointer;transition:all .2s;border:none;box-shadow:0 2px 8px rgba(99,102,241,.3)}
 .uio-enter-btn:hover{transform:translateY(-1px);box-shadow:0 4px 12px rgba(99,102,241,.5);background:linear-gradient(135deg,#818cf8,#a78bfa)}
@@ -5937,11 +7002,6 @@ body.rp-collapsed .chat-box-fixed{right:0}
       <button class="danger" onclick="deleteSelectedSessions()">🗑️ 삭제</button>
       <button onclick="clearSessionSelection()">취소</button>
     </div>
-    <div class="sidebar-section">불러온 스킬 <span class="skill-count" id="loadedCount">0</span></div>
-    <div id="loadedSkillsList" style="font-size:12px;color:#666;padding:0 8px;"></div>
-    <div style="font-size:11px;color:#999;padding:4px 8px;margin-top:8px;">
-      <strong>SKILL.md</strong> 파일이 있는 스킬만 ✅ 표시됩니다.
-    </div>
   </div>
   <div id="fileListPanel" class="sidebar-file-panel" style="display:none"></div>
   <div class="sidebar-footer">
@@ -5983,10 +7043,33 @@ body.rp-collapsed .chat-box-fixed{right:0}
   <div class="content">
     <div class="content-inner">
       <!-- 환경 선택 -->
-      <div class="section-label">LLM 환경 선택</div>
+      <div class="section-label">LLM 환경 선택 <span id="envStatusBadge" style="font-weight:400;font-size:11px;color:#6366f1"></span></div>
       <div id="tokenStatus" class="token-status missing">⏳ 토큰 상태 확인중...</div>
-      <div class="env-row" id="envRow">
-        <!-- JS에서 동적 생성 -->
+      <div id="envContainer">
+        <div class="env-section">
+          <div class="env-row" id="envRowAuto"></div>
+        </div>
+        <div class="env-section" id="envSectionApi">
+          <div class="env-section-label env-toggle" onclick="toggleEnvSection('Api')">
+            <span id="envArrowApi">▶</span> API 모델
+          </div>
+          <div id="envApiInner" style="display:none">
+            <div class="env-subsection-label" id="envHighLabel" style="display:none">🚀 고성능 모델 <span style="color:#b0b0b0">- 복잡한 분석, 코드 생성, 논문 작성</span></div>
+            <div class="env-row" id="envRowHigh"></div>
+            <div class="env-subsection-label" id="envMidLabel" style="display:none">⚡ 범용 모델 <span style="color:#b0b0b0">- 일반 질문, 요약, 간단한 코드</span></div>
+            <div class="env-row" id="envRowMid"></div>
+            <div class="env-subsection-label" id="envLowLabel" style="display:none">💨 경량 모델 <span style="color:#b0b0b0">- 빠른 응답, 단순 Q&A, 번역</span></div>
+            <div class="env-row" id="envRowLow"></div>
+            <div class="env-subsection-label" id="envVlLabel" style="display:none">👁️ Vision 모델 <span style="color:#b0b0b0">- 이미지 분석, 스크린샷 해석, 도면 인식</span></div>
+            <div class="env-row" id="envRowVl"></div>
+          </div>
+        </div>
+        <div class="env-section" id="envSectionGguf">
+          <div class="env-section-label env-toggle" onclick="toggleEnvSection('Gguf')">
+            <span id="envArrowGguf">▶</span> GGUF 로컬 모델
+          </div>
+          <div class="env-row env-collapsible" id="envRowGguf" style="display:none"></div>
+        </div>
       </div>
 
       <!-- 업로드된 파일 목록은 사이드바 하단으로 이동 -->
@@ -6056,8 +7139,6 @@ body.rp-collapsed .chat-box-fixed{right:0}
           <div style="font-size:11px;color:#888">질문을 분석하여 관련 스킬을 자동으로 로드합니다</div>
         </div>
       </div>
-      <div class="auto-skill-preview" id="autoSkillPreview"></div>
-
       <div class="quick-row">
         <button class="quick-btn" onclick="qp('이 데이터를 분석해줘')">📊 데이터 분석</button>
         <button class="quick-btn" onclick="qp('업로드된 CSV 데이터의 통계 요약을 보여줘')">📋 CSV 요약</button>
@@ -6075,6 +7156,7 @@ body.rp-collapsed .chat-box-fixed{right:0}
   <!-- 질문 입력 - 하단 고정 -->
   <div class="chat-box-fixed">
     <div class="chat-box-fixed-inner">
+      <div class="auto-skill-preview" id="autoSkillPreview"></div>
       <div class="chat-attach-preview" id="chatAttachPreview" style="display:none"></div>
       <textarea class="chat-input" id="input" placeholder="질문을 하거나 수행하려는 분석을 설명하세요..." onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();handleSendStop()}" oninput="this.style.height='auto';this.style.height=this.scrollHeight+'px';checkPptStyleVisibility()"></textarea>
       <input type="file" id="chatFileInput" multiple style="display:none" onchange="handleChatFileSelect(this.files)">
@@ -6217,7 +7299,7 @@ body.rp-collapsed .chat-box-fixed{right:0}
 <script>
 let envs = {};
 let hasToken = false;
-let selEnv = 'auto';
+let selEnvs = ['auto'];  // 배열: ['auto'] 또는 ['gguf-0','gguf-1'] 또는 ['prod','common']
 let catalog = {};
 let selDomains = [];
 let selSkills = [];
@@ -6228,6 +7310,36 @@ let styleManualOverride = false;   // 사용자가 수동으로 스타일을 변
 let effort = 2;
 let history = [];
 let maxTokens = 8192;
+const _skillTips = {
+  'matplotlib':'그래프/차트를 그려줍니다\n예: "데이터를 막대 차트로 그려줘"',
+  'seaborn':'예쁜 통계 차트를 만들어줍니다\n예: "상관관계 히트맵 그려줘"',
+  'plotly':'인터랙티브 차트를 만듭니다\n예: "줌 가능한 꺾은선 차트 만들어줘"',
+  'scikit-learn':'머신러닝 모델을 만들어줍니다\n예: "이 데이터로 예측 모델 만들어줘"',
+  'statistical-analysis':'통계 분석을 해줍니다\n예: "평균, 분산, 상관관계 분석해줘"',
+  'exploratory-data-analysis':'데이터를 탐색하고 요약합니다\n예: "CSV 데이터 전체 분석해줘"',
+  'polars':'대용량 데이터를 빠르게 처리합니다\n예: "CSV 파일 읽고 필터링해줘"',
+  'agent-data-scientist':'데이터 분석 전문가처럼 답합니다\n예: "이 데이터의 패턴을 찾아줘"',
+  'agent-python-pro':'파이썬 코드를 작성해줍니다\n예: "파일 읽는 함수 만들어줘"',
+  'scientific-writing':'논문/보고서를 작성합니다\n예: "분석 결과를 보고서로 정리해줘"',
+  'pptx':'PPT 파일을 생성합니다\n예: "분석 결과를 PPT로 만들어줘"',
+  'docx':'Word 문서를 만들어줍니다\n예: "보고서를 Word로 만들어줘"',
+  'xlsx':'엑셀 파일을 처리합니다\n예: "엑셀 데이터 정리해줘"',
+  'drawio-diagram':'다이어그램을 그려줍니다\n예: "시스템 구조도 그려줘"',
+  'biopython':'유전자/단백질 분석을 합니다\n예: "DNA 서열 분석해줘"',
+  'rdkit':'분자 구조를 분석합니다\n예: "화학 분자 그려줘"',
+  'debugging':'에러를 찾아 고쳐줍니다\n예: "이 에러 원인 찾아줘"',
+  'agent-debugger':'버그를 추적하고 수정합니다\n예: "traceback 분석해줘"',
+  'logpresso-search':'로그프레소 데이터를 조회합니다\n예: "오늘 설비 로그 조회해줘"',
+  'knowledge-search':'도메인 지식을 검색합니다\n예: "FAB 컬럼 정보 알려줘"',
+  'agent-cloud-architect':'클라우드 아키텍처를 설계합니다\n예: "AWS 배포 구조 설계해줘"',
+  'agent-llm-architect':'LLM 시스템을 설계합니다\n예: "RAG 파이프라인 설계해줘"',
+  'markdown-mermaid-writing':'마크다운/다이어그램을 작성합니다\n예: "플로우차트 그려줘"',
+  'scientific-visualization':'과학 데이터를 시각화합니다\n예: "실험 결과를 그래프로 보여줘"',
+  'agent-sql-pro':'SQL 쿼리를 작성해줍니다\n예: "테이블 조인 쿼리 만들어줘"',
+  'agent-fullstack-developer':'웹앱을 개발합니다\n예: "로그인 페이지 만들어줘"',
+  'pdf':'PDF 파일을 처리합니다\n예: "PDF에서 텍스트 추출해줘"',
+  'market-research-reports':'시장조사 보고서를 작성합니다\n예: "시장 트렌드 보고서 만들어줘"',
+};
 let currentSessionId = null;
 let sessions = {};
 
@@ -6248,7 +7360,8 @@ if(lastSessions.length > 0){
     if(s.thinkMode!==undefined) document.getElementById('thinkToggle').checked=s.thinkMode;
     if(s.selFormat){ selFormat=s.selFormat; formatManualOverride=(selFormat!=='auto'); document.querySelectorAll('.fmt-btn').forEach(b=>{b.classList.toggle('selected',b.dataset.f===selFormat);}); syncFormatDropToChat(); }
     if(s.effort!==undefined){ effort=s.effort; document.getElementById('effortSlider').value=effort; }
-    if(s.selEnv){ selEnv=s.selEnv; renderEnvs(); updateStatus(); }
+    if(s.selEnvs){ selEnvs=s.selEnvs; renderEnvs(); updateStatus(); }
+    else if(s.selEnv){ selEnvs=[s.selEnv]; renderEnvs(); updateStatus(); }  // 하위호환
     if(s.selDomains && s.selDomains.length>0){ selDomains=s.selDomains; renderTags(); renderSkills(); }
     if(s.selSkills && s.selSkills.length>0){ selSkills=s.selSkills; renderSkills(); updateLoaded(); }
     renderSessionList();
@@ -6289,26 +7402,87 @@ Promise.all([
 });
 
 // ===== 환경 선택 =====
-function renderEnvs(){
-  const row = document.getElementById('envRow');
-  row.innerHTML = '';
-  const icons = {'dev':'🧪','prod':'🚀','common':'🌐','vl-large':'👁️','vl-medium':'👁️','vl-fast':'👁️'};
-  // GGUF 로컬 모델은 동적으로 아이콘 매핑
-  for(const id of Object.keys(envs)){ if(id.startsWith('gguf-')) icons[id]='💻'; }
-  // AUTO 버튼 (맨 앞에 추가)
-  const autoBtn = document.createElement('div');
-  autoBtn.className = 'env-btn' + (selEnv==='auto'?' selected':'');
-  autoBtn.innerHTML = '<div class="env-name">🤖 AUTO</div><div class="env-model">자동 모델 선택</div>';
-  autoBtn.onclick = ()=>{ selEnv='auto'; renderEnvs(); updateStatus(); };
-  autoBtn.style.borderColor = selEnv==='auto' ? '#6366f1' : '';
-  row.appendChild(autoBtn);
-  for(const [id, env] of Object.entries(envs)){
-    const btn = document.createElement('div');
-    btn.className = 'env-btn' + (selEnv===id?' selected':'');
-    btn.innerHTML = `<div class="env-name">${icons[id]||'🔗'} ${env.name}</div><div class="env-model">${env.model}</div>`;
-    btn.onclick = ()=>{ selEnv=id; renderEnvs(); updateStatus(); };
-    row.appendChild(btn);
+function toggleEnvSection(type){
+  const target = type==='Api' ? document.getElementById('envApiInner') : document.getElementById('envRowGguf');
+  const arrow = document.getElementById('envArrow'+type);
+  if(target.style.display==='none'){
+    target.style.display='';
+    arrow.textContent='▼';
+  } else {
+    target.style.display='none';
+    arrow.textContent='▶';
   }
+}
+function _envType(id){ return id.startsWith('gguf-') ? 'gguf' : 'api'; }
+function _makeEnvBtn(id, env, icons){
+  const btn = document.createElement('div');
+  const isSel = selEnvs.includes(id);
+  btn.className = 'env-btn' + (isSel?' selected':'');
+  const idx = isSel ? selEnvs.indexOf(id)+1 : 0;
+  const badge = selEnvs.length > 1 && isSel ? `<span style="position:absolute;top:4px;right:6px;background:#6366f1;color:#fff;border-radius:50%;width:20px;height:20px;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:bold">${idx}</span>` : '';
+  btn.style.position='relative';
+  btn.innerHTML = `${badge}<div class="env-name">${icons[id]||'🔗'} ${env.name}</div><div class="env-model">${env.model}</div>`;
+  btn.onclick = ()=>{
+    selEnvs = selEnvs.filter(x=>x!=='auto');
+    const clickType = _envType(id);
+    const curType = selEnvs.length > 0 ? _envType(selEnvs[0]) : clickType;
+    if(curType !== clickType) selEnvs = [];
+    if(selEnvs.includes(id)){
+      selEnvs = selEnvs.filter(x=>x!==id);
+    } else {
+      selEnvs.push(id);
+    }
+    if(selEnvs.length===0) selEnvs=['auto'];
+    renderEnvs(); updateStatus();
+  };
+  return btn;
+}
+function renderEnvs(){
+  const rowAuto = document.getElementById('envRowAuto');
+  const rowHigh = document.getElementById('envRowHigh');
+  const rowMid = document.getElementById('envRowMid');
+  const rowLow = document.getElementById('envRowLow');
+  const rowVl = document.getElementById('envRowVl');
+  const rowGguf = document.getElementById('envRowGguf');
+  rowAuto.innerHTML=''; rowHigh.innerHTML=''; rowMid.innerHTML=''; rowLow.innerHTML=''; rowVl.innerHTML=''; rowGguf.innerHTML='';
+  const icons = {'dev':'🧪','prod':'🚀','common':'🌐','vl-large':'👁️','vl-medium':'👁️','vl-fast':'👁️'};
+  for(const id of Object.keys(envs)){ if(id.startsWith('gguf-')) icons[id]='💻'; }
+  // AUTO 버튼
+  const autoBtn = document.createElement('div');
+  autoBtn.className = 'env-btn' + (selEnvs.includes('auto')?' selected':'');
+  autoBtn.style.cssText = 'flex:1 1 100%;max-width:100%';
+  autoBtn.innerHTML = '<div class="env-name">🤖 AUTO</div><div class="env-model">자동 모델 선택</div>';
+  autoBtn.onclick = ()=>{ selEnvs=['auto']; renderEnvs(); updateStatus(); };
+  rowAuto.appendChild(autoBtn);
+  // API / GGUF 분류
+  // API 모델 tier 분류
+  const highIds = new Set(['prod','prod-fp8','coder-480b','qwen3-235b']);
+  const lowIds = new Set(['dev-legacy','dev-fp8','qwen35-small']);
+  let hasApi=false, hasGguf=false, hasHigh=false, hasMid=false, hasLow=false, hasVl=false;
+  for(const [id, env] of Object.entries(envs)){
+    if(id.startsWith('gguf-')){
+      rowGguf.appendChild(_makeEnvBtn(id, env, icons));
+      hasGguf = true;
+    } else if(id.startsWith('vl-')){
+      rowVl.appendChild(_makeEnvBtn(id, env, icons));
+      hasVl = true; hasApi = true;
+    } else if(highIds.has(id)){
+      rowHigh.appendChild(_makeEnvBtn(id, env, icons));
+      hasHigh = true; hasApi = true;
+    } else if(lowIds.has(id)){
+      rowLow.appendChild(_makeEnvBtn(id, env, icons));
+      hasLow = true; hasApi = true;
+    } else {
+      rowMid.appendChild(_makeEnvBtn(id, env, icons));
+      hasMid = true; hasApi = true;
+    }
+  }
+  document.getElementById('envHighLabel').style.display = hasHigh ? '' : 'none';
+  document.getElementById('envMidLabel').style.display = hasMid ? '' : 'none';
+  document.getElementById('envLowLabel').style.display = hasLow ? '' : 'none';
+  document.getElementById('envVlLabel').style.display = hasVl ? '' : 'none';
+  document.getElementById('envSectionApi').style.display = hasApi ? '' : 'none';
+  document.getElementById('envSectionGguf').style.display = hasGguf ? '' : 'none';
 }
 function renderTokenStatus(){
   const el = document.getElementById('tokenStatus');
@@ -6327,15 +7501,26 @@ function renderTokenStatus(){
 }
 function updateStatus(){
   const st = document.getElementById('status');
-  if(selEnv === 'auto'){
+  const eb = document.getElementById('envStatusBadge');
+  if(selEnvs.includes('auto')){
     st.className='status on';
     st.textContent='🤖 AUTO (자동 선택)';
-  } else if(selEnv && envs[selEnv]){
+    if(eb) eb.innerHTML='( 🤖 AUTO - 단일/병렬 자동 결정 )';
+  } else if(selEnvs.length >= 2){
+    const type = selEnvs[0].startsWith('gguf-') ? 'GGUF' : 'API';
+    const names = selEnvs.map(e=> envs[e] ? envs[e].name : e).join(', ');
     st.className='status on';
-    st.textContent='🟢 ' + envs[selEnv].name;
+    st.textContent='🔀 병렬 ' + selEnvs.length + '개 모델';
+    if(eb) eb.innerHTML=`( 🔀 병렬 ${selEnvs.length}개 ${type}: ${names} )`;
+  } else if(selEnvs.length === 1 && envs[selEnvs[0]]){
+    const type = selEnvs[0].startsWith('gguf-') ? 'GGUF' : 'API';
+    st.className='status on';
+    st.textContent='🟢 ' + envs[selEnvs[0]].name;
+    if(eb) eb.innerHTML=`( 🟢 단일 ${type}: ${envs[selEnvs[0]].name} )`;
   } else {
     st.className='status off';
     st.textContent='⚪ 환경 미선택';
+    if(eb) eb.innerHTML='';
   }
 }
 
@@ -6381,6 +7566,8 @@ function renderSkills(){
       if(s.assets > 0) extras.push(`📦${s.assets}`);
       const extrasHtml = extras.length ? `<div class="extras">${extras.join(' ')}</div>` : '';
       const autoBadge = isAutoLoaded ? '<span class="badge" style="background:#f59e0b">🧠자동</span>' : '';
+      const tipText = _skillTips[s.id] || (desc + '\n클릭하여 선택');
+      c.title = `${s.name}\n${tipText}\n\n[클릭=선택, Shift+클릭=상세]`;
       c.innerHTML = `<div class="sn">${avail} ${s.name}</div><div class="sd">${desc}</div>${extrasHtml}${autoBadge}`;
       if(s.available){
         c.onclick = (e)=>{
@@ -6407,8 +7594,10 @@ function renderSkills(){
 }
 function updateLoaded(){
   const totalCount = selSkills.length + autoLoadedSkills.length;
-  document.getElementById('loadedCount').textContent = totalCount;
+  const countEl = document.getElementById('loadedCount');
+  if(countEl) countEl.textContent = totalCount;
   const el = document.getElementById('loadedSkillsList');
+  if(!el) return;  // 사이드바에서 제거된 경우
   if(totalCount === 0 && dismissedAutoSkills.size === 0){
     el.innerHTML = '<div style="color:#bbb">선택된 스킬 없음</div>';
     return;
@@ -6557,11 +7746,14 @@ document.addEventListener('DOMContentLoaded', ()=>{
       const q = inp.value.trim();
       if(q.length < 4) { document.getElementById('autoSkillPreview').classList.remove('show'); return; }
       try{
-        const r = await fetch('/api/auto-skills',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({query:q,max_skills:7,history:history})});
+        const r = await fetch('/api/auto-skills',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({query:q,max_skills:3,history:history})});
         const d = await r.json();
         const prev = document.getElementById('autoSkillPreview');
         if(d.skills && d.skills.length > 0){
-          prev.innerHTML = '🧠 자동 추천: ' + d.skills.filter(s=>!dismissedAutoSkills.has(s.id)).map(s=>`<span class="auto-skill-badge" title="${s.desc}">${s.id} (${s.score})<button onclick="dismissPreviewSkill('${s.id}',this)" style="background:none;border:none;cursor:pointer;font-size:10px;color:#ef4444;padding:0 2px;margin-left:4px;" title="제외">✕</button></span>`).join('');
+          prev.innerHTML = '🧠 자동 추천: ' + d.skills.filter(s=>!dismissedAutoSkills.has(s.id)).map(s=>{
+            const tip = _skillTips[s.id] || s.desc || s.id;
+            return `<span class="auto-skill-badge" title="${tip.replace(/"/g,'&quot;').replace(/\n/g,'&#10;')}">${s.id} (${s.score})<button onclick="dismissPreviewSkill('${s.id}',this)" style="background:none;border:none;cursor:pointer;font-size:10px;color:#ef4444;padding:0 2px;margin-left:4px;" title="제외">✕</button></span>`;
+          }).join('');
           prev.classList.add('show');
         } else {
           prev.classList.remove('show');
@@ -6674,7 +7866,7 @@ async function send(){
     const hasNoVisual = /그래프\s*없|차트\s*없|텍스트\s*위주|텍스트만|심플하게/i.test(text);
     _showPptSuggestBanner(hasVisual && !hasNoVisual ? 'visual' : hasNoVisual && !hasVisual ? 'no-visual' : null);
   }
-  if(!selEnv){alert('먼저 위에서 LLM 환경을 선택해주세요.');return;}
+  if(!selEnvs||selEnvs.length===0){alert('먼저 위에서 LLM 환경을 선택해주세요.');return;}
 
   // 매 질문마다 이전 자동 스킬 초기화 → 새 질문/파일에 맞게 재감지
   // 전송 전 사용자가 dismiss한 스킬을 보존 (✕ 클릭한 것 반영)
@@ -6752,7 +7944,7 @@ async function send(){
       headers:{'Content-Type':'application/json'},
       signal: chatAbort.signal,
       body:JSON.stringify({
-        env: selEnv,
+        env: selEnvs,
         messages:history, skills:skillsToUse, effort,
         format: formatManualOverride ? selFormat : 'auto',
         writing_style: styleManualOverride ? document.getElementById('writingStyle').value.trim() : 'auto',
@@ -6771,7 +7963,8 @@ async function send(){
     } else {
       let info = '';
       // 모델 이름 표시 (auto/수동)
-      let modelName = data.model_used || (envs[selEnv] ? envs[selEnv].name : selEnv);
+      let _se = selEnvs[0] || 'auto';
+      let modelName = data.model_used || (envs[_se] ? envs[_se].name : (selEnvs.length>=2 ? selEnvs.length+'개 병렬' : _se));
       if(data.loaded_skills && data.loaded_skills.length > 0){
         let extra = data.tokens_budget ? ` [${data.tokens_budget}]` : '';
         let mode = autoLoaded.length > 0 ? '🧠자동' : '✅수동';
@@ -6784,6 +7977,14 @@ async function send(){
       // 폴백 표시
       if(data.fallback_used){
         info += ` [⚠️ 대체: ${data.fallback_from} → ${data.model_used}]`;
+      }
+      // 병렬 에이전트 표시
+      if(data.parallel_agents && data.parallel_agents >= 2){
+        let pGroups = (data.parallel_groups || []).join(', ');
+        let pModels = (data.parallel_models || []).join(', ');
+        let pSynth = data.parallel_synthesis === 'fallback_concat' ? '(단순연결)' : '(합성)';
+        info += ` [🔀 병렬 ${data.parallel_agents}에이전트: ${pGroups}] [모델: ${pModels}] ${pSynth}`;
+        if(data.parallel_failed > 0) info += ` [⚠️ ${data.parallel_failed}개 실패]`;
       }
       // 자동 형식/스타일 표시
       if(data.auto_format || data.auto_style){
@@ -7010,7 +8211,7 @@ function addMsg(role,text,rawForDetect){
   // 삭제 버튼 주입
   d.style.position='relative';
   d.insertAdjacentHTML('afterbegin','<button class="msg-del" onclick="event.stopPropagation();deleteMsg(this)">✕</button>');
-  c.scrollIntoView({behavior:'smooth',block:'end'});
+  try{ const _ct=document.querySelector('.content'); if(_ct) _ct.scrollTop=_ct.scrollHeight; }catch(e){}
 }
 function injectDeleteButtons(){
   // 옛날 버튼 강제 제거
@@ -7042,7 +8243,7 @@ function addTyping(){
   d.className='msg assistant';
   d.innerHTML='<div class="typing"><span></span><span></span><span></span></div>';
   c.appendChild(d);
-  c.scrollIntoView({behavior:'smooth',block:'end'});
+  try{ const _ct=document.querySelector('.content'); if(_ct) _ct.scrollTop=_ct.scrollHeight; }catch(e){}
   return d;
 }
 // ===== Session Management =====
@@ -7066,7 +8267,7 @@ function saveCurrentSession(){
     id: currentSessionId,
     name: sessions[currentSessionId]?.name || '새 세션',
     history: history,
-    selEnv: selEnv,
+    selEnvs: selEnvs,
     selDomains: selDomains,
     selSkills: selSkills,
     selFormat: selFormat,
@@ -9282,7 +10483,7 @@ function updateRpRunBtn(){
 
 async function runCodeAssistant(){
   if(rpFiles.length === 0 || !rpSelectedMode) return;
-  if(!selEnv){ alert('먼저 LLM 환경을 선택해주세요.'); return; }
+  if(!selEnvs||selEnvs.length===0){ alert('먼저 LLM 환경을 선택해주세요.'); return; }
 
   // code-assistant 스킬 자동 로드
   if(!selSkills.includes('code-assistant')){
@@ -9340,7 +10541,7 @@ async function runCodeAssistant(){
         headers:{'Content-Type':'application/json'},
         signal: chatAbort.signal,
         body:JSON.stringify({
-          env: selEnv,
+          env: selEnvs,
           messages: history,
           skills: [...selSkills],
           effort,
@@ -9359,11 +10560,19 @@ async function runCodeAssistant(){
         let info = '';
         if(data.loaded_skills && data.loaded_skills.length > 0){
           let extra = data.tokens_budget ? ' ['+data.tokens_budget+']' : '';
-          let mName = data.model_used || (envs[selEnv] ? envs[selEnv].name : selEnv);
+          let _se2 = selEnvs[0]||'auto';
+          let mName = data.model_used || (envs[_se2] ? envs[_se2].name : (selEnvs.length>=2 ? selEnvs.length+'개 병렬' : _se2));
           info = '\n[\u2705 '+data.loaded_skills.join(', ')+'] ['+mName+'] ('+(data.system_prompt_length ?? 0)+'\uc790)'+extra;
         }
         if(data.auto_routed){ info += ' [\uD83E\uDD16 자동: '+data.model_used+' ('+data.route_reason+')]'; }
         if(data.fallback_used){ info += ' [\u26A0\uFE0F 대체: '+data.fallback_from+' \u2192 '+data.model_used+']'; }
+        if(data.parallel_agents && data.parallel_agents >= 2){
+          let pG = (data.parallel_groups||[]).join(', ');
+          let pM = (data.parallel_models||[]).join(', ');
+          let pS = data.parallel_synthesis==='fallback_concat'?'(단순연결)':'(합성)';
+          info += ' [🔀 병렬 '+data.parallel_agents+'에이전트: '+pG+'] [모델: '+pM+'] '+pS;
+          if(data.parallel_failed>0) info += ' [⚠️ '+data.parallel_failed+'개 실패]';
+        }
         let truncWarn = data.truncated ? '\n\n⚠️ **응답이 토큰 한도('+maxTokens+')에 도달하여 잘렸습니다.** "계속 이어서 작성해줘"라고 입력하면 이어서 받을 수 있습니다.' : '';
         const assistantDisplayText = data.content + truncWarn + info;
         const assistantRawForDetect = data.content + truncWarn;
@@ -9799,6 +11008,7 @@ if __name__ == "__main__":
                 "model": model_name,
                 "name": f"LOCAL ({model_name})",
                 "_gguf_path": gf["path"],  # 내부용: 모델 파일 경로
+                "_size_gb": gf["size_gb"],  # 병렬 에이전트 VRAM 예산용
             }
             print(f"     [{env_key}] {gf['name']} ({gf['size_gb']} GB)")
 
