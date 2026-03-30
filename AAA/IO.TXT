@@ -763,6 +763,7 @@ DOMAIN_SKILLS = {
         "color": "#7c3aed",
         "skills": [
             "knowledge-search",
+            "logpresso-search",
         ]
     },
     # ===== cla-main 확장 카테고리 =====
@@ -781,7 +782,7 @@ DOMAIN_SKILLS = {
             "template-skill","theme-factory","ui-styling","web-artifacts-builder",
             "web-frameworks","webapp-testing",
             "react-best-practices","web-design-guidelines","owasp-security",
-            "logpresso-query","logpresso-search",
+            "logpresso-query",
             "common","debugging","problem-solving",
         ]
     },
