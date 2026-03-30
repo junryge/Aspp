@@ -3448,6 +3448,7 @@ def api_skill_generate():
     topic = data.get("topic", "").strip()
     skill_type = data.get("skill_type", "도구")  # 도구/에이전트/가이드
     details = data.get("details", "").strip()
+    lang = data.get("lang", "ko").strip()  # ko 또는 en
 
     if not topic:
         return jsonify({"error": "스킬 주제를 입력하세요."}), 400
@@ -3464,7 +3465,27 @@ def api_skill_generate():
             except Exception:
                 pass
 
-    system_prompt = f"""당신은 Claude Code 스킬 제작 전문가입니다.
+    if lang == "en":
+        system_prompt = f"""You are an expert Claude Code skill creator.
+Refer to the 3 meta-skill guidelines below to generate a high-quality SKILL.md.
+
+{meta_instructions}
+
+## Output Rules
+1. Must start with YAML frontmatter (--- delimiters)
+2. name: lowercase + hyphens only (e.g., my-new-skill)
+3. description: Clearly describe the skill's purpose and trigger conditions (minimum 50 characters)
+4. Body: Markdown-formatted instructions, include a "When to Use" section
+5. Maximum 500 lines total
+6. Output only SKILL.md content (no explanations)
+7. Write ALL content in English
+"""
+        user_msg = f"Topic: {topic}\nType: {skill_type}\n"
+        if details:
+            user_msg += f"Detailed requirements: {details}\n"
+        user_msg += "\nPlease create a Claude Code SKILL.md based on the above. Write everything in English."
+    else:
+        system_prompt = f"""당신은 Claude Code 스킬 제작 전문가입니다.
 아래 3개 메타스킬의 지침을 참고하여 고품질 SKILL.md를 생성하세요.
 
 {meta_instructions}
@@ -3476,12 +3497,12 @@ def api_skill_generate():
 4. 본문: 마크다운 형식의 지시문, "When to Use" 섹션 포함
 5. 전체 500줄 이내
 6. SKILL.md 내용만 출력 (설명 없이)
+7. 모든 내용을 한글로 작성
 """
-
-    user_msg = f"주제: {topic}\n유형: {skill_type}\n"
-    if details:
-        user_msg += f"상세 요구사항: {details}\n"
-    user_msg += "\n위 내용으로 Claude Code SKILL.md를 작성해주세요."
+        user_msg = f"주제: {topic}\n유형: {skill_type}\n"
+        if details:
+            user_msg += f"상세 요구사항: {details}\n"
+        user_msg += "\n위 내용으로 Claude Code SKILL.md를 한글로 작성해주세요."
 
     # 첫 번째 사용 가능한 API 환경 찾기
     api_url = ""
@@ -7961,6 +7982,14 @@ body.rp-collapsed .chat-box-fixed{right:0}
           <label style="font-size:12px;font-weight:700;display:block;margin-bottom:4px;">상세 요구사항 (선택)</label>
           <textarea id="scDetails" rows="4" placeholder="스킬에 포함할 기능, 특수 요구사항 등..." style="width:100%;padding:8px;border:1px solid #e2e8f0;border-radius:6px;font-size:13px;resize:vertical;box-sizing:border-box;"></textarea>
         </div>
+        <div style="margin-bottom:12px;">
+          <label style="font-size:12px;font-weight:700;display:block;margin-bottom:4px;">생성 언어</label>
+          <div style="display:flex;gap:6px;">
+            <button id="scLangKo" onclick="setScLang('ko')" style="padding:6px 16px;border-radius:6px;font-size:13px;cursor:pointer;border:2px solid #6366f1;background:#6366f1;color:#fff;font-weight:700;">🇰🇷 한글</button>
+            <button id="scLangEn" onclick="setScLang('en')" style="padding:6px 16px;border-radius:6px;font-size:13px;cursor:pointer;border:2px solid #e2e8f0;background:#fff;color:#333;font-weight:700;">🇺🇸 English</button>
+          </div>
+          <input type="hidden" id="scLang" value="ko">
+        </div>
         <div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap;">
           <button onclick="generateSkillLLM()" id="scGenBtn" style="background:#8b5cf6;color:#fff;border:none;border-radius:6px;padding:8px 16px;font-size:13px;cursor:pointer;">🤖 LLM으로 생성</button>
           <button onclick="validateGenerated()" style="background:#6366f1;color:#fff;border:none;border-radius:6px;padding:8px 16px;font-size:13px;cursor:pointer;">🔍 검증</button>
@@ -10300,16 +10329,29 @@ async function downloadSkill(){
     alert('다운로드 실패: '+e.message);
   }
 }
+function setScLang(lang){
+  document.getElementById('scLang').value = lang;
+  const ko = document.getElementById('scLangKo');
+  const en = document.getElementById('scLangEn');
+  if(lang==='ko'){
+    ko.style.background='#6366f1'; ko.style.color='#fff'; ko.style.borderColor='#6366f1';
+    en.style.background='#fff'; en.style.color='#333'; en.style.borderColor='#e2e8f0';
+  } else {
+    en.style.background='#6366f1'; en.style.color='#fff'; en.style.borderColor='#6366f1';
+    ko.style.background='#fff'; ko.style.color='#333'; ko.style.borderColor='#e2e8f0';
+  }
+}
 async function generateSkillLLM(){
   const topic = document.getElementById('scTopic').value.trim();
   if(!topic){ alert('스킬 주제를 입력하세요.'); return; }
   const skill_type = document.getElementById('scType').value;
   const details = document.getElementById('scDetails').value.trim();
+  const lang = document.getElementById('scLang').value || 'ko';
   document.getElementById('scGenStatus').style.display = 'block';
   document.getElementById('scGenBtn').disabled = true;
   try{
   document.getElementById('scGenResult').style.display = 'none';
-    const resp = await fetch('/api/skill/generate',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({topic,skill_type,details})});
+    const resp = await fetch('/api/skill/generate',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({topic,skill_type,details,lang})});
     const data = await resp.json();
     document.getElementById('scGenStatus').style.display = 'none';
     document.getElementById('scGenBtn').disabled = false;
