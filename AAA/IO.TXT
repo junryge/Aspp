@@ -48,6 +48,16 @@ gguf_loaded_path = None  # 현재 로드된 모델 파일 경로
 # GGUF 멀티모델 풀 (병렬 에이전트용)
 MAX_POOL_SIZE = int(os.getenv("GGUF_MAX_POOL_SIZE", "4"))
 VRAM_BUDGET_GB = float(os.getenv("GGUF_VRAM_BUDGET_GB", "14"))
+
+# ── 토큰/컨텍스트 설정 (프론트엔드에서 변경 가능) ──
+TOKEN_SETTINGS = {
+    "agent_max_tokens": int(os.getenv("AGENT_MAX_TOKENS", "8192")),       # 개별 에이전트 응답 토큰
+    "synth_max_tokens": int(os.getenv("SYNTH_MAX_TOKENS", "16384")),      # CEO 합성 보고서 토큰
+    "default_n_ctx": int(os.getenv("DEFAULT_N_CTX", "32768")),            # GGUF 기본 컨텍스트 윈도우
+    "gguf_reply_cap": int(os.getenv("GGUF_MAX_TOKENS_CAP", "16384")),     # GGUF 응답 상한
+    "gguf_ctx_reserve": int(os.getenv("GGUF_CONTEXT_RESERVE", "1536")),   # 컨텍스트 예약 공간
+    "parallel_agent_max_tokens": int(os.getenv("PARALLEL_AGENT_MAX_TOKENS", "4096")),  # 병렬 에이전트 토큰
+}
 _gguf_pool_lock = threading.Lock()
 _gguf_pool = []  # [{"model": Llama, "path": str, "size_gb": float, "n_ctx": int, "in_use": bool, "last_used": float}]
 
@@ -2182,7 +2192,30 @@ def api_config():
         "has_token": bool(API_TOKEN),
         "token_file": TOKEN_FILE,
         "token_optional": True,
+        "token_settings": TOKEN_SETTINGS,
     })
+
+
+@app.route("/api/config/tokens", methods=["GET", "POST"])
+def api_config_tokens():
+    """토큰/컨텍스트 설정 조회 및 변경"""
+    if request.method == "GET":
+        return jsonify(TOKEN_SETTINGS)
+
+    data = request.json or {}
+    changed = {}
+    for key in TOKEN_SETTINGS:
+        if key in data:
+            try:
+                val = int(data[key])
+                if val > 0:
+                    TOKEN_SETTINGS[key] = val
+                    changed[key] = val
+            except (ValueError, TypeError):
+                pass
+    if not changed:
+        return jsonify({"error": "변경할 설정이 없습니다.", "current": TOKEN_SETTINGS}), 400
+    return jsonify({"message": f"{len(changed)}개 설정 변경됨", "changed": changed, "current": TOKEN_SETTINGS})
 
 
 # ============================================
@@ -3220,7 +3253,7 @@ table from=20260327000000 to=20260327235959 ts_data_view_m14a | limit 5
                     "messages": messages,
                     "temperature": 0.3,
                     "max_tokens": 2048,
-                    "stream": False,
+                    "stream": False, "tool_choice": "none",
                 },
                 timeout=60,
                 verify=False,
@@ -5238,7 +5271,7 @@ def api_chat():
     output_format = data.get("format", "code")
     writing_style = data.get("writing_style", "")
     custom_system_prompt = data.get("system_prompt", "")
-    max_tokens = data.get("max_tokens", 8192)
+    max_tokens = data.get("max_tokens", TOKEN_SETTINGS["agent_max_tokens"])
     user_n_ctx = data.get("n_ctx", 0)  # 프론트엔드에서 요청한 n_ctx (0이면 기본값 사용)
     think_mode = data.get("think_mode", False)
     requested_output_format = output_format
@@ -5959,7 +5992,7 @@ def api_chat():
                                     history=messages[-6:],
                                     n_ctx=user_n_ctx if user_n_ctx > 0 else 16384,
                                     temperature=temperature_map[min(effort, 3)],
-                                    max_tokens=4096,
+                                    max_tokens=TOKEN_SETTINGS["parallel_agent_max_tokens"],
                                     csv_data=uploaded_csv_data if uploaded_csv_data.get("filename") else None,
                                     uploaded_files_data=uploaded_files if uploaded_files else None,
                                 )
@@ -6035,8 +6068,8 @@ def api_chat():
         # GGUF 컨텍스트 한도 내에서 max_tokens 자동 조정 (보수적 계산)
         gguf_ctx_attr = getattr(gguf_model, 'n_ctx', None)
         gguf_ctx = gguf_ctx_attr() if callable(gguf_ctx_attr) else (gguf_ctx_attr if gguf_ctx_attr is not None else 32768)
-        gguf_reply_cap = max(256, int(os.getenv("GGUF_MAX_TOKENS_CAP", "16384")))
-        gguf_ctx_reserve = max(512, int(os.getenv("GGUF_CONTEXT_RESERVE", "1536")))
+        gguf_reply_cap = max(256, TOKEN_SETTINGS["gguf_reply_cap"])
+        gguf_ctx_reserve = max(512, TOKEN_SETTINGS["gguf_ctx_reserve"])
 
         def _estimate_gguf_prompt_tokens(msgs):
             # 1) 모델 토크나이저 기반 추정 (가능하면 사용)
@@ -6209,7 +6242,7 @@ def api_chat():
                                     "messages": agent_msgs,
                                     "temperature": _temp,
                                     "max_tokens": 4096,
-                                    "stream": False,
+                                    "stream": False, "tool_choice": "none",
                                 },
                                 timeout=120,
                                 verify=False,
@@ -6286,7 +6319,7 @@ def api_chat():
                                 "model": synth_api["model"],
                                 "messages": [{"role": "system", "content": synth_system},
                                              {"role": "user", "content": _last_query}],
-                                "temperature": 0.3, "max_tokens": 8192, "stream": False,
+                                "temperature": 0.3, "max_tokens": 8192, "stream": False, "tool_choice": "none",
                             }, timeout=120, verify=False)
                             sr.raise_for_status()
                             sr_data = sr.json()
@@ -6373,6 +6406,7 @@ def api_chat():
                         "temperature": temperature_map[min(effort, 3)],
                         "max_tokens": max_tokens,
                         "stream": False,
+                        "tool_choice": "none",
                     },
                     timeout=120,
                     verify=False,
@@ -6415,7 +6449,7 @@ def api_chat():
                                     "messages": try_msgs,
                                     "temperature": temperature_map[min(effort, 3)],
                                     "max_tokens": retry_max,
-                                    "stream": False,
+                                    "stream": False, "tool_choice": "none",
                                 },
                                 timeout=180,
                                 verify=False,
@@ -6503,7 +6537,7 @@ def api_chat():
                     "messages": api_messages,
                     "temperature": temperature_map[min(effort, 3)],
                     "max_tokens": max_tokens,
-                    "stream": False,
+                    "stream": False, "tool_choice": "none",
                 },
                 timeout=120,
                 verify=False,
@@ -6543,7 +6577,7 @@ def api_chat():
                                 "messages": api_messages,
                                 "temperature": temperature_map[min(effort, 3)],
                                 "max_tokens": retry_max,
-                                "stream": False,
+                                "stream": False, "tool_choice": "none",
                             },
                             timeout=180,
                             verify=False,
