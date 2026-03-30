@@ -7741,9 +7741,10 @@ body.rp-collapsed .chat-box-fixed{right:0}
       </div>
 
       <div class="section-label" style="cursor:pointer;user-select:none;" onclick="toggleSection('comboSection','comboArrow')">
-        <span class="arrow" id="comboArrow">▶</span> 스킬 조합 <span style="font-weight:400;color:#bbb">( 클릭하면 추천 스킬이 자동 선택됩니다 )</span>
+        <span class="arrow" id="comboArrow">▶</span> 스킬 조합 <span style="font-weight:400;color:#bbb">( 여러 조합을 동시에 선택할 수 있습니다 )</span>
       </div>
       <div id="comboSection" style="display:none;padding:4px 0;">
+        <div id="comboActiveMsg" style="display:none;margin-bottom:8px;padding:8px 12px;border-radius:8px;background:#6366f110;border:1px solid #6366f130;font-size:12px;color:#6366f1;"></div>
         <div id="comboGrid" style="display:flex;flex-wrap:wrap;gap:6px;"></div>
       </div>
 
@@ -8153,6 +8154,7 @@ function renderCombos(){
       <div style="line-height:1.8;">${skillTags}</div>`;
     grid.appendChild(card);
   });
+  updateComboActiveMsg();
 }
 // 스킬 ID → 짧은 한국어 이름 매핑
 const _comboSkillNames = {
@@ -8176,13 +8178,15 @@ const _comboSkillNames = {
 };
 
 function applyCombo(combo){
-  // 같은 조합 다시 클릭 → 해제
-  const allSelected = combo.skills.every(sid=>selSkills.includes(sid)) && selSkills.length === combo.skills.length;
+  const allSelected = combo.skills.every(sid=>selSkills.includes(sid));
   if(allSelected){
-    selSkills = [];
+    // 이 조합의 스킬만 제거 (다른 조합 스킬은 유지)
+    selSkills = selSkills.filter(sid=>!combo.skills.includes(sid));
   } else {
-    // 기존 전부 교체 → 이 조합만 선택
-    selSkills = [...combo.skills];
+    // 이 조합의 스킬을 기존에 추가 (중복 제거)
+    combo.skills.forEach(sid=>{
+      if(!selSkills.includes(sid)) selSkills.push(sid);
+    });
   }
   // 자동 스킬 선택 OFF
   if(autoSkillMode){
@@ -8203,6 +8207,20 @@ function applyCombo(combo){
   renderSkills();
   updateLoaded();
   renderCombos();
+  updateComboActiveMsg();
+}
+function updateComboActiveMsg(){
+  const msgEl = document.getElementById('comboActiveMsg');
+  if(!msgEl) return;
+  const active = SKILL_COMBOS.filter(c=>c.skills.every(sid=>selSkills.includes(sid)));
+  if(active.length === 0){
+    msgEl.style.display = 'none';
+    return;
+  }
+  const labels = active.map(c=>c.label).join(' + ');
+  const totalSkills = new Set(active.flatMap(c=>c.skills).filter(sid=>selSkills.includes(sid))).size;
+  msgEl.innerHTML = `🔗 <b>${active.length}개 조합 활성:</b> ${labels} — 총 <b>${selSkills.length}개</b> 스킬 선택됨`;
+  msgEl.style.display = 'block';
 }
 
 // 페이지 로드 시 콤보 렌더링
