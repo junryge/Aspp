@@ -3193,6 +3193,27 @@ def api_skill_run(skill_name):
 # 스킬 생성 / 검증 / 다운로드 API
 # ============================================
 
+def _clean_skill_content(raw):
+    """LLM 생성 결과에서 SKILL.md 본문만 추출 (코드블록/설명문 제거)"""
+    if not raw or not raw.strip():
+        return raw
+    text = raw.strip()
+    # ```markdown ... ``` 또는 ``` ... ``` 코드블록 추출
+    md_match = re.search(r'```(?:markdown|yaml|md)?\s*\n(.*?)```', text, re.DOTALL)
+    if md_match:
+        text = md_match.group(1).strip()
+    # 앞쪽 설명 텍스트 제거: --- 이전의 비-frontmatter 텍스트 스킵
+    if not text.startswith("---"):
+        idx = text.find("\n---\n")
+        if idx >= 0:
+            text = text[idx + 1:]
+        else:
+            idx = text.find("---\n")
+            if idx >= 0:
+                text = text[idx:]
+    return text.strip()
+
+
 def _validate_skill_content(content_text):
     """SKILL.md 내용을 검증 (quick_validate.py 인라인 버전). returns (valid, errors[], warnings[])"""
     errors = []
@@ -3200,6 +3221,9 @@ def _validate_skill_content(content_text):
 
     if not content_text or not content_text.strip():
         return False, ["SKILL.md 내용이 비어 있습니다."], []
+
+    # LLM 출력 자동 정리
+    content_text = _clean_skill_content(content_text)
 
     if not content_text.strip().startswith("---"):
         return False, ["YAML frontmatter가 없습니다. '---'로 시작해야 합니다."], []
@@ -3339,7 +3363,7 @@ def api_skill_apply():
 
     # content가 있으면 그대로 사용, 없으면 name/desc/body로 조합
     if content.strip():
-        skill_md = content.strip()
+        skill_md = _clean_skill_content(content)
         # content에서 name 추출
         m = re.search(r'name:\s*(.+)', skill_md)
         if m:
