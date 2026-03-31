@@ -2907,6 +2907,10 @@ canvas { display: block; }
             <button id="btnThemeToggle" style="padding:6px 14px;background:#fff;color:#000;border:1px solid #888;border-radius:4px;cursor:pointer;font-size:12px;font-weight:bold;" title="화이트/다크 모드 전환">☀ 화이트</button>
             <button id="btnToggle3D" style="padding:6px 14px;background:#ff9900;color:#000;border:none;border-radius:4px;cursor:pointer;font-size:12px;font-weight:bold;">3D 효과 OFF</button>
             <button id="btnToggleCurve" style="padding:6px 14px;background:#00d4ff;color:#000;border:none;border-radius:4px;cursor:pointer;font-size:12px;font-weight:bold;">곡선 ON</button>
+            <label style="display:flex;align-items:center;gap:3px;cursor:pointer;font-size:11px;color:#ff6666;font-weight:bold;">
+                <input type="checkbox" id="chkZoneMarkers" checked style="cursor:pointer;accent-color:#ff3366;width:14px;height:14px;">
+                Zone표시
+            </label>
             <select id="heatmapMode" style="padding:6px 10px;background:#1a1a3e;color:#ff6600;border:1px solid #ff6600;border-radius:4px;cursor:pointer;font-size:12px;font-weight:bold;" title="히트맵 모드">
                 <option value="off">히트맵 OFF</option>
                 <option value="zone">HID Zone 점유율</option>
@@ -2983,12 +2987,6 @@ canvas { display: block; }
         <div class="stat-row"><span>전체 점유율</span><span class="val" id="statZoneOccupancy">- %</span></div>
         <div style="margin-top:10px;">
             <button id="btnToggleZones" style="width:100%;padding:6px 8px;background:#555;color:#fff;border:none;border-radius:4px;cursor:pointer;font-size:11px;font-weight:bold;">Zone 표시 OFF</button>
-        </div>
-        <div style="margin-top:6px;display:flex;align-items:center;gap:6px;">
-            <label style="display:flex;align-items:center;gap:4px;cursor:pointer;font-size:11px;">
-                <input type="checkbox" id="chkZoneMarkers" checked style="cursor:pointer;accent-color:#ff3366;">
-                <span>주의/포화 사각형</span>
-            </label>
         </div>
         <div style="margin-top:6px;display:flex;gap:4px;">
             <button id="btnToggleStations" style="flex:1;padding:5px 2px;background:#555;color:#fff;border:none;border-radius:4px;cursor:pointer;font-size:9px;">Station OFF</button>
