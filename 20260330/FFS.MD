@@ -2681,7 +2681,43 @@ HTML_CONTENT = """
 <title>OHT 실시간 시뮬레이터</title>
 <style>
 * { margin: 0; padding: 0; box-sizing: border-box; }
-body { font-family: 'Segoe UI', sans-serif; background: #0a0a1a; color: #eee; overflow: hidden; }
+body { font-family: 'Segoe UI', sans-serif; background: #0a0a1a; color: #eee; overflow: hidden; transition: background 0.3s, color 0.3s; }
+
+/* ============================================================ */
+/* 화이트 모드 오버라이드 */
+/* ============================================================ */
+body.white-mode { background: #f0f2f5; color: #222; }
+body.white-mode #header { background: linear-gradient(90deg, #e8eaf0, #d0d4e0); }
+body.white-mode #header h1 { color: #0066cc; }
+body.white-mode #header .status span { color: #0066cc; }
+body.white-mode #sidebar { background: rgba(240, 242, 248, 0.97); border-right-color: #ccc; }
+body.white-mode #sidebar h3 { color: #0066cc; }
+body.white-mode #sidebar .section { background: #e4e8f0; }
+body.white-mode .stat-row .val { color: #0066cc; }
+body.white-mode #right-sidebar { background: rgba(240, 242, 248, 0.97); border-left-color: #ccc; }
+body.white-mode #right-sidebar h3 { color: #0066cc; }
+body.white-mode #sidebar-toggle { background: rgba(240, 242, 248, 0.97); border-color: #ccc; color: #0066cc; }
+body.white-mode #right-sidebar-toggle { background: rgba(240, 242, 248, 0.97); border-color: #ccc; color: #0066cc; }
+body.white-mode #tooltip { background: rgba(255,255,255,0.97); border-color: #0066cc; color: #222; }
+body.white-mode #tooltip .title { color: #0066cc; }
+body.white-mode #tooltip .label { color: #888; }
+body.white-mode #tooltip .value { color: #222; }
+body.white-mode #info-panel { background: rgba(255,255,255,0.9); border-color: #0066cc; }
+body.white-mode #info-panel .time { color: #0066cc; }
+body.white-mode .oht-item { background: #e4e8f0; border-left-color: #aaa; }
+body.white-mode .oht-item:hover { background: #d0d4e0; }
+body.white-mode .oht-item .oht-id { color: #0066cc; }
+body.white-mode .oht-item .detail-row .label { color: #666; }
+body.white-mode .oht-item .detail-row .value { color: #222; }
+body.white-mode .zone-item { background: #e4e8f0; border-left-color: #aaa; }
+body.white-mode .zone-item:hover { background: #d0d4e0; }
+body.white-mode .zone-item .zone-id { color: #0066cc; }
+body.white-mode .oht-filter button { background: #ccc; color: #333; }
+body.white-mode .oht-filter button.active { background: #0066cc; color: #fff; }
+body.white-mode .zone-filter button { background: #ccc; color: #333; }
+body.white-mode .zone-filter button.active { background: #0066cc; color: #fff; }
+body.white-mode .sidebar-tab { background: #dde; color: #666; border-color: #bbb; }
+body.white-mode .sidebar-tab.active { background: #0066cc; color: #fff; border-color: #0066cc; }
 
 #header {
     position: fixed; top: 0; left: 0; right: 0; height: 50px;
@@ -2868,14 +2904,15 @@ canvas { display: block; }
             <button id="btnSwitchFab" style="padding:6px 14px;background:#00ff88;color:#000;border:none;border-radius:4px;cursor:pointer;font-size:12px;font-weight:bold;">적용</button>
         </div>
         <div style="display:flex;align-items:center;gap:8px;">
+            <button id="btnThemeToggle" style="padding:6px 14px;background:#fff;color:#000;border:1px solid #888;border-radius:4px;cursor:pointer;font-size:12px;font-weight:bold;" title="화이트/다크 모드 전환">☀ 화이트</button>
             <button id="btnToggle3D" style="padding:6px 14px;background:#ff9900;color:#000;border:none;border-radius:4px;cursor:pointer;font-size:12px;font-weight:bold;">3D 효과 OFF</button>
             <button id="btnToggleCurve" style="padding:6px 14px;background:#00d4ff;color:#000;border:none;border-radius:4px;cursor:pointer;font-size:12px;font-weight:bold;">곡선 ON</button>
             <select id="heatmapMode" style="padding:6px 10px;background:#1a1a3e;color:#ff6600;border:1px solid #ff6600;border-radius:4px;cursor:pointer;font-size:12px;font-weight:bold;" title="히트맵 모드">
                 <option value="off">히트맵 OFF</option>
+                <option value="zone">HID Zone 점유율</option>
                 <option value="traffic">통과량</option>
-                <option value="density">밀도</option>
+                <option value="density">엣지 밀도</option>
                 <option value="velocity">속도(저속=빨강)</option>
-                <option value="gaussian">OHT 밀집도</option>
             </select>
             <span style="color:#888;font-size:11px;">R:</span>
             <input type="range" id="curveRadiusSlider" min="5" max="100" value="30" style="width:60px;cursor:pointer;" title="곡률반경">
@@ -3000,7 +3037,7 @@ canvas { display: block; }
         <div id="heatmapLegend" style="display:none;margin-top:12px;padding-top:10px;border-top:1px solid #333;">
             <div style="font-size:11px;color:#ff6600;font-weight:bold;margin-bottom:6px;">히트맵 범례</div>
             <div id="heatmapLegendContent" style="font-size:10px;color:#aaa;"></div>
-            <div style="margin-top:6px;height:12px;border-radius:3px;background:linear-gradient(90deg, #00ff88, #ffff00, #ff6600, #ff0000);"></div>
+            <div style="margin-top:6px;height:12px;border-radius:3px;background:linear-gradient(90deg, #00CC00, #88FF00, #FFFF00, #FF8800, #FF0000);"></div>
             <div style="display:flex;justify-content:space-between;font-size:9px;color:#888;margin-top:2px;">
                 <span id="heatLegendLow">낮음</span>
                 <span id="heatLegendHigh">높음</span>
@@ -3618,7 +3655,7 @@ const LIGHT_ANGLE = -Math.PI / 4;  // 조명 각도 (좌상단에서)
 // ============================================================
 // 히트맵 모드 설정
 // ============================================================
-let heatmapMode = 'off';  // off, traffic, density, velocity, gaussian
+let heatmapMode = 'off';  // off, zone, traffic, density, velocity
 window.edgeHeatmapData = {};
 
 // 히트맵 색상 보간 함수 (0~1 → 초록~빨강)
@@ -3658,6 +3695,11 @@ document.getElementById('heatmapMode').addEventListener('change', function(e) {
     } else {
         legend.style.display = 'block';
         switch(heatmapMode) {
+            case 'zone':
+                legendContent.textContent = 'HID Zone 점유율 (높을수록 빨강)';
+                lowLabel.textContent = '0%';
+                highLabel.textContent = '100% (포화)';
+                break;
             case 'traffic':
                 legendContent.textContent = '레일 통과 횟수 (많을수록 빨강)';
                 lowLabel.textContent = '0회';
@@ -3672,11 +3714,6 @@ document.getElementById('heatmapMode').addEventListener('change', function(e) {
                 legendContent.textContent = '평균 속도 (느릴수록 빨강)';
                 lowLabel.textContent = '300 m/min';
                 highLabel.textContent = '0 m/min';
-                break;
-            case 'gaussian':
-                legendContent.textContent = 'OHT 위치 기반 밀집도 (가우시안)';
-                lowLabel.textContent = '소수';
-                highLabel.textContent = '밀집';
                 break;
         }
     }
@@ -4194,62 +4231,277 @@ function drawHeatmapRails() {
 // ============================================================
 // 가우시안 히트맵 오버레이 (OHT 위치 기반)
 // ============================================================
-function drawGaussianHeatmap() {
-    if (!vehicles || heatmapMode !== 'gaussian') return;
+// ============================================================
+// HID Zone 히트맵 - Zone 영역을 점유율 기준으로 가우시안 오버레이
+// Zone의 Lane 노드들 → 바운딩 박스 중심 → 가우시안 원 그리기
+// 점유율: 0% → 투명초록, 50% → 노랑, 80%+ → 빨강
+// ============================================================
 
-    const vehList = Object.values(vehicles);
-    if (vehList.length === 0) return;
+// 히트맵 컬러맵 LUT (256 엔트리, RGBA) - 초록→노랑→주황→빨강
+const _heatmapLUT = (function() {
+    const lut = new Uint8Array(256 * 4);
+    for (let i = 0; i < 256; i++) {
+        const t = i / 255;
+        let r, g, b, a;
 
-    // 오프스크린 캔버스에서 히트맵 생성
-    const heatCanvas = document.createElement('canvas');
-    heatCanvas.width = canvas.width;
-    heatCanvas.height = canvas.height;
-    const hCtx = heatCanvas.getContext('2d');
-
-    // 각 OHT 위치에 가우시안 원 그리기
-    const radius = Math.max(30, 80 / scale);  // 줌에 따라 반경 조절
-
-    vehList.forEach(v => {
-        // 화면 좌표로 변환
-        let sx, sy;
-        if (isPseudo3D) {
-            const isoPos = toIso(v.dispX, v.dispY, RAIL_HEIGHT / scale);
-            sx = isoPos.x * scale + offsetX;
-            sy = isoPos.y * scale + offsetY;
+        if (t < 0.05) {
+            // 투명 (배경)
+            r = 0; g = 0; b = 0; a = 0;
+        } else if (t < 0.25) {
+            // 어두운 초록 → 초록
+            const s = (t - 0.05) / 0.20;
+            r = 0; g = Math.round(100 + s * 155); b = Math.round(50 * (1 - s));
+            a = Math.round(60 + s * 60);
+        } else if (t < 0.45) {
+            // 초록 → 연두/노랑
+            const s = (t - 0.25) / 0.20;
+            r = Math.round(s * 255); g = 255; b = 0;
+            a = Math.round(120 + s * 30);
+        } else if (t < 0.65) {
+            // 노랑 → 주황
+            const s = (t - 0.45) / 0.20;
+            r = 255; g = Math.round(255 - s * 130); b = 0;
+            a = Math.round(150 + s * 30);
+        } else if (t < 0.85) {
+            // 주황 → 빨강
+            const s = (t - 0.65) / 0.20;
+            r = 255; g = Math.round(125 - s * 100); b = 0;
+            a = Math.round(180 + s * 40);
         } else {
-            sx = v.dispX * scale + offsetX;
-            sy = v.dispY * scale + offsetY;
+            // 진한 빨강 (최고 밀집)
+            const s = (t - 0.85) / 0.15;
+            r = Math.round(255 - s * 30); g = Math.round(25 - s * 25); b = 0;
+            a = Math.round(220 + s * 35);
         }
 
-        const screenRadius = radius * scale;
+        lut[i * 4] = r;
+        lut[i * 4 + 1] = g;
+        lut[i * 4 + 2] = b;
+        lut[i * 4 + 3] = a;
+    }
+    return lut;
+})();
 
-        // 가우시안 그라데이션
-        const grad = hCtx.createRadialGradient(sx, sy, 0, sx, sy, screenRadius);
-        grad.addColorStop(0, 'rgba(255, 0, 0, 0.15)');
-        grad.addColorStop(0.4, 'rgba(255, 100, 0, 0.08)');
-        grad.addColorStop(0.7, 'rgba(255, 200, 0, 0.03)');
-        grad.addColorStop(1, 'rgba(0, 255, 0, 0)');
+// 오프스크린 캔버스 재사용
+let _heatIntensityCanvas = null;
+let _heatIntensityCtx = null;
+let _heatColorCanvas = null;
+let _heatColorCtx = null;
 
+function drawZoneHeatmap() {
+    if (!window.hidZones || heatmapMode !== 'zone') return;
+
+    const zoneStatusMap = window.zoneStatusMap || {};
+    if (!nodeMap || Object.keys(nodeMap).length === 0) return;
+
+    const w = canvas.width;
+    const h = canvas.height;
+
+    // ====================================================================
+    // 1/4 다운스케일로 성능 확보 (최종 업스케일 시 자연스러운 블러 효과)
+    // ====================================================================
+    const DS = 4;  // 다운스케일 배율
+    const dw = Math.ceil(w / DS);
+    const dh = Math.ceil(h / DS);
+
+    if (!_heatIntensityCanvas || _heatIntensityCanvas.width !== dw || _heatIntensityCanvas.height !== dh) {
+        _heatIntensityCanvas = document.createElement('canvas');
+        _heatIntensityCanvas.width = dw;
+        _heatIntensityCanvas.height = dh;
+        _heatIntensityCtx = _heatIntensityCanvas.getContext('2d');
+
+        _heatColorCanvas = document.createElement('canvas');
+        _heatColorCanvas.width = dw;
+        _heatColorCanvas.height = dh;
+        _heatColorCtx = _heatColorCanvas.getContext('2d');
+    }
+
+    const hCtx = _heatIntensityCtx;
+    hCtx.clearRect(0, 0, dw, dh);
+
+    // ====================================================================
+    // Step 1: Zone 중심에 점유율 비례 가우시안 찍기
+    // lighter가 아닌 source-over + 높은 alpha로 직접 매핑
+    // ====================================================================
+    // 각 Zone의 바운딩 박스 중심 계산 + 점유율에 따라 색상 직접 지정
+    const baseRadius = Math.max(60, 200 / scale);
+    const screenRadius = (baseRadius * scale) / DS;  // 다운스케일 좌표계
+
+    window.hidZones.forEach(zone => {
+        const status = zoneStatusMap[zone.zoneId];
+        if (!status) return;
+
+        const occupancy = status.occupancyRate / 100;
+        if (occupancy < 0.01) return;
+
+        // Zone 중심 계산 (Lane 노드들의 중심)
+        let sumX = 0, sumY = 0, cnt = 0;
+        const allLanes = [...(zone.inLanes || []), ...(zone.outLanes || [])];
+        const seenNodes = new Set();
+
+        allLanes.forEach(lane => {
+            [lane.from, lane.to].forEach(nid => {
+                if (seenNodes.has(nid)) return;
+                seenNodes.add(nid);
+                const node = nodeMap[nid];
+                if (!node) return;
+
+                let sx, sy;
+                if (isPseudo3D) {
+                    const isoPos = toIso(node.x, node.y, RAIL_HEIGHT / scale);
+                    sx = isoPos.x * scale + offsetX;
+                    sy = isoPos.y * scale + offsetY;
+                } else {
+                    sx = node.x * scale + offsetX;
+                    sy = node.y * scale + offsetY;
+                }
+                sumX += sx; sumY += sy; cnt++;
+            });
+        });
+
+        if (cnt === 0) return;
+        const cx = (sumX / cnt) / DS;
+        const cy = (sumY / cnt) / DS;
+
+        // 화면 밖이면 스킵
+        if (cx < -screenRadius || cx > dw + screenRadius ||
+            cy < -screenRadius || cy > dh + screenRadius) return;
+
+        // 점유율 → LUT 색상 직접 매핑 (포화 문제 없음!)
+        const lutI = Math.min(255, Math.round(occupancy * 255));
+        const lr = _heatmapLUT[lutI * 4];
+        const lg = _heatmapLUT[lutI * 4 + 1];
+        const lb = _heatmapLUT[lutI * 4 + 2];
+        const la = _heatmapLUT[lutI * 4 + 3] / 255;
+
+        const colorStr = 'rgba(' + lr + ',' + lg + ',' + lb + ',';
+
+        // 가우시안 그라데이션 (점유율 색상으로 직접!)
+        const grad = hCtx.createRadialGradient(cx, cy, 0, cx, cy, screenRadius);
+        grad.addColorStop(0, colorStr + (la * 0.9) + ')');
+        grad.addColorStop(0.2, colorStr + (la * 0.7) + ')');
+        grad.addColorStop(0.45, colorStr + (la * 0.4) + ')');
+        grad.addColorStop(0.7, colorStr + (la * 0.15) + ')');
+        grad.addColorStop(1, colorStr + '0)');
+
+        hCtx.globalCompositeOperation = 'source-over';
         hCtx.fillStyle = grad;
         hCtx.beginPath();
-        hCtx.arc(sx, sy, screenRadius, 0, Math.PI * 2);
+        hCtx.arc(cx, cy, screenRadius, 0, Math.PI * 2);
         hCtx.fill();
     });
 
-    // 메인 캔버스에 오버레이 합성
+    // Step 2: 다운스케일 캔버스를 메인 캔버스에 업스케일 합성
+    // (자동으로 부드러운 블러 효과)
     ctx.save();
-    ctx.setTransform(1, 0, 0, 1, 0, 0);  // 변환 초기화 (화면 좌표계)
-    ctx.globalCompositeOperation = 'lighter';
-    ctx.globalAlpha = 0.7;
-    ctx.drawImage(heatCanvas, 0, 0);
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.globalCompositeOperation = 'source-over';
+    ctx.globalAlpha = 0.8;
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = 'high';
+    ctx.drawImage(_heatIntensityCanvas, 0, 0, dw, dh, 0, 0, w, h);
     ctx.globalAlpha = 1.0;
+    ctx.restore();
+
+    // ====================================================================
+    // Step 3: 주의/포화 Zone에 사각형 마커 + 라벨 표시
+    // ====================================================================
+    ctx.save();
+    ctx.translate(offsetX, offsetY);
+    ctx.scale(scale, scale);
+
+    window.hidZones.forEach(zone => {
+        const status = zoneStatusMap[zone.zoneId];
+        if (!status) return;
+
+        const occ = status.occupancyRate;
+        // 주의(70%+) 또는 포화(100%) Zone만 표시
+        if (occ < 70) return;
+
+        // Zone 바운딩 박스 계산
+        let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+        const allLanes = [...(zone.inLanes || []), ...(zone.outLanes || [])];
+        let hasCoords = false;
+
+        allLanes.forEach(lane => {
+            const from = nodeMap[lane.from];
+            const to = nodeMap[lane.to];
+            if (from) { minX = Math.min(minX, from.x); maxX = Math.max(maxX, from.x); minY = Math.min(minY, from.y); maxY = Math.max(maxY, from.y); hasCoords = true; }
+            if (to) { minX = Math.min(minX, to.x); maxX = Math.max(maxX, to.x); minY = Math.min(minY, to.y); maxY = Math.max(maxY, to.y); hasCoords = true; }
+        });
+
+        if (!hasCoords) return;
+
+        // 여유 패딩
+        const pad = 30;
+        minX -= pad; maxX += pad; minY -= pad; maxY += pad;
+
+        // pseudo-3D 변환
+        const zoneZ = RAIL_HEIGHT / scale + 3;
+        const tl = toIso(minX, minY, zoneZ);
+        const tr = toIso(maxX, minY, zoneZ);
+        const br = toIso(maxX, maxY, zoneZ);
+        const bl = toIso(minX, maxY, zoneZ);
+
+        // 색상: 포화=빨강, 주의=주황
+        const isFull = status.status === 'FULL';
+        const borderColor = isFull ? '#ff2222' : '#ff8800';
+        const fillColor = isFull ? 'rgba(255, 34, 34, 0.12)' : 'rgba(255, 136, 0, 0.08)';
+        const lineW = isFull ? 3 / scale : 2 / scale;
+
+        // 사각형 테두리
+        ctx.strokeStyle = borderColor;
+        ctx.lineWidth = lineW;
+        ctx.globalAlpha = isFull ? 0.9 : 0.7;
+        ctx.setLineDash(isFull ? [] : [8/scale, 4/scale]);
+
+        ctx.beginPath();
+        ctx.moveTo(tl.x, tl.y);
+        ctx.lineTo(tr.x, tr.y);
+        ctx.lineTo(br.x, br.y);
+        ctx.lineTo(bl.x, bl.y);
+        ctx.closePath();
+        ctx.stroke();
+
+        // 내부 반투명 채우기
+        ctx.fillStyle = fillColor;
+        ctx.globalAlpha = 1.0;
+        ctx.fill();
+
+        // 라벨: Zone ID + 점유율
+        ctx.setLineDash([]);
+        ctx.globalAlpha = 1.0;
+        const cx = (minX + maxX) / 2;
+        const cy = (minY + maxY) / 2;
+        const labelPos = toIso(cx, cy, zoneZ);
+
+        const fontSize = Math.max(9, 12 / scale);
+        ctx.font = 'bold ' + fontSize + 'px sans-serif';
+
+        const label = (isFull ? '!! ' : '') + 'HID ' + zone.zoneId + ' ' + Math.round(occ) + '%';
+        const tw = ctx.measureText(label).width;
+        const lpad = 4 / scale;
+
+        // 배경 박스
+        ctx.fillStyle = isFull ? 'rgba(200, 0, 0, 0.85)' : 'rgba(180, 100, 0, 0.8)';
+        ctx.fillRect(labelPos.x - tw/2 - lpad, labelPos.y - fontSize/2 - lpad, tw + lpad*2, fontSize + lpad*2);
+
+        // 텍스트
+        ctx.fillStyle = '#ffffff';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(label, labelPos.x, labelPos.y);
+    });
+
+    ctx.globalAlpha = 1.0;
+    ctx.setLineDash([]);
     ctx.restore();
 }
 
 // 곡선 레일 그리기 (코너에만 모따기 적용)
 function drawCurvedRails() {
-    const railColor = '#2a4a6a';
+    const isWhite = document.body.classList.contains('white-mode');
+    const railColor = isWhite ? '#8899aa' : '#2a4a6a';
 
     if (!enableCurves || !layout || !layout.edges) {
         // 곡선 비활성화시 기존 방식
@@ -4347,7 +4599,8 @@ function drawCurvedRails() {
 
 // 렌더링
 function render() {
-    ctx.fillStyle = '#0a0a1a';
+    const isWhite = document.body.classList.contains('white-mode');
+    ctx.fillStyle = isWhite ? '#f0f2f5' : '#0a0a1a';
     ctx.fillRect(0, 0, canvas.width, canvas.height);
 
     if (!layout) return;
@@ -4359,8 +4612,8 @@ function render() {
     // 엣지 (레일) - 히트맵 모드에 따라 다르게 렌더링
     if (heatmapMode === 'off') {
         drawCurvedRails();
-    } else if (heatmapMode === 'gaussian') {
-        // 가우시안 모드: 기본 레일 먼저 그리고, OHT 루프 뒤에 오버레이
+    } else if (heatmapMode === 'zone') {
+        // Zone 히트맵: 기본 레일 먼저 그리고, OHT 뒤에 Zone 오버레이
         drawCurvedRails();
     } else {
         // 엣지 기반 히트맵 (traffic, density, velocity)
@@ -4368,26 +4621,24 @@ function render() {
     }
 
     // 노드 점 (pseudo-3D 모드에서는 3D 효과 적용)
+    const isWhiteMode = document.body.classList.contains('white-mode');
     const nodeSize = Math.max(1.5, 3 / scale);
     layout.nodes.forEach(n => {
         if (isPseudo3D) {
-            // 3D 효과: 노드를 작은 원기둥처럼 표현
             const pos = toIso(n.x, n.y, RAIL_HEIGHT / scale);
             const posBase = toIso(n.x, n.y, 0);
 
-            // 그림자 (기둥)
-            ctx.fillStyle = '#1a2a3a';
+            ctx.fillStyle = isWhiteMode ? '#aabbcc' : '#1a2a3a';
             ctx.beginPath();
             ctx.ellipse(posBase.x, posBase.y, nodeSize, nodeSize * 0.5, 0, 0, Math.PI * 2);
             ctx.fill();
 
-            // 상단 원
-            ctx.fillStyle = '#4a6a8a';
+            ctx.fillStyle = isWhiteMode ? '#6688aa' : '#4a6a8a';
             ctx.beginPath();
             ctx.ellipse(pos.x, pos.y, nodeSize, nodeSize * 0.5, 0, 0, Math.PI * 2);
             ctx.fill();
         } else {
-            ctx.fillStyle = '#4a4a6a';
+            ctx.fillStyle = isWhiteMode ? '#99aabb' : '#4a4a6a';
             ctx.beginPath();
             ctx.arc(n.x, n.y, nodeSize, 0, Math.PI * 2);
             ctx.fill();
@@ -5037,9 +5288,9 @@ function render() {
 
     ctx.restore();
 
-    // 가우시안 히트맵 오버레이 (OHT 렌더링 후에 그려야 함)
-    if (heatmapMode === 'gaussian') {
-        drawGaussianHeatmap();
+    // HID Zone 히트맵 오버레이 (OHT 렌더링 후에 그려야 함)
+    if (heatmapMode === 'zone') {
+        drawZoneHeatmap();
     }
 
     document.getElementById('zoomLevel').textContent = Math.round(scale * 100) + '%';
@@ -5588,6 +5839,26 @@ function toggle3DMode() {
 }
 
 document.getElementById('btnToggle3D').addEventListener('click', toggle3DMode);
+
+// 화이트/다크 모드 토글
+document.getElementById('btnThemeToggle').addEventListener('click', function() {
+    const body = document.body;
+    const btn = this;
+    body.classList.toggle('white-mode');
+
+    if (body.classList.contains('white-mode')) {
+        btn.textContent = '🌙 다크';
+        btn.style.background = '#333';
+        btn.style.color = '#fff';
+        btn.style.borderColor = '#555';
+    } else {
+        btn.textContent = '☀ 화이트';
+        btn.style.background = '#fff';
+        btn.style.color = '#000';
+        btn.style.borderColor = '#888';
+    }
+    render();
+});
 
 // 곡선 렌더링 토글
 function toggleCurveMode() {
