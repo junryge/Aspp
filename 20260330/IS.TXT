@@ -121,6 +121,44 @@ LOGPRESSO_TABLES = {
     },
 }
 
+# 테이블 카테고리 그룹 (접두사 기반 자동 분류)
+LOGPRESSO_TABLE_GROUPS = [
+    {"id": "atlas",    "label": "🚀 ATLAS 물류",     "prefix": ["ATLAS_", "ICPKT_ATLAS_"]},
+    {"id": "fab-hid",  "label": "🏭 FAB HID",        "prefix": ["M14A_", "M14B_", "M16A_", "M16B_"]},
+    {"id": "ts",       "label": "📦 Transfer(TS)",    "prefix": ["ts_"]},
+    {"id": "oht",      "label": "🚗 OHT",             "prefix": ["oht_"]},
+    {"id": "cs",       "label": "💻 CS 데이터",       "prefix": ["cs_"]},
+    {"id": "ds",       "label": "📊 DS 데이터",       "prefix": ["ds_"]},
+    {"id": "ei",       "label": "⚡ EI 데이터",       "prefix": ["ei_"]},
+    {"id": "secs",     "label": "🔌 SECS",            "prefix": ["secs_"]},
+    {"id": "tibrv",    "label": "📡 TIBRV",           "prefix": ["tibrv_"]},
+    {"id": "bridge",   "label": "🌉 브리지",          "prefix": ["bridge_"]},
+    {"id": "sys",      "label": "⚙️ 시스템",          "prefix": ["sys_"]},
+    {"id": "alarm",    "label": "🔔 알람/이상감지",   "prefix": ["ALERT_", "AMOS_", "abnormal_"]},
+    {"id": "msglog",   "label": "📝 메시지로그",      "prefix": ["table_msglog"]},
+    {"id": "test",     "label": "🧪 테스트",          "prefix": ["test_"]},
+]
+
+
+def _get_table_group(table_name):
+    """테이블명으로 카테고리 그룹 ID 반환"""
+    for grp in LOGPRESSO_TABLE_GROUPS:
+        for pfx in grp["prefix"]:
+            if table_name.startswith(pfx):
+                return grp["id"]
+    return "etc"
+
+
+def _filter_tables_by_groups(group_ids):
+    """선택된 그룹에 해당하는 테이블만 반환. 빈 리스트면 전체 반환."""
+    if not group_ids:
+        return dict(LOGPRESSO_TABLES)
+    result = {}
+    for tname, tinfo in LOGPRESSO_TABLES.items():
+        if _get_table_group(tname) in group_ids:
+            result[tname] = tinfo
+    return result
+
 
 def _fetch_table_fields(table_name, timeout=5):
     """테이블에서 샘플 1건을 조회하여 필드(컬럼) 목록을 추출."""
@@ -3584,9 +3622,27 @@ def _llm_generate_lpql(user_query, history=None):
     from datetime import datetime
     today = datetime.now().strftime("%Y%m%d")
 
+    # 사용자 질문에서 관련 테이블 그룹 자동 감지
+    _q_lower = user_query.lower()
+    _auto_groups = []
+    for grp in LOGPRESSO_TABLE_GROUPS:
+        _kws = [grp["id"]] + [p.rstrip("_").lower() for p in grp["prefix"]]
+        if any(kw in _q_lower for kw in _kws):
+            _auto_groups.append(grp["id"])
+    # 테이블명이 직접 언급된 경우도 감지
+    _direct_tables = {}
+    for tname, tinfo in LOGPRESSO_TABLES.items():
+        if tname.lower() in _q_lower:
+            _direct_tables[tname] = tinfo
+    # 관련 그룹 테이블 + 직접 언급 테이블 합치기
+    _relevant = _filter_tables_by_groups(_auto_groups)
+    _relevant.update(_direct_tables)
+    # 관련 테이블이 없으면 전체 사용 (빈 columns 제외하지 않음)
+    _target_tables = _relevant if _relevant else LOGPRESSO_TABLES
+
     table_info = "\n".join(
         f"- {name}: {info['desc']} (컬럼: {', '.join(info['columns'])})"
-        for name, info in LOGPRESSO_TABLES.items()
+        for name, info in _target_tables.items()
     )
 
     skill_content = load_skill_content("logpresso-query") or ""
@@ -3942,11 +3998,18 @@ def api_logpresso_query_page():
 
 @app.route("/api/logpresso/tables", methods=["GET"])
 def api_logpresso_tables():
-    """등록된 테이블 목록 반환"""
+    """등록된 테이블 목록 반환 (카테고리 필터 지원: ?groups=atlas,ts,oht)"""
+    group_filter = request.args.get("groups", "").strip()
+    group_ids = [g.strip() for g in group_filter.split(",") if g.strip()] if group_filter else []
+    filtered = _filter_tables_by_groups(group_ids)
     tables = []
-    for name, info in LOGPRESSO_TABLES.items():
-        tables.append({"table": name, "desc": info["desc"], "columns": info["columns"]})
-    return jsonify({"tables": tables, "total": len(tables)})
+    for name, info in filtered.items():
+        tables.append({"table": name, "desc": info["desc"], "columns": info["columns"], "group": _get_table_group(name)})
+    groups = [{"id": g["id"], "label": g["label"], "count": sum(1 for t in LOGPRESSO_TABLES if _get_table_group(t) == g["id"])} for g in LOGPRESSO_TABLE_GROUPS]
+    etc_count = sum(1 for t in LOGPRESSO_TABLES if _get_table_group(t) == "etc")
+    if etc_count:
+        groups.append({"id": "etc", "label": "📁 기타", "count": etc_count})
+    return jsonify({"tables": tables, "total": len(tables), "total_all": len(LOGPRESSO_TABLES), "groups": groups})
 
 
 # ============================================
@@ -5767,22 +5830,60 @@ def api_chat():
     _lpq_table_list_kw = ["테이블 목록", "어떤 테이블", "테이블 뭐", "테이블 리스트", "테이블 종류",
                           "테이블 있", "테이블 알려", "테이블 보여", "테이블 전부", "테이블 전체"]
     if "logpresso-search" in skill_ids and any(kw in last_user_query for kw in _lpq_table_list_kw):
-        _content = "**로그프레소 사용 가능한 테이블 목록**\n\n"
-        _content += f"총 **{len(LOGPRESSO_TABLES)}개** 테이블\n\n"
-        _content += "| # | 테이블명 | 설명 | 필드(컬럼) |\n"
-        _content += "|---|----------|------|----------|\n"
-        for idx, (tname, tinfo) in enumerate(sorted(LOGPRESSO_TABLES.items()), 1):
-            cols = tinfo["columns"]
-            # 빈 columns → 서버에서 필드 동적 조회
-            if not cols:
-                cols = _fetch_table_fields(tname, timeout=3)
-                if cols:
-                    tinfo["columns"] = cols
-            cols_str = ", ".join(cols[:8]) if cols else "(서버 미접속)"
-            if len(cols) > 8:
-                cols_str += f" 외 {len(cols)-8}개"
-            _content += f"| {idx} | `{tname}` | {tinfo['desc']} | {cols_str} |\n"
-        _content += f"\n> 총 {len(LOGPRESSO_TABLES)}개 테이블. 특정 테이블 구조 확인: `테이블명 구조 보여줘`"
+        # 사용자 질문에서 카테고리 키워드 감지하여 필터링
+        _q_lower = last_user_query.lower()
+        _matched_groups = []
+        for grp in LOGPRESSO_TABLE_GROUPS:
+            # 그룹 라벨 키워드 매칭 (예: "ATLAS", "OHT", "TS", "시스템" 등)
+            _grp_keywords = [grp["id"], grp["label"].split(" ")[-1].lower()]
+            _grp_keywords += [p.rstrip("_").lower() for p in grp["prefix"]]
+            if any(kw in _q_lower for kw in _grp_keywords):
+                _matched_groups.append(grp["id"])
+
+        _filtered = _filter_tables_by_groups(_matched_groups)
+        _filter_label = ""
+        if _matched_groups:
+            _grp_labels = [g["label"] for g in LOGPRESSO_TABLE_GROUPS if g["id"] in _matched_groups]
+            _filter_label = f" [{', '.join(_grp_labels)}]"
+
+        _content = f"**로그프레소 테이블 목록{_filter_label}**\n\n"
+        _content += f"총 **{len(LOGPRESSO_TABLES)}개** 중 **{len(_filtered)}개** 표시\n\n"
+
+        # 카테고리별로 그룹화하여 표시
+        _grouped = {}
+        for tname in sorted(_filtered.keys()):
+            gid = _get_table_group(tname)
+            if gid not in _grouped:
+                _grouped[gid] = []
+            _grouped[gid].append(tname)
+
+        # 그룹 순서 유지
+        _grp_order = [g["id"] for g in LOGPRESSO_TABLE_GROUPS] + ["etc"]
+        _grp_labels_map = {g["id"]: g["label"] for g in LOGPRESSO_TABLE_GROUPS}
+        _grp_labels_map["etc"] = "📁 기타"
+
+        _idx = 0
+        for gid in _grp_order:
+            if gid not in _grouped:
+                continue
+            _content += f"\n### {_grp_labels_map[gid]} ({len(_grouped[gid])}개)\n\n"
+            _content += "| # | 테이블명 | 설명 | 필드(컬럼) |\n"
+            _content += "|---|----------|------|----------|\n"
+            for tname in _grouped[gid]:
+                _idx += 1
+                tinfo = LOGPRESSO_TABLES[tname]
+                cols = tinfo["columns"]
+                if not cols:
+                    cols = _fetch_table_fields(tname, timeout=3)
+                    if cols:
+                        tinfo["columns"] = cols
+                cols_str = ", ".join(cols[:8]) if cols else "(서버 미접속)"
+                if len(cols) > 8:
+                    cols_str += f" 외 {len(cols)-8}개"
+                _content += f"| {_idx} | `{tname}` | {tinfo['desc']} | {cols_str} |\n"
+
+        _content += f"\n> **카테고리 필터 사용법**: `ATLAS 테이블 목록`, `OHT 테이블 목록`, `TS 테이블 보여줘`, `시스템 테이블 목록` 등\n"
+        _content += f"> 카테고리: {' / '.join(g['label'] for g in LOGPRESSO_TABLE_GROUPS)}"
         return jsonify({
             "content": _content,
             "model_used": "Logpresso Tables",
