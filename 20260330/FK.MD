@@ -4270,43 +4270,45 @@ function drawZoneHeatmap() {
     const w = canvas.width;
     const h = canvas.height;
 
-    // 오프스크린 캔버스 초기화/재사용
-    if (!_heatIntensityCanvas || _heatIntensityCanvas.width !== w || _heatIntensityCanvas.height !== h) {
+    // ====================================================================
+    // 1/4 다운스케일로 성능 확보 (최종 업스케일 시 자연스러운 블러 효과)
+    // ====================================================================
+    const DS = 4;  // 다운스케일 배율
+    const dw = Math.ceil(w / DS);
+    const dh = Math.ceil(h / DS);
+
+    if (!_heatIntensityCanvas || _heatIntensityCanvas.width !== dw || _heatIntensityCanvas.height !== dh) {
         _heatIntensityCanvas = document.createElement('canvas');
-        _heatIntensityCanvas.width = w;
-        _heatIntensityCanvas.height = h;
+        _heatIntensityCanvas.width = dw;
+        _heatIntensityCanvas.height = dh;
         _heatIntensityCtx = _heatIntensityCanvas.getContext('2d');
 
         _heatColorCanvas = document.createElement('canvas');
-        _heatColorCanvas.width = w;
-        _heatColorCanvas.height = h;
+        _heatColorCanvas.width = dw;
+        _heatColorCanvas.height = dh;
         _heatColorCtx = _heatColorCanvas.getContext('2d');
     }
 
-    // ====================================================================
-    // 픽셀 배열 직접 조작 방식 (canvas lighter 대신)
-    // 각 픽셀에 대해 가장 높은 occupancy 값을 가우시안 감쇠로 적용
-    // → 포화 없이 점유율이 색상에 정확히 반영됨
-    // ====================================================================
-    const intensityArr = new Float32Array(w * h);  // 0.0~1.0
+    const hCtx = _heatIntensityCtx;
+    hCtx.clearRect(0, 0, dw, dh);
 
-    // 가우시안 반경 (화면 기준)
-    const baseRadius = Math.max(120, 400 / scale);
-    const screenRadius = baseRadius * scale;
-    const sr2 = screenRadius * screenRadius;
-    // 가우시안 시그마 (반경의 40%)
-    const sigma = screenRadius * 0.4;
-    const sigma2x2 = 2 * sigma * sigma;
+    // ====================================================================
+    // Step 1: Zone 중심에 점유율 비례 가우시안 찍기
+    // lighter가 아닌 source-over + 높은 alpha로 직접 매핑
+    // ====================================================================
+    // 각 Zone의 바운딩 박스 중심 계산 + 점유율에 따라 색상 직접 지정
+    const baseRadius = Math.max(60, 200 / scale);
+    const screenRadius = (baseRadius * scale) / DS;  // 다운스케일 좌표계
 
     window.hidZones.forEach(zone => {
         const status = zoneStatusMap[zone.zoneId];
         if (!status) return;
 
-        const occupancy = status.occupancyRate / 100;  // 0~1
+        const occupancy = status.occupancyRate / 100;
         if (occupancy < 0.01) return;
 
-        // Zone의 모든 Lane 노드 수집
-        const nodeCoords = [];
+        // Zone 중심 계산 (Lane 노드들의 중심)
+        let sumX = 0, sumY = 0, cnt = 0;
         const allLanes = [...(zone.inLanes || []), ...(zone.outLanes || [])];
         const seenNodes = new Set();
 
@@ -4326,90 +4328,51 @@ function drawZoneHeatmap() {
                     sx = node.x * scale + offsetX;
                     sy = node.y * scale + offsetY;
                 }
-                nodeCoords.push({ sx, sy });
+                sumX += sx; sumY += sy; cnt++;
             });
-
-            // Lane 중간점 보간 (빈틈 메우기)
-            const fromNode = nodeMap[lane.from];
-            const toNode = nodeMap[lane.to];
-            if (fromNode && toNode) {
-                const mx = (fromNode.x + toNode.x) / 2;
-                const my = (fromNode.y + toNode.y) / 2;
-                let sx, sy;
-                if (isPseudo3D) {
-                    const isoPos = toIso(mx, my, RAIL_HEIGHT / scale);
-                    sx = isoPos.x * scale + offsetX;
-                    sy = isoPos.y * scale + offsetY;
-                } else {
-                    sx = mx * scale + offsetX;
-                    sy = my * scale + offsetY;
-                }
-                nodeCoords.push({ sx, sy });
-            }
         });
 
-        // 각 노드 주변 픽셀에 가우시안 감쇠된 occupancy를 max로 적용
-        const iRadius = Math.ceil(screenRadius);
-        nodeCoords.forEach(({ sx, sy }) => {
-            const x0 = Math.max(0, Math.floor(sx - iRadius));
-            const x1 = Math.min(w - 1, Math.ceil(sx + iRadius));
-            const y0 = Math.max(0, Math.floor(sy - iRadius));
-            const y1 = Math.min(h - 1, Math.ceil(sy + iRadius));
+        if (cnt === 0) return;
+        const cx = (sumX / cnt) / DS;
+        const cy = (sumY / cnt) / DS;
 
-            for (let py = y0; py <= y1; py++) {
-                const dy = py - sy;
-                const dy2 = dy * dy;
-                for (let px = x0; px <= x1; px++) {
-                    const dx = px - sx;
-                    const dist2 = dx * dx + dy2;
-                    if (dist2 > sr2) continue;
+        // 화면 밖이면 스킵
+        if (cx < -screenRadius || cx > dw + screenRadius ||
+            cy < -screenRadius || cy > dh + screenRadius) return;
 
-                    // 가우시안 감쇠
-                    const gauss = Math.exp(-dist2 / sigma2x2);
-                    const val = occupancy * gauss;
+        // 점유율 → LUT 색상 직접 매핑 (포화 문제 없음!)
+        const lutI = Math.min(255, Math.round(occupancy * 255));
+        const lr = _heatmapLUT[lutI * 4];
+        const lg = _heatmapLUT[lutI * 4 + 1];
+        const lb = _heatmapLUT[lutI * 4 + 2];
+        const la = _heatmapLUT[lutI * 4 + 3] / 255;
 
-                    // max 블렌딩 (누적이 아님!)
-                    const idx = py * w + px;
-                    if (val > intensityArr[idx]) {
-                        intensityArr[idx] = val;
-                    }
-                }
-            }
-        });
+        const colorStr = 'rgba(' + lr + ',' + lg + ',' + lb + ',';
+
+        // 가우시안 그라데이션 (점유율 색상으로 직접!)
+        const grad = hCtx.createRadialGradient(cx, cy, 0, cx, cy, screenRadius);
+        grad.addColorStop(0, colorStr + (la * 0.9) + ')');
+        grad.addColorStop(0.2, colorStr + (la * 0.7) + ')');
+        grad.addColorStop(0.45, colorStr + (la * 0.4) + ')');
+        grad.addColorStop(0.7, colorStr + (la * 0.15) + ')');
+        grad.addColorStop(1, colorStr + '0)');
+
+        hCtx.globalCompositeOperation = 'source-over';
+        hCtx.fillStyle = grad;
+        hCtx.beginPath();
+        hCtx.arc(cx, cy, screenRadius, 0, Math.PI * 2);
+        hCtx.fill();
     });
 
-    // Step 2: intensity → 컬러맵 변환
-    const cCtx = _heatColorCtx;
-    const colorImageData = cCtx.createImageData(w, h);
-    const colorPixels = colorImageData.data;
-
-    for (let i = 0; i < intensityArr.length; i++) {
-        const val = intensityArr[i];
-        if (val < 0.02) {
-            // 투명
-            colorPixels[i * 4] = 0;
-            colorPixels[i * 4 + 1] = 0;
-            colorPixels[i * 4 + 2] = 0;
-            colorPixels[i * 4 + 3] = 0;
-        } else {
-            // 0~1 → 0~255 LUT 인덱스
-            const lutI = Math.min(255, Math.round(val * 255));
-            const lutIdx = lutI * 4;
-            colorPixels[i * 4] = _heatmapLUT[lutIdx];
-            colorPixels[i * 4 + 1] = _heatmapLUT[lutIdx + 1];
-            colorPixels[i * 4 + 2] = _heatmapLUT[lutIdx + 2];
-            colorPixels[i * 4 + 3] = _heatmapLUT[lutIdx + 3];
-        }
-    }
-
-    cCtx.putImageData(colorImageData, 0, 0);
-
-    // Step 3: 메인 캔버스에 합성
+    // Step 2: 다운스케일 캔버스를 메인 캔버스에 업스케일 합성
+    // (자동으로 부드러운 블러 효과)
     ctx.save();
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.globalCompositeOperation = 'source-over';
-    ctx.globalAlpha = 0.75;
-    ctx.drawImage(_heatColorCanvas, 0, 0);
+    ctx.globalAlpha = 0.8;
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = 'high';
+    ctx.drawImage(_heatIntensityCanvas, 0, 0, dw, dh, 0, 0, w, h);
     ctx.globalAlpha = 1.0;
     ctx.restore();
 }
