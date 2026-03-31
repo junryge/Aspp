@@ -139,6 +139,16 @@ LOGPRESSO_TABLE_GROUPS = [
     {"id": "test",     "label": "🧪 테스트",          "prefix": ["test_"]},
 ]
 
+# FAB별 필터 (접미사/포함 기반 — 카테고리와 별도로 교차 필터 가능)
+LOGPRESSO_FAB_FILTERS = [
+    {"id": "m14",  "label": "M14 (전체)",  "keywords": ["m14a", "m14b", "m14"]},
+    {"id": "m14a", "label": "M14A",        "keywords": ["m14a"]},
+    {"id": "m14b", "label": "M14B",        "keywords": ["m14b"]},
+    {"id": "m16",  "label": "M16 (전체)",  "keywords": ["m16a", "m16b", "m16e", "m16"]},
+    {"id": "m16a", "label": "M16A",        "keywords": ["m16a"]},
+    {"id": "m16b", "label": "M16B",        "keywords": ["m16b"]},
+]
+
 
 def _get_table_group(table_name):
     """테이블명으로 카테고리 그룹 ID 반환"""
@@ -149,14 +159,52 @@ def _get_table_group(table_name):
     return "etc"
 
 
-def _filter_tables_by_groups(group_ids):
-    """선택된 그룹에 해당하는 테이블만 반환. 빈 리스트면 전체 반환."""
-    if not group_ids:
+def _get_table_fabs(table_name):
+    """테이블명에 포함된 FAB ID 목록 반환 (예: ['m14a'])"""
+    tl = table_name.lower()
+    matched = []
+    for fab in LOGPRESSO_FAB_FILTERS:
+        if fab["id"] in ("m14", "m16"):
+            continue  # 상위 그룹은 스킵, 개별 FAB만 태깅
+        for kw in fab["keywords"]:
+            if kw in tl:
+                matched.append(fab["id"])
+                break
+    return matched
+
+
+def _filter_tables_by_groups(group_ids, fab_ids=None):
+    """선택된 그룹/FAB에 해당하는 테이블만 반환. 둘 다 빈 리스트면 전체 반환."""
+    if not group_ids and not fab_ids:
         return dict(LOGPRESSO_TABLES)
+
+    # FAB 키워드 목록 구축 (예: ["m14a", "m14b", "m14"])
+    fab_keywords = []
+    for fid in (fab_ids or []):
+        for fab in LOGPRESSO_FAB_FILTERS:
+            if fab["id"] == fid:
+                fab_keywords.extend(fab["keywords"])
+
     result = {}
     for tname, tinfo in LOGPRESSO_TABLES.items():
-        if _get_table_group(tname) in group_ids:
-            result[tname] = tinfo
+        tl = tname.lower()
+
+        # 조건1: 카테고리 그룹 매칭
+        group_ok = _get_table_group(tname) in group_ids if group_ids else True
+        # 조건2: FAB 키워드 매칭 (테이블명에 m14, m14a 등 포함)
+        fab_ok = any(kw in tl for kw in fab_keywords) if fab_keywords else True
+
+        # 둘 다 지정되면 AND, 하나만 지정되면 해당 조건만
+        if group_ids and fab_keywords:
+            if group_ok and fab_ok:
+                result[tname] = tinfo
+        elif group_ids:
+            if group_ok:
+                result[tname] = tinfo
+        elif fab_keywords:
+            if fab_ok:
+                result[tname] = tinfo
+
     return result
 
 
@@ -3629,13 +3677,18 @@ def _llm_generate_lpql(user_query, history=None):
         _kws = [grp["id"]] + [p.rstrip("_").lower() for p in grp["prefix"]]
         if any(kw in _q_lower for kw in _kws):
             _auto_groups.append(grp["id"])
+    # FAB 필터 감지 (M14, M16, M14A, M16B 등)
+    _auto_fabs = []
+    for fab in LOGPRESSO_FAB_FILTERS:
+        if fab["id"] in _q_lower or fab["label"].lower() in _q_lower:
+            _auto_fabs.append(fab["id"])
     # 테이블명이 직접 언급된 경우도 감지
     _direct_tables = {}
     for tname, tinfo in LOGPRESSO_TABLES.items():
         if tname.lower() in _q_lower:
             _direct_tables[tname] = tinfo
-    # 관련 그룹 테이블 + 직접 언급 테이블 합치기
-    _relevant = _filter_tables_by_groups(_auto_groups)
+    # 관련 그룹 테이블 + FAB 필터 + 직접 언급 테이블 합치기
+    _relevant = _filter_tables_by_groups(_auto_groups, _auto_fabs)
     _relevant.update(_direct_tables)
     # 관련 테이블이 없으면 전체 사용 (빈 columns 제외하지 않음)
     _target_tables = _relevant if _relevant else LOGPRESSO_TABLES
@@ -3998,18 +4051,21 @@ def api_logpresso_query_page():
 
 @app.route("/api/logpresso/tables", methods=["GET"])
 def api_logpresso_tables():
-    """등록된 테이블 목록 반환 (카테고리 필터 지원: ?groups=atlas,ts,oht)"""
+    """등록된 테이블 목록 반환 (카테고리/FAB 필터: ?groups=atlas,ts&fabs=m14a,m16)"""
     group_filter = request.args.get("groups", "").strip()
+    fab_filter = request.args.get("fabs", "").strip()
     group_ids = [g.strip() for g in group_filter.split(",") if g.strip()] if group_filter else []
-    filtered = _filter_tables_by_groups(group_ids)
+    fab_ids = [f.strip() for f in fab_filter.split(",") if f.strip()] if fab_filter else []
+    filtered = _filter_tables_by_groups(group_ids, fab_ids)
     tables = []
     for name, info in filtered.items():
-        tables.append({"table": name, "desc": info["desc"], "columns": info["columns"], "group": _get_table_group(name)})
+        tables.append({"table": name, "desc": info["desc"], "columns": info["columns"], "group": _get_table_group(name), "fabs": _get_table_fabs(name)})
     groups = [{"id": g["id"], "label": g["label"], "count": sum(1 for t in LOGPRESSO_TABLES if _get_table_group(t) == g["id"])} for g in LOGPRESSO_TABLE_GROUPS]
     etc_count = sum(1 for t in LOGPRESSO_TABLES if _get_table_group(t) == "etc")
     if etc_count:
         groups.append({"id": "etc", "label": "📁 기타", "count": etc_count})
-    return jsonify({"tables": tables, "total": len(tables), "total_all": len(LOGPRESSO_TABLES), "groups": groups})
+    fabs = [{"id": f["id"], "label": f["label"]} for f in LOGPRESSO_FAB_FILTERS]
+    return jsonify({"tables": tables, "total": len(tables), "total_all": len(LOGPRESSO_TABLES), "groups": groups, "fabs": fabs})
 
 
 # ============================================
@@ -5840,13 +5896,25 @@ def api_chat():
             if any(kw in _q_lower for kw in _grp_keywords):
                 _matched_groups.append(grp["id"])
 
-        _filtered = _filter_tables_by_groups(_matched_groups)
+        # FAB 필터 감지 (M14, M16, M14A, M16B 등)
+        _matched_fabs = []
+        for fab in LOGPRESSO_FAB_FILTERS:
+            if fab["id"] in _q_lower or fab["label"].lower() in _q_lower:
+                _matched_fabs.append(fab["id"])
+
+        _filtered = _filter_tables_by_groups(_matched_groups, _matched_fabs)
         _filter_label = ""
+        _labels = []
         if _matched_groups:
-            _grp_labels = [g["label"] for g in LOGPRESSO_TABLE_GROUPS if g["id"] in _matched_groups]
-            _filter_label = f" [{', '.join(_grp_labels)}]"
+            _labels += [g["label"] for g in LOGPRESSO_TABLE_GROUPS if g["id"] in _matched_groups]
+        if _matched_fabs:
+            _labels += [f["label"] for f in LOGPRESSO_FAB_FILTERS if f["id"] in _matched_fabs]
+        if _labels:
+            _filter_label = f" [{', '.join(_labels)}]"
 
         _content = f"**로그프레소 테이블 목록{_filter_label}**\n\n"
+        if _matched_groups or _matched_fabs:
+            _content += f"🔍 필터 적용: 카테고리={_matched_groups or '없음'}, FAB={_matched_fabs or '없음'} → **{len(_filtered)}개** 매칭\n\n"
         _content += f"총 **{len(LOGPRESSO_TABLES)}개** 중 **{len(_filtered)}개** 표시\n\n"
 
         # 카테고리별로 그룹화하여 표시
@@ -5882,7 +5950,9 @@ def api_chat():
                     cols_str += f" 외 {len(cols)-8}개"
                 _content += f"| {_idx} | `{tname}` | {tinfo['desc']} | {cols_str} |\n"
 
-        _content += f"\n> **카테고리 필터 사용법**: `ATLAS 테이블 목록`, `OHT 테이블 목록`, `TS 테이블 보여줘`, `시스템 테이블 목록` 등\n"
+        _content += f"\n> **카테고리 필터**: `ATLAS 테이블 목록`, `OHT 테이블 목록`, `TS 테이블 보여줘`, `시스템 테이블 목록`\n"
+        _content += f"> **FAB 필터**: `M14 테이블 목록`, `M14A 테이블 보여줘`, `M16B 테이블 목록`\n"
+        _content += f"> **조합 가능**: `M14A TS 테이블 목록` (Transfer + M14A만)\n"
         _content += f"> 카테고리: {' / '.join(g['label'] for g in LOGPRESSO_TABLE_GROUPS)}"
         return jsonify({
             "content": _content,
