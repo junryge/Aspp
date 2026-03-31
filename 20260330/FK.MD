@@ -2872,10 +2872,10 @@ canvas { display: block; }
             <button id="btnToggleCurve" style="padding:6px 14px;background:#00d4ff;color:#000;border:none;border-radius:4px;cursor:pointer;font-size:12px;font-weight:bold;">곡선 ON</button>
             <select id="heatmapMode" style="padding:6px 10px;background:#1a1a3e;color:#ff6600;border:1px solid #ff6600;border-radius:4px;cursor:pointer;font-size:12px;font-weight:bold;" title="히트맵 모드">
                 <option value="off">히트맵 OFF</option>
+                <option value="zone">HID Zone 점유율</option>
                 <option value="traffic">통과량</option>
-                <option value="density">밀도</option>
+                <option value="density">엣지 밀도</option>
                 <option value="velocity">속도(저속=빨강)</option>
-                <option value="gaussian">OHT 밀집도</option>
             </select>
             <span style="color:#888;font-size:11px;">R:</span>
             <input type="range" id="curveRadiusSlider" min="5" max="100" value="30" style="width:60px;cursor:pointer;" title="곡률반경">
@@ -3618,7 +3618,7 @@ const LIGHT_ANGLE = -Math.PI / 4;  // 조명 각도 (좌상단에서)
 // ============================================================
 // 히트맵 모드 설정
 // ============================================================
-let heatmapMode = 'off';  // off, traffic, density, velocity, gaussian
+let heatmapMode = 'off';  // off, zone, traffic, density, velocity
 window.edgeHeatmapData = {};
 
 // 히트맵 색상 보간 함수 (0~1 → 초록~빨강)
@@ -3658,6 +3658,11 @@ document.getElementById('heatmapMode').addEventListener('change', function(e) {
     } else {
         legend.style.display = 'block';
         switch(heatmapMode) {
+            case 'zone':
+                legendContent.textContent = 'HID Zone 점유율 (높을수록 빨강)';
+                lowLabel.textContent = '0%';
+                highLabel.textContent = '100% (포화)';
+                break;
             case 'traffic':
                 legendContent.textContent = '레일 통과 횟수 (많을수록 빨강)';
                 lowLabel.textContent = '0회';
@@ -3672,11 +3677,6 @@ document.getElementById('heatmapMode').addEventListener('change', function(e) {
                 legendContent.textContent = '평균 속도 (느릴수록 빨강)';
                 lowLabel.textContent = '300 m/min';
                 highLabel.textContent = '0 m/min';
-                break;
-            case 'gaussian':
-                legendContent.textContent = 'OHT 위치 기반 밀집도 (가우시안)';
-                lowLabel.textContent = '소수';
-                highLabel.textContent = '밀집';
                 break;
         }
     }
@@ -4195,9 +4195,9 @@ function drawHeatmapRails() {
 // 가우시안 히트맵 오버레이 (OHT 위치 기반)
 // ============================================================
 // ============================================================
-// 가우시안 히트맵 - 건물 평면도 스타일 (intensity → colormap 변환)
-// Step1: 그레이스케일 intensity 맵 생성 (가우시안 누적)
-// Step2: 픽셀별 intensity → 초록~노랑~빨강 컬러맵 변환
+// HID Zone 히트맵 - Zone 영역을 점유율 기준으로 가우시안 오버레이
+// Zone의 Lane 노드들 → 바운딩 박스 중심 → 가우시안 원 그리기
+// 점유율: 0% → 투명초록, 50% → 노랑, 80%+ → 빨강
 // ============================================================
 
 // 히트맵 컬러맵 LUT (256 엔트리, RGBA) - 사전 생성
@@ -4208,30 +4208,24 @@ const _heatmapLUT = (function() {
         let r, g, b, a;
 
         if (t < 0.05) {
-            // 거의 투명 (배경)
             r = 0; g = 0; b = 0; a = 0;
         } else if (t < 0.2) {
-            // 투명 초록 (약한 영역)
             const s = (t - 0.05) / 0.15;
-            r = 0; g = Math.round(180 + s * 75); b = Math.round(50 * (1 - s)); 
+            r = 0; g = Math.round(180 + s * 75); b = Math.round(50 * (1 - s));
             a = Math.round(40 + s * 60);
         } else if (t < 0.4) {
-            // 초록 → 연두
             const s = (t - 0.2) / 0.2;
             r = Math.round(s * 180); g = 255; b = 0;
             a = Math.round(100 + s * 40);
         } else if (t < 0.6) {
-            // 연두 → 노랑
             const s = (t - 0.4) / 0.2;
             r = Math.round(180 + s * 75); g = Math.round(255 - s * 30); b = 0;
             a = Math.round(140 + s * 30);
         } else if (t < 0.8) {
-            // 노랑 → 주황
             const s = (t - 0.6) / 0.2;
             r = 255; g = Math.round(225 - s * 125); b = 0;
             a = Math.round(170 + s * 40);
         } else {
-            // 주황 → 빨강 (밀집 영역)
             const s = (t - 0.8) / 0.2;
             r = 255; g = Math.round(100 - s * 100); b = Math.round(s * 30);
             a = Math.round(210 + s * 45);
@@ -4245,17 +4239,69 @@ const _heatmapLUT = (function() {
     return lut;
 })();
 
-// 오프스크린 캔버스 재사용 (매 프레임 생성 방지)
+// 오프스크린 캔버스 재사용
 let _heatIntensityCanvas = null;
 let _heatIntensityCtx = null;
 let _heatColorCanvas = null;
 let _heatColorCtx = null;
 
-function drawGaussianHeatmap() {
-    if (!vehicles || heatmapMode !== 'gaussian') return;
+// Zone별 바운딩 박스 캐시 (레이아웃 변경 시에만 재계산)
+let _zoneBoundsCache = null;
+let _zoneBoundsCacheKey = '';
 
-    const vehList = Object.values(vehicles);
-    if (vehList.length === 0) return;
+function getZoneBounds() {
+    // 캐시 키: hidZones 개수 + nodeMap 개수
+    const cacheKey = (window.hidZones ? window.hidZones.length : 0) + '-' + Object.keys(nodeMap).length;
+    if (_zoneBoundsCache && _zoneBoundsCacheKey === cacheKey) return _zoneBoundsCache;
+
+    _zoneBoundsCache = {};
+    if (!window.hidZones) return _zoneBoundsCache;
+
+    window.hidZones.forEach(zone => {
+        let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+        let nodeCount = 0;
+
+        const allLanes = [...(zone.inLanes || []), ...(zone.outLanes || [])];
+        allLanes.forEach(lane => {
+            const from = nodeMap[lane.from];
+            const to = nodeMap[lane.to];
+            if (from) {
+                minX = Math.min(minX, from.x); maxX = Math.max(maxX, from.x);
+                minY = Math.min(minY, from.y); maxY = Math.max(maxY, from.y);
+                nodeCount++;
+            }
+            if (to) {
+                minX = Math.min(minX, to.x); maxX = Math.max(maxX, to.x);
+                minY = Math.min(minY, to.y); maxY = Math.max(maxY, to.y);
+                nodeCount++;
+            }
+        });
+
+        if (nodeCount > 0 && minX !== Infinity) {
+            // Zone 영역에 여유 패딩 추가
+            const padX = Math.max(80, (maxX - minX) * 0.3);
+            const padY = Math.max(80, (maxY - minY) * 0.3);
+
+            _zoneBoundsCache[zone.zoneId] = {
+                cx: (minX + maxX) / 2,
+                cy: (minY + maxY) / 2,
+                rx: (maxX - minX) / 2 + padX,  // 가로 반경
+                ry: (maxY - minY) / 2 + padY,  // 세로 반경
+                vehicleMax: zone.vehicleMax || 37
+            };
+        }
+    });
+
+    _zoneBoundsCacheKey = cacheKey;
+    return _zoneBoundsCache;
+}
+
+function drawZoneHeatmap() {
+    if (!window.hidZones || heatmapMode !== 'zone') return;
+
+    const zoneStatusMap = window.zoneStatusMap || {};
+    const zoneBounds = getZoneBounds();
+    if (Object.keys(zoneBounds).length === 0) return;
 
     const w = canvas.width;
     const h = canvas.height;
@@ -4275,45 +4321,59 @@ function drawGaussianHeatmap() {
 
     const hCtx = _heatIntensityCtx;
 
-    // Step 1: 그레이스케일 intensity 맵 생성
+    // Step 1: 그레이스케일 intensity 맵 생성 (Zone 점유율 기반)
     hCtx.clearRect(0, 0, w, h);
 
-    // 반경: 줌 레벨에 따라 조절 (넓게 퍼지도록)
-    const baseRadius = Math.max(100, 400 / scale);
-    const screenRadius = baseRadius * scale;
+    Object.entries(zoneBounds).forEach(([zoneId, bounds]) => {
+        const status = zoneStatusMap[zoneId];
+        if (!status) return;
 
-    // 차량 많으면 alpha를 줄여서 포화 방지
-    const count = vehList.length;
-    const alphaBase = Math.min(0.25, 8.0 / Math.max(count, 1));
+        // 점유율 → intensity (0~1)
+        const occupancy = status.occupancyRate / 100;
+        if (occupancy < 0.01) return;  // 거의 빈 Zone은 스킵
 
-    vehList.forEach(v => {
-        // 화면 좌표 변환
+        // Zone 중심을 화면 좌표로 변환
         let sx, sy;
         if (isPseudo3D) {
-            const isoPos = toIso(v.dispX, v.dispY, RAIL_HEIGHT / scale);
+            const isoPos = toIso(bounds.cx, bounds.cy, RAIL_HEIGHT / scale);
             sx = isoPos.x * scale + offsetX;
             sy = isoPos.y * scale + offsetY;
         } else {
-            sx = v.dispX * scale + offsetX;
-            sy = v.dispY * scale + offsetY;
+            sx = bounds.cx * scale + offsetX;
+            sy = bounds.cy * scale + offsetY;
         }
 
-        // 화면 밖이면 스킵 (성능)
-        if (sx < -screenRadius || sx > w + screenRadius || sy < -screenRadius || sy > h + screenRadius) return;
+        // Zone 크기를 화면 크기로 변환
+        const screenRx = Math.max(40, bounds.rx * scale);
+        const screenRy = Math.max(40, bounds.ry * scale);
+        const screenR = Math.max(screenRx, screenRy);
+
+        // 화면 밖이면 스킵
+        if (sx < -screenR || sx > w + screenR || sy < -screenR || sy > h + screenR) return;
+
+        // 점유율에 비례한 alpha (높을수록 진하게)
+        // 0% → 0.0, 50% → 0.15, 80% → 0.3, 100% → 0.5
+        const alpha = Math.min(0.5, occupancy * 0.5);
 
         // 가우시안 그라데이션 (흰색, alpha만 변화)
-        const grad = hCtx.createRadialGradient(sx, sy, 0, sx, sy, screenRadius);
-        grad.addColorStop(0, 'rgba(255, 255, 255, ' + alphaBase + ')');
-        grad.addColorStop(0.25, 'rgba(255, 255, 255, ' + (alphaBase * 0.7) + ')');
-        grad.addColorStop(0.5, 'rgba(255, 255, 255, ' + (alphaBase * 0.35) + ')');
-        grad.addColorStop(0.75, 'rgba(255, 255, 255, ' + (alphaBase * 0.1) + ')');
+        const grad = hCtx.createRadialGradient(sx, sy, 0, sx, sy, screenR);
+        grad.addColorStop(0, 'rgba(255, 255, 255, ' + alpha + ')');
+        grad.addColorStop(0.3, 'rgba(255, 255, 255, ' + (alpha * 0.7) + ')');
+        grad.addColorStop(0.6, 'rgba(255, 255, 255, ' + (alpha * 0.3) + ')');
+        grad.addColorStop(0.85, 'rgba(255, 255, 255, ' + (alpha * 0.08) + ')');
         grad.addColorStop(1, 'rgba(255, 255, 255, 0)');
 
         hCtx.globalCompositeOperation = 'lighter';
         hCtx.fillStyle = grad;
+
+        // 타원형 그리기 (Zone 영역 비율 반영)
+        hCtx.save();
+        hCtx.translate(sx, sy);
+        hCtx.scale(1, screenRy / screenRx);  // 세로 비율 보정
         hCtx.beginPath();
-        hCtx.arc(sx, sy, screenRadius, 0, Math.PI * 2);
+        hCtx.arc(0, 0, screenRx, 0, Math.PI * 2);
         hCtx.fill();
+        hCtx.restore();
     });
 
     // Step 2: intensity → 컬러맵 변환 (픽셀 단위)
@@ -4324,20 +4384,15 @@ function drawGaussianHeatmap() {
     const colorImageData = cCtx.createImageData(w, h);
     const colorPixels = colorImageData.data;
 
-    // 성능: 4px 단위로 건너뛰지 않고 모든 픽셀 처리
-    // (퀄리티 > 성능, 필요하면 downscale 가능)
     for (let i = 0; i < pixels.length; i += 4) {
-        // intensity = R채널 (lighter 모드로 누적된 밝기)
-        const intensity = pixels[i];  // 0~255
+        const intensity = pixels[i];  // R채널 = 누적 밝기
 
-        if (intensity < 13) {
-            // 거의 없는 영역은 완전 투명
+        if (intensity < 8) {
             colorPixels[i] = 0;
             colorPixels[i + 1] = 0;
             colorPixels[i + 2] = 0;
             colorPixels[i + 3] = 0;
         } else {
-            // LUT에서 컬러 매핑
             const lutIdx = intensity * 4;
             colorPixels[i] = _heatmapLUT[lutIdx];
             colorPixels[i + 1] = _heatmapLUT[lutIdx + 1];
@@ -4352,7 +4407,7 @@ function drawGaussianHeatmap() {
     ctx.save();
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.globalCompositeOperation = 'source-over';
-    ctx.globalAlpha = 0.75;
+    ctx.globalAlpha = 0.7;
     ctx.drawImage(_heatColorCanvas, 0, 0);
     ctx.globalAlpha = 1.0;
     ctx.restore();
@@ -4470,8 +4525,8 @@ function render() {
     // 엣지 (레일) - 히트맵 모드에 따라 다르게 렌더링
     if (heatmapMode === 'off') {
         drawCurvedRails();
-    } else if (heatmapMode === 'gaussian') {
-        // 가우시안 모드: 기본 레일 먼저 그리고, OHT 루프 뒤에 오버레이
+    } else if (heatmapMode === 'zone') {
+        // Zone 히트맵: 기본 레일 먼저 그리고, OHT 뒤에 Zone 오버레이
         drawCurvedRails();
     } else {
         // 엣지 기반 히트맵 (traffic, density, velocity)
@@ -5148,9 +5203,9 @@ function render() {
 
     ctx.restore();
 
-    // 가우시안 히트맵 오버레이 (OHT 렌더링 후에 그려야 함)
-    if (heatmapMode === 'gaussian') {
-        drawGaussianHeatmap();
+    // HID Zone 히트맵 오버레이 (OHT 렌더링 후에 그려야 함)
+    if (heatmapMode === 'zone') {
+        drawZoneHeatmap();
     }
 
     document.getElementById('zoomLevel').textContent = Math.round(scale * 100) + '%';
