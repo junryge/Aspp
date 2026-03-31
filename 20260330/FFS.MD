@@ -2984,6 +2984,12 @@ canvas { display: block; }
         <div style="margin-top:10px;">
             <button id="btnToggleZones" style="width:100%;padding:6px 8px;background:#555;color:#fff;border:none;border-radius:4px;cursor:pointer;font-size:11px;font-weight:bold;">Zone 표시 OFF</button>
         </div>
+        <div style="margin-top:6px;display:flex;align-items:center;gap:6px;">
+            <label style="display:flex;align-items:center;gap:4px;cursor:pointer;font-size:11px;">
+                <input type="checkbox" id="chkZoneMarkers" checked style="cursor:pointer;accent-color:#ff3366;">
+                <span>주의/포화 사각형</span>
+            </label>
+        </div>
         <div style="margin-top:6px;display:flex;gap:4px;">
             <button id="btnToggleStations" style="flex:1;padding:5px 2px;background:#555;color:#fff;border:none;border-radius:4px;cursor:pointer;font-size:9px;">Station OFF</button>
             <button id="btnToggleStationIds" style="flex:1;padding:5px 2px;background:#555;color:#fff;border:none;border-radius:4px;cursor:pointer;font-size:9px;">ID OFF</button>
@@ -4410,6 +4416,9 @@ function drawZoneHeatmap() {
 // ============================================================
 function drawZoneMarkers() {
     if (!window.hidZones) return;
+    // 체크박스 OFF면 표시 안함
+    const chk = document.getElementById('chkZoneMarkers');
+    if (chk && !chk.checked) return;
     const zoneStatusMap = window.zoneStatusMap || {};
 
     ctx.save();
