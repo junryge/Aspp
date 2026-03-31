@@ -4283,83 +4283,58 @@ function drawZoneHeatmap() {
         _heatColorCtx = _heatColorCanvas.getContext('2d');
     }
 
-    const hCtx = _heatIntensityCtx;
-    hCtx.clearRect(0, 0, w, h);
-    hCtx.globalCompositeOperation = 'lighter';
+    // ====================================================================
+    // 픽셀 배열 직접 조작 방식 (canvas lighter 대신)
+    // 각 픽셀에 대해 가장 높은 occupancy 값을 가우시안 감쇠로 적용
+    // → 포화 없이 점유율이 색상에 정확히 반영됨
+    // ====================================================================
+    const intensityArr = new Float32Array(w * h);  // 0.0~1.0
 
-    // 가우시안 반경 (넓게 퍼져서 인접 Zone끼리 블렌딩)
-    const baseRadius = Math.max(150, 500 / scale);
+    // 가우시안 반경 (화면 기준)
+    const baseRadius = Math.max(120, 400 / scale);
     const screenRadius = baseRadius * scale;
+    const sr2 = screenRadius * screenRadius;
+    // 가우시안 시그마 (반경의 40%)
+    const sigma = screenRadius * 0.4;
+    const sigma2x2 = 2 * sigma * sigma;
 
-    // Step 1: Zone의 모든 Lane 노드마다 가우시안 원 찍기
-    // → 경로를 따라 색이 깔리면서 인접 Zone 경계가 자연스럽게 섞임
     window.hidZones.forEach(zone => {
         const status = zoneStatusMap[zone.zoneId];
         if (!status) return;
 
-        const occupancy = status.occupancyRate / 100;
+        const occupancy = status.occupancyRate / 100;  // 0~1
         if (occupancy < 0.01) return;
 
-        // 점유율 → alpha (비선형: 낮은 점유율도 약하게 보이도록)
-        // 0%→0, 20%→0.06, 50%→0.12, 80%→0.22, 100%→0.30
-        const alpha = Math.min(0.30, occupancy * occupancy * 0.30);
-
-        // Zone의 모든 Lane 노드 수집 (중복 제거)
-        const nodeIds = new Set();
+        // Zone의 모든 Lane 노드 수집
+        const nodeCoords = [];
         const allLanes = [...(zone.inLanes || []), ...(zone.outLanes || [])];
+        const seenNodes = new Set();
+
         allLanes.forEach(lane => {
-            nodeIds.add(lane.from);
-            nodeIds.add(lane.to);
-        });
+            [lane.from, lane.to].forEach(nid => {
+                if (seenNodes.has(nid)) return;
+                seenNodes.add(nid);
+                const node = nodeMap[nid];
+                if (!node) return;
 
-        // 각 노드마다 가우시안 원
-        nodeIds.forEach(nid => {
-            const node = nodeMap[nid];
-            if (!node) return;
+                let sx, sy;
+                if (isPseudo3D) {
+                    const isoPos = toIso(node.x, node.y, RAIL_HEIGHT / scale);
+                    sx = isoPos.x * scale + offsetX;
+                    sy = isoPos.y * scale + offsetY;
+                } else {
+                    sx = node.x * scale + offsetX;
+                    sy = node.y * scale + offsetY;
+                }
+                nodeCoords.push({ sx, sy });
+            });
 
-            // 화면 좌표 변환
-            let sx, sy;
-            if (isPseudo3D) {
-                const isoPos = toIso(node.x, node.y, RAIL_HEIGHT / scale);
-                sx = isoPos.x * scale + offsetX;
-                sy = isoPos.y * scale + offsetY;
-            } else {
-                sx = node.x * scale + offsetX;
-                sy = node.y * scale + offsetY;
-            }
-
-            // 화면 밖이면 스킵
-            if (sx < -screenRadius || sx > w + screenRadius ||
-                sy < -screenRadius || sy > h + screenRadius) return;
-
-            // 가우시안 그라데이션 (흰색 intensity)
-            const grad = hCtx.createRadialGradient(sx, sy, 0, sx, sy, screenRadius);
-            grad.addColorStop(0, 'rgba(255,255,255,' + alpha + ')');
-            grad.addColorStop(0.15, 'rgba(255,255,255,' + (alpha * 0.8) + ')');
-            grad.addColorStop(0.35, 'rgba(255,255,255,' + (alpha * 0.5) + ')');
-            grad.addColorStop(0.6, 'rgba(255,255,255,' + (alpha * 0.2) + ')');
-            grad.addColorStop(0.85, 'rgba(255,255,255,' + (alpha * 0.05) + ')');
-            grad.addColorStop(1, 'rgba(255,255,255,0)');
-
-            hCtx.fillStyle = grad;
-            hCtx.beginPath();
-            hCtx.arc(sx, sy, screenRadius, 0, Math.PI * 2);
-            hCtx.fill();
-        });
-
-        // Lane 경로(from→to) 사이 보간점에도 추가 (빈틈 메우기)
-        allLanes.forEach(lane => {
+            // Lane 중간점 보간 (빈틈 메우기)
             const fromNode = nodeMap[lane.from];
             const toNode = nodeMap[lane.to];
-            if (!fromNode || !toNode) return;
-
-            // 중간점 1~2개 보간
-            const steps = 2;
-            for (let s = 1; s <= steps; s++) {
-                const t = s / (steps + 1);
-                const mx = fromNode.x + (toNode.x - fromNode.x) * t;
-                const my = fromNode.y + (toNode.y - fromNode.y) * t;
-
+            if (fromNode && toNode) {
+                const mx = (fromNode.x + toNode.x) / 2;
+                const my = (fromNode.y + toNode.y) / 2;
                 let sx, sy;
                 if (isPseudo3D) {
                     const isoPos = toIso(mx, my, RAIL_HEIGHT / scale);
@@ -4369,47 +4344,61 @@ function drawZoneHeatmap() {
                     sx = mx * scale + offsetX;
                     sy = my * scale + offsetY;
                 }
+                nodeCoords.push({ sx, sy });
+            }
+        });
 
-                if (sx < -screenRadius || sx > w + screenRadius ||
-                    sy < -screenRadius || sy > h + screenRadius) return;
+        // 각 노드 주변 픽셀에 가우시안 감쇠된 occupancy를 max로 적용
+        const iRadius = Math.ceil(screenRadius);
+        nodeCoords.forEach(({ sx, sy }) => {
+            const x0 = Math.max(0, Math.floor(sx - iRadius));
+            const x1 = Math.min(w - 1, Math.ceil(sx + iRadius));
+            const y0 = Math.max(0, Math.floor(sy - iRadius));
+            const y1 = Math.min(h - 1, Math.ceil(sy + iRadius));
 
-                const midAlpha = alpha * 0.6;  // 보간점은 조금 약하게
-                const grad = hCtx.createRadialGradient(sx, sy, 0, sx, sy, screenRadius * 0.8);
-                grad.addColorStop(0, 'rgba(255,255,255,' + midAlpha + ')');
-                grad.addColorStop(0.3, 'rgba(255,255,255,' + (midAlpha * 0.5) + ')');
-                grad.addColorStop(0.7, 'rgba(255,255,255,' + (midAlpha * 0.1) + ')');
-                grad.addColorStop(1, 'rgba(255,255,255,0)');
+            for (let py = y0; py <= y1; py++) {
+                const dy = py - sy;
+                const dy2 = dy * dy;
+                for (let px = x0; px <= x1; px++) {
+                    const dx = px - sx;
+                    const dist2 = dx * dx + dy2;
+                    if (dist2 > sr2) continue;
 
-                hCtx.fillStyle = grad;
-                hCtx.beginPath();
-                hCtx.arc(sx, sy, screenRadius * 0.8, 0, Math.PI * 2);
-                hCtx.fill();
+                    // 가우시안 감쇠
+                    const gauss = Math.exp(-dist2 / sigma2x2);
+                    const val = occupancy * gauss;
+
+                    // max 블렌딩 (누적이 아님!)
+                    const idx = py * w + px;
+                    if (val > intensityArr[idx]) {
+                        intensityArr[idx] = val;
+                    }
+                }
             }
         });
     });
 
     // Step 2: intensity → 컬러맵 변환
-    const intensityData = hCtx.getImageData(0, 0, w, h);
-    const pixels = intensityData.data;
-
     const cCtx = _heatColorCtx;
     const colorImageData = cCtx.createImageData(w, h);
     const colorPixels = colorImageData.data;
 
-    for (let i = 0; i < pixels.length; i += 4) {
-        const intensity = pixels[i];
-
-        if (intensity < 5) {
-            colorPixels[i] = 0;
-            colorPixels[i + 1] = 0;
-            colorPixels[i + 2] = 0;
-            colorPixels[i + 3] = 0;
+    for (let i = 0; i < intensityArr.length; i++) {
+        const val = intensityArr[i];
+        if (val < 0.02) {
+            // 투명
+            colorPixels[i * 4] = 0;
+            colorPixels[i * 4 + 1] = 0;
+            colorPixels[i * 4 + 2] = 0;
+            colorPixels[i * 4 + 3] = 0;
         } else {
-            const lutIdx = intensity * 4;
-            colorPixels[i] = _heatmapLUT[lutIdx];
-            colorPixels[i + 1] = _heatmapLUT[lutIdx + 1];
-            colorPixels[i + 2] = _heatmapLUT[lutIdx + 2];
-            colorPixels[i + 3] = _heatmapLUT[lutIdx + 3];
+            // 0~1 → 0~255 LUT 인덱스
+            const lutI = Math.min(255, Math.round(val * 255));
+            const lutIdx = lutI * 4;
+            colorPixels[i * 4] = _heatmapLUT[lutIdx];
+            colorPixels[i * 4 + 1] = _heatmapLUT[lutIdx + 1];
+            colorPixels[i * 4 + 2] = _heatmapLUT[lutIdx + 2];
+            colorPixels[i * 4 + 3] = _heatmapLUT[lutIdx + 3];
         }
     }
 
