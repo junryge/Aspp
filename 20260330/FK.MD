@@ -4245,63 +4245,11 @@ let _heatIntensityCtx = null;
 let _heatColorCanvas = null;
 let _heatColorCtx = null;
 
-// Zone별 바운딩 박스 캐시 (레이아웃 변경 시에만 재계산)
-let _zoneBoundsCache = null;
-let _zoneBoundsCacheKey = '';
-
-function getZoneBounds() {
-    // 캐시 키: hidZones 개수 + nodeMap 개수
-    const cacheKey = (window.hidZones ? window.hidZones.length : 0) + '-' + Object.keys(nodeMap).length;
-    if (_zoneBoundsCache && _zoneBoundsCacheKey === cacheKey) return _zoneBoundsCache;
-
-    _zoneBoundsCache = {};
-    if (!window.hidZones) return _zoneBoundsCache;
-
-    window.hidZones.forEach(zone => {
-        let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
-        let nodeCount = 0;
-
-        const allLanes = [...(zone.inLanes || []), ...(zone.outLanes || [])];
-        allLanes.forEach(lane => {
-            const from = nodeMap[lane.from];
-            const to = nodeMap[lane.to];
-            if (from) {
-                minX = Math.min(minX, from.x); maxX = Math.max(maxX, from.x);
-                minY = Math.min(minY, from.y); maxY = Math.max(maxY, from.y);
-                nodeCount++;
-            }
-            if (to) {
-                minX = Math.min(minX, to.x); maxX = Math.max(maxX, to.x);
-                minY = Math.min(minY, to.y); maxY = Math.max(maxY, to.y);
-                nodeCount++;
-            }
-        });
-
-        if (nodeCount > 0 && minX !== Infinity) {
-            // Zone 영역에 여유 패딩 추가
-            const padX = Math.max(80, (maxX - minX) * 0.3);
-            const padY = Math.max(80, (maxY - minY) * 0.3);
-
-            _zoneBoundsCache[zone.zoneId] = {
-                cx: (minX + maxX) / 2,
-                cy: (minY + maxY) / 2,
-                rx: (maxX - minX) / 2 + padX,  // 가로 반경
-                ry: (maxY - minY) / 2 + padY,  // 세로 반경
-                vehicleMax: zone.vehicleMax || 37
-            };
-        }
-    });
-
-    _zoneBoundsCacheKey = cacheKey;
-    return _zoneBoundsCache;
-}
-
 function drawZoneHeatmap() {
     if (!window.hidZones || heatmapMode !== 'zone') return;
 
     const zoneStatusMap = window.zoneStatusMap || {};
-    const zoneBounds = getZoneBounds();
-    if (Object.keys(zoneBounds).length === 0) return;
+    if (!nodeMap || Object.keys(nodeMap).length === 0) return;
 
     const w = canvas.width;
     const h = canvas.height;
@@ -4320,63 +4268,111 @@ function drawZoneHeatmap() {
     }
 
     const hCtx = _heatIntensityCtx;
-
-    // Step 1: 그레이스케일 intensity 맵 생성 (Zone 점유율 기반)
     hCtx.clearRect(0, 0, w, h);
+    hCtx.globalCompositeOperation = 'lighter';
 
-    Object.entries(zoneBounds).forEach(([zoneId, bounds]) => {
-        const status = zoneStatusMap[zoneId];
+    // 가우시안 반경 (넓게 퍼져서 인접 Zone끼리 블렌딩)
+    const baseRadius = Math.max(150, 500 / scale);
+    const screenRadius = baseRadius * scale;
+
+    // Step 1: Zone의 모든 Lane 노드마다 가우시안 원 찍기
+    // → 경로를 따라 색이 깔리면서 인접 Zone 경계가 자연스럽게 섞임
+    window.hidZones.forEach(zone => {
+        const status = zoneStatusMap[zone.zoneId];
         if (!status) return;
 
-        // 점유율 → intensity (0~1)
         const occupancy = status.occupancyRate / 100;
-        if (occupancy < 0.01) return;  // 거의 빈 Zone은 스킵
+        if (occupancy < 0.01) return;
 
-        // Zone 중심을 화면 좌표로 변환
-        let sx, sy;
-        if (isPseudo3D) {
-            const isoPos = toIso(bounds.cx, bounds.cy, RAIL_HEIGHT / scale);
-            sx = isoPos.x * scale + offsetX;
-            sy = isoPos.y * scale + offsetY;
-        } else {
-            sx = bounds.cx * scale + offsetX;
-            sy = bounds.cy * scale + offsetY;
-        }
+        // 점유율 → alpha (비선형: 낮은 점유율도 약하게 보이도록)
+        // 0%→0, 20%→0.06, 50%→0.12, 80%→0.22, 100%→0.30
+        const alpha = Math.min(0.30, occupancy * occupancy * 0.30);
 
-        // Zone 크기를 화면 크기로 변환
-        const screenRx = Math.max(40, bounds.rx * scale);
-        const screenRy = Math.max(40, bounds.ry * scale);
-        const screenR = Math.max(screenRx, screenRy);
+        // Zone의 모든 Lane 노드 수집 (중복 제거)
+        const nodeIds = new Set();
+        const allLanes = [...(zone.inLanes || []), ...(zone.outLanes || [])];
+        allLanes.forEach(lane => {
+            nodeIds.add(lane.from);
+            nodeIds.add(lane.to);
+        });
 
-        // 화면 밖이면 스킵
-        if (sx < -screenR || sx > w + screenR || sy < -screenR || sy > h + screenR) return;
+        // 각 노드마다 가우시안 원
+        nodeIds.forEach(nid => {
+            const node = nodeMap[nid];
+            if (!node) return;
 
-        // 점유율에 비례한 alpha (높을수록 진하게)
-        // 0% → 0.0, 50% → 0.15, 80% → 0.3, 100% → 0.5
-        const alpha = Math.min(0.5, occupancy * 0.5);
+            // 화면 좌표 변환
+            let sx, sy;
+            if (isPseudo3D) {
+                const isoPos = toIso(node.x, node.y, RAIL_HEIGHT / scale);
+                sx = isoPos.x * scale + offsetX;
+                sy = isoPos.y * scale + offsetY;
+            } else {
+                sx = node.x * scale + offsetX;
+                sy = node.y * scale + offsetY;
+            }
 
-        // 가우시안 그라데이션 (흰색, alpha만 변화)
-        const grad = hCtx.createRadialGradient(sx, sy, 0, sx, sy, screenR);
-        grad.addColorStop(0, 'rgba(255, 255, 255, ' + alpha + ')');
-        grad.addColorStop(0.3, 'rgba(255, 255, 255, ' + (alpha * 0.7) + ')');
-        grad.addColorStop(0.6, 'rgba(255, 255, 255, ' + (alpha * 0.3) + ')');
-        grad.addColorStop(0.85, 'rgba(255, 255, 255, ' + (alpha * 0.08) + ')');
-        grad.addColorStop(1, 'rgba(255, 255, 255, 0)');
+            // 화면 밖이면 스킵
+            if (sx < -screenRadius || sx > w + screenRadius ||
+                sy < -screenRadius || sy > h + screenRadius) return;
 
-        hCtx.globalCompositeOperation = 'lighter';
-        hCtx.fillStyle = grad;
+            // 가우시안 그라데이션 (흰색 intensity)
+            const grad = hCtx.createRadialGradient(sx, sy, 0, sx, sy, screenRadius);
+            grad.addColorStop(0, 'rgba(255,255,255,' + alpha + ')');
+            grad.addColorStop(0.15, 'rgba(255,255,255,' + (alpha * 0.8) + ')');
+            grad.addColorStop(0.35, 'rgba(255,255,255,' + (alpha * 0.5) + ')');
+            grad.addColorStop(0.6, 'rgba(255,255,255,' + (alpha * 0.2) + ')');
+            grad.addColorStop(0.85, 'rgba(255,255,255,' + (alpha * 0.05) + ')');
+            grad.addColorStop(1, 'rgba(255,255,255,0)');
 
-        // 타원형 그리기 (Zone 영역 비율 반영)
-        hCtx.save();
-        hCtx.translate(sx, sy);
-        hCtx.scale(1, screenRy / screenRx);  // 세로 비율 보정
-        hCtx.beginPath();
-        hCtx.arc(0, 0, screenRx, 0, Math.PI * 2);
-        hCtx.fill();
-        hCtx.restore();
+            hCtx.fillStyle = grad;
+            hCtx.beginPath();
+            hCtx.arc(sx, sy, screenRadius, 0, Math.PI * 2);
+            hCtx.fill();
+        });
+
+        // Lane 경로(from→to) 사이 보간점에도 추가 (빈틈 메우기)
+        allLanes.forEach(lane => {
+            const fromNode = nodeMap[lane.from];
+            const toNode = nodeMap[lane.to];
+            if (!fromNode || !toNode) return;
+
+            // 중간점 1~2개 보간
+            const steps = 2;
+            for (let s = 1; s <= steps; s++) {
+                const t = s / (steps + 1);
+                const mx = fromNode.x + (toNode.x - fromNode.x) * t;
+                const my = fromNode.y + (toNode.y - fromNode.y) * t;
+
+                let sx, sy;
+                if (isPseudo3D) {
+                    const isoPos = toIso(mx, my, RAIL_HEIGHT / scale);
+                    sx = isoPos.x * scale + offsetX;
+                    sy = isoPos.y * scale + offsetY;
+                } else {
+                    sx = mx * scale + offsetX;
+                    sy = my * scale + offsetY;
+                }
+
+                if (sx < -screenRadius || sx > w + screenRadius ||
+                    sy < -screenRadius || sy > h + screenRadius) return;
+
+                const midAlpha = alpha * 0.6;  // 보간점은 조금 약하게
+                const grad = hCtx.createRadialGradient(sx, sy, 0, sx, sy, screenRadius * 0.8);
+                grad.addColorStop(0, 'rgba(255,255,255,' + midAlpha + ')');
+                grad.addColorStop(0.3, 'rgba(255,255,255,' + (midAlpha * 0.5) + ')');
+                grad.addColorStop(0.7, 'rgba(255,255,255,' + (midAlpha * 0.1) + ')');
+                grad.addColorStop(1, 'rgba(255,255,255,0)');
+
+                hCtx.fillStyle = grad;
+                hCtx.beginPath();
+                hCtx.arc(sx, sy, screenRadius * 0.8, 0, Math.PI * 2);
+                hCtx.fill();
+            }
+        });
     });
 
-    // Step 2: intensity → 컬러맵 변환 (픽셀 단위)
+    // Step 2: intensity → 컬러맵 변환
     const intensityData = hCtx.getImageData(0, 0, w, h);
     const pixels = intensityData.data;
 
@@ -4385,9 +4381,9 @@ function drawZoneHeatmap() {
     const colorPixels = colorImageData.data;
 
     for (let i = 0; i < pixels.length; i += 4) {
-        const intensity = pixels[i];  // R채널 = 누적 밝기
+        const intensity = pixels[i];
 
-        if (intensity < 8) {
+        if (intensity < 5) {
             colorPixels[i] = 0;
             colorPixels[i + 1] = 0;
             colorPixels[i + 2] = 0;
@@ -4407,7 +4403,7 @@ function drawZoneHeatmap() {
     ctx.save();
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.globalCompositeOperation = 'source-over';
-    ctx.globalAlpha = 0.7;
+    ctx.globalAlpha = 0.75;
     ctx.drawImage(_heatColorCanvas, 0, 0);
     ctx.globalAlpha = 1.0;
     ctx.restore();
