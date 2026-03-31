@@ -3000,7 +3000,7 @@ canvas { display: block; }
         <div id="heatmapLegend" style="display:none;margin-top:12px;padding-top:10px;border-top:1px solid #333;">
             <div style="font-size:11px;color:#ff6600;font-weight:bold;margin-bottom:6px;">히트맵 범례</div>
             <div id="heatmapLegendContent" style="font-size:10px;color:#aaa;"></div>
-            <div style="margin-top:6px;height:12px;border-radius:3px;background:linear-gradient(90deg, #00ff88, #ffff00, #ff6600, #ff0000);"></div>
+            <div style="margin-top:6px;height:12px;border-radius:3px;background:linear-gradient(90deg, #0040C8, #00C8FF, #00FF38, #FFFF00, #FF8000, #FF0000);"></div>
             <div style="display:flex;justify-content:space-between;font-size:9px;color:#888;margin-top:2px;">
                 <span id="heatLegendLow">낮음</span>
                 <span id="heatLegendHigh">높음</span>
@@ -4200,7 +4200,7 @@ function drawHeatmapRails() {
 // 점유율: 0% → 투명초록, 50% → 노랑, 80%+ → 빨강
 // ============================================================
 
-// 히트맵 컬러맵 LUT (256 엔트리, RGBA) - 사전 생성
+// 히트맵 컬러맵 LUT (256 엔트리, RGBA) - 기상청 스타일: 파랑→초록→노랑→빨강
 const _heatmapLUT = (function() {
     const lut = new Uint8Array(256 * 4);
     for (let i = 0; i < 256; i++) {
@@ -4208,27 +4208,43 @@ const _heatmapLUT = (function() {
         let r, g, b, a;
 
         if (t < 0.05) {
+            // 투명 (배경)
             r = 0; g = 0; b = 0; a = 0;
-        } else if (t < 0.2) {
-            const s = (t - 0.05) / 0.15;
-            r = 0; g = Math.round(180 + s * 75); b = Math.round(50 * (1 - s));
-            a = Math.round(40 + s * 60);
-        } else if (t < 0.4) {
-            const s = (t - 0.2) / 0.2;
-            r = Math.round(s * 180); g = 255; b = 0;
-            a = Math.round(100 + s * 40);
-        } else if (t < 0.6) {
-            const s = (t - 0.4) / 0.2;
-            r = Math.round(180 + s * 75); g = Math.round(255 - s * 30); b = 0;
-            a = Math.round(140 + s * 30);
-        } else if (t < 0.8) {
-            const s = (t - 0.6) / 0.2;
-            r = 255; g = Math.round(225 - s * 125); b = 0;
-            a = Math.round(170 + s * 40);
+        } else if (t < 0.15) {
+            // 진한 파랑 (아주 낮은 영역)
+            const s = (t - 0.05) / 0.10;
+            r = 0; g = Math.round(20 + s * 40); b = Math.round(120 + s * 80);
+            a = Math.round(50 + s * 50);
+        } else if (t < 0.30) {
+            // 파랑 → 하늘색
+            const s = (t - 0.15) / 0.15;
+            r = 0; g = Math.round(60 + s * 140); b = Math.round(200 + s * 55);
+            a = Math.round(100 + s * 30);
+        } else if (t < 0.45) {
+            // 하늘색 → 초록
+            const s = (t - 0.30) / 0.15;
+            r = 0; g = Math.round(200 + s * 55); b = Math.round(255 - s * 200);
+            a = Math.round(130 + s * 20);
+        } else if (t < 0.60) {
+            // 초록 → 연두/노랑
+            const s = (t - 0.45) / 0.15;
+            r = Math.round(s * 255); g = 255; b = Math.round(55 * (1 - s));
+            a = Math.round(150 + s * 20);
+        } else if (t < 0.75) {
+            // 노랑 → 주황
+            const s = (t - 0.60) / 0.15;
+            r = 255; g = Math.round(255 - s * 130); b = 0;
+            a = Math.round(170 + s * 30);
+        } else if (t < 0.90) {
+            // 주황 → 빨강
+            const s = (t - 0.75) / 0.15;
+            r = 255; g = Math.round(125 - s * 100); b = 0;
+            a = Math.round(200 + s * 30);
         } else {
-            const s = (t - 0.8) / 0.2;
-            r = 255; g = Math.round(100 - s * 100); b = Math.round(s * 30);
-            a = Math.round(210 + s * 45);
+            // 진한 빨강 (최고 밀집)
+            const s = (t - 0.90) / 0.10;
+            r = Math.round(255 - s * 40); g = Math.round(25 - s * 25); b = Math.round(s * 20);
+            a = Math.round(230 + s * 25);
         }
 
         lut[i * 4] = r;
