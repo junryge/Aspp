@@ -4402,10 +4402,16 @@ function drawZoneHeatmap() {
     ctx.drawImage(_heatIntensityCanvas, 0, 0, dw, dh, 0, 0, w, h);
     ctx.globalAlpha = 1.0;
     ctx.restore();
+}
 
-    // ====================================================================
-    // Step 3: 주의/포화 Zone에 사각형 마커 + 라벨 표시
-    // ====================================================================
+// ============================================================
+// HID Zone 사각형 마커 (히트맵 모드 상관없이 항상 표시 가능)
+// 주의/포화 Zone에 빨간 사각형 + 라벨
+// ============================================================
+function drawZoneMarkers() {
+    if (!window.hidZones) return;
+    const zoneStatusMap = window.zoneStatusMap || {};
+
     ctx.save();
     ctx.translate(offsetX, offsetY);
     ctx.scale(scale, scale);
@@ -4415,8 +4421,11 @@ function drawZoneHeatmap() {
         if (!status) return;
 
         const occ = status.occupancyRate;
-        // 주의(70%+) 또는 포화(100%) Zone만 표시
-        if (occ < 70) return;
+        const isFull = status.status === 'FULL';
+        const isPrecaution = status.status === 'PRECAUTION';
+
+        // 포화 또는 주의 Zone만 표시
+        if (!isFull && !isPrecaution) return;
 
         // Zone 바운딩 박스 계산
         let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
@@ -4444,7 +4453,6 @@ function drawZoneHeatmap() {
         const bl = toIso(minX, maxY, zoneZ);
 
         // 색상: 포화=빨강, 주의=주황
-        const isFull = status.status === 'FULL';
         const borderColor = isFull ? '#ff2222' : '#ff8800';
         const fillColor = isFull ? 'rgba(255, 34, 34, 0.12)' : 'rgba(255, 136, 0, 0.08)';
         const lineW = isFull ? 3 / scale : 2 / scale;
@@ -4478,7 +4486,7 @@ function drawZoneHeatmap() {
         const fontSize = Math.max(9, 12 / scale);
         ctx.font = 'bold ' + fontSize + 'px sans-serif';
 
-        const label = (isFull ? '!! ' : '') + 'HID ' + zone.zoneId + ' ' + Math.round(occ) + '%';
+        const label = (isFull ? '⚠ ' : '') + 'HID ' + zone.zoneId + ' ' + Math.round(occ) + '%';
         const tw = ctx.measureText(label).width;
         const lpad = 4 / scale;
 
@@ -5292,6 +5300,9 @@ function render() {
     if (heatmapMode === 'zone') {
         drawZoneHeatmap();
     }
+
+    // HID Zone 사각형 마커 (주의/포화 Zone - 항상 표시)
+    drawZoneMarkers();
 
     document.getElementById('zoomLevel').textContent = Math.round(scale * 100) + '%';
 }
