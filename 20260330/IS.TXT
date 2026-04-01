@@ -4100,6 +4100,28 @@ def search_knowledge(query, max_results=5, max_content_chars=8000):
         fab_prefixes.add(fab)
         full_columns.append(col.lower())
 
+    # ── 1.5단계: 자연어 날짜 → YYYYMMDD 변환 ──
+    from datetime import datetime, timedelta
+    today = datetime.now()
+    date_keywords = []
+
+    # "오늘" → 현재 날짜 YYYYMMDD
+    if "오늘" in q_lower:
+        date_keywords.append(today.strftime("%Y%m%d"))
+
+    # "어제" → 전날 YYYYMMDD
+    if "어제" in q_lower:
+        date_keywords.append((today - timedelta(days=1)).strftime("%Y%m%d"))
+
+    # "N월 D일" 패턴 → YYYYMMDD (올해 기준)
+    date_patterns = re.findall(r'(\d{1,2})\s*월\s*(\d{1,2})\s*일', query)
+    for month, day in date_patterns:
+        try:
+            dt = datetime(today.year, int(month), int(day))
+            date_keywords.append(dt.strftime("%Y%m%d"))
+        except ValueError:
+            pass
+
     # 한글 유사 문자 정규화
     def normalize_kr(text):
         pairs = [("률", "율"), ("렬", "열"), ("례", "예"), ("려", "여"),
@@ -4127,6 +4149,10 @@ def search_knowledge(query, max_results=5, max_content_chars=8000):
         fab_l = fab.lower()
         if fab_l not in keywords:
             keywords.append(fab_l)
+    # 자연어 날짜 변환 결과를 키워드에 추가
+    for dk in date_keywords:
+        if dk not in keywords:
+            keywords.append(dk)
 
     # 원본 쿼리에서 공백 제거 버전 (구문 매칭용)
     query_nospace = re.sub(r'\s+', '', q_lower)
