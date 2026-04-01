@@ -2792,6 +2792,80 @@ async def get_jam_stats():
         "mediumRiskEdges": medium_risk_edges[:10]
     }
 
+@app.post("/api/stk/add")
+async def add_stk(x: float, y: float):
+    """맵 클릭으로 STK 추가 (랜덤 데이터)"""
+    global engine
+
+    # 새 STK ID 생성
+    existing_ids = [s.stkId for s in engine.stk_list]
+    idx = len(engine.stk_list) + 1
+    while f'STK-{FAB_NAME}-{idx:02d}' in existing_ids:
+        idx += 1
+
+    new_stk = STK(
+        stkId=f'STK-{FAB_NAME}-{idx:02d}',
+        stkName=f'STK-{idx:02d}',
+        x=round(x, 1),
+        y=round(y, 1),
+        totalSlots=random.choice([20, 24, 30, 36]),
+        usedSlots=0,
+        status='RUNNING',
+        fab=FAB_NAME,
+        bay=f'B{idx:02d}'
+    )
+    new_stk.usedSlots = random.randint(int(new_stk.totalSlots * 0.1), int(new_stk.totalSlots * 0.85))
+
+    engine.stk_list.append(new_stk)
+
+    # CSV 저장
+    _save_stk_csv(engine.stk_list)
+
+    return {
+        "status": "ok",
+        "message": f"{new_stk.stkId} 추가됨",
+        "stk": {
+            "stkId": new_stk.stkId, "stkName": new_stk.stkName,
+            "x": new_stk.x, "y": new_stk.y,
+            "totalSlots": new_stk.totalSlots, "usedSlots": new_stk.usedSlots,
+            "freeSlots": new_stk.freeSlots, "usageRate": round(new_stk.usageRate, 1),
+            "status": new_stk.status, "fab": new_stk.fab, "bay": new_stk.bay
+        }
+    }
+
+@app.post("/api/stk/delete")
+async def delete_stk(stk_id: str):
+    """STK 삭제"""
+    global engine
+    before = len(engine.stk_list)
+    engine.stk_list = [s for s in engine.stk_list if s.stkId != stk_id]
+    after = len(engine.stk_list)
+
+    if before == after:
+        return {"status": "error", "message": f"{stk_id} 찾을 수 없음"}
+
+    _save_stk_csv(engine.stk_list)
+    return {"status": "ok", "message": f"{stk_id} 삭제됨"}
+
+def _save_stk_csv(stk_list):
+    """STK 목록을 CSV로 저장"""
+    try:
+        filepath = STK_CSV_PATH
+        os.makedirs(os.path.dirname(filepath) or '.', exist_ok=True)
+        with open(filepath, 'w', newline='', encoding='utf-8-sig') as f:
+            writer = csv.DictWriter(f, fieldnames=['STK_ID','STK_Name','X','Y','Total_Slots','Used_Slots','Status','FAB','Bay'])
+            writer.writeheader()
+            for s in stk_list:
+                writer.writerow({
+                    'STK_ID': s.stkId, 'STK_Name': s.stkName,
+                    'X': s.x, 'Y': s.y,
+                    'Total_Slots': s.totalSlots, 'Used_Slots': s.usedSlots,
+                    'Status': s.status, 'FAB': s.fab, 'Bay': s.bay
+                })
+        print(f"[STK 저장] {filepath} ({len(stk_list)}개)")
+    except Exception as e:
+        print(f"[STK 저장 오류] {e}")
+
 @app.post("/api/set-vehicle-count")
 async def set_vehicle_count(count: int):
     """OHT 대수 변경"""
@@ -3089,6 +3163,8 @@ canvas { display: block; }
                 <input type="checkbox" id="chkShowSTK" checked style="cursor:pointer;accent-color:#00ccff;width:14px;height:14px;">
                 STK
             </label>
+            <button id="btnStkPlace" style="padding:4px 10px;background:#1a1a3e;color:#00ccff;border:1px solid #00ccff;border-radius:4px;cursor:pointer;font-size:11px;font-weight:bold;" title="클릭으로 STK 배치">+STK</button>
+            <button id="btnStkDelete" style="padding:4px 10px;background:#1a1a3e;color:#ff4444;border:1px solid #ff4444;border-radius:4px;cursor:pointer;font-size:11px;font-weight:bold;" title="STK 삭제 모드">-STK</button>
             <select id="heatmapMode" style="padding:6px 10px;background:#1a1a3e;color:#ff6600;border:1px solid #ff6600;border-radius:4px;cursor:pointer;font-size:12px;font-weight:bold;" title="히트맵 모드">
                 <option value="off">히트맵 OFF</option>
                 <option value="zone">HID Zone 점유율</option>
@@ -5608,6 +5684,26 @@ function drawSTK() {
             ctx.fillStyle = usage > 0.8 ? '#ff4444' : usage > 0.5 ? '#ffaa00' : '#00cc44';
             ctx.fillRect(barX, barY, barW * usage, barH);
 
+            // 삭제 모드: X 마크 오버레이
+            if (stkDeleteMode) {
+                ctx.strokeStyle = '#ff0000';
+                ctx.lineWidth = 3 / scale;
+                ctx.globalAlpha = 0.8;
+                const xSize = 8 / scale;
+                ctx.beginPath();
+                ctx.moveTo(pos.x + iconW/2 - xSize, pos.y - xSize);
+                ctx.lineTo(pos.x + iconW/2, pos.y);
+                ctx.moveTo(pos.x + iconW/2, pos.y - xSize);
+                ctx.lineTo(pos.x + iconW/2 - xSize, pos.y);
+                ctx.stroke();
+                ctx.globalAlpha = 1.0;
+            }
+
+            // 배치 모드 안내 텍스트
+            if (stkPlaceMode) {
+                ctx.globalAlpha = 0.5;
+            }
+
             return;
         }
 
@@ -5734,24 +5830,152 @@ function drawSTK() {
         ctx.strokeRect(barX2, barY2, barW2, barH2);
     });
 
+    // 배치 모드 안내 오버레이
+    if (stkPlaceMode) {
+        ctx.restore();
+        ctx.save();
+        ctx.setTransform(1, 0, 0, 1, 0, 0);
+        ctx.fillStyle = 'rgba(0, 204, 255, 0.15)';
+        ctx.fillRect(0, canvas.height - 40, canvas.width, 40);
+        ctx.fillStyle = '#00ccff';
+        ctx.font = 'bold 14px sans-serif';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText('🔧 STK 배치 모드: 맵을 클릭하면 STK가 추가됩니다  |  +STK 버튼을 다시 눌러 종료', canvas.width / 2, canvas.height - 20);
+        ctx.restore();
+        return;
+    }
+
+    // 삭제 모드 안내 오버레이
+    if (stkDeleteMode) {
+        ctx.restore();
+        ctx.save();
+        ctx.setTransform(1, 0, 0, 1, 0, 0);
+        ctx.fillStyle = 'rgba(255, 68, 68, 0.15)';
+        ctx.fillRect(0, canvas.height - 40, canvas.width, 40);
+        ctx.fillStyle = '#ff4444';
+        ctx.font = 'bold 14px sans-serif';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText('🗑️ STK 삭제 모드: STK를 클릭하면 삭제됩니다  |  -STK 버튼을 다시 눌러 종료', canvas.width / 2, canvas.height - 20);
+        ctx.restore();
+        return;
+    }
+
     ctx.restore();
 }
 
-// STK 클릭 이벤트 (접기/펼치기)
-canvas.addEventListener('click', function(e) {
-    if (!window.stkList || window.stkList.length === 0) return;
-    const chk = document.getElementById('chkShowSTK');
-    if (!chk || !chk.checked) return;
+// ============================================================
+// STK 배치/삭제 모드
+// ============================================================
+let stkPlaceMode = false;
+let stkDeleteMode = false;
 
+document.getElementById('btnStkPlace').addEventListener('click', function() {
+    stkPlaceMode = !stkPlaceMode;
+    stkDeleteMode = false;  // 다른 모드 해제
+
+    this.style.background = stkPlaceMode ? '#00ccff' : '#1a1a3e';
+    this.style.color = stkPlaceMode ? '#000' : '#00ccff';
+    document.getElementById('btnStkDelete').style.background = '#1a1a3e';
+    document.getElementById('btnStkDelete').style.color = '#ff4444';
+
+    // 커서 변경
+    canvas.style.cursor = stkPlaceMode ? 'crosshair' : 'default';
+});
+
+document.getElementById('btnStkDelete').addEventListener('click', function() {
+    stkDeleteMode = !stkDeleteMode;
+    stkPlaceMode = false;  // 다른 모드 해제
+
+    this.style.background = stkDeleteMode ? '#ff4444' : '#1a1a3e';
+    this.style.color = stkDeleteMode ? '#fff' : '#ff4444';
+    document.getElementById('btnStkPlace').style.background = '#1a1a3e';
+    document.getElementById('btnStkPlace').style.color = '#00ccff';
+
+    // 커서 변경
+    canvas.style.cursor = stkDeleteMode ? 'not-allowed' : 'default';
+});
+
+// ESC 키: 배치/삭제 모드 해제
+document.addEventListener('keydown', function(e) {
+    if (e.key === 'Escape') {
+        if (stkPlaceMode || stkDeleteMode) {
+            stkPlaceMode = false;
+            stkDeleteMode = false;
+            canvas.style.cursor = 'default';
+            document.getElementById('btnStkPlace').style.background = '#1a1a3e';
+            document.getElementById('btnStkPlace').style.color = '#00ccff';
+            document.getElementById('btnStkDelete').style.background = '#1a1a3e';
+            document.getElementById('btnStkDelete').style.color = '#ff4444';
+            render();
+        }
+    }
+});
+
+// STK 클릭 이벤트 (배치 / 삭제 / 접기펼치기)
+canvas.addEventListener('click', async function(e) {
     const rect = canvas.getBoundingClientRect();
     const mx = (e.clientX - rect.left - offsetX) / scale;
     const my = (e.clientY - rect.top - offsetY) / scale;
+
+    // ======== 배치 모드 ========
+    if (stkPlaceMode) {
+        try {
+            const res = await fetch('/api/stk/add?x=' + mx.toFixed(1) + '&y=' + my.toFixed(1), { method: 'POST' });
+            const data = await res.json();
+            if (data.status === 'ok') {
+                // stkList에 바로 추가
+                if (!window.stkList) window.stkList = [];
+                window.stkList.push(data.stk);
+                console.log('STK 추가:', data.stk.stkId, 'at', mx.toFixed(0), my.toFixed(0));
+                render();
+            }
+        } catch (err) {
+            console.error('STK 추가 실패:', err);
+        }
+        return;  // 다른 클릭 처리 안 함
+    }
+
+    // ======== 삭제 모드 ========
+    if (stkDeleteMode && window.stkList) {
+        let hitStk = null;
+        window.stkList.forEach(stk => {
+            const stkZ = RAIL_HEIGHT / scale + 5;
+            const pos = toIso(stk.x, stk.y, stkZ);
+            const hitW = 80 / scale;
+            const hitH = 28 / scale;
+            if (mx > pos.x - hitW/2 && mx < pos.x + hitW/2 &&
+                my > pos.y - hitH/2 && my < pos.y + hitH/2) {
+                hitStk = stk;
+            }
+        });
+
+        if (hitStk) {
+            try {
+                const res = await fetch('/api/stk/delete?stk_id=' + encodeURIComponent(hitStk.stkId), { method: 'POST' });
+                const data = await res.json();
+                if (data.status === 'ok') {
+                    window.stkList = window.stkList.filter(s => s.stkId !== hitStk.stkId);
+                    console.log('STK 삭제:', hitStk.stkId);
+                    render();
+                }
+            } catch (err) {
+                console.error('STK 삭제 실패:', err);
+            }
+        }
+        return;
+    }
+
+    // ======== 일반 모드: STK 접기/펼치기 ========
+    if (!window.stkList || window.stkList.length === 0) return;
+    const chk = document.getElementById('chkShowSTK');
+    if (!chk || !chk.checked) return;
 
     window.stkList.forEach(stk => {
         const stkZ = RAIL_HEIGHT / scale + 5;
         const pos = toIso(stk.x, stk.y, stkZ);
 
-        // 히트 영역 (접힌 상태: 80x28, 펼친 상태: 160xpanelH)
         const isExpanded = window.stkExpanded && window.stkExpanded[stk.stkId];
         const hitW = isExpanded ? 160 / scale : 80 / scale;
         const hitH = isExpanded ? 120 / scale : 28 / scale;
