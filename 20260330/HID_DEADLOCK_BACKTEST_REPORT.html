@@ -1,0 +1,421 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>M14A HID 데드락 탐지 — 룰베이스 백테스트 분석 보고서</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
+<style>
+:root{--bg:#ffffff;--bg2:#f7f7f5;--bg3:#efefec;--text:#2c2c2a;--text2:#5f5e5a;--text3:#888780;--border:#d3d1c7;--blue:#378ADD;--green:#1D9E75;--amber:#BA7517;--red:#E24B4A;--coral:#D85A30;--purple:#7F77DD;--teal:#0F6E56}
+@media(prefers-color-scheme:dark){:root{--bg:#1a1a1a;--bg2:#242424;--bg3:#2e2e2e;--text:#e0e0e0;--text2:#a0a0a0;--text3:#707070;--border:#444;--blue:#5BA4E6;--green:#3FC99A;--amber:#E8A832;--red:#F06060;--coral:#E87050;--purple:#A099EE;--teal:#3FC99A}}
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:'Malgun Gothic','Apple SD Gothic Neo',sans-serif;background:var(--bg);color:var(--text);line-height:1.7;max-width:1000px;margin:0 auto;padding:40px 24px}
+h1{font-size:24px;font-weight:600;margin-bottom:8px;color:var(--text)}
+h2{font-size:20px;font-weight:600;margin:48px 0 16px;padding-bottom:8px;border-bottom:2px solid var(--border);color:var(--text)}
+h3{font-size:16px;font-weight:600;margin:28px 0 12px;color:var(--text)}
+p{margin-bottom:12px;color:var(--text)}
+.subtitle{font-size:14px;color:var(--text2);margin-bottom:24px}
+.meta{display:flex;flex-wrap:wrap;gap:16px;margin-bottom:32px;font-size:13px;color:var(--text2)}
+.meta-item{background:var(--bg2);padding:6px 14px;border-radius:8px;border:1px solid var(--border)}
+.meta-item strong{color:var(--text);font-weight:600}
+.summary-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin:16px 0}
+.summary-card{background:var(--bg2);border-radius:12px;padding:16px;text-align:center}
+.summary-card .val{font-size:28px;font-weight:600;color:var(--text)}
+.summary-card .lbl{font-size:12px;color:var(--text3);margin-top:4px}
+table{width:100%;border-collapse:collapse;margin:16px 0;font-size:14px}
+th{background:var(--bg2);font-weight:600;text-align:left;padding:10px 12px;border-bottom:2px solid var(--border);color:var(--text)}
+td{padding:10px 12px;border-bottom:1px solid var(--bg3);color:var(--text)}
+tr:hover{background:var(--bg2)}
+.chart-container{position:relative;width:100%;margin:16px 0}
+.chart-container canvas{width:100%!important}
+.alert{padding:16px 20px;border-radius:8px;margin:12px 0;border-left:4px solid}
+.alert-danger{background:color-mix(in srgb,var(--red) 8%,var(--bg));border-color:var(--red)}
+.alert-warning{background:color-mix(in srgb,var(--amber) 8%,var(--bg));border-color:var(--amber)}
+.alert-info{background:color-mix(in srgb,var(--blue) 8%,var(--bg));border-color:var(--blue)}
+.alert-success{background:color-mix(in srgb,var(--green) 8%,var(--bg));border-color:var(--green)}
+.alert-title{font-weight:600;margin-bottom:4px;font-size:15px}
+.alert-danger .alert-title{color:var(--red)}
+.alert-warning .alert-title{color:var(--amber)}
+.alert-info .alert-title{color:var(--blue)}
+.alert-success .alert-title{color:var(--green)}
+.alert p{margin:0;font-size:13px;color:var(--text2)}
+.tag{display:inline-block;padding:2px 10px;border-radius:6px;font-size:11px;font-weight:600}
+.tag-red{background:color-mix(in srgb,var(--red) 15%,var(--bg));color:var(--red)}
+.tag-green{background:color-mix(in srgb,var(--green) 15%,var(--bg));color:var(--green)}
+.tag-amber{background:color-mix(in srgb,var(--amber) 15%,var(--bg));color:var(--amber)}
+.tag-blue{background:color-mix(in srgb,var(--blue) 15%,var(--bg));color:var(--blue)}
+.tag-purple{background:color-mix(in srgb,var(--purple) 15%,var(--bg));color:var(--purple)}
+.bar-row{display:flex;align-items:center;gap:8px;margin-bottom:8px}
+.bar-label{min-width:80px;font-size:13px;color:var(--text2);text-align:right}
+.bar-track{flex:1;height:24px;background:var(--bg3);border-radius:6px;overflow:hidden}
+.bar-fill{height:100%;border-radius:6px;display:flex;align-items:center;padding-left:8px;font-size:12px;font-weight:500;color:#fff}
+.bar-val{min-width:70px;font-size:13px;color:var(--text2)}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:24px}
+.imminent-card{background:var(--bg2);border:1px solid var(--red);border-radius:12px;padding:20px}
+.imminent-card h4{color:var(--red);font-size:15px;margin-bottom:8px}
+.imminent-card table{font-size:13px}
+.cluster-box{background:var(--bg2);border-radius:12px;padding:20px;margin:12px 0}
+.cluster-box h4{font-size:15px;margin-bottom:8px}
+.cause-box{background:var(--bg2);border-radius:12px;padding:20px;margin:12px 0}
+.cause-box h4{font-size:15px;font-weight:600;margin-bottom:8px;color:var(--text)}
+.cause-box p{font-size:13px;color:var(--text2);margin-bottom:6px}
+.footer{margin-top:48px;padding-top:24px;border-top:1px solid var(--border);font-size:12px;color:var(--text3);text-align:center}
+@media(max-width:700px){.summary-grid{grid-template-columns:repeat(2,1fr)}.grid2{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+
+<h1>M14A HID 구역 데드락 탐지</h1>
+<div class="subtitle">룰베이스 백테스트 분석 보고서</div>
+
+<div class="meta">
+  <div class="meta-item"><strong>작성일:</strong> 2026-04-02</div>
+  <div class="meta-item"><strong>대상:</strong> M14A FAB AMHS OHT</div>
+  <div class="meta-item"><strong>기간:</strong> 2026-04-01 18:00 ~ 04-02 08:00</div>
+  <div class="meta-item"><strong>데이터:</strong> 985,144건 / 14시간</div>
+</div>
+
+<!-- ===== 1. 전체 결과 요약 ===== -->
+<h2>1. 전체 결과 요약</h2>
+
+<div class="summary-grid">
+  <div class="summary-card"><div class="val">123,938</div><div class="lbl">총 라벨 수</div></div>
+  <div class="summary-card"><div class="val">183</div><div class="lbl">HID 구역</div></div>
+  <div class="summary-card"><div class="val">839</div><div class="lbl">1분 윈도우</div></div>
+  <div class="summary-card"><div class="val">29초</div><div class="lbl">처리 소요시간</div></div>
+</div>
+
+<h3>1.1 위험 등급 분포</h3>
+
+<div class="bar-row"><div class="bar-label">정상</div><div class="bar-track"><div class="bar-fill" style="width:96.4%;background:var(--text3)">96.39%</div></div><div class="bar-val">119,458건</div></div>
+<div class="bar-row"><div class="bar-label">주의(WATCH)</div><div class="bar-track"><div class="bar-fill" style="width:32%;background:var(--amber)">3.27%</div></div><div class="bar-val">4,050건</div></div>
+<div class="bar-row"><div class="bar-label">경고(WARNING)</div><div class="bar-track"><div class="bar-fill" style="width:5%;background:var(--coral)">0.35%</div></div><div class="bar-val">428건</div></div>
+<div class="bar-row"><div class="bar-label">임박(IMMINENT)</div><div class="bar-track"><div class="bar-fill" style="width:1.5%;background:var(--red)">0.00%</div></div><div class="bar-val">2건</div></div>
+
+<div class="cause-box">
+  <h4>원인 분석</h4>
+  <p>WARNING 이상 비율이 0.35%로 목표치 0.5%에 미달한다. 초기 임계값이 실제 데이터 분포 대비 과도하게 보수적으로 설정되었기 때문이다.</p>
+  <p>구체적으로 포화율(saturation) P95가 0.622인데 CRITICAL 기준은 0.95로, 최상위 등급에 도달하는 경우가 극히 드물다. 또한 속도비(speed_ratio) 기반 Rule 2, 4가 사실상 비활성 상태여서 점수 확보 경로가 Rule 1 + Rule 3으로 제한되어 있다.</p>
+</div>
+
+<!-- ===== 2. 룰별 발동률 ===== -->
+<h2>2. 룰별 발동률 분석</h2>
+
+<h3>2.1 발동률 현황 (주의 이상, n=4,480)</h3>
+
+<div class="chart-container" style="height:280px"><canvas id="ruleChart"></canvas></div>
+
+<table>
+  <thead><tr><th>룰</th><th>설명</th><th>발동률</th><th>평가</th></tr></thead>
+  <tbody>
+    <tr><td>Rule 1</td><td>HID 포화도</td><td>90.6%</td><td><span class="tag tag-blue">주력 룰</span></td></tr>
+    <tr><td>Rule 3</td><td>유입/유출 불균형</td><td>67.2%</td><td><span class="tag tag-green">유효</span></td></tr>
+    <tr><td>Rule 5</td><td>연쇄 데드락 (인접 HID)</td><td>31.1%</td><td><span class="tag tag-purple">유효</span></td></tr>
+    <tr><td>Rule 2</td><td>속도 저하</td><td>0.2%</td><td><span class="tag tag-red">무효</span></td></tr>
+    <tr><td>Rule 4</td><td>정체 지속성</td><td>0.1%</td><td><span class="tag tag-red">무효</span></td></tr>
+  </tbody>
+</table>
+
+<h3>2.2 Rule 1 — HID 포화도 (90.6%)</h3>
+
+<div class="cause-box">
+  <h4>결과</h4>
+  <p>주의 이상 등급의 90.6%에서 발동. 현재 시스템의 핵심 탐지 메커니즘이다.</p>
+  <h4>원인</h4>
+  <p>포화율 분포에서 P75=0.324, P90=0.514, P95=0.622로, 정상 운영에서도 0.5 이상이 빈번하다. MEDIUM 임계값 0.70이 전체의 4.1%(5,125건)로 적절하나, CRITICAL(0.95) 도달 건수가 265건(0.21%)으로 최상위 판정이 과도하게 희귀하다.</p>
+</div>
+
+<div class="chart-container" style="height:260px"><canvas id="satChart"></canvas></div>
+
+<h3>2.3 Rule 2 — 속도 저하 (0.2%)</h3>
+
+<div class="alert alert-danger">
+  <div class="alert-title">사실상 비활성 — 재설계 필요</div>
+  <p>전체 121,382 row에서 speed_ratio &lt; 0.5인 건이 단 1건. speed_ratio 표준편차가 0.047로, 거의 모든 값이 0.93~1.06 구간에 집중되어 있어 현재 임계값(CRITICAL: 0.3, HIGH: 0.5)으로는 탐지가 불가능하다.</p>
+</div>
+
+<div class="cause-box">
+  <h4>원인 추정</h4>
+  <p><strong>가능성 1:</strong> FREE_FLOW_SPEED가 실시간 주행 속도가 아닌 구간 설정 속도(기준 속도)일 수 있다. OHT 정체 시 이 값이 변하지 않고, 정체는 HID_VALUE 증가로만 반영될 수 있다.</p>
+  <p><strong>가능성 2:</strong> OHT가 정체 시 이동이 없어 HID_INOUT 테이블에 기록되지 않을 수 있다. 이동 완료된 차량만 기록되므로, 정체 중인 차량의 속도 저하는 포착되지 않는다.</p>
+  <h4>조치 제안</h4>
+  <p>속도비 기반에서 <strong>유출 정지 기반</strong>으로 재설계: outflow_cnt = 0 (1분간 아무 차량도 출발하지 않음)을 정체 판단 대리 지표로 활용.</p>
+</div>
+
+<h3>2.4 Rule 3 — 유입/유출 불균형 (67.2%)</h3>
+
+<div class="cause-box">
+  <h4>결과</h4>
+  <p>Rule 1 다음으로 강력한 탐지 메커니즘. WARNING 이상에서 평균 net_inflow는 3.6으로, 분당 3~4대씩 축적되는 패턴이 주요 경고 원인이다.</p>
+  <h4>원인</h4>
+  <p>특히 outflow_cnt = 0과 결합된 경우(CRITICAL 4점) IMMINENT 판정 2건 모두에서 발동했다. 유입은 있는데 유출이 완전히 정지된 상태가 데드락의 가장 강력한 전조 신호임을 확인.</p>
+</div>
+
+<h3>2.5 Rule 4 — 정체 지속성 (0.1%)</h3>
+
+<div class="alert alert-danger">
+  <div class="alert-title">사실상 비활성 — 재설계 필요</div>
+  <p>5건만 발동. 트리거 조건이 saturation ≥ 0.85 AND speed_ratio &lt; 0.5의 동시 충족인데, speed_ratio &lt; 0.5가 거의 발생하지 않으므로 함께 무효화. Rule 2와 동일한 근본 원인(속도비 안정성)에 기인.</p>
+</div>
+
+<div class="cause-box">
+  <h4>조치 제안</h4>
+  <p>속도비 조건을 제거하고, <strong>saturation ≥ 0.70 AND net_inflow ≥ 2가 N분 연속</strong>으로 변경하여 포화도+유입 축적의 시간적 지속을 판단하도록 재설계.</p>
+</div>
+
+<h3>2.6 Rule 5 — 연쇄 데드락 (31.1%)</h3>
+
+<div class="cause-box">
+  <h4>결과</h4>
+  <p>공간적 확산 패턴 탐지에 유효. 인접 HID 그래프에서 평균 인접 8.7, 최대 인접 20(HID 110)으로 충분한 연결성 확인.</p>
+  <h4>원인</h4>
+  <p>HID 37~41 클러스터에서 집중 발동. 5개 HID가 모두 서로 인접하여, 하나의 포화가 인접 구역으로 전파되는 패턴이 명확히 관찰됨.</p>
+</div>
+
+<!-- ===== 3. 상위 경고 HID 구역 ===== -->
+<h2>3. 상위 경고 HID 구역 분석</h2>
+
+<h3>3.1 WARNING 이상 HID 상위 10</h3>
+
+<table>
+  <thead><tr><th>순위</th><th>HID</th><th>건수</th><th>평균 점수</th><th>최대</th><th>평균 포화율</th><th>평균 순유입</th></tr></thead>
+  <tbody>
+    <tr><td>1</td><td><strong>HID 39</strong></td><td>75</td><td>5.24</td><td>7</td><td>0.896</td><td>2.57</td></tr>
+    <tr><td>2</td><td><strong>HID 37</strong></td><td>68</td><td>5.74</td><td>7</td><td>0.853</td><td>2.84</td></tr>
+    <tr><td>3</td><td><strong>HID 38</strong></td><td>52</td><td>5.02</td><td>6</td><td>0.591</td><td>4.38</td></tr>
+    <tr><td>4</td><td><strong>HID 41</strong></td><td>43</td><td>5.77</td><td>7</td><td>0.826</td><td>3.33</td></tr>
+    <tr><td>5</td><td><strong>HID 40</strong></td><td>30</td><td>5.00</td><td>5</td><td>0.519</td><td>4.13</td></tr>
+    <tr><td>6</td><td>HID 146</td><td>28</td><td>5.71</td><td>8</td><td>0.929</td><td>3.79</td></tr>
+    <tr><td>7</td><td>HID 52</td><td>25</td><td>5.12</td><td>8</td><td>0.874</td><td>4.20</td></tr>
+    <tr><td>8</td><td>HID 57</td><td>20</td><td>5.00</td><td>5</td><td>0.570</td><td>3.90</td></tr>
+    <tr><td>9</td><td>HID 144</td><td>17</td><td>6.12</td><td>7</td><td>1.012</td><td>3.82</td></tr>
+    <tr><td>10</td><td>HID 35</td><td>16</td><td>5.00</td><td>5</td><td>0.573</td><td>4.38</td></tr>
+  </tbody>
+</table>
+
+<h3>3.2 HID 37~41 클러스터</h3>
+
+<div class="alert alert-info">
+  <div class="alert-title">핵심 발견: 상위 5개 HID가 전체 WARNING의 62.3% 차지</div>
+  <p>HID 37, 38, 39, 40, 41은 물리적으로 모두 인접하며, 69회의 동시 다발 경고가 발생했다.</p>
+</div>
+
+<div class="chart-container" style="height:260px"><canvas id="clusterChart"></canvas></div>
+
+<div class="cause-box">
+  <h4>클러스터 인접 관계</h4>
+  <table>
+    <thead><tr><th>HID</th><th>인접 수</th><th>상위 WARNING HID 인접</th><th>분당 유입</th></tr></thead>
+    <tbody>
+      <tr><td>HID 39</td><td>10</td><td>37, 38, 40, 41</td><td>11.3</td></tr>
+      <tr><td>HID 37</td><td>11</td><td>35, 38, 39</td><td>10.7</td></tr>
+      <tr><td>HID 38</td><td>10</td><td>37, 39, 40</td><td>11.7</td></tr>
+      <tr><td>HID 41</td><td>9</td><td>39, 40</td><td>9.0</td></tr>
+      <tr><td>HID 40</td><td>8</td><td>38, 39, 41</td><td>9.9</td></tr>
+    </tbody>
+  </table>
+  <h4>동시 다발 경고 사례</h4>
+  <table>
+    <thead><tr><th>시각</th><th>동시 WARNING HID</th><th>규모</th></tr></thead>
+    <tbody>
+      <tr><td>01:49</td><td>37, 38, 39, 41</td><td><span class="tag tag-red">4개 동시</span></td></tr>
+      <tr><td>00:34</td><td>37, 39, 40</td><td><span class="tag tag-amber">3개 동시</span></td></tr>
+      <tr><td>01:13</td><td>39, 41</td><td>2개 동시</td></tr>
+      <tr><td>01:17</td><td>37, 39</td><td>2개 동시</td></tr>
+      <tr><td>01:40</td><td>38, 39</td><td>2개 동시</td></tr>
+    </tbody>
+  </table>
+  <h4>원인 분석</h4>
+  <p><strong>높은 트래픽:</strong> 분당 유입 9~12건으로 핫스팟 중에서도 상위권. 5개 HID가 모두 서로 직접 연결되어 하나의 포화가 즉시 인접 구역으로 전파된다.</p>
+  <p><strong>야간 집중:</strong> 이 클러스터의 WARNING 97%가 0~7시 야간에 발생. 자동 디스패치 시스템이 부하 분산 없이 최단 경로로만 OHT를 배정하면서 특정 구간에 집중되는 것으로 추정.</p>
+  <p><strong>FAB 위치 확인 필요:</strong> 주요 설비 간 분기점, 스토커/로드포트 밀집 구간, 또는 FAB 간 연결 통로 근처일 가능성이 높다.</p>
+</div>
+
+<h3>3.3 독립 WARNING HID</h3>
+
+<div class="grid2">
+  <div class="imminent-card">
+    <h4>HID 146 — 포화율 1.40 (한계 초과)</h4>
+    <p style="font-size:13px;color:var(--text2)">IMMINENT 1건 발생 (07:20). VHL_COUNT_LIMIT 대비 140% 초과 상태에서 유출 완전 정지. 5대 유입이 모두 체류.</p>
+  </div>
+  <div class="imminent-card">
+    <h4>HID 52 — 분당 17대 유입 폭주</h4>
+    <p style="font-size:13px;color:var(--text2)">IMMINENT 1건 발생 (07:22). 만석(1.00) 상태에서 유입 17대/유출 11대. 일시적 과부하.</p>
+  </div>
+</div>
+<div class="cause-box" style="margin-top:12px">
+  <h4>독립 HID 원인 분석</h4>
+  <p>클러스터형 병목과 다른 메커니즘. 특정 설비/로드포트 앞 병목, VHL_COUNT_LIMIT 설정 문제, 또는 특수 운반 작업(대형 Lot 이동)으로 인한 단기 집중 유입이 원인으로 추정된다.</p>
+  <p>HID 144는 포화율 평균이 1.012로 상시 한계를 초과하는데, 이는 해당 구역의 VHL_COUNT_LIMIT 설정 자체가 실제 트래픽 대비 낮게 설정되어 있을 가능성을 시사한다.</p>
+</div>
+
+<!-- ===== 4. 시간대별 경고 ===== -->
+<h2>4. 시간대별 경고 발생 분석</h2>
+
+<div class="chart-container" style="height:300px"><canvas id="hourlyChart"></canvas></div>
+
+<div class="grid2">
+  <div class="cause-box">
+    <h4>주간 종료 후 (18~23시)</h4>
+    <p>WARNING 29건 (6.7%). 18시는 데이터 시작점으로 분당 124,970건의 최대 트래픽이지만 경고는 3건에 불과.</p>
+    <p><strong>원인:</strong> 주간에는 운영 인력이 실시간 모니터링하면서 부하를 분산시키기 때문.</p>
+  </div>
+  <div class="cause-box">
+    <h4>야간 본격 (0~7시)</h4>
+    <p>WARNING 401건 (93.3%). 2~6시 구간에 피크 집중.</p>
+    <p><strong>원인:</strong> 야간 배치 작업 집중, 운영 인력 최소 상태에서 자동 디스패치가 부하 분산 없이 작동, 교대 전환 시점의 밀린 작업 일괄 처리.</p>
+  </div>
+</div>
+
+<div class="cause-box">
+  <h4>시간대 패턴 종합 원인</h4>
+  <p><strong>야간 배치 작업:</strong> 야간에는 대규모 배치 이동이 집중된다. 특정 공정 완료 후 다량의 Lot이 동시에 이동을 시작하면 특정 HID 구간에 유입이 급증한다.</p>
+  <p><strong>교대 시간 효과:</strong> 0시 전후(야간 교대 전환)와 6~7시(주간 교대 전환)에서 스케줄러가 밀린 작업을 한꺼번에 디스패치하는 경향이 있다.</p>
+  <p><strong>2~6시 피크:</strong> FAB 설비 가동률이 높으면서 물류 관리 인력이 최소인 구간. 자동 디스패치가 최단 경로로만 OHT를 배정하여 HID 37~41 클러스터에 집중.</p>
+</div>
+
+<!-- ===== 5. IMMINENT 상세 ===== -->
+<h2>5. DEADLOCK_IMMINENT 상세 분석 (2건)</h2>
+
+<div class="grid2">
+  <div class="imminent-card">
+    <h4>Case 1: HID 146 | 07:20</h4>
+    <table>
+      <tr><td>포화율</td><td><strong style="color:var(--red)">1.40 (한계의 140%)</strong></td></tr>
+      <tr><td>유입 / 유출</td><td>5대 / 0대</td></tr>
+      <tr><td>순유입</td><td>+5</td></tr>
+      <tr><td>Rule 1</td><td>4점 (CRITICAL)</td></tr>
+      <tr><td>Rule 3</td><td>4점 (CRITICAL)</td></tr>
+      <tr><td>총점</td><td><strong>8점 → IMMINENT</strong></td></tr>
+    </table>
+    <p style="font-size:13px;color:var(--text2);margin-top:8px"><strong>원인:</strong> 유출이 완전 정지된 상태에서 5대가 진입하여 포화율 140% 도달. 전형적인 데드락 전조 상태.</p>
+  </div>
+  <div class="imminent-card">
+    <h4>Case 2: HID 52 | 07:22</h4>
+    <table>
+      <tr><td>포화율</td><td><strong style="color:var(--red)">1.00 (만석)</strong></td></tr>
+      <tr><td>유입 / 유출</td><td>17대 / 11대</td></tr>
+      <tr><td>순유입</td><td>+6</td></tr>
+      <tr><td>Rule 1</td><td>4점 (CRITICAL)</td></tr>
+      <tr><td>Rule 3 + Rule 5</td><td>2점 + 2점</td></tr>
+      <tr><td>총점</td><td><strong>8점 → IMMINENT</strong></td></tr>
+    </table>
+    <p style="font-size:13px;color:var(--text2);margin-top:8px"><strong>원인:</strong> 분당 17대 극단적 유입. 유출도 있으나 유입 초과로 만석 도달. 인접 HID도 HIGH.</p>
+  </div>
+</div>
+<div class="cause-box" style="margin-top:12px">
+  <h4>공통 원인</h4>
+  <p>두 건 모두 07:20~22에 발생. 야간 교대 종료 직전으로, 밀린 물류 작업이 집중 처리되는 시간대이다. 포화율 1.0 이상(한계 도달/초과)이 공통 특성.</p>
+</div>
+
+<!-- ===== 6. 개선 방향 ===== -->
+<h2>6. 개선 방향</h2>
+
+<div class="alert alert-danger">
+  <div class="alert-title">즉시 조치 (Week 1)</div>
+  <p><strong>Rule 2 재설계:</strong> 속도비 → 유출 정지 기반 (outflow_cnt=0 AND inflow_cnt≥2 → CRITICAL)</p>
+  <p><strong>Rule 4 재설계:</strong> 속도비 조건 제거 → saturation≥0.70 AND net_inflow≥2가 N분 연속</p>
+  <p><strong>임계값 하향:</strong> sat_critical 0.95→0.80 / sat_high 0.85→0.65 / sat_medium 0.70→0.50</p>
+</div>
+<div class="alert alert-warning">
+  <div class="alert-title">중기 조치 (Week 2~3)</div>
+  <p>FREE_FLOW_SPEED 의미 확인 / HID 37~41 FAB 레이아웃 위치 확인 / 야간 전용 임계값 설정</p>
+</div>
+<div class="alert alert-success">
+  <div class="alert-title">장기 조치 (Week 4~)</div>
+  <p>수정된 룰베이스로 2~4주 라벨 축적 → LightGBM 베이스라인 ML 모델 전환 → 5~10분 사전 예측</p>
+</div>
+
+<!-- ===== 7. 결론 ===== -->
+<h2>7. 결론</h2>
+
+<p>14시간 야간 데이터(985,144건)에 대한 룰베이스 백테스트 결과, 5개 룰 중 3개(포화도, 유입유출, 연쇄)가 유효하게 작동하며, 2개(속도, 지속성)는 데이터 특성상 재설계가 필요하다.</p>
+
+<p>가장 주목할 발견은 <strong>HID 37~41 클러스터</strong>로, 이 5개 인접 구역이 전체 경고의 62%를 차지하며 야간 0~7시에 집중 발생한다. 이는 FAB 내 특정 물류 병목 지점의 존재를 시사하며, 해당 구간의 물리적 위치 확인과 함께 OHT 디스패치 로직의 부하 분산 개선이 필요하다.</p>
+
+<p>임계값 조정과 Rule 2/4 재설계를 통해 WARNING 비율을 현재 0.35%에서 목표 0.5~2.0%로 끌어올린 뒤, 2~4주간 라벨을 축적하여 ML 예측 모델로 전환하는 것을 권장한다.</p>
+
+<div class="footer">
+  M14A HID 데드락 탐지 룰베이스 백테스트 보고서 | 분석 기간: 2026-04-01 18:00 ~ 2026-04-02 08:00 | 작성: 2026-04-02
+</div>
+
+<script>
+const isDark = window.matchMedia('(prefers-color-scheme:dark)').matches;
+const gridColor = isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)';
+const textColor = isDark ? '#a0a0a0' : '#5f5e5a';
+
+new Chart(document.getElementById('ruleChart'),{
+  type:'bar',
+  data:{
+    labels:['Rule 1\n포화도','Rule 3\n유입유출','Rule 5\n연쇄','Rule 2\n속도','Rule 4\n지속성'],
+    datasets:[{data:[90.6,67.2,31.1,0.2,0.1],
+      backgroundColor:[isDark?'#5BA4E6':'#378ADD',isDark?'#3FC99A':'#1D9E75',isDark?'#A099EE':'#7F77DD',isDark?'#F06060':'#E24B4A',isDark?'#F06060':'#E24B4A'],
+      borderRadius:6,barPercentage:0.6}]
+  },
+  options:{
+    responsive:true,maintainAspectRatio:false,indexAxis:'y',
+    plugins:{legend:{display:false},tooltip:{callbacks:{label:ctx=>ctx.raw+'%'}}},
+    scales:{
+      x:{grid:{color:gridColor},ticks:{color:textColor,callback:v=>v+'%'},max:100},
+      y:{grid:{display:false},ticks:{color:textColor,font:{size:12}}}
+    }
+  }
+});
+
+new Chart(document.getElementById('satChart'),{
+  type:'bar',
+  data:{
+    labels:['0~0.2','0.2~0.4','0.4~0.6','0.6~0.8','0.8~1.0','1.0+'],
+    datasets:[{label:'건수',data:[57025,30607,14384,6813,1614,21],
+      backgroundColor:[isDark?'#707070':'#B4B2A9',isDark?'#707070':'#B4B2A9',isDark?'#E8A832':'#BA7517',isDark?'#E87050':'#D85A30',isDark?'#F06060':'#E24B4A',isDark?'#F06060':'#E24B4A'],
+      borderRadius:6,barPercentage:0.7}]
+  },
+  options:{
+    responsive:true,maintainAspectRatio:false,
+    plugins:{legend:{display:false},title:{display:true,text:'포화율(saturation) 구간별 분포',color:textColor,font:{size:14,weight:'500'}}},
+    scales:{
+      y:{grid:{color:gridColor},ticks:{color:textColor,callback:v=>v>=1000?(v/1000)+'K':v}},
+      x:{grid:{display:false},ticks:{color:textColor}}
+    }
+  }
+});
+
+new Chart(document.getElementById('clusterChart'),{
+  type:'bar',
+  data:{
+    labels:['HID 39','HID 37','HID 38','HID 41','HID 40','HID 146','HID 52','HID 57','HID 144','HID 35'],
+    datasets:[{label:'WARNING 건수',data:[75,68,52,43,30,28,25,20,17,16],
+      backgroundColor:[...Array(5).fill(isDark?'#E87050':'#D85A30'),...Array(5).fill(isDark?'#E8A832':'#BA7517')],
+      borderRadius:6,barPercentage:0.65}]
+  },
+  options:{
+    responsive:true,maintainAspectRatio:false,
+    plugins:{legend:{display:false}},
+    scales:{
+      y:{grid:{color:gridColor},ticks:{color:textColor}},
+      x:{grid:{display:false},ticks:{color:textColor,font:{size:11}}}
+    }
+  }
+});
+
+new Chart(document.getElementById('hourlyChart'),{
+  type:'bar',
+  data:{
+    labels:['18시','19시','20시','21시','22시','23시','0시','1시','2시','3시','4시','5시','6시','7시'],
+    datasets:[{label:'WARNING 건수',data:[3,7,3,5,5,6,24,41,61,59,62,56,62,36],
+      backgroundColor:[...Array(6).fill(isDark?'#707070':'#B4B2A9'),...Array(8).fill(isDark?'#E87050':'#D85A30')],
+      borderRadius:6,barPercentage:0.7}]
+  },
+  options:{
+    responsive:true,maintainAspectRatio:false,
+    plugins:{legend:{display:false},title:{display:true,text:'시간대별 WARNING 이상 발생 건수',color:textColor,font:{size:14,weight:'500'}}},
+    scales:{
+      y:{grid:{color:gridColor},ticks:{color:textColor}},
+      x:{grid:{display:false},ticks:{color:textColor,font:{size:11},autoSkip:false,maxRotation:45}}
+    }
+  }
+});
+</script>
+
+</body>
+</html>
