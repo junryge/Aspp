@@ -1,0 +1,794 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>하네스(Harness) 기법 — LLM 스킬 평가 프레임워크</title>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;700&family=Noto+Sans+KR:wght@300;400;500;700;900&display=swap" rel="stylesheet">
+<style>
+:root {
+  --bg-primary: #0a0e17;
+  --bg-secondary: #111827;
+  --bg-card: #1a2236;
+  --bg-card-hover: #1e2a42;
+  --accent-cyan: #22d3ee;
+  --accent-orange: #fb923c;
+  --accent-green: #4ade80;
+  --accent-purple: #a78bfa;
+  --accent-pink: #f472b6;
+  --accent-red: #f87171;
+  --text-primary: #e2e8f0;
+  --text-secondary: #94a3b8;
+  --text-muted: #64748b;
+  --border: #1e293b;
+  --glow-cyan: 0 0 30px rgba(34, 211, 238, 0.15);
+}
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+body {
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  font-family: 'Noto Sans KR', sans-serif;
+  line-height: 1.8;
+  font-size: 15px;
+  overflow-x: hidden;
+}
+
+/* Hero */
+.hero {
+  position: relative;
+  padding: 100px 40px 80px;
+  text-align: center;
+  overflow: hidden;
+}
+.hero::before {
+  content: '';
+  position: absolute;
+  top: -50%;
+  left: -50%;
+  width: 200%;
+  height: 200%;
+  background: radial-gradient(ellipse at 30% 50%, rgba(34, 211, 238, 0.06) 0%, transparent 50%),
+              radial-gradient(ellipse at 70% 50%, rgba(167, 139, 250, 0.05) 0%, transparent 50%);
+  animation: drift 20s ease-in-out infinite alternate;
+}
+@keyframes drift {
+  0% { transform: translate(0, 0) rotate(0deg); }
+  100% { transform: translate(-30px, 20px) rotate(2deg); }
+}
+.hero-badge {
+  display: inline-block;
+  background: rgba(34, 211, 238, 0.1);
+  border: 1px solid rgba(34, 211, 238, 0.3);
+  color: var(--accent-cyan);
+  padding: 6px 18px;
+  border-radius: 20px;
+  font-size: 12px;
+  font-family: 'JetBrains Mono', monospace;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  position: relative;
+  margin-bottom: 30px;
+}
+.hero h1 {
+  font-size: clamp(2.5rem, 5vw, 4rem);
+  font-weight: 900;
+  position: relative;
+  background: linear-gradient(135deg, var(--accent-cyan), var(--accent-purple));
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  margin-bottom: 16px;
+}
+.hero .subtitle {
+  font-size: 1.15rem;
+  color: var(--text-secondary);
+  font-weight: 300;
+  position: relative;
+  max-width: 600px;
+  margin: 0 auto;
+}
+
+/* Container */
+.container {
+  max-width: 1000px;
+  margin: 0 auto;
+  padding: 0 30px 80px;
+}
+
+/* Section */
+.section {
+  margin-bottom: 60px;
+}
+.section-label {
+  display: inline-block;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  letter-spacing: 3px;
+  text-transform: uppercase;
+  color: var(--accent-orange);
+  margin-bottom: 8px;
+}
+.section h2 {
+  font-size: 1.8rem;
+  font-weight: 700;
+  margin-bottom: 24px;
+  color: var(--text-primary);
+}
+.section p {
+  color: var(--text-secondary);
+  margin-bottom: 16px;
+}
+
+/* Core Loop Diagram */
+.loop-diagram {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  margin: 30px 0;
+}
+.loop-step {
+  display: flex;
+  align-items: stretch;
+  gap: 0;
+}
+.loop-number {
+  width: 60px;
+  min-width: 60px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+.loop-number .num {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: 'JetBrains Mono', monospace;
+  font-weight: 700;
+  font-size: 14px;
+  flex-shrink: 0;
+}
+.loop-number .line {
+  flex: 1;
+  width: 2px;
+  min-height: 20px;
+}
+.loop-step:last-child .loop-number .line { display: none; }
+
+.loop-content {
+  flex: 1;
+  background: var(--bg-card);
+  border-radius: 12px;
+  padding: 20px 24px;
+  margin-bottom: 12px;
+  border-left: 3px solid transparent;
+  transition: all 0.3s;
+}
+.loop-content:hover {
+  background: var(--bg-card-hover);
+  transform: translateX(4px);
+}
+.loop-content h3 {
+  font-size: 1rem;
+  font-weight: 600;
+  margin-bottom: 6px;
+}
+.loop-content .desc {
+  font-size: 0.85rem;
+  color: var(--text-muted);
+}
+
+.step-cyan .num { background: rgba(34,211,238,0.15); color: var(--accent-cyan); }
+.step-cyan .line { background: linear-gradient(to bottom, var(--accent-cyan), transparent); }
+.step-cyan .loop-content { border-left-color: var(--accent-cyan); }
+
+.step-green .num { background: rgba(74,222,128,0.15); color: var(--accent-green); }
+.step-green .line { background: linear-gradient(to bottom, var(--accent-green), transparent); }
+.step-green .loop-content { border-left-color: var(--accent-green); }
+
+.step-orange .num { background: rgba(251,146,60,0.15); color: var(--accent-orange); }
+.step-orange .line { background: linear-gradient(to bottom, var(--accent-orange), transparent); }
+.step-orange .loop-content { border-left-color: var(--accent-orange); }
+
+.step-purple .num { background: rgba(167,139,250,0.15); color: var(--accent-purple); }
+.step-purple .line { background: linear-gradient(to bottom, var(--accent-purple), transparent); }
+.step-purple .loop-content { border-left-color: var(--accent-purple); }
+
+.step-pink .num { background: rgba(244,114,182,0.15); color: var(--accent-pink); }
+.step-pink .line { background: linear-gradient(to bottom, var(--accent-pink), transparent); }
+.step-pink .loop-content { border-left-color: var(--accent-pink); }
+
+/* Repeat arrow */
+.loop-repeat {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  margin: 16px 0 0 60px;
+  padding: 12px 24px;
+  background: linear-gradient(135deg, rgba(34,211,238,0.08), rgba(167,139,250,0.08));
+  border: 1px dashed rgba(34,211,238,0.3);
+  border-radius: 8px;
+  color: var(--accent-cyan);
+  font-size: 0.85rem;
+  font-family: 'JetBrains Mono', monospace;
+}
+
+/* Code blocks */
+.code-block {
+  background: #0d1117;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 20px 24px;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 13px;
+  line-height: 1.7;
+  overflow-x: auto;
+  margin: 16px 0;
+  position: relative;
+}
+.code-block .lang-tag {
+  position: absolute;
+  top: 8px;
+  right: 12px;
+  font-size: 10px;
+  color: var(--text-muted);
+  letter-spacing: 1px;
+  text-transform: uppercase;
+}
+.code-key { color: var(--accent-cyan); }
+.code-str { color: var(--accent-green); }
+.code-num { color: var(--accent-orange); }
+.code-bool { color: var(--accent-purple); }
+.code-comment { color: var(--text-muted); font-style: italic; }
+
+/* Directory tree */
+.dir-tree {
+  background: #0d1117;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 20px 24px;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 13px;
+  line-height: 1.9;
+  margin: 16px 0;
+  color: var(--text-secondary);
+}
+.dir-tree .folder { color: var(--accent-cyan); font-weight: 600; }
+.dir-tree .file { color: var(--text-primary); }
+.dir-tree .note { color: var(--text-muted); font-style: italic; }
+
+/* Cards grid */
+.cards-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 16px;
+  margin: 20px 0;
+}
+.card {
+  background: var(--bg-card);
+  border-radius: 12px;
+  padding: 24px;
+  border: 1px solid var(--border);
+  transition: all 0.3s;
+}
+.card:hover {
+  border-color: rgba(34,211,238,0.3);
+  box-shadow: var(--glow-cyan);
+  transform: translateY(-2px);
+}
+.card-icon {
+  width: 36px;
+  height: 36px;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 18px;
+  margin-bottom: 14px;
+}
+.card h3 {
+  font-size: 1rem;
+  font-weight: 600;
+  margin-bottom: 8px;
+}
+.card p {
+  font-size: 0.85rem;
+  color: var(--text-muted);
+  line-height: 1.6;
+}
+
+/* Table */
+.table-wrap {
+  overflow-x: auto;
+  margin: 20px 0;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+}
+table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.88rem;
+}
+thead {
+  background: var(--bg-card);
+}
+th {
+  padding: 14px 18px;
+  text-align: left;
+  font-weight: 600;
+  color: var(--text-primary);
+  white-space: nowrap;
+}
+td {
+  padding: 12px 18px;
+  border-top: 1px solid var(--border);
+  color: var(--text-secondary);
+}
+tr:hover td {
+  background: rgba(34,211,238,0.03);
+}
+.check { color: var(--accent-green); }
+.cross { color: var(--accent-red); }
+
+/* Callout */
+.callout {
+  border-radius: 10px;
+  padding: 18px 22px;
+  margin: 20px 0;
+  font-size: 0.9rem;
+}
+.callout-info {
+  background: rgba(34, 211, 238, 0.06);
+  border-left: 3px solid var(--accent-cyan);
+  color: var(--text-secondary);
+}
+.callout-warn {
+  background: rgba(251, 146, 60, 0.06);
+  border-left: 3px solid var(--accent-orange);
+  color: var(--text-secondary);
+}
+.callout strong { color: var(--text-primary); }
+
+/* Principle cards */
+.principle-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin: 20px 0;
+}
+.principle {
+  display: flex;
+  gap: 16px;
+  background: var(--bg-card);
+  border-radius: 10px;
+  padding: 18px 22px;
+  border: 1px solid var(--border);
+  transition: border-color 0.3s;
+}
+.principle:hover { border-color: rgba(167,139,250,0.3); }
+.principle-tag {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  white-space: nowrap;
+  padding-top: 2px;
+  min-width: 80px;
+}
+.principle-body {
+  font-size: 0.88rem;
+  color: var(--text-secondary);
+  line-height: 1.6;
+}
+.principle-body strong { color: var(--text-primary); }
+
+/* Summary box */
+.summary-box {
+  background: linear-gradient(135deg, rgba(34,211,238,0.05), rgba(167,139,250,0.05));
+  border: 1px solid rgba(34,211,238,0.2);
+  border-radius: 16px;
+  padding: 40px;
+  text-align: center;
+  margin-top: 40px;
+}
+.summary-box .quote {
+  font-size: 1.4rem;
+  font-weight: 700;
+  background: linear-gradient(135deg, var(--accent-cyan), var(--accent-purple));
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  margin-bottom: 16px;
+}
+.summary-box .steps {
+  display: flex;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 20px;
+}
+.summary-box .step-pill {
+  background: var(--bg-card);
+  padding: 8px 18px;
+  border-radius: 20px;
+  font-size: 0.82rem;
+  border: 1px solid var(--border);
+  color: var(--text-secondary);
+  transition: all 0.3s;
+}
+.summary-box .step-pill:hover {
+  border-color: var(--accent-cyan);
+  color: var(--accent-cyan);
+}
+
+/* Footer */
+.footer {
+  text-align: center;
+  padding: 40px 30px;
+  font-size: 0.78rem;
+  color: var(--text-muted);
+  border-top: 1px solid var(--border);
+}
+
+/* Responsive */
+@media (max-width: 640px) {
+  .hero { padding: 60px 20px 50px; }
+  .container { padding: 0 16px 60px; }
+  .cards-grid { grid-template-columns: 1fr; }
+  .summary-box { padding: 24px; }
+  .loop-number { width: 44px; min-width: 44px; }
+  .loop-content { padding: 16px; }
+}
+</style>
+</head>
+<body>
+
+<!-- Hero -->
+<div class="hero">
+  <div class="hero-badge">SKILL EVALUATION FRAMEWORK</div>
+  <h1>하네스(Harness) 기법</h1>
+  <p class="subtitle">LLM 스킬의 품질을 체계적으로 측정하고 개선하기 위한<br>반복적 평가 프레임워크</p>
+</div>
+
+<div class="container">
+
+  <!-- Section 1: Overview -->
+  <div class="section">
+    <div class="section-label">01 — OVERVIEW</div>
+    <h2>개요</h2>
+    <p>하네스 기법의 핵심은 <strong>"Draft → Test → Evaluate → Improve"</strong> 반복 루프다. 정량적 벤치마크(assertions, pass rate, 토큰 사용량)와 정성적 인간 리뷰를 결합하여 스킬 품질을 체계적으로 끌어올린다.</p>
+    <div class="callout callout-info">
+      <strong>핵심 철학:</strong> 오늘날의 LLM은 똑똑하다. 좋은 하네스가 주어지면 기계적 지시를 넘어 맥락을 이해하고 진짜 결과를 만들어낸다.
+    </div>
+  </div>
+
+  <!-- Section 2: Core Loop -->
+  <div class="section">
+    <div class="section-label">02 — CORE LOOP</div>
+    <h2>핵심 루프</h2>
+
+    <div class="loop-diagram">
+      <div class="loop-step step-cyan">
+        <div class="loop-number">
+          <div class="num">1</div>
+          <div class="line"></div>
+        </div>
+        <div class="loop-content">
+          <h3>의도 파악 (Capture Intent)</h3>
+          <div class="desc">사용자 인터뷰 → 스킬 목적, 트리거 조건, 출력 형식, 엣지 케이스 정리</div>
+        </div>
+      </div>
+
+      <div class="loop-step step-green">
+        <div class="loop-number">
+          <div class="num">2</div>
+          <div class="line"></div>
+        </div>
+        <div class="loop-content">
+          <h3>스킬 작성 (Write SKILL.md)</h3>
+          <div class="desc">YAML 프론트매터(name, description) + 본문 지시사항 + 번들 리소스(scripts, references, assets)</div>
+        </div>
+      </div>
+
+      <div class="loop-step step-orange">
+        <div class="loop-number">
+          <div class="num">3</div>
+          <div class="line"></div>
+        </div>
+        <div class="loop-content">
+          <h3>테스트 실행 (Spawn Runs)</h3>
+          <div class="desc">with_skill + baseline을 동시에 스폰. 실행 중 assertions 초안 작성. timing.json에 토큰/시간 캡처.</div>
+        </div>
+      </div>
+
+      <div class="loop-step step-purple">
+        <div class="loop-number">
+          <div class="num">4</div>
+          <div class="line"></div>
+        </div>
+        <div class="loop-content">
+          <h3>평가/채점 (Grade & Review)</h3>
+          <div class="desc">Grader Agent가 grading.json 생성 → 벤치마크 집계 → HTML 뷰어로 사용자 리뷰 → feedback.json 수집</div>
+        </div>
+      </div>
+
+      <div class="loop-step step-pink">
+        <div class="loop-number">
+          <div class="num">5</div>
+          <div class="line"></div>
+        </div>
+        <div class="loop-content">
+          <h3>스킬 개선 (Improve)</h3>
+          <div class="desc">피드백 반영. 일반화 우선. WHY 설명. 반복 작업은 scripts/에 번들. 린 프롬프트 유지.</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="loop-repeat">
+      ↻ 만족할 때까지 Step 3~5 반복 (보통 3~5 이터레이션)
+    </div>
+  </div>
+
+  <!-- Section 3: Directory Structure -->
+  <div class="section">
+    <div class="section-label">03 — STRUCTURE</div>
+    <h2>디렉터리 구조</h2>
+    <div class="dir-tree">
+<span class="folder">skill-name/</span>
+├── <span class="file">SKILL.md</span>              <span class="note"># 스킬 본체</span>
+├── <span class="folder">evals/</span>
+│   └── <span class="file">evals.json</span>        <span class="note"># 테스트 케이스 정의</span>
+├── <span class="folder">scripts/</span>             <span class="note"># 번들 실행 스크립트</span>
+├── <span class="folder">references/</span>          <span class="note"># 참조 문서</span>
+└── <span class="folder">assets/</span>              <span class="note"># 템플릿, 폰트, 아이콘</span>
+
+<span class="folder">skill-name-workspace/</span>
+├── <span class="folder">iteration-1/</span>
+│   ├── <span class="folder">eval-0-descriptive-name/</span>
+│   │   ├── <span class="folder">with_skill/</span>
+│   │   │   ├── <span class="folder">outputs/</span>     <span class="note"># 스킬 적용 결과물</span>
+│   │   │   ├── <span class="file">grading.json</span> <span class="note"># 채점 결과</span>
+│   │   │   └── <span class="file">timing.json</span>  <span class="note"># 실행 시간/토큰</span>
+│   │   └── <span class="folder">without_skill/</span>
+│   │       └── <span class="folder">outputs/</span>     <span class="note"># 베이스라인 결과물</span>
+│   ├── <span class="file">benchmark.json</span>
+│   └── <span class="file">benchmark.md</span>
+├── <span class="folder">iteration-2/</span> …
+└── <span class="file">feedback.json</span>            <span class="note"># 사용자 리뷰</span>
+    </div>
+  </div>
+
+  <!-- Section 4: JSON Schemas -->
+  <div class="section">
+    <div class="section-label">04 — SCHEMAS</div>
+    <h2>평가 JSON 스키마</h2>
+
+    <div class="cards-grid">
+      <div class="card">
+        <div class="card-icon" style="background: rgba(34,211,238,0.1); color: var(--accent-cyan);">📋</div>
+        <h3>evals.json</h3>
+        <p>테스트 케이스 정의. prompt, expected_output, files, expectations(assertions)를 포함.</p>
+      </div>
+      <div class="card">
+        <div class="card-icon" style="background: rgba(74,222,128,0.1); color: var(--accent-green);">✅</div>
+        <h3>grading.json</h3>
+        <p>Grader Agent 출력. expectations[].text/passed/evidence + summary(pass_rate) + execution_metrics.</p>
+      </div>
+      <div class="card">
+        <div class="card-icon" style="background: rgba(251,146,60,0.1); color: var(--accent-orange);">⏱</div>
+        <h3>timing.json</h3>
+        <p>실행 시간 캡처. total_tokens, duration_ms. 서브에이전트 완료 시 즉시 저장 (이후 복구 불가).</p>
+      </div>
+      <div class="card">
+        <div class="card-icon" style="background: rgba(167,139,250,0.1); color: var(--accent-purple);">📊</div>
+        <h3>benchmark.json</h3>
+        <p>벤치마크 집계. with_skill vs without_skill: mean/stddev pass_rate, time, tokens + delta.</p>
+      </div>
+      <div class="card">
+        <div class="card-icon" style="background: rgba(244,114,182,0.1); color: var(--accent-pink);">🔍</div>
+        <h3>comparison.json</h3>
+        <p>Blind A/B 비교. winner/loser + rubric(5점 척도) + output_quality 강점/약점 분석.</p>
+      </div>
+      <div class="card">
+        <div class="card-icon" style="background: rgba(248,113,113,0.1); color: var(--accent-red);">💡</div>
+        <h3>analysis.json</h3>
+        <p>Post-hoc 분석. 트랜스크립트 패턴 + instruction_following 점수 + improvement_suggestions.</p>
+      </div>
+    </div>
+
+    <h3 style="margin-top: 30px; margin-bottom: 12px; font-size: 1.1rem;">evals.json 예시</h3>
+    <div class="code-block">
+      <span class="lang-tag">JSON</span>
+{
+  <span class="code-key">"skill_name"</span>: <span class="code-str">"my-skill"</span>,
+  <span class="code-key">"evals"</span>: [
+    {
+      <span class="code-key">"id"</span>: <span class="code-num">1</span>,
+      <span class="code-key">"prompt"</span>: <span class="code-str">"사용자가 입력할 실제 프롬프트"</span>,
+      <span class="code-key">"expected_output"</span>: <span class="code-str">"기대 결과 설명"</span>,
+      <span class="code-key">"files"</span>: [<span class="code-str">"evals/files/sample.pdf"</span>],
+      <span class="code-key">"expectations"</span>: [
+        <span class="code-str">"출력에 X가 포함됨"</span>,
+        <span class="code-str">"Y 스크립트를 사용함"</span>
+      ]
+    }
+  ]
+}
+    </div>
+
+    <h3 style="margin-top: 30px; margin-bottom: 12px; font-size: 1.1rem;">benchmark.json 핵심 구조</h3>
+    <div class="code-block">
+      <span class="lang-tag">JSON</span>
+{
+  <span class="code-key">"run_summary"</span>: {
+    <span class="code-key">"with_skill"</span>: {
+      <span class="code-key">"pass_rate"</span>: { <span class="code-key">"mean"</span>: <span class="code-num">0.85</span>, <span class="code-key">"stddev"</span>: <span class="code-num">0.05</span> },
+      <span class="code-key">"time_seconds"</span>: { <span class="code-key">"mean"</span>: <span class="code-num">45.0</span>, <span class="code-key">"stddev"</span>: <span class="code-num">12.0</span> },
+      <span class="code-key">"tokens"</span>: { <span class="code-key">"mean"</span>: <span class="code-num">3800</span>, <span class="code-key">"stddev"</span>: <span class="code-num">400</span> }
+    },
+    <span class="code-key">"without_skill"</span>: {
+      <span class="code-key">"pass_rate"</span>: { <span class="code-key">"mean"</span>: <span class="code-num">0.35</span>, <span class="code-key">"stddev"</span>: <span class="code-num">0.08</span> }
+    },
+    <span class="code-key">"delta"</span>: { <span class="code-key">"pass_rate"</span>: <span class="code-str">"+0.50"</span> }
+  }
+}
+    </div>
+  </div>
+
+  <!-- Section 5: Execution Detail -->
+  <div class="section">
+    <div class="section-label">05 — EXECUTION</div>
+    <h2>실행 단계 상세</h2>
+
+    <div class="cards-grid" style="grid-template-columns: 1fr 1fr;">
+      <div class="card">
+        <h3 style="color: var(--accent-cyan);">Step 1: Spawn</h3>
+        <p><strong>with_skill</strong> + <strong>baseline</strong> 동시 실행. 신규 스킬이면 no-skill 베이스라인, 개선 중이면 이전 버전 스냅샷을 베이스라인으로 사용.</p>
+      </div>
+      <div class="card">
+        <h3 style="color: var(--accent-green);">Step 2: Assertions</h3>
+        <p>실행 대기 중 assertion 작성. 파일 존재, 콘텐츠 검증, 구조 검증, 형식 검증. <em>주관적 품질은 정성 리뷰로.</em></p>
+      </div>
+      <div class="card">
+        <h3 style="color: var(--accent-orange);">Step 3: Timing</h3>
+        <p>서브에이전트 완료 시 즉시 <code>timing.json</code> 저장. total_tokens, duration_ms — 이후 복구 불가.</p>
+      </div>
+      <div class="card">
+        <h3 style="color: var(--accent-purple);">Step 4: Grade</h3>
+        <p>Grader → <code>grading.json</code>, aggregate_benchmark.py → <code>benchmark.json</code>, generate_review.py → HTML 뷰어 실행.</p>
+      </div>
+    </div>
+
+    <div class="callout callout-warn" style="margin-top: 12px;">
+      <strong>Step 5: Feedback</strong> — 빈 피드백은 만족을 의미. 구체적 불만 사항에만 집중하여 개선. feedback.json에 자동 저장됨.
+    </div>
+  </div>
+
+  <!-- Section 6: Advanced -->
+  <div class="section">
+    <div class="section-label">06 — ADVANCED</div>
+    <h2>고급 기법</h2>
+
+    <div class="cards-grid" style="grid-template-columns: 1fr 1fr;">
+      <div class="card" style="border-top: 2px solid var(--accent-purple);">
+        <h3>Blind Comparison</h3>
+        <p>독립 에이전트(Comparator)가 두 출력을 익명으로 비교. Rubric 5점 척도 + 강점/약점. Analyzer가 트랜스크립트 패턴 분석 + 구체적 개선 제안 도출.</p>
+      </div>
+      <div class="card" style="border-top: 2px solid var(--accent-cyan);">
+        <h3>Description Optimization</h3>
+        <p>스킬 트리거 정확도 최적화. should_trigger / should_not_trigger 쿼리셋 → train 60% / test 40% → 최대 5회 반복 → test score 기준 best_description 선택.</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- Section 7: Principles -->
+  <div class="section">
+    <div class="section-label">07 — PRINCIPLES</div>
+    <h2>개선 원칙</h2>
+
+    <div class="principle-list">
+      <div class="principle">
+        <div class="principle-tag" style="color: var(--accent-cyan);">일반화</div>
+        <div class="principle-body"><strong>테스트 케이스에 오버핏하지 않는다.</strong> 소수 예시에서 작동하는 스킬은 의미 없다. 범용적으로 개선하고, 막히면 다른 메타포나 패턴을 시도.</div>
+      </div>
+      <div class="principle">
+        <div class="principle-tag" style="color: var(--accent-green);">린 프롬프트</div>
+        <div class="principle-body"><strong>효과 없는 지시를 제거한다.</strong> 트랜스크립트를 읽고 비생산적 패턴을 확인. 모델이 불필요한 작업에 시간을 낭비하면 해당 지시를 삭제.</div>
+      </div>
+      <div class="principle">
+        <div class="principle-tag" style="color: var(--accent-orange);">WHY 설명</div>
+        <div class="principle-body"><strong>ALWAYS/NEVER 대신 이유를 설명.</strong> 모델은 맥락을 이해할 수 있다. 왜 중요한지를 전달하면 기계적 지시보다 더 효과적.</div>
+      </div>
+      <div class="principle">
+        <div class="principle-tag" style="color: var(--accent-purple);">번들링</div>
+        <div class="principle-body"><strong>반복 작업을 scripts/에 번들한다.</strong> 모든 테스트 케이스가 동일한 헬퍼 스크립트를 만들면, 그건 스킬에 포함되어야 한다는 신호.</div>
+      </div>
+      <div class="principle">
+        <div class="principle-tag" style="color: var(--accent-pink);">무놀라움</div>
+        <div class="principle-body"><strong>스킬 내용이 사용자를 놀라게 하면 안 된다.</strong> 악의적 코드, 익스플로잇, 설명과 다른 의도는 금지.</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Section 8: Environment Comparison -->
+  <div class="section">
+    <div class="section-label">08 — ENVIRONMENTS</div>
+    <h2>환경별 차이</h2>
+
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>기능</th>
+            <th>Claude Code</th>
+            <th>Claude.ai</th>
+            <th>Cowork</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>서브에이전트</td>
+            <td><span class="check">✅ 병렬</span></td>
+            <td><span class="cross">❌ 순차</span></td>
+            <td><span class="check">✅ 병렬</span></td>
+          </tr>
+          <tr>
+            <td>브라우저 뷰어</td>
+            <td><span class="check">✅ 서버</span></td>
+            <td><span class="cross">❌ 인라인</span></td>
+            <td>🔧 --static HTML</td>
+          </tr>
+          <tr>
+            <td>베이스라인 비교</td>
+            <td><span class="check">✅</span></td>
+            <td><span class="cross">❌</span></td>
+            <td><span class="check">✅</span></td>
+          </tr>
+          <tr>
+            <td>정량 벤치마크</td>
+            <td><span class="check">✅</span></td>
+            <td><span class="cross">❌</span></td>
+            <td><span class="check">✅</span></td>
+          </tr>
+          <tr>
+            <td>Description 최적화</td>
+            <td><span class="check">✅ claude -p</span></td>
+            <td><span class="cross">❌</span></td>
+            <td><span class="check">✅</span></td>
+          </tr>
+          <tr>
+            <td>패키징 (.skill)</td>
+            <td><span class="check">✅</span></td>
+            <td><span class="check">✅</span></td>
+            <td><span class="check">✅</span></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- Summary -->
+  <div class="summary-box">
+    <div class="quote">"측정 없이 개선 없다"</div>
+    <p style="color: var(--text-secondary); font-size: 0.95rem;">하네스 기법은 LLM 스킬을 재현 가능하고 체계적으로 품질 관리하는 프레임워크다.</p>
+    <div class="steps">
+      <div class="step-pill">① 작성</div>
+      <div class="step-pill">② 테스트</div>
+      <div class="step-pill">③ 평가</div>
+      <div class="step-pill">④ 개선</div>
+      <div class="step-pill">⑤ 반복</div>
+    </div>
+  </div>
+
+</div>
+
+<div class="footer">
+  Harness Technique Guide — Generated from Skill Creator Framework · 2026
+</div>
+
+</body>
+</html>

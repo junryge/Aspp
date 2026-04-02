@@ -1,0 +1,745 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>하네스 기법 — 쉽게 이해하기</title>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@300;400;600;800&display=swap" rel="stylesheet">
+<style>
+:root {
+  --bg: #fefcf9;
+  --bg-warm: #fff8f0;
+  --bg-card: #ffffff;
+  --text: #2d2a26;
+  --text-sub: #6b6560;
+  --text-muted: #a09890;
+  --accent: #e8722a;
+  --accent-light: #fff0e5;
+  --blue: #3b82f6;
+  --blue-light: #eff6ff;
+  --green: #22c55e;
+  --green-light: #f0fdf4;
+  --purple: #8b5cf6;
+  --purple-light: #f5f3ff;
+  --red: #ef4444;
+  --red-light: #fef2f2;
+  --border: #f0ebe5;
+  --shadow: 0 2px 20px rgba(0,0,0,0.04);
+  --shadow-hover: 0 8px 30px rgba(0,0,0,0.08);
+  --radius: 16px;
+}
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: 'Noto Sans KR', -apple-system, sans-serif;
+  line-height: 1.9;
+  font-size: 16px;
+}
+
+/* Hero */
+.hero {
+  background: linear-gradient(135deg, #fff8f0, #fef0e5, #fff5f0);
+  padding: 80px 30px 60px;
+  text-align: center;
+  position: relative;
+  overflow: hidden;
+}
+.hero::after {
+  content: '🔧';
+  position: absolute;
+  font-size: 200px;
+  opacity: 0.04;
+  top: -20px;
+  right: -30px;
+  transform: rotate(15deg);
+}
+.hero-emoji {
+  font-size: 56px;
+  margin-bottom: 16px;
+  display: block;
+  animation: bounce 2s ease-in-out infinite;
+}
+@keyframes bounce {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-8px); }
+}
+.hero h1 {
+  font-size: clamp(1.8rem, 4vw, 2.6rem);
+  font-weight: 800;
+  color: var(--text);
+  margin-bottom: 12px;
+}
+.hero h1 em {
+  font-style: normal;
+  color: var(--accent);
+}
+.hero .tagline {
+  font-size: 1.1rem;
+  color: var(--text-sub);
+  font-weight: 300;
+  max-width: 520px;
+  margin: 0 auto;
+}
+
+/* Container */
+.wrap {
+  max-width: 780px;
+  margin: 0 auto;
+  padding: 0 24px;
+}
+
+/* Section */
+.section {
+  padding: 50px 0 30px;
+}
+.section h2 {
+  font-size: 1.6rem;
+  font-weight: 800;
+  margin-bottom: 20px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.section h2 .emoji { font-size: 1.4rem; }
+.section p {
+  color: var(--text-sub);
+  margin-bottom: 14px;
+  font-weight: 400;
+}
+
+/* Analogy Box */
+.analogy {
+  background: var(--bg-warm);
+  border-radius: var(--radius);
+  padding: 32px;
+  margin: 24px 0;
+  border: 1px solid var(--border);
+}
+.analogy h3 {
+  font-size: 1.15rem;
+  margin-bottom: 16px;
+  color: var(--accent);
+}
+.analogy-steps {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.analogy-step {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 10px 16px;
+  background: var(--bg-card);
+  border-radius: 12px;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.03);
+  font-size: 0.95rem;
+  transition: transform 0.2s;
+}
+.analogy-step:hover { transform: translateX(6px); }
+.analogy-step .num {
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  background: var(--accent);
+  color: white;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
+  font-size: 14px;
+  flex-shrink: 0;
+}
+.analogy-step .arrow {
+  color: var(--text-muted);
+  font-size: 0.8rem;
+  margin-left: auto;
+  flex-shrink: 0;
+}
+
+/* Big Steps */
+.big-steps {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  margin: 24px 0;
+}
+.big-step {
+  background: var(--bg-card);
+  border-radius: var(--radius);
+  padding: 28px;
+  box-shadow: var(--shadow);
+  border: 1px solid var(--border);
+  transition: box-shadow 0.3s, transform 0.2s;
+}
+.big-step:hover {
+  box-shadow: var(--shadow-hover);
+  transform: translateY(-2px);
+}
+.big-step-header {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin-bottom: 12px;
+}
+.big-step-num {
+  width: 44px;
+  height: 44px;
+  border-radius: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 800;
+  font-size: 18px;
+  color: white;
+  flex-shrink: 0;
+}
+.big-step-header h3 {
+  font-size: 1.1rem;
+  font-weight: 700;
+}
+.big-step p {
+  color: var(--text-sub);
+  font-size: 0.92rem;
+  line-height: 1.8;
+}
+
+.s1 .big-step-num { background: var(--accent); }
+.s2 .big-step-num { background: var(--blue); }
+.s3 .big-step-num { background: var(--green); }
+.s4 .big-step-num { background: var(--purple); }
+.s5 .big-step-num { background: var(--red); }
+
+/* Compare Table */
+.compare-box {
+  background: var(--bg-card);
+  border-radius: var(--radius);
+  overflow: hidden;
+  box-shadow: var(--shadow);
+  margin: 20px 0;
+  border: 1px solid var(--border);
+}
+.compare-box table {
+  width: 100%;
+  border-collapse: collapse;
+}
+.compare-box th {
+  background: var(--bg-warm);
+  padding: 14px 20px;
+  text-align: left;
+  font-weight: 600;
+  font-size: 0.88rem;
+  color: var(--text);
+}
+.compare-box td {
+  padding: 14px 20px;
+  border-top: 1px solid var(--border);
+  font-size: 0.9rem;
+  color: var(--text-sub);
+}
+.compare-box tr:hover td { background: rgba(232,114,42,0.02); }
+.badge-yes {
+  display: inline-block;
+  background: var(--green-light);
+  color: var(--green);
+  padding: 2px 10px;
+  border-radius: 6px;
+  font-size: 0.82rem;
+  font-weight: 600;
+}
+.badge-no {
+  display: inline-block;
+  background: var(--red-light);
+  color: var(--red);
+  padding: 2px 10px;
+  border-radius: 6px;
+  font-size: 0.82rem;
+  font-weight: 600;
+}
+
+/* Grading dual */
+.grade-duo {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+  margin: 20px 0;
+}
+.grade-card {
+  border-radius: var(--radius);
+  padding: 24px;
+  border: 1px solid var(--border);
+}
+.grade-card h4 {
+  font-size: 1rem;
+  margin-bottom: 10px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.grade-card ul {
+  list-style: none;
+  padding: 0;
+}
+.grade-card li {
+  padding: 5px 0;
+  font-size: 0.88rem;
+  color: var(--text-sub);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.grade-auto { background: var(--blue-light); }
+.grade-auto h4 { color: var(--blue); }
+.grade-human { background: var(--purple-light); }
+.grade-human h4 { color: var(--purple); }
+
+/* Why box */
+.why-box {
+  background: var(--accent-light);
+  border-radius: var(--radius);
+  padding: 28px;
+  margin: 24px 0;
+  border: 1px solid #fde2c8;
+}
+.why-box h3 {
+  color: var(--accent);
+  margin-bottom: 14px;
+  font-size: 1.1rem;
+}
+.why-item {
+  display: flex;
+  gap: 12px;
+  margin-bottom: 12px;
+  font-size: 0.92rem;
+  color: var(--text-sub);
+}
+.why-item .before {
+  color: var(--red);
+  text-decoration: line-through;
+  white-space: nowrap;
+}
+.why-item .after {
+  color: var(--green);
+  font-weight: 600;
+}
+
+/* Effect table */
+.effect-box {
+  background: var(--bg-card);
+  border-radius: var(--radius);
+  padding: 28px;
+  box-shadow: var(--shadow);
+  border: 1px solid var(--border);
+  margin: 20px 0;
+}
+.effect-box h3 {
+  margin-bottom: 16px;
+  font-size: 1.05rem;
+}
+.effect-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--border);
+}
+.effect-row:last-child { border-bottom: none; }
+.effect-label {
+  width: 80px;
+  font-weight: 600;
+  font-size: 0.88rem;
+  flex-shrink: 0;
+}
+.effect-bar-wrap {
+  flex: 1;
+  height: 28px;
+  background: #f3f0ec;
+  border-radius: 8px;
+  overflow: hidden;
+  position: relative;
+}
+.effect-bar {
+  height: 100%;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  padding-right: 10px;
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: white;
+  transition: width 1s ease-out;
+}
+.bar-before { background: #d1ccc6; color: var(--text-sub); }
+.bar-after { background: var(--accent); }
+.effect-delta {
+  width: 70px;
+  text-align: right;
+  font-weight: 700;
+  font-size: 0.88rem;
+  color: var(--green);
+  flex-shrink: 0;
+}
+
+/* Advanced cards */
+.adv-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+  margin: 20px 0;
+}
+.adv-card {
+  background: var(--bg-card);
+  border-radius: var(--radius);
+  padding: 24px;
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow);
+  transition: box-shadow 0.3s;
+}
+.adv-card:hover { box-shadow: var(--shadow-hover); }
+.adv-card .icon { font-size: 28px; margin-bottom: 10px; display: block; }
+.adv-card h3 { font-size: 1rem; margin-bottom: 8px; }
+.adv-card p { font-size: 0.85rem; color: var(--text-sub); }
+
+/* Flow chart */
+.flow {
+  background: var(--bg-card);
+  border-radius: var(--radius);
+  padding: 36px;
+  margin: 30px 0;
+  box-shadow: var(--shadow);
+  border: 1px solid var(--border);
+  text-align: center;
+}
+.flow-steps {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0;
+}
+.flow-item {
+  background: var(--bg-warm);
+  border-radius: 12px;
+  padding: 14px 32px;
+  font-weight: 600;
+  font-size: 0.95rem;
+  min-width: 260px;
+  position: relative;
+}
+.flow-arrow {
+  font-size: 1.4rem;
+  color: var(--accent);
+  padding: 4px 0;
+}
+.flow-branch {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin: 4px 0;
+  font-size: 0.88rem;
+  color: var(--text-sub);
+}
+.flow-branch .yes { color: var(--green); font-weight: 700; }
+.flow-branch .no { color: var(--red); font-weight: 700; }
+.flow-done {
+  background: var(--accent);
+  color: white;
+  border-radius: 12px;
+  padding: 14px 32px;
+  font-weight: 700;
+  font-size: 1rem;
+}
+
+/* Summary */
+.summary {
+  background: linear-gradient(135deg, #fff8f0, #fef5f0);
+  border-radius: var(--radius);
+  padding: 40px;
+  text-align: center;
+  margin: 40px 0 20px;
+  border: 2px solid #fde2c8;
+}
+.summary .big {
+  font-size: 1.5rem;
+  font-weight: 800;
+  color: var(--accent);
+  margin-bottom: 12px;
+}
+.summary .sub {
+  color: var(--text-sub);
+  font-size: 1rem;
+}
+.summary .pills {
+  display: flex;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 20px;
+}
+.pill {
+  background: white;
+  border: 1px solid var(--border);
+  border-radius: 20px;
+  padding: 8px 18px;
+  font-size: 0.88rem;
+  font-weight: 600;
+  color: var(--text);
+  transition: all 0.2s;
+}
+.pill:hover {
+  background: var(--accent);
+  color: white;
+  border-color: var(--accent);
+}
+
+footer {
+  text-align: center;
+  padding: 40px 24px;
+  color: var(--text-muted);
+  font-size: 0.78rem;
+}
+
+@media (max-width: 600px) {
+  .hero { padding: 50px 20px 40px; }
+  .grade-duo, .adv-grid { grid-template-columns: 1fr; }
+  .flow-item { min-width: auto; padding: 12px 20px; }
+}
+</style>
+</head>
+<body>
+
+<!-- Hero -->
+<div class="hero">
+  <span class="hero-emoji">🧪</span>
+  <h1>하네스 기법, <em>쉽게</em> 이해하기</h1>
+  <p class="tagline">AI한테 일을 시키는 "레시피"를<br><strong>만들고 → 시험보고 → 고치는</strong> 반복 과정이에요</p>
+</div>
+
+<div class="wrap">
+
+  <!-- 비유 -->
+  <div class="section">
+    <h2><span class="emoji">🍳</span> 요리사 비유로 이해하기</h2>
+    <p>요리사를 키운다고 생각해보세요. AI가 요리사, 스킬 문서가 레시피입니다.</p>
+
+    <div class="analogy">
+      <h3>요리사 훈련 과정 = 하네스 기법</h3>
+      <div class="analogy-steps">
+        <div class="analogy-step">
+          <div class="num">1</div>
+          <span>레시피를 써준다 → <strong>"이렇게 만들어봐"</strong></span>
+          <span class="arrow">→</span>
+        </div>
+        <div class="analogy-step">
+          <div class="num">2</div>
+          <span>실제로 만들어보게 한다 → <strong>요리를 시킴</strong></span>
+          <span class="arrow">→</span>
+        </div>
+        <div class="analogy-step">
+          <div class="num">3</div>
+          <span>맛을 본다 → <strong>잘 됐나? 안 됐나?</strong></span>
+          <span class="arrow">→</span>
+        </div>
+        <div class="analogy-step">
+          <div class="num">4</div>
+          <span>레시피를 고친다 → <strong>"소금 좀 줄여봐"</strong></span>
+          <span class="arrow">→</span>
+        </div>
+        <div class="analogy-step">
+          <div class="num">5</div>
+          <span>다시 만들어보게 한다 → <strong>맛있을 때까지 반복!</strong></span>
+          <span class="arrow">🔄</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 5 Steps -->
+  <div class="section">
+    <h2><span class="emoji">📋</span> 5단계로 보기</h2>
+
+    <div class="big-steps">
+      <div class="big-step s1">
+        <div class="big-step-header">
+          <div class="big-step-num">1</div>
+          <h3>뭘 만들지 정하기</h3>
+        </div>
+        <p>"AI야, 넌 이런 일을 해야 해"라고 <strong>스킬 문서</strong>를 작성해요.<br>
+        언제 쓸 건지, 어떤 결과를 내야 하는지, 주의점은 뭔지 적어둡니다.</p>
+      </div>
+
+      <div class="big-step s2">
+        <div class="big-step-header">
+          <div class="big-step-num">2</div>
+          <h3>시험 문제 만들기</h3>
+        </div>
+        <p>스킬이 잘 작동하는지 확인할 <strong>테스트 문제</strong>를 만들어요.<br>
+        예: "이 PDF에서 표 뽑아줘", "이 데이터로 차트 만들어줘" 같은 진짜 사용자가 할 말들.</p>
+      </div>
+
+      <div class="big-step s3">
+        <div class="big-step-header">
+          <div class="big-step-num">3</div>
+          <h3>시험 보기 — 두 가지 버전</h3>
+        </div>
+        <p>같은 문제를 <strong>두 가지 방법</strong>으로 풀게 해요.</p>
+        <div class="compare-box" style="margin-top: 12px;">
+          <table>
+            <tr><th>구분</th><th>설명</th></tr>
+            <tr><td><span class="badge-yes">스킬 있을 때</span></td><td>우리가 만든 레시피를 보고 풀기</td></tr>
+            <tr><td><span class="badge-no">스킬 없을 때</span></td><td>아무 도움 없이 혼자 풀기</td></tr>
+          </table>
+        </div>
+        <p style="margin-top: 8px; font-size: 0.9rem;">→ 둘을 비교하면 <strong>"스킬이 얼마나 도움이 되는지"</strong> 한눈에 보여요!</p>
+      </div>
+
+      <div class="big-step s4">
+        <div class="big-step-header">
+          <div class="big-step-num">4</div>
+          <h3>채점하기</h3>
+        </div>
+        <p>두 가지 방법으로 채점합니다:</p>
+        <div class="grade-duo">
+          <div class="grade-card grade-auto">
+            <h4>🤖 자동 채점</h4>
+            <ul>
+              <li>✅ 파일이 만들어졌나?</li>
+              <li>✅ 정답이 포함됐나?</li>
+              <li>⏱ 걸린 시간은?</li>
+            </ul>
+          </div>
+          <div class="grade-card grade-human">
+            <h4>👁️ 사람이 직접 보기</h4>
+            <ul>
+              <li>🎨 결과물이 보기 좋은가?</li>
+              <li>💡 내가 원하는 느낌인가?</li>
+              <li>✏️ 수정할 점이 있나?</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+
+      <div class="big-step s5">
+        <div class="big-step-header">
+          <div class="big-step-num">5</div>
+          <h3>고쳐서 다시 시험보기</h3>
+        </div>
+        <p>채점 결과를 보고 스킬을 수정한 뒤, 다시 3~4단계를 반복합니다.<br>
+        <strong>만족할 때까지. 보통 3~5번이면 충분해요.</strong></p>
+      </div>
+    </div>
+  </div>
+
+  <!-- Why -->
+  <div class="section">
+    <h2><span class="emoji">🤔</span> 왜 이렇게 해야 하나요?</h2>
+    <p>"그냥 감으로 만들면 안 되나?" → <strong>안 됩니다!</strong></p>
+
+    <div class="why-box">
+      <h3>감으로 만들면 생기는 문제</h3>
+      <div class="why-item">
+        <span class="before">"내 눈엔 괜찮은데?"</span>
+        <span>→ 실제 사용자에겐 <span class="after">아닐 수 있음</span></span>
+      </div>
+      <div class="why-item">
+        <span class="before">"고쳤더니 좋아진 거 같아"</span>
+        <span>→ 비교 데이터 없이는 <span class="after">증명 불가</span></span>
+      </div>
+      <div class="why-item">
+        <span class="before">"이게 효과가 있겠지?"</span>
+        <span>→ 숫자 없이는 <span class="after">확신 불가</span></span>
+      </div>
+    </div>
+
+    <div class="effect-box">
+      <h3>📊 실제 효과 (예시)</h3>
+      <div class="effect-row">
+        <div class="effect-label">정답률</div>
+        <div class="effect-bar-wrap">
+          <div class="effect-bar bar-before" style="width: 35%;">35%</div>
+        </div>
+        <div class="effect-delta" style="color: var(--text-muted);">스킬 無</div>
+      </div>
+      <div class="effect-row">
+        <div class="effect-label">정답률</div>
+        <div class="effect-bar-wrap">
+          <div class="effect-bar bar-after" style="width: 85%;">85%</div>
+        </div>
+        <div class="effect-delta">+50% 🔥</div>
+      </div>
+      <p style="font-size: 0.85rem; color: var(--text-muted); margin-top: 12px; text-align: center;">
+        시간은 13초 더 걸리지만, <strong style="color: var(--accent);">정답률이 2.4배</strong> 올라갑니다
+      </p>
+    </div>
+  </div>
+
+  <!-- Advanced -->
+  <div class="section">
+    <h2><span class="emoji">🚀</span> 고급 기능 (선택사항)</h2>
+    <p>기본만으로도 충분하지만, 더 정밀하게 하고 싶다면:</p>
+
+    <div class="adv-grid">
+      <div class="adv-card">
+        <span class="icon">🙈</span>
+        <h3>블라인드 테스트</h3>
+        <p>두 결과물을 <strong>이름표 없이</strong> 독립적인 AI에게 보여주고 "어느 쪽이 더 나아?" 물어봐요. 편견 없는 공정한 평가!</p>
+      </div>
+      <div class="adv-card">
+        <span class="icon">🎯</span>
+        <h3>트리거 최적화</h3>
+        <p>"이 스킬을 <strong>언제 꺼내야 하지?</strong>"를 자동으로 학습시켜요. 필요한 순간을 정확히 감지하도록!</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- Flow -->
+  <div class="section">
+    <h2><span class="emoji">🗺️</span> 전체 흐름 한 장 정리</h2>
+
+    <div class="flow">
+      <div class="flow-steps">
+        <div class="flow-item">① 스킬 작성 (레시피 만들기)</div>
+        <div class="flow-arrow">↓</div>
+        <div class="flow-item">② 테스트 문제 만들기</div>
+        <div class="flow-arrow">↓</div>
+        <div class="flow-item">③ 시험 보기 (스킬 有 vs 無)</div>
+        <div class="flow-arrow">↓</div>
+        <div class="flow-item">④ 채점 (자동 + 사람)</div>
+        <div class="flow-arrow">↓</div>
+        <div class="flow-item">⑤ 스킬 수정</div>
+        <div class="flow-arrow">↓</div>
+        <div class="flow-branch">
+          <span class="no">← No — 3번으로!</span>
+          <div class="flow-item" style="padding: 10px 24px;">만족했나요?</div>
+          <span class="yes">Yes →</span>
+        </div>
+        <div class="flow-arrow">↓</div>
+        <div class="flow-done">🎉 완성!</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Summary -->
+  <div class="summary">
+    <div class="big">만들고, 시험보고, 고치고, 반복한다.</div>
+    <div class="sub">이것이 하네스 기법의 전부입니다.</div>
+    <div class="pills">
+      <div class="pill">① 작성</div>
+      <div class="pill">② 테스트</div>
+      <div class="pill">③ 채점</div>
+      <div class="pill">④ 수정</div>
+      <div class="pill">⑤ 반복</div>
+    </div>
+  </div>
+
+</div>
+
+<footer>
+  하네스 기법 쉬운 가이드 · 2026
+</footer>
+
+</body>
+</html>
