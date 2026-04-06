@@ -1,127 +1,16 @@
-"""
-Agv realtime collector · PY
-AGV 실시간 데이터 수집기
-- transfer + vehicle 테이블을 주기적으로 스냅샷
-- CSV로 누적 저장
-- 사용법: python agv_realtime_collector.py
-- 중지: Ctrl+C
-"""
 import pymysql
-import csv
-import os
-import time
-from datetime import datetime
 
-# 설정
-DB_CONFIG = {
-    'host': '10.32.72.48',
-    'port': 3306,
-    'user': 'root',
-    'password': 'test',
-    'database': 'acs',
-    'charset': 'utf8mb4'
-}
+conn = pymysql.connect(host='10.32.72.48', port=3306, user='root', password='test', database='acs', charset='utf8mb4')
+cursor = conn.cursor()
 
-INTERVAL = 60  # 수집 주기 (초) - 1분
-OUTPUT_DIR = os.path.dirname(os.path.abspath(__file__))
+cursor.execute("DESCRIBE vehicle")
+for col in cursor.fetchall():
+    print(f"  {col[0]:30s} {col[1]}")
 
-TRANSFER_FILE = os.path.join(OUTPUT_DIR, 'agv_transfer_history.csv')
-VEHICLE_FILE = os.path.join(OUTPUT_DIR, 'agv_vehicle_history.csv')
+print("\n--- 샘플 3건 ---")
+cursor.execute("SELECT * FROM vehicle LIMIT 3")
+for r in cursor.fetchall():
+    print(r)
 
-TRANSFER_COLS = [
-    'SNAPSHOT_TIME',
-    'CommandID','CarrierID','Priority',
-    'SourceID','DestID','HostSourceID','HostDestID',
-    'TransferState','VehicleID','HostVehicleID',
-    'CreateTime','InitiateTime','TransferingTime','CompleteTime',
-    'LotID','BayID','CarrierType','TransferType','SBayID','DBayID'
-]
-
-VEHICLE_COLS = [
-    'SNAPSHOT_TIME',
-    'VehicleID','HostVehicleID',
-    'CarrierDetect1','CarrierDetect2','CarrierID1','CarrierID2',
-    'VehicleState','VehicleJob','EventTime',
-    'IPAddress','VehicleType','BayID','GroupID',
-    'AssignEnable','PMMode','RoadType'
-]
-
-def init_csv(filepath, cols):
-    if not os.path.exists(filepath):
-        f = open(filepath, 'w', newline='', encoding='utf-8-sig')
-        writer = csv.writer(f)
-        writer.writerow(cols)
-        f.close()
-        print(f"  생성: {filepath}")
-
-def collect():
-    now = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-    conn = pymysql.connect(**DB_CONFIG)
-    cursor = conn.cursor(pymysql.cursors.DictCursor)
-
-    # transfer
-    cursor.execute("SELECT * FROM transfer")
-    transfers = cursor.fetchall()
-    f = open(TRANSFER_FILE, 'a', newline='', encoding='utf-8-sig')
-    writer = csv.writer(f)
-    for r in transfers:
-        writer.writerow([
-            now,
-            r.get('CommandID',''), r.get('CarrierID',''), r.get('Priority',''),
-            r.get('SourceID',''), r.get('DestID',''), r.get('HostSourceID',''), r.get('HostDestID',''),
-            r.get('TransferState',''), r.get('VehicleID',''), r.get('HostVehicleID',''),
-            r.get('CreateTime',''), r.get('InitiateTime',''), r.get('TransferingTime',''), r.get('CompleteTime',''),
-            r.get('LotID',''), r.get('BayID',''), r.get('CarrierType',''), r.get('TransferType',''),
-            r.get('SBayID',''), r.get('DBayID','')
-        ])
-    f.close()
-
-    # vehicle
-    cursor.execute("SELECT * FROM vehicle")
-    vehicles = cursor.fetchall()
-    f = open(VEHICLE_FILE, 'a', newline='', encoding='utf-8-sig')
-    writer = csv.writer(f)
-    for r in vehicles:
-        writer.writerow([
-            now,
-            r.get('VehicleID',''), r.get('HostVehicleID',''),
-            r.get('CarrierDetect1',''), r.get('CarrierDetect2',''),
-            r.get('CarrierID1',''), r.get('CarrierID2',''),
-            r.get('VehicleState',''), r.get('VehicleJob',''), r.get('EventTime',''),
-            r.get('IPAddress',''), r.get('VehicleType',''),
-            r.get('BayID',''), r.get('GroupID',''),
-            r.get('AssignEnable',''), r.get('PMMode',''), r.get('RoadType','')
-        ])
-    f.close()
-
-    cursor.close()
-    conn.close()
-    return len(transfers), len(vehicles)
-
-def main():
-    print(f"AGV 실시간 수집기 시작")
-    print(f"  DB: {DB_CONFIG['host']}:{DB_CONFIG['port']}/{DB_CONFIG['database']}")
-    print(f"  주기: {INTERVAL}초")
-    print(f"  저장: {OUTPUT_DIR}")
-    print(f"  중지: Ctrl+C\n")
-
-    init_csv(TRANSFER_FILE, TRANSFER_COLS)
-    init_csv(VEHICLE_FILE, VEHICLE_COLS)
-
-    count = 0
-    while True:
-        try:
-            count += 1
-            t_cnt, v_cnt = collect()
-            now = datetime.now().strftime('%H:%M:%S')
-            print(f"  [{now}] #{count} | transfer: {t_cnt}건 | vehicle: {v_cnt}건")
-            time.sleep(INTERVAL)
-        except KeyboardInterrupt:
-            print(f"\n수집 종료. 총 {count}회 수집됨")
-            break
-        except Exception as e:
-            print(f"  오류: {e} - 10초 후 재시도")
-            time.sleep(10)
-
-if __name__ == '__main__':
-    main()
+cursor.close()
+conn.close()
