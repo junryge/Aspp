@@ -1,16 +1,74 @@
+"""
+AMP Map 데이터 추출 스크립트
+- amp DB: 레이아웃 (location, node, hostlocation, bufferlocation)
+- acs DB: 실시간 (transfer, vehicle)
+사용법: python amp_data_fetch.py
+출력: amp_map_data.json
+"""
 import pymysql
+import json
+import os
+from datetime import datetime
 
-conn = pymysql.connect(host='10.32.72.48', port=3306, user='root', password='test', database='acs', charset='utf8mb4')
-cursor = conn.cursor()
+DB_AMP = {
+    'host': '10.32.72.48',
+    'port': 3306,
+    'user': 'root',
+    'password': 'test',
+    'database': 'amp',
+    'charset': 'utf8mb4'
+}
 
-cursor.execute("DESCRIBE vehicle")
-for col in cursor.fetchall():
-    print(f"  {col[0]:30s} {col[1]}")
+DB_ACS = {
+    'host': '10.32.72.48',
+    'port': 3306,
+    'user': 'root',
+    'password': 'test',
+    'database': 'acs',
+    'charset': 'utf8mb4'
+}
 
-print("\n--- 샘플 3건 ---")
-cursor.execute("SELECT * FROM vehicle LIMIT 3")
-for r in cursor.fetchall():
-    print(r)
+def fetch_tables(config, tables):
+    conn = pymysql.connect(**config)
+    cursor = conn.cursor(pymysql.cursors.DictCursor)
+    result = {}
+    for t in tables:
+        try:
+            cursor.execute(f"SELECT * FROM `{t}`")
+            result[t] = cursor.fetchall()
+            print(f"  {config['database']}.{t}: {len(result[t])}건")
+        except Exception as e:
+            print(f"  {config['database']}.{t}: 오류 - {e}")
+            result[t] = []
+    cursor.close()
+    conn.close()
+    return result
 
-cursor.close()
-conn.close()
+def main():
+    print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] 데이터 추출 시작\n")
+
+    # amp DB - 레이아웃
+    print("[amp] 레이아웃 데이터")
+    amp = fetch_tables(DB_AMP, ['location', 'node', 'hostlocation', 'bufferlocation'])
+
+    # acs DB - 실시간
+    print("\n[acs] 실시간 데이터")
+    acs = fetch_tables(DB_ACS, ['transfer', 'vehicle'])
+
+    data = {}
+    data.update(amp)
+    data['transfer'] = acs.get('transfer', [])
+    data['vehicle'] = acs.get('vehicle', [])
+    data['fetch_time'] = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+
+    out = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'amp_map_data.json')
+    f = open(out, 'w', encoding='utf-8')
+    json.dump(data, f, ensure_ascii=False, default=str)
+    f.close()
+
+    size = os.path.getsize(out) / 1024 / 1024
+    print(f"\n  저장: {out} ({size:.1f}MB)")
+    print("  완료")
+
+if __name__ == '__main__':
+    main()
