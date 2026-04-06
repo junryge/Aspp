@@ -65,12 +65,12 @@ body { background:#0a0e17; color:#e0e0e0; font-family:'JetBrains Mono',monospace
   <div id="live-dot"></div>
   <span style="font-size:11px;color:#10b981;font-weight:700;">LIVE</span>
   <div id="interval-ctrl">
-    <input type="number" id="interval-input" value="5" min="1" max="60">
+    <input type="number" id="interval-input" value="1" min="1" max="60">
     <span>초</span>
   </div>
   <button class="toggle-btn active" data-layer="node">Node</button>
   <button class="toggle-btn active" data-layer="loc">Location</button>
-  <button class="toggle-btn active" data-layer="host">Host</button>
+  <button class="toggle-btn" data-layer="host">Host</button>
   <button class="toggle-btn active" data-layer="buf">Buffer</button>
   <button class="toggle-btn active" data-layer="transfer">Transfer</button>
   <button class="toggle-btn active" data-layer="vehicle">Vehicle</button>
@@ -111,7 +111,7 @@ let minX, maxX, minY, maxY, dataW, dataH;
 let layoutLoaded = false;
 let refreshTimer = null;
 
-const layers = { node:true, loc:true, host:true, buf:true, transfer:true, vehicle:true, disabled:false };
+const layers = { node:true, loc:true, host:false, buf:true, transfer:true, vehicle:true, disabled:false };
 
 // ===== DATA LOADING =====
 
