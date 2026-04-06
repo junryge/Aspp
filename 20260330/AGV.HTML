@@ -81,6 +81,8 @@ body { background:#0a0e17; color:#e0e0e0; font-family:'JetBrains Mono',monospace
     <button class="toggle-btn active" data-layer="loc">Location</button>
     <button class="toggle-btn active" data-layer="host">Host (설비)</button>
     <button class="toggle-btn active" data-layer="buf">Buffer</button>
+    <button class="toggle-btn active" data-layer="transfer">Transfer (이동)</button>
+    <button class="toggle-btn active" data-layer="vehicle">Vehicle (AGV)</button>
     <button class="toggle-btn" data-layer="disabled">Disabled</button>
     <button class="toggle-btn" onclick="resetView()">Reset</button>
   </div>
@@ -91,7 +93,7 @@ body { background:#0a0e17; color:#e0e0e0; font-family:'JetBrains Mono',monospace
   <div class="drop-box" onclick="document.getElementById('file-input').click()">
     <h2>📂 amp_map_data.json</h2>
     <p>클릭하거나 파일을 드래그 앤 드롭하세요</p>
-    <p style="margin-top:8px;color:#475569;">location / node / hostlocation / bufferlocation</p>
+    <p style="margin-top:8px;color:#475569;">layout: location/node/hostlocation/bufferlocation<br>realtime: transfer/vehicle</p>
   </div>
 </div>
 <div class="drop-overlay" id="drop-overlay">여기에 JSON 파일을 놓으세요</div>
@@ -105,6 +107,8 @@ body { background:#0a0e17; color:#e0e0e0; font-family:'JetBrains Mono',monospace
   <div class="leg-row"><div class="leg-dot" style="background:#f59e0b"></div>Host (설비포트)</div>
   <div class="leg-row"><div class="leg-dot" style="background:#10b981"></div>Buffer</div>
   <div class="leg-row"><div class="leg-dot" style="background:#ef4444"></div>Disabled</div>
+  <div class="leg-row"><div class="leg-dot" style="background:#e879f9;width:20px;height:3px;border-radius:2px"></div>Transfer (이동경로)</div>
+  <div class="leg-row"><div class="leg-dot" style="background:#f43f5e"></div>Vehicle (AGV)</div>
 </div>
 <div id="coords" style="display:none;">X: - Y: -</div>
 <div id="stats"></div>
@@ -121,12 +125,13 @@ const layerBtns = document.getElementById('layer-btns');
 
 let DATA = null;
 let eqpidMap = {};
+let locMap = {};
 let W, H;
 let ox=0, oy=0, scale=1;
 let dragging=false, dragX=0, dragY=0;
 let minX, maxX, minY, maxY, dataW, dataH;
 
-const layers = { node:true, loc:true, host:true, buf:true, disabled:false };
+const layers = { node:true, loc:true, host:true, buf:true, transfer:true, vehicle:true, disabled:false };
 
 // File input
 document.getElementById('file-input').addEventListener('change', e => {
@@ -172,17 +177,55 @@ function loadFile(file) {
 }
 
 function processData(raw) {
-  DATA = { loc:[], node:[], host:[], buf:[] };
+  DATA = { loc:[], node:[], host:[], buf:[], transfer:[], vehicle:[] };
 
   // support both slim and full format
   if(raw.loc) {
     DATA = raw;
+    if(!DATA.transfer) DATA.transfer = [];
+    if(!DATA.vehicle) DATA.vehicle = [];
   } else {
     if(raw.location) DATA.loc = raw.location.map(r => ({id:r.UnitID,x:r.PositionX,y:r.PositionY,en:r.Enabled,a:r.Angle,eqp:r.EQPID||''}));
     if(raw.node) DATA.node = raw.node.map(r => ({sid:r.SegmentID,fx:r.FromXPos,fy:r.FromYPos,tx:r.ToXPos,ty:r.ToYPos,en:r.Enabled,d:r.Distance,eqp:r.EQPID||''}));
     if(raw.hostlocation) DATA.host = raw.hostlocation.map(r => ({id:r.UnitID,hid:r.HostID,x:r.PositionX,y:r.PositionY,en:r.Enabled,eqp:r.EQPID||''}));
     if(raw.bufferlocation) DATA.buf = raw.bufferlocation.map(r => ({id:r.UnitID,hid:r.HostID,x:r.PositionX,y:r.PositionY,en:r.Enabled,cid:r.CarrierID||'',bay:r.BayID||'',grp:r.GroupID||'',eqp:r.EQPID||''}));
+    if(raw.transfer) DATA.transfer = raw.transfer.map(r => ({
+      cmd:r.CommandID||'', cid:r.CarrierID||'', src:r.SourceID||'', dst:r.DestID||'',
+      hsrc:r.HostSourceID||'', hdst:r.HostDestID||'', state:r.TransferState,
+      vid:r.VehicleID||'', hvid:r.HostVehicleID||'', lot:r.LotID||'',
+      create:r.CreateTime||'', ctype:r.CarrierType||''
+    }));
+    if(raw.vehicle) DATA.vehicle = raw.vehicle.map(r => ({
+      vid:r.VehicleID||'', hvid:r.HostVehicleID||'',
+      cd1:r.CarrierDetect1, cd2:r.CarrierDetect2,
+      cid1:r.CarrierID1||'', cid2:r.CarrierID2||'',
+      state:r.VehicleState, job:r.VehicleJob,
+      ip:r.IPAddress||'', bay:r.BayID||'', grp:r.GroupID||'',
+      assign:r.AssignEnable, pm:r.PMMode
+    }));
   }
+
+  // location lookup by UnitID
+  locMap = {};
+  DATA.loc.forEach(p => { locMap[p.id] = p; });
+
+  // resolve transfer coordinates
+  DATA.transfer.forEach(t => {
+    const s = locMap[t.src], d = locMap[t.dst];
+    if(s) { t.sx=s.x; t.sy=s.y; }
+    if(d) { t.dx=d.x; t.dy=d.y; }
+  });
+
+  // resolve vehicle position from active transfer
+  const vehLocMap = {};
+  DATA.transfer.forEach(t => {
+    if(t.vid && t.sx!==undefined) vehLocMap[t.vid] = {x:t.sx, y:t.sy, dst_x:t.dx, dst_y:t.dy};
+  });
+  DATA.vehicle.forEach(v => {
+    const pos = vehLocMap[v.vid];
+    if(pos) { v.x=pos.x; v.y=pos.y; v.hasPos=true; }
+    else { v.hasPos=false; }
+  });
 
   // bounds
   minX=Infinity; maxX=-Infinity; minY=Infinity; maxY=-Infinity;
@@ -205,7 +248,8 @@ function processData(raw) {
   document.getElementById('legend').style.display='block';
   coordsEl.style.display='block';
   statsEl.style.display='block';
-  statsEl.innerHTML = `Location: ${DATA.loc.length} | Node: ${DATA.node.length} | Host: ${DATA.host.length} | Buffer: ${DATA.buf.length}`;
+  statsEl.innerHTML = `Location: ${DATA.loc.length} | Node: ${DATA.node.length} | Host: ${DATA.host.length} | Buffer: ${DATA.buf.length} | Transfer: ${DATA.transfer.length} | Vehicle: ${DATA.vehicle.length}`;
+  if(raw.fetch_time) statsEl.innerHTML += ` | ${raw.fetch_time}`;
 
   updateEqpidLabel();
   resetView();
@@ -295,6 +339,56 @@ function draw() {
       ctx.fill();
     });
   }
+
+  // transfer routes
+  if(layers.transfer) {
+    ctx.lineWidth = Math.max(1.5, scale*150);
+    DATA.transfer.forEach(t => {
+      if(t.sx===undefined || t.dx===undefined) return;
+      const x1=tx(t.sx), y1=ty(t.sy), x2=tx(t.dx), y2=ty(t.dy);
+      // line
+      ctx.strokeStyle = 'rgba(232,121,249,0.7)';
+      ctx.beginPath();
+      ctx.moveTo(x1,y1); ctx.lineTo(x2,y2);
+      ctx.stroke();
+      // arrow head
+      const ang = Math.atan2(y2-y1, x2-x1);
+      const asz = Math.max(6, scale*400);
+      ctx.fillStyle = 'rgba(232,121,249,0.9)';
+      ctx.beginPath();
+      ctx.moveTo(x2, y2);
+      ctx.lineTo(x2-asz*Math.cos(ang-0.4), y2-asz*Math.sin(ang-0.4));
+      ctx.lineTo(x2-asz*Math.cos(ang+0.4), y2-asz*Math.sin(ang+0.4));
+      ctx.closePath(); ctx.fill();
+      // source dot
+      ctx.fillStyle = 'rgba(232,121,249,0.9)';
+      ctx.beginPath(); ctx.arc(x1,y1,Math.max(3,scale*200),0,Math.PI*2); ctx.fill();
+    });
+  }
+
+  // vehicles
+  if(layers.vehicle) {
+    const r = Math.max(5, scale*350);
+    DATA.vehicle.forEach(v => {
+      if(!v.hasPos) return;
+      // diamond shape
+      const cx=tx(v.x), cy=ty(v.y);
+      ctx.fillStyle = v.state===1 ? 'rgba(244,63,94,0.9)' : 'rgba(244,63,94,0.4)';
+      ctx.beginPath();
+      ctx.moveTo(cx, cy-r);
+      ctx.lineTo(cx+r, cy);
+      ctx.lineTo(cx, cy+r);
+      ctx.lineTo(cx-r, cy);
+      ctx.closePath(); ctx.fill();
+      // label
+      if(scale > 0.005) {
+        ctx.font = Math.max(9, scale*500)+'px JetBrains Mono';
+        ctx.fillStyle = '#f43f5e';
+        ctx.textAlign = 'center';
+        ctx.fillText(v.hvid||('V'+v.vid), cx, cy-r-4);
+      }
+    });
+  }
 }
 
 // layer toggle
@@ -312,6 +406,13 @@ function findNearest(mx, my, radius) {
   if(!DATA) return null;
   const wx=(mx-ox)/scale, wy=(my-oy)/scale;
   let best=null, bestD=radius/scale;
+  if(layers.vehicle) DATA.vehicle.forEach(p => { if(!p.hasPos) return; const d=Math.hypot(p.x-wx,p.y-wy); if(d<bestD){bestD=d;best={type:'vehicle',...p};} });
+  if(layers.transfer) DATA.transfer.forEach(t => {
+    if(t.sx===undefined) return;
+    const d1=Math.hypot(t.sx-wx,t.sy-wy);
+    if(d1<bestD){bestD=d1;best={type:'transfer',...t};}
+    if(t.dx!==undefined) { const d2=Math.hypot(t.dx-wx,t.dy-wy); if(d2<bestD){bestD=d2;best={type:'transfer',...t};} }
+  });
   if(layers.host) DATA.host.forEach(p => { const d=Math.hypot(p.x-wx,p.y-wy); if(d<bestD){bestD=d;best={type:'host',...p};} });
   if(layers.buf) DATA.buf.forEach(p => { const d=Math.hypot(p.x-wx,p.y-wy); if(d<bestD){bestD=d;best={type:'buf',...p};} });
   if(layers.loc) DATA.loc.forEach(p => { const d=Math.hypot(p.x-wx,p.y-wy); if(d<bestD){bestD=d;best={type:'loc',...p};} });
@@ -334,6 +435,8 @@ canvas.addEventListener('mousemove', e => {
     let html='';
     if(hit.type==='host') html=`<b>설비포트</b><br>ID: ${hit.id}<br>HostID: ${hit.hid}<br>위치: (${hit.x}, ${hit.y})<br>Enabled: ${hit.en}`;
     else if(hit.type==='buf') html=`<b>버퍼</b><br>ID: ${hit.id}<br>HostID: ${hit.hid}<br>위치: (${hit.x}, ${hit.y})<br>Carrier: ${hit.cid||'없음'}<br>Bay: ${hit.bay} Group: ${hit.grp}`;
+    else if(hit.type==='transfer') html=`<b>이동명령</b><br>CMD: ${hit.cmd}<br>Carrier: ${hit.cid}<br>출발: ${hit.hsrc} (${hit.src})<br>도착: ${hit.hdst} (${hit.dst})<br>AGV: ${hit.hvid} (${hit.vid})<br>상태: ${hit.state}<br>LOT: ${hit.lot}<br>생성: ${hit.create}`;
+    else if(hit.type==='vehicle') html=`<b>AGV</b><br>${hit.hvid} (ID:${hit.vid})<br>상태: ${['','가동','대기','PM'][hit.state]||hit.state}<br>작업: ${hit.job}<br>Bay: ${hit.bay}<br>IP: ${hit.ip}<br>캐리어1: ${hit.cid1||'없음'}<br>캐리어2: ${hit.cid2||'없음'}<br>할당: ${hit.assign?'ON':'OFF'} PM: ${hit.pm?'ON':'OFF'}`;
     else html=`<b>Location</b><br>ID: ${hit.id}<br>위치: (${hit.x}, ${hit.y})<br>Enabled: ${hit.en}`;
     tooltip.innerHTML=html; tooltip.style.display='block';
     tooltip.style.left=(e.clientX+12)+'px'; tooltip.style.top=(e.clientY+12)+'px';
