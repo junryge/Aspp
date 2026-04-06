@@ -1,0 +1,327 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AMP FAB Map Viewer</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&family=Noto+Sans+KR:wght@400;700&display=swap');
+* { margin:0; padding:0; box-sizing:border-box; }
+body { background:#0a0e17; color:#e0e0e0; font-family:'JetBrains Mono',monospace; overflow:hidden; }
+#toolbar {
+  position:fixed; top:0; left:0; right:0; height:48px; z-index:100;
+  background:rgba(10,14,23,0.95); border-bottom:1px solid #1e293b;
+  display:flex; align-items:center; padding:0 16px; gap:12px;
+}
+#toolbar h1 { font-size:14px; color:#38bdf8; font-weight:700; margin-right:8px; }
+.toggle-btn, .file-btn {
+  padding:4px 12px; border-radius:4px; border:1px solid #334155;
+  background:transparent; color:#94a3b8; cursor:pointer; font-size:12px;
+  font-family:'JetBrains Mono',monospace; transition:all .15s;
+}
+.toggle-btn.active { background:#1e3a5f; color:#38bdf8; border-color:#38bdf8; }
+.toggle-btn:hover, .file-btn:hover { border-color:#64748b; }
+.file-btn { background:#1e3a5f; color:#38bdf8; border-color:#38bdf8; }
+#file-input { display:none; }
+#info { margin-left:auto; font-size:11px; color:#64748b; }
+#canvas { position:fixed; top:48px; left:0; right:0; bottom:0; }
+#tooltip {
+  position:fixed; display:none; background:rgba(15,23,42,0.95);
+  border:1px solid #38bdf8; border-radius:6px; padding:8px 12px;
+  font-size:11px; color:#e2e8f0; pointer-events:none; z-index:200;
+  max-width:320px; line-height:1.6;
+}
+#legend {
+  position:fixed; bottom:16px; left:16px; background:rgba(10,14,23,0.9);
+  border:1px solid #1e293b; border-radius:8px; padding:12px 16px;
+  font-size:11px; z-index:100;
+}
+.leg-row { display:flex; align-items:center; gap:8px; margin:4px 0; }
+.leg-dot { width:10px; height:10px; border-radius:50%; }
+#coords {
+  position:fixed; bottom:16px; right:16px; background:rgba(10,14,23,0.9);
+  border:1px solid #1e293b; border-radius:8px; padding:8px 12px;
+  font-size:11px; z-index:100; color:#64748b;
+}
+#drop-zone {
+  position:fixed; top:48px; left:0; right:0; bottom:0; z-index:50;
+  display:flex; align-items:center; justify-content:center; flex-direction:column; gap:16px;
+}
+#drop-zone.has-data { display:none; }
+.drop-box {
+  border:2px dashed #334155; border-radius:16px; padding:60px 80px;
+  text-align:center; cursor:pointer; transition:all .2s;
+}
+.drop-box:hover { border-color:#38bdf8; background:rgba(56,189,248,0.05); }
+.drop-box h2 { font-size:18px; color:#38bdf8; margin-bottom:8px; }
+.drop-box p { font-size:12px; color:#64748b; }
+.drop-overlay {
+  position:fixed; top:0; left:0; right:0; bottom:0; z-index:999;
+  background:rgba(56,189,248,0.08); border:3px dashed #38bdf8;
+  display:none; align-items:center; justify-content:center;
+  font-size:20px; color:#38bdf8; font-weight:700;
+}
+#stats {
+  position:fixed; top:56px; right:16px; background:rgba(10,14,23,0.9);
+  border:1px solid #1e293b; border-radius:8px; padding:8px 12px;
+  font-size:11px; z-index:100; color:#64748b; display:none;
+}
+</style>
+</head>
+<body>
+<div id="toolbar">
+  <h1>AMP MAP</h1>
+  <button class="file-btn" onclick="document.getElementById('file-input').click()">📂 JSON 열기</button>
+  <input type="file" id="file-input" accept=".json">
+  <div id="layer-btns" style="display:none;gap:8px;display:none;">
+    <button class="toggle-btn active" data-layer="node">Node (레인)</button>
+    <button class="toggle-btn active" data-layer="loc">Location</button>
+    <button class="toggle-btn active" data-layer="host">Host (설비)</button>
+    <button class="toggle-btn active" data-layer="buf">Buffer</button>
+    <button class="toggle-btn" data-layer="disabled">Disabled</button>
+    <button class="toggle-btn" onclick="resetView()">Reset</button>
+  </div>
+  <div id="info">scroll: zoom | drag: pan</div>
+</div>
+
+<div id="drop-zone">
+  <div class="drop-box" onclick="document.getElementById('file-input').click()">
+    <h2>📂 amp_map_data.json</h2>
+    <p>클릭하거나 파일을 드래그 앤 드롭하세요</p>
+    <p style="margin-top:8px;color:#475569;">location / node / hostlocation / bufferlocation</p>
+  </div>
+</div>
+<div class="drop-overlay" id="drop-overlay">여기에 JSON 파일을 놓으세요</div>
+
+<canvas id="canvas"></canvas>
+<div id="tooltip"></div>
+<div id="legend" style="display:none;">
+  <div style="font-weight:700;margin-bottom:6px;color:#38bdf8;">범례</div>
+  <div class="leg-row"><div class="leg-dot" style="background:#334155"></div>Node (레인)</div>
+  <div class="leg-row"><div class="leg-dot" style="background:#38bdf8"></div>Location</div>
+  <div class="leg-row"><div class="leg-dot" style="background:#f59e0b"></div>Host (설비포트)</div>
+  <div class="leg-row"><div class="leg-dot" style="background:#10b981"></div>Buffer</div>
+  <div class="leg-row"><div class="leg-dot" style="background:#ef4444"></div>Disabled</div>
+</div>
+<div id="coords" style="display:none;">X: - Y: -</div>
+<div id="stats"></div>
+
+<script>
+const canvas = document.getElementById('canvas');
+const ctx = canvas.getContext('2d');
+const tooltip = document.getElementById('tooltip');
+const coordsEl = document.getElementById('coords');
+const statsEl = document.getElementById('stats');
+const dropZone = document.getElementById('drop-zone');
+const dropOverlay = document.getElementById('drop-overlay');
+const layerBtns = document.getElementById('layer-btns');
+
+let DATA = null;
+let W, H;
+let ox=0, oy=0, scale=1;
+let dragging=false, dragX=0, dragY=0;
+let minX, maxX, minY, maxY, dataW, dataH;
+
+const layers = { node:true, loc:true, host:true, buf:true, disabled:false };
+
+// File input
+document.getElementById('file-input').addEventListener('change', e => {
+  if(e.target.files[0]) loadFile(e.target.files[0]);
+});
+
+// Drag & drop
+document.addEventListener('dragover', e => { e.preventDefault(); dropOverlay.style.display='flex'; });
+document.addEventListener('dragleave', e => { if(e.relatedTarget===null) dropOverlay.style.display='none'; });
+document.addEventListener('drop', e => {
+  e.preventDefault(); dropOverlay.style.display='none';
+  if(e.dataTransfer.files[0]) loadFile(e.dataTransfer.files[0]);
+});
+
+function loadFile(file) {
+  const reader = new FileReader();
+  reader.onload = e => {
+    try {
+      const raw = JSON.parse(e.target.result);
+      processData(raw);
+    } catch(err) {
+      alert('JSON 파싱 오류: ' + err.message);
+    }
+  };
+  reader.readAsText(file);
+}
+
+function processData(raw) {
+  DATA = { loc:[], node:[], host:[], buf:[] };
+
+  // support both slim and full format
+  if(raw.loc) {
+    DATA = raw;
+  } else {
+    if(raw.location) DATA.loc = raw.location.map(r => ({id:r.UnitID,x:r.PositionX,y:r.PositionY,en:r.Enabled,a:r.Angle}));
+    if(raw.node) DATA.node = raw.node.map(r => ({sid:r.SegmentID,fx:r.FromXPos,fy:r.FromYPos,tx:r.ToXPos,ty:r.ToYPos,en:r.Enabled,d:r.Distance}));
+    if(raw.hostlocation) DATA.host = raw.hostlocation.map(r => ({id:r.UnitID,hid:r.HostID,x:r.PositionX,y:r.PositionY,en:r.Enabled}));
+    if(raw.bufferlocation) DATA.buf = raw.bufferlocation.map(r => ({id:r.UnitID,hid:r.HostID,x:r.PositionX,y:r.PositionY,en:r.Enabled,cid:r.CarrierID||'',bay:r.BayID||'',grp:r.GroupID||''}));
+  }
+
+  // bounds
+  minX=Infinity; maxX=-Infinity; minY=Infinity; maxY=-Infinity;
+  DATA.loc.forEach(p => { if(p.x<minX)minX=p.x; if(p.x>maxX)maxX=p.x; if(p.y<minY)minY=p.y; if(p.y>maxY)maxY=p.y; });
+  DATA.node.forEach(n => {
+    [n.fx,n.tx].forEach(x => { if(x<minX)minX=x; if(x>maxX)maxX=x; });
+    [n.fy,n.ty].forEach(y => { if(y<minY)minY=y; if(y>maxY)maxY=y; });
+  });
+  DATA.host.forEach(p => { if(p.x<minX)minX=p.x; if(p.x>maxX)maxX=p.x; if(p.y<minY)minY=p.y; if(p.y>maxY)maxY=p.y; });
+  DATA.buf.forEach(p => { if(p.x<minX)minX=p.x; if(p.x>maxX)maxX=p.x; if(p.y<minY)minY=p.y; if(p.y>maxY)maxY=p.y; });
+
+  const padX=(maxX-minX)*0.05, padY=(maxY-minY)*0.05;
+  minX-=padX; maxX+=padX; minY-=padY; maxY+=padY;
+  dataW=maxX-minX; dataH=maxY-minY;
+
+  // show UI
+  dropZone.classList.add('has-data');
+  dropZone.style.display='none';
+  layerBtns.style.display='flex';
+  document.getElementById('legend').style.display='block';
+  coordsEl.style.display='block';
+  statsEl.style.display='block';
+  statsEl.innerHTML = `Location: ${DATA.loc.length} | Node: ${DATA.node.length} | Host: ${DATA.host.length} | Buffer: ${DATA.buf.length}`;
+
+  resetView();
+}
+
+function resize() {
+  W = canvas.width = window.innerWidth;
+  H = canvas.height = window.innerHeight - 48;
+}
+
+function resetView() {
+  if(!DATA) return;
+  const sx=W/dataW, sy=H/dataH;
+  scale = Math.min(sx,sy)*0.95;
+  ox = (W-dataW*scale)/2 - minX*scale;
+  oy = (H-dataH*scale)/2 - minY*scale;
+  draw();
+}
+
+function tx(x) { return x*scale+ox; }
+function ty(y) { return y*scale+oy; }
+
+function draw() {
+  if(!DATA) return;
+  ctx.clearRect(0,0,W,H);
+
+  if(layers.node) {
+    ctx.lineWidth = Math.max(0.5, scale*80);
+    DATA.node.forEach(n => {
+      if(!n.en && !layers.disabled) return;
+      ctx.strokeStyle = n.en ? 'rgba(51,65,85,0.6)' : 'rgba(239,68,68,0.3)';
+      ctx.beginPath();
+      ctx.moveTo(tx(n.fx), ty(n.fy));
+      ctx.lineTo(tx(n.tx), ty(n.ty));
+      ctx.stroke();
+    });
+  }
+
+  if(layers.loc) {
+    const r = Math.max(1.5, scale*120);
+    DATA.loc.forEach(p => {
+      if(!p.en && !layers.disabled) return;
+      ctx.fillStyle = p.en ? 'rgba(56,189,248,0.4)' : 'rgba(239,68,68,0.3)';
+      ctx.beginPath();
+      ctx.arc(tx(p.x), ty(p.y), r, 0, Math.PI*2);
+      ctx.fill();
+    });
+  }
+
+  if(layers.host) {
+    const r = Math.max(2.5, scale*200);
+    DATA.host.forEach(p => {
+      if(!p.en && !layers.disabled) return;
+      ctx.fillStyle = p.en ? 'rgba(245,158,11,0.7)' : 'rgba(239,68,68,0.5)';
+      ctx.beginPath();
+      ctx.arc(tx(p.x), ty(p.y), r, 0, Math.PI*2);
+      ctx.fill();
+    });
+    if(scale > 0.008) {
+      ctx.font = Math.max(8, scale*600)+'px JetBrains Mono';
+      ctx.fillStyle = 'rgba(245,158,11,0.8)';
+      ctx.textAlign = 'center';
+      DATA.host.forEach(p => {
+        if(!p.en && !layers.disabled) return;
+        if(p.hid) ctx.fillText(p.hid, tx(p.x), ty(p.y)-r-2);
+      });
+    }
+  }
+
+  if(layers.buf) {
+    const r = Math.max(2, scale*150);
+    DATA.buf.forEach(p => {
+      if(!p.en && !layers.disabled) return;
+      ctx.fillStyle = p.cid ? 'rgba(16,185,129,0.9)' : 'rgba(16,185,129,0.4)';
+      ctx.beginPath();
+      ctx.rect(tx(p.x)-r, ty(p.y)-r, r*2, r*2);
+      ctx.fill();
+    });
+  }
+}
+
+// layer toggle
+document.querySelectorAll('[data-layer]').forEach(btn => {
+  btn.addEventListener('click', () => {
+    const name = btn.dataset.layer;
+    layers[name] = !layers[name];
+    btn.classList.toggle('active', layers[name]);
+    draw();
+  });
+});
+
+// tooltip
+function findNearest(mx, my, radius) {
+  if(!DATA) return null;
+  const wx=(mx-ox)/scale, wy=(my-oy)/scale;
+  let best=null, bestD=radius/scale;
+  if(layers.host) DATA.host.forEach(p => { const d=Math.hypot(p.x-wx,p.y-wy); if(d<bestD){bestD=d;best={type:'host',...p};} });
+  if(layers.buf) DATA.buf.forEach(p => { const d=Math.hypot(p.x-wx,p.y-wy); if(d<bestD){bestD=d;best={type:'buf',...p};} });
+  if(layers.loc) DATA.loc.forEach(p => { const d=Math.hypot(p.x-wx,p.y-wy); if(d<bestD){bestD=d;best={type:'loc',...p};} });
+  return best;
+}
+
+canvas.addEventListener('mousemove', e => {
+  const mx=e.clientX, my=e.clientY-48;
+  if(DATA) {
+    const wx=((mx-ox)/scale).toFixed(0), wy=((my-oy)/scale).toFixed(0);
+    coordsEl.textContent = `X: ${wx}  Y: ${wy}  zoom: ${(scale*1000).toFixed(1)}`;
+  }
+  if(dragging) {
+    ox+=e.clientX-dragX; oy+=e.clientY-dragY;
+    dragX=e.clientX; dragY=e.clientY;
+    draw(); return;
+  }
+  const hit = findNearest(mx, my, 20);
+  if(hit) {
+    let html='';
+    if(hit.type==='host') html=`<b>설비포트</b><br>ID: ${hit.id}<br>HostID: ${hit.hid}<br>위치: (${hit.x}, ${hit.y})<br>Enabled: ${hit.en}`;
+    else if(hit.type==='buf') html=`<b>버퍼</b><br>ID: ${hit.id}<br>HostID: ${hit.hid}<br>위치: (${hit.x}, ${hit.y})<br>Carrier: ${hit.cid||'없음'}<br>Bay: ${hit.bay} Group: ${hit.grp}`;
+    else html=`<b>Location</b><br>ID: ${hit.id}<br>위치: (${hit.x}, ${hit.y})<br>Enabled: ${hit.en}`;
+    tooltip.innerHTML=html; tooltip.style.display='block';
+    tooltip.style.left=(e.clientX+12)+'px'; tooltip.style.top=(e.clientY+12)+'px';
+  } else tooltip.style.display='none';
+});
+
+canvas.addEventListener('mousedown', e => { dragging=true; dragX=e.clientX; dragY=e.clientY; canvas.style.cursor='grabbing'; });
+canvas.addEventListener('mouseup', () => { dragging=false; canvas.style.cursor='default'; });
+canvas.addEventListener('mouseleave', () => { dragging=false; tooltip.style.display='none'; });
+canvas.addEventListener('wheel', e => {
+  e.preventDefault();
+  if(!DATA) return;
+  const mx=e.clientX, my=e.clientY-48;
+  const factor=e.deltaY<0?1.15:1/1.15;
+  ox=mx-(mx-ox)*factor; oy=my-(my-oy)*factor;
+  scale*=factor; draw();
+}, {passive:false});
+
+window.addEventListener('resize', () => { resize(); draw(); });
+resize();
+</script>
+</body>
+</html>
