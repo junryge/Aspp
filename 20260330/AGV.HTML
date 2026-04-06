@@ -110,6 +110,8 @@ let dragging=false, dragX=0, dragY=0;
 let minX, maxX, minY, maxY, dataW, dataH;
 let layoutLoaded = false;
 let refreshTimer = null;
+let lastPollTime = 0;
+let animFrame = null;
 
 const layers = { node:true, loc:true, host:false, buf:true, transfer:true, vehicle:true, disabled:false };
 
@@ -155,7 +157,8 @@ async function loadRealtime() {
       cmd:r.CommandID||'', cid:r.CarrierID||'', src:r.SourceID||'', dst:r.DestID||'',
       hsrc:r.HostSourceID||'', hdst:r.HostDestID||'', state:r.TransferState,
       vid:r.VehicleID||'', hvid:r.HostVehicleID||'', lot:r.LotID||'',
-      create:r.CreateTime||'', ctype:r.CarrierType||''
+      create:r.CreateTime||'', initiate:r.InitiateTime||'', transfering:r.TransferingTime||'',
+      complete:r.CompleteTime||'', ctype:r.CarrierType||''
     }));
 
     DATA.vehicle = (raw.vehicle||[]).map(r => ({
@@ -171,23 +174,39 @@ async function loadRealtime() {
     DATA.transfer.forEach(t => {
       const s=locMap[t.src], d=locMap[t.dst];
       if(s){t.sx=s.x;t.sy=s.y;} if(d){t.dx=d.x;t.dy=d.y;}
+      // calculate progress (0~1) based on time
+      const now = Date.now();
+      const startTime = new Date(t.initiate || t.create).getTime();
+      const transTime = new Date(t.transfering).getTime();
+      if(startTime && t.sx!==undefined && t.dx!==undefined) {
+        // estimate duration: use distance / avg speed, or time diff
+        const dist = Math.hypot(t.dx-t.sx, t.dy-t.sy);
+        const estDuration = Math.max(dist * 5, 30000); // distance-based estimate, min 30s
+        const elapsed = now - startTime;
+        t.progress = Math.min(1, Math.max(0, elapsed / estDuration));
+        // current interpolated position
+        t.cx = t.sx + (t.dx - t.sx) * t.progress;
+        t.cy = t.sy + (t.dy - t.sy) * t.progress;
+      }
     });
 
+    // map vehicle to interpolated transfer position
     const vehLocMap = {};
     DATA.transfer.forEach(t => {
-      if(t.vid && t.sx!==undefined) vehLocMap[t.vid]={x:t.sx,y:t.sy};
+      if(t.vid && t.cx!==undefined) vehLocMap[t.vid]={x:t.cx, y:t.cy, sx:t.sx, sy:t.sy, dx:t.dx, dy:t.dy, progress:t.progress};
     });
     DATA.vehicle.forEach(v => {
       const pos=vehLocMap[v.vid];
-      if(pos){v.x=pos.x;v.y=pos.y;v.hasPos=true;} else{v.hasPos=false;}
+      if(pos){v.x=pos.x;v.y=pos.y;v.progress=pos.progress;v.hasPos=true;} else{v.hasPos=false;}
     });
 
     const ft = raw.fetch_time || new Date().toLocaleTimeString();
     const activeV = DATA.vehicle.filter(v=>v.state===1).length;
-    statsEl.innerHTML = `Transfer: ${DATA.transfer.length} | AGV: ${activeV}/${DATA.vehicle.length} 가동 | ${ft}`;
+    const movingV = DATA.vehicle.filter(v=>v.hasPos).length;
+    statsEl.innerHTML = `Transfer: ${DATA.transfer.length} | AGV: ${movingV}이동/${activeV}가동/${DATA.vehicle.length}전체 | ${ft}`;
     statusEl.textContent = `갱신: ${ft}`;
 
-    draw();
+    lastPollTime = Date.now();
   } catch(e) {
     statusEl.textContent = '실시간 오류: ' + e.message;
   }
@@ -356,7 +375,7 @@ canvas.addEventListener('mousemove', e => {
     if(hit.type==='host') html=`<b>설비포트</b><br>ID: ${hit.id}<br>HostID: ${hit.hid}<br>위치: (${hit.x}, ${hit.y})<br>Enabled: ${hit.en}`;
     else if(hit.type==='buf') html=`<b>버퍼</b><br>ID: ${hit.id}<br>HostID: ${hit.hid}<br>위치: (${hit.x}, ${hit.y})<br>Carrier: ${hit.cid||'없음'}<br>Bay: ${hit.bay} Group: ${hit.grp}`;
     else if(hit.type==='transfer') html=`<b>이동명령</b><br>CMD: ${hit.cmd}<br>Carrier: ${hit.cid}<br>출발: ${hit.hsrc} (${hit.src})<br>도착: ${hit.hdst} (${hit.dst})<br>AGV: ${hit.hvid} (${hit.vid})<br>상태: ${hit.state}<br>LOT: ${hit.lot}<br>생성: ${hit.create}`;
-    else if(hit.type==='vehicle') html=`<b>AGV</b><br>${hit.hvid} (ID:${hit.vid})<br>상태: ${['','가동','대기','PM'][hit.state]||hit.state}<br>작업: ${hit.job}<br>Bay: ${hit.bay}<br>IP: ${hit.ip}<br>캐리어1: ${hit.cid1||'없음'}<br>캐리어2: ${hit.cid2||'없음'}<br>할당: ${hit.assign?'ON':'OFF'} PM: ${hit.pm?'ON':'OFF'}`;
+    else if(hit.type==='vehicle') html=`<b>AGV</b><br>${hit.hvid} (ID:${hit.vid})<br>상태: ${['','가동','대기','PM'][hit.state]||hit.state}<br>작업: ${hit.job}<br>진행: ${hit.progress!==undefined?Math.round(hit.progress*100)+'%':'N/A'}<br>Bay: ${hit.bay}<br>IP: ${hit.ip}<br>캐리어1: ${hit.cid1||'없음'}<br>캐리어2: ${hit.cid2||'없음'}<br>할당: ${hit.assign?'ON':'OFF'} PM: ${hit.pm?'ON':'OFF'}`;
     else html=`<b>Location</b><br>ID: ${hit.id}<br>위치: (${hit.x}, ${hit.y})<br>Enabled: ${hit.en}`;
     tooltip.innerHTML=html; tooltip.style.display='block';
     tooltip.style.left=(e.clientX+12)+'px'; tooltip.style.top=(e.clientY+12)+'px';
@@ -376,6 +395,38 @@ canvas.addEventListener('wheel', e => {
 
 window.addEventListener('resize', () => { resize(); draw(); });
 
+// ===== ANIMATION =====
+
+function updatePositions() {
+  if(!DATA.transfer.length) return;
+  const now = Date.now();
+  DATA.transfer.forEach(t => {
+    if(t.sx===undefined || t.dx===undefined) return;
+    const startTime = new Date(t.initiate || t.create).getTime();
+    const dist = Math.hypot(t.dx-t.sx, t.dy-t.sy);
+    const estDuration = Math.max(dist * 5, 30000);
+    const elapsed = now - startTime;
+    t.progress = Math.min(1, Math.max(0, elapsed / estDuration));
+    t.cx = t.sx + (t.dx - t.sx) * t.progress;
+    t.cy = t.sy + (t.dy - t.sy) * t.progress;
+  });
+
+  const vehLocMap = {};
+  DATA.transfer.forEach(t => {
+    if(t.vid && t.cx!==undefined) vehLocMap[t.vid]={x:t.cx, y:t.cy, progress:t.progress};
+  });
+  DATA.vehicle.forEach(v => {
+    const pos=vehLocMap[v.vid];
+    if(pos){v.x=pos.x;v.y=pos.y;v.progress=pos.progress;v.hasPos=true;}
+  });
+}
+
+function animate() {
+  updatePositions();
+  draw();
+  animFrame = requestAnimationFrame(animate);
+}
+
 // ===== INIT =====
 
 resize();
@@ -383,6 +434,7 @@ resize();
   await loadLayout();
   await loadRealtime();
   startRefresh();
+  animate();
 })();
 </script>
 </body>
