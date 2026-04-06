@@ -174,30 +174,16 @@ async function loadRealtime() {
     DATA.transfer.forEach(t => {
       const s=locMap[t.src], d=locMap[t.dst];
       if(s){t.sx=s.x;t.sy=s.y;} if(d){t.dx=d.x;t.dy=d.y;}
-      // calculate progress (0~1) based on time
-      const now = Date.now();
-      const startTime = new Date(t.initiate || t.create).getTime();
-      const transTime = new Date(t.transfering).getTime();
-      if(startTime && t.sx!==undefined && t.dx!==undefined) {
-        // estimate duration: use distance / avg speed, or time diff
-        const dist = Math.hypot(t.dx-t.sx, t.dy-t.sy);
-        const estDuration = Math.max(dist * 5, 30000); // distance-based estimate, min 30s
-        const elapsed = now - startTime;
-        t.progress = Math.min(1, Math.max(0, elapsed / estDuration));
-        // current interpolated position
-        t.cx = t.sx + (t.dx - t.sx) * t.progress;
-        t.cy = t.sy + (t.dy - t.sy) * t.progress;
-      }
     });
 
-    // map vehicle to interpolated transfer position
+    // initial vehicle position resolve
     const vehLocMap = {};
     DATA.transfer.forEach(t => {
-      if(t.vid && t.cx!==undefined) vehLocMap[t.vid]={x:t.cx, y:t.cy, sx:t.sx, sy:t.sy, dx:t.dx, dy:t.dy, progress:t.progress};
+      if(t.vid && t.sx!==undefined) vehLocMap[t.vid]={x:t.sx,y:t.sy};
     });
     DATA.vehicle.forEach(v => {
       const pos=vehLocMap[v.vid];
-      if(pos){v.x=pos.x;v.y=pos.y;v.progress=pos.progress;v.hasPos=true;} else{v.hasPos=false;}
+      if(pos){v.x=pos.x;v.y=pos.y;v.hasPos=true;} else{v.hasPos=false;}
     });
 
     const ft = raw.fetch_time || new Date().toLocaleTimeString();
@@ -402,11 +388,16 @@ function updatePositions() {
   const now = Date.now();
   DATA.transfer.forEach(t => {
     if(t.sx===undefined || t.dx===undefined) return;
-    const startTime = new Date(t.initiate || t.create).getTime();
     const dist = Math.hypot(t.dx-t.sx, t.dy-t.sy);
-    const estDuration = Math.max(dist * 5, 30000);
-    const elapsed = now - startTime;
-    t.progress = Math.min(1, Math.max(0, elapsed / estDuration));
+    // 이동 중인 transfer: 10초 주기로 출발→도착 반복
+    const cycleDuration = Math.max(5000, dist * 3);
+    const phase = (now % cycleDuration) / cycleDuration;
+    // 완료 상태(state>=5)면 도착지에 고정
+    if(t.state >= 5) {
+      t.progress = 1;
+    } else {
+      t.progress = phase;
+    }
     t.cx = t.sx + (t.dx - t.sx) * t.progress;
     t.cy = t.sy + (t.dy - t.sy) * t.progress;
   });
