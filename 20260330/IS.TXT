@@ -1,14 +1,15 @@
 """
-AMP Map 데이터 추출 스크립트
-- amp DB: 레이아웃 (location, node, hostlocation, bufferlocation)
-- acs DB: 실시간 (transfer, vehicle)
-사용법: python amp_data_fetch.py
-출력: amp_map_data.json
+AMP Map 실시간 서버
+사용법: python amp_map_server.py
+접속: http://localhost:5055
 """
 import pymysql
 import json
-import os
 from datetime import datetime
+from flask import Flask, jsonify, send_file
+import os
+
+app = Flask(__name__)
 
 DB_AMP = {
     'host': '10.32.72.48',
@@ -28,47 +29,64 @@ DB_ACS = {
     'charset': 'utf8mb4'
 }
 
-def fetch_tables(config, tables):
-    conn = pymysql.connect(**config)
+# 레이아웃 캐시 (바뀌지 않으므로 1회만 로드)
+layout_cache = None
+
+def fetch_layout():
+    global layout_cache
+    if layout_cache:
+        return layout_cache
+    conn = pymysql.connect(**DB_AMP)
     cursor = conn.cursor(pymysql.cursors.DictCursor)
-    result = {}
-    for t in tables:
-        try:
-            cursor.execute(f"SELECT * FROM `{t}`")
-            result[t] = cursor.fetchall()
-            print(f"  {config['database']}.{t}: {len(result[t])}건")
-        except Exception as e:
-            print(f"  {config['database']}.{t}: 오류 - {e}")
-            result[t] = []
+    data = {}
+    for t in ['location', 'node', 'hostlocation', 'bufferlocation']:
+        cursor.execute(f"SELECT * FROM `{t}`")
+        data[t] = cursor.fetchall()
     cursor.close()
     conn.close()
-    return result
+    layout_cache = data
+    return data
 
-def main():
-    print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] 데이터 추출 시작\n")
-
-    # amp DB - 레이아웃
-    print("[amp] 레이아웃 데이터")
-    amp = fetch_tables(DB_AMP, ['location', 'node', 'hostlocation', 'bufferlocation'])
-
-    # acs DB - 실시간
-    print("\n[acs] 실시간 데이터")
-    acs = fetch_tables(DB_ACS, ['transfer', 'vehicle'])
-
+def fetch_realtime():
+    conn = pymysql.connect(**DB_ACS)
+    cursor = conn.cursor(pymysql.cursors.DictCursor)
     data = {}
-    data.update(amp)
-    data['transfer'] = acs.get('transfer', [])
-    data['vehicle'] = acs.get('vehicle', [])
+    for t in ['transfer', 'vehicle']:
+        cursor.execute(f"SELECT * FROM `{t}`")
+        data[t] = cursor.fetchall()
+    cursor.close()
+    conn.close()
+    return data
+
+def default_serial(obj):
+    if isinstance(obj, datetime):
+        return obj.strftime('%Y-%m-%d %H:%M:%S')
+    return str(obj)
+
+@app.route('/')
+def index():
+    return send_file(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'amp_map_rt.html'))
+
+@app.route('/api/layout')
+def api_layout():
+    data = fetch_layout()
+    return json.dumps(data, default=default_serial, ensure_ascii=False), 200, {'Content-Type':'application/json'}
+
+@app.route('/api/realtime')
+def api_realtime():
+    data = fetch_realtime()
     data['fetch_time'] = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    return json.dumps(data, default=default_serial, ensure_ascii=False), 200, {'Content-Type':'application/json'}
 
-    out = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'amp_map_data.json')
-    f = open(out, 'w', encoding='utf-8')
-    json.dump(data, f, ensure_ascii=False, default=str)
-    f.close()
-
-    size = os.path.getsize(out) / 1024 / 1024
-    print(f"\n  저장: {out} ({size:.1f}MB)")
-    print("  완료")
+@app.route('/api/layout/reload')
+def api_layout_reload():
+    global layout_cache
+    layout_cache = None
+    data = fetch_layout()
+    return json.dumps(data, default=default_serial, ensure_ascii=False), 200, {'Content-Type':'application/json'}
 
 if __name__ == '__main__':
-    main()
+    print("AMP Map 실시간 서버")
+    print("  접속: http://localhost:5055")
+    print("  API: /api/layout, /api/realtime")
+    app.run(host='0.0.0.0', port=5055, debug=False)
